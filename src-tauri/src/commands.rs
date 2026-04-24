@@ -71,8 +71,15 @@ pub fn select_clip(
         clip.text_content
     };
 
-    // 将文本写入系统剪贴板
+    // 将文本写入系统剪贴板，并通知 watcher 跳过此内容
     if let Some(content) = text {
+        use sha2::{Digest, Sha256};
+        let hash = format!(
+            "{:x}",
+            Sha256::new_with_prefix(content.as_bytes()).finalize()
+        );
+        state.watcher.set_skip_hash(hash);
+
         let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
         clipboard.set_text(content).map_err(|e| e.to_string())?;
     }

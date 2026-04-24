@@ -10,13 +10,22 @@ use tauri::{AppHandle, Emitter};
 
 pub struct ClipboardWatcher {
     running: Arc<Mutex<bool>>,
+    /// select_clip 写入剪贴板时设置此哈希，watcher 遇到相同哈希时跳过
+    skip_hash: Arc<Mutex<Option<String>>>,
 }
 
 impl ClipboardWatcher {
     pub fn new() -> Self {
         Self {
             running: Arc::new(Mutex::new(false)),
+            skip_hash: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// 让 watcher 跳过下一次检测到的指定哈希（由 select_clip 调用）
+    pub fn set_skip_hash(&self, hash: String) {
+        let mut skip = self.skip_hash.lock().unwrap();
+        *skip = Some(hash);
     }
 
     pub fn start(
@@ -26,6 +35,7 @@ impl ClipboardWatcher {
         config: Arc<Mutex<AppConfig>>,
     ) {
         let running = Arc::clone(&self.running);
+        let skip_hash = Arc::clone(&self.skip_hash);
         {
             let mut r = running.lock().unwrap();
             if *r {
@@ -59,32 +69,50 @@ impl ClipboardWatcher {
                         let hash = compute_hash(text.as_bytes());
                         if hash != last_hash {
                             last_hash = hash.clone();
-                            let byte_size = text.len() as i64;
-                            let storage = storage.lock().unwrap();
-                            match storage.insert_clip(
-                                &ContentType::Text,
-                                Some(&text),
-                                None,
-                                None,
-                                &hash,
-                                byte_size,
-                            ) {
-                                Ok(clip) => {
-                                    let max_history = config.lock().unwrap().max_history;
-                                    if let Ok(removed_ids) =
-                                        storage.cleanup_old_entries(max_history)
-                                    {
-                                        for rid in removed_ids {
-                                            let _ = app_handle.emit("clip-removed", rid);
-                                        }
-                                    }
-                                    let _ = app_handle.emit("clip-added", &clip);
-                                    log::debug!(
-                                        "新剪贴板内容，类型: text, 大小: {} 字节",
-                                        byte_size
-                                    );
+
+                            // Fix #1: 跳过 select_clip 写入的内容
+                            {
+                                let mut skip = skip_hash.lock().unwrap();
+                                if skip.as_deref() == Some(&hash) {
+                                    *skip = None;
+                                    continue;
                                 }
-                                Err(e) => log::warn!("剪贴板内容保存失败: {}", e),
+                            }
+
+                            // Fix #4: 先读取 config，再锁 storage，缩小锁范围
+                            let max_history = config.lock().unwrap().max_history;
+                            let byte_size = text.len() as i64;
+
+                            let result = {
+                                let storage = storage.lock().unwrap();
+                                let clip_result = storage.insert_clip(
+                                    &ContentType::Text,
+                                    Some(&text),
+                                    None,
+                                    None,
+                                    &hash,
+                                    byte_size,
+                                );
+                                match clip_result {
+                                    Ok(clip) => {
+                                        let removed = storage.cleanup_old_entries(max_history).ok();
+                                        Some((clip, removed))
+                                    }
+                                    Err(e) => {
+                                        log::warn!("剪贴板内容保存失败: {}", e);
+                                        None
+                                    }
+                                }
+                            }; // storage lock released here
+
+                            if let Some((clip, removed)) = result {
+                                if let Some(removed_ids) = removed {
+                                    for rid in removed_ids {
+                                        let _ = app_handle.emit("clip-removed", rid);
+                                    }
+                                }
+                                let _ = app_handle.emit("clip-added", &clip);
+                                log::debug!("新剪贴板内容，类型: text, 大小: {} 字节", byte_size);
                             }
                         }
                     }

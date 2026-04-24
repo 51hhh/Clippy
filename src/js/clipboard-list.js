@@ -64,9 +64,15 @@ export function setFavoritesOnly(fav) {
 
 /**
  * 将新条目插入列表顶部（去重）。
+ * Fix #7: 如果当前有搜索词或仅显示收藏，新条目不符合过滤条件时跳过。
  * @param {ClipItem} clip
  */
 export function prependClip(clip) {
+  // 如果当前有搜索词，不做实时插入（搜索结果由后端决定）
+  if (currentQuery) return;
+  // 如果当前仅显示收藏，但新条目不是收藏，跳过
+  if (favoritesOnly && !clip.is_favorite) return;
+
   // 去重
   const existing = clips.findIndex((c) => c.id === clip.id);
   if (existing !== -1) {
@@ -76,14 +82,13 @@ export function prependClip(clip) {
   }
 
   clips.unshift(clip);
-  offset = Math.max(0, offset + 1); // 保持偏移量同步
+  offset = Math.max(0, offset + 1);
 
   const el = createClipElement(clip);
   const firstItem = _container.querySelector(".clip-item");
   if (firstItem) {
     _container.insertBefore(el, firstItem);
   } else {
-    // 移除空状态后插入
     _container.appendChild(el);
   }
   _updateEmptyState();
@@ -362,8 +367,7 @@ function _createActionMenu(clip, itemEl, actionsBtn) {
   copyBtn.addEventListener("click", async (e) => {
     e.stopPropagation();
     try {
-      const text = _getDisplayText(clip);
-      await navigator.clipboard.writeText(text);
+      await selectClip(clip.id);
     } catch (err) {
       console.error("复制失败:", err);
     }
