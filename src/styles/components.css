@@ -1,0 +1,276 @@
+/* ============================================================
+   components.css — UI 组件样式
+   ============================================================ */
+
+/* ---------- 应用容器 ---------- */
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* ---------- 搜索区域 ---------- */
+.search-container {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px 8px;
+  background-color: var(--bg-primary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.search-input {
+  flex: 1;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1.5px solid var(--border);
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13px;
+  transition: border-color 0.15s ease;
+}
+
+.search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.search-input:focus {
+  border-color: var(--accent);
+}
+
+/* ---------- 标签页 ---------- */
+.tabs {
+  display: flex;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  gap: 2px;
+}
+
+.tab-btn {
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+  margin-bottom: -1px;
+}
+
+.tab-btn:hover {
+  color: var(--text-primary);
+}
+
+.tab-btn.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 500;
+}
+
+/* ---------- 剪贴板列表 ---------- */
+.clip-list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 0;
+}
+
+/* ---------- 剪贴板条目 ---------- */
+.clip-item {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background-color 0.1s ease;
+}
+
+.clip-item:last-child {
+  border-bottom: none;
+}
+
+.clip-item:hover {
+  background-color: var(--bg-hover);
+}
+
+.clip-item:hover .clip-actions-btn {
+  opacity: 1;
+}
+
+.clip-item.selected {
+  background-color: var(--bg-active);
+}
+
+.clip-item.selected .clip-actions-btn {
+  opacity: 1;
+}
+
+/* ---------- 剪贴板内容区 ---------- */
+.clip-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.clip-preview {
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.45;
+  /* 两行截断 */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.clip-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.clip-type-icon {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+}
+
+.clip-time {
+  flex-shrink: 0;
+}
+
+.clip-size {
+  flex-shrink: 0;
+}
+
+.clip-fav-indicator {
+  color: var(--favorite);
+  font-size: 11px;
+}
+
+/* ---------- 缩略图（图片类型） ---------- */
+.clip-thumbnail {
+  width: 48px;
+  height: 48px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+}
+
+/* ---------- ⋯ 操作按钮 ---------- */
+.clip-actions-btn {
+  opacity: 0;
+  transition: opacity 0.1s ease;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: var(--text-secondary);
+  align-self: center;
+}
+
+.clip-actions-btn:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* ---------- 操作菜单（浮层） ---------- */
+.action-menu {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 100;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 130px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.action-menu.hidden {
+  display: none;
+}
+
+.action-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 5px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: background-color 0.1s ease;
+  white-space: nowrap;
+}
+
+.action-btn:hover {
+  background-color: var(--bg-hover);
+}
+
+.action-btn.danger {
+  color: var(--danger);
+}
+
+.action-btn.danger:hover {
+  background-color: var(--danger);
+  color: #fff;
+}
+
+.action-btn.favorite-btn.is-favorite {
+  color: var(--favorite);
+}
+
+/* ---------- 空状态 ---------- */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 120px;
+  color: var(--text-muted);
+  font-size: 13px;
+  gap: 6px;
+}
+
+.empty-state-icon {
+  font-size: 28px;
+  opacity: 0.5;
+}
+
+/* ---------- 加载指示器 ---------- */
+.load-more-spinner {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
