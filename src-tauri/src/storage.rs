@@ -273,8 +273,13 @@ impl StorageEngine {
 /// 将 rusqlite 行映射到 ClipItem（供多处复用）
 fn row_to_clip(row: &rusqlite::Row<'_>) -> rusqlite::Result<ClipItem> {
     let content_type_str: String = row.get(1)?;
-    let content_type = ContentType::from_str(&content_type_str)
-        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(StringError(e))))?;
+    let content_type = ContentType::from_str(&content_type_str).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(
+            1,
+            rusqlite::types::Type::Text,
+            Box::new(StringError(e)),
+        )
+    })?;
 
     Ok(ClipItem {
         id: row.get(0)?,

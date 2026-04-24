@@ -23,6 +23,7 @@ src-tauri/target
 
 # Tauri
 .tauri/
+src-tauri/gen/
 
 # 参考项目（不纳入 Clippy 仓库）
 fxxkDJTU/

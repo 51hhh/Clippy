@@ -17,10 +17,7 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             // ── 1. 确定数据目录 ──────────────────────────────────────────────
-            let app_data_dir = app
-                .path()
-                .app_data_dir()
-                .expect("无法获取应用数据目录");
+            let app_data_dir = app.path().app_data_dir().expect("无法获取应用数据目录");
             std::fs::create_dir_all(&app_data_dir).expect("无法创建应用数据目录");
 
             // ── 2. 加载配置 ──────────────────────────────────────────────────
