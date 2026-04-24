@@ -12,6 +12,7 @@ src-tauri/target
 # 编辑器
 .vscode/*
 !.vscode/extensions.json
+.claude/*
 .idea
 *.suo
 *.ntvs*
