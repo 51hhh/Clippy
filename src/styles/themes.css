@@ -1,0 +1,116 @@
+/* ============================================================
+   themes.css — 四套主题的 CSS 自定义属性
+   用法：在 <html> 上设置 data-theme="light|dark|ocean|forest"
+   ============================================================ */
+
+/* ---------- light（默认） ---------- */
+[data-theme="light"] {
+  --bg-primary:           #ffffff;
+  --bg-secondary:         #f5f5f5;
+  --bg-hover:             #ebebeb;
+  --bg-active:            #e0ecf8;
+
+  --text-primary:         #1a1a1a;
+  --text-secondary:       #4a4a4a;
+  --text-muted:           #888888;
+
+  --accent:               #4a90d9;
+  --accent-hover:         #2e78c9;
+
+  --border:               #d8d8d8;
+
+  --danger:               #e05c5c;
+  --danger-hover:         #c94444;
+
+  --favorite:             #f5a623;
+
+  --scrollbar-thumb:      #cccccc;
+  --scrollbar-thumb-hover:#aaaaaa;
+
+  --overlay-bg:           rgba(0, 0, 0, 0.12);
+  --shadow:               0 2px 12px rgba(0, 0, 0, 0.12);
+}
+
+/* ---------- dark ---------- */
+[data-theme="dark"] {
+  --bg-primary:           #1e1e1e;
+  --bg-secondary:         #2a2a2a;
+  --bg-hover:             #333333;
+  --bg-active:            #2a3a50;
+
+  --text-primary:         #e8e8e8;
+  --text-secondary:       #b0b0b0;
+  --text-muted:           #707070;
+
+  --accent:               #5b9fe6;
+  --accent-hover:         #4488d0;
+
+  --border:               #3a3a3a;
+
+  --danger:               #e06060;
+  --danger-hover:         #c84848;
+
+  --favorite:             #f5a623;
+
+  --scrollbar-thumb:      #4a4a4a;
+  --scrollbar-thumb-hover:#666666;
+
+  --overlay-bg:           rgba(0, 0, 0, 0.40);
+  --shadow:               0 2px 16px rgba(0, 0, 0, 0.40);
+}
+
+/* ---------- ocean ---------- */
+[data-theme="ocean"] {
+  --bg-primary:           #0d1b2a;
+  --bg-secondary:         #142233;
+  --bg-hover:             #1c2e42;
+  --bg-active:            #1a3a50;
+
+  --text-primary:         #d8eaf8;
+  --text-secondary:       #90b8d8;
+  --text-muted:           #5a7a98;
+
+  --accent:               #48cae4;
+  --accent-hover:         #28b4d0;
+
+  --border:               #1e3450;
+
+  --danger:               #e07070;
+  --danger-hover:         #c85858;
+
+  --favorite:             #f4d03f;
+
+  --scrollbar-thumb:      #2a4a68;
+  --scrollbar-thumb-hover:#3a6080;
+
+  --overlay-bg:           rgba(0, 0, 0, 0.50);
+  --shadow:               0 2px 16px rgba(0, 0, 0, 0.50);
+}
+
+/* ---------- forest ---------- */
+[data-theme="forest"] {
+  --bg-primary:           #1b2e1b;
+  --bg-secondary:         #223822;
+  --bg-hover:             #2c4a2c;
+  --bg-active:            #1e4030;
+
+  --text-primary:         #d8f0d8;
+  --text-secondary:       #90c890;
+  --text-muted:           #5a8a5a;
+
+  --accent:               #52b788;
+  --accent-hover:         #3a9e74;
+
+  --border:               #2c4a2c;
+
+  --danger:               #e07070;
+  --danger-hover:         #c85858;
+
+  --favorite:             #f4d03f;
+
+  --scrollbar-thumb:      #3a5a3a;
+  --scrollbar-thumb-hover:#4e764e;
+
+  --overlay-bg:           rgba(0, 0, 0, 0.50);
+  --shadow:               0 2px 16px rgba(0, 0, 0, 0.50);
+}
