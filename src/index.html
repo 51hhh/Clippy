@@ -1,11 +1,58 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Clippy</title>
+  <!-- 主题变量必须最先加载，以免组件样式引用未定义的自定义属性 -->
+  <link rel="stylesheet" href="styles/themes.css" />
+  <link rel="stylesheet" href="styles/base.css" />
+  <link rel="stylesheet" href="styles/components.css" />
 </head>
 <body>
-  <h1>Clippy</h1>
+  <div id="app">
+    <!-- 搜索栏 -->
+    <div class="search-container">
+      <input
+        id="search-input"
+        class="search-input"
+        type="text"
+        placeholder="Search clipboard history..."
+        autocomplete="off"
+        spellcheck="false"
+      />
+    </div>
+
+    <!-- 标签页 -->
+    <div class="tabs" role="tablist">
+      <button
+        class="tab-btn active"
+        role="tab"
+        data-tab="all"
+        aria-selected="true"
+      >All</button>
+      <button
+        class="tab-btn"
+        role="tab"
+        data-tab="favorites"
+        aria-selected="false"
+      >Favorites</button>
+    </div>
+
+    <!-- 剪贴板列表 -->
+    <div
+      id="clip-list"
+      class="clip-list"
+      role="listbox"
+      aria-label="Clipboard history"
+    >
+      <div class="empty-state" id="empty-state">
+        <span class="empty-state-icon">📋</span>
+        <span>No clipboard items yet</span>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
 </body>
 </html>
