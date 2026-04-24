@@ -63,7 +63,7 @@ impl Default for AppConfig {
         Self {
             max_history: 100,
             storage_mode: "persistent".to_string(),
-            global_shortcut: "CmdOrCtrl+Shift+V".to_string(),
+            global_shortcut: "Super+V".to_string(),
             theme: "light".to_string(),
         }
     }

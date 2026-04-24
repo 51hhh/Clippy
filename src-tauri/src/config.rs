@@ -52,7 +52,7 @@ mod tests {
         let config = AppConfig::default();
         assert_eq!(config.max_history, 100);
         assert_eq!(config.storage_mode, "persistent");
-        assert_eq!(config.global_shortcut, "CmdOrCtrl+Shift+V");
+        assert_eq!(config.global_shortcut, "Super+V");
         assert_eq!(config.theme, "light");
     }
 

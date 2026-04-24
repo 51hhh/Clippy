@@ -9,6 +9,74 @@ use std::sync::{Arc, Mutex};
 use tauri::Manager;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
+/// 构建系统托盘：左键点击弹出菜单，包含 Open Clipboard / Settings / Quit
+fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri::menu::{Menu, MenuItem};
+    use tauri::tray::TrayIconBuilder;
+
+    let open_item = MenuItem::with_id(app, "open_clipboard", "Open Clipboard", true, None::<&str>)?;
+    let settings_item = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+
+    let menu = Menu::with_items(app, &[&open_item, &settings_item, &quit_item])?;
+
+    TrayIconBuilder::new()
+        .icon(app.default_window_icon().expect("缺少默认窗口图标").clone())
+        .menu(&menu)
+        .show_menu_on_left_click(true)
+        .tooltip("Clippy")
+        .on_menu_event(|app_handle, event| match event.id.as_ref() {
+            "open_clipboard" => {
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+            "settings" => {
+                // 打开或聚焦设置窗口
+                if let Some(window) = app_handle.get_webview_window("settings") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                } else {
+                    let _ = tauri::WebviewWindowBuilder::new(
+                        app_handle,
+                        "settings",
+                        tauri::WebviewUrl::App("settings.html".into()),
+                    )
+                    .title("Clippy Settings")
+                    .inner_size(500.0, 400.0)
+                    .center()
+                    .resizable(false)
+                    .build();
+                }
+            }
+            "quit" => {
+                app_handle.exit(0);
+            }
+            _ => {}
+        })
+        .build(app)?;
+
+    Ok(())
+}
+
+/// 注册全局快捷键：从配置读取快捷键字符串，绑定切换主窗口可见性
+fn register_shortcut(app: &tauri::App, shortcut: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let handle = app.handle().clone();
+    app.global_shortcut()
+        .on_shortcut(shortcut, move |_app, _shortcut, _event| {
+            if let Some(window) = handle.get_webview_window("main") {
+                if window.is_visible().unwrap_or(false) {
+                    let _ = window.hide();
+                } else {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        })?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     env_logger::init();
@@ -34,7 +102,7 @@ pub fn run() {
             .expect("无法初始化存储引擎");
 
             let storage = Arc::new(Mutex::new(storage));
-            let config = Arc::new(Mutex::new(app_config));
+            let config = Arc::new(Mutex::new(app_config.clone()));
 
             // ── 4. 启动剪贴板监听器 ──────────────────────────────────────────
             let watcher = clipboard_watcher::ClipboardWatcher::new();
@@ -52,20 +120,11 @@ pub fn run() {
                 watcher,
             });
 
-            // ── 6. 注册全局快捷键（切换窗口可见性）────────────────────────────
-            let handle = app.handle().clone();
-            app.global_shortcut()
-                .on_shortcut("CmdOrCtrl+Shift+V", move |_app, _shortcut, _event| {
-                    if let Some(window) = handle.get_webview_window("main") {
-                        if window.is_visible().unwrap_or(false) {
-                            let _ = window.hide();
-                        } else {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    }
-                })
-                .expect("无法注册全局快捷键 CmdOrCtrl+Shift+V");
+            // ── 6. 构建系统托盘 ──────────────────────────────────────────────
+            build_tray(app).expect("无法构建系统托盘");
+
+            // ── 7. 注册全局快捷键（从配置读取）────────────────────────────────
+            register_shortcut(app, &app_config.global_shortcut).expect("无法注册全局快捷键");
 
             Ok(())
         })
@@ -77,6 +136,9 @@ pub fn run() {
             commands::select_clip,
             commands::get_config,
             commands::update_config,
+            commands::update_shortcut,
+            commands::check_shortcut_conflict,
+            commands::show_settings,
         ])
         .run(tauri::generate_context!())
         .expect("启动 Tauri 应用失败");
