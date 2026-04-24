@@ -1,3 +1,4 @@
+mod clipboard_watcher;
 mod config;
 mod models;
 mod storage;
