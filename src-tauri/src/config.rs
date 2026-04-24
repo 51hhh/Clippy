@@ -70,7 +70,10 @@ mod tests {
         assert_eq!(config.theme, AppConfig::default().theme);
 
         // 文件已被创建
-        assert!(config_path.exists(), "load_config 应在文件不存在时写出默认配置");
+        assert!(
+            config_path.exists(),
+            "load_config 应在文件不存在时写出默认配置"
+        );
     }
 
     #[test]
