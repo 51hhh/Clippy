@@ -107,3 +107,76 @@ pub fn update_config(new_config: AppConfig, state: State<AppState>) -> Result<()
     save_config(&state.config_path, &config);
     Ok(())
 }
+
+/// 动态更新全局快捷键：注销旧快捷键，注册新快捷键，并持久化到配置
+#[tauri::command]
+pub fn update_shortcut(
+    new_shortcut: String,
+    app_handle: tauri::AppHandle,
+    state: State<AppState>,
+) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+
+    // 注销所有已注册的快捷键
+    app_handle
+        .global_shortcut()
+        .unregister_all()
+        .map_err(|e| e.to_string())?;
+
+    // 注册新快捷键（切换主窗口可见性）
+    let handle = app_handle.clone();
+    app_handle
+        .global_shortcut()
+        .on_shortcut(new_shortcut.as_str(), move |_app, _shortcut, _event| {
+            if let Some(window) = handle.get_webview_window("main") {
+                if window.is_visible().unwrap_or(false) {
+                    let _ = window.hide();
+                } else {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        })
+        .map_err(|e| e.to_string())?;
+
+    // 更新配置并持久化
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.global_shortcut = new_shortcut;
+    save_config(&state.config_path, &config);
+
+    Ok(())
+}
+
+/// 检查指定快捷键是否已被注册（用于冲突检测）
+#[tauri::command]
+pub fn check_shortcut_conflict(
+    shortcut: String,
+    app_handle: tauri::AppHandle,
+) -> Result<bool, String> {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    Ok(app_handle
+        .global_shortcut()
+        .is_registered(shortcut.as_str()))
+}
+
+/// 打开或聚焦设置窗口
+#[tauri::command]
+pub fn show_settings(app_handle: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app_handle.get_webview_window("settings") {
+        window.show().map_err(|e| e.to_string())?;
+        window.set_focus().map_err(|e| e.to_string())?;
+    } else {
+        tauri::WebviewWindowBuilder::new(
+            &app_handle,
+            "settings",
+            tauri::WebviewUrl::App("settings.html".into()),
+        )
+        .title("Clippy Settings")
+        .inner_size(500.0, 400.0)
+        .center()
+        .resizable(false)
+        .build()
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
