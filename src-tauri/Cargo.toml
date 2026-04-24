@@ -1,0 +1,33 @@
+[package]
+name = "clippy-app"
+version = "0.1.0"
+description = "跨平台轻量剪贴板管理器"
+authors = ["zhongweixi2000"]
+edition = "2021"
+
+[lib]
+name = "clippy_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-global-shortcut = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.31", features = ["bundled"] }
+arboard = "3"
+sha2 = "0.10"
+thiserror = "2"
+log = "0.4"
+env_logger = "0.11"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
