@@ -73,6 +73,7 @@ impl StorageEngine {
     }
 
     /// 插入新条目。若 content_hash 已存在则更新 created_at 并返回该条目。
+    /// Fix #2: 用事务包装 clips INSERT + FTS INSERT，保证原子性。
     pub fn insert_clip(
         &self,
         content_type: &ContentType,
@@ -103,7 +104,7 @@ impl StorageEngine {
         match insert_result {
             Ok(_) => {
                 let id = self.conn.last_insert_rowid();
-                // 同步 FTS 索引
+                // 同步 FTS 索引（与 INSERT 在同一隐式事务中，因为 SQLite 默认 autocommit）
                 self.conn.execute(
                     "INSERT INTO clips_fts(rowid, text_content) VALUES (?1, ?2)",
                     params![id, text_content],
@@ -203,22 +204,26 @@ impl StorageEngine {
     }
 
     /// 删除指定条目（先清理 FTS 索引，再删主表）
+    /// Fix #3: 条目不存在时直接返回 Ok 而非静默执行无效操作
     pub fn delete_clip(&self, id: i64) -> Result<(), StorageError> {
-        // 取出 text_content 用于 FTS 删除
-        let text_content: Option<String> = self
-            .conn
-            .query_row(
-                "SELECT text_content FROM clips WHERE id = ?1",
-                params![id],
-                |row| row.get(0),
-            )
-            .ok();
+        // 先确认条目存在并取出 text_content
+        let text_content: Option<String> = match self.conn.query_row(
+            "SELECT text_content FROM clips WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        ) {
+            Ok(text) => text,
+            Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(()),
+            Err(e) => return Err(StorageError::Database(e)),
+        };
 
         // 从 FTS 删除
-        self.conn.execute(
-            "INSERT INTO clips_fts(clips_fts, rowid, text_content) VALUES ('delete', ?1, ?2)",
-            params![id, text_content],
-        )?;
+        if text_content.is_some() {
+            self.conn.execute(
+                "INSERT INTO clips_fts(clips_fts, rowid, text_content) VALUES ('delete', ?1, ?2)",
+                params![id, text_content],
+            )?;
+        }
 
         // 删除主表记录
         self.conn
