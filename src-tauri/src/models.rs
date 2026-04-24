@@ -1,0 +1,69 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ContentType {
+    Text,
+    Html,
+    Image,
+}
+
+impl ContentType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ContentType::Text => "text",
+            ContentType::Html => "html",
+            ContentType::Image => "image",
+        }
+    }
+}
+
+impl std::fmt::Display for ContentType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for ContentType {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "text" => Ok(ContentType::Text),
+            "html" => Ok(ContentType::Html),
+            "image" => Ok(ContentType::Image),
+            other => Err(format!("未知内容类型: {}", other)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClipItem {
+    pub id: i64,
+    pub content_type: ContentType,
+    pub text_content: Option<String>,
+    pub html_content: Option<String>,
+    pub image_data: Option<Vec<u8>>,
+    pub content_hash: String,
+    pub is_favorite: bool,
+    pub created_at: i64,
+    pub byte_size: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppConfig {
+    pub max_history: u32,
+    pub storage_mode: String,
+    pub global_shortcut: String,
+    pub theme: String,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            max_history: 100,
+            storage_mode: "persistent".to_string(),
+            global_shortcut: "CmdOrCtrl+Shift+V".to_string(),
+            theme: "light".to_string(),
+        }
+    }
+}
