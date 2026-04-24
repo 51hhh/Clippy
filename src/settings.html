@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clippy Settings</title>
+  <link rel="stylesheet" href="styles/themes.css">
+  <link rel="stylesheet" href="styles/base.css">
+  <link rel="stylesheet" href="styles/settings.css">
+</head>
+<body>
+  <div class="settings-container">
+    <h1 class="settings-title">Settings</h1>
+
+    <div class="setting-group">
+      <label class="setting-label">Global Shortcut</label>
+      <div class="shortcut-recorder" id="shortcut-recorder">
+        <input type="text" class="shortcut-input" id="shortcut-input" readonly placeholder="Click to record...">
+        <button class="btn btn-small" id="shortcut-record-btn">Record</button>
+        <button class="btn btn-small btn-secondary" id="shortcut-clear-btn">Reset</button>
+      </div>
+      <div class="setting-hint" id="shortcut-hint">Click "Record" then press your desired key combination</div>
+      <div class="setting-warning hidden" id="shortcut-warning">This shortcut may conflict with an existing shortcut</div>
+    </div>
+
+    <div class="setting-group">
+      <label class="setting-label" for="theme-select">Theme</label>
+      <select class="setting-select" id="theme-select">
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+        <option value="ocean">Ocean</option>
+        <option value="forest">Forest</option>
+      </select>
+    </div>
+
+    <div class="setting-group">
+      <label class="setting-label" for="max-history-input">History Limit</label>
+      <input type="number" class="setting-input" id="max-history-input" min="0" max="10000" step="10">
+      <div class="setting-hint">0 = unlimited. Favorites are never deleted.</div>
+    </div>
+
+    <div class="settings-actions">
+      <button class="btn btn-primary" id="save-btn">Save</button>
+      <button class="btn btn-secondary" id="cancel-btn">Cancel</button>
+    </div>
+
+    <div class="toast hidden" id="toast">Settings saved!</div>
+  </div>
+
+  <script type="module" src="js/settings.js"></script>
+</body>
+</html>
