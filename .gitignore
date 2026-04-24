@@ -1,0 +1,27 @@
+# 日志
+logs
+*.log
+
+# 依赖
+node_modules
+
+# 构建产物
+dist
+src-tauri/target
+
+# 编辑器
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+
+# Tauri
+.tauri/
+
+# 参考项目（不纳入 Clippy 仓库）
+fxxkDJTU/
