@@ -11,11 +11,12 @@
 </head>
 <body>
   <div id="app">
-    <!-- 搜索栏 -->
-    <div class="search-container">
+    <!-- 搜索条（默认隐藏，焦点在第 1 行按 ↑/W 召唤） -->
+    <aside id="search-bar" class="search-bar" hidden>
+      <span class="search-bar-icon" aria-hidden="true">🔍</span>
       <input
         id="search-input"
-        class="search-input"
+        class="search-bar-input"
         type="text"
         data-i18n="search.placeholder"
         data-i18n-attr="placeholder"
@@ -23,38 +24,25 @@
         autocomplete="off"
         spellcheck="false"
       />
-    </div>
-
-    <!-- 标签页 -->
-    <div class="tabs" role="tablist">
-      <button
-        class="tab-btn active"
-        role="tab"
-        data-tab="all"
-        data-i18n="tabs.all"
-        aria-selected="true"
-      >All</button>
-      <button
-        class="tab-btn"
-        role="tab"
-        data-tab="favorites"
-        data-i18n="tabs.favorites"
-        aria-selected="false"
-      >Favorites</button>
-    </div>
+      <span class="search-bar-hint" data-i18n="search.escHint">Esc</span>
+    </aside>
 
     <!-- 剪贴板列表 -->
-    <div
+    <main
       id="clip-list"
       class="clip-list"
       role="listbox"
       aria-label="Clipboard history"
-    >
-      <div class="empty-state" id="empty-state">
-        <span class="empty-state-icon">📋</span>
-        <span data-i18n="empty.text">No clipboard items yet</span>
-      </div>
+    ></main>
+
+    <!-- 空状态 -->
+    <div id="empty-state" class="empty-state" hidden>
+      <span class="empty-state-icon" aria-hidden="true">📋</span>
+      <span id="empty-state-text" data-i18n="empty.text">No clipboard items yet</span>
     </div>
+
+    <!-- 底部 segment（All / Favorites） -->
+    <footer id="segment-tabs" class="segment-tabs" role="tablist"></footer>
   </div>
 
   <script type="module" src="js/app.js"></script>
