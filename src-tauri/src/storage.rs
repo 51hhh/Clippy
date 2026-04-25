@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use crate::models::{ClipItem, ContentType};
 use rusqlite::{params, Connection, Result as SqlResult};
 use std::path::Path;
@@ -10,8 +9,6 @@ use thiserror::Error;
 pub enum StorageError {
     #[error("数据库操作失败: {0}")]
     Database(#[from] rusqlite::Error),
-    #[error("内容类型解析失败: {0}")]
-    InvalidContentType(String),
 }
 
 pub struct StorageEngine {

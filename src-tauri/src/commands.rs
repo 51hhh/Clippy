@@ -12,8 +12,6 @@ pub struct AppState {
     pub storage: Arc<Mutex<StorageEngine>>,
     pub config: Arc<Mutex<AppConfig>>,
     pub config_path: PathBuf,
-    /// 持有监听器以维持其生命周期（停止信号在 Drop 时无需显式触发）
-    #[allow(dead_code)]
     pub watcher: ClipboardWatcher,
 }
 
@@ -101,10 +99,17 @@ pub fn get_config(state: State<AppState>) -> Result<AppConfig, String> {
 
 /// 更新应用配置并持久化到磁盘
 #[tauri::command]
-pub fn update_config(new_config: AppConfig, state: State<AppState>) -> Result<(), String> {
+pub fn update_config(
+    new_config: AppConfig,
+    app_handle: tauri::AppHandle,
+    state: State<AppState>,
+) -> Result<(), String> {
     let mut config = state.config.lock().map_err(|e| e.to_string())?;
     *config = new_config;
     save_config(&state.config_path, &config);
+    // 广播配置变更事件，通知所有窗口（尤其是主窗口更新主题）
+    use tauri::Emitter;
+    let _ = app_handle.emit("config-changed", &*config);
     Ok(())
 }
 
@@ -115,7 +120,7 @@ pub fn update_shortcut(
     app_handle: tauri::AppHandle,
     state: State<AppState>,
 ) -> Result<(), String> {
-    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
     // 注销所有已注册的快捷键
     app_handle
@@ -127,7 +132,10 @@ pub fn update_shortcut(
     let handle = app_handle.clone();
     app_handle
         .global_shortcut()
-        .on_shortcut(new_shortcut.as_str(), move |_app, _shortcut, _event| {
+        .on_shortcut(new_shortcut.as_str(), move |_app, _shortcut, event| {
+            if event.state != ShortcutState::Pressed {
+                return;
+            }
             if let Some(window) = handle.get_webview_window("main") {
                 if window.is_visible().unwrap_or(false) {
                     let _ = window.hide();
@@ -159,24 +167,63 @@ pub fn check_shortcut_conflict(
         .is_registered(shortcut.as_str()))
 }
 
-/// 打开或聚焦设置窗口
+/// 打开或聚焦设置窗口（先销毁再重建，确保加载最新页面）
 #[tauri::command]
 pub fn show_settings(app_handle: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app_handle.get_webview_window("settings") {
-        window.show().map_err(|e| e.to_string())?;
-        window.set_focus().map_err(|e| e.to_string())?;
-    } else {
-        tauri::WebviewWindowBuilder::new(
-            &app_handle,
-            "settings",
-            tauri::WebviewUrl::App("settings.html".into()),
-        )
-        .title("Clippy Settings")
-        .inner_size(500.0, 400.0)
-        .center()
-        .resizable(false)
-        .build()
-        .map_err(|e| e.to_string())?;
+        let _ = window.close();
     }
+    tauri::WebviewWindowBuilder::new(
+        &app_handle,
+        "settings",
+        tauri::WebviewUrl::App("settings.html".into()),
+    )
+    .title("Clippy Settings")
+    .inner_size(720.0, 560.0)
+    .min_inner_size(480.0, 400.0)
+    .center()
+    .resizable(true)
+    .build()
+    .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// 暂停全局快捷键（录制新快捷键时调用，避免冲突）
+#[tauri::command]
+pub fn pause_shortcuts(app_handle: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    app_handle
+        .global_shortcut()
+        .unregister_all()
+        .map_err(|e| e.to_string())
+}
+
+/// 恢复全局快捷键（录制结束后调用）
+#[tauri::command]
+pub fn resume_shortcuts(
+    app_handle: tauri::AppHandle,
+    state: State<AppState>,
+) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+    let config = state.config.lock().map_err(|e| e.to_string())?;
+    let shortcut_str = config.global_shortcut.clone();
+    drop(config);
+
+    let handle = app_handle.clone();
+    app_handle
+        .global_shortcut()
+        .on_shortcut(shortcut_str.as_str(), move |_app, _shortcut, event| {
+            if event.state != ShortcutState::Pressed {
+                return;
+            }
+            if let Some(window) = handle.get_webview_window("main") {
+                if window.is_visible().unwrap_or(false) {
+                    let _ = window.hide();
+                } else {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        })
+        .map_err(|e| e.to_string())
 }
