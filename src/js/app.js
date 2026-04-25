@@ -1,95 +1,83 @@
 /**
  * app.js — 应用入口
- * 负责模块初始化、事件总线连接、键盘导航和窗口焦点处理。
  */
 
-import * as theme          from "./theme.js";
-import * as clipboardList  from "./clipboard-list.js";
-import * as search         from "./search.js";
-import { onClipAdded, onClipRemoved } from "./api.js";
+import * as theme         from "./theme.js";
+import * as clipboardList from "./clipboard-list.js";
+import * as search        from "./search.js";
+import * as i18n          from "../i18n/i18n.js";
+import {
+  getConfig, onClipAdded, onClipRemoved, onConfigChanged,
+} from "./api.js";
+import "../styles/themes.css";
+import "../styles/base.css";
+import "../styles/components.css";
 
-// ── DOMContentLoaded ───────────────────────────────────────────────────────
-window.addEventListener("DOMContentLoaded", async () => {
-  // ── 1. 主题 ──
-  await theme.init();
+function whenReady(fn) {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", fn);
+  } else {
+    fn();
+  }
+}
 
-  // ── 2. 剪贴板列表 ──
+whenReady(async () => {
+  // 加载配置
+  let config;
+  try {
+    config = await getConfig();
+  } catch (err) {
+    console.warn("配置加载失败:", err);
+    config = { theme: "light", language: "auto" };
+  }
+
+  theme.applyTheme(config.theme || "light");
+  i18n.init(config.language || "auto");
+
   const clipListEl   = document.getElementById("clip-list");
   const emptyStateEl = document.getElementById("empty-state");
   clipboardList.init(clipListEl, emptyStateEl);
   await clipboardList.refresh();
 
-  // ── 3. 搜索框 ──
   const searchInput = document.getElementById("search-input");
-  search.init(searchInput, (query) => {
-    clipboardList.setQuery(query);
-  });
+  search.init(searchInput, (query) => clipboardList.setQuery(query));
 
-  // ── 4. 标签页 ──
-  const tabBtns = document.querySelectorAll(".tab-btn");
-  tabBtns.forEach((btn) => {
+  // 标签页
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
-      // 更新按钮激活状态
-      tabBtns.forEach((b) => {
+      document.querySelectorAll(".tab-btn").forEach((b) => {
         b.classList.remove("active");
         b.setAttribute("aria-selected", "false");
       });
       btn.classList.add("active");
       btn.setAttribute("aria-selected", "true");
-
-      const favOnly = btn.dataset.tab === "favorites";
-      clipboardList.setFavoritesOnly(favOnly);
+      clipboardList.setFavoritesOnly(btn.dataset.tab === "favorites");
     });
   });
 
-  // ── 5. 后端事件监听 ──
-  await onClipAdded((clip) => {
-    clipboardList.prependClip(clip);
+  // 事件
+  await onClipAdded((clip) => clipboardList.prependClip(clip));
+  await onClipRemoved((id) => clipboardList.removeClip(id));
+  await onConfigChanged((newConfig) => {
+    theme.applyTheme(newConfig.theme || "light");
+    i18n.init(newConfig.language || "auto");
   });
 
-  await onClipRemoved((id) => {
-    clipboardList.removeClip(id);
-  });
-
-  // ── 6. 键盘导航 ──
-  window.addEventListener("keydown", _onKeyDown);
-
-  // ── 7. 窗口获得焦点时刷新列表并聚焦搜索框 ──
-  window.addEventListener("focus", _onWindowFocus);
+  // 键盘
+  window.addEventListener("keydown", onKeyDown);
+  window.addEventListener("focus", onWindowFocus);
 });
 
-// ── 键盘处理 ───────────────────────────────────────────────────────────────
-
-function _onKeyDown(e) {
+function onKeyDown(e) {
   switch (e.key) {
-    case "Escape":
-      // 先尝试关闭操作菜单，再关闭窗口
-      clipboardList.closeOpenMenu();
-      break;
-
-    case "ArrowUp":
-      e.preventDefault();
-      clipboardList.moveSelection(-1);
-      break;
-
-    case "ArrowDown":
-      e.preventDefault();
-      clipboardList.moveSelection(1);
-      break;
-
-    case "Enter":
-      e.preventDefault();
-      clipboardList.confirmSelection();
-      break;
-
-    default:
-      break;
+    case "Escape":      clipboardList.closeOpenMenu(); break;
+    case "ArrowUp":     e.preventDefault(); clipboardList.moveSelection(-1); break;
+    case "ArrowDown":   e.preventDefault(); clipboardList.moveSelection(1); break;
+    case "Enter":       e.preventDefault(); clipboardList.confirmSelection(); break;
   }
 }
 
-// ── 窗口焦点 ───────────────────────────────────────────────────────────────
-
-async function _onWindowFocus() {
+async function onWindowFocus() {
   await clipboardList.refresh();
   search.focus();
 }

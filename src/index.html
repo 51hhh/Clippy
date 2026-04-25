@@ -17,6 +17,8 @@
         id="search-input"
         class="search-input"
         type="text"
+        data-i18n="search.placeholder"
+        data-i18n-attr="placeholder"
         placeholder="Search clipboard history..."
         autocomplete="off"
         spellcheck="false"
@@ -29,12 +31,14 @@
         class="tab-btn active"
         role="tab"
         data-tab="all"
+        data-i18n="tabs.all"
         aria-selected="true"
       >All</button>
       <button
         class="tab-btn"
         role="tab"
         data-tab="favorites"
+        data-i18n="tabs.favorites"
         aria-selected="false"
       >Favorites</button>
     </div>
@@ -48,7 +52,7 @@
     >
       <div class="empty-state" id="empty-state">
         <span class="empty-state-icon">📋</span>
-        <span>No clipboard items yet</span>
+        <span data-i18n="empty.text">No clipboard items yet</span>
       </div>
     </div>
   </div>

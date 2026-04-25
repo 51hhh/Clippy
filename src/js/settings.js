@@ -1,224 +1,246 @@
 /**
  * settings.js — 设置面板逻辑
- * 独立于主窗口，通过 Tauri IPC 读写配置、录制快捷键。
  */
 
-const { invoke } = window.__TAURI__.core;
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import {
+  checkShortcutConflict,
+  getConfig,
+  pauseShortcuts,
+  resumeShortcuts,
+  updateConfig,
+  updateShortcut,
+} from "./api.js";
+import { keyEventToShortcut } from "./shortcut-recorder.js";
+import * as i18n from "../i18n/i18n.js";
+import "../styles/themes.css";
+import "../styles/base.css";
+import "../styles/settings.css";
 
-// ── DOM 引用 ──────────────────────────────────────────────────────────────────
+// DOM 引用
+const shortcutInput   = document.getElementById("shortcut-input");
+const recordBtn       = document.getElementById("shortcut-record-btn");
+const clearBtn        = document.getElementById("shortcut-clear-btn");
+const shortcutWarning = document.getElementById("shortcut-warning");
+const themeGrid       = document.getElementById("theme-grid");
+const maxHistoryInput = document.getElementById("max-history-input");
+const languageSelect  = document.getElementById("language-select");
+const saveBtn         = document.getElementById("save-btn");
+const cancelBtn       = document.getElementById("cancel-btn");
+const toast           = document.getElementById("toast");
 
-const shortcutInput    = document.getElementById("shortcut-input");
-const recordBtn        = document.getElementById("shortcut-record-btn");
-const clearBtn         = document.getElementById("shortcut-clear-btn");
-const shortcutHint     = document.getElementById("shortcut-hint");
-const shortcutWarning  = document.getElementById("shortcut-warning");
-const themeSelect      = document.getElementById("theme-select");
-const maxHistoryInput  = document.getElementById("max-history-input");
-const saveBtn          = document.getElementById("save-btn");
-const cancelBtn        = document.getElementById("cancel-btn");
-const toast            = document.getElementById("toast");
+// 主题清单：id 与 themes.css 中 [data-theme="<id>"] 对应；i18nKey 用于显示名
+const THEMES = [
+  { id: "light",            i18nKey: "settings.theme.light" },
+  { id: "dark",             i18nKey: "settings.theme.dark" },
+  { id: "nord",             i18nKey: "settings.theme.nord" },
+  { id: "solarized-light",  i18nKey: "settings.theme.solarizedLight" },
+  { id: "rose",             i18nKey: "settings.theme.rose" },
+  { id: "midnight",         i18nKey: "settings.theme.midnight" },
+];
+let selectedTheme = "light";
 
-// ── 状态 ──────────────────────────────────────────────────────────────────────
-
-/** 从后端加载的原始配置（用于重置和对比变更） */
 let savedConfig = null;
-
-/** 是否处于快捷键录制模式 */
 let isRecording = false;
 
-// ── 初始化 ─────────────────────────────────────────────────────────────────────
+// 初始化
+function whenReady(fn) {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", fn);
+  } else {
+    fn();
+  }
+}
 
-document.addEventListener("DOMContentLoaded", async () => {
+whenReady(async () => {
   try {
-    savedConfig = await invoke("get_config");
+    savedConfig = await getConfig();
     fillForm(savedConfig);
-    applyTheme(savedConfig.theme || "light");
+    selectedTheme = savedConfig.theme || "light";
+    renderThemeGrid();
+    applyTheme(selectedTheme);
+    i18n.init(savedConfig.language || "auto");
   } catch (err) {
     console.error("加载配置失败:", err);
+    selectedTheme = "light";
+    renderThemeGrid();
+    i18n.init("auto");
   }
 });
 
-/**
- * 用配置值填充表单控件。
- * @param {AppConfig} config
- */
 function fillForm(config) {
   shortcutInput.value   = config.global_shortcut || "";
-  themeSelect.value     = config.theme || "light";
   maxHistoryInput.value = config.max_history ?? 100;
+  languageSelect.value  = config.language || "auto";
 }
 
-/**
- * 设置文档主题。
- * @param {string} theme
- */
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
 }
 
-// ── 主题实时预览 ───────────────────────────────────────────────────────────────
+/** 实时把主题持久化并广播，让主窗口同步刷新（无需点 Save）。 */
+async function persistTheme(theme) {
+  selectedTheme = theme;
+  applyTheme(theme);
+  if (!savedConfig) return;
+  const next = { ...savedConfig, theme };
+  try {
+    await updateConfig(next);
+    savedConfig = next;
+  } catch (err) {
+    console.warn("主题持久化失败:", err);
+  }
+}
 
-themeSelect.addEventListener("change", () => {
-  applyTheme(themeSelect.value);
+function renderThemeGrid() {
+  if (!themeGrid) return;
+  themeGrid.replaceChildren();
+  for (const theme of THEMES) {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "theme-card";
+    card.dataset.theme = theme.id;
+    card.setAttribute("role", "radio");
+    card.setAttribute("aria-checked", String(theme.id === selectedTheme));
+    if (theme.id === selectedTheme) card.classList.add("selected");
+
+    // 用嵌套 div 充当真实预览：内层应用 data-theme，复用 themes.css 变量
+    const preview = document.createElement("div");
+    preview.className = "theme-preview";
+    preview.dataset.theme = theme.id;
+    preview.innerHTML = `
+      <div class="tp-bar"></div>
+      <div class="tp-row"><span class="tp-dot"></span><span class="tp-line"></span></div>
+      <div class="tp-row tp-row-active"><span class="tp-dot tp-dot-accent"></span><span class="tp-line tp-line-strong"></span></div>
+      <div class="tp-row"><span class="tp-dot"></span><span class="tp-line tp-line-short"></span></div>
+    `;
+
+    const label = document.createElement("span");
+    label.className = "theme-name";
+    label.dataset.i18n = theme.i18nKey;
+    label.textContent = i18n.t(theme.i18nKey);
+
+    card.append(preview, label);
+    card.addEventListener("click", () => selectTheme(theme.id));
+    themeGrid.appendChild(card);
+  }
+}
+
+function selectTheme(theme) {
+  for (const card of themeGrid.querySelectorAll(".theme-card")) {
+    const isSel = card.dataset.theme === theme;
+    card.classList.toggle("selected", isSel);
+    card.setAttribute("aria-checked", String(isSel));
+  }
+  persistTheme(theme).catch(console.warn);
+}
+
+// 语言预览
+languageSelect.addEventListener("change", () => {
+  i18n.init(languageSelect.value);
+  renderThemeGrid();
+  if (isRecording) {
+    recordBtn.textContent = i18n.t("settings.shortcut.stop");
+  }
 });
 
-// ── 快捷键录制 ─────────────────────────────────────────────────────────────────
-
+// 快捷键录制
 recordBtn.addEventListener("click", () => {
-  if (isRecording) {
-    stopRecording();
-  } else {
-    startRecording();
-  }
+  isRecording ? stopRecording() : startRecording();
 });
 
 clearBtn.addEventListener("click", () => {
-  // 恢复到已保存的快捷键
-  if (savedConfig) {
-    shortcutInput.value = savedConfig.global_shortcut || "";
-  }
+  if (savedConfig) shortcutInput.value = savedConfig.global_shortcut || "";
   shortcutWarning.classList.add("hidden");
-  stopRecording();
+  if (isRecording) stopRecording().catch(console.warn);
 });
 
-function startRecording() {
+async function startRecording() {
   isRecording = true;
-  shortcutInput.value = "Press keys...";
+  try { await pauseShortcuts(); } catch (e) { console.warn(e); }
+  shortcutInput.value = i18n.t("settings.shortcut.recording");
   shortcutInput.classList.add("recording");
-  recordBtn.textContent = "Stop";
+  recordBtn.textContent = i18n.t("settings.shortcut.stop");
   shortcutWarning.classList.add("hidden");
-  document.addEventListener("keydown", onKeyDown);
+  // capture 阶段注册：在录制窗口拿到事件最早期的优先级，
+  // 防止冒泡阶段的其他监听器（或浏览器默认行为）抢先处理。
+  window.addEventListener("keydown", onKeyDown, { capture: true });
 }
 
-function stopRecording() {
+async function stopRecording() {
   isRecording = false;
   shortcutInput.classList.remove("recording");
-  recordBtn.textContent = "Record";
-  document.removeEventListener("keydown", onKeyDown);
-  // 如果用户没有按到有效组合，恢复原值
-  if (shortcutInput.value === "Press keys...") {
-    shortcutInput.value = savedConfig ? savedConfig.global_shortcut : "";
+  recordBtn.textContent = i18n.t("settings.shortcut.record");
+  window.removeEventListener("keydown", onKeyDown, { capture: true });
+  try { await resumeShortcuts(); } catch (e) { console.warn(e); }
+  if (shortcutInput.value === i18n.t("settings.shortcut.recording")) {
+    shortcutInput.value = savedConfig?.global_shortcut || "";
   }
 }
 
-/**
- * 将 keydown 事件转为 Tauri 快捷键格式字符串。
- * 格式示例："CmdOrCtrl+Shift+V"、"Alt+Space"、"Super+V"
- * @param {KeyboardEvent} e
- * @returns {string|null} — 仅修饰键按下时返回 null
- */
-function keyEventToShortcut(e) {
-  const modifiers = [];
-  if (e.ctrlKey)  modifiers.push("CmdOrCtrl");
-  if (e.altKey)   modifiers.push("Alt");
-  if (e.shiftKey) modifiers.push("Shift");
-  if (e.metaKey)  modifiers.push("Super");
+// 修饰键 / e.code → Tauri key 名映射现在在 ./shortcut-recorder.js
 
-  // 仅修饰键则忽略
-  const modifierKeys = ["Control", "Alt", "Shift", "Meta", "OS"];
-  if (modifierKeys.includes(e.key)) return null;
-
-  // 必须至少有一个修饰键
-  if (modifiers.length === 0) return null;
-
-  let key = e.key;
-  if (key === " ")          key = "Space";
-  else if (key.length === 1) key = key.toUpperCase();
-
-  return [...modifiers, key].join("+");
-}
-
-/**
- * keydown 事件处理：录制快捷键组合。
- * @param {KeyboardEvent} e
- */
 async function onKeyDown(e) {
+  // capture 阶段先吞掉默认行为和后续监听器
   e.preventDefault();
-  e.stopPropagation();
+  e.stopImmediatePropagation();
 
   const shortcut = keyEventToShortcut(e);
-  if (!shortcut) return; // 仅修饰键，继续等待
+  if (!shortcut) return;
 
   shortcutInput.value = shortcut;
-  stopRecording();
+  // setTimeout(0) 把清理推到下一个事件循环 tick，等当前 keydown 派发完成
+  // 后再注销监听器并恢复全局快捷键，避免与异步 IPC 重入。
+  setTimeout(() => { stopRecording().catch(console.warn); }, 0);
 
-  // 冲突检测
   try {
-    const conflict = await invoke("check_shortcut_conflict", { shortcut });
-    if (conflict) {
-      shortcutWarning.classList.remove("hidden");
-    } else {
-      shortcutWarning.classList.add("hidden");
-    }
-  } catch (err) {
-    console.warn("快捷键冲突检测失败:", err);
-  }
+    const conflict = await checkShortcutConflict(shortcut);
+    conflict ? shortcutWarning.classList.remove("hidden")
+             : shortcutWarning.classList.add("hidden");
+  } catch (err) { console.warn(err); }
 }
 
-// ── 保存 ───────────────────────────────────────────────────────────────────────
-
+// 保存
 saveBtn.addEventListener("click", async () => {
   const newShortcut   = shortcutInput.value.trim();
-  const newTheme      = themeSelect.value;
   const newMaxHistory = parseInt(maxHistoryInput.value, 10) || 0;
+  const newLanguage   = languageSelect.value;
 
   try {
-    // 如果快捷键有变动，先动态更新快捷键
-    if (savedConfig && newShortcut !== savedConfig.global_shortcut && newShortcut) {
-      await invoke("update_shortcut", { newShortcut });
+    if (savedConfig && newShortcut && newShortcut !== savedConfig.global_shortcut) {
+      await updateShortcut(newShortcut);
     }
 
-    // 构建完整配置并保存
     const newConfig = {
-      max_history:     newMaxHistory,
-      storage_mode:    savedConfig ? savedConfig.storage_mode : "persistent",
-      global_shortcut: newShortcut || (savedConfig ? savedConfig.global_shortcut : "Super+V"),
-      theme:           newTheme,
+      max_history: newMaxHistory,
+      storage_mode: savedConfig?.storage_mode || "persistent",
+      global_shortcut: newShortcut || savedConfig?.global_shortcut || "Super+V",
+      theme: selectedTheme,
+      language: newLanguage,
     };
 
-    await invoke("update_config", { newConfig });
-
-    // 更新本地已保存的配置快照
+    await updateConfig(newConfig);
     savedConfig = newConfig;
-
-    showToast("Settings saved!");
+    showToast(i18n.t("settings.saved"));
   } catch (err) {
-    console.error("保存配置失败:", err);
-    showToast("Save failed: " + err);
+    console.error("保存失败:", err);
+    showToast(i18n.t("settings.saveFailed", { error: err }));
   }
 });
 
-// ── 取消 ───────────────────────────────────────────────────────────────────────
-
+// 取消
 cancelBtn.addEventListener("click", async () => {
-  try {
-    // 使用 Tauri window API 关闭当前窗口
-    const { getCurrentWindow } = window.__TAURI__.window;
-    await getCurrentWindow().close();
-  } catch (err) {
-    // 回退：尝试通过 invoke 关闭
-    console.warn("关闭窗口失败:", err);
-  }
+  try { await getCurrentWindow().close(); } catch (e) { console.warn(e); }
 });
 
-// ── Toast 通知 ──────────────────────────────────────────────────────────────────
-
-/**
- * 显示底部通知条，自动在 2 秒后消失。
- * @param {string} message
- */
+// Toast
 function showToast(message) {
   toast.textContent = message;
   toast.classList.remove("hidden");
-  // 触发 reflow 以保证过渡动画生效
   void toast.offsetWidth;
   toast.classList.add("show");
-
   setTimeout(() => {
     toast.classList.remove("show");
-    // 等待淡出动画完成后再隐藏
-    setTimeout(() => {
-      toast.classList.add("hidden");
-    }, 300);
+    setTimeout(() => toast.classList.add("hidden"), 300);
   }, 2000);
 }

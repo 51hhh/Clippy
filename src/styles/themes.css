@@ -1,116 +1,218 @@
 /* ============================================================
-   themes.css — 四套主题的 CSS 自定义属性
-   用法：在 <html> 上设置 data-theme="light|dark|ocean|forest"
+   themes.css — 多套主题 CSS 自定义属性
+   用法：在 <html> 上设置 data-theme="<id>"
+   设计原则：
+     - 文本与背景对比度 ≥ 4.5:1（WCAG AA）
+     - 表面分层：bg-primary < bg-secondary < bg-hover < bg-active
+     - accent / accent-hover 与 bg-primary 至少 3:1，正按钮文字用 #fff/#0a0a0a
    ============================================================ */
 
-/* ---------- light（默认） ---------- */
+/* ---------- light（默认 · Linen） ---------- */
 [data-theme="light"] {
-  --bg-primary:           #ffffff;
-  --bg-secondary:         #f5f5f5;
-  --bg-hover:             #ebebeb;
-  --bg-active:            #e0ecf8;
+  --bg-primary:           #fbfbfd;
+  --bg-secondary:         #ffffff;
+  --bg-hover:             #f1f1f6;
+  --bg-active:            #e3ecfb;
 
-  --text-primary:         #1a1a1a;
-  --text-secondary:       #4a4a4a;
-  --text-muted:           #888888;
+  --surface-elevated:     #ffffff;
+  --control-bg:           #ffffff;
+  --control-border:       #d6d8dd;
 
-  --accent:               #4a90d9;
-  --accent-hover:         #2e78c9;
+  --text-primary:         #1c1d22;
+  --text-secondary:       #4f535d;
+  --text-muted:           #8b8f99;
+  --text-on-accent:       #ffffff;
 
-  --border:               #d8d8d8;
+  --accent:               #5b6cff;
+  --accent-hover:         #4453e0;
+  --accent-soft:          rgba(91, 108, 255, 0.14);
 
-  --danger:               #e05c5c;
-  --danger-hover:         #c94444;
+  --border:               #e5e7ec;
+  --border-strong:        #cdd0d8;
 
-  --favorite:             #f5a623;
+  --danger:               #d44a4a;
+  --danger-hover:         #b83b3b;
 
-  --scrollbar-thumb:      #cccccc;
-  --scrollbar-thumb-hover:#aaaaaa;
+  --favorite:             #f1a73a;
 
-  --overlay-bg:           rgba(0, 0, 0, 0.12);
-  --shadow:               0 2px 12px rgba(0, 0, 0, 0.12);
+  --scrollbar-thumb:      #c8ccd6;
+  --scrollbar-thumb-hover:#9ea4b3;
+
+  --overlay-bg:           rgba(0, 0, 0, 0.10);
+  --shadow:               0 6px 20px rgba(20, 24, 40, 0.08);
 }
 
-/* ---------- dark ---------- */
+/* ---------- dark（Graphite） ---------- */
 [data-theme="dark"] {
-  --bg-primary:           #1e1e1e;
-  --bg-secondary:         #2a2a2a;
-  --bg-hover:             #333333;
-  --bg-active:            #2a3a50;
+  --bg-primary:           #16181d;
+  --bg-secondary:         #1d2026;
+  --bg-hover:             #262a32;
+  --bg-active:            #2c3550;
 
-  --text-primary:         #e8e8e8;
-  --text-secondary:       #b0b0b0;
-  --text-muted:           #707070;
+  --surface-elevated:     #20232a;
+  --control-bg:           #1d2026;
+  --control-border:       #353944;
 
-  --accent:               #5b9fe6;
-  --accent-hover:         #4488d0;
+  --text-primary:         #ecedf1;
+  --text-secondary:       #b3b7c2;
+  --text-muted:           #777b87;
+  --text-on-accent:       #0a0a0a;
 
-  --border:               #3a3a3a;
+  --accent:               #8aa4ff;
+  --accent-hover:         #6f8aef;
+  --accent-soft:          rgba(138, 164, 255, 0.18);
 
-  --danger:               #e06060;
-  --danger-hover:         #c84848;
+  --border:               #2a2e37;
+  --border-strong:        #3b3f4a;
 
-  --favorite:             #f5a623;
+  --danger:               #f06464;
+  --danger-hover:         #d44d4d;
 
-  --scrollbar-thumb:      #4a4a4a;
-  --scrollbar-thumb-hover:#666666;
+  --favorite:             #f4c145;
 
-  --overlay-bg:           rgba(0, 0, 0, 0.40);
-  --shadow:               0 2px 16px rgba(0, 0, 0, 0.40);
+  --scrollbar-thumb:      #3a3f4a;
+  --scrollbar-thumb-hover:#52586a;
+
+  --overlay-bg:           rgba(0, 0, 0, 0.45);
+  --shadow:               0 8px 24px rgba(0, 0, 0, 0.45);
 }
 
-/* ---------- ocean ---------- */
-[data-theme="ocean"] {
-  --bg-primary:           #0d1b2a;
-  --bg-secondary:         #142233;
-  --bg-hover:             #1c2e42;
-  --bg-active:            #1a3a50;
+/* ---------- nord（冷色北欧） ---------- */
+[data-theme="nord"] {
+  --bg-primary:           #2e3440;
+  --bg-secondary:         #3b4252;
+  --bg-hover:             #434c5e;
+  --bg-active:            #4c566a;
 
-  --text-primary:         #d8eaf8;
-  --text-secondary:       #90b8d8;
-  --text-muted:           #5a7a98;
+  --surface-elevated:     #3b4252;
+  --control-bg:           #3b4252;
+  --control-border:       #4c566a;
 
-  --accent:               #48cae4;
-  --accent-hover:         #28b4d0;
+  --text-primary:         #eceff4;
+  --text-secondary:       #d8dee9;
+  --text-muted:           #9aa3b2;
+  --text-on-accent:       #1b1f27;
 
-  --border:               #1e3450;
+  --accent:               #88c0d0;
+  --accent-hover:         #6fb0c4;
+  --accent-soft:          rgba(136, 192, 208, 0.18);
 
-  --danger:               #e07070;
-  --danger-hover:         #c85858;
+  --border:               #434c5e;
+  --border-strong:        #4c566a;
 
-  --favorite:             #f4d03f;
+  --danger:               #bf616a;
+  --danger-hover:         #a85056;
 
-  --scrollbar-thumb:      #2a4a68;
-  --scrollbar-thumb-hover:#3a6080;
+  --favorite:             #ebcb8b;
 
-  --overlay-bg:           rgba(0, 0, 0, 0.50);
-  --shadow:               0 2px 16px rgba(0, 0, 0, 0.50);
+  --scrollbar-thumb:      #4c566a;
+  --scrollbar-thumb-hover:#5b6478;
+
+  --overlay-bg:           rgba(0, 0, 0, 0.45);
+  --shadow:               0 8px 24px rgba(8, 12, 24, 0.50);
 }
 
-/* ---------- forest ---------- */
-[data-theme="forest"] {
-  --bg-primary:           #1b2e1b;
-  --bg-secondary:         #223822;
-  --bg-hover:             #2c4a2c;
-  --bg-active:            #1e4030;
+/* ---------- solarized-light（暖色护眼） ---------- */
+[data-theme="solarized-light"] {
+  --bg-primary:           #fdf6e3;
+  --bg-secondary:         #f5eed0;
+  --bg-hover:             #ece5c2;
+  --bg-active:            #e0d8b0;
 
-  --text-primary:         #d8f0d8;
-  --text-secondary:       #90c890;
-  --text-muted:           #5a8a5a;
+  --surface-elevated:     #fffdf3;
+  --control-bg:           #fffdf3;
+  --control-border:       #d8d2b6;
 
-  --accent:               #52b788;
-  --accent-hover:         #3a9e74;
+  --text-primary:         #2a3a3f;
+  --text-secondary:       #586e75;
+  --text-muted:           #93a1a1;
+  --text-on-accent:       #ffffff;
 
-  --border:               #2c4a2c;
+  --accent:               #268bd2;
+  --accent-hover:         #1f74b1;
+  --accent-soft:          rgba(38, 139, 210, 0.16);
 
-  --danger:               #e07070;
-  --danger-hover:         #c85858;
+  --border:               #ddd5b6;
+  --border-strong:        #c9c0a0;
 
-  --favorite:             #f4d03f;
+  --danger:               #cb4b16;
+  --danger-hover:         #a83a10;
 
-  --scrollbar-thumb:      #3a5a3a;
-  --scrollbar-thumb-hover:#4e764e;
+  --favorite:             #b58900;
 
-  --overlay-bg:           rgba(0, 0, 0, 0.50);
-  --shadow:               0 2px 16px rgba(0, 0, 0, 0.50);
+  --scrollbar-thumb:      #c9c0a0;
+  --scrollbar-thumb-hover:#a89f80;
+
+  --overlay-bg:           rgba(35, 33, 28, 0.10);
+  --shadow:               0 6px 20px rgba(101, 90, 60, 0.16);
+}
+
+/* ---------- rose（柔粉） ---------- */
+[data-theme="rose"] {
+  --bg-primary:           #fff7f7;
+  --bg-secondary:         #ffeded;
+  --bg-hover:             #ffe0e2;
+  --bg-active:            #ffd3d8;
+
+  --surface-elevated:     #ffffff;
+  --control-bg:           #ffffff;
+  --control-border:       #f1ced0;
+
+  --text-primary:         #2a1a1f;
+  --text-secondary:       #6b4e54;
+  --text-muted:           #a78489;
+  --text-on-accent:       #ffffff;
+
+  --accent:               #d6336c;
+  --accent-hover:         #b62558;
+  --accent-soft:          rgba(214, 51, 108, 0.16);
+
+  --border:               #f4d3d6;
+  --border-strong:        #e8b6bb;
+
+  --danger:               #c1392b;
+  --danger-hover:         #9d2a1f;
+
+  --favorite:             #f59e0b;
+
+  --scrollbar-thumb:      #e8b6bb;
+  --scrollbar-thumb-hover:#d18a91;
+
+  --overlay-bg:           rgba(60, 20, 30, 0.10);
+  --shadow:               0 6px 20px rgba(120, 30, 60, 0.12);
+}
+
+/* ---------- midnight（深紫高对比） ---------- */
+[data-theme="midnight"] {
+  --bg-primary:           #14132b;
+  --bg-secondary:         #1c1b3a;
+  --bg-hover:             #25234d;
+  --bg-active:            #312f63;
+
+  --surface-elevated:     #1f1d44;
+  --control-bg:           #1c1b3a;
+  --control-border:       #353369;
+
+  --text-primary:         #f1ecff;
+  --text-secondary:       #c1bce3;
+  --text-muted:           #8b86b8;
+  --text-on-accent:       #0a0a0a;
+
+  --accent:               #c084fc;
+  --accent-hover:         #a368e0;
+  --accent-soft:          rgba(192, 132, 252, 0.20);
+
+  --border:               #2a2853;
+  --border-strong:        #3a376a;
+
+  --danger:               #f47272;
+  --danger-hover:         #d65656;
+
+  --favorite:             #facc15;
+
+  --scrollbar-thumb:      #3a376a;
+  --scrollbar-thumb-hover:#524e8b;
+
+  --overlay-bg:           rgba(0, 0, 0, 0.55);
+  --shadow:               0 10px 28px rgba(0, 0, 0, 0.55);
 }
