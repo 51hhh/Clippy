@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "identifier": "com.clippy.app",
   "build": {
-    "frontendDist": "../src"
+    "beforeBuildCommand": "cd ../src && npx vite build",
+    "frontendDist": "../dist"
   },
   "app": {
     "windows": [
@@ -16,7 +17,8 @@
         "decorations": false,
         "alwaysOnTop": true,
         "visible": false,
-        "center": true
+        "center": true,
+        "skipTaskbar": true
       }
     ],
     "security": {

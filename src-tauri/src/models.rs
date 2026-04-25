@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -56,6 +55,12 @@ pub struct AppConfig {
     pub storage_mode: String,
     pub global_shortcut: String,
     pub theme: String,
+    #[serde(default = "default_language")]
+    pub language: String,
+}
+
+fn default_language() -> String {
+    "auto".to_string()
 }
 
 impl Default for AppConfig {
@@ -65,6 +70,7 @@ impl Default for AppConfig {
             storage_mode: "persistent".to_string(),
             global_shortcut: "Super+V".to_string(),
             theme: "light".to_string(),
+            language: "auto".to_string(),
         }
     }
 }

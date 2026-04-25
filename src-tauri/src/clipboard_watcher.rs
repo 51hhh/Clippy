@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use crate::models::{AppConfig, ContentType};
 use crate::storage::StorageEngine;
 use arboard::Clipboard;
@@ -24,8 +23,10 @@ impl ClipboardWatcher {
 
     /// 让 watcher 跳过下一次检测到的指定哈希（由 select_clip 调用）
     pub fn set_skip_hash(&self, hash: String) {
-        let mut skip = self.skip_hash.lock().unwrap();
-        *skip = Some(hash);
+        match self.skip_hash.lock() {
+            Ok(mut skip) => *skip = Some(hash),
+            Err(e) => log::error!("剪贴板跳过哈希锁定失败: {}", e),
+        }
     }
 
     pub fn start(
@@ -37,7 +38,13 @@ impl ClipboardWatcher {
         let running = Arc::clone(&self.running);
         let skip_hash = Arc::clone(&self.skip_hash);
         {
-            let mut r = running.lock().unwrap();
+            let mut r = match running.lock() {
+                Ok(r) => r,
+                Err(e) => {
+                    log::error!("剪贴板监听器状态锁定失败: {}", e);
+                    return;
+                }
+            };
             if *r {
                 return;
             }
@@ -58,7 +65,13 @@ impl ClipboardWatcher {
 
             loop {
                 {
-                    let r = running.lock().unwrap();
+                    let r = match running.lock() {
+                        Ok(r) => r,
+                        Err(e) => {
+                            log::error!("剪贴板监听器状态锁定失败: {}", e);
+                            break;
+                        }
+                    };
                     if !*r {
                         break;
                     }
@@ -72,7 +85,13 @@ impl ClipboardWatcher {
 
                             // Fix #1: 跳过 select_clip 写入的内容
                             {
-                                let mut skip = skip_hash.lock().unwrap();
+                                let mut skip = match skip_hash.lock() {
+                                    Ok(skip) => skip,
+                                    Err(e) => {
+                                        log::error!("剪贴板跳过哈希锁定失败: {}", e);
+                                        break;
+                                    }
+                                };
                                 if skip.as_deref() == Some(&hash) {
                                     *skip = None;
                                     continue;
@@ -80,11 +99,23 @@ impl ClipboardWatcher {
                             }
 
                             // Fix #4: 先读取 config，再锁 storage，缩小锁范围
-                            let max_history = config.lock().unwrap().max_history;
+                            let max_history = match config.lock() {
+                                Ok(config) => config.max_history,
+                                Err(e) => {
+                                    log::error!("配置锁定失败: {}", e);
+                                    break;
+                                }
+                            };
                             let byte_size = text.len() as i64;
 
                             let result = {
-                                let storage = storage.lock().unwrap();
+                                let storage = match storage.lock() {
+                                    Ok(storage) => storage,
+                                    Err(e) => {
+                                        log::error!("存储锁定失败: {}", e);
+                                        break;
+                                    }
+                                };
                                 let clip_result = storage.insert_clip(
                                     &ContentType::Text,
                                     Some(&text),
@@ -122,11 +153,6 @@ impl ClipboardWatcher {
             }
             log::info!("剪贴板监听器已停止");
         });
-    }
-
-    pub fn stop(&self) {
-        let mut r = self.running.lock().unwrap();
-        *r = false;
     }
 }
 

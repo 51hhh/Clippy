@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use crate::models::AppConfig;
 use std::fs;
 use std::path::Path;
@@ -54,6 +53,7 @@ mod tests {
         assert_eq!(config.storage_mode, "persistent");
         assert_eq!(config.global_shortcut, "Super+V");
         assert_eq!(config.theme, "light");
+        assert_eq!(config.language, "auto");
     }
 
     #[test]

@@ -33,22 +33,21 @@ fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             "settings" => {
-                // 打开或聚焦设置窗口
+                // 打开或聚焦设置窗口（先销毁再重建，确保加载最新页面）
                 if let Some(window) = app_handle.get_webview_window("settings") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                } else {
-                    let _ = tauri::WebviewWindowBuilder::new(
-                        app_handle,
-                        "settings",
-                        tauri::WebviewUrl::App("settings.html".into()),
-                    )
-                    .title("Clippy Settings")
-                    .inner_size(500.0, 400.0)
-                    .center()
-                    .resizable(false)
-                    .build();
+                    let _ = window.close();
                 }
+                let _ = tauri::WebviewWindowBuilder::new(
+                    app_handle,
+                    "settings",
+                    tauri::WebviewUrl::App("settings.html".into()),
+                )
+                .title("Clippy Settings")
+                .inner_size(720.0, 560.0)
+                .min_inner_size(480.0, 400.0)
+                .center()
+                .resizable(true)
+                .build();
             }
             "quit" => {
                 app_handle.exit(0);
@@ -64,7 +63,11 @@ fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 fn register_shortcut(app: &tauri::App, shortcut: &str) -> Result<(), Box<dyn std::error::Error>> {
     let handle = app.handle().clone();
     app.global_shortcut()
-        .on_shortcut(shortcut, move |_app, _shortcut, _event| {
+        .on_shortcut(shortcut, move |_app, _shortcut, event| {
+            use tauri_plugin_global_shortcut::ShortcutState;
+            if event.state != ShortcutState::Pressed {
+                return;
+            }
             if let Some(window) = handle.get_webview_window("main") {
                 if window.is_visible().unwrap_or(false) {
                     let _ = window.hide();
@@ -124,9 +127,31 @@ pub fn run() {
             build_tray(app).expect("无法构建系统托盘");
 
             // ── 7. 注册全局快捷键（从配置读取）────────────────────────────────
-            register_shortcut(app, &app_config.global_shortcut).expect("无法注册全局快捷键");
+            if let Err(e) = register_shortcut(app, &app_config.global_shortcut) {
+                log::warn!("全局快捷键注册失败（可能已被占用）: {}", e);
+            }
 
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            match event {
+                tauri::WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
+                    // 主窗口：关闭时只隐藏，不退出（仅托盘 Quit 才真正退出）
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                tauri::WindowEvent::Focused(false) if window.label() == "main" => {
+                    // 仅主窗口：失焦后延迟隐藏（模拟浮动面板行为）
+                    let window = window.clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(200));
+                        if !window.is_focused().unwrap_or(true) {
+                            let _ = window.hide();
+                        }
+                    });
+                }
+                _ => {}
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_clips,
@@ -139,6 +164,8 @@ pub fn run() {
             commands::update_shortcut,
             commands::check_shortcut_conflict,
             commands::show_settings,
+            commands::pause_shortcuts,
+            commands::resume_shortcuts,
         ])
         .run(tauri::generate_context!())
         .expect("启动 Tauri 应用失败");
