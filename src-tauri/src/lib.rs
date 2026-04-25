@@ -64,24 +64,21 @@ fn build_tray(app: &tauri::App, theme: &str) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-/// 注册全局快捷键：从配置读取快捷键字符串，绑定切换主窗口可见性
+/// 全局快捷键回调：切换主窗口可见性。被 plugin 全局 handler 调用。
+fn toggle_main_window(handle: &tauri::AppHandle) {
+    if let Some(window) = handle.get_webview_window("main") {
+        if window.is_visible().unwrap_or(false) {
+            let _ = window.hide();
+        } else {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }
+}
+
+/// 注册全局快捷键：仅 register accelerator，回调由全局 handler 统一处理
 fn register_shortcut(app: &tauri::App, shortcut: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let handle = app.handle().clone();
-    app.global_shortcut()
-        .on_shortcut(shortcut, move |_app, _shortcut, event| {
-            use tauri_plugin_global_shortcut::ShortcutState;
-            if event.state != ShortcutState::Pressed {
-                return;
-            }
-            if let Some(window) = handle.get_webview_window("main") {
-                if window.is_visible().unwrap_or(false) {
-                    let _ = window.hide();
-                } else {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-            }
-        })?;
+    app.global_shortcut().register(shortcut)?;
     Ok(())
 }
 
@@ -90,7 +87,17 @@ pub fn run() {
     env_logger::init();
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    use tauri_plugin_global_shortcut::ShortcutState;
+                    if event.state != ShortcutState::Pressed {
+                        return;
+                    }
+                    toggle_main_window(app);
+                })
+                .build(),
+        )
         .setup(|app| {
             // ── 1. 确定数据目录 ──────────────────────────────────────────────
             let app_data_dir = app.path().app_data_dir().expect("无法获取应用数据目录");

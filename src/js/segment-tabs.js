@@ -38,7 +38,17 @@ export function refreshLabels() { render(); }
 function render() {
   if (!_root) return;
   _root.replaceChildren();
-  for (const mode of ["all", "favorites"]) {
+
+  // 顺序：[Favorites] [All]，与左 ←/A → favorites、右 →/D → all 对应
+  const order = ["favorites", "all"];
+
+  // 滑动指示条
+  const indicator = document.createElement("span");
+  indicator.className = "segment-indicator";
+  indicator.dataset.position = _mode === "favorites" ? "left" : "right";
+  _root.appendChild(indicator);
+
+  for (const mode of order) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "segment-tab" + (mode === _mode ? " active" : "");

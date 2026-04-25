@@ -196,10 +196,17 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background-color 0.12s ease, color 0.12s ease;
+  transition: background-color 0.12s ease, color 0.12s ease, width 0.18s ease, opacity 0.18s ease;
 }
 .clip-row-trigger:hover { background: var(--bg-hover); color: var(--text-primary); }
-.clip-row.expanded .clip-row-trigger { color: var(--accent); }
+.clip-row.expanded .clip-row-trigger {
+  /* 展开后隐藏 ⋯ 触发器，让按钮组占据其位置（点空白行/Esc 收回） */
+  width: 0;
+  margin-left: 0;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
 
 /* ---------- 空状态 ---------- */
 .empty-state {
@@ -220,17 +227,36 @@
 
 /* ---------- 底部 segment ---------- */
 .segment-tabs {
-  display: flex;
-  justify-content: center;
-  gap: 4px;
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
   padding: 6px 8px;
   border-top: 1px solid var(--border);
   background: var(--bg-secondary);
   flex-shrink: 0;
 }
+.segment-indicator {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  width: calc(50% - 8px);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  z-index: 0;
+  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  pointer-events: none;
+}
+.segment-indicator[data-position="left"]  { transform: translateX(8px); }
+.segment-indicator[data-position="right"] { transform: translateX(calc(100% + 8px)); }
+
 .segment-tab {
+  position: relative;
+  z-index: 1;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   padding: 4px 12px;
   border-radius: 999px;
@@ -240,13 +266,10 @@
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 0.12s ease, color 0.12s ease;
+  transition: color 0.18s ease;
 }
 .segment-tab:hover { color: var(--text-primary); }
-.segment-tab.active {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
+.segment-tab.active { color: var(--accent); }
 .segment-tab-count {
   font-size: 11px;
   color: var(--text-muted);

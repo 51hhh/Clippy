@@ -114,40 +114,20 @@ pub fn update_config(
 }
 
 /// 动态更新全局快捷键：注销旧快捷键，注册新快捷键，并持久化到配置
+/// 回调由 plugin 全局 handler 处理（lib.rs::toggle_main_window）。
 #[tauri::command]
 pub fn update_shortcut(
     new_shortcut: String,
     app_handle: tauri::AppHandle,
     state: State<AppState>,
 ) -> Result<(), String> {
-    use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
-    // 注销所有已注册的快捷键
-    app_handle
-        .global_shortcut()
-        .unregister_all()
+    let gs = app_handle.global_shortcut();
+    gs.unregister_all().map_err(|e| e.to_string())?;
+    gs.register(new_shortcut.as_str())
         .map_err(|e| e.to_string())?;
 
-    // 注册新快捷键（切换主窗口可见性）
-    let handle = app_handle.clone();
-    app_handle
-        .global_shortcut()
-        .on_shortcut(new_shortcut.as_str(), move |_app, _shortcut, event| {
-            if event.state != ShortcutState::Pressed {
-                return;
-            }
-            if let Some(window) = handle.get_webview_window("main") {
-                if window.is_visible().unwrap_or(false) {
-                    let _ = window.hide();
-                } else {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-            }
-        })
-        .map_err(|e| e.to_string())?;
-
-    // 更新配置并持久化
     let mut config = state.config.lock().map_err(|e| e.to_string())?;
     config.global_shortcut = new_shortcut;
     save_config(&state.config_path, &config);
@@ -204,26 +184,13 @@ pub fn resume_shortcuts(
     app_handle: tauri::AppHandle,
     state: State<AppState>,
 ) -> Result<(), String> {
-    use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
-    let config = state.config.lock().map_err(|e| e.to_string())?;
-    let shortcut_str = config.global_shortcut.clone();
-    drop(config);
-
-    let handle = app_handle.clone();
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    let shortcut_str = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        config.global_shortcut.clone()
+    };
     app_handle
         .global_shortcut()
-        .on_shortcut(shortcut_str.as_str(), move |_app, _shortcut, event| {
-            if event.state != ShortcutState::Pressed {
-                return;
-            }
-            if let Some(window) = handle.get_webview_window("main") {
-                if window.is_visible().unwrap_or(false) {
-                    let _ = window.hide();
-                } else {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-            }
-        })
+        .register(shortcut_str.as_str())
         .map_err(|e| e.to_string())
 }
