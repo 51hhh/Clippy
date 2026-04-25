@@ -1,94 +1,76 @@
 /**
  * api.js — Tauri IPC 封装层
- * 这是唯一允许直接访问 window.__TAURI__ 的模块。
+ * 唯一允许直接访问 Tauri API 的模块。
  */
 
-// Tauri v2 JS API 入口
-const { invoke } = window.__TAURI__.core;
-const { listen }  = window.__TAURI__.event;
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
-// ── IPC 命令 ────────────────────────────────────────────────────────────────
-
-/**
- * 查询剪贴板条目列表。
- * @param {string|null} query        — 搜索关键词（null 表示不过滤）
- * @param {boolean}     favoritesOnly — 是否只返回收藏
- * @param {number}      offset        — 分页偏移
- * @param {number}      limit         — 每页条数
- * @returns {Promise<ClipItem[]>}
- */
+/** 剪贴板列表 */
 export function getClips(query = null, favoritesOnly = false, offset = 0, limit = 20) {
   return invoke("get_clips", { query, favoritesOnly, offset, limit });
 }
 
-/**
- * 删除指定条目。
- * @param {number} id
- * @returns {Promise<void>}
- */
+/** 删除条目 */
 export function deleteClip(id) {
   return invoke("delete_clip", { id });
 }
 
-/**
- * 切换收藏状态。
- * @param {number} id
- * @returns {Promise<boolean>} — 切换后的新状态
- */
+/** 切换收藏 */
 export function toggleFavorite(id) {
   return invoke("toggle_favorite", { id });
 }
 
-/**
- * 清空历史（保留收藏）。
- * @returns {Promise<void>}
- */
+/** 清空历史 */
 export function clearHistory() {
   return invoke("clear_history");
 }
 
-/**
- * 选中条目：写入系统剪贴板并隐藏窗口。
- * @param {number} id
- * @returns {Promise<void>}
- */
+/** 选中条目并写入系统剪贴板 */
 export function selectClip(id) {
   return invoke("select_clip", { id });
 }
 
-/**
- * 读取应用配置。
- * @returns {Promise<AppConfig>}
- */
+/** 读取配置 */
 export function getConfig() {
   return invoke("get_config");
 }
 
-/**
- * 保存应用配置。
- * @param {AppConfig} newConfig
- * @returns {Promise<void>}
- */
+/** 保存配置 */
 export function updateConfig(newConfig) {
   return invoke("update_config", { newConfig });
 }
 
-// ── 事件订阅 ─────────────────────────────────────────────────────────────────
+/** 更新全局快捷键 */
+export function updateShortcut(newShortcut) {
+  return invoke("update_shortcut", { newShortcut });
+}
 
-/**
- * 订阅"新条目已添加"事件。
- * @param {function(ClipItem): void} callback
- * @returns {Promise<UnlistenFn>}
- */
+/** 检查快捷键冲突 */
+export function checkShortcutConflict(shortcut) {
+  return invoke("check_shortcut_conflict", { shortcut });
+}
+
+/** 暂停全局快捷键 */
+export function pauseShortcuts() {
+  return invoke("pause_shortcuts");
+}
+
+/** 恢复全局快捷键 */
+export function resumeShortcuts() {
+  return invoke("resume_shortcuts");
+}
+
+// ── 事件 ──
+
 export function onClipAdded(callback) {
   return listen("clip-added", (event) => callback(event.payload));
 }
 
-/**
- * 订阅"条目已删除"事件。
- * @param {function(number): void} callback — payload 为被删除条目的 id
- * @returns {Promise<UnlistenFn>}
- */
 export function onClipRemoved(callback) {
   return listen("clip-removed", (event) => callback(event.payload));
+}
+
+export function onConfigChanged(callback) {
+  return listen("config-changed", (event) => callback(event.payload));
 }

@@ -10,41 +10,53 @@
 </head>
 <body>
   <div class="settings-container">
-    <h1 class="settings-title">Settings</h1>
+    <h1 class="settings-title" data-i18n="settings.title">Settings</h1>
 
     <div class="setting-group">
-      <label class="setting-label">Global Shortcut</label>
+      <label class="setting-label" data-i18n="settings.shortcut.label">Global Shortcut</label>
       <div class="shortcut-recorder" id="shortcut-recorder">
-        <input type="text" class="shortcut-input" id="shortcut-input" readonly placeholder="Click to record...">
-        <button class="btn btn-small" id="shortcut-record-btn">Record</button>
-        <button class="btn btn-small btn-secondary" id="shortcut-clear-btn">Reset</button>
+        <input type="text" class="shortcut-input" id="shortcut-input" readonly
+               data-i18n="settings.shortcut.placeholder" data-i18n-attr="placeholder"
+               placeholder="Click Record to set...">
+        <button class="btn btn-small" id="shortcut-record-btn"
+                data-i18n="settings.shortcut.record">Record</button>
+        <button class="btn btn-small btn-secondary" id="shortcut-clear-btn"
+                data-i18n="settings.shortcut.reset">Reset</button>
       </div>
-      <div class="setting-hint" id="shortcut-hint">Click "Record" then press your desired key combination</div>
-      <div class="setting-warning hidden" id="shortcut-warning">This shortcut may conflict with an existing shortcut</div>
+      <div class="setting-hint" id="shortcut-hint"
+           data-i18n="settings.shortcut.hint">Click "Record" then press your desired key combination</div>
+      <div class="setting-warning hidden" id="shortcut-warning"
+           data-i18n="settings.shortcut.conflict">This shortcut may conflict with an existing shortcut</div>
     </div>
 
     <div class="setting-group">
-      <label class="setting-label" for="theme-select">Theme</label>
-      <select class="setting-select" id="theme-select">
-        <option value="light">Light</option>
-        <option value="dark">Dark</option>
-        <option value="ocean">Ocean</option>
-        <option value="forest">Forest</option>
+      <label class="setting-label" data-i18n="settings.theme.label">Theme</label>
+      <div class="theme-grid" id="theme-grid" role="radiogroup" aria-label="Theme"></div>
+    </div>
+
+    <div class="setting-group">
+      <label class="setting-label" for="max-history-input"
+             data-i18n="settings.history.label">History Limit</label>
+      <input type="number" class="setting-input" id="max-history-input" min="0" max="10000" step="10">
+      <div class="setting-hint" data-i18n="settings.history.hint">0 = unlimited. Favorites are never deleted.</div>
+    </div>
+
+    <div class="setting-group">
+      <label class="setting-label" for="language-select"
+             data-i18n="settings.language.label">Language</label>
+      <select class="setting-select" id="language-select">
+        <option value="auto" data-i18n="settings.language.auto">Auto</option>
+        <option value="en" data-i18n="settings.language.en">English</option>
+        <option value="zh-CN" data-i18n="settings.language.zhCN">中文</option>
       </select>
     </div>
 
-    <div class="setting-group">
-      <label class="setting-label" for="max-history-input">History Limit</label>
-      <input type="number" class="setting-input" id="max-history-input" min="0" max="10000" step="10">
-      <div class="setting-hint">0 = unlimited. Favorites are never deleted.</div>
-    </div>
-
     <div class="settings-actions">
-      <button class="btn btn-primary" id="save-btn">Save</button>
-      <button class="btn btn-secondary" id="cancel-btn">Cancel</button>
+      <button class="btn btn-primary" id="save-btn" data-i18n="settings.save">Save</button>
+      <button class="btn btn-secondary" id="cancel-btn" data-i18n="settings.cancel">Cancel</button>
     </div>
 
-    <div class="toast hidden" id="toast">Settings saved!</div>
+    <div class="toast hidden" id="toast"></div>
   </div>
 
   <script type="module" src="js/settings.js"></script>
