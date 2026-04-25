@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Clippy 是跨平台轻量剪贴板管理器，基于 Tauri v2 + Rust（后端）+ vanilla HTML/CSS/JS（前端）。详细设计见 `docs/superpowers/specs/2026-04-24-clippy-clipboard-manager-design.md`。
 
-当前阶段为 **MVP**：实现剪贴板监听、SQLite 存储（含 FTS5 全文搜索）、悬浮面板、搜索。系统托盘、开机自启、设置面板留到后续迭代。
+已完成功能：剪贴板监听、SQLite 存储（含 FTS5 全文搜索）、悬浮面板、搜索、系统托盘、全局快捷键动态注册、设置面板（快捷键录制 + 主题切换 + 历史上限）。
 
 ## 开发环境搭建（Ubuntu）
 
@@ -55,27 +55,64 @@ cd src-tauri && cargo clippy -- -D warnings
 ## 架构概览
 
 ```
-Tauri IPC
-前端 (src/)  ←────────→  Rust 后端 (src-tauri/src/)
-index.html                  main.rs              — Tauri 入口，注册命令和插件
-styles.css                  clipboard_watcher.rs — 独立线程轮询剪贴板（arboard）
-main.js                     storage.rs           — SQLite + FTS5 存储引擎
-                            config.rs            — JSON 配置读写
-                            commands.rs          — Tauri IPC 命令定义
-                            models.rs            — 数据结构（ClipItem 等）
+前端 (src/)                          Rust 后端 (src-tauri/src/)
+├── index.html                       ├── main.rs              — 入口（调用 lib::run）
+├── settings.html                    ├── lib.rs               — Tauri 初始化：插件、托盘、快捷键、状态管理
+├── js/                              ├── commands.rs          — Tauri IPC 命令（10 个 #[tauri::command]）
+│   ├── api.js  — IPC 封装层         ├── clipboard_watcher.rs — 独立线程轮询剪贴板（arboard, 500ms）
+│   ├── app.js  — 主窗口入口         ├── storage.rs           — SQLite + FTS5 存储引擎
+│   ├── clipboard-list.js            ├── config.rs            — JSON 配置读写
+│   ├── search.js                    └── models.rs            — ClipItem, AppConfig, ContentType
+│   ├── settings.js
+│   └── theme.js
+└── styles/
+    ├── base.css
+    ├── components.css
+    ├── settings.css
+    └── themes.css
 ```
 
-**数据流**：ClipboardWatcher 线程轮询剪贴板 → 内容哈希去重 → 写入 SQLite → 通过 `app.emit("clip-added")` 通知前端刷新。
+### 数据流
 
-**前端无框架**：纯 HTML/CSS/JS，通过 `window.__TAURI__` 调用后端 IPC 命令，监听 Tauri 事件更新 UI。
+1. `ClipboardWatcher` 独立线程每 500ms 轮询系统剪贴板（arboard）
+2. SHA-256 哈希去重 → 重复内容只更新 `created_at` 置顶
+3. 写入 SQLite `clips` 表 + 同步 `clips_fts` FTS5 虚拟表
+4. `app.emit("clip-added")` / `app.emit("clip-removed")` 通知前端
+5. 前端 `api.js` 监听事件 → `clipboard-list.js` 增量更新 DOM
+
+### 反向写入（select_clip）
+
+用户选中条目 → 写入系统剪贴板 → 通过 `skip_hash` 机制让 watcher 跳过此次变更，避免重复存储。
+
+### 窗口管理
+
+- **main** 窗口：无边框悬浮面板（380×500），`visible: false` 启动，全局快捷键切换显隐
+- **settings** 窗口：按需创建（从托盘菜单或 IPC `show_settings` 命令），不在 `tauri.conf.json` 中预声明
+
+### 共享状态
+
+`AppState` 通过 `app.manage()` 注入，包含：
+- `storage: Arc<Mutex<StorageEngine>>` — 剪贴板数据库
+- `config: Arc<Mutex<AppConfig>>` — 运行时配置
+- `config_path: PathBuf` — 配置文件路径
+- `watcher: ClipboardWatcher` — 持有监听器生命周期
+
+### 前端约定
+
+- 无框架，纯 HTML/CSS/JS + ES Module `<script type="module">`
+- **只有 `api.js` 允许直接访问 `window.__TAURI__`**，其他模块通过 `api.js` 导出函数间接调用
+- 所有用户内容通过 `textContent` 写入 DOM（防 XSS），不使用 `innerHTML`
+- 设置页面（`settings.js`）是例外：独立于主窗口，直接调用 `invoke`
 
 ## 关键设计约束
 
 - 剪贴板监听采用轮询（~500ms），不使用系统通知机制
 - 内容去重基于 SHA-256 哈希（`content_hash` 字段 UNIQUE 约束）
-- 收藏条目不受历史上限清理影响
-- SQLite 数据库位于 Tauri app data 目录，支持切换为内存模式
-- v1 前端仅英文 UI
+- 收藏条目不受历史上限清理影响（`cleanup_old_entries` 跳过 `is_favorite = 1`）
+- SQLite 数据库位于 Tauri app data 目录，`config.storage_mode` 可切换为 `"memory"`
+- FTS 索引需手动同步：插入时同步写 `clips_fts`，删除时用 FTS5 `'delete'` 命令清理
+- 构建目标仅 Linux（deb, appimage），`tauri.conf.json` 中无 macOS/Windows bundle 配置
+- 前端静态文件直接由 Tauri 加载（`frontendDist: "../src"`），无打包工具
 
 ## 语言约定
 
