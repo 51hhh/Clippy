@@ -3,14 +3,15 @@ mod commands;
 mod config;
 mod models;
 mod storage;
+mod tray_icon;
 
 use commands::AppState;
 use std::sync::{Arc, Mutex};
-use tauri::Manager;
+use tauri::{Listener, Manager};
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 /// 构建系统托盘：左键点击弹出菜单，包含 Open Clipboard / Settings / Quit
-fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+fn build_tray(app: &tauri::App, theme: &str) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::{Menu, MenuItem};
     use tauri::tray::TrayIconBuilder;
 
@@ -20,8 +21,12 @@ fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     let menu = Menu::with_items(app, &[&open_item, &settings_item, &quit_item])?;
 
-    TrayIconBuilder::new()
-        .icon(app.default_window_icon().expect("缺少默认窗口图标").clone())
+    // 优先使用按主题渲染的图标；失败回退到默认窗口图标
+    let icon = tray_icon::render_themed_tray_icon(theme)
+        .unwrap_or_else(|| app.default_window_icon().expect("缺少默认窗口图标").clone());
+
+    TrayIconBuilder::with_id("main")
+        .icon(icon)
         .menu(&menu)
         .show_menu_on_left_click(true)
         .tooltip("Clippy")
@@ -124,7 +129,32 @@ pub fn run() {
             });
 
             // ── 6. 构建系统托盘 ──────────────────────────────────────────────
-            build_tray(app).expect("无法构建系统托盘");
+            build_tray(app, &app_config.theme).expect("无法构建系统托盘");
+
+            // ── 6b. 监听 config-changed，主题变更时刷新托盘图标 ──────────────
+            let handle = app.handle().clone();
+            app.listen("config-changed", move |event| {
+                #[derive(serde::Deserialize)]
+                struct Payload {
+                    theme: String,
+                }
+                let theme = match serde_json::from_str::<Payload>(event.payload()) {
+                    Ok(p) => p.theme,
+                    Err(e) => {
+                        log::warn!("config-changed payload 解析失败: {}", e);
+                        return;
+                    }
+                };
+                let Some(tray) = handle.tray_by_id("main") else {
+                    log::warn!("找不到托盘 id=main，跳过主题刷新");
+                    return;
+                };
+                if let Some(icon) = tray_icon::render_themed_tray_icon(&theme) {
+                    if let Err(e) = tray.set_icon(Some(icon)) {
+                        log::warn!("托盘图标刷新失败: {}", e);
+                    }
+                }
+            });
 
             // ── 7. 注册全局快捷键（从配置读取）────────────────────────────────
             if let Err(e) = register_shortcut(app, &app_config.global_shortcut) {
