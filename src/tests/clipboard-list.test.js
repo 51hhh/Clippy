@@ -11,35 +11,39 @@ vi.mock("../js/api.js", () => ({
 import * as api from "../js/api.js";
 import * as clipboardList from "../js/clipboard-list.js";
 
-function makeClip(overrides = {}) {
+function clip(o = {}) {
   return {
-    id: 1,
-    text_content: "hello world",
-    is_favorite: false,
-    byte_size: 11,
-    created_at: Math.floor(Date.now() / 1000),
-    ...overrides,
+    id: 1, text_content: "hello", is_favorite: false,
+    byte_size: 5, created_at: Math.floor(Date.now() / 1000),
+    content_type: "text", ...o,
   };
 }
 
-describe("clipboard-list 渲染", () => {
-  let parent;
-  let emptyState;
-  let events;
+let counts;
+let summons;
 
+function setup() {
+  document.body.innerHTML = `
+    <main id="clip-list"></main>
+    <div id="empty-state" hidden><span id="empty-state-text"></span></div>
+  `;
+  const listEl = document.getElementById("clip-list");
+  const emptyEl = document.getElementById("empty-state");
+  counts = [];
+  summons = [];
+  clipboardList.__test__.reset();
+  clipboardList.init({
+    listEl,
+    emptyEl,
+    onCountsChange: (c) => counts.push(c),
+    onSummonSearch: (s) => summons.push(s),
+  });
+}
+
+describe("clipboard-list 状态机", () => {
   beforeEach(() => {
-    document.body.innerHTML = `
-      <div id="clip-list"></div>
-      <div id="empty-state" class="hidden"></div>
-    `;
-    parent = document.getElementById("clip-list");
-    emptyState = document.getElementById("empty-state");
-    clipboardList.init(parent, emptyState);
-
-    events = [];
-    telemetry.enable({ bufferLimit: 50 });
-    telemetry.subscribe((rec) => events.push(rec));
-
+    setup();
+    telemetry.disable();
     api.getClips.mockReset();
     api.toggleFavorite.mockReset();
     api.selectClip.mockReset();
@@ -47,85 +51,145 @@ describe("clipboard-list 渲染", () => {
   });
 
   afterEach(() => {
-    telemetry.disable();
+    clipboardList.__test__.reset();
   });
 
-  it("正常列表渲染为安全 textContent，并发出 telemetry", async () => {
-    const malicious = '<img src=x onerror="alert(1)">';
-    api.getClips.mockResolvedValueOnce([
-      makeClip({ id: 1, text_content: malicious }),
-      makeClip({ id: 2, text_content: "normal", is_favorite: true }),
-    ]);
-
+  it("默认 init 后 focusedRow=0、counts 上报", async () => {
+    api.getClips.mockResolvedValueOnce([clip({ id: 1 }), clip({ id: 2, is_favorite: true })]);
     await clipboardList.refresh();
-
-    const items = parent.querySelectorAll(".clip-item");
-    expect(items.length).toBe(2);
-
-    const previewEl = items[0].querySelector(".clip-preview");
-    expect(previewEl.textContent).toBe(malicious);
-    expect(previewEl.querySelector("img")).toBeNull();
-    expect(parent.querySelectorAll("img").length).toBe(0);
-
-    expect(items[1].classList.contains("favorite")).toBe(true);
-    expect(items[1].querySelector(".clip-star").textContent).toBe("★");
-
-    const refreshEvt = events.find((e) => e.event === "clip-list:refresh");
-    expect(refreshEvt).toBeTruthy();
-    expect(refreshEvt.payload.count).toBe(2);
-
-    const renderEvt = events.find((e) => e.event === "clip-list:render");
-    expect(renderEvt.payload).toEqual({ count: 2, empty: false });
+    const s = clipboardList.__test__.state();
+    expect(s.focusedRow).toBe(0);
+    expect(s.focusedCol).toBe(-1);
+    expect(s.expandedRow).toBeNull();
+    expect(counts.at(-1)).toEqual({ all: 2, favorites: 1 });
   });
 
-  it("空列表显示 empty-state 并发出 empty=true", async () => {
-    api.getClips.mockResolvedValueOnce([]);
+  it("第一行按 ↑ 召唤搜索", async () => {
+    api.getClips.mockResolvedValueOnce([clip({ id: 1 }), clip({ id: 2 })]);
     await clipboardList.refresh();
-
-    expect(parent.classList.contains("hidden")).toBe(true);
-    expect(emptyState.classList.contains("hidden")).toBe(false);
-
-    const renderEvt = events.find((e) => e.event === "clip-list:render");
-    expect(renderEvt.payload).toEqual({ count: 0, empty: true });
+    clipboardList.moveRow(-1);
+    expect(summons).toContain("keyboard");
   });
 
-  it("查询失败时清空列表并报错事件", async () => {
-    api.getClips.mockRejectedValueOnce(new Error("boom"));
+  it("↓ 移行；不溢出", async () => {
+    api.getClips.mockResolvedValueOnce([clip({ id: 1 }), clip({ id: 2 })]);
     await clipboardList.refresh();
-
-    expect(parent.querySelectorAll(".clip-item").length).toBe(0);
-    const errEvt = events.find((e) => e.event === "clip-list:refresh-error");
-    expect(errEvt).toBeTruthy();
-    expect(errEvt.payload.message).toContain("boom");
+    clipboardList.moveRow(1);
+    expect(clipboardList.__test__.state().focusedRow).toBe(1);
+    clipboardList.moveRow(1);
+    expect(clipboardList.__test__.state().focusedRow).toBe(1);
   });
 
-  it("点击星标走 toggleFavorite + 重新拉取", async () => {
-    api.getClips.mockResolvedValue([makeClip({ id: 7 })]);
+  it("expandRowActions → 行进入按钮区，focusedCol=0", async () => {
+    api.getClips.mockResolvedValueOnce([clip({ id: 1 })]);
+    await clipboardList.refresh();
+    clipboardList.expandRowActions();
+    const s = clipboardList.__test__.state();
+    expect(s.expandedRow).toBe(1);
+    expect(s.focusedCol).toBe(0);
+  });
+
+  it("按钮区最左再 ← 收回", async () => {
+    api.getClips.mockResolvedValueOnce([clip({ id: 1 })]);
+    await clipboardList.refresh();
+    clipboardList.expandRowActions();
+    clipboardList.moveCol(-1);
+    expect(clipboardList.__test__.state().expandedRow).toBeNull();
+    expect(clipboardList.__test__.state().focusedCol).toBe(-1);
+  });
+
+  it("按钮间右移最大到 2", async () => {
+    api.getClips.mockResolvedValueOnce([clip({ id: 1 })]);
+    await clipboardList.refresh();
+    clipboardList.expandRowActions();
+    clipboardList.moveCol(1);
+    expect(clipboardList.__test__.state().focusedCol).toBe(1);
+    clipboardList.moveCol(1);
+    expect(clipboardList.__test__.state().focusedCol).toBe(2);
+    clipboardList.moveCol(1);
+    expect(clipboardList.__test__.state().focusedCol).toBe(2);
+  });
+
+  it("activateFocus 在行体 = selectClip", async () => {
+    api.getClips.mockResolvedValueOnce([clip({ id: 7 })]);
+    api.selectClip.mockResolvedValue(undefined);
+    await clipboardList.refresh();
+    await clipboardList.activateFocus("keyboard");
+    expect(api.selectClip).toHaveBeenCalledWith(7);
+  });
+
+  it("activateFocus 在按钮 0 = selectClip；在按钮 1 = toggleFavorite", async () => {
+    api.getClips.mockResolvedValue([clip({ id: 9 })]);
+    api.selectClip.mockResolvedValue(undefined);
     api.toggleFavorite.mockResolvedValue(true);
 
     await clipboardList.refresh();
-    api.getClips.mockClear();
+    clipboardList.expandRowActions(); // focusedCol=0
+    await clipboardList.activateFocus("keyboard");
+    expect(api.selectClip).toHaveBeenCalledWith(9);
 
-    const star = parent.querySelector(".clip-star");
-    star.click();
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(api.toggleFavorite).toHaveBeenCalledWith(7);
-    expect(api.getClips).toHaveBeenCalled();
-    expect(api.selectClip).not.toHaveBeenCalled();
+    clipboardList.moveCol(1); // focusedCol=1
+    await clipboardList.activateFocus("keyboard");
+    expect(api.toggleFavorite).toHaveBeenCalledWith(9);
   });
 
-  it("点击非星区域走 selectClip", async () => {
-    api.getClips.mockResolvedValueOnce([makeClip({ id: 9 })]);
-    api.selectClip.mockResolvedValue(undefined);
-
+  it("删除二次确认：第一次按 ✕ 不调 deleteClip；第二次才调", async () => {
+    api.getClips.mockResolvedValue([clip({ id: 5 })]);
+    api.deleteClip.mockResolvedValue(undefined);
     await clipboardList.refresh();
+    clipboardList.expandRowActions();
+    clipboardList.moveCol(1);
+    clipboardList.moveCol(1); // focusedCol=2 (delete)
 
-    const preview = parent.querySelector(".clip-preview");
-    preview.click();
+    await clipboardList.activateFocus("keyboard");
+    expect(api.deleteClip).not.toHaveBeenCalled();
+    expect(clipboardList.__test__.state().deletePending).not.toBeNull();
+
+    await clipboardList.activateFocus("keyboard");
+    expect(api.deleteClip).toHaveBeenCalledWith(5);
+  });
+
+  it("setPanelMode favorites 时只展示收藏", async () => {
+    api.getClips.mockResolvedValue([
+      clip({ id: 1, is_favorite: false }),
+      clip({ id: 2, is_favorite: true }),
+    ]);
+    await clipboardList.refresh();
+    clipboardList.setPanelMode("favorites");
+    const rows = document.querySelectorAll(".clip-row");
+    expect(rows.length).toBe(1);
+    expect(rows[0].dataset.id).toBe("2");
+  });
+
+  it("空列表显示 empty-state", async () => {
+    api.getClips.mockResolvedValueOnce([]);
+    await clipboardList.refresh();
+    expect(document.getElementById("empty-state").hidden).toBe(false);
+  });
+
+  it("行点击 = 复制并触发 selectClip", async () => {
+    api.getClips.mockResolvedValueOnce([clip({ id: 11 })]);
+    api.selectClip.mockResolvedValue(undefined);
+    await clipboardList.refresh();
+    document.querySelector(".clip-row").click();
     await new Promise((r) => setTimeout(r, 0));
+    expect(api.selectClip).toHaveBeenCalledWith(11);
+  });
 
-    expect(api.selectClip).toHaveBeenCalledWith(9);
-    expect(api.toggleFavorite).not.toHaveBeenCalled();
+  it("点 ⋯ 触发器展开按钮组", async () => {
+    api.getClips.mockResolvedValueOnce([clip({ id: 13 })]);
+    await clipboardList.refresh();
+    document.querySelector(".clip-row-trigger").click();
+    expect(clipboardList.__test__.state().expandedRow).toBe(13);
+  });
+
+  it("canExpandHere/hasExpanded 切换", async () => {
+    api.getClips.mockResolvedValueOnce([clip({ id: 1 })]);
+    await clipboardList.refresh();
+    expect(clipboardList.canExpandHere()).toBe(true);
+    expect(clipboardList.hasExpanded()).toBe(false);
+    clipboardList.expandRowActions();
+    expect(clipboardList.canExpandHere()).toBe(false);
+    expect(clipboardList.hasExpanded()).toBe(true);
   });
 });
