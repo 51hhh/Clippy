@@ -24,7 +24,7 @@
   max-height: 0;
   opacity: 0;
   overflow: hidden;
-  transition: max-height 0.2s ease, opacity 0.2s ease, padding 0.2s ease;
+  transition: max-height var(--transition-normal) ease, opacity var(--transition-normal) ease, padding var(--transition-normal) ease;
   flex-shrink: 0;
 }
 .search-bar[hidden] { display: none !important; }
@@ -74,7 +74,7 @@
   gap: 8px;
   padding: 10px 12px 10px 16px;
   cursor: pointer;
-  transition: background-color 0.12s ease;
+  transition: background-color var(--transition-fast) ease;
   border-bottom: 1px solid var(--border);
 }
 .clip-row:last-child { border-bottom: none; }
@@ -87,7 +87,7 @@
   width: 3px;
   border-radius: 0 2px 2px 0;
   background: transparent;
-  transition: background-color 0.12s ease;
+  transition: background-color var(--transition-fast) ease;
 }
 .clip-row.focused {
   background-color: var(--bg-hover);
@@ -139,7 +139,7 @@
   max-width: 0;
   opacity: 0;
   overflow: hidden;
-  transition: max-width 0.18s ease, opacity 0.18s ease;
+  transition: max-width var(--transition-normal) ease, opacity var(--transition-normal) ease;
   flex-shrink: 0;
 }
 .clip-row.expanded .clip-row-actions {
@@ -159,7 +159,7 @@
   justify-content: center;
   font-size: 14px;
   cursor: pointer;
-  transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  transition: background-color var(--transition-fast) ease, color var(--transition-fast) ease, border-color var(--transition-fast) ease;
   padding: 0;
   position: relative;
 }
@@ -196,7 +196,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background-color 0.12s ease, color 0.12s ease, width 0.18s ease, opacity 0.18s ease;
+  transition: background-color var(--transition-fast) ease, color var(--transition-fast) ease, width var(--transition-normal) ease, opacity var(--transition-normal) ease;
 }
 .clip-row-trigger:hover { background: var(--bg-hover); color: var(--text-primary); }
 .clip-row.expanded .clip-row-trigger {
@@ -245,7 +245,7 @@
   background: var(--accent-soft);
   border: 1px solid var(--accent);
   z-index: 0;
-  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: transform var(--transition-slow) cubic-bezier(0.2, 0.8, 0.2, 1);
   pointer-events: none;
 }
 .segment-indicator[data-position="left"]  { transform: translateX(8px); }
@@ -266,7 +266,7 @@
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: color 0.18s ease;
+  transition: color var(--transition-normal) ease;
 }
 .segment-tab:hover { color: var(--text-primary); }
 .segment-tab.active { color: var(--accent); }
@@ -287,3 +287,14 @@
 
 /* ---------- 工具 ---------- */
 .hidden { display: none !important; }
+
+/* ---------- 无障碍：减少动画 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

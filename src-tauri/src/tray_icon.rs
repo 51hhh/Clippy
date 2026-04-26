@@ -101,7 +101,7 @@ pub fn render_themed_tray_icon(theme: &str) -> Option<Image<'static>> {
     let tree = match usvg::Tree::from_str(&svg_text, &opt) {
         Ok(t) => t,
         Err(e) => {
-            log::error!("托盘 SVG 解析失败: {}", e);
+            log::error!("托盘 SVG 解析失败 (theme={}): {}", theme, e);
             return None;
         }
     };

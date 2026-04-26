@@ -48,6 +48,7 @@ whenReady(async () => {
     onCountsChange: (counts) => segmentTabs.setCounts(counts),
     onSummonSearch: (source) => searchBar.summon(source),
   });
+  clipboardList.setDeleteConfirmMs(config.delete_confirm_ms || 1200);
 
   await clipboardList.refresh();
 
