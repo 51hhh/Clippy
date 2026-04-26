@@ -64,13 +64,8 @@ jobs:
         with:
           node-version: 20
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
       - name: Install frontend dependencies
-        run: cd src && pnpm install --frozen-lockfile || cd src && npm install
+        run: cd src && npm install
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0.5
