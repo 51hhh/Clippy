@@ -74,7 +74,7 @@ impl Default for AppConfig {
         Self {
             max_history: 100,
             storage_mode: "persistent".to_string(),
-            global_shortcut: "Super+V".to_string(),
+            global_shortcut: "Ctrl+Alt+V".to_string(),
             theme: "light".to_string(),
             language: "auto".to_string(),
             delete_confirm_ms: 1200,
