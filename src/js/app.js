@@ -7,6 +7,7 @@ import * as clipboardList from "./clipboard-list.js";
 import * as searchBar     from "./search-bar.js";
 import * as segmentTabs   from "./segment-tabs.js";
 import * as i18n          from "../i18n/i18n.js";
+import { initUpdateModal, checkForUpdate } from "./update-modal.js";
 import {
   getConfig, onClipAdded, onClipRemoved, onConfigChanged,
   onShortcutRegisterFailed,
@@ -65,6 +66,10 @@ whenReady(async () => {
   await onShortcutRegisterFailed((shortcut) => {
     console.warn(`快捷键 "${shortcut}" 注册失败，请在设置中更换快捷键`);
   });
+
+  // 初始化更新弹窗并自动检查
+  initUpdateModal();
+  checkForUpdate(false).catch(console.warn);
 
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("focus", onWindowFocus);

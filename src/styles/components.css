@@ -298,3 +298,92 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ---------- 更新弹窗 ---------- */
+.update-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.update-modal.hidden { display: none !important; }
+.update-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+}
+.update-modal-content {
+  position: relative;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 24px;
+  width: 340px;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+.update-modal-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 6px 0;
+}
+.update-modal-version {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-on-accent, #fff);
+  background: var(--accent);
+  padding: 2px 10px;
+  border-radius: 999px;
+  margin-bottom: 14px;
+}
+.update-modal-body {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  max-height: 200px;
+  overflow-y: auto;
+  margin-bottom: 18px;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+.update-modal-body p {
+  margin: 0 0 4px 0;
+}
+.update-modal-body p:last-child {
+  margin-bottom: 0;
+}
+.update-modal-progress {
+  margin-bottom: 18px;
+}
+.update-modal-progress.hidden { display: none !important; }
+.update-progress-track {
+  height: 6px;
+  background: var(--bg-hover);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.update-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  width: 0%;
+  transition: width 0.3s ease;
+}
+.update-progress-text {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.update-modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}

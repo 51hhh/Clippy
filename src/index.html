@@ -43,6 +43,31 @@
 
     <!-- 底部 segment（All / Favorites） -->
     <footer id="segment-tabs" class="segment-tabs" role="tablist"></footer>
+
+    <!-- 更新弹窗（默认隐藏） -->
+    <div id="update-modal" class="update-modal hidden">
+      <div class="update-modal-backdrop"></div>
+      <div class="update-modal-content">
+        <h2 id="update-title" class="update-modal-title" data-i18n="update.title">Update Available</h2>
+        <div class="update-modal-version">
+          <span id="update-version"></span>
+        </div>
+        <div id="update-body" class="update-modal-body"></div>
+        <div id="update-progress" class="update-modal-progress hidden">
+          <div class="update-progress-track">
+            <div id="update-progress-bar" class="update-progress-fill"></div>
+          </div>
+          <span id="update-progress-text" class="update-progress-text">0%</span>
+        </div>
+        <div class="update-modal-actions">
+          <button id="update-btn-skip" class="btn btn-small btn-secondary" data-i18n="update.skip">Skip this version</button>
+          <button id="update-btn-later" class="btn btn-small btn-secondary" data-i18n="update.later">Later</button>
+          <button id="update-btn-install" class="btn btn-small btn-primary" data-i18n="update.install">Install</button>
+          <button id="update-btn-close" class="btn btn-small btn-secondary hidden" data-i18n="update.close">Close</button>
+          <button id="update-btn-download" class="btn btn-small btn-primary hidden" data-i18n="update.download">Download</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script type="module" src="js/app.js"></script>

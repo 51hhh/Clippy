@@ -13,7 +13,9 @@
   "type": "commonjs",
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",
-    "@tauri-apps/plugin-global-shortcut": "^2.3.1"
+    "@tauri-apps/plugin-global-shortcut": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.10.1",
+    "@tauri-apps/plugin-opener": "^2.3.1"
   },
   "devDependencies": {
     "jsdom": "^25.0.0",

@@ -1,0 +1,118 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  check-version:
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get tag version
+        id: get_version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify tag matches tauri.conf.json
+        run: |
+          CONF_VERSION=$(jq -r '.version' src-tauri/tauri.conf.json)
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          if [ "$CONF_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Tag version ($TAG_VERSION) does not match tauri.conf.json ($CONF_VERSION)"
+            exit 1
+          fi
+
+      - name: Verify tag is on main or dev branch
+        run: |
+          git fetch origin main dev --depth=1 || true
+          TAG_SHA=$(git rev-parse HEAD)
+          if git merge-base --is-ancestor "$TAG_SHA" origin/main 2>/dev/null || \
+             git merge-base --is-ancestor "$TAG_SHA" origin/dev 2>/dev/null; then
+            echo "Tag is on main or dev branch"
+          else
+            echo "::warning::Tag may not be on main/dev branch"
+          fi
+
+  build-linux:
+    needs: check-version
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
+            pkg-config
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install frontend dependencies
+        run: cd src && pnpm install --frozen-lockfile || cd src && npm install
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0.5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v__VERSION__
+          releaseName: "Clippy v__VERSION__"
+          releaseDraft: true
+          prerelease: ${{ contains(github.ref, '-rc') }}
+          includeUpdaterJson: true
+
+  update-release:
+    needs: [check-version, build-linux]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          VERSION="${{ needs.check-version.outputs.version }}"
+          # 提取对应版本的 changelog 内容（从 ## vX.Y.Z 到下一个 ## 或文件末尾）
+          NOTES=$(awk "/^## v${VERSION}/,/^## v[0-9]/" CHANGELOG.md | head -n -1 | tail -n +2)
+          if [ -z "$NOTES" ]; then
+            NOTES="Release v${VERSION}"
+          fi
+          # 写入多行输出
+          {
+            echo "notes<<EOF"
+            echo "$NOTES"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Update release notes and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit "v${{ needs.check-version.outputs.version }}" \
+            --notes "${{ steps.changelog.outputs.notes }}" \
+            --draft=false
