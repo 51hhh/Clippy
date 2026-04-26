@@ -15,7 +15,7 @@ import { getClips, deleteClip, toggleFavorite, selectClip } from "./api.js";
 import { t } from "../i18n/i18n.js";
 import * as telemetry from "./telemetry.js";
 
-const DELETE_CONFIRM_MS = 1200;
+let DELETE_CONFIRM_MS = 1200; // 默认值，从 config 覆盖
 
 let _parent = null;
 let _emptyEl = null;
@@ -36,6 +36,10 @@ export function init({ listEl, emptyEl, onCountsChange, onSummonSearch }) {
   _emptyEl = emptyEl;
   _onCountsChange = onCountsChange || (() => {});
   _onSummonSearch = onSummonSearch || (() => {});
+}
+
+export function setDeleteConfirmMs(ms) {
+  DELETE_CONFIRM_MS = ms;
 }
 
 export async function refresh() {

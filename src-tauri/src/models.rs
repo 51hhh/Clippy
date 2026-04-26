@@ -57,10 +57,16 @@ pub struct AppConfig {
     pub theme: String,
     #[serde(default = "default_language")]
     pub language: String,
+    #[serde(default = "default_delete_confirm_ms")]
+    pub delete_confirm_ms: u32,
 }
 
 fn default_language() -> String {
     "auto".to_string()
+}
+
+fn default_delete_confirm_ms() -> u32 {
+    1200
 }
 
 impl Default for AppConfig {
@@ -71,6 +77,7 @@ impl Default for AppConfig {
             global_shortcut: "Super+V".to_string(),
             theme: "light".to_string(),
             language: "auto".to_string(),
+            delete_confirm_ms: 1200,
         }
     }
 }

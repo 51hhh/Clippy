@@ -7,7 +7,7 @@ mod tray_icon;
 
 use commands::AppState;
 use std::sync::{Arc, Mutex};
-use tauri::{Listener, Manager};
+use tauri::{Emitter, Listener, Manager};
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 /// 构建系统托盘：左键点击弹出菜单，包含 Open Clipboard / Settings / Quit
@@ -156,9 +156,16 @@ pub fn run() {
                     log::warn!("找不到托盘 id=main，跳过主题刷新");
                     return;
                 };
-                if let Some(icon) = tray_icon::render_themed_tray_icon(&theme) {
-                    if let Err(e) = tray.set_icon(Some(icon)) {
-                        log::warn!("托盘图标刷新失败: {}", e);
+                match tray_icon::render_themed_tray_icon(&theme) {
+                    Some(icon) => {
+                        if let Err(e) = tray.set_icon(Some(icon)) {
+                            log::warn!("托盘图标刷新失败: {}", e);
+                        }
+                    }
+                    None => {
+                        log::warn!("托盘图标渲染失败 (theme={}), 保持当前图标", theme);
+                        // emit 事件通知前端（可选：前端显示 toast）
+                        let _ = handle.emit("tray-icon-render-failed", theme);
                     }
                 }
             });
