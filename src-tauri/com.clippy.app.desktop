@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Clippy
+Comment=Cross-platform lightweight clipboard manager
+Exec=clippy-app
+Icon=com.clippy.app
+Type=Application
+Categories=Utility;
+StartupWMClass=com.clippy.app
+X-Flatpak=com.clippy.app

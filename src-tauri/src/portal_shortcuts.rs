@@ -30,6 +30,10 @@ async fn run_portal_loop(
 
     log::info!("初始化 XDG GlobalShortcuts 门户 (Wayland 模式)");
 
+    // 帮助门户识别应用身份
+    std::env::set_var("GIO_LAUNCHED_DESKTOP_FILE", "com.clippy.app.desktop");
+    std::env::set_var("GIO_LAUNCHED_DESKTOP_FILE_PID", std::process::id().to_string());
+
     let shortcuts = GlobalShortcuts::new().await?;
     log::info!("门户版本: {}", shortcuts.version());
 
