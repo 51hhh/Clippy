@@ -6,6 +6,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   checkShortcutConflict,
   getConfig,
+  getAppVersion,
   pauseShortcuts,
   resumeShortcuts,
   updateConfig,
@@ -28,6 +29,9 @@ const languageSelect  = document.getElementById("language-select");
 const saveBtn         = document.getElementById("save-btn");
 const cancelBtn       = document.getElementById("cancel-btn");
 const toast           = document.getElementById("toast");
+const aboutVersion    = document.getElementById("about-version");
+const checkUpdateBtn  = document.getElementById("check-update-btn");
+const updateStatus    = document.getElementById("update-status");
 
 // 主题清单：id 与 themes.css 中 [data-theme="<id>"] 对应；i18nKey 用于显示名
 const THEMES = [
@@ -60,6 +64,11 @@ whenReady(async () => {
     renderThemeGrid();
     applyTheme(selectedTheme);
     i18n.init(savedConfig.language || "auto");
+    // 显示版本号
+    try {
+      const ver = await getAppVersion();
+      if (aboutVersion) aboutVersion.textContent = `v${ver}`;
+    } catch (e) { console.warn("获取版本号失败:", e); }
   } catch (err) {
     console.error("加载配置失败:", err);
     selectedTheme = "light";
@@ -225,6 +234,33 @@ saveBtn.addEventListener("click", async () => {
   } catch (err) {
     console.error("保存失败:", err);
     showToast(i18n.t("settings.saveFailed", { error: err }));
+  }
+});
+
+// 检查更新
+checkUpdateBtn.addEventListener("click", async () => {
+  checkUpdateBtn.disabled = true;
+  updateStatus.classList.add("hidden");
+  updateStatus.classList.remove("error");
+  try {
+    const { check } = await import("@tauri-apps/plugin-updater");
+    const update = await check();
+    if (update) {
+      updateStatus.textContent = i18n.t("settings.about.updateAvailable", { version: update.version });
+      updateStatus.classList.remove("hidden");
+    } else {
+      updateStatus.textContent = i18n.t("settings.about.upToDate");
+      updateStatus.classList.remove("hidden");
+      setTimeout(() => updateStatus.classList.add("hidden"), 3000);
+    }
+  } catch (err) {
+    console.warn("检查更新失败:", err);
+    updateStatus.textContent = i18n.t("settings.about.checkFailed");
+    updateStatus.classList.remove("hidden");
+    updateStatus.classList.add("error");
+    setTimeout(() => updateStatus.classList.add("hidden"), 3000);
+  } finally {
+    checkUpdateBtn.disabled = false;
   }
 });
 

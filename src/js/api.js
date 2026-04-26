@@ -78,3 +78,41 @@ export function onConfigChanged(callback) {
 export function onShortcutRegisterFailed(callback) {
   return listen("shortcut-register-failed", (event) => callback(event.payload));
 }
+
+// ── 更新相关（懒加载，避免 settings 窗口引入 api.js 时因 plugin 未就绪而阻塞） ──
+
+/** 获取应用版本号 */
+export async function getAppVersion() {
+  const { getVersion } = await import("@tauri-apps/api/app");
+  return getVersion();
+}
+
+/** 检查更新，返回 { available, version, body, update } 或 null */
+export async function checkUpdate() {
+  const { check } = await import("@tauri-apps/plugin-updater");
+  const update = await check();
+  if (!update) return null;
+  return {
+    available: true,
+    version: update.version,
+    body: update.body || "",
+    update,
+  };
+}
+
+/** 下载并安装更新，支持进度回调 onProgress({ total, received }) */
+export async function downloadAndInstallUpdate(update, onProgress) {
+  await update.downloadAndInstall((event) => {
+    if (event.event === "Started" && onProgress) {
+      onProgress({ total: event.data.contentLength || 0, received: 0 });
+    } else if (event.event === "Progress" && onProgress) {
+      onProgress({ chunkLength: event.data.chunkLength });
+    }
+  });
+}
+
+/** 打开外部 URL（用于 deb 回退下载） */
+export async function openExternalUrl(url) {
+  const { openUrl } = await import("@tauri-apps/plugin-opener");
+  return openUrl(url);
+}

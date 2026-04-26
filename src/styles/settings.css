@@ -311,3 +311,34 @@ html, body {
     min-width: 100%;
   }
 }
+
+/* ── 关于区域 ── */
+
+.setting-about {
+  margin-top: 8px;
+}
+.about-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.about-version {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  background: var(--bg-secondary);
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+.about-status {
+  font-size: 13px;
+  color: var(--accent);
+  font-weight: 500;
+}
+.about-status.error {
+  color: var(--danger);
+}
+.about-status.hidden { display: none !important; }
