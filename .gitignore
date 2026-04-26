@@ -14,7 +14,6 @@ src-tauri/target
 !.vscode/extensions.json
 .github/copilot-instructions.md
 .claude/*
-.trellis/
 .idea
 *.suo
 *.ntvs*

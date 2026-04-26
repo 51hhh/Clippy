@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "前端质量检查标准"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "后端质量检查标准"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "前端约定（XSS、IPC 封装等核心规则）"}
+{"file": ".trellis/spec/backend/index.md", "reason": "后端约定（命令、插件注册）"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "跨层一致性检查"}
+{"file": ".trellis/tasks/04-26-ci-auto-update/research/fxxkdjtu-update-system.md", "reason": "对照参考实现检查完整性"}
