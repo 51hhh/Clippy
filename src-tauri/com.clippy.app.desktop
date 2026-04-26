@@ -6,4 +6,3 @@ Icon=com.clippy.app
 Type=Application
 Categories=Utility;
 StartupWMClass=com.clippy.app
-X-Flatpak=com.clippy.app
