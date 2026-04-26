@@ -90,26 +90,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Extract changelog for this version
-        id: changelog
-        run: |
-          VERSION="${{ needs.check-version.outputs.version }}"
-          # 提取对应版本的 changelog 内容（从 ## vX.Y.Z 到下一个 ## 或文件末尾）
-          NOTES=$(awk "/^## v${VERSION}/,/^## v[0-9]/" CHANGELOG.md | head -n -1 | tail -n +2)
-          if [ -z "$NOTES" ]; then
-            NOTES="Release v${VERSION}"
-          fi
-          # 写入多行输出
-          {
-            echo "notes<<EOF"
-            echo "$NOTES"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Update release notes and publish
+      - name: Extract changelog and publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release edit "v${{ needs.check-version.outputs.version }}" \
-            --notes "${{ steps.changelog.outputs.notes }}" \
+          TAG="v${{ needs.check-version.outputs.version }}"
+          VER="${{ needs.check-version.outputs.version }}"
+          DL="https://github.com/${{ github.repository }}/releases/download/${TAG}"
+          BUILDTIME="$(TZ=Asia/Shanghai date)"
+
+          # Extract changelog section for current version
+          awk "/^## ${TAG//./\\.}/{found=1; next} /^## v/{if(found) exit} found" CHANGELOG.md > release_notes.txt
+          if [ ! -s release_notes.txt ]; then
+            echo "Release ${TAG}" > release_notes.txt
+          fi
+
+          CHANGELOG=$(cat release_notes.txt)
+
+          cat > release_body.md <<ENDOFBODY
+          ${CHANGELOG}
+
+          ## 下载
+
+          ### Linux
+          #### DEB 包
+          - [64位](${DL}/Clippy_${VER}_amd64.deb)
+
+          #### AppImage（支持自动更新）
+          - [64位](${DL}/Clippy_${VER}_amd64.AppImage)
+
+          ---
+          Built at ${BUILDTIME}
+          ENDOFBODY
+
+          gh release edit "${TAG}" \
+            --repo "${{ github.repository }}" \
+            --title "Clippy ${TAG}" \
+            --notes-file release_body.md \
             --draft=false
