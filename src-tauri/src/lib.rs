@@ -2,6 +2,7 @@ mod clipboard_watcher;
 mod commands;
 mod config;
 mod models;
+mod portal_shortcuts;
 mod storage;
 mod tray_icon;
 
@@ -176,11 +177,21 @@ pub fn run() {
             });
 
             // ── 7. 注册全局快捷键（从配置读取）────────────────────────────────
-            if let Err(e) = register_shortcut(app, &app_config.global_shortcut) {
-                log::warn!("全局快捷键注册失败（可能已被占用）: {}", e);
-                // 通知前端快捷键注册失败
-                use tauri::Emitter;
-                let _ = app.emit("shortcut-register-failed", &app_config.global_shortcut);
+            if portal_shortcuts::is_wayland() {
+                log::info!("检测到 Wayland 会话，使用 XDG GlobalShortcuts 门户");
+                let handle = app.handle().clone();
+                let shortcut = app_config.global_shortcut.clone();
+                tauri::async_runtime::spawn(async move {
+                    portal_shortcuts::setup_portal_shortcuts(handle, shortcut).await;
+                });
+            } else {
+                log::info!("检测到 X11 会话，使用 tauri-plugin-global-shortcut");
+                if let Err(e) = register_shortcut(app, &app_config.global_shortcut) {
+                    log::warn!("全局快捷键注册失败（可能已被占用）: {}", e);
+                    // 通知前端快捷键注册失败
+                    use tauri::Emitter;
+                    let _ = app.emit("shortcut-register-failed", &app_config.global_shortcut);
+                }
             }
 
             Ok(())
