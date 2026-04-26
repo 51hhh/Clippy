@@ -9,6 +9,7 @@ import * as segmentTabs   from "./segment-tabs.js";
 import * as i18n          from "../i18n/i18n.js";
 import {
   getConfig, onClipAdded, onClipRemoved, onConfigChanged,
+  onShortcutRegisterFailed,
 } from "./api.js";
 import "../styles/themes.css";
 import "../styles/base.css";
@@ -59,6 +60,10 @@ whenReady(async () => {
     i18n.init(newConfig.language || "auto");
     searchBar.refreshLabels();
     segmentTabs.refreshLabels();
+  });
+
+  await onShortcutRegisterFailed((shortcut) => {
+    console.warn(`快捷键 "${shortcut}" 注册失败，请在设置中更换快捷键`);
   });
 
   window.addEventListener("keydown", onKeyDown);

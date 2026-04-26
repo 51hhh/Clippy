@@ -123,10 +123,15 @@ pub fn update_shortcut(
 ) -> Result<(), String> {
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
+    log::info!("更新全局快捷键: {}", new_shortcut);
     let gs = app_handle.global_shortcut();
     gs.unregister_all().map_err(|e| e.to_string())?;
     gs.register(new_shortcut.as_str())
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            log::error!("快捷键注册失败: {} -> {}", new_shortcut, e);
+            format!("快捷键注册失败: {}", e)
+        })?;
+    log::info!("快捷键注册成功: {}", new_shortcut);
 
     let mut config = state.config.lock().map_err(|e| e.to_string())?;
     config.global_shortcut = new_shortcut;

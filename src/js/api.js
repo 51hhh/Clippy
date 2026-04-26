@@ -74,3 +74,7 @@ export function onClipRemoved(callback) {
 export function onConfigChanged(callback) {
   return listen("config-changed", (event) => callback(event.payload));
 }
+
+export function onShortcutRegisterFailed(callback) {
+  return listen("shortcut-register-failed", (event) => callback(event.payload));
+}

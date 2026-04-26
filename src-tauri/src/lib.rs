@@ -66,6 +66,7 @@ fn build_tray(app: &tauri::App, theme: &str) -> Result<(), Box<dyn std::error::E
 
 /// 全局快捷键回调：切换主窗口可见性。被 plugin 全局 handler 调用。
 fn toggle_main_window(handle: &tauri::AppHandle) {
+    log::info!("全局快捷键触发 toggle_main_window");
     if let Some(window) = handle.get_webview_window("main") {
         if window.is_visible().unwrap_or(false) {
             let _ = window.hide();
@@ -73,12 +74,16 @@ fn toggle_main_window(handle: &tauri::AppHandle) {
             let _ = window.show();
             let _ = window.set_focus();
         }
+    } else {
+        log::warn!("找不到 main 窗口");
     }
 }
 
 /// 注册全局快捷键：仅 register accelerator，回调由全局 handler 统一处理
 fn register_shortcut(app: &tauri::App, shortcut: &str) -> Result<(), Box<dyn std::error::Error>> {
+    log::info!("注册全局快捷键: {}", shortcut);
     app.global_shortcut().register(shortcut)?;
+    log::info!("全局快捷键注册成功: {}", shortcut);
     Ok(())
 }
 
@@ -173,6 +178,9 @@ pub fn run() {
             // ── 7. 注册全局快捷键（从配置读取）────────────────────────────────
             if let Err(e) = register_shortcut(app, &app_config.global_shortcut) {
                 log::warn!("全局快捷键注册失败（可能已被占用）: {}", e);
+                // 通知前端快捷键注册失败
+                use tauri::Emitter;
+                let _ = app.emit("shortcut-register-failed", &app_config.global_shortcut);
             }
 
             Ok(())

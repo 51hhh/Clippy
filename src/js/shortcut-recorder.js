@@ -6,8 +6,8 @@
  *     （如 macOS Option+V → "√"，AZERTY 下 KeyV 的 key 可能是 ‹ 等）。
  *   - 至少要求一个非 Shift 修饰键（Ctrl / Alt / Meta），避免单键热键和
  *     "Shift+字母"误录。
- *   - 修饰键自身按下、IME composing、Dead/Process key 时返回 null，等用户
- *     继续按主键。
+ *   - 修饰键名严格使用 global-hotkey crate 的解析器可识别的名称：
+ *     Ctrl / Alt / Shift / Super。不使用 CmdOrCtrl（Linux 无歧义）。
  */
 
 const MOD_CODES = new Set([
@@ -49,7 +49,7 @@ export function keyEventToShortcut(e) {
   }
 
   const modifiers = [];
-  if (e.ctrlKey)  modifiers.push("CmdOrCtrl");
+  if (e.ctrlKey)  modifiers.push("Ctrl");
   if (e.altKey)   modifiers.push("Alt");
   if (e.shiftKey) modifiers.push("Shift");
   if (e.metaKey)  modifiers.push("Super");
