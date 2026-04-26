@@ -118,7 +118,11 @@ fn restart_gsd_media_keys() -> Result<(), String> {
 
         // 通过 systemd target 重新启动
         match Command::new("systemctl")
-            .args(["--user", "start", "org.gnome.SettingsDaemon.MediaKeys.target"])
+            .args([
+                "--user",
+                "start",
+                "org.gnome.SettingsDaemon.MediaKeys.target",
+            ])
             .status()
         {
             Ok(s) if s.success() => log::info!("gsd-media-keys 已重启"),
@@ -272,7 +276,10 @@ mod tests {
         assert_eq!(to_gnome_accel("F12"), "f12");
         assert_eq!(to_gnome_accel("Control+Alt+V"), "<Control><Alt>v");
         assert_eq!(to_gnome_accel("CmdOrCtrl+Alt+V"), "<Control><Alt>v");
-        assert_eq!(to_gnome_accel("CommandOrControl+Shift+A"), "<Control><Shift>a");
+        assert_eq!(
+            to_gnome_accel("CommandOrControl+Shift+A"),
+            "<Control><Shift>a"
+        );
         assert_eq!(to_gnome_accel("Cmd+V"), "<Super>v");
         assert_eq!(to_gnome_accel("Meta+V"), "<Super>v");
     }
