@@ -26,8 +26,7 @@ env_logger = "0.11"
 resvg = "0.43"
 tiny-skia = "0.11"
 usvg = "0.43"
-ashpd = { version = "0.13", features = ["global_shortcuts"] }
-futures-lite = "2"
+zbus = "5"
 
 [dev-dependencies]
 tempfile = "3"

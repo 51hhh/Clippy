@@ -1,8 +1,8 @@
 mod clipboard_watcher;
 mod commands;
 mod config;
+mod gsettings_shortcuts;
 mod models;
-mod portal_shortcuts;
 mod storage;
 mod tray_icon;
 
@@ -177,12 +177,20 @@ pub fn run() {
             });
 
             // ── 7. 注册全局快捷键（从配置读取）────────────────────────────────
-            if portal_shortcuts::is_wayland() {
-                log::info!("检测到 Wayland 会话，使用 XDG GlobalShortcuts 门户");
+            if gsettings_shortcuts::is_wayland() {
+                log::info!("检测到 Wayland 会话，使用 gsettings 自定义快捷键 + D-Bus");
+                // 注册 gsettings 自定义快捷键
+                if let Err(e) = gsettings_shortcuts::register(&app_config.global_shortcut) {
+                    log::warn!("gsettings 快捷键注册失败: {}", e);
+                    use tauri::Emitter;
+                    let _ = app.emit("shortcut-register-failed", &app_config.global_shortcut);
+                }
+                // 启动 D-Bus 服务接收 Toggle 调用
                 let handle = app.handle().clone();
-                let shortcut = app_config.global_shortcut.clone();
                 tauri::async_runtime::spawn(async move {
-                    portal_shortcuts::setup_portal_shortcuts(handle, shortcut).await;
+                    if let Err(e) = gsettings_shortcuts::start_dbus_service(handle).await {
+                        log::error!("D-Bus 服务启动失败: {}", e);
+                    }
                 });
             } else {
                 log::info!("检测到 X11 会话，使用 tauri-plugin-global-shortcut");

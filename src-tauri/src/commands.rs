@@ -121,17 +121,20 @@ pub fn update_shortcut(
     app_handle: tauri::AppHandle,
     state: State<AppState>,
 ) -> Result<(), String> {
-    use tauri_plugin_global_shortcut::GlobalShortcutExt;
-
     log::info!("更新全局快捷键: {}", new_shortcut);
-    let gs = app_handle.global_shortcut();
-    gs.unregister_all().map_err(|e| e.to_string())?;
-    gs.register(new_shortcut.as_str())
-        .map_err(|e| {
+
+    if crate::gsettings_shortcuts::is_wayland() {
+        crate::gsettings_shortcuts::update_binding(&new_shortcut)?;
+    } else {
+        use tauri_plugin_global_shortcut::GlobalShortcutExt;
+        let gs = app_handle.global_shortcut();
+        gs.unregister_all().map_err(|e| e.to_string())?;
+        gs.register(new_shortcut.as_str()).map_err(|e| {
             log::error!("快捷键注册失败: {} -> {}", new_shortcut, e);
             format!("快捷键注册失败: {}", e)
         })?;
-    log::info!("快捷键注册成功: {}", new_shortcut);
+        log::info!("快捷键注册成功: {}", new_shortcut);
+    }
 
     let mut config = state.config.lock().map_err(|e| e.to_string())?;
     config.global_shortcut = new_shortcut;
@@ -176,11 +179,15 @@ pub fn show_settings(app_handle: tauri::AppHandle) -> Result<(), String> {
 /// 暂停全局快捷键（录制新快捷键时调用，避免冲突）
 #[tauri::command]
 pub fn pause_shortcuts(app_handle: tauri::AppHandle) -> Result<(), String> {
-    use tauri_plugin_global_shortcut::GlobalShortcutExt;
-    app_handle
-        .global_shortcut()
-        .unregister_all()
-        .map_err(|e| e.to_string())
+    if crate::gsettings_shortcuts::is_wayland() {
+        crate::gsettings_shortcuts::pause().map_err(|e| e.to_string())
+    } else {
+        use tauri_plugin_global_shortcut::GlobalShortcutExt;
+        app_handle
+            .global_shortcut()
+            .unregister_all()
+            .map_err(|e| e.to_string())
+    }
 }
 
 /// 恢复全局快捷键（录制结束后调用）
@@ -189,13 +196,17 @@ pub fn resume_shortcuts(
     app_handle: tauri::AppHandle,
     state: State<AppState>,
 ) -> Result<(), String> {
-    use tauri_plugin_global_shortcut::GlobalShortcutExt;
     let shortcut_str = {
         let config = state.config.lock().map_err(|e| e.to_string())?;
         config.global_shortcut.clone()
     };
-    app_handle
-        .global_shortcut()
-        .register(shortcut_str.as_str())
-        .map_err(|e| e.to_string())
+    if crate::gsettings_shortcuts::is_wayland() {
+        crate::gsettings_shortcuts::resume(&shortcut_str)
+    } else {
+        use tauri_plugin_global_shortcut::GlobalShortcutExt;
+        app_handle
+            .global_shortcut()
+            .register(shortcut_str.as_str())
+            .map_err(|e| e.to_string())
+    }
 }
