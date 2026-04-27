@@ -48,6 +48,26 @@ conn.execute(
 )?;
 ```
 
+### Prepared Statement 缓存 — 使用 `prepare_cached`
+
+所有频繁执行的查询使用 `conn.prepare_cached()` 而非 `conn.prepare()`，利用 rusqlite 内建 LRU 缓存避免重复 SQL 编译。
+
+```rust
+let mut stmt = self.conn.prepare_cached(sql)?;
+```
+
+### UPSERT — 哈希去重用 ON CONFLICT
+
+插入剪贴板条目使用 UPSERT 语法，避免先查后改的多次往返：
+
+```rust
+conn.execute(
+    "INSERT INTO clips (...) VALUES (...)
+     ON CONFLICT(content_hash) DO UPDATE SET created_at = excluded.created_at",
+    params![...],
+)?;
+```
+
 ### FTS Search
 
 ```rust
@@ -74,6 +94,18 @@ conn.execute(
 
 ---
 
+## SQLite PRAGMA 配置
+
+初始化时设置以下 PRAGMA：
+
+```sql
+PRAGMA journal_mode = WAL;      -- 读写并发，减少写阻塞
+PRAGMA cache_size = 128;        -- 512KB cache，控制内存
+PRAGMA temp_store = MEMORY;     -- 临时表/索引在内存
+```
+
+---
+
 ## Storage Modes
 
 - **Persistent (default)**: DB file at Tauri `app_data_dir()` / `clippy.db`
@@ -89,20 +121,16 @@ conn.execute(
 
 ---
 
-## History Limit Cleanup
+## History Limit Cleanup — 批量删除
 
-On each insert, if non-favorite count exceeds `max_history`, delete oldest non-favorite entries:
+On each insert, if non-favorite count exceeds `max_history`, batch-delete oldest non-favorite entries:
 
 ```rust
-// Pseudocode
-let excess = non_favorite_count - max_history;
-if excess > 0 {
-    // Delete oldest non-favorites, keeping all favorites
-    conn.execute(
-        "DELETE FROM clips WHERE id IN (SELECT id FROM clips WHERE is_favorite = 0 ORDER BY created_at ASC LIMIT ?1)",
-        params![excess],
-    )?;
-}
+// 1. 查出超额 id 列表
+// 2. 逐条从 FTS 删除（FTS5 不支持批量 delete 命令）
+// 3. 用 IN 子句一次删除主表
+let sql = format!("DELETE FROM clips WHERE id IN ({})", placeholders);
+conn.execute(&sql, rusqlite::params_from_iter(params))?;
 ```
 
 ---
@@ -112,4 +140,6 @@ if excess > 0 {
 - **Never interpolate user input into SQL strings** — always use parameter binding
 - **Always sync FTS on insert AND delete** — forgetting the FTS delete command causes stale search results
 - **Use transactions** for multi-step operations (insert clip + update FTS + cleanup old entries)
-- **Handle `UNIQUE constraint` on `content_hash`** — duplicate content should update `created_at` instead of failing
+- **Handle `UNIQUE constraint` on `content_hash`** — use UPSERT (ON CONFLICT) 而非 try-catch 分支
+- **使用 `prepare_cached`** — 避免 `prepare()` 重复编译同一 SQL
+- **批量删除用 IN 子句** — 避免循环逐条删除的 N+1 模式

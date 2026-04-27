@@ -43,8 +43,10 @@ impl StorageEngine {
     /// 创建表、FTS5 虚拟表和索引
     fn init_tables(&self) -> Result<(), StorageError> {
         // 降低 SQLite 内存占用：128 页 × 4KB = 512KB cache
+        // WAL 模式减少写阻塞，提升读写并发
         self.conn.execute_batch(
             "
+            PRAGMA journal_mode = WAL;
             PRAGMA cache_size = 128;
             PRAGMA temp_store = MEMORY;
 
@@ -86,11 +88,12 @@ impl StorageEngine {
     ) -> Result<ClipItem, StorageError> {
         let now = now_secs();
 
-        // 尝试直接插入
-        let insert_result = self.conn.execute(
+        // UPSERT：新插入或哈希重复时更新 created_at 置顶
+        self.conn.execute(
             "INSERT INTO clips
                 (content_type, text_content, html_content, image_data, content_hash, is_favorite, created_at, byte_size)
-             VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7)",
+             VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7)
+             ON CONFLICT(content_hash) DO UPDATE SET created_at = excluded.created_at",
             params![
                 content_type.as_str(),
                 text_content,
@@ -100,35 +103,23 @@ impl StorageEngine {
                 now,
                 byte_size,
             ],
-        );
+        )?;
 
-        match insert_result {
-            Ok(_) => {
-                let id = self.conn.last_insert_rowid();
-                // 同步 FTS 索引（与 INSERT 在同一隐式事务中，因为 SQLite 默认 autocommit）
-                self.conn.execute(
-                    "INSERT INTO clips_fts(rowid, text_content) VALUES (?1, ?2)",
-                    params![id, text_content],
-                )?;
-                self.get_clip_by_id(id)
-            }
-            Err(rusqlite::Error::SqliteFailure(err, _))
-                if err.code == rusqlite::ErrorCode::ConstraintViolation =>
-            {
-                // 哈希重复：更新 created_at 使条目置顶
-                self.conn.execute(
-                    "UPDATE clips SET created_at = ?1 WHERE content_hash = ?2",
-                    params![now, content_hash],
-                )?;
-                let id: i64 = self.conn.query_row(
-                    "SELECT id FROM clips WHERE content_hash = ?1",
-                    params![content_hash],
-                    |row| row.get(0),
-                )?;
-                self.get_clip_by_id(id)
-            }
-            Err(e) => Err(StorageError::Database(e)),
+        let id: i64 = self.conn.query_row(
+            "SELECT id FROM clips WHERE content_hash = ?1",
+            params![content_hash],
+            |row| row.get(0),
+        )?;
+
+        // 新插入时同步 FTS 索引（last_insert_rowid 仅在真正 INSERT 时更新为新行 id）
+        if self.conn.last_insert_rowid() == id {
+            self.conn.execute(
+                "INSERT OR IGNORE INTO clips_fts(rowid, text_content) VALUES (?1, ?2)",
+                params![id, text_content],
+            )?;
         }
+
+        self.get_clip_by_id(id)
     }
 
     /// 通过 id 获取单条记录
@@ -174,7 +165,7 @@ impl StorageEngine {
                  LIMIT ?2 OFFSET ?3"
             };
 
-            let mut stmt = self.conn.prepare(sql)?;
+            let mut stmt = self.conn.prepare_cached(sql)?;
             let clips = stmt
                 .query_map(params![trimmed, limit, offset], row_to_clip)?
                 .collect::<SqlResult<Vec<_>>>()?;
@@ -197,7 +188,7 @@ impl StorageEngine {
              LIMIT ?1 OFFSET ?2"
         };
 
-        let mut stmt = self.conn.prepare(sql)?;
+        let mut stmt = self.conn.prepare_cached(sql)?;
         let clips = stmt
             .query_map(params![limit, offset], row_to_clip)?
             .collect::<SqlResult<Vec<_>>>()?;
@@ -259,7 +250,7 @@ impl StorageEngine {
     /// 删除超出 max_history 上限的最旧非收藏条目，返回被删除的 id 列表
     pub fn cleanup_old_entries(&self, max_history: u32) -> Result<Vec<i64>, StorageError> {
         // 查出要删除的 id：按 created_at 升序排，排除收藏，取超出部分
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT id FROM clips
              WHERE is_favorite = 0
              ORDER BY created_at ASC
@@ -269,9 +260,39 @@ impl StorageEngine {
             .query_map(params![max_history as i64], |row| row.get(0))?
             .collect::<SqlResult<_>>()?;
 
-        for &id in &ids {
-            self.delete_clip(id)?;
+        if ids.is_empty() {
+            return Ok(ids);
         }
+
+        // 批量删除：先批量清理 FTS 索引
+        for &id in &ids {
+            let text_content: Option<String> = match self.conn.query_row(
+                "SELECT text_content FROM clips WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            ) {
+                Ok(text) => text,
+                Err(rusqlite::Error::QueryReturnedNoRows) => continue,
+                Err(e) => return Err(StorageError::Database(e)),
+            };
+            if text_content.is_some() {
+                self.conn.execute(
+                    "INSERT INTO clips_fts(clips_fts, rowid, text_content) VALUES ('delete', ?1, ?2)",
+                    params![id, text_content],
+                )?;
+            }
+        }
+
+        // 批量删除主表：用 IN 子句一次删除
+        let placeholders: String = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let sql = format!("DELETE FROM clips WHERE id IN ({})", placeholders);
+        let params: Vec<Box<dyn rusqlite::types::ToSql>> = ids
+            .iter()
+            .map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>)
+            .collect();
+        self.conn
+            .execute(&sql, rusqlite::params_from_iter(params.iter()))?;
+
         Ok(ids)
     }
 }

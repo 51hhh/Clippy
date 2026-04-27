@@ -54,8 +54,14 @@ whenReady(async () => {
 
   await clipboardList.refresh();
 
-  await onClipAdded((clip) => clipboardList.prependClip(clip));
-  await onClipRemoved((id) => clipboardList.removeClip(id));
+  await onClipAdded((clip) => {
+    clipboardList.markDirty();
+    clipboardList.prependClip(clip);
+  });
+  await onClipRemoved((id) => {
+    clipboardList.markDirty();
+    clipboardList.removeClip(id);
+  });
   await onConfigChanged((newConfig) => {
     theme.applyTheme(newConfig.theme || "light");
     i18n.init(newConfig.language || "auto");
@@ -153,7 +159,12 @@ function tryHidePanel() {
 }
 
 async function onWindowFocus() {
-  await clipboardList.refresh();
+  // 仅在有新数据时才全量刷新，否则只恢复渲染
+  if (clipboardList.isDirty()) {
+    await clipboardList.refresh();
+  } else {
+    clipboardList.restoreRender();
+  }
 }
 
 function onWindowBlur() {
