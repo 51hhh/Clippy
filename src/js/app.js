@@ -73,6 +73,7 @@ whenReady(async () => {
 
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("focus", onWindowFocus);
+  window.addEventListener("blur", onWindowBlur);
 });
 
 function onKeyDown(e) {
@@ -153,4 +154,8 @@ function tryHidePanel() {
 
 async function onWindowFocus() {
   await clipboardList.refresh();
+}
+
+function onWindowBlur() {
+  clipboardList.releaseMemory();
 }
