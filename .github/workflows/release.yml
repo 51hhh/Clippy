@@ -69,6 +69,19 @@ jobs:
       - name: Install frontend dependencies
         run: cd src && npm install
 
+      - name: Extract changelog
+        id: changelog
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          BODY=$(awk "/^## ${TAG//./\\.}/{found=1; next} /^## v/{if(found) exit} found" CHANGELOG.md)
+          if [ -z "$BODY" ]; then
+            BODY="Release ${TAG}"
+          fi
+          # 使用 GitHub Actions 多行输出语法
+          echo "body<<CHANGELOG_EOF" >> "$GITHUB_OUTPUT"
+          echo "$BODY" >> "$GITHUB_OUTPUT"
+          echo "CHANGELOG_EOF" >> "$GITHUB_OUTPUT"
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0.5
         env:
@@ -78,6 +91,7 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: "Clippy v__VERSION__"
+          releaseBody: ${{ steps.changelog.outputs.body }}
           releaseDraft: true
           prerelease: ${{ contains(github.ref, '-rc') }}
           includeUpdaterJson: true
