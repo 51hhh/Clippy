@@ -61,6 +61,11 @@ export function resumeShortcuts() {
   return invoke("resume_shortcuts");
 }
 
+/** 检测安装类型：appimage（支持自动更新）/ deb（需手动下载） */
+export function getInstallType() {
+  return invoke("get_install_type");
+}
+
 // ── 事件 ──
 
 export function onClipAdded(callback) {

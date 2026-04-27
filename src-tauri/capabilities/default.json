@@ -11,6 +11,7 @@
     "core:window:allow-close",
     "global-shortcut:default",
     "updater:default",
-    "opener:default"
+    "opener:default",
+    "autostart:default"
   ]
 }

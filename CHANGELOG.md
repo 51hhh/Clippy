@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.1.6
+
+### ✨ 新功能
+- 新增开机自启动功能，设置页添加 toggle 开关，切换即时生效
+- deb 安装包更新检测：自动识别安装类型，deb 用户显示手动下载引导而非自动更新
+
+### 🐛 修复
+- 修复 deb 安装后 GNOME 桌面出现双图标的问题（通过 postinst 脚本创建 .desktop 符号链接）
+
+### 🔧 技术变更
+- 集成 tauri-plugin-autostart v2，支持 Linux 系统自启动
+- 新增 deb 包 postinst/postrm 脚本，处理 GTK App ID 与 .desktop 文件名映射
+- 新增 `get_install_type` IPC 命令，通过 APPIMAGE 环境变量判断安装类型
+
 ## v0.1.5
 
 ### 🐛 修复
