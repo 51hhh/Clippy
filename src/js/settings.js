@@ -4,6 +4,11 @@
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
+  enable as enableAutostart,
+  disable as disableAutostart,
+  isEnabled as isAutostartEnabled,
+} from "@tauri-apps/plugin-autostart";
+import {
   checkShortcutConflict,
   getConfig,
   getAppVersion,
@@ -33,6 +38,7 @@ const toast           = document.getElementById("toast");
 const aboutVersion    = document.getElementById("about-version");
 const checkUpdateBtn  = document.getElementById("check-update-btn");
 const updateStatus    = document.getElementById("update-status");
+const autostartToggle = document.getElementById("autostart-toggle");
 
 // 主题清单：id 与 themes.css 中 [data-theme="<id>"] 对应；i18nKey 用于显示名
 const THEMES = [
@@ -70,6 +76,10 @@ whenReady(async () => {
       const ver = await getAppVersion();
       if (aboutVersion) aboutVersion.textContent = `v${ver}`;
     } catch (e) { console.warn("获取版本号失败:", e); }
+    // 加载开机自启动状态
+    try {
+      autostartToggle.checked = await isAutostartEnabled();
+    } catch (e) { console.warn("获取自启动状态失败:", e); }
   } catch (err) {
     console.error("加载配置失败:", err);
     selectedTheme = "light";
@@ -151,6 +161,20 @@ languageSelect.addEventListener("change", () => {
   renderThemeGrid();
   if (isRecording) {
     recordBtn.textContent = i18n.t("settings.shortcut.stop");
+  }
+});
+
+// 开机自启动 toggle — 立即生效，无需点 Save
+autostartToggle.addEventListener("change", async () => {
+  try {
+    if (autostartToggle.checked) {
+      await enableAutostart();
+    } else {
+      await disableAutostart();
+    }
+  } catch (e) {
+    console.warn("切换自启动失败:", e);
+    autostartToggle.checked = !autostartToggle.checked;
   }
 });
 

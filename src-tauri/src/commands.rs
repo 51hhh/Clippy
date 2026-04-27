@@ -237,3 +237,13 @@ pub fn resume_shortcuts(
             .map_err(|e| e.to_string())
     }
 }
+
+/// 检测安装类型：appimage 支持自动更新，deb/dev 不支持
+#[tauri::command]
+pub fn get_install_type() -> String {
+    if std::env::var("APPIMAGE").is_ok() {
+        "appimage".into()
+    } else {
+        "deb".into()
+    }
+}

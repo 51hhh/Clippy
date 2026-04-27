@@ -38,6 +38,8 @@
   "settings.language.auto": "跟随系统",
   "settings.language.en": "English",
   "settings.language.zhCN": "中文",
+  "settings.autostart.label": "开机自启动",
+  "settings.autostart.hint": "登录时自动启动 Clippy",
   "settings.save": "保存",
   "settings.cancel": "取消",
   "settings.saved": "设置已保存！",
