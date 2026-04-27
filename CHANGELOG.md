@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.1.4
+
+### 🎨 UI 图标全面升级
+- 全套 Unicode/emoji 图标替换为 Lucide 风格 SVG 矢量图标
+- 新增 `icons.js` 集中管理图标模块（search/clipboard/copy/star/starFill/trash/more）
+- 收藏行星标从 CSS `content: "★"` 改为 SVG mask 方案，跟随主题色
+- i18n action 标签移除 Unicode 图标前缀，图标与文字彻底分离
+
+### 🐛 体验修复
+- 操作按钮组改为绝对定位覆盖模式，不再推挤文本导致换行
+- Esc 键分级处理：先收起操作按钮组 → 再关闭搜索框 → 最后关闭面板
+- 搜索框打开时 Esc 不再直接关闭面板，而是先走三段式退出逻辑
+
+### 🔧 技术变更
+- i18n JSON 文件补齐 `empty.favorites`、`action.confirm`、`search.escHint` 三个缺失键
+- CSS 按钮/触发器移除 `font-size`（SVG 图标不需要字体大小控制）
+- 前端测试模板同步更新为 SVG 图标
+
 ## v0.1.3
 
 ### ✨ 新功能

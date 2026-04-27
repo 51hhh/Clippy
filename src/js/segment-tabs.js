@@ -13,6 +13,9 @@ let _counts = { all: 0, favorites: 0 };
 export function init(rootEl, onChange) {
   _root = rootEl;
   _onChange = onChange || (() => {});
+  _indicator = null;
+  _buttons = {};
+  _mode = "all";
   render();
 }
 
@@ -35,37 +38,48 @@ export function setCounts({ all, favorites }) {
 
 export function refreshLabels() { render(); }
 
+let _indicator = null;
+let _buttons = {};
+
 function render() {
   if (!_root) return;
-  _root.replaceChildren();
 
-  // 顺序：[Favorites] [All]，与左 ←/A → favorites、右 →/D → all 对应
-  const order = ["favorites", "all"];
+  // 首次构建 DOM
+  if (!_indicator) {
+    _root.replaceChildren();
+    const order = ["favorites", "all"];
 
-  // 滑动指示条
-  const indicator = document.createElement("span");
-  indicator.className = "segment-indicator";
-  indicator.dataset.position = _mode === "favorites" ? "left" : "right";
-  _root.appendChild(indicator);
+    _indicator = document.createElement("span");
+    _indicator.className = "segment-indicator";
+    _root.appendChild(_indicator);
 
-  for (const mode of order) {
-    const btn = document.createElement("button");
-    btn.type = "button";
+    for (const mode of order) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.setAttribute("role", "tab");
+      btn.dataset.mode = mode;
+
+      const label = document.createElement("span");
+      label.className = "segment-tab-label";
+
+      const count = document.createElement("span");
+      count.className = "segment-tab-count";
+
+      btn.append(label, count);
+      btn.addEventListener("click", () => setMode(mode));
+      _root.appendChild(btn);
+      _buttons[mode] = { btn, label, count };
+    }
+  }
+
+  // 增量更新状态
+  _indicator.dataset.position = _mode === "favorites" ? "left" : "right";
+
+  for (const mode of ["favorites", "all"]) {
+    const { btn, label, count } = _buttons[mode];
     btn.className = "segment-tab" + (mode === _mode ? " active" : "");
-    btn.setAttribute("role", "tab");
     btn.setAttribute("aria-selected", String(mode === _mode));
-    btn.dataset.mode = mode;
-
-    const label = document.createElement("span");
-    label.className = "segment-tab-label";
     label.textContent = t(mode === "all" ? "tabs.all" : "tabs.favorites");
-
-    const count = document.createElement("span");
-    count.className = "segment-tab-count";
     count.textContent = String(mode === "all" ? _counts.all : _counts.favorites);
-
-    btn.append(label, count);
-    btn.addEventListener("click", () => setMode(mode));
-    _root.appendChild(btn);
   }
 }

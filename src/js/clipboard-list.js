@@ -14,6 +14,7 @@
 import { getClips, deleteClip, toggleFavorite, selectClip } from "./api.js";
 import { t } from "../i18n/i18n.js";
 import * as telemetry from "./telemetry.js";
+import * as icons from "./icons.js";
 
 let DELETE_CONFIRM_MS = 1200; // 默认值，从 config 覆盖
 
@@ -21,6 +22,7 @@ let _parent = null;
 let _emptyEl = null;
 let _onCountsChange = () => {};
 let _onSummonSearch = () => {};
+let _onModeChange = () => {};
 
 let _query = "";
 let _panelMode = "all";
@@ -36,11 +38,12 @@ let _hasMore = true;
 let _loading = false;
 let _keyboardNav = false; // 键盘导航中，鼠标悬浮不抢焦点
 
-export function init({ listEl, emptyEl, onCountsChange, onSummonSearch }) {
+export function init({ listEl, emptyEl, onCountsChange, onSummonSearch, onModeChange }) {
   _parent = listEl;
   _emptyEl = emptyEl;
   _onCountsChange = onCountsChange || (() => {});
   _onSummonSearch = onSummonSearch || (() => {});
+  _onModeChange = onModeChange || (() => {});
   // 滚动到底部时追加加载
   if (_parent) {
     _parent.addEventListener("scroll", _onScroll);
@@ -92,8 +95,15 @@ export function setPanelMode(mode) {
   _focusedCol = -1;
   _expandedRow = null;
   cancelDeletePending();
+  // 切换淡入动画
+  if (_parent) {
+    _parent.classList.remove("switch-left", "switch-right");
+    void _parent.offsetWidth;
+    _parent.classList.add("switch-left");
+  }
   render();
   emitCounts();
+  _onModeChange(mode);
   telemetry.emit("clip-list:set-mode", { mode });
 }
 
@@ -452,9 +462,9 @@ function buildRow(clip, idx) {
   const actions = document.createElement("div");
   actions.className = "clip-row-actions";
   const buttons = [
-    { key: "copy",     label: t("action.copy"),     icon: "⎘" },
-    { key: "favorite", label: clip.is_favorite ? t("action.unfavorite") : t("action.favorite"), icon: clip.is_favorite ? "★" : "☆" },
-    { key: "delete",   label: t("action.delete"),   icon: "✕" },
+    { key: "copy",     label: t("action.copy"),     icon: icons.copy },
+    { key: "favorite", label: clip.is_favorite ? t("action.unfavorite") : t("action.favorite"), icon: clip.is_favorite ? icons.starFill : icons.star },
+    { key: "delete",   label: t("action.delete"),   icon: icons.trash },
   ];
   buttons.forEach((b, btnIdx) => {
     const btn = document.createElement("button");
@@ -469,7 +479,7 @@ function buildRow(clip, idx) {
 
     const icon = document.createElement("span");
     icon.className = "clip-row-action-icon";
-    icon.textContent = b.icon;
+    icon.innerHTML = b.icon;
     btn.appendChild(icon);
 
     if (b.key === "delete" && _deletePending?.rowId === clip.id) {
@@ -494,7 +504,7 @@ function buildRow(clip, idx) {
   trigger.className = "clip-row-trigger";
   trigger.setAttribute("aria-label", t("action.more"));
   trigger.title = t("action.more");
-  trigger.textContent = "⋯";
+  trigger.innerHTML = icons.more;
   trigger.addEventListener("click", (e) => {
     e.stopPropagation();
     _focusedRow = idx;
