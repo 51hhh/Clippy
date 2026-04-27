@@ -5,12 +5,30 @@ use tauri::image::Image;
 const SIZE: u32 = 64;
 
 const THEME_ICONS: &[(&str, &[u8])] = &[
-    ("light", include_bytes!(concat!(env!("OUT_DIR"), "/tray-light.rgba"))),
-    ("dark", include_bytes!(concat!(env!("OUT_DIR"), "/tray-dark.rgba"))),
-    ("nord", include_bytes!(concat!(env!("OUT_DIR"), "/tray-nord.rgba"))),
-    ("solarized-light", include_bytes!(concat!(env!("OUT_DIR"), "/tray-solarized-light.rgba"))),
-    ("rose", include_bytes!(concat!(env!("OUT_DIR"), "/tray-rose.rgba"))),
-    ("midnight", include_bytes!(concat!(env!("OUT_DIR"), "/tray-midnight.rgba"))),
+    (
+        "light",
+        include_bytes!(concat!(env!("OUT_DIR"), "/tray-light.rgba")),
+    ),
+    (
+        "dark",
+        include_bytes!(concat!(env!("OUT_DIR"), "/tray-dark.rgba")),
+    ),
+    (
+        "nord",
+        include_bytes!(concat!(env!("OUT_DIR"), "/tray-nord.rgba")),
+    ),
+    (
+        "solarized-light",
+        include_bytes!(concat!(env!("OUT_DIR"), "/tray-solarized-light.rgba")),
+    ),
+    (
+        "rose",
+        include_bytes!(concat!(env!("OUT_DIR"), "/tray-rose.rgba")),
+    ),
+    (
+        "midnight",
+        include_bytes!(concat!(env!("OUT_DIR"), "/tray-midnight.rgba")),
+    ),
 ];
 
 /// 返回对应主题的托盘图标；未知主题回退到 light。
