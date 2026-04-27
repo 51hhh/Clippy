@@ -18,13 +18,21 @@ const THEMES: &[(&str, [u8; 4])] = &[
 fn luminance(bg: [u8; 4]) -> f32 {
     fn ch(c: u8) -> f32 {
         let v = c as f32 / 255.0;
-        if v <= 0.03928 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+        if v <= 0.03928 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
     }
     0.2126 * ch(bg[0]) + 0.7152 * ch(bg[1]) + 0.0722 * ch(bg[2])
 }
 
 fn render_icon(svg_source: &str, bg: [u8; 4]) -> Vec<u8> {
-    let stroke = if luminance(bg) > 0.5 { "#000000" } else { "#ffffff" };
+    let stroke = if luminance(bg) > 0.5 {
+        "#000000"
+    } else {
+        "#ffffff"
+    };
     let svg_text = svg_source.replace("stroke=\"#000000\"", &format!("stroke=\"{}\"", stroke));
 
     let mut pixmap = Pixmap::new(SIZE, SIZE).expect("pixmap");
@@ -49,7 +57,13 @@ fn render_icon(svg_source: &str, bg: [u8; 4]) -> Vec<u8> {
     let mut paint = Paint::default();
     paint.set_color(Color::from_rgba8(bg[0], bg[1], bg[2], bg[3]));
     paint.anti_alias = true;
-    pixmap.fill_path(&bg_path, &paint, FillRule::Winding, Transform::identity(), None);
+    pixmap.fill_path(
+        &bg_path,
+        &paint,
+        FillRule::Winding,
+        Transform::identity(),
+        None,
+    );
 
     // SVG 渲染
     let opt = usvg::Options::default();
