@@ -11,6 +11,14 @@ use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Listener, Manager};
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
+/// 已有实例运行时的回调：聚焦主窗口
+fn on_second_instance(app: &tauri::AppHandle, _args: Vec<String>, _cwd: String) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
 /// 构建系统托盘：左键点击弹出菜单，包含 Open Clipboard / Settings / Quit
 fn build_tray(app: &tauri::App, theme: &str) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::{Menu, MenuItem};
@@ -93,6 +101,9 @@ pub fn run() {
     env_logger::init();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            on_second_instance(app, args, cwd);
+        }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(

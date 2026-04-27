@@ -18,9 +18,9 @@ const DCONF_BASE: &str =
 const SCHEMA: &str = "org.gnome.settings-daemon.plugins.media-keys";
 /// gsettings relocatable schema（读写具体条目用）
 const ENTRY_SCHEMA: &str = "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding";
-/// D-Bus Toggle 命令
+/// D-Bus Toggle 命令（使用 .Shortcuts 子名称，避免与 GTK GApplication 的 com.clippy.app 冲突）
 const DBUS_TOGGLE_CMD: &str =
-    "dbus-send --session --type=method_call --dest=com.clippy.app /com/clippy/app com.clippy.app.Toggle";
+    "dbus-send --session --type=method_call --dest=com.clippy.app.Shortcuts /com/clippy/app com.clippy.app.Toggle";
 
 /// 检测当前是否运行在 Wayland 会话中
 pub fn is_wayland() -> bool {
@@ -228,7 +228,9 @@ fn dconf_reset() -> Result<(), String> {
 
 // ─── D-Bus 服务 ──────────────────────────────────────────────────────────────
 
-/// 启动 D-Bus 服务：注册 com.clippy.app，暴露 Toggle 方法
+/// 启动 D-Bus 服务：注册 com.clippy.app.Shortcuts，暴露 Toggle 方法
+///
+/// 使用 .Shortcuts 子名称，因为 enableGTKAppId=true 时 GTK GApplication 会占用 com.clippy.app。
 pub async fn start_dbus_service(handle: AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     use zbus::connection::Builder;
     use zbus::interface;
@@ -250,12 +252,12 @@ pub async fn start_dbus_service(handle: AppHandle) -> Result<(), Box<dyn std::er
     };
 
     let _conn = Builder::session()?
-        .name("com.clippy.app")?
+        .name("com.clippy.app.Shortcuts")?
         .serve_at("/com/clippy/app", iface)?
         .build()
         .await?;
 
-    log::info!("D-Bus 服务已启动: com.clippy.app");
+    log::info!("D-Bus 服务已启动: com.clippy.app.Shortcuts");
 
     // 保持连接活跃（_conn 的生命周期 = 此 future 的生命周期）
     std::future::pending::<()>().await;

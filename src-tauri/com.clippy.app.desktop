@@ -1,8 +1,9 @@
 [Desktop Entry]
-Name=Clippy
-Comment=Cross-platform lightweight clipboard manager
-Exec=clippy-app
-Icon=com.clippy.app
+Name={{name}}
+Comment={{comment}}
+Exec={{exec}}
+Icon={{icon}}
 Type=Application
 Categories=Utility;
 StartupWMClass=com.clippy.app
+Terminal=false
