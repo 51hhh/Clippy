@@ -1,6 +1,6 @@
 [package]
 name = "clippy-app"
-version = "0.1.6"
+version = "0.1.7"
 description = "跨平台轻量剪贴板管理器"
 authors = ["zhongweixi2000"]
 edition = "2021"

@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.1.7
+
+### 🐛 修复
+- 修复开机自启动产生幽灵进程导致正常启动报"无法连接到 local"的严重问题
+  - Wayland 下 D-Bus name 抢占失败时进程立即退出，不再驻留为半残实例
+  - 检测到 dev 二进制被加入 autostart 时自动注销，避免污染 `~/.config/autostart/`
+- 彻底修复 GNOME 桌面双图标问题：postinst 改为重命名 `Clippy.desktop` → `com.clippy.app.desktop`，不再使用软链方案
+
+### 🔧 技术变更
+- 新增 `is_dev_binary` IPC 命令，前端在开发构建中禁用自启动 toggle
+- `start_dbus_service` 增加 ready channel，setup 阶段同步等待 name 抢占结果
+- postinst/postrm 升级路径加固，强制覆盖避免孤儿 desktop 文件残留
+
 ## v0.1.6
 
 ### ✨ 新功能

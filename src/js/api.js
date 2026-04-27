@@ -66,6 +66,11 @@ export function getInstallType() {
   return invoke("get_install_type");
 }
 
+/** 当前进程是否为 cargo target 开发产物（dev 模式下应禁用自启 toggle） */
+export function isDevBinary() {
+  return invoke("is_dev_binary");
+}
+
 // ── 事件 ──
 
 export function onClipAdded(callback) {
