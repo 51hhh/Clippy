@@ -175,6 +175,11 @@ export function canExpandHere() {
 
 export function hasExpanded() { return _expandedRow !== null; }
 
+export function releaseMemory() {
+  _allClips = [];
+  if (_parent) _parent.replaceChildren();
+}
+
 /** Space/Enter：当前焦点（行体=复制；按钮=执行该按钮） */
 export async function activateFocus(source = "keyboard") {
   const items = visibleItems();

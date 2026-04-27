@@ -42,8 +42,12 @@ impl StorageEngine {
 
     /// 创建表、FTS5 虚拟表和索引
     fn init_tables(&self) -> Result<(), StorageError> {
+        // 降低 SQLite 内存占用：128 页 × 4KB = 512KB cache
         self.conn.execute_batch(
             "
+            PRAGMA cache_size = 128;
+            PRAGMA temp_store = MEMORY;
+
             CREATE TABLE IF NOT EXISTS clips (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
                 content_type TEXT NOT NULL,
@@ -152,7 +156,7 @@ impl StorageEngine {
         if !trimmed.is_empty() {
             // FTS 搜索路径
             let sql = if favorites_only {
-                "SELECT c.id, c.content_type, c.text_content, c.html_content, c.image_data,
+                "SELECT c.id, c.content_type, c.text_content, c.html_content, NULL,
                         c.content_hash, c.is_favorite, c.created_at, c.byte_size
                  FROM clips_fts
                  JOIN clips c ON clips_fts.rowid = c.id
@@ -161,7 +165,7 @@ impl StorageEngine {
                  ORDER BY c.created_at DESC
                  LIMIT ?2 OFFSET ?3"
             } else {
-                "SELECT c.id, c.content_type, c.text_content, c.html_content, c.image_data,
+                "SELECT c.id, c.content_type, c.text_content, c.html_content, NULL,
                         c.content_hash, c.is_favorite, c.created_at, c.byte_size
                  FROM clips_fts
                  JOIN clips c ON clips_fts.rowid = c.id
@@ -179,14 +183,14 @@ impl StorageEngine {
 
         // 普通查询路径
         let sql = if favorites_only {
-            "SELECT id, content_type, text_content, html_content, image_data,
+            "SELECT id, content_type, text_content, html_content, NULL,
                     content_hash, is_favorite, created_at, byte_size
              FROM clips
              WHERE is_favorite = 1
              ORDER BY created_at DESC
              LIMIT ?1 OFFSET ?2"
         } else {
-            "SELECT id, content_type, text_content, html_content, image_data,
+            "SELECT id, content_type, text_content, html_content, NULL,
                     content_hash, is_favorite, created_at, byte_size
              FROM clips
              ORDER BY created_at DESC
