@@ -8,6 +8,7 @@ import * as searchBar     from "./search-bar.js";
 import * as segmentTabs   from "./segment-tabs.js";
 import * as i18n          from "../i18n/i18n.js";
 import { initUpdateModal, checkForUpdate } from "./update-modal.js";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   getConfig, onClipAdded, onClipRemoved, onConfigChanged,
   onShortcutRegisterFailed,
@@ -87,8 +88,7 @@ function onKeyDown(e) {
   if (searchBar.isVisible() && document.activeElement?.classList.contains("search-bar-input")) {
     if (e.key === "Escape") {
       e.preventDefault();
-      const stage = searchBar.dismissStage();
-      if (stage === "panel") tryHidePanel();
+      tryHidePanel();
       return;
     }
     return; // 其它键交给 input
@@ -136,26 +136,13 @@ function onKeyDown(e) {
       return;
     case "Escape":
       e.preventDefault();
-      // 优先：收回按钮组 → 收起搜索条 → 隐藏面板
-      if (clipboardList.hasExpanded()) {
-        clipboardList.collapseActions();
-        return;
-      }
-      if (searchBar.isVisible()) {
-        const stage = searchBar.dismissStage();
-        if (stage === "panel") tryHidePanel();
-        return;
-      }
       tryHidePanel();
       return;
   }
 }
 
 function tryHidePanel() {
-  // 失焦逻辑由 Tauri WindowEvent 处理；这里发一次 blur 触发它
-  if (window.__TAURI__) {
-    window.__TAURI__.window?.getCurrentWindow?.()?.hide?.();
-  }
+  getCurrentWindow().hide();
 }
 
 async function onWindowFocus() {
