@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.1.5
+
+### 🐛 修复
+- 更新弹窗 changelog 区域改为自适应高度，内容多时自动伸展可滚动
+- Release 构建时传入 changelog 到 tauri-action，修复 updater latest.json notes 为空的问题
+
+### 📄 文档
+- 新增 CI/CD 文档（docs/CI.md），记录完整构建发布流程和发版检查清单
+
 ## v0.1.4
 
 ### 🎨 UI 图标全面升级
