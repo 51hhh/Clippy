@@ -61,7 +61,7 @@ function showInfoState(version, body) {
       li.textContent = `• ${trimmed.slice(2)}`;
       li.style.paddingLeft = "8px";
       bodyEl.appendChild(li);
-    } else if (/^##?\s/.test(trimmed)) {
+    } else if (/^#{1,3}\s/.test(trimmed)) {
       // markdown 标题：粗体显示
       const h = document.createElement("p");
       h.textContent = trimmed.replace(/^#+\s*/, "");
