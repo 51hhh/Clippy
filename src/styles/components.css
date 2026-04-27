@@ -342,7 +342,8 @@
   padding: 24px;
   width: 340px;
   max-height: 80vh;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
 }
 .update-modal-title {
@@ -365,7 +366,8 @@
   font-size: 13px;
   color: var(--text-secondary);
   line-height: 1.6;
-  max-height: 200px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   margin-bottom: 18px;
   padding: 12px;
