@@ -247,3 +247,19 @@ pub fn get_install_type() -> String {
         "deb".into()
     }
 }
+
+/// 当前可执行文件是否位于 cargo target 产物目录（开发期产物）
+///
+/// 前端用于禁用"开机自启"toggle —— autostart 会以 current_exe 路径写入
+/// .desktop 文件，dev 路径写入会在系统重启后产生指向已删除/已更新二进制的
+/// 幽灵自启项（v0.1.6 已知问题）。
+#[tauri::command]
+pub fn is_dev_binary() -> bool {
+    match std::env::current_exe() {
+        Ok(p) => {
+            let s = p.to_string_lossy();
+            s.contains("/target/debug/") || s.contains("/target/release/")
+        }
+        Err(_) => false,
+    }
+}

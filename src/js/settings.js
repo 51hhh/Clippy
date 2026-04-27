@@ -12,6 +12,7 @@ import {
   checkShortcutConflict,
   getConfig,
   getAppVersion,
+  isDevBinary,
   pauseShortcuts,
   resumeShortcuts,
   updateConfig,
@@ -76,9 +77,18 @@ whenReady(async () => {
       const ver = await getAppVersion();
       if (aboutVersion) aboutVersion.textContent = `v${ver}`;
     } catch (e) { console.warn("获取版本号失败:", e); }
-    // 加载开机自启动状态
+    // 加载开机自启动状态 —— dev 二进制禁止开启自启（避免污染 ~/.config/autostart/Clippy.desktop）
     try {
-      autostartToggle.checked = await isAutostartEnabled();
+      const dev = await isDevBinary();
+      if (dev) {
+        autostartToggle.checked = false;
+        autostartToggle.disabled = true;
+        autostartToggle.title = "Autostart is disabled for development builds";
+        // 顺手清理已被错误写入的 dev 路径自启项
+        try { await disableAutostart(); } catch (e) { console.warn("清理 dev 自启项失败:", e); }
+      } else {
+        autostartToggle.checked = await isAutostartEnabled();
+      }
     } catch (e) { console.warn("获取自启动状态失败:", e); }
   } catch (err) {
     console.error("加载配置失败:", err);

@@ -231,7 +231,13 @@ fn dconf_reset() -> Result<(), String> {
 /// 启动 D-Bus 服务：注册 com.clippy.app.Shortcuts，暴露 Toggle 方法
 ///
 /// 使用 .Shortcuts 子名称，因为 enableGTKAppId=true 时 GTK GApplication 会占用 com.clippy.app。
-pub async fn start_dbus_service(handle: AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+///
+/// `ready_tx` 在 name 抢占完成后发送结果（成功/失败）。失败 = 已有实例占用此名，
+/// 调用方应据此立即退出进程，避免变成幽灵实例（v0.1.6 开机自启幽灵进程的根因）。
+pub async fn start_dbus_service(
+    handle: AppHandle,
+    ready_tx: std::sync::mpsc::Sender<Result<(), String>>,
+) -> Result<(), Box<dyn std::error::Error>> {
     use zbus::connection::Builder;
     use zbus::interface;
 
@@ -251,13 +257,37 @@ pub async fn start_dbus_service(handle: AppHandle) -> Result<(), Box<dyn std::er
         handle: handle.clone(),
     };
 
-    let _conn = Builder::session()?
-        .name("com.clippy.app.Shortcuts")?
-        .serve_at("/com/clippy/app", iface)?
-        .build()
-        .await?;
+    // name 抢占必须先完成，结果立即同步回 setup 主线程
+    let conn_result = Builder::session()
+        .map_err(|e| e.to_string())
+        .and_then(|b| {
+            b.name("com.clippy.app.Shortcuts")
+                .map_err(|e| e.to_string())
+        })
+        .and_then(|b| {
+            b.serve_at("/com/clippy/app", iface)
+                .map_err(|e| e.to_string())
+        });
+
+    let builder = match conn_result {
+        Ok(b) => b,
+        Err(e) => {
+            let _ = ready_tx.send(Err(e.clone()));
+            return Err(e.into());
+        }
+    };
+
+    let _conn = match builder.build().await {
+        Ok(c) => c,
+        Err(e) => {
+            let msg = e.to_string();
+            let _ = ready_tx.send(Err(msg.clone()));
+            return Err(msg.into());
+        }
+    };
 
     log::info!("D-Bus 服务已启动: com.clippy.app.Shortcuts");
+    let _ = ready_tx.send(Ok(()));
 
     // 保持连接活跃（_conn 的生命周期 = 此 future 的生命周期）
     std::future::pending::<()>().await;

@@ -9,7 +9,22 @@ mod tray_icon;
 use commands::AppState;
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Listener, Manager};
+use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
+
+/// 当前可执行文件是否位于 cargo target 产物目录（开发期产物，不应被自启）
+///
+/// 防止开发者在 `cargo tauri dev` 状态下点了"开机自启"toggle，把 dev 路径
+/// 写入 ~/.config/autostart/Clippy.desktop —— 那是 v0.1.6 幽灵进程问题的源头之一。
+fn is_dev_binary() -> bool {
+    match std::env::current_exe() {
+        Ok(p) => {
+            let s = p.to_string_lossy();
+            s.contains("/target/debug/") || s.contains("/target/release/")
+        }
+        Err(_) => false,
+    }
+}
 
 /// 已有实例运行时的回调：聚焦主窗口
 fn on_second_instance(app: &tauri::AppHandle, _args: Vec<String>, _cwd: String) {
@@ -119,6 +134,17 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
+            // ── 0. 自启路径合法性守护 ────────────────────────────────────────
+            // 若开发期 dev 二进制被错误地写入 autostart（v0.1.6 幽灵进程根因之一），
+            // 立即注销 autostart 并退出，避免抢占 D-Bus name 阻塞正常安装版启动。
+            if is_dev_binary() {
+                let autostart = app.autolaunch();
+                if matches!(autostart.is_enabled(), Ok(true)) {
+                    log::warn!("检测到 dev 二进制被加入开机自启，自动注销以避免幽灵进程");
+                    let _ = autostart.disable();
+                }
+            }
+
             // ── 1. 确定数据目录 ──────────────────────────────────────────────
             let app_data_dir = app.path().app_data_dir().expect("无法获取应用数据目录");
             std::fs::create_dir_all(&app_data_dir).expect("无法创建应用数据目录");
@@ -199,13 +225,33 @@ pub fn run() {
                     use tauri::Emitter;
                     let _ = app.emit("shortcut-register-failed", &app_config.global_shortcut);
                 }
-                // 启动 D-Bus 服务接收 Toggle 调用
+                // 启动 D-Bus 服务接收 Toggle 调用 —— name 抢占必须成功，
+                // 否则当前进程是"幽灵副本"，立即退出让 single-instance 自动清理。
                 let handle = app.handle().clone();
+                let (ready_tx, ready_rx) = std::sync::mpsc::channel();
                 tauri::async_runtime::spawn(async move {
-                    if let Err(e) = gsettings_shortcuts::start_dbus_service(handle).await {
-                        log::error!("D-Bus 服务启动失败: {}", e);
+                    if let Err(e) = gsettings_shortcuts::start_dbus_service(handle, ready_tx).await
+                    {
+                        log::error!("D-Bus 服务运行期失败: {}", e);
                     }
                 });
+                // 等待最多 3 秒确认 name 抢占结果（一般毫秒级返回）
+                match ready_rx.recv_timeout(std::time::Duration::from_secs(3)) {
+                    Ok(Ok(())) => log::info!("D-Bus 服务 name 抢占成功"),
+                    Ok(Err(e)) => {
+                        log::error!(
+                            "D-Bus name 抢占失败（已有 Clippy 实例驻留）: {} — 当前进程立即退出避免幽灵化",
+                            e
+                        );
+                        app.handle().exit(1);
+                        return Ok(());
+                    }
+                    Err(_) => {
+                        log::error!("D-Bus 服务启动超时，当前进程立即退出避免幽灵化");
+                        app.handle().exit(1);
+                        return Ok(());
+                    }
+                }
             } else {
                 log::info!("检测到 X11 会话，使用 tauri-plugin-global-shortcut");
                 if let Err(e) = register_shortcut(app, &app_config.global_shortcut) {
@@ -252,6 +298,7 @@ pub fn run() {
             commands::pause_shortcuts,
             commands::resume_shortcuts,
             commands::get_install_type,
+            commands::is_dev_binary,
         ])
         .run(tauri::generate_context!())
         .expect("启动 Tauri 应用失败");
