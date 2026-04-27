@@ -34,6 +34,7 @@ let _dirty = false;
 const PAGE_SIZE = 30;
 let _hasMore = true;
 let _loading = false;
+let _keyboardNav = false; // 键盘导航中，鼠标悬浮不抢焦点
 
 export function init({ listEl, emptyEl, onCountsChange, onSummonSearch }) {
   _parent = listEl;
@@ -158,6 +159,8 @@ export function moveRow(delta) {
     _onSummonSearch("keyboard");
     return;
   }
+  // 标记键盘导航中，鼠标不抢焦点
+  _keyboardNav = true;
   // 移动行：自动退出按钮区
   _focusedCol = -1;
   if (_expandedRow !== null) {
@@ -224,6 +227,9 @@ export function hasExpanded() { return _expandedRow !== null; }
 export function releaseMemory() {
   _allClips = [];
   _dirty = true; // 内存释放后，下次 focus 必须重新加载
+  _focusedRow = 0; // 下次打开时从第一项（最新）开始
+  _focusedCol = -1;
+  _expandedRow = null;
   if (_parent) _parent.replaceChildren();
 }
 
@@ -233,9 +239,12 @@ export function markDirty() { _dirty = true; }
 /** 是否有待刷新的数据变更 */
 export function isDirty() { return _dirty; }
 
-/** 恢复渲染（无数据变更时 focus 调用，仅重建 DOM） */
+/** 恢复渲染（无数据变更时 focus 调用，重置焦点到第一行） */
 export function restoreRender() {
   if (_allClips.length > 0) {
+    _focusedRow = 0;
+    _focusedCol = -1;
+    _expandedRow = null;
     render();
   }
 }
@@ -505,7 +514,12 @@ function buildRow(clip, idx) {
     _focusedCol = -1;
     invokeAction(clip, "copy", "mouse");
   });
-  row.addEventListener("mouseenter", () => {
+  row.addEventListener("mousemove", () => {
+    // 键盘导航期间忽略鼠标悬浮（需要实际移动鼠标才激活）
+    if (_keyboardNav) {
+      _keyboardNav = false;
+      return;
+    }
     if (idx !== _focusedRow) {
       // 只切换 CSS class，不全量重建 DOM
       const prev = _parent?.querySelector(".clip-row.focused");

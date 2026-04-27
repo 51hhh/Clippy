@@ -55,7 +55,7 @@ pub fn clear_history(state: State<AppState>) -> Result<(), String> {
     storage.clear_history().map_err(|e| e.to_string())
 }
 
-/// 将指定条目的文本内容写入系统剪贴板，并隐藏悬浮面板
+/// 将指定条目的文本内容写入系统剪贴板，隐藏面板，并模拟粘贴
 #[tauri::command]
 pub fn select_clip(
     id: i64,
@@ -87,7 +87,34 @@ pub fn select_clip(
         window.hide().map_err(|e| e.to_string())?;
     }
 
+    // 短暂延迟后模拟 Ctrl+V 粘贴到之前的活动窗口
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        simulate_paste();
+    });
+
     Ok(())
+}
+
+/// 通过 XTest 扩展模拟 Ctrl+V 粘贴（enigo/x11rb 后端）
+fn simulate_paste() {
+    use enigo::{
+        Direction::{Click, Press, Release},
+        Enigo, Key, Keyboard, Settings,
+    };
+
+    match Enigo::new(&Settings::default()) {
+        Ok(mut enigo) => {
+            if let Err(e) = enigo
+                .key(Key::Control, Press)
+                .and_then(|_| enigo.key(Key::Unicode('v'), Click))
+                .and_then(|_| enigo.key(Key::Control, Release))
+            {
+                log::warn!("模拟粘贴失败: {}", e);
+            }
+        }
+        Err(e) => log::warn!("初始化 enigo 失败: {}", e),
+    }
 }
 
 /// 读取当前应用配置
