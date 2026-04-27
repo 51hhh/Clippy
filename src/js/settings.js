@@ -13,6 +13,7 @@ import {
   updateShortcut,
 } from "./api.js";
 import { keyEventToShortcut } from "./shortcut-recorder.js";
+import { initUpdateModal, checkForUpdate } from "./update-modal.js";
 import * as i18n from "../i18n/i18n.js";
 import "../styles/themes.css";
 import "../styles/base.css";
@@ -237,18 +238,15 @@ saveBtn.addEventListener("click", async () => {
   }
 });
 
-// 检查更新
+// 检查更新（使用 update-modal 弹窗）
+initUpdateModal();
 checkUpdateBtn.addEventListener("click", async () => {
   checkUpdateBtn.disabled = true;
   updateStatus.classList.add("hidden");
   updateStatus.classList.remove("error");
   try {
-    const { check } = await import("@tauri-apps/plugin-updater");
-    const update = await check();
-    if (update) {
-      updateStatus.textContent = i18n.t("settings.about.updateAvailable", { version: update.version });
-      updateStatus.classList.remove("hidden");
-    } else {
+    const found = await checkForUpdate(true);
+    if (!found) {
       updateStatus.textContent = i18n.t("settings.about.upToDate");
       updateStatus.classList.remove("hidden");
       setTimeout(() => updateStatus.classList.add("hidden"), 3000);
