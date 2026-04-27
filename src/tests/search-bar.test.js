@@ -4,7 +4,7 @@ import * as searchBar from "../js/search-bar.js";
 function setup() {
   document.body.innerHTML = `
     <aside id="search-bar" class="search-bar" hidden>
-      <span class="search-bar-icon">🔍</span>
+      <span class="search-bar-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span>
       <input class="search-bar-input" type="text"/>
       <span class="search-bar-hint">Esc</span>
     </aside>

@@ -50,6 +50,7 @@ whenReady(async () => {
     emptyEl,
     onCountsChange: (counts) => segmentTabs.setCounts(counts),
     onSummonSearch: (source) => searchBar.summon(source),
+    onModeChange: (mode) => segmentTabs.setMode(mode),
   });
   clipboardList.setDeleteConfirmMs(config.delete_confirm_ms || 1200);
 
@@ -88,7 +89,10 @@ function onKeyDown(e) {
   if (searchBar.isVisible() && document.activeElement?.classList.contains("search-bar-input")) {
     if (e.key === "Escape") {
       e.preventDefault();
-      tryHidePanel();
+      const stage = searchBar.dismissStage();
+      if (stage === "panel") {
+        clipboardList.hasExpanded() ? clipboardList.collapseActions() : tryHidePanel();
+      }
       return;
     }
     return; // 其它键交给 input
@@ -136,7 +140,16 @@ function onKeyDown(e) {
       return;
     case "Escape":
       e.preventDefault();
-      tryHidePanel();
+      if (searchBar.isVisible()) {
+        const stage = searchBar.dismissStage();
+        if (stage === "panel") {
+          clipboardList.hasExpanded() ? clipboardList.collapseActions() : tryHidePanel();
+        }
+      } else if (clipboardList.hasExpanded()) {
+        clipboardList.collapseActions();
+      } else {
+        tryHidePanel();
+      }
       return;
   }
 }
