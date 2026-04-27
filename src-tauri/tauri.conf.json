@@ -10,6 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "enableGTKAppId": true,
     "windows": [
       {
         "title": "Clippy",
@@ -37,7 +38,13 @@
   },
   "bundle": {
     "active": true,
+    "category": "Utility",
     "targets": ["deb", "appimage"],
+    "linux": {
+      "deb": {
+        "desktopTemplate": "com.clippy.app.desktop"
+      }
+    },
     "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
