@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.1.1
+
+### ⚡ 性能优化（运行时缓存）
+- SQLite 启用 WAL 日志模式，提升并发读写性能
+- 查询语句改用 `prepare_cached`，避免重复编译 SQL
+- 剪贴板插入采用 UPSERT（ON CONFLICT）替代 try/catch 两步写入
+- 历史清理改为批量 DELETE（IN 子句），减少逐条删除开销
+- Linux 下设置 `MALLOC_ARENA_MAX=2`，降低 glibc 内存碎片
+- 前端列表分页加载（PAGE_SIZE=30 + 滚动追加），替代一次性加载 200 条
+- 行移动 / 列切换 / 展开收起 / 鼠标悬停改为 CSS class 差量更新，不再全量 render
+- 新增 / 删除条目差量 DOM 操作（prepend / remove + idx 重编号）
+- 窗口失焦时释放列表内存，聚焦时按需恢复（dirty flag 机制）
+
 ## v0.1.0
 
 ### ✨ 新功能
