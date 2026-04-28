@@ -118,20 +118,20 @@ function onKeyDown(e) {
     case "a":
     case "A":
       e.preventDefault();
-      clipboardList.moveCol(-1);
+      // 收藏模式行体上：展开按钮组（按钮在左侧）
+      if (clipboardList.getPanelMode() === "favorites" && clipboardList.canExpandHere()) {
+        clipboardList.expandRowActions();
+      } else {
+        clipboardList.moveCol(-1);
+      }
       return;
     case "ArrowRight":
     case "d":
     case "D":
       e.preventDefault();
-      // 行体上：favorites mode → 切回 all；all mode → 展开按钮组
-      // 按钮区：按钮间右移
-      if (clipboardList.canExpandHere()) {
-        if (clipboardList.getPanelMode() === "favorites") {
-          clipboardList.setPanelMode("all");
-        } else {
-          clipboardList.expandRowActions();
-        }
+      // 全部模式行体上：展开按钮组
+      if (clipboardList.getPanelMode() === "all" && clipboardList.canExpandHere()) {
+        clipboardList.expandRowActions();
       } else {
         clipboardList.moveCol(1);
       }
