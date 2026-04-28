@@ -11,6 +11,8 @@
 </head>
 <body>
   <div id="app">
+    <!-- 左侧：剪贴板列表面板 -->
+    <div id="list-panel" class="list-panel">
     <!-- 搜索条（默认隐藏，焦点在第 1 行按 ↑/W 召唤） -->
     <aside id="search-bar" class="search-bar" hidden>
       <span class="search-bar-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span>
@@ -43,6 +45,16 @@
 
     <!-- 底部 segment（All / Favorites） -->
     <footer id="segment-tabs" class="segment-tabs" role="tablist"></footer>
+    </div><!-- /list-panel -->
+
+    <!-- 右侧：富文本预览面板（默认隐藏） -->
+    <div id="preview-panel" class="preview-panel hidden">
+      <div class="preview-header">
+        <span id="preview-type-badge" class="preview-type-badge"></span>
+        <span id="preview-meta" class="preview-meta"></span>
+      </div>
+      <div id="preview-content" class="preview-content"></div>
+    </div>
 
     <!-- 更新弹窗（默认隐藏） -->
     <div id="update-modal" class="update-modal hidden">

@@ -1,8 +1,9 @@
 use crate::clipboard_watcher::ClipboardWatcher;
 use crate::config::save_config;
-use crate::models::{AppConfig, ClipItem};
+use crate::models::{AppConfig, ClipItem, ContentType};
 use crate::storage::StorageEngine;
 use arboard::Clipboard;
+use base64::{engine::general_purpose::STANDARD, Engine};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::{Manager, State};
@@ -55,7 +56,7 @@ pub fn clear_history(state: State<AppState>) -> Result<(), String> {
     storage.clear_history().map_err(|e| e.to_string())
 }
 
-/// 将指定条目的文本内容写入系统剪贴板，隐藏面板，并模拟粘贴
+/// 将指定条目的内容写入系统剪贴板，隐藏面板，并模拟粘贴
 #[tauri::command]
 pub fn select_clip(
     id: i64,
@@ -63,23 +64,75 @@ pub fn select_clip(
     state: State<AppState>,
 ) -> Result<(), String> {
     // 从存储中读取条目
-    let text = {
+    let clip = {
         let storage = state.storage.lock().map_err(|e| e.to_string())?;
-        let clip = storage.get_clip_by_id(id).map_err(|e| e.to_string())?;
-        clip.text_content
+        storage.get_clip_by_id(id).map_err(|e| e.to_string())?
     };
 
-    // 将文本写入系统剪贴板，并通知 watcher 跳过此内容
-    if let Some(content) = text {
-        use sha2::{Digest, Sha256};
-        let hash = format!(
-            "{:x}",
-            Sha256::new_with_prefix(content.as_bytes()).finalize()
-        );
-        state.watcher.set_skip_hash(hash);
+    let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
 
-        let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
-        clipboard.set_text(content).map_err(|e| e.to_string())?;
+    match clip.content_type {
+        ContentType::Text => {
+            if let Some(content) = clip.text_content {
+                use sha2::{Digest, Sha256};
+                let hash = format!(
+                    "{:x}",
+                    Sha256::new_with_prefix(content.as_bytes()).finalize()
+                );
+                state.watcher.set_skip_hash(hash);
+                clipboard.set_text(content).map_err(|e| e.to_string())?;
+            }
+        }
+        ContentType::Image => {
+            // 需要从数据库按 id 加载完整图片数据
+            let image_bytes = {
+                let storage = state.storage.lock().map_err(|e| e.to_string())?;
+                storage
+                    .get_clip_image(id)
+                    .map_err(|e| e.to_string())?
+                    .ok_or_else(|| "图片数据为空".to_string())?
+            };
+
+            // 解码 PNG 为 RGBA 用于 arboard
+            let img = image::load_from_memory_with_format(&image_bytes, image::ImageFormat::Png)
+                .map_err(|e| format!("PNG 解码失败: {}", e))?;
+            let rgba = img.to_rgba8();
+            let (w, h) = rgba.dimensions();
+
+            use sha2::{Digest, Sha256};
+            let hash = format!("{:x}", Sha256::new_with_prefix(&image_bytes).finalize());
+            state.watcher.set_skip_hash(hash);
+
+            let img_data = arboard::ImageData {
+                width: w as usize,
+                height: h as usize,
+                bytes: std::borrow::Cow::Owned(rgba.into_raw()),
+            };
+            clipboard.set_image(img_data).map_err(|e| e.to_string())?;
+        }
+        ContentType::Html => {
+            if let Some(html) = &clip.html_content {
+                use sha2::{Digest, Sha256};
+                let hash = format!(
+                    "{:x}",
+                    Sha256::new_with_prefix(html.as_bytes()).finalize()
+                );
+                state.watcher.set_skip_hash(hash);
+                let alt_text = clip.text_content.as_deref();
+                clipboard
+                    .set()
+                    .html(html.as_str(), alt_text)
+                    .map_err(|e| e.to_string())?;
+            } else if let Some(content) = clip.text_content {
+                use sha2::{Digest, Sha256};
+                let hash = format!(
+                    "{:x}",
+                    Sha256::new_with_prefix(content.as_bytes()).finalize()
+                );
+                state.watcher.set_skip_hash(hash);
+                clipboard.set_text(content).map_err(|e| e.to_string())?;
+            }
+        }
     }
 
     // 隐藏悬浮面板窗口
@@ -115,6 +168,27 @@ fn simulate_paste() {
         }
         Err(e) => log::warn!("初始化 enigo 失败: {}", e),
     }
+}
+
+/// 按 id 获取图片数据，返回 base64 编码的 PNG
+#[tauri::command]
+pub fn get_clip_image(id: i64, state: State<AppState>) -> Result<Option<String>, String> {
+    let storage = state.storage.lock().map_err(|e| e.to_string())?;
+    let data = storage.get_clip_image(id).map_err(|e| e.to_string())?;
+    Ok(data.map(|bytes| STANDARD.encode(&bytes)))
+}
+
+/// 切换预览面板：调整主窗口宽度
+#[tauri::command]
+pub fn set_preview_visible(visible: bool, app_handle: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app_handle.get_webview_window("main") {
+        let width = if visible { 780.0 } else { 380.0 };
+        let height = 500.0;
+        window
+            .set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 /// 读取当前应用配置

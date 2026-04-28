@@ -134,6 +134,20 @@ impl StorageEngine {
         Ok(clip)
     }
 
+    /// 通过 id 获取图片二进制数据（仅 image 类型有值）
+    pub fn get_clip_image(&self, id: i64) -> Result<Option<Vec<u8>>, StorageError> {
+        let result = self.conn.query_row(
+            "SELECT image_data FROM clips WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        );
+        match result {
+            Ok(data) => Ok(data),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(StorageError::Database(e)),
+        }
+    }
+
     /// 查询条目列表。有 query 时走 FTS 全文搜索，否则按时间倒序。
     pub fn get_clips(
         &self,
