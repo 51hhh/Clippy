@@ -144,6 +144,7 @@ function isMarkdown(text) {
 
 // 代码检测阈值
 const CODE_RELEVANCE_THRESHOLD = 5;
+const HLJS_CACHE_MAX = 200;
 const _hljsCache = new Map(); // content_hash → { language, relevance, value }
 
 let _panelEl;
@@ -248,7 +249,13 @@ async function _doUpdatePreview(clip) {
     let result = cacheKey && _hljsCache.get(cacheKey);
     if (!result) {
       result = hljs.highlightAuto(text);
-      if (cacheKey) _hljsCache.set(cacheKey, { language: result.language, relevance: result.relevance, value: result.value });
+      if (cacheKey) {
+        if (_hljsCache.size >= HLJS_CACHE_MAX) {
+          const oldest = _hljsCache.keys().next().value;
+          _hljsCache.delete(oldest);
+        }
+        _hljsCache.set(cacheKey, { language: result.language, relevance: result.relevance, value: result.value });
+      }
     }
     if (result.relevance > CODE_RELEVANCE_THRESHOLD && result.language && result.language !== "xml") {
       renderCode(text, result);
@@ -260,6 +267,7 @@ async function _doUpdatePreview(clip) {
   if (clip.content_type === "html") {
     try {
       const detail = await getClipDetail(clip.id);
+      if (_currentClipId !== clip.id) return; // 异步期间焦点已切换
       if (detail.html_content) {
         renderRichText(detail.html_content);
         return;

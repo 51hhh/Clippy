@@ -6,7 +6,6 @@
  *   focusedRow   : -1 | 0..N-1                  -1=无（列表空时）
  *   focusedCol   : -1 | 0 | 1 | 2               -1=行体；0..2=按钮[Copy, Favorite, Delete]
  *   expandedRow  : null | rowId                 当前展开操作组的行 id
- *   deletePending: { rowId, expiresAt } | null  删除二次确认
  *
  * 通过 telemetry 暴露关键事件用于测试与诊断。
  */
@@ -15,8 +14,6 @@ import { getClips, deleteClip, toggleFavorite, selectClip, getClipImage } from "
 import { t } from "../i18n/i18n.js";
 import * as telemetry from "./telemetry.js";
 import * as icons from "./icons.js";
-
-let DELETE_CONFIRM_MS = 1200; // 默认值，从 config 覆盖
 
 let _parent = null;
 let _emptyEl = null;
@@ -33,15 +30,13 @@ let _favDirty = true; // 收藏列表需要重新加载
 let _focusedRow = -1;
 let _focusedCol = -1;
 let _expandedRow = null;
-let _deletePending = null;
-let _deleteTimer = null;
 let _dirty = false;
 const PAGE_SIZE = 30;
 let _hasMore = true;
 let _favHasMore = true;
 let _loading = false;
 let _keyboardNav = false; // 键盘导航中，鼠标悬浮不抢焦点
-const _thumbCache = new Map(); // clipId → base64 缓存
+const _thumbCache = new Map();
 export function init({ listEl, emptyEl, onCountsChange, onSummonSearch, onModeChange, onFocusChange }) {
   _parent = listEl;
   _emptyEl = emptyEl;
@@ -53,10 +48,6 @@ export function init({ listEl, emptyEl, onCountsChange, onSummonSearch, onModeCh
   if (_parent) {
     _parent.addEventListener("scroll", _onScroll);
   }
-}
-
-export function setDeleteConfirmMs(ms) {
-  DELETE_CONFIRM_MS = ms;
 }
 
 export async function refresh() {
@@ -82,10 +73,8 @@ export async function refresh() {
   const items = visibleItems();
   if (items.length === 0) _focusedRow = -1;
   else _focusedRow = Math.max(0, Math.min(_focusedRow, items.length - 1));
-  if (_focusedRow === -1) _focusedRow = 0;
   _focusedCol = -1;
   _expandedRow = null;
-  cancelDeletePending();
   render();
   emitCounts();
   // 通知预览面板
@@ -112,7 +101,6 @@ export async function setPanelMode(mode) {
   _focusedRow = 0;
   _focusedCol = -1;
   _expandedRow = null;
-  cancelDeletePending();
   // 切换淡入动画
   if (_parent) {
     _parent.classList.remove("switch-left", "switch-right");
@@ -156,6 +144,8 @@ export function prependClip(clip) {
 export function removeClip(id) {
   _allClips = _allClips.filter((c) => c.id !== id);
   _favClips = _favClips.filter((c) => c.id !== id);
+  _expandedRow = null;
+  _focusedCol = -1;
   // 差量更新：直接移除 DOM 节点
   if (!_query && _parent) {
     const el = _parent.querySelector(`.clip-row[data-id="${id}"]`);
@@ -171,6 +161,7 @@ export function removeClip(id) {
       if (items.length === 0) {
         _focusedRow = -1;
         render(); // 显示空状态
+        _onFocusChange(null);
       } else {
         _focusedRow = Math.min(_focusedRow, items.length - 1);
         _updateFocusRow(_focusedRow);
@@ -200,7 +191,6 @@ export function moveRow(delta) {
   if (_expandedRow !== null) {
     _updateExpanded(null);
   }
-  cancelDeletePending();
   const newRow = clamp(_focusedRow + delta, 0, items.length - 1);
   _updateFocusRow(newRow);
   telemetry.emit("clip-list:focus-row", { idx: _focusedRow, mode: _panelMode });
@@ -209,9 +199,7 @@ export function moveRow(delta) {
 /** ←→/AD：在行体焦点 → 切换 panelMode；在按钮焦点 → 按钮间移动 */
 export function moveCol(delta) {
   const items = visibleItems();
-  if (items.length === 0) return;
   if (_focusedCol === -1) {
-    // 行体：横向 = 切 tab
     if (delta < 0 && _panelMode === "all") {
       setPanelMode("favorites");
     } else if (delta > 0 && _panelMode === "favorites") {
@@ -219,6 +207,7 @@ export function moveCol(delta) {
     }
     return;
   }
+  if (items.length === 0) return;
   // 按钮区：按钮间移动
   // 收藏模式按钮在左侧，方向反转
   const effectiveDelta = _panelMode === "favorites" ? -delta : delta;
@@ -249,7 +238,6 @@ export function collapseActions() {
     telemetry.emit("clip-list:collapse-actions", { id: _expandedRow });
   }
   _updateExpanded(null);
-  cancelDeletePending();
 }
 
 /** 当前焦点是否在行体且未展开（用于 → 键决定展开还是切 tab） */
@@ -309,19 +297,8 @@ async function invokeAction(clip, action, source) {
       await toggleFavorite(clip.id);
       await refresh();
     } else if (action === "delete") {
-      // 二次确认
-      if (!_deletePending || _deletePending.rowId !== clip.id || Date.now() > _deletePending.expiresAt) {
-        _deletePending = { rowId: clip.id, expiresAt: Date.now() + DELETE_CONFIRM_MS };
-        clearTimeout(_deleteTimer);
-        _deleteTimer = setTimeout(() => {
-          _deletePending = null;
-          render();
-        }, DELETE_CONFIRM_MS);
-        render();
-        return;
-      }
-      cancelDeletePending();
       await deleteClip(clip.id);
+      removeClip(clip.id);
     }
     telemetry.emit("clip-list:invoke-action", { action, source });
   } catch (err) {
@@ -330,11 +307,6 @@ async function invokeAction(clip, action, source) {
   }
 }
 
-function cancelDeletePending() {
-  if (_deleteTimer) clearTimeout(_deleteTimer);
-  _deleteTimer = null;
-  _deletePending = null;
-}
 
 // ── 内部工具 ─────────────────────────────────────────────────
 
@@ -476,20 +448,21 @@ function render() {
     clips.every((clip, i) => existingRows[i].dataset.id === String(clip.id));
 
   if (idsMatch) {
-    // 快速路径：只更新焦点和按钮状态
     existingRows.forEach((row, idx) => {
+      const clip = clips[idx];
       row.classList.toggle("focused", idx === _focusedRow);
-      // 更新删除确认按钮状态
-      const delBtn = row.querySelector('[data-action="delete"]');
-      if (delBtn) {
-        const isPending = _deletePending && _deletePending.rowId === clips[idx].id && Date.now() < _deletePending.expiresAt;
-        delBtn.textContent = isPending ? t("action.confirm") : "";
-        delBtn.innerHTML = isPending ? t("action.confirm") : icons.trashIcon;
-        delBtn.classList.toggle("confirm-pending", !!isPending);
+      row.classList.toggle("expanded", _expandedRow === clip.id);
+      row.classList.toggle("favorite", !!clip.is_favorite);
+      const favBtn = row.querySelector('[data-action="favorite"]');
+      if (favBtn) {
+        favBtn.classList.toggle("is-favorite", !!clip.is_favorite);
+        const iconEl = favBtn.querySelector(".clip-row-action-icon");
+        if (iconEl) iconEl.innerHTML = clip.is_favorite ? icons.starFill : icons.star;
+        favBtn.setAttribute("aria-label", clip.is_favorite ? t("action.unfavorite") : t("action.favorite"));
+        favBtn.title = clip.is_favorite ? t("action.unfavorite") : t("action.favorite");
       }
     });
   } else {
-    // 完整重建
     _parent.replaceChildren();
     clips.forEach((clip, idx) => {
       _parent.appendChild(buildRow(clip, idx));
@@ -578,7 +551,6 @@ function buildRow(clip, idx) {
     btn.type = "button";
     btn.className = "clip-row-action";
     if (b.key === "favorite" && clip.is_favorite) btn.classList.add("is-favorite");
-    if (b.key === "delete" && _deletePending?.rowId === clip.id) btn.classList.add("danger-confirm");
     if (idx === _focusedRow && _focusedCol === btnIdx) btn.classList.add("focused");
     btn.dataset.action = b.key;
     btn.setAttribute("aria-label", b.label);
@@ -588,13 +560,6 @@ function buildRow(clip, idx) {
     icon.className = "clip-row-action-icon";
     icon.innerHTML = b.icon;
     btn.appendChild(icon);
-
-    if (b.key === "delete" && _deletePending?.rowId === clip.id) {
-      const txt = document.createElement("span");
-      txt.className = "clip-row-action-confirm";
-      txt.textContent = t("action.confirm");
-      btn.appendChild(txt);
-    }
 
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -691,12 +656,10 @@ export const __test__ = {
     focusedRow: _focusedRow,
     focusedCol: _focusedCol,
     expandedRow: _expandedRow,
-    deletePending: _deletePending ? { ..._deletePending } : null,
   }),
   reset() {
     _query = ""; _panelMode = "all"; _allClips = []; _favClips = []; _favDirty = true;
     _hasMore = true; _favHasMore = true; _thumbCache.clear();
     _focusedRow = -1; _focusedCol = -1; _expandedRow = null;
-    cancelDeletePending();
   },
 };

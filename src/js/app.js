@@ -55,7 +55,6 @@ whenReady(async () => {
     onModeChange: (mode) => segmentTabs.setMode(mode),
     onFocusChange: (clip) => previewPanel.updatePreview(clip),
   });
-  clipboardList.setDeleteConfirmMs(config.delete_confirm_ms || 1200);
 
   await clipboardList.refresh();
 
