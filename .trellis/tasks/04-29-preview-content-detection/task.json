@@ -1,0 +1,28 @@
+{
+  "id": "04-29-preview-content-detection",
+  "title": "预览面板：智能内容检测 + 背景色清理",
+  "status": "not_started",
+  "priority": "high",
+  "created": "2025-04-29",
+  "description": "解决预览面板两个核心体验问题：(1) 外部复制的 HTML 自带背景色导致预览不协调；(2) IDE 复制代码被标记为 HTML 而非具体编程语言",
+  "subtasks": [
+    {
+      "id": "A",
+      "title": "HTML 内联样式清理",
+      "status": "not_started",
+      "description": "对 DOMPurify 输出的 HTML 进行样式清理：移除 background-color/background/color 等主题冲突的内联样式，保留 font-weight/font-style/text-decoration 等格式样式。方案：使用 DOMPurify 的 afterSanitizeAttributes hook 或直接从 ALLOWED_ATTR 移除 style 后用自定义 hook 选择性保留。"
+    },
+    {
+      "id": "B",
+      "title": "智能内容类型检测",
+      "status": "not_started",
+      "description": "在预览渲染阶段对 HTML 类型的 clip 做二次判断：提取 text_content（纯文本回退），用 highlight.js highlightAuto 检测是否为代码。如果 relevance > 阈值则以代码高亮模式渲染（显示具体语言名），否则用 DOMPurify HTML 渲染。同时对纯 text 类型也增强检测逻辑。"
+    },
+    {
+      "id": "C",
+      "title": "内容类型 badge 精确化",
+      "status": "not_started",
+      "description": "badge 显示规则：代码 → 语言名（JAVASCRIPT/PYTHON/...）；Markdown → MARKDOWN；富文本 → RICH TEXT；纯文本 → TEXT；图片 → IMAGE"
+    }
+  ]
+}
