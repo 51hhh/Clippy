@@ -587,7 +587,7 @@ dependencies = [
 
 [[package]]
 name = "clippy-app"
-version = "0.1.6"
+version = "0.1.9"
 dependencies = [
  "arboard",
  "base64 0.22.1",
