@@ -290,6 +290,8 @@ pub fn run() {
             commands::toggle_favorite,
             commands::clear_history,
             commands::select_clip,
+            commands::get_clip_image,
+            commands::set_preview_visible,
             commands::get_config,
             commands::update_config,
             commands::update_shortcut,

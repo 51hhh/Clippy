@@ -31,6 +31,16 @@ export function selectClip(id) {
   return invoke("select_clip", { id });
 }
 
+/** 按 id 获取图片数据（base64 编码的 PNG），仅 image 类型有值 */
+export function getClipImage(id) {
+  return invoke("get_clip_image", { id });
+}
+
+/** 切换预览面板可见性（同时调整窗口大小） */
+export function setPreviewVisible(visible) {
+  return invoke("set_preview_visible", { visible });
+}
+
 /** 读取配置 */
 export function getConfig() {
   return invoke("get_config");

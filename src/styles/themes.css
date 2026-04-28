@@ -75,6 +75,18 @@
 
   --overlay-bg:           rgba(0, 0, 0, 0.45);
   --shadow:               0 8px 24px rgba(0, 0, 0, 0.45);
+
+  /* highlight.js 暗色语法色 */
+  --hljs-keyword:         #ff7b72;
+  --hljs-string:          #a5d6ff;
+  --hljs-number:          #79c0ff;
+  --hljs-comment:         #8b949e;
+  --hljs-function:        #d2a8ff;
+  --hljs-builtin:         #ffa657;
+  --hljs-attr:            #79c0ff;
+  --hljs-variable:        #ffa657;
+  --hljs-symbol:          #79c0ff;
+  --hljs-meta:            #8b949e;
 }
 
 /* ---------- nord（冷色北欧） ---------- */
@@ -110,6 +122,18 @@
 
   --overlay-bg:           rgba(0, 0, 0, 0.45);
   --shadow:               0 8px 24px rgba(8, 12, 24, 0.50);
+
+  /* highlight.js nord 语法色 */
+  --hljs-keyword:         #81a1c1;
+  --hljs-string:          #a3be8c;
+  --hljs-number:          #b48ead;
+  --hljs-comment:         #616e88;
+  --hljs-function:        #88c0d0;
+  --hljs-builtin:         #d08770;
+  --hljs-attr:            #8fbcbb;
+  --hljs-variable:        #d08770;
+  --hljs-symbol:          #b48ead;
+  --hljs-meta:            #616e88;
 }
 
 /* ---------- solarized-light（暖色护眼） ---------- */
@@ -145,6 +169,18 @@
 
   --overlay-bg:           rgba(35, 33, 28, 0.10);
   --shadow:               0 6px 20px rgba(101, 90, 60, 0.16);
+
+  /* highlight.js solarized 语法色 */
+  --hljs-keyword:         #859900;
+  --hljs-string:          #2aa198;
+  --hljs-number:          #d33682;
+  --hljs-comment:         #93a1a1;
+  --hljs-function:        #268bd2;
+  --hljs-builtin:         #cb4b16;
+  --hljs-attr:            #268bd2;
+  --hljs-variable:        #cb4b16;
+  --hljs-symbol:          #d33682;
+  --hljs-meta:            #93a1a1;
 }
 
 /* ---------- rose（柔粉） ---------- */
@@ -215,4 +251,16 @@
 
   --overlay-bg:           rgba(0, 0, 0, 0.55);
   --shadow:               0 10px 28px rgba(0, 0, 0, 0.55);
+
+  /* highlight.js midnight 语法色 */
+  --hljs-keyword:         #c084fc;
+  --hljs-string:          #67e8f9;
+  --hljs-number:          #f0abfc;
+  --hljs-comment:         #8b86b8;
+  --hljs-function:        #a78bfa;
+  --hljs-builtin:         #fb923c;
+  --hljs-attr:            #818cf8;
+  --hljs-variable:        #fb923c;
+  --hljs-symbol:          #f0abfc;
+  --hljs-meta:            #8b86b8;
 }

@@ -6,6 +6,7 @@ import * as theme         from "./theme.js";
 import * as clipboardList from "./clipboard-list.js";
 import * as searchBar     from "./search-bar.js";
 import * as segmentTabs   from "./segment-tabs.js";
+import * as previewPanel  from "./preview-panel.js";
 import * as i18n          from "../i18n/i18n.js";
 import { initUpdateModal, checkForUpdate } from "./update-modal.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -44,6 +45,7 @@ whenReady(async () => {
 
   segmentTabs.init(segmentEl, (mode) => clipboardList.setPanelMode(mode));
   searchBar.init(searchEl, (q) => clipboardList.setQuery(q));
+  previewPanel.init();
 
   clipboardList.init({
     listEl,
@@ -51,6 +53,7 @@ whenReady(async () => {
     onCountsChange: (counts) => segmentTabs.setCounts(counts),
     onSummonSearch: (source) => searchBar.summon(source),
     onModeChange: (mode) => segmentTabs.setMode(mode),
+    onFocusChange: (clip) => previewPanel.updatePreview(clip),
   });
   clipboardList.setDeleteConfirmMs(config.delete_confirm_ms || 1200);
 
@@ -151,6 +154,13 @@ function onKeyDown(e) {
         tryHidePanel();
       }
       return;
+    case "Tab":
+      e.preventDefault();
+      previewPanel.toggle();
+      if (previewPanel.isVisible()) {
+        previewPanel.updatePreview(clipboardList.getFocusedClip());
+      }
+      return;
   }
 }
 
@@ -168,5 +178,6 @@ async function onWindowFocus() {
 }
 
 function onWindowBlur() {
+  if (previewPanel.isVisible()) return; // 预览面板打开时不隐藏窗口
   clipboardList.releaseMemory();
 }

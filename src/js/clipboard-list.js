@@ -11,7 +11,7 @@
  * 通过 telemetry 暴露关键事件用于测试与诊断。
  */
 
-import { getClips, deleteClip, toggleFavorite, selectClip } from "./api.js";
+import { getClips, deleteClip, toggleFavorite, selectClip, getClipImage } from "./api.js";
 import { t } from "../i18n/i18n.js";
 import * as telemetry from "./telemetry.js";
 import * as icons from "./icons.js";
@@ -23,6 +23,7 @@ let _emptyEl = null;
 let _onCountsChange = () => {};
 let _onSummonSearch = () => {};
 let _onModeChange = () => {};
+let _onFocusChange = () => {};
 
 let _query = "";
 let _panelMode = "all";
@@ -38,12 +39,13 @@ let _hasMore = true;
 let _loading = false;
 let _keyboardNav = false; // 键盘导航中，鼠标悬浮不抢焦点
 
-export function init({ listEl, emptyEl, onCountsChange, onSummonSearch, onModeChange }) {
+export function init({ listEl, emptyEl, onCountsChange, onSummonSearch, onModeChange, onFocusChange }) {
   _parent = listEl;
   _emptyEl = emptyEl;
   _onCountsChange = onCountsChange || (() => {});
   _onSummonSearch = onSummonSearch || (() => {});
   _onModeChange = onModeChange || (() => {});
+  _onFocusChange = onFocusChange || (() => {});
   // 滚动到底部时追加加载
   if (_parent) {
     _parent.addEventListener("scroll", _onScroll);
@@ -78,6 +80,9 @@ export async function refresh() {
   cancelDeletePending();
   render();
   emitCounts();
+  // 通知预览面板
+  const focusedClip = items[_focusedRow] || null;
+  _onFocusChange(focusedClip);
 }
 
 export function setQuery(q) {
@@ -86,6 +91,11 @@ export function setQuery(q) {
 }
 
 export function getQuery() { return _query; }
+
+export function getFocusedClip() {
+  const items = visibleItems();
+  return items[_focusedRow] || null;
+}
 
 export function setPanelMode(mode) {
   if (mode !== "all" && mode !== "favorites") return;
@@ -366,6 +376,9 @@ function _updateFocusRow(newRow) {
       next.scrollIntoView({ block: "nearest" });
     }
   }
+  // 通知预览面板焦点变化
+  const items = visibleItems();
+  _onFocusChange(items[newRow] || null);
 }
 
 /** 仅切换按钮焦点的 CSS class */
@@ -449,7 +462,37 @@ function buildRow(clip, idx) {
 
   const preview = document.createElement("div");
   preview.className = "clip-row-preview";
-  preview.textContent = (clip.text_content || "").slice(0, 200);
+
+  if (clip.content_type === "image") {
+    preview.classList.add("clip-row-preview--image");
+    const thumb = document.createElement("div");
+    thumb.className = "clip-row-thumb";
+    thumb.textContent = "🖼";
+    // 异步加载缩略图
+    getClipImage(clip.id).then(base64 => {
+      if (base64) {
+        const img = document.createElement("img");
+        img.src = `data:image/png;base64,${base64}`;
+        img.alt = "image";
+        img.className = "clip-row-thumb-img";
+        img.draggable = false;
+        thumb.textContent = "";
+        thumb.appendChild(img);
+      }
+    }).catch(() => {});
+    preview.appendChild(thumb);
+  } else if (clip.content_type === "html") {
+    preview.classList.add("clip-row-preview--html");
+    const badge = document.createElement("span");
+    badge.className = "clip-row-html-badge";
+    badge.textContent = "HTML";
+    preview.appendChild(badge);
+    const text = document.createElement("span");
+    text.textContent = (clip.text_content || clip.html_content || "").slice(0, 200);
+    preview.appendChild(text);
+  } else {
+    preview.textContent = (clip.text_content || "").slice(0, 200);
+  }
 
   const meta = document.createElement("div");
   meta.className = "clip-row-meta";
