@@ -8,6 +8,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::{Manager, State};
 
+const WINDOW_WIDTH_DEFAULT: f64 = 380.0;
+const WINDOW_WIDTH_PREVIEW: f64 = 780.0;
+const WINDOW_HEIGHT: f64 = 500.0;
+
 /// 全局应用状态，通过 Tauri 的 manage() 注入并在各命令中共享
 pub struct AppState {
     pub storage: Arc<Mutex<StorageEngine>>,
@@ -113,12 +117,9 @@ pub fn select_clip(
         ContentType::Html => {
             if let Some(html) = &clip.html_content {
                 use sha2::{Digest, Sha256};
-                let hash = format!(
-                    "{:x}",
-                    Sha256::new_with_prefix(html.as_bytes()).finalize()
-                );
+                let hash = format!("{:x}", Sha256::new_with_prefix(html.as_bytes()).finalize());
                 state.watcher.set_skip_hash(hash);
-                let alt_text = clip.text_content.as_deref();
+                let alt_text = clip.text_content.as_deref().or(Some(""));
                 clipboard
                     .set()
                     .html(html.as_str(), alt_text)
@@ -178,12 +179,25 @@ pub fn get_clip_image(id: i64, state: State<AppState>) -> Result<Option<String>,
     Ok(data.map(|bytes| STANDARD.encode(&bytes)))
 }
 
+/// 按 id 获取完整条目（含 html_content），用于预览面板按需加载
+#[tauri::command]
+pub fn get_clip_detail(id: i64, state: State<AppState>) -> Result<ClipItem, String> {
+    let storage = state.storage.lock().map_err(|e| e.to_string())?;
+    let mut clip = storage.get_clip_by_id(id).map_err(|e| e.to_string())?;
+    clip.image_data = None; // 不通过此接口传输图片二进制
+    Ok(clip)
+}
+
 /// 切换预览面板：调整主窗口宽度
 #[tauri::command]
 pub fn set_preview_visible(visible: bool, app_handle: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app_handle.get_webview_window("main") {
-        let width = if visible { 780.0 } else { 380.0 };
-        let height = 500.0;
+        let width = if visible {
+            WINDOW_WIDTH_PREVIEW
+        } else {
+            WINDOW_WIDTH_DEFAULT
+        };
+        let height = WINDOW_HEIGHT;
         window
             .set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }))
             .map_err(|e| e.to_string())?;

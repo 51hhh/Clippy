@@ -9,6 +9,21 @@ use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
+/// 简单去除 HTML 标签，用于生成 FTS 可搜索的纯文本
+fn strip_html_tags(html: &str) -> String {
+    let mut result = String::with_capacity(html.len());
+    let mut in_tag = false;
+    for ch in html.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => result.push(ch),
+            _ => {}
+        }
+    }
+    result
+}
+
 pub struct ClipboardWatcher {
     running: Arc<Mutex<bool>>,
     /// select_clip 写入剪贴板时设置此哈希，watcher 遇到相同哈希时跳过
@@ -102,7 +117,10 @@ impl ClipboardWatcher {
                             }
 
                             // 获取纯文本回退（用于搜索和预览）
-                            let text_fallback = clipboard.get_text().ok();
+                            let text_fallback = clipboard.get_text().ok().or_else(|| {
+                                // 剪贴板无纯文本时，从 HTML 中提取可搜索文本
+                                Some(strip_html_tags(&html))
+                            });
 
                             let max_history = match config.lock() {
                                 Ok(config) => config.max_history,
@@ -335,11 +353,8 @@ fn compute_hash(data: &[u8]) -> String {
 
 /// 将 arboard 的 RGBA 图片数据编码为 PNG 字节
 fn encode_image_to_png(img: &arboard::ImageData) -> Option<Vec<u8>> {
-    let buffer: RgbaImage = ImageBuffer::from_raw(
-        img.width as u32,
-        img.height as u32,
-        img.bytes.to_vec(),
-    )?;
+    let buffer: RgbaImage =
+        ImageBuffer::from_raw(img.width as u32, img.height as u32, img.bytes.to_vec())?;
     let mut png_bytes = Vec::new();
     let mut cursor = Cursor::new(&mut png_bytes);
     if let Err(e) = buffer.write_to(&mut cursor, image::ImageFormat::Png) {

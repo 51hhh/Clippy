@@ -2,7 +2,7 @@
  * preview-panel.js — 富文本预览面板
  *
  * 渲染优先级（text 和 html 类型共享检测逻辑）：
- * 1. highlight.js 语言检测 → relevance > 7 → 代码高亮（badge: 语言名）
+ * 1. highlight.js 语言检测 → relevance > 5 → 代码高亮（badge: 语言名）
  * 2. Markdown 正则匹配 → marked 渲染（badge: MARKDOWN）
  * 3. html 类型 → DOMPurify 安全渲染（badge: RICH TEXT）
  * 4. 纯文本 → 原样显示（badge: TEXT）
@@ -11,7 +11,7 @@
  * 安全：剪贴板原始数据不可修改，所有处理仅在预览渲染层面。
  */
 
-import { getClipImage, setPreviewVisible } from "./api.js";
+import { getClipImage, getClipDetail, setPreviewVisible } from "./api.js";
 import DOMPurify from "dompurify";
 import hljs from "highlight.js/lib/core";
 import { marked } from "marked";
@@ -85,7 +85,7 @@ const PURIFY_CONFIG = {
 };
 
 // DOMPurify hook：清理背景色等主题冲突样式（仅影响预览渲染，不改原始数据）
-const STYLE_REMOVE_RE = /\b(background-color|background|color)\s*:[^;]*(;|$)/gi;
+const STYLE_REMOVE_RE = /\b(background-color|background(?!-)|color|position|z-index|opacity)\s*:[^;]*(;|$)/gi;
 DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   if (node.hasAttribute && node.hasAttribute("style")) {
     const cleaned = node.getAttribute("style").replace(STYLE_REMOVE_RE, "").trim();
@@ -112,15 +112,37 @@ renderer.code = function({ text, lang }) {
   } else {
     highlighted = hljs.highlightAuto(text).value;
   }
-  return `<pre><code class="hljs">${highlighted}</code></pre>`;
+  return `<pre><code class="hljs">${DOMPurify.sanitize(highlighted)}</code></pre>`;
 };
 marked.use({ renderer });
 
-// Markdown 首行特征正则
-const MD_PATTERN = /^(#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```|---|\*\*|__|\[.+\]\(|!\[)/m;
+// Markdown 特征正则（需要多个特征匹配才认定为 Markdown）
+const MD_HEADING = /^#{1,6}\s+\S/m;
+const MD_FENCED_CODE = /^```/m;
+const MD_LIST = /^\s{0,3}[-*+]\s+\S/m;
+const MD_ORDERED_LIST = /^\s{0,3}\d+\.\s+\S/m;
+const MD_BLOCKQUOTE = /^>\s+\S/m;
+const MD_LINK = /\[.+?\]\(.+?\)/;
+const MD_IMAGE = /!\[.*?\]\(.+?\)/;
+const MD_BOLD = /\*\*.+?\*\*/;
+const MD_HR = /^---$/m;
+
+function isMarkdown(text) {
+  let score = 0;
+  if (MD_HEADING.test(text)) score += 2;
+  if (MD_FENCED_CODE.test(text)) score += 2;
+  if (MD_LIST.test(text)) score++;
+  if (MD_ORDERED_LIST.test(text)) score++;
+  if (MD_BLOCKQUOTE.test(text)) score++;
+  if (MD_LINK.test(text)) score++;
+  if (MD_IMAGE.test(text)) score += 2;
+  if (MD_BOLD.test(text)) score++;
+  if (MD_HR.test(text)) score++;
+  return score >= 2;
+}
 
 // 代码检测阈值
-const CODE_RELEVANCE_THRESHOLD = 7;
+const CODE_RELEVANCE_THRESHOLD = 5;
 
 let _panelEl;
 let _contentEl;
@@ -134,6 +156,15 @@ export function init() {
   _contentEl = document.getElementById("preview-content");
   _badgeEl   = document.getElementById("preview-type-badge");
   _metaEl    = document.getElementById("preview-meta");
+
+  // 拦截预览面板内的链接点击，防止 webview 导航丢失
+  _contentEl.addEventListener("click", (e) => {
+    const a = e.target.closest("a[href]");
+    if (a) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  });
 }
 
 export async function toggle() {
@@ -191,25 +222,30 @@ export async function updatePreview(clip) {
   // text 和 html 类型共享智能检测逻辑
   const text = clip.text_content || "";
 
-  // 1. 代码检测（text_content 纯文本）
-  if (text.length > 0) {
+  // 1. Markdown 检测（优先，评分制，需多个特征）
+  if (text.length > 0 && isMarkdown(text)) {
+    renderMarkdown(text);
+    return;
+  }
+
+  // 2. 代码检测（text_content 纯文本，排除 xml 误判）
+  if (text.length > 10) {
     const result = hljs.highlightAuto(text);
-    if (result.relevance > CODE_RELEVANCE_THRESHOLD && result.language) {
+    if (result.relevance > CODE_RELEVANCE_THRESHOLD && result.language && result.language !== "xml") {
       renderCode(text, result);
       return;
     }
   }
 
-  // 2. Markdown 检测
-  if (text.length > 0 && MD_PATTERN.test(text)) {
-    renderMarkdown(text);
-    return;
-  }
-
-  // 3. HTML 富文本渲染（仅 html 类型）
-  if (clip.content_type === "html" && clip.html_content) {
-    renderRichText(clip.html_content);
-    return;
+  // 3. HTML 富文本渲染（仅 html 类型，按需加载 html_content）
+  if (clip.content_type === "html") {
+    try {
+      const detail = await getClipDetail(clip.id);
+      if (detail.html_content) {
+        renderRichText(detail.html_content);
+        return;
+      }
+    } catch (_) { /* 回退到纯文本 */ }
   }
 
   // 4. 纯文本
@@ -222,7 +258,7 @@ function renderCode(text, result) {
   const pre = document.createElement("pre");
   const code = document.createElement("code");
   code.className = `hljs language-${result.language}`;
-  code.innerHTML = result.value;
+  code.innerHTML = DOMPurify.sanitize(result.value);
   pre.appendChild(code);
   _contentEl.appendChild(pre);
 }

@@ -291,6 +291,7 @@ pub fn run() {
             commands::clear_history,
             commands::select_clip,
             commands::get_clip_image,
+            commands::get_clip_detail,
             commands::set_preview_visible,
             commands::get_config,
             commands::update_config,
