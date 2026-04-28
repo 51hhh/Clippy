@@ -266,6 +266,7 @@ export function restoreRender() {
     _focusedCol = -1;
     _expandedRow = null;
     render();
+    _onFocusChange(visibleItems()[0] || null);
   }
 }
 
@@ -482,14 +483,7 @@ function buildRow(clip, idx) {
     }).catch(() => {});
     preview.appendChild(thumb);
   } else if (clip.content_type === "html") {
-    preview.classList.add("clip-row-preview--html");
-    const badge = document.createElement("span");
-    badge.className = "clip-row-html-badge";
-    badge.textContent = "HTML";
-    preview.appendChild(badge);
-    const text = document.createElement("span");
-    text.textContent = (clip.text_content || clip.html_content || "").slice(0, 200);
-    preview.appendChild(text);
+    preview.textContent = (clip.text_content || "[富文本]").slice(0, 200);
   } else {
     preview.textContent = (clip.text_content || "").slice(0, 200);
   }
@@ -580,6 +574,7 @@ function buildRow(clip, idx) {
       row.classList.add("focused");
       _focusedRow = idx;
       _focusedCol = -1;
+      _onFocusChange(clip);
     }
   });
 

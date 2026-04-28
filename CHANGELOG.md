@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.1.8
+
+### ✨ 新功能
+- 富文本预览面板：支持 HTML 富文本、Markdown 渲染、代码语法高亮（21 种语言）
+- 智能内容检测：评分制 Markdown 识别 + hljs 代码检测（阈值 5）
+- HTML 剪贴板支持：完整的 HTML 复制/粘贴管道
+- 预览面板按需加载 html_content（`get_clip_detail` IPC），列表不再传输大体积 HTML
+- 6 套主题适配的语法高亮配色（light/dark/nord/solarized-light/rose/midnight）
+
+### 🔒 安全
+- CSP 收紧：移除 img-src/media-src 中的 `https: http:`
+- 预览面板拦截所有 `<a>` 链接点击，防止 webview 导航
+- DOMPurify 白名单净化 HTML，40+ 允许标签，禁止 script/iframe/form
+- renderCode 和 marked renderer 输出均经 DOMPurify 处理
+- inline style 清理扩展：移除 position/z-index/opacity
+
+### 🐛 修复
+- 鼠标悬浮切换行时同步更新预览面板
+- restoreRender 后同步更新预览面板
+- HTML 条目无纯文本时自动 strip tags 作为 FTS 搜索回退
+- HTML 行预览显示 `[富文本]` 而非原始标签
+- select_clip HTML 分支 alt_text 为空时回退空串
+
+### 🔧 技术变更
+- 新增 `get_clip_detail` IPC 命令（按需加载含 html_content 的完整条目）
+- get_clips SQL 不再返回 html_content，减少列表加载数据量
+- 窗口尺寸提取为常量（WINDOW_WIDTH_DEFAULT/PREVIEW/HEIGHT）
+- clipboard_watcher 新增 `strip_html_tags` 辅助函数
+
 ## v0.1.6
 
 ### ✨ 新功能

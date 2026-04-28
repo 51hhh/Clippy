@@ -36,6 +36,11 @@ export function getClipImage(id) {
   return invoke("get_clip_image", { id });
 }
 
+/** 按 id 获取完整条目（含 html_content），用于预览面板按需加载 */
+export function getClipDetail(id) {
+  return invoke("get_clip_detail", { id });
+}
+
 /** 切换预览面板可见性（同时调整窗口大小） */
 export function setPreviewVisible(visible) {
   return invoke("set_preview_visible", { visible });

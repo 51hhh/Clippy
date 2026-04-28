@@ -161,7 +161,7 @@ impl StorageEngine {
         if !trimmed.is_empty() {
             // FTS 搜索路径
             let sql = if favorites_only {
-                "SELECT c.id, c.content_type, c.text_content, c.html_content, NULL,
+                "SELECT c.id, c.content_type, c.text_content, NULL, NULL,
                         c.content_hash, c.is_favorite, c.created_at, c.byte_size
                  FROM clips_fts
                  JOIN clips c ON clips_fts.rowid = c.id
@@ -170,7 +170,7 @@ impl StorageEngine {
                  ORDER BY c.created_at DESC
                  LIMIT ?2 OFFSET ?3"
             } else {
-                "SELECT c.id, c.content_type, c.text_content, c.html_content, NULL,
+                "SELECT c.id, c.content_type, c.text_content, NULL, NULL,
                         c.content_hash, c.is_favorite, c.created_at, c.byte_size
                  FROM clips_fts
                  JOIN clips c ON clips_fts.rowid = c.id
@@ -188,14 +188,14 @@ impl StorageEngine {
 
         // 普通查询路径
         let sql = if favorites_only {
-            "SELECT id, content_type, text_content, html_content, NULL,
+            "SELECT id, content_type, text_content, NULL, NULL,
                     content_hash, is_favorite, created_at, byte_size
              FROM clips
              WHERE is_favorite = 1
              ORDER BY created_at DESC
              LIMIT ?1 OFFSET ?2"
         } else {
-            "SELECT id, content_type, text_content, html_content, NULL,
+            "SELECT id, content_type, text_content, NULL, NULL,
                     content_hash, is_favorite, created_at, byte_size
              FROM clips
              ORDER BY created_at DESC
