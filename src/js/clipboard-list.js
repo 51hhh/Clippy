@@ -469,10 +469,31 @@ function render() {
   }
   if (_emptyEl) _emptyEl.hidden = true;
 
-  _parent.replaceChildren();
-  clips.forEach((clip, idx) => {
-    _parent.appendChild(buildRow(clip, idx));
-  });
+  // 差量更新：如果现有 DOM 行的 id 序列匹配，只更新焦点/状态 class
+  const existingRows = _parent.querySelectorAll(".clip-row");
+  const idsMatch = existingRows.length === clips.length &&
+    clips.every((clip, i) => existingRows[i].dataset.id === String(clip.id));
+
+  if (idsMatch) {
+    // 快速路径：只更新焦点和按钮状态
+    existingRows.forEach((row, idx) => {
+      row.classList.toggle("focused", idx === _focusedRow);
+      // 更新删除确认按钮状态
+      const delBtn = row.querySelector('[data-action="delete"]');
+      if (delBtn) {
+        const isPending = _deletePending && _deletePending.rowId === clips[idx].id && Date.now() < _deletePending.expiresAt;
+        delBtn.textContent = isPending ? t("action.confirm") : "";
+        delBtn.innerHTML = isPending ? t("action.confirm") : icons.trashIcon;
+        delBtn.classList.toggle("confirm-pending", !!isPending);
+      }
+    });
+  } else {
+    // 完整重建
+    _parent.replaceChildren();
+    clips.forEach((clip, idx) => {
+      _parent.appendChild(buildRow(clip, idx));
+    });
+  }
   // scroll focus into view
   const focused = _parent.querySelector(".clip-row.focused");
   if (focused && typeof focused.scrollIntoView === "function") {
