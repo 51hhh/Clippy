@@ -220,14 +220,15 @@ export function moveCol(delta) {
     return;
   }
   // 按钮区：按钮间移动
-  const next = _focusedCol + delta;
+  // 收藏模式按钮在左侧，方向反转
+  const effectiveDelta = _panelMode === "favorites" ? -delta : delta;
+  const next = _focusedCol + effectiveDelta;
   if (next < 0) {
-    // 最左再 ← → 收回
     _updateExpanded(null);
     _focusedCol = -1;
     return;
   }
-  if (next > 2) return; // 最右无效
+  if (next > 2) return;
   _updateFocusCol(next);
 }
 
@@ -508,6 +509,7 @@ function buildRow(clip, idx) {
   if (idx === _focusedRow) row.classList.add("focused");
   if (clip.is_favorite) row.classList.add("favorite");
   if (_expandedRow === clip.id) row.classList.add("expanded");
+  if (_panelMode === "favorites") row.classList.add("favorites-mode");
   row.dataset.idx = idx;
   row.dataset.id = clip.id;
   row.setAttribute("role", "option");
@@ -562,7 +564,6 @@ function buildRow(clip, idx) {
   meta.textContent = `${formatRelativeTime(clip.created_at)} · ${formatType(clip.content_type)} · ${fmtSize(clip.byte_size)}`;
 
   main.append(preview, meta);
-  row.appendChild(main);
 
   // 操作组（默认 collapsed）
   const actions = document.createElement("div");
@@ -622,7 +623,12 @@ function buildRow(clip, idx) {
     }
   });
 
-  row.append(actions, trigger);
+  // 收藏模式：trigger + actions 在左侧
+  if (_panelMode === "favorites") {
+    row.append(trigger, actions, main);
+  } else {
+    row.append(main, actions, trigger);
+  }
 
   // 行体点击 = copy（触发器与按钮已 stopPropagation）
   row.addEventListener("click", () => {
