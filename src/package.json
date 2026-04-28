@@ -19,8 +19,7 @@
     "@tauri-apps/plugin-updater": "^2.10.1",
     "dompurify": "^3.4.1",
     "highlight.js": "^11.11.1",
-    "marked": "^18.0.2",
-    "marked-highlight": "^2.2.4"
+    "marked": "^18.0.2"
   },
   "devDependencies": {
     "jsdom": "^25.0.0",
