@@ -18,6 +18,7 @@ pub struct AppState {
     pub config: Arc<Mutex<AppConfig>>,
     pub config_path: PathBuf,
     pub watcher: ClipboardWatcher,
+    pub preview_visible: Arc<Mutex<bool>>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -190,7 +191,14 @@ pub fn get_clip_detail(id: i64, state: State<AppState>) -> Result<ClipItem, Stri
 
 /// 切换预览面板：调整主窗口宽度
 #[tauri::command]
-pub fn set_preview_visible(visible: bool, app_handle: tauri::AppHandle) -> Result<(), String> {
+pub fn set_preview_visible(
+    visible: bool,
+    app_handle: tauri::AppHandle,
+    state: State<AppState>,
+) -> Result<(), String> {
+    if let Ok(mut pv) = state.preview_visible.lock() {
+        *pv = visible;
+    }
     if let Some(window) = app_handle.get_webview_window("main") {
         let width = if visible {
             WINDOW_WIDTH_PREVIEW

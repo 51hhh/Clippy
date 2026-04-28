@@ -179,6 +179,7 @@ pub fn run() {
                 config,
                 config_path,
                 watcher,
+                preview_visible: Arc::new(Mutex::new(false)),
             });
 
             // ── 6. 构建系统托盘 ──────────────────────────────────────────────
@@ -272,11 +273,20 @@ pub fn run() {
                     let _ = window.hide();
                 }
                 tauri::WindowEvent::Focused(false) if window.label() == "main" => {
-                    // 仅主窗口：失焦后延迟隐藏（模拟浮动面板行为）
+                    // 仅主窗口：失焦后延迟隐藏（预览面板打开时跳过）
                     let window = window.clone();
+                    let app_handle = window.app_handle().clone();
                     std::thread::spawn(move || {
                         std::thread::sleep(std::time::Duration::from_millis(200));
                         if !window.is_focused().unwrap_or(true) {
+                            // 预览面板打开时不自动隐藏
+                            if let Some(state) = app_handle.try_state::<commands::AppState>() {
+                                if let Ok(pv) = state.preview_visible.lock() {
+                                    if *pv {
+                                        return;
+                                    }
+                                }
+                            }
                             let _ = window.hide();
                         }
                     });

@@ -193,7 +193,19 @@ export async function hide() {
   }
 }
 
-export async function updatePreview(clip) {
+let _debounceTimer = null;
+const DEBOUNCE_MS = 80;
+
+export function updatePreview(clip) {
+  clearTimeout(_debounceTimer);
+  if (!_visible || !clip) {
+    _doUpdatePreview(clip);
+    return;
+  }
+  _debounceTimer = setTimeout(() => _doUpdatePreview(clip), DEBOUNCE_MS);
+}
+
+async function _doUpdatePreview(clip) {
   if (!_visible || !clip) {
     _contentEl.innerHTML = "";
     _contentEl.className = "preview-content";
@@ -291,6 +303,13 @@ async function renderImage(clip) {
       const img = document.createElement("img");
       img.src = `data:image/png;base64,${base64}`;
       img.alt = "clipboard image";
+      img.onload = () => {
+        _metaEl.textContent = `${img.naturalWidth}×${img.naturalHeight} · ${
+          clip.byte_size > 1024
+            ? (clip.byte_size / 1024).toFixed(1) + " KB"
+            : clip.byte_size + " B"
+        }`;
+      };
       _contentEl.appendChild(img);
     }
   } catch (e) {
