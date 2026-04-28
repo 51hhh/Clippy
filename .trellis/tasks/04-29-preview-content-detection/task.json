@@ -1,7 +1,7 @@
 {
   "id": "04-29-preview-content-detection",
   "title": "预览面板：智能内容检测 + 背景色清理",
-  "status": "not_started",
+  "status": "done",
   "priority": "high",
   "created": "2025-04-29",
   "description": "解决预览面板两个核心体验问题：(1) 外部复制的 HTML 自带背景色导致预览不协调；(2) IDE 复制代码被标记为 HTML 而非具体编程语言",

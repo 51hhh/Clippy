@@ -3,7 +3,7 @@
   "name": "fix-autostart-ghost-process",
   "title": "修复开机自启动幽灵进程导致正常启动失败",
   "description": "",
-  "status": "in_progress",
+  "status": "done",
   "dev_type": null,
   "scope": null,
   "package": null,
