@@ -133,17 +133,13 @@ describe("clipboard-list 状态机", () => {
     expect(api.toggleFavorite).toHaveBeenCalledWith(9);
   });
 
-  it("删除二次确认：第一次按 ✕ 不调 deleteClip；第二次才调", async () => {
+  it("删除按钮直接调用 deleteClip", async () => {
     api.getClips.mockResolvedValue([clip({ id: 5 })]);
     api.deleteClip.mockResolvedValue(undefined);
     await clipboardList.refresh();
     clipboardList.expandRowActions();
     clipboardList.moveCol(1);
     clipboardList.moveCol(1); // focusedCol=2 (delete)
-
-    await clipboardList.activateFocus("keyboard");
-    expect(api.deleteClip).not.toHaveBeenCalled();
-    expect(clipboardList.__test__.state().deletePending).not.toBeNull();
 
     await clipboardList.activateFocus("keyboard");
     expect(api.deleteClip).toHaveBeenCalledWith(5);

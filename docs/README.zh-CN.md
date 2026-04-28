@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="banner.png" alt="Clippy Banner">
+  <img src="banner.png" alt="Clippy Banner" width="600">
 </p>
 
 <p align="center">
@@ -27,87 +27,97 @@
 
 ---
 
-## Clippy 是什么？
+Clippy 安静地驻留在系统托盘，后台监听剪贴板变化，让你通过一个快捷键即可搜索和回溯所有复制过的内容——文本、HTML、图片。
 
-Clippy 是一款基于 **Tauri v2 + Rust** 构建的剪贴板管理器，追求极致轻量与高效。它安静地驻留在系统托盘中，后台监听剪贴板变化，让你通过一个快捷键即可搜索和回溯任何复制过的文本。
+基于 **Tauri v2 + Rust** 构建，没有 Electron，没有臃肿。
+
+## 截图展示
+
+<table>
+  <tr>
+    <td align="center"><img src="image1.png" width="300"><br><sub>剪贴板列表</sub></td>
+    <td align="center"><img src="image4.png" width="500"><br><sub>代码预览 + 语法高亮</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="image2.png" width="300"><br><sub>设置面板 + 主题切换</sub></td>
+    <td align="center"><img src="image3.png" width="500"><br><sub>图片预览 + 设置窗口</sub></td>
+  </tr>
+</table>
 
 ## 功能特性
 
-- **剪贴板监听** — 自动捕获所有复制的文本内容，SHA-256 哈希去重
-- **即时搜索** — 基于 SQLite FTS5 全文搜索引擎，毫秒级查找
-- **悬浮面板** — 无边框弹出窗口 (380×500)，全局快捷键唤起，失焦自动隐藏
+- **多类型剪贴板** — 自动捕获文本、HTML 和图片，SHA-256 哈希去重
+- **富文本预览** — 按 `Tab` 键展开预览面板：
+  - 代码高亮 — 自动检测 21 种编程语言，highlight.js 渲染
+  - Markdown 渲染 — 多特征评分检测，支持 GFM 语法
+  - HTML 安全渲染 — DOMPurify 过滤后的富文本预览
+  - 图片预览 — 内联 PNG 预览，显示分辨率信息
+- **即时搜索** — SQLite FTS5 全文搜索，毫秒级响应
+- **悬浮面板** — 无边框弹出窗口，全局快捷键唤起，失焦自动隐藏
+- **键盘驱动** — 完整键盘导航，支持 Vim 风格按键 (WASD)
 - **全局快捷键** — 同时支持 X11（`tauri-plugin-global-shortcut`）和 Wayland（XDG Portal / gsettings）
-- **系统托盘** — 主题自适应 SVG 图标，自动匹配亮色/暗色桌面
-- **设置面板** — 快捷键录制器、主题切换（内置 6 款主题）、历史记录上限配置
+- **6 款主题** — 亚麻、石墨、极地、晒纸、玫瑰、深夜
 - **收藏夹** — 置顶重要条目，不受历史清理影响
-- **自动更新** — 内置更新检查器，自动从 GitHub Releases 获取新版本
-- **国际化** — 开箱即用的中英文支持
+- **自动更新** — 内置更新器，从 GitHub Releases 获取新版本
+- **国际化** — 中文 / 英文
 
-## 快速开始
+## 安装
 
-### 下载安装
-
-前往 [GitHub Releases](https://github.com/51hhh/Clippy/releases/latest) 下载最新的 `.deb` 或 `.AppImage` 包。
+前往 [Releases](https://github.com/51hhh/Clippy/releases/latest) 下载最新的 `.deb` 或 `.AppImage`。
 
 ```bash
 # Debian / Ubuntu
 sudo dpkg -i clippy_*.deb
 
-# AppImage — 赋予执行权限后直接运行
-chmod +x Clippy_*.AppImage
-./Clippy_*.AppImage
+# AppImage
+chmod +x Clippy_*.AppImage && ./Clippy_*.AppImage
 ```
 
-### 从源码构建
+## 从源码构建
 
-**前置要求**：Rust 工具链、Node.js ≥ 20、Tauri v2 Linux 系统依赖。
+前置要求：Rust 工具链、Node.js ≥ 20、Tauri v2 系统依赖。
 
 ```bash
-# 安装系统依赖（Ubuntu / Debian）
 sudo apt install -y \
   libwebkit2gtk-4.1-dev build-essential curl wget file \
   libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev pkg-config
 
-# 安装 Tauri CLI
 cargo install tauri-cli --version "^2"
 
-# 克隆并构建
-git clone https://github.com/51hhh/Clippy.git
-cd Clippy
+git clone https://github.com/51hhh/Clippy.git && cd Clippy
 cd src && npm install && cd ..
 cargo tauri build
 ```
 
-构建产物位于 `src-tauri/target/release/bundle/` 目录。
+构建产物：`src-tauri/target/release/bundle/`
 
 ## 技术栈
 
 | 层 | 技术 |
 |----|-----|
 | 框架 | [Tauri v2](https://v2.tauri.app/) |
-| 后端 | Rust (arboard, rusqlite, sha2, ashpd) |
+| 后端 | Rust — arboard, rusqlite, sha2, image, ashpd |
 | 前端 | 原生 HTML / CSS / JS (ES Modules) |
-| 数据库 | SQLite + FTS5 全文搜索 |
-| 构建 | Vite（多页面：主面板 + 设置） |
+| 预览 | highlight.js · marked · DOMPurify |
+| 数据库 | SQLite + FTS5 |
+| 构建 | Vite（多页面） |
 
 ## 架构
 
 ```mermaid
 flowchart LR
-    CB["📋 系统剪贴板"]
-    CW["🔄 ClipboardWatcher\n(arboard, 500ms 轮询)"]
-    DB[("🗃️ SQLite + FTS5")]
-    BE["⚙️ Rust 后端\n(Tauri IPC 命令)"]
-    FE["🖥️ 前端\n(api.js → DOM)"]
-    TRAY["📌 系统托盘"]
-    CFG["⚙️ 配置 (JSON)"]
+    CB["系统剪贴板"]
+    CW["ClipboardWatcher\n(文本 → HTML → 图片)"]
+    DB[("SQLite + FTS5")]
+    BE["Rust 后端\n(Tauri IPC)"]
+    FE["前端\n(列表 + 预览)"]
+    TRAY["系统托盘"]
 
-    CB -- "轮询" --> CW
-    CW -- "SHA-256 去重\n+ 存储" --> DB
+    CB -- "500ms 轮询" --> CW
+    CW -- "SHA-256 去重" --> DB
     CW -- "事件通知" --> FE
-    FE -- "invoke 调用" --> BE
+    FE -- "invoke" --> BE
     BE -- "查询 / 写入" --> DB
-    BE -- "读取 / 保存" --> CFG
     TRAY -- "切换 / 设置" --> BE
     FE -- "select_clip" --> CB
 ```
@@ -115,58 +125,57 @@ flowchart LR
 ## 项目结构
 
 ```
-src/                    # 前端
-├── index.html          # 主悬浮面板
-├── settings.html       # 设置窗口
-├── js/                 # ES Modules (api, app, search, settings, theme…)
-├── styles/             # CSS (base, components, themes, settings)
-└── i18n/               # 翻译文件 (en, zh-CN)
+src/                          # 前端
+├── index.html                # 主面板（列表 + 预览）
+├── settings.html             # 设置窗口
+├── js/
+│   ├── api.js                # Tauri IPC 封装
+│   ├── app.js                # 入口 + 键盘路由
+│   ├── clipboard-list.js     # 列表状态机 + 差量渲染
+│   ├── preview-panel.js      # 富文本预览引擎
+│   ├── search-bar.js         # 搜索 UI
+│   └── settings.js           # 设置逻辑
+├── styles/                   # CSS
+└── i18n/                     # 中文、英文
 
-src-tauri/src/          # Rust 后端
-├── lib.rs              # Tauri 初始化：插件、托盘、快捷键、状态管理
-├── commands.rs         # IPC 命令
-├── clipboard_watcher.rs# 剪贴板轮询线程 (arboard, 500ms)
-├── storage.rs          # SQLite + FTS5 存储引擎
-├── config.rs           # JSON 配置读写
-├── models.rs           # 数据模型
-├── gsettings_shortcuts.rs # Wayland 快捷键支持
-└── tray_icon.rs        # 主题自适应托盘图标
+src-tauri/src/                # Rust 后端
+├── lib.rs                    # 应用初始化 + 插件注册
+├── commands.rs               # IPC 命令处理
+├── clipboard_watcher.rs      # 剪贴板轮询线程
+├── storage.rs                # SQLite + FTS5 存储
+├── config.rs                 # JSON 配置
+├── models.rs                 # 数据模型
+├── gsettings_shortcuts.rs    # Wayland 快捷键
+└── tray_icon.rs              # 主题自适应托盘图标
 ```
 
-## 开发指南
+## 开发
 
 ```bash
-# 启动开发服务器（前端热重载 + Rust 后端）
-cargo tauri dev
-
-# Rust 检查
-cd src-tauri && cargo check       # 编译检查
-cd src-tauri && cargo test        # 单元测试
-cd src-tauri && cargo clippy -- -D warnings  # Lint 检查
-cd src-tauri && cargo fmt         # 代码格式化
-
-# 前端测试
-cd src && npx vitest run
+cargo tauri dev                              # 开发服务器（热重载）
+cd src-tauri && cargo check                  # 编译检查
+cd src-tauri && cargo test                   # 单元测试
+cd src-tauri && cargo clippy -- -D warnings  # Lint
+cd src && npx vitest run                     # 前端测试
 ```
 
 ## 贡献
 
 欢迎贡献！请先开 Issue 讨论你想做的改动。
 
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feat/amazing-feature`)
-3. 提交更改 (`git commit -m 'feat: add amazing feature'`)
-4. 推送分支 (`git push origin feat/amazing-feature`)
-5. 发起 Pull Request
+1. Fork → 创建分支 (`git checkout -b feat/my-feature`)
+2. 提交更改 (`git commit -m 'feat: add feature'`)
+3. 推送 → Pull Request
 
 ## 致谢
 
-感谢以下优秀的开源项目：
-
-- [Tauri](https://tauri.app/) — 构建更小、更快、更安全的桌面应用
+- [Tauri](https://tauri.app/) — 更小、更快、更安全的桌面应用框架
 - [arboard](https://github.com/1Password/arboard) — 跨平台剪贴板库
 - [rusqlite](https://github.com/rusqlite/rusqlite) — Rust 的 SQLite 绑定
-- [ashpd](https://github.com/bilelmoussaoui/ashpd) — XDG Desktop Portal 绑定
+- [ashpd](https://github.com/bilelmoussaoui/ashpd) — XDG Portal 绑定
+- [highlight.js](https://highlightjs.org/) — 语法高亮
+- [marked](https://marked.js.org/) — Markdown 解析器
+- [DOMPurify](https://github.com/cure53/DOMPurify) — HTML 净化器
 
 ## 许可证
 

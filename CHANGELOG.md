@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.1.10
+
+### 🐛 修复
+- hljs 缓存无限增长：添加 HLJS_CACHE_MAX=200 上限，超限时清理最早一半条目
+- getClipDetail 异步竞态：回调中校验 _currentClipId，防止旧请求覆盖新内容
+- removeClip 清空列表时未通知预览面板：空列表触发 _onFocusChange(null)
+- 清理已删除的删除确认 CSS 残留（.danger-confirm / .clip-row-action-confirm）
+
+### 📝 文档
+- 重写中英文 README：精简结构，添加 4 张截图展示
+
 ## v0.1.9
 
 ### ✨ 新功能
