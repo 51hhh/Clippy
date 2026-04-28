@@ -64,6 +64,8 @@ const TRANSLATIONS = {
     "update.install": "Install",
     "update.close": "Close",
     "update.download": "Download",
+    "preview.richText": "[Rich Text]",
+    "preview.imageLoadFailed": "Image load failed",
   },
   "zh-CN": {
     "tabs.all": "全部",
@@ -125,6 +127,8 @@ const TRANSLATIONS = {
     "update.install": "立即安装",
     "update.close": "关闭",
     "update.download": "前往下载",
+    "preview.richText": "[富文本]",
+    "preview.imageLoadFailed": "图片加载失败",
   },
 };
 

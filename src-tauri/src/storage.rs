@@ -278,34 +278,41 @@ impl StorageEngine {
             return Ok(ids);
         }
 
-        // 批量删除：先批量清理 FTS 索引
-        for &id in &ids {
-            let text_content: Option<String> = match self.conn.query_row(
-                "SELECT text_content FROM clips WHERE id = ?1",
-                params![id],
-                |row| row.get(0),
-            ) {
-                Ok(text) => text,
-                Err(rusqlite::Error::QueryReturnedNoRows) => continue,
-                Err(e) => return Err(StorageError::Database(e)),
-            };
-            if text_content.is_some() {
-                self.conn.execute(
-                    "INSERT INTO clips_fts(clips_fts, rowid, text_content) VALUES ('delete', ?1, ?2)",
-                    params![id, text_content],
-                )?;
-            }
+        // 批量清理 FTS 索引 + 删除主表（单次查询取 text_content，批量操作）
+        let placeholders: String = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let params_boxed: Vec<Box<dyn rusqlite::types::ToSql>> = ids
+            .iter()
+            .map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>)
+            .collect();
+
+        // 一次性取出所有待删条目的 FTS 数据
+        let sql_fts = format!(
+            "SELECT id, text_content FROM clips WHERE id IN ({}) AND text_content IS NOT NULL",
+            placeholders
+        );
+        let mut fts_stmt = self.conn.prepare(&sql_fts)?;
+        let fts_entries: Vec<(i64, String)> = fts_stmt
+            .query_map(rusqlite::params_from_iter(params_boxed.iter()), |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?
+            .collect::<SqlResult<_>>()?;
+
+        // 批量删除 FTS 索引
+        let mut fts_del = self.conn.prepare_cached(
+            "INSERT INTO clips_fts(clips_fts, rowid, text_content) VALUES ('delete', ?1, ?2)",
+        )?;
+        for (id, text) in &fts_entries {
+            fts_del.execute(params![id, text])?;
         }
 
-        // 批量删除主表：用 IN 子句一次删除
-        let placeholders: String = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-        let sql = format!("DELETE FROM clips WHERE id IN ({})", placeholders);
-        let params: Vec<Box<dyn rusqlite::types::ToSql>> = ids
+        // 批量删除主表
+        let sql_del = format!("DELETE FROM clips WHERE id IN ({})", placeholders);
+        let params_boxed2: Vec<Box<dyn rusqlite::types::ToSql>> = ids
             .iter()
             .map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>)
             .collect();
         self.conn
-            .execute(&sql, rusqlite::params_from_iter(params.iter()))?;
+            .execute(&sql_del, rusqlite::params_from_iter(params_boxed2.iter()))?;
 
         Ok(ids)
     }

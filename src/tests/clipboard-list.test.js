@@ -155,7 +155,11 @@ describe("clipboard-list 状态机", () => {
       clip({ id: 2, is_favorite: true }),
     ]);
     await clipboardList.refresh();
-    clipboardList.setPanelMode("favorites");
+    // 收藏模式独立查询
+    api.getClips.mockResolvedValueOnce([
+      clip({ id: 2, is_favorite: true }),
+    ]);
+    await clipboardList.setPanelMode("favorites");
     const rows = document.querySelectorAll(".clip-row");
     expect(rows.length).toBe(1);
     expect(rows[0].dataset.id).toBe("2");

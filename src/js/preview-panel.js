@@ -12,6 +12,7 @@
  */
 
 import { getClipImage, getClipDetail, setPreviewVisible } from "./api.js";
+import { t } from "../i18n/i18n.js";
 import DOMPurify from "dompurify";
 import hljs from "highlight.js/lib/core";
 import { marked } from "marked";
@@ -143,6 +144,7 @@ function isMarkdown(text) {
 
 // 代码检测阈值
 const CODE_RELEVANCE_THRESHOLD = 5;
+const _hljsCache = new Map(); // content_hash → { language, relevance, value }
 
 let _panelEl;
 let _contentEl;
@@ -242,7 +244,12 @@ async function _doUpdatePreview(clip) {
 
   // 2. 代码检测（text_content 纯文本，排除 xml 误判）
   if (text.length > 10) {
-    const result = hljs.highlightAuto(text);
+    const cacheKey = clip.content_hash;
+    let result = cacheKey && _hljsCache.get(cacheKey);
+    if (!result) {
+      result = hljs.highlightAuto(text);
+      if (cacheKey) _hljsCache.set(cacheKey, { language: result.language, relevance: result.relevance, value: result.value });
+    }
     if (result.relevance > CODE_RELEVANCE_THRESHOLD && result.language && result.language !== "xml") {
       renderCode(text, result);
       return;
@@ -313,7 +320,7 @@ async function renderImage(clip) {
       _contentEl.appendChild(img);
     }
   } catch (e) {
-    _contentEl.textContent = "图片加载失败";
+    _contentEl.textContent = t("preview.imageLoadFailed");
     console.warn("预览图片加载失败:", e);
   }
 }
