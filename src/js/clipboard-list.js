@@ -28,6 +28,8 @@ let _onFocusChange = () => {};
 let _query = "";
 let _panelMode = "all";
 let _allClips = [];
+let _favClips = [];
+let _favDirty = true; // 收藏列表需要重新加载
 let _focusedRow = -1;
 let _focusedCol = -1;
 let _expandedRow = null;
@@ -36,9 +38,10 @@ let _deleteTimer = null;
 let _dirty = false;
 const PAGE_SIZE = 30;
 let _hasMore = true;
+let _favHasMore = true;
 let _loading = false;
 let _keyboardNav = false; // 键盘导航中，鼠标悬浮不抢焦点
-
+const _thumbCache = new Map(); // clipId → base64 缓存
 export function init({ listEl, emptyEl, onCountsChange, onSummonSearch, onModeChange, onFocusChange }) {
   _parent = listEl;
   _emptyEl = emptyEl;
@@ -59,6 +62,7 @@ export function setDeleteConfirmMs(ms) {
 export async function refresh() {
   _dirty = false;
   _hasMore = true;
+  _favDirty = true;
   try {
     _allClips = await getClips(_query || null, false, 0, PAGE_SIZE);
     _hasMore = _allClips.length >= PAGE_SIZE;
@@ -69,6 +73,10 @@ export async function refresh() {
     console.error("Clipboard query failed:", e);
     _allClips = [];
     telemetry.emit("clip-list:refresh-error", { message: String(e) });
+  }
+  // 如果当前在收藏模式，同步加载收藏列表
+  if (_panelMode === "favorites") {
+    await _loadFavorites();
   }
   // 焦点收敛：刷新后保持在合法范围；列表空则 -1
   const items = visibleItems();
@@ -97,7 +105,7 @@ export function getFocusedClip() {
   return items[_focusedRow] || null;
 }
 
-export function setPanelMode(mode) {
+export async function setPanelMode(mode) {
   if (mode !== "all" && mode !== "favorites") return;
   if (_panelMode === mode) return;
   _panelMode = mode;
@@ -111,6 +119,10 @@ export function setPanelMode(mode) {
     void _parent.offsetWidth;
     _parent.classList.add("switch-left");
   }
+  // 收藏列表独立加载
+  if (mode === "favorites" && _favDirty) {
+    await _loadFavorites();
+  }
   render();
   emitCounts();
   _onModeChange(mode);
@@ -121,7 +133,8 @@ export function getPanelMode() { return _panelMode; }
 
 export function prependClip(clip) {
   _allClips.unshift(clip);
-  if (_focusedRow >= 0) _focusedRow += 1;
+  if (clip.is_favorite) _favDirty = true;
+  if (_focusedRow >= 0 && _panelMode === "all") _focusedRow += 1;
   // 差量更新：若当前视图匹配（非搜索模式），直接 prepend DOM 节点
   if (!_query && _panelMode === "all" && _parent && _parent.children.length > 0) {
     // 更新现有行的 idx
@@ -142,8 +155,9 @@ export function prependClip(clip) {
 
 export function removeClip(id) {
   _allClips = _allClips.filter((c) => c.id !== id);
-  // 差量更新：若当前视图匹配，直接移除 DOM 节点
-  if (!_query && _panelMode === "all" && _parent) {
+  _favClips = _favClips.filter((c) => c.id !== id);
+  // 差量更新：直接移除 DOM 节点
+  if (!_query && _parent) {
     const el = _parent.querySelector(`.clip-row[data-id="${id}"]`);
     if (el) {
       el.remove();
@@ -246,6 +260,9 @@ export function hasExpanded() { return _expandedRow !== null; }
 
 export function releaseMemory() {
   _allClips = [];
+  _favClips = [];
+  _favDirty = true;
+  _thumbCache.clear();
   _dirty = true; // 内存释放后，下次 focus 必须重新加载
   _focusedRow = 0; // 下次打开时从第一项（最新）开始
   _focusedCol = -1;
@@ -321,31 +338,47 @@ function cancelDeletePending() {
 // ── 内部工具 ─────────────────────────────────────────────────
 
 function visibleItems() {
-  if (_panelMode === "favorites") return _allClips.filter((c) => c.is_favorite);
+  if (_panelMode === "favorites") return _favClips;
   return _allClips;
 }
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
+/** 独立加载收藏列表 */
+async function _loadFavorites() {
+  try {
+    _favClips = await getClips(_query || null, true, 0, PAGE_SIZE);
+    _favHasMore = _favClips.length >= PAGE_SIZE;
+    _favDirty = false;
+  } catch (e) {
+    console.error("Favorites query failed:", e);
+    _favClips = [];
+  }
+}
+
 /** 滚动到底部时追加加载 */
 async function _onScroll() {
-  if (!_parent || _loading || !_hasMore) return;
+  if (!_parent || _loading) return;
+  const isFav = _panelMode === "favorites";
+  const hasMore = isFav ? _favHasMore : _hasMore;
+  if (!hasMore) return;
   const { scrollTop, scrollHeight, clientHeight } = _parent;
   if (scrollTop + clientHeight < scrollHeight - 50) return;
   _loading = true;
   try {
-    const more = await getClips(_query || null, false, _allClips.length, PAGE_SIZE);
+    const arr = isFav ? _favClips : _allClips;
+    const more = await getClips(_query || null, isFav, arr.length, PAGE_SIZE);
     if (more.length > 0) {
-      const startIdx = _allClips.length;
-      _allClips.push(...more);
+      const startIdx = arr.length;
+      arr.push(...more);
       // 差量追加 DOM
-      const items = _panelMode === "all" ? more : more.filter((c) => c.is_favorite);
-      items.forEach((clip, i) => {
+      more.forEach((clip, i) => {
         _parent.appendChild(buildRow(clip, startIdx + i));
       });
       emitCounts();
     }
-    _hasMore = more.length >= PAGE_SIZE;
+    if (isFav) _favHasMore = more.length >= PAGE_SIZE;
+    else _hasMore = more.length >= PAGE_SIZE;
   } catch (e) {
     console.error("追加加载失败:", e);
   }
@@ -354,7 +387,10 @@ async function _onScroll() {
 
 function emitCounts() {
   const all = _allClips.length;
-  const favorites = _allClips.filter((c) => c.is_favorite).length;
+  // 收藏计数：如果已加载则用独立列表，否则从 allClips 估算
+  const favorites = _favDirty
+    ? _allClips.filter((c) => c.is_favorite).length
+    : _favClips.length;
   _onCountsChange({ all, favorites });
 }
 
@@ -469,21 +505,33 @@ function buildRow(clip, idx) {
     const thumb = document.createElement("div");
     thumb.className = "clip-row-thumb";
     thumb.textContent = "🖼";
-    // 异步加载缩略图
-    getClipImage(clip.id).then(base64 => {
-      if (base64) {
-        const img = document.createElement("img");
-        img.src = `data:image/png;base64,${base64}`;
-        img.alt = "image";
-        img.className = "clip-row-thumb-img";
-        img.draggable = false;
-        thumb.textContent = "";
-        thumb.appendChild(img);
-      }
-    }).catch(() => {});
+    // 异步加载缩略图（带缓存）
+    const cached = _thumbCache.get(clip.id);
+    if (cached) {
+      const img = document.createElement("img");
+      img.src = `data:image/png;base64,${cached}`;
+      img.alt = "image";
+      img.className = "clip-row-thumb-img";
+      img.draggable = false;
+      thumb.textContent = "";
+      thumb.appendChild(img);
+    } else {
+      getClipImage(clip.id).then(base64 => {
+        if (base64) {
+          _thumbCache.set(clip.id, base64);
+          const img = document.createElement("img");
+          img.src = `data:image/png;base64,${base64}`;
+          img.alt = "image";
+          img.className = "clip-row-thumb-img";
+          img.draggable = false;
+          thumb.textContent = "";
+          thumb.appendChild(img);
+        }
+      }).catch(() => {});
+    }
     preview.appendChild(thumb);
   } else if (clip.content_type === "html") {
-    preview.textContent = (clip.text_content || "[富文本]").slice(0, 200);
+    preview.textContent = (clip.text_content || t("preview.richText")).slice(0, 200);
   } else {
     preview.textContent = (clip.text_content || "").slice(0, 200);
   }
@@ -619,7 +667,8 @@ export const __test__ = {
     deletePending: _deletePending ? { ..._deletePending } : null,
   }),
   reset() {
-    _query = ""; _panelMode = "all"; _allClips = [];
+    _query = ""; _panelMode = "all"; _allClips = []; _favClips = []; _favDirty = true;
+    _hasMore = true; _favHasMore = true; _thumbCache.clear();
     _focusedRow = -1; _focusedCol = -1; _expandedRow = null;
     cancelDeletePending();
   },
