@@ -3,7 +3,7 @@
   "name": "image-html-support",
   "title": "富文本预览窗口：HTML渲染+代码高亮+Markdown+安全策略",
   "description": "在剪贴板主面板右侧扩展预览区域，支持 HTML 富文本安全渲染、代码语法高亮（highlight.js/Prism.js）、Markdown 渲染（marked/markdown-it）、外部资源白黑名单管理",
-  "status": "done",
+  "status": "completed",
   "dev_type": null,
   "scope": null,
   "package": null,
@@ -11,18 +11,38 @@
   "creator": "zhongweixi2000",
   "assignee": "zhongweixi2000",
   "createdAt": "2026-04-28",
-  "completedAt": null,
+  "completedAt": "2026-04-29",
   "branch": null,
   "base_branch": "dev",
   "worktree_path": null,
   "commit": null,
   "pr_url": null,
   "subtasks": [
-    {"id": "phase-a", "title": "基础预览框架（布局+窗口动态宽度+纯文本/图片预览）", "status": "done"},
-    {"id": "phase-b", "title": "HTML安全渲染（DOMPurify+外部资源过滤+CSP）", "status": "done"},
-    {"id": "phase-c", "title": "代码语法高亮（highlight.js+Prism.js+引擎切换）", "status": "done"},
-    {"id": "phase-d", "title": "Markdown渲染（marked+markdown-it+检测启发式）", "status": "done"},
-    {"id": "phase-e", "title": "设置页面扩展（预览开关+引擎选择+白黑名单UI）", "status": "not_started"}
+    {
+      "id": "phase-a",
+      "title": "基础预览框架（布局+窗口动态宽度+纯文本/图片预览）",
+      "status": "done"
+    },
+    {
+      "id": "phase-b",
+      "title": "HTML安全渲染（DOMPurify+外部资源过滤+CSP）",
+      "status": "done"
+    },
+    {
+      "id": "phase-c",
+      "title": "代码语法高亮（highlight.js+Prism.js+引擎切换）",
+      "status": "done"
+    },
+    {
+      "id": "phase-d",
+      "title": "Markdown渲染（marked+markdown-it+检测启发式）",
+      "status": "done"
+    },
+    {
+      "id": "phase-e",
+      "title": "设置页面扩展（预览开关+引擎选择+白黑名单UI）",
+      "status": "not_started"
+    }
   ],
   "children": [],
   "parent": null,
