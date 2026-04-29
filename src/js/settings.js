@@ -40,6 +40,7 @@ const aboutVersion    = document.getElementById("about-version");
 const checkUpdateBtn  = document.getElementById("check-update-btn");
 const updateStatus    = document.getElementById("update-status");
 const autostartToggle = document.getElementById("autostart-toggle");
+const ocrModeSelect  = document.getElementById("ocr-mode-select");
 
 // 主题清单：id 与 themes.css 中 [data-theme="<id>"] 对应；i18nKey 用于显示名
 const THEMES = [
@@ -102,6 +103,7 @@ function fillForm(config) {
   shortcutInput.value   = config.global_shortcut || "";
   maxHistoryInput.value = config.max_history ?? 100;
   languageSelect.value  = config.language || "auto";
+  ocrModeSelect.value   = config.ocr_result_mode || "preview";
 }
 
 function applyTheme(theme) {
@@ -261,6 +263,8 @@ saveBtn.addEventListener("click", async () => {
       global_shortcut: newShortcut || savedConfig?.global_shortcut || "Super+V",
       theme: selectedTheme,
       language: newLanguage,
+      delete_confirm_ms: savedConfig?.delete_confirm_ms ?? 1200,
+      ocr_result_mode: ocrModeSelect.value,
     };
 
     await updateConfig(newConfig);

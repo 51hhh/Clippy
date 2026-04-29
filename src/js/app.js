@@ -12,7 +12,7 @@ import { initUpdateModal, checkForUpdate } from "./update-modal.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   getConfig, onClipAdded, onClipRemoved, onConfigChanged,
-  onShortcutRegisterFailed,
+  onShortcutRegisterFailed, pinClip,
 } from "./api.js";
 import "../styles/themes.css";
 import "../styles/base.css";
@@ -100,6 +100,14 @@ function onKeyDown(e) {
     return; // 其它键交给 input
   }
 
+  // Ctrl+2：Pin 当前焦点条目到桌面
+  if (e.ctrlKey && e.key === "2") {
+    e.preventDefault();
+    const clip = clipboardList.getFocusedClip();
+    if (clip) pinClip(clip.id).catch(err => console.warn("Pin 失败:", err));
+    return;
+  }
+
   switch (e.key) {
     case "ArrowUp":
     case "w":
@@ -155,9 +163,11 @@ function onKeyDown(e) {
       return;
     case "Tab":
       e.preventDefault();
-      previewPanel.toggle();
-      if (previewPanel.isVisible()) {
+      if (!previewPanel.isVisible()) {
+        previewPanel.toggle();
         previewPanel.updatePreview(clipboardList.getFocusedClip());
+      } else {
+        previewPanel.toggle();
       }
       return;
   }

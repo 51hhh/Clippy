@@ -59,6 +59,8 @@ pub struct AppConfig {
     pub language: String,
     #[serde(default = "default_delete_confirm_ms")]
     pub delete_confirm_ms: u32,
+    #[serde(default = "default_ocr_result_mode")]
+    pub ocr_result_mode: String,
 }
 
 fn default_language() -> String {
@@ -67,6 +69,10 @@ fn default_language() -> String {
 
 fn default_delete_confirm_ms() -> u32 {
     1200
+}
+
+fn default_ocr_result_mode() -> String {
+    "preview".to_string()
 }
 
 impl Default for AppConfig {
@@ -78,6 +84,7 @@ impl Default for AppConfig {
             theme: "light".to_string(),
             language: "auto".to_string(),
             delete_confirm_ms: 1200,
+            ocr_result_mode: "preview".to_string(),
         }
     }
 }
