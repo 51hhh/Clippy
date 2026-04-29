@@ -11,7 +11,7 @@
  * 安全：剪贴板原始数据不可修改，所有处理仅在预览渲染层面。
  */
 
-import { getClipImage, getClipDetail, setPreviewVisible } from "./api.js";
+import { getClipImage, getClipDetail, setPreviewVisible, ocrImage } from "./api.js";
 import { t } from "../i18n/i18n.js";
 import DOMPurify from "dompurify";
 import hljs from "highlight.js/lib/core";
@@ -326,9 +326,80 @@ async function renderImage(clip) {
         }`;
       };
       _contentEl.appendChild(img);
+
+      // 自动 OCR：在图片下方显示可选择的识别文字
+      const ocrArea = document.createElement("div");
+      ocrArea.className = "preview-ocr-result";
+      ocrArea.dataset.status = "loading";
+      const ocrText = document.createElement("pre");
+      ocrText.textContent = t("action.ocrProcessing");
+      ocrArea.appendChild(ocrText);
+      _contentEl.appendChild(ocrArea);
+
+      // 异步识别
+      ocrImage(clip.id).then(text => {
+        if (_currentClipId !== clip.id) return; // 焦点已切换
+        if (text && text.trim()) {
+          ocrText.textContent = text;
+          ocrArea.dataset.status = "done";
+        } else {
+          ocrText.textContent = t("action.ocrEmpty");
+          ocrArea.dataset.status = "empty";
+        }
+      }).catch(() => {
+        if (_currentClipId !== clip.id) return;
+        ocrText.textContent = t("action.ocrFailed");
+        ocrArea.dataset.status = "error";
+      });
     }
   } catch (e) {
     _contentEl.textContent = t("preview.imageLoadFailed");
     console.warn("预览图片加载失败:", e);
   }
+}
+
+// ── OCR 文字区域焦点管理 ──
+
+/** OCR 文字区域是否已聚焦 */
+export function isOcrFocused() {
+  const ocrPre = _contentEl.querySelector(".preview-ocr-result pre");
+  return ocrPre && document.activeElement === ocrPre;
+}
+
+/** 聚焦 OCR 文字区域，全选文字并显示复制提示。返回是否成功聚焦 */
+export function focusOcr() {
+  const ocrArea = _contentEl.querySelector(".preview-ocr-result");
+  if (!ocrArea || ocrArea.dataset.status !== "done") return false;
+  const ocrPre = ocrArea.querySelector("pre");
+  if (!ocrPre || !ocrPre.textContent.trim()) return false;
+  ocrPre.setAttribute("tabindex", "0");
+  ocrPre.focus();
+  // 全选文字
+  const range = document.createRange();
+  range.selectNodeContents(ocrPre);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  // 显示复制提示
+  let hint = _contentEl.querySelector(".preview-ocr-hint");
+  if (!hint) {
+    hint = document.createElement("div");
+    hint.className = "preview-ocr-hint";
+    hint.textContent = t("action.ocrCopyHint");
+    ocrPre.parentElement.appendChild(hint);
+  }
+  hint.hidden = false;
+  return true;
+}
+
+/** 移除 OCR 文字区域焦点 */
+export function blurOcr() {
+  const ocrPre = _contentEl.querySelector(".preview-ocr-result pre");
+  if (ocrPre) {
+    ocrPre.blur();
+    ocrPre.removeAttribute("tabindex");
+    window.getSelection().removeAllRanges();
+  }
+  const hint = _contentEl.querySelector(".preview-ocr-hint");
+  if (hint) hint.hidden = true;
 }

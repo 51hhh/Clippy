@@ -3,6 +3,7 @@ mod commands;
 mod config;
 mod gsettings_shortcuts;
 mod models;
+mod ocr;
 mod storage;
 mod tray_icon;
 
@@ -312,6 +313,9 @@ pub fn run() {
             commands::resume_shortcuts,
             commands::get_install_type,
             commands::is_dev_binary,
+            commands::pin_clip,
+            commands::close_pin,
+            commands::ocr_image,
         ])
         .run(tauri::generate_context!())
         .expect("启动 Tauri 应用失败");

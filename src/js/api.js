@@ -86,6 +86,21 @@ export function isDevBinary() {
   return invoke("is_dev_binary");
 }
 
+/** 将条目钉到桌面 */
+export function pinClip(id) {
+  return invoke("pin_clip", { id });
+}
+
+/** 关闭贴图窗口 */
+export function closePin(label) {
+  return invoke("close_pin", { label });
+}
+
+/** OCR 识别图片中的文字 */
+export function ocrImage(id) {
+  return invoke("ocr_image", { id });
+}
+
 // ── 事件 ──
 
 export function onClipAdded(callback) {

@@ -72,6 +72,17 @@ impl StorageEngine {
             CREATE INDEX IF NOT EXISTS idx_clips_favorite   ON clips(is_favorite, created_at DESC);
             ",
         )?;
+
+        // 迁移：添加 ocr_text 字段（已有数据库可能缺少此列）
+        let has_ocr_col: bool = self.conn
+            .prepare("SELECT COUNT(*) FROM pragma_table_info('clips') WHERE name='ocr_text'")?
+            .query_row([], |r| r.get::<_, i64>(0))
+            .map(|n| n > 0)
+            .unwrap_or(false);
+        if !has_ocr_col {
+            self.conn.execute("ALTER TABLE clips ADD COLUMN ocr_text TEXT", [])?;
+        }
+
         Ok(())
     }
 
@@ -146,6 +157,29 @@ impl StorageEngine {
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(e) => Err(StorageError::Database(e)),
         }
+    }
+
+    /// 读取缓存的 OCR 文字
+    pub fn get_ocr_text(&self, id: i64) -> Result<Option<String>, StorageError> {
+        let result = self.conn.query_row(
+            "SELECT ocr_text FROM clips WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        );
+        match result {
+            Ok(text) => Ok(text),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(StorageError::Database(e)),
+        }
+    }
+
+    /// 保存 OCR 识别结果
+    pub fn set_ocr_text(&self, id: i64, text: &str) -> Result<(), StorageError> {
+        self.conn.execute(
+            "UPDATE clips SET ocr_text = ?1 WHERE id = ?2",
+            params![text, id],
+        )?;
+        Ok(())
     }
 
     /// 查询条目列表。有 query 时走 FTS 全文搜索，否则按时间倒序。

@@ -359,3 +359,78 @@ pub fn is_dev_binary() -> bool {
         Err(_) => false,
     }
 }
+
+// ── 贴图 Pin-to-Desktop ─────────────────────────────────────────────────────
+
+/// 将指定条目钉到桌面：创建 always-on-top 无边框透明窗口
+#[tauri::command]
+pub fn pin_clip(id: i64, app_handle: tauri::AppHandle) -> Result<String, String> {
+    let label = format!("pin-{}", id);
+
+    // 如果已存在则聚焦
+    if let Some(win) = app_handle.get_webview_window(&label) {
+        let _ = win.set_focus();
+        return Ok(label);
+    }
+
+    tauri::WebviewWindowBuilder::new(
+        &app_handle,
+        &label,
+        tauri::WebviewUrl::App(format!("pin.html?id={}", id).into()),
+    )
+    .title("")
+    .inner_size(320.0, 240.0)
+    .decorations(false)
+    .always_on_top(true)
+    .transparent(true)
+    .skip_taskbar(true)
+    .resizable(true)
+    .center()
+    .build()
+    .map_err(|e| e.to_string())?;
+
+    Ok(label)
+}
+
+/// 关闭指定贴图窗口
+#[tauri::command]
+pub fn close_pin(label: String, app_handle: tauri::AppHandle) -> Result<(), String> {
+    if let Some(win) = app_handle.get_webview_window(&label) {
+        win.close().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+// ── OCR 文字识别 ─────────────────────────────────────────────────────
+
+/// 对指定图片条目进行 OCR 识别，返回文字内容（带缓存，异步不阻塞）
+#[tauri::command]
+pub async fn ocr_image(id: i64, state: State<'_, AppState>) -> Result<String, String> {
+    // 先查缓存
+    {
+        let storage = state.storage.lock().map_err(|e| e.to_string())?;
+        if let Some(cached) = storage.get_ocr_text(id).map_err(|e| e.to_string())? {
+            return Ok(cached);
+        }
+    }
+
+    let image_bytes = {
+        let storage = state.storage.lock().map_err(|e| e.to_string())?;
+        storage
+            .get_clip_image(id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "图片数据为空".to_string())?
+    };
+    // 在独立线程中执行 OCR，避免阻塞 Tauri 主线程
+    let text = tauri::async_runtime::spawn_blocking(move || crate::ocr::recognize(&image_bytes))
+        .await
+        .map_err(|e| format!("OCR 线程异常: {}", e))??;
+
+    // 缓存结果
+    {
+        let storage = state.storage.lock().map_err(|e| e.to_string())?;
+        let _ = storage.set_ocr_text(id, &text);
+    }
+
+    Ok(text)
+}

@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Clippy 主窗口及设置窗口权限",
-  "windows": ["main", "settings"],
+  "windows": ["main", "settings", "pin-*"],
   "permissions": [
     "core:default",
     "core:window:allow-show",
@@ -13,6 +13,9 @@
     "global-shortcut:default",
     "updater:default",
     "opener:default",
-    "autostart:default"
+    "autostart:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-destroy"
   ]
 }
