@@ -56,6 +56,8 @@ async function init() {
     content.textContent = "Failed to load content";
     console.error("贴图加载失败:", err);
   }
+  // 强制置顶（某些 WM 可能忽略创建时的 always_on_top）
+  await appWindow.setAlwaysOnTop(true);
 }
 
 // ── 滚轮缩放 / Ctrl+滚轮透明度 ──
