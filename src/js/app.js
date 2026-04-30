@@ -11,8 +11,8 @@ import * as i18n          from "../i18n/i18n.js";
 import { initUpdateModal, checkForUpdate } from "./update-modal.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
-  getConfig, onClipAdded, onClipRemoved, onConfigChanged,
-  onShortcutRegisterFailed, pinClip,
+  getConfig, getClips, onClipAdded, onClipRemoved, onConfigChanged,
+  onShortcutRegisterFailed, onPinCurrent, pinClip,
 } from "./api.js";
 import "../styles/themes.css";
 import "../styles/base.css";
@@ -77,6 +77,16 @@ whenReady(async () => {
     console.warn(`快捷键 "${shortcut}" 注册失败，请在设置中更换快捷键`);
   });
 
+  await onPinCurrent(async () => {
+    // 系统快捷键触发：pin 焦点条目，若列表空则从后端获取最新条目
+    let clip = clipboardList.getFocusedClip() || clipboardList.getLatestClip();
+    if (!clip) {
+      const clips = await getClips(null, false, 0, 1);
+      clip = clips[0] || null;
+    }
+    if (clip) pinClip(clip.id).catch(err => console.warn("Pin 失败:", err));
+  });
+
   // 初始化更新弹窗并自动检查
   initUpdateModal();
   checkForUpdate(false).catch(console.warn);
@@ -100,11 +110,14 @@ function onKeyDown(e) {
     return; // 其它键交给 input
   }
 
-  // Ctrl+2：Pin 当前焦点条目到桌面
-  if (e.ctrlKey && e.key === "2") {
+  // Ctrl+P：Pin 当前焦点条目到桌面
+  if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === "p" || e.key === "P")) {
     e.preventDefault();
     const clip = clipboardList.getFocusedClip();
-    if (clip) pinClip(clip.id).catch(err => console.warn("Pin 失败:", err));
+    if (clip) {
+      pinClip(clip.id).then(label => console.log("Pin 成功:", label))
+        .catch(err => console.warn("Pin 失败:", err));
+    }
     return;
   }
 

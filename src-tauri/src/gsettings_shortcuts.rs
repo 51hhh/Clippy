@@ -14,6 +14,9 @@ use tauri::AppHandle;
 /// GNOME 自定义快捷键 dconf 路径（标准 custom0 格式）
 const DCONF_BASE: &str =
     "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom0/";
+/// Pin 快捷键 dconf 路径（custom1）
+const DCONF_PIN_BASE: &str =
+    "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom1/";
 /// gsettings schema
 const SCHEMA: &str = "org.gnome.settings-daemon.plugins.media-keys";
 /// gsettings relocatable schema（读写具体条目用）
@@ -21,6 +24,9 @@ const ENTRY_SCHEMA: &str = "org.gnome.settings-daemon.plugins.media-keys.custom-
 /// D-Bus Toggle 命令（使用 .Shortcuts 子名称，避免与 GTK GApplication 的 com.clippy.app 冲突）
 const DBUS_TOGGLE_CMD: &str =
     "dbus-send --session --type=method_call --dest=com.clippy.app.Shortcuts /com/clippy/app com.clippy.app.Toggle";
+/// D-Bus PinCurrent 命令
+const DBUS_PIN_CMD: &str =
+    "dbus-send --session --type=method_call --dest=com.clippy.app.Shortcuts /com/clippy/app com.clippy.app.PinCurrent";
 
 /// 检测当前是否运行在 Wayland 会话中
 pub fn is_wayland() -> bool {
@@ -62,27 +68,50 @@ pub fn register(shortcut: &str) -> Result<(), String> {
     log::info!("注册 GNOME 自定义快捷键: {} -> {}", shortcut, accel);
 
     ensure_in_custom_list()?;
-    gsettings_set("name", "Clippy Toggle")?;
-    gsettings_set("command", DBUS_TOGGLE_CMD)?;
-    gsettings_set("binding", &accel)?;
+    gsettings_set(DCONF_BASE, "name", "Clippy Toggle")?;
+    gsettings_set(DCONF_BASE, "command", DBUS_TOGGLE_CMD)?;
+    gsettings_set(DCONF_BASE, "binding", &accel)?;
     restart_gsd_media_keys()?;
 
     log::info!("GNOME 自定义快捷键注册完成");
     Ok(())
 }
 
+/// 注册 Pin 快捷键（应用启动时调用）
+pub fn register_pin(shortcut: &str) -> Result<(), String> {
+    let accel = to_gnome_accel(shortcut);
+    log::info!("注册 GNOME Pin 快捷键: {} -> {}", shortcut, accel);
+
+    ensure_in_custom_list()?;
+    gsettings_set(DCONF_PIN_BASE, "name", "Clippy Pin")?;
+    gsettings_set(DCONF_PIN_BASE, "command", DBUS_PIN_CMD)?;
+    gsettings_set(DCONF_PIN_BASE, "binding", &accel)?;
+    restart_gsd_media_keys()?;
+
+    log::info!("GNOME Pin 快捷键注册完成");
+    Ok(())
+}
+
+/// 更新 Pin 快捷键绑定
+pub fn update_pin_binding(shortcut: &str) -> Result<(), String> {
+    let accel = to_gnome_accel(shortcut);
+    log::info!("更新 GNOME Pin 快捷键绑定: {}", accel);
+    gsettings_set(DCONF_PIN_BASE, "binding", &accel)?;
+    restart_gsd_media_keys()
+}
+
 /// 更新绑定（设置页面修改快捷键时调用）
 pub fn update_binding(shortcut: &str) -> Result<(), String> {
     let accel = to_gnome_accel(shortcut);
     log::info!("更新 GNOME 快捷键绑定: {}", accel);
-    gsettings_set("binding", &accel)?;
+    gsettings_set(DCONF_BASE, "binding", &accel)?;
     restart_gsd_media_keys()
 }
 
 /// 暂停快捷键（录制新快捷键时调用）
 pub fn pause() -> Result<(), String> {
     log::info!("暂停 GNOME 快捷键");
-    gsettings_set("binding", "")?;
+    gsettings_set(DCONF_BASE, "binding", "")?;
     restart_gsd_media_keys()
 }
 
@@ -134,8 +163,8 @@ fn restart_gsd_media_keys() -> Result<(), String> {
 }
 
 /// 通过 gsettings 写入条目字段（schema-aware，比裸 dconf 更可靠）
-fn gsettings_set(key: &str, value: &str) -> Result<(), String> {
-    let path_arg = format!("{ENTRY_SCHEMA}:{DCONF_BASE}");
+fn gsettings_set(dconf_path: &str, key: &str, value: &str) -> Result<(), String> {
+    let path_arg = format!("{ENTRY_SCHEMA}:{dconf_path}");
     let status = Command::new("gsettings")
         .args(["set", &path_arg, key, value])
         .status()
@@ -146,7 +175,7 @@ fn gsettings_set(key: &str, value: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// 确保 custom0 路径存在于自定义快捷键列表中
+/// 确保 custom0 和 custom1 路径存在于自定义快捷键列表中
 fn ensure_in_custom_list() -> Result<(), String> {
     let output = Command::new("gsettings")
         .args(["get", SCHEMA, "custom-keybindings"])
@@ -155,17 +184,31 @@ fn ensure_in_custom_list() -> Result<(), String> {
 
     let current = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
-    if current.contains(DCONF_BASE) {
+    let mut needs_update = false;
+    let mut entries: Vec<String> = if current == "@as []" || current.is_empty() {
+        Vec::new()
+    } else {
+        current
+            .trim_matches(|c| c == '[' || c == ']')
+            .split(',')
+            .map(|s| s.trim().trim_matches('\'').to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    };
+
+    for path in [DCONF_BASE, DCONF_PIN_BASE] {
+        if !entries.iter().any(|e| e == path) {
+            entries.push(path.to_string());
+            needs_update = true;
+        }
+    }
+
+    if !needs_update {
         return Ok(());
     }
 
-    let our_entry = format!("'{DCONF_BASE}'");
-    let new_list = if current == "@as []" || current.is_empty() {
-        format!("[{our_entry}]")
-    } else {
-        let trimmed = current.trim_end_matches(']');
-        format!("{trimmed}, {our_entry}]")
-    };
+    let inner: Vec<String> = entries.iter().map(|e| format!("'{e}'")).collect();
+    let new_list = format!("[{}]", inner.join(", "));
 
     let status = Command::new("gsettings")
         .args(["set", SCHEMA, "custom-keybindings", &new_list])
@@ -250,6 +293,13 @@ pub async fn start_dbus_service(
         fn toggle(&self) {
             log::info!("D-Bus Toggle 被调用");
             super::toggle_main_window(&self.handle);
+        }
+
+        fn pin_current(&self) {
+            log::info!("D-Bus PinCurrent 被调用");
+            // 通知前端执行 pin（不显示剪贴板面板）
+            use tauri::Emitter;
+            let _ = self.handle.emit("pin-current", ());
         }
     }
 
