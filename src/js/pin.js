@@ -5,7 +5,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 
 const params = new URLSearchParams(window.location.search);
 const clipId = Number(params.get("id"));
@@ -18,6 +18,9 @@ const appWindow = getCurrentWindow();
 let scale = 1;
 let opacity = 1;
 let locked = false;
+let baseWidth = 400;
+let baseHeight = 300;
+let resizeTimer = null;
 
 // ── 初始化：加载内容 ──
 async function init() {
@@ -32,11 +35,13 @@ async function init() {
         img.alt = "pinned image";
         img.draggable = false;
         content.appendChild(img);
-        // 图片加载后调整窗口大小
+        // 图片加载后调整窗口为原始大小
         img.onload = () => {
-          const w = Math.min(img.naturalWidth + 16, 800);
-          const h = Math.min(img.naturalHeight + 16, 600);
-          appWindow.setSize(new (window.__TAURI__.window.LogicalSize)(w, h));
+          const w = img.naturalWidth;
+          const h = img.naturalHeight;
+          baseWidth = w;
+          baseHeight = h;
+          appWindow.setSize(new LogicalSize(w, h));
         };
       }
     } else {
@@ -59,11 +64,31 @@ container.addEventListener("wheel", (e) => {
     opacity = Math.max(0.1, Math.min(1, opacity + (e.deltaY > 0 ? -0.05 : 0.05)));
     container.style.opacity = opacity;
   } else {
-    // 缩放内容
+    // 缩放：CSS transform 即时视觉反馈 + 防抖调整窗口大小
     scale = Math.max(0.2, Math.min(5, scale + (e.deltaY > 0 ? -0.1 : 0.1)));
     content.style.transform = `scale(${scale})`;
+    // 防抖：停止滚动 150ms 后同步窗口大小
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      const newW = Math.round(baseWidth * scale);
+      const newH = Math.round(baseHeight * scale);
+      appWindow.setSize(new LogicalSize(newW, newH)).then(() => {
+        // 窗口大小已匹配，重置 transform
+        content.style.transform = "scale(1)";
+        scale = 1;
+        baseWidth = newW;
+        baseHeight = newH;
+      });
+    }, 150);
   }
 }, { passive: false });
+
+// ── 拖拽移动（替代 data-tauri-drag-region，避免事件冲突）──
+container.addEventListener("mousedown", (e) => {
+  if (e.button === 0 && !locked) {
+    appWindow.startDragging();
+  }
+});
 
 // ── 双击关闭 ──
 container.addEventListener("dblclick", () => {
@@ -93,12 +118,6 @@ menu.addEventListener("click", async (e) => {
     await invoke("select_clip", { id: clipId });
   } else if (action === "lock") {
     locked = !locked;
-    // 锁定时移除拖拽区域
-    if (locked) {
-      container.removeAttribute("data-tauri-drag-region");
-    } else {
-      container.setAttribute("data-tauri-drag-region", "");
-    }
   } else if (action === "close") {
     appWindow.close();
   }

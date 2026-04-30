@@ -30,6 +30,9 @@ const shortcutInput   = document.getElementById("shortcut-input");
 const recordBtn       = document.getElementById("shortcut-record-btn");
 const clearBtn        = document.getElementById("shortcut-clear-btn");
 const shortcutWarning = document.getElementById("shortcut-warning");
+const pinShortcutInput = document.getElementById("pin-shortcut-input");
+const pinRecordBtn     = document.getElementById("pin-shortcut-record-btn");
+const pinClearBtn      = document.getElementById("pin-shortcut-clear-btn");
 const themeGrid       = document.getElementById("theme-grid");
 const maxHistoryInput = document.getElementById("max-history-input");
 const languageSelect  = document.getElementById("language-select");
@@ -55,6 +58,7 @@ let selectedTheme = "light";
 
 let savedConfig = null;
 let isRecording = false;
+let isPinRecording = false;
 
 // 初始化
 function whenReady(fn) {
@@ -100,10 +104,11 @@ whenReady(async () => {
 });
 
 function fillForm(config) {
-  shortcutInput.value   = config.global_shortcut || "";
-  maxHistoryInput.value = config.max_history ?? 100;
-  languageSelect.value  = config.language || "auto";
-  ocrModeSelect.value   = config.ocr_result_mode || "preview";
+  shortcutInput.value    = config.global_shortcut || "";
+  pinShortcutInput.value = config.pin_shortcut || "Ctrl+2";
+  maxHistoryInput.value  = config.max_history ?? 100;
+  languageSelect.value   = config.language || "auto";
+  ocrModeSelect.value    = config.ocr_result_mode || "preview";
 }
 
 function applyTheme(theme) {
@@ -246,9 +251,47 @@ async function onKeyDown(e) {
   } catch (err) { console.warn(err); }
 }
 
+// Pin 快捷键录制
+pinRecordBtn.addEventListener("click", () => {
+  isPinRecording ? stopPinRecording() : startPinRecording();
+});
+
+pinClearBtn.addEventListener("click", () => {
+  if (savedConfig) pinShortcutInput.value = savedConfig.pin_shortcut || "Ctrl+2";
+  if (isPinRecording) stopPinRecording();
+});
+
+function startPinRecording() {
+  isPinRecording = true;
+  pinShortcutInput.value = i18n.t("settings.shortcut.recording");
+  pinShortcutInput.classList.add("recording");
+  pinRecordBtn.textContent = i18n.t("settings.shortcut.stop");
+  window.addEventListener("keydown", onPinKeyDown, { capture: true });
+}
+
+function stopPinRecording() {
+  isPinRecording = false;
+  pinShortcutInput.classList.remove("recording");
+  pinRecordBtn.textContent = i18n.t("settings.shortcut.record");
+  window.removeEventListener("keydown", onPinKeyDown, { capture: true });
+  if (pinShortcutInput.value === i18n.t("settings.shortcut.recording")) {
+    pinShortcutInput.value = savedConfig?.pin_shortcut || "Ctrl+2";
+  }
+}
+
+function onPinKeyDown(e) {
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  const shortcut = keyEventToShortcut(e);
+  if (!shortcut) return;
+  pinShortcutInput.value = shortcut;
+  setTimeout(() => { stopPinRecording(); }, 0);
+}
+
 // 保存
 saveBtn.addEventListener("click", async () => {
   const newShortcut   = shortcutInput.value.trim();
+  const newPinShortcut = pinShortcutInput.value.trim();
   const newMaxHistory = parseInt(maxHistoryInput.value, 10) || 0;
   const newLanguage   = languageSelect.value;
 
@@ -261,6 +304,7 @@ saveBtn.addEventListener("click", async () => {
       max_history: newMaxHistory,
       storage_mode: savedConfig?.storage_mode || "persistent",
       global_shortcut: newShortcut || savedConfig?.global_shortcut || "Super+V",
+      pin_shortcut: newPinShortcut || savedConfig?.pin_shortcut || "Ctrl+2",
       theme: selectedTheme,
       language: newLanguage,
       delete_confirm_ms: savedConfig?.delete_confirm_ms ?? 1200,

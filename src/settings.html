@@ -31,6 +31,20 @@
     </div>
 
     <div class="setting-group">
+      <label class="setting-label" data-i18n="settings.pinShortcut.label">Pin Shortcut</label>
+      <div class="shortcut-recorder" id="pin-shortcut-recorder">
+        <input type="text" class="shortcut-input" id="pin-shortcut-input" readonly
+               data-i18n="settings.pinShortcut.placeholder" data-i18n-attr="placeholder"
+               placeholder="Click Record to set...">
+        <button class="btn btn-small" id="pin-shortcut-record-btn"
+                data-i18n="settings.shortcut.record">Record</button>
+        <button class="btn btn-small btn-secondary" id="pin-shortcut-clear-btn"
+                data-i18n="settings.shortcut.reset">Reset</button>
+      </div>
+      <div class="setting-hint" data-i18n="settings.pinShortcut.hint">Shortcut to pin the focused clip to desktop</div>
+    </div>
+
+    <div class="setting-group">
       <label class="setting-label" data-i18n="settings.theme.label">Theme</label>
       <div class="theme-grid" id="theme-grid" role="radiogroup" aria-label="Theme"></div>
     </div>

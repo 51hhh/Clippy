@@ -119,6 +119,10 @@ export function onShortcutRegisterFailed(callback) {
   return listen("shortcut-register-failed", (event) => callback(event.payload));
 }
 
+export function onPinCurrent(callback) {
+  return listen("pin-current", () => callback());
+}
+
 // ── 更新相关（懒加载，避免 settings 窗口引入 api.js 时因 plugin 未就绪而阻塞） ──
 
 /** 获取应用版本号 */

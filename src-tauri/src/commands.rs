@@ -228,11 +228,19 @@ pub fn update_config(
     state: State<AppState>,
 ) -> Result<(), String> {
     let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    // 检测 Pin 快捷键变更
+    let pin_changed = config.pin_shortcut != new_config.pin_shortcut;
     *config = new_config;
     save_config(&state.config_path, &config);
     // 广播配置变更事件，通知所有窗口（尤其是主窗口更新主题）
     use tauri::Emitter;
     let _ = app_handle.emit("config-changed", &*config);
+    // Wayland 下动态更新 Pin 快捷键绑定
+    if pin_changed && crate::gsettings_shortcuts::is_wayland() {
+        if let Err(e) = crate::gsettings_shortcuts::update_pin_binding(&config.pin_shortcut) {
+            log::warn!("更新 Pin 快捷键失败: {}", e);
+        }
+    }
     Ok(())
 }
 
@@ -379,7 +387,7 @@ pub fn pin_clip(id: i64, app_handle: tauri::AppHandle) -> Result<String, String>
         tauri::WebviewUrl::App(format!("pin.html?id={}", id).into()),
     )
     .title("")
-    .inner_size(320.0, 240.0)
+    .inner_size(400.0, 300.0)
     .decorations(false)
     .always_on_top(true)
     .transparent(true)
