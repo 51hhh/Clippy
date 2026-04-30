@@ -31,7 +31,6 @@ html, body {
 }
 
 #pin-content {
-  transform-origin: center center;
   width: 100%;
   height: 100%;
   overflow: hidden;
