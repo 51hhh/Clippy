@@ -11,7 +11,7 @@
  * 安全：剪贴板原始数据不可修改，所有处理仅在预览渲染层面。
  */
 
-import { getClipImage, getClipDetail, setPreviewVisible, ocrImage } from "./api.js";
+import { getClipImage, getClipDetail, setPreviewVisible, ocrImage, getConfig } from "./api.js";
 import { t } from "../i18n/i18n.js";
 import DOMPurify from "dompurify";
 import hljs from "highlight.js/lib/core";
@@ -337,9 +337,19 @@ async function renderImage(clip) {
       _contentEl.appendChild(ocrArea);
 
       // 异步识别
-      ocrImage(clip.id).then(text => {
+      ocrImage(clip.id).then(async (text) => {
         if (_currentClipId !== clip.id) return; // 焦点已切换
         if (text && text.trim()) {
+          // 检查配置：clipboard 模式直接复制，preview 模式显示文字
+          try {
+            const config = await getConfig();
+            if (config.ocr_result_mode === "clipboard") {
+              await navigator.clipboard.writeText(text);
+              ocrText.textContent = "✓ " + t("settings.ocr.clipboard");
+              ocrArea.dataset.status = "done";
+              return;
+            }
+          } catch (_) { /* 读取配置失败则默认 preview 模式 */ }
           ocrText.textContent = text;
           ocrArea.dataset.status = "done";
         } else {

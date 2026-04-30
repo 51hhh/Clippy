@@ -403,6 +403,9 @@ pub fn pin_clip(id: i64, app_handle: tauri::AppHandle) -> Result<String, String>
 /// 关闭指定贴图窗口
 #[tauri::command]
 pub fn close_pin(label: String, app_handle: tauri::AppHandle) -> Result<(), String> {
+    if !label.starts_with("pin-") {
+        return Err("只能关闭贴图窗口".to_string());
+    }
     if let Some(win) = app_handle.get_webview_window(&label) {
         win.close().map_err(|e| e.to_string())?;
     }

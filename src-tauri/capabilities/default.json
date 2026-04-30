@@ -18,6 +18,7 @@
     "autostart:default",
     "core:window:allow-start-dragging",
     "core:window:allow-set-always-on-top",
-    "core:window:allow-destroy"
+    "core:window:allow-destroy",
+    "core:window:allow-scale-factor"
   ]
 }

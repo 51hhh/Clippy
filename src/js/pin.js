@@ -61,27 +61,34 @@ async function init() {
 }
 
 // ── 滚轮缩放 / Ctrl+滚轮透明度 ──
-container.addEventListener("wheel", async (e) => {
+let _rafPending = false;
+container.addEventListener("wheel", (e) => {
   e.preventDefault();
   if (e.ctrlKey) {
-    // 调节透明度
+    // 调节透明度（同步，无需节流）
     opacity = Math.max(0.1, Math.min(1, opacity + (e.deltaY > 0 ? -0.05 : 0.05)));
     container.style.opacity = opacity;
   } else {
-    // 缩放：直接调整窗口大小，保持中心位置不变
+    // 累积 scale 变化，rAF 合并提交
     const step = 0.05;
-    const oldScale = scale;
     scale = Math.max(0.2, Math.min(5, scale + (e.deltaY > 0 ? -step : step)));
-    const oldW = Math.round(baseWidth * oldScale);
-    const oldH = Math.round(baseHeight * oldScale);
-    const newW = Math.round(baseWidth * scale);
-    const newH = Math.round(baseHeight * scale);
-    // 位移补偿：窗口中心保持不动
-    const pos = await appWindow.outerPosition();
-    const dx = Math.round((oldW - newW) / 2 * cachedScaleFactor);
-    const dy = Math.round((oldH - newH) / 2 * cachedScaleFactor);
-    await appWindow.setSize(new LogicalSize(newW, newH));
-    await appWindow.setPosition(new PhysicalPosition(pos.x + dx, pos.y + dy));
+    if (!_rafPending) {
+      _rafPending = true;
+      requestAnimationFrame(async () => {
+        _rafPending = false;
+        const newW = Math.round(baseWidth * scale);
+        const newH = Math.round(baseHeight * scale);
+        const pos = await appWindow.outerPosition();
+        const curW = Math.round(baseWidth * (newW / baseWidth));
+        const curH = Math.round(baseHeight * (newH / baseHeight));
+        // 用当前实际窗口大小计算偏移（通过 outerSize 更精确，但 scale 跟踪已足够）
+        const el = document.documentElement;
+        const dx = Math.round((el.clientWidth - newW) / 2 * cachedScaleFactor);
+        const dy = Math.round((el.clientHeight - newH) / 2 * cachedScaleFactor);
+        await appWindow.setSize(new LogicalSize(newW, newH));
+        await appWindow.setPosition(new PhysicalPosition(pos.x + dx, pos.y + dy));
+      });
+    }
   }
 }, { passive: false });
 

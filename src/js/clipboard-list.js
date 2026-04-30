@@ -4,13 +4,13 @@
  * 状态：
  *   panelMode    : "all" | "favorites"
  *   focusedRow   : -1 | 0..N-1                  -1=无（列表空时）
- *   focusedCol   : -1 | 0 | 1 | 2 | 3            -1=行体；0..3=按钮[Copy, Pin, Favorite, Delete]
+ *   focusedCol   : -1 | 0 | 1 | 2               -1=行体；0..2=按钮[Copy, Favorite, Delete]
  *   expandedRow  : null | rowId                 当前展开操作组的行 id
  *
  * 通过 telemetry 暴露关键事件用于测试与诊断。
  */
 
-import { getClips, deleteClip, toggleFavorite, selectClip, getClipImage, pinClip } from "./api.js";
+import { getClips, deleteClip, toggleFavorite, selectClip, getClipImage } from "./api.js";
 import { t } from "../i18n/i18n.js";
 import * as telemetry from "./telemetry.js";
 import * as icons from "./icons.js";
@@ -221,7 +221,7 @@ export function moveCol(delta) {
     _focusedCol = -1;
     return;
   }
-  if (next > 3) return;
+  if (next > 2) return;
   _updateFocusCol(next);
 }
 
@@ -297,8 +297,6 @@ async function invokeAction(clip, action, source) {
   try {
     if (action === "copy") {
       await selectClip(clip.id);
-    } else if (action === "pin") {
-      await pinClip(clip.id);
     } else if (action === "favorite") {
       await toggleFavorite(clip.id);
       await refresh();
@@ -549,7 +547,6 @@ function buildRow(clip, idx) {
   actions.className = "clip-row-actions";
   const buttons = [
     { key: "copy",     label: t("action.copy"),     icon: icons.copy },
-    { key: "pin",      label: t("action.pin"),      icon: icons.pin },
     { key: "favorite", label: clip.is_favorite ? t("action.unfavorite") : t("action.favorite"), icon: clip.is_favorite ? icons.starFill : icons.star },
     { key: "delete",   label: t("action.delete"),   icon: icons.trash },
   ];
