@@ -74,13 +74,15 @@ impl StorageEngine {
         )?;
 
         // 迁移：添加 ocr_text 字段（已有数据库可能缺少此列）
-        let has_ocr_col: bool = self.conn
+        let has_ocr_col: bool = self
+            .conn
             .prepare("SELECT COUNT(*) FROM pragma_table_info('clips') WHERE name='ocr_text'")?
             .query_row([], |r| r.get::<_, i64>(0))
             .map(|n| n > 0)
             .unwrap_or(false);
         if !has_ocr_col {
-            self.conn.execute("ALTER TABLE clips ADD COLUMN ocr_text TEXT", [])?;
+            self.conn
+                .execute("ALTER TABLE clips ADD COLUMN ocr_text TEXT", [])?;
         }
 
         Ok(())
