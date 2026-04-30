@@ -5,9 +5,20 @@ on:
     tags:
       - "v*.*.*"
 
+permissions: write-all
+
+env:
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: short
+
+concurrency:
+  group: '${{ github.workflow }}-${{ github.ref }}'
+  cancel-in-progress: false
+
 jobs:
   check-version:
-    runs-on: ubuntu-22.04
+    name: Check Tag & Version
+    runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.get_version.outputs.version }}
     steps:
@@ -38,10 +49,17 @@ jobs:
           fi
 
   build-linux:
+    name: Build (${{ matrix.label }})
     needs: check-version
-    runs-on: ubuntu-22.04
-    permissions:
-      contents: write
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            label: ubuntu22
+          - runner: ubuntu-24.04
+            label: ubuntu24
     steps:
       - uses: actions/checkout@v4
 
@@ -54,13 +72,16 @@ jobs:
             libleptonica-dev libtesseract-dev \
             pkg-config
 
-      - name: Setup Rust
+      - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Rust cache
+      - name: Rust Cache
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
+          prefix-key: v1-rust
+          key: release-${{ matrix.label }}
+          workspaces: src-tauri -> target
+          cache-all-crates: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -70,38 +91,55 @@ jobs:
       - name: Install frontend dependencies
         run: cd src && npm install
 
-      - name: Extract changelog
-        id: changelog
+      - name: Patch deb depends for ubuntu-22
+        if: matrix.label == 'ubuntu22'
         run: |
-          TAG="${GITHUB_REF#refs/tags/}"
-          BODY=$(awk "/^## ${TAG//./\\.}/{found=1; next} /^## v/{if(found) exit} found" CHANGELOG.md)
-          if [ -z "$BODY" ]; then
-            BODY="Release ${TAG}"
-          fi
-          # 使用 GitHub Actions 多行输出语法
-          echo "body<<CHANGELOG_EOF" >> "$GITHUB_OUTPUT"
-          echo "$BODY" >> "$GITHUB_OUTPUT"
-          echo "CHANGELOG_EOF" >> "$GITHUB_OUTPUT"
+          jq '.bundle.linux.deb.depends = ["libtesseract4", "tesseract-ocr-eng", "tesseract-ocr-chi-sim", "liblept5"]' \
+            src-tauri/tauri.conf.json > tmp.json && mv tmp.json src-tauri/tauri.conf.json
 
-      - name: Build Tauri app
+      - name: Build Tauri
         uses: tauri-apps/tauri-action@v0.5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: v__VERSION__
-          releaseName: "Clippy v__VERSION__"
-          releaseBody: ${{ steps.changelog.outputs.body }}
+          tagName: ${{ github.ref_name }}
+          releaseName: "Clippy ${{ github.ref_name }}"
           releaseDraft: true
-          prerelease: ${{ contains(github.ref, '-rc') }}
+          prerelease: ${{ contains(github.ref_name, '-rc') }}
           includeUpdaterJson: true
 
+      - name: Rename artifacts with distro suffix
+        run: |
+          VER="${{ needs.check-version.outputs.version }}"
+          LABEL="${{ matrix.label }}"
+          BUNDLE_DIR="src-tauri/target/release/bundle"
+
+          DEB_SRC="${BUNDLE_DIR}/deb/Clippy_${VER}_amd64.deb"
+          [ -f "$DEB_SRC" ] && cp "$DEB_SRC" "Clippy_${VER}_amd64_${LABEL}.deb"
+
+          APPIMAGE_SRC=$(find "${BUNDLE_DIR}/appimage" -name "*.AppImage" 2>/dev/null | head -1)
+          [ -n "$APPIMAGE_SRC" ] && cp "$APPIMAGE_SRC" "Clippy_${VER}_amd64_${LABEL}.AppImage"
+
+          APPIMAGE_SIG=$(find "${BUNDLE_DIR}/appimage" -name "*.AppImage.sig" 2>/dev/null | head -1)
+          [ -n "$APPIMAGE_SIG" ] && cp "$APPIMAGE_SIG" "Clippy_${VER}_amd64_${LABEL}.AppImage.sig"
+
+      - name: Upload suffixed artifacts to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          for f in Clippy_*_amd64_*.{deb,AppImage,AppImage.sig}; do
+            [ -f "$f" ] || continue
+            echo "Uploading $f ..."
+            gh release upload "${TAG}" "$f" --repo "${{ github.repository }}" --clobber
+          done
+
   update-release:
+    name: Update Release Notes
     needs: [check-version, build-linux]
-    runs-on: ubuntu-22.04
-    permissions:
-      contents: write
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -109,7 +147,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="v${{ needs.check-version.outputs.version }}"
+          TAG="${{ github.ref_name }}"
           VER="${{ needs.check-version.outputs.version }}"
           DL="https://github.com/${{ github.repository }}/releases/download/${TAG}"
           BUILDTIME="$(TZ=Asia/Shanghai date)"
@@ -128,11 +166,13 @@ jobs:
           ## 下载
 
           ### Linux
-          #### DEB 包
-          - [64位](${DL}/Clippy_${VER}_amd64.deb)
+          #### DEB 包（根据系统版本选择）
+          - Ubuntu 22.04：[64位](${DL}/Clippy_${VER}_amd64_ubuntu22.deb)
+          - Ubuntu 24.04+：[64位](${DL}/Clippy_${VER}_amd64_ubuntu24.deb)
 
           #### AppImage（支持自动更新）
-          - [64位](${DL}/Clippy_${VER}_amd64.AppImage)
+          - Ubuntu 22.04：[64位](${DL}/Clippy_${VER}_amd64_ubuntu22.AppImage)
+          - Ubuntu 24.04+：[64位](${DL}/Clippy_${VER}_amd64_ubuntu24.AppImage)
 
           ---
           Built at ${BUILDTIME}
