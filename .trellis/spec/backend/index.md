@@ -18,6 +18,7 @@ Clippy backend is a Tauri v2 + Rust application using SQLite (rusqlite + FTS5), 
 | [Database Guidelines](./database-guidelines.md) | SQLite + FTS5 schema, parameter binding, sync patterns | Filled |
 | [Error Handling](./error-handling.md) | thiserror + anyhow, String at IPC boundary, no unwrap on I/O | Filled |
 | [Quality Guidelines](./quality-guidelines.md) | cargo fmt/clippy/test, forbidden patterns, testing requirements | Filled |
+| [External Tools](./external-tools.md) | CLI 子进程集成模式，避免 -sys crate 动态链接 | Filled |
 | [Logging Guidelines](./logging-guidelines.md) | log crate, Chinese messages, no PII in logs | Filled |
 
 ---

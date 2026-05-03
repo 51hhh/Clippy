@@ -42,7 +42,7 @@
     "targets": ["deb", "appimage"],
     "linux": {
       "deb": {
-        "depends": ["libtesseract5", "tesseract-ocr-eng", "tesseract-ocr-chi-sim", "libleptonica6"],
+        "depends": [],
         "desktopTemplate": "com.clippy.app.desktop",
         "postInstallScript": "scripts/postinst.sh",
         "postRemoveScript": "scripts/postrm.sh"

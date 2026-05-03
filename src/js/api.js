@@ -96,6 +96,11 @@ export function closePin(label) {
   return invoke("close_pin", { label });
 }
 
+/** 检查 OCR 是否可用（系统是否安装了 tesseract） */
+export function ocrAvailable() {
+  return invoke("ocr_available");
+}
+
 /** OCR 识别图片中的文字 */
 export function ocrImage(id) {
   return invoke("ocr_image", { id });

@@ -414,6 +414,12 @@ pub fn close_pin(label: String, app_handle: tauri::AppHandle) -> Result<(), Stri
 
 // ── OCR 文字识别 ─────────────────────────────────────────────────────
 
+/// 检查系统是否安装了 tesseract（前端据此决定是否显示 OCR 功能）
+#[tauri::command]
+pub fn ocr_available() -> bool {
+    crate::ocr::is_available()
+}
+
 /// 对指定图片条目进行 OCR 识别，返回文字内容（带缓存，异步不阻塞）
 #[tauri::command]
 pub async fn ocr_image(id: i64, state: State<'_, AppState>) -> Result<String, String> {

@@ -69,7 +69,6 @@ jobs:
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev build-essential curl wget file \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
-            libleptonica-dev libtesseract-dev \
             pkg-config
 
       - name: Install Rust
@@ -90,12 +89,6 @@ jobs:
 
       - name: Install frontend dependencies
         run: cd src && npm install
-
-      - name: Patch deb depends for ubuntu-22
-        if: matrix.label == 'ubuntu22'
-        run: |
-          jq '.bundle.linux.deb.depends = ["libtesseract4", "tesseract-ocr-eng", "tesseract-ocr-chi-sim", "liblept5"]' \
-            src-tauri/tauri.conf.json > tmp.json && mv tmp.json src-tauri/tauri.conf.json
 
       - name: Build Tauri
         uses: tauri-apps/tauri-action@v0.5
@@ -173,6 +166,8 @@ jobs:
           #### AppImage（支持自动更新）
           - Ubuntu 22.04：[64位](${DL}/Clippy_${VER}_amd64_ubuntu22.AppImage)
           - Ubuntu 24.04+：[64位](${DL}/Clippy_${VER}_amd64_ubuntu24.AppImage)
+
+          > OCR 功能需要单独安装 tesseract：\`sudo apt install tesseract-ocr tesseract-ocr-chi-sim\`
 
           ---
           Built at ${BUILDTIME}
