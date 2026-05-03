@@ -125,5 +125,7 @@
   "preview.mimeSubtype": "子类型",
   "preview.mimeDesc": "描述",
   "preview.httpCategory": "分类",
-  "preview.httpMessage": "消息"
+  "preview.httpMessage": "消息",
+  "codec.tooLarge": "内容过大，无法自动处理。请减小输入。",
+  "codec.suggest": "检测到编码 — 点击应用"
 }
