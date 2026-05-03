@@ -506,6 +506,99 @@ function dateInfo(text) {
   };
 }
 
+// ── 语义版本 / 数字进制 / CSS 渐变 / 数据大小检测 ─────────
+
+/** 语义版本号检测 (SemVer) */
+const SEMVER_RE = /^v?(\d+)\.(\d+)\.(\d+)(?:-([a-zA-Z0-9]+(?:\.[a-zA-Z0-9]+)*))?(?:\+([a-zA-Z0-9]+(?:\.[a-zA-Z0-9]+)*))?$/;
+function isSemver(text) {
+  return SEMVER_RE.test(text.trim());
+}
+
+function semverInfo(text) {
+  const m = text.trim().match(SEMVER_RE);
+  if (!m) return null;
+  return {
+    major: parseInt(m[1]),
+    minor: parseInt(m[2]),
+    patch: parseInt(m[3]),
+    preRelease: m[4] || null,
+    build: m[5] || null,
+    normalized: `${m[1]}.${m[2]}.${m[3]}${m[4] ? `-${m[4]}` : ""}${m[5] ? `+${m[5]}` : ""}`,
+  };
+}
+
+/** 数字进制检测：0x (hex), 0b (binary), 0o (octal), 或纯大整数 */
+const HEX_NUM_RE = /^0x[0-9a-f]+$/i;
+const BIN_NUM_RE = /^0b[01]+$/i;
+const OCT_NUM_RE = /^0o[0-7]+$/i;
+function isNumberBase(text) {
+  return HEX_NUM_RE.test(text) || BIN_NUM_RE.test(text) || OCT_NUM_RE.test(text);
+}
+
+function numberBaseInfo(text) {
+  let base, value;
+  if (HEX_NUM_RE.test(text)) {
+    base = 16;
+    value = parseInt(text, 16);
+  } else if (BIN_NUM_RE.test(text)) {
+    base = 2;
+    value = parseInt(text.slice(2), 2);
+  } else {
+    base = 8;
+    value = parseInt(text.slice(2), 8);
+  }
+  return {
+    base,
+    decimal: value,
+    hex: `0x${value.toString(16).toUpperCase()}`,
+    binary: `0b${value.toString(2)}`,
+    octal: `0o${value.toString(8)}`,
+  };
+}
+
+/** CSS 渐变检测 */
+const GRADIENT_RE = /^(linear-gradient|radial-gradient|conic-gradient|repeating-linear-gradient|repeating-radial-gradient|repeating-conic-gradient)\([\s\S]+\)$/i;
+function isGradient(text) {
+  return GRADIENT_RE.test(text.trim());
+}
+
+/** 数据大小检测与转换 */
+const DATA_SIZE_RE = /^(\d+(?:\.\d+)?)\s*(B|KB|KiB|MB|MiB|GB|GiB|TB|TiB|PB|PiB|bytes?)$/i;
+function isDataSize(text) {
+  return DATA_SIZE_RE.test(text.trim());
+}
+
+const _SIZE_TO_BYTES = {
+  b: 1, byte: 1, bytes: 1,
+  kb: 1e3, kib: 1024,
+  mb: 1e6, mib: 1048576,
+  gb: 1e9, gib: 1073741824,
+  tb: 1e12, tib: 1099511627776,
+  pb: 1e15, pib: 1125899906842624,
+};
+
+function dataSizeInfo(text) {
+  const m = text.trim().match(DATA_SIZE_RE);
+  if (!m) return null;
+  const value = parseFloat(m[1]);
+  const unit = m[2].toLowerCase();
+  const bytes = value * (_SIZE_TO_BYTES[unit] || 1);
+  const conversions = [];
+  const units = [
+    ["B", 1], ["KB", 1e3], ["KiB", 1024],
+    ["MB", 1e6], ["MiB", 1048576],
+    ["GB", 1e9], ["GiB", 1073741824],
+    ["TB", 1e12], ["TiB", 1099511627776],
+  ];
+  for (const [u, factor] of units) {
+    const v = bytes / factor;
+    if (v >= 0.01 && v < 1e6) {
+      conversions.push(`${v % 1 === 0 ? v : v.toFixed(2)} ${u}`);
+    }
+  }
+  return { bytes, conversions };
+}
+
 // Markdown 特征正则（需要多个特征匹配才认定为 Markdown）
 const MD_HEADING = /^#{1,6}\s+\S/m;
 const MD_FENCED_CODE = /^```/m;
@@ -727,6 +820,30 @@ async function _doUpdatePreview(clip) {
   // 0.17 日期字符串检测
   if (trimmed.length >= 8 && trimmed.length <= 40 && isDateString(trimmed)) {
     renderDate(trimmed);
+    return;
+  }
+
+  // 0.18 语义版本号检测
+  if (trimmed.length >= 5 && trimmed.length <= 60 && isSemver(trimmed)) {
+    renderSemver(trimmed);
+    return;
+  }
+
+  // 0.19 数字进制检测
+  if (trimmed.length >= 3 && trimmed.length <= 66 && isNumberBase(trimmed)) {
+    renderNumberBase(trimmed);
+    return;
+  }
+
+  // 0.20 CSS 渐变检测
+  if (trimmed.length >= 20 && isGradient(trimmed)) {
+    renderGradient(trimmed);
+    return;
+  }
+
+  // 0.21 数据大小检测
+  if (trimmed.length >= 2 && trimmed.length <= 20 && isDataSize(trimmed)) {
+    renderDataSize(trimmed);
     return;
   }
 
@@ -1212,6 +1329,118 @@ function renderDate(text) {
   _contentEl.appendChild(wrapper);
 }
 
+/** 语义版本号渲染 */
+function renderSemver(text) {
+  const info = semverInfo(text);
+  _badgeEl.textContent = "SEMVER";
+  _contentEl.classList.add("preview-content--encoded");
+
+  const box = document.createElement("pre");
+  box.className = "encoded-box";
+  box.textContent = info.normalized;
+  _contentEl.appendChild(box);
+
+  const details = document.createElement("div");
+  details.className = "timestamp-preview";
+  const rows = [
+    ["Major", String(info.major)],
+    ["Minor", String(info.minor)],
+    ["Patch", String(info.patch)],
+  ];
+  if (info.preRelease) rows.push(["Pre-release", info.preRelease]);
+  if (info.build) rows.push(["Build", info.build]);
+  for (const [label, value] of rows) {
+    const row = document.createElement("div");
+    row.className = "timestamp-row";
+    const lbl = document.createElement("span");
+    lbl.className = "timestamp-label";
+    lbl.textContent = label;
+    const val = document.createElement("span");
+    val.className = "timestamp-value";
+    val.textContent = value;
+    row.append(lbl, val);
+    details.appendChild(row);
+  }
+  _contentEl.appendChild(details);
+}
+
+/** 数字进制渲染 */
+function renderNumberBase(text) {
+  const info = numberBaseInfo(text);
+  const baseNames = { 2: "BIN", 8: "OCT", 16: "HEX" };
+  _badgeEl.textContent = `NUMBER · ${baseNames[info.base] || `BASE${info.base}`}`;
+  _contentEl.classList.add("preview-content--encoded");
+
+  const box = document.createElement("pre");
+  box.className = "encoded-box";
+  box.textContent = text;
+  _contentEl.appendChild(box);
+
+  const details = document.createElement("div");
+  details.className = "timestamp-preview";
+  const rows = [
+    [t("preview.numDecimal") || "Decimal", String(info.decimal)],
+    [t("preview.numHex") || "Hex", info.hex],
+    [t("preview.numBin") || "Binary", info.binary],
+    [t("preview.numOct") || "Octal", info.octal],
+  ];
+  for (const [label, value] of rows) {
+    const row = document.createElement("div");
+    row.className = "timestamp-row";
+    const lbl = document.createElement("span");
+    lbl.className = "timestamp-label";
+    lbl.textContent = label;
+    const val = document.createElement("span");
+    val.className = "timestamp-value";
+    val.textContent = value;
+    row.append(lbl, val);
+    details.appendChild(row);
+  }
+  _contentEl.appendChild(details);
+}
+
+/** CSS 渐变渲染 */
+function renderGradient(text) {
+  _badgeEl.textContent = "GRADIENT";
+  _contentEl.classList.add("preview-content--encoded");
+
+  // 可视化预览色块
+  const swatch = document.createElement("div");
+  swatch.className = "gradient-swatch";
+  swatch.style.background = text.trim();
+  _contentEl.appendChild(swatch);
+
+  const box = document.createElement("pre");
+  box.className = "encoded-box";
+  box.textContent = text.trim();
+  _contentEl.appendChild(box);
+}
+
+/** 数据大小渲染 */
+function renderDataSize(text) {
+  const info = dataSizeInfo(text);
+  _badgeEl.textContent = "DATA SIZE";
+  _contentEl.classList.add("preview-content--encoded");
+
+  const box = document.createElement("pre");
+  box.className = "encoded-box";
+  box.textContent = text.trim();
+  _contentEl.appendChild(box);
+
+  const details = document.createElement("div");
+  details.className = "timestamp-preview";
+  for (const conv of info.conversions) {
+    const row = document.createElement("div");
+    row.className = "timestamp-row";
+    const val = document.createElement("span");
+    val.className = "timestamp-value";
+    val.textContent = conv;
+    row.appendChild(val);
+    details.appendChild(row);
+  }
+  _contentEl.appendChild(details);
+}
+
 /** 加密内容渲染 + 密钥输入解密 */
 function renderEncrypted(text, encType) {
   _badgeEl.textContent = `ENCRYPTED · ${encType}`;
@@ -1614,4 +1843,6 @@ export const __test__ = {
   isUuid, uuidVersion, isIpAddress, ipInfo,
   isEmail, emailInfo, isMacAddress, macInfo,
   isCron, cronDescribe, isDateString, dateInfo,
+  isSemver, semverInfo, isNumberBase, numberBaseInfo,
+  isGradient, isDataSize, dataSizeInfo,
 };

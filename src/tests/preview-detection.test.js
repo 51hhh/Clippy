@@ -578,3 +578,133 @@ describe("dateInfo", () => {
     expect(info.relative).toBeDefined();
   });
 });
+
+// ── Semantic Version ───────────────────────────────────────
+describe("isSemver", () => {
+  it("detects simple version", () => {
+    expect(T.isSemver("1.2.3")).toBe(true);
+  });
+  it("detects version with v prefix", () => {
+    expect(T.isSemver("v1.2.3")).toBe(true);
+  });
+  it("detects pre-release", () => {
+    expect(T.isSemver("1.0.0-alpha.1")).toBe(true);
+  });
+  it("detects build metadata", () => {
+    expect(T.isSemver("1.0.0+build.123")).toBe(true);
+  });
+  it("detects full version", () => {
+    expect(T.isSemver("v2.1.0-beta.3+sha.abc")).toBe(true);
+  });
+  it("rejects incomplete version", () => {
+    expect(T.isSemver("1.2")).toBe(false);
+  });
+  it("rejects plain text", () => {
+    expect(T.isSemver("hello")).toBe(false);
+  });
+});
+
+describe("semverInfo", () => {
+  it("parses components", () => {
+    const info = T.semverInfo("v2.1.3-beta.1+build.42");
+    expect(info.major).toBe(2);
+    expect(info.minor).toBe(1);
+    expect(info.patch).toBe(3);
+    expect(info.preRelease).toBe("beta.1");
+    expect(info.build).toBe("build.42");
+  });
+  it("normalizes without prefix", () => {
+    const info = T.semverInfo("v1.0.0");
+    expect(info.normalized).toBe("1.0.0");
+  });
+});
+
+// ── Number Base ────────────────────────────────────────────
+describe("isNumberBase", () => {
+  it("detects hex", () => {
+    expect(T.isNumberBase("0xFF")).toBe(true);
+  });
+  it("detects binary", () => {
+    expect(T.isNumberBase("0b1010")).toBe(true);
+  });
+  it("detects octal", () => {
+    expect(T.isNumberBase("0o777")).toBe(true);
+  });
+  it("rejects plain decimal", () => {
+    expect(T.isNumberBase("255")).toBe(false);
+  });
+  it("rejects text", () => {
+    expect(T.isNumberBase("hello")).toBe(false);
+  });
+});
+
+describe("numberBaseInfo", () => {
+  it("converts hex to all bases", () => {
+    const info = T.numberBaseInfo("0xFF");
+    expect(info.decimal).toBe(255);
+    expect(info.binary).toBe("0b11111111");
+    expect(info.octal).toBe("0o377");
+  });
+  it("converts binary to all bases", () => {
+    const info = T.numberBaseInfo("0b1010");
+    expect(info.decimal).toBe(10);
+    expect(info.hex).toBe("0xA");
+  });
+  it("converts octal to all bases", () => {
+    const info = T.numberBaseInfo("0o777");
+    expect(info.decimal).toBe(511);
+  });
+});
+
+// ── CSS Gradient ───────────────────────────────────────────
+describe("isGradient", () => {
+  it("detects linear gradient", () => {
+    expect(T.isGradient("linear-gradient(to right, red, blue)")).toBe(true);
+  });
+  it("detects radial gradient", () => {
+    expect(T.isGradient("radial-gradient(circle, #fff, #000)")).toBe(true);
+  });
+  it("detects conic gradient", () => {
+    expect(T.isGradient("conic-gradient(from 0deg, red, blue)")).toBe(true);
+  });
+  it("rejects plain text", () => {
+    expect(T.isGradient("not a gradient")).toBe(false);
+  });
+  it("rejects incomplete", () => {
+    expect(T.isGradient("linear-gradient")).toBe(false);
+  });
+});
+
+// ── Data Size ──────────────────────────────────────────────
+describe("isDataSize", () => {
+  it("detects KB", () => {
+    expect(T.isDataSize("1024 KB")).toBe(true);
+  });
+  it("detects MB with decimal", () => {
+    expect(T.isDataSize("1.5 MB")).toBe(true);
+  });
+  it("detects GiB (binary)", () => {
+    expect(T.isDataSize("2 GiB")).toBe(true);
+  });
+  it("detects bytes", () => {
+    expect(T.isDataSize("512 bytes")).toBe(true);
+  });
+  it("rejects plain text", () => {
+    expect(T.isDataSize("hello")).toBe(false);
+  });
+  it("rejects just number", () => {
+    expect(T.isDataSize("1024")).toBe(false);
+  });
+});
+
+describe("dataSizeInfo", () => {
+  it("converts 1 MB to bytes", () => {
+    const info = T.dataSizeInfo("1 MB");
+    expect(info.bytes).toBe(1e6);
+    expect(info.conversions.length).toBeGreaterThan(1);
+  });
+  it("converts 1 GiB to bytes", () => {
+    const info = T.dataSizeInfo("1 GiB");
+    expect(info.bytes).toBe(1073741824);
+  });
+});

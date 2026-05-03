@@ -951,3 +951,11 @@
   gap: 4px;
   margin: 8px 0;
 }
+
+/* Gradient swatch */
+.gradient-swatch {
+  height: 60px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border-primary);
+}
