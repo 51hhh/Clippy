@@ -21,6 +21,7 @@ import {
   updateShortcut,
 } from "./api.js";
 import { keyEventToShortcut } from "./shortcut-recorder.js";
+import { initCustomSelect } from "./custom-select.js";
 import { initUpdateModal, checkForUpdate } from "./update-modal.js";
 import * as i18n from "../i18n/i18n.js";
 import "../styles/themes.css";
@@ -53,69 +54,6 @@ const ocrInstallBtn  = document.getElementById("ocr-install-btn");
 const ocrOptions     = document.getElementById("ocr-options");
 
 // ── 自定义下拉框 ──
-function initCustomSelect(container) {
-  const trigger = container.querySelector(".custom-select-trigger");
-  const dropdown = container.querySelector(".custom-select-dropdown");
-  const valueSpan = container.querySelector(".custom-select-value");
-  const optionEls = [...container.querySelectorAll(".custom-select-option")];
-
-  container.dataset.value = container.querySelector(".custom-select-option.selected")?.dataset.value || "";
-
-  function selectOption(opt) {
-    optionEls.forEach((o) => o.classList.remove("selected"));
-    opt.classList.add("selected");
-    valueSpan.textContent = opt.textContent;
-    container.dataset.value = opt.dataset.value;
-    container.classList.remove("open");
-    trigger.focus();
-  }
-
-  trigger.addEventListener("click", (e) => {
-    e.stopPropagation();
-    container.classList.toggle("open");
-  });
-
-  optionEls.forEach((opt) => {
-    opt.addEventListener("click", (e) => {
-      e.stopPropagation();
-      selectOption(opt);
-    });
-  });
-
-  // 键盘导航
-  trigger.addEventListener("keydown", (e) => {
-    const isOpen = container.classList.contains("open");
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      container.classList.toggle("open");
-    } else if (e.key === "Escape" && isOpen) {
-      container.classList.remove("open");
-    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      const currentIdx = optionEls.findIndex((o) => o.classList.contains("selected"));
-      const next = e.key === "ArrowDown"
-        ? Math.min(currentIdx + 1, optionEls.length - 1)
-        : Math.max(currentIdx - 1, 0);
-      selectOption(optionEls[next]);
-    }
-  });
-
-  document.addEventListener("click", () => container.classList.remove("open"));
-
-  return {
-    get value() { return container.dataset.value; },
-    set value(v) {
-      const target = container.querySelector(`.custom-select-option[data-value="${v}"]`);
-      if (target) {
-        optionEls.forEach((o) => o.classList.remove("selected"));
-        target.classList.add("selected");
-        valueSpan.textContent = target.textContent;
-        container.dataset.value = v;
-      }
-    },
-  };
-}
-
 const ocrModeCtrl = initCustomSelect(ocrModeSelect);
 
 // 主题清单：id 与 themes.css 中 [data-theme="<id>"] 对应；i18nKey 用于显示名
