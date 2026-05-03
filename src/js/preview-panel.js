@@ -131,6 +131,13 @@ function isUrl(text) {
   return URL_RE.test(text) && text.length < 2048;
 }
 
+// JSON 检测：首字符为 { 或 [，尝试解析
+function isJson(text) {
+  const c = text[0];
+  if (c !== "{" && c !== "[") return false;
+  try { JSON.parse(text); return true; } catch { return false; }
+}
+
 // Markdown 特征正则（需要多个特征匹配才认定为 Markdown）
 const MD_HEADING = /^#{1,6}\s+\S/m;
 const MD_FENCED_CODE = /^```/m;
@@ -266,6 +273,13 @@ async function _doUpdatePreview(clip) {
     return;
   }
 
+  // 0.5 JSON 检测（纯 JSON 文本 → 格式化 + 语法高亮）
+  if (text.length > 1 && isJson(text.trim())) {
+    await ensureLibs();
+    renderJson(text.trim());
+    return;
+  }
+
   // 延迟加载渲染库（首次调用时初始化 hljs/marked/DOMPurify）
   await ensureLibs();
 
@@ -318,6 +332,20 @@ function renderCode(text, result) {
   const code = document.createElement("code");
   code.className = `hljs language-${result.language}`;
   code.innerHTML = DOMPurify.sanitize(result.value, { ALLOWED_TAGS: ["span"], ALLOWED_ATTR: ["class"] });
+  pre.appendChild(code);
+  _contentEl.appendChild(pre);
+}
+
+function renderJson(text) {
+  _badgeEl.textContent = "JSON";
+  _contentEl.classList.add("preview-content--code");
+  let formatted;
+  try { formatted = JSON.stringify(JSON.parse(text), null, 2); } catch { formatted = text; }
+  const highlighted = hljs.highlight(formatted, { language: "json" });
+  const pre = document.createElement("pre");
+  const code = document.createElement("code");
+  code.className = "hljs language-json";
+  code.innerHTML = DOMPurify.sanitize(highlighted.value, { ALLOWED_TAGS: ["span"], ALLOWED_ATTR: ["class"] });
   pre.appendChild(code);
   _contentEl.appendChild(pre);
 }

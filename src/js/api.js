@@ -116,6 +116,11 @@ export function fetchUrlMeta(url) {
   return invoke("fetch_url_meta", { url });
 }
 
+/** 获取剪贴板统计信息（总数/类型分布/存储大小等） */
+export function getStats() {
+  return invoke("get_stats");
+}
+
 // ── 事件 ──
 
 export function onClipAdded(callback) {
