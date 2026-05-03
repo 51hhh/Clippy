@@ -309,6 +309,12 @@
   background-color: var(--accent);
 }
 
+/* sensitive 标记：敏感内容淡化显示 */
+.clip-row.sensitive .clip-row-preview {
+  opacity: 0.6;
+  font-style: italic;
+}
+
 /* favorite 标记：行 preview 前的小星星 */
 .clip-row.favorite .clip-row-main::before {
   content: "";

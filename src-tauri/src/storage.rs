@@ -85,6 +85,18 @@ impl StorageEngine {
                 .execute("ALTER TABLE clips ADD COLUMN ocr_text TEXT", [])?;
         }
 
+        // 迁移：添加 is_sensitive 字段（敏感内容自动检测）
+        let has_sensitive_col: bool = self
+            .conn
+            .prepare("SELECT COUNT(*) FROM pragma_table_info('clips') WHERE name='is_sensitive'")?
+            .query_row([], |r| r.get::<_, i64>(0))
+            .map(|n| n > 0)
+            .unwrap_or(false);
+        if !has_sensitive_col {
+            self.conn
+                .execute("ALTER TABLE clips ADD COLUMN is_sensitive INTEGER DEFAULT 0", [])?;
+        }
+
         Ok(())
     }
 
@@ -98,14 +110,15 @@ impl StorageEngine {
         image_data: Option<&[u8]>,
         content_hash: &str,
         byte_size: i64,
+        is_sensitive: bool,
     ) -> Result<ClipItem, StorageError> {
         let now = now_secs();
 
         // UPSERT：新插入或哈希重复时更新 created_at 置顶
         self.conn.execute(
             "INSERT INTO clips
-                (content_type, text_content, html_content, image_data, content_hash, is_favorite, created_at, byte_size)
-             VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7)
+                (content_type, text_content, html_content, image_data, content_hash, is_favorite, created_at, byte_size, is_sensitive)
+             VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7, ?8)
              ON CONFLICT(content_hash) DO UPDATE SET created_at = excluded.created_at",
             params![
                 content_type.as_str(),
@@ -115,6 +128,7 @@ impl StorageEngine {
                 content_hash,
                 now,
                 byte_size,
+                is_sensitive as i64,
             ],
         )?;
 
@@ -139,7 +153,7 @@ impl StorageEngine {
     pub fn get_clip_by_id(&self, id: i64) -> Result<ClipItem, StorageError> {
         let clip = self.conn.query_row(
             "SELECT id, content_type, text_content, html_content, image_data,
-                    content_hash, is_favorite, created_at, byte_size
+                    content_hash, is_favorite, created_at, byte_size, is_sensitive
              FROM clips WHERE id = ?1",
             params![id],
             row_to_clip,
@@ -198,7 +212,7 @@ impl StorageEngine {
             // FTS 搜索路径
             let sql = if favorites_only {
                 "SELECT c.id, c.content_type, c.text_content, NULL, NULL,
-                        c.content_hash, c.is_favorite, c.created_at, c.byte_size
+                        c.content_hash, c.is_favorite, c.created_at, c.byte_size, c.is_sensitive
                  FROM clips_fts
                  JOIN clips c ON clips_fts.rowid = c.id
                  WHERE clips_fts MATCH ?1
@@ -207,7 +221,7 @@ impl StorageEngine {
                  LIMIT ?2 OFFSET ?3"
             } else {
                 "SELECT c.id, c.content_type, c.text_content, NULL, NULL,
-                        c.content_hash, c.is_favorite, c.created_at, c.byte_size
+                        c.content_hash, c.is_favorite, c.created_at, c.byte_size, c.is_sensitive
                  FROM clips_fts
                  JOIN clips c ON clips_fts.rowid = c.id
                  WHERE clips_fts MATCH ?1
@@ -225,14 +239,14 @@ impl StorageEngine {
         // 普通查询路径
         let sql = if favorites_only {
             "SELECT id, content_type, text_content, NULL, NULL,
-                    content_hash, is_favorite, created_at, byte_size
+                    content_hash, is_favorite, created_at, byte_size, is_sensitive
              FROM clips
              WHERE is_favorite = 1
              ORDER BY created_at DESC
              LIMIT ?1 OFFSET ?2"
         } else {
             "SELECT id, content_type, text_content, NULL, NULL,
-                    content_hash, is_favorite, created_at, byte_size
+                    content_hash, is_favorite, created_at, byte_size, is_sensitive
              FROM clips
              ORDER BY created_at DESC
              LIMIT ?1 OFFSET ?2"
@@ -352,6 +366,56 @@ impl StorageEngine {
 
         Ok(ids)
     }
+
+    /// 清理过期的敏感条目（创建超过 ttl_secs 秒的非收藏敏感条目）
+    pub fn purge_expired_sensitive(&self, ttl_secs: i64) -> Result<Vec<i64>, StorageError> {
+        let cutoff = now_secs() - ttl_secs;
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT id FROM clips WHERE is_sensitive = 1 AND is_favorite = 0 AND created_at < ?1",
+        )?;
+        let ids: Vec<i64> = stmt
+            .query_map(params![cutoff], |row| row.get(0))?
+            .collect::<SqlResult<_>>()?;
+
+        if ids.is_empty() {
+            return Ok(ids);
+        }
+
+        let placeholders: String = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let params_boxed: Vec<Box<dyn rusqlite::types::ToSql>> = ids
+            .iter()
+            .map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>)
+            .collect();
+
+        // 删除 FTS 索引
+        let sql_fts = format!(
+            "SELECT id, text_content FROM clips WHERE id IN ({}) AND text_content IS NOT NULL",
+            placeholders
+        );
+        let mut fts_stmt = self.conn.prepare(&sql_fts)?;
+        let fts_entries: Vec<(i64, String)> = fts_stmt
+            .query_map(rusqlite::params_from_iter(params_boxed.iter()), |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?
+            .collect::<SqlResult<_>>()?;
+
+        let mut fts_del = self.conn.prepare_cached(
+            "INSERT INTO clips_fts(clips_fts, rowid, text_content) VALUES ('delete', ?1, ?2)",
+        )?;
+        for (id, text) in &fts_entries {
+            fts_del.execute(params![id, text])?;
+        }
+
+        let sql_del = format!("DELETE FROM clips WHERE id IN ({})", placeholders);
+        let params_boxed2: Vec<Box<dyn rusqlite::types::ToSql>> = ids
+            .iter()
+            .map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>)
+            .collect();
+        self.conn
+            .execute(&sql_del, rusqlite::params_from_iter(params_boxed2.iter()))?;
+
+        Ok(ids)
+    }
 }
 
 /// 将 rusqlite 行映射到 ClipItem（供多处复用）
@@ -378,6 +442,10 @@ fn row_to_clip(row: &rusqlite::Row<'_>) -> rusqlite::Result<ClipItem> {
         },
         created_at: row.get(7)?,
         byte_size: row.get(8)?,
+        is_sensitive: {
+            let v: i64 = row.get(9).unwrap_or(0);
+            v != 0
+        },
     })
 }
 
@@ -412,6 +480,7 @@ mod tests {
                 None,
                 hash,
                 text.len() as i64,
+                false,
             )
             .expect("插入失败")
     }
