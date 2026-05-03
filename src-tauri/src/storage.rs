@@ -19,7 +19,7 @@ pub struct StorageEngine {
 fn now_secs() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_secs() as i64
 }
 
@@ -221,6 +221,8 @@ impl StorageEngine {
         let trimmed = query.map(str::trim).unwrap_or("");
 
         if !trimmed.is_empty() {
+            // FTS5 安全：将用户输入包裹在双引号中，防止 FTS 语法注入
+            let safe_query = format!("\"{}\"", trimmed.replace('"', "\"\""));
             // FTS 搜索路径
             let sql = if favorites_only {
                 "SELECT c.id, c.content_type, c.text_content, NULL, NULL,
@@ -243,7 +245,7 @@ impl StorageEngine {
 
             let mut stmt = self.conn.prepare_cached(sql)?;
             let clips = stmt
-                .query_map(params![trimmed, limit, offset], row_to_clip)?
+                .query_map(params![safe_query, limit, offset], row_to_clip)?
                 .collect::<SqlResult<Vec<_>>>()?;
             return Ok(clips);
         }

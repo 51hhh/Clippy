@@ -317,7 +317,7 @@ function renderCode(text, result) {
   const pre = document.createElement("pre");
   const code = document.createElement("code");
   code.className = `hljs language-${result.language}`;
-  code.innerHTML = DOMPurify.sanitize(result.value);
+  code.innerHTML = DOMPurify.sanitize(result.value, { ALLOWED_TAGS: ["span"], ALLOWED_ATTR: ["class"] });
   pre.appendChild(code);
   _contentEl.appendChild(pre);
 }
