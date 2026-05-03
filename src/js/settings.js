@@ -52,6 +52,51 @@ const ocrStatusText  = document.getElementById("ocr-status-text");
 const ocrInstallBtn  = document.getElementById("ocr-install-btn");
 const ocrOptions     = document.getElementById("ocr-options");
 
+// ── 自定义下拉框 ──
+function initCustomSelect(container) {
+  const trigger = container.querySelector(".custom-select-trigger");
+  const dropdown = container.querySelector(".custom-select-dropdown");
+  const valueSpan = container.querySelector(".custom-select-value");
+  const options = container.querySelectorAll(".custom-select-option");
+
+  // 当前值存在 container.dataset 上
+  container.dataset.value = container.querySelector(".custom-select-option.selected")?.dataset.value || "";
+
+  trigger.addEventListener("click", (e) => {
+    e.stopPropagation();
+    container.classList.toggle("open");
+  });
+
+  options.forEach((opt) => {
+    opt.addEventListener("click", (e) => {
+      e.stopPropagation();
+      options.forEach((o) => o.classList.remove("selected"));
+      opt.classList.add("selected");
+      valueSpan.textContent = opt.textContent;
+      container.dataset.value = opt.dataset.value;
+      container.classList.remove("open");
+    });
+  });
+
+  // 点击外部关闭
+  document.addEventListener("click", () => container.classList.remove("open"));
+
+  return {
+    get value() { return container.dataset.value; },
+    set value(v) {
+      const target = container.querySelector(`.custom-select-option[data-value="${v}"]`);
+      if (target) {
+        options.forEach((o) => o.classList.remove("selected"));
+        target.classList.add("selected");
+        valueSpan.textContent = target.textContent;
+        container.dataset.value = v;
+      }
+    },
+  };
+}
+
+const ocrModeCtrl = initCustomSelect(ocrModeSelect);
+
 // 主题清单：id 与 themes.css 中 [data-theme="<id>"] 对应；i18nKey 用于显示名
 const THEMES = [
   { id: "light",            i18nKey: "settings.theme.light" },
@@ -115,7 +160,7 @@ function fillForm(config) {
   pinShortcutInput.value = config.pin_shortcut || "Ctrl+2";
   maxHistoryInput.value  = config.max_history ?? 100;
   languageSelect.value   = config.language || "auto";
-  ocrModeSelect.value    = config.ocr_result_mode || "preview";
+  ocrModeCtrl.value    = config.ocr_result_mode || "preview";
   ocrToggle.checked      = config.ocr_enabled !== false;
   updateOcrOptionsVisibility();
 }
@@ -317,7 +362,7 @@ saveBtn.addEventListener("click", async () => {
       theme: selectedTheme,
       language: newLanguage,
       delete_confirm_ms: savedConfig?.delete_confirm_ms ?? 1200,
-      ocr_result_mode: ocrModeSelect.value,
+      ocr_result_mode: ocrModeCtrl.value,
       ocr_enabled: ocrToggle.checked,
     };
 
