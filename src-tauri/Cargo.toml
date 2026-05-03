@@ -34,11 +34,14 @@ env_logger = "0.11"
 zbus = "5"
 enigo = { version = "0.6", default-features = false, features = ["x11rb"] }
 tauri-plugin-autostart = "2"
+webkit2gtk = "2.0"
 
 [dev-dependencies]
 tempfile = "3"
 
 [profile.release]
 strip = true
-lto = "thin"
+lto = true
 codegen-units = 1
+opt-level = "s"
+panic = "abort"
