@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.1.13 (dev)
+
+### ✨ 新功能
+- **数字键直选**：按 1-9/0 直接选中前 10 条并粘贴，无需方向键导航
+- **敏感内容自动检测**：识别 16 种 Token 前缀（OpenAI sk-、GitHub ghp_/gho_、AWS AKIA、JWT eyJ、Slack xox 等）+ password/secret 关键字模式，🔒 标记 + 5 分钟自动清理（收藏条目豁免）
+- **URL 智能预览**：纯 URL 文本自动渲染 OG 元数据卡片（favicon、标题、描述、站名），SQLite 7 天缓存，ureq HTTP 5s 超时
+
+### ⚡ 性能优化
+- **内存优化 P0**：WebKit CacheModel::DocumentViewer、clear_cache on hide、禁用 GPU/WebGL/WebAudio/Media/PageCache/SmoothScrolling
+- **内存优化 P1**：preview-panel 延迟加载 hljs/marked/DOMPurify（首次预览时初始化）
+- **内存优化 P2**：缩略图缓存 FIFO 上限 50、窗口 blur 时释放预览内容
+- **Cargo release profile**：strip=true, lto=true, codegen-units=1, opt-level="s", panic="abort"
+
+### 🏗 架构
+- 新增 `is_sensitive` 字段（SQLite 迁移 + 向后兼容）
+- 新增 `url_meta_cache` 表（URL/title/description/favicon/site_name/fetched_at）
+- 新增 `purge_expired_sensitive()` 定时清理（watcher 每 ~30s 检查一次）
+- 新增 `fetch_url_meta` IPC 命令（ureq v3 + regex-lite OG 解析）
+- 新增依赖：`ureq = "3"`、`regex-lite = "0.1"`
+
+### 🎨 UI
+- 敏感条目列表行淡化显示 + 🔒 前缀
+- URL 预览卡片样式（favicon/标题/描述/站名/链接）
+
 ## v0.1.12
 
 ### ✨ 新功能
