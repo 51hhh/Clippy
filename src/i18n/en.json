@@ -114,5 +114,16 @@
   "preview.numDecimal": "Decimal",
   "preview.numHex": "Hex",
   "preview.numBin": "Binary",
-  "preview.numOct": "Octal"
+  "preview.numOct": "Octal",
+  "preview.regexPattern": "Pattern",
+  "preview.regexFlags": "Flags",
+  "preview.regexDesc": "Description",
+  "preview.coordDecimal": "Decimal",
+  "preview.coordLat": "Latitude",
+  "preview.coordLng": "Longitude",
+  "preview.mimeType": "Type",
+  "preview.mimeSubtype": "Subtype",
+  "preview.mimeDesc": "Description",
+  "preview.httpCategory": "Category",
+  "preview.httpMessage": "Message"
 }
