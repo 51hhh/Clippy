@@ -103,3 +103,12 @@ impl Default for AppConfig {
         }
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UrlMeta {
+    pub url: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub favicon: Option<String>,
+    pub site_name: Option<String>,
+}

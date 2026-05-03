@@ -111,6 +111,11 @@ export function ocrInstall() {
   return invoke("ocr_install");
 }
 
+/** 获取 URL 的 Open Graph 元数据（标题/描述/favicon），带后端缓存 */
+export function fetchUrlMeta(url) {
+  return invoke("fetch_url_meta", { url });
+}
+
 // ── 事件 ──
 
 export function onClipAdded(callback) {
