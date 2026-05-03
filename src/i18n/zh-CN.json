@@ -110,5 +110,9 @@
   "preview.emailDomain": "域名",
   "preview.macFormat": "格式",
   "preview.macType": "管理类型",
-  "preview.macCast": "传播类型"
+  "preview.macCast": "传播类型",
+  "preview.numDecimal": "十进制",
+  "preview.numHex": "十六进制",
+  "preview.numBin": "二进制",
+  "preview.numOct": "八进制"
 }

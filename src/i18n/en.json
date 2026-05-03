@@ -110,5 +110,9 @@
   "preview.emailDomain": "Domain",
   "preview.macFormat": "Format",
   "preview.macType": "Admin Type",
-  "preview.macCast": "Cast"
+  "preview.macCast": "Cast",
+  "preview.numDecimal": "Decimal",
+  "preview.numHex": "Hex",
+  "preview.numBin": "Binary",
+  "preview.numOct": "Octal"
 }
