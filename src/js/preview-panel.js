@@ -402,6 +402,110 @@ function ipInfo(text) {
   return { version: "IPv6", type: text.startsWith("fe80") ? "Link-local" : text.startsWith("fc") || text.startsWith("fd") ? "ULA" : "Global", cidr: text.includes("/") };
 }
 
+// ── Email / MAC / Cron / 日期字符串检测 ─────────────────────
+
+/** Email 地址检测（严格：单行、无空格、有@和域名） */
+const EMAIL_RE = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+function isEmail(text) {
+  return text.length >= 5 && text.length <= 254 && !text.includes("\n") && EMAIL_RE.test(text);
+}
+
+function emailInfo(text) {
+  const [local, domain] = text.split("@");
+  return { local, domain };
+}
+
+/** MAC 地址检测（EUI-48: XX:XX:XX:XX:XX:XX 或 XX-XX-XX-XX-XX-XX，EUI-64 也支持） */
+const MAC48_RE = /^([0-9a-f]{2}[:\-]){5}[0-9a-f]{2}$/i;
+const MAC64_RE = /^([0-9a-f]{2}[:\-]){7}[0-9a-f]{2}$/i;
+const MAC_CISCO_RE = /^[0-9a-f]{4}\.[0-9a-f]{4}\.[0-9a-f]{4}$/i;
+function isMacAddress(text) {
+  return MAC48_RE.test(text) || MAC64_RE.test(text) || MAC_CISCO_RE.test(text);
+}
+
+function macInfo(text) {
+  let format = "EUI-48";
+  if (MAC64_RE.test(text)) format = "EUI-64";
+  else if (MAC_CISCO_RE.test(text)) format = "Cisco";
+  // 规范化为 : 分隔
+  const normalized = text.replace(/[-\.]/g, ":").toUpperCase();
+  // OUI = 前 3 字节
+  const octets = normalized.split(":");
+  const oui = octets.slice(0, 3).join(":");
+  // 检测是否为本地管理/组播
+  const firstByte = parseInt(octets[0], 16);
+  const multicast = !!(firstByte & 0x01);
+  const localAdmin = !!(firstByte & 0x02);
+  return { format, normalized, oui, multicast, localAdmin };
+}
+
+/** Cron 表达式检测（5 或 6 字段） */
+const CRON_FIELD_RE = /^(\*|([0-9]+(-[0-9]+)?)(\/[0-9]+)?|(\*\/[0-9]+)|([0-9,]+(-[0-9]+)*))(\/[0-9]+)?$/;
+function isCron(text) {
+  const parts = text.trim().split(/\s+/);
+  if (parts.length < 5 || parts.length > 6) return false;
+  return parts.every(p => CRON_FIELD_RE.test(p));
+}
+
+function cronDescribe(text) {
+  const parts = text.trim().split(/\s+/);
+  const hasSec = parts.length === 6;
+  const [min, hour, dom, mon, dow] = hasSec ? parts.slice(1) : parts;
+
+  const descParts = [];
+  if (hasSec) descParts.push(_cronField(parts[0], "second"));
+  descParts.push(_cronField(min, "minute"));
+  descParts.push(_cronField(hour, "hour"));
+  descParts.push(_cronField(dom, "day"));
+  descParts.push(_cronField(mon, "month"));
+  descParts.push(_cronField(dow, "weekday"));
+
+  return { fields: parts.length, description: descParts.filter(Boolean).join(", ") || "Every minute" };
+}
+
+const _CRON_WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+function _cronField(val, unit) {
+  if (val === "*") return null; // every
+  if (val.startsWith("*/")) return `every ${val.slice(2)} ${unit}s`;
+  if (val.includes(",")) return `${unit} ${val}`;
+  if (val.includes("-")) return `${unit} ${val}`;
+  if (unit === "weekday" && /^\d$/.test(val)) return _CRON_WEEKDAYS[+val] || val;
+  return `${unit} ${val}`;
+}
+
+/** 日期字符串检测（ISO 8601 / RFC 2822 / 常见格式） */
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+const RFC_DATE_RE = /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun),?\s+\d{1,2}\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}/;
+const COMMON_DATE_RE = /^\d{4}[/\-.]\d{2}[/\-.]\d{2}(\s+\d{2}:\d{2}(:\d{2})?)?$/;
+function isDateString(text) {
+  if (text.length < 8 || text.length > 40) return false;
+  if (ISO_DATE_RE.test(text) || RFC_DATE_RE.test(text) || COMMON_DATE_RE.test(text)) {
+    const d = new Date(text);
+    return !isNaN(d.getTime());
+  }
+  return false;
+}
+
+function dateInfo(text) {
+  const d = new Date(text);
+  const now = new Date();
+  const diff = d - now;
+  const absDiff = Math.abs(diff);
+  let relative;
+  if (absDiff < 60_000) relative = "just now";
+  else if (absDiff < 3_600_000) relative = `${Math.round(absDiff / 60_000)} min ${diff > 0 ? "from now" : "ago"}`;
+  else if (absDiff < 86_400_000) relative = `${Math.round(absDiff / 3_600_000)} hr ${diff > 0 ? "from now" : "ago"}`;
+  else relative = `${Math.round(absDiff / 86_400_000)} days ${diff > 0 ? "from now" : "ago"}`;
+
+  return {
+    local: d.toLocaleString(),
+    utc: d.toUTCString(),
+    iso: d.toISOString(),
+    timestamp: Math.floor(d.getTime() / 1000),
+    relative,
+  };
+}
+
 // Markdown 特征正则（需要多个特征匹配才认定为 Markdown）
 const MD_HEADING = /^#{1,6}\s+\S/m;
 const MD_FENCED_CODE = /^```/m;
@@ -599,6 +703,30 @@ async function _doUpdatePreview(clip) {
   // 0.13 IP 地址检测
   if (trimmed.length >= 7 && trimmed.length <= 45 && isIpAddress(trimmed)) {
     renderIpAddress(trimmed);
+    return;
+  }
+
+  // 0.14 Email 地址检测
+  if (trimmed.length >= 5 && trimmed.length <= 254 && isEmail(trimmed)) {
+    renderEmail(trimmed);
+    return;
+  }
+
+  // 0.15 MAC 地址检测
+  if (trimmed.length >= 17 && trimmed.length <= 23 && isMacAddress(trimmed)) {
+    renderMac(trimmed);
+    return;
+  }
+
+  // 0.16 Cron 表达式检测
+  if (trimmed.length >= 9 && isCron(trimmed)) {
+    renderCron(trimmed);
+    return;
+  }
+
+  // 0.17 日期字符串检测
+  if (trimmed.length >= 8 && trimmed.length <= 40 && isDateString(trimmed)) {
+    renderDate(trimmed);
     return;
   }
 
@@ -938,6 +1066,150 @@ function renderIpAddress(text) {
     details.appendChild(row);
   }
   _contentEl.appendChild(details);
+}
+
+/** Email 渲染 */
+function renderEmail(text) {
+  const info = emailInfo(text);
+  _badgeEl.textContent = "EMAIL";
+  _contentEl.classList.add("preview-content--encoded");
+
+  const link = document.createElement("a");
+  link.href = `mailto:${text}`;
+  link.className = "email-link";
+  link.textContent = text;
+  link.addEventListener("click", (e) => e.preventDefault());
+  _contentEl.appendChild(link);
+
+  const details = document.createElement("div");
+  details.className = "timestamp-preview";
+  const rows = [
+    [t("preview.emailLocal") || "Local", info.local],
+    [t("preview.emailDomain") || "Domain", info.domain],
+  ];
+  for (const [label, value] of rows) {
+    const row = document.createElement("div");
+    row.className = "timestamp-row";
+    const lbl = document.createElement("span");
+    lbl.className = "timestamp-label";
+    lbl.textContent = label;
+    const val = document.createElement("span");
+    val.className = "timestamp-value";
+    val.textContent = value;
+    row.append(lbl, val);
+    details.appendChild(row);
+  }
+  _contentEl.appendChild(details);
+}
+
+/** MAC 地址渲染 */
+function renderMac(text) {
+  const info = macInfo(text);
+  _badgeEl.textContent = `MAC · ${info.format}`;
+  _contentEl.classList.add("preview-content--encoded");
+
+  const box = document.createElement("pre");
+  box.className = "encoded-box";
+  box.textContent = info.normalized;
+  _contentEl.appendChild(box);
+
+  const details = document.createElement("div");
+  details.className = "timestamp-preview";
+  const rows = [
+    [t("preview.macFormat") || "Format", info.format],
+    ["OUI", info.oui],
+    [t("preview.macType") || "Type", info.localAdmin ? "Locally Administered" : "Universally Administered"],
+    [t("preview.macCast") || "Cast", info.multicast ? "Multicast" : "Unicast"],
+  ];
+  for (const [label, value] of rows) {
+    const row = document.createElement("div");
+    row.className = "timestamp-row";
+    const lbl = document.createElement("span");
+    lbl.className = "timestamp-label";
+    lbl.textContent = label;
+    const val = document.createElement("span");
+    val.className = "timestamp-value";
+    val.textContent = value;
+    row.append(lbl, val);
+    details.appendChild(row);
+  }
+  _contentEl.appendChild(details);
+}
+
+/** Cron 表达式渲染 */
+function renderCron(text) {
+  const info = cronDescribe(text);
+  _badgeEl.textContent = `CRON · ${info.fields} fields`;
+  _contentEl.classList.add("preview-content--encoded");
+
+  const box = document.createElement("pre");
+  box.className = "encoded-box";
+  box.textContent = text;
+  _contentEl.appendChild(box);
+
+  const fields = text.trim().split(/\s+/);
+  const labels = info.fields === 6
+    ? ["Second", "Minute", "Hour", "Day", "Month", "Weekday"]
+    : ["Minute", "Hour", "Day", "Month", "Weekday"];
+  const table = document.createElement("div");
+  table.className = "cron-fields";
+  for (let i = 0; i < fields.length; i++) {
+    const row = document.createElement("div");
+    row.className = "timestamp-row";
+    const lbl = document.createElement("span");
+    lbl.className = "timestamp-label";
+    lbl.textContent = labels[i];
+    const val = document.createElement("span");
+    val.className = "timestamp-value";
+    val.textContent = fields[i];
+    row.append(lbl, val);
+    table.appendChild(row);
+  }
+  _contentEl.appendChild(table);
+
+  if (info.description) {
+    const hint = document.createElement("div");
+    hint.className = "encoded-hint";
+    hint.textContent = info.description;
+    _contentEl.appendChild(hint);
+  }
+}
+
+/** 日期字符串渲染 */
+function renderDate(text) {
+  const info = dateInfo(text);
+  _badgeEl.textContent = "DATE";
+  _contentEl.classList.add("preview-content--encoded");
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "timestamp-preview";
+
+  const rows = [
+    [t("preview.tsLocal") || "Local", info.local],
+    ["UTC", info.utc],
+    ["ISO 8601", info.iso],
+    ["Unix Timestamp", String(info.timestamp)],
+    [t("preview.tsRelative") || "Relative", info.relative],
+  ];
+  for (const [label, value] of rows) {
+    const row = document.createElement("div");
+    row.className = "timestamp-row";
+    const lbl = document.createElement("span");
+    lbl.className = "timestamp-label";
+    lbl.textContent = label;
+    const val = document.createElement("span");
+    val.className = "timestamp-value";
+    val.textContent = value;
+    row.append(lbl, val);
+    wrapper.appendChild(row);
+  }
+
+  const orig = document.createElement("div");
+  orig.className = "encoded-box encoded-box--muted";
+  orig.textContent = text;
+  wrapper.appendChild(orig);
+
+  _contentEl.appendChild(wrapper);
 }
 
 /** 加密内容渲染 + 密钥输入解密 */
@@ -1340,4 +1612,6 @@ export const __test__ = {
   isUnicodeEscape, isHexEncoded, detectEncoding, identifyHash,
   detectEncrypted, isColor, isTimestamp, formatTimestamp,
   isUuid, uuidVersion, isIpAddress, ipInfo,
+  isEmail, emailInfo, isMacAddress, macInfo,
+  isCron, cronDescribe, isDateString, dateInfo,
 };

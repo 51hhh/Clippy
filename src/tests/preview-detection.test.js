@@ -418,3 +418,163 @@ describe("ipInfo", () => {
     expect(info.cidr).toBe(true);
   });
 });
+
+// ── Email ──────────────────────────────────────────────────
+describe("isEmail", () => {
+  it("detects simple email", () => {
+    expect(T.isEmail("user@example.com")).toBe(true);
+  });
+  it("detects email with dots and plus", () => {
+    expect(T.isEmail("first.last+tag@sub.domain.org")).toBe(true);
+  });
+  it("rejects missing @", () => {
+    expect(T.isEmail("userexample.com")).toBe(false);
+  });
+  it("rejects multiline", () => {
+    expect(T.isEmail("user@example.com\nother")).toBe(false);
+  });
+  it("rejects too short", () => {
+    expect(T.isEmail("a@b")).toBe(false);
+  });
+  it("rejects space", () => {
+    expect(T.isEmail("user @example.com")).toBe(false);
+  });
+});
+
+describe("emailInfo", () => {
+  it("splits local and domain", () => {
+    const info = T.emailInfo("user@example.com");
+    expect(info.local).toBe("user");
+    expect(info.domain).toBe("example.com");
+  });
+});
+
+// ── MAC Address ────────────────────────────────────────────
+describe("isMacAddress", () => {
+  it("detects colon-separated MAC", () => {
+    expect(T.isMacAddress("AA:BB:CC:DD:EE:FF")).toBe(true);
+  });
+  it("detects dash-separated MAC", () => {
+    expect(T.isMacAddress("aa-bb-cc-dd-ee-ff")).toBe(true);
+  });
+  it("detects Cisco format", () => {
+    expect(T.isMacAddress("aabb.ccdd.eeff")).toBe(true);
+  });
+  it("detects EUI-64", () => {
+    expect(T.isMacAddress("AA:BB:CC:DD:EE:FF:00:11")).toBe(true);
+  });
+  it("rejects too short", () => {
+    expect(T.isMacAddress("AA:BB:CC")).toBe(false);
+  });
+  it("rejects plain text", () => {
+    expect(T.isMacAddress("not a mac")).toBe(false);
+  });
+});
+
+describe("macInfo", () => {
+  it("detects EUI-48 format", () => {
+    const info = T.macInfo("aa:bb:cc:dd:ee:ff");
+    expect(info.format).toBe("EUI-48");
+    expect(info.oui).toBe("AA:BB:CC");
+  });
+  it("detects Cisco format", () => {
+    const info = T.macInfo("aabb.ccdd.eeff");
+    expect(info.format).toBe("Cisco");
+  });
+  it("detects multicast", () => {
+    const info = T.macInfo("01:00:5e:00:00:01");
+    expect(info.multicast).toBe(true);
+  });
+  it("detects locally administered", () => {
+    const info = T.macInfo("02:00:00:00:00:00");
+    expect(info.localAdmin).toBe(true);
+  });
+  it("detects universally administered unicast", () => {
+    const info = T.macInfo("00:1A:2B:3C:4D:5E");
+    expect(info.multicast).toBe(false);
+    expect(info.localAdmin).toBe(false);
+  });
+});
+
+// ── Cron ───────────────────────────────────────────────────
+describe("isCron", () => {
+  it("detects 5-field cron", () => {
+    expect(T.isCron("* * * * *")).toBe(true);
+  });
+  it("detects 6-field cron with seconds", () => {
+    expect(T.isCron("0 */5 * * * *")).toBe(true);
+  });
+  it("detects specific schedule", () => {
+    expect(T.isCron("30 8 * * 1-5")).toBe(true);
+  });
+  it("detects ranges and lists", () => {
+    expect(T.isCron("0,30 9-17 * * 1,2,3")).toBe(true);
+  });
+  it("detects step values", () => {
+    expect(T.isCron("*/15 * * * *")).toBe(true);
+  });
+  it("rejects 4-field", () => {
+    expect(T.isCron("* * * *")).toBe(false);
+  });
+  it("rejects 7-field", () => {
+    expect(T.isCron("* * * * * * *")).toBe(false);
+  });
+  it("rejects plain text", () => {
+    expect(T.isCron("not a cron")).toBe(false);
+  });
+});
+
+describe("cronDescribe", () => {
+  it("describes every-minute cron", () => {
+    const info = T.cronDescribe("* * * * *");
+    expect(info.fields).toBe(5);
+    expect(info.description).toBe("Every minute");
+  });
+  it("describes specific schedule", () => {
+    const info = T.cronDescribe("30 8 * * 1-5");
+    expect(info.fields).toBe(5);
+    expect(info.description).toContain("minute");
+    expect(info.description).toContain("hour");
+  });
+  it("handles 6-field", () => {
+    const info = T.cronDescribe("0 */5 * * * *");
+    expect(info.fields).toBe(6);
+  });
+});
+
+// ── Date String ────────────────────────────────────────────
+describe("isDateString", () => {
+  it("detects ISO 8601 date only", () => {
+    expect(T.isDateString("2024-01-15")).toBe(true);
+  });
+  it("detects ISO 8601 with time", () => {
+    expect(T.isDateString("2024-01-15T10:30:00Z")).toBe(true);
+  });
+  it("detects ISO 8601 with timezone offset", () => {
+    expect(T.isDateString("2024-01-15T10:30:00+08:00")).toBe(true);
+  });
+  it("detects common date format", () => {
+    expect(T.isDateString("2024/01/15")).toBe(true);
+  });
+  it("detects date with time", () => {
+    expect(T.isDateString("2024-01-15 10:30:00")).toBe(true);
+  });
+  it("rejects plain text", () => {
+    expect(T.isDateString("not a date")).toBe(false);
+  });
+  it("rejects too short", () => {
+    expect(T.isDateString("2024")).toBe(false);
+  });
+  it("rejects invalid date", () => {
+    expect(T.isDateString("2024-13-45")).toBe(false);
+  });
+});
+
+describe("dateInfo", () => {
+  it("returns parsed date info", () => {
+    const info = T.dateInfo("2024-01-15T10:30:00Z");
+    expect(info.timestamp).toBe(1705314600);
+    expect(info.iso).toBe("2024-01-15T10:30:00.000Z");
+    expect(info.relative).toBeDefined();
+  });
+});
