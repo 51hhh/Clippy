@@ -62,6 +62,7 @@
   "settings.ocr.installing": "Installing...",
   "settings.ocr.installSuccess": "tesseract installed successfully!",
   "settings.ocr.installFailed": "Installation failed, please install manually",
+  "settings.autostart.devHint": "(dev build — setting will not persist)",
   "settings.save": "Save",
   "settings.cancel": "Cancel",
   "settings.saved": "Settings saved!",

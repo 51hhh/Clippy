@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.1.12
+
+### ✨ 新功能
+- 设置页 OCR 管理：开关 toggle、tesseract 依赖状态实时检测（绿/红指示灯）、一键安装按钮
+- OCR 结果模式自定义下拉框：主题适配配色、键盘导航（Arrow/Enter/Escape）
+- pkexec 安装取消检测：用户取消授权不再显示"安装失败"提示
+
+### 🐛 修复
+- dev 模式下自启动开关不再被 disabled，改为 i18n 文字提示
+
+### 🏗 架构
+- OCR 从 leptess 编译时链接改为 tesseract CLI 子进程，解决跨 Ubuntu 版本 SONAME 不兼容
+- deb 包 recommends 添加 tesseract-ocr、tesseract-ocr-chi-sim
+
+### 📝 文档
+- README/README.zh-CN 添加 OCR 可选安装说明和自编译提示
+
+## v0.1.11
+
+### 🏗 架构
+- OCR: 移除 leptess 编译时链接，改用 tesseract CLI 子进程调用
+- deb depends 清空，recommends 添加 tesseract-ocr
+
 ## v0.1.10
 
 ### 🐛 修复
