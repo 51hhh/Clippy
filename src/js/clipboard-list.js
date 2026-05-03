@@ -37,6 +37,7 @@ let _favHasMore = true;
 let _loading = false;
 let _keyboardNav = false; // 键盘导航中，鼠标悬浮不抢焦点
 const _thumbCache = new Map();
+const MAX_THUMB_CACHE = 50;
 export function init({ listEl, emptyEl, onCountsChange, onSummonSearch, onModeChange, onFocusChange }) {
   _parent = listEl;
   _emptyEl = emptyEl;
@@ -518,6 +519,10 @@ function buildRow(clip, idx) {
     } else {
       getClipImage(clip.id).then(base64 => {
         if (base64) {
+          if (_thumbCache.size >= MAX_THUMB_CACHE) {
+            const oldest = _thumbCache.keys().next().value;
+            _thumbCache.delete(oldest);
+          }
           _thumbCache.set(clip.id, base64);
           const img = document.createElement("img");
           img.src = `data:image/png;base64,${base64}`;

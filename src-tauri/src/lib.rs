@@ -268,6 +268,30 @@ pub fn run() {
                 }
             }
 
+            // ── 8. WebKit 内存优化（禁用 GPU 加速 & 不需要的功能）─────────
+            #[cfg(target_os = "linux")]
+            if let Some(main_window) = app.get_webview_window("main") {
+                let _ = main_window.with_webview(|webview| {
+                    use webkit2gtk::{WebViewExt, SettingsExt, WebContextExt};
+                    let wk = webview.inner();
+                    if let Some(settings) = wk.settings() {
+                        settings.set_hardware_acceleration_policy(
+                            webkit2gtk::HardwareAccelerationPolicy::Never,
+                        );
+                        settings.set_enable_webgl(false);
+                        settings.set_enable_webaudio(false);
+                        settings.set_enable_media_stream(false);
+                        settings.set_enable_media(false);
+                        settings.set_enable_page_cache(false);
+                        settings.set_enable_smooth_scrolling(false);
+                    }
+                    // CacheModel::DocumentViewer — 禁用网络缓存，Clippy 只加载本地资源
+                    if let Some(ctx) = wk.context() {
+                        ctx.set_cache_model(webkit2gtk::CacheModel::DocumentViewer);
+                    }
+                });
+            }
+
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -293,6 +317,18 @@ pub fn run() {
                                 }
                             }
                             let _ = window.hide();
+
+                            // 窗口隐藏后清理 WebKit 缓存，释放非必要内存
+                            #[cfg(target_os = "linux")]
+                            if let Some(wv) = app_handle.get_webview_window("main") {
+                                let _ = wv.with_webview(|webview| {
+                                    use webkit2gtk::{WebViewExt, WebContextExt};
+                                    let wk = webview.inner();
+                                    if let Some(ctx) = wk.context() {
+                                        ctx.clear_cache();
+                                    }
+                                });
+                            }
                         }
                     });
                 }

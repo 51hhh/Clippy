@@ -202,4 +202,5 @@ async function onWindowFocus() {
 function onWindowBlur() {
   if (previewPanel.isVisible()) return; // 预览面板打开时不隐藏窗口
   clipboardList.releaseMemory();
+  previewPanel.clearContent();
 }
