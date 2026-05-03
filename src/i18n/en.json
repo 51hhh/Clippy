@@ -99,5 +99,10 @@
   "preview.decrypt": "🔓 Decrypt",
   "preview.decrypted": "Decrypted",
   "preview.ciphertext": "Ciphertext",
-  "preview.urlLoading": "Loading..."
+  "preview.urlLoading": "Loading...",
+  "preview.tsLocal": "Local",
+  "preview.tsRelative": "Relative",
+  "preview.tsPrecision": "Precision",
+  "preview.ipType": "Type",
+  "preview.ipVersion": "Version"
 }

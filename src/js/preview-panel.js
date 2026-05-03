@@ -179,10 +179,12 @@ function parseJwt(text) {
 /** Base64 检测 */
 const BASE64_RE = /^[A-Za-z0-9+/]{24,}={0,2}$/;
 function isBase64(text) {
-  if (text.length < 24 || text.length % 4 !== 0) return false;
-  if (!BASE64_RE.test(text)) return false;
+  // 支持多行 Base64（PEM 证书体等）：先去除空白再检测
+  const clean = text.replace(/[\s\r\n]/g, "");
+  if (clean.length < 24 || clean.length % 4 !== 0) return false;
+  if (!BASE64_RE.test(clean)) return false;
   try {
-    const decoded = atob(text);
+    const decoded = atob(clean);
     // 检查是否为图片魔数
     if (decoded.startsWith("\x89PNG") || decoded.startsWith("GIF8") ||
         decoded.startsWith("\xFF\xD8\xFF") || decoded.startsWith("RIFF")) {
@@ -284,15 +286,111 @@ function detectEncrypted(text) {
   if (text.startsWith("-----BEGIN ENCRYPTED PRIVATE KEY-----")) return "ENCRYPTED-KEY";
   if (text.startsWith(OPENSSL_PREFIX)) return "AES-OpenSSL";
   // 通用加密检测：长 Base64 + 解码后不可读
-  if (text.length >= 44 && text.length % 4 === 0 && BASE64_RE.test(text)) {
+  const clean = text.replace(/[\s\r\n]/g, "");
+  if (clean.length >= 44 && clean.length % 4 === 0 && BASE64_RE.test(clean)) {
     try {
-      const decoded = atob(text);
+      const decoded = atob(clean);
       if (!isReadable(decoded) && decoded.length >= 16 && decoded.length % 16 === 0) {
         return "AES-Generic";
       }
     } catch { /* not base64 */ }
   }
   return null;
+}
+
+// ── 颜色值 / 时间戳 / UUID / IP 检测 ───────────────────────
+
+/** 颜色值检测：#hex / rgb() / hsl() / oklch() */
+const COLOR_HEX_RE = /^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
+const COLOR_FUNC_RE = /^(rgba?|hsla?|oklch|oklab|hwb)\(\s*[\d.,/%\s-]+\)$/i;
+function isColor(text) {
+  return COLOR_HEX_RE.test(text) || COLOR_FUNC_RE.test(text);
+}
+
+/** 解析颜色为标准化 CSS 值（用于渲染色块） */
+function normalizeColor(text) {
+  // 浏览器可直接渲染这些格式，返回原文即可
+  return text;
+}
+
+/** Unix 时间戳检测（10位秒 / 13位毫秒） */
+const TIMESTAMP_RE = /^\d{10,13}$/;
+function isTimestamp(text) {
+  if (!TIMESTAMP_RE.test(text)) return false;
+  const n = parseInt(text, 10);
+  // 合理范围：2000-01-01 到 2100-01-01
+  const secs = text.length === 13 ? n / 1000 : n;
+  return secs >= 946684800 && secs <= 4102444800;
+}
+
+/** 时间戳转日期展示 */
+function formatTimestamp(text) {
+  const n = parseInt(text, 10);
+  const ms = text.length === 13 ? n : n * 1000;
+  const d = new Date(ms);
+  return {
+    utc: d.toISOString(),
+    local: d.toLocaleString(),
+    relative: _relativeTime(d),
+    precision: text.length === 13 ? "ms" : "s",
+  };
+}
+
+function _relativeTime(date) {
+  const diff = Date.now() - date.getTime();
+  const absDiff = Math.abs(diff);
+  const future = diff < 0;
+  const prefix = future ? "in " : "";
+  const suffix = future ? "" : " ago";
+  if (absDiff < 60000) return "just now";
+  if (absDiff < 3600000) return `${prefix}${Math.floor(absDiff / 60000)} min${suffix}`;
+  if (absDiff < 86400000) return `${prefix}${Math.floor(absDiff / 3600000)} hr${suffix}`;
+  return `${prefix}${Math.floor(absDiff / 86400000)} days${suffix}`;
+}
+
+/** UUID 检测 + 版本识别 */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-([0-9a-f])[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isUuid(text) {
+  return UUID_RE.test(text);
+}
+
+function uuidVersion(text) {
+  const m = text.match(UUID_RE);
+  if (!m) return null;
+  const v = parseInt(m[1], 16);
+  if (v >= 1 && v <= 5) return `v${v}`;
+  if (v === 7) return "v7";
+  return `v${v}`;
+}
+
+/** IP 地址检测 */
+const IPV4_RE = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(\/\d{1,2})?$/;
+const IPV6_RE = /^([0-9a-f:]+)(\/\d{1,3})?$/i;
+function isIpAddress(text) {
+  const m4 = text.match(IPV4_RE);
+  if (m4) {
+    return [m4[1], m4[2], m4[3], m4[4]].every(o => parseInt(o) <= 255);
+  }
+  if (!IPV6_RE.test(text)) return false;
+  const addr = text.split("/")[0];
+  const parts = addr.split(":");
+  if (parts.length < 2 || parts.length > 8) return false;
+  return parts.every(p => p === "" || /^[0-9a-f]{1,4}$/i.test(p));
+}
+
+function ipInfo(text) {
+  if (IPV4_RE.test(text)) {
+    const addr = text.split("/")[0];
+    const parts = addr.split(".").map(Number);
+    let type = "Public";
+    if (parts[0] === 10) type = "Private (Class A)";
+    else if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) type = "Private (Class B)";
+    else if (parts[0] === 192 && parts[1] === 168) type = "Private (Class C)";
+    else if (parts[0] === 127) type = "Loopback";
+    else if (parts[0] === 169 && parts[1] === 254) type = "Link-local";
+    return { version: "IPv4", type, cidr: text.includes("/") };
+  }
+  return { version: "IPv6", type: text.startsWith("fe80") ? "Link-local" : text.startsWith("fc") || text.startsWith("fd") ? "ULA" : "Global", cidr: text.includes("/") };
 }
 
 // Markdown 特征正则（需要多个特征匹配才认定为 Markdown）
@@ -468,6 +566,30 @@ async function _doUpdatePreview(clip) {
   const encryptType = trimmed.length >= 24 && detectEncrypted(trimmed);
   if (encryptType) {
     renderEncrypted(trimmed, encryptType);
+    return;
+  }
+
+  // 0.10 颜色值检测
+  if (trimmed.length <= 50 && isColor(trimmed)) {
+    renderColor(trimmed);
+    return;
+  }
+
+  // 0.11 Unix 时间戳检测
+  if (isTimestamp(trimmed)) {
+    renderTimestamp(trimmed);
+    return;
+  }
+
+  // 0.12 UUID 检测
+  if (trimmed.length >= 32 && trimmed.length <= 39 && isUuid(trimmed)) {
+    renderUuid(trimmed);
+    return;
+  }
+
+  // 0.13 IP 地址检测
+  if (trimmed.length >= 7 && trimmed.length <= 45 && isIpAddress(trimmed)) {
+    renderIpAddress(trimmed);
     return;
   }
 
@@ -652,6 +774,161 @@ function renderHash(text, hashType) {
   hint.className = "encoded-hint";
   hint.textContent = t("preview.hashHint") || "Irreversible hash — cannot be decoded";
   _contentEl.appendChild(hint);
+}
+
+/** 颜色值渲染：色块 + 格式信息 */
+function renderColor(text) {
+  _badgeEl.textContent = "COLOR";
+  _contentEl.classList.add("preview-content--encoded");
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "color-preview";
+
+  // 大色块
+  const swatch = document.createElement("div");
+  swatch.className = "color-swatch";
+  swatch.style.backgroundColor = normalizeColor(text);
+  wrapper.appendChild(swatch);
+
+  // 颜色值
+  const value = document.createElement("div");
+  value.className = "color-value";
+  value.textContent = text;
+  wrapper.appendChild(value);
+
+  // 尝试展示转换后的其他格式
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 1;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = normalizeColor(text);
+  ctx.fillRect(0, 0, 1, 1);
+  const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+  const hex = `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+  const rgb = `rgb(${r}, ${g}, ${b})`;
+
+  const alts = document.createElement("div");
+  alts.className = "color-alts";
+  if (!text.startsWith("#")) {
+    const hexEl = document.createElement("span");
+    hexEl.className = "color-alt";
+    hexEl.textContent = a < 255 ? `${hex} (α ${(a / 255).toFixed(2)})` : hex;
+    alts.appendChild(hexEl);
+  }
+  if (!text.toLowerCase().startsWith("rgb")) {
+    const rgbEl = document.createElement("span");
+    rgbEl.className = "color-alt";
+    rgbEl.textContent = a < 255 ? `rgba(${r}, ${g}, ${b}, ${(a / 255).toFixed(2)})` : rgb;
+    alts.appendChild(rgbEl);
+  }
+  wrapper.appendChild(alts);
+
+  // 对比色显示文字
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  const contrastText = document.createElement("div");
+  contrastText.className = "color-contrast";
+  contrastText.textContent = lum > 0.5 ? "Dark text recommended" : "Light text recommended";
+  contrastText.style.color = lum > 0.5 ? "#333" : "#eee";
+  contrastText.style.backgroundColor = normalizeColor(text);
+  wrapper.appendChild(contrastText);
+
+  _contentEl.appendChild(wrapper);
+}
+
+/** Unix 时间戳渲染 */
+function renderTimestamp(text) {
+  _badgeEl.textContent = "TIMESTAMP";
+  _contentEl.classList.add("preview-content--encoded");
+  const info = formatTimestamp(text);
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "timestamp-preview";
+
+  const rows = [
+    [t("preview.tsLocal") || "Local", info.local],
+    ["UTC", info.utc],
+    [t("preview.tsRelative") || "Relative", info.relative],
+    [t("preview.tsPrecision") || "Precision", info.precision === "ms" ? "Milliseconds" : "Seconds"],
+  ];
+  for (const [label, value] of rows) {
+    const row = document.createElement("div");
+    row.className = "timestamp-row";
+    const lbl = document.createElement("span");
+    lbl.className = "timestamp-label";
+    lbl.textContent = label;
+    const val = document.createElement("span");
+    val.className = "timestamp-value";
+    val.textContent = value;
+    row.append(lbl, val);
+    wrapper.appendChild(row);
+  }
+
+  // 原始值
+  const orig = document.createElement("div");
+  orig.className = "encoded-box encoded-box--muted";
+  orig.textContent = text;
+  wrapper.appendChild(orig);
+
+  _contentEl.appendChild(wrapper);
+}
+
+/** UUID 渲染 */
+function renderUuid(text) {
+  const ver = uuidVersion(text);
+  _badgeEl.textContent = ver ? `UUID ${ver}` : "UUID";
+  _contentEl.classList.add("preview-content--encoded");
+
+  const box = document.createElement("pre");
+  box.className = "encoded-box";
+  box.textContent = text;
+  _contentEl.appendChild(box);
+
+  if (ver) {
+    const hint = document.createElement("div");
+    hint.className = "encoded-hint";
+    const descs = {
+      v1: "Time-based (MAC address + timestamp)",
+      v2: "DCE Security",
+      v3: "Name-based (MD5)",
+      v4: "Random",
+      v5: "Name-based (SHA-1)",
+      v7: "Unix Epoch time-ordered",
+    };
+    hint.textContent = descs[ver] || `Version ${ver}`;
+    _contentEl.appendChild(hint);
+  }
+}
+
+/** IP 地址渲染 */
+function renderIpAddress(text) {
+  const info = ipInfo(text);
+  _badgeEl.textContent = info.version;
+  _contentEl.classList.add("preview-content--encoded");
+
+  const box = document.createElement("pre");
+  box.className = "encoded-box";
+  box.textContent = text;
+  _contentEl.appendChild(box);
+
+  const details = document.createElement("div");
+  details.className = "ip-details";
+  const items = [
+    [t("preview.ipType") || "Type", info.type],
+    [t("preview.ipVersion") || "Version", info.version],
+  ];
+  if (info.cidr) items.push(["CIDR", "Yes"]);
+  for (const [label, value] of items) {
+    const row = document.createElement("div");
+    row.className = "timestamp-row";
+    const lbl = document.createElement("span");
+    lbl.className = "timestamp-label";
+    lbl.textContent = label;
+    const val = document.createElement("span");
+    val.className = "timestamp-value";
+    val.textContent = value;
+    row.append(lbl, val);
+    details.appendChild(row);
+  }
+  _contentEl.appendChild(details);
 }
 
 /** 加密内容渲染 + 密钥输入解密 */
@@ -1035,3 +1312,11 @@ export function blurOcr() {
   const hint = _contentEl.querySelector(".preview-ocr-hint");
   if (hint) hint.hidden = true;
 }
+
+// ── 测试用内部暴露 ──────────────────────────────────────────
+export const __test__ = {
+  isReadable, isJwt, parseJwt, isBase64, isUrlEncoded, isHtmlEntities,
+  isUnicodeEscape, isHexEncoded, detectEncoding, identifyHash,
+  detectEncrypted, isColor, isTimestamp, formatTimestamp,
+  isUuid, uuidVersion, isIpAddress, ipInfo,
+};
