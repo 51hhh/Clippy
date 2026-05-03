@@ -105,5 +105,10 @@
   "preview.tsPrecision": "Precision",
   "preview.ipType": "Type",
   "preview.ipVersion": "Version",
-  "preview.opensslNote": "Only supports openssl enc -pbkdf2 format"
+  "preview.opensslNote": "Only supports openssl enc -pbkdf2 format",
+  "preview.emailLocal": "Local Part",
+  "preview.emailDomain": "Domain",
+  "preview.macFormat": "Format",
+  "preview.macType": "Admin Type",
+  "preview.macCast": "Cast"
 }

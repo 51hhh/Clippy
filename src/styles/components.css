@@ -929,3 +929,25 @@
   font-size: 13px;
   color: var(--text-primary);
 }
+
+/* Email link */
+.email-link {
+  display: block;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 14px;
+  color: var(--accent);
+  text-decoration: none;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  word-break: break-all;
+}
+
+/* Cron fields */
+.cron-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+}

@@ -105,5 +105,10 @@
   "preview.tsPrecision": "精度",
   "preview.ipType": "类型",
   "preview.ipVersion": "版本",
-  "preview.opensslNote": "仅支持 openssl enc -pbkdf2 格式"
+  "preview.opensslNote": "仅支持 openssl enc -pbkdf2 格式",
+  "preview.emailLocal": "本地部分",
+  "preview.emailDomain": "域名",
+  "preview.macFormat": "格式",
+  "preview.macType": "管理类型",
+  "preview.macCast": "传播类型"
 }
