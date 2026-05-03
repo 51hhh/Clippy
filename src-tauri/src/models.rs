@@ -45,6 +45,7 @@ pub struct ClipItem {
     pub image_data: Option<Vec<u8>>,
     pub content_hash: String,
     pub is_favorite: bool,
+    pub is_sensitive: bool,
     pub created_at: i64,
     pub byte_size: i64,
 }

@@ -24,6 +24,45 @@ fn strip_html_tags(html: &str) -> String {
     result
 }
 
+/// 检测文本是否可能包含敏感内容（密码、Token、API Key 等）
+fn is_sensitive_text(text: &str) -> bool {
+    // 仅检测纯文本，短于 8 字符的不检测（太短不像 token）
+    if text.len() < 8 {
+        return false;
+    }
+    // 常见 API Key / Token 前缀
+    const PREFIXES: &[&str] = &[
+        "sk-",        // OpenAI
+        "sk_live_",   // Stripe
+        "sk_test_",   // Stripe
+        "ghp_",       // GitHub PAT
+        "gho_",       // GitHub OAuth
+        "ghu_",       // GitHub User-to-server
+        "ghs_",       // GitHub Server-to-server
+        "github_pat_",// GitHub Fine-grained PAT
+        "AKIA",       // AWS Access Key
+        "Bearer ",    // Bearer Token
+        "eyJ",        // JWT (base64 of {"...)
+        "xox",        // Slack (xoxb-, xoxp-, xoxs-)
+        "glpat-",     // GitLab PAT
+        "npm_",       // npm token
+        "pypi-",      // PyPI token
+    ];
+    for prefix in PREFIXES {
+        if text.starts_with(prefix) {
+            return true;
+        }
+    }
+    // 通用 password/secret 关键字检测（key=value 格式）
+    let lower = text.to_lowercase();
+    if (lower.contains("password") || lower.contains("passwd") || lower.contains("secret"))
+        && (lower.contains('=') || lower.contains(':'))
+    {
+        return true;
+    }
+    false
+}
+
 pub struct ClipboardWatcher {
     running: Arc<Mutex<bool>>,
     /// select_clip 写入剪贴板时设置此哈希，watcher 遇到相同哈希时跳过
@@ -78,6 +117,9 @@ impl ClipboardWatcher {
             };
 
             let mut last_hash = String::new();
+            let mut sensitive_check_counter: u32 = 0;
+            const SENSITIVE_TTL_SECS: i64 = 300; // 5 分钟后自动删除敏感条目
+            const SENSITIVE_CHECK_INTERVAL: u32 = 60; // 每 60 次循环（~30秒）检查一次
             log::info!("剪贴板监听器已启动");
 
             loop {
@@ -130,6 +172,7 @@ impl ClipboardWatcher {
                                 }
                             };
                             let byte_size = html.len() as i64;
+                            let sensitive = text_fallback.as_deref().map_or(false, is_sensitive_text);
 
                             let result = {
                                 let storage = match storage.lock() {
@@ -146,6 +189,7 @@ impl ClipboardWatcher {
                                     None,
                                     &hash,
                                     byte_size,
+                                    sensitive,
                                 );
                                 match clip_result {
                                     Ok(clip) => {
@@ -206,6 +250,7 @@ impl ClipboardWatcher {
                                 }
                             };
                             let byte_size = text.len() as i64;
+                            let sensitive = is_sensitive_text(&text);
 
                             let result = {
                                 let storage = match storage.lock() {
@@ -222,6 +267,7 @@ impl ClipboardWatcher {
                                     None,
                                     &hash,
                                     byte_size,
+                                    sensitive,
                                 );
                                 match clip_result {
                                     Ok(clip) => {
@@ -299,6 +345,7 @@ impl ClipboardWatcher {
                                         Some(&png_bytes),
                                         &hash,
                                         byte_size,
+                                        false,
                                     );
                                     match clip_result {
                                         Ok(mut clip) => {
@@ -327,6 +374,22 @@ impl ClipboardWatcher {
                                         byte_size
                                     );
                                 }
+                            }
+                        }
+                    }
+                }
+
+                // 定时清理过期敏感条目
+                sensitive_check_counter += 1;
+                if sensitive_check_counter >= SENSITIVE_CHECK_INTERVAL {
+                    sensitive_check_counter = 0;
+                    if let Ok(storage) = storage.lock() {
+                        if let Ok(removed_ids) = storage.purge_expired_sensitive(SENSITIVE_TTL_SECS) {
+                            for rid in &removed_ids {
+                                let _ = app_handle.emit("clip-removed", rid);
+                            }
+                            if !removed_ids.is_empty() {
+                                log::debug!("清理 {} 条过期敏感条目", removed_ids.len());
                             }
                         }
                     }
