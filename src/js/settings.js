@@ -13,6 +13,8 @@ import {
   getConfig,
   getAppVersion,
   isDevBinary,
+  ocrAvailable,
+  ocrInstall,
   pauseShortcuts,
   resumeShortcuts,
   updateConfig,
@@ -44,6 +46,11 @@ const checkUpdateBtn  = document.getElementById("check-update-btn");
 const updateStatus    = document.getElementById("update-status");
 const autostartToggle = document.getElementById("autostart-toggle");
 const ocrModeSelect  = document.getElementById("ocr-mode-select");
+const ocrToggle      = document.getElementById("ocr-toggle");
+const ocrStatusDot   = document.getElementById("ocr-status-dot");
+const ocrStatusText  = document.getElementById("ocr-status-text");
+const ocrInstallBtn  = document.getElementById("ocr-install-btn");
+const ocrOptions     = document.getElementById("ocr-options");
 
 // 主题清单：id 与 themes.css 中 [data-theme="<id>"] 对应；i18nKey 用于显示名
 const THEMES = [
@@ -109,6 +116,8 @@ function fillForm(config) {
   maxHistoryInput.value  = config.max_history ?? 100;
   languageSelect.value   = config.language || "auto";
   ocrModeSelect.value    = config.ocr_result_mode || "preview";
+  ocrToggle.checked      = config.ocr_enabled !== false;
+  updateOcrOptionsVisibility();
 }
 
 function applyTheme(theme) {
@@ -309,6 +318,7 @@ saveBtn.addEventListener("click", async () => {
       language: newLanguage,
       delete_confirm_ms: savedConfig?.delete_confirm_ms ?? 1200,
       ocr_result_mode: ocrModeSelect.value,
+      ocr_enabled: ocrToggle.checked,
     };
 
     await updateConfig(newConfig);
@@ -348,6 +358,48 @@ checkUpdateBtn.addEventListener("click", async () => {
 cancelBtn.addEventListener("click", async () => {
   try { await getCurrentWindow().close(); } catch (e) { console.warn(e); }
 });
+
+// ── OCR 设置 ──
+
+function updateOcrOptionsVisibility() {
+  if (ocrOptions) ocrOptions.style.display = ocrToggle.checked ? "" : "none";
+}
+
+ocrToggle.addEventListener("change", updateOcrOptionsVisibility);
+
+async function checkOcrStatus() {
+  try {
+    const available = await ocrAvailable();
+    ocrStatusDot.className = "ocr-status-dot " + (available ? "ocr-ok" : "ocr-missing");
+    ocrStatusText.textContent = available
+      ? i18n.t("settings.ocr.installed")
+      : i18n.t("settings.ocr.notInstalled");
+    ocrInstallBtn.style.display = available ? "none" : "";
+  } catch (_) {
+    ocrStatusDot.className = "ocr-status-dot ocr-missing";
+    ocrStatusText.textContent = i18n.t("settings.ocr.notInstalled");
+    ocrInstallBtn.style.display = "";
+  }
+}
+
+ocrInstallBtn.addEventListener("click", async () => {
+  ocrInstallBtn.disabled = true;
+  ocrInstallBtn.textContent = i18n.t("settings.ocr.installing");
+  try {
+    await ocrInstall();
+    showToast(i18n.t("settings.ocr.installSuccess"));
+    await checkOcrStatus();
+  } catch (err) {
+    showToast(i18n.t("settings.ocr.installFailed"));
+    console.warn("OCR 安装失败:", err);
+  } finally {
+    ocrInstallBtn.disabled = false;
+    ocrInstallBtn.textContent = i18n.t("settings.ocr.install");
+  }
+});
+
+// 页面加载时检测 OCR 状态
+checkOcrStatus();
 
 // Toast
 function showToast(message) {

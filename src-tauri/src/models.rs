@@ -63,6 +63,8 @@ pub struct AppConfig {
     pub delete_confirm_ms: u32,
     #[serde(default = "default_ocr_result_mode")]
     pub ocr_result_mode: String,
+    #[serde(default = "default_ocr_enabled")]
+    pub ocr_enabled: bool,
 }
 
 fn default_language() -> String {
@@ -81,6 +83,10 @@ fn default_ocr_result_mode() -> String {
     "preview".to_string()
 }
 
+fn default_ocr_enabled() -> bool {
+    true
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -92,6 +98,7 @@ impl Default for AppConfig {
             language: "auto".to_string(),
             delete_confirm_ms: 1200,
             ocr_result_mode: "preview".to_string(),
+            ocr_enabled: true,
         }
     }
 }

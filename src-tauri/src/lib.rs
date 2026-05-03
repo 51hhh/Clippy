@@ -321,6 +321,7 @@ pub fn run() {
             commands::close_pin,
             commands::ocr_available,
             commands::ocr_image,
+            commands::ocr_install,
         ])
         .run(tauri::generate_context!())
         .expect("启动 Tauri 应用失败");

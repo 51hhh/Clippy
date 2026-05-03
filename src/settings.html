@@ -78,13 +78,28 @@
     </div>
 
     <div class="setting-group">
-      <label class="setting-label" for="ocr-mode-select"
-             data-i18n="settings.ocr.label">OCR Result</label>
-      <select class="setting-select" id="ocr-mode-select">
-        <option value="preview" data-i18n="settings.ocr.preview">Show in Preview</option>
-        <option value="clipboard" data-i18n="settings.ocr.clipboard">Copy to Clipboard</option>
-      </select>
-      <div class="setting-hint" data-i18n="settings.ocr.hint">How to handle OCR results</div>
+      <label class="setting-label" data-i18n="settings.ocr.label">OCR</label>
+      <div class="setting-toggle-row">
+        <label class="toggle-switch">
+          <input type="checkbox" id="ocr-toggle">
+          <span class="toggle-slider"></span>
+        </label>
+        <span class="setting-hint" data-i18n="settings.ocr.toggleHint">Enable OCR text recognition for images</span>
+      </div>
+      <div class="ocr-status-row" id="ocr-status-row">
+        <span class="ocr-status-dot" id="ocr-status-dot"></span>
+        <span class="ocr-status-text" id="ocr-status-text"></span>
+        <button class="btn btn-small btn-primary" id="ocr-install-btn" style="display:none"
+                data-i18n="settings.ocr.install">Install</button>
+      </div>
+      <div id="ocr-options" class="ocr-options">
+        <label class="setting-label setting-label-sub" for="ocr-mode-select"
+               data-i18n="settings.ocr.modeLabel">Result Mode</label>
+        <select class="setting-select" id="ocr-mode-select">
+          <option value="preview" data-i18n="settings.ocr.preview">Show in Preview</option>
+          <option value="clipboard" data-i18n="settings.ocr.clipboard">Copy to Clipboard</option>
+        </select>
+      </div>
     </div>
 
     <div class="setting-group setting-about">

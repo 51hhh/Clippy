@@ -106,6 +106,11 @@ export function ocrImage(id) {
   return invoke("ocr_image", { id });
 }
 
+/** 一键安装 tesseract-ocr（通过 pkexec 提权） */
+export function ocrInstall() {
+  return invoke("ocr_install");
+}
+
 // ── 事件 ──
 
 export function onClipAdded(callback) {

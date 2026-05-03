@@ -306,6 +306,37 @@ html, body {
   box-shadow: 0 0 0 3px var(--accent-soft, color-mix(in srgb, var(--accent) 22%, transparent));
 }
 
+/* ── OCR 状态行 ── */
+
+.ocr-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.ocr-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-muted);
+}
+.ocr-status-dot.ocr-ok { background: #22c55e; }
+.ocr-status-dot.ocr-missing { background: #ef4444; }
+.ocr-status-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.ocr-options {
+  margin-top: 12px;
+}
+.setting-label-sub {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
 .setting-warning {
   margin-top: 6px;
   font-size: 12px;
