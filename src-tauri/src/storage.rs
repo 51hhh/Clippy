@@ -93,8 +93,10 @@ impl StorageEngine {
             .map(|n| n > 0)
             .unwrap_or(false);
         if !has_sensitive_col {
-            self.conn
-                .execute("ALTER TABLE clips ADD COLUMN is_sensitive INTEGER DEFAULT 0", [])?;
+            self.conn.execute(
+                "ALTER TABLE clips ADD COLUMN is_sensitive INTEGER DEFAULT 0",
+                [],
+            )?;
         }
 
         // URL 元数据缓存表
@@ -106,7 +108,7 @@ impl StorageEngine {
                 favicon     TEXT,
                 site_name   TEXT,
                 fetched_at  INTEGER NOT NULL
-            );"
+            );",
         )?;
 
         Ok(())
@@ -114,6 +116,7 @@ impl StorageEngine {
 
     /// 插入新条目。若 content_hash 已存在则更新 created_at 并返回该条目。
     /// Fix #2: 用事务包装 clips INSERT + FTS INSERT，保证原子性。
+    #[allow(clippy::too_many_arguments)]
     pub fn insert_clip(
         &self,
         content_type: &ContentType,
@@ -221,8 +224,9 @@ impl StorageEngine {
         let trimmed = query.map(str::trim).unwrap_or("");
 
         if !trimmed.is_empty() {
-            // FTS5 安全：将用户输入包裹在双引号中，防止 FTS 语法注入
-            let safe_query = format!("\"{}\"", trimmed.replace('"', "\"\""));
+            // FTS5 安全：过滤控制字符 + 双引号包裹，防止 FTS 语法注入
+            let sanitized: String = trimmed.chars().filter(|c| !c.is_control()).collect();
+            let safe_query = format!("\"{}\"", sanitized.replace('"', "\"\""));
             // FTS 搜索路径
             let sql = if favorites_only {
                 "SELECT c.id, c.content_type, c.text_content, NULL, NULL,
@@ -474,14 +478,44 @@ impl StorageEngine {
 
     /// 获取剪贴板统计信息
     pub fn get_stats(&self) -> Result<serde_json::Value, StorageError> {
-        let total: i64 = self.conn.query_row("SELECT COUNT(*) FROM clips", [], |r| r.get(0))?;
-        let favorites: i64 = self.conn.query_row("SELECT COUNT(*) FROM clips WHERE is_favorite = 1", [], |r| r.get(0))?;
-        let text_count: i64 = self.conn.query_row("SELECT COUNT(*) FROM clips WHERE content_type = 'text'", [], |r| r.get(0))?;
-        let html_count: i64 = self.conn.query_row("SELECT COUNT(*) FROM clips WHERE content_type = 'html'", [], |r| r.get(0))?;
-        let image_count: i64 = self.conn.query_row("SELECT COUNT(*) FROM clips WHERE content_type = 'image'", [], |r| r.get(0))?;
-        let sensitive_count: i64 = self.conn.query_row("SELECT COUNT(*) FROM clips WHERE is_sensitive = 1", [], |r| r.get(0))?;
-        let total_bytes: i64 = self.conn.query_row("SELECT COALESCE(SUM(byte_size), 0) FROM clips", [], |r| r.get(0))?;
-        let db_size: i64 = self.conn.query_row("SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()", [], |r| r.get(0))?;
+        let total: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM clips", [], |r| r.get(0))?;
+        let favorites: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM clips WHERE is_favorite = 1",
+            [],
+            |r| r.get(0),
+        )?;
+        let text_count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM clips WHERE content_type = 'text'",
+            [],
+            |r| r.get(0),
+        )?;
+        let html_count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM clips WHERE content_type = 'html'",
+            [],
+            |r| r.get(0),
+        )?;
+        let image_count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM clips WHERE content_type = 'image'",
+            [],
+            |r| r.get(0),
+        )?;
+        let sensitive_count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM clips WHERE is_sensitive = 1",
+            [],
+            |r| r.get(0),
+        )?;
+        let total_bytes: i64 =
+            self.conn
+                .query_row("SELECT COALESCE(SUM(byte_size), 0) FROM clips", [], |r| {
+                    r.get(0)
+                })?;
+        let db_size: i64 = self.conn.query_row(
+            "SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()",
+            [],
+            |r| r.get(0),
+        )?;
 
         Ok(serde_json::json!({
             "total": total,

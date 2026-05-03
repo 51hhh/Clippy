@@ -194,7 +194,9 @@ pub fn get_clip_detail(id: i64, state: State<AppState>) -> Result<ClipItem, Stri
 fn calc_window_width(state: &State<AppState>) -> f64 {
     let pv = state.preview_visible.lock().map(|v| *v).unwrap_or(false);
     let cv = state.codec_visible.lock().map(|v| *v).unwrap_or(false);
-    WINDOW_WIDTH_DEFAULT + if pv { WINDOW_WIDTH_PANEL } else { 0.0 } + if cv { WINDOW_WIDTH_PANEL } else { 0.0 }
+    WINDOW_WIDTH_DEFAULT
+        + if pv { WINDOW_WIDTH_PANEL } else { 0.0 }
+        + if cv { WINDOW_WIDTH_PANEL } else { 0.0 }
 }
 
 /// 切换预览面板：调整主窗口宽度
@@ -210,7 +212,10 @@ pub fn set_preview_visible(
     if let Some(window) = app_handle.get_webview_window("main") {
         let width = calc_window_width(&state);
         window
-            .set_size(tauri::Size::Logical(tauri::LogicalSize { width, height: WINDOW_HEIGHT }))
+            .set_size(tauri::Size::Logical(tauri::LogicalSize {
+                width,
+                height: WINDOW_HEIGHT,
+            }))
             .map_err(|e| e.to_string())?;
     }
     Ok(())
@@ -229,7 +234,10 @@ pub fn set_codec_visible(
     if let Some(window) = app_handle.get_webview_window("main") {
         let width = calc_window_width(&state);
         window
-            .set_size(tauri::Size::Logical(tauri::LogicalSize { width, height: WINDOW_HEIGHT }))
+            .set_size(tauri::Size::Logical(tauri::LogicalSize {
+                width,
+                height: WINDOW_HEIGHT,
+            }))
             .map_err(|e| e.to_string())?;
     }
     Ok(())
@@ -540,14 +548,16 @@ pub async fn fetch_url_meta(url: String, state: State<'_, AppState>) -> Result<U
         let agent = ureq::Agent::new_with_config(
             ureq::config::Config::builder()
                 .timeout_global(Some(std::time::Duration::from_secs(5)))
-                .build()
+                .build(),
         );
-        let resp = agent.get(&url_clone)
+        let resp = agent
+            .get(&url_clone)
             .header("User-Agent", "Clippy/0.1 (Link Preview)")
             .call()
             .map_err(|e| format!("请求失败: {}", e))?;
 
-        let content_type = resp.headers()
+        let content_type = resp
+            .headers()
             .get("content-type")
             .and_then(|v| v.to_str().ok())
             .unwrap_or("")
@@ -556,7 +566,10 @@ pub async fn fetch_url_meta(url: String, state: State<'_, AppState>) -> Result<U
             return Err("非 HTML 页面".to_string());
         }
 
-        let body = resp.into_body()
+        let body = resp
+            .into_body()
+            .with_config()
+            .limit(1_048_576) // 1MB 上限防止恶意响应耗尽内存
             .read_to_string()
             .map_err(|e| format!("读取失败: {}", e))?;
 
@@ -612,19 +625,23 @@ fn parse_og_meta(url: &str, html: &str) -> UrlMeta {
         let re = regex_lite::Regex::new(r"<title[^>]*>([^<]+)</title>").ok()?;
         let caps = re.captures(html)?;
         let val = caps.get(1)?.as_str().trim().to_string();
-        if val.is_empty() { None } else { Some(html_decode(&val)) }
+        if val.is_empty() {
+            None
+        } else {
+            Some(html_decode(&val))
+        }
     });
 
-    let description = get_meta("og:description")
-        .or_else(|| get_meta("description"));
+    let description = get_meta("og:description").or_else(|| get_meta("description"));
 
     let site_name = get_meta("og:site_name");
 
     // favicon：优先 <link rel="icon">，fallback /favicon.ico
     let favicon = {
         let re = regex_lite::Regex::new(
-            r#"<link[^>]+rel=["'](?:icon|shortcut icon)["'][^>]+href=["']([^"']+)["']"#
-        ).ok();
+            r#"<link[^>]+rel=["'](?:icon|shortcut icon)["'][^>]+href=["']([^"']+)["']"#,
+        )
+        .ok();
         re.and_then(|r| r.captures(html))
             .and_then(|c| c.get(1))
             .map(|m| {
@@ -675,7 +692,11 @@ fn is_private_url(url: &str) -> bool {
     let host_port = after_scheme.split('/').next().unwrap_or("");
     let host = if host_port.starts_with('[') {
         // IPv6: [::1]:port
-        host_port.split(']').next().unwrap_or("").trim_start_matches('[')
+        host_port
+            .split(']')
+            .next()
+            .unwrap_or("")
+            .trim_start_matches('[')
     } else {
         host_port.split(':').next().unwrap_or("")
     };
@@ -686,12 +707,23 @@ fn is_private_url(url: &str) -> bool {
         || h.starts_with("127.")
         || h.starts_with("10.")
         || h.starts_with("192.168.")
-        || h.starts_with("172.16.") || h.starts_with("172.17.") || h.starts_with("172.18.")
-        || h.starts_with("172.19.") || h.starts_with("172.20.") || h.starts_with("172.21.")
-        || h.starts_with("172.22.") || h.starts_with("172.23.") || h.starts_with("172.24.")
-        || h.starts_with("172.25.") || h.starts_with("172.26.") || h.starts_with("172.27.")
-        || h.starts_with("172.28.") || h.starts_with("172.29.") || h.starts_with("172.30.")
+        || h.starts_with("172.16.")
+        || h.starts_with("172.17.")
+        || h.starts_with("172.18.")
+        || h.starts_with("172.19.")
+        || h.starts_with("172.20.")
+        || h.starts_with("172.21.")
+        || h.starts_with("172.22.")
+        || h.starts_with("172.23.")
+        || h.starts_with("172.24.")
+        || h.starts_with("172.25.")
+        || h.starts_with("172.26.")
+        || h.starts_with("172.27.")
+        || h.starts_with("172.28.")
+        || h.starts_with("172.29.")
+        || h.starts_with("172.30.")
         || h.starts_with("172.31.")
         || h.starts_with("169.254.")
-        || h.starts_with("fd") || h.starts_with("fe80")
+        || h.starts_with("fd")
+        || h.starts_with("fe80")
 }
