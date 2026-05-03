@@ -139,8 +139,9 @@ whenReady(async () => {
       const dev = await isDevBinary();
       if (dev) {
         autostartToggle.checked = false;
-        autostartToggle.disabled = true;
-        autostartToggle.title = "Autostart is disabled for development builds";
+        // dev 模式下显示提示，但不禁用开关（安装版不受影响）
+        const hint = autostartToggle.closest(".setting-toggle-row")?.querySelector(".setting-hint");
+        if (hint) hint.textContent = hint.textContent + " (dev build — will be overwritten)";
         // 顺手清理已被错误写入的 dev 路径自启项
         try { await disableAutostart(); } catch (e) { console.warn("清理 dev 自启项失败:", e); }
       } else {
