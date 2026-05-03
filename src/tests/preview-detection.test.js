@@ -708,3 +708,167 @@ describe("dataSizeInfo", () => {
     expect(info.bytes).toBe(1073741824);
   });
 });
+
+// ── Regex ──────────────────────────────────────────────────
+describe("isRegex", () => {
+  it("detects simple regex", () => {
+    expect(T.isRegex("/hello/")).toBe(true);
+  });
+  it("detects regex with flags", () => {
+    expect(T.isRegex("/\\d+/gi")).toBe(true);
+  });
+  it("detects complex regex", () => {
+    expect(T.isRegex("/^[a-z]+$/i")).toBe(true);
+  });
+  it("rejects non-regex", () => {
+    expect(T.isRegex("hello")).toBe(false);
+  });
+  it("rejects too short", () => {
+    expect(T.isRegex("//")).toBe(false);
+  });
+  it("rejects invalid regex", () => {
+    expect(T.isRegex("/[/")).toBe(false);
+  });
+});
+
+describe("regexInfo", () => {
+  it("extracts pattern and flags", () => {
+    const info = T.regexInfo("/\\d+/gi");
+    expect(info.pattern).toBe("\\d+");
+    expect(info.flags).toBe("gi");
+    expect(info.flagDescs).toContain("global");
+    expect(info.flagDescs).toContain("case-insensitive");
+  });
+});
+
+// ── Coordinate ─────────────────────────────────────────────
+describe("isCoordinate", () => {
+  it("detects lat,lng with comma", () => {
+    expect(T.isCoordinate("40.7128, -74.0060")).toBe(true);
+  });
+  it("detects lat lng with space", () => {
+    expect(T.isCoordinate("35.6762 139.6503")).toBe(true);
+  });
+  it("rejects out-of-range lat", () => {
+    expect(T.isCoordinate("91.0, 0")).toBe(false);
+  });
+  it("rejects out-of-range lng", () => {
+    expect(T.isCoordinate("0, 181.0")).toBe(false);
+  });
+  it("rejects plain text", () => {
+    expect(T.isCoordinate("not coords")).toBe(false);
+  });
+});
+
+describe("coordInfo", () => {
+  it("parses coordinates", () => {
+    const info = T.coordInfo("40.7128, -74.0060");
+    expect(info.lat).toBeCloseTo(40.7128);
+    expect(info.lng).toBeCloseTo(-74.006);
+    expect(info.dms).toContain("N");
+    expect(info.dms).toContain("W");
+  });
+});
+
+// ── MIME Type ──────────────────────────────────────────────
+describe("isMimeType", () => {
+  it("detects application/json", () => {
+    expect(T.isMimeType("application/json")).toBe(true);
+  });
+  it("detects text/html", () => {
+    expect(T.isMimeType("text/html")).toBe(true);
+  });
+  it("detects image/svg+xml", () => {
+    expect(T.isMimeType("image/svg+xml")).toBe(true);
+  });
+  it("rejects plain text", () => {
+    expect(T.isMimeType("hello")).toBe(false);
+  });
+  it("rejects invalid type", () => {
+    expect(T.isMimeType("invalid/")).toBe(false);
+  });
+});
+
+describe("mimeInfo", () => {
+  it("describes application/json", () => {
+    const info = T.mimeInfo("application/json");
+    expect(info.type).toBe("application");
+    expect(info.subtype).toBe("json");
+    expect(info.description).toBe("JSON data");
+  });
+  it("describes unknown type", () => {
+    const info = T.mimeInfo("application/x-custom");
+    expect(info.description).toBe("application content");
+  });
+});
+
+// ── Math Expression ────────────────────────────────────────
+describe("isMathExpr", () => {
+  it("detects addition", () => {
+    expect(T.isMathExpr("2 + 3")).toBe(true);
+  });
+  it("detects complex expression", () => {
+    expect(T.isMathExpr("(2 + 3) * 4 / 2")).toBe(true);
+  });
+  it("detects power", () => {
+    expect(T.isMathExpr("2 ^ 10")).toBe(true);
+  });
+  it("rejects plain text", () => {
+    expect(T.isMathExpr("hello")).toBe(false);
+  });
+  it("rejects single number", () => {
+    expect(T.isMathExpr("42")).toBe(false);
+  });
+  it("rejects division by zero (Infinity)", () => {
+    expect(T.isMathExpr("1/0")).toBe(false);
+  });
+});
+
+describe("mathEval", () => {
+  it("evaluates expression", () => {
+    const info = T.mathEval("2 + 3 * 4");
+    expect(info.result).toBe(14);
+  });
+  it("evaluates power", () => {
+    const info = T.mathEval("2 ^ 10");
+    expect(info.result).toBe(1024);
+  });
+});
+
+// ── HTTP Status Code ───────────────────────────────────────
+describe("isHttpStatus", () => {
+  it("detects 200", () => {
+    expect(T.isHttpStatus("200")).toBe(true);
+  });
+  it("detects 404", () => {
+    expect(T.isHttpStatus("404")).toBe(true);
+  });
+  it("detects 500", () => {
+    expect(T.isHttpStatus("500")).toBe(true);
+  });
+  it("rejects unknown code", () => {
+    expect(T.isHttpStatus("999")).toBe(false);
+  });
+  it("rejects non-3-digit", () => {
+    expect(T.isHttpStatus("20")).toBe(false);
+  });
+});
+
+describe("httpStatusInfo", () => {
+  it("describes 200", () => {
+    const info = T.httpStatusInfo("200");
+    expect(info.code).toBe(200);
+    expect(info.message).toBe("OK");
+    expect(info.category).toBe("Success");
+  });
+  it("describes 404", () => {
+    const info = T.httpStatusInfo("404");
+    expect(info.message).toBe("Not Found");
+    expect(info.category).toBe("Client Error");
+  });
+  it("describes 503", () => {
+    const info = T.httpStatusInfo("503");
+    expect(info.message).toBe("Service Unavailable");
+    expect(info.category).toBe("Server Error");
+  });
+});

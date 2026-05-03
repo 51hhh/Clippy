@@ -114,5 +114,16 @@
   "preview.numDecimal": "十进制",
   "preview.numHex": "十六进制",
   "preview.numBin": "二进制",
-  "preview.numOct": "八进制"
+  "preview.numOct": "八进制",
+  "preview.regexPattern": "模式",
+  "preview.regexFlags": "标志",
+  "preview.regexDesc": "描述",
+  "preview.coordDecimal": "十进制",
+  "preview.coordLat": "纬度",
+  "preview.coordLng": "经度",
+  "preview.mimeType": "类型",
+  "preview.mimeSubtype": "子类型",
+  "preview.mimeDesc": "描述",
+  "preview.httpCategory": "分类",
+  "preview.httpMessage": "消息"
 }

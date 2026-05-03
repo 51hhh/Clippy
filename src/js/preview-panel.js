@@ -599,6 +599,152 @@ function dataSizeInfo(text) {
   return { bytes, conversions };
 }
 
+// ── 正则 / 坐标 / MIME / 数学表达式 / HTTP 状态码 ─────────
+
+/** 正则表达式检测 /pattern/flags */
+const REGEX_RE = /^\/(.+)\/([gimsuy]{0,6})$/s;
+function isRegex(text) {
+  if (!text.startsWith("/") || text.length < 3) return false;
+  const m = text.match(REGEX_RE);
+  if (!m) return false;
+  try { new RegExp(m[1], m[2]); return true; } catch { return false; }
+}
+
+function regexInfo(text) {
+  const m = text.match(REGEX_RE);
+  const flags = m[2] || "";
+  const flagDescs = [];
+  if (flags.includes("g")) flagDescs.push("global");
+  if (flags.includes("i")) flagDescs.push("case-insensitive");
+  if (flags.includes("m")) flagDescs.push("multiline");
+  if (flags.includes("s")) flagDescs.push("dotAll");
+  if (flags.includes("u")) flagDescs.push("unicode");
+  if (flags.includes("y")) flagDescs.push("sticky");
+  return { pattern: m[1], flags, flagDescs };
+}
+
+/** 坐标检测（lat, lng）*/
+const COORD_RE = /^(-?\d{1,3}(?:\.\d+)?)\s*[,\s]\s*(-?\d{1,3}(?:\.\d+)?)$/;
+function isCoordinate(text) {
+  const m = text.match(COORD_RE);
+  if (!m) return false;
+  const lat = parseFloat(m[1]);
+  const lng = parseFloat(m[2]);
+  return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+}
+
+function coordInfo(text) {
+  const m = text.match(COORD_RE);
+  const lat = parseFloat(m[1]);
+  const lng = parseFloat(m[2]);
+  const latDir = lat >= 0 ? "N" : "S";
+  const lngDir = lng >= 0 ? "E" : "W";
+  // DMS conversion
+  const toDms = (deg) => {
+    const abs = Math.abs(deg);
+    const d = Math.floor(abs);
+    const min = Math.floor((abs - d) * 60);
+    const sec = ((abs - d) * 60 - min) * 60;
+    return `${d}°${min}′${sec.toFixed(1)}″`;
+  };
+  return {
+    lat, lng,
+    dms: `${toDms(lat)}${latDir}, ${toDms(lng)}${lngDir}`,
+    decimal: `${lat.toFixed(6)}, ${lng.toFixed(6)}`,
+  };
+}
+
+/** MIME type 检测 */
+const MIME_RE = /^(application|audio|font|image|message|model|multipart|text|video|chemical)\/[a-z0-9][a-z0-9!#$&\-.^_+]+$/i;
+function isMimeType(text) {
+  return text.length >= 3 && text.length <= 100 && MIME_RE.test(text);
+}
+
+const _MIME_DESCS = {
+  "application/json": "JSON data",
+  "application/xml": "XML document",
+  "application/pdf": "PDF document",
+  "application/zip": "ZIP archive",
+  "application/gzip": "Gzip archive",
+  "application/javascript": "JavaScript",
+  "application/typescript": "TypeScript",
+  "application/octet-stream": "Binary data",
+  "application/x-tar": "TAR archive",
+  "application/wasm": "WebAssembly",
+  "text/html": "HTML document",
+  "text/css": "CSS stylesheet",
+  "text/plain": "Plain text",
+  "text/markdown": "Markdown",
+  "text/csv": "CSV data",
+  "image/png": "PNG image",
+  "image/jpeg": "JPEG image",
+  "image/gif": "GIF image",
+  "image/svg+xml": "SVG image",
+  "image/webp": "WebP image",
+  "audio/mpeg": "MP3 audio",
+  "audio/ogg": "Ogg audio",
+  "video/mp4": "MP4 video",
+  "video/webm": "WebM video",
+};
+
+function mimeInfo(text) {
+  const lower = text.toLowerCase();
+  const [type, subtype] = lower.split("/");
+  return {
+    type,
+    subtype,
+    description: _MIME_DESCS[lower] || `${type} content`,
+  };
+}
+
+/** 数学表达式检测（简单四则运算 + 幂 + 括号） */
+const MATH_EXPR_RE = /^[\d\s+\-*/().^%]+$/;
+function isMathExpr(text) {
+  if (text.length < 3 || text.length > 100) return false;
+  if (!MATH_EXPR_RE.test(text)) return false;
+  // 必须有操作符
+  if (!/[+\-*/^%]/.test(text)) return false;
+  // 必须有数字
+  if (!/\d/.test(text)) return false;
+  // 不能是纯数字+小数点（避免和版本号冲突）
+  if (/^[\d.]+$/.test(text.trim())) return false;
+  try {
+    // 安全求值：替换 ^ 为 **，只允许数字和运算符
+    const safe = text.replace(/\^/g, "**");
+    if (/[a-zA-Z_$]/.test(safe)) return false;
+    const result = Function(`"use strict"; return (${safe})`)();
+    return typeof result === "number" && isFinite(result);
+  } catch { return false; }
+}
+
+function mathEval(text) {
+  const safe = text.replace(/\^/g, "**");
+  const result = Function(`"use strict"; return (${safe})`)();
+  return { expression: text, result };
+}
+
+/** HTTP 状态码检测 */
+const HTTP_STATUS_RE = /^[1-5]\d{2}$/;
+const _HTTP_CODES = {
+  100: "Continue", 101: "Switching Protocols",
+  200: "OK", 201: "Created", 202: "Accepted", 204: "No Content",
+  301: "Moved Permanently", 302: "Found", 304: "Not Modified", 307: "Temporary Redirect", 308: "Permanent Redirect",
+  400: "Bad Request", 401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 405: "Method Not Allowed",
+  408: "Request Timeout", 409: "Conflict", 410: "Gone", 413: "Payload Too Large", 415: "Unsupported Media Type",
+  418: "I'm a teapot", 422: "Unprocessable Entity", 429: "Too Many Requests",
+  500: "Internal Server Error", 502: "Bad Gateway", 503: "Service Unavailable", 504: "Gateway Timeout",
+};
+function isHttpStatus(text) {
+  if (!HTTP_STATUS_RE.test(text.trim())) return false;
+  return !!_HTTP_CODES[parseInt(text.trim())];
+}
+
+function httpStatusInfo(code) {
+  const num = parseInt(code.trim());
+  const cat = num < 200 ? "Informational" : num < 300 ? "Success" : num < 400 ? "Redirection" : num < 500 ? "Client Error" : "Server Error";
+  return { code: num, message: _HTTP_CODES[num], category: cat };
+}
+
 // Markdown 特征正则（需要多个特征匹配才认定为 Markdown）
 const MD_HEADING = /^#{1,6}\s+\S/m;
 const MD_FENCED_CODE = /^```/m;
@@ -844,6 +990,36 @@ async function _doUpdatePreview(clip) {
   // 0.21 数据大小检测
   if (trimmed.length >= 2 && trimmed.length <= 20 && isDataSize(trimmed)) {
     renderDataSize(trimmed);
+    return;
+  }
+
+  // 0.22 正则表达式检测
+  if (trimmed.length >= 3 && trimmed.startsWith("/") && isRegex(trimmed)) {
+    renderRegex(trimmed);
+    return;
+  }
+
+  // 0.23 坐标检测
+  if (trimmed.length >= 5 && trimmed.length <= 40 && isCoordinate(trimmed)) {
+    renderCoordinate(trimmed);
+    return;
+  }
+
+  // 0.24 MIME type 检测
+  if (trimmed.length >= 3 && trimmed.length <= 100 && trimmed.includes("/") && isMimeType(trimmed)) {
+    renderMimeType(trimmed);
+    return;
+  }
+
+  // 0.25 数学表达式检测
+  if (trimmed.length >= 3 && trimmed.length <= 100 && isMathExpr(trimmed)) {
+    renderMathExpr(trimmed);
+    return;
+  }
+
+  // 0.26 HTTP 状态码检测
+  if (trimmed.length === 3 && isHttpStatus(trimmed)) {
+    renderHttpStatus(trimmed);
     return;
   }
 
@@ -1441,6 +1617,152 @@ function renderDataSize(text) {
   _contentEl.appendChild(details);
 }
 
+/** 正则表达式渲染 */
+function renderRegex(text) {
+  const info = regexInfo(text);
+  _badgeEl.textContent = "REGEX";
+  _contentEl.classList.add("preview-content--encoded");
+
+  const box = document.createElement("pre");
+  box.className = "encoded-box";
+  box.textContent = text;
+  _contentEl.appendChild(box);
+
+  const details = document.createElement("div");
+  details.className = "timestamp-preview";
+  const rows = [
+    [t("preview.regexPattern") || "Pattern", info.pattern],
+    [t("preview.regexFlags") || "Flags", info.flags || "(none)"],
+  ];
+  if (info.flagDescs.length > 0) {
+    rows.push([t("preview.regexDesc") || "Description", info.flagDescs.join(", ")]);
+  }
+  for (const [label, value] of rows) {
+    const row = document.createElement("div");
+    row.className = "timestamp-row";
+    const lbl = document.createElement("span");
+    lbl.className = "timestamp-label";
+    lbl.textContent = label;
+    const val = document.createElement("span");
+    val.className = "timestamp-value";
+    val.textContent = value;
+    row.append(lbl, val);
+    details.appendChild(row);
+  }
+  _contentEl.appendChild(details);
+}
+
+/** 坐标渲染 */
+function renderCoordinate(text) {
+  const info = coordInfo(text);
+  _badgeEl.textContent = "COORDINATE";
+  _contentEl.classList.add("preview-content--encoded");
+
+  const details = document.createElement("div");
+  details.className = "timestamp-preview";
+  const rows = [
+    [t("preview.coordDecimal") || "Decimal", info.decimal],
+    ["DMS", info.dms],
+    [t("preview.coordLat") || "Latitude", `${info.lat >= 0 ? "N" : "S"} ${Math.abs(info.lat).toFixed(6)}°`],
+    [t("preview.coordLng") || "Longitude", `${info.lng >= 0 ? "E" : "W"} ${Math.abs(info.lng).toFixed(6)}°`],
+  ];
+  for (const [label, value] of rows) {
+    const row = document.createElement("div");
+    row.className = "timestamp-row";
+    const lbl = document.createElement("span");
+    lbl.className = "timestamp-label";
+    lbl.textContent = label;
+    const val = document.createElement("span");
+    val.className = "timestamp-value";
+    val.textContent = value;
+    row.append(lbl, val);
+    details.appendChild(row);
+  }
+  _contentEl.appendChild(details);
+}
+
+/** MIME type 渲染 */
+function renderMimeType(text) {
+  const info = mimeInfo(text);
+  _badgeEl.textContent = "MIME TYPE";
+  _contentEl.classList.add("preview-content--encoded");
+
+  const box = document.createElement("pre");
+  box.className = "encoded-box";
+  box.textContent = text;
+  _contentEl.appendChild(box);
+
+  const details = document.createElement("div");
+  details.className = "timestamp-preview";
+  const rows = [
+    [t("preview.mimeType") || "Type", info.type],
+    [t("preview.mimeSubtype") || "Subtype", info.subtype],
+    [t("preview.mimeDesc") || "Description", info.description],
+  ];
+  for (const [label, value] of rows) {
+    const row = document.createElement("div");
+    row.className = "timestamp-row";
+    const lbl = document.createElement("span");
+    lbl.className = "timestamp-label";
+    lbl.textContent = label;
+    const val = document.createElement("span");
+    val.className = "timestamp-value";
+    val.textContent = value;
+    row.append(lbl, val);
+    details.appendChild(row);
+  }
+  _contentEl.appendChild(details);
+}
+
+/** 数学表达式渲染 */
+function renderMathExpr(text) {
+  const info = mathEval(text);
+  _badgeEl.textContent = "MATH";
+  _contentEl.classList.add("preview-content--encoded");
+
+  const exprBox = document.createElement("pre");
+  exprBox.className = "encoded-box";
+  exprBox.textContent = `${text} = ${info.result}`;
+  _contentEl.appendChild(exprBox);
+
+  const resultBox = document.createElement("div");
+  resultBox.className = "math-result";
+  resultBox.textContent = String(info.result);
+  _contentEl.appendChild(resultBox);
+}
+
+/** HTTP 状态码渲染 */
+function renderHttpStatus(text) {
+  const info = httpStatusInfo(text);
+  _badgeEl.textContent = `HTTP ${info.code}`;
+  _contentEl.classList.add("preview-content--encoded");
+
+  const header = document.createElement("div");
+  header.className = "http-status-header";
+  header.textContent = `${info.code} ${info.message}`;
+  _contentEl.appendChild(header);
+
+  const details = document.createElement("div");
+  details.className = "timestamp-preview";
+  const rows = [
+    [t("preview.httpCategory") || "Category", info.category],
+    [t("preview.httpMessage") || "Message", info.message],
+  ];
+  for (const [label, value] of rows) {
+    const row = document.createElement("div");
+    row.className = "timestamp-row";
+    const lbl = document.createElement("span");
+    lbl.className = "timestamp-label";
+    lbl.textContent = label;
+    const val = document.createElement("span");
+    val.className = "timestamp-value";
+    val.textContent = value;
+    row.append(lbl, val);
+    details.appendChild(row);
+  }
+  _contentEl.appendChild(details);
+}
+
 /** 加密内容渲染 + 密钥输入解密 */
 function renderEncrypted(text, encType) {
   _badgeEl.textContent = `ENCRYPTED · ${encType}`;
@@ -1845,4 +2167,7 @@ export const __test__ = {
   isCron, cronDescribe, isDateString, dateInfo,
   isSemver, semverInfo, isNumberBase, numberBaseInfo,
   isGradient, isDataSize, dataSizeInfo,
+  isRegex, regexInfo, isCoordinate, coordInfo,
+  isMimeType, mimeInfo, isMathExpr, mathEval,
+  isHttpStatus, httpStatusInfo,
 };
