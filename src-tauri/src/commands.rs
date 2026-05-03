@@ -473,7 +473,13 @@ pub async fn ocr_install() -> Result<String, String> {
     if output.status.success() {
         Ok("ok".to_string())
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        Err(format!("安装失败: {}", stderr.trim()))
+        // pkexec exit 126 = 用户取消授权
+        let code = output.status.code().unwrap_or(-1);
+        if code == 126 {
+            Err("cancelled".to_string())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(format!("安装失败: {}", stderr.trim()))
+        }
     }
 }

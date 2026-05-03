@@ -57,28 +57,49 @@ function initCustomSelect(container) {
   const trigger = container.querySelector(".custom-select-trigger");
   const dropdown = container.querySelector(".custom-select-dropdown");
   const valueSpan = container.querySelector(".custom-select-value");
-  const options = container.querySelectorAll(".custom-select-option");
+  const optionEls = [...container.querySelectorAll(".custom-select-option")];
 
-  // 当前值存在 container.dataset 上
   container.dataset.value = container.querySelector(".custom-select-option.selected")?.dataset.value || "";
+
+  function selectOption(opt) {
+    optionEls.forEach((o) => o.classList.remove("selected"));
+    opt.classList.add("selected");
+    valueSpan.textContent = opt.textContent;
+    container.dataset.value = opt.dataset.value;
+    container.classList.remove("open");
+    trigger.focus();
+  }
 
   trigger.addEventListener("click", (e) => {
     e.stopPropagation();
     container.classList.toggle("open");
   });
 
-  options.forEach((opt) => {
+  optionEls.forEach((opt) => {
     opt.addEventListener("click", (e) => {
       e.stopPropagation();
-      options.forEach((o) => o.classList.remove("selected"));
-      opt.classList.add("selected");
-      valueSpan.textContent = opt.textContent;
-      container.dataset.value = opt.dataset.value;
-      container.classList.remove("open");
+      selectOption(opt);
     });
   });
 
-  // 点击外部关闭
+  // 键盘导航
+  trigger.addEventListener("keydown", (e) => {
+    const isOpen = container.classList.contains("open");
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      container.classList.toggle("open");
+    } else if (e.key === "Escape" && isOpen) {
+      container.classList.remove("open");
+    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const currentIdx = optionEls.findIndex((o) => o.classList.contains("selected"));
+      const next = e.key === "ArrowDown"
+        ? Math.min(currentIdx + 1, optionEls.length - 1)
+        : Math.max(currentIdx - 1, 0);
+      selectOption(optionEls[next]);
+    }
+  });
+
   document.addEventListener("click", () => container.classList.remove("open"));
 
   return {
@@ -86,7 +107,7 @@ function initCustomSelect(container) {
     set value(v) {
       const target = container.querySelector(`.custom-select-option[data-value="${v}"]`);
       if (target) {
-        options.forEach((o) => o.classList.remove("selected"));
+        optionEls.forEach((o) => o.classList.remove("selected"));
         target.classList.add("selected");
         valueSpan.textContent = target.textContent;
         container.dataset.value = v;
@@ -141,7 +162,7 @@ whenReady(async () => {
         autostartToggle.checked = false;
         // dev 模式下显示提示，但不禁用开关（安装版不受影响）
         const hint = autostartToggle.closest(".setting-toggle-row")?.querySelector(".setting-hint");
-        if (hint) hint.textContent = hint.textContent + " (dev build — will be overwritten)";
+        if (hint) hint.textContent = hint.textContent + " " + i18n.t("settings.autostart.devHint");
         // 顺手清理已被错误写入的 dev 路径自启项
         try { await disableAutostart(); } catch (e) { console.warn("清理 dev 自启项失败:", e); }
       } else {
@@ -436,7 +457,11 @@ ocrInstallBtn.addEventListener("click", async () => {
     showToast(i18n.t("settings.ocr.installSuccess"));
     await checkOcrStatus();
   } catch (err) {
-    showToast(i18n.t("settings.ocr.installFailed"));
+    // pkexec 用户取消授权时不提示失败
+    const msg = String(err?.message || err || "");
+    if (!msg.includes("cancelled")) {
+      showToast(i18n.t("settings.ocr.installFailed"));
+    }
     console.warn("OCR 安装失败:", err);
   } finally {
     ocrInstallBtn.disabled = false;
