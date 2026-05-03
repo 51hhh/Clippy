@@ -35,6 +35,8 @@ zbus = "5"
 enigo = { version = "0.6", default-features = false, features = ["x11rb"] }
 tauri-plugin-autostart = "2"
 webkit2gtk = "2.0"
+ureq = "3"
+regex-lite = "0.1"
 
 [dev-dependencies]
 tempfile = "3"

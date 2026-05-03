@@ -12,7 +12,7 @@
  * 性能：hljs/marked/DOMPurify 延迟加载，首次打开预览面板时才初始化。
  */
 
-import { getClipImage, getClipDetail, setPreviewVisible, ocrAvailable, ocrImage, getConfig } from "./api.js";
+import { getClipImage, getClipDetail, setPreviewVisible, ocrAvailable, ocrImage, getConfig, fetchUrlMeta } from "./api.js";
 import { t } from "../i18n/i18n.js";
 
 // ── 延迟加载的库引用 ──
@@ -124,6 +124,12 @@ const PURIFY_CONFIG = {
 };
 
 const STYLE_REMOVE_RE = /\b(background-color|background(?!-)|color|position|z-index|opacity)\s*:[^;]*(;|$)/gi;
+
+// URL 检测（仅匹配单行纯 URL 文本）
+const URL_RE = /^https?:\/\/[^\s]+$/;
+function isUrl(text) {
+  return URL_RE.test(text) && text.length < 2048;
+}
 
 // Markdown 特征正则（需要多个特征匹配才认定为 Markdown）
 const MD_HEADING = /^#{1,6}\s+\S/m;
@@ -254,6 +260,12 @@ async function _doUpdatePreview(clip) {
   // text 和 html 类型共享智能检测逻辑
   const text = clip.text_content || "";
 
+  // 0. URL 检测（纯 URL 文本 → 卡片预览，不需要 hljs/marked/DOMPurify）
+  if (text.length > 0 && isUrl(text.trim())) {
+    renderUrlCard(text.trim());
+    return;
+  }
+
   // 延迟加载渲染库（首次调用时初始化 hljs/marked/DOMPurify）
   await ensureLibs();
 
@@ -321,6 +333,63 @@ function renderRichText(html) {
   _badgeEl.textContent = "RICH TEXT";
   _contentEl.classList.add("preview-content--html");
   _contentEl.innerHTML = DOMPurify.sanitize(html, PURIFY_CONFIG);
+}
+
+function renderUrlCard(url) {
+  _badgeEl.textContent = "URL";
+  _contentEl.classList.add("preview-content--url");
+
+  // 先渲染基础 URL 信息（立即显示）
+  const card = document.createElement("div");
+  card.className = "url-card";
+  const urlDisplay = document.createElement("a");
+  urlDisplay.className = "url-card-url";
+  urlDisplay.textContent = url;
+  urlDisplay.href = "#";
+  urlDisplay.onclick = (e) => e.preventDefault();
+  card.appendChild(urlDisplay);
+
+  const loading = document.createElement("div");
+  loading.className = "url-card-loading";
+  loading.textContent = t("preview.urlLoading") || "Loading...";
+  card.appendChild(loading);
+  _contentEl.appendChild(card);
+
+  // 异步抓取 OG 元数据
+  fetchUrlMeta(url).then(meta => {
+    if (_contentEl.querySelector(".url-card") !== card) return; // 已切换
+    loading.remove();
+
+    if (meta.favicon) {
+      const icon = document.createElement("img");
+      icon.className = "url-card-favicon";
+      icon.src = meta.favicon;
+      icon.width = 16;
+      icon.height = 16;
+      icon.onerror = () => icon.remove();
+      card.insertBefore(icon, urlDisplay);
+    }
+    if (meta.title) {
+      const title = document.createElement("h3");
+      title.className = "url-card-title";
+      title.textContent = meta.title;
+      card.insertBefore(title, urlDisplay);
+    }
+    if (meta.description) {
+      const desc = document.createElement("p");
+      desc.className = "url-card-desc";
+      desc.textContent = meta.description.slice(0, 200);
+      card.insertBefore(desc, urlDisplay);
+    }
+    if (meta.site_name) {
+      const site = document.createElement("span");
+      site.className = "url-card-site";
+      site.textContent = meta.site_name;
+      card.insertBefore(site, urlDisplay);
+    }
+  }).catch(() => {
+    loading.textContent = url;
+  });
 }
 
 function renderPlainText(text) {

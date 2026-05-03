@@ -1,4 +1,4 @@
-use crate::models::{ClipItem, ContentType};
+use crate::models::{ClipItem, ContentType, UrlMeta};
 use rusqlite::{params, Connection, Result as SqlResult};
 use std::path::Path;
 use std::str::FromStr;
@@ -96,6 +96,18 @@ impl StorageEngine {
             self.conn
                 .execute("ALTER TABLE clips ADD COLUMN is_sensitive INTEGER DEFAULT 0", [])?;
         }
+
+        // URL 元数据缓存表
+        self.conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS url_meta_cache (
+                url         TEXT PRIMARY KEY,
+                title       TEXT,
+                description TEXT,
+                favicon     TEXT,
+                site_name   TEXT,
+                fetched_at  INTEGER NOT NULL
+            );"
+        )?;
 
         Ok(())
     }
@@ -415,6 +427,47 @@ impl StorageEngine {
             .execute(&sql_del, rusqlite::params_from_iter(params_boxed2.iter()))?;
 
         Ok(ids)
+    }
+
+    /// 查询 URL 元数据缓存（7 天内有效）
+    pub fn get_url_meta(&self, url: &str) -> Result<Option<UrlMeta>, StorageError> {
+        let max_age = now_secs() - 7 * 86400;
+        let result = self.conn.query_row(
+            "SELECT url, title, description, favicon, site_name FROM url_meta_cache
+             WHERE url = ?1 AND fetched_at > ?2",
+            params![url, max_age],
+            |row| {
+                Ok(UrlMeta {
+                    url: row.get(0)?,
+                    title: row.get(1)?,
+                    description: row.get(2)?,
+                    favicon: row.get(3)?,
+                    site_name: row.get(4)?,
+                })
+            },
+        );
+        match result {
+            Ok(meta) => Ok(Some(meta)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(StorageError::Database(e)),
+        }
+    }
+
+    /// 写入 URL 元数据缓存
+    pub fn set_url_meta(&self, meta: &UrlMeta) -> Result<(), StorageError> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO url_meta_cache (url, title, description, favicon, site_name, fetched_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                meta.url,
+                meta.title,
+                meta.description,
+                meta.favicon,
+                meta.site_name,
+                now_secs(),
+            ],
+        )?;
+        Ok(())
     }
 }
 

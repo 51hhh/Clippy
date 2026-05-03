@@ -1,6 +1,6 @@
 use crate::clipboard_watcher::ClipboardWatcher;
 use crate::config::save_config;
-use crate::models::{AppConfig, ClipItem, ContentType};
+use crate::models::{AppConfig, ClipItem, ContentType, UrlMeta};
 use crate::storage::StorageEngine;
 use arboard::Clipboard;
 use base64::{engine::general_purpose::STANDARD, Engine};
@@ -482,4 +482,149 @@ pub async fn ocr_install() -> Result<String, String> {
             Err(format!("安装失败: {}", stderr.trim()))
         }
     }
+}
+
+/// 抓取 URL 的 Open Graph 元数据（标题、描述、favicon），带 SQLite 缓存
+#[tauri::command]
+pub fn fetch_url_meta(url: String, state: State<AppState>) -> Result<UrlMeta, String> {
+    // 校验 URL 格式
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err("仅支持 http/https URL".to_string());
+    }
+
+    // 查缓存
+    {
+        let storage = state.storage.lock().map_err(|e| e.to_string())?;
+        if let Ok(Some(cached)) = storage.get_url_meta(&url) {
+            return Ok(cached);
+        }
+    }
+
+    // 抓取（超时 5 秒）
+    let agent = ureq::Agent::new_with_config(
+        ureq::config::Config::builder()
+            .timeout_global(Some(std::time::Duration::from_secs(5)))
+            .build()
+    );
+    let resp = agent.get(&url)
+        .header("User-Agent", "Clippy/0.1 (Link Preview)")
+        .call()
+        .map_err(|e| format!("请求失败: {}", e))?;
+
+    let content_type = resp.headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    if !content_type.contains("text/html") {
+        return Err("非 HTML 页面".to_string());
+    }
+
+    let body = resp.into_body()
+        .read_to_string()
+        .map_err(|e| format!("读取失败: {}", e))?;
+
+    let meta = parse_og_meta(&url, &body);
+
+    // 写缓存
+    {
+        let storage = state.storage.lock().map_err(|e| e.to_string())?;
+        let _ = storage.set_url_meta(&meta);
+    }
+
+    Ok(meta)
+}
+
+/// 从 HTML 中解析 Open Graph / 常规 meta 标签
+fn parse_og_meta(url: &str, html: &str) -> UrlMeta {
+    // 简单解析：不依赖 DOM 库，用正则提取 <meta> 和 <title>
+    let get_meta = |property: &str| -> Option<String> {
+        // og:xxx 格式
+        let pattern = format!(
+            r#"<meta[^>]+(?:property|name)=["']{}["'][^>]+content=["']([^"']*)["']"#,
+            regex_lite::escape(property)
+        );
+        if let Ok(re) = regex_lite::Regex::new(&pattern) {
+            if let Some(caps) = re.captures(html) {
+                let val = caps.get(1)?.as_str().trim().to_string();
+                if !val.is_empty() {
+                    return Some(html_decode(&val));
+                }
+            }
+        }
+        // 反向属性顺序：content 在前
+        let pattern2 = format!(
+            r#"<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name)=["']{}["']"#,
+            regex_lite::escape(property)
+        );
+        if let Ok(re) = regex_lite::Regex::new(&pattern2) {
+            if let Some(caps) = re.captures(html) {
+                let val = caps.get(1)?.as_str().trim().to_string();
+                if !val.is_empty() {
+                    return Some(html_decode(&val));
+                }
+            }
+        }
+        None
+    };
+
+    let title = get_meta("og:title").or_else(|| {
+        // fallback: <title>...</title>
+        let re = regex_lite::Regex::new(r"<title[^>]*>([^<]+)</title>").ok()?;
+        let caps = re.captures(html)?;
+        let val = caps.get(1)?.as_str().trim().to_string();
+        if val.is_empty() { None } else { Some(html_decode(&val)) }
+    });
+
+    let description = get_meta("og:description")
+        .or_else(|| get_meta("description"));
+
+    let site_name = get_meta("og:site_name");
+
+    // favicon：优先 <link rel="icon">，fallback /favicon.ico
+    let favicon = {
+        let re = regex_lite::Regex::new(
+            r#"<link[^>]+rel=["'](?:icon|shortcut icon)["'][^>]+href=["']([^"']+)["']"#
+        ).ok();
+        re.and_then(|r| r.captures(html))
+            .and_then(|c| c.get(1))
+            .map(|m| {
+                let href = m.as_str().trim();
+                if href.starts_with("http") {
+                    href.to_string()
+                } else if href.starts_with("//") {
+                    format!("https:{}", href)
+                } else {
+                    // 相对路径 → 绝对路径
+                    let base = url.split('/').take(3).collect::<Vec<_>>().join("/");
+                    if href.starts_with('/') {
+                        format!("{}{}", base, href)
+                    } else {
+                        format!("{}/{}", base, href)
+                    }
+                }
+            })
+            .or_else(|| {
+                let base = url.split('/').take(3).collect::<Vec<_>>().join("/");
+                Some(format!("{}/favicon.ico", base))
+            })
+    };
+
+    UrlMeta {
+        url: url.to_string(),
+        title,
+        description,
+        favicon,
+        site_name,
+    }
+}
+
+/// 简单 HTML 实体解码
+fn html_decode(s: &str) -> String {
+    s.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&#x27;", "'")
 }
