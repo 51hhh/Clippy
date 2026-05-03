@@ -403,8 +403,8 @@ pub fn pin_clip(id: i64, app_handle: tauri::AppHandle) -> Result<String, String>
 /// 关闭指定贴图窗口
 #[tauri::command]
 pub fn close_pin(label: String, app_handle: tauri::AppHandle) -> Result<(), String> {
-    if !label.starts_with("pin-") {
-        return Err("只能关闭贴图窗口".to_string());
+    if !label.starts_with("pin-") || label[4..].parse::<i64>().is_err() {
+        return Err("无效的贴图窗口标签".to_string());
     }
     if let Some(win) = app_handle.get_webview_window(&label) {
         win.close().map_err(|e| e.to_string())?;
@@ -486,10 +486,15 @@ pub async fn ocr_install() -> Result<String, String> {
 
 /// 抓取 URL 的 Open Graph 元数据（标题、描述、favicon），带 SQLite 缓存
 #[tauri::command]
-pub fn fetch_url_meta(url: String, state: State<AppState>) -> Result<UrlMeta, String> {
+pub async fn fetch_url_meta(url: String, state: State<'_, AppState>) -> Result<UrlMeta, String> {
     // 校验 URL 格式
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err("仅支持 http/https URL".to_string());
+    }
+
+    // SSRF 防护：拒绝内网/回环地址
+    if is_private_url(&url) {
+        return Err("不允许请求内网地址".to_string());
     }
 
     // 查缓存
@@ -500,31 +505,36 @@ pub fn fetch_url_meta(url: String, state: State<AppState>) -> Result<UrlMeta, St
         }
     }
 
-    // 抓取（超时 5 秒）
-    let agent = ureq::Agent::new_with_config(
-        ureq::config::Config::builder()
-            .timeout_global(Some(std::time::Duration::from_secs(5)))
-            .build()
-    );
-    let resp = agent.get(&url)
-        .header("User-Agent", "Clippy/0.1 (Link Preview)")
-        .call()
-        .map_err(|e| format!("请求失败: {}", e))?;
+    // 在独立线程中执行网络请求，避免阻塞 IPC 线程池
+    let url_clone = url.clone();
+    let meta = tauri::async_runtime::spawn_blocking(move || -> Result<UrlMeta, String> {
+        let agent = ureq::Agent::new_with_config(
+            ureq::config::Config::builder()
+                .timeout_global(Some(std::time::Duration::from_secs(5)))
+                .build()
+        );
+        let resp = agent.get(&url_clone)
+            .header("User-Agent", "Clippy/0.1 (Link Preview)")
+            .call()
+            .map_err(|e| format!("请求失败: {}", e))?;
 
-    let content_type = resp.headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .to_string();
-    if !content_type.contains("text/html") {
-        return Err("非 HTML 页面".to_string());
-    }
+        let content_type = resp.headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        if !content_type.contains("text/html") {
+            return Err("非 HTML 页面".to_string());
+        }
 
-    let body = resp.into_body()
-        .read_to_string()
-        .map_err(|e| format!("读取失败: {}", e))?;
+        let body = resp.into_body()
+            .read_to_string()
+            .map_err(|e| format!("读取失败: {}", e))?;
 
-    let meta = parse_og_meta(&url, &body);
+        Ok(parse_og_meta(&url_clone, &body))
+    })
+    .await
+    .map_err(|e| format!("线程异常: {}", e))??;
 
     // 写缓存
     {
@@ -627,4 +637,32 @@ fn html_decode(s: &str) -> String {
         .replace("&quot;", "\"")
         .replace("&#39;", "'")
         .replace("&#x27;", "'")
+}
+
+/// SSRF 防护：检测 URL 的主机部分是否为内网/回环/链路本地地址
+fn is_private_url(url: &str) -> bool {
+    // 提取 host 部分（scheme://host[:port]/path）
+    let after_scheme = url.split("://").nth(1).unwrap_or("");
+    let host_port = after_scheme.split('/').next().unwrap_or("");
+    let host = if host_port.starts_with('[') {
+        // IPv6: [::1]:port
+        host_port.split(']').next().unwrap_or("").trim_start_matches('[')
+    } else {
+        host_port.split(':').next().unwrap_or("")
+    };
+    let h = host.to_lowercase();
+    h == "localhost"
+        || h == "::1"
+        || h == "0.0.0.0"
+        || h.starts_with("127.")
+        || h.starts_with("10.")
+        || h.starts_with("192.168.")
+        || h.starts_with("172.16.") || h.starts_with("172.17.") || h.starts_with("172.18.")
+        || h.starts_with("172.19.") || h.starts_with("172.20.") || h.starts_with("172.21.")
+        || h.starts_with("172.22.") || h.starts_with("172.23.") || h.starts_with("172.24.")
+        || h.starts_with("172.25.") || h.starts_with("172.26.") || h.starts_with("172.27.")
+        || h.starts_with("172.28.") || h.starts_with("172.29.") || h.starts_with("172.30.")
+        || h.starts_with("172.31.")
+        || h.starts_with("169.254.")
+        || h.starts_with("fd") || h.starts_with("fe80")
 }
