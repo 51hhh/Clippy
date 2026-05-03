@@ -87,5 +87,17 @@
   "update.later": "稍后提醒",
   "update.install": "立即安装",
   "update.close": "关闭",
-  "update.download": "前往下载"
+  "update.download": "前往下载",
+  "preview.decoded": "解码结果",
+  "preview.original": "原始内容",
+  "preview.hashHint": "不可逆哈希，无法解码",
+  "preview.encryptedHint": "🔒 检测到加密内容",
+  "preview.pgpHint": "请使用 gpg 或 ssh-keygen 解密",
+  "preview.algorithm": "算法",
+  "preview.password": "密码",
+  "preview.key": "密钥 (hex)",
+  "preview.decrypt": "🔓 解密",
+  "preview.decrypted": "解密结果",
+  "preview.ciphertext": "密文",
+  "preview.urlLoading": "加载中..."
 }

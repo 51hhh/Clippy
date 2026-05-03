@@ -87,5 +87,17 @@
   "update.later": "Later",
   "update.install": "Install",
   "update.close": "Close",
-  "update.download": "Download"
+  "update.download": "Download",
+  "preview.decoded": "Decoded",
+  "preview.original": "Original",
+  "preview.hashHint": "Irreversible hash — cannot be decoded",
+  "preview.encryptedHint": "🔒 Encrypted content detected",
+  "preview.pgpHint": "Use gpg or ssh-keygen to decrypt",
+  "preview.algorithm": "Algorithm",
+  "preview.password": "Password",
+  "preview.key": "Key (hex)",
+  "preview.decrypt": "🔓 Decrypt",
+  "preview.decrypted": "Decrypted",
+  "preview.ciphertext": "Ciphertext",
+  "preview.urlLoading": "Loading..."
 }
