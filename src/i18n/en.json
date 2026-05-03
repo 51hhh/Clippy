@@ -104,5 +104,6 @@
   "preview.tsRelative": "Relative",
   "preview.tsPrecision": "Precision",
   "preview.ipType": "Type",
-  "preview.ipVersion": "Version"
+  "preview.ipVersion": "Version",
+  "preview.opensslNote": "Only supports openssl enc -pbkdf2 format"
 }

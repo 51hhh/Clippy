@@ -104,5 +104,6 @@
   "preview.tsRelative": "相对时间",
   "preview.tsPrecision": "精度",
   "preview.ipType": "类型",
-  "preview.ipVersion": "版本"
+  "preview.ipVersion": "版本",
+  "preview.opensslNote": "仅支持 openssl enc -pbkdf2 格式"
 }
