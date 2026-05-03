@@ -43,6 +43,7 @@
     "linux": {
       "deb": {
         "depends": [],
+        "recommends": ["tesseract-ocr", "tesseract-ocr-chi-sim"],
         "desktopTemplate": "com.clippy.app.desktop",
         "postInstallScript": "scripts/postinst.sh",
         "postRemoveScript": "scripts/postrm.sh"

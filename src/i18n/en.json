@@ -14,7 +14,7 @@
   "action.ocr": "OCR",
   "action.ocrProcessing": "Recognizing...",
   "action.ocrFailed": "OCR Failed",
-  "action.ocrUnavailable": "OCR unavailable: install tesseract-ocr",
+  "action.ocrUnavailable": "OCR unavailable: run sudo apt install tesseract-ocr",
   "action.ocrEmpty": "No text recognized",
   "action.ocrCopyHint": "Ctrl+C to copy selected text",
   "action.more": "More actions",
