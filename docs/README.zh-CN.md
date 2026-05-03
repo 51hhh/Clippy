@@ -73,6 +73,14 @@ sudo dpkg -i clippy_*.deb
 chmod +x Clippy_*.AppImage && ./Clippy_*.AppImage
 ```
 
+**OCR（可选）：** 图片文字识别需要单独安装 tesseract：
+
+```bash
+sudo apt install tesseract-ocr tesseract-ocr-chi-sim
+```
+
+未安装 tesseract 时，Clippy 正常运行，OCR 功能会显示安装提示。
+
 ## 从源码构建
 
 前置要求：Rust 工具链、Node.js ≥ 20、Tauri v2 系统依赖。
@@ -90,6 +98,8 @@ cargo tauri build
 ```
 
 构建产物：`src-tauri/target/release/bundle/`
+
+> **提示**：若预构建的 deb 在你的系统上无法运行（如系统库版本不匹配），从源码编译可确保完全兼容。
 
 ## 技术栈
 

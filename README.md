@@ -73,6 +73,14 @@ sudo dpkg -i clippy_*.deb
 chmod +x Clippy_*.AppImage && ./Clippy_*.AppImage
 ```
 
+**OCR (optional):** Image text recognition requires tesseract installed separately:
+
+```bash
+sudo apt install tesseract-ocr tesseract-ocr-chi-sim
+```
+
+If tesseract is not installed, Clippy works normally — OCR just shows an install hint.
+
 ## Build from Source
 
 Requires: Rust toolchain, Node.js ≥ 20, Tauri v2 system dependencies.
@@ -90,6 +98,8 @@ cargo tauri build
 ```
 
 Output: `src-tauri/target/release/bundle/`
+
+> **Tip**: If the pre-built deb doesn't work on your distro (e.g. system library mismatch), building from source ensures full compatibility with your system.
 
 ## Tech Stack
 

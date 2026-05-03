@@ -319,6 +319,7 @@ pub fn run() {
             commands::is_dev_binary,
             commands::pin_clip,
             commands::close_pin,
+            commands::ocr_available,
             commands::ocr_image,
         ])
         .run(tauri::generate_context!())

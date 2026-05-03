@@ -11,7 +11,7 @@
  * 安全：剪贴板原始数据不可修改，所有处理仅在预览渲染层面。
  */
 
-import { getClipImage, getClipDetail, setPreviewVisible, ocrImage, getConfig } from "./api.js";
+import { getClipImage, getClipDetail, setPreviewVisible, ocrAvailable, ocrImage, getConfig } from "./api.js";
 import { t } from "../i18n/i18n.js";
 import DOMPurify from "dompurify";
 import hljs from "highlight.js/lib/core";
@@ -330,11 +330,20 @@ async function renderImage(clip) {
       // 自动 OCR：在图片下方显示可选择的识别文字
       const ocrArea = document.createElement("div");
       ocrArea.className = "preview-ocr-result";
-      ocrArea.dataset.status = "loading";
       const ocrText = document.createElement("pre");
-      ocrText.textContent = t("action.ocrProcessing");
       ocrArea.appendChild(ocrText);
       _contentEl.appendChild(ocrArea);
+
+      // 先检查 OCR 是否可用
+      const available = await ocrAvailable().catch(() => false);
+      if (!available) {
+        ocrText.textContent = t("action.ocrUnavailable");
+        ocrArea.dataset.status = "unavailable";
+        return;
+      }
+
+      ocrArea.dataset.status = "loading";
+      ocrText.textContent = t("action.ocrProcessing");
 
       // 异步识别
       ocrImage(clip.id).then(async (text) => {
