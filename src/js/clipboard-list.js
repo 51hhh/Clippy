@@ -294,6 +294,16 @@ export async function activateFocus(source = "keyboard") {
   return invokeAction(clip, action, source);
 }
 
+/** 数字键直选：按索引选中条目并粘贴（0-based） */
+export async function selectByIndex(index) {
+  const items = visibleItems();
+  if (index < 0 || index >= items.length) return false;
+  const clip = items[index];
+  if (!clip) return false;
+  await invokeAction(clip, "copy", "number-key");
+  return true;
+}
+
 async function invokeAction(clip, action, source) {
   try {
     if (action === "copy") {
@@ -543,7 +553,12 @@ function buildRow(clip, idx) {
 
   const meta = document.createElement("div");
   meta.className = "clip-row-meta";
-  meta.textContent = `${formatRelativeTime(clip.created_at)} · ${formatType(clip.content_type)} · ${fmtSize(clip.byte_size)}`;
+  const metaParts = [`${formatRelativeTime(clip.created_at)} · ${formatType(clip.content_type)} · ${fmtSize(clip.byte_size)}`];
+  if (clip.is_sensitive) {
+    row.classList.add("sensitive");
+    metaParts.unshift("🔒");
+  }
+  meta.textContent = metaParts.join(" ");
 
   main.append(preview, meta);
 

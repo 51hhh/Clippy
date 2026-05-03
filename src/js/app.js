@@ -122,6 +122,16 @@ function onKeyDown(e) {
   }
 
   switch (e.key) {
+    // 数字键 1-9/0：直选第 1-10 条并粘贴
+    case "1": case "2": case "3": case "4": case "5":
+    case "6": case "7": case "8": case "9": case "0": {
+      e.preventDefault();
+      const idx = e.key === "0" ? 9 : parseInt(e.key) - 1;
+      clipboardList.selectByIndex(idx).then(ok => {
+        if (ok) getCurrentWindow().hide();
+      });
+      return;
+    }
     case "ArrowUp":
     case "w":
     case "W":
