@@ -99,5 +99,10 @@
   "preview.decrypt": "🔓 解密",
   "preview.decrypted": "解密结果",
   "preview.ciphertext": "密文",
-  "preview.urlLoading": "加载中..."
+  "preview.urlLoading": "加载中...",
+  "preview.tsLocal": "本地时间",
+  "preview.tsRelative": "相对时间",
+  "preview.tsPrecision": "精度",
+  "preview.ipType": "类型",
+  "preview.ipVersion": "版本"
 }
