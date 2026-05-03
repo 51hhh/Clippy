@@ -138,6 +138,163 @@ function isJson(text) {
   try { JSON.parse(text); return true; } catch { return false; }
 }
 
+// ── 编码 / 哈希 / 加密检测 ──────────────────────────────────
+
+/** 可打印文本比例检测（防 Base64/Hex 误判） */
+function isReadable(decoded) {
+  if (!decoded || decoded.length === 0) return false;
+  let printable = 0;
+  const len = Math.min(decoded.length, 200);
+  for (let i = 0; i < len; i++) {
+    const c = decoded.charCodeAt(i);
+    if ((c >= 32 && c <= 126) || c > 0x2E80 || c === 10 || c === 13 || c === 9) printable++;
+  }
+  return printable / len > 0.9;
+}
+
+/** Base64url 解码（JWT 用） */
+function base64urlDecode(str) {
+  let b64 = str.replace(/-/g, "+").replace(/_/g, "/");
+  while (b64.length % 4) b64 += "=";
+  return atob(b64);
+}
+
+/** JWT 检测：eyJ 开头 + 恰好 2 个 '.' + 每段合法 Base64url */
+function isJwt(text) {
+  if (!text.startsWith("eyJ")) return false;
+  const parts = text.split(".");
+  if (parts.length !== 3) return false;
+  return parts.every(p => /^[A-Za-z0-9_-]+={0,2}$/.test(p));
+}
+
+/** 解析 JWT → { header, payload, signature } */
+function parseJwt(text) {
+  const [h, p, s] = text.split(".");
+  let header, payload;
+  try { header = JSON.parse(base64urlDecode(h)); } catch { header = null; }
+  try { payload = JSON.parse(base64urlDecode(p)); } catch { payload = null; }
+  return { header, payload, signature: s };
+}
+
+/** Base64 检测 */
+const BASE64_RE = /^[A-Za-z0-9+/]{24,}={0,2}$/;
+function isBase64(text) {
+  if (text.length < 24 || text.length % 4 !== 0) return false;
+  if (!BASE64_RE.test(text)) return false;
+  try {
+    const decoded = atob(text);
+    // 检查是否为图片魔数
+    if (decoded.startsWith("\x89PNG") || decoded.startsWith("GIF8") ||
+        decoded.startsWith("\xFF\xD8\xFF") || decoded.startsWith("RIFF")) {
+      return { type: "base64-image", decoded, original: text };
+    }
+    if (isReadable(decoded)) {
+      return { type: "base64", decoded, original: text };
+    }
+    return false;
+  } catch { return false; }
+}
+
+/** URL 编码检测 */
+const URL_ENCODED_RE = /%[0-9A-Fa-f]{2}/g;
+function isUrlEncoded(text) {
+  if (text.includes("\n")) return false;
+  const matches = text.match(URL_ENCODED_RE);
+  if (!matches || matches.length < 2) return false;
+  try {
+    const decoded = decodeURIComponent(text);
+    if (decoded === text) return false;
+    return { type: "url-encoded", decoded, original: text };
+  } catch { return false; }
+}
+
+/** HTML 实体检测 */
+const HTML_ENTITY_RE = /&(?:#\d+|#x[0-9a-f]+|\w+);/gi;
+function isHtmlEntities(text) {
+  const matches = text.match(HTML_ENTITY_RE);
+  if (!matches || matches.length < 2) return false;
+  const el = document.createElement("textarea");
+  el.innerHTML = text;
+  const decoded = el.value;
+  if (decoded === text) return false;
+  return { type: "html-entity", decoded, original: text };
+}
+
+/** Unicode 转义检测 */
+const UNICODE_RE = /\\u[0-9a-fA-F]{4}/g;
+function isUnicodeEscape(text) {
+  const matches = text.match(UNICODE_RE);
+  if (!matches || matches.length < 2) return false;
+  try {
+    const decoded = text.replace(UNICODE_RE, (m) =>
+      String.fromCharCode(parseInt(m.slice(2), 16))
+    );
+    if (decoded === text) return false;
+    return { type: "unicode", decoded, original: text };
+  } catch { return false; }
+}
+
+/** Hex 编码检测 */
+const HEX_RE = /^(?:0x)?[0-9a-f]+$/i;
+function isHexEncoded(text) {
+  const clean = text.startsWith("0x") || text.startsWith("0X") ? text.slice(2) : text;
+  if (clean.length < 8 || clean.length % 2 !== 0 || clean.length > 2000) return false;
+  if (!HEX_RE.test(text)) return false;
+  // 排除哈希（精确长度匹配在 identifyHash 中处理）
+  if ([32, 40, 64, 128].includes(clean.length)) return false;
+  try {
+    let decoded = "";
+    for (let i = 0; i < clean.length; i += 2) {
+      decoded += String.fromCharCode(parseInt(clean.slice(i, i + 2), 16));
+    }
+    if (isReadable(decoded)) {
+      return { type: "hex", decoded, original: text };
+    }
+    return false;
+  } catch { return false; }
+}
+
+/** 统一编码检测入口 */
+function detectEncoding(text) {
+  // 顺序：URL编码 → HTML实体 → Unicode转义 → Base64 → Hex
+  return isUrlEncoded(text) || isHtmlEntities(text) || isUnicodeEscape(text)
+    || isBase64(text) || isHexEncoded(text) || false;
+}
+
+/** 哈希类型识别 */
+const HASH_PATTERNS = [
+  { re: /^[0-9a-f]{32}$/i,  name: "MD5" },
+  { re: /^[0-9a-f]{40}$/i,  name: "SHA-1" },
+  { re: /^[0-9a-f]{64}$/i,  name: "SHA-256" },
+  { re: /^[0-9a-f]{128}$/i, name: "SHA-512" },
+  { re: /^\$2[aby]\$\d{2}\$.{53}$/,       name: "bcrypt" },
+  { re: /^\$argon2(id?|d)\$v=\d+\$m=/,    name: "Argon2" },
+];
+function identifyHash(text) {
+  for (const { re, name } of HASH_PATTERNS) {
+    if (re.test(text)) return name;
+  }
+  return null;
+}
+
+/** 加密内容检测 */
+const OPENSSL_PREFIX = "U2FsdGVkX1"; // Base64 of "Salted__"
+function detectEncrypted(text) {
+  if (text.startsWith("-----BEGIN PGP MESSAGE-----")) return "PGP";
+  if (text.startsWith("-----BEGIN ENCRYPTED PRIVATE KEY-----")) return "ENCRYPTED-KEY";
+  if (text.startsWith(OPENSSL_PREFIX)) return "AES-OpenSSL";
+  // 通用加密检测：长 Base64 + 解码后不可读
+  if (text.length >= 44 && text.length % 4 === 0 && BASE64_RE.test(text)) {
+    try {
+      const decoded = atob(text);
+      if (!isReadable(decoded) && decoded.length >= 16 && decoded.length % 16 === 0) {
+        return "AES-Generic";
+      }
+    } catch { /* not base64 */ }
+  }
+  return null;
+}
+
 // Markdown 特征正则（需要多个特征匹配才认定为 Markdown）
 const MD_HEADING = /^#{1,6}\s+\S/m;
 const MD_FENCED_CODE = /^```/m;
@@ -280,6 +437,40 @@ async function _doUpdatePreview(clip) {
     return;
   }
 
+  const trimmed = text.trim();
+
+  // 0.6 JWT 检测（必须在编码检测之前，否则被误识别为 Base64）
+  if (trimmed.length > 30 && isJwt(trimmed)) {
+    await ensureLibs();
+    renderJwt(trimmed);
+    return;
+  }
+
+  // 0.7 可逆编码检测（Base64/URL编码/HTML实体/Unicode/Hex）
+  const encodingResult = detectEncoding(trimmed);
+  if (encodingResult) {
+    if (encodingResult.type === "base64-image") {
+      renderBase64Image(encodingResult);
+    } else {
+      renderEncoded(encodingResult);
+    }
+    return;
+  }
+
+  // 0.8 哈希识别（不可逆，仅标注）
+  const hashType = trimmed.length >= 32 && trimmed.length <= 200 && identifyHash(trimmed);
+  if (hashType) {
+    renderHash(trimmed, hashType);
+    return;
+  }
+
+  // 0.9 加密内容检测（允许输入密钥解密）
+  const encryptType = trimmed.length >= 24 && detectEncrypted(trimmed);
+  if (encryptType) {
+    renderEncrypted(trimmed, encryptType);
+    return;
+  }
+
   // 延迟加载渲染库（首次调用时初始化 hljs/marked/DOMPurify）
   await ensureLibs();
 
@@ -348,6 +539,302 @@ function renderJson(text) {
   code.innerHTML = DOMPurify.sanitize(highlighted.value, { ALLOWED_TAGS: ["span"], ALLOWED_ATTR: ["class"] });
   pre.appendChild(code);
   _contentEl.appendChild(pre);
+}
+
+// ── 编码 / 哈希 / 加密 渲染函数 ────────────────────────────
+
+/** 可逆编码对照渲染 */
+function renderEncoded(result) {
+  const LABELS = {
+    "base64": "BASE64", "url-encoded": "URL ENCODED",
+    "html-entity": "HTML ENTITY", "unicode": "UNICODE", "hex": "HEX",
+  };
+  _badgeEl.textContent = LABELS[result.type] || result.type.toUpperCase();
+  _contentEl.classList.add("preview-content--encoded");
+
+  // 解码结果
+  const decodedSection = document.createElement("div");
+  decodedSection.className = "encoded-section encoded-decoded";
+  const decodedLabel = document.createElement("div");
+  decodedLabel.className = "encoded-label";
+  decodedLabel.textContent = t("preview.decoded") || "Decoded";
+  const decodedBox = document.createElement("pre");
+  decodedBox.className = "encoded-box";
+  decodedBox.textContent = result.decoded;
+  decodedSection.append(decodedLabel, decodedBox);
+
+  // 原文（可折叠）
+  const originalSection = document.createElement("details");
+  originalSection.className = "encoded-section encoded-original";
+  const summary = document.createElement("summary");
+  summary.className = "encoded-label encoded-toggle";
+  summary.textContent = t("preview.original") || "Original";
+  const originalBox = document.createElement("pre");
+  originalBox.className = "encoded-box encoded-box--muted";
+  originalBox.textContent = result.original;
+  originalSection.append(summary, originalBox);
+
+  _contentEl.append(decodedSection, originalSection);
+}
+
+/** Base64 图片渲染 */
+function renderBase64Image(result) {
+  _badgeEl.textContent = "BASE64 → IMAGE";
+  _contentEl.classList.add("preview-content--image");
+  const img = document.createElement("img");
+  // 通过魔数推断格式
+  const d = result.decoded;
+  let mime = "image/png";
+  if (d.startsWith("\xFF\xD8\xFF")) mime = "image/jpeg";
+  else if (d.startsWith("GIF8")) mime = "image/gif";
+  else if (d.startsWith("RIFF")) mime = "image/webp";
+  img.src = `data:${mime};base64,${result.original}`;
+  img.alt = "Base64 decoded image";
+  _contentEl.appendChild(img);
+}
+
+/** JWT 结构化渲染 */
+function renderJwt(text) {
+  _badgeEl.textContent = "JWT";
+  _contentEl.classList.add("preview-content--encoded");
+  const { header, payload, signature } = parseJwt(text);
+
+  // Header
+  if (header) {
+    const sec = _jwtSection("Header", JSON.stringify(header, null, 2));
+    _contentEl.appendChild(sec);
+  }
+  // Payload
+  if (payload) {
+    const sec = _jwtSection("Payload", JSON.stringify(payload, null, 2));
+    _contentEl.appendChild(sec);
+  }
+  // Signature
+  const sigSec = document.createElement("div");
+  sigSec.className = "encoded-section jwt-signature";
+  const sigLabel = document.createElement("div");
+  sigLabel.className = "encoded-label encoded-label--warn";
+  sigLabel.textContent = "⚠ Signature (not verified)";
+  const sigBox = document.createElement("pre");
+  sigBox.className = "encoded-box encoded-box--muted";
+  sigBox.textContent = signature;
+  sigSec.append(sigLabel, sigBox);
+  _contentEl.appendChild(sigSec);
+}
+
+function _jwtSection(label, jsonText) {
+  const sec = document.createElement("div");
+  sec.className = "encoded-section";
+  const lbl = document.createElement("div");
+  lbl.className = "encoded-label";
+  lbl.textContent = label;
+  sec.appendChild(lbl);
+
+  const pre = document.createElement("pre");
+  const code = document.createElement("code");
+  code.className = "hljs language-json";
+  const highlighted = hljs.highlight(jsonText, { language: "json" });
+  code.innerHTML = DOMPurify.sanitize(highlighted.value, { ALLOWED_TAGS: ["span"], ALLOWED_ATTR: ["class"] });
+  pre.appendChild(code);
+  sec.appendChild(pre);
+  return sec;
+}
+
+/** 哈希识别渲染 */
+function renderHash(text, hashType) {
+  _badgeEl.textContent = `HASH · ${hashType}`;
+  _contentEl.classList.add("preview-content--text");
+  const mono = document.createElement("pre");
+  mono.className = "encoded-box";
+  mono.textContent = text;
+  _contentEl.appendChild(mono);
+  const hint = document.createElement("div");
+  hint.className = "encoded-hint";
+  hint.textContent = t("preview.hashHint") || "Irreversible hash — cannot be decoded";
+  _contentEl.appendChild(hint);
+}
+
+/** 加密内容渲染 + 密钥输入解密 */
+function renderEncrypted(text, encType) {
+  _badgeEl.textContent = `ENCRYPTED · ${encType}`;
+  _contentEl.classList.add("preview-content--encoded");
+
+  // 加密标识
+  const lockIcon = document.createElement("div");
+  lockIcon.className = "encrypted-header";
+  lockIcon.textContent = t("preview.encryptedHint") || "🔒 Encrypted content detected";
+  _contentEl.appendChild(lockIcon);
+
+  // PGP / ENCRYPTED-KEY 不提供解密 UI
+  if (encType === "PGP" || encType === "ENCRYPTED-KEY") {
+    const box = document.createElement("pre");
+    box.className = "encoded-box encoded-box--muted";
+    box.textContent = text;
+    _contentEl.appendChild(box);
+    const hint = document.createElement("div");
+    hint.className = "encoded-hint";
+    hint.textContent = t("preview.pgpHint") || "Use gpg or ssh-keygen to decrypt";
+    _contentEl.appendChild(hint);
+    return;
+  }
+
+  // 解密表单
+  const form = document.createElement("div");
+  form.className = "decrypt-form";
+
+  // 算法选择
+  const algoRow = _formRow(t("preview.algorithm") || "Algorithm");
+  const algoSelect = document.createElement("select");
+  algoSelect.className = "decrypt-select";
+  const algos = encType === "AES-OpenSSL"
+    ? ["AES-256-CBC", "AES-128-CBC"]
+    : ["AES-256-CBC", "AES-128-CBC", "AES-256-GCM", "AES-128-GCM"];
+  for (const a of algos) {
+    const opt = document.createElement("option");
+    opt.value = a;
+    opt.textContent = a;
+    algoSelect.appendChild(opt);
+  }
+  algoRow.appendChild(algoSelect);
+  form.appendChild(algoRow);
+
+  // 密码/密钥
+  const keyRow = _formRow(encType === "AES-OpenSSL"
+    ? (t("preview.password") || "Password")
+    : (t("preview.key") || "Key (hex)"));
+  const keyInput = document.createElement("input");
+  keyInput.type = encType === "AES-OpenSSL" ? "password" : "text";
+  keyInput.className = "decrypt-input";
+  keyInput.placeholder = encType === "AES-OpenSSL" ? "passphrase" : "hex key";
+  keyRow.appendChild(keyInput);
+  form.appendChild(keyRow);
+
+  // IV 输入（非 OpenSSL 格式需要）
+  let ivInput = null;
+  if (encType !== "AES-OpenSSL") {
+    const ivRow = _formRow("IV (hex)");
+    ivInput = document.createElement("input");
+    ivInput.type = "text";
+    ivInput.className = "decrypt-input";
+    ivInput.placeholder = "initialization vector (hex)";
+    ivRow.appendChild(ivInput);
+    form.appendChild(ivRow);
+  }
+
+  // 解密按钮
+  const btn = document.createElement("button");
+  btn.className = "decrypt-btn";
+  btn.textContent = t("preview.decrypt") || "🔓 Decrypt";
+  form.appendChild(btn);
+  _contentEl.appendChild(form);
+
+  // 密文展示
+  const cipherSection = document.createElement("details");
+  cipherSection.className = "encoded-section";
+  const cipherSummary = document.createElement("summary");
+  cipherSummary.className = "encoded-label encoded-toggle";
+  cipherSummary.textContent = t("preview.ciphertext") || "Ciphertext";
+  const cipherBox = document.createElement("pre");
+  cipherBox.className = "encoded-box encoded-box--muted";
+  cipherBox.textContent = text;
+  cipherSection.append(cipherSummary, cipherBox);
+  _contentEl.appendChild(cipherSection);
+
+  // 解密结果区
+  const resultArea = document.createElement("div");
+  resultArea.className = "decrypt-result";
+  resultArea.hidden = true;
+  _contentEl.appendChild(resultArea);
+
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    btn.textContent = "⏳";
+    resultArea.hidden = true;
+    try {
+      let decrypted;
+      if (encType === "AES-OpenSSL") {
+        decrypted = await decryptOpenSSL(text, keyInput.value, algoSelect.value);
+      } else {
+        decrypted = await decryptGeneric(text, keyInput.value, ivInput?.value || "", algoSelect.value);
+      }
+      resultArea.hidden = false;
+      resultArea.innerHTML = "";
+      const label = document.createElement("div");
+      label.className = "encoded-label";
+      label.textContent = t("preview.decrypted") || "Decrypted";
+      const box = document.createElement("pre");
+      box.className = "encoded-box";
+      box.textContent = decrypted;
+      resultArea.append(label, box);
+    } catch (err) {
+      resultArea.hidden = false;
+      resultArea.innerHTML = "";
+      const errEl = document.createElement("div");
+      errEl.className = "decrypt-error";
+      errEl.textContent = `❌ ${err.message || err}`;
+      resultArea.appendChild(errEl);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = t("preview.decrypt") || "🔓 Decrypt";
+    }
+  });
+}
+
+function _formRow(label) {
+  const row = document.createElement("div");
+  row.className = "decrypt-row";
+  const lbl = document.createElement("label");
+  lbl.className = "decrypt-label";
+  lbl.textContent = label;
+  row.appendChild(lbl);
+  return row;
+}
+
+/** OpenSSL 格式解密：Salted__ + PBKDF2 → AES */
+async function decryptOpenSSL(b64Text, password, algo) {
+  const raw = Uint8Array.from(atob(b64Text), c => c.charCodeAt(0));
+  // 前 8 字节 = "Salted__"，接下来 8 字节 = salt
+  if (raw.length < 16) throw new Error("Invalid OpenSSL format");
+  const salt = raw.slice(8, 16);
+  const ciphertext = raw.slice(16);
+
+  const keyLen = algo.includes("256") ? 32 : 16;
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt, iterations: 10000, hash: "SHA-256" },
+    keyMaterial, (keyLen + 16) * 8
+  );
+  const derived = new Uint8Array(bits);
+  const key = derived.slice(0, keyLen);
+  const iv = derived.slice(keyLen, keyLen + 16);
+
+  const cryptoKey = await crypto.subtle.importKey("raw", key, "AES-CBC", false, ["decrypt"]);
+  const decrypted = await crypto.subtle.decrypt({ name: "AES-CBC", iv }, cryptoKey, ciphertext);
+  return new TextDecoder().decode(decrypted);
+}
+
+/** 通用 AES 解密：用户提供 hex key + hex IV */
+async function decryptGeneric(b64Text, hexKey, hexIV, algo) {
+  const ciphertext = Uint8Array.from(atob(b64Text), c => c.charCodeAt(0));
+  const key = hexToBytes(hexKey);
+  const iv = hexToBytes(hexIV);
+
+  const isGCM = algo.includes("GCM");
+  const algoName = isGCM ? "AES-GCM" : "AES-CBC";
+  const cryptoKey = await crypto.subtle.importKey("raw", key, algoName, false, ["decrypt"]);
+  const params = isGCM ? { name: "AES-GCM", iv } : { name: "AES-CBC", iv };
+  const decrypted = await crypto.subtle.decrypt(params, cryptoKey, ciphertext);
+  return new TextDecoder().decode(decrypted);
+}
+
+function hexToBytes(hex) {
+  const clean = hex.replace(/\s/g, "");
+  const bytes = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < clean.length; i += 2) {
+    bytes[i / 2] = parseInt(clean.slice(i, i + 2), 16);
+  }
+  return bytes;
 }
 
 function renderMarkdown(text) {
