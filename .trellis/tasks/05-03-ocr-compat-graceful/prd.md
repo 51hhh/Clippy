@@ -30,10 +30,10 @@ v0.1.11 引入 `leptess = "0.14"` 后，OCR 功能动态链接了 libtesseract �
 
 ## Acceptance Criteria
 
-- [ ] deb 安装后在 Ubuntu 24.04/26.04 上可启动
-- [ ] 缺少 libtesseract 时应用仍可启动，OCR 按钮/功能显示不可用提示
-- [ ] CI check 在 ubuntu-24.04 上通过
-- [ ] cargo clippy 通过
+- [x] deb 安装后在 Ubuntu 24.04/26.04 上可启动
+- [x] 缺少 tesseract 时应用仍可启动，OCR 按钮/功能显示不可用提示
+- [x] CI check 在 ubuntu-24.04 上通过
+- [x] cargo clippy 通过
 
 ## Technical Notes
 
