@@ -125,5 +125,7 @@
   "preview.mimeSubtype": "Subtype",
   "preview.mimeDesc": "Description",
   "preview.httpCategory": "Category",
-  "preview.httpMessage": "Message"
+  "preview.httpMessage": "Message",
+  "codec.tooLarge": "Content too large for auto-processing. Reduce input size.",
+  "codec.suggest": "Detected encoding — click to apply"
 }

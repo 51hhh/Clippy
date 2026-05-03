@@ -46,6 +46,10 @@ export function setPreviewVisible(visible) {
   return invoke("set_preview_visible", { visible });
 }
 
+export function setCodecVisible(visible) {
+  return invoke("set_codec_visible", { visible });
+}
+
 /** 读取配置 */
 export function getConfig() {
   return invoke("get_config");

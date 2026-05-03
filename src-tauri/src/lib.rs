@@ -181,6 +181,7 @@ pub fn run() {
                 config_path,
                 watcher,
                 preview_visible: Arc::new(Mutex::new(false)),
+                codec_visible: Arc::new(Mutex::new(false)),
             });
 
             // ── 6. 构建系统托盘 ──────────────────────────────────────────────
@@ -344,6 +345,7 @@ pub fn run() {
             commands::get_clip_image,
             commands::get_clip_detail,
             commands::set_preview_visible,
+            commands::set_codec_visible,
             commands::get_config,
             commands::update_config,
             commands::update_shortcut,

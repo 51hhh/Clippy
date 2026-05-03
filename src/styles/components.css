@@ -981,3 +981,144 @@
   background: var(--bg-tertiary);
   color: var(--text-primary);
 }
+
+/* ============================================================
+   编解码面板 (Codec Panel)
+   ============================================================ */
+.codec-panel {
+  display: flex;
+  flex-direction: column;
+  width: 400px;
+  min-width: 400px;
+  height: 100%;
+  border-right: 1px solid var(--border);
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+.codec-panel.hidden {
+  display: none;
+}
+
+/* 顶部工具栏 */
+.codec-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.codec-select {
+  flex: 1;
+  font-size: 12px;
+  font-family: inherit;
+  padding: 5px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  outline: none;
+}
+.codec-select:focus {
+  border-color: var(--accent);
+}
+.codec-icon-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.codec-icon-btn:hover {
+  background: var(--bg-tertiary);
+}
+
+/* Smart Detection 提示 */
+.codec-smart-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--accent);
+  background: var(--bg-secondary);
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.codec-smart-hint:hover {
+  background: var(--bg-tertiary);
+}
+.codec-hint-icon {
+  font-size: 13px;
+}
+
+/* Input 文本区 */
+.codec-textarea {
+  flex: 1;
+  min-height: 80px;
+  padding: 10px;
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  border: none;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  resize: none;
+  outline: none;
+  overflow-y: auto;
+}
+.codec-textarea::placeholder {
+  color: var(--text-muted);
+}
+
+/* 操作栏 */
+.codec-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.codec-action-btn {
+  padding: 3px 10px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.codec-action-btn:hover {
+  background: var(--bg-tertiary);
+}
+
+/* Output 区 */
+.codec-output {
+  flex: 1;
+  min-height: 80px;
+  padding: 10px;
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+  user-select: text;
+}
+.codec-output--error {
+  color: var(--error, #e53e3e);
+}

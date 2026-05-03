@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use tauri::{Manager, State};
 
 const WINDOW_WIDTH_DEFAULT: f64 = 380.0;
-const WINDOW_WIDTH_PREVIEW: f64 = 780.0;
+const WINDOW_WIDTH_PANEL: f64 = 400.0;
 const WINDOW_HEIGHT: f64 = 500.0;
 
 /// 全局应用状态，通过 Tauri 的 manage() 注入并在各命令中共享
@@ -19,6 +19,7 @@ pub struct AppState {
     pub config_path: PathBuf,
     pub watcher: ClipboardWatcher,
     pub preview_visible: Arc<Mutex<bool>>,
+    pub codec_visible: Arc<Mutex<bool>>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -189,6 +190,13 @@ pub fn get_clip_detail(id: i64, state: State<AppState>) -> Result<ClipItem, Stri
     Ok(clip)
 }
 
+/// 计算当前窗口宽度（根据面板可见状态）
+fn calc_window_width(state: &State<AppState>) -> f64 {
+    let pv = state.preview_visible.lock().map(|v| *v).unwrap_or(false);
+    let cv = state.codec_visible.lock().map(|v| *v).unwrap_or(false);
+    WINDOW_WIDTH_DEFAULT + if pv { WINDOW_WIDTH_PANEL } else { 0.0 } + if cv { WINDOW_WIDTH_PANEL } else { 0.0 }
+}
+
 /// 切换预览面板：调整主窗口宽度
 #[tauri::command]
 pub fn set_preview_visible(
@@ -200,14 +208,28 @@ pub fn set_preview_visible(
         *pv = visible;
     }
     if let Some(window) = app_handle.get_webview_window("main") {
-        let width = if visible {
-            WINDOW_WIDTH_PREVIEW
-        } else {
-            WINDOW_WIDTH_DEFAULT
-        };
-        let height = WINDOW_HEIGHT;
+        let width = calc_window_width(&state);
         window
-            .set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }))
+            .set_size(tauri::Size::Logical(tauri::LogicalSize { width, height: WINDOW_HEIGHT }))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// 切换编解码面板：调整主窗口宽度
+#[tauri::command]
+pub fn set_codec_visible(
+    visible: bool,
+    app_handle: tauri::AppHandle,
+    state: State<AppState>,
+) -> Result<(), String> {
+    if let Ok(mut cv) = state.codec_visible.lock() {
+        *cv = visible;
+    }
+    if let Some(window) = app_handle.get_webview_window("main") {
+        let width = calc_window_width(&state);
+        window
+            .set_size(tauri::Size::Logical(tauri::LogicalSize { width, height: WINDOW_HEIGHT }))
             .map_err(|e| e.to_string())?;
     }
     Ok(())
