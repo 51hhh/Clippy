@@ -25,6 +25,12 @@ describe("isReadable", () => {
   it("returns true for Chinese text", () => {
     expect(T.isReadable("你好世界")).toBe(true);
   });
+  it("returns true for Latin Extended (French, etc.)", () => {
+    expect(T.isReadable("Héllo café résumé")).toBe(true);
+  });
+  it("returns true for Cyrillic text", () => {
+    expect(T.isReadable("Привет мир")).toBe(true);
+  });
   it("returns false for empty string", () => {
     expect(T.isReadable("")).toBe(false);
   });
@@ -351,6 +357,9 @@ describe("uuidVersion", () => {
   it("identifies v7", () => {
     expect(T.uuidVersion("018f6b80-e29b-71d4-a716-446655440000")).toBe("v7");
   });
+  it("returns null for unknown version", () => {
+    expect(T.uuidVersion("550e8400-e29b-a1d4-a716-446655440000")).toBe(null);
+  });
 });
 
 // ─── IP Address Detection ───────────────────────────────────
@@ -373,6 +382,12 @@ describe("isIpAddress", () => {
   });
   it("rejects plain text", () => {
     expect(T.isIpAddress("not an ip")).toBe(false);
+  });
+  it("rejects double :: in IPv6", () => {
+    expect(T.isIpAddress("::1::2")).toBe(false);
+  });
+  it("rejects too-short IPv6 without ::", () => {
+    expect(T.isIpAddress("1:2")).toBe(false);
   });
 });
 

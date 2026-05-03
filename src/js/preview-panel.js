@@ -147,24 +147,28 @@ function isReadable(decoded) {
   const len = Math.min(decoded.length, 200);
   for (let i = 0; i < len; i++) {
     const c = decoded.charCodeAt(i);
-    if ((c >= 32 && c <= 126) || c > 0x2E80 || c === 10 || c === 13 || c === 9) printable++;
+    // ASCII 可打印 + 非 ASCII 正常 Unicode（排除控制字符 0x80-0x9F 和 BOM/FFFE）
+    if ((c >= 32 && c <= 126) || (c >= 0xA0 && c !== 0xFFFE && c !== 0xFFFF) || c === 10 || c === 13 || c === 9) printable++;
   }
   return printable / len > 0.9;
 }
 
-/** Base64url 解码（JWT 用） */
+/** Base64url 解码（JWT 用），正确处理 UTF-8 多字节字符 */
 function base64urlDecode(str) {
   let b64 = str.replace(/-/g, "+").replace(/_/g, "/");
   while (b64.length % 4) b64 += "=";
-  return atob(b64);
+  const binary = atob(b64);
+  const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
 }
 
 /** JWT 检测：eyJ 开头 + 恰好 2 个 '.' + 每段合法 Base64url */
+const BASE64URL_PART_RE = /^[A-Za-z0-9_-]+={0,2}$/;
 function isJwt(text) {
   if (!text.startsWith("eyJ")) return false;
   const parts = text.split(".");
   if (parts.length !== 3) return false;
-  return parts.every(p => /^[A-Za-z0-9_-]+={0,2}$/.test(p));
+  return parts.every(p => BASE64URL_PART_RE.test(p));
 }
 
 /** 解析 JWT → { header, payload, signature } */
@@ -245,10 +249,11 @@ function isHexEncoded(text) {
   // 排除哈希（精确长度匹配在 identifyHash 中处理）
   if ([32, 40, 64, 128].includes(clean.length)) return false;
   try {
-    let decoded = "";
+    const chars = [];
     for (let i = 0; i < clean.length; i += 2) {
-      decoded += String.fromCharCode(parseInt(clean.slice(i, i + 2), 16));
+      chars.push(String.fromCharCode(parseInt(clean.slice(i, i + 2), 16)));
     }
+    const decoded = chars.join("");
     if (isReadable(decoded)) {
       return { type: "hex", decoded, original: text };
     }
@@ -285,12 +290,12 @@ function detectEncrypted(text) {
   if (text.startsWith("-----BEGIN PGP MESSAGE-----")) return "PGP";
   if (text.startsWith("-----BEGIN ENCRYPTED PRIVATE KEY-----")) return "ENCRYPTED-KEY";
   if (text.startsWith(OPENSSL_PREFIX)) return "AES-OpenSSL";
-  // 通用加密检测：长 Base64 + 解码后不可读
+  // 通用加密检测：长 Base64 + 解码后不可读 + 高随机性
   const clean = text.replace(/[\s\r\n]/g, "");
-  if (clean.length >= 44 && clean.length % 4 === 0 && BASE64_RE.test(clean)) {
+  if (clean.length >= 64 && clean.length % 4 === 0 && BASE64_RE.test(clean)) {
     try {
       const decoded = atob(clean);
-      if (!isReadable(decoded) && decoded.length >= 16 && decoded.length % 16 === 0) {
+      if (!isReadable(decoded) && decoded.length >= 48 && decoded.length % 16 === 0) {
         return "AES-Generic";
       }
     } catch { /* not base64 */ }
@@ -360,7 +365,7 @@ function uuidVersion(text) {
   const v = parseInt(m[1], 16);
   if (v >= 1 && v <= 5) return `v${v}`;
   if (v === 7) return "v7";
-  return `v${v}`;
+  return null;
 }
 
 /** IP 地址检测 */
@@ -373,8 +378,12 @@ function isIpAddress(text) {
   }
   if (!IPV6_RE.test(text)) return false;
   const addr = text.split("/")[0];
+  // :: 只能出现一次
+  const doubleColonCount = (addr.match(/::/g) || []).length;
+  if (doubleColonCount > 1) return false;
   const parts = addr.split(":");
-  if (parts.length < 2 || parts.length > 8) return false;
+  if (parts.length < 3 || parts.length > 8) return false;
+  if (doubleColonCount === 0 && parts.length !== 8) return false;
   return parts.every(p => p === "" || /^[0-9a-f]{1,4}$/i.test(p));
 }
 
@@ -710,7 +719,7 @@ function renderBase64Image(result) {
   if (d.startsWith("\xFF\xD8\xFF")) mime = "image/jpeg";
   else if (d.startsWith("GIF8")) mime = "image/gif";
   else if (d.startsWith("RIFF")) mime = "image/webp";
-  img.src = `data:${mime};base64,${result.original}`;
+  img.src = `data:${mime};base64,${result.original.replace(/[\s\r\n]/g, "")}`;
   img.alt = "Base64 decoded image";
   _contentEl.appendChild(img);
 }
@@ -975,6 +984,14 @@ function renderEncrypted(text, encType) {
   algoRow.appendChild(algoSelect);
   form.appendChild(algoRow);
 
+  // OpenSSL PBKDF2 模式提示
+  if (encType === "AES-OpenSSL") {
+    const note = document.createElement("div");
+    note.className = "encoded-hint";
+    note.textContent = t("preview.opensslNote") || "Only supports openssl enc -pbkdf2 format";
+    form.appendChild(note);
+  }
+
   // 密码/密钥
   const keyRow = _formRow(encType === "AES-OpenSSL"
     ? (t("preview.password") || "Password")
@@ -1067,11 +1084,13 @@ function _formRow(label) {
   return row;
 }
 
-/** OpenSSL 格式解密：Salted__ + PBKDF2 → AES */
+/** OpenSSL 格式解密：Salted__ + PBKDF2 → AES (仅支持 openssl enc -pbkdf2) */
 async function decryptOpenSSL(b64Text, password, algo) {
   const raw = Uint8Array.from(atob(b64Text), c => c.charCodeAt(0));
   // 前 8 字节 = "Salted__"，接下来 8 字节 = salt
   if (raw.length < 16) throw new Error("Invalid OpenSSL format");
+  const magic = new TextDecoder().decode(raw.slice(0, 8));
+  if (magic !== "Salted__") throw new Error("Missing OpenSSL Salted__ header");
   const salt = raw.slice(8, 16);
   const ciphertext = raw.slice(16);
 
@@ -1107,6 +1126,8 @@ async function decryptGeneric(b64Text, hexKey, hexIV, algo) {
 
 function hexToBytes(hex) {
   const clean = hex.replace(/\s/g, "");
+  if (clean.length === 0 || clean.length % 2 !== 0) throw new Error("Invalid hex length");
+  if (!/^[0-9a-f]+$/i.test(clean)) throw new Error("Invalid hex characters");
   const bytes = new Uint8Array(clean.length / 2);
   for (let i = 0; i < clean.length; i += 2) {
     bytes[i / 2] = parseInt(clean.slice(i, i + 2), 16);
