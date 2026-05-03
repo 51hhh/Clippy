@@ -14,7 +14,7 @@
   "action.ocr": "OCR 识别",
   "action.ocrProcessing": "识别中...",
   "action.ocrFailed": "OCR 识别失败",
-  "action.ocrUnavailable": "OCR 不可用：请安装 tesseract-ocr",
+  "action.ocrUnavailable": "OCR 不可用：请运行 sudo apt install tesseract-ocr tesseract-ocr-chi-sim",
   "action.ocrEmpty": "未识别到文字",
   "action.ocrCopyHint": "Ctrl+C 复制选中文字",
   "action.more": "更多操作",
