@@ -334,6 +334,15 @@ async function renderImage(clip) {
       ocrArea.appendChild(ocrText);
       _contentEl.appendChild(ocrArea);
 
+      // 检查 OCR 是否已启用
+      try {
+        const config = await getConfig();
+        if (config.ocr_enabled === false) {
+          ocrArea.style.display = "none";
+          return;
+        }
+      } catch (_) { /* 读取配置失败则继续 */ }
+
       // 先检查 OCR 是否可用
       const available = await ocrAvailable().catch(() => false);
       if (!available) {

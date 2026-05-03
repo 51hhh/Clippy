@@ -451,3 +451,29 @@ pub async fn ocr_image(id: i64, state: State<'_, AppState>) -> Result<String, St
 
     Ok(text)
 }
+
+/// 通过 pkexec 安装 tesseract-ocr，返回安装结果
+#[tauri::command]
+pub async fn ocr_install() -> Result<String, String> {
+    let output = tauri::async_runtime::spawn_blocking(|| {
+        std::process::Command::new("pkexec")
+            .args([
+                "apt-get",
+                "install",
+                "-y",
+                "tesseract-ocr",
+                "tesseract-ocr-chi-sim",
+            ])
+            .output()
+    })
+    .await
+    .map_err(|e| format!("线程异常: {}", e))?
+    .map_err(|e| format!("启动 pkexec 失败: {}", e))?;
+
+    if output.status.success() {
+        Ok("ok".to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(format!("安装失败: {}", stderr.trim()))
+    }
+}
