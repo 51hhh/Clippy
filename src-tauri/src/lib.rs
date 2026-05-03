@@ -359,6 +359,7 @@ pub fn run() {
             commands::ocr_image,
             commands::ocr_install,
             commands::fetch_url_meta,
+            commands::get_stats,
         ])
         .run(tauri::generate_context!())
         .expect("启动 Tauri 应用失败");

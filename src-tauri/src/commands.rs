@@ -484,6 +484,13 @@ pub async fn ocr_install() -> Result<String, String> {
     }
 }
 
+/// 获取剪贴板统计信息
+#[tauri::command]
+pub fn get_stats(state: State<AppState>) -> Result<serde_json::Value, String> {
+    let storage = state.storage.lock().map_err(|e| e.to_string())?;
+    storage.get_stats().map_err(|e| e.to_string())
+}
+
 /// 抓取 URL 的 Open Graph 元数据（标题、描述、favicon），带 SQLite 缓存
 #[tauri::command]
 pub async fn fetch_url_meta(url: String, state: State<'_, AppState>) -> Result<UrlMeta, String> {

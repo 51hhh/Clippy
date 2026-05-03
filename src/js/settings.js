@@ -12,6 +12,7 @@ import {
   checkShortcutConflict,
   getConfig,
   getAppVersion,
+  getStats,
   isDevBinary,
   ocrAvailable,
   ocrInstall,
@@ -107,6 +108,8 @@ whenReady(async () => {
         autostartToggle.checked = await isAutostartEnabled();
       }
     } catch (e) { console.warn("获取自启动状态失败:", e); }
+    // 加载统计数据
+    loadStats();
   } catch (err) {
     console.error("加载配置失败:", err);
     selectedTheme = "light";
@@ -420,4 +423,25 @@ function showToast(message) {
     toast.classList.remove("show");
     setTimeout(() => toast.classList.add("hidden"), 300);
   }, 2000);
+}
+
+// ── 统计 ──
+function fmtSize(bytes) {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+async function loadStats() {
+  try {
+    const s = await getStats();
+    document.getElementById("stats-total").textContent = s.total;
+    document.getElementById("stats-favorites").textContent = s.favorites;
+    document.getElementById("stats-text").textContent = s.text_count;
+    document.getElementById("stats-html").textContent = s.html_count;
+    document.getElementById("stats-image").textContent = s.image_count;
+    document.getElementById("stats-size").textContent = fmtSize(s.db_size);
+  } catch (e) {
+    console.warn("加载统计失败:", e);
+  }
 }
