@@ -1,6 +1,6 @@
 [package]
 name = "clippy-app"
-version = "0.1.12"
+version = "0.1.14"
 description = "跨平台轻量剪贴板管理器"
 authors = ["zhongweixi2000"]
 edition = "2021"
@@ -37,6 +37,8 @@ tauri-plugin-autostart = "2"
 webkit2gtk = "2.0"
 ureq = "3"
 regex-lite = "0.1"
+inotify = "0.11"
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"

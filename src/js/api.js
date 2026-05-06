@@ -125,6 +125,16 @@ export function getStats() {
   return invoke("get_stats");
 }
 
+/** 切换 tmux 缓冲区捕获 */
+export function toggleTmuxCapture(enabled) {
+  return invoke("toggle_tmux_capture", { enabled });
+}
+
+/** 检查 tmux 是否可用 */
+export function tmuxAvailable() {
+  return invoke("tmux_available");
+}
+
 // ── 事件 ──
 
 export function onClipAdded(callback) {

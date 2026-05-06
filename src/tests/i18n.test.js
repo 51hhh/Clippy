@@ -1,0 +1,77 @@
+/**
+ * i18n.js — 国际化模块测试
+ */
+import { describe, it, expect, beforeEach } from "vitest";
+import * as i18n from "../i18n/i18n.js";
+
+describe("i18n", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("init 设置中文 locale 后 t() 返回中文", () => {
+    i18n.init("zh-CN");
+    expect(i18n.t("settings.title")).toBe("设置");
+    expect(i18n.t("settings.save")).toBe("保存");
+  });
+
+  it("init 设置英文 locale 后 t() 返回英文", () => {
+    i18n.init("en");
+    expect(i18n.t("settings.title")).toBe("Settings");
+    expect(i18n.t("settings.save")).toBe("Save");
+  });
+
+  it("不存在的 key 返回 key 本身", () => {
+    i18n.init("en");
+    expect(i18n.t("nonexistent.key")).toBe("nonexistent.key");
+  });
+
+  it("支持参数插值", () => {
+    i18n.init("zh-CN");
+    expect(i18n.t("time.minutesAgo", { n: 5 })).toBe("5 分钟前");
+    i18n.init("en");
+    expect(i18n.t("time.minutesAgo", { n: 3 })).toBe("3 min ago");
+  });
+
+  it("settings.tmux.* key 在中文和英文中都存在", () => {
+    i18n.init("zh-CN");
+    expect(i18n.t("settings.tmux.label")).toBe("Tmux 捕获");
+    expect(i18n.t("settings.tmux.hint")).toBe("通过 hook 捕获 tmux copy-mode 缓冲区内容");
+    i18n.init("en");
+    expect(i18n.t("settings.tmux.label")).toBe("Tmux Capture");
+    expect(i18n.t("settings.tmux.hint")).toBe("Capture tmux copy-mode buffer via hook");
+  });
+
+  it("settings.stats.* key 在中文和英文中都存在", () => {
+    i18n.init("zh-CN");
+    expect(i18n.t("settings.stats.label")).toBe("统计");
+    expect(i18n.t("settings.stats.total")).toBe("总计");
+    expect(i18n.t("settings.stats.favorites")).toBe("收藏");
+    expect(i18n.t("settings.stats.text")).toBe("文本");
+    expect(i18n.t("settings.stats.html")).toBe("富文本");
+    expect(i18n.t("settings.stats.image")).toBe("图片");
+    expect(i18n.t("settings.stats.dbSize")).toBe("数据库大小");
+    i18n.init("en");
+    expect(i18n.t("settings.stats.label")).toBe("Statistics");
+    expect(i18n.t("settings.stats.total")).toBe("Total");
+    expect(i18n.t("settings.stats.dbSize")).toBe("DB Size");
+  });
+
+  it("applyToDOM 替换 data-i18n 元素文本", () => {
+    document.body.innerHTML = '<span data-i18n="settings.title">Settings</span>';
+    i18n.init("zh-CN");
+    expect(document.querySelector("[data-i18n]").textContent).toBe("设置");
+  });
+
+  it("applyToDOM 替换 data-i18n-attr 指定的属性", () => {
+    document.body.innerHTML = '<input data-i18n="settings.shortcut.placeholder" data-i18n-attr="placeholder" placeholder="Click">';
+    i18n.init("zh-CN");
+    expect(document.querySelector("input").getAttribute("placeholder")).toBe("点击录制以设置...");
+  });
+
+  it("auto locale 解析中文浏览器为 zh-CN", () => {
+    // navigator.language 默认是 en 在 jsdom，但 init("auto") 应回退到 en
+    i18n.init("auto");
+    expect(i18n.currentLocale()).toBe("en");
+  });
+});

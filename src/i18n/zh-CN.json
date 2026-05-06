@@ -62,6 +62,8 @@
   "settings.ocr.installing": "安装中...",
   "settings.ocr.installSuccess": "tesseract 安装成功！",
   "settings.ocr.installFailed": "安装失败，请手动安装",
+  "settings.tmux.label": "Tmux 捕获",
+  "settings.tmux.hint": "通过 hook 捕获 tmux copy-mode 缓冲区内容",
   "settings.autostart.devHint": "（开发构建，设置不会生效）",
   "settings.save": "保存",
   "settings.cancel": "取消",

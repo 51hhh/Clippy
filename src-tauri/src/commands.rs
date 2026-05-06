@@ -274,6 +274,174 @@ pub fn update_config(
     Ok(())
 }
 
+/// 切换 tmux 缓冲区捕获：启用时自动配置 tmux hook，禁用时清除
+#[tauri::command]
+pub fn toggle_tmux_capture(enabled: bool, state: State<AppState>) -> Result<(), String> {
+    if enabled {
+        setup_tmux_hook()?;
+    } else {
+        teardown_tmux_hook();
+    }
+
+    // hook 操作成功后再持久化配置
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.tmux_capture = enabled;
+    save_config(&state.config_path, &config);
+
+    Ok(())
+}
+
+/// 检测 tmux 是否可用（前端据此决定是否显示 tmux 选项）
+#[tauri::command]
+pub fn tmux_available() -> bool {
+    std::process::Command::new("tmux")
+        .arg("-V")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
+/// 配置 tmux after-copy-mode hook（供 lib.rs 启动时调用）
+pub(crate) fn setup_tmux_hook() -> Result<(), String> {
+    let buf_path = tmux_buf_path();
+    // 确保目录存在并设置安全权限
+    if let Some(parent) = buf_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
+        }
+    }
+
+    // 验证路径仅含安全字符，防止命令注入
+    let path_str = buf_path.to_string_lossy();
+    if path_str.contains(['"', '\'', ';', '&', '|']) {
+        return Err("tmux 缓冲路径包含不安全字符".to_string());
+    }
+
+    // 使用 copy-pipe-and-cancel 直接管道复制内容到文件（绕过 paste buffer 时序问题）
+    let pipe_cmd = format!("cat > {}", path_str);
+
+    // 绑定 vi copy-mode 的 y 键
+    let output = std::process::Command::new("tmux")
+        .args([
+            "bind-key", "-T", "copy-mode-vi", "y",
+            "send-keys", "-X", "copy-pipe-and-cancel", &pipe_cmd,
+        ])
+        .output()
+        .map_err(|e| format!("执行 tmux 失败: {}", e))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("tmux copy-pipe 绑定失败 (y): {}", stderr.trim()));
+    }
+
+    // 绑定 Enter 键（部分用户习惯 Enter 复制）
+    let _ = std::process::Command::new("tmux")
+        .args([
+            "bind-key", "-T", "copy-mode-vi", "Enter",
+            "send-keys", "-X", "copy-pipe-and-cancel", &pipe_cmd,
+        ])
+        .output();
+
+    // 绑定鼠标拖选释放
+    let _ = std::process::Command::new("tmux")
+        .args([
+            "bind-key", "-T", "copy-mode-vi", "MouseDragEnd1Pane",
+            "send-keys", "-X", "copy-pipe-and-cancel", &pipe_cmd,
+        ])
+        .output();
+
+    // 同时配置 emacs copy-mode（兼容 mode-keys emacs 用户）
+    let _ = std::process::Command::new("tmux")
+        .args([
+            "bind-key", "-T", "copy-mode", "M-w",
+            "send-keys", "-X", "copy-pipe-and-cancel", &pipe_cmd,
+        ])
+        .output();
+    let _ = std::process::Command::new("tmux")
+        .args([
+            "bind-key", "-T", "copy-mode", "Enter",
+            "send-keys", "-X", "copy-pipe-and-cancel", &pipe_cmd,
+        ])
+        .output();
+    let _ = std::process::Command::new("tmux")
+        .args([
+            "bind-key", "-T", "copy-mode", "MouseDragEnd1Pane",
+            "send-keys", "-X", "copy-pipe-and-cancel", &pipe_cmd,
+        ])
+        .output();
+
+    // 保留 after-copy-mode hook 作为兜底（延迟确保 buffer 已更新）
+    let hook_cmd = format!("run-shell -b \"sleep 0.1; tmux save-buffer {}\"", path_str);
+    let _ = std::process::Command::new("tmux")
+        .args(["set-hook", "-g", "after-copy-mode", &hook_cmd])
+        .output();
+
+    log::info!("tmux copy-pipe 绑定和 after-copy-mode hook 已配置");
+    Ok(())
+}
+
+/// 移除 tmux 绑定和 hook，恢复默认行为
+fn teardown_tmux_hook() {
+    // 恢复 vi copy-mode 默认绑定
+    let _ = std::process::Command::new("tmux")
+        .args([
+            "bind-key", "-T", "copy-mode-vi", "y",
+            "send-keys", "-X", "copy-selection-and-cancel",
+        ])
+        .output();
+    let _ = std::process::Command::new("tmux")
+        .args([
+            "bind-key", "-T", "copy-mode-vi", "Enter",
+            "send-keys", "-X", "copy-selection-and-cancel",
+        ])
+        .output();
+    let _ = std::process::Command::new("tmux")
+        .args([
+            "unbind-key", "-T", "copy-mode-vi", "MouseDragEnd1Pane",
+        ])
+        .output();
+
+    // 恢复 emacs copy-mode 默认绑定
+    let _ = std::process::Command::new("tmux")
+        .args([
+            "bind-key", "-T", "copy-mode", "M-w",
+            "send-keys", "-X", "copy-selection-and-cancel",
+        ])
+        .output();
+    let _ = std::process::Command::new("tmux")
+        .args([
+            "bind-key", "-T", "copy-mode", "Enter",
+            "send-keys", "-X", "copy-selection-and-cancel",
+        ])
+        .output();
+    let _ = std::process::Command::new("tmux")
+        .args([
+            "unbind-key", "-T", "copy-mode", "MouseDragEnd1Pane",
+        ])
+        .output();
+
+    // 移除 hook
+    let _ = std::process::Command::new("tmux")
+        .args(["set-hook", "-gu", "after-copy-mode"])
+        .output();
+
+    // 清理缓冲文件
+    let _ = std::fs::remove_file(tmux_buf_path());
+    log::info!("tmux 绑定和 hook 已移除");
+}
+
+/// tmux 缓冲区文件路径
+pub fn tmux_buf_path() -> std::path::PathBuf {
+    std::path::PathBuf::from(
+        std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string()),
+    )
+    .join("clippy")
+    .join("tmux-buf")
+}
+
 /// 动态更新全局快捷键：注销旧快捷键，注册新快捷键，并持久化到配置
 /// 回调由 plugin 全局 handler 处理（lib.rs::toggle_main_window）。
 #[tauri::command]

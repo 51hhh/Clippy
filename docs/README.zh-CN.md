@@ -47,6 +47,7 @@ Clippy 安静地驻留在系统托盘，后台监听剪贴板变化，让你通�
 ## 功能特性
 
 - **多类型剪贴板** — 自动捕获文本、HTML 和图片，SHA-256 哈希去重
+- **tmux 集成** — 通过 `copy-pipe-and-cancel` 捕获 tmux copy-mode 复制内容，inotify 事件驱动即时检测，自动绑定验证
 - **富文本预览** — 按 `Tab` 键展开预览面板：
   - 代码高亮 — 自动检测 21 种编程语言，highlight.js 渲染
   - Markdown 渲染 — 多特征评分检测，支持 GFM 语法

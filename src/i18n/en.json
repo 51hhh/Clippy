@@ -62,6 +62,8 @@
   "settings.ocr.installing": "Installing...",
   "settings.ocr.installSuccess": "tesseract installed successfully!",
   "settings.ocr.installFailed": "Installation failed, please install manually",
+  "settings.tmux.label": "Tmux Capture",
+  "settings.tmux.hint": "Capture tmux copy-mode buffer via hook",
   "settings.autostart.devHint": "(dev build — setting will not persist)",
   "settings.save": "Save",
   "settings.cancel": "Cancel",

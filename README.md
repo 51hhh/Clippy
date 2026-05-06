@@ -47,6 +47,7 @@ Built with **Tauri v2 + Rust**. No Electron. No bloat.
 ## Features
 
 - **Multi-type clipboard** — Captures text, HTML, and images with SHA-256 deduplication
+- **tmux integration** — Captures tmux copy-mode via `copy-pipe-and-cancel`, inotify-driven instant detection, auto-binding verification
 - **Rich text preview** — Press `Tab` to open the preview panel:
   - Code highlighting — auto-detects 21 languages via highlight.js
   - Markdown rendering — scoring-based detection with GFM support
@@ -122,10 +123,15 @@ flowchart LR
     BE["Rust Backend\n(Tauri IPC)"]
     FE["Frontend\n(list + preview)"]
     TRAY["System Tray"]
+    TMUX["tmux copy-mode"]
+    TW["TmuxWatcher\n(inotify)"]
 
     CB -- "poll 500ms" --> CW
     CW -- "SHA-256 dedup" --> DB
     CW -- "emit event" --> FE
+    TMUX -- "copy-pipe-and-cancel" --> TW
+    TW -- "inotify CLOSE_WRITE" --> DB
+    TW -- "emit event" --> FE
     FE -- "invoke" --> BE
     BE -- "query / write" --> DB
     TRAY -- "toggle / settings" --> BE

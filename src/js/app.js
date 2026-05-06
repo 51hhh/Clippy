@@ -61,6 +61,7 @@ whenReady(async () => {
   await clipboardList.refresh();
 
   await onClipAdded((clip) => {
+    console.debug("[clip-added]", clip.id, clip.content_type, clip.byte_size);
     clipboardList.markDirty();
     clipboardList.prependClip(clip);
   });
@@ -207,6 +208,7 @@ function tryHidePanel() {
 }
 
 async function onWindowFocus() {
+  console.debug("[focus] dirty=", clipboardList.isDirty());
   // 仅在有新数据时才全量刷新，否则只恢复渲染
   if (clipboardList.isDirty()) {
     await clipboardList.refresh();
