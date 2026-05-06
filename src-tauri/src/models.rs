@@ -66,6 +66,8 @@ pub struct AppConfig {
     pub ocr_result_mode: String,
     #[serde(default = "default_ocr_enabled")]
     pub ocr_enabled: bool,
+    #[serde(default)]
+    pub tmux_capture: bool,
 }
 
 fn default_language() -> String {
@@ -100,6 +102,7 @@ impl Default for AppConfig {
             delete_confirm_ms: 1200,
             ocr_result_mode: "preview".to_string(),
             ocr_enabled: true,
+            tmux_capture: false,
         }
     }
 }

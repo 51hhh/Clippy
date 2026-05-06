@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.1.14
+
+### ✨ 新功能
+- **tmux copy-pipe 即时捕获**：使用 `copy-pipe-and-cancel` 将 tmux copy-mode 复制内容直接管道写入文件，彻底解决"延迟一拍"问题（之前 `after-copy-mode` hook 中 `save-buffer` 获取的是上一次的 buffer）
+- **inotify 事件驱动监听**：替换 500ms 文件轮询为 inotify `CLOSE_WRITE|MOVED_TO|CREATE` 事件驱动，零延迟捕获
+- **copy-pipe 绑定自动验证**：每 ~60s 检查绑定完整性，丢失时自动重建
+- **i18n 补全**：设置面板 tmux 捕获和统计面板的中英文翻译
+
+### 🐛 修复
+- `teardown_tmux_hook` 中 Enter 键恢复值从 `cancel` 改为 `copy-selection-and-cancel`（修复关闭 tmux 捕获后 Enter 键不复制的 bug）
+- 设置面板 tmux/统计区域中文不显示（i18n.js 缺失 11 个翻译 key）
+
+### 🏗 架构
+- 新增 `start_tmux_watcher()` 独立线程（inotify + libc::poll 1s 超时）
+- 主线程与 tmux 线程共享 `tmux_last_hash: Arc<Mutex<String>>` 防止重复捕获
+- `setup_tmux_hook()` 绑定 vi/emacs copy-mode 的 y/Enter/MouseDragEnd1Pane
+- `after-copy-mode` hook 保留为兜底（`sleep 0.1` + `save-buffer`）
+- 新增依赖：`inotify = "0.11"`、`libc = "0.2"`
+
+### 🧪 测试
+- **303 测试全部通过**（9 测试文件）
+- 新增 i18n.test.js：9 个测试覆盖翻译完整性、参数插值、DOM 应用
+
+---
+
 ## v0.1.13
 
 ### ✨ 新功能

@@ -174,6 +174,13 @@ pub fn run() {
                 Arc::clone(&config),
             );
 
+            // ── 4b. 若 tmux 捕获已启用，配置 hook ────────────────────────────
+            if app_config.tmux_capture {
+                if let Err(e) = commands::setup_tmux_hook() {
+                    log::warn!("tmux hook 配置失败（可能 tmux 未运行）: {}", e);
+                }
+            }
+
             // ── 5. 注册全局状态 ──────────────────────────────────────────────
             app.manage(AppState {
                 storage,
@@ -362,6 +369,8 @@ pub fn run() {
             commands::ocr_install,
             commands::fetch_url_meta,
             commands::get_stats,
+            commands::toggle_tmux_capture,
+            commands::tmux_available,
         ])
         .run(tauri::generate_context!())
         .expect("启动 Tauri 应用失败");

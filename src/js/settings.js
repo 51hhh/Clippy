@@ -18,6 +18,8 @@ import {
   ocrInstall,
   pauseShortcuts,
   resumeShortcuts,
+  toggleTmuxCapture,
+  tmuxAvailable,
   updateConfig,
   updateShortcut,
 } from "./api.js";
@@ -53,6 +55,8 @@ const ocrStatusDot   = document.getElementById("ocr-status-dot");
 const ocrStatusText  = document.getElementById("ocr-status-text");
 const ocrInstallBtn  = document.getElementById("ocr-install-btn");
 const ocrOptions     = document.getElementById("ocr-options");
+const tmuxGroup      = document.getElementById("tmux-group");
+const tmuxToggle     = document.getElementById("tmux-toggle");
 
 // ── 自定义下拉框 ──
 const ocrModeCtrl = initCustomSelect(ocrModeSelect);
@@ -125,6 +129,7 @@ function fillForm(config) {
   languageSelect.value   = config.language || "auto";
   ocrModeCtrl.value    = config.ocr_result_mode || "preview";
   ocrToggle.checked      = config.ocr_enabled !== false;
+  tmuxToggle.checked     = config.tmux_capture === true;
   updateOcrOptionsVisibility();
 }
 
@@ -327,6 +332,7 @@ saveBtn.addEventListener("click", async () => {
       delete_confirm_ms: savedConfig?.delete_confirm_ms ?? 1200,
       ocr_result_mode: ocrModeCtrl.value,
       ocr_enabled: ocrToggle.checked,
+      tmux_capture: tmuxGroup.style.display !== "none" ? tmuxToggle.checked : (savedConfig?.tmux_capture ?? false),
     };
 
     await updateConfig(newConfig);
@@ -412,6 +418,29 @@ ocrInstallBtn.addEventListener("click", async () => {
 
 // 页面加载时检测 OCR 状态
 checkOcrStatus();
+
+// ── tmux 捕获 ──
+
+async function checkTmuxAvailability() {
+  try {
+    const available = await tmuxAvailable();
+    if (available) {
+      tmuxGroup.style.display = "";
+    }
+  } catch (_) { /* tmux 不可用，隐藏面板 */ }
+}
+
+tmuxToggle.addEventListener("change", async () => {
+  try {
+    await toggleTmuxCapture(tmuxToggle.checked);
+  } catch (err) {
+    console.warn("tmux 切换失败:", err);
+    tmuxToggle.checked = !tmuxToggle.checked;
+    showToast(String(err?.message || err || "tmux error"));
+  }
+});
+
+checkTmuxAvailability();
 
 // Toast
 function showToast(message) {
