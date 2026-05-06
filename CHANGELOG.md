@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.1.15
+
+### 🐛 修复
+- **AppImage Wayland 兼容性修复**：移除 linuxdeploy-plugin-gtk 强制注入的 `GDK_BACKEND=x11`，恢复 Wayland 下页面渲染和托盘图标功能
+- **Wayland 检测逻辑统一**：`is_wayland()` 同时检查 `WAYLAND_DISPLAY` 和 `XDG_SESSION_TYPE`，确保 XWayland 混合环境正确识别
+
+### 🏗 架构
+- Linux-only 依赖（webkit2gtk、zbus、enigo、inotify）移至 `[target.'cfg(target_os = "linux")'.dependencies]` 平台守卫
+- `enableGTKAppId: true` 确保 Wayland 下 GTK app_id 正确设置
+
+### 🧪 测试
+- **Rust 15 测试 + 前端 303 测试全部通过**
+
+---
+
 ## v0.1.14
 
 ### ✨ 新功能

@@ -12,6 +12,17 @@ fn main() {
             // 降低堆顶修剪阈值：free() 后更积极地收缩堆
             std::env::set_var("MALLOC_TRIM_THRESHOLD_", "32768");
         }
+
+        // AppImage 的 linuxdeploy-plugin-gtk 强制设置 GDK_BACKEND=x11，
+        // 导致 Wayland 下托盘图标消失和页面渲染异常。
+        // 在 GTK 初始化前移除此变量，使 WebKit2GTK 使用原生 Wayland 后端。
+        if std::env::var("WAYLAND_DISPLAY").is_ok()
+            || std::env::var("XDG_SESSION_TYPE")
+                .map(|v| v == "wayland")
+                .unwrap_or(false)
+        {
+            unsafe { std::env::remove_var("GDK_BACKEND") };
+        }
     }
 
     clippy_lib::run()
