@@ -96,12 +96,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Clippy ${{ github.ref_name }}"
-          releaseDraft: true
-          prerelease: ${{ contains(github.ref_name, '-rc') }}
-          includeUpdaterJson: true
+
+      - name: Ensure draft release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          gh release create "${TAG}" --title "Clippy ${TAG}" --draft --notes "Building..." \
+            --repo "${{ github.repository }}" 2>/dev/null || true
 
       - name: Rename artifacts with distro suffix
         run: |
@@ -128,6 +130,28 @@ jobs:
             echo "Uploading $f ..."
             gh release upload "${TAG}" "$f" --repo "${{ github.repository }}" --clobber
           done
+
+      - name: Upload default artifacts for updater (ubuntu24 only)
+        if: matrix.label == 'ubuntu24'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          VER="${{ needs.check-version.outputs.version }}"
+          BUNDLE_DIR="src-tauri/target/release/bundle"
+
+          # Upload unsuffixed AppImage + sig + deb for updater compatibility
+          APPIMAGE_SRC=$(find "${BUNDLE_DIR}/appimage" -name "*.AppImage" ! -name "*.sig" 2>/dev/null | head -1)
+          [ -n "$APPIMAGE_SRC" ] && gh release upload "${TAG}" "$APPIMAGE_SRC" --repo "${{ github.repository }}" --clobber
+
+          APPIMAGE_SIG=$(find "${BUNDLE_DIR}/appimage" -name "*.AppImage.sig" 2>/dev/null | head -1)
+          [ -n "$APPIMAGE_SIG" ] && gh release upload "${TAG}" "$APPIMAGE_SIG" --repo "${{ github.repository }}" --clobber
+
+          DEB_SRC="${BUNDLE_DIR}/deb/Clippy_${VER}_amd64.deb"
+          [ -f "$DEB_SRC" ] && gh release upload "${TAG}" "$DEB_SRC" --repo "${{ github.repository }}" --clobber
+
+          DEB_SIG="${BUNDLE_DIR}/deb/Clippy_${VER}_amd64.deb.sig"
+          [ -f "$DEB_SIG" ] && gh release upload "${TAG}" "$DEB_SIG" --repo "${{ github.repository }}" --clobber
 
   update-release:
     name: Update Release Notes
@@ -178,3 +202,42 @@ jobs:
             --title "Clippy ${TAG}" \
             --notes-file release_body.md \
             --draft=false
+
+      - name: Generate and upload updater manifest (latest.json)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          VER="${{ needs.check-version.outputs.version }}"
+          DL="https://github.com/${{ github.repository }}/releases/download/${TAG}"
+          PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          # Extract changelog notes for this version
+          NOTES=$(awk "/^## ${TAG//./\\.}/{found=1; next} /^## v/{if(found) exit} found" CHANGELOG.md | head -20)
+
+          # Download signature files from the release
+          APPIMAGE_SIG=$(gh release download "${TAG}" --repo "${{ github.repository }}" \
+            --pattern "Clippy_${VER}_amd64.AppImage.sig" --output - 2>/dev/null || echo "")
+          DEB_SIG=$(gh release download "${TAG}" --repo "${{ github.repository }}" \
+            --pattern "Clippy_${VER}_amd64.deb.sig" --output - 2>/dev/null || echo "")
+
+          jq -n \
+            --arg ver "$VER" \
+            --arg notes "$NOTES" \
+            --arg pub_date "$PUB_DATE" \
+            --arg app_sig "$APPIMAGE_SIG" \
+            --arg app_url "${DL}/Clippy_${VER}_amd64.AppImage" \
+            --arg deb_sig "$DEB_SIG" \
+            --arg deb_url "${DL}/Clippy_${VER}_amd64.deb" \
+            '{
+              version: $ver,
+              notes: $notes,
+              pub_date: $pub_date,
+              platforms: {
+                "linux-x86_64": { signature: $app_sig, url: $app_url },
+                "linux-x86_64-appimage": { signature: $app_sig, url: $app_url },
+                "linux-x86_64-deb": { signature: $deb_sig, url: $deb_url }
+              }
+            }' > latest.json
+
+          gh release upload "${TAG}" latest.json --repo "${{ github.repository }}" --clobber

@@ -30,9 +30,10 @@ const DBUS_PIN_CMD: &str =
 
 /// 检测当前是否运行在 Wayland 会话中
 pub fn is_wayland() -> bool {
-    std::env::var("XDG_SESSION_TYPE")
-        .map(|v| v == "wayland")
-        .unwrap_or(false)
+    std::env::var("WAYLAND_DISPLAY").is_ok()
+        || std::env::var("XDG_SESSION_TYPE")
+            .map(|v| v == "wayland")
+            .unwrap_or(false)
 }
 
 /// 将 Tauri 快捷键格式转为 GNOME accelerator 格式
