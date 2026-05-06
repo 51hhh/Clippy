@@ -536,10 +536,7 @@ fn start_tmux_watcher(
         // 更新共享 hash
         *tmux_last_hash.lock().unwrap_or_else(|e| e.into_inner()) = hash.clone();
 
-        let max_history = config
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .max_history;
+        let max_history = config.lock().unwrap_or_else(|e| e.into_inner()).max_history;
         let byte_size = content.len() as i64;
         let sensitive = is_sensitive_text(&content);
 

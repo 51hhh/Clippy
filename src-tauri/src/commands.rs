@@ -327,8 +327,14 @@ pub(crate) fn setup_tmux_hook() -> Result<(), String> {
     // 绑定 vi copy-mode 的 y 键
     let output = std::process::Command::new("tmux")
         .args([
-            "bind-key", "-T", "copy-mode-vi", "y",
-            "send-keys", "-X", "copy-pipe-and-cancel", &pipe_cmd,
+            "bind-key",
+            "-T",
+            "copy-mode-vi",
+            "y",
+            "send-keys",
+            "-X",
+            "copy-pipe-and-cancel",
+            &pipe_cmd,
         ])
         .output()
         .map_err(|e| format!("执行 tmux 失败: {}", e))?;
@@ -340,36 +346,66 @@ pub(crate) fn setup_tmux_hook() -> Result<(), String> {
     // 绑定 Enter 键（部分用户习惯 Enter 复制）
     let _ = std::process::Command::new("tmux")
         .args([
-            "bind-key", "-T", "copy-mode-vi", "Enter",
-            "send-keys", "-X", "copy-pipe-and-cancel", &pipe_cmd,
+            "bind-key",
+            "-T",
+            "copy-mode-vi",
+            "Enter",
+            "send-keys",
+            "-X",
+            "copy-pipe-and-cancel",
+            &pipe_cmd,
         ])
         .output();
 
     // 绑定鼠标拖选释放
     let _ = std::process::Command::new("tmux")
         .args([
-            "bind-key", "-T", "copy-mode-vi", "MouseDragEnd1Pane",
-            "send-keys", "-X", "copy-pipe-and-cancel", &pipe_cmd,
+            "bind-key",
+            "-T",
+            "copy-mode-vi",
+            "MouseDragEnd1Pane",
+            "send-keys",
+            "-X",
+            "copy-pipe-and-cancel",
+            &pipe_cmd,
         ])
         .output();
 
     // 同时配置 emacs copy-mode（兼容 mode-keys emacs 用户）
     let _ = std::process::Command::new("tmux")
         .args([
-            "bind-key", "-T", "copy-mode", "M-w",
-            "send-keys", "-X", "copy-pipe-and-cancel", &pipe_cmd,
+            "bind-key",
+            "-T",
+            "copy-mode",
+            "M-w",
+            "send-keys",
+            "-X",
+            "copy-pipe-and-cancel",
+            &pipe_cmd,
         ])
         .output();
     let _ = std::process::Command::new("tmux")
         .args([
-            "bind-key", "-T", "copy-mode", "Enter",
-            "send-keys", "-X", "copy-pipe-and-cancel", &pipe_cmd,
+            "bind-key",
+            "-T",
+            "copy-mode",
+            "Enter",
+            "send-keys",
+            "-X",
+            "copy-pipe-and-cancel",
+            &pipe_cmd,
         ])
         .output();
     let _ = std::process::Command::new("tmux")
         .args([
-            "bind-key", "-T", "copy-mode", "MouseDragEnd1Pane",
-            "send-keys", "-X", "copy-pipe-and-cancel", &pipe_cmd,
+            "bind-key",
+            "-T",
+            "copy-mode",
+            "MouseDragEnd1Pane",
+            "send-keys",
+            "-X",
+            "copy-pipe-and-cancel",
+            &pipe_cmd,
         ])
         .output();
 
@@ -388,39 +424,55 @@ fn teardown_tmux_hook() {
     // 恢复 vi copy-mode 默认绑定
     let _ = std::process::Command::new("tmux")
         .args([
-            "bind-key", "-T", "copy-mode-vi", "y",
-            "send-keys", "-X", "copy-selection-and-cancel",
+            "bind-key",
+            "-T",
+            "copy-mode-vi",
+            "y",
+            "send-keys",
+            "-X",
+            "copy-selection-and-cancel",
         ])
         .output();
     let _ = std::process::Command::new("tmux")
         .args([
-            "bind-key", "-T", "copy-mode-vi", "Enter",
-            "send-keys", "-X", "copy-selection-and-cancel",
+            "bind-key",
+            "-T",
+            "copy-mode-vi",
+            "Enter",
+            "send-keys",
+            "-X",
+            "copy-selection-and-cancel",
         ])
         .output();
     let _ = std::process::Command::new("tmux")
-        .args([
-            "unbind-key", "-T", "copy-mode-vi", "MouseDragEnd1Pane",
-        ])
+        .args(["unbind-key", "-T", "copy-mode-vi", "MouseDragEnd1Pane"])
         .output();
 
     // 恢复 emacs copy-mode 默认绑定
     let _ = std::process::Command::new("tmux")
         .args([
-            "bind-key", "-T", "copy-mode", "M-w",
-            "send-keys", "-X", "copy-selection-and-cancel",
+            "bind-key",
+            "-T",
+            "copy-mode",
+            "M-w",
+            "send-keys",
+            "-X",
+            "copy-selection-and-cancel",
         ])
         .output();
     let _ = std::process::Command::new("tmux")
         .args([
-            "bind-key", "-T", "copy-mode", "Enter",
-            "send-keys", "-X", "copy-selection-and-cancel",
+            "bind-key",
+            "-T",
+            "copy-mode",
+            "Enter",
+            "send-keys",
+            "-X",
+            "copy-selection-and-cancel",
         ])
         .output();
     let _ = std::process::Command::new("tmux")
-        .args([
-            "unbind-key", "-T", "copy-mode", "MouseDragEnd1Pane",
-        ])
+        .args(["unbind-key", "-T", "copy-mode", "MouseDragEnd1Pane"])
         .output();
 
     // 移除 hook
