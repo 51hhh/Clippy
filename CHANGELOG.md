@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.1.16
+
+### ✨ 新功能
+- **搜索体验优化**：短输入（<3字符）走 LIKE 子串匹配，长输入走 FTS5 prefix + LIKE 合并，覆盖 `text_content` 和 `ocr_text`
+- **FTS 索引自动修复**：初始化时执行一次 FTS rebuild，修复旧库索引缺失
+- **select_clip 置顶**：点击列表条目时自动更新 `created_at` 并移动到首位
+
+### 🐛 修复
+- **剪贴板搜索单字母无结果**：旧实现用 FTS5 phrase query 精确匹配，短输入无法命中；改为 LIKE 模糊搜索
+- **重复复制不置顶**：watcher 的 `last_hash` 在 skip 检查前更新，导致 select_clip 后外部重复制被跳过；移动 `last_hash` 更新到 skip 检查之后
+- **select_clip 不移动到首位**：`select_clip` 仅写剪贴板不更新 `created_at`，添加 `touch_clip()` + `clip-added` 事件通知前端
+- **前端重复条目**：`prependClip` 未检查已有条目，重复内容会叠加；添加 `findIndex` + `splice` 去重逻辑
+
+### 🧪 测试
+- **Rust 22 测试 + 前端 306 测试全部通过**
+- 新增 8 个后端搜索测试（单字母、前缀、中文、OCR、特殊字符、收藏过滤、FTS 修复、touch_clip）
+
 ## v0.1.15
 
 ### 🐛 修复

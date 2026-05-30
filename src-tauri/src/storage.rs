@@ -1,5 +1,5 @@
 use crate::models::{ClipItem, ContentType, UrlMeta};
-use rusqlite::{params, Connection, Result as SqlResult};
+use rusqlite::{params, Connection, OptionalExtension, Result as SqlResult};
 use std::path::Path;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -21,6 +21,51 @@ fn now_secs() -> i64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64
+}
+
+fn sanitize_search_query(query: &str) -> String {
+    query
+        .trim()
+        .chars()
+        .filter(|c| !c.is_control())
+        .collect::<String>()
+}
+
+fn like_pattern(query: &str) -> String {
+    let mut pattern = String::with_capacity(query.len() + 2);
+    pattern.push('%');
+    for ch in query.chars() {
+        match ch {
+            '%' | '_' | '\\' => {
+                pattern.push('\\');
+                pattern.push(ch);
+            }
+            _ => pattern.push(ch),
+        }
+    }
+    pattern.push('%');
+    pattern
+}
+
+fn build_fts_prefix_query(query: &str) -> Option<String> {
+    if query
+        .chars()
+        .any(|ch| !ch.is_alphanumeric() && !ch.is_whitespace())
+    {
+        return None;
+    }
+
+    let tokens: Vec<String> = query
+        .split_whitespace()
+        .filter(|token| !token.is_empty())
+        .map(|token| format!("{}*", token))
+        .collect();
+
+    if tokens.is_empty() {
+        None
+    } else {
+        Some(tokens.join(" "))
+    }
 }
 
 impl StorageEngine {
@@ -70,6 +115,11 @@ impl StorageEngine {
 
             CREATE INDEX IF NOT EXISTS idx_clips_created_at ON clips(created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_clips_favorite   ON clips(is_favorite, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS schema_meta (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
             ",
         )?;
 
@@ -111,7 +161,103 @@ impl StorageEngine {
             );",
         )?;
 
+        self.rebuild_fts_once("search_v2")?;
+
         Ok(())
+    }
+
+    fn rebuild_fts_once(&self, version: &str) -> Result<(), StorageError> {
+        let key = "fts_rebuild_version";
+        let current = self
+            .conn
+            .query_row(
+                "SELECT value FROM schema_meta WHERE key = ?1",
+                params![key],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+
+        if current.as_deref() != Some(version) {
+            self.conn
+                .execute("INSERT INTO clips_fts(clips_fts) VALUES ('rebuild')", [])?;
+            self.conn.execute(
+                "INSERT OR REPLACE INTO schema_meta (key, value) VALUES (?1, ?2)",
+                params![key, version],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn search_like(
+        &self,
+        query: &str,
+        favorites_only: bool,
+        offset: i64,
+        limit: i64,
+    ) -> Result<Vec<ClipItem>, StorageError> {
+        let pattern = like_pattern(query);
+        let sql = if favorites_only {
+            "SELECT id, content_type, text_content, NULL, NULL,
+                    content_hash, is_favorite, created_at, byte_size, is_sensitive
+             FROM clips
+             WHERE is_favorite = 1
+               AND (text_content LIKE ?1 ESCAPE '\\' OR ocr_text LIKE ?1 ESCAPE '\\')
+             ORDER BY created_at DESC
+             LIMIT ?2 OFFSET ?3"
+        } else {
+            "SELECT id, content_type, text_content, NULL, NULL,
+                    content_hash, is_favorite, created_at, byte_size, is_sensitive
+             FROM clips
+             WHERE text_content LIKE ?1 ESCAPE '\\' OR ocr_text LIKE ?1 ESCAPE '\\'
+             ORDER BY created_at DESC
+             LIMIT ?2 OFFSET ?3"
+        };
+
+        let mut stmt = self.conn.prepare_cached(sql)?;
+        let clips = stmt
+            .query_map(params![pattern, limit, offset], row_to_clip)?
+            .collect::<SqlResult<Vec<_>>>()?;
+        Ok(clips)
+    }
+
+    fn search_fts_like(
+        &self,
+        fts_query: &str,
+        query: &str,
+        favorites_only: bool,
+        offset: i64,
+        limit: i64,
+    ) -> Result<Vec<ClipItem>, StorageError> {
+        let pattern = like_pattern(query);
+        let sql = if favorites_only {
+            "SELECT id, content_type, text_content, NULL, NULL,
+                    content_hash, is_favorite, created_at, byte_size, is_sensitive
+             FROM clips
+             WHERE is_favorite = 1
+               AND (
+                    id IN (SELECT rowid FROM clips_fts WHERE clips_fts MATCH ?1)
+                    OR text_content LIKE ?2 ESCAPE '\\'
+                    OR ocr_text LIKE ?2 ESCAPE '\\'
+               )
+             ORDER BY created_at DESC
+             LIMIT ?3 OFFSET ?4"
+        } else {
+            "SELECT id, content_type, text_content, NULL, NULL,
+                    content_hash, is_favorite, created_at, byte_size, is_sensitive
+             FROM clips
+             WHERE id IN (SELECT rowid FROM clips_fts WHERE clips_fts MATCH ?1)
+                OR text_content LIKE ?2 ESCAPE '\\'
+                OR ocr_text LIKE ?2 ESCAPE '\\'
+             ORDER BY created_at DESC
+             LIMIT ?3 OFFSET ?4"
+        };
+
+        let mut stmt = self.conn.prepare_cached(sql)?;
+        let clips = stmt
+            .query_map(params![fts_query, pattern, limit, offset], row_to_clip)?
+            .collect::<SqlResult<Vec<_>>>()?;
+        Ok(clips)
     }
 
     /// 插入新条目。若 content_hash 已存在则更新 created_at 并返回该条目。
@@ -176,6 +322,16 @@ impl StorageEngine {
         Ok(clip)
     }
 
+    /// 更新指定条目的 created_at 为当前时间（用于 select_clip 置顶），并返回更新后的条目
+    pub fn touch_clip(&self, id: i64) -> Result<ClipItem, StorageError> {
+        let now = now_secs();
+        self.conn.execute(
+            "UPDATE clips SET created_at = ?1 WHERE id = ?2",
+            params![now, id],
+        )?;
+        self.get_clip_by_id(id)
+    }
+
     /// 通过 id 获取图片二进制数据（仅 image 类型有值）
     pub fn get_clip_image(&self, id: i64) -> Result<Option<Vec<u8>>, StorageError> {
         let result = self.conn.query_row(
@@ -224,34 +380,26 @@ impl StorageEngine {
         let trimmed = query.map(str::trim).unwrap_or("");
 
         if !trimmed.is_empty() {
-            // FTS5 安全：过滤控制字符 + 双引号包裹，防止 FTS 语法注入
-            let sanitized: String = trimmed.chars().filter(|c| !c.is_control()).collect();
-            let safe_query = format!("\"{}\"", sanitized.replace('"', "\"\""));
-            // FTS 搜索路径
-            let sql = if favorites_only {
-                "SELECT c.id, c.content_type, c.text_content, NULL, NULL,
-                        c.content_hash, c.is_favorite, c.created_at, c.byte_size, c.is_sensitive
-                 FROM clips_fts
-                 JOIN clips c ON clips_fts.rowid = c.id
-                 WHERE clips_fts MATCH ?1
-                   AND c.is_favorite = 1
-                 ORDER BY c.created_at DESC
-                 LIMIT ?2 OFFSET ?3"
-            } else {
-                "SELECT c.id, c.content_type, c.text_content, NULL, NULL,
-                        c.content_hash, c.is_favorite, c.created_at, c.byte_size, c.is_sensitive
-                 FROM clips_fts
-                 JOIN clips c ON clips_fts.rowid = c.id
-                 WHERE clips_fts MATCH ?1
-                 ORDER BY c.created_at DESC
-                 LIMIT ?2 OFFSET ?3"
-            };
+            let sanitized = sanitize_search_query(trimmed);
+            if sanitized.is_empty() {
+                return Ok(Vec::new());
+            }
 
-            let mut stmt = self.conn.prepare_cached(sql)?;
-            let clips = stmt
-                .query_map(params![safe_query, limit, offset], row_to_clip)?
-                .collect::<SqlResult<Vec<_>>>()?;
-            return Ok(clips);
+            if sanitized.chars().count() < 3 {
+                return self.search_like(&sanitized, favorites_only, offset, limit);
+            }
+
+            if let Some(fts_query) = build_fts_prefix_query(&sanitized) {
+                match self.search_fts_like(&fts_query, &sanitized, favorites_only, offset, limit) {
+                    Ok(clips) => return Ok(clips),
+                    Err(StorageError::Database(rusqlite::Error::SqliteFailure(_, _))) => {
+                        return self.search_like(&sanitized, favorites_only, offset, limit);
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+
+            return self.search_like(&sanitized, favorites_only, offset, limit);
         }
 
         // 普通查询路径
@@ -597,6 +745,20 @@ mod tests {
             .expect("插入失败")
     }
 
+    fn insert_image(engine: &StorageEngine, hash: &str) -> ClipItem {
+        engine
+            .insert_clip(
+                &ContentType::Image,
+                None,
+                None,
+                Some(&[137, 80, 78, 71]),
+                hash,
+                4,
+                false,
+            )
+            .expect("插入图片失败")
+    }
+
     #[test]
     fn test_insert_and_query() {
         let engine = StorageEngine::new_in_memory().unwrap();
@@ -631,7 +793,7 @@ mod tests {
     }
 
     #[test]
-    fn test_fts_search() {
+    fn test_search_matches_full_words_and_prefixes() {
         let engine = StorageEngine::new_in_memory().unwrap();
         insert_text(&engine, "apple pie recipe", "hash_apple");
         insert_text(&engine, "banana smoothie drink", "hash_banana");
@@ -640,9 +802,116 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].content_hash, "hash_apple");
 
-        let results2 = engine.get_clips(Some("banana"), false, 0, 10).unwrap();
-        assert_eq!(results2.len(), 1);
-        assert_eq!(results2[0].content_hash, "hash_banana");
+        let prefix_results = engine.get_clips(Some("app"), false, 0, 10).unwrap();
+        assert_eq!(prefix_results.len(), 1);
+        assert_eq!(prefix_results[0].content_hash, "hash_apple");
+    }
+
+    #[test]
+    fn test_search_short_input_matches_substrings() {
+        let engine = StorageEngine::new_in_memory().unwrap();
+        insert_text(&engine, "apple pie recipe", "hash_apple");
+        insert_text(&engine, "happy path", "hash_happy");
+
+        let results = engine.get_clips(Some("p"), false, 0, 10).unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().any(|clip| clip.content_hash == "hash_apple"));
+        assert!(results.iter().any(|clip| clip.content_hash == "hash_happy"));
+    }
+
+    #[test]
+    fn test_search_matches_chinese_text() {
+        let engine = StorageEngine::new_in_memory().unwrap();
+        insert_text(&engine, "这是一个剪贴板历史", "hash_cn");
+        insert_text(&engine, "plain english", "hash_en");
+
+        let results = engine.get_clips(Some("剪"), false, 0, 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].content_hash, "hash_cn");
+    }
+
+    #[test]
+    fn test_search_matches_ocr_text() {
+        let engine = StorageEngine::new_in_memory().unwrap();
+        let clip = insert_image(&engine, "hash_image");
+        engine.set_ocr_text(clip.id, "Invoice Total 42").unwrap();
+
+        let results = engine.get_clips(Some("Invoice"), false, 0, 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].content_hash, "hash_image");
+    }
+
+    #[test]
+    fn test_search_special_characters_are_literal() {
+        let engine = StorageEngine::new_in_memory().unwrap();
+        insert_text(&engine, "discount is 100%", "hash_percent");
+        insert_text(&engine, "discount is 1000", "hash_plain");
+        insert_text(&engine, "file_name", "hash_underscore");
+        insert_text(&engine, "file-name", "hash_dash");
+
+        let percent_results = engine.get_clips(Some("100%"), false, 0, 10).unwrap();
+        assert_eq!(percent_results.len(), 1);
+        assert_eq!(percent_results[0].content_hash, "hash_percent");
+
+        let underscore_results = engine.get_clips(Some("file_"), false, 0, 10).unwrap();
+        assert_eq!(underscore_results.len(), 1);
+        assert_eq!(underscore_results[0].content_hash, "hash_underscore");
+    }
+
+    #[test]
+    fn test_search_respects_favorites_filter() {
+        let engine = StorageEngine::new_in_memory().unwrap();
+        let favorite = insert_text(&engine, "apple favorite", "hash_fav");
+        insert_text(&engine, "apple normal", "hash_normal");
+        engine.toggle_favorite(favorite.id).unwrap();
+
+        let results = engine.get_clips(Some("apple"), true, 0, 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].content_hash, "hash_fav");
+        assert!(results[0].is_favorite);
+    }
+
+    #[test]
+    fn test_rebuild_fts_once_repairs_missing_index() {
+        let engine = StorageEngine::new_in_memory().unwrap();
+        insert_text(&engine, "apple pie recipe", "hash_apple");
+        engine.conn.execute("DELETE FROM clips_fts", []).unwrap();
+
+        let before: i64 = engine
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM clips_fts WHERE clips_fts MATCH 'apple'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(before, 0);
+
+        engine.rebuild_fts_once("test_rebuild").unwrap();
+
+        let after: i64 = engine
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM clips_fts WHERE clips_fts MATCH 'apple'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(after, 1);
+    }
+
+    #[test]
+    fn test_touch_clip_updates_timestamp() {
+        let engine = StorageEngine::new_in_memory().unwrap();
+        let clip = insert_text(&engine, "touch test", "hash_touch");
+        let ts1 = clip.created_at;
+
+        std::thread::sleep(Duration::from_secs(1));
+
+        let updated = engine.touch_clip(clip.id).unwrap();
+        assert!(updated.created_at > ts1, "touch_clip 应更新 created_at");
+        assert_eq!(updated.id, clip.id);
+        assert_eq!(updated.content_hash, "hash_touch");
     }
 
     #[test]

@@ -175,8 +175,6 @@ impl ClipboardWatcher {
                     if !html.is_empty() {
                         let hash = compute_hash(html.as_bytes());
                         if hash != last_hash && hash != last_tmux_hash {
-                            last_hash = hash.clone();
-
                             {
                                 let mut skip = skip_hash.lock().unwrap_or_else(|e| e.into_inner());
                                 if skip.as_deref() == Some(&hash) {
@@ -185,6 +183,7 @@ impl ClipboardWatcher {
                                     continue;
                                 }
                             }
+                            last_hash = hash.clone();
 
                             // 获取纯文本回退（用于搜索和预览）
                             let text_fallback = clipboard.get_text().ok().or_else(|| {
@@ -240,8 +239,6 @@ impl ClipboardWatcher {
                     if !text.is_empty() {
                         let hash = compute_hash(text.as_bytes());
                         if hash != last_hash && hash != last_tmux_hash {
-                            last_hash = hash.clone();
-
                             // 跳过 select_clip 写入的内容
                             {
                                 let mut skip = skip_hash.lock().unwrap_or_else(|e| e.into_inner());
@@ -251,6 +248,7 @@ impl ClipboardWatcher {
                                     continue;
                                 }
                             }
+                            last_hash = hash.clone();
 
                             // 先读取 config，再锁 storage，缩小锁范围
                             let max_history =
@@ -303,8 +301,6 @@ impl ClipboardWatcher {
                         if let Some(png_bytes) = encode_image_to_png(&img) {
                             let hash = compute_hash(&png_bytes);
                             if hash != last_hash && hash != last_tmux_hash {
-                                last_hash = hash.clone();
-
                                 // 跳过 select_clip 写入的图片
                                 {
                                     let mut skip =
@@ -315,6 +311,7 @@ impl ClipboardWatcher {
                                         continue;
                                     }
                                 }
+                                last_hash = hash.clone();
 
                                 let max_history =
                                     config.lock().unwrap_or_else(|e| e.into_inner()).max_history;

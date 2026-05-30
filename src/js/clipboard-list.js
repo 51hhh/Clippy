@@ -125,9 +125,39 @@ export async function setPanelMode(mode) {
 export function getPanelMode() { return _panelMode; }
 
 export function prependClip(clip) {
+  // 重复内容再次复制时：后端已更新 created_at 置顶，前端需移除旧位置再插入头部
+  const existIdx = _allClips.findIndex((c) => c.id === clip.id);
+  const focusOnMoved = existIdx !== -1 && _focusedRow === existIdx;
+
+  if (existIdx !== -1) {
+    _allClips.splice(existIdx, 1);
+    // 同步更新收藏列表中的旧对象（保留收藏状态，刷新 created_at）
+    const favIdx = _favClips.findIndex((c) => c.id === clip.id);
+    if (favIdx !== -1) _favClips[favIdx] = clip;
+    if (clip.is_favorite) _favDirty = true;
+    // 移除旧 DOM 节点并重新编号
+    if (!_query && _panelMode === "all" && _parent) {
+      const oldEl = _parent.querySelector(`.clip-row[data-id="${clip.id}"]`);
+      if (oldEl) oldEl.remove();
+      let i = 0;
+      for (const row of _parent.children) {
+        row.dataset.idx = i++;
+      }
+    }
+    // 修正焦点：splice 后 existIdx 之后的项前移一位
+    if (_focusedRow > existIdx) _focusedRow -= 1;
+  } else if (clip.is_favorite) {
+    _favDirty = true;
+  }
+
   _allClips.unshift(clip);
-  if (clip.is_favorite) _favDirty = true;
-  if (_focusedRow >= 0 && _panelMode === "all") _focusedRow += 1;
+  // 焦点原本在被移动条目上 → 它已到 index 0，不走普通 +1 路径
+  if (focusOnMoved) {
+    _focusedRow = 0;
+  } else if (_focusedRow >= 0 && _panelMode === "all") {
+    _focusedRow += 1;
+  }
+
   // 差量更新：若当前视图匹配（非搜索模式），直接 prepend DOM 节点
   if (!_query && _panelMode === "all" && _parent && _parent.children.length > 0) {
     // 更新现有行的 idx
