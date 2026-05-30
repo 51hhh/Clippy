@@ -6,7 +6,7 @@ use arboard::Clipboard;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 
 const WINDOW_WIDTH_DEFAULT: f64 = 380.0;
 const WINDOW_WIDTH_PANEL: f64 = 400.0;
@@ -137,6 +137,13 @@ pub fn select_clip(
             }
         }
     }
+
+    // 置顶：更新 created_at 并通知前端移动到列表首位
+    let updated_clip = {
+        let storage = state.storage.lock().map_err(|e| e.to_string())?;
+        storage.touch_clip(id).map_err(|e| e.to_string())?
+    };
+    let _ = app_handle.emit("clip-added", &updated_clip);
 
     // 隐藏悬浮面板窗口
     if let Some(window) = app_handle.get_webview_window("main") {
