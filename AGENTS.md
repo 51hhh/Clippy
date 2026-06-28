@@ -24,7 +24,7 @@ Keep this managed block so 'trellis update' can refresh the instructions.
 # Clippy — AI Agent 速查指引
 
 ## 项目简介
-Clippy 是跨平台轻量剪贴板管理器。技术栈：Tauri v2 + Rust（后端）+ vanilla HTML/CSS/JS（前端）。  
+Clippy 是跨平台轻量剪贴板管理器。技术栈：Tauri v2 + Rust（后端）+ vanilla HTML/CSS/JS（主前端）+ React/TS（截图编辑功能岛）。
 详细架构与数据流见 [CLAUDE.md](CLAUDE.md)；设计文档见 [docs/superpowers/specs/](docs/superpowers/specs/)。
 
 > ⚠️ 本仓库包含两个独立项目：根目录的 **Clippy** 和 `fxxkDJTU/` 下的发票工具（Vue + TS）。二者无代码依赖。
@@ -37,6 +37,7 @@ cd src-tauri && cargo test                 # Rust 单元测试
 cd src-tauri && cargo clippy -- -D warnings # Lint（警告即错误）
 cd src-tauri && cargo fmt                  # 格式化
 cd src && npx vitest run                   # 前端测试（jsdom）
+cd src && npx tsc --noEmit                 # React/TS 功能岛类型检查
 ./scripts/ci-local.sh                      # 本地质量预检（与 CI 一致）
 ./scripts/ci-local.sh --quick              # 跳过构建，仅 lint + test
 ```

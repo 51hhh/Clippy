@@ -6,7 +6,7 @@
 
 ## Overview
 
-Clippy frontend is **pure HTML + CSS + vanilla JavaScript** — no framework, no TypeScript. Uses Vite for bundling. UI is a floating panel served by Tauri's webview. Multiple color themes via CSS custom properties.
+Clippy main frontend is **HTML + CSS + vanilla JavaScript**. Screenshot editing is an isolated React/TypeScript feature island under `src/react/capture/`. Uses Vite for bundling. UI is served by Tauri's webview. Multiple color themes via CSS custom properties.
 
 ---
 
@@ -25,8 +25,8 @@ Clippy frontend is **pure HTML + CSS + vanilla JavaScript** — no framework, no
 
 ## Quick Reference
 
-- **Stack**: HTML + CSS + vanilla JS (ES modules)
-- **Build**: Vite (`src/vite.config.js`) — outputs to `dist/`, loaded by Tauri
+- **Stack**: HTML + CSS + vanilla JS (main UI), React/TS for screenshot capture island
+- **Build**: Vite (`src/vite.config.mjs`) — outputs to `dist/`, loaded by Tauri
 - **Tauri coupling**: Only in `src/js/api.js` (sole `__TAURI__` access point)
 - **Theming**: CSS custom properties in `themes.css`, toggle via `data-theme` attribute
 - **UI language**: English

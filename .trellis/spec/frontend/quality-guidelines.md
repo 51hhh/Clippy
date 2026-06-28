@@ -6,7 +6,7 @@
 
 ## Overview
 
-Clippy frontend is vanilla HTML/CSS/JS with Vite as the build tool. Quality is maintained through code conventions, manual review, and browser DevTools testing.
+Clippy main frontend is vanilla HTML/CSS/JS with Vite as the build tool. React/TS feature islands are allowed for complex tools and must pass typecheck. Quality is maintained through code conventions, automated tests, manual review, and browser DevTools testing.
 
 ---
 
@@ -41,7 +41,7 @@ Clippy frontend is vanilla HTML/CSS/JS with Vite as the build tool. Quality is m
 ## Testing
 
 - **Manual testing via `cargo tauri dev`** — verify UI in the Tauri webview
-- **Browser testing** — run `cd src && npx vite` for dev server, or run `npx vitest` for unit tests
+- **Browser testing** — run `cd src && npx vite` for dev server, `npx vitest` for unit tests, and `npx tsc --noEmit` for React/TS islands
 - **DevTools** — use Tauri's built-in DevTools (F12) for debugging
 
 ---

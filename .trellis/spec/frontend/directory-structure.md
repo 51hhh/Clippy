@@ -6,7 +6,7 @@
 
 ## Overview
 
-Clippy frontend is **pure HTML + CSS + vanilla JS** — no framework. Uses Vite as dev server and bundler (`src/vite.config.js`). Source files in `src/` are built to `dist/`, which is the Tauri `frontendDist`.
+Clippy main frontend is **HTML + CSS + vanilla JS**. Complex editing surfaces may live as isolated React/TypeScript feature islands, currently `src/react/capture/`. Uses Vite as dev server and bundler (`src/vite.config.mjs`). Source files in `src/` are built to `dist/`, which is the Tauri `frontendDist`.
 
 ---
 
@@ -76,6 +76,6 @@ This enables browser-based UI development — `api.js` can provide mock fallback
 
 ## No Build Step
 
-- Vite handles dev server and production bundling; no transpilation
+- Vite handles dev server and production bundling; React/TS feature islands are transpiled by Vite
 - Use ES modules (`<script type="module">`) for imports between JS files
 - Browser-native APIs only (no polyfills needed — Tauri webview supports modern JS)

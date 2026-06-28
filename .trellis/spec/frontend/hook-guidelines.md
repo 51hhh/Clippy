@@ -6,7 +6,7 @@
 
 ## Overview
 
-Clippy has no React — "hooks" in this context means **event listeners and data fetching patterns** in vanilla JS. The project uses Tauri events for backend-to-frontend push, and `invoke()` for frontend-to-backend requests.
+For the vanilla main UI, "hooks" means **event listeners and data fetching patterns** in JS modules. React hooks are allowed only inside isolated React/TS feature islands such as `src/react/capture/`. The project uses Tauri events for backend-to-frontend push, and `invoke()` for frontend-to-backend requests.
 
 ---
 

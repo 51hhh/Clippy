@@ -6,7 +6,7 @@
 
 ## Overview
 
-Clippy uses **no JS framework** — UI is built with vanilla HTML/CSS/JS. "Components" are DOM elements created and managed by dedicated JS modules. Each module owns its DOM subtree.
+Clippy's main UI uses **no JS framework** — it is built with vanilla HTML/CSS/JS. Screenshot editing is an isolated React/TS feature island. For vanilla modules, "components" are DOM elements created and managed by dedicated JS modules. Each module owns its DOM subtree.
 
 ---
 

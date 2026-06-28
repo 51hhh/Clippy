@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目简介
 
-Clippy 是跨平台轻量剪贴板管理器，基于 Tauri v2 + Rust（后端）+ vanilla HTML/CSS/JS（前端）。详细设计见 `docs/superpowers/specs/2026-04-24-clippy-clipboard-manager-design.md`。
+Clippy 是跨平台轻量剪贴板管理器，基于 Tauri v2 + Rust（后端）+ vanilla HTML/CSS/JS（主前端）+ React/TS（截图编辑功能岛）。详细设计见 `docs/superpowers/specs/2026-04-24-clippy-clipboard-manager-design.md`。
 
 已完成功能：剪贴板监听、SQLite 存储（含 FTS5 全文搜索）、悬浮面板、搜索、系统托盘、全局快捷键动态注册、设置面板（快捷键录制 + 主题切换 + 历史上限）。
 
@@ -59,7 +59,8 @@ cd src-tauri && cargo clippy -- -D warnings
 ├── index.html                         ├── main.rs              — 入口（调用 lib::run）
 ├── settings.html                      ├── lib.rs               — Tauri 初始化：插件、托盘、快捷键、状态管理
 ├── pin.html                           ├── commands.rs          — Tauri IPC 命令
-├── vite.config.js                     ├── clipboard_watcher.rs — 独立线程轮询剪贴板（arboard, 500ms）
+├── capture.html                       ├── screenshot.rs        — Linux 截图捕获与 PNG 编码
+├── vite.config.mjs                    ├── clipboard_watcher.rs — 独立线程轮询剪贴板（arboard, 500ms）
 ├── js/                                ├── storage.rs           — SQLite + FTS5 存储引擎
 │   ├── api.js  — IPC 封装层           ├── config.rs            — JSON 配置读写
 │   ├── app.js  — 主窗口入口           ├── models.rs            — ClipItem, AppConfig, ContentType
@@ -68,6 +69,8 @@ cd src-tauri && cargo clippy -- -D warnings
 │   ├── settings.js                    └── tray_icon.rs         — 系统托盘
 │   ├── pin.js
 │   └── theme.js
+├── react/
+│   └── capture/                       — React/TS 截图编辑功能岛
 └── styles/
     ├── base.css
     ├── components.css
@@ -102,8 +105,9 @@ cd src-tauri && cargo clippy -- -D warnings
 
 ### 前端约定
 
-- 无框架，纯 HTML/CSS/JS + ES Module `<script type="module">`
-- 使用 Vite 作为开发服务器和构建工具（`src/vite.config.js`）
+- 主界面无框架，纯 HTML/CSS/JS + ES Module `<script type="module">`
+- 截图编辑页是隔离的 React/TS 功能岛（`src/react/capture/`），不反向重写主界面
+- 使用 Vite 作为开发服务器和构建工具（`src/vite.config.mjs`）
 - **只有 `api.js` 允许直接访问 `window.__TAURI__`**，其他模块通过 `api.js` 导出函数间接调用
 - 所有用户内容通过 `textContent` 写入 DOM（防 XSS），不使用 `innerHTML`
 - 设置页面（`settings.js`）是例外：独立于主窗口，直接调用 `invoke`

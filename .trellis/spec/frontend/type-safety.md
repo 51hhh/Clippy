@@ -6,7 +6,7 @@
 
 ## Overview
 
-Clippy frontend uses **plain JavaScript** — no TypeScript, no build step. Type safety is achieved through consistent data shapes and JSDoc annotations where clarity helps.
+Clippy main frontend uses **plain JavaScript**; React/TS feature islands may use TypeScript and must pass `npx tsc --noEmit`. Vanilla module type safety is achieved through consistent data shapes and JSDoc annotations where clarity helps.
 
 ---
 
