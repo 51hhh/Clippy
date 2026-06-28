@@ -37,6 +37,8 @@ cd src-tauri && cargo test                 # Rust 单元测试
 cd src-tauri && cargo clippy -- -D warnings # Lint（警告即错误）
 cd src-tauri && cargo fmt                  # 格式化
 cd src && npx vitest run                   # 前端测试（jsdom）
+./scripts/ci-local.sh                      # 本地质量预检（与 CI 一致）
+./scripts/ci-local.sh --quick              # 跳过构建，仅 lint + test
 ```
 
 ## 架构要点
@@ -53,3 +55,74 @@ cd src && npx vitest run                   # 前端测试（jsdom）
 - **语言**：代码注释 / commit 中文，前端 UI 英文
 - **构建目标**：仅 Linux（deb, AppImage）
 - **编码规范**：见 `.trellis/spec/backend/` 和 `.trellis/spec/frontend/`
+
+## Git Commit 规范
+
+遵循 [Conventional Commits](https://www.conventionalcommits.org/) 格式：
+
+```
+<type>(<scope>): <description>
+
+[optional body]
+```
+
+### Type（仅限以下 9 种）
+
+| Type | 用途 |
+|------|------|
+| `feat` | 用户可见的新功能 |
+| `fix` | 用户可见的 bug 修复 |
+| `docs` | 文档变更 |
+| `style` | 代码格式（不改变逻辑） |
+| `refactor` | 重构（不改变功能） |
+| `perf` | 性能优化 |
+| `test` | 测试补充或修正 |
+| `chore` | 构建/依赖/工具链维护 |
+| `ci` | CI/CD 配置变更 |
+
+### 规则（不可违反）
+
+- **first line 不超过 72 字符**，超出部分放 body
+- **"修复"类改动必须用 `fix`**，不用 `feat`
+- **版本号只出现在 `release:` type 中**，不在 feat/fix 里夹带 `(vX.Y.Z)`
+- **scope 可选但一致**：使用模块名（`storage`、`settings`、`pin`、`ocr`、`search`）
+- **body 说明 what/why**，不堆在 first line
+- **一个 commit 做一件事**：不要把 CI + release + bugfix 混在同一个 commit
+
+### 示例
+
+```
+feat(search): 短输入 LIKE 模糊匹配 + FTS prefix fallback
+fix(watcher): select_clip 后 last_hash 更新时序错误
+ci: npm install → npm ci + 添加 vite build 检查
+release: v0.1.16
+```
+
+## 任务闭环规则（不可违反）
+
+Trellis task 生命周期必须与代码实际状态同步：
+
+1. **任何代码变更必须在某个 task 的 `in_progress` 状态下进行**
+   - 开发前：`python3 ./.trellis/scripts/task.py start <name>`
+   - 不能在无 task 的情况下直接提交代码
+
+2. **代码合入 dev 后，task 必须标记 `completed`**
+   - 填写 `commit`、`completedAt`、`branch` 字段
+   - 所有 PRD 验收项必须在代码中体现
+
+3. **定期清理**
+   - 每次 release 后 archive 已完成的 task：`task.py archive <name>`
+   - 超过 2 周未推进的 task 标记 `stale` 或关闭
+
+4. **新功能必须有 PRD**
+   - 使用 `task.py create` 创建 task 目录
+   - `prd.md` 必须包含：Goal、Requirements、Acceptance Criteria、Out of Scope
+   - 参考 `docs/feature-lifecycle.md` 了解完整流程
+
+## 功能开发流程
+
+详见 [docs/feature-lifecycle.md](docs/feature-lifecycle.md)。核心流程：
+
+```
+create task → PRD → 实现 → ci-local.sh → 更新 spec → 更新 CHANGELOG → archive
+```
