@@ -265,17 +265,37 @@ pub fn update_config(
     state: State<AppState>,
 ) -> Result<(), String> {
     let mut config = state.config.lock().map_err(|e| e.to_string())?;
-    // 检测 Pin 快捷键变更
+    let global_changed = config.global_shortcut != new_config.global_shortcut;
     let pin_changed = config.pin_shortcut != new_config.pin_shortcut;
+    let capture_changed = config.capture_shortcut != new_config.capture_shortcut;
     *config = new_config;
     save_config(&state.config_path, &config);
     // 广播配置变更事件，通知所有窗口（尤其是主窗口更新主题）
     use tauri::Emitter;
     let _ = app_handle.emit("config-changed", &*config);
-    // Wayland 下动态更新 Pin 快捷键绑定
-    if pin_changed && crate::gsettings_shortcuts::is_wayland() {
-        if let Err(e) = crate::gsettings_shortcuts::update_pin_binding(&config.pin_shortcut) {
-            log::warn!("更新 Pin 快捷键失败: {}", e);
+    if global_changed || pin_changed || capture_changed {
+        if crate::gsettings_shortcuts::is_wayland() {
+            if global_changed {
+                if let Err(e) = crate::gsettings_shortcuts::update_binding(&config.global_shortcut)
+                {
+                    log::warn!("更新主窗口快捷键失败: {}", e);
+                }
+            }
+            if pin_changed {
+                if let Err(e) = crate::gsettings_shortcuts::update_pin_binding(&config.pin_shortcut)
+                {
+                    log::warn!("更新 Pin 快捷键失败: {}", e);
+                }
+            }
+            if capture_changed {
+                if let Err(e) =
+                    crate::gsettings_shortcuts::update_capture_binding(&config.capture_shortcut)
+                {
+                    log::warn!("更新截图快捷键失败: {}", e);
+                }
+            }
+        } else if let Err(e) = crate::register_x11_shortcuts(&app_handle, &config) {
+            log::warn!("更新 X11 快捷键失败: {}", e);
         }
     }
     Ok(())
@@ -514,13 +534,12 @@ pub fn update_shortcut(
     if crate::gsettings_shortcuts::is_wayland() {
         crate::gsettings_shortcuts::update_binding(&new_shortcut)?;
     } else {
-        use tauri_plugin_global_shortcut::GlobalShortcutExt;
-        let gs = app_handle.global_shortcut();
-        gs.unregister_all().map_err(|e| e.to_string())?;
-        gs.register(new_shortcut.as_str()).map_err(|e| {
-            log::error!("快捷键注册失败: {} -> {}", new_shortcut, e);
-            format!("快捷键注册失败: {}", e)
-        })?;
+        let mut next = {
+            let config = state.config.lock().map_err(|e| e.to_string())?;
+            config.clone()
+        };
+        next.global_shortcut = new_shortcut.clone();
+        crate::register_x11_shortcuts(&app_handle, &next)?;
         log::info!("快捷键注册成功: {}", new_shortcut);
     }
 
@@ -584,18 +603,18 @@ pub fn resume_shortcuts(
     app_handle: tauri::AppHandle,
     state: State<AppState>,
 ) -> Result<(), String> {
-    let shortcut_str = {
+    let config = {
         let config = state.config.lock().map_err(|e| e.to_string())?;
-        config.global_shortcut.clone()
+        config.clone()
     };
     if crate::gsettings_shortcuts::is_wayland() {
-        crate::gsettings_shortcuts::resume(&shortcut_str)
+        crate::gsettings_shortcuts::resume(
+            &config.global_shortcut,
+            &config.pin_shortcut,
+            &config.capture_shortcut,
+        )
     } else {
-        use tauri_plugin_global_shortcut::GlobalShortcutExt;
-        app_handle
-            .global_shortcut()
-            .register(shortcut_str.as_str())
-            .map_err(|e| e.to_string())
+        crate::register_x11_shortcuts(&app_handle, &config)
     }
 }
 
@@ -633,6 +652,23 @@ pub async fn show_capture_editor(
     app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    show_capture_editor_impl(app_handle, Arc::clone(&state.latest_capture)).await
+}
+
+pub(crate) async fn show_capture_editor_for_app(
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    let latest_capture = {
+        let state = app_handle.state::<AppState>();
+        Arc::clone(&state.latest_capture)
+    };
+    show_capture_editor_impl(app_handle, latest_capture).await
+}
+
+async fn show_capture_editor_impl(
+    app_handle: tauri::AppHandle,
+    latest_capture: Arc<Mutex<Option<crate::screenshot::CapturedScreenshot>>>,
+) -> Result<(), String> {
     let capture_was_visible = hide_window_if_visible(&app_handle, "capture");
     let main_was_visible = hide_window_if_visible(&app_handle, "main");
 
@@ -656,7 +692,7 @@ pub async fn show_capture_editor(
     };
 
     {
-        let mut latest = state.latest_capture.lock().map_err(|e| e.to_string())?;
+        let mut latest = latest_capture.lock().map_err(|e| e.to_string())?;
         *latest = Some(captured);
     }
 
@@ -732,10 +768,14 @@ pub fn get_pending_capture(
 
 /// 将前端生成的 PNG 写入系统剪贴板。
 #[tauri::command]
-pub fn copy_screenshot_image(png_base64: String) -> Result<(), String> {
-    let png = crate::screenshot::decode_png_base64(&png_base64).map_err(|e| e.to_string())?;
-    let img_data = png_to_clipboard_image(&png)?;
-    crate::clipboard_watcher::clipboard_set_image_with_retry(img_data)
+pub async fn copy_screenshot_image(png_base64: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let png = crate::screenshot::decode_png_base64(&png_base64).map_err(|e| e.to_string())?;
+        let img_data = png_to_clipboard_image(&png)?;
+        crate::clipboard_watcher::clipboard_set_image_with_retry(img_data)
+    })
+    .await
+    .map_err(|e| format!("截图复制线程异常: {e}"))?
 }
 
 /// 将前端生成的 PNG 保存到 Pictures/Clippy。

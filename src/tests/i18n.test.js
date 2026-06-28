@@ -42,6 +42,15 @@ describe("i18n", () => {
     expect(i18n.t("settings.tmux.hint")).toBe("Capture tmux copy-mode buffer via hook");
   });
 
+  it("settings.captureShortcut.* key 在中文和英文中都存在", () => {
+    i18n.init("zh-CN");
+    expect(i18n.t("settings.captureShortcut.label")).toBe("截图快捷键");
+    expect(i18n.t("settings.captureShortcut.hint")).toBe("启动截图的快捷键");
+    i18n.init("en");
+    expect(i18n.t("settings.captureShortcut.label")).toBe("Screenshot Shortcut");
+    expect(i18n.t("settings.captureShortcut.hint")).toBe("Shortcut to start a screenshot");
+  });
+
   it("settings.stats.* key 在中文和英文中都存在", () => {
     i18n.init("zh-CN");
     expect(i18n.t("settings.stats.label")).toBe("统计");

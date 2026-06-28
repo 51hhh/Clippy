@@ -45,6 +45,20 @@
     </div>
 
     <div class="setting-group">
+      <label class="setting-label" data-i18n="settings.captureShortcut.label">Screenshot Shortcut</label>
+      <div class="shortcut-recorder" id="capture-shortcut-recorder">
+        <input type="text" class="shortcut-input" id="capture-shortcut-input" readonly
+               data-i18n="settings.captureShortcut.placeholder" data-i18n-attr="placeholder"
+               placeholder="Click Record to set...">
+        <button class="btn btn-small" id="capture-shortcut-record-btn"
+                data-i18n="settings.shortcut.record">Record</button>
+        <button class="btn btn-small btn-secondary" id="capture-shortcut-clear-btn"
+                data-i18n="settings.shortcut.reset">Reset</button>
+      </div>
+      <div class="setting-hint" data-i18n="settings.captureShortcut.hint">Shortcut to start a screenshot</div>
+    </div>
+
+    <div class="setting-group">
       <label class="setting-label" data-i18n="settings.theme.label">Theme</label>
       <div class="theme-grid" id="theme-grid" role="radiogroup" aria-label="Theme"></div>
     </div>

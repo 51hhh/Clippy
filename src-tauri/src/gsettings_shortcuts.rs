@@ -17,6 +17,9 @@ const DCONF_BASE: &str =
 /// Pin 快捷键 dconf 路径（custom1）
 const DCONF_PIN_BASE: &str =
     "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom1/";
+/// Capture 快捷键 dconf 路径（custom2）
+const DCONF_CAPTURE_BASE: &str =
+    "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom2/";
 /// gsettings schema
 const SCHEMA: &str = "org.gnome.settings-daemon.plugins.media-keys";
 /// gsettings relocatable schema（读写具体条目用）
@@ -27,6 +30,9 @@ const DBUS_TOGGLE_CMD: &str =
 /// D-Bus PinCurrent 命令
 const DBUS_PIN_CMD: &str =
     "dbus-send --session --type=method_call --dest=com.clippy.app.Shortcuts /com/clippy/app com.clippy.app.PinCurrent";
+/// D-Bus Capture 命令
+const DBUS_CAPTURE_CMD: &str =
+    "dbus-send --session --type=method_call --dest=com.clippy.app.Shortcuts /com/clippy/app com.clippy.app.Capture";
 
 /// 检测当前是否运行在 Wayland 会话中
 pub fn is_wayland() -> bool {
@@ -93,11 +99,34 @@ pub fn register_pin(shortcut: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// 注册 Capture 快捷键（应用启动时调用）
+pub fn register_capture(shortcut: &str) -> Result<(), String> {
+    let accel = to_gnome_accel(shortcut);
+    log::info!("注册 GNOME Capture 快捷键: {} -> {}", shortcut, accel);
+
+    ensure_in_custom_list()?;
+    gsettings_set(DCONF_CAPTURE_BASE, "name", "Clippy Screenshot")?;
+    gsettings_set(DCONF_CAPTURE_BASE, "command", DBUS_CAPTURE_CMD)?;
+    gsettings_set(DCONF_CAPTURE_BASE, "binding", &accel)?;
+    restart_gsd_media_keys()?;
+
+    log::info!("GNOME Capture 快捷键注册完成");
+    Ok(())
+}
+
 /// 更新 Pin 快捷键绑定
 pub fn update_pin_binding(shortcut: &str) -> Result<(), String> {
     let accel = to_gnome_accel(shortcut);
     log::info!("更新 GNOME Pin 快捷键绑定: {}", accel);
     gsettings_set(DCONF_PIN_BASE, "binding", &accel)?;
+    restart_gsd_media_keys()
+}
+
+/// 更新 Capture 快捷键绑定
+pub fn update_capture_binding(shortcut: &str) -> Result<(), String> {
+    let accel = to_gnome_accel(shortcut);
+    log::info!("更新 GNOME Capture 快捷键绑定: {}", accel);
+    gsettings_set(DCONF_CAPTURE_BASE, "binding", &accel)?;
     restart_gsd_media_keys()
 }
 
@@ -113,12 +142,25 @@ pub fn update_binding(shortcut: &str) -> Result<(), String> {
 pub fn pause() -> Result<(), String> {
     log::info!("暂停 GNOME 快捷键");
     gsettings_set(DCONF_BASE, "binding", "")?;
+    gsettings_set(DCONF_PIN_BASE, "binding", "")?;
+    gsettings_set(DCONF_CAPTURE_BASE, "binding", "")?;
     restart_gsd_media_keys()
 }
 
 /// 恢复快捷键
-pub fn resume(shortcut: &str) -> Result<(), String> {
-    update_binding(shortcut)
+pub fn resume(
+    global_shortcut: &str,
+    pin_shortcut: &str,
+    capture_shortcut: &str,
+) -> Result<(), String> {
+    gsettings_set(DCONF_BASE, "binding", &to_gnome_accel(global_shortcut))?;
+    gsettings_set(DCONF_PIN_BASE, "binding", &to_gnome_accel(pin_shortcut))?;
+    gsettings_set(
+        DCONF_CAPTURE_BASE,
+        "binding",
+        &to_gnome_accel(capture_shortcut),
+    )?;
+    restart_gsd_media_keys()
 }
 
 /// 卸载快捷键
@@ -176,7 +218,7 @@ fn gsettings_set(dconf_path: &str, key: &str, value: &str) -> Result<(), String>
     Ok(())
 }
 
-/// 确保 custom0 和 custom1 路径存在于自定义快捷键列表中
+/// 确保 Clippy 使用的自定义快捷键路径存在于列表中
 fn ensure_in_custom_list() -> Result<(), String> {
     let output = Command::new("gsettings")
         .args(["get", SCHEMA, "custom-keybindings"])
@@ -197,7 +239,7 @@ fn ensure_in_custom_list() -> Result<(), String> {
             .collect()
     };
 
-    for path in [DCONF_BASE, DCONF_PIN_BASE] {
+    for path in [DCONF_BASE, DCONF_PIN_BASE, DCONF_CAPTURE_BASE] {
         if !entries.iter().any(|e| e == path) {
             entries.push(path.to_string());
             needs_update = true;
@@ -221,7 +263,7 @@ fn ensure_in_custom_list() -> Result<(), String> {
     Ok(())
 }
 
-/// 从自定义快捷键列表中移除 custom0 路径
+/// 从自定义快捷键列表中移除 Clippy 路径
 fn remove_from_custom_list() -> Result<(), String> {
     let output = Command::new("gsettings")
         .args(["get", SCHEMA, "custom-keybindings"])
@@ -230,7 +272,10 @@ fn remove_from_custom_list() -> Result<(), String> {
 
     let current = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
-    if !current.contains(DCONF_BASE) {
+    if !current.contains(DCONF_BASE)
+        && !current.contains(DCONF_PIN_BASE)
+        && !current.contains(DCONF_CAPTURE_BASE)
+    {
         return Ok(());
     }
 
@@ -238,7 +283,9 @@ fn remove_from_custom_list() -> Result<(), String> {
         .trim_matches(|c| c == '[' || c == ']')
         .split(',')
         .map(|s| s.trim().trim_matches('\''))
-        .filter(|s| !s.is_empty() && *s != DCONF_BASE)
+        .filter(|s| {
+            !s.is_empty() && *s != DCONF_BASE && *s != DCONF_PIN_BASE && *s != DCONF_CAPTURE_BASE
+        })
         .collect();
 
     let new_list = if entries.is_empty() {
@@ -260,12 +307,14 @@ fn remove_from_custom_list() -> Result<(), String> {
 
 /// dconf reset 清空条目数据
 fn dconf_reset() -> Result<(), String> {
-    let status = Command::new("dconf")
-        .args(["reset", "-f", DCONF_BASE])
-        .status()
-        .map_err(|e| format!("dconf reset 失败: {e}"))?;
-    if !status.success() {
-        return Err("dconf reset 返回非零退出码".into());
+    for path in [DCONF_BASE, DCONF_PIN_BASE, DCONF_CAPTURE_BASE] {
+        let status = Command::new("dconf")
+            .args(["reset", "-f", path])
+            .status()
+            .map_err(|e| format!("dconf reset 失败: {e}"))?;
+        if !status.success() {
+            return Err("dconf reset 返回非零退出码".into());
+        }
     }
     Ok(())
 }
@@ -301,6 +350,16 @@ pub async fn start_dbus_service(
             // 通知前端执行 pin（不显示剪贴板面板）
             use tauri::Emitter;
             let _ = self.handle.emit("pin-current", ());
+        }
+
+        fn capture(&self) {
+            log::info!("D-Bus Capture 被调用");
+            let handle = self.handle.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = super::commands::show_capture_editor_for_app(handle).await {
+                    log::warn!("截图快捷键触发失败: {}", e);
+                }
+            });
         }
     }
 
