@@ -65,6 +65,8 @@ pub struct AppConfig {
     pub global_shortcut: String,
     #[serde(default = "default_pin_shortcut")]
     pub pin_shortcut: String,
+    #[serde(default = "default_capture_shortcut")]
+    pub capture_shortcut: String,
     pub theme: String,
     #[serde(default = "default_language")]
     pub language: String,
@@ -84,6 +86,10 @@ fn default_language() -> String {
 
 fn default_pin_shortcut() -> String {
     "Ctrl+2".to_string()
+}
+
+fn default_capture_shortcut() -> String {
+    "Ctrl+Shift+S".to_string()
 }
 
 fn default_delete_confirm_ms() -> u32 {
@@ -106,6 +112,7 @@ impl Default for AppConfig {
             storage_mode: "persistent".to_string(),
             global_shortcut: "Alt+V".to_string(),
             pin_shortcut: "Ctrl+2".to_string(),
+            capture_shortcut: "Ctrl+Shift+S".to_string(),
             theme: "light".to_string(),
             language: "auto".to_string(),
             delete_confirm_ms: 1200,

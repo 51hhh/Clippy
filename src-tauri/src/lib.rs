@@ -10,11 +10,13 @@ mod storage;
 mod tray_icon;
 
 use commands::AppState;
-use std::collections::HashMap;
+use models::AppConfig;
+use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Listener, Manager};
 use tauri_plugin_autostart::ManagerExt;
-use tauri_plugin_global_shortcut::GlobalShortcutExt;
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 /// 当前可执行文件是否位于 cargo target 产物目录（开发期产物，不应被自启）
 ///
@@ -107,12 +109,102 @@ fn toggle_main_window(handle: &tauri::AppHandle) {
     }
 }
 
-/// 注册全局快捷键：仅 register accelerator，回调由全局 handler 统一处理
-fn register_shortcut(app: &tauri::App, shortcut: &str) -> Result<(), Box<dyn std::error::Error>> {
-    log::info!("注册全局快捷键: {}", shortcut);
-    app.global_shortcut().register(shortcut)?;
-    log::info!("全局快捷键注册成功: {}", shortcut);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShortcutAction {
+    ToggleMain,
+    PinCurrent,
+    Capture,
+}
+
+fn shortcut_matches(pressed: &Shortcut, configured: &str) -> bool {
+    let configured = configured.trim();
+    if configured.is_empty() {
+        return false;
+    }
+    Shortcut::from_str(configured)
+        .map(|shortcut| shortcut.id() == pressed.id())
+        .unwrap_or(false)
+}
+
+fn shortcut_action(config: &AppConfig, pressed: &Shortcut) -> Option<ShortcutAction> {
+    if shortcut_matches(pressed, &config.global_shortcut) {
+        Some(ShortcutAction::ToggleMain)
+    } else if shortcut_matches(pressed, &config.pin_shortcut) {
+        Some(ShortcutAction::PinCurrent)
+    } else if shortcut_matches(pressed, &config.capture_shortcut) {
+        Some(ShortcutAction::Capture)
+    } else {
+        None
+    }
+}
+
+fn configured_shortcuts(config: &AppConfig) -> Result<Vec<Shortcut>, String> {
+    let mut ids = HashSet::new();
+    let mut shortcuts = Vec::new();
+    for raw in [
+        config.global_shortcut.as_str(),
+        config.pin_shortcut.as_str(),
+        config.capture_shortcut.as_str(),
+    ] {
+        let raw = raw.trim();
+        if raw.is_empty() {
+            continue;
+        }
+        let shortcut =
+            Shortcut::from_str(raw).map_err(|e| format!("快捷键 `{raw}` 解析失败: {e}"))?;
+        if ids.insert(shortcut.id()) {
+            shortcuts.push(shortcut);
+        }
+    }
+    Ok(shortcuts)
+}
+
+pub(crate) fn register_x11_shortcuts(
+    handle: &tauri::AppHandle,
+    config: &AppConfig,
+) -> Result<(), String> {
+    let shortcuts = configured_shortcuts(config)?;
+    let gs = handle.global_shortcut();
+    gs.unregister_all().map_err(|e| e.to_string())?;
+    if !shortcuts.is_empty() {
+        gs.register_multiple(shortcuts).map_err(|e| e.to_string())?;
+    }
+    log::info!("X11 快捷键注册完成");
     Ok(())
+}
+
+fn trigger_pin_current(handle: &tauri::AppHandle) {
+    let _ = handle.emit("pin-current", ());
+}
+
+fn trigger_capture(handle: &tauri::AppHandle) {
+    let handle = handle.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = commands::show_capture_editor_for_app(handle).await {
+            log::warn!("截图快捷键触发失败: {}", e);
+        }
+    });
+}
+
+fn handle_registered_shortcut(app: &tauri::AppHandle, shortcut: &Shortcut) {
+    let Some(state) = app.try_state::<AppState>() else {
+        log::warn!("快捷键触发时 AppState 未就绪");
+        return;
+    };
+    let action = {
+        let Ok(config) = state.config.lock() else {
+            log::warn!("快捷键触发时无法读取配置");
+            return;
+        };
+        shortcut_action(&config, shortcut)
+    };
+
+    match action {
+        Some(ShortcutAction::ToggleMain) => toggle_main_window(app),
+        Some(ShortcutAction::PinCurrent) => trigger_pin_current(app),
+        Some(ShortcutAction::Capture) => trigger_capture(app),
+        None => log::warn!("收到未配置的快捷键事件: {}", shortcut),
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -129,11 +221,10 @@ pub fn run() {
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
-                    use tauri_plugin_global_shortcut::ShortcutState;
                     if event.state != ShortcutState::Pressed {
                         return;
                     }
-                    toggle_main_window(app);
+                    handle_registered_shortcut(app, _shortcut);
                 })
                 .build(),
         )
@@ -244,6 +335,11 @@ pub fn run() {
                 if let Err(e) = gsettings_shortcuts::register_pin(&app_config.pin_shortcut) {
                     log::warn!("gsettings Pin 快捷键注册失败: {}", e);
                 }
+                // 注册 Capture 快捷键
+                if let Err(e) = gsettings_shortcuts::register_capture(&app_config.capture_shortcut)
+                {
+                    log::warn!("gsettings Capture 快捷键注册失败: {}", e);
+                }
                 // 启动 D-Bus 服务接收 Toggle 调用 —— name 抢占必须成功，
                 // 否则当前进程是"幽灵副本"，立即退出让 single-instance 自动清理。
                 let handle = app.handle().clone();
@@ -273,7 +369,7 @@ pub fn run() {
                 }
             } else {
                 log::info!("检测到 X11 会话，使用 tauri-plugin-global-shortcut");
-                if let Err(e) = register_shortcut(app, &app_config.global_shortcut) {
+                if let Err(e) = register_x11_shortcuts(app.handle(), &app_config) {
                     log::warn!("全局快捷键注册失败（可能已被占用）: {}", e);
                     // 通知前端快捷键注册失败
                     use tauri::Emitter;

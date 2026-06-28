@@ -21,7 +21,6 @@ import {
   toggleTmuxCapture,
   tmuxAvailable,
   updateConfig,
-  updateShortcut,
 } from "./api.js";
 import { keyEventToShortcut } from "./shortcut-recorder.js";
 import { initCustomSelect } from "./custom-select.js";
@@ -39,6 +38,9 @@ const shortcutWarning = document.getElementById("shortcut-warning");
 const pinShortcutInput = document.getElementById("pin-shortcut-input");
 const pinRecordBtn     = document.getElementById("pin-shortcut-record-btn");
 const pinClearBtn      = document.getElementById("pin-shortcut-clear-btn");
+const captureShortcutInput = document.getElementById("capture-shortcut-input");
+const captureRecordBtn     = document.getElementById("capture-shortcut-record-btn");
+const captureClearBtn      = document.getElementById("capture-shortcut-clear-btn");
 const themeGrid       = document.getElementById("theme-grid");
 const maxHistoryInput = document.getElementById("max-history-input");
 const languageSelect  = document.getElementById("language-select");
@@ -75,6 +77,7 @@ let selectedTheme = "light";
 let savedConfig = null;
 let isRecording = false;
 let isPinRecording = false;
+let isCaptureRecording = false;
 
 // 初始化
 function whenReady(fn) {
@@ -125,6 +128,7 @@ whenReady(async () => {
 function fillForm(config) {
   shortcutInput.value    = config.global_shortcut || "";
   pinShortcutInput.value = config.pin_shortcut || "Ctrl+2";
+  captureShortcutInput.value = config.capture_shortcut || "Ctrl+Shift+S";
   maxHistoryInput.value  = config.max_history ?? 100;
   languageSelect.value   = config.language || "auto";
   ocrModeCtrl.value    = config.ocr_result_mode || "preview";
@@ -201,6 +205,12 @@ languageSelect.addEventListener("change", () => {
   if (isRecording) {
     recordBtn.textContent = i18n.t("settings.shortcut.stop");
   }
+  if (isPinRecording) {
+    pinRecordBtn.textContent = i18n.t("settings.shortcut.stop");
+  }
+  if (isCaptureRecording) {
+    captureRecordBtn.textContent = i18n.t("settings.shortcut.stop");
+  }
 });
 
 // 开机自启动 toggle — 立即生效，无需点 Save
@@ -219,7 +229,7 @@ autostartToggle.addEventListener("change", async () => {
 
 // 快捷键录制
 recordBtn.addEventListener("click", () => {
-  isRecording ? stopRecording() : startRecording();
+  (isRecording ? stopRecording() : startRecording()).catch(console.warn);
 });
 
 clearBtn.addEventListener("click", () => {
@@ -229,6 +239,8 @@ clearBtn.addEventListener("click", () => {
 });
 
 async function startRecording() {
+  if (isPinRecording) await stopPinRecording();
+  if (isCaptureRecording) await stopCaptureRecording();
   isRecording = true;
   try { await pauseShortcuts(); } catch (e) { console.warn(e); }
   shortcutInput.value = i18n.t("settings.shortcut.recording");
@@ -275,27 +287,31 @@ async function onKeyDown(e) {
 
 // Pin 快捷键录制
 pinRecordBtn.addEventListener("click", () => {
-  isPinRecording ? stopPinRecording() : startPinRecording();
+  (isPinRecording ? stopPinRecording() : startPinRecording()).catch(console.warn);
 });
 
 pinClearBtn.addEventListener("click", () => {
   if (savedConfig) pinShortcutInput.value = savedConfig.pin_shortcut || "Ctrl+2";
-  if (isPinRecording) stopPinRecording();
+  if (isPinRecording) stopPinRecording().catch(console.warn);
 });
 
-function startPinRecording() {
+async function startPinRecording() {
+  if (isRecording) await stopRecording();
+  if (isCaptureRecording) await stopCaptureRecording();
   isPinRecording = true;
+  try { await pauseShortcuts(); } catch (e) { console.warn(e); }
   pinShortcutInput.value = i18n.t("settings.shortcut.recording");
   pinShortcutInput.classList.add("recording");
   pinRecordBtn.textContent = i18n.t("settings.shortcut.stop");
   window.addEventListener("keydown", onPinKeyDown, { capture: true });
 }
 
-function stopPinRecording() {
+async function stopPinRecording() {
   isPinRecording = false;
   pinShortcutInput.classList.remove("recording");
   pinRecordBtn.textContent = i18n.t("settings.shortcut.record");
   window.removeEventListener("keydown", onPinKeyDown, { capture: true });
+  try { await resumeShortcuts(); } catch (e) { console.warn(e); }
   if (pinShortcutInput.value === i18n.t("settings.shortcut.recording")) {
     pinShortcutInput.value = savedConfig?.pin_shortcut || "Ctrl+2";
   }
@@ -307,26 +323,66 @@ function onPinKeyDown(e) {
   const shortcut = keyEventToShortcut(e);
   if (!shortcut) return;
   pinShortcutInput.value = shortcut;
-  setTimeout(() => { stopPinRecording(); }, 0);
+  setTimeout(() => { stopPinRecording().catch(console.warn); }, 0);
+}
+
+// Screenshot 快捷键录制
+captureRecordBtn.addEventListener("click", () => {
+  (isCaptureRecording ? stopCaptureRecording() : startCaptureRecording()).catch(console.warn);
+});
+
+captureClearBtn.addEventListener("click", () => {
+  if (savedConfig) captureShortcutInput.value = savedConfig.capture_shortcut || "Ctrl+Shift+S";
+  if (isCaptureRecording) stopCaptureRecording().catch(console.warn);
+});
+
+async function startCaptureRecording() {
+  if (isRecording) await stopRecording();
+  if (isPinRecording) await stopPinRecording();
+  isCaptureRecording = true;
+  try { await pauseShortcuts(); } catch (e) { console.warn(e); }
+  captureShortcutInput.value = i18n.t("settings.shortcut.recording");
+  captureShortcutInput.classList.add("recording");
+  captureRecordBtn.textContent = i18n.t("settings.shortcut.stop");
+  window.addEventListener("keydown", onCaptureKeyDown, { capture: true });
+}
+
+async function stopCaptureRecording() {
+  isCaptureRecording = false;
+  captureShortcutInput.classList.remove("recording");
+  captureRecordBtn.textContent = i18n.t("settings.shortcut.record");
+  window.removeEventListener("keydown", onCaptureKeyDown, { capture: true });
+  try { await resumeShortcuts(); } catch (e) { console.warn(e); }
+  if (captureShortcutInput.value === i18n.t("settings.shortcut.recording")) {
+    captureShortcutInput.value = savedConfig?.capture_shortcut || "Ctrl+Shift+S";
+  }
+}
+
+function onCaptureKeyDown(e) {
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  const shortcut = keyEventToShortcut(e);
+  if (!shortcut) return;
+  captureShortcutInput.value = shortcut;
+  setTimeout(() => { stopCaptureRecording().catch(console.warn); }, 0);
 }
 
 // 保存
 saveBtn.addEventListener("click", async () => {
   const newShortcut   = shortcutInput.value.trim();
   const newPinShortcut = pinShortcutInput.value.trim();
+  const newCaptureShortcut = captureShortcutInput.value.trim();
   const newMaxHistory = parseInt(maxHistoryInput.value, 10) || 0;
   const newLanguage   = languageSelect.value;
 
   try {
-    if (savedConfig && newShortcut && newShortcut !== savedConfig.global_shortcut) {
-      await updateShortcut(newShortcut);
-    }
-
     const newConfig = {
+      version: savedConfig?.version ?? 1,
       max_history: newMaxHistory,
       storage_mode: savedConfig?.storage_mode || "persistent",
       global_shortcut: newShortcut || savedConfig?.global_shortcut || "Super+V",
       pin_shortcut: newPinShortcut || savedConfig?.pin_shortcut || "Ctrl+2",
+      capture_shortcut: newCaptureShortcut || savedConfig?.capture_shortcut || "Ctrl+Shift+S",
       theme: selectedTheme,
       language: newLanguage,
       delete_confirm_ms: savedConfig?.delete_confirm_ms ?? 1200,

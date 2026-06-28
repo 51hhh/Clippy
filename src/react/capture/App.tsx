@@ -39,8 +39,13 @@ type DragState =
 type Viewport = {
   width: number;
   height: number;
+  fitScale: number;
+  zoom: number;
   scale: number;
 };
+
+const MIN_ZOOM = 0.25;
+const MAX_ZOOM = 6;
 
 const TOOL_OPTIONS: Array<{ id: Tool; label: string; icon: ReactNode }> = [
   { id: "select", label: "Select", icon: <MousePointer2 size={16} /> },
@@ -54,10 +59,6 @@ const COLORS = ["#ff3b30", "#ffcc00", "#34c759", "#0a84ff", "#ffffff", "#111111"
 
 function makeId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function fullRect(image: HTMLImageElement): Rect {
-  return { x: 0, y: 0, width: image.naturalWidth, height: image.naturalHeight };
 }
 
 function normalizeRect(a: Point, b: Point): Rect {
@@ -74,6 +75,29 @@ function clampPoint(point: Point, image: HTMLImageElement): Point {
     x: Math.max(0, Math.min(image.naturalWidth, point.x)),
     y: Math.max(0, Math.min(image.naturalHeight, point.y)),
   };
+}
+
+function clampZoom(value: number) {
+  return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value));
+}
+
+function buildViewport(stage: HTMLElement, image: HTMLImageElement, zoom: number): Viewport {
+  const maxWidth = Math.max(320, stage.clientWidth - 24);
+  const maxHeight = Math.max(240, stage.clientHeight - 24);
+  const fitScale = Math.min(maxWidth / image.naturalWidth, maxHeight / image.naturalHeight, 1);
+  const safeZoom = clampZoom(zoom);
+  const scale = Math.max(0.01, fitScale * safeZoom);
+  return {
+    width: Math.max(1, Math.round(image.naturalWidth * scale)),
+    height: Math.max(1, Math.round(image.naturalHeight * scale)),
+    fitScale,
+    zoom: safeZoom,
+    scale,
+  };
+}
+
+function isExportSelection(selection: Rect | null): selection is Rect {
+  return !!selection && selection.width >= 3 && selection.height >= 3;
 }
 
 function toPngBase64(blob: Blob): Promise<string> {
@@ -172,8 +196,16 @@ function drawScene(
 ) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
-  canvas.width = viewport.width;
-  canvas.height = viewport.height;
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  const pixelWidth = Math.max(1, Math.round(viewport.width * dpr));
+  const pixelHeight = Math.max(1, Math.round(viewport.height * dpr));
+  if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+    canvas.width = pixelWidth;
+    canvas.height = pixelHeight;
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   ctx.clearRect(0, 0, viewport.width, viewport.height);
   ctx.save();
   ctx.filter = cssFilterForImageAdjustments(adjustments);
@@ -214,7 +246,14 @@ export function App() {
   const stageRef = useRef<HTMLDivElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
   const [capture, setCapture] = useState<CapturedScreenshot | null>(null);
-  const [viewport, setViewport] = useState<Viewport>({ width: 1, height: 1, scale: 1 });
+  const [imageReady, setImageReady] = useState(false);
+  const [viewport, setViewport] = useState<Viewport>({
+    width: 1,
+    height: 1,
+    fitScale: 1,
+    zoom: 1,
+    scale: 1,
+  });
   const [selection, setSelection] = useState<Rect | null>(null);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [draft, setDraft] = useState<DragState>(null);
@@ -226,12 +265,12 @@ export function App() {
   const [status, setStatus] = useState("Loading screenshot...");
   const [busy, setBusy] = useState(false);
 
-  const activeImage = imageRef.current;
-  const canExport = !!activeImage && !busy;
+  const activeImage = imageReady ? imageRef.current : null;
   const exportRect = useMemo(() => {
     if (!activeImage) return null;
-    return selection && selection.width >= 2 && selection.height >= 2 ? selection : fullRect(activeImage);
-  }, [activeImage, selection]);
+    return isExportSelection(selection) ? selection : null;
+  }, [activeImage, imageReady, selection]);
+  const canExport = !!activeImage && !!exportRect && !busy;
 
   const loadPendingCapture = useCallback((cancelledRef?: { current: boolean }) => {
     getPendingCapture()
@@ -255,42 +294,53 @@ export function App() {
     };
   }, [loadPendingCapture]);
 
+  const updateViewport = useCallback((zoomOverride?: number) => {
+    const stage = stageRef.current;
+    const image = imageRef.current;
+    if (!stage || !image) return;
+    setViewport((current) => buildViewport(stage, image, zoomOverride ?? current.zoom));
+  }, []);
+
   useEffect(() => {
     if (!capture) return;
+    setImageReady(false);
     const image = new Image();
     image.onload = () => {
       imageRef.current = image;
       setSelection(null);
       setAnnotations([]);
-      setStatus(`${image.naturalWidth} x ${image.naturalHeight}`);
-      updateViewport();
+      setTool("select");
+      setStatus("Select an area");
+      setImageReady(true);
+      updateViewport(1);
     };
     image.onerror = () => setStatus("Failed to decode screenshot");
     image.src = `data:image/png;base64,${capture.pngBase64}`;
-  }, [capture]);
-
-  const updateViewport = useCallback(() => {
-    const stage = stageRef.current;
-    const image = imageRef.current;
-    if (!stage || !image) return;
-    const maxWidth = Math.max(320, stage.clientWidth - 24);
-    const maxHeight = Math.max(240, stage.clientHeight - 24);
-    const scale = Math.min(maxWidth / image.naturalWidth, maxHeight / image.naturalHeight, 1);
-    setViewport({
-      width: Math.max(1, Math.round(image.naturalWidth * scale)),
-      height: Math.max(1, Math.round(image.naturalHeight * scale)),
-      scale,
-    });
-  }, []);
+  }, [capture, updateViewport]);
 
   useEffect(() => {
     updateViewport();
     const stage = stageRef.current;
     if (!stage || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(updateViewport);
+    const observer = new ResizeObserver(() => updateViewport());
     observer.observe(stage);
     return () => observer.disconnect();
   }, [updateViewport]);
+
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+
+    function onWheel(event: WheelEvent) {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      const nextZoom = viewport.zoom * Math.exp(-event.deltaY * 0.002);
+      updateViewport(nextZoom);
+    }
+
+    stage.addEventListener("wheel", onWheel, { passive: false });
+    return () => stage.removeEventListener("wheel", onWheel);
+  }, [updateViewport, viewport.zoom]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -402,7 +452,8 @@ export function App() {
   async function exportPngBase64(): Promise<string> {
     const image = imageRef.current;
     if (!image) throw new Error("No screenshot loaded");
-    const crop = exportRect || fullRect(image);
+    if (!exportRect) throw new Error("Select an area first");
+    const crop = exportRect;
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(crop.width));
     canvas.height = Math.max(1, Math.round(crop.height));
@@ -444,6 +495,7 @@ export function App() {
     setBusy(true);
     setStatus(action === "copy" ? "Copying..." : action === "save" ? "Saving..." : "Pinning...");
     try {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
       const pngBase64 = await exportPngBase64();
       if (action === "copy") {
         await copyScreenshotImage(pngBase64);
@@ -481,7 +533,9 @@ export function App() {
     setSelection(null);
     setAnnotations([]);
     setDraft(null);
+    setTool("select");
     setAdjustments(DEFAULT_IMAGE_ADJUSTMENTS);
+    setStatus("Select an area");
   }
 
   return (
@@ -598,7 +652,13 @@ export function App() {
           <footer className="capture-status">
             <span>{status}</span>
             <span>
-              {exportRect ? `${Math.round(exportRect.width)} x ${Math.round(exportRect.height)}` : "No image"}
+              {exportRect
+                ? `${Math.round(exportRect.width)} x ${Math.round(exportRect.height)}`
+                : activeImage
+                  ? "No selection"
+                  : "No image"}
+              {" · "}
+              {Math.round(viewport.zoom * 100)}%
             </span>
           </footer>
         </section>

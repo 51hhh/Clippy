@@ -52,6 +52,8 @@ mod tests {
         assert_eq!(config.max_history, 100);
         assert_eq!(config.storage_mode, "persistent");
         assert_eq!(config.global_shortcut, "Alt+V");
+        assert_eq!(config.pin_shortcut, "Ctrl+2");
+        assert_eq!(config.capture_shortcut, "Ctrl+Shift+S");
         assert_eq!(config.theme, "light");
         assert_eq!(config.language, "auto");
     }
@@ -93,5 +95,7 @@ mod tests {
         assert_eq!(loaded.theme, "dark");
         assert_eq!(loaded.storage_mode, config.storage_mode);
         assert_eq!(loaded.global_shortcut, config.global_shortcut);
+        assert_eq!(loaded.pin_shortcut, config.pin_shortcut);
+        assert_eq!(loaded.capture_shortcut, config.capture_shortcut);
     }
 }

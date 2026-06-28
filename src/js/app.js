@@ -13,7 +13,7 @@ import { initUpdateModal, checkForUpdate } from "./update-modal.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   getConfig, getClips, onClipAdded, onClipRemoved, onConfigChanged,
-  onShortcutRegisterFailed, onPinCurrent, pinClip, showCaptureEditor,
+  onShortcutRegisterFailed, onPinCurrent, pinClip,
 } from "./api.js";
 import "../styles/themes.css";
 import "../styles/base.css";
@@ -43,15 +43,11 @@ whenReady(async () => {
   const emptyEl   = document.getElementById("empty-state");
   const searchEl  = document.getElementById("search-bar");
   const segmentEl = document.getElementById("segment-tabs");
-  const captureBtn = document.getElementById("capture-btn");
 
   segmentTabs.init(segmentEl, (mode) => clipboardList.setPanelMode(mode));
   searchBar.init(searchEl, (q) => clipboardList.setQuery(q));
   previewPanel.init();
   codec.init();
-  captureBtn?.addEventListener("click", () => {
-    showCaptureEditor().catch((err) => console.warn("截图编辑器打开失败:", err));
-  });
 
   clipboardList.init({
     listEl,
