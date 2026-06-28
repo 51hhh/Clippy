@@ -50,8 +50,16 @@ pub struct ClipItem {
     pub byte_size: i64,
 }
 
+const CURRENT_CONFIG_VERSION: u32 = 1;
+
+fn current_config_version() -> u32 {
+    CURRENT_CONFIG_VERSION
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
+    #[serde(default = "current_config_version")]
+    pub version: u32,
     pub max_history: u32,
     pub storage_mode: String,
     pub global_shortcut: String,
@@ -93,6 +101,7 @@ fn default_ocr_enabled() -> bool {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
+            version: CURRENT_CONFIG_VERSION,
             max_history: 100,
             storage_mode: "persistent".to_string(),
             global_shortcut: "Alt+V".to_string(),
