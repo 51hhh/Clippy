@@ -44,9 +44,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: "npm"
+          cache-dependency-path: src/package-lock.json
 
       - name: Install frontend dependencies
-        run: cd src && npm install
+        run: cd src && npm ci
 
       - name: Rust format check
         run: cd src-tauri && cargo fmt -- --check
@@ -59,3 +61,6 @@ jobs:
 
       - name: Frontend tests
         run: cd src && npx vitest run
+
+      - name: Frontend build
+        run: cd src && npx vite build
