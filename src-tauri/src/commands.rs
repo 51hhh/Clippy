@@ -648,6 +648,11 @@ pub fn pin_clip(id: i64, app_handle: tauri::AppHandle) -> Result<String, String>
     .build()
     .map_err(|e| e.to_string())?;
 
+    // 创建后再次确认置顶，兼容部分忽略创建参数的窗口管理器。
+    if let Some(win) = app_handle.get_webview_window(&label) {
+        crate::pin_window::configure_pin_window(&win);
+    }
+
     Ok(label)
 }
 
