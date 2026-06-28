@@ -34,3 +34,6 @@ key/
 # 参考项目（不纳入 Clippy 仓库）
 fxxkDJTU/
 package-lock.json
+
+# 参考项目（本地研究用）
+examples/
