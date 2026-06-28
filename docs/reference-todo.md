@@ -13,6 +13,7 @@
 - [ ] Pin 图片保存到 app_cache_dir/pins/
 - [ ] 窗口销毁时自动清理文件 (on_window_event)
 - [ ] 支持缩放状态跟踪
+- [x] 截图编辑器临时 pin 先用 AppState HashMap 管理，并在窗口销毁时清理
 - 来源: flashot pin_mgr.rs
 
 ## P2: 剪贴板写入重试
@@ -21,10 +22,18 @@
 - 来源: flashot clipboard.rs
 
 ## P3: 图像调整 (brightness/contrast/saturation)
-- [ ] ImageAdjustments 结构体 (grayscale, brightness, contrast, saturation)
+- [x] ImageAdjustments 结构体 (grayscale, brightness, contrast, saturation)
 - [ ] 纯 CPU 逐像素处理 (f32 运算)
-- [ ] 单元测试覆盖
+- [x] 前端归一化/filter 单元测试覆盖
 - 来源: flashot image_adjust.rs
+
+## P3.5: 截图编辑器
+- [x] Linux 截图 fallback：xcap + Wayland/wlroots + Portal + GNOME Shell
+- [x] React/TS 截图编辑功能岛
+- [x] 区域选择、画笔、矩形、箭头、文字、复制/保存/贴图
+- [ ] 滚动截图
+- [ ] 活动窗口自动识别
+- 来源: flashot capture/, overlay/, annotation/
 
 ## P4: 错误类型化
 - [ ] 用 thiserror 定义 ClippyError 枚举
