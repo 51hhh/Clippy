@@ -90,6 +90,37 @@ export function isDevBinary() {
   return invoke("is_dev_binary");
 }
 
+/** 打开截图编辑器 */
+export function showCaptureEditor() {
+  return invoke("show_capture_editor");
+}
+
+/** 关闭当前窗口 */
+export async function closeCurrentWindow() {
+  const { getCurrentWindow } = await import("@tauri-apps/api/window");
+  return getCurrentWindow().close();
+}
+
+/** 读取待编辑截图 */
+export function getPendingCapture() {
+  return invoke("get_pending_capture");
+}
+
+/** 复制截图编辑器导出的 PNG */
+export function copyScreenshotImage(pngBase64) {
+  return invoke("copy_screenshot_image", { pngBase64 });
+}
+
+/** 保存截图编辑器导出的 PNG */
+export function saveScreenshotImage(pngBase64) {
+  return invoke("save_screenshot_image", { pngBase64 });
+}
+
+/** 将截图编辑器导出的 PNG 贴到桌面 */
+export function pinScreenshotImage(pngBase64) {
+  return invoke("pin_screenshot_image", { pngBase64 });
+}
+
 /** 将条目钉到桌面 */
 export function pinClip(id) {
   return invoke("pin_clip", { id });

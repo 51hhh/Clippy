@@ -5,10 +5,12 @@ mod gsettings_shortcuts;
 mod models;
 mod ocr;
 mod pin_window;
+mod screenshot;
 mod storage;
 mod tray_icon;
 
 use commands::AppState;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Listener, Manager};
 use tauri_plugin_autostart::ManagerExt;
@@ -190,6 +192,8 @@ pub fn run() {
                 watcher,
                 preview_visible: Arc::new(Mutex::new(false)),
                 codec_visible: Arc::new(Mutex::new(false)),
+                latest_capture: Arc::new(Mutex::new(None)),
+                temp_pins: Arc::new(Mutex::new(HashMap::new())),
             });
 
             // ── 6. 构建系统托盘 ──────────────────────────────────────────────
@@ -341,6 +345,11 @@ pub fn run() {
                         }
                     });
                 }
+                tauri::WindowEvent::Destroyed if window.label().starts_with("pin-temp-") => {
+                    if let Some(state) = window.app_handle().try_state::<commands::AppState>() {
+                        commands::remove_temp_pin_by_label(window.label(), &state);
+                    }
+                }
                 _ => {}
             }
         })
@@ -363,6 +372,13 @@ pub fn run() {
             commands::resume_shortcuts,
             commands::get_install_type,
             commands::is_dev_binary,
+            commands::show_capture_editor,
+            commands::get_pending_capture,
+            commands::copy_screenshot_image,
+            commands::save_screenshot_image,
+            commands::pin_screenshot_image,
+            commands::get_temp_pin_image,
+            commands::copy_temp_pin_image,
             commands::pin_clip,
             commands::close_pin,
             commands::ocr_available,

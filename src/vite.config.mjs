@@ -1,8 +1,13 @@
 import { defineConfig } from "vite";
-import { resolve } from "path";
+import react from "@vitejs/plugin-react";
+import { dirname, resolve } from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   root: ".",
+  plugins: [react()],
   build: {
     outDir: "../dist",
     emptyOutDir: true,
@@ -12,6 +17,7 @@ export default defineConfig({
         main: resolve(__dirname, "index.html"),
         settings: resolve(__dirname, "settings.html"),
         pin: resolve(__dirname, "pin.html"),
+        capture: resolve(__dirname, "capture.html"),
       },
     },
   },
