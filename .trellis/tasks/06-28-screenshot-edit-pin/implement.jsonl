@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/index.md", "reason": "新增 React 功能岛仍需遵守前端入口、IPC 和 UI 约定"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "截图编辑页面需要前端测试和构建验证"}
+{"file": ".trellis/spec/backend/index.md", "reason": "新增 Tauri command 和 Rust 模块需遵守后端结构约定"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "截图、保存、剪贴板命令需要稳定错误边界"}
+{"file": "docs/reference-todo.md", "reason": "记录 flashot 可吸收项和已经否定的 layer-shell 风险"}
