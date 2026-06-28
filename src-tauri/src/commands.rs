@@ -633,21 +633,27 @@ pub async fn show_capture_editor(
     app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    if let Some(window) = app_handle.get_webview_window("capture") {
-        let _ = window.hide();
-    }
-    if let Some(window) = app_handle.get_webview_window("main") {
-        let _ = window.hide();
-    }
+    let capture_was_visible = hide_window_if_visible(&app_handle, "capture");
+    let main_was_visible = hide_window_if_visible(&app_handle, "main");
 
-    let captured = tauri::async_runtime::spawn_blocking(|| {
+    let captured_result = tauri::async_runtime::spawn_blocking(|| {
         // 给主窗口隐藏和菜单关闭留一点时间，避免被截进画面。
         std::thread::sleep(std::time::Duration::from_millis(140));
         crate::screenshot::capture_screen_png()
     })
-    .await
-    .map_err(|e| format!("截图线程异常: {e}"))?
-    .map_err(|e| format!("截图失败: {e}"))?;
+    .await;
+
+    let captured = match captured_result {
+        Ok(Ok(captured)) => captured,
+        Ok(Err(e)) => {
+            restore_capture_windows(&app_handle, capture_was_visible, main_was_visible);
+            return Err(format!("截图失败: {e}"));
+        }
+        Err(e) => {
+            restore_capture_windows(&app_handle, capture_was_visible, main_was_visible);
+            return Err(format!("截图线程异常: {e}"));
+        }
+    };
 
     {
         let mut latest = state.latest_capture.lock().map_err(|e| e.to_string())?;
@@ -675,6 +681,40 @@ pub async fn show_capture_editor(
     let _ = window.set_focus();
 
     Ok(())
+}
+
+fn hide_window_if_visible(app_handle: &tauri::AppHandle, label: &str) -> bool {
+    let Some(window) = app_handle.get_webview_window(label) else {
+        return false;
+    };
+    let was_visible = window.is_visible().unwrap_or(false);
+    if was_visible {
+        let _ = window.hide();
+    }
+    was_visible
+}
+
+fn restore_capture_windows(
+    app_handle: &tauri::AppHandle,
+    capture_was_visible: bool,
+    main_was_visible: bool,
+) {
+    let mut focused = false;
+    if capture_was_visible {
+        if let Some(window) = app_handle.get_webview_window("capture") {
+            let _ = window.show();
+            let _ = window.set_focus();
+            focused = true;
+        }
+    }
+    if main_was_visible {
+        if let Some(window) = app_handle.get_webview_window("main") {
+            let _ = window.show();
+            if !focused {
+                let _ = window.set_focus();
+            }
+        }
+    }
 }
 
 /// 返回最近一次由 show_capture_editor 捕获的截图。
@@ -733,21 +773,22 @@ pub fn pin_screenshot_image(
     }
 
     let (initial_width, initial_height) = initial_pin_size(width, height);
-    tauri::WebviewWindowBuilder::new(
-        &app_handle,
-        &label,
-        tauri::WebviewUrl::App(format!("pin.html?temp={pin_id}").into()),
-    )
-    .title("")
-    .inner_size(initial_width, initial_height)
-    .decorations(false)
-    .always_on_top(true)
-    .transparent(true)
-    .skip_taskbar(true)
-    .resizable(true)
-    .center()
-    .build()
-    .map_err(|e| e.to_string())?;
+    let pin_url = format!(
+        "pin.html?temp={pin_id}&w={}&h={}",
+        initial_width.round() as u32,
+        initial_height.round() as u32
+    );
+    tauri::WebviewWindowBuilder::new(&app_handle, &label, tauri::WebviewUrl::App(pin_url.into()))
+        .title("")
+        .inner_size(initial_width, initial_height)
+        .decorations(false)
+        .always_on_top(true)
+        .transparent(true)
+        .skip_taskbar(true)
+        .resizable(true)
+        .center()
+        .build()
+        .map_err(|e| e.to_string())?;
 
     if let Some(win) = app_handle.get_webview_window(&label) {
         crate::pin_window::configure_pin_window(&win);
@@ -891,6 +932,33 @@ pub fn close_pin(
 
 fn is_safe_temp_pin_id(id: &str) -> bool {
     !id.is_empty() && id.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_capability_includes_capture_window() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("capabilities")
+            .join("default.json");
+        let json = std::fs::read_to_string(path).expect("default capability should be readable");
+        let value: serde_json::Value =
+            serde_json::from_str(&json).expect("default capability should be valid JSON");
+        let windows = value
+            .get("windows")
+            .and_then(serde_json::Value::as_array)
+            .expect("default capability should list windows");
+
+        assert!(windows.iter().any(|item| item == "capture"));
+    }
+
+    #[test]
+    fn initial_pin_size_caps_large_screenshots() {
+        assert_eq!(initial_pin_size(3840, 2160), (900.0, 506.25));
+        assert_eq!(initial_pin_size(120, 80), (180.0, 120.0));
+    }
 }
 
 // ── OCR 文字识别 ─────────────────────────────────────────────────────

@@ -61,6 +61,97 @@ struct ImageRect {
     height: u32,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum Axis {
+    X,
+    Y,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct AxisSegment {
+    start: i32,
+    end: i32,
+    offset: u32,
+    scale: f32,
+}
+
+#[derive(Debug, Clone)]
+struct AxisMapper {
+    segments: Vec<AxisSegment>,
+}
+
+impl AxisMapper {
+    fn from_frames(monitors: &[MonitorInfo], frames: &[FrozenFrame], axis: Axis) -> Result<Self> {
+        let mut edges = Vec::with_capacity(monitors.len() * 2);
+        for monitor in monitors {
+            let (start, length) = monitor_axis_bounds(monitor, axis);
+            edges.push(start);
+            edges.push(start.saturating_add_unsigned(length));
+        }
+        edges.sort_unstable();
+        edges.dedup();
+
+        if edges.len() < 2 {
+            bail!("显示器坐标轴为空");
+        }
+
+        let mut offset = 0_u32;
+        let mut segments = Vec::with_capacity(edges.len().saturating_sub(1));
+        for pair in edges.windows(2) {
+            let start = pair[0];
+            let end = pair[1];
+            if end <= start {
+                continue;
+            }
+
+            let scale = monitors
+                .iter()
+                .filter(|monitor| monitor_axis_overlaps(monitor, axis, start, end))
+                .map(|monitor| {
+                    let frame = frames.iter().find(|frame| frame.monitor_id == monitor.id);
+                    monitor_axis_scale(monitor, frame, axis)
+                })
+                .filter(|scale| scale.is_finite() && *scale > 0.0)
+                .fold(0.0_f32, f32::max);
+            let scale = if scale > 0.0 { scale } else { 1.0 };
+            segments.push(AxisSegment {
+                start,
+                end,
+                offset,
+                scale,
+            });
+            offset = offset.saturating_add(scaled_axis_length(end - start, scale));
+        }
+
+        if segments.is_empty() {
+            bail!("显示器坐标轴没有有效区间");
+        }
+
+        Ok(Self { segments })
+    }
+
+    fn map(&self, coordinate: i32) -> u32 {
+        let mut last_end = 0_u32;
+        for segment in &self.segments {
+            if coordinate < segment.start {
+                return segment.offset;
+            }
+            let segment_end = segment.offset.saturating_add(scaled_axis_length(
+                segment.end - segment.start,
+                segment.scale,
+            ));
+            if coordinate <= segment.end {
+                return segment.offset.saturating_add(scaled_axis_length(
+                    coordinate - segment.start,
+                    segment.scale,
+                ));
+            }
+            last_end = segment_end;
+        }
+        last_end
+    }
+}
+
 pub fn capture_screen_png() -> Result<CapturedScreenshot> {
     let (monitors, frames) = capture_all_monitors()?;
     let (rgba, width, height) = compose_desktop_image(&monitors, &frames)?;
@@ -371,25 +462,26 @@ fn compose_desktop_image(
         bail!("没有可用截图帧");
     }
 
-    let desktop = monitor_union(monitors)?;
+    let x_mapper = AxisMapper::from_frames(monitors, frames, Axis::X)?;
+    let y_mapper = AxisMapper::from_frames(monitors, frames, Axis::Y)?;
     let width = frames
         .iter()
         .filter_map(|frame| {
             let monitor = monitors.iter().find(|m| m.id == frame.monitor_id)?;
-            let x = scaled_offset(monitor.rect.x - desktop.x, frame.scale_factor);
+            let x = x_mapper.map(monitor.rect.x);
             Some(x.saturating_add(frame.width))
         })
         .max()
-        .unwrap_or(desktop.width);
+        .unwrap_or(1);
     let height = frames
         .iter()
         .filter_map(|frame| {
             let monitor = monitors.iter().find(|m| m.id == frame.monitor_id)?;
-            let y = scaled_offset(monitor.rect.y - desktop.y, frame.scale_factor);
+            let y = y_mapper.map(monitor.rect.y);
             Some(y.saturating_add(frame.height))
         })
         .max()
-        .unwrap_or(desktop.height);
+        .unwrap_or(1);
 
     if width == 0 || height == 0 {
         bail!("组合截图为空");
@@ -400,8 +492,8 @@ fn compose_desktop_image(
         let Some(monitor) = monitors.iter().find(|m| m.id == frame.monitor_id) else {
             continue;
         };
-        let x = scaled_offset(monitor.rect.x - desktop.x, frame.scale_factor);
-        let y = scaled_offset(monitor.rect.y - desktop.y, frame.scale_factor);
+        let x = x_mapper.map(monitor.rect.x);
+        let y = y_mapper.map(monitor.rect.y);
         let Some(frame_image) = RgbaImage::from_raw(frame.width, frame.height, frame.rgba.to_vec())
         else {
             log::warn!(
@@ -416,8 +508,42 @@ fn compose_desktop_image(
     Ok((canvas.into_raw(), width, height))
 }
 
-fn scaled_offset(value: i32, scale_factor: f32) -> u32 {
-    ((value.max(0) as f32) * scale_factor.max(1.0)).round() as u32
+fn monitor_axis_bounds(monitor: &MonitorInfo, axis: Axis) -> (i32, u32) {
+    match axis {
+        Axis::X => (monitor.rect.x, monitor.rect.width),
+        Axis::Y => (monitor.rect.y, monitor.rect.height),
+    }
+}
+
+fn monitor_axis_overlaps(monitor: &MonitorInfo, axis: Axis, start: i32, end: i32) -> bool {
+    let (monitor_start, monitor_length) = monitor_axis_bounds(monitor, axis);
+    let monitor_end = monitor_start.saturating_add_unsigned(monitor_length);
+    monitor_start < end && monitor_end > start
+}
+
+fn monitor_axis_scale(monitor: &MonitorInfo, frame: Option<&FrozenFrame>, axis: Axis) -> f32 {
+    if let Some(frame) = frame {
+        let (_, monitor_length) = monitor_axis_bounds(monitor, axis);
+        let frame_length = match axis {
+            Axis::X => frame.width,
+            Axis::Y => frame.height,
+        };
+        if monitor_length > 0 && frame_length > 0 {
+            return frame_length as f32 / monitor_length as f32;
+        }
+        if frame.scale_factor.is_finite() && frame.scale_factor > 0.0 {
+            return frame.scale_factor;
+        }
+    }
+
+    monitor.scale_factor
+}
+
+fn scaled_axis_length(value: i32, scale_factor: f32) -> u32 {
+    if value <= 0 {
+        return 0;
+    }
+    ((value as f32) * scale_factor.max(f32::EPSILON)).round() as u32
 }
 
 fn monitor_union(monitors: &[MonitorInfo]) -> Result<DesktopBounds> {
@@ -718,5 +844,96 @@ mod tests {
                 height: 100,
             }
         );
+    }
+
+    #[test]
+    fn compose_places_left_1x_right_2x_monitors_without_gap() {
+        let monitors = horizontal_monitors(1.0, 2.0);
+        let frames = vec![
+            solid_frame(1, 100, 50, 1.0, [255, 0, 0, 255]),
+            solid_frame(2, 200, 100, 2.0, [0, 0, 255, 255]),
+        ];
+
+        let (rgba, width, height) = compose_desktop_image(&monitors, &frames).unwrap();
+
+        assert_eq!((width, height), (300, 100));
+        assert_eq!(pixel_at(&rgba, width, 99, 25), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&rgba, width, 100, 25), [0, 0, 255, 255]);
+        assert_eq!(pixel_at(&rgba, width, 299, 25), [0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn compose_places_left_2x_right_1x_monitors_without_overlap() {
+        let monitors = horizontal_monitors(2.0, 1.0);
+        let frames = vec![
+            solid_frame(1, 200, 100, 2.0, [255, 0, 0, 255]),
+            solid_frame(2, 100, 50, 1.0, [0, 0, 255, 255]),
+        ];
+
+        let (rgba, width, height) = compose_desktop_image(&monitors, &frames).unwrap();
+
+        assert_eq!((width, height), (300, 100));
+        assert_eq!(pixel_at(&rgba, width, 199, 25), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&rgba, width, 200, 25), [0, 0, 255, 255]);
+        assert_eq!(pixel_at(&rgba, width, 299, 25), [0, 0, 255, 255]);
+    }
+
+    fn horizontal_monitors(left_scale: f32, right_scale: f32) -> Vec<MonitorInfo> {
+        vec![
+            MonitorInfo {
+                id: 1,
+                rect: Rect {
+                    x: 0,
+                    y: 0,
+                    width: 100,
+                    height: 50,
+                },
+                scale_factor: left_scale,
+            },
+            MonitorInfo {
+                id: 2,
+                rect: Rect {
+                    x: 100,
+                    y: 0,
+                    width: 100,
+                    height: 50,
+                },
+                scale_factor: right_scale,
+            },
+        ]
+    }
+
+    fn solid_frame(
+        monitor_id: u32,
+        width: u32,
+        height: u32,
+        scale_factor: f32,
+        color: [u8; 4],
+    ) -> FrozenFrame {
+        FrozenFrame {
+            monitor_id,
+            rgba: Arc::from(solid_rgba(width, height, color)),
+            width,
+            height,
+            scale_factor,
+        }
+    }
+
+    fn solid_rgba(width: u32, height: u32, color: [u8; 4]) -> Vec<u8> {
+        let mut rgba = Vec::with_capacity(width as usize * height as usize * 4);
+        for _ in 0..width * height {
+            rgba.extend_from_slice(&color);
+        }
+        rgba
+    }
+
+    fn pixel_at(rgba: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
+        let start = ((y * width + x) * 4) as usize;
+        [
+            rgba[start],
+            rgba[start + 1],
+            rgba[start + 2],
+            rgba[start + 3],
+        ]
     }
 }

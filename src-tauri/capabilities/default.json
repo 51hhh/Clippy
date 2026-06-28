@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Clippy 主窗口及设置窗口权限",
-  "windows": ["main", "settings", "pin-*"],
+  "description": "Clippy 主窗口、设置窗口、截图窗口及贴图窗口权限",
+  "windows": ["main", "settings", "capture", "pin-*"],
   "permissions": [
     "core:default",
     "core:window:allow-show",
