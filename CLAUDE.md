@@ -55,15 +55,18 @@ cd src-tauri && cargo clippy -- -D warnings
 ## 架构概览
 
 ```
-前端 (src/)                          Rust 后端 (src-tauri/src/)
-├── index.html                       ├── main.rs              — 入口（调用 lib::run）
-├── settings.html                    ├── lib.rs               — Tauri 初始化：插件、托盘、快捷键、状态管理
-├── js/                              ├── commands.rs          — Tauri IPC 命令（10 个 #[tauri::command]）
-│   ├── api.js  — IPC 封装层         ├── clipboard_watcher.rs — 独立线程轮询剪贴板（arboard, 500ms）
-│   ├── app.js  — 主窗口入口         ├── storage.rs           — SQLite + FTS5 存储引擎
-│   ├── clipboard-list.js            ├── config.rs            — JSON 配置读写
-│   ├── search.js                    └── models.rs            — ClipItem, AppConfig, ContentType
-│   ├── settings.js
+前端 (src/)                            Rust 后端 (src-tauri/src/)
+├── index.html                         ├── main.rs              — 入口（调用 lib::run）
+├── settings.html                      ├── lib.rs               — Tauri 初始化：插件、托盘、快捷键、状态管理
+├── pin.html                           ├── commands.rs          — Tauri IPC 命令
+├── vite.config.js                     ├── clipboard_watcher.rs — 独立线程轮询剪贴板（arboard, 500ms）
+├── js/                                ├── storage.rs           — SQLite + FTS5 存储引擎
+│   ├── api.js  — IPC 封装层           ├── config.rs            — JSON 配置读写
+│   ├── app.js  — 主窗口入口           ├── models.rs            — ClipItem, AppConfig, ContentType
+│   ├── clipboard-list.js              ├── ocr.rs               — Tesseract OCR 集成
+│   ├── search.js                      ├── gsettings_shortcuts.rs — Wayland 快捷键（D-Bus Portal）
+│   ├── settings.js                    └── tray_icon.rs         — 系统托盘
+│   ├── pin.js
 │   └── theme.js
 └── styles/
     ├── base.css
@@ -100,6 +103,7 @@ cd src-tauri && cargo clippy -- -D warnings
 ### 前端约定
 
 - 无框架，纯 HTML/CSS/JS + ES Module `<script type="module">`
+- 使用 Vite 作为开发服务器和构建工具（`src/vite.config.js`）
 - **只有 `api.js` 允许直接访问 `window.__TAURI__`**，其他模块通过 `api.js` 导出函数间接调用
 - 所有用户内容通过 `textContent` 写入 DOM（防 XSS），不使用 `innerHTML`
 - 设置页面（`settings.js`）是例外：独立于主窗口，直接调用 `invoke`
@@ -112,7 +116,7 @@ cd src-tauri && cargo clippy -- -D warnings
 - SQLite 数据库位于 Tauri app data 目录，`config.storage_mode` 可切换为 `"memory"`
 - FTS 索引需手动同步：插入时同步写 `clips_fts`，删除时用 FTS5 `'delete'` 命令清理
 - 构建目标仅 Linux（deb, appimage），`tauri.conf.json` 中无 macOS/Windows bundle 配置
-- 前端静态文件直接由 Tauri 加载（`frontendDist: "../src"`），无打包工具
+- 前端通过 Vite 构建输出到 `dist/`，Tauri 从 `frontendDist: "../dist"` 加载静态文件
 
 ## 语言约定
 
