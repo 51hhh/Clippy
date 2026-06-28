@@ -177,14 +177,10 @@ pub fn decode_png_base64(input: &str) -> Result<Vec<u8>> {
 }
 
 pub fn encode_png(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>> {
-    let mut png = Vec::with_capacity(rgba.len() + height as usize);
-    PngEncoder::new_with_quality(
-        &mut png,
-        CompressionType::Uncompressed,
-        FilterType::NoFilter,
-    )
-    .write_image(rgba, width, height, ExtendedColorType::Rgba8)
-    .context("PNG 编码失败")?;
+    let mut png = Vec::with_capacity(rgba.len().min(1024 * 1024));
+    PngEncoder::new_with_quality(&mut png, CompressionType::Fast, FilterType::Adaptive)
+        .write_image(rgba, width, height, ExtendedColorType::Rgba8)
+        .context("PNG 编码失败")?;
     Ok(png)
 }
 
@@ -798,6 +794,21 @@ mod tests {
     fn portal_file_uri_decodes_to_local_path() {
         let path = portal_screenshot_uri_to_path("file:///tmp/Clippy%20Shot.png").unwrap();
         assert_eq!(path, std::path::PathBuf::from("/tmp/Clippy Shot.png"));
+    }
+
+    #[test]
+    fn encode_png_compresses_simple_screenshot_data() {
+        let width = 64;
+        let height = 64;
+        let mut rgba = Vec::with_capacity(width * height * 4);
+        for _ in 0..(width * height) {
+            rgba.extend_from_slice(&[240, 240, 240, 255]);
+        }
+
+        let png = encode_png(&rgba, width as u32, height as u32).unwrap();
+
+        assert!(png.len() < rgba.len() / 4);
+        assert_eq!(png_dimensions(&png).unwrap(), (width as u32, height as u32));
     }
 
     #[test]

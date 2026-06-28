@@ -15,6 +15,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
+  clearPendingCapture,
   closeCurrentWindow,
   copyScreenshotImage,
   getPendingCapture,
@@ -46,6 +47,7 @@ type Viewport = {
 
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 6;
+const MAX_CANVAS_DPR = 2;
 
 const TOOL_OPTIONS: Array<{ id: Tool; label: string; icon: ReactNode }> = [
   { id: "select", label: "Select", icon: <MousePointer2 size={16} /> },
@@ -81,6 +83,47 @@ function clampZoom(value: number) {
   return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value));
 }
 
+function shouldAppendPoint(points: Point[], point: Point) {
+  const previous = points[points.length - 1];
+  if (!previous) return true;
+  const dx = point.x - previous.x;
+  const dy = point.y - previous.y;
+  return dx * dx + dy * dy >= 0.36;
+}
+
+function snapshotDraft(draft: DragState): DragState {
+  if (!draft) return null;
+  if (draft.kind === "pen" && draft.annotation.type === "pen") {
+    return {
+      ...draft,
+      annotation: {
+        ...draft.annotation,
+        points: [...draft.annotation.points],
+      },
+    };
+  }
+  if (draft.kind === "rect" && draft.annotation.type === "rect") {
+    return {
+      ...draft,
+      annotation: {
+        ...draft.annotation,
+        rect: { ...draft.annotation.rect },
+      },
+    };
+  }
+  if (draft.kind === "arrow" && draft.annotation.type === "arrow") {
+    return {
+      ...draft,
+      annotation: {
+        ...draft.annotation,
+        from: { ...draft.annotation.from },
+        to: { ...draft.annotation.to },
+      },
+    };
+  }
+  return draft;
+}
+
 function buildViewport(stage: HTMLElement, image: HTMLImageElement, zoom: number): Viewport {
   const maxWidth = Math.max(320, stage.clientWidth - 24);
   const maxHeight = Math.max(240, stage.clientHeight - 24);
@@ -110,6 +153,15 @@ function toPngBase64(blob: Blob): Promise<string> {
     };
     reader.readAsDataURL(blob);
   });
+}
+
+function pngBase64ToObjectUrl(pngBase64: string): string {
+  const binary = atob(pngBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
 }
 
 function drawArrowHead(ctx: CanvasRenderingContext2D, from: Point, to: Point, size: number) {
@@ -196,7 +248,7 @@ function drawScene(
 ) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
-  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  const dpr = Math.min(MAX_CANVAS_DPR, Math.max(1, window.devicePixelRatio || 1));
   const pixelWidth = Math.max(1, Math.round(viewport.width * dpr));
   const pixelHeight = Math.max(1, Math.round(viewport.height * dpr));
   if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
@@ -245,6 +297,16 @@ export function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
+  const imageObjectUrlRef = useRef<string | null>(null);
+  const selectionRef = useRef<Rect | null>(null);
+  const draftRef = useRef<DragState>(null);
+  const zoomRef = useRef(1);
+  const pendingSelectionRef = useRef<Rect | null>(null);
+  const hasPendingSelectionRef = useRef(false);
+  const hasPendingDraftRef = useRef(false);
+  const pointerFrameRef = useRef<number | null>(null);
+  const pendingZoomRef = useRef<number | null>(null);
+  const wheelFrameRef = useRef<number | null>(null);
   const [capture, setCapture] = useState<CapturedScreenshot | null>(null);
   const [imageReady, setImageReady] = useState(false);
   const [viewport, setViewport] = useState<Viewport>({
@@ -265,12 +327,86 @@ export function App() {
   const [status, setStatus] = useState("Loading screenshot...");
   const [busy, setBusy] = useState(false);
 
+  function flushPointerFrame() {
+    if (hasPendingSelectionRef.current) {
+      const nextSelection = pendingSelectionRef.current;
+      hasPendingSelectionRef.current = false;
+      pendingSelectionRef.current = null;
+      selectionRef.current = nextSelection;
+      setSelection(nextSelection);
+    }
+    if (hasPendingDraftRef.current) {
+      const nextDraft = snapshotDraft(draftRef.current);
+      hasPendingDraftRef.current = false;
+      draftRef.current = nextDraft;
+      setDraft(nextDraft);
+    }
+  }
+
+  function cancelAndFlushPointerFrame() {
+    if (pointerFrameRef.current !== null) {
+      cancelAnimationFrame(pointerFrameRef.current);
+      pointerFrameRef.current = null;
+    }
+    flushPointerFrame();
+  }
+
+  function schedulePointerFrame() {
+    if (pointerFrameRef.current !== null) return;
+    pointerFrameRef.current = requestAnimationFrame(() => {
+      pointerFrameRef.current = null;
+      flushPointerFrame();
+    });
+  }
+
+  function scheduleSelection(nextSelection: Rect | null) {
+    selectionRef.current = nextSelection;
+    pendingSelectionRef.current = nextSelection;
+    hasPendingSelectionRef.current = true;
+    schedulePointerFrame();
+  }
+
+  function scheduleDraft(nextDraft: DragState) {
+    draftRef.current = nextDraft;
+    hasPendingDraftRef.current = true;
+    schedulePointerFrame();
+  }
+
+  function setSelectionNow(nextSelection: Rect | null) {
+    selectionRef.current = nextSelection;
+    setSelection(nextSelection);
+  }
+
+  function setDraftNow(nextDraft: DragState) {
+    draftRef.current = nextDraft;
+    setDraft(nextDraft);
+  }
+
+  function releaseImageObjectUrl() {
+    if (imageObjectUrlRef.current) {
+      URL.revokeObjectURL(imageObjectUrlRef.current);
+      imageObjectUrlRef.current = null;
+    }
+  }
+
   const activeImage = imageReady ? imageRef.current : null;
   const exportRect = useMemo(() => {
     if (!activeImage) return null;
     return isExportSelection(selection) ? selection : null;
   }, [activeImage, imageReady, selection]);
   const canExport = !!activeImage && !!exportRect && !busy;
+
+  useEffect(() => {
+    selectionRef.current = selection;
+  }, [selection]);
+
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+
+  useEffect(() => {
+    zoomRef.current = viewport.zoom;
+  }, [viewport.zoom]);
 
   const loadPendingCapture = useCallback((cancelledRef?: { current: boolean }) => {
     getPendingCapture()
@@ -294,6 +430,30 @@ export function App() {
     };
   }, [loadPendingCapture]);
 
+  useEffect(() => {
+    return () => {
+      if (pointerFrameRef.current !== null) {
+        cancelAnimationFrame(pointerFrameRef.current);
+        pointerFrameRef.current = null;
+      }
+      if (wheelFrameRef.current !== null) {
+        cancelAnimationFrame(wheelFrameRef.current);
+        wheelFrameRef.current = null;
+      }
+      const canvas = canvasRef.current;
+      if (canvas) {
+        canvas.width = 1;
+        canvas.height = 1;
+      }
+      if (imageRef.current) {
+        imageRef.current.src = "";
+        imageRef.current = null;
+      }
+      releaseImageObjectUrl();
+      void clearPendingCapture().catch(() => undefined);
+    };
+  }, []);
+
   const updateViewport = useCallback((zoomOverride?: number) => {
     const stage = stageRef.current;
     const image = imageRef.current;
@@ -304,18 +464,55 @@ export function App() {
   useEffect(() => {
     if (!capture) return;
     setImageReady(false);
+    if (imageRef.current) {
+      imageRef.current.src = "";
+      imageRef.current = null;
+    }
+    releaseImageObjectUrl();
     const image = new Image();
+    let cancelled = false;
+    let objectUrl: string;
+    try {
+      objectUrl = pngBase64ToObjectUrl(capture.pngBase64);
+      imageObjectUrlRef.current = objectUrl;
+    } catch (err) {
+      console.error(err);
+      setStatus("Failed to decode screenshot");
+      setCapture(null);
+      return;
+    }
     image.onload = () => {
+      if (cancelled) return;
       imageRef.current = image;
-      setSelection(null);
+      setSelectionNow(null);
       setAnnotations([]);
+      setDraftNow(null);
       setTool("select");
       setStatus("Select an area");
       setImageReady(true);
       updateViewport(1);
+      setCapture(null);
     };
-    image.onerror = () => setStatus("Failed to decode screenshot");
-    image.src = `data:image/png;base64,${capture.pngBase64}`;
+    image.onerror = () => {
+      if (!cancelled) {
+        setStatus("Failed to decode screenshot");
+        setCapture(null);
+      }
+    };
+    image.src = objectUrl;
+    return () => {
+      cancelled = true;
+      image.onload = null;
+      image.onerror = null;
+      if (imageRef.current !== image) {
+        image.src = "";
+        if (imageObjectUrlRef.current === objectUrl) {
+          releaseImageObjectUrl();
+        } else {
+          URL.revokeObjectURL(objectUrl);
+        }
+      }
+    };
   }, [capture, updateViewport]);
 
   useEffect(() => {
@@ -334,13 +531,22 @@ export function App() {
     function onWheel(event: WheelEvent) {
       if (!event.ctrlKey && !event.metaKey) return;
       event.preventDefault();
-      const nextZoom = viewport.zoom * Math.exp(-event.deltaY * 0.002);
-      updateViewport(nextZoom);
+      const baseZoom = pendingZoomRef.current ?? zoomRef.current;
+      const nextZoom = clampZoom(baseZoom * Math.exp(-event.deltaY * 0.002));
+      pendingZoomRef.current = nextZoom;
+      zoomRef.current = nextZoom;
+      if (wheelFrameRef.current !== null) return;
+      wheelFrameRef.current = requestAnimationFrame(() => {
+        wheelFrameRef.current = null;
+        const zoom = pendingZoomRef.current;
+        pendingZoomRef.current = null;
+        if (zoom !== null) updateViewport(zoom);
+      });
     }
 
     stage.addEventListener("wheel", onWheel, { passive: false });
     return () => stage.removeEventListener("wheel", onWheel);
-  }, [updateViewport, viewport.zoom]);
+  }, [updateViewport]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -370,15 +576,15 @@ export function App() {
     event.currentTarget.setPointerCapture(event.pointerId);
 
     if (tool === "select") {
-      setDraft({ kind: "select", start: point });
-      setSelection({ x: point.x, y: point.y, width: 0, height: 0 });
+      setDraftNow({ kind: "select", start: point });
+      setSelectionNow({ x: point.x, y: point.y, width: 0, height: 0 });
     } else if (tool === "pen") {
-      setDraft({
+      setDraftNow({
         kind: "pen",
         annotation: { id: makeId("pen"), type: "pen", color, size, points: [point] },
       });
     } else if (tool === "rect") {
-      setDraft({
+      setDraftNow({
         kind: "rect",
         start: point,
         annotation: {
@@ -390,7 +596,7 @@ export function App() {
         },
       });
     } else if (tool === "arrow") {
-      setDraft({
+      setDraftNow({
         kind: "arrow",
         start: point,
         annotation: { id: makeId("arrow"), type: "arrow", color, size, from: point, to: point },
@@ -405,31 +611,28 @@ export function App() {
 
   function onPointerMove(event: React.PointerEvent<HTMLCanvasElement>) {
     const point = pointFromEvent(event);
-    if (!point || !draft) return;
+    const currentDraft = draftRef.current;
+    if (!point || !currentDraft) return;
 
-    if (draft.kind === "select") {
-      setSelection(normalizeRect(draft.start, point));
-    } else if (draft.kind === "pen" && draft.annotation.type === "pen") {
-      setDraft({
-        ...draft,
+    if (currentDraft.kind === "select") {
+      scheduleSelection(normalizeRect(currentDraft.start, point));
+    } else if (currentDraft.kind === "pen" && currentDraft.annotation.type === "pen") {
+      if (!shouldAppendPoint(currentDraft.annotation.points, point)) return;
+      currentDraft.annotation.points.push(point);
+      scheduleDraft(currentDraft);
+    } else if (currentDraft.kind === "rect" && currentDraft.annotation.type === "rect") {
+      scheduleDraft({
+        ...currentDraft,
         annotation: {
-          ...draft.annotation,
-          points: [...draft.annotation.points, point],
+          ...currentDraft.annotation,
+          rect: normalizeRect(currentDraft.start, point),
         },
       });
-    } else if (draft.kind === "rect" && draft.annotation.type === "rect") {
-      setDraft({
-        ...draft,
+    } else if (currentDraft.kind === "arrow" && currentDraft.annotation.type === "arrow") {
+      scheduleDraft({
+        ...currentDraft,
         annotation: {
-          ...draft.annotation,
-          rect: normalizeRect(draft.start, point),
-        },
-      });
-    } else if (draft.kind === "arrow" && draft.annotation.type === "arrow") {
-      setDraft({
-        ...draft,
-        annotation: {
-          ...draft.annotation,
+          ...currentDraft.annotation,
           to: point,
         },
       });
@@ -437,16 +640,23 @@ export function App() {
   }
 
   function onPointerUp() {
-    if (!draft) return;
-    if (draft.kind === "select") {
-      setSelection((current) => {
-        if (!current || current.width < 3 || current.height < 3) return null;
-        return current;
-      });
+    cancelAndFlushPointerFrame();
+    const currentDraft = draftRef.current;
+    if (!currentDraft) return;
+    if (currentDraft.kind === "select") {
+      const currentSelection = selectionRef.current;
+      setSelectionNow(
+        currentSelection && currentSelection.width >= 3 && currentSelection.height >= 3
+          ? currentSelection
+          : null,
+      );
     } else {
-      setAnnotations((items) => [...items, draft.annotation]);
+      const committedDraft = snapshotDraft(currentDraft);
+      if (committedDraft && committedDraft.kind !== "select") {
+        setAnnotations((items) => [...items, committedDraft.annotation]);
+      }
     }
-    setDraft(null);
+    setDraftNow(null);
   }
 
   async function exportPngBase64(): Promise<string> {
@@ -530,9 +740,10 @@ export function App() {
   }
 
   function resetEdits() {
-    setSelection(null);
+    cancelAndFlushPointerFrame();
+    setSelectionNow(null);
     setAnnotations([]);
-    setDraft(null);
+    setDraftNow(null);
     setTool("select");
     setAdjustments(DEFAULT_IMAGE_ADJUSTMENTS);
     setStatus("Select an area");

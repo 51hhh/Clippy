@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "验证 React 截图岛 typecheck、vitest、Vite build 和 rAF 交互约束"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "验证 Rust fmt、clippy 和截图编码单元测试"}

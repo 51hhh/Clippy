@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/index.md", "reason": "截图编辑是 React/TypeScript 功能岛，需要遵守前端入口和 IPC 约定"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "优化画布交互、rAF 和 typecheck/build 验证"}
+{"file": ".trellis/spec/backend/index.md", "reason": "截图缓存和 Tauri command 属于 AppState/commands 后端边界"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "截图 PNG 编码和缓存释放需要 Rust fmt/clippy/test 覆盖"}
