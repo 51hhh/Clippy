@@ -762,8 +762,21 @@ pub fn get_pending_capture(
         .latest_capture
         .lock()
         .map_err(|e| e.to_string())?
-        .clone()
+        .take()
         .ok_or_else(|| "没有待编辑截图".to_string())
+}
+
+/// 清理未消费的截图缓存。
+#[tauri::command]
+pub fn clear_pending_capture(state: State<AppState>) -> Result<(), String> {
+    clear_latest_capture(&state);
+    Ok(())
+}
+
+pub fn clear_latest_capture(state: &AppState) {
+    if let Ok(mut latest) = state.latest_capture.lock() {
+        *latest = None;
+    }
 }
 
 /// 将前端生成的 PNG 写入系统剪贴板。

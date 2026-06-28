@@ -446,6 +446,11 @@ pub fn run() {
                         commands::remove_temp_pin_by_label(window.label(), &state);
                     }
                 }
+                tauri::WindowEvent::Destroyed if window.label() == "capture" => {
+                    if let Some(state) = window.app_handle().try_state::<commands::AppState>() {
+                        commands::clear_latest_capture(&state);
+                    }
+                }
                 _ => {}
             }
         })
@@ -470,6 +475,7 @@ pub fn run() {
             commands::is_dev_binary,
             commands::show_capture_editor,
             commands::get_pending_capture,
+            commands::clear_pending_capture,
             commands::copy_screenshot_image,
             commands::save_screenshot_image,
             commands::pin_screenshot_image,

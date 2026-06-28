@@ -106,6 +106,11 @@ export function getPendingCapture() {
   return invoke("get_pending_capture");
 }
 
+/** 清理未消费的待编辑截图 */
+export function clearPendingCapture() {
+  return invoke("clear_pending_capture");
+}
+
 /** 复制截图编辑器导出的 PNG */
 export function copyScreenshotImage(pngBase64) {
   return invoke("copy_screenshot_image", { pngBase64 });
