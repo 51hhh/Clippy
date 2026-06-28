@@ -7,10 +7,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { PhysicalPosition } from "@tauri-apps/api/dpi";
+import { resolveTempPinBaseSize } from "./pin-size.js";
 
 const params = new URLSearchParams(window.location.search);
 const clipId = Number(params.get("id"));
 const tempPinId = params.get("temp");
+const tempPinWidth = params.get("w");
+const tempPinHeight = params.get("h");
 const container = document.getElementById("pin-container");
 const content = document.getElementById("pin-content");
 const menu = document.getElementById("pin-context-menu");
@@ -31,7 +34,7 @@ async function init() {
   try {
     if (tempPinId) {
       const base64 = await invoke("get_temp_pin_image", { pinId: tempPinId });
-      renderImage(base64);
+      renderImage(base64, { preserveInitialSize: true });
     } else {
       const clip = await invoke("get_clip_detail", { id: clipId });
       if (clip.content_type === "image") {
@@ -56,7 +59,7 @@ async function init() {
   }
 }
 
-function renderImage(base64) {
+function renderImage(base64, options = {}) {
   if (!base64) return;
   const img = document.createElement("img");
   img.src = `data:image/png;base64,${base64}`;
@@ -67,9 +70,17 @@ function renderImage(base64) {
   img.onload = () => {
     const w = img.naturalWidth;
     const h = img.naturalHeight;
-    baseWidth = w;
-    baseHeight = h;
-    appWindow.setSize(new LogicalSize(w, h));
+    if (options.preserveInitialSize) {
+      const size = resolveTempPinBaseSize(w, h, tempPinWidth, tempPinHeight);
+      baseWidth = size.width;
+      baseHeight = size.height;
+      scale = 1;
+      appWindow.setSize(new LogicalSize(baseWidth, baseHeight));
+    } else {
+      baseWidth = w;
+      baseHeight = h;
+      appWindow.setSize(new LogicalSize(w, h));
+    }
   };
 }
 
