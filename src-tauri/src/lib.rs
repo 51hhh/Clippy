@@ -4,6 +4,7 @@ mod config;
 mod gsettings_shortcuts;
 mod models;
 mod ocr;
+mod pin_window;
 mod storage;
 mod tray_icon;
 
