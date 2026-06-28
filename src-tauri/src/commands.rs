@@ -3,7 +3,9 @@ use crate::config::save_config;
 use crate::models::{AppConfig, ClipItem, ContentType, UrlMeta};
 use crate::storage::StorageEngine;
 use base64::{engine::general_purpose::STANDARD, Engine};
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager, State};
 
@@ -19,7 +21,11 @@ pub struct AppState {
     pub watcher: ClipboardWatcher,
     pub preview_visible: Arc<Mutex<bool>>,
     pub codec_visible: Arc<Mutex<bool>>,
+    pub latest_capture: Arc<Mutex<Option<crate::screenshot::CapturedScreenshot>>>,
+    pub temp_pins: Arc<Mutex<HashMap<String, Vec<u8>>>>,
 }
+
+static TEMP_IMAGE_SEQ: AtomicU64 = AtomicU64::new(1);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tauri IPC 命令
@@ -619,6 +625,206 @@ pub fn is_dev_binary() -> bool {
     }
 }
 
+// ── 截图编辑 ────────────────────────────────────────────────────────────────
+
+/// 捕获当前屏幕后打开截图编辑窗口。
+#[tauri::command]
+pub async fn show_capture_editor(
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    if let Some(window) = app_handle.get_webview_window("capture") {
+        let _ = window.hide();
+    }
+    if let Some(window) = app_handle.get_webview_window("main") {
+        let _ = window.hide();
+    }
+
+    let captured = tauri::async_runtime::spawn_blocking(|| {
+        // 给主窗口隐藏和菜单关闭留一点时间，避免被截进画面。
+        std::thread::sleep(std::time::Duration::from_millis(140));
+        crate::screenshot::capture_screen_png()
+    })
+    .await
+    .map_err(|e| format!("截图线程异常: {e}"))?
+    .map_err(|e| format!("截图失败: {e}"))?;
+
+    {
+        let mut latest = state.latest_capture.lock().map_err(|e| e.to_string())?;
+        *latest = Some(captured);
+    }
+
+    if let Some(window) = app_handle.get_webview_window("capture") {
+        window.show().map_err(|e| e.to_string())?;
+        let _ = window.set_focus();
+        return Ok(());
+    }
+
+    let window = tauri::WebviewWindowBuilder::new(
+        &app_handle,
+        "capture",
+        tauri::WebviewUrl::App("capture.html".into()),
+    )
+    .title("Clippy Screenshot")
+    .inner_size(1180.0, 760.0)
+    .min_inner_size(820.0, 560.0)
+    .center()
+    .resizable(true)
+    .build()
+    .map_err(|e| e.to_string())?;
+    let _ = window.set_focus();
+
+    Ok(())
+}
+
+/// 返回最近一次由 show_capture_editor 捕获的截图。
+#[tauri::command]
+pub fn get_pending_capture(
+    state: State<AppState>,
+) -> Result<crate::screenshot::CapturedScreenshot, String> {
+    state
+        .latest_capture
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone()
+        .ok_or_else(|| "没有待编辑截图".to_string())
+}
+
+/// 将前端生成的 PNG 写入系统剪贴板。
+#[tauri::command]
+pub fn copy_screenshot_image(png_base64: String) -> Result<(), String> {
+    let png = crate::screenshot::decode_png_base64(&png_base64).map_err(|e| e.to_string())?;
+    let img_data = png_to_clipboard_image(&png)?;
+    crate::clipboard_watcher::clipboard_set_image_with_retry(img_data)
+}
+
+/// 将前端生成的 PNG 保存到 Pictures/Clippy。
+#[tauri::command]
+pub fn save_screenshot_image(png_base64: String) -> Result<String, String> {
+    let png = crate::screenshot::decode_png_base64(&png_base64).map_err(|e| e.to_string())?;
+    crate::screenshot::png_dimensions(&png).map_err(|e| e.to_string())?;
+
+    let dir = default_screenshot_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建截图目录失败: {e}"))?;
+    let path = dir.join(format!("clippy-screenshot-{}.png", unique_image_id()));
+    std::fs::write(&path, png).map_err(|e| format!("保存截图失败: {e}"))?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// 将前端生成的 PNG 创建为临时贴图窗口。
+#[tauri::command]
+pub fn pin_screenshot_image(
+    png_base64: String,
+    app_handle: tauri::AppHandle,
+    state: State<AppState>,
+) -> Result<String, String> {
+    let png = crate::screenshot::decode_png_base64(&png_base64).map_err(|e| e.to_string())?;
+    let (width, height) = crate::screenshot::png_dimensions(&png).map_err(|e| e.to_string())?;
+    let pin_id = unique_image_id();
+    {
+        let mut pins = state.temp_pins.lock().map_err(|e| e.to_string())?;
+        pins.insert(pin_id.clone(), png);
+    }
+
+    let label = format!("pin-temp-{pin_id}");
+    if let Some(win) = app_handle.get_webview_window(&label) {
+        let _ = win.set_focus();
+        return Ok(label);
+    }
+
+    let (initial_width, initial_height) = initial_pin_size(width, height);
+    tauri::WebviewWindowBuilder::new(
+        &app_handle,
+        &label,
+        tauri::WebviewUrl::App(format!("pin.html?temp={pin_id}").into()),
+    )
+    .title("")
+    .inner_size(initial_width, initial_height)
+    .decorations(false)
+    .always_on_top(true)
+    .transparent(true)
+    .skip_taskbar(true)
+    .resizable(true)
+    .center()
+    .build()
+    .map_err(|e| e.to_string())?;
+
+    if let Some(win) = app_handle.get_webview_window(&label) {
+        crate::pin_window::configure_pin_window(&win);
+    }
+
+    Ok(label)
+}
+
+/// 读取临时贴图图片，供 pin.html 渲染。
+#[tauri::command]
+pub fn get_temp_pin_image(pin_id: String, state: State<AppState>) -> Result<String, String> {
+    let pins = state.temp_pins.lock().map_err(|e| e.to_string())?;
+    let png = pins
+        .get(&pin_id)
+        .ok_or_else(|| "临时贴图不存在".to_string())?;
+    Ok(STANDARD.encode(png))
+}
+
+/// 复制临时贴图图片。
+#[tauri::command]
+pub fn copy_temp_pin_image(pin_id: String, state: State<AppState>) -> Result<(), String> {
+    let png = {
+        let pins = state.temp_pins.lock().map_err(|e| e.to_string())?;
+        pins.get(&pin_id)
+            .cloned()
+            .ok_or_else(|| "临时贴图不存在".to_string())?
+    };
+    let img_data = png_to_clipboard_image(&png)?;
+    crate::clipboard_watcher::clipboard_set_image_with_retry(img_data)
+}
+
+pub fn remove_temp_pin_by_label(label: &str, state: &AppState) {
+    let Some(pin_id) = label.strip_prefix("pin-temp-") else {
+        return;
+    };
+    if let Ok(mut pins) = state.temp_pins.lock() {
+        pins.remove(pin_id);
+    }
+}
+
+fn png_to_clipboard_image(png: &[u8]) -> Result<arboard::ImageData<'static>, String> {
+    let img = image::load_from_memory_with_format(png, image::ImageFormat::Png)
+        .map_err(|e| format!("PNG 解码失败: {e}"))?;
+    let rgba = img.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    Ok(arboard::ImageData {
+        width: width as usize,
+        height: height as usize,
+        bytes: std::borrow::Cow::Owned(rgba.into_raw()),
+    })
+}
+
+fn default_screenshot_dir() -> PathBuf {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("Pictures")
+        .join("Clippy")
+}
+
+fn unique_image_id() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let seq = TEMP_IMAGE_SEQ.fetch_add(1, Ordering::Relaxed);
+    format!("{millis}-{seq}")
+}
+
+fn initial_pin_size(width: u32, height: u32) -> (f64, f64) {
+    let width = width.max(1) as f64;
+    let height = height.max(1) as f64;
+    let scale = (900.0 / width).min(700.0 / height).min(1.0);
+    ((width * scale).max(180.0), (height * scale).max(120.0))
+}
+
 // ── 贴图 Pin-to-Desktop ─────────────────────────────────────────────────────
 
 /// 将指定条目钉到桌面：创建 always-on-top 无边框透明窗口
@@ -658,14 +864,33 @@ pub fn pin_clip(id: i64, app_handle: tauri::AppHandle) -> Result<String, String>
 
 /// 关闭指定贴图窗口
 #[tauri::command]
-pub fn close_pin(label: String, app_handle: tauri::AppHandle) -> Result<(), String> {
-    if !label.starts_with("pin-") || label[4..].parse::<i64>().is_err() {
+pub fn close_pin(
+    label: String,
+    app_handle: tauri::AppHandle,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let is_clip_pin = label
+        .strip_prefix("pin-")
+        .and_then(|id| id.parse::<i64>().ok())
+        .is_some();
+    let is_temp_pin = label
+        .strip_prefix("pin-temp-")
+        .map(is_safe_temp_pin_id)
+        .unwrap_or(false);
+    if !is_clip_pin && !is_temp_pin {
         return Err("无效的贴图窗口标签".to_string());
     }
     if let Some(win) = app_handle.get_webview_window(&label) {
         win.close().map_err(|e| e.to_string())?;
     }
+    if is_temp_pin {
+        remove_temp_pin_by_label(&label, &state);
+    }
     Ok(())
+}
+
+fn is_safe_temp_pin_id(id: &str) -> bool {
+    !id.is_empty() && id.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
 }
 
 // ── OCR 文字识别 ─────────────────────────────────────────────────────

@@ -10,6 +10,7 @@ import { PhysicalPosition } from "@tauri-apps/api/dpi";
 
 const params = new URLSearchParams(window.location.search);
 const clipId = Number(params.get("id"));
+const tempPinId = params.get("temp");
 const container = document.getElementById("pin-container");
 const content = document.getElementById("pin-content");
 const menu = document.getElementById("pin-context-menu");
@@ -25,32 +26,23 @@ let cachedScaleFactor = 1;
 
 // ── 初始化：加载内容 ──
 async function init() {
-  if (!clipId) return;
+  if (!clipId && !tempPinId) return;
   cachedScaleFactor = await appWindow.scaleFactor();
   try {
-    const clip = await invoke("get_clip_detail", { id: clipId });
-    if (clip.content_type === "image") {
-      const base64 = await invoke("get_clip_image", { id: clipId });
-      if (base64) {
-        const img = document.createElement("img");
-        img.src = `data:image/png;base64,${base64}`;
-        img.alt = "pinned image";
-        img.draggable = false;
-        content.appendChild(img);
-        // 图片加载后调整窗口为原始大小
-        img.onload = () => {
-          const w = img.naturalWidth;
-          const h = img.naturalHeight;
-          baseWidth = w;
-          baseHeight = h;
-          appWindow.setSize(new LogicalSize(w, h));
-        };
-      }
+    if (tempPinId) {
+      const base64 = await invoke("get_temp_pin_image", { pinId: tempPinId });
+      renderImage(base64);
     } else {
-      // 文本类型
-      const pre = document.createElement("pre");
-      pre.textContent = clip.text_content || "";
-      content.appendChild(pre);
+      const clip = await invoke("get_clip_detail", { id: clipId });
+      if (clip.content_type === "image") {
+        const base64 = await invoke("get_clip_image", { id: clipId });
+        if (base64) renderImage(base64);
+      } else {
+        // 文本类型
+        const pre = document.createElement("pre");
+        pre.textContent = clip.text_content || "";
+        content.appendChild(pre);
+      }
     }
   } catch (err) {
     content.textContent = "Failed to load content";
@@ -62,6 +54,23 @@ async function init() {
   } catch (err) {
     console.warn("贴图窗口置顶确认失败:", err);
   }
+}
+
+function renderImage(base64) {
+  if (!base64) return;
+  const img = document.createElement("img");
+  img.src = `data:image/png;base64,${base64}`;
+  img.alt = "pinned image";
+  img.draggable = false;
+  content.appendChild(img);
+  // 图片加载后调整窗口为原始大小
+  img.onload = () => {
+    const w = img.naturalWidth;
+    const h = img.naturalHeight;
+    baseWidth = w;
+    baseHeight = h;
+    appWindow.setSize(new LogicalSize(w, h));
+  };
 }
 
 // ── 滚轮缩放 / Ctrl+滚轮透明度 ──
@@ -128,7 +137,11 @@ menu.addEventListener("click", async (e) => {
   if (!action) return;
   menu.hidden = true;
   if (action === "copy") {
-    await invoke("select_clip", { id: clipId });
+    if (tempPinId) {
+      await invoke("copy_temp_pin_image", { pinId: tempPinId });
+    } else {
+      await invoke("select_clip", { id: clipId });
+    }
   } else if (action === "lock") {
     locked = !locked;
   } else if (action === "close") {

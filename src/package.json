@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [],
   "author": "",
@@ -19,11 +20,18 @@
     "@tauri-apps/plugin-updater": "^2.10.1",
     "dompurify": "^3.4.1",
     "highlight.js": "^11.11.1",
-    "marked": "^18.0.2"
+    "lucide-react": "^1.21.0",
+    "marked": "^18.0.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^5.2.0",
     "jsdom": "^25.0.0",
     "sharp": "^0.34.5",
+    "typescript": "^6.0.3",
     "vite": "^6.4.2",
     "vitest": "^2.1.0"
   }
