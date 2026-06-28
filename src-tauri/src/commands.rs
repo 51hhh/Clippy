@@ -2,7 +2,6 @@ use crate::clipboard_watcher::ClipboardWatcher;
 use crate::config::save_config;
 use crate::models::{AppConfig, ClipItem, ContentType, UrlMeta};
 use crate::storage::StorageEngine;
-use arboard::Clipboard;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -75,8 +74,6 @@ pub fn select_clip(
         storage.get_clip_by_id(id).map_err(|e| e.to_string())?
     };
 
-    let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
-
     match clip.content_type {
         ContentType::Text => {
             if let Some(content) = clip.text_content {
@@ -86,7 +83,7 @@ pub fn select_clip(
                     Sha256::new_with_prefix(content.as_bytes()).finalize()
                 );
                 state.watcher.set_skip_hash(hash);
-                clipboard.set_text(content).map_err(|e| e.to_string())?;
+                crate::clipboard_watcher::clipboard_set_text_with_retry(&content)?;
             }
         }
         ContentType::Image => {
@@ -114,7 +111,7 @@ pub fn select_clip(
                 height: h as usize,
                 bytes: std::borrow::Cow::Owned(rgba.into_raw()),
             };
-            clipboard.set_image(img_data).map_err(|e| e.to_string())?;
+            crate::clipboard_watcher::clipboard_set_image_with_retry(img_data)?;
         }
         ContentType::Html => {
             if let Some(html) = &clip.html_content {
@@ -122,10 +119,7 @@ pub fn select_clip(
                 let hash = format!("{:x}", Sha256::new_with_prefix(html.as_bytes()).finalize());
                 state.watcher.set_skip_hash(hash);
                 let alt_text = clip.text_content.as_deref().or(Some(""));
-                clipboard
-                    .set()
-                    .html(html.as_str(), alt_text)
-                    .map_err(|e| e.to_string())?;
+                crate::clipboard_watcher::clipboard_set_html_with_retry(html.as_str(), alt_text)?;
             } else if let Some(content) = clip.text_content {
                 use sha2::{Digest, Sha256};
                 let hash = format!(
@@ -133,7 +127,7 @@ pub fn select_clip(
                     Sha256::new_with_prefix(content.as_bytes()).finalize()
                 );
                 state.watcher.set_skip_hash(hash);
-                clipboard.set_text(content).map_err(|e| e.to_string())?;
+                crate::clipboard_watcher::clipboard_set_text_with_retry(&content)?;
             }
         }
     }
