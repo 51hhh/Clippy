@@ -327,6 +327,28 @@ html, body {
   font-size: 13px;
   color: var(--text-secondary);
 }
+.permission-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.permission-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-muted);
+}
+.permission-status-dot.ready { background: #16a34a; }
+.permission-status-dot.pending { background: #d97706; }
+.permission-status-dot.unavailable { background: #dc2626; }
+.permission-status-text {
+  min-width: 0;
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
 .ocr-options {
   margin-top: 12px;
 }

@@ -92,6 +92,23 @@
     </div>
 
     <div class="setting-group">
+      <label class="setting-label" data-i18n="settings.autoPaste.label">Automatic Paste</label>
+      <div class="setting-toggle-row">
+        <label class="toggle-switch">
+          <input type="checkbox" id="auto-paste-toggle">
+          <span class="toggle-slider"></span>
+        </label>
+        <span class="setting-hint" data-i18n="settings.autoPaste.hint">Paste into the previously focused app after selecting a clip</span>
+      </div>
+      <div class="permission-status-row" id="paste-status-row">
+        <span class="permission-status-dot" id="paste-status-dot"></span>
+        <span class="permission-status-text" id="paste-status-text"></span>
+        <button class="btn btn-small btn-primary" id="paste-authorize-btn" type="button" hidden
+                data-i18n="settings.autoPaste.authorize">Authorize</button>
+      </div>
+    </div>
+
+    <div class="setting-group">
       <label class="setting-label" data-i18n="settings.ocr.label">OCR</label>
       <div class="setting-toggle-row">
         <label class="toggle-switch">

@@ -1,6 +1,7 @@
 use crate::clipboard_watcher::ClipboardWatcher;
 use crate::config::save_config;
 use crate::models::{AppConfig, ClipItem, ContentType, UrlMeta};
+use crate::paste::{PasteManager, PasteOutcome, PasteStatus};
 use crate::storage::StorageEngine;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use std::collections::HashMap;
@@ -23,6 +24,7 @@ pub struct AppState {
     pub codec_visible: Arc<Mutex<bool>>,
     pub latest_capture: Arc<Mutex<Option<crate::screenshot::CapturedScreenshot>>>,
     pub temp_pins: Arc<Mutex<HashMap<String, Vec<u8>>>>,
+    pub paste_manager: Arc<PasteManager>,
 }
 
 static TEMP_IMAGE_SEQ: AtomicU64 = AtomicU64::new(1);
@@ -38,7 +40,7 @@ pub fn get_clips(
     favorites_only: bool,
     offset: i64,
     limit: i64,
-    state: State<AppState>,
+    state: State<'_, AppState>,
 ) -> Result<Vec<ClipItem>, String> {
     let storage = state.storage.lock().map_err(|e| e.to_string())?;
     storage
@@ -67,19 +69,62 @@ pub fn clear_history(state: State<AppState>) -> Result<(), String> {
     storage.clear_history().map_err(|e| e.to_string())
 }
 
-/// 将指定条目的内容写入系统剪贴板，隐藏面板，并模拟粘贴
+/// 将指定条目的内容写入系统剪贴板，隐藏面板，并按当前平台尝试自动粘贴。
 #[tauri::command]
-pub fn select_clip(
+pub async fn select_clip(
     id: i64,
     app_handle: tauri::AppHandle,
-    state: State<AppState>,
-) -> Result<(), String> {
-    // 从存储中读取条目
+    state: State<'_, AppState>,
+) -> Result<PasteOutcome, String> {
+    write_clip_to_clipboard(id, &state)?;
+
+    // 置顶：更新 created_at 并通知前端移动到列表首位
+    let updated_clip = {
+        let storage = state.storage.lock().map_err(|e| e.to_string())?;
+        storage.touch_clip(id).map_err(|e| e.to_string())?
+    };
+    let _ = app_handle.emit("clip-added", &updated_clip);
+
+    // 隐藏悬浮面板窗口，让 X11 恢复记录窗口、Wayland 恢复上一焦点。
+    if let Some(window) = app_handle.get_webview_window("main") {
+        window.hide().map_err(|e| e.to_string())?;
+    }
+
+    let auto_paste = state
+        .config
+        .lock()
+        .map(|config| config.auto_paste)
+        .unwrap_or(true);
+    if !auto_paste {
+        return Ok(PasteOutcome::copied_only(
+            state.paste_manager.backend(),
+            Some("Automatic paste is disabled".to_string()),
+        ));
+    }
+
+    match state.paste_manager.paste().await {
+        Ok(outcome) => Ok(outcome),
+        Err(error) => {
+            log::warn!("自动粘贴失败，内容已保留在剪贴板: {error}");
+            let outcome =
+                PasteOutcome::copied_only(state.paste_manager.backend(), Some(error.clone()));
+            let _ = app_handle.emit("paste-fallback", &outcome);
+            Ok(outcome)
+        }
+    }
+}
+
+/// 纯复制命令，供 Pin 和其他不应注入按键的入口使用。
+#[tauri::command]
+pub fn copy_clip(id: i64, state: State<AppState>) -> Result<(), String> {
+    write_clip_to_clipboard(id, &state)
+}
+
+fn write_clip_to_clipboard(id: i64, state: &AppState) -> Result<(), String> {
     let clip = {
         let storage = state.storage.lock().map_err(|e| e.to_string())?;
         storage.get_clip_by_id(id).map_err(|e| e.to_string())?
     };
-
     match clip.content_type {
         ContentType::Text => {
             if let Some(content) = clip.text_content {
@@ -137,47 +182,18 @@ pub fn select_clip(
             }
         }
     }
-
-    // 置顶：更新 created_at 并通知前端移动到列表首位
-    let updated_clip = {
-        let storage = state.storage.lock().map_err(|e| e.to_string())?;
-        storage.touch_clip(id).map_err(|e| e.to_string())?
-    };
-    let _ = app_handle.emit("clip-added", &updated_clip);
-
-    // 隐藏悬浮面板窗口
-    if let Some(window) = app_handle.get_webview_window("main") {
-        window.hide().map_err(|e| e.to_string())?;
-    }
-
-    // 短暂延迟后模拟 Ctrl+V 粘贴到之前的活动窗口
-    std::thread::spawn(|| {
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        simulate_paste();
-    });
-
     Ok(())
 }
 
-/// 通过 XTest 扩展模拟 Ctrl+V 粘贴（enigo/x11rb 后端）
-fn simulate_paste() {
-    use enigo::{
-        Direction::{Click, Press, Release},
-        Enigo, Key, Keyboard, Settings,
-    };
+#[tauri::command]
+pub async fn get_paste_status(state: State<'_, AppState>) -> Result<PasteStatus, String> {
+    let auto_paste = state.config.lock().map_err(|e| e.to_string())?.auto_paste;
+    Ok(state.paste_manager.status(auto_paste).await)
+}
 
-    match Enigo::new(&Settings::default()) {
-        Ok(mut enigo) => {
-            if let Err(e) = enigo
-                .key(Key::Control, Press)
-                .and_then(|_| enigo.key(Key::Unicode('v'), Click))
-                .and_then(|_| enigo.key(Key::Control, Release))
-            {
-                log::warn!("模拟粘贴失败: {}", e);
-            }
-        }
-        Err(e) => log::warn!("初始化 enigo 失败: {}", e),
-    }
+#[tauri::command]
+pub async fn request_paste_permission(state: State<'_, AppState>) -> Result<PasteStatus, String> {
+    state.paste_manager.request_permission().await
 }
 
 /// 按 id 获取图片数据，返回 base64 编码的 PNG
@@ -216,15 +232,8 @@ pub fn set_preview_visible(
     if let Ok(mut pv) = state.preview_visible.lock() {
         *pv = visible;
     }
-    if let Some(window) = app_handle.get_webview_window("main") {
-        let width = calc_window_width(&state);
-        window
-            .set_size(tauri::Size::Logical(tauri::LogicalSize {
-                width,
-                height: WINDOW_HEIGHT,
-            }))
-            .map_err(|e| e.to_string())?;
-    }
+    let width = calc_window_width(&state);
+    crate::window_controller::resize_main_window(&app_handle, width, WINDOW_HEIGHT)?;
     Ok(())
 }
 
@@ -238,15 +247,8 @@ pub fn set_codec_visible(
     if let Ok(mut cv) = state.codec_visible.lock() {
         *cv = visible;
     }
-    if let Some(window) = app_handle.get_webview_window("main") {
-        let width = calc_window_width(&state);
-        window
-            .set_size(tauri::Size::Logical(tauri::LogicalSize {
-                width,
-                height: WINDOW_HEIGHT,
-            }))
-            .map_err(|e| e.to_string())?;
-    }
+    let width = calc_window_width(&state);
+    crate::window_controller::resize_main_window(&app_handle, width, WINDOW_HEIGHT)?;
     Ok(())
 }
 

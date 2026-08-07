@@ -31,6 +31,21 @@ export function selectClip(id) {
   return invoke("select_clip", { id });
 }
 
+/** 仅写入系统剪贴板，不隐藏窗口或模拟按键 */
+export function copyClip(id) {
+  return invoke("copy_clip", { id });
+}
+
+/** 查询当前自动粘贴后端和授权状态 */
+export function getPasteStatus() {
+  return invoke("get_paste_status");
+}
+
+/** 显式请求 Wayland RemoteDesktop Portal 键盘控制权限 */
+export function requestPastePermission() {
+  return invoke("request_paste_permission");
+}
+
 /** 按 id 获取图片数据（base64 编码的 PNG），仅 image 类型有值 */
 export function getClipImage(id) {
   return invoke("get_clip_image", { id });

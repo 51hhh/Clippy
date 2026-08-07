@@ -78,6 +78,8 @@ pub struct AppConfig {
     pub ocr_enabled: bool,
     #[serde(default)]
     pub tmux_capture: bool,
+    #[serde(default = "default_auto_paste")]
+    pub auto_paste: bool,
 }
 
 fn default_language() -> String {
@@ -104,6 +106,10 @@ fn default_ocr_enabled() -> bool {
     true
 }
 
+fn default_auto_paste() -> bool {
+    true
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -119,6 +125,7 @@ impl Default for AppConfig {
             ocr_result_mode: "preview".to_string(),
             ocr_enabled: true,
             tmux_capture: false,
+            auto_paste: true,
         }
     }
 }

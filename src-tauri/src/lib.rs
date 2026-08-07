@@ -4,10 +4,12 @@ mod config;
 mod gsettings_shortcuts;
 mod models;
 mod ocr;
+mod paste;
 mod pin_window;
 mod screenshot;
 mod storage;
 mod tray_icon;
+mod window_controller;
 
 use commands::AppState;
 use models::AppConfig;
@@ -34,9 +36,11 @@ fn is_dev_binary() -> bool {
 
 /// 已有实例运行时的回调：聚焦主窗口
 fn on_second_instance(app: &tauri::AppHandle, _args: Vec<String>, _cwd: String) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.set_focus();
+    if app.get_webview_window("main").is_some() {
+        if let Some(state) = app.try_state::<AppState>() {
+            state.paste_manager.capture_target();
+        }
+        let _ = window_controller::show_main_window(app);
     }
 }
 
@@ -62,10 +66,10 @@ fn build_tray(app: &tauri::App, theme: &str) -> Result<(), Box<dyn std::error::E
         .tooltip("Clippy")
         .on_menu_event(|app_handle, event| match event.id.as_ref() {
             "open_clipboard" => {
-                if let Some(window) = app_handle.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
+                if let Some(state) = app_handle.try_state::<AppState>() {
+                    state.paste_manager.capture_target();
                 }
+                let _ = window_controller::show_main_window(app_handle);
             }
             "settings" => {
                 // 打开或聚焦设置窗口（先销毁再重建，确保加载最新页面）
@@ -101,8 +105,12 @@ fn toggle_main_window(handle: &tauri::AppHandle) {
         if window.is_visible().unwrap_or(false) {
             let _ = window.hide();
         } else {
-            let _ = window.show();
-            let _ = window.set_focus();
+            if let Some(state) = handle.try_state::<AppState>() {
+                state.paste_manager.capture_target();
+            }
+            if let Err(error) = window_controller::show_main_window(handle) {
+                log::warn!("显示主窗口失败: {error}");
+            }
         }
     } else {
         log::warn!("找不到 main 窗口");
@@ -259,6 +267,7 @@ pub fn run() {
 
             let storage = Arc::new(Mutex::new(storage));
             let config = Arc::new(Mutex::new(app_config.clone()));
+            let paste_manager = Arc::new(paste::PasteManager::new(&app_data_dir));
 
             // ── 4. 启动剪贴板监听器 ──────────────────────────────────────────
             let watcher = clipboard_watcher::ClipboardWatcher::new();
@@ -285,6 +294,7 @@ pub fn run() {
                 codec_visible: Arc::new(Mutex::new(false)),
                 latest_capture: Arc::new(Mutex::new(None)),
                 temp_pins: Arc::new(Mutex::new(HashMap::new())),
+                paste_manager,
             });
 
             // ── 6. 构建系统托盘 ──────────────────────────────────────────────
@@ -377,28 +387,28 @@ pub fn run() {
                 }
             }
 
-            // ── 8. WebKit 内存优化（禁用 GPU 加速 & 不需要的功能）─────────
+            // ── 8. 可回退的 WebKit 诊断开关 ────────────────────────────────
+            // 默认保留 WebKitGTK 平台策略；全局禁用 GPU 会在部分 X11 驱动上导致
+            // 黑屏。仅在排障时通过 CLIPPY_DISABLE_GPU=1 显式启用软件渲染。
             #[cfg(target_os = "linux")]
-            if let Some(main_window) = app.get_webview_window("main") {
-                let _ = main_window.with_webview(|webview| {
-                    use webkit2gtk::{WebViewExt, SettingsExt, WebContextExt};
-                    let wk = webview.inner();
-                    if let Some(settings) = wk.settings() {
-                        settings.set_hardware_acceleration_policy(
-                            webkit2gtk::HardwareAccelerationPolicy::Never,
-                        );
-                        settings.set_enable_webgl(false);
-                        settings.set_enable_webaudio(false);
-                        settings.set_enable_media_stream(false);
-                        settings.set_enable_media(false);
-                        settings.set_enable_page_cache(false);
-                        settings.set_enable_smooth_scrolling(false);
-                    }
-                    // CacheModel::DocumentViewer — 禁用网络缓存，Clippy 只加载本地资源
-                    if let Some(ctx) = wk.context() {
-                        ctx.set_cache_model(webkit2gtk::CacheModel::DocumentViewer);
-                    }
-                });
+            if std::env::var("CLIPPY_DISABLE_GPU").as_deref() == Ok("1") {
+                if let Some(main_window) = app.get_webview_window("main") {
+                    let _ = main_window.with_webview(|webview| {
+                        use webkit2gtk::{SettingsExt, WebViewExt};
+                        let wk = webview.inner();
+                        if let Some(settings) = wk.settings() {
+                            settings.set_hardware_acceleration_policy(
+                                webkit2gtk::HardwareAccelerationPolicy::Never,
+                            );
+                            settings.set_enable_webgl(false);
+                            settings.set_enable_webaudio(false);
+                            settings.set_enable_media_stream(false);
+                            settings.set_enable_media(false);
+                            settings.set_enable_page_cache(false);
+                            settings.set_enable_smooth_scrolling(false);
+                        }
+                    });
+                }
             }
 
             Ok(())
@@ -426,18 +436,6 @@ pub fn run() {
                                 }
                             }
                             let _ = window.hide();
-
-                            // 窗口隐藏后清理 WebKit 缓存，释放非必要内存
-                            #[cfg(target_os = "linux")]
-                            if let Some(wv) = app_handle.get_webview_window("main") {
-                                let _ = wv.with_webview(|webview| {
-                                    use webkit2gtk::{WebViewExt, WebContextExt};
-                                    let wk = webview.inner();
-                                    if let Some(ctx) = wk.context() {
-                                        ctx.clear_cache();
-                                    }
-                                });
-                            }
                         }
                     });
                 }
@@ -460,6 +458,9 @@ pub fn run() {
             commands::toggle_favorite,
             commands::clear_history,
             commands::select_clip,
+            commands::copy_clip,
+            commands::get_paste_status,
+            commands::request_paste_permission,
             commands::get_clip_image,
             commands::get_clip_detail,
             commands::set_preview_visible,
