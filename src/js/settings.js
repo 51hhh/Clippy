@@ -12,11 +12,13 @@ import {
   checkShortcutConflict,
   getConfig,
   getAppVersion,
+  getPasteStatus,
   getStats,
   isDevBinary,
   ocrAvailable,
   ocrInstall,
   pauseShortcuts,
+  requestPastePermission,
   resumeShortcuts,
   toggleTmuxCapture,
   tmuxAvailable,
@@ -51,6 +53,10 @@ const aboutVersion    = document.getElementById("about-version");
 const checkUpdateBtn  = document.getElementById("check-update-btn");
 const updateStatus    = document.getElementById("update-status");
 const autostartToggle = document.getElementById("autostart-toggle");
+const autoPasteToggle = document.getElementById("auto-paste-toggle");
+const pasteStatusDot  = document.getElementById("paste-status-dot");
+const pasteStatusText = document.getElementById("paste-status-text");
+const pasteAuthorizeBtn = document.getElementById("paste-authorize-btn");
 const ocrModeSelect  = document.getElementById("ocr-mode-select");
 const ocrToggle      = document.getElementById("ocr-toggle");
 const ocrStatusDot   = document.getElementById("ocr-status-dot");
@@ -78,6 +84,7 @@ let savedConfig = null;
 let isRecording = false;
 let isPinRecording = false;
 let isCaptureRecording = false;
+let lastPasteStatus = null;
 
 // 初始化
 function whenReady(fn) {
@@ -96,6 +103,7 @@ whenReady(async () => {
     renderThemeGrid();
     applyTheme(selectedTheme);
     i18n.init(savedConfig.language || "auto");
+    await loadPasteStatus();
     // 显示版本号
     try {
       const ver = await getAppVersion();
@@ -134,6 +142,7 @@ function fillForm(config) {
   ocrModeCtrl.value    = config.ocr_result_mode || "preview";
   ocrToggle.checked      = config.ocr_enabled !== false;
   tmuxToggle.checked     = config.tmux_capture === true;
+  autoPasteToggle.checked = config.auto_paste !== false;
   updateOcrOptionsVisibility();
 }
 
@@ -211,6 +220,7 @@ languageSelect.addEventListener("change", () => {
   if (isCaptureRecording) {
     captureRecordBtn.textContent = i18n.t("settings.shortcut.stop");
   }
+  if (lastPasteStatus) renderPasteStatus(lastPasteStatus);
 });
 
 // 开机自启动 toggle — 立即生效，无需点 Save
@@ -224,6 +234,55 @@ autostartToggle.addEventListener("change", async () => {
   } catch (e) {
     console.warn("切换自启动失败:", e);
     autostartToggle.checked = !autostartToggle.checked;
+  }
+});
+
+async function loadPasteStatus() {
+  try {
+    renderPasteStatus(await getPasteStatus());
+  } catch (error) {
+    renderPasteStatus({ backend: "copy_only", phase: "unavailable", detail: String(error) });
+  }
+}
+
+function renderPasteStatus(status) {
+  lastPasteStatus = status;
+  const backend = status?.backend || "copy_only";
+  const phase = status?.phase || "unavailable";
+  let key = "settings.autoPaste.unavailable";
+  let tone = "unavailable";
+
+  if (backend === "x11") {
+    key = "settings.autoPaste.x11Ready";
+    tone = "ready";
+  } else if (backend === "wayland_portal" && phase === "ready") {
+    key = "settings.autoPaste.portalReady";
+    tone = "ready";
+  } else if (backend === "wayland_portal" && phase === "initializing") {
+    key = "settings.autoPaste.initializing";
+    tone = "pending";
+  } else if (backend === "wayland_portal" && phase === "denied") {
+    key = "settings.autoPaste.denied";
+  } else if (backend === "wayland_portal") {
+    key = "settings.autoPaste.permissionRequired";
+    tone = "pending";
+  }
+
+  pasteStatusDot.className = `permission-status-dot ${tone}`;
+  pasteStatusText.textContent = i18n.t(key);
+  pasteStatusText.title = status?.detail || "";
+  pasteAuthorizeBtn.hidden = backend !== "wayland_portal" || phase === "ready";
+}
+
+pasteAuthorizeBtn.addEventListener("click", async () => {
+  pasteAuthorizeBtn.disabled = true;
+  renderPasteStatus({ backend: "wayland_portal", phase: "initializing" });
+  try {
+    renderPasteStatus(await requestPastePermission());
+  } catch (error) {
+    renderPasteStatus({ backend: "wayland_portal", phase: "denied", detail: String(error) });
+  } finally {
+    pasteAuthorizeBtn.disabled = false;
   }
 });
 
@@ -389,6 +448,7 @@ saveBtn.addEventListener("click", async () => {
       ocr_result_mode: ocrModeCtrl.value,
       ocr_enabled: ocrToggle.checked,
       tmux_capture: tmuxGroup.style.display !== "none" ? tmuxToggle.checked : (savedConfig?.tmux_capture ?? false),
+      auto_paste: autoPasteToggle.checked,
     };
 
     await updateConfig(newConfig);

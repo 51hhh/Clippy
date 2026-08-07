@@ -151,7 +151,7 @@ menu.addEventListener("click", async (e) => {
     if (tempPinId) {
       await invoke("copy_temp_pin_image", { pinId: tempPinId });
     } else {
-      await invoke("select_clip", { id: clipId });
+      await invoke("copy_clip", { id: clipId });
     }
   } else if (action === "lock") {
     locked = !locked;
