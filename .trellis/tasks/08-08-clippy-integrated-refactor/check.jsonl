@@ -1,0 +1,5 @@
+{"file":".trellis/spec/backend/index.md","reason":"检查 Rust 架构、错误、日志、数据库和质量门禁"}
+{"file":".trellis/spec/frontend/index.md","reason":"检查组件、状态、类型、安全和前端质量"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"检查跨层数据流、资源清理和错误路径"}
+{"file":".trellis/tasks/08-08-clippy-integrated-refactor/prd.md","reason":"逐项核对完整验收条件"}
+{"file":".trellis/tasks/08-08-clippy-integrated-refactor/research/sandbox-authorization-inventory.md","reason":"确认无人值守阶段未引入阻塞授权"}

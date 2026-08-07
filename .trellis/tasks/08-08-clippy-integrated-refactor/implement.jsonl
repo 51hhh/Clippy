@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/index.md","reason":"后端重构入口与质量要求"}
+{"file":".trellis/spec/frontend/index.md","reason":"前端重构入口与质量要求"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"窗口、IPC、状态和平台跨层设计"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"复用 Flashot 并避免复制 Translator GPL 源码"}
+{"file":".trellis/tasks/08-08-clippy-integrated-refactor/research/paste-permission-portal.md","reason":"X11/Wayland 自动粘贴与持久授权设计"}
+{"file":".trellis/tasks/08-08-clippy-integrated-refactor/research/example-integration-analysis.md","reason":"示例版本、许可和可借鉴实现"}
+{"file":".trellis/tasks/08-08-clippy-integrated-refactor/research/refactor-architecture.md","reason":"目标模块边界和迁移顺序"}
