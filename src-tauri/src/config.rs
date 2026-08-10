@@ -56,6 +56,11 @@ mod tests {
         assert_eq!(config.capture_shortcut, "Ctrl+Shift+S");
         assert_eq!(config.theme, "light");
         assert_eq!(config.language, "auto");
+        assert_eq!(config.translation_provider, "libretranslate");
+        assert_eq!(config.translation_endpoint, "https://libretranslate.com");
+        assert!(config.translation_model.is_empty());
+        assert_eq!(config.translation_source_language, "auto");
+        assert_eq!(config.translation_target_language, "en");
     }
 
     #[test]

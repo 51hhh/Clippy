@@ -24,6 +24,7 @@ pub struct AppState {
     pub capture_manager: Arc<crate::capture::CaptureManager>,
     pub pin_manager: Arc<crate::pin::PinManager>,
     pub paste_manager: Arc<PasteManager>,
+    pub translation: Arc<crate::translation::TranslationService>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
