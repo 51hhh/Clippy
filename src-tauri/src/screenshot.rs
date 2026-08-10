@@ -81,8 +81,11 @@ struct ImageRect {
     height: u32,
 }
 
-pub(crate) fn capture_monitor_frames() -> Result<Vec<CapturedMonitorFrame>> {
-    let (monitors, frames) = capture_all_monitors()?;
+/// 捕获冻结帧。交互式 Portal 截图只能由明确的用户动作启用。
+pub(crate) fn capture_monitor_frames(
+    allow_interactive_portal: bool,
+) -> Result<Vec<CapturedMonitorFrame>> {
+    let (monitors, frames) = capture_all_monitors(allow_interactive_portal)?;
     frames
         .into_iter()
         .map(|frame| {
@@ -138,14 +141,16 @@ pub fn encode_png(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>> {
 }
 
 #[cfg(target_os = "linux")]
-fn capture_all_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
+fn capture_all_monitors(
+    allow_interactive_portal: bool,
+) -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
     if is_wayland_session() {
         match capture_all_wayland_monitors() {
             Ok(result) => return Ok(result),
             Err(e) => log::warn!("Wayland wlroots 截图失败，回退到 Portal: {e:#}"),
         }
 
-        match capture_all_portal_monitors() {
+        match capture_all_portal_monitors(allow_interactive_portal) {
             Ok(result) => return Ok(result),
             Err(e) => log::warn!("XDG Portal 截图失败，回退到 GNOME Shell: {e:#}"),
         }
@@ -160,7 +165,9 @@ fn capture_all_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
 }
 
 #[cfg(not(target_os = "linux"))]
-fn capture_all_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
+fn capture_all_monitors(
+    _allow_interactive_portal: bool,
+) -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
     capture_all_xcap_monitors()
 }
 
@@ -217,7 +224,9 @@ fn capture_all_wayland_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)
 }
 
 #[cfg(target_os = "linux")]
-fn capture_all_portal_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
+fn capture_all_portal_monitors(
+    allow_interactive_portal: bool,
+) -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
     let monitors = enumerate_wayland_monitors()
         .or_else(|e| {
             log::warn!("Portal 截图无法复用 Wayland 几何，尝试 xcap 几何: {e:#}");
@@ -226,9 +235,13 @@ fn capture_all_portal_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)>
         .context("无法枚举 Portal 截图显示器")?;
 
     let screenshot = request_portal_screenshot(false)
-        .or_else(|e| {
-            log::warn!("非交互 Portal 截图失败，尝试交互模式: {e:#}");
-            request_portal_screenshot(true)
+        .or_else(|error| {
+            if allow_interactive_portal {
+                log::warn!("非交互 Portal 截图失败，尝试用户触发的交互模式: {error:#}");
+                request_portal_screenshot(true)
+            } else {
+                Err(error)
+            }
         })
         .context("无法请求 Portal 截图")?;
     let path = portal_screenshot_uri_to_path(screenshot.uri().as_str())?;

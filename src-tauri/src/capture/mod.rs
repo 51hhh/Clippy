@@ -40,7 +40,8 @@ pub(crate) async fn show_capture_overlay_for_app(
     let restore_labels = overlay_windows::hide_sources(&app_handle);
     let frames = match tauri::async_runtime::spawn_blocking(|| {
         std::thread::sleep(std::time::Duration::from_millis(140));
-        crate::screenshot::capture_monitor_frames()
+        // 截图覆盖层只能由快捷键/显式命令触发，允许 Portal 在必要时询问用户。
+        crate::screenshot::capture_monitor_frames(true)
     })
     .await
     {
