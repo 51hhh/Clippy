@@ -75,6 +75,31 @@ export function updateConfig(newConfig) {
   return invoke("update_config", { newConfig });
 }
 
+/** 显式翻译剪贴板条目；图片由后端先在本地执行 OCR */
+export function translateClip(id) {
+  return invoke("translate_clip", {
+    id,
+    sourceLanguage: null,
+    targetLanguage: null,
+    requestId: null,
+  });
+}
+
+/** 将指定翻译服务的 API key 写入系统 Secret Service */
+export function setTranslationApiKey(provider, apiKey) {
+  return invoke("set_translation_api_key", { provider, apiKey });
+}
+
+/** 查询指定翻译服务是否已保存 API key，不读取或回显密钥 */
+export function hasTranslationApiKey(provider) {
+  return invoke("has_translation_api_key", { provider });
+}
+
+/** 从系统 Secret Service 删除指定翻译服务的 API key */
+export function deleteTranslationApiKey(provider) {
+  return invoke("delete_translation_api_key", { provider });
+}
+
 /** 更新全局快捷键 */
 export function updateShortcut(newShortcut) {
   return invoke("update_shortcut", { newShortcut });

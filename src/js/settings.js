@@ -27,6 +27,7 @@ import {
 import { keyEventToShortcut } from "./shortcut-recorder.js";
 import { initCustomSelect } from "./custom-select.js";
 import { initUpdateModal, checkForUpdate } from "./update-modal.js";
+import { initTranslationSettings } from "./translation-settings.js";
 import * as i18n from "../i18n/i18n.js";
 import "../styles/themes.css";
 import "../styles/base.css";
@@ -86,6 +87,8 @@ let isPinRecording = false;
 let isCaptureRecording = false;
 let lastPasteStatus = null;
 
+const translationSettings = initTranslationSettings({ showToast });
+
 // 初始化
 function whenReady(fn) {
   if (document.readyState === "loading") {
@@ -103,7 +106,8 @@ whenReady(async () => {
     renderThemeGrid();
     applyTheme(selectedTheme);
     i18n.init(savedConfig.language || "auto");
-    await loadPasteStatus();
+    translationSettings.refreshLabels();
+    await Promise.all([loadPasteStatus(), translationSettings.loadKeyStatus()]);
     // 显示版本号
     try {
       const ver = await getAppVersion();
@@ -130,6 +134,8 @@ whenReady(async () => {
     selectedTheme = "light";
     renderThemeGrid();
     i18n.init("auto");
+    translationSettings.refreshLabels();
+    translationSettings.loadKeyStatus();
   }
 });
 
@@ -143,6 +149,7 @@ function fillForm(config) {
   ocrToggle.checked      = config.ocr_enabled !== false;
   tmuxToggle.checked     = config.tmux_capture === true;
   autoPasteToggle.checked = config.auto_paste !== false;
+  translationSettings.fill(config);
   updateOcrOptionsVisibility();
 }
 
@@ -221,6 +228,7 @@ languageSelect.addEventListener("change", () => {
     captureRecordBtn.textContent = i18n.t("settings.shortcut.stop");
   }
   if (lastPasteStatus) renderPasteStatus(lastPasteStatus);
+  translationSettings.refreshLabels();
 });
 
 // 开机自启动 toggle — 立即生效，无需点 Save
@@ -449,6 +457,7 @@ saveBtn.addEventListener("click", async () => {
       ocr_enabled: ocrToggle.checked,
       tmux_capture: tmuxGroup.style.display !== "none" ? tmuxToggle.checked : (savedConfig?.tmux_capture ?? false),
       auto_paste: autoPasteToggle.checked,
+      ...translationSettings.getConfig(),
     };
 
     await updateConfig(newConfig);
