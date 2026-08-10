@@ -72,8 +72,4 @@ export type EditorDocument = {
   adjustments: import("./imageAdjustments").ImageAdjustments;
 };
 
-export type CapturedScreenshot = {
-  pngBase64: string;
-  width: number;
-  height: number;
-};
+export type { CapturedScreenshot } from "../../js/ipc-types.ts";

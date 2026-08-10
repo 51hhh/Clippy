@@ -8,7 +8,7 @@ import {
   pinScreenshotImage,
   saveScreenshotImage,
   showCaptureEditor,
-} from "../../js/api.js";
+} from "../../js/api.ts";
 import {
   DEFAULT_IMAGE_ADJUSTMENTS,
 } from "./imageAdjustments";

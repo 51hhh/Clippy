@@ -10,7 +10,7 @@
  * 通过 telemetry 暴露关键事件用于测试与诊断。
  */
 
-import { getClips, deleteClip, toggleFavorite, selectClip, getClipImage } from "./api.js";
+import { getClips, deleteClip, toggleFavorite, selectClip, getClipImage } from "./api.ts";
 import { t } from "../i18n/i18n.js";
 import * as telemetry from "./telemetry.js";
 import * as icons from "./icons.js";

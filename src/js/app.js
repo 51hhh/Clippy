@@ -15,7 +15,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   getConfig, getClips, onClipAdded, onClipRemoved, onConfigChanged,
   onShortcutRegisterFailed, onPinCurrent, pinClip,
-} from "./api.js";
+} from "./api.ts";
 import "../styles/themes.css";
 import "../styles/base.css";
 import "../styles/components.css";

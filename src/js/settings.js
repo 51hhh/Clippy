@@ -23,7 +23,7 @@ import {
   toggleTmuxCapture,
   tmuxAvailable,
   updateConfig,
-} from "./api.js";
+} from "./api.ts";
 import { keyEventToShortcut } from "./shortcut-recorder.js";
 import { initCustomSelect } from "./custom-select.js";
 import { initUpdateModal, checkForUpdate } from "./update-modal.js";

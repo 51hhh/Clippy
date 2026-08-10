@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../js/api.js", () => ({
+vi.mock("../js/api.ts", () => ({
   deleteTranslationApiKey: vi.fn(),
   hasTranslationApiKey: vi.fn(),
   setTranslationApiKey: vi.fn(),
@@ -10,7 +10,7 @@ import {
   deleteTranslationApiKey,
   hasTranslationApiKey,
   setTranslationApiKey,
-} from "../js/api.js";
+} from "../js/api.ts";
 import { initTranslationSettings } from "../js/translation-settings.js";
 import * as i18n from "../i18n/i18n.js";
 

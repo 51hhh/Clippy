@@ -11,10 +11,11 @@
     "forceConsistentCasingInFileNames": true,
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx"
   },
-  "include": ["react", "tests", "js/api.js", "vite.config.mjs"]
+  "include": ["react", "tests", "js/api.ts", "js/ipc-types.ts", "vite.config.mjs"]
 }
