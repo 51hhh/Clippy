@@ -10,7 +10,7 @@ export type Rect = {
   height: number;
 };
 
-export type Tool = "select" | "pen" | "rect" | "arrow" | "text";
+export type Tool = "crop" | "object" | "pen" | "rect" | "arrow" | "text" | "blur" | "mosaic";
 
 export type StrokeAnnotation = {
   id: string;
@@ -46,15 +46,34 @@ export type TextAnnotation = {
   text: string;
 };
 
+export type BlurAnnotation = {
+  id: string;
+  type: "blur";
+  rect: Rect;
+};
+
+export type MosaicAnnotation = {
+  id: string;
+  type: "mosaic";
+  rect: Rect;
+};
+
+export type EffectAnnotation = BlurAnnotation | MosaicAnnotation;
+
 export type Annotation =
   | StrokeAnnotation
   | RectAnnotation
   | ArrowAnnotation
-  | TextAnnotation;
+  | TextAnnotation
+  | EffectAnnotation;
+
+export type EditorDocument = {
+  annotations: Annotation[];
+  adjustments: import("./imageAdjustments").ImageAdjustments;
+};
 
 export type CapturedScreenshot = {
   pngBase64: string;
   width: number;
   height: number;
 };
-

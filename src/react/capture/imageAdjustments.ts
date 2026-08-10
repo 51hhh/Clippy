@@ -3,6 +3,7 @@ export type ImageAdjustments = {
   brightness: number;
   contrast: number;
   saturation: number;
+  cornerRadius: number;
 };
 
 export const DEFAULT_IMAGE_ADJUSTMENTS: ImageAdjustments = {
@@ -10,6 +11,7 @@ export const DEFAULT_IMAGE_ADJUSTMENTS: ImageAdjustments = {
   brightness: 0,
   contrast: 0,
   saturation: 0,
+  cornerRadius: 0,
 };
 
 function clampNumber(value: unknown, min: number, max: number): number {
@@ -25,6 +27,7 @@ export function normalizeImageAdjustments(
     brightness: clampNumber(adjustments.brightness, -100, 100),
     contrast: clampNumber(adjustments.contrast, -100, 100),
     saturation: clampNumber(adjustments.saturation, -100, 100),
+    cornerRadius: clampNumber(adjustments.cornerRadius, 0, 120),
   };
 }
 
@@ -49,4 +52,3 @@ export function cssFilterForImageAdjustments(adjustments: ImageAdjustments): str
   if (normalized.saturation !== 0) filters.push(`saturate(${100 + normalized.saturation}%)`);
   return filters.join(" ");
 }
-
