@@ -90,7 +90,7 @@ el.style.backgroundColor = '#4a90d9';
 
 ## Common Mistakes to Avoid
 
-- **Don't call `window.__TAURI__` outside `api.js`** — breaks the decoupling contract
+- **Don't call Tauri IPC outside `api.ts`** — breaks the typed decoupling contract
 - **Don't use `innerHTML` with clip content** — user clipboard data is untrusted
 - **Don't create global variables** — each module manages its own state
 - **Don't manipulate styles directly in JS** — use CSS classes

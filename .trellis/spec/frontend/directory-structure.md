@@ -21,7 +21,9 @@ src/
 │   └── components.css        # Styles for search bar, clip list, action menu, etc.
 ├── js/
 │   ├── app.js                # Entry point: init, event listeners, keyboard nav
-│   ├── api.js                # ALL Tauri IPC calls (sole __TAURI__ coupling point)
+│   ├── api.ts                # ALL typed Tauri IPC calls (sole coupling point)
+│   ├── ipc-types.ts          # Rust serde payload contracts
+│   ├── preview/              # Preview renderer modules by concern
 │   ├── clipboard-list.js     # List rendering + infinite scroll
 │   ├── search.js             # Search box logic + debounce
 │   └── theme.js              # Theme switching logic
@@ -32,12 +34,11 @@ src/
 
 ## Module Organization
 
-### `api.js` is the only Tauri coupling point
+### `api.ts` is the only Tauri coupling point
 
 ```javascript
-// api.js — every other JS module imports from here, never touches __TAURI__ directly
-const { invoke } = window.__TAURI__.core;
-const { listen } = window.__TAURI__.event;
+// api.ts — every other module imports typed wrappers, never calls Tauri directly
+import { invoke } from "@tauri-apps/api/core";
 
 export async function getClips(query, favoritesOnly, offset, limit) {
   return invoke('get_clips', { query, favoritesOnly, offset, limit });
@@ -52,7 +53,7 @@ export function onClipAdded(callback) {
 }
 ```
 
-This enables browser-based UI development — `api.js` can provide mock fallbacks when `__TAURI__` is not available.
+This keeps the IPC contract explicit and makes Rust serde field names testable without exposing Tauri details to feature modules.
 
 ### One JS file per concern
 

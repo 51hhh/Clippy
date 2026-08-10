@@ -43,7 +43,7 @@ export function getSelectedClip() {
 ### State flows one direction: backend → frontend
 
 1. Backend event (`clip-added`) → `app.js` listener → calls `clipboardList.prependClip()`
-2. User action → `api.js` IPC call → backend processes → optional event back
+2. User action → `api.ts` typed IPC call → backend processes → optional event back
 
 ### No shared mutable state between modules
 

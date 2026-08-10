@@ -20,7 +20,8 @@ src-tauri/
 │   ├── clipboard_watcher.rs # Independent thread polling clipboard via arboard
 │   ├── storage.rs           # SQLite + FTS5 engine (rusqlite)
 │   ├── config.rs            # JSON config read/write (serde_json)
-│   ├── commands.rs          # All #[tauri::command] IPC handlers
+│   ├── commands.rs          # AppState + compatibility re-exports
+│   ├── commands/            # Feature-scoped #[tauri::command] handlers
 │   └── models.rs            # Shared data structs (ClipItem, AppConfig, etc.)
 ├── Cargo.toml
 ├── tauri.conf.json
@@ -34,9 +35,9 @@ src-tauri/
 ## Module Organization
 
 - **One module per concern** — each `.rs` file owns one domain (clipboard, storage, config, IPC commands, models).
-- **No nested module directories** for MVP — flat `src/` structure is sufficient at this scale.
+- **Feature modules may use nested directories** when a domain has independent lifecycle/state boundaries (capture, pin, paste, translation, commands).
 - **`models.rs` is the shared type hub** — all data structs used across modules are defined here with `#[derive(Serialize, Deserialize, Clone, Debug)]`.
-- **`commands.rs` is the IPC boundary** — all `#[tauri::command]` functions live here. Commands delegate to `storage.rs` / `clipboard_watcher.rs` / `config.rs` for actual logic.
+- **`commands` is the IPC boundary** — feature command modules own `#[tauri::command]` functions; `commands.rs` keeps `AppState` and stable re-exports. Commands delegate to domain modules for actual logic.
 - **`lib.rs` is the wiring layer** — registers plugins, manages state (`AppState`), and binds commands.
 
 ---

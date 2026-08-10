@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### 集成重构
+- **一次授权自动粘贴**：X11 恢复原活动窗口后注入粘贴；Wayland RemoteDesktop Portal 复用会话，使用 `persist_mode=2` 和 0600 restore token，自动失败只回退到复制。
+- **截图工作流融合**：多显示器冻结选区支持窗口命中、移动、八方向缩放，并可直接 Copy/Save/Pin/Edit；选区翻译先本地 OCR，再仅发送识别文本。
+- **统一 Pin 与图片编辑**：普通剪贴板 Pin、截图 Pin 复用 PinManager/React 控件，支持首帧就绪、缩放、透明度、锁定、复制、保存、编辑和资源清理；编辑器支持对象标注、模糊/马赛克、撤销重做和图像调整。
+- **翻译领域层**：LibreTranslate-compatible 与 OpenAI-compatible 服务、超时/单次重试/request-id、敏感剪贴板保护和 Secret Service 密钥存储。
+
+### 架构与安全
+- 前端 IPC 迁移到严格类型化 `src/js/api.ts` + `ipc-types.ts`；主窗口预览调度拆为五个职责渲染模块。
+- Rust IPC 命令按剪贴板、设置、tmux、截图、OCR、URL 元数据拆分，保留 `commands::*` 兼容导出。
+- 数学预览改用受限递归下降解析器；HTML 实体解码不再使用动态执行或用户文本 `innerHTML`。
+- DOMPurify 更新到 3.4.13，Vite/Vitest/jsdom 更新到无已知漏洞版本并移除未使用的 sharp；增加 DOM/Xvfb smoke 与全目标 Rust CI 检查。
+
+### 验证
+- Rust：`cargo fmt/check/test/clippy --all-targets` 通过（66 tests）。
+- Frontend：Vitest 361 tests、TypeScript、Vite build 和 Xvfb/DOM smoke 通过。
+- Linux：deb/AppImage 产物构建并检查通过；签名文件需 CI 的 `TAURI_SIGNING_PRIVATE_KEY`。
+
 ## v0.1.16
 
 ### ✨ 新功能

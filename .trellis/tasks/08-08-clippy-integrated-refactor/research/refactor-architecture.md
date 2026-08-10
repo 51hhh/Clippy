@@ -61,3 +61,9 @@ src/react/
 - React 拥有短期 UI 状态、选区交互、编辑对象和展示状态。
 - IPC payload 使用稳定 ID 和 request ID；大图通过受控文件/object URL 传输。
 
+## 当前落地（2026-08-10）
+
+- 后端已形成 `paste/`、`capture/`、`pin/`、`translation/` 和按职责拆分的 `commands/`；`window_controller.rs` 统一主窗口 work area 几何。
+- 前端完成 typed `api.ts`/`ipc-types.ts`，Pin、Capture Overlay、Editor 为 React/TS 功能岛；主 clipboard 保持 vanilla，preview 已拆分调度器与五类 renderer。
+- 当前未进行主窗口 React 大爆炸迁移，符合“保留可工作入口、按行为逐项替换”的迁移策略。
+- 完整实现与状态所有权见 `docs/architecture.md`，验证边界见任务目录 `qa-matrix.md`。

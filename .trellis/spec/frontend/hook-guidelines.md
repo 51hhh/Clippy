@@ -12,10 +12,10 @@ For the vanilla main UI, "hooks" means **event listeners and data fetching patte
 
 ## Data Fetching via Tauri IPC
 
-All data fetching goes through `api.js`:
+All data fetching goes through `api.ts`:
 
 ```javascript
-// api.js
+// api.ts
 export async function getClips(query, favoritesOnly, offset, limit) {
   return invoke('get_clips', { query, favoritesOnly, offset, limit });
 }
@@ -25,7 +25,7 @@ Callers use `async/await`:
 
 ```javascript
 // clipboard-list.js
-import { getClips } from './api.js';
+import { getClips } from './api.ts';
 
 async function loadMore() {
   const clips = await getClips(currentQuery, favOnly, offset, PAGE_SIZE);
@@ -41,7 +41,7 @@ async function loadMore() {
 Backend pushes events for real-time updates:
 
 ```javascript
-// api.js
+// api.ts
 export function onClipAdded(callback) {
   return listen('clip-added', (event) => callback(event.payload));
 }
@@ -55,7 +55,7 @@ Event listeners are registered once in `app.js` during init:
 
 ```javascript
 // app.js
-import { onClipAdded, onClipRemoved } from './api.js';
+import { onClipAdded, onClipRemoved } from './api.ts';
 
 onClipAdded((clip) => clipboardList.prependClip(clip));
 onClipRemoved((clipId) => clipboardList.removeClip(clipId));

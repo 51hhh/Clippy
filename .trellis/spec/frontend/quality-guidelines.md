@@ -18,7 +18,7 @@ Clippy main frontend is vanilla HTML/CSS/JS with Vite as the build tool. React/T
 | Global variables (`window.x`) | Namespace pollution | ES module scope |
 | `var` declarations | Hoisting bugs | `const` or `let` |
 | `document.write()` | Overwrites entire page | DOM manipulation methods |
-| Direct `__TAURI__` access outside `api.js` | Breaks decoupling | Import from `api.js` |
+| Direct Tauri IPC access outside `api.ts` | Breaks decoupling and types | Import from `api.ts` |
 | Inline `style` attributes in JS | Hard to maintain/theme | CSS classes |
 | `setTimeout` for animation | Janky rendering | CSS transitions or `requestAnimationFrame` |
 | `alert()` / `confirm()` / `prompt()` | Blocks thread, ugly | Custom UI elements |
@@ -56,8 +56,8 @@ Clippy main frontend is vanilla HTML/CSS/JS with Vite as the build tool. React/T
 
 ## Code Review Checklist
 
-- [ ] No `innerHTML` with dynamic content
-- [ ] All Tauri calls go through `api.js`
+- [ ] No unsanitized `innerHTML`; rich text is passed through strict DOMPurify config
+- [ ] All Tauri calls go through `api.ts`
 - [ ] Colors use CSS custom properties (no hardcoded hex)
 - [ ] Keyboard navigation works (↑/↓/Enter/Escape)
 - [ ] UI text is in English

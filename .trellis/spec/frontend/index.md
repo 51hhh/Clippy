@@ -27,7 +27,7 @@ Clippy main frontend is **HTML + CSS + vanilla JavaScript**. Screenshot editing 
 
 - **Stack**: HTML + CSS + vanilla JS (main UI), React/TS for screenshot capture island
 - **Build**: Vite (`src/vite.config.mjs`) — outputs to `dist/`, loaded by Tauri
-- **Tauri coupling**: Only in `src/js/api.js` (sole `__TAURI__` access point)
+- **Tauri coupling**: Only in `src/js/api.ts` (sole typed IPC access point)
 - **Theming**: CSS custom properties in `themes.css`, toggle via `data-theme` attribute
 - **UI language**: English
 - **Code comments**: Chinese
