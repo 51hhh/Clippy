@@ -112,6 +112,141 @@
   user-select: text;
   -webkit-user-select: text;
 }
+
+/* ---------- 预览翻译区 ---------- */
+.translation-panel {
+  flex: 0 1 auto;
+  max-height: 48%;
+  overflow-y: auto;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+.translation-panel[hidden] {
+  display: none;
+}
+.translation-header,
+.translation-result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.translation-heading {
+  min-width: 0;
+}
+.translation-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+.translation-destination,
+.translation-privacy,
+.translation-sensitive,
+.translation-status {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.45;
+}
+.translation-destination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 4px;
+  margin-top: 2px;
+  color: var(--text-secondary);
+}
+.translation-endpoint {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.translation-privacy {
+  margin-top: 7px;
+  color: var(--text-muted);
+}
+.translation-sensitive {
+  margin-top: 7px;
+  color: var(--warning, #d97706);
+}
+.translation-sensitive:focus-visible {
+  border-radius: 3px;
+}
+.translation-status {
+  margin-top: 7px;
+  color: var(--text-secondary);
+}
+.translation-status[data-state="error"] {
+  color: var(--error, #dc2626);
+}
+.translation-status[data-state="success"] {
+  color: var(--success, #16a34a);
+}
+.translation-action {
+  flex: 0 0 auto;
+  min-width: 104px;
+  min-height: 30px;
+  padding: 5px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--text-on-accent, #fff);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.translation-action:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+.translation-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.translation-result {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 7px;
+}
+.translation-result[hidden] {
+  display: none;
+}
+.translation-detected {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.translation-copy {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.translation-copy:hover {
+  border-color: var(--border);
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.translation-result-text {
+  max-height: 140px;
+  margin: 4px 0 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  user-select: text;
+  -webkit-user-select: text;
+}
 /* 纯文本预览 */
 .preview-content--text {
   white-space: pre-wrap;

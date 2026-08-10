@@ -7,6 +7,7 @@ import * as clipboardList from "./clipboard-list.js";
 import * as searchBar     from "./search-bar.js";
 import * as segmentTabs   from "./segment-tabs.js";
 import * as previewPanel  from "./preview-panel.js";
+import * as translationPanel from "./translation-panel.js";
 import * as codec         from "./codec.js";
 import * as i18n          from "../i18n/i18n.js";
 import { initUpdateModal, checkForUpdate } from "./update-modal.js";
@@ -47,6 +48,7 @@ whenReady(async () => {
   segmentTabs.init(segmentEl, (mode) => clipboardList.setPanelMode(mode));
   searchBar.init(searchEl, (q) => clipboardList.setQuery(q));
   previewPanel.init();
+  translationPanel.init(config);
   codec.init();
 
   clipboardList.init({
@@ -55,7 +57,10 @@ whenReady(async () => {
     onCountsChange: (counts) => segmentTabs.setCounts(counts),
     onSummonSearch: (source) => searchBar.summon(source),
     onModeChange: (mode) => segmentTabs.setMode(mode),
-    onFocusChange: (clip) => previewPanel.updatePreview(clip),
+    onFocusChange: (clip) => {
+      previewPanel.updatePreview(clip);
+      translationPanel.updateClip(clip);
+    },
   });
 
   await clipboardList.refresh();
@@ -74,6 +79,7 @@ whenReady(async () => {
     i18n.init(newConfig.language || "auto");
     searchBar.refreshLabels();
     segmentTabs.refreshLabels();
+    translationPanel.updateConfig(newConfig);
   });
 
   await onShortcutRegisterFailed((shortcut) => {
@@ -100,6 +106,11 @@ whenReady(async () => {
 });
 
 function onKeyDown(e) {
+  // 翻译区使用原生按钮和可滚动结果，保留其键盘语义；Esc 仍交给全局关闭逻辑。
+  if (e.target?.closest?.("#translation-panel") && e.key !== "Escape") {
+    return;
+  }
+
   // 搜索条聚焦时：不拦截普通字符；只接管 Esc / Enter
   if (searchBar.isVisible() && document.activeElement?.classList.contains("search-bar-input")) {
     if (e.key === "Escape") {
@@ -192,6 +203,7 @@ function onKeyDown(e) {
       if (!previewPanel.isVisible()) {
         previewPanel.toggle();
         previewPanel.updatePreview(clipboardList.getFocusedClip());
+        translationPanel.focusAction();
       } else {
         previewPanel.toggle();
       }
@@ -221,4 +233,5 @@ function onWindowBlur() {
   if (previewPanel.isVisible() || codec.isVisible()) return; // 面板打开时不隐藏窗口
   clipboardList.releaseMemory();
   previewPanel.clearContent();
+  translationPanel.clear();
 }
