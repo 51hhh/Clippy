@@ -5,9 +5,11 @@
 
 use anyhow::{anyhow, bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
+#[cfg(test)]
+use image::ImageBuffer;
 use image::{
     codecs::png::{CompressionType, FilterType, PngEncoder},
-    ExtendedColorType, GenericImageView, ImageBuffer, ImageEncoder, RgbaImage,
+    ExtendedColorType, GenericImageView, ImageEncoder, RgbaImage,
 };
 use serde::Serialize;
 use std::sync::Arc;
@@ -37,6 +39,20 @@ struct FrozenFrame {
     scale_factor: f32,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct CapturedMonitorFrame {
+    pub monitor_id: u32,
+    pub x: i32,
+    pub y: i32,
+    pub logical_width: u32,
+    pub logical_height: u32,
+    pub pixel_width: u32,
+    pub pixel_height: u32,
+    pub scale_x: f32,
+    pub scale_y: f32,
+    pub rgba: Arc<[u8]>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CapturedScreenshot {
@@ -61,12 +77,14 @@ struct ImageRect {
     height: u32,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Copy)]
 enum Axis {
     X,
     Y,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Copy)]
 struct AxisSegment {
     start: i32,
@@ -75,11 +93,13 @@ struct AxisSegment {
     scale: f32,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone)]
 struct AxisMapper {
     segments: Vec<AxisSegment>,
 }
 
+#[cfg(test)]
 impl AxisMapper {
     fn from_frames(monitors: &[MonitorInfo], frames: &[FrozenFrame], axis: Axis) -> Result<Self> {
         let mut edges = Vec::with_capacity(monitors.len() * 2);
@@ -152,15 +172,39 @@ impl AxisMapper {
     }
 }
 
-pub fn capture_screen_png() -> Result<CapturedScreenshot> {
+pub(crate) fn capture_monitor_frames() -> Result<Vec<CapturedMonitorFrame>> {
     let (monitors, frames) = capture_all_monitors()?;
-    let (rgba, width, height) = compose_desktop_image(&monitors, &frames)?;
-    let png = encode_png(&rgba, width, height)?;
-    Ok(CapturedScreenshot {
-        png_base64: STANDARD.encode(png),
-        width,
-        height,
-    })
+    frames
+        .into_iter()
+        .map(|frame| {
+            let monitor = monitors
+                .iter()
+                .find(|monitor| monitor.id == frame.monitor_id)
+                .with_context(|| format!("缺少显示器 {} 的几何信息", frame.monitor_id))?;
+            let scale_x = if monitor.rect.width > 0 {
+                frame.width as f32 / monitor.rect.width as f32
+            } else {
+                frame.scale_factor
+            };
+            let scale_y = if monitor.rect.height > 0 {
+                frame.height as f32 / monitor.rect.height as f32
+            } else {
+                frame.scale_factor
+            };
+            Ok(CapturedMonitorFrame {
+                monitor_id: frame.monitor_id,
+                x: monitor.rect.x,
+                y: monitor.rect.y,
+                logical_width: monitor.rect.width,
+                logical_height: monitor.rect.height,
+                pixel_width: frame.width,
+                pixel_height: frame.height,
+                scale_x,
+                scale_y,
+                rgba: frame.rgba,
+            })
+        })
+        .collect()
 }
 
 pub fn png_dimensions(bytes: &[u8]) -> Result<(u32, u32)> {
@@ -450,6 +494,7 @@ fn split_portal_screenshot(
     Ok((adjusted_monitors, frames))
 }
 
+#[cfg(test)]
 fn compose_desktop_image(
     monitors: &[MonitorInfo],
     frames: &[FrozenFrame],
@@ -504,6 +549,7 @@ fn compose_desktop_image(
     Ok((canvas.into_raw(), width, height))
 }
 
+#[cfg(test)]
 fn monitor_axis_bounds(monitor: &MonitorInfo, axis: Axis) -> (i32, u32) {
     match axis {
         Axis::X => (monitor.rect.x, monitor.rect.width),
@@ -511,12 +557,14 @@ fn monitor_axis_bounds(monitor: &MonitorInfo, axis: Axis) -> (i32, u32) {
     }
 }
 
+#[cfg(test)]
 fn monitor_axis_overlaps(monitor: &MonitorInfo, axis: Axis, start: i32, end: i32) -> bool {
     let (monitor_start, monitor_length) = monitor_axis_bounds(monitor, axis);
     let monitor_end = monitor_start.saturating_add_unsigned(monitor_length);
     monitor_start < end && monitor_end > start
 }
 
+#[cfg(test)]
 fn monitor_axis_scale(monitor: &MonitorInfo, frame: Option<&FrozenFrame>, axis: Axis) -> f32 {
     if let Some(frame) = frame {
         let (_, monitor_length) = monitor_axis_bounds(monitor, axis);
@@ -535,6 +583,7 @@ fn monitor_axis_scale(monitor: &MonitorInfo, frame: Option<&FrozenFrame>, axis: 
     monitor.scale_factor
 }
 
+#[cfg(test)]
 fn scaled_axis_length(value: i32, scale_factor: f32) -> u32 {
     if value <= 0 {
         return 0;

@@ -175,11 +175,18 @@ pub fn pin_screenshot_image(
 ) -> Result<String, String> {
     let png =
         crate::screenshot::decode_png_base64(&png_base64).map_err(|error| error.to_string())?;
+    create_screenshot_pin(png, &app_handle, &state)
+}
+
+pub(crate) fn create_screenshot_pin(
+    png: Vec<u8>,
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+) -> Result<String, String> {
     let (width, height) =
         crate::screenshot::png_dimensions(&png).map_err(|error| error.to_string())?;
     let label = format!("pin-image-{}", crate::image_io::unique_image_id());
-    let (content_width, content_height) =
-        fit_content_size(&app_handle, width as f64, height as f64);
+    let (content_width, content_height) = fit_content_size(app_handle, width as f64, height as f64);
     state.pin_manager.insert(PinEntry {
         label: label.clone(),
         source: PinSource::Screenshot { png },
@@ -189,7 +196,7 @@ pub fn pin_screenshot_image(
         opacity: 1.0,
         locked: false,
     })?;
-    if let Err(error) = create_pin_window(&app_handle, &label, content_width, content_height) {
+    if let Err(error) = create_pin_window(app_handle, &label, content_width, content_height) {
         let _ = state.pin_manager.remove(&label);
         return Err(error);
     }
