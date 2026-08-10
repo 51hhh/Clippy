@@ -9,6 +9,7 @@
 
 import { setCodecVisible } from "./api.ts";
 import { t } from "../i18n/i18n.js";
+import { decodeHtmlEntities } from "./html-entities.js";
 
 // ── DOM refs ──
 let _panelEl, _selectEl, _inputEl, _outputEl, _hintEl, _hintTextEl, _recentGroup;
@@ -169,7 +170,7 @@ async function _runOp(op, text) {
     case "url-encode": return encodeURIComponent(text);
     case "url-decode": return decodeURIComponent(text);
     case "html-encode": return text.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-    case "html-decode": { const el = document.createElement("textarea"); el.innerHTML = text; return el.value; }
+    case "html-decode": return decodeHtmlEntities(text);
     case "unicode-escape": return [...text].map(c => { const code = c.codePointAt(0); return code > 127 ? `\\u${code.toString(16).padStart(4, "0")}` : c; }).join("");
     case "unicode-unescape": return text.replace(/\\u([0-9a-f]{4,6})/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)));
     case "hex-encode": return [...new TextEncoder().encode(text)].map(b => b.toString(16).padStart(2, "0")).join(" ");

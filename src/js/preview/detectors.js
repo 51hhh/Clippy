@@ -7,6 +7,8 @@
 export * from "./identifier-detectors.js";
 export * from "./format-detectors.js";
 
+import { decodeHtmlEntities } from "../html-entities.js";
+
 // URL 检测（仅匹配单行纯 URL 文本）
 const URL_RE = /^https?:\/\/[^\s]+$/;
 export function isUrl(text) {
@@ -101,9 +103,7 @@ const HTML_ENTITY_RE = /&(?:#\d+|#x[0-9a-f]+|\w+);/gi;
 export function isHtmlEntities(text) {
   const matches = text.match(HTML_ENTITY_RE);
   if (!matches || matches.length < 2) return false;
-  const el = document.createElement("textarea");
-  el.innerHTML = text;
-  const decoded = el.value;
+  const decoded = decodeHtmlEntities(text);
   if (decoded === text) return false;
   return { type: "html-entity", decoded, original: text };
 }

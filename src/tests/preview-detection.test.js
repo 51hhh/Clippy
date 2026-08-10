@@ -102,6 +102,11 @@ describe("isHtmlEntities", () => {
     expect(result).toBeTruthy();
     expect(result.decoded).toContain("<p>");
   });
+  it("decodes entities without creating user supplied elements", () => {
+    const result = T.isHtmlEntities('<img src=x onerror="alert(1)">&amp;&lt;');
+    expect(result.decoded).toBe('<img src=x onerror="alert(1)">&<');
+    expect(document.querySelector("img")).toBeNull();
+  });
   it("rejects text with less than 2 entities", () => {
     expect(T.isHtmlEntities("only &amp; one")).toBe(false);
   });
@@ -807,6 +812,10 @@ describe("isMathExpr", () => {
   it("rejects division by zero (Infinity)", () => {
     expect(T.isMathExpr("1/0")).toBe(false);
   });
+  it("rejects malformed and executable input", () => {
+    expect(T.isMathExpr("2..3 + 1")).toBe(false);
+    expect(T.isMathExpr("globalThis.alert(1)")).toBe(false);
+  });
 });
 
 describe("mathEval", () => {
@@ -817,6 +826,10 @@ describe("mathEval", () => {
   it("evaluates power", () => {
     const info = T.mathEval("2 ^ 10");
     expect(info.result).toBe(1024);
+  });
+  it("uses right-associative powers and unary operators", () => {
+    expect(T.mathEval("2 ^ 3 ^ 2").result).toBe(512);
+    expect(T.mathEval("-(2 + 3) * 4").result).toBe(-20);
   });
 });
 

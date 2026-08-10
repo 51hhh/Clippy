@@ -52,6 +52,12 @@ describe("HTML Entities", () => {
   it("encode single quotes", async () => {
     expect(await _runOp("html-encode", "it's")).toBe("it&#39;s");
   });
+  it("decodes entities without creating user supplied elements", async () => {
+    expect(await _runOp("html-decode", '<img src=x onerror="alert(1)">&amp;&lt;')).toBe(
+      '<img src=x onerror="alert(1)">&<',
+    );
+    expect(document.querySelector("img")).toBeNull();
+  });
 });
 
 // ─── Unicode escape ───
