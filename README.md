@@ -57,6 +57,10 @@ Built with **Tauri v2 + Rust**. No Electron. No bloat.
 - **Floating panel** — Borderless popup, global hotkey toggle, auto-hide on blur
 - **Keyboard-driven** — Full keyboard navigation with vim-style keys (WASD)
 - **Global shortcuts** — X11 (`tauri-plugin-global-shortcut`) + Wayland (XDG Portal / gsettings)
+- **Automatic paste** — X11 restores the previous target window; Wayland reuses a persistent RemoteDesktop Portal session and falls back to copy-only when unavailable
+- **Screenshot workflow** — Frozen multi-monitor selection with window hit testing, move/resize, Copy/Save/Pin/Edit, local OCR and text-only translation
+- **Pin & editor** — Unified text/image/screenshot Pin controls plus object annotations, blur/mosaic, undo/redo and image adjustments
+- **Translation** — LibreTranslate-compatible and OpenAI-compatible providers with Secret Service keys, timeout/retry and sensitive-content protection
 - **6 themes** — Light, Dark, Nord, Solarized, Rose, Midnight
 - **Favorites** — Pin clips to a dedicated tab, immune to history cleanup
 - **Auto update** — Built-in updater via GitHub Releases
@@ -84,7 +88,7 @@ If tesseract is not installed, Clippy works normally — OCR just shows an insta
 
 ## Build from Source
 
-Requires: Rust toolchain, Node.js ≥ 20, Tauri v2 system dependencies.
+Requires: Rust toolchain, Node.js ≥ 20.19, Tauri v2 system dependencies.
 
 ```bash
 sudo apt install -y \
@@ -114,6 +118,8 @@ Output: `src-tauri/target/release/bundle/`
 | Build | Vite (multi-page) |
 
 ## Architecture
+
+See [docs/architecture.md](docs/architecture.md) for current ownership, capture/Pin/translation flows, and platform boundaries.
 
 ```mermaid
 flowchart LR
@@ -145,10 +151,12 @@ src/                          # Frontend
 ├── index.html                # Main panel (list + preview)
 ├── settings.html             # Settings window
 ├── js/
-│   ├── api.js                # Tauri IPC wrapper
+│   ├── api.ts                # Typed Tauri IPC wrapper (sole boundary)
+│   ├── ipc-types.ts          # Rust serde payload contracts
 │   ├── app.js                # Entry + keyboard routing
 │   ├── clipboard-list.js     # List state machine + diff render
-│   ├── preview-panel.js      # Rich text preview engine
+│   ├── preview-panel.js      # Preview state/detection dispatcher
+│   ├── preview/              # Code, metadata, format, content and crypto renderers
 │   ├── search-bar.js         # Search UI
 │   └── settings.js           # Settings logic
 ├── styles/                   # CSS
@@ -156,23 +164,29 @@ src/                          # Frontend
 
 src-tauri/src/                # Rust backend
 ├── lib.rs                    # App init + plugin setup
-├── commands.rs               # IPC command handlers
+├── commands.rs               # AppState + compatibility re-exports
+├── commands/                 # Clipboard, settings, tmux, capture, OCR, URL commands
 ├── clipboard_watcher.rs      # Clipboard polling thread
 ├── storage.rs                # SQLite + FTS5 storage
 ├── config.rs                 # JSON config
 ├── models.rs                 # Data models
 ├── gsettings_shortcuts.rs    # Wayland shortcut support
-└── tray_icon.rs              # Themed tray icon
+├── tray_icon.rs              # Themed tray icon
+├── paste/                    # X11, Wayland Portal and copy-only coordinator
+├── capture/                  # CaptureSession and monitor overlays
+├── pin/                      # Unified PinManager and window lifecycle
+└── translation/              # Providers, errors, request IDs and keyring secrets
 ```
 
 ## Development
 
 ```bash
 cargo tauri dev                              # Dev server (hot-reload)
-cd src-tauri && cargo check                  # Compile check
+cd src-tauri && cargo check --all-targets     # Compile check
 cd src-tauri && cargo test                   # Unit tests
-cd src-tauri && cargo clippy -- -D warnings  # Lint
+cd src-tauri && cargo clippy --all-targets -- -D warnings  # Lint
 cd src && npx vitest run                     # Frontend tests
+./scripts/ci-local.sh                        # Full local gate + DOM/Xvfb smoke
 ```
 
 ## Contributing

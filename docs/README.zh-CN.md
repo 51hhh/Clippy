@@ -57,6 +57,10 @@ Clippy 安静地驻留在系统托盘，后台监听剪贴板变化，让你通�
 - **悬浮面板** — 无边框弹出窗口，全局快捷键唤起，失焦自动隐藏
 - **键盘驱动** — 完整键盘导航，支持 Vim 风格按键 (WASD)
 - **全局快捷键** — 同时支持 X11（`tauri-plugin-global-shortcut`）和 Wayland（XDG Portal / gsettings）
+- **自动粘贴** — X11 恢复原目标窗口；Wayland 复用 RemoteDesktop Portal 持久会话，不可用时安全回退为仅复制
+- **截图工作流** — 多显示器冻结选区、窗口命中、移动/缩放，可直接复制/保存/Pin/编辑；本地 OCR 后仅发送文字翻译
+- **Pin 与图片编辑** — 文本、图片、截图统一贴图控件，支持对象标注、模糊/马赛克、撤销重做和图像调整
+- **翻译集成** — LibreTranslate-compatible/OpenAI-compatible 服务、Secret Service 密钥、超时重试和敏感内容保护
 - **6 款主题** — 亚麻、石墨、极地、晒纸、玫瑰、深夜
 - **收藏夹** — 置顶重要条目，不受历史清理影响
 - **自动更新** — 内置更新器，从 GitHub Releases 获取新版本
@@ -84,7 +88,7 @@ sudo apt install tesseract-ocr tesseract-ocr-chi-sim
 
 ## 从源码构建
 
-前置要求：Rust 工具链、Node.js ≥ 20、Tauri v2 系统依赖。
+前置要求：Rust 工具链、Node.js ≥ 20.19、Tauri v2 系统依赖。
 
 ```bash
 sudo apt install -y \
@@ -115,6 +119,8 @@ cargo tauri build
 
 ## 架构
 
+当前模块所有权、截图/Pin/翻译流程和平台边界见 [architecture.md](architecture.md)。
+
 ```mermaid
 flowchart LR
     CB["系统剪贴板"]
@@ -140,10 +146,12 @@ src/                          # 前端
 ├── index.html                # 主面板（列表 + 预览）
 ├── settings.html             # 设置窗口
 ├── js/
-│   ├── api.js                # Tauri IPC 封装
+│   ├── api.ts                # 类型化 Tauri IPC 封装（唯一边界）
+│   ├── ipc-types.ts          # Rust serde 数据合同
 │   ├── app.js                # 入口 + 键盘路由
 │   ├── clipboard-list.js     # 列表状态机 + 差量渲染
-│   ├── preview-panel.js      # 富文本预览引擎
+│   ├── preview-panel.js      # 预览状态与检测调度
+│   ├── preview/              # 代码、元数据、格式、内容和加密渲染器
 │   ├── search-bar.js         # 搜索 UI
 │   └── settings.js           # 设置逻辑
 ├── styles/                   # CSS
@@ -151,23 +159,29 @@ src/                          # 前端
 
 src-tauri/src/                # Rust 后端
 ├── lib.rs                    # 应用初始化 + 插件注册
-├── commands.rs               # IPC 命令处理
+├── commands.rs               # AppState 与兼容 re-export
+├── commands/                 # 剪贴板、设置、tmux、截图、OCR、URL 命令
 ├── clipboard_watcher.rs      # 剪贴板轮询线程
 ├── storage.rs                # SQLite + FTS5 存储
 ├── config.rs                 # JSON 配置
 ├── models.rs                 # 数据模型
 ├── gsettings_shortcuts.rs    # Wayland 快捷键
-└── tray_icon.rs              # 主题自适应托盘图标
+├── tray_icon.rs              # 主题自适应托盘图标
+├── paste/                    # X11、Wayland Portal、仅复制协调器
+├── capture/                  # CaptureSession、多显示器覆盖层与选区动作
+├── pin/                      # 统一 PinManager 与窗口生命周期
+└── translation/              # 服务适配器、错误、request-id 和密钥环
 ```
 
 ## 开发
 
 ```bash
 cargo tauri dev                              # 开发服务器（热重载）
-cd src-tauri && cargo check                  # 编译检查
+cd src-tauri && cargo check --all-targets     # 编译检查
 cd src-tauri && cargo test                   # 单元测试
-cd src-tauri && cargo clippy -- -D warnings  # Lint
+cd src-tauri && cargo clippy --all-targets -- -D warnings  # Lint
 cd src && npx vitest run                     # 前端测试
+./scripts/ci-local.sh                        # 完整门禁 + DOM/Xvfb smoke
 ```
 
 ## 贡献
