@@ -2,9 +2,11 @@ mod clipboard_watcher;
 mod commands;
 mod config;
 mod gsettings_shortcuts;
+mod image_io;
 mod models;
 mod ocr;
 mod paste;
+mod pin;
 mod pin_window;
 mod screenshot;
 mod storage;
@@ -13,7 +15,7 @@ mod window_controller;
 
 use commands::AppState;
 use models::AppConfig;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Listener, Manager};
@@ -268,6 +270,7 @@ pub fn run() {
             let storage = Arc::new(Mutex::new(storage));
             let config = Arc::new(Mutex::new(app_config.clone()));
             let paste_manager = Arc::new(paste::PasteManager::new(&app_data_dir));
+            let pin_manager = Arc::new(pin::PinManager::new());
 
             // ── 4. 启动剪贴板监听器 ──────────────────────────────────────────
             let watcher = clipboard_watcher::ClipboardWatcher::new();
@@ -293,7 +296,7 @@ pub fn run() {
                 preview_visible: Arc::new(Mutex::new(false)),
                 codec_visible: Arc::new(Mutex::new(false)),
                 latest_capture: Arc::new(Mutex::new(None)),
-                temp_pins: Arc::new(Mutex::new(HashMap::new())),
+                pin_manager,
                 paste_manager,
             });
 
@@ -439,9 +442,9 @@ pub fn run() {
                         }
                     });
                 }
-                tauri::WindowEvent::Destroyed if window.label().starts_with("pin-temp-") => {
+                tauri::WindowEvent::Destroyed if window.label().starts_with("pin-") => {
                     if let Some(state) = window.app_handle().try_state::<commands::AppState>() {
-                        commands::remove_temp_pin_by_label(window.label(), &state);
+                        state.pin_manager.remove_window(window.label());
                     }
                 }
                 tauri::WindowEvent::Destroyed if window.label() == "capture" => {
@@ -479,11 +482,15 @@ pub fn run() {
             commands::clear_pending_capture,
             commands::copy_screenshot_image,
             commands::save_screenshot_image,
-            commands::pin_screenshot_image,
-            commands::get_temp_pin_image,
-            commands::copy_temp_pin_image,
-            commands::pin_clip,
-            commands::close_pin,
+            pin::pin_screenshot_image,
+            pin::pin_clip,
+            pin::get_pin_payload,
+            pin::pin_ready,
+            pin::update_pin,
+            pin::copy_pin,
+            pin::save_pin,
+            pin::edit_pin,
+            pin::close_pin,
             commands::ocr_available,
             commands::ocr_image,
             commands::ocr_install,
