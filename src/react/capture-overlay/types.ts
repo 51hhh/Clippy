@@ -21,3 +21,18 @@ export type CaptureSelection = Rect & {
 
 export type CaptureAction = "copy" | "save" | "pin" | "edit";
 export type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
+
+export type TranslationProvider = "libretranslate" | "openai_compatible";
+
+export type CaptureTranslationResult = {
+  requestId: number;
+  provider: TranslationProvider;
+  sourceText: string;
+  translatedText: string;
+  detectedSourceLanguage: string | null;
+};
+
+export type CaptureTranslationState =
+  | { status: "loading" }
+  | { status: "result"; result: CaptureTranslationResult }
+  | { status: "error"; message: string };

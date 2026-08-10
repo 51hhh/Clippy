@@ -8,6 +8,7 @@ import {
   deleteTranslationApiKey,
   hasTranslationApiKey,
   setTranslationApiKey,
+  translateCaptureSelection,
   translateClip,
 } from "../js/api.js";
 
@@ -41,5 +42,24 @@ describe("translation IPC wrappers", () => {
       targetLanguage: null,
       requestId: null,
     });
+  });
+
+  it("sends capture geometry without an image payload", () => {
+    const selection = {
+      sessionId: "capture-1",
+      monitorId: 2,
+      x: 10,
+      y: 20,
+      width: 300,
+      height: 160,
+    };
+    translateCaptureSelection(selection);
+    expect(invoke).toHaveBeenCalledWith("translate_capture_selection", {
+      selection,
+      sourceLanguage: null,
+      targetLanguage: null,
+      requestId: null,
+    });
+    expect(JSON.stringify(invoke.mock.calls[0])).not.toContain("png");
   });
 });

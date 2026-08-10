@@ -499,6 +499,7 @@ pub fn run() {
             capture::get_capture_overlay,
             capture::cancel_capture_overlay,
             capture::run_capture_action,
+            capture::translate_capture_selection,
             commands::get_pending_capture,
             commands::clear_pending_capture,
             commands::copy_screenshot_image,

@@ -97,6 +97,8 @@ pub enum TranslationError {
     ClipUnavailable,
     #[error("The clipboard image is unavailable")]
     ImageUnavailable,
+    #[error("The capture selection is unavailable")]
+    CaptureUnavailable,
     #[error("Local OCR could not extract text from the image")]
     OcrFailed,
     #[error("Invalid translation endpoint")]
@@ -140,6 +142,7 @@ impl TranslationError {
             Self::KeyringUnavailable => "Secure credential storage is unavailable",
             Self::ClipUnavailable => "The clipboard item is unavailable",
             Self::ImageUnavailable => "The clipboard image is unavailable",
+            Self::CaptureUnavailable => "The capture selection is unavailable",
             Self::OcrFailed => "Local OCR could not extract text from the image",
             Self::InvalidEndpoint => "Invalid translation endpoint",
             Self::UnsupportedProvider(_) => "Unsupported translation provider",
@@ -163,6 +166,7 @@ impl TranslationError {
             Self::KeyringUnavailable => "keyring_unavailable",
             Self::ClipUnavailable => "clip_unavailable",
             Self::ImageUnavailable => "image_unavailable",
+            Self::CaptureUnavailable => "capture_unavailable",
             Self::OcrFailed => "ocr_failed",
             Self::InvalidEndpoint => "invalid_endpoint",
             Self::UnsupportedProvider(_) => "unsupported_provider",
@@ -225,5 +229,10 @@ mod tests {
             "translation.stale_request: A newer translation request is active"
         );
         assert!(!stale.ipc_message().contains("41"));
+
+        assert_eq!(
+            TranslationError::CaptureUnavailable.ipc_message(),
+            "translation.capture_unavailable: The capture selection is unavailable"
+        );
     }
 }

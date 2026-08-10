@@ -4,9 +4,13 @@ mod types;
 mod window_probe;
 
 pub use manager::CaptureManager;
-pub use types::{CaptureAction, CaptureActionResult, CaptureOverlayPayload, CaptureSelection};
+pub use types::{
+    CaptureAction, CaptureActionResult, CaptureOverlayPayload, CaptureSelection,
+    CaptureTranslationResult,
+};
 
 use crate::commands::AppState;
+use crate::translation::types::TranslationError;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use tauri::State;
 
@@ -102,6 +106,74 @@ pub fn run_capture_action(
     Ok(result)
 }
 
+/// 显式执行“选区 -> 本地 OCR -> 文本翻译”。裁剪帧只进入 Tesseract，永不发送给 provider。
+/// 此命令不会结束 CaptureSession，用户可继续复制、保存、Pin 或编辑同一选区。
+#[tauri::command]
+pub async fn translate_capture_selection(
+    selection: CaptureSelection,
+    source_language: Option<String>,
+    target_language: Option<String>,
+    request_id: Option<u64>,
+    state: State<'_, AppState>,
+) -> Result<CaptureTranslationResult, String> {
+    let request_id =
+        crate::translation::commands::reserve_request_id(&state.translation, request_id);
+    let capture_manager = state.capture_manager.clone();
+    let png = run_translation_blocking(move || {
+        capture_manager
+            .crop(&selection)
+            .map_err(|_| TranslationError::CaptureUnavailable)
+    })
+    .await
+    .map_err(translation_ipc_error)?;
+
+    let source_text = run_translation_blocking(move || recognize_capture_text(&png))
+        .await
+        .map_err(translation_ipc_error)?;
+    let translated = crate::translation::commands::translate_configured_text(
+        state.translation.clone(),
+        state.config.clone(),
+        source_text.clone(),
+        source_language,
+        target_language,
+        request_id,
+    )
+    .await
+    .map_err(translation_ipc_error)?;
+
+    Ok(CaptureTranslationResult::from_translation(
+        source_text,
+        translated,
+    ))
+}
+
+async fn run_translation_blocking<T, F>(task: F) -> Result<T, TranslationError>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, TranslationError> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(task)
+        .await
+        .map_err(|_| TranslationError::Internal)?
+}
+
+fn recognize_capture_text(png: &[u8]) -> Result<String, TranslationError> {
+    normalize_ocr_text(crate::ocr::recognize(png))
+}
+
+fn normalize_ocr_text(result: Result<String, String>) -> Result<String, TranslationError> {
+    let text = result.map_err(|_| TranslationError::OcrFailed)?;
+    if text.trim().is_empty() {
+        Err(TranslationError::OcrFailed)
+    } else {
+        Ok(text)
+    }
+}
+
+fn translation_ipc_error(error: TranslationError) -> String {
+    error.ipc_message()
+}
+
 fn execute_action(
     action: CaptureAction,
     png: Vec<u8>,
@@ -165,5 +237,33 @@ fn validate_overlay_label(label: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err("无效的截图覆盖层标签".to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn capture_ocr_rejects_failures_and_blank_output_with_safe_error() {
+        for result in [
+            Err("private tesseract detail".to_string()),
+            Ok("  \n".to_string()),
+        ] {
+            let error = normalize_ocr_text(result).unwrap_err();
+            assert_eq!(error, TranslationError::OcrFailed);
+            assert_eq!(
+                error.ipc_message(),
+                "translation.ocr_failed: Local OCR could not extract text from the image"
+            );
+        }
+    }
+
+    #[test]
+    fn capture_ocr_preserves_recognized_text_for_translation() {
+        assert_eq!(
+            normalize_ocr_text(Ok("local OCR text".to_string())),
+            Ok("local OCR text".to_string())
+        );
     }
 }

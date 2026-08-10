@@ -2,11 +2,13 @@ import {
   cancelCaptureOverlay,
   getCaptureOverlay,
   runCaptureAction,
+  translateCaptureSelection,
 } from "../../js/api.js";
 import type {
   CaptureAction,
   CaptureOverlayPayload,
   CaptureSelection,
+  CaptureTranslationResult,
 } from "./types";
 
 export const overlayApi = {
@@ -18,4 +20,6 @@ export const overlayApi = {
       path: string | null;
       pinLabel: string | null;
     }>,
+  translate: (selection: CaptureSelection) =>
+    translateCaptureSelection(selection) as Promise<CaptureTranslationResult>,
 };

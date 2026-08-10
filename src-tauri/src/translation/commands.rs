@@ -51,25 +51,15 @@ pub async fn translate_text(
     request_id: Option<u64>,
     state: State<'_, AppState>,
 ) -> Result<TranslationResult, String> {
-    let request_id = Some(
-        state
-            .translation
-            .register_request_id(request_id.unwrap_or_default()),
-    );
-    let command_state = TranslationCommandState {
-        service: state.translation.clone(),
-        config: state.config.clone(),
-    };
-
-    run_blocking(move || {
-        translate_with_state(
-            &command_state,
-            text,
-            source_language,
-            target_language,
-            request_id,
-        )
-    })
+    let request_id = reserve_request_id(&state.translation, request_id);
+    translate_configured_text(
+        state.translation.clone(),
+        state.config.clone(),
+        text,
+        source_language,
+        target_language,
+        request_id,
+    )
     .await
     .map_err(ipc_error)
 }
@@ -83,11 +73,7 @@ pub async fn translate_clip(
     request_id: Option<u64>,
     state: State<'_, AppState>,
 ) -> Result<TranslationResult, String> {
-    let request_id = Some(
-        state
-            .translation
-            .register_request_id(request_id.unwrap_or_default()),
-    );
+    let request_id = reserve_request_id(&state.translation, request_id);
     let storage = state.storage.clone();
     let input = run_blocking({
         let storage = storage.clone();
@@ -96,20 +82,14 @@ pub async fn translate_clip(
     .await
     .map_err(ipc_error)?;
     let text = resolve_clip_text(input, storage).await.map_err(ipc_error)?;
-    let command_state = TranslationCommandState {
-        service: state.translation.clone(),
-        config: state.config.clone(),
-    };
-
-    run_blocking(move || {
-        translate_with_state(
-            &command_state,
-            text,
-            source_language,
-            target_language,
-            request_id,
-        )
-    })
+    translate_configured_text(
+        state.translation.clone(),
+        state.config.clone(),
+        text,
+        source_language,
+        target_language,
+        request_id,
+    )
     .await
     .map_err(ipc_error)
 }
@@ -158,6 +138,37 @@ fn ipc_error(error: TranslationError) -> String {
 struct TranslationCommandState {
     service: Arc<super::service::TranslationService>,
     config: Arc<Mutex<AppConfig>>,
+}
+
+/// 在 OCR 等前置工作开始前登记 request-id，让较新的显式请求可以淘汰旧请求。
+pub(crate) fn reserve_request_id(
+    service: &super::service::TranslationService,
+    request_id: Option<u64>,
+) -> u64 {
+    service.register_request_id(request_id.unwrap_or_default())
+}
+
+/// 使用当前配置、系统 keyring 和 TranslationService 翻译显式文本。
+/// 截图、剪贴板和普通文本入口共享此处，避免不同入口形成凭据或 provider 分支。
+pub(crate) async fn translate_configured_text(
+    service: Arc<super::service::TranslationService>,
+    config: Arc<Mutex<AppConfig>>,
+    text: String,
+    source_language: Option<String>,
+    target_language: Option<String>,
+    request_id: u64,
+) -> Result<TranslationResult, TranslationError> {
+    let command_state = TranslationCommandState { service, config };
+    run_blocking(move || {
+        translate_with_state(
+            &command_state,
+            text,
+            source_language,
+            target_language,
+            Some(request_id),
+        )
+    })
+    .await
 }
 
 fn translate_with_state(

@@ -19,10 +19,41 @@ button { font: inherit; }
 .selection-handle.sw { left: 0; top: 100%; cursor: nesw-resize; }
 .selection-handle.w { left: 0; top: 50%; cursor: ew-resize; }
 .selection-size { position: absolute; z-index: 4; height: 22px; padding: 0 7px; border-radius: 4px; background: rgba(18, 20, 24, 0.9); color: #fff; font: 11px/22px ui-monospace, monospace; pointer-events: none; }
-.overlay-toolbar { position: absolute; z-index: 5; display: flex; width: 196px; height: 42px; align-items: center; gap: 3px; padding: 4px; border: 1px solid rgba(255,255,255,.16); border-radius: 6px; background: rgba(18,20,24,.96); box-shadow: 0 6px 18px rgba(0,0,0,.4); }
+.overlay-toolbar { position: absolute; z-index: 5; display: flex; width: 231px; height: 42px; align-items: center; gap: 3px; padding: 4px; border: 1px solid rgba(255,255,255,.16); border-radius: 6px; background: rgba(18,20,24,.96); box-shadow: 0 6px 18px rgba(0,0,0,.4); }
 .overlay-toolbar button { display: grid; width: 32px; height: 32px; padding: 0; place-items: center; border: 0; border-radius: 4px; background: transparent; color: #e5e7eb; cursor: pointer; }
 .overlay-toolbar button:hover,
 .overlay-toolbar button:focus-visible { outline: none; background: rgba(255,255,255,.12); color: #fff; }
 .overlay-toolbar button:disabled { opacity: .45; cursor: wait; }
 .overlay-separator { width: 1px; height: 22px; margin: 0 2px; background: rgba(255,255,255,.14); }
 .overlay-error { position: absolute; z-index: 8; left: 50%; bottom: 24px; max-width: min(520px, calc(100% - 32px)); transform: translateX(-50%); padding: 8px 12px; border-radius: 4px; background: rgba(145, 28, 28, .95); color: #fff; font-size: 12px; overflow-wrap: anywhere; }
+
+.translation-popover { position: absolute; z-index: 7; width: min(360px, calc(100vw - 16px)); max-height: min(320px, calc(100vh - 16px)); overflow: hidden; pointer-events: auto; border: 1px solid rgba(255,255,255,.17); border-radius: 6px; outline: none; background: rgba(18,20,24,.98); box-shadow: 0 10px 30px rgba(0,0,0,.48); color: #f3f4f6; cursor: default; user-select: text; }
+.translation-popover:focus-visible { border-color: #5ca5ff; box-shadow: 0 0 0 2px rgba(47,140,255,.35), 0 10px 30px rgba(0,0,0,.48); }
+.translation-header { display: flex; min-height: 40px; align-items: center; justify-content: space-between; padding: 0 8px 0 12px; border-bottom: 1px solid rgba(255,255,255,.1); }
+.translation-header h2 { display: flex; align-items: center; gap: 7px; margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0; }
+.translation-header button { display: grid; width: 30px; height: 30px; padding: 0; place-items: center; border: 0; border-radius: 4px; background: transparent; color: #cbd5e1; cursor: pointer; }
+.translation-header button:hover,
+.translation-header button:focus-visible { outline: none; background: rgba(255,255,255,.1); color: #fff; }
+.translation-progress,
+.translation-failure { display: flex; min-height: 84px; align-items: flex-start; gap: 10px; padding: 16px; }
+.translation-progress p,
+.translation-failure p { margin: 0; font-size: 12px; line-height: 1.45; }
+.translation-progress span { display: block; margin-top: 3px; color: #9ca3af; font-size: 11px; }
+.translation-spinner { flex: none; color: #5ca5ff; animation: translation-spin .9s linear infinite; }
+.translation-failure { color: #fecaca; }
+.translation-failure svg { flex: none; color: #fb7185; }
+.translation-meta { display: flex; min-height: 30px; align-items: center; justify-content: space-between; gap: 12px; padding: 0 12px; color: #9ca3af; font-size: 10px; }
+.translation-text { max-height: 200px; overflow: auto; padding: 0 12px 10px; }
+.translation-text h3 { margin: 8px 0 4px; color: #9ca3af; font-size: 10px; font-weight: 600; letter-spacing: 0; text-transform: uppercase; }
+.translation-text pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: #f3f4f6; font: 12px/1.5 Inter, system-ui, sans-serif; user-select: text; }
+.translation-footer { display: flex; min-height: 42px; align-items: center; justify-content: flex-end; gap: 10px; padding: 5px 8px 5px 12px; border-top: 1px solid rgba(255,255,255,.1); }
+.translation-footer > span { flex: 1; color: #a7f3d0; font-size: 10px; }
+.translation-copy { display: flex; min-width: 72px; height: 30px; align-items: center; justify-content: center; gap: 6px; padding: 0 10px; border: 1px solid rgba(255,255,255,.16); border-radius: 4px; background: rgba(255,255,255,.08); color: #f3f4f6; cursor: pointer; }
+.translation-copy:hover,
+.translation-copy:focus-visible { outline: none; border-color: #5ca5ff; background: rgba(47,140,255,.2); }
+
+@keyframes translation-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .translation-spinner { animation: none; }
+}
