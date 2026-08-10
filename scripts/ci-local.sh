@@ -43,7 +43,8 @@ echo ""
 
 # --- Rust ---
 run_step "cargo fmt --check" bash -c "cd src-tauri && cargo fmt -- --check"
-run_step "cargo clippy" bash -c "cd src-tauri && cargo clippy -- -D warnings"
+run_step "cargo check" bash -c "cd src-tauri && cargo check --all-targets"
+run_step "cargo clippy" bash -c "cd src-tauri && cargo clippy --all-targets -- -D warnings"
 run_step "cargo test" bash -c "cd src-tauri && cargo test"
 
 # --- Frontend ---
