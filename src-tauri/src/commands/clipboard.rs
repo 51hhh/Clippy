@@ -160,7 +160,11 @@ pub async fn get_paste_status(state: State<'_, AppState>) -> Result<PasteStatus,
 
 #[tauri::command]
 pub async fn request_paste_permission(state: State<'_, AppState>) -> Result<PasteStatus, String> {
-    state.paste_manager.request_permission().await
+    let auto_paste_enabled = state.config.lock().map_err(|e| e.to_string())?.auto_paste;
+    state
+        .paste_manager
+        .request_permission(auto_paste_enabled)
+        .await
 }
 
 /// 按 id 获取图片数据，返回 base64 编码的 PNG。

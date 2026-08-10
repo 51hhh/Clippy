@@ -63,6 +63,20 @@ struct PortalState {
     detail: Option<String>,
 }
 
+impl PortalState {
+    fn begin_attempt(&mut self, explicit: bool) -> Result<(), String> {
+        if self.implicit_attempted && !explicit {
+            return Err(self.detail.clone().unwrap_or_else(|| {
+                "自动粘贴授权本次运行中已尝试，需在设置中手动重试".to_string()
+            }));
+        }
+        self.implicit_attempted = true;
+        self.phase = PastePhase::Initializing;
+        self.detail = None;
+        Ok(())
+    }
+}
+
 struct PortalSession {
     proxy: ashpd::desktop::remote_desktop::RemoteDesktop,
     session: ashpd::desktop::Session<ashpd::desktop::remote_desktop::RemoteDesktop>,
@@ -139,9 +153,12 @@ impl PasteManager {
         }
     }
 
-    pub async fn request_permission(&self) -> Result<PasteStatus, String> {
+    pub async fn request_permission(
+        &self,
+        auto_paste_enabled: bool,
+    ) -> Result<PasteStatus, String> {
         if self.backend != PasteBackend::WaylandPortal {
-            return Ok(self.status(true).await);
+            return Ok(self.status(auto_paste_enabled).await);
         }
 
         let mut state = self.portal.lock().await;
@@ -149,7 +166,7 @@ impl PasteManager {
         state.implicit_attempted = false;
         self.ensure_portal_session(&mut state, true).await?;
         drop(state);
-        Ok(self.status(true).await)
+        Ok(self.status(auto_paste_enabled).await)
     }
 
     pub async fn paste(&self) -> Result<PasteOutcome, String> {
@@ -217,14 +234,7 @@ impl PasteManager {
             state.phase = PastePhase::Ready;
             return Ok(());
         }
-        if state.implicit_attempted && !explicit {
-            return Err(state.detail.clone().unwrap_or_else(|| {
-                "自动粘贴授权本次运行中已尝试，需在设置中手动重试".to_string()
-            }));
-        }
-        state.implicit_attempted = true;
-        state.phase = PastePhase::Initializing;
-        state.detail = None;
+        state.begin_attempt(explicit)?;
 
         let restore_token = read_restore_token(&self.token_path);
         let result = async {
@@ -294,12 +304,24 @@ fn detect_backend() -> PasteBackend {
     let session_type = std::env::var("XDG_SESSION_TYPE")
         .unwrap_or_default()
         .to_ascii_lowercase();
-    if session_type == "wayland" || std::env::var_os("WAYLAND_DISPLAY").is_some() {
-        PasteBackend::WaylandPortal
-    } else if session_type == "x11" || std::env::var_os("DISPLAY").is_some() {
-        PasteBackend::X11
-    } else {
-        PasteBackend::CopyOnly
+    detect_backend_from(
+        &session_type,
+        std::env::var_os("WAYLAND_DISPLAY").is_some(),
+        std::env::var_os("DISPLAY").is_some(),
+    )
+}
+
+fn detect_backend_from(
+    session_type: &str,
+    has_wayland_display: bool,
+    has_x11_display: bool,
+) -> PasteBackend {
+    match session_type {
+        "wayland" => PasteBackend::WaylandPortal,
+        "x11" => PasteBackend::X11,
+        _ if has_wayland_display => PasteBackend::WaylandPortal,
+        _ if has_x11_display => PasteBackend::X11,
+        _ => PasteBackend::CopyOnly,
     }
 }
 
@@ -372,6 +394,15 @@ fn simulate_x11_paste() -> Result<(), String> {
 }
 
 fn read_restore_token(path: &Path) -> Option<String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(path).ok()?.permissions().mode();
+        if mode & 0o077 != 0 {
+            log::warn!("拒绝读取权限过宽的 Portal restore token");
+            return None;
+        }
+    }
     let token = std::fs::read_to_string(path).ok()?;
     let token = token.trim();
     if token.is_empty() || token.len() > 4096 {
@@ -522,5 +553,52 @@ mod tests {
         let path = dir.path().join("portal-token");
         assert!(write_restore_token(&path, "").is_err());
         assert!(write_restore_token(&path, &"x".repeat(4097)).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn token_store_rejects_group_or_world_readable_files() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("portal-token");
+        std::fs::write(&path, "token-value").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        assert_eq!(read_restore_token(&path), None);
+    }
+
+    #[test]
+    fn explicit_session_type_wins_over_stale_display_variables() {
+        assert_eq!(detect_backend_from("x11", true, true), PasteBackend::X11);
+        assert_eq!(
+            detect_backend_from("wayland", false, true),
+            PasteBackend::WaylandPortal
+        );
+        assert_eq!(
+            detect_backend_from("", true, true),
+            PasteBackend::WaylandPortal
+        );
+        assert_eq!(detect_backend_from("", false, true), PasteBackend::X11);
+        assert_eq!(
+            detect_backend_from("tty", false, false),
+            PasteBackend::CopyOnly
+        );
+    }
+
+    #[test]
+    fn implicit_portal_attempt_runs_once_until_explicit_retry() {
+        let mut state = PortalState {
+            phase: PastePhase::PermissionRequired,
+            session: None,
+            implicit_attempted: false,
+            detail: None,
+        };
+
+        assert!(state.begin_attempt(false).is_ok());
+        state.detail = Some("denied".to_string());
+        assert_eq!(state.begin_attempt(false).unwrap_err(), "denied");
+        assert!(state.begin_attempt(true).is_ok());
+        assert_eq!(state.phase, PastePhase::Initializing);
     }
 }
