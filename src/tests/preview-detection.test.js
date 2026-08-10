@@ -1,20 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-
-// Mock Tauri API — preview-panel.js imports from api.js
-vi.mock("../js/api.js", () => ({
-  getClipImage: vi.fn(),
-  getClipDetail: vi.fn(),
-  setPreviewVisible: vi.fn(),
-  ocrAvailable: vi.fn(),
-  ocrImage: vi.fn(),
-  getConfig: vi.fn(),
-  fetchUrlMeta: vi.fn(),
-}));
-vi.mock("../i18n/i18n.js", () => ({
-  t: (key) => key,
-}));
-
-import { __test__ as T } from "../js/preview-panel.js";
+import { describe, it, expect } from "vitest";
+import * as T from "../js/preview/detectors.js";
 
 // ─── isReadable ─────────────────────────────────────────────
 
