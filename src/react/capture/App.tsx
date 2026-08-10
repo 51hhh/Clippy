@@ -19,6 +19,7 @@ import {
   closeCurrentWindow,
   copyScreenshotImage,
   getPendingCapture,
+  onCaptureLoaded,
   pinScreenshotImage,
   saveScreenshotImage,
   showCaptureEditor,
@@ -427,6 +428,21 @@ export function App() {
     loadPendingCapture(cancelledRef);
     return () => {
       cancelledRef.current = true;
+    };
+  }, [loadPendingCapture]);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    onCaptureLoaded(() => loadPendingCapture())
+      .then((cleanup) => {
+        if (disposed) cleanup();
+        else unlisten = cleanup;
+      })
+      .catch((error) => console.warn("Failed to subscribe to capture updates", error));
+    return () => {
+      disposed = true;
+      unlisten?.();
     };
   }, [loadPendingCapture]);
 

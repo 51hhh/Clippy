@@ -21,6 +21,7 @@ pub struct AppState {
     pub preview_visible: Arc<Mutex<bool>>,
     pub codec_visible: Arc<Mutex<bool>>,
     pub latest_capture: Arc<Mutex<Option<crate::screenshot::CapturedScreenshot>>>,
+    pub capture_manager: Arc<crate::capture::CaptureManager>,
     pub pin_manager: Arc<crate::pin::PinManager>,
     pub paste_manager: Arc<PasteManager>,
 }
@@ -644,63 +645,27 @@ pub fn is_dev_binary() -> bool {
 
 // ── 截图编辑 ────────────────────────────────────────────────────────────────
 
-/// 捕获当前屏幕后打开截图编辑窗口。
+/// 启动冻结屏幕截图覆盖层。
 #[tauri::command]
 pub async fn show_capture_editor(
     app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    show_capture_editor_impl(app_handle, Arc::clone(&state.latest_capture)).await
+    crate::capture::show_capture_overlay_for_app(app_handle, &state).await
 }
 
 pub(crate) async fn show_capture_editor_for_app(
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
-    let latest_capture = {
-        let state = app_handle.state::<AppState>();
-        Arc::clone(&state.latest_capture)
-    };
-    show_capture_editor_impl(app_handle, latest_capture).await
-}
-
-async fn show_capture_editor_impl(
-    app_handle: tauri::AppHandle,
-    latest_capture: Arc<Mutex<Option<crate::screenshot::CapturedScreenshot>>>,
-) -> Result<(), String> {
-    let capture_was_visible = hide_window_if_visible(&app_handle, "capture");
-    let main_was_visible = hide_window_if_visible(&app_handle, "main");
-
-    let captured_result = tauri::async_runtime::spawn_blocking(|| {
-        // 给主窗口隐藏和菜单关闭留一点时间，避免被截进画面。
-        std::thread::sleep(std::time::Duration::from_millis(140));
-        crate::screenshot::capture_screen_png()
-    })
-    .await;
-
-    let captured = match captured_result {
-        Ok(Ok(captured)) => captured,
-        Ok(Err(e)) => {
-            restore_capture_windows(&app_handle, capture_was_visible, main_was_visible);
-            return Err(format!("截图失败: {e}"));
-        }
-        Err(e) => {
-            restore_capture_windows(&app_handle, capture_was_visible, main_was_visible);
-            return Err(format!("截图线程异常: {e}"));
-        }
-    };
-
-    {
-        let mut latest = latest_capture.lock().map_err(|e| e.to_string())?;
-        *latest = Some(captured);
-    }
-
-    open_capture_window(&app_handle)
+    let state = app_handle.state::<AppState>();
+    crate::capture::show_capture_overlay_for_app(app_handle.clone(), &state).await
 }
 
 pub(crate) fn open_capture_window(app_handle: &tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app_handle.get_webview_window("capture") {
         window.show().map_err(|error| error.to_string())?;
         let _ = window.set_focus();
+        let _ = window.emit("capture-loaded", ());
         return Ok(());
     }
 
@@ -717,41 +682,8 @@ pub(crate) fn open_capture_window(app_handle: &tauri::AppHandle) -> Result<(), S
     .build()
     .map_err(|error| error.to_string())?;
     let _ = window.set_focus();
+    let _ = window.emit("capture-loaded", ());
     Ok(())
-}
-
-fn hide_window_if_visible(app_handle: &tauri::AppHandle, label: &str) -> bool {
-    let Some(window) = app_handle.get_webview_window(label) else {
-        return false;
-    };
-    let was_visible = window.is_visible().unwrap_or(false);
-    if was_visible {
-        let _ = window.hide();
-    }
-    was_visible
-}
-
-fn restore_capture_windows(
-    app_handle: &tauri::AppHandle,
-    capture_was_visible: bool,
-    main_was_visible: bool,
-) {
-    let mut focused = false;
-    if capture_was_visible {
-        if let Some(window) = app_handle.get_webview_window("capture") {
-            let _ = window.show();
-            let _ = window.set_focus();
-            focused = true;
-        }
-    }
-    if main_was_visible {
-        if let Some(window) = app_handle.get_webview_window("main") {
-            let _ = window.show();
-            if !focused {
-                let _ = window.set_focus();
-            }
-        }
-    }
 }
 
 /// 返回最近一次由 show_capture_editor 捕获的截图。

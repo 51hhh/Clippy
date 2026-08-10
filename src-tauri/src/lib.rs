@@ -1,3 +1,4 @@
+mod capture;
 mod clipboard_watcher;
 mod commands;
 mod config;
@@ -271,6 +272,7 @@ pub fn run() {
             let config = Arc::new(Mutex::new(app_config.clone()));
             let paste_manager = Arc::new(paste::PasteManager::new(&app_data_dir));
             let pin_manager = Arc::new(pin::PinManager::new());
+            let capture_manager = Arc::new(capture::CaptureManager::new());
 
             // ── 4. 启动剪贴板监听器 ──────────────────────────────────────────
             let watcher = clipboard_watcher::ClipboardWatcher::new();
@@ -296,6 +298,7 @@ pub fn run() {
                 preview_visible: Arc::new(Mutex::new(false)),
                 codec_visible: Arc::new(Mutex::new(false)),
                 latest_capture: Arc::new(Mutex::new(None)),
+                capture_manager,
                 pin_manager,
                 paste_manager,
             });
@@ -447,6 +450,17 @@ pub fn run() {
                         state.pin_manager.remove_window(window.label());
                     }
                 }
+                tauri::WindowEvent::Destroyed
+                    if window.label().starts_with("capture-overlay-") =>
+                {
+                    if let Some(state) = window.app_handle().try_state::<commands::AppState>() {
+                        capture::handle_overlay_destroyed(
+                            window.app_handle(),
+                            &state,
+                            window.label(),
+                        );
+                    }
+                }
                 tauri::WindowEvent::Destroyed if window.label() == "capture" => {
                     if let Some(state) = window.app_handle().try_state::<commands::AppState>() {
                         commands::clear_latest_capture(&state);
@@ -478,6 +492,10 @@ pub fn run() {
             commands::get_install_type,
             commands::is_dev_binary,
             commands::show_capture_editor,
+            capture::show_capture_overlay,
+            capture::get_capture_overlay,
+            capture::cancel_capture_overlay,
+            capture::run_capture_action,
             commands::get_pending_capture,
             commands::clear_pending_capture,
             commands::copy_screenshot_image,

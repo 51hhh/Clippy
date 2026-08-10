@@ -110,6 +110,23 @@ export function showCaptureEditor() {
   return invoke("show_capture_editor");
 }
 
+/** 启动冻结屏幕选区覆盖层 */
+export function showCaptureOverlay() {
+  return invoke("show_capture_overlay");
+}
+
+export function getCaptureOverlay(label) {
+  return invoke("get_capture_overlay", { label });
+}
+
+export function cancelCaptureOverlay(sessionId) {
+  return invoke("cancel_capture_overlay", { sessionId });
+}
+
+export function runCaptureAction(action, selection) {
+  return invoke("run_capture_action", { action, selection });
+}
+
 /** 关闭当前窗口 */
 export async function closeCurrentWindow() {
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
@@ -234,6 +251,10 @@ export function onShortcutRegisterFailed(callback) {
 
 export function onPinCurrent(callback) {
   return listen("pin-current", () => callback());
+}
+
+export function onCaptureLoaded(callback) {
+  return listen("capture-loaded", () => callback());
 }
 
 // ── 更新相关（懒加载，避免 settings 窗口引入 api.js 时因 plugin 未就绪而阻塞） ──
