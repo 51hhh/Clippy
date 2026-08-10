@@ -83,9 +83,11 @@ mod tests {
         let dir = tempdir().expect("创建临时目录失败");
         let config_path = dir.path().join("config.json");
 
-        let mut config = AppConfig::default();
-        config.max_history = 200;
-        config.theme = "dark".to_string();
+        let config = AppConfig {
+            max_history: 200,
+            theme: "dark".to_string(),
+            ..AppConfig::default()
+        };
 
         save_config(&config_path, &config);
         assert!(config_path.exists(), "save_config 应写出文件");
