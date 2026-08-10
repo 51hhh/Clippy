@@ -100,9 +100,14 @@ pub fn run_capture_action(
     state: State<'_, AppState>,
 ) -> Result<CaptureActionResult, String> {
     let png = state.capture_manager.crop(&selection)?;
+    let restore_sources = !matches!(action, CaptureAction::Edit);
     let result = execute_action(action, png, &app_handle, &state)?;
     let session = state.capture_manager.finish(&selection.session_id)?;
     overlay_windows::close(&app_handle, &session.overlay_labels);
+    if restore_sources {
+        // 高级编辑器已经接管焦点；其余动作应回到截图前的源窗口。
+        overlay_windows::restore(&app_handle, &session.restore_labels);
+    }
     Ok(result)
 }
 
