@@ -8,20 +8,20 @@
 |---|---|---|
 | Rust 格式 | `cargo fmt -- --check` | 通过 |
 | Rust 编译 | `cargo check --all-targets` | 通过 |
-| Rust 测试 | `cargo test` | 66 passed |
+| Rust 测试 | `cargo test` | 68 passed |
 | Rust lint | `cargo clippy --all-targets -- -D warnings` | 通过 |
 | 前端类型 | `npx tsc --noEmit` | 通过 |
-| 前端测试 | `npx vitest run` | 21 files / 361 passed |
+| 前端测试 | `npx vitest run` | 22 files / 363 passed |
 | 前端构建 | `npx vite build` | 通过，5 个窗口入口均生成 |
 | X11/DOM smoke | `./scripts/smoke-dom.sh`（外部 Xvfb 权限） | 6 passed |
 | npm 依赖安全 | `npm audit --json` | 0 vulnerabilities |
 | deb | `cargo tauri build` + `dpkg-deb --info/--contents` | 5.0 MiB，版本/依赖/desktop/bin 正确 |
-| AppImage | `cargo tauri build` + `file`/执行位检查 | 82 MiB，x86-64 ELF，可执行 |
+| AppImage | `cargo tauri build --bundles appimage --no-sign --ci` + `file` 检查 | 82 MiB，x86-64 ELF，未签名 |
 
 产物校验：
 
-- deb SHA-256: `2eac952cf5af54fbcb55aaf0c00d0d296423012b5ad8c694bdecbadac1a8fb6e`
-- AppImage SHA-256: `816034bd71f011a61e4f6907ee19256e4eecd1489b5893fb0e19f1cf1646ea8e`
+- deb SHA-256: `c75d9e1edcc0e0895f157fc4e9578912cb46f2d54d29d1490d46fcfa4023a8a1`
+- AppImage SHA-256: `3eb0ef5497941996be9775ea38f84a7761bc7ed53ca626d5ae9da4b79f07ea8f`
 - 本地未配置 `TAURI_SIGNING_PRIVATE_KEY`，所以 updater 签名未生成；release workflow 已从 GitHub Actions secret 注入签名密钥。
 
 ## 真实桌面人工矩阵

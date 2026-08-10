@@ -162,7 +162,8 @@ src-tauri/src/                # Rust 后端
 ├── commands.rs               # AppState 与兼容 re-export
 ├── commands/                 # 剪贴板、设置、tmux、截图、OCR、URL 命令
 ├── clipboard_watcher.rs      # 剪贴板轮询线程
-├── storage.rs                # SQLite + FTS5 存储
+├── storage.rs                # SQLite/FTS5 核心与搜索
+├── storage/                  # 清理维护、统计、URL 缓存和存储测试
 ├── config.rs                 # JSON 配置
 ├── models.rs                 # 数据模型
 ├── gsettings_shortcuts.rs    # Wayland 快捷键
