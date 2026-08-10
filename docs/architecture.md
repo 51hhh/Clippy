@@ -17,7 +17,7 @@
 | `capture/` | 单一 CaptureSession、冻结帧、多显示器覆盖层、裁剪与动作 |
 | `pin/` | PinManager、内容来源、窗口尺寸、缩放/透明度/锁定和清理 |
 | `translation/` | provider、超时/重试、request-id、内容选择、Secret Service |
-| `storage.rs` | SQLite/FTS5、搜索、OCR 与 URL 元数据缓存 |
+| `storage.rs` + `storage/*` | SQLite/FTS5 初始化与搜索；维护清理、统计、URL 缓存和测试各自隔离 |
 
 ## 前端模块
 
@@ -61,7 +61,8 @@ Fallback: permission/backend/injection failure -> clipboard remains populated, n
 - 图片翻译只把本地 OCR 文本发送给 provider，不上传原图。
 - API key 只进入系统 Secret Service，不提供明文 fallback。
 - 用户文本使用 React 文本节点或 `textContent`；富文本仅使用严格 DOMPurify 配置。
-- URL/翻译响应有超时与 1 MiB 上限；数学表达式不使用 `eval`/`Function`。
+- URL 元数据仅访问无凭据的 HTTP(S)，拒绝私有/保留 IP、私有 DNS 解析和重定向；请求有 5 秒超时与 1 MiB 上限。
+- 翻译响应有超时与 1 MiB 上限；数学表达式不使用 `eval`/`Function`。
 
 ## 质量门禁
 

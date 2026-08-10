@@ -167,7 +167,8 @@ src-tauri/src/                # Rust backend
 ├── commands.rs               # AppState + compatibility re-exports
 ├── commands/                 # Clipboard, settings, tmux, capture, OCR, URL commands
 ├── clipboard_watcher.rs      # Clipboard polling thread
-├── storage.rs                # SQLite + FTS5 storage
+├── storage.rs                # SQLite/FTS5 core and search
+├── storage/                  # Maintenance, stats, URL cache and storage tests
 ├── config.rs                 # JSON config
 ├── models.rs                 # Data models
 ├── gsettings_shortcuts.rs    # Wayland shortcut support
