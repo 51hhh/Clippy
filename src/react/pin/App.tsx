@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { pinApi } from "./api";
 import { PinToolbar } from "./PinToolbar";
 import type { PinPayload, PinUpdate } from "./types";
+import { shouldApplyPinUpdateResponse } from "./update-order";
 
 const DRAG_THRESHOLD = 5;
 
@@ -21,6 +22,7 @@ export function App() {
   const dragStart = useRef<{ x: number; y: number } | null>(null);
   const wheelFrame = useRef<number | null>(null);
   const pendingUpdate = useRef<PinUpdate>({});
+  const updateGeneration = useRef(0);
   const copiedTimer = useRef<number | null>(null);
   const pinRef = useRef<PinPayload | null>(null);
   const [pin, setPin] = useState<PinPayload | null>(null);
@@ -86,13 +88,25 @@ export function App() {
         pinRef.current = next;
         return next;
       });
+      updateGeneration.current += 1;
       pendingUpdate.current = { ...pendingUpdate.current, ...normalized };
       if (wheelFrame.current !== null) return;
       wheelFrame.current = requestAnimationFrame(() => {
         wheelFrame.current = null;
         const next = pendingUpdate.current;
         pendingUpdate.current = {};
-        pinApi.update(label, next).then(setPin).catch((reason) => setError(String(reason)));
+        const requestGeneration = updateGeneration.current;
+        pinApi
+          .update(label, next)
+          .then((payload) => {
+            // 用户在请求返回前继续调整时，旧响应不能覆盖本地乐观状态。
+            if (!shouldApplyPinUpdateResponse(requestGeneration, updateGeneration.current, pendingUpdate.current)) {
+              return;
+            }
+            pinRef.current = payload;
+            setPin(payload);
+          })
+          .catch((reason) => setError(String(reason)));
       });
     },
     [label],
