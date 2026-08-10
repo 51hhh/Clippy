@@ -80,6 +80,16 @@ pub struct AppConfig {
     pub tmux_capture: bool,
     #[serde(default = "default_auto_paste")]
     pub auto_paste: bool,
+    #[serde(default = "default_translation_provider")]
+    pub translation_provider: String,
+    #[serde(default = "default_translation_endpoint")]
+    pub translation_endpoint: String,
+    #[serde(default = "default_translation_model")]
+    pub translation_model: String,
+    #[serde(default = "default_translation_source_language")]
+    pub translation_source_language: String,
+    #[serde(default = "default_translation_target_language")]
+    pub translation_target_language: String,
 }
 
 fn default_language() -> String {
@@ -110,6 +120,26 @@ fn default_auto_paste() -> bool {
     true
 }
 
+fn default_translation_provider() -> String {
+    "libretranslate".to_string()
+}
+
+fn default_translation_endpoint() -> String {
+    "https://libretranslate.com".to_string()
+}
+
+fn default_translation_model() -> String {
+    String::new()
+}
+
+fn default_translation_source_language() -> String {
+    "auto".to_string()
+}
+
+fn default_translation_target_language() -> String {
+    "en".to_string()
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -126,6 +156,11 @@ impl Default for AppConfig {
             ocr_enabled: true,
             tmux_capture: false,
             auto_paste: true,
+            translation_provider: default_translation_provider(),
+            translation_endpoint: default_translation_endpoint(),
+            translation_model: default_translation_model(),
+            translation_source_language: default_translation_source_language(),
+            translation_target_language: default_translation_target_language(),
         }
     }
 }

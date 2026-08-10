@@ -11,6 +11,7 @@ mod pin;
 mod pin_window;
 mod screenshot;
 mod storage;
+mod translation;
 mod tray_icon;
 mod window_controller;
 
@@ -273,6 +274,7 @@ pub fn run() {
             let paste_manager = Arc::new(paste::PasteManager::new(&app_data_dir));
             let pin_manager = Arc::new(pin::PinManager::new());
             let capture_manager = Arc::new(capture::CaptureManager::new());
+            let translation = Arc::new(translation::TranslationService::new());
 
             // ── 4. 启动剪贴板监听器 ──────────────────────────────────────────
             let watcher = clipboard_watcher::ClipboardWatcher::new();
@@ -301,6 +303,7 @@ pub fn run() {
                 capture_manager,
                 pin_manager,
                 paste_manager,
+                translation,
             });
 
             // ── 6. 构建系统托盘 ──────────────────────────────────────────────
@@ -516,6 +519,11 @@ pub fn run() {
             commands::get_stats,
             commands::toggle_tmux_capture,
             commands::tmux_available,
+            translation::commands::translate_text,
+            translation::commands::translate_clip,
+            translation::commands::set_translation_api_key,
+            translation::commands::has_translation_api_key,
+            translation::commands::delete_translation_api_key,
         ])
         .run(tauri::generate_context!())
         .expect("启动 Tauri 应用失败");
