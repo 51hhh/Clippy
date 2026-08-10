@@ -50,6 +50,7 @@ run_step "cargo test" bash -c "cd src-tauri && cargo test"
 run_step "npm ci" bash -c "cd src && npm ci --prefer-offline"
 run_step "typecheck" bash -c "cd src && npx tsc --noEmit"
 run_step "vitest" bash -c "cd src && npx vitest run"
+run_step "DOM/Xvfb smoke" ./scripts/smoke-dom.sh
 
 if [[ "$QUICK" == false ]]; then
   run_step "vite build" bash -c "cd src && npx vite build"
