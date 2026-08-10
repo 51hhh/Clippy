@@ -141,6 +141,93 @@
       </div>
     </div>
 
+    <div class="setting-group" id="translation-group">
+      <h2 class="setting-label" data-i18n="settings.translation.label">Translation</h2>
+      <div class="translation-grid">
+        <div class="translation-field">
+          <label class="setting-label setting-label-sub" for="translation-provider-select"
+                 data-i18n="settings.translation.provider">Provider</label>
+          <select class="setting-select" id="translation-provider-select">
+            <option value="libretranslate" data-i18n="settings.translation.providerLibre">LibreTranslate-compatible</option>
+            <option value="openai_compatible" data-i18n="settings.translation.providerOpenAI">OpenAI-compatible</option>
+          </select>
+        </div>
+        <div class="translation-field">
+          <label class="setting-label setting-label-sub" for="translation-model-input"
+                 data-i18n="settings.translation.model">Model</label>
+          <input type="text" class="setting-input" id="translation-model-input"
+                 autocomplete="off" spellcheck="false" placeholder="gpt-4o-mini"
+                 data-i18n="settings.translation.modelPlaceholder" data-i18n-attr="placeholder">
+        </div>
+        <div class="translation-field translation-field-wide">
+          <label class="setting-label setting-label-sub" for="translation-endpoint-input"
+                 data-i18n="settings.translation.endpoint">Endpoint</label>
+          <input type="url" class="setting-input" id="translation-endpoint-input"
+                 autocomplete="url" spellcheck="false" inputmode="url"
+                 aria-describedby="translation-endpoint-hint" placeholder="https://libretranslate.com">
+          <div class="setting-hint" id="translation-endpoint-hint"
+               data-i18n="settings.translation.endpointHint">Requests are sent only to this service endpoint.</div>
+        </div>
+        <div class="translation-field">
+          <label class="setting-label setting-label-sub" for="translation-source-language-select"
+                 data-i18n="settings.translation.sourceLanguage">Source Language</label>
+          <select class="setting-select" id="translation-source-language-select">
+            <option value="auto" data-i18n="settings.translation.languageAuto">Detect automatically</option>
+            <option value="en" data-i18n="settings.translation.languageEnglish">English</option>
+            <option value="zh" data-i18n="settings.translation.languageChinese">Chinese</option>
+            <option value="ja" data-i18n="settings.translation.languageJapanese">Japanese</option>
+            <option value="ko" data-i18n="settings.translation.languageKorean">Korean</option>
+            <option value="es" data-i18n="settings.translation.languageSpanish">Spanish</option>
+            <option value="fr" data-i18n="settings.translation.languageFrench">French</option>
+            <option value="de" data-i18n="settings.translation.languageGerman">German</option>
+          </select>
+        </div>
+        <div class="translation-field">
+          <label class="setting-label setting-label-sub" for="translation-target-language-select"
+                 data-i18n="settings.translation.targetLanguage">Target Language</label>
+          <select class="setting-select" id="translation-target-language-select">
+            <option value="en" data-i18n="settings.translation.languageEnglish">English</option>
+            <option value="zh" data-i18n="settings.translation.languageChinese">Chinese</option>
+            <option value="ja" data-i18n="settings.translation.languageJapanese">Japanese</option>
+            <option value="ko" data-i18n="settings.translation.languageKorean">Korean</option>
+            <option value="es" data-i18n="settings.translation.languageSpanish">Spanish</option>
+            <option value="fr" data-i18n="settings.translation.languageFrench">French</option>
+            <option value="de" data-i18n="settings.translation.languageGerman">German</option>
+          </select>
+        </div>
+        <div class="translation-field translation-field-wide">
+          <label class="setting-label setting-label-sub" for="translation-api-key-input"
+                 data-i18n="settings.translation.apiKey">API Key</label>
+          <div class="translation-key-row">
+            <input type="password" class="setting-input" id="translation-api-key-input"
+                   autocomplete="new-password" spellcheck="false"
+                   aria-describedby="translation-key-hint translation-key-status-text"
+                   data-i18n="settings.translation.apiKeyPlaceholder" data-i18n-attr="placeholder"
+                   placeholder="Enter a new key">
+            <button class="btn btn-small btn-primary" id="translation-key-save-btn" type="button" disabled
+                    data-i18n="settings.translation.saveKey">Save Key</button>
+            <button class="btn btn-small btn-secondary" id="translation-key-delete-btn" type="button" hidden
+                    data-i18n="settings.translation.deleteKey">Remove</button>
+          </div>
+          <div class="setting-hint" id="translation-key-hint"
+               data-i18n="settings.translation.apiKeyHint">Stored in the system Secret Service and never written to Clippy settings.</div>
+          <div class="translation-key-status" role="status" aria-live="polite">
+            <span class="translation-status-dot pending" id="translation-key-status-dot" aria-hidden="true"></span>
+            <span class="translation-status-text" id="translation-key-status-text"
+                  data-i18n="settings.translation.keyChecking">Checking stored key...</span>
+          </div>
+        </div>
+      </div>
+      <div class="translation-privacy" role="note">
+        <div class="translation-destination">
+          <span data-i18n="settings.translation.destination">Destination service:</span>
+          <strong id="translation-service-name">LibreTranslate-compatible</strong>
+        </div>
+        <p id="translation-privacy-text"
+           data-i18n="settings.translation.privacy">Text is sent only when you explicitly request translation. Images are never uploaded; image translation uses local OCR first.</p>
+      </div>
+    </div>
+
     <div class="setting-group" id="tmux-group" style="display:none">
       <label class="setting-label" data-i18n="settings.tmux.label">Tmux Capture</label>
       <div class="setting-toggle-row">

@@ -66,6 +66,17 @@ describe("i18n", () => {
     expect(i18n.t("settings.stats.dbSize")).toBe("DB Size");
   });
 
+  it("settings.translation.* key 在中文和英文中都存在", () => {
+    i18n.init("zh-CN");
+    expect(i18n.t("settings.translation.label")).toBe("翻译");
+    expect(i18n.t("settings.translation.providerOpenAI")).toBe("OpenAI 兼容服务");
+    expect(i18n.t("settings.translation.privacy")).toContain("图片绝不会上传");
+    i18n.init("en");
+    expect(i18n.t("settings.translation.label")).toBe("Translation");
+    expect(i18n.t("settings.translation.providerLibre")).toBe("LibreTranslate-compatible");
+    expect(i18n.t("settings.translation.privacy")).toContain("Images are never uploaded");
+  });
+
   it("applyToDOM 替换 data-i18n 元素文本", () => {
     document.body.innerHTML = '<span data-i18n="settings.title">Settings</span>';
     i18n.init("zh-CN");

@@ -58,6 +58,12 @@ html, body {
   outline: none;
   box-shadow: 0 0 0 3px var(--accent-soft, color-mix(in srgb, var(--accent) 22%, transparent));
 }
+.setting-input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+.setting-input[aria-invalid="true"]:focus {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent);
+}
 /* 自定义箭头，避免系统下拉框使用浏览器默认配色（在深色主题下白底） */
 .setting-select {
   cursor: pointer;
@@ -244,6 +250,10 @@ html, body {
 .btn-secondary:hover {
   background: var(--bg-hover);
 }
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 
 /* ── 提示 ── */
 
@@ -357,6 +367,86 @@ html, body {
   font-weight: 500;
   color: var(--text-secondary);
   margin-bottom: 4px;
+}
+
+/* ── 翻译设置 ── */
+
+.translation-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px 14px;
+}
+
+.translation-field {
+  min-width: 0;
+}
+
+.translation-field-wide {
+  grid-column: 1 / -1;
+}
+
+.translation-key-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.translation-key-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 9px;
+  min-height: 18px;
+}
+
+.translation-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-muted);
+}
+
+.translation-status-dot.ready {
+  background: var(--success, #16a34a);
+}
+
+.translation-status-dot.pending {
+  background: var(--warning, #d97706);
+}
+
+.translation-status-dot.unavailable {
+  background: var(--danger, #dc2626);
+}
+
+.translation-status-text {
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.translation-privacy {
+  margin-top: 16px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.translation-destination {
+  color: var(--text-primary);
+}
+
+.translation-destination strong {
+  margin-left: 4px;
+  overflow-wrap: anywhere;
+}
+
+.translation-privacy p {
+  margin: 4px 0 0;
 }
 
 /* ── 自定义下拉框 ── */
@@ -486,6 +576,18 @@ html, body {
   }
   .shortcut-input {
     min-width: 100%;
+  }
+  .translation-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .translation-field-wide {
+    grid-column: auto;
+  }
+  .translation-key-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .translation-key-row .setting-input {
+    grid-column: 1 / -1;
   }
 }
 
