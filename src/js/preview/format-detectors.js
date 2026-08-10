@@ -2,6 +2,8 @@
  * preview/format-detectors.js — 常见数据格式与表达式检测
  */
 
+import { evaluateMathExpression } from "./math-expression.js";
+
 // ── 语义版本 / 数字进制 / CSS 渐变 / 数据大小检测 ─────────
 
 /** 语义版本号检测 (SemVer) */
@@ -205,18 +207,13 @@ export function isMathExpr(text) {
   // 不能是纯数字+小数点（避免和版本号冲突）
   if (/^[\d.]+$/.test(text.trim())) return false;
   try {
-    // 安全求值：替换 ^ 为 **，只允许数字和运算符
-    const safe = text.replace(/\^/g, "**");
-    if (/[a-zA-Z_$]/.test(safe)) return false;
-    const result = Function(`"use strict"; return (${safe})`)();
-    return typeof result === "number" && isFinite(result);
+    evaluateMathExpression(text);
+    return true;
   } catch { return false; }
 }
 
 export function mathEval(text) {
-  const safe = text.replace(/\^/g, "**");
-  const result = Function(`"use strict"; return (${safe})`)();
-  return { expression: text, result };
+  return { expression: text, result: evaluateMathExpression(text) };
 }
 
 /** HTTP 状态码检测 */
