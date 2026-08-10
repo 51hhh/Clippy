@@ -1,0 +1,188 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+  font-family: Inter, system-ui, sans-serif;
+  user-select: none;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.pin-root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  outline: none;
+  cursor: grab;
+  transition: opacity 120ms ease;
+}
+
+.pin-root:active:not(.locked) {
+  cursor: grabbing;
+}
+
+.pin-root.locked {
+  cursor: default;
+}
+
+.pin-media {
+  position: absolute;
+  inset: 12px 56px 60px 12px;
+  overflow: hidden;
+}
+
+.pin-media.image {
+  filter: drop-shadow(0 5px 12px rgba(0, 0, 0, 0.34));
+}
+
+.pin-media img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.pin-media.text {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  background: rgba(24, 26, 30, 0.94);
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.32);
+}
+
+.pin-media pre {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  color: #f3f4f6;
+  font: 13px/1.55 "JetBrains Mono", "Cascadia Code", monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.pin-controls {
+  position: absolute;
+  inset: 8px 6px auto auto;
+  z-index: 10;
+  opacity: 0;
+  transform: translateX(4px);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.pin-root:hover .pin-controls,
+.pin-root:focus-within .pin-controls {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.pin-tools-vertical {
+  display: flex;
+  width: 38px;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: rgba(25, 27, 31, 0.94);
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.36);
+}
+
+.pin-tool-button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #e5e7eb;
+  cursor: pointer;
+}
+
+.pin-tool-button:hover,
+.pin-tool-button:focus-visible {
+  outline: none;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.pin-scale {
+  width: 28px;
+  color: #9ca3af;
+  font-size: 9px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.pin-tool-separator {
+  width: 22px;
+  height: 1px;
+  margin: 2px 0;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.pin-opacity-popover {
+  position: absolute;
+  top: 120px;
+  right: 42px;
+  display: flex;
+  width: 150px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: rgba(25, 27, 31, 0.96);
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.36);
+  color: #f3f4f6;
+}
+
+.pin-opacity-popover input {
+  min-width: 0;
+  flex: 1;
+}
+
+.pin-opacity-popover output {
+  width: 34px;
+  font-size: 11px;
+  text-align: right;
+}
+
+.pin-error,
+.pin-toast {
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: rgba(25, 27, 31, 0.94);
+  font-size: 12px;
+}
+
+.pin-error {
+  width: 100%;
+  height: 100%;
+}
+
+.pin-toast {
+  position: absolute;
+  right: 56px;
+  bottom: 16px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 4px;
+}

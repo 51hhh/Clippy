@@ -151,6 +151,34 @@ export function closePin(label) {
   return invoke("close_pin", { label });
 }
 
+/** 获取统一贴图渲染与交互状态 */
+export function getPinPayload(label) {
+  return invoke("get_pin_payload", { label });
+}
+
+/** 贴图内容首帧加载完成后显示原生窗口 */
+export function pinReady(label) {
+  return invoke("pin_ready", { label });
+}
+
+/** 更新贴图缩放、透明度或锁定状态 */
+export function updatePin(label, update) {
+  return invoke("update_pin", { label, update });
+}
+
+/** 复制贴图内容，不触发自动粘贴 */
+export function copyPin(label) {
+  return invoke("copy_pin", { label });
+}
+
+export function savePin(label) {
+  return invoke("save_pin", { label });
+}
+
+export function editPin(label) {
+  return invoke("edit_pin", { label });
+}
+
 /** 检查 OCR 是否可用（系统是否安装了 tesseract） */
 export function ocrAvailable() {
   return invoke("ocr_available");
