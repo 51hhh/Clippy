@@ -152,6 +152,16 @@ export function runCaptureAction(action, selection) {
   return invoke("run_capture_action", { action, selection });
 }
 
+/** 截图选区先在后端本地 OCR，再仅发送识别文本进行翻译。 */
+export function translateCaptureSelection(selection) {
+  return invoke("translate_capture_selection", {
+    selection,
+    sourceLanguage: null,
+    targetLanguage: null,
+    requestId: null,
+  });
+}
+
 /** 关闭当前窗口 */
 export async function closeCurrentWindow() {
   const { getCurrentWindow } = await import("@tauri-apps/api/window");

@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::translation::types::{TranslationProvider, TranslationResult};
+
 #[derive(Debug, Clone)]
 pub(super) struct OverlaySpec {
     pub label: String,
@@ -58,4 +60,53 @@ pub struct CaptureActionResult {
     pub action: &'static str,
     pub path: Option<String>,
     pub pin_label: Option<String>,
+}
+
+/// 截图选区的本地 OCR 与翻译结果。原图不会跨越此 IPC 边界进入翻译服务。
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureTranslationResult {
+    pub request_id: u64,
+    pub provider: TranslationProvider,
+    pub source_text: String,
+    pub translated_text: String,
+    pub detected_source_language: Option<String>,
+}
+
+impl CaptureTranslationResult {
+    pub fn from_translation(source_text: String, result: TranslationResult) -> Self {
+        Self {
+            request_id: result.request_id,
+            provider: result.provider,
+            source_text,
+            translated_text: result.translated_text,
+            detected_source_language: result.detected_source_language,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn capture_translation_contract_contains_text_but_no_image_payload() {
+        let result = CaptureTranslationResult::from_translation(
+            "recognized locally".to_string(),
+            TranslationResult {
+                request_id: 8,
+                provider: TranslationProvider::LibreTranslate,
+                translated_text: "translated remotely".to_string(),
+                detected_source_language: Some("en".to_string()),
+            },
+        );
+        let json = serde_json::to_value(result).unwrap();
+
+        assert_eq!(json["requestId"], 8);
+        assert_eq!(json["sourceText"], "recognized locally");
+        assert_eq!(json["translatedText"], "translated remotely");
+        assert_eq!(json["provider"], "libretranslate");
+        assert!(json.get("pngBase64").is_none());
+        assert!(json.get("image").is_none());
+    }
 }

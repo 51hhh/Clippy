@@ -1,8 +1,20 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { overlayApi } from "./api";
 import { OverlayToolbar } from "./OverlayToolbar";
-import type { CaptureAction, CaptureOverlayPayload, Point, ResizeHandle } from "./types";
+import { TranslationPopover } from "./TranslationPopover";
+import {
+  isCurrentTranslation,
+  translationErrorMessage,
+  translationPanelPosition,
+} from "./translationState";
+import type {
+  CaptureAction,
+  CaptureOverlayPayload,
+  CaptureTranslationState,
+  Point,
+  ResizeHandle,
+} from "./types";
 import { useSelection } from "./useSelection";
 
 const HANDLES: ResizeHandle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
@@ -20,6 +32,10 @@ export function App() {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [translation, setTranslation] = useState<CaptureTranslationState | null>(null);
+  const [copyStatus, setCopyStatus] = useState<"copied" | "failed" | null>(null);
+  const translationGeneration = useRef(0);
+  const translateButtonRef = useRef<HTMLButtonElement>(null);
   const selection = useSelection(payload?.logicalWidth || 1, payload?.logicalHeight || 1, payload?.windows || []);
 
   useEffect(() => {
@@ -37,6 +53,9 @@ export function App() {
 
   const cancel = useCallback(() => {
     if (payload && !busy) {
+      translationGeneration.current += 1;
+      setTranslation(null);
+      setCopyStatus(null);
       setBusy(true);
       overlayApi.cancel(payload.sessionId).catch((reason) => {
         setError(String(reason));
@@ -46,7 +65,9 @@ export function App() {
   }, [busy, payload]);
 
   const run = useCallback((action: CaptureAction) => {
-    if (!payload || !selection.selection || busy) return;
+    if (!payload || !selection.selection || busy || translation?.status === "loading") return;
+    translationGeneration.current += 1;
+    setTranslation(null);
     setBusy(true);
     setError(null);
     overlayApi.run(action, {
@@ -57,16 +78,64 @@ export function App() {
       setError(String(reason));
       setBusy(false);
     });
-  }, [busy, payload, selection.selection]);
+  }, [busy, payload, selection.selection, translation?.status]);
+
+  const closeTranslation = useCallback(() => {
+    translationGeneration.current += 1;
+    setTranslation(null);
+    setCopyStatus(null);
+    requestAnimationFrame(() => translateButtonRef.current?.focus());
+  }, []);
+
+  const translate = useCallback(() => {
+    if (!payload || !selection.selection || busy || translation?.status === "loading") return;
+    const generation = translationGeneration.current + 1;
+    translationGeneration.current = generation;
+    setCopyStatus(null);
+    setTranslation({ status: "loading" });
+    overlayApi.translate({
+      ...selection.selection,
+      sessionId: payload.sessionId,
+      monitorId: payload.monitorId,
+    }).then((result) => {
+      if (isCurrentTranslation(translationGeneration.current, generation)) {
+        setTranslation({ status: "result", result });
+      }
+    }).catch((reason) => {
+      if (isCurrentTranslation(translationGeneration.current, generation)) {
+        setTranslation({ status: "error", message: translationErrorMessage(reason) });
+      }
+    });
+  }, [busy, payload, selection.selection, translation?.status]);
+
+  const copyTranslation = useCallback(async () => {
+    if (translation?.status !== "result") return;
+    try {
+      await navigator.clipboard.writeText(translation.result.translatedText);
+      setCopyStatus("copied");
+    } catch {
+      setCopyStatus("failed");
+    }
+  }, [translation]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") cancel();
-      else if (event.key === "Enter" && selection.selection) run("copy");
+      if (event.key === "Escape" && translation) {
+        event.preventDefault();
+        closeTranslation();
+      } else if (event.key === "Escape") {
+        cancel();
+      } else if (
+        event.key === "Enter"
+        && selection.selection
+        && !(event.target instanceof HTMLElement && event.target.closest("button"))
+      ) {
+        run("copy");
+      }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [cancel, run, selection.selection]);
+  }, [cancel, closeTranslation, run, selection.selection, translation]);
 
   const imageStyle = useMemo(() => ({ width: payload?.logicalWidth || 1, height: payload?.logicalHeight || 1 }), [payload]);
   function point(event: React.PointerEvent): Point {
@@ -76,12 +145,16 @@ export function App() {
   if (!payload || !imageUrl) return <main className="overlay-root loading" />;
   const selected = selection.selection;
   const preview = !selected ? selection.candidate : null;
+  const translationPosition = selected && translation
+    ? translationPanelPosition(selected, payload.logicalWidth, payload.logicalHeight)
+    : null;
 
   return (
     <main
       className="overlay-root"
       onPointerDown={(event) => {
         if (event.button !== 0) return;
+        if (translation) closeTranslation();
         event.currentTarget.setPointerCapture(event.pointerId);
         selection.pointerDown(point(event));
       }}
@@ -122,11 +195,24 @@ export function App() {
               viewportWidth={payload.logicalWidth}
               viewportHeight={payload.logicalHeight}
               busy={busy}
+              translationBusy={translation?.status === "loading"}
               onAction={run}
+              onTranslate={translate}
               onCancel={cancel}
+              translateButtonRef={translateButtonRef}
             />
           )}
         </>
+      )}
+      {translation && selected && translationPosition && (
+        <TranslationPopover
+          state={translation}
+          left={translationPosition.left}
+          top={translationPosition.top}
+          copyStatus={copyStatus}
+          onCopy={() => void copyTranslation()}
+          onClose={closeTranslation}
+        />
       )}
       {error && <div className="overlay-error" role="status">{error}</div>}
     </main>

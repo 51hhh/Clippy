@@ -226,4 +226,29 @@ mod tests {
         selection.width = f64::NAN;
         assert!(crop_frame(&frame(1.0), &selection).is_err());
     }
+
+    #[test]
+    fn crop_keeps_session_alive_for_follow_up_actions() {
+        let manager = CaptureManager::new();
+        let monitor_frame = frame(1.0);
+        let label = "capture-overlay-test-7".to_string();
+        *manager.session.lock().unwrap() = Some(CaptureSession {
+            id: "session-1".to_string(),
+            overlay_labels: vec![label.clone()],
+            restore_labels: Vec::new(),
+            frames: vec![monitor_frame],
+            windows: HashMap::new(),
+        });
+
+        let selection = CaptureSelection {
+            session_id: "session-1".to_string(),
+            monitor_id: 7,
+            x: 1.0,
+            y: 1.0,
+            width: 10.0,
+            height: 10.0,
+        };
+        assert!(manager.crop(&selection).is_ok());
+        assert!(manager.payload(&label).is_ok());
+    }
 }
