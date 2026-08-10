@@ -54,6 +54,7 @@ Fallback: permission/backend/injection failure -> clipboard remains populated, n
 ```
 
 `XDG_SESSION_TYPE` 优先于残留的 display 环境变量。Portal token 不进入普通配置；独立文件必须为 0600。首次 Portal 确认、撤权和桌面后端是否允许静默恢复仍属于真实桌面人工验收。
+截图 Portal 的交互模式由截图用户动作显式开启；后台或未来自动任务应传入非交互模式，避免隐式弹出桌面授权。
 
 ## 安全规则
 
