@@ -6,7 +6,7 @@ import {
   deleteTranslationApiKey,
   hasTranslationApiKey,
   setTranslationApiKey,
-} from "./api.js";
+} from "./api.ts";
 import * as i18n from "../i18n/i18n.js";
 
 const PROVIDERS = {

@@ -4,7 +4,7 @@
  * 聚焦变化只更新本地 UI。文本外发和图片 OCR 仅由用户点击触发。
  */
 
-import { translateClip } from "./api.js";
+import { translateClip } from "./api.ts";
 import { t } from "../i18n/i18n.js";
 
 const PROVIDER_KEYS = {

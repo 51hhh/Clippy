@@ -12,7 +12,7 @@
  * 性能：hljs/marked/DOMPurify 延迟加载，首次打开预览面板时才初始化。
  */
 
-import { getClipImage, getClipDetail, setPreviewVisible, ocrAvailable, ocrImage, getConfig, fetchUrlMeta } from "./api.js";
+import { getClipImage, getClipDetail, setPreviewVisible, ocrAvailable, ocrImage, getConfig, fetchUrlMeta } from "./api.ts";
 import { t } from "../i18n/i18n.js";
 import * as detectors from "./preview/detectors.js";
 

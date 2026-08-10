@@ -7,7 +7,7 @@
  * 架构：纯前端计算，仅剪贴板读写走 Tauri IPC
  */
 
-import { setCodecVisible } from "./api.js";
+import { setCodecVisible } from "./api.ts";
 import { t } from "../i18n/i18n.js";
 
 // ── DOM refs ──

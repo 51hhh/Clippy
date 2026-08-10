@@ -3,23 +3,20 @@ import {
   getCaptureOverlay,
   runCaptureAction,
   translateCaptureSelection,
-} from "../../js/api.js";
+} from "../../js/api.ts";
 import type {
   CaptureAction,
+  CaptureActionResult,
   CaptureOverlayPayload,
   CaptureSelection,
   CaptureTranslationResult,
-} from "./types";
+} from "../../js/ipc-types.ts";
 
 export const overlayApi = {
-  get: (label: string) => getCaptureOverlay(label) as Promise<CaptureOverlayPayload>,
-  cancel: (sessionId: string) => cancelCaptureOverlay(sessionId) as Promise<void>,
-  run: (action: CaptureAction, selection: CaptureSelection) =>
-    runCaptureAction(action, selection) as Promise<{
-      action: CaptureAction;
-      path: string | null;
-      pinLabel: string | null;
-    }>,
-  translate: (selection: CaptureSelection) =>
-    translateCaptureSelection(selection) as Promise<CaptureTranslationResult>,
+  get: (label: string): Promise<CaptureOverlayPayload> => getCaptureOverlay(label),
+  cancel: (sessionId: string): Promise<void> => cancelCaptureOverlay(sessionId),
+  run: (action: CaptureAction, selection: CaptureSelection): Promise<CaptureActionResult> =>
+    runCaptureAction(action, selection),
+  translate: (selection: CaptureSelection): Promise<CaptureTranslationResult> =>
+    translateCaptureSelection(selection),
 };

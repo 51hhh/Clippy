@@ -1,14 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as telemetry from "../js/telemetry.js";
 
-vi.mock("../js/api.js", () => ({
+vi.mock("../js/api.ts", () => ({
   getClips: vi.fn(),
   deleteClip: vi.fn(),
   toggleFavorite: vi.fn(),
   selectClip: vi.fn(),
 }));
 
-import * as api from "../js/api.js";
+import * as api from "../js/api.ts";
 import * as clipboardList from "../js/clipboard-list.js";
 
 function clip(o = {}) {

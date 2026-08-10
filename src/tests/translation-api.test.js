@@ -10,7 +10,8 @@ import {
   setTranslationApiKey,
   translateCaptureSelection,
   translateClip,
-} from "../js/api.js";
+  translateText,
+} from "../js/api.ts";
 
 describe("translation IPC wrappers", () => {
   beforeEach(() => invoke.mockReset());
@@ -38,6 +39,16 @@ describe("translation IPC wrappers", () => {
     translateClip(42);
     expect(invoke).toHaveBeenCalledWith("translate_clip", {
       id: 42,
+      sourceLanguage: null,
+      targetLanguage: null,
+      requestId: null,
+    });
+  });
+
+  it("uses camelCase optional arguments for direct text translation", () => {
+    translateText("hello");
+    expect(invoke).toHaveBeenCalledWith("translate_text", {
+      text: "hello",
       sourceLanguage: null,
       targetLanguage: null,
       requestId: null,

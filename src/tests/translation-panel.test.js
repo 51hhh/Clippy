@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { translateClip } = vi.hoisted(() => ({ translateClip: vi.fn() }));
 
-vi.mock("../js/api.js", () => ({ translateClip }));
+vi.mock("../js/api.ts", () => ({ translateClip }));
 
 import * as i18n from "../i18n/i18n.js";
 import * as translationPanel from "../js/translation-panel.js";
