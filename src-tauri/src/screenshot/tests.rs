@@ -20,6 +20,20 @@ fn temporary_screenshot_guard_cleans_original_and_replaced_files() {
     assert!(!replacement.exists());
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn gnome_shell_screenshot_path_must_stay_in_private_directory() {
+    use super::backends::validate_gnome_shell_screenshot_path;
+
+    let directory = std::path::Path::new("/tmp/clippy-private");
+    assert!(validate_gnome_shell_screenshot_path(directory, &directory.join("shot.png")).is_ok());
+    assert!(validate_gnome_shell_screenshot_path(
+        directory,
+        std::path::Path::new("/tmp/outside.png")
+    )
+    .is_err());
+}
+
 #[test]
 fn portal_file_uri_decodes_to_local_path() {
     let path = portal_screenshot_uri_to_path("file:///tmp/Clippy%20Shot.png").unwrap();
