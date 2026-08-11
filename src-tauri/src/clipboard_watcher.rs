@@ -1,69 +1,19 @@
+mod content;
+mod tmux;
+mod writer;
+
+pub use writer::{
+    clipboard_set_html_with_retry, clipboard_set_image_with_retry, clipboard_set_text_with_retry,
+};
+
 use crate::models::{AppConfig, ContentType};
 use crate::storage::StorageEngine;
 use arboard::Clipboard;
-use image::{ImageBuffer, RgbaImage};
-use inotify::{Inotify, WatchMask};
-use sha2::{Digest, Sha256};
-use std::io::Cursor;
-use std::os::fd::AsRawFd;
+use content::{compute_hash, encode_image_to_png, is_sensitive_text, strip_html_tags};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
-
-/// 简单去除 HTML 标签，用于生成 FTS 可搜索的纯文本
-fn strip_html_tags(html: &str) -> String {
-    let mut result = String::with_capacity(html.len());
-    let mut in_tag = false;
-    for ch in html.chars() {
-        match ch {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => result.push(ch),
-            _ => {}
-        }
-    }
-    result
-}
-
-/// 检测文本是否可能包含敏感内容（密码、Token、API Key 等）
-fn is_sensitive_text(text: &str) -> bool {
-    // 仅检测纯文本，短于 8 字符的不检测（太短不像 token）
-    if text.len() < 8 {
-        return false;
-    }
-    // 常见 API Key / Token 前缀
-    const PREFIXES: &[&str] = &[
-        "sk-",         // OpenAI
-        "sk_live_",    // Stripe
-        "sk_test_",    // Stripe
-        "ghp_",        // GitHub PAT
-        "gho_",        // GitHub OAuth
-        "ghu_",        // GitHub User-to-server
-        "ghs_",        // GitHub Server-to-server
-        "github_pat_", // GitHub Fine-grained PAT
-        "AKIA",        // AWS Access Key
-        "Bearer ",     // Bearer Token
-        "eyJ",         // JWT (base64 of {"...)
-        "xox",         // Slack (xoxb-, xoxp-, xoxs-)
-        "glpat-",      // GitLab PAT
-        "npm_",        // npm token
-        "pypi-",       // PyPI token
-    ];
-    for prefix in PREFIXES {
-        if text.starts_with(prefix) {
-            return true;
-        }
-    }
-    // 通用 password/secret 关键字检测（key=value 格式）
-    let lower = text.to_lowercase();
-    if (lower.contains("password") || lower.contains("passwd") || lower.contains("secret"))
-        && (lower.contains('=') || lower.contains(':'))
-    {
-        return true;
-    }
-    false
-}
 
 pub struct ClipboardWatcher {
     running: Arc<Mutex<bool>>,
@@ -133,7 +83,7 @@ impl ClipboardWatcher {
                 let app_handle = app_handle.clone();
                 let tmux_last_hash = Arc::clone(&tmux_last_hash);
                 thread::spawn(move || {
-                    start_tmux_watcher(running, config, storage, app_handle, tmux_last_hash);
+                    tmux::start(running, config, storage, app_handle, tmux_last_hash);
                 });
             }
 
@@ -367,246 +317,8 @@ impl ClipboardWatcher {
     }
 }
 
-/// 剪贴板写入重试封装 — 参照 flashot clipboard.rs
-/// 某些 WM/合成器在首次写入时会失败（资源忙），sleep 30ms 后重试一次
-pub fn clipboard_set_text_with_retry(text: &str) -> Result<(), String> {
-    let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
-    if let Err(first_err) = clipboard.set_text(text) {
-        log::warn!("clipboard set_text failed, retrying once: {first_err}");
-        std::thread::sleep(Duration::from_millis(30));
-        let mut retry = Clipboard::new().map_err(|e| e.to_string())?;
-        retry.set_text(text).map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-pub fn clipboard_set_image_with_retry(img_data: arboard::ImageData) -> Result<(), String> {
-    let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
-    if let Err(first_err) = clipboard.set_image(img_data.clone()) {
-        log::warn!("clipboard set_image failed, retrying once: {first_err}");
-        std::thread::sleep(Duration::from_millis(30));
-        let mut retry = Clipboard::new().map_err(|e| e.to_string())?;
-        retry.set_image(img_data).map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-pub fn clipboard_set_html_with_retry(html: &str, alt_text: Option<&str>) -> Result<(), String> {
-    let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
-    if let Err(first_err) = clipboard.set().html(html, alt_text) {
-        log::warn!("clipboard set_html failed, retrying once: {first_err}");
-        std::thread::sleep(Duration::from_millis(30));
-        let mut retry = Clipboard::new().map_err(|e| e.to_string())?;
-        retry
-            .set()
-            .html(html, alt_text)
-            .map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
 impl Default for ClipboardWatcher {
     fn default() -> Self {
         Self::new()
     }
-}
-
-fn compute_hash(data: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(data);
-    format!("{:x}", hasher.finalize())
-}
-
-/// 将 arboard 的 RGBA 图片数据编码为 PNG 字节
-fn encode_image_to_png(img: &arboard::ImageData) -> Option<Vec<u8>> {
-    let buffer: RgbaImage =
-        ImageBuffer::from_raw(img.width as u32, img.height as u32, img.bytes.to_vec())?;
-    let mut png_bytes = Vec::new();
-    let mut cursor = Cursor::new(&mut png_bytes);
-    if let Err(e) = buffer.write_to(&mut cursor, image::ImageFormat::Png) {
-        log::warn!("PNG 编码失败: {}", e);
-        return None;
-    }
-    Some(png_bytes)
-}
-
-/// tmux 缓冲区 inotify 监听线程
-/// 使用 inotify 监控 tmux-buf 文件的 CLOSE_WRITE 事件，实现零轮询的即时捕获
-fn start_tmux_watcher(
-    running: Arc<Mutex<bool>>,
-    config: Arc<Mutex<AppConfig>>,
-    storage: Arc<Mutex<StorageEngine>>,
-    app_handle: AppHandle,
-    tmux_last_hash: Arc<Mutex<String>>,
-) {
-    let tmux_buf_path = crate::commands::tmux_buf_path();
-    let mut hook_check_counter: u32 = 0;
-    const HOOK_CHECK_INTERVAL: u32 = 60; // 每 60 次唤醒检查一次 hook（inotify 超时为 1s）
-
-    // 确保监控目录存在
-    if let Some(parent) = tmux_buf_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-
-    // 初始化 inotify，监控文件所在目录
-    let mut inotify = match Inotify::init() {
-        Ok(i) => i,
-        Err(e) => {
-            log::error!("inotify 初始化失败，tmux 监听不可用: {}", e);
-            return;
-        }
-    };
-
-    // 监控目录而非文件本身（因为 tmux save-buffer 可能用 rename/create 替换文件）
-    let watch_dir = tmux_buf_path.parent().unwrap();
-    if let Err(e) = inotify.watches().add(
-        watch_dir,
-        WatchMask::CLOSE_WRITE | WatchMask::MOVED_TO | WatchMask::CREATE,
-    ) {
-        log::error!("inotify watch 添加失败: {}", e);
-        return;
-    }
-
-    let target_filename = tmux_buf_path
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .to_string();
-
-    log::info!("tmux inotify 监听已启动: {:?}", tmux_buf_path);
-
-    let mut buf = [0u8; 4096];
-    loop {
-        // 检查是否应停止
-        {
-            let r = running.lock().unwrap_or_else(|e| e.into_inner());
-            if !*r {
-                break;
-            }
-        }
-
-        // 检查 tmux_capture 是否仍然启用
-        let tmux_enabled = config
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .tmux_capture;
-        if !tmux_enabled {
-            thread::sleep(Duration::from_secs(2));
-            continue;
-        }
-
-        // 定期验证 copy-pipe 绑定存在性
-        hook_check_counter += 1;
-        if hook_check_counter >= HOOK_CHECK_INTERVAL {
-            hook_check_counter = 0;
-            let check = std::process::Command::new("tmux")
-                .args(["list-keys", "-T", "copy-mode-vi"])
-                .output();
-            let binding_missing = match &check {
-                Ok(out) => {
-                    let stdout = String::from_utf8_lossy(&out.stdout);
-                    !stdout.contains("copy-pipe-and-cancel")
-                }
-                Err(_) => false,
-            };
-            if binding_missing {
-                log::warn!("tmux copy-pipe 绑定丢失，正在重建...");
-                if let Err(e) = crate::commands::setup_tmux_hook() {
-                    log::warn!("tmux 绑定重建失败: {}", e);
-                }
-            }
-        }
-
-        // 等待 inotify 事件（poll 超时 1 秒，确保能响应 running 状态变化和 hook 检查）
-        let fd = inotify.as_raw_fd();
-        let mut pollfd = libc::pollfd {
-            fd,
-            events: libc::POLLIN,
-            revents: 0,
-        };
-        let poll_ret = unsafe { libc::poll(&mut pollfd, 1, 1000) };
-        if poll_ret <= 0 {
-            // 超时或错误，回到循环顶部检查 running / hook
-            continue;
-        }
-
-        let events = match inotify.read_events(&mut buf) {
-            Ok(events) => events,
-            Err(_) => continue,
-        };
-
-        let mut file_changed = false;
-        for event in events {
-            if let Some(name) = event.name {
-                if name.to_string_lossy() == target_filename {
-                    file_changed = true;
-                    break;
-                }
-            }
-        }
-
-        if !file_changed {
-            continue;
-        }
-
-        // 短暂等待确保文件写入完毕
-        thread::sleep(Duration::from_millis(10));
-
-        // 读取文件内容并处理
-        let content = match std::fs::read_to_string(&tmux_buf_path) {
-            Ok(c) if !c.is_empty() => c,
-            _ => continue,
-        };
-
-        let hash = compute_hash(content.as_bytes());
-        let current_tmux_hash = tmux_last_hash
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
-
-        if hash == current_tmux_hash {
-            continue;
-        }
-
-        // 更新共享 hash
-        *tmux_last_hash.lock().unwrap_or_else(|e| e.into_inner()) = hash.clone();
-
-        let max_history = config.lock().unwrap_or_else(|e| e.into_inner()).max_history;
-        let byte_size = content.len() as i64;
-        let sensitive = is_sensitive_text(&content);
-
-        let result = {
-            let storage = storage.lock().unwrap_or_else(|e| e.into_inner());
-            match storage.insert_clip(
-                &ContentType::Text,
-                Some(&content),
-                None,
-                None,
-                &hash,
-                byte_size,
-                sensitive,
-            ) {
-                Ok(clip) => {
-                    let removed = storage.cleanup_old_entries(max_history).ok();
-                    Some((clip, removed))
-                }
-                Err(e) => {
-                    log::warn!("tmux 缓冲区保存失败: {}", e);
-                    None
-                }
-            }
-        };
-
-        if let Some((clip, removed)) = result {
-            if let Some(removed_ids) = removed {
-                for rid in removed_ids {
-                    let _ = app_handle.emit("clip-removed", rid);
-                }
-            }
-            let _ = app_handle.emit("clip-added", &clip);
-            log::debug!("tmux 缓冲区内容（inotify），大小: {} 字节", byte_size);
-        }
-    }
-
-    log::info!("tmux inotify 监听已停止");
 }
