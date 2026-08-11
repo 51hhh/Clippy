@@ -8,7 +8,7 @@
 |---|---|---|
 | Rust 格式 | `cargo fmt -- --check` | 通过 |
 | Rust 编译 | `cargo check --all-targets` | 通过 |
-| Rust 测试 | `cargo test --lib -- --skip libre_provider_completes_a_loopback_http_request --skip openai_provider_sends_bearer_auth_over_loopback_http` | 77 passed；2 项 localhost mock 因当前沙箱禁止监听端口而过滤，见独立回环证据 |
+| Rust 测试 | `cargo test --lib -- --skip libre_provider_completes_a_loopback_http_request --skip openai_provider_sends_bearer_auth_over_loopback_http` | 79 passed；2 项 localhost mock 因当前沙箱禁止监听端口而过滤，见独立回环证据 |
 | Rust lint | `cargo clippy --all-targets -- -D warnings` | 通过 |
 | 本地敏感文件权限 | Rust Unix 回归测试 | `config.json`、`clips.db`、`-wal`、`-shm`、Portal token 均为 `0600`；旧配置/数据库宽松权限可修复 |
 | 前端类型 | `npx tsc --noEmit` | 通过 |
@@ -18,13 +18,13 @@
 | Release X11 startup | release binary + `dbus-run-session` + `xvfb-run`，临时 HOME，12 秒超时 | watcher、SQLite/config、X11 快捷键初始化；无提前崩溃（不等同视觉验收） |
 | 翻译 provider 回环集成 | `cargo test translation::service::tests`（本地临时 TCP mock） | 9 passed，覆盖 Libre/OpenAI 路径、请求体和认证头 |
 | npm 依赖安全 | `npm audit --json` | 0 vulnerabilities |
-| deb | `cargo tauri build --bundles deb,appimage --no-sign --ci` + `dpkg-deb --info/--contents` | 5,185,708 bytes，版本/依赖/desktop/bin 正确 |
-| AppImage | Tauri AppDir + 缓存内解出的 `linuxdeploy/appimagetool` + SquashFS/`ldd` 检查 | 93,856,960 bytes，x86-64 ELF，依赖无缺失，`.DirIcon` 为相对链接，未签名 |
+| deb | `cargo tauri build --bundles deb,appimage --no-sign --ci` + `dpkg-deb --info/--contents` | 5,186,842 bytes，版本/依赖/desktop/bin 正确 |
+| AppImage | Tauri AppDir + 缓存内解出的 `linuxdeploy/appimagetool` + SquashFS/`ldd` 检查 | 93,861,056 bytes，x86-64 ELF，依赖无缺失，`.DirIcon` 为相对链接，未签名 |
 
 产物校验：
 
-- deb SHA-256: `45c64bc19936858cc8895968c111149ccfcfc471eb00baf6beb3d1034bf74d0e`
-- AppImage SHA-256: `e47f12040178822b8063bf4d326f65b020327d68ef3f7ed2762995240632c24a`
+- deb SHA-256: `a3da37ab7c30c97b88e6fab0e17c1904fbd636cb0da8d15e9747050882850053`
+- AppImage SHA-256: `2d5234dd28c16b8169319d59190ab8c9db8f48b3bb499eb5729fcaf84bc9082d`
 - 本地未配置 `TAURI_SIGNING_PRIVATE_KEY`，所以 updater 签名未生成；release workflow 已从 GitHub Actions secret 注入签名密钥。
 
 ## 真实桌面人工矩阵
