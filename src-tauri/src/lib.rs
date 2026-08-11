@@ -9,6 +9,7 @@ mod ocr;
 mod paste;
 mod pin;
 mod pin_window;
+mod private_files;
 mod screenshot;
 mod storage;
 mod translation;

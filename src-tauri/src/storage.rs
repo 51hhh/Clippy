@@ -3,8 +3,9 @@ mod stats;
 mod url_cache;
 
 use crate::models::{ClipItem, ContentType};
+use crate::private_files::{ensure_private_file, restrict_file};
 use rusqlite::{params, Connection, OptionalExtension, Result as SqlResult};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
@@ -13,6 +14,8 @@ use thiserror::Error;
 pub enum StorageError {
     #[error("数据库操作失败: {0}")]
     Database(#[from] rusqlite::Error),
+    #[error("本地文件操作失败: {0}")]
+    Io(#[from] std::io::Error),
 }
 
 pub struct StorageEngine {
@@ -75,9 +78,11 @@ fn build_fts_prefix_query(query: &str) -> Option<String> {
 impl StorageEngine {
     /// 打开文件数据库并初始化表结构
     pub fn new(db_path: &Path) -> Result<Self, StorageError> {
+        ensure_private_file(db_path)?;
         let conn = Connection::open(db_path)?;
         let engine = Self { conn };
         engine.init_tables()?;
+        engine.restrict_sidecar_permissions(db_path)?;
         Ok(engine)
     }
 
@@ -167,6 +172,18 @@ impl StorageEngine {
 
         self.rebuild_fts_once("search_v2")?;
 
+        Ok(())
+    }
+
+    fn restrict_sidecar_permissions(&self, db_path: &Path) -> Result<(), StorageError> {
+        for suffix in ["-wal", "-shm"] {
+            let mut sidecar_name = db_path.as_os_str().to_os_string();
+            sidecar_name.push(suffix);
+            let sidecar = PathBuf::from(sidecar_name);
+            if sidecar.exists() {
+                restrict_file(&sidecar)?;
+            }
+        }
         Ok(())
     }
 

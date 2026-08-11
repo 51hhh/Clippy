@@ -394,14 +394,9 @@ fn simulate_x11_paste() -> Result<(), String> {
 }
 
 fn read_restore_token(path: &Path) -> Option<String> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(path).ok()?.permissions().mode();
-        if mode & 0o077 != 0 {
-            log::warn!("拒绝读取权限过宽的 Portal restore token");
-            return None;
-        }
+    if !crate::private_files::is_private(path) {
+        log::warn!("拒绝读取权限过宽的 Portal restore token");
+        return None;
     }
     let token = std::fs::read_to_string(path).ok()?;
     let token = token.trim();
@@ -417,26 +412,13 @@ fn write_restore_token(path: &Path, token: &str) -> Result<(), String> {
     }
     let parent = path
         .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
         .ok_or_else(|| "Portal token 路径没有父目录".to_string())?;
     std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    crate::private_files::restrict_directory(parent).map_err(|error| error.to_string())?;
     let temp = path.with_extension("tmp");
-    #[cfg(unix)]
-    {
-        use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .mode(0o600)
-            .open(&temp)
-            .map_err(|error| error.to_string())?;
-        file.write_all(token.as_bytes())
-            .map_err(|error| error.to_string())?;
-        file.sync_all().map_err(|error| error.to_string())?;
-    }
-    #[cfg(not(unix))]
-    std::fs::write(&temp, token).map_err(|error| error.to_string())?;
+    crate::private_files::write_private(&temp, token.as_bytes())
+        .map_err(|error| error.to_string())?;
     std::fs::rename(temp, path).map_err(|error| error.to_string())
 }
 
