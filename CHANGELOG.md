@@ -17,7 +17,7 @@
 - DOMPurify 更新到 3.4.13，Vite/Vitest/jsdom 更新到无已知漏洞版本并移除未使用的 sharp；增加 DOM/Xvfb smoke 与全目标 Rust CI 检查。
 
 ### 验证
-- Rust：`cargo fmt/check/test/clippy --all-targets` 通过（68 tests）。
+- Rust：`cargo fmt/check/test/clippy --all-targets` 通过（70 tests）。
 - Frontend：Vitest 363 tests、TypeScript、Vite build 和 Xvfb/DOM smoke（6 tests）通过。
 - Linux：deb/AppImage 产物构建并检查通过；签名文件需 CI 的 `TAURI_SIGNING_PRIVATE_KEY`。
 
