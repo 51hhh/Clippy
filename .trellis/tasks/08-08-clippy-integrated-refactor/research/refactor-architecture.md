@@ -4,7 +4,12 @@
 
 ```text
 src-tauri/src/
-  app/                 # builder、managed state、生命周期
+  app/
+    mod.rs             # builder 与 managed state 组装
+    startup.rs         # 启动恢复与后台任务
+    tray.rs            # 托盘构建与菜单事件
+    shortcuts.rs       # X11/Portal 快捷键注册与分发
+    window_events.rs   # 主窗口和功能岛窗口生命周期
   platform/
     session.rs         # X11 / Wayland 探测
     x11.rs             # 活动窗口、焦点、XTest
@@ -61,9 +66,10 @@ src/react/
 - React 拥有短期 UI 状态、选区交互、编辑对象和展示状态。
 - IPC payload 使用稳定 ID 和 request ID；大图通过受控文件/object URL 传输。
 
-## 当前落地（2026-08-10）
+## 当前落地（2026-08-11）
 
-- 后端已形成 `paste/`、`capture/`、`pin/`、`translation/` 和按职责拆分的 `commands/`；`window_controller.rs` 统一主窗口 work area 几何。
+- 后端已形成 `app/`、`paste/`、`capture/`、`pin/`、`translation/` 和按职责拆分的 `commands/`；`window_controller.rs` 统一主窗口 work area 几何。
+- `app/` 将 Tauri builder 保留为薄组装层，启动恢复、托盘、快捷键和窗口事件分别拥有独立模块。
 - `paste/` 已进一步按协调器、Portal 状态机、X11 输入和 token 存储拆分；原始截图入口、平台 fallback 与测试也已分离。
 - `clipboard_watcher` 已按主轮询、内容分类、写入重试和 tmux/inotify 监听拆分，tmux poll 使用安全封装而非业务代码中的 unsafe。
 - 前端完成 typed `api.ts`/`ipc-types.ts`，Pin、Capture Overlay、Editor 为 React/TS 功能岛；主 clipboard 保持 vanilla，preview 已拆分调度器与五类 renderer。
