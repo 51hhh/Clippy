@@ -1,6 +1,6 @@
 # 综合重构 QA 矩阵
 
-更新日期：2026-08-10
+更新日期：2026-08-11
 
 ## 自动化证据
 
@@ -20,8 +20,8 @@
 
 产物校验：
 
-- deb SHA-256: `c75d9e1edcc0e0895f157fc4e9578912cb46f2d54d29d1490d46fcfa4023a8a1`
-- AppImage SHA-256: `3eb0ef5497941996be9775ea38f84a7761bc7ed53ca626d5ae9da4b79f07ea8f`
+- deb SHA-256: `3c54f457471dc329ec3a88666992dc2dfb522dc59af297f455507216c756aa3c`
+- AppImage SHA-256: `045d7dd3ea92253ef65bb6ac97c5272b945b876e27887e2f34fe7539f55c1e37`
 - 本地未配置 `TAURI_SIGNING_PRIVATE_KEY`，所以 updater 签名未生成；release workflow 已从 GitHub Actions secret 注入签名密钥。
 
 ## 真实桌面人工矩阵
