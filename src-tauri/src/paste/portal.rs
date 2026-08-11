@@ -97,36 +97,45 @@ pub(super) async fn ensure_session(
             .create_session(Default::default())
             .await
             .map_err(|error| format!("创建 RemoteDesktop 会话失败: {error}"))?;
-        let mut options =
-            SelectDevicesOptions::default().set_devices(Some(DeviceType::Keyboard.into()));
-        if version >= 2 {
-            options = options
-                .set_persist_mode(PersistMode::ExplicitlyRevoked)
-                .set_restore_token(restore_token.as_deref());
-        }
-        proxy
-            .select_devices(&session, options)
-            .await
-            .map_err(|error| format!("请求键盘控制失败: {error}"))?
-            .response()
-            .map_err(|error| format!("键盘控制请求被拒绝: {error}"))?;
+        let setup_result = async {
+            let mut options =
+                SelectDevicesOptions::default().set_devices(Some(DeviceType::Keyboard.into()));
+            if version >= 2 {
+                options = options
+                    .set_persist_mode(PersistMode::ExplicitlyRevoked)
+                    .set_restore_token(restore_token.as_deref());
+            }
+            proxy
+                .select_devices(&session, options)
+                .await
+                .map_err(|error| format!("请求键盘控制失败: {error}"))?
+                .response()
+                .map_err(|error| format!("键盘控制请求被拒绝: {error}"))?;
 
-        let selected = proxy
-            .start(&session, None, Default::default())
-            .await
-            .map_err(|error| format!("启动 RemoteDesktop 会话失败: {error}"))?
-            .response()
-            .map_err(|error| format!("RemoteDesktop 授权未通过: {error}"))?;
-        if !selected.devices().contains(DeviceType::Keyboard) {
-            let _ = session.close().await;
-            return Err("RemoteDesktop Portal 未授予键盘控制权限".to_string());
-        }
-        if version >= 2 {
-            if let Some(token) = selected.restore_token() {
-                if let Err(error) = write_restore_token(token_path, token) {
-                    log::warn!("保存 Portal restore token 失败: {error}");
+            let selected = proxy
+                .start(&session, None, Default::default())
+                .await
+                .map_err(|error| format!("启动 RemoteDesktop 会话失败: {error}"))?
+                .response()
+                .map_err(|error| format!("RemoteDesktop 授权未通过: {error}"))?;
+            if !selected.devices().contains(DeviceType::Keyboard) {
+                return Err("RemoteDesktop Portal 未授予键盘控制权限".to_string());
+            }
+            if version >= 2 {
+                if let Some(token) = selected.restore_token() {
+                    if let Err(error) = write_restore_token(token_path, token) {
+                        log::warn!("保存 Portal restore token 失败: {error}");
+                    }
                 }
             }
+            Ok(())
+        }
+        .await;
+        if let Err(error) = setup_result {
+            if let Err(close_error) = session.close().await {
+                log::warn!("关闭未完成的 RemoteDesktop Portal 会话失败: {close_error}");
+            }
+            return Err(error);
         }
         Ok(PortalSession { proxy, session })
     }
