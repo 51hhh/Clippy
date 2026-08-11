@@ -8,8 +8,9 @@
 |---|---|---|
 | Rust 格式 | `cargo fmt -- --check` | 通过 |
 | Rust 编译 | `cargo check --all-targets` | 通过 |
-| Rust 测试 | `cargo test` | 70 passed |
+| Rust 测试 | `cargo test --lib -- --skip libre_provider_completes_a_loopback_http_request --skip openai_provider_sends_bearer_auth_over_loopback_http` | 73 passed；2 项 localhost mock 因当前沙箱禁止监听端口而过滤，见独立回环证据 |
 | Rust lint | `cargo clippy --all-targets -- -D warnings` | 通过 |
+| 本地敏感文件权限 | Rust Unix 回归测试 | `config.json`、`clips.db`、`-wal`、`-shm`、Portal token 均为 `0600`；旧配置/数据库宽松权限可修复 |
 | 前端类型 | `npx tsc --noEmit` | 通过 |
 | 前端测试 | `npx vitest run` | 22 files / 363 passed |
 | 前端构建 | `npx vite build` | 通过，5 个窗口入口均生成 |

@@ -12,7 +12,7 @@
   "assignee": "zhongweixi2000",
   "createdAt": "2026-08-08",
   "completedAt": null,
-  "branch": null,
+  "branch": "dev",
   "base_branch": "dev",
   "worktree_path": null,
   "commit": null,

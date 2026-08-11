@@ -111,6 +111,13 @@ PRAGMA temp_store = MEMORY;     -- 临时表/索引在内存
 - **Persistent (default)**: DB file at Tauri `app_data_dir()` / `clippy.db`
 - **Memory**: `:memory:` — data cleared on exit, useful for testing
 
+## 本地文件权限
+
+- 剪贴板数据库包含用户敏感内容，Unix 下 `clips.db`、`clips.db-wal` 和 `clips.db-shm` 必须为 `0600`。
+- 新数据库必须在交给 SQLite 打开前以私有权限创建；启动时同时修复已有数据库的宽松权限。
+- 配置文件和 Portal restore token 使用 `private_files` 模块写入，应用数据目录为 `0700`，私有文件为 `0600`。
+- 权限修复失败必须返回错误或记录日志，不能继续以宽松权限静默运行。
+
 ---
 
 ## Naming Conventions
