@@ -12,9 +12,11 @@
 | 模块 | 职责 |
 |---|---|
 | `commands/` | 按 clipboard/settings/tmux/capture/OCR/URL 拆分薄 IPC 命令 |
-| `paste/` | X11 活动窗口恢复、Wayland RemoteDesktop Portal、Copy-only fallback |
+| `paste/mod.rs` | 自动粘贴协调器、后端选择、Copy-only fallback 和稳定状态契约 |
+| `paste/portal.rs` / `x11.rs` / `token_store.rs` | Portal 会话与授权状态机、X11 窗口恢复与输入、私有 restore token 持久化 |
 | `window_controller.rs` | 主窗口 work area、logical/physical 尺寸与位置约束 |
 | `capture/` | 单一 CaptureSession、冻结帧、多显示器覆盖层、裁剪与动作 |
+| `screenshot.rs` + `screenshot/*` | 原始截图帧契约与 PNG 编解码；Wayland/Portal/GNOME/xcap fallback 和几何测试隔离 |
 | `pin/` | PinManager、内容来源、窗口尺寸、缩放/透明度/锁定和清理 |
 | `translation/` | provider、超时/重试、request-id、内容选择、Secret Service |
 | `storage.rs` + `storage/*` | SQLite/FTS5 初始化与搜索；维护清理、统计、URL 缓存和测试各自隔离 |
