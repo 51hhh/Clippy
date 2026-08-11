@@ -12,7 +12,7 @@
 ### 架构与安全
 - 前端 IPC 迁移到严格类型化 `src/js/api.ts` + `ipc-types.ts`；主窗口预览调度拆为五个职责渲染模块。
 - Rust IPC 命令按剪贴板、设置、tmux、截图、OCR、URL 元数据拆分，保留 `commands::*` 兼容导出。
-- 存储维护、统计、URL 缓存和截图混合缩放测试拆为独立模块，保持入口文件职责清晰。
+- 存储维护、统计和 URL 缓存拆为独立模块；自动粘贴按 Portal/X11/token 拆分，截图入口、平台 fallback 与几何测试各自隔离。
 - 本地数据目录收紧为 `0700`，配置、剪贴板数据库、WAL/SHM 和 Portal restore token 收紧为 `0600`，启动时修复旧文件宽松权限。
 - 数学预览改用受限递归下降解析器；HTML 实体解码不再使用动态执行或用户文本 `innerHTML`。
 - DOMPurify 更新到 3.4.13，Vite/Vitest/jsdom 更新到无已知漏洞版本并移除未使用的 sharp；增加 DOM/Xvfb smoke 与全目标 Rust CI 检查。
