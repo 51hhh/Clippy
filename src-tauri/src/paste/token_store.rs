@@ -1,0 +1,72 @@
+use std::path::Path;
+
+pub(super) fn read_restore_token(path: &Path) -> Option<String> {
+    if !crate::private_files::is_private(path) {
+        log::warn!("拒绝读取权限过宽的 Portal restore token");
+        return None;
+    }
+    let token = std::fs::read_to_string(path).ok()?;
+    let token = token.trim();
+    if token.is_empty() || token.len() > 4096 {
+        return None;
+    }
+    Some(token.to_string())
+}
+
+pub(super) fn write_restore_token(path: &Path, token: &str) -> Result<(), String> {
+    if token.is_empty() || token.len() > 4096 {
+        return Err("Portal restore token 长度无效".to_string());
+    }
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .ok_or_else(|| "Portal token 路径没有父目录".to_string())?;
+    std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    crate::private_files::restrict_directory(parent).map_err(|error| error.to_string())?;
+    let temp = path.with_extension("tmp");
+    crate::private_files::write_private(&temp, token.as_bytes())
+        .map_err(|error| error.to_string())?;
+    std::fs::rename(temp, path).map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn round_trip_uses_separate_private_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("portal-token");
+        write_restore_token(&path, "token-value").unwrap();
+        assert_eq!(read_restore_token(&path).as_deref(), Some("token-value"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_empty_and_oversized_values() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("portal-token");
+        assert!(write_restore_token(&path, "").is_err());
+        assert!(write_restore_token(&path, &"x".repeat(4097)).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_group_or_world_readable_files() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("portal-token");
+        std::fs::write(&path, "token-value").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        assert_eq!(read_restore_token(&path), None);
+    }
+}
