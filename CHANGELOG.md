@@ -13,11 +13,12 @@
 - 前端 IPC 迁移到严格类型化 `src/js/api.ts` + `ipc-types.ts`；主窗口预览调度拆为五个职责渲染模块。
 - Rust IPC 命令按剪贴板、设置、tmux、截图、OCR、URL 元数据拆分，保留 `commands::*` 兼容导出。
 - 存储维护、统计、URL 缓存和截图混合缩放测试拆为独立模块，保持入口文件职责清晰。
+- 本地数据目录收紧为 `0700`，配置、剪贴板数据库、WAL/SHM 和 Portal restore token 收紧为 `0600`，启动时修复旧文件宽松权限。
 - 数学预览改用受限递归下降解析器；HTML 实体解码不再使用动态执行或用户文本 `innerHTML`。
 - DOMPurify 更新到 3.4.13，Vite/Vitest/jsdom 更新到无已知漏洞版本并移除未使用的 sharp；增加 DOM/Xvfb smoke 与全目标 Rust CI 检查。
 
 ### 验证
-- Rust：`cargo fmt/check/test/clippy --all-targets` 通过（70 tests）。
+- Rust：`cargo fmt/check/clippy --all-targets` 通过；73 项沙箱内测试及 9 项翻译 provider 回环测试通过。
 - Frontend：Vitest 363 tests、TypeScript、Vite build 和 Xvfb/DOM smoke（6 tests）通过。
 - Linux：deb/AppImage 产物构建并检查通过；签名文件需 CI 的 `TAURI_SIGNING_PRIVATE_KEY`。
 
