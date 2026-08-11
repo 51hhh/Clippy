@@ -1,5 +1,25 @@
 use super::*;
 
+#[cfg(target_os = "linux")]
+#[test]
+fn temporary_screenshot_guard_cleans_original_and_replaced_files() {
+    use super::backends::TemporaryScreenshotFile;
+
+    let directory = tempfile::tempdir().unwrap();
+    let original = directory.path().join("original.png");
+    let replacement = directory.path().join("replacement.png");
+    std::fs::write(&original, b"first").unwrap();
+    std::fs::write(&replacement, b"second").unwrap();
+
+    {
+        let mut screenshot = TemporaryScreenshotFile::new(original.clone());
+        screenshot.replace_path(replacement.clone());
+        assert!(!original.exists());
+    }
+
+    assert!(!replacement.exists());
+}
+
 #[test]
 fn portal_file_uri_decodes_to_local_path() {
     let path = portal_screenshot_uri_to_path("file:///tmp/Clippy%20Shot.png").unwrap();
