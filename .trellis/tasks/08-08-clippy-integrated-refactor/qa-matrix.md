@@ -8,13 +8,14 @@
 |---|---|---|
 | Rust 格式 | `cargo fmt -- --check` | 通过 |
 | Rust 编译 | `cargo check --all-targets` | 通过 |
-| Rust 测试 | `cargo test` | 68 passed |
+| Rust 测试 | `cargo test` | 70 passed |
 | Rust lint | `cargo clippy --all-targets -- -D warnings` | 通过 |
 | 前端类型 | `npx tsc --noEmit` | 通过 |
 | 前端测试 | `npx vitest run` | 22 files / 363 passed |
 | 前端构建 | `npx vite build` | 通过，5 个窗口入口均生成 |
 | X11/DOM smoke | `./scripts/smoke-dom.sh`（外部 Xvfb 权限） | 6 passed |
 | Release X11 startup | release binary + `dbus-run-session` + `xvfb-run`，临时 HOME，12 秒超时 | watcher、SQLite/config、X11 快捷键初始化；无提前崩溃（不等同视觉验收） |
+| 翻译 provider 回环集成 | `cargo test translation::service::tests`（本地临时 TCP mock） | 9 passed，覆盖 Libre/OpenAI 路径、请求体和认证头 |
 | npm 依赖安全 | `npm audit --json` | 0 vulnerabilities |
 | deb | `cargo tauri build` + `dpkg-deb --info/--contents` | 5.0 MiB，版本/依赖/desktop/bin 正确 |
 | AppImage | `cargo tauri build --bundles appimage --no-sign --ci` + `file` 检查 | 82 MiB，x86-64 ELF，未签名 |
