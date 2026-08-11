@@ -1,9 +1,21 @@
 use crate::models::AppConfig;
+use crate::private_files::{restrict_directory, restrict_file, write_private};
 use std::fs;
 use std::path::Path;
 
 pub fn load_config(config_path: &Path) -> AppConfig {
+    if let Some(parent) = config_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        if let Err(error) = fs::create_dir_all(parent).and_then(|_| restrict_directory(parent)) {
+            log::warn!("配置目录创建或权限设置失败: {}", error);
+        }
+    }
     if config_path.exists() {
+        if let Err(error) = restrict_file(config_path) {
+            log::warn!("配置文件权限设置失败: {}", error);
+        }
         match fs::read_to_string(config_path) {
             Ok(content) => serde_json::from_str(&content).unwrap_or_else(|e| {
                 log::warn!("配置文件解析失败，使用默认配置: {}", e);
@@ -22,13 +34,23 @@ pub fn load_config(config_path: &Path) -> AppConfig {
 }
 
 pub fn save_config(config_path: &Path, config: &AppConfig) {
-    if let Some(parent) = config_path.parent() {
-        let _ = fs::create_dir_all(parent);
+    if let Some(parent) = config_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        if let Err(error) = fs::create_dir_all(parent).and_then(|_| restrict_directory(parent)) {
+            log::error!("配置目录创建或权限设置失败: {}", error);
+            return;
+        }
     }
     match serde_json::to_string_pretty(config) {
         Ok(json) => {
-            if let Err(e) = fs::write(config_path, json) {
-                log::error!("配置文件写入失败: {}", e);
+            let temporary_path = config_path.with_extension("tmp");
+            if let Err(error) = write_private(&temporary_path, json.as_bytes())
+                .and_then(|_| fs::rename(&temporary_path, config_path))
+                .and_then(|_| crate::private_files::restrict_file(config_path))
+            {
+                log::error!("配置文件写入失败: {}", error);
             }
         }
         Err(e) => {
@@ -81,6 +103,15 @@ mod tests {
             config_path.exists(),
             "load_config 应在文件不存在时写出默认配置"
         );
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&config_path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
     }
 
     #[test]
@@ -97,6 +128,17 @@ mod tests {
         save_config(&config_path, &config);
         assert!(config_path.exists(), "save_config 应写出文件");
 
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&config_path, fs::Permissions::from_mode(0o664)).unwrap();
+            save_config(&config_path, &config);
+            assert_eq!(
+                fs::metadata(&config_path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+
         let loaded = load_config(&config_path);
         assert_eq!(loaded.max_history, 200);
         assert_eq!(loaded.theme, "dark");
@@ -104,5 +146,29 @@ mod tests {
         assert_eq!(loaded.global_shortcut, config.global_shortcut);
         assert_eq!(loaded.pin_shortcut, config.pin_shortcut);
         assert_eq!(loaded.capture_shortcut, config.capture_shortcut);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_load_repairs_existing_config_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempdir().expect("创建临时目录失败");
+        let config_path = dir.path().join("config.json");
+        let json = serde_json::to_string(&AppConfig::default()).unwrap();
+        fs::write(&config_path, json).unwrap();
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
+        fs::set_permissions(&config_path, fs::Permissions::from_mode(0o664)).unwrap();
+
+        let loaded = load_config(&config_path);
+        assert_eq!(loaded.max_history, AppConfig::default().max_history);
+        assert_eq!(
+            fs::metadata(config_path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            fs::metadata(dir.path()).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
     }
 }

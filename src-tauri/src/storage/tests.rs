@@ -236,3 +236,36 @@ fn test_clear_history_preserves_favorites() {
     assert!(engine.get_clip_by_id(c1.id).is_err());
     assert!(engine.get_clip_by_id(c2.id).is_err());
 }
+
+#[cfg(unix)]
+#[test]
+fn file_database_and_wal_sidecars_are_private() {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    let directory = tempfile::tempdir().expect("创建临时目录失败");
+    let db_path = directory.path().join("clips.db");
+    {
+        let connection = rusqlite::Connection::open(&db_path).expect("创建数据库文件失败");
+        connection
+            .execute("CREATE TABLE seed(value TEXT)", [])
+            .expect("初始化数据库文件失败");
+    }
+    fs::set_permissions(&db_path, fs::Permissions::from_mode(0o644)).unwrap();
+
+    let engine = StorageEngine::new(&db_path).expect("打开数据库失败");
+    assert_eq!(
+        fs::metadata(&db_path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+
+    insert_text(&engine, "private clipboard", "private-hash");
+    for suffix in ["-wal", "-shm"] {
+        let sidecar = db_path.with_file_name(format!("clips.db{suffix}"));
+        assert!(sidecar.exists(), "SQLite sidecar 应存在: {suffix}");
+        assert_eq!(
+            fs::metadata(sidecar).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+}
