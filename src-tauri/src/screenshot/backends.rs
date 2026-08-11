@@ -5,6 +5,45 @@ use std::sync::Arc;
 use xcap::Monitor;
 
 #[cfg(target_os = "linux")]
+pub(super) struct TemporaryScreenshotFile {
+    path: std::path::PathBuf,
+}
+
+#[cfg(target_os = "linux")]
+impl TemporaryScreenshotFile {
+    pub(super) fn new(path: std::path::PathBuf) -> Self {
+        Self { path }
+    }
+
+    pub(super) fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+
+    pub(super) fn replace_path(&mut self, path: std::path::PathBuf) {
+        self.remove_current();
+        self.path = path;
+    }
+
+    fn remove_current(&self) {
+        if let Err(error) = std::fs::remove_file(&self.path) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                log::warn!(
+                    "删除 GNOME Shell 临时截图失败 {}: {error}",
+                    self.path.display()
+                );
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for TemporaryScreenshotFile {
+    fn drop(&mut self) {
+        self.remove_current();
+    }
+}
+
+#[cfg(target_os = "linux")]
 pub(super) fn capture_all_monitors(
     allow_interactive_portal: bool,
 ) -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
@@ -127,15 +166,12 @@ fn capture_all_gnome_shell_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFra
         })
         .context("无法枚举 GNOME Shell 截图显示器")?;
 
-    let path = request_gnome_shell_screenshot().context("无法请求 GNOME Shell 截图")?;
-    let bytes = std::fs::read(&path)
-        .with_context(|| format!("无法读取 GNOME Shell 截图 {}", path.display()))?;
+    let screenshot = request_gnome_shell_screenshot().context("无法请求 GNOME Shell 截图")?;
+    let bytes = std::fs::read(screenshot.path())
+        .with_context(|| format!("无法读取 GNOME Shell 截图 {}", screenshot.path().display()))?;
     let image = image::load_from_memory(&bytes)
         .context("无法解码 GNOME Shell 截图")?
         .to_rgba8();
-    if let Err(e) = std::fs::remove_file(&path) {
-        log::warn!("删除 GNOME Shell 临时截图失败 {}: {e}", path.display());
-    }
 
     split_portal_screenshot(monitors, image)
 }
@@ -186,14 +222,14 @@ fn request_portal_screenshot(interactive: bool) -> Result<ashpd::desktop::screen
 }
 
 #[cfg(target_os = "linux")]
-fn request_gnome_shell_screenshot() -> Result<std::path::PathBuf> {
-    let path = std::env::temp_dir()
-        .join("clippy")
-        .join(format!("gnome-shell-screenshot-{}.png", unique_suffix()));
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("无法创建 {}", parent.display()))?;
-    }
+fn request_gnome_shell_screenshot() -> Result<TemporaryScreenshotFile> {
+    let directory = std::env::temp_dir().join("clippy");
+    std::fs::create_dir_all(&directory)
+        .with_context(|| format!("无法创建 {}", directory.display()))?;
+    crate::private_files::restrict_directory(&directory)
+        .with_context(|| format!("无法收紧 {} 的目录权限", directory.display()))?;
+    let path = directory.join(format!("gnome-shell-screenshot-{}.png", unique_suffix()));
+    let mut screenshot = TemporaryScreenshotFile::new(path);
 
     let connection = zbus::blocking::Connection::session().context("无法连接 D-Bus")?;
     let proxy = zbus::blocking::Proxy::new(
@@ -204,7 +240,7 @@ fn request_gnome_shell_screenshot() -> Result<std::path::PathBuf> {
     )
     .context("无法连接 org.gnome.Shell.Screenshot")?;
 
-    let filename = path.to_string_lossy().to_string();
+    let filename = screenshot.path().to_string_lossy().to_string();
     let (success, used_filename): (bool, String) = proxy
         .call("Screenshot", &(false, false, filename.as_str()))
         .context("GNOME Shell Screenshot 调用失败")?;
@@ -213,18 +249,30 @@ fn request_gnome_shell_screenshot() -> Result<std::path::PathBuf> {
     }
 
     let used_path = if used_filename.is_empty() {
-        path
+        screenshot.path().to_path_buf()
     } else {
         std::path::PathBuf::from(used_filename)
     };
-    if !used_path.exists() {
+    if used_path != screenshot.path() {
+        screenshot.replace_path(used_path);
+    }
+    if screenshot.path().parent() != Some(directory.as_path()) {
+        bail!("GNOME Shell Screenshot 返回的文件不在私有临时目录中");
+    }
+    if !screenshot.path().exists() {
         bail!(
             "GNOME Shell Screenshot 返回 {}，但文件不存在",
-            used_path.display()
+            screenshot.path().display()
         );
     }
+    crate::private_files::restrict_file(screenshot.path()).with_context(|| {
+        format!(
+            "无法收紧 GNOME Shell 临时截图权限 {}",
+            screenshot.path().display()
+        )
+    })?;
 
-    Ok(used_path)
+    Ok(screenshot)
 }
 
 #[cfg(target_os = "linux")]

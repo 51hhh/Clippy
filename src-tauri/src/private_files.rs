@@ -120,6 +120,20 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn restrict_directory_repairs_existing_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().expect("创建临时目录失败");
+        fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o755)).unwrap();
+        restrict_directory(directory.path()).expect("收紧目录权限失败");
+        assert_eq!(
+            fs::metadata(directory.path()).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn ensure_private_file_does_not_truncate_existing_content() {
         use std::os::unix::fs::PermissionsExt;
 
