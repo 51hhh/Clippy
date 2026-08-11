@@ -18,13 +18,13 @@
 | Release X11 startup | release binary + `dbus-run-session` + `xvfb-run`，临时 HOME，12 秒超时 | watcher、SQLite/config、X11 快捷键初始化；无提前崩溃（不等同视觉验收） |
 | 翻译 provider 回环集成 | `cargo test translation::service::tests`（本地临时 TCP mock） | 9 passed，覆盖 Libre/OpenAI 路径、请求体和认证头 |
 | npm 依赖安全 | `npm audit --json` | 0 vulnerabilities |
-| deb | `cargo tauri build` + `dpkg-deb --info/--contents` | 5.0 MiB，版本/依赖/desktop/bin 正确 |
-| AppImage | `cargo tauri build --bundles appimage --no-sign --ci` + `file` 检查 | 82 MiB，x86-64 ELF，未签名 |
+| deb | `cargo tauri build --bundles deb,appimage --no-sign --ci` + `dpkg-deb --info/--contents` | 5,185,756 bytes，版本/依赖/desktop/bin 正确 |
+| AppImage | Tauri AppDir + 缓存内解出的 `linuxdeploy/appimagetool` + SquashFS/`ldd` 检查 | 93,856,960 bytes，x86-64 ELF，依赖无缺失，`.DirIcon` 为相对链接，未签名 |
 
 产物校验：
 
-- deb SHA-256: `3c54f457471dc329ec3a88666992dc2dfb522dc59af297f455507216c756aa3c`
-- AppImage SHA-256: `045d7dd3ea92253ef65bb6ac97c5272b945b876e27887e2f34fe7539f55c1e37`
+- deb SHA-256: `f44da0e4f747656abf7de31a6542c65a09ac182958c8c3e97f160002510e1f4c`
+- AppImage SHA-256: `c5aff0c2ff9691477619ab2d5c9559e72292eeb4afbca00b3b12ef62a62ed090`
 - 本地未配置 `TAURI_SIGNING_PRIVATE_KEY`，所以 updater 签名未生成；release workflow 已从 GitHub Actions secret 注入签名密钥。
 
 ## 真实桌面人工矩阵
