@@ -23,14 +23,14 @@
 | 9 | Pin Copy 无自动粘贴，关闭后无缓存/管理残留 | 自动化通过 | `copy_pin` 只调用 clipboard 写入，不调用 `select_clip`；关闭路径移除 manager entry 并关闭窗口，截图 Pin 数据由 entry 生命周期释放。 |
 | 10 | 文本/OCR/截图可显式翻译，敏感条目不自动发送 | 自动化通过 | translation content selector 在 Rust 拒绝敏感条目；截图只发送本地 OCR 文本且 IPC 无图片 payload；前端仅点击后请求。 |
 | 11 | 翻译超时、重试、request-id 和安全密钥存储 | 部分通过 | 15s 超时、一次可重试错误重试、陈旧结果保护和 Secret Service-only 实现/测试通过；真实 Secret Service 保存/读取/删除待验收。 |
-| 12 | 原剪贴板、搜索、收藏、预览、OCR、设置、托盘、更新、快捷键无回归 | 部分通过 | 363 项前端测试、79 项沙箱内 Rust 测试、五入口构建和既有 Xvfb smoke 通过；真实托盘、更新器和桌面快捷键仍需实机。 |
-| 13 | Rust/前端/quick/full CI 全部通过 | 部分通过 | fmt/check/clippy、79 项非回环 Rust、363 项前端、typecheck/build 和 audit 通过；2 项 localhost mock 在已授权环境曾通过，但当前沙箱禁止 bind；Xvfb 当前沙箱跳过。 |
+| 12 | 原剪贴板、搜索、收藏、预览、OCR、设置、托盘、更新、快捷键无回归 | 部分通过 | 363 项前端测试、80 项沙箱内 Rust 测试、五入口构建和既有 Xvfb smoke 通过；真实托盘、更新器和桌面快捷键仍需实机。 |
+| 13 | Rust/前端/quick/full CI 全部通过 | 部分通过 | fmt/check/clippy、80 项非回环 Rust、363 项前端、typecheck/build 和 audit 通过；2 项 localhost mock 在已授权环境曾通过，但当前沙箱禁止 bind；Xvfb 当前沙箱跳过。 |
 | 14 | X11、Wayland 和 Portal 人工矩阵有结果 | 待人工 | `qa-matrix.md` 已列出完整矩阵，但真实 GNOME X11、GNOME Wayland、KDE Wayland 结果仍为空。 |
 
 ## 发布产物
 
-- deb SHA-256：`a3da37ab7c30c97b88e6fab0e17c1904fbd636cb0da8d15e9747050882850053`
-- AppImage SHA-256：`2d5234dd28c16b8169319d59190ab8c9db8f48b3bb499eb5729fcaf84bc9082d`
+- deb SHA-256：`7f1b693e0719bd8d856c3540b2afcc6b7e487dc003b3e6e01897598305ca6033`
+- AppImage SHA-256：`c95bf876abf1f09f479de9ac00ee60b6b0d7dd37dfce7036543b426786820855`
 - AppImage SquashFS、主二进制、GTK/WebKit 动态库和相对 `.DirIcon` 已检查。
 
 ## 完成阻断项
