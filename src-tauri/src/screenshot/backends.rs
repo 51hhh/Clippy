@@ -253,11 +253,9 @@ fn request_gnome_shell_screenshot() -> Result<TemporaryScreenshotFile> {
     } else {
         std::path::PathBuf::from(used_filename)
     };
+    validate_gnome_shell_screenshot_path(&directory, &used_path)?;
     if used_path != screenshot.path() {
         screenshot.replace_path(used_path);
-    }
-    if screenshot.path().parent() != Some(directory.as_path()) {
-        bail!("GNOME Shell Screenshot 返回的文件不在私有临时目录中");
     }
     if !screenshot.path().exists() {
         bail!(
@@ -273,6 +271,17 @@ fn request_gnome_shell_screenshot() -> Result<TemporaryScreenshotFile> {
     })?;
 
     Ok(screenshot)
+}
+
+#[cfg(target_os = "linux")]
+pub(super) fn validate_gnome_shell_screenshot_path(
+    directory: &std::path::Path,
+    path: &std::path::Path,
+) -> Result<()> {
+    if path.parent() != Some(directory) {
+        bail!("GNOME Shell Screenshot 返回的文件不在私有临时目录中");
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
