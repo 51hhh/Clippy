@@ -14,6 +14,7 @@
 | 前端测试 | `npx vitest run` | 22 files / 363 passed |
 | 前端构建 | `npx vite build` | 通过，5 个窗口入口均生成 |
 | X11/DOM smoke | `./scripts/smoke-dom.sh`（外部 Xvfb 权限） | 6 passed |
+| Release X11 startup | release binary + `dbus-run-session` + `xvfb-run`，临时 HOME，12 秒超时 | watcher、SQLite/config、X11 快捷键初始化；无提前崩溃（不等同视觉验收） |
 | npm 依赖安全 | `npm audit --json` | 0 vulnerabilities |
 | deb | `cargo tauri build` + `dpkg-deb --info/--contents` | 5.0 MiB，版本/依赖/desktop/bin 正确 |
 | AppImage | `cargo tauri build --bundles appimage --no-sign --ci` + `file` 检查 | 82 MiB，x86-64 ELF，未签名 |
