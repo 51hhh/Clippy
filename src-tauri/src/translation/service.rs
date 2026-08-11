@@ -240,7 +240,63 @@ mod tests {
     use super::super::types::TranslationProvider;
     use super::*;
     use std::cell::Cell;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+    use std::sync::mpsc::{self, Receiver};
+    use std::thread::JoinHandle;
+    use std::time::Duration;
+
+    struct CapturedRequest {
+        head: String,
+        body: Value,
+    }
+
+    fn serve_json_once(response: Value) -> (String, Receiver<CapturedRequest>, JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (sender, receiver) = mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut request = Vec::new();
+            let (header_end, content_length) = loop {
+                let mut chunk = [0_u8; 4096];
+                let count = stream.read(&mut chunk).unwrap();
+                assert!(count > 0, "HTTP 请求在 header 完成前关闭");
+                request.extend_from_slice(&chunk[..count]);
+                if let Some(header_end) = request.windows(4).position(|part| part == b"\r\n\r\n") {
+                    let head = String::from_utf8_lossy(&request[..header_end]);
+                    let length = head
+                        .lines()
+                        .filter_map(|line| line.split_once(':'))
+                        .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+                        .and_then(|(_, value)| value.trim().parse::<usize>().ok())
+                        .unwrap_or(0);
+                    if request.len() >= header_end + 4 + length {
+                        break (header_end, length);
+                    }
+                }
+            };
+
+            let head = String::from_utf8(request[..header_end].to_vec()).unwrap();
+            let body_start = header_end + 4;
+            let body =
+                serde_json::from_slice(&request[body_start..body_start + content_length]).unwrap();
+            sender.send(CapturedRequest { head, body }).unwrap();
+
+            let response = response.to_string();
+            let wire = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response.len(),
+                response
+            );
+            stream.write_all(wire.as_bytes()).unwrap();
+        });
+        (format!("http://{address}"), receiver, handle)
+    }
 
     fn request(request_id: u64) -> TranslationRequest {
         TranslationRequest::new(
@@ -377,5 +433,69 @@ mod tests {
             decode_response_body(&oversized),
             Err(TranslationError::ResponseTooLarge)
         );
+    }
+
+    #[test]
+    fn libre_provider_completes_a_loopback_http_request() {
+        let (endpoint, received, server) = serve_json_once(serde_json::json!({
+            "translatedText": "你好",
+            "detectedLanguage": { "language": "en" }
+        }));
+        let service = TranslationService::new();
+        let request = TranslationRequest::new(
+            "Hello".to_string(),
+            "auto".to_string(),
+            "zh-CN".to_string(),
+            endpoint,
+            TranslationProvider::LibreTranslate,
+            None,
+            1,
+        );
+
+        let result = service
+            .translate(request, Some("local-test-key".to_string()))
+            .unwrap();
+        let captured = received.recv_timeout(Duration::from_secs(2)).unwrap();
+        server.join().unwrap();
+
+        assert!(captured.head.starts_with("POST /translate HTTP/1.1"));
+        assert_eq!(captured.body["q"], "Hello");
+        assert_eq!(captured.body["api_key"], "local-test-key");
+        assert_eq!(result.translated_text, "你好");
+        assert_eq!(result.detected_source_language.as_deref(), Some("en"));
+    }
+
+    #[test]
+    fn openai_provider_sends_bearer_auth_over_loopback_http() {
+        let (endpoint, received, server) = serve_json_once(serde_json::json!({
+            "choices": [{ "message": { "content": "Bonjour" } }]
+        }));
+        let service = TranslationService::new();
+        let request = TranslationRequest::new(
+            "Hello".to_string(),
+            "auto".to_string(),
+            "fr".to_string(),
+            format!("{endpoint}/v1"),
+            TranslationProvider::OpenAiCompatible,
+            Some("local-model".to_string()),
+            2,
+        );
+
+        let result = service
+            .translate(request, Some("local-secret".to_string()))
+            .unwrap();
+        let captured = received.recv_timeout(Duration::from_secs(2)).unwrap();
+        server.join().unwrap();
+
+        assert!(captured
+            .head
+            .starts_with("POST /v1/chat/completions HTTP/1.1"));
+        assert!(captured
+            .head
+            .lines()
+            .any(|line| line.eq_ignore_ascii_case("authorization: Bearer local-secret")));
+        assert_eq!(captured.body["model"], "local-model");
+        assert_eq!(captured.body["messages"][1]["content"], "Hello");
+        assert_eq!(result.translated_text, "Bonjour");
     }
 }
