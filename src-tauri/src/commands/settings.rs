@@ -167,14 +167,17 @@ pub fn show_settings(app_handle: tauri::AppHandle) -> Result<(), String> {
 /// 暂停全局快捷键，供快捷键录制使用。
 #[tauri::command]
 pub fn pause_shortcuts(app_handle: tauri::AppHandle, state: State<AppState>) -> Result<(), String> {
+    let mut pause_result = Ok(());
     {
         let _transition = state
             .shortcut_transition
             .lock()
             .map_err(|e| e.to_string())?;
         if !state.shortcuts_paused.load(Ordering::Acquire) {
-            pause_shortcuts_for_platform(&app_handle)?;
+            // 先记录暂停意图：Wayland 由多次 gsettings 写入组成，部分失败时
+            // 仍必须让销毁兜底尝试恢复，不能把状态留在“未暂停”。
             state.shortcuts_paused.store(true, Ordering::Release);
+            pause_result = pause_shortcuts_for_platform(&app_handle);
         }
     }
 
@@ -182,7 +185,7 @@ pub fn pause_shortcuts(app_handle: tauri::AppHandle, state: State<AppState>) -> 
     if app_handle.get_webview_window("settings").is_none() {
         resume_shortcuts_for_app(&app_handle, &state)?;
     }
-    Ok(())
+    pause_result
 }
 
 fn pause_shortcuts_for_platform(app_handle: &tauri::AppHandle) -> Result<(), String> {
