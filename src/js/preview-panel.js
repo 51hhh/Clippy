@@ -16,6 +16,7 @@ import { getClipDetail, setPreviewVisible } from "./api.ts";
 import { t } from "../i18n/i18n.js";
 import * as detectors from "./preview/detectors.js";
 import { createPreviewRenderers } from "./preview/renderers.js";
+import { createPanelVisibilityController } from "./panel-visibility.js";
 
 const {
   isUrl, isJson, isJwt, detectEncoding, identifyHash,
@@ -123,6 +124,7 @@ let _badgeEl;
 let _metaEl;
 let _renderers;
 let _visible = false;
+let _visibility;
 let _currentClipId = null;
 
 export function init() {
@@ -130,6 +132,13 @@ export function init() {
   _contentEl = document.getElementById("preview-content");
   _badgeEl   = document.getElementById("preview-type-badge");
   _metaEl    = document.getElementById("preview-meta");
+  _visibility = createPanelVisibilityController({
+    apply: (visible) => {
+      _visible = visible;
+      _panelEl.classList.toggle("hidden", !visible);
+    },
+    persist: setPreviewVisible,
+  });
   _renderers = createPreviewRenderers({
     contentEl: _contentEl,
     badgeEl: _badgeEl,
@@ -149,11 +158,10 @@ export function init() {
 }
 
 export async function toggle() {
-  _visible = !_visible;
-  _panelEl.classList.toggle("hidden", !_visible);
-  if (_visible) _currentClipId = null;
+  const requested = !_visible;
+  if (requested) _currentClipId = null;
   try {
-    await setPreviewVisible(_visible);
+    await _visibility.request(requested);
   } catch (e) {
     console.warn("切换预览面板失败:", e);
   }
@@ -174,10 +182,8 @@ export function isVisible() {
 
 export async function hide() {
   if (!_visible) return;
-  _visible = false;
-  _panelEl.classList.add("hidden");
   try {
-    await setPreviewVisible(false);
+    await _visibility.request(false);
   } catch (e) {
     console.warn("隐藏预览面板失败:", e);
   }

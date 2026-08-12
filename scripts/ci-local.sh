@@ -55,6 +55,15 @@ run_step "DOM/Xvfb smoke" ./scripts/smoke-dom.sh
 
 if [[ "$QUICK" == false ]]; then
   run_step "vite build" bash -c "cd src && npx vite build"
+  if [[ "${CLIPPY_APPIMAGE_SMOKE:-0}" == "1" ]]; then
+    if [[ -n "${CLIPPY_APPIMAGE_PATH:-}" ]]; then
+      run_step "AppImage X11 可视 smoke" ./scripts/smoke-appimage-x11.sh "${CLIPPY_APPIMAGE_PATH}"
+    else
+      run_step "AppImage X11 可视 smoke" ./scripts/smoke-appimage-x11.sh
+    fi
+  else
+    skip_step "AppImage X11 可视 smoke (设置 CLIPPY_APPIMAGE_SMOKE=1 启用)"
+  fi
 else
   skip_step "vite build"
 fi

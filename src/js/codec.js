@@ -7,13 +7,15 @@
  * 架构：纯前端计算，仅剪贴板读写走 Tauri IPC
  */
 
-import { setCodecVisible } from "./api.ts";
+import { copyText, setCodecVisible } from "./api.ts";
 import { t } from "../i18n/i18n.js";
 import { decodeHtmlEntities } from "./html-entities.js";
+import { createPanelVisibilityController } from "./panel-visibility.js";
 
 // ── DOM refs ──
 let _panelEl, _selectEl, _inputEl, _outputEl, _hintEl, _hintTextEl, _recentGroup;
 let _visible = false;
+let _visibility;
 
 // ── 最近使用（最多 5 项） ──
 const RECENT_KEY = "clippy-codec-recent";
@@ -51,6 +53,13 @@ export function init() {
   _hintEl     = document.getElementById("codec-smart-hint");
   _hintTextEl = document.getElementById("codec-hint-text");
   _recentGroup = document.getElementById("codec-recent");
+  _visibility = createPanelVisibilityController({
+    apply: (visible) => {
+      _visible = visible;
+      _panelEl.classList.toggle("hidden", !visible);
+    },
+    persist: setCodecVisible,
+  });
 
   // 加载最近使用
   try { _recentOps = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]"); } catch { _recentOps = []; }
@@ -68,22 +77,25 @@ export function init() {
 
 // ── 面板切换 ──
 export async function toggle() {
-  _visible = !_visible;
-  _panelEl.classList.toggle("hidden", !_visible);
-  if (_visible) {
-    _inputEl.focus();
-    _smartDetect();
+  const requested = !_visible;
+  try {
+    const committed = await _visibility.request(requested);
+    if (committed === true) {
+      _inputEl.focus();
+      _smartDetect();
+    }
+  } catch (e) {
+    console.warn("codec toggle:", e);
   }
-  try { await setCodecVisible(_visible); } catch (e) { console.warn("codec toggle:", e); }
 }
 
 export function isVisible() { return _visible; }
 
 export async function hide() {
   if (!_visible) return;
-  _visible = false;
-  _panelEl.classList.add("hidden");
-  try { await setCodecVisible(false); } catch {}
+  try {
+    await _visibility.request(false);
+  } catch {}
 }
 
 /** 外部填入内容（从剪贴板列表联动） */
@@ -389,15 +401,19 @@ async function _copyResult() {
   const text = _outputEl.textContent;
   if (!text) return;
   try {
-    await navigator.clipboard.writeText(text);
+    await copyText(text);
   } catch {
-    // fallback
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand("copy");
-    ta.remove();
+    // WebView 之外的测试/旧环境仍保留浏览器回退。
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+    }
   }
 }
 
