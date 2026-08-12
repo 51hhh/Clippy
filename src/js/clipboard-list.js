@@ -475,7 +475,7 @@ function render() {
 
   if (idsMatch) {
     existingRows.forEach((row, idx) => {
-      syncClipboardRow(row, clips[idx], idx, _navigation);
+      syncClipboardRow(row, clips[idx], idx, _navigation, _panelMode);
     });
   } else {
     _parent.replaceChildren();

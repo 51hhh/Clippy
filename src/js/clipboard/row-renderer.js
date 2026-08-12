@@ -58,11 +58,12 @@ export function createClipboardRow({
 }
 
 /** 现有 id 序列未变化时，只同步行状态，避免重建 DOM。 */
-export function syncClipboardRow(row, clip, index, navigation) {
+export function syncClipboardRow(row, clip, index, navigation, panelMode = "all") {
   const focused = index === navigation.focusedRow;
   row.classList.toggle("focused", focused);
   row.classList.toggle("expanded", navigation.expandedRow === clip.id);
   row.classList.toggle("favorite", !!clip.is_favorite);
+  row.classList.toggle("favorites-mode", panelMode === "favorites");
   row.setAttribute("aria-selected", String(focused));
 
   const favoriteButton = row.querySelector('[data-action="favorite"]');
