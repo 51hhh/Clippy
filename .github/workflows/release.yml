@@ -69,7 +69,7 @@ jobs:
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev build-essential curl wget file \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
-            pkg-config
+            pkg-config squashfs-tools
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -97,6 +97,16 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
+      - name: Finalize portable AppImage
+        env:
+          APP_VERSION: ${{ needs.check-version.outputs.version }}
+          REQUIRE_TAURI_SIGNATURE: "true"
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          APPIMAGE_SRC="src-tauri/target/release/bundle/appimage/Clippy_${APP_VERSION}_amd64.AppImage"
+          ./scripts/finalize-appimage.sh "$APPIMAGE_SRC"
+
       - name: Ensure draft release exists
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -114,11 +124,11 @@ jobs:
           DEB_SRC="${BUNDLE_DIR}/deb/Clippy_${VER}_amd64.deb"
           [ -f "$DEB_SRC" ] && cp "$DEB_SRC" "Clippy_${VER}_amd64_${LABEL}.deb"
 
-          APPIMAGE_SRC=$(find "${BUNDLE_DIR}/appimage" -name "*.AppImage" 2>/dev/null | head -1)
-          [ -n "$APPIMAGE_SRC" ] && cp "$APPIMAGE_SRC" "Clippy_${VER}_amd64_${LABEL}.AppImage"
+          APPIMAGE_SRC="${BUNDLE_DIR}/appimage/Clippy_${VER}_amd64.AppImage"
+          [ -f "$APPIMAGE_SRC" ] && cp "$APPIMAGE_SRC" "Clippy_${VER}_amd64_${LABEL}.AppImage"
 
-          APPIMAGE_SIG=$(find "${BUNDLE_DIR}/appimage" -name "*.AppImage.sig" 2>/dev/null | head -1)
-          [ -n "$APPIMAGE_SIG" ] && cp "$APPIMAGE_SIG" "Clippy_${VER}_amd64_${LABEL}.AppImage.sig"
+          APPIMAGE_SIG="${APPIMAGE_SRC}.sig"
+          [ -f "$APPIMAGE_SIG" ] && cp "$APPIMAGE_SIG" "Clippy_${VER}_amd64_${LABEL}.AppImage.sig"
 
       - name: Upload suffixed artifacts to release
         env:
@@ -141,11 +151,11 @@ jobs:
           BUNDLE_DIR="src-tauri/target/release/bundle"
 
           # Upload unsuffixed AppImage + sig + deb for updater compatibility
-          APPIMAGE_SRC=$(find "${BUNDLE_DIR}/appimage" -name "*.AppImage" ! -name "*.sig" 2>/dev/null | head -1)
-          [ -n "$APPIMAGE_SRC" ] && gh release upload "${TAG}" "$APPIMAGE_SRC" --repo "${{ github.repository }}" --clobber
+          APPIMAGE_SRC="${BUNDLE_DIR}/appimage/Clippy_${VER}_amd64.AppImage"
+          [ -f "$APPIMAGE_SRC" ] && gh release upload "${TAG}" "$APPIMAGE_SRC" --repo "${{ github.repository }}" --clobber
 
-          APPIMAGE_SIG=$(find "${BUNDLE_DIR}/appimage" -name "*.AppImage.sig" 2>/dev/null | head -1)
-          [ -n "$APPIMAGE_SIG" ] && gh release upload "${TAG}" "$APPIMAGE_SIG" --repo "${{ github.repository }}" --clobber
+          APPIMAGE_SIG="${APPIMAGE_SRC}.sig"
+          [ -f "$APPIMAGE_SIG" ] && gh release upload "${TAG}" "$APPIMAGE_SIG" --repo "${{ github.repository }}" --clobber
 
           DEB_SRC="${BUNDLE_DIR}/deb/Clippy_${VER}_amd64.deb"
           [ -f "$DEB_SRC" ] && gh release upload "${TAG}" "$DEB_SRC" --repo "${{ github.repository }}" --clobber
