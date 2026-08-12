@@ -13,6 +13,7 @@ import {
   formatSize,
   formatType,
 } from "../js/clipboard/formatters.js";
+import { syncClipboardRow } from "../js/clipboard/row-renderer.js";
 
 vi.mock("../js/api.ts", () => ({
   getClips: vi.fn(),
@@ -285,6 +286,34 @@ describe("clipboard 导航纯状态机", () => {
       focusedCol: -1,
       expandedRow: null,
     });
+  });
+});
+
+describe("clipboard 差量行渲染", () => {
+  it("相同条目序列切换收藏面板时同步布局 class", () => {
+    const row = document.createElement("article");
+    row.className = "clip-row favorites-mode";
+    const favorite = document.createElement("button");
+    favorite.dataset.action = "favorite";
+    row.appendChild(favorite);
+
+    syncClipboardRow(
+      row,
+      clip({ id: 4, is_favorite: true }),
+      0,
+      { focusedRow: 0, focusedCol: -1, expandedRow: null },
+      "all",
+    );
+    expect(row.classList.contains("favorites-mode")).toBe(false);
+
+    syncClipboardRow(
+      row,
+      clip({ id: 4, is_favorite: true }),
+      0,
+      { focusedRow: 0, focusedCol: -1, expandedRow: null },
+      "favorites",
+    );
+    expect(row.classList.contains("favorites-mode")).toBe(true);
   });
 });
 
