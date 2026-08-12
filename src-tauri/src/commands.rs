@@ -32,6 +32,7 @@ pub struct AppState {
     pub capture_generation: AtomicU64,
     pub capture_window_generation: AtomicU64,
     pub capture_editor_transition: Mutex<()>,
+    pub main_window_transition: Mutex<()>,
     pub capture_manager: Arc<crate::capture::CaptureManager>,
     pub pin_manager: Arc<crate::pin::PinManager>,
     pub paste_manager: Arc<PasteManager>,

@@ -4,26 +4,6 @@ use crate::models::AppConfig;
 use std::sync::atomic::Ordering;
 use tauri::{Emitter, Manager, State};
 
-const WINDOW_WIDTH_DEFAULT: f64 = 380.0;
-const WINDOW_WIDTH_PANEL: f64 = 400.0;
-const WINDOW_HEIGHT: f64 = 500.0;
-
-fn calc_window_width(state: &State<AppState>) -> f64 {
-    let preview_visible = state.preview_visible.lock().map(|v| *v).unwrap_or(false);
-    let codec_visible = state.codec_visible.lock().map(|v| *v).unwrap_or(false);
-    WINDOW_WIDTH_DEFAULT
-        + if preview_visible {
-            WINDOW_WIDTH_PANEL
-        } else {
-            0.0
-        }
-        + if codec_visible {
-            WINDOW_WIDTH_PANEL
-        } else {
-            0.0
-        }
-}
-
 /// 切换预览面板并调整主窗口宽度。
 #[tauri::command]
 pub fn set_preview_visible(
@@ -31,11 +11,30 @@ pub fn set_preview_visible(
     app_handle: tauri::AppHandle,
     state: State<AppState>,
 ) -> Result<(), String> {
-    if let Ok(mut preview_visible) = state.preview_visible.lock() {
-        *preview_visible = visible;
+    let _transition = state
+        .main_window_transition
+        .lock()
+        .map_err(|error| format!("主窗口面板切换状态损坏: {error}"))?;
+    let previous = *state
+        .preview_visible
+        .lock()
+        .map_err(|error| format!("读取预览面板状态失败: {error}"))?;
+    *state
+        .preview_visible
+        .lock()
+        .map_err(|error| format!("更新预览面板状态失败: {error}"))? = visible;
+    if let Err(error) = crate::window_controller::resize_main_window(&app_handle) {
+        match state.preview_visible.lock() {
+            Ok(mut current) => *current = previous,
+            Err(restore_error) => {
+                log::error!("恢复预览面板状态失败，保留 resize 原错误: {restore_error}");
+            }
+        }
+        if let Err(compensation_error) = crate::window_controller::resize_main_window(&app_handle) {
+            log::error!("恢复预览面板几何失败，保留 resize 原错误: {compensation_error}");
+        }
+        return Err(error);
     }
-    let width = calc_window_width(&state);
-    crate::window_controller::resize_main_window(&app_handle, width, WINDOW_HEIGHT)?;
     Ok(())
 }
 
@@ -46,11 +45,30 @@ pub fn set_codec_visible(
     app_handle: tauri::AppHandle,
     state: State<AppState>,
 ) -> Result<(), String> {
-    if let Ok(mut codec_visible) = state.codec_visible.lock() {
-        *codec_visible = visible;
+    let _transition = state
+        .main_window_transition
+        .lock()
+        .map_err(|error| format!("主窗口面板切换状态损坏: {error}"))?;
+    let previous = *state
+        .codec_visible
+        .lock()
+        .map_err(|error| format!("读取编解码面板状态失败: {error}"))?;
+    *state
+        .codec_visible
+        .lock()
+        .map_err(|error| format!("更新编解码面板状态失败: {error}"))? = visible;
+    if let Err(error) = crate::window_controller::resize_main_window(&app_handle) {
+        match state.codec_visible.lock() {
+            Ok(mut current) => *current = previous,
+            Err(restore_error) => {
+                log::error!("恢复编解码面板状态失败，保留 resize 原错误: {restore_error}");
+            }
+        }
+        if let Err(compensation_error) = crate::window_controller::resize_main_window(&app_handle) {
+            log::error!("恢复编解码面板几何失败，保留 resize 原错误: {compensation_error}");
+        }
+        return Err(error);
     }
-    let width = calc_window_width(&state);
-    crate::window_controller::resize_main_window(&app_handle, width, WINDOW_HEIGHT)?;
     Ok(())
 }
 
