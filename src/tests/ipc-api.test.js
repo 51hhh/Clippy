@@ -1,19 +1,50 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { invoke, listen } = vi.hoisted(() => ({
+const {
+  invoke,
+  listen,
+  currentWindow,
+  enableAutostartPlugin,
+  disableAutostartPlugin,
+  isAutostartEnabledPlugin,
+} = vi.hoisted(() => ({
   invoke: vi.fn(),
   listen: vi.fn(),
+  currentWindow: {
+    label: "settings",
+    close: vi.fn(),
+    hide: vi.fn(),
+    startDragging: vi.fn(),
+  },
+  enableAutostartPlugin: vi.fn(),
+  disableAutostartPlugin: vi.fn(),
+  isAutostartEnabledPlugin: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ listen }));
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => currentWindow,
+}));
+vi.mock("@tauri-apps/plugin-autostart", () => ({
+  enable: enableAutostartPlugin,
+  disable: disableAutostartPlugin,
+  isEnabled: isAutostartEnabledPlugin,
+}));
 
 import {
   cancelCaptureOverlay,
+  closeCurrentWindow,
   copyScreenshotImage,
+  disableAutostart,
+  enableAutostart,
   getClips,
+  getCurrentWindowLabel,
+  hideCurrentWindow,
+  isAutostartEnabled,
   onClipAdded,
   runCaptureAction,
+  startDraggingCurrentWindow,
   updateConfig,
   updatePin,
 } from "../js/api.ts";
@@ -22,6 +53,12 @@ describe("typed IPC wrappers", () => {
   beforeEach(() => {
     invoke.mockReset();
     listen.mockReset();
+    currentWindow.close.mockReset();
+    currentWindow.hide.mockReset();
+    currentWindow.startDragging.mockReset();
+    enableAutostartPlugin.mockReset();
+    disableAutostartPlugin.mockReset();
+    isAutostartEnabledPlugin.mockReset();
   });
 
   it("keeps camelCase query arguments for get_clips", () => {
@@ -111,5 +148,27 @@ describe("typed IPC wrappers", () => {
 
     expect(listen).toHaveBeenCalledWith("clip-added", expect.any(Function));
     expect(callback).toHaveBeenCalledWith(clip);
+  });
+
+  it("keeps current-window access behind the typed boundary", () => {
+    expect(getCurrentWindowLabel()).toBe("settings");
+
+    closeCurrentWindow();
+    hideCurrentWindow();
+    startDraggingCurrentWindow();
+
+    expect(currentWindow.close).toHaveBeenCalledOnce();
+    expect(currentWindow.hide).toHaveBeenCalledOnce();
+    expect(currentWindow.startDragging).toHaveBeenCalledOnce();
+  });
+
+  it("keeps autostart plugin access behind the typed boundary", () => {
+    enableAutostart();
+    disableAutostart();
+    isAutostartEnabled();
+
+    expect(enableAutostartPlugin).toHaveBeenCalledOnce();
+    expect(disableAutostartPlugin).toHaveBeenCalledOnce();
+    expect(isAutostartEnabledPlugin).toHaveBeenCalledOnce();
   });
 });

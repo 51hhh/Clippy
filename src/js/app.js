@@ -11,10 +11,9 @@ import * as translationPanel from "./translation-panel.js";
 import * as codec         from "./codec.js";
 import * as i18n          from "../i18n/i18n.js";
 import { initUpdateModal, checkForUpdate } from "./update-modal.js";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   getConfig, getClips, onClipAdded, onClipRemoved, onConfigChanged,
-  onShortcutRegisterFailed, onPinCurrent, pinClip,
+  hideCurrentWindow, onShortcutRegisterFailed, onPinCurrent, pinClip,
 } from "./api.ts";
 import "../styles/themes.css";
 import "../styles/base.css";
@@ -142,7 +141,7 @@ function onKeyDown(e) {
       e.preventDefault();
       const idx = e.key === "0" ? 9 : parseInt(e.key) - 1;
       clipboardList.selectByIndex(idx).then(ok => {
-        if (ok) getCurrentWindow().hide();
+        if (ok) void hideCurrentWindow();
       });
       return;
     }
@@ -216,7 +215,7 @@ function onKeyDown(e) {
 }
 
 function tryHidePanel() {
-  getCurrentWindow().hide();
+  void hideCurrentWindow();
 }
 
 async function onWindowFocus() {

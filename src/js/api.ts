@@ -6,6 +6,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import {
+  disable as disableAutostartPlugin,
+  enable as enableAutostartPlugin,
+  isEnabled as isAutostartEnabledPlugin,
+} from "@tauri-apps/plugin-autostart";
 import type { DownloadEvent, Update } from "@tauri-apps/plugin-updater";
 import type {
   AppConfig,
@@ -230,10 +236,39 @@ export function translateCaptureSelection(
   });
 }
 
-/** 关闭当前窗口 */
-export async function closeCurrentWindow(): Promise<void> {
-  const { getCurrentWindow } = await import("@tauri-apps/api/window");
+/** 当前 Webview 窗口标签。 */
+export function getCurrentWindowLabel(): string {
+  return getCurrentWindow().label;
+}
+
+/** 隐藏当前 Webview 窗口。 */
+export function hideCurrentWindow(): Promise<void> {
+  return getCurrentWindow().hide();
+}
+
+/** 启动当前 Webview 窗口的原生拖动。 */
+export function startDraggingCurrentWindow(): Promise<void> {
+  return getCurrentWindow().startDragging();
+}
+
+/** 关闭当前 Webview 窗口。 */
+export function closeCurrentWindow(): Promise<void> {
   return getCurrentWindow().close();
+}
+
+/** 开启登录时自动启动。 */
+export function enableAutostart(): Promise<void> {
+  return enableAutostartPlugin();
+}
+
+/** 关闭登录时自动启动。 */
+export function disableAutostart(): Promise<void> {
+  return disableAutostartPlugin();
+}
+
+/** 查询登录时自动启动状态。 */
+export function isAutostartEnabled(): Promise<boolean> {
+  return isAutostartEnabledPlugin();
 }
 
 /** 读取待编辑截图 */

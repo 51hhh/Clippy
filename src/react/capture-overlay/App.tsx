@@ -1,5 +1,5 @@
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getCurrentWindowLabel } from "../../js/api.ts";
 import { overlayApi } from "./api";
 import { OverlayToolbar } from "./OverlayToolbar";
 import { TranslationPopover } from "./TranslationPopover";
@@ -27,7 +27,7 @@ function objectUrl(base64: string): string {
 }
 
 export function App() {
-  const label = getCurrentWindow().label;
+  const label = getCurrentWindowLabel();
   const [payload, setPayload] = useState<CaptureOverlayPayload | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
