@@ -18,6 +18,7 @@ mod tray_icon;
 mod window_controller;
 
 use commands::AppState;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
 use tauri_plugin_global_shortcut::ShortcutState;
@@ -100,6 +101,8 @@ pub fn run() {
                 pin_manager,
                 paste_manager,
                 translation,
+                shortcuts_paused: AtomicBool::new(false),
+                shortcut_transition: Mutex::new(()),
             });
 
             // ── 6. 构建托盘并监听主题变化 ────────────────────────────────

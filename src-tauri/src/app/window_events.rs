@@ -26,6 +26,14 @@ pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
                 commands::clear_latest_capture(&state);
             }
         }
+        tauri::WindowEvent::Destroyed if window.label() == "settings" => {
+            if let Some(state) = window.app_handle().try_state::<AppState>() {
+                if let Err(error) = commands::resume_shortcuts_for_app(window.app_handle(), &state)
+                {
+                    log::warn!("设置窗口销毁后恢复全局快捷键失败: {}", error);
+                }
+            }
+        }
         _ => {}
     }
 }
