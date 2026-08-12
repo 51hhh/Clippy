@@ -1,5 +1,5 @@
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getCurrentWindowLabel, startDraggingCurrentWindow } from "../../js/api.ts";
 import { pinApi } from "./api";
 import { PinToolbar } from "./PinToolbar";
 import type { PinPayload, PinUpdate } from "./types";
@@ -17,8 +17,7 @@ function imageObjectUrl(base64: string): string {
 }
 
 export function App() {
-  const windowHandle = getCurrentWindow();
-  const label = windowHandle.label;
+  const label = getCurrentWindowLabel();
   const dragStart = useRef<{ x: number; y: number } | null>(null);
   const wheelFrame = useRef<number | null>(null);
   const pendingUpdate = useRef<PinUpdate>({});
@@ -141,7 +140,7 @@ export function App() {
       const distance = Math.hypot(event.clientX - dragStart.current.x, event.clientY - dragStart.current.y);
       if (distance < DRAG_THRESHOLD) return;
       dragStart.current = null;
-      windowHandle.startDragging().catch((reason) => setError(String(reason)));
+      startDraggingCurrentWindow().catch((reason) => setError(String(reason)));
     }
     function clearDrag() {
       dragStart.current = null;
@@ -154,7 +153,7 @@ export function App() {
       window.removeEventListener("pointerup", clearDrag);
       window.removeEventListener("pointercancel", clearDrag);
     };
-  }, [pin?.locked, windowHandle]);
+  }, [pin?.locked]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -9,6 +9,14 @@ function loadEntrypoint(name) {
     readFileSync(resolve(root, name), "utf8"),
     "text/html",
   );
+}
+
+function sourceFiles(directory) {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = resolve(directory, entry.name);
+    if (entry.isDirectory()) return sourceFiles(path);
+    return /\.(?:js|ts|tsx)$/.test(entry.name) ? [path] : [];
+  });
 }
 
 describe("built window entrypoints", () => {
@@ -31,5 +39,20 @@ describe("built window entrypoints", () => {
     const script = document.querySelector('script[type="module"]');
     expect(script?.getAttribute("src")).toBe("js/app.js");
     expect(readFileSync(resolve(root, "js/app.js"), "utf8")).not.toContain("api.js");
+  });
+
+  it("keeps direct Tauri access out of production feature modules", () => {
+    const apiPath = resolve(root, "js/api.ts");
+    const files = [
+      ...sourceFiles(resolve(root, "js")),
+      ...sourceFiles(resolve(root, "react")),
+    ].filter((path) => path !== apiPath);
+
+    for (const path of files) {
+      const source = readFileSync(path, "utf8");
+      expect(source, path).not.toContain("@tauri-apps/");
+      expect(source, path).not.toMatch(/\binvoke\s*\(/);
+      expect(source, path).not.toMatch(/\blisten\s*\(/);
+    }
   });
 });
