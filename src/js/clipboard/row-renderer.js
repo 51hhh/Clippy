@@ -66,6 +66,14 @@ export function syncClipboardRow(row, clip, index, navigation, panelMode = "all"
   row.classList.toggle("favorites-mode", panelMode === "favorites");
   row.setAttribute("aria-selected", String(focused));
 
+  const main = row.querySelector(":scope > .clip-row-main");
+  const actions = row.querySelector(":scope > .clip-row-actions");
+  const trigger = row.querySelector(":scope > .clip-row-trigger");
+  if (main && actions && trigger) {
+    if (panelMode === "favorites") row.append(trigger, actions, main);
+    else row.append(main, actions, trigger);
+  }
+
   const favoriteButton = row.querySelector('[data-action="favorite"]');
   if (favoriteButton) updateFavoriteButton(favoriteButton, clip.is_favorite);
   row.querySelectorAll(".clip-row-action").forEach((button, actionIndex) => {
