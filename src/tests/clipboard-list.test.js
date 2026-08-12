@@ -1,11 +1,25 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as telemetry from "../js/telemetry.js";
+import {
+  consumePointerMove,
+  createNavigationState,
+  expandActions,
+  moveColumnFocus,
+  moveRowFocus,
+  normalizeAfterRefresh,
+} from "../js/clipboard/navigation-state.js";
+import {
+  formatRelativeTime,
+  formatSize,
+  formatType,
+} from "../js/clipboard/formatters.js";
 
 vi.mock("../js/api.ts", () => ({
   getClips: vi.fn(),
   deleteClip: vi.fn(),
   toggleFavorite: vi.fn(),
   selectClip: vi.fn(),
+  getClipImage: vi.fn(),
 }));
 
 import * as api from "../js/api.ts";
@@ -23,12 +37,15 @@ let counts;
 let summons;
 
 function setup() {
-  document.body.innerHTML = `
-    <main id="clip-list"></main>
-    <div id="empty-state" hidden><span id="empty-state-text"></span></div>
-  `;
-  const listEl = document.getElementById("clip-list");
-  const emptyEl = document.getElementById("empty-state");
+  const listEl = document.createElement("main");
+  listEl.id = "clip-list";
+  const emptyEl = document.createElement("div");
+  emptyEl.id = "empty-state";
+  emptyEl.hidden = true;
+  const emptyText = document.createElement("span");
+  emptyText.id = "empty-state-text";
+  emptyEl.appendChild(emptyText);
+  document.body.replaceChildren(listEl, emptyEl);
   counts = [];
   summons = [];
   clipboardList.__test__.reset();
@@ -48,6 +65,7 @@ describe("clipboard-list 状态机", () => {
     api.toggleFavorite.mockReset();
     api.selectClip.mockReset();
     api.deleteClip.mockReset();
+    api.getClipImage.mockReset();
   });
 
   afterEach(() => {
@@ -191,5 +209,106 @@ describe("clipboard-list 状态机", () => {
     clipboardList.expandRowActions();
     expect(clipboardList.canExpandHere()).toBe(false);
     expect(clipboardList.hasExpanded()).toBe(true);
+  });
+
+  it("用户文本只作为文本节点渲染", async () => {
+    api.getClips.mockResolvedValueOnce([
+      clip({ text_content: '<img src=x onerror="globalThis.hacked=true">' }),
+    ]);
+    await clipboardList.refresh();
+
+    const preview = document.querySelector(".clip-row-preview");
+    expect(preview.textContent).toContain("<img src=x");
+    expect(preview.querySelector("img")).toBeNull();
+    expect(globalThis.hacked).toBeUndefined();
+  });
+
+  it("图片缩略图通过 api wrapper 异步加载", async () => {
+    api.getClips.mockResolvedValueOnce([
+      clip({ id: 21, content_type: "image", text_content: null }),
+    ]);
+    api.getClipImage.mockResolvedValueOnce("cG5n");
+    await clipboardList.refresh();
+    await vi.waitFor(() => {
+      expect(document.querySelector(".clip-row-thumb-img")?.src)
+        .toBe("data:image/png;base64,cG5n");
+    });
+    expect(api.getClipImage).toHaveBeenCalledWith(21);
+  });
+});
+
+describe("clipboard 导航纯状态机", () => {
+  it("刷新后将初始焦点收敛到第一行", () => {
+    expect(normalizeAfterRefresh(createNavigationState(), 3)).toMatchObject({
+      focusedRow: 0,
+      focusedCol: -1,
+      expandedRow: null,
+    });
+    expect(normalizeAfterRefresh(createNavigationState(), 0).focusedRow).toBe(-1);
+  });
+
+  it("竖向移动收起动作区并启用一次鼠标保护", () => {
+    const expanded = expandActions(
+      { ...createNavigationState(), focusedRow: 0 },
+      7,
+    );
+    const transition = moveRowFocus(expanded, 1, 3);
+    expect(transition).toMatchObject({
+      summonSearch: false,
+      nextState: {
+        focusedRow: 1,
+        focusedCol: -1,
+        expandedRow: null,
+        keyboardNav: true,
+      },
+    });
+
+    const firstPointerMove = consumePointerMove(transition.nextState);
+    expect(firstPointerMove.ignore).toBe(true);
+    expect(consumePointerMove(firstPointerMove.nextState).ignore).toBe(false);
+  });
+
+  it("第一行向上请求搜索，行体横移请求切换面板", () => {
+    const state = { ...createNavigationState(), focusedRow: 0 };
+    expect(moveRowFocus(state, -1, 2).summonSearch).toBe(true);
+    expect(moveColumnFocus(state, -1, 2, "all").requestedMode).toBe("favorites");
+    expect(moveColumnFocus(state, 1, 2, "favorites").requestedMode).toBe("all");
+  });
+
+  it("收藏模式的动作按钮按视觉方向反转", () => {
+    const expanded = expandActions(
+      { ...createNavigationState(), focusedRow: 0 },
+      9,
+    );
+    expect(moveColumnFocus(expanded, -1, 1, "favorites").nextState.focusedCol).toBe(1);
+    expect(moveColumnFocus(expanded, 1, 1, "favorites").nextState).toMatchObject({
+      focusedCol: -1,
+      expandedRow: null,
+    });
+  });
+});
+
+describe("clipboard 展示格式", () => {
+  const translate = (key, params = {}) => `${key}:${params.n ?? ""}`;
+  const now = Date.UTC(2026, 7, 11, 12, 0, 0);
+
+  it("格式化字节边界与内容类型", () => {
+    expect(formatSize(1023)).toBe("1023 B");
+    expect(formatSize(1024)).toBe("1.0 KB");
+    expect(formatSize(1024 * 1024)).toBe("1.0 MB");
+    expect(formatType(null)).toBe("Text");
+    expect(formatType("html")).toBe("HTML");
+    expect(formatType("custom")).toBe("custom");
+  });
+
+  it.each([
+    [30, "time.justNow:"],
+    [5 * 60, "time.minutesAgo:5"],
+    [3 * 60 * 60, "time.hoursAgo:3"],
+    [24 * 60 * 60, "time.yesterday:"],
+    [4 * 24 * 60 * 60, "time.daysAgo:4"],
+  ])("按固定 now 格式化相对时间", (elapsedSeconds, expected) => {
+    expect(formatRelativeTime((now - elapsedSeconds * 1000) / 1000, { now, translate }))
+      .toBe(expected);
   });
 });
