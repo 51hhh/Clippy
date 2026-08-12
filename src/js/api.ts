@@ -92,6 +92,11 @@ export function copyClip(id: number): Promise<void> {
   return invoke<void>("copy_clip", { id });
 }
 
+/** 仅复制用户明确请求的文本，不新增历史条目或触发自动粘贴。 */
+export function copyText(text: string): Promise<void> {
+  return invoke<void>("copy_text", { text });
+}
+
 /** 查询当前自动粘贴后端和授权状态 */
 export function getPasteStatus(): Promise<PasteStatus> {
   return invoke<PasteStatus>("get_paste_status");

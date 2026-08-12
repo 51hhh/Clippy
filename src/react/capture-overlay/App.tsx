@@ -111,7 +111,7 @@ export function App() {
   const copyTranslation = useCallback(async () => {
     if (translation?.status !== "result") return;
     try {
-      await navigator.clipboard.writeText(translation.result.translatedText);
+      await overlayApi.copyText(translation.result.translatedText);
       setCopyStatus("copied");
     } catch {
       setCopyStatus("failed");

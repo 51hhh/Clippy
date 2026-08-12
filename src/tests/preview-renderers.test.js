@@ -6,6 +6,7 @@ vi.mock("../js/api.ts", () => ({
   ocrImage: vi.fn(),
   getConfig: vi.fn(),
   fetchUrlMeta: vi.fn(),
+  copyText: vi.fn(),
 }));
 
 vi.mock("../i18n/i18n.js", () => ({

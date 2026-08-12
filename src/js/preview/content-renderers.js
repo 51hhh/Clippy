@@ -8,6 +8,7 @@ import {
   ocrImage,
   getConfig,
   fetchUrlMeta,
+  copyText,
 } from "../api.ts";
 import { t } from "../../i18n/i18n.js";
 
@@ -169,7 +170,7 @@ export function createContentRenderers({
             try {
               const config = await getConfig();
               if (config.ocr_result_mode === "clipboard") {
-                await navigator.clipboard.writeText(text);
+                await copyText(text);
                 ocrText.textContent = "✓ " + t("settings.ocr.clipboard");
                 ocrArea.dataset.status = "done";
                 return;

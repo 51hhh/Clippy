@@ -181,6 +181,7 @@ pub fn run() {
             commands::clear_history,
             commands::select_clip,
             commands::copy_clip,
+            commands::copy_text,
             commands::get_paste_status,
             commands::request_paste_permission,
             commands::get_clip_image,
