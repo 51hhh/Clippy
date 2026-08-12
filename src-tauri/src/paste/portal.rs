@@ -54,6 +54,48 @@ struct PortalSession {
     session: ashpd::desktop::Session<ashpd::desktop::remote_desktop::RemoteDesktop>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RestoreTokenAction {
+    Preserve,
+    Remove,
+    Replace(String),
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RestoreTokenAttempt {
+    had_token: bool,
+    authorization_submitted: bool,
+}
+
+impl RestoreTokenAttempt {
+    fn new(had_token: bool) -> Self {
+        Self {
+            had_token,
+            authorization_submitted: false,
+        }
+    }
+
+    fn mark_authorization_submitted(&mut self, restore_token_submitted: bool) {
+        self.authorization_submitted = restore_token_submitted;
+    }
+
+    fn after_failure(self) -> RestoreTokenAction {
+        if self.had_token && self.authorization_submitted {
+            RestoreTokenAction::Remove
+        } else {
+            RestoreTokenAction::Preserve
+        }
+    }
+
+    fn after_success(self, next_token: Option<String>) -> RestoreTokenAction {
+        match next_token {
+            Some(token) => RestoreTokenAction::Replace(token),
+            None if self.had_token && self.authorization_submitted => RestoreTokenAction::Remove,
+            None => RestoreTokenAction::Preserve,
+        }
+    }
+}
+
 pub(super) async fn paste(state: &mut PortalState, token_path: &Path) -> Result<(), String> {
     ensure_session(state, token_path, false).await?;
     tokio::time::sleep(Duration::from_millis(120)).await;
@@ -88,6 +130,7 @@ pub(super) async fn ensure_session(
     state.begin_attempt(explicit)?;
 
     let restore_token = read_restore_token(token_path);
+    let mut token_attempt = RestoreTokenAttempt::new(restore_token.is_some());
     let result = async {
         let proxy = RemoteDesktop::new()
             .await
@@ -100,11 +143,14 @@ pub(super) async fn ensure_session(
         let setup_result = async {
             let mut options =
                 SelectDevicesOptions::default().set_devices(Some(DeviceType::Keyboard.into()));
+            let restore_token_submitted = version >= 2 && restore_token.is_some();
             if version >= 2 {
                 options = options
                     .set_persist_mode(PersistMode::ExplicitlyRevoked)
                     .set_restore_token(restore_token.as_deref());
             }
+            // 从这里开始旧 token 可能已被 Portal 消费；后续失败不能继续复用。
+            token_attempt.mark_authorization_submitted(restore_token_submitted);
             proxy
                 .select_devices(&session, options)
                 .await
@@ -121,28 +167,26 @@ pub(super) async fn ensure_session(
             if !selected.devices().contains(DeviceType::Keyboard) {
                 return Err("RemoteDesktop Portal 未授予键盘控制权限".to_string());
             }
-            if version >= 2 {
-                if let Some(token) = selected.restore_token() {
-                    if let Err(error) = write_restore_token(token_path, token) {
-                        log::warn!("保存 Portal restore token 失败: {error}");
-                    }
-                }
-            }
-            Ok(())
+            Ok((version >= 2)
+                .then(|| selected.restore_token().map(str::to_string))
+                .flatten())
         }
         .await;
-        if let Err(error) = setup_result {
-            if let Err(close_error) = session.close().await {
-                log::warn!("关闭未完成的 RemoteDesktop Portal 会话失败: {close_error}");
+        match setup_result {
+            Ok(next_token) => Ok((PortalSession { proxy, session }, next_token)),
+            Err(error) => {
+                if let Err(close_error) = session.close().await {
+                    log::warn!("关闭未完成的 RemoteDesktop Portal 会话失败: {close_error}");
+                }
+                Err(error)
             }
-            return Err(error);
         }
-        Ok(PortalSession { proxy, session })
     }
     .await;
 
     match result {
-        Ok(session) => {
+        Ok((session, next_token)) => {
+            apply_restore_token_action(token_path, token_attempt.after_success(next_token));
             state.session = Some(session);
             state.phase = PastePhase::Ready;
             state.detail = None;
@@ -151,10 +195,29 @@ pub(super) async fn ensure_session(
         Err(error) => {
             state.phase = PastePhase::Denied;
             state.detail = Some(error.clone());
-            if restore_token.is_some() {
-                let _ = std::fs::remove_file(token_path);
-            }
+            apply_restore_token_action(token_path, token_attempt.after_failure());
             Err(error)
+        }
+    }
+}
+
+fn apply_restore_token_action(path: &Path, action: RestoreTokenAction) {
+    match action {
+        RestoreTokenAction::Preserve => {}
+        RestoreTokenAction::Remove => remove_restore_token(path),
+        RestoreTokenAction::Replace(token) => {
+            if let Err(error) = write_restore_token(path, &token) {
+                log::warn!("保存 Portal restore token 失败，删除已消费的旧 token: {error}");
+                remove_restore_token(path);
+            }
+        }
+    }
+}
+
+fn remove_restore_token(path: &Path) {
+    if let Err(error) = std::fs::remove_file(path) {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            log::warn!("删除失效的 Portal restore token 失败: {error}");
         }
     }
 }
@@ -222,5 +285,43 @@ mod tests {
         assert_eq!(state.begin_attempt(false).unwrap_err(), "denied");
         assert!(state.begin_attempt(true).is_ok());
         assert_eq!(state.phase, PastePhase::Initializing);
+    }
+
+    #[test]
+    fn pre_select_failure_preserves_existing_restore_token() {
+        let attempt = RestoreTokenAttempt::new(true);
+        assert_eq!(attempt.after_failure(), RestoreTokenAction::Preserve);
+    }
+
+    #[test]
+    fn submitted_failure_removes_consumed_restore_token() {
+        let mut attempt = RestoreTokenAttempt::new(true);
+        attempt.mark_authorization_submitted(true);
+        assert_eq!(attempt.after_failure(), RestoreTokenAction::Remove);
+    }
+
+    #[test]
+    fn successful_restore_rolls_token_forward() {
+        let mut attempt = RestoreTokenAttempt::new(true);
+        attempt.mark_authorization_submitted(true);
+        assert_eq!(
+            attempt.after_success(Some("next-token".to_string())),
+            RestoreTokenAction::Replace("next-token".to_string())
+        );
+    }
+
+    #[test]
+    fn successful_restore_without_replacement_removes_consumed_token() {
+        let mut attempt = RestoreTokenAttempt::new(true);
+        attempt.mark_authorization_submitted(true);
+        assert_eq!(attempt.after_success(None), RestoreTokenAction::Remove);
+    }
+
+    #[test]
+    fn portal_without_restore_support_preserves_unsubmitted_token() {
+        let mut attempt = RestoreTokenAttempt::new(true);
+        attempt.mark_authorization_submitted(false);
+        assert_eq!(attempt.after_failure(), RestoreTokenAction::Preserve);
+        assert_eq!(attempt.after_success(None), RestoreTokenAction::Preserve);
     }
 }
