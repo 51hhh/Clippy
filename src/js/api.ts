@@ -277,8 +277,8 @@ export function getPendingCapture(): Promise<CapturedScreenshot> {
 }
 
 /** 清理未消费的待编辑截图 */
-export function clearPendingCapture(): Promise<void> {
-  return invoke<void>("clear_pending_capture");
+export function clearPendingCapture(generation?: number): Promise<void> {
+  return invoke<void>("clear_pending_capture", { generation: generation ?? null });
 }
 
 /** 复制截图编辑器导出的 PNG */

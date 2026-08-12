@@ -267,17 +267,7 @@ pub fn edit_pin(
     let png = image_bytes(&state.pin_manager.get(&label)?)?;
     let (width, height) =
         crate::screenshot::png_dimensions(&png).map_err(|error| error.to_string())?;
-    {
-        let mut capture = state
-            .latest_capture
-            .lock()
-            .map_err(|error| error.to_string())?;
-        *capture = Some(crate::screenshot::CapturedScreenshot {
-            png_base64: STANDARD.encode(png),
-            width,
-            height,
-        });
-    }
+    crate::commands::store_latest_capture(&state, STANDARD.encode(png), width, height)?;
     crate::commands::open_capture_window(&app_handle)
 }
 

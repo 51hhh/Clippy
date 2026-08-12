@@ -64,6 +64,7 @@ pub struct CapturedScreenshot {
     pub png_base64: String,
     pub width: u32,
     pub height: u32,
+    pub generation: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

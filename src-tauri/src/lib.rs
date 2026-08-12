@@ -18,7 +18,7 @@ mod tray_icon;
 mod window_controller;
 
 use commands::AppState;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
 use tauri_plugin_global_shortcut::ShortcutState;
@@ -97,6 +97,7 @@ pub fn run() {
                 preview_visible: Arc::new(Mutex::new(false)),
                 codec_visible: Arc::new(Mutex::new(false)),
                 latest_capture: Arc::new(Mutex::new(None)),
+                capture_generation: AtomicU64::new(0),
                 capture_manager,
                 pin_manager,
                 paste_manager,

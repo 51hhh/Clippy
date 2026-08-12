@@ -21,11 +21,8 @@ pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
                 capture::handle_overlay_destroyed(window.app_handle(), &state, window.label());
             }
         }
-        tauri::WindowEvent::Destroyed if window.label() == "capture" => {
-            if let Some(state) = window.app_handle().try_state::<AppState>() {
-                commands::clear_latest_capture(&state);
-            }
-        }
+        // capture 窗口的 pending screenshot 由前端在卸载时携带 generation 清理。
+        // 这里不能无条件清理：窗口复用时旧实例的 Destroyed 事件可能晚于新截图写入。
         tauri::WindowEvent::Destroyed if window.label() == "settings" => {
             if let Some(state) = window.app_handle().try_state::<AppState>() {
                 if let Err(error) = commands::resume_shortcuts_for_app(window.app_handle(), &state)
