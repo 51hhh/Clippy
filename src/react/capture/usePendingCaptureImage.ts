@@ -24,6 +24,7 @@ export function usePendingCaptureImage({
   const imageObjectUrlRef = useRef<string | null>(null);
   const onImageReadyRef = useRef(onImageReady);
   const onStatusRef = useRef(onStatus);
+  const pendingCaptureGenerationRef = useRef<number | null>(null);
   const captureLoader = useMemo(() => createLatestCaptureLoader(getPendingCapture), []);
   const [pendingCapture, setPendingCapture] = useState<CapturedScreenshot | null>(null);
   const [imageReady, setImageReady] = useState(false);
@@ -42,6 +43,7 @@ export function usePendingCaptureImage({
       .load()
       .then((result) => {
         if (!result.applied) return;
+        pendingCaptureGenerationRef.current = result.value.generation;
         setPendingCapture(result.value);
         onStatusRef.current("Ready");
       })
@@ -83,7 +85,8 @@ export function usePendingCaptureImage({
         imageRef.current = null;
       }
       releaseImageObjectUrl();
-      void clearPendingCapture().catch(() => undefined);
+      const generation = pendingCaptureGenerationRef.current;
+      void clearPendingCapture(generation ?? undefined).catch(() => undefined);
     };
   }, [canvasRef, imageRef, releaseImageObjectUrl]);
 

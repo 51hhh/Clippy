@@ -10,7 +10,7 @@ use crate::models::AppConfig;
 use crate::paste::PasteManager;
 use crate::storage::StorageEngine;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex};
 
 pub use capture_editor::*;
@@ -29,6 +29,7 @@ pub struct AppState {
     pub preview_visible: Arc<Mutex<bool>>,
     pub codec_visible: Arc<Mutex<bool>>,
     pub latest_capture: Arc<Mutex<Option<crate::screenshot::CapturedScreenshot>>>,
+    pub capture_generation: AtomicU64,
     pub capture_manager: Arc<crate::capture::CaptureManager>,
     pub pin_manager: Arc<crate::pin::PinManager>,
     pub paste_manager: Arc<PasteManager>,

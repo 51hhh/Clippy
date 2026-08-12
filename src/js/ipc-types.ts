@@ -69,6 +69,7 @@ export interface CapturedScreenshot {
   pngBase64: string;
   width: number;
   height: number;
+  generation: number;
 }
 
 export interface WindowCandidate {

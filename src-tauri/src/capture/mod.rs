@@ -206,15 +206,7 @@ fn execute_action(
         CaptureAction::Edit => {
             let (width, height) =
                 crate::screenshot::png_dimensions(&png).map_err(|error| error.to_string())?;
-            *state
-                .latest_capture
-                .lock()
-                .map_err(|error| error.to_string())? =
-                Some(crate::screenshot::CapturedScreenshot {
-                    png_base64: STANDARD.encode(png),
-                    width,
-                    height,
-                });
+            crate::commands::store_latest_capture(state, STANDARD.encode(png), width, height)?;
             crate::commands::open_capture_window(app_handle)?;
             Ok(action_result("edit", None, None))
         }
