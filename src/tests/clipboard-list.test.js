@@ -293,9 +293,16 @@ describe("clipboard 差量行渲染", () => {
   it("相同条目序列切换收藏面板时同步布局 class", () => {
     const row = document.createElement("article");
     row.className = "clip-row favorites-mode";
+    const trigger = document.createElement("button");
+    trigger.className = "clip-row-trigger";
+    const actions = document.createElement("div");
+    actions.className = "clip-row-actions";
     const favorite = document.createElement("button");
     favorite.dataset.action = "favorite";
-    row.appendChild(favorite);
+    actions.appendChild(favorite);
+    const main = document.createElement("div");
+    main.className = "clip-row-main";
+    row.append(trigger, actions, main);
 
     syncClipboardRow(
       row,
@@ -305,6 +312,7 @@ describe("clipboard 差量行渲染", () => {
       "all",
     );
     expect(row.classList.contains("favorites-mode")).toBe(false);
+    expect([...row.children]).toEqual([main, actions, trigger]);
 
     syncClipboardRow(
       row,
@@ -314,6 +322,7 @@ describe("clipboard 差量行渲染", () => {
       "favorites",
     );
     expect(row.classList.contains("favorites-mode")).toBe(true);
+    expect([...row.children]).toEqual([trigger, actions, main]);
   });
 });
 
