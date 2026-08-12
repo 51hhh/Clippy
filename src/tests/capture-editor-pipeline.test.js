@@ -11,7 +11,10 @@ import {
   pngBase64ToBytes,
   stripPngDataUrl,
 } from "../react/capture/pngPipeline.ts";
-import { createLatestCaptureLoader } from "../react/capture/pendingCaptureLoader.ts";
+import {
+  createCaptureGenerationTracker,
+  createLatestCaptureLoader,
+} from "../react/capture/pendingCaptureLoader.ts";
 
 function deferred() {
   let resolve;
@@ -75,6 +78,32 @@ describe("capture editor PNG pipeline", () => {
 });
 
 describe("pending capture request ordering", () => {
+  it("keeps cleanup responsibility until the generation is released", () => {
+    const tracker = createCaptureGenerationTracker();
+
+    expect(tracker.track(7)).toBe(true);
+    tracker.release(7);
+    expect(tracker.pending()).toEqual([]);
+    expect(tracker.track(7)).toBe(true);
+    expect(tracker.pending()).toEqual([7]);
+    expect(tracker.pending()).toEqual([7]);
+    expect(tracker.track(0)).toBe(false);
+  });
+
+  it("forwards the requested generation to the pending capture call", async () => {
+    const calls = [];
+    const loader = createLatestCaptureLoader((generation) => {
+      calls.push(generation);
+      return Promise.resolve({ generation });
+    });
+
+    await expect(loader.load(11)).resolves.toEqual({
+      applied: true,
+      value: { generation: 11 },
+    });
+    expect(calls).toEqual([11]);
+  });
+
   it("applies only the newest response when an older request resolves later", async () => {
     const first = deferred();
     const second = deferred();

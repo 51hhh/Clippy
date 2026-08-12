@@ -30,6 +30,8 @@ pub struct AppState {
     pub codec_visible: Arc<Mutex<bool>>,
     pub latest_capture: Arc<Mutex<Option<crate::screenshot::CapturedScreenshot>>>,
     pub capture_generation: AtomicU64,
+    pub capture_window_generation: AtomicU64,
+    pub capture_editor_transition: Mutex<()>,
     pub capture_manager: Arc<crate::capture::CaptureManager>,
     pub pin_manager: Arc<crate::pin::PinManager>,
     pub paste_manager: Arc<PasteManager>,

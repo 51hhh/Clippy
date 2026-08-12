@@ -83,7 +83,7 @@ export function App() {
   });
   const { draft } = interactions;
 
-  const { imageReady, pendingCapture } = usePendingCaptureImage({
+  const { imageReady, pendingCapture, releaseImage } = usePendingCaptureImage({
     canvasRef,
     imageRef,
     onImageReady: (image) => {
@@ -177,6 +177,11 @@ export function App() {
     setStatus("Select an area");
   }
 
+  function closeEditor() {
+    releaseImage();
+    void closeCurrentWindow();
+  }
+
   function updateSelectedStyle(update: { color?: string; size?: number; text?: string }) {
     if (!selectedAnnotationId) return;
     commitAnnotations((items) =>
@@ -244,7 +249,7 @@ export function App() {
 
   return (
     <main className="capture-app">
-      <EditorHeader busy={busy} onRecapture={() => void recapture()} onClose={() => void closeCurrentWindow()} />
+      <EditorHeader busy={busy} onRecapture={() => void recapture()} onClose={closeEditor} />
 
       <section className="capture-body">
         <EditorSidebar

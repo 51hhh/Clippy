@@ -267,8 +267,13 @@ pub fn edit_pin(
     let png = image_bytes(&state.pin_manager.get(&label)?)?;
     let (width, height) =
         crate::screenshot::png_dimensions(&png).map_err(|error| error.to_string())?;
-    crate::commands::store_latest_capture(&state, STANDARD.encode(png), width, height)?;
-    crate::commands::open_capture_window(&app_handle)
+    crate::commands::queue_capture_for_editor(
+        &app_handle,
+        &state,
+        STANDARD.encode(png),
+        width,
+        height,
+    )
 }
 
 #[tauri::command]
