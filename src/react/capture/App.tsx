@@ -1,90 +1,29 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  clearPendingCapture,
   closeCurrentWindow,
   copyScreenshotImage,
-  getPendingCapture,
-  onCaptureLoaded,
   pinScreenshotImage,
   saveScreenshotImage,
   showCaptureEditor,
 } from "../../js/api.ts";
-import {
-  DEFAULT_IMAGE_ADJUSTMENTS,
-} from "./imageAdjustments";
-import { drawScene, renderExport, type RenderViewport } from "./canvasRenderer";
+import { drawScene } from "./canvasRenderer";
+import { useCaptureViewport } from "./captureViewport";
 import { EditorFooter, EditorHeader } from "./EditorChrome";
 import { EditorSidebar } from "./EditorSidebar";
+import { DEFAULT_IMAGE_ADJUSTMENTS } from "./imageAdjustments";
+import { exportPngBase64, isExportSelection } from "./pngPipeline";
 import { useCanvasInteractions } from "./useCanvasInteractions";
 import { useHistory } from "./useHistory";
-import type { Annotation, CapturedScreenshot, EditorDocument, Rect, Tool } from "./types";
-
-const MIN_ZOOM = 0.25;
-const MAX_ZOOM = 6;
+import { usePendingCaptureImage } from "./usePendingCaptureImage";
+import type { Annotation, EditorDocument, Rect, Tool } from "./types";
 
 const DEFAULT_COLOR = "#ff3b30";
-
-function clampZoom(value: number) {
-  return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value));
-}
-
-function buildViewport(stage: HTMLElement, image: HTMLImageElement, zoom: number): RenderViewport {
-  const maxWidth = Math.max(320, stage.clientWidth - 24);
-  const maxHeight = Math.max(240, stage.clientHeight - 24);
-  const fitScale = Math.min(maxWidth / image.naturalWidth, maxHeight / image.naturalHeight, 1);
-  const safeZoom = clampZoom(zoom);
-  const scale = Math.max(0.01, fitScale * safeZoom);
-  return {
-    width: Math.max(1, Math.round(image.naturalWidth * scale)),
-    height: Math.max(1, Math.round(image.naturalHeight * scale)),
-    fitScale,
-    zoom: safeZoom,
-    scale,
-  };
-}
-
-function isExportSelection(selection: Rect | null): selection is Rect {
-  return !!selection && selection.width >= 3 && selection.height >= 3;
-}
-
-function toPngBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error);
-    reader.onload = () => {
-      const result = String(reader.result || "");
-      resolve(result.replace(/^data:image\/png;base64,/, ""));
-    };
-    reader.readAsDataURL(blob);
-  });
-}
-
-function pngBase64ToObjectUrl(pngBase64: string): string {
-  const binary = atob(pngBase64);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
-}
 
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
-  const imageObjectUrlRef = useRef<string | null>(null);
-  const zoomRef = useRef(1);
-  const pendingZoomRef = useRef<number | null>(null);
-  const wheelFrameRef = useRef<number | null>(null);
-  const [capture, setCapture] = useState<CapturedScreenshot | null>(null);
-  const [imageReady, setImageReady] = useState(false);
-  const [viewport, setViewport] = useState<RenderViewport>({
-    width: 1,
-    height: 1,
-    fitScale: 1,
-    zoom: 1,
-    scale: 1,
-  });
+  const { viewport, updateViewport } = useCaptureViewport(stageRef, imageRef);
   const [selection, setSelection] = useState<Rect | null>(null);
   const [tool, setTool] = useState<Tool>("object");
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
@@ -144,12 +83,20 @@ export function App() {
   });
   const { draft } = interactions;
 
-  function releaseImageObjectUrl() {
-    if (imageObjectUrlRef.current) {
-      URL.revokeObjectURL(imageObjectUrlRef.current);
-      imageObjectUrlRef.current = null;
-    }
-  }
+  const { imageReady, pendingCapture } = usePendingCaptureImage({
+    canvasRef,
+    imageRef,
+    onImageReady: (image) => {
+      setSelection({ x: 0, y: 0, width: image.naturalWidth, height: image.naturalHeight });
+      resetDocument({ annotations: [], adjustments: DEFAULT_IMAGE_ADJUSTMENTS });
+      interactions.resetInteraction();
+      setSelectedAnnotationId(null);
+      setTool("object");
+      setStatus("Ready");
+      updateViewport(1);
+    },
+    onStatus: setStatus,
+  });
 
   const activeImage = imageReady ? imageRef.current : null;
   const exportRect = useMemo(() => {
@@ -157,162 +104,6 @@ export function App() {
     return isExportSelection(selection) ? selection : null;
   }, [activeImage, imageReady, selection]);
   const canExport = !!activeImage && !!exportRect && !busy;
-
-  useEffect(() => {
-    zoomRef.current = viewport.zoom;
-  }, [viewport.zoom]);
-
-  const loadPendingCapture = useCallback((cancelledRef?: { current: boolean }) => {
-    getPendingCapture()
-      .then((payload: CapturedScreenshot) => {
-        if (cancelledRef?.current) return;
-        setCapture(payload);
-        setStatus("Ready");
-      })
-      .catch((err: unknown) => {
-        if (cancelledRef?.current) return;
-        console.error(err);
-        setStatus("Failed to load screenshot");
-      });
-  }, []);
-
-  useEffect(() => {
-    const cancelledRef = { current: false };
-    loadPendingCapture(cancelledRef);
-    return () => {
-      cancelledRef.current = true;
-    };
-  }, [loadPendingCapture]);
-
-  useEffect(() => {
-    let disposed = false;
-    let unlisten: (() => void) | undefined;
-    onCaptureLoaded(() => loadPendingCapture())
-      .then((cleanup) => {
-        if (disposed) cleanup();
-        else unlisten = cleanup;
-      })
-      .catch((error) => console.warn("Failed to subscribe to capture updates", error));
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, [loadPendingCapture]);
-
-  useEffect(() => {
-    return () => {
-      if (wheelFrameRef.current !== null) {
-        cancelAnimationFrame(wheelFrameRef.current);
-        wheelFrameRef.current = null;
-      }
-      const canvas = canvasRef.current;
-      if (canvas) {
-        canvas.width = 1;
-        canvas.height = 1;
-      }
-      if (imageRef.current) {
-        imageRef.current.src = "";
-        imageRef.current = null;
-      }
-      releaseImageObjectUrl();
-      void clearPendingCapture().catch(() => undefined);
-    };
-  }, []);
-
-  const updateViewport = useCallback((zoomOverride?: number) => {
-    const stage = stageRef.current;
-    const image = imageRef.current;
-    if (!stage || !image) return;
-    setViewport((current) => buildViewport(stage, image, zoomOverride ?? current.zoom));
-  }, []);
-
-  useEffect(() => {
-    if (!capture) return;
-    setImageReady(false);
-    if (imageRef.current) {
-      imageRef.current.src = "";
-      imageRef.current = null;
-    }
-    releaseImageObjectUrl();
-    const image = new Image();
-    let cancelled = false;
-    let objectUrl: string;
-    try {
-      objectUrl = pngBase64ToObjectUrl(capture.pngBase64);
-      imageObjectUrlRef.current = objectUrl;
-    } catch (err) {
-      console.error(err);
-      setStatus("Failed to decode screenshot");
-      setCapture(null);
-      return;
-    }
-    image.onload = () => {
-      if (cancelled) return;
-      imageRef.current = image;
-      setSelection({ x: 0, y: 0, width: image.naturalWidth, height: image.naturalHeight });
-      resetDocument({ annotations: [], adjustments: DEFAULT_IMAGE_ADJUSTMENTS });
-      interactions.resetInteraction();
-      setSelectedAnnotationId(null);
-      setTool("object");
-      setStatus("Ready");
-      setImageReady(true);
-      updateViewport(1);
-      setCapture(null);
-    };
-    image.onerror = () => {
-      if (!cancelled) {
-        setStatus("Failed to decode screenshot");
-        setCapture(null);
-      }
-    };
-    image.src = objectUrl;
-    return () => {
-      cancelled = true;
-      image.onload = null;
-      image.onerror = null;
-      if (imageRef.current !== image) {
-        image.src = "";
-        if (imageObjectUrlRef.current === objectUrl) {
-          releaseImageObjectUrl();
-        } else {
-          URL.revokeObjectURL(objectUrl);
-        }
-      }
-    };
-  }, [capture, resetDocument, updateViewport]);
-
-  useEffect(() => {
-    updateViewport();
-    const stage = stageRef.current;
-    if (!stage || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => updateViewport());
-    observer.observe(stage);
-    return () => observer.disconnect();
-  }, [updateViewport]);
-
-  useEffect(() => {
-    const stage = stageRef.current;
-    if (!stage) return;
-
-    function onWheel(event: WheelEvent) {
-      if (!event.ctrlKey && !event.metaKey) return;
-      event.preventDefault();
-      const baseZoom = pendingZoomRef.current ?? zoomRef.current;
-      const nextZoom = clampZoom(baseZoom * Math.exp(-event.deltaY * 0.002));
-      pendingZoomRef.current = nextZoom;
-      zoomRef.current = nextZoom;
-      if (wheelFrameRef.current !== null) return;
-      wheelFrameRef.current = requestAnimationFrame(() => {
-        wheelFrameRef.current = null;
-        const zoom = pendingZoomRef.current;
-        pendingZoomRef.current = null;
-        if (zoom !== null) updateViewport(zoom);
-      });
-    }
-
-    stage.addEventListener("wheel", onWheel, { passive: false });
-    return () => stage.removeEventListener("wheel", onWheel);
-  }, [updateViewport]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -334,29 +125,7 @@ export function App() {
       adjustments,
       selectedAnnotationId,
     );
-  }, [viewport, selection, annotations, draft, adjustments, capture, selectedAnnotationId]);
-
-  async function exportPngBase64(): Promise<string> {
-    const image = imageRef.current;
-    if (!image) throw new Error("No screenshot loaded");
-    if (!exportRect) throw new Error("Select an area first");
-    const crop = exportRect;
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(crop.width));
-    canvas.height = Math.max(1, Math.round(crop.height));
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("Canvas is not available");
-
-    renderExport(ctx, image, crop, annotations, adjustments);
-
-    const blob = await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob((result) => {
-        if (result) resolve(result);
-        else reject(new Error("Failed to export PNG"));
-      }, "image/png");
-    });
-    return toPngBase64(blob);
-  }
+  }, [viewport, selection, annotations, draft, adjustments, pendingCapture, selectedAnnotationId]);
 
   async function runExport(action: "copy" | "save" | "pin") {
     if (!canExport) return;
@@ -364,7 +133,10 @@ export function App() {
     setStatus(action === "copy" ? "Copying..." : action === "save" ? "Saving..." : "Pinning...");
     try {
       await new Promise((resolve) => requestAnimationFrame(resolve));
-      const pngBase64 = await exportPngBase64();
+      const image = imageRef.current;
+      if (!image) throw new Error("No screenshot loaded");
+      if (!exportRect) throw new Error("Select an area first");
+      const pngBase64 = await exportPngBase64(image, exportRect, annotations, adjustments);
       if (action === "copy") {
         await copyScreenshotImage(pngBase64);
         setStatus("Copied");

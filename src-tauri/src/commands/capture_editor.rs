@@ -1,4 +1,5 @@
 use super::AppState;
+use std::sync::Mutex;
 use tauri::{Emitter, Manager, State};
 
 /// 启动冻结屏幕截图覆盖层。
@@ -47,11 +48,18 @@ pub(crate) fn open_capture_window(app_handle: &tauri::AppHandle) -> Result<(), S
 pub fn get_pending_capture(
     state: State<AppState>,
 ) -> Result<crate::screenshot::CapturedScreenshot, String> {
-    state
-        .latest_capture
+    read_latest_capture(&state.latest_capture)
+}
+
+/// 读取截图而不消费它，允许初始化请求和 capture-loaded 事件请求安全重叠。
+/// 生命周期结束时由 clear_pending_capture 或窗口销毁事件统一清理。
+pub(crate) fn read_latest_capture(
+    latest_capture: &Mutex<Option<crate::screenshot::CapturedScreenshot>>,
+) -> Result<crate::screenshot::CapturedScreenshot, String> {
+    latest_capture
         .lock()
-        .map_err(|e| e.to_string())?
-        .take()
+        .map_err(|error| error.to_string())?
+        .clone()
         .ok_or_else(|| "没有待编辑截图".to_string())
 }
 
@@ -89,6 +97,10 @@ pub fn save_screenshot_image(png_base64: String) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    use super::read_latest_capture;
+    use crate::screenshot::CapturedScreenshot;
+    use std::sync::Mutex;
+
     #[test]
     fn default_capability_includes_capture_window() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -103,5 +115,21 @@ mod tests {
             .expect("default capability should list windows");
 
         assert!(windows.iter().any(|item| item == "capture"));
+    }
+
+    #[test]
+    fn reading_pending_capture_does_not_consume_the_latest_image() {
+        let latest = Mutex::new(Some(CapturedScreenshot {
+            png_base64: "cG5n".to_string(),
+            width: 8,
+            height: 6,
+        }));
+
+        let first = read_latest_capture(&latest).expect("first read should succeed");
+        let second = read_latest_capture(&latest).expect("overlapping read should also succeed");
+
+        assert_eq!(first.png_base64, second.png_base64);
+        assert_eq!((first.width, first.height), (8, 6));
+        assert_eq!((second.width, second.height), (8, 6));
     }
 }
