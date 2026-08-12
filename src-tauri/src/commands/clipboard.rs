@@ -89,6 +89,19 @@ pub fn copy_clip(id: i64, state: State<AppState>) -> Result<(), String> {
     write_clip_to_clipboard(id, &state)
 }
 
+/// 仅将用户明确请求的文本写入系统剪贴板。
+///
+/// 该路径不会创建历史条目，也不会触发自动粘贴；watcher 会跳过本次写入，
+/// 因此翻译/OCR/编解码结果不会反过来污染剪贴板历史。
+#[tauri::command]
+pub fn copy_text(text: String, state: State<AppState>) -> Result<(), String> {
+    use sha2::{Digest, Sha256};
+
+    let hash = format!("{:x}", Sha256::new_with_prefix(text.as_bytes()).finalize());
+    state.watcher.set_skip_hash(hash);
+    crate::clipboard_watcher::clipboard_set_text_with_retry(&text)
+}
+
 pub(crate) fn write_clip_to_clipboard(id: i64, state: &AppState) -> Result<(), String> {
     let clip = {
         let storage = state.storage.lock().map_err(|e| e.to_string())?;

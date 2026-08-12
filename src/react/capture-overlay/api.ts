@@ -1,5 +1,6 @@
 import {
   cancelCaptureOverlay,
+  copyText,
   getCaptureOverlay,
   runCaptureAction,
   translateCaptureSelection,
@@ -19,4 +20,5 @@ export const overlayApi = {
     runCaptureAction(action, selection),
   translate: (selection: CaptureSelection): Promise<CaptureTranslationResult> =>
     translateCaptureSelection(selection),
+  copyText: (text: string): Promise<void> => copyText(text),
 };

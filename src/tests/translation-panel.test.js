@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { translateClip } = vi.hoisted(() => ({ translateClip: vi.fn() }));
+const { copyText, translateClip } = vi.hoisted(() => ({
+  copyText: vi.fn(),
+  translateClip: vi.fn(),
+}));
 
-vi.mock("../js/api.ts", () => ({ translateClip }));
+vi.mock("../js/api.ts", () => ({ copyText, translateClip }));
 
 import * as i18n from "../i18n/i18n.js";
 import * as translationPanel from "../js/translation-panel.js";
@@ -45,6 +48,7 @@ async function flushPromises() {
 describe("translation panel", () => {
   beforeEach(() => {
     translateClip.mockReset();
+    copyText.mockReset();
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: { writeText: vi.fn().mockResolvedValue(undefined) },
@@ -141,7 +145,7 @@ describe("translation panel", () => {
       .toBe("Translation is temporarily unavailable");
   });
 
-  it("copies the rendered result through navigator.clipboard", async () => {
+  it("copies the rendered result through the non-pasting IPC path", async () => {
     translateClip.mockResolvedValue({ translated_text: "Copied result" });
     translationPanel.updateClip(clip(18));
     document.getElementById("translation-action").click();
@@ -149,8 +153,9 @@ describe("translation panel", () => {
     document.getElementById("translation-copy").click();
     await flushPromises();
 
-    expect(navigator.clipboard.writeText).toHaveBeenCalledOnce();
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("Copied result");
+    expect(copyText).toHaveBeenCalledOnce();
+    expect(copyText).toHaveBeenCalledWith("Copied result");
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
   });
 });
 

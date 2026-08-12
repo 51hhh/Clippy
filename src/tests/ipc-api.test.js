@@ -34,6 +34,7 @@ vi.mock("@tauri-apps/plugin-autostart", () => ({
 
 import {
   cancelCaptureOverlay,
+  copyText,
   closeCurrentWindow,
   copyScreenshotImage,
   disableAutostart,
@@ -70,6 +71,11 @@ describe("typed IPC wrappers", () => {
       offset: 8,
       limit: 40,
     });
+  });
+
+  it("uses the explicit text-copy command without paste side effects", () => {
+    copyText("translated result");
+    expect(invoke).toHaveBeenCalledWith("copy_text", { text: "translated result" });
   });
 
   it("sends AppConfig through the stable newConfig argument", () => {
