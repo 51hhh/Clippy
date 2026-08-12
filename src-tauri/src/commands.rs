@@ -10,6 +10,7 @@ use crate::models::AppConfig;
 use crate::paste::PasteManager;
 use crate::storage::StorageEngine;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 pub use capture_editor::*;
@@ -32,4 +33,6 @@ pub struct AppState {
     pub pin_manager: Arc<crate::pin::PinManager>,
     pub paste_manager: Arc<PasteManager>,
     pub translation: Arc<crate::translation::TranslationService>,
+    pub shortcuts_paused: AtomicBool,
+    pub shortcut_transition: Mutex<()>,
 }

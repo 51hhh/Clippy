@@ -1,6 +1,7 @@
 use super::AppState;
 use crate::config::save_config;
 use crate::models::AppConfig;
+use std::sync::atomic::Ordering;
 use tauri::{Emitter, Manager, State};
 
 const WINDOW_WIDTH_DEFAULT: f64 = 380.0;
@@ -165,7 +166,26 @@ pub fn show_settings(app_handle: tauri::AppHandle) -> Result<(), String> {
 
 /// 暂停全局快捷键，供快捷键录制使用。
 #[tauri::command]
-pub fn pause_shortcuts(app_handle: tauri::AppHandle) -> Result<(), String> {
+pub fn pause_shortcuts(app_handle: tauri::AppHandle, state: State<AppState>) -> Result<(), String> {
+    {
+        let _transition = state
+            .shortcut_transition
+            .lock()
+            .map_err(|e| e.to_string())?;
+        if !state.shortcuts_paused.load(Ordering::Acquire) {
+            pause_shortcuts_for_platform(&app_handle)?;
+            state.shortcuts_paused.store(true, Ordering::Release);
+        }
+    }
+
+    // 原生关闭可能早于 pause command 完成；窗口已销毁时在这里补偿恢复。
+    if app_handle.get_webview_window("settings").is_none() {
+        resume_shortcuts_for_app(&app_handle, &state)?;
+    }
+    Ok(())
+}
+
+fn pause_shortcuts_for_platform(app_handle: &tauri::AppHandle) -> Result<(), String> {
     if crate::gsettings_shortcuts::is_wayland() {
         crate::gsettings_shortcuts::pause().map_err(|e| e.to_string())
     } else {
@@ -177,25 +197,55 @@ pub fn pause_shortcuts(app_handle: tauri::AppHandle) -> Result<(), String> {
     }
 }
 
-/// 恢复全局快捷键。
-#[tauri::command]
-pub fn resume_shortcuts(
-    app_handle: tauri::AppHandle,
-    state: State<AppState>,
+/// 幂等恢复全局快捷键，供 IPC 与设置窗口销毁兜底共用。
+pub(crate) fn resume_shortcuts_for_app(
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
 ) -> Result<(), String> {
+    let _transition = state
+        .shortcut_transition
+        .lock()
+        .map_err(|e| e.to_string())?;
+    if !claim_shortcuts_resume(&state.shortcuts_paused) {
+        return Ok(());
+    }
+
     let config = {
-        let config = state.config.lock().map_err(|e| e.to_string())?;
-        config.clone()
+        match state.config.lock() {
+            Ok(config) => config.clone(),
+            Err(error) => {
+                state.shortcuts_paused.store(true, Ordering::Release);
+                return Err(error.to_string());
+            }
+        }
     };
-    if crate::gsettings_shortcuts::is_wayland() {
+
+    let result = if crate::gsettings_shortcuts::is_wayland() {
         crate::gsettings_shortcuts::resume(
             &config.global_shortcut,
             &config.pin_shortcut,
             &config.capture_shortcut,
         )
     } else {
-        crate::register_x11_shortcuts(&app_handle, &config)
+        crate::register_x11_shortcuts(app_handle, &config)
+    };
+    if result.is_err() {
+        state.shortcuts_paused.store(true, Ordering::Release);
     }
+    result
+}
+
+fn claim_shortcuts_resume(shortcuts_paused: &std::sync::atomic::AtomicBool) -> bool {
+    shortcuts_paused.swap(false, Ordering::AcqRel)
+}
+
+/// 恢复全局快捷键。
+#[tauri::command]
+pub fn resume_shortcuts(
+    app_handle: tauri::AppHandle,
+    state: State<AppState>,
+) -> Result<(), String> {
+    resume_shortcuts_for_app(&app_handle, &state)
 }
 
 /// 检测安装类型：AppImage 支持自动更新，deb/dev 不支持。
@@ -217,5 +267,20 @@ pub fn is_dev_binary() -> bool {
             path.contains("/target/debug/") || path.contains("/target/release/")
         }
         Err(_) => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::claim_shortcuts_resume;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[test]
+    fn resume_claim_is_idempotent() {
+        let paused = AtomicBool::new(true);
+
+        assert!(claim_shortcuts_resume(&paused));
+        assert!(!claim_shortcuts_resume(&paused));
+        assert!(!paused.load(Ordering::Acquire));
     }
 }

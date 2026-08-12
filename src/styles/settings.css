@@ -567,6 +567,11 @@ html, body {
   display: none !important;
 }
 
+/* WebKitGTK 中作者级 display 规则可能覆盖 hidden 的 UA 样式。 */
+[hidden] {
+  display: none !important;
+}
+
 @media (max-width: 480px) {
   .settings-container {
     padding: 20px 16px;
