@@ -4,9 +4,16 @@ use tauri::Manager;
 
 pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
     match event {
-        tauri::WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
+        tauri::WindowEvent::CloseRequested { api, .. }
+            if hides_instead_of_closing(window.label()) =>
+        {
             api.prevent_close();
             let _ = window.hide();
+            if window.label() == "capture" {
+                if let Some(state) = window.app_handle().try_state::<AppState>() {
+                    commands::release_capture_window(window.app_handle(), &state);
+                }
+            }
         }
         tauri::WindowEvent::Focused(false) if window.label() == "main" => {
             hide_main_after_focus_loss(window.clone());
@@ -21,8 +28,6 @@ pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
                 capture::handle_overlay_destroyed(window.app_handle(), &state, window.label());
             }
         }
-        // capture 窗口的 pending screenshot 由前端在卸载时携带 generation 清理。
-        // 这里不能无条件清理：窗口复用时旧实例的 Destroyed 事件可能晚于新截图写入。
         tauri::WindowEvent::Destroyed if window.label() == "settings" => {
             if let Some(state) = window.app_handle().try_state::<AppState>() {
                 if let Err(error) = commands::resume_shortcuts_for_app(window.app_handle(), &state)
@@ -33,6 +38,10 @@ pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
         }
         _ => {}
     }
+}
+
+fn hides_instead_of_closing(label: &str) -> bool {
+    matches!(label, "main" | "capture")
 }
 
 fn hide_main_after_focus_loss(window: tauri::Window) {
@@ -53,4 +62,17 @@ fn hide_main_after_focus_loss(window: tauri::Window) {
         }
         let _ = window.hide();
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hides_instead_of_closing;
+
+    #[test]
+    fn reusable_windows_hide_instead_of_entering_a_destroy_race() {
+        assert!(hides_instead_of_closing("main"));
+        assert!(hides_instead_of_closing("capture"));
+        assert!(!hides_instead_of_closing("settings"));
+        assert!(!hides_instead_of_closing("pin-1"));
+    }
 }

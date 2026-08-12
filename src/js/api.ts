@@ -256,6 +256,14 @@ export function closeCurrentWindow(): Promise<void> {
   return getCurrentWindow().close();
 }
 
+/** 监听当前窗口的原生关闭请求。 */
+export function onCurrentWindowCloseRequested(callback: () => void): Promise<UnlistenFn> {
+  return getCurrentWindow().onCloseRequested((event) => {
+    event.preventDefault();
+    callback();
+  });
+}
+
 /** 开启登录时自动启动。 */
 export function enableAutostart(): Promise<void> {
   return enableAutostartPlugin();
@@ -272,13 +280,13 @@ export function isAutostartEnabled(): Promise<boolean> {
 }
 
 /** 读取待编辑截图 */
-export function getPendingCapture(): Promise<CapturedScreenshot> {
-  return invoke<CapturedScreenshot>("get_pending_capture");
+export function getPendingCapture(generation: number): Promise<CapturedScreenshot> {
+  return invoke<CapturedScreenshot>("get_pending_capture", { generation });
 }
 
 /** 清理未消费的待编辑截图 */
-export function clearPendingCapture(generation?: number): Promise<void> {
-  return invoke<void>("clear_pending_capture", { generation: generation ?? null });
+export function clearPendingCapture(generation: number): Promise<void> {
+  return invoke<void>("clear_pending_capture", { generation });
 }
 
 /** 复制截图编辑器导出的 PNG */
@@ -391,10 +399,6 @@ export function onShortcutRegisterFailed(
 
 export function onPinCurrent(callback: () => void): Promise<UnlistenFn> {
   return listen<null>("pin-current", () => callback());
-}
-
-export function onCaptureLoaded(callback: () => void): Promise<UnlistenFn> {
-  return listen<null>("capture-loaded", () => callback());
 }
 
 // -- 更新相关（懒加载，避免 settings 窗口因 plugin 未就绪而阻塞） --

@@ -2,10 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObjec
 import {
   clearPendingCapture,
   getPendingCapture,
-  onCaptureLoaded,
+  onCurrentWindowCloseRequested,
 } from "../../js/api.ts";
 import { pngBase64ToObjectUrl } from "./pngPipeline";
-import { createLatestCaptureLoader } from "./pendingCaptureLoader";
+import {
+  createCaptureGenerationTracker,
+  createLatestCaptureLoader,
+} from "./pendingCaptureLoader";
 import type { CapturedScreenshot } from "./types";
 
 type Params = {
@@ -14,6 +17,13 @@ type Params = {
   onImageReady: (image: HTMLImageElement) => void;
   onStatus: (status: string) => void;
 };
+
+function initialCaptureGeneration(): number | null {
+  const raw = new URLSearchParams(window.location.search).get("generation");
+  if (!raw) return null;
+  const generation = Number(raw);
+  return Number.isSafeInteger(generation) && generation > 0 ? generation : null;
+}
 
 export function usePendingCaptureImage({
   canvasRef,
@@ -24,7 +34,7 @@ export function usePendingCaptureImage({
   const imageObjectUrlRef = useRef<string | null>(null);
   const onImageReadyRef = useRef(onImageReady);
   const onStatusRef = useRef(onStatus);
-  const pendingCaptureGenerationRef = useRef<number | null>(null);
+  const generationTracker = useMemo(() => createCaptureGenerationTracker(), []);
   const captureLoader = useMemo(() => createLatestCaptureLoader(getPendingCapture), []);
   const [pendingCapture, setPendingCapture] = useState<CapturedScreenshot | null>(null);
   const [imageReady, setImageReady] = useState(false);
@@ -38,57 +48,79 @@ export function usePendingCaptureImage({
     }
   }, []);
 
-  const loadPendingCapture = useCallback(() => {
+  const releaseImage = useCallback(() => {
+    captureLoader.invalidate();
+    setPendingCapture(null);
+    setImageReady(false);
+    const canvas = canvasRef.current;
+    if (canvas) {
+      canvas.width = 1;
+      canvas.height = 1;
+    }
+    if (imageRef.current) {
+      imageRef.current.src = "";
+      imageRef.current = null;
+    }
+    releaseImageObjectUrl();
+    generationTracker.pending().forEach((generation) => {
+      void clearPendingCapture(generation)
+        .then(() => generationTracker.release(generation))
+        .catch(() => undefined);
+    });
+  }, [canvasRef, captureLoader, generationTracker, imageRef, releaseImageObjectUrl]);
+
+  const loadPendingCapture = useCallback((generation: number) => {
+    if (!generationTracker.track(generation)) {
+      onStatusRef.current("Failed to load screenshot");
+      return;
+    }
     void captureLoader
-      .load()
+      .load(generation)
       .then((result) => {
         if (!result.applied) return;
-        pendingCaptureGenerationRef.current = result.value.generation;
         setPendingCapture(result.value);
         onStatusRef.current("Ready");
+        void clearPendingCapture(result.value.generation)
+          .then(() => generationTracker.release(generation))
+          .catch(() => undefined);
       })
       .catch((error: unknown) => {
         console.error(error);
         onStatusRef.current("Failed to load screenshot");
       });
-  }, [captureLoader]);
+  }, [captureLoader, generationTracker]);
 
   useEffect(() => {
-    loadPendingCapture();
-    return () => captureLoader.invalidate();
-  }, [captureLoader, loadPendingCapture]);
+    const generation = initialCaptureGeneration();
+    if (generation) loadPendingCapture(generation);
+  }, [loadPendingCapture]);
 
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
-    onCaptureLoaded(() => loadPendingCapture())
+    onCurrentWindowCloseRequested(releaseImage)
       .then((cleanup) => {
-        if (disposed) cleanup();
-        else unlisten = cleanup;
+        if (disposed) {
+          cleanup();
+          return;
+        }
+        unlisten = cleanup;
       })
-      .catch((error) => console.warn("Failed to subscribe to capture updates", error));
+      .catch((error) => {
+        console.warn("Failed to subscribe to capture close requests", error);
+      });
     return () => {
       disposed = true;
+      captureLoader.invalidate();
       unlisten?.();
     };
-  }, [loadPendingCapture]);
+  }, [captureLoader, releaseImage]);
 
   useEffect(() => {
     return () => {
-      const canvas = canvasRef.current;
-      if (canvas) {
-        canvas.width = 1;
-        canvas.height = 1;
-      }
-      if (imageRef.current) {
-        imageRef.current.src = "";
-        imageRef.current = null;
-      }
-      releaseImageObjectUrl();
-      const generation = pendingCaptureGenerationRef.current;
-      void clearPendingCapture(generation ?? undefined).catch(() => undefined);
+      releaseImage();
     };
-  }, [canvasRef, imageRef, releaseImageObjectUrl]);
+  }, [releaseImage]);
 
   useEffect(() => {
     if (!pendingCapture) return;
@@ -139,5 +171,5 @@ export function usePendingCaptureImage({
     };
   }, [imageRef, pendingCapture, releaseImageObjectUrl]);
 
-  return { imageReady, pendingCapture };
+  return { imageReady, pendingCapture, releaseImage };
 }
