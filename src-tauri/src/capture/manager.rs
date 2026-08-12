@@ -251,4 +251,51 @@ mod tests {
         assert!(manager.crop(&selection).is_ok());
         assert!(manager.payload(&label).is_ok());
     }
+
+    #[test]
+    fn failed_crop_can_finish_its_session() {
+        let manager = CaptureManager::new();
+        let label = "capture-overlay-session-1-7".to_string();
+        *manager.session.lock().unwrap() = Some(CaptureSession {
+            id: "session-1".to_string(),
+            overlay_labels: vec![label.clone()],
+            restore_labels: vec!["main".to_string()],
+            frames: vec![frame(1.0)],
+            windows: HashMap::new(),
+        });
+        let selection = CaptureSelection {
+            session_id: "session-1".to_string(),
+            monitor_id: 7,
+            x: 0.0,
+            y: 0.0,
+            width: 1.0,
+            height: 10.0,
+        };
+
+        assert_eq!(manager.crop(&selection).unwrap_err(), "截图选择区域太小");
+        let session = manager.finish(&selection.session_id).unwrap();
+        assert_eq!(session.overlay_labels, vec![label.clone()]);
+        assert_eq!(session.restore_labels, vec!["main"]);
+        assert!(manager.payload(&label).is_err());
+    }
+
+    #[test]
+    fn finish_mismatch_preserves_newer_session() {
+        let manager = CaptureManager::new();
+        let label = "capture-overlay-session-2-7".to_string();
+        *manager.session.lock().unwrap() = Some(CaptureSession {
+            id: "session-2".to_string(),
+            overlay_labels: vec![label.clone()],
+            restore_labels: Vec::new(),
+            frames: vec![frame(1.0)],
+            windows: HashMap::new(),
+        });
+
+        assert_eq!(
+            manager.finish("session-1").err().unwrap(),
+            "截图会话已经更新"
+        );
+        assert!(manager.payload(&label).is_ok());
+        assert_eq!(manager.finish("session-2").unwrap().id, "session-2");
+    }
 }
