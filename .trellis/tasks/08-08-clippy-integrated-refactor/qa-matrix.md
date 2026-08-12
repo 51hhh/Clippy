@@ -8,22 +8,24 @@
 |---|---|---|
 | Rust 格式 | `cargo fmt -- --check` | 通过 |
 | Rust 编译 | `cargo check --all-targets` | 通过 |
-| Rust 测试 | `cargo test`（提权沙箱） | 84 passed；翻译 provider loopback mock 已在允许绑定 localhost 的环境完成 |
+| Rust 测试 | `cargo test` | 94 passed；包含截图动作错误/竞态清理与翻译 provider 回环测试 |
 | Rust lint | `cargo clippy --all-targets -- -D warnings` | 通过 |
 | 本地敏感文件权限 | Rust Unix 回归测试 | `config.json`、`clips.db`、`-wal`、`-shm`、Portal token 均为 `0600`；旧配置/数据库宽松权限可修复 |
 | 前端类型 | `npx tsc --noEmit` | 通过 |
-| 前端测试 | `npx vitest run` | 24 files / 402 passed |
+| 前端测试 | `npx vitest run` | 24 files / 405 passed |
 | 前端构建 | `npx vite build` | 通过，5 个窗口入口均生成 |
-| X11/DOM smoke | `./scripts/smoke-dom.sh` | 当前沙箱因无法连接 Xvfb 跳过；DOM smoke 脚本本身返回成功 |
-| Release X11 startup | release binary + `dbus-run-session` + `xvfb-run`，临时 HOME，12 秒超时 | watcher、SQLite/config、X11 快捷键初始化；无提前崩溃（不等同视觉验收） |
+| X11/DOM smoke | `./scripts/smoke-dom.sh` | 1 file / 7 passed（Xvfb） |
+| Release X11 startup | 最终 AppImage 解包后的 `AppRun` + `dbus-run-session` + `xvfb-run`，临时 HOME/XDG，12 秒超时 | 进程持续运行至预期超时，无提前崩溃；无完整桌面环境产生的 PipeWire/EGL/user-systemd 警告不等同视觉验收 |
+| 截图动作生命周期 | Rust 单元测试 | crop/action 失败会精确结束本代会话、关闭覆盖层并恢复源窗口；并发取消/双动作无法在失去会话所有权后继续产生副作用 |
 | 翻译 provider 回环集成 | `cargo test translation::service::tests`（本地临时 TCP mock） | 9 passed，覆盖 Libre/OpenAI 路径、请求体和认证头 |
 | npm 依赖安全 | `npm audit --json` | 0 vulnerabilities |
-| deb | `cargo tauri build --bundles deb,appimage --no-sign --ci` + `dpkg-deb --info/--contents` | 5,186,910 bytes，版本/依赖/desktop/bin 正确 |
-| AppImage | Tauri AppDir + 缓存内解出的 `linuxdeploy/appimagetool` + SquashFS/`ldd` 检查 | 93,861,056 bytes，x86-64 ELF，依赖无缺失，`.DirIcon` 为相对链接，未签名 |
+| deb | `cargo tauri build --bundles deb,appimage --no-sign --ci` + `dpkg-deb --info/--contents` | 5,190,582 bytes，版本/依赖/desktop/bin 正确 |
+| AppImage | Tauri bundle + `scripts/finalize-appimage.sh` + 最终文件独立 SquashFS 解包/`ldd` 检查 | 85,121,528 bytes，x86-64 ELF，依赖无缺失，镜像内 `.DirIcon -> Clippy.png`，本地未签名 |
 
 产物校验：
 
-- deb/AppImage 哈希将在本轮前端重构后的 release 构建完成后回填。
+- deb SHA-256: `de94d862dc28cca5d35c969d98ed2b854bff38b178b3cb1212dffaac2005a17c`
+- AppImage SHA-256: `4ac45a59177c917f76d50551f9ac94d97155fd0ef75c917e2743b981462db7a1`
 - 本地未配置 `TAURI_SIGNING_PRIVATE_KEY`，所以 updater 签名未生成；release workflow 已从 GitHub Actions secret 注入签名密钥。
 
 ## 真实桌面人工矩阵

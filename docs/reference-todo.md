@@ -9,11 +9,11 @@
 - 来源: flashot overlay_window.rs（仅参考置顶思路，不复用全屏 overlay 形态）
 
 ## P1: Pin 窗口管理器 (PinManager)
-- [ ] PinManager (parking_lot::Mutex<HashMap>)
-- [ ] Pin 图片保存到 app_cache_dir/pins/
-- [ ] 窗口销毁时自动清理文件 (on_window_event)
-- [ ] 支持缩放状态跟踪
-- [x] 截图编辑器临时 pin 先用 AppState HashMap 管理，并在窗口销毁时清理
+- [x] PinManager (`std::sync::Mutex<HashMap>`，避免为单一锁引入额外依赖)
+- [x] 图片数据由 PinEntry 内存所有权管理，不生成 app_cache_dir 临时文件
+- [x] 窗口销毁时从 PinManager 自动移除条目 (`on_window_event`)
+- [x] 支持缩放、透明度和锁定状态跟踪
+- [x] 剪贴板与截图 Pin 统一使用 AppState PinManager
 - 来源: flashot pin_mgr.rs
 
 ## P2: 剪贴板写入重试
@@ -32,7 +32,7 @@
 - [x] React/TS 截图编辑功能岛
 - [x] 区域选择、画笔、矩形、箭头、文字、复制/保存/贴图
 - [ ] 滚动截图
-- [ ] 活动窗口自动识别
+- [x] 窗口候选探测与鼠标位置智能命中
 - 来源: flashot capture/, overlay/, annotation/
 
 ## P4: 错误类型化
@@ -46,11 +46,11 @@
 - 来源: translator config.rs, flashot settings_store.rs
 
 ## P6: Release profile 优化
-- [ ] opt-level = "s" 已有
+- [x] opt-level = "s"
 - [x] 使用 lto = "fat" (translator 用法)
 - 来源: translator Cargo.toml
 
 ## P7: ci-local.sh 增强
-- [ ] 添加 smoke check (Linux platform API 编译验证)
+- [x] 添加 DOM/Xvfb smoke 与 Linux 全目标编译检查
 - [ ] require_cmd 检查
 - 来源: flashot scripts/ci-local.sh
