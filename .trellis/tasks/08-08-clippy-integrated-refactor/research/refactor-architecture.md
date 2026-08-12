@@ -67,12 +67,13 @@ src/react/
 - React 拥有短期 UI 状态、选区交互、编辑对象和展示状态。
 - IPC payload 使用稳定 ID 和 request ID；大图通过受控文件/object URL 传输。
 
-## 当前落地（2026-08-11）
+## 当前落地（2026-08-12）
 
 - 后端已形成 `app/`、`paste/`、`capture/`、`pin/`、`translation/` 和按职责拆分的 `commands/`；`window_controller.rs` 统一主窗口 work area 几何。
 - `lib.rs` 当前仍负责 Tauri builder、managed state 和 Wayland gsettings/D-Bus 组装；`app/` 已拆出开发自启防护、WebKit 诊断、托盘、X11 快捷键和窗口事件。
 - `paste/` 已进一步按协调器、Portal 状态机、X11 输入和 token 存储拆分；原始截图入口、平台 fallback 与测试也已分离。
 - `clipboard_watcher` 已按主轮询、内容分类、写入重试和 tmux/inotify 监听拆分，tmux poll 使用安全封装而非业务代码中的 unsafe。
 - 前端完成 typed `api.ts`/`ipc-types.ts`，Pin、Capture Overlay、Editor 为 React/TS 功能岛；主 clipboard 保持 vanilla，preview 已拆分调度器与五类 renderer。
+- 本轮进一步拆出 `js/clipboard/` 的导航/格式化/行渲染模块、`js/settings/` 的设置控制器，以及 Capture 的 viewport/PNG/pending loader；快捷键恢复和截图加载均有代次/生命周期测试。
 - 当前未进行主窗口 React 大爆炸迁移，符合“保留可工作入口、按行为逐项替换”的迁移策略。
 - 完整实现与状态所有权见 `docs/architecture.md`，验证边界见任务目录 `qa-matrix.md`。

@@ -27,12 +27,14 @@
 
 | 模块 | 职责 |
 |---|---|
-| `js/clipboard-list.js` | 列表状态、键盘动作、增量渲染 |
+| `js/clipboard-list.js` | 列表 facade、数据加载、IPC 动作与增量渲染装配 |
+| `js/clipboard/` | 导航状态机、展示格式化和单行 DOM/缩略图渲染 |
 | `js/preview-panel.js` | 预览状态、检测优先级、延迟库与缓存 |
 | `js/preview/*-renderers.js` | 代码、元数据、格式、加密、内容/OCR 渲染 |
 | `js/translation-panel.js` | 主预览翻译状态与陈旧响应保护 |
 | `react/capture-overlay/` | 窗口命中、选区移动/缩放、直接动作与选区翻译 |
-| `react/capture/` | 对象标注、图像调整、撤销/重做和统一导出 |
+| `react/capture/` | 对象标注、图像调整、撤销/重做和统一导出；视口、PNG 管线及待处理截图加载器独立管理 |
+| `js/settings/` | 主题、自动粘贴授权、快捷键录制、OCR 和统计控制器 |
 | `react/pin/` | 首帧就绪、工具栏、拖动阈值和 rAF 更新合并 |
 
 ## 核心流程
@@ -56,6 +58,8 @@ X11     : capture _NET_ACTIVE_WINDOW -> hide Clippy -> restore/confirm -> Ctrl+V
 Wayland : select keyboard + persist_mode=2 -> rolling restore token -> reused session
 Fallback: permission/backend/injection failure -> clipboard remains populated, no key injection
 ```
+
+设置窗口关闭时，快捷键录制控制器先等待 `resume_shortcuts` 完成再关闭；Rust `AppState` 以原子标志和转换锁提供窗口销毁后的幂等恢复兜底。截图编辑器的待处理截图由最新请求代次门控，后端读取不消费缓存，窗口销毁或显式清理时统一释放。
 
 `XDG_SESSION_TYPE` 优先于残留的 display 环境变量。Portal token 不进入普通配置；独立文件必须为 0600。首次 Portal 确认、撤权和桌面后端是否允许静默恢复仍属于真实桌面人工验收。
 截图 Portal 的交互模式由截图用户动作显式开启；后台或未来自动任务应传入非交互模式，避免隐式弹出桌面授权。
