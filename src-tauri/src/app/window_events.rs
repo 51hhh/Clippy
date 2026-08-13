@@ -8,6 +8,15 @@ pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
         tauri::WindowEvent::Moved(position) if window.label() == "main" => {
             window_controller::remember_main_window_position(window, *position);
         }
+        tauri::WindowEvent::Moved(position) if window.label().starts_with("pin-") => {
+            if let Some(state) = window.app_handle().try_state::<AppState>() {
+                crate::pin::remember_pin_window_position(
+                    &state.pin_manager,
+                    window.label(),
+                    *position,
+                );
+            }
+        }
         tauri::WindowEvent::CloseRequested { api, .. }
             if hides_instead_of_closing(window.label()) =>
         {
