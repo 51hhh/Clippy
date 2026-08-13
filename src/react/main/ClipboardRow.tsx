@@ -26,6 +26,10 @@ export function ClipboardRow({
   const focused = snapshot.navigation.focusedRow === index;
   const expanded = snapshot.navigation.expandedRow === clip.id;
   const favoriteMode = snapshot.mode === "favorites";
+  const previewText = clip.content_type === "html"
+    ? (clip.text_content || t("preview.richText"))
+    : (clip.text_content || "");
+  const typeLabel = t(`clipboard.type.${clip.content_type}`);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,12 +78,12 @@ export function ClipboardRow({
           ) : (
             <>
               {clip.content_type === "html" && <span className="clip-row-html-badge">HTML</span>}
-              <span>{(clip.text_content || t("preview.richText")).slice(0, 200)}</span>
+              <span>{previewText.slice(0, 200)}</span>
             </>
           )}
         </div>
         <div className="clip-row-meta">
-          {formatType(clip.content_type)} · {formatSize(clip.byte_size)} · {formatRelativeTime(
+          {typeLabel === `clipboard.type.${clip.content_type}` ? formatType(clip.content_type) : typeLabel} · {formatSize(clip.byte_size)} · {formatRelativeTime(
             clip.created_at,
             { translate: (key: string, params?: object) => t(key, params as Record<string, string | number>) },
           )}
