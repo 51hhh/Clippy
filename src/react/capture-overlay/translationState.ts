@@ -1,30 +1,31 @@
 import type { Rect, TranslationProvider } from "./types";
+import { t } from "../shared/i18n";
 
-const ERROR_MESSAGES: Record<string, string> = {
-  empty_input: "No text was found in this selection.",
-  input_too_large: "The recognized text is too large to translate.",
-  missing_api_key: "Add an API key in Translation settings.",
-  keyring_unavailable: "Secure credential storage is unavailable.",
-  capture_unavailable: "This capture selection is no longer available.",
-  ocr_failed: "Local OCR could not extract text from this selection.",
-  invalid_endpoint: "The translation endpoint is invalid.",
-  unsupported_provider: "The configured translation provider is unsupported.",
-  timeout: "The translation request timed out.",
-  network: "The translation service could not be reached.",
-  http_status: "The translation service rejected the request.",
-  response_too_large: "The translation response is too large.",
-  invalid_response: "The translation service returned an invalid response.",
-  stale_request: "A newer translation request replaced this one.",
-  internal: "Translation is temporarily unavailable.",
+const ERROR_KEYS: Record<string, string> = {
+  empty_input: "capture.translation.error.emptyInput",
+  input_too_large: "capture.translation.error.inputTooLarge",
+  missing_api_key: "capture.translation.error.missingApiKey",
+  keyring_unavailable: "capture.translation.error.keyringUnavailable",
+  capture_unavailable: "capture.translation.error.captureUnavailable",
+  ocr_failed: "capture.translation.error.ocrFailed",
+  invalid_endpoint: "capture.translation.error.invalidEndpoint",
+  unsupported_provider: "capture.translation.error.unsupportedProvider",
+  timeout: "capture.translation.error.timeout",
+  network: "capture.translation.error.network",
+  http_status: "capture.translation.error.service",
+  response_too_large: "capture.translation.error.responseTooLarge",
+  invalid_response: "capture.translation.error.invalidResponse",
+  stale_request: "capture.translation.error.stale",
+  internal: "capture.translation.error.internal",
 };
 
 export function translationErrorMessage(reason: unknown): string {
   const match = /^translation\.([a-z_]+):/.exec(String(reason));
-  return match ? (ERROR_MESSAGES[match[1]] || "Translation failed.") : "Translation failed.";
+  return t(match && ERROR_KEYS[match[1]] ? ERROR_KEYS[match[1]] : "capture.translation.error.generic");
 }
 
 export function providerLabel(provider: TranslationProvider): string {
-  return provider === "libretranslate" ? "LibreTranslate" : "OpenAI compatible";
+  return provider === "libretranslate" ? "LibreTranslate" : t("capture.translation.providerOpenAI");
 }
 
 export function isCurrentTranslation(currentGeneration: number, requestGeneration: number): boolean {

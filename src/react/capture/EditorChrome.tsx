@@ -1,4 +1,5 @@
 import { Copy, Crop, Pin, Redo2, RotateCcw, Save, Undo2, X } from "lucide-react";
+import { t } from "../shared/i18n";
 
 export function EditorHeader({
   busy,
@@ -11,12 +12,12 @@ export function EditorHeader({
 }) {
   return (
     <header className="capture-header">
-      <div className="capture-title"><Crop size={18} /><span>Screenshot</span></div>
+      <div className="capture-title"><Crop size={18} /><span>{t("capture.title")}</span></div>
       <div className="capture-actions">
         <button className="capture-btn" type="button" onClick={onRecapture} disabled={busy}>
-          <RotateCcw size={16} />Recapture
+          <RotateCcw size={16} />{t("capture.recapture")}
         </button>
-        <button className="capture-icon-btn" type="button" onClick={onClose} title="Close" aria-label="Close">
+        <button className="capture-icon-btn" type="button" onClick={onClose} title={t("capture.close")} aria-label={t("capture.close")}>
           <X size={18} />
         </button>
       </div>
@@ -45,13 +46,13 @@ export function EditorFooter({
 }) {
   return (
     <footer className="capture-footer">
-      <ActionButton label="Undo" disabled={!canUndo || busy} onClick={onUndo}><Undo2 size={16} /></ActionButton>
-      <ActionButton label="Redo" disabled={!canRedo || busy} onClick={onRedo}><Redo2 size={16} /></ActionButton>
-      <ActionButton label="Reset" disabled={busy} onClick={onReset}><RotateCcw size={16} /></ActionButton>
+      <ActionButton label={t("capture.undo")} disabled={!canUndo || busy} onClick={onUndo}><Undo2 size={16} /></ActionButton>
+      <ActionButton label={t("capture.redo")} disabled={!canRedo || busy} onClick={onRedo}><Redo2 size={16} /></ActionButton>
+      <ActionButton label={t("capture.reset")} disabled={busy} onClick={onReset}><RotateCcw size={16} /></ActionButton>
       <div className="capture-footer-spacer" />
-      <ActionButton label="Copy" primary disabled={!canExport} onClick={() => onExport("copy")}><Copy size={16} /></ActionButton>
-      <ActionButton label="Save" disabled={!canExport} onClick={() => onExport("save")}><Save size={16} /></ActionButton>
-      <ActionButton label="Pin" disabled={!canExport} onClick={() => onExport("pin")}><Pin size={16} /></ActionButton>
+      <ActionButton label={t("capture.copy")} primary disabled={!canExport} onClick={() => onExport("copy")}><Copy size={16} /></ActionButton>
+      <ActionButton label={t("capture.save")} disabled={!canExport} onClick={() => onExport("save")}><Save size={16} /></ActionButton>
+      <ActionButton label={t("capture.pin")} disabled={!canExport} onClick={() => onExport("pin")}><Pin size={16} /></ActionButton>
     </footer>
   );
 }
