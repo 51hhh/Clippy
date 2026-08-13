@@ -1,6 +1,9 @@
 {
   "search.placeholder": "Search clipboard history...",
   "clipboard.history": "Clipboard history",
+  "clipboard.type.text": "Text",
+  "clipboard.type.html": "HTML",
+  "clipboard.type.image": "Image",
   "search.escHint": "Esc",
   "tabs.all": "All",
   "tabs.favorites": "Favorites",

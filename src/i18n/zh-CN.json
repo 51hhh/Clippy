@@ -1,6 +1,9 @@
 {
   "search.placeholder": "搜索剪贴板历史...",
   "clipboard.history": "剪贴板历史",
+  "clipboard.type.text": "文本",
+  "clipboard.type.html": "富文本",
+  "clipboard.type.image": "图片",
   "search.escHint": "Esc",
   "tabs.all": "全部",
   "tabs.favorites": "收藏",
