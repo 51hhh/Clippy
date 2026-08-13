@@ -56,6 +56,12 @@ fn current_config_version() -> u32 {
     CURRENT_CONFIG_VERSION
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MainWindowPosition {
+    pub x: i32,
+    pub y: i32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default = "current_config_version")]
@@ -90,6 +96,8 @@ pub struct AppConfig {
     pub translation_source_language: String,
     #[serde(default = "default_translation_target_language")]
     pub translation_target_language: String,
+    #[serde(default)]
+    pub main_window_position: Option<MainWindowPosition>,
 }
 
 fn default_language() -> String {
@@ -161,6 +169,7 @@ impl Default for AppConfig {
             translation_model: default_translation_model(),
             translation_source_language: default_translation_source_language(),
             translation_target_language: default_translation_target_language(),
+            main_window_position: None,
         }
     }
 }

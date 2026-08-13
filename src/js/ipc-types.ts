@@ -39,6 +39,7 @@ export interface AppConfig {
   translation_model: string;
   translation_source_language: string;
   translation_target_language: string;
+  main_window_position: { x: number; y: number } | null;
 }
 
 export type PasteBackend = "x11" | "wayland_portal" | "copy_only";

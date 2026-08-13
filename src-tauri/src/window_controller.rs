@@ -1,10 +1,13 @@
 use crate::commands::AppState;
+use crate::models::MainWindowPosition;
+use std::sync::atomic::Ordering;
 use tauri::{Manager, Monitor, PhysicalPosition, PhysicalSize, Position, Size};
 
 const EDGE_MARGIN: i32 = 12;
 pub(crate) const MAIN_WINDOW_BASE_WIDTH: f64 = 380.0;
 pub(crate) const MAIN_WINDOW_PANEL_WIDTH: f64 = 400.0;
 pub(crate) const MAIN_WINDOW_HEIGHT: f64 = 500.0;
+const POSITION_SAVE_DEBOUNCE_MS: u64 = 300;
 type MonitorTarget = Option<(Monitor, Option<PhysicalPosition<f64>>)>;
 
 pub fn show_main_window(app: &tauri::AppHandle) -> Result<(), String> {
@@ -18,20 +21,29 @@ pub fn show_main_window(app: &tauri::AppHandle) -> Result<(), String> {
         .map(|state| MainWindowLayout::from_state(&state))
         .transpose()?
         .unwrap_or_default();
+    let remembered = app
+        .try_state::<AppState>()
+        .and_then(|state| state.config.lock().ok()?.main_window_position);
 
-    if let Some((monitor, cursor)) = target_monitor(app, &window)? {
+    if let Some((monitor, raw)) = remembered_target(&window, remembered, layout)?.or(
+        target_monitor(app, &window)?.map(|(monitor, cursor)| {
+            let work = WorkArea::from_monitor(&monitor);
+            let size = work.clamp_size(layout.physical_size(monitor.scale_factor()), EDGE_MARGIN);
+            let raw = cursor
+                .map(|position| {
+                    PhysicalPosition::new(
+                        position.x.round() as i32 + EDGE_MARGIN,
+                        position.y.round() as i32 + EDGE_MARGIN,
+                    )
+                })
+                .unwrap_or_else(|| work.top_right(size, EDGE_MARGIN));
+            (monitor, raw)
+        }),
+    ) {
         let work = WorkArea::from_monitor(&monitor);
         let size = layout.physical_size(monitor.scale_factor());
         let size = work.clamp_size(size, EDGE_MARGIN);
         set_fixed_size(&window, size)?;
-        let raw = cursor
-            .map(|position| {
-                PhysicalPosition::new(
-                    position.x.round() as i32 + EDGE_MARGIN,
-                    position.y.round() as i32 + EDGE_MARGIN,
-                )
-            })
-            .unwrap_or_else(|| work.top_right(size, EDGE_MARGIN));
         window
             .set_position(Position::Physical(work.clamp_position(
                 raw,
@@ -43,6 +55,59 @@ pub fn show_main_window(app: &tauri::AppHandle) -> Result<(), String> {
 
     window.show().map_err(|error| error.to_string())?;
     window.set_focus().map_err(|error| error.to_string())
+}
+
+pub(crate) fn remember_main_window_position(
+    window: &tauri::Window,
+    position: PhysicalPosition<i32>,
+) {
+    if !window.is_visible().unwrap_or(false) {
+        return;
+    }
+    let Ok(monitors) = window.available_monitors() else {
+        return;
+    };
+    let work_areas: Vec<_> = monitors.iter().map(WorkArea::from_monitor).collect();
+    if !is_valid_remembered_position(position, &work_areas) {
+        return;
+    }
+    let app_handle = window.app_handle().clone();
+    let Some(state) = app_handle.try_state::<AppState>() else {
+        return;
+    };
+    let generation = state
+        .main_window_position_generation
+        .fetch_add(1, Ordering::AcqRel)
+        + 1;
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(POSITION_SAVE_DEBOUNCE_MS));
+        let Some(state) = app_handle.try_state::<AppState>() else {
+            return;
+        };
+        if state
+            .main_window_position_generation
+            .load(Ordering::Acquire)
+            != generation
+        {
+            return;
+        }
+        let mut config = match state.config.lock() {
+            Ok(config) => config,
+            Err(error) => {
+                log::warn!("保存主窗口位置时读取配置失败: {error}");
+                return;
+            }
+        };
+        let remembered = MainWindowPosition {
+            x: position.x,
+            y: position.y,
+        };
+        if config.main_window_position == Some(remembered) {
+            return;
+        }
+        config.main_window_position = Some(remembered);
+        crate::config::save_config(&state.config_path, &config);
+    });
 }
 
 pub fn resize_main_window(app: &tauri::AppHandle) -> Result<(), String> {
@@ -189,6 +254,31 @@ fn target_monitor(
         .map(|monitor| (monitor, cursor)))
 }
 
+fn remembered_target(
+    window: &tauri::WebviewWindow,
+    remembered: Option<MainWindowPosition>,
+    layout: MainWindowLayout,
+) -> Result<Option<(Monitor, PhysicalPosition<i32>)>, String> {
+    let Some(remembered) = remembered else {
+        return Ok(None);
+    };
+    let monitors = window
+        .available_monitors()
+        .map_err(|error| error.to_string())?;
+    let work_areas: Vec<_> = monitors.iter().map(WorkArea::from_monitor).collect();
+    let remembered = PhysicalPosition::new(remembered.x, remembered.y);
+    let Some(index) = remembered_monitor_index(remembered, &work_areas) else {
+        return Ok(None);
+    };
+    let monitor = monitors[index].clone();
+    let work = work_areas[index];
+    let size = work.clamp_size(layout.physical_size(monitor.scale_factor()), EDGE_MARGIN);
+    Ok(Some((
+        monitor,
+        work.clamp_position(remembered, size, EDGE_MARGIN),
+    )))
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct WorkArea {
     left: i32,
@@ -212,6 +302,13 @@ impl WorkArea {
         let width = (self.right - self.left - margin * 2).max(1) as u32;
         let height = (self.bottom - self.top - margin * 2).max(1) as u32;
         PhysicalSize::new(size.width.min(width), size.height.min(height))
+    }
+
+    fn contains(self, position: PhysicalPosition<i32>) -> bool {
+        position.x >= self.left
+            && position.x < self.right
+            && position.y >= self.top
+            && position.y < self.bottom
     }
 
     fn top_right(self, size: PhysicalSize<u32>, margin: i32) -> PhysicalPosition<i32> {
@@ -239,6 +336,17 @@ impl WorkArea {
             ),
         )
     }
+}
+
+fn remembered_monitor_index(
+    position: PhysicalPosition<i32>,
+    work_areas: &[WorkArea],
+) -> Option<usize> {
+    work_areas.iter().position(|work| work.contains(position))
+}
+
+fn is_valid_remembered_position(position: PhysicalPosition<i32>, work_areas: &[WorkArea]) -> bool {
+    remembered_monitor_index(position, work_areas).is_some()
 }
 
 fn clamp_axis(value: i32, min: i32, max: i32, window_size: i32) -> i32 {
@@ -321,5 +429,49 @@ mod tests {
             .clamp_size(layout.physical_size(1.0), EDGE_MARGIN),
             PhysicalSize::new(976, 500)
         );
+    }
+
+    #[test]
+    fn remembered_position_selects_negative_origin_monitor_and_clamps() {
+        let work_areas = [
+            WorkArea {
+                left: -1920,
+                top: 0,
+                right: 0,
+                bottom: 1080,
+            },
+            WorkArea {
+                left: 0,
+                top: 0,
+                right: 1920,
+                bottom: 1080,
+            },
+        ];
+        let remembered = PhysicalPosition::new(-100, 900);
+
+        let index = remembered_monitor_index(remembered, &work_areas).unwrap();
+        assert_eq!(index, 0);
+        assert_eq!(
+            work_areas[index].clamp_position(remembered, PhysicalSize::new(380, 500), EDGE_MARGIN,),
+            PhysicalPosition::new(-392, 568)
+        );
+    }
+
+    #[test]
+    fn remembered_position_rejects_removed_monitor() {
+        let work_areas = [WorkArea {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        }];
+        assert_eq!(
+            remembered_monitor_index(PhysicalPosition::new(-800, 200), &work_areas),
+            None
+        );
+        assert!(!is_valid_remembered_position(
+            PhysicalPosition::new(i32::MAX, i32::MAX),
+            &work_areas,
+        ));
     }
 }
