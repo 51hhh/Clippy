@@ -1,5 +1,6 @@
 {
   "search.placeholder": "搜索剪贴板历史...",
+  "clipboard.history": "剪贴板历史",
   "search.escHint": "Esc",
   "tabs.all": "全部",
   "tabs.favorites": "收藏",
@@ -142,6 +143,7 @@
   "preview.original": "原始内容",
   "preview.richText": "[富文本]",
   "preview.imageLoadFailed": "图片加载失败",
+  "preview.image": "剪贴板图片",
   "translation.title": "翻译",
   "translation.destination": "目标服务",
   "translation.target": "目标语言：{language}",

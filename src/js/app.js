@@ -3,9 +3,7 @@
  */
 
 import * as theme         from "./theme.js";
-import * as clipboardList from "./clipboard-list.js";
-import * as searchBar     from "./search-bar.js";
-import * as segmentTabs   from "./segment-tabs.js";
+import * as clipboardList from "./clipboard-react-facade.js";
 import * as previewPanel  from "./preview-panel.js";
 import * as translationPanel from "./translation-panel.js";
 import * as codec         from "./codec.js";
@@ -18,6 +16,7 @@ import {
 import "../styles/themes.css";
 import "../styles/base.css";
 import "../styles/components.css";
+import { mountClipboardWorkspace } from "../react/main/mount";
 
 function whenReady(fn) {
   if (document.readyState === "loading") {
@@ -39,23 +38,12 @@ whenReady(async () => {
   theme.applyTheme(config.theme || "light");
   i18n.init(config.language || "auto");
 
-  const listEl    = document.getElementById("clip-list");
-  const emptyEl   = document.getElementById("empty-state");
-  const searchEl  = document.getElementById("search-bar");
-  const segmentEl = document.getElementById("segment-tabs");
-
-  segmentTabs.init(segmentEl, (mode) => clipboardList.setPanelMode(mode));
-  searchBar.init(searchEl, (q) => clipboardList.setQuery(q));
+  mountClipboardWorkspace(document.getElementById("clipboard-react-root"));
   previewPanel.init();
   translationPanel.init(config);
   codec.init();
 
   clipboardList.init({
-    listEl,
-    emptyEl,
-    onCountsChange: (counts) => segmentTabs.setCounts(counts),
-    onSummonSearch: (source) => searchBar.summon(source),
-    onModeChange: (mode) => segmentTabs.setMode(mode),
     onFocusChange: (clip) => {
       previewPanel.updatePreview(clip);
       translationPanel.updateClip(clip);
@@ -76,8 +64,7 @@ whenReady(async () => {
   await onConfigChanged((newConfig) => {
     theme.applyTheme(newConfig.theme || "light");
     i18n.init(newConfig.language || "auto");
-    searchBar.refreshLabels();
-    segmentTabs.refreshLabels();
+    clipboardList.refreshLabels();
     translationPanel.updateConfig(newConfig);
   });
 
@@ -111,10 +98,10 @@ function onKeyDown(e) {
   }
 
   // 搜索条聚焦时：不拦截普通字符；只接管 Esc / Enter
-  if (searchBar.isVisible() && document.activeElement?.classList.contains("search-bar-input")) {
+  if (clipboardList.search.isVisible() && document.activeElement?.classList.contains("search-bar-input")) {
     if (e.key === "Escape") {
       e.preventDefault();
-      const stage = searchBar.dismissStage();
+      const stage = clipboardList.search.dismissStage();
       if (stage === "panel") {
         clipboardList.hasExpanded() ? clipboardList.collapseActions() : tryHidePanel();
       }
@@ -186,8 +173,8 @@ function onKeyDown(e) {
       return;
     case "Escape":
       e.preventDefault();
-      if (searchBar.isVisible()) {
-        const stage = searchBar.dismissStage();
+      if (clipboardList.search.isVisible()) {
+        const stage = clipboardList.search.dismissStage();
         if (stage === "panel") {
           clipboardList.hasExpanded() ? clipboardList.collapseActions() : tryHidePanel();
         }
