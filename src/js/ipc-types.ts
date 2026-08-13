@@ -138,6 +138,7 @@ export interface PinPayload {
   locked: boolean;
   canSave: boolean;
   canEdit: boolean;
+  position: { x: number; y: number } | null;
 }
 
 export interface PinUpdate {

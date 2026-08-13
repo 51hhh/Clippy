@@ -33,6 +33,13 @@ struct PinEntry {
     scale: f64,
     opacity: f64,
     locked: bool,
+    position: Option<PinPosition>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct PinPosition {
+    pub x: i32,
+    pub y: i32,
 }
 
 #[derive(Default)]
@@ -54,6 +61,7 @@ pub struct PinPayload {
     pub locked: bool,
     pub can_save: bool,
     pub can_edit: bool,
+    pub position: Option<PinPosition>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -111,11 +119,42 @@ impl PinManager {
         Ok(entry.clone())
     }
 
+    fn remember_position(&self, label: &str, position: PhysicalPosition<i32>) {
+        if !is_safe_pin_label(label) {
+            return;
+        }
+        let Ok(mut entries) = self.entries.lock() else {
+            return;
+        };
+        if let Some(entry) = entries.get_mut(label) {
+            entry.position = Some(PinPosition {
+                x: position.x,
+                y: position.y,
+            });
+        }
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.entries
+            .lock()
+            .map(|entries| entries.len())
+            .unwrap_or(0)
+    }
+
     pub fn remove_window(&self, label: &str) {
         if is_safe_pin_label(label) {
             let _ = self.remove(label);
         }
     }
+}
+
+pub(crate) fn remember_pin_window_position(
+    manager: &PinManager,
+    label: &str,
+    position: PhysicalPosition<i32>,
+) {
+    manager.remember_position(label, position);
 }
 
 #[tauri::command]
@@ -159,6 +198,7 @@ pub fn pin_clip(
         scale: 1.0,
         opacity: 1.0,
         locked: false,
+        position: None,
     })?;
     if let Err(error) = create_pin_window(&app_handle, &label, content_width, content_height) {
         let _ = state.pin_manager.remove(&label);
@@ -195,6 +235,7 @@ pub(crate) fn create_screenshot_pin(
         scale: 1.0,
         opacity: 1.0,
         locked: false,
+        position: None,
     })?;
     if let Err(error) = create_pin_window(app_handle, &label, content_width, content_height) {
         let _ = state.pin_manager.remove(&label);
@@ -283,10 +324,10 @@ pub fn close_pin(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     validate_label(&label)?;
-    let _ = state.pin_manager.remove(&label)?;
     if let Some(window) = app_handle.get_webview_window(&label) {
         window.close().map_err(|error| error.to_string())?;
     }
+    let _ = state.pin_manager.remove(&label)?;
     Ok(())
 }
 
@@ -318,6 +359,7 @@ fn payload_from_entry(entry: PinEntry) -> Result<PinPayload, String> {
         locked: entry.locked,
         can_save,
         can_edit,
+        position: entry.position,
     })
 }
 
@@ -355,6 +397,7 @@ fn create_pin_window(
     .center()
     .build()
     .map_err(|error| error.to_string())?;
+    position_new_pin_window(app, &window, outer_width, outer_height)?;
     crate::pin_window::configure_pin_window(&window);
     Ok(())
 }
@@ -391,27 +434,80 @@ fn resize_pin_window(app: &tauri::AppHandle, entry: &PinEntry) -> Result<(), Str
             .min(work.size.height.saturating_sub(16).max(1)),
     );
     let old_size = window.outer_size().unwrap_or(size);
-    let old_position = window.outer_position().unwrap_or(work.position);
+    let old_position = entry
+        .position
+        .map(|position| PhysicalPosition::new(position.x, position.y))
+        .or_else(|| window.outer_position().ok())
+        .unwrap_or(work.position);
     let centered = PhysicalPosition::new(
         old_position.x + (old_size.width as i32 - size.width as i32) / 2,
         old_position.y + (old_size.height as i32 - size.height as i32) / 2,
     );
-    let max_x = work.position.x + work.size.width as i32 - size.width as i32;
-    let max_y = work.position.y + work.size.height as i32 - size.height as i32;
-    let position = PhysicalPosition::new(
-        centered
-            .x
-            .clamp(work.position.x, max_x.max(work.position.x)),
-        centered
-            .y
-            .clamp(work.position.y, max_y.max(work.position.y)),
-    );
+    let position = clamp_pin_position(centered, size, work);
     window
         .set_size(Size::Physical(size))
         .map_err(|error| error.to_string())?;
     window
         .set_position(Position::Physical(position))
         .map_err(|error| error.to_string())
+}
+
+fn position_new_pin_window(
+    app: &tauri::AppHandle,
+    window: &tauri::WebviewWindow,
+    logical_width: f64,
+    logical_height: f64,
+) -> Result<(), String> {
+    let cursor = app.cursor_position().ok();
+    let monitor = cursor
+        .and_then(|position| {
+            app.monitor_from_point(position.x, position.y)
+                .ok()
+                .flatten()
+        })
+        .or(app.primary_monitor().map_err(|error| error.to_string())?);
+    let Some(monitor) = monitor else {
+        return Ok(());
+    };
+    let scale = monitor.scale_factor().max(0.1);
+    let size = PhysicalSize::new(
+        (logical_width * scale).round().max(1.0) as u32,
+        (logical_height * scale).round().max(1.0) as u32,
+    );
+    let work = monitor.work_area();
+    let raw = cursor
+        .map(|position| {
+            PhysicalPosition::new(
+                position.x.round() as i32 + 12,
+                position.y.round() as i32 + 12,
+            )
+        })
+        .unwrap_or_else(|| {
+            PhysicalPosition::new(
+                work.position.x + (work.size.width.saturating_sub(size.width) / 2) as i32,
+                work.position.y + (work.size.height.saturating_sub(size.height) / 2) as i32,
+            )
+        });
+    window
+        .set_position(Position::Physical(clamp_pin_position(raw, size, work)))
+        .map_err(|error| error.to_string())
+}
+
+fn clamp_pin_position(
+    position: PhysicalPosition<i32>,
+    size: PhysicalSize<u32>,
+    work: &tauri::PhysicalRect<i32, u32>,
+) -> PhysicalPosition<i32> {
+    let max_x = work.position.x + work.size.width.saturating_sub(size.width) as i32;
+    let max_y = work.position.y + work.size.height.saturating_sub(size.height) as i32;
+    PhysicalPosition::new(
+        position
+            .x
+            .clamp(work.position.x, max_x.max(work.position.x)),
+        position
+            .y
+            .clamp(work.position.y, max_y.max(work.position.y)),
+    )
 }
 
 fn fit_content_size(app: &tauri::AppHandle, width: f64, height: f64) -> (f64, f64) {
@@ -471,6 +567,19 @@ fn is_safe_pin_label(label: &str) -> bool {
 mod tests {
     use super::*;
 
+    fn screenshot_entry(label: &str) -> PinEntry {
+        PinEntry {
+            label: label.to_string(),
+            source: PinSource::Screenshot { png: vec![1, 2, 3] },
+            content_width: 320.0,
+            content_height: 180.0,
+            scale: 1.0,
+            opacity: 1.0,
+            locked: false,
+            position: None,
+        }
+    }
+
     #[test]
     fn fits_large_images_without_changing_aspect_ratio() {
         assert_eq!(
@@ -496,5 +605,46 @@ mod tests {
     fn outer_size_reserves_controls_and_shadow() {
         assert_eq!(outer_size(400.0, 300.0, 1.0), (468.0, 372.0));
         assert_eq!(outer_size(400.0, 300.0, 0.5), (268.0, 222.0));
+    }
+
+    #[test]
+    fn manager_tracks_position_and_releases_destroyed_window_state() {
+        let manager = PinManager::new();
+        manager.insert(screenshot_entry("pin-image-test")).unwrap();
+
+        manager.remember_position("pin-image-test", PhysicalPosition::new(-420, 36));
+        assert_eq!(
+            manager.get("pin-image-test").unwrap().position,
+            Some(PinPosition { x: -420, y: 36 })
+        );
+        assert_eq!(manager.len(), 1);
+
+        manager.remove_window("pin-image-test");
+        assert_eq!(manager.len(), 0);
+        assert!(manager.get("pin-image-test").is_err());
+    }
+
+    #[test]
+    fn pin_position_clamps_to_negative_origin_work_area() {
+        let work = tauri::PhysicalRect {
+            position: PhysicalPosition::new(-1920, 24),
+            size: PhysicalSize::new(1920, 1056),
+        };
+        assert_eq!(
+            clamp_pin_position(
+                PhysicalPosition::new(-100, 1000),
+                PhysicalSize::new(500, 400),
+                &work,
+            ),
+            PhysicalPosition::new(-500, 680)
+        );
+        assert_eq!(
+            clamp_pin_position(
+                PhysicalPosition::new(-5000, -5000),
+                PhysicalSize::new(4000, 2000),
+                &work,
+            ),
+            work.position
+        );
     }
 }
