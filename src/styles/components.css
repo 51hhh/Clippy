@@ -24,6 +24,10 @@
   overflow: hidden;
 }
 
+.clipboard-react-root {
+  display: contents;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

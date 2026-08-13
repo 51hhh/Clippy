@@ -21,7 +21,7 @@ function sourceFiles(directory) {
 
 describe("built window entrypoints", () => {
   it.each([
-    ["index.html", ["app", "clip-list", "preview-panel", "codec-panel"]],
+    ["index.html", ["app", "clipboard-react-root", "preview-panel", "codec-panel"]],
     ["settings.html", ["theme-grid", "auto-paste-toggle", "translation-group"]],
     ["capture.html", ["capture-root"]],
     ["capture-overlay.html", ["root"]],

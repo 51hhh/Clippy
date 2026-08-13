@@ -1,0 +1,123 @@
+import { Copy, Ellipsis, Image, Star, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { getClipImage, type ClipItem } from "../../js/api.ts";
+import { formatRelativeTime, formatSize, formatType } from "../../js/clipboard/formatters.js";
+import { t } from "../shared/i18n";
+import type { ClipboardSnapshot } from "./clipboardStore";
+
+type Action = "copy" | "favorite" | "delete";
+
+export function ClipboardRow({
+  clip,
+  index,
+  snapshot,
+  onFocus,
+  onToggle,
+  onAction,
+}: {
+  clip: ClipItem;
+  index: number;
+  snapshot: ClipboardSnapshot;
+  onFocus: () => void;
+  onToggle: () => void;
+  onAction: (action: Action, actionIndex: number) => void;
+}) {
+  const [imageBase64, setImageBase64] = useState<string | null>(null);
+  const focused = snapshot.navigation.focusedRow === index;
+  const expanded = snapshot.navigation.expandedRow === clip.id;
+  const favoriteMode = snapshot.mode === "favorites";
+
+  useEffect(() => {
+    let cancelled = false;
+    if (clip.content_type !== "image") return;
+    getClipImage(clip.id)
+      .then((value) => !cancelled && setImageBase64(value))
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [clip.content_type, clip.id]);
+
+  const actions: Array<{ key: Action; label: string; icon: React.ReactNode }> = [
+    { key: "copy", label: t("action.copy"), icon: <Copy size={16} /> },
+    {
+      key: "favorite",
+      label: t(clip.is_favorite ? "action.unfavorite" : "action.favorite"),
+      icon: <Star size={16} fill={clip.is_favorite ? "currentColor" : "none"} />,
+    },
+    { key: "delete", label: t("action.delete"), icon: <Trash2 size={16} /> },
+  ];
+
+  return (
+    <div
+      className={[
+        "clip-row",
+        focused ? "focused" : "",
+        expanded ? "expanded" : "",
+        favoriteMode ? "favorites-mode" : "",
+        clip.is_favorite ? "favorite" : "",
+        clip.is_sensitive ? "sensitive" : "",
+      ].filter(Boolean).join(" ")}
+      role="option"
+      aria-selected={focused}
+      data-id={clip.id}
+      data-idx={index}
+      onPointerMove={onFocus}
+      onClick={() => onAction("copy", -1)}
+    >
+      <div className="clip-row-main">
+        <div className={`clip-row-preview clip-row-preview--${clip.content_type}`}>
+          {clip.content_type === "image" ? (
+            <span className="clip-row-thumb">
+              {imageBase64
+                ? <img className="clip-row-thumb-img" src={`data:image/png;base64,${imageBase64}`} alt={t("preview.image")} draggable={false} />
+                : <Image size={20} />}
+            </span>
+          ) : (
+            <>
+              {clip.content_type === "html" && <span className="clip-row-html-badge">HTML</span>}
+              <span>{(clip.text_content || t("preview.richText")).slice(0, 200)}</span>
+            </>
+          )}
+        </div>
+        <div className="clip-row-meta">
+          {formatType(clip.content_type)} · {formatSize(clip.byte_size)} · {formatRelativeTime(
+            clip.created_at,
+            { translate: (key: string, params?: object) => t(key, params as Record<string, string | number>) },
+          )}
+        </div>
+      </div>
+      <div className="clip-row-actions">
+        {actions.map((action, actionIndex) => (
+          <button
+            key={action.key}
+            type="button"
+            className={[
+              "clip-row-action",
+              action.key === "favorite" && clip.is_favorite ? "is-favorite" : "",
+              focused && snapshot.navigation.focusedCol === actionIndex ? "focused" : "",
+            ].filter(Boolean).join(" ")}
+            aria-label={action.label}
+            title={action.label}
+            onClick={(event) => {
+              event.stopPropagation();
+              onAction(action.key, actionIndex);
+            }}
+          >
+            <span className="clip-row-action-icon">{action.icon}</span>
+          </button>
+        ))}
+      </div>
+      <button
+        type="button"
+        className="clip-row-trigger"
+        aria-label={t("action.more")}
+        title={t("action.more")}
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggle();
+        }}
+      >
+        <Ellipsis size={16} />
+      </button>
+    </div>
+  );
+}

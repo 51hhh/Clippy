@@ -1,5 +1,6 @@
 {
   "search.placeholder": "Search clipboard history...",
+  "clipboard.history": "Clipboard history",
   "search.escHint": "Esc",
   "tabs.all": "All",
   "tabs.favorites": "Favorites",
@@ -142,6 +143,7 @@
   "preview.original": "Original",
   "preview.richText": "[Rich Text]",
   "preview.imageLoadFailed": "Image load failed",
+  "preview.image": "Clipboard image",
   "translation.title": "Translation",
   "translation.destination": "Destination",
   "translation.target": "Target: {language}",
