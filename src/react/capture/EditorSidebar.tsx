@@ -12,16 +12,17 @@ import {
 import type { ReactNode } from "react";
 import type { ImageAdjustments } from "./imageAdjustments";
 import type { Tool } from "./types";
+import { t } from "../shared/i18n";
 
-const TOOLS: Array<{ id: Tool; label: string; icon: ReactNode }> = [
-  { id: "crop", label: "Crop", icon: <Crop size={16} /> },
-  { id: "object", label: "Object", icon: <MousePointer2 size={16} /> },
-  { id: "pen", label: "Pen", icon: <PenLine size={16} /> },
-  { id: "rect", label: "Rectangle", icon: <RectangleHorizontal size={16} /> },
-  { id: "arrow", label: "Arrow", icon: <ArrowUpRight size={16} /> },
-  { id: "text", label: "Text", icon: <Type size={16} /> },
-  { id: "blur", label: "Blur", icon: <Blend size={16} /> },
-  { id: "mosaic", label: "Mosaic", icon: <Grid3X3 size={16} /> },
+const TOOLS: Array<{ id: Tool; labelKey: string; icon: ReactNode }> = [
+  { id: "crop", labelKey: "capture.tool.crop", icon: <Crop size={16} /> },
+  { id: "object", labelKey: "capture.tool.object", icon: <MousePointer2 size={16} /> },
+  { id: "pen", labelKey: "capture.tool.pen", icon: <PenLine size={16} /> },
+  { id: "rect", labelKey: "capture.tool.rectangle", icon: <RectangleHorizontal size={16} /> },
+  { id: "arrow", labelKey: "capture.tool.arrow", icon: <ArrowUpRight size={16} /> },
+  { id: "text", labelKey: "capture.tool.text", icon: <Type size={16} /> },
+  { id: "blur", labelKey: "capture.tool.blur", icon: <Blend size={16} /> },
+  { id: "mosaic", labelKey: "capture.tool.mosaic", icon: <Grid3X3 size={16} /> },
 ];
 
 const COLORS = ["#ff3b30", "#ffcc00", "#34c759", "#0a84ff", "#ffffff", "#111111"];
@@ -45,7 +46,7 @@ export function EditorSidebar(props: Props) {
   return (
     <aside className="capture-sidebar">
       <div className="tool-group">
-        <div className="tool-group-title">Tools</div>
+        <div className="tool-group-title">{t("capture.tools")}</div>
         <div className="segmented-tools">
           {TOOLS.map((option) => (
             <button
@@ -53,17 +54,17 @@ export function EditorSidebar(props: Props) {
               type="button"
               className={props.tool === option.id ? "tool-button active" : "tool-button"}
               onClick={() => props.onTool(option.id)}
-              title={option.label}
+              title={t(option.labelKey)}
             >
               {option.icon}
-              <span>{option.label}</span>
+              <span>{t(option.labelKey)}</span>
             </button>
           ))}
         </div>
       </div>
 
       <div className="tool-group">
-        <div className="tool-group-title">Style</div>
+        <div className="tool-group-title">{t("capture.style")}</div>
         <div className="color-row">
           {COLORS.map((color) => (
             <button
@@ -73,13 +74,13 @@ export function EditorSidebar(props: Props) {
               style={{ backgroundColor: color }}
               onClick={() => props.onColor(color)}
               title={color}
-              aria-label={`Color ${color}`}
+              aria-label={t("capture.color", { color })}
             />
           ))}
         </div>
-        <RangeControl label="Size" min={2} max={16} value={props.size} onChange={props.onSize} />
+        <RangeControl label={t("capture.size")} min={2} max={16} value={props.size} onChange={props.onSize} />
         <label className="text-control">
-          <span>Text</span>
+          <span>{t("capture.text")}</span>
           <input value={props.text} onChange={(event) => props.onText(event.target.value)} />
         </label>
         <button
@@ -88,24 +89,24 @@ export function EditorSidebar(props: Props) {
           disabled={!props.hasSelection}
           onClick={props.onDelete}
         >
-          <Trash2 size={15} /> Delete object
+          <Trash2 size={15} /> {t("capture.deleteObject")}
         </button>
       </div>
 
       <div className="tool-group">
-        <div className="tool-group-title">Image</div>
+        <div className="tool-group-title">{t("capture.image")}</div>
         <label className="toggle-row">
           <input
             type="checkbox"
             checked={props.adjustments.grayscale}
             onChange={(event) => props.onAdjust({ grayscale: event.target.checked })}
           />
-          <span>Grayscale</span>
+          <span>{t("capture.grayscale")}</span>
         </label>
         {(["brightness", "contrast", "saturation"] as const).map((key) => (
           <RangeControl
             key={key}
-            label={key[0].toUpperCase() + key.slice(1)}
+            label={t(`capture.${key}`)}
             min={-100}
             max={100}
             value={props.adjustments[key]}
@@ -113,7 +114,7 @@ export function EditorSidebar(props: Props) {
           />
         ))}
         <RangeControl
-          label="Corners"
+          label={t("capture.corners")}
           min={0}
           max={120}
           value={props.adjustments.cornerRadius}

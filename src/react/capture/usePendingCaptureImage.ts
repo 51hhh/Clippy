@@ -10,6 +10,7 @@ import {
   createLatestCaptureLoader,
 } from "./pendingCaptureLoader";
 import type { CapturedScreenshot } from "./types";
+import { t } from "../shared/i18n";
 
 type Params = {
   canvasRef: MutableRefObject<HTMLCanvasElement | null>;
@@ -71,7 +72,7 @@ export function usePendingCaptureImage({
 
   const loadPendingCapture = useCallback((generation: number) => {
     if (!generationTracker.track(generation)) {
-      onStatusRef.current("Failed to load screenshot");
+      onStatusRef.current(t("capture.loadFailed"));
       return;
     }
     void captureLoader
@@ -79,14 +80,14 @@ export function usePendingCaptureImage({
       .then((result) => {
         if (!result.applied) return;
         setPendingCapture(result.value);
-        onStatusRef.current("Ready");
+        onStatusRef.current(t("capture.ready"));
         void clearPendingCapture(result.value.generation)
           .then(() => generationTracker.release(generation))
           .catch(() => undefined);
       })
       .catch((error: unknown) => {
         console.error(error);
-        onStatusRef.current("Failed to load screenshot");
+        onStatusRef.current(t("capture.loadFailed"));
       });
   }, [captureLoader, generationTracker]);
 
@@ -138,7 +139,7 @@ export function usePendingCaptureImage({
       imageObjectUrlRef.current = objectUrl;
     } catch (error) {
       console.error(error);
-      onStatusRef.current("Failed to decode screenshot");
+      onStatusRef.current(t("capture.decodeFailed"));
       setPendingCapture(null);
       return;
     }
@@ -151,7 +152,7 @@ export function usePendingCaptureImage({
     };
     image.onerror = () => {
       if (!cancelled) {
-        onStatusRef.current("Failed to decode screenshot");
+        onStatusRef.current(t("capture.decodeFailed"));
         setPendingCapture(null);
       }
     };

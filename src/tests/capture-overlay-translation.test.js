@@ -1,6 +1,7 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as i18n from "../i18n/i18n.js";
 import { TranslationPopover } from "../react/capture-overlay/TranslationPopover.tsx";
 import {
   isCurrentTranslation,
@@ -9,6 +10,8 @@ import {
 } from "../react/capture-overlay/translationState.ts";
 
 describe("capture overlay translation", () => {
+  beforeEach(() => i18n.init("en"));
+
   it("renders provider, local OCR and translation as escaped accessible text", () => {
     const html = renderToStaticMarkup(React.createElement(TranslationPopover, {
       state: {
@@ -42,6 +45,13 @@ describe("capture overlay translation", () => {
     )).toBe("Local OCR could not extract text from this selection.");
     expect(translationErrorMessage("secret backend stack trace"))
       .toBe("Translation failed.");
+  });
+
+  it("localizes stable translation errors without exposing backend details", () => {
+    i18n.init("zh-CN");
+    expect(translationErrorMessage("translation.timeout: private endpoint"))
+      .toBe("翻译请求超时。");
+    expect(translationErrorMessage("private backend stack trace")).toBe("翻译失败。");
   });
 
   it("rejects stale callbacks and keeps the popover within normal viewports", () => {

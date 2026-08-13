@@ -3,6 +3,8 @@
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import * as i18n from "../i18n/i18n.js";
+import en from "../i18n/en.json";
+import zhCN from "../i18n/zh-CN.json";
 
 describe("i18n", () => {
   beforeEach(() => {
@@ -93,5 +95,19 @@ describe("i18n", () => {
     // navigator.language 默认是 en 在 jsdom，但 init("auto") 应回退到 en
     i18n.init("auto");
     expect(i18n.currentLocale()).toBe("en");
+  });
+
+  it("中英文 locale key 集合完全一致", () => {
+    expect(Object.keys(zhCN).sort()).toEqual(Object.keys(en).sort());
+  });
+
+  it("React 截图和 Pin 文案可随语言切换", () => {
+    i18n.init("zh-CN");
+    expect(i18n.t("capture.tool.mosaic")).toBe("马赛克");
+    expect(i18n.t("capture.translation.localPrivacy")).toContain("本机");
+    expect(i18n.t("pin.unlock")).toBe("解锁位置");
+    i18n.init("en");
+    expect(i18n.t("capture.tool.mosaic")).toBe("Mosaic");
+    expect(i18n.t("pin.unlock")).toBe("Unlock position");
   });
 });

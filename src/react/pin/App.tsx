@@ -4,6 +4,7 @@ import { pinApi } from "./api";
 import { PinToolbar } from "./PinToolbar";
 import type { PinPayload, PinUpdate } from "./types";
 import { shouldApplyPinUpdateResponse } from "./update-order";
+import { t } from "../shared/i18n";
 
 const DRAG_THRESHOLD = 5;
 
@@ -40,7 +41,8 @@ export function App() {
       })
       .catch((reason) => {
         if (!cancelled) {
-          setError(String(reason));
+          console.error(reason);
+          setError(t("pin.loadFailed"));
           void pinApi.ready(label);
         }
       });
@@ -72,7 +74,10 @@ export function App() {
 
   useEffect(() => {
     if (!ready) return;
-    pinApi.ready(label).catch((reason) => setError(String(reason)));
+    pinApi.ready(label).catch((reason) => {
+      console.error(reason);
+      setError(t("pin.actionFailed"));
+    });
   }, [label, ready]);
 
   const commitUpdate = useCallback(
@@ -204,15 +209,15 @@ export function App() {
         }
       }}
     >
-      <section className={`pin-media ${pin.kind}`} aria-label="Pinned content">
+      <section className={`pin-media ${pin.kind}`} aria-label={t("pin.content")}>
         {pin.kind === "image" && imageUrl ? (
           <img
             src={imageUrl}
-            alt="Pinned image"
+            alt={t("pin.imageAlt")}
             draggable={false}
             onLoad={() => setReady(true)}
             onError={() => {
-              setError("Failed to load pinned image");
+              setError(t("pin.imageLoadFailed"));
               setReady(true);
             }}
           />
@@ -237,7 +242,7 @@ export function App() {
         onEdit={() => void pinApi.edit(label)}
         onClose={() => void pinApi.close(label)}
       />
-      {error && <div className="pin-toast" role="status">Action failed</div>}
+      {error && <div className="pin-toast" role="status">{t("pin.actionFailed")}</div>}
     </main>
   );
 }

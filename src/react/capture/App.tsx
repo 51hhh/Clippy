@@ -16,6 +16,7 @@ import { useCanvasInteractions } from "./useCanvasInteractions";
 import { useHistory } from "./useHistory";
 import { usePendingCaptureImage } from "./usePendingCaptureImage";
 import type { Annotation, EditorDocument, Rect, Tool } from "./types";
+import { t } from "../shared/i18n";
 
 const DEFAULT_COLOR = "#ff3b30";
 
@@ -29,8 +30,8 @@ export function App() {
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
   const [color, setColor] = useState(DEFAULT_COLOR);
   const [size, setSize] = useState(4);
-  const [text, setText] = useState("Text");
-  const [status, setStatus] = useState("Loading screenshot...");
+  const [text, setText] = useState(() => t("capture.defaultText"));
+  const [status, setStatus] = useState(() => t("capture.loading"));
   const [busy, setBusy] = useState(false);
   const {
     value: editorDocument,
@@ -92,7 +93,7 @@ export function App() {
       interactions.resetInteraction();
       setSelectedAnnotationId(null);
       setTool("object");
-      setStatus("Ready");
+      setStatus(t("capture.ready"));
       updateViewport(1);
     },
     onStatus: setStatus,
@@ -130,7 +131,7 @@ export function App() {
   async function runExport(action: "copy" | "save" | "pin") {
     if (!canExport) return;
     setBusy(true);
-    setStatus(action === "copy" ? "Copying..." : action === "save" ? "Saving..." : "Pinning...");
+    setStatus(t(`capture.${action}Progress`));
     try {
       await new Promise((resolve) => requestAnimationFrame(resolve));
       const image = imageRef.current;
@@ -139,17 +140,17 @@ export function App() {
       const pngBase64 = await exportPngBase64(image, exportRect, annotations, adjustments);
       if (action === "copy") {
         await copyScreenshotImage(pngBase64);
-        setStatus("Copied");
+        setStatus(t("capture.copied"));
       } else if (action === "save") {
         const path = await saveScreenshotImage(pngBase64);
-        setStatus(`Saved: ${path}`);
+        setStatus(t("capture.saved", { path }));
       } else {
         await pinScreenshotImage(pngBase64);
-        setStatus("Pinned");
+        setStatus(t("capture.pinned"));
       }
     } catch (err) {
       console.error(err);
-      setStatus(action === "copy" ? "Copy failed" : action === "save" ? "Save failed" : "Pin failed");
+      setStatus(t(`capture.${action}Failed`));
     } finally {
       setBusy(false);
     }
@@ -157,12 +158,12 @@ export function App() {
 
   async function recapture() {
     setBusy(true);
-    setStatus("Recapturing...");
+    setStatus(t("capture.recapturing"));
     try {
       await showCaptureEditor();
     } catch (err) {
       console.error(err);
-      setStatus("Recapture failed");
+      setStatus(t("capture.recaptureFailed"));
     } finally {
       setBusy(false);
     }
@@ -174,7 +175,7 @@ export function App() {
     resetDocument({ annotations: [], adjustments: DEFAULT_IMAGE_ADJUSTMENTS });
     setSelectedAnnotationId(null);
     setTool("crop");
-    setStatus("Select an area");
+    setStatus(t("capture.selectArea"));
   }
 
   function closeEditor() {
@@ -292,8 +293,8 @@ export function App() {
               {exportRect
                 ? `${Math.round(exportRect.width)} x ${Math.round(exportRect.height)}`
                 : activeImage
-                  ? "No selection"
-                  : "No image"}
+                  ? t("capture.noSelection")
+                  : t("capture.noImage")}
               {" · "}
               {Math.round(viewport.zoom * 100)}%
             </span>

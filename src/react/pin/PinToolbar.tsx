@@ -10,6 +10,7 @@ import {
   X,
   Plus,
 } from "lucide-react";
+import { t } from "../shared/i18n";
 
 type Props = {
   scale: number;
@@ -49,43 +50,43 @@ export function PinToolbar(props: Props) {
   return (
     <div className="pin-controls" data-pin-controls onPointerDown={(event) => event.stopPropagation()}>
       <div className="pin-tools-vertical">
-        <ToolButton label="Zoom in" onClick={() => props.onScale(props.scale + 0.1)}>
+        <ToolButton label={t("pin.zoomIn")} onClick={() => props.onScale(props.scale + 0.1)}>
           <Plus size={16} />
         </ToolButton>
-        <span className="pin-scale" aria-label={`Scale ${Math.round(props.scale * 100)} percent`}>
+        <span className="pin-scale" aria-label={t("pin.scale", { percent: Math.round(props.scale * 100) })}>
           {Math.round(props.scale * 100)}
         </span>
-        <ToolButton label="Zoom out" onClick={() => props.onScale(props.scale - 0.1)}>
+        <ToolButton label={t("pin.zoomOut")} onClick={() => props.onScale(props.scale - 0.1)}>
           <Minus size={16} />
         </ToolButton>
         <span className="pin-tool-separator" />
-        <ToolButton label={props.locked ? "Unlock position" : "Lock position"} onClick={props.onToggleLock}>
+        <ToolButton label={t(props.locked ? "pin.unlock" : "pin.lock")} onClick={props.onToggleLock}>
           {props.locked ? <Lock size={16} /> : <LockOpen size={16} />}
         </ToolButton>
-        <ToolButton label="Opacity" onClick={props.onToggleOpacity}>
+        <ToolButton label={t("pin.opacity")} onClick={props.onToggleOpacity}>
           <SlidersHorizontal size={16} />
         </ToolButton>
         {props.canEdit && (
-          <ToolButton label="Edit image" onClick={props.onEdit}>
+          <ToolButton label={t("pin.edit")} onClick={props.onEdit}>
             <Edit3 size={16} />
           </ToolButton>
         )}
         {props.canSave && (
-          <ToolButton label="Save image" onClick={props.onSave}>
+          <ToolButton label={t("pin.save")} onClick={props.onSave}>
             <Save size={16} />
           </ToolButton>
         )}
-        <ToolButton label="Copy" onClick={props.onCopy}>
+        <ToolButton label={t("pin.copy")} onClick={props.onCopy}>
           {props.copied ? <Check size={16} /> : <Copy size={16} />}
         </ToolButton>
-        <ToolButton label="Close" onClick={props.onClose}>
+        <ToolButton label={t("pin.close")} onClick={props.onClose}>
           <X size={16} />
         </ToolButton>
       </div>
       {props.opacityOpen && (
         <div className="pin-opacity-popover">
           <input
-            aria-label="Opacity"
+            aria-label={t("pin.opacity")}
             type="range"
             min="15"
             max="100"

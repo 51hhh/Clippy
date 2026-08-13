@@ -1,6 +1,7 @@
 import { Copy, Edit3, Languages, Pin, Save, X } from "lucide-react";
 import type { RefObject } from "react";
 import type { CaptureAction, Rect } from "./types";
+import { t } from "../shared/i18n";
 
 export function OverlayToolbar({
   selection,
@@ -28,10 +29,10 @@ export function OverlayToolbar({
   const preferredTop = selection.y + selection.height + 8;
   const top = preferredTop + 42 < viewportHeight ? preferredTop : Math.max(8, selection.y - 50);
   const buttons: Array<[CaptureAction, string, React.ReactNode]> = [
-    ["copy", "Copy", <Copy size={16} />],
-    ["save", "Save", <Save size={16} />],
-    ["pin", "Pin", <Pin size={16} />],
-    ["edit", "Edit", <Edit3 size={16} />],
+    ["copy", t("capture.copy"), <Copy size={16} />],
+    ["save", t("capture.save"), <Save size={16} />],
+    ["pin", t("capture.pin"), <Pin size={16} />],
+    ["edit", t("capture.edit"), <Edit3 size={16} />],
   ];
   return (
     <div className="overlay-toolbar" style={{ left, top }} onPointerDown={(event) => event.stopPropagation()}>
@@ -43,15 +44,15 @@ export function OverlayToolbar({
       <button
         ref={translateButtonRef}
         type="button"
-        title="Translate"
-        aria-label="Translate selection"
+        title={t("capture.translate")}
+        aria-label={t("capture.translateSelection")}
         disabled={busy || translationBusy}
         onClick={onTranslate}
       >
         <Languages size={16} />
       </button>
       <span className="overlay-separator" />
-      <button type="button" title="Cancel" aria-label="Cancel" disabled={busy} onClick={onCancel}>
+      <button type="button" title={t("capture.cancel")} aria-label={t("capture.cancel")} disabled={busy} onClick={onCancel}>
         <X size={16} />
       </button>
     </div>
