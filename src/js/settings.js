@@ -254,6 +254,7 @@ element("save-btn").addEventListener("click", async () => {
         : tmuxToggle.checked,
       auto_paste: autoPasteToggle.checked,
       ...translationSettings.getConfig(),
+      main_window_position: savedConfig?.main_window_position ?? null,
     };
 
     await updateConfig(newConfig);

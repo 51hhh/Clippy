@@ -101,6 +101,7 @@ pub fn run() {
                 capture_window_generation: AtomicU64::new(0),
                 capture_editor_transition: Mutex::new(()),
                 main_window_transition: Mutex::new(()),
+                main_window_position_generation: AtomicU64::new(0),
                 capture_manager,
                 pin_manager,
                 paste_manager,

@@ -1,9 +1,13 @@
 use crate::capture;
 use crate::commands::{self, AppState};
+use crate::window_controller;
 use tauri::Manager;
 
 pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
     match event {
+        tauri::WindowEvent::Moved(position) if window.label() == "main" => {
+            window_controller::remember_main_window_position(window, *position);
+        }
         tauri::WindowEvent::CloseRequested { api, .. }
             if hides_instead_of_closing(window.label()) =>
         {
