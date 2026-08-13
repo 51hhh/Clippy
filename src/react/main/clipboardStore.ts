@@ -111,6 +111,7 @@ export class ClipboardStore {
         all,
         favorites,
         dirty: false,
+        loadingMore: false,
         favoritesLoaded: this.snapshot.mode === "favorites" || this.snapshot.favoritesLoaded,
         navigation: normalizeAfterRefresh(this.snapshot.navigation, items.length),
       }, true);
@@ -121,6 +122,7 @@ export class ClipboardStore {
         all: [],
         navigation: normalizeAfterRefresh(this.snapshot.navigation, 0),
         dirty: false,
+        loadingMore: false,
       }, true);
     }
   }
@@ -139,14 +141,19 @@ export class ClipboardStore {
   }
 
   scheduleQuery(query: string): void {
-    this.commit({ query });
+    this.requestGeneration += 1;
+    this.commit({ query, loadingMore: false });
     if (this.queryTimer !== null) window.clearTimeout(this.queryTimer);
-    this.queryTimer = window.setTimeout(() => void this.refresh(), 200);
+    this.queryTimer = window.setTimeout(() => {
+      this.queryTimer = null;
+      void this.refresh();
+    }, 200);
   }
 
   async setQuery(query: string): Promise<void> {
     if (this.queryTimer !== null) window.clearTimeout(this.queryTimer);
-    this.commit({ query });
+    this.queryTimer = null;
+    this.commit({ query, loadingMore: false });
     await this.refresh();
   }
 
@@ -160,16 +167,28 @@ export class ClipboardStore {
 
   async setPanelMode(mode: PanelMode): Promise<void> {
     if (mode === this.snapshot.mode) return;
+    const generation = ++this.requestGeneration;
+    const query = this.snapshot.query;
     let favorites = this.snapshot.favorites;
-    if (mode === "favorites" && this.favoritesDirty) {
-      favorites = await this.loadFavorites();
-    }
     const items = mode === "favorites" ? favorites : this.snapshot.all;
     this.commit({
       mode,
       favorites,
+      loadingMore: false,
       favoritesLoaded: mode === "favorites" || this.snapshot.favoritesLoaded,
       navigation: normalizeAfterRefresh(resetForPanelChange(this.snapshot.navigation), items.length),
+    }, true);
+    if (mode !== "favorites" || !this.favoritesDirty) return;
+
+    favorites = await this.loadFavorites(generation);
+    if (
+      generation !== this.requestGeneration
+      || this.snapshot.mode !== "favorites"
+      || this.snapshot.query !== query
+    ) return;
+    this.commit({
+      favorites,
+      navigation: normalizeAfterRefresh(this.snapshot.navigation, favorites.length),
     }, true);
   }
 
@@ -316,15 +335,25 @@ export class ClipboardStore {
     if (this.snapshot.loadingMore) return;
     const favoritesMode = this.snapshot.mode === "favorites";
     if (!(favoritesMode ? this.favoritesHasMore : this.allHasMore)) return;
+    const generation = this.requestGeneration;
+    const query = this.snapshot.query;
     this.commit({ loadingMore: true });
     const current = this.visibleItems();
     try {
       const more = await getClips(
-        this.snapshot.query || null,
+        query || null,
         favoritesMode,
         current.length,
         PAGE_SIZE,
       );
+      if (
+        generation !== this.requestGeneration
+        || query !== this.snapshot.query
+        || favoritesMode !== (this.snapshot.mode === "favorites")
+      ) {
+        if (generation === this.requestGeneration) this.commit({ loadingMore: false });
+        return;
+      }
       if (favoritesMode) {
         this.favoritesHasMore = more.length >= PAGE_SIZE;
         this.commit({ favorites: [...this.snapshot.favorites, ...more], loadingMore: false });
@@ -333,6 +362,11 @@ export class ClipboardStore {
         this.commit({ all: [...this.snapshot.all, ...more], loadingMore: false });
       }
     } catch (error) {
+      if (
+        generation !== this.requestGeneration
+        || query !== this.snapshot.query
+        || favoritesMode !== (this.snapshot.mode === "favorites")
+      ) return;
       console.error("Clipboard pagination failed", error);
       this.commit({ loadingMore: false });
     }
@@ -361,10 +395,13 @@ export class ClipboardStore {
 
   releaseMemory(): void {
     this.requestGeneration += 1;
+    if (this.queryTimer !== null) window.clearTimeout(this.queryTimer);
+    this.queryTimer = null;
     this.commit({
       all: [],
       favorites: [],
       dirty: true,
+      loadingMore: false,
       navigation: releaseNavigation(this.snapshot.navigation),
     });
   }

@@ -83,6 +83,72 @@ describe("React clipboard store", () => {
     expect(store.getSnapshot().all.map((item) => item.id)).toEqual([2]);
   });
 
+  it("does not append stale pagination after the query changes", async () => {
+    const page = deferred();
+    api.getClips
+      .mockResolvedValueOnce(Array.from({ length: 30 }, (_, index) => clip(index + 1)))
+      .mockReturnValueOnce(page.promise);
+    await store.refresh();
+
+    const loading = store.loadMore();
+    store.scheduleQuery("new");
+    page.resolve([clip(31)]);
+    await loading;
+
+    expect(store.getSnapshot().query).toBe("new");
+    expect(store.getSnapshot().all).toHaveLength(30);
+    expect(store.getSnapshot().loadingMore).toBe(false);
+  });
+
+  it("does not restore released items from pending pagination", async () => {
+    const page = deferred();
+    api.getClips
+      .mockResolvedValueOnce(Array.from({ length: 30 }, (_, index) => clip(index + 1)))
+      .mockReturnValueOnce(page.promise);
+    await store.refresh();
+
+    const loading = store.loadMore();
+    store.releaseMemory();
+    page.resolve([clip(31)]);
+    await loading;
+
+    expect(store.getSnapshot().all).toEqual([]);
+    expect(store.getSnapshot().loadingMore).toBe(false);
+  });
+
+  it("allows pagination again after refresh cancels a pending page", async () => {
+    const page = deferred();
+    const refreshed = deferred();
+    api.getClips
+      .mockResolvedValueOnce(Array.from({ length: 30 }, (_, index) => clip(index + 1)))
+      .mockReturnValueOnce(page.promise)
+      .mockReturnValueOnce(refreshed.promise);
+    await store.refresh();
+
+    const loading = store.loadMore();
+    const refreshing = store.refresh();
+    refreshed.resolve(Array.from({ length: 30 }, (_, index) => clip(index + 101)));
+    page.resolve([clip(31)]);
+    await Promise.all([loading, refreshing]);
+
+    expect(store.getSnapshot().all[0].id).toBe(101);
+    expect(store.getSnapshot().loadingMore).toBe(false);
+  });
+
+  it("keeps the latest panel choice while favorites are loading", async () => {
+    const favorites = deferred();
+    api.getClips.mockResolvedValueOnce([clip(1)]).mockReturnValueOnce(favorites.promise);
+    await store.refresh();
+
+    const showFavorites = store.setPanelMode("favorites");
+    await store.setPanelMode("all");
+    favorites.resolve([clip(2, true)]);
+    await showFavorites;
+
+    expect(store.getSnapshot().mode).toBe("all");
+    expect(store.getFocusedClip()?.id).toBe(1);
+  });
+
   it("keeps prepend ordering and removes entries from both views", async () => {
     api.getClips.mockResolvedValueOnce([clip(1), clip(2, true)]);
     await store.refresh();
