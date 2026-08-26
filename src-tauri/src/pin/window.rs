@@ -31,7 +31,12 @@ pub(super) fn create_pin_window(
     .center()
     .build()
     .map_err(|error| error.to_string())?;
-    position_new_pin_window(app, &window, outer_width, outer_height)?;
+    if let Err(error) = position_new_pin_window(app, &window, outer_width, outer_height) {
+        if let Err(close_error) = window.close() {
+            log::warn!("关闭定位失败的贴图窗口失败: {close_error}");
+        }
+        return Err(error);
+    }
     crate::pin_window::configure_pin_window(&window);
     Ok(())
 }

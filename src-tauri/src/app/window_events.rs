@@ -33,7 +33,15 @@ pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
         }
         tauri::WindowEvent::Destroyed if window.label().starts_with("pin-") => {
             if let Some(state) = window.app_handle().try_state::<AppState>() {
-                state.pin_manager.remove_window(window.label());
+                // A fixed-label clip pin can be recreated before an older
+                // Destroyed event arrives. Preserve the replacement entry.
+                if window
+                    .app_handle()
+                    .get_webview_window(window.label())
+                    .is_none()
+                {
+                    state.pin_manager.remove_window(window.label());
+                }
             }
         }
         tauri::WindowEvent::Destroyed if window.label().starts_with("capture-overlay-") => {

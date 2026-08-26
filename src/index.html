@@ -74,40 +74,7 @@
         <span id="preview-meta" class="preview-meta"></span>
       </div>
       <div id="preview-content" class="preview-content"></div>
-      <section id="translation-panel" class="translation-panel" aria-labelledby="translation-title" hidden>
-        <div class="translation-header">
-          <div class="translation-heading">
-            <h2 id="translation-title" class="translation-title" data-i18n="translation.title">Translation</h2>
-            <p id="translation-destination" class="translation-destination">
-              <span data-i18n="translation.destination">Destination</span>
-              <span aria-hidden="true">:</span>
-              <strong id="translation-provider"></strong>
-              <span aria-hidden="true">·</span>
-              <span id="translation-target"></span>
-              <span aria-hidden="true">·</span>
-              <span id="translation-endpoint" class="translation-endpoint"></span>
-            </p>
-          </div>
-          <button id="translation-action" class="translation-action" type="button"
-                  aria-describedby="translation-privacy translation-sensitive"></button>
-        </div>
-        <p id="translation-privacy" class="translation-privacy"
-           data-i18n="translation.privacy">Translation runs only when requested. Images are processed by local OCR; only recognized text is sent.</p>
-        <p id="translation-sensitive" class="translation-sensitive" role="status" tabindex="-1" hidden
-           data-i18n="translation.sensitive">Protected locally: sensitive clipboard items cannot be sent to translation services.</p>
-        <p id="translation-status" class="translation-status" role="status" aria-live="polite" hidden></p>
-        <div id="translation-result" class="translation-result" hidden>
-          <div class="translation-result-header">
-            <span id="translation-detected" class="translation-detected"></span>
-            <button id="translation-copy" class="translation-copy" type="button"
-                    aria-label="Copy translation" title="Copy translation">
-              <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
-              <span class="sr-only" data-i18n="translation.copy">Copy translation</span>
-            </button>
-          </div>
-          <pre id="translation-result-text" class="translation-result-text" tabindex="0"></pre>
-        </div>
-      </section>
+      <div id="translation-react-root"></div>
     </div>
 
     <!-- 更新弹窗（默认隐藏） -->

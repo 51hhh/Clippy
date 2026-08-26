@@ -25,6 +25,8 @@ export function App() {
   const updateGeneration = useRef(0);
   const copiedTimer = useRef<number | null>(null);
   const pinRef = useRef<PinPayload | null>(null);
+  const confirmedPinRef = useRef<PinPayload | null>(null);
+  const confirmedGeneration = useRef(0);
   const [pin, setPin] = useState<PinPayload | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -37,13 +39,19 @@ export function App() {
     pinApi
       .get(label)
       .then((payload) => {
-        if (!cancelled) setPin(payload);
+        if (!cancelled) {
+          pinRef.current = payload;
+          confirmedPinRef.current = payload;
+          setPin(payload);
+        }
       })
       .catch((reason) => {
         if (!cancelled) {
           console.error(reason);
           setError(t("pin.loadFailed"));
-          void pinApi.ready(label);
+          // Keep a failed payload window hidden; showing it would produce an
+          // empty pin and leave a native window behind the error state.
+          void pinApi.close(label).catch(() => undefined);
         }
       });
     return () => {
@@ -103,6 +111,10 @@ export function App() {
         pinApi
           .update(label, next)
           .then((payload) => {
+            if (requestGeneration >= confirmedGeneration.current) {
+              confirmedGeneration.current = requestGeneration;
+              confirmedPinRef.current = payload;
+            }
             // 用户在请求返回前继续调整时，旧响应不能覆盖本地乐观状态。
             if (!shouldApplyPinUpdateResponse(requestGeneration, updateGeneration.current, pendingUpdate.current)) {
               return;
@@ -110,7 +122,20 @@ export function App() {
             pinRef.current = payload;
             setPin(payload);
           })
-          .catch((reason) => setError(String(reason)));
+          .catch((reason) => {
+            if (
+              confirmedPinRef.current
+              && shouldApplyPinUpdateResponse(
+                requestGeneration,
+                updateGeneration.current,
+                pendingUpdate.current,
+              )
+            ) {
+              pinRef.current = confirmedPinRef.current;
+              setPin(confirmedPinRef.current);
+            }
+            setError(String(reason));
+          });
       });
     },
     [label],
@@ -133,11 +158,23 @@ export function App() {
   );
 
   const copy = useCallback(async () => {
-    await pinApi.copy(label);
-    setCopied(true);
-    if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
-    copiedTimer.current = window.setTimeout(() => setCopied(false), 1000);
+    try {
+      await pinApi.copy(label);
+      setCopied(true);
+      if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
+      copiedTimer.current = window.setTimeout(() => setCopied(false), 1000);
+    } catch (reason) {
+      console.error(reason);
+      setError(t("pin.actionFailed"));
+    }
   }, [label]);
+
+  const runAction = useCallback((action: () => Promise<unknown>) => {
+    void action().catch((reason) => {
+      console.error(reason);
+      setError(t("pin.actionFailed"));
+    });
+  }, []);
 
   useEffect(() => {
     function onPointerMove(event: PointerEvent) {
@@ -164,19 +201,19 @@ export function App() {
     function onKeyDown(event: KeyboardEvent) {
       if (!pin) return;
       const command = event.ctrlKey || event.metaKey;
-      if (event.key === "Escape") void pinApi.close(label);
+      if (event.key === "Escape") runAction(() => pinApi.close(label));
       else if (command && event.key.toLowerCase() === "c") {
         event.preventDefault();
         void copy();
       } else if (event.key === "+" || event.key === "=") adjustScale(0.1);
       else if (event.key === "-") adjustScale(-0.1);
       else if (event.key.toLowerCase() === "l") commitUpdate({ locked: !pin.locked });
-      else if (event.key.toLowerCase() === "s" && pin.canSave) void pinApi.save(label);
-      else if (event.key.toLowerCase() === "e" && pin.canEdit) void pinApi.edit(label);
+      else if (event.key.toLowerCase() === "s" && pin.canSave) runAction(() => pinApi.save(label));
+      else if (event.key.toLowerCase() === "e" && pin.canEdit) runAction(() => pinApi.edit(label));
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [adjustScale, commitUpdate, copy, label, pin]);
+  }, [adjustScale, commitUpdate, copy, label, pin, runAction]);
 
   useEffect(() => {
     return () => {
@@ -238,9 +275,9 @@ export function App() {
         onToggleOpacity={() => setOpacityOpen((open) => !open)}
         onToggleLock={() => commitUpdate({ locked: !pin.locked })}
         onCopy={() => void copy()}
-        onSave={() => void pinApi.save(label)}
-        onEdit={() => void pinApi.edit(label)}
-        onClose={() => void pinApi.close(label)}
+        onSave={() => runAction(() => pinApi.save(label))}
+        onEdit={() => runAction(() => pinApi.edit(label))}
+        onClose={() => runAction(() => pinApi.close(label))}
       />
       {error && <div className="pin-toast" role="status">{t("pin.actionFailed")}</div>}
     </main>

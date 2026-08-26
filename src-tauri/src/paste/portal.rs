@@ -64,23 +64,45 @@ enum RestoreTokenAction {
 #[derive(Debug, Clone, Copy)]
 struct RestoreTokenAttempt {
     had_token: bool,
-    authorization_submitted: bool,
+    restore_token_attached: bool,
+    stage: PortalAuthorizationStage,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum PortalAuthorizationStage {
+    PreparingSelectDevices,
+    SelectDevicesSubmitted,
+    SelectDevicesAccepted,
+    StartSubmitted,
+    StartAccepted,
 }
 
 impl RestoreTokenAttempt {
     fn new(had_token: bool) -> Self {
         Self {
             had_token,
-            authorization_submitted: false,
+            restore_token_attached: false,
+            stage: PortalAuthorizationStage::PreparingSelectDevices,
         }
     }
 
-    fn mark_authorization_submitted(&mut self, restore_token_submitted: bool) {
-        self.authorization_submitted = restore_token_submitted;
+    fn attach_restore_token(&mut self, attached: bool) {
+        self.restore_token_attached = attached;
+    }
+
+    fn advance_to(&mut self, stage: PortalAuthorizationStage) {
+        debug_assert!(stage >= self.stage);
+        self.stage = stage;
+    }
+
+    fn old_token_consumed(self) -> bool {
+        self.had_token
+            && self.restore_token_attached
+            && self.stage >= PortalAuthorizationStage::SelectDevicesSubmitted
     }
 
     fn after_failure(self) -> RestoreTokenAction {
-        if self.had_token && self.authorization_submitted {
+        if self.old_token_consumed() {
             RestoreTokenAction::Remove
         } else {
             RestoreTokenAction::Preserve
@@ -90,7 +112,7 @@ impl RestoreTokenAttempt {
     fn after_success(self, next_token: Option<String>) -> RestoreTokenAction {
         match next_token {
             Some(token) => RestoreTokenAction::Replace(token),
-            None if self.had_token && self.authorization_submitted => RestoreTokenAction::Remove,
+            None if self.old_token_consumed() => RestoreTokenAction::Remove,
             None => RestoreTokenAction::Preserve,
         }
     }
@@ -149,21 +171,27 @@ pub(super) async fn ensure_session(
                     .set_persist_mode(PersistMode::ExplicitlyRevoked)
                     .set_restore_token(restore_token.as_deref());
             }
-            // 从这里开始旧 token 可能已被 Portal 消费；后续失败不能继续复用。
-            token_attempt.mark_authorization_submitted(restore_token_submitted);
-            proxy
+            token_attempt.attach_restore_token(restore_token_submitted);
+            let select_request = proxy
                 .select_devices(&session, options)
                 .await
-                .map_err(|error| format!("请求键盘控制失败: {error}"))?
+                .map_err(|error| format!("请求键盘控制失败: {error}"))?;
+            // request 已成功提交给 Portal，旧 token 从此可能被消费。
+            token_attempt.advance_to(PortalAuthorizationStage::SelectDevicesSubmitted);
+            select_request
                 .response()
                 .map_err(|error| format!("键盘控制请求被拒绝: {error}"))?;
+            token_attempt.advance_to(PortalAuthorizationStage::SelectDevicesAccepted);
 
-            let selected = proxy
+            let start_request = proxy
                 .start(&session, None, Default::default())
                 .await
-                .map_err(|error| format!("启动 RemoteDesktop 会话失败: {error}"))?
+                .map_err(|error| format!("启动 RemoteDesktop 会话失败: {error}"))?;
+            token_attempt.advance_to(PortalAuthorizationStage::StartSubmitted);
+            let selected = start_request
                 .response()
                 .map_err(|error| format!("RemoteDesktop 授权未通过: {error}"))?;
+            token_attempt.advance_to(PortalAuthorizationStage::StartAccepted);
             if !selected.devices().contains(DeviceType::Keyboard) {
                 return Err("RemoteDesktop Portal 未授予键盘控制权限".to_string());
             }
@@ -276,6 +304,13 @@ async fn press_ctrl_v(session: &PortalSession) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    fn token_attempt_at(stage: PortalAuthorizationStage) -> RestoreTokenAttempt {
+        let mut attempt = RestoreTokenAttempt::new(true);
+        attempt.attach_restore_token(true);
+        attempt.advance_to(stage);
+        attempt
+    }
+
     #[test]
     fn implicit_attempt_runs_once_until_explicit_retry() {
         let mut state = PortalState::new(PastePhase::PermissionRequired);
@@ -288,22 +323,32 @@ mod tests {
     }
 
     #[test]
-    fn pre_select_failure_preserves_existing_restore_token() {
-        let attempt = RestoreTokenAttempt::new(true);
+    fn select_request_construction_or_send_failure_preserves_restore_token() {
+        let attempt = token_attempt_at(PortalAuthorizationStage::PreparingSelectDevices);
         assert_eq!(attempt.after_failure(), RestoreTokenAction::Preserve);
     }
 
     #[test]
-    fn submitted_failure_removes_consumed_restore_token() {
-        let mut attempt = RestoreTokenAttempt::new(true);
-        attempt.mark_authorization_submitted(true);
+    fn select_devices_response_failure_removes_consumed_restore_token() {
+        let attempt = token_attempt_at(PortalAuthorizationStage::SelectDevicesSubmitted);
+        assert_eq!(attempt.after_failure(), RestoreTokenAction::Remove);
+    }
+
+    #[test]
+    fn start_request_failure_removes_consumed_restore_token() {
+        let attempt = token_attempt_at(PortalAuthorizationStage::SelectDevicesAccepted);
+        assert_eq!(attempt.after_failure(), RestoreTokenAction::Remove);
+    }
+
+    #[test]
+    fn start_response_failure_removes_consumed_restore_token() {
+        let attempt = token_attempt_at(PortalAuthorizationStage::StartSubmitted);
         assert_eq!(attempt.after_failure(), RestoreTokenAction::Remove);
     }
 
     #[test]
     fn successful_restore_rolls_token_forward() {
-        let mut attempt = RestoreTokenAttempt::new(true);
-        attempt.mark_authorization_submitted(true);
+        let attempt = token_attempt_at(PortalAuthorizationStage::StartAccepted);
         assert_eq!(
             attempt.after_success(Some("next-token".to_string())),
             RestoreTokenAction::Replace("next-token".to_string())
@@ -311,16 +356,26 @@ mod tests {
     }
 
     #[test]
+    fn first_authorization_persists_returned_restore_token() {
+        let mut attempt = RestoreTokenAttempt::new(false);
+        attempt.advance_to(PortalAuthorizationStage::StartAccepted);
+        assert_eq!(
+            attempt.after_success(Some("first-token".to_string())),
+            RestoreTokenAction::Replace("first-token".to_string())
+        );
+    }
+
+    #[test]
     fn successful_restore_without_replacement_removes_consumed_token() {
-        let mut attempt = RestoreTokenAttempt::new(true);
-        attempt.mark_authorization_submitted(true);
+        let attempt = token_attempt_at(PortalAuthorizationStage::StartAccepted);
         assert_eq!(attempt.after_success(None), RestoreTokenAction::Remove);
     }
 
     #[test]
     fn portal_without_restore_support_preserves_unsubmitted_token() {
         let mut attempt = RestoreTokenAttempt::new(true);
-        attempt.mark_authorization_submitted(false);
+        attempt.attach_restore_token(false);
+        attempt.advance_to(PortalAuthorizationStage::StartAccepted);
         assert_eq!(attempt.after_failure(), RestoreTokenAction::Preserve);
         assert_eq!(attempt.after_success(None), RestoreTokenAction::Preserve);
     }

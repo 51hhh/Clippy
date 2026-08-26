@@ -21,7 +21,7 @@ function sourceFiles(directory) {
 
 describe("built window entrypoints", () => {
   it.each([
-    ["index.html", ["app", "clipboard-react-root", "preview-panel", "codec-panel"]],
+    ["index.html", ["app", "clipboard-react-root", "translation-react-root", "preview-panel", "codec-panel"]],
     ["settings.html", ["theme-grid", "auto-paste-toggle", "translation-group"]],
     ["capture.html", ["capture-root"]],
     ["capture-overlay.html", ["root"]],
@@ -39,6 +39,12 @@ describe("built window entrypoints", () => {
     const script = document.querySelector('script[type="module"]');
     expect(script?.getAttribute("src")).toBe("js/app.js");
     expect(readFileSync(resolve(root, "js/app.js"), "utf8")).not.toContain("api.js");
+  });
+
+  it("does not ship the removed legacy translation panel", () => {
+    const document = loadEntrypoint("index.html");
+    expect(document.getElementById("translation-panel-legacy")).toBeNull();
+    expect(document.getElementById("translation-panel")).toBeNull();
   });
 
   it("keeps direct Tauri access out of production feature modules", () => {

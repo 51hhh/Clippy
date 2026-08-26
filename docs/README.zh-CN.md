@@ -121,6 +121,8 @@ cargo tauri build
 
 当前模块所有权、截图/Pin/翻译流程和平台边界见 [architecture.md](architecture.md)。
 
+参考项目（Flashot/Translator）的截图、翻译和授权设计取舍见 [reference-project-guidance.md](reference-project-guidance.md)。
+
 ```mermaid
 flowchart LR
     CB["系统剪贴板"]

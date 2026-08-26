@@ -14,10 +14,11 @@ impl PinManager {
     }
 
     pub(super) fn insert(&self, entry: PinEntry) -> Result<(), String> {
-        self.entries
-            .lock()
-            .map_err(|error| error.to_string())?
-            .insert(entry.label.clone(), entry);
+        let mut entries = self.entries.lock().map_err(|error| error.to_string())?;
+        if entries.contains_key(&entry.label) {
+            return Err("贴图已经存在".to_string());
+        }
+        entries.insert(entry.label.clone(), entry);
         Ok(())
     }
 
@@ -28,6 +29,14 @@ impl PinManager {
             .get(label)
             .cloned()
             .ok_or_else(|| "贴图不存在或已经关闭".to_string())
+    }
+
+    pub(super) fn replace(&self, entry: PinEntry) -> Result<(), String> {
+        self.entries
+            .lock()
+            .map_err(|error| error.to_string())?
+            .insert(entry.label.clone(), entry);
+        Ok(())
     }
 
     pub(super) fn remove(&self, label: &str) -> Result<Option<PinEntry>, String> {

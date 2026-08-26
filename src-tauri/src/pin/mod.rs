@@ -72,6 +72,14 @@ mod tests {
     }
 
     #[test]
+    fn manager_rejects_duplicate_labels_without_replacing_entry() {
+        let manager = PinManager::new();
+        manager.insert(screenshot_entry("pin-image-test")).unwrap();
+        assert!(manager.insert(screenshot_entry("pin-image-test")).is_err());
+        assert_eq!(manager.len(), 1);
+    }
+
+    #[test]
     fn pin_position_clamps_to_negative_origin_work_area() {
         let work = tauri::PhysicalRect {
             position: PhysicalPosition::new(-1920, 24),
