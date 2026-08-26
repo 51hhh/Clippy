@@ -12,11 +12,21 @@ pub fn pin_clip(
     app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
+    let _transition = state
+        .pin_transition
+        .lock()
+        .map_err(|error| error.to_string())?;
     let label = format!("pin-clip-{id}");
     if let Some(window) = app_handle.get_webview_window(&label) {
-        window.show().map_err(|error| error.to_string())?;
-        let _ = window.set_focus();
-        return Ok(label);
+        if state.pin_manager.get(&label).is_ok() {
+            window.show().map_err(|error| error.to_string())?;
+            let _ = window.set_focus();
+            return Ok(label);
+        }
+        // A previous creation failed after the native window was built. Do not
+        // reuse an orphaned window with no payload entry.
+        let _ = window.close();
+        return Err("贴图窗口状态不完整，请重试".to_string());
     }
 
     let (item, image) = {
@@ -72,6 +82,10 @@ pub(crate) fn create_screenshot_pin(
     app_handle: &tauri::AppHandle,
     state: &AppState,
 ) -> Result<String, String> {
+    let _transition = state
+        .pin_transition
+        .lock()
+        .map_err(|error| error.to_string())?;
     let (width, height) =
         crate::screenshot::png_dimensions(&png).map_err(|error| error.to_string())?;
     let label = format!("pin-image-{}", crate::image_io::unique_image_id());
@@ -100,8 +114,17 @@ pub fn get_pin_payload(label: String, state: State<'_, AppState>) -> Result<PinP
 }
 
 #[tauri::command]
-pub fn pin_ready(label: String, app_handle: tauri::AppHandle) -> Result<(), String> {
+pub fn pin_ready(
+    label: String,
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let _transition = state
+        .pin_transition
+        .lock()
+        .map_err(|error| error.to_string())?;
     validate_label(&label)?;
+    state.pin_manager.get(&label)?;
     let window = app_handle
         .get_webview_window(&label)
         .ok_or_else(|| "贴图窗口不存在".to_string())?;
@@ -118,9 +141,20 @@ pub fn update_pin(
     state: State<'_, AppState>,
 ) -> Result<PinPayload, String> {
     validate_label(&label)?;
+    let _transition = state
+        .pin_transition
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let previous = state.pin_manager.get(&label)?;
     let entry = state.pin_manager.update(&label, &update)?;
     if update.scale.is_some() {
-        resize_pin_window(&app_handle, &entry)?;
+        if let Err(error) = resize_pin_window(&app_handle, &entry) {
+            if let Err(rollback_error) = resize_pin_window(&app_handle, &previous) {
+                log::warn!("回滚贴图窗口尺寸失败: {rollback_error}");
+            }
+            state.pin_manager.replace(previous)?;
+            return Err(error);
+        }
     }
     payload_from_entry(entry)
 }
@@ -173,6 +207,10 @@ pub fn close_pin(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     validate_label(&label)?;
+    let _transition = state
+        .pin_transition
+        .lock()
+        .map_err(|error| error.to_string())?;
     if let Some(window) = app_handle.get_webview_window(&label) {
         window.close().map_err(|error| error.to_string())?;
     }

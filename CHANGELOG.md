@@ -21,8 +21,8 @@
 - 截图动作执行前原子认领会话；裁剪或动作失败时统一关闭覆盖层并恢复源窗口，避免并发动作重复产生副作用。
 
 ### 验证
-- Rust：`cargo fmt/check/clippy --all-targets` 及 94 项测试通过，包含截图动作竞态/清理及 9 项翻译 provider 回环测试。
-- Frontend：Vitest 405 tests、TypeScript、Vite build 和 Xvfb/DOM smoke（7 tests）通过。
+- Rust：`cargo fmt/check/clippy --all-targets` 及 100 项测试通过，包含截图动作竞态/清理、Portal token 状态机及翻译 provider 回环测试。
+- Frontend：Vitest 408 tests、TypeScript、Vite build 和 Xvfb/DOM smoke（7 tests）通过。
 - Linux：当前 HEAD 的 deb/AppImage 产物构建并检查通过，AppImage 依赖完整且图标链接可移植；签名文件需 CI 的 `TAURI_SIGNING_PRIVATE_KEY`。
 
 ## v0.1.16

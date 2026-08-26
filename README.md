@@ -121,6 +121,8 @@ Output: `src-tauri/target/release/bundle/`
 
 See [docs/architecture.md](docs/architecture.md) for current ownership, capture/Pin/translation flows, and platform boundaries.
 
+Reference-project findings and integration boundaries are summarized in [docs/reference-project-guidance.md](docs/reference-project-guidance.md).
+
 ```mermaid
 flowchart LR
     CB["System Clipboard"]

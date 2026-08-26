@@ -5,7 +5,6 @@
 import * as theme         from "./theme.js";
 import * as clipboardList from "./clipboard-react-facade.js";
 import * as previewPanel  from "./preview-panel.js";
-import * as translationPanel from "./translation-panel.js";
 import * as codec         from "./codec.js";
 import * as i18n          from "../i18n/i18n.js";
 import { initUpdateModal, checkForUpdate } from "./update-modal.js";
@@ -16,7 +15,8 @@ import {
 import "../styles/themes.css";
 import "../styles/base.css";
 import "../styles/components.css";
-import { mountClipboardWorkspace } from "../react/main/mount";
+import { mountClipboardWorkspace, mountTranslationPanel } from "../react/main/mount";
+import { translationStore } from "../react/main/translationStore";
 
 function whenReady(fn) {
   if (document.readyState === "loading") {
@@ -39,14 +39,15 @@ whenReady(async () => {
   i18n.init(config.language || "auto");
 
   mountClipboardWorkspace(document.getElementById("clipboard-react-root"));
+  mountTranslationPanel(document.getElementById("translation-react-root"));
   previewPanel.init();
-  translationPanel.init(config);
+  translationStore.setConfig(config);
   codec.init();
 
   clipboardList.init({
     onFocusChange: (clip) => {
       previewPanel.updatePreview(clip);
-      translationPanel.updateClip(clip);
+      translationStore.setClip(clip);
     },
   });
 
@@ -65,7 +66,7 @@ whenReady(async () => {
     theme.applyTheme(newConfig.theme || "light");
     i18n.init(newConfig.language || "auto");
     clipboardList.refreshLabels();
-    translationPanel.updateConfig(newConfig);
+    translationStore.setConfig(newConfig);
   });
 
   await onShortcutRegisterFailed((shortcut) => {
@@ -93,7 +94,7 @@ whenReady(async () => {
 
 function onKeyDown(e) {
   // 翻译区使用原生按钮和可滚动结果，保留其键盘语义；Esc 仍交给全局关闭逻辑。
-  if (e.target?.closest?.("#translation-panel") && e.key !== "Escape") {
+  if (e.target?.closest?.("#translation-react-root") && e.key !== "Escape") {
     return;
   }
 
@@ -189,7 +190,9 @@ function onKeyDown(e) {
       if (!previewPanel.isVisible()) {
         previewPanel.toggle();
         previewPanel.updatePreview(clipboardList.getFocusedClip());
-        translationPanel.focusAction();
+        const focusTarget = document.getElementById("translation-sensitive-react")
+          || document.getElementById("translation-action-react");
+        focusTarget?.focus();
       } else {
         previewPanel.toggle();
       }
@@ -219,5 +222,5 @@ function onWindowBlur() {
   if (previewPanel.isVisible() || codec.isVisible()) return; // 面板打开时不隐藏窗口
   clipboardList.releaseMemory();
   previewPanel.clearContent();
-  translationPanel.clear();
+  translationStore.clear();
 }

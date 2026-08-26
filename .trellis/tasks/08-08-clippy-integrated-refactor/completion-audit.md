@@ -1,6 +1,6 @@
 # 综合重构完成度审计
 
-审计日期：2026-08-12
+审计日期：2026-08-13
 
 状态定义：
 
@@ -23,14 +23,14 @@
 | 9 | Pin Copy 无自动粘贴，关闭后无缓存/管理残留 | 自动化通过 | `copy_pin` 只调用 clipboard 写入，不调用 `select_clip`；关闭路径移除 manager entry 并关闭窗口，截图 Pin 数据由 entry 生命周期释放。 |
 | 10 | 文本/OCR/截图可显式翻译，敏感条目不自动发送 | 自动化通过 | translation content selector 在 Rust 拒绝敏感条目；截图只发送本地 OCR 文本且 IPC 无图片 payload；前端仅点击后请求。 |
 | 11 | 翻译超时、重试、request-id 和安全密钥存储 | 部分通过 | 15s 超时、一次可重试错误重试、陈旧结果保护和 Secret Service-only 实现/测试通过；真实 Secret Service 保存/读取/删除待验收。 |
-| 12 | 原剪贴板、搜索、收藏、预览、OCR、设置、托盘、更新、快捷键无回归 | 部分通过 | 405 项前端测试、94 项 Rust 测试、五入口构建通过；真实托盘、更新器和桌面快捷键仍需实机。 |
-| 13 | Rust/前端/quick/full CI 全部通过 | 自动化通过 | fmt/check/clippy、94 项 Rust、405 项前端、typecheck/build 和 Xvfb DOM smoke 7 项均通过。 |
+| 12 | 原剪贴板、搜索、收藏、预览、OCR、设置、托盘、更新、快捷键无回归 | 部分通过 | 408 项前端测试、100 项 Rust 测试、五入口构建通过；真实托盘、更新器和桌面快捷键仍需实机。 |
+| 13 | Rust/前端/quick/full CI 全部通过 | 自动化通过 | fmt/check/clippy、100 项 Rust、408 项前端、typecheck/build 和 Xvfb DOM smoke 7 项均通过；完整 CI 的 AppImage smoke 已在最终产物上通过。 |
 | 14 | X11、Wayland 和 Portal 人工矩阵有结果 | 待人工 | `qa-matrix.md` 已列出完整矩阵，但真实 GNOME X11、GNOME Wayland、KDE Wayland 结果仍为空。 |
 
 ## 发布产物
 
-- deb SHA-256：`de94d862dc28cca5d35c969d98ed2b854bff38b178b3cb1212dffaac2005a17c`
-- AppImage SHA-256：`4ac45a59177c917f76d50551f9ac94d97155fd0ef75c917e2743b981462db7a1`
+- deb SHA-256：`9ebb8e26cd15210ce0ddf0eb8c386b113d3532c1d8a7db4804298f41eb2f3f48`
+- AppImage SHA-256：`026e4cc2b2c40de1467cee7abef318d1e1b54f0c465224d02aa832c78128fd43`
 - AppImage 已从最终文件按 SquashFS 偏移独立解包；主二进制、GTK/WebKit 动态库、`AppRun`、desktop 文件和镜像内相对 `.DirIcon -> Clippy.png` 均已检查，内部二进制依赖无缺失。release CI 在重封装后重新生成 updater 签名。
 
 ## 完成阻断项
