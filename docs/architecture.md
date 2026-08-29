@@ -36,9 +36,17 @@
 | `react/main/translationStore.ts` | 主预览翻译状态、多服务结果卡、单服务重试与陈旧响应保护 |
 | `js/translation-providers.ts` | 服务显示名、默认端点与能力标记（设置页/主面板/选区翻译共用） |
 | `react/capture-overlay/` | 窗口命中、选区移动/缩放、直接动作与选区翻译 |
-| `react/capture/` | 对象标注、图像调整、撤销/重做和统一导出；视口、PNG 管线及待处理截图加载器独立管理 |
-| `js/settings/` | 主题、自动粘贴授权、快捷键录制、OCR 和统计控制器 |
+| `react/capture/` | 16 个标注工具（选择/绘制/效果三组）、图像调整、撤销/重做和统一导出；视口、PNG 管线及待处理截图加载器独立管理 |
+| `js/settings/` | 主题、自动粘贴授权、快捷键录制与注册失败提示、OCR 和统计控制器 |
 | `react/pin/` | 首帧就绪、工具栏、拖动阈值和 rAF 更新合并 |
+
+## 图片编辑器工具
+
+| 分组 | 工具 | 说明 |
+|---|---|---|
+| 选择 | crop、object、eraser | 裁剪选区；选中/拖动已有标注；橡皮一次点击删一个标注（保持撤销粒度） |
+| 绘制 | pen、marker、rect、ellipse、highlight、line、arrow、measure、text | 四种拖拽形态（折线/矩形/线段/文本）复用同一套包围盒、命中与移动逻辑；marker 与 highlight 半透明，ellipse 只在轮廓附近命中，measure 标注原图像素长度 |
+| 效果 | blur、mosaic、spotlight、magnifier | 需要读取或压暗底图，因此始终先于矢量标注绘制；magnifier 从原图重采样，预览与导出清晰度一致 |
 
 ## 核心流程
 
@@ -62,6 +70,8 @@ Wayland : select keyboard + persist_mode=2 -> rolling restore token -> reused se
 Fallback: permission/backend/injection failure -> clipboard remains populated, no key injection
 ```
 
+快捷键注册失败（Wayland 桌面不受管、X11 组合被占用）由后端记账，`get_shortcut_failures` 可随时读取，因此启动阶段早于设置页监听的失败也能显示；设置页对同一动作只保留最新一条，保存成功后重新拉取。Clippy 内部三个快捷键互相冲突由前端判定（它能读到未保存的录制值），桌面级冲突由 Rust 判定，X11 无法枚举时明确报告"无法检查"而不是"无冲突"。
+
 设置窗口关闭时，快捷键录制控制器先等待 `resume_shortcuts` 完成再关闭；Rust `AppState` 以原子标志和转换锁提供窗口销毁后的幂等恢复兜底。截图编辑器的待处理截图由最新请求代次门控，后端读取不消费缓存，窗口销毁或显式清理时统一释放。
 
 `XDG_SESSION_TYPE` 优先于残留的 display 环境变量。Portal token 不进入普通配置；独立文件必须为 0600。首次 Portal 确认、撤权和桌面后端是否允许静默恢复仍属于真实桌面人工验收。
@@ -78,7 +88,8 @@ Fallback: permission/backend/injection failure -> clipboard remains populated, n
 - 用户文本使用 React 文本节点或 `textContent`；富文本仅使用严格 DOMPurify 配置。
 - URL 元数据仅访问无凭据的 HTTP(S)，拒绝私有/保留 IP、私有 DNS 解析和重定向；请求有 5 秒超时与 1 MiB 上限。
 - 翻译响应有超时与 1 MiB 上限；数学表达式不使用 `eval`/`Function`。
+- 非 2xx 响应只在 4xx 时读取最多 4 KiB 正文用于错误归类（把"缺少/无效 key"从不透明的 `http_status` 里区分出来），5xx 正文一律不读，网关错误页不会被误判成凭据问题。
 
 ## 质量门禁
 
-`./scripts/ci-local.sh` 依次执行 Rust fmt/check/clippy/test、锁文件安装、TypeScript、Vitest、DOM/Xvfb smoke 和 Vite build。criterion 基准（`src-tauri/benches/`，通过 `bench_support.rs` 调生产代码）被 `--all-targets` 编译但不运行，数字与运行方式见 [bench-baseline.md](bench-baseline.md)。Linux 发布目标仅为 deb/AppImage；updater 签名由 release CI secret 生成。
+`./scripts/ci-local.sh` 依次执行 Rust fmt/check/clippy/test、锁文件安装、TypeScript、Vitest、DOM/Xvfb smoke、Canvas 导出像素 smoke 和 Vite build。Canvas smoke 需要 firefox 加 ffmpeg 或 python3-pil 读取截图像素，缺少时整步跳过（不算通过）。criterion 基准（`src-tauri/benches/`，通过 `bench_support.rs` 调生产代码）被 `--all-targets` 编译但不运行，数字与运行方式见 [bench-baseline.md](bench-baseline.md)。Linux 发布目标仅为 deb/AppImage；updater 签名由 release CI secret 生成。
