@@ -156,6 +156,19 @@
             <option value="youdao" data-i18n="settings.translation.providerYoudao">Youdao</option>
           </select>
         </div>
+        <div class="translation-field">
+          <label class="setting-label setting-label-sub"
+                 data-i18n="settings.translation.enable">Enable</label>
+          <div class="setting-toggle-row">
+            <label class="toggle-switch">
+              <input type="checkbox" id="translation-service-enabled"
+                     aria-describedby="translation-enabled-hint">
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="setting-hint" id="translation-enabled-hint"
+                  data-i18n="settings.translation.enableHint">Every enabled service translates in parallel, each into its own result card.</span>
+          </div>
+        </div>
         <div class="translation-field" id="translation-model-field">
           <label class="setting-label setting-label-sub" for="translation-model-input"
                  data-i18n="settings.translation.model">Model</label>
@@ -250,7 +263,7 @@
       </div>
       <div class="translation-privacy" role="note">
         <div class="translation-destination">
-          <span data-i18n="settings.translation.destination">Destination service:</span>
+          <span data-i18n="settings.translation.destination">Destination services:</span>
           <strong id="translation-service-name">LibreTranslate-compatible</strong>
         </div>
         <p id="translation-privacy-text"

@@ -1,11 +1,15 @@
-import { Copy } from "lucide-react";
+import { Copy, RotateCcw } from "lucide-react";
 import { useSyncExternalStore } from "react";
 import {
-  primaryTranslationService,
+  enabledTranslationServices,
   translationProviderMeta,
 } from "../../js/translation-providers";
 import { t } from "../shared/i18n";
-import { translationStore, type TranslationStore } from "./translationStore";
+import {
+  translationStore,
+  type TranslationCard,
+  type TranslationStore,
+} from "./translationStore";
 
 const LANGUAGE_KEYS: Record<string, string> = {
   en: "settings.translation.languageEnglish",
@@ -45,12 +49,26 @@ const ERROR_KEYS: Record<string, string> = {
   internal: "translation.error.generic",
 };
 
+function errorText(errorCode: string | null): string {
+  return t(errorCode ? ERROR_KEYS[errorCode] || "translation.error.generic" : "translation.error.generic");
+}
+
 export function translationFeedbackText(feedback: string, errorCode: string | null): string {
   if (feedback === "complete") return t("translation.complete");
-  if (feedback === "copied") return t("translation.copied");
-  if (feedback === "copy_failed") return t("translation.copyFailed");
-  if (feedback === "error") return t(errorCode ? ERROR_KEYS[errorCode] || "translation.error.generic" : "translation.error.generic");
+  if (feedback === "partial") return t("translation.partial");
+  if (feedback === "error") return errorText(errorCode);
   return "";
+}
+
+/** 单张卡的状态行：进行中、失败原因、复制反馈或检测到的源语言 */
+export function translationCardStatusText(card: TranslationCard): string {
+  if (card.loading) return t("translation.working");
+  if (card.errorCode) return errorText(card.errorCode);
+  if (card.copyFeedback === "copied") return t("translation.copied");
+  if (card.copyFeedback === "copy_failed") return t("translation.copyFailed");
+  return card.detectedLanguage
+    ? t("translation.detected", { language: card.detectedLanguage })
+    : t("translation.result");
 }
 
 export function TranslationPanel({ store = translationStore }: { store?: TranslationStore }) {
@@ -63,18 +81,14 @@ export function TranslationPanel({ store = translationStore }: { store?: Transla
   if (!clip || !config) return null;
 
   // 未启用任何服务时不假装某个默认服务，直接告诉用户当前没有可用目标。
-  const service = primaryTranslationService(config.translation_services);
-  const providerMeta = translationProviderMeta(service?.provider);
+  const services = enabledTranslationServices(config.translation_services);
   const target = config.translation_target_language || "en";
-  const providerLabel = service ? t(providerMeta.nameKey) : t("translation.providerNone");
-  const endpointLabel = service
-    ? service.endpoint || providerMeta.defaultEndpoint
-    : t("translation.endpointUnavailable");
   const targetLabel = t(LANGUAGE_KEYS[target] || "settings.translation.languageAuto");
   const actionLabel = t(clip.content_type === "image"
     ? snapshot.loading ? "translation.ocrTranslating" : "translation.ocrAndTranslate"
     : snapshot.loading ? "translation.translating" : "translation.translate");
   const feedback = translationFeedbackText(snapshot.feedback, snapshot.errorCode);
+  const busy = snapshot.loading || snapshot.cards.some((card) => card.loading);
 
   return (
     <section className="translation-panel" aria-labelledby="translation-title">
@@ -82,19 +96,39 @@ export function TranslationPanel({ store = translationStore }: { store?: Transla
         <div className="translation-heading">
           <h2 id="translation-title" className="translation-title">{t("translation.title")}</h2>
           <p className="translation-destination">
-            <span>{t("translation.destination")}:</span>
-            <strong>{providerLabel}</strong>
-            <span aria-hidden="true">·</span>
             <span>{t("translation.target", { language: targetLabel })}</span>
             <span aria-hidden="true">·</span>
-            <span className="translation-endpoint">{endpointLabel}</span>
+            <span>{t("translation.destination")}:</span>
+            {/* 启用的服务在下方逐行列出；一个都没有时就在这行说清楚。 */}
+            {services.length === 0 && (
+              <>
+                <strong>{t("translation.providerNone")}</strong>
+                <span aria-hidden="true">·</span>
+                <span className="translation-endpoint">{t("translation.endpointUnavailable")}</span>
+              </>
+            )}
           </p>
+          {services.length > 0 && (
+            <ul className="translation-destinations">
+              {services.map((service) => {
+                const meta = translationProviderMeta(service.provider);
+                return (
+                  <li key={service.provider}>
+                    <strong>{t(meta.nameKey)}</strong>
+                    <span className="translation-endpoint">
+                      {service.endpoint || meta.defaultEndpoint}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
         <button
           id="translation-action-react"
           className="translation-action"
           type="button"
-          disabled={clip.is_sensitive || snapshot.loading}
+          disabled={clip.is_sensitive || busy}
           aria-describedby={clip.is_sensitive
             ? "translation-privacy-react translation-sensitive-react"
             : "translation-privacy-react"}
@@ -117,34 +151,59 @@ export function TranslationPanel({ store = translationStore }: { store?: Transla
       {feedback && (
         <p
           className="translation-status"
-          data-state={snapshot.feedback === "error" || snapshot.feedback === "copy_failed" ? "error" : "success"}
+          data-state={snapshot.feedback === "complete"
+            ? "success"
+            : snapshot.feedback === "partial" ? "warning" : "error"}
           role="status"
           aria-live="polite"
         >
           {feedback}
         </p>
       )}
-      {snapshot.translatedText && (
-        <div className="translation-result">
-          <div className="translation-result-header">
-            <span className="translation-detected">
-              {snapshot.detectedLanguage
-                ? t("translation.detected", { language: snapshot.detectedLanguage })
-                : t("translation.result")}
-            </span>
-            <button
-              className="translation-copy"
-              type="button"
-              aria-label={t("translation.copy")}
-              title={t("translation.copy")}
-              onClick={() => void store.copy()}
-            >
-              <Copy size={15} />
-            </button>
+      {snapshot.cards.map((card) => {
+        const meta = translationProviderMeta(card.provider);
+        const providerLabel = t(meta.nameKey);
+        return (
+          <div className="translation-result" key={card.provider} data-provider={card.provider}>
+            <div className="translation-result-header">
+              <span className="translation-result-provider">{providerLabel}</span>
+              <span
+                className="translation-detected"
+                data-state={card.errorCode ? "error" : "info"}
+                role="status"
+                aria-live="polite"
+              >
+                {translationCardStatusText(card)}
+              </span>
+              <span className="translation-card-actions">
+                <button
+                  className="translation-copy"
+                  type="button"
+                  disabled={!card.translatedText}
+                  aria-label={`${t("translation.copy")} — ${providerLabel}`}
+                  title={t("translation.copy")}
+                  onClick={() => void store.copy(card.provider)}
+                >
+                  <Copy size={15} />
+                </button>
+                <button
+                  className="translation-copy translation-retry"
+                  type="button"
+                  disabled={clip.is_sensitive || busy}
+                  aria-label={`${t("translation.retry")} — ${providerLabel}`}
+                  title={t("translation.retry")}
+                  onClick={() => void store.retry(card.provider)}
+                >
+                  <RotateCcw size={15} />
+                </button>
+              </span>
+            </div>
+            {card.translatedText && (
+              <pre className="translation-result-text" tabIndex={0}>{card.translatedText}</pre>
+            )}
           </div>
-          <pre className="translation-result-text" tabIndex={0}>{snapshot.translatedText}</pre>
-        </div>
-      )}
+        );
+      })}
     </section>
   );
 }

@@ -107,7 +107,9 @@ google 976 行、bing 1256 行、deepl 634 行、youdao 1372 行，其中非官�
 - [x] **2c** 凭据模型支持一个 provider 两段凭据，仅写 Secret Service
 - [x] **2d-1** `AppConfig` 改为 `translation_services` 列表 + v1→v2 迁移，
       设置页可配置全部 6 个服务（仍是单选启用语义）
-- [ ] **2d-2** 多服务同时启用：按服务 `spawn_blocking` 并行、多结果卡、单服务重试
+- [x] **2d-2** 多服务同时启用：按服务 `spawn_blocking` 并行、多结果卡、单服务重试
+      （`ServiceTranslation`/`TranslationBatch` 标签联合，失败作为数据返回；
+      截图选区浮层仍只用 `primary_service`）
 - [ ] **2e** `language_direction` / `preferred_languages` 与源=目标自动换向
 - [ ] **2f** 翻译历史写入现有 SQLite
 - [ ] **2g** dictvoice TTS（敏感条目沿用阻断策略）

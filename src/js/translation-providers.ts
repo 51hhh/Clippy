@@ -86,10 +86,22 @@ export function translationProviderMeta(provider: unknown): TranslationProviderM
 
 /**
  * 当前启用的第一个服务，与后端 `primary_service` 取值一致。
- * 多服务并行落地前，界面上只展示这一个服务。
+ * 截图选区浮层只有一张卡的位置，仍然只用这个服务。
  */
 export function primaryTranslationService(
   services: TranslationServiceConfig[] | null | undefined,
 ): TranslationServiceConfig | null {
   return services?.find((service) => service.enabled) ?? null;
+}
+
+/**
+ * 所有启用的服务，顺序与配置一致，与后端 `selected_services` 的参与集合相同。
+ * 认不出的 provider 名（更新版本写入的服务）跳过，界面不为它留卡位。
+ */
+export function enabledTranslationServices(
+  services: TranslationServiceConfig[] | null | undefined,
+): TranslationServiceConfig[] {
+  return (services ?? []).filter(
+    (service) => service.enabled && service.provider in TRANSLATION_PROVIDERS,
+  );
 }
