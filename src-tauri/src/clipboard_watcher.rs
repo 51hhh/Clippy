@@ -1,4 +1,4 @@
-mod content;
+pub(crate) mod content;
 mod tmux;
 mod writer;
 

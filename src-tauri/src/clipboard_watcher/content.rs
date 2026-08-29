@@ -3,7 +3,7 @@ use sha2::{Digest, Sha256};
 use std::io::Cursor;
 
 /// 简单去除 HTML 标签，用于生成 FTS 可搜索的纯文本。
-pub(super) fn strip_html_tags(html: &str) -> String {
+pub(crate) fn strip_html_tags(html: &str) -> String {
     let mut result = String::with_capacity(html.len());
     let mut in_tag = false;
     for ch in html.chars() {
@@ -18,7 +18,7 @@ pub(super) fn strip_html_tags(html: &str) -> String {
 }
 
 /// 检测文本是否可能包含敏感内容（密码、Token、API Key 等）。
-pub(super) fn is_sensitive_text(text: &str) -> bool {
+pub(crate) fn is_sensitive_text(text: &str) -> bool {
     if text.len() < 8 {
         return false;
     }
@@ -48,7 +48,7 @@ pub(super) fn is_sensitive_text(text: &str) -> bool {
         && (lower.contains('=') || lower.contains(':'))
 }
 
-pub(super) fn compute_hash(data: &[u8]) -> String {
+pub(crate) fn compute_hash(data: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(data);
     format!("{:x}", hasher.finalize())

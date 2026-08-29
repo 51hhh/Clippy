@@ -61,6 +61,27 @@ nix = { version = "0.30", features = ["poll"] }
 
 [dev-dependencies]
 tempfile = "3"
+# 性能回归基线，只被 benches/ 使用；harness = false 让 criterion 自己管命令行。
+criterion = "0.8"
+
+[[bench]]
+name = "screenshot_bench"
+harness = false
+
+[[bench]]
+name = "clipboard_bench"
+harness = false
+
+[[bench]]
+name = "storage_bench"
+harness = false
+
+# 基准需要优化后的代码，但不需要 release 那套为发布体积服务的 lto = "fat" +
+# 单 codegen-unit（会让每次 cargo bench 的编译时间高到没人愿意跑）。
+# 因此基准数字用于版本间相对对比，不代表发布二进制的绝对性能。
+[profile.bench]
+lto = false
+codegen-units = 16
 
 [profile.release]
 strip = "symbols"

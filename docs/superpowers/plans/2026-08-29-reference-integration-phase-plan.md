@@ -150,9 +150,15 @@ google 976 行、bing 1256 行、deepl 634 行、youdao 1372 行，其中非官�
 
 ## Phase 4：可选
 
-- [ ] **滚动截图**：`scroll_session.rs` + `scroll_stitch.rs` 约 1320 行。**建议不做，或仅限 X11**：
-      Wayland Portal 下拿不到高频连续帧，可用性与成本不匹配
-- [ ] **criterion benches**：参考 flashot `benches/` 五个基准，给截图/剪贴板/裁剪建性能回归基线
+- [x] **滚动截图 — 决定不做**：`scroll_session.rs` + `scroll_stitch.rs` 约 1320 行，
+      Wayland Portal 下拿不到高频连续帧。仅限 X11 就意味着同一个入口在两种会话里给出
+      两种能力，而 Clippy 的截图路径一直按"X11/Wayland 行为一致"设计，成本与收益不匹配
+- [x] **criterion benches**：`src-tauri/benches/` 三个文件（screenshot/clipboard/storage），
+      经 `src-tauri/src/bench_support.rs` 调生产代码而不是在 bench 里复制实现。
+      不做裁剪基准：裁剪是 memcpy，被同一路径上的 `encode_png`（~77 ms/1080p）掩盖两个数量级，
+      而 flashot 的 `crop_bench.rs` 量的是 bench 文件里自己复制的一份 `crop_rgba`，参考价值为负。
+      `[profile.bench]` 关掉 release 的 lto/单 codegen-unit 以保证编译时间可接受；
+      门禁的 `--all-targets` 负责编译基准防腐烂，数字与坑见 `docs/bench-baseline.md`
 
 ## 执行顺序
 
