@@ -40,8 +40,7 @@
 - [x] 区域选择、画笔、矩形、箭头、文字、复制/保存/贴图
 - [x] 可配置保存目录 + 文件名模板 + 另存为对话框（`image_io::SaveTarget`、`dialogs.rs`，
       来源 flashot saver.rs）
-- [ ] 滚动截图 — 暂不排期，理由与代价见
-      [2026-08-29-reference-integration-phase-plan.md](superpowers/plans/2026-08-29-reference-integration-phase-plan.md) Phase 4
+- [x] 滚动截图 — **决定不做**，理由见下方 P9
 - [x] 窗口候选探测与鼠标位置智能命中
 - 来源: flashot capture/, overlay/, annotation/
 
@@ -80,3 +79,18 @@
 - [x] require_cmd 检查：cargo/npm/npx/xvfb-run 缺失时在第一步整体报错并指向
       CLAUDE.md「开发环境搭建」，不再让某个步骤在中途以难以归因的方式失败
 - 来源: flashot scripts/ci-local.sh
+
+## P8: criterion 性能基线
+- [x] `src-tauri/benches/`：screenshot（PNG 编解码）、clipboard（哈希/敏感判定/HTML 剥离）、
+      storage（`get_clips` 的 FTS5 与 LIKE 两条路径）
+- [x] `src-tauri/src/bench_support.rs` 作为基准唯一的内部入口，基准调生产代码而不是复制实现
+- [x] 不做裁剪基准：裁剪是 memcpy，被同路径的 `encode_png` 掩盖两个数量级；
+      flashot 的 `crop_bench.rs` 量的是 bench 文件里自己复制的实现
+- [x] 首次基线数字与已知坑（bench 与 release 共用 `target/release` 的 panic 策略冲突）见
+      [bench-baseline.md](bench-baseline.md)
+- 来源: flashot benches/
+
+## P9: 滚动截图（已结论：不做）
+- [x] `scroll_session.rs` + `scroll_stitch.rs` 约 1320 行，Wayland Portal 拿不到高频连续帧；
+      仅限 X11 会让同一入口在两种会话里给出两种能力，与"X11/Wayland 行为一致"的设计冲突
+- 来源: flashot scroll_session.rs, scroll_stitch.rs

@@ -81,4 +81,4 @@ Fallback: permission/backend/injection failure -> clipboard remains populated, n
 
 ## 质量门禁
 
-`./scripts/ci-local.sh` 依次执行 Rust fmt/check/clippy/test、锁文件安装、TypeScript、Vitest、DOM/Xvfb smoke 和 Vite build。Linux 发布目标仅为 deb/AppImage；updater 签名由 release CI secret 生成。
+`./scripts/ci-local.sh` 依次执行 Rust fmt/check/clippy/test、锁文件安装、TypeScript、Vitest、DOM/Xvfb smoke 和 Vite build。criterion 基准（`src-tauri/benches/`，通过 `bench_support.rs` 调生产代码）被 `--all-targets` 编译但不运行，数字与运行方式见 [bench-baseline.md](bench-baseline.md)。Linux 发布目标仅为 deb/AppImage；updater 签名由 release CI secret 生成。

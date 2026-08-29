@@ -60,6 +60,9 @@ cd src-tauri && cargo test test_name
 cd src-tauri && cargo fmt
 cd src-tauri && cargo clippy --all-targets -- -D warnings
 
+# 性能基线（criterion，门禁只编译不运行；数字与坑见 docs/bench-baseline.md）
+cd src-tauri && cargo bench
+
 # 完整本地门禁（含 DOM/Xvfb smoke 与前端生产构建）
 ./scripts/ci-local.sh
 ```

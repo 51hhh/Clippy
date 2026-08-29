@@ -1,4 +1,5 @@
 mod app;
+pub mod bench_support;
 mod capture;
 mod clipboard_watcher;
 mod commands;
