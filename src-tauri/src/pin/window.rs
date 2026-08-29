@@ -1,3 +1,4 @@
+use super::error::PinError;
 use super::model::PinEntry;
 use tauri::{Manager, PhysicalPosition, PhysicalSize, Position, Size};
 
@@ -12,7 +13,7 @@ pub(super) fn create_pin_window(
     label: &str,
     content_width: f64,
     content_height: f64,
-) -> Result<(), String> {
+) -> Result<(), PinError> {
     let (outer_width, outer_height) = outer_size(content_width, content_height, 1.0);
     let window = tauri::WebviewWindowBuilder::new(
         app,
@@ -30,7 +31,7 @@ pub(super) fn create_pin_window(
     .visible(false)
     .center()
     .build()
-    .map_err(|error| error.to_string())?;
+    .map_err(PinError::window)?;
     if let Err(error) = position_new_pin_window(app, &window, outer_width, outer_height) {
         if let Err(close_error) = window.close() {
             log::warn!("关闭定位失败的贴图窗口失败: {close_error}");
@@ -41,22 +42,20 @@ pub(super) fn create_pin_window(
     Ok(())
 }
 
-pub(super) fn resize_pin_window(app: &tauri::AppHandle, entry: &PinEntry) -> Result<(), String> {
+pub(super) fn resize_pin_window(app: &tauri::AppHandle, entry: &PinEntry) -> Result<(), PinError> {
     let window = app
         .get_webview_window(&entry.label)
-        .ok_or_else(|| "贴图窗口不存在".to_string())?;
+        .ok_or(PinError::WindowMissing)?;
     let monitor = window
         .current_monitor()
-        .map_err(|error| error.to_string())?
-        .or(window
-            .primary_monitor()
-            .map_err(|error| error.to_string())?);
+        .map_err(PinError::window)?
+        .or(window.primary_monitor().map_err(PinError::window)?);
     let (logical_width, logical_height) =
         outer_size(entry.content_width, entry.content_height, entry.scale);
     let Some(monitor) = monitor else {
         return window
             .set_size(tauri::LogicalSize::new(logical_width, logical_height))
-            .map_err(|error| error.to_string());
+            .map_err(PinError::window);
     };
     let scale_factor = monitor.scale_factor().max(0.1);
     let work = monitor.work_area();
@@ -85,10 +84,10 @@ pub(super) fn resize_pin_window(app: &tauri::AppHandle, entry: &PinEntry) -> Res
     let position = clamp_pin_position(centered, size, work);
     window
         .set_size(Size::Physical(size))
-        .map_err(|error| error.to_string())?;
+        .map_err(PinError::window)?;
     window
         .set_position(Position::Physical(position))
-        .map_err(|error| error.to_string())
+        .map_err(PinError::window)
 }
 
 fn position_new_pin_window(
@@ -96,7 +95,7 @@ fn position_new_pin_window(
     window: &tauri::WebviewWindow,
     logical_width: f64,
     logical_height: f64,
-) -> Result<(), String> {
+) -> Result<(), PinError> {
     let cursor = app.cursor_position().ok();
     let monitor = cursor
         .and_then(|position| {
@@ -104,7 +103,7 @@ fn position_new_pin_window(
                 .ok()
                 .flatten()
         })
-        .or(app.primary_monitor().map_err(|error| error.to_string())?);
+        .or(app.primary_monitor().map_err(PinError::window)?);
     let Some(monitor) = monitor else {
         return Ok(());
     };
@@ -129,7 +128,7 @@ fn position_new_pin_window(
         });
     window
         .set_position(Position::Physical(clamp_pin_position(raw, size, work)))
-        .map_err(|error| error.to_string())
+        .map_err(PinError::window)
 }
 
 pub(super) fn clamp_pin_position(

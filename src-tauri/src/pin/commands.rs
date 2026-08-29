@@ -61,7 +61,7 @@ pub fn pin_clip(
     })?;
     if let Err(error) = create_pin_window(&app_handle, &label, content_width, content_height) {
         let _ = state.pin_manager.remove(&label);
-        return Err(error);
+        return Err(crate::error::report("创建剪贴板贴图窗口失败", error));
     }
     Ok(label)
 }
@@ -102,7 +102,7 @@ pub(crate) fn create_screenshot_pin(
     })?;
     if let Err(error) = create_pin_window(app_handle, &label, content_width, content_height) {
         let _ = state.pin_manager.remove(&label);
-        return Err(error);
+        return Err(crate::error::report("创建截图贴图窗口失败", error));
     }
     Ok(label)
 }
@@ -153,7 +153,13 @@ pub fn update_pin(
                 log::warn!("回滚贴图窗口尺寸失败: {rollback_error}");
             }
             state.pin_manager.replace(previous)?;
-            return Err(error);
+            // 缩放途中窗口被关掉属于正常竞争，不是故障。
+            let context = "缩放贴图窗口失败";
+            return Err(if error.is_gone() {
+                crate::error::note(context, error)
+            } else {
+                crate::error::report(context, error)
+            });
         }
     }
     payload_from_entry(entry)

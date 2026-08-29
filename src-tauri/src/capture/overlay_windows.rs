@@ -1,7 +1,8 @@
+use super::error::CaptureError;
 use super::types::OverlaySpec;
 use tauri::Manager;
 
-pub(super) fn create(app: &tauri::AppHandle, specs: &[OverlaySpec]) -> Result<(), String> {
+pub(super) fn create(app: &tauri::AppHandle, specs: &[OverlaySpec]) -> Result<(), CaptureError> {
     for spec in specs {
         let window = tauri::WebviewWindowBuilder::new(
             app,
@@ -19,16 +20,16 @@ pub(super) fn create(app: &tauri::AppHandle, specs: &[OverlaySpec]) -> Result<()
         .focused(false)
         .visible(false)
         .build()
-        .map_err(|error| format!("创建截图覆盖层失败: {error}"))?;
+        .map_err(|error| CaptureError::OverlayCreate(error.to_string()))?;
         window
             .set_position(tauri::LogicalPosition::new(spec.x as f64, spec.y as f64))
-            .map_err(|error| error.to_string())?;
+            .map_err(CaptureError::window)?;
         window
             .set_size(tauri::LogicalSize::new(
                 spec.width as f64,
                 spec.height as f64,
             ))
-            .map_err(|error| error.to_string())?;
+            .map_err(CaptureError::window)?;
     }
 
     let cursor = app.cursor_position().ok();
@@ -42,7 +43,7 @@ pub(super) fn create(app: &tauri::AppHandle, specs: &[OverlaySpec]) -> Result<()
     });
     for spec in specs {
         if let Some(window) = app.get_webview_window(&spec.label) {
-            window.show().map_err(|error| error.to_string())?;
+            window.show().map_err(CaptureError::window)?;
         }
     }
     if let Some(spec) = focused.or_else(|| specs.first()) {

@@ -163,7 +163,7 @@ impl ClipboardWatcher {
                                         Some((clip, removed))
                                     }
                                     Err(e) => {
-                                        log::warn!("剪贴板 HTML 保存失败: {}", e);
+                                        crate::error::report("剪贴板 HTML 保存失败", e);
                                         None
                                     }
                                 }
@@ -223,7 +223,7 @@ impl ClipboardWatcher {
                                         Some((clip, removed))
                                     }
                                     Err(e) => {
-                                        log::warn!("剪贴板内容保存失败: {}", e);
+                                        crate::error::report("剪贴板内容保存失败", e);
                                         None
                                     }
                                 }
@@ -287,7 +287,7 @@ impl ClipboardWatcher {
                                             Some((clip, removed))
                                         }
                                         Err(e) => {
-                                            log::warn!("剪贴板图片保存失败: {}", e);
+                                            crate::error::report("剪贴板图片保存失败", e);
                                             None
                                         }
                                     }

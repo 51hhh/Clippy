@@ -1,4 +1,9 @@
+use super::error::PasteError;
 use std::path::Path;
+
+fn io(error: impl std::fmt::Display) -> PasteError {
+    PasteError::TokenIo(error.to_string())
+}
 
 pub(super) fn read_restore_token(path: &Path) -> Option<String> {
     if !crate::private_files::is_private(path) {
@@ -13,20 +18,19 @@ pub(super) fn read_restore_token(path: &Path) -> Option<String> {
     Some(token.to_string())
 }
 
-pub(super) fn write_restore_token(path: &Path, token: &str) -> Result<(), String> {
+pub(super) fn write_restore_token(path: &Path, token: &str) -> Result<(), PasteError> {
     if token.is_empty() || token.len() > 4096 {
-        return Err("Portal restore token 长度无效".to_string());
+        return Err(PasteError::TokenInvalidLength);
     }
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
-        .ok_or_else(|| "Portal token 路径没有父目录".to_string())?;
-    std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    crate::private_files::restrict_directory(parent).map_err(|error| error.to_string())?;
+        .ok_or(PasteError::TokenPathMissingParent)?;
+    std::fs::create_dir_all(parent).map_err(io)?;
+    crate::private_files::restrict_directory(parent).map_err(io)?;
     let temp = path.with_extension("tmp");
-    crate::private_files::write_private(&temp, token.as_bytes())
-        .map_err(|error| error.to_string())?;
-    std::fs::rename(temp, path).map_err(|error| error.to_string())
+    crate::private_files::write_private(&temp, token.as_bytes()).map_err(io)?;
+    std::fs::rename(temp, path).map_err(io)
 }
 
 #[cfg(test)]

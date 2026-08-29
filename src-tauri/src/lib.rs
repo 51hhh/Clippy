@@ -3,6 +3,7 @@ mod capture;
 mod clipboard_watcher;
 mod commands;
 mod config;
+mod error;
 mod gsettings_shortcuts;
 mod image_io;
 mod models;

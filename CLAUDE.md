@@ -13,19 +13,28 @@ Clippy 是跨平台轻量剪贴板管理器，基于 Tauri v2 + Rust（后端）
 ```bash
 # 1. Tauri v2 的系统依赖
 sudo apt update && sudo apt install -y \
-  libwebkit2gtk-4.1-dev build-essential curl wget file \
+  libwebkit2gtk-4.1-dev libgtk-3-dev build-essential curl wget file \
   libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
   pkg-config
 
-# 2. Rust toolchain
+# 2. 本项目额外依赖
+#   libpipewire-0.3-dev  — ashpd 的 screencast feature（libspa-sys 需要 pkg-config）
+#   libgbm-dev 等        — libwayshot-xcap 的 Wayland 截图链接依赖（-lgbm/-lEGL）
+#   xvfb                 — scripts/smoke-dom.sh 与 ci-local.sh 的无头 DOM smoke
+sudo apt install -y \
+  libpipewire-0.3-dev \
+  libgbm-dev libegl1-mesa-dev libdrm-dev libwayland-dev libxcb1-dev \
+  xvfb
+
+# 3. Rust toolchain
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source "$HOME/.cargo/env"
 
-# 3. Node.js（最低 20.19，推荐当前 LTS）
+# 4. Node.js（最低 20.19，推荐当前 LTS）
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
 
-# 4. Tauri CLI
+# 5. Tauri CLI
 cargo install tauri-cli --version "^2"
 ```
 

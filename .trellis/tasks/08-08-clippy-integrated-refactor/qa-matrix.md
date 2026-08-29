@@ -1,18 +1,22 @@
 # 综合重构 QA 矩阵
 
-更新日期：2026-08-13
+更新日期：2026-08-29
 
 ## 自动化证据
+
+2026-08-29 复跑：`./scripts/ci-local.sh` = 10 通过 / 0 失败 / 1 跳过（跳过项为需
+`CLIPPY_APPIMAGE_SMOKE=1` 显式开启的 AppImage 可视 smoke）。下表 Rust/前端测试数量已按当次结果更新，
+打包产物一行仍是 08-13 的证据，未在 08-29 重新构建。
 
 | 范围 | 命令/证据 | 结果 |
 |---|---|---|
 | Rust 格式 | `cargo fmt -- --check` | 通过 |
 | Rust 编译 | `cargo check --all-targets` | 通过 |
-| Rust 测试 | `cargo test --all` | 100 passed；包含截图动作错误/竞态清理、Portal token 状态机与翻译 provider 回环测试 |
+| Rust 测试 | `cargo test --all` | 122 passed；新增领域错误码稳定性/文案一致性测试，含截图动作错误/竞态清理、Portal token 阶段状态机与翻译 provider 回环测试 |
 | Rust lint | `cargo clippy --all-targets -- -D warnings` | 通过 |
 | 本地敏感文件权限 | Rust Unix 回归测试 | `config.json`、`clips.db`、`-wal`、`-shm`、Portal token 均为 `0600`；旧配置/数据库宽松权限可修复 |
 | 前端类型 | `npx tsc --noEmit` | 通过 |
-| 前端测试 | `npx vitest run` | 25 files / 408 passed |
+| 前端测试 | `npx vitest run` | 28 files / 429 passed |
 | 前端构建 | `npx vite build` | 通过，5 个窗口入口均生成 |
 | X11/DOM smoke | `./scripts/smoke-dom.sh` | 1 file / 7 passed（Xvfb） |
 | Release X11 startup | 最终 AppImage 解包后的 `AppRun` + `dbus-run-session` + `xvfb-run`，临时 HOME/XDG，12 秒超时 | 进程持续运行至预期超时，无提前崩溃；无完整桌面环境产生的 PipeWire/EGL/user-systemd 警告不等同视觉验收 |

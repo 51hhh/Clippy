@@ -1,3 +1,4 @@
+use super::error::CaptureError;
 use super::types::{CaptureOverlayPayload, CaptureSelection, OverlaySpec, WindowCandidate};
 use super::window_probe::probe_windows;
 use crate::screenshot::CapturedMonitorFrame;
@@ -27,13 +28,13 @@ impl CaptureManager {
         &self,
         frames: Vec<CapturedMonitorFrame>,
         restore_labels: Vec<String>,
-    ) -> Result<Vec<OverlaySpec>, String> {
+    ) -> Result<Vec<OverlaySpec>, CaptureError> {
         if frames.is_empty() {
-            return Err("截图没有可用显示器帧".to_string());
+            return Err(CaptureError::NoMonitorFrames);
         }
-        let mut current = self.session.lock().map_err(|error| error.to_string())?;
+        let mut current = self.session.lock().map_err(CaptureError::state_lock)?;
         if current.is_some() {
-            return Err("已有截图会话正在进行".to_string());
+            return Err(CaptureError::SessionBusy);
         }
         let id = crate::image_io::unique_image_id();
         let windows = probe_windows(&frames);
@@ -57,22 +58,20 @@ impl CaptureManager {
         Ok(specs)
     }
 
-    pub(super) fn payload(&self, label: &str) -> Result<CaptureOverlayPayload, String> {
-        let current = self.session.lock().map_err(|error| error.to_string())?;
-        let session = current
-            .as_ref()
-            .ok_or_else(|| "截图会话不存在".to_string())?;
+    pub(super) fn payload(&self, label: &str) -> Result<CaptureOverlayPayload, CaptureError> {
+        let current = self.session.lock().map_err(CaptureError::state_lock)?;
+        let session = current.as_ref().ok_or(CaptureError::SessionMissing)?;
         let index = session
             .overlay_labels
             .iter()
             .position(|candidate| candidate == label)
-            .ok_or_else(|| "覆盖层不属于当前截图会话".to_string())?;
+            .ok_or(CaptureError::OverlayNotInSession)?;
         let frame = session
             .frames
             .get(index)
-            .ok_or_else(|| "覆盖层帧不存在".to_string())?;
+            .ok_or(CaptureError::OverlayFrameMissing)?;
         let png = crate::screenshot::encode_png(&frame.rgba, frame.pixel_width, frame.pixel_height)
-            .map_err(|error| error.to_string())?;
+            .map_err(CaptureError::codec)?;
         Ok(CaptureOverlayPayload {
             session_id: session.id.clone(),
             monitor_id: frame.monitor_id,
@@ -89,28 +88,26 @@ impl CaptureManager {
         })
     }
 
-    pub(super) fn crop(&self, selection: &CaptureSelection) -> Result<Vec<u8>, String> {
-        let current = self.session.lock().map_err(|error| error.to_string())?;
-        let session = current
-            .as_ref()
-            .ok_or_else(|| "截图会话不存在".to_string())?;
+    pub(super) fn crop(&self, selection: &CaptureSelection) -> Result<Vec<u8>, CaptureError> {
+        let current = self.session.lock().map_err(CaptureError::state_lock)?;
+        let session = current.as_ref().ok_or(CaptureError::SessionMissing)?;
         if session.id != selection.session_id {
-            return Err("截图会话已经更新，请重新选择".to_string());
+            return Err(CaptureError::SessionSupersededRetry);
         }
         let frame = session
             .frames
             .iter()
             .find(|frame| frame.monitor_id == selection.monitor_id)
-            .ok_or_else(|| "选择区域不属于当前显示器".to_string())?;
+            .ok_or(CaptureError::SelectionMonitorMismatch)?;
         crop_frame(frame, selection)
     }
 
-    pub(super) fn finish(&self, session_id: &str) -> Result<CaptureSession, String> {
-        let mut current = self.session.lock().map_err(|error| error.to_string())?;
-        let session = current.take().ok_or_else(|| "截图会话不存在".to_string())?;
+    pub(super) fn finish(&self, session_id: &str) -> Result<CaptureSession, CaptureError> {
+        let mut current = self.session.lock().map_err(CaptureError::state_lock)?;
+        let session = current.take().ok_or(CaptureError::SessionMissing)?;
         if session.id != session_id {
             *current = Some(session);
-            return Err("截图会话已经更新".to_string());
+            return Err(CaptureError::SessionSuperseded);
         }
         Ok(session)
     }
@@ -135,14 +132,14 @@ impl CaptureManager {
 fn crop_frame(
     frame: &CapturedMonitorFrame,
     selection: &CaptureSelection,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, CaptureError> {
     for value in [selection.x, selection.y, selection.width, selection.height] {
         if !value.is_finite() {
-            return Err("截图选择区域包含无效数值".to_string());
+            return Err(CaptureError::SelectionNotFinite);
         }
     }
     if selection.width < 2.0 || selection.height < 2.0 {
-        return Err("截图选择区域太小".to_string());
+        return Err(CaptureError::SelectionTooSmall);
     }
     let left = (selection.x.max(0.0) * frame.scale_x as f64).floor() as u32;
     let top = (selection.y.max(0.0) * frame.scale_y as f64).floor() as u32;
@@ -155,7 +152,7 @@ fn crop_frame(
     let (left, top) = (left.min(frame.pixel_width), top.min(frame.pixel_height));
     let (right, bottom) = (right.min(frame.pixel_width), bottom.min(frame.pixel_height));
     if right <= left || bottom <= top {
-        return Err("截图选择区域为空".to_string());
+        return Err(CaptureError::SelectionEmpty);
     }
     let width = right - left;
     let height = bottom - top;
@@ -166,10 +163,10 @@ fn crop_frame(
         let source = frame
             .rgba
             .get(start..start + row_bytes)
-            .ok_or_else(|| "截图帧裁剪越界".to_string())?;
+            .ok_or(CaptureError::CropOutOfBounds)?;
         rgba.extend_from_slice(source);
     }
-    crate::screenshot::encode_png(&rgba, width, height).map_err(|error| error.to_string())
+    crate::screenshot::encode_png(&rgba, width, height).map_err(CaptureError::codec)
 }
 
 #[cfg(test)]
@@ -272,7 +269,10 @@ mod tests {
             height: 10.0,
         };
 
-        assert_eq!(manager.crop(&selection).unwrap_err(), "截图选择区域太小");
+        assert_eq!(
+            manager.crop(&selection).unwrap_err().code(),
+            "selection_too_small"
+        );
         let session = manager.finish(&selection.session_id).unwrap();
         assert_eq!(session.overlay_labels, vec![label.clone()]);
         assert_eq!(session.restore_labels, vec!["main"]);
@@ -292,8 +292,8 @@ mod tests {
         });
 
         assert_eq!(
-            manager.finish("session-1").err().unwrap(),
-            "截图会话已经更新"
+            manager.finish("session-1").err().unwrap().code(),
+            "session_superseded"
         );
         assert!(manager.payload(&label).is_ok());
         assert_eq!(manager.finish("session-2").unwrap().id, "session-2");

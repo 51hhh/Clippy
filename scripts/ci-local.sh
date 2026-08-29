@@ -36,10 +36,41 @@ skip_step() {
   SKIP=$((SKIP + 1))
 }
 
+# 缺依赖要在第一步就明确报错，而不是让某个步骤在中途以难以归因的方式失败。
+MISSING_COMMANDS=()
+
+require_cmd() {
+  local command_name="$1"
+  local hint="$2"
+  if ! command -v "$command_name" >/dev/null 2>&1; then
+    MISSING_COMMANDS+=("$command_name — $hint")
+  fi
+}
+
+check_prerequisites() {
+  require_cmd cargo "Rust toolchain: https://rustup.rs"
+  require_cmd npm "Node.js >= 20.19: https://nodejs.org"
+  require_cmd npx "随 Node.js 一同安装"
+  # DOM/Canvas smoke 在无头环境下依赖 Xvfb，缺失时整条前端 smoke 都无法执行。
+  require_cmd xvfb-run "sudo apt install -y xvfb"
+
+  if [[ ${#MISSING_COMMANDS[@]} -gt 0 ]]; then
+    printf "${RED}缺少以下依赖，无法运行本地门禁：${NC}\n"
+    local entry
+    for entry in "${MISSING_COMMANDS[@]}"; do
+      printf "${RED}  - %s${NC}\n" "$entry"
+    done
+    printf "完整环境搭建步骤见 CLAUDE.md「开发环境搭建」。\n"
+    exit 1
+  fi
+}
+
 echo "=========================================="
 echo " Clippy 本地质量预检"
 echo "=========================================="
 echo ""
+
+check_prerequisites
 
 # --- Rust ---
 run_step "cargo fmt --check" bash -c "cd src-tauri && cargo fmt -- --check"

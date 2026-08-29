@@ -1,9 +1,11 @@
 pub(crate) mod commands;
+mod error;
 mod manager;
 mod model;
 mod window;
 
 pub(crate) use commands::create_screenshot_pin;
+pub use error::PinError;
 pub(crate) use manager::remember_pin_window_position;
 pub use manager::PinManager;
 

@@ -1,7 +1,9 @@
+mod error;
 mod portal;
 mod token_store;
 mod x11;
 
+pub use error::PasteError;
 use portal::PortalState;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -128,7 +130,7 @@ impl PasteManager {
     pub async fn request_permission(
         &self,
         auto_paste_enabled: bool,
-    ) -> Result<PasteStatus, String> {
+    ) -> Result<PasteStatus, PasteError> {
         if self.backend != PasteBackend::WaylandPortal {
             return Ok(self.status(auto_paste_enabled).await);
         }
@@ -141,16 +143,16 @@ impl PasteManager {
         Ok(self.status(auto_paste_enabled).await)
     }
 
-    pub async fn paste(&self) -> Result<PasteOutcome, String> {
+    pub async fn paste(&self) -> Result<PasteOutcome, PasteError> {
         match self.backend {
             PasteBackend::X11 => {
                 let target = self.x11_target.lock().ok().and_then(|target| *target);
                 let result = tauri::async_runtime::spawn_blocking(move || {
-                    let target = target.ok_or_else(|| "没有可恢复的 X11 目标窗口".to_string())?;
+                    let target = target.ok_or(PasteError::X11TargetMissing)?;
                     x11::paste(target)
                 })
                 .await
-                .map_err(|error| format!("X11 粘贴线程异常: {error}"))?;
+                .map_err(|error| PasteError::X11ThreadPanic(error.to_string()))?;
                 result?;
                 Ok(PasteOutcome {
                     copied: true,
