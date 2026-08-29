@@ -392,6 +392,22 @@ html, body {
   align-items: center;
 }
 
+.translation-preferred-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 6px;
+}
+
+.translation-preferred-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
 .translation-key-status {
   display: flex;
   align-items: center;

@@ -49,6 +49,8 @@ export interface AppConfig {
   translation_services: TranslationServiceConfig[];
   translation_source_language: string;
   translation_target_language: string;
+  /** 备选目标语言，按优先级排列；留空表示沿用目标/源语言这一对 */
+  preferred_languages: string[];
   main_window_position: { x: number; y: number } | null;
 }
 
@@ -133,6 +135,8 @@ export interface TranslationResult {
   provider: TranslationProvider;
   translated_text: string;
   detected_source_language: string | null;
+  /** 实际使用的目标语言，可能因自动换向与设置里的目标语言不同 */
+  target_language: string;
 }
 
 /**
@@ -145,6 +149,8 @@ export type ServiceTranslation =
       provider: TranslationProvider;
       translated_text: string;
       detected_source_language: string | null;
+      /** 实际使用的目标语言，可能因自动换向与设置里的目标语言不同 */
+      target_language: string;
     }
   | {
       status: "error";
@@ -165,6 +171,8 @@ export interface CaptureTranslationResult {
   sourceText: string;
   translatedText: string;
   detectedSourceLanguage: string | null;
+  /** 实际使用的目标语言，可能因自动换向与设置里的目标语言不同 */
+  targetLanguage: string;
 }
 
 export interface PinPayload {

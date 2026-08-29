@@ -23,6 +23,11 @@ const PROVIDER_IDS = [
   "youdao",
 ];
 
+/** 备选语言勾选框，顺序与 settings.html 一致 */
+const PREFERRED_LANGUAGES = ["en", "zh", "ja", "ko", "es", "fr", "de"]
+  .map((code) => `<label><input type="checkbox" value="${code}">${code}</label>`)
+  .join("");
+
 function setupDom() {
   const options = PROVIDER_IDS.map((id) => `<option value="${id}">${id}</option>`).join("");
   document.body.innerHTML = `
@@ -38,6 +43,7 @@ function setupDom() {
     <select id="translation-target-language-select">
       <option value="en">English</option><option value="zh">Chinese</option>
     </select>
+    <div id="translation-preferred-languages">${PREFERRED_LANGUAGES}</div>
     <input id="translation-api-key-input" type="password">
     <input id="translation-api-secret-input" type="password" hidden>
     <div id="translation-fallback-hint" hidden></div>
@@ -72,6 +78,10 @@ function serviceOf(config, provider) {
 
 function element(id) {
   return document.getElementById(id);
+}
+
+function preferred(code) {
+  return document.querySelector(`#translation-preferred-languages input[value="${code}"]`);
 }
 
 describe("translation settings", () => {
@@ -175,6 +185,36 @@ describe("translation settings", () => {
     expect(element("translation-service-name").textContent).toBe("No service enabled");
     expect(settings.getConfig().translation_services.some((service) => service.enabled))
       .toBe(false);
+  });
+
+  it("备选语言按勾选先后保存，一个都不勾时返回空列表", () => {
+    settings.fill(configWith("libretranslate"));
+    // 空列表表示沿用「目标 + 源」这一对语言，后端不需要额外标记。
+    expect(settings.getConfig().preferred_languages).toEqual([]);
+
+    for (const code of ["zh", "en"]) {
+      preferred(code).checked = true;
+      preferred(code).dispatchEvent(new Event("change"));
+    }
+    // 先勾的优先级更高，保存顺序不跟随勾选框的界面顺序。
+    expect(settings.getConfig().preferred_languages).toEqual(["zh", "en"]);
+
+    preferred("zh").checked = false;
+    preferred("zh").dispatchEvent(new Event("change"));
+    expect(settings.getConfig().preferred_languages).toEqual(["en"]);
+  });
+
+  it("回填备选语言时保留已保存的优先级顺序，丢弃界面上没有的语言码", () => {
+    settings.fill({
+      ...configWith("libretranslate"),
+      preferred_languages: ["ja", "en", "kl", "en"],
+    });
+
+    expect(preferred("ja").checked).toBe(true);
+    expect(preferred("en").checked).toBe(true);
+    expect(preferred("zh").checked).toBe(false);
+    // 顺序不能被勾选框的界面顺序重排，否则保存一次就改变了优先级。
+    expect(settings.getConfig().preferred_languages).toEqual(["ja", "en"]);
   });
 
   it("按服务能力显示区域、项目、第二凭据字段与非官方端点提示", () => {

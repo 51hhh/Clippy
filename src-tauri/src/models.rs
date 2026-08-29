@@ -133,6 +133,10 @@ pub struct AppConfig {
     pub translation_source_language: String,
     #[serde(default = "default_translation_target_language")]
     pub translation_target_language: String,
+    /// 备选目标语言，按优先级排列。文本本来就是目标语言时换向到这里的第一个其他语言。
+    /// 留空表示用配置里的目标/源语言，因此新增此字段不需要迁移或提升配置版本。
+    #[serde(default)]
+    pub preferred_languages: Vec<String>,
     #[serde(default)]
     pub main_window_position: Option<MainWindowPosition>,
 }
@@ -208,6 +212,7 @@ impl Default for AppConfig {
             legacy_translation_model: String::new(),
             translation_source_language: default_translation_source_language(),
             translation_target_language: default_translation_target_language(),
+            preferred_languages: Vec::new(),
             main_window_position: None,
         }
     }

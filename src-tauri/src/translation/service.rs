@@ -96,6 +96,7 @@ impl TranslationService {
             provider: request.provider,
             translated_text: result.translated_text,
             detected_source_language: result.detected_source_language,
+            target_language: request.target_language,
         })
     }
 
