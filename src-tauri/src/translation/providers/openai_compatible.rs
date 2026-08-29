@@ -1,5 +1,8 @@
-use super::super::service::{append_endpoint_path, post_json, ProviderClient};
-use super::super::types::{ProviderTranslation, TranslationError, TranslationRequest};
+use super::super::http::post_json;
+use super::super::service::{append_endpoint_path, ProviderClient};
+use super::super::types::{
+    ProviderCredentials, ProviderTranslation, TranslationError, TranslationRequest,
+};
 use serde_json::json;
 
 pub(crate) struct OpenAiCompatibleProvider;
@@ -8,12 +11,10 @@ impl ProviderClient for OpenAiCompatibleProvider {
     fn translate(
         &self,
         request: &TranslationRequest,
-        api_key: Option<&str>,
+        credentials: &ProviderCredentials,
     ) -> Result<ProviderTranslation, TranslationError> {
-        let api_key = api_key
-            .filter(|key| !key.trim().is_empty())
-            .ok_or(TranslationError::MissingApiKey)?;
-        let endpoint = append_endpoint_path(&request.endpoint, "/chat/completions");
+        let api_key = credentials.key().ok_or(TranslationError::MissingApiKey)?;
+        let endpoint = append_endpoint_path(request.endpoint(), "/chat/completions");
         let body = request_body(request);
 
         let response = post_json(&endpoint, &body, Some(api_key))?;
@@ -22,11 +23,7 @@ impl ProviderClient for OpenAiCompatibleProvider {
 }
 
 fn request_body(request: &TranslationRequest) -> serde_json::Value {
-    let model = request
-        .model
-        .as_deref()
-        .filter(|model| !model.trim().is_empty())
-        .unwrap_or("gpt-4o-mini");
+    let model = request.model().unwrap_or("gpt-4o-mini");
     let source = if request.source_language.eq_ignore_ascii_case("auto") {
         "the source language detected automatically".to_string()
     } else {
@@ -116,7 +113,7 @@ mod tests {
     #[test]
     fn provider_rejects_missing_key_before_network_access() {
         assert_eq!(
-            OpenAiCompatibleProvider.translate(&request(), None),
+            OpenAiCompatibleProvider.translate(&request(), &ProviderCredentials::default()),
             Err(TranslationError::MissingApiKey)
         );
     }

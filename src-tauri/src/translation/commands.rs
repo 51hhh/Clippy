@@ -2,7 +2,10 @@ use super::content::{
     cache_ocr_text, load_clip_input, prepare_clip_text, ClipTranslationInput, PreparedClipText,
 };
 use super::secrets;
-use super::types::{TranslationError, TranslationProvider, TranslationRequest, TranslationResult};
+use super::types::{
+    ProviderCredentials, TranslationError, TranslationProvider, TranslationRequest,
+    TranslationResult,
+};
 use crate::commands::AppState;
 use crate::models::AppConfig;
 use crate::storage::StorageEngine;
@@ -205,8 +208,8 @@ fn translate_with_state(
         request_id,
         &state.service,
     );
-    let api_key = secrets::get_api_key(provider)?;
-    state.service.translate(request, api_key)
+    let credentials = ProviderCredentials::from_api_key(secrets::get_api_key(provider)?);
+    state.service.translate(request, credentials)
 }
 
 async fn resolve_clip_text(

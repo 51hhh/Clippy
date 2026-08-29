@@ -1,20 +1,22 @@
-use super::providers::{LibreTranslateProvider, OpenAiCompatibleProvider};
-use super::types::{ProviderTranslation, TranslationError, TranslationRequest, TranslationResult};
-use serde_json::Value;
+use super::providers::{
+    BingProvider, DeepLProvider, GoogleProvider, LibreTranslateProvider, OpenAiCompatibleProvider,
+    YoudaoProvider,
+};
+use super::types::{
+    ProviderCredentials, ProviderTranslation, TranslationError, TranslationProvider,
+    TranslationRequest, TranslationResult,
+};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
 use url::{Host, Url};
 
-pub(crate) const MAX_RESPONSE_BYTES: usize = 1_048_576;
 const MAX_INPUT_BYTES: usize = 1_048_576;
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Provider HTTP 适配器。实现不得记录请求文本或凭据。
 pub(crate) trait ProviderClient {
     fn translate(
         &self,
         request: &TranslationRequest,
-        api_key: Option<&str>,
+        credentials: &ProviderCredentials,
     ) -> Result<ProviderTranslation, TranslationError>;
 }
 
@@ -67,29 +69,22 @@ impl TranslationService {
     pub fn translate(
         &self,
         mut request: TranslationRequest,
-        api_key: Option<String>,
+        credentials: ProviderCredentials,
     ) -> Result<TranslationResult, TranslationError> {
         validate_request(&request)?;
         request.request_id = self.register_request_id(request.request_id);
-
-        match request.provider {
-            super::types::TranslationProvider::LibreTranslate => {
-                self.translate_with_client(request, api_key.as_deref(), &LibreTranslateProvider)
-            }
-            super::types::TranslationProvider::OpenAiCompatible => {
-                self.translate_with_client(request, api_key.as_deref(), &OpenAiCompatibleProvider)
-            }
-        }
+        let client = provider_client(request.provider);
+        self.translate_with_client(request, &credentials, client)
     }
 
     fn translate_with_client(
         &self,
         request: TranslationRequest,
-        api_key: Option<&str>,
+        credentials: &ProviderCredentials,
         client: &dyn ProviderClient,
     ) -> Result<TranslationResult, TranslationError> {
         self.ensure_latest(request.request_id)?;
-        let result = client.translate(&request, api_key)?;
+        let result = client.translate(&request, credentials)?;
         self.ensure_latest(request.request_id)?;
 
         Ok(TranslationResult {
@@ -111,6 +106,18 @@ impl TranslationService {
     }
 }
 
+/// provider 到实现的唯一映射，新增服务只需在此登记一次。
+fn provider_client(provider: TranslationProvider) -> &'static dyn ProviderClient {
+    match provider {
+        TranslationProvider::LibreTranslate => &LibreTranslateProvider,
+        TranslationProvider::OpenAiCompatible => &OpenAiCompatibleProvider,
+        TranslationProvider::DeepL => &DeepLProvider,
+        TranslationProvider::Google => &GoogleProvider,
+        TranslationProvider::Bing => &BingProvider,
+        TranslationProvider::Youdao => &YoudaoProvider,
+    }
+}
+
 fn validate_request(request: &TranslationRequest) -> Result<(), TranslationError> {
     if request.text.trim().is_empty() {
         return Err(TranslationError::EmptyInput);
@@ -118,7 +125,13 @@ fn validate_request(request: &TranslationRequest) -> Result<(), TranslationError
     if request.text.len() > MAX_INPUT_BYTES {
         return Err(TranslationError::InputTooLarge);
     }
-    validate_endpoint(&request.endpoint)
+    validate_endpoint(request.endpoint())?;
+    // web 回退端点同样会收到用户文本，不能因为“只是回退路径”就跳过白名单。
+    let web_endpoint = request.web_endpoint();
+    if !web_endpoint.is_empty() {
+        validate_endpoint(web_endpoint)?;
+    }
+    Ok(())
 }
 
 /// 仅允许 HTTPS；HTTP 只为本地自托管服务保留，避免把密钥发送到明文远端。
@@ -155,148 +168,12 @@ pub(super) fn append_endpoint_path(endpoint: &str, path: &str) -> String {
     }
 }
 
-/// 统一的 JSON POST：15 秒全局超时、1 MB 响应上限、网络/5xx 只重试一次。
-pub(super) fn post_json(
-    endpoint: &str,
-    body: &Value,
-    bearer_token: Option<&str>,
-) -> Result<Value, TranslationError> {
-    let config = ureq::config::Config::builder()
-        .timeout_global(Some(REQUEST_TIMEOUT))
-        .max_redirects(0)
-        .http_status_as_error(false)
-        .build();
-    let agent = ureq::Agent::new_with_config(config);
-    let payload = body.to_string();
-
-    retry_once(|| post_json_once(&agent, endpoint, payload.as_str(), bearer_token))
-}
-
-fn post_json_once(
-    agent: &ureq::Agent,
-    endpoint: &str,
-    payload: &str,
-    bearer_token: Option<&str>,
-) -> Result<Value, TranslationError> {
-    let mut request = agent
-        .post(endpoint)
-        .header("Content-Type", "application/json")
-        .header("Accept", "application/json");
-    if let Some(token) = bearer_token.filter(|token| !token.is_empty()) {
-        request = request.header("Authorization", &format!("Bearer {token}"));
-    }
-
-    let response = request.send(payload).map_err(map_ureq_error)?;
-    let status = response.status().as_u16();
-    if !(200..300).contains(&status) {
-        return Err(TranslationError::HttpStatus { status });
-    }
-
-    let body = response
-        .into_body()
-        .with_config()
-        .limit((MAX_RESPONSE_BYTES + 1) as u64)
-        .read_to_vec()
-        .map_err(map_body_error)?;
-    decode_response_body(&body)
-}
-
-fn decode_response_body(body: &[u8]) -> Result<Value, TranslationError> {
-    if body.len() > MAX_RESPONSE_BYTES {
-        return Err(TranslationError::ResponseTooLarge);
-    }
-    serde_json::from_slice(body).map_err(|_| TranslationError::InvalidResponse)
-}
-
-fn retry_once<T>(
-    mut operation: impl FnMut() -> Result<T, TranslationError>,
-) -> Result<T, TranslationError> {
-    let first = operation();
-    match first {
-        Err(error) if error.retryable() => operation(),
-        result => result,
-    }
-}
-
-fn map_ureq_error(error: ureq::Error) -> TranslationError {
-    match error {
-        ureq::Error::Timeout(_) => TranslationError::Timeout,
-        ureq::Error::StatusCode(status) => TranslationError::HttpStatus { status },
-        _ => TranslationError::Network,
-    }
-}
-
-fn map_body_error(error: ureq::Error) -> TranslationError {
-    match error {
-        ureq::Error::BodyExceedsLimit(_) => TranslationError::ResponseTooLarge,
-        ureq::Error::Timeout(_) => TranslationError::Timeout,
-        ureq::Error::Io(_) | ureq::Error::BodyStalled => TranslationError::Network,
-        _ => TranslationError::InvalidResponse,
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::super::types::TranslationProvider;
+    use super::super::test_support::MockServer;
+    use super::super::types::ProviderOptions;
     use super::*;
-    use std::cell::Cell;
-    use std::io::{Read, Write};
-    use std::net::TcpListener;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
-    use std::sync::mpsc::{self, Receiver};
-    use std::thread::JoinHandle;
-    use std::time::Duration;
-
-    struct CapturedRequest {
-        head: String,
-        body: Value,
-    }
-
-    fn serve_json_once(response: Value) -> (String, Receiver<CapturedRequest>, JoinHandle<()>) {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let (sender, receiver) = mpsc::channel();
-        let handle = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            stream
-                .set_read_timeout(Some(Duration::from_secs(5)))
-                .unwrap();
-            let mut request = Vec::new();
-            let (header_end, content_length) = loop {
-                let mut chunk = [0_u8; 4096];
-                let count = stream.read(&mut chunk).unwrap();
-                assert!(count > 0, "HTTP 请求在 header 完成前关闭");
-                request.extend_from_slice(&chunk[..count]);
-                if let Some(header_end) = request.windows(4).position(|part| part == b"\r\n\r\n") {
-                    let head = String::from_utf8_lossy(&request[..header_end]);
-                    let length = head
-                        .lines()
-                        .filter_map(|line| line.split_once(':'))
-                        .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
-                        .and_then(|(_, value)| value.trim().parse::<usize>().ok())
-                        .unwrap_or(0);
-                    if request.len() >= header_end + 4 + length {
-                        break (header_end, length);
-                    }
-                }
-            };
-
-            let head = String::from_utf8(request[..header_end].to_vec()).unwrap();
-            let body_start = header_end + 4;
-            let body =
-                serde_json::from_slice(&request[body_start..body_start + content_length]).unwrap();
-            sender.send(CapturedRequest { head, body }).unwrap();
-
-            let response = response.to_string();
-            let wire = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                response.len(),
-                response
-            );
-            stream.write_all(wire.as_bytes()).unwrap();
-        });
-        (format!("http://{address}"), receiver, handle)
-    }
 
     fn request(request_id: u64) -> TranslationRequest {
         TranslationRequest::new(
@@ -318,7 +195,7 @@ mod tests {
         fn translate(
             &self,
             _request: &TranslationRequest,
-            _api_key: Option<&str>,
+            _credentials: &ProviderCredentials,
         ) -> Result<ProviderTranslation, TranslationError> {
             self.calls.fetch_add(1, AtomicOrdering::Relaxed);
             Ok(ProviderTranslation {
@@ -342,6 +219,47 @@ mod tests {
         assert!(validate_endpoint("https://example.test?key=value").is_err());
         assert!(validate_endpoint("https://example.test/#fragment").is_err());
         assert!(validate_endpoint(" https://example.test").is_err());
+    }
+
+    #[test]
+    fn every_provider_default_endpoint_passes_the_policy() {
+        for provider in TranslationProvider::all() {
+            let endpoint = provider.default_endpoint();
+            if !endpoint.is_empty() {
+                assert!(
+                    validate_endpoint(endpoint).is_ok(),
+                    "{} 的官方默认端点不符合端点策略",
+                    provider.as_str()
+                );
+            }
+            let web_endpoint = provider.default_web_endpoint();
+            if !web_endpoint.is_empty() {
+                assert!(
+                    validate_endpoint(web_endpoint).is_ok(),
+                    "{} 的 web 默认端点不符合端点策略",
+                    provider.as_str()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn web_fallback_endpoint_is_validated_like_the_official_one() {
+        let request = TranslationRequest::with_options(
+            "Hello".to_string(),
+            "auto".to_string(),
+            "zh-Hans".to_string(),
+            TranslationProvider::DeepL,
+            ProviderOptions {
+                web_endpoint: "http://deepl.example".to_string(),
+                ..ProviderOptions::default()
+            },
+            1,
+        );
+        assert_eq!(
+            validate_request(&request),
+            Err(TranslationError::InvalidEndpoint)
+        );
     }
 
     #[test]
@@ -376,7 +294,7 @@ mod tests {
         };
 
         let error = service
-            .translate_with_client(request(first), None, &client)
+            .translate_with_client(request(first), &ProviderCredentials::default(), &client)
             .unwrap_err();
 
         assert_eq!(
@@ -390,54 +308,8 @@ mod tests {
     }
 
     #[test]
-    fn retry_policy_retries_transient_failures_once() {
-        let attempts = Cell::new(0);
-        let result = retry_once(|| {
-            attempts.set(attempts.get() + 1);
-            if attempts.get() == 1 {
-                Err(TranslationError::HttpStatus { status: 503 })
-            } else {
-                Ok("ok")
-            }
-        });
-
-        assert_eq!(result, Ok("ok"));
-        assert_eq!(attempts.get(), 2);
-    }
-
-    #[test]
-    fn retry_policy_does_not_retry_client_or_parse_errors() {
-        for error in [
-            TranslationError::HttpStatus { status: 401 },
-            TranslationError::InvalidResponse,
-            TranslationError::ResponseTooLarge,
-        ] {
-            let attempts = Cell::new(0);
-            let result: Result<(), _> = retry_once(|| {
-                attempts.set(attempts.get() + 1);
-                Err(error.clone())
-            });
-            assert_eq!(result, Err(error));
-            assert_eq!(attempts.get(), 1);
-        }
-    }
-
-    #[test]
-    fn response_body_limit_is_exactly_one_megabyte() {
-        let mut exact = br#"{"ok":true}"#.to_vec();
-        exact.resize(MAX_RESPONSE_BYTES, b' ');
-        assert_eq!(decode_response_body(&exact).unwrap()["ok"], true);
-
-        let oversized = vec![b' '; MAX_RESPONSE_BYTES + 1];
-        assert_eq!(
-            decode_response_body(&oversized),
-            Err(TranslationError::ResponseTooLarge)
-        );
-    }
-
-    #[test]
     fn libre_provider_completes_a_loopback_http_request() {
-        let (endpoint, received, server) = serve_json_once(serde_json::json!({
+        let server = MockServer::json_once(serde_json::json!({
             "translatedText": "你好",
             "detectedLanguage": { "language": "en" }
         }));
@@ -446,28 +318,32 @@ mod tests {
             "Hello".to_string(),
             "auto".to_string(),
             "zh-CN".to_string(),
-            endpoint,
+            server.base_url.clone(),
             TranslationProvider::LibreTranslate,
             None,
             1,
         );
 
         let result = service
-            .translate(request, Some("local-test-key".to_string()))
+            .translate(
+                request,
+                ProviderCredentials::from_api_key(Some("local-test-key".to_string())),
+            )
             .unwrap();
-        let captured = received.recv_timeout(Duration::from_secs(2)).unwrap();
-        server.join().unwrap();
+        let captured = server.recv();
+        server.finish();
 
-        assert!(captured.head.starts_with("POST /translate HTTP/1.1"));
-        assert_eq!(captured.body["q"], "Hello");
-        assert_eq!(captured.body["api_key"], "local-test-key");
+        assert_eq!(captured.method(), "POST");
+        assert_eq!(captured.target(), "/translate");
+        assert_eq!(captured.json()["q"], "Hello");
+        assert_eq!(captured.json()["api_key"], "local-test-key");
         assert_eq!(result.translated_text, "你好");
         assert_eq!(result.detected_source_language.as_deref(), Some("en"));
     }
 
     #[test]
     fn openai_provider_sends_bearer_auth_over_loopback_http() {
-        let (endpoint, received, server) = serve_json_once(serde_json::json!({
+        let server = MockServer::json_once(serde_json::json!({
             "choices": [{ "message": { "content": "Bonjour" } }]
         }));
         let service = TranslationService::new();
@@ -475,27 +351,28 @@ mod tests {
             "Hello".to_string(),
             "auto".to_string(),
             "fr".to_string(),
-            format!("{endpoint}/v1"),
+            format!("{}/v1", server.base_url),
             TranslationProvider::OpenAiCompatible,
             Some("local-model".to_string()),
             2,
         );
 
         let result = service
-            .translate(request, Some("local-secret".to_string()))
+            .translate(
+                request,
+                ProviderCredentials::from_api_key(Some("local-secret".to_string())),
+            )
             .unwrap();
-        let captured = received.recv_timeout(Duration::from_secs(2)).unwrap();
-        server.join().unwrap();
+        let captured = server.recv();
+        server.finish();
 
-        assert!(captured
-            .head
-            .starts_with("POST /v1/chat/completions HTTP/1.1"));
-        assert!(captured
-            .head
-            .lines()
-            .any(|line| line.eq_ignore_ascii_case("authorization: Bearer local-secret")));
-        assert_eq!(captured.body["model"], "local-model");
-        assert_eq!(captured.body["messages"][1]["content"], "Hello");
+        assert_eq!(captured.target(), "/v1/chat/completions");
+        assert_eq!(
+            captured.header("authorization").as_deref(),
+            Some("Bearer local-secret")
+        );
+        assert_eq!(captured.json()["model"], "local-model");
+        assert_eq!(captured.json()["messages"][1]["content"], "Hello");
         assert_eq!(result.translated_text, "Bonjour");
     }
 }
