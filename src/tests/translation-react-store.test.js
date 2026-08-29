@@ -30,27 +30,47 @@ function clip(id = 1, sensitive = false, contentType = "text") {
   };
 }
 
+function service(provider, enabled, endpoint = "") {
+  return { provider, enabled, endpoint, model: "", region: "", project: "" };
+}
+
 const config = {
   translation_services: [
-    {
-      provider: "libretranslate",
-      enabled: true,
-      endpoint: "https://translate.example.test",
-      model: "",
-      region: "",
-      project: "",
-    },
-    {
-      provider: "deepl",
-      enabled: false,
-      endpoint: "",
-      model: "",
-      region: "",
-      project: "",
-    },
+    service("libretranslate", true, "https://translate.example.test"),
+    service("deepl", false),
   ],
   translation_target_language: "zh",
 };
+
+/** 同时启用两个服务，用于多结果卡与单服务重试 */
+const twoServices = {
+  ...config,
+  translation_services: [
+    service("libretranslate", true, "https://translate.example.test"),
+    service("deepl", true),
+  ],
+};
+
+function ok(provider, translatedText, detected = null) {
+  return {
+    status: "ok",
+    provider,
+    translated_text: translatedText,
+    detected_source_language: detected,
+  };
+}
+
+function failed(provider, code) {
+  return { status: "error", provider, code };
+}
+
+function batch(...services) {
+  return { request_id: 1, services };
+}
+
+function cardOf(store, provider) {
+  return store.getSnapshot().cards.find((card) => card.provider === provider);
+}
 
 function deferred() {
   let resolve;
@@ -70,16 +90,19 @@ describe("React translation store", () => {
 
   it("translates only an explicit non-sensitive request and copies through IPC", async () => {
     store.setClip(clip());
-    api.translateClip.mockResolvedValue({
-      translated_text: "你好",
-      detected_source_language: "en",
-    });
+    api.translateClip.mockResolvedValue(batch(ok("libretranslate", "你好", "en")));
     api.copyText.mockResolvedValue(undefined);
     await store.translate();
-    expect(store.getSnapshot()).toMatchObject({ translatedText: "你好", feedback: "complete" });
-    await store.copy();
+    expect(store.getSnapshot()).toMatchObject({ feedback: "complete", loading: false });
+    expect(cardOf(store, "libretranslate")).toMatchObject({
+      translatedText: "你好",
+      detectedLanguage: "en",
+      errorCode: null,
+    });
+
+    await store.copy("libretranslate");
     expect(api.copyText).toHaveBeenCalledWith("你好");
-    expect(store.getSnapshot().feedback).toBe("copied");
+    expect(cardOf(store, "libretranslate").copyFeedback).toBe("copied");
   });
 
   it("blocks sensitive items before calling the service", async () => {
@@ -98,11 +121,20 @@ describe("React translation store", () => {
     expect(api.translateClip).not.toHaveBeenCalled();
   });
 
+  it("lists every enabled destination, using built-in endpoints where none is set", () => {
+    store.setConfig(twoServices);
+    store.setClip(clip(3));
+    const html = renderToStaticMarkup(React.createElement(TranslationPanel, { store }));
+    expect(html).toContain("https://translate.example.test");
+    expect(html).toContain("https://api-free.deepl.com");
+    expect(html).toContain("DeepL");
+  });
+
   it("says no service is enabled instead of naming a default one", () => {
     store.setConfig({
       ...config,
-      translation_services: config.translation_services.map((service) => ({
-        ...service,
+      translation_services: config.translation_services.map((entry) => ({
+        ...entry,
         enabled: false,
       })),
     });
@@ -128,15 +160,80 @@ describe("React translation store", () => {
     expect(sensitiveHtml).toContain("disabled");
   });
 
+  it("keeps one card per service and reports a partly failed batch", async () => {
+    store.setConfig(twoServices);
+    store.setClip(clip(9));
+    api.translateClip.mockResolvedValue(batch(
+      ok("libretranslate", "你好"),
+      failed("deepl", "rate_limited"),
+    ));
+    await store.translate();
+
+    expect(store.getSnapshot().cards.map((card) => card.provider))
+      .toEqual(["libretranslate", "deepl"]);
+    expect(store.getSnapshot()).toMatchObject({ feedback: "partial", errorCode: null });
+    expect(cardOf(store, "deepl")).toMatchObject({
+      errorCode: "rate_limited",
+      translatedText: "",
+    });
+  });
+
+  it("shows placeholder cards for every enabled service while the batch runs", async () => {
+    store.setConfig(twoServices);
+    store.setClip(clip(10));
+    const request = deferred();
+    api.translateClip.mockReturnValue(request.promise);
+    const translating = store.translate();
+
+    expect(store.getSnapshot().cards).toHaveLength(2);
+    expect(store.getSnapshot().cards.every((card) => card.loading)).toBe(true);
+
+    request.resolve(batch(ok("libretranslate", "你好"), ok("deepl", "Hallo")));
+    await translating;
+    expect(store.getSnapshot()).toMatchObject({ feedback: "complete" });
+  });
+
+  it("retries a single service and keeps the other card untouched", async () => {
+    store.setConfig(twoServices);
+    store.setClip(clip(11));
+    api.translateClip.mockResolvedValueOnce(batch(
+      ok("libretranslate", "你好"),
+      failed("deepl", "timeout"),
+    ));
+    await store.translate();
+
+    api.translateClip.mockResolvedValueOnce(batch(ok("deepl", "Hallo", "en")));
+    await store.retry("deepl");
+
+    expect(api.translateClip).toHaveBeenLastCalledWith(11, ["deepl"]);
+    expect(cardOf(store, "libretranslate").translatedText).toBe("你好");
+    expect(cardOf(store, "deepl")).toMatchObject({ translatedText: "Hallo", errorCode: null });
+    expect(store.getSnapshot()).toMatchObject({ feedback: "complete" });
+  });
+
+  it("does not start a retry while the batch is still running", async () => {
+    store.setConfig(twoServices);
+    store.setClip(clip(12));
+    const request = deferred();
+    api.translateClip.mockReturnValue(request.promise);
+    const translating = store.translate();
+
+    await store.retry("deepl");
+    expect(api.translateClip).toHaveBeenCalledTimes(1);
+
+    request.resolve(batch(ok("libretranslate", "你好"), ok("deepl", "Hallo")));
+    await translating;
+  });
+
   it("drops stale translation responses after focus changes", async () => {
     const request = deferred();
     api.translateClip.mockReturnValue(request.promise);
     store.setClip(clip(3));
     const translating = store.translate();
     store.setClip(clip(4));
-    request.resolve({ translated_text: "stale", detected_source_language: "en" });
+    request.resolve(batch(ok("libretranslate", "stale")));
     await translating;
-    expect(store.getSnapshot().translatedText).toBe("");
+    expect(store.getSnapshot().cards).toEqual([]);
   });
 
   it("drops an in-flight response when translation settings change", async () => {
@@ -145,10 +242,10 @@ describe("React translation store", () => {
     store.setClip(clip(5));
     const translating = store.translate();
     store.setConfig({ ...config, translation_target_language: "en" });
-    request.resolve({ translated_text: "stale", detected_source_language: "de" });
+    request.resolve(batch(ok("libretranslate", "stale", "de")));
     await translating;
     expect(store.getSnapshot()).toMatchObject({
-      translatedText: "",
+      cards: [],
       loading: false,
       feedback: "idle",
     });
@@ -166,35 +263,69 @@ describe("React translation store", () => {
       .toBe("Could not reach the translation service");
     expect(translationFeedbackText("error", null))
       .toBe("Translation is temporarily unavailable");
+    expect(translationFeedbackText("partial", null))
+      .toBe("Some services could not translate");
     i18n.init("zh-CN");
     expect(translationFeedbackText("error", "network")).toContain("无法连接");
   });
 
+  it("reports a request-level failure without leaving service cards behind", async () => {
+    store.setClip(clip(13));
+    api.translateClip.mockRejectedValue(new Error("translation.no_service_enabled: hidden"));
+    await store.translate();
+    expect(store.getSnapshot()).toMatchObject({
+      cards: [],
+      feedback: "error",
+      errorCode: "no_service_enabled",
+    });
+  });
+
   it("maps an empty service result to the stable invalid-response error", async () => {
     store.setClip(clip(6));
-    api.translateClip.mockResolvedValue({
-      translated_text: "   ",
-      detected_source_language: null,
-    });
+    api.translateClip.mockResolvedValue(batch(ok("libretranslate", "   ")));
     await store.translate();
     expect(store.getSnapshot()).toMatchObject({
       feedback: "error",
       errorCode: "invalid_response",
     });
+    expect(cardOf(store, "libretranslate").errorCode).toBe("invalid_response");
+  });
+
+  it("degrades an unknown service error code to the generic message", async () => {
+    store.setClip(clip(14));
+    api.translateClip.mockResolvedValue(batch(failed("libretranslate", "code_from_a_newer_build")));
+    await store.translate();
+    // 认不出的码退化为 internal（通用提示），但这张卡仍然算失败。
+    expect(cardOf(store, "libretranslate").errorCode).toBe("internal");
+    expect(store.getSnapshot().feedback).toBe("error");
   });
 
   it("does not apply copy feedback after focus changes", async () => {
     const request = deferred();
-    api.translateClip.mockResolvedValue({ translated_text: "result" });
+    api.translateClip.mockResolvedValue(batch(ok("libretranslate", "result")));
     api.copyText.mockReturnValue(request.promise);
     store.setClip(clip(7));
     await store.translate();
 
-    const copying = store.copy();
+    const copying = store.copy("libretranslate");
     store.setClip(clip(8));
     request.resolve(undefined);
     await copying;
 
-    expect(store.getSnapshot()).toMatchObject({ feedback: "idle", translatedText: "" });
+    expect(store.getSnapshot()).toMatchObject({ feedback: "idle", cards: [] });
+  });
+
+  it("shows copy feedback on one card only", async () => {
+    store.setConfig(twoServices);
+    store.setClip(clip(15));
+    api.translateClip.mockResolvedValue(batch(ok("libretranslate", "你好"), ok("deepl", "Hallo")));
+    api.copyText.mockResolvedValue(undefined);
+    await store.translate();
+
+    await store.copy("libretranslate");
+    await store.copy("deepl");
+    expect(cardOf(store, "libretranslate").copyFeedback).toBe("idle");
+    expect(cardOf(store, "deepl").copyFeedback).toBe("copied");
+    expect(api.copyText).toHaveBeenLastCalledWith("Hallo");
   });
 });

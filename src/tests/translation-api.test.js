@@ -52,6 +52,18 @@ describe("translation IPC wrappers", () => {
       sourceLanguage: null,
       targetLanguage: null,
       requestId: null,
+      providers: null,
+    });
+  });
+
+  it("narrows a retry to a single service", () => {
+    translateClip(42, ["deepl"]);
+    expect(invoke).toHaveBeenCalledWith("translate_clip", {
+      id: 42,
+      sourceLanguage: null,
+      targetLanguage: null,
+      requestId: null,
+      providers: ["deepl"],
     });
   });
 
@@ -62,6 +74,7 @@ describe("translation IPC wrappers", () => {
       sourceLanguage: null,
       targetLanguage: null,
       requestId: null,
+      providers: null,
     });
   });
 

@@ -238,6 +238,49 @@ pub struct TranslationResult {
     pub detected_source_language: Option<String>,
 }
 
+/// 并行翻译里单个服务的结果。一个服务失败不该让整批请求失败，
+/// 因此失败同样作为数据返回，前端可以只重试这一个服务。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum ServiceTranslation {
+    Ok {
+        provider: TranslationProvider,
+        translated_text: String,
+        detected_source_language: Option<String>,
+    },
+    Error {
+        provider: TranslationProvider,
+        /// `TranslationError::code()` 的稳定值，前端据此选择本地化文案。
+        code: String,
+    },
+}
+
+impl ServiceTranslation {
+    pub fn from_result(
+        provider: TranslationProvider,
+        result: Result<TranslationResult, TranslationError>,
+    ) -> Self {
+        match result {
+            Ok(result) => Self::Ok {
+                provider,
+                translated_text: result.translated_text,
+                detected_source_language: result.detected_source_language,
+            },
+            Err(error) => Self::Error {
+                provider,
+                code: error.code().to_string(),
+            },
+        }
+    }
+}
+
+/// 一次翻译请求中所有参与服务的结果，顺序与配置里的服务顺序一致。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TranslationBatch {
+    pub request_id: u64,
+    pub services: Vec<ServiceTranslation>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProviderTranslation {
     pub translated_text: String,
@@ -372,6 +415,42 @@ impl TranslationError {
 mod tests {
     use super::*;
     use std::str::FromStr;
+
+    #[test]
+    fn service_translation_serializes_as_a_tagged_union() {
+        let ok = ServiceTranslation::from_result(
+            TranslationProvider::DeepL,
+            Ok(TranslationResult {
+                request_id: 7,
+                provider: TranslationProvider::DeepL,
+                translated_text: "你好".to_string(),
+                detected_source_language: Some("en".to_string()),
+            }),
+        );
+        assert_eq!(
+            serde_json::to_value(&ok).unwrap(),
+            serde_json::json!({
+                "status": "ok",
+                "provider": "deepl",
+                "translated_text": "你好",
+                "detected_source_language": "en",
+            })
+        );
+
+        // 失败只带稳定错误码，绝不把内部消息或上下文交给前端。
+        let failed = ServiceTranslation::from_result(
+            TranslationProvider::Youdao,
+            Err(TranslationError::HttpStatus { status: 503 }),
+        );
+        assert_eq!(
+            serde_json::to_value(&failed).unwrap(),
+            serde_json::json!({
+                "status": "error",
+                "provider": "youdao",
+                "code": "http_status",
+            })
+        );
+    }
 
     #[test]
     fn provider_values_are_stable() {

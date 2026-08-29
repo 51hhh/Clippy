@@ -2,8 +2,8 @@
  * translation-settings.js — 翻译服务配置与系统密钥状态
  *
  * 配置以 `translation_services` 列表形式存储：每个服务各自保留 endpoint/model/region/project，
- * 未启用的服务也保留自己的配置，用户来回切换不会丢。当前仍是单选语义——选中即启用，
- * 其余服务置为未启用。
+ * 未启用的服务也保留自己的配置，用户来回切换不会丢。provider 选择器只决定“正在编辑哪个服务”，
+ * 启用与否由各自的开关控制，可以同时启用多个服务并行翻译。
  */
 
 import {
@@ -14,6 +14,7 @@ import {
 import {
   DEFAULT_TRANSLATION_PROVIDER,
   TRANSLATION_PROVIDER_IDS,
+  enabledTranslationServices,
   normalizeTranslationProvider,
   primaryTranslationService,
   translationProviderMeta,
@@ -75,6 +76,7 @@ function isAllowedEndpoint(endpoint) {
  */
 export function initTranslationSettings({ root = document, showToast = () => {} } = {}) {
   const providerSelect = getRequiredElement(root, "translation-provider-select");
+  const enabledToggle = getRequiredElement(root, "translation-service-enabled");
   const endpointInput = getRequiredElement(root, "translation-endpoint-input");
   const modelField = getRequiredElement(root, "translation-model-field");
   const modelInput = getRequiredElement(root, "translation-model-input");
@@ -120,6 +122,7 @@ export function initTranslationSettings({ root = document, showToast = () => {} 
   function applyForm(providerId) {
     const service = serviceEntry(providerId);
     const meta = translationProviderMeta(providerId);
+    enabledToggle.checked = Boolean(service?.enabled);
     endpointInput.value = service?.endpoint ?? "";
     endpointInput.placeholder = meta.defaultEndpoint;
     modelInput.value = service?.model ?? "";
@@ -158,12 +161,35 @@ export function initTranslationSettings({ root = document, showToast = () => {} 
     updateKeyButtons();
   }
 
+  /**
+   * 目的地摘要列出所有启用的服务：多服务并行时，用户需要一眼看到文本会发往哪几个端点。
+   * 正在编辑的服务用输入框里的实时值，其余用已保存的值。
+   */
+  function renderDestination() {
+    const providerId = currentProvider();
+    const enabled = enabledTranslationServices(services);
+    if (!enabled.length) {
+      serviceName.textContent = i18n.t("settings.translation.destinationNone");
+      serviceName.title = "";
+      return;
+    }
+    serviceName.textContent = enabled
+      .map((service) => i18n.t(translationProviderMeta(service.provider).nameKey))
+      .join(", ");
+    serviceName.title = enabled
+      .map((service) => {
+        const endpoint = service.provider === providerId
+          ? endpointInput.value.trim()
+          : service.endpoint;
+        return endpoint || translationProviderMeta(service.provider).defaultEndpoint;
+      })
+      .join("\n");
+  }
+
   function updateProvider() {
     const providerId = currentProvider();
-    const meta = translationProviderMeta(providerId);
     applyFieldVisibility(providerId);
-    serviceName.textContent = i18n.t(meta.nameKey);
-    serviceName.title = endpointInput.value.trim() || meta.defaultEndpoint;
+    renderDestination();
     lastProvider = providerId;
     updateKeyButtons();
   }
@@ -193,9 +219,14 @@ export function initTranslationSettings({ root = document, showToast = () => {} 
     loadKeyStatus();
   });
 
+  enabledToggle.addEventListener("change", () => {
+    const service = serviceEntry(currentProvider());
+    if (service) service.enabled = enabledToggle.checked;
+    renderDestination();
+  });
+
   endpointInput.addEventListener("input", () => {
-    serviceName.title =
-      endpointInput.value.trim() || translationProviderMeta(currentProvider()).defaultEndpoint;
+    renderDestination();
     endpointInput.removeAttribute("aria-invalid");
   });
 
@@ -300,10 +331,8 @@ export function initTranslationSettings({ root = document, showToast = () => {} 
       endpointInput.removeAttribute("aria-invalid");
 
       return {
-        translation_services: services.map((service) => ({
-          ...service,
-          enabled: service.provider === providerId,
-        })),
+        // 启用状态由各服务自己的开关决定，选择器只表示正在编辑哪一个。
+        translation_services: services.map((service) => ({ ...service })),
         translation_source_language: sourceLanguageSelect.value,
         translation_target_language: targetLanguageSelect.value,
       };

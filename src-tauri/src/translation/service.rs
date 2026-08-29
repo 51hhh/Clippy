@@ -66,6 +66,10 @@ impl TranslationService {
         self.latest_request_id.load(Ordering::Acquire) == request_id
     }
 
+    pub fn latest_request_id(&self) -> u64 {
+        self.latest_request_id.load(Ordering::Acquire)
+    }
+
     pub fn translate(
         &self,
         mut request: TranslationRequest,

@@ -27,6 +27,7 @@ function setupDom() {
   const options = PROVIDER_IDS.map((id) => `<option value="${id}">${id}</option>`).join("");
   document.body.innerHTML = `
     <select id="translation-provider-select">${options}</select>
+    <input id="translation-service-enabled" type="checkbox">
     <input id="translation-endpoint-input">
     <div id="translation-model-field"><input id="translation-model-input"></div>
     <div id="translation-region-field" hidden><input id="translation-region-input"></div>
@@ -128,7 +129,9 @@ describe("translation settings", () => {
     expect(element("translation-endpoint-input").value).toBe("");
     expect(element("translation-endpoint-input").placeholder).toBe("https://api.openai.com/v1");
     expect(element("translation-model-input").placeholder).toBe("gpt-4o-mini");
-    expect(element("translation-service-name").textContent).toBe("OpenAI-compatible");
+    // 选择器只切换“正在编辑哪个服务”，目的地摘要仍然只列启用的服务。
+    expect(element("translation-service-enabled").checked).toBe(false);
+    expect(element("translation-service-name").textContent).toBe("LibreTranslate-compatible");
 
     element("translation-model-input").value = "small-model";
     provider.value = "libretranslate";
@@ -139,6 +142,39 @@ describe("translation settings", () => {
     expect(serviceOf(saved, "openai_compatible").model).toBe("small-model");
     expect(serviceOf(saved, "openai_compatible").enabled).toBe(false);
     expect(serviceOf(saved, "libretranslate").enabled).toBe(true);
+  });
+
+  it("可以同时启用多个服务，目的地摘要按配置顺序列出全部启用项", () => {
+    settings.fill(configWith("libretranslate", { endpoint: "https://libre.example.com" }));
+    const provider = element("translation-provider-select");
+    const enabled = element("translation-service-enabled");
+    expect(enabled.checked).toBe(true);
+
+    provider.value = "deepl";
+    provider.dispatchEvent(new Event("change"));
+    enabled.checked = true;
+    enabled.dispatchEvent(new Event("change"));
+
+    expect(element("translation-service-name").textContent)
+      .toBe("LibreTranslate-compatible, DeepL");
+    // 端点通过 title 暴露：并行翻译时用户需要知道文本会发往哪些地址。
+    expect(element("translation-service-name").title)
+      .toBe("https://libre.example.com\nhttps://api-free.deepl.com");
+
+    const saved = settings.getConfig();
+    expect(saved.translation_services.filter((service) => service.enabled)
+      .map((service) => service.provider)).toEqual(["libretranslate", "deepl"]);
+  });
+
+  it("关闭最后一个服务后明确提示没有启用任何服务", () => {
+    settings.fill(configWith("libretranslate"));
+    const enabled = element("translation-service-enabled");
+    enabled.checked = false;
+    enabled.dispatchEvent(new Event("change"));
+
+    expect(element("translation-service-name").textContent).toBe("No service enabled");
+    expect(settings.getConfig().translation_services.some((service) => service.enabled))
+      .toBe(false);
   });
 
   it("按服务能力显示区域、项目、第二凭据字段与非官方端点提示", () => {

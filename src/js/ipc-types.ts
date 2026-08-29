@@ -135,6 +135,30 @@ export interface TranslationResult {
   detected_source_language: string | null;
 }
 
+/**
+ * 并行翻译中单个服务的结果。与 Rust `ServiceTranslation` 的 `#[serde(tag = "status")]`
+ * 一一对应：失败作为数据返回，前端据此只重试出错的那个服务。
+ */
+export type ServiceTranslation =
+  | {
+      status: "ok";
+      provider: TranslationProvider;
+      translated_text: string;
+      detected_source_language: string | null;
+    }
+  | {
+      status: "error";
+      provider: TranslationProvider;
+      /** TranslationError::code() 的稳定值 */
+      code: string;
+    };
+
+export interface TranslationBatch {
+  request_id: number;
+  /** 顺序与配置里的服务顺序一致 */
+  services: ServiceTranslation[];
+}
+
 export interface CaptureTranslationResult {
   requestId: number;
   provider: TranslationProvider;

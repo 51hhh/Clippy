@@ -20,7 +20,7 @@
 | `capture/` | 单一 CaptureSession、冻结帧、多显示器覆盖层、裁剪与动作 |
 | `screenshot.rs` + `screenshot/*` | 原始截图帧契约与 PNG 编解码；Wayland/Portal/GNOME/xcap fallback 和几何测试隔离 |
 | `pin/` | PinManager、内容来源、窗口尺寸、缩放/透明度/锁定和清理 |
-| `translation/` | provider、超时/重试、request-id、内容选择、Secret Service |
+| `translation/` | provider、超时/重试、request-id、内容选择、Secret Service；启用的服务按 `spawn_blocking` 并行，单服务失败作为数据返回 |
 | `storage.rs` + `storage/*` | SQLite/FTS5 初始化与搜索；维护清理、统计、URL 缓存和测试各自隔离 |
 
 ## 前端模块
@@ -31,7 +31,8 @@
 | `js/clipboard/` | 导航状态机、展示格式化和单行 DOM/缩略图渲染 |
 | `js/preview-panel.js` | 预览状态、检测优先级、延迟库与缓存 |
 | `js/preview/*-renderers.js` | 代码、元数据、格式、加密、内容/OCR 渲染 |
-| `js/translation-panel.js` | 主预览翻译状态与陈旧响应保护 |
+| `react/main/translationStore.ts` | 主预览翻译状态、多服务结果卡、单服务重试与陈旧响应保护 |
+| `js/translation-providers.ts` | 服务显示名、默认端点与能力标记（设置页/主面板/选区翻译共用） |
 | `react/capture-overlay/` | 窗口命中、选区移动/缩放、直接动作与选区翻译 |
 | `react/capture/` | 对象标注、图像调整、撤销/重做和统一导出；视口、PNG 管线及待处理截图加载器独立管理 |
 | `js/settings/` | 主题、自动粘贴授权、快捷键录制、OCR 和统计控制器 |

@@ -28,6 +28,7 @@ import type {
   PasteStatus,
   PinPayload,
   PinUpdate,
+  TranslationBatch,
   TranslationProvider,
   TranslationResult,
   UrlMeta,
@@ -51,8 +52,11 @@ export type {
   PasteStatus,
   PinPayload,
   PinUpdate,
+  ServiceTranslation,
+  TranslationBatch,
   TranslationProvider,
   TranslationResult,
+  TranslationServiceConfig,
   UrlMeta,
   WindowCandidate,
 } from "./ipc-types.ts";
@@ -136,23 +140,34 @@ export function updateConfig(newConfig: AppConfig): Promise<void> {
   return invoke<void>("update_config", { newConfig });
 }
 
-/** 显式翻译文本；语言与 request-id 由后端按当前配置分配 */
-export function translateText(text: string): Promise<TranslationResult> {
-  return invoke<TranslationResult>("translate_text", {
+/**
+ * 显式翻译文本；语言与 request-id 由后端按当前配置分配。
+ * `providers` 省略表示所有启用的服务，传单个服务即为该服务的重试。
+ */
+export function translateText(
+  text: string,
+  providers?: TranslationProvider[],
+): Promise<TranslationBatch> {
+  return invoke<TranslationBatch>("translate_text", {
     text,
     sourceLanguage: null,
     targetLanguage: null,
     requestId: null,
+    providers: providers ?? null,
   });
 }
 
 /** 显式翻译剪贴板条目；图片由后端先在本地执行 OCR */
-export function translateClip(id: number): Promise<TranslationResult> {
-  return invoke<TranslationResult>("translate_clip", {
+export function translateClip(
+  id: number,
+  providers?: TranslationProvider[],
+): Promise<TranslationBatch> {
+  return invoke<TranslationBatch>("translate_clip", {
     id,
     sourceLanguage: null,
     targetLanguage: null,
     requestId: null,
+    providers: providers ?? null,
   });
 }
 
