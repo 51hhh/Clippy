@@ -40,6 +40,10 @@ urlencoding = "2"
 url = "2"
 xcap = "0.9"
 keyring = "4.1"
+# 有道 web 端点的签名用 MD5、响应用 AES-128-CBC 加密，只服务于翻译的非官方回退路径。
+md-5 = "0.10"
+aes = "0.8"
+cbc = "0.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = "5"

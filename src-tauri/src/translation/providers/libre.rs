@@ -1,5 +1,8 @@
-use super::super::service::{append_endpoint_path, post_json, ProviderClient};
-use super::super::types::{ProviderTranslation, TranslationError, TranslationRequest};
+use super::super::http::post_json;
+use super::super::service::{append_endpoint_path, ProviderClient};
+use super::super::types::{
+    ProviderCredentials, ProviderTranslation, TranslationError, TranslationRequest,
+};
 use serde_json::json;
 
 pub(crate) struct LibreTranslateProvider;
@@ -8,10 +11,10 @@ impl ProviderClient for LibreTranslateProvider {
     fn translate(
         &self,
         request: &TranslationRequest,
-        api_key: Option<&str>,
+        credentials: &ProviderCredentials,
     ) -> Result<ProviderTranslation, TranslationError> {
-        let endpoint = append_endpoint_path(&request.endpoint, "/translate");
-        let body = request_body(request, api_key);
+        let endpoint = append_endpoint_path(request.endpoint(), "/translate");
+        let body = request_body(request, credentials.key());
         let response = post_json(&endpoint, &body, None)?;
         parse_response(&response)
     }
