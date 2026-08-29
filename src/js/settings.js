@@ -14,6 +14,7 @@ import {
   ocrAvailable,
   ocrInstall,
   pauseShortcuts,
+  pickScreenshotDirectory,
   requestPastePermission,
   resumeShortcuts,
   tmuxAvailable,
@@ -23,6 +24,7 @@ import {
 import { initCustomSelect } from "./custom-select.js";
 import { createOcrSettings } from "./settings/ocr-settings.js";
 import { createPastePermissionController } from "./settings/paste-permission.js";
+import { createScreenshotSettings } from "./settings/screenshot-settings.js";
 import {
   closeAfterShortcutCleanup,
   createShortcutRecordingController,
@@ -133,6 +135,15 @@ const ocrSettings = createOcrSettings({
   showToast,
 });
 
+const screenshotSettings = createScreenshotSettings({
+  directoryInput: element("screenshot-dir-input"),
+  browseButton: element("screenshot-dir-browse-btn"),
+  templateInput: element("screenshot-template-input"),
+  pickDirectory: pickScreenshotDirectory,
+  translate: i18n.t,
+  showToast,
+});
+
 function fillForm(config) {
   shortcutRecording.setValues({
     global: config.global_shortcut || "",
@@ -142,6 +153,7 @@ function fillForm(config) {
   maxHistoryInput.value = config.max_history ?? 100;
   languageSelect.value = config.language || "auto";
   ocrSettings.fill(config);
+  screenshotSettings.fill(config);
   tmuxToggle.checked = config.tmux_capture === true;
   autoPasteToggle.checked = config.auto_paste !== false;
   translationSettings.fill(config);
@@ -250,6 +262,7 @@ element("save-btn").addEventListener("click", async () => {
       language: languageSelect.value,
       delete_confirm_ms: savedConfig?.delete_confirm_ms ?? 1200,
       ...ocrSettings.getConfig(),
+      ...screenshotSettings.getConfig(),
       tmux_capture: tmuxGroup.hidden
         ? (savedConfig?.tmux_capture ?? false)
         : tmuxToggle.checked,

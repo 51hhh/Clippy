@@ -4,11 +4,12 @@ import {
   copyScreenshotImage,
   pinScreenshotImage,
   saveScreenshotImage,
+  saveScreenshotImageAs,
   showCaptureEditor,
 } from "../../js/api.ts";
 import { drawScene } from "./canvasRenderer";
 import { useCaptureViewport } from "./captureViewport";
-import { EditorFooter, EditorHeader } from "./EditorChrome";
+import { EditorFooter, EditorHeader, type ExportAction } from "./EditorChrome";
 import { EditorSidebar } from "./EditorSidebar";
 import { DEFAULT_IMAGE_ADJUSTMENTS } from "./imageAdjustments";
 import { exportPngBase64, isExportSelection } from "./pngPipeline";
@@ -128,7 +129,7 @@ export function App() {
     );
   }, [viewport, selection, annotations, draft, adjustments, pendingCapture, selectedAnnotationId]);
 
-  async function runExport(action: "copy" | "save" | "pin") {
+  async function runExport(action: ExportAction) {
     if (!canExport) return;
     setBusy(true);
     setStatus(t(`capture.${action}Progress`));
@@ -144,6 +145,10 @@ export function App() {
       } else if (action === "save") {
         const path = await saveScreenshotImage(pngBase64);
         setStatus(t("capture.saved", { path }));
+      } else if (action === "saveAs") {
+        // 用户在对话框里取消时后端返回 null，这不是失败。
+        const path = await saveScreenshotImageAs(pngBase64);
+        setStatus(path ? t("capture.saved", { path }) : t("capture.saveAsCancelled"));
       } else {
         await pinScreenshotImage(pngBase64);
         setStatus(t("capture.pinned"));

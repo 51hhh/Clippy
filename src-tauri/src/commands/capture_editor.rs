@@ -211,12 +211,32 @@ pub async fn copy_screenshot_image(png_base64: String) -> Result<(), String> {
     .map_err(|e| format!("截图复制线程异常: {e}"))?
 }
 
-/// 将前端生成的 PNG 保存到 Pictures/Clippy。
+/// 将前端生成的 PNG 保存到配置的截图目录。
 #[tauri::command]
-pub fn save_screenshot_image(png_base64: String) -> Result<String, String> {
+pub fn save_screenshot_image(png_base64: String, state: State<AppState>) -> Result<String, String> {
     let png = crate::screenshot::decode_png_base64(&png_base64).map_err(|e| e.to_string())?;
-    let path = crate::image_io::save_png(&png, "clippy-screenshot")?;
+    let path = crate::image_io::save_png(&png, "clippy-screenshot", &state.save_target())?;
     Ok(path.to_string_lossy().to_string())
+}
+
+/// 另存为：弹系统对话框让用户选目录与文件名，用户取消时返回 None。
+#[tauri::command]
+pub async fn save_screenshot_image_as(
+    png_base64: String,
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    let png = crate::screenshot::decode_png_base64(&png_base64).map_err(|e| e.to_string())?;
+    let target = state.save_target();
+    // 对话框阻塞到用户操作完，必须离开 IPC 的 async 线程。
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(path) = crate::dialogs::choose_png_save_path(&app_handle, &target) else {
+            return Ok(None);
+        };
+        crate::image_io::save_png_as(&png, &path).map(|saved| Some(saved.to_string_lossy().into()))
+    })
+    .await
+    .map_err(|error| format!("另存为线程异常: {error}"))?
 }
 
 #[cfg(test)]

@@ -183,7 +183,7 @@ pub fn copy_pin(label: String, state: State<'_, AppState>) -> Result<(), String>
 pub fn save_pin(label: String, state: State<'_, AppState>) -> Result<String, String> {
     validate_label(&label)?;
     let png = image_bytes(&state.pin_manager.get(&label)?)?;
-    let path = crate::image_io::save_png(&png, "clippy-pin")?;
+    let path = crate::image_io::save_png(&png, "clippy-pin", &state.save_target())?;
     Ok(path.to_string_lossy().to_string())
 }
 

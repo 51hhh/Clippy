@@ -35,6 +35,8 @@
 - [x] Linux 截图 fallback：xcap + Wayland/wlroots + Portal + GNOME Shell
 - [x] React/TS 截图编辑功能岛
 - [x] 区域选择、画笔、矩形、箭头、文字、复制/保存/贴图
+- [x] 可配置保存目录 + 文件名模板 + 另存为对话框（`image_io::SaveTarget`、`dialogs.rs`，
+      来源 flashot saver.rs）
 - [ ] 滚动截图 — 暂不排期，理由与代价见
       [2026-08-29-reference-integration-phase-plan.md](superpowers/plans/2026-08-29-reference-integration-phase-plan.md) Phase 4
 - [x] 窗口候选探测与鼠标位置智能命中

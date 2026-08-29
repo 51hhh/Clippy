@@ -122,6 +122,23 @@ pub fn update_config(
     Ok(())
 }
 
+/// 让用户选择截图保存目录，返回选中的绝对路径；取消返回 None。
+/// 只回传路径，是否写进配置由设置页的保存动作决定。
+#[tauri::command]
+pub async fn pick_screenshot_directory(
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    let start = state.save_target().directory;
+    // 对话框阻塞到用户操作完，必须离开 IPC 的 async 线程。
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::dialogs::choose_directory(&app_handle, &start)
+            .map(|path| path.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(|error| format!("目录选择线程异常: {error}"))
+}
+
 /// 动态更新全局快捷键并持久化配置。
 #[tauri::command]
 pub fn update_shortcut(
