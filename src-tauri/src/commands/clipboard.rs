@@ -74,9 +74,14 @@ pub async fn select_clip(
     match state.paste_manager.paste().await {
         Ok(outcome) => Ok(outcome),
         Err(error) => {
-            log::warn!("自动粘贴失败，内容已保留在剪贴板: {error}");
-            let outcome =
-                PasteOutcome::copied_only(state.paste_manager.backend(), Some(error.clone()));
+            // Wayland 尚未授权是正常路径：用户可以在设置里显式授权，这里只降级为纯复制。
+            let context = "自动粘贴失败，内容已保留在剪贴板";
+            let detail = if error.is_authorization_failure() {
+                crate::error::note(context, error)
+            } else {
+                crate::error::report(context, error)
+            };
+            let outcome = PasteOutcome::copied_only(state.paste_manager.backend(), Some(detail));
             let _ = app_handle.emit("paste-fallback", &outcome);
             Ok(outcome)
         }
@@ -178,6 +183,7 @@ pub async fn request_paste_permission(state: State<'_, AppState>) -> Result<Past
         .paste_manager
         .request_permission(auto_paste_enabled)
         .await
+        .map_err(|error| crate::error::report("请求自动粘贴授权失败", error))
 }
 
 /// 按 id 获取图片数据，返回 base64 编码的 PNG。

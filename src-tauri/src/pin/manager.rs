@@ -1,3 +1,4 @@
+use super::error::PinError;
 use super::model::{is_safe_pin_label, PinEntry, PinPosition, PinUpdate};
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -13,45 +14,43 @@ impl PinManager {
         Self::default()
     }
 
-    pub(super) fn insert(&self, entry: PinEntry) -> Result<(), String> {
-        let mut entries = self.entries.lock().map_err(|error| error.to_string())?;
+    pub(super) fn insert(&self, entry: PinEntry) -> Result<(), PinError> {
+        let mut entries = self.entries.lock().map_err(PinError::state_lock)?;
         if entries.contains_key(&entry.label) {
-            return Err("贴图已经存在".to_string());
+            return Err(PinError::AlreadyExists);
         }
         entries.insert(entry.label.clone(), entry);
         Ok(())
     }
 
-    pub(super) fn get(&self, label: &str) -> Result<PinEntry, String> {
+    pub(super) fn get(&self, label: &str) -> Result<PinEntry, PinError> {
         self.entries
             .lock()
-            .map_err(|error| error.to_string())?
+            .map_err(PinError::state_lock)?
             .get(label)
             .cloned()
-            .ok_or_else(|| "贴图不存在或已经关闭".to_string())
+            .ok_or(PinError::EntryMissing)
     }
 
-    pub(super) fn replace(&self, entry: PinEntry) -> Result<(), String> {
+    pub(super) fn replace(&self, entry: PinEntry) -> Result<(), PinError> {
         self.entries
             .lock()
-            .map_err(|error| error.to_string())?
+            .map_err(PinError::state_lock)?
             .insert(entry.label.clone(), entry);
         Ok(())
     }
 
-    pub(super) fn remove(&self, label: &str) -> Result<Option<PinEntry>, String> {
+    pub(super) fn remove(&self, label: &str) -> Result<Option<PinEntry>, PinError> {
         Ok(self
             .entries
             .lock()
-            .map_err(|error| error.to_string())?
+            .map_err(PinError::state_lock)?
             .remove(label))
     }
 
-    pub(super) fn update(&self, label: &str, update: &PinUpdate) -> Result<PinEntry, String> {
-        let mut entries = self.entries.lock().map_err(|error| error.to_string())?;
-        let entry = entries
-            .get_mut(label)
-            .ok_or_else(|| "贴图不存在或已经关闭".to_string())?;
+    pub(super) fn update(&self, label: &str, update: &PinUpdate) -> Result<PinEntry, PinError> {
+        let mut entries = self.entries.lock().map_err(PinError::state_lock)?;
+        let entry = entries.get_mut(label).ok_or(PinError::EntryMissing)?;
         if let Some(scale) = update.scale {
             entry.scale = scale.clamp(0.25, 4.0);
         }

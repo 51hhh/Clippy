@@ -130,8 +130,20 @@ where
         .map_err(|_| TranslationError::Internal)?
 }
 
-fn ipc_error(error: TranslationError) -> String {
-    error.ipc_message()
+/// 前端拿到的仍然是不泄漏底层上下文的 `ipc_message()`，完整原因只留在本地日志。
+pub(crate) fn ipc_error(error: TranslationError) -> String {
+    let message = error.ipc_message();
+    // 空输入和被新请求取代都是正常交互结果，不该出现在 warn 级日志里。
+    let expected = matches!(
+        error,
+        TranslationError::EmptyInput | TranslationError::StaleRequest { .. }
+    );
+    if expected {
+        crate::error::note("翻译请求被跳过", error);
+    } else {
+        crate::error::report("翻译请求失败", error);
+    }
+    message
 }
 
 /// spawn_blocking 闭包只携带最小状态，避免把 Tauri State 引用跨线程移动。

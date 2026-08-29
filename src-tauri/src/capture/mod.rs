@@ -1,9 +1,11 @@
 mod action_lifecycle;
+mod error;
 mod manager;
 mod overlay_windows;
 mod types;
 mod window_probe;
 
+pub use error::CaptureError;
 pub use manager::CaptureManager;
 pub use types::{
     CaptureAction, CaptureActionResult, CaptureOverlayPayload, CaptureSelection,
@@ -49,18 +51,20 @@ pub(crate) async fn show_capture_overlay_for_app(
         Ok(Ok(frames)) => frames,
         Ok(Err(error)) => {
             overlay_windows::restore(&app_handle, &restore_labels);
-            return Err(format!("截图失败: {error}"));
+            return Err(capture_failure(CaptureError::Screenshot(error.to_string())));
         }
         Err(error) => {
             overlay_windows::restore(&app_handle, &restore_labels);
-            return Err(format!("截图线程异常: {error}"));
+            return Err(capture_failure(CaptureError::ThreadPanic(
+                error.to_string(),
+            )));
         }
     };
     let specs = match state.capture_manager.begin(frames, restore_labels.clone()) {
         Ok(specs) => specs,
         Err(error) => {
             overlay_windows::restore(&app_handle, &restore_labels);
-            return Err(error);
+            return Err(capture_failure(error));
         }
     };
     if let Err(error) = overlay_windows::create(&app_handle, &specs) {
@@ -68,7 +72,7 @@ pub(crate) async fn show_capture_overlay_for_app(
             overlay_windows::close(&app_handle, &session.overlay_labels);
         }
         overlay_windows::restore(&app_handle, &restore_labels);
-        return Err(error);
+        return Err(capture_failure(error));
     }
     Ok(())
 }
@@ -79,7 +83,7 @@ pub fn get_capture_overlay(
     state: State<'_, AppState>,
 ) -> Result<CaptureOverlayPayload, String> {
     validate_overlay_label(&label)?;
-    state.capture_manager.payload(&label)
+    Ok(state.capture_manager.payload(&label)?)
 }
 
 #[tauri::command]
@@ -176,8 +180,9 @@ fn normalize_ocr_text(result: Result<String, String>) -> Result<String, Translat
     }
 }
 
+/// 选区翻译与文本翻译共用同一个错误出口，保证日志标识和对外文案不分叉。
 fn translation_ipc_error(error: TranslationError) -> String {
-    error.ipc_message()
+    crate::translation::commands::ipc_error(error)
 }
 
 fn execute_action(
@@ -230,7 +235,19 @@ fn action_result(
     }
 }
 
-fn validate_overlay_label(label: &str) -> Result<(), String> {
+/// 覆盖层无法建立时源窗口已经恢复，用户只会看到"截图没打开"，
+/// 所以失败原因必须留在日志里才能排障。
+fn capture_failure(error: CaptureError) -> String {
+    let context = "打开截图覆盖层失败";
+    // 快捷键连按会撞上仍在进行的会话，这是正常竞争而不是故障。
+    if matches!(error, CaptureError::SessionBusy) {
+        crate::error::note(context, error)
+    } else {
+        crate::error::report(context, error)
+    }
+}
+
+fn validate_overlay_label(label: &str) -> Result<(), CaptureError> {
     if label.starts_with("capture-overlay-")
         && label.len() <= 128
         && label
@@ -239,7 +256,7 @@ fn validate_overlay_label(label: &str) -> Result<(), String> {
     {
         Ok(())
     } else {
-        Err("无效的截图覆盖层标签".to_string())
+        Err(CaptureError::OverlayLabelInvalid)
     }
 }
 

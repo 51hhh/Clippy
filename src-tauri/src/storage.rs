@@ -18,6 +18,15 @@ pub enum StorageError {
     Io(#[from] std::io::Error),
 }
 
+impl StorageError {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::Database(_) => "database",
+            Self::Io(_) => "io",
+        }
+    }
+}
+
 pub struct StorageEngine {
     conn: Connection,
 }

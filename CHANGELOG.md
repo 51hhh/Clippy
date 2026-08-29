@@ -19,10 +19,14 @@
 - DOMPurify 更新到 3.4.13，Vite/Vitest/jsdom 更新到无已知漏洞版本并移除未使用的 sharp；增加 DOM/Xvfb smoke 与全目标 Rust CI 检查。
 - AppImage 发布阶段修正 linuxdeploy 的绝对 `.DirIcon`，重封装校验后再生成 updater 签名，避免镜像携带构建机路径。
 - 截图动作执行前原子认领会话；裁剪或动作失败时统一关闭覆盖层并恢复源窗口，避免并发动作重复产生副作用。
+- 主窗口翻译面板从 vanilla JS 迁移到 React/TS 功能岛（`src/react/main/`），状态集中在 `translationStore`；Pin 窗口 React 化范围扩展到完整 `App.tsx`。
+- Portal restore token 引入授权阶段状态机：只有 token 确实被 Portal 消费过才在失败后删除，避免把仍然有效的 token 误删导致下次重新弹授权。
+- 错误全面类型化：`PasteError`/`PinError`/`CaptureError` 与既有 `StorageError`/`TranslationError` 一起提供稳定 `code()`，顶层 `ClippyError` 补上领域维度，日志标识统一为 `domain.code`；对前端返回的文案逐字不变。
+- 日志区分真实故障与预期路径：Wayland 首次未授权、翻译请求被新请求取代、快捷键连按撞上进行中的截图会话降为 info，不再淹没告警。
 
 ### 验证
-- Rust：`cargo fmt/check/clippy --all-targets` 及 100 项测试通过，包含截图动作竞态/清理、Portal token 状态机及翻译 provider 回环测试。
-- Frontend：Vitest 408 tests、TypeScript、Vite build 和 Xvfb/DOM smoke（7 tests）通过。
+- Rust：`cargo fmt/check/clippy --all-targets` 及 122 项测试通过，包含截图动作竞态/清理、Portal token 阶段状态机、领域错误码稳定性/文案一致性及翻译 provider 回环测试。
+- Frontend：Vitest 429 tests、TypeScript、Vite build 和 Xvfb/DOM smoke 通过。
 - Linux：当前 HEAD 的 deb/AppImage 产物构建并检查通过，AppImage 依赖完整且图标链接可移植；签名文件需 CI 的 `TAURI_SIGNING_PRIVATE_KEY`。
 
 ## v0.1.16

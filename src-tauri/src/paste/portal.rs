@@ -1,3 +1,4 @@
+use super::error::PasteError;
 use super::token_store::{read_restore_token, write_restore_token};
 use super::PastePhase;
 use std::path::Path;
@@ -36,11 +37,13 @@ impl PortalState {
         self.implicit_attempted = false;
     }
 
-    fn begin_attempt(&mut self, explicit: bool) -> Result<(), String> {
+    fn begin_attempt(&mut self, explicit: bool) -> Result<(), PasteError> {
         if self.implicit_attempted && !explicit {
-            return Err(self.detail.clone().unwrap_or_else(|| {
-                "自动粘贴授权本次运行中已尝试，需在设置中手动重试".to_string()
-            }));
+            return Err(PasteError::PortalAttemptExhausted(
+                self.detail.clone().unwrap_or_else(|| {
+                    "自动粘贴授权本次运行中已尝试，需在设置中手动重试".to_string()
+                }),
+            ));
         }
         self.implicit_attempted = true;
         self.phase = PastePhase::Initializing;
@@ -118,17 +121,17 @@ impl RestoreTokenAttempt {
     }
 }
 
-pub(super) async fn paste(state: &mut PortalState, token_path: &Path) -> Result<(), String> {
+pub(super) async fn paste(state: &mut PortalState, token_path: &Path) -> Result<(), PasteError> {
     ensure_session(state, token_path, false).await?;
     tokio::time::sleep(Duration::from_millis(120)).await;
 
     let result = match state.session.as_ref() {
         Some(session) => press_ctrl_v(session).await,
-        None => Err("RemoteDesktop Portal 会话未建立".to_string()),
+        None => Err(PasteError::PortalSessionMissing),
     };
     if let Err(error) = result {
         state.phase = PastePhase::Unavailable;
-        state.detail = Some(error.clone());
+        state.detail = Some(error.to_string());
         if let Some(session) = state.session.take() {
             let _ = session.session.close().await;
         }
@@ -141,7 +144,7 @@ pub(super) async fn ensure_session(
     state: &mut PortalState,
     token_path: &Path,
     explicit: bool,
-) -> Result<(), String> {
+) -> Result<(), PasteError> {
     use ashpd::desktop::remote_desktop::{DeviceType, RemoteDesktop, SelectDevicesOptions};
     use ashpd::desktop::PersistMode;
 
@@ -156,12 +159,12 @@ pub(super) async fn ensure_session(
     let result = async {
         let proxy = RemoteDesktop::new()
             .await
-            .map_err(|error| format!("连接 RemoteDesktop Portal 失败: {error}"))?;
+            .map_err(|error| PasteError::PortalConnect(error.to_string()))?;
         let version = proxy.version();
         let session = proxy
             .create_session(Default::default())
             .await
-            .map_err(|error| format!("创建 RemoteDesktop 会话失败: {error}"))?;
+            .map_err(|error| PasteError::PortalCreateSession(error.to_string()))?;
         let setup_result = async {
             let mut options =
                 SelectDevicesOptions::default().set_devices(Some(DeviceType::Keyboard.into()));
@@ -175,25 +178,25 @@ pub(super) async fn ensure_session(
             let select_request = proxy
                 .select_devices(&session, options)
                 .await
-                .map_err(|error| format!("请求键盘控制失败: {error}"))?;
+                .map_err(|error| PasteError::PortalSelectDevices(error.to_string()))?;
             // request 已成功提交给 Portal，旧 token 从此可能被消费。
             token_attempt.advance_to(PortalAuthorizationStage::SelectDevicesSubmitted);
             select_request
                 .response()
-                .map_err(|error| format!("键盘控制请求被拒绝: {error}"))?;
+                .map_err(|error| PasteError::PortalSelectDevicesRejected(error.to_string()))?;
             token_attempt.advance_to(PortalAuthorizationStage::SelectDevicesAccepted);
 
             let start_request = proxy
                 .start(&session, None, Default::default())
                 .await
-                .map_err(|error| format!("启动 RemoteDesktop 会话失败: {error}"))?;
+                .map_err(|error| PasteError::PortalStart(error.to_string()))?;
             token_attempt.advance_to(PortalAuthorizationStage::StartSubmitted);
             let selected = start_request
                 .response()
-                .map_err(|error| format!("RemoteDesktop 授权未通过: {error}"))?;
+                .map_err(|error| PasteError::PortalStartRejected(error.to_string()))?;
             token_attempt.advance_to(PortalAuthorizationStage::StartAccepted);
             if !selected.devices().contains(DeviceType::Keyboard) {
-                return Err("RemoteDesktop Portal 未授予键盘控制权限".to_string());
+                return Err(PasteError::PortalKeyboardNotGranted);
             }
             Ok((version >= 2)
                 .then(|| selected.restore_token().map(str::to_string))
@@ -222,7 +225,7 @@ pub(super) async fn ensure_session(
         }
         Err(error) => {
             state.phase = PastePhase::Denied;
-            state.detail = Some(error.clone());
+            state.detail = Some(error.to_string());
             apply_restore_token_action(token_path, token_attempt.after_failure());
             Err(error)
         }
@@ -250,7 +253,16 @@ fn remove_restore_token(path: &Path) {
     }
 }
 
-async fn press_ctrl_v(session: &PortalSession) -> Result<(), String> {
+/// Portal 按键注入失败共享同一错误分类，只有动作名不同。
+fn keysym_failure(action: &str) -> impl FnOnce(ashpd::Error) -> PasteError {
+    let action = action.to_string();
+    move |error| PasteError::KeyInjection {
+        action,
+        detail: error.to_string(),
+    }
+}
+
+async fn press_ctrl_v(session: &PortalSession) -> Result<(), PasteError> {
     use ashpd::desktop::remote_desktop::{KeyState, NotifyKeyboardKeysymOptions};
 
     const CONTROL_L: i32 = 0xffe3;
@@ -264,7 +276,7 @@ async fn press_ctrl_v(session: &PortalSession) -> Result<(), String> {
             NotifyKeyboardKeysymOptions::default(),
         )
         .await
-        .map_err(|error| format!("按下 Control 失败: {error}"))?;
+        .map_err(keysym_failure("按下 Control"))?;
 
     let press_v = session
         .proxy
@@ -294,9 +306,9 @@ async fn press_ctrl_v(session: &PortalSession) -> Result<(), String> {
         )
         .await;
 
-    press_v.map_err(|error| format!("按下 V 失败: {error}"))?;
-    release_v.map_err(|error| format!("释放 V 失败: {error}"))?;
-    release_control.map_err(|error| format!("释放 Control 失败: {error}"))?;
+    press_v.map_err(keysym_failure("按下 V"))?;
+    release_v.map_err(keysym_failure("释放 V"))?;
+    release_control.map_err(keysym_failure("释放 Control"))?;
     Ok(())
 }
 
@@ -317,7 +329,10 @@ mod tests {
 
         assert!(state.begin_attempt(false).is_ok());
         state.detail = Some("denied".to_string());
-        assert_eq!(state.begin_attempt(false).unwrap_err(), "denied");
+        let error = state.begin_attempt(false).unwrap_err();
+        assert_eq!(error.code(), "portal_attempt_exhausted");
+        // 已记录的失败原因要原样带给用户，而不是被泛化文案覆盖。
+        assert_eq!(error.to_string(), "denied");
         assert!(state.begin_attempt(true).is_ok());
         assert_eq!(state.phase, PastePhase::Initializing);
     }
