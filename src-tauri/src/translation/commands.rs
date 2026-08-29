@@ -2,10 +2,7 @@ use super::content::{
     cache_ocr_text, load_clip_input, prepare_clip_text, ClipTranslationInput, PreparedClipText,
 };
 use super::secrets;
-use super::types::{
-    ProviderCredentials, TranslationError, TranslationProvider, TranslationRequest,
-    TranslationResult,
-};
+use super::types::{TranslationError, TranslationProvider, TranslationRequest, TranslationResult};
 use crate::commands::AppState;
 use crate::models::AppConfig;
 use crate::storage::StorageEngine;
@@ -97,11 +94,16 @@ pub async fn translate_clip(
     .map_err(ipc_error)
 }
 
-/// 保存指定 provider 的 API key。密钥只进入系统 keyring。
+/// 保存指定 provider 的凭据。密钥只进入系统 keyring。
+/// `api_secret` 只有双字段服务（有道 appSecret）需要，其余服务传 null。
 #[tauri::command]
-pub async fn set_translation_api_key(provider: String, api_key: String) -> Result<(), String> {
+pub async fn set_translation_api_key(
+    provider: String,
+    api_key: String,
+    api_secret: Option<String>,
+) -> Result<(), String> {
     let provider = TranslationProvider::from_str(&provider).map_err(ipc_error)?;
-    run_blocking(move || secrets::set_api_key(provider, &api_key))
+    run_blocking(move || secrets::set_credentials(provider, &api_key, api_secret.as_deref()))
         .await
         .map_err(ipc_error)
 }
@@ -109,7 +111,7 @@ pub async fn set_translation_api_key(provider: String, api_key: String) -> Resul
 #[tauri::command]
 pub async fn has_translation_api_key(provider: String) -> Result<bool, String> {
     let provider = TranslationProvider::from_str(&provider).map_err(ipc_error)?;
-    run_blocking(move || secrets::has_api_key(provider))
+    run_blocking(move || secrets::has_credentials(provider))
         .await
         .map_err(ipc_error)
 }
@@ -117,7 +119,7 @@ pub async fn has_translation_api_key(provider: String) -> Result<bool, String> {
 #[tauri::command]
 pub async fn delete_translation_api_key(provider: String) -> Result<(), String> {
     let provider = TranslationProvider::from_str(&provider).map_err(ipc_error)?;
-    run_blocking(move || secrets::delete_api_key(provider))
+    run_blocking(move || secrets::delete_credentials(provider))
         .await
         .map_err(ipc_error)
 }
@@ -208,7 +210,7 @@ fn translate_with_state(
         request_id,
         &state.service,
     );
-    let credentials = ProviderCredentials::from_api_key(secrets::get_api_key(provider)?);
+    let credentials = secrets::get_credentials(provider)?;
     state.service.translate(request, credentials)
 }
 

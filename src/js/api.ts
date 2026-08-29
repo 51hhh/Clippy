@@ -156,20 +156,28 @@ export function translateClip(id: number): Promise<TranslationResult> {
   });
 }
 
-/** 将指定翻译服务的 API key 写入系统 Secret Service */
+/**
+ * 将指定翻译服务的凭据写入系统 Secret Service。
+ * `apiSecret` 只有双字段服务（有道 appSecret）需要，其余服务省略。
+ */
 export function setTranslationApiKey(
   provider: TranslationProvider,
   apiKey: string,
+  apiSecret?: string,
 ): Promise<void> {
-  return invoke<void>("set_translation_api_key", { provider, apiKey });
+  return invoke<void>("set_translation_api_key", {
+    provider,
+    apiKey,
+    apiSecret: apiSecret ?? null,
+  });
 }
 
-/** 查询指定翻译服务是否已保存 API key，不读取或回显密钥 */
+/** 查询指定翻译服务的凭据是否已完整保存，不读取或回显密钥 */
 export function hasTranslationApiKey(provider: TranslationProvider): Promise<boolean> {
   return invoke<boolean>("has_translation_api_key", { provider });
 }
 
-/** 从系统 Secret Service 删除指定翻译服务的 API key */
+/** 从系统 Secret Service 删除指定翻译服务的全部凭据字段 */
 export function deleteTranslationApiKey(provider: TranslationProvider): Promise<void> {
   return invoke<void>("delete_translation_api_key", { provider });
 }

@@ -327,7 +327,7 @@ mod tests {
         let result = service
             .translate(
                 request,
-                ProviderCredentials::from_api_key(Some("local-test-key".to_string())),
+                ProviderCredentials::new(Some("local-test-key".to_string()), None),
             )
             .unwrap();
         let captured = server.recv();
@@ -360,7 +360,7 @@ mod tests {
         let result = service
             .translate(
                 request,
-                ProviderCredentials::from_api_key(Some("local-secret".to_string())),
+                ProviderCredentials::new(Some("local-secret".to_string()), None),
             )
             .unwrap();
         let captured = server.recv();

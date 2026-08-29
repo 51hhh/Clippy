@@ -501,7 +501,7 @@ mod tests {
         assert_eq!(
             YoudaoProvider.translate(
                 &request,
-                &ProviderCredentials::from_api_key(Some("app-key".to_string()))
+                &ProviderCredentials::new(Some("app-key".to_string()), None)
             ),
             Err(TranslationError::IncompleteCredentials)
         );

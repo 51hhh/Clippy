@@ -109,7 +109,14 @@ export interface CaptureActionResult {
   pinLabel: string | null;
 }
 
-export type TranslationProvider = "libretranslate" | "openai_compatible";
+/** 与 Rust `TranslationProvider` 的 serde 名一一对应，字符串值是稳定合同 */
+export type TranslationProvider =
+  | "libretranslate"
+  | "openai_compatible"
+  | "deepl"
+  | "google"
+  | "bing"
+  | "youdao";
 
 export interface TranslationResult {
   request_id: number;

@@ -254,7 +254,7 @@ mod tests {
         let result = DeepLProvider
             .translate(
                 &request,
-                &ProviderCredentials::from_api_key(Some("free-key".to_string())),
+                &ProviderCredentials::new(Some("free-key".to_string()), None),
             )
             .unwrap();
         let captured = server.recv();
@@ -286,7 +286,7 @@ mod tests {
         DeepLProvider
             .translate(
                 &request,
-                &ProviderCredentials::from_api_key(Some("free-key".to_string())),
+                &ProviderCredentials::new(Some("free-key".to_string()), None),
             )
             .unwrap();
         let captured = server.recv();

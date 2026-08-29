@@ -129,10 +129,6 @@ impl ProviderCredentials {
         }
     }
 
-    pub fn from_api_key(api_key: Option<String>) -> Self {
-        Self::new(api_key, None)
-    }
-
     fn clean(value: Option<String>) -> Option<String> {
         value.filter(|value| !value.trim().is_empty())
     }
@@ -487,7 +483,7 @@ mod tests {
 
     #[test]
     fn credentials_require_every_field_the_provider_needs() {
-        let key_only = ProviderCredentials::from_api_key(Some("app-key".to_string()));
+        let key_only = ProviderCredentials::new(Some("app-key".to_string()), None);
         assert!(key_only.complete_for(TranslationProvider::DeepL));
         // 有道官方 API 只有 appKey 时不完整，不能悄悄降级成非官方端点。
         assert!(!key_only.complete_for(TranslationProvider::Youdao));
