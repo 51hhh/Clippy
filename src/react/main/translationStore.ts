@@ -18,9 +18,11 @@ export type TranslationSnapshot = {
 
 const ERROR_CODES = new Set([
   "empty_input", "input_too_large", "sensitive_content", "missing_api_key",
-  "keyring_unavailable", "clip_unavailable", "image_unavailable", "ocr_failed",
-  "invalid_endpoint", "unsupported_provider", "timeout", "network", "http_status",
-  "response_too_large", "invalid_response", "stale_request", "internal",
+  "incomplete_credentials", "keyring_unavailable", "clip_unavailable", "image_unavailable",
+  "capture_unavailable", "ocr_failed", "invalid_endpoint", "unsupported_provider",
+  "no_service_enabled", "timeout", "network", "http_status", "invalid_credentials",
+  "rate_limited", "quota_exceeded", "response_too_large", "invalid_response",
+  "provider_endpoint_broken", "stale_request", "internal",
 ]);
 
 export function stableTranslationErrorCode(reason: unknown): string | null {

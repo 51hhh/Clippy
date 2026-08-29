@@ -238,7 +238,8 @@ element("save-btn").addEventListener("click", async () => {
   const shortcuts = shortcutRecording.getValues();
   try {
     const newConfig = {
-      version: savedConfig?.version ?? 1,
+      // 这里写出的始终是 v2 结构（translation_services 列表），版本号不能回退到 1。
+      version: savedConfig?.version ?? 2,
       max_history: parseInt(maxHistoryInput.value, 10) || 0,
       storage_mode: savedConfig?.storage_mode || "persistent",
       global_shortcut: shortcuts.global || savedConfig?.global_shortcut || "Super+V",

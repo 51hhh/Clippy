@@ -16,7 +16,7 @@ pub fn load_config(config_path: &Path) -> AppConfig {
         if let Err(error) = restrict_file(config_path) {
             log::warn!("配置文件权限设置失败: {}", error);
         }
-        match fs::read_to_string(config_path) {
+        let mut config = match fs::read_to_string(config_path) {
             Ok(content) => serde_json::from_str(&content).unwrap_or_else(|e| {
                 log::warn!("配置文件解析失败，使用默认配置: {}", e);
                 AppConfig::default()
@@ -25,7 +25,12 @@ pub fn load_config(config_path: &Path) -> AppConfig {
                 log::warn!("配置文件读取失败，使用默认配置: {}", e);
                 AppConfig::default()
             }
+        };
+        // 迁移后立刻回写，否则每次启动都要重算一遍，旧字段也会一直留在文件里。
+        if config.migrate() {
+            save_config(config_path, &config);
         }
+        config
     } else {
         let config = AppConfig::default();
         save_config(config_path, &config);
@@ -78,11 +83,84 @@ mod tests {
         assert_eq!(config.capture_shortcut, "Ctrl+Shift+S");
         assert_eq!(config.theme, "light");
         assert_eq!(config.language, "auto");
-        assert_eq!(config.translation_provider, "libretranslate");
-        assert_eq!(config.translation_endpoint, "https://libretranslate.com");
-        assert!(config.translation_model.is_empty());
         assert_eq!(config.translation_source_language, "auto");
         assert_eq!(config.translation_target_language, "en");
+        // 默认只启用 LibreTranslate，其余服务预置但未启用。
+        let enabled: Vec<&str> = config
+            .enabled_translation_services()
+            .iter()
+            .map(|service| service.provider.as_str())
+            .collect();
+        assert_eq!(enabled, ["libretranslate"]);
+        assert_eq!(config.translation_services.len(), 6);
+        assert!(config
+            .translation_services
+            .iter()
+            .all(|service| service.endpoint.is_empty()));
+    }
+
+    #[test]
+    fn v1_single_service_config_migrates_into_the_service_list() {
+        let dir = tempdir().expect("创建临时目录失败");
+        let config_path = dir.path().join("config.json");
+        let v1 = serde_json::json!({
+            "version": 1,
+            "max_history": 100,
+            "storage_mode": "persistent",
+            "global_shortcut": "Alt+V",
+            "theme": "light",
+            "translation_provider": "openai_compatible",
+            "translation_endpoint": "https://api.openai.com/v1",
+            "translation_model": "gpt-4o-mini",
+            "translation_target_language": "zh",
+        });
+        fs::write(&config_path, v1.to_string()).unwrap();
+
+        let loaded = load_config(&config_path);
+        assert_eq!(loaded.version, 2);
+        let enabled = loaded.enabled_translation_services();
+        assert_eq!(enabled.len(), 1);
+        assert_eq!(enabled[0].provider, "openai_compatible");
+        assert_eq!(enabled[0].model, "gpt-4o-mini");
+        // 用户没改过端点，迁移后留空以便将来跟随内置默认值。
+        assert!(enabled[0].endpoint.is_empty());
+        assert_eq!(loaded.translation_target_language, "zh");
+
+        // 迁移结果已回写，v1 的单服务字段不再留在文件里。
+        let written = fs::read_to_string(&config_path).unwrap();
+        assert!(!written.contains("\"translation_provider\""));
+        assert!(written.contains("\"translation_services\""));
+    }
+
+    #[test]
+    fn v1_custom_endpoint_survives_the_migration() {
+        let dir = tempdir().expect("创建临时目录失败");
+        let config_path = dir.path().join("config.json");
+        let v1 = serde_json::json!({
+            "version": 1,
+            "max_history": 100,
+            "storage_mode": "persistent",
+            "global_shortcut": "Alt+V",
+            "theme": "light",
+            "translation_provider": "libretranslate",
+            "translation_endpoint": "https://libretranslate.example.com",
+        });
+        fs::write(&config_path, v1.to_string()).unwrap();
+
+        let enabled_endpoint = load_config(&config_path)
+            .enabled_translation_services()
+            .first()
+            .map(|service| service.endpoint.clone());
+        assert_eq!(
+            enabled_endpoint.as_deref(),
+            Some("https://libretranslate.example.com")
+        );
+    }
+
+    #[test]
+    fn migration_is_idempotent_once_the_version_matches() {
+        let mut config = AppConfig::default();
+        assert!(!config.migrate(), "当前版本配置不该再被判定为需要迁移");
     }
 
     #[test]

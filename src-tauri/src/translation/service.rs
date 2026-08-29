@@ -176,13 +176,16 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
     fn request(request_id: u64) -> TranslationRequest {
-        TranslationRequest::new(
+        TranslationRequest::with_options(
             "Hello".to_string(),
             "auto".to_string(),
             "zh-CN".to_string(),
-            "https://example.test".to_string(),
             TranslationProvider::LibreTranslate,
-            None,
+            ProviderOptions {
+                endpoint: "https://example.test".to_string(),
+                model: None,
+                ..ProviderOptions::default()
+            },
             request_id,
         )
     }
@@ -314,13 +317,16 @@ mod tests {
             "detectedLanguage": { "language": "en" }
         }));
         let service = TranslationService::new();
-        let request = TranslationRequest::new(
+        let request = TranslationRequest::with_options(
             "Hello".to_string(),
             "auto".to_string(),
             "zh-CN".to_string(),
-            server.base_url.clone(),
             TranslationProvider::LibreTranslate,
-            None,
+            ProviderOptions {
+                endpoint: server.base_url.clone(),
+                model: None,
+                ..ProviderOptions::default()
+            },
             1,
         );
 
@@ -347,13 +353,16 @@ mod tests {
             "choices": [{ "message": { "content": "Bonjour" } }]
         }));
         let service = TranslationService::new();
-        let request = TranslationRequest::new(
+        let request = TranslationRequest::with_options(
             "Hello".to_string(),
             "auto".to_string(),
             "fr".to_string(),
-            format!("{}/v1", server.base_url),
             TranslationProvider::OpenAiCompatible,
-            Some("local-model".to_string()),
+            ProviderOptions {
+                endpoint: format!("{}/v1", server.base_url),
+                model: Some("local-model".to_string()),
+                ..ProviderOptions::default()
+            },
             2,
         );
 

@@ -20,6 +20,18 @@ export interface ClipItem {
   byte_size: number;
 }
 
+/** 单个翻译服务的配置；空字符串表示沿用该服务的内置默认值 */
+export interface TranslationServiceConfig {
+  provider: TranslationProvider;
+  enabled: boolean;
+  endpoint: string;
+  model: string;
+  /** Azure 资源区域，仅 Bing 官方 API 使用 */
+  region: string;
+  /** GCP 项目 ID，仅 Google Cloud v3 使用 */
+  project: string;
+}
+
 export interface AppConfig {
   version: number;
   max_history: number;
@@ -34,9 +46,7 @@ export interface AppConfig {
   ocr_enabled: boolean;
   tmux_capture: boolean;
   auto_paste: boolean;
-  translation_provider: string;
-  translation_endpoint: string;
-  translation_model: string;
+  translation_services: TranslationServiceConfig[];
   translation_source_language: string;
   translation_target_language: string;
   main_window_position: { x: number; y: number } | null;

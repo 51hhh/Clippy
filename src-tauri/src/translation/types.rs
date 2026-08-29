@@ -164,29 +164,6 @@ pub struct TranslationRequest {
 }
 
 impl TranslationRequest {
-    pub fn new(
-        text: String,
-        source_language: String,
-        target_language: String,
-        endpoint: String,
-        provider: TranslationProvider,
-        model: Option<String>,
-        request_id: u64,
-    ) -> Self {
-        Self::with_options(
-            text,
-            source_language,
-            target_language,
-            provider,
-            ProviderOptions {
-                endpoint,
-                model,
-                ..ProviderOptions::default()
-            },
-            request_id,
-        )
-    }
-
     pub fn with_options(
         text: String,
         source_language: String,
@@ -293,6 +270,8 @@ pub enum TranslationError {
     InvalidEndpoint,
     #[error("Unsupported translation provider: {0}")]
     UnsupportedProvider(String),
+    #[error("No translation service is enabled")]
+    NoServiceEnabled,
     #[error("Translation request timed out")]
     Timeout,
     #[error("Translation network request failed")]
@@ -343,6 +322,7 @@ impl TranslationError {
             Self::OcrFailed => "Local OCR could not extract text from the image",
             Self::InvalidEndpoint => "Invalid translation endpoint",
             Self::UnsupportedProvider(_) => "Unsupported translation provider",
+            Self::NoServiceEnabled => "No translation service is enabled",
             Self::Timeout => "Translation request timed out",
             Self::Network => "Translation network request failed",
             Self::HttpStatus { .. } => "Translation service rejected the request",
@@ -372,6 +352,7 @@ impl TranslationError {
             Self::OcrFailed => "ocr_failed",
             Self::InvalidEndpoint => "invalid_endpoint",
             Self::UnsupportedProvider(_) => "unsupported_provider",
+            Self::NoServiceEnabled => "no_service_enabled",
             Self::Timeout => "timeout",
             Self::Network => "network",
             Self::HttpStatus { .. } => "http_status",

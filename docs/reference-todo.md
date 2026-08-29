@@ -54,6 +54,8 @@
 ## P5: 配置版本迁移
 - [x] AppConfig 加 version 字段
 - [x] serde default + 向后兼容
+- [x] v1→v2：单 `translation_provider` 迁移为 `translation_services` 列表，
+      加载时迁移并立刻回写，旧字段读一次即从磁盘丢弃
 - 来源: translator config.rs, flashot settings_store.rs
 
 ## P6: Release profile 优化

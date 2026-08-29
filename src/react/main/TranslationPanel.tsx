@@ -1,12 +1,11 @@
 import { Copy } from "lucide-react";
 import { useSyncExternalStore } from "react";
+import {
+  primaryTranslationService,
+  translationProviderMeta,
+} from "../../js/translation-providers";
 import { t } from "../shared/i18n";
 import { translationStore, type TranslationStore } from "./translationStore";
-
-const PROVIDER_KEYS: Record<string, string> = {
-  libretranslate: "settings.translation.providerLibre",
-  openai_compatible: "settings.translation.providerOpenAI",
-};
 
 const LANGUAGE_KEYS: Record<string, string> = {
   en: "settings.translation.languageEnglish",
@@ -24,17 +23,24 @@ const ERROR_KEYS: Record<string, string> = {
   input_too_large: "translation.error.inputTooLarge",
   sensitive_content: "translation.error.sensitive",
   missing_api_key: "translation.error.missingApiKey",
+  incomplete_credentials: "translation.error.incompleteCredentials",
   keyring_unavailable: "translation.error.keyringUnavailable",
   clip_unavailable: "translation.error.clipUnavailable",
   image_unavailable: "translation.error.imageUnavailable",
+  capture_unavailable: "translation.error.clipUnavailable",
   ocr_failed: "translation.error.ocrFailed",
   invalid_endpoint: "translation.error.configuration",
   unsupported_provider: "translation.error.configuration",
+  no_service_enabled: "translation.error.noServiceEnabled",
   timeout: "translation.error.timeout",
   network: "translation.error.network",
   http_status: "translation.error.service",
+  invalid_credentials: "translation.error.invalidCredentials",
+  rate_limited: "translation.error.rateLimited",
+  quota_exceeded: "translation.error.quotaExceeded",
   response_too_large: "translation.error.responseTooLarge",
   invalid_response: "translation.error.invalidResponse",
+  provider_endpoint_broken: "translation.error.providerEndpointBroken",
   stale_request: "translation.error.stale",
   internal: "translation.error.generic",
 };
@@ -56,9 +62,14 @@ export function TranslationPanel({ store = translationStore }: { store?: Transla
   const { clip, config } = snapshot;
   if (!clip || !config) return null;
 
-  const provider = config.translation_provider || "libretranslate";
+  // 未启用任何服务时不假装某个默认服务，直接告诉用户当前没有可用目标。
+  const service = primaryTranslationService(config.translation_services);
+  const providerMeta = translationProviderMeta(service?.provider);
   const target = config.translation_target_language || "en";
-  const providerLabel = t(PROVIDER_KEYS[provider] || "translation.providerUnknown");
+  const providerLabel = service ? t(providerMeta.nameKey) : t("translation.providerNone");
+  const endpointLabel = service
+    ? service.endpoint || providerMeta.defaultEndpoint
+    : t("translation.endpointUnavailable");
   const targetLabel = t(LANGUAGE_KEYS[target] || "settings.translation.languageAuto");
   const actionLabel = t(clip.content_type === "image"
     ? snapshot.loading ? "translation.ocrTranslating" : "translation.ocrAndTranslate"
@@ -76,9 +87,7 @@ export function TranslationPanel({ store = translationStore }: { store?: Transla
             <span aria-hidden="true">·</span>
             <span>{t("translation.target", { language: targetLabel })}</span>
             <span aria-hidden="true">·</span>
-            <span className="translation-endpoint">
-              {config.translation_endpoint || t("translation.endpointUnavailable")}
-            </span>
+            <span className="translation-endpoint">{endpointLabel}</span>
           </p>
         </div>
         <button

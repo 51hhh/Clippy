@@ -33,7 +33,7 @@ describe("capture overlay translation", () => {
 
     expect(html).toContain('role="dialog"');
     expect(html).toContain('aria-label="Close translation"');
-    expect(html).toContain("OpenAI compatible");
+    expect(html).toContain("OpenAI-compatible");
     expect(html).toContain("&lt;script&gt;local source&lt;/script&gt;");
     expect(html).toContain("translated &amp; safe");
     expect(html).not.toContain("<script>local source</script>");

@@ -150,14 +150,36 @@
           <select class="setting-select" id="translation-provider-select">
             <option value="libretranslate" data-i18n="settings.translation.providerLibre">LibreTranslate-compatible</option>
             <option value="openai_compatible" data-i18n="settings.translation.providerOpenAI">OpenAI-compatible</option>
+            <option value="deepl" data-i18n="settings.translation.providerDeepL">DeepL</option>
+            <option value="google" data-i18n="settings.translation.providerGoogle">Google Translate</option>
+            <option value="bing" data-i18n="settings.translation.providerBing">Microsoft Translator</option>
+            <option value="youdao" data-i18n="settings.translation.providerYoudao">Youdao</option>
           </select>
         </div>
-        <div class="translation-field">
+        <div class="translation-field" id="translation-model-field">
           <label class="setting-label setting-label-sub" for="translation-model-input"
                  data-i18n="settings.translation.model">Model</label>
           <input type="text" class="setting-input" id="translation-model-input"
                  autocomplete="off" spellcheck="false" placeholder="gpt-4o-mini"
                  data-i18n="settings.translation.modelPlaceholder" data-i18n-attr="placeholder">
+        </div>
+        <div class="translation-field" id="translation-region-field" hidden>
+          <label class="setting-label setting-label-sub" for="translation-region-input"
+                 data-i18n="settings.translation.region">Resource Region</label>
+          <input type="text" class="setting-input" id="translation-region-input"
+                 autocomplete="off" spellcheck="false" placeholder="global"
+                 aria-describedby="translation-region-hint">
+          <div class="setting-hint" id="translation-region-hint"
+               data-i18n="settings.translation.regionHint">Leave empty for a global Azure resource.</div>
+        </div>
+        <div class="translation-field" id="translation-project-field" hidden>
+          <label class="setting-label setting-label-sub" for="translation-project-input"
+                 data-i18n="settings.translation.project">Project ID</label>
+          <input type="text" class="setting-input" id="translation-project-input"
+                 autocomplete="off" spellcheck="false" placeholder="my-gcp-project"
+                 aria-describedby="translation-project-hint">
+          <div class="setting-hint" id="translation-project-hint"
+               data-i18n="settings.translation.projectHint">Required by the official Cloud Translation API.</div>
         </div>
         <div class="translation-field translation-field-wide">
           <label class="setting-label setting-label-sub" for="translation-endpoint-input"
@@ -204,6 +226,12 @@
                    aria-describedby="translation-key-hint translation-key-status-text"
                    data-i18n="settings.translation.apiKeyPlaceholder" data-i18n-attr="placeholder"
                    placeholder="Enter a new key">
+            <input type="password" class="setting-input" id="translation-api-secret-input" hidden
+                   autocomplete="new-password" spellcheck="false"
+                   aria-describedby="translation-key-hint"
+                   aria-label="Application secret"
+                   data-i18n="settings.translation.apiSecretPlaceholder" data-i18n-attr="placeholder"
+                   placeholder="Enter the application secret">
             <button class="btn btn-small btn-primary" id="translation-key-save-btn" type="button" disabled
                     data-i18n="settings.translation.saveKey">Save Key</button>
             <button class="btn btn-small btn-secondary" id="translation-key-delete-btn" type="button" hidden
@@ -211,6 +239,8 @@
           </div>
           <div class="setting-hint" id="translation-key-hint"
                data-i18n="settings.translation.apiKeyHint">Stored in the system Secret Service and never written to Clippy settings.</div>
+          <div class="setting-hint" id="translation-fallback-hint" hidden
+               data-i18n="settings.translation.fallbackHint">Without credentials this service falls back to its unofficial web endpoint, which can stop working at any time.</div>
           <div class="translation-key-status" role="status" aria-live="polite">
             <span class="translation-status-dot pending" id="translation-key-status-dot" aria-hidden="true"></span>
             <span class="translation-status-text" id="translation-key-status-text"
