@@ -12,11 +12,11 @@
 |---|---|---|
 | Rust 格式 | `cargo fmt -- --check` | 通过 |
 | Rust 编译 | `cargo check --all-targets` | 通过 |
-| Rust 测试 | `cargo test --all` | 222 passed；新增领域错误码稳定性/文案一致性测试，含截图动作错误/竞态清理、Portal token 阶段状态机与翻译 provider 回环测试 |
+| Rust 测试 | `cargo test --all` | 229 passed；新增 GNOME 自定义快捷键条目认领（`plan_slots`）与 X11 逐动作注册计划测试；新增领域错误码稳定性/文案一致性测试，含截图动作错误/竞态清理、Portal token 阶段状态机与翻译 provider 回环测试 |
 | Rust lint | `cargo clippy --all-targets -- -D warnings` | 通过 |
 | 本地敏感文件权限 | Rust Unix 回归测试 | `config.json`、`clips.db`、`-wal`、`-shm`、Portal token 均为 `0600`；旧配置/数据库宽松权限可修复 |
 | 前端类型 | `npx tsc --noEmit` | 通过 |
-| 前端测试 | `npx vitest run` | 31 files / 510 passed（含 16 个编辑器工具的几何/绘制指令/交互覆盖） |
+| 前端测试 | `npx vitest run` | 31 files / 511 passed（含 16 个编辑器工具的几何/绘制指令/交互覆盖，以及锁定侧栏三组成员的分组测试） |
 | 前端构建 | `npx vite build` | 通过，5 个窗口入口均生成 |
 | X11/DOM smoke | `./scripts/smoke-dom.sh` | 1 file / 8 passed（Xvfb） |
 | Canvas 导出像素 smoke | `./scripts/smoke-canvas-export.sh`（headless Firefox 149 + 像素读取） | 通过，pixel=0 208 0；覆盖裁剪/调整/圆角遮罩、矢量标注合成、高亮半透明与聚光灯压暗。缺 ffmpeg 时改用 python3-pil 读像素，两者都没有才跳过 |
@@ -46,6 +46,7 @@
 | Portal 撤权 | 仅一次失败、设置页显式重试、剪贴板仍保留 | 待真实桌面验证 |
 | KDE Wayland | Portal 后端兼容、覆盖层、Pin 置顶 | 待真实桌面验证 |
 | KDE Wayland 快捷键 | 三个全局快捷键均不注册（gsettings 路径只覆盖 GNOME），设置页应显示"该 Wayland 桌面不托管 Clippy 快捷键，请在系统键盘设置中手动添加" | 待真实桌面验证 |
+| GNOME 已有自定义快捷键 | 事先在设置里建 3 个自定义快捷键（占满 custom0/1/2）再启动 Clippy：用户那三个的 name/command/binding 必须原样保留，Clippy 用 custom3/4/5；重启 Clippy 不再新增条目（按 command 复用） | 待真实桌面验证 |
 | deb 实装 | 主窗口渲染、托盘、截图、Pin、设置 | 未修改系统，待实装验证 |
 | AppImage 实机 | 主窗口渲染、托盘、截图、Pin、更新器 | 待真实桌面验证 |
 | Secret Service | API key 保存/查询/删除且配置文件无明文 | 待真实服务验证 |

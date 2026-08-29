@@ -179,14 +179,10 @@ pub fn run() {
                 }
             } else {
                 log::info!("检测到 X11 会话，使用 tauri-plugin-global-shortcut");
-                // X11 一次注册三个键位，失败无法归因到单个动作，按 global 上报并带上原因。
-                record_register_result(
-                    app.handle(),
-                    &["global", "pin", "capture"],
-                    &app_config.global_shortcut,
-                    false,
-                    register_x11_shortcuts(app.handle(), &app_config),
-                );
+                // 逐个动作注册并在内部按动作记账，这里只需记录"全都没注册上"的整体失败。
+                if let Err(error) = register_x11_shortcuts(app.handle(), &app_config) {
+                    log::warn!("X11 快捷键全部注册失败: {error}");
+                }
             }
 
             // ── 8. 可回退的 WebKit 诊断开关 ────────────────────────────
@@ -211,7 +207,6 @@ pub fn run() {
             commands::set_codec_visible,
             commands::get_config,
             commands::update_config,
-            commands::update_shortcut,
             commands::check_shortcut_conflict,
             commands::get_shortcut_failures,
             commands::show_settings,

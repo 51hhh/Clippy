@@ -180,7 +180,7 @@ google 976 行、bing 1256 行、deepl 634 行、youdao 1372 行，其中非官�
 - [x] **A 快捷键注册失败被静默吞掉**：两条注册路径都记账，`get_shortcut_failures` 让设置页
       读到启动期的存量失败（事件早于页面监听已丢），按动作显示可操作提示
 - [x] **B 缺少快捷键占用检测**：`shortcut_conflict.rs` 在 GNOME 逐 schema 枚举（排除 Clippy
-      自己的 custom0/1/2）；X11 用 `enumerable = false` 区分"查不出来"与"没有冲突"；
+      自己认领的那几个自定义条目）；X11 用 `enumerable = false` 区分"查不出来"与"没有冲突"；
       Clippy 三个动作的自冲突由前端判断，因为它能读到未保存的录制值
 - [x] **C 翻译历史回填过于积极**：预览面板隐藏时不查历史，列表连按上下键只查停下的那条（120 ms 防抖）
 - [x] **D 翻译面板键盘死区**：键盘路由抽成 `keyboard-router.js`，Tab/Esc 交回全局路由，并可单测
@@ -193,6 +193,34 @@ google 976 行、bing 1256 行、deepl 634 行、youdao 1372 行，其中非官�
 
 门禁：`./scripts/ci-local.sh` = 10 通过 / 0 失败 / 1 跳过（跳过项仍是需显式开启的 AppImage 可视 smoke）。
 Canvas 导出像素 smoke 在缺 ffmpeg 时改用 python3-pil，因此本机不再整步跳过。
+
+## Phase 6：二轮 review 修复（2026-08-29）
+
+对 Phase 5 的产物再走一遍 review，又发现六项，五项已修，一项只报告：
+
+- [x] **I 覆盖用户已有的自定义快捷键**（最严重，且是历史遗留）：GNOME 注册写死
+      `custom0/1/2` 并覆盖那三个路径的 name/command/binding。用户若已在这些编号上建过快捷键，
+      Clippy 一启动就把它们静默销毁，卸载时还会把用户的条目从列表里删掉。改为按 command
+      认领自己的条目、认不出来再取未占用编号（`plan_slots`，纯函数 + 单测覆盖"用户占了
+      custom0/1/2"、"复用上次的条目"、"编号有空洞"三种情况），进程内缓存一次解析结果
+- [x] **J X11 注册失败无法归因**：`register_multiple` 是全有或全无，任何一个键位被占用都会
+      整批失败并笼统上报成 `global`。改为逐个 `register`，键位相同的动作只注册一次
+      （`plan_x11_registration` 定型去重/空值/解析失败），失败按动作记账，另外两个动作照常工作
+- [x] **K 恢复路径不记账**：设置窗口关闭/销毁兜底走的 `resume_shortcuts_for_app` 只返回
+      Result，成功不清失败记录、失败也不上报。现在 Wayland 用 `resume_with_results`
+      逐个写 binding（仍只重启一次 gsd）并按动作记账，X11 复用 J 的逐个注册
+- [x] **L 死代码 `update_shortcut`**：命令 + `api.ts` wrapper 都没有调用方，且绕过失败记账、
+      只处理 global 一个键位，留着只会被误用。连 `invoke_handler` 条目一起删除
+- [x] **M 文档与 UI 分组不一致**：`architecture.md` 把 highlight 放在"绘制"，侧栏放在"效果"。
+      按 UI 为准修正文档，并说明 highlight 只是半透明矢量块（绘制顺序仍跟随矢量标注），
+      分组成员由 `capture-editor-tools.test.js` 锁定，以后改分组会直接失败
+- [ ] **N `is_gnome_desktop` 的假阴性** — **保持现状**：只看 `XDG_CURRENT_DESKTOP` /
+      `XDG_SESSION_DESKTOP`，两者都为空的真实 GNOME 会话会被判为"不受管"，提示用户手动配置。
+      方向是安全的（宁可不写 dconf 也不在非 GNOME 上假装注册成功），补探测反而会回到
+      "能写入就算注册成功"的老坑
+
+门禁复跑：`cargo fmt` / `cargo clippy --all-targets -D warnings` 干净，`cargo test` 229 通过，
+`vitest` 31 文件 / 511 通过，`tsc --noEmit` 干净，`./scripts/ci-local.sh` 10 通过 / 0 失败 / 1 跳过。
 
 ## 执行顺序
 

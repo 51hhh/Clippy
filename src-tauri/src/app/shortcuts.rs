@@ -128,22 +128,105 @@ pub(crate) fn handle_registered(app: &tauri::AppHandle, shortcut: &Shortcut) {
     }
 }
 
+/// X11 下逐个动作注册并按动作记账。
+///
+/// 不用 `register_multiple`：它是全有或全无，一个键位被别的程序抓走就整批失败，
+/// 而且失败信息里没有"是哪个动作"，只能笼统归给 `global`。逐个注册既能把失败归到
+/// 具体动作，也能让没冲突的另外两个动作照常工作。
+///
+/// 返回 `Err` 只表示"一个键位都没注册上"（`unregister_all` 失败，或所有配置的动作都失败），
+/// 调用方据此决定是否把状态退回"已暂停"；部分成功返回 `Ok`，失败细节在失败记录里。
 pub(crate) fn register_x11_shortcuts(
     handle: &tauri::AppHandle,
     config: &AppConfig,
 ) -> Result<(), String> {
-    let shortcuts = configured_shortcuts(config)?;
     let global_shortcuts = handle.global_shortcut();
     global_shortcuts
         .unregister_all()
         .map_err(|e| e.to_string())?;
-    if !shortcuts.is_empty() {
-        global_shortcuts
-            .register_multiple(shortcuts)
-            .map_err(|e| e.to_string())?;
+
+    let mut attempted = 0usize;
+    let mut failed = 0usize;
+    let mut first_error: Option<String> = None;
+    for (action, raw, plan) in plan_x11_registration(config) {
+        let result = match plan {
+            X11Registration::Unset | X11Registration::Shared => Ok(()),
+            X11Registration::Invalid(reason) => Err(reason),
+            X11Registration::Register(shortcut) => global_shortcuts
+                .register(shortcut)
+                .map_err(|e| e.to_string()),
+        };
+        if !raw.is_empty() {
+            attempted += 1;
+            if let Err(reason) = &result {
+                failed += 1;
+                first_error.get_or_insert_with(|| reason.clone());
+            }
+        }
+        record_register_result(handle, &[action], &raw, false, result);
     }
-    log::info!("X11 快捷键注册完成");
-    Ok(())
+
+    match first_error {
+        // 全部失败：一个键位都没生效，让调用方能把状态退回暂停态并重试
+        Some(reason) if failed == attempted => Err(reason),
+        Some(reason) => {
+            log::warn!("X11 快捷键部分注册失败: {reason}");
+            Ok(())
+        }
+        None => {
+            log::info!("X11 快捷键注册完成");
+            Ok(())
+        }
+    }
+}
+
+/// 一个动作的 X11 注册计划
+#[derive(Debug)]
+enum X11Registration {
+    /// 未配置键位
+    Unset,
+    /// 与前一个动作共用同一键位，插件侧只需注册一次
+    Shared,
+    /// 需要向插件注册
+    Register(Shortcut),
+    /// 键位字符串无法解析
+    Invalid(String),
+}
+
+fn action_shortcuts(config: &AppConfig) -> [(&'static str, &str); 3] {
+    [
+        ("global", config.global_shortcut.as_str()),
+        ("pin", config.pin_shortcut.as_str()),
+        ("capture", config.capture_shortcut.as_str()),
+    ]
+}
+
+/// 纯计算：把配置里的三个键位映射成注册计划（去重、空值与解析失败都在这里定型）
+fn plan_x11_registration(config: &AppConfig) -> Vec<(&'static str, String, X11Registration)> {
+    let mut ids = HashSet::new();
+    action_shortcuts(config)
+        .into_iter()
+        .map(|(action, raw)| {
+            let raw = raw.trim().to_string();
+            let plan = if raw.is_empty() {
+                X11Registration::Unset
+            } else {
+                match Shortcut::from_str(&raw) {
+                    Err(error) => {
+                        X11Registration::Invalid(format!("快捷键 `{raw}` 解析失败: {error}"))
+                    }
+                    Ok(shortcut) => {
+                        if ids.insert(shortcut.id()) {
+                            X11Registration::Register(shortcut)
+                        } else {
+                            X11Registration::Shared
+                        }
+                    }
+                }
+            };
+            (action, raw, plan)
+        })
+        .collect()
 }
 
 pub(crate) fn toggle_main_window(handle: &tauri::AppHandle) {
@@ -195,33 +278,27 @@ fn shortcut_action(config: &AppConfig, pressed: &Shortcut) -> Option<ShortcutAct
     }
 }
 
-fn configured_shortcuts(config: &AppConfig) -> Result<Vec<Shortcut>, String> {
-    let mut ids = HashSet::new();
-    let mut shortcuts = Vec::new();
-    for raw in [
-        config.global_shortcut.as_str(),
-        config.pin_shortcut.as_str(),
-        config.capture_shortcut.as_str(),
-    ] {
-        let raw = raw.trim();
-        if raw.is_empty() {
-            continue;
-        }
-        let shortcut =
-            Shortcut::from_str(raw).map_err(|error| format!("快捷键 `{raw}` 解析失败: {error}"))?;
-        if ids.insert(shortcut.id()) {
-            shortcuts.push(shortcut);
-        }
-    }
-    Ok(shortcuts)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn plan_kinds(config: &AppConfig) -> Vec<(&'static str, String)> {
+        plan_x11_registration(config)
+            .into_iter()
+            .map(|(action, _, plan)| {
+                let kind = match plan {
+                    X11Registration::Unset => "unset".to_string(),
+                    X11Registration::Shared => "shared".to_string(),
+                    X11Registration::Register(_) => "register".to_string(),
+                    X11Registration::Invalid(reason) => format!("invalid: {reason}"),
+                };
+                (action, kind)
+            })
+            .collect()
+    }
+
     #[test]
-    fn configured_shortcuts_deduplicate_and_skip_empty_values() {
+    fn plan_deduplicates_and_skips_empty_values() {
         let config = AppConfig {
             global_shortcut: "Alt+V".to_string(),
             pin_shortcut: "Alt+V".to_string(),
@@ -229,8 +306,41 @@ mod tests {
             ..AppConfig::default()
         };
 
-        let shortcuts = configured_shortcuts(&config).unwrap();
-        assert_eq!(shortcuts.len(), 1);
+        assert_eq!(
+            plan_kinds(&config),
+            vec![
+                ("global", "register".to_string()),
+                ("pin", "shared".to_string()),
+                ("capture", "unset".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn plan_isolates_an_unparsable_shortcut() {
+        // 一个动作的键位写坏了，另外两个仍要照常注册（旧的 register_multiple 是全有或全无）
+        let config = AppConfig {
+            global_shortcut: "Alt+V".to_string(),
+            pin_shortcut: "NotAKey+".to_string(),
+            capture_shortcut: "Ctrl+Shift+A".to_string(),
+            ..AppConfig::default()
+        };
+
+        let kinds = plan_kinds(&config);
+        assert_eq!(kinds[0].1, "register");
+        assert!(kinds[1]
+            .1
+            .starts_with("invalid: 快捷键 `NotAKey+` 解析失败"));
+        assert_eq!(kinds[2].1, "register");
+    }
+
+    #[test]
+    fn plan_covers_every_action_exactly_once() {
+        let actions: Vec<&str> = plan_x11_registration(&AppConfig::default())
+            .into_iter()
+            .map(|(action, _, _)| action)
+            .collect();
+        assert_eq!(actions, vec!["global", "pin", "capture"]);
     }
 
     #[test]
