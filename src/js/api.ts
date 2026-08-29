@@ -231,11 +231,6 @@ export function deleteTranslationApiKey(provider: TranslationProvider): Promise<
   return invoke<void>("delete_translation_api_key", { provider });
 }
 
-/** 更新全局快捷键 */
-export function updateShortcut(newShortcut: string): Promise<void> {
-  return invoke<void>("update_shortcut", { newShortcut });
-}
-
 /** 检查快捷键是否已被桌面或本应用占用 */
 export function checkShortcutConflict(shortcut: string): Promise<ShortcutConflict> {
   return invoke<ShortcutConflict>("check_shortcut_conflict", { shortcut });

@@ -226,6 +226,20 @@ describe("capture editor tool wiring", () => {
     const wired = [...Object.keys(TOOL_DRAFTS), ...MANUAL_TOOLS];
     expect([...sidebarTools].sort()).toEqual([...wired].sort());
   });
+
+  // 分组是文档里那张表的真值来源（architecture.md#图片编辑器工具），改动必须同步
+  it("keeps the documented group membership", () => {
+    expect(
+      TOOL_GROUPS.map((group) => [group.titleKey, group.tools.map((tool) => tool.id)]),
+    ).toEqual([
+      ["capture.toolGroup.select", ["crop", "object", "eraser"]],
+      [
+        "capture.toolGroup.draw",
+        ["pen", "marker", "rect", "ellipse", "line", "arrow", "measure", "text"],
+      ],
+      ["capture.toolGroup.effects", ["highlight", "blur", "mosaic", "spotlight", "magnifier"]],
+    ]);
+  });
 });
 
 describe("capture editor interactions", () => {

@@ -124,14 +124,9 @@ pub fn update_config(
                     crate::gsettings_shortcuts::update_capture_binding(&config.capture_shortcut),
                 );
             }
-        } else {
-            crate::record_register_result(
-                &app_handle,
-                &["global", "pin", "capture"],
-                &config.global_shortcut,
-                false,
-                crate::register_x11_shortcuts(&app_handle, &config),
-            );
+        } else if let Err(error) = crate::register_x11_shortcuts(&app_handle, &config) {
+            // 逐个动作的失败已在注册内部记账，这里只记录整体失败
+            log::warn!("X11 快捷键全部注册失败: {error}");
         }
     }
     Ok(())
@@ -152,33 +147,6 @@ pub async fn pick_screenshot_directory(
     })
     .await
     .map_err(|error| format!("目录选择线程异常: {error}"))
-}
-
-/// 动态更新全局快捷键并持久化配置。
-#[tauri::command]
-pub fn update_shortcut(
-    new_shortcut: String,
-    app_handle: tauri::AppHandle,
-    state: State<AppState>,
-) -> Result<(), String> {
-    log::info!("更新全局快捷键: {}", new_shortcut);
-
-    if crate::gsettings_shortcuts::is_wayland() {
-        crate::gsettings_shortcuts::update_binding(&new_shortcut)?;
-    } else {
-        let mut next = {
-            let config = state.config.lock().map_err(|e| e.to_string())?;
-            config.clone()
-        };
-        next.global_shortcut = new_shortcut.clone();
-        crate::register_x11_shortcuts(&app_handle, &next)?;
-        log::info!("快捷键注册成功: {}", new_shortcut);
-    }
-
-    let mut config = state.config.lock().map_err(|e| e.to_string())?;
-    config.global_shortcut = new_shortcut;
-    save_config(&state.config_path, &config);
-    Ok(())
 }
 
 /// 检查指定快捷键是否已被桌面或本应用占用。
@@ -278,12 +246,33 @@ pub(crate) fn resume_shortcuts_for_app(
         }
     };
 
+    // 恢复同样要记账：录制结束后没绑回去，用户按键就没反应，而设置页显示得好好的。
     let result = if crate::gsettings_shortcuts::is_wayland() {
-        crate::gsettings_shortcuts::resume(
+        let outcomes = crate::gsettings_shortcuts::resume_with_results(
             &config.global_shortcut,
             &config.pin_shortcut,
             &config.capture_shortcut,
-        )
+        );
+        let failed = outcomes
+            .iter()
+            .filter(|(_, _, result)| result.is_err())
+            .count();
+        let mut first_error = None;
+        for (action, shortcut, outcome) in outcomes.iter() {
+            if let Err(reason) = outcome {
+                first_error.get_or_insert_with(|| reason.clone());
+            }
+            crate::record_register_result(app_handle, &[action], shortcut, true, outcome.clone());
+        }
+        // 只有全都失败才算"仍处于暂停"，部分成功的键位已经生效，状态不能再说暂停
+        match first_error {
+            Some(reason) if failed == outcomes.len() => Err(reason),
+            Some(reason) => {
+                log::warn!("恢复 GNOME 快捷键部分失败: {reason}");
+                Ok(())
+            }
+            None => Ok(()),
+        }
     } else {
         crate::register_x11_shortcuts(app_handle, &config)
     };
