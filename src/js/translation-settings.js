@@ -1,5 +1,9 @@
 /**
  * translation-settings.js — 翻译服务配置与系统密钥状态
+ *
+ * 配置以 `translation_services` 列表形式存储：每个服务各自保留 endpoint/model/region/project，
+ * 未启用的服务也保留自己的配置，用户来回切换不会丢。当前仍是单选语义——选中即启用，
+ * 其余服务置为未启用。
  */
 
 import {
@@ -7,20 +11,14 @@ import {
   hasTranslationApiKey,
   setTranslationApiKey,
 } from "./api.ts";
+import {
+  DEFAULT_TRANSLATION_PROVIDER,
+  TRANSLATION_PROVIDER_IDS,
+  normalizeTranslationProvider,
+  primaryTranslationService,
+  translationProviderMeta,
+} from "./translation-providers.ts";
 import * as i18n from "../i18n/i18n.js";
-
-const PROVIDERS = {
-  libretranslate: {
-    nameKey: "settings.translation.providerLibre",
-    endpoint: "https://libretranslate.com",
-    model: "",
-  },
-  openai_compatible: {
-    nameKey: "settings.translation.providerOpenAI",
-    endpoint: "https://api.openai.com/v1",
-    model: "gpt-4o-mini",
-  },
-};
 
 const STATUS_KEYS = {
   checking: "settings.translation.keyChecking",
@@ -37,8 +35,38 @@ function getRequiredElement(root, id) {
   return element;
 }
 
-function normalizeProvider(value) {
-  return PROVIDERS[value] ? value : "libretranslate";
+/** 每个服务一份配置，缺失的服务补成未启用的空配置 */
+function emptyServices() {
+  return TRANSLATION_PROVIDER_IDS.map((provider) => ({
+    provider,
+    enabled: false,
+    endpoint: "",
+    model: "",
+    region: "",
+    project: "",
+  }));
+}
+
+/**
+ * 校验端点：空值表示沿用内置默认值，非空则只允许 HTTPS 或本机 HTTP。
+ * 与后端 `validate_endpoint` 保持同一套规则，避免前端放过后端会拒绝的地址。
+ */
+function isAllowedEndpoint(endpoint) {
+  if (!endpoint) return true;
+  if (/\s/.test(endpoint) || endpoint.includes("@")) return false;
+  let parsed;
+  try {
+    parsed = new URL(endpoint);
+  } catch (_) {
+    return false;
+  }
+  if (endpoint.startsWith("https://") && parsed.protocol === "https:") return true;
+  const localHttp = ["http://localhost", "http://127.0.0.1", "http://[::1]"].some((prefix) => {
+    if (endpoint === prefix) return true;
+    const suffix = endpoint.startsWith(prefix) ? endpoint.slice(prefix.length) : "";
+    return suffix.startsWith(":") || suffix.startsWith("/");
+  });
+  return localHttp && parsed.protocol === "http:";
 }
 
 /**
@@ -48,27 +76,75 @@ function normalizeProvider(value) {
 export function initTranslationSettings({ root = document, showToast = () => {} } = {}) {
   const providerSelect = getRequiredElement(root, "translation-provider-select");
   const endpointInput = getRequiredElement(root, "translation-endpoint-input");
+  const modelField = getRequiredElement(root, "translation-model-field");
   const modelInput = getRequiredElement(root, "translation-model-input");
+  const regionField = getRequiredElement(root, "translation-region-field");
+  const regionInput = getRequiredElement(root, "translation-region-input");
+  const projectField = getRequiredElement(root, "translation-project-field");
+  const projectInput = getRequiredElement(root, "translation-project-input");
   const sourceLanguageSelect = getRequiredElement(root, "translation-source-language-select");
   const targetLanguageSelect = getRequiredElement(root, "translation-target-language-select");
   const apiKeyInput = getRequiredElement(root, "translation-api-key-input");
+  const apiSecretInput = getRequiredElement(root, "translation-api-secret-input");
+  const fallbackHint = getRequiredElement(root, "translation-fallback-hint");
   const keySaveBtn = getRequiredElement(root, "translation-key-save-btn");
   const keyDeleteBtn = getRequiredElement(root, "translation-key-delete-btn");
   const keyStatusDot = getRequiredElement(root, "translation-key-status-dot");
   const keyStatusText = getRequiredElement(root, "translation-key-status-text");
   const serviceName = getRequiredElement(root, "translation-service-name");
 
-  let lastProvider = "libretranslate";
+  let lastProvider = DEFAULT_TRANSLATION_PROVIDER;
+  let services = emptyServices();
   let requestId = 0;
   let keyStatus = { phase: "checking", detail: "", hasKey: false };
 
   function currentProvider() {
-    return normalizeProvider(providerSelect.value);
+    return normalizeTranslationProvider(providerSelect.value);
+  }
+
+  function serviceEntry(providerId) {
+    return services.find((service) => service.provider === providerId);
+  }
+
+  /** 表单当前内容写回内存中的服务配置，切换服务前必须调用 */
+  function captureForm(providerId) {
+    const service = serviceEntry(providerId);
+    if (!service) return;
+    service.endpoint = endpointInput.value.trim();
+    service.model = modelInput.value.trim();
+    service.region = regionInput.value.trim();
+    service.project = projectInput.value.trim();
+  }
+
+  /** 端点与模型留空即沿用内置默认值，因此默认值只作为 placeholder 展示 */
+  function applyForm(providerId) {
+    const service = serviceEntry(providerId);
+    const meta = translationProviderMeta(providerId);
+    endpointInput.value = service?.endpoint ?? "";
+    endpointInput.placeholder = meta.defaultEndpoint;
+    modelInput.value = service?.model ?? "";
+    modelInput.placeholder = meta.defaultModel;
+    regionInput.value = service?.region ?? "";
+    projectInput.value = service?.project ?? "";
+    endpointInput.removeAttribute("aria-invalid");
+  }
+
+  /** 只显示当前服务真正需要的字段，避免让用户填对该服务无意义的参数 */
+  function applyFieldVisibility(providerId) {
+    const meta = translationProviderMeta(providerId);
+    modelField.hidden = !meta.needsModel;
+    regionField.hidden = !meta.needsRegion;
+    projectField.hidden = !meta.needsProject;
+    apiSecretInput.hidden = !meta.needsSecret;
+    fallbackHint.hidden = !meta.hasWebFallback;
   }
 
   function updateKeyButtons() {
     const busy = ["checking", "saving", "deleting"].includes(keyStatus.phase);
-    keySaveBtn.disabled = busy || !apiKeyInput.value.trim();
+    const meta = translationProviderMeta(currentProvider());
+    // 双字段服务少填一半凭据会在翻译时才报错，这里直接拦住保存。
+    const secretMissing = Boolean(meta.needsSecret) && !apiSecretInput.value.trim();
+    keySaveBtn.disabled = busy || !apiKeyInput.value.trim() || secretMissing;
     keyDeleteBtn.disabled = busy;
   }
 
@@ -82,22 +158,12 @@ export function initTranslationSettings({ root = document, showToast = () => {} 
     updateKeyButtons();
   }
 
-  function updateProvider(replaceDefaults) {
+  function updateProvider() {
     const providerId = currentProvider();
-    const provider = PROVIDERS[providerId];
-    const previous = PROVIDERS[lastProvider];
-
-    if (replaceDefaults) {
-      const endpoint = endpointInput.value.trim();
-      if (!endpoint || endpoint === previous?.endpoint) endpointInput.value = provider.endpoint;
-
-      const model = modelInput.value.trim();
-      if (!model || model === previous?.model) modelInput.value = provider.model;
-      apiKeyInput.value = "";
-    }
-
-    serviceName.textContent = i18n.t(provider.nameKey);
-    serviceName.title = endpointInput.value.trim();
+    const meta = translationProviderMeta(providerId);
+    applyFieldVisibility(providerId);
+    serviceName.textContent = i18n.t(meta.nameKey);
+    serviceName.title = endpointInput.value.trim() || meta.defaultEndpoint;
     lastProvider = providerId;
     updateKeyButtons();
   }
@@ -118,34 +184,46 @@ export function initTranslationSettings({ root = document, showToast = () => {} 
 
   providerSelect.addEventListener("change", () => {
     requestId += 1;
-    updateProvider(true);
+    captureForm(lastProvider);
+    const providerId = currentProvider();
+    applyForm(providerId);
+    apiKeyInput.value = "";
+    apiSecretInput.value = "";
+    updateProvider();
     loadKeyStatus();
   });
 
   endpointInput.addEventListener("input", () => {
-    serviceName.title = endpointInput.value.trim();
+    serviceName.title =
+      endpointInput.value.trim() || translationProviderMeta(currentProvider()).defaultEndpoint;
     endpointInput.removeAttribute("aria-invalid");
   });
 
   apiKeyInput.addEventListener("input", updateKeyButtons);
-  apiKeyInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && !keySaveBtn.disabled) {
-      event.preventDefault();
-      keySaveBtn.click();
-    }
-  });
+  apiSecretInput.addEventListener("input", updateKeyButtons);
+  for (const input of [apiKeyInput, apiSecretInput]) {
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !keySaveBtn.disabled) {
+        event.preventDefault();
+        keySaveBtn.click();
+      }
+    });
+  }
 
   keySaveBtn.addEventListener("click", async () => {
     const provider = currentProvider();
     const apiKey = apiKeyInput.value.trim();
+    const apiSecret = apiSecretInput.value.trim();
     if (!apiKey) return;
+    if (translationProviderMeta(provider).needsSecret && !apiSecret) return;
 
     const activeRequest = ++requestId;
     const previouslyStored = keyStatus.hasKey;
     apiKeyInput.value = "";
+    apiSecretInput.value = "";
     renderKeyStatus("saving", "", previouslyStored);
     try {
-      await setTranslationApiKey(provider, apiKey);
+      await setTranslationApiKey(provider, apiKey, apiSecret || undefined);
       if (activeRequest !== requestId || provider !== currentProvider()) return;
       renderKeyStatus("stored", "", true);
       showToast(i18n.t("settings.translation.keySaved"));
@@ -164,6 +242,7 @@ export function initTranslationSettings({ root = document, showToast = () => {} 
       await deleteTranslationApiKey(provider);
       if (activeRequest !== requestId || provider !== currentProvider()) return;
       apiKeyInput.value = "";
+      apiSecretInput.value = "";
       renderKeyStatus("missing", "", false);
       showToast(i18n.t("settings.translation.keyDeleted"));
     } catch (error) {
@@ -173,50 +252,58 @@ export function initTranslationSettings({ root = document, showToast = () => {} 
     }
   });
 
+  /** 端点非法时把选择器切回出问题的服务再聚焦，否则用户看不到是哪个服务错了 */
+  function rejectEndpoint(providerId) {
+    if (providerId !== currentProvider()) {
+      providerSelect.value = providerId;
+      applyForm(providerId);
+      updateProvider();
+    }
+    endpointInput.setAttribute("aria-invalid", "true");
+    endpointInput.focus();
+    throw new Error(i18n.t("settings.translation.endpointInvalid"));
+  }
+
   return {
     fill(config) {
-      const providerId = normalizeProvider(config.translation_provider);
+      services = emptyServices();
+      for (const stored of config.translation_services ?? []) {
+        // 认不出的 provider 名直接丢弃，不要污染已知服务的配置。
+        const service = serviceEntry(stored?.provider);
+        if (!service) continue;
+        service.enabled = Boolean(stored.enabled);
+        service.endpoint = stored.endpoint ?? "";
+        service.model = stored.model ?? "";
+        service.region = stored.region ?? "";
+        service.project = stored.project ?? "";
+      }
+
+      const providerId = normalizeTranslationProvider(
+        primaryTranslationService(services)?.provider,
+      );
       providerSelect.value = providerId;
-      lastProvider = providerId;
-      const provider = PROVIDERS[providerId];
-      endpointInput.value = config.translation_endpoint || provider.endpoint;
-      modelInput.value = config.translation_model ?? provider.model;
+      applyForm(providerId);
       sourceLanguageSelect.value = config.translation_source_language || "auto";
       targetLanguageSelect.value = config.translation_target_language || "en";
       if (!sourceLanguageSelect.value) sourceLanguageSelect.value = "auto";
       if (!targetLanguageSelect.value) targetLanguageSelect.value = "en";
-      updateProvider(false);
+      updateProvider();
     },
 
     getConfig() {
-      const endpoint = endpointInput.value.trim();
-      let parsedEndpoint;
-      try {
-        if (!endpoint || /\s/.test(endpoint) || endpoint.includes("@")) throw new Error("invalid");
-        parsedEndpoint = new URL(endpoint);
-      } catch (_) {
-        endpointInput.setAttribute("aria-invalid", "true");
-        endpointInput.focus();
-        throw new Error(i18n.t("settings.translation.endpointInvalid"));
-      }
-      const localHttp = ["http://localhost", "http://127.0.0.1", "http://[::1]"]
-        .some((prefix) => {
-          if (endpoint === prefix) return true;
-          const suffix = endpoint.startsWith(prefix) ? endpoint.slice(prefix.length) : "";
-          return suffix.startsWith(":") || suffix.startsWith("/");
-        });
-      const isAllowed = (endpoint.startsWith("https://") && parsedEndpoint.protocol === "https:")
-        || (localHttp && parsedEndpoint.protocol === "http:");
-      if (!isAllowed) {
-        endpointInput.setAttribute("aria-invalid", "true");
-        endpointInput.focus();
-        throw new Error(i18n.t("settings.translation.endpointInvalid"));
+      const providerId = currentProvider();
+      captureForm(providerId);
+      // 未显示的服务也要校验：它的端点同样会被后端使用。
+      for (const service of services) {
+        if (!isAllowedEndpoint(service.endpoint)) rejectEndpoint(service.provider);
       }
       endpointInput.removeAttribute("aria-invalid");
+
       return {
-        translation_provider: currentProvider(),
-        translation_endpoint: endpoint,
-        translation_model: modelInput.value.trim(),
+        translation_services: services.map((service) => ({
+          ...service,
+          enabled: service.provider === providerId,
+        })),
         translation_source_language: sourceLanguageSelect.value,
         translation_target_language: targetLanguageSelect.value,
       };
@@ -225,7 +312,7 @@ export function initTranslationSettings({ root = document, showToast = () => {} 
     loadKeyStatus,
 
     refreshLabels() {
-      updateProvider(false);
+      updateProvider();
       renderKeyStatus(keyStatus.phase, keyStatus.detail, keyStatus.hasKey);
     },
   };

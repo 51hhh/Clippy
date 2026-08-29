@@ -31,9 +31,25 @@ function clip(id = 1, sensitive = false, contentType = "text") {
 }
 
 const config = {
-  translation_provider: "libretranslate",
+  translation_services: [
+    {
+      provider: "libretranslate",
+      enabled: true,
+      endpoint: "https://translate.example.test",
+      model: "",
+      region: "",
+      project: "",
+    },
+    {
+      provider: "deepl",
+      enabled: false,
+      endpoint: "",
+      model: "",
+      region: "",
+      project: "",
+    },
+  ],
   translation_target_language: "zh",
-  translation_endpoint: "https://translate.example.test",
 };
 
 function deferred() {
@@ -80,6 +96,21 @@ describe("React translation store", () => {
     expect(html).toContain("https://translate.example.test");
     expect(html).toContain("OCR &amp; Translate");
     expect(api.translateClip).not.toHaveBeenCalled();
+  });
+
+  it("says no service is enabled instead of naming a default one", () => {
+    store.setConfig({
+      ...config,
+      translation_services: config.translation_services.map((service) => ({
+        ...service,
+        enabled: false,
+      })),
+    });
+    store.setClip(clip(3));
+    const html = renderToStaticMarkup(React.createElement(TranslationPanel, { store }));
+    expect(html).toContain("No service enabled");
+    expect(html).toContain("Endpoint not configured");
+    expect(html).not.toContain("https://translate.example.test");
   });
 
   it("describes sensitive protection only when the explanation is rendered", () => {

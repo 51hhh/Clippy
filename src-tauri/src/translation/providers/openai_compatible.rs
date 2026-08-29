@@ -64,16 +64,19 @@ fn parse_response(response: &serde_json::Value) -> Result<ProviderTranslation, T
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::translation::types::TranslationProvider;
+    use crate::translation::types::{ProviderOptions, TranslationProvider};
 
     fn request() -> TranslationRequest {
-        TranslationRequest::new(
+        TranslationRequest::with_options(
             "Hello".to_string(),
             "auto".to_string(),
             "zh-CN".to_string(),
-            "https://example.test/v1".to_string(),
             TranslationProvider::OpenAiCompatible,
-            Some("custom-model".to_string()),
+            ProviderOptions {
+                endpoint: "https://example.test/v1".to_string(),
+                model: Some("custom-model".to_string()),
+                ..ProviderOptions::default()
+            },
             8,
         )
     }

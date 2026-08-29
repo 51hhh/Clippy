@@ -2,43 +2,75 @@ use super::content::{
     cache_ocr_text, load_clip_input, prepare_clip_text, ClipTranslationInput, PreparedClipText,
 };
 use super::secrets;
-use super::types::{TranslationError, TranslationProvider, TranslationRequest, TranslationResult};
+use super::types::{
+    ProviderOptions, TranslationError, TranslationProvider, TranslationRequest, TranslationResult,
+};
 use crate::commands::AppState;
-use crate::models::AppConfig;
+use crate::models::{AppConfig, TranslationServiceConfig};
 use crate::storage::StorageEngine;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
-fn provider_from_config(config: &AppConfig) -> Result<TranslationProvider, TranslationError> {
-    TranslationProvider::from_str(&config.translation_provider)
+/// 当前启用的第一个服务。多服务并行是后续切片的事，这里先只取主服务。
+fn primary_service(config: &AppConfig) -> Result<&TranslationServiceConfig, TranslationError> {
+    config
+        .enabled_translation_services()
+        .into_iter()
+        .next()
+        .ok_or(TranslationError::NoServiceEnabled)
+}
+
+/// 服务配置里的空字符串一律表示「用 provider 默认值」，在此统一折叠成 None。
+fn provider_options(service: &TranslationServiceConfig) -> ProviderOptions {
+    fn non_empty(value: &str) -> Option<String> {
+        let value = value.trim();
+        (!value.is_empty()).then(|| value.to_string())
+    }
+
+    ProviderOptions {
+        endpoint: service.endpoint.trim().to_string(),
+        // web 回退端点不开放给用户配置，始终用 provider 内置默认值。
+        web_endpoint: String::new(),
+        model: non_empty(&service.model),
+        region: non_empty(&service.region),
+        project: non_empty(&service.project),
+    }
+}
+
+/// 调用方给的一次翻译输入。语言与 request-id 为 None 时回落到配置或服务分配，
+/// 打包成结构是为了不在命令层传一长串同类型的 `Option<String>`。
+struct TranslationInputs {
+    text: String,
+    source_language: Option<String>,
+    target_language: Option<String>,
+    request_id: Option<u64>,
 }
 
 fn request_from_config(
     config: &AppConfig,
     provider: TranslationProvider,
-    text: String,
-    source_language: Option<String>,
-    target_language: Option<String>,
-    request_id: Option<u64>,
+    options: ProviderOptions,
+    inputs: TranslationInputs,
     service: &super::service::TranslationService,
 ) -> TranslationRequest {
-    let source = source_language
+    let source = inputs
+        .source_language
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| config.translation_source_language.clone());
-    let target = target_language
+    let target = inputs
+        .target_language
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| config.translation_target_language.clone());
-    let model =
-        (!config.translation_model.trim().is_empty()).then(|| config.translation_model.clone());
-    TranslationRequest::new(
-        text,
+    TranslationRequest::with_options(
+        inputs.text,
         source,
         target,
-        config.translation_endpoint.clone(),
         provider,
-        model,
-        request_id.unwrap_or_else(|| service.next_request_id()),
+        options,
+        inputs
+            .request_id
+            .unwrap_or_else(|| service.next_request_id()),
     )
 }
 
@@ -176,40 +208,28 @@ pub(crate) async fn translate_configured_text(
     request_id: u64,
 ) -> Result<TranslationResult, TranslationError> {
     let command_state = TranslationCommandState { service, config };
-    run_blocking(move || {
-        translate_with_state(
-            &command_state,
-            text,
-            source_language,
-            target_language,
-            Some(request_id),
-        )
-    })
-    .await
+    let inputs = TranslationInputs {
+        text,
+        source_language,
+        target_language,
+        request_id: Some(request_id),
+    };
+    run_blocking(move || translate_with_state(&command_state, inputs)).await
 }
 
 fn translate_with_state(
     state: &TranslationCommandState,
-    text: String,
-    source_language: Option<String>,
-    target_language: Option<String>,
-    request_id: Option<u64>,
+    inputs: TranslationInputs,
 ) -> Result<TranslationResult, TranslationError> {
     let config = state
         .config
         .lock()
         .map_err(|_| TranslationError::Internal)?
         .clone();
-    let provider = provider_from_config(&config)?;
-    let request = request_from_config(
-        &config,
-        provider,
-        text,
-        source_language,
-        target_language,
-        request_id,
-        &state.service,
-    );
+    let service_config = primary_service(&config)?;
+    let provider = TranslationProvider::from_str(&service_config.provider)?;
+    let options = provider_options(service_config);
+    let request = request_from_config(&config, provider, options, inputs, &state.service);
     let credentials = secrets::get_credentials(provider)?;
     state.service.translate(request, credentials)
 }

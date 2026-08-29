@@ -80,7 +80,7 @@ describe("typed IPC wrappers", () => {
 
   it("sends AppConfig through the stable newConfig argument", () => {
     const config = {
-      version: 1,
+      version: 2,
       max_history: 100,
       storage_mode: "persistent",
       global_shortcut: "Alt+V",
@@ -93,9 +93,16 @@ describe("typed IPC wrappers", () => {
       ocr_enabled: true,
       tmux_capture: false,
       auto_paste: true,
-      translation_provider: "libretranslate",
-      translation_endpoint: "https://libretranslate.com",
-      translation_model: "",
+      translation_services: [
+        {
+          provider: "libretranslate",
+          enabled: true,
+          endpoint: "",
+          model: "",
+          region: "",
+          project: "",
+        },
+      ],
       translation_source_language: "auto",
       translation_target_language: "en",
     };

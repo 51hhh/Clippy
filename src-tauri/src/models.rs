@@ -50,7 +50,8 @@ pub struct ClipItem {
     pub byte_size: i64,
 }
 
-const CURRENT_CONFIG_VERSION: u32 = 1;
+/// v2 起翻译配置从单服务字段改为 `translation_services` 列表。
+const CURRENT_CONFIG_VERSION: u32 = 2;
 
 fn current_config_version() -> u32 {
     CURRENT_CONFIG_VERSION
@@ -60,6 +61,39 @@ fn current_config_version() -> u32 {
 pub struct MainWindowPosition {
     pub x: i32,
     pub y: i32,
+}
+
+/// 单个翻译服务的用户配置。空字符串一律表示「用该服务的内置默认值」，
+/// 这样新增服务不需要用户先去设置页把端点填一遍。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TranslationServiceConfig {
+    pub provider: String,
+    /// 未启用的服务仍然保留各自的端点/模型，便于用户来回切换而不丢配置。
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub endpoint: String,
+    #[serde(default)]
+    pub model: String,
+    /// Azure 资源区域，仅 Bing 官方 API 使用。
+    #[serde(default)]
+    pub region: String,
+    /// GCP 项目 ID，仅 Google Cloud v3 使用。
+    #[serde(default)]
+    pub project: String,
+}
+
+impl TranslationServiceConfig {
+    pub fn new(provider: &str, enabled: bool) -> Self {
+        Self {
+            provider: provider.to_string(),
+            enabled,
+            endpoint: String::new(),
+            model: String::new(),
+            region: String::new(),
+            project: String::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,12 +120,15 @@ pub struct AppConfig {
     pub tmux_capture: bool,
     #[serde(default = "default_auto_paste")]
     pub auto_paste: bool,
-    #[serde(default = "default_translation_provider")]
-    pub translation_provider: String,
-    #[serde(default = "default_translation_endpoint")]
-    pub translation_endpoint: String,
-    #[serde(default = "default_translation_model")]
-    pub translation_model: String,
+    #[serde(default = "default_translation_services")]
+    pub translation_services: Vec<TranslationServiceConfig>,
+    /// v1 的单服务字段，只用于迁移成 `translation_services`，迁移后不再写回配置文件。
+    #[serde(default, rename = "translation_provider", skip_serializing)]
+    pub legacy_translation_provider: String,
+    #[serde(default, rename = "translation_endpoint", skip_serializing)]
+    pub legacy_translation_endpoint: String,
+    #[serde(default, rename = "translation_model", skip_serializing)]
+    pub legacy_translation_model: String,
     #[serde(default = "default_translation_source_language")]
     pub translation_source_language: String,
     #[serde(default = "default_translation_target_language")]
@@ -128,16 +165,17 @@ fn default_auto_paste() -> bool {
     true
 }
 
-fn default_translation_provider() -> String {
-    "libretranslate".to_string()
-}
-
-fn default_translation_endpoint() -> String {
-    "https://libretranslate.com".to_string()
-}
-
-fn default_translation_model() -> String {
-    String::new()
+/// 默认只启用 LibreTranslate：它的公共实例允许匿名调用，新用户不配置也能用。
+/// 其余服务预置为未启用，用户在设置页勾选即可，不必手填端点。
+fn default_translation_services() -> Vec<TranslationServiceConfig> {
+    vec![
+        TranslationServiceConfig::new("libretranslate", true),
+        TranslationServiceConfig::new("openai_compatible", false),
+        TranslationServiceConfig::new("deepl", false),
+        TranslationServiceConfig::new("google", false),
+        TranslationServiceConfig::new("bing", false),
+        TranslationServiceConfig::new("youdao", false),
+    ]
 }
 
 fn default_translation_source_language() -> String {
@@ -164,13 +202,84 @@ impl Default for AppConfig {
             ocr_enabled: true,
             tmux_capture: false,
             auto_paste: true,
-            translation_provider: default_translation_provider(),
-            translation_endpoint: default_translation_endpoint(),
-            translation_model: default_translation_model(),
+            translation_services: default_translation_services(),
+            legacy_translation_provider: String::new(),
+            legacy_translation_endpoint: String::new(),
+            legacy_translation_model: String::new(),
             translation_source_language: default_translation_source_language(),
             translation_target_language: default_translation_target_language(),
             main_window_position: None,
         }
+    }
+}
+
+/// v1 每个服务的内置默认端点。迁移时与用户值相同就清空，
+/// 否则老配置会把当年的默认地址永久钉住，以后改默认值对老用户无效。
+const V1_DEFAULT_ENDPOINTS: [(&str, &str); 2] = [
+    ("libretranslate", "https://libretranslate.com"),
+    ("openai_compatible", "https://api.openai.com/v1"),
+];
+
+impl AppConfig {
+    /// 把旧版本配置迁移到当前版本，返回是否发生了改动（调用方据此决定是否回写）。
+    pub fn migrate(&mut self) -> bool {
+        let mut changed = false;
+
+        if self.translation_services.is_empty() {
+            self.translation_services = default_translation_services();
+            changed = true;
+        }
+        if self.version < 2 {
+            changed |= self.migrate_translation_services_from_v1();
+        }
+        if self.version != CURRENT_CONFIG_VERSION {
+            self.version = CURRENT_CONFIG_VERSION;
+            changed = true;
+        }
+
+        changed
+    }
+
+    /// v1 只能启用一个服务，迁移后保持同一个服务启用，其余保持未启用。
+    fn migrate_translation_services_from_v1(&mut self) -> bool {
+        let legacy_provider = self.legacy_translation_provider.trim().to_string();
+        if legacy_provider.is_empty() {
+            return false;
+        }
+        let Some(service) = self
+            .translation_services
+            .iter_mut()
+            .find(|service| service.provider == legacy_provider)
+        else {
+            // 认不出的 provider 名保留默认启用项，不至于让用户完全没有可用服务。
+            log::warn!("配置迁移遇到未知翻译服务，保留默认启用项: {legacy_provider}");
+            return false;
+        };
+
+        service.enabled = true;
+        let endpoint = self.legacy_translation_endpoint.trim();
+        let is_v1_default = V1_DEFAULT_ENDPOINTS
+            .iter()
+            .any(|(provider, default)| *provider == legacy_provider && *default == endpoint);
+        if !is_v1_default {
+            service.endpoint = endpoint.to_string();
+        }
+        service.model = self.legacy_translation_model.trim().to_string();
+
+        for service in &mut self.translation_services {
+            if service.provider != legacy_provider {
+                service.enabled = false;
+            }
+        }
+        true
+    }
+
+    /// 启用的服务，顺序即设置页与结果卡的展示顺序。
+    pub fn enabled_translation_services(&self) -> Vec<&TranslationServiceConfig> {
+        self.translation_services
+            .iter()
+            .filter(|service| service.enabled)
+            .collect()
     }
 }
 
