@@ -6,6 +6,7 @@ mod config;
 mod dialogs;
 mod error;
 mod gsettings_shortcuts;
+mod i18n;
 mod image_io;
 mod models;
 mod ocr;
@@ -114,9 +115,9 @@ pub fn run() {
                 shortcut_transition: Mutex::new(()),
             });
 
-            // ── 6. 构建托盘并监听主题变化 ────────────────────────────────
-            app::tray::build(app, &app_config.theme).expect("无法构建系统托盘");
-            app::tray::listen_for_theme_changes(app);
+            // ── 6. 构建托盘并监听主题/语言变化 ────────────────────────────
+            let tray_items = app::tray::build(app, &app_config).expect("无法构建系统托盘");
+            app::tray::listen_for_config_changes(app, tray_items);
 
             // ── 7. 注册全局快捷键（从配置读取）────────────────────────────────
             if gsettings_shortcuts::is_wayland() {

@@ -55,4 +55,16 @@ impl AppState {
             }
         }
     }
+
+    /// 托盘菜单与原生窗口标题用的文案；配置锁损坏时退回英文，
+    /// 界面语言不该让开窗动作失败。
+    pub fn native_text(&self) -> crate::i18n::NativeText {
+        match self.config.lock() {
+            Ok(config) => crate::i18n::text_for_language(&config.language),
+            Err(error) => {
+                log::warn!("读取界面语言配置失败，原生文案使用英文: {error}");
+                crate::i18n::native_text(crate::i18n::Locale::En)
+            }
+        }
+    }
 }

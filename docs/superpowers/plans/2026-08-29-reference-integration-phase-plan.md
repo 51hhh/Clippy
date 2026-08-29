@@ -133,9 +133,20 @@ google 976 行、bing 1256 行、deepl 634 行、youdao 1372 行，其中非官�
       （分隔符与前导点被清洗），同名时用 `create_new` 追加序号而不是覆盖。
       另存为与「浏览」目录选择走 `tauri-plugin-dialog`（在 `dialogs.rs` 一处封装，
       插件已在主线程构造对话框，命令侧用 `spawn_blocking` 等结果），用户取消返回 `null`
-- [ ] **圆角导出**：复用 `mask.rs::apply_rounded_corners`（约 234 行纯函数，含 2x2 超采样抗锯齿），
-      保留 MIT 版权声明
-- [ ] **后端 i18n / 托盘菜单本地化**：参考 `i18n.rs`
+- [x] **圆角导出**：功能已由前端导出管线实现，**不移植** `mask.rs::apply_rounded_corners`。
+      `canvasRenderer.ts::renderExport` 末尾用 `destination-in` + `ctx.roundRect` 抠圆角，
+      半径按 `min(radius, width/2, height/2)` 收敛，抗锯齿由 canvas 负责，与预览的
+      `borderRadius`（`App.tsx`）取同一个 `cornerRadius`（`imageAdjustments.ts` 里钳到 0..120）。
+      再写一份 Rust 逐像素超采样实现会让同一个视觉效果有两个必须保持一致的真值来源，
+      理由与 P3 图像调整判定为"不做"完全相同。回归覆盖：`scripts/smoke-canvas-export.sh`
+      在真实 canvas 上断言导出图角点 alpha < 128（`src/tests/fixtures/canvas-export-smoke.ts`）
+- [x] **后端 i18n / 托盘菜单本地化**：新增 `src-tauri/src/i18n.rs`（`NativeText` 静态文案 +
+      `resolve_locale`），托盘菜单、设置窗口标题、截图编辑器窗口标题都随 `AppConfig.language` 切换。
+      语言解析规则与前端 `i18n.js::resolveLocale` 一致：显式 `en`/`zh-CN` 优先，`auto`（或空）
+      读 `LC_ALL`/`LC_MESSAGES`/`LANG`，其余一律回退英文；环境变量通过 `resolve_locale_with`
+      参数注入，测试不改进程环境。`config-changed` 里用 `MenuItem::set_text` 原地改文案而不是
+      重建菜单（避免刷新过程中托盘短暂无菜单），文案刷新排在图标刷新之前，托盘句柄丢失时语言仍生效。
+      设置窗口的两处重复开窗合并到 `window_controller::open_settings_window`
 
 ## Phase 4：可选
 

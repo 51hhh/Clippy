@@ -181,22 +181,7 @@ pub fn check_shortcut_conflict(
 /// 打开设置窗口，并确保载入最新页面状态。
 #[tauri::command]
 pub fn show_settings(app_handle: tauri::AppHandle) -> Result<(), String> {
-    if let Some(window) = app_handle.get_webview_window("settings") {
-        let _ = window.close();
-    }
-    tauri::WebviewWindowBuilder::new(
-        &app_handle,
-        "settings",
-        tauri::WebviewUrl::App("settings.html".into()),
-    )
-    .title("Clippy Settings")
-    .inner_size(720.0, 560.0)
-    .min_inner_size(480.0, 400.0)
-    .center()
-    .resizable(true)
-    .build()
-    .map_err(|e| e.to_string())?;
-    Ok(())
+    crate::window_controller::open_settings_window(&app_handle)
 }
 
 /// 暂停全局快捷键，供快捷键录制使用。

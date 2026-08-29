@@ -43,6 +43,7 @@ fn open_capture_window(
     state: &AppState,
     generation: u64,
 ) -> Result<(), String> {
+    let title = state.native_text().screenshot_title;
     let result = if let Some(window) = app_handle.get_webview_window("capture") {
         window
             .url()
@@ -51,6 +52,8 @@ fn open_capture_window(
             .and_then(|url| window.navigate(url).map_err(|error| error.to_string()))
             .and_then(|_| window.show().map_err(|error| error.to_string()))
             .map(|_| {
+                // 复用已有窗口时语言可能已经变过，标题跟着刷新。
+                let _ = window.set_title(title);
                 let _ = window.set_focus();
             })
     } else {
@@ -59,7 +62,7 @@ fn open_capture_window(
             "capture",
             tauri::WebviewUrl::App(format!("capture.html?generation={generation}").into()),
         )
-        .title("Clippy Screenshot")
+        .title(title)
         .inner_size(1180.0, 760.0)
         .min_inner_size(820.0, 560.0)
         .center()
