@@ -3,6 +3,11 @@ import type { RenderViewport } from "./canvasRenderer";
 
 export const MIN_ZOOM = 0.25;
 export const MAX_ZOOM = 6;
+/**
+ * 适配缩放的上限。小选区（几十像素高的一行文字）以 1:1 显示时只占画布一角，
+ * 根本没法标注，所以允许放大到 3 倍；再大就纯粹是马赛克了。
+ */
+export const MAX_FIT_SCALE = 3;
 
 const STAGE_PADDING = 24;
 const MIN_STAGE_WIDTH = 320;
@@ -30,7 +35,11 @@ export function zoomFromWheel(baseZoom: number, deltaY: number): number {
 export function buildViewport(stage: StageSize, image: ImageSize, zoom: number): RenderViewport {
   const maxWidth = Math.max(MIN_STAGE_WIDTH, stage.clientWidth - STAGE_PADDING);
   const maxHeight = Math.max(MIN_STAGE_HEIGHT, stage.clientHeight - STAGE_PADDING);
-  const fitScale = Math.min(maxWidth / image.naturalWidth, maxHeight / image.naturalHeight, 1);
+  const fitScale = Math.min(
+    maxWidth / image.naturalWidth,
+    maxHeight / image.naturalHeight,
+    MAX_FIT_SCALE,
+  );
   const safeZoom = clampZoom(zoom);
   const scale = Math.max(0.01, fitScale * safeZoom);
   return {

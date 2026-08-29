@@ -22,7 +22,10 @@ function sourceFiles(directory) {
 describe("built window entrypoints", () => {
   it.each([
     ["index.html", ["app", "clipboard-react-root", "translation-react-root", "preview-panel", "codec-panel"]],
-    ["settings.html", ["theme-grid", "auto-paste-toggle", "translation-group"]],
+    [
+      "settings.html",
+      ["theme-grid", "auto-paste-toggle", "translation-group", "capture-commit-action-select"],
+    ],
     ["capture.html", ["capture-root"]],
     ["capture-overlay.html", ["root"]],
     ["pin.html", ["root"]],
@@ -45,6 +48,23 @@ describe("built window entrypoints", () => {
     const document = loadEntrypoint("index.html");
     expect(document.getElementById("translation-panel-legacy")).toBeNull();
     expect(document.getElementById("translation-panel")).toBeNull();
+  });
+
+  // 主窗口是无边框悬浮窗，失焦会自动隐藏；原生 <select> 的弹窗在 WebKitGTK 上是
+  // 独立 GTK 窗口，一打开就抢走焦点，主窗口随即消失。设置窗口是普通窗口，不受此限。
+  it("keeps native <select> out of the auto-hiding main window", () => {
+    const document = loadEntrypoint("index.html");
+    expect(document.querySelectorAll("select")).toHaveLength(0);
+
+    const codecSelect = document.getElementById("codec-select");
+    expect(codecSelect?.classList.contains("custom-select")).toBe(true);
+    expect(codecSelect?.querySelector(".custom-select-trigger")).not.toBeNull();
+    expect(codecSelect?.querySelectorAll(".custom-select-option").length).toBeGreaterThanOrEqual(22);
+    // "最近使用"分组由 codec.js 动态填充，标题与容器必须成对存在
+    const recentGroup = document.getElementById("codec-recent-group");
+    expect(recentGroup?.classList.contains("custom-select-group")).toBe(true);
+    expect(recentGroup?.querySelector(".custom-select-group-title")).not.toBeNull();
+    expect(recentGroup?.contains(document.getElementById("codec-recent"))).toBe(true);
   });
 
   it("keeps direct Tauri access out of production feature modules", () => {

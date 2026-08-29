@@ -24,6 +24,11 @@
   overflow: hidden;
 }
 
+/* 关闭侧栏后由键盘路由显式聚焦，不需要可见的焦点环 */
+.list-panel:focus {
+  outline: none;
+}
+
 .clipboard-react-root {
   display: contents;
 }
@@ -107,6 +112,8 @@
 }
 .preview-content {
   flex: 1;
+  /* 翻译区在场时不能被压成 0 高度 */
+  min-height: 96px;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 12px;
@@ -118,9 +125,20 @@
 }
 
 /* ---------- 预览翻译区 ---------- */
-.translation-panel {
+
+/* React 挂载点自己就是 flex 项：高度上限写在这里（相对 .preview-panel 的确定高度才生效），
+   并且必须 min-height: 0，否则 min-height: auto 会让它拒绝收缩、把翻译区顶出窗口被裁掉。 */
+.translation-host {
+  display: flex;
+  flex-direction: column;
   flex: 0 1 auto;
-  max-height: 48%;
+  min-height: 0;
+  max-height: 55%;
+  overflow: hidden;
+}
+.translation-panel {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   padding: 10px 12px 12px;
   border-top: 1px solid var(--border);
@@ -1217,6 +1235,102 @@
 }
 
 /* ============================================================
+   自定义下拉框 (Custom Select)
+   ============================================================
+   原生 <select> 在 WebKitGTK 上会弹出独立 GTK 窗口，webview 随即失焦，
+   无边框的主窗口会被自动隐藏（看起来像崩溃）。所以主窗口与设置页统一用这套
+   纯 DOM 下拉框；样式放在 components.css 供两个页面共享。*/
+.custom-select {
+  position: relative;
+  width: 100%;
+}
+.custom-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 42px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1.5px solid var(--control-border, var(--border));
+  background: var(--control-bg, var(--bg-secondary));
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.custom-select-trigger:hover {
+  border-color: var(--accent);
+}
+.custom-select.open .custom-select-trigger {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft, color-mix(in srgb, var(--accent) 22%, transparent));
+}
+.custom-select-arrow {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform 0.2s;
+}
+.custom-select.open .custom-select-arrow {
+  transform: rotate(180deg);
+}
+.custom-select-dropdown {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  border-radius: 8px;
+  border: 1.5px solid var(--control-border, var(--border));
+  background: var(--surface-elevated, var(--bg-secondary));
+  box-shadow: var(--shadow, 0 6px 20px rgba(20, 24, 40, 0.08));
+  z-index: 100;
+  /* 编解码面板有 20+ 个选项，超出面板高度时自身滚动而不是撑破窗口 */
+  max-height: 320px;
+  overflow-y: auto;
+}
+.custom-select.open .custom-select-dropdown {
+  display: block;
+}
+.custom-select-option {
+  padding: 8px 14px;
+  font-size: 14px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.custom-select-option:hover {
+  background: var(--bg-hover);
+}
+.custom-select-option.selected {
+  color: var(--accent);
+  font-weight: 600;
+  background: var(--accent-soft, color-mix(in srgb, var(--accent) 10%, transparent));
+}
+/* 分组标题不可选：不带 .custom-select-option，键盘导航与点击都会跳过 */
+.custom-select-group[hidden] {
+  display: none;
+}
+.custom-select-group-title {
+  display: block;
+  padding: 6px 14px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  cursor: default;
+}
+.custom-select-group-options {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* ============================================================
    编解码面板 (Codec Panel)
    ============================================================ */
 .codec-panel {
@@ -1242,20 +1356,25 @@
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
+/* 编解码面板用的是自定义下拉框，这里只把它压到面板的紧凑尺寸 */
 .codec-select {
   flex: 1;
-  font-size: 12px;
-  font-family: inherit;
-  padding: 5px 8px;
-  border-radius: 5px;
-  border: 1px solid var(--border);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  cursor: pointer;
-  outline: none;
+  min-width: 0;
 }
-.codec-select:focus {
-  border-color: var(--accent);
+.codec-select .custom-select-trigger {
+  height: 28px;
+  padding: 0 8px;
+  border-width: 1px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+.codec-select .custom-select-option {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+.codec-select .custom-select-group-title {
+  padding: 5px 10px 1px;
+  font-size: 10px;
 }
 .codec-icon-btn {
   width: 28px;

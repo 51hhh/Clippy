@@ -83,7 +83,9 @@ pub fn get_capture_overlay(
     state: State<'_, AppState>,
 ) -> Result<CaptureOverlayPayload, String> {
     validate_overlay_label(&label)?;
-    Ok(state.capture_manager.payload(&label)?)
+    Ok(state
+        .capture_manager
+        .payload(&label, state.capture_commit_action())?)
 }
 
 #[tauri::command]

@@ -84,6 +84,7 @@ run_step "typecheck" bash -c "cd src && npx tsc --noEmit"
 run_step "vitest" bash -c "cd src && npx vitest run"
 run_step "DOM/Xvfb smoke" ./scripts/smoke-dom.sh
 run_step "Canvas 导出像素 smoke" ./scripts/smoke-canvas-export.sh
+run_step "主窗口布局像素 smoke" ./scripts/smoke-layout.sh
 
 if [[ "$QUICK" == false ]]; then
   run_step "vite build" bash -c "cd src && npx vite build"

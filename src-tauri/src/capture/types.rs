@@ -32,6 +32,9 @@ pub struct CaptureOverlayPayload {
     pub pixel_width: u32,
     pub pixel_height: u32,
     pub windows: Vec<WindowCandidate>,
+    /// 框选完成后覆盖层该做什么：`"editor"` 直接开编辑器，`"toolbar"` 停下等用户点工具条。
+    /// 由后端归一化后下发，前端不必再认识配置里可能出现的怪值。
+    pub commit_action: &'static str,
 }
 
 #[derive(Debug, Clone, Deserialize)]

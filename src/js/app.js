@@ -99,6 +99,8 @@ whenReady(async () => {
     codec,
     pinClip,
     hidePanel: tryHidePanel,
+    // 翻译面板的动作以适配器注入，路由不直接依赖 React store（保持可单测）
+    translation: { translate: () => translationStore.translate() },
   });
 
   window.addEventListener("keydown", keyboardRouter.onKeyDown);

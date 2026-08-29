@@ -33,6 +33,36 @@ export function windowAt(windows: WindowCandidate[], point: Point): WindowCandid
   return windows.find((candidate) => contains(candidate, point)) || null;
 }
 
+/**
+ * 松手时落地的选区：几乎没拖动就当成点击，用悬停窗口速选；
+ * 否则用拖出的矩形，小到没意义就作废（返回 null 表示这次框选不成立）。
+ */
+export function committedSelection(
+  start: Point,
+  end: Point,
+  candidate: WindowCandidate | null,
+  bounds: Rect,
+): Rect | null {
+  if (Math.hypot(end.x - start.x, end.y - start.y) < 4) {
+    return candidate ? clampRect(candidate, bounds) : null;
+  }
+  const dragged = clampRect(normalizeRect(start, end), bounds, 0);
+  return dragged.width >= 2 && dragged.height >= 2 ? dragged : null;
+}
+
+/**
+ * 悬停时该高亮哪个窗口。选区内部让位给移动/缩放手势，选区外面继续提示可速选的窗口，
+ * 否则用户随手框过一次之后就再也用不上窗口速选了。
+ */
+export function hoverCandidate(
+  windows: WindowCandidate[],
+  point: Point,
+  selection: Rect | null,
+): WindowCandidate | null {
+  if (selection && contains(selection, point)) return null;
+  return windowAt(windows, point);
+}
+
 export function moveRect(rect: Rect, delta: Point, bounds: Rect): Rect {
   return clampRect({ ...rect, x: rect.x + delta.x, y: rect.y + delta.y }, bounds);
 }

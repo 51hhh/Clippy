@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  MAX_FIT_SCALE,
   MAX_ZOOM,
   MIN_ZOOM,
   buildViewport,
@@ -55,6 +56,31 @@ describe("capture editor viewport", () => {
     });
     expect(clampZoom(0.01)).toBe(MIN_ZOOM);
     expect(clampZoom(100)).toBe(MAX_ZOOM);
+  });
+
+  it("scales a small capture up so it can be annotated", () => {
+    // 200×80 的选区在 1000×800 的画布里按 1:1 只占一角，适配缩放要放大它
+    expect(buildViewport(
+      { clientWidth: 1000, clientHeight: 800 },
+      { naturalWidth: 200, naturalHeight: 80 },
+      1,
+    )).toEqual({
+      width: 600,
+      height: 240,
+      fitScale: MAX_FIT_SCALE,
+      zoom: 1,
+      scale: MAX_FIT_SCALE,
+    });
+  });
+
+  it("never upscales beyond the fit-scale cap", () => {
+    const viewport = buildViewport(
+      { clientWidth: 4000, clientHeight: 4000 },
+      { naturalWidth: 10, naturalHeight: 10 },
+      1,
+    );
+    expect(viewport.fitScale).toBe(MAX_FIT_SCALE);
+    expect(viewport.width).toBe(30);
   });
 
   it("applies wheel zoom with the same exponential curve", () => {
