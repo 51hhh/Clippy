@@ -7,6 +7,7 @@ import {
   closeAfterShortcutCleanup,
   createShortcutRecordingController,
 } from "../js/settings/shortcut-recording.js";
+import { createShortcutFailureNotice } from "../js/settings/shortcut-failure-notice.js";
 import { createScreenshotSettings } from "../js/settings/screenshot-settings.js";
 import { formatByteSize } from "../js/settings/stats.js";
 import { createThemePicker } from "../js/settings/theme-picker.js";
@@ -212,6 +213,102 @@ describe("settings shortcut recording controller", () => {
     expect(controller.activeKey).toBeNull();
   });
 
+  it("flags a combination already used by another Clippy action without asking the backend", async () => {
+    const checkConflict = vi.fn().mockResolvedValue({ conflicted: false, source: null });
+    const global = createRecorder("global", { checkConflict });
+    const pin = createRecorder("pin", { checkConflict });
+    pin.input.value = "ctrl+alt+v"; // 大小写与顺序都不该影响判断
+    const controller = createShortcutRecordingController({
+      recorders: { global, pin },
+      pauseShortcuts: vi.fn().mockResolvedValue(undefined),
+      resumeShortcuts: vi.fn().mockResolvedValue(undefined),
+      translate,
+      defer: () => {},
+    });
+
+    global.recordButton.click();
+    await vi.waitFor(() => expect(controller.activeKey).toBe("global"));
+    window.dispatchEvent(new KeyboardEvent("keydown", {
+      code: "KeyV",
+      key: "v",
+      ctrlKey: true,
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+    }));
+
+    await vi.waitFor(() =>
+      expect(global.warning.classList.contains("hidden")).toBe(false));
+    expect(global.warning.dataset.i18n).toBe("settings.shortcut.conflictSelf");
+    expect(checkConflict).not.toHaveBeenCalled();
+    await controller.stop();
+  });
+
+  it.each([
+    [{ conflicted: true, source: "desktop", owner: "toggle-overview" }, "settings.shortcut.conflict"],
+    [{ conflicted: true, source: "clippy", owner: null }, "settings.shortcut.conflictSelf"],
+    [{ conflicted: true, source: "future-source" }, "settings.shortcut.conflict"],
+  ])("renders the warning text that matches the reported conflict source %#", async (result, key) => {
+    const checkConflict = vi.fn().mockResolvedValue(result);
+    const global = createRecorder("global", { checkConflict });
+    const controller = createShortcutRecordingController({
+      recorders: { global },
+      pauseShortcuts: vi.fn().mockResolvedValue(undefined),
+      resumeShortcuts: vi.fn().mockResolvedValue(undefined),
+      translate,
+      defer: () => {},
+    });
+
+    global.recordButton.click();
+    await vi.waitFor(() => expect(controller.activeKey).toBe("global"));
+    window.dispatchEvent(new KeyboardEvent("keydown", {
+      code: "KeyV",
+      key: "v",
+      ctrlKey: true,
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+    }));
+
+    await vi.waitFor(() => expect(checkConflict).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(global.warning.dataset.i18n).toBe(key));
+    expect(global.warning.classList.contains("hidden")).toBe(false);
+    await controller.stop();
+  });
+
+  it("hides the warning when the backend cannot find a conflict", async () => {
+    const checkConflict = vi.fn().mockResolvedValue({
+      conflicted: false,
+      source: null,
+      owner: null,
+      enumerable: false,
+    });
+    const global = createRecorder("global", { checkConflict });
+    global.warning.classList.remove("hidden");
+    const controller = createShortcutRecordingController({
+      recorders: { global },
+      pauseShortcuts: vi.fn().mockResolvedValue(undefined),
+      resumeShortcuts: vi.fn().mockResolvedValue(undefined),
+      translate,
+      defer: () => {},
+    });
+
+    global.recordButton.click();
+    await vi.waitFor(() => expect(controller.activeKey).toBe("global"));
+    window.dispatchEvent(new KeyboardEvent("keydown", {
+      code: "KeyV",
+      key: "v",
+      ctrlKey: true,
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    }));
+
+    await vi.waitFor(() => expect(checkConflict).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(global.warning.classList.contains("hidden")).toBe(true));
+    await controller.stop();
+  });
+
   it("restores shortcuts before closing while recording", async () => {
     const order = [];
     const global = createRecorder("global");
@@ -229,6 +326,75 @@ describe("settings shortcut recording controller", () => {
 
     expect(order).toEqual(["resume", "close"]);
     expect(closeWindow).toHaveBeenCalledOnce();
+  });
+});
+
+describe("settings shortcut registration failures", () => {
+  function mount(locale = "en") {
+    const warning = document.createElement("div");
+    warning.classList.add("hidden");
+    document.body.replaceChildren(warning);
+    const dictionary = {
+      en: {
+        "settings.shortcut.action.global": "Panel",
+        "settings.shortcut.action.capture": "Screenshot",
+        "settings.shortcut.registerFailed.wayland": "{action} shortcut ({shortcut}) needs a manual binding",
+        "settings.shortcut.registerFailed.x11": "{action} shortcut ({shortcut}) is already taken",
+      },
+      "zh-CN": {
+        "settings.shortcut.action.global": "面板",
+        "settings.shortcut.registerFailed.wayland": "{action}快捷键（{shortcut}）需要手动绑定",
+      },
+    };
+    let current = locale;
+    const notice = createShortcutFailureNotice({
+      warning,
+      translate: (key, params) => {
+        let text = dictionary[current][key] ?? key;
+        for (const [name, value] of Object.entries(params ?? {})) {
+          text = text.replace(`{${name}}`, String(value));
+        }
+        return text;
+      },
+    });
+    return { warning, notice, setLocale: (next) => (current = next) };
+  }
+
+  it("shows the stored startup failures the frontend was not listening for", () => {
+    const { warning, notice } = mount();
+
+    notice.replaceAll([
+      { action: "global", shortcut: "Super+V", session: "wayland", reason: "非 GNOME" },
+      { action: "capture", shortcut: "Ctrl+Shift+S", session: "x11", reason: "already grabbed" },
+    ]);
+
+    expect(warning.classList.contains("hidden")).toBe(false);
+    expect(warning.textContent.split("\n")).toEqual([
+      "Panel shortcut (Super+V) needs a manual binding",
+      "Screenshot shortcut (Ctrl+Shift+S) is already taken",
+    ]);
+  });
+
+  it("keeps one line per action and clears when a later query reports success", () => {
+    const { warning, notice } = mount();
+
+    notice.add({ action: "global", shortcut: "Super+V", session: "wayland", reason: "" });
+    notice.add({ action: "global", shortcut: "Alt+V", session: "wayland", reason: "" });
+    expect(warning.textContent).toBe("Panel shortcut (Alt+V) needs a manual binding");
+
+    notice.replaceAll([]);
+    expect(warning.classList.contains("hidden")).toBe(true);
+    expect(warning.textContent).toBe("");
+  });
+
+  it("re-renders interpolated text after a language switch", () => {
+    const { warning, notice, setLocale } = mount();
+    notice.add({ action: "global", shortcut: "Super+V", session: "wayland", reason: "" });
+
+    setLocale("zh-CN");
+    notice.refreshLabels();
+
+    expect(warning.textContent).toBe("面板快捷键（Super+V）需要手动绑定");
   });
 });
 

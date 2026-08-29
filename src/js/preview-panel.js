@@ -127,7 +127,7 @@ let _visible = false;
 let _visibility;
 let _currentClipId = null;
 
-export function init() {
+export function init({ onVisibilityChange } = {}) {
   _panelEl   = document.getElementById("preview-panel");
   _contentEl = document.getElementById("preview-content");
   _badgeEl   = document.getElementById("preview-type-badge");
@@ -136,6 +136,8 @@ export function init() {
     apply: (visible) => {
       _visible = visible;
       _panelEl.classList.toggle("hidden", !visible);
+      // 面板显隐是翻译面板"是否值得查历史"的唯一依据（apply 可能重复调用，接收方需幂等）
+      onVisibilityChange?.(visible);
     },
     persist: setPreviewVisible,
   });

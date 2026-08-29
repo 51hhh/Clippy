@@ -1,15 +1,57 @@
 import { useEffect, useRef, useState } from "react";
-import { annotationAt, annotationBounds, translateAnnotation } from "./annotationGeometry";
-import type { Annotation, Point, Rect, Tool } from "./types";
+import {
+  annotationAt,
+  annotationBounds,
+  hasPoints,
+  hasRect,
+  translateAnnotation,
+} from "./annotationGeometry";
+import type { Annotation, EffectType, Point, Rect, Tool } from "./types";
 
 export type CanvasDragState =
   | { kind: "crop"; start: Point }
-  | { kind: "pen"; annotation: Annotation }
-  | { kind: "rect"; start: Point; annotation: Annotation }
-  | { kind: "arrow"; start: Point; annotation: Annotation }
+  | { kind: "stroke"; start: Point; annotation: Annotation }
+  | { kind: "shape"; start: Point; annotation: Annotation }
+  | { kind: "segment"; start: Point; annotation: Annotation }
   | { kind: "effect"; start: Point; annotation: Annotation }
   | { kind: "move"; start: Point; initial: Annotation; annotation: Annotation }
   | null;
+
+/**
+ * 每个绘制工具对应的拖拽形态。缺席的工具由 onPointerDown 单独处理，
+ * 名单见 MANUAL_TOOLS——两者合起来必须覆盖所有工具。
+ */
+export const TOOL_DRAFTS = {
+  pen: "stroke", marker: "stroke",
+  rect: "shape", ellipse: "shape", highlight: "shape",
+  arrow: "segment", line: "segment", measure: "segment",
+  blur: "effect", mosaic: "effect", spotlight: "effect", magnifier: "effect",
+} as const satisfies Partial<Record<Tool, "stroke" | "shape" | "segment" | "effect">>;
+
+/** 不走拖拽草稿的工具：按下即完成或只改选中态 */
+export const MANUAL_TOOLS = ["crop", "object", "eraser", "text"] as const;
+
+type DraftTool = keyof typeof TOOL_DRAFTS;
+
+function draftFor(tool: DraftTool, point: Point, color: string, size: number): CanvasDragState {
+  const kind = TOOL_DRAFTS[tool];
+  const id = makeId(tool);
+  const rect: Rect = { x: point.x, y: point.y, width: 0, height: 0 };
+  if (kind === "stroke") {
+    return { kind, start: point, annotation: { id, type: tool as "pen" | "marker", color, size, points: [point] } };
+  }
+  if (kind === "shape") {
+    return { kind, start: point, annotation: { id, type: tool as "rect" | "ellipse" | "highlight", color, size, rect } };
+  }
+  if (kind === "segment") {
+    return {
+      kind,
+      start: point,
+      annotation: { id, type: tool as "arrow" | "line" | "measure", color, size, from: point, to: point },
+    };
+  }
+  return { kind, start: point, annotation: { id, type: tool as EffectType, rect } };
+}
 
 type Params = {
   imageRef: React.RefObject<HTMLImageElement | null>;
@@ -123,44 +165,23 @@ export function useCanvasInteractions(params: Params) {
       const selected = annotationAt(params.annotations, point);
       params.onSelect(selected);
       setDraftNow(selected ? { kind: "move", start: point, initial: selected, annotation: selected } : null);
-    } else if (params.tool === "pen") {
-      setDraftNow({
-        kind: "pen",
-        annotation: { id: makeId("pen"), type: "pen", color: params.color, size: params.size, points: [point] },
-      });
-    } else if (params.tool === "rect") {
-      setDraftNow({
-        kind: "rect",
-        start: point,
-        annotation: {
-          id: makeId("rect"), type: "rect", color: params.color, size: params.size,
-          rect: { x: point.x, y: point.y, width: 0, height: 0 },
-        },
-      });
-    } else if (params.tool === "arrow") {
-      setDraftNow({
-        kind: "arrow",
-        start: point,
-        annotation: {
-          id: makeId("arrow"), type: "arrow", color: params.color, size: params.size, from: point, to: point,
-        },
-      });
-    } else if (params.tool === "text" && params.text.trim()) {
+    } else if (params.tool === "eraser") {
+      // 橡皮按一次删一个：拖着连删会把一笔操作拆成多条撤销记录。
+      const target = annotationAt(params.annotations, point);
+      if (target) {
+        params.commitAnnotations((items) => items.filter((item) => item.id !== target.id));
+        params.onSelect(null);
+      }
+    } else if (params.tool === "text") {
+      if (!params.text.trim()) return;
       const annotation: Annotation = {
         id: makeId("text"), type: "text", color: params.color, size: params.size,
         at: point, text: params.text.trim(),
       };
       params.commitAnnotations((items) => [...items, annotation]);
       params.onSelect(annotation);
-    } else if (params.tool === "blur" || params.tool === "mosaic") {
-      setDraftNow({
-        kind: "effect",
-        start: point,
-        annotation: {
-          id: makeId(params.tool), type: params.tool,
-          rect: { x: point.x, y: point.y, width: 0, height: 0 },
-        },
-      });
+    } else if (params.tool in TOOL_DRAFTS) {
+      setDraftNow(draftFor(params.tool as DraftTool, point, params.color, params.size));
     }
   }
 
@@ -170,15 +191,13 @@ export function useCanvasInteractions(params: Params) {
     if (!point || !active) return;
     if (active.kind === "crop") {
       scheduleSelection(normalizeRect(active.start, point));
-    } else if (active.kind === "pen" && active.annotation.type === "pen") {
+    } else if (active.kind === "stroke" && hasPoints(active.annotation)) {
       if (!shouldAppendPoint(active.annotation.points, point)) return;
       scheduleDraft({ ...active, annotation: { ...active.annotation, points: [...active.annotation.points, point] } });
-    } else if (active.kind === "rect" && active.annotation.type === "rect") {
+    } else if ((active.kind === "shape" || active.kind === "effect") && hasRect(active.annotation)) {
       scheduleDraft({ ...active, annotation: { ...active.annotation, rect: normalizeRect(active.start, point) } });
-    } else if (active.kind === "arrow" && active.annotation.type === "arrow") {
+    } else if (active.kind === "segment" && "to" in active.annotation) {
       scheduleDraft({ ...active, annotation: { ...active.annotation, to: point } });
-    } else if (active.kind === "effect" && (active.annotation.type === "blur" || active.annotation.type === "mosaic")) {
-      scheduleDraft({ ...active, annotation: { ...active.annotation, rect: normalizeRect(active.start, point) } });
     } else if (active.kind === "move") {
       const image = params.imageRef.current;
       if (!image) return;
@@ -238,25 +257,23 @@ function cloneDraft(draft: CanvasDragState): CanvasDragState {
 }
 
 function cloneAnnotation(annotation: Annotation): Annotation {
-  if (annotation.type === "pen") {
+  if (hasPoints(annotation)) {
     return { ...annotation, points: annotation.points.map((point) => ({ ...point })) };
   }
-  if (annotation.type === "arrow") {
-    return { ...annotation, from: { ...annotation.from }, to: { ...annotation.to } };
+  if (hasRect(annotation)) {
+    return { ...annotation, rect: { ...annotation.rect } };
   }
   if (annotation.type === "text") {
     return { ...annotation, at: { ...annotation.at } };
   }
-  return { ...annotation, rect: { ...annotation.rect } };
+  return { ...annotation, from: { ...annotation.from }, to: { ...annotation.to } };
 }
 
 function isValidDraft(annotation: Annotation): boolean {
-  if (annotation.type === "pen") return annotation.points.length >= 2;
-  if (annotation.type === "arrow") {
-    return Math.hypot(annotation.to.x - annotation.from.x, annotation.to.y - annotation.from.y) >= 2;
-  }
+  if (hasPoints(annotation)) return annotation.points.length >= 2;
+  if (hasRect(annotation)) return annotation.rect.width >= 2 && annotation.rect.height >= 2;
   if (annotation.type === "text") return annotation.text.length > 0;
-  return annotation.rect.width >= 2 && annotation.rect.height >= 2;
+  return Math.hypot(annotation.to.x - annotation.from.x, annotation.to.y - annotation.from.y) >= 2;
 }
 
 function makeId(prefix: string): string {

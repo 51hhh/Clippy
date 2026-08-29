@@ -10,27 +10,46 @@ export type Rect = {
   height: number;
 };
 
-export type Tool = "crop" | "object" | "pen" | "rect" | "arrow" | "text" | "blur" | "mosaic";
+export type Tool =
+  | "crop"
+  | "object"
+  | "eraser"
+  | "pen"
+  | "marker"
+  | "rect"
+  | "ellipse"
+  | "highlight"
+  | "line"
+  | "arrow"
+  | "measure"
+  | "text"
+  | "blur"
+  | "mosaic"
+  | "spotlight"
+  | "magnifier";
 
+/** 自由手绘：`marker` 是半透明粗笔，其余与 `pen` 完全同构 */
 export type StrokeAnnotation = {
   id: string;
-  type: "pen";
+  type: "pen" | "marker";
   color: string;
   size: number;
   points: Point[];
 };
 
-export type RectAnnotation = {
+/** 由拖拽矩形定义的图形；`highlight` 是半透明填充，`ellipse` 画内切椭圆 */
+export type ShapeAnnotation = {
   id: string;
-  type: "rect";
+  type: "rect" | "ellipse" | "highlight";
   color: string;
   size: number;
   rect: Rect;
 };
 
-export type ArrowAnnotation = {
+/** 两点线段；`arrow` 带箭头，`measure` 带端点刻度与像素长度标注 */
+export type SegmentAnnotation = {
   id: string;
-  type: "arrow";
+  type: "arrow" | "line" | "measure";
   color: string;
   size: number;
   from: Point;
@@ -46,26 +65,27 @@ export type TextAnnotation = {
   text: string;
 };
 
-export type BlurAnnotation = {
+/**
+ * 需要读取底图像素或压暗底图的注解。它们没有颜色和线宽，
+ * 且必须在矢量注解之前绘制，否则会盖掉画在同一区域上的标注。
+ */
+export const EFFECT_TYPES = ["blur", "mosaic", "spotlight", "magnifier"] as const;
+
+export type EffectType = (typeof EFFECT_TYPES)[number];
+
+export type EffectAnnotation = {
   id: string;
-  type: "blur";
+  type: EffectType;
   rect: Rect;
 };
 
-export type MosaicAnnotation = {
-  id: string;
-  type: "mosaic";
-  rect: Rect;
-};
-
-export type EffectAnnotation = BlurAnnotation | MosaicAnnotation;
-
-export type Annotation =
+export type VectorAnnotation =
   | StrokeAnnotation
-  | RectAnnotation
-  | ArrowAnnotation
-  | TextAnnotation
-  | EffectAnnotation;
+  | ShapeAnnotation
+  | SegmentAnnotation
+  | TextAnnotation;
+
+export type Annotation = VectorAnnotation | EffectAnnotation;
 
 export type EditorDocument = {
   annotations: Annotation[];

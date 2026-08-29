@@ -128,6 +128,9 @@ function summarize(cards: TranslationCard[]): Pick<TranslationSnapshot, "feedbac
   return { feedback: "error", errorCode: codes.size === 1 ? failed[0].errorCode : null };
 }
 
+/** 历史回填的默认防抖窗口（毫秒）：略大于列表上下键的连按间隔 */
+export const HISTORY_DEBOUNCE_MS = 120;
+
 export class TranslationStore {
   private snapshot: TranslationSnapshot = {
     clip: null,
@@ -142,9 +145,16 @@ export class TranslationStore {
   };
   private listeners = new Set<() => void>();
   private generation = 0;
+  /** 预览面板是否可见。面板不可见时翻译界面根本没渲染，不该为它去查历史。 */
+  private panelVisible = false;
+  private historyTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** 播放器可注入：测试不依赖 jsdom 里缺失的音频播放能力 */
-  constructor(private readonly player: SpeechPlayer = audioElementPlayer) {}
+  constructor(
+    private readonly player: SpeechPlayer = audioElementPlayer,
+    /** 历史回填的防抖窗口；连续上下键换条目时只查最后停下的那条 */
+    private readonly historyDebounceMs: number = HISTORY_DEBOUNCE_MS,
+  ) {}
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -174,13 +184,43 @@ export class TranslationStore {
     this.generation += 1;
     this.commit({ config, ...this.reset() });
     // 服务列表可能刚变化，按新配置重新摆出已保存的译文。
-    void this.loadHistory(this.snapshot.clip, this.generation);
+    this.scheduleHistory(this.snapshot.clip, this.generation);
   }
 
   setClip(clip: ClipItem | null): void {
     this.generation += 1;
     this.commit({ clip, ...this.reset() });
-    void this.loadHistory(clip, this.generation);
+    this.scheduleHistory(clip, this.generation);
+  }
+
+  /**
+   * 预览面板显隐。面板隐藏时不查历史（界面没渲染，查了也没人看，
+   * 而列表上下键会把每一条都变成一次 IPC）；重新打开时补上当前条目的回填。
+   */
+  setPanelVisible(visible: boolean): void {
+    if (visible === this.panelVisible) return;
+    this.panelVisible = visible;
+    if (!visible) {
+      this.cancelHistory();
+      return;
+    }
+    this.scheduleHistory(this.snapshot.clip, this.generation);
+  }
+
+  private cancelHistory(): void {
+    if (this.historyTimer === null) return;
+    clearTimeout(this.historyTimer);
+    this.historyTimer = null;
+  }
+
+  /** 防抖排期：只有最后停下的那条条目会真的去查历史 */
+  private scheduleHistory(clip: ClipItem | null, generation: number): void {
+    this.cancelHistory();
+    if (!this.panelVisible || !clip || clip.is_sensitive) return;
+    this.historyTimer = setTimeout(() => {
+      this.historyTimer = null;
+      void this.loadHistory(clip, generation);
+    }, this.historyDebounceMs);
   }
 
   /**
@@ -197,7 +237,8 @@ export class TranslationStore {
       // 历史是附带功能，读不到就当没有记录。
       return;
     }
-    if (!this.isCurrent(generation, clip) || this.isBusy() || this.snapshot.cards.length) return;
+    if (!this.panelVisible || !this.isCurrent(generation, clip)
+      || this.isBusy() || this.snapshot.cards.length) return;
     const cards = enabledTranslationServices(this.snapshot.config?.translation_services)
       // 记录按时间倒序返回，同一服务取到的就是最近一次译文。
       .map((service) => entries.find((entry) =>

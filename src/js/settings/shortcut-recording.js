@@ -1,6 +1,12 @@
-import { keyEventToShortcut } from "../shortcut-recorder.js";
+import { keyEventToShortcut, normalizeShortcut } from "../shortcut-recorder.js";
 
 const LISTENER_OPTIONS = { capture: true };
+
+/** 冲突提示文案：Clippy 自己的另一个动作与桌面已有绑定要分开说 */
+const CONFLICT_KEYS = {
+  clippy: "settings.shortcut.conflictSelf",
+  desktop: "settings.shortcut.conflict",
+};
 
 /** 停止录制并等待快捷键恢复后再关闭设置窗口。 */
 export async function closeAfterShortcutCleanup(shortcutRecording, closeWindow) {
@@ -89,13 +95,54 @@ export function createShortcutRecordingController({
       if (activeKey === recordedKey) void stop();
     });
 
-    if (!recorder.checkConflict) return;
+    // Clippy 三个动作之间的冲突在前端判断：输入框里可能是还没保存的值，
+    // 后端看到的配置是旧的。
+    const own = ownConflict(recordedKey, shortcut);
+    if (own) {
+      showWarning(recorder, "clippy");
+      return;
+    }
+    if (!recorder.checkConflict) {
+      hideWarning(recorder);
+      return;
+    }
     try {
-      const conflict = await recorder.checkConflict(shortcut);
-      recorder.warning?.classList.toggle("hidden", !conflict);
+      const result = await recorder.checkConflict(shortcut);
+      const source = conflictSource(result);
+      source ? showWarning(recorder, source) : hideWarning(recorder);
     } catch (error) {
       console.warn(error);
     }
+  }
+
+  /** 另一个录制器当前的值是否就是这个组合 */
+  function ownConflict(recordedKey, shortcut) {
+    const target = normalizeShortcut(shortcut);
+    if (!target) return false;
+    return Object.entries(recorders).some(([key, other]) =>
+      key !== recordedKey && normalizeShortcut(other.input.value) === target);
+  }
+
+  /** 后端返回 `{conflicted, source}`；老式布尔值按桌面冲突处理 */
+  function conflictSource(result) {
+    if (result && typeof result === "object") {
+      return result.conflicted ? (CONFLICT_KEYS[result.source] ? result.source : "desktop") : null;
+    }
+    return result ? "desktop" : null;
+  }
+
+  function showWarning(recorder, source) {
+    const warning = recorder.warning;
+    if (!warning) return;
+    const key = CONFLICT_KEYS[source] ?? CONFLICT_KEYS.desktop;
+    // data-i18n 一起改，语言切换时刷新到的仍是当前这条提示
+    warning.dataset.i18n = key;
+    warning.textContent = translate(key);
+    warning.classList.remove("hidden");
+  }
+
+  function hideWarning(recorder) {
+    recorder.warning?.classList.add("hidden");
   }
 
   for (const [key, recorder] of Object.entries(recorders)) {

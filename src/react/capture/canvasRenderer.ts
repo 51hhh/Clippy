@@ -1,6 +1,13 @@
-import { annotationBounds } from "./annotationGeometry";
+import { annotationBounds, isEffectAnnotation, isVectorAnnotation } from "./annotationGeometry";
 import { cssFilterForImageAdjustments, type ImageAdjustments } from "./imageAdjustments";
-import type { Annotation, Point, Rect } from "./types";
+import type {
+  Annotation,
+  EffectAnnotation,
+  Point,
+  Rect,
+  SegmentAnnotation,
+  VectorAnnotation,
+} from "./types";
 
 export type RenderViewport = {
   width: number;
@@ -11,6 +18,14 @@ export type RenderViewport = {
 };
 
 const MAX_CANVAS_DPR = 2;
+/** 半透明注解（高亮矩形、荧光笔）的不透明度 */
+const HIGHLIGHT_ALPHA = 0.32;
+/** 荧光笔笔尖相对线宽的倍数 */
+const MARKER_WIDTH_FACTOR = 2.6;
+/** 聚光灯之外区域压暗的强度 */
+const SPOTLIGHT_DIM = 0.55;
+/** 放大镜的放大倍数 */
+const MAGNIFIER_ZOOM = 2;
 
 export function drawScene(
   canvas: HTMLCanvasElement,
@@ -106,7 +121,7 @@ function drawEffects(
 function drawEffect(
   ctx: CanvasRenderingContext2D,
   image: HTMLImageElement,
-  annotation: Extract<Annotation, { type: "blur" | "mosaic" }>,
+  annotation: EffectAnnotation,
   adjustments: ImageAdjustments,
   scale: number,
   offset: Point,
@@ -119,6 +134,15 @@ function drawEffect(
     height: rect.height * scale,
   };
   if (destination.width <= 0 || destination.height <= 0) return;
+
+  if (annotation.type === "spotlight") {
+    drawSpotlight(ctx, image, destination, scale, offset);
+    return;
+  }
+  if (annotation.type === "magnifier") {
+    drawMagnifier(ctx, image, rect, destination, adjustments, scale);
+    return;
+  }
 
   ctx.save();
   ctx.beginPath();
@@ -153,9 +177,64 @@ function drawEffect(
   ctx.restore();
 }
 
+/** 聚光灯：把选区之外的底图压暗，选区内保持原样 */
+function drawSpotlight(
+  ctx: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  destination: Rect,
+  scale: number,
+  offset: Point,
+) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(offset.x * scale, offset.y * scale, image.naturalWidth * scale, image.naturalHeight * scale);
+  ctx.rect(destination.x, destination.y, destination.width, destination.height);
+  ctx.fillStyle = `rgba(0, 0, 0, ${SPOTLIGHT_DIM})`;
+  ctx.fill("evenodd");
+  ctx.restore();
+}
+
+/**
+ * 放大镜：在选区内画同一块底图的放大版本，中心对齐选区中心。
+ * 采样用的是原图而不是已经缩小的画布，因此预览和导出的清晰度一致。
+ */
+function drawMagnifier(
+  ctx: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  rect: Rect,
+  destination: Rect,
+  adjustments: ImageAdjustments,
+  scale: number,
+) {
+  const centerX = destination.x + destination.width / 2;
+  const centerY = destination.y + destination.height / 2;
+  const zoomed = scale * MAGNIFIER_ZOOM;
+  ctx.save();
+  ctx.beginPath();
+  ctx.ellipse(centerX, centerY, destination.width / 2, destination.height / 2, 0, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.filter = cssFilterForImageAdjustments(adjustments);
+  ctx.drawImage(
+    image,
+    centerX - (rect.x + rect.width / 2) * zoomed,
+    centerY - (rect.y + rect.height / 2) * zoomed,
+    image.naturalWidth * zoomed,
+    image.naturalHeight * zoomed,
+  );
+  ctx.restore();
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.92)";
+  ctx.lineWidth = Math.max(1, 2 * scale);
+  ctx.beginPath();
+  ctx.ellipse(centerX, centerY, destination.width / 2, destination.height / 2, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
 export function drawAnnotation(
   ctx: CanvasRenderingContext2D,
-  annotation: Exclude<Annotation, { type: "blur" | "mosaic" }>,
+  annotation: VectorAnnotation,
   scale = 1,
   offset: Point = { x: 0, y: 0 },
 ) {
@@ -170,8 +249,16 @@ export function drawAnnotation(
     y: (value.y + offset.y) * scale,
   });
 
-  if (annotation.type === "pen") {
-    if (annotation.points.length >= 2) {
+  switch (annotation.type) {
+    case "pen":
+    case "marker": {
+      if (annotation.points.length < 2) break;
+      if (annotation.type === "marker") {
+        // 荧光笔：更粗且半透明，用一条连续路径描完，重叠处不会越描越黑。
+        ctx.globalAlpha = HIGHLIGHT_ALPHA;
+        ctx.lineWidth = Math.max(2, annotation.size * MARKER_WIDTH_FACTOR * scale);
+        ctx.lineCap = "butt";
+      }
       ctx.beginPath();
       const first = point(annotation.points[0]);
       ctx.moveTo(first.x, first.y);
@@ -180,34 +267,99 @@ export function drawAnnotation(
         ctx.lineTo(next.x, next.y);
       });
       ctx.stroke();
+      break;
     }
-  } else if (annotation.type === "rect") {
-    ctx.strokeRect(
-      (annotation.rect.x + offset.x) * scale,
-      (annotation.rect.y + offset.y) * scale,
-      annotation.rect.width * scale,
-      annotation.rect.height * scale,
-    );
-  } else if (annotation.type === "arrow") {
-    const from = point(annotation.from);
-    const to = point(annotation.to);
-    ctx.beginPath();
-    ctx.moveTo(from.x, from.y);
-    ctx.lineTo(to.x, to.y);
-    ctx.stroke();
-    drawArrowHead(ctx, from, to, annotation.size * scale);
-  } else {
-    const at = point(annotation.at);
-    const fontSize = Math.max(14, annotation.size * 4) * scale;
-    ctx.font = `600 ${fontSize}px system-ui, sans-serif`;
-    ctx.textBaseline = "top";
-    ctx.lineWidth = Math.max(3, annotation.size * scale);
-    ctx.strokeStyle = "rgba(0, 0, 0, 0.55)";
-    ctx.strokeText(annotation.text, at.x, at.y);
-    ctx.fillStyle = annotation.color;
-    ctx.fillText(annotation.text, at.x, at.y);
+    case "rect": {
+      const rect = annotation.rect;
+      ctx.strokeRect((rect.x + offset.x) * scale, (rect.y + offset.y) * scale, rect.width * scale, rect.height * scale);
+      break;
+    }
+    case "highlight": {
+      const rect = annotation.rect;
+      ctx.globalAlpha = HIGHLIGHT_ALPHA;
+      ctx.fillRect((rect.x + offset.x) * scale, (rect.y + offset.y) * scale, rect.width * scale, rect.height * scale);
+      break;
+    }
+    case "ellipse": {
+      const rect = annotation.rect;
+      ctx.beginPath();
+      ctx.ellipse(
+        (rect.x + rect.width / 2 + offset.x) * scale,
+        (rect.y + rect.height / 2 + offset.y) * scale,
+        Math.max(0, (rect.width / 2) * scale),
+        Math.max(0, (rect.height / 2) * scale),
+        0,
+        0,
+        Math.PI * 2,
+      );
+      ctx.stroke();
+      break;
+    }
+    case "arrow":
+    case "line":
+    case "measure": {
+      const from = point(annotation.from);
+      const to = point(annotation.to);
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+      if (annotation.type === "arrow") drawArrowHead(ctx, from, to, annotation.size * scale);
+      if (annotation.type === "measure") drawMeasureDecoration(ctx, annotation, from, to, scale);
+      break;
+    }
+    case "text": {
+      const at = point(annotation.at);
+      const fontSize = Math.max(14, annotation.size * 4) * scale;
+      ctx.font = `600 ${fontSize}px system-ui, sans-serif`;
+      ctx.textBaseline = "top";
+      ctx.lineWidth = Math.max(3, annotation.size * scale);
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.55)";
+      ctx.strokeText(annotation.text, at.x, at.y);
+      ctx.fillStyle = annotation.color;
+      ctx.fillText(annotation.text, at.x, at.y);
+      break;
+    }
   }
   ctx.restore();
+}
+
+/**
+ * 测量线的端点刻度与长度标注。长度用的是原图像素距离，
+ * 因此缩放预览和导出显示同一个数字。
+ */
+function drawMeasureDecoration(
+  ctx: CanvasRenderingContext2D,
+  annotation: SegmentAnnotation,
+  from: Point,
+  to: Point,
+  scale: number,
+) {
+  const angle = Math.atan2(to.y - from.y, to.x - from.x);
+  const tick = Math.max(6, annotation.size * 2.5) * scale;
+  const normal = { x: -Math.sin(angle) * tick, y: Math.cos(angle) * tick };
+  ctx.beginPath();
+  for (const end of [from, to]) {
+    ctx.moveTo(end.x - normal.x, end.y - normal.y);
+    ctx.lineTo(end.x + normal.x, end.y + normal.y);
+  }
+  ctx.stroke();
+
+  const pixels = Math.round(
+    Math.hypot(annotation.to.x - annotation.from.x, annotation.to.y - annotation.from.y),
+  );
+  const label = `${pixels} px`;
+  const fontSize = Math.max(12, annotation.size * 3.2) * scale;
+  ctx.font = `600 ${fontSize}px system-ui, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "bottom";
+  const midX = (from.x + to.x) / 2;
+  const midY = (from.y + to.y) / 2 - tick;
+  ctx.lineWidth = Math.max(3, annotation.size * scale);
+  ctx.strokeStyle = "rgba(0, 0, 0, 0.55)";
+  ctx.strokeText(label, midX, midY);
+  ctx.fillStyle = annotation.color;
+  ctx.fillText(label, midX, midY);
 }
 
 function drawArrowHead(ctx: CanvasRenderingContext2D, from: Point, to: Point, size: number) {
@@ -256,16 +408,4 @@ function applyRoundedMask(ctx: CanvasRenderingContext2D, width: number, height: 
   ctx.roundRect(0, 0, width, height, safeRadius);
   ctx.fill();
   ctx.restore();
-}
-
-function isEffectAnnotation(
-  annotation: Annotation,
-): annotation is Extract<Annotation, { type: "blur" | "mosaic" }> {
-  return annotation.type === "blur" || annotation.type === "mosaic";
-}
-
-function isVectorAnnotation(
-  annotation: Annotation,
-): annotation is Exclude<Annotation, { type: "blur" | "mosaic" }> {
-  return !isEffectAnnotation(annotation);
 }

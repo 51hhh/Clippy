@@ -25,7 +25,8 @@ function createSource(): HTMLCanvasElement {
   ctx.fillRect(0, 0, 4, 8);
   ctx.fillStyle = "rgb(40, 80, 120)";
   ctx.fillRect(4, 0, 4, 8);
-  return source;
+  // 效果类注解读的是 naturalWidth/naturalHeight，canvas 当替身时要补上。
+  return Object.assign(source, { naturalWidth: 8, naturalHeight: 8 });
 }
 
 function verifyCropAdjustmentsAndRoundedMask(source: HTMLCanvasElement): void {
@@ -82,10 +83,37 @@ function verifyVectorAnnotation(source: HTMLCanvasElement): void {
     `crop sampled the wrong source pixels: ${untouched}`);
 }
 
+/** 高亮矩形必须是半透明合成，聚光灯必须只压暗选区之外 */
+function verifyTranslucentAndDimmingEffects(source: HTMLCanvasElement): void {
+  const output = document.createElement("canvas");
+  output.width = 8;
+  output.height = 8;
+  const ctx = context(output);
+  const annotations: Annotation[] = [
+    { id: "spot", type: "spotlight", rect: { x: 0, y: 0, width: 4, height: 8 } },
+    { id: "mark", type: "highlight", color: "#00ff00", size: 2, rect: { x: 4, y: 0, width: 4, height: 8 } },
+  ];
+  renderExport(
+    ctx,
+    source as unknown as HTMLImageElement,
+    { x: 0, y: 0, width: 8, height: 8 },
+    annotations,
+    DEFAULT_IMAGE_ADJUSTMENTS,
+  );
+
+  const lit = pixel(ctx, 1, 4);
+  assert(lit[0] > 150 && lit[1] < 80, `spotlight altered the lit area: ${lit}`);
+  const dimmed = pixel(ctx, 6, 4);
+  assert(dimmed[2] < 120 * 0.6, `spotlight did not dim the surroundings: ${dimmed}`);
+  assert(dimmed[1] > 60 && dimmed[2] > dimmed[0],
+    `highlight covered the base image instead of tinting it: ${dimmed}`);
+}
+
 try {
   const source = createSource();
   verifyCropAdjustmentsAndRoundedMask(source);
   verifyVectorAnnotation(source);
+  verifyTranslucentAndDimmingEffects(source);
   document.documentElement.dataset.canvasExport = "passed";
   document.body.style.background = "#00d000";
 } catch (error) {

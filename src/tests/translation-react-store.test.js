@@ -96,7 +96,10 @@ describe("React translation store", () => {
   beforeEach(() => {
     i18n.init("en");
     player = fakePlayer();
-    store = new TranslationStore(player);
+    // 防抖窗口取 0：这些用例关心的是"查不查"，不是"等多久"
+    store = new TranslationStore(player, 0);
+    // 历史回填只在预览面板可见时发生，绝大多数用例都以面板已打开为前提
+    store.setPanelVisible(true);
     api.translateClip.mockReset();
     api.copyText.mockReset();
     api.translationHistory.mockReset();
@@ -175,6 +178,33 @@ describe("React translation store", () => {
       translatedText: "新的译文",
       fromHistory: false,
     });
+  });
+
+  it("does not query saved translations while the preview panel is hidden", async () => {
+    const hidden = new TranslationStore(fakePlayer(), 0);
+    hidden.setConfig(config);
+    hidden.setClip(clip(4));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(api.translationHistory).not.toHaveBeenCalled();
+
+    // 打开面板才去查，并且查的是当前条目
+    hidden.setPanelVisible(true);
+    await vi.waitFor(() => {
+      expect(api.translationHistory).toHaveBeenCalledWith(4);
+    });
+  });
+
+  it("debounces saved-translation lookups to the clip the user stops on", async () => {
+    const debounced = new TranslationStore(fakePlayer(), 40);
+    debounced.setPanelVisible(true);
+    debounced.setConfig(config);
+    debounced.setClip(clip(1));
+    debounced.setClip(clip(2));
+    debounced.setClip(clip(3));
+    await vi.waitFor(() => {
+      expect(api.translationHistory).toHaveBeenCalledTimes(1);
+    });
+    expect(api.translationHistory).toHaveBeenCalledWith(3);
   });
 
   it("keeps saved translations out of the panel for sensitive items", async () => {

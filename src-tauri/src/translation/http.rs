@@ -9,6 +9,8 @@ use serde_json::Value;
 use std::time::Duration;
 
 pub(crate) const MAX_RESPONSE_BYTES: usize = 1_048_576;
+/// 出错时只读这么多正文用于归类，避免把错误页整页拉进内存。
+const ERROR_BODY_PEEK_BYTES: usize = 4096;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// 请求体形态。web 回退路径大量使用表单编码，所以它和 JSON 一样是一等公民。
@@ -168,7 +170,20 @@ impl HttpRequest {
 
         let status = response.status().as_u16();
         if !(200..300).contains(&status) {
-            return Err(classify_status(status));
+            // 4xx 的正文常常是唯一能区分"没配密钥"和"密钥不对"的信息
+            // （LibreTranslate 公共实例用 400 回"contact the server operator"），
+            // 因此读一小段正文再归类；读失败就退回纯状态码判断。
+            let body = if (400..500).contains(&status) {
+                response
+                    .into_body()
+                    .with_config()
+                    .limit(ERROR_BODY_PEEK_BYTES as u64)
+                    .read_to_string()
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
+            return Err(classify_status_with_body(status, &body));
         }
 
         response
@@ -189,6 +204,32 @@ fn classify_status(status: u16) -> TranslationError {
         402 | 456 => TranslationError::QuotaExceeded,
         429 => TranslationError::RateLimited,
         status => TranslationError::HttpStatus { status },
+    }
+}
+
+/// 4xx 正文里的凭据线索：状态码本身说不清"缺密钥"还是"密钥无效"时用它细化。
+///
+/// LibreTranslate 的公共实例在需要密钥而请求里没带时返回 400 +
+/// `{"error":"Please contact the server operator to get an API key"}`，
+/// 只按状态码归类会变成一个无从下手的 `http_status`；密钥写错时返回
+/// 403（已由状态码覆盖），但自建实例也有用 400 回 "Invalid API key" 的。
+fn classify_status_with_body(status: u16, body: &str) -> TranslationError {
+    let classified = classify_status(status);
+    // 只看 4xx：5xx 的正文是网关错误页，出现任何字眼都不代表凭据有问题。
+    if !matches!(classified, TranslationError::HttpStatus { .. }) || !(400..500).contains(&status) {
+        return classified;
+    }
+    let lowercase = body.to_ascii_lowercase();
+    if !lowercase.contains("api key") && !lowercase.contains("api_key") {
+        return classified;
+    }
+    if ["invalid", "expired", "wrong", "unauthorized"]
+        .iter()
+        .any(|hint| lowercase.contains(hint))
+    {
+        TranslationError::InvalidCredentials
+    } else {
+        TranslationError::MissingApiKey
     }
 }
 
@@ -374,6 +415,55 @@ mod tests {
         assert!(classify_status(503).retryable());
         assert!(!classify_status(401).retryable());
         assert!(!classify_status(429).retryable());
+    }
+
+    #[test]
+    fn credential_hints_in_4xx_bodies_refine_opaque_status_codes() {
+        // LibreTranslate 公共实例：需要密钥而请求没带
+        assert_eq!(
+            classify_status_with_body(
+                400,
+                r#"{"error":"Please contact the server operator to get an API key"}"#
+            ),
+            TranslationError::MissingApiKey
+        );
+        // 自建实例把"密钥不对"也回成 400
+        assert_eq!(
+            classify_status_with_body(400, r#"{"error":"Invalid API key"}"#),
+            TranslationError::InvalidCredentials
+        );
+        // 与凭据无关的 4xx 保持原样，不能被正文里的任意字眼带偏
+        assert_eq!(
+            classify_status_with_body(400, r#"{"error":"Invalid target language"}"#),
+            TranslationError::HttpStatus { status: 400 }
+        );
+        // 状态码本身已经明确的分类不被正文覆盖
+        assert_eq!(
+            classify_status_with_body(429, r#"{"error":"Invalid api key"}"#),
+            TranslationError::RateLimited
+        );
+        assert_eq!(
+            classify_status_with_body(403, "Invalid API key"),
+            TranslationError::InvalidCredentials
+        );
+        // 5xx 的错误页不参与凭据判断
+        assert_eq!(
+            classify_status_with_body(502, "<html>api key gateway</html>"),
+            TranslationError::HttpStatus { status: 502 }
+        );
+    }
+
+    #[test]
+    fn libretranslate_missing_key_surfaces_as_a_credential_error() {
+        let server = MockServer::new(vec![MockResponse::status(
+            400,
+            r#"{"error":"Please contact the server operator to get an API key"}"#,
+        )]);
+        let result = HttpRequest::get(format!("{}/translate", server.base_url)).send_json();
+        server.recv();
+        server.finish();
+
+        assert_eq!(result, Err(TranslationError::MissingApiKey));
     }
 
     #[test]
