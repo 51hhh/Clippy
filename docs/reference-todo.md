@@ -38,6 +38,9 @@
 - [x] Linux 截图 fallback：xcap + Wayland/wlroots + Portal + GNOME Shell
 - [x] React/TS 截图编辑功能岛
 - [x] 区域选择、画笔、矩形、箭头、文字、复制/保存/贴图
+- [x] 补齐其余标注工具：荧光笔、椭圆、直线、高亮块、测量、橡皮、聚光灯、放大镜。
+      共 16 个工具按选择/绘制/效果分三组；四种拖拽形态复用同一套包围盒/命中/移动逻辑，
+      效果类始终先于矢量标注绘制（见 [architecture.md](architecture.md#图片编辑器工具)）
 - [x] 可配置保存目录 + 文件名模板 + 另存为对话框（`image_io::SaveTarget`、`dialogs.rs`，
       来源 flashot saver.rs）
 - [x] 滚动截图 — **决定不做**，理由见下方 P9
@@ -53,6 +56,8 @@
       集中在各领域 error.rs，`Display` 文案与重构前逐字一致
 - [x] `error::report`（warn）/`error::note`（info）区分真实故障与预期路径
       （Wayland 首次未授权、请求被新请求取代、快捷键连按撞上进行中的会话）
+- [x] 4xx 响应正文限读 4 KiB 用于错误归类：LibreTranslate 之类不带结构化错误的服务，
+      "缺少/无效 key" 不再退化成不透明的 `http_status`；5xx 正文不参与判定
 - 来源: translator error.rs
 
 ## P5: 配置版本迁移

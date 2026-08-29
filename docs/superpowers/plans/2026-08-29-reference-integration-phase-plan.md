@@ -173,6 +173,27 @@ google 976 行、bing 1256 行、deepl 634 行、youdao 1372 行，其中非官�
       `[profile.bench]` 关掉 release 的 lto/单 codegen-unit 以保证编译时间可接受；
       门禁的 `--all-targets` 负责编译基准防腐烂，数字与坑见 `docs/bench-baseline.md`
 
+## Phase 5：review 修复（2026-08-29 收尾追加）
+
+全量 review 截图/编辑器/快捷键/翻译四条链路后发现八项，六项已修，两项按取舍保留：
+
+- [x] **A 快捷键注册失败被静默吞掉**：两条注册路径都记账，`get_shortcut_failures` 让设置页
+      读到启动期的存量失败（事件早于页面监听已丢），按动作显示可操作提示
+- [x] **B 缺少快捷键占用检测**：`shortcut_conflict.rs` 在 GNOME 逐 schema 枚举（排除 Clippy
+      自己的 custom0/1/2）；X11 用 `enumerable = false` 区分"查不出来"与"没有冲突"；
+      Clippy 三个动作的自冲突由前端判断，因为它能读到未保存的录制值
+- [x] **C 翻译历史回填过于积极**：预览面板隐藏时不查历史，列表连按上下键只查停下的那条（120 ms 防抖）
+- [x] **D 翻译面板键盘死区**：键盘路由抽成 `keyboard-router.js`，Tab/Esc 交回全局路由，并可单测
+- [x] **E 标注工具缺 8 个**：补齐荧光笔/椭圆/直线/高亮块/测量/橡皮/聚光灯/放大镜，
+      共 16 个按选择、绘制、效果三组呈现，详见 [architecture.md](../../architecture.md#图片编辑器工具)
+- [x] **F "缺少 key" 退化成不透明 http_status**：4xx 正文限读 4 KiB 用于归类，5xx 正文不参与
+- [ ] **G 选区翻译只用 `primary_service`** — **保持现状**：截图选区浮层空间只够一张结果卡，
+      多服务并行的价值在主预览面板；改成多卡会让浮层遮挡截图内容
+- [ ] **H 真实桌面矩阵** — 归属项目所有者，见 Phase 1
+
+门禁：`./scripts/ci-local.sh` = 10 通过 / 0 失败 / 1 跳过（跳过项仍是需显式开启的 AppImage 可视 smoke）。
+Canvas 导出像素 smoke 在缺 ffmpeg 时改用 python3-pil，因此本机不再整步跳过。
+
 ## 执行顺序
 
 Phase 0 → Phase 1（代码侧由 AI 完成，真实桌面矩阵由项目所有者完成）→ Phase 2 → Phase 3 → Phase 4。
