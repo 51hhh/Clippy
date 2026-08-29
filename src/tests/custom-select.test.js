@@ -126,3 +126,96 @@ describe("custom-select", () => {
     expect(container.classList.contains("open")).toBe(false);
   });
 });
+
+// ── 分组与动态选项（编解码面板的"最近使用"会在运行时重建 DOM） ──
+
+/** 构造带分组的下拉框：一个动态分组 + 一个静态分组 */
+function setupGrouped() {
+  document.body.innerHTML = `
+    <div class="custom-select" id="cs">
+      <button class="custom-select-trigger" type="button">
+        <span class="custom-select-value">A</span>
+      </button>
+      <ul class="custom-select-dropdown">
+        <li class="custom-select-group" id="recent-group" hidden>
+          <span class="custom-select-group-title">Recent</span>
+          <ul class="custom-select-group-options" id="recent"></ul>
+        </li>
+        <li class="custom-select-group">
+          <span class="custom-select-group-title">All</span>
+          <ul class="custom-select-group-options">
+            <li class="custom-select-option selected" data-value="a">A</li>
+            <li class="custom-select-option" data-value="b">B</li>
+          </ul>
+        </li>
+      </ul>
+    </div>
+  `;
+  const container = document.getElementById("cs");
+  const ctrl = initCustomSelect(container);
+  return {
+    container,
+    ctrl,
+    trigger: container.querySelector(".custom-select-trigger"),
+    recent: document.getElementById("recent"),
+  };
+}
+
+/** 模拟 codec.js 的 _renderRecent：重建"最近使用"里的选项 */
+function renderRecent(recent, values) {
+  recent.replaceChildren();
+  for (const value of values) {
+    const item = document.createElement("li");
+    item.className = "custom-select-option";
+    item.dataset.value = value;
+    item.textContent = value.toUpperCase();
+    recent.append(item);
+  }
+}
+
+describe("custom-select 分组与动态选项", () => {
+  beforeEach(() => { document.body.innerHTML = ""; });
+
+  it("init 之后新增的选项依然可点击（事件委托）", () => {
+    const { ctrl, recent, trigger } = setupGrouped();
+    renderRecent(recent, ["b"]);
+    trigger.click();
+    recent.querySelector('[data-value="b"]').click();
+    expect(ctrl.value).toBe("b");
+  });
+
+  it("动态选项参与键盘导航", () => {
+    const { ctrl, recent, trigger } = setupGrouped();
+    // 最近使用排在最前，选中项是静态分组里的 a，向上一步应落到动态项 x
+    renderRecent(recent, ["x"]);
+    trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+    expect(ctrl.value).toBe("x");
+  });
+
+  it("点击分组标题不改变取值", () => {
+    const { container, ctrl } = setupGrouped();
+    container.querySelector(".custom-select-group-title").click();
+    expect(ctrl.value).toBe("a");
+  });
+
+  it("refresh 把选中态套到重建后的同值副本上", () => {
+    const { container, ctrl, recent } = setupGrouped();
+    renderRecent(recent, ["a"]);
+    ctrl.refresh();
+    expect(ctrl.value).toBe("a");
+    // 文档顺序在前的副本承接选中态，静态分组里的旧副本必须让位
+    expect(recent.querySelector('[data-value="a"]').classList.contains("selected")).toBe(true);
+    expect(
+      container.querySelectorAll(".custom-select-option.selected"),
+    ).toHaveLength(1);
+  });
+
+  it("动态选项被清空后 refresh 不炸且保留当前值", () => {
+    const { ctrl, recent } = setupGrouped();
+    renderRecent(recent, ["a"]);
+    ctrl.refresh();
+    renderRecent(recent, []);
+    ctrl.refresh();
+    expect(ctrl.value).toBe("a");
+  });
+});

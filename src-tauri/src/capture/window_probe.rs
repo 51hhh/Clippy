@@ -4,9 +4,19 @@ use std::collections::HashMap;
 
 pub(super) fn probe_windows(frames: &[CapturedMonitorFrame]) -> HashMap<u32, Vec<WindowCandidate>> {
     let mut result: HashMap<u32, Vec<WindowCandidate>> = HashMap::new();
-    let Ok(windows) = xcap::Window::all() else {
-        return result;
+    // 部分 Wayland 合成器不给窗口几何，窗口速选会整体退化；日志里必须留下原因，
+    // 否则只能看到覆盖层上那句"不可用"，排障没有线索。
+    let windows = match xcap::Window::all() {
+        Ok(windows) => windows,
+        Err(error) => {
+            log::info!("窗口枚举失败，截图窗口速选不可用: {error}");
+            return result;
+        }
     };
+    if windows.is_empty() {
+        log::info!("窗口枚举返回空列表，截图窗口速选不可用");
+        return result;
+    }
     for window in windows {
         if window.is_minimized().unwrap_or(false) || window.pid().unwrap_or(0) == std::process::id()
         {

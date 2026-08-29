@@ -1,8 +1,10 @@
 import { useMemo, useRef, useState } from "react";
 import {
   clampRect,
+  committedSelection,
   contains,
   hitHandle,
+  hoverCandidate,
   moveRect,
   normalizeRect,
   resizeRect,
@@ -42,7 +44,7 @@ export function useSelection(width: number, height: number, windows: WindowCandi
   function pointerMove(point: Point) {
     const active = interaction.current;
     if (!active) {
-      setCandidate(selection ? null : windowAt(windows, point));
+      setCandidate(hoverCandidate(windows, point, selection));
       return;
     }
     const delta = { x: point.x - active.start.x, y: point.y - active.start.y };
@@ -55,19 +57,15 @@ export function useSelection(width: number, height: number, windows: WindowCandi
     }
   }
 
-  function pointerUp(point: Point) {
+  /** 返回本次新框出的选区（调整已有选区或空手松开时返回 null），调用方据此决定是否直接进编辑器。 */
+  function pointerUp(point: Point): Rect | null {
     const active = interaction.current;
     interaction.current = null;
-    if (!active) return;
-    if (active.kind === "create") {
-      const distance = Math.hypot(point.x - active.start.x, point.y - active.start.y);
-      if (distance < 4 && active.candidate) {
-        setSelection(clampRect(active.candidate, bounds));
-      } else {
-        setSelection((current) => current && current.width >= 2 && current.height >= 2 ? current : null);
-      }
-    }
     setCandidate(null);
+    if (!active || active.kind !== "create") return null;
+    const committed = committedSelection(active.start, point, active.candidate, bounds);
+    setSelection(committed);
+    return committed;
   }
 
   return { selection, candidate, setSelection, pointerDown, pointerMove, pointerUp };

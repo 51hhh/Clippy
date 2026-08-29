@@ -34,11 +34,35 @@
 | `js/preview-panel.js` | 预览状态、检测优先级、延迟库与缓存 |
 | `js/preview/*-renderers.js` | 代码、元数据、格式、加密、内容/OCR 渲染 |
 | `react/main/translationStore.ts` | 主预览翻译状态、多服务结果卡、单服务重试与陈旧响应保护 |
+| `styles/components.css::.translation-host` | React 翻译面板的挂载壳：`.preview-panel` 的 flex 子项必须自己有 `min-height: 0` 与 `max-height`，否则 `.translation-panel` 的百分比 `max-height` 相对 auto 高度失效，翻译区会把预览内容挤没、自己被窗口裁掉 |
 | `js/translation-providers.ts` | 服务显示名、默认端点与能力标记（设置页/主面板/选区翻译共用） |
-| `react/capture-overlay/` | 窗口命中、选区移动/缩放、直接动作与选区翻译 |
+| `react/capture-overlay/` | 窗口命中、选区移动/缩放、提交动作（直开编辑器/停在工具条）、直接动作与选区翻译 |
 | `react/capture/` | 16 个标注工具（选择/绘制/效果三组）、图像调整、撤销/重做和统一导出；视口、PNG 管线及待处理截图加载器独立管理 |
 | `js/settings/` | 主题、自动粘贴授权、快捷键录制与注册失败提示、OCR 和统计控制器 |
 | `react/pin/` | 首帧就绪、工具栏、拖动阈值和 rAF 更新合并 |
+
+## 主窗口键盘状态机
+
+键盘归属按**焦点位置**单点解析（`js/keyboard-router.js::resolveKeyboardMode`），先匹配先赢：
+`codec > search > translation > list`。不按"面板是否可见"判定，因为键盘操作下焦点不会自己跑出侧栏，
+"只有 `` ` `` 能切回列表"才成立；而鼠标点回中间列表能立刻把键盘交还列表。
+
+| 模式 | 谁拥有键盘 | 被路由拦下的键 | 其余按键 |
+|---|---|---|---|
+| `codec` | 焦点在 `#codec-panel` 内（`` ` `` 打开左侧栏） | `` ` ``、`Esc` 关面板并把焦点还给列表 | 全部交给面板自己（字母/数字打进输入框，不驱动列表） |
+| `search` | 搜索框聚焦 | `Esc` 逐级退出（清空 → 收起 → 隐藏窗口） | 交给 input，`` ` `` 能正常打出反引号 |
+| `translation` | 焦点在 `#translation-react-root` 内（`Shift+Tab` 显式送入） | `Ctrl+Enter` 翻译；`Esc`/`Tab` 只把焦点交回列表（预览留着）；`` ` `` 切侧栏 | 放行原生滚动与按钮语义 |
+| `list` | 默认（预览开着也一样） | `w/a/s/d`、方向键、`1-9/0`、`Enter`、`Space`、`Ctrl+P`、`Ctrl+Enter`、`Tab`/`Esc` | 带修饰键的其它组合一律放行 |
+
+方向键与 `ws` 在 `list` 模式下**始终**驱动列表：Tab 打开预览不再把焦点塞进翻译面板，
+焦点要进翻译区必须显式 `Shift+Tab`。焦点撤离翻译面板时先 `blur()` 再 focus `#list-panel`，
+不留"谁也不拥有"的中间态。
+
+失焦自动隐藏与这套状态机配套：`app/window_events.rs::should_hide_on_focus_loss(preview, codec)`
+在预览或 codec 侧栏打开时豁免隐藏（纯函数 + 单测）。主窗口里也不允许出现原生 `<select>`——
+WebKitGTK 的原生下拉是独立 GTK 弹窗，一打开 webview 就失焦，看着像窗口崩掉；
+所有下拉都用 `js/custom-select.js`（支持分组标题与动态选项 `refresh()`），
+`entrypoints-smoke.test.js` 锁定 `index.html` 里 `<select>` 数量为 0。
 
 ## 图片编辑器工具
 
@@ -55,14 +79,26 @@
 ```text
 clipboard item -> preview -> translate/copy
 
-shortcut -> frozen monitor frames -> selection
-         -> copy/save/pin
-         -> local OCR -> text translation
-         -> editor -> copy/save/pin
+shortcut -> frozen monitor frames -> selection commit
+         -> commit_action=editor  -> editor -> copy/save/pin
+         -> commit_action=toolbar -> copy/save/pin
+                                  -> local OCR -> text translation
 
 clip/image/capture -> PinManager -> hidden window -> first frame ready
                    -> scale/opacity/lock/copy/save/edit -> destroy cleanup
 ```
+
+选区提交后的默认动作由 `capture_commit_action` 决定（`"editor"` 直开编辑器，`"toolbar"` 停在覆盖层工具条；
+认不出的值按 `"editor"` 处理，因此这个字段不需要配置迁移）。后端归一化后随
+`CaptureOverlayPayload.commitAction` 下发，前端不再认识配置里的怪值。`editor` 模式下松手时按住 `Alt`
+可以临时留在工具条上，选区翻译因此不会在默认配置下失去入口。
+
+编辑器窗口按截图尺寸开：`commands/capture_editor.rs::editor_window_size` 把物理像素按 `scale_factor`
+折算成逻辑尺寸，加上侧栏与 chrome 的固定占位，再夹在 `min_inner_size(820,560)` 与工作区（留 48px 边）之间；
+复用已有窗口时同样重设尺寸并 `center()`。画布侧 `captureViewport.ts` 的 `fitScale` 允许上采样到
+`MAX_FIT_SCALE = 3`，小选区不再是大窗里的一小块。窗口速选依赖 `xcap::Window::all()`，
+枚举失败或返回空时后端记 `log::info`、覆盖层显示 "Window picking unavailable in this session"，
+让 Wayland 下的退化可见；已有选区后在选区外仍然给窗口悬停预览。
 
 ## 自动粘贴状态
 
@@ -96,4 +132,4 @@ GNOME 自定义快捷键条目路径按 command 认领而不是写死 `custom0/1
 
 ## 质量门禁
 
-`./scripts/ci-local.sh` 依次执行 Rust fmt/check/clippy/test、锁文件安装、TypeScript、Vitest、DOM/Xvfb smoke、Canvas 导出像素 smoke 和 Vite build。Canvas smoke 需要 firefox 加 ffmpeg 或 python3-pil 读取截图像素，缺少时整步跳过（不算通过）。criterion 基准（`src-tauri/benches/`，通过 `bench_support.rs` 调生产代码）被 `--all-targets` 编译但不运行，数字与运行方式见 [bench-baseline.md](bench-baseline.md)。Linux 发布目标仅为 deb/AppImage；updater 签名由 release CI secret 生成。
+`./scripts/ci-local.sh` 依次执行 Rust fmt/check/clippy/test、锁文件安装、TypeScript、Vitest、DOM/Xvfb smoke、Canvas 导出像素 smoke、主窗口布局像素 smoke 和 Vite build。两个像素 smoke 都需要 firefox 加 ffmpeg 或 python3-pil 读取截图像素，缺少时整步跳过（不算通过）。布局 smoke 直接 `?raw` 引入产品 `index.html` 的结构（headless Firefox 的 `--screenshot` 不等待顶层 `await`，异步 fixture 只会拍到空白页），断言失败时把原因画进红色浮层。criterion 基准（`src-tauri/benches/`，通过 `bench_support.rs` 调生产代码）被 `--all-targets` 编译但不运行，数字与运行方式见 [bench-baseline.md](bench-baseline.md)。Linux 发布目标仅为 deb/AppImage；updater 签名由 release CI secret 生成。

@@ -58,7 +58,11 @@ impl CaptureManager {
         Ok(specs)
     }
 
-    pub(super) fn payload(&self, label: &str) -> Result<CaptureOverlayPayload, CaptureError> {
+    pub(super) fn payload(
+        &self,
+        label: &str,
+        commit_action: &'static str,
+    ) -> Result<CaptureOverlayPayload, CaptureError> {
         let current = self.session.lock().map_err(CaptureError::state_lock)?;
         let session = current.as_ref().ok_or(CaptureError::SessionMissing)?;
         let index = session
@@ -85,6 +89,7 @@ impl CaptureManager {
                 .get(&frame.monitor_id)
                 .cloned()
                 .unwrap_or_default(),
+            commit_action,
         })
     }
 
@@ -246,7 +251,28 @@ mod tests {
             height: 10.0,
         };
         assert!(manager.crop(&selection).is_ok());
-        assert!(manager.payload(&label).is_ok());
+        assert!(manager.payload(&label, "editor").is_ok());
+    }
+
+    #[test]
+    fn payload_hands_the_commit_action_to_the_overlay() {
+        let manager = CaptureManager::new();
+        let label = "capture-overlay-session-3-7".to_string();
+        *manager.session.lock().unwrap() = Some(CaptureSession {
+            id: "session-3".to_string(),
+            overlay_labels: vec![label.clone()],
+            restore_labels: Vec::new(),
+            frames: vec![frame(1.0)],
+            windows: HashMap::new(),
+        });
+
+        // 覆盖层只认后端归一化后的值，配置里的怪值到不了前端
+        let json = serde_json::to_value(manager.payload(&label, "toolbar").unwrap()).unwrap();
+        assert_eq!(json["commitAction"], "toolbar");
+        assert_eq!(
+            manager.payload(&label, "editor").unwrap().commit_action,
+            "editor"
+        );
     }
 
     #[test]
@@ -276,7 +302,7 @@ mod tests {
         let session = manager.finish(&selection.session_id).unwrap();
         assert_eq!(session.overlay_labels, vec![label.clone()]);
         assert_eq!(session.restore_labels, vec!["main"]);
-        assert!(manager.payload(&label).is_err());
+        assert!(manager.payload(&label, "editor").is_err());
     }
 
     #[test]
@@ -295,7 +321,7 @@ mod tests {
             manager.finish("session-1").err().unwrap().code(),
             "session_superseded"
         );
-        assert!(manager.payload(&label).is_ok());
+        assert!(manager.payload(&label, "editor").is_ok());
         assert_eq!(manager.finish("session-2").unwrap().id, "session-2");
     }
 }

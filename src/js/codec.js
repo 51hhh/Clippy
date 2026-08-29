@@ -11,9 +11,11 @@ import { copyText, setCodecVisible } from "./api.ts";
 import { t } from "../i18n/i18n.js";
 import { decodeHtmlEntities } from "./html-entities.js";
 import { createPanelVisibilityController } from "./panel-visibility.js";
+import { initCustomSelect } from "./custom-select.js";
 
 // ── DOM refs ──
-let _panelEl, _selectEl, _inputEl, _outputEl, _hintEl, _hintTextEl, _recentGroup;
+// _selectEl 是自定义下拉框容器，_select 是它的控制器（原生 <select> 会弹独立 GTK 窗口导致主窗口隐藏）
+let _panelEl, _selectEl, _select, _inputEl, _outputEl, _hintEl, _hintTextEl, _recentGroup, _recentGroupEl;
 let _visible = false;
 let _visibility;
 
@@ -24,6 +26,9 @@ let _recentOps = [];
 // ── 防抖 ──
 const DEBOUNCE_MS = 150;
 let _debounceTimer = null;
+
+// ── 执行代号：异步操作（哈希）返回时用来丢弃过期结果 ──
+let _executeGeneration = 0;
 
 // ── 大文本保护阈值 ──
 const AUTO_BAKE_LIMIT = 102400; // 100KB
@@ -53,6 +58,8 @@ export function init() {
   _hintEl     = document.getElementById("codec-smart-hint");
   _hintTextEl = document.getElementById("codec-hint-text");
   _recentGroup = document.getElementById("codec-recent");
+  _recentGroupEl = document.getElementById("codec-recent-group");
+  _select = initCustomSelect(_selectEl);
   _visibility = createPanelVisibilityController({
     apply: (visible) => {
       _visible = visible;
@@ -67,7 +74,7 @@ export function init() {
 
   // 事件绑定
   _inputEl.addEventListener("input", _onInput);
-  _selectEl.addEventListener("change", () => { _addRecent(_selectEl.value); _execute(); });
+  _select.onChange = (value) => { _addRecent(value); _execute(); };
 
   document.getElementById("codec-swap-dir").addEventListener("click", _swapDirection);
   document.getElementById("codec-swap").addEventListener("click", _swapIO);
@@ -143,31 +150,38 @@ function _smartDetect() {
     suggested = "unicode-unescape";
   }
 
-  if (suggested && suggested !== _selectEl.value) {
+  if (suggested && suggested !== _select.value) {
     _hintTextEl.textContent = t("codec.suggest") || `Detected: try ${_getOpLabel(suggested)}`;
     _hintEl.hidden = false;
-    _hintEl.onclick = () => { _selectEl.value = suggested; _addRecent(suggested); _execute(); _hintEl.hidden = true; };
+    _hintEl.onclick = () => { _select.value = suggested; _addRecent(suggested); _execute(); _hintEl.hidden = true; };
   } else {
     _hintEl.hidden = true;
   }
 }
 
 function _getOpLabel(value) {
-  const opt = _selectEl.querySelector(`option[value="${value}"]`);
+  const opt = _selectEl.querySelector(`.custom-select-option[data-value="${value}"]`);
   return opt ? opt.textContent : value;
 }
 
-/** 执行编解码操作 */
+/**
+ * 执行编解码操作。
+ * 哈希类操作是异步的（Web Crypto），快速切换操作时先发起的那次可能后返回，
+ * 用代号丢弃过期结果，保证输出永远对应最后一次请求。
+ */
 async function _execute() {
   const text = _inputEl.value;
-  const op = _selectEl.value;
+  const op = _select.value;
+  const generation = ++_executeGeneration;
   if (!text || !op) { _outputEl.textContent = ""; return; }
 
   try {
     const result = await _runOp(op, text);
+    if (generation !== _executeGeneration) return;
     _outputEl.textContent = result;
     _outputEl.classList.remove("codec-output--error");
   } catch (e) {
+    if (generation !== _executeGeneration) return;
     _outputEl.textContent = `Error: ${e.message}`;
     _outputEl.classList.add("codec-output--error");
   }
@@ -374,10 +388,10 @@ function _numBase(text) {
 // ── UI helpers ──
 
 function _swapDirection() {
-  const current = _selectEl.value;
+  const current = _select.value;
   const reverse = REVERSE_MAP[current];
   if (reverse) {
-    _selectEl.value = reverse;
+    _select.value = reverse;
     _addRecent(reverse);
     _execute();
   }
@@ -425,15 +439,20 @@ function _addRecent(op) {
 
 function _renderRecent() {
   if (!_recentGroup) return;
-  _recentGroup.innerHTML = "";
+  // 先清空再取标签：否则会读到上一轮渲染出的副本
+  _recentGroup.replaceChildren();
   for (const op of _recentOps) {
     const label = _getOpLabel(op);
     if (!label) continue;
-    const opt = document.createElement("option");
-    opt.value = op;
-    opt.textContent = label;
-    _recentGroup.appendChild(opt);
+    const item = document.createElement("li");
+    item.className = "custom-select-option";
+    item.dataset.value = op;
+    item.textContent = label;
+    _recentGroup.appendChild(item);
   }
+  // 空分组连标题一起隐藏；重建后要把选中态重新套到新副本上
+  if (_recentGroupEl) _recentGroupEl.hidden = _recentGroup.children.length === 0;
+  _select?.refresh();
 }
 
 // ── 测试导出 ──

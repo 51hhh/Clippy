@@ -59,6 +59,18 @@ impl AppState {
         }
     }
 
+    /// 框选完成后的默认动作；配置锁损坏时退回「直接开编辑器」，
+    /// 截图流程不该因为别处的 panic 停在覆盖层上。
+    pub fn capture_commit_action(&self) -> &'static str {
+        match self.config.lock() {
+            Ok(config) => config.capture_commit_action(),
+            Err(error) => {
+                log::warn!("读取选区提交动作配置失败，使用默认动作: {error}");
+                crate::models::CAPTURE_COMMIT_ACTION_EDITOR
+            }
+        }
+    }
+
     /// 托盘菜单与原生窗口标题用的文案；配置锁损坏时退回英文，
     /// 界面语言不该让开窗动作失败。
     pub fn native_text(&self) -> crate::i18n::NativeText {

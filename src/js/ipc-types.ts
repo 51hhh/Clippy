@@ -120,6 +120,9 @@ export interface WindowCandidate {
   title: string;
 }
 
+/** 框选完成后的默认动作，由后端归一化后下发 */
+export type CaptureCommitAction = "editor" | "toolbar";
+
 export interface CaptureOverlayPayload {
   sessionId: string;
   monitorId: number;
@@ -129,6 +132,7 @@ export interface CaptureOverlayPayload {
   pixelWidth: number;
   pixelHeight: number;
   windows: WindowCandidate[];
+  commitAction: CaptureCommitAction;
 }
 
 export interface CaptureSelection {

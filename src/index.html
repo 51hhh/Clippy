@@ -14,39 +14,64 @@
     <!-- 左侧：编解码面板（默认隐藏） -->
     <div id="codec-panel" class="codec-panel hidden">
       <div class="codec-header">
-        <select id="codec-select" class="codec-select">
-          <optgroup label="⭐ 最近使用" id="codec-recent"></optgroup>
-          <optgroup label="📦 编码/解码">
-            <option value="base64-encode">Base64 Encode</option>
-            <option value="base64-decode">Base64 Decode</option>
-            <option value="url-encode">URL Encode</option>
-            <option value="url-decode">URL Decode</option>
-            <option value="html-encode">HTML Entities Encode</option>
-            <option value="html-decode">HTML Entities Decode</option>
-            <option value="unicode-escape">Unicode Escape</option>
-            <option value="unicode-unescape">Unicode Unescape</option>
-            <option value="hex-encode">Hex Encode</option>
-            <option value="hex-decode">Hex Decode</option>
-            <option value="rot13">ROT13</option>
-          </optgroup>
-          <optgroup label="🔐 哈希">
-            <option value="md5">MD5</option>
-            <option value="sha1">SHA-1</option>
-            <option value="sha256">SHA-256</option>
-            <option value="sha512">SHA-512</option>
-          </optgroup>
-          <optgroup label="📄 格式化">
-            <option value="json-format">JSON Format</option>
-            <option value="json-minify">JSON Minify</option>
-            <option value="jwt-decode">JWT Decode</option>
-            <option value="url-parse">URL Parse</option>
-          </optgroup>
-          <optgroup label="🕐 转换">
-            <option value="ts-to-date">Timestamp → Date</option>
-            <option value="date-to-ts">Date → Timestamp</option>
-            <option value="num-base">Number Base</option>
-          </optgroup>
-        </select>
+        <!-- 自定义下拉框而非原生 <select>：原生弹窗是独立 GTK 窗口，
+             一打开就让 webview 失焦，无边框主窗口会被自动隐藏（见 custom-select.js） -->
+        <div id="codec-select" class="custom-select codec-select">
+          <button class="custom-select-trigger" type="button">
+            <span class="custom-select-value">Base64 Encode</span>
+            <svg class="custom-select-arrow" width="12" height="8" viewBox="0 0 12 8" aria-hidden="true">
+              <path d="M1 1L6 6L11 1" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" />
+            </svg>
+          </button>
+          <ul class="custom-select-dropdown">
+            <li class="custom-select-group" id="codec-recent-group" hidden>
+              <span class="custom-select-group-title">⭐ Recent</span>
+              <ul class="custom-select-group-options" id="codec-recent"></ul>
+            </li>
+            <li class="custom-select-group">
+              <span class="custom-select-group-title">📦 Encode / Decode</span>
+              <ul class="custom-select-group-options">
+                <li class="custom-select-option selected" data-value="base64-encode">Base64 Encode</li>
+                <li class="custom-select-option" data-value="base64-decode">Base64 Decode</li>
+                <li class="custom-select-option" data-value="url-encode">URL Encode</li>
+                <li class="custom-select-option" data-value="url-decode">URL Decode</li>
+                <li class="custom-select-option" data-value="html-encode">HTML Entities Encode</li>
+                <li class="custom-select-option" data-value="html-decode">HTML Entities Decode</li>
+                <li class="custom-select-option" data-value="unicode-escape">Unicode Escape</li>
+                <li class="custom-select-option" data-value="unicode-unescape">Unicode Unescape</li>
+                <li class="custom-select-option" data-value="hex-encode">Hex Encode</li>
+                <li class="custom-select-option" data-value="hex-decode">Hex Decode</li>
+                <li class="custom-select-option" data-value="rot13">ROT13</li>
+              </ul>
+            </li>
+            <li class="custom-select-group">
+              <span class="custom-select-group-title">🔐 Hash</span>
+              <ul class="custom-select-group-options">
+                <li class="custom-select-option" data-value="md5">MD5</li>
+                <li class="custom-select-option" data-value="sha1">SHA-1</li>
+                <li class="custom-select-option" data-value="sha256">SHA-256</li>
+                <li class="custom-select-option" data-value="sha512">SHA-512</li>
+              </ul>
+            </li>
+            <li class="custom-select-group">
+              <span class="custom-select-group-title">📄 Format</span>
+              <ul class="custom-select-group-options">
+                <li class="custom-select-option" data-value="json-format">JSON Format</li>
+                <li class="custom-select-option" data-value="json-minify">JSON Minify</li>
+                <li class="custom-select-option" data-value="jwt-decode">JWT Decode</li>
+                <li class="custom-select-option" data-value="url-parse">URL Parse</li>
+              </ul>
+            </li>
+            <li class="custom-select-group">
+              <span class="custom-select-group-title">🕐 Convert</span>
+              <ul class="custom-select-group-options">
+                <li class="custom-select-option" data-value="ts-to-date">Timestamp → Date</li>
+                <li class="custom-select-option" data-value="date-to-ts">Date → Timestamp</li>
+                <li class="custom-select-option" data-value="num-base">Number Base</li>
+              </ul>
+            </li>
+          </ul>
+        </div>
         <button id="codec-swap-dir" class="codec-icon-btn" title="Swap direction">⇄</button>
       </div>
       <div class="codec-smart-hint" id="codec-smart-hint" hidden>
@@ -63,7 +88,8 @@
     </div>
 
     <!-- 中间：剪贴板列表面板 -->
-    <div id="list-panel" class="list-panel">
+    <!-- tabindex 让关闭侧栏后可以显式把键盘焦点收回列表（见 keyboard-router.js 状态机） -->
+    <div id="list-panel" class="list-panel" tabindex="-1">
     <div id="clipboard-react-root" class="clipboard-react-root"></div>
     </div><!-- /list-panel -->
 
@@ -74,7 +100,8 @@
         <span id="preview-meta" class="preview-meta"></span>
       </div>
       <div id="preview-content" class="preview-content"></div>
-      <div id="translation-react-root"></div>
+      <!-- translation-host 承担 flex 收缩与高度上限，React 只负责面板内部（见 components.css） -->
+      <div id="translation-react-root" class="translation-host"></div>
     </div>
 
     <!-- 更新弹窗（默认隐藏） -->

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindowLabel } from "../../js/api.ts";
+import { t } from "../shared/i18n";
 import { overlayApi } from "./api";
 import { OverlayToolbar } from "./OverlayToolbar";
 import { TranslationPopover } from "./TranslationPopover";
@@ -13,6 +14,7 @@ import type {
   CaptureOverlayPayload,
   CaptureTranslationState,
   Point,
+  Rect,
   ResizeHandle,
 } from "./types";
 import { useSelection } from "./useSelection";
@@ -51,6 +53,13 @@ export function App() {
     return () => URL.revokeObjectURL(url);
   }, [payload]);
 
+  useEffect(() => {
+    // 排障线索：窗口几何拿不到时界面只有一句提示，日志里要留下原因可查。
+    if (payload && payload.windows.length === 0) {
+      console.warn("截图覆盖层未拿到窗口几何，窗口速选不可用");
+    }
+  }, [payload]);
+
   const cancel = useCallback(() => {
     if (payload && !busy) {
       translationGeneration.current += 1;
@@ -64,14 +73,15 @@ export function App() {
     }
   }, [busy, payload]);
 
-  const run = useCallback((action: CaptureAction) => {
-    if (!payload || !selection.selection || busy || translation?.status === "loading") return;
+  // rect 显式传入是为了刚松手那一刻就能动作：此时 selection 状态还没提交。
+  const run = useCallback((action: CaptureAction, rect: Rect | null = selection.selection) => {
+    if (!payload || !rect || busy || translation?.status === "loading") return;
     translationGeneration.current += 1;
     setTranslation(null);
     setBusy(true);
     setError(null);
     overlayApi.run(action, {
-      ...selection.selection,
+      ...rect,
       sessionId: payload.sessionId,
       monitorId: payload.monitorId,
     }).catch((reason) => {
@@ -79,6 +89,14 @@ export function App() {
       setBusy(false);
     });
   }, [busy, payload, selection.selection, translation?.status]);
+
+  /**
+   * 框选落地：配置成 "editor" 时直接开编辑器（参考项目的手感），否则停在工具条上。
+   * 松手时按住 Alt 可以临时留在工具条上，否则选区翻译在默认配置下就没有入口了。
+   */
+  const commit = useCallback((rect: Rect | null, keepToolbar: boolean) => {
+    if (rect && !keepToolbar && payload?.commitAction === "editor") run("edit", rect);
+  }, [payload?.commitAction, run]);
 
   const closeTranslation = useCallback(() => {
     translationGeneration.current += 1;
@@ -144,7 +162,10 @@ export function App() {
 
   if (!payload || !imageUrl) return <main className="overlay-root loading" />;
   const selected = selection.selection;
-  const preview = !selected ? selection.candidate : null;
+  // 选区外面继续给窗口预览，速选不会因为框过一次就消失。
+  const preview = selection.candidate;
+  // 拿不到窗口列表（部分 Wayland 合成器不给窗口几何）时明说，否则用户只会觉得速选坏了。
+  const windowPickingUnavailable = payload.windows.length === 0;
   const translationPosition = selected && translation
     ? translationPanelPosition(selected, payload.logicalWidth, payload.logicalHeight)
     : null;
@@ -159,7 +180,7 @@ export function App() {
         selection.pointerDown(point(event));
       }}
       onPointerMove={(event) => selection.pointerMove(point(event))}
-      onPointerUp={(event) => selection.pointerUp(point(event))}
+      onPointerUp={(event) => commit(selection.pointerUp(point(event)), event.altKey)}
       onPointerCancel={(event) => selection.pointerUp(point(event))}
     >
       <img className="overlay-frame" src={imageUrl} alt="" draggable={false} style={imageStyle} />
@@ -213,6 +234,9 @@ export function App() {
           onCopy={() => void copyTranslation()}
           onClose={closeTranslation}
         />
+      )}
+      {!selected && !error && windowPickingUnavailable && (
+        <div className="overlay-hint" role="status">{t("capture.windowPickingUnavailable")}</div>
       )}
       {error && <div className="overlay-error" role="status">{error}</div>}
     </main>

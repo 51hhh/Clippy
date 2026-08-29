@@ -65,6 +65,15 @@ fn hides_instead_of_closing(label: &str) -> bool {
     matches!(label, "main" | "capture")
 }
 
+/// 侧栏开着时失焦不隐藏窗口。
+///
+/// 原生弹窗（编解码面板的下拉、右键菜单、文件对话框）在 WebKitGTK 上是独立的 GTK 窗口，
+/// 一打开 webview 就失焦。此时把无边框的主窗口藏掉会让弹窗变成孤儿浮层，视觉上等同崩溃。
+/// 判定与前端 `app.js::onWindowBlur` 保持一致：任一侧栏可见就不隐藏。
+fn should_hide_on_focus_loss(preview_visible: bool, codec_visible: bool) -> bool {
+    !preview_visible && !codec_visible
+}
+
 fn hide_main_after_focus_loss(window: tauri::Window) {
     let app_handle = window.app_handle().clone();
     std::thread::spawn(move || {
@@ -73,11 +82,16 @@ fn hide_main_after_focus_loss(window: tauri::Window) {
             return;
         }
         if let Some(state) = app_handle.try_state::<AppState>() {
-            if state
+            // 读不到锁时按"侧栏可见"处理：宁可留着窗口，也不要在状态未知时藏掉它。
+            let preview_visible = state
                 .preview_visible
                 .lock()
-                .is_ok_and(|preview_visible| *preview_visible)
-            {
+                .map_or(true, |preview_visible| *preview_visible);
+            let codec_visible = state
+                .codec_visible
+                .lock()
+                .map_or(true, |codec_visible| *codec_visible);
+            if !should_hide_on_focus_loss(preview_visible, codec_visible) {
                 return;
             }
         }
@@ -87,7 +101,7 @@ fn hide_main_after_focus_loss(window: tauri::Window) {
 
 #[cfg(test)]
 mod tests {
-    use super::hides_instead_of_closing;
+    use super::{hides_instead_of_closing, should_hide_on_focus_loss};
 
     #[test]
     fn reusable_windows_hide_instead_of_entering_a_destroy_race() {
@@ -95,5 +109,14 @@ mod tests {
         assert!(hides_instead_of_closing("capture"));
         assert!(!hides_instead_of_closing("settings"));
         assert!(!hides_instead_of_closing("pin-1"));
+    }
+
+    #[test]
+    fn any_open_sidebar_keeps_the_main_window_visible() {
+        assert!(should_hide_on_focus_loss(false, false));
+        // 编解码面板的原生下拉会让 webview 失焦，这时候不能藏窗口
+        assert!(!should_hide_on_focus_loss(false, true));
+        assert!(!should_hide_on_focus_loss(true, false));
+        assert!(!should_hide_on_focus_loss(true, true));
     }
 }
