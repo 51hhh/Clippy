@@ -99,6 +99,8 @@
   "settings.translation.projectHint": "Required by the official Cloud Translation API.",
   "settings.translation.sourceLanguage": "Source Language",
   "settings.translation.targetLanguage": "Target Language",
+  "settings.translation.preferredLanguages": "Alternate Languages",
+  "settings.translation.preferredHint": "When the text is already in the target language, Clippy translates into the first alternate language instead. Leave all unchecked to use the source and target languages above.",
   "settings.translation.languageAuto": "Detect automatically",
   "settings.translation.languageEnglish": "English",
   "settings.translation.languageChinese": "Chinese",

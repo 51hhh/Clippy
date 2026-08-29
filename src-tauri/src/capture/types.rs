@@ -71,6 +71,8 @@ pub struct CaptureTranslationResult {
     pub source_text: String,
     pub translated_text: String,
     pub detected_source_language: Option<String>,
+    /// 实际使用的目标语言，可能因自动换向与设置里的目标语言不同。
+    pub target_language: String,
 }
 
 impl CaptureTranslationResult {
@@ -81,6 +83,7 @@ impl CaptureTranslationResult {
             source_text,
             translated_text: result.translated_text,
             detected_source_language: result.detected_source_language,
+            target_language: result.target_language,
         }
     }
 }
@@ -98,6 +101,7 @@ mod tests {
                 provider: TranslationProvider::LibreTranslate,
                 translated_text: "translated remotely".to_string(),
                 detected_source_language: Some("en".to_string()),
+                target_language: "zh".to_string(),
             },
         );
         let json = serde_json::to_value(result).unwrap();

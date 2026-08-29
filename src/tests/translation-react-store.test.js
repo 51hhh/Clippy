@@ -51,12 +51,14 @@ const twoServices = {
   ],
 };
 
-function ok(provider, translatedText, detected = null) {
+/** 默认目标语言与 config 一致，卡片上就不会出现换向提示 */
+function ok(provider, translatedText, detected = null, targetLanguage = "zh") {
   return {
     status: "ok",
     provider,
     translated_text: translatedText,
     detected_source_language: detected,
+    target_language: targetLanguage,
   };
 }
 
@@ -158,6 +160,18 @@ describe("React translation store", () => {
     );
     expect(sensitiveHtml).toContain('id="translation-sensitive-react"');
     expect(sensitiveHtml).toContain("disabled");
+  });
+
+  it("names the language a card was actually translated into after an auto switch", async () => {
+    store.setClip(clip(16));
+    // 后端发现文本本来就是目标语言（中文）时会换向，界面必须按实际目标展示。
+    api.translateClip.mockResolvedValue(batch(ok("libretranslate", "Hello", "zh", "en")));
+    await store.translate();
+    expect(cardOf(store, "libretranslate").targetLanguage).toBe("en");
+
+    const html = renderToStaticMarkup(React.createElement(TranslationPanel, { store }));
+    expect(html).toContain("Target: Chinese");
+    expect(html).toContain("Target: English");
   });
 
   it("keeps one card per service and reports a partly failed batch", async () => {

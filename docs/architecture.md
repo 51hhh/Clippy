@@ -20,7 +20,7 @@
 | `capture/` | 单一 CaptureSession、冻结帧、多显示器覆盖层、裁剪与动作 |
 | `screenshot.rs` + `screenshot/*` | 原始截图帧契约与 PNG 编解码；Wayland/Portal/GNOME/xcap fallback 和几何测试隔离 |
 | `pin/` | PinManager、内容来源、窗口尺寸、缩放/透明度/锁定和清理 |
-| `translation/` | provider、超时/重试、request-id、内容选择、Secret Service；启用的服务按 `spawn_blocking` 并行，单服务失败作为数据返回 |
+| `translation/` | provider、超时/重试、request-id、内容选择、Secret Service；启用的服务按 `spawn_blocking` 并行，单服务失败作为数据返回；`direction.rs` 在文本已是目标语言时按备选语言换向 |
 | `storage.rs` + `storage/*` | SQLite/FTS5 初始化与搜索；维护清理、统计、URL 缓存和测试各自隔离 |
 
 ## 前端模块

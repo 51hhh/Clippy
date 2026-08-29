@@ -86,6 +86,10 @@ export function initTranslationSettings({ root = document, showToast = () => {} 
   const projectInput = getRequiredElement(root, "translation-project-input");
   const sourceLanguageSelect = getRequiredElement(root, "translation-source-language-select");
   const targetLanguageSelect = getRequiredElement(root, "translation-target-language-select");
+  const preferredList = getRequiredElement(root, "translation-preferred-languages");
+  const preferredInputs = Array.from(
+    preferredList.querySelectorAll('input[type="checkbox"]'),
+  );
   const apiKeyInput = getRequiredElement(root, "translation-api-key-input");
   const apiSecretInput = getRequiredElement(root, "translation-api-secret-input");
   const fallbackHint = getRequiredElement(root, "translation-fallback-hint");
@@ -99,6 +103,8 @@ export function initTranslationSettings({ root = document, showToast = () => {} 
   let services = emptyServices();
   let requestId = 0;
   let keyStatus = { phase: "checking", detail: "", hasKey: false };
+  /** 备选语言的优先级顺序。勾选框按界面顺序排列，但已保存的顺序不能被重排覆盖。 */
+  let preferredOrder = [];
 
   function currentProvider() {
     return normalizeTranslationProvider(providerSelect.value);
@@ -219,6 +225,15 @@ export function initTranslationSettings({ root = document, showToast = () => {} 
     loadKeyStatus();
   });
 
+  /** 新勾选的语言追加到末尾：先勾的优先级更高，取消勾选只把它移出列表 */
+  for (const input of preferredInputs) {
+    input.addEventListener("change", () => {
+      preferredOrder = input.checked
+        ? [...preferredOrder.filter((language) => language !== input.value), input.value]
+        : preferredOrder.filter((language) => language !== input.value);
+    });
+  }
+
   enabledToggle.addEventListener("change", () => {
     const service = serviceEntry(currentProvider());
     if (service) service.enabled = enabledToggle.checked;
@@ -318,6 +333,15 @@ export function initTranslationSettings({ root = document, showToast = () => {} 
       targetLanguageSelect.value = config.translation_target_language || "en";
       if (!sourceLanguageSelect.value) sourceLanguageSelect.value = "auto";
       if (!targetLanguageSelect.value) targetLanguageSelect.value = "en";
+
+      // 界面上没有的语言码丢弃，否则保存时会静默重排成勾选框的顺序。
+      const available = preferredInputs.map((input) => input.value);
+      preferredOrder = (config.preferred_languages ?? [])
+        .filter((language) => available.includes(language))
+        .filter((language, index, list) => list.indexOf(language) === index);
+      for (const input of preferredInputs) {
+        input.checked = preferredOrder.includes(input.value);
+      }
       updateProvider();
     },
 
@@ -335,6 +359,8 @@ export function initTranslationSettings({ root = document, showToast = () => {} 
         translation_services: services.map((service) => ({ ...service })),
         translation_source_language: sourceLanguageSelect.value,
         translation_target_language: targetLanguageSelect.value,
+        // 全不勾即空数组，后端据此沿用「目标 + 源」这一对语言。
+        preferred_languages: [...preferredOrder],
       };
     },
 

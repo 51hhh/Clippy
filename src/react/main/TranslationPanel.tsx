@@ -22,6 +22,12 @@ const LANGUAGE_KEYS: Record<string, string> = {
   de: "settings.translation.languageGerman",
 };
 
+/** 认不出的语言码原样显示，总比显示成 "Detect automatically" 诚实。 */
+function languageLabel(language: string): string {
+  const key = LANGUAGE_KEYS[language];
+  return key ? t(key) : language;
+}
+
 const ERROR_KEYS: Record<string, string> = {
   empty_input: "translation.error.emptyInput",
   input_too_large: "translation.error.inputTooLarge",
@@ -83,7 +89,7 @@ export function TranslationPanel({ store = translationStore }: { store?: Transla
   // 未启用任何服务时不假装某个默认服务，直接告诉用户当前没有可用目标。
   const services = enabledTranslationServices(config.translation_services);
   const target = config.translation_target_language || "en";
-  const targetLabel = t(LANGUAGE_KEYS[target] || "settings.translation.languageAuto");
+  const targetLabel = languageLabel(target);
   const actionLabel = t(clip.content_type === "image"
     ? snapshot.loading ? "translation.ocrTranslating" : "translation.ocrAndTranslate"
     : snapshot.loading ? "translation.translating" : "translation.translate");
@@ -175,6 +181,12 @@ export function TranslationPanel({ store = translationStore }: { store?: Transla
               >
                 {translationCardStatusText(card)}
               </span>
+              {/* 源文本本来就是目标语言时后端会换向，实际目标必须如实标出来。 */}
+              {card.targetLanguage && card.targetLanguage !== target && (
+                <span className="translation-card-target">
+                  {t("translation.target", { language: languageLabel(card.targetLanguage) })}
+                </span>
+              )}
               <span className="translation-card-actions">
                 <button
                   className="translation-copy"

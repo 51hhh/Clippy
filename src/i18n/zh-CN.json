@@ -99,6 +99,8 @@
   "settings.translation.projectHint": "官方 Cloud Translation API 必填。",
   "settings.translation.sourceLanguage": "源语言",
   "settings.translation.targetLanguage": "目标语言",
+  "settings.translation.preferredLanguages": "备选语言",
+  "settings.translation.preferredHint": "文本本来就是目标语言时，改为翻译成第一个备选语言。全不勾选则沿用上面的源语言与目标语言。",
   "settings.translation.languageAuto": "自动检测",
   "settings.translation.languageEnglish": "英语",
   "settings.translation.languageChinese": "中文",

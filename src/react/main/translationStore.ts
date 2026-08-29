@@ -14,6 +14,8 @@ export type TranslationCard = {
   loading: boolean;
   translatedText: string;
   detectedLanguage: string | null;
+  /** 后端实际使用的目标语言；自动换向后它可能与设置里的目标语言不同 */
+  targetLanguage: string;
   errorCode: string | null;
   copyFeedback: "idle" | "copied" | "copy_failed";
 };
@@ -59,6 +61,7 @@ function pendingCard(provider: TranslationProvider): TranslationCard {
     loading: true,
     translatedText: "",
     detectedLanguage: null,
+    targetLanguage: "",
     errorCode: null,
     copyFeedback: "idle",
   };
@@ -77,6 +80,7 @@ function cardFromService(service: ServiceTranslation): TranslationCard {
     loading: false,
     translatedText: service.translated_text,
     detectedLanguage: service.detected_source_language,
+    targetLanguage: service.target_language ?? "",
     errorCode: null,
     copyFeedback: "idle",
   };

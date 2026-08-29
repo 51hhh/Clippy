@@ -231,6 +231,44 @@
           </select>
         </div>
         <div class="translation-field translation-field-wide">
+          <span class="setting-label setting-label-sub" id="translation-preferred-label"
+                data-i18n="settings.translation.preferredLanguages">Alternate Languages</span>
+          <div class="translation-preferred-list" id="translation-preferred-languages" role="group"
+               aria-labelledby="translation-preferred-label"
+               aria-describedby="translation-preferred-hint">
+            <label class="translation-preferred-option">
+              <input type="checkbox" value="en">
+              <span data-i18n="settings.translation.languageEnglish">English</span>
+            </label>
+            <label class="translation-preferred-option">
+              <input type="checkbox" value="zh">
+              <span data-i18n="settings.translation.languageChinese">Chinese</span>
+            </label>
+            <label class="translation-preferred-option">
+              <input type="checkbox" value="ja">
+              <span data-i18n="settings.translation.languageJapanese">Japanese</span>
+            </label>
+            <label class="translation-preferred-option">
+              <input type="checkbox" value="ko">
+              <span data-i18n="settings.translation.languageKorean">Korean</span>
+            </label>
+            <label class="translation-preferred-option">
+              <input type="checkbox" value="es">
+              <span data-i18n="settings.translation.languageSpanish">Spanish</span>
+            </label>
+            <label class="translation-preferred-option">
+              <input type="checkbox" value="fr">
+              <span data-i18n="settings.translation.languageFrench">French</span>
+            </label>
+            <label class="translation-preferred-option">
+              <input type="checkbox" value="de">
+              <span data-i18n="settings.translation.languageGerman">German</span>
+            </label>
+          </div>
+          <div class="setting-hint" id="translation-preferred-hint"
+               data-i18n="settings.translation.preferredHint">When the text is already in the target language, Clippy translates into the first alternate language instead. Leave all unchecked to use the source and target languages above.</div>
+        </div>
+        <div class="translation-field translation-field-wide">
           <label class="setting-label setting-label-sub" for="translation-api-key-input"
                  data-i18n="settings.translation.apiKey">API Key</label>
           <div class="translation-key-row">

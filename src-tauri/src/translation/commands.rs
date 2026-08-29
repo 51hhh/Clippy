@@ -90,18 +90,17 @@ fn request_from_config(
     inputs: TranslationInputs,
     service: &super::service::TranslationService,
 ) -> TranslationRequest {
-    let source = inputs
-        .source_language
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| config.translation_source_language.clone());
-    let target = inputs
-        .target_language
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| config.translation_target_language.clone());
+    // 方向解析对所有入口一致：文本本来就是目标语言时换向，避免自译自。
+    let direction = super::direction::resolve_direction(
+        config,
+        &inputs.text,
+        inputs.source_language.as_deref(),
+        inputs.target_language.as_deref(),
+    );
     TranslationRequest::with_options(
         inputs.text,
-        source,
-        target,
+        direction.source,
+        direction.target,
         provider,
         options,
         inputs
@@ -435,6 +434,37 @@ mod tests {
         let selected = selected_services(&config, &[]).unwrap();
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].0, TranslationProvider::LibreTranslate);
+    }
+
+    /// 方向解析必须落在 `request_from_config` 上，剪贴板、纯文本与选区翻译才共用同一套规则。
+    #[test]
+    fn the_request_switches_the_target_when_the_text_is_already_in_the_target_language() {
+        let mut config = config_with(&["libretranslate"]);
+        config.translation_target_language = "en".to_string();
+        let service = super::super::service::TranslationService::new();
+        let build = |text: &str, target: Option<&str>| {
+            request_from_config(
+                &config,
+                TranslationProvider::LibreTranslate,
+                ProviderOptions::default(),
+                TranslationInputs {
+                    text: text.to_string(),
+                    source_language: None,
+                    target_language: target.map(str::to_string),
+                    request_id: Some(7),
+                },
+                &service,
+            )
+        };
+
+        let switched = build("Hello there", None);
+        assert_eq!(switched.target_language, "zh");
+        // 换向只改目标语言，源语言仍交给服务检测。
+        assert_eq!(switched.source(), None);
+
+        assert_eq!(build("你好，世界", None).target_language, "en");
+        // 调用方显式指定目标语言时按原样执行。
+        assert_eq!(build("Hello there", Some("en")).target_language, "en");
     }
 
     #[test]

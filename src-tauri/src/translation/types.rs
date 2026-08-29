@@ -236,6 +236,9 @@ pub struct TranslationResult {
     pub provider: TranslationProvider,
     pub translated_text: String,
     pub detected_source_language: Option<String>,
+    /// 本次实际使用的目标语言。自动换向后它可能与设置里的目标语言不同，
+    /// 界面必须按这个值展示，否则会说成译成了另一门语言。
+    pub target_language: String,
 }
 
 /// 并行翻译里单个服务的结果。一个服务失败不该让整批请求失败，
@@ -247,6 +250,8 @@ pub enum ServiceTranslation {
         provider: TranslationProvider,
         translated_text: String,
         detected_source_language: Option<String>,
+        /// 实际使用的目标语言，可能因自动换向与设置里的目标语言不同。
+        target_language: String,
     },
     Error {
         provider: TranslationProvider,
@@ -265,6 +270,7 @@ impl ServiceTranslation {
                 provider,
                 translated_text: result.translated_text,
                 detected_source_language: result.detected_source_language,
+                target_language: result.target_language,
             },
             Err(error) => Self::Error {
                 provider,
@@ -425,6 +431,7 @@ mod tests {
                 provider: TranslationProvider::DeepL,
                 translated_text: "你好".to_string(),
                 detected_source_language: Some("en".to_string()),
+                target_language: "zh".to_string(),
             }),
         );
         assert_eq!(
@@ -434,6 +441,7 @@ mod tests {
                 "provider": "deepl",
                 "translated_text": "你好",
                 "detected_source_language": "en",
+                "target_language": "zh",
             })
         );
 
