@@ -96,6 +96,19 @@ input {
   gap: 6px;
 }
 
+.tool-subgroup + .tool-subgroup {
+  margin-top: 10px;
+}
+
+.tool-subgroup-title {
+  margin-bottom: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-tertiary, var(--text-secondary));
+}
+
 .tool-button,
 .capture-btn,
 .capture-icon-btn {
@@ -270,12 +283,23 @@ input {
 }
 
 .capture-canvas-pen,
+.capture-canvas-marker,
 .capture-canvas-rect,
+.capture-canvas-ellipse,
+.capture-canvas-highlight,
+.capture-canvas-line,
 .capture-canvas-arrow,
+.capture-canvas-measure,
 .capture-canvas-text,
 .capture-canvas-blur,
-.capture-canvas-mosaic {
+.capture-canvas-mosaic,
+.capture-canvas-spotlight,
+.capture-canvas-magnifier {
   cursor: crosshair;
+}
+
+.capture-canvas-eraser {
+  cursor: pointer;
 }
 
 .capture-status {

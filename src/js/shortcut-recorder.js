@@ -66,3 +66,29 @@ export function keyEventToShortcut(e) {
 
   return modifiers.concat(mainKey).join("+");
 }
+
+const MOD_ALIASES = {
+  ctrl: "Ctrl", control: "Ctrl", cmdorctrl: "Ctrl", commandorcontrol: "Ctrl",
+  alt: "Alt", option: "Alt",
+  shift: "Shift",
+  super: "Super", meta: "Super", cmd: "Super", command: "Super", win: "Super",
+};
+const MOD_ORDER = ["Ctrl", "Alt", "Shift", "Super"];
+
+/**
+ * 归一化快捷键字符串，用于比较两个组合是否是同一个键位：
+ * 修饰键顺序、别名（Control/Meta…）与主键大小写都不参与比较。
+ * 空串或只有修饰键返回空串，表示"没有可比较的键位"。
+ */
+export function normalizeShortcut(shortcut) {
+  const parts = String(shortcut ?? "").split("+").map((part) => part.trim()).filter(Boolean);
+  if (!parts.length) return "";
+  const modifiers = new Set();
+  const keys = [];
+  for (const part of parts) {
+    const alias = MOD_ALIASES[part.toLowerCase()];
+    alias ? modifiers.add(alias) : keys.push(part.toUpperCase());
+  }
+  if (!keys.length) return "";
+  return MOD_ORDER.filter((mod) => modifiers.has(mod)).concat(keys).join("+");
+}

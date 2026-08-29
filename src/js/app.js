@@ -17,6 +17,7 @@ import "../styles/base.css";
 import "../styles/components.css";
 import { mountClipboardWorkspace, mountTranslationPanel } from "../react/main/mount";
 import { translationStore } from "../react/main/translationStore";
+import { createKeyboardRouter } from "./keyboard-router.js";
 
 function whenReady(fn) {
   if (document.readyState === "loading") {
@@ -40,7 +41,9 @@ whenReady(async () => {
 
   mountClipboardWorkspace(document.getElementById("clipboard-react-root"));
   mountTranslationPanel(document.getElementById("translation-react-root"));
-  previewPanel.init();
+  previewPanel.init({
+    onVisibilityChange: (visible) => translationStore.setPanelVisible(visible),
+  });
   translationStore.setConfig(config);
   codec.init();
 
@@ -69,8 +72,11 @@ whenReady(async () => {
     translationStore.setConfig(newConfig);
   });
 
-  await onShortcutRegisterFailed((shortcut) => {
-    console.warn(`快捷键 "${shortcut}" 注册失败，请在设置中更换快捷键`);
+  await onShortcutRegisterFailed((failure) => {
+    // 主窗口只记日志；可操作的提示由设置页负责（它能读到存量失败记录）。
+    console.warn(
+      `快捷键 [${failure.action}] "${failure.shortcut}" 在 ${failure.session} 会话注册失败：${failure.reason}`,
+    );
   });
 
   await onPinCurrent(async () => {
@@ -87,122 +93,18 @@ whenReady(async () => {
   initUpdateModal();
   checkForUpdate(false).catch(console.warn);
 
-  window.addEventListener("keydown", onKeyDown);
+  const keyboardRouter = createKeyboardRouter({
+    clipboardList,
+    previewPanel,
+    codec,
+    pinClip,
+    hidePanel: tryHidePanel,
+  });
+
+  window.addEventListener("keydown", keyboardRouter.onKeyDown);
   window.addEventListener("focus", onWindowFocus);
   window.addEventListener("blur", onWindowBlur);
 });
-
-function onKeyDown(e) {
-  // 翻译区使用原生按钮和可滚动结果，保留其键盘语义；Esc 仍交给全局关闭逻辑。
-  if (e.target?.closest?.("#translation-react-root") && e.key !== "Escape") {
-    return;
-  }
-
-  // 搜索条聚焦时：不拦截普通字符；只接管 Esc / Enter
-  if (clipboardList.search.isVisible() && document.activeElement?.classList.contains("search-bar-input")) {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      const stage = clipboardList.search.dismissStage();
-      if (stage === "panel") {
-        clipboardList.hasExpanded() ? clipboardList.collapseActions() : tryHidePanel();
-      }
-      return;
-    }
-    return; // 其它键交给 input
-  }
-
-  // Ctrl+P：Pin 当前焦点条目到桌面
-  if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === "p" || e.key === "P")) {
-    e.preventDefault();
-    const clip = clipboardList.getFocusedClip();
-    if (clip) {
-      pinClip(clip.id).then(label => console.log("Pin 成功:", label))
-        .catch(err => console.warn("Pin 失败:", err));
-    }
-    return;
-  }
-
-  switch (e.key) {
-    // 数字键 1-9/0：直选第 1-10 条并粘贴
-    case "1": case "2": case "3": case "4": case "5":
-    case "6": case "7": case "8": case "9": case "0": {
-      e.preventDefault();
-      const idx = e.key === "0" ? 9 : parseInt(e.key) - 1;
-      clipboardList.selectByIndex(idx).then(ok => {
-        if (ok) void hideCurrentWindow();
-      });
-      return;
-    }
-    case "ArrowUp":
-    case "w":
-    case "W":
-      e.preventDefault();
-      clipboardList.moveRow(-1);
-      return;
-    case "ArrowDown":
-    case "s":
-    case "S":
-      e.preventDefault();
-      clipboardList.moveRow(1);
-      return;
-    case "ArrowLeft":
-    case "a":
-    case "A":
-      e.preventDefault();
-      // 收藏模式行体上：展开按钮组（按钮在左侧）
-      if (clipboardList.getPanelMode() === "favorites" && clipboardList.canExpandHere()) {
-        clipboardList.expandRowActions();
-      } else {
-        clipboardList.moveCol(-1);
-      }
-      return;
-    case "ArrowRight":
-    case "d":
-    case "D":
-      e.preventDefault();
-      // 全部模式行体上：展开按钮组
-      if (clipboardList.getPanelMode() === "all" && clipboardList.canExpandHere()) {
-        clipboardList.expandRowActions();
-      } else {
-        clipboardList.moveCol(1);
-      }
-      return;
-    case "Enter":
-    case " ":
-      e.preventDefault();
-      clipboardList.activateFocus("keyboard");
-      return;
-    case "Escape":
-      e.preventDefault();
-      if (clipboardList.search.isVisible()) {
-        const stage = clipboardList.search.dismissStage();
-        if (stage === "panel") {
-          clipboardList.hasExpanded() ? clipboardList.collapseActions() : tryHidePanel();
-        }
-      } else if (clipboardList.hasExpanded()) {
-        clipboardList.collapseActions();
-      } else {
-        tryHidePanel();
-      }
-      return;
-    case "Tab":
-      e.preventDefault();
-      if (!previewPanel.isVisible()) {
-        previewPanel.toggle();
-        previewPanel.updatePreview(clipboardList.getFocusedClip());
-        const focusTarget = document.getElementById("translation-sensitive-react")
-          || document.getElementById("translation-action-react");
-        focusTarget?.focus();
-      } else {
-        previewPanel.toggle();
-      }
-      return;
-    case "`":
-      e.preventDefault();
-      codec.toggle();
-      return;
-  }
-}
 
 function tryHidePanel() {
   void hideCurrentWindow();

@@ -34,6 +34,10 @@ const DBUS_PIN_CMD: &str =
 const DBUS_CAPTURE_CMD: &str =
     "dbus-send --session --type=method_call --dest=com.clippy.app.Shortcuts /com/clippy/app com.clippy.app.Capture";
 
+/// 非 GNOME 桌面上这条路径不可用时给出的原因（会传到设置页）
+pub const NOT_GNOME_REASON: &str =
+    "当前 Wayland 桌面不由 gsd-media-keys 管理自定义快捷键，无法自动注册";
+
 /// 检测当前是否运行在 Wayland 会话中
 pub fn is_wayland() -> bool {
     std::env::var("WAYLAND_DISPLAY").is_ok()
@@ -42,11 +46,42 @@ pub fn is_wayland() -> bool {
             .unwrap_or(false)
 }
 
+/// 桌面是否是 GNOME 系。
+///
+/// Wayland 下的自动注册依赖 gsd-media-keys 读取 dconf 再向 Mutter grab 键位，
+/// 这是 GNOME 特有的链路：KDE/wlroots 上即使 gsettings 写入成功也没有任何组件会读它，
+/// 快捷键会静默失效。因此这里必须显式判断，而不是"能写入就算注册成功"。
+pub fn is_gnome_desktop_with(desktop: Option<&str>, session: Option<&str>) -> bool {
+    [desktop, session].iter().flatten().any(|value| {
+        value
+            .split(':')
+            .any(|part| part.trim().eq_ignore_ascii_case("gnome"))
+    })
+}
+
+pub fn is_gnome_desktop() -> bool {
+    is_gnome_desktop_with(
+        std::env::var("XDG_CURRENT_DESKTOP").ok().as_deref(),
+        std::env::var("XDG_SESSION_DESKTOP").ok().as_deref(),
+    )
+}
+
+/// Clippy 占用的三个自定义快捷键路径。占用检测要排除它们，
+/// 否则用户修改自己的快捷键会被报成"已被占用"。
+pub fn clippy_custom_paths() -> [&'static str; 3] {
+    [DCONF_BASE, DCONF_PIN_BASE, DCONF_CAPTURE_BASE]
+}
+
+/// 自定义快捷键条目的 relocatable schema 名
+pub fn entry_schema() -> &'static str {
+    ENTRY_SCHEMA
+}
+
 /// 将 Tauri 快捷键格式转为 GNOME accelerator 格式
 ///
 /// `Ctrl+Alt+V` → `<Control><Alt>v`
 /// `Super+V`    → `<Super>v`
-fn to_gnome_accel(tauri_shortcut: &str) -> String {
+pub fn to_gnome_accel(tauri_shortcut: &str) -> String {
     let parts: Vec<&str> = tauri_shortcut.split('+').collect();
     let mut result = String::new();
     for (i, part) in parts.iter().enumerate() {
@@ -71,6 +106,9 @@ fn to_gnome_accel(tauri_shortcut: &str) -> String {
 
 /// 注册 gsettings 自定义快捷键（应用启动时调用）
 pub fn register(shortcut: &str) -> Result<(), String> {
+    if !is_gnome_desktop() {
+        return Err(NOT_GNOME_REASON.to_string());
+    }
     let accel = to_gnome_accel(shortcut);
     log::info!("注册 GNOME 自定义快捷键: {} -> {}", shortcut, accel);
 
@@ -86,6 +124,9 @@ pub fn register(shortcut: &str) -> Result<(), String> {
 
 /// 注册 Pin 快捷键（应用启动时调用）
 pub fn register_pin(shortcut: &str) -> Result<(), String> {
+    if !is_gnome_desktop() {
+        return Err(NOT_GNOME_REASON.to_string());
+    }
     let accel = to_gnome_accel(shortcut);
     log::info!("注册 GNOME Pin 快捷键: {} -> {}", shortcut, accel);
 
@@ -101,6 +142,9 @@ pub fn register_pin(shortcut: &str) -> Result<(), String> {
 
 /// 注册 Capture 快捷键（应用启动时调用）
 pub fn register_capture(shortcut: &str) -> Result<(), String> {
+    if !is_gnome_desktop() {
+        return Err(NOT_GNOME_REASON.to_string());
+    }
     let accel = to_gnome_accel(shortcut);
     log::info!("注册 GNOME Capture 快捷键: {} -> {}", shortcut, accel);
 
@@ -116,6 +160,9 @@ pub fn register_capture(shortcut: &str) -> Result<(), String> {
 
 /// 更新 Pin 快捷键绑定
 pub fn update_pin_binding(shortcut: &str) -> Result<(), String> {
+    if !is_gnome_desktop() {
+        return Err(NOT_GNOME_REASON.to_string());
+    }
     let accel = to_gnome_accel(shortcut);
     log::info!("更新 GNOME Pin 快捷键绑定: {}", accel);
     gsettings_set(DCONF_PIN_BASE, "binding", &accel)?;
@@ -124,6 +171,9 @@ pub fn update_pin_binding(shortcut: &str) -> Result<(), String> {
 
 /// 更新 Capture 快捷键绑定
 pub fn update_capture_binding(shortcut: &str) -> Result<(), String> {
+    if !is_gnome_desktop() {
+        return Err(NOT_GNOME_REASON.to_string());
+    }
     let accel = to_gnome_accel(shortcut);
     log::info!("更新 GNOME Capture 快捷键绑定: {}", accel);
     gsettings_set(DCONF_CAPTURE_BASE, "binding", &accel)?;
@@ -132,6 +182,9 @@ pub fn update_capture_binding(shortcut: &str) -> Result<(), String> {
 
 /// 更新绑定（设置页面修改快捷键时调用）
 pub fn update_binding(shortcut: &str) -> Result<(), String> {
+    if !is_gnome_desktop() {
+        return Err(NOT_GNOME_REASON.to_string());
+    }
     let accel = to_gnome_accel(shortcut);
     log::info!("更新 GNOME 快捷键绑定: {}", accel);
     gsettings_set(DCONF_BASE, "binding", &accel)?;
@@ -140,6 +193,11 @@ pub fn update_binding(shortcut: &str) -> Result<(), String> {
 
 /// 暂停快捷键（录制新快捷键时调用）
 pub fn pause() -> Result<(), String> {
+    if !is_gnome_desktop() {
+        // 这条路径下本来就没有注册成功的键位，没有东西需要暂停。
+        log::debug!("非 GNOME 桌面，跳过暂停快捷键");
+        return Ok(());
+    }
     log::info!("暂停 GNOME 快捷键");
     gsettings_set(DCONF_BASE, "binding", "")?;
     gsettings_set(DCONF_PIN_BASE, "binding", "")?;
@@ -153,6 +211,10 @@ pub fn resume(
     pin_shortcut: &str,
     capture_shortcut: &str,
 ) -> Result<(), String> {
+    if !is_gnome_desktop() {
+        log::debug!("非 GNOME 桌面，跳过恢复快捷键");
+        return Ok(());
+    }
     gsettings_set(DCONF_BASE, "binding", &to_gnome_accel(global_shortcut))?;
     gsettings_set(DCONF_PIN_BASE, "binding", &to_gnome_accel(pin_shortcut))?;
     gsettings_set(
@@ -429,5 +491,17 @@ mod tests {
     #[test]
     fn test_is_wayland() {
         let _ = is_wayland();
+    }
+
+    #[test]
+    fn gnome_detection_reads_both_desktop_variables() {
+        // Ubuntu 的 XDG_CURRENT_DESKTOP 是冒号分隔的复合值
+        assert!(is_gnome_desktop_with(Some("ubuntu:GNOME"), None));
+        assert!(is_gnome_desktop_with(Some("GNOME"), None));
+        assert!(is_gnome_desktop_with(None, Some("gnome")));
+        // KDE/wlroots 上没有 gsd-media-keys，必须判为不支持
+        assert!(!is_gnome_desktop_with(Some("KDE"), Some("plasmawayland")));
+        assert!(!is_gnome_desktop_with(Some("sway"), None));
+        assert!(!is_gnome_desktop_with(None, None));
     }
 }

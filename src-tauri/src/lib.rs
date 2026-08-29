@@ -16,6 +16,7 @@ mod pin;
 mod pin_window;
 mod private_files;
 mod screenshot;
+mod shortcut_conflict;
 mod storage;
 mod translation;
 mod tray_icon;
@@ -27,7 +28,9 @@ use std::sync::{Arc, Mutex};
 use tauri::Manager;
 use tauri_plugin_global_shortcut::ShortcutState;
 
-pub(crate) use app::shortcuts::{register_x11_shortcuts, toggle_main_window};
+pub(crate) use app::shortcuts::{
+    record_register_result, register_x11_shortcuts, toggle_main_window,
+};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -114,6 +117,7 @@ pub fn run() {
                 translation,
                 shortcuts_paused: AtomicBool::new(false),
                 shortcut_transition: Mutex::new(()),
+                shortcut_failures: Mutex::new(Vec::new()),
             });
 
             // ── 6. 构建托盘并监听主题/语言变化 ────────────────────────────
@@ -123,21 +127,29 @@ pub fn run() {
             // ── 7. 注册全局快捷键（从配置读取）────────────────────────────────
             if gsettings_shortcuts::is_wayland() {
                 log::info!("检测到 Wayland 会话，使用 gsettings 自定义快捷键 + D-Bus");
-                // 注册 gsettings 自定义快捷键（Toggle）
-                if let Err(e) = gsettings_shortcuts::register(&app_config.global_shortcut) {
-                    log::warn!("gsettings 快捷键注册失败: {}", e);
-                    use tauri::Emitter;
-                    let _ = app.emit("shortcut-register-failed", &app_config.global_shortcut);
-                }
-                // 注册 Pin 快捷键
-                if let Err(e) = gsettings_shortcuts::register_pin(&app_config.pin_shortcut) {
-                    log::warn!("gsettings Pin 快捷键注册失败: {}", e);
-                }
-                // 注册 Capture 快捷键
-                if let Err(e) = gsettings_shortcuts::register_capture(&app_config.capture_shortcut)
-                {
-                    log::warn!("gsettings Capture 快捷键注册失败: {}", e);
-                }
+                // 三个动作的失败都要上报：非 GNOME 的 Wayland 桌面没有 media-keys schema，
+                // 只写日志会让快捷键静默失效。
+                record_register_result(
+                    app.handle(),
+                    &["global"],
+                    &app_config.global_shortcut,
+                    true,
+                    gsettings_shortcuts::register(&app_config.global_shortcut),
+                );
+                record_register_result(
+                    app.handle(),
+                    &["pin"],
+                    &app_config.pin_shortcut,
+                    true,
+                    gsettings_shortcuts::register_pin(&app_config.pin_shortcut),
+                );
+                record_register_result(
+                    app.handle(),
+                    &["capture"],
+                    &app_config.capture_shortcut,
+                    true,
+                    gsettings_shortcuts::register_capture(&app_config.capture_shortcut),
+                );
                 // 启动 D-Bus 服务接收 Toggle 调用 —— name 抢占必须成功，
                 // 否则当前进程是"幽灵副本"，立即退出让 single-instance 自动清理。
                 let handle = app.handle().clone();
@@ -167,12 +179,14 @@ pub fn run() {
                 }
             } else {
                 log::info!("检测到 X11 会话，使用 tauri-plugin-global-shortcut");
-                if let Err(e) = register_x11_shortcuts(app.handle(), &app_config) {
-                    log::warn!("全局快捷键注册失败（可能已被占用）: {}", e);
-                    // 通知前端快捷键注册失败
-                    use tauri::Emitter;
-                    let _ = app.emit("shortcut-register-failed", &app_config.global_shortcut);
-                }
+                // X11 一次注册三个键位，失败无法归因到单个动作，按 global 上报并带上原因。
+                record_register_result(
+                    app.handle(),
+                    &["global", "pin", "capture"],
+                    &app_config.global_shortcut,
+                    false,
+                    register_x11_shortcuts(app.handle(), &app_config),
+                );
             }
 
             // ── 8. 可回退的 WebKit 诊断开关 ────────────────────────────
@@ -199,6 +213,7 @@ pub fn run() {
             commands::update_config,
             commands::update_shortcut,
             commands::check_shortcut_conflict,
+            commands::get_shortcut_failures,
             commands::show_settings,
             commands::pause_shortcuts,
             commands::resume_shortcuts,

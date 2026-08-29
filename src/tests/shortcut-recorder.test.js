@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { keyEventToShortcut } from "../js/shortcut-recorder.js";
+import { keyEventToShortcut, normalizeShortcut } from "../js/shortcut-recorder.js";
 
 function ev(overrides) {
   return {
@@ -104,5 +104,25 @@ describe("keyEventToShortcut", () => {
     expect(
       keyEventToShortcut(ev({ code: "Unidentified", key: "", ctrlKey: true })),
     ).toBeNull();
+  });
+});
+
+describe("normalizeShortcut", () => {
+  it("忽略修饰键顺序、别名与主键大小写", () => {
+    expect(normalizeShortcut("Alt+Ctrl+v")).toBe("Ctrl+Alt+V");
+    expect(normalizeShortcut("Control+Alt+V")).toBe("Ctrl+Alt+V");
+    expect(normalizeShortcut("Meta+v")).toBe("Super+V");
+    expect(normalizeShortcut("CmdOrCtrl+Shift+s")).toBe("Ctrl+Shift+S");
+  });
+
+  it("空值与只有修饰键的输入没有可比较的键位", () => {
+    expect(normalizeShortcut("")).toBe("");
+    expect(normalizeShortcut(null)).toBe("");
+    expect(normalizeShortcut("Ctrl+Alt")).toBe("");
+  });
+
+  it("同一键位的不同写法归一化后相等", () => {
+    expect(normalizeShortcut("super+V")).toBe(normalizeShortcut("Meta+v"));
+    expect(normalizeShortcut("Ctrl+2")).not.toBe(normalizeShortcut("Ctrl+3"));
   });
 });

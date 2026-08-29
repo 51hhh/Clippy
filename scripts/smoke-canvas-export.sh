@@ -5,8 +5,13 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 FIREFOX="$(command -v firefox || true)"
 FFMPEG="$(command -v ffmpeg || true)"
-if [[ -z "$FIREFOX" || -z "$FFMPEG" ]]; then
-  printf '%s\n' 'Canvas export smoke skipped: firefox and ffmpeg are required'
+# 读取截图像素：优先 ffmpeg，其次 python3 的 Pillow，都没有才跳过。
+PYTHON_PIL=""
+if [[ -z "$FFMPEG" ]] && command -v python3 >/dev/null; then
+  python3 -c 'import PIL.Image' 2>/dev/null && PYTHON_PIL="$(command -v python3)"
+fi
+if [[ -z "$FIREFOX" || ( -z "$FFMPEG" && -z "$PYTHON_PIL" ) ]]; then
+  printf '%s\n' 'Canvas export smoke skipped: firefox plus ffmpeg or python3-pil are required'
   exit 0
 fi
 
@@ -67,7 +72,15 @@ HOME="$PROFILE_DIR" timeout 20 "$FIREFOX" --headless \
   printf 'Canvas export smoke failed: screenshot is missing; artifacts: %s\n' "$ARTIFACT_DIR" >&2
   exit 1
 }
-PIXEL="$($FFMPEG -v error -i "$SCREENSHOT" -vf 'crop=1:1:160:120,format=rgb24' -f rawvideo - 2>/dev/null | od -An -tu1 -N3)"
+if [[ -n "$FFMPEG" ]]; then
+  PIXEL="$($FFMPEG -v error -i "$SCREENSHOT" -vf 'crop=1:1:160:120,format=rgb24' -f rawvideo - 2>/dev/null | od -An -tu1 -N3)"
+else
+  PIXEL="$("$PYTHON_PIL" -c '
+import sys
+from PIL import Image
+print(" ".join(str(value) for value in Image.open(sys.argv[1]).convert("RGB").getpixel((160, 120))))
+' "$SCREENSHOT")"
+fi
 read -r RED GREEN BLUE <<<"$PIXEL"
 if (( GREEN < 180 || RED > 40 || BLUE > 40 )); then
   printf 'Canvas export smoke failed: browser pixel check failed (%s); artifacts: %s\n' "$PIXEL" "$ARTIFACT_DIR" >&2

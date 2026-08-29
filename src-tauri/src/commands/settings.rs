@@ -94,29 +94,44 @@ pub fn update_config(
     save_config(&state.config_path, &config);
     let _ = app_handle.emit("config-changed", &*config);
 
+    // 保存后的注册失败必须回到界面上，否则设置页显示新键位而系统里根本没绑上。
     if global_changed || pin_changed || capture_changed {
         if crate::gsettings_shortcuts::is_wayland() {
             if global_changed {
-                if let Err(e) = crate::gsettings_shortcuts::update_binding(&config.global_shortcut)
-                {
-                    log::warn!("更新主窗口快捷键失败: {}", e);
-                }
+                crate::record_register_result(
+                    &app_handle,
+                    &["global"],
+                    &config.global_shortcut,
+                    true,
+                    crate::gsettings_shortcuts::update_binding(&config.global_shortcut),
+                );
             }
             if pin_changed {
-                if let Err(e) = crate::gsettings_shortcuts::update_pin_binding(&config.pin_shortcut)
-                {
-                    log::warn!("更新 Pin 快捷键失败: {}", e);
-                }
+                crate::record_register_result(
+                    &app_handle,
+                    &["pin"],
+                    &config.pin_shortcut,
+                    true,
+                    crate::gsettings_shortcuts::update_pin_binding(&config.pin_shortcut),
+                );
             }
             if capture_changed {
-                if let Err(e) =
-                    crate::gsettings_shortcuts::update_capture_binding(&config.capture_shortcut)
-                {
-                    log::warn!("更新截图快捷键失败: {}", e);
-                }
+                crate::record_register_result(
+                    &app_handle,
+                    &["capture"],
+                    &config.capture_shortcut,
+                    true,
+                    crate::gsettings_shortcuts::update_capture_binding(&config.capture_shortcut),
+                );
             }
-        } else if let Err(e) = crate::register_x11_shortcuts(&app_handle, &config) {
-            log::warn!("更新 X11 快捷键失败: {}", e);
+        } else {
+            crate::record_register_result(
+                &app_handle,
+                &["global", "pin", "capture"],
+                &config.global_shortcut,
+                false,
+                crate::register_x11_shortcuts(&app_handle, &config),
+            );
         }
     }
     Ok(())
@@ -166,16 +181,36 @@ pub fn update_shortcut(
     Ok(())
 }
 
-/// 检查指定快捷键是否已被注册。
+/// 检查指定快捷键是否已被桌面或本应用占用。
+///
+/// GNOME/Wayland 下枚举 gsettings 里已声明的绑定做精确比较；X11 下只能看到
+/// Clippy 自己的注册（X 服务器不提供他人 grab 的枚举），此时结果的
+/// `enumerable = false`，前端据此不把"没查到"说成"没有冲突"。
 #[tauri::command]
 pub fn check_shortcut_conflict(
     shortcut: String,
     app_handle: tauri::AppHandle,
-) -> Result<bool, String> {
+) -> Result<crate::shortcut_conflict::ShortcutConflict, String> {
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
-    Ok(app_handle
-        .global_shortcut()
-        .is_registered(shortcut.as_str()))
+    let probe = shortcut.clone();
+    Ok(crate::shortcut_conflict::detect_with(
+        &shortcut,
+        crate::gsettings_shortcuts::is_wayland(),
+        || app_handle.global_shortcut().is_registered(probe.as_str()),
+        crate::shortcut_conflict::scan_gnome_bindings,
+    ))
+}
+
+/// 读取快捷键注册失败记录。启动阶段的失败早于前端监听，设置页打开时必须能主动查。
+#[tauri::command]
+pub fn get_shortcut_failures(
+    state: State<AppState>,
+) -> Result<Vec<crate::app::shortcuts::ShortcutRegisterFailure>, String> {
+    let failures = state
+        .shortcut_failures
+        .lock()
+        .map_err(|error| format!("读取快捷键失败记录失败: {error}"))?;
+    Ok(failures.clone())
 }
 
 /// 打开设置窗口，并确保载入最新页面状态。

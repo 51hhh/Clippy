@@ -541,6 +541,8 @@ html, body {
   font-size: 12px;
   color: var(--danger);
   font-weight: 500;
+  /* 注册失败提示可能是多条动作各一行，换行必须保留 */
+  white-space: pre-line;
 }
 
 /* ── 操作栏 ── */

@@ -28,6 +28,8 @@ import type {
   PasteStatus,
   PinPayload,
   PinUpdate,
+  ShortcutConflict,
+  ShortcutRegisterFailure,
   SpokenText,
   TranslationBatch,
   TranslationHistoryEntry,
@@ -55,6 +57,8 @@ export type {
   PinPayload,
   PinUpdate,
   ServiceTranslation,
+  ShortcutConflict,
+  ShortcutRegisterFailure,
   SpokenText,
   TranslationBatch,
   TranslationHistoryEntry,
@@ -232,9 +236,9 @@ export function updateShortcut(newShortcut: string): Promise<void> {
   return invoke<void>("update_shortcut", { newShortcut });
 }
 
-/** 检查快捷键冲突 */
-export function checkShortcutConflict(shortcut: string): Promise<boolean> {
-  return invoke<boolean>("check_shortcut_conflict", { shortcut });
+/** 检查快捷键是否已被桌面或本应用占用 */
+export function checkShortcutConflict(shortcut: string): Promise<ShortcutConflict> {
+  return invoke<ShortcutConflict>("check_shortcut_conflict", { shortcut });
 }
 
 /** 暂停全局快捷键 */
@@ -460,9 +464,15 @@ export function onConfigChanged(callback: (config: AppConfig) => void): Promise<
 }
 
 export function onShortcutRegisterFailed(
-  callback: (shortcut: string) => void,
+  callback: (failure: ShortcutRegisterFailure) => void,
 ): Promise<UnlistenFn> {
-  return listen<string>("shortcut-register-failed", (event) => callback(event.payload));
+  return listen<ShortcutRegisterFailure>("shortcut-register-failed", (event) =>
+    callback(event.payload));
+}
+
+/** 已记录的快捷键注册失败。启动阶段的失败早于前端监听，只能主动查 */
+export function getShortcutFailures(): Promise<ShortcutRegisterFailure[]> {
+  return invoke<ShortcutRegisterFailure[]>("get_shortcut_failures");
 }
 
 export function onPinCurrent(callback: () => void): Promise<UnlistenFn> {

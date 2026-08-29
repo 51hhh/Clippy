@@ -41,6 +41,9 @@ pub struct AppState {
     pub translation: Arc<crate::translation::TranslationService>,
     pub shortcuts_paused: AtomicBool,
     pub shortcut_transition: Mutex<()>,
+    /// 快捷键注册失败记录（按动作）。启动阶段的失败事件早于前端监听，
+    /// 因此必须留一份可查询的状态，否则设置页永远看不到它。
+    pub shortcut_failures: Mutex<Vec<crate::app::shortcuts::ShortcutRegisterFailure>>,
 }
 
 impl AppState {

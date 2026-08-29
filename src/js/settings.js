@@ -8,11 +8,13 @@ import {
   getAppVersion,
   getConfig,
   getPasteStatus,
+  getShortcutFailures,
   getStats,
   isAutostartEnabled,
   isDevBinary,
   ocrAvailable,
   ocrInstall,
+  onShortcutRegisterFailed,
   pauseShortcuts,
   pickScreenshotDirectory,
   requestPastePermission,
@@ -25,6 +27,7 @@ import { initCustomSelect } from "./custom-select.js";
 import { createOcrSettings } from "./settings/ocr-settings.js";
 import { createPastePermissionController } from "./settings/paste-permission.js";
 import { createScreenshotSettings } from "./settings/screenshot-settings.js";
+import { createShortcutFailureNotice } from "./settings/shortcut-failure-notice.js";
 import {
   closeAfterShortcutCleanup,
   createShortcutRecordingController,
@@ -109,18 +112,28 @@ const shortcutRecording = createShortcutRecordingController({
       input: pinShortcutInput,
       recordButton: element("pin-shortcut-record-btn"),
       clearButton: element("pin-shortcut-clear-btn"),
+      warning: element("pin-shortcut-warning"),
       defaultValue: "Ctrl+2",
       getSavedValue: () => savedConfig?.pin_shortcut || "Ctrl+2",
+      checkConflict: checkShortcutConflict,
     },
     capture: {
       input: captureShortcutInput,
       recordButton: element("capture-shortcut-record-btn"),
       clearButton: element("capture-shortcut-clear-btn"),
+      warning: element("capture-shortcut-warning"),
       defaultValue: "Ctrl+Shift+S",
       getSavedValue: () => savedConfig?.capture_shortcut || "Ctrl+Shift+S",
+      checkConflict: checkShortcutConflict,
     },
   },
 });
+
+const shortcutFailureNotice = createShortcutFailureNotice({
+  warning: element("shortcut-register-warning"),
+  translate: i18n.t,
+});
+void onShortcutRegisterFailed((failure) => shortcutFailureNotice.add(failure));
 
 const ocrSettings = createOcrSettings({
   toggle: element("ocr-toggle"),
@@ -182,6 +195,15 @@ async function loadAutostartStatus() {
   }
 }
 
+/** 主动拉取存量注册失败记录：启动阶段的失败早于本页监听，事件已经丢了 */
+async function refreshShortcutFailures() {
+  try {
+    shortcutFailureNotice.replaceAll(await getShortcutFailures());
+  } catch (error) {
+    console.warn("读取快捷键注册状态失败:", error);
+  }
+}
+
 function whenReady(callback) {
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", callback);
@@ -205,6 +227,7 @@ whenReady(async () => {
       console.warn("获取版本号失败:", error);
     }
     await loadAutostartStatus();
+    void refreshShortcutFailures();
     void loadStats({
       getStats,
       elements: {
@@ -229,6 +252,7 @@ languageSelect.addEventListener("change", () => {
   i18n.init(languageSelect.value);
   themePicker.refreshLabels();
   shortcutRecording.refreshLabels();
+  shortcutFailureNotice.refreshLabels();
   pastePermission.refreshLabels();
   translationSettings.refreshLabels();
 });
@@ -273,6 +297,8 @@ element("save-btn").addEventListener("click", async () => {
 
     await updateConfig(newConfig);
     savedConfig = newConfig;
+    // 后端在 update_config 里同步记账，返回后查到的就是这次保存的真实结果。
+    await refreshShortcutFailures();
     showToast(i18n.t("settings.saved"));
   } catch (error) {
     console.error("保存失败:", error);

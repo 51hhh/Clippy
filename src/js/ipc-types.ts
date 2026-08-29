@@ -58,6 +58,29 @@ export interface AppConfig {
   screenshot_filename_template: string;
 }
 
+/** 快捷键占用检测结果（`check_shortcut_conflict`） */
+export interface ShortcutConflict {
+  /** 明确检测到冲突 */
+  conflicted: boolean;
+  /** `desktop` = 桌面已有绑定，`clippy` = 本应用当前已注册，null = 无冲突 */
+  source: "desktop" | "clippy" | null;
+  /** 占用者标识（gsettings key 或自定义快捷键名），只用于提示与日志 */
+  owner: string | null;
+  /** 本会话能否枚举桌面绑定；false 表示查不出来，不等于没有冲突 */
+  enumerable: boolean;
+}
+
+/** 快捷键注册失败记录（`shortcut-register-failed` 事件与 `get_shortcut_failures`） */
+export interface ShortcutRegisterFailure {
+  /** 哪个动作没绑上 */
+  action: "global" | "pin" | "capture";
+  shortcut: string;
+  /** 会话类型，决定提示里给出的处置建议 */
+  session: "wayland" | "x11";
+  /** 底层原因（中文日志文案，只作为补充信息展示） */
+  reason: string;
+}
+
 export type PasteBackend = "x11" | "wayland_portal" | "copy_only";
 
 export type PastePhase =

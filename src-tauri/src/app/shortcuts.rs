@@ -13,6 +13,88 @@ enum ShortcutAction {
     Capture,
 }
 
+/// 快捷键注册失败的事件负载。
+///
+/// 三个动作都必须能被界面看到：非 GNOME 的 Wayland 桌面上 gsettings 的
+/// media-keys schema 根本不存在，只写日志等于让快捷键静默失效——用户按键没反应，
+/// 设置页却显示得好好的。`session` 让前端能给出对应的处置建议。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ShortcutRegisterFailure {
+    /// `global` / `pin` / `capture`
+    pub action: String,
+    pub shortcut: String,
+    /// `wayland` / `x11`
+    pub session: String,
+    /// 失败原因（底层命令的错误文本）
+    pub reason: String,
+}
+
+impl ShortcutRegisterFailure {
+    pub fn new(action: &str, shortcut: &str, wayland: bool, reason: String) -> Self {
+        Self {
+            action: action.to_string(),
+            shortcut: shortcut.to_string(),
+            session: if wayland { "wayland" } else { "x11" }.to_string(),
+            reason,
+        }
+    }
+}
+
+/// 上报快捷键注册失败：日志 + 事件 + 状态。
+///
+/// 事件覆盖"设置页正开着"的场景；状态覆盖"启动阶段就失败"的场景——那时前端还没监听，
+/// 事件会丢，设置页只能靠 `get_shortcut_failures` 主动查。
+pub(crate) fn report_register_failure(
+    app: &tauri::AppHandle,
+    action: &str,
+    shortcut: &str,
+    wayland: bool,
+    reason: impl std::fmt::Display,
+) {
+    let failure = ShortcutRegisterFailure::new(action, shortcut, wayland, reason.to_string());
+    log::warn!(
+        "快捷键注册失败[{}] {}: {}",
+        failure.action,
+        failure.shortcut,
+        failure.reason
+    );
+    if let Some(state) = app.try_state::<AppState>() {
+        match state.shortcut_failures.lock() {
+            Ok(mut failures) => {
+                failures.retain(|entry| entry.action != failure.action);
+                failures.push(failure.clone());
+            }
+            Err(error) => log::warn!("记录快捷键失败状态失败: {error}"),
+        }
+    }
+    let _ = app.emit("shortcut-register-failed", failure);
+}
+
+/// 某个动作重新注册成功：清掉它的失败记录，否则设置页会一直挂着过期的红字。
+pub(crate) fn clear_register_failure(app: &tauri::AppHandle, actions: &[&str]) {
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+    match state.shortcut_failures.lock() {
+        Ok(mut failures) => failures.retain(|entry| !actions.contains(&entry.action.as_str())),
+        Err(error) => log::warn!("清理快捷键失败状态失败: {error}"),
+    };
+}
+
+/// 按注册结果记账：成功清记录，失败上报。调用点只需给出这次动作涉及的名字。
+pub(crate) fn record_register_result(
+    app: &tauri::AppHandle,
+    actions: &[&str],
+    shortcut: &str,
+    wayland: bool,
+    result: Result<(), String>,
+) {
+    match result {
+        Ok(()) => clear_register_failure(app, actions),
+        Err(reason) => report_register_failure(app, actions[0], shortcut, wayland, reason),
+    }
+}
+
 /// 已有实例运行时聚焦主窗口。
 pub(crate) fn on_second_instance(app: &tauri::AppHandle, _args: Vec<String>, _cwd: String) {
     if app.get_webview_window("main").is_some() {

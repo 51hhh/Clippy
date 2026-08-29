@@ -42,6 +42,8 @@
                 data-i18n="settings.shortcut.reset">Reset</button>
       </div>
       <div class="setting-hint" data-i18n="settings.pinShortcut.hint">Shortcut to pin the focused clip to desktop</div>
+      <div class="setting-warning hidden" id="pin-shortcut-warning"
+           data-i18n="settings.shortcut.conflict">This shortcut may conflict with an existing shortcut</div>
     </div>
 
     <div class="setting-group">
@@ -56,6 +58,13 @@
                 data-i18n="settings.shortcut.reset">Reset</button>
       </div>
       <div class="setting-hint" data-i18n="settings.captureShortcut.hint">Shortcut to start a screenshot</div>
+      <div class="setting-warning hidden" id="capture-shortcut-warning"
+           data-i18n="settings.shortcut.conflict">This shortcut may conflict with an existing shortcut</div>
+    </div>
+
+    <!-- 注册失败提示覆盖三个动作，因此独立成组 -->
+    <div class="setting-group">
+      <div class="setting-warning hidden" id="shortcut-register-warning"></div>
     </div>
 
     <div class="setting-group">
