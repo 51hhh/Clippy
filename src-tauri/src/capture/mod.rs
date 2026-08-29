@@ -151,6 +151,18 @@ pub async fn translate_capture_selection(
     .await
     .map_err(translation_ipc_error)?;
 
+    // 选区译文不属于任何剪贴板条目，历史里以 clip_id = 0 记录。
+    crate::translation::commands::record_translations(
+        state.storage.clone(),
+        None,
+        source_text.clone(),
+        vec![crate::translation::types::ServiceTranslation::from_result(
+            translated.provider,
+            Ok(translated.clone()),
+        )],
+    )
+    .await;
+
     Ok(CaptureTranslationResult::from_translation(
         source_text,
         translated,

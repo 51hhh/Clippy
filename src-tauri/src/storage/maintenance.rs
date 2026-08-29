@@ -54,6 +54,8 @@ impl StorageEngine {
         let delete_clips = format!("DELETE FROM clips WHERE id IN ({placeholders})");
         self.conn
             .execute(&delete_clips, rusqlite::params_from_iter(ids.iter()))?;
+        // 被清理条目的译文不该留在库里。
+        self.purge_orphan_translations()?;
         Ok(ids)
     }
 }

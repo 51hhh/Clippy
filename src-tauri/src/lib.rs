@@ -228,6 +228,8 @@ pub fn run() {
             commands::tmux_available,
             translation::commands::translate_text,
             translation::commands::translate_clip,
+            translation::commands::translation_history,
+            translation::commands::clear_translation_history,
             translation::commands::set_translation_api_key,
             translation::commands::has_translation_api_key,
             translation::commands::delete_translation_api_key,

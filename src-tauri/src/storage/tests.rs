@@ -237,6 +237,104 @@ fn test_clear_history_preserves_favorites() {
     assert!(engine.get_clip_by_id(c2.id).is_err());
 }
 
+fn translation_of<'a>(
+    clip_id: Option<i64>,
+    provider: &'a str,
+    translated: &'a str,
+) -> NewTranslation<'a> {
+    NewTranslation {
+        clip_id,
+        provider,
+        source_language: "en",
+        target_language: "zh",
+        source_text: "hello world",
+        translated_text: translated,
+    }
+}
+
+#[test]
+fn translation_history_keeps_one_row_per_service_and_target() {
+    let engine = StorageEngine::new_in_memory().unwrap();
+    let clip = insert_text(&engine, "hello world", "hash_translated");
+
+    engine
+        .record_translation(&translation_of(Some(clip.id), "deepl", "你好世界"))
+        .unwrap();
+    // 同一条目、同一服务、同一目标语言重复翻译只更新那一条记录。
+    engine
+        .record_translation(&translation_of(Some(clip.id), "deepl", "你好，世界"))
+        .unwrap();
+    engine
+        .record_translation(&translation_of(Some(clip.id), "google", "你好 世界"))
+        .unwrap();
+    // 目标语言不同即另一条记录。
+    engine
+        .record_translation(&NewTranslation {
+            target_language: "ja",
+            ..translation_of(Some(clip.id), "deepl", "こんにちは")
+        })
+        .unwrap();
+    // 不来自剪贴板条目的翻译同样入库，clip_id 存 0。
+    engine
+        .record_translation(&translation_of(None, "deepl", "选区译文"))
+        .unwrap();
+
+    let entries = engine.translation_history(Some(clip.id), 50).unwrap();
+    assert_eq!(entries.len(), 3);
+    let deepl_zh = entries
+        .iter()
+        .find(|entry| entry.provider == "deepl" && entry.target_language == "zh")
+        .unwrap();
+    assert_eq!(deepl_zh.translated_text, "你好，世界");
+    assert_eq!(deepl_zh.source_text, "hello world");
+
+    let all = engine.translation_history(None, 50).unwrap();
+    assert_eq!(all.len(), 4);
+    assert!(all.iter().any(|entry| entry.clip_id == 0));
+}
+
+#[test]
+fn deleting_a_clip_also_deletes_its_translations() {
+    let engine = StorageEngine::new_in_memory().unwrap();
+    let clip = insert_text(&engine, "hello world", "hash_deleted");
+    engine
+        .record_translation(&translation_of(Some(clip.id), "deepl", "你好世界"))
+        .unwrap();
+    engine
+        .record_translation(&translation_of(None, "deepl", "选区译文"))
+        .unwrap();
+
+    engine.delete_clip(clip.id).unwrap();
+    let remaining = engine.translation_history(None, 50).unwrap();
+    // 条目的译文随条目一起消失，与条目无关的记录保留。
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].clip_id, 0);
+
+    engine.clear_translation_history().unwrap();
+    assert!(engine.translation_history(None, 50).unwrap().is_empty());
+}
+
+#[test]
+fn clearing_clip_history_removes_the_translations_it_leaves_behind() {
+    let engine = StorageEngine::new_in_memory().unwrap();
+    let plain = insert_text(&engine, "hello world", "hash_plain");
+    let favorite = insert_text(&engine, "favorite text", "hash_favorite");
+    engine.toggle_favorite(favorite.id).unwrap();
+    engine
+        .record_translation(&translation_of(Some(plain.id), "deepl", "你好世界"))
+        .unwrap();
+    engine
+        .record_translation(&translation_of(Some(favorite.id), "deepl", "收藏译文"))
+        .unwrap();
+
+    engine.clear_history().unwrap();
+
+    let remaining = engine.translation_history(None, 50).unwrap();
+    // 收藏条目不会被清理，它的译文也应该留着。
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].clip_id, favorite.id);
+}
+
 #[cfg(unix)]
 #[test]
 fn file_database_and_wal_sidecars_are_private() {

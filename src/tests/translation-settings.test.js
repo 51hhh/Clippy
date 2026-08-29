@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../js/api.ts", () => ({
+  clearTranslationHistory: vi.fn(),
   deleteTranslationApiKey: vi.fn(),
   hasTranslationApiKey: vi.fn(),
   setTranslationApiKey: vi.fn(),
 }));
 
 import {
+  clearTranslationHistory,
   deleteTranslationApiKey,
   hasTranslationApiKey,
   setTranslationApiKey,
@@ -52,6 +54,8 @@ function setupDom() {
     <span id="translation-key-status-dot"></span>
     <span id="translation-key-status-text"></span>
     <strong id="translation-service-name"></strong>
+    <button id="translation-history-clear-btn"></button>
+    <span id="translation-history-status-text"></span>
   `;
 }
 
@@ -298,6 +302,31 @@ describe("translation settings", () => {
     });
     expect(element("translation-key-status-text").textContent)
       .toBe("No key is stored for this service");
+  });
+
+  it("清空已保存的译文，失败时保留可再次点击的按钮", async () => {
+    settings.fill(configWith("libretranslate"));
+    clearTranslationHistory.mockResolvedValue(undefined);
+
+    element("translation-history-clear-btn").click();
+
+    await vi.waitFor(() => {
+      expect(element("translation-history-status-text").textContent)
+        .toBe("Saved translations removed");
+    });
+    expect(clearTranslationHistory).toHaveBeenCalledTimes(1);
+    expect(showToast).toHaveBeenCalledWith("Saved translations removed");
+    expect(element("translation-history-clear-btn").disabled).toBe(false);
+
+    clearTranslationHistory.mockRejectedValue(new Error("database is locked"));
+    element("translation-history-clear-btn").click();
+
+    await vi.waitFor(() => {
+      expect(element("translation-history-status-text").textContent)
+        .toBe("Could not remove the saved translations");
+    });
+    // 失败后按钮必须重新可用，否则用户没法重试。
+    expect(element("translation-history-clear-btn").disabled).toBe(false);
   });
 
   it("忽略 provider 切换前返回的陈旧密钥状态", async () => {

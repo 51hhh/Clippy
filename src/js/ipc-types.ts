@@ -165,6 +165,18 @@ export interface TranslationBatch {
   services: ServiceTranslation[];
 }
 
+/** 一条落库的翻译记录。`clip_id` 为 0 表示不来自剪贴板条目（选区翻译或临时文本） */
+export interface TranslationHistoryEntry {
+  id: number;
+  clip_id: number;
+  provider: TranslationProvider;
+  source_language: string;
+  target_language: string;
+  source_text: string;
+  translated_text: string;
+  created_at: number;
+}
+
 export interface CaptureTranslationResult {
   requestId: number;
   provider: TranslationProvider;

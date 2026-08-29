@@ -1,9 +1,11 @@
 import {
   copyText,
   translateClip,
+  translationHistory,
   type AppConfig,
   type ClipItem,
   type ServiceTranslation,
+  type TranslationHistoryEntry,
   type TranslationProvider,
 } from "../../js/api.ts";
 import { enabledTranslationServices } from "../../js/translation-providers";
@@ -18,6 +20,8 @@ export type TranslationCard = {
   targetLanguage: string;
   errorCode: string | null;
   copyFeedback: "idle" | "copied" | "copy_failed";
+  /** 译文来自已保存的记录而不是本次请求；界面必须区分，否则用户以为刚翻译过 */
+  fromHistory: boolean;
 };
 
 export type TranslationSnapshot = {
@@ -64,6 +68,7 @@ function pendingCard(provider: TranslationProvider): TranslationCard {
     targetLanguage: "",
     errorCode: null,
     copyFeedback: "idle",
+    fromHistory: false,
   };
 }
 
@@ -83,6 +88,21 @@ function cardFromService(service: ServiceTranslation): TranslationCard {
     targetLanguage: service.target_language ?? "",
     errorCode: null,
     copyFeedback: "idle",
+    fromHistory: false,
+  };
+}
+
+/** 已保存的记录。源语言记成 "auto" 表示服务当时没报告检测结果，不冒充检测语言。 */
+function cardFromHistory(entry: TranslationHistoryEntry): TranslationCard {
+  return {
+    provider: entry.provider,
+    loading: false,
+    translatedText: entry.translated_text,
+    detectedLanguage: entry.source_language === "auto" ? null : entry.source_language,
+    targetLanguage: entry.target_language,
+    errorCode: null,
+    copyFeedback: "idle",
+    fromHistory: true,
   };
 }
 
@@ -137,11 +157,38 @@ export class TranslationStore {
     // 配置切换后，旧服务的在途响应不能覆盖新配置下的界面结果。
     this.generation += 1;
     this.commit({ config, ...this.reset() });
+    // 服务列表可能刚变化，按新配置重新摆出已保存的译文。
+    void this.loadHistory(this.snapshot.clip, this.generation);
   }
 
   setClip(clip: ClipItem | null): void {
     this.generation += 1;
     this.commit({ clip, ...this.reset() });
+    void this.loadHistory(clip, this.generation);
+  }
+
+  /**
+   * 把这条条目之前存下的译文先摆出来，用户不必为同一条目重复请求服务。
+   * 只填当前启用的服务，且只在还没有卡片时填，避免覆盖在途请求或新结果。
+   * 汇总行保持 idle：这不是本次翻译的结果，不该显示成"翻译完成"。
+   */
+  private async loadHistory(clip: ClipItem | null, generation: number): Promise<void> {
+    if (!clip || clip.is_sensitive) return;
+    let entries: TranslationHistoryEntry[];
+    try {
+      entries = await translationHistory(clip.id);
+    } catch {
+      // 历史是附带功能，读不到就当没有记录。
+      return;
+    }
+    if (!this.isCurrent(generation, clip) || this.isBusy() || this.snapshot.cards.length) return;
+    const cards = enabledTranslationServices(this.snapshot.config?.translation_services)
+      // 记录按时间倒序返回，同一服务取到的就是最近一次译文。
+      .map((service) => entries.find((entry) =>
+        entry.provider === service.provider && entry.translated_text.trim()))
+      .filter((entry): entry is TranslationHistoryEntry => Boolean(entry))
+      .map(cardFromHistory);
+    if (cards.length) this.commit({ cards });
   }
 
   private reset(): Partial<TranslationSnapshot> {

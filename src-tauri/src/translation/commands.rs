@@ -7,8 +7,8 @@ use super::types::{
     TranslationRequest, TranslationResult,
 };
 use crate::commands::AppState;
-use crate::models::{AppConfig, TranslationServiceConfig};
-use crate::storage::StorageEngine;
+use crate::models::{AppConfig, TranslationHistoryEntry, TranslationServiceConfig};
+use crate::storage::{NewTranslation, StorageEngine};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use tauri::State;
@@ -122,11 +122,11 @@ pub async fn translate_text(
 ) -> Result<TranslationBatch, String> {
     let providers = parse_providers(providers)?;
     let request_id = reserve_request_id(&state.translation, request_id);
-    translate_configured_batch(
+    let batch = translate_configured_batch(
         state.translation.clone(),
         state.config.clone(),
         TranslationInputs {
-            text,
+            text: text.clone(),
             source_language,
             target_language,
             request_id: Some(request_id),
@@ -134,7 +134,10 @@ pub async fn translate_text(
         providers,
     )
     .await
-    .map_err(ipc_error)
+    .map_err(ipc_error)?;
+    // 临时文本不属于任何剪贴板条目，历史里以 clip_id = 0 记录。
+    record_translations(state.storage.clone(), None, text, batch.services.clone()).await;
+    Ok(batch)
 }
 
 /// 根据剪贴板条目翻译文本、HTML 纯文本或图片的本地 OCR 结果。
@@ -157,11 +160,11 @@ pub async fn translate_clip(
     .await
     .map_err(ipc_error)?;
     let text = resolve_clip_text(input, storage).await.map_err(ipc_error)?;
-    translate_configured_batch(
+    let batch = translate_configured_batch(
         state.translation.clone(),
         state.config.clone(),
         TranslationInputs {
-            text,
+            text: text.clone(),
             source_language,
             target_language,
             request_id: Some(request_id),
@@ -169,7 +172,92 @@ pub async fn translate_clip(
         providers,
     )
     .await
+    .map_err(ipc_error)?;
+    record_translations(
+        state.storage.clone(),
+        Some(id),
+        text,
+        batch.services.clone(),
+    )
+    .await;
+    Ok(batch)
+}
+
+/// 翻译记录，最新的在前。`clip_id` 为 None 时返回全部记录。
+#[tauri::command]
+pub async fn translation_history(
+    clip_id: Option<i64>,
+    limit: Option<i64>,
+    state: State<'_, AppState>,
+) -> Result<Vec<TranslationHistoryEntry>, String> {
+    let storage = state.storage.clone();
+    let limit = limit.unwrap_or(50);
+    run_blocking(move || {
+        storage
+            .lock()
+            .map_err(|_| TranslationError::Internal)?
+            .translation_history(clip_id, limit)
+            .map_err(|_| TranslationError::Internal)
+    })
+    .await
     .map_err(ipc_error)
+}
+
+/// 清空翻译记录。译文一旦落盘，用户必须有办法把它删掉。
+#[tauri::command]
+pub async fn clear_translation_history(state: State<'_, AppState>) -> Result<(), String> {
+    let storage = state.storage.clone();
+    run_blocking(move || {
+        storage
+            .lock()
+            .map_err(|_| TranslationError::Internal)?
+            .clear_translation_history()
+            .map_err(|_| TranslationError::Internal)
+    })
+    .await
+    .map_err(ipc_error)
+}
+
+/// 把成功的译文写入翻译历史。历史是附带功能，写失败只记日志，不影响本次翻译结果。
+pub(crate) async fn record_translations(
+    storage: Arc<Mutex<StorageEngine>>,
+    clip_id: Option<i64>,
+    source_text: String,
+    services: Vec<ServiceTranslation>,
+) {
+    let recorded = run_blocking(move || {
+        let storage = storage.lock().map_err(|_| TranslationError::Internal)?;
+        for service in &services {
+            let ServiceTranslation::Ok {
+                provider,
+                translated_text,
+                detected_source_language,
+                target_language,
+            } = service
+            else {
+                continue;
+            };
+            let entry = NewTranslation {
+                clip_id,
+                provider: provider.as_str(),
+                // 服务没报告检测结果时记 auto，不要假装知道源语言。
+                source_language: detected_source_language
+                    .as_deref()
+                    .unwrap_or(super::direction::AUTO_LANGUAGE),
+                target_language,
+                source_text: &source_text,
+                translated_text,
+            };
+            storage
+                .record_translation(&entry)
+                .map_err(|_| TranslationError::Internal)?;
+        }
+        Ok(())
+    })
+    .await;
+    if recorded.is_err() {
+        log::warn!("翻译历史写入失败");
+    }
 }
 
 /// 保存指定 provider 的凭据。密钥只进入系统 keyring。

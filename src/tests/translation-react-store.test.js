@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../js/api.ts", () => ({
   copyText: vi.fn(),
   translateClip: vi.fn(),
+  translationHistory: vi.fn(),
 }));
 
 import * as api from "../js/api.ts";
@@ -87,6 +88,8 @@ describe("React translation store", () => {
     store = new TranslationStore();
     api.translateClip.mockReset();
     api.copyText.mockReset();
+    api.translationHistory.mockReset();
+    api.translationHistory.mockResolvedValue([]);
     store.setConfig(config);
   });
 
@@ -105,6 +108,79 @@ describe("React translation store", () => {
     await store.copy("libretranslate");
     expect(api.copyText).toHaveBeenCalledWith("你好");
     expect(cardOf(store, "libretranslate").copyFeedback).toBe("copied");
+  });
+
+  it("shows saved translations for a clip without contacting a service", async () => {
+    api.translationHistory.mockResolvedValue([
+      {
+        id: 9,
+        clip_id: 4,
+        provider: "libretranslate",
+        source_language: "auto",
+        target_language: "zh",
+        source_text: "hello",
+        translated_text: "早先的译文",
+        created_at: 100,
+      },
+      // 未启用的服务留在库里的记录不该出现在界面上。
+      {
+        id: 8,
+        clip_id: 4,
+        provider: "deepl",
+        source_language: "en",
+        target_language: "zh",
+        source_text: "hello",
+        translated_text: "DeepL 译文",
+        created_at: 90,
+      },
+    ]);
+    store.setClip(clip(4));
+
+    await vi.waitFor(() => {
+      expect(store.getSnapshot().cards).toHaveLength(1);
+    });
+    expect(api.translationHistory).toHaveBeenCalledWith(4);
+    expect(api.translateClip).not.toHaveBeenCalled();
+    expect(cardOf(store, "libretranslate")).toMatchObject({
+      translatedText: "早先的译文",
+      // 记录里的 auto 表示服务当时没报告检测结果。
+      detectedLanguage: null,
+      fromHistory: true,
+    });
+    // 这不是本次翻译的结果，汇总行不能显示成"翻译完成"。
+    expect(store.getSnapshot().feedback).toBe("idle");
+
+    const html = renderToStaticMarkup(React.createElement(TranslationPanel, { store }));
+    expect(html).toContain("Saved earlier");
+    expect(html).toContain("早先的译文");
+    expect(html).not.toContain("DeepL 译文");
+
+    // 重新翻译后卡片是新结果，不再标注为保存的译文。
+    api.translateClip.mockResolvedValue(batch(ok("libretranslate", "新的译文", "en")));
+    await store.translate();
+    expect(cardOf(store, "libretranslate")).toMatchObject({
+      translatedText: "新的译文",
+      fromHistory: false,
+    });
+  });
+
+  it("keeps saved translations out of the panel for sensitive items", async () => {
+    api.translationHistory.mockResolvedValue([
+      {
+        id: 7,
+        clip_id: 5,
+        provider: "libretranslate",
+        source_language: "en",
+        target_language: "zh",
+        source_text: "hello",
+        translated_text: "不该出现",
+        created_at: 100,
+      },
+    ]);
+    store.setClip(clip(5, true));
+    await Promise.resolve();
+    expect(api.translationHistory).not.toHaveBeenCalled();
+    expect(store.getSnapshot().cards).toHaveLength(0);
   });
 
   it("blocks sensitive items before calling the service", async () => {
