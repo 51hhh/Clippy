@@ -29,7 +29,10 @@
       前端 canvas filter 与 `pngPipeline` 导出走同一套参数，再加一份 Rust 逐像素实现
       会产生两个需要保持一致的真值来源，收益为负
 - [x] 前端归一化/filter 单元测试覆盖
-- 来源: flashot image_adjust.rs
+- [x] 圆角导出 — **同样决定不移植 Rust 版**：`canvasRenderer.ts::renderExport` 已用
+      `destination-in` + `roundRect` 抠圆角，与预览共用 `cornerRadius`，抗锯齿由 canvas 负责；
+      `scripts/smoke-canvas-export.sh` 在真实 canvas 上断言角点 alpha < 128
+- 来源: flashot image_adjust.rs, mask.rs
 
 ## P3.5: 截图编辑器
 - [x] Linux 截图 fallback：xcap + Wayland/wlroots + Portal + GNOME Shell
@@ -64,6 +67,13 @@
 - [x] opt-level = "s"
 - [x] 使用 lto = "fat" (translator 用法)
 - 来源: translator Cargo.toml
+
+## P6.5: 后端原生文案本地化
+- [x] `src-tauri/src/i18n.rs`：`NativeText` 静态文案（托盘 Open/Settings/Quit、设置窗口标题、
+      截图编辑器窗口标题），漏字段在编译期报错
+- [x] 语言解析与前端 `i18n.js::resolveLocale` 同规则；环境变量按参数注入便于测试
+- [x] `config-changed` 用 `MenuItem::set_text` 原地刷新菜单文案，不重建菜单
+- 来源: flashot i18n.rs（只借鉴静态文案结构，语言集合按 Clippy 的 en/zh-CN）
 
 ## P7: ci-local.sh 增强
 - [x] 添加 DOM/Xvfb smoke 与 Linux 全目标编译检查

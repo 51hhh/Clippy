@@ -57,6 +57,34 @@ pub fn show_main_window(app: &tauri::AppHandle) -> Result<(), String> {
     window.set_focus().map_err(|error| error.to_string())
 }
 
+/// 打开（或重开）设置窗口。托盘菜单和 IPC 命令共用这一处，
+/// 标题按界面语言取，避免两边各写一份几何与文案。
+pub(crate) fn open_settings_window(app: &tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("settings") {
+        let _ = window.close();
+    }
+    tauri::WebviewWindowBuilder::new(
+        app,
+        "settings",
+        tauri::WebviewUrl::App("settings.html".into()),
+    )
+    .title(native_text(app).settings_title)
+    .inner_size(720.0, 560.0)
+    .min_inner_size(480.0, 400.0)
+    .center()
+    .resizable(true)
+    .build()
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// managed state 尚未注入时（例如 setup 早期失败路径）退回英文文案。
+pub(crate) fn native_text(app: &tauri::AppHandle) -> crate::i18n::NativeText {
+    app.try_state::<AppState>()
+        .map(|state| state.native_text())
+        .unwrap_or_else(|| crate::i18n::native_text(crate::i18n::Locale::En))
+}
+
 pub(crate) fn remember_main_window_position(
     window: &tauri::Window,
     position: PhysicalPosition<i32>,
