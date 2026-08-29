@@ -7,6 +7,7 @@
  */
 
 import {
+  clearTranslationHistory,
   deleteTranslationApiKey,
   hasTranslationApiKey,
   setTranslationApiKey,
@@ -98,6 +99,8 @@ export function initTranslationSettings({ root = document, showToast = () => {} 
   const keyStatusDot = getRequiredElement(root, "translation-key-status-dot");
   const keyStatusText = getRequiredElement(root, "translation-key-status-text");
   const serviceName = getRequiredElement(root, "translation-service-name");
+  const historyClearBtn = getRequiredElement(root, "translation-history-clear-btn");
+  const historyStatusText = getRequiredElement(root, "translation-history-status-text");
 
   let lastProvider = DEFAULT_TRANSLATION_PROVIDER;
   let services = emptyServices();
@@ -295,6 +298,27 @@ export function initTranslationSettings({ root = document, showToast = () => {} 
       if (activeRequest !== requestId || provider !== currentProvider()) return;
       renderKeyStatus("error", String(error), true);
       showToast(i18n.t("settings.translation.keyDeleteFailed"));
+    }
+  });
+
+  /**
+   * 清空已保存的译文。这个动作与正在编辑的服务无关，因此不参与密钥状态的 requestId 竞争，
+   * 只在按钮自身上做防重入。
+   */
+  historyClearBtn.addEventListener("click", async () => {
+    historyClearBtn.disabled = true;
+    historyStatusText.textContent = i18n.t("settings.translation.historyClearing");
+    historyStatusText.title = "";
+    try {
+      await clearTranslationHistory();
+      historyStatusText.textContent = i18n.t("settings.translation.historyCleared");
+      showToast(i18n.t("settings.translation.historyCleared"));
+    } catch (error) {
+      historyStatusText.textContent = i18n.t("settings.translation.historyClearFailed");
+      historyStatusText.title = String(error);
+      showToast(i18n.t("settings.translation.historyClearFailed"));
+    } finally {
+      historyClearBtn.disabled = false;
     }
   });
 

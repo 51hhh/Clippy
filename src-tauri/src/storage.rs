@@ -1,6 +1,9 @@
 mod maintenance;
 mod stats;
+mod translation_history;
 mod url_cache;
+
+pub use translation_history::NewTranslation;
 
 use crate::models::{ClipItem, ContentType};
 use crate::private_files::{ensure_private_file, restrict_file};
@@ -177,6 +180,27 @@ impl StorageEngine {
                 site_name   TEXT,
                 fetched_at  INTEGER NOT NULL
             );",
+        )?;
+
+        // 翻译历史表。clip_id = 0 表示不来自剪贴板条目（选区翻译或临时文本）：
+        // SQLite 的 UNIQUE 不约束 NULL，用 0 作哨兵才能对这类记录同样去重。
+        self.conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS translation_history (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                clip_id         INTEGER NOT NULL DEFAULT 0,
+                provider        TEXT NOT NULL,
+                source_language TEXT NOT NULL,
+                target_language TEXT NOT NULL,
+                source_hash     TEXT NOT NULL,
+                source_text     TEXT NOT NULL,
+                translated_text TEXT NOT NULL,
+                created_at      INTEGER NOT NULL
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_translation_history_unique
+                ON translation_history(clip_id, provider, target_language, source_hash);
+            CREATE INDEX IF NOT EXISTS idx_translation_history_created_at
+                ON translation_history(created_at DESC);",
         )?;
 
         self.rebuild_fts_once("search_v2")?;
@@ -480,6 +504,11 @@ impl StorageEngine {
         // 删除主表记录
         self.conn
             .execute("DELETE FROM clips WHERE id = ?1", params![id])?;
+        // 条目的译文同样是它的内容，一并删除。
+        self.conn.execute(
+            "DELETE FROM translation_history WHERE clip_id = ?1",
+            params![id],
+        )?;
         Ok(())
     }
 
@@ -504,6 +533,7 @@ impl StorageEngine {
         // 重建 FTS 虚拟表
         self.conn
             .execute("INSERT INTO clips_fts(clips_fts) VALUES ('rebuild')", [])?;
+        self.purge_orphan_translations()?;
         Ok(())
     }
 }

@@ -307,6 +307,20 @@
         <p id="translation-privacy-text"
            data-i18n="settings.translation.privacy">Text is sent only when you explicitly request translation. Images are never uploaded; image translation uses local OCR first.</p>
       </div>
+      <div class="translation-field translation-field-wide">
+        <span class="setting-label setting-label-sub" id="translation-history-label"
+              data-i18n="settings.translation.history">Saved Translations</span>
+        <div class="translation-key-row">
+          <button class="btn btn-small btn-secondary" id="translation-history-clear-btn" type="button"
+                  aria-describedby="translation-history-hint"
+                  data-i18n="settings.translation.clearHistory">Clear Saved Translations</button>
+        </div>
+        <div class="setting-hint" id="translation-history-hint"
+             data-i18n="settings.translation.historyHint">Translations are saved in the local database, so a clip you already translated shows its result without another request. Deleting a clip also deletes its translations.</div>
+        <div class="translation-key-status" role="status" aria-live="polite">
+          <span class="translation-status-text" id="translation-history-status-text"></span>
+        </div>
+      </div>
     </div>
 
     <div class="setting-group" id="tmux-group" hidden>

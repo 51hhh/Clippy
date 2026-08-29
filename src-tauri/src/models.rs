@@ -288,6 +288,19 @@ impl AppConfig {
     }
 }
 
+/// 一条翻译记录。`clip_id` 为 0 表示不来自剪贴板条目（选区翻译或临时文本）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TranslationHistoryEntry {
+    pub id: i64,
+    pub clip_id: i64,
+    pub provider: String,
+    pub source_language: String,
+    pub target_language: String,
+    pub source_text: String,
+    pub translated_text: String,
+    pub created_at: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UrlMeta {
     pub url: String,

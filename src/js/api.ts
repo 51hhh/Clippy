@@ -29,6 +29,7 @@ import type {
   PinPayload,
   PinUpdate,
   TranslationBatch,
+  TranslationHistoryEntry,
   TranslationProvider,
   TranslationResult,
   UrlMeta,
@@ -54,6 +55,7 @@ export type {
   PinUpdate,
   ServiceTranslation,
   TranslationBatch,
+  TranslationHistoryEntry,
   TranslationProvider,
   TranslationResult,
   TranslationServiceConfig,
@@ -169,6 +171,22 @@ export function translateClip(
     requestId: null,
     providers: providers ?? null,
   });
+}
+
+/** 已保存的翻译记录，最新的在前。`clipId` 省略表示不限条目 */
+export function translationHistory(
+  clipId?: number,
+  limit?: number,
+): Promise<TranslationHistoryEntry[]> {
+  return invoke<TranslationHistoryEntry[]>("translation_history", {
+    clipId: clipId ?? null,
+    limit: limit ?? null,
+  });
+}
+
+/** 清空全部翻译记录。译文落盘后用户必须有办法把它删掉 */
+export function clearTranslationHistory(): Promise<void> {
+  return invoke<void>("clear_translation_history");
 }
 
 /**

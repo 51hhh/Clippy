@@ -72,6 +72,8 @@ export function translationCardStatusText(card: TranslationCard): string {
   if (card.errorCode) return errorText(card.errorCode);
   if (card.copyFeedback === "copied") return t("translation.copied");
   if (card.copyFeedback === "copy_failed") return t("translation.copyFailed");
+  // 记录里的译文可能是很久以前翻的，不能让它看起来像刚出的结果。
+  if (card.fromHistory) return t("translation.fromHistory");
   return card.detectedLanguage
     ? t("translation.detected", { language: card.detectedLanguage })
     : t("translation.result");
