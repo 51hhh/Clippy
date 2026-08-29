@@ -7,6 +7,17 @@
 两个参考项目版本与 `.trellis/tasks/08-08-clippy-integrated-refactor/research/example-integration-analysis.md`
 记录一致，上游无新增可借鉴变更，本方案沿用该分析的许可与边界结论。
 
+## 当前进度（2026-08-29 收尾）
+
+Phase 0～4 的**代码侧全部完成**，门禁 `./scripts/ci-local.sh` 10 通过 / 0 失败 / 1 跳过。
+剩余两项都不该由 AI 自动做：
+
+1. **真实桌面矩阵**（Phase 1 下半段）——只能在真机 GNOME X11 / GNOME Wayland / KDE Wayland
+   上人工完成，结果写回 `qa-matrix.md` 与 `completion-audit.md`，Trellis 任务才能标 `completed`。
+2. **拆分 `feat:暂存`**（Phase 0 最后一条）——需要改写已推送的 `origin/dev` 历史并 force push。
+
+本地 `dev` 领先 `origin/dev` 若干提交，**尚未推送**，推送时机由项目所有者决定。
+
 ## 暂存点状态
 
 `ebba448` 是一次未整理的提交，工作树干净、无 stash，内容为三项收尾：
@@ -23,14 +34,16 @@ Trellis 任务 `08-08-clippy-integrated-refactor` 仍为 `in_progress`，阻断�
 
 本机开发环境缺依赖，当前两条门禁命令都无法执行，任何改动都没有验证网，必须先修。
 
-- [ ] `sudo apt install libgtk-3-dev`（`cargo check` 现在挂在 `gdk-sys` 找不到 `gdk-3.0.pc`），
-      并把该包补进 CLAUDE.md 的依赖清单
-- [ ] `cd src && npm ci`（`src/node_modules` 缺失，`npm test` 报 `vitest: not found`）
-- [ ] 跑通 `cargo fmt/check/clippy --all-targets`、`cargo test`、`vitest`、`tsc --noEmit`、
-      `./scripts/ci-local.sh`，确认暂存点为绿
+- [x] `sudo apt install libgtk-3-dev`，并把该包补进 CLAUDE.md 的依赖清单
+- [x] `cd src && npm ci`
+- [x] 跑通 `cargo fmt/check/clippy --all-targets`、`cargo test`、`vitest`、`tsc --noEmit`、
+      `./scripts/ci-local.sh`
 - [ ] 把 `feat:暂存` 拆成三个语义化 commit（React 翻译面板 / Pin React / Portal token 状态机）
+      — **未做，留给项目所有者决定**：`ebba448` 已经推到 `origin/dev`，现在它下面还压着 11 个
+      提交，拆分等于改写已发布历史 + force push。这属于对外可见且难以回退的动作，不自动执行
 
-验收：门禁全绿，且 `git log` 无 `feat:暂存` 这类无信息 message。
+验收：门禁全绿（当前 `./scripts/ci-local.sh` 10 通过 / 0 失败 / 1 跳过，跳过项是需要显式开启的
+AppImage 可视 smoke）。`git log` 里仍有一条 `feat:暂存`，见上条。
 
 ## Phase 1：关闭综合重构任务（当前瓶颈）
 
@@ -38,14 +51,14 @@ Trellis 任务 `08-08-clippy-integrated-refactor` 仍为 `in_progress`，阻断�
 
 ### 代码侧
 
-- [ ] **P4 错误类型化**：以现有 `translation/types.rs::TranslationError` 为模板（`thiserror` +
+- [x] **P4 错误类型化**：以现有 `translation/types.rs::TranslationError` 为模板（`thiserror` +
       稳定 `code()` + 不泄漏底层上下文的 `ipc_message()`），扩展到 storage / capture / pin / paste；
       command 层继续对外返回 `String`，内部保持结构化
-- [ ] **P7 `require_cmd`**：`scripts/ci-local.sh` 增加前置命令存在性检查（参考 flashot
+- [x] **P7 `require_cmd`**：`scripts/ci-local.sh` 增加前置命令存在性检查（参考 flashot
       `scripts/ci-local.sh`），缺 `xvfb-run`/`npm` 等时明确报错而非中途失败
-- [ ] **P0 Wayland Pin 置顶**：只产出调研结论文档（layer-shell 取舍、是否值得引入），
+- [x] **P0 Wayland Pin 置顶**：只产出调研结论文档（layer-shell 取舍、是否值得引入），
       不改代码；X11/通用路径的 `always_on_top` 保持现状
-- [ ] **P3 关闭为"不做"**：图像调整保留在前端 canvas filter。理由：导出走
+- [x] **P3 关闭为"不做"**：图像调整保留在前端 canvas filter。理由：导出走
       `src/react/capture/pngPipeline.ts` 已与预览一致，再在 Rust 写一份逐像素实现属重复实现，
       维护两份归一化逻辑反而增加不一致风险
 
