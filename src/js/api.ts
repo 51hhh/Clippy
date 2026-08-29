@@ -28,6 +28,7 @@ import type {
   PasteStatus,
   PinPayload,
   PinUpdate,
+  SpokenText,
   TranslationBatch,
   TranslationHistoryEntry,
   TranslationProvider,
@@ -54,6 +55,7 @@ export type {
   PinPayload,
   PinUpdate,
   ServiceTranslation,
+  SpokenText,
   TranslationBatch,
   TranslationHistoryEntry,
   TranslationProvider,
@@ -171,6 +173,16 @@ export function translateClip(
     requestId: null,
     providers: providers ?? null,
   });
+}
+
+/** 朗读一段文本（结果卡上的译文）。音频由后端取回，webview 不请求第三方主机 */
+export function speakText(text: string, language?: string): Promise<SpokenText> {
+  return invoke<SpokenText>("speak_text", { text, language: language ?? null });
+}
+
+/** 朗读剪贴板条目自身的文本；敏感条目由后端拒绝 */
+export function speakClip(id: number, language?: string): Promise<SpokenText> {
+  return invoke<SpokenText>("speak_clip", { id, language: language ?? null });
 }
 
 /** 已保存的翻译记录，最新的在前。`clipId` 省略表示不限条目 */

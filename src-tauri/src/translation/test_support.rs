@@ -43,6 +43,14 @@ impl MockResponse {
         }
     }
 
+    pub(super) fn audio(body: impl Into<String>) -> Self {
+        Self {
+            status: 200,
+            content_type: "audio/mpeg",
+            body: body.into(),
+        }
+    }
+
     pub(super) fn status(status: u16, body: impl Into<String>) -> Self {
         Self {
             status,

@@ -165,6 +165,15 @@ export interface TranslationBatch {
   services: ServiceTranslation[];
 }
 
+/**
+ * 一段可播放的音频。前端拼成 `data:{mime_type};base64,{audio_base64}` 播放，
+ * 远端请求由 Rust 完成，webview 不直接访问第三方主机。
+ */
+export interface SpokenText {
+  mime_type: string;
+  audio_base64: string;
+}
+
 /** 一条落库的翻译记录。`clip_id` 为 0 表示不来自剪贴板条目（选区翻译或临时文本） */
 export interface TranslationHistoryEntry {
   id: number;

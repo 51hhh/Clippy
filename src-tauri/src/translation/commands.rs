@@ -203,6 +203,39 @@ pub async fn translation_history(
     .map_err(ipc_error)
 }
 
+/// 朗读一段文本。前端只会拿它读自己已经显示出来的译文，
+/// 与 `translate_text` 同一信任级别：文本由用户的显式动作提供。
+#[tauri::command]
+pub async fn speak_text(
+    text: String,
+    language: Option<String>,
+) -> Result<super::tts::SpokenText, String> {
+    run_blocking(move || super::tts::fetch_audio(&text, language.as_deref()))
+        .await
+        .map_err(ipc_error)
+}
+
+/// 朗读剪贴板条目自身的文本。走与翻译相同的内容选择，
+/// 敏感条目在这里同样被拒绝，绝不会发往 dictvoice。
+#[tauri::command]
+pub async fn speak_clip(
+    id: i64,
+    language: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<super::tts::SpokenText, String> {
+    let storage = state.storage.clone();
+    let input = run_blocking({
+        let storage = storage.clone();
+        move || load_clip_input(&storage, id)
+    })
+    .await
+    .map_err(ipc_error)?;
+    let text = resolve_clip_text(input, storage).await.map_err(ipc_error)?;
+    run_blocking(move || super::tts::fetch_audio(&text, language.as_deref()))
+        .await
+        .map_err(ipc_error)
+}
+
 /// 清空翻译记录。译文一旦落盘，用户必须有办法把它删掉。
 #[tauri::command]
 pub async fn clear_translation_history(state: State<'_, AppState>) -> Result<(), String> {

@@ -119,7 +119,10 @@ google 976 行、bing 1256 行、deepl 634 行、youdao 1372 行，其中非官�
       重复翻译 upsert 同一行，全库上限 500 条；条目删除/历史清空/上限清理都会带走它的译文。
       写入失败只记日志，不影响本次翻译结果。选中条目时按启用的服务回填卡片并标为
       "Saved earlier"，汇总行保持 idle；设置页提供"清空已保存的译文"）
-- [ ] **2g** dictvoice TTS（敏感条目沿用阻断策略）
+- [x] **2g** dictvoice TTS（敏感条目沿用阻断策略）
+      （`translation/tts.rs`：Rust 经共享 HTTP 层取回音频，前端以 data URL 播放，
+      webview 不直接访问 dictvoice；文本上限 200 字符，非 MP3 响应按 invalid_response 拒绝。
+      `speak_clip` 走翻译同一条内容选择路径，敏感条目被拒；一次只播一段）
 
 ## Phase 3：截图与导出增强（flashot，MIT 可复用）
 

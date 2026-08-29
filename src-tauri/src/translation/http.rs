@@ -97,6 +97,19 @@ impl HttpRequest {
         decode_text_body(body)
     }
 
+    /// 用于响应是二进制的路径（dictvoice 音频）。空响应按无效响应处理，
+    /// 否则前端会拿到一段播不出声的数据却看不到原因。
+    pub(super) fn send_bytes(self) -> Result<Vec<u8>, TranslationError> {
+        let body = self.send()?;
+        if body.len() > MAX_RESPONSE_BYTES {
+            return Err(TranslationError::ResponseTooLarge);
+        }
+        if body.is_empty() {
+            return Err(TranslationError::InvalidResponse);
+        }
+        Ok(body)
+    }
+
     fn has_header(&self, name: &str) -> bool {
         self.headers
             .iter()

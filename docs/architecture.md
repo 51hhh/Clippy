@@ -20,7 +20,7 @@
 | `capture/` | 单一 CaptureSession、冻结帧、多显示器覆盖层、裁剪与动作 |
 | `screenshot.rs` + `screenshot/*` | 原始截图帧契约与 PNG 编解码；Wayland/Portal/GNOME/xcap fallback 和几何测试隔离 |
 | `pin/` | PinManager、内容来源、窗口尺寸、缩放/透明度/锁定和清理 |
-| `translation/` | provider、超时/重试、request-id、内容选择、Secret Service；启用的服务按 `spawn_blocking` 并行，单服务失败作为数据返回；`direction.rs` 在文本已是目标语言时按备选语言换向 |
+| `translation/` | provider、超时/重试、request-id、内容选择、Secret Service；启用的服务按 `spawn_blocking` 并行，单服务失败作为数据返回；`direction.rs` 在文本已是目标语言时按备选语言换向；`tts.rs` 走 dictvoice 取回音频 |
 | `storage.rs` + `storage/*` | SQLite/FTS5 初始化与搜索；维护清理、统计、URL 缓存、翻译记录和测试各自隔离 |
 
 ## 前端模块
@@ -67,7 +67,8 @@ Fallback: permission/backend/injection failure -> clipboard remains populated, n
 
 ## 安全规则
 
-- 敏感条目在 Rust 内容选择阶段拒绝翻译。
+- 敏感条目在 Rust 内容选择阶段拒绝翻译；朗读条目文本走同一条内容选择路径，因此同样被拒绝。
+- 朗读音频由 Rust 取回后以 data URL 播放，webview 不直接请求 dictvoice；文本长度上限 200 字符。
 - 图片翻译只把本地 OCR 文本发送给 provider，不上传原图。
 - API key 只进入系统 Secret Service，不提供明文 fallback。
 - 成功的译文与原文落在同一个 SQLite 库（`translation_history`，全库上限 500 条）：条目删除、历史清空和上限清理都会一并删除它的译文，设置里另有"清空已保存的译文"入口。敏感条目从不进入翻译，因此也不会产生记录。

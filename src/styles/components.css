@@ -262,6 +262,13 @@
   display: inline-flex;
   gap: 2px;
 }
+/* 朗读按钮与翻译按钮同属标题栏右侧，不能被 space-between 推到两端 */
+.translation-header-actions {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 .translation-copy {
   width: 28px;
   height: 28px;

@@ -1,4 +1,4 @@
-import { Copy, RotateCcw } from "lucide-react";
+import { Copy, RotateCcw, Volume2 } from "lucide-react";
 import { useSyncExternalStore } from "react";
 import {
   enabledTranslationServices,
@@ -59,6 +59,16 @@ function errorText(errorCode: string | null): string {
   return t(errorCode ? ERROR_KEYS[errorCode] || "translation.error.generic" : "translation.error.generic");
 }
 
+/**
+ * 朗读失败的提示。有稳定错误码时说明具体原因（网络、限流等），
+ * 只有拿不到原因时才退回通用文案。
+ */
+export function translationSpeechErrorText(errorCode: string | null): string {
+  return errorCode && errorCode !== "internal"
+    ? errorText(errorCode)
+    : t("translation.speechFailed");
+}
+
 export function translationFeedbackText(feedback: string, errorCode: string | null): string {
   if (feedback === "complete") return t("translation.complete");
   if (feedback === "partial") return t("translation.partial");
@@ -97,6 +107,7 @@ export function TranslationPanel({ store = translationStore }: { store?: Transla
     : snapshot.loading ? "translation.translating" : "translation.translate");
   const feedback = translationFeedbackText(snapshot.feedback, snapshot.errorCode);
   const busy = snapshot.loading || snapshot.cards.some((card) => card.loading);
+  const speaking = snapshot.speaking !== null;
 
   return (
     <section className="translation-panel" aria-labelledby="translation-title">
@@ -132,18 +143,31 @@ export function TranslationPanel({ store = translationStore }: { store?: Transla
             </ul>
           )}
         </div>
-        <button
-          id="translation-action-react"
-          className="translation-action"
-          type="button"
-          disabled={clip.is_sensitive || busy}
-          aria-describedby={clip.is_sensitive
-            ? "translation-privacy-react translation-sensitive-react"
-            : "translation-privacy-react"}
-          onClick={() => void store.translate()}
-        >
-          {actionLabel}
-        </button>
+        <div className="translation-header-actions">
+          {/* 原文朗读与翻译无关，敏感条目同样不允许发往 dictvoice。 */}
+          <button
+            className="translation-copy translation-speak"
+            type="button"
+            disabled={clip.is_sensitive || speaking}
+            aria-label={t("translation.speakSource")}
+            title={t("translation.speakSource")}
+            onClick={() => void store.speakSource()}
+          >
+            <Volume2 size={15} />
+          </button>
+          <button
+            id="translation-action-react"
+            className="translation-action"
+            type="button"
+            disabled={clip.is_sensitive || busy}
+            aria-describedby={clip.is_sensitive
+              ? "translation-privacy-react translation-sensitive-react"
+              : "translation-privacy-react"}
+            onClick={() => void store.translate()}
+          >
+            {actionLabel}
+          </button>
+        </div>
       </div>
       <p id="translation-privacy-react" className="translation-privacy">{t("translation.privacy")}</p>
       {clip.is_sensitive && (
@@ -154,6 +178,16 @@ export function TranslationPanel({ store = translationStore }: { store?: Transla
       {snapshot.loading && (
         <p className="translation-status" role="status" aria-live="polite">
           {t("translation.working")}
+        </p>
+      )}
+      {speaking && (
+        <p className="translation-status" role="status" aria-live="polite">
+          {t("translation.speaking")}
+        </p>
+      )}
+      {snapshot.speechErrorCode && (
+        <p className="translation-status" data-state="error" role="status" aria-live="polite">
+          {translationSpeechErrorText(snapshot.speechErrorCode)}
         </p>
       )}
       {feedback && (
@@ -190,6 +224,16 @@ export function TranslationPanel({ store = translationStore }: { store?: Transla
                 </span>
               )}
               <span className="translation-card-actions">
+                <button
+                  className="translation-copy translation-speak"
+                  type="button"
+                  disabled={!card.translatedText || clip.is_sensitive || speaking}
+                  aria-label={`${t("translation.speak")} — ${providerLabel}`}
+                  title={t("translation.speak")}
+                  onClick={() => void store.speakTranslation(card.provider)}
+                >
+                  <Volume2 size={15} />
+                </button>
                 <button
                   className="translation-copy"
                   type="button"
