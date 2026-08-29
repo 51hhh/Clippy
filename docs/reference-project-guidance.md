@@ -38,6 +38,11 @@ Rust/Tauri 继续拥有剪贴板、截图帧、窗口、Portal 会话、Pin 数�
 代价已知并被接受：非官方端点没有可用性承诺、可能随时变更或限流，且朗读会把待读文本发往
 第三方。实现时必须保证敏感剪贴板内容在本地阻断的规则同样覆盖这些路径。
 
+实现上与 translator 有一处有意的偏离：translator 把 dictvoice URL 交给 webview 播放，
+Clippy 由 Rust 取回音频再以 data URL 播放（`translation/tts.rs`）。这样超时、1 MiB 上限与
+端点白名单仍只有 `translation/http.rs` 一处实现，webview 的 CSP 也不必为第三方主机放开
+`media-src`。
+
 ## 后续实现顺序
 
 优先保持会话、授权 token、Pin 生命周期和翻译请求的可测试性；再逐步迁移 preview、codec、settings 等稳定功能。真实 GNOME X11/Wayland、KDE Wayland、Secret Service 和翻译服务矩阵必须在发布前单独完成，不能以本地单元测试代替。

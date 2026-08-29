@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../js/api.ts", () => ({
   copyText: vi.fn(),
+  speakClip: vi.fn(),
+  speakText: vi.fn(),
   translateClip: vi.fn(),
   translationHistory: vi.fn(),
 }));
@@ -81,15 +83,26 @@ function deferred() {
   return { promise, resolve };
 }
 
+/** jsdom 播不了音频，所以播放器是注入的：记录播过什么、能否失败即可 */
+function fakePlayer() {
+  return { play: vi.fn().mockResolvedValue(undefined), stop: vi.fn() };
+}
+
+const spoken = { mime_type: "audio/mpeg", audio_base64: "SUQz" };
+
 describe("React translation store", () => {
   let store;
+  let player;
   beforeEach(() => {
     i18n.init("en");
-    store = new TranslationStore();
+    player = fakePlayer();
+    store = new TranslationStore(player);
     api.translateClip.mockReset();
     api.copyText.mockReset();
     api.translationHistory.mockReset();
     api.translationHistory.mockResolvedValue([]);
+    api.speakClip.mockReset();
+    api.speakText.mockReset();
     store.setConfig(config);
   });
 
@@ -181,6 +194,74 @@ describe("React translation store", () => {
     await Promise.resolve();
     expect(api.translationHistory).not.toHaveBeenCalled();
     expect(store.getSnapshot().cards).toHaveLength(0);
+  });
+
+  it("plays the clip text and a card translation through the backend audio", async () => {
+    store.setClip(clip());
+    api.translateClip.mockResolvedValue(batch(ok("libretranslate", "你好", "en")));
+    await store.translate();
+    api.speakClip.mockResolvedValue(spoken);
+    api.speakText.mockResolvedValue(spoken);
+
+    await store.speakSource();
+    expect(api.speakClip).toHaveBeenCalledWith(1);
+    expect(player.play).toHaveBeenCalledWith(spoken);
+    // 播完后按钮恢复可用，不停留在"正在播放"。
+    expect(store.getSnapshot()).toMatchObject({ speaking: null, speechErrorCode: null });
+
+    await store.speakTranslation("libretranslate");
+    // 译文按后端实际使用的目标语言发音。
+    expect(api.speakText).toHaveBeenCalledWith("你好", "zh");
+    expect(player.play).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps sensitive items and empty cards out of the audio path", async () => {
+    store.setClip(clip(2, true));
+    await store.speakSource();
+    expect(api.speakClip).not.toHaveBeenCalled();
+
+    store.setClip(clip(3));
+    // 还没有译文的卡不能朗读。
+    await store.speakTranslation("libretranslate");
+    expect(api.speakText).not.toHaveBeenCalled();
+  });
+
+  it("reports a failed playback without discarding the translation", async () => {
+    store.setClip(clip());
+    api.translateClip.mockResolvedValue(batch(ok("libretranslate", "你好", "en")));
+    await store.translate();
+    api.speakText.mockRejectedValue(new Error("translation.network: unreachable"));
+
+    await store.speakTranslation("libretranslate");
+    expect(store.getSnapshot()).toMatchObject({
+      speaking: null,
+      speechErrorCode: "network",
+      feedback: "complete",
+    });
+    expect(cardOf(store, "libretranslate").translatedText).toBe("你好");
+
+    const html = renderToStaticMarkup(React.createElement(TranslationPanel, { store }));
+    expect(html).toContain("Could not reach the translation service");
+
+    // 切换条目会停掉在播的音频并清掉上一条提示。
+    store.setClip(clip(4));
+    expect(player.stop).toHaveBeenCalled();
+    expect(store.getSnapshot().speechErrorCode).toBeNull();
+  });
+
+  it("ignores a second play request while audio is still playing", async () => {
+    store.setClip(clip());
+    const pending = deferred();
+    api.speakClip.mockReturnValue(pending.promise);
+
+    const first = store.speakSource();
+    expect(store.getSnapshot().speaking).toBe("source");
+    await store.speakSource();
+    expect(api.speakClip).toHaveBeenCalledTimes(1);
+
+    pending.resolve(spoken);
+    await first;
+    expect(store.getSnapshot().speaking).toBeNull();
   });
 
   it("blocks sensitive items before calling the service", async () => {

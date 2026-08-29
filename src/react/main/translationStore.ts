@@ -1,14 +1,18 @@
 import {
   copyText,
+  speakClip,
+  speakText,
   translateClip,
   translationHistory,
   type AppConfig,
   type ClipItem,
   type ServiceTranslation,
+  type SpokenText,
   type TranslationHistoryEntry,
   type TranslationProvider,
 } from "../../js/api.ts";
 import { enabledTranslationServices } from "../../js/translation-providers";
+import { audioElementPlayer, type SpeechPlayer } from "./speech";
 
 /** 单个服务的结果卡。失败同样是一张卡，用户可以只重试出错的那个服务。 */
 export type TranslationCard = {
@@ -24,10 +28,17 @@ export type TranslationCard = {
   fromHistory: boolean;
 };
 
+/** 正在朗读的对象：条目原文或某个服务的译文 */
+export type SpeechTarget = "source" | TranslationProvider;
+
 export type TranslationSnapshot = {
   clip: ClipItem | null;
   config: AppConfig | null;
   loading: boolean;
+  /** 正在朗读的对象；null 表示当前没有音频在播 */
+  speaking: SpeechTarget | null;
+  /** 朗读失败的原因，null 表示上一次朗读没有失败 */
+  speechErrorCode: string | null;
   /** 顺序与配置里的服务顺序一致 */
   cards: TranslationCard[];
   /** 整批的汇总状态；单个服务的失败细节留在自己的卡上 */
@@ -122,6 +133,8 @@ export class TranslationStore {
     clip: null,
     config: null,
     loading: false,
+    speaking: null,
+    speechErrorCode: null,
     cards: [],
     feedback: "idle",
     errorCode: null,
@@ -129,6 +142,9 @@ export class TranslationStore {
   };
   private listeners = new Set<() => void>();
   private generation = 0;
+
+  /** 播放器可注入：测试不依赖 jsdom 里缺失的音频播放能力 */
+  constructor(private readonly player: SpeechPlayer = audioElementPlayer) {}
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -192,7 +208,16 @@ export class TranslationStore {
   }
 
   private reset(): Partial<TranslationSnapshot> {
-    return { loading: false, cards: [], feedback: "idle", errorCode: null };
+    // 条目或配置一变，正在播的音频就不再属于界面上的内容，立刻停掉。
+    this.player.stop();
+    return {
+      loading: false,
+      speaking: null,
+      speechErrorCode: null,
+      cards: [],
+      feedback: "idle",
+      errorCode: null,
+    };
   }
 
   clear(): void {
@@ -251,6 +276,45 @@ export class TranslationStore {
   private applyCard(next: TranslationCard): void {
     const cards = this.replaceCard(next);
     this.commit({ cards, ...summarize(cards) });
+  }
+
+  /** 朗读条目自身的文本。敏感条目在后端同样被拒绝，这里先不发请求 */
+  async speakSource(): Promise<void> {
+    const clip = this.snapshot.clip;
+    if (!clip) return;
+    await this.speak("source", () => speakClip(clip.id));
+  }
+
+  /** 朗读某个服务的译文，按它实际使用的目标语言发音 */
+  async speakTranslation(provider: TranslationProvider): Promise<void> {
+    const card = this.snapshot.cards.find((entry) => entry.provider === provider);
+    if (!card?.translatedText) return;
+    await this.speak(provider, () => speakText(card.translatedText, card.targetLanguage || undefined));
+  }
+
+  /**
+   * 取音频再播放。一次只播一段：正在播时忽略新请求，
+   * 否则用户连点两下会听到两段叠在一起的声音。
+   */
+  private async speak(target: SpeechTarget, request: () => Promise<SpokenText>): Promise<void> {
+    const clip = this.snapshot.clip;
+    if (!clip || clip.is_sensitive || this.snapshot.speaking) return;
+    const requestGeneration = this.generation;
+    this.commit({ speaking: target, speechErrorCode: null });
+    try {
+      const spoken = await request();
+      // 条目或配置已经变了：不要在新界面上放旧内容的声音。
+      if (!this.isCurrent(requestGeneration, clip)) return;
+      await this.player.play(spoken);
+      this.finishSpeech(target, null);
+    } catch (error) {
+      this.finishSpeech(target, cardErrorCode(stableTranslationErrorCode(error)));
+    }
+  }
+
+  private finishSpeech(target: SpeechTarget, errorCode: string | null): void {
+    if (this.snapshot.speaking !== target) return;
+    this.commit({ speaking: null, speechErrorCode: errorCode });
   }
 
   /** 复制某个服务的译文；只有这张卡显示复制反馈 */
