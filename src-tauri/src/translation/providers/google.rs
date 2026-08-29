@@ -189,7 +189,7 @@ mod tests {
         let result = GoogleProvider
             .translate(
                 &request,
-                &ProviderCredentials::from_api_key(Some("cloud-key".to_string())),
+                &ProviderCredentials::new(Some("cloud-key".to_string()), None),
             )
             .unwrap();
         let captured = server.recv();
@@ -220,7 +220,7 @@ mod tests {
         assert_eq!(
             GoogleProvider.translate(
                 &request,
-                &ProviderCredentials::from_api_key(Some("cloud-key".to_string()))
+                &ProviderCredentials::new(Some("cloud-key".to_string()), None)
             ),
             Err(TranslationError::IncompleteCredentials)
         );

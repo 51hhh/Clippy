@@ -206,7 +206,7 @@ mod tests {
         let result = BingProvider
             .translate(
                 &request,
-                &ProviderCredentials::from_api_key(Some("azure-key".to_string())),
+                &ProviderCredentials::new(Some("azure-key".to_string()), None),
             )
             .unwrap();
         let captured = server.recv();
@@ -245,7 +245,7 @@ mod tests {
         BingProvider
             .translate(
                 &request,
-                &ProviderCredentials::from_api_key(Some("azure-key".to_string())),
+                &ProviderCredentials::new(Some("azure-key".to_string()), None),
             )
             .unwrap();
         let captured = server.recv();

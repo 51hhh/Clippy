@@ -21,6 +21,16 @@ describe("translation IPC wrappers", () => {
     expect(invoke).toHaveBeenCalledWith("set_translation_api_key", {
       provider: "openai_compatible",
       apiKey: "secret",
+      apiSecret: null,
+    });
+  });
+
+  it("forwards the second credential field for dual-field services", () => {
+    setTranslationApiKey("youdao", "app-key", "app-secret");
+    expect(invoke).toHaveBeenCalledWith("set_translation_api_key", {
+      provider: "youdao",
+      apiKey: "app-key",
+      apiSecret: "app-secret",
     });
   });
 

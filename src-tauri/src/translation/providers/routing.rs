@@ -48,7 +48,7 @@ mod tests {
 
     #[test]
     fn complete_credentials_choose_the_official_api() {
-        let credentials = ProviderCredentials::from_api_key(Some("key".to_string()));
+        let credentials = ProviderCredentials::new(Some("key".to_string()), None);
         match route(TranslationProvider::DeepL, &credentials).unwrap() {
             Route::Official { key, secret } => {
                 assert_eq!(key, "key");
@@ -82,7 +82,7 @@ mod tests {
 
     #[test]
     fn half_filled_credentials_never_downgrade_silently() {
-        let key_only = ProviderCredentials::from_api_key(Some("app".to_string()));
+        let key_only = ProviderCredentials::new(Some("app".to_string()), None);
         assert_eq!(
             route(TranslationProvider::Youdao, &key_only)
                 .err()
