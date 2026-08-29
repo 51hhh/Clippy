@@ -44,7 +44,9 @@ import {
   hideCurrentWindow,
   isAutostartEnabled,
   onClipAdded,
+  pickScreenshotDirectory,
   runCaptureAction,
+  saveScreenshotImageAs,
   startDraggingCurrentWindow,
   updateConfig,
   updatePin,
@@ -144,6 +146,18 @@ describe("typed IPC wrappers", () => {
       label: "pin-image-1",
       update: { scale: 1.5, opacity: 0.8, locked: true },
     });
+  });
+
+  it("passes a cancelled save dialog through as null", async () => {
+    invoke.mockResolvedValueOnce(null).mockResolvedValueOnce("/home/user/Shots");
+
+    await expect(saveScreenshotImageAs("encoded-png")).resolves.toBeNull();
+    await expect(pickScreenshotDirectory()).resolves.toBe("/home/user/Shots");
+
+    expect(invoke).toHaveBeenNthCalledWith(1, "save_screenshot_image_as", {
+      pngBase64: "encoded-png",
+    });
+    expect(invoke).toHaveBeenNthCalledWith(2, "pick_screenshot_directory");
   });
 
   it("delivers typed event payloads without exposing the Tauri envelope", async () => {

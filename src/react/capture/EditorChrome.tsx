@@ -1,5 +1,8 @@
-import { Copy, Crop, Pin, Redo2, RotateCcw, Save, Undo2, X } from "lucide-react";
+import { Copy, Crop, Pin, Redo2, RotateCcw, Save, SaveAll, Undo2, X } from "lucide-react";
 import { t } from "../shared/i18n";
+
+/** 导出动作。saveAs 走系统另存为对话框，其余直接落到配置的目录。 */
+export type ExportAction = "copy" | "save" | "saveAs" | "pin";
 
 export function EditorHeader({
   busy,
@@ -42,7 +45,7 @@ export function EditorFooter({
   onUndo: () => void;
   onRedo: () => void;
   onReset: () => void;
-  onExport: (action: "copy" | "save" | "pin") => void;
+  onExport: (action: ExportAction) => void;
 }) {
   return (
     <footer className="capture-footer">
@@ -52,6 +55,7 @@ export function EditorFooter({
       <div className="capture-footer-spacer" />
       <ActionButton label={t("capture.copy")} primary disabled={!canExport} onClick={() => onExport("copy")}><Copy size={16} /></ActionButton>
       <ActionButton label={t("capture.save")} disabled={!canExport} onClick={() => onExport("save")}><Save size={16} /></ActionButton>
+      <ActionButton label={t("capture.saveAs")} disabled={!canExport} onClick={() => onExport("saveAs")}><SaveAll size={16} /></ActionButton>
       <ActionButton label={t("capture.pin")} disabled={!canExport} onClick={() => onExport("pin")}><Pin size={16} /></ActionButton>
     </footer>
   );

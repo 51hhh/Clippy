@@ -139,6 +139,14 @@ pub struct AppConfig {
     pub preferred_languages: Vec<String>,
     #[serde(default)]
     pub main_window_position: Option<MainWindowPosition>,
+    /// 截图/Pin 的保存目录，支持 `~` 开头。空表示内置默认（`$HOME/Pictures/Clippy`），
+    /// 这样以后改默认值对老用户同样生效，因此新增此字段不需要迁移或提升配置版本。
+    #[serde(default)]
+    pub screenshot_save_dir: String,
+    /// 保存文件名模板，支持 `{prefix}` `{date}` `{time}` `{unix}` `{seq}`。
+    /// 扩展名固定为 `.png`，模板只描述主干；空表示内置默认。
+    #[serde(default)]
+    pub screenshot_filename_template: String,
 }
 
 fn default_language() -> String {
@@ -214,6 +222,8 @@ impl Default for AppConfig {
             translation_target_language: default_translation_target_language(),
             preferred_languages: Vec::new(),
             main_window_position: None,
+            screenshot_save_dir: String::new(),
+            screenshot_filename_template: String::new(),
         }
     }
 }

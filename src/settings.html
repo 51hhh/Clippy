@@ -141,6 +141,28 @@
       </div>
     </div>
 
+    <div class="setting-group">
+      <label class="setting-label" data-i18n="settings.screenshot.label">Screenshots</label>
+      <label class="setting-label setting-label-sub" for="screenshot-dir-input"
+             data-i18n="settings.screenshot.directory">Save Folder</label>
+      <div class="translation-key-row">
+        <input type="text" class="setting-input" id="screenshot-dir-input"
+               autocomplete="off" spellcheck="false" placeholder="~/Pictures/Clippy"
+               aria-describedby="screenshot-dir-hint">
+        <button class="btn btn-small btn-secondary" id="screenshot-dir-browse-btn" type="button"
+                data-i18n="settings.screenshot.browse">Browse...</button>
+      </div>
+      <div class="setting-hint" id="screenshot-dir-hint"
+           data-i18n="settings.screenshot.directoryHint">Screenshots and pinned images are saved here. Leave empty to use ~/Pictures/Clippy.</div>
+      <label class="setting-label setting-label-sub" for="screenshot-template-input"
+             data-i18n="settings.screenshot.template">File Name</label>
+      <input type="text" class="setting-input" id="screenshot-template-input"
+             autocomplete="off" spellcheck="false" placeholder="{prefix}-{date}_{time}"
+             aria-describedby="screenshot-template-hint">
+      <div class="setting-hint" id="screenshot-template-hint"
+           data-i18n="settings.screenshot.templateHint">Placeholders: {prefix} {date} {time} {unix} {seq}. The .png extension is added automatically, and an existing file is never overwritten.</div>
+    </div>
+
     <div class="setting-group" id="translation-group">
       <h2 class="setting-label" data-i18n="settings.translation.label">Translation</h2>
       <div class="translation-grid">

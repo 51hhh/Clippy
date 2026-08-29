@@ -352,9 +352,19 @@ export function copyScreenshotImage(pngBase64: string): Promise<void> {
   return invoke<void>("copy_screenshot_image", { pngBase64 });
 }
 
-/** 保存截图编辑器导出的 PNG */
+/** 保存截图编辑器导出的 PNG 到配置的截图目录 */
 export function saveScreenshotImage(pngBase64: string): Promise<string> {
   return invoke<string>("save_screenshot_image", { pngBase64 });
+}
+
+/** 另存为截图编辑器导出的 PNG，用户取消时返回 null */
+export function saveScreenshotImageAs(pngBase64: string): Promise<string | null> {
+  return invoke<string | null>("save_screenshot_image_as", { pngBase64 });
+}
+
+/** 选择截图保存目录，用户取消时返回 null */
+export function pickScreenshotDirectory(): Promise<string | null> {
+  return invoke<string | null>("pick_screenshot_directory");
 }
 
 /** 将截图编辑器导出的 PNG 贴到桌面 */

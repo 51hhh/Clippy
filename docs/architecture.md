@@ -22,6 +22,7 @@
 | `pin/` | PinManager、内容来源、窗口尺寸、缩放/透明度/锁定和清理 |
 | `translation/` | provider、超时/重试、request-id、内容选择、Secret Service；启用的服务按 `spawn_blocking` 并行，单服务失败作为数据返回；`direction.rs` 在文本已是目标语言时按备选语言换向；`tts.rs` 走 dictvoice 取回音频 |
 | `storage.rs` + `storage/*` | SQLite/FTS5 初始化与搜索；维护清理、统计、URL 缓存、翻译记录和测试各自隔离 |
+| `image_io.rs` / `dialogs.rs` | PNG 与剪贴板互转；按配置的目录与文件名模板落盘（`SaveTarget`）；另存为与选目录对话框只在 `dialogs.rs` 调用插件 |
 
 ## 前端模块
 
@@ -72,6 +73,7 @@ Fallback: permission/backend/injection failure -> clipboard remains populated, n
 - 图片翻译只把本地 OCR 文本发送给 provider，不上传原图。
 - API key 只进入系统 Secret Service，不提供明文 fallback。
 - 成功的译文与原文落在同一个 SQLite 库（`translation_history`，全库上限 500 条）：条目删除、历史清空和上限清理都会一并删除它的译文，设置里另有"清空已保存的译文"入口。敏感条目从不进入翻译，因此也不会产生记录。
+- 截图保存目录与文件名模板可配置（留空即内置默认 `~/Pictures/Clippy`）：模板只生成文件名，路径分隔符与前导点被清洗，写不到目录之外；同名时追加序号，不覆盖已有文件。另存为的路径由系统对话框返回。
 - 用户文本使用 React 文本节点或 `textContent`；富文本仅使用严格 DOMPurify 配置。
 - URL 元数据仅访问无凭据的 HTTP(S)，拒绝私有/保留 IP、私有 DNS 解析和重定向；请求有 5 秒超时与 1 MiB 上限。
 - 翻译响应有超时与 1 MiB 上限；数学表达式不使用 `eval`/`Function`。

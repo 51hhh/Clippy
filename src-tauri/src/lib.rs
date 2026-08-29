@@ -3,6 +3,7 @@ mod capture;
 mod clipboard_watcher;
 mod commands;
 mod config;
+mod dialogs;
 mod error;
 mod gsettings_shortcuts;
 mod image_io;
@@ -36,6 +37,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -210,6 +212,8 @@ pub fn run() {
             commands::clear_pending_capture,
             commands::copy_screenshot_image,
             commands::save_screenshot_image,
+            commands::save_screenshot_image_as,
+            commands::pick_screenshot_directory,
             pin::commands::pin_screenshot_image,
             pin::commands::pin_clip,
             pin::commands::get_pin_payload,

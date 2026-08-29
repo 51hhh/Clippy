@@ -42,3 +42,17 @@ pub struct AppState {
     pub shortcuts_paused: AtomicBool,
     pub shortcut_transition: Mutex<()>,
 }
+
+impl AppState {
+    /// 截图/Pin 的保存位置来自运行时配置；配置锁损坏时退回内置默认目录，
+    /// 保存动作不该因为别处的 panic 而失败。
+    pub fn save_target(&self) -> crate::image_io::SaveTarget {
+        match self.config.lock() {
+            Ok(config) => crate::image_io::SaveTarget::from_config(&config),
+            Err(error) => {
+                log::warn!("读取保存目录配置失败，使用默认目录: {error}");
+                crate::image_io::SaveTarget::default()
+            }
+        }
+    }
+}

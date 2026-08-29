@@ -52,6 +52,10 @@ export interface AppConfig {
   /** 备选目标语言，按优先级排列；留空表示沿用目标/源语言这一对 */
   preferred_languages: string[];
   main_window_position: { x: number; y: number } | null;
+  /** 截图/Pin 保存目录，支持 `~` 开头；留空表示内置默认目录 */
+  screenshot_save_dir: string;
+  /** 保存文件名模板（`{prefix}` `{date}` `{time}` `{unix}` `{seq}`）；留空表示内置默认 */
+  screenshot_filename_template: string;
 }
 
 export type PasteBackend = "x11" | "wayland_portal" | "copy_only";

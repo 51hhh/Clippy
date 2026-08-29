@@ -209,7 +209,7 @@ fn execute_action(
             Ok(action_result("copy", None, None))
         }
         CaptureAction::Save => {
-            let path = crate::image_io::save_png(&png, "clippy-screenshot")?;
+            let path = crate::image_io::save_png(&png, "clippy-screenshot", &state.save_target())?;
             Ok(action_result(
                 "save",
                 Some(path.to_string_lossy().to_string()),

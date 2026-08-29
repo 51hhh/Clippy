@@ -7,6 +7,7 @@ import {
   closeAfterShortcutCleanup,
   createShortcutRecordingController,
 } from "../js/settings/shortcut-recording.js";
+import { createScreenshotSettings } from "../js/settings/screenshot-settings.js";
 import { formatByteSize } from "../js/settings/stats.js";
 import { createThemePicker } from "../js/settings/theme-picker.js";
 
@@ -228,6 +229,73 @@ describe("settings shortcut recording controller", () => {
 
     expect(order).toEqual(["resume", "close"]);
     expect(closeWindow).toHaveBeenCalledOnce();
+  });
+});
+
+describe("settings screenshot save location", () => {
+  function mount(pickDirectory) {
+    const directoryInput = document.createElement("input");
+    const browseButton = document.createElement("button");
+    const templateInput = document.createElement("input");
+    document.body.replaceChildren(directoryInput, browseButton, templateInput);
+    const showToast = vi.fn();
+    const controller = createScreenshotSettings({
+      directoryInput,
+      browseButton,
+      templateInput,
+      pickDirectory,
+      translate,
+      showToast,
+    });
+    return { controller, directoryInput, browseButton, templateInput, showToast };
+  }
+
+  it("keeps empty inputs empty so the backend default keeps applying", () => {
+    const { controller, directoryInput, templateInput } = mount(vi.fn());
+
+    controller.fill({ screenshot_save_dir: "", screenshot_filename_template: "" });
+    expect(directoryInput.value).toBe("");
+    expect(templateInput.value).toBe("");
+    expect(controller.getConfig()).toEqual({
+      screenshot_save_dir: "",
+      screenshot_filename_template: "",
+    });
+
+    controller.fill({ screenshot_save_dir: "~/Shots", screenshot_filename_template: "cap-{date}" });
+    // 输入里的空白不该写进配置，否则后端会当成一个真实目录名。
+    directoryInput.value = "  ~/Other  ";
+    templateInput.value = "  cap  ";
+    expect(controller.getConfig()).toEqual({
+      screenshot_save_dir: "~/Other",
+      screenshot_filename_template: "cap",
+    });
+  });
+
+  it("fills the picked folder and keeps the current one when the dialog is cancelled", async () => {
+    const pickDirectory = vi.fn().mockResolvedValue("/home/user/Shots");
+    const { directoryInput, browseButton } = mount(pickDirectory);
+
+    browseButton.click();
+    await vi.waitFor(() => expect(directoryInput.value).toBe("/home/user/Shots"));
+    expect(browseButton.disabled).toBe(false);
+
+    pickDirectory.mockResolvedValue(null);
+    browseButton.click();
+    await vi.waitFor(() => expect(pickDirectory).toHaveBeenCalledTimes(2));
+    expect(directoryInput.value).toBe("/home/user/Shots");
+  });
+
+  it("reports a failed folder chooser and stays clickable", async () => {
+    const pickDirectory = vi.fn().mockRejectedValue(new Error("no portal"));
+    const { browseButton, directoryInput, showToast } = mount(pickDirectory);
+    directoryInput.value = "~/Keep";
+
+    browseButton.click();
+    await vi.waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith("settings.screenshot.browseFailed"),
+    );
+    expect(directoryInput.value).toBe("~/Keep");
+    expect(browseButton.disabled).toBe(false);
   });
 });
 

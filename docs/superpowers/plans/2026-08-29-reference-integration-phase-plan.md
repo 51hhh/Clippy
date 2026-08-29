@@ -126,9 +126,13 @@ google 976 行、bing 1256 行、deepl 634 行、youdao 1372 行，其中非官�
 
 ## Phase 3：截图与导出增强（flashot，MIT 可复用）
 
-- [ ] **保存增强**：现在 `commands/capture_editor.rs::save_screenshot_image` 硬编码
-      `Pictures/Clippy`；参考 `saver.rs` 加可配置保存目录 + 文件名模板 + 另存为对话框
-      （需引 `rfd` 或 `tauri-plugin-dialog`）
+- [x] **保存增强**：`image_io::SaveTarget` 统一解析保存目录与文件名模板
+      （`screenshot_save_dir` / `screenshot_filename_template` 都用 `#[serde(default)]` 加入，
+      空值表示内置默认，因此不需要迁移或提升配置版本）；截图覆盖层、编辑器和 Pin 三处保存
+      共用同一份配置。模板支持 `{prefix}` `{date}` `{time}` `{unix}` `{seq}`，只生成文件名
+      （分隔符与前导点被清洗），同名时用 `create_new` 追加序号而不是覆盖。
+      另存为与「浏览」目录选择走 `tauri-plugin-dialog`（在 `dialogs.rs` 一处封装，
+      插件已在主线程构造对话框，命令侧用 `spawn_blocking` 等结果），用户取消返回 `null`
 - [ ] **圆角导出**：复用 `mask.rs::apply_rounded_corners`（约 234 行纯函数，含 2x2 超采样抗锯齿），
       保留 MIT 版权声明
 - [ ] **后端 i18n / 托盘菜单本地化**：参考 `i18n.rs`
