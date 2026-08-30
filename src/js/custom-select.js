@@ -73,6 +73,11 @@ export function initCustomSelect(container) {
       e.preventDefault();
       container.classList.toggle("open");
     } else if (e.key === "Escape" && isOpen) {
+      // 这一下 Esc 已经被下拉消费掉了，不能再冒泡给外层状态机：主窗口的键盘路由
+      // 把 codec 侧栏里的 Esc 当成"关整个侧栏"，不拦就是一次 Esc 收下拉 + 关侧栏，
+      // 输入框里的内容跟着一起没了。下拉本来就关着时不拦，Esc 照常走到外层。
+      e.preventDefault();
+      e.stopPropagation();
       container.classList.remove("open");
     } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();

@@ -159,6 +159,31 @@ describe("主窗口键盘路由", () => {
       expect(document.activeElement.id).not.toBe("translation-action-react");
     });
 
+    // 翻译进行中 Translate 按钮是 disabled 的，聚焦不上去；这时候如果照样
+    // preventDefault，Shift+Tab 就变成"按了完全没反应"，键还被吞了。
+    it("翻译按钮被禁用时退到面板里其它可聚焦元素", () => {
+      preview = fakePreview(true);
+      document.getElementById("translation-action-react").disabled = true;
+      const copy = document.createElement("button");
+      copy.id = "translation-card-copy";
+      document.getElementById("translation-react-root").appendChild(copy);
+
+      const event = keyEvent("Tab", document.body, { shiftKey: true });
+      router().onKeyDown(event);
+      expect(document.activeElement.id).toBe("translation-card-copy");
+      expect(event.preventDefault).toHaveBeenCalled();
+    });
+
+    it("面板里一个能聚焦的元素都没有时不吞掉 Shift+Tab", () => {
+      preview = fakePreview(true);
+      // 没有条目时 TranslationPanel 直接 return null，挂载点是空的
+      document.getElementById("translation-react-root").replaceChildren();
+
+      const event = keyEvent("Tab", document.body, { shiftKey: true });
+      router().onKeyDown(event);
+      expect(event.preventDefault).not.toHaveBeenCalled();
+    });
+
     it("Ctrl+Enter 在预览打开时翻译当前条目，关着时不触发也不吞按键", () => {
       const closed = keyEvent("Enter", document.body, { ctrlKey: true });
       router().onKeyDown(closed);

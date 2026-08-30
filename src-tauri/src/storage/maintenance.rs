@@ -28,10 +28,14 @@ impl StorageEngine {
         self.delete_entries(ids)
     }
 
+    /// 批量删除：FTS 清理 + 主表 DELETE + 孤儿译文清理必须原子，
+    /// 否则中途失败会留下搜得到但已不存在的条目，或删不掉的译文。
     fn delete_entries(&self, ids: Vec<i64>) -> Result<Vec<i64>, StorageError> {
         if ids.is_empty() {
             return Ok(ids);
         }
+
+        let tx = self.conn.unchecked_transaction()?;
 
         let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         let select_fts = format!(
@@ -56,6 +60,7 @@ impl StorageEngine {
             .execute(&delete_clips, rusqlite::params_from_iter(ids.iter()))?;
         // 被清理条目的译文不该留在库里。
         self.purge_orphan_translations()?;
+        tx.commit()?;
         Ok(ids)
     }
 }
