@@ -60,9 +60,9 @@ for _ in {1..50}; do
   sleep 0.1
 done
 
-# 780x620 = 预览展开时 window_controller 给出的逻辑尺寸（380 列表 + 400 面板，500 + 120 高）
+# 780x500 = 预览展开时 window_controller 给出的逻辑尺寸（380 列表 + 400 面板，高度恒定 500）
 HOME="$PROFILE_DIR" timeout 25 "$FIREFOX" --headless \
-  --window-size 780,620 --screenshot "$SCREENSHOT" \
+  --window-size 780,500 --screenshot "$SCREENSHOT" \
   "http://127.0.0.1:${PORT}/tests/fixtures/layout-smoke.html" \
   >"$FIREFOX_LOG" 2>&1 || {
   printf 'Layout smoke failed: Firefox failed; artifacts: %s\n' "$ARTIFACT_DIR" >&2

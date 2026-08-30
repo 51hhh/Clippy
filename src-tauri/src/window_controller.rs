@@ -6,10 +6,10 @@ use tauri::{Manager, Monitor, PhysicalPosition, PhysicalSize, Position, Size};
 const EDGE_MARGIN: i32 = 12;
 pub(crate) const MAIN_WINDOW_BASE_WIDTH: f64 = 380.0;
 pub(crate) const MAIN_WINDOW_PANEL_WIDTH: f64 = 400.0;
+/// 高度对所有面板组合恒定：开关预览会连带改变列表能显示的行数，
+/// 列表跟着重排比"翻译区挤一点"更难用。翻译区靠 `.translation-host`
+/// 的高度上限与自身滚动在这 500 里落位（见 styles/components.css）。
 pub(crate) const MAIN_WINDOW_HEIGHT: f64 = 500.0;
-/// 预览面板要同时容纳内容和翻译区，500 高度会让两者互相挤压，因此展开时加高。
-/// 仍然经 `WorkArea::clamp_size` 收敛，小屏不会越界。
-pub(crate) const MAIN_WINDOW_PREVIEW_EXTRA_HEIGHT: f64 = 120.0;
 const POSITION_SAVE_DEBOUNCE_MS: u64 = 300;
 type MonitorTarget = Option<(Monitor, Option<PhysicalPosition<f64>>)>;
 
@@ -211,12 +211,7 @@ impl MainWindowLayout {
                 } else {
                     0.0
                 },
-            MAIN_WINDOW_HEIGHT
-                + if self.preview_visible {
-                    MAIN_WINDOW_PREVIEW_EXTRA_HEIGHT
-                } else {
-                    0.0
-                },
+            MAIN_WINDOW_HEIGHT,
         )
     }
 
@@ -430,16 +425,15 @@ mod tests {
     #[test]
     fn main_window_layout_uses_base_and_visible_panel_widths() {
         assert_eq!(MainWindowLayout::default().logical_size(), (380.0, 500.0));
-        // 预览展开时同时加宽和加高：翻译区与预览内容需要共享竖向空间
+        // 面板只影响宽度：高度恒定，否则开关预览会连带改变列表可见行数
         assert_eq!(
             (MainWindowLayout {
                 preview_visible: true,
                 codec_visible: false,
             })
             .logical_size(),
-            (780.0, 620.0)
+            (780.0, 500.0)
         );
-        // 编解码面板只加宽，不影响高度
         assert_eq!(
             (MainWindowLayout {
                 preview_visible: false,
@@ -454,7 +448,7 @@ mod tests {
                 codec_visible: true,
             })
             .logical_size(),
-            (1180.0, 620.0)
+            (1180.0, 500.0)
         );
     }
 
@@ -464,7 +458,7 @@ mod tests {
             preview_visible: true,
             codec_visible: true,
         };
-        assert_eq!(layout.physical_size(1.0), PhysicalSize::new(1180, 620));
+        assert_eq!(layout.physical_size(1.0), PhysicalSize::new(1180, 500));
         assert_eq!(
             WorkArea {
                 left: 0,
@@ -473,7 +467,8 @@ mod tests {
                 bottom: 600,
             }
             .clamp_size(layout.physical_size(1.0), EDGE_MARGIN),
-            PhysicalSize::new(976, 576)
+            // 宽度被工作区收窄，高度 500 本来就放得下
+            PhysicalSize::new(976, 500)
         );
     }
 

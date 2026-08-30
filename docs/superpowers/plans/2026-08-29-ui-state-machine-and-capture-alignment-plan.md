@@ -176,10 +176,11 @@ UI 细节与真机行为仍需 `cargo tauri dev` / 真实桌面人工确认，�
    .preview-content   { min-height: 96px; }   /* 不再被翻译区压到 0 */
    ```
    （`max-height: 55%` 落在 `.preview-panel` 上，它的高度是确定的 100%，百分比才生效。）
-3. `src-tauri/src/window_controller.rs`：`MainWindowLayout::logical_size()` 增加高度维度——
-   预览打开时 500 → 620（仍由 `WorkArea::clamp_size` 收敛，小屏不会越界）。
-   500px 的固定高度是"预览 + 翻译"同时在场时最根本的空间不足来源。
-   现有单测 `main_window_layout_uses_base_and_visible_panel_widths` 顺带扩断言。
+3. ~~`src-tauri/src/window_controller.rs`：`MainWindowLayout::logical_size()` 增加高度维度——
+   预览打开时 500 → 620~~ **已撤销（2026-08-30）**：加高会让列表可见行数随预览开关变化
+   （6 行 ↔ 8 行），列表跟着重排比"翻译区挤一点"更难用。高度对所有面板组合恒定 500，
+   翻译区靠 `.translation-host` 的 `max-height` 与自身滚动落位；布局像素 smoke 改用 780×500
+   校验这个几何，单测 `main_window_layout_uses_base_and_visible_panel_widths` 锁定高度不变。
 4. 自动化验证：jsdom 没有布局引擎，测不出遮挡。新增 `scripts/smoke-layout.sh`，复用
    `smoke-canvas-export.sh` 那套 headless Firefox + 读像素的手法：加载一个把主窗口结构
    固定成 780×500 的 fixture，用 JS 断言

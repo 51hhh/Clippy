@@ -1393,6 +1393,14 @@
 .codec-icon-btn:hover {
   background: var(--bg-tertiary);
 }
+/* 收藏按钮：描边星星为未收藏，实心星星 + 强调色为已收藏（与列表收藏按钮同一套图标） */
+.codec-favorite-btn svg {
+  width: 15px;
+  height: 15px;
+}
+.codec-favorite-btn.is-favorite {
+  color: var(--favorite);
+}
 
 /* Smart Detection 提示 */
 .codec-smart-hint {
@@ -1409,9 +1417,6 @@
 }
 .codec-smart-hint:hover {
   background: var(--bg-tertiary);
-}
-.codec-hint-icon {
-  font-size: 13px;
 }
 
 /* Input 文本区 */

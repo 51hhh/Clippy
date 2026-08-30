@@ -69,6 +69,8 @@ whenReady(async () => {
     theme.applyTheme(newConfig.theme || "light");
     i18n.init(newConfig.language || "auto");
     clipboardList.refreshLabels();
+    // 编解码面板的下拉标题与收藏分组是 JS 写入的，applyToDOM 碰不到
+    codec.refreshLabels();
     translationStore.setConfig(newConfig);
   });
 

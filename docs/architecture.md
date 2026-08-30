@@ -34,7 +34,7 @@
 | `js/preview-panel.js` | 预览状态、检测优先级、延迟库与缓存 |
 | `js/preview/*-renderers.js` | 代码、元数据、格式、加密、内容/OCR 渲染 |
 | `react/main/translationStore.ts` | 主预览翻译状态、多服务结果卡、单服务重试与陈旧响应保护 |
-| `styles/components.css::.translation-host` | React 翻译面板的挂载壳：`.preview-panel` 的 flex 子项必须自己有 `min-height: 0` 与 `max-height`，否则 `.translation-panel` 的百分比 `max-height` 相对 auto 高度失效，翻译区会把预览内容挤没、自己被窗口裁掉 |
+| `styles/components.css::.translation-host` | React 翻译面板的挂载壳：`.preview-panel` 的 flex 子项必须自己有 `min-height: 0` 与 `max-height`，否则 `.translation-panel` 的百分比 `max-height` 相对 auto 高度失效，翻译区会把预览内容挤没、自己被窗口裁掉。主窗口高度对所有面板组合恒定（`MAIN_WINDOW_HEIGHT`），翻译区靠这个上限和自身滚动落位——高度随预览变化会连带改变列表可见行数，列表跟着重排比翻译区挤一点更难用 |
 | `js/translation-providers.ts` | 服务显示名、默认端点与能力标记（设置页/主面板/选区翻译共用） |
 | `react/capture-overlay/` | 窗口命中、选区移动/缩放、提交动作（直开编辑器/停在工具条）、直接动作与选区翻译 |
 | `react/capture/` | 16 个标注工具（选择/绘制/效果三组）、图像调整、撤销/重做和统一导出；视口、PNG 管线及待处理截图加载器独立管理 |
@@ -57,6 +57,11 @@
 方向键与 `ws` 在 `list` 模式下**始终**驱动列表：Tab 打开预览不再把焦点塞进翻译面板，
 焦点要进翻译区必须显式 `Shift+Tab`。焦点撤离翻译面板时先 `blur()` 再 focus `#list-panel`，
 不留"谁也不拥有"的中间态。
+
+codec 侧栏的操作可以显式收藏（`codec-favorites` 分组，localStorage `clippy-codec-favorites`），
+星星按钮用 `js/icons.js` 的描边/实心两个图标切换状态，与列表行的收藏按钮同一套图标。
+面板里的操作名、分组标题、按钮提示和输入框占位符全部挂 `data-i18n`（专有名词如 Base64/JWT/SHA 不翻译），
+下拉触发按钮的文案与收藏分组是 JS 写入的，`applyToDOM` 碰不到，因此语言切换后由 `codec.refreshLabels()` 补齐。
 
 失焦自动隐藏与这套状态机配套：`app/window_events.rs::should_hide_on_focus_loss(preview, codec)`
 在预览或 codec 侧栏打开时豁免隐藏（纯函数 + 单测）。主窗口里也不允许出现原生 `<select>`——

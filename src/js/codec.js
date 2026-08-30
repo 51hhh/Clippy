@@ -12,16 +12,19 @@ import { t } from "../i18n/i18n.js";
 import { decodeHtmlEntities } from "./html-entities.js";
 import { createPanelVisibilityController } from "./panel-visibility.js";
 import { initCustomSelect } from "./custom-select.js";
+import * as icons from "./icons.js";
 
 // ── DOM refs ──
 // _selectEl 是自定义下拉框容器，_select 是它的控制器（原生 <select> 会弹独立 GTK 窗口导致主窗口隐藏）
-let _panelEl, _selectEl, _select, _inputEl, _outputEl, _hintEl, _hintTextEl, _recentGroup, _recentGroupEl;
+let _panelEl, _selectEl, _select, _inputEl, _outputEl, _hintEl, _hintTextEl;
+let _favoriteGroup, _favoriteGroupEl, _favoriteBtn;
 let _visible = false;
 let _visibility;
 
-// ── 最近使用（最多 5 项） ──
-const RECENT_KEY = "clippy-codec-recent";
-let _recentOps = [];
+// ── 收藏的操作 ──
+// 显式收藏而不是自动记录"最近使用"：常用操作是用户自己定的，MRU 会被一次性尝试冲掉。
+const FAVORITES_KEY = "clippy-codec-favorites";
+let _favoriteOps = [];
 
 // ── 防抖 ──
 const DEBOUNCE_MS = 150;
@@ -57,8 +60,9 @@ export function init() {
   _outputEl   = document.getElementById("codec-output");
   _hintEl     = document.getElementById("codec-smart-hint");
   _hintTextEl = document.getElementById("codec-hint-text");
-  _recentGroup = document.getElementById("codec-recent");
-  _recentGroupEl = document.getElementById("codec-recent-group");
+  _favoriteGroup = document.getElementById("codec-favorites");
+  _favoriteGroupEl = document.getElementById("codec-favorites-group");
+  _favoriteBtn = document.getElementById("codec-favorite");
   _select = initCustomSelect(_selectEl);
   _visibility = createPanelVisibilityController({
     apply: (visible) => {
@@ -68,18 +72,30 @@ export function init() {
     persist: setCodecVisible,
   });
 
-  // 加载最近使用
-  try { _recentOps = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]"); } catch { _recentOps = []; }
-  _renderRecent();
+  // 加载收藏
+  try { _favoriteOps = JSON.parse(localStorage.getItem(FAVORITES_KEY) || "[]"); } catch { _favoriteOps = []; }
+  if (!Array.isArray(_favoriteOps)) _favoriteOps = [];
+  _renderFavorites();
 
   // 事件绑定
   _inputEl.addEventListener("input", _onInput);
-  _select.onChange = (value) => { _addRecent(value); _execute(); };
+  _select.onChange = () => { _syncFavoriteButton(); _execute(); };
 
+  _favoriteBtn?.addEventListener("click", _toggleFavorite);
   document.getElementById("codec-swap-dir").addEventListener("click", _swapDirection);
   document.getElementById("codec-swap").addEventListener("click", _swapIO);
   document.getElementById("codec-clear").addEventListener("click", _clear);
   document.getElementById("codec-copy").addEventListener("click", _copyResult);
+  // 触发按钮的文案由 custom-select 从选项复制，init 时它还没写过一次，
+  // 语言切换后也只有选项被 applyToDOM 更新，因此这里统一收口。
+  refreshLabels();
+}
+
+/** 语言切换后重取所有 JS 侧文案（静态 DOM 由 i18n.applyToDOM 负责）。 */
+export function refreshLabels() {
+  _renderFavorites();
+  _select?.refresh();
+  _syncFavoriteButton();
 }
 
 // ── 面板切换 ──
@@ -151,14 +167,20 @@ function _smartDetect() {
   }
 
   if (suggested && suggested !== _select.value) {
-    _hintTextEl.textContent = t("codec.suggest") || `Detected: try ${_getOpLabel(suggested)}`;
+    _hintTextEl.textContent = t("codec.suggest", { op: _getOpLabel(suggested) });
     _hintEl.hidden = false;
-    _hintEl.onclick = () => { _select.value = suggested; _addRecent(suggested); _execute(); _hintEl.hidden = true; };
+    _hintEl.onclick = () => {
+      _select.value = suggested;
+      _syncFavoriteButton();
+      _execute();
+      _hintEl.hidden = true;
+    };
   } else {
     _hintEl.hidden = true;
   }
 }
 
+/** 取操作的显示名：直接读选项文本，因此自动跟随 i18n.applyToDOM 的结果 */
 function _getOpLabel(value) {
   const opt = _selectEl.querySelector(`.custom-select-option[data-value="${value}"]`);
   return opt ? opt.textContent : value;
@@ -182,7 +204,7 @@ async function _execute() {
     _outputEl.classList.remove("codec-output--error");
   } catch (e) {
     if (generation !== _executeGeneration) return;
-    _outputEl.textContent = `Error: ${e.message}`;
+    _outputEl.textContent = t("codec.error", { message: e.message });
     _outputEl.classList.add("codec-output--error");
   }
 }
@@ -220,7 +242,7 @@ async function _runOp(op, text) {
     case "date-to-ts": return _dateToTs(text);
     case "num-base": return _numBase(text);
 
-    default: return `Unknown operation: ${op}`;
+    default: return t("codec.unknownOp", { op });
   }
 }
 
@@ -312,7 +334,7 @@ function _md5(str) {
 
 function _jwtDecode(text) {
   const parts = text.trim().split(".");
-  if (parts.length < 2) throw new Error("Invalid JWT format");
+  if (parts.length < 2) throw new Error(t("codec.invalidJwt"));
   const decode = (s) => {
     const padded = s.replace(/-/g, "+").replace(/_/g, "/");
     return JSON.parse(decodeURIComponent(escape(atob(padded))));
@@ -349,10 +371,10 @@ function _urlParse(text) {
 
 function _tsToDate(text) {
   const num = parseInt(text.trim());
-  if (isNaN(num)) throw new Error("Invalid timestamp");
+  if (isNaN(num)) throw new Error(t("codec.invalidTimestamp"));
   const ms = text.trim().length === 13 ? num : num * 1000;
   const d = new Date(ms);
-  if (isNaN(d.getTime())) throw new Error("Invalid timestamp");
+  if (isNaN(d.getTime())) throw new Error(t("codec.invalidTimestamp"));
   return [
     `Local:  ${d.toLocaleString()}`,
     `UTC:    ${d.toUTCString()}`,
@@ -362,7 +384,7 @@ function _tsToDate(text) {
 
 function _dateToTs(text) {
   const d = new Date(text.trim());
-  if (isNaN(d.getTime())) throw new Error("Invalid date string");
+  if (isNaN(d.getTime())) throw new Error(t("codec.invalidDate"));
   return [
     `Seconds:      ${Math.floor(d.getTime() / 1000)}`,
     `Milliseconds: ${d.getTime()}`,
@@ -376,7 +398,7 @@ function _numBase(text) {
   else if (/^0b/i.test(trimmed)) value = parseInt(trimmed.slice(2), 2);
   else if (/^0o/i.test(trimmed)) value = parseInt(trimmed.slice(2), 8);
   else value = parseInt(trimmed, 10);
-  if (isNaN(value)) throw new Error("Invalid number");
+  if (isNaN(value)) throw new Error(t("codec.invalidNumber"));
   return [
     `Decimal: ${value}`,
     `Hex:     0x${value.toString(16).toUpperCase()}`,
@@ -392,7 +414,7 @@ function _swapDirection() {
   const reverse = REVERSE_MAP[current];
   if (reverse) {
     _select.value = reverse;
-    _addRecent(reverse);
+    _syncFavoriteButton();
     _execute();
   }
 }
@@ -431,27 +453,50 @@ async function _copyResult() {
   }
 }
 
-function _addRecent(op) {
-  _recentOps = [op, ..._recentOps.filter(o => o !== op)].slice(0, 5);
-  try { localStorage.setItem(RECENT_KEY, JSON.stringify(_recentOps)); } catch {}
-  _renderRecent();
+function _isFavorite(op) {
+  return _favoriteOps.includes(op);
 }
 
-function _renderRecent() {
-  if (!_recentGroup) return;
+/** 星星按钮：收藏/取消收藏当前选中的操作 */
+function _toggleFavorite() {
+  const op = _select?.value;
+  if (!op) return;
+  _favoriteOps = _isFavorite(op)
+    ? _favoriteOps.filter(other => other !== op)
+    : [..._favoriteOps, op];
+  try { localStorage.setItem(FAVORITES_KEY, JSON.stringify(_favoriteOps)); } catch {}
+  _renderFavorites();
+  _syncFavoriteButton();
+}
+
+/** 实心/描边两个星星切换状态，与剪贴板列表的收藏按钮用同一套图标 */
+function _syncFavoriteButton() {
+  if (!_favoriteBtn) return;
+  const favorite = _isFavorite(_select?.value);
+  // icons.js 是硬编码 SVG，不含用户输入
+  _favoriteBtn.innerHTML = favorite ? icons.starFill : icons.star;
+  _favoriteBtn.classList.toggle("is-favorite", favorite);
+  _favoriteBtn.setAttribute("aria-pressed", String(favorite));
+  const label = t(favorite ? "codec.action.unfavorite" : "codec.action.favorite");
+  _favoriteBtn.title = label;
+  _favoriteBtn.setAttribute("aria-label", label);
+}
+
+function _renderFavorites() {
+  if (!_favoriteGroup) return;
   // 先清空再取标签：否则会读到上一轮渲染出的副本
-  _recentGroup.replaceChildren();
-  for (const op of _recentOps) {
+  _favoriteGroup.replaceChildren();
+  for (const op of _favoriteOps) {
     const label = _getOpLabel(op);
     if (!label) continue;
     const item = document.createElement("li");
     item.className = "custom-select-option";
     item.dataset.value = op;
     item.textContent = label;
-    _recentGroup.appendChild(item);
+    _favoriteGroup.appendChild(item);
   }
   // 空分组连标题一起隐藏；重建后要把选中态重新套到新副本上
-  if (_recentGroupEl) _recentGroupEl.hidden = _recentGroup.children.length === 0;
+  if (_favoriteGroupEl) _favoriteGroupEl.hidden = _favoriteGroup.children.length === 0;
   _select?.refresh();
 }
 
