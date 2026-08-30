@@ -1,4 +1,4 @@
-mod capture_editor;
+mod capture_entry;
 mod clipboard;
 mod ocr;
 mod settings;
@@ -13,7 +13,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex};
 
-pub use capture_editor::*;
+// 截图入口只对 crate 内部可见（托盘 / 快捷键调用），没有 pub 项可以再导出。
+pub(crate) use capture_entry::*;
 pub use clipboard::*;
 pub use ocr::*;
 pub use settings::*;
@@ -28,10 +29,6 @@ pub struct AppState {
     pub watcher: ClipboardWatcher,
     pub preview_visible: Arc<Mutex<bool>>,
     pub codec_visible: Arc<Mutex<bool>>,
-    pub latest_capture: Arc<Mutex<Option<crate::screenshot::CapturedScreenshot>>>,
-    pub capture_generation: AtomicU64,
-    pub capture_window_generation: AtomicU64,
-    pub capture_editor_transition: Mutex<()>,
     pub main_window_transition: Mutex<()>,
     pub pin_transition: Mutex<()>,
     pub main_window_position_generation: AtomicU64,
@@ -55,18 +52,6 @@ impl AppState {
             Err(error) => {
                 log::warn!("读取保存目录配置失败，使用默认目录: {error}");
                 crate::image_io::SaveTarget::default()
-            }
-        }
-    }
-
-    /// 框选完成后的默认动作；配置锁损坏时退回「直接开编辑器」，
-    /// 截图流程不该因为别处的 panic 停在覆盖层上。
-    pub fn capture_commit_action(&self) -> &'static str {
-        match self.config.lock() {
-            Ok(config) => config.capture_commit_action(),
-            Err(error) => {
-                log::warn!("读取选区提交动作配置失败，使用默认动作: {error}");
-                crate::models::CAPTURE_COMMIT_ACTION_EDITOR
             }
         }
     }

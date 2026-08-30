@@ -62,28 +62,6 @@ pub fn save_png(png: &[u8], prefix: &str, target: &SaveTarget) -> Result<PathBuf
     write_new_png(&target.directory, &stem, png)
 }
 
-/// 另存为：路径由用户在对话框里选定，对话框已经确认过覆盖，这里直接写。
-pub fn save_png_as(png: &[u8], path: &Path) -> Result<PathBuf, String> {
-    crate::screenshot::png_dimensions(png).map_err(|error| error.to_string())?;
-    let path = with_png_extension(path);
-    if let Some(parent) = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-    {
-        std::fs::create_dir_all(parent).map_err(|error| format!("创建保存目录失败: {error}"))?;
-    }
-    std::fs::write(&path, png).map_err(|error| format!("保存图片失败: {error}"))?;
-    Ok(path)
-}
-
-/// 另存为对话框的预填文件名，与自动保存用同一套模板。
-pub fn suggested_filename(target: &SaveTarget, prefix: &str) -> String {
-    format!(
-        "{}.png",
-        render_filename(&target.template, prefix, Local::now())
-    )
-}
-
 pub fn default_screenshot_dir() -> PathBuf {
     home_dir()
         .unwrap_or_else(std::env::temp_dir)
@@ -214,18 +192,6 @@ fn filename_candidates(stem: &str) -> Vec<String> {
     candidates
 }
 
-fn with_png_extension(path: &Path) -> PathBuf {
-    let has_png = path
-        .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("png"));
-    if has_png {
-        return path.to_path_buf();
-    }
-    let mut name = path.file_name().unwrap_or_default().to_os_string();
-    name.push(".png");
-    path.with_file_name(name)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -349,26 +315,5 @@ mod tests {
         let path = save_png(&png, "clippy-pin", &target).expect("保存应当创建目录");
         assert_eq!(path.parent().unwrap(), target.directory);
         assert!(save_png(b"not a png", "clippy-pin", &target).is_err());
-    }
-
-    #[test]
-    fn save_as_appends_the_png_extension_only_when_missing() {
-        let directory = tempfile::tempdir().expect("创建临时目录失败");
-        let png = crate::screenshot::encode_png(&[9, 9, 9, 255], 1, 1).expect("编码 PNG 失败");
-
-        let named = save_png_as(&png, &directory.path().join("shot")).expect("保存应当成功");
-        assert_eq!(named.file_name().unwrap(), "shot.png");
-        let kept = save_png_as(&png, &directory.path().join("other.PNG")).expect("保存应当成功");
-        assert_eq!(kept.file_name().unwrap(), "other.PNG");
-        // 另存为是用户指定的路径，重复保存直接覆盖，不再追加序号。
-        let again = save_png_as(&png, &directory.path().join("shot.png")).expect("保存应当成功");
-        assert_eq!(again, named);
-    }
-
-    #[test]
-    fn suggested_filename_ends_with_png() {
-        let name = suggested_filename(&SaveTarget::default(), "clippy-screenshot");
-        assert!(name.starts_with("clippy-screenshot-"));
-        assert!(name.ends_with(".png"));
     }
 }

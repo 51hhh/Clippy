@@ -147,19 +147,6 @@ pub struct AppConfig {
     /// 扩展名固定为 `.png`，模板只描述主干；空表示内置默认。
     #[serde(default)]
     pub screenshot_filename_template: String,
-    /// 框选完成后的默认动作：`"editor"` 直接开编辑器（参考项目的手感），
-    /// `"toolbar"` 停在覆盖层上等用户点工具条。认不出的值按 `"editor"` 处理，
-    /// 因此新增此字段不需要迁移或提升配置版本。
-    #[serde(default = "default_capture_commit_action")]
-    pub capture_commit_action: String,
-}
-
-/// 截图选区提交后的默认动作。
-pub const CAPTURE_COMMIT_ACTION_EDITOR: &str = "editor";
-pub const CAPTURE_COMMIT_ACTION_TOOLBAR: &str = "toolbar";
-
-fn default_capture_commit_action() -> String {
-    CAPTURE_COMMIT_ACTION_EDITOR.to_string()
 }
 
 fn default_language() -> String {
@@ -237,7 +224,6 @@ impl Default for AppConfig {
             main_window_position: None,
             screenshot_save_dir: String::new(),
             screenshot_filename_template: String::new(),
-            capture_commit_action: default_capture_commit_action(),
         }
     }
 }
@@ -250,16 +236,6 @@ const V1_DEFAULT_ENDPOINTS: [(&str, &str); 2] = [
 ];
 
 impl AppConfig {
-    /// 归一化后的选区提交动作。老配置没有这个字段、或者写了认不出的值，
-    /// 都按默认的「直接开编辑器」处理，绝不让截图流程卡在一个未知状态。
-    pub fn capture_commit_action(&self) -> &'static str {
-        if self.capture_commit_action.trim() == CAPTURE_COMMIT_ACTION_TOOLBAR {
-            CAPTURE_COMMIT_ACTION_TOOLBAR
-        } else {
-            CAPTURE_COMMIT_ACTION_EDITOR
-        }
-    }
-
     /// 把旧版本配置迁移到当前版本，返回是否发生了改动（调用方据此决定是否回写）。
     pub fn migrate(&mut self) -> bool {
         let mut changed = false;

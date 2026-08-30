@@ -541,7 +541,7 @@ pub async fn start_dbus_service(
             log::info!("D-Bus Capture 被调用");
             let handle = self.handle.clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = super::commands::show_capture_editor_for_app(handle).await {
+                if let Err(e) = super::commands::trigger_capture_overlay(handle).await {
                     log::warn!("截图快捷键触发失败: {}", e);
                 }
             });

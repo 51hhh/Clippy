@@ -816,6 +816,8 @@ dependencies = [
  "criterion",
  "enigo",
  "env_logger",
+ "gdk",
+ "gtk",
  "image",
  "inotify",
  "keyring",

@@ -250,7 +250,7 @@ pub(crate) fn toggle_main_window(handle: &tauri::AppHandle) {
 fn trigger_capture(handle: &tauri::AppHandle) {
     let handle = handle.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(error) = commands::show_capture_editor_for_app(handle).await {
+        if let Err(error) = commands::trigger_capture_overlay(handle).await {
             log::warn!("截图快捷键触发失败: {}", error);
         }
     });

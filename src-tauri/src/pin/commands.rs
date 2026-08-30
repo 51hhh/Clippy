@@ -188,25 +188,6 @@ pub fn save_pin(label: String, state: State<'_, AppState>) -> Result<String, Str
 }
 
 #[tauri::command]
-pub fn edit_pin(
-    label: String,
-    app_handle: tauri::AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    validate_label(&label)?;
-    let png = image_bytes(&state.pin_manager.get(&label)?)?;
-    let (width, height) =
-        crate::screenshot::png_dimensions(&png).map_err(|error| error.to_string())?;
-    crate::commands::queue_capture_for_editor(
-        &app_handle,
-        &state,
-        STANDARD.encode(png),
-        width,
-        height,
-    )
-}
-
-#[tauri::command]
 pub fn close_pin(
     label: String,
     app_handle: tauri::AppHandle,
@@ -225,20 +206,19 @@ pub fn close_pin(
 }
 
 fn payload_from_entry(entry: PinEntry) -> Result<PinPayload, String> {
-    let (kind, text, image_base64, can_save, can_edit) = match &entry.source {
+    let (kind, text, image_base64, can_save) = match &entry.source {
         PinSource::Clip { item, image } => match item.content_type {
             ContentType::Image => (
                 "image",
                 None,
                 image.as_ref().map(|png| STANDARD.encode(png)),
                 true,
-                true,
             ),
             ContentType::Text | ContentType::Html => {
-                ("text", item.text_content.clone(), None, false, false)
+                ("text", item.text_content.clone(), None, false)
             }
         },
-        PinSource::Screenshot { png } => ("image", None, Some(STANDARD.encode(png)), true, true),
+        PinSource::Screenshot { png } => ("image", None, Some(STANDARD.encode(png)), true),
     };
     Ok(PinPayload {
         label: entry.label,
@@ -251,7 +231,6 @@ fn payload_from_entry(entry: PinEntry) -> Result<PinPayload, String> {
         opacity: entry.opacity,
         locked: entry.locked,
         can_save,
-        can_edit,
         position: entry.position,
     })
 }

@@ -3,6 +3,7 @@ import {
   clampRect,
   committedSelection,
   contains,
+  coversBounds,
   hitHandle,
   hoverCandidate,
   moveRect,
@@ -24,17 +25,26 @@ export function useSelection(width: number, height: number, windows: WindowCandi
   const [selection, setSelection] = useState<Rect | null>(null);
   const [candidate, setCandidate] = useState<WindowCandidate | null>(null);
 
+  /**
+   * 铺满全屏的选区没有可移动的余量：此时"选区内部"要让位给重新框选，
+   * 否则点一下取了全屏之后就再也框不出小区域了。手柄不受影响，始终可拖。
+   */
+  const movable = selection && !coversBounds(selection, bounds) ? selection : null;
+
+  /** 供调用方判断这次按下是否落在缩放手柄上（决定指针事件归选区还是归画布）。 */
+  function handleAt(point: Point): ResizeHandle | null {
+    return selection ? hitHandle(selection, point) : null;
+  }
+
   function pointerDown(point: Point) {
-    if (selection) {
-      const handle = hitHandle(selection, point);
-      if (handle) {
-        interaction.current = { kind: "resize", start: point, initial: selection, handle };
-        return;
-      }
-      if (contains(selection, point)) {
-        interaction.current = { kind: "move", start: point, initial: selection };
-        return;
-      }
+    const handle = handleAt(point);
+    if (handle && selection) {
+      interaction.current = { kind: "resize", start: point, initial: selection, handle };
+      return;
+    }
+    if (movable && contains(movable, point)) {
+      interaction.current = { kind: "move", start: point, initial: movable };
+      return;
     }
     const hovered = windowAt(windows, point);
     interaction.current = { kind: "create", start: point, candidate: hovered };
@@ -44,7 +54,7 @@ export function useSelection(width: number, height: number, windows: WindowCandi
   function pointerMove(point: Point) {
     const active = interaction.current;
     if (!active) {
-      setCandidate(hoverCandidate(windows, point, selection));
+      setCandidate(hoverCandidate(windows, point, movable));
       return;
     }
     const delta = { x: point.x - active.start.x, y: point.y - active.start.y };
@@ -57,7 +67,7 @@ export function useSelection(width: number, height: number, windows: WindowCandi
     }
   }
 
-  /** 返回本次新框出的选区（调整已有选区或空手松开时返回 null），调用方据此决定是否直接进编辑器。 */
+  /** 返回本次新框出的选区（调整已有选区或空手松开时返回 null）。 */
   function pointerUp(point: Point): Rect | null {
     const active = interaction.current;
     interaction.current = null;
@@ -68,5 +78,12 @@ export function useSelection(width: number, height: number, windows: WindowCandi
     return committed;
   }
 
-  return { selection, candidate, setSelection, pointerDown, pointerMove, pointerUp };
+  /** 回到"还没框选"的状态（右键取消选区）。 */
+  function reset() {
+    interaction.current = null;
+    setCandidate(null);
+    setSelection(null);
+  }
+
+  return { selection, candidate, bounds, handleAt, pointerDown, pointerMove, pointerUp, reset };
 }

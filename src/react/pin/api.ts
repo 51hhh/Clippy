@@ -1,7 +1,6 @@
 import {
   closePin,
   copyPin,
-  editPin,
   getPinPayload,
   pinReady,
   savePin,
@@ -15,6 +14,5 @@ export const pinApi = {
   update: (label: string, update: PinUpdate): Promise<PinPayload> => updatePin(label, update),
   copy: (label: string): Promise<void> => copyPin(label),
   save: (label: string): Promise<string> => savePin(label),
-  edit: (label: string): Promise<void> => editPin(label),
   close: (label: string): Promise<void> => closePin(label),
 };

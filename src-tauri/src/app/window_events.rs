@@ -22,11 +22,6 @@ pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
         {
             api.prevent_close();
             let _ = window.hide();
-            if window.label() == "capture" {
-                if let Some(state) = window.app_handle().try_state::<AppState>() {
-                    commands::release_capture_window(window.app_handle(), &state);
-                }
-            }
         }
         tauri::WindowEvent::Focused(false) if window.label() == "main" => {
             hide_main_after_focus_loss(window.clone());
@@ -61,8 +56,10 @@ pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
     }
 }
 
+/// 主窗口靠快捷键反复显隐，关闭要退化成隐藏；其余窗口（设置、Pin、覆盖层）
+/// 都是用完即销毁，真关掉才对。
 fn hides_instead_of_closing(label: &str) -> bool {
-    matches!(label, "main" | "capture")
+    matches!(label, "main")
 }
 
 /// 侧栏开着时失焦不隐藏窗口。
@@ -106,8 +103,9 @@ mod tests {
     #[test]
     fn reusable_windows_hide_instead_of_entering_a_destroy_race() {
         assert!(hides_instead_of_closing("main"));
-        assert!(hides_instead_of_closing("capture"));
         assert!(!hides_instead_of_closing("settings"));
+        // 截图编辑器窗口已删除，不该再有复用它的隐藏路径
+        assert!(!hides_instead_of_closing("capture"));
         assert!(!hides_instead_of_closing("pin-1"));
     }
 

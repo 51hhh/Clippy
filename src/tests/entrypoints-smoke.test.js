@@ -24,9 +24,8 @@ describe("built window entrypoints", () => {
     ["index.html", ["app", "clipboard-react-root", "translation-react-root", "preview-panel", "codec-panel"]],
     [
       "settings.html",
-      ["theme-grid", "auto-paste-toggle", "translation-group", "capture-commit-action-select"],
+      ["theme-grid", "auto-paste-toggle", "translation-group"],
     ],
-    ["capture.html", ["capture-root"]],
     ["capture-overlay.html", ["root"]],
     ["pin.html", ["root"]],
   ])("contains stable mount points in %s", (name, ids) => {

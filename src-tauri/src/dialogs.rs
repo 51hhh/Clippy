@@ -1,24 +1,10 @@
-//! 系统文件对话框。集中封装 tauri-plugin-dialog，让初始目录、建议文件名和
-//! PNG 过滤器在各处保持一致；Linux 下 GTK/Portal 的差异由插件负责。
+//! 系统文件对话框。集中封装 tauri-plugin-dialog，让初始目录在各处保持一致；
+//! Linux 下 GTK/Portal 的差异由插件负责。
 //!
 //! 这里的函数都会阻塞到用户操作完，调用方必须先切到阻塞线程。
 
-use crate::image_io::SaveTarget;
 use std::path::{Path, PathBuf};
 use tauri_plugin_dialog::{DialogExt, FilePath};
-
-/// 另存为对话框。返回 None 表示用户取消。
-pub fn choose_png_save_path(app_handle: &tauri::AppHandle, target: &SaveTarget) -> Option<PathBuf> {
-    let suggestion = crate::image_io::suggested_filename(target, "clippy-screenshot");
-    app_handle
-        .dialog()
-        .file()
-        .set_directory(prepared_directory(&target.directory))
-        .set_file_name(suggestion)
-        .add_filter("PNG Image", &["png"])
-        .blocking_save_file()
-        .and_then(local_path)
-}
 
 /// 选择保存目录，供设置页填写截图目录。返回 None 表示用户取消。
 pub fn choose_directory(app_handle: &tauri::AppHandle, start: &Path) -> Option<PathBuf> {

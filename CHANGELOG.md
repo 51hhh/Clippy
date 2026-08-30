@@ -1,5 +1,39 @@
 # Changelog
 
+## 未发布
+
+### 🔄 变更
+
+**截图改成"一个窗口走完全程"（参考 [flashot](https://github.com/poneding/flashot)，MIT）**
+- 独立的截图编辑器窗口删除：选区、标注、图像调整、提交现在都发生在冻结画面覆盖层里。
+  设置里的 "After Selecting"（`capture_commit_action`）随之删除——没有"转到编辑器"这个分支了。
+- 默认就是选区模式：**点一下空地即整屏**，鼠标悬停在窗口上点一下取那个窗口，拖拽取自由区域。
+- 点击或拖拽**不再直接结束**：完整工具条贴在选区旁边（16 个标注工具 + 颜色/线宽 + 撤销/重做 +
+  图像调整 + 翻译/保存/贴图/对钩/取消），选区仍可拖动与八方向缩放。铺满全屏时内部拖拽回到重新框选。
+- 点对钩直接把**裁剪 + 标注后的 PNG 复制进剪贴板**（`commit_capture_action`）：
+  裁剪在前端画布上完成，后端不再按选区裁第二遍——那会丢掉画布上的标注。
+  选区翻译仍走后端裁剪，OCR 要的是原始像素。
+
+### 🐛 修复
+
+- **"截屏是黑的"**：冻结帧本来就是正常的，黑的是覆盖层窗口自己——Wayland 不允许客户端摆放窗口，
+  Tauri 的 `position()`/`set_size()` 被 GNOME 静默忽略。改为配置底层 GTK 窗口，
+  由合成器 `fullscreen_on_monitor` 铺满按最大重叠面积选出的显示器。
+- **截图里的画面缩放不对**：xcap 的 `Monitor::width()` 在 1920×1200/scale 1.3333 的桌面上返回 2880×1800，
+  既不是逻辑尺寸也不是物理尺寸；改按 `round(帧像素 / scale_factor)` 归一化。
+- **窗口速选框歪了**：`xcap::Window` 给的是 X screen 原始像素的**客户端**矩形，
+  混了坐标空间（实测一个 QQ 窗口被报成 2598 像素宽）；现在先按 `X 像素 / 逻辑像素` 折算，
+  再减掉 `_GTK_FRAME_EXTENTS`（CSD 阴影），小于 20 逻辑像素的候选丢弃。
+- 顺手删掉随编辑器窗口一起失去入口的三个命令（`copy_screenshot_image`、`save_screenshot_image`、
+  `save_screenshot_image_as`）：它们接受任意 base64 就写文件/剪贴板，留着是没人用的攻击面。
+
+### 📄 文档
+
+- 新增 [docs/capture-linux.md](docs/capture-linux.md)：**每个窗口的大小能不能拿到**的系统 API 调研结论
+  （X11/xcb 能；GNOME Wayland 只能枚举 XWayland 客户端；`wlr-foreign-toplevel-management` 只有标题没有几何；
+  `org.gnome.Shell.Screenshot` 对普通应用 `AccessDenied`），三套坐标空间的换算规则、
+  覆盖层摆放为什么必须交给合成器、以及快速选区的交互约定。
+
 ## v0.1.17
 
 自 v0.1.16 起共 119 个提交。这一版把 Clippy 从"剪贴板历史"扩成"剪贴板 + 截图 + 翻译"三条主线，

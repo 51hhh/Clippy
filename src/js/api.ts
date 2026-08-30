@@ -20,7 +20,6 @@ import type {
   CaptureOverlayPayload,
   CaptureSelection,
   CaptureTranslationResult,
-  CapturedScreenshot,
   ClipboardStats,
   ClipItem,
   InstallType,
@@ -45,7 +44,6 @@ export type {
   CaptureOverlayPayload,
   CaptureSelection,
   CaptureTranslationResult,
-  CapturedScreenshot,
   ClipboardStats,
   ClipItem,
   ContentType,
@@ -256,11 +254,6 @@ export function isDevBinary(): Promise<boolean> {
   return invoke<boolean>("is_dev_binary");
 }
 
-/** 打开截图编辑器 */
-export function showCaptureEditor(): Promise<void> {
-  return invoke<void>("show_capture_editor");
-}
-
 /** 启动冻结屏幕选区覆盖层 */
 export function showCaptureOverlay(): Promise<void> {
   return invoke<void>("show_capture_overlay");
@@ -274,11 +267,20 @@ export function cancelCaptureOverlay(sessionId: string): Promise<void> {
   return invoke<void>("cancel_capture_overlay", { sessionId });
 }
 
-export function runCaptureAction(
+/**
+ * 提交覆盖层里已经裁剪并标注好的 PNG。
+ * 后端不再自己裁一遍，否则画布上的标注会被丢掉。
+ */
+export function commitCaptureAction(
   action: CaptureAction,
-  selection: CaptureSelection,
+  sessionId: string,
+  pngBase64: string,
 ): Promise<CaptureActionResult> {
-  return invoke<CaptureActionResult>("run_capture_action", { action, selection });
+  return invoke<CaptureActionResult>("commit_capture_action", {
+    action,
+    sessionId,
+    pngBase64,
+  });
 }
 
 /** 截图选区先在后端本地 OCR，再仅发送识别文本进行翻译。 */
@@ -336,31 +338,6 @@ export function isAutostartEnabled(): Promise<boolean> {
   return isAutostartEnabledPlugin();
 }
 
-/** 读取待编辑截图 */
-export function getPendingCapture(generation: number): Promise<CapturedScreenshot> {
-  return invoke<CapturedScreenshot>("get_pending_capture", { generation });
-}
-
-/** 清理未消费的待编辑截图 */
-export function clearPendingCapture(generation: number): Promise<void> {
-  return invoke<void>("clear_pending_capture", { generation });
-}
-
-/** 复制截图编辑器导出的 PNG */
-export function copyScreenshotImage(pngBase64: string): Promise<void> {
-  return invoke<void>("copy_screenshot_image", { pngBase64 });
-}
-
-/** 保存截图编辑器导出的 PNG 到配置的截图目录 */
-export function saveScreenshotImage(pngBase64: string): Promise<string> {
-  return invoke<string>("save_screenshot_image", { pngBase64 });
-}
-
-/** 另存为截图编辑器导出的 PNG，用户取消时返回 null */
-export function saveScreenshotImageAs(pngBase64: string): Promise<string | null> {
-  return invoke<string | null>("save_screenshot_image_as", { pngBase64 });
-}
-
 /** 选择截图保存目录，用户取消时返回 null */
 export function pickScreenshotDirectory(): Promise<string | null> {
   return invoke<string | null>("pick_screenshot_directory");
@@ -403,10 +380,6 @@ export function copyPin(label: string): Promise<void> {
 
 export function savePin(label: string): Promise<string> {
   return invoke<string>("save_pin", { label });
-}
-
-export function editPin(label: string): Promise<void> {
-  return invoke<void>("edit_pin", { label });
 }
 
 /** 检查 OCR 是否可用（系统是否安装了 tesseract） */
