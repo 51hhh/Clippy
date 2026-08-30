@@ -34,8 +34,9 @@ source "$HOME/.cargo/env"
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
 
-# 5. Tauri CLI
-cargo install tauri-cli --version "^2"
+# 5. Tauri CLI（cargo 侧；npm 侧的同版本 CLI 已作为 src/ 的 devDependency 锁进 lockfile，
+#    `cd src && npm ci` 之后 `npx tauri` 即可用，两者版本保持一致）
+cargo install tauri-cli --version "^2" --locked
 ```
 
 ## 常用命令
@@ -43,8 +44,8 @@ cargo install tauri-cli --version "^2"
 ```bash
 # 启动开发服务器（热重载前端 + Rust 后端）
 cargo tauri dev
-# 没装 cargo-tauri 时用 npx（两者都可以，构建前钩子对两种 cwd 都成立）
-npx --yes @tauri-apps/cli@^2 dev
+# 没装 cargo-tauri 时用 npm 侧的同版本 CLI（已锁在 src/package.json，不依赖 npx 缓存）
+cd src && npx tauri dev
 
 # 构建发布包（输出到 src-tauri/target/release/bundle/）
 cargo tauri build
