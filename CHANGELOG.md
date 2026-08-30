@@ -91,13 +91,18 @@
 
 ### 🧪 测试与门禁
 
-- Rust 237 项测试；前端 Vitest 35 files / 602 tests；`./scripts/ci-local.sh` 依次跑 fmt / check / clippy / test、锁文件安装、TypeScript、Vitest、DOM/Xvfb smoke、Canvas 导出像素 smoke、主窗口布局像素 smoke 和 Vite build（11 通过 / 0 失败 / 1 跳过，跳过项是需显式开启的 AppImage 可视 smoke）。
+- Rust 237 项测试；前端 Vitest 35 files / 604 tests；`./scripts/ci-local.sh` 依次跑 fmt / check / clippy / test、锁文件安装、TypeScript、Vitest、DOM/Xvfb smoke、Canvas 导出像素 smoke、主窗口布局像素 smoke 和 Vite build（11 通过 / 0 失败 / 1 跳过，跳过项是需显式开启的 AppImage 可视 smoke）。
 - 两个真实浏览器像素 smoke：Canvas 导出与主窗口布局几何（jsdom 没有布局引擎，量不出遮挡）。
-- 结构守卫把"改错了不会报错、只会悄悄退化"的问题钉住：构建钩子的 cwd 无关性、主窗口 `<select>` 为 0、codec 操作必须挂 `data-i18n`、列表行不写类型标签、源码里写死的 i18n key 必须存在于两个 locale。
+- 结构守卫把"改错了不会报错、只会悄悄退化"的问题钉住：构建钩子的 cwd 无关性、主窗口 `<select>` 为 0、codec 操作必须挂 `data-i18n`、列表行不写类型标签、源码里写死的 i18n key 必须存在于两个 locale、release notes 的下载后缀必须等于构建矩阵的 label（否则发布页挂死链）。
 - `@tauri-apps/cli` 进 `src/` 的 devDependencies 并锁进 lockfile，`cargo tauri` 与 `npx tauri` 同版本，构建不再依赖 npx 缓存。
 
 ### ⚠️ 升级说明
 
+- **不再提供 Ubuntu 22.04 构建**：截图用的 `xcap 0.9` 必然拉入 `pipewire`/`libspa 0.9`，而 `libspa`
+  无条件访问 `spa_video_info_raw.flags`（pipewire ≥ 0.3.65 才有该字段），jammy 仓库只有 0.3.48，
+  bindgen 生成的结构体缺字段，编译直接失败。用第三方 PPA 换新头文件能骗过编译，但产出的二进制
+  与 22.04 实机上的 libpipewire ABI 不一致，比明确不支持更危险。22.04 用户请留在 v0.1.16 或自行编译。
+  发布产物只剩 `ubuntu24` 后缀（以及 updater 用的无后缀件）。
 - 配置会自动从 v1 迁移到 v2（翻译服务列表）并回写，无需手工编辑；旧的单服务配置保留原有端点与模型。
 - 翻译需要自己配置服务凭据；未配置凭据时部分服务走非官方 web 端点，设置页对这些服务标注"随时可能失效"。
 - OCR 需单独安装 tesseract：`sudo apt install tesseract-ocr tesseract-ocr-chi-sim`。

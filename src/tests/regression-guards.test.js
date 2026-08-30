@@ -7,6 +7,7 @@
  *   2. `#codec-output` 改回 <pre> → 多字段结果的按钮行装不进去（<pre> 只容纳短语内容）
  *   3. 列表行重新显示内容类型 → 主栏 HTML、侧栏 YAML 的自相矛盾又回来
  *   4. preview-panel.js 自己再嗅探一遍内容类型 → 判定重新分叉成两套标准
+ *   5. release notes 的下载链接与构建矩阵的发行版标签不同步 → 发布页上是死链
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -43,6 +44,27 @@ describe("codec 输出区能装下多字段结果", () => {
     const output = document.getElementById("codec-output");
     expect(output?.tagName.toLowerCase()).toBe("div");
     expect(output?.classList.contains("codec-output")).toBe(true);
+  });
+});
+
+describe("release 下载链接与构建矩阵同步", () => {
+  // 产物名是 `Clippy_<ver>_amd64_<label>.deb`，label 来自构建矩阵。删矩阵条目却忘了
+  // 删 release notes 里的那一行，发布页就会挂一条 404 死链（反过来则是漏传产物）。
+  const release = read(".github/workflows/release.yml");
+
+  it("下载表里的发行版后缀恰好等于矩阵里的 label", () => {
+    const labels = [...release.matchAll(/^\s*- runner: \S+\s*\n\s*label: (\S+)\s*$/gm)].map(
+      (m) => m[1],
+    );
+    const linked = [...release.matchAll(/Clippy_\$\{VER\}_amd64_([a-z0-9]+)\./g)].map((m) => m[1]);
+    expect(labels.length).toBeGreaterThan(0);
+    expect([...new Set(linked)].sort()).toEqual([...new Set(labels)].sort());
+  });
+
+  it("updater 用的无后缀产物只从一个 label 上传一次", () => {
+    // 无后缀名是更新器按固定 URL 找的那份；两个 runner 都传就会互相覆盖。
+    const uploaders = [...release.matchAll(/if: matrix\.label == '([a-z0-9]+)'/g)].map((m) => m[1]);
+    expect(new Set(uploaders).size).toBe(1);
   });
 });
 
