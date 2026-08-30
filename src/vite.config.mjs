@@ -17,7 +17,6 @@ export default defineConfig({
         main: resolve(__dirname, "index.html"),
         settings: resolve(__dirname, "settings.html"),
         pin: resolve(__dirname, "pin.html"),
-        capture: resolve(__dirname, "capture.html"),
         captureOverlay: resolve(__dirname, "capture-overlay.html"),
       },
     },

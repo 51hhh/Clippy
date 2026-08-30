@@ -33,9 +33,15 @@ export function windowAt(windows: WindowCandidate[], point: Point): WindowCandid
   return windows.find((candidate) => contains(candidate, point)) || null;
 }
 
+/** 几乎没有位移就算点击，而不是一次面积为零的拖拽。 */
+const CLICK_SLOP = 4;
+
 /**
- * 松手时落地的选区：几乎没拖动就当成点击，用悬停窗口速选；
- * 否则用拖出的矩形，小到没意义就作废（返回 null 表示这次框选不成立）。
+ * 松手时落地的选区。
+ *
+ * - 拖出来的矩形原样落地（钳进屏幕边界），小到没面积就作废（返回 null）。
+ * - 几乎没动就是点击：鼠标停在某个窗口上就速选那个窗口，
+ *   停在空地上则取整个显示器——参考项目里"直接点一下就是全屏"的手感。
  */
 export function committedSelection(
   start: Point,
@@ -43,11 +49,65 @@ export function committedSelection(
   candidate: WindowCandidate | null,
   bounds: Rect,
 ): Rect | null {
-  if (Math.hypot(end.x - start.x, end.y - start.y) < 4) {
-    return candidate ? clampRect(candidate, bounds) : null;
+  if (Math.hypot(end.x - start.x, end.y - start.y) < CLICK_SLOP) {
+    return clampRect(candidate ?? bounds, bounds);
   }
   const dragged = clampRect(normalizeRect(start, end), bounds, 0);
   return dragged.width >= 2 && dragged.height >= 2 ? dragged : null;
+}
+
+/**
+ * 选区是否已经铺满整个显示器。铺满时"选区内部拖拽"没有可移动的余量，
+ * 必须让位给重新框选，否则点一下取了全屏之后就再也框不出小区域了。
+ */
+export function coversBounds(rect: Rect, bounds: Rect, tolerance = 1): boolean {
+  return (
+    rect.x - bounds.x <= tolerance &&
+    rect.y - bounds.y <= tolerance &&
+    bounds.x + bounds.width - (rect.x + rect.width) <= tolerance &&
+    bounds.y + bounds.height - (rect.y + rect.height) <= tolerance
+  );
+}
+
+/**
+ * 逻辑坐标的选区换算成冻结帧的像素坐标——标注和导出都在像素空间里做。
+ * 取整后仍钳在帧内，避免 `renderExport` 采样越界。
+ */
+export function toPixelRect(rect: Rect, scaleX: number, scaleY: number, frame: Rect): Rect {
+  const left = Math.round(rect.x * scaleX);
+  const top = Math.round(rect.y * scaleY);
+  const right = Math.round((rect.x + rect.width) * scaleX);
+  const bottom = Math.round((rect.y + rect.height) * scaleY);
+  const clamped = {
+    x: Math.max(frame.x, Math.min(left, frame.x + frame.width)),
+    y: Math.max(frame.y, Math.min(top, frame.y + frame.height)),
+    width: 0,
+    height: 0,
+  };
+  clamped.width = Math.max(1, Math.min(right, frame.x + frame.width) - clamped.x);
+  clamped.height = Math.max(1, Math.min(bottom, frame.y + frame.height) - clamped.y);
+  return clamped;
+}
+
+/**
+ * 工具条落点：优先贴在选区下方，放不下就翻到上方，两边都放不下就压在屏幕底部。
+ * 水平方向与选区右边缘对齐，再钳进视口，宽度超过视口时直接靠左。
+ */
+export function toolbarPlacement(
+  selection: Rect,
+  toolbar: { width: number; height: number },
+  viewport: { width: number; height: number },
+  margin = 8,
+): { left: number; top: number } {
+  const width = Math.min(toolbar.width, Math.max(0, viewport.width - margin * 2));
+  const maxLeft = Math.max(margin, viewport.width - width - margin);
+  const left = Math.max(margin, Math.min(selection.x + selection.width - width, maxLeft));
+  const below = selection.y + selection.height + margin;
+  const above = selection.y - toolbar.height - margin;
+  const maxTop = Math.max(margin, viewport.height - toolbar.height - margin);
+  if (below <= maxTop) return { left, top: below };
+  if (above >= margin) return { left, top: above };
+  return { left, top: maxTop };
 }
 
 /**

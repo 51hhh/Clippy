@@ -1,6 +1,6 @@
-import { renderExport } from "../../react/capture/canvasRenderer";
-import { DEFAULT_IMAGE_ADJUSTMENTS } from "../../react/capture/imageAdjustments";
-import type { Annotation } from "../../react/capture/types";
+import { renderExport } from "../../react/annotation/canvasRenderer";
+import { DEFAULT_IMAGE_ADJUSTMENTS } from "../../react/annotation/imageAdjustments";
+import type { Annotation } from "../../react/annotation/types";
 
 function context(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
   const value = canvas.getContext("2d", { willReadFrequently: true });

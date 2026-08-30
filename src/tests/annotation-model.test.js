@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { annotationAt, translateAnnotation } from "../react/capture/annotationGeometry.ts";
-import { commitHistory, redoHistory, undoHistory } from "../react/capture/useHistory.ts";
+import { annotationAt, translateAnnotation } from "../react/annotation/annotationGeometry.ts";
+import { commitHistory, redoHistory, undoHistory } from "../react/annotation/useHistory.ts";
 
-describe("capture editor document model", () => {
+describe("annotation document model", () => {
   it("selects the topmost annotation and moves it immutably", () => {
     const lower = { id: "lower", type: "rect", color: "red", size: 2, rect: { x: 0, y: 0, width: 40, height: 40 } };
     const upper = { id: "upper", type: "mosaic", rect: { x: 10, y: 10, width: 20, height: 20 } };

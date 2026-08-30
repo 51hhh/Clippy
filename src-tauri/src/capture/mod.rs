@@ -14,8 +14,11 @@ pub use types::{
 
 use crate::commands::AppState;
 use crate::translation::types::TranslationError;
-use base64::{engine::general_purpose::STANDARD, Engine};
 use tauri::State;
+
+/// 覆盖层提交回来的 PNG 上限。全屏 4K 的标注 PNG 大约十几 MB，
+/// 64 MiB 足够宽松，同时挡住畸形/恶意载荷把内存吃光。
+const MAX_COMMIT_PNG_BYTES: usize = 64 * 1024 * 1024;
 
 pub(crate) fn handle_overlay_destroyed(
     app_handle: &tauri::AppHandle,
@@ -83,9 +86,7 @@ pub fn get_capture_overlay(
     state: State<'_, AppState>,
 ) -> Result<CaptureOverlayPayload, String> {
     validate_overlay_label(&label)?;
-    Ok(state
-        .capture_manager
-        .payload(&label, state.capture_commit_action())?)
+    Ok(state.capture_manager.payload(&label)?)
 }
 
 #[tauri::command]
@@ -100,22 +101,49 @@ pub fn cancel_capture_overlay(
     Ok(())
 }
 
+/// 覆盖层内完成裁剪与标注之后的唯一提交入口。
+///
+/// PNG 由覆盖层的画布渲染（`renderExport` 已经把裁剪、图像调整和矢量标注合成进去），
+/// 后端不再自己裁一遍——否则标注会被丢掉。会话在执行动作前先被认领，
+/// 并发取消或连点两次都不会产生两份副作用。
 #[tauri::command]
-pub fn run_capture_action(
+pub fn commit_capture_action(
     action: CaptureAction,
-    selection: CaptureSelection,
+    session_id: String,
+    png_base64: String,
     app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<CaptureActionResult, String> {
-    let crop_result = state.capture_manager.crop(&selection);
-    action_lifecycle::complete_capture_action(
-        action,
-        crop_result,
-        || state.capture_manager.finish(&selection.session_id),
+    let png = decode_commit_png(&png_base64);
+    let result = action_lifecycle::complete_capture_action(
+        png,
+        || state.capture_manager.finish(&session_id),
         |session| overlay_windows::close(&app_handle, &session.overlay_labels),
         |session| overlay_windows::restore(&app_handle, &session.restore_labels),
         |png| execute_action(action, png, &app_handle, &state),
-    )
+    );
+    // 覆盖层在动作之前就关掉了，错误已经没有窗口可以显示——只能留在日志里，
+    // 否则"点了对钩什么都没发生"完全无从排查。
+    if let Err(error) = &result {
+        log::warn!("截图提交失败: {error}");
+    }
+    result
+}
+
+/// 解码并校验覆盖层提交的 PNG。先看 base64 长度再解码，避免为一个畸形载荷先分配几百 MB。
+fn decode_commit_png(png_base64: &str) -> Result<Vec<u8>, CaptureError> {
+    // base64 每 4 个字符出 3 字节，用这个上界提前拒绝。
+    if png_base64.len() / 4 * 3 > MAX_COMMIT_PNG_BYTES {
+        return Err(CaptureError::CommitPayloadTooLarge);
+    }
+    let png = crate::screenshot::decode_png_base64(png_base64)
+        .map_err(|_| CaptureError::CommitPayloadInvalid)?;
+    if png.len() > MAX_COMMIT_PNG_BYTES {
+        return Err(CaptureError::CommitPayloadTooLarge);
+    }
+    // 必须真的能解成图像：后续 copy/save/pin 都假设手里是合法 PNG。
+    crate::screenshot::png_dimensions(&png).map_err(|_| CaptureError::CommitPayloadInvalid)?;
+    Ok(png)
 }
 
 /// 显式执行“选区 -> 本地 OCR -> 文本翻译”。裁剪帧只进入 Tesseract，永不发送给 provider。
@@ -222,18 +250,6 @@ fn execute_action(
             let label = crate::pin::create_screenshot_pin(png, app_handle, state)?;
             Ok(action_result("pin", None, Some(label)))
         }
-        CaptureAction::Edit => {
-            let (width, height) =
-                crate::screenshot::png_dimensions(&png).map_err(|error| error.to_string())?;
-            crate::commands::queue_capture_for_editor(
-                app_handle,
-                state,
-                STANDARD.encode(png),
-                width,
-                height,
-            )?;
-            Ok(action_result("edit", None, None))
-        }
     }
 }
 
@@ -291,6 +307,36 @@ mod tests {
                 "translation.ocr_failed: Local OCR could not extract text from the image"
             );
         }
+    }
+
+    #[test]
+    fn commit_payload_must_be_a_real_png_within_the_size_limit() {
+        assert_eq!(
+            decode_commit_png("not base64!!").unwrap_err().code(),
+            "commit_payload_invalid"
+        );
+        // 合法 base64 但不是 PNG
+        assert_eq!(
+            decode_commit_png("aGVsbG8=").unwrap_err().code(),
+            "commit_payload_invalid"
+        );
+        // 长度上界在解码之前就拦住，不为畸形载荷分配内存
+        let oversized = "A".repeat(MAX_COMMIT_PNG_BYTES / 3 * 4 + 8);
+        assert_eq!(
+            decode_commit_png(&oversized).unwrap_err().code(),
+            "commit_payload_too_large"
+        );
+    }
+
+    #[test]
+    fn commit_payload_accepts_the_data_url_form_the_canvas_produces() {
+        let png = crate::screenshot::encode_png(&[255, 0, 0, 255], 1, 1).unwrap();
+        let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &png);
+        assert_eq!(decode_commit_png(&encoded).unwrap(), png);
+        assert_eq!(
+            decode_commit_png(&format!("data:image/png;base64,{encoded}")).unwrap(),
+            png
+        );
     }
 
     #[test]

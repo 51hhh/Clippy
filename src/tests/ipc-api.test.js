@@ -36,7 +36,6 @@ import {
   cancelCaptureOverlay,
   copyText,
   closeCurrentWindow,
-  copyScreenshotImage,
   disableAutostart,
   enableAutostart,
   getClips,
@@ -45,8 +44,7 @@ import {
   isAutostartEnabled,
   onClipAdded,
   pickScreenshotDirectory,
-  runCaptureAction,
-  saveScreenshotImageAs,
+  commitCaptureAction,
   startDraggingCurrentWindow,
   updateConfig,
   updatePin,
@@ -113,51 +111,38 @@ describe("typed IPC wrappers", () => {
     expect(invoke).toHaveBeenCalledWith("update_config", { newConfig: config });
   });
 
-  it("preserves capture action and sessionId contracts", () => {
-    const selection = {
-      sessionId: "capture-7",
-      monitorId: 2,
-      x: 10,
-      y: 20,
-      width: 300,
-      height: 180,
-    };
+  /**
+   * 覆盖层自己完成裁剪与标注，提交时送的是渲染好的 PNG——后端不再收选区，
+   * 否则画布上的标注会被丢掉。这三个字段名是合同，改名就会静默失败。
+   */
+  it("preserves the commit contract and sessionId names", () => {
+    commitCaptureAction("pin", "capture-7", "encoded-png");
+    cancelCaptureOverlay("capture-7");
 
-    runCaptureAction("pin", selection);
-    cancelCaptureOverlay(selection.sessionId);
-
-    expect(invoke).toHaveBeenNthCalledWith(1, "run_capture_action", {
+    expect(invoke).toHaveBeenNthCalledWith(1, "commit_capture_action", {
       action: "pin",
-      selection,
+      sessionId: "capture-7",
+      pngBase64: "encoded-png",
     });
     expect(invoke).toHaveBeenNthCalledWith(2, "cancel_capture_overlay", {
       sessionId: "capture-7",
     });
   });
 
-  it("preserves pngBase64 and nested pin update names", () => {
-    copyScreenshotImage("encoded-png");
+  it("preserves nested pin update names", () => {
     updatePin("pin-image-1", { scale: 1.5, opacity: 0.8, locked: true });
 
-    expect(invoke).toHaveBeenNthCalledWith(1, "copy_screenshot_image", {
-      pngBase64: "encoded-png",
-    });
-    expect(invoke).toHaveBeenNthCalledWith(2, "update_pin", {
+    expect(invoke).toHaveBeenCalledWith("update_pin", {
       label: "pin-image-1",
       update: { scale: 1.5, opacity: 0.8, locked: true },
     });
   });
 
-  it("passes a cancelled save dialog through as null", async () => {
-    invoke.mockResolvedValueOnce(null).mockResolvedValueOnce("/home/user/Shots");
+  it("passes a cancelled directory dialog through as null", async () => {
+    invoke.mockResolvedValueOnce(null);
 
-    await expect(saveScreenshotImageAs("encoded-png")).resolves.toBeNull();
-    await expect(pickScreenshotDirectory()).resolves.toBe("/home/user/Shots");
-
-    expect(invoke).toHaveBeenNthCalledWith(1, "save_screenshot_image_as", {
-      pngBase64: "encoded-png",
-    });
-    expect(invoke).toHaveBeenNthCalledWith(2, "pick_screenshot_directory");
+    await expect(pickScreenshotDirectory()).resolves.toBeNull();
+    expect(invoke).toHaveBeenNthCalledWith(1, "pick_screenshot_directory");
   });
 
   it("delivers typed event payloads without exposing the Tauri envelope", async () => {

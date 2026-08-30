@@ -9,7 +9,6 @@ use image::{
     codecs::png::{CompressionType, FilterType, PngEncoder},
     ExtendedColorType, GenericImageView, ImageEncoder,
 };
-use serde::Serialize;
 use std::sync::Arc;
 
 mod backends;
@@ -56,15 +55,6 @@ pub(crate) struct CapturedMonitorFrame {
     pub scale_x: f32,
     pub scale_y: f32,
     pub rgba: Arc<[u8]>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CapturedScreenshot {
-    pub png_base64: String,
-    pub width: u32,
-    pub height: u32,
-    pub generation: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

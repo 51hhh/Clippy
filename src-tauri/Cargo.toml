@@ -53,6 +53,11 @@ cbc = "0.1"
 zbus = "5"
 enigo = { version = "0.6", default-features = false, features = ["x11rb"] }
 webkit2gtk = "2.0"
+# 截图覆盖层必须绕过 Tauri 的窗口定位：Wayland 不允许客户端自己摆窗口，
+# set_position/set_size 会被合成器忽略。参考 flashot（MIT）改为直接配置底层 GTK 窗口
+# （`fullscreen_on_monitor`）并用 GDK 的显示器几何选屏。版本跟随 Tauri v2 已锁定的 0.18。
+gtk = { version = "0.18", features = ["v3_24"] }
+gdk = { version = "0.18", features = ["v3_24"] }
 inotify = "0.11"
 ashpd = { version = "0.13", features = ["screenshot", "documents", "remote_desktop", "screencast"] }
 libwayshot-xcap = "0.3"

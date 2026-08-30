@@ -3,13 +3,14 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; back
 button { font: inherit; }
 .overlay-root { position: relative; width: 100%; height: 100%; overflow: hidden; cursor: crosshair; font-family: Inter, system-ui, sans-serif; }
 .overlay-root.loading { background: #050505; }
-.overlay-frame { position: absolute; inset: 0; display: block; object-fit: fill; pointer-events: none; }
+/* 冻结底图、标注和裁剪压暗都画在这一块画布上：一次 drawScene 出一帧完整画面 */
+.overlay-canvas { position: absolute; left: 0; top: 0; display: block; }
 .overlay-shade { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.38); pointer-events: none; }
-.window-preview,
-.selection { position: absolute; border: 2px solid #2f8cff; pointer-events: none; }
-.window-preview { background: rgba(47, 140, 255, 0.12); }
-.selection { background-repeat: no-repeat; }
-.selection-handle { position: absolute; width: 10px; height: 10px; border: 1px solid #fff; border-radius: 2px; background: #2f8cff; transform: translate(-50%, -50%); }
+.window-preview { position: absolute; border: 2px solid #2f8cff; background: rgba(47, 140, 255, 0.12); pointer-events: none; }
+/* 选区的虚线蓝框由画布上的 drawCropOverlay 画，这层只承载手柄，别再描一遍边 */
+.selection { position: absolute; pointer-events: none; }
+/* 手柄要吃 hover 才能给出缩放光标；命中判定仍在 JS 里按几何做，事件照旧冒泡到根元素 */
+.selection-handle { position: absolute; width: 10px; height: 10px; border: 1px solid #fff; border-radius: 2px; background: #2f8cff; transform: translate(-50%, -50%); pointer-events: auto; }
 .selection-handle.nw { left: 0; top: 0; cursor: nwse-resize; }
 .selection-handle.n { left: 50%; top: 0; cursor: ns-resize; }
 .selection-handle.ne { left: 100%; top: 0; cursor: nesw-resize; }
@@ -19,12 +20,30 @@ button { font: inherit; }
 .selection-handle.sw { left: 0; top: 100%; cursor: nesw-resize; }
 .selection-handle.w { left: 0; top: 50%; cursor: ew-resize; }
 .selection-size { position: absolute; z-index: 4; height: 22px; padding: 0 7px; border-radius: 4px; background: rgba(18, 20, 24, 0.9); color: #fff; font: 11px/22px ui-monospace, monospace; pointer-events: none; }
-.overlay-toolbar { position: absolute; z-index: 5; display: flex; width: 231px; height: 42px; align-items: center; gap: 3px; padding: 4px; border: 1px solid rgba(255,255,255,.16); border-radius: 6px; background: rgba(18,20,24,.96); box-shadow: 0 6px 18px rgba(0,0,0,.4); }
-.overlay-toolbar button { display: grid; width: 32px; height: 32px; padding: 0; place-items: center; border: 0; border-radius: 4px; background: transparent; color: #e5e7eb; cursor: pointer; }
+
+/* 选区旁边的完整工具条 */
+.overlay-toolbar { position: absolute; z-index: 5; display: flex; flex-direction: column; gap: 4px; max-width: calc(100% - 16px); padding: 5px 6px; border: 1px solid rgba(255,255,255,.16); border-radius: 7px; background: rgba(18,20,24,.96); box-shadow: 0 8px 24px rgba(0,0,0,.45); cursor: default; }
+.overlay-toolbar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; }
+.overlay-tool-group { display: flex; align-items: center; gap: 3px; }
+.overlay-toolbar button { display: grid; width: 28px; height: 28px; padding: 0; place-items: center; border: 0; border-radius: 4px; background: transparent; color: #e5e7eb; cursor: pointer; }
 .overlay-toolbar button:hover,
 .overlay-toolbar button:focus-visible { outline: none; background: rgba(255,255,255,.12); color: #fff; }
-.overlay-toolbar button:disabled { opacity: .45; cursor: wait; }
-.overlay-separator { width: 1px; height: 22px; margin: 0 2px; background: rgba(255,255,255,.14); }
+.overlay-toolbar button.active { background: rgba(47,140,255,.28); color: #fff; }
+.overlay-toolbar button:disabled { opacity: .4; cursor: default; }
+.overlay-toolbar button.overlay-confirm { color: #6ee7a8; }
+.overlay-toolbar button.overlay-confirm:hover,
+.overlay-toolbar button.overlay-confirm:focus-visible { background: rgba(52,199,89,.24); color: #b7f7cf; }
+.overlay-separator { width: 1px; height: 20px; margin: 0 3px; background: rgba(255,255,255,.14); }
+.overlay-colors { display: flex; align-items: center; gap: 3px; }
+.overlay-toolbar button.overlay-swatch { width: 16px; height: 16px; border: 1px solid rgba(255,255,255,.35); border-radius: 50%; }
+.overlay-toolbar button.overlay-swatch.active { border-color: #fff; box-shadow: 0 0 0 2px rgba(47,140,255,.55); }
+.overlay-stroke,
+.overlay-text-input,
+.overlay-toggle { display: flex; align-items: center; gap: 5px; color: #cbd5e1; font-size: 11px; white-space: nowrap; }
+.overlay-stroke input[type="range"] { width: 68px; accent-color: #2f8cff; }
+.overlay-text-input input { width: 180px; height: 24px; padding: 0 6px; border: 1px solid rgba(255,255,255,.18); border-radius: 4px; background: rgba(255,255,255,.06); color: #f3f4f6; }
+.overlay-text-input input:focus-visible { outline: none; border-color: #5ca5ff; }
+.overlay-adjustments { gap: 10px; padding-top: 3px; border-top: 1px solid rgba(255,255,255,.1); }
 .overlay-hint { position: absolute; z-index: 6; left: 50%; bottom: 24px; max-width: min(520px, calc(100% - 32px)); transform: translateX(-50%); padding: 7px 12px; border: 1px solid rgba(255,255,255,.14); border-radius: 4px; background: rgba(18,20,24,.92); color: #e5e7eb; font-size: 12px; pointer-events: none; }
 .overlay-error { position: absolute; z-index: 8; left: 50%; bottom: 24px; max-width: min(520px, calc(100% - 32px)); transform: translateX(-50%); padding: 8px 12px; border-radius: 4px; background: rgba(145, 28, 28, .95); color: #fff; font-size: 12px; overflow-wrap: anywhere; }
 

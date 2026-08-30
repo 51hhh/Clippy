@@ -1,7 +1,6 @@
 import {
   Check,
   Copy,
-  Edit3,
   Lock,
   LockOpen,
   Minus,
@@ -17,7 +16,6 @@ type Props = {
   opacity: number;
   locked: boolean;
   canSave: boolean;
-  canEdit: boolean;
   copied: boolean;
   opacityOpen: boolean;
   onScale: (scale: number) => void;
@@ -26,7 +24,6 @@ type Props = {
   onToggleLock: () => void;
   onCopy: () => void;
   onSave: () => void;
-  onEdit: () => void;
   onClose: () => void;
 };
 
@@ -66,11 +63,6 @@ export function PinToolbar(props: Props) {
         <ToolButton label={t("pin.opacity")} onClick={props.onToggleOpacity}>
           <SlidersHorizontal size={16} />
         </ToolButton>
-        {props.canEdit && (
-          <ToolButton label={t("pin.edit")} onClick={props.onEdit}>
-            <Edit3 size={16} />
-          </ToolButton>
-        )}
         {props.canSave && (
           <ToolButton label={t("pin.save")} onClick={props.onSave}>
             <Save size={16} />

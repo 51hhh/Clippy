@@ -92,4 +92,3 @@ export type EditorDocument = {
   adjustments: import("./imageAdjustments").ImageAdjustments;
 };
 
-export type { CapturedScreenshot } from "../../js/ipc-types.ts";

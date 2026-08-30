@@ -32,9 +32,6 @@ pub struct CaptureOverlayPayload {
     pub pixel_width: u32,
     pub pixel_height: u32,
     pub windows: Vec<WindowCandidate>,
-    /// 框选完成后覆盖层该做什么：`"editor"` 直接开编辑器，`"toolbar"` 停下等用户点工具条。
-    /// 由后端归一化后下发，前端不必再认识配置里可能出现的怪值。
-    pub commit_action: &'static str,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -48,13 +45,14 @@ pub struct CaptureSelection {
     pub height: f64,
 }
 
+/// 覆盖层里点勾/保存/贴图时要做的事。标注已经在覆盖层内完成，
+/// 所以没有"转到编辑器"这一项了。
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CaptureAction {
     Copy,
     Save,
     Pin,
-    Edit,
 }
 
 #[derive(Debug, Clone, Serialize)]

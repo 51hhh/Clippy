@@ -142,7 +142,7 @@ export function useCanvasInteractions(params: Params) {
     flush();
   }
 
-  function pointFromEvent(event: React.PointerEvent<HTMLCanvasElement>): Point | null {
+  function pointFromEvent(event: React.PointerEvent<Element>): Point | null {
     const canvas = params.canvasRef.current;
     const image = params.imageRef.current;
     if (!canvas || !image || params.scale <= 0) return null;
@@ -153,7 +153,7 @@ export function useCanvasInteractions(params: Params) {
     };
   }
 
-  function onPointerDown(event: React.PointerEvent<HTMLCanvasElement>) {
+  function onPointerDown(event: React.PointerEvent<Element>) {
     const point = pointFromEvent(event);
     if (!point) return;
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -185,7 +185,7 @@ export function useCanvasInteractions(params: Params) {
     }
   }
 
-  function onPointerMove(event: React.PointerEvent<HTMLCanvasElement>) {
+  function onPointerMove(event: React.PointerEvent<Element>) {
     const point = pointFromEvent(event);
     const active = draftRef.current;
     if (!point || !active) return;

@@ -6,11 +6,11 @@ import {
   annotationBounds,
   isEffectAnnotation,
   translateAnnotation,
-} from "../react/capture/annotationGeometry.ts";
-import { drawAnnotation, renderExport } from "../react/capture/canvasRenderer.ts";
-import { DEFAULT_IMAGE_ADJUSTMENTS } from "../react/capture/imageAdjustments.ts";
-import { MANUAL_TOOLS, TOOL_DRAFTS, useCanvasInteractions } from "../react/capture/useCanvasInteractions.ts";
-import { TOOL_GROUPS } from "../react/capture/EditorSidebar.tsx";
+} from "../react/annotation/annotationGeometry.ts";
+import { drawAnnotation, renderExport } from "../react/annotation/canvasRenderer.ts";
+import { DEFAULT_IMAGE_ADJUSTMENTS } from "../react/annotation/imageAdjustments.ts";
+import { MANUAL_TOOLS, TOOL_DRAFTS, useCanvasInteractions } from "../react/annotation/useCanvasInteractions.ts";
+import { TOOL_GROUPS } from "../react/capture-overlay/tools.tsx";
 
 /**
  * 记录型 2D 上下文：jsdom 没有 canvas 后端，无法断言像素，
@@ -63,7 +63,7 @@ function vector(type, extra) {
   return { id: type, type, color: "#ff3b30", size: 4, ...extra };
 }
 
-describe("capture editor geometry", () => {
+describe("annotation geometry", () => {
   it("hits a hollow ellipse only near its outline", () => {
     const ellipse = vector("ellipse", { rect: { x: 0, y: 0, width: 100, height: 100 } });
     const behind = { id: "behind", type: "mosaic", rect: { x: 40, y: 40, width: 20, height: 20 } };
@@ -108,7 +108,7 @@ describe("capture editor geometry", () => {
   });
 });
 
-describe("capture editor rendering", () => {
+describe("annotation rendering", () => {
   const rect = { x: 10, y: 20, width: 40, height: 60 };
 
   it("fills the highlight rectangle translucently and strokes the plain rectangle", () => {
@@ -218,13 +218,20 @@ describe("capture editor rendering", () => {
   });
 });
 
-describe("capture editor tool wiring", () => {
-  const sidebarTools = TOOL_GROUPS.flatMap((group) => group.tools.map((tool) => tool.id));
+describe("overlay tool wiring", () => {
+  const toolbarTools = TOOL_GROUPS.flatMap((group) => group.tools.map((tool) => tool.id));
 
-  it("wires every sidebar tool to a draft shape or to manual handling", () => {
-    expect(new Set(sidebarTools).size).toBe(sidebarTools.length);
-    const wired = [...Object.keys(TOOL_DRAFTS), ...MANUAL_TOOLS];
-    expect([...sidebarTools].sort()).toEqual([...wired].sort());
+  /**
+   * 覆盖层用 `select`（框选/移动/缩放选区）取代了标注核心的 `crop`：
+   * 选区自己就是裁剪框，所以工具条里不该再出现 crop。
+   */
+  it("wires every toolbar tool to a draft shape or to manual handling", () => {
+    expect(new Set(toolbarTools).size).toBe(toolbarTools.length);
+    const wired = new Set([...Object.keys(TOOL_DRAFTS), ...MANUAL_TOOLS]);
+    wired.delete("crop");
+    wired.add("select");
+    expect([...toolbarTools].sort()).toEqual([...wired].sort());
+    expect(toolbarTools).not.toContain("crop");
   });
 
   // 分组是文档里那张表的真值来源（architecture.md#图片编辑器工具），改动必须同步
@@ -232,7 +239,7 @@ describe("capture editor tool wiring", () => {
     expect(
       TOOL_GROUPS.map((group) => [group.titleKey, group.tools.map((tool) => tool.id)]),
     ).toEqual([
-      ["capture.toolGroup.select", ["crop", "object", "eraser"]],
+      ["capture.toolGroup.select", ["select", "object", "eraser"]],
       [
         "capture.toolGroup.draw",
         ["pen", "marker", "rect", "ellipse", "line", "arrow", "measure", "text"],
@@ -242,7 +249,7 @@ describe("capture editor tool wiring", () => {
   });
 });
 
-describe("capture editor interactions", () => {
+describe("annotation interactions", () => {
   let container;
   let root;
 

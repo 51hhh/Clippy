@@ -404,14 +404,11 @@ describe("settings screenshot save location", () => {
     const browseButton = document.createElement("button");
     const templateInput = document.createElement("input");
     document.body.replaceChildren(directoryInput, browseButton, templateInput);
-    // 提交动作用的是 custom-select 控制器，这里只需要它的 value 契约。
-    const commitActionControl = { value: "editor" };
     const showToast = vi.fn();
     const controller = createScreenshotSettings({
       directoryInput,
       browseButton,
       templateInput,
-      commitActionControl,
       pickDirectory,
       translate,
       showToast,
@@ -421,7 +418,6 @@ describe("settings screenshot save location", () => {
       directoryInput,
       browseButton,
       templateInput,
-      commitActionControl,
       showToast,
     };
   }
@@ -435,7 +431,6 @@ describe("settings screenshot save location", () => {
     expect(controller.getConfig()).toEqual({
       screenshot_save_dir: "",
       screenshot_filename_template: "",
-      capture_commit_action: "editor",
     });
 
     controller.fill({ screenshot_save_dir: "~/Shots", screenshot_filename_template: "cap-{date}" });
@@ -445,26 +440,16 @@ describe("settings screenshot save location", () => {
     expect(controller.getConfig()).toEqual({
       screenshot_save_dir: "~/Other",
       screenshot_filename_template: "cap",
-      capture_commit_action: "editor",
     });
   });
 
-  it("round-trips the commit action and falls back to the editor for unknown values", () => {
-    const { controller, commitActionControl } = mount(vi.fn());
+  // 提交动作的设置项随编辑器窗口一起删了：标注在覆盖层内完成，
+  // 没有"转到编辑器"这个分支，配置里也不再有 capture_commit_action。
+  it("no longer writes a commit action into the config", () => {
+    const { controller } = mount(vi.fn());
 
     controller.fill({ capture_commit_action: "toolbar" });
-    expect(commitActionControl.value).toBe("toolbar");
-    expect(controller.getConfig().capture_commit_action).toBe("toolbar");
-
-    // 老配置没有这个字段
-    controller.fill({});
-    expect(commitActionControl.value).toBe("editor");
-
-    // 配置或控件里出现认不出的值时也只写回后端认得的动作
-    controller.fill({ capture_commit_action: "whatever" });
-    expect(commitActionControl.value).toBe("editor");
-    commitActionControl.value = "whatever";
-    expect(controller.getConfig().capture_commit_action).toBe("editor");
+    expect(controller.getConfig()).not.toHaveProperty("capture_commit_action");
   });
 
   it("fills the picked folder and keeps the current one when the dialog is cancelled", async () => {

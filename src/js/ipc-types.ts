@@ -105,13 +105,6 @@ export interface PasteOutcome {
   detail: string | null;
 }
 
-export interface CapturedScreenshot {
-  pngBase64: string;
-  width: number;
-  height: number;
-  generation: number;
-}
-
 export interface WindowCandidate {
   x: number;
   y: number;
@@ -119,9 +112,6 @@ export interface WindowCandidate {
   height: number;
   title: string;
 }
-
-/** 框选完成后的默认动作，由后端归一化后下发 */
-export type CaptureCommitAction = "editor" | "toolbar";
 
 export interface CaptureOverlayPayload {
   sessionId: string;
@@ -132,7 +122,6 @@ export interface CaptureOverlayPayload {
   pixelWidth: number;
   pixelHeight: number;
   windows: WindowCandidate[];
-  commitAction: CaptureCommitAction;
 }
 
 export interface CaptureSelection {
@@ -144,7 +133,8 @@ export interface CaptureSelection {
   height: number;
 }
 
-export type CaptureAction = "copy" | "save" | "pin" | "edit";
+/** 覆盖层里点提交按钮后要做的事。标注在覆盖层内完成，所以没有"转到编辑器"。 */
+export type CaptureAction = "copy" | "save" | "pin";
 
 export interface CaptureActionResult {
   action: CaptureAction;
@@ -238,7 +228,6 @@ export interface PinPayload {
   opacity: number;
   locked: boolean;
   canSave: boolean;
-  canEdit: boolean;
   position: { x: number; y: number } | null;
 }
 

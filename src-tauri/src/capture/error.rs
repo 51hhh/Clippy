@@ -33,6 +33,10 @@ pub enum CaptureError {
     SelectionEmpty,
     #[error("截图帧裁剪越界")]
     CropOutOfBounds,
+    #[error("提交的截图数据无效")]
+    CommitPayloadInvalid,
+    #[error("提交的截图数据过大")]
+    CommitPayloadTooLarge,
     #[error("创建截图覆盖层失败: {0}")]
     OverlayCreate(String),
     #[error("截图失败: {0}")]
@@ -66,6 +70,8 @@ impl CaptureError {
             Self::SelectionTooSmall => "selection_too_small",
             Self::SelectionEmpty => "selection_empty",
             Self::CropOutOfBounds => "crop_out_of_bounds",
+            Self::CommitPayloadInvalid => "commit_payload_invalid",
+            Self::CommitPayloadTooLarge => "commit_payload_too_large",
             Self::OverlayCreate(_) => "overlay_create",
             Self::Screenshot(_) => "screenshot",
             Self::ThreadPanic(_) => "thread_panic",
@@ -152,6 +158,8 @@ mod tests {
             CaptureError::SelectionTooSmall,
             CaptureError::SelectionEmpty,
             CaptureError::CropOutOfBounds,
+            CaptureError::CommitPayloadInvalid,
+            CaptureError::CommitPayloadTooLarge,
             CaptureError::OverlayCreate(String::new()),
             CaptureError::Screenshot(String::new()),
             CaptureError::ThreadPanic(String::new()),

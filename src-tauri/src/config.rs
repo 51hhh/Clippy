@@ -158,30 +158,6 @@ mod tests {
     }
 
     #[test]
-    fn capture_commit_action_defaults_to_the_editor_for_old_configs() {
-        let dir = tempdir().expect("创建临时目录失败");
-        let config_path = dir.path().join("config.json");
-        // 老配置里没有这个字段
-        let older = serde_json::json!({
-            "version": 2,
-            "max_history": 100,
-            "storage_mode": "persistent",
-            "global_shortcut": "Alt+V",
-            "theme": "light",
-        });
-        fs::write(&config_path, older.to_string()).unwrap();
-        assert_eq!(load_config(&config_path).capture_commit_action(), "editor");
-
-        let mut config = AppConfig::default();
-        assert_eq!(config.capture_commit_action(), "editor");
-        config.capture_commit_action = "toolbar".to_string();
-        assert_eq!(config.capture_commit_action(), "toolbar");
-        // 认不出的值不能让截图流程停在未知状态
-        config.capture_commit_action = "whatever".to_string();
-        assert_eq!(config.capture_commit_action(), "editor");
-    }
-
-    #[test]
     fn migration_is_idempotent_once_the_version_matches() {
         let mut config = AppConfig::default();
         assert!(!config.migrate(), "当前版本配置不该再被判定为需要迁移");

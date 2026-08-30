@@ -152,7 +152,6 @@ const screenshotSettings = createScreenshotSettings({
   directoryInput: element("screenshot-dir-input"),
   browseButton: element("screenshot-dir-browse-btn"),
   templateInput: element("screenshot-template-input"),
-  commitActionControl: initCustomSelect(element("capture-commit-action-select")),
   pickDirectory: pickScreenshotDirectory,
   translate: i18n.t,
   showToast,

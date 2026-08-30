@@ -43,7 +43,6 @@ pub struct PinPayload {
     pub opacity: f64,
     pub locked: bool,
     pub can_save: bool,
-    pub can_edit: bool,
     pub position: Option<PinPosition>,
 }
 

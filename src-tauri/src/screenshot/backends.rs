@@ -80,10 +80,11 @@ fn capture_all_xcap_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
     let mut frames = Vec::new();
 
     for mon in monitors.iter() {
-        let info = monitor_info(mon)?;
+        let mut info = monitor_info(mon)?;
         let img = mon.capture_image().context("无法捕获显示器")?;
         let frame_width = img.width();
         let frame_height = img.height();
+        info.rect = normalize_monitor_geometry(info.rect, info.scale_factor, frame_width);
         frames.push(FrozenFrame {
             monitor_id: info.id,
             rgba: Arc::from(img.into_raw()),
@@ -95,6 +96,41 @@ fn capture_all_xcap_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
     }
 
     Ok((infos, frames))
+}
+
+/// 用冻结帧的真实像素宽度反推逻辑尺寸，修正 xcap 报出的显示器几何。
+///
+/// xcap 在 Linux 上把 RandR 尺寸除以自己探测的 `scale_factor` 当逻辑尺寸，但 GNOME 给
+/// XWayland 的 X screen 是"逻辑尺寸 × 整数倍"，与真实缩放并不相等：实测 1920x1200 的桌面
+/// 被报成 2880x1800（RandR 3840x2400 ÷ 1.333）。覆盖层按这个尺寸开窗就会既错位又错缩放，
+/// 而冻结帧一定是物理像素，因此 `物理像素 ÷ scale_factor` 才是可信的逻辑尺寸。
+/// 原点按同一比例折算——xcap 对 x/y 用的是同一个除数，比例是一致的。
+pub(super) fn normalize_monitor_geometry(rect: Rect, scale_factor: f32, pixel_width: u32) -> Rect {
+    if !scale_factor.is_finite() || scale_factor <= 0.0 || pixel_width == 0 || rect.width == 0 {
+        return rect;
+    }
+    let logical_width = (pixel_width as f32 / scale_factor).round();
+    if !logical_width.is_finite() || logical_width < 1.0 {
+        return rect;
+    }
+    // 1px 以内的差异是取整噪声，不值得改动几何。
+    let ratio = rect.width as f32 / logical_width;
+    if (rect.width as f32 - logical_width).abs() <= 1.0 || !ratio.is_finite() || ratio <= 0.0 {
+        return rect;
+    }
+    log::info!(
+        "显示器几何被修正: {}x{} -> {}x{}（缩放 {scale_factor}，帧宽 {pixel_width}）",
+        rect.width,
+        rect.height,
+        logical_width as u32,
+        (rect.height as f32 / ratio).round() as u32
+    );
+    Rect {
+        x: (rect.x as f32 / ratio).round() as i32,
+        y: (rect.y as f32 / ratio).round() as i32,
+        width: logical_width as u32,
+        height: (rect.height as f32 / ratio).round().max(1.0) as u32,
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -320,8 +356,15 @@ fn split_portal_screenshot(
             image_height,
         )?;
         let frame_rgba = crop_rgba(&rgba, image_width, crop)?;
-        let scale_factor = portal_frame_scale_factor(&monitor, crop);
+        // 几何可能来自 xcap 回退（逻辑尺寸不可信），先按裁剪出的真实像素反推，
+        // 再拿修正后的矩形算帧缩放，否则 scale_factor 会把同一个错误再传播一遍。
         let mut adjusted_monitor = monitor;
+        adjusted_monitor.rect = normalize_monitor_geometry(
+            adjusted_monitor.rect,
+            adjusted_monitor.scale_factor,
+            crop.width,
+        );
+        let scale_factor = portal_frame_scale_factor(&adjusted_monitor, crop);
         adjusted_monitor.scale_factor = scale_factor;
 
         frames.push(FrozenFrame {
@@ -579,4 +622,107 @@ fn unique_suffix() -> String {
         .map(|d| d.as_millis())
         .unwrap_or(0);
     format!("{millis}")
+}
+
+/// 真机截图后端诊断。默认 `#[ignore]`，要有真实桌面会话才有意义：
+/// `cargo test --lib backend_diagnostics -- --ignored --nocapture`
+///
+/// "截图是黑的"这类问题在单元测试里看不出来——链路每一环都返回 Ok，只是像素全 0。
+/// 所以这里按 fallback 顺序逐个后端跑一遍，打印尺寸与平均亮度/全黑像素比例，
+/// 一眼就能看出是哪个后端在给黑帧、以及它前面的后端为什么被跳过。
+#[cfg(all(test, target_os = "linux"))]
+mod backend_diagnostics {
+    use super::*;
+
+    fn describe(label: &str, result: Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)>) {
+        match result {
+            Ok((infos, frames)) => {
+                println!("[{label}] ok, {} 个显示器", frames.len());
+                for (info, frame) in infos.iter().zip(frames.iter()) {
+                    let pixels = frame.rgba.len() / 4;
+                    let mut sum: u64 = 0;
+                    let mut opaque_black = 0usize;
+                    let mut transparent = 0usize;
+                    for chunk in frame.rgba.as_chunks::<4>().0 {
+                        let luma = chunk[0] as u64 + chunk[1] as u64 + chunk[2] as u64;
+                        sum += luma;
+                        if chunk[3] == 0 {
+                            transparent += 1;
+                        } else if luma == 0 {
+                            opaque_black += 1;
+                        }
+                    }
+                    let mean = if pixels == 0 {
+                        0.0
+                    } else {
+                        sum as f64 / (pixels as f64 * 3.0)
+                    };
+                    println!(
+                        "  monitor {} pos=({},{}) logical={}x{} frame={}x{} scale={:.2} 平均亮度={:.1} 全黑={:.1}% 全透明={:.1}%",
+                        info.id,
+                        info.rect.x,
+                        info.rect.y,
+                        info.rect.width,
+                        info.rect.height,
+                        frame.width,
+                        frame.height,
+                        frame.scale_factor,
+                        mean,
+                        100.0 * opaque_black as f64 / pixels.max(1) as f64,
+                        100.0 * transparent as f64 / pixels.max(1) as f64,
+                    );
+                }
+            }
+            Err(error) => println!("[{label}] 失败: {error:#}"),
+        }
+    }
+
+    #[test]
+    #[ignore = "需要真实桌面会话"]
+    fn backend_diagnostics() {
+        println!(
+            "session: XDG_SESSION_TYPE={:?} WAYLAND_DISPLAY={:?} DISPLAY={:?} is_wayland={}",
+            std::env::var("XDG_SESSION_TYPE").ok(),
+            std::env::var("WAYLAND_DISPLAY").ok(),
+            std::env::var("DISPLAY").ok(),
+            is_wayland_session(),
+        );
+        describe("wlroots/libwayshot", capture_all_wayland_monitors());
+        describe(
+            "portal(non-interactive)",
+            capture_all_portal_monitors(false),
+        );
+        describe("gnome-shell", capture_all_gnome_shell_monitors());
+        describe("xcap", capture_all_xcap_monitors());
+        describe("实际选用的链路", capture_all_monitors(false));
+    }
+
+    /// 窗口枚举对截图链路的副作用诊断。报障是"加了窗口枚举之后截图变黑"，
+    /// 而枚举本身在捕获之后才跑，所以要单独确认：枚举是否慢、是否会污染下一帧。
+    #[test]
+    #[ignore = "需要真实桌面会话"]
+    fn window_probe_diagnostics() {
+        let before = std::time::Instant::now();
+        let windows = xcap::Window::all();
+        println!("Window::all() 耗时 {:?}", before.elapsed());
+        match windows {
+            Ok(list) => {
+                println!("枚举到 {} 个窗口", list.len());
+                for window in list.iter().take(12) {
+                    println!(
+                        "  pid={:?} minimized={:?} rect=({:?},{:?} {:?}x{:?}) title={:?}",
+                        window.pid(),
+                        window.is_minimized(),
+                        window.x(),
+                        window.y(),
+                        window.width(),
+                        window.height(),
+                        window.title(),
+                    );
+                }
+            }
+            Err(error) => println!("Window::all() 失败: {error}"),
+        }
+        describe("枚举窗口之后再截一次", capture_all_monitors(false));
+    }
 }

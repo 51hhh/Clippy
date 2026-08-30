@@ -36,7 +36,6 @@ const payload = {
   opacity: 1,
   locked: false,
   canSave: true,
-  canEdit: true,
   position: null,
 };
 

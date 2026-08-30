@@ -209,7 +209,6 @@ export function App() {
       else if (event.key === "-") adjustScale(-0.1);
       else if (event.key.toLowerCase() === "l") commitUpdate({ locked: !pin.locked });
       else if (event.key.toLowerCase() === "s" && pin.canSave) runAction(() => pinApi.save(label));
-      else if (event.key.toLowerCase() === "e" && pin.canEdit) runAction(() => pinApi.edit(label));
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -267,7 +266,6 @@ export function App() {
         opacity={pin.opacity}
         locked={pin.locked}
         canSave={pin.canSave}
-        canEdit={pin.canEdit}
         copied={copied}
         opacityOpen={opacityOpen}
         onScale={(scale) => commitUpdate({ scale })}
@@ -276,7 +274,6 @@ export function App() {
         onToggleLock={() => commitUpdate({ locked: !pin.locked })}
         onCopy={() => void copy()}
         onSave={() => runAction(() => pinApi.save(label))}
-        onEdit={() => runAction(() => pinApi.edit(label))}
         onClose={() => runAction(() => pinApi.close(label))}
       />
       {error && <div className="pin-toast" role="status">{t("pin.actionFailed")}</div>}

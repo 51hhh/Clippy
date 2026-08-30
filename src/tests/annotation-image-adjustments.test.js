@@ -3,9 +3,9 @@ import {
   cssFilterForImageAdjustments,
   hasImageAdjustments,
   normalizeImageAdjustments,
-} from "../react/capture/imageAdjustments";
+} from "../react/annotation/imageAdjustments";
 
-describe("capture image adjustments", () => {
+describe("annotation image adjustments", () => {
   it("clamps slider values", () => {
     expect(normalizeImageAdjustments({ brightness: 120, contrast: -140, saturation: 4.4, cornerRadius: 999 })).toEqual({
       grayscale: false,

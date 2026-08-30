@@ -58,8 +58,8 @@ Built with **Tauri v2 + Rust**. No Electron. No bloat.
 - **Keyboard-driven** — Full keyboard navigation with vim-style keys (WASD)
 - **Global shortcuts** — X11 (`tauri-plugin-global-shortcut`) + Wayland (XDG Portal / gsettings)
 - **Automatic paste** — X11 restores the previous target window; Wayland reuses a persistent RemoteDesktop Portal session and falls back to copy-only when unavailable
-- **Screenshot workflow** — Frozen multi-monitor selection with window hit testing, move/resize, Copy/Save/Pin/Edit, local OCR and text-only translation
-- **Pin & editor** — Unified text/image/screenshot Pin controls plus object annotations, blur/mosaic, undo/redo and image adjustments
+- **Screenshot workflow** — One frozen overlay does everything: click empty space for the whole screen, click a window to grab it, or drag a free area; the full toolbar sits next to the selection and the selection stays re-framable; the check mark copies the cropped and annotated image straight to the clipboard
+- **Annotation** — 16 tools in three groups (select/draw/effects) with image adjustments, undo/redo and a single-canvas export, shared by the overlay and Pin windows
 - **Translation** — LibreTranslate-compatible and OpenAI-compatible providers with Secret Service keys, timeout/retry and sensitive-content protection
 - **6 themes** — Light, Dark, Nord, Solarized, Rose, Midnight
 - **Favorites** — Pin clips to a dedicated tab, immune to history cleanup
