@@ -6,8 +6,9 @@
 
 2026-08-30 复跑（UI 状态机 + 截图链路对齐之后）：`./scripts/ci-local.sh` = 11 通过 / 0 失败 /
 1 跳过（新增"主窗口布局像素 smoke"一步；跳过项仍是需 `CLIPPY_APPIMAGE_SMOKE=1` 显式开启的
-AppImage 可视 smoke）。下表 Rust/前端测试数量已按当次结果更新，
-打包产物一行仍是 08-13 的证据，未在 08-30 重新构建。
+AppImage 可视 smoke）。下表 Rust/前端测试数量已按当次结果更新。
+deb 一行已在 08-30 用 `cargo tauri build` 重新构建（顺带验证修好的 `beforeBuildCommand`）；
+AppImage 一行仍是 08-13 的证据，未在 08-30 重新构建。
 
 | 范围 | 命令/证据 | 结果 |
 |---|---|---|
@@ -27,12 +28,13 @@ AppImage 可视 smoke）。下表 Rust/前端测试数量已按当次结果更�
 | 翻译 provider 回环集成 | `cargo test translation::service::tests`（本地临时 TCP mock） | 8 passed，覆盖 Libre/OpenAI 路径、请求体和认证头 |
 | 翻译 HTTP 错误归类 | `cargo test translation::http` | 11 passed；4xx 正文限读 4 KiB 后把"缺少/无效 key"从不透明 `http_status` 中还原，5xx 正文不参与判定 |
 | npm 依赖安全 | `npm audit --json` | 0 vulnerabilities |
-| deb | `cargo tauri build --bundles deb,appimage --no-sign --ci` + `dpkg-deb --info/--contents` | 5,195,008 bytes，版本/依赖/desktop/bin 正确 |
+| deb | `cargo tauri build --bundles deb --no-sign --ci`（08-30 重跑） | exit 0，`Clippy_0.1.16_amd64.deb` 5,326,260 bytes；同时验证 `beforeBuildCommand` 的 cwd 无关钩子在真实 CLI 上执行（日志有 `{ cd ../src || cd src; } …`，无 `can't cd`） |
+| 构建/开发钩子 | `cargo tauri dev`、`npx @tauri-apps/cli@^2 dev`（cwd = 仓库根，原来必挂的那条路） | 两条路都跑通：vite 起在 1420、`clippy-app` 拉起、无 `can't cd`。CLI 版本 2.11.4，cargo 侧与 `src/` 的 devDependency 一致，不再依赖 npx 缓存 |
 | AppImage | `scripts/finalize-appimage.sh` + `scripts/smoke-appimage-x11.sh` + 最终文件独立 SquashFS 解包/`ldd` 检查 | 85,117,432 bytes，x86-64 ELF，依赖无缺失，镜像内 `.DirIcon -> Clippy.png`，X11 smoke 通过，本地未签名 |
 
 产物校验：
 
-- deb SHA-256: `9ebb8e26cd15210ce0ddf0eb8c386b113d3532c1d8a7db4804298f41eb2f3f48`
+- deb SHA-256（08-30 重构建）: `d83e3266584122b6c4b36e673712f93aca99384b63c22c6e8b3e285594b577dc`
 - AppImage SHA-256: `026e4cc2b2c40de1467cee7abef318d1e1b54f0c465224d02aa832c78128fd43`
 - 本地未配置 `TAURI_SIGNING_PRIVATE_KEY`，所以 updater 签名未生成；release workflow 已从 GitHub Actions secret 注入签名密钥。
 
