@@ -8,6 +8,7 @@
  *   3. 列表行重新显示内容类型 → 主栏 HTML、侧栏 YAML 的自相矛盾又回来
  *   4. preview-panel.js 自己再嗅探一遍内容类型 → 判定重新分叉成两套标准
  *   5. release notes 的下载链接与构建矩阵的发行版标签不同步 → 发布页上是死链
+ *   6. 发布脚本假定 cargo-tauri 存在 → 只在真正打 tag 时才炸（runner 上只有 npm 侧 CLI）
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -59,6 +60,17 @@ describe("release 下载链接与构建矩阵同步", () => {
     const linked = [...release.matchAll(/Clippy_\$\{VER\}_amd64_([a-z0-9]+)\./g)].map((m) => m[1]);
     expect(labels.length).toBeGreaterThan(0);
     expect([...new Set(linked)].sort()).toEqual([...new Set(labels)].sort());
+  });
+
+  it("AppImage 签名不写死 cargo-tauri", () => {
+    // release runner 上只有 tauri-action 自带的 CLI 与 `src/` 锁定的 npm CLI，没有
+    // cargo-tauri；写死 `cargo tauri signer sign` 只会在真正打 tag 的时候才 no such command。
+    const script = read("scripts/finalize-appimage.sh");
+    expect(script).not.toMatch(/cargo tauri signer/);
+    expect(script).toMatch(/tauri_cli signer sign/);
+    expect(script).toContain("src/node_modules/.bin/tauri");
+    // 签名后必须验产物存在，否则 updater 会静默拿不到 .sig
+    expect(script).toMatch(/! -s "\$\{TARGET\}\.sig"/);
   });
 
   it("updater 用的无后缀产物只从一个 label 上传一次", () => {

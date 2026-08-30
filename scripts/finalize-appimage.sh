@@ -77,9 +77,30 @@ if [[ "${DIR_ICON_ENTRY}" != *" -> ${ICON_NAME}" ]]; then
   exit 1
 fi
 
+# 签名用的 tauri CLI：优先仓库锁定的 npm 侧 CLI（`src/` 的 devDependency，与 cargo-tauri 同版本），
+# 其次才是 cargo-tauri。release runner 上只有 tauri-action 自带的 CLI，没有 cargo-tauri，
+# 这里原来写死 `cargo tauri` 会直接 `no such command: tauri`，AppImage 签名步骤必挂。
+tauri_cli() {
+  local npm_cli="${ROOT_DIR}/src/node_modules/.bin/tauri"
+  if [[ -x "${npm_cli}" ]]; then
+    (cd "${ROOT_DIR}" && "${npm_cli}" "$@")
+  elif cargo tauri --version >/dev/null 2>&1; then
+    (cd "${ROOT_DIR}" && cargo tauri "$@")
+  else
+    printf '%s\n' 'No tauri CLI found for signing (need src/node_modules/.bin/tauri or cargo-tauri)' >&2
+    return 1
+  fi
+}
+
 rm -f "${TARGET}.sig"
 if [[ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" || -n "${TAURI_SIGNING_PRIVATE_KEY_PATH:-}" ]]; then
-  (cd "${ROOT_DIR}" && cargo tauri signer sign "${TARGET}")
+  tauri_cli signer sign "${TARGET}"
+  # 签名失败时 CLI 也可能 exit 0（例如密钥密码不对只打印警告），产物缺 .sig 会让
+  # updater 静默拿不到签名，所以显式校验。
+  if [[ ! -s "${TARGET}.sig" ]]; then
+    printf 'Signing produced no signature: %s\n' "${TARGET}.sig" >&2
+    exit 1
+  fi
 elif [[ "${REQUIRE_SIGNATURE}" == "true" ]]; then
   printf '%s\n' 'Updater signing key is required for release AppImage finalization' >&2
   exit 1

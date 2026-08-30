@@ -6,7 +6,7 @@
 
 2026-08-30 复跑（UI 状态机 + 截图链路对齐之后）：`./scripts/ci-local.sh` = 11 通过 / 0 失败 /
 1 跳过（新增"主窗口布局像素 smoke"一步；跳过项仍是需 `CLIPPY_APPIMAGE_SMOKE=1` 显式开启的
-AppImage 可视 smoke）。下表 Rust/前端测试数量已按当次结果更新（补 release 矩阵守卫后前端为 604）。
+AppImage 可视 smoke）。下表 Rust/前端测试数量已按当次结果更新（补 release 守卫后前端为 605）。
 v0.1.17 发布前 deb 与 AppImage 均已按 0.1.17 重新构建（`tauri build --no-sign --ci`，两个 bundle 一次产出）。
 
 | 范围 | 命令/证据 | 结果 |
@@ -17,7 +17,7 @@ v0.1.17 发布前 deb 与 AppImage 均已按 0.1.17 重新构建（`tauri build 
 | Rust lint | `cargo clippy --all-targets -- -D warnings` | 通过 |
 | 本地敏感文件权限 | Rust Unix 回归测试 | `config.json`、`clips.db`、`-wal`、`-shm`、Portal token 均为 `0600`；旧配置/数据库宽松权限可修复 |
 | 前端类型 | `npx tsc --noEmit` | 通过 |
-| 前端测试 | `npx vitest run` | 35 files / 604 passed（新增 release 矩阵守卫 2 条：下载表的发行版后缀恰好等于矩阵 label、无后缀 updater 产物只从一个 label 上传；新增哈希 vs 可逆编码边界：hex 摘要判成 HASH 3 条 + 同长度 hex 文本仍归编码 1 条 + `decodeReadableBytes` 严格 UTF-8 4 条 + Base64/hex 分支各 4 条；新增回归守卫 4 条：tauri before*Command 从任一 cwd 都能进前端目录、`#codec-output` 是 `<div>`、两个列表行渲染器都不写类型标签、预览面板不自己再嗅探类型；新增源码写死的 i18n key 全量存在性扫描 1 条；新增内容类型判定表 9 条：锁表顺序、kind 唯一、每条规则指向的渲染器存在、只有 JSON/JWT 需要延迟库、判不出来交给异步尾段；新增 codec 多类别结果键值对 6 条与列表行不显示类型 1 条；codec 收藏脏数据自愈 4 条、Shift+Tab 聚焦退化 2 条、下拉 Esc 归属 1 条；含 16 个编辑器工具的几何/绘制指令/交互覆盖、锁定侧栏三组成员的分组测试，以及新增的 codec 面板真实 DOM 测试与覆盖层提交/退化提示交互测试；另有 codec 收藏星星两态切换与中文文案测试，加一条结构守卫：新增操作不挂 `data-i18n` 直接失败） |
+| 前端测试 | `npx vitest run` | 35 files / 605 passed（新增 release 守卫 3 条：下载表的发行版后缀恰好等于矩阵 label、无后缀 updater 产物只从一个 label 上传；新增哈希 vs 可逆编码边界：hex 摘要判成 HASH 3 条 + 同长度 hex 文本仍归编码 1 条 + `decodeReadableBytes` 严格 UTF-8 4 条 + Base64/hex 分支各 4 条；新增回归守卫 4 条：tauri before*Command 从任一 cwd 都能进前端目录、`#codec-output` 是 `<div>`、两个列表行渲染器都不写类型标签、预览面板不自己再嗅探类型；新增源码写死的 i18n key 全量存在性扫描 1 条；新增内容类型判定表 9 条：锁表顺序、kind 唯一、每条规则指向的渲染器存在、只有 JSON/JWT 需要延迟库、判不出来交给异步尾段；新增 codec 多类别结果键值对 6 条与列表行不显示类型 1 条；codec 收藏脏数据自愈 4 条、Shift+Tab 聚焦退化 2 条、下拉 Esc 归属 1 条；含 16 个编辑器工具的几何/绘制指令/交互覆盖、锁定侧栏三组成员的分组测试，以及新增的 codec 面板真实 DOM 测试与覆盖层提交/退化提示交互测试；另有 codec 收藏星星两态切换与中文文案测试，加一条结构守卫：新增操作不挂 `data-i18n` 直接失败） |
 | 前端构建 | `npx vite build` | 通过，5 个窗口入口均生成 |
 | X11/DOM smoke | `./scripts/smoke-dom.sh` | 1 file / 10 passed（Xvfb） |
 | 主窗口布局像素 smoke | `./scripts/smoke-layout.sh`（headless Firefox + 像素读取，视口 780×500 = 预览展开时的真实逻辑尺寸） | 通过，pixel=0 208 0；断言翻译区与预览内容共用同一列且不溢出预览面板、`.preview-content` 不被压到 96px 以下、codec 侧栏打开后列表宽度不变。失败时把断言原因画进红色浮层，避免"fixture 没跑"与"断言不成立"混淆 |
@@ -37,6 +37,7 @@ v0.1.17 发布前 deb 与 AppImage 均已按 0.1.17 重新构建（`tauri build 
 - AppImage SHA-256（0.1.17，未经 `finalize-appimage.sh` 重封装）: `199d6b6c0f949c565e3beeecb2d09855f84e7bb09ea4186a78fe812fe52fee25`
 - 本地未配置 `TAURI_SIGNING_PRIVATE_KEY`，所以 updater 签名未生成；release workflow 已从 GitHub Actions secret 注入签名密钥。
 - CI 系统依赖缺口（v0.1.17 发布前修复）：两个 workflow 都没装 `libpipewire-0.3-dev`，`libspa-sys`（经 `xcap` → `pipewire` 引入）因此 build script 失败，`dev` 分支自 08-26 起 CI 一直红；顺带补上 libwayshot-xcap 链接所需的 `libgbm-dev/libegl-dev/libdrm-dev/libwayland-dev/libxcb1-dev`。
+- 首次 tag（release run 33299874854）在 `Finalize portable AppImage` 失败：重封装与 `.DirIcon` 校验都过了，紧接着 `cargo tauri signer sign` 报 `no such command: tauri`——runner 上没有 cargo-tauri。脚本改为优先用 `src/node_modules/.bin/tauri`（lockfile 锁定），并在签名后断言 `.sig` 非空。本机用一次性 `tauri signer generate` 密钥跑通完整 `finalize-appimage.sh`（重封装 + 校验 + 签名 + `.sig` 校验，exit 0），密钥与测试签名已删除。
 - 补依赖后 `ubuntu-24.04` 通过、`ubuntu-22.04` 仍在 `cargo check` 失败（run 33292389744）：`libspa 0.9.2` 无条件访问 bindgen 从系统头文件生成的 `spa_video_info_raw.flags`，该字段要 pipewire ≥ 0.3.65，jammy 仓库只有 0.3.48（另有两处 i64/u64 签名不一致）。`xcap 0.9.6` 的 feature 只有 `image` 和 Windows 的 `wgc`，没有关掉 pipewire 的开关；xcap 自 0.5 起每个版本都依赖 pipewire。用 PPA 换新头文件能过编译但会与 22.04 实机的 libpipewire ABI 不一致，因此本版起 CI 与 release 矩阵都只留 `ubuntu-24.04`，release notes、CHANGELOG 升级说明和 docs/CI.md 同步说明。
 
 ## 真实桌面人工矩阵

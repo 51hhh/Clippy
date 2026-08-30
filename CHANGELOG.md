@@ -61,6 +61,7 @@
 - **翻译历史回填过于频繁**：加防抖与面板可见性门控，列表连按上下键只查停下的那条。
 - **Portal restore token 被误删**：引入授权阶段状态机，只有 token 确实被 Portal 消费过才在失败后删除，否则下次又要重新弹授权。
 - **翻译错误不可行动**：4xx 响应限读 4 KiB 正文用于归类，把"缺少/无效 key"从不透明的 `http_status` 里还原出来；5xx 正文一律不读，网关错误页不会被误判成凭据问题。
+- **AppImage 签名步骤在 release runner 上必挂**：`finalize-appimage.sh` 写死 `cargo tauri signer sign`，而 runner 上只有 tauri-action 自带的 CLI 和 `src/` 锁定的 npm CLI，没有 cargo-tauri，重封装成功后紧接着 `no such command: tauri`。改为优先用仓库锁定的 npm CLI、其次 cargo-tauri，并在签名后校验 `.sig` 真的产出（CLI 有 exit 0 但不出签名的路径，那会让 updater 静默拿不到签名）。
 - **构建钩子依赖固定 cwd**：`beforeDevCommand` / `beforeBuildCommand` 写死 `cd ../src`，用 `npx tauri` 从仓库根启动时直接 `can't cd to ../src`。改成两种 cwd 都成立。
 - 截图动作失败后释放会话、按代次清理待编辑缓存、动作完成后恢复源窗口；Pin 丢弃乱序 IPC 响应；收藏面板差量行节点重排；陈旧列表请求不再覆盖新状态；显式文本复制语义统一；设置窗口关闭时恢复全局快捷键；AppImage 图标链接可移植。
 
@@ -91,7 +92,7 @@
 
 ### 🧪 测试与门禁
 
-- Rust 237 项测试；前端 Vitest 35 files / 604 tests；`./scripts/ci-local.sh` 依次跑 fmt / check / clippy / test、锁文件安装、TypeScript、Vitest、DOM/Xvfb smoke、Canvas 导出像素 smoke、主窗口布局像素 smoke 和 Vite build（11 通过 / 0 失败 / 1 跳过，跳过项是需显式开启的 AppImage 可视 smoke）。
+- Rust 237 项测试；前端 Vitest 35 files / 605 tests；`./scripts/ci-local.sh` 依次跑 fmt / check / clippy / test、锁文件安装、TypeScript、Vitest、DOM/Xvfb smoke、Canvas 导出像素 smoke、主窗口布局像素 smoke 和 Vite build（11 通过 / 0 失败 / 1 跳过，跳过项是需显式开启的 AppImage 可视 smoke）。
 - 两个真实浏览器像素 smoke：Canvas 导出与主窗口布局几何（jsdom 没有布局引擎，量不出遮挡）。
 - 结构守卫把"改错了不会报错、只会悄悄退化"的问题钉住：构建钩子的 cwd 无关性、主窗口 `<select>` 为 0、codec 操作必须挂 `data-i18n`、列表行不写类型标签、源码里写死的 i18n key 必须存在于两个 locale、release notes 的下载后缀必须等于构建矩阵的 label（否则发布页挂死链）。
 - `@tauri-apps/cli` 进 `src/` 的 devDependencies 并锁进 lockfile，`cargo tauri` 与 `npx tauri` 同版本，构建不再依赖 npx 缓存。
