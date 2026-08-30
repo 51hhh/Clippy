@@ -1,33 +1,107 @@
 # Changelog
 
-## Unreleased
+## v0.1.17
 
-### 集成重构
-- **一次授权自动粘贴**：X11 恢复原活动窗口后注入粘贴；Wayland RemoteDesktop Portal 复用会话，使用 `persist_mode=2` 和 0600 restore token，自动失败只回退到复制。
-- **截图工作流融合**：多显示器冻结选区支持窗口命中、移动、八方向缩放，并可直接 Copy/Save/Pin/Edit；选区翻译先本地 OCR，再仅发送识别文本。
-- **统一 Pin 与图片编辑**：普通剪贴板 Pin、截图 Pin 复用 PinManager/React 控件，支持首帧就绪、缩放、透明度、锁定、复制、保存、编辑和资源清理；编辑器支持对象标注、模糊/马赛克、撤销重做和图像调整。
-- **翻译领域层**：LibreTranslate-compatible 与 OpenAI-compatible 服务、超时/单次重试/request-id、敏感剪贴板保护和 Secret Service 密钥存储。
-- **收尾可靠性修复**：截图动作完成后恢复源窗口（编辑动作保留编辑器焦点）；Pin 丢弃乱序 IPC 响应；URL 预览拒绝私有解析地址并关闭重定向；Portal 交互截图只由用户动作开启；授权失败会关闭 Portal 会话，GNOME Shell 临时截图使用私有权限并在错误路径清理。
+自 v0.1.16 起共 116 个提交。这一版把 Clippy 从"剪贴板历史"扩成"剪贴板 + 截图 + 翻译"三条主线，
+并按功能边界重写了后端与前端的模块划分。
 
-### 架构与安全
-- 前端 IPC 迁移到严格类型化 `src/js/api.ts` + `ipc-types.ts`；主窗口预览调度拆为五个职责渲染模块。
-- Rust IPC 命令按剪贴板、设置、tmux、截图、OCR、URL 元数据拆分，保留 `commands::*` 兼容导出。
-- 存储维护、统计和 URL 缓存拆为独立模块；自动粘贴按 Portal/X11/token 拆分，截图入口、平台 fallback 与几何测试各自隔离。
-- 剪贴板 watcher 按主轮询、内容分类、写入重试和 tmux/inotify 监听拆分；tmux poll 改用安全 Rust 封装。
-- 本地数据目录收紧为 `0700`，配置、剪贴板数据库、WAL/SHM 和 Portal restore token 收紧为 `0600`，启动时修复旧文件宽松权限。
-- 数学预览改用受限递归下降解析器；HTML 实体解码不再使用动态执行或用户文本 `innerHTML`。
-- DOMPurify 更新到 3.4.13，Vite/Vitest/jsdom 更新到无已知漏洞版本并移除未使用的 sharp；增加 DOM/Xvfb smoke 与全目标 Rust CI 检查。
-- AppImage 发布阶段修正 linuxdeploy 的绝对 `.DirIcon`，重封装校验后再生成 updater 签名，避免镜像携带构建机路径。
-- 截图动作执行前原子认领会话；裁剪或动作失败时统一关闭覆盖层并恢复源窗口，避免并发动作重复产生副作用。
-- 主窗口翻译面板从 vanilla JS 迁移到 React/TS 功能岛（`src/react/main/`），状态集中在 `translationStore`；Pin 窗口 React 化范围扩展到完整 `App.tsx`。
-- Portal restore token 引入授权阶段状态机：只有 token 确实被 Portal 消费过才在失败后删除，避免把仍然有效的 token 误删导致下次重新弹授权。
-- 错误全面类型化：`PasteError`/`PinError`/`CaptureError` 与既有 `StorageError`/`TranslationError` 一起提供稳定 `code()`，顶层 `ClippyError` 补上领域维度，日志标识统一为 `domain.code`；对前端返回的文案逐字不变。
-- 日志区分真实故障与预期路径：Wayland 首次未授权、翻译请求被新请求取代、快捷键连按撞上进行中的截图会话降为 info，不再淹没告警。
+### ✨ 新功能
 
-### 验证
-- Rust：`cargo fmt/check/clippy --all-targets` 及 122 项测试通过，包含截图动作竞态/清理、Portal token 阶段状态机、领域错误码稳定性/文案一致性及翻译 provider 回环测试。
-- Frontend：Vitest 429 tests、TypeScript、Vite build 和 Xvfb/DOM smoke 通过。
-- Linux：当前 HEAD 的 deb/AppImage 产物构建并检查通过，AppImage 依赖完整且图标链接可移植；签名文件需 CI 的 `TAURI_SIGNING_PRIVATE_KEY`。
+**自动粘贴（一次授权）**
+- X11：记录原活动窗口 → 隐藏 Clippy → 恢复并确认焦点 → 注入 `Ctrl+V`。
+- Wayland：RemoteDesktop Portal 会话复用 `persist_mode=2` 与 0600 restore token，不用每次重新授权。
+- 任一环节失败只回退到"内容已在剪贴板"，绝不盲注按键。
+
+**截图工作流**
+- 快捷键唤起多显示器冻结帧覆盖层：窗口命中速选、选区移动、八方向缩放。
+- 选区提交后默认直接进图片编辑器（`capture_commit_action`，松手时按住 `Alt` 可临时留在工具条）；工具条支持 Copy / Save / Pin / Edit / OCR / 选区翻译。
+- 编辑器窗口按截图尺寸开窗（物理像素按 `scale_factor` 折算 + chrome 占位，夹在最小尺寸与工作区之间），小选区可上采样到 3 倍，不再是大窗里的一小块。
+- 图片编辑器 16 个标注工具，按选择 / 绘制 / 效果三组：裁剪、对象选择、橡皮、钢笔、荧光笔、矩形、椭圆、直线、箭头、测量、文字、高亮块、模糊、马赛克、聚光灯、放大镜；含图像调整与撤销/重做。
+- 截图保存目录与文件名模板可配置（`{prefix} {date} {time} {unix} {seq}`），另存为走系统对话框，同名追加序号不覆盖。
+
+**贴图（Pin）**
+- 剪贴板条目、截图结果共用 `PinManager` 与 React 控件：首帧就绪后显示、缩放、透明度、锁定位置、复制、保存、转入编辑器，销毁时统一清理资源。
+
+**翻译**
+- 六个服务：LibreTranslate-compatible、OpenAI-compatible、DeepL、Google、Bing、有道；每个服务都有官方 API 与未配置凭据时的非官方 web 回退两条路径，端点一律过白名单校验。
+- 启用的服务并行翻译（各自 `spawn_blocking`），单服务失败只影响自己那张结果卡并可单独重试。
+- 文本本来就是目标语言时按备选语言换向，不再出现"英文翻成英文"；实际使用的目标语言随结果返回。
+- 译文写入 SQLite（条目 + 服务 + 目标语言 + 原文哈希，全库上限 500 条），重选条目时回填并标记 "Saved earlier"；设置页有"清空已保存的译文"入口。
+- 朗读原文与译文（dictvoice）：音频由 Rust 取回后以 data URL 播放，webview 不直接请求第三方主机。
+- 图片翻译只把本地 OCR 文本发出去，不上传原图。
+
+**编解码侧栏（`` ` `` 打开）**
+- 22 个操作：Base64、URL、HTML 实体、Unicode、Hex、JWT 解析、URL 解析、时间戳与日期互转、进制转换、MD5、ROT13 等。
+- 显式收藏（星星两态图标，写 `localStorage`），常用操作由用户自己定，不用 MRU 冲掉。
+- 一次产出多个类别的操作（时间戳的 Local/UTC/ISO、进制四种写法、URL 各段、JWT 的 Header/Payload）渲染成键值对按钮：点键只复制键，点值只复制值，整段复制仍走工具条。
+
+**预览与内容识别**
+- 内容类型判定收口到 `js/preview/classify.js` 的有序规则表，结果只显示在预览面板 badge 上；列表行不再显示类型，不会再出现"主栏 HTML、侧栏 YAML"的自相矛盾。
+- 覆盖 URL 卡片、JSON、JWT、可逆编码、哈希、加密内容、颜色、时间戳、UUID、IP、邮箱、MAC、cron、日期、semver、进制、渐变、数据大小、正则、坐标、MIME、数学表达式、HTTP 状态码，判不出来再走 Markdown / 代码高亮 / 富文本 / 纯文本。
+
+**其它**
+- 托盘菜单与原生窗口标题按界面语言本地化（`src-tauri/src/i18n.rs`，解析规则与前端一致）。
+- 主窗口记忆显示位置；快捷键可在设置页录制，注册失败按动作给出可操作提示，并能检测桌面级占用与 Clippy 内部自冲突。
+
+### 🐛 修复
+
+- **hex 摘要被标成 BASE64**：`atob`/hex 解出的是 Latin-1 字节串，旧的可读性判断把 `0xA0-0xFF` 全算成正常字符，随机字节过得去阈值，于是 MD5 被 `encoding` 规则抢走并显示成乱码。改为先严格校验 UTF-8（`TextDecoder({ fatal: true })`）再判可打印比例；hex 分支按长度排除摘要的黑名单一并删掉，正好 16/20/32/64 字节的 hex 编码文本不再被误判成摘要。顺带修掉 UTF-8 内容被按 Latin-1 显示成乱码。
+- **GNOME 自定义快捷键被覆盖**：条目路径不再写死 `custom0/1/2`（先到先得，很可能是用户自己的快捷键），改为按 command 认领并原地复用，认不出来才取未占用编号。
+- **一个键位被占用连坐另外两个**：X11 改为逐个动作 `register`，不再用全有或全无的 `register_multiple`；注册、保存和录制结束恢复三条路径都按动作记账，全部失败才把状态退回"已暂停"。
+- **codec 收藏把 `localStorage` 的值拼进 CSS 选择器**：带引号的脏值让 `querySelector` 抛错，而 `codec.init()` 排在列表初始化之前，抛一次异常整个主窗口就初始化不完。改为遍历比对，并剔掉已不存在的操作后回写自愈。
+- **一次 `Esc` 同时收下拉和关侧栏**，输入框内容跟着一起没了：内层控件消费掉的键必须 `stopPropagation()`。
+- **`Shift+Tab` 在翻译面板聚焦不上时是死胡同**（按钮 disabled 或面板 render 成 null 时照样 `preventDefault`）：改成聚焦成功才拦，否则把键还给浏览器。
+- **删除与插入缺事务**：`insert_clip` / `delete_clip` / `clear_history` / `delete_entries` 的 FTS 清理、主表删除与译文删除各自独立执行，中途失败会留下"搜得到但已不存在"的 FTS 幽灵行或删不掉的译文（后者违反"删条目会一并删掉译文"的隐私承诺）。四处统一用事务包住。
+- **开预览会改变列表可见行数**：撤销"预览打开时窗口加高"，主窗口高度对所有面板组合恒定 500，翻译区靠 `max-height` 与自身滚动落位。
+- **翻译区遮挡预览**：`#translation-react-root` 补 `.translation-host`（flex 列 + `min-height: 0` + `max-height`），百分比 `max-height` 才有确定的包含块。
+- **主窗口打开原生下拉像是崩了**：WebKitGTK 的原生 `<select>` 弹窗是独立 GTK 窗口，一打开 webview 就失焦、无边框窗口随即隐藏。主窗口最后一个 `<select>` 换成 `custom-select`，并锁定 `<select>` 数量为 0。
+- **侧栏打开后字母键仍在驱动列表**：键盘归属改为按焦点位置单点解析（`codec > search > translation > list`）；方向键与 `ws` 在列表模式下始终归列表，进翻译区必须显式 `Shift+Tab`；预览或 codec 打开时豁免失焦隐藏。
+- **快速切换 codec 操作时旧结果覆盖新结果**：执行加代次门控。
+- **快捷键注册失败被静默吞掉**：失败记账在后端，`get_shortcut_failures` 可随时读取，启动期早于设置页监听的失败也能显示。
+- **翻译历史回填过于频繁**：加防抖与面板可见性门控，列表连按上下键只查停下的那条。
+- **Portal restore token 被误删**：引入授权阶段状态机，只有 token 确实被 Portal 消费过才在失败后删除，否则下次又要重新弹授权。
+- **翻译错误不可行动**：4xx 响应限读 4 KiB 正文用于归类，把"缺少/无效 key"从不透明的 `http_status` 里还原出来；5xx 正文一律不读，网关错误页不会被误判成凭据问题。
+- **构建钩子依赖固定 cwd**：`beforeDevCommand` / `beforeBuildCommand` 写死 `cd ../src`，用 `npx tauri` 从仓库根启动时直接 `can't cd to ../src`。改成两种 cwd 都成立。
+- 截图动作失败后释放会话、按代次清理待编辑缓存、动作完成后恢复源窗口；Pin 丢弃乱序 IPC 响应；收藏面板差量行节点重排；陈旧列表请求不再覆盖新状态；显式文本复制语义统一；设置窗口关闭时恢复全局快捷键；AppImage 图标链接可移植。
+
+### 🏗 架构
+
+- 前端 IPC 收口到严格类型化的 `src/js/api.ts` + `ipc-types.ts`，结构测试守卫其它模块不得直接碰 Tauri；主列表与翻译面板迁到 React/TS 功能岛（`src/react/main/`），Pin 与截图编辑器同样是隔离功能岛。
+- Rust IPC 命令按剪贴板、设置、tmux、截图、OCR、URL 元数据、编辑器拆分；存储维护/统计/URL 缓存、自动粘贴的 Portal/X11/token、截图入口与平台 fallback、剪贴板 watcher 的主轮询/内容分类/写入重试/tmux 监听各自独立。
+- 错误全面类型化：`PasteError` / `PinError` / `CaptureError` 与既有 `StorageError` / `TranslationError` 一起提供稳定 `code()`，日志标识统一为 `domain.code`，对前端返回的文案逐字不变。
+- 日志区分真实故障与预期路径：Wayland 首次未授权、翻译请求被新请求取代、快捷键连按撞上进行中的截图会话降为 info。
+- 统一的阻塞 HTTP 层：超时、禁重定向、1 MiB 上限、单次重试与错误归一只有一处实现。
+- 服务显示名与默认端点抽到 `src/js/translation-providers.ts`，设置页 / 主面板 / 选区翻译共用。
+- 配置 v1 → v2 迁移：单个 `translation_provider/endpoint/model` 改成 `translation_services` 列表，迁移后立刻回写；端点与当年默认值相同则清空，不把旧默认地址永久钉住。
+
+### 🔒 安全
+
+- 翻译 API key 只写系统 Secret Service，没有明文回退；双字段服务（有道）用 `{provider}` 与 `{provider}.secret` 两条记录，只填一半在设置页就拒绝。凭据结构不实现 `Debug`/`Serialize`，不会进日志或跨 IPC。
+- 敏感条目在 Rust 内容选择阶段拒绝翻译，朗读走同一条路径因此同样被拒绝。
+- 本地数据目录 `0700`，配置、数据库、WAL/SHM 与 Portal restore token `0600`，启动时修复旧文件的宽松权限；restore token 不进普通配置。
+- 用户文本只经 React 文本节点或 `textContent` 进 DOM，富文本只走严格 DOMPurify；数学预览改用受限递归下降解析器，HTML 实体解码不再动态执行。
+- URL 元数据只访问无凭据 HTTP(S)，拒绝私有/保留 IP 与私有 DNS 解析、关闭重定向，5 秒超时与 1 MiB 上限。
+- Portal 交互式截图只由用户动作开启；授权失败会关闭会话；GNOME Shell 临时截图使用私有权限并在错误路径清理。
+- 依赖：DOMPurify 3.4.13，Vite/Vitest/jsdom 升到无已知漏洞版本，移除未使用的 sharp。
+
+### ⚡ 性能
+
+- criterion 基线覆盖截图编解码、剪贴板扫描与搜索（`src-tauri/benches/`，经 `bench_support.rs` 调用生产代码，不复制实现）；门禁只编译不运行，数字见 `docs/bench-baseline.md`。
+- 截图内存占用与拖拽卡顿优化；`[profile.bench]` 关掉 release 的 fat LTO。
+
+### 🧪 测试与门禁
+
+- Rust 237 项测试；前端 Vitest 35 files / 602 tests；`./scripts/ci-local.sh` 依次跑 fmt / check / clippy / test、锁文件安装、TypeScript、Vitest、DOM/Xvfb smoke、Canvas 导出像素 smoke、主窗口布局像素 smoke 和 Vite build（11 通过 / 0 失败 / 1 跳过，跳过项是需显式开启的 AppImage 可视 smoke）。
+- 两个真实浏览器像素 smoke：Canvas 导出与主窗口布局几何（jsdom 没有布局引擎，量不出遮挡）。
+- 结构守卫把"改错了不会报错、只会悄悄退化"的问题钉住：构建钩子的 cwd 无关性、主窗口 `<select>` 为 0、codec 操作必须挂 `data-i18n`、列表行不写类型标签、源码里写死的 i18n key 必须存在于两个 locale。
+- `@tauri-apps/cli` 进 `src/` 的 devDependencies 并锁进 lockfile，`cargo tauri` 与 `npx tauri` 同版本，构建不再依赖 npx 缓存。
+
+### ⚠️ 升级说明
+
+- 配置会自动从 v1 迁移到 v2（翻译服务列表）并回写，无需手工编辑；旧的单服务配置保留原有端点与模型。
+- 翻译需要自己配置服务凭据；未配置凭据时部分服务走非官方 web 端点，设置页对这些服务标注"随时可能失效"。
+- OCR 需单独安装 tesseract：`sudo apt install tesseract-ocr tesseract-ocr-chi-sim`。
+- Wayland 下自动粘贴首次仍需确认一次 Portal 授权；桌面是否允许静默恢复取决于桌面环境。
 
 ## v0.1.16
 
