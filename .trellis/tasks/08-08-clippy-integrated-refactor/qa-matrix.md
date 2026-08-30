@@ -7,8 +7,7 @@
 2026-08-30 复跑（UI 状态机 + 截图链路对齐之后）：`./scripts/ci-local.sh` = 11 通过 / 0 失败 /
 1 跳过（新增"主窗口布局像素 smoke"一步；跳过项仍是需 `CLIPPY_APPIMAGE_SMOKE=1` 显式开启的
 AppImage 可视 smoke）。下表 Rust/前端测试数量已按当次结果更新。
-deb 一行已在 08-30 用 `cargo tauri build` 重新构建（顺带验证修好的 `beforeBuildCommand`）；
-AppImage 一行仍是 08-13 的证据，未在 08-30 重新构建。
+v0.1.17 发布前 deb 与 AppImage 均已按 0.1.17 重新构建（`tauri build --no-sign --ci`，两个 bundle 一次产出）。
 
 | 范围 | 命令/证据 | 结果 |
 |---|---|---|
@@ -28,15 +27,16 @@ AppImage 一行仍是 08-13 的证据，未在 08-30 重新构建。
 | 翻译 provider 回环集成 | `cargo test translation::service::tests`（本地临时 TCP mock） | 8 passed，覆盖 Libre/OpenAI 路径、请求体和认证头 |
 | 翻译 HTTP 错误归类 | `cargo test translation::http` | 11 passed；4xx 正文限读 4 KiB 后把"缺少/无效 key"从不透明 `http_status` 中还原，5xx 正文不参与判定 |
 | npm 依赖安全 | `npm audit --json` | 0 vulnerabilities |
-| deb | `cargo tauri build --bundles deb --no-sign --ci`（08-30 重跑） | exit 0，`Clippy_0.1.16_amd64.deb` 5,326,260 bytes；同时验证 `beforeBuildCommand` 的 cwd 无关钩子在真实 CLI 上执行（日志有 `{ cd ../src || cd src; } …`，无 `can't cd`） |
+| deb | `tauri build --no-sign --ci`（08-30，版本 0.1.17） | exit 0，`Clippy_0.1.17_amd64.deb` 5,328,002 bytes，`Version: 0.1.17`，依赖 `libayatana-appindicator3-1/libwebkit2gtk-4.1-0/libgtk-3-0`，推荐 `tesseract-ocr`；同时验证 `beforeBuildCommand` 的 cwd 无关钩子在真实 CLI 上执行（无 `can't cd`） |
 | 构建/开发钩子 | `cargo tauri dev`、`npx @tauri-apps/cli@^2 dev`（cwd = 仓库根，原来必挂的那条路） | 两条路都跑通：vite 起在 1420、`clippy-app` 拉起、无 `can't cd`。CLI 版本 2.11.4，cargo 侧与 `src/` 的 devDependency 一致，不再依赖 npx 缓存 |
-| AppImage | `scripts/finalize-appimage.sh` + `scripts/smoke-appimage-x11.sh` + 最终文件独立 SquashFS 解包/`ldd` 检查 | 85,117,432 bytes，x86-64 ELF，依赖无缺失，镜像内 `.DirIcon -> Clippy.png`，X11 smoke 通过，本地未签名 |
+| AppImage | `tauri build --no-sign --ci`（08-30，版本 0.1.17）+ `xvfb-run` 启动 smoke（独立 `XDG_*`，25 秒超时） | `Clippy_0.1.17_amd64.AppImage` 85,174,776 bytes；启动后持续运行至预期超时，无崩溃输出。`scripts/smoke-appimage-x11.sh` 的可视 smoke 因本机缺 ffmpeg 跳过（该脚本无 python3-pil 回退），`.DirIcon` 重封装与签名由 release workflow 执行 |
 
 产物校验：
 
-- deb SHA-256（08-30 重构建）: `d83e3266584122b6c4b36e673712f93aca99384b63c22c6e8b3e285594b577dc`
-- AppImage SHA-256: `026e4cc2b2c40de1467cee7abef318d1e1b54f0c465224d02aa832c78128fd43`
+- deb SHA-256（0.1.17）: `c2ab16a4b9ced5db8882556645c4e204ea852d12150a2409d55689828595fa3c`
+- AppImage SHA-256（0.1.17，未经 `finalize-appimage.sh` 重封装）: `199d6b6c0f949c565e3beeecb2d09855f84e7bb09ea4186a78fe812fe52fee25`
 - 本地未配置 `TAURI_SIGNING_PRIVATE_KEY`，所以 updater 签名未生成；release workflow 已从 GitHub Actions secret 注入签名密钥。
+- CI 系统依赖缺口（v0.1.17 发布前修复）：两个 workflow 都没装 `libpipewire-0.3-dev`，`libspa-sys`（ashpd 的 screencast feature）因此 build script 失败，`dev` 分支自 08-26 起 CI 一直红；顺带补上 libwayshot-xcap 链接所需的 `libgbm-dev/libegl-dev/libdrm-dev/libwayland-dev/libxcb1-dev`。
 
 ## 真实桌面人工矩阵
 
