@@ -34,6 +34,7 @@ vi.mock("@tauri-apps/plugin-autostart", () => ({
 
 import {
   cancelCaptureOverlay,
+  markCaptureOverlayReady,
   copyText,
   closeCurrentWindow,
   disableAutostart,
@@ -126,6 +127,14 @@ describe("typed IPC wrappers", () => {
     });
     expect(invoke).toHaveBeenNthCalledWith(2, "cancel_capture_overlay", {
       sessionId: "capture-7",
+    });
+  });
+
+  /** 覆盖层隐藏建窗，显示时机由前端报告首帧决定；参数名改了就会一直白屏/不显示。 */
+  it("preserves the overlay reveal handshake contract", () => {
+    markCaptureOverlayReady("capture-overlay-7-0");
+    expect(invoke).toHaveBeenCalledWith("mark_capture_overlay_ready", {
+      label: "capture-overlay-7-0",
     });
   });
 

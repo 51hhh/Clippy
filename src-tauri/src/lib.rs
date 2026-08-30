@@ -212,6 +212,7 @@ pub fn run() {
             commands::is_dev_binary,
             capture::show_capture_overlay,
             capture::get_capture_overlay,
+            capture::mark_capture_overlay_ready,
             capture::cancel_capture_overlay,
             capture::commit_capture_action,
             capture::translate_capture_selection,

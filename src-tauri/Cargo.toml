@@ -88,6 +88,23 @@ harness = false
 lto = false
 codegen-units = 16
 
+# 截图链路的墙钟时间几乎全在 PNG 编码上（release 下 1080p 约 77 ms，见 docs/bench-baseline.md）。
+# 这几个库不优化就慢十几倍，`cargo tauri dev` 下 2560x1600 的冻结帧要编码一两秒——
+# 覆盖层的首帧就得等这么久，调试时完全无法判断交互是否流畅。只给依赖开优化，
+# 自己的代码仍是 opt-level = 0，断点和 panic 行号照旧。
+[profile.dev.package.image]
+opt-level = 3
+[profile.dev.package.png]
+opt-level = 3
+[profile.dev.package.fdeflate]
+opt-level = 3
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+[profile.dev.package.flate2]
+opt-level = 3
+[profile.dev.package.crc32fast]
+opt-level = 3
+
 [profile.release]
 strip = "symbols"
 lto = "fat"

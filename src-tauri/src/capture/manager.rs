@@ -13,10 +13,28 @@ pub struct CaptureManager {
 
 pub(super) struct CaptureSession {
     pub id: String,
-    pub overlay_labels: Vec<String>,
+    pub overlays: Vec<OverlaySpec>,
     pub restore_labels: Vec<String>,
     frames: Vec<CapturedMonitorFrame>,
     windows: HashMap<u32, Vec<WindowCandidate>>,
+    /// 已经有覆盖层拿到键盘焦点。没有它的话，光标不在任何覆盖层里（Wayland 下拿不到光标时）
+    /// 就没人接 Esc，整个会话只能靠杀窗口退出。
+    focus_assigned: bool,
+}
+
+impl CaptureSession {
+    pub(super) fn overlay_labels(&self) -> Vec<String> {
+        self.overlays
+            .iter()
+            .map(|spec| spec.label.clone())
+            .collect()
+    }
+}
+
+/// `reveal` 的结论：这块覆盖层要不要顺带抢键盘焦点。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RevealPlan {
+    pub take_focus: bool,
 }
 
 impl CaptureManager {
@@ -51,20 +69,56 @@ impl CaptureManager {
         *current = Some(CaptureSession {
             id,
             frames,
-            overlay_labels: specs.iter().map(|spec| spec.label.clone()).collect(),
+            overlays: specs.clone(),
             restore_labels,
             windows,
+            focus_assigned: false,
         });
         Ok(specs)
+    }
+
+    /// 覆盖层报告"首帧已经画好，可以显示了"。
+    ///
+    /// 覆盖层是隐藏建窗的：webview 加载 + 取 payload + 解 PNG 期间窗口一旦可见，
+    /// 用户看到的就是一整屏 webview 默认底色（白屏）。所以显示时机由前端决定。
+    pub(super) fn reveal(
+        &self,
+        label: &str,
+        cursor: Option<(f64, f64)>,
+    ) -> Result<RevealPlan, CaptureError> {
+        let mut current = self.session.lock().map_err(CaptureError::state_lock)?;
+        let session = current.as_mut().ok_or(CaptureError::SessionMissing)?;
+        if !session.overlays.iter().any(|spec| spec.label == label) {
+            return Err(CaptureError::OverlayNotInSession);
+        }
+        // 光标所在的那块覆盖层独占焦点：合成器可能拒绝第二次 set_focus，
+        // 所以不能让先画完的那块先抢一次再让给它。
+        let cursor_owner = cursor.and_then(|(x, y)| {
+            session
+                .overlays
+                .iter()
+                .find(|spec| spec.contains(x, y))
+                .map(|spec| spec.label.as_str())
+        });
+        let take_focus = match cursor_owner {
+            Some(owner) => owner == label,
+            // 拿不到光标位置（Wayland 常见），或光标落在没截到的显示器上：先画完的拿焦点，
+            // 至少保证有一块能接 Esc。
+            None => !session.focus_assigned,
+        };
+        if take_focus {
+            session.focus_assigned = true;
+        }
+        Ok(RevealPlan { take_focus })
     }
 
     pub(super) fn payload(&self, label: &str) -> Result<CaptureOverlayPayload, CaptureError> {
         let current = self.session.lock().map_err(CaptureError::state_lock)?;
         let session = current.as_ref().ok_or(CaptureError::SessionMissing)?;
         let index = session
-            .overlay_labels
+            .overlays
             .iter()
-            .position(|candidate| candidate == label)
+            .position(|spec| spec.label == label)
             .ok_or(CaptureError::OverlayNotInSession)?;
         let frame = session
             .frames
@@ -120,7 +174,7 @@ impl CaptureManager {
         let mut current = self.session.lock().ok()?;
         if current
             .as_ref()
-            .is_some_and(|session| session.overlay_labels.iter().any(|item| item == label))
+            .is_some_and(|session| session.overlays.iter().any(|spec| spec.label == label))
         {
             current.take()
         } else {
@@ -173,6 +227,16 @@ fn crop_frame(
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    fn overlay(label: &str) -> OverlaySpec {
+        OverlaySpec {
+            label: label.to_string(),
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 50,
+        }
+    }
 
     fn frame(scale: f32) -> CapturedMonitorFrame {
         let (logical_width, logical_height) = (100, 50);
@@ -231,7 +295,8 @@ mod tests {
         let label = "capture-overlay-test-7".to_string();
         *manager.session.lock().unwrap() = Some(CaptureSession {
             id: "session-1".to_string(),
-            overlay_labels: vec![label.clone()],
+            overlays: vec![overlay(&label)],
+            focus_assigned: false,
             restore_labels: Vec::new(),
             frames: vec![monitor_frame],
             windows: HashMap::new(),
@@ -255,7 +320,8 @@ mod tests {
         let label = "capture-overlay-session-3-7".to_string();
         *manager.session.lock().unwrap() = Some(CaptureSession {
             id: "session-3".to_string(),
-            overlay_labels: vec![label.clone()],
+            overlays: vec![overlay(&label)],
+            focus_assigned: false,
             restore_labels: Vec::new(),
             frames: vec![frame(2.0)],
             windows: HashMap::from([(
@@ -287,7 +353,8 @@ mod tests {
         let label = "capture-overlay-session-1-7".to_string();
         *manager.session.lock().unwrap() = Some(CaptureSession {
             id: "session-1".to_string(),
-            overlay_labels: vec![label.clone()],
+            overlays: vec![overlay(&label)],
+            focus_assigned: false,
             restore_labels: vec!["main".to_string()],
             frames: vec![frame(1.0)],
             windows: HashMap::new(),
@@ -306,7 +373,7 @@ mod tests {
             "selection_too_small"
         );
         let session = manager.finish(&selection.session_id).unwrap();
-        assert_eq!(session.overlay_labels, vec![label.clone()]);
+        assert_eq!(session.overlay_labels(), vec![label.clone()]);
         assert_eq!(session.restore_labels, vec!["main"]);
         assert!(manager.payload(&label).is_err());
     }
@@ -317,7 +384,8 @@ mod tests {
         let label = "capture-overlay-session-2-7".to_string();
         *manager.session.lock().unwrap() = Some(CaptureSession {
             id: "session-2".to_string(),
-            overlay_labels: vec![label.clone()],
+            overlays: vec![overlay(&label)],
+            focus_assigned: false,
             restore_labels: Vec::new(),
             frames: vec![frame(1.0)],
             windows: HashMap::new(),
@@ -329,5 +397,77 @@ mod tests {
         );
         assert!(manager.payload(&label).is_ok());
         assert_eq!(manager.finish("session-2").unwrap().id, "session-2");
+    }
+
+    /// 双屏会话：左屏 (0,0) 1920x1200、右屏 (1920,0) 1920x1200。
+    fn two_monitor_session(manager: &CaptureManager) -> (String, String) {
+        let (left, right) = (
+            "capture-overlay-session-9-1".to_string(),
+            "capture-overlay-session-9-2".to_string(),
+        );
+        *manager.session.lock().unwrap() = Some(CaptureSession {
+            id: "session-9".to_string(),
+            overlays: vec![
+                OverlaySpec {
+                    label: left.clone(),
+                    x: 0,
+                    y: 0,
+                    width: 1920,
+                    height: 1200,
+                },
+                OverlaySpec {
+                    label: right.clone(),
+                    x: 1920,
+                    y: 0,
+                    width: 1920,
+                    height: 1200,
+                },
+            ],
+            focus_assigned: false,
+            restore_labels: Vec::new(),
+            frames: vec![frame(1.0)],
+            windows: HashMap::new(),
+        });
+        (left, right)
+    }
+
+    #[test]
+    fn reveal_gives_focus_to_the_overlay_under_the_cursor() {
+        let manager = CaptureManager::new();
+        let (left, right) = two_monitor_session(&manager);
+        // 光标在右屏：左屏先报告首帧也不该抢走焦点。
+        let cursor = Some((2400.0, 300.0));
+        assert!(!manager.reveal(&left, cursor).unwrap().take_focus);
+        assert!(manager.reveal(&right, cursor).unwrap().take_focus);
+    }
+
+    #[test]
+    fn reveal_still_focuses_one_overlay_when_the_cursor_is_unknown() {
+        let manager = CaptureManager::new();
+        let (left, right) = two_monitor_session(&manager);
+        // Wayland 下拿不到光标位置时必须有人接键盘，否则 Esc 取消都用不了。
+        assert!(manager.reveal(&left, None).unwrap().take_focus);
+        assert!(!manager.reveal(&right, None).unwrap().take_focus);
+    }
+
+    #[test]
+    fn reveal_rejects_labels_outside_the_current_session() {
+        let manager = CaptureManager::new();
+        assert_eq!(
+            manager
+                .reveal("capture-overlay-none-1", None)
+                .unwrap_err()
+                .code(),
+            "session_missing"
+        );
+        let (left, _) = two_monitor_session(&manager);
+        assert_eq!(
+            manager
+                .reveal("capture-overlay-other-1", None)
+                .unwrap_err()
+                .code(),
+            "overlay_not_in_session"
+        );
+        assert!(manager.reveal(&left, None).is_ok());
     }
 }

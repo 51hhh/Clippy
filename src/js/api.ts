@@ -263,6 +263,14 @@ export function getCaptureOverlay(label: string): Promise<CaptureOverlayPayload>
   return invoke<CaptureOverlayPayload>("get_capture_overlay", { label });
 }
 
+/**
+ * 报告覆盖层已经画出第一帧，后端这才把窗口显示出来。
+ * 覆盖层是隐藏建窗的：提前显示就会让用户看到一整屏 webview 默认底色（白屏）。
+ */
+export function markCaptureOverlayReady(label: string): Promise<void> {
+  return invoke<void>("mark_capture_overlay_ready", { label });
+}
+
 export function cancelCaptureOverlay(sessionId: string): Promise<void> {
   return invoke<void>("cancel_capture_overlay", { sessionId });
 }

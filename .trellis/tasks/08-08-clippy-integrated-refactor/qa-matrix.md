@@ -6,18 +6,18 @@
 
 2026-08-30 复跑（截图改成单窗口覆盖层之后）：`./scripts/ci-local.sh` = 11 通过 / 0 失败 /
 1 跳过（跳过项仍是需 `CLIPPY_APPIMAGE_SMOKE=1` 显式开启的 AppImage 可视 smoke）。
-下表 Rust/前端测试数量已按当次结果更新（删掉独立编辑器窗口后 Rust 243、前端 598）。
+下表 Rust/前端测试数量已按当次结果更新（删掉独立编辑器窗口后 Rust 246、前端 603）。
 v0.1.17 发布前 deb 与 AppImage 均已按 0.1.17 重新构建（`tauri build --no-sign --ci`，两个 bundle 一次产出）。
 
 | 范围 | 命令/证据 | 结果 |
 |---|---|---|
 | Rust 格式 | `cargo fmt -- --check` | 通过 |
 | Rust 编译 | `cargo check --all-targets` | 通过 |
-| Rust 测试 | `cargo test --all` | 243 passed（2 个 `#[ignore]` 诊断测试需 `-- --ignored --nocapture` 手动跑）；新增两条删除原子性测试（用 BEFORE DELETE 触发器打断删除链，断言 clips/clips_fts/translation_history 一起回滚）；新增失焦豁免纯函数；截图链路新增：显示器逻辑尺寸归一化（`normalize_monitor_geometry`）、窗口矩形的 X 像素折算与 `_GTK_FRAME_EXTENTS` 裁边（8 条）、覆盖层显示器选择按最大重叠面积（6 条）、`commit_capture_action` 的 PNG 校验与大小上限、payload 不再下发提交动作、默认能力清单不含已删除的 `capture` 窗口；新增 GNOME 自定义快捷键条目认领（`plan_slots`）与 X11 逐动作注册计划测试；新增领域错误码稳定性/文案一致性测试，含截图动作错误/竞态清理、Portal token 阶段状态机与翻译 provider 回环测试 |
+| Rust 测试 | `cargo test --all` | 246 passed（2 个 `#[ignore]` 诊断测试需 `-- --ignored --nocapture` 手动跑）；新增两条删除原子性测试（用 BEFORE DELETE 触发器打断删除链，断言 clips/clips_fts/translation_history 一起回滚）；新增失焦豁免纯函数；截图链路新增：显示器逻辑尺寸归一化（`normalize_monitor_geometry`）、窗口矩形的 X 像素折算与 `_GTK_FRAME_EXTENTS` 裁边（8 条）、覆盖层显示器选择按最大重叠面积（6 条）、`commit_capture_action` 的 PNG 校验与大小上限、payload 不再下发提交动作、默认能力清单不含已删除的 `capture` 窗口；覆盖层显示时机 3 条（光标所在覆盖层独占焦点、拿不到光标时先画完的拿焦点、非本会话标签被拒）；新增 GNOME 自定义快捷键条目认领（`plan_slots`）与 X11 逐动作注册计划测试；新增领域错误码稳定性/文案一致性测试，含截图动作错误/竞态清理、Portal token 阶段状态机与翻译 provider 回环测试 |
 | Rust lint | `cargo clippy --all-targets -- -D warnings` | 通过 |
 | 本地敏感文件权限 | Rust Unix 回归测试 | `config.json`、`clips.db`、`-wal`、`-shm`、Portal token 均为 `0600`；旧配置/数据库宽松权限可修复 |
 | 前端类型 | `npx tsc --noEmit` | 通过 |
-| 前端测试 | `npx vitest run` | 34 files / 598 passed（新增 release 守卫 3 条：下载表的发行版后缀恰好等于矩阵 label、无后缀 updater 产物只从一个 label 上传；新增哈希 vs 可逆编码边界：hex 摘要判成 HASH 3 条 + 同长度 hex 文本仍归编码 1 条 + `decodeReadableBytes` 严格 UTF-8 4 条 + Base64/hex 分支各 4 条；新增回归守卫 4 条：tauri before*Command 从任一 cwd 都能进前端目录、`#codec-output` 是 `<div>`、两个列表行渲染器都不写类型标签、预览面板不自己再嗅探类型；新增源码写死的 i18n key 全量存在性扫描 1 条；新增内容类型判定表 9 条：锁表顺序、kind 唯一、每条规则指向的渲染器存在、只有 JSON/JWT 需要延迟库、判不出来交给异步尾段；新增 codec 多类别结果键值对 6 条与列表行不显示类型 1 条；codec 收藏脏数据自愈 4 条、Shift+Tab 聚焦退化 2 条、下拉 Esc 归属 1 条；含 16 个标注工具的几何/绘制指令/交互覆盖、锁定工具条三组成员并断言工具 id 与标注核心对齐（`crop → select`）的分组测试；覆盖层交互测试改按新流程断言：拖拽/点窗口/点空地各自的选区、松手不提交而是弹工具条、全屏选区仍可重新框选、手柄仍可缩放、对钩把裁剪后的 PNG 交给 `commit_capture_action`、右键丢选区、退化提示；新增覆盖层几何 4 组（`coversBounds`/`toPixelRect`/工具条落点/点空地取整屏）；另有 codec 面板真实 DOM 测试；另有 codec 收藏星星两态切换与中文文案测试，加一条结构守卫：新增操作不挂 `data-i18n` 直接失败） |
+| 前端测试 | `npx vitest run` | 34 files / 603 passed（新增 release 守卫 3 条：下载表的发行版后缀恰好等于矩阵 label、无后缀 updater 产物只从一个 label 上传；新增哈希 vs 可逆编码边界：hex 摘要判成 HASH 3 条 + 同长度 hex 文本仍归编码 1 条 + `decodeReadableBytes` 严格 UTF-8 4 条 + Base64/hex 分支各 4 条；新增回归守卫 4 条：tauri before*Command 从任一 cwd 都能进前端目录、`#codec-output` 是 `<div>`、两个列表行渲染器都不写类型标签、预览面板不自己再嗅探类型；新增源码写死的 i18n key 全量存在性扫描 1 条；新增内容类型判定表 9 条：锁表顺序、kind 唯一、每条规则指向的渲染器存在、只有 JSON/JWT 需要延迟库、判不出来交给异步尾段；新增 codec 多类别结果键值对 6 条与列表行不显示类型 1 条；codec 收藏脏数据自愈 4 条、Shift+Tab 聚焦退化 2 条、下拉 Esc 归属 1 条；含 16 个标注工具的几何/绘制指令/交互覆盖、锁定工具条三组成员并断言工具 id 与标注核心对齐（`crop → select`）的分组测试；覆盖层交互测试改按新流程断言：拖拽/点窗口/点空地各自的选区、松手不提交而是弹工具条、全屏选区仍可重新框选、手柄仍可缩放、对钩把裁剪后的 PNG 交给 `commit_capture_action`、右键丢选区、退化提示；新增显示握手 4 条（首帧画好之前不显示、重绘不重复显示、出错也要显示出来让提示可见、显示失败不拖住截图）；新增覆盖层几何 4 组（`coversBounds`/`toPixelRect`/工具条落点/点空地取整屏）；另有 codec 面板真实 DOM 测试；另有 codec 收藏星星两态切换与中文文案测试，加一条结构守卫：新增操作不挂 `data-i18n` 直接失败） |
 | 前端构建 | `npx vite build` | 通过，4 个窗口入口均生成（独立截图编辑器窗口已删除） |
 | X11/DOM smoke | `./scripts/smoke-dom.sh` | 1 file / 9 passed（Xvfb） |
 | 主窗口布局像素 smoke | `./scripts/smoke-layout.sh`（headless Firefox + 像素读取，视口 780×500 = 预览展开时的真实逻辑尺寸） | 通过，pixel=0 208 0；断言翻译区与预览内容共用同一列且不溢出预览面板、`.preview-content` 不被压到 96px 以下、codec 侧栏打开后列表宽度不变。失败时把断言原因画进红色浮层，避免"fixture 没跑"与"断言不成立"混淆 |
@@ -59,6 +59,7 @@ v0.1.17 发布前 deb 与 AppImage 均已按 0.1.17 重新构建（`tauri build 
 | codec 收藏星星 | 左侧栏顶部星星：未收藏是描边、点一下变实心并把当前操作加进"收藏"分组，再点取消；切换操作时星星跟着该操作的收藏状态；重启应用后收藏仍在 | 待真实桌面验证 |
 | codec 面板语言 | 设置切到中文后左侧栏立刻变中文（不用重启）：操作名如"Base64 解码"、分组标题"编码/收藏"、按钮提示"反向操作/复制结果/加入收藏"、输入框占位"输入…"；ROT13/MD5/SHA-256/JWT 等专有名词保持原文 | 待真实桌面验证 |
 | 截图全程只有一个窗口 | 按快捷键后覆盖层铺满**当前**显示器（多屏/混合缩放各试一次，画面不是黑的）；点空地取整屏、悬停窗口点一下取该窗口、拖拽取自由区域；三种情况都不结束截图，工具条贴在选区旁，选区仍可拖动与缩放；标注后点对钩，剪贴板里是裁剪且带标注的图；不再出现独立的编辑器窗口 | 待真实桌面验证 |
+| 覆盖层没有白屏 | 按快捷键后除系统截图那一下的闪白外，不应出现"整屏白色几秒再出画面"：覆盖层隐藏建窗，前端画完首帧才显示（`mark_capture_overlay_ready`），底色为黑 | 待真实桌面验证 |
 | Wayland 窗口速选退化 | 合成器不给窗口几何时覆盖层顶部显示 "Window picking unavailable in this session"，日志有对应 info，拖拽选区不受影响 | 待真实桌面验证 |
 | deb 实装 | 主窗口渲染、托盘、截图、Pin、设置 | 未修改系统，待实装验证 |
 | AppImage 实机 | 主窗口渲染、托盘、截图、Pin、更新器 | 待真实桌面验证 |

@@ -23,6 +23,29 @@ Splashscreen 类型提示、去装饰、不进任务栏、置顶、`stick`，然
 
 非 Linux 平台仍走 `set_position` / `set_size` 兜底。
 
+### 显示时机：隐藏建窗 + 前端报告首帧
+
+覆盖层**建窗时是隐藏的**，由前端画完第一帧后调 `mark_capture_overlay_ready` 才显示。
+原因：webview 的默认底色是白的，而覆盖层铺满整屏——建窗就 `show()` 的话，加载 webview、
+取 payload、解 PNG 的整段时间用户盯着的是**一整屏白色**（实测约 2 秒，与系统截图那一下的
+闪白是两件事）。另外窗口与 webview 的底色都显式设成不透明黑（`background_color`），
+这样任何一帧还没画完的画面都不会是白的。
+
+两条保险：
+
+- `overlay_windows::READY_FALLBACK_MS`（2500 ms）超时兜底。前端加载失败或 JS 抛异常时
+  没人报告首帧，窗口会一直隐藏着占用会话——用户既看不到它也按不了 Esc。超时后强制显示并记
+  `log::warn`。
+- 前端出错（payload 取不到、PNG 解不开）时也立刻报告 ready，否则错误提示根本没机会露面。
+
+焦点归属由 `CaptureManager::reveal` 决定，不是"谁先画完谁拿"：光标所在的那块覆盖层独占焦点
+（合成器可能拒绝第二次 `set_focus`，所以不能先给错的那块再让），拿不到光标位置时退化为先到先得，
+保证总有一块能接 Esc。
+
+耗时的另一半在 PNG 编码上。`[profile.dev.package]` 给 `image`/`png`/`fdeflate`/`miniz_oxide`
+等开了 `opt-level = 3`：不开的话 2560×1600 的冻结帧在 dev 构建下要编码 **1408 ms**，开了是
+**414 ms**（本机实测，release 约 150 ms）。自己的代码仍是 `opt-level = 0`，调试体验不变。
+
 ## 2. 能不能拿到每个窗口的大小
 
 能，但**只在 X11 协议可达时**。调研结论按平台分：

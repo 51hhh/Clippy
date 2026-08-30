@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getConfig: vi.fn(async () => ({ language: "en" })),
   overlayApi: {
     get: vi.fn(),
+    ready: vi.fn(),
     cancel: vi.fn(),
     commit: vi.fn(),
     translate: vi.fn(),
@@ -104,6 +105,7 @@ describe("capture overlay app", () => {
       }
     };
     for (const fn of Object.values(mocks.overlayApi)) fn.mockReset();
+    mocks.overlayApi.ready.mockResolvedValue(undefined);
     mocks.exportPngBase64.mockClear();
     mocks.overlayApi.commit.mockResolvedValue({ action: "copy", path: null, pinLabel: null });
     root = createRoot(document.getElementById("root"));
@@ -215,5 +217,44 @@ describe("capture overlay app", () => {
   it("keeps the overlay clean once window geometry is available", async () => {
     await mount();
     expect(document.querySelector(".overlay-hint")).toBeNull();
+  });
+
+  // 覆盖层是隐藏建窗的，显示时机由前端决定：早一步显示就是一整屏白屏。
+  it("asks the backend to reveal the window only after the first frame is drawn", async () => {
+    let deliverPayload;
+    mocks.overlayApi.get.mockReturnValue(new Promise((resolve) => (deliverPayload = resolve)));
+    await act(async () => root.render(React.createElement(App)));
+    // payload 还没到，冻结帧也没画：这时候显示出来就是一整屏白色
+    expect(mocks.overlayApi.ready).not.toHaveBeenCalled();
+
+    await act(async () => deliverPayload(basePayload));
+    await flush();
+    expect(mocks.overlayApi.ready).toHaveBeenCalledWith("capture-overlay-session-1-0");
+  });
+
+  it("reveals the window once, not on every redraw", async () => {
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 100, y: 80 });
+    await drag({ x: 20, y: 20 }, { x: 60, y: 50 });
+
+    expect(mocks.overlayApi.ready).toHaveBeenCalledTimes(1);
+  });
+
+  it("reveals the window to show a failure instead of staying invisible", async () => {
+    mocks.overlayApi.get.mockRejectedValue(new Error("frame gone"));
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+
+    expect(mocks.overlayApi.ready).toHaveBeenCalledTimes(1);
+    expect(document.querySelector(".overlay-error")?.textContent).toContain("frame gone");
+  });
+
+  it("does not block capture when revealing fails", async () => {
+    mocks.overlayApi.ready.mockRejectedValue(new Error("no window"));
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 110, y: 90 });
+
+    expect(document.querySelector(".overlay-toolbar")).not.toBeNull();
+    expect(document.querySelector(".overlay-error")).toBeNull();
   });
 });

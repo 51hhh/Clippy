@@ -19,6 +19,14 @@
 - **"截屏是黑的"**：冻结帧本来就是正常的，黑的是覆盖层窗口自己——Wayland 不允许客户端摆放窗口，
   Tauri 的 `position()`/`set_size()` 被 GNOME 静默忽略。改为配置底层 GTK 窗口，
   由合成器 `fullscreen_on_monitor` 铺满按最大重叠面积选出的显示器。
+- **截图完成后整屏白 2 秒才出画面**：覆盖层建窗就 `show()`，于是加载 webview、取 payload、
+  解 PNG 的整段时间里用户盯着的是 webview 默认底色（白）铺满整屏。改为隐藏建窗 +
+  前端画完首帧再调 `mark_capture_overlay_ready` 显示，窗口与 webview 底色同时设为不透明黑；
+  前端出错时也立刻显示（否则错误提示没机会露面），并有 2.5 秒超时兜底，避免加载失败留下
+  一个看不见又按不了 Esc 的会话。焦点给光标所在那块覆盖层，不再是"谁先画完谁拿"。
+- **dev 构建下截图首帧要等一两秒**：`[profile.dev.package]` 给 `image`/`png`/`fdeflate`/
+  `miniz_oxide` 等开 `opt-level = 3`。2560×1600 冻结帧的 PNG 编码从 1408 ms 降到 414 ms
+  （本机实测），自己的代码仍不优化，调试体验不变。
 - **截图里的画面缩放不对**：xcap 的 `Monitor::width()` 在 1920×1200/scale 1.3333 的桌面上返回 2880×1800，
   既不是逻辑尺寸也不是物理尺寸；改按 `round(帧像素 / scale_factor)` 归一化。
 - **窗口速选框歪了**：`xcap::Window` 给的是 X screen 原始像素的**客户端**矩形，
