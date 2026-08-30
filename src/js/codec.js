@@ -72,9 +72,12 @@ export function init() {
     persist: setCodecVisible,
   });
 
-  // 加载收藏
-  try { _favoriteOps = JSON.parse(localStorage.getItem(FAVORITES_KEY) || "[]"); } catch { _favoriteOps = []; }
-  if (!Array.isArray(_favoriteOps)) _favoriteOps = [];
+  // 加载收藏。localStorage 是上一个版本写的，可能存着已经改名/删掉的操作，
+  // 就地剔掉并回写，否则会渲染出一个点了只回"未知操作"的裸 slug。
+  let stored = [];
+  try { stored = JSON.parse(localStorage.getItem(FAVORITES_KEY) || "[]"); } catch { stored = [] }
+  _favoriteOps = _keepKnownOps(Array.isArray(stored) ? stored : []);
+  if (_favoriteOps.length !== stored.length) _persistFavorites();
   _renderFavorites();
 
   // 事件绑定
@@ -180,9 +183,20 @@ function _smartDetect() {
   }
 }
 
+/**
+ * 下拉里的规范选项——收藏分组装的是副本，不能拿来当标签或合法性的来源
+ * （副本在文档里还排在前面，querySelector 会先撞上它）。
+ */
+function _canonicalOptions() {
+  return [..._selectEl.querySelectorAll(".custom-select-option")]
+    .filter(opt => !_favoriteGroup?.contains(opt));
+}
+
 /** 取操作的显示名：直接读选项文本，因此自动跟随 i18n.applyToDOM 的结果 */
 function _getOpLabel(value) {
-  const opt = _selectEl.querySelector(`.custom-select-option[data-value="${value}"]`);
+  // 不把 value 拼进 CSS 选择器：收藏是从 localStorage 读回来的，带引号的脏值
+  // 会让 querySelector 抛 SyntaxError，init() 半途中断后整个主窗口都初始化不完。
+  const opt = _canonicalOptions().find(opt => opt.dataset.value === value);
   return opt ? opt.textContent : value;
 }
 
@@ -457,6 +471,16 @@ function _isFavorite(op) {
   return _favoriteOps.includes(op);
 }
 
+/** 只保留下拉里真实存在的操作，并去重（顺序即用户收藏的先后） */
+function _keepKnownOps(ops) {
+  const known = new Set(_canonicalOptions().map(opt => opt.dataset.value));
+  return [...new Set(ops)].filter(op => known.has(op));
+}
+
+function _persistFavorites() {
+  try { localStorage.setItem(FAVORITES_KEY, JSON.stringify(_favoriteOps)); } catch {}
+}
+
 /** 星星按钮：收藏/取消收藏当前选中的操作 */
 function _toggleFavorite() {
   const op = _select?.value;
@@ -464,7 +488,7 @@ function _toggleFavorite() {
   _favoriteOps = _isFavorite(op)
     ? _favoriteOps.filter(other => other !== op)
     : [..._favoriteOps, op];
-  try { localStorage.setItem(FAVORITES_KEY, JSON.stringify(_favoriteOps)); } catch {}
+  _persistFavorites();
   _renderFavorites();
   _syncFavoriteButton();
 }
@@ -484,15 +508,12 @@ function _syncFavoriteButton() {
 
 function _renderFavorites() {
   if (!_favoriteGroup) return;
-  // 先清空再取标签：否则会读到上一轮渲染出的副本
   _favoriteGroup.replaceChildren();
-  for (const op of _favoriteOps) {
-    const label = _getOpLabel(op);
-    if (!label) continue;
+  for (const op of _keepKnownOps(_favoriteOps)) {
     const item = document.createElement("li");
     item.className = "custom-select-option";
     item.dataset.value = op;
-    item.textContent = label;
+    item.textContent = _getOpLabel(op);
     _favoriteGroup.appendChild(item);
   }
   // 空分组连标题一起隐藏；重建后要把选中态重新套到新副本上

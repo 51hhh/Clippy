@@ -12,6 +12,9 @@
 
 const CODEC_PANEL_SELECTOR = "#codec-panel";
 const TRANSLATION_ROOT_SELECTOR = "#translation-react-root";
+/** tabindex="-1" 的节点用不着列进来：它们只能被代码显式聚焦，这里是显式聚焦的兜底 */
+const FOCUSABLE_SELECTOR =
+  'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /** 焦点是否落在某个容器内（target 可能是 document/window，没有 closest） */
 function inside(target, selector) {
@@ -69,10 +72,28 @@ export function createKeyboardRouter({
     focusList();
   }
 
+  /**
+   * 显式把焦点送进翻译面板，成功才返回 true。
+   *
+   * 首选敏感提示与 Translate 按钮，但这两个都可能聚焦不上：翻译进行中按钮是
+   * disabled 的，没有选中条目时整个面板 render 成 null。这时退到面板里任意一个
+   * 可聚焦元素（结果卡上的复制/朗读按钮），一个都没有就把按键还给浏览器，
+   * 而不是 preventDefault 之后什么都没发生。
+   */
   function focusTranslationPanel() {
-    const target = document.getElementById("translation-sensitive-react")
-      || document.getElementById("translation-action-react");
-    target?.focus();
+    const root = document.querySelector(TRANSLATION_ROOT_SELECTOR);
+    if (!root) return false;
+    const candidates = [
+      root.querySelector("#translation-sensitive-react"),
+      root.querySelector("#translation-action-react"),
+      ...root.querySelectorAll(FOCUSABLE_SELECTOR),
+    ];
+    for (const candidate of candidates) {
+      if (!candidate || candidate.disabled) continue;
+      candidate.focus();
+      if (document.activeElement === candidate) return true;
+    }
+    return false;
   }
 
   function closeCodec() {
@@ -150,8 +171,9 @@ export function createKeyboardRouter({
     // Shift+Tab：显式把焦点送进翻译面板（预览开着才有面板）
     if (e.key === "Tab" && e.shiftKey) {
       if (!previewPanel.isVisible()) return;
+      // 先试着聚焦，进不去就不吞这个键（否则看起来像按了没反应）
+      if (!focusTranslationPanel()) return;
       e.preventDefault();
-      focusTranslationPanel();
       return;
     }
 

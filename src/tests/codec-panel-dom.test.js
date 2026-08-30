@@ -17,7 +17,7 @@ vi.mock("../js/api.ts", () => ({
   get setCodecVisible() { return setCodecVisible; },
 }));
 
-const { init, setInput, __test__ } = await import("../js/codec.js");
+const { init, setInput, refreshLabels, __test__ } = await import("../js/codec.js");
 const REVERSE_BASE64_DECODE = __test__.REVERSE_MAP["base64-decode"];
 
 /** 把 index.html 里真实的 #codec-panel 搬进测试文档，避免 fixture 与产品分叉 */
@@ -174,6 +174,49 @@ describe("编解码面板（自定义下拉框）", () => {
       .toBe("Detected JWT Decode — click to apply");
     // 灯泡表情已去掉，提示只剩文本
     expect(hint.querySelector(".codec-hint-icon")).toBeNull();
+  });
+});
+
+// 收藏是从 localStorage 读回来的，属于跨版本的外部输入：codec.init() 在 app.js 里
+// 排在 clipboardList.init() 和键盘路由注册之前，它抛一次异常整个主窗口就初始化不完。
+describe("收藏数据来自旧版本或被改坏", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+    mountCodecPanel();
+    i18n.init("en");
+  });
+
+  it("带引号的脏值不会让 init 抛错（不能拼进 CSS 选择器）", () => {
+    localStorage.setItem("clippy-codec-favorites", JSON.stringify(['a"]']));
+    expect(() => init()).not.toThrow();
+    expect(document.getElementById("codec-favorites").children).toHaveLength(0);
+  });
+
+  it("已改名/删掉的操作被剔掉并回写，不渲染成裸 slug", () => {
+    localStorage.setItem("clippy-codec-favorites", JSON.stringify(["op-removed-in-v2", "md5"]));
+    init();
+
+    const items = [...document.getElementById("codec-favorites").children];
+    expect(items.map((item) => item.dataset.value)).toEqual(["md5"]);
+    // 自愈：下次启动不用再过一遍脏数据
+    expect(JSON.parse(localStorage.getItem("clippy-codec-favorites"))).toEqual(["md5"]);
+  });
+
+  it("重复项只渲染一个", () => {
+    localStorage.setItem("clippy-codec-favorites", JSON.stringify(["md5", "md5"]));
+    init();
+    expect(document.getElementById("codec-favorites").children).toHaveLength(1);
+  });
+
+  it("收藏副本不会被当成标签来源（副本在文档里排在规范选项之前）", () => {
+    localStorage.setItem("clippy-codec-favorites", JSON.stringify(["base64-encode"]));
+    init();
+    i18n.init("zh-CN");
+    refreshLabels();
+    // 若从副本取名，语言切换后会一直复读旧文案
+    expect(document.querySelector("#codec-favorites .custom-select-option").textContent)
+      .toBe("Base64 编码");
   });
 });
 

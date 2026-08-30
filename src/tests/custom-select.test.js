@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { initCustomSelect } from "../js/custom-select.js";
 
 /** 构造自定义下拉框 DOM */
@@ -217,5 +217,32 @@ describe("custom-select 分组与动态选项", () => {
     renderRecent(recent, []);
     ctrl.refresh();
     expect(ctrl.value).toBe("a");
+  });
+});
+
+// 主窗口的 codec 侧栏在 window 上挂了键盘路由，Esc 是"关整个侧栏"。
+// 下拉展开时 Esc 应该只收起下拉：内层消费掉的键不能再冒泡给外层状态机，
+// 否则一次 Esc 同时收下拉 + 关侧栏，用户的输入内容跟着一起消失。
+describe("Esc 的归属", () => {
+  it("下拉展开时 Esc 收起下拉并阻止冒泡", () => {
+    const { container, trigger } = setup();
+    const bubbled = vi.fn();
+    window.addEventListener("keydown", bubbled);
+
+    trigger.click();
+    expect(container.classList.contains("open")).toBe(true);
+
+    trigger.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "Escape", bubbles: true, cancelable: true,
+    }));
+    expect(container.classList.contains("open")).toBe(false);
+    expect(bubbled).not.toHaveBeenCalled();
+
+    // 下拉已经关着时不再拦，Esc 要能继续走到外层（关侧栏）
+    trigger.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "Escape", bubbles: true, cancelable: true,
+    }));
+    expect(bubbled).toHaveBeenCalledTimes(1);
+    window.removeEventListener("keydown", bubbled);
   });
 });

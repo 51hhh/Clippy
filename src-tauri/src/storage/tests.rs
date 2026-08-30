@@ -367,3 +367,81 @@ fn file_database_and_wal_sidecars_are_private() {
         );
     }
 }
+
+/// 删除条目要么全成要么全不成：中途失败不能留下"搜得到但已不存在"的 FTS 幽灵行。
+///
+/// 用一个 BEFORE DELETE 触发器把 translation_history 的删除强行打断——那是
+/// delete_clip 的最后一步，此时 FTS 行和主表行都已经删过了。没有事务的话
+/// 这条记录会消失但依然能被搜索命中，且 rebuild_fts_once 只在 schema 版本
+/// 变化时跑，索引不会自己长回来。
+#[test]
+fn failed_delete_rolls_back_fts_and_clip_row() {
+    let engine = StorageEngine::new_in_memory().unwrap();
+    let clip = insert_text(&engine, "atomic delete apple", "hash_atomic_delete");
+    engine
+        .conn
+        .execute(
+            "CREATE TRIGGER block_translation_delete BEFORE DELETE ON translation_history
+             BEGIN SELECT RAISE(ABORT, 'boom'); END",
+            [],
+        )
+        .unwrap();
+    engine
+        .record_translation(&translation_of(Some(clip.id), "libretranslate", "苹果"))
+        .unwrap();
+
+    assert!(engine.delete_clip(clip.id).is_err(), "触发器应让删除失败");
+
+    // 主表行、FTS 索引、译文三者都必须完整回滚
+    assert_eq!(engine.get_clips(None, false, 0, 10).unwrap().len(), 1);
+    assert_eq!(
+        engine.get_clips(Some("apple"), false, 0, 10).unwrap().len(),
+        1,
+        "FTS 行不能被单独删掉"
+    );
+    let translations: i64 = engine
+        .conn
+        .query_row("SELECT COUNT(*) FROM translation_history", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(translations, 1);
+}
+
+/// 同理：清理超限条目时中途失败也不能只删一半。
+#[test]
+fn failed_cleanup_rolls_back_every_deletion() {
+    let engine = StorageEngine::new_in_memory().unwrap();
+    for i in 0..4 {
+        insert_text(
+            &engine,
+            &format!("cleanup banana {i}"),
+            &format!("hash_cl_{i}"),
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let oldest = engine.get_clips(None, false, 0, 10).unwrap().pop().unwrap();
+    engine
+        .record_translation(&translation_of(Some(oldest.id), "libretranslate", "香蕉"))
+        .unwrap();
+    engine
+        .conn
+        .execute(
+            "CREATE TRIGGER block_translation_delete BEFORE DELETE ON translation_history
+             BEGIN SELECT RAISE(ABORT, 'boom'); END",
+            [],
+        )
+        .unwrap();
+
+    assert!(engine.cleanup_old_entries(2).is_err(), "触发器应让清理失败");
+
+    assert_eq!(engine.get_clips(None, false, 0, 10).unwrap().len(), 4);
+    assert_eq!(
+        engine
+            .get_clips(Some("banana"), false, 0, 10)
+            .unwrap()
+            .len(),
+        4,
+        "FTS 行不能被单独删掉"
+    );
+}

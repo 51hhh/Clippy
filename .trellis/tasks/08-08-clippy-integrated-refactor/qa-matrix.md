@@ -14,11 +14,11 @@ AppImage 一行仍是 08-13 的证据，未在 08-30 重新构建。
 |---|---|---|
 | Rust 格式 | `cargo fmt -- --check` | 通过 |
 | Rust 编译 | `cargo check --all-targets` | 通过 |
-| Rust 测试 | `cargo test --all` | 235 passed；新增失焦豁免纯函数、编辑器窗口尺寸（1:1/HiDPI/工作区/异常 scale）、`capture_commit_action` 默认与归一化、覆盖层 payload 下发提交动作；新增 GNOME 自定义快捷键条目认领（`plan_slots`）与 X11 逐动作注册计划测试；新增领域错误码稳定性/文案一致性测试，含截图动作错误/竞态清理、Portal token 阶段状态机与翻译 provider 回环测试 |
+| Rust 测试 | `cargo test --all` | 237 passed；新增两条删除原子性测试（用 BEFORE DELETE 触发器打断删除链，断言 clips/clips_fts/translation_history 一起回滚）；新增失焦豁免纯函数、编辑器窗口尺寸（1:1/HiDPI/工作区/异常 scale）、`capture_commit_action` 默认与归一化、覆盖层 payload 下发提交动作；新增 GNOME 自定义快捷键条目认领（`plan_slots`）与 X11 逐动作注册计划测试；新增领域错误码稳定性/文案一致性测试，含截图动作错误/竞态清理、Portal token 阶段状态机与翻译 provider 回环测试 |
 | Rust lint | `cargo clippy --all-targets -- -D warnings` | 通过 |
 | 本地敏感文件权限 | Rust Unix 回归测试 | `config.json`、`clips.db`、`-wal`、`-shm`、Portal token 均为 `0600`；旧配置/数据库宽松权限可修复 |
 | 前端类型 | `npx tsc --noEmit` | 通过 |
-| 前端测试 | `npx vitest run` | 33 files / 557 passed（含 16 个编辑器工具的几何/绘制指令/交互覆盖、锁定侧栏三组成员的分组测试，以及新增的 codec 面板真实 DOM 测试与覆盖层提交/退化提示交互测试；另有 codec 收藏星星两态切换与中文文案测试，加一条结构守卫：新增操作不挂 `data-i18n` 直接失败） |
+| 前端测试 | `npx vitest run` | 33 files / 564 passed（新增 codec 收藏脏数据自愈 4 条、Shift+Tab 聚焦退化 2 条、下拉 Esc 归属 1 条；含 16 个编辑器工具的几何/绘制指令/交互覆盖、锁定侧栏三组成员的分组测试，以及新增的 codec 面板真实 DOM 测试与覆盖层提交/退化提示交互测试；另有 codec 收藏星星两态切换与中文文案测试，加一条结构守卫：新增操作不挂 `data-i18n` 直接失败） |
 | 前端构建 | `npx vite build` | 通过，5 个窗口入口均生成 |
 | X11/DOM smoke | `./scripts/smoke-dom.sh` | 1 file / 10 passed（Xvfb） |
 | 主窗口布局像素 smoke | `./scripts/smoke-layout.sh`（headless Firefox + 像素读取，视口 780×500 = 预览展开时的真实逻辑尺寸） | 通过，pixel=0 208 0；断言翻译区与预览内容共用同一列且不溢出预览面板、`.preview-content` 不被压到 96px 以下、codec 侧栏打开后列表宽度不变。失败时把断言原因画进红色浮层，避免"fixture 没跑"与"断言不成立"混淆 |

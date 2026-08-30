@@ -315,7 +315,9 @@ impl StorageEngine {
     }
 
     /// 插入新条目。若 content_hash 已存在则更新 created_at 并返回该条目。
-    /// Fix #2: 用事务包装 clips INSERT + FTS INSERT，保证原子性。
+    /// 用事务包装 clips INSERT + FTS INSERT：两条语句之间失败会让 FTS 缺一行，
+    /// 而 `rebuild_fts_once` 只在 schema 版本变化时跑，索引不会自己长回来，
+    /// 那条剪贴板记录就永远搜不到。
     #[allow(clippy::too_many_arguments)]
     pub fn insert_clip(
         &self,
@@ -328,6 +330,10 @@ impl StorageEngine {
         is_sensitive: bool,
     ) -> Result<ClipItem, StorageError> {
         let now = now_secs();
+
+        // unchecked_transaction 而不是 transaction()：StorageEngine 只持有 &self，
+        // 拿不到 &mut Connection（外层已经被 Arc<Mutex<_>> 串行化，没有并发嵌套）。
+        let tx = self.conn.unchecked_transaction()?;
 
         // UPSERT：新插入或哈希重复时更新 created_at 置顶
         self.conn.execute(
@@ -361,6 +367,7 @@ impl StorageEngine {
             )?;
         }
 
+        tx.commit()?;
         self.get_clip_by_id(id)
     }
 
@@ -479,9 +486,15 @@ impl StorageEngine {
         Ok(clips)
     }
 
-    /// 删除指定条目（先清理 FTS 索引，再删主表）
-    /// Fix #3: 条目不存在时直接返回 Ok 而非静默执行无效操作
+    /// 删除指定条目（先清理 FTS 索引，再删主表、再删译文）。
+    ///
+    /// 条目不存在时直接返回 Ok 而非静默执行无效操作。
+    /// 三条 DELETE 必须同生共死：中途失败要么留下搜得到的幽灵 FTS 行，
+    /// 要么把译文留在 translation_history 里——"删条目会一并删掉它的译文"
+    /// 是对用户承诺的隐私不变量，不能因为一次 SQLite 出错就破功。
     pub fn delete_clip(&self, id: i64) -> Result<(), StorageError> {
+        let tx = self.conn.unchecked_transaction()?;
+
         // 先确认条目存在并取出 text_content
         let text_content: Option<String> = match self.conn.query_row(
             "SELECT text_content FROM clips WHERE id = ?1",
@@ -509,6 +522,7 @@ impl StorageEngine {
             "DELETE FROM translation_history WHERE clip_id = ?1",
             params![id],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -528,12 +542,14 @@ impl StorageEngine {
 
     /// 清空历史（保留收藏），重建 FTS 索引
     pub fn clear_history(&self) -> Result<(), StorageError> {
+        let tx = self.conn.unchecked_transaction()?;
         self.conn
             .execute("DELETE FROM clips WHERE is_favorite = 0", [])?;
         // 重建 FTS 虚拟表
         self.conn
             .execute("INSERT INTO clips_fts(clips_fts) VALUES ('rebuild')", [])?;
         self.purge_orphan_translations()?;
+        tx.commit()?;
         Ok(())
     }
 }

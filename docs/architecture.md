@@ -50,6 +50,7 @@
 | 模式 | 谁拥有键盘 | 被路由拦下的键 | 其余按键 |
 |---|---|---|---|
 | `codec` | 焦点在 `#codec-panel` 内（`` ` `` 打开左侧栏） | `` ` ``、`Esc` 关面板并把焦点还给列表 | 全部交给面板自己（字母/数字打进输入框，不驱动列表） |
+| `codec` 内层 | 自定义下拉展开中 | `Esc` 只收起下拉并 `stopPropagation()`，不外泄给上表 | 收起后再按一次 `Esc` 才关侧栏 |
 | `search` | 搜索框聚焦 | `Esc` 逐级退出（清空 → 收起 → 隐藏窗口） | 交给 input，`` ` `` 能正常打出反引号 |
 | `translation` | 焦点在 `#translation-react-root` 内（`Shift+Tab` 显式送入） | `Ctrl+Enter` 翻译；`Esc`/`Tab` 只把焦点交回列表（预览留着）；`` ` `` 切侧栏 | 放行原生滚动与按钮语义 |
 | `list` | 默认（预览开着也一样） | `w/a/s/d`、方向键、`1-9/0`、`Enter`、`Space`、`Ctrl+P`、`Ctrl+Enter`、`Tab`/`Esc` | 带修饰键的其它组合一律放行 |
@@ -58,8 +59,15 @@
 焦点要进翻译区必须显式 `Shift+Tab`。焦点撤离翻译面板时先 `blur()` 再 focus `#list-panel`，
 不留"谁也不拥有"的中间态。
 
+"内层先吃掉、吃掉就不外泄"是这套状态机的通用规则：嵌套控件消费了某个键就必须
+`stopPropagation()`，否则一次 `Esc` 会同时收下拉 + 关侧栏，输入框里的内容跟着一起没了。
+反过来，路由拦下一个键之前也要确认动作真的发生了（`Shift+Tab` 只在焦点确实进了翻译面板时才
+`preventDefault`；翻译进行中按钮 disabled、无选中条目时面板 render 成 null，这时把键还给浏览器）。
+
 codec 侧栏的操作可以显式收藏（`codec-favorites` 分组，localStorage `clippy-codec-favorites`），
 星星按钮用 `js/icons.js` 的描边/实心两个图标切换状态，与列表行的收藏按钮同一套图标。
+收藏是跨版本的外部输入：`init()` 会剔掉下拉里已不存在的操作并回写自愈，且不把值拼进 CSS
+选择器（带引号的脏值会让 `querySelector` 抛错，`codec.init()` 中断则整个主窗口初始化不完）。
 面板里的操作名、分组标题、按钮提示和输入框占位符全部挂 `data-i18n`（专有名词如 Base64/JWT/SHA 不翻译），
 下拉触发按钮的文案与收藏分组是 JS 写入的，`applyToDOM` 碰不到，因此语言切换后由 `codec.refreshLabels()` 补齐。
 
@@ -129,6 +137,7 @@ GNOME 自定义快捷键条目路径按 command 认领而不是写死 `custom0/1
 - 图片翻译只把本地 OCR 文本发送给 provider，不上传原图。
 - API key 只进入系统 Secret Service，不提供明文 fallback。
 - 成功的译文与原文落在同一个 SQLite 库（`translation_history`，全库上限 500 条）：条目删除、历史清空和上限清理都会一并删除它的译文，设置里另有"清空已保存的译文"入口。敏感条目从不进入翻译，因此也不会产生记录。
+- 上面这条"删条目必然删译文"以及 `clips` 与 `clips_fts` 的一致性由事务保证：`insert_clip`、`delete_clip`、`clear_history`、`delete_entries` 都用 `unchecked_transaction()` 包住多条语句（`StorageEngine` 只持有 `&self`，并发已由外层 `Arc<Mutex<_>>` 串行化）。没有事务时中途失败会留下"搜得到但已不存在"的 FTS 幽灵行或删不掉的译文，而 `rebuild_fts_once` 只在 schema 版本变化时跑，索引不会自己长回来。
 - 截图保存目录与文件名模板可配置（留空即内置默认 `~/Pictures/Clippy`）：模板只生成文件名，路径分隔符与前导点被清洗，写不到目录之外；同名时追加序号，不覆盖已有文件。另存为的路径由系统对话框返回。
 - 用户文本使用 React 文本节点或 `textContent`；富文本仅使用严格 DOMPurify 配置。
 - URL 元数据仅访问无凭据的 HTTP(S)，拒绝私有/保留 IP、私有 DNS 解析和重定向；请求有 5 秒超时与 1 MiB 上限。
