@@ -36,6 +36,26 @@ let _executeGeneration = 0;
 // ── 大文本保护阈值 ──
 const AUTO_BAKE_LIMIT = 102400; // 100KB
 
+// ── 多字段结果 ──
+// 一次操作产出多个不同种类的值（时间戳的 Local/UTC/ISO、进制的四种写法……）时，
+// 整段文本没法单独取用：想要 ISO 时间却连带复制了另外两行。这类结果拆成键值对，
+// 键和值各是一个按钮，点哪个只复制哪个；整段复制仍走工具条上的 📋。
+const COPIED_FEEDBACK_MS = 1200;
+// 输出区当前内容的纯文本形式。多字段结果的 DOM 里混着按钮，textContent 拼不出
+// 可用文本（键值之间没有分隔），"复制全部"和 ⇅ 都从这里取。
+let _outputText = "";
+const _copiedTimers = new WeakMap();
+
+/** 声明一个多字段结果；`fields` 里的假值会被丢掉，便于按需拼装可选字段 */
+function multi(fields) {
+  return { fields: fields.filter(Boolean) };
+}
+
+/** 一个键值字段。`group` 非空时在它前面插一条分组标题（URL 的查询参数） */
+function field(label, value, group) {
+  return { label, value: String(value), group };
+}
+
 // ── 操作反转映射 ──
 const REVERSE_MAP = {
   "base64-encode": "base64-decode",
@@ -99,6 +119,8 @@ export function refreshLabels() {
   _renderFavorites();
   _select?.refresh();
   _syncFavoriteButton();
+  // 多字段结果的键名也是文案（Local/十进制……），换语言后要跟着重算一遍
+  if (_inputEl?.value) _execute();
 }
 
 // ── 面板切换 ──
@@ -136,7 +158,7 @@ export function setInput(text) {
 function _onInput() {
   clearTimeout(_debounceTimer);
   if (_inputEl.value.length > AUTO_BAKE_LIMIT) {
-    _outputEl.textContent = t("codec.tooLarge") || "Content too large for auto-bake. Press Enter to execute.";
+    _setPlainOutput(t("codec.tooLarge") || "Content too large for auto-bake. Press Enter to execute.");
     return;
   }
   _debounceTimer = setTimeout(() => {
@@ -209,18 +231,79 @@ async function _execute() {
   const text = _inputEl.value;
   const op = _select.value;
   const generation = ++_executeGeneration;
-  if (!text || !op) { _outputEl.textContent = ""; return; }
+  if (!text || !op) { _setPlainOutput(""); return; }
 
   try {
     const result = await _runOp(op, text);
     if (generation !== _executeGeneration) return;
-    _outputEl.textContent = result;
     _outputEl.classList.remove("codec-output--error");
+    if (result && Array.isArray(result.fields)) {
+      _renderFields(result.fields);
+    } else {
+      _setPlainOutput(result);
+    }
   } catch (e) {
     if (generation !== _executeGeneration) return;
-    _outputEl.textContent = t("codec.error", { message: e.message });
+    _setPlainOutput(t("codec.error", { message: e.message }));
     _outputEl.classList.add("codec-output--error");
   }
+}
+
+/** 单值结果：整段文本原样显示（`.codec-output` 自带 pre-wrap） */
+function _setPlainOutput(text) {
+  _outputText = text ?? "";
+  _outputEl.classList.remove("codec-output--fields");
+  _outputEl.textContent = _outputText;
+}
+
+/** 多字段结果：一行一对按钮，键和值各自可单独复制 */
+function _renderFields(fields) {
+  _outputText = fields.map((f) => `${f.label}: ${f.value}`).join("\n");
+  _outputEl.classList.add("codec-output--fields");
+  _outputEl.replaceChildren();
+
+  let currentGroup = null;
+  for (const item of fields) {
+    if (item.group && item.group !== currentGroup) {
+      currentGroup = item.group;
+      const heading = document.createElement("div");
+      heading.className = "codec-field-group";
+      heading.textContent = item.group;
+      _outputEl.appendChild(heading);
+    }
+    const row = document.createElement("div");
+    row.className = "codec-field";
+    row.append(
+      _copyBox("codec-field-key", item.label, t("codec.copyKey")),
+      _copyBox("codec-field-value", item.value, t("codec.copyValue")),
+    );
+    _outputEl.appendChild(row);
+  }
+}
+
+/** 可点击复制的一个格子。文本一律走 textContent（可能是用户输入解出来的内容） */
+function _copyBox(className, text, hint) {
+  const box = document.createElement("button");
+  box.type = "button";
+  box.className = className;
+  box.textContent = text;
+  box.title = hint;
+  box.setAttribute("aria-label", `${hint}: ${text}`);
+  box.addEventListener("click", () => _copyField(box, text));
+  return box;
+}
+
+async function _copyField(box, text) {
+  if (!text) return;
+  await _copyToClipboard(text);
+  // 复制没有任何系统反馈，格子自己闪一下"已复制"，否则用户不知道点中了没有
+  box.classList.add("is-copied");
+  box.dataset.copied = t("codec.copied");
+  clearTimeout(_copiedTimers.get(box));
+  _copiedTimers.set(box, setTimeout(() => {
+    box.classList.remove("is-copied");
+    delete box.dataset.copied;
+  }, COPIED_FEEDBACK_MS));
 }
 
 /** 运行单个操作 */
@@ -355,32 +438,26 @@ function _jwtDecode(text) {
   };
   const header = decode(parts[0]);
   const payload = decode(parts[1]);
-  return [
-    "=== Header ===",
-    JSON.stringify(header, null, 2),
-    "",
-    "=== Payload ===",
-    JSON.stringify(payload, null, 2),
-  ].join("\n");
+  // Header/Payload 是两份独立的 JSON，各自成一个可单独复制的值
+  return multi([
+    field(t("codec.field.jwtHeader"), JSON.stringify(header, null, 2)),
+    field(t("codec.field.jwtPayload"), JSON.stringify(payload, null, 2)),
+  ]);
 }
 
 function _urlParse(text) {
   const url = new URL(text.trim());
-  const lines = [
-    `Protocol: ${url.protocol}`,
-    `Host: ${url.host}`,
-    `Pathname: ${url.pathname}`,
-  ];
-  if (url.port) lines.push(`Port: ${url.port}`);
-  if (url.search) {
-    lines.push("", "=== Query Parameters ===");
-    for (const [k, v] of url.searchParams) {
-      lines.push(`  ${k} = ${v}`);
-    }
-  }
-  if (url.hash) lines.push(`Hash: ${url.hash}`);
-  if (url.username) lines.push(`Username: ${url.username}`);
-  return lines.join("\n");
+  // 查询参数本身就是键值对，直接并进同一张表，只用分组标题隔开
+  const query = [...url.searchParams].map(([k, v]) => field(k, v, t("codec.field.queryParams")));
+  return multi([
+    field(t("codec.field.protocol"), url.protocol),
+    field(t("codec.field.host"), url.host),
+    field(t("codec.field.pathname"), url.pathname),
+    url.port && field(t("codec.field.port"), url.port),
+    ...query,
+    url.hash && field(t("codec.field.hash"), url.hash),
+    url.username && field(t("codec.field.username"), url.username),
+  ]);
 }
 
 function _tsToDate(text) {
@@ -389,20 +466,20 @@ function _tsToDate(text) {
   const ms = text.trim().length === 13 ? num : num * 1000;
   const d = new Date(ms);
   if (isNaN(d.getTime())) throw new Error(t("codec.invalidTimestamp"));
-  return [
-    `Local:  ${d.toLocaleString()}`,
-    `UTC:    ${d.toUTCString()}`,
-    `ISO:    ${d.toISOString()}`,
-  ].join("\n");
+  return multi([
+    field(t("codec.field.local"), d.toLocaleString()),
+    field(t("codec.field.utc"), d.toUTCString()),
+    field(t("codec.field.iso"), d.toISOString()),
+  ]);
 }
 
 function _dateToTs(text) {
   const d = new Date(text.trim());
   if (isNaN(d.getTime())) throw new Error(t("codec.invalidDate"));
-  return [
-    `Seconds:      ${Math.floor(d.getTime() / 1000)}`,
-    `Milliseconds: ${d.getTime()}`,
-  ].join("\n");
+  return multi([
+    field(t("codec.field.seconds"), Math.floor(d.getTime() / 1000)),
+    field(t("codec.field.milliseconds"), d.getTime()),
+  ]);
 }
 
 function _numBase(text) {
@@ -413,12 +490,12 @@ function _numBase(text) {
   else if (/^0o/i.test(trimmed)) value = parseInt(trimmed.slice(2), 8);
   else value = parseInt(trimmed, 10);
   if (isNaN(value)) throw new Error(t("codec.invalidNumber"));
-  return [
-    `Decimal: ${value}`,
-    `Hex:     0x${value.toString(16).toUpperCase()}`,
-    `Binary:  0b${value.toString(2)}`,
-    `Octal:   0o${value.toString(8)}`,
-  ].join("\n");
+  return multi([
+    field(t("codec.field.decimal"), value),
+    field(t("codec.field.hex"), `0x${value.toString(16).toUpperCase()}`),
+    field(t("codec.field.binary"), `0b${value.toString(2)}`),
+    field(t("codec.field.octal"), `0o${value.toString(8)}`),
+  ]);
 }
 
 // ── UI helpers ──
@@ -434,22 +511,25 @@ function _swapDirection() {
 }
 
 function _swapIO() {
-  const output = _outputEl.textContent;
-  if (!output || _outputEl.classList.contains("codec-output--error")) return;
-  _inputEl.value = output;
+  if (!_outputText || _outputEl.classList.contains("codec-output--error")) return;
+  _inputEl.value = _outputText;
   _execute();
 }
 
 function _clear() {
   _inputEl.value = "";
-  _outputEl.textContent = "";
+  _setPlainOutput("");
   _outputEl.classList.remove("codec-output--error");
   _hintEl.hidden = true;
 }
 
+/** 工具条上的 📋：复制整段结果（多字段时是 `键: 值` 逐行） */
 async function _copyResult() {
-  const text = _outputEl.textContent;
-  if (!text) return;
+  if (!_outputText) return;
+  await _copyToClipboard(_outputText);
+}
+
+async function _copyToClipboard(text) {
   try {
     await copyText(text);
   } catch {

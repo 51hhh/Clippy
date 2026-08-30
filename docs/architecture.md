@@ -31,8 +31,9 @@
 |---|---|
 | `js/clipboard-list.js` | 列表 facade、数据加载、IPC 动作与增量渲染装配 |
 | `js/clipboard/` | 导航状态机、展示格式化和单行 DOM/缩略图渲染 |
-| `js/preview-panel.js` | 预览状态、检测优先级、延迟库与缓存 |
-| `js/preview/*-renderers.js` | 代码、元数据、格式、加密、内容/OCR 渲染 |
+| `js/preview/classify.js` | **内容类型的唯一判定处**：有序规则表（guard 预筛 → detect → 渲染器），先匹配先赢 |
+| `js/preview-panel.js` | 预览状态、异步判定尾段（Markdown/代码/富文本/纯文本）、延迟库与缓存 |
+| `js/preview/*-renderers.js` | 代码、元数据、格式、加密、内容/OCR 渲染；badge 文案由命中的渲染器自己写 |
 | `react/main/translationStore.ts` | 主预览翻译状态、多服务结果卡、单服务重试与陈旧响应保护 |
 | `styles/components.css::.translation-host` | React 翻译面板的挂载壳：`.preview-panel` 的 flex 子项必须自己有 `min-height: 0` 与 `max-height`，否则 `.translation-panel` 的百分比 `max-height` 相对 auto 高度失效，翻译区会把预览内容挤没、自己被窗口裁掉。主窗口高度对所有面板组合恒定（`MAIN_WINDOW_HEIGHT`），翻译区靠这个上限和自身滚动落位——高度随预览变化会连带改变列表可见行数，列表跟着重排比翻译区挤一点更难用 |
 | `js/translation-providers.ts` | 服务显示名、默认端点与能力标记（设置页/主面板/选区翻译共用） |
@@ -40,6 +41,20 @@
 | `react/capture/` | 16 个标注工具（选择/绘制/效果三组）、图像调整、撤销/重做和统一导出；视口、PNG 管线及待处理截图加载器独立管理 |
 | `js/settings/` | 主题、自动粘贴授权、快捷键录制与注册失败提示、OCR 和统计控制器 |
 | `react/pin/` | 首帧就绪、工具栏、拖动阈值和 rAF 更新合并 |
+
+## 内容类型只有一套标准
+
+类型判定的**唯一**入口是 `js/preview/classify.js` 的有序规则表，结果只显示在预览面板的
+`#preview-type-badge` 上。**列表行不显示类型**：后端 `content_type` 只有 text/html/image
+三档（按剪贴板 flavor 定），而预览是按内容嗅探（YAML/JWT/TIMESTAMP…），两边同时显示必然
+自相矛盾——同一条 HTML 片段会一边被标成 HTML、一边被标成 YAML。因此 `clipboard/formatters.js`
+故意不提供类型格式化函数，列表行的 meta 只剩"大小 · 时间"。
+
+表里 `guard` 只做廉价的长度/前缀预筛，`detect` 才承担语义，返回值原样透传给渲染器（哈希类型、
+编码结果不重算）。顺序本身就是语义：JWT 必须早于可逆编码，否则三段 Base64 会被当成普通 Base64。
+badge 文案跟着渲染器走而不是写在表里——文案和渲染方式本来就是一回事，分开写必然再次分叉。
+表判不出来的留给 `preview-panel.js` 的异步尾段：Markdown、`hljs.highlightAuto`（relevance > 5
+且排除 `xml`）、`html_content` 富文本、纯文本，它们要么依赖延迟加载的库要么要再拉一次 IPC。
 
 ## 主窗口键盘状态机
 
@@ -70,6 +85,15 @@ codec 侧栏的操作可以显式收藏（`codec-favorites` 分组，localStorag
 选择器（带引号的脏值会让 `querySelector` 抛错，`codec.init()` 中断则整个主窗口初始化不完）。
 面板里的操作名、分组标题、按钮提示和输入框占位符全部挂 `data-i18n`（专有名词如 Base64/JWT/SHA 不翻译），
 下拉触发按钮的文案与收藏分组是 JS 写入的，`applyToDOM` 碰不到，因此语言切换后由 `codec.refreshLabels()` 补齐。
+
+一次操作产出多个不同种类的值时（时间戳的 Local/UTC/ISO、进制的四种写法、URL 各段、JWT 的
+Header/Payload），`_runOp` 返回 `{ fields: [{ label, value, group? }] }` 而不是拼好的多行文本，
+输出区渲染成一行一对按钮：点键只复制键，点值只复制值，整段复制仍走工具条上的 📋。
+所以 `#codec-output` 是 `<div>` 而不是 `<pre>`（`<pre>` 只容纳短语内容，装不了按钮行），
+单值结果靠 CSS 的 `white-space: pre-wrap` 保持原样。"复制全部"和 ⇅ 读模块内的 `_outputText`
+而不是 `textContent`——多字段 DOM 里键值之间没有分隔符，拼出来的文本不可用。
+字段键名是文案，换语言后由 `refreshLabels()` 重算一遍（JWT 的 Header/Payload、UTC/ISO 8601
+等规范里的专有字段名不翻译）。
 
 失焦自动隐藏与这套状态机配套：`app/window_events.rs::should_hide_on_focus_loss(preview, codec)`
 在预览或 codec 侧栏打开时豁免隐藏（纯函数 + 单测）。主窗口里也不允许出现原生 `<select>`——

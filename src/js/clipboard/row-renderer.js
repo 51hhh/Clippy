@@ -1,6 +1,6 @@
 import { t } from "../../i18n/i18n.js";
 import * as icons from "../icons.js";
-import { formatRelativeTime, formatSize, formatType } from "./formatters.js";
+import { formatRelativeTime, formatSize } from "./formatters.js";
 
 /**
  * 创建一行剪贴板 DOM。所有业务动作由回调交还 facade 处理。
@@ -37,8 +37,9 @@ export function createClipboardRow({
 
   const meta = document.createElement("div");
   meta.className = "clip-row-meta";
+  // 不显示内容类型：类型只由 preview/classify.js 判定并显示在预览面板 badge 上
   const metaParts = [
-    `${formatRelativeTime(clip.created_at, { translate: t })} · ${formatType(clip.content_type)} · ${formatSize(clip.byte_size)}`,
+    `${formatRelativeTime(clip.created_at, { translate: t })} · ${formatSize(clip.byte_size)}`,
   ];
   if (clip.is_sensitive) {
     row.classList.add("sensitive");

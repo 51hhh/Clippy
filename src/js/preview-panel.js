@@ -1,12 +1,15 @@
 /**
  * preview-panel.js — 富文本预览面板
  *
- * 渲染优先级（text 和 html 类型共享检测逻辑）：
- * 1. highlight.js 语言检测 → relevance > 5 → 代码高亮（badge: 语言名）
- * 2. Markdown 正则匹配 → marked 渲染（badge: MARKDOWN）
- * 3. html 类型 → DOMPurify 安全渲染（badge: RICH TEXT）
+ * 类型判定不在这里：同步可判的部分全在 `preview/classify.js` 的有序规则表里，
+ * 这里只负责按表调渲染器，再兜住必须异步才能判的尾段：
+ * 1. Markdown 正则匹配 → marked 渲染（badge: MARKDOWN）
+ * 2. highlight.js 语言检测 → relevance > 5 → 代码高亮（badge: 语言名）
+ * 3. html 类型 → 拉 html_content → DOMPurify 安全渲染（badge: RICH TEXT）
  * 4. 纯文本 → 原样显示（badge: TEXT）
- * 5. image → base64 PNG（badge: IMAGE）
+ * image 类型走单独分支（badge: IMAGE）。
+ *
+ * 类型只显示在这块面板的 badge 上，列表行不显示——见 classify.js 的注释。
  *
  * 安全：剪贴板原始数据不可修改，所有处理仅在预览渲染层面。
  * 性能：hljs/marked/DOMPurify 延迟加载，首次打开预览面板时才初始化。
@@ -15,16 +18,11 @@
 import { getClipDetail, setPreviewVisible } from "./api.ts";
 import { t } from "../i18n/i18n.js";
 import * as detectors from "./preview/detectors.js";
+import { classifyText } from "./preview/classify.js";
 import { createPreviewRenderers } from "./preview/renderers.js";
 import { createPanelVisibilityController } from "./panel-visibility.js";
 
-const {
-  isUrl, isJson, isJwt, detectEncoding, identifyHash,
-  detectEncrypted, isColor, isTimestamp, isUuid, isIpAddress,
-  isEmail, isMacAddress, isCron, isDateString, isSemver,
-  isNumberBase, isGradient, isDataSize, isRegex, isCoordinate,
-  isMimeType, isMathExpr, isHttpStatus, isMarkdown,
-} = detectors;
+const { isMarkdown } = detectors;
 
 // ── 延迟加载的库引用 ──
 let hljs = null;
@@ -231,153 +229,13 @@ async function _doUpdatePreview(clip) {
 
   // text 和 html 类型共享智能检测逻辑
   const text = clip.text_content || "";
-
-  // 0. URL 检测（纯 URL 文本 → 卡片预览，不需要 hljs/marked/DOMPurify）
-  if (text.length > 0 && isUrl(text.trim())) {
-    _renderers.renderUrlCard(text.trim());
-    return;
-  }
-
-  // 0.5 JSON 检测（纯 JSON 文本 → 格式化 + 语法高亮）
-  if (text.length > 1 && isJson(text.trim())) {
-    await ensureLibs();
-    _renderers.renderJson(text.trim());
-    return;
-  }
-
   const trimmed = text.trim();
 
-  // 0.6 JWT 检测（必须在编码检测之前，否则被误识别为 Base64）
-  if (trimmed.length > 30 && isJwt(trimmed)) {
-    await ensureLibs();
-    _renderers.renderJwt(trimmed);
-    return;
-  }
-
-  // 0.7 可逆编码检测（Base64/URL编码/HTML实体/Unicode/Hex）
-  const encodingResult = detectEncoding(trimmed);
-  if (encodingResult) {
-    if (encodingResult.type === "base64-image") {
-      _renderers.renderBase64Image(encodingResult);
-    } else {
-      _renderers.renderEncoded(encodingResult);
-    }
-    return;
-  }
-
-  // 0.8 哈希识别（不可逆，仅标注）
-  const hashType = trimmed.length >= 32 && trimmed.length <= 200 && identifyHash(trimmed);
-  if (hashType) {
-    _renderers.renderHash(trimmed, hashType);
-    return;
-  }
-
-  // 0.9 加密内容检测（允许输入密钥解密）
-  const encryptType = trimmed.length >= 24 && detectEncrypted(trimmed);
-  if (encryptType) {
-    _renderers.renderEncrypted(trimmed, encryptType);
-    return;
-  }
-
-  // 0.10 颜色值检测
-  if (trimmed.length <= 50 && isColor(trimmed)) {
-    _renderers.renderColor(trimmed);
-    return;
-  }
-
-  // 0.11 Unix 时间戳检测
-  if (isTimestamp(trimmed)) {
-    _renderers.renderTimestamp(trimmed);
-    return;
-  }
-
-  // 0.12 UUID 检测
-  if (trimmed.length >= 32 && trimmed.length <= 39 && isUuid(trimmed)) {
-    _renderers.renderUuid(trimmed);
-    return;
-  }
-
-  // 0.13 IP 地址检测
-  if (trimmed.length >= 7 && trimmed.length <= 45 && isIpAddress(trimmed)) {
-    _renderers.renderIpAddress(trimmed);
-    return;
-  }
-
-  // 0.14 Email 地址检测
-  if (trimmed.length >= 5 && trimmed.length <= 254 && isEmail(trimmed)) {
-    _renderers.renderEmail(trimmed);
-    return;
-  }
-
-  // 0.15 MAC 地址检测
-  if (trimmed.length >= 17 && trimmed.length <= 23 && isMacAddress(trimmed)) {
-    _renderers.renderMac(trimmed);
-    return;
-  }
-
-  // 0.16 Cron 表达式检测
-  if (trimmed.length >= 9 && isCron(trimmed)) {
-    _renderers.renderCron(trimmed);
-    return;
-  }
-
-  // 0.17 日期字符串检测
-  if (trimmed.length >= 8 && trimmed.length <= 40 && isDateString(trimmed)) {
-    _renderers.renderDate(trimmed);
-    return;
-  }
-
-  // 0.18 语义版本号检测
-  if (trimmed.length >= 5 && trimmed.length <= 60 && isSemver(trimmed)) {
-    _renderers.renderSemver(trimmed);
-    return;
-  }
-
-  // 0.19 数字进制检测
-  if (trimmed.length >= 3 && trimmed.length <= 66 && isNumberBase(trimmed)) {
-    _renderers.renderNumberBase(trimmed);
-    return;
-  }
-
-  // 0.20 CSS 渐变检测
-  if (trimmed.length >= 20 && isGradient(trimmed)) {
-    _renderers.renderGradient(trimmed);
-    return;
-  }
-
-  // 0.21 数据大小检测
-  if (trimmed.length >= 2 && trimmed.length <= 20 && isDataSize(trimmed)) {
-    _renderers.renderDataSize(trimmed);
-    return;
-  }
-
-  // 0.22 正则表达式检测
-  if (trimmed.length >= 3 && trimmed.startsWith("/") && isRegex(trimmed)) {
-    _renderers.renderRegex(trimmed);
-    return;
-  }
-
-  // 0.23 坐标检测
-  if (trimmed.length >= 5 && trimmed.length <= 40 && isCoordinate(trimmed)) {
-    _renderers.renderCoordinate(trimmed);
-    return;
-  }
-
-  // 0.24 MIME type 检测
-  if (trimmed.length >= 3 && trimmed.length <= 100 && trimmed.includes("/") && isMimeType(trimmed)) {
-    _renderers.renderMimeType(trimmed);
-    return;
-  }
-
-  // 0.25 数学表达式检测
-  if (trimmed.length >= 3 && trimmed.length <= 100 && isMathExpr(trimmed)) {
-    _renderers.renderMathExpr(trimmed);
-    return;
-  }
-
-  // 0.26 HTTP 状态码检测
-  if (trimmed.length === 3 && isHttpStatus(trimmed)) {
-    _renderers.renderHttpStatus(trimmed);
+  // 同步可判的类型全部由 classify.js 那张有序表说话（顺序、badge、渲染器一处定义）
+  const decision = classifyText(trimmed);
+  if (decision) {
+    if (decision.needsLibs) await ensureLibs();
+    _renderers[decision.renderer](...decision.args);
     return;
   }
 

@@ -37,6 +37,20 @@ function output() {
   return document.getElementById("codec-output").textContent;
 }
 
+/** 多字段结果里的 [键, 值] 对（每对前后两个按钮各自可单独复制） */
+function fieldPairs() {
+  return [...document.querySelectorAll("#codec-output .codec-field")]
+    .map((row) => [
+      row.querySelector(".codec-field-key").textContent,
+      row.querySelector(".codec-field-value").textContent,
+    ]);
+}
+
+function fieldKey(label) {
+  return [...document.querySelectorAll("#codec-output .codec-field-key")]
+    .find((box) => box.textContent === label);
+}
+
 function favoriteButton() {
   return document.getElementById("codec-favorite");
 }
@@ -163,7 +177,7 @@ describe("编解码面板（自定义下拉框）", () => {
     await vi.waitFor(() => expect(hint.hidden).toBe(false));
     hint.click();
     expect(document.getElementById("codec-select").dataset.value).toBe("jwt-decode");
-    await vi.waitFor(() => expect(output()).toContain("=== Payload ==="));
+    await vi.waitFor(() => expect(fieldPairs().map(([k]) => k)).toEqual(["Header", "Payload"]));
   });
 
   it("智能提示带上建议操作的显示名", async () => {
@@ -274,5 +288,87 @@ describe("编解码面板的界面语言", () => {
     expect(document.querySelector("#codec-favorites .custom-select-option").textContent)
       .toBe("Base64 编码");
     expect(favoriteButton().title).toBe("取消收藏");
+  });
+});
+
+// 用户看到的症状：时间戳转换一次给出 Local/UTC/ISO 三行，点"复制"把三行全带走了。
+// 这类多类别结果拆成键值对，键和值各是一个按钮，点哪个只复制哪个。
+describe("多类别结果的键值对", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+    mountCodecPanel();
+    i18n.init("en");
+    init();
+  });
+
+  it("时间戳转换渲染成一行一对键值", async () => {
+    option("ts-to-date").click();
+    setInput("0");
+    await vi.waitFor(() => expect(fieldPairs()).toHaveLength(3));
+
+    const pairs = fieldPairs();
+    expect(pairs.map(([key]) => key)).toEqual(["Local", "UTC", "ISO 8601"]);
+    expect(pairs.find(([key]) => key === "ISO 8601")[1]).toBe("1970-01-01T00:00:00.000Z");
+  });
+
+  it("点键只复制键，点值只复制值", async () => {
+    option("ts-to-date").click();
+    setInput("0");
+    await vi.waitFor(() => expect(fieldPairs()).toHaveLength(3));
+
+    const key = fieldKey("UTC");
+    key.click();
+    await vi.waitFor(() => expect(copyText).toHaveBeenLastCalledWith("UTC"));
+
+    const value = key.nextElementSibling;
+    value.click();
+    await vi.waitFor(() => expect(copyText).toHaveBeenLastCalledWith(value.textContent));
+    expect(value.textContent).toContain("1970");
+  });
+
+  it("复制后格子上闪一下已复制", async () => {
+    option("num-base").click();
+    setInput("255");
+    await vi.waitFor(() => expect(fieldPairs()).toHaveLength(4));
+
+    const hex = fieldKey("Hex").nextElementSibling;
+    expect(hex.textContent).toBe("0xFF");
+    hex.click();
+    await vi.waitFor(() => expect(hex.classList.contains("is-copied")).toBe(true));
+    expect(hex.dataset.copied).toBe("Copied");
+  });
+
+  it("工具条的复制仍然拿到整段 键: 值 文本", async () => {
+    option("date-to-ts").click();
+    setInput("2023-01-01T00:00:00Z");
+    await vi.waitFor(() => expect(fieldPairs()).toHaveLength(2));
+
+    document.getElementById("codec-copy").click();
+    await vi.waitFor(() => expect(copyText).toHaveBeenLastCalledWith(
+      "Seconds: 1672531200\nMilliseconds: 1672531200000",
+    ));
+  });
+
+  it("单值操作仍然是纯文本，不留下键值格子", async () => {
+    setInput("Hello");
+    option("rot13").click();
+    await vi.waitFor(() => expect(output()).toBe("Uryyb"));
+    expect(fieldPairs()).toEqual([]);
+    expect(document.getElementById("codec-output").classList.contains("codec-output--fields"))
+      .toBe(false);
+  });
+
+  it("换语言后键名跟着重算", async () => {
+    option("num-base").click();
+    setInput("255");
+    await vi.waitFor(() => expect(fieldPairs()).toHaveLength(4));
+
+    i18n.init("zh-CN");
+    refreshLabels();
+    await vi.waitFor(() => expect(fieldPairs().map(([key]) => key))
+      .toEqual(["十进制", "十六进制", "二进制", "八进制"]));
+    // 专有名词不翻译：进制前缀仍是 0x/0b/0o
+    expect(fieldPairs()[1][1]).toBe("0xFF");
   });
 });

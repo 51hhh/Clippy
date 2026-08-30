@@ -11,7 +11,6 @@ import {
 import {
   formatRelativeTime,
   formatSize,
-  formatType,
 } from "../js/clipboard/formatters.js";
 import { syncClipboardRow } from "../js/clipboard/row-renderer.js";
 
@@ -330,13 +329,17 @@ describe("clipboard 展示格式", () => {
   const translate = (key, params = {}) => `${key}:${params.n ?? ""}`;
   const now = Date.UTC(2026, 7, 11, 12, 0, 0);
 
-  it("格式化字节边界与内容类型", () => {
+  it("格式化字节边界", () => {
     expect(formatSize(1023)).toBe("1023 B");
     expect(formatSize(1024)).toBe("1.0 KB");
     expect(formatSize(1024 * 1024)).toBe("1.0 MB");
-    expect(formatType(null)).toBe("Text");
-    expect(formatType("html")).toBe("HTML");
-    expect(formatType("custom")).toBe("custom");
+  });
+
+  // 类型只由 preview/classify.js 判定并显示在预览 badge 上，
+  // 格式化层不再提供"类型"，避免第二套标准长回来。
+  it("不再导出内容类型格式化", async () => {
+    const formatters = await import("../js/clipboard/formatters.js");
+    expect(formatters.formatType).toBeUndefined();
   });
 
   it.each([
