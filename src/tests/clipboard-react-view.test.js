@@ -57,7 +57,7 @@ describe("React clipboard row", () => {
     expect(html).toContain('role="option"');
   });
 
-  it("keeps empty text empty and localizes metadata type", () => {
+  it("keeps empty text empty and shows only size and time", () => {
     i18n.init("zh-CN");
     const html = renderToStaticMarkup(React.createElement(ClipboardRow, {
       clip: clip({ text_content: "" }),
@@ -68,7 +68,26 @@ describe("React clipboard row", () => {
       onAction: vi.fn(),
     }));
 
-    expect(html).toContain("文本 · 5 B");
+    expect(html).toContain("5 B");
     expect(html).not.toContain("富文本]");
+    // 类型不再出现在列表行：它只在预览面板的 badge 上，那里按内容判定
+    expect(html).not.toContain("文本 ·");
+  });
+
+  // 用户看到的症状：同一条 HTML 片段在主栏写 HTML、在右侧栏写 YAML。
+  // 主栏彻底不显示类型（既没有 badge 也不进 meta），矛盾才不会再出现。
+  it("never labels a row with a content type", () => {
+    const html = renderToStaticMarkup(React.createElement(ClipboardRow, {
+      clip: clip({ content_type: "html", text_content: "key: value" }),
+      index: 0,
+      snapshot: snapshot(),
+      onFocus: vi.fn(),
+      onToggle: vi.fn(),
+      onAction: vi.fn(),
+    }));
+
+    expect(html).not.toContain("clip-row-html-badge");
+    expect(html).not.toContain("HTML");
+    expect(html).toMatch(/clip-row-meta[^>]*>5 B ·/);
   });
 });

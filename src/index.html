@@ -87,7 +87,9 @@
         <button id="codec-clear" class="codec-action-btn" type="button" title="Clear" data-i18n="codec.action.clear" data-i18n-attr="title">✕</button>
         <button id="codec-copy" class="codec-action-btn" type="button" title="Copy result" data-i18n="codec.action.copy" data-i18n-attr="title">📋</button>
       </div>
-      <pre id="codec-output" class="codec-output" tabindex="-1"></pre>
+      <!-- 单值结果直接写进来（CSS 已有 white-space: pre-wrap）；多字段结果由 codec.js
+           渲染成一行一对可单独复制的键值按钮，因此不能是只容纳短语内容的 <pre> -->
+      <div id="codec-output" class="codec-output" tabindex="-1"></div>
     </div>
 
     <!-- 中间：剪贴板列表面板 -->

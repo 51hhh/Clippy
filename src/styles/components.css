@@ -659,22 +659,11 @@
   -webkit-line-clamp: unset;
   -webkit-box-orient: unset;
 }
-/* HTML 预览特化 */
+/* HTML 预览特化（类型不再显示成 badge，只保留行内布局） */
 .clip-row-preview--html {
   display: flex;
   align-items: baseline;
   gap: 6px;
-}
-.clip-row-html-badge {
-  flex-shrink: 0;
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  padding: 1px 4px;
-  border-radius: 3px;
-  background: var(--accent, #5b6ef5);
-  color: #fff;
-  line-height: 1.4;
 }
 .clip-row-thumb {
   width: 48px;
@@ -1479,4 +1468,77 @@
 }
 .codec-output--error {
   color: var(--error, #e53e3e);
+}
+
+/* 多字段结果：一行一对可单独复制的键值格子 */
+.codec-output--fields {
+  white-space: normal;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.codec-field-group {
+  margin-top: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.codec-field-group:first-child {
+  margin-top: 0;
+}
+.codec-field {
+  display: grid;
+  /* 键列按最长的键名对齐，值列吃掉剩下的宽度 */
+  grid-template-columns: minmax(52px, max-content) 1fr;
+  gap: 4px;
+  align-items: stretch;
+}
+.codec-field-key,
+.codec-field-value {
+  position: relative;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+  text-align: left;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+}
+.codec-field-key {
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+}
+.codec-field-key:hover,
+.codec-field-value:hover {
+  border-color: var(--accent, #5b6ef5);
+}
+.codec-field-key:focus-visible,
+.codec-field-value:focus-visible {
+  outline: 2px solid var(--accent, #5b6ef5);
+  outline-offset: -2px;
+}
+/* 复制没有系统反馈，格子自己闪一下"已复制" */
+.codec-field-key.is-copied,
+.codec-field-value.is-copied {
+  border-color: var(--accent, #5b6ef5);
+}
+.codec-field-key.is-copied::after,
+.codec-field-value.is-copied::after {
+  content: attr(data-copied);
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 9px;
+  line-height: 1.6;
+  background: var(--accent, #5b6ef5);
+  color: #fff;
+  pointer-events: none;
 }
