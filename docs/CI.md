@@ -26,7 +26,10 @@
 | 前端测试 | `npx vitest run` | 前端测试（jsdom） |
 
 ### 环境
-- **Runner**: `ubuntu-22.04`
+- **Runner**: `ubuntu-24.04`（自 v0.1.17 起唯一目标；`ubuntu-22.04` 已移除，见下）
+- **系统依赖**: Tauri 那套之外还需要 `libpipewire-0.3-dev`（`libspa-sys` 的 pkg-config 探测）
+  与 `libgbm-dev/libegl-dev/libdrm-dev/libwayland-dev/libxcb1-dev`（`libwayshot-xcap` 的链接依赖），
+  以及 `xvfb`/`x11-utils`（DOM smoke）
 - **Rust**: stable（含 clippy + rustfmt 组件）
 - **Node.js**: 20
 - **缓存**: `Swatinem/rust-cache@v2`（加速 Rust 编译）
@@ -110,8 +113,9 @@ git push origin vx.y.z
 
 | 格式 | 文件名 | 说明 |
 |------|--------|------|
-| DEB | `Clippy_{version}_amd64.deb` | Debian/Ubuntu 安装包 |
-| AppImage | `Clippy_{version}_amd64.AppImage` | 通用 Linux 可执行文件，支持自动更新 |
+| DEB | `Clippy_{version}_amd64_ubuntu24.deb` | Ubuntu 24.04+ 安装包 |
+| AppImage | `Clippy_{version}_amd64_ubuntu24.AppImage` | Ubuntu 24.04+ 可执行文件 |
+| DEB / AppImage（无后缀） | `Clippy_{version}_amd64.deb` / `.AppImage` | 与 ubuntu24 同一份产物，供内置更新器按固定名下载 |
 
 ### 自动更新
 
@@ -125,3 +129,12 @@ git push origin vx.y.z
 | `cargo clippy` 失败 | 代码有 warning | 按 clippy 提示修复 |
 | Release 版本验证失败 | tag 版本 ≠ tauri.conf.json | 确保三处版本号一致 |
 | vitest 失败 | 前端测试不通过 | `cd src && npx vitest run` 本地复现 |
+| `No package 'libpipewire-0.3' found` | runner 缺 `libpipewire-0.3-dev`（`xcap` → `pipewire` → `libspa-sys`） | 在两个 workflow 的系统依赖里补上 |
+| `spa_video_info_raw has no field named flags` | 系统 pipewire 头文件 < 0.3.65（Ubuntu 22.04 只有 0.3.48） | 无解，只能用 ubuntu-24.04；换 PPA 头文件会造成运行时 ABI 不一致 |
+
+### 为什么只构建 ubuntu-24.04
+
+截图功能依赖 `xcap = "0.9"`。xcap 自 0.5 起所有版本都无条件依赖 `pipewire` crate，`pipewire 0.9`
+锁定 `libspa 0.9`，而 `libspa` 无条件使用 bindgen 从**系统头文件**生成的
+`spa_video_info_raw.flags`（pipewire ≥ 0.3.65 才有）。xcap 也没有可以关掉 pipewire 的 feature
+（只有 `image` 和 Windows 用的 `wgc`），因此 22.04 上无法通过编译。

@@ -55,9 +55,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # 只保留 ubuntu-24.04，原因见 build.yml：xcap 0.9 → libspa 0.9 需要
+        # pipewire ≥ 0.3.65 的头文件，jammy 只有 0.3.48，编译不过。
         include:
-          - runner: ubuntu-22.04
-            label: ubuntu22
           - runner: ubuntu-24.04
             label: ubuntu24
     steps:
@@ -194,14 +194,14 @@ jobs:
 
           ## 下载
 
-          ### Linux
-          #### DEB 包（根据系统版本选择）
-          - Ubuntu 22.04：[64位](${DL}/Clippy_${VER}_amd64_ubuntu22.deb)
+          ### Linux（Ubuntu 24.04+ / 同等 glibc 发行版）
+          #### DEB 包
           - Ubuntu 24.04+：[64位](${DL}/Clippy_${VER}_amd64_ubuntu24.deb)
 
           #### AppImage（支持自动更新）
-          - Ubuntu 22.04：[64位](${DL}/Clippy_${VER}_amd64_ubuntu22.AppImage)
           - Ubuntu 24.04+：[64位](${DL}/Clippy_${VER}_amd64_ubuntu24.AppImage)
+
+          > 本版起不再提供 Ubuntu 22.04 构建：截图功能依赖的 pipewire 头文件在 22.04 上过旧（需 ≥ 0.3.65，jammy 只有 0.3.48）。22.04 用户请留在 v0.1.16 或自行编译。
 
           > OCR 功能需要单独安装 tesseract：\`sudo apt install tesseract-ocr tesseract-ocr-chi-sim\`
 

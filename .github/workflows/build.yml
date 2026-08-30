@@ -18,7 +18,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-22.04, ubuntu-24.04]
+        # 只保留 ubuntu-24.04：截图依赖 xcap 0.9，它必然拉 pipewire/libspa 0.9，
+        # 而 libspa 0.9 无条件使用 spa_video_info_raw.flags（pipewire ≥ 0.3.65 才有）。
+        # jammy 仓库里只有 0.3.48，bindgen 生成的结构体缺字段，libspa 根本编译不过。
+        # 用 PPA 换新头文件会让二进制与 22.04 上的运行时 ABI 不一致，比不支持更危险。
+        runner: [ubuntu-24.04]
     steps:
       - uses: actions/checkout@v4
 
