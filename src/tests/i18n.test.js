@@ -1,10 +1,22 @@
 /**
  * i18n.js — 国际化模块测试
  */
+import { readdirSync, readFileSync } from "node:fs";
+import { relative, resolve } from "node:path";
 import { describe, it, expect, beforeEach } from "vitest";
 import * as i18n from "../i18n/i18n.js";
 import en from "../i18n/en.json";
 import zhCN from "../i18n/zh-CN.json";
+
+const root = resolve(process.cwd());
+
+function sourceFiles(directory) {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = resolve(directory, entry.name);
+    if (entry.isDirectory()) return sourceFiles(path);
+    return /\.(?:js|ts|tsx)$/.test(entry.name) ? [path] : [];
+  });
+}
 
 describe("i18n", () => {
   beforeEach(() => {
@@ -99,6 +111,19 @@ describe("i18n", () => {
 
   it("中英文 locale key 集合完全一致", () => {
     expect(Object.keys(zhCN).sort()).toEqual(Object.keys(en).sort());
+  });
+
+  // 缺 key 不报错，只会把 key 本身显示在界面上（`t()` 的兜底就是返回 key）。
+  // codec 面板一次加了二十多个字段名，靠肉眼核对必然漏，这里整源码扫一遍。
+  it("源码里写死的 i18n key 在两个 locale 里都存在", () => {
+    const files = sourceFiles(resolve(root, "js")).concat(sourceFiles(resolve(root, "react")));
+    const missing = new Set();
+    for (const file of files) {
+      for (const [, key] of readFileSync(file, "utf8").matchAll(/\bt\(\s*"([A-Za-z][\w.]*)"/g)) {
+        if (!(key in en) || !(key in zhCN)) missing.add(`${key} (${relative(root, file)})`);
+      }
+    }
+    expect([...missing]).toEqual([]);
   });
 
   it("React 截图和 Pin 文案可随语言切换", () => {

@@ -91,10 +91,29 @@ describe("classifyText", () => {
     expect(encoded.args[0]).toMatchObject({ type: "base64", decoded: "Hello world from clippy" });
   });
 
-  // 纯 hex 的哈希同时也是合法 base64 字符集，`encoding` 排在 `hash` 前面就会先认领它。
-  // 这是重构之前就有的行为，这里明确锁住，改顺序时不会不知不觉动到渲染结果。
-  it("纯 hex 的哈希仍旧先被可逆编码认领（既有行为）", () => {
-    expect(classifyText("d41d8cd98f00b204e9800998ecf8427e").kind).toBe("encoding");
+  // 回归：纯 hex 的哈希同时也是合法 Base64 字符集，`encoding` 排在 `hash` 前面。
+  // 曾经因为可读性只按 Latin-1 判，MD5 被认成 BASE64 并显示成一串乱码。
+  // 修法不是改顺序（那会反过来抢走真正 hex 编码过的可读文本），而是要求解码结果
+  // 是合法 UTF-8，哈希的随机字节过不了这一关，自然落到 hash 规则上。
+  it.each([
+    ["d41d8cd98f00b204e9800998ecf8427e", "MD5"],
+    ["da39a3ee5e6b4b0d3255bfef95601890afd80709", "SHA-1"],
+    ["e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "SHA-256"],
+  ])("纯 hex 的哈希判成 hash 而不是可逆编码：%s", (digest, name) => {
+    const decision = classifyText(digest);
+    expect(decision.kind).toBe("hash");
+    expect(decision.args).toEqual([digest, name]);
+  });
+
+  // 上一条的反面：长度正好撞上哈希的 hex 编码文本必须还归 encoding。
+  // （"Hello, World!!!" 的 hex 是 30 个字符，补一个字节刚好 32——和 MD5 同长）
+  it("长度撞上哈希的 hex 编码文本仍归可逆编码", () => {
+    const plain = "Hello, World!!!!";
+    const hex = [...plain].map((c) => c.charCodeAt(0).toString(16).padStart(2, "0")).join("");
+    expect(hex.length).toBe(32);
+    const decision = classifyText(hex);
+    expect(decision.kind).toBe("encoding");
+    expect(decision.args[0]).toMatchObject({ type: "hex", decoded: plain });
   });
 
   it("判不出来就交给异步尾段（Markdown / 代码高亮 / 富文本 / 纯文本）", () => {

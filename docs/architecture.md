@@ -56,6 +56,15 @@ badge 文案跟着渲染器走而不是写在表里——文案和渲染方式�
 表判不出来的留给 `preview-panel.js` 的异步尾段：Markdown、`hljs.highlightAuto`（relevance > 5
 且排除 `xml`）、`html_content` 富文本、纯文本，它们要么依赖延迟加载的库要么要再拉一次 IPC。
 
+哈希与可逆编码的边界靠"解码结果是否是合法 UTF-8"划，不靠顺序也不靠长度
+（`detectors.js::decodeReadableBytes`）。纯 hex 的摘要同时也是合法 Base64 字符集，而
+`atob`/hex 解出来的是"一字节一字符"的 Latin-1 串——按 Latin-1 判可读性时 0xA0-0xFF 全算
+正常字符，随机字节里通常有七八成落在这个区间，比例阈值拦不住，MD5 于是被标成 BASE64 并显示成乱码。
+反过来把 `hash` 提到 `encoding` 前面，或者像以前那样在 hex 分支里按长度黑名单排除
+32/40/64/128，又会把正好 16/20/32/64 字节的 hex 编码文本误判成摘要。真正编码过的文本几乎
+一定是合法 UTF-8，摘要的随机字节几乎一定不是，因此严格 UTF-8 解码同时解决两个方向；
+顺带修掉了 UTF-8 内容被按 Latin-1 显示成乱码的老问题（图片魔数仍按原始字节判）。
+
 ## 主窗口键盘状态机
 
 键盘归属按**焦点位置**单点解析（`js/keyboard-router.js::resolveKeyboardMode`），先匹配先赢：
