@@ -60,11 +60,31 @@ describe("built window entrypoints", () => {
     expect(codecSelect?.classList.contains("custom-select")).toBe(true);
     expect(codecSelect?.querySelector(".custom-select-trigger")).not.toBeNull();
     expect(codecSelect?.querySelectorAll(".custom-select-option").length).toBeGreaterThanOrEqual(22);
-    // "最近使用"分组由 codec.js 动态填充，标题与容器必须成对存在
-    const recentGroup = document.getElementById("codec-recent-group");
-    expect(recentGroup?.classList.contains("custom-select-group")).toBe(true);
-    expect(recentGroup?.querySelector(".custom-select-group-title")).not.toBeNull();
-    expect(recentGroup?.contains(document.getElementById("codec-recent"))).toBe(true);
+    // "收藏"分组由 codec.js 动态填充，标题与容器必须成对存在
+    const favoritesGroup = document.getElementById("codec-favorites-group");
+    expect(favoritesGroup?.classList.contains("custom-select-group")).toBe(true);
+    expect(favoritesGroup?.querySelector(".custom-select-group-title")).not.toBeNull();
+    expect(favoritesGroup?.contains(document.getElementById("codec-favorites"))).toBe(true);
+  });
+
+  // 用户反馈过"侧栏按钮和操作名没跟随语言"：静态文案必须挂 data-i18n，否则永远是英文
+  it("marks every codec label and tooltip for translation", () => {
+    const document = loadEntrypoint("index.html");
+    const panel = document.getElementById("codec-panel");
+    for (const option of panel.querySelectorAll(".custom-select-option")) {
+      expect(option.dataset.i18n, option.dataset.value).toBe(`codec.op.${option.dataset.value}`);
+    }
+    for (const title of panel.querySelectorAll(".custom-select-group-title")) {
+      expect(title.dataset.i18n, title.textContent).toMatch(/^codec\.group\./);
+    }
+    for (const id of ["codec-swap-dir", "codec-swap", "codec-clear", "codec-copy"]) {
+      const button = document.getElementById(id);
+      expect(button?.dataset.i18n, id).toMatch(/^codec\.action\./);
+      expect(button?.dataset.i18nAttr, id).toBe("title");
+    }
+    expect(document.getElementById("codec-input")?.dataset.i18nAttr).toBe("placeholder");
+    // 收藏按钮的文案随状态在两个键之间切换，由 codec.js 写入
+    expect(document.getElementById("codec-favorite")?.dataset.i18n).toBeUndefined();
   });
 
   it("keeps direct Tauri access out of production feature modules", () => {

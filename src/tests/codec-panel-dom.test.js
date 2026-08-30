@@ -2,11 +2,13 @@
  * codec-panel-dom.test.js — 编解码面板与自定义下拉框的接线
  *
  * 结构直接取自 index.html：面板改用 custom-select 之后，"选择操作 → 执行"、
- * "最近使用分组重建"、"反向操作"这几条链路都不再经过原生 <select>，需要单独兜住。
+ * "收藏分组重建"、"反向操作"这几条链路都不再经过原生 <select>，需要单独兜住。
+ * 另外锁定面板文案跟随界面语言（专有名词不翻译）。
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as i18n from "../i18n/i18n.js";
 
 const setCodecVisible = vi.fn(async () => {});
 const copyText = vi.fn(async () => {});
@@ -35,11 +37,16 @@ function output() {
   return document.getElementById("codec-output").textContent;
 }
 
+function favoriteButton() {
+  return document.getElementById("codec-favorite");
+}
+
 describe("编解码面板（自定义下拉框）", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
     mountCodecPanel();
+    i18n.init("en");
     init();
   });
 
@@ -54,41 +61,79 @@ describe("编解码面板（自定义下拉框）", () => {
     await vi.waitFor(() => expect(output()).toBe("Hello"));
   });
 
-  it("选过的操作进入最近使用分组并显示标题", async () => {
+  it("星星按钮收藏当前操作并写入分组", async () => {
     setInput("Hello");
     option("sha256").click();
     await vi.waitFor(() => expect(output()).toHaveLength(64));
+    favoriteButton().click();
 
-    const recent = document.getElementById("codec-recent");
-    expect([...recent.children].map((item) => item.dataset.value)).toEqual(["sha256"]);
-    expect(document.getElementById("codec-recent-group").hidden).toBe(false);
-    expect(JSON.parse(localStorage.getItem("clippy-codec-recent"))).toEqual(["sha256"]);
+    const favorites = document.getElementById("codec-favorites");
+    expect([...favorites.children].map((item) => item.dataset.value)).toEqual(["sha256"]);
+    expect(document.getElementById("codec-favorites-group").hidden).toBe(false);
+    expect(JSON.parse(localStorage.getItem("clippy-codec-favorites"))).toEqual(["sha256"]);
   });
 
-  it("最近使用为空时整个分组连标题一起隐藏", () => {
-    expect(document.getElementById("codec-recent").children).toHaveLength(0);
-    expect(document.getElementById("codec-recent-group").hidden).toBe(true);
-  });
-
-  it("最近使用最多 5 项且最新在前", async () => {
-    const ops = ["md5", "sha1", "sha256", "sha512", "rot13", "url-encode"];
+  it("再点一次星星取消收藏，分组连标题一起隐藏", async () => {
     setInput("Hello");
-    for (const op of ops) {
-      option(op).click();
-      // eslint-disable-next-line no-await-in-loop
-      await vi.waitFor(() => expect(document.getElementById("codec-select").dataset.value).toBe(op));
-    }
-    const recent = [...document.getElementById("codec-recent").children];
-    expect(recent.map((item) => item.dataset.value)).toEqual(
-      ["url-encode", "rot13", "sha512", "sha256", "sha1"],
-    );
+    option("md5").click();
+    await vi.waitFor(() => expect(output()).toHaveLength(32));
+    favoriteButton().click();
+    favoriteButton().click();
+
+    expect(document.getElementById("codec-favorites").children).toHaveLength(0);
+    expect(document.getElementById("codec-favorites-group").hidden).toBe(true);
+    expect(JSON.parse(localStorage.getItem("clippy-codec-favorites"))).toEqual([]);
   });
 
-  it("重建最近使用后选中态只保留一个", async () => {
+  it("收藏状态由两个不同星星图标表示", () => {
+    // 未收藏是描边星星（fill="none"），收藏后换成实心星星
+    expect(favoriteButton().getAttribute("aria-pressed")).toBe("false");
+    expect(favoriteButton().innerHTML).toContain('fill="none"');
+    expect(favoriteButton().classList.contains("is-favorite")).toBe(false);
+
+    favoriteButton().click();
+    expect(favoriteButton().getAttribute("aria-pressed")).toBe("true");
+    expect(favoriteButton().innerHTML).toContain('fill="currentColor"');
+    expect(favoriteButton().classList.contains("is-favorite")).toBe(true);
+  });
+
+  it("切换操作时星星跟着当前操作的收藏状态", async () => {
+    favoriteButton().click(); // 收藏默认的 base64-encode
+    setInput("Hello");
+    option("rot13").click();
+    await vi.waitFor(() => expect(output()).toBe("Uryyb"));
+    expect(favoriteButton().getAttribute("aria-pressed")).toBe("false");
+
+    option("base64-encode").click();
+    await vi.waitFor(() => expect(favoriteButton().getAttribute("aria-pressed")).toBe("true"));
+  });
+
+  it("空收藏时整个分组连标题一起隐藏", () => {
+    expect(document.getElementById("codec-favorites").children).toHaveLength(0);
+    expect(document.getElementById("codec-favorites-group").hidden).toBe(true);
+  });
+
+  it("重建收藏分组后选中态只保留一个", async () => {
+    favoriteButton().click();
     setInput("Hello");
     option("hex-encode").click();
     await vi.waitFor(() => expect(output()).toBe("48 65 6c 6c 6f"));
+    favoriteButton().click();
     expect(document.querySelectorAll("#codec-select .custom-select-option.selected")).toHaveLength(1);
+  });
+
+  it("收藏分组里的副本点了也执行", async () => {
+    setInput("Hello");
+    option("hex-encode").click();
+    await vi.waitFor(() => expect(output()).toBe("48 65 6c 6c 6f"));
+    favoriteButton().click();
+
+    option("base64-encode").click();
+    await vi.waitFor(() => expect(output()).toBe("SGVsbG8="));
+    // 收藏分组在 DOM 里排在最前，副本必须走同一条委托出口
+    const copy = document.querySelector('#codec-favorites .custom-select-option[data-value="hex-encode"]');
+    copy.click();
+    await vi.waitFor(() => expect(output()).toBe("48 65 6c 6c 6f"));
   });
 
   it("⇄ 按钮切换到反向操作并重新执行", async () => {
@@ -119,5 +164,72 @@ describe("编解码面板（自定义下拉框）", () => {
     hint.click();
     expect(document.getElementById("codec-select").dataset.value).toBe("jwt-decode");
     await vi.waitFor(() => expect(output()).toContain("=== Payload ==="));
+  });
+
+  it("智能提示带上建议操作的显示名", async () => {
+    setInput("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig");
+    const hint = document.getElementById("codec-smart-hint");
+    await vi.waitFor(() => expect(hint.hidden).toBe(false));
+    expect(document.getElementById("codec-hint-text").textContent)
+      .toBe("Detected JWT Decode — click to apply");
+    // 灯泡表情已去掉，提示只剩文本
+    expect(hint.querySelector(".codec-hint-icon")).toBeNull();
+  });
+});
+
+describe("编解码面板的界面语言", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+    mountCodecPanel();
+  });
+
+  it("中文下操作名与按钮提示都跟随语言，专有名词保留原文", () => {
+    i18n.init("zh-CN");
+    init();
+
+    expect(option("base64-decode").textContent).toBe("Base64 解码");
+    expect(option("html-encode").textContent).toBe("HTML 实体编码");
+    expect(option("num-base").textContent).toBe("进制转换");
+    expect(option("sha256").textContent).toBe("SHA-256");
+    // 触发按钮显示的是当前操作，init 之后必须已经是中文
+    expect(document.querySelector(".custom-select-value").textContent).toBe("Base64 编码");
+    expect(document.querySelector("#codec-favorites-group .custom-select-group-title").textContent)
+      .toBe("收藏");
+    expect(document.getElementById("codec-swap-dir").title).toBe("反向操作");
+    expect(document.getElementById("codec-copy").title).toBe("复制结果");
+    expect(document.getElementById("codec-input").placeholder).toBe("输入…");
+    expect(favoriteButton().title).toBe("加入收藏");
+  });
+
+  it("收藏分组里的副本与错误提示同样是中文", async () => {
+    i18n.init("zh-CN");
+    init();
+    favoriteButton().click();
+
+    expect(document.querySelector("#codec-favorites .custom-select-option").textContent)
+      .toBe("Base64 编码");
+    expect(favoriteButton().title).toBe("取消收藏");
+
+    option("jwt-decode").click();
+    setInput("not-a-jwt");
+    await vi.waitFor(() => expect(output()).toBe("错误：JWT 格式无效"));
+  });
+
+  it("语言切换后 refreshLabels 补上 JS 写入的文案", async () => {
+    i18n.init("en");
+    init();
+    favoriteButton().click();
+    expect(document.querySelector(".custom-select-value").textContent).toBe("Base64 Encode");
+
+    // 真实链路是 config-changed → i18n.init(applyToDOM) → codec.refreshLabels()
+    i18n.init("zh-CN");
+    const { refreshLabels } = await import("../js/codec.js");
+    refreshLabels();
+
+    expect(document.querySelector(".custom-select-value").textContent).toBe("Base64 编码");
+    expect(document.querySelector("#codec-favorites .custom-select-option").textContent)
+      .toBe("Base64 编码");
+    expect(favoriteButton().title).toBe("取消收藏");
   });
 });

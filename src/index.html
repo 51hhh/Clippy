@@ -23,66 +23,69 @@
               <path d="M1 1L6 6L11 1" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" />
             </svg>
           </button>
+          <!-- 选项文本走 data-i18n：下拉标签、分组标题和按钮提示都要跟随界面语言，
+               专有名词（Base64/URL/JWT/SHA…）在各语言里保持原样 -->
           <ul class="custom-select-dropdown">
-            <li class="custom-select-group" id="codec-recent-group" hidden>
-              <span class="custom-select-group-title">⭐ Recent</span>
-              <ul class="custom-select-group-options" id="codec-recent"></ul>
+            <li class="custom-select-group" id="codec-favorites-group" hidden>
+              <span class="custom-select-group-title" data-i18n="codec.group.favorites">Favorites</span>
+              <ul class="custom-select-group-options" id="codec-favorites"></ul>
             </li>
             <li class="custom-select-group">
-              <span class="custom-select-group-title">📦 Encode / Decode</span>
+              <span class="custom-select-group-title" data-i18n="codec.group.encode">Encode / Decode</span>
               <ul class="custom-select-group-options">
-                <li class="custom-select-option selected" data-value="base64-encode">Base64 Encode</li>
-                <li class="custom-select-option" data-value="base64-decode">Base64 Decode</li>
-                <li class="custom-select-option" data-value="url-encode">URL Encode</li>
-                <li class="custom-select-option" data-value="url-decode">URL Decode</li>
-                <li class="custom-select-option" data-value="html-encode">HTML Entities Encode</li>
-                <li class="custom-select-option" data-value="html-decode">HTML Entities Decode</li>
-                <li class="custom-select-option" data-value="unicode-escape">Unicode Escape</li>
-                <li class="custom-select-option" data-value="unicode-unescape">Unicode Unescape</li>
-                <li class="custom-select-option" data-value="hex-encode">Hex Encode</li>
-                <li class="custom-select-option" data-value="hex-decode">Hex Decode</li>
-                <li class="custom-select-option" data-value="rot13">ROT13</li>
+                <li class="custom-select-option selected" data-value="base64-encode" data-i18n="codec.op.base64-encode">Base64 Encode</li>
+                <li class="custom-select-option" data-value="base64-decode" data-i18n="codec.op.base64-decode">Base64 Decode</li>
+                <li class="custom-select-option" data-value="url-encode" data-i18n="codec.op.url-encode">URL Encode</li>
+                <li class="custom-select-option" data-value="url-decode" data-i18n="codec.op.url-decode">URL Decode</li>
+                <li class="custom-select-option" data-value="html-encode" data-i18n="codec.op.html-encode">HTML Entities Encode</li>
+                <li class="custom-select-option" data-value="html-decode" data-i18n="codec.op.html-decode">HTML Entities Decode</li>
+                <li class="custom-select-option" data-value="unicode-escape" data-i18n="codec.op.unicode-escape">Unicode Escape</li>
+                <li class="custom-select-option" data-value="unicode-unescape" data-i18n="codec.op.unicode-unescape">Unicode Unescape</li>
+                <li class="custom-select-option" data-value="hex-encode" data-i18n="codec.op.hex-encode">Hex Encode</li>
+                <li class="custom-select-option" data-value="hex-decode" data-i18n="codec.op.hex-decode">Hex Decode</li>
+                <li class="custom-select-option" data-value="rot13" data-i18n="codec.op.rot13">ROT13</li>
               </ul>
             </li>
             <li class="custom-select-group">
-              <span class="custom-select-group-title">🔐 Hash</span>
+              <span class="custom-select-group-title" data-i18n="codec.group.hash">Hash</span>
               <ul class="custom-select-group-options">
-                <li class="custom-select-option" data-value="md5">MD5</li>
-                <li class="custom-select-option" data-value="sha1">SHA-1</li>
-                <li class="custom-select-option" data-value="sha256">SHA-256</li>
-                <li class="custom-select-option" data-value="sha512">SHA-512</li>
+                <li class="custom-select-option" data-value="md5" data-i18n="codec.op.md5">MD5</li>
+                <li class="custom-select-option" data-value="sha1" data-i18n="codec.op.sha1">SHA-1</li>
+                <li class="custom-select-option" data-value="sha256" data-i18n="codec.op.sha256">SHA-256</li>
+                <li class="custom-select-option" data-value="sha512" data-i18n="codec.op.sha512">SHA-512</li>
               </ul>
             </li>
             <li class="custom-select-group">
-              <span class="custom-select-group-title">📄 Format</span>
+              <span class="custom-select-group-title" data-i18n="codec.group.format">Format</span>
               <ul class="custom-select-group-options">
-                <li class="custom-select-option" data-value="json-format">JSON Format</li>
-                <li class="custom-select-option" data-value="json-minify">JSON Minify</li>
-                <li class="custom-select-option" data-value="jwt-decode">JWT Decode</li>
-                <li class="custom-select-option" data-value="url-parse">URL Parse</li>
+                <li class="custom-select-option" data-value="json-format" data-i18n="codec.op.json-format">JSON Format</li>
+                <li class="custom-select-option" data-value="json-minify" data-i18n="codec.op.json-minify">JSON Minify</li>
+                <li class="custom-select-option" data-value="jwt-decode" data-i18n="codec.op.jwt-decode">JWT Decode</li>
+                <li class="custom-select-option" data-value="url-parse" data-i18n="codec.op.url-parse">URL Parse</li>
               </ul>
             </li>
             <li class="custom-select-group">
-              <span class="custom-select-group-title">🕐 Convert</span>
+              <span class="custom-select-group-title" data-i18n="codec.group.convert">Convert</span>
               <ul class="custom-select-group-options">
-                <li class="custom-select-option" data-value="ts-to-date">Timestamp → Date</li>
-                <li class="custom-select-option" data-value="date-to-ts">Date → Timestamp</li>
-                <li class="custom-select-option" data-value="num-base">Number Base</li>
+                <li class="custom-select-option" data-value="ts-to-date" data-i18n="codec.op.ts-to-date">Timestamp → Date</li>
+                <li class="custom-select-option" data-value="date-to-ts" data-i18n="codec.op.date-to-ts">Date → Timestamp</li>
+                <li class="custom-select-option" data-value="num-base" data-i18n="codec.op.num-base">Number Base</li>
               </ul>
             </li>
           </ul>
         </div>
-        <button id="codec-swap-dir" class="codec-icon-btn" title="Swap direction">⇄</button>
+        <!-- 收藏当前操作：图标与文案由 codec.js 按状态写入（复用列表收藏的实心/描边星星） -->
+        <button id="codec-favorite" class="codec-icon-btn codec-favorite-btn" type="button" aria-pressed="false"></button>
+        <button id="codec-swap-dir" class="codec-icon-btn" type="button" title="Swap direction" data-i18n="codec.action.swapDirection" data-i18n-attr="title">⇄</button>
       </div>
       <div class="codec-smart-hint" id="codec-smart-hint" hidden>
-        <span class="codec-hint-icon">💡</span>
         <span id="codec-hint-text"></span>
       </div>
-      <textarea id="codec-input" class="codec-textarea" placeholder="Input..." spellcheck="false"></textarea>
+      <textarea id="codec-input" class="codec-textarea" placeholder="Input..." spellcheck="false" data-i18n="codec.placeholder" data-i18n-attr="placeholder"></textarea>
       <div class="codec-actions">
-        <button id="codec-swap" class="codec-action-btn" title="Swap input/output">⇅</button>
-        <button id="codec-clear" class="codec-action-btn" title="Clear">✕</button>
-        <button id="codec-copy" class="codec-action-btn" title="Copy result">📋</button>
+        <button id="codec-swap" class="codec-action-btn" type="button" title="Swap input/output" data-i18n="codec.action.swapIo" data-i18n-attr="title">⇅</button>
+        <button id="codec-clear" class="codec-action-btn" type="button" title="Clear" data-i18n="codec.action.clear" data-i18n-attr="title">✕</button>
+        <button id="codec-copy" class="codec-action-btn" type="button" title="Copy result" data-i18n="codec.action.copy" data-i18n-attr="title">📋</button>
       </div>
       <pre id="codec-output" class="codec-output" tabindex="-1"></pre>
     </div>
