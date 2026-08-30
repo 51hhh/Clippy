@@ -22,12 +22,20 @@ VITE_LOG="${ARTIFACT_DIR}/vite.log"
 FIREFOX_LOG="${ARTIFACT_DIR}/firefox.log"
 mkdir -p "$PROFILE_DIR"
 VITE_PID=""
+SELF_PGID="$(ps -o pgid= -p "$$" | tr -d ' ')"
 
+# npx 在 vite 之上还套着 npm exec / sh / node 三层，只 kill 顶层会留下孤儿 dev server
+# 常驻端口（本地一度攒了十几个）。整个进程组一起收，PGID 由下面的 setsid 保证不是本脚本自己的组。
 cleanup() {
-  if [[ -n "$VITE_PID" ]] && kill -0 "$VITE_PID" 2>/dev/null; then
+  [[ -n "$VITE_PID" ]] || return 0
+  local pgid
+  pgid="$(ps -o pgid= -p "$VITE_PID" 2>/dev/null | tr -d ' ')"
+  if [[ -n "$pgid" && "$pgid" != "$SELF_PGID" ]]; then
+    kill -- "-${pgid}" 2>/dev/null || true
+  else
     kill "$VITE_PID" 2>/dev/null || true
-    wait "$VITE_PID" 2>/dev/null || true
   fi
+  wait "$VITE_PID" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
@@ -43,10 +51,9 @@ find_port() {
 }
 
 PORT="$(find_port)" || { printf '%s\n' 'Layout smoke failed: no local port' >&2; exit 1; }
-(
-  cd "${ROOT_DIR}/src"
-  exec npx vite --host 127.0.0.1 --port "$PORT" --strictPort
-) >"$VITE_LOG" 2>&1 &
+SETSID="$(command -v setsid || true)"
+$SETSID bash -c "cd '${ROOT_DIR}/src' && exec npx vite --host 127.0.0.1 --port '${PORT}' --strictPort" \
+  >"$VITE_LOG" 2>&1 &
 VITE_PID=$!
 
 for _ in {1..50}; do
