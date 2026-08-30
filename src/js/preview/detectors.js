@@ -24,7 +24,34 @@ export function isJson(text) {
 
 // ── 编码 / 哈希 / 加密检测 ──────────────────────────────────
 
-/** 可打印文本比例检测（防 Base64/Hex 误判） */
+/**
+ * 字节串按 UTF-8 严格解码；不是合法 UTF-8 就返回 null。
+ *
+ * `atob` 和 hex 解码都产出"每个字符一个字节"的 Latin-1 字符串。直接拿它判可读性
+ * 会把随机字节当成文本：单字节 0xA0-0xFF 在 Latin-1 里全是"正常字符"，
+ * 24 字节随机数据里通常有七八成落在这个范围，比例阈值根本拦不住。
+ * 真正编码过的文本几乎一定是 UTF-8，而随机字节几乎一定不是合法 UTF-8
+ * （高位字节必须成对/成组出现且首字节决定长度），所以这一层比比例阈值可靠得多。
+ */
+function bytesToText(binary) {
+  try {
+    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch { return null; }
+}
+
+/**
+ * 字节串是否解出了人能读的文本：先要求是合法 UTF-8，再看可打印比例。
+ * 返回解码后的文本（成功）或 null（失败），因此调用方直接拿它当展示内容，
+ * 不必再解一遍——顺带修掉了 UTF-8 内容被按 Latin-1 显示成乱码的老问题。
+ */
+export function decodeReadableBytes(binary) {
+  const text = bytesToText(binary);
+  if (text === null) return null;
+  return isReadable(text) ? text : null;
+}
+
+/** 可打印文本比例检测（输入是已解码的 Unicode 文本，不是字节串） */
 export function isReadable(decoded) {
   if (!decoded || decoded.length === 0) return false;
   let printable = 0;
@@ -78,8 +105,13 @@ export function isBase64(text) {
         decoded.startsWith("\xFF\xD8\xFF") || decoded.startsWith("RIFF")) {
       return { type: "base64-image", decoded, original: text };
     }
-    if (isReadable(decoded)) {
-      return { type: "base64", decoded, original: text };
+    // 图片魔数按原始字节判（上面那段），文本走严格 UTF-8：
+    // 纯 hex 的哈希（MD5/SHA-1/SHA-256…）同时也是合法 Base64 字符集，
+    // 按 Latin-1 判可读性会让它在这里被认成 Base64 并显示成乱码，
+    // 于是永远走不到后面的 hash 规则。
+    const readable = decodeReadableBytes(decoded);
+    if (readable !== null) {
+      return { type: "base64", decoded: readable, original: text };
     }
     return false;
   } catch { return false; }
@@ -128,16 +160,17 @@ export function isHexEncoded(text) {
   const clean = text.startsWith("0x") || text.startsWith("0X") ? text.slice(2) : text;
   if (clean.length < 8 || clean.length % 2 !== 0 || clean.length > 2000) return false;
   if (!HEX_RE.test(text)) return false;
-  // 排除哈希（精确长度匹配在 identifyHash 中处理）
-  if ([32, 40, 64, 128].includes(clean.length)) return false;
+  // 不再按长度黑名单排除 32/40/64/128（哈希长度）：那样会把真正 hex 编码过的
+  // 可读文本（正好 16/20/32/64 字节）也一并推给 hash 规则，标成 MD5/SHA-1。
+  // 哈希的字节是随机的，几乎不可能是合法 UTF-8，下面的可读性判断足以分开两者。
   try {
     const chars = [];
     for (let i = 0; i < clean.length; i += 2) {
       chars.push(String.fromCharCode(parseInt(clean.slice(i, i + 2), 16)));
     }
-    const decoded = chars.join("");
-    if (isReadable(decoded)) {
-      return { type: "hex", decoded, original: text };
+    const readable = decodeReadableBytes(chars.join(""));
+    if (readable !== null) {
+      return { type: "hex", decoded: readable, original: text };
     }
     return false;
   } catch { return false; }
@@ -177,7 +210,7 @@ export function detectEncrypted(text) {
   if (clean.length >= 64 && clean.length % 4 === 0 && BASE64_RE.test(clean)) {
     try {
       const decoded = atob(clean);
-      if (!isReadable(decoded) && decoded.length >= 48 && decoded.length % 16 === 0) {
+      if (decodeReadableBytes(decoded) === null && decoded.length >= 48 && decoded.length % 16 === 0) {
         return "AES-Generic";
       }
     } catch { /* not base64 */ }

@@ -61,6 +61,40 @@ describe("isBase64", () => {
     const b64 = btoa(binary);
     expect(T.isBase64(b64)).toBe(false);
   });
+  // 回归：hex 哈希也是合法 Base64 字符集，从前解出来的 Latin-1 乱码被当成"可读"，
+  // MD5 因此被标成 BASE64；现在解码结果必须是合法 UTF-8。
+  it.each([
+    "d41d8cd98f00b204e9800998ecf8427e",
+    "da39a3ee5e6b4b0d3255bfef95601890afd80709",
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  ])("rejects hex digests that happen to be valid Base64: %s", (digest) => {
+    expect(T.isBase64(digest)).toBe(false);
+  });
+  it("decodes multi-byte UTF-8 instead of Latin-1 mojibake", () => {
+    const text = "你好，世界！这是一段中文测试文本";
+    const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(text)));
+    expect(T.isBase64(b64)).toMatchObject({ type: "base64", decoded: text });
+  });
+});
+
+// ─── decodeReadableBytes ────────────────────────────────────
+
+describe("decodeReadableBytes", () => {
+  it("returns the decoded text for valid readable UTF-8", () => {
+    expect(T.decodeReadableBytes("plain ascii bytes")).toBe("plain ascii bytes");
+    expect(T.decodeReadableBytes("\xE4\xBD\xA0\xE5\xA5\xBD")).toBe("你好");
+  });
+  it("returns null for byte sequences that are not valid UTF-8", () => {
+    // 单个 0xD4 是 UTF-8 的引导字节，后面必须跟续字节，0x1D 不是
+    expect(T.decodeReadableBytes("\xD4\x1D\x8C\xD9\xF0\x0B")).toBeNull();
+  });
+  it("returns null for valid UTF-8 that is mostly control characters", () => {
+    expect(T.decodeReadableBytes(String.fromCharCode(...Array.from({ length: 24 }, (_, i) => i))))
+      .toBeNull();
+  });
+  it("returns null for empty input", () => {
+    expect(T.decodeReadableBytes("")).toBeNull();
+  });
 });
 
 // ─── URL Encoding ───────────────────────────────────────────
@@ -151,11 +185,25 @@ describe("isHexEncoded", () => {
   it("rejects odd-length hex", () => {
     expect(T.isHexEncoded("48656c6")).toBe(false);
   });
-  it("excludes hash-length hex (32 chars = MD5)", () => {
+  // 哈希不是按长度排除的（那样会连带排除同长度的 hex 编码文本），
+  // 而是因为随机字节不是合法 UTF-8。
+  it("rejects MD5 digests (random bytes are not valid UTF-8)", () => {
     expect(T.isHexEncoded("d41d8cd98f00b204e9800998ecf8427e")).toBe(false);
   });
-  it("excludes hash-length hex (64 chars = SHA-256)", () => {
+  it("rejects SHA-256 digests (random bytes are not valid UTF-8)", () => {
     expect(T.isHexEncoded("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")).toBe(false);
+  });
+  it("still decodes hash-length hex when it is real text", () => {
+    // "Hello, World!!!!" → 32 个 hex 字符，和 MD5 同长
+    const result = T.isHexEncoded("48656c6c6f2c20576f726c6421212121");
+    expect(result).toBeTruthy();
+    expect(result.decoded).toBe("Hello, World!!!!");
+  });
+  it("decodes multi-byte UTF-8 rather than Latin-1 mojibake", () => {
+    // "你好" 的 UTF-8 是 e4bda0 e5a5bd；按 Latin-1 逐字节读会变成 "ä½ å¥½"
+    const result = T.isHexEncoded("e4bda0e5a5bde4b896e7958c");
+    expect(result).toBeTruthy();
+    expect(result.decoded).toBe("你好世界");
   });
   it("rejects short hex", () => {
     expect(T.isHexEncoded("AABB")).toBe(false);

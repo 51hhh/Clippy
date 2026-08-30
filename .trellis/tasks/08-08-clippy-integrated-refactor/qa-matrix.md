@@ -18,7 +18,7 @@ AppImage 一行仍是 08-13 的证据，未在 08-30 重新构建。
 | Rust lint | `cargo clippy --all-targets -- -D warnings` | 通过 |
 | 本地敏感文件权限 | Rust Unix 回归测试 | `config.json`、`clips.db`、`-wal`、`-shm`、Portal token 均为 `0600`；旧配置/数据库宽松权限可修复 |
 | 前端类型 | `npx tsc --noEmit` | 通过 |
-| 前端测试 | `npx vitest run` | 34 files / 582 passed（新增内容类型判定表 9 条：锁表顺序、kind 唯一、每条规则指向的渲染器存在、只有 JSON/JWT 需要延迟库、判不出来交给异步尾段；新增 codec 多类别结果键值对 6 条与列表行不显示类型 1 条；codec 收藏脏数据自愈 4 条、Shift+Tab 聚焦退化 2 条、下拉 Esc 归属 1 条；含 16 个编辑器工具的几何/绘制指令/交互覆盖、锁定侧栏三组成员的分组测试，以及新增的 codec 面板真实 DOM 测试与覆盖层提交/退化提示交互测试；另有 codec 收藏星星两态切换与中文文案测试，加一条结构守卫：新增操作不挂 `data-i18n` 直接失败） |
+| 前端测试 | `npx vitest run` | 35 files / 602 passed（新增哈希 vs 可逆编码边界：hex 摘要判成 HASH 3 条 + 同长度 hex 文本仍归编码 1 条 + `decodeReadableBytes` 严格 UTF-8 4 条 + Base64/hex 分支各 4 条；新增回归守卫 4 条：tauri before*Command 从任一 cwd 都能进前端目录、`#codec-output` 是 `<div>`、两个列表行渲染器都不写类型标签、预览面板不自己再嗅探类型；新增源码写死的 i18n key 全量存在性扫描 1 条；新增内容类型判定表 9 条：锁表顺序、kind 唯一、每条规则指向的渲染器存在、只有 JSON/JWT 需要延迟库、判不出来交给异步尾段；新增 codec 多类别结果键值对 6 条与列表行不显示类型 1 条；codec 收藏脏数据自愈 4 条、Shift+Tab 聚焦退化 2 条、下拉 Esc 归属 1 条；含 16 个编辑器工具的几何/绘制指令/交互覆盖、锁定侧栏三组成员的分组测试，以及新增的 codec 面板真实 DOM 测试与覆盖层提交/退化提示交互测试；另有 codec 收藏星星两态切换与中文文案测试，加一条结构守卫：新增操作不挂 `data-i18n` 直接失败） |
 | 前端构建 | `npx vite build` | 通过，5 个窗口入口均生成 |
 | X11/DOM smoke | `./scripts/smoke-dom.sh` | 1 file / 10 passed（Xvfb） |
 | 主窗口布局像素 smoke | `./scripts/smoke-layout.sh`（headless Firefox + 像素读取，视口 780×500 = 预览展开时的真实逻辑尺寸） | 通过，pixel=0 208 0；断言翻译区与预览内容共用同一列且不溢出预览面板、`.preview-content` 不被压到 96px 以下、codec 侧栏打开后列表宽度不变。失败时把断言原因画进红色浮层，避免"fixture 没跑"与"断言不成立"混淆 |
