@@ -26,7 +26,7 @@ pub(crate) fn handle_overlay_destroyed(
     label: &str,
 ) {
     if let Some(session) = state.capture_manager.abort_if_overlay(label) {
-        overlay_windows::close(app_handle, &session.overlay_labels);
+        overlay_windows::close(app_handle, &session.overlay_labels());
         overlay_windows::restore(app_handle, &session.restore_labels);
     }
 }
@@ -72,7 +72,7 @@ pub(crate) async fn show_capture_overlay_for_app(
     };
     if let Err(error) = overlay_windows::create(&app_handle, &specs) {
         if let Some(session) = state.capture_manager.abort() {
-            overlay_windows::close(&app_handle, &session.overlay_labels);
+            overlay_windows::close(&app_handle, &session.overlay_labels());
         }
         overlay_windows::restore(&app_handle, &restore_labels);
         return Err(capture_failure(error));
@@ -89,6 +89,27 @@ pub fn get_capture_overlay(
     Ok(state.capture_manager.payload(&label)?)
 }
 
+/// 覆盖层画完首帧后调用，后端这才把窗口显示出来。
+///
+/// 之前是建窗就 `show()`，于是 webview 加载 + 取 payload + 解 PNG 的整段时间里
+/// 用户盯着一整屏白色（webview 默认底色），画面才姗姗出现。现在窗口先隐藏，
+/// 由前端决定显示时机；兜底定时器见 `overlay_windows::READY_FALLBACK_MS`。
+#[tauri::command]
+pub fn mark_capture_overlay_ready(
+    label: String,
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    validate_overlay_label(&label)?;
+    let cursor = app_handle
+        .cursor_position()
+        .ok()
+        .map(|cursor| (cursor.x, cursor.y));
+    let plan = state.capture_manager.reveal(&label, cursor)?;
+    overlay_windows::reveal(&app_handle, &label, plan.take_focus)?;
+    Ok(())
+}
+
 #[tauri::command]
 pub fn cancel_capture_overlay(
     session_id: String,
@@ -96,7 +117,7 @@ pub fn cancel_capture_overlay(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let session = state.capture_manager.finish(&session_id)?;
-    overlay_windows::close(&app_handle, &session.overlay_labels);
+    overlay_windows::close(&app_handle, &session.overlay_labels());
     overlay_windows::restore(&app_handle, &session.restore_labels);
     Ok(())
 }
@@ -118,7 +139,7 @@ pub fn commit_capture_action(
     let result = action_lifecycle::complete_capture_action(
         png,
         || state.capture_manager.finish(&session_id),
-        |session| overlay_windows::close(&app_handle, &session.overlay_labels),
+        |session| overlay_windows::close(&app_handle, &session.overlay_labels()),
         |session| overlay_windows::restore(&app_handle, &session.restore_labels),
         |png| execute_action(action, png, &app_handle, &state),
     );

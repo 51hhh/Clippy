@@ -61,6 +61,19 @@ export function App() {
   const imageRef = useRef<HTMLImageElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const activeDrag = useRef<"selection" | "canvas" | null>(null);
+  const revealed = useRef(false);
+
+  /**
+   * 让后端把覆盖层显示出来。窗口是隐藏建窗的：加载 webview、取 payload、解 PNG 的
+   * 整段时间里显示出来就是一整屏白色，所以显示时机由这里决定——首帧画好之后，
+   * 或者已经有错误可以显示的时候。
+   */
+  const reveal = useCallback(() => {
+    if (revealed.current) return;
+    revealed.current = true;
+    // 显示失败不该拖住截图：后端还有超时兜底会把窗口显示出来。
+    overlayApi.ready(label).catch((reason) => console.warn("覆盖层显示失败", reason));
+  }, [label]);
 
   const logicalWidth = payload?.logicalWidth || 1;
   const logicalHeight = payload?.logicalHeight || 1;
@@ -169,6 +182,8 @@ export function App() {
       adjustments,
       selectedId,
     );
+    // 首帧已经落在画布上，可以显示窗口了。
+    reveal();
   }, [
     adjustments,
     annotations,
@@ -177,9 +192,15 @@ export function App() {
     imageReady,
     logicalHeight,
     logicalWidth,
+    reveal,
     scale,
     selectedId,
   ]);
+
+  // 出错时也要把窗口显示出来，否则用户只看到截图"没反应"，错误提示压根没露面。
+  useEffect(() => {
+    if (error) reveal();
+  }, [error, reveal]);
 
   const cancel = useCallback(() => {
     if (!payload || busy) return;
@@ -326,7 +347,13 @@ export function App() {
     else region.pointerUp(point(event));
   }
 
-  if (!payload) return <main className="overlay-root loading" />;
+  if (!payload) {
+    return (
+      <main className="overlay-root loading">
+        {error && <div className="overlay-error" role="status">{error}</div>}
+      </main>
+    );
+  }
   // 选区外面继续给窗口预览，速选不会因为框过一次就消失；
   // 但标注工具激活时不给高亮，否则画笔在选区外扫一下就闪一个蓝框。
   const preview = tool === "select" ? region.candidate : null;

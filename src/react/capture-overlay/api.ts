@@ -3,6 +3,7 @@ import {
   commitCaptureAction,
   copyText,
   getCaptureOverlay,
+  markCaptureOverlayReady,
   translateCaptureSelection,
 } from "../../js/api.ts";
 import type {
@@ -15,6 +16,8 @@ import type {
 
 export const overlayApi = {
   get: (label: string): Promise<CaptureOverlayPayload> => getCaptureOverlay(label),
+  /** 首帧已画好 / 或已经有错误可以显示——两种情况都该让窗口露出来。 */
+  ready: (label: string): Promise<void> => markCaptureOverlayReady(label),
   cancel: (sessionId: string): Promise<void> => cancelCaptureOverlay(sessionId),
   /** 提交画布渲染好的 PNG：裁剪与标注都已经合成进去，后端只负责落地。 */
   commit: (

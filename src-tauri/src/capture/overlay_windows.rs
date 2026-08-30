@@ -11,6 +11,13 @@ use super::error::CaptureError;
 use super::types::OverlaySpec;
 use tauri::Manager;
 
+/// 前端迟迟不报告"首帧已画好"时的兜底显示时限。
+///
+/// 正常路径是 `mark_capture_overlay_ready` 把窗口显示出来；这个定时器只为覆盖
+/// webview 加载失败或 JS 抛异常的情况——否则会留下一个隐藏但仍然占用会话的覆盖层，
+/// 用户既看不到它，也没法按 Esc 取消。
+const READY_FALLBACK_MS: u64 = 2500;
+
 pub(super) fn create(app: &tauri::AppHandle, specs: &[OverlaySpec]) -> Result<(), CaptureError> {
     for spec in specs {
         let window = tauri::WebviewWindowBuilder::new(
@@ -27,33 +34,54 @@ pub(super) fn create(app: &tauri::AppHandle, specs: &[OverlaySpec]) -> Result<()
         .shadow(false)
         .resizable(false)
         .focused(false)
+        // 窗口与 webview 的底色都设成不透明黑：webview 默认底色是白的，
+        // 铺满整屏时任何一帧没画完的画面都是刺眼的白闪。
+        .background_color(tauri::window::Color(0, 0, 0, 255))
+        // 隐藏建窗，等前端把冻结帧画完再显示（见 `READY_FALLBACK_MS`）。
         .visible(false)
         .build()
         .map_err(|error| CaptureError::OverlayCreate(error.to_string()))?;
         configure_platform_overlay(&window, spec)?;
     }
+    spawn_ready_fallback(app, specs);
+    Ok(())
+}
 
-    let cursor = app.cursor_position().ok();
-    let focused = cursor.and_then(|cursor| {
-        specs.iter().find(|spec| {
-            cursor.x >= spec.x as f64
-                && cursor.x < spec.x as f64 + spec.width as f64
-                && cursor.y >= spec.y as f64
-                && cursor.y < spec.y as f64 + spec.height as f64
-        })
-    });
-    for spec in specs {
-        if let Some(window) = app.get_webview_window(&spec.label) {
-            window.show().map_err(CaptureError::window)?;
-        }
-    }
-    // 覆盖层要吃键盘（Esc 取消、数字键切工具），所以必须有一个拿到焦点。
-    if let Some(spec) = focused.or_else(|| specs.first()) {
-        if let Some(window) = app.get_webview_window(&spec.label) {
-            let _ = window.set_focus();
-        }
+/// 前端报告首帧画好之后把覆盖层显示出来。`take_focus` 由 `CaptureManager::reveal` 决定。
+pub(super) fn reveal(
+    app: &tauri::AppHandle,
+    label: &str,
+    take_focus: bool,
+) -> Result<(), CaptureError> {
+    let Some(window) = app.get_webview_window(label) else {
+        return Err(CaptureError::OverlayNotInSession);
+    };
+    window.show().map_err(CaptureError::window)?;
+    // 覆盖层要吃键盘（Esc 取消、Enter 提交），所以必须有一块拿到焦点。
+    if take_focus {
+        let _ = window.set_focus();
     }
     Ok(())
+}
+
+fn spawn_ready_fallback(app: &tauri::AppHandle, specs: &[OverlaySpec]) {
+    let app = app.clone();
+    let labels: Vec<String> = specs.iter().map(|spec| spec.label.clone()).collect();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(READY_FALLBACK_MS)).await;
+        for label in labels {
+            let Some(window) = app.get_webview_window(&label) else {
+                continue;
+            };
+            // 查询失败时按"还没显示"处理：重复 show 无害，隐藏着的会话才是死局。
+            if window.is_visible().unwrap_or(false) {
+                continue;
+            }
+            log::warn!("覆盖层 {label} 超时未报告首帧，按兜底路径直接显示");
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    });
 }
 
 /// 覆盖层的目标矩形，单位是逻辑像素，与 GDK 显示器几何同一个坐标系。

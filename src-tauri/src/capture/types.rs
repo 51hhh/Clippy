@@ -11,6 +11,17 @@ pub(super) struct OverlaySpec {
     pub height: u32,
 }
 
+impl OverlaySpec {
+    /// 光标是否落在这块覆盖层上。用来决定哪个覆盖层拿键盘焦点，
+    /// 不能用窗口自身的 `outer_position()`：Wayland 下那是我们请求的位置，不是合成器的实际摆放。
+    pub fn contains(&self, x: f64, y: f64) -> bool {
+        x >= self.x as f64
+            && x < self.x as f64 + self.width as f64
+            && y >= self.y as f64
+            && y < self.y as f64 + self.height as f64
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WindowCandidate {
