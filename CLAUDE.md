@@ -43,6 +43,8 @@ cargo install tauri-cli --version "^2"
 ```bash
 # 启动开发服务器（热重载前端 + Rust 后端）
 cargo tauri dev
+# 没装 cargo-tauri 时用 npx（两者都可以，构建前钩子对两种 cwd 都成立）
+npx --yes @tauri-apps/cli@^2 dev
 
 # 构建发布包（输出到 src-tauri/target/release/bundle/）
 cargo tauri build

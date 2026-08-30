@@ -4,9 +4,9 @@
   "version": "0.1.16",
   "identifier": "com.clippy.app",
   "build": {
-    "beforeDevCommand": "cd ../src && npx vite",
+    "beforeDevCommand": "{ cd ../src || cd src; } 2>/dev/null && npx vite",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "cd ../src && npx vite build",
+    "beforeBuildCommand": "{ cd ../src || cd src; } 2>/dev/null && npx vite build",
     "frontendDist": "../dist",
     "removeUnusedCommands": true
   },
