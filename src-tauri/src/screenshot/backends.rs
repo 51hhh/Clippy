@@ -505,13 +505,16 @@ pub(super) fn plan_stage_split(
             ));
         }
 
-        // **不变量 I3**：帧/逻辑比值在两个方向上必须一致。不一致最常见的原因是旋转屏
-        // （我们目前丢掉了 libwayshot 的 transform）。
+        // **不变量 I3**：帧/逻辑比值在两个方向上必须一致。
+        //
+        // **不要再把旋转屏写成嫌疑人。** 舞台图是合成器合出来的桌面，旋转已经烤进去了，
+        // 正常竖屏的逻辑矩形和裁剪都是竖的，比值一致（见 `geometry_check::verify_frame_isotropy`）。
+        // 这里响意味着裁剪的朝向和几何声称的朝向对不上——几何是热插拔/改分辨率之前的陈数据。
         let anisotropy = verify_frame_isotropy(adjusted.rect.width, adjusted.rect.height, crop);
         if anisotropy > 0.0 {
             warnings.push(format!(
                 "I3 显示器 {} 的帧缩放两个方向不一致（差 {anisotropy:.4}）：逻辑 {}x{}，\
-                 帧 {}x{}；旋转屏？",
+                 帧 {}x{}；裁剪朝向和几何对不上，几何是改分辨率/热插拔之前的陈数据？",
                 adjusted.id, adjusted.rect.width, adjusted.rect.height, crop.width, crop.height,
             ));
         }

@@ -494,6 +494,12 @@ src-tauri/src/screenshot/layout_fixtures.rs       ← 唯一那条参数化测�
   I5 恒为"未检查"：那条路上根本没有窗口。
 - **几何来源逐个列，不合并。** `wl_output` 和 `xcap`（XRandR/XWayland）对同一套屏幕
   的说法不一致本身就是结论（§4 的 `Physical` 那一类）。合并成一份就把它藏掉了。
+- **第三个来源是 Tauri/GTK 自己那套显示器模型，它和前两个不是同级的。** 覆盖层与贴图
+  窗口是把逻辑矩形交给 Tauri 去摆的，**最终落在哪、多大，取决于这一套**，不是我们枚举
+  出来的那套。两套对不上时症状正好是用户报的"覆盖层偏了一块"，而 I1–I3 会全过——
+  它们只在我们自己的数据内部对账。I4 能抓到后果（视口对不上）却指不出成因，
+  所以三套并排列出来，走偏的是哪一套肉眼可见。三个来源共用同一个排版与求并集的函数
+  （`describe_reported_monitors`），否则差异可能来自算法而不是数据，这份对比就白做了。
 - **顺手预测舞台图尺寸。** 并集那一行写的是 `逻辑并集 × max(scale) = 预期舞台图`，
   而下一段是实测的舞台图尺寸——两个数字并排放着，I1 是不是过了肉眼就能看出来。
 - **不含像素。** `probe_stage_image_size` 用 `image::image_dimensions` 只读 PNG 头，
@@ -510,6 +516,30 @@ src-tauri/src/screenshot/layout_fixtures.rs       ← 唯一那条参数化测�
 `Expect::from_plan`。于是"诊断吐出来的东西一定能被那条测试接受"是结构上成立的，
 不靠人去核对——`the_diagnostic_emits_exactly_what_the_fixture_test_asserts` 把这点钉住了。
 用户侧的操作步骤见 [CONTRIBUTING.md](../CONTRIBUTING.md)。
+
+### 4.3 热插拔与已知边界
+
+**没有监听显示器变化的代码，这是刻意的。** 整条链路上不存在缓存的显示器几何：
+每次按快捷键都重新枚举（`capture_all_monitors` → `enumerate_wayland_monitors` /
+`enumerate_xcap_monitors`），覆盖层窗口按当次结果新建、用完销毁；窗口候选每次会话重新问
+（扩展的 `GetWindows` 是实时查询，扩展自己也不存显示器列表）；贴图与主面板每次摆位都现问
+Tauri（`available_monitors` / `monitor_from_point`）。所以"插上外接屏之后要不要刷新"
+这个问题在这个架构里不存在——下一次截图拿到的必然是新几何。唯一常驻的缓存是扩展的
+**摆窗令牌探测结果**（`shell_extension::placement_token`），它和显示器无关。
+
+代价是每次截图多付一次枚举（实测在冻结帧那 550 ms 里占不到 5 ms），换掉的是一整类
+"配置变了但缓存没变"的 bug——那类 bug 的症状和几何算错完全一样，却查不到算式上。
+
+仍然存在的边界，写在这里免得当成 bug 反复查：
+
+- **会话进行中拔插屏不跟随。** 覆盖层已经按旧几何建好了，中途插拔不会重建。
+  会话只有几秒，且 Esc 一按就重来，所以不做；真撞上时 I4 会把它记成视口不一致。
+- **X11 那条窗口枚举只有一个全局像素比。** `x11_pixel_ratio` 是"X screen 根窗口宽 ÷
+  逻辑并集宽"，各屏缩放不同时压根不存在这样一个数，缩放不等于该比例的屏上速选框会偏。
+  这不是能修的算式错误——XWayland 不提供逐屏缩放，信息不够。所以只做识别：
+  `frame_scales_are_uniform` 认出混合缩放并打一条 warn，指向真正的解法
+  （GNOME Wayland 装扩展直接绕开这条路）。
+- **裁剪来自扁平的冻结帧**，速选被部分遮住的窗口会带上遮挡者的像素（见 §5）。
 
 ## 5. 快速选区（hover → click）的交互约定
 

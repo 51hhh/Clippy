@@ -98,6 +98,16 @@ fn candidates_from_x11(frames: &[CapturedMonitorFrame]) -> HashMap<u32, Vec<Wind
 
     let mut x11 = X11Probe::open();
     let ratio = x11_pixel_ratio(frames, &x11);
+    // **这条路的已知天花板，日志里要说清楚。** X screen 只有一个全局比例，各屏缩放不同时
+    // 压根不存在这样一个数：按它折算，缩放不等于该比例的那些屏上速选框必然偏。没法在这里
+    // 修——XWayland 不提供逐屏的缩放，能彻底避开这条路的办法是装扩展（GNOME Wayland）
+    // 或者关掉分数缩放。不吭声的话，症状表现为"某块屏上的速选框莫名偏移"。
+    if !frame_scales_are_uniform(frames) {
+        log::warn!(
+            "窗口速选走 X11 枚举，但各屏缩放不一致：只能按全局比例 {ratio:.4} 折算，\
+             缩放不同的屏上速选框会偏；GNOME Wayland 上装窗口速选扩展可以绕开这条路"
+        );
+    }
     let own_pid = std::process::id();
     let mut collected: Vec<(Option<u32>, ProbeRect, String)> = Vec::new();
 
@@ -160,6 +170,19 @@ pub(super) fn order_x11_candidates(
         }
         _ => candidates.sort_by_key(|(_, rect, _)| (rect.width as u64) * (rect.height as u64)),
     }
+}
+
+/// 各屏缩放是不是同一个数。
+///
+/// X11 那条路只有一个全局的"X screen 像素 ÷ 逻辑像素"比例（见 [`x11_pixel_ratio`]），
+/// 这个前提只在各屏同缩放时成立。混合缩放时它必然对一部分屏不成立——这不是能修的
+/// 计算错误，而是这条路能拿到的信息不够，所以只能识别出来并说出来。
+pub(super) fn frame_scales_are_uniform(frames: &[CapturedMonitorFrame]) -> bool {
+    let mut scales = frames.iter().map(|frame| frame.scale_x);
+    let Some(first) = scales.next() else {
+        return true;
+    };
+    scales.all(|scale| (scale - first).abs() <= 1e-3)
 }
 
 /// 逻辑桌面并集的宽度。X screen 横跨整个桌面，所以要和它比的分母也必须是**并集**，
@@ -499,6 +522,23 @@ mod tests {
         assert_eq!(logical_union_width(&[negative, left]), 4480);
         assert_eq!(logical_union_width(&[right]), 1920);
         assert_eq!(logical_union_width(&[]), 0);
+    }
+
+    /// 混合缩放要能被认出来：X11 那条路只有一个全局比例，这时候它对一部分屏必然不成立。
+    /// 认不出来的后果不是崩，而是"某块屏上的速选框莫名偏移"——最难查的那一类。
+    #[test]
+    fn mixed_scaling_is_recognised_as_out_of_reach_for_a_single_ratio() {
+        let laptop = frame(1);
+        let external = CapturedMonitorFrame {
+            scale_x: 1.5,
+            scale_y: 1.5,
+            ..frame(2)
+        };
+        assert!(!frame_scales_are_uniform(&[laptop.clone(), external]));
+        assert!(frame_scales_are_uniform(&[laptop.clone(), frame(2)]));
+        // 单屏和空列表都不该报：那时全局比例就是那块屏的比例。
+        assert!(frame_scales_are_uniform(&[laptop]));
+        assert!(frame_scales_are_uniform(&[]));
     }
 
     #[test]

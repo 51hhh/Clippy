@@ -85,6 +85,39 @@ fn describe_monitors(monitors: &[MonitorInfo]) -> Vec<String> {
     lines
 }
 
+/// 报告里的一块屏，**逻辑几何**。
+///
+/// 给 `screenshot` 之外的来源用：`MonitorInfo` / `Rect` 是这个模块的私有类型，不出去，
+/// 但"第三方来源"必须能用**同一套算式**排版和求并集——两个来源的并集若各算一遍，
+/// 差异就可能来自算法而不是数据，那这份对比就白做了。
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ReportedMonitor {
+    pub id: u32,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub scale: f32,
+}
+
+/// 把外部来源的逻辑几何排成和内建来源一模一样的几行（含并集与预期舞台图）。
+pub(crate) fn describe_reported_monitors(monitors: &[ReportedMonitor]) -> Vec<String> {
+    let monitors: Vec<MonitorInfo> = monitors
+        .iter()
+        .map(|monitor| MonitorInfo {
+            id: monitor.id,
+            rect: crate::screenshot::Rect {
+                x: monitor.x,
+                y: monitor.y,
+                width: monitor.width,
+                height: monitor.height,
+            },
+            scale_factor: monitor.scale,
+        })
+        .collect();
+    describe_monitors(&monitors)
+}
+
 #[cfg(target_os = "linux")]
 fn monitor_sources() -> Vec<MonitorSourceReport> {
     vec![
@@ -226,6 +259,38 @@ mod tests {
         assert!(
             union_line.contains("预期舞台图 6720x2412"),
             "预测的舞台图不对：{union_line}"
+        );
+    }
+
+    /// 外部来源（Tauri/GTK）必须走**同一套算式**排版求并集。各算一遍的话，两个来源的
+    /// 差异就可能来自算法而不是数据，而这份并排对比的全部价值就是"数据谁不一样"。
+    #[test]
+    fn an_external_source_is_formatted_by_the_very_same_arithmetic() {
+        let external = [
+            ReportedMonitor {
+                id: 1,
+                x: 0,
+                y: 0,
+                width: 2560,
+                height: 1440,
+                scale: 1.5,
+            },
+            ReportedMonitor {
+                id: 2,
+                x: 2560,
+                y: 408,
+                width: 1920,
+                height: 1200,
+                scale: 4.0 / 3.0,
+            },
+        ];
+        let builtin = [
+            monitor(1, 0, 0, 2560, 1440, 1.5),
+            monitor(2, 2560, 408, 1920, 1200, 4.0 / 3.0),
+        ];
+        assert_eq!(
+            describe_reported_monitors(&external),
+            describe_monitors(&builtin)
         );
     }
 
