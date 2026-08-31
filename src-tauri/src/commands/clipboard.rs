@@ -53,7 +53,8 @@ pub async fn select_clip(
         let storage = state.storage.lock().map_err(|e| e.to_string())?;
         storage.touch_clip(id).map_err(|e| e.to_string())?
     };
-    let _ = app_handle.emit("clip-added", &updated_clip);
+    // 事件里不带图片数据，前端按需取（见 `ClipItem::without_image_data`）。
+    let _ = app_handle.emit("clip-added", &updated_clip.without_image_data());
 
     if let Some(window) = app_handle.get_webview_window("main") {
         window.hide().map_err(|e| e.to_string())?;
@@ -125,13 +126,9 @@ pub(crate) fn write_clip_to_clipboard(id: i64, state: &AppState) -> Result<(), S
             }
         }
         ContentType::Image => {
-            let image_bytes = {
-                let storage = state.storage.lock().map_err(|e| e.to_string())?;
-                storage
-                    .get_clip_image(id)
-                    .map_err(|e| e.to_string())?
-                    .ok_or_else(|| "图片数据为空".to_string())?
-            };
+            // 上面那次 `get_clip_by_id` 已经把这张图整份读出来了，别再查一遍库：
+            // 全屏截图是几 MB，读两遍就是两次几 MB 的拷贝，还多锁一次 storage。
+            let image_bytes = clip.image_data.ok_or_else(|| "图片数据为空".to_string())?;
             // 图片这一路**没有** skip hash：watcher 哈希的是它自己从剪贴板 RGBA 重新编出来
             // 的 PNG，和库里这串字节几乎不可能一致，设了也永远匹配不上（白算一次全图
             // sha256）。文本那几路能生效是因为两边哈希的是同一串字节。后果只是这条图片会被
@@ -270,9 +267,8 @@ impl ThumbnailCache {
 #[tauri::command]
 pub fn get_clip_detail(id: i64, state: State<AppState>) -> Result<ClipItem, String> {
     let storage = state.storage.lock().map_err(|e| e.to_string())?;
-    let mut clip = storage.get_clip_by_id(id).map_err(|e| e.to_string())?;
-    clip.image_data = None;
-    Ok(clip)
+    let clip = storage.get_clip_by_id(id).map_err(|e| e.to_string())?;
+    Ok(clip.without_image_data())
 }
 
 /// 获取剪贴板统计信息。

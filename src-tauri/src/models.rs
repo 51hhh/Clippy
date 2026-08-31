@@ -50,6 +50,22 @@ pub struct ClipItem {
     pub byte_size: i64,
 }
 
+impl ClipItem {
+    /// 去掉图片二进制，用于所有**发给前端**的条目。
+    ///
+    /// 这不是省几个字节的事。IPC 与事件都走 JSON，`Vec<u8>` 会序列化成一串十进制数字，
+    /// 一张 3 MB 的截图能膨胀到十几 MB 文本，再由 webview 那一个线程解析。而前端从来
+    /// 不读这个字段：列表行走 `get_clip_thumbnail`（128 px、带缓存），预览与贴图走
+    /// `get_clip_image`（按需取原图）。
+    ///
+    /// 每个发送点各写一遍 `clip.image_data = None` 就总会漏掉一个（`select_clip` 就漏了），
+    /// 所以收成一个方法，测试盯着它。
+    pub fn without_image_data(mut self) -> Self {
+        self.image_data = None;
+        self
+    }
+}
+
 /// v2 起翻译配置从单服务字段改为 `translation_services` 列表。
 const CURRENT_CONFIG_VERSION: u32 = 2;
 
@@ -324,4 +340,40 @@ pub struct UrlMeta {
     pub description: Option<String>,
     pub favicon: Option<String>,
     pub site_name: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 发给前端的条目必须不带图片二进制：JSON 序列化会把 `Vec<u8>` 摊成一串十进制数字，
+    /// 几 MB 的截图能膨胀到十几 MB 文本，而前端根本不读这个字段。其余字段一个都不能动——
+    /// 列表要靠 `created_at` 排序、靠 `is_favorite` 显示星标。
+    #[test]
+    fn the_payload_sent_to_the_frontend_drops_the_image_but_keeps_everything_else() {
+        let clip = ClipItem {
+            id: 7,
+            content_type: ContentType::Image,
+            text_content: None,
+            html_content: None,
+            image_data: Some(vec![0x89, b'P', b'N', b'G']),
+            content_hash: "abc".to_string(),
+            is_favorite: true,
+            is_sensitive: false,
+            created_at: 1_700_000_000,
+            byte_size: 4,
+        };
+
+        let sent = clip.clone().without_image_data();
+
+        assert!(sent.image_data.is_none(), "图片二进制不能进 IPC");
+        assert_eq!(sent.id, clip.id);
+        assert_eq!(sent.content_hash, clip.content_hash);
+        assert!(sent.is_favorite);
+        assert_eq!(sent.created_at, clip.created_at);
+        assert_eq!(
+            sent.byte_size, clip.byte_size,
+            "字节数要留着，前端要显示大小"
+        );
+    }
 }
