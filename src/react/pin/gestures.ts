@@ -41,6 +41,19 @@ export function pinWheelIntent(event: PinWheelEvent): PinWheelIntent {
 }
 
 /**
+ * 一次 `pointermove` 还算不算"正在拖窗口"。
+ *
+ * 只看主键还按着没有，**不再依赖 pointerup / pointercancel 把起点清干净**。
+ * Wayland 上 `startDragging` 之后指针被合成器抓走，这一次的 `pointerup` 根本不会送到
+ * WebKit，迟到的 `pointercancel` 往往落在**下一次** `pointerdown` 之后，把刚记下的
+ * 起点又抹掉——症状就是"第一下能拖、第二下拖不动、第三下又能拖"。
+ * 按键状态每个事件自带，不需要跨事件记账，也就没有被迟到事件污染的可能。
+ */
+export function pointerStillHeld(event: { buttons: number }): boolean {
+  return (event.buttons & 1) !== 0;
+}
+
+/**
  * 这个元素里的文字允许用鼠标划选吗？
  *
  * 文本贴图存在的意义就是让人把内容选走，所以 `<pre>` 与输入框要放行。其余地方一律

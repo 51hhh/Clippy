@@ -31,6 +31,12 @@ pub(super) struct PinEntry {
     /// 这张图原本在屏幕上的位置与大小（逻辑像素）。截图选区带着它过来，
     /// 于是贴图能贴回原处、原尺寸；从别处来的图片没有它，落回光标/居中。
     pub origin: Option<PinOrigin>,
+    /// 内容所在那块屏上，一个逻辑像素等于几个设备像素（真实缩放，不是 GTK 报的
+    /// 整数缓冲区缩放）。内容尺寸就是按它把图片像素折算成 CSS 像素的。
+    ///
+    /// 建窗时定下来就不再变：payload 是前端起来之后才取的，那时候光标可能已经挪到
+    /// 另一块缩放不同的屏上，现场再查会得出和内容尺寸不配套的比例。
+    pub device_scale: f64,
 }
 
 /// 图片在屏幕上的来源矩形，逻辑像素、桌面全局坐标（与截图覆盖层同一坐标系）。
@@ -73,6 +79,9 @@ pub struct PinPayload {
     pub locked: bool,
     pub can_save: bool,
     pub position: Option<PinPosition>,
+    /// 见 `PinEntry::device_scale`。前端拿它判断"屏上一个图片像素是不是正好一个设备
+    /// 像素"，只有相等时才让 WebKit 用最近邻搬图（`src/react/pin/rendering.ts`）。
+    pub device_scale: f64,
 }
 
 /// `update_pin` 的应答：只有这次真的可能变的那几个字段。

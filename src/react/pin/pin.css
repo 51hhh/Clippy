@@ -47,6 +47,14 @@ input {
   cursor: default;
 }
 
+/* 四个 inset 与 `pin/window.rs` 的三个 gutter 是一份契约：
+   12 = SHADOW_GUTTER，56 = 12 + CONTROLS_GUTTER(44)，60 = 12 + TOOLBAR_GUTTER(48)。
+   于是内容区尺寸恰好等于窗口外框减去边距，也就是 `内容尺寸 × scale`。
+
+   图片贴图另外由 `App.tsx` 加一对 `max-width` / `max-height`（= 内容尺寸 × scale）：
+   矮贴图的窗口有高度下限（工具条要放得下），多出来的高度必须留在右下当透明留白，
+   不能把图片挤到框中间去。left/top 是锚点，over-constrained 时浏览器忽略的是
+   right/bottom，正好是想要的效果。 */
 .pin-media {
   position: absolute;
   inset: 12px 56px 60px 12px;
@@ -152,12 +160,15 @@ input {
   background: rgba(255, 255, 255, 0.12);
 }
 
+/* 宽度跟着窗口收：小贴图的窗口可能只有一百多像素宽（内容 60 px 时外框才 128 px），
+   写死 150 px 会把滑块推出窗口右边，用户拖不到。`min()` 让它在窄窗口里自己变窄，
+   宽窗口里仍是 150 px。 */
 .pin-opacity-popover {
   position: absolute;
   top: 120px;
   right: 42px;
   display: flex;
-  width: 150px;
+  width: min(150px, calc(100vw - 54px));
   align-items: center;
   gap: 8px;
   padding: 8px 10px;

@@ -2,7 +2,8 @@ use super::model::{
     validate_label, PinEntry, PinOrigin, PinPayload, PinSource, PinState, PinUpdate,
 };
 use super::window::{
-    create_pin_window, fit_content_size, origin_content_size, resize_pin_window, reveal_pin_window,
+    content_device_scale, create_pin_window, fit_content_size, origin_content_size,
+    resize_pin_window, reveal_pin_window,
 };
 use crate::commands::AppState;
 use crate::models::ContentType;
@@ -71,6 +72,7 @@ pub fn pin_clip(
         locked: false,
         position: None,
         origin,
+        device_scale: content_device_scale(&app_handle, origin),
     })?;
     if let Err(error) =
         create_pin_window(&app_handle, &label, content_width, content_height, origin)
@@ -111,6 +113,7 @@ pub(crate) fn create_screenshot_pin(
         locked: false,
         position: None,
         origin,
+        device_scale: content_device_scale(app_handle, origin),
     })?;
     if let Err(error) = create_pin_window(app_handle, &label, content_width, content_height, origin)
     {
@@ -262,6 +265,7 @@ fn payload_from_entry(entry: PinEntry) -> Result<PinPayload, String> {
         locked: entry.locked,
         can_save,
         position: entry.position,
+        device_scale: entry.device_scale,
     })
 }
 

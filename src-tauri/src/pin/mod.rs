@@ -35,6 +35,7 @@ mod tests {
             locked: false,
             position: None,
             origin: None,
+            device_scale: 1.0,
         }
     }
 
@@ -89,7 +90,20 @@ mod tests {
     #[test]
     fn outer_size_reserves_controls_and_shadow() {
         assert_eq!(outer_size(400.0, 300.0, 1.0), (468.0, 372.0));
-        assert_eq!(outer_size(400.0, 300.0, 0.5), (268.0, 222.0));
+        assert_eq!(outer_size(400.0, 300.0, 0.5), (268.0, 252.0));
+    }
+
+    /// 窗口再矮也要放得下竖排工具条，否则"关闭"按钮在窗口外面，小图贴出来只能按 Esc 关。
+    /// 高度下限**只加高窗口，不改内容尺寸**——内容尺寸是"贴回原处"的依据，
+    /// 多出来的高度由前端留成左上角对齐的透明留白（`pin.css` 的 `.pin-media` 显式定尺寸）。
+    #[test]
+    fn a_short_pin_still_gets_a_window_tall_enough_for_the_toolbar() {
+        // 60x30 的小选区：按内容算只有 102 px 高，工具条要 249 px。
+        let (width, height) = outer_size(60.0, 30.0, 1.0);
+        assert_eq!(width, 128.0);
+        assert_eq!(height, 252.0);
+        // 内容本身够高时不受下限影响。
+        assert_eq!(outer_size(60.0, 300.0, 1.0), (128.0, 372.0));
     }
 
     #[test]

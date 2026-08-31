@@ -11,6 +11,18 @@ const TOOLBAR_GUTTER: f64 = 48.0;
 const MIN_IMAGE_WIDTH: f64 = 180.0;
 const MIN_IMAGE_HEIGHT: f64 = 120.0;
 
+/// 竖排工具条要的最小窗口高度。
+///
+/// 工具条钉在窗口右上角、按钮 28 px 竖着排：放大 / 比例 / 缩小 / 分隔线 / 锁定 /
+/// 不透明度 / 保存 / 复制 / 关闭，连内边距和 8 px 上边距约 249 px。而窗口高度是
+/// `内容高 × scale + 72`，于是内容不到 180 px 高的贴图（随手框一个小按钮就是这样）
+/// 会把工具条切掉一截——按钮点不到，贴图只能靠 Esc 关。
+///
+/// 因此给窗口一个高度下限。**多出来的高度不许改变内容的位置**：`.pin-media` 为此
+/// 按内容尺寸显式定宽高、贴在左上角，而不是用 inset 撑满窗口（撑满会让图片在变高的
+/// 框里居中，"贴回原处"当场对不上）。多出来的那块是透明的，看不见。
+const MIN_OUTER_HEIGHT: f64 = 252.0;
+
 pub(super) fn create_pin_window(
     app: &tauri::AppHandle,
     label: &str,
@@ -325,32 +337,57 @@ pub(super) fn resize_pin_window(app: &tauri::AppHandle, entry: &PinEntry) -> Res
             .min(work.size.height.saturating_sub(16).max(1)),
     );
     let old_size = window.outer_size().unwrap_or(size);
-    let old_position = entry
-        .position
-        .map(|position| PhysicalPosition::new(position.x, position.y))
-        .or_else(|| window.outer_position().ok())
-        .unwrap_or(work.position);
-    let centered = PhysicalPosition::new(
-        old_position.x + (old_size.width as i32 - size.width as i32) / 2,
-        old_position.y + (old_size.height as i32 - size.height as i32) / 2,
-    );
-    let position = clamp_pin_position(centered, size, work);
+    // 缩放本来想让窗口"从中心长大"，那需要知道它现在在哪。Wayland 上不知道，见
+    // `known_pin_position`；以前那句 `.unwrap_or(work.position)` 把"不知道"当成了
+    // "在工作区原点"，于是每一格滚轮都被算成一次"移到左上角"——这就是缩放时贴图
+    // 跳走的原因。不知道就别动它：Wayland 上改尺寸时表面左上角本来是钉住的，
+    // 贴图往右下长大，比每格都传送到屏幕角上好得多。
+    let position = known_pin_position(&window, entry).map(|old_position| {
+        let centered = PhysicalPosition::new(
+            old_position.x + (old_size.width as i32 - size.width as i32) / 2,
+            old_position.y + (old_size.height as i32 - size.height as i32) / 2,
+        );
+        clamp_pin_position(centered, size, work)
+    });
     window
         .set_size(Size::Physical(size))
         .map_err(PinError::window)?;
-    window
-        .set_position(Position::Physical(position))
-        .map_err(PinError::window)?;
-    // 缩放后位置也变了，Wayland 上 set_position 是空操作，得再走一次扩展；
-    // 顺带重新置顶——改尺寸有可能把窗口带回普通层。
+    if let Some(position) = position {
+        window
+            .set_position(Position::Physical(position))
+            .map_err(PinError::window)?;
+    }
+    // 改尺寸有可能把窗口带回普通层，所以每次都要重新置顶。位置未知时只置顶、不摆位
+    // （`keep_pin_above` 的 `None`）。
     keep_pin_above(
         &window,
-        Some(LogicalPosition::new(
-            position.x as f64 / scale_factor,
-            position.y as f64 / scale_factor,
-        )),
+        position.map(|position| {
+            LogicalPosition::new(
+                position.x as f64 / scale_factor,
+                position.y as f64 / scale_factor,
+            )
+        }),
     );
     Ok(())
+}
+
+/// 缩放时能不能相信"窗口现在在哪"这个数。
+///
+/// X11 与其它平台上 `WindowEvent::Moved` 和 `outer_position()` 都是真的。
+/// GNOME Wayland 上两个都不是：协议根本不把窗口位置告诉客户端，GTK 只能回它自己
+/// 最后一次 `move` 的值（也就是 0,0）。拿这种假位置去算"保持中心"就是把窗口传送走，
+/// 所以 Wayland 上一律返回 `None`——含义是"别动位置"，而不是"位置是原点"。
+fn known_pin_position(
+    window: &tauri::WebviewWindow,
+    entry: &PinEntry,
+) -> Option<PhysicalPosition<i32>> {
+    if crate::gsettings_shortcuts::is_wayland() {
+        return None;
+    }
+    entry
+        .position
+        .map(|position| PhysicalPosition::new(position.x, position.y))
+        .or_else(|| window.outer_position().ok())
 }
 
 fn position_new_pin_window(
@@ -456,12 +493,7 @@ pub(super) fn origin_content_size(app: &tauri::AppHandle, origin: PinOrigin) -> 
 /// `crate::screenshot::desktop_scale_at`。拿不到就退回 GDK 那个数——X11 与其它平台上
 /// 它就是真的，Wayland 上退化成"像素当 CSS 像素"，也就是修这个 bug 之前的行为。
 pub(super) fn fit_content_size(app: &tauri::AppHandle, width: f64, height: f64) -> (f64, f64) {
-    let monitor = app
-        .cursor_position()
-        .ok()
-        .and_then(|cursor| app.monitor_from_point(cursor.x, cursor.y).ok().flatten())
-        .or_else(|| app.primary_monitor().ok().flatten());
-    let (max_width, max_height, device_scale) = monitor
+    let (max_width, max_height, device_scale) = cursor_monitor(app)
         .map(|monitor| {
             let work = monitor.work_area();
             let scale = monitor.scale_factor().max(0.1);
@@ -496,6 +528,35 @@ pub(super) fn fit_image_content_size(
     )
 }
 
+/// 没有原始矩形时按光标那块屏定尺寸。单独拿出来是为了让 `content_device_scale`
+/// 问的是**同一块屏**：内容尺寸与它用的缩放必须配套，否则前端按 payload 里那两个数
+/// 复原出来的显示尺寸就是错的。
+fn cursor_monitor(app: &tauri::AppHandle) -> Option<tauri::Monitor> {
+    app.cursor_position()
+        .ok()
+        .and_then(|cursor| app.monitor_from_point(cursor.x, cursor.y).ok().flatten())
+        .or_else(|| app.primary_monitor().ok().flatten())
+}
+
+/// 贴图内容所在那块屏的真实缩放，跟着 payload 交给前端。
+///
+/// 前端要判断"屏上一个图片像素是不是正好一个设备像素"——只有相等时才该让 WebKit
+/// 用最近邻把图搬进缓冲区（理由与实测见 `src/react/pin/rendering.ts`）。选屏规则必须
+/// 和算内容尺寸时一致：有原始矩形就问那块屏，没有就问光标那块。
+pub(super) fn content_device_scale(app: &tauri::AppHandle, origin: Option<PinOrigin>) -> f64 {
+    match origin {
+        // 矩形左上角可能正好压在屏幕边界上，+1 保证落在这块屏里面。
+        Some(origin) => {
+            let inside = LogicalPosition::new(origin.x + 1.0, origin.y + 1.0);
+            crate::screenshot::desktop_scale_at(inside.x, inside.y)
+                .unwrap_or_else(|| logical_scale_near(app, inside))
+        }
+        None => cursor_monitor(app)
+            .map(|monitor| monitor_device_scale(&monitor, monitor.scale_factor().max(0.1)))
+            .unwrap_or(1.0),
+    }
+}
+
 /// 这块屏上一个逻辑像素等于几个设备像素。取屏幕自己的原点去问，不用光标位置——
 /// 光标可能正好停在屏幕边界上，原点加一像素一定落在这块屏里面。
 fn monitor_device_scale(monitor: &tauri::Monitor, gdk_scale: f64) -> f64 {
@@ -524,7 +585,7 @@ pub(super) fn fit_dimensions(
 pub(super) fn outer_size(content_width: f64, content_height: f64, scale: f64) -> (f64, f64) {
     (
         content_width * scale + SHADOW_GUTTER * 2.0 + CONTROLS_GUTTER,
-        content_height * scale + SHADOW_GUTTER * 2.0 + TOOLBAR_GUTTER,
+        (content_height * scale + SHADOW_GUTTER * 2.0 + TOOLBAR_GUTTER).max(MIN_OUTER_HEIGHT),
     )
 }
 
