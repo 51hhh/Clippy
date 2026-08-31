@@ -96,8 +96,8 @@ fn candidates_from_x11(frames: &[CapturedMonitorFrame]) -> HashMap<u32, Vec<Wind
         return result;
     }
 
-    let ratio = x11_pixel_ratio(frames);
     let mut x11 = X11Probe::open();
+    let ratio = x11_pixel_ratio(frames, &x11);
     let own_pid = std::process::id();
     let mut collected: Vec<(Option<u32>, ProbeRect, String)> = Vec::new();
 
@@ -162,30 +162,42 @@ pub(super) fn order_x11_candidates(
     }
 }
 
+/// 逻辑桌面并集的宽度。X screen 横跨整个桌面，所以要和它比的分母也必须是**并集**，
+/// 不是某一块屏——侧排双屏下 `max(logical_width)` 只有半个桌面宽，比例会算成两倍。
+pub(super) fn logical_union_width(frames: &[CapturedMonitorFrame]) -> u32 {
+    let min_x = frames.iter().map(|frame| frame.x).min();
+    let max_x = frames
+        .iter()
+        .map(|frame| frame.x.saturating_add_unsigned(frame.logical_width))
+        .max();
+    match (min_x, max_x) {
+        (Some(min_x), Some(max_x)) if max_x > min_x => (max_x - min_x) as u32,
+        _ => 0,
+    }
+}
+
 /// X screen 像素与逻辑像素的比例。
 ///
-/// xcap 的 `Monitor::width()` 已经是 `RandR 像素 / scale_factor`，所以乘回 `scale_factor`
-/// 就还原成 RandR 像素——也就是 X11 窗口几何所在的空间。分母用冻结帧的逻辑宽度
-/// （已由 `screenshot::backends` 修正过）。取最宽的显示器比较，多显示器混合缩放下只能近似，
-/// 但那种组合在 XWayland 里本身就没有可靠的公开接口。
-fn x11_pixel_ratio(frames: &[CapturedMonitorFrame]) -> f32 {
-    let logical_width = frames
-        .iter()
-        .map(|frame| frame.logical_width)
-        .max()
-        .unwrap_or(0);
-    let randr_width = xcap::Monitor::all()
-        .ok()
-        .into_iter()
-        .flatten()
-        .filter_map(|monitor| {
-            let width = monitor.width().ok()? as f32;
-            let scale = monitor.scale_factor().ok()?;
-            (scale.is_finite() && scale > 0.0).then(|| (width * scale).round() as u32)
-        })
-        .max()
-        .unwrap_or(0);
-    ratio_from_widths(randr_width, logical_width)
+/// 分子只从 X server 自己那里取（root window 的 `width_in_pixels`）：它和窗口几何出自
+/// 同一台 server、同一个坐标空间，不需要任何换算。分母是逻辑桌面**并集**的宽度。
+///
+/// **为什么不再用 `xcap 宽度 × scale_factor` 猜。** 那个式子把逐屏的 `scale_factor` 乘进
+/// 逐屏的宽度再取最大值，等于拿两个空间的数字相乘——和 §4 那个真实 bug 是同一个类别
+/// （见 docs/capture-linux.md）。混合缩放下它必然偏，而且偏多少取决于哪块屏最宽。
+///
+/// **为什么不能靠"拿自己的窗口两边对一下"来标定**（这是 I5 那条自检干的事，见
+/// `capture/diagnostics.rs`）：走到这条路上的场景恰恰是 GNOME Wayland 且没装扩展，
+/// 而 Clippy 自己的窗口是原生 Wayland 窗口，压根不在 X11 枚举里。唯一能跨两个空间
+/// 对齐的参照物在这里不存在，所以只能从 X server 直接问那个数。
+fn x11_pixel_ratio(frames: &[CapturedMonitorFrame], x11: &X11Probe) -> f32 {
+    let logical_width = logical_union_width(frames);
+    if let Some(screen_width) = x11.screen_width() {
+        return ratio_from_widths(screen_width, logical_width);
+    }
+    // 连不上 X 就没有 X11 窗口可枚举，这条兜底基本走不到；留着是为了不把 1.0 当成
+    // "已经量过了"。
+    log::debug!("拿不到 X screen 尺寸，窗口几何按 1:1 处理");
+    1.0
 }
 
 pub(super) fn ratio_from_widths(randr_width: u32, logical_width: u32) -> f32 {
@@ -281,6 +293,8 @@ mod x11_probe {
     struct Inner {
         connection: RustConnection,
         root: u32,
+        /// X screen 的宽度，单位是**原始 X 像素**——和窗口几何同一个空间。
+        screen_width: u32,
         gtk_extents: u32,
         net_extents: u32,
         wm_state: u32,
@@ -299,7 +313,9 @@ mod x11_probe {
 
         fn try_open() -> Option<Inner> {
             let (connection, screen) = RustConnection::connect(None).ok()?;
-            let root = connection.setup().roots.get(screen)?.root;
+            let screen = connection.setup().roots.get(screen)?;
+            let root = screen.root;
+            let screen_width = screen.width_in_pixels as u32;
             let gtk_extents = atom(&connection, b"_GTK_FRAME_EXTENTS")?;
             let net_extents = atom(&connection, b"_NET_FRAME_EXTENTS")?;
             let wm_state = atom(&connection, b"WM_STATE")?;
@@ -307,11 +323,21 @@ mod x11_probe {
             Some(Inner {
                 connection,
                 root,
+                screen_width,
                 gtk_extents,
                 net_extents,
                 wm_state,
                 client_list_stacking,
             })
+        }
+
+        /// X screen 的宽度（原始 X 像素）。**折算比例的分子只该从这里来**：
+        /// 它和窗口几何出自同一台 X server、同一个坐标空间，不需要任何换算。
+        pub(super) fn screen_width(&self) -> Option<u32> {
+            self.inner
+                .as_ref()
+                .map(|inner| inner.screen_width)
+                .filter(|width| *width > 0)
         }
 
         pub(super) fn extents(&mut self, window: u32) -> Option<FrameExtents> {
@@ -408,6 +434,10 @@ mod x11_probe {
             Self
         }
 
+        pub(super) fn screen_width(&self) -> Option<u32> {
+            None
+        }
+
         pub(super) fn extents(&mut self, _window: u32) -> Option<FrameExtents> {
             None
         }
@@ -443,6 +473,32 @@ mod tests {
         assert_eq!(ratio_from_widths(3840, 1920), 2.0);
         assert_eq!(ratio_from_widths(1920, 1920), 1.0);
         assert_eq!(ratio_from_widths(3840, 2560), 1.5);
+    }
+
+    /// X screen 横跨整个桌面，所以分母必须是并集宽度。侧排双屏下用 `max(logical_width)`
+    /// 只有半个桌面宽，比例会算成两倍，窗口候选整体缩到左上角——正是那个报障现场。
+    #[test]
+    fn the_denominator_spans_the_whole_desktop_not_one_monitor() {
+        let left = CapturedMonitorFrame {
+            x: 0,
+            logical_width: 2560,
+            ..frame(1)
+        };
+        let right = CapturedMonitorFrame {
+            x: 2560,
+            logical_width: 1920,
+            ..frame(2)
+        };
+        assert_eq!(logical_union_width(&[left.clone(), right.clone()]), 4480);
+        // 顺序无关，负坐标（副屏在主屏左边）同样成立
+        let negative = CapturedMonitorFrame {
+            x: -1920,
+            logical_width: 1920,
+            ..frame(2)
+        };
+        assert_eq!(logical_union_width(&[negative, left]), 4480);
+        assert_eq!(logical_union_width(&[right]), 1920);
+        assert_eq!(logical_union_width(&[]), 0);
     }
 
     #[test]
