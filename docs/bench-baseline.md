@@ -44,6 +44,7 @@ cargo bench -- --warm-up-time 0.5 --measurement-time 1.5 --sample-size 20
 | `is_sensitive_text_worst_case_100kib` | 31.2 µs | 不命中前缀，走整段转小写 |
 | `is_sensitive_text_prefix_hit` | 4.2 ns | 命中 `sk-` 前缀提前返回 |
 | `strip_html_tags_1mib` | 1.41 ms | 逐字符扫描 1 MiB HTML |
+| `rgba_fingerprint_1080p` | 1.47 ms | 轮询之间"还是上一张图吗"，替掉一次 PNG 编码 |
 | `get_clips_first_page` | 23.2 µs | 2000 行内存库，无查询，limit 50 |
 | `get_clips_fts_prefix` | 298 µs | ≥3 字符走 FTS5 前缀查询，命中大量行 |
 | `get_clips_like_fallback_short_query` | 38.1 µs | <3 字符走 LIKE 回退 |
@@ -62,6 +63,12 @@ cargo bench -- --warm-up-time 0.5 --measurement-time 1.5 --sample-size 20
   代价是每块非最大缩放的屏在截图路径上多等 200 ms 以上——同一条路上连 140 ms 的
   `HIDE_SETTLE_MS` 都专门优化掉了。**画质也不是理由**：放大过的帧交给浏览器按
   devicePixelRatio 缩，是 GPU 上的一次采样，比 CPU 先缩一遍再缩一遍更干净。
+- **剪贴板里躺着一张图，是个持续开销，不是一次开销。** 轮询走到图片分支时唯一能
+  和 `last_hash` 比较的东西是 **PNG 的哈希**，于是每 500 ms 都要把 RGBA 重新编码成
+  PNG（1080p ~85 ms）才发现"还是刚才那张"——截图复制完之后这就一直烧着 CPU。
+  改成先按 RGBA 算一个非密码学指纹（1.47 ms，只在轮询之间用、永不入库），
+  同一张图第二轮就到不了编码器。文本/HTML 接管剪贴板时清空指纹，
+  于是"复制别的再复制回这张图"仍然走完整入库路径。
 - **"读个尺寸"和"证明整张图能解出来"是两件事，价钱差四个数量级。** 原来只有一个
   `png_dimensions`，实现是 `load_from_memory`，于是每个只想知道宽高的地方（贴图窗口算
   多大、`PinOrigins::lookup` 按尺寸预筛、`save_png` 落盘前确认这是张 PNG）都白解一整张图。

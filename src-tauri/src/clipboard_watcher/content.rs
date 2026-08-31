@@ -1,6 +1,4 @@
-use image::{ImageBuffer, RgbaImage};
 use sha2::{Digest, Sha256};
-use std::io::Cursor;
 
 /// 简单去除 HTML 标签，用于生成 FTS 可搜索的纯文本。
 pub(crate) fn strip_html_tags(html: &str) -> String {
@@ -54,17 +52,38 @@ pub(crate) fn compute_hash(data: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+/// 剪贴板里这张图**这一轮和上一轮是不是同一张**的指纹。
+///
+/// 只用来做轮询之间的短路，永不入库、永不和 `content_hash` 比较，所以不需要抗碰撞的
+/// 密码学哈希：这里要的是"扫一遍 8 MB RGBA 尽量便宜"。轮询每 500 ms 都会走一遍，
+/// 而它挡掉的是一整次 PNG 编码（1080p ~77 ms）。
+///
+/// 宽高一起进哈希：同样的字节按不同宽高解读是不同的图。
+pub(crate) fn rgba_fingerprint(width: usize, height: usize, bytes: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    width.hash(&mut hasher);
+    height.hash(&mut hasher);
+    hasher.write(bytes);
+    hasher.finish()
+}
+
 /// 将 arboard 的 RGBA 图片数据编码为 PNG 字节。
+///
+/// 走 `screenshot::encode_png` 而不是自己建 `ImageBuffer` 再 `write_to`：后者要求
+/// 拥有所有权，于是先 `to_vec()` 拷一份 8 MB 的 RGBA 才开始编码。全项目只留一个
+/// PNG 编码器，watcher 和截图链路编出来的字节也就必然一致。
+///
+/// 压缩级别不是这里的动机——实测 `write_to` 的默认级别和 `CompressionType::Fast`
+/// 在 1080p 上输出字节完全相同、耗时也一样（都是 ~85 ms）。省下的只有那次拷贝。
 pub(super) fn encode_image_to_png(img: &arboard::ImageData) -> Option<Vec<u8>> {
-    let buffer: RgbaImage =
-        ImageBuffer::from_raw(img.width as u32, img.height as u32, img.bytes.to_vec())?;
-    let mut png_bytes = Vec::new();
-    let mut cursor = Cursor::new(&mut png_bytes);
-    if let Err(error) = buffer.write_to(&mut cursor, image::ImageFormat::Png) {
-        log::warn!("PNG 编码失败: {}", error);
-        return None;
+    match crate::screenshot::encode_png(&img.bytes, img.width as u32, img.height as u32) {
+        Ok(png) => Some(png),
+        Err(error) => {
+            log::warn!("PNG 编码失败: {error:#}");
+            None
+        }
     }
-    Some(png_bytes)
 }
 
 #[cfg(test)]
@@ -77,6 +96,21 @@ mod tests {
         assert!(is_sensitive_text("password: hunter2"));
         assert!(!is_sensitive_text("ordinary clipboard text"));
         assert!(!is_sensitive_text("short"));
+    }
+
+    /// 指纹要认出"同一张图"，也要认出"字节一样但宽高不同"——后者是不同的图，
+    /// 若被判成同一张，改完窗口大小重新复制就再也进不了历史。
+    #[test]
+    fn the_fingerprint_separates_pixels_and_dimensions() {
+        let bytes: Vec<u8> = (0..(8 * 4 * 4)).map(|index| (index % 251) as u8).collect();
+        let base = rgba_fingerprint(8, 4, &bytes);
+
+        assert_eq!(base, rgba_fingerprint(8, 4, &bytes), "同一张图必须同指纹");
+        assert_ne!(base, rgba_fingerprint(4, 8, &bytes), "宽高换了就是另一张图");
+
+        let mut changed = bytes.clone();
+        changed[17] = changed[17].wrapping_add(1);
+        assert_ne!(base, rgba_fingerprint(8, 4, &changed), "改一个字节要认出来");
     }
 
     #[test]

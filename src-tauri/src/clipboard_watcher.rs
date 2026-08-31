@@ -10,7 +10,9 @@ pub use writer::{
 use crate::models::{AppConfig, ContentType};
 use crate::storage::StorageEngine;
 use arboard::Clipboard;
-use content::{compute_hash, encode_image_to_png, is_sensitive_text, strip_html_tags};
+use content::{
+    compute_hash, encode_image_to_png, is_sensitive_text, rgba_fingerprint, strip_html_tags,
+};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -67,6 +69,15 @@ impl ClipboardWatcher {
             };
 
             let mut last_hash = String::new();
+            // 上一轮在剪贴板里看到的那张图的指纹。
+            //
+            // 图片这条分支不能靠 `last_hash` 短路：`last_hash` 是 **PNG** 的哈希，
+            // 要先编码出 PNG 才比得上，于是"剪贴板里躺着一张截图"会让轮询每 500 ms
+            // 白编一次全屏 PNG。指纹直接按 RGBA 算，同一张图第二轮就到不了编码器。
+            //
+            // 文本/HTML 接管剪贴板时清空它，好让"复制别的东西再复制回这张图"仍然能
+            // 走完入库路径（哈希去重会把它顶到最前面）。
+            let mut last_image_fingerprint: Option<u64> = None;
             let mut sensitive_check_counter: u32 = 0;
             const SENSITIVE_TTL_SECS: i64 = 300; // 5 分钟后自动删除敏感条目
             const SENSITIVE_CHECK_INTERVAL: u32 = 60; // 每 60 次循环（~30秒）检查一次
@@ -130,6 +141,7 @@ impl ClipboardWatcher {
                 // 优先检测 HTML 富文本（浏览器复制的内容同时有 HTML 和纯文本）
                 if let Ok(html) = clipboard.get().html() {
                     if !html.is_empty() {
+                        last_image_fingerprint = None;
                         let hash = compute_hash(html.as_bytes());
                         if hash != last_hash && hash != last_tmux_hash {
                             {
@@ -194,6 +206,7 @@ impl ClipboardWatcher {
 
                 if let Ok(text) = clipboard.get_text() {
                     if !text.is_empty() {
+                        last_image_fingerprint = None;
                         let hash = compute_hash(text.as_bytes());
                         if hash != last_hash && hash != last_tmux_hash {
                             // 跳过 select_clip 写入的内容
@@ -255,6 +268,14 @@ impl ClipboardWatcher {
                 // 无文本内容时尝试获取图片
                 if let Ok(img) = clipboard.get_image() {
                     if !img.bytes.is_empty() {
+                        // 先看还是不是上一轮那张图：是的话连编码都不用做。
+                        let fingerprint = rgba_fingerprint(img.width, img.height, &img.bytes);
+                        if last_image_fingerprint == Some(fingerprint) {
+                            wake::wait_for_next_poll(POLL_INTERVAL);
+                            continue;
+                        }
+                        last_image_fingerprint = Some(fingerprint);
+
                         if let Some(png_bytes) = encode_image_to_png(&img) {
                             let hash = compute_hash(&png_bytes);
                             if hash != last_hash && hash != last_tmux_hash {
