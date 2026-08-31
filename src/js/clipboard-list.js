@@ -130,9 +130,19 @@ export async function setPanelMode(mode) {
 export function getPanelMode() { return _panelMode; }
 
 export function prependClip(clip) {
+  // 焦点跟着**条目**走，不跟着索引走（与 react/main/clipboardStore.ts::prependClip 一致，
+  // 两处必须同时改，见 regression-guards.test.js）。原来这里是 `focusedRow + 1`，有两处会错：
+  //   1. 面板关着时 `releaseMemory` 清空列表、`releaseNavigation` 把 focusedRow 归位。那是
+  //      "没有焦点行"而不是"用户选中了第一行"，当成真焦点去 +1，重新打开面板焦点就停在
+  //      **第二行**，于是截图复制完按 Pin 贴出来的是上一张图。连截两张就掉到第三行。
+  //   2. 被 prepend 的条目本来就在列表里（同一张图再复制一次，`insert_clip` 按哈希去重、
+  //      只把它顶到最前）时列表长度不变，+1 纯属把焦点推歪。
+  // 按 id 找回原来那一行同时解决两者：真有焦点行就跟着它走（用户正看着的那行不该在眼皮下
+  // 换成别的内容），没有就落在最新一条上。
+  const previousFocusId = getFocusedClip()?.id ?? null;
+
   // 重复内容再次复制时：后端已更新 created_at 置顶，前端需移除旧位置再插入头部
   const existIdx = _allClips.findIndex((c) => c.id === clip.id);
-  const focusOnMoved = existIdx !== -1 && _navigation.focusedRow === existIdx;
 
   if (existIdx !== -1) {
     _allClips.splice(existIdx, 1);
@@ -149,20 +159,20 @@ export function prependClip(clip) {
         row.dataset.idx = i++;
       }
     }
-    // 修正焦点：splice 后 existIdx 之后的项前移一位
-    if (_navigation.focusedRow > existIdx) {
-      _navigation = { ..._navigation, focusedRow: _navigation.focusedRow - 1 };
-    }
   } else if (clip.is_favorite) {
     _favDirty = true;
   }
 
   _allClips.unshift(clip);
-  // 焦点原本在被移动条目上 → 它已到 index 0，不走普通 +1 路径
-  if (focusOnMoved) {
-    _navigation = { ..._navigation, focusedRow: 0 };
-  } else if (_navigation.focusedRow >= 0 && _panelMode === "all") {
-    _navigation = { ..._navigation, focusedRow: _navigation.focusedRow + 1 };
+
+  // 视图里的行序变了才需要重算焦点：收藏模式下 _allClips 的变化看不见
+  if (_panelMode === "all" || clip.is_favorite) {
+    const items = visibleItems();
+    const restored = previousFocusId === null
+      ? -1
+      : items.findIndex((c) => c.id === previousFocusId);
+    const focusedRow = restored >= 0 ? restored : (items.length ? 0 : -1);
+    _navigation = { ..._navigation, focusedRow };
   }
 
   // 差量更新：若当前视图匹配（非搜索模式），直接 prepend DOM 节点

@@ -7,6 +7,7 @@ import {
   moveColumnFocus,
   moveRowFocus,
   normalizeAfterRefresh,
+  releaseNavigation,
 } from "../js/clipboard/navigation-state.js";
 import {
   formatRelativeTime,
@@ -235,6 +236,42 @@ describe("clipboard-list 状态机", () => {
     });
     expect(api.getClipImage).toHaveBeenCalledWith(21);
   });
+
+  // prependClip 的焦点必须跟着条目走。这几条与 clipboard-react-store.test.js 里的同名用例成对，
+  // 两个列表实现任何一边漏改都会在这里露出来。
+  it("面板关着时到达的新条目，重新加载后焦点落在最新一条", async () => {
+    api.getClips.mockResolvedValueOnce([clip({ id: 1 })]);
+    await clipboardList.refresh();
+    clipboardList.releaseMemory();
+
+    clipboardList.prependClip(clip({ id: 2, text_content: "new" }));
+    expect(clipboardList.__test__.state().focusedRow).toBe(0);
+
+    api.getClips.mockResolvedValueOnce([clip({ id: 2, text_content: "new" }), clip({ id: 1 })]);
+    await clipboardList.refresh();
+    expect(clipboardList.getFocusedClip().id).toBe(2);
+  });
+
+  it("真有焦点行时，新条目到达焦点仍停在原来那条上", async () => {
+    api.getClips.mockResolvedValueOnce([clip({ id: 1 }), clip({ id: 2 }), clip({ id: 3 })]);
+    await clipboardList.refresh();
+    clipboardList.moveRow(1);
+    expect(clipboardList.getFocusedClip().id).toBe(2);
+
+    clipboardList.prependClip(clip({ id: 9 }));
+    expect(clipboardList.getFocusedClip().id).toBe(2);
+    expect(clipboardList.__test__.state().focusedRow).toBe(2);
+  });
+
+  it("被顶到最前的条目正是焦点条目时，焦点跟到第一行", async () => {
+    api.getClips.mockResolvedValueOnce([clip({ id: 1 }), clip({ id: 2 }), clip({ id: 3 })]);
+    await clipboardList.refresh();
+    clipboardList.moveRow(1);
+
+    clipboardList.prependClip(clip({ id: 2 }));
+    expect(clipboardList.__test__.state().focusedRow).toBe(0);
+    expect(clipboardList.getFocusedClip().id).toBe(2);
+  });
 });
 
 describe("clipboard 导航纯状态机", () => {
@@ -245,6 +282,14 @@ describe("clipboard 导航纯状态机", () => {
       expandedRow: null,
     });
     expect(normalizeAfterRefresh(createNavigationState(), 0).focusedRow).toBe(-1);
+  });
+
+  // 面板关闭时列表内容也被释放，此时"焦点在第一行"是假的——0 是个不存在的行。
+  // 报成 0 会让 prependClip 把焦点让给新条目、停在第二行，于是按 Pin 贴出上一条。
+  it("释放列表内容后没有焦点行，重新加载才收拢回第一行", () => {
+    const released = releaseNavigation({ ...createNavigationState(), focusedRow: 2 });
+    expect(released).toMatchObject({ focusedRow: -1, focusedCol: -1, expandedRow: null });
+    expect(normalizeAfterRefresh(released, 5).focusedRow).toBe(0);
   });
 
   it("竖向移动收起动作区并启用一次鼠标保护", () => {

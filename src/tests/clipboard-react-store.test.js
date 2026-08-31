@@ -160,6 +160,50 @@ describe("React clipboard store", () => {
     expect(store.getSnapshot().favorites).toEqual([]);
   });
 
+  // 报障："截屏后 pin 图会显示之前的图片"。面板关着时 releaseMemory 把列表清空，
+  // 旧实现让 focusedRow 停在 0（"选中第一行"），新条目到达时 prependClip 就把焦点 +1
+  // 让给它——重新打开面板后焦点落在第二行，全局 Pin 快捷键取的正是那条上一张图。
+  it("focuses the newest clip when a clip arrives while the panel is closed", async () => {
+    api.getClips.mockResolvedValueOnce([clip(1)]);
+    await store.refresh();
+    expect(store.getFocusedClip()?.id).toBe(1);
+
+    store.releaseMemory();
+    expect(store.getSnapshot().navigation.focusedRow).toBe(-1);
+    store.prependClip(clip(2));
+    expect(store.getSnapshot().navigation.focusedRow).toBe(0);
+
+    // 重新打开面板：refresh 拉回完整列表，焦点仍应是最新那条
+    api.getClips.mockResolvedValueOnce([clip(2), clip(1)]);
+    await store.refresh();
+    expect(store.getFocusedClip()?.id).toBe(2);
+  });
+
+  it("keeps a real focused row on its own item when a newer clip arrives", async () => {
+    api.getClips.mockResolvedValueOnce([clip(1), clip(2), clip(3)]);
+    await store.refresh();
+    store.moveRow(1);
+    expect(store.getFocusedClip()?.id).toBe(2);
+
+    store.prependClip(clip(9));
+    // 用户正看着的那一行不该在眼皮下换成别的内容
+    expect(store.getFocusedClip()?.id).toBe(2);
+    expect(store.getSnapshot().navigation.focusedRow).toBe(2);
+  });
+
+  it("does not drift focus when the prepended clip is already in the list", async () => {
+    // 同一张图再复制一次：insert_clip 按哈希去重，只把它顶到最前面，列表长度不变，
+    // 旧实现的 focusedRow + 1 在这里纯属把焦点推歪。
+    api.getClips.mockResolvedValueOnce([clip(1), clip(2), clip(3)]);
+    await store.refresh();
+    store.moveRow(1);
+    expect(store.getFocusedClip()?.id).toBe(2);
+
+    store.prependClip(clip(3));
+    expect(store.getSnapshot().all.map((item) => item.id)).toEqual([3, 1, 2]);
+    expect(store.getFocusedClip()?.id).toBe(2);
+  });
+
   it("does not move favorites focus for a non-favorite clipboard event", async () => {
     api.getClips.mockResolvedValueOnce([clip(1, true)]);
     await store.refresh();

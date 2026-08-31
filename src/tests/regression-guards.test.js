@@ -9,6 +9,11 @@
  *   4. preview-panel.js 自己再嗅探一遍内容类型 → 判定重新分叉成两套标准
  *   5. release notes 的下载链接与构建矩阵的发行版标签不同步 → 发布页上是死链
  *   6. 发布脚本假定 cargo-tauri 存在 → 只在真正打 tag 时才炸（runner 上只有 npm 侧 CLI）
+ *   7. prependClip 按索引 +1 挪焦点 → 面板关着时到达的新条目把焦点挤到第二行，
+ *      按 Pin 贴出的是上一张图（用户报障的正是这条）
+ *   8. 全局 Pin 退回前端列表缓存 / 剪贴板写入不唤醒 watcher → 同一个症状的另外两条放大器
+ *   8b. 全局 Pin 信任"面板没焦点时留下的焦点行" → 侧栏开着时列表不释放，焦点跟着老条目
+ *       挪到第 1 行，截完图按 Pin 贴出的还是上一张（第 7 条修完仍然复现的就是这条）
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -107,5 +112,73 @@ describe("内容类型只有一套标准", () => {
     for (const detector of ["identifyHash", "detectEncoding", "isTimestamp", "isUuid", "isColor"]) {
       expect(source, detector).not.toMatch(new RegExp(`\\b${detector}\\s*\\(`));
     }
+  });
+});
+
+describe("Pin 贴的是当前焦点条目，不是上一条", () => {
+  // 报障："截屏后 pin 图会显示之前的图片"。真正的原因在前端焦点索引：面板关闭时
+  // `releaseMemory` 把列表清空，随后到达的 `clip-added` 让 prependClip 把 focusedRow +1,
+  // 于是重新打开面板时焦点停在**第二行**，而 Pin 的两个入口（全局快捷键与 Ctrl+P）
+  // 都读 getFocusedClip()。列表行上没有 Pin 按钮，所以这条路是唯一的。
+  it("两份 prependClip 都按 id 跟踪焦点，不做索引加减", () => {
+    // 两份实现必须同步：js/clipboard-list.js 目前运行时不生效（见上面的 row-renderer 注释），
+    // 只改 React 那一份的话，下次谁把渲染切回去，这个 bug 就原地复活。
+    for (const path of ["src/js/clipboard-list.js", "src/react/main/clipboardStore.ts"]) {
+      const code = read(path)
+        .split("\n")
+        .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+        .join("\n");
+      expect(code, path).not.toMatch(/focusedRow\s*[+-]\s*1/);
+      expect(code, path).toMatch(/previousFocus/);
+    }
+  });
+
+  it("列表内容被释放后不报告焦点行", () => {
+    // focusedRow 归 0 而不是 -1 就是上面那条 +1 的燃料：0 在空列表上是个不存在的行。
+    const source = read("src/js/clipboard/navigation-state.js");
+    const release = source.slice(source.indexOf("export function releaseNavigation"));
+    expect(release).toMatch(/focusedRow:\s*-1/);
+  });
+
+  it("app.js 的 Pin 快捷键路径不调用 getLatestClip", () => {
+    const source = read("src/js/app.js");
+    expect(source).not.toContain("getLatestClip");
+    expect(source).toContain("resolvePinTarget");
+  });
+
+  it("全局 Pin 把面板是否有焦点一起传给 resolvePinTarget", () => {
+    // 少了这个参数，焦点行的残影又会被当成用户意图：侧栏开着时失焦不隐藏窗口，
+    // 列表与焦点活过整个截图流程，prependClip 按 id 把焦点跟着老条目挪到第 1 行。
+    const source = read("src/js/app.js");
+    const call = source.slice(source.indexOf("resolvePinTarget("));
+    expect(call.slice(0, call.indexOf(");"))).toContain("document.hasFocus()");
+  });
+
+  it("重新聚焦面板时两条分支都复位焦点", () => {
+    // `refresh()` 只做钳位（normalizeAfterRefresh），不复位；只在"不脏"的分支里
+    // restoreRender 等于"面板关着期间来了新条目"时焦点留在老条目上。
+    const source = read("src/js/app.js");
+    const body = source.slice(
+      source.indexOf("async function onWindowFocus"),
+      source.indexOf("function onWindowBlur"),
+    );
+    expect(body).toMatch(/isDirty\(\)\)\s*await clipboardList\.refresh\(\);/);
+    expect([...body.matchAll(/restoreRender\(\)/g)]).toHaveLength(1);
+    expect(body).not.toMatch(/else/);
+  });
+
+  it("剪贴板写入口写完都会唤醒 watcher", () => {
+    // 少敲一次的后果是那条写入路径重新变成"最多 500 ms 后才进历史"。
+    const source = read("src-tauri/src/clipboard_watcher/writer.rs");
+    const writes = [...source.matchAll(/^pub fn clipboard_set_\w+/gm)].length;
+    expect(writes).toBe(3);
+    expect([...source.matchAll(/wake::nudge\(\);/g)]).toHaveLength(writes);
+  });
+
+  it("watcher 的轮询等待全部走唤醒口，没有裸 sleep", () => {
+    // 任何一处漏改都会让那条分支继续睡满 500 ms，唤醒对它无效。
+    const source = read("src-tauri/src/clipboard_watcher.rs");
+    expect(source).not.toMatch(/thread::sleep/);
+    expect(source).toMatch(/wake::wait_for_next_poll\(POLL_INTERVAL\)/);
   });
 });
