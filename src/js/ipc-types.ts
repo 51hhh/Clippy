@@ -105,6 +105,12 @@ export interface PasteOutcome {
   detail: string | null;
 }
 
+/**
+ * 窗口速选候选区。
+ *
+ * **数组顺序即堆叠顺序，索引 0 是最上层。** 命中测试必须取第一个包含光标的候选，
+ * 这样点在重叠处选到的就是肉眼看到的那个窗口，被完全遮住的窗口自然选不到。
+ */
 export interface WindowCandidate {
   x: number;
   y: number;
@@ -113,15 +119,46 @@ export interface WindowCandidate {
   title: string;
 }
 
+/** 截图辅助服务（GNOME Shell 扩展：窗口几何 + 冻结帧）的状态 */
+export interface WindowProbeStatus {
+  /** 当前桌面用不用得上这个扩展（只有 GNOME Wayland 有意义） */
+  supported: boolean;
+  installed: boolean;
+  /** uuid 已写进 org.gnome.shell enabled-extensions */
+  enabled: boolean;
+  /** 扩展真的在应答 D-Bus——"功能可用"的唯一判据 */
+  active: boolean;
+  /** 在应答但版本比内嵌的旧：文件升级过，跑着的仍是上次登录加载的那份 */
+  stale: boolean;
+  /** 用户是否在系统层面关掉了全部 GNOME 扩展 */
+  userExtensionsEnabled: boolean;
+}
+
+export interface WindowProbeInstallOutcome {
+  /** 为真时要提示用户注销一次后才生效 */
+  needsLogout: boolean;
+  status: WindowProbeStatus;
+}
+
 export interface CaptureOverlayPayload {
   sessionId: string;
   monitorId: number;
-  pngBase64: string;
+  /**
+   * 这块显示器在桌面逻辑坐标系里的左上角。覆盖层内的选区坐标是相对自己的，
+   * 加上这个偏移才是"屏幕上的哪一块"——贴图靠它贴回原位。
+   */
+  logicalX: number;
+  logicalY: number;
   logicalWidth: number;
   logicalHeight: number;
   pixelWidth: number;
   pixelHeight: number;
   windows: WindowCandidate[];
+  /**
+   * 这次要不要在覆盖层里提示"窗口速选需要在设置页安装服务"。
+   * 后端只置真一次（GNOME Wayland 且扩展没在应答），覆盖层照做，自己不判断桌面环境。
+   */
+  probeHint: boolean;
 }
 
 export interface CaptureSelection {
@@ -135,6 +172,17 @@ export interface CaptureSelection {
 
 /** 覆盖层里点提交按钮后要做的事。标注在覆盖层内完成，所以没有"转到编辑器"。 */
 export type CaptureAction = "copy" | "save" | "pin";
+
+/**
+ * 选区在桌面逻辑坐标系里的矩形，与 Rust `pin::PinOrigin` 一一对应。
+ * 贴图靠它回到截图时的原位、按原尺寸显示。
+ */
+export interface CaptureOrigin {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 export interface CaptureActionResult {
   action: CaptureAction;

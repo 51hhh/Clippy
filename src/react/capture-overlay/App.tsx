@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindowLabel } from "../../js/api.ts";
 import { drawScene } from "../annotation/canvasRenderer";
+import { rgbaToFrameCanvas } from "../annotation/frameImage";
 import {
   DEFAULT_IMAGE_ADJUSTMENTS,
   type ImageAdjustments,
 } from "../annotation/imageAdjustments";
-import { exportPngBase64, pngBase64ToObjectUrl } from "../annotation/pngPipeline";
+import { exportPngBase64 } from "../annotation/pngPipeline";
 import type { Annotation, Tool } from "../annotation/types";
 import { useCanvasInteractions } from "../annotation/useCanvasInteractions";
 import { useHistory } from "../annotation/useHistory";
@@ -22,6 +23,7 @@ import {
 } from "./translationState";
 import type {
   CaptureAction,
+  CaptureOrigin,
   CaptureOverlayPayload,
   CaptureTranslationState,
   OverlayTool,
@@ -45,6 +47,7 @@ const HANDLES: ResizeHandle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 export function App() {
   const label = getCurrentWindowLabel();
   const [payload, setPayload] = useState<CaptureOverlayPayload | null>(null);
+  const [frameBuffer, setFrameBuffer] = useState<ArrayBuffer | null>(null);
   const [imageReady, setImageReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,13 +61,13 @@ export function App() {
   const [copyStatus, setCopyStatus] = useState<"copied" | "failed" | null>(null);
   const translationGeneration = useRef(0);
   const translateButtonRef = useRef<HTMLButtonElement>(null);
-  const imageRef = useRef<HTMLImageElement | null>(null);
+  const imageRef = useRef<HTMLCanvasElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const activeDrag = useRef<"selection" | "canvas" | null>(null);
   const revealed = useRef(false);
 
   /**
-   * 让后端把覆盖层显示出来。窗口是隐藏建窗的：加载 webview、取 payload、解 PNG 的
+   * 让后端把覆盖层显示出来。窗口是隐藏建窗的：加载 webview、取 payload 与底图的
    * 整段时间里显示出来就是一整屏白色，所以显示时机由这里决定——首帧画好之后，
    * 或者已经有错误可以显示的时候。
    */
@@ -120,25 +123,46 @@ export function App() {
     };
   }, [label]);
 
+  // 底图与 payload 分两次取：像素走二进制 IPC，一次 putImageData 就能用，
+  // 不必等 <img> 的 onload，也没有 PNG 编解码。
+  //
+  // 两个请求**同时**发出，不等 payload 回来再要像素：像素是这两次里慢的那个（16 MB），
+  // 串起来等于把它的往返白加在覆盖层出现之前。尺寸只有 payload 才知道，所以铺画布
+  // 放在下一个 effect 里，等两边都到齐。
   useEffect(() => {
-    if (!payload) return;
-    const url = pngBase64ToObjectUrl(payload.pngBase64);
-    const image = new Image();
     let cancelled = false;
-    image.onload = () => {
-      if (cancelled) return;
-      imageRef.current = image;
-      setImageReady(true);
-    };
-    image.onerror = () => !cancelled && setError(t("capture.decodeFailed"));
-    image.src = url;
+    overlayApi
+      .frame(label)
+      .then((buffer) => !cancelled && setFrameBuffer(buffer))
+      .catch((reason) => {
+        if (cancelled) return;
+        console.warn("截图冻结帧读取失败", reason);
+        setError(t("capture.decodeFailed"));
+      });
     return () => {
       cancelled = true;
+      setFrameBuffer(null);
+    };
+  }, [label]);
+
+  useEffect(() => {
+    if (!payload || !frameBuffer) return;
+    try {
+      imageRef.current = rgbaToFrameCanvas(
+        new Uint8ClampedArray(frameBuffer),
+        payload.pixelWidth,
+        payload.pixelHeight,
+      );
+      setImageReady(true);
+    } catch (reason) {
+      console.warn("截图冻结帧解码失败", reason);
+      setError(t("capture.decodeFailed"));
+    }
+    return () => {
       imageRef.current = null;
       setImageReady(false);
-      URL.revokeObjectURL(url);
     };
-  }, [payload]);
+  }, [frameBuffer, payload]);
 
   useEffect(() => {
     // 排障线索：窗口几何拿不到时界面只有一句提示，日志里要留下原因可查。
@@ -167,7 +191,13 @@ export function App() {
     ? canvas.draft.annotation
     : null;
 
-  // 底图、标注、裁剪压暗全部由这一块画布画出来，因此每次状态变化都要重绘。
+  // 底图与标注画在这块画布上，因此标注相关的状态一变就要重绘。
+  //
+  // **选区不在依赖里，这是有意的。** 画一帧要把 2560×1600 的冻结帧高质量缩绘进
+  // 1920×1200 的画布，而拖动/缩放选区时每个 pointermove 都会改选区矩形——压暗和
+  // 虚线框留在画布上的话，等于每帧白做一次全图重采样。它们现在由 `.selection` 的
+  // `outline` + `box-shadow` 画（overlay.css），合成器代价近似为零，
+  // 于是"拖选区"这条最高频的交互引发的画布重绘次数是 0。
   useEffect(() => {
     const target = canvasRef.current;
     const image = imageRef.current;
@@ -176,7 +206,6 @@ export function App() {
       target,
       image,
       { width: logicalWidth, height: logicalHeight, fitScale: scale, zoom: 1, scale },
-      cropInPixels,
       annotations,
       draftAnnotation,
       adjustments,
@@ -188,7 +217,6 @@ export function App() {
     adjustments,
     annotations,
     draftAnnotation,
-    cropInPixels,
     imageReady,
     logicalHeight,
     logicalWidth,
@@ -215,6 +243,23 @@ export function App() {
   }, [busy, payload]);
 
   /**
+   * 选区在**桌面**逻辑坐标里的位置。覆盖层坐标是相对自己这块屏幕的，加上
+   * payload 的 logicalX/logicalY 才是全局坐标——贴图靠它回到截图时的原位。
+   */
+  const originRect = useMemo<CaptureOrigin | null>(
+    () =>
+      payload && selection
+        ? {
+          x: payload.logicalX + selection.x,
+          y: payload.logicalY + selection.y,
+          width: selection.width,
+          height: selection.height,
+        }
+        : null,
+    [payload, selection],
+  );
+
+  /**
    * 提交：把画布渲染的 PNG（裁剪 + 图像调整 + 矢量标注已经合成好）交给后端落地。
    * 成功后后端会关掉覆盖层，所以这里不复位 busy。
    */
@@ -227,13 +272,13 @@ export function App() {
       setBusy(true);
       setError(null);
       exportPngBase64(image, cropInPixels, annotations, adjustments)
-        .then((png) => overlayApi.commit(action, payload.sessionId, png))
+        .then((png) => overlayApi.commit(action, payload.sessionId, png, originRect))
         .catch((reason) => {
           setError(String(reason));
           setBusy(false);
         });
     },
-    [adjustments, annotations, busy, cropInPixels, payload, translation?.status],
+    [adjustments, annotations, busy, cropInPixels, originRect, payload, translation?.status],
   );
 
   const closeTranslation = useCallback(() => {
@@ -358,7 +403,12 @@ export function App() {
   // 但标注工具激活时不给高亮，否则画笔在选区外扫一下就闪一个蓝框。
   const preview = tool === "select" ? region.candidate : null;
   // 拿不到窗口列表（部分 Wayland 合成器不给窗口几何）时明说，否则用户只会觉得速选坏了。
-  const windowPickingUnavailable = payload.windows.length === 0;
+  // GNOME Wayland 上这事是可以解决的（装个 Shell 扩展），后端在首次遇到时置 probeHint，
+  // 这时候给出能照着做的说法，而不是只说"用不了"。
+  const showHint = payload.windows.length === 0 || payload.probeHint;
+  const hintKey = payload.probeHint
+    ? "capture.windowProbeHint"
+    : "capture.windowPickingUnavailable";
   const translationPosition = selection && translation
     ? translationPanelPosition(selection, logicalWidth, logicalHeight)
     : null;
@@ -450,8 +500,8 @@ export function App() {
           onClose={closeTranslation}
         />
       )}
-      {!selection && !error && windowPickingUnavailable && (
-        <div className="overlay-hint" role="status">{t("capture.windowPickingUnavailable")}</div>
+      {!selection && !error && showHint && (
+        <div className="overlay-hint" role="status">{t(hintKey)}</div>
       )}
       {error && <div className="overlay-error" role="status">{error}</div>}
     </main>

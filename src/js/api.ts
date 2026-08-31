@@ -17,6 +17,7 @@ import type {
   AppConfig,
   CaptureAction,
   CaptureActionResult,
+  CaptureOrigin,
   CaptureOverlayPayload,
   CaptureSelection,
   CaptureTranslationResult,
@@ -35,12 +36,15 @@ import type {
   TranslationProvider,
   TranslationResult,
   UrlMeta,
+  WindowProbeInstallOutcome,
+  WindowProbeStatus,
 } from "./ipc-types.ts";
 
 export type {
   AppConfig,
   CaptureAction,
   CaptureActionResult,
+  CaptureOrigin,
   CaptureOverlayPayload,
   CaptureSelection,
   CaptureTranslationResult,
@@ -65,6 +69,8 @@ export type {
   TranslationServiceConfig,
   UrlMeta,
   WindowCandidate,
+  WindowProbeInstallOutcome,
+  WindowProbeStatus,
 } from "./ipc-types.ts";
 
 /** 剪贴板列表 */
@@ -264,6 +270,17 @@ export function getCaptureOverlay(label: string): Promise<CaptureOverlayPayload>
 }
 
 /**
+ * 冻结帧的原始像素：RGBA8、行优先、无 padding，尺寸取 payload 的 pixelWidth/pixelHeight。
+ *
+ * 后端用 `tauri::ipc::Response` 直接回二进制，所以这里拿到的是 ArrayBuffer 而不是字符串。
+ * 像素曾经跟着 payload 走 JSON（pngBase64），代价是两头各一次编解码 —— 全屏帧实测占掉
+ * 覆盖层出现前的一半时间。别改回字符串。
+ */
+export function getCaptureFrame(label: string): Promise<ArrayBuffer> {
+  return invoke<ArrayBuffer>("get_capture_frame", { label });
+}
+
+/**
  * 报告覆盖层已经画出第一帧，后端这才把窗口显示出来。
  * 覆盖层是隐藏建窗的：提前显示就会让用户看到一整屏 webview 默认底色（白屏）。
  */
@@ -278,17 +295,39 @@ export function cancelCaptureOverlay(sessionId: string): Promise<void> {
 /**
  * 提交覆盖层里已经裁剪并标注好的 PNG。
  * 后端不再自己裁一遍，否则画布上的标注会被丢掉。
+ *
+ * `origin` 是选区在桌面逻辑坐标里的矩形：贴图靠它回到原位，复制时后端也记一份，
+ * 之后从历史里 Pin 同一张图仍能回到原处。传 null 表示"不知道来源"。
  */
 export function commitCaptureAction(
   action: CaptureAction,
   sessionId: string,
   pngBase64: string,
+  origin: CaptureOrigin | null = null,
 ): Promise<CaptureActionResult> {
   return invoke<CaptureActionResult>("commit_capture_action", {
     action,
     sessionId,
     pngBase64,
+    origin,
   });
+}
+
+/** 窗口速选依赖的 GNOME Shell 扩展的服务状态 */
+export function getWindowProbeStatus(): Promise<WindowProbeStatus> {
+  return invoke<WindowProbeStatus>("get_window_probe_status");
+}
+
+/**
+ * 安装窗口速选扩展。只能由用户在设置页显式点击触发——往用户的 GNOME 里装扩展
+ * 是很打扰的动作，应用不擅自代劳。
+ */
+export function installWindowProbeExtension(): Promise<WindowProbeInstallOutcome> {
+  return invoke<WindowProbeInstallOutcome>("install_window_probe_extension");
+}
+
+export function uninstallWindowProbeExtension(): Promise<WindowProbeStatus> {
+  return invoke<WindowProbeStatus>("uninstall_window_probe_extension");
 }
 
 /** 截图选区先在后端本地 OCR，再仅发送识别文本进行翻译。 */
@@ -349,11 +388,6 @@ export function isAutostartEnabled(): Promise<boolean> {
 /** 选择截图保存目录，用户取消时返回 null */
 export function pickScreenshotDirectory(): Promise<string | null> {
   return invoke<string | null>("pick_screenshot_directory");
-}
-
-/** 将截图编辑器导出的 PNG 贴到桌面 */
-export function pinScreenshotImage(pngBase64: string): Promise<string> {
-  return invoke<string>("pin_screenshot_image", { pngBase64 });
 }
 
 /** 将条目钉到桌面 */

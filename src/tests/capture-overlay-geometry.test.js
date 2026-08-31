@@ -27,13 +27,23 @@ describe("capture overlay geometry", () => {
       .toEqual({ x: 20, y: 20, width: 80, height: 60 });
   });
 
-  it("chooses the smallest pre-sorted smart window and detects handles", () => {
+  it("chooses the topmost window in the stacking order and detects handles", () => {
     const windows = [
       { x: 20, y: 20, width: 20, height: 20, title: "small" },
       { x: 0, y: 0, width: 100, height: 80, title: "desktop" },
     ];
     expect(windowAt(windows, { x: 25, y: 25 })?.title).toBe("small");
     expect(hitHandle(clampRect(windows[0], bounds), { x: 20, y: 20 })).toBe("nw");
+  });
+
+  it("picks the window that covers another instead of the smaller one underneath", () => {
+    // 后端按堆叠序下发：大窗口压在小窗口上时，肉眼看到的是大窗口，
+    // 速选就必须选它。按面积挑会得到恰好相反的答案。
+    const windows = [
+      { x: 0, y: 0, width: 100, height: 80, title: "coverer" },
+      { x: 20, y: 20, width: 20, height: 20, title: "covered" },
+    ];
+    expect(windowAt(windows, { x: 25, y: 25 })?.title).toBe("coverer");
   });
 
   it("keeps hovering windows outside an existing selection", () => {

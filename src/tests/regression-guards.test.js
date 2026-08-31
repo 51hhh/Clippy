@@ -14,6 +14,7 @@
  *   8. 全局 Pin 退回前端列表缓存 / 剪贴板写入不唤醒 watcher → 同一个症状的另外两条放大器
  *   8b. 全局 Pin 信任"面板没焦点时留下的焦点行" → 侧栏开着时列表不释放，焦点跟着老条目
  *       挪到第 1 行，截完图按 Pin 贴出的还是上一张（第 7 条修完仍然复现的就是这条）
+ *   9. 选区压暗搬回 drawScene → 拖一次选区就是几十次全屏重采样，帧率掉下来但功能"是对的"
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -180,5 +181,36 @@ describe("Pin 贴的是当前焦点条目，不是上一条", () => {
     const source = read("src-tauri/src/clipboard_watcher.rs");
     expect(source).not.toMatch(/thread::sleep/);
     expect(source).toMatch(/wake::wait_for_next_poll\(POLL_INTERVAL\)/);
+  });
+});
+
+describe("拖动选区不引发画布重绘", () => {
+  // drawScene 每帧要把整张冻结帧（2560×1600）以 high 质量缩绘进 1920×1200 的画布。
+  // 压暗和虚线蓝框放在画布上时，选区是它的输入，于是拖动/缩放选区的每个 pointermove
+  // 都白做一次全图重采样。搬到 CSS 之后这条最高频的交互一次都不碰画布。
+  it("drawScene 不接收裁剪矩形，也不画压暗", () => {
+    const source = read("src/react/annotation/canvasRenderer.ts");
+    const start = source.indexOf("export function drawScene");
+    const signature = source.slice(start, source.indexOf("{", start));
+    expect(signature).not.toMatch(/crop/);
+    expect(source).not.toContain("drawCropOverlay");
+  });
+
+  it("覆盖层的重绘 effect 不依赖选区", () => {
+    const source = read("src/react/capture-overlay/App.tsx");
+    const call = source.indexOf("drawScene(");
+    expect(call).toBeGreaterThan(0);
+    const deps = source.slice(call, source.indexOf("]);", call));
+    expect(deps).not.toMatch(/cropInPixels/);
+    // 但选区本身还要喂给导出与选区翻译，别把它一起删了
+    expect(source).toContain("cropInPixels");
+  });
+
+  it("压暗与虚线框由 .selection 这一层 CSS 承担", () => {
+    const rule = read("src/react/capture-overlay/overlay.css")
+      .split("\n")
+      .find((line) => line.startsWith(".selection {"));
+    expect(rule).toMatch(/box-shadow:[^;]*vmax/);
+    expect(rule).toMatch(/outline:[^;]*dashed/);
   });
 });
