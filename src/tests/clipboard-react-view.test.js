@@ -7,18 +7,20 @@ vi.mock("../js/api.ts", () => ({ getClipThumbnail: vi.fn() }));
 import * as i18n from "../i18n/i18n.js";
 import { ClipboardRow } from "../react/main/ClipboardRow.tsx";
 
-function snapshot() {
+/**
+ * 行的 props 是拍扁的标量（不是整个 snapshot），这样它能被 `memo` 挡住——
+ * 一次焦点移动只重渲失焦和获焦那两行，而不是全部 30 行。
+ */
+function props(overrides = {}) {
   return {
-    all: [],
-    favorites: [],
-    mode: "all",
-    query: "",
-    searchVisible: false,
-    navigation: { focusedRow: 0, focusedCol: -1, expandedRow: null, keyboardNav: false },
-    dirty: false,
-    loadingMore: false,
-    favoritesLoaded: false,
-    revision: 0,
+    index: 0,
+    focused: true,
+    focusedAction: -1,
+    expanded: false,
+    favoriteMode: false,
+    locale: "en",
+    handlers: { onFocus: vi.fn(), onToggle: vi.fn(), onAction: vi.fn() },
+    ...overrides,
   };
 }
 
@@ -44,11 +46,7 @@ describe("React clipboard row", () => {
   it("escapes user content and exposes accessible actions", () => {
     const html = renderToStaticMarkup(React.createElement(ClipboardRow, {
       clip: clip({ text_content: '<img src=x onerror="alert(1)">' }),
-      index: 0,
-      snapshot: snapshot(),
-      onFocus: vi.fn(),
-      onToggle: vi.fn(),
-      onAction: vi.fn(),
+      ...props(),
     }));
 
     expect(html).toContain("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;");
@@ -61,11 +59,7 @@ describe("React clipboard row", () => {
     i18n.init("zh-CN");
     const html = renderToStaticMarkup(React.createElement(ClipboardRow, {
       clip: clip({ text_content: "" }),
-      index: 0,
-      snapshot: snapshot(),
-      onFocus: vi.fn(),
-      onToggle: vi.fn(),
-      onAction: vi.fn(),
+      ...props(),
     }));
 
     expect(html).toContain("5 B");
@@ -79,11 +73,7 @@ describe("React clipboard row", () => {
   it("never labels a row with a content type", () => {
     const html = renderToStaticMarkup(React.createElement(ClipboardRow, {
       clip: clip({ content_type: "html", text_content: "key: value" }),
-      index: 0,
-      snapshot: snapshot(),
-      onFocus: vi.fn(),
-      onToggle: vi.fn(),
-      onAction: vi.fn(),
+      ...props(),
     }));
 
     expect(html).not.toContain("clip-row-html-badge");
