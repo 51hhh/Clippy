@@ -34,6 +34,9 @@ pub struct AppState {
     pub main_window_position_generation: AtomicU64,
     pub capture_manager: Arc<crate::capture::CaptureManager>,
     pub pin_manager: Arc<crate::pin::PinManager>,
+    /// 我们自己截下来、复制进剪贴板的图 → 它原本在屏幕上的位置。
+    /// 之后从历史里 Pin 这张图时靠它贴回原处，见 `pin::PinOriginRegistry`。
+    pub pin_origins: Arc<crate::pin::PinOriginRegistry>,
     pub paste_manager: Arc<PasteManager>,
     pub translation: Arc<crate::translation::TranslationService>,
     pub shortcuts_paused: AtomicBool,

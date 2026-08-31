@@ -132,22 +132,11 @@ pub(crate) fn write_clip_to_clipboard(id: i64, state: &AppState) -> Result<(), S
                     .map_err(|e| e.to_string())?
                     .ok_or_else(|| "图片数据为空".to_string())?
             };
-
-            let img = image::load_from_memory_with_format(&image_bytes, image::ImageFormat::Png)
-                .map_err(|e| format!("PNG 解码失败: {}", e))?;
-            let rgba = img.to_rgba8();
-            let (w, h) = rgba.dimensions();
-
-            use sha2::{Digest, Sha256};
-            let hash = format!("{:x}", Sha256::new_with_prefix(&image_bytes).finalize());
-            state.watcher.set_skip_hash(hash);
-
-            let img_data = arboard::ImageData {
-                width: w as usize,
-                height: h as usize,
-                bytes: std::borrow::Cow::Owned(rgba.into_raw()),
-            };
-            crate::clipboard_watcher::clipboard_set_image_with_retry(img_data)?;
+            // 图片这一路**没有** skip hash：watcher 哈希的是它自己从剪贴板 RGBA 重新编出来
+            // 的 PNG，和库里这串字节几乎不可能一致，设了也永远匹配不上（白算一次全图
+            // sha256）。文本那几路能生效是因为两边哈希的是同一串字节。后果只是这条图片会被
+            // 顶到历史最前面——`insert_clip` 按哈希去重，不会多存一份。
+            crate::image_io::copy_png_to_clipboard(&image_bytes)?;
         }
         ContentType::Html => {
             if let Some(html) = &clip.html_content {

@@ -147,6 +147,11 @@ pub struct AppConfig {
     /// 扩展名固定为 `.png`，模板只描述主干；空表示内置默认。
     #[serde(default)]
     pub screenshot_filename_template: String,
+    /// 是否已经在覆盖层里提示过"窗口速选需要装 GNOME Shell 扩展"。
+    /// 这条提示只出现一次：不装也能正常框选，反复提示纯属打扰。
+    /// 默认 false 就是"还没提示过"，因此新增此字段不需要迁移或提升配置版本。
+    #[serde(default)]
+    pub capture_probe_hint_shown: bool,
 }
 
 fn default_language() -> String {
@@ -224,6 +229,7 @@ impl Default for AppConfig {
             main_window_position: None,
             screenshot_save_dir: String::new(),
             screenshot_filename_template: String::new(),
+            capture_probe_hint_shown: false,
         }
     }
 }

@@ -73,11 +73,9 @@ struct ImageRect {
     height: u32,
 }
 
-/// 捕获冻结帧。交互式 Portal 截图只能由明确的用户动作启用。
-pub(crate) fn capture_monitor_frames(
-    allow_interactive_portal: bool,
-) -> Result<Vec<CapturedMonitorFrame>> {
-    let (monitors, frames) = capture_all_monitors(allow_interactive_portal)?;
+/// 捕获冻结帧。
+pub(crate) fn capture_monitor_frames() -> Result<Vec<CapturedMonitorFrame>> {
+    let (monitors, frames) = capture_all_monitors()?;
     frames
         .into_iter()
         .map(|frame| {

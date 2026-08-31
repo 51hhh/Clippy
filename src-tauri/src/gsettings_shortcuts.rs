@@ -181,11 +181,11 @@ fn read_custom_list() -> Result<Vec<String>, String> {
         return Err("gsettings get custom-keybindings 返回非零退出码".into());
     }
     let current = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    Ok(parse_custom_list(&current))
+    Ok(parse_string_list(&current))
 }
 
-/// 解析 `['/path/custom0/', '/path/custom1/']` 或 `@as []`
-fn parse_custom_list(raw: &str) -> Vec<String> {
+/// 解析 gsettings 的字符串数组值：`['/a/', '/b/']` 或空值 `@as []`
+pub(crate) fn parse_string_list(raw: &str) -> Vec<String> {
     if raw.is_empty() || raw.starts_with("@as") {
         return Vec::new();
     }
@@ -434,8 +434,8 @@ fn gsettings_set(dconf_path: &str, key: &str, value: &str) -> Result<(), String>
     Ok(())
 }
 
-/// 序列化 `custom-keybindings` 列表（空列表必须写 `@as []`，否则 gsettings 拒绝）
-fn format_custom_list(entries: &[String]) -> String {
+/// 序列化 gsettings 字符串数组（空列表必须写 `@as []`，否则 gsettings 拒绝）
+pub(crate) fn format_string_list(entries: &[String]) -> String {
     if entries.is_empty() {
         return "@as []".to_string();
     }
@@ -449,7 +449,7 @@ fn write_custom_list(entries: &[String]) -> Result<(), String> {
             "set",
             SCHEMA,
             "custom-keybindings",
-            &format_custom_list(entries),
+            &format_string_list(entries),
         ])
         .status()
         .map_err(|e| format!("gsettings set custom-keybindings 失败: {e}"))?;
@@ -683,15 +683,15 @@ mod tests {
 
     #[test]
     fn custom_list_round_trips() {
-        assert!(parse_custom_list("@as []").is_empty());
-        assert!(parse_custom_list("").is_empty());
-        let entries = parse_custom_list("['/a/custom0/', '/a/custom5/']");
+        assert!(parse_string_list("@as []").is_empty());
+        assert!(parse_string_list("").is_empty());
+        let entries = parse_string_list("['/a/custom0/', '/a/custom5/']");
         assert_eq!(entries, vec!["/a/custom0/", "/a/custom5/"]);
         assert_eq!(
-            format_custom_list(&entries),
+            format_string_list(&entries),
             "['/a/custom0/', '/a/custom5/']"
         );
-        assert_eq!(format_custom_list(&[]), "@as []");
+        assert_eq!(format_string_list(&[]), "@as []");
         // 手工写入的路径可能缺末尾斜杠，不能因此重复添加
         assert!(same_path("/a/custom0", "/a/custom0/"));
     }

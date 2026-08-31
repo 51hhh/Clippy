@@ -4,6 +4,8 @@ use image::RgbaImage;
 use std::sync::Arc;
 use xcap::Monitor;
 
+/// 一个用完即删的截图文件。三个后端都用它：GNOME Shell / 扩展写在私有临时目录，
+/// Portal 则把文件塞进用户的图片目录，任由它留着会把相册塞满。
 #[cfg(target_os = "linux")]
 pub(super) struct TemporaryScreenshotFile {
     path: std::path::PathBuf,
@@ -27,10 +29,7 @@ impl TemporaryScreenshotFile {
     fn remove_current(&self) {
         if let Err(error) = std::fs::remove_file(&self.path) {
             if error.kind() != std::io::ErrorKind::NotFound {
-                log::warn!(
-                    "删除 GNOME Shell 临时截图失败 {}: {error}",
-                    self.path.display()
-                );
+                log::warn!("删除临时截图失败 {}: {error}", self.path.display());
             }
         }
     }
@@ -43,17 +42,30 @@ impl Drop for TemporaryScreenshotFile {
     }
 }
 
+/// 冻结帧的后端链。顺序不是随手排的：
+///
+/// 1. **自带的 GNOME Shell 扩展**——GNOME Wayland 上唯一不弹对话框、不闪白、
+///    不往用户图片目录里落文件的路子。没装/没生效时一次 stat 就退出，代价可忽略。
+/// 2. **wlroots（libwayshot）**——sway/Hyprland 系合成器的原生路径。
+/// 3. **XDG Portal（只用非交互）**——KDE 等实现里最可靠的兜底。
+///    **绝不用 interactive 模式**：那个模式在 GNOME 上就是系统自带的截图界面，
+///    用户按 Clippy 的快捷键却看到系统 UI，还得再选一次区域，比失败更糟。
+/// 4. **org.gnome.Shell.Screenshot**——GNOME 现在白名单外一律拒绝，留着只为老版本。
+/// 5. **xcap/XRandR**——X11 会话的正路，Wayland 下只能看到 XWayland。
 #[cfg(target_os = "linux")]
-pub(super) fn capture_all_monitors(
-    allow_interactive_portal: bool,
-) -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
+pub(super) fn capture_all_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
     if is_wayland_session() {
+        match capture_all_shell_extension_monitors() {
+            Ok(result) => return Ok(result),
+            Err(e) => log::info!("GNOME Shell 扩展截图不可用，回退到 wlroots: {e:#}"),
+        }
+
         match capture_all_wayland_monitors() {
             Ok(result) => return Ok(result),
             Err(e) => log::warn!("Wayland wlroots 截图失败，回退到 Portal: {e:#}"),
         }
 
-        match capture_all_portal_monitors(allow_interactive_portal) {
+        match capture_all_portal_monitors() {
             Ok(result) => return Ok(result),
             Err(e) => log::warn!("XDG Portal 截图失败，回退到 GNOME Shell: {e:#}"),
         }
@@ -68,9 +80,7 @@ pub(super) fn capture_all_monitors(
 }
 
 #[cfg(not(target_os = "linux"))]
-pub(super) fn capture_all_monitors(
-    _allow_interactive_portal: bool,
-) -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
+pub(super) fn capture_all_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
     capture_all_xcap_monitors()
 }
 
@@ -162,10 +172,31 @@ fn capture_all_wayland_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)
     Ok((infos, frames))
 }
 
+/// 走自带 GNOME Shell 扩展的截图。几何仍旧自己枚举——扩展只负责画面。
 #[cfg(target_os = "linux")]
-fn capture_all_portal_monitors(
-    allow_interactive_portal: bool,
-) -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
+fn capture_all_shell_extension_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
+    let path = crate::capture::shell_extension_screenshot().map_err(|error| anyhow!(error))?;
+    // 包成 TemporaryScreenshotFile：读成功也好、解码失败也好，出了作用域文件一定被删。
+    let screenshot = TemporaryScreenshotFile::new(path);
+
+    let monitors = enumerate_wayland_monitors()
+        .or_else(|e| {
+            log::warn!("扩展截图无法复用 Wayland 几何，尝试 xcap 几何: {e:#}");
+            enumerate_xcap_monitors()
+        })
+        .context("无法枚举扩展截图显示器")?;
+
+    let bytes = std::fs::read(screenshot.path())
+        .with_context(|| format!("无法读取扩展截图 {}", screenshot.path().display()))?;
+    let image = image::load_from_memory(&bytes)
+        .context("无法解码扩展截图")?
+        .to_rgba8();
+
+    split_portal_screenshot(monitors, image)
+}
+
+#[cfg(target_os = "linux")]
+fn capture_all_portal_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
     let monitors = enumerate_wayland_monitors()
         .or_else(|e| {
             log::warn!("Portal 截图无法复用 Wayland 几何，尝试 xcap 几何: {e:#}");
@@ -173,17 +204,14 @@ fn capture_all_portal_monitors(
         })
         .context("无法枚举 Portal 截图显示器")?;
 
-    let screenshot = request_portal_screenshot(false)
-        .or_else(|error| {
-            if allow_interactive_portal {
-                log::warn!("非交互 Portal 截图失败，尝试用户触发的交互模式: {error:#}");
-                request_portal_screenshot(true)
-            } else {
-                Err(error)
-            }
-        })
-        .context("无法请求 Portal 截图")?;
+    // 只用非交互模式。interactive=true 在 GNOME 上就是系统自带的截图界面，
+    // 顶掉 Clippy 自己的覆盖层，属于比失败更糟的结果。
+    let screenshot = request_portal_screenshot().context("无法请求 Portal 截图")?;
     let path = portal_screenshot_uri_to_path(screenshot.uri().as_str())?;
+    // xdg-desktop-portal-gnome 把非交互截图存进用户的图片目录（实测
+    // ~/Pictures/Screenshot-N.png），一次截图留一份几百 KB 的垃圾。返回的文件按
+    // Portal 约定归调用方处置，读完就删——不删的话用户的相册会被冻结帧塞满。
+    let _cleanup = TemporaryScreenshotFile::new(path.clone());
     let bytes =
         std::fs::read(&path).with_context(|| format!("无法读取 Portal 截图 {}", path.display()))?;
     let image = image::load_from_memory(&bytes)
@@ -234,11 +262,19 @@ fn enumerate_wayland_monitors() -> Result<Vec<MonitorInfo>> {
     Ok(monitors)
 }
 
+/// 非交互 Portal 截图。
+///
+/// 已知会失败的一种情况，不要再花时间查：GNOME Wayland 上 xdg-desktop-portal 首次
+/// 非交互截图要弹一个系统授权对话框，而 gnome-shell 只允许**当前聚焦的应用**弹它
+/// （"Only the focused app is allowed to show a system access dialog"）。截图由全局
+/// 快捷键触发，那一刻 Clippy 没有窗口聚焦，于是对话框弹不出来、请求直接失败。
+/// GNOME 上的正解是走自带扩展（见 `capture_all_shell_extension_monitors`），
+/// 而不是退到 interactive 模式——那就是系统自带的截图 UI。
 #[cfg(target_os = "linux")]
-fn request_portal_screenshot(interactive: bool) -> Result<ashpd::desktop::screenshot::Screenshot> {
+fn request_portal_screenshot() -> Result<ashpd::desktop::screenshot::Screenshot> {
     let request = async {
         ashpd::desktop::screenshot::Screenshot::request()
-            .interactive(interactive)
+            .interactive(false)
             .modal(false)
             .send()
             .await?
@@ -267,19 +303,15 @@ fn request_gnome_shell_screenshot() -> Result<TemporaryScreenshotFile> {
     let path = directory.join(format!("gnome-shell-screenshot-{}.png", unique_suffix()));
     let mut screenshot = TemporaryScreenshotFile::new(path);
 
-    let connection = zbus::blocking::Connection::session().context("无法连接 D-Bus")?;
-    let proxy = zbus::blocking::Proxy::new(
-        &connection,
+    let filename = screenshot.path().to_string_lossy().to_string();
+    let (success, used_filename): (bool, String) = crate::dbus::call(
         "org.gnome.Shell.Screenshot",
         "/org/gnome/Shell/Screenshot",
         "org.gnome.Shell.Screenshot",
+        "Screenshot",
+        &(false, false, filename.as_str()),
     )
-    .context("无法连接 org.gnome.Shell.Screenshot")?;
-
-    let filename = screenshot.path().to_string_lossy().to_string();
-    let (success, used_filename): (bool, String) = proxy
-        .call("Screenshot", &(false, false, filename.as_str()))
-        .context("GNOME Shell Screenshot 调用失败")?;
+    .context("GNOME Shell Screenshot 调用失败")?;
     if !success {
         bail!("GNOME Shell Screenshot 返回 success=false");
     }
@@ -687,14 +719,15 @@ mod backend_diagnostics {
             std::env::var("DISPLAY").ok(),
             is_wayland_session(),
         );
-        describe("wlroots/libwayshot", capture_all_wayland_monitors());
         describe(
-            "portal(non-interactive)",
-            capture_all_portal_monitors(false),
+            "clippy shell extension",
+            capture_all_shell_extension_monitors(),
         );
+        describe("wlroots/libwayshot", capture_all_wayland_monitors());
+        describe("portal(non-interactive)", capture_all_portal_monitors());
         describe("gnome-shell", capture_all_gnome_shell_monitors());
         describe("xcap", capture_all_xcap_monitors());
-        describe("实际选用的链路", capture_all_monitors(false));
+        describe("实际选用的链路", capture_all_monitors());
     }
 
     /// 窗口枚举对截图链路的副作用诊断。报障是"加了窗口枚举之后截图变黑"，
@@ -723,6 +756,6 @@ mod backend_diagnostics {
             }
             Err(error) => println!("Window::all() 失败: {error}"),
         }
-        describe("枚举窗口之后再截一次", capture_all_monitors(false));
+        describe("枚举窗口之后再截一次", capture_all_monitors());
     }
 }

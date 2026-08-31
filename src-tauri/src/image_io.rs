@@ -14,7 +14,9 @@ const MAX_NAME_ATTEMPTS: u32 = 9;
 pub fn png_to_clipboard_image(png: &[u8]) -> Result<arboard::ImageData<'static>, String> {
     let image = image::load_from_memory_with_format(png, image::ImageFormat::Png)
         .map_err(|error| format!("PNG 解码失败: {error}"))?;
-    let rgba = image.to_rgba8();
+    // `into_rgba8` 而不是 `to_rgba8`：解出来本来就是 RGBA8 时（PNG 的常见情形）
+    // 前者原地接管缓冲区，后者要再拷一份 16 MB。
+    let rgba = image.into_rgba8();
     let (width, height) = rgba.dimensions();
     Ok(arboard::ImageData {
         width: width as usize,

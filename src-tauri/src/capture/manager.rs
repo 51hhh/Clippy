@@ -2,9 +2,55 @@ use super::error::CaptureError;
 use super::types::{CaptureOverlayPayload, CaptureSelection, OverlaySpec, WindowCandidate};
 use super::window_probe::probe_windows;
 use crate::screenshot::CapturedMonitorFrame;
-use base64::{engine::general_purpose::STANDARD, Engine};
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::time::Instant;
+
+/// 一次截图从按下快捷键到覆盖层显示的分段耗时。
+///
+/// "截图要三五秒"这类报障只能靠分段定位：链路每一环都成功，问题在于加起来太久，
+/// 而各段的量级完全不同（实测冻结帧 ~550 ms、窗口候选 ~3 ms、后端交付 ~0 ms、
+/// webview 冷启动 ~240 ms、前端绘制 ~130 ms）。所以每次会话都记一条汇总日志，别再靠猜。
+/// 完整分解见 docs/capture-linux.md §3.1。
+#[derive(Debug, Clone, Copy)]
+pub(super) struct StageTimings {
+    /// 会话开始（`show_capture_overlay` 进入）的时刻。
+    pub started: Instant,
+    /// 隐藏源窗口 + 等合成器 + 后端取冻结帧。
+    pub frames_ms: f64,
+    /// 窗口速选候选枚举。
+    pub probe_ms: f64,
+    /// 覆盖层第一次来取 payload 时距会话开始的时间，等价于"建窗 + webview 冷启动"。
+    pub payload_at_ms: f64,
+    /// 后端交付 payload 与原始帧字节的累计时间（多屏会累加）。
+    pub deliver_ms: f64,
+}
+
+impl Default for StageTimings {
+    fn default() -> Self {
+        Self {
+            started: Instant::now(),
+            frames_ms: 0.0,
+            probe_ms: 0.0,
+            payload_at_ms: 0.0,
+            deliver_ms: 0.0,
+        }
+    }
+}
+
+impl StageTimings {
+    pub(super) fn start() -> Self {
+        Self::default()
+    }
+
+    fn elapsed_ms(&self) -> f64 {
+        self.started.elapsed().as_secs_f64() * 1000.0
+    }
+}
+
+fn since(at: Instant) -> f64 {
+    at.elapsed().as_secs_f64() * 1000.0
+}
 
 #[derive(Default)]
 pub struct CaptureManager {
@@ -17,9 +63,13 @@ pub(super) struct CaptureSession {
     pub restore_labels: Vec<String>,
     frames: Vec<CapturedMonitorFrame>,
     windows: HashMap<u32, Vec<WindowCandidate>>,
+    /// 本次会话要不要在覆盖层里提示安装窗口速选服务。由 `begin` 的调用方决定，
+    /// manager 不去碰桌面环境与配置。
+    probe_hint: bool,
     /// 已经有覆盖层拿到键盘焦点。没有它的话，光标不在任何覆盖层里（Wayland 下拿不到光标时）
     /// 就没人接 Esc，整个会话只能靠杀窗口退出。
     focus_assigned: bool,
+    timings: StageTimings,
 }
 
 impl CaptureSession {
@@ -46,6 +96,8 @@ impl CaptureManager {
         &self,
         frames: Vec<CapturedMonitorFrame>,
         restore_labels: Vec<String>,
+        probe_hint: bool,
+        mut timings: StageTimings,
     ) -> Result<Vec<OverlaySpec>, CaptureError> {
         if frames.is_empty() {
             return Err(CaptureError::NoMonitorFrames);
@@ -55,7 +107,9 @@ impl CaptureManager {
             return Err(CaptureError::SessionBusy);
         }
         let id = crate::image_io::unique_image_id();
+        let at = Instant::now();
         let windows = probe_windows(&frames);
+        timings.probe_ms = since(at);
         let specs: Vec<_> = frames
             .iter()
             .map(|frame| OverlaySpec {
@@ -72,14 +126,16 @@ impl CaptureManager {
             overlays: specs.clone(),
             restore_labels,
             windows,
+            probe_hint,
             focus_assigned: false,
+            timings,
         });
         Ok(specs)
     }
 
     /// 覆盖层报告"首帧已经画好，可以显示了"。
     ///
-    /// 覆盖层是隐藏建窗的：webview 加载 + 取 payload + 解 PNG 期间窗口一旦可见，
+    /// 覆盖层是隐藏建窗的：webview 加载 + 取 payload + 铺底图期间窗口一旦可见，
     /// 用户看到的就是一整屏 webview 默认底色（白屏）。所以显示时机由前端决定。
     pub(super) fn reveal(
         &self,
@@ -109,12 +165,27 @@ impl CaptureManager {
         if take_focus {
             session.focus_assigned = true;
         }
+        let timings = session.timings;
+        log::info!(
+            "截图覆盖层 {label} 就绪：总 {:.0} ms = 冻结帧 {:.0} + 候选 {:.0} + 建窗与 webview {:.0} + 后端交付 {:.0} + 前端绘制 {:.0}",
+            timings.elapsed_ms(),
+            timings.frames_ms,
+            timings.probe_ms,
+            timings.payload_at_ms - timings.frames_ms - timings.probe_ms,
+            timings.deliver_ms,
+            timings.elapsed_ms() - timings.payload_at_ms - timings.deliver_ms,
+        );
         Ok(RevealPlan { take_focus })
     }
 
     pub(super) fn payload(&self, label: &str) -> Result<CaptureOverlayPayload, CaptureError> {
-        let current = self.session.lock().map_err(CaptureError::state_lock)?;
-        let session = current.as_ref().ok_or(CaptureError::SessionMissing)?;
+        let at = Instant::now();
+        let mut current = self.session.lock().map_err(CaptureError::state_lock)?;
+        let session = current.as_mut().ok_or(CaptureError::SessionMissing)?;
+        // 多屏时每块覆盖层各取一次；只记第一次，它才代表"建窗 + webview 冷启动"。
+        if session.timings.payload_at_ms == 0.0 {
+            session.timings.payload_at_ms = session.timings.elapsed_ms();
+        }
         let index = session
             .overlays
             .iter()
@@ -124,12 +195,11 @@ impl CaptureManager {
             .frames
             .get(index)
             .ok_or(CaptureError::OverlayFrameMissing)?;
-        let png = crate::screenshot::encode_png(&frame.rgba, frame.pixel_width, frame.pixel_height)
-            .map_err(CaptureError::codec)?;
-        Ok(CaptureOverlayPayload {
+        let payload = CaptureOverlayPayload {
             session_id: session.id.clone(),
             monitor_id: frame.monitor_id,
-            png_base64: STANDARD.encode(png),
+            logical_x: frame.x,
+            logical_y: frame.y,
             logical_width: frame.logical_width,
             logical_height: frame.logical_height,
             pixel_width: frame.pixel_width,
@@ -139,7 +209,35 @@ impl CaptureManager {
                 .get(&frame.monitor_id)
                 .cloned()
                 .unwrap_or_default(),
-        })
+            probe_hint: session.probe_hint,
+        };
+        session.timings.deliver_ms += since(at);
+        Ok(payload)
+    }
+
+    /// 这块覆盖层的冻结帧原始 RGBA。
+    ///
+    /// 直接把 `Arc<[u8]>` 交出去（只有一次引用计数），由 IPC 以二进制原样送进 webview：
+    /// 前端 `putImageData` 就能得到底图，全链路一次编解码都没有。曾经这里是
+    /// "Rust 编 PNG → base64 → JSON → atob → webview 解 PNG"，实测四段加起来占了
+    /// 覆盖层出现前的一半时间。
+    pub(super) fn frame_rgba(&self, label: &str) -> Result<std::sync::Arc<[u8]>, CaptureError> {
+        let at = Instant::now();
+        let mut current = self.session.lock().map_err(CaptureError::state_lock)?;
+        let session = current.as_mut().ok_or(CaptureError::SessionMissing)?;
+        let index = session
+            .overlays
+            .iter()
+            .position(|spec| spec.label == label)
+            .ok_or(CaptureError::OverlayNotInSession)?;
+        let rgba = session
+            .frames
+            .get(index)
+            .ok_or(CaptureError::OverlayFrameMissing)?
+            .rgba
+            .clone();
+        session.timings.deliver_ms += since(at);
+        Ok(rgba)
     }
 
     pub(super) fn crop(&self, selection: &CaptureSelection) -> Result<Vec<u8>, CaptureError> {
@@ -297,6 +395,8 @@ mod tests {
             id: "session-1".to_string(),
             overlays: vec![overlay(&label)],
             focus_assigned: false,
+            timings: StageTimings::default(),
+            probe_hint: false,
             restore_labels: Vec::new(),
             frames: vec![monitor_frame],
             windows: HashMap::new(),
@@ -322,6 +422,8 @@ mod tests {
             id: "session-3".to_string(),
             overlays: vec![overlay(&label)],
             focus_assigned: false,
+            timings: StageTimings::default(),
+            probe_hint: false,
             restore_labels: Vec::new(),
             frames: vec![frame(2.0)],
             windows: HashMap::from([(
@@ -343,8 +445,66 @@ mod tests {
         assert_eq!(json["pixelWidth"], 200);
         assert_eq!(json["pixelHeight"], 100);
         assert_eq!(json["windows"][0]["title"], "picked");
+        assert_eq!(json["probeHint"], false);
         // 提交动作已经不由后端配置决定：工具条恒定显示在选区旁边。
         assert!(json.get("commitAction").is_none());
+        // 像素不走 JSON：编一次 PNG + base64 再让 webview 解回来是纯粹的浪费，
+        // 冻结帧由 frame_rgba 以二进制单独交付。
+        assert!(json.get("pngBase64").is_none());
+    }
+
+    /// 覆盖层的底图走这条路：原始 RGBA、长度必须正好等于 4 × 像素数，
+    /// 前端才能直接 `new ImageData(...)`。
+    #[test]
+    fn frame_rgba_serves_the_exact_pixel_buffer_of_that_overlay() {
+        let manager = CaptureManager::new();
+        let label = "capture-overlay-session-4-7".to_string();
+        *manager.session.lock().unwrap() = Some(CaptureSession {
+            id: "session-4".to_string(),
+            overlays: vec![overlay(&label)],
+            focus_assigned: false,
+            timings: StageTimings::default(),
+            probe_hint: false,
+            restore_labels: Vec::new(),
+            frames: vec![frame(2.0)],
+            windows: HashMap::new(),
+        });
+
+        let rgba = manager.frame_rgba(&label).unwrap();
+        assert_eq!(rgba.len(), 200 * 100 * 4);
+        assert!(rgba.iter().all(|byte| *byte == 255));
+        // 不认识的 label 不能拿到任何一块屏的像素。
+        assert_eq!(
+            manager
+                .frame_rgba("capture-overlay-session-4-9")
+                .unwrap_err()
+                .code(),
+            "overlay_not_in_session"
+        );
+        manager.finish("session-4").unwrap();
+        assert_eq!(
+            manager.frame_rgba(&label).unwrap_err().code(),
+            "session_missing"
+        );
+    }
+
+    /// 多显示器时提示只应该出现一次，所以标志位挂在会话上而不是每块覆盖层各判一次。
+    #[test]
+    fn probe_hint_reaches_every_overlay_of_the_session() {
+        let manager = CaptureManager::new();
+        let specs = manager
+            .begin(
+                vec![frame(1.0), frame(1.0)],
+                Vec::new(),
+                true,
+                StageTimings::default(),
+            )
+            .unwrap();
+        assert_eq!(specs.len(), 2);
+
+        for spec in &specs {
+            assert!(manager.payload(&spec.label).unwrap().probe_hint);
+        }
     }
 
     #[test]
@@ -355,6 +515,8 @@ mod tests {
             id: "session-1".to_string(),
             overlays: vec![overlay(&label)],
             focus_assigned: false,
+            timings: StageTimings::default(),
+            probe_hint: false,
             restore_labels: vec!["main".to_string()],
             frames: vec![frame(1.0)],
             windows: HashMap::new(),
@@ -386,6 +548,8 @@ mod tests {
             id: "session-2".to_string(),
             overlays: vec![overlay(&label)],
             focus_assigned: false,
+            timings: StageTimings::default(),
+            probe_hint: false,
             restore_labels: Vec::new(),
             frames: vec![frame(1.0)],
             windows: HashMap::new(),
@@ -424,6 +588,8 @@ mod tests {
                 },
             ],
             focus_assigned: false,
+            timings: StageTimings::default(),
+            probe_hint: false,
             restore_labels: Vec::new(),
             frames: vec![frame(1.0)],
             windows: HashMap::new(),

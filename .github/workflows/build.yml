@@ -68,6 +68,9 @@ jobs:
       - name: Rust tests
         run: cd src-tauri && cargo test
 
+      - name: GNOME extension check
+        run: ./scripts/check-gnome-extension.sh
+
       - name: Frontend tests
         run: cd src && npx vitest run
 

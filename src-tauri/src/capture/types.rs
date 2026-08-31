@@ -32,17 +32,29 @@ pub struct WindowCandidate {
     pub title: String,
 }
 
+/// 覆盖层开局需要的一切**除了像素**。
+///
+/// 冻结帧本身由 `get_capture_frame` 单独交付原始 RGBA：以前这里带一个 `pngBase64`，
+/// 于是 2560×1600 的帧要在 Rust 里编码一次 PNG（实测 215 ms）、base64 一次（3 MB 字符串）、
+/// 再在 webview 里 atob + 解码一次。像素不走 JSON 之后这两头的开销一起没了，
+/// 详见 docs/capture-linux.md §3。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CaptureOverlayPayload {
     pub session_id: String,
     pub monitor_id: u32,
-    pub png_base64: String,
+    /// 这块显示器在桌面逻辑坐标系里的左上角。覆盖层的选区坐标是相对自己的，
+    /// 加上这个偏移才是"屏幕上的哪一块"——贴图靠它贴回原位（见 `pin::PinOrigin`）。
+    pub logical_x: i32,
+    pub logical_y: i32,
     pub logical_width: u32,
     pub logical_height: u32,
     pub pixel_width: u32,
     pub pixel_height: u32,
     pub windows: Vec<WindowCandidate>,
+    /// 这次要不要在覆盖层里提示"窗口速选需要在设置页安装服务"。
+    /// 由后端决定并且只置真一次，覆盖层照做即可，自己不判断桌面环境。
+    pub probe_hint: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
