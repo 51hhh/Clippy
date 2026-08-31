@@ -14,6 +14,9 @@ use std::sync::Arc;
 mod backends;
 mod geometry_check;
 
+/// 几何诊断报告：报障时把数字摊开，不含像素与窗口标题。
+pub(crate) mod diagnostics;
+
 /// fixture 的格式定义，诊断的输出侧与回归测试的输入侧共用。
 #[cfg(target_os = "linux")]
 mod layout_format;

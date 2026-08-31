@@ -1,4 +1,6 @@
 mod action_lifecycle;
+/// 几何诊断报告。报障与"补一条回归测试"之间的那一步，见 docs/capture-linux.md §4.2。
+pub mod diagnostics;
 mod error;
 mod manager;
 mod overlay_windows;
