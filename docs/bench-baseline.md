@@ -75,6 +75,17 @@ cargo bench -- --warm-up-time 0.5 --measurement-time 1.5 --sample-size 20
   拆成只读 IHDR 的 `png_dimensions`（505 ns）和整张解码的 `validate_png`（20 ms）之后，
   后者只留在信任边界上——前端提交的 base64 一次。`PinOrigins::lookup` 尤其受益：
   它的注释一直写着"读个头做预筛"，而实现在拆分前是解两遍整张图。
+- **已知边界（量过，暂不改）：列表查询返回的是完整 `text_content`。** `get_clips`
+  的 SELECT 没有截断，于是库里躺着一条几 MB 的文本时，每次刷新列表（新增条目、
+  切收藏、每次搜索输入）都要把那几 MB 从 SQLite 读出、序列化成 JSON、再由 webview
+  解析一遍。前端在**渲染**上已经封了口（列表行只画一行、预览封在 200 KiB，
+  见 `src/js/preview/large-text.js`），封不住的是这段传输。
+  之所以没顺手加 `substr(text_content, 1, N)`：前端不只拿它来画，还拿它做类型判定
+  （`preview/detectors.js`：JSON 要 parse 成功、base64 要整段解码）和翻译取词。
+  在 SQL 里截断会让一条大 JSON 悄悄降级成 TEXT，要做对就得同时给出"少了多少字节"
+  的诚实信号 + 一条按需取全文的路径，而 `get_clip_detail` 目前是同步跑在 GTK 线程上。
+  改动面比收益大，因此记在这里而不是偷偷截断——真要动，先把 `get_clip_detail`
+  挪出 GTK 线程。
 - 搜索在 2000 行量级是几十到几百微秒，远低于输入节流，当前不是瓶颈。
   注意 FTS5 前缀查询（298 µs）比 LIKE 回退（38 µs）慢，这不是 FTS5 的问题：
   基准数据里每行都含 `clipboard`，FTS 分支要为几乎全部行算相关性，而两字符查询走的
