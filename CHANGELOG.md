@@ -2,6 +2,60 @@
 
 ## 未发布
 
+### ✨ 新功能
+
+**GNOME Wayland 上的窗口速选（自带 Shell 扩展）**
+- 起因：GNOME Wayland 下客户端拿不到任何窗口的屏幕坐标，速选只能看到 XWayland 客户端
+  （本机实测一整个会话只有 0~1 个）。逐个实测排除了 `Shell.Introspect.GetWindows`（只有宽高、
+  且限定 xdg-desktop-portal 调用）、`Shell.Screenshot`（白名单外一律拒绝）、`Shell.Eval`（已禁用）、
+  `ext-foreign-toplevel-list-v1` / `wlr-foreign-toplevel-management`（协议不含几何，Mutter 也不实现）、
+  AT-SPI `Component.GetExtents`（原生 Wayland 窗口位置恒为 (0,0)）。唯一持有这份数据的是
+  gnome-shell 自己，所以 Clippy 附带一个只上报窗口矩形的小扩展
+  （`gnome-extension/clippy-windows@clippy.local/`，`include_str!` 内嵌，deb/AppImage/dev 同一份）。
+- **设置 → 截图** 新增服务卡片：安装 / 卸载 / 重新检测，状态用低透明度的绿（在跑）、
+  橙（装好了待注销、或被系统关掉了全部扩展）、红（未安装）底色 + 同色左边框区分。
+- 安装**只能由用户点击触发**，应用绝不擅自往用户的 GNOME 里塞扩展；启动时只做自检
+  （内容过期就静默升级、目录被手工删掉就清掉 gsettings 孤儿条目）。
+- 装完需要**注销一次**才生效（Shell 不热扫描新扩展目录），安装后明确提示；**卸载即时生效**，
+  不需要注销。deb `purge` 时兜底清理各用户目录下的扩展。
+- 令牌：`GetWindows` 要求出示扩展目录里的 0600 令牌文件内容（32 字节随机数）。窗口标题会泄露
+  用户在做什么，所以不对本机所有进程开放；挡得住其他用户与沙箱应用（有 session bus 但读不到
+  `$HOME`），挡不住同用户的普通进程——同用户之间本来就没有边界，这点在文档里写明，不假装解决。
+- 首次在 GNOME Wayland 上遇到速选不可用时，覆盖层给一条能照着做的提示（去设置页安装 + 注销），
+  只提示一次（`capture_probe_hint_shown`）：没有这个服务照样能自由框选，反复提示纯属打扰。
+- 扩展同时负责**拍冻结帧**（协议 v2 的 `Screenshot(s token) -> s`，同一个令牌把关——
+  一整屏画面至少和窗口标题一样敏感）：拍整个 stage，不含光标、不闪白、不往图片目录写文件，
+  落在 `$XDG_RUNTIME_DIR/clippy-shots/` 下的 0600 临时文件，Clippy 读完即删
+  （Rust 侧只接受这个目录里的 `.png` 路径）。于是 GNOME Wayland 上的后端顺序变成
+  扩展 → wlroots → Portal（非交互）→ GNOME → xcap。服务卡片因此改名 "GNOME Screen Helper"，
+  文案覆盖两项能力。
+- 新增 **"Update pending"** 状态：`ReloadExtension` 实测已废弃（`NotSupported:
+  ReloadExtension is deprecated and does not work`），所以 Clippy 升级后磁盘上是新版、
+  跑着的还是上次登录加载的旧版。这时卡片不再谎称"已就绪"，而是提示注销一次；
+  期间窗口速选照旧可用，扩展截图自动回退到别的后端。
+
+**设置页分页**
+- 拆成 常规 / 截图 / 翻译 / 关于 四页，配 roving tabindex 与方向键/Home/End 导航，
+  记住上次停留的分页。面板只切 `hidden` 不销毁——各控制器在装配时就抓住了元素引用。
+
+**贴图窗口置顶，并且落回原来的位置和大小**
+- 扩展协议抬到 **v3**，新增 `PlaceWindow(s token, u pid, s marker, i x, i y, b reposition, b above) -> b`。
+  GNOME Wayland 上客户端既不能给自己定位、也不能自己抬到最上层——`set_position` 与
+  `set_always_on_top` 都是**静默空操作**，所以"贴图出现在屏幕中间、随手被别的窗口盖住"
+  一直是这条限制的表现，不是代码漏了。唯一能做到的地方还是 gnome-shell 进程内部
+  （`MetaWindow.move_frame` / `make_above`）。摆位与置顶都是**能则用**：两条路都失败只意味着
+  位置或层级不理想，绝不让贴图本身失败。X11 上照旧走 Tauri 自己那套。
+- 截图选区的桌面逻辑坐标随 `commit_capture_action` 的新 `origin` 参数传到后端，贴图就落在
+  刚才框的那块上，大小也一致（只缩不放地钳进工作区）。窗口位置是 `origin − 12 逻辑像素`：
+  要盖住原处的是内容区，而内容区相对窗口原点偏移一圈阴影留白。
+- **从剪贴板历史里再 Pin 同一张图也回原处**：`PinOriginRegistry`（`pin/origins.rs`，
+  挂在 `AppState.pin_origins`，最多记 16 条）在"复制成功之后"登记来源矩形。键是
+  **解码后像素**的 sha256（宽高一起进哈希），不是 PNG 字节——图片经 arboard 走一圈是原始 RGBA，
+  watcher 会重新编码，PNG 字节不稳定，按字节比对必然认不出来。
+  从别处复制来的图没有位置信息，仍旧居中显示，这是设计。
+- ⚠️ 协议抬版之后**已登录的会话必然是 `stale`**（设置页显示 "Update pending"），
+  此时摆位与置顶会退回 Tauri 那套、在 Wayland 上看起来像没生效。注销重登一次才生效。
+
 ### 🔄 变更
 
 **截图改成"一个窗口走完全程"（参考 [flashot](https://github.com/poneding/flashot)，MIT）**
@@ -14,8 +68,64 @@
   裁剪在前端画布上完成，后端不再按选区裁第二遍——那会丢掉画布上的标注。
   选区翻译仍走后端裁剪，OCR 要的是原始像素。
 
+**贴图窗口调不透明度的按键从 Ctrl+滚轮改成 Shift+滚轮**
+- WebKitGTK 把触控板捏合合成成 ctrl+滚轮，留着这个绑定的话捏合会顺手把贴图调成半透明。
+  现在 ctrl/meta+滚轮在贴图上是**彻底的空操作**（照旧 `preventDefault`，不落给页面缩放）。
+
 ### 🐛 修复
 
+- **截图复制完去 Pin 剪贴板条目，贴出来的是上一张图**。根因是**前端焦点索引漂移**，
+  与入库快慢无关（用户的库里那几张新图 id、哈希、字节数全都对，是焦点指错了行）：
+  - 面板一失焦就 `releaseMemory()` 把列表清空，而 `releaseNavigation` 当时把 `focusedRow`
+    归成 **0**——列表已经空了，0 是个不存在的行。接着 `clip-added` 到达，`prependClip` 把这个
+    幻影焦点当真、按 `focusedRow + 1` "让"给新条目，于是重新打开面板时焦点停在**第二行**。
+    Pin 的两个入口（全局快捷键与 Ctrl+P）都读 `getFocusedClip()`，列表行上又没有 Pin 按钮，
+    所以从历史里 Pin 出来的必然是上一条。躲在后台连截两张，焦点就掉到第三行。
+  - 两处一起改：`releaseNavigation` 现在报 `focusedRow: -1`（"没有焦点行"，重新加载时
+    `normalizeAfterRefresh` 会收拢成 0，所以打开面板照样高亮最新那条）；`prependClip` 改成
+    **按 id 跟踪焦点**而不是做索引加减——用户正看着的那一行不该在眼皮底下换成别的内容。
+    顺带修掉第二个老毛病：同一张图再复制一次时 `insert_clip` 按哈希去重、只把它顶到最前，
+    列表长度不变，原来的 +1 纯属把焦点推歪。
+  - `js/clipboard-list.js` 与 `react/main/clipboardStore.ts` 两份实现同时改（前者目前运行时
+    不生效，但只改一份的话渲染一旦切回去 bug 就复活），regression guard 钉住两边都不做索引加减。
+  - 覆盖层工具条上的图钉那条路本来就是对的（用的是刚提交的那份 PNG 字节，标签也唯一），
+    与这个 bug 无关。
+- **顺带缩掉自己复制的内容进历史的延迟**（排查上面那条时先怀疑的是这里，实测不是根因，
+  但改进本身是对的）：点对钩的 `Copy` 只把 PNG 写进系统剪贴板（`capture/mod.rs`），
+  **入库是 watcher 下一次轮询才做的事**，而那是个 500 ms 的裸 `thread::sleep` 循环，
+  没有任何唤醒口。现在 `writer.rs` 的三个写入口写成功后都敲一下 `wake::nudge()`，
+  watcher 的等待换成带待处理标记的条件变量（`clipboard_watcher/wake.rs`），当场醒来把它收进去，
+  窗口期从最多 500 ms 缩到几毫秒。
+  **没有改成"写入方自己 `insert_clip`"**：watcher 的哈希算的是它自己从剪贴板 RGBA 重新编出来的
+  那张 PNG，与我们手里的字节几乎不可能一致，写入方插一条之后 watcher 500 ms 后还会因为哈希不同
+  再插一条；要让两边一致就得用 watcher 的编码器把整图再编一遍，那正是刚从提交热路径上省掉的
+  开销。入库仍然只有 watcher 一条路径——哈希基准、去重、`clip-added` 全都不变。
+  用布尔标记而不是裸 `notify_one()`，是因为敲的时候 watcher 可能正忙着编码上一张图，
+  裸通知会被丢掉。
+- **全局 Pin 快捷键不再退回前端列表缓存**：原来是 `getFocusedClip() || getLatestClip()`，
+  而 `getLatestClip()` 读的是内存缓存 `_allClips[0]`，读库兜底只在列表整个空掉时才生效。
+  现在没有明确焦点行时**一律问后端要最新一条**（`js/pin-target.js`）。
+- **删掉没有调用方的 `pin_screenshot_image`**：独立的截图编辑器窗口下线后它就没人调了，
+  留着等于白留一个"从任意 base64 开窗"的入口。
+- **装上扩展之后按截图快捷键直接 panic**（`Cannot start a runtime from within a runtime`）：
+  ashpd 打开了 zbus 的 `tokio` feature，于是 `zbus::blocking` 内部用一个静态多线程 runtime 做
+  `block_on`，而 tokio 不允许在已进入 runtime 的线程上再起一个。实测 async worker 线程上必炸、
+  `spawn_blocking` 线程侥幸能过——于是"装扩展前一切正常、装完就崩"：没装时 `probe()` /
+  `hint_needed()` 在碰 D-Bus 之前就返回了。新增 `dbus.rs` 作为阻塞 D-Bus 的唯一入口
+  （先跳一条干净的 OS 线程再开连接），扩展与 `org.gnome.Shell.Screenshot` 两处共六个调用点
+  全部改走它；`dbus::tests::blocking_calls_survive_inside_an_async_task` 正反两个方向都钉住。
+- **按截图快捷键弹出来的是系统的截图界面**：xdg-desktop-portal 的非交互截图在第一次使用前要弹
+  一次系统授权对话框，而 gnome-shell 只允许**当前聚焦的应用**弹它（实测
+  `AccessDenied: Only the focused app is allowed to show a system access dialog`）。截图由全局
+  快捷键触发，此刻 Clippy 没有聚焦窗口，于是这条路必然失败、并回退到 `interactive = true`——
+  在 GNOME 上那就是 GNOME 自己的截图 UI。现在 GNOME Wayland 优先走自带扩展拍帧，
+  交互式回退整条删掉：宁可干净地失败，也不能让用户按 Clippy 的快捷键看到系统截图界面。
+  （顺带记一笔：Portal 的权限按 app id 存，而 app id 来自 systemd scope，dev 下是 `code`，
+  所以"我记得授权过"跟当前进程能不能用是两件事。）
+- **截图往用户的图片目录里堆文件**：xdg-desktop-portal-gnome 把每张非交互截图写成
+  `~/图片/Screenshot-N.png` 并把处置权交给调用方，而 Clippy 只读不删，攒出过几十个残留文件。
+  现在 Portal 与扩展两条路的返回文件都由 `TemporaryScreenshotFile` 兜住，
+  解码成功与否都会在作用域结束时删除。
 - **"截屏是黑的"**：冻结帧本来就是正常的，黑的是覆盖层窗口自己——Wayland 不允许客户端摆放窗口，
   Tauri 的 `position()`/`set_size()` 被 GNOME 静默忽略。改为配置底层 GTK 窗口，
   由合成器 `fullscreen_on_monitor` 铺满按最大重叠面积选出的显示器。
@@ -32,15 +142,155 @@
 - **窗口速选框歪了**：`xcap::Window` 给的是 X screen 原始像素的**客户端**矩形，
   混了坐标空间（实测一个 QQ 窗口被报成 2598 像素宽）；现在先按 `X 像素 / 逻辑像素` 折算，
   再减掉 `_GTK_FRAME_EXTENTS`（CSD 阴影），小于 20 逻辑像素的候选丢弃。
+- **窗口速选按"面积小的赢"来判遮挡，答案与肉眼相反**：一个大窗口压在小窗口上时选到的是
+  看不见的那个。改为真正的堆叠顺序——扩展侧 `sort_windows_by_stacking().reverse()`，
+  X11 侧读 `_NET_CLIENT_LIST_STACKING`（协议自下而上，同样反转），枚举不到的窗口沉到最底；
+  前端 `windowAt` 取第一个命中的候选，被完全遮住的窗口自然选不到。
+- **可见的窗口被当成最小化而整个消失**：xcap 的 `is_minimized()` 把一个正常显示的 QQ 窗口
+  报成已最小化，于是唯一的候选被丢掉。改为读 ICCCM `WM_STATE`（首值 `3 == IconicState`），
+  用的是模块本来就持有的那条 X 连接。
 - 顺手删掉随编辑器窗口一起失去入口的三个命令（`copy_screenshot_image`、`save_screenshot_image`、
   `save_screenshot_image_as`）：它们接受任意 base64 就写文件/剪贴板，留着是没人用的攻击面。
+- **在贴图上用触控板捏合会把整个页面缩放掉**（内容溢出窗口、工具栏错位）：React 17+ 把
+  `wheel` 注册成**被动**监听器，所以写在 `onWheel` 里的 `preventDefault()` 是空操作，
+  而 WebKit 把捏合合成成 ctrl+滚轮、默认行为就是页面缩放。改为自己用 `{ passive: false }`
+  注册原生监听器并无条件 `preventDefault`；同时吃掉 WebKit 专有的 `gesturestart/change/end`
+  与 Ctrl+`+`/`-`/`=`/`_`/`0` 这几个页面缩放快捷键（`+`/`-` 顺手转成贴图自己的缩放）。
+  后端再加一道锁：`pin_window.rs` 在建窗时把 WebKitGTK 的 `zoom_level` 钉在 1.0，
+  `zoom-level` 通知里发现被改动就改回去（比较留容差，严格比较会让回调自己触发自己）。
+  滚轮缩放贴图不受影响——那是我们自己处理的手势，不是页面缩放。
+- **拖动贴图有时被识别成"选中图片"，整块刷成橙色**（Ubuntu 的系统强调色）：
+  拦掉 `selectstart` 与 `dragstart`（文本贴图的 `<pre>`、输入框与 `contenteditable` 例外，
+  否则文本贴图就没法划选了），图片加 `-webkit-user-drag: none`，并把 `::selection` 底色兜底成透明。
+  **窗口照旧可以拖动、也照旧可以点击获得焦点**——只是不再选中内容。
+- **截完图按全局 Pin 键，贴出来的还是上一张**（前两轮都没修到根上）。真正的触发条件是
+  **右侧预览或左侧编解码侧栏开着**：这时失焦不隐藏主窗口（`window_events.rs::
+  should_hide_on_focus_loss`），前端也就不会 `releaseMemory()`（`app.js::onWindowBlur`），
+  于是整份列表连焦点一起活过整个截图流程。而 `prependClip` 是**按条目**跟踪焦点的
+  （用户正看着的那行不该在眼皮底下换成别的内容，这是对的），新截图插到第 0 行后焦点跟着
+  老条目挪到第 1 行——按 Pin 贴的就是上一张，再截一张就掉到第 2 行。
+  两道独立的修法：
+  - `resolvePinTarget` 新增第三个参数 `panelFocused`，只有 `document.hasFocus()` 为真时
+    才信焦点行；全局快捷键不会抢焦点，所以面板没焦点就一定不是"用户正看着的行"，
+    一律问后端要最新一条。漏传参数时退化成"问后端"，慢一点但绝不会贴错。
+  - `onWindowFocus` 两条分支都 `restoreRender()`。以前只有"不脏"那条复位，
+    而 `refresh()` 里的 `normalizeAfterRefresh` 只做钳位、不复位，于是面板不可见期间
+    来了新条目时，打开面板高亮的是第二行，按回车/Ctrl+P 命中的也是上一条。
+### ⚡ 性能
+
+**截图从按下快捷键到覆盖层出现：1449 ms → 901~957 ms**（本机实测，dev 构建，
+单屏 2560×1600 物理 / 1920×1200 逻辑，GNOME 50.1 Wayland）
+
+- 先量后改。新增 `StageTimings`：每次会话在 `CaptureManager::reveal` 打一条分段汇总日志
+  （冻结帧 / 窗口候选 / 建窗与 webview / 后端交付 / 前端绘制），更细的分解用
+  `cargo test --lib capture_stage_timings -- --ignored --nocapture`。
+  结论之一是**报障猜的"获取窗口导致变慢"并不成立**：窗口枚举全程 3~4 ms，
+  1449 ms 里占千分之三。
+- **冻结帧像素不再走 JSON。** payload 去掉 `pngBase64`，改由新命令 `get_capture_frame`
+  以二进制 IPC 直传原始 RGBA，前端 `new ImageData` + `putImageData` 铺进离屏 canvas。
+  省掉的是同一张图被处理四次：Rust 编 PNG（215 ms）→ base64（3 MB 字符串）→
+  webview `atob` → WebKit 解 PNG。后端交付 225 ms → ~0 ms，前端解码绘制 453 ms → 108~156 ms。
+  字节数反而更大（16 MB vs 2.2 MB），但两头都是零编码。
+- 隐藏自己的窗口之后那 140 ms 合成器落定等待改成**按需**：快捷键截图的常态是面板本来就没开着
+  （`hide_sources` 返回空），这时白等纯粹是加在感知延迟上的。面板开着时照旧等，
+  少了它会把 Clippy 自己的面板烧进冻结帧。
+- 剩下的 550 ms 冻结帧**是地板**：gnome-shell 在自己进程里把 stage 编码成 PNG 才交回路径，
+  而 Shell 的 typelib 里 JS 能碰到的像素导出路径全都要么落 PNG、要么给一个不透明的
+  `Clutter.Content`，扩展这一侧没有拿到原始像素的路。已在文档里写明，别再重复调研。
+- `env_logger` 默认过滤器设为 `clippy_lib=info,warn`。此前默认只放行 `error`，
+  于是所有 `log::info!`/`log::warn!`（包括"覆盖层超时未报告首帧"）都是写给空气的，
+  排障线索一条都看不到；`RUST_LOG` 仍然优先。
+
+**贴图缩放的每帧开销**（滚轮缩放走 `update_pin` → `resize_pin_window` → `keep_pin_above`
+→ `PlaceWindow`，而 `update_pin` 是同步命令、**跑在主线程上**，这条路上的任何阻塞都直接卡 UI）
+
+- **session D-Bus 连接改成复用**（`dbus.rs`）。`Connection::session()` 每次都要重做一轮
+  SASL 握手 + `Hello`（1~2 ms），而缩放时每帧要发两次（`GetVersion` + `PlaceWindow`）。
+  连接缓存在 `OnceLock<Mutex<Option<Connection>>>` 里（`zbus::Connection` 是 Arc 支撑的
+  Send+Sync 句柄，克隆很便宜）。失效判据是 `worth_reconnecting`：`Error::MethodError`
+  说明对端**应答了**，连接是好的，绝不能重连重试；其余错误才丢缓存重连一次。
+  **存入缓存的判据（`worth_caching`）必须是它的反面**：只按 `result.is_ok()` 判会把一条被
+  业务错误拒绝、但本身完好的连接扔掉，于是"扩展没装 / 版本不对"这类每次都失败的探测，
+  每一次都要重新握手一遍，而这条路上有跑在主线程的调用方。
+- **`place_window` 的前置检查加缓存**（`capture/shell_extension.rs`）。以前每帧都要
+  读 `metadata.json`、比一遍 gsettings `enabled-extensions` 那串 13 KB 字符串、发一次
+  `GetVersion` 协商协议、再读一次令牌文件。现在结果缓存在 `placement_token()`：
+  成功一直有效，失败 30 秒后重试（用户可能刚在设置页装上），`install()`/`uninstall()`
+  以及 `PlaceWindow` 自己报错都会立刻作废缓存。
+- **`update_pin` 的应答不再带图片。** 新增 `PinState`（label、内容尺寸、scale、opacity、
+  locked、position），**故意不含 `imageBase64`/`text`**：每帧把整张图重编一遍 base64
+  纯属浪费，而且会让前端重建图片 object URL、造成闪烁。前端
+  `react/pin/update-order.ts::mergePinState` 把应答合并进手里那份 payload
+  （直接整份替换会把内容与 `canSave` 抹成 undefined，`pin-gestures.test.js` 钉住了这点）。
+
+**打开面板时的图片条目**
+
+- **列表行不再取原图。** 新增 `get_clip_thumbnail` 命令：后端用 `image` crate 的
+  `thumbnail()` 快路径把图缩到最长边 128 px 再交出去（行里那格是 48 CSS px，
+  2× 屏上 96 物理像素）。此前两个列表渲染器都调 `get_clip_image`，于是为了画 48×48
+  要把库里存的原图（一张全屏截图 2560×1600 / 几 MB）整份送进 webview 再全尺寸解码一次，
+  一次开面板十几个图片条目就是几十 MB IPC 加十几次 PNG 解码，全落在 webview 那一个线程上。
+  缩完一条几 KB，base64 那 33% 的膨胀也就无所谓了，不必为它改二进制 IPC。
+  预览面板照旧取原图（缩略图会糊），这条由回归断言钉住。
+- 缩略图结果按 id 缓存（进程级 FIFO，64 条，`ThumbnailCache`）：缩一次要解一遍原图，
+  而同一条记录会反复出现在每次打开的列表里。`clips.id` 自增不复用、内容不可变，
+  所以这个缓存永不失效。
+- `get_clip_image` 改成 `async`：同步命令跑在 GTK 主线程上，而它要读一个几 MB 的 blob
+  再 base64 编一遍。函数体里没有 `.await`，`MutexGuard` 不跨让点。
+
+**其它**
+
+- **截图点对钩时少解一遍全屏 PNG。** `Copy` 分支以前解码两次：一次给剪贴板、一次给来源登记。
+  现在解一次，两边共用同一份像素。登记方收的是新的 `PinFingerprint`（宽高 + 已经算好的摘要），
+  所以既不用再解码、也不用复制那 16 MB 像素，同时保持"复制成功之后才登记"的顺序
+  （复制失败就登记，只会让将来某张碰巧一样的图错位）。
+- **`PinOriginRegistry::lookup` 先比宽高再解码。** 尺寸单独存一份，只读 PNG 文件头就能判定；
+  没有任何登记项的尺寸对得上时直接返回，省掉整张解码。
+  `the_size_prefilter_never_hides_a_real_match` 钉住这个预筛不会漏掉真匹配。
+- **覆盖层的 payload 与底图改成并行请求。** 两个 effect 都只依赖窗口 label，铺画布放在
+  第三个 effect 里等两边到齐。像素是这两次里慢的那个（16 MB），串起来等于把它的往返
+  白加在覆盖层出现之前。
+- `image_io.rs` 解码后用 `into_rgba8` 而不是 `to_rgba8`：PNG 常见就是 RGBA8，
+  前者原地接管缓冲区，后者要再拷一份 16 MB。
+- **删掉两处白算的图片 skip hash**（`pin/commands.rs::copy_pin` 与
+  `commands/clipboard.rs` 的图片分支）。watcher 哈希的是**它自己**从剪贴板 RGBA
+  重新编出来的 PNG，和写入方手上那串字节几乎不可能相同，所以这两次全图 sha256
+  永远匹配不上、纯属白算。文本那几路能生效是因为两边哈希的是同一串字节。
+  后果只是这张图会被顶到历史最前面——`insert_clip` 按哈希去重，不会多存一份；
+  两处都写了注释说明，免得有人"修好"它。
+  （**没有**改成按像素哈希：watcher 手上确实有 RGBA，但哈希 16 MB 比哈希 2 MB 的 PNG
+  贵约 8 倍，而且换哈希基准会让库里已有的图片全部对不上、悄悄破坏去重。）
+- 顺手改掉一句错的注释：`get_capture_frame` 是**零编码**，但不是零拷贝——
+  `InvokeResponseBody::Raw` 要 `Vec<u8>`，而帧还得留在会话里给选区翻译用，
+  所以那一次 16 MB memcpy 去不掉（实测 2 ms 上下）。`docs/capture-linux.md`
+  §3.1 的耗时表里"后端交付底图"从 `~0 ms` 改为 `~2 ms`。
 
 ### 📄 文档
 
+- `docs/capture-linux.md` 新增 §3.1「从快捷键到覆盖层出现，时间花在哪」（优化前后的分段对照表、
+  523 ms 的 gnome-shell 拍照为什么是地板、还剩下的那个可选优化为什么没做）与
+  §3.2「冻结帧像素怎么送进覆盖层」（RGBA8 契约、为什么原始字节必须自己核对长度、
+  为什么别改回 base64、payload 与底图为什么必须并行请求）。
+- `docs/capture-linux.md` §1 新增「`PlaceWindow` 是每帧热路径，而且跑在主线程上」：
+  前置检查缓存的失效规则、D-Bus 连接复用、`update_pin` 应答为什么不带图片。
+  `docs/architecture.md` 的 `dbus.rs` / `capture/shell_extension.rs` / `pin/` 三行同步补上
+  连接复用、摆位探测缓存与 `PinFingerprint`，并新增一行写 `update_pin` 的应答契约。
 - 新增 [docs/capture-linux.md](docs/capture-linux.md)：**每个窗口的大小能不能拿到**的系统 API 调研结论
   （X11/xcb 能；GNOME Wayland 只能枚举 XWayland 客户端；`wlr-foreign-toplevel-management` 只有标题没有几何；
   `org.gnome.Shell.Screenshot` 对普通应用 `AccessDenied`），三套坐标空间的换算规则、
   覆盖层摆放为什么必须交给合成器、以及快速选区的交互约定。
+- `docs/capture-linux.md` 补齐自带 Shell 扩展这条路：被排除的接口逐条列出实测结论、
+  扩展为什么只装用户目录、装了必须注销而卸载即时、令牌的威胁模型（挡得住谁、挡不住谁）、
+  堆叠顺序为什么不能用面积近似，以及"速选一个被部分遮住的窗口会包含遮挡者像素"这个已知取舍。
+- `docs/capture-linux.md` 补上贴图窗口这一路：§1 新增「同一条限制也卡住贴图窗口」
+  （`set_always_on_top` 同样是空操作、`show → set_focus → PlaceWindow` 的顺序为什么不能改、
+  尺寸为什么留在客户端、`window_marker` 是两侧共享的查找键）、§2.1 的四个方法与协议 v3
+  及"抬版必须三处一起抬 + 注销才生效"、威胁模型里 `PlaceWindow` 的 `pid` 是限定作用域而非安全边界、
+  §4 新增选区坐标要加 `logicalX/logicalY` 与「窗口位置 = 原始矩形 − `SHADOW_GUTTER`」两条换算规则、
+  §6 新增贴图的人工验收清单（摆位/尺寸、置顶、捏合、拖动不选中，以及验收前必须先注销重登）。
+- `docs/capture-linux.md` 新增 §3「冻结帧走哪个后端」：五个后端的先后顺序及其理由、
+  Portal 授权对话框只允许聚焦应用弹出这条实测结论、app id 来自 systemd scope、
+  Portal 会往图片目录写文件、以及 `ReloadExtension` 已废弃因此存在 `stale` 状态。
 
 ## v0.1.17
 
