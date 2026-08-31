@@ -8,6 +8,13 @@ use image::RgbaImage;
 use std::sync::Arc;
 use xcap::Monitor;
 
+/// 逐屏截图要发给扩展的一块区域：逻辑坐标下的 (x, y, 宽, 高)。
+///
+/// 必须**正好**是那块屏的逻辑矩形。Mutter 用 `graphene_rect_intersection` 找与区域相交的
+/// 视图，向外留哪怕 1 像素都会把邻屏的缩放拉进 `max()`，画质又回到整屏图那样被上采样。
+#[cfg(target_os = "linux")]
+pub(super) type MonitorArea = (i32, i32, u32, u32);
+
 /// 一个用完即删的截图文件。三个后端都用它：GNOME Shell / 扩展写在私有临时目录，
 /// Portal 则把文件塞进用户的图片目录，任由它留着会把相册塞满。
 #[cfg(target_os = "linux")]
@@ -48,8 +55,11 @@ impl Drop for TemporaryScreenshotFile {
 
 /// 冻结帧的后端链。顺序不是随手排的：
 ///
-/// 1. **自带的 GNOME Shell 扩展**——GNOME Wayland 上唯一不弹对话框、不闪白、
-///    不往用户图片目录里落文件的路子。没装/没生效时一次 stat 就退出，代价可忽略。
+/// 1. **自带的 GNOME Shell 扩展，逐屏原生截取**——GNOME Wayland 上唯一不弹对话框、
+///    不闪白、不往用户图片目录里落文件的路子，而且每块屏都是原生像素（见
+///    `capture_all_shell_extension_monitor_areas`）。没装/没生效时一次 stat 就退出。
+///    - 协议低于 v4（装了新版还没注销）或逐屏失败时，同一个扩展退到**整屏舞台图**：
+///      画面可用，但混合缩放的多屏上低缩放那块会被上采样，偏糊。
 /// 2. **wlroots（libwayshot）**——sway/Hyprland 系合成器的原生路径。
 /// 3. **XDG Portal（只用非交互）**——KDE 等实现里最可靠的兜底。
 ///    **绝不用 interactive 模式**：那个模式在 GNOME 上就是系统自带的截图界面，
@@ -59,6 +69,11 @@ impl Drop for TemporaryScreenshotFile {
 #[cfg(target_os = "linux")]
 pub(super) fn capture_all_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
     if is_wayland_session() {
+        match capture_all_shell_extension_monitor_areas() {
+            Ok(result) => return Ok(result),
+            Err(e) => log::info!("扩展逐屏原生截图不可用，回退到整屏舞台图: {e:#}"),
+        }
+
         match capture_all_shell_extension_monitors() {
             Ok(result) => return Ok(result),
             Err(e) => log::info!("GNOME Shell 扩展截图不可用，回退到 wlroots: {e:#}"),
@@ -187,7 +202,168 @@ fn capture_all_wayland_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)
     Ok((infos, frames))
 }
 
-/// 走自带 GNOME Shell 扩展的截图。几何仍旧自己枚举——扩展只负责画面。
+/// 逐屏走扩展的 `ScreenshotArea`：每块屏拿到的都是**它自己面板的原生像素**。
+///
+/// **这条路存在的全部理由是画质**，而根因在 Mutter 里：整屏截图的尺寸由
+/// `clutter_stage_get_capture_final_size` 算成"矩形 × max(与该矩形相交的各视图的缩放)"，
+/// 而整个 stage 的矩形跟每块屏都相交，于是整张图都按全桌面最大的那个缩放渲染。
+/// 实测本机（eDP 原生 2560x1600、逻辑 1920x1200、缩放 1.3333；外接 4K 缩放 1.5）：
+/// 舞台图 6720x2412 里 eDP 那块是 2880x1800 —— 逻辑 × 1.5，比原生**多出 1.125 倍**，
+/// 全是插值出来的像素。糊就糊在这最开始的一步，后面裁剪、传输、导出一个环节都救不回来。
+/// 把矩形收成单块屏之后相交的只有这块屏自己的视图，出来的正好是原生像素。
+/// 单屏用户看不出区别（自己的缩放就是最大缩放），也不会退化。
+///
+/// 顺带还快：像素总量少了（本机 16.2 → 12.4 Mpx），而且每块屏一次调用、同时发起，
+/// gnome-shell 侧的 PNG 编码各在自己的 worker 线程里，我们这侧的解码也逐屏并行。
+///
+/// **只在几何来自 Wayland 输出时才走**：区域坐标必须是 stage 的逻辑像素，而 xcap 在
+/// XWayland 上报的是"逻辑 × 整数倍"的 X screen 尺寸（见 `normalize_monitor_geometry`），
+/// 拿它当区域会截到别处去。所以这里不像下面那条路那样退到 xcap 几何，直接失败、
+/// 让链路退回整屏舞台图——那条路有 `classify_stage` 兜着几何的坐标空间。
+#[cfg(target_os = "linux")]
+fn capture_all_shell_extension_monitor_areas() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
+    let monitors = enumerate_wayland_monitors().context("逐屏扩展截图无法枚举 Wayland 几何")?;
+    let (areas, assignment) = dedupe_monitor_areas(&monitors);
+    let paths =
+        crate::capture::shell_extension_area_screenshots(&areas).map_err(|error| anyhow!(error))?;
+    // 包成 TemporaryScreenshotFile：解码成功也好、失败也好，出了作用域文件一定被删。
+    let shots: Vec<TemporaryScreenshotFile> = paths
+        .into_iter()
+        .map(TemporaryScreenshotFile::new)
+        .collect();
+
+    // 解码也逐屏并行：一张 8 Mpx 的 PNG 解出来要几十毫秒，而这几张之间毫无依赖。
+    let decoded: Vec<Result<RgbaImage>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = shots
+            .iter()
+            .map(|shot| scope.spawn(move || decode_screenshot_file(shot.path())))
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| {
+                handle
+                    .join()
+                    .unwrap_or_else(|_| Err(anyhow!("解码逐屏截图的线程 panic")))
+            })
+            .collect()
+    });
+    let tiles: Vec<(u32, u32, Arc<[u8]>)> = decoded
+        .into_iter()
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .map(|image| (image.width(), image.height(), Arc::from(image.into_raw())))
+        .collect();
+
+    let mut infos = Vec::with_capacity(monitors.len());
+    let mut frames = Vec::with_capacity(monitors.len());
+    for (monitor, &index) in monitors.iter().zip(assignment.iter()) {
+        let (width, height, rgba) = &tiles[index];
+        // 帧只可能等于或大于逻辑尺寸（缩放 ≥ 1）。小于说明区域被 Clutter 钳过、
+        // 或者几何是热插拔前的陈数据——这种帧铺到覆盖层上就是错位的画面，
+        // 宁可整体退回整屏那条路，它有 `classify_stage` 与 I1~I3 兜着。
+        if *width < monitor.rect.width || *height < monitor.rect.height {
+            bail!(
+                "显示器 {} 的逐屏截图 {width}x{height} 小于逻辑尺寸 {}x{}",
+                monitor.id,
+                monitor.rect.width,
+                monitor.rect.height
+            );
+        }
+        let frame = ImageRect {
+            x: 0,
+            y: 0,
+            width: *width,
+            height: *height,
+        };
+        let mut adjusted = monitor.clone();
+        // 缩放按**实际拿到的帧**算，而不是信 libwayshot 从物理尺寸推出来的那个：
+        // 前端的 `scale = logicalWidth / pixelWidth` 必须和这个数一致，否则选区错位。
+        adjusted.scale_factor = portal_frame_scale_factor(&adjusted, frame);
+        // 不变量 I3 在这条路上同样有意义：帧和几何必须同向。响了说明几何是改分辨率/
+        // 热插拔之前的陈数据。画面照用（用户至少截得到东西），但要留下能查的记录。
+        let anisotropy = verify_frame_isotropy(monitor.rect.width, monitor.rect.height, frame);
+        if anisotropy > 0.0 {
+            log::error!(
+                "截图几何自检未通过：I3 显示器 {} 的帧缩放两个方向不一致（差 {anisotropy:.4}）：\
+                 逻辑 {}x{}，帧 {width}x{height}",
+                monitor.id,
+                monitor.rect.width,
+                monitor.rect.height,
+            );
+        }
+        frames.push(FrozenFrame {
+            monitor_id: adjusted.id,
+            rgba: Arc::clone(rgba),
+            width: *width,
+            height: *height,
+            scale_factor: adjusted.scale_factor,
+        });
+        infos.push(adjusted);
+    }
+
+    // 和整屏那条路一样每次留一行几何摘要——排障从这一行开始。不含像素与窗口标题。
+    log::info!(
+        "截图几何：{} 块屏逐屏原生截取（{} 次区域截图）；{}",
+        monitors.len(),
+        areas.len(),
+        infos
+            .iter()
+            .zip(frames.iter())
+            .map(|(info, frame)| format!(
+                "#{}@{},{} {}x{}×{:.4}→{}x{}",
+                info.id,
+                info.rect.x,
+                info.rect.y,
+                info.rect.width,
+                info.rect.height,
+                info.scale_factor,
+                frame.width,
+                frame.height,
+            ))
+            .collect::<Vec<_>>()
+            .join("，")
+    );
+    Ok((infos, frames))
+}
+
+#[cfg(target_os = "linux")]
+fn decode_screenshot_file(path: &std::path::Path) -> Result<RgbaImage> {
+    let bytes =
+        std::fs::read(path).with_context(|| format!("无法读取扩展逐屏截图 {}", path.display()))?;
+    Ok(image::load_from_memory(&bytes)
+        .context("无法解码扩展逐屏截图")?
+        .to_rgba8())
+}
+
+/// 逐屏截图前把**逻辑矩形完全相同**的屏并成一次请求，返回去重后的区域
+/// 与"第 i 块屏用第几个区域"的对照表。
+///
+/// 镜像/投影就是这个形态：两块屏共用同一个逻辑矩形，截出来的像素也一模一样，
+/// 发两次同样的请求只是让用户多等一次整屏编码。
+#[cfg(target_os = "linux")]
+pub(super) fn dedupe_monitor_areas(monitors: &[MonitorInfo]) -> (Vec<MonitorArea>, Vec<usize>) {
+    let mut areas: Vec<MonitorArea> = Vec::new();
+    let mut assignment = Vec::with_capacity(monitors.len());
+    for monitor in monitors {
+        let area = (
+            monitor.rect.x,
+            monitor.rect.y,
+            monitor.rect.width,
+            monitor.rect.height,
+        );
+        let found = areas.iter().position(|candidate| *candidate == area);
+        assignment.push(match found {
+            Some(index) => index,
+            None => {
+                areas.push(area);
+                areas.len() - 1
+            }
+        });
+    }
+    (areas, assignment)
+}
+
+/// 走自带 GNOME Shell 扩展的整屏截图。几何仍旧自己枚举——扩展只负责画面。
 #[cfg(target_os = "linux")]
 fn capture_all_shell_extension_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
     let path = crate::capture::shell_extension_screenshot().map_err(|error| anyhow!(error))?;
@@ -1033,7 +1209,11 @@ mod backend_diagnostics {
             is_wayland_session(),
         );
         describe(
-            "clippy shell extension",
+            "clippy shell extension（逐屏原生）",
+            capture_all_shell_extension_monitor_areas(),
+        );
+        describe(
+            "clippy shell extension（整屏舞台图）",
             capture_all_shell_extension_monitors(),
         );
         describe("wlroots/libwayshot", capture_all_wayland_monitors());
