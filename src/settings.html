@@ -13,394 +13,439 @@
   <div class="settings-container">
     <h1 class="settings-title" data-i18n="settings.title">Settings</h1>
 
-    <div class="setting-group">
-      <label class="setting-label" data-i18n="settings.shortcut.label">Global Shortcut</label>
-      <div class="shortcut-recorder" id="shortcut-recorder">
-        <input type="text" class="shortcut-input" id="shortcut-input" readonly
-               data-i18n="settings.shortcut.placeholder" data-i18n-attr="placeholder"
-               placeholder="Click Record to set...">
-        <button class="btn btn-small" id="shortcut-record-btn"
-                data-i18n="settings.shortcut.record">Record</button>
-        <button class="btn btn-small btn-secondary" id="shortcut-clear-btn"
-                data-i18n="settings.shortcut.reset">Reset</button>
+    <!-- 注册失败提示横跨三个动作，也可能在任意分页下产生，因此留在分页之外 -->
+    <div class="setting-warning hidden" id="shortcut-register-warning"></div>
+
+    <div class="settings-tabs" role="tablist" aria-label="Settings sections" id="settings-tabs">
+      <button class="settings-tab" type="button" role="tab" id="settings-tab-general"
+              data-settings-tab="general" aria-selected="true" tabindex="0"
+              aria-controls="settings-panel-general" data-i18n="settings.tabs.general">General</button>
+      <button class="settings-tab" type="button" role="tab" id="settings-tab-screenshot"
+              data-settings-tab="screenshot" aria-selected="false" tabindex="-1"
+              aria-controls="settings-panel-screenshot" data-i18n="settings.tabs.screenshot">Screenshot</button>
+      <button class="settings-tab" type="button" role="tab" id="settings-tab-translation"
+              data-settings-tab="translation" aria-selected="false" tabindex="-1"
+              aria-controls="settings-panel-translation" data-i18n="settings.tabs.translation">Translation</button>
+      <button class="settings-tab" type="button" role="tab" id="settings-tab-about"
+              data-settings-tab="about" aria-selected="false" tabindex="-1"
+              aria-controls="settings-panel-about" data-i18n="settings.tabs.about">About</button>
+    </div>
+
+    <div class="settings-panel" role="tabpanel" id="settings-panel-general"
+         aria-labelledby="settings-tab-general" data-settings-panel="general">
+      <div class="setting-group">
+        <label class="setting-label" data-i18n="settings.shortcut.label">Global Shortcut</label>
+        <div class="shortcut-recorder" id="shortcut-recorder">
+          <input type="text" class="shortcut-input" id="shortcut-input" readonly
+                 data-i18n="settings.shortcut.placeholder" data-i18n-attr="placeholder"
+                 placeholder="Click Record to set...">
+          <button class="btn btn-small" id="shortcut-record-btn"
+                  data-i18n="settings.shortcut.record">Record</button>
+          <button class="btn btn-small btn-secondary" id="shortcut-clear-btn"
+                  data-i18n="settings.shortcut.reset">Reset</button>
+        </div>
+        <div class="setting-hint" id="shortcut-hint"
+             data-i18n="settings.shortcut.hint">Click "Record" then press your desired key combination</div>
+        <div class="setting-warning hidden" id="shortcut-warning"
+             data-i18n="settings.shortcut.conflict">This shortcut may conflict with an existing shortcut</div>
       </div>
-      <div class="setting-hint" id="shortcut-hint"
-           data-i18n="settings.shortcut.hint">Click "Record" then press your desired key combination</div>
-      <div class="setting-warning hidden" id="shortcut-warning"
-           data-i18n="settings.shortcut.conflict">This shortcut may conflict with an existing shortcut</div>
-    </div>
 
-    <div class="setting-group">
-      <label class="setting-label" data-i18n="settings.pinShortcut.label">Pin Shortcut</label>
-      <div class="shortcut-recorder" id="pin-shortcut-recorder">
-        <input type="text" class="shortcut-input" id="pin-shortcut-input" readonly
-               data-i18n="settings.pinShortcut.placeholder" data-i18n-attr="placeholder"
-               placeholder="Click Record to set...">
-        <button class="btn btn-small" id="pin-shortcut-record-btn"
-                data-i18n="settings.shortcut.record">Record</button>
-        <button class="btn btn-small btn-secondary" id="pin-shortcut-clear-btn"
-                data-i18n="settings.shortcut.reset">Reset</button>
+      <div class="setting-group">
+        <label class="setting-label" data-i18n="settings.pinShortcut.label">Pin Shortcut</label>
+        <div class="shortcut-recorder" id="pin-shortcut-recorder">
+          <input type="text" class="shortcut-input" id="pin-shortcut-input" readonly
+                 data-i18n="settings.pinShortcut.placeholder" data-i18n-attr="placeholder"
+                 placeholder="Click Record to set...">
+          <button class="btn btn-small" id="pin-shortcut-record-btn"
+                  data-i18n="settings.shortcut.record">Record</button>
+          <button class="btn btn-small btn-secondary" id="pin-shortcut-clear-btn"
+                  data-i18n="settings.shortcut.reset">Reset</button>
+        </div>
+        <div class="setting-hint" data-i18n="settings.pinShortcut.hint">Shortcut to pin the focused clip to desktop</div>
+        <div class="setting-warning hidden" id="pin-shortcut-warning"
+             data-i18n="settings.shortcut.conflict">This shortcut may conflict with an existing shortcut</div>
       </div>
-      <div class="setting-hint" data-i18n="settings.pinShortcut.hint">Shortcut to pin the focused clip to desktop</div>
-      <div class="setting-warning hidden" id="pin-shortcut-warning"
-           data-i18n="settings.shortcut.conflict">This shortcut may conflict with an existing shortcut</div>
-    </div>
 
-    <div class="setting-group">
-      <label class="setting-label" data-i18n="settings.captureShortcut.label">Screenshot Shortcut</label>
-      <div class="shortcut-recorder" id="capture-shortcut-recorder">
-        <input type="text" class="shortcut-input" id="capture-shortcut-input" readonly
-               data-i18n="settings.captureShortcut.placeholder" data-i18n-attr="placeholder"
-               placeholder="Click Record to set...">
-        <button class="btn btn-small" id="capture-shortcut-record-btn"
-                data-i18n="settings.shortcut.record">Record</button>
-        <button class="btn btn-small btn-secondary" id="capture-shortcut-clear-btn"
-                data-i18n="settings.shortcut.reset">Reset</button>
+      <div class="setting-group">
+        <label class="setting-label" data-i18n="settings.theme.label">Theme</label>
+        <div class="theme-grid" id="theme-grid" role="radiogroup" aria-label="Theme"></div>
       </div>
-      <div class="setting-hint" data-i18n="settings.captureShortcut.hint">Shortcut to start a screenshot</div>
-      <div class="setting-warning hidden" id="capture-shortcut-warning"
-           data-i18n="settings.shortcut.conflict">This shortcut may conflict with an existing shortcut</div>
-    </div>
 
-    <!-- 注册失败提示覆盖三个动作，因此独立成组 -->
-    <div class="setting-group">
-      <div class="setting-warning hidden" id="shortcut-register-warning"></div>
-    </div>
-
-    <div class="setting-group">
-      <label class="setting-label" data-i18n="settings.theme.label">Theme</label>
-      <div class="theme-grid" id="theme-grid" role="radiogroup" aria-label="Theme"></div>
-    </div>
-
-    <div class="setting-group">
-      <label class="setting-label" for="max-history-input"
-             data-i18n="settings.history.label">History Limit</label>
-      <input type="number" class="setting-input" id="max-history-input" min="0" max="10000" step="10">
-      <div class="setting-hint" data-i18n="settings.history.hint">0 = unlimited. Favorites are never deleted.</div>
-    </div>
-
-    <div class="setting-group">
-      <label class="setting-label" for="language-select"
-             data-i18n="settings.language.label">Language</label>
-      <select class="setting-select" id="language-select">
-        <option value="auto" data-i18n="settings.language.auto">Auto</option>
-        <option value="en" data-i18n="settings.language.en">English</option>
-        <option value="zh-CN" data-i18n="settings.language.zhCN">中文</option>
-      </select>
-    </div>
-
-    <div class="setting-group">
-      <label class="setting-label" data-i18n="settings.autostart.label">Launch at Login</label>
-      <div class="setting-toggle-row">
-        <label class="toggle-switch">
-          <input type="checkbox" id="autostart-toggle">
-          <span class="toggle-slider"></span>
-        </label>
-        <span class="setting-hint" data-i18n="settings.autostart.hint">Automatically start Clippy when you log in</span>
+      <div class="setting-group">
+        <label class="setting-label" for="max-history-input"
+               data-i18n="settings.history.label">History Limit</label>
+        <input type="number" class="setting-input" id="max-history-input" min="0" max="10000" step="10">
+        <div class="setting-hint" data-i18n="settings.history.hint">0 = unlimited. Favorites are never deleted.</div>
       </div>
-    </div>
 
-    <div class="setting-group">
-      <label class="setting-label" data-i18n="settings.autoPaste.label">Automatic Paste</label>
-      <div class="setting-toggle-row">
-        <label class="toggle-switch">
-          <input type="checkbox" id="auto-paste-toggle">
-          <span class="toggle-slider"></span>
-        </label>
-        <span class="setting-hint" data-i18n="settings.autoPaste.hint">Paste into the previously focused app after selecting a clip</span>
+      <div class="setting-group">
+        <label class="setting-label" for="language-select"
+               data-i18n="settings.language.label">Language</label>
+        <select class="setting-select" id="language-select">
+          <option value="auto" data-i18n="settings.language.auto">Auto</option>
+          <option value="en" data-i18n="settings.language.en">English</option>
+          <option value="zh-CN" data-i18n="settings.language.zhCN">中文</option>
+        </select>
       </div>
-      <div class="permission-status-row" id="paste-status-row">
-        <span class="permission-status-dot" id="paste-status-dot"></span>
-        <span class="permission-status-text" id="paste-status-text"></span>
-        <button class="btn btn-small btn-primary" id="paste-authorize-btn" type="button" hidden
-                data-i18n="settings.autoPaste.authorize">Authorize</button>
-      </div>
-    </div>
 
-    <div class="setting-group">
-      <label class="setting-label" data-i18n="settings.ocr.label">OCR</label>
-      <div class="setting-toggle-row">
-        <label class="toggle-switch">
-          <input type="checkbox" id="ocr-toggle">
-          <span class="toggle-slider"></span>
-        </label>
-        <span class="setting-hint" data-i18n="settings.ocr.toggleHint">Enable OCR text recognition for images</span>
-      </div>
-      <div class="ocr-status-row" id="ocr-status-row">
-        <span class="ocr-status-dot" id="ocr-status-dot"></span>
-        <span class="ocr-status-text" id="ocr-status-text"></span>
-        <button class="btn btn-small btn-primary" id="ocr-install-btn" hidden
-                data-i18n="settings.ocr.install">Install</button>
-      </div>
-      <div id="ocr-options" class="ocr-options">
-        <label class="setting-label setting-label-sub"
-               data-i18n="settings.ocr.modeLabel">Result Mode</label>
-        <div class="custom-select" id="ocr-mode-select">
-          <button class="custom-select-trigger" type="button" tabindex="0">
-            <span class="custom-select-value" data-i18n="settings.ocr.preview">Show in Preview</span>
-            <svg class="custom-select-arrow" width="12" height="8" viewBox="0 0 12 8">
-              <path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M1 1.5l5 5 5-5"/>
-            </svg>
-          </button>
-          <ul class="custom-select-dropdown">
-            <li class="custom-select-option selected" data-value="preview" data-i18n="settings.ocr.preview">Show in Preview</li>
-            <li class="custom-select-option" data-value="clipboard" data-i18n="settings.ocr.clipboard">Copy to Clipboard</li>
-          </ul>
+      <div class="setting-group">
+        <label class="setting-label" data-i18n="settings.autostart.label">Launch at Login</label>
+        <div class="setting-toggle-row">
+          <label class="toggle-switch">
+            <input type="checkbox" id="autostart-toggle">
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="setting-hint" data-i18n="settings.autostart.hint">Automatically start Clippy when you log in</span>
         </div>
       </div>
-    </div>
 
-    <div class="setting-group">
-      <label class="setting-label" data-i18n="settings.screenshot.label">Screenshots</label>
-      <label class="setting-label setting-label-sub" for="screenshot-dir-input"
-             data-i18n="settings.screenshot.directory">Save Folder</label>
-      <div class="translation-key-row">
-        <input type="text" class="setting-input" id="screenshot-dir-input"
-               autocomplete="off" spellcheck="false" placeholder="~/Pictures/Clippy"
-               aria-describedby="screenshot-dir-hint">
-        <button class="btn btn-small btn-secondary" id="screenshot-dir-browse-btn" type="button"
-                data-i18n="settings.screenshot.browse">Browse...</button>
-      </div>
-      <div class="setting-hint" id="screenshot-dir-hint"
-           data-i18n="settings.screenshot.directoryHint">Screenshots and pinned images are saved here. Leave empty to use ~/Pictures/Clippy.</div>
-      <label class="setting-label setting-label-sub" for="screenshot-template-input"
-             data-i18n="settings.screenshot.template">File Name</label>
-      <input type="text" class="setting-input" id="screenshot-template-input"
-             autocomplete="off" spellcheck="false" placeholder="{prefix}-{date}_{time}"
-             aria-describedby="screenshot-template-hint">
-      <div class="setting-hint" id="screenshot-template-hint"
-           data-i18n="settings.screenshot.templateHint">Placeholders: {prefix} {date} {time} {unix} {seq}. The .png extension is added automatically, and an existing file is never overwritten.</div>
-    </div>
-
-    <div class="setting-group" id="translation-group">
-      <h2 class="setting-label" data-i18n="settings.translation.label">Translation</h2>
-      <div class="translation-grid">
-        <div class="translation-field">
-          <label class="setting-label setting-label-sub" for="translation-provider-select"
-                 data-i18n="settings.translation.provider">Provider</label>
-          <select class="setting-select" id="translation-provider-select">
-            <option value="libretranslate" data-i18n="settings.translation.providerLibre">LibreTranslate-compatible</option>
-            <option value="openai_compatible" data-i18n="settings.translation.providerOpenAI">OpenAI-compatible</option>
-            <option value="deepl" data-i18n="settings.translation.providerDeepL">DeepL</option>
-            <option value="google" data-i18n="settings.translation.providerGoogle">Google Translate</option>
-            <option value="bing" data-i18n="settings.translation.providerBing">Microsoft Translator</option>
-            <option value="youdao" data-i18n="settings.translation.providerYoudao">Youdao</option>
-          </select>
+      <div class="setting-group">
+        <label class="setting-label" data-i18n="settings.autoPaste.label">Automatic Paste</label>
+        <div class="setting-toggle-row">
+          <label class="toggle-switch">
+            <input type="checkbox" id="auto-paste-toggle">
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="setting-hint" data-i18n="settings.autoPaste.hint">Paste into the previously focused app after selecting a clip</span>
         </div>
-        <div class="translation-field">
-          <label class="setting-label setting-label-sub"
-                 data-i18n="settings.translation.enable">Enable</label>
-          <div class="setting-toggle-row">
-            <label class="toggle-switch">
-              <input type="checkbox" id="translation-service-enabled"
-                     aria-describedby="translation-enabled-hint">
-              <span class="toggle-slider"></span>
-            </label>
-            <span class="setting-hint" id="translation-enabled-hint"
-                  data-i18n="settings.translation.enableHint">Every enabled service translates in parallel, each into its own result card.</span>
+        <div class="permission-status-row" id="paste-status-row">
+          <span class="permission-status-dot" id="paste-status-dot"></span>
+          <span class="permission-status-text" id="paste-status-text"></span>
+          <button class="btn btn-small btn-primary" id="paste-authorize-btn" type="button" hidden
+                  data-i18n="settings.autoPaste.authorize">Authorize</button>
+        </div>
+      </div>
+
+      <div class="setting-group" id="tmux-group" hidden>
+        <label class="setting-label" data-i18n="settings.tmux.label">Tmux Capture</label>
+        <div class="setting-toggle-row">
+          <label class="toggle-switch">
+            <input type="checkbox" id="tmux-toggle">
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="setting-hint" data-i18n="settings.tmux.hint">Capture tmux copy-mode buffer via hook</span>
+        </div>
+      </div>
+
+      <div class="setting-group">
+        <label class="setting-label" data-i18n="settings.stats.label">Statistics</label>
+        <div class="stats-grid" id="stats-grid">
+          <div class="stats-card">
+            <span class="stats-value" id="stats-total">—</span>
+            <span class="stats-label" data-i18n="settings.stats.total">Total</span>
           </div>
-        </div>
-        <div class="translation-field" id="translation-model-field">
-          <label class="setting-label setting-label-sub" for="translation-model-input"
-                 data-i18n="settings.translation.model">Model</label>
-          <input type="text" class="setting-input" id="translation-model-input"
-                 autocomplete="off" spellcheck="false" placeholder="gpt-4o-mini"
-                 data-i18n="settings.translation.modelPlaceholder" data-i18n-attr="placeholder">
-        </div>
-        <div class="translation-field" id="translation-region-field" hidden>
-          <label class="setting-label setting-label-sub" for="translation-region-input"
-                 data-i18n="settings.translation.region">Resource Region</label>
-          <input type="text" class="setting-input" id="translation-region-input"
-                 autocomplete="off" spellcheck="false" placeholder="global"
-                 aria-describedby="translation-region-hint">
-          <div class="setting-hint" id="translation-region-hint"
-               data-i18n="settings.translation.regionHint">Leave empty for a global Azure resource.</div>
-        </div>
-        <div class="translation-field" id="translation-project-field" hidden>
-          <label class="setting-label setting-label-sub" for="translation-project-input"
-                 data-i18n="settings.translation.project">Project ID</label>
-          <input type="text" class="setting-input" id="translation-project-input"
-                 autocomplete="off" spellcheck="false" placeholder="my-gcp-project"
-                 aria-describedby="translation-project-hint">
-          <div class="setting-hint" id="translation-project-hint"
-               data-i18n="settings.translation.projectHint">Required by the official Cloud Translation API.</div>
-        </div>
-        <div class="translation-field translation-field-wide">
-          <label class="setting-label setting-label-sub" for="translation-endpoint-input"
-                 data-i18n="settings.translation.endpoint">Endpoint</label>
-          <input type="url" class="setting-input" id="translation-endpoint-input"
-                 autocomplete="url" spellcheck="false" inputmode="url"
-                 aria-describedby="translation-endpoint-hint" placeholder="https://libretranslate.com">
-          <div class="setting-hint" id="translation-endpoint-hint"
-               data-i18n="settings.translation.endpointHint">Requests are sent only to this service endpoint.</div>
-        </div>
-        <div class="translation-field">
-          <label class="setting-label setting-label-sub" for="translation-source-language-select"
-                 data-i18n="settings.translation.sourceLanguage">Source Language</label>
-          <select class="setting-select" id="translation-source-language-select">
-            <option value="auto" data-i18n="settings.translation.languageAuto">Detect automatically</option>
-            <option value="en" data-i18n="settings.translation.languageEnglish">English</option>
-            <option value="zh" data-i18n="settings.translation.languageChinese">Chinese</option>
-            <option value="ja" data-i18n="settings.translation.languageJapanese">Japanese</option>
-            <option value="ko" data-i18n="settings.translation.languageKorean">Korean</option>
-            <option value="es" data-i18n="settings.translation.languageSpanish">Spanish</option>
-            <option value="fr" data-i18n="settings.translation.languageFrench">French</option>
-            <option value="de" data-i18n="settings.translation.languageGerman">German</option>
-          </select>
-        </div>
-        <div class="translation-field">
-          <label class="setting-label setting-label-sub" for="translation-target-language-select"
-                 data-i18n="settings.translation.targetLanguage">Target Language</label>
-          <select class="setting-select" id="translation-target-language-select">
-            <option value="en" data-i18n="settings.translation.languageEnglish">English</option>
-            <option value="zh" data-i18n="settings.translation.languageChinese">Chinese</option>
-            <option value="ja" data-i18n="settings.translation.languageJapanese">Japanese</option>
-            <option value="ko" data-i18n="settings.translation.languageKorean">Korean</option>
-            <option value="es" data-i18n="settings.translation.languageSpanish">Spanish</option>
-            <option value="fr" data-i18n="settings.translation.languageFrench">French</option>
-            <option value="de" data-i18n="settings.translation.languageGerman">German</option>
-          </select>
-        </div>
-        <div class="translation-field translation-field-wide">
-          <span class="setting-label setting-label-sub" id="translation-preferred-label"
-                data-i18n="settings.translation.preferredLanguages">Alternate Languages</span>
-          <div class="translation-preferred-list" id="translation-preferred-languages" role="group"
-               aria-labelledby="translation-preferred-label"
-               aria-describedby="translation-preferred-hint">
-            <label class="translation-preferred-option">
-              <input type="checkbox" value="en">
-              <span data-i18n="settings.translation.languageEnglish">English</span>
-            </label>
-            <label class="translation-preferred-option">
-              <input type="checkbox" value="zh">
-              <span data-i18n="settings.translation.languageChinese">Chinese</span>
-            </label>
-            <label class="translation-preferred-option">
-              <input type="checkbox" value="ja">
-              <span data-i18n="settings.translation.languageJapanese">Japanese</span>
-            </label>
-            <label class="translation-preferred-option">
-              <input type="checkbox" value="ko">
-              <span data-i18n="settings.translation.languageKorean">Korean</span>
-            </label>
-            <label class="translation-preferred-option">
-              <input type="checkbox" value="es">
-              <span data-i18n="settings.translation.languageSpanish">Spanish</span>
-            </label>
-            <label class="translation-preferred-option">
-              <input type="checkbox" value="fr">
-              <span data-i18n="settings.translation.languageFrench">French</span>
-            </label>
-            <label class="translation-preferred-option">
-              <input type="checkbox" value="de">
-              <span data-i18n="settings.translation.languageGerman">German</span>
-            </label>
+          <div class="stats-card">
+            <span class="stats-value" id="stats-favorites">—</span>
+            <span class="stats-label" data-i18n="settings.stats.favorites">Favorites</span>
           </div>
-          <div class="setting-hint" id="translation-preferred-hint"
-               data-i18n="settings.translation.preferredHint">When the text is already in the target language, Clippy translates into the first alternate language instead. Leave all unchecked to use the source and target languages above.</div>
-        </div>
-        <div class="translation-field translation-field-wide">
-          <label class="setting-label setting-label-sub" for="translation-api-key-input"
-                 data-i18n="settings.translation.apiKey">API Key</label>
-          <div class="translation-key-row">
-            <input type="password" class="setting-input" id="translation-api-key-input"
-                   autocomplete="new-password" spellcheck="false"
-                   aria-describedby="translation-key-hint translation-key-status-text"
-                   data-i18n="settings.translation.apiKeyPlaceholder" data-i18n-attr="placeholder"
-                   placeholder="Enter a new key">
-            <input type="password" class="setting-input" id="translation-api-secret-input" hidden
-                   autocomplete="new-password" spellcheck="false"
-                   aria-describedby="translation-key-hint"
-                   aria-label="Application secret"
-                   data-i18n="settings.translation.apiSecretPlaceholder" data-i18n-attr="placeholder"
-                   placeholder="Enter the application secret">
-            <button class="btn btn-small btn-primary" id="translation-key-save-btn" type="button" disabled
-                    data-i18n="settings.translation.saveKey">Save Key</button>
-            <button class="btn btn-small btn-secondary" id="translation-key-delete-btn" type="button" hidden
-                    data-i18n="settings.translation.deleteKey">Remove</button>
+          <div class="stats-card">
+            <span class="stats-value" id="stats-text">—</span>
+            <span class="stats-label" data-i18n="settings.stats.text">Text</span>
           </div>
-          <div class="setting-hint" id="translation-key-hint"
-               data-i18n="settings.translation.apiKeyHint">Stored in the system Secret Service and never written to Clippy settings.</div>
-          <div class="setting-hint" id="translation-fallback-hint" hidden
-               data-i18n="settings.translation.fallbackHint">Without credentials this service falls back to its unofficial web endpoint, which can stop working at any time.</div>
-          <div class="translation-key-status" role="status" aria-live="polite">
-            <span class="translation-status-dot pending" id="translation-key-status-dot" aria-hidden="true"></span>
-            <span class="translation-status-text" id="translation-key-status-text"
-                  data-i18n="settings.translation.keyChecking">Checking stored key...</span>
+          <div class="stats-card">
+            <span class="stats-value" id="stats-html">—</span>
+            <span class="stats-label" data-i18n="settings.stats.html">Rich Text</span>
+          </div>
+          <div class="stats-card">
+            <span class="stats-value" id="stats-image">—</span>
+            <span class="stats-label" data-i18n="settings.stats.image">Images</span>
+          </div>
+          <div class="stats-card">
+            <span class="stats-value" id="stats-size">—</span>
+            <span class="stats-label" data-i18n="settings.stats.dbSize">DB Size</span>
           </div>
         </div>
       </div>
-      <div class="translation-privacy" role="note">
-        <div class="translation-destination">
-          <span data-i18n="settings.translation.destination">Destination services:</span>
-          <strong id="translation-service-name">LibreTranslate-compatible</strong>
+    </div>
+
+    <div class="settings-panel" role="tabpanel" id="settings-panel-screenshot"
+         aria-labelledby="settings-tab-screenshot" data-settings-panel="screenshot" hidden>
+      <div class="setting-group">
+        <label class="setting-label" data-i18n="settings.windowProbe.label">Window Quick-Pick</label>
+        <div class="service-card" id="window-probe-card" role="status" aria-live="polite">
+          <div class="service-card-header">
+            <span class="service-card-dot" id="window-probe-dot" aria-hidden="true"></span>
+            <span class="service-card-state" id="window-probe-state"></span>
+          </div>
+          <p class="service-card-detail" id="window-probe-detail"></p>
+          <div class="service-card-actions">
+            <button class="btn btn-small btn-primary" id="window-probe-install-btn" type="button" hidden
+                    data-i18n="settings.windowProbe.install">Install Service</button>
+            <button class="btn btn-small btn-secondary" id="window-probe-uninstall-btn" type="button" hidden
+                    data-i18n="settings.windowProbe.uninstall">Uninstall Service</button>
+            <button class="btn btn-small btn-secondary" id="window-probe-recheck-btn" type="button"
+                    data-i18n="settings.windowProbe.recheck">Re-check</button>
+          </div>
         </div>
-        <p id="translation-privacy-text"
-           data-i18n="settings.translation.privacy">Text is sent only when you explicitly request translation. Images are never uploaded; image translation uses local OCR first.</p>
+        <div class="setting-hint" data-i18n="settings.windowProbe.hint">Highlights the window under the cursor during a screenshot so one click captures it. GNOME exposes window geometry only to a shell extension, so Clippy ships a small one that reports nothing but window rectangles to Clippy itself.</div>
       </div>
-      <div class="translation-field translation-field-wide">
-        <span class="setting-label setting-label-sub" id="translation-history-label"
-              data-i18n="settings.translation.history">Saved Translations</span>
+
+      <div class="setting-group">
+        <label class="setting-label" data-i18n="settings.captureShortcut.label">Screenshot Shortcut</label>
+        <div class="shortcut-recorder" id="capture-shortcut-recorder">
+          <input type="text" class="shortcut-input" id="capture-shortcut-input" readonly
+                 data-i18n="settings.captureShortcut.placeholder" data-i18n-attr="placeholder"
+                 placeholder="Click Record to set...">
+          <button class="btn btn-small" id="capture-shortcut-record-btn"
+                  data-i18n="settings.shortcut.record">Record</button>
+          <button class="btn btn-small btn-secondary" id="capture-shortcut-clear-btn"
+                  data-i18n="settings.shortcut.reset">Reset</button>
+        </div>
+        <div class="setting-hint" data-i18n="settings.captureShortcut.hint">Shortcut to start a screenshot</div>
+        <div class="setting-warning hidden" id="capture-shortcut-warning"
+             data-i18n="settings.shortcut.conflict">This shortcut may conflict with an existing shortcut</div>
+      </div>
+
+      <div class="setting-group">
+        <label class="setting-label" data-i18n="settings.screenshot.label">Screenshots</label>
+        <label class="setting-label setting-label-sub" for="screenshot-dir-input"
+               data-i18n="settings.screenshot.directory">Save Folder</label>
         <div class="translation-key-row">
-          <button class="btn btn-small btn-secondary" id="translation-history-clear-btn" type="button"
-                  aria-describedby="translation-history-hint"
-                  data-i18n="settings.translation.clearHistory">Clear Saved Translations</button>
+          <input type="text" class="setting-input" id="screenshot-dir-input"
+                 autocomplete="off" spellcheck="false" placeholder="~/Pictures/Clippy"
+                 aria-describedby="screenshot-dir-hint">
+          <button class="btn btn-small btn-secondary" id="screenshot-dir-browse-btn" type="button"
+                  data-i18n="settings.screenshot.browse">Browse...</button>
         </div>
-        <div class="setting-hint" id="translation-history-hint"
-             data-i18n="settings.translation.historyHint">Translations are saved in the local database, so a clip you already translated shows its result without another request. Deleting a clip also deletes its translations.</div>
-        <div class="translation-key-status" role="status" aria-live="polite">
-          <span class="translation-status-text" id="translation-history-status-text"></span>
+        <div class="setting-hint" id="screenshot-dir-hint"
+             data-i18n="settings.screenshot.directoryHint">Screenshots and pinned images are saved here. Leave empty to use ~/Pictures/Clippy.</div>
+        <label class="setting-label setting-label-sub" for="screenshot-template-input"
+               data-i18n="settings.screenshot.template">File Name</label>
+        <input type="text" class="setting-input" id="screenshot-template-input"
+               autocomplete="off" spellcheck="false" placeholder="{prefix}-{date}_{time}"
+               aria-describedby="screenshot-template-hint">
+        <div class="setting-hint" id="screenshot-template-hint"
+             data-i18n="settings.screenshot.templateHint">Placeholders: {prefix} {date} {time} {unix} {seq}. The .png extension is added automatically, and an existing file is never overwritten.</div>
+      </div>
+
+      <div class="setting-group">
+        <label class="setting-label" data-i18n="settings.ocr.label">OCR</label>
+        <div class="setting-toggle-row">
+          <label class="toggle-switch">
+            <input type="checkbox" id="ocr-toggle">
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="setting-hint" data-i18n="settings.ocr.toggleHint">Enable OCR text recognition for images</span>
+        </div>
+        <div class="ocr-status-row" id="ocr-status-row">
+          <span class="ocr-status-dot" id="ocr-status-dot"></span>
+          <span class="ocr-status-text" id="ocr-status-text"></span>
+          <button class="btn btn-small btn-primary" id="ocr-install-btn" hidden
+                  data-i18n="settings.ocr.install">Install</button>
+        </div>
+        <div id="ocr-options" class="ocr-options">
+          <label class="setting-label setting-label-sub"
+                 data-i18n="settings.ocr.modeLabel">Result Mode</label>
+          <div class="custom-select" id="ocr-mode-select">
+            <button class="custom-select-trigger" type="button" tabindex="0">
+              <span class="custom-select-value" data-i18n="settings.ocr.preview">Show in Preview</span>
+              <svg class="custom-select-arrow" width="12" height="8" viewBox="0 0 12 8">
+                <path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M1 1.5l5 5 5-5"/>
+              </svg>
+            </button>
+            <ul class="custom-select-dropdown">
+              <li class="custom-select-option selected" data-value="preview" data-i18n="settings.ocr.preview">Show in Preview</li>
+              <li class="custom-select-option" data-value="clipboard" data-i18n="settings.ocr.clipboard">Copy to Clipboard</li>
+            </ul>
+          </div>
         </div>
       </div>
     </div>
 
-    <div class="setting-group" id="tmux-group" hidden>
-      <label class="setting-label" data-i18n="settings.tmux.label">Tmux Capture</label>
-      <div class="setting-toggle-row">
-        <label class="toggle-switch">
-          <input type="checkbox" id="tmux-toggle">
-          <span class="toggle-slider"></span>
-        </label>
-        <span class="setting-hint" data-i18n="settings.tmux.hint">Capture tmux copy-mode buffer via hook</span>
+    <div class="settings-panel" role="tabpanel" id="settings-panel-translation"
+         aria-labelledby="settings-tab-translation" data-settings-panel="translation" hidden>
+      <div class="setting-group" id="translation-group">
+        <h2 class="setting-label" data-i18n="settings.translation.label">Translation</h2>
+        <div class="translation-grid">
+          <div class="translation-field">
+            <label class="setting-label setting-label-sub" for="translation-provider-select"
+                   data-i18n="settings.translation.provider">Provider</label>
+            <select class="setting-select" id="translation-provider-select">
+              <option value="libretranslate" data-i18n="settings.translation.providerLibre">LibreTranslate-compatible</option>
+              <option value="openai_compatible" data-i18n="settings.translation.providerOpenAI">OpenAI-compatible</option>
+              <option value="deepl" data-i18n="settings.translation.providerDeepL">DeepL</option>
+              <option value="google" data-i18n="settings.translation.providerGoogle">Google Translate</option>
+              <option value="bing" data-i18n="settings.translation.providerBing">Microsoft Translator</option>
+              <option value="youdao" data-i18n="settings.translation.providerYoudao">Youdao</option>
+            </select>
+          </div>
+          <div class="translation-field">
+            <label class="setting-label setting-label-sub"
+                   data-i18n="settings.translation.enable">Enable</label>
+            <div class="setting-toggle-row">
+              <label class="toggle-switch">
+                <input type="checkbox" id="translation-service-enabled"
+                       aria-describedby="translation-enabled-hint">
+                <span class="toggle-slider"></span>
+              </label>
+              <span class="setting-hint" id="translation-enabled-hint"
+                    data-i18n="settings.translation.enableHint">Every enabled service translates in parallel, each into its own result card.</span>
+            </div>
+          </div>
+          <div class="translation-field" id="translation-model-field">
+            <label class="setting-label setting-label-sub" for="translation-model-input"
+                   data-i18n="settings.translation.model">Model</label>
+            <input type="text" class="setting-input" id="translation-model-input"
+                   autocomplete="off" spellcheck="false" placeholder="gpt-4o-mini"
+                   data-i18n="settings.translation.modelPlaceholder" data-i18n-attr="placeholder">
+          </div>
+          <div class="translation-field" id="translation-region-field" hidden>
+            <label class="setting-label setting-label-sub" for="translation-region-input"
+                   data-i18n="settings.translation.region">Resource Region</label>
+            <input type="text" class="setting-input" id="translation-region-input"
+                   autocomplete="off" spellcheck="false" placeholder="global"
+                   aria-describedby="translation-region-hint">
+            <div class="setting-hint" id="translation-region-hint"
+                 data-i18n="settings.translation.regionHint">Leave empty for a global Azure resource.</div>
+          </div>
+          <div class="translation-field" id="translation-project-field" hidden>
+            <label class="setting-label setting-label-sub" for="translation-project-input"
+                   data-i18n="settings.translation.project">Project ID</label>
+            <input type="text" class="setting-input" id="translation-project-input"
+                   autocomplete="off" spellcheck="false" placeholder="my-gcp-project"
+                   aria-describedby="translation-project-hint">
+            <div class="setting-hint" id="translation-project-hint"
+                 data-i18n="settings.translation.projectHint">Required by the official Cloud Translation API.</div>
+          </div>
+          <div class="translation-field translation-field-wide">
+            <label class="setting-label setting-label-sub" for="translation-endpoint-input"
+                   data-i18n="settings.translation.endpoint">Endpoint</label>
+            <input type="url" class="setting-input" id="translation-endpoint-input"
+                   autocomplete="url" spellcheck="false" inputmode="url"
+                   aria-describedby="translation-endpoint-hint" placeholder="https://libretranslate.com">
+            <div class="setting-hint" id="translation-endpoint-hint"
+                 data-i18n="settings.translation.endpointHint">Requests are sent only to this service endpoint.</div>
+          </div>
+          <div class="translation-field">
+            <label class="setting-label setting-label-sub" for="translation-source-language-select"
+                   data-i18n="settings.translation.sourceLanguage">Source Language</label>
+            <select class="setting-select" id="translation-source-language-select">
+              <option value="auto" data-i18n="settings.translation.languageAuto">Detect automatically</option>
+              <option value="en" data-i18n="settings.translation.languageEnglish">English</option>
+              <option value="zh" data-i18n="settings.translation.languageChinese">Chinese</option>
+              <option value="ja" data-i18n="settings.translation.languageJapanese">Japanese</option>
+              <option value="ko" data-i18n="settings.translation.languageKorean">Korean</option>
+              <option value="es" data-i18n="settings.translation.languageSpanish">Spanish</option>
+              <option value="fr" data-i18n="settings.translation.languageFrench">French</option>
+              <option value="de" data-i18n="settings.translation.languageGerman">German</option>
+            </select>
+          </div>
+          <div class="translation-field">
+            <label class="setting-label setting-label-sub" for="translation-target-language-select"
+                   data-i18n="settings.translation.targetLanguage">Target Language</label>
+            <select class="setting-select" id="translation-target-language-select">
+              <option value="en" data-i18n="settings.translation.languageEnglish">English</option>
+              <option value="zh" data-i18n="settings.translation.languageChinese">Chinese</option>
+              <option value="ja" data-i18n="settings.translation.languageJapanese">Japanese</option>
+              <option value="ko" data-i18n="settings.translation.languageKorean">Korean</option>
+              <option value="es" data-i18n="settings.translation.languageSpanish">Spanish</option>
+              <option value="fr" data-i18n="settings.translation.languageFrench">French</option>
+              <option value="de" data-i18n="settings.translation.languageGerman">German</option>
+            </select>
+          </div>
+          <div class="translation-field translation-field-wide">
+            <span class="setting-label setting-label-sub" id="translation-preferred-label"
+                  data-i18n="settings.translation.preferredLanguages">Alternate Languages</span>
+            <div class="translation-preferred-list" id="translation-preferred-languages" role="group"
+                 aria-labelledby="translation-preferred-label"
+                 aria-describedby="translation-preferred-hint">
+              <label class="translation-preferred-option">
+                <input type="checkbox" value="en">
+                <span data-i18n="settings.translation.languageEnglish">English</span>
+              </label>
+              <label class="translation-preferred-option">
+                <input type="checkbox" value="zh">
+                <span data-i18n="settings.translation.languageChinese">Chinese</span>
+              </label>
+              <label class="translation-preferred-option">
+                <input type="checkbox" value="ja">
+                <span data-i18n="settings.translation.languageJapanese">Japanese</span>
+              </label>
+              <label class="translation-preferred-option">
+                <input type="checkbox" value="ko">
+                <span data-i18n="settings.translation.languageKorean">Korean</span>
+              </label>
+              <label class="translation-preferred-option">
+                <input type="checkbox" value="es">
+                <span data-i18n="settings.translation.languageSpanish">Spanish</span>
+              </label>
+              <label class="translation-preferred-option">
+                <input type="checkbox" value="fr">
+                <span data-i18n="settings.translation.languageFrench">French</span>
+              </label>
+              <label class="translation-preferred-option">
+                <input type="checkbox" value="de">
+                <span data-i18n="settings.translation.languageGerman">German</span>
+              </label>
+            </div>
+            <div class="setting-hint" id="translation-preferred-hint"
+                 data-i18n="settings.translation.preferredHint">When the text is already in the target language, Clippy translates into the first alternate language instead. Leave all unchecked to use the source and target languages above.</div>
+          </div>
+          <div class="translation-field translation-field-wide">
+            <label class="setting-label setting-label-sub" for="translation-api-key-input"
+                   data-i18n="settings.translation.apiKey">API Key</label>
+            <div class="translation-key-row">
+              <input type="password" class="setting-input" id="translation-api-key-input"
+                     autocomplete="new-password" spellcheck="false"
+                     aria-describedby="translation-key-hint translation-key-status-text"
+                     data-i18n="settings.translation.apiKeyPlaceholder" data-i18n-attr="placeholder"
+                     placeholder="Enter a new key">
+              <input type="password" class="setting-input" id="translation-api-secret-input" hidden
+                     autocomplete="new-password" spellcheck="false"
+                     aria-describedby="translation-key-hint"
+                     aria-label="Application secret"
+                     data-i18n="settings.translation.apiSecretPlaceholder" data-i18n-attr="placeholder"
+                     placeholder="Enter the application secret">
+              <button class="btn btn-small btn-primary" id="translation-key-save-btn" type="button" disabled
+                      data-i18n="settings.translation.saveKey">Save Key</button>
+              <button class="btn btn-small btn-secondary" id="translation-key-delete-btn" type="button" hidden
+                      data-i18n="settings.translation.deleteKey">Remove</button>
+            </div>
+            <div class="setting-hint" id="translation-key-hint"
+                 data-i18n="settings.translation.apiKeyHint">Stored in the system Secret Service and never written to Clippy settings.</div>
+            <div class="setting-hint" id="translation-fallback-hint" hidden
+                 data-i18n="settings.translation.fallbackHint">Without credentials this service falls back to its unofficial web endpoint, which can stop working at any time.</div>
+            <div class="translation-key-status" role="status" aria-live="polite">
+              <span class="translation-status-dot pending" id="translation-key-status-dot" aria-hidden="true"></span>
+              <span class="translation-status-text" id="translation-key-status-text"
+                    data-i18n="settings.translation.keyChecking">Checking stored key...</span>
+            </div>
+          </div>
+        </div>
+        <div class="translation-privacy" role="note">
+          <div class="translation-destination">
+            <span data-i18n="settings.translation.destination">Destination services:</span>
+            <strong id="translation-service-name">LibreTranslate-compatible</strong>
+          </div>
+          <p id="translation-privacy-text"
+             data-i18n="settings.translation.privacy">Text is sent only when you explicitly request translation. Images are never uploaded; image translation uses local OCR first.</p>
+        </div>
+        <div class="translation-field translation-field-wide">
+          <span class="setting-label setting-label-sub" id="translation-history-label"
+                data-i18n="settings.translation.history">Saved Translations</span>
+          <div class="translation-key-row">
+            <button class="btn btn-small btn-secondary" id="translation-history-clear-btn" type="button"
+                    aria-describedby="translation-history-hint"
+                    data-i18n="settings.translation.clearHistory">Clear Saved Translations</button>
+          </div>
+          <div class="setting-hint" id="translation-history-hint"
+               data-i18n="settings.translation.historyHint">Translations are saved in the local database, so a clip you already translated shows its result without another request. Deleting a clip also deletes its translations.</div>
+          <div class="translation-key-status" role="status" aria-live="polite">
+            <span class="translation-status-text" id="translation-history-status-text"></span>
+          </div>
+        </div>
       </div>
     </div>
 
-    <div class="setting-group">
-      <label class="setting-label" data-i18n="settings.stats.label">Statistics</label>
-      <div class="stats-grid" id="stats-grid">
-        <div class="stats-card">
-          <span class="stats-value" id="stats-total">—</span>
-          <span class="stats-label" data-i18n="settings.stats.total">Total</span>
+    <div class="settings-panel" role="tabpanel" id="settings-panel-about"
+         aria-labelledby="settings-tab-about" data-settings-panel="about" hidden>
+      <div class="setting-group setting-about">
+        <label class="setting-label" data-i18n="settings.about.label">About</label>
+        <div class="about-row">
+          <span class="about-version" id="about-version"></span>
+          <button class="btn btn-small" id="check-update-btn" data-i18n="settings.about.checkUpdate">Check for updates</button>
+          <span class="about-status hidden" id="update-status"></span>
         </div>
-        <div class="stats-card">
-          <span class="stats-value" id="stats-favorites">—</span>
-          <span class="stats-label" data-i18n="settings.stats.favorites">Favorites</span>
-        </div>
-        <div class="stats-card">
-          <span class="stats-value" id="stats-text">—</span>
-          <span class="stats-label" data-i18n="settings.stats.text">Text</span>
-        </div>
-        <div class="stats-card">
-          <span class="stats-value" id="stats-html">—</span>
-          <span class="stats-label" data-i18n="settings.stats.html">Rich Text</span>
-        </div>
-        <div class="stats-card">
-          <span class="stats-value" id="stats-image">—</span>
-          <span class="stats-label" data-i18n="settings.stats.image">Images</span>
-        </div>
-        <div class="stats-card">
-          <span class="stats-value" id="stats-size">—</span>
-          <span class="stats-label" data-i18n="settings.stats.dbSize">DB Size</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="setting-group setting-about">
-      <label class="setting-label" data-i18n="settings.about.label">About</label>
-      <div class="about-row">
-        <span class="about-version" id="about-version"></span>
-        <button class="btn btn-small" id="check-update-btn" data-i18n="settings.about.checkUpdate">Check for updates</button>
-        <span class="about-status hidden" id="update-status"></span>
       </div>
     </div>
 
