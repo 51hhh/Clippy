@@ -19,8 +19,8 @@
 | `window_controller.rs` | 主窗口 work area、logical/physical 尺寸与位置约束；设置窗口的开窗入口（托盘与 IPC 共用一份几何与标题） |
 | `i18n.rs` | 托盘菜单与 Rust 侧窗口标题的静态文案；语言解析与前端 `i18n.js` 同规则（显式值优先，`auto` 看 `LC_ALL`/`LC_MESSAGES`/`LANG`，其余回退英文） |
 | `capture/` | 单一 CaptureSession、冻结帧、多显示器覆盖层、裁剪与动作；`window_probe.rs` 按堆叠顺序（扩展 `sort_windows_by_stacking` / X11 `_NET_CLIENT_LIST_STACKING`）下发速选候选。冻结帧像素由 `get_capture_frame` 以二进制 IPC 直传原始 RGBA（payload 只带几何），`StageTimings` 每次会话记一条分段耗时日志 |
-| `capture/shell_extension.rs` | 自带 GNOME Shell 扩展的安装/卸载/状态、令牌校验与截图调用（`include_str!` 内嵌 `gnome-extension/`）。GNOME Wayland 下既没有面向普通应用的窗口几何接口，Portal 截图也要求"聚焦的应用"才能弹授权对话框（快捷键触发时必然失败），两件事都只能以扩展身份进 gnome-shell 做；装了要注销一次生效，升级同样要（`ReloadExtension` 已废弃，故有 `stale` 状态），卸载即时。安装只由设置页显式触发，启动时只做 `reconcile_on_startup`，绝不擅自安装。`place_window` 是贴图缩放的每帧热路径，它的前置检查（是不是 GNOME Wayland、装没装、协议版本够不够、令牌文件内容）缓存在 `placement_token()` 里：成功的结果一直有效，失败的结果 30 秒后重试，安装/卸载会立刻作废缓存。详见 [docs/capture-linux.md](capture-linux.md) |
-| `screenshot.rs` + `screenshot/*` | 原始截图帧契约与 PNG 编解码；Wayland 上按 Shell 扩展 → wlroots → Portal（非交互）→ GNOME → xcap 依次回退，返回的临时文件一律由 `TemporaryScreenshotFile` 兜底删除；几何测试隔离。取一次全屏冻结帧约 550 ms，绝大部分是 gnome-shell 自己编码 PNG，是地板不是可优化项（[capture-linux.md](capture-linux.md) §3.1） |
+| `capture/shell_extension.rs` | 自带 GNOME Shell 扩展的安装/卸载/状态、令牌校验与截图调用（整屏 `Screenshot` 与逐屏 `ScreenshotArea`，`include_str!` 内嵌 `gnome-extension/`）。GNOME Wayland 下既没有面向普通应用的窗口几何接口，Portal 截图也要求"聚焦的应用"才能弹授权对话框（快捷键触发时必然失败），两件事都只能以扩展身份进 gnome-shell 做；装了要注销一次生效，升级同样要（`ReloadExtension` 已废弃，故有 `stale` 状态），卸载即时。安装只由设置页显式触发，启动时只做 `reconcile_on_startup`，绝不擅自安装。`place_window` 是贴图缩放的每帧热路径，它的前置检查（是不是 GNOME Wayland、装没装、协议版本够不够、令牌文件内容）缓存在 `placement_token()` 里：成功的结果一直有效，失败的结果 30 秒后重试，安装/卸载会立刻作废缓存。详见 [docs/capture-linux.md](capture-linux.md) |
+| `screenshot.rs` + `screenshot/*` | 原始截图帧契约与 PNG 编解码；Wayland 上按 Shell 扩展逐屏原生（`ScreenshotArea`，协议 v4）→ 同一扩展的整屏舞台图 → wlroots → Portal（非交互）→ GNOME → xcap 依次回退，返回的临时文件一律由 `TemporaryScreenshotFile` 兜底删除；几何测试隔离。取一次全屏冻结帧的时间绝大部分是 gnome-shell 自己编码 PNG（单屏约 550 ms、双屏整屏舞台图约 1050 ms），能动的只有"少拍像素 + 并行拍"，逐屏那条路正是为此（[capture-linux.md](capture-linux.md) §3.1、§3.3）。整屏舞台图在混合缩放的多屏上会把低缩放那块上采样，画面发糊，所以逐屏是首选、整屏只是兜底 |
 | `pin/` | PinManager、内容来源、窗口尺寸、缩放/透明度/锁定和清理；`origins.rs` 的 `PinOriginRegistry`（挂在 `AppState.pin_origins`）记住"我们自己截下来复制走的图"原本在屏幕上的矩形，之后从历史里 Pin 同一张图时靠它贴回原处。键是**解码后像素**的 sha256（含宽高），不是 PNG 字节——图片经 arboard 走一圈是原始 RGBA，watcher 会重新编码，PNG 字节不稳定。登记方交出的是 `PinFingerprint`（已经算好的摘要 + 宽高），这样调用方能和剪贴板写入共用同一份解码像素，不必为登记再解一次或复制一份 16 MB；`lookup` 先只读 PNG 头比宽高，尺寸不匹配就直接返回，省掉整张解码 |
 | `pin/` 的 `update_pin` 应答 | 缩放/不透明度是**每帧**都会走的路，所以应答是 `PinState`（label、内容尺寸、scale、opacity、locked、position），**不带 `image_base64`/`text`**——每帧重编一张全图 base64 纯属浪费，而且会让前端重建图片 object URL、造成闪烁。前端 `react/pin/update-order.ts::mergePinState` 把它合并进手里那份 payload |
 | `translation/` | provider、超时/重试、request-id、内容选择、Secret Service；启用的服务按 `spawn_blocking` 并行，单服务失败作为数据返回；`direction.rs` 在文本已是目标语言时按备选语言换向；`tts.rs` 走 dictvoice 取回音频 |
@@ -169,7 +169,7 @@ clip/image/capture -> PinManager -> hidden window -> first frame ready
 一路传到 `PinOrigin`，窗口位置是 `origin − SHADOW_GUTTER`（内容区相对窗口原点偏移 12 像素），
 尺寸按 `origin_content_size` 只缩不放地钳进工作区。没有来源信息的图（从别处复制来的）
 仍居中，这是设计而不是退化。GNOME Wayland 上 `set_position` 与 `set_always_on_top` 都是静默
-空操作，摆位和置顶只能借道 Shell 扩展的 `PlaceWindow`（协议 v3），因此顺序必须是
+空操作，摆位和置顶只能借道 Shell 扩展的 `PlaceWindow`（协议 v3 起提供），因此顺序必须是
 `show()` → `set_focus()` → `PlaceWindow`（`MetaWindow` 要窗口映射后才存在），缩放之后还要再摆一次
 （改尺寸会把窗口带回普通层）；尺寸始终留在客户端。两条路都失败只是位置/层级不理想，
 **绝不让贴图本身失败**。细节见 [capture-linux.md](capture-linux.md) §1、§4。
