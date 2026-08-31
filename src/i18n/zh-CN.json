@@ -175,6 +175,7 @@
   "update.download": "前往下载",
   "preview.decoded": "解码结果",
   "preview.original": "原始内容",
+  "preview.truncated": "预览已截断——还有 {count} 个字符未显示",
   "preview.richText": "[富文本]",
   "preview.imageLoadFailed": "图片加载失败",
   "preview.image": "剪贴板图片",

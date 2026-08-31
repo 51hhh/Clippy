@@ -437,6 +437,15 @@
   text-align: center;
   padding: 4px 0 0;
 }
+/* 超大条目只画了开头一段，这行说明必须显眼但不抢内容 */
+.preview-truncated {
+  font-size: 11px;
+  color: var(--text-secondary, #888);
+  text-align: center;
+  padding: 6px 0 2px;
+  border-top: 1px dashed var(--border-color, #ddd);
+  margin-top: 6px;
+}
 /* HTML 预览 */
 .preview-content--html {
   line-height: 1.6;
