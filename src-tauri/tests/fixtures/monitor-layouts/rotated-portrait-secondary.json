@@ -1,0 +1,37 @@
+{
+  "name": "副屏竖屏（旋转 90°）",
+  "note": "旋转屏的几何在合成器给出来的时候已经是转过的（逻辑 1200x1920），所以切图这一层的不变量全都通过——这一行记录的是\"目前是对的\"，不是待修的 bug。旋转真正影响的是另外两处，都已经修了：wl_output 的 physical_size 不含旋转而 logical_region 含，求缩放要先换轴（不换的话竖屏会算出 1.7778 这种废数，见 output_scale_from_sizes）；libwayshot 的 screenshot_single_output 一个字都不转，逐输出抓来的竖屏像素是躺倒的，要按 transform 补一次旋转（见 apply_output_transform）。这两处都不经过这条 fixture——它盯的是舞台图切分，所以这里仍然应当全过。",
+  "session": {
+    "compositor": "GNOME Shell (Wayland)",
+    "backend": "gnome-shell-extension"
+  },
+  "stage": { "width": 3120, "height": 1920 },
+  "monitors": [
+    { "id": 1, "x": 0, "y": 0, "width": 1920, "height": 1200, "scale": 1.0 },
+    { "id": 2, "x": 1920, "y": 0, "width": 1200, "height": 1920, "scale": 1.0 }
+  ],
+  "expect": {
+    "stageClass": "logical",
+    "invariants": [],
+    "monitors": [
+      {
+        "id": 1,
+        "x": 0,
+        "y": 0,
+        "width": 1920,
+        "height": 1200,
+        "scale": 1.0,
+        "crop": { "x": 0, "y": 0, "width": 1920, "height": 1200 }
+      },
+      {
+        "id": 2,
+        "x": 1920,
+        "y": 0,
+        "width": 1200,
+        "height": 1920,
+        "scale": 1.0,
+        "crop": { "x": 1920, "y": 0, "width": 1200, "height": 1920 }
+      }
+    ]
+  }
+}

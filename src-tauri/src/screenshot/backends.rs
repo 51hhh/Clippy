@@ -1,3 +1,7 @@
+use super::geometry_check::{
+    classify_stage, crop_coverage_ratio, desktop_max_scale_factor, find_mirror_sources,
+    verify_crop_not_clamped, verify_crops_do_not_overlap, verify_frame_isotropy, StageClass,
+};
 use super::{DesktopBounds, FrozenFrame, ImageRect, MonitorInfo, Rect};
 use anyhow::{anyhow, bail, Context, Result};
 use image::RgbaImage;
@@ -110,6 +114,13 @@ fn capture_all_xcap_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
 
 /// 用冻结帧的真实像素宽度反推逻辑尺寸，修正 xcap 报出的显示器几何。
 ///
+/// `pixel_width` 与 `scale_factor` 必须来自**同一个坐标系**。逐屏抓图时
+/// （`capture_all_xcap_monitors`）`img.width()` 就是这块屏自己的物理宽度，除数是这块屏自己的
+/// `scale_factor`；切整张舞台图时（`split_portal_screenshot`）裁剪宽度是"逻辑宽 × 桌面最大
+/// 缩放"，除数只能是 `geometry_check::desktop_max_scale_factor`，而且**只在几何确实是物理味
+/// 时才该调用**——该走哪条路由 `geometry_check::classify_stage` 判定，不要再靠这里的 1 像素
+/// 护栏碰运气（混合缩放的多屏正好能绕过它）。
+///
 /// xcap 在 Linux 上把 RandR 尺寸除以自己探测的 `scale_factor` 当逻辑尺寸，但 GNOME 给
 /// XWayland 的 X screen 是"逻辑尺寸 × 整数倍"，与真实缩放并不相等：实测 1920x1200 的桌面
 /// 被报成 2880x1800（RandR 3840x2400 ÷ 1.333）。覆盖层按这个尺寸开窗就会既错位又错缩放，
@@ -158,7 +169,11 @@ fn capture_all_wayland_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)
         let image = conn
             .screenshot_single_output(output, false)
             .with_context(|| format!("无法捕获 Wayland 输出 {}", output.name))?;
-        let rgba_image = image.to_rgba8();
+        // **旋转必须在这里补上。** `screenshot_single_output` 直接把 frame copy 转成图，
+        // 一个字都不转（会转的是 libwayshot 自己的 `screenshot_outputs` 合成路径）。
+        // 于是竖屏拿到的是面板原始朝向的横向像素：覆盖层里画面躺倒，帧宽高也和逻辑矩形
+        // 反着，选区坐标全错。
+        let rgba_image = apply_output_transform(image.to_rgba8(), output.transform);
         frames.push(FrozenFrame {
             monitor_id: info.id,
             width: rgba_image.width(),
@@ -240,13 +255,49 @@ fn capture_all_gnome_shell_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFra
     split_portal_screenshot(monitors, image)
 }
 
-fn enumerate_xcap_monitors() -> Result<Vec<MonitorInfo>> {
+/// 诊断专用：只问出舞台图的**尺寸**，一个像素都不解码。
+///
+/// 报障要判断的是"几何和舞台图对不对得上"，而那只需要两个整数。
+/// 用 `image_dimensions` 读 PNG 头，文件仍旧包在 `TemporaryScreenshotFile` 里、
+/// 出了作用域一定删——诊断绝不能在用户的图片目录里留下一整屏画面。
+///
+/// 只试**会产出整张舞台图**的两条路。wlroots（libwayshot）是逐输出抓图的，
+/// 压根不走切分那条路，所以它不在这里，也不该在这里假装有个"舞台图"。
+#[cfg(target_os = "linux")]
+pub(super) fn probe_stage_image_size() -> Result<(&'static str, u32, u32)> {
+    let mut reasons = Vec::new();
+
+    match crate::capture::shell_extension_screenshot() {
+        Ok(path) => {
+            let screenshot = TemporaryScreenshotFile::new(path);
+            let (width, height) = image::image_dimensions(screenshot.path())
+                .with_context(|| format!("读不出 {} 的尺寸", screenshot.path().display()))?;
+            return Ok(("gnome-shell-extension", width, height));
+        }
+        Err(error) => reasons.push(format!("gnome-shell-extension: {error}")),
+    }
+
+    match request_portal_screenshot() {
+        Ok(screenshot) => {
+            let path = portal_screenshot_uri_to_path(screenshot.uri().as_str())?;
+            let screenshot = TemporaryScreenshotFile::new(path);
+            let (width, height) = image::image_dimensions(screenshot.path())
+                .with_context(|| format!("读不出 {} 的尺寸", screenshot.path().display()))?;
+            return Ok(("portal", width, height));
+        }
+        Err(error) => reasons.push(format!("portal: {error:#}")),
+    }
+
+    bail!("拿不到整张舞台图（{}）", reasons.join("；"))
+}
+
+pub(super) fn enumerate_xcap_monitors() -> Result<Vec<MonitorInfo>> {
     let monitors = Monitor::all().context("无法枚举显示器")?;
     monitors.iter().map(monitor_info).collect()
 }
 
 #[cfg(target_os = "linux")]
-fn enumerate_wayland_monitors() -> Result<Vec<MonitorInfo>> {
+pub(super) fn enumerate_wayland_monitors() -> Result<Vec<MonitorInfo>> {
     let conn = wayland_connection()?;
     let monitors: Vec<_> = conn
         .get_all_outputs()
@@ -352,32 +403,66 @@ pub(super) fn validate_gnome_shell_screenshot_path(
     Ok(())
 }
 
+/// 舞台图切分的**几何**部分：一块屏对应一个 [`StageTile`]。
+///
+/// 和 [`split_portal_screenshot`] 分开是有原因的：这里一个像素都不碰，所以
+/// **诊断工具和 fixture 测试可以直接驱动真正在跑的这份代码**，不用凑一张几十兆的假图，
+/// 也不用在测试里抄一遍同样的算式（抄的那份永远只能证明抄对了）。
 #[cfg(target_os = "linux")]
-fn split_portal_screenshot(
-    monitors: Vec<MonitorInfo>,
-    image: RgbaImage,
-) -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
+pub(super) fn plan_stage_split(
+    monitors: &[MonitorInfo],
+    image_width: u32,
+    image_height: u32,
+) -> Result<StageSplitPlan> {
     if monitors.is_empty() {
         bail!("Portal 截图没有可映射显示器");
     }
-
-    let image_width = image.width();
-    let image_height = image.height();
     if image_width == 0 || image_height == 0 {
         bail!("Portal 截图为空");
     }
 
-    let desktop = monitor_union(&monitors)?;
+    let desktop = monitor_union(monitors)?;
     let scale_x = image_width as f32 / desktop.width as f32;
     let scale_y = image_height as f32 / desktop.height as f32;
     if !scale_x.is_finite() || scale_x <= 0.0 || !scale_y.is_finite() || scale_y <= 0.0 {
         bail!("Portal 截图缩放无效: {scale_x}x{scale_y}");
     }
 
-    let rgba = image.into_raw();
-    let mut adjusted_monitors = Vec::with_capacity(monitors.len());
-    let mut frames = Vec::with_capacity(monitors.len());
+    let mut warnings = Vec::new();
 
+    // **不变量 I1：先判定几何处于哪个坐标空间，再决定要不要修正。** 以前是无条件调用
+    // 修正函数、靠"差值 ≤ 1 像素就提前返回"当护栏，混合缩放的多屏正好能绕过它
+    // （见 `geometry_check`）。
+    let stage = classify_stage(
+        monitors,
+        desktop.width,
+        desktop.height,
+        image_width,
+        image_height,
+    );
+    let repair_divisor = match stage {
+        // 几何可信，一个字都不改。
+        StageClass::Logical { .. } => None,
+        // xcap 的物理味几何：按整台桌面的最大缩放反推逻辑尺寸。
+        StageClass::Physical => Some(desktop_max_scale_factor(monitors)),
+        // 既不像逻辑也不像物理：这时候任何修正都是在错上加错，宁可原样往下走，
+        // 但必须留下能查的记录——覆盖层错位的根因往往就在这里。
+        StageClass::Unknown {
+            stage_scale,
+            max_scale,
+        } => {
+            warnings.push(format!(
+                "I1 舞台图 {image_width}x{image_height} ÷ 逻辑并集 {}x{} = {stage_scale:.4}，\
+                 但显示器最大缩放是 {max_scale:.4}（{} 块屏）；几何按原样使用，覆盖层可能错位",
+                desktop.width,
+                desktop.height,
+                monitors.len(),
+            ));
+            None
+        }
+    };
+
+    let mut tiles = Vec::with_capacity(monitors.len());
     for monitor in monitors {
         let crop = scaled_monitor_rect(
             &monitor.rect,
@@ -387,26 +472,218 @@ fn split_portal_screenshot(
             image_width,
             image_height,
         )?;
-        let frame_rgba = crop_rgba(&rgba, image_width, crop)?;
-        // 几何可能来自 xcap 回退（逻辑尺寸不可信），先按裁剪出的真实像素反推，
-        // 再拿修正后的矩形算帧缩放，否则 scale_factor 会把同一个错误再传播一遍。
-        let mut adjusted_monitor = monitor;
-        adjusted_monitor.rect = normalize_monitor_geometry(
-            adjusted_monitor.rect,
-            adjusted_monitor.scale_factor,
-            crop.width,
-        );
-        let scale_factor = portal_frame_scale_factor(&adjusted_monitor, crop);
-        adjusted_monitor.scale_factor = scale_factor;
+        // 只有 `StageClass::Physical` 才修几何（逻辑尺寸不可信，按裁剪出的真实像素反推）。
+        //
+        // **除数是整台桌面的最大缩放，不是这块屏自己的缩放。** 这里的 `crop.width`
+        // 来自整张舞台图，而舞台图的尺寸是"逻辑并集 × 各视图里最大的那个缩放"
+        // （Mutter 的 `clutter_stage_get_capture_final_size`），低缩放的屏在图里是被
+        // **放大**过的。拿这块屏自己的缩放去除，非最大缩放的那块屏就会被算出一个
+        // 偏大的"逻辑尺寸"：实测 HDMI 2560x1440@1.5 + 笔记本 1920x1200@1.3333 时，
+        // 笔记本被改写成 2160x1350@(2880,459)，偏差正好 1.5/1.3333 = 1.125 倍，
+        // 于是覆盖层比屏幕大一圈、窗口候选整体左上偏移。单屏时自己的缩放就是最大缩放，
+        // 所以这个错误一直藏着没露头。
+        let mut adjusted = monitor.clone();
+        if let Some(divisor) = repair_divisor {
+            adjusted.rect = normalize_monitor_geometry(adjusted.rect, divisor, crop.width);
+        }
+        adjusted.scale_factor = portal_frame_scale_factor(&adjusted, crop);
 
-        frames.push(FrozenFrame {
-            monitor_id: adjusted_monitor.id,
-            rgba: Arc::from(frame_rgba),
-            width: crop.width,
-            height: crop.height,
-            scale_factor,
+        // **不变量 I2b**：裁剪不能被图像边界静默钳小。用**修正前**的矩形来算——
+        // 裁剪就是从它来的，拿修正后的算等于自己验自己。
+        let clamped = verify_crop_not_clamped(
+            monitor.rect.width,
+            monitor.rect.height,
+            crop,
+            scale_x,
+            scale_y,
+        );
+        if clamped > 0.0 {
+            warnings.push(format!(
+                "I2b 显示器 {} 的裁剪被舞台图边界钳掉 {clamped:.0} 像素：几何说 {}x{} × {scale_x:.4}，\
+                 实际切到 {}x{}；已拔掉的屏或陈几何？",
+                monitor.id, monitor.rect.width, monitor.rect.height, crop.width, crop.height,
+            ));
+        }
+
+        // **不变量 I3**：帧/逻辑比值在两个方向上必须一致。不一致最常见的原因是旋转屏
+        // （我们目前丢掉了 libwayshot 的 transform）。
+        let anisotropy = verify_frame_isotropy(adjusted.rect.width, adjusted.rect.height, crop);
+        if anisotropy > 0.0 {
+            warnings.push(format!(
+                "I3 显示器 {} 的帧缩放两个方向不一致（差 {anisotropy:.4}）：逻辑 {}x{}，\
+                 帧 {}x{}；旋转屏？",
+                adjusted.id, adjusted.rect.width, adjusted.rect.height, crop.width, crop.height,
+            ));
+        }
+
+        tiles.push(StageTile {
+            monitor: adjusted,
+            crop,
+            mirror_of: None,
         });
-        adjusted_monitors.push(adjusted_monitor);
+    }
+
+    // **镜像屏先摘出去。** 两块屏共用同一个逻辑矩形是投影时的正常配置，裁剪当然相同；
+    // 把它当 I2a 报错等于"一接投影仪就报几何错"。摘出去之后 I2a 只剩下真正无法解释的
+    // 部分重叠（已拔掉的屏、热插拔前的陈几何），指向性才有意义。
+    let all_crops: Vec<ImageRect> = tiles.iter().map(|tile| tile.crop).collect();
+    for (mirror, source) in find_mirror_sources(&all_crops) {
+        tiles[mirror].mirror_of = Some(tiles[source].monitor.id);
+    }
+
+    // **不变量 I2a**：各屏裁剪不得重叠。注意**不检查铺满**：显示器并集经常不是矩形，
+    // 空出来的区域是正常的，覆盖率只是诊断报告里的一个数字，见 `geometry_check`。
+    let crops: Vec<ImageRect> = tiles
+        .iter()
+        .filter(|tile| tile.mirror_of.is_none())
+        .map(|tile| tile.crop)
+        .collect();
+    if let Err(reason) = verify_crops_do_not_overlap(&crops) {
+        warnings.push(format!("I2a {reason}"));
+    }
+    // 覆盖率也只算非镜像的那些，否则镜像会把同一块面积数两遍，算出 200%。
+    let coverage = crop_coverage_ratio(&crops, image_width, image_height);
+
+    Ok(StageSplitPlan {
+        desktop,
+        stage,
+        coverage,
+        tiles,
+        warnings,
+    })
+}
+
+/// 一整张舞台图怎么切：几何结论加上不变量自检的结果。
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone)]
+pub(super) struct StageSplitPlan {
+    pub desktop: DesktopBounds,
+    pub stage: StageClass,
+    /// 裁剪覆盖了舞台图的多大比例。小于 1 是正常的（并集不是矩形），只是一个可看的数字。
+    pub coverage: f32,
+    pub tiles: Vec<StageTile>,
+    /// 没通过的不变量，人话描述。空表示全过。**不变量失败不中断截图**：
+    /// 画面本身仍然可用，退化只是几何可能不准，硬失败反而让用户什么都截不到。
+    pub warnings: Vec<String>,
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone)]
+pub(super) struct StageTile {
+    /// 修正后的显示器几何（逻辑像素）与按帧算出的缩放。
+    pub monitor: MonitorInfo,
+    /// 这块屏在舞台图里的位置。
+    pub crop: ImageRect,
+    /// 裁剪和哪块屏**完全相同**（镜像/投影）。`None` 表示这块屏有自己的那份像素。
+    /// 有值时切图会直接共享源屏那份缓冲，不再抠一遍。
+    pub mirror_of: Option<u32>,
+}
+
+#[cfg(target_os = "linux")]
+impl StageSplitPlan {
+    /// 一行几何摘要，给日志和诊断报告共用。
+    ///
+    /// **不放窗口标题、不放像素**——这一行会跟着报障走，而标题会泄露用户在做什么
+    /// （和扩展 `GetWindows` 的令牌是同一套威胁模型）。这里只有显示器几何和倍率。
+    pub fn summary_line(
+        &self,
+        monitor_count: usize,
+        image_width: u32,
+        image_height: u32,
+    ) -> String {
+        let class = match self.stage {
+            StageClass::Logical { stage_scale } => format!("logical×{stage_scale:.4}"),
+            StageClass::Physical => "physical".to_string(),
+            StageClass::Unknown {
+                stage_scale,
+                max_scale,
+            } => format!("unknown（图/并集={stage_scale:.4}，max(scale)={max_scale:.4}）"),
+        };
+        let tiles = self
+            .tiles
+            .iter()
+            .map(|tile| {
+                // 镜像标出来。它不再算 I2a 失败，但**必须看得见**：几何重复和几何算错
+                // 是两个不同的结论，而这一行是排障的起点。
+                let mirror = match tile.mirror_of {
+                    Some(source) => format!("（镜像自 #{source}）"),
+                    None => String::new(),
+                };
+                format!(
+                    "#{}@{},{} {}x{}×{:.4}→{}x{}{mirror}",
+                    tile.monitor.id,
+                    tile.monitor.rect.x,
+                    tile.monitor.rect.y,
+                    tile.monitor.rect.width,
+                    tile.monitor.rect.height,
+                    tile.monitor.scale_factor,
+                    tile.crop.width,
+                    tile.crop.height,
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("，");
+        format!(
+            "截图几何：{monitor_count} 块屏，舞台图 {image_width}x{image_height}，\
+             逻辑并集 {}x{}@{},{}，{class}，覆盖 {:.1}%，自检 {}；{tiles}",
+            self.desktop.width,
+            self.desktop.height,
+            self.desktop.x,
+            self.desktop.y,
+            self.coverage * 100.0,
+            if self.warnings.is_empty() {
+                "通过".to_string()
+            } else {
+                format!("{} 条未通过", self.warnings.len())
+            },
+        )
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub(super) fn split_portal_screenshot(
+    monitors: Vec<MonitorInfo>,
+    image: RgbaImage,
+) -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
+    let image_width = image.width();
+    let image_height = image.height();
+    let plan = plan_stage_split(&monitors, image_width, image_height)?;
+    // 每次截图都留一行几何摘要。**这行是排障的起点**：报障时用户看不见几何，
+    // 而"覆盖层错位/画面溢到隔壁屏"这类症状的根因几乎都能从这一行读出来。
+    log::info!(
+        "{}",
+        plan.summary_line(monitors.len(), image_width, image_height)
+    );
+    for warning in &plan.warnings {
+        log::error!("截图几何自检未通过：{warning}");
+    }
+
+    let rgba = image.into_raw();
+    let mut adjusted_monitors = Vec::with_capacity(plan.tiles.len());
+    let mut frames = Vec::with_capacity(plan.tiles.len());
+
+    for tile in plan.tiles {
+        // 镜像屏的裁剪和源屏一模一样，抠出来的字节也一模一样。共享那份 `Arc` 省掉的是
+        // 一整块屏的拷贝加一份同样大小的内存（1080p 就是 8 MB），而截图这条路上
+        // 每一毫秒用户都在等。找不到源屏（理论上不会）时退回自己抠一份，绝不让截图失败。
+        let shared = tile.mirror_of.and_then(|source| {
+            frames
+                .iter()
+                .find(|frame: &&FrozenFrame| frame.monitor_id == source)
+                .map(|frame| Arc::clone(&frame.rgba))
+        });
+        let rgba = match shared {
+            Some(shared) => shared,
+            None => Arc::from(crop_rgba(&rgba, image_width, tile.crop)?),
+        };
+        frames.push(FrozenFrame {
+            monitor_id: tile.monitor.id,
+            rgba,
+            width: tile.crop.width,
+            height: tile.crop.height,
+            scale_factor: tile.monitor.scale_factor,
+        });
+        adjusted_monitors.push(tile.monitor);
     }
 
     Ok((adjusted_monitors, frames))
@@ -588,28 +865,61 @@ fn stable_wayland_output_id(index: usize, output: &libwayshot_xcap::output::Outp
     hash
 }
 
+/// 把逐输出抓来的像素转到**桌面朝向**。
+///
+/// 变换方向照抄 libwayshot 自己的 `image_util::rotate_image_buffer`（`Transform::_90`
+/// 对应 `rotate90`，Flipped\* 先水平翻再转）：那是同一批缓冲的上游参考实现，
+/// 方向搞反了画面会倒着或者镜像，而这种错在横屏上永远看不出来。
+///
+/// 转完宽高就和逻辑矩形同向了，I3 因此对正常竖屏不响。
+#[cfg(target_os = "linux")]
+pub(super) fn apply_output_transform(
+    image: RgbaImage,
+    transform: libwayshot_xcap::reexport::Transform,
+) -> RgbaImage {
+    use image::imageops::{flip_horizontal, rotate180, rotate270, rotate90};
+    use libwayshot_xcap::reexport::Transform;
+    match transform {
+        Transform::_90 => rotate90(&image),
+        Transform::_180 => rotate180(&image),
+        Transform::_270 => rotate270(&image),
+        Transform::Flipped => flip_horizontal(&image),
+        Transform::Flipped90 => rotate90(&flip_horizontal(&image)),
+        Transform::Flipped180 => rotate180(&flip_horizontal(&image)),
+        Transform::Flipped270 => rotate270(&flip_horizontal(&image)),
+        // `Normal` 和将来新增的取值都按原样走：不认识的变换宁可不转，也别转错。
+        _ => image,
+    }
+}
+
+/// 这个 `transform` 是否把面板的宽高换了个方向。
+///
+/// `wl_output::Transform` 的八个取值里，`_90` / `_270` 与它们的镜像版本是旋转 90 度的，
+/// `Normal` / `_180` / `Flipped` / `Flipped180` 保持横竖不变。镜像（Flipped\*）只翻不转，
+/// 对宽高没有影响，所以这里只看角度。
+///
+/// 类型走 `libwayshot_xcap::reexport`，不直接依赖 `wayland-client`：两边版本一旦错开，
+/// 同名类型就不是同一个类型，编译错误会指向一个完全无关的地方。
+#[cfg(target_os = "linux")]
+pub(super) fn transform_swaps_axes(transform: libwayshot_xcap::reexport::Transform) -> bool {
+    use libwayshot_xcap::reexport::Transform;
+    matches!(
+        transform,
+        Transform::_90 | Transform::_270 | Transform::Flipped90 | Transform::Flipped270
+    )
+}
+
 #[cfg(target_os = "linux")]
 fn wayland_output_scale_factor(output: &libwayshot_xcap::output::OutputInfo) -> f32 {
     let logical = output.logical_region.inner.size;
     let physical = output.physical_size;
-
-    let width_scale = if logical.width > 0 {
-        physical.width as f32 / logical.width as f32
-    } else {
-        0.0
-    };
-    let height_scale = if logical.height > 0 {
-        physical.height as f32 / logical.height as f32
-    } else {
-        0.0
-    };
-    let scale = width_scale.max(height_scale);
-
-    if scale.is_finite() && scale > 0.0 {
-        scale
-    } else {
-        1.0
-    }
+    // 竖屏必须换轴，否则算出的是 1.7778 这种彻底错的"缩放"，详见 `output_scale_from_sizes`。
+    super::geometry_check::output_scale_from_sizes(
+        (physical.width, physical.height),
+        (logical.width, logical.height),
+        transform_swaps_axes(output.transform),
+    )
+    .unwrap_or(1.0)
 }
 
 #[cfg(target_os = "linux")]

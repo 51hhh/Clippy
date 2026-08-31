@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(target_os = "linux")]
+use image::{ImageBuffer, Rgba};
 
 #[cfg(target_os = "linux")]
 #[test]
@@ -32,6 +34,69 @@ fn gnome_shell_screenshot_path_must_stay_in_private_directory() {
         std::path::Path::new("/tmp/outside.png")
     )
     .is_err());
+}
+
+/// 竖屏的像素方向。**方向搞反在横屏上永远看不出来**，所以这里逐像素钉住：
+/// 一张左上角唯一有色的图，转 90 度之后那个像素必须落到右上角。
+#[cfg(target_os = "linux")]
+#[test]
+fn a_quarter_turn_moves_the_top_left_pixel_to_the_top_right() {
+    use libwayshot_xcap::reexport::Transform;
+
+    // 4x2 的横向图，只有 (0,0) 是红的。转 90° 后变成 2x4，红点应当在 (1,0)。
+    let mut image = ImageBuffer::from_pixel(4, 2, Rgba([0, 0, 0, 255]));
+    image.put_pixel(0, 0, Rgba([255, 0, 0, 255]));
+
+    let rotated = super::backends::apply_output_transform(image.clone(), Transform::_90);
+    assert_eq!((rotated.width(), rotated.height()), (2, 4));
+    assert_eq!(*rotated.get_pixel(1, 0), Rgba([255, 0, 0, 255]));
+
+    // 270° 是另一头：红点落到左下角。
+    let rotated = super::backends::apply_output_transform(image.clone(), Transform::_270);
+    assert_eq!((rotated.width(), rotated.height()), (2, 4));
+    assert_eq!(*rotated.get_pixel(0, 3), Rgba([255, 0, 0, 255]));
+
+    // 镜像只翻不转，尺寸不变，红点跑到右上角。
+    let flipped = super::backends::apply_output_transform(image.clone(), Transform::Flipped);
+    assert_eq!((flipped.width(), flipped.height()), (4, 2));
+    assert_eq!(*flipped.get_pixel(3, 0), Rgba([255, 0, 0, 255]));
+
+    // Normal 必须是恒等：绝大多数用户走的是这一条，多一次拷贝都不该有语义变化。
+    let untouched = super::backends::apply_output_transform(image.clone(), Transform::Normal);
+    assert_eq!((untouched.width(), untouched.height()), (4, 2));
+    assert_eq!(*untouched.get_pixel(0, 0), Rgba([255, 0, 0, 255]));
+}
+
+/// 八个 transform 里只有 90/270（含镜像版本）换宽高。判错任意一个，那块屏的缩放
+/// 就会变成 1.7778 这种虚构值，帧尺寸和坐标全跟着错。
+#[cfg(target_os = "linux")]
+#[test]
+fn only_the_quarter_turns_swap_the_axes() {
+    use libwayshot_xcap::reexport::Transform;
+
+    for transform in [
+        Transform::_90,
+        Transform::_270,
+        Transform::Flipped90,
+        Transform::Flipped270,
+    ] {
+        assert!(
+            super::backends::transform_swaps_axes(transform),
+            "{transform:?}"
+        );
+    }
+    // 镜像只翻不转，对宽高没有影响。
+    for transform in [
+        Transform::Normal,
+        Transform::_180,
+        Transform::Flipped,
+        Transform::Flipped180,
+    ] {
+        assert!(
+            !super::backends::transform_swaps_axes(transform),
+            "{transform:?}"
+        );
+    }
 }
 
 #[test]
@@ -131,6 +196,106 @@ fn compose_places_left_2x_right_1x_monitors_without_overlap() {
     assert_eq!(pixel_at(&rgba, width, 199, 25), [255, 0, 0, 255]);
     assert_eq!(pixel_at(&rgba, width, 200, 25), [0, 0, 255, 255]);
     assert_eq!(pixel_at(&rgba, width, 299, 25), [0, 0, 255, 255]);
+}
+
+/// 切舞台图这条路的**像素**部分：每块屏必须从图里正确的位置取像素。
+///
+/// 几何那半边不在这里测——它由 `tests/fixtures/monitor-layouts/*.json` 逐个环境覆盖
+/// （包括混合缩放、镜像、旋转、负坐标、陈几何），驱动的是同一个 `plan_stage_split`。
+/// 那样一条新环境的成本是一个 json 文件，而且不必为了走完整条路去凑一张几十兆的假图
+/// （6720x2412 的 RGBA 是 64 MB）。这里只留一条最小的，钉住"计划出来的裁剪真的被用上了"。
+#[cfg(target_os = "linux")]
+#[test]
+fn split_portal_screenshot_crops_each_monitor_from_the_right_place() {
+    let monitors = horizontal_monitors(1.0, 1.0);
+    // 左半红、右半蓝的舞台图。切完之后左屏应当全红、右屏全蓝。
+    let stage = ImageBuffer::from_fn(200, 50, |x, _| {
+        if x < 100 {
+            Rgba([255, 0, 0, 255])
+        } else {
+            Rgba([0, 0, 255, 255])
+        }
+    });
+
+    let (adjusted, frames) = split_portal_screenshot(monitors.clone(), stage).unwrap();
+
+    assert_eq!(adjusted[0].rect, monitors[0].rect);
+    assert_eq!(adjusted[1].rect, monitors[1].rect);
+    assert_eq!((frames[0].width, frames[0].height), (100, 50));
+    assert_eq!(pixel_at(&frames[0].rgba, 100, 0, 0), [255, 0, 0, 255]);
+    assert_eq!(pixel_at(&frames[0].rgba, 100, 99, 49), [255, 0, 0, 255]);
+    assert_eq!(pixel_at(&frames[1].rgba, 100, 0, 0), [0, 0, 255, 255]);
+    assert_eq!(pixel_at(&frames[1].rgba, 100, 99, 49), [0, 0, 255, 255]);
+}
+
+/// 镜像屏（投影）的两块屏共用同一个矩形。像素**必须是同一份**：抠第二遍等于在
+/// 截图这条路上白花一次全屏拷贝加一份同样大小的内存，1080p 就是 8 MB。
+#[cfg(target_os = "linux")]
+#[test]
+fn mirrored_monitors_share_one_pixel_buffer() {
+    let mirrored = vec![
+        MonitorInfo {
+            id: 1,
+            rect: Rect {
+                x: 0,
+                y: 0,
+                width: 200,
+                height: 50,
+            },
+            scale_factor: 1.0,
+        },
+        MonitorInfo {
+            id: 2,
+            rect: Rect {
+                x: 0,
+                y: 0,
+                width: 200,
+                height: 50,
+            },
+            scale_factor: 1.0,
+        },
+    ];
+    let stage = ImageBuffer::from_fn(200, 50, |x, _| {
+        if x < 100 {
+            Rgba([255, 0, 0, 255])
+        } else {
+            Rgba([0, 0, 255, 255])
+        }
+    });
+
+    let (adjusted, frames) = split_portal_screenshot(mirrored, stage).unwrap();
+
+    // 两块屏都还在——镜像不是"少一块屏"，覆盖层和窗口候选照旧按两块屏走。
+    assert_eq!(adjusted.len(), 2);
+    assert_eq!(frames.len(), 2);
+    assert_eq!((frames[1].width, frames[1].height), (200, 50));
+    assert!(
+        std::sync::Arc::ptr_eq(&frames[0].rgba, &frames[1].rgba),
+        "镜像屏的像素被抠了两遍"
+    );
+}
+
+/// 除数用错的直接后果，单独钉住：同一个矩形换个除数就被改写成 1.125 倍。
+#[test]
+fn normalize_geometry_depends_on_which_scale_the_pixel_width_belongs_to() {
+    let rect = Rect {
+        x: 2560,
+        y: 408,
+        width: 1920,
+        height: 1200,
+    };
+    // 舞台图裁剪宽度属于"桌面最大缩放"坐标系，用它当除数是恒等变换。
+    assert_eq!(normalize_monitor_geometry(rect, 1.5, 2880), rect);
+    // 换成这块屏自己的缩放就会算出偏大的逻辑尺寸，这正是多屏错位的来源。
+    assert_eq!(
+        normalize_monitor_geometry(rect, 1.333_333_4, 2880),
+        Rect {
+            x: 2880,
+            y: 459,
+            width: 2160,
+            height: 1350,
+        }
+    );
 }
 
 fn horizontal_monitors(left_scale: f32, right_scale: f32) -> Vec<MonitorInfo> {

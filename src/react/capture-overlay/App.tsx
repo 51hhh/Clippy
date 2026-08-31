@@ -35,6 +35,20 @@ import { useSelection } from "./useSelection";
 
 const HANDLES: ResizeHandle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 
+/** 覆盖层窗口的可见视口尺寸（CSS 像素）。合成器最终摆放的尺寸只有这里能看到。 */
+function useViewportSize() {
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  useEffect(() => {
+    function measure() {
+      setSize({ width: window.innerWidth, height: window.innerHeight });
+    }
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+  return size;
+}
+
 /**
  * 冻结画面覆盖层：选区、标注和提交全部发生在这一个窗口里。
  *
@@ -81,6 +95,18 @@ export function App() {
   const logicalWidth = payload?.logicalWidth || 1;
   const logicalHeight = payload?.logicalHeight || 1;
   const region = useSelection(logicalWidth, logicalHeight, payload?.windows || []);
+  const viewport = useViewportSize();
+  /**
+   * 工具条与译文面板按**真实可见视口**落位，而不是冻结帧的逻辑尺寸。
+   *
+   * 正常情况下两者相等（覆盖层就是铺满那块屏）。不相等只发生在冻结帧几何算错时——
+   * 曾经多屏混合缩放下帧几何被算大 1.125 倍（见 `screenshot/backends.rs` 的
+   * `desktop_max_scale_factor`），画布比窗口大一圈，贴在选区右下的工具条就落到了
+   * 窗口外面，用户看到的是"截图能用但工具条不见了"。按可见视口钳一下，
+   * 这类不一致只会让画布边缘被裁掉，交互仍然完整。
+   */
+  const layoutWidth = viewport.width > 0 ? Math.min(logicalWidth, viewport.width) : logicalWidth;
+  const layoutHeight = viewport.height > 0 ? Math.min(logicalHeight, viewport.height) : logicalHeight;
   const history = useHistory<Annotation[]>([]);
   const annotations = history.value;
 
@@ -410,7 +436,7 @@ export function App() {
     ? "capture.windowProbeHint"
     : "capture.windowPickingUnavailable";
   const translationPosition = selection && translation
-    ? translationPanelPosition(selection, logicalWidth, logicalHeight)
+    ? translationPanelPosition(selection, layoutWidth, layoutHeight)
     : null;
 
   return (
@@ -462,8 +488,8 @@ export function App() {
           {selection.width >= 2 && selection.height >= 2 && (
             <OverlayToolbar
               selection={selection}
-              viewportWidth={logicalWidth}
-              viewportHeight={logicalHeight}
+              viewportWidth={layoutWidth}
+              viewportHeight={layoutHeight}
               tool={tool}
               color={color}
               stroke={stroke}

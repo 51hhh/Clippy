@@ -146,9 +146,32 @@ fn configure_platform_overlay(
     let target = OverlayRect::from(spec);
     match (
         gtk::prelude::GtkWindowExt::screen(&gtk_window),
-        gdk_monitor_index_for(&gtk_window, target),
+        gdk_monitor_for(&gtk_window, target),
     ) {
-        (Some(screen), Some(index)) => gtk_window.fullscreen_on_monitor(&screen, index),
+        (Some(screen), Some((index, geometry))) => {
+            // **覆盖层绝不能比显示器大。** 全屏请求并不保证窗口被压到显示器尺寸：
+            // 内容的最小尺寸比显示器大时，合成器给了 fullscreen 状态，GTK 仍按内容尺寸
+            // 分配，于是窗口居中摆放、溢到隔壁显示器上，还把贴在右下的工具条推出屏幕外。
+            // 冻结帧几何一旦算错（历史上就有过，见 `desktop_max_scale_factor`），
+            // 症状就是"截图界面整体偏移 + 工具条不见了"，很难定位。
+            // 这里以 GDK 的显示器几何为准兜一层，并把不一致大声记下来。
+            if geometry.width != target.width || geometry.height != target.height {
+                log::warn!(
+                    "覆盖层 {} 的冻结帧几何 {}x{}@({},{}) 与 GDK 显示器 {}x{}@({},{}) 不一致，按显示器尺寸摆放",
+                    spec.label,
+                    target.width,
+                    target.height,
+                    target.x,
+                    target.y,
+                    geometry.width,
+                    geometry.height,
+                    geometry.x,
+                    geometry.y,
+                );
+                gtk_window.resize(geometry.width.max(1) as i32, geometry.height.max(1) as i32);
+            }
+            gtk_window.fullscreen_on_monitor(&screen, index);
+        }
         _ => {
             // 认不出目标显示器时退化成"当前显示器全屏"：尺寸一定对，多屏下可能选错屏，
             // 但比留一个错位的小窗口（用户看到的就是黑屏）好得多。
@@ -162,9 +185,14 @@ fn configure_platform_overlay(
     Ok(())
 }
 
-/// 用 GDK 的显示器几何反查目标显示器序号。GDK 的几何是逻辑像素，和 `OverlaySpec` 同一坐标系。
+/// 用 GDK 的显示器几何反查目标显示器序号与几何。
+///
+/// GDK 的几何是逻辑像素，和 `OverlaySpec` 同一坐标系，因此也是校验冻结帧几何的第二个信源。
 #[cfg(target_os = "linux")]
-fn gdk_monitor_index_for(gtk_window: &gtk::ApplicationWindow, target: OverlayRect) -> Option<i32> {
+fn gdk_monitor_for(
+    gtk_window: &gtk::ApplicationWindow,
+    target: OverlayRect,
+) -> Option<(i32, OverlayRect)> {
     use gdk::prelude::MonitorExt;
     use gtk::prelude::*;
 
@@ -191,7 +219,9 @@ fn gdk_monitor_index_for(gtk_window: &gtk::ApplicationWindow, target: OverlayRec
                 })
         })
         .collect();
-    best_monitor_index(target, &monitors)
+    let index = best_monitor_index(target, &monitors)?;
+    let geometry = *monitors.get(index as usize)?;
+    Some((index, geometry))
 }
 
 #[cfg(not(target_os = "linux"))]

@@ -1,0 +1,27 @@
+{
+  "name": "单屏无缩放（最常见的 X11 会话）",
+  "note": "三套坐标空间恰好相等的退化情形，所以这条代码路径长期看着是对的。留在这里是为了防止为了修缩放 bug 而把最普通的配置改坏——无缩放时 logical 和 physical 数值上无法区分，必须落在\"几何可信、不修正\"那一侧。",
+  "session": {
+    "compositor": "X11 (任意 WM)",
+    "backend": "xcap"
+  },
+  "stage": { "width": 1920, "height": 1080 },
+  "monitors": [
+    { "id": 1, "x": 0, "y": 0, "width": 1920, "height": 1080, "scale": 1.0 }
+  ],
+  "expect": {
+    "stageClass": "logical",
+    "invariants": [],
+    "monitors": [
+      {
+        "id": 1,
+        "x": 0,
+        "y": 0,
+        "width": 1920,
+        "height": 1080,
+        "scale": 1.0,
+        "crop": { "x": 0, "y": 0, "width": 1920, "height": 1080 }
+      }
+    ]
+  }
+}

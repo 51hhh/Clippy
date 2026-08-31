@@ -1,0 +1,27 @@
+{
+  "name": "单屏整数缩放 200%",
+  "note": "GNOME 默认只给整数缩放（分数缩放要开实验特性），所以这是 HiDPI 上最普遍的形态。舞台倍率正好等于显示器缩放，几何可信。",
+  "session": {
+    "compositor": "GNOME Shell (Wayland)",
+    "backend": "gnome-shell-extension"
+  },
+  "stage": { "width": 3840, "height": 2400 },
+  "monitors": [
+    { "id": 1, "x": 0, "y": 0, "width": 1920, "height": 1200, "scale": 2.0 }
+  ],
+  "expect": {
+    "stageClass": "logical",
+    "invariants": [],
+    "monitors": [
+      {
+        "id": 1,
+        "x": 0,
+        "y": 0,
+        "width": 1920,
+        "height": 1200,
+        "scale": 2.0,
+        "crop": { "x": 0, "y": 0, "width": 3840, "height": 2400 }
+      }
+    ]
+  }
+}

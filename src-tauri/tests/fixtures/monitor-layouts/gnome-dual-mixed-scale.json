@@ -1,0 +1,37 @@
+{
+  "name": "GNOME 双屏混合缩放（主屏在右下偏移）",
+  "note": "开发机实测。外接 HDMI 2560x1440@1.5 在左并占据并集原点，笔记本 eDP 1920x1200@1.3333 是主屏、在右且下移 408。这一行钉住的是真实 bug：曾经拿每块屏自己的缩放去除舞台裁剪宽度，笔记本被改写成 2160x1350@(2880,459)（偏差正好 1.5/1.3333=1.125），于是覆盖层比屏幕大一圈、窗口候选整体左上偏移、右下工具条落到屏幕外、画面溢到隔壁屏。单屏时自己的缩放就是最大缩放，所以插上第二块屏才暴露。",
+  "session": {
+    "compositor": "GNOME Shell 50.1 (Wayland)",
+    "backend": "gnome-shell-extension"
+  },
+  "stage": { "width": 6720, "height": 2412 },
+  "monitors": [
+    { "id": 1, "x": 0, "y": 0, "width": 2560, "height": 1440, "scale": 1.5 },
+    { "id": 2, "x": 2560, "y": 408, "width": 1920, "height": 1200, "scale": 1.3333334 }
+  ],
+  "expect": {
+    "stageClass": "logical",
+    "invariants": [],
+    "monitors": [
+      {
+        "id": 1,
+        "x": 0,
+        "y": 0,
+        "width": 2560,
+        "height": 1440,
+        "scale": 1.5,
+        "crop": { "x": 0, "y": 0, "width": 3840, "height": 2160 }
+      },
+      {
+        "id": 2,
+        "x": 2560,
+        "y": 408,
+        "width": 1920,
+        "height": 1200,
+        "scale": 1.5,
+        "crop": { "x": 3840, "y": 612, "width": 2880, "height": 1800 }
+      }
+    ]
+  }
+}
