@@ -15,6 +15,7 @@
  *   8b. 全局 Pin 信任"面板没焦点时留下的焦点行" → 侧栏开着时列表不释放，焦点跟着老条目
  *       挪到第 1 行，截完图按 Pin 贴出的还是上一张（第 7 条修完仍然复现的就是这条）
  *   9. 选区压暗搬回 drawScene → 拖一次选区就是几十次全屏重采样，帧率掉下来但功能"是对的"
+ *  10. 列表行收整个 snapshot / 回调在渲染里新建 → memo 失效，一次按键重渲全部 30 行
  *  11. 列表行取原图画 48 px 缩略图 → 每开一次面板十几 MB IPC + 十几次全尺寸 PNG 解码
  */
 import { execFileSync } from "node:child_process";
@@ -236,5 +237,26 @@ describe("列表行只取缩略图，不取原图", () => {
   it("后端缩略图命令已注册且带上限", () => {
     expect(read("src-tauri/src/lib.rs")).toContain("commands::get_clip_thumbnail");
     expect(read("src-tauri/src/commands/clipboard.rs")).toMatch(/THUMBNAIL_MAX_EDGE:\s*u32\s*=/);
+  });
+});
+
+describe("移动焦点不重渲整份列表", () => {
+  // 每次导航都会产生一份新 snapshot。行如果直接收 snapshot，一次按键就要把 30 行
+  // 连着每行 5 个 lucide 图标全部 reconcile 一遍；拍成标量 + memo 之后只重渲两行。
+  // 这两条都是"改回去功能照样对、只是变慢"，所以只能结构断言。
+  it("ClipboardRow 被 memo 包着，且不接收整个 snapshot", () => {
+    const source = read("src/react/main/ClipboardRow.tsx");
+    expect(source).toMatch(/export const ClipboardRow = memo\(/);
+    expect(source).not.toMatch(/snapshot[?.:]/);
+    expect(source).not.toContain("ClipboardSnapshot");
+  });
+
+  it("行的回调表是模块级常量，不在渲染里新建", () => {
+    // 每次渲染新建一份回调 = props 每次都变 = memo 完全失效（而且看不出来）。
+    const source = read("src/react/main/ClipboardWorkspace.tsx");
+    expect(source).toMatch(/^const ROW_HANDLERS: ClipboardRowHandlers = \{/m);
+    const row = source.slice(source.indexOf("<ClipboardRow"), source.indexOf("/>", source.indexOf("<ClipboardRow")));
+    expect(row).toContain("handlers={ROW_HANDLERS}");
+    expect(row).not.toMatch(/=>/);
   });
 });

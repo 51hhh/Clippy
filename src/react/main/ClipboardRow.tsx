@@ -1,31 +1,53 @@
 import { Copy, Ellipsis, Image, Star, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { getClipThumbnail, type ClipItem } from "../../js/api.ts";
 import { formatRelativeTime, formatSize } from "../../js/clipboard/formatters.js";
 import { t } from "../shared/i18n";
-import type { ClipboardSnapshot } from "./clipboardStore";
 
 type Action = "copy" | "favorite" | "delete";
 
-export function ClipboardRow({
-  clip,
-  index,
-  snapshot,
-  onFocus,
-  onToggle,
-  onAction,
-}: {
+/**
+ * 行的交互回调。**必须是一个稳定引用**（`ClipboardWorkspace` 里的模块级常量），
+ * 每次渲染新建一份会让下面的 `memo` 完全失效。所以回调收的是 `clip`/`index`
+ * 而不是靠闭包捕获它们。
+ */
+export type ClipboardRowHandlers = {
+  onFocus: (index: number) => void;
+  onToggle: (clip: ClipItem, index: number) => void;
+  onAction: (clip: ClipItem, index: number, action: Action, actionIndex: number) => void;
+};
+
+type Props = {
   clip: ClipItem;
   index: number;
-  snapshot: ClipboardSnapshot;
-  onFocus: () => void;
-  onToggle: () => void;
-  onAction: (action: Action, actionIndex: number) => void;
-}) {
+  focused: boolean;
+  /** 焦点落在第几个行内动作上；`-1` 是行本体，未获焦的行恒为 `-1`。 */
+  focusedAction: number;
+  expanded: boolean;
+  favoriteMode: boolean;
+  /** 当前语言：`t()` 的结果不是 props 的函数，切语言时靠它让 `memo` 失效。 */
+  locale: string;
+  handlers: ClipboardRowHandlers;
+};
+
+/**
+ * 一行剪贴板记录。
+ *
+ * **props 是拍扁的标量而不是整个 snapshot，而且外面包了 `memo`。** 上下移动焦点、
+ * 展开动作、鼠标划过列表都会产生一份新 snapshot，把它整个传进来等于每次按键都要把
+ * 全部 30 行连着每行 5 个 lucide 图标重新 reconcile 一遍；拍扁之后一次焦点移动只重渲
+ * 两行（失焦的那行和获焦的那行）。加字段时记得它必须是标量，别把 snapshot 引回来。
+ */
+export const ClipboardRow = memo(function ClipboardRow({
+  clip,
+  index,
+  focused,
+  focusedAction,
+  expanded,
+  favoriteMode,
+  handlers,
+}: Props) {
   const [imageBase64, setImageBase64] = useState<string | null>(null);
-  const focused = snapshot.navigation.focusedRow === index;
-  const expanded = snapshot.navigation.expandedRow === clip.id;
-  const favoriteMode = snapshot.mode === "favorites";
   // 行里不显示内容类型（既不是 badge 也不进 meta）：后端 content_type 只有
   // text/html/image 三档，而右侧预览按内容嗅探，同一条会一边写 HTML 一边写 YAML。
   // 类型统一由 preview/classify.js 判定，只显示在预览面板的 badge 上。
@@ -69,8 +91,8 @@ export function ClipboardRow({
       aria-selected={focused}
       data-id={clip.id}
       data-idx={index}
-      onPointerMove={onFocus}
-      onClick={() => onAction("copy", -1)}
+      onPointerMove={() => handlers.onFocus(index)}
+      onClick={() => handlers.onAction(clip, index, "copy", -1)}
     >
       <div className="clip-row-main">
         <div className={`clip-row-preview clip-row-preview--${clip.content_type}`}>
@@ -99,13 +121,13 @@ export function ClipboardRow({
             className={[
               "clip-row-action",
               action.key === "favorite" && clip.is_favorite ? "is-favorite" : "",
-              focused && snapshot.navigation.focusedCol === actionIndex ? "focused" : "",
+              focusedAction === actionIndex ? "focused" : "",
             ].filter(Boolean).join(" ")}
             aria-label={action.label}
             title={action.label}
             onClick={(event) => {
               event.stopPropagation();
-              onAction(action.key, actionIndex);
+              handlers.onAction(clip, index, action.key, actionIndex);
             }}
           >
             <span className="clip-row-action-icon">{action.icon}</span>
@@ -119,11 +141,11 @@ export function ClipboardRow({
         title={t("action.more")}
         onClick={(event) => {
           event.stopPropagation();
-          onToggle();
+          handlers.onToggle(clip, index);
         }}
       >
         <Ellipsis size={16} />
       </button>
     </div>
   );
-}
+});

@@ -1,8 +1,26 @@
 import { Clipboard, Search } from "lucide-react";
 import { useEffect, useRef, useSyncExternalStore } from "react";
+import { currentLocale } from "../../i18n/i18n.js";
 import { t } from "../shared/i18n";
 import { clipboardStore } from "./clipboardStore";
-import { ClipboardRow } from "./ClipboardRow";
+import { ClipboardRow, type ClipboardRowHandlers } from "./ClipboardRow";
+
+/**
+ * 行的回调表，模块级常量。
+ *
+ * 放在模块作用域是为了让引用**恒定不变**：`ClipboardRow` 被 `memo` 包着，
+ * 每次渲染新建一份回调会让它每次都判定 props 变了、整份 memo 白做。
+ * 所以行需要的 `clip`/`index` 由调用参数传进来，而不是靠闭包捕获。
+ */
+const ROW_HANDLERS: ClipboardRowHandlers = {
+  onFocus: (index) => clipboardStore.pointerFocusRow(index),
+  onToggle: (clip, index) => clipboardStore.toggleRowActions(clip, index),
+  onAction: (clip, index, action, actionIndex) => {
+    if (actionIndex >= 0) clipboardStore.focusAction(index, actionIndex);
+    else clipboardStore.focusRow(index);
+    void clipboardStore.invokeAction(clip, action);
+  },
+};
 
 export function ClipboardWorkspace() {
   const snapshot = useSyncExternalStore(
@@ -12,6 +30,10 @@ export function ClipboardWorkspace() {
   );
   const searchRef = useRef<HTMLInputElement>(null);
   const items = snapshot.mode === "favorites" ? snapshot.favorites : snapshot.all;
+  const navigation = snapshot.navigation;
+  // 语言是渲染的隐式输入（`t()` 不是 props 的函数），所以要显式喂给被 memo 的行，
+  // 否则 `refreshLabels()` 之后行内的按钮文案不会跟着换。
+  const locale = currentLocale();
 
   useEffect(() => {
     if (snapshot.searchVisible) searchRef.current?.focus();
@@ -59,14 +81,13 @@ export function ClipboardWorkspace() {
             key={clip.id}
             clip={clip}
             index={index}
-            snapshot={snapshot}
-            onFocus={() => clipboardStore.pointerFocusRow(index)}
-            onToggle={() => clipboardStore.toggleRowActions(clip, index)}
-            onAction={(action, actionIndex) => {
-              if (actionIndex >= 0) clipboardStore.focusAction(index, actionIndex);
-              else clipboardStore.focusRow(index);
-              void clipboardStore.invokeAction(clip, action);
-            }}
+            focused={navigation.focusedRow === index}
+            // 未获焦的行恒为 -1：否则在动作之间左右移动焦点会让每一行的 props 都变。
+            focusedAction={navigation.focusedRow === index ? navigation.focusedCol : -1}
+            expanded={navigation.expandedRow === clip.id}
+            favoriteMode={snapshot.mode === "favorites"}
+            locale={locale}
+            handlers={ROW_HANDLERS}
           />
         ))}
       </main>
