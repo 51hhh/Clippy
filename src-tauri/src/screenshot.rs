@@ -121,7 +121,25 @@ pub(crate) fn capture_monitor_frames() -> Result<Vec<CapturedMonitorFrame>> {
         .collect()
 }
 
+/// 读 PNG 的宽高，**只解文件头**。
+///
+/// 曾经这里是 `load_from_memory`：为了两个 u32 把整张图解成位图，1080p 要 19.6 ms，
+/// 全屏多屏图更久（docs/bench-baseline.md）。而调用它的地方几乎都只想知道尺寸——
+/// 贴图窗口算多大、来源表按尺寸预筛、保存前确认这是张 PNG。IHDR 就在头 33 字节里。
+///
+/// 代价是它不再顺带证明"整张图都能解出来"。需要那个保证的地方（信任边界上、
+/// 前端提交进来的载荷）调 [`validate_png`]，把这笔开销花在明处。
 pub fn png_dimensions(bytes: &[u8]) -> Result<(u32, u32)> {
+    image::ImageReader::with_format(std::io::Cursor::new(bytes), image::ImageFormat::Png)
+        .into_dimensions()
+        .context("PNG 头解析失败")
+}
+
+/// 确认这串字节是**整张**都能解出来的 PNG，返回宽高。
+///
+/// 只有信任边界上该付这个钱：覆盖层提交的 base64 不可信，而后面的 copy/save/pin
+/// 全都假设手里是合法 PNG，坏在这一步比坏在剪贴板里好。
+pub fn validate_png(bytes: &[u8]) -> Result<(u32, u32)> {
     image::load_from_memory_with_format(bytes, image::ImageFormat::Png)
         .context("PNG 解码失败")
         .map(|img| img.dimensions())

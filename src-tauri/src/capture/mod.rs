@@ -269,8 +269,9 @@ fn decode_commit_png(png_base64: &str) -> Result<Vec<u8>, CaptureError> {
     if png.len() > MAX_COMMIT_PNG_BYTES {
         return Err(CaptureError::CommitPayloadTooLarge);
     }
-    // 必须真的能解成图像：后续 copy/save/pin 都假设手里是合法 PNG。
-    crate::screenshot::png_dimensions(&png).map_err(|_| CaptureError::CommitPayloadInvalid)?;
+    // 必须真的能解成图像：后续 copy/save/pin 都假设手里是合法 PNG。这里是信任边界，
+    // 所以走整张解码的 `validate_png`，而不是只看文件头的 `png_dimensions`。
+    crate::screenshot::validate_png(&png).map_err(|_| CaptureError::CommitPayloadInvalid)?;
     Ok(png)
 }
 

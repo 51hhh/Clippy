@@ -1,7 +1,7 @@
 //! 截图编解码基线。截图动作的墙钟时间几乎都花在 PNG 编码上，
 //! 所以这里量的是真实导出路径用的 `encode_png`，以及前端回传时的 base64 解码。
 
-use clippy_lib::bench_support::{decode_png_base64, encode_png, png_dimensions};
+use clippy_lib::bench_support::{decode_png_base64, encode_png, png_dimensions, validate_png};
 use criterion::{criterion_group, criterion_main, Criterion};
 use std::hint::black_box;
 
@@ -33,8 +33,12 @@ fn bench(c: &mut Criterion) {
     c.bench_function("encode_png_1080p", |b| {
         b.iter(|| encode_png(black_box(&rgba), WIDTH, HEIGHT).expect("编码失败"))
     });
+    // 这两条要并排看：差值就是"只读头"省下来的钱，也是把整张解码留在信任边界上的理由。
     c.bench_function("png_dimensions_1080p", |b| {
         b.iter(|| png_dimensions(black_box(&png)).expect("读取尺寸失败"))
+    });
+    c.bench_function("validate_png_1080p", |b| {
+        b.iter(|| validate_png(black_box(&png)).expect("校验失败"))
     });
     c.bench_function("decode_png_base64_1080p", |b| {
         b.iter(|| decode_png_base64(black_box(&base64)).expect("解码失败"))

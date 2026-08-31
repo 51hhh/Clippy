@@ -120,6 +120,36 @@ fn encode_png_compresses_simple_screenshot_data() {
     assert_eq!(png_dimensions(&png).unwrap(), (width as u32, height as u32));
 }
 
+/// `png_dimensions` 只读头，`validate_png` 解整张——这条测试钉住的就是这个分工。
+/// 截断的 PNG 头是完好的：前者照样报出尺寸，后者必须失败，否则信任边界那道校验白写了。
+#[test]
+fn reading_the_header_and_decoding_the_whole_image_are_different_promises() {
+    let rgba: Vec<u8> = (0..(32 * 16))
+        .flat_map(|index| [(index % 256) as u8, 40, 200, 255])
+        .collect();
+    let png = encode_png(&rgba, 32, 16).unwrap();
+    let truncated = &png[..png.len() * 2 / 3];
+
+    assert_eq!(png_dimensions(&png).unwrap(), (32, 16));
+    assert_eq!(validate_png(&png).unwrap(), (32, 16));
+    assert_eq!(
+        png_dimensions(truncated).unwrap(),
+        (32, 16),
+        "IHDR 还在，只读头就该读得出来"
+    );
+    assert!(
+        validate_png(truncated).is_err(),
+        "整张解码必须认出图像数据被截断"
+    );
+}
+
+/// 完全不是 PNG 的字节，只读头也必须拒绝：`save_png` 就靠它挡住误传的载荷。
+#[test]
+fn header_reading_still_rejects_bytes_that_are_not_png_at_all() {
+    assert!(png_dimensions(b"this is not a png at all").is_err());
+    assert!(png_dimensions(&[]).is_err());
+}
+
 #[test]
 fn portal_mapping_splits_horizontal_monitors() {
     let monitors = vec![
