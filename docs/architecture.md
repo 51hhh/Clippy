@@ -13,17 +13,20 @@
 |---|---|
 | `lib.rs` / `app/` | `lib.rs` 组装 Tauri builder、managed state 和 Wayland gsettings/D-Bus；`app/` 管理开发自启防护、WebKit 诊断、托盘、X11 快捷键和窗口事件；托盘菜单文案取自 `i18n.rs`，`config-changed` 同时刷新图标（主题）与菜单文案（语言） |
 | `commands/` | 按 clipboard/settings/tmux/capture/OCR/URL 拆分薄 IPC 命令 |
-| `clipboard_watcher.rs` + `clipboard_watcher/*` | 主轮询与去重协调；内容分类、写入重试和 tmux/inotify 监听各自隔离 |
+| `clipboard_watcher.rs` + `clipboard_watcher/*` | 主轮询与去重协调；内容分类、写入重试和 tmux/inotify 监听各自隔离。**入库只有 watcher 这一条路径**——`writer.rs` 的三个写入口只管写系统剪贴板，写完敲 `wake::nudge()` 让轮询等待当场结束（`wake.rs` 的条件变量 + 待处理标记），所以自己复制的内容也是几毫秒内进历史，而不是最多等满 500 ms。别让写入方自己 `insert_clip`：watcher 哈希的是它自己从剪贴板 RGBA 重编的 PNG，字节对不上就会在 500 ms 后被再插一条 |
 | `paste/mod.rs` | 自动粘贴协调器、后端选择、Copy-only fallback 和稳定状态契约 |
 | `paste/portal.rs` / `x11.rs` / `token_store.rs` | Portal 会话与授权状态机、X11 窗口恢复与输入、私有 restore token 持久化 |
 | `window_controller.rs` | 主窗口 work area、logical/physical 尺寸与位置约束；设置窗口的开窗入口（托盘与 IPC 共用一份几何与标题） |
 | `i18n.rs` | 托盘菜单与 Rust 侧窗口标题的静态文案；语言解析与前端 `i18n.js` 同规则（显式值优先，`auto` 看 `LC_ALL`/`LC_MESSAGES`/`LANG`，其余回退英文） |
-| `capture/` | 单一 CaptureSession、冻结帧、多显示器覆盖层、裁剪与动作 |
-| `screenshot.rs` + `screenshot/*` | 原始截图帧契约与 PNG 编解码；Wayland/Portal/GNOME/xcap fallback 和几何测试隔离 |
-| `pin/` | PinManager、内容来源、窗口尺寸、缩放/透明度/锁定和清理 |
+| `capture/` | 单一 CaptureSession、冻结帧、多显示器覆盖层、裁剪与动作；`window_probe.rs` 按堆叠顺序（扩展 `sort_windows_by_stacking` / X11 `_NET_CLIENT_LIST_STACKING`）下发速选候选。冻结帧像素由 `get_capture_frame` 以二进制 IPC 直传原始 RGBA（payload 只带几何），`StageTimings` 每次会话记一条分段耗时日志 |
+| `capture/shell_extension.rs` | 自带 GNOME Shell 扩展的安装/卸载/状态、令牌校验与截图调用（`include_str!` 内嵌 `gnome-extension/`）。GNOME Wayland 下既没有面向普通应用的窗口几何接口，Portal 截图也要求"聚焦的应用"才能弹授权对话框（快捷键触发时必然失败），两件事都只能以扩展身份进 gnome-shell 做；装了要注销一次生效，升级同样要（`ReloadExtension` 已废弃，故有 `stale` 状态），卸载即时。安装只由设置页显式触发，启动时只做 `reconcile_on_startup`，绝不擅自安装。`place_window` 是贴图缩放的每帧热路径，它的前置检查（是不是 GNOME Wayland、装没装、协议版本够不够、令牌文件内容）缓存在 `placement_token()` 里：成功的结果一直有效，失败的结果 30 秒后重试，安装/卸载会立刻作废缓存。详见 [docs/capture-linux.md](capture-linux.md) |
+| `screenshot.rs` + `screenshot/*` | 原始截图帧契约与 PNG 编解码；Wayland 上按 Shell 扩展 → wlroots → Portal（非交互）→ GNOME → xcap 依次回退，返回的临时文件一律由 `TemporaryScreenshotFile` 兜底删除；几何测试隔离。取一次全屏冻结帧约 550 ms，绝大部分是 gnome-shell 自己编码 PNG，是地板不是可优化项（[capture-linux.md](capture-linux.md) §3.1） |
+| `pin/` | PinManager、内容来源、窗口尺寸、缩放/透明度/锁定和清理；`origins.rs` 的 `PinOriginRegistry`（挂在 `AppState.pin_origins`）记住"我们自己截下来复制走的图"原本在屏幕上的矩形，之后从历史里 Pin 同一张图时靠它贴回原处。键是**解码后像素**的 sha256（含宽高），不是 PNG 字节——图片经 arboard 走一圈是原始 RGBA，watcher 会重新编码，PNG 字节不稳定。登记方交出的是 `PinFingerprint`（已经算好的摘要 + 宽高），这样调用方能和剪贴板写入共用同一份解码像素，不必为登记再解一次或复制一份 16 MB；`lookup` 先只读 PNG 头比宽高，尺寸不匹配就直接返回，省掉整张解码 |
+| `pin/` 的 `update_pin` 应答 | 缩放/不透明度是**每帧**都会走的路，所以应答是 `PinState`（label、内容尺寸、scale、opacity、locked、position），**不带 `image_base64`/`text`**——每帧重编一张全图 base64 纯属浪费，而且会让前端重建图片 object URL、造成闪烁。前端 `react/pin/update-order.ts::mergePinState` 把它合并进手里那份 payload |
 | `translation/` | provider、超时/重试、request-id、内容选择、Secret Service；启用的服务按 `spawn_blocking` 并行，单服务失败作为数据返回；`direction.rs` 在文本已是目标语言时按备选语言换向；`tts.rs` 走 dictvoice 取回音频 |
 | `storage.rs` + `storage/*` | SQLite/FTS5 初始化与搜索；维护清理、统计、URL 缓存、翻译记录和测试各自隔离 |
-| `image_io.rs` / `dialogs.rs` | PNG 与剪贴板互转；按配置的目录与文件名模板落盘（`SaveTarget`）；选目录对话框只在 `dialogs.rs` 调用插件 |
+| `dbus.rs` | **全部阻塞式 D-Bus 调用的唯一入口。** ashpd 打开了 zbus 的 `tokio` feature，于是 `zbus::blocking` 内部用一个静态多线程 runtime 做 `block_on`，在 tokio async worker 线程上调必然 panic（`Cannot start a runtime from within a runtime`）。这里先跳到一条干净的 OS 线程再开连接，调用方不必关心自己跑在什么线程上；别处不要直接用 `zbus::blocking`。**session 连接是复用的**：`Connection::session()` 每次都要重做 SASL 握手 + `Hello`（1~2 ms），而贴图缩放每一帧都要发一次 `PlaceWindow`，所以连接缓存在一个 `OnceLock<Mutex<Option<Connection>>>` 里。失效判据是 `worth_reconnecting`——`Error::MethodError` 说明对端应答了（连接是好的，绝不能重连重试），其余错误才丢缓存重连一次。**存入缓存的判据（`worth_caching`）必须是同一个的反面**：只按"调用成功"判会把一条被业务错误拒绝、但本身完好的连接扔掉，于是每次失败的探测都要重新握手一遍 |
+| `image_io.rs` / `dialogs.rs` | PNG 与剪贴板互转；按配置的目录与文件名模板落盘（`SaveTarget`）；`thumbnail_png` 给列表行缩图（`image` crate 的 `thumbnail()` 快路径，不是 Lanczos）；选目录对话框只在 `dialogs.rs` 调用插件 |
 
 ## 前端模块
 
@@ -39,8 +42,8 @@
 | `js/translation-providers.ts` | 服务显示名、默认端点与能力标记（设置页/主面板/选区翻译共用） |
 | `react/capture-overlay/` | 冻结画面上的全部截图交互：窗口速选、选区移动/缩放、贴着选区的完整工具条、标注、提交与选区翻译（只有这一个窗口） |
 | `react/annotation/` | 与窗口无关的标注核心：16 个工具（选择/绘制/效果三组）、图像调整、撤销/重做、单画布渲染与 PNG 导出 |
-| `js/settings/` | 主题、自动粘贴授权、快捷键录制与注册失败提示、OCR 和统计控制器 |
-| `react/pin/` | 首帧就绪、工具栏、拖动阈值和 rAF 更新合并 |
+| `js/settings/` | 主题、自动粘贴授权、快捷键录制与注册失败提示、OCR、统计、分页（`tabs.js`）与窗口速选服务卡片（`window-probe.js`）控制器 |
+| `react/pin/` | 首帧就绪、工具栏、拖动阈值和 rAF 更新合并；`gestures.ts` 是"不可缩放、不可划选"的纯规则（滚轮缩放、Shift+滚轮调不透明度、ctrl/meta+滚轮一律忽略），由 `App.tsx` 里 `{ passive: false }` 的原生监听器执行——React 的 `onWheel` 是被动监听器，在里面 `preventDefault()` 拦不住 WebKit 的页面缩放 |
 
 ## 内容类型只有一套标准
 
@@ -82,6 +85,30 @@ badge 文案跟着渲染器走而不是写在表里——文案和渲染方式�
 方向键与 `ws` 在 `list` 模式下**始终**驱动列表：Tab 打开预览不再把焦点塞进翻译面板，
 焦点要进翻译区必须显式 `Shift+Tab`。焦点撤离翻译面板时先 `blur()` 再 focus `#list-panel`，
 不留"谁也不拥有"的中间态。
+
+**焦点归属跟着条目走，不跟着索引走。** `focusedRow` 只有两种含义：`-1` 是"没有焦点行"，
+`0..N-1` 指向 `visibleItems()` 里那一条。所以列表内容被释放（面板关闭、`releaseMemory`）时
+必须报 `-1` 而不是 `0`——空列表上的 0 是个不存在的行；而 `prependClip` 收到新条目时按**id**
+找回原来那一行，不做 `focusedRow ± 1`。两条规则缺一个的后果都是同一个用户可见症状：
+面板关着时到达的新条目把焦点挤到第二行，而 Pin 的两个入口（全局快捷键、`Ctrl+P`）都读
+`getFocusedClip()`、列表行上又没有 Pin 按钮，于是"截图复制完去 Pin，贴出来的是上一张图"。
+`js/clipboard-list.js` 与 `react/main/clipboardStore.ts` 各有一份 `prependClip`，前者目前运行时
+不生效，但两份必须同时改（`regression-guards.test.js` 钉住）。
+
+**但"跟着条目走"只对握着焦点的面板成立。** 全局快捷键不会抢焦点，所以它触发时
+`document.hasFocus()` 为假就说明"焦点行"是上一轮会话留下的残影，不是用户正看着的行——
+`pin-target.js::resolvePinTarget` 因此把面板是否有焦点作为第三个参数，为假时一律问后端要
+最新一条。这一步不能省：侧栏（预览/编解码）开着时失焦**不隐藏**主窗口
+（`window_events.rs::should_hide_on_focus_loss` 与 `app.js::onWindowBlur`），
+于是 `releaseMemory()` 不会跑、列表连焦点一起活过整个截图流程，`prependClip` 按 id
+把焦点跟着老条目挪到第 1 行，按 Pin 贴出来的就是上一张。
+同理 `onWindowFocus` 的**两条分支**都要 `restoreRender()`——重新聚焦算一轮新会话，
+而 `refresh()` 里的 `normalizeAfterRefresh` 只做钳位、不复位。
+
+**列表行只取缩略图。** 库里存的是原图，行里那格是 48 CSS px，所以两个列表渲染器都走
+`get_clip_thumbnail`（后端缩到最长边 128 px 并按 id 缓存），只有预览面板取
+`get_clip_image` 原图。退回原图后功能照样对，只是每开一次面板就把十几 MB 送进 webview
+并做十几次全尺寸 PNG 解码，全落在 webview 那一个线程上。
 
 "内层先吃掉、吃掉就不外泄"是这套状态机的通用规则：嵌套控件消费了某个键就必须
 `stopPropagation()`，否则一次 `Esc` 会同时收下拉 + 关侧栏，输入框里的内容跟着一起没了。
@@ -127,15 +154,25 @@ WebKitGTK 的原生下拉是独立 GTK 弹窗，一打开 webview 就失焦，�
 ```text
 clipboard item -> preview -> translate/copy
 
-shortcut -> frozen monitor frames -> overlay window
+shortcut -> frozen monitor frames -> overlay window (hidden) -> geometry payload + raw RGBA frame
          -> click empty space = whole screen / click a window = that window / drag = free area
          -> toolbar beside the selection: annotate, adjust, still re-frame
          -> check mark -> canvas PNG (crop + annotations) -> commit_capture_action -> copy/save/pin
          -> translate -> backend crop -> local OCR -> text translation
 
 clip/image/capture -> PinManager -> hidden window -> first frame ready
+                   -> show + focus + PlaceWindow(original rect, above) or Tauri fallback
                    -> scale/opacity/lock/copy/save -> destroy cleanup
 ```
+
+贴图窗口落在**原始矩形**上而不是屏幕中间：截图选区的桌面逻辑坐标随 `commit_capture_action`
+一路传到 `PinOrigin`，窗口位置是 `origin − SHADOW_GUTTER`（内容区相对窗口原点偏移 12 像素），
+尺寸按 `origin_content_size` 只缩不放地钳进工作区。没有来源信息的图（从别处复制来的）
+仍居中，这是设计而不是退化。GNOME Wayland 上 `set_position` 与 `set_always_on_top` 都是静默
+空操作，摆位和置顶只能借道 Shell 扩展的 `PlaceWindow`（协议 v3），因此顺序必须是
+`show()` → `set_focus()` → `PlaceWindow`（`MetaWindow` 要窗口映射后才存在），缩放之后还要再摆一次
+（改尺寸会把窗口带回普通层）；尺寸始终留在客户端。两条路都失败只是位置/层级不理想，
+**绝不让贴图本身失败**。细节见 [capture-linux.md](capture-linux.md) §1、§4。
 
 截图只有覆盖层一个窗口，不再有独立的编辑器窗口。三态由选区推导，不额外存状态：
 没有选区是 idle（悬停高亮可速选），按住不放是 dragging（框选/移动/缩放选区，或画一笔标注），
@@ -150,6 +187,9 @@ clip/image/capture -> PinManager -> hidden window -> first frame ready
 窗口速选依赖 `xcap::Window::all()`（本质是 X11/xcb 枚举），枚举失败或返回空时后端记 `log::info`、
 覆盖层显示 "Window picking unavailable in this session"，让 Wayland 下的退化可见。
 覆盖层窗口本身必须由合成器摆放，坐标与窗口几何的换算细节见 [capture-linux.md](capture-linux.md)。
+底图不走 JSON：`get_capture_frame` 用二进制 IPC 直传原始 RGBA，前端 `putImageData` 铺进离屏 canvas
+（`react/annotation/frameImage.ts`），因此标注渲染层的底图类型是
+`FrameImage = HTMLImageElement | HTMLCanvasElement`。像素改回 PNG + base64 会让覆盖层出现的时间翻倍。
 
 ## 自动粘贴状态
 
