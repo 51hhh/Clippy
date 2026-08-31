@@ -18,7 +18,9 @@ mod tests {
     use super::model::{
         is_safe_pin_label, window_marker, PinEntry, PinOrigin, PinPosition, PinSource,
     };
-    use super::window::{clamp_pin_position, clamp_span, fit_dimensions, outer_size};
+    use super::window::{
+        clamp_pin_position, clamp_span, fit_dimensions, fit_image_content_size, outer_size,
+    };
     use std::sync::Arc;
     use tauri::{PhysicalPosition, PhysicalSize};
 
@@ -48,6 +50,33 @@ mod tests {
     fn sizing_preserves_small_and_extreme_aspect_ratios() {
         assert_eq!(fit_dimensions(120.0, 80.0, 900.0, 700.0), (180.0, 120.0));
         assert_eq!(fit_dimensions(1.0, 1000.0, 900.0, 700.0), (0.7, 700.0));
+    }
+
+    /// 没有原始矩形时的内容尺寸：入参是**图片像素**，必须先按屏幕真实缩放折成 CSS 像素。
+    /// 漏掉这一步的话，缩放 1.3333 的屏上一张 1052x797 的截图会被当成 1052 CSS 像素显示，
+    /// 在屏幕上占 1403 个设备像素——图片被拉大再重采样，也就是"贴出来比原来大一圈还发糊"。
+    #[test]
+    fn image_pixels_become_css_pixels_through_the_real_display_scale() {
+        let scale = 4.0 / 3.0;
+        let (width, height) = fit_image_content_size(1052.0, 797.0, scale, 1300.0, 800.0);
+        assert!((width - 789.0).abs() < 0.01, "{width}");
+        assert!((height - 597.75).abs() < 0.01, "{height}");
+
+        // 缩放 1（X11、整数缩放的屏）必须是恒等变换，不能给这些环境引入新的缩放。
+        assert_eq!(
+            fit_image_content_size(640.0, 480.0, 1.0, 1300.0, 800.0),
+            (640.0, 480.0)
+        );
+        // 拿不到真实缩放时调用方传 GDK 的数；0 或负数只可能是查询出错，退回 1 而不是除爆。
+        assert_eq!(
+            fit_image_content_size(640.0, 480.0, 0.0, 1300.0, 800.0),
+            (640.0, 480.0)
+        );
+        // 折算之后仍然超出工作区上限时照旧按比例缩小。
+        assert_eq!(
+            fit_image_content_size(3840.0, 2160.0, 2.0, 900.0, 700.0),
+            (900.0, 506.25)
+        );
     }
 
     #[test]

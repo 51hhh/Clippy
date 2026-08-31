@@ -121,6 +121,44 @@ pub(crate) fn capture_monitor_frames() -> Result<Vec<CapturedMonitorFrame>> {
         .collect()
 }
 
+/// 桌面逻辑点所在显示器的**真实**缩放：一个逻辑像素等于几个设备像素。
+///
+/// **不要拿 `Monitor::scale_factor()` 当它用。** WebKitGTK 走的是 GTK3，而 GTK3 不支持
+/// `wp_fractional_scale_v1`，于是 Mutter 只能给它一个**整数**缩放：本机两块屏真实缩放是
+/// 1.3333 与 1.5，GDK 报的都是 2（实测 `gdk_monitor_get_scale_factor` == 2），客户端按 2×
+/// 画，Mutter 再把缓冲区缩到真实倍率。所以 Tauri 的 physical 尺寸是"2× 的缓冲区像素"，
+/// 而不是屏幕上的设备像素。
+///
+/// 谁需要这个数：要把**图片像素**换算成 CSS 像素的地方（贴图窗口的内容尺寸）。
+/// 按 GDK 的 2 算会让图片显示得比原来小三分之一，按 1 算（也就是"像素当 CSS 像素用"）
+/// 会把图片拉大 1.3333 倍——后者就是"贴出来的截图比原来大一圈而且发糊"的成因。
+///
+/// 坐标是**桌面逻辑坐标**（与 `GetWindows`、截图选区同一坐标系；Tauri 的 physical
+/// 除以 `scale_factor()` 就是它）。点不在任何输出里、或不是 Wayland 会话就返回 `None`，
+/// 调用方退回 GDK 那个数——X11/其它平台上它本来就是真的。
+#[cfg(target_os = "linux")]
+pub(crate) fn desktop_scale_at(x: f64, y: f64) -> Option<f64> {
+    let monitors = backends::enumerate_wayland_monitors()
+        .inspect_err(|error| log::debug!("查询显示器真实缩放失败: {error:#}"))
+        .ok()?;
+    monitors
+        .iter()
+        .find(|monitor| {
+            x >= monitor.rect.x as f64
+                && y >= monitor.rect.y as f64
+                && x < monitor.rect.x as f64 + monitor.rect.width as f64
+                && y < monitor.rect.y as f64 + monitor.rect.height as f64
+        })
+        .map(|monitor| f64::from(monitor.scale_factor))
+        .filter(|scale| *scale > 0.0)
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn desktop_scale_at(_x: f64, _y: f64) -> Option<f64> {
+    // 其它平台的 winit/GDK 报的就是真实缩放，调用方直接用它自己那份。
+    None
+}
+
 /// 逐屏取画面要的那组区域：每块屏的逻辑矩形加它自己的缩放。
 ///
 /// 只给诊断用（`capture::timing_diagnostics`）：那里要在**不走截图链路**的前提下拿到区域，

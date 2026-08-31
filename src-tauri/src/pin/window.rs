@@ -442,23 +442,65 @@ pub(super) fn origin_content_size(app: &tauri::AppHandle, origin: PinOrigin) -> 
     (origin.width * shrink, origin.height * shrink)
 }
 
+/// 没有原始矩形时的内容区尺寸。入参是**图片像素**，出参是 CSS 像素。
+///
+/// 两者不是一回事，这一步以前漏了：在缩放 1.3333 的屏上把 1052 像素宽的图当成
+/// 1052 CSS 像素显示，它在屏幕上就占 1403 个设备像素——图片被拉大 1.3333 倍，
+/// 于是"贴出来的截图比原来大一圈而且发糊"。按真实缩放折算之后一个图片像素正好落在
+/// 一个设备像素上，和它在屏幕上原来的样子一致（有原始矩形那条路本来就是这个效果，
+/// 因为选区尺寸本身就是逻辑像素）。
+///
+/// 真实缩放要问合成器，不能用 `scale_factor()`，理由见
+/// `crate::screenshot::desktop_scale_at`。拿不到就退回 GDK 那个数——X11 与其它平台上
+/// 它就是真的，Wayland 上退化成"像素当 CSS 像素"，也就是修这个 bug 之前的行为。
 pub(super) fn fit_content_size(app: &tauri::AppHandle, width: f64, height: f64) -> (f64, f64) {
     let monitor = app
         .cursor_position()
         .ok()
         .and_then(|cursor| app.monitor_from_point(cursor.x, cursor.y).ok().flatten())
         .or_else(|| app.primary_monitor().ok().flatten());
-    let (max_width, max_height) = monitor
+    let (max_width, max_height, device_scale) = monitor
         .map(|monitor| {
             let work = monitor.work_area();
             let scale = monitor.scale_factor().max(0.1);
             (
                 work.size.width as f64 / scale * 0.72 - CONTROLS_GUTTER,
                 work.size.height as f64 / scale * 0.72 - TOOLBAR_GUTTER,
+                monitor_device_scale(&monitor, scale),
             )
         })
-        .unwrap_or((900.0, 700.0));
-    fit_dimensions(width, height, max_width, max_height)
+        .unwrap_or((900.0, 700.0, 1.0));
+    fit_image_content_size(width, height, device_scale, max_width, max_height)
+}
+
+/// `fit_content_size` 的纯函数内核：图片像素 → CSS 像素 → 钳进上限。
+pub(super) fn fit_image_content_size(
+    pixel_width: f64,
+    pixel_height: f64,
+    device_scale: f64,
+    max_width: f64,
+    max_height: f64,
+) -> (f64, f64) {
+    let device_scale = if device_scale > 0.0 {
+        device_scale
+    } else {
+        1.0
+    };
+    fit_dimensions(
+        pixel_width / device_scale,
+        pixel_height / device_scale,
+        max_width,
+        max_height,
+    )
+}
+
+/// 这块屏上一个逻辑像素等于几个设备像素。取屏幕自己的原点去问，不用光标位置——
+/// 光标可能正好停在屏幕边界上，原点加一像素一定落在这块屏里面。
+fn monitor_device_scale(monitor: &tauri::Monitor, gdk_scale: f64) -> f64 {
+    let position = monitor.position();
+    let x = position.x as f64 / gdk_scale + 1.0;
+    let y = position.y as f64 / gdk_scale + 1.0;
+    crate::screenshot::desktop_scale_at(x, y).unwrap_or(gdk_scale)
 }
 
 pub(super) fn fit_dimensions(
