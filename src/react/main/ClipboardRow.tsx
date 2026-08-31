@@ -1,6 +1,6 @@
 import { Copy, Ellipsis, Image, Star, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { getClipImage, type ClipItem } from "../../js/api.ts";
+import { getClipThumbnail, type ClipItem } from "../../js/api.ts";
 import { formatRelativeTime, formatSize } from "../../js/clipboard/formatters.js";
 import { t } from "../shared/i18n";
 import type { ClipboardSnapshot } from "./clipboardStore";
@@ -37,7 +37,9 @@ export function ClipboardRow({
   useEffect(() => {
     let cancelled = false;
     if (clip.content_type !== "image") return;
-    getClipImage(clip.id)
+    // 缩略图而不是原图：这一格是 48×48，取原图等于为了画 48 px 把几 MB 的 PNG
+    // 送进 webview 再全尺寸解码一次，而列表里可能同时有十几个图片条目。
+    getClipThumbnail(clip.id)
       .then((value) => !cancelled && setImageBase64(value))
       .catch(() => undefined);
     return () => { cancelled = true; };

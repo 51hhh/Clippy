@@ -125,9 +125,23 @@ export function requestPastePermission(): Promise<PasteStatus> {
   return invoke<PasteStatus>("request_paste_permission");
 }
 
-/** 按 id 获取图片数据（base64 编码的 PNG），仅 image 类型有值 */
+/**
+ * 按 id 获取**原图**（base64 编码的 PNG），仅 image 类型有值。
+ *
+ * 列表行别用这个，用 `getClipThumbnail`：一张全屏截图是几 MB，行里那格只有 48 px。
+ */
 export function getClipImage(id: number): Promise<string | null> {
   return invoke<string | null>("get_clip_image", { id });
+}
+
+/**
+ * 按 id 获取列表行用的缩略图（base64 编码的 PNG，最长边 128 px），仅 image 类型有值。
+ *
+ * 后端缩好再传：为了画 48 px 把整张原图送进 webview 再解码，一次开面板十几个图片条目
+ * 就是几十 MB IPC 加十几次全尺寸 PNG 解码，全部落在 webview 那一个线程上。
+ */
+export function getClipThumbnail(id: number): Promise<string | null> {
+  return invoke<string | null>("get_clip_thumbnail", { id });
 }
 
 /** 按 id 获取完整条目（含 html_content），用于预览面板按需加载 */

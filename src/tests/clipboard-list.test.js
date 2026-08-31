@@ -20,7 +20,7 @@ vi.mock("../js/api.ts", () => ({
   deleteClip: vi.fn(),
   toggleFavorite: vi.fn(),
   selectClip: vi.fn(),
-  getClipImage: vi.fn(),
+  getClipThumbnail: vi.fn(),
 }));
 
 import * as api from "../js/api.ts";
@@ -66,7 +66,7 @@ describe("clipboard-list 状态机", () => {
     api.toggleFavorite.mockReset();
     api.selectClip.mockReset();
     api.deleteClip.mockReset();
-    api.getClipImage.mockReset();
+    api.getClipThumbnail.mockReset();
   });
 
   afterEach(() => {
@@ -228,13 +228,13 @@ describe("clipboard-list 状态机", () => {
     api.getClips.mockResolvedValueOnce([
       clip({ id: 21, content_type: "image", text_content: null }),
     ]);
-    api.getClipImage.mockResolvedValueOnce("cG5n");
+    api.getClipThumbnail.mockResolvedValueOnce("cG5n");
     await clipboardList.refresh();
     await vi.waitFor(() => {
       expect(document.querySelector(".clip-row-thumb-img")?.src)
         .toBe("data:image/png;base64,cG5n");
     });
-    expect(api.getClipImage).toHaveBeenCalledWith(21);
+    expect(api.getClipThumbnail).toHaveBeenCalledWith(21);
   });
 
   // prependClip 的焦点必须跟着条目走。这几条与 clipboard-react-store.test.js 里的同名用例成对，

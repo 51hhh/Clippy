@@ -29,6 +29,26 @@ pub fn copy_png_to_clipboard(png: &[u8]) -> Result<(), String> {
     crate::clipboard_watcher::clipboard_set_image_with_retry(png_to_clipboard_image(png)?)
 }
 
+/// 缩到最长边不超过 `max_edge` 的 PNG，保持长宽比。本来就够小的原样返回。
+///
+/// 给列表行的缩略图用。行里那一格是 48 CSS px，而库里存的是原图（一张全屏截图就是
+/// 2560×1600 / 几 MB）。为了画 48 px 把整张原图送进 webview 再解码，一次开面板十几个
+/// 图片条目就是几十 MB IPC 加十几次全尺寸 PNG 解码，都落在 webview 那一个线程上。
+///
+/// `thumbnail` 而不是 `resize`：它是 image crate 里专为缩略图准备的快路径（先按整数倍
+/// 采样再做一次三角过滤），质量对 48 px 完全够，速度比 Lanczos 高一个量级。
+pub fn thumbnail_png(png: &[u8], max_edge: u32) -> Result<Vec<u8>, String> {
+    let image = image::load_from_memory_with_format(png, image::ImageFormat::Png)
+        .map_err(|error| format!("PNG 解码失败: {error}"))?;
+    if image.width() <= max_edge && image.height() <= max_edge {
+        return Ok(png.to_vec());
+    }
+    let thumbnail = image.thumbnail(max_edge, max_edge).into_rgba8();
+    let (width, height) = thumbnail.dimensions();
+    crate::screenshot::encode_png(&thumbnail.into_raw(), width, height)
+        .map_err(|error| error.to_string())
+}
+
 /// 一次保存的落盘位置。配置里的空值在这里就解析成内置默认，
 /// 调用方拿到的目录与模板一定可以直接用。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -303,6 +323,31 @@ mod tests {
         assert_eq!(first.file_name().unwrap(), "fixed.png");
         assert_eq!(second.file_name().unwrap(), "fixed-2.png");
         assert!(first.exists() && second.exists());
+    }
+
+    #[test]
+    fn thumbnails_shrink_the_long_edge_and_keep_the_aspect_ratio() {
+        let wide = crate::screenshot::encode_png(&vec![9u8; 400 * 200 * 4], 400, 200)
+            .expect("编码 PNG 失败");
+        let thumbnail = thumbnail_png(&wide, 100).expect("缩略图失败");
+        assert_eq!(
+            crate::screenshot::png_dimensions(&thumbnail).expect("读尺寸失败"),
+            (100, 50)
+        );
+        // 缩略图必须真的更小，否则这条路白花一次解码 + 编码。
+        assert!(thumbnail.len() < wide.len());
+    }
+
+    #[test]
+    fn images_already_small_enough_are_returned_untouched() {
+        // 原样返回而不是重编码：小图重编码只会白花时间，还可能因为编码参数不同而变大。
+        let small = crate::screenshot::encode_png(&[1, 2, 3, 255], 1, 1).expect("编码 PNG 失败");
+        assert_eq!(thumbnail_png(&small, 128).expect("缩略图失败"), small);
+    }
+
+    #[test]
+    fn thumbnailing_a_non_png_fails_instead_of_returning_garbage() {
+        assert!(thumbnail_png(b"not a png", 128).is_err());
     }
 
     #[test]
