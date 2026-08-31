@@ -316,18 +316,28 @@ worker（`#[tauri::command] async fn` 的函数体）上**必然 panic**
 
 #### 慢的到底是什么：不是像素数，是 PNG deflate
 
-这一条是被一次失败的优化逼出来的，**别再按"少拍像素"去优化它**：v4 的逐屏路径比整屏
-少拍 24% 的像素，实测**反而更慢**（冻结帧 1052 ms → 1945/1904/1850 ms）。
+**测法很重要，这一条测错过两次。** 拿两块屏互相比（"同样 4.1 Mpx，一块 884 ms 一块
+124 ms，所以是内容熵"）是**混淆实验**：两块屏上的窗口数量、缩放、显示器都不一样，
+差的那 760 ms 可以归给任何一个变量。同理"v4 少拍 24% 像素反而更慢"也是错的对照——
+1052 ms 与 1945 ms 是**不同时刻、不同桌面内容**测的，不是同一张画面的两种拍法。
+（后来专门量过：逐屏两次的和是 1830 ms，整屏一次是 1900 ms，**v4 本身并不比整屏慢**。）
 
-同像素数的对照实验（同一台机、同一个会话、`ScreenshotArea` 拍同样多的像素）：
+唯一站得住的对照是**同一批像素、两种处理**：先用 `ScreenshotArea` 拍一块屏，把拿到的
+PNG 解开，再用同一个 gdk-pixbuf 把**这些一模一样的像素**在本地重编一次，量这一次编码。
+端到端时间减去它，剩下的就是合成器真正花在"绘制 + 读回"上的时间。
 
-| 区域 | 像素 | 往返 | PNG 大小 |
-|---|---|---|---|
-| 外接 4K 上的 2559×1599 | 4.09 Mpx | **884 ms** | 3217 KiB |
-| eDP 的 2560×1600（≈同像素） | 4.10 Mpx | **124 ms** | 640 KiB |
+| 屏 | 原生像素 | 端到端 `ScreenshotArea` | 本地重编同一批像素 | PNG 大小 | ⇒ 合成器取像素 |
+|---|---|---|---|---|---|
+| 外接 4K | 3840×2160 = 8.29 Mpx | **1704 ms** | **1607 ms** | 6185 KiB | ≈ 100 ms |
+| eDP | 2560×1600 = 4.10 Mpx | **126 ms** | **81 ms** | 562 KiB | ≈ 45 ms |
 
-差 7 倍，像素数一样。差的是**内容熵**：4K 那块屏上摆着满屏的窗口，PNG 大 5 倍，
-deflate 的时间就长 7 倍。也就是说 gnome-shell 那一段时间几乎全在压缩，不在绘制。
+**PNG 编码占了 4K 那块屏 94% 的耗时（1607/1704）**，合成器自己取像素只有约 100 ms。
+按输出字节数看也自洽（同一块 4K 屏上放大区域，`ScreenshotArea`）：100×100 → 20 ms/24 KiB，
+640×400 → 238 ms/607 KiB，1280×720 → 647 ms/1905 KiB，整块 → 1784 ms/6185 KiB，
+时间与 PNG 大小基本成正比，而与"拍了多少像素"只是间接相关（像素多→字节多）。
+内容熵仍然是放大器（同一块屏空桌面时只要一两百毫秒），但它解释的是"字节为什么多"，
+不是"时间花在哪"——**时间花在 deflate**。
+
 `Shell.Screenshot` 不暴露任何压缩档位（`strings /usr/lib/gnome-shell/Shell-*.typelib`
 里 JS 能碰到的像素导出只有 `screenshot` / `screenshot_area` / `screenshot_window` /
 `composite_to_stream` / `screenshot_stage_to_content`，全都要么落 PNG、要么给一个不透明的
@@ -337,7 +347,34 @@ deflate 的时间就长 7 倍。也就是说 gnome-shell 那一段时间几乎�
 `Clutter.Content` → `get_texture()` → `Cogl.Texture.get_data(RGBA_8888, stride, buffer)`，
 把原始字节写进 tmpfs。绘制照旧，压缩没了，读回是 `$XDG_RUNTIME_DIR`（内存文件系统）里的
 一次顺序读。我方也不再解 PNG——`stride` 正好一行时字节**原样**变成帧缓冲，
-有行内填充才按行重排（`load_area_tile`）。
+有行内填充才按行重排（`load_area_tile`）。按上表推算，4K 那块屏应该从 1704 ms 降到
+约 100 ms，而且尺寸仍是**原生** 3840×2160（`scale` 由调用方指定，不再依赖"区域正好等于
+单块屏"这个前提）——分辨率与速度是同一个修改带来的，不是二选一。
+
+**这条路唯一测不出来的风险，以及它为什么仍然安全。**
+`Cogl.Texture.get_data` 在 typelib 里的签名是
+`get_data(format, rowstride: u32, data: array<u8>) -> i32`，那个数组**没有长度标注**
+（`len_arg=False, fixed=False, zero_terminated=False`），所以 GJS 到底是把
+`Uint8Array` 的内存直接交给 Cogl、还是**复制**一份过去，从内省信息里看不出来。
+若是复制，Cogl 写的是副本，我们手里那份仍是初值——结果是一张**全黑的图**，
+而不是一个能被 `catch` 的异常，也就不会触发回退。查证过、都不能证伪：
+gnome-shell 自己的 JS（从 `libshell-*.so` 用 `gresource` 抽出来的 160 个文件）
+只用 `actor.paint_to_content(null)`，**全库没有一处 `get_data`、`paint_to_buffer` 或
+`Uint8Array`**；GJS 里也建不出无头 Cogl 上下文（`Cogl.Renderer.connect()` 报
+`no winsys set`，`Cogl.Context.new` 还要一个 `Cogl.Display`），没法在 gnome-shell 之外试。
+
+所以扩展里加了两道自检，把"静默黑图"变成"能被 catch 的异常"，从而落进已有的 PNG 回退：
+1. `texture.is_get_data_supported()` —— 纹理自己说能不能读回；
+2. **哨兵字节**：读回前在缓冲区里等距埋 32 个 `0xCD`，读回后如果这 32 个位置**一个都没被
+   覆盖**，就判定"缓冲区没真的交给 Cogl"并抛错。误判概率 (1/256)^32，实际为零。
+
+**不注销就能验证：`scripts/probe-shell-capture.sh`。** gnome-shell 只在登录时加载扩展
+（`ReloadExtension` 已废弃，disable/enable 会复用缓存的 ESM 模块），所以改一行扩展 JS
+就要注销一次。绕开办法是 `org.gnome.Shell.Eval`：按 Alt+F2 输入 `lg` 打开 Looking Glass，
+执行一行 `global.context.unsafe_mode = true`（临时、注销即恢复、只有坐在机器前的人能开），
+之后这个脚本会把扩展里那段取像素的代码原样跑一遍，逐屏打印
+`paint_to_content` / `get_data`（含哨兵结论）/ 写文件的分段耗时和落地路径。
+量完在 Looking Glass 里 `global.context.unsafe_mode = false` 关掉。
 
 剩下能动的只有一个方向：把拍照和建窗重叠。**没做**，理由见下。
 
