@@ -16,6 +16,11 @@ import {
   createWindowProbeCard,
   describeWindowProbe,
 } from "../js/settings/window-probe.js";
+import {
+  CAPTURE_ISSUE_URL,
+  createCaptureDiagnosticsCard,
+  describeReportPath,
+} from "../js/settings/capture-diagnostics.js";
 
 const translate = (key) => ({
   "settings.shortcut.record": "Record",
@@ -648,6 +653,153 @@ describe("settings window quick-pick service", () => {
     expect(mounted.stateText.textContent).toBe("settings.windowProbe.stateActive");
     // 只重画，不再问一次后端
     expect(getStatus).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("capture diagnostics card", () => {
+  function mount({ collect, copyText, openUrl } = {}) {
+    const noteInput = document.createElement("input");
+    const runButton = document.createElement("button");
+    const copyButton = document.createElement("button");
+    const reportButton = document.createElement("button");
+    const pathText = document.createElement("div");
+    const output = document.createElement("pre");
+    runButton.textContent = "Run Diagnostics";
+    copyButton.hidden = true;
+    reportButton.hidden = true;
+    output.hidden = true;
+    pathText.hidden = true;
+    document.body.replaceChildren(
+      noteInput,
+      runButton,
+      copyButton,
+      reportButton,
+      pathText,
+      output,
+    );
+    const notify = vi.fn();
+    const controller = createCaptureDiagnosticsCard({
+      noteInput,
+      runButton,
+      copyButton,
+      reportButton,
+      pathText,
+      output,
+      collect: collect ?? vi.fn(),
+      copyText: copyText ?? vi.fn().mockResolvedValue(undefined),
+      openUrl: openUrl ?? vi.fn().mockResolvedValue(undefined),
+      translate,
+      notify,
+    });
+    return {
+      controller,
+      noteInput,
+      runButton,
+      copyButton,
+      reportButton,
+      pathText,
+      output,
+      notify,
+    };
+  }
+
+  const report = {
+    text: "=== Clippy capture geometry ===\nI4   overlay viewport   FAIL",
+    path: "/home/u/.cache/clippy/capture-diagnostics.txt",
+    fixtureJson: '{"name":"monitor-layout"}',
+  };
+
+  // 打开设置页不能顺手跑一遍诊断：里面有一次真实的舞台图请求（约半秒）。
+  it("collects nothing until the user asks for it", () => {
+    const collect = vi.fn().mockResolvedValue(report);
+    const mounted = mount({ collect });
+    expect(collect).not.toHaveBeenCalled();
+    expect(mounted.output.hidden).toBe(true);
+    expect(mounted.copyButton.hidden).toBe(true);
+  });
+
+  it("passes the note along and shows the report plus where it landed", async () => {
+    const collect = vi.fn().mockResolvedValue(report);
+    const mounted = mount({ collect });
+    mounted.noteInput.value = "  laptop offset up-left  ";
+
+    mounted.runButton.click();
+    await vi.waitFor(() => expect(mounted.output.hidden).toBe(false));
+    expect(collect).toHaveBeenCalledWith("laptop offset up-left");
+    expect(mounted.output.textContent).toBe(report.text);
+    expect(mounted.pathText.hidden).toBe(false);
+    expect(mounted.pathText.textContent).toContain(report.path);
+    expect(mounted.copyButton.hidden).toBe(false);
+    expect(mounted.reportButton.hidden).toBe(false);
+    // 按钮恢复原文案，不能一直停在"采集中"
+    expect(mounted.runButton.disabled).toBe(false);
+    expect(mounted.runButton.textContent).toBe("Run Diagnostics");
+  });
+
+  it("sends null instead of an empty note", async () => {
+    const collect = vi.fn().mockResolvedValue(report);
+    const mounted = mount({ collect });
+    mounted.noteInput.value = "   ";
+
+    mounted.runButton.click();
+    await vi.waitFor(() => expect(collect).toHaveBeenCalledWith(null));
+  });
+
+  // 报告是后端来的纯文本，只能走 textContent——里面带用户环境信息，绝不进 innerHTML。
+  it("writes the report as text, never as markup", async () => {
+    const collect = vi.fn().mockResolvedValue({
+      ...report,
+      text: "<img src=x onerror=alert(1)>",
+    });
+    const mounted = mount({ collect });
+
+    mounted.runButton.click();
+    await vi.waitFor(() => expect(mounted.output.hidden).toBe(false));
+    expect(mounted.output.querySelector("img")).toBeNull();
+    expect(mounted.output.textContent).toBe("<img src=x onerror=alert(1)>");
+  });
+
+  it("shows the failure instead of a blank box when collection itself fails", async () => {
+    const mounted = mount({ collect: vi.fn().mockRejectedValue("拿不到显示器几何") });
+
+    mounted.runButton.click();
+    await vi.waitFor(() => expect(mounted.output.textContent).toBe("拿不到显示器几何"));
+    // 没有报告就没有可复制、可提交的东西
+    expect(mounted.copyButton.hidden).toBe(true);
+    expect(mounted.reportButton.hidden).toBe(true);
+    expect(mounted.runButton.disabled).toBe(false);
+  });
+
+  // 报告有两三千字符，塞进 URL 会被静默截断——截断的诊断报告比没有报告更糟。
+  it("copies the report and opens the plain issue template without stuffing it into the URL", async () => {
+    const copyText = vi.fn().mockResolvedValue(undefined);
+    const openUrl = vi.fn().mockResolvedValue(undefined);
+    const mounted = mount({ collect: vi.fn().mockResolvedValue(report), copyText, openUrl });
+    await mounted.controller.run();
+
+    mounted.reportButton.click();
+    await vi.waitFor(() => expect(openUrl).toHaveBeenCalledWith(CAPTURE_ISSUE_URL));
+    expect(copyText).toHaveBeenCalledWith(report.text);
+    expect(CAPTURE_ISSUE_URL).not.toContain(encodeURIComponent("I4"));
+    expect(CAPTURE_ISSUE_URL).toContain("template=capture-geometry.yml");
+  });
+
+  it("does nothing on copy or report before a report exists", async () => {
+    const copyText = vi.fn();
+    const openUrl = vi.fn();
+    const mounted = mount({ copyText, openUrl });
+
+    mounted.copyButton.click();
+    mounted.reportButton.click();
+    await Promise.resolve();
+    expect(copyText).not.toHaveBeenCalled();
+    expect(openUrl).not.toHaveBeenCalled();
+  });
+
+  it("keeps quiet about a file that was never written", () => {
+    expect(describeReportPath({ ...report, path: null }, translate)).toBeNull();
+    expect(describeReportPath(null, translate)).toBeNull();
+    expect(describeReportPath(report, translate)).toContain(report.path);
   });
 });
 
