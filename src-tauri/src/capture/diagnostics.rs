@@ -210,6 +210,7 @@ fn render(
     version: &str,
     extension: &ShellExtensionStatus,
     geometry: &crate::screenshot::diagnostics::GeometryDiagnostics,
+    tauri_monitors: &Result<Vec<String>, String>,
     viewport: Option<ViewportObservation>,
     own_window: &Result<OwnWindowObservation, String>,
 ) -> String {
@@ -235,6 +236,19 @@ fn render(
             }
             Err(error) => out.push_str(&format!("  枚举失败：{error}\n")),
         }
+    }
+    // Tauri 那套单独放在最后一段并写明它是干什么的：它和前两个来源不是"又一个数据源"，
+    // 而是**真正决定窗口落在哪**的那一个。
+    out.push_str("[Tauri/GTK（覆盖层与贴图窗口按这套摆放）]\n");
+    match tauri_monitors {
+        Ok(lines) => {
+            for line in lines {
+                out.push_str("  ");
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+        Err(error) => out.push_str(&format!("  取不到：{error}\n")),
     }
 
     out.push_str("\n--- 舞台图与切分 ---\n");
@@ -354,6 +368,7 @@ pub(crate) fn collect_report(
     version: &str,
     viewport: Option<ViewportObservation>,
     own_window_rect: Result<(i32, i32, u32, u32), String>,
+    tauri_monitors: Result<Vec<String>, String>,
     note: Option<String>,
 ) -> (String, Option<String>) {
     let own_window = own_window_observation(own_window_rect);
@@ -364,7 +379,14 @@ pub(crate) fn collect_report(
         .filter(|note| !note.is_empty())
         .unwrap_or_else(|| DEFAULT_NOTE.to_string());
     let geometry = crate::screenshot::diagnostics::collect(FIXTURE_NAME, &note, &compositor);
-    let text = render(version, &extension, &geometry, viewport, &own_window);
+    let text = render(
+        version,
+        &extension,
+        &geometry,
+        &tauri_monitors,
+        viewport,
+        &own_window,
+    );
     let fixture_json = geometry
         .stage
         .as_ref()
@@ -417,7 +439,10 @@ pub fn cli_note(args: &[String]) -> Option<String> {
 pub fn run_cli(mode: CliMode, version: &str, note: Option<String>) -> i32 {
     // 命令行模式下自己没有窗口可比对，I5 只能记成"未检查"——写成 PASS 会让人绕开它。
     let own_window = Err("命令行模式没有窗口可比对；从设置页运行可以查这一条".to_string());
-    let (text, fixture_json) = collect_report(version, None, own_window, note);
+    // Tauri 还没起来，那套显示器模型此刻不存在。写成"取不到"而不是留空：这一段缺了
+    // 就查不出"我们的几何对、Tauri 摆错了"这一类，用户得知道该从设置页再跑一次。
+    let tauri_monitors = Err("命令行模式下 Tauri 还没启动；从设置页运行可以看这一段".to_string());
+    let (text, fixture_json) = collect_report(version, None, own_window, tauri_monitors, note);
     match mode {
         CliMode::Report => {
             println!("{text}");
@@ -438,6 +463,48 @@ pub fn run_cli(mode: CliMode, version: &str, note: Option<String>) -> i32 {
             }
         },
     }
+}
+
+/// 第三个几何来源：**Tauri/GTK 自己那套显示器模型**。
+///
+/// **为什么它必须在报告里。** 覆盖层和贴图窗口是把逻辑矩形交给 Tauri 去摆的，最终落在
+/// 哪块屏、多大，取决于**这套**模型，而不是我们从 wl_output / xcap 枚举出来的那套。
+/// 两套对不上时症状正好是用户报的"覆盖层偏了一块"，而 I1–I3 会全过——它们只在我们自己的
+/// 数据内部对账。I4 能抓到后果（视口对不上），但抓不到成因；把三套并排列出来，
+/// 是哪一套走偏一眼就看得见。
+///
+/// 几何逐屏按**自己的**缩放折算成逻辑像素：混合缩放的多屏上不存在一个能换算整个桌面的系数，
+/// 这正是 §4 那个真实 bug 的教训。id 用枚举下标，和 wl_output 那侧一致（顺序可能不同，
+/// 所以对照时看几何、不要只看编号）。
+///
+/// **必须在 async / 主线程侧调用**，理由同 [`own_window_logical_rect`]。
+fn tauri_monitor_lines(app_handle: &tauri::AppHandle) -> Result<Vec<String>, String> {
+    use crate::screenshot::diagnostics::{describe_reported_monitors, ReportedMonitor};
+
+    let monitors = app_handle
+        .available_monitors()
+        .map_err(|error| error.to_string())?;
+    if monitors.is_empty() {
+        return Err("Tauri 一块屏都没报出来".to_string());
+    }
+    let reported: Vec<ReportedMonitor> = monitors
+        .iter()
+        .enumerate()
+        .map(|(index, monitor)| {
+            let scale = monitor.scale_factor().max(0.1);
+            let position = monitor.position();
+            let size = monitor.size();
+            ReportedMonitor {
+                id: index as u32 + 1,
+                x: (position.x as f64 / scale).round() as i32,
+                y: (position.y as f64 / scale).round() as i32,
+                width: (size.width as f64 / scale).round() as u32,
+                height: (size.height as f64 / scale).round() as u32,
+                scale: scale as f32,
+            }
+        })
+        .collect();
+    Ok(describe_reported_monitors(&reported))
 }
 
 /// 把报告写进缓存目录。**写失败不算失败**：报告已经在内存里，前端照样能显示与复制。
@@ -473,9 +540,12 @@ pub async fn run_capture_diagnostics(
     // I5 的 Tauri 侧参照物也得在这儿取：读窗口属性要走 GTK 主循环，挪进
     // `spawn_blocking` 的工作线程是未定义行为。扩展那一半反过来只能在阻塞线程上跑。
     let own_window_rect = own_window_logical_rect(&app_handle);
+    // 同理：Tauri 的显示器模型也得在这一侧读。
+    let tauri_monitors = tauri_monitor_lines(&app_handle);
     let handle = app_handle.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let (text, fixture_json) = collect_report(&version, viewport, own_window_rect, note);
+        let (text, fixture_json) =
+            collect_report(&version, viewport, own_window_rect, tauri_monitors, note);
         let path = write_report(&handle, &text);
         CaptureDiagnosticsReport {
             text,
@@ -632,6 +702,46 @@ mod tests {
             }),
             None
         );
+    }
+
+    fn empty_geometry() -> crate::screenshot::diagnostics::GeometryDiagnostics {
+        crate::screenshot::diagnostics::GeometryDiagnostics {
+            sources: Vec::new(),
+            stage: Err("测试里不去真截图".to_string()),
+        }
+    }
+
+    /// **摆窗用的那套显示器模型必须出现在报告里。** 我们的几何全对、Tauri 那套不一样，
+    /// 症状就是用户报的"覆盖层偏了"，而 I1–I3 会全过（它们只在我们自己的数据内部对账）。
+    #[test]
+    fn the_report_lists_the_monitor_model_that_actually_places_the_windows() {
+        let lines = vec!["#1 0,0 2560x1440 ×1.5000".to_string()];
+        let text = render(
+            "0.0.0",
+            &status(true, false),
+            &empty_geometry(),
+            &Ok(lines),
+            None,
+            &Err("测试".to_string()),
+        );
+        assert!(text.contains("Tauri/GTK"), "{text}");
+        assert!(text.contains("2560x1440"), "{text}");
+    }
+
+    /// 取不到的时候要写原因。整段悄悄消失最糟：看报障的人会以为"这里没什么可看的"，
+    /// 而缺的恰恰是"我们算对了、Tauri 摆错了"这一类的唯一线索。
+    #[test]
+    fn a_missing_monitor_model_says_why_instead_of_vanishing() {
+        let text = render(
+            "0.0.0",
+            &status(true, false),
+            &empty_geometry(),
+            &Err("命令行模式下 Tauri 还没启动".to_string()),
+            None,
+            &Err("测试".to_string()),
+        );
+        assert!(text.contains("Tauri/GTK"), "{text}");
+        assert!(text.contains("命令行模式下 Tauri 还没启动"), "{text}");
     }
 
     fn args(list: &[&str]) -> Vec<String> {
