@@ -17,6 +17,8 @@
  *   9. 选区压暗搬回 drawScene → 拖一次选区就是几十次全屏重采样，帧率掉下来但功能"是对的"
  *  10. 列表行收整个 snapshot / 回调在渲染里新建 → memo 失效，一次按键重渲全部 30 行
  *  11. 列表行取原图画 48 px 缩略图 → 每开一次面板十几 MB IPC + 十几次全尺寸 PNG 解码
+ *  12. deb 不声明 libpipewire → 装上去的包在没装 PipeWire 的机器上根本起不来
+ *      （硬链接失败发生在 main 之前，后端回退链一层都轮不到）
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -44,6 +46,29 @@ describe("tauri 构建钩子不依赖 cwd", () => {
       const landed = execFileSync("sh", ["-c", `${cd} && pwd`], { cwd, encoding: "utf8" }).trim();
       expect(landed, cwd).toBe(frontendRoot);
     }
+  });
+});
+
+describe("deb 声明了二进制硬链接的库", () => {
+  const deb = JSON.parse(read("src-tauri/tauri.conf.json")).bundle.linux.deb;
+
+  /**
+   * Tauri 的 deb 打包器只会自动写 webkit2gtk / gtk 那几条，不做 shlibdeps 扫描。
+   * 而 PipeWire 取流（`screenshot/screencast.rs`）与 libwayshot 的 Wayland 截图让
+   * 二进制**动态链接**上了 libpipewire / libgbm / libEGL —— 缺一个就是启动时
+   * 动态链接失败，进程根本起不来，一层后端都轮不到。所以必须显式声明。
+   *
+   * t64 过渡把包名改了（24.04 起是 `libpipewire-0.3-0t64`），用 `|` 备选同时覆盖
+   * 新旧发行版：写死单个名字会让 deb 在另一边直接装不上，比不声明更糟。
+   */
+  it.each([
+    ["libpipewire-0.3", true],
+    ["libgbm1", false],
+    ["libegl1", false],
+  ])("%s 在 depends 里", (library, needsAlternative) => {
+    const entry = deb.depends.find((item) => item.includes(library));
+    expect(entry, `depends 里没有 ${library}`).toBeTruthy();
+    if (needsAlternative) expect(entry).toContain("|");
   });
 });
 
