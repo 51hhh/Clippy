@@ -307,9 +307,9 @@ impl ClipboardWatcher {
                                         false,
                                     );
                                     match clip_result {
-                                        Ok(mut clip) => {
+                                        Ok(clip) => {
                                             // 事件中不携带图片数据，前端按需加载
-                                            clip.image_data = None;
+                                            let clip = clip.without_image_data();
                                             let removed =
                                                 storage.cleanup_old_entries(max_history).ok();
                                             Some((clip, removed))
