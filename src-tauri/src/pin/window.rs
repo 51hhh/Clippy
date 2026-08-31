@@ -192,8 +192,10 @@ pub(super) fn keep_pin_above(
         crate::capture::shell_extension_place_window(&marker, shell_target(logical), true);
     let placement = match outcome {
         Ok(true) => return Placement::Done,
+        // 刚 show() 的窗口在 Shell 里还不存在（实测 28~137 ms 才出现），所以这是**常态**，
+        // 不是故障——真正该报的是重试也等不到，那条日志在 `retry_placement` 里。
         Ok(false) => {
-            log::info!("GNOME Shell 扩展没在会话里找到贴图窗口 {marker}");
+            log::debug!("贴图窗口 {marker} 还没在 Shell 里出现，安排重试");
             Placement::NotMappedYet { generation }
         }
         // 非 GNOME Wayland、未安装、未注销生效都走到这里，是常态而不是故障。
