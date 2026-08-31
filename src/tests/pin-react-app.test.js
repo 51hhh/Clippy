@@ -105,14 +105,23 @@ describe("React pin app", () => {
   });
 
   it("rolls back an optimistic scale when the native resize fails", async () => {
+    // 请求挂着不应答，这样"乐观值上屏"与"失败后回滚"两段各自可断言，
+    // 不依赖 rAF 在哪一次 await 里恰好跑到。以前这里用 mockRejectedValue 立刻拒绝，
+    // 于是 jsdom 的 rAF（定时器实现）在负载高时会在第一个 act 里就跑完、当场回滚，
+    // 断言时序变成看机器快慢——三次里挂两次。
+    const attempt = deferred();
     mocks.pinApi.get.mockResolvedValue(payload);
-    mocks.pinApi.update.mockRejectedValue(new Error("resize failed"));
+    mocks.pinApi.update.mockReturnValue(attempt.promise);
     await act(async () => root.render(React.createElement(App)));
     await flush();
 
     await act(async () => document.querySelector('button[aria-label="Zoom in"]').click());
-    expect(document.querySelector(".pin-scale")?.textContent).toBe("110");
     await flushFrame();
+    await flush();
+    expect(mocks.pinApi.update).toHaveBeenCalledWith("pin-image-test", { scale: 1.1 });
+    expect(document.querySelector(".pin-scale")?.textContent).toBe("110");
+
+    attempt.reject(new Error("resize failed"));
     await flush();
 
     expect(document.querySelector(".pin-scale")?.textContent).toBe("100");

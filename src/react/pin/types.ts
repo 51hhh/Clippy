@@ -1,1 +1,1 @@
-export type { PinPayload, PinUpdate } from "../../js/ipc-types.ts";
+export type { PinPayload, PinState, PinUpdate } from "../../js/ipc-types.ts";

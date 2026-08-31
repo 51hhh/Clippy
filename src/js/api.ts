@@ -27,6 +27,7 @@ import type {
   PasteOutcome,
   PasteStatus,
   PinPayload,
+  PinState,
   PinUpdate,
   ShortcutConflict,
   ShortcutRegisterFailure,
@@ -57,6 +58,7 @@ export type {
   PastePhase,
   PasteStatus,
   PinPayload,
+  PinState,
   PinUpdate,
   ServiceTranslation,
   ShortcutConflict,
@@ -411,8 +413,9 @@ export function pinReady(label: string): Promise<void> {
 }
 
 /** 更新贴图缩放、透明度或锁定状态 */
-export function updatePin(label: string, update: PinUpdate): Promise<PinPayload> {
-  return invoke<PinPayload>("update_pin", { label, update });
+/** 应答只带可变字段，不带图片：调用方把它合并进手里的 payload（见 `PinState`） */
+export function updatePin(label: string, update: PinUpdate): Promise<PinState> {
+  return invoke<PinState>("update_pin", { label, update });
 }
 
 /** 复制贴图内容，不触发自动粘贴 */
