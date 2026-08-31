@@ -33,6 +33,27 @@ pub(crate) use app::shortcuts::{
     record_register_result, register_x11_shortcuts, toggle_main_window,
 };
 
+/// 命令行截图诊断：`clippy --capture-diagnose` / `--emit-test-case` /
+/// `CLIPPY_CAPTURE_DIAGNOSE=1`。返回 `Some(退出码)` 表示这次启动只做诊断。
+///
+/// **必须在 [`run`] 之前调用**：诊断全程是阻塞 D-Bus，且不该拉起窗口，
+/// 更不该撞上 single-instance 的 name 抢占把用户正在用的实例顶掉。
+pub fn capture_diagnostics_cli() -> Option<i32> {
+    let args: Vec<String> = std::env::args().collect();
+    let env_flag = std::env::var(capture::diagnostics::DIAGNOSE_ENV).ok();
+    let mode = capture::diagnostics::cli_mode(&args, env_flag.as_deref())?;
+    let note = capture::diagnostics::cli_note(&args);
+    // 采集过程里的 `log::warn!`（枚举失败、扩展不应答）本身就是诊断信息，得让它出现在
+    // 终端里。这条路一定以 `exit` 结束，所以不会和 `run()` 里那次 init 撞上。
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("clippy_lib=info"))
+        .init();
+    Some(capture::diagnostics::run_cli(
+        mode,
+        env!("CARGO_PKG_VERSION"),
+        note,
+    ))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // env_logger 默认只放行 error，于是所有 `log::warn!`/`log::info!` 都是写给空气的——
@@ -232,6 +253,7 @@ pub fn run() {
             capture::get_window_probe_status,
             capture::install_window_probe_extension,
             capture::uninstall_window_probe_extension,
+            capture::diagnostics::run_capture_diagnostics,
             commands::pick_screenshot_directory,
             pin::commands::pin_clip,
             pin::commands::get_pin_payload,

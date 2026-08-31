@@ -25,5 +25,11 @@ fn main() {
         }
     }
 
+    // 截图诊断在 Tauri 之前就结束：几何算错时 GUI 本身不可信，而且这条路不该抢
+    // single-instance 的 D-Bus name 把用户正在用的实例顶掉。见 docs/capture-linux.md §4.2。
+    if let Some(code) = clippy_lib::capture_diagnostics_cli() {
+        std::process::exit(code);
+    }
+
     clippy_lib::run()
 }
