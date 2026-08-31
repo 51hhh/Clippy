@@ -1,7 +1,8 @@
 use crate::models::ClipItem;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(super) enum PinSource {
     Clip {
         item: ClipItem,
@@ -15,13 +16,41 @@ pub(super) enum PinSource {
 #[derive(Debug, Clone)]
 pub(super) struct PinEntry {
     pub label: String,
-    pub source: PinSource,
+    /// 内容放在 `Arc` 后面，**克隆 `PinEntry` 才不会连着整张 PNG 一起复制**。
+    ///
+    /// `update_pin` 是滚轮缩放的每帧热路径，它要克隆两份条目（回滚用的 `previous`
+    /// 加上更新后的那份）。一张全屏截图两三 MB，按值放在这里等于每帧白 memcpy 四五 MB，
+    /// 而且是在主线程上。内容从建窗到关窗都不会变，共享它没有任何取舍。
+    pub source: Arc<PinSource>,
     pub content_width: f64,
     pub content_height: f64,
     pub scale: f64,
     pub opacity: f64,
     pub locked: bool,
     pub position: Option<PinPosition>,
+    /// 这张图原本在屏幕上的位置与大小（逻辑像素）。截图选区带着它过来，
+    /// 于是贴图能贴回原处、原尺寸；从别处来的图片没有它，落回光标/居中。
+    pub origin: Option<PinOrigin>,
+}
+
+/// 图片在屏幕上的来源矩形，逻辑像素、桌面全局坐标（与截图覆盖层同一坐标系）。
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PinOrigin {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+impl PinOrigin {
+    /// 只接受有限、且大到看得见的矩形。选区来自前端，NaN 或 0 尺寸会一路污染窗口几何。
+    pub(crate) fn sanitized(self) -> Option<Self> {
+        let finite = [self.x, self.y, self.width, self.height]
+            .into_iter()
+            .all(f64::is_finite);
+        (finite && self.width >= 2.0 && self.height >= 2.0).then_some(self)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -46,12 +75,40 @@ pub struct PinPayload {
     pub position: Option<PinPosition>,
 }
 
+/// `update_pin` 的应答：只有这次真的可能变的那几个字段。
+///
+/// **故意不带 `image_base64` 与 `text`。** 滚轮缩放时每一帧都会调一次 `update_pin`，
+/// 而贴图的内容从头到尾没变过；带上图片意味着每帧都要把 PNG 重新 base64 编一遍
+/// （一张全屏截图 2 MB → 2.8 MB 字符串）再过一次 IPC，纯粹的浪费。前端拿到这个应答后
+/// 合并进已有的 payload（`App.tsx` 的 `mergePinState`），图片对象 URL 因此也不会被重建。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PinState {
+    pub label: String,
+    pub content_width: f64,
+    pub content_height: f64,
+    pub scale: f64,
+    pub opacity: f64,
+    pub locked: bool,
+    pub position: Option<PinPosition>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PinUpdate {
     pub scale: Option<f64>,
     pub opacity: Option<f64>,
     pub locked: Option<bool>,
+}
+
+/// 贴图窗口的原生标题。
+///
+/// 窗口无装饰、不进任务栏，这个标题不出现在任何界面上——它唯一的用途是让
+/// GNOME Shell 扩展能在 Shell 进程里认出这个窗口。Wayland 下客户端既摆不了自己的
+/// 位置也置不了顶，只有扩展做得到，而扩展只能按标题 + pid 查找（见
+/// `capture::shell_extension_place_window`）。所以标题必须唯一且稳定，跟着 label 走。
+pub(crate) fn window_marker(label: &str) -> String {
+    format!("Clippy Pin {label}")
 }
 
 pub(super) fn validate_label(label: &str) -> Result<(), String> {

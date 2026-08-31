@@ -78,6 +78,9 @@ run_step "cargo check" bash -c "cd src-tauri && cargo check --all-targets"
 run_step "cargo clippy" bash -c "cd src-tauri && cargo clippy --all-targets -- -D warnings"
 run_step "cargo test" bash -c "cd src-tauri && cargo test"
 
+# --- GNOME Shell 扩展 ---
+run_step "GNOME 扩展静态检查" ./scripts/check-gnome-extension.sh
+
 # --- Frontend ---
 run_step "npm ci" bash -c "cd src && npm ci --prefer-offline"
 run_step "typecheck" bash -c "cd src && npx tsc --noEmit"

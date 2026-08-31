@@ -1,0 +1,8 @@
+{
+  "uuid": "clippy-windows@clippy.local",
+  "name": "Clippy Screen Helper",
+  "description": "为 Clippy 提供 GNOME Wayland 上拿不到的三样东西：窗口位置与大小（用于截图时的窗口速选）、不弹授权对话框、不闪白、不落文件到图片目录的冻结帧截图，以及把 Clippy 自己的贴图窗口摆回原位并置顶。三者都只有 gnome-shell 进程自己能做；本扩展通过一个需要令牌的私有 D-Bus 接口交给 Clippy。",
+  "shell-version": ["45", "46", "47", "48", "49", "50", "51"],
+  "url": "https://github.com/51hhh/Clippy",
+  "version": 3
+}

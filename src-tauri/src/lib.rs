@@ -4,6 +4,7 @@ mod capture;
 mod clipboard_watcher;
 mod commands;
 mod config;
+mod dbus;
 mod dialogs;
 mod error;
 mod gsettings_shortcuts;
@@ -34,7 +35,13 @@ pub(crate) use app::shortcuts::{
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    env_logger::init();
+    // env_logger 默认只放行 error，于是所有 `log::warn!`/`log::info!` 都是写给空气的——
+    // "覆盖层超时未报告首帧""扩展未应答"这些排障线索一条都看不到。自己的 crate 默认放到
+    // info，其余依赖留在 warn；`RUST_LOG` 仍然优先，需要更细的时候照常覆盖。
+    env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("clippy_lib=info,warn"),
+    )
+    .init();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
@@ -109,6 +116,7 @@ pub fn run() {
                 main_window_position_generation: AtomicU64::new(0),
                 capture_manager,
                 pin_manager,
+                pin_origins: Arc::new(pin::PinOriginRegistry::default()),
                 paste_manager,
                 translation,
                 shortcuts_paused: AtomicBool::new(false),
@@ -146,6 +154,9 @@ pub fn run() {
                     true,
                     gsettings_shortcuts::register_capture(&app_config.capture_shortcut),
                 );
+                // 用户装过窗口速选扩展的话，顺手做一次内容对齐与孤儿清理；
+                // 没装过就什么都不做——绝不擅自往用户的 GNOME 里塞扩展。
+                capture::reconcile_window_probe_extension();
                 // 启动 D-Bus 服务接收 Toggle 调用 —— name 抢占必须成功，
                 // 否则当前进程是"幽灵副本"，立即退出让 single-instance 自动清理。
                 let handle = app.handle().clone();
@@ -212,12 +223,15 @@ pub fn run() {
             commands::is_dev_binary,
             capture::show_capture_overlay,
             capture::get_capture_overlay,
+            capture::get_capture_frame,
             capture::mark_capture_overlay_ready,
             capture::cancel_capture_overlay,
             capture::commit_capture_action,
             capture::translate_capture_selection,
+            capture::get_window_probe_status,
+            capture::install_window_probe_extension,
+            capture::uninstall_window_probe_extension,
             commands::pick_screenshot_directory,
-            pin::commands::pin_screenshot_image,
             pin::commands::pin_clip,
             pin::commands::get_pin_payload,
             pin::commands::pin_ready,
