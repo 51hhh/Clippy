@@ -119,8 +119,7 @@ impl HttpRequest {
     }
 
     fn send(self) -> Result<Vec<u8>, TranslationError> {
-        let agent = build_agent();
-        retry_once(|| self.send_once(&agent))
+        retry_once(|| self.send_once(agent()))
     }
 
     /// ureq 3 的 GET/POST builder 是两种类型，无法共用一个变量，
@@ -233,13 +232,24 @@ fn classify_status_with_body(status: u16, body: &str) -> TranslationError {
     }
 }
 
-fn build_agent() -> ureq::Agent {
-    let config = ureq::config::Config::builder()
-        .timeout_global(Some(REQUEST_TIMEOUT))
-        .max_redirects(0)
-        .http_status_as_error(false)
-        .build();
-    ureq::Agent::new_with_config(config)
+/// 全进程共用一个 Agent。
+///
+/// 每次请求各建一个 Agent 等于各自带一个空连接池：同一个端点连着翻译两条，
+/// 第二条照样要重做 TCP 握手 + TLS 握手，远端服务上这是一两百毫秒起。
+/// 共用之后 keep-alive 生效，重试那一次也不必重新握手。
+///
+/// 共用是安全的：ureq 这里没启用 cookie 存储（`cookie` 那份依赖来自 tauri/wry），
+/// 所以池子里不携带任何跨 provider 的状态；配置对所有调用方本来就是同一份。
+fn agent() -> &'static ureq::Agent {
+    static AGENT: std::sync::LazyLock<ureq::Agent> = std::sync::LazyLock::new(|| {
+        let config = ureq::config::Config::builder()
+            .timeout_global(Some(REQUEST_TIMEOUT))
+            .max_redirects(0)
+            .http_status_as_error(false)
+            .build();
+        ureq::Agent::new_with_config(config)
+    });
+    &AGENT
 }
 
 /// 统一的 JSON POST，保留给只需要 JSON + Bearer 的 provider。
