@@ -5,6 +5,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { describe, it, expect, beforeEach } from "vitest";
 import * as i18n from "../i18n/i18n.js";
+import { describeWindowProbe } from "../js/settings/window-probe.js";
 import en from "../i18n/en.json";
 import zhCN from "../i18n/zh-CN.json";
 
@@ -122,6 +123,51 @@ describe("i18n", () => {
       for (const [, key] of readFileSync(file, "utf8").matchAll(/\bt\(\s*"([A-Za-z][\w.]*)"/g)) {
         if (!(key in en) || !(key in zhCN)) missing.add(`${key} (${relative(root, file)})`);
       }
+    }
+    expect([...missing]).toEqual([]);
+  });
+
+  // HTML 里的 data-i18n 拼错同样不报错，只是界面上留下一串 key。
+  // 设置页拆成分页时一次挪了几十个 data-i18n，只能整份 HTML 扫一遍。
+  it("HTML 里的 data-i18n key 在两个 locale 里都存在", () => {
+    const pages = readdirSync(root).filter((name) => name.endsWith(".html"));
+    const missing = new Set();
+    for (const page of pages) {
+      const html = readFileSync(resolve(root, page), "utf8");
+      for (const [, key] of html.matchAll(/data-i18n="([^"]+)"/g)) {
+        if (!(key in en) || !(key in zhCN)) missing.add(`${key} (${page})`);
+      }
+    }
+    expect([...missing]).toEqual([]);
+  });
+
+  // 窗口速选卡片的状态文案是由 describeWindowProbe 算出来的 key，
+  // 不是源码里的 t("…") 字面量，上面那两个扫描都盖不到。
+  it("窗口速选服务的每个状态分支都有对应文案", () => {
+    const branches = [
+      { supported: false },
+      { supported: true, active: true },
+      { supported: true, active: true, stale: true },
+      { supported: true, installed: true, userExtensionsEnabled: false },
+      { supported: true, installed: true, userExtensionsEnabled: true },
+      { supported: true },
+    ];
+    const missing = new Set();
+    for (const status of branches) {
+      const view = describeWindowProbe(status);
+      for (const key of [view.stateKey, view.detailKey]) {
+        if (!(key in en) || !(key in zhCN)) missing.add(key);
+      }
+    }
+    for (const key of [
+      "settings.windowProbe.installedNeedsLogout",
+      "settings.windowProbe.installedActive",
+      "settings.windowProbe.uninstalled",
+      // 覆盖层里的一次性提示，App.tsx 里是三元表达式选出来的 key，扫源码也扫不到
+      "capture.windowProbeHint",
+      "capture.windowPickingUnavailable",
+    ]) {
+      if (!(key in en) || !(key in zhCN)) missing.add(key);
     }
     expect([...missing]).toEqual([]);
   });

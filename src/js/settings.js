@@ -10,6 +10,8 @@ import {
   getPasteStatus,
   getShortcutFailures,
   getStats,
+  getWindowProbeStatus,
+  installWindowProbeExtension,
   isAutostartEnabled,
   isDevBinary,
   ocrAvailable,
@@ -21,6 +23,7 @@ import {
   resumeShortcuts,
   tmuxAvailable,
   toggleTmuxCapture,
+  uninstallWindowProbeExtension,
   updateConfig,
 } from "./api.ts";
 import { initCustomSelect } from "./custom-select.js";
@@ -33,7 +36,9 @@ import {
   createShortcutRecordingController,
 } from "./settings/shortcut-recording.js";
 import { loadStats } from "./settings/stats.js";
+import { initSettingsTabs } from "./settings/tabs.js";
 import { createThemePicker } from "./settings/theme-picker.js";
+import { createWindowProbeCard } from "./settings/window-probe.js";
 import { initTranslationSettings } from "./translation-settings.js";
 import { checkForUpdate, initUpdateModal } from "./update-modal.js";
 import * as i18n from "../i18n/i18n.js";
@@ -148,6 +153,21 @@ const ocrSettings = createOcrSettings({
   showToast,
 });
 
+const windowProbe = createWindowProbeCard({
+  card: element("window-probe-card"),
+  dot: element("window-probe-dot"),
+  stateText: element("window-probe-state"),
+  detailText: element("window-probe-detail"),
+  installButton: element("window-probe-install-btn"),
+  uninstallButton: element("window-probe-uninstall-btn"),
+  recheckButton: element("window-probe-recheck-btn"),
+  getStatus: getWindowProbeStatus,
+  install: installWindowProbeExtension,
+  uninstall: uninstallWindowProbeExtension,
+  translate: i18n.t,
+  notify: showToast,
+});
+
 const screenshotSettings = createScreenshotSettings({
   directoryInput: element("screenshot-dir-input"),
   browseButton: element("screenshot-dir-browse-btn"),
@@ -213,13 +233,18 @@ function whenReady(callback) {
 }
 
 whenReady(async () => {
+  initSettingsTabs();
   try {
     savedConfig = await getConfig();
     fillForm(savedConfig);
     themePicker.initialize(savedConfig.theme || "light");
     i18n.init(savedConfig.language || "auto");
     translationSettings.refreshLabels();
-    await Promise.all([pastePermission.load(), translationSettings.loadKeyStatus()]);
+    await Promise.all([
+      pastePermission.load(),
+      windowProbe.load(),
+      translationSettings.loadKeyStatus(),
+    ]);
 
     try {
       element("about-version").textContent = `v${await getAppVersion()}`;
@@ -244,6 +269,7 @@ whenReady(async () => {
     themePicker.initialize("light");
     i18n.init("auto");
     translationSettings.refreshLabels();
+    void windowProbe.load();
     void translationSettings.loadKeyStatus();
   }
 });
@@ -254,6 +280,7 @@ languageSelect.addEventListener("change", () => {
   shortcutRecording.refreshLabels();
   shortcutFailureNotice.refreshLabels();
   pastePermission.refreshLabels();
+  windowProbe.refreshLabels();
   translationSettings.refreshLabels();
 });
 

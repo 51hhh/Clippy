@@ -10,7 +10,12 @@ import {
 import { createShortcutFailureNotice } from "../js/settings/shortcut-failure-notice.js";
 import { createScreenshotSettings } from "../js/settings/screenshot-settings.js";
 import { formatByteSize } from "../js/settings/stats.js";
+import { initSettingsTabs } from "../js/settings/tabs.js";
 import { createThemePicker } from "../js/settings/theme-picker.js";
+import {
+  createWindowProbeCard,
+  describeWindowProbe,
+} from "../js/settings/window-probe.js";
 
 const translate = (key) => ({
   "settings.shortcut.record": "Record",
@@ -477,6 +482,238 @@ describe("settings screenshot save location", () => {
     );
     expect(directoryInput.value).toBe("~/Keep");
     expect(browseButton.disabled).toBe(false);
+  });
+});
+
+describe("settings window quick-pick service", () => {
+  const status = (overrides) => ({
+    supported: true,
+    installed: false,
+    enabled: false,
+    active: false,
+    stale: false,
+    userExtensionsEnabled: true,
+    ...overrides,
+  });
+
+  it.each([
+    [
+      "非 GNOME 桌面不提这个服务",
+      { supported: false },
+      { tone: "neutral", showInstall: false, showUninstall: false },
+    ],
+    [
+      "扩展在应答 D-Bus 就是唯一的可用判据",
+      { installed: true, enabled: true, active: true },
+      { tone: "ready", showInstall: false, showUninstall: true },
+    ],
+    [
+      "升级后跑着的还是旧版扩展，不能说成已就绪",
+      { installed: true, enabled: true, active: true, stale: true },
+      {
+        tone: "pending",
+        stateKey: "settings.windowProbe.statePendingUpdate",
+        showInstall: false,
+        showUninstall: true,
+      },
+    ],
+    [
+      "系统层面关掉了全部扩展时再点安装没用",
+      { installed: true, enabled: true, userExtensionsEnabled: false },
+      { tone: "pending", showInstall: false, showUninstall: true },
+    ],
+    [
+      "装好但还没注销",
+      { installed: true, enabled: true },
+      { tone: "pending", showInstall: false, showUninstall: true },
+    ],
+    ["没装", {}, { tone: "unavailable", showInstall: true, showUninstall: false }],
+    [
+      "目录没了但 gsettings 里还挂着条目，得留清理入口",
+      { enabled: true },
+      { tone: "unavailable", showInstall: true, showUninstall: true },
+    ],
+  ])("describes %s", (_name, overrides, expected) => {
+    expect(describeWindowProbe(status(overrides))).toMatchObject(expected);
+  });
+
+  it("treats a missing status like an unsupported desktop instead of throwing", () => {
+    expect(describeWindowProbe(undefined).tone).toBe("neutral");
+  });
+
+  function mount({ getStatus, install, uninstall }) {
+    const card = document.createElement("div");
+    const dot = document.createElement("span");
+    const stateText = document.createElement("span");
+    const detailText = document.createElement("p");
+    const installButton = document.createElement("button");
+    const uninstallButton = document.createElement("button");
+    const recheckButton = document.createElement("button");
+    document.body.replaceChildren(
+      card,
+      dot,
+      stateText,
+      detailText,
+      installButton,
+      uninstallButton,
+      recheckButton,
+    );
+    const notify = vi.fn();
+    const controller = createWindowProbeCard({
+      card,
+      dot,
+      stateText,
+      detailText,
+      installButton,
+      uninstallButton,
+      recheckButton,
+      getStatus,
+      install,
+      uninstall,
+      translate,
+      notify,
+    });
+    return {
+      controller,
+      card,
+      dot,
+      stateText,
+      detailText,
+      installButton,
+      uninstallButton,
+      recheckButton,
+      notify,
+    };
+  }
+
+  it("paints the tone onto the card and the dot", async () => {
+    const mounted = mount({ getStatus: vi.fn().mockResolvedValue(status({ active: true })) });
+
+    await mounted.controller.load();
+    expect(mounted.card.className).toBe("service-card ready");
+    expect(mounted.dot.className).toBe("service-card-dot ready");
+    expect(mounted.stateText.textContent).toBe("settings.windowProbe.stateActive");
+    expect(mounted.installButton.hidden).toBe(true);
+    expect(mounted.uninstallButton.hidden).toBe(false);
+  });
+
+  // 装完必须注销一次才生效，这句提示不给就会被当成"装了没用"。
+  it("tells the user to log out when the freshly installed extension is not answering yet", async () => {
+    const mounted = mount({
+      getStatus: vi.fn().mockResolvedValue(status()),
+      install: vi.fn().mockResolvedValue({
+        needsLogout: true,
+        status: status({ installed: true, enabled: true }),
+      }),
+    });
+    await mounted.controller.load();
+
+    mounted.installButton.click();
+    await vi.waitFor(() =>
+      expect(mounted.notify).toHaveBeenCalledWith("settings.windowProbe.installedNeedsLogout"),
+    );
+    expect(mounted.card.className).toBe("service-card pending");
+    expect(mounted.recheckButton.disabled).toBe(false);
+  });
+
+  it("reports a failed install, re-reads the real state and stays clickable", async () => {
+    const getStatus = vi.fn().mockResolvedValue(status());
+    const mounted = mount({
+      getStatus,
+      install: vi.fn().mockRejectedValue("写入扩展目录失败"),
+    });
+    await mounted.controller.load();
+
+    mounted.installButton.click();
+    await vi.waitFor(() => expect(mounted.notify).toHaveBeenCalledWith("写入扩展目录失败"));
+    expect(getStatus).toHaveBeenCalledTimes(2);
+    expect(mounted.installButton.disabled).toBe(false);
+  });
+
+  it("shows the backend error in the card when the status query itself fails", async () => {
+    const mounted = mount({ getStatus: vi.fn().mockRejectedValue("D-Bus 不可用") });
+
+    await mounted.controller.load();
+    expect(mounted.detailText.textContent).toBe("D-Bus 不可用");
+    expect(mounted.installButton.hidden).toBe(false);
+  });
+
+  it("re-renders the last status when the language changes", async () => {
+    const getStatus = vi.fn().mockResolvedValue(status({ active: true }));
+    const mounted = mount({ getStatus });
+
+    await mounted.controller.load();
+    mounted.stateText.textContent = "stale";
+    mounted.controller.refreshLabels();
+    expect(mounted.stateText.textContent).toBe("settings.windowProbe.stateActive");
+    // 只重画，不再问一次后端
+    expect(getStatus).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("settings tabs", () => {
+  function mount() {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="settings-tabs" role="tablist" id="settings-tabs">
+        <button class="settings-tab" role="tab" data-settings-tab="general">General</button>
+        <button class="settings-tab" role="tab" data-settings-tab="screenshot">Screenshot</button>
+        <button class="settings-tab" role="tab" data-settings-tab="about">About</button>
+      </div>
+      <div class="settings-panel" data-settings-panel="general"></div>
+      <div class="settings-panel" data-settings-panel="screenshot"></div>
+      <div class="settings-panel" data-settings-panel="about"></div>
+    `;
+    document.body.replaceChildren(root);
+    const tabs = [...root.querySelectorAll("[data-settings-tab]")];
+    const panels = [...root.querySelectorAll("[data-settings-panel]")];
+    return { root, tabs, panels, controller: initSettingsTabs(root) };
+  }
+
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("shows the first page and only that page", () => {
+    const { tabs, panels } = mount();
+
+    expect(panels.map((panel) => panel.hidden)).toEqual([false, true, true]);
+    expect(tabs.map((tab) => tab.getAttribute("aria-selected"))).toEqual(["true", "false", "false"]);
+    // roving tabindex：只有当前分页在 Tab 序列里
+    expect(tabs.map((tab) => tab.tabIndex)).toEqual([0, -1, -1]);
+  });
+
+  it("switches pages on click without destroying the hidden panels", () => {
+    const { tabs, panels } = mount();
+
+    tabs[1].click();
+    expect(panels.map((panel) => panel.hidden)).toEqual([true, false, true]);
+    // 各控制器在装配时就抓住了面板里的元素，面板一旦被移除引用就失效了
+    expect(panels[0].isConnected).toBe(true);
+  });
+
+  it("moves between pages with the arrow keys and wraps around", () => {
+    const { tabs, panels } = mount();
+
+    tabs[0].dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    expect(panels[1].hidden).toBe(false);
+    tabs[1].dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+    expect(panels[0].hidden).toBe(false);
+    tabs[0].dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+    expect(panels[2].hidden).toBe(false);
+    tabs[2].dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }));
+    expect(panels[0].hidden).toBe(false);
+    tabs[0].dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
+    expect(panels[2].hidden).toBe(false);
+  });
+
+  it("comes back to the page the user left on, and ignores a stale one", () => {
+    mount().tabs[1].click();
+    expect(mount().panels[1].hidden).toBe(false);
+
+    window.localStorage.setItem("clippy.settings.tab", "translation");
+    // 分页改名后旧记录会指向不存在的面板，此时退回第一页而不是全部隐藏
+    expect(mount().panels.map((panel) => panel.hidden)).toEqual([false, true, true]);
   });
 });
 
