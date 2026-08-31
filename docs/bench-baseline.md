@@ -37,7 +37,8 @@ cargo bench -- --warm-up-time 0.5 --measurement-time 1.5 --sample-size 20
 | 基准 | 中位数 | 说明 |
 |---|---|---|
 | `encode_png_1080p` | 77.1 ms | 1080p 渐变帧，`CompressionType::Fast` |
-| `png_dimensions_1080p` | 19.6 ms | 实现是完整解码后取尺寸 |
+| `png_dimensions_1080p` | 505 ns | 只解 PNG 头（2026-08-31 前是完整解码的 19.6 ms） |
+| `validate_png_1080p` | 20.0 ms | 完整解码，只在信任边界上用 |
 | `decode_png_base64_1080p` | 1.27 ms | 前端回传的 data URL 解码 |
 | `compute_hash_1mib` | 1.56 ms | 1 MiB 文本的 SHA-256 去重哈希 |
 | `is_sensitive_text_worst_case_100kib` | 31.2 µs | 不命中前缀，走整段转小写 |
@@ -61,6 +62,12 @@ cargo bench -- --warm-up-time 0.5 --measurement-time 1.5 --sample-size 20
   代价是每块非最大缩放的屏在截图路径上多等 200 ms 以上——同一条路上连 140 ms 的
   `HIDE_SETTLE_MS` 都专门优化掉了。**画质也不是理由**：放大过的帧交给浏览器按
   devicePixelRatio 缩，是 GPU 上的一次采样，比 CPU 先缩一遍再缩一遍更干净。
+- **"读个尺寸"和"证明整张图能解出来"是两件事，价钱差四个数量级。** 原来只有一个
+  `png_dimensions`，实现是 `load_from_memory`，于是每个只想知道宽高的地方（贴图窗口算
+  多大、`PinOrigins::lookup` 按尺寸预筛、`save_png` 落盘前确认这是张 PNG）都白解一整张图。
+  拆成只读 IHDR 的 `png_dimensions`（505 ns）和整张解码的 `validate_png`（20 ms）之后，
+  后者只留在信任边界上——前端提交的 base64 一次。`PinOrigins::lookup` 尤其受益：
+  它的注释一直写着"读个头做预筛"，而实现在拆分前是解两遍整张图。
 - 搜索在 2000 行量级是几十到几百微秒，远低于输入节流，当前不是瓶颈。
   注意 FTS5 前缀查询（298 µs）比 LIKE 回退（38 µs）慢，这不是 FTS5 的问题：
   基准数据里每行都含 `clipboard`，FTS 分支要为几乎全部行算相关性，而两字符查询走的

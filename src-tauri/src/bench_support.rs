@@ -7,7 +7,7 @@
 //! **不是稳定 API**：这里出现什么完全由基准需要决定，随时可以改。
 
 pub use crate::models::{ClipItem, ContentType};
-pub use crate::screenshot::{decode_png_base64, encode_png, png_dimensions};
+pub use crate::screenshot::{decode_png_base64, encode_png, png_dimensions, validate_png};
 pub use crate::storage::StorageEngine;
 
 /// 剪贴板去重哈希。轮询线程每次拿到新内容都要跑一遍全量内容。
