@@ -435,5 +435,16 @@
   "settings.windowProbe.installedNeedsLogout": "Service installed. Log out once to activate it.",
   "settings.windowProbe.installedActive": "Service installed and active.",
   "settings.windowProbe.uninstalled": "Service uninstalled.",
+  "settings.captureDiagnostics.label": "Screenshot Diagnostics",
+  "settings.captureDiagnostics.hint": "If the screenshot overlay is offset, oversized, or spills onto another monitor, this collects the numbers needed to explain why: what each monitor reports, how big the captured stage image is, and the result of every geometry self-check. It contains no image pixels and no window titles, is saved only on this machine, and is never uploaded.",
+  "settings.captureDiagnostics.note": "What Looks Wrong",
+  "settings.captureDiagnostics.notePlaceholder": "e.g. laptop screen offset up-left after plugging in an external monitor",
+  "settings.captureDiagnostics.noteHint": "Goes into the report to describe your monitor layout and the symptom. Optional.",
+  "settings.captureDiagnostics.run": "Run Diagnostics",
+  "settings.captureDiagnostics.running": "Collecting...",
+  "settings.captureDiagnostics.copy": "Copy Report",
+  "settings.captureDiagnostics.copied": "Report copied. Paste it into the issue.",
+  "settings.captureDiagnostics.openIssue": "Report an Issue",
+  "settings.captureDiagnostics.savedTo": "Saved to",
   "capture.windowProbeHint": "Screenshots work better with a small GNOME service: install it in Settings → Screenshot, then log out once. Drag to select an area in the meantime."
 }

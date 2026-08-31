@@ -1,0 +1,61 @@
+name: 截图几何错位 / Screenshot geometry is wrong
+description: 覆盖层错位、比屏幕大一圈、画面溢到隔壁屏、窗口速选整体偏移
+title: "[capture] "
+labels: ["capture", "geometry"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        这类问题几乎全都出在"显示器几何"这一层：每块屏的位置、尺寸、缩放，以及它们
+        在整张舞台图里对应哪块像素。**光看截图定不了位**，需要那几个数字。
+
+        Clippy 自带诊断，把需要的数字一次性摊开：
+
+        - 设置 → Screenshot → **Run Diagnostics** → **Copy Report**
+        - 或者命令行：`clippy --capture-diagnose`
+
+        报告**不含任何截图像素，也不含任何窗口标题**，只保存在你本机；贴不贴、贴哪些
+        由你决定。
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 诊断报告 / Diagnostics report
+      description: 上面那份报告，整段贴进来。它末尾的 monitor-layout 段落就是一条回归测试。
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: symptom
+    attributes:
+      label: 看到的现象 / What you see
+      description: |
+        越具体越好。例如："插上外接屏后，笔记本那块屏的窗口候选整体左上偏移约 200 像素，
+        右下角的工具条落到屏幕外面看不见了；外接屏那块是对的。"
+    validations:
+      required: true
+
+  - type: textarea
+    id: layout
+    attributes:
+      label: 显示器怎么摆的 / Monitor layout
+      description: |
+        哪块是主屏、谁在左谁在右、有没有上下错位、各自的缩放比例、有没有旋转或镜像。
+        系统设置里的显示排布截图也可以（那张图不含窗口内容）。
+    validations:
+      required: true
+
+  - type: input
+    id: reproduce
+    attributes:
+      label: 什么时候开始的 / When it started
+      description: 例如"一插上第二块屏就这样""改了缩放之后""休眠唤醒后才出现"。
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 确认
+      options:
+        - label: 我看过要贴的报告内容，确认里面没有我不想公开的信息。
+          required: true

@@ -45,6 +45,7 @@ import {
   isAutostartEnabled,
   onClipAdded,
   pickScreenshotDirectory,
+  runCaptureDiagnostics,
   commitCaptureAction,
   startDraggingCurrentWindow,
   updateConfig,
@@ -144,11 +145,26 @@ describe("typed IPC wrappers", () => {
     });
   });
 
-  /** 覆盖层隐藏建窗，显示时机由前端报告首帧决定；参数名改了就会一直白屏/不显示。 */
+  /**
+   * 覆盖层隐藏建窗，显示时机由前端报告首帧决定；参数名改了就会一直白屏/不显示。
+   * 实测视口跟着这次握手一起走（不变量 I4），少了它多屏几何算错时就没人发现。
+   */
   it("preserves the overlay reveal handshake contract", () => {
-    markCaptureOverlayReady("capture-overlay-7-0");
+    markCaptureOverlayReady("capture-overlay-7-0", 1920, 1200);
     expect(invoke).toHaveBeenCalledWith("mark_capture_overlay_ready", {
       label: "capture-overlay-7-0",
+      viewportWidth: 1920,
+      viewportHeight: 1200,
+    });
+  });
+
+  it("sends a null note when the user did not describe the symptom", () => {
+    runCaptureDiagnostics();
+    expect(invoke).toHaveBeenCalledWith("run_capture_diagnostics", { note: null });
+
+    runCaptureDiagnostics("外接屏拔掉后覆盖层还是双屏大小");
+    expect(invoke).toHaveBeenLastCalledWith("run_capture_diagnostics", {
+      note: "外接屏拔掉后覆盖层还是双屏大小",
     });
   });
 

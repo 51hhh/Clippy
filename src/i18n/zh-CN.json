@@ -435,5 +435,16 @@
   "settings.windowProbe.installedNeedsLogout": "服务已安装，注销一次后生效。",
   "settings.windowProbe.installedActive": "服务已安装并生效。",
   "settings.windowProbe.uninstalled": "服务已卸载。",
+  "settings.captureDiagnostics.label": "截图诊断",
+  "settings.captureDiagnostics.hint": "截图覆盖层错位、比屏幕大一圈，或者画面溢到隔壁屏时，这里会把判断根因需要的数字收集齐：每块屏上报了什么、抓到的舞台图多大、每条几何自检的结果。报告不含任何图像像素与窗口标题，只保存在本机，绝不自动上传。",
+  "settings.captureDiagnostics.note": "遇到的问题",
+  "settings.captureDiagnostics.notePlaceholder": "例如：插上外接显示器后，笔记本屏幕的窗口整体左上偏移",
+  "settings.captureDiagnostics.noteHint": "会写进报告，用来说明你的显示器排布和症状。可以不填。",
+  "settings.captureDiagnostics.run": "运行诊断",
+  "settings.captureDiagnostics.running": "采集中…",
+  "settings.captureDiagnostics.copy": "复制报告",
+  "settings.captureDiagnostics.copied": "报告已复制，粘贴到 issue 里即可。",
+  "settings.captureDiagnostics.openIssue": "反馈问题",
+  "settings.captureDiagnostics.savedTo": "已保存到",
   "capture.windowProbeHint": "截图配合一个小的 GNOME 服务更可靠：请在 设置 → 截图 中安装并注销一次生效。在此之前拖动即可框选区域。"
 }

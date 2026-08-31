@@ -250,6 +250,30 @@
           </div>
         </div>
       </div>
+
+      <div class="setting-group">
+        <label class="setting-label" data-i18n="settings.captureDiagnostics.label">Screenshot Diagnostics</label>
+        <div class="setting-hint" data-i18n="settings.captureDiagnostics.hint">If the screenshot overlay is offset, oversized, or spills onto another monitor, this collects the numbers needed to explain why: what each monitor reports, how big the captured stage image is, and the result of every geometry self-check. It contains no image pixels and no window titles, is saved only on this machine, and is never uploaded.</div>
+        <label class="setting-label setting-label-sub" for="capture-diagnostics-note"
+               data-i18n="settings.captureDiagnostics.note">What Looks Wrong</label>
+        <input type="text" class="setting-input" id="capture-diagnostics-note"
+               autocomplete="off" spellcheck="false"
+               data-i18n="settings.captureDiagnostics.notePlaceholder" data-i18n-attr="placeholder"
+               placeholder="e.g. laptop screen offset up-left after plugging in an external monitor"
+               aria-describedby="capture-diagnostics-note-hint">
+        <div class="setting-hint" id="capture-diagnostics-note-hint"
+             data-i18n="settings.captureDiagnostics.noteHint">Goes into the report to describe your monitor layout and the symptom. Optional.</div>
+        <div class="service-card-actions">
+          <button class="btn btn-small btn-primary" id="capture-diagnostics-run-btn" type="button"
+                  data-i18n="settings.captureDiagnostics.run">Run Diagnostics</button>
+          <button class="btn btn-small btn-secondary" id="capture-diagnostics-copy-btn" type="button" hidden
+                  data-i18n="settings.captureDiagnostics.copy">Copy Report</button>
+          <button class="btn btn-small btn-secondary" id="capture-diagnostics-report-btn" type="button" hidden
+                  data-i18n="settings.captureDiagnostics.openIssue">Report an Issue</button>
+        </div>
+        <div class="setting-hint" id="capture-diagnostics-path" hidden></div>
+        <pre class="diagnostics-output" id="capture-diagnostics-output" hidden tabindex="0"></pre>
+      </div>
     </div>
 
     <div class="settings-panel" role="tabpanel" id="settings-panel-translation"

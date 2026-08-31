@@ -134,6 +134,24 @@ html, body {
   display: none;
 }
 
+/* 诊断报告：等宽、可滚、可选。用户要把它整段复制出去贴进 issue，所以不能换行折断
+   那几列对齐的数字——横向滚动比错乱的表格好读。 */
+.diagnostics-output {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-family: var(--font-mono, ui-monospace, "SFMono-Regular", Menlo, monospace);
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre;
+  user-select: text;
+}
+
 /* ── 分组 ── */
 
 .setting-group {

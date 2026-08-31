@@ -17,6 +17,7 @@ import type {
   AppConfig,
   CaptureAction,
   CaptureActionResult,
+  CaptureDiagnosticsReport,
   CaptureOrigin,
   CaptureOverlayPayload,
   CaptureSelection,
@@ -45,6 +46,7 @@ export type {
   AppConfig,
   CaptureAction,
   CaptureActionResult,
+  CaptureDiagnosticsReport,
   CaptureOrigin,
   CaptureOverlayPayload,
   CaptureSelection,
@@ -299,9 +301,17 @@ export function getCaptureFrame(label: string): Promise<ArrayBuffer> {
 /**
  * 报告覆盖层已经画出第一帧，后端这才把窗口显示出来。
  * 覆盖层是隐藏建窗的：提前显示就会让用户看到一整屏 webview 默认底色（白屏）。
+ *
+ * 同时捎上**实测的可见视口**：后端算出来的显示器逻辑尺寸只有这里能被验证一次
+ * （不变量 I4），对不上就说明几何算错了、界面正在错位。首帧画完意味着窗口已经布局完成，
+ * 所以这是天然的时机，不必为它另开一个 IPC 命令。
  */
-export function markCaptureOverlayReady(label: string): Promise<void> {
-  return invoke<void>("mark_capture_overlay_ready", { label });
+export function markCaptureOverlayReady(
+  label: string,
+  viewportWidth?: number,
+  viewportHeight?: number,
+): Promise<void> {
+  return invoke<void>("mark_capture_overlay_ready", { label, viewportWidth, viewportHeight });
 }
 
 export function cancelCaptureOverlay(sessionId: string): Promise<void> {
@@ -344,6 +354,17 @@ export function installWindowProbeExtension(): Promise<WindowProbeInstallOutcome
 
 export function uninstallWindowProbeExtension(): Promise<WindowProbeStatus> {
   return invoke<WindowProbeStatus>("uninstall_window_probe_extension");
+}
+
+/**
+ * 采集截图几何诊断报告。约 0.5–1 秒（内含一次真实的舞台图请求，只读 PNG 头）。
+ *
+ * 报告不含截图像素也不含窗口标题，只写本机缓存目录；上传与否完全由用户决定。
+ */
+export function runCaptureDiagnostics(
+  note: string | null = null,
+): Promise<CaptureDiagnosticsReport> {
+  return invoke<CaptureDiagnosticsReport>("run_capture_diagnostics", { note });
 }
 
 /** 截图选区先在后端本地 OCR，再仅发送识别文本进行翻译。 */

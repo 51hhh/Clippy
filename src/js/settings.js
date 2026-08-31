@@ -3,6 +3,7 @@
 import {
   checkShortcutConflict,
   closeCurrentWindow,
+  copyText,
   disableAutostart,
   enableAutostart,
   getAppVersion,
@@ -17,16 +18,19 @@ import {
   ocrAvailable,
   ocrInstall,
   onShortcutRegisterFailed,
+  openExternalUrl,
   pauseShortcuts,
   pickScreenshotDirectory,
   requestPastePermission,
   resumeShortcuts,
+  runCaptureDiagnostics,
   tmuxAvailable,
   toggleTmuxCapture,
   uninstallWindowProbeExtension,
   updateConfig,
 } from "./api.ts";
 import { initCustomSelect } from "./custom-select.js";
+import { createCaptureDiagnosticsCard } from "./settings/capture-diagnostics.js";
 import { createOcrSettings } from "./settings/ocr-settings.js";
 import { createPastePermissionController } from "./settings/paste-permission.js";
 import { createScreenshotSettings } from "./settings/screenshot-settings.js";
@@ -164,6 +168,21 @@ const windowProbe = createWindowProbeCard({
   getStatus: getWindowProbeStatus,
   install: installWindowProbeExtension,
   uninstall: uninstallWindowProbeExtension,
+  translate: i18n.t,
+  notify: showToast,
+});
+
+// 只有用户点"Run Diagnostics"才会采集：里面有一次真实的舞台图请求，打开设置页不该付这个钱。
+createCaptureDiagnosticsCard({
+  noteInput: element("capture-diagnostics-note"),
+  runButton: element("capture-diagnostics-run-btn"),
+  copyButton: element("capture-diagnostics-copy-btn"),
+  reportButton: element("capture-diagnostics-report-btn"),
+  pathText: element("capture-diagnostics-path"),
+  output: element("capture-diagnostics-output"),
+  collect: runCaptureDiagnostics,
+  copyText,
+  openUrl: openExternalUrl,
   translate: i18n.t,
   notify: showToast,
 });

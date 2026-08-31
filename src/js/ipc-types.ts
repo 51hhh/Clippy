@@ -140,6 +140,21 @@ export interface WindowProbeInstallOutcome {
   status: WindowProbeStatus;
 }
 
+/**
+ * 截图几何诊断报告。
+ *
+ * **不含任何截图像素，也不含任何窗口标题**（标题会泄露用户正在做什么）。
+ * 原样显示给用户看，发不发由用户自己决定——前端绝不自动上传。
+ */
+export interface CaptureDiagnosticsReport {
+  /** 完整报告文本，可直接贴进 issue */
+  text: string;
+  /** 报告落盘位置；写不进去时为 null，报告本身照样有效 */
+  path: string | null;
+  /** 可直接存成回归测试 fixture 的 json；拿不到舞台图时为 null */
+  fixtureJson: string | null;
+}
+
 export interface CaptureOverlayPayload {
   sessionId: string;
   monitorId: number;
