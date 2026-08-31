@@ -175,6 +175,7 @@
   "update.download": "Download",
   "preview.decoded": "Decoded",
   "preview.original": "Original",
+  "preview.truncated": "Preview truncated — {count} more characters not shown",
   "preview.richText": "[Rich Text]",
   "preview.imageLoadFailed": "Image load failed",
   "preview.image": "Clipboard image",

@@ -19,6 +19,7 @@ import { getClipDetail, setPreviewVisible } from "./api.ts";
 import { t } from "../i18n/i18n.js";
 import * as detectors from "./preview/detectors.js";
 import { classifyText } from "./preview/classify.js";
+import { detectionSample, limitForRender } from "./preview/large-text.js";
 import { createPreviewRenderers } from "./preview/renderers.js";
 import { createPanelVisibilityController } from "./panel-visibility.js";
 
@@ -114,7 +115,11 @@ const STYLE_REMOVE_RE = /\b(background-color|background(?!-)|color|position|z-in
 // 代码检测阈值
 const CODE_RELEVANCE_THRESHOLD = 5;
 const HLJS_CACHE_MAX = 200;
-const _hljsCache = new Map(); // content_hash → { language, relevance, value }
+// content_hash → { language, relevance }
+//
+// 只缓存**结论**，不缓存高亮结果：高亮 HTML 比原文还大，200 条大条目能吃掉几百 MB，
+// 而拿着已知语言重新高亮一遍只是一种语法的开销（自动检测是 21 种）。
+const _hljsCache = new Map();
 
 let _panelEl;
 let _contentEl;
@@ -242,28 +247,32 @@ async function _doUpdatePreview(clip) {
   // 延迟加载渲染库（首次调用时初始化 hljs/marked/DOMPurify）
   await ensureLibs();
 
+  // 超大条目只画开头一段：几 MB 文本高亮出来的 DOM 有六位数节点，画完也滚不动。
+  // 原文没动，复制/翻译/保存走的都是库里那份（见 preview/large-text.js）。
+  const limited = limitForRender(text);
+
   // 1. Markdown 检测（优先，评分制，需多个特征）
   if (text.length > 0 && isMarkdown(text)) {
-    _renderers.renderMarkdown(text);
+    _renderers.renderMarkdown(limited.body);
+    _noteTruncation(limited);
     return;
   }
 
   // 2. 代码检测（text_content 纯文本，排除 xml 误判）
   if (text.length > 10) {
-    const cacheKey = clip.content_hash;
-    let result = cacheKey && _hljsCache.get(cacheKey);
-    if (!result) {
-      result = hljs.highlightAuto(text);
-      if (cacheKey) {
-        if (_hljsCache.size >= HLJS_CACHE_MAX) {
-          const oldest = _hljsCache.keys().next().value;
-          _hljsCache.delete(oldest);
-        }
-        _hljsCache.set(cacheKey, { language: result.language, relevance: result.relevance, value: result.value });
-      }
-    }
-    if (result.relevance > CODE_RELEVANCE_THRESHOLD && result.language && result.language !== "xml") {
-      _renderers.renderCode(text, result);
+    const detected = _detectCodeLanguage(text, clip.content_hash);
+    if (detected.relevance > CODE_RELEVANCE_THRESHOLD && detected.language && detected.language !== "xml") {
+      // 已经知道语言，就按这一种语法高亮；`highlightAuto` 那 21 遍只用来做判断。
+      const highlighted = hljs.highlight(limited.body, {
+        language: detected.language,
+        ignoreIllegals: true,
+      });
+      _renderers.renderCode(limited.body, {
+        language: detected.language,
+        relevance: detected.relevance,
+        value: highlighted.value,
+      });
+      _noteTruncation(limited);
       return;
     }
   }
@@ -274,14 +283,49 @@ async function _doUpdatePreview(clip) {
       const detail = await getClipDetail(clip.id);
       if (_currentClipId !== clip.id) return; // 异步期间焦点已切换
       if (detail.html_content) {
-        _renderers.renderRichText(detail.html_content);
+        // 富文本同样要限长：DOMPurify 要把整份 HTML 解析一遍。截断可能切在标签中间，
+        // 而 DOMPurify 的解析器本来就负责补齐未闭合标签，不会漏出裸标签。
+        const limitedHtml = limitForRender(detail.html_content);
+        _renderers.renderRichText(limitedHtml.body);
+        _noteTruncation(limitedHtml);
         return;
       }
     } catch (_) { /* 回退到纯文本 */ }
   }
 
   // 4. 纯文本
-  _renderers.renderPlainText(text);
+  _renderers.renderPlainText(limited.body);
+  _noteTruncation(limited);
+}
+
+/**
+ * 判定这段文本是什么语言。
+ *
+ * 检测只喂开头一段：`highlightAuto` 会拿注册的每种语法各跑一遍全文，一条几 MB 的
+ * 日志能把 webview 按住好几秒，而"是什么语言"看开头就够了。结论按 content_hash 缓存
+ * （内容不可变，缓存永不失效）。
+ */
+function _detectCodeLanguage(text, cacheKey) {
+  const cached = cacheKey && _hljsCache.get(cacheKey);
+  if (cached) return cached;
+  const auto = hljs.highlightAuto(detectionSample(text));
+  const detected = { language: auto.language, relevance: auto.relevance };
+  if (cacheKey) {
+    if (_hljsCache.size >= HLJS_CACHE_MAX) {
+      _hljsCache.delete(_hljsCache.keys().next().value);
+    }
+    _hljsCache.set(cacheKey, detected);
+  }
+  return detected;
+}
+
+/** 截断了就说一声，否则用户会以为这条内容就这么长。 */
+function _noteTruncation({ truncated, omitted }) {
+  if (!truncated) return;
+  const note = document.createElement("div");
+  note.className = "preview-truncated";
+  note.textContent = t("preview.truncated", { count: omitted.toLocaleString() });
+  _contentEl.appendChild(note);
 }
 
 // ── OCR 文字区域焦点管理 ──
