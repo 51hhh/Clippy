@@ -11,7 +11,7 @@
  * 通过 telemetry 暴露关键事件用于测试与诊断。
  */
 
-import { getClips, deleteClip, toggleFavorite, selectClip, getClipImage } from "./api.ts";
+import { getClips, deleteClip, toggleFavorite, selectClip, getClipThumbnail } from "./api.ts";
 import { t } from "../i18n/i18n.js";
 import * as telemetry from "./telemetry.js";
 import {
@@ -509,7 +509,9 @@ function buildRow(clip, idx) {
     panelMode: _panelMode,
     thumbnailCache: _thumbCache,
     maxThumbnailCache: MAX_THUMB_CACHE,
-    loadThumbnail: getClipImage,
+    // 缩略图而不是原图：行里那格 48×48，取原图等于把几 MB 的 PNG 送进 webview
+    // 再全尺寸解码（后端 get_clip_thumbnail 已经缩到 128 px 并缓存）。
+    loadThumbnail: getClipThumbnail,
     onAction: (targetClip, action, rowIndex, actionIndex) => {
       const nextState = actionIndex === -1
         ? focusRowBody(_navigation, rowIndex)

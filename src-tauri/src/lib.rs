@@ -209,6 +209,7 @@ pub fn run() {
             commands::get_paste_status,
             commands::request_paste_permission,
             commands::get_clip_image,
+            commands::get_clip_thumbnail,
             commands::get_clip_detail,
             commands::set_preview_visible,
             commands::set_codec_visible,

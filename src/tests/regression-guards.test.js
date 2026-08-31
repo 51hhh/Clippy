@@ -15,6 +15,7 @@
  *   8b. 全局 Pin 信任"面板没焦点时留下的焦点行" → 侧栏开着时列表不释放，焦点跟着老条目
  *       挪到第 1 行，截完图按 Pin 贴出的还是上一张（第 7 条修完仍然复现的就是这条）
  *   9. 选区压暗搬回 drawScene → 拖一次选区就是几十次全屏重采样，帧率掉下来但功能"是对的"
+ *  11. 列表行取原图画 48 px 缩略图 → 每开一次面板十几 MB IPC + 十几次全尺寸 PNG 解码
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -212,5 +213,28 @@ describe("拖动选区不引发画布重绘", () => {
       .find((line) => line.startsWith(".selection {"));
     expect(rule).toMatch(/box-shadow:[^;]*vmax/);
     expect(rule).toMatch(/outline:[^;]*dashed/);
+  });
+});
+
+describe("列表行只取缩略图，不取原图", () => {
+  // 库里存的是原图（一张全屏截图 2560×1600 / 几 MB），行里那格是 48 CSS px。
+  // 退回 getClipImage 后功能照样对，只是每开一次面板就把十几 MB 送进 webview
+  // 并做十几次全尺寸 PNG 解码，全落在 webview 那一个线程上。
+  it("两个列表行渲染器都走 getClipThumbnail", () => {
+    for (const path of ["src/js/clipboard-list.js", "src/react/main/ClipboardRow.tsx"]) {
+      const code = read(path);
+      expect(code, path).toContain("getClipThumbnail");
+      expect(code.replace(/^\s*(\/\/|\*|\/\*).*$/gm, ""), path).not.toMatch(/getClipImage\s*[,(]/);
+    }
+  });
+
+  it("预览面板仍然取原图", () => {
+    // 预览是全尺寸显示，缩略图会糊；这条钉住"别顺手把预览也改过去"。
+    expect(read("src/js/preview/content-renderers.js")).toMatch(/getClipImage\(clip\.id\)/);
+  });
+
+  it("后端缩略图命令已注册且带上限", () => {
+    expect(read("src-tauri/src/lib.rs")).toContain("commands::get_clip_thumbnail");
+    expect(read("src-tauri/src/commands/clipboard.rs")).toMatch(/THUMBNAIL_MAX_EDGE:\s*u32\s*=/);
   });
 });

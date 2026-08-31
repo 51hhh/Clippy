@@ -2,7 +2,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../js/api.ts", () => ({ getClipImage: vi.fn() }));
+vi.mock("../js/api.ts", () => ({ getClipThumbnail: vi.fn() }));
 
 import * as i18n from "../i18n/i18n.js";
 import { ClipboardRow } from "../react/main/ClipboardRow.tsx";
