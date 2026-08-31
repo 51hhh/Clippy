@@ -125,20 +125,34 @@ GNOME Wayland 上被逐个排除掉的现成接口（都在 GNOME Shell 50.1 / U
 （见 `capture/shell_extension.rs`），因此 deb / AppImage / dev 三种运行方式用的是同一份内容。
 
 - **接口**：`org.gnome.Shell.Extensions.ClippyWindows`，对象路径
-  `/org/gnome/Shell/Extensions/ClippyWindows`，五个方法 —— `GetVersion() -> u`（不校验令牌，
+  `/org/gnome/Shell/Extensions/ClippyWindows`，六个方法 —— `GetVersion() -> u`（不校验令牌，
   只用来探活与协议协商）、`GetWindows(s token) -> s`（返回 JSON 数组）、
   `Screenshot(s token) -> s`（拍整个 stage，返回 PNG 路径，见 §3）、
-  `ScreenshotArea(s token, i x, i y, i width, i height) -> s`（只拍一块区域，返回 PNG 路径，
-  画质见 §3.3），以及
+  `ScreenshotArea(s token, i x, i y, i width, i height) -> s`（只拍一块区域，返回 PNG 路径）、
+  `CaptureArea(s token, i x, i y, i width, i height, d scale) -> (s path, i pixelWidth,
+  i pixelHeight, i stride, s format)`（**首选**：一块区域的**原始 RGBA**，不编 PNG，
+  见 §3.1 与 §3.3），以及
   `PlaceWindow(s token, u pid, s marker, i x, i y, b reposition, b above) -> b`
   （把调用方自己的某个窗口摆到指定位置并/或置顶，用于贴图窗口，见 §1）。
-  当前协议版本 **v4**（`PlaceWindow` 从 v3 起存在、`ScreenshotArea` 从 v4 起存在；
-  低于门槛的扩展照样能截图与窗口速选，只是贴图回不到原位、画面按整屏舞台图走会偏糊——
-  退化，不是故障）。
-- **`ScreenshotArea` 的区域必须正好是那块屏的逻辑矩形，不要向外留边。** Mutter 用
-  `graphene_rect_intersection` 找与区域相交的视图，再按 `max(视图缩放)` 定输出尺寸；
-  边缘相接算不相交，所以严丝合缝的矩形只会命中这块屏自己的视图，多留 1 像素就把邻屏的
+  当前协议版本 **v5**（`PlaceWindow` 从 v3 起、`ScreenshotArea` 从 v4 起、`CaptureArea`
+  从 v5 起；低于门槛的扩展照样能截图与窗口速选，只是贴图回不到原位、画面按整屏舞台图走
+  会偏糊、而且慢一个数量级——退化，不是故障）。
+- **`CaptureArea` 走的是 `Clutter.Stage.paint_to_content` + `Cogl.Texture.get_data`**，
+  自己把 RGBA8888 写进 tmpfs 的 `.rgba` 文件，`scale` 由调用方给（这块屏自己的缩放），
+  尺寸从纹理反查（纹理说了算，不信调用方的算术）。它存在的唯一理由是**绕开 gnome-shell 的
+  PNG deflate**，数字见 §3.1。`Shell.Screenshot` 不暴露任何压缩档位，所以只能不用它。
+  - 扩展内部**自带回退**：`paint_to_content`/`get_data` 这条 GI 路在某些 Shell 版本上
+    可能 marshalling 失败，那时它 `console.warn('Clippy raw capture failed, falling back
+    to PNG: …')` 并当场改走 `screenshot_area`，返回 `format = 'PNG'`。所以一次注销就能
+    验证两种结局，失败也不比 v4 差；查是哪一种看 `journalctl --user -b -g Clippy`。
+  - Rust 侧 `interpret_capture_reply` 严格判形：`'RGBA'` 要求宽高为正且
+    `stride >= width * 4`，`'PNG'` 只要路径，其它字符串直接报错——扩展换了格式而 Rust 没跟上，
+    宁可整体退回整屏那条路，也不要把 stride 猜错、铺一张斜的画面。
+- **区域必须正好是那块屏的逻辑矩形，不要向外留边**（`ScreenshotArea` 那条兜底路尤其）。
+  Mutter 用 `graphene_rect_intersection` 找与区域相交的视图，再按 `max(视图缩放)` 定输出
+  尺寸；边缘相接算不相交，所以严丝合缝的矩形只会命中这块屏自己的视图，多留 1 像素就把邻屏的
   缩放拉回 `max()`，画质退回整屏图那样被上采样。根因与实测数字见 §3.3。
+  （`CaptureArea` 不依赖这个技巧——它的像素尺寸由调用方给的 `scale` 直接决定。）
 - **每次调用都新建一个 `Shell.Screenshot`**。重入是按实例拒绝的（`G_IO_ERROR_PENDING`，
   "Only one screenshot operation at a time"），所以逐屏请求可以并发发出、在 shell 的工作
   线程里并行编码；共用一个实例就会被打回。
@@ -172,8 +186,8 @@ GNOME Wayland 上被逐个排除掉的现成接口（都在 GNOME Shell 50.1 / U
 
 窗口标题会泄露用户正在做什么，所以 `GetWindows` 不对本机所有进程开放：调用方必须出示
 Clippy 写在扩展目录里的令牌文件内容（32 字节随机数的 hex，`0600`，由
-`private_files::write_private` 落盘），不匹配就抛 `AccessDenied`。`Screenshot` 与
-`ScreenshotArea` 用同一个令牌把关——一屏画面至少和窗口标题一样敏感。
+`private_files::write_private` 落盘），不匹配就抛 `AccessDenied`。`Screenshot`、
+`ScreenshotArea` 与 `CaptureArea` 用同一个令牌把关——一屏画面至少和窗口标题一样敏感。
 
 这条边界挡得住谁、挡不住谁，说清楚：
 
@@ -214,10 +228,13 @@ gnome-shell 加载失败才暴露，而报错只进 journal。
 
 `screenshot/backends.rs::capture_all_monitors` 在 Wayland 上按这个顺序试，**顺序是结论，不是偏好**：
 
-1. **自带 GNOME Shell 扩展，逐屏原生截取**（`ScreenshotArea`，协议 v4）。GNOME Wayland 上的首选，
-   每块屏拿到的都是它自己面板的原生像素。画质与并发见 §3.3。
-   - 协议低于 v4（装了新版还没注销）或逐屏这条路任何一步失败时，退到**同一个扩展的整屏舞台图**
-     （`Screenshot`）。画面可用，但混合缩放的多屏上低缩放那块会被上采样，偏糊。
+1. **自带 GNOME Shell 扩展，逐屏原生取像素**（`CaptureArea`，协议 v5）。GNOME Wayland 上的首选：
+   每块屏拿到的都是它自己面板的原生像素，而且**不经过 PNG**——画质见 §3.3，为什么必须绕开
+   PNG 见 §3.1。
+   - 扩展跑在 v5 但 GI 那条路失败时，它自己回退到 `screenshot_area`（返回 `format = 'PNG'`），
+     Rust 侧照常解码，只是慢回 v4 的水平。
+   - 协议低于 v5（装了新版还没注销）或逐屏这条路任何一步失败时，退到**同一个扩展的整屏舞台图**
+     （`Screenshot`）。画面可用，但混合缩放的多屏上低缩放那块会被上采样，偏糊，而且慢。
 2. **wlroots**（`libwayshot-xcap`）。sway/Hyprland 用这条。
 3. **xdg-desktop-portal**（非交互 `Screenshot`）。非 GNOME 的桌面用这条。
 4. **`org.gnome.Shell.Screenshot`**（不带扩展时的 D-Bus 直调，白名单外一律拒绝，基本只是聊胜于无）。
@@ -251,16 +268,17 @@ worker（`#[tauri::command] async fn` 的函数体）上**必然 panic**
 
 扩展这条路的其它约定：
 
-- 逐屏那条路对每块屏调一次 `Shell.Screenshot.screenshot_area(x, y, w, h, stream, cb)`，
-  区域就是这块屏的逻辑矩形，不需要再切图；整屏那条兜底路调
-  `Shell.Screenshot.screenshot(false, stream, cb)`，拍的是**整个 stage**（多屏合成一张图），
-  沿用现成的 `split_portal_screenshot` 切成每屏。两条路的几何都由自己枚举，扩展只负责画面。
+- 逐屏那条路对每块屏调一次 `CaptureArea`，区域就是这块屏的逻辑矩形，拿回的是原始 RGBA，
+  不需要再切图（扩展内部失败时它自己降级成 `screenshot_area`，我方按 `format` 分流）；
+  整屏那条兜底路调 `Shell.Screenshot.screenshot(false, stream, cb)`，拍的是**整个 stage**
+  （多屏合成一张图），沿用现成的 `split_portal_screenshot` 切成每屏。
+  两条路的几何都由自己枚举，扩展只负责画面。
 - 不含光标（冻结帧是覆盖层的底图，烧进一个光标只会碍事），不闪白
   （那道闪光是 gnome-shell 自己的 ScreenshotService 加的，不是 `Shell.Screenshot` 的一部分），
   不写图片目录。
 - 文件落在 `$XDG_RUNTIME_DIR/clippy-shots/` 下，`Gio.FileCreateFlags.PRIVATE`（0600）。
-  Rust 侧 `validate_screenshot_path` 只接受父目录正好是这个目录、扩展名是 `png` 的路径——
-  读完就要删，不能删错地方。
+  Rust 侧 `validate_screenshot_path` 只接受父目录正好是这个目录、扩展名在
+  `SCREENSHOT_EXTENSIONS`（`png` / `rgba`）里的路径——读完就要删，不能删错地方。
 
 ### 3.1 从快捷键到覆盖层出现，时间花在哪
 
@@ -294,20 +312,34 @@ worker（`#[tauri::command] async fn` 的函数体）上**必然 panic**
 | `HIDE_SETTLE_MS` | 0 或 140 ms | 只在真藏了窗口时才等 |
 
 **结论：慢的几乎全部是那一次整屏拍照**（约占端到端的三分之二），其余每一段都在几毫秒到
-两百毫秒之间。所以优化只有三个方向：少拍像素、并行拍、把拍照和建窗重叠。前两个由 §3.3
-的逐屏路径做掉，第三个仍然没做（理由见下）。
+两百毫秒之间。
 
-那 523 ms 的 `Screenshot` 往返里**没有可以省掉的中间环节**：gnome-shell 在自己进程里把
-stage 编码成 PNG 才把文件路径交回来。`strings /usr/lib/gnome-shell/Shell-*.typelib` 里
-JS 能碰到的像素导出只有 `screenshot` / `screenshot_area` / `screenshot_window` /
-`composite_to_stream` / `screenshot_stage_to_content`——全都要么落 PNG，要么给一个不透明的
-`Clutter.Content`，扩展这一侧没有拿到原始像素的路。
+#### 慢的到底是什么：不是像素数，是 PNG deflate
 
-**但它不是常数，它随像素数走**，所以能动的是"拍多少像素"和"能不能并行拍"。双屏
-（eDP 2560×1600 + 外接 4K）实测整屏舞台图是 6720×2412，一次往返 900.5 ms，我方再解 114.5 ms；
-逐屏拍同一套桌面只有 12.4 Mpx（少 24%），而且两块屏的编码在 shell 的工作线程里重叠、
-我方的解码在两条线程里重叠。这就是 §3.3 那条路除画质之外的第二个理由。
-参考单张编码成本：2880×1800 约 284 ms、3840×2160 约 299 ms。
+这一条是被一次失败的优化逼出来的，**别再按"少拍像素"去优化它**：v4 的逐屏路径比整屏
+少拍 24% 的像素，实测**反而更慢**（冻结帧 1052 ms → 1945/1904/1850 ms）。
+
+同像素数的对照实验（同一台机、同一个会话、`ScreenshotArea` 拍同样多的像素）：
+
+| 区域 | 像素 | 往返 | PNG 大小 |
+|---|---|---|---|
+| 外接 4K 上的 2559×1599 | 4.09 Mpx | **884 ms** | 3217 KiB |
+| eDP 的 2560×1600（≈同像素） | 4.10 Mpx | **124 ms** | 640 KiB |
+
+差 7 倍，像素数一样。差的是**内容熵**：4K 那块屏上摆着满屏的窗口，PNG 大 5 倍，
+deflate 的时间就长 7 倍。也就是说 gnome-shell 那一段时间几乎全在压缩，不在绘制。
+`Shell.Screenshot` 不暴露任何压缩档位（`strings /usr/lib/gnome-shell/Shell-*.typelib`
+里 JS 能碰到的像素导出只有 `screenshot` / `screenshot_area` / `screenshot_window` /
+`composite_to_stream` / `screenshot_stage_to_content`，全都要么落 PNG、要么给一个不透明的
+`Clutter.Content`），**所以唯一的修法是根本不生成 PNG**。
+
+这就是协议 v5 `CaptureArea` 的全部动机：`Clutter.Stage.paint_to_content` 拿到
+`Clutter.Content` → `get_texture()` → `Cogl.Texture.get_data(RGBA_8888, stride, buffer)`，
+把原始字节写进 tmpfs。绘制照旧，压缩没了，读回是 `$XDG_RUNTIME_DIR`（内存文件系统）里的
+一次顺序读。我方也不再解 PNG——`stride` 正好一行时字节**原样**变成帧缓冲，
+有行内填充才按行重排（`load_area_tile`）。
+
+剩下能动的只有一个方向：把拍照和建窗重叠。**没做**，理由见下。
 
 还剩下的可选优化（**没做**，因为有真实风险）：把覆盖层窗口挪到拍照**之前**创建，
 让 243 ms 的 webview 冷启动和 550 ms 的拍照重叠。代价是建窗时还没有冻结帧，几何只能另找
@@ -366,20 +398,45 @@ JS 能碰到的像素导出只有 `screenshot` / `screenshot_area` / `screenshot
 
 糊就糊在链路的第一步，后面任何环节都救不回来。
 
-**修法是从源头拿原生像素**：对每块屏单独调 `ScreenshotArea`，区域正好是这块屏的逻辑矩形。
-这时与区域相交的只有这块屏自己的视图，`max()` 里只有它自己的缩放，出来的就是原生像素。
-实现是 `screenshot/backends.rs::capture_all_shell_extension_monitor_areas` +
-`capture/shell_extension.rs::request_area_screenshots`。几个要点：
+**修法是从源头拿原生像素**：对每块屏单独调 `CaptureArea`（区域正好是这块屏的逻辑矩形，
+像素尺寸由随调传入的这块屏自己的 `scale` 决定）。实现是
+`screenshot/backends.rs::capture_all_shell_extension_monitor_areas` +
+`capture/shell_extension.rs::request_area_captures`。几个要点：
 
 - **区域必须严丝合缝**，理由见 §2.1（`graphene_rect_intersection` 把边缘相接当成不相交）。
+  `CaptureArea` 不靠这个技巧定尺寸，但 `ScreenshotArea` 那条兜底路仍然靠。
 - **必须有 Wayland 侧的几何**。xcap 在 XWayland 上报的是"逻辑 × 整数倍"，拿它当区域会瞄错
   位置，所以这条路在拿不到 Wayland 几何时**直接失败回退**，不去凑一个可能错的矩形。
-- **并发发出**：每次调用新建一个 `Shell.Screenshot`（§2.1），编码在 shell 的工作线程里重叠；
-  我方的 PNG 解码也在 `std::thread::scope` 里并行。
-- **镜像/投影只发一次**：逻辑矩形完全相同的屏合并成一个请求，像素共享同一个 `Arc`
-  （`dedupe_monitor_areas`，`mirrored_monitors_share_a_single_area_screenshot` 钉住）。
+- **并发发出**：每次调用新建一个 `Shell.Screenshot`（§2.1），绘制在 shell 的工作线程里重叠；
+  我方的读回/重排也在 `std::thread::scope` 里并行。
+- **镜像/投影只发一次**：逻辑矩形**且缩放**完全相同的屏合并成一个请求，像素共享同一个 `Arc`
+  （`dedupe_monitor_areas`；缩放不同不能并，会让其中一块屏拿到别人分辨率的帧，
+  `mirrored_monitors_share_a_single_area_screenshot` 两头都钉住了）。
 - **全或无**：任何一块屏失败就删掉已经落地的临时文件并整体回退到整屏舞台图，不拼半张桌面
   （`a_failed_area_screenshot_cleans_up_the_ones_that_landed`）。
+
+**捕获这一步已经修好，验证方式是看日志里的几何汇总行**，例如本机双屏：
+`#3682789390@0,0 2560x1440×1.5000→3840x2160，#181221938@2560,408 1920x1200×1.3333→2560x1600`
+——两块屏的像素尺寸都正好是原生模式，没有任何一块被上采样。
+导出这一侧也是原生的：`toPixelRect(selection, 1/scale, 1/scaleY, frame)` 把选区换成
+**帧像素**，`exportPngBase64` 按裁剪尺寸开画布，所以复制/保存出来的 PNG 是原生分辨率
+（本机实测一条 4K 全屏条目就是 3840×2160）。
+
+#### 还有一种"糊"是屏幕显示，不是画面
+
+修完上面这些，**屏幕上**的截图/贴图可能仍然略软，这一段是环境决定的，不是 bug：
+
+WebKitGTK 走 GTK3，而 GTK3 不支持 `wp_fractional_scale_v1`，Mutter 只能给它一个**整数**
+缓冲区缩放。本机实测（GTK3 探针）两块屏 `gdk_monitor_get_scale_factor` 都是 **2**，而真实
+缩放是 1.5（HDMI，3840×2160）与 1.3333（eDP，2560×1600）。于是每个 Clippy 窗口都是按 2×
+画出来、再由合成器缩到真实倍率——多一次重采样，任何窗口内容都躲不掉，除非上 GTK4。
+
+这件事还坑过一处真实逻辑：**Tauri 的 physical 尺寸是"2× 的缓冲区像素"，不是设备像素**，
+所以不能拿 `Monitor::scale_factor()` 去把**图片像素**换算成 CSS 像素。贴图窗口在没有原始
+矩形时就踩过：`fit_content_size` 把图片像素直接当 CSS 像素，在 1.3333 的屏上把贴图放大了
+1.3333 倍（更大**且**更糊）。现在它向合成器查真实缩放
+（`screenshot::desktop_scale_at`，Wayland 输出枚举；查不到就退回 GDK 那个数——X11 与其它
+平台上它本来就是真的）。有原始矩形那条路一直是对的，因为选区尺寸本身就是逻辑像素。
 
 **兜底路径故意不做"下采样修正"。** 把 2880×1800 的舞台图块重采样回 2560×1600 实测要 200 ms
 以上，而且画质上并没有好处（放大再缩小回不来原始细节），数字见 `docs/bench-baseline.md`；
@@ -387,9 +444,10 @@ JS 能碰到的像素导出只有 `screenshot` / `screenshot_area` / `screenshot
 按原生尺寸拍，而不是事后补救。
 
 **验证方式**：`cargo test --lib capture_stage_timings -- --ignored --nocapture` 会先跑一遍
-逐屏截图并逐块打印尺寸与耗时，再打印整屏那条路的分段耗时，v3/v4 的对比一条命令就能出。
-注意抬过协议版本之后当前会话必然是 `stale`（设置页显示 "Update pending"），
-**必须注销重登一次逐屏才会生效**，否则画质与耗时和以前完全一样。
+逐屏取像素并逐块打印尺寸、格式（`RGBA` 还是回退的 `PNG`）与耗时，再打印整屏那条路的分段耗时，
+版本前后的对比一条命令就能出。注意抬过协议版本之后当前会话必然是 `stale`
+（设置页显示 "Update pending"），**必须注销重登一次新路径才会生效**，
+否则画质与耗时和以前完全一样。
 
 ## 4. 三套坐标空间
 
@@ -666,10 +724,10 @@ Tauri（`available_monitors` / `monitor_from_point`）。所以"插上外接屏�
   从别处复制来的图（浏览器、文件管理器）没有位置信息，应当落在屏幕中间——这是正确行为。
 - **置顶**：贴图之后点开别的窗口，贴图不应被盖住；缩放一次（滚轮）之后再确认一遍，
   因为改尺寸会把窗口带回普通层。
-- **注意协议版本**：`PlaceWindow` 是 v3 才有的、`ScreenshotArea` 是 v4 才有的，抬过版本号之后
-  当前会话必然是 `stale`（设置页显示 "Update pending"），此时摆位与置顶都会退回 Tauri 那套
-  （在 Wayland 上**看起来像没生效**），画面也会退回整屏舞台图（**看起来像没变清晰**）。
-  验收这几条之前必须先注销重登。
+- **注意协议版本**：`PlaceWindow` 是 v3 才有的、`ScreenshotArea` 是 v4、`CaptureArea` 是 v5，
+  抬过版本号之后当前会话必然是 `stale`（设置页显示 "Update pending"），此时摆位与置顶都会退回
+  Tauri 那套（在 Wayland 上**看起来像没生效**），画面也会退回整屏舞台图
+  （**看起来像既没变清晰也没变快**）。验收这几条之前必须先注销重登。
 - **触控板捏合**：在贴图上做捏合手势，页面不应缩放（内容溢出、工具栏错位就是没拦住）；
   滚轮缩放、Shift+滚轮调不透明度仍应正常。
 - **拖动不选中**：按住图片拖动窗口，图片不应变成系统强调色的选中块（Ubuntu 上是橙色）；
@@ -677,8 +735,9 @@ Tauri（`available_monitors` / `monitor_from_point`）。所以"插上外接屏�
 
 多屏画质这一条也只能人工看：**插上一块缩放不同的外接屏**，在缩放较低的那块屏上截一段小字，
 放大看笔画是否清晰；同时跑 `cargo test --lib capture_stage_timings -- --ignored --nocapture`
-确认每块屏打印出来的尺寸是**它自己的原生模式**（而不是"逻辑 × 桌面最大缩放"）。
-注销重登前后各跑一次就是 v3/v4 的对照。
+确认每块屏打印出来的尺寸是**它自己的原生模式**（而不是"逻辑 × 桌面最大缩放"）、格式是 `RGBA`。
+注销重登前后各跑一次就是版本前后的对照。屏幕上仍略软是 GTK3 的整数缓冲区缩放，见 §3.3 末尾，
+判断画质要看**导出的 PNG**。
 `src-tauri/src/screenshot/backends.rs` 里留了两个 `#[ignore]` 的诊断测试
 （`backend_diagnostics`、`window_probe_diagnostics`），用
 `cargo test -- --ignored --nocapture` 跑，会打印每个后端的尺寸、平均亮度、全黑像素比例和窗口矩形——
