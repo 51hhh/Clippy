@@ -279,6 +279,22 @@ export interface PinPayload {
   position: { x: number; y: number } | null;
 }
 
+/**
+ * `update_pin` 的应答：只有这次可能变的那几个字段（Rust 侧 `pin::model::PinState`）。
+ *
+ * 故意不含 `imageBase64`/`text`：滚轮缩放时每帧都会调一次 `update_pin`，而内容从未变过，
+ * 带上图片等于每帧把整张 PNG 重新 base64 编一遍再过一次 IPC。前端把它合并进现有 payload。
+ */
+export interface PinState {
+  label: string;
+  contentWidth: number;
+  contentHeight: number;
+  scale: number;
+  opacity: number;
+  locked: boolean;
+  position: { x: number; y: number } | null;
+}
+
 export interface PinUpdate {
   scale?: number;
   opacity?: number;

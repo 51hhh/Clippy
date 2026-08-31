@@ -1,21 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWindowLabel, startDraggingCurrentWindow } from "../../js/api.ts";
+import { pngBase64ToObjectUrl } from "../annotation/pngPipeline";
 import { pinApi } from "./api";
+import { allowsTextSelection, isZoomShortcut, pinWheelIntent } from "./gestures";
 import { PinToolbar } from "./PinToolbar";
 import type { PinPayload, PinUpdate } from "./types";
-import { shouldApplyPinUpdateResponse } from "./update-order";
+import { mergePinState, shouldApplyPinUpdateResponse } from "./update-order";
 import { t } from "../shared/i18n";
 
 const DRAG_THRESHOLD = 5;
-
-function imageObjectUrl(base64: string): string {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
-}
 
 export function App() {
   const label = getCurrentWindowLabel();
@@ -68,7 +61,7 @@ export function App() {
       setImageUrl(null);
       return;
     }
-    const url = imageObjectUrl(pin.imageBase64);
+    const url = pngBase64ToObjectUrl(pin.imageBase64);
     setImageUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [pin?.imageBase64]);
@@ -110,17 +103,20 @@ export function App() {
         const requestGeneration = updateGeneration.current;
         pinApi
           .update(label, next)
-          .then((payload) => {
+          .then((state) => {
+            // 应答只有可变字段，内容字段来自手里那份 payload。
+            const merged = mergePinState(confirmedPinRef.current ?? pinRef.current, state);
+            if (!merged) return;
             if (requestGeneration >= confirmedGeneration.current) {
               confirmedGeneration.current = requestGeneration;
-              confirmedPinRef.current = payload;
+              confirmedPinRef.current = merged;
             }
             // 用户在请求返回前继续调整时，旧响应不能覆盖本地乐观状态。
             if (!shouldApplyPinUpdateResponse(requestGeneration, updateGeneration.current, pendingUpdate.current)) {
               return;
             }
-            pinRef.current = payload;
-            setPin(payload);
+            pinRef.current = merged;
+            setPin(merged);
           })
           .catch((reason) => {
             if (
@@ -197,10 +193,63 @@ export function App() {
     };
   }, [pin?.locked]);
 
+  /**
+   * 滚轮、捏合、划选、拖拽这四件事都得用非被动的原生监听器接。
+   *
+   * React 的 `onWheel` 是被动监听器，`preventDefault()` 在那里无效；WebKitGTK 会把
+   * 触控板捏合合成成 ctrl+滚轮，拦不住就变成页面缩放（内容溢出窗口、工具栏错位）。
+   * `selectstart` / `dragstart` 同理：不拦住，一次拖动就把内容刷成系统强调色的选中高亮，
+   * 看着就像"拖贴图变成了选中图片"。
+   *
+   * 注意这里**只**禁止缩放与划选：窗口照样能拖动（`pointerdown` + `startDragging`），
+   * 也照样能点击获得焦点。
+   */
+  useEffect(() => {
+    function onWheel(event: WheelEvent) {
+      // 无条件 preventDefault：即使这一下什么都不做，也不能让它落到 WebKit 的页面缩放上。
+      event.preventDefault();
+      const intent = pinWheelIntent(event);
+      if (intent.kind === "scale") adjustScale(intent.delta);
+      else if (intent.kind === "opacity") adjustOpacity(intent.delta);
+    }
+    function onSelectStart(event: Event) {
+      if (!allowsTextSelection(event.target)) event.preventDefault();
+    }
+    function onDragStart(event: Event) {
+      event.preventDefault();
+    }
+    // Safari/WebKit 专有的捏合事件；类型定义里没有，但 WebKitGTK 会派发。
+    function onGesture(event: Event) {
+      event.preventDefault();
+    }
+    window.addEventListener("wheel", onWheel, { passive: false });
+    window.addEventListener("selectstart", onSelectStart);
+    window.addEventListener("dragstart", onDragStart);
+    for (const name of ["gesturestart", "gesturechange", "gestureend"]) {
+      window.addEventListener(name, onGesture, { passive: false });
+    }
+    return () => {
+      window.removeEventListener("wheel", onWheel);
+      window.removeEventListener("selectstart", onSelectStart);
+      window.removeEventListener("dragstart", onDragStart);
+      for (const name of ["gesturestart", "gesturechange", "gestureend"]) {
+        window.removeEventListener(name, onGesture);
+      }
+    };
+  }, [adjustOpacity, adjustScale]);
+
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (!pin) return;
       const command = event.ctrlKey || event.metaKey;
+      // Ctrl/Cmd 加 +/-/0 是 WebKit 的页面缩放快捷键，和捏合一样要吃掉；
+      // 顺手让它改贴图自己的缩放，这才是用户按这几个键想要的效果。
+      if (isZoomShortcut(event)) {
+        event.preventDefault();
+        if (event.key === "+" || event.key === "=") adjustScale(0.1);
+        else if (event.key === "-" || event.key === "_") adjustScale(-0.1);
+        return;
+      }
       if (event.key === "Escape") runAction(() => pinApi.close(label));
       else if (command && event.key.toLowerCase() === "c") {
         event.preventDefault();
@@ -234,14 +283,6 @@ export function App() {
       onPointerDown={(event) => {
         if (event.button === 0 && !pin.locked && !(event.target as Element).closest("[data-pin-controls]")) {
           dragStart.current = { x: event.clientX, y: event.clientY };
-        }
-      }}
-      onWheel={(event) => {
-        event.preventDefault();
-        if (event.ctrlKey || event.metaKey) {
-          adjustOpacity(event.deltaY > 0 ? -0.05 : 0.05);
-        } else {
-          adjustScale(event.deltaY > 0 ? -0.05 : 0.05);
         }
       }}
     >

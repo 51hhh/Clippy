@@ -19,6 +19,17 @@ input {
   font: inherit;
 }
 
+/* 兜底：万一某次划选还是漏了过去，也不要在贴图上刷出一整块系统强调色
+   （Ubuntu 的强调色是橙色，那看着完全像"图片被选中了"）。文本贴图的 <pre>
+   在下面单独恢复正常的选中高亮。 */
+.pin-root ::selection {
+  background: transparent;
+}
+
+.pin-media pre::selection {
+  background: rgba(96, 165, 250, 0.38);
+}
+
 .pin-root {
   position: relative;
   width: 100%;
@@ -52,6 +63,10 @@ input {
   height: 100%;
   object-fit: contain;
   pointer-events: none;
+  /* 图片默认可以被拖走（拖成文件/链接），拖到一半会先把它刷成选中态。
+     窗口本身要靠拖动移动，这两件事必须分开：拖动搬窗口，绝不选中内容。 */
+  -webkit-user-drag: none;
+  user-select: none;
 }
 
 .pin-media.text {
