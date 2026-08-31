@@ -52,20 +52,28 @@ impl Drop for TemporaryScreenshotFile {
 
 /// 冻结帧的后端链。顺序不是随手排的：
 ///
-/// 1. **自带的 GNOME Shell 扩展，逐屏原生截取**——GNOME Wayland 上唯一不弹对话框、
-///    不闪白、不往用户图片目录里落文件的路子，而且每块屏都是原生像素（见
-///    `capture_all_shell_extension_monitor_areas`）。没装/没生效时一次 stat 就退出。
+/// 1. **Mutter 的 PipeWire 屏幕流**（`screencast.rs`）——GNOME 上又快又清楚的那条路：
+///    原生像素、不编 PNG，实测两块屏合计 190 ms（旧路径 1900 ms）。同一个用户直接可调，
+///    不经 Portal、不弹对话框。不是 GNOME 时第一个 D-Bus 调用就失败，几毫秒退到下一条。
+/// 2. **自带的 GNOME Shell 扩展，逐屏原生截取**——不弹对话框、不闪白、不往用户图片目录里
+///    落文件，每块屏也是原生像素（见 `capture_all_shell_extension_monitor_areas`）。
+///    但画面要经 gnome-shell 的 PNG 编码器，4K 一块屏就要 1.7 秒，所以只是兜底。
 ///    - 协议低于 v4（装了新版还没注销）或逐屏失败时，同一个扩展退到**整屏舞台图**：
 ///      画面可用，但混合缩放的多屏上低缩放那块会被上采样，偏糊。
-/// 2. **wlroots（libwayshot）**——sway/Hyprland 系合成器的原生路径。
-/// 3. **XDG Portal（只用非交互）**——KDE 等实现里最可靠的兜底。
+/// 3. **wlroots（libwayshot）**——sway/Hyprland 系合成器的原生路径。
+/// 4. **XDG Portal（只用非交互）**——KDE 等实现里最可靠的兜底。
 ///    **绝不用 interactive 模式**：那个模式在 GNOME 上就是系统自带的截图界面，
 ///    用户按 Clippy 的快捷键却看到系统 UI，还得再选一次区域，比失败更糟。
-/// 4. **org.gnome.Shell.Screenshot**——GNOME 现在白名单外一律拒绝，留着只为老版本。
-/// 5. **xcap/XRandR**——X11 会话的正路，Wayland 下只能看到 XWayland。
+/// 5. **org.gnome.Shell.Screenshot**——GNOME 现在白名单外一律拒绝，留着只为老版本。
+/// 6. **xcap/XRandR**——X11 会话的正路，Wayland 下只能看到 XWayland。
 #[cfg(target_os = "linux")]
 pub(super) fn capture_all_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
     if is_wayland_session() {
+        match capture_all_screencast_monitors() {
+            Ok(result) => return Ok(result),
+            Err(e) => log::info!("Mutter PipeWire 取流不可用，回退到扩展逐屏截图: {e:#}"),
+        }
+
         match capture_all_shell_extension_monitor_areas() {
             Ok(result) => return Ok(result),
             Err(e) => log::info!("扩展逐屏原生截图不可用，回退到整屏舞台图: {e:#}"),
@@ -210,11 +218,12 @@ fn capture_all_wayland_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)
 /// 全是插值出来的像素。糊就糊在这最开始的一步，后面裁剪、传输、导出一个环节都救不回来。
 /// 现在像素尺寸由我们传给扩展的 `scale` 决定，与相交视图无关。
 ///
-/// **理由二是速度，而且这一头更大**：整条链路上最贵的一步是 gnome-shell 编 PNG。
-/// 实测同样 4.1 Mpx 的区域，内容简单的 eDP 要 124 ms（PNG 640 KiB）、内容复杂的 4K 屏要
-/// 884 ms（PNG 3217 KiB）——像素数一样，时间差 7 倍，差额全在 deflate 上。所以只减像素
-/// 没用（v4 减了 24% 的像素，整体反而更慢），得根本不让它编码：扩展用
-/// `paint_to_content` + `Cogl.Texture.get_data` 落原始字节，我们这侧连解码都省了。
+/// **速度这一头这条路没解决。** 整条链路上最贵的一步是 gnome-shell 编 PNG：同一批像素、
+/// 两种处理的对照实验（拍下来解开，再用同一个 gdk-pixbuf 重编一次）显示 4K 那块屏
+/// 1704 ms 里有 **1607 ms（94%）是 deflate**，合成器绘制 + 读回只有约 100 ms。
+/// 扩展里"改成 `Cogl.Texture.get_data` 落原始字节"这条路在 GJS 上不可能成立
+/// （没有长度标注的 `array<uint8>` 会被复制后释放，见 `screencast.rs` 文件头与
+/// docs/capture-linux.md §3.1），所以速度只能靠上面那条 PipeWire 路，这里是画质兜底。
 ///
 /// **只在几何来自 Wayland 输出时才走**：区域坐标必须是 stage 的逻辑像素，而 xcap 在
 /// XWayland 上报的是"逻辑 × 整数倍"的 X screen 尺寸（见 `normalize_monitor_geometry`），
@@ -254,17 +263,69 @@ fn capture_all_shell_extension_monitor_areas() -> Result<(Vec<MonitorInfo>, Vec<
             .collect()
     });
     let tiles = loaded.into_iter().collect::<Result<Vec<_>>>()?;
+    // 去重表还原成"每块屏一块画面"：镜像的两块屏共享同一个 Arc，不复制像素。
+    let ordered: Vec<&MonitorTile> = assignment.iter().map(|&index| &tiles[index]).collect();
 
+    assemble_native_frames(
+        &monitors,
+        &ordered,
+        &format!("逐屏原生截取（{} 次区域截图）", areas.len()),
+    )
+}
+
+/// GNOME Wayland 的首选路径：从 Mutter 直接拿 PipeWire 视频流。
+///
+/// 快是因为**没有 PNG**（旧路径 94% 的时间在 deflate），清楚是因为每块屏都按自己的缩放
+/// 单独取流、拿到的就是面板原生像素。两件事同一个改动，细节与实测数字见 `screencast.rs`。
+///
+/// **只在几何来自 Wayland 输出时才走**，理由和下面逐屏那条路一样：`RecordMonitor` 认的是
+/// 连接器名（`eDP-1`），只有 Wayland 输出枚举给得出，xcap 那边压根没有这个字段。
+#[cfg(target_os = "linux")]
+fn capture_all_screencast_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
+    let monitors = enumerate_wayland_monitors_with_connectors()
+        .context("PipeWire 取流无法枚举 Wayland 几何")?;
+    let connectors: Vec<String> = monitors
+        .iter()
+        .map(|(_, connector)| connector.clone())
+        .collect();
+    if let Some(index) = connectors.iter().position(|name| name.is_empty()) {
+        bail!("第 {index} 块 Wayland 输出没有连接器名，RecordMonitor 无从指定显示器");
+    }
+
+    let captured = super::screencast::capture_monitors(&connectors)?;
+    let infos: Vec<MonitorInfo> = monitors.into_iter().map(|(info, _)| info).collect();
+    let tiles: Vec<MonitorTile> = captured
+        .into_iter()
+        .map(|frame| (frame.width, frame.height, frame.rgba))
+        .collect();
+    let ordered: Vec<&MonitorTile> = tiles.iter().collect();
+
+    assemble_native_frames(&infos, &ordered, "逐屏 PipeWire 取流")
+}
+
+/// 把"每块屏一块原生画面"装成冻结帧：校验尺寸、按实际帧重算缩放、跑 I3 自检、留一行摘要。
+///
+/// 逐屏 PipeWire 与逐屏扩展截图共用它。两条路的区别只在画面怎么来的，之后的几何处理必须
+/// 一模一样——分成两份写，改一条忘一条就会出现"换了后端选区就错位"这种最难查的问题。
+/// `tiles[i]` 对应 `monitors[i]`。
+#[cfg(target_os = "linux")]
+fn assemble_native_frames(
+    monitors: &[MonitorInfo],
+    tiles: &[&MonitorTile],
+    source: &str,
+) -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
+    if monitors.len() != tiles.len() {
+        bail!("{} 块屏的几何配了 {} 块画面", monitors.len(), tiles.len());
+    }
     let mut infos = Vec::with_capacity(monitors.len());
     let mut frames = Vec::with_capacity(monitors.len());
-    for (monitor, &index) in monitors.iter().zip(assignment.iter()) {
-        let (width, height, rgba) = &tiles[index];
+    for (monitor, (width, height, rgba)) in monitors.iter().zip(tiles.iter()) {
         // 帧只可能等于或大于逻辑尺寸（缩放 ≥ 1）。小于说明区域被 Clutter 钳过、
         // 或者几何是热插拔前的陈数据——这种帧铺到覆盖层上就是错位的画面，
         // 宁可整体退回整屏那条路，它有 `classify_stage` 与 I1~I3 兜着。
         if *width < monitor.rect.width || *height < monitor.rect.height {
             bail!(
-                "显示器 {} 的逐屏截图 {width}x{height} 小于逻辑尺寸 {}x{}",
+                "显示器 {} 的逐屏画面 {width}x{height} 小于逻辑尺寸 {}x{}",
                 monitor.id,
                 monitor.rect.width,
                 monitor.rect.height
@@ -304,9 +365,8 @@ fn capture_all_shell_extension_monitor_areas() -> Result<(Vec<MonitorInfo>, Vec<
 
     // 和整屏那条路一样每次留一行几何摘要——排障从这一行开始。不含像素与窗口标题。
     log::info!(
-        "截图几何：{} 块屏逐屏原生截取（{} 次区域截图）；{}",
+        "截图几何：{} 块屏{source}；{}",
         monitors.len(),
-        areas.len(),
         infos
             .iter()
             .zip(frames.iter())
@@ -515,12 +575,31 @@ pub(super) fn enumerate_xcap_monitors() -> Result<Vec<MonitorInfo>> {
 
 #[cfg(target_os = "linux")]
 pub(super) fn enumerate_wayland_monitors() -> Result<Vec<MonitorInfo>> {
+    Ok(enumerate_wayland_monitors_with_connectors()?
+        .into_iter()
+        .map(|(info, _)| info)
+        .collect())
+}
+
+/// 同一次枚举，额外带上**连接器名**（`eDP-1`、`HDMI-1`……）。
+///
+/// `org.gnome.Mutter.ScreenCast.Session.RecordMonitor` 只认这个字符串，而 `MonitorInfo`
+/// 里只有一个哈希出来的 id（FNV over `output.name`，为的是热插拔后仍然稳定），从 id 反推
+/// 不回来。几何仍旧只有这一个来源：两个函数共用一遍枚举，免得"取流用一份几何、覆盖层用
+/// 另一份"这种分叉。
+#[cfg(target_os = "linux")]
+pub(super) fn enumerate_wayland_monitors_with_connectors() -> Result<Vec<(MonitorInfo, String)>> {
     let conn = wayland_connection()?;
     let monitors: Vec<_> = conn
         .get_all_outputs()
         .iter()
         .enumerate()
-        .map(|(index, output)| monitor_info_from_wayland_output(index, output))
+        .map(|(index, output)| {
+            (
+                monitor_info_from_wayland_output(index, output),
+                output.name.clone(),
+            )
+        })
         .collect();
 
     if monitors.is_empty() {
