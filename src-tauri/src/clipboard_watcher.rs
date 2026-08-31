@@ -1,5 +1,6 @@
 pub(crate) mod content;
 mod tmux;
+mod wake;
 mod writer;
 
 pub use writer::{
@@ -14,6 +15,12 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
+
+/// 轮询周期。剪贴板没有可用的变更通知机制，只能轮询（见 CLAUDE.md 的关键设计约束）。
+///
+/// 但**程序化写入不必等这一整轮**：`writer.rs` 写完会敲 `wake::nudge()`，
+/// 于是 `wait_for_next_poll` 当场返回，自己复制的内容立刻入库。
+const POLL_INTERVAL: Duration = Duration::from_millis(500);
 
 pub struct ClipboardWatcher {
     running: Arc<Mutex<bool>>,
@@ -129,7 +136,7 @@ impl ClipboardWatcher {
                                 let mut skip = skip_hash.lock().unwrap_or_else(|e| e.into_inner());
                                 if skip.as_deref() == Some(&hash) {
                                     *skip = None;
-                                    thread::sleep(Duration::from_millis(500));
+                                    wake::wait_for_next_poll(POLL_INTERVAL);
                                     continue;
                                 }
                             }
@@ -180,7 +187,7 @@ impl ClipboardWatcher {
                             }
                         }
 
-                        thread::sleep(Duration::from_millis(500));
+                        wake::wait_for_next_poll(POLL_INTERVAL);
                         continue;
                     }
                 }
@@ -194,7 +201,7 @@ impl ClipboardWatcher {
                                 let mut skip = skip_hash.lock().unwrap_or_else(|e| e.into_inner());
                                 if skip.as_deref() == Some(&hash) {
                                     *skip = None;
-                                    thread::sleep(Duration::from_millis(500));
+                                    wake::wait_for_next_poll(POLL_INTERVAL);
                                     continue;
                                 }
                             }
@@ -240,7 +247,7 @@ impl ClipboardWatcher {
                             }
                         }
 
-                        thread::sleep(Duration::from_millis(500));
+                        wake::wait_for_next_poll(POLL_INTERVAL);
                         continue;
                     }
                 }
@@ -257,7 +264,7 @@ impl ClipboardWatcher {
                                         skip_hash.lock().unwrap_or_else(|e| e.into_inner());
                                     if skip.as_deref() == Some(&hash) {
                                         *skip = None;
-                                        thread::sleep(Duration::from_millis(500));
+                                        wake::wait_for_next_poll(POLL_INTERVAL);
                                         continue;
                                     }
                                 }
@@ -310,7 +317,7 @@ impl ClipboardWatcher {
                     }
                 }
 
-                thread::sleep(Duration::from_millis(500));
+                wake::wait_for_next_poll(POLL_INTERVAL);
             }
             log::info!("剪贴板监听器已停止");
         });
