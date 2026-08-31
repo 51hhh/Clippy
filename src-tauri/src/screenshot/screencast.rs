@@ -742,4 +742,38 @@ mod tests {
             );
         }
     }
+
+    /// 把当前每块屏的原生画面存成 PNG，默认 `#[ignore]`：
+    /// `CLIPPY_FRAME_DUMP=/tmp cargo test --lib dump_screencast_frames -- --ignored --nocapture`
+    ///
+    /// 为什么要有它：**"屏幕上看起来糊"这类问题只能拿设备像素去比。** 有了这个 dump，
+    /// 就能把某个窗口在屏幕上的实际成像和它的图片源逐像素对照（例如贴图窗口有没有被
+    /// WebKit 重采样过），而不是靠肉眼争论。落地路径由 `CLIPPY_FRAME_DUMP` 指定，
+    /// 不设就跳过——这条测试会写文件，不能在别人不知情时往磁盘上放几十兆。
+    #[test]
+    #[ignore = "需要真实桌面会话"]
+    fn dump_screencast_frames() {
+        let Ok(directory) = std::env::var("CLIPPY_FRAME_DUMP") else {
+            println!("没设 CLIPPY_FRAME_DUMP，跳过");
+            return;
+        };
+        let Ok(monitors) =
+            crate::screenshot::backends::enumerate_wayland_monitors_with_connectors()
+        else {
+            println!("拿不到 Wayland 显示器，跳过");
+            return;
+        };
+        let connectors: Vec<String> = monitors
+            .iter()
+            .map(|(_, connector)| connector.clone())
+            .collect();
+        let frames = capture_monitors(&connectors).expect("取流失败");
+        for (connector, frame) in connectors.iter().zip(&frames) {
+            let png = crate::screenshot::encode_png(&frame.rgba, frame.width, frame.height)
+                .expect("编码失败");
+            let path = std::path::Path::new(&directory).join(format!("frame-{connector}.png"));
+            std::fs::write(&path, png).expect("写文件失败");
+            println!("{} {}x{}", path.display(), frame.width, frame.height);
+        }
+    }
 }
