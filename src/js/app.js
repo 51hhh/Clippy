@@ -18,6 +18,7 @@ import "../styles/components.css";
 import { mountClipboardWorkspace, mountTranslationPanel } from "../react/main/mount";
 import { translationStore } from "../react/main/translationStore";
 import { createKeyboardRouter } from "./keyboard-router.js";
+import { resolvePinTarget } from "./pin-target.js";
 
 function whenReady(fn) {
   if (document.readyState === "loading") {
@@ -82,13 +83,19 @@ whenReady(async () => {
   });
 
   await onPinCurrent(async () => {
-    // 系统快捷键触发：pin 焦点条目，若列表空则从后端获取最新条目
-    let clip = clipboardList.getFocusedClip() || clipboardList.getLatestClip();
-    if (!clip) {
-      const clips = await getClips(null, false, 0, 1);
-      clip = clips[0] || null;
+    // 系统快捷键触发：面板真的握着焦点时 pin 焦点条目，否则问后端要最新一条。
+    // 面板没焦点时留在状态里的"焦点行"是上一轮会话的残影，信它就会贴出上一张图
+    // （理由见 resolvePinTarget）。
+    try {
+      const clip = await resolvePinTarget(
+        clipboardList.getFocusedClip(),
+        () => getClips(null, false, 0, 1),
+        document.hasFocus(),
+      );
+      if (clip) await pinClip(clip.id);
+    } catch (err) {
+      console.warn("Pin 失败:", err);
     }
-    if (clip) pinClip(clip.id).catch(err => console.warn("Pin 失败:", err));
   });
 
   // 初始化更新弹窗并自动检查
@@ -116,12 +123,14 @@ function tryHidePanel() {
 
 async function onWindowFocus() {
   console.debug("[focus] dirty=", clipboardList.isDirty());
-  // 仅在有新数据时才全量刷新，否则只恢复渲染
-  if (clipboardList.isDirty()) {
-    await clipboardList.refresh();
-  } else {
-    clipboardList.restoreRender();
-  }
+  // 仅在有新数据时才全量刷新（没有新数据就不必再查一遍库）。
+  if (clipboardList.isDirty()) await clipboardList.refresh();
+  // 两条分支都要 restoreRender：重新聚焦面板算一轮新会话，焦点该落在最新那条上。
+  // 以前只有"不脏"那条分支复位，于是面板不可见期间来了新条目时（侧栏开着 =
+  // 列表不会被释放）焦点会留在老条目上——`refresh` 的 normalizeAfterRefresh 只做钳位、
+  // 不复位，而 `prependClip` 已经按 id 把它挪到第 1 行了。打开面板高亮着第二行、
+  // 按回车/Ctrl+P 命中的也是上一条。
+  clipboardList.restoreRender();
 }
 
 function onWindowBlur() {

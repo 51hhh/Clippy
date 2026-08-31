@@ -103,10 +103,18 @@ export function consumePointerMove(state) {
   return { nextState: { ...state, keyboardNav: false }, ignore: true };
 }
 
+/**
+ * 面板关闭、列表内容被释放时的状态。
+ *
+ * `focusedRow` 必须是 -1（没有焦点行）而不是 0：列表已经空了，0 是个不存在的行。
+ * 报成 0 会让 `prependClip` 以为用户正选着第一行，于是新条目到达时把焦点"让"到下一行——
+ * 重新打开面板时焦点落在**第二行**，按 Pin 贴出的是上一条。列表重新加载时
+ * `normalizeAfterRefresh` 会把 -1 收拢成 0，所以打开面板照样高亮最新那条。
+ */
 export function releaseNavigation(state) {
   return {
     ...state,
-    focusedRow: 0,
+    focusedRow: -1,
     focusedCol: ROW_BODY,
     expandedRow: null,
   };

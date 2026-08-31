@@ -197,19 +197,28 @@ export class ClipboardStore {
   }
 
   prependClip(clip: ClipItem): void {
+    // 焦点跟着**条目**走，不跟着索引走。原来这里是 `focusedRow + 1`，有两处会错：
+    //   1. 面板关着时 `releaseMemory` 把列表清空、`focusedRow` 归 0——那不是"用户选中了
+    //      第一行"，而是"没有焦点行"。把它当真焦点去 +1，重新打开面板后焦点就停在
+    //      **第二行**，于是截图复制完按 Pin 贴出来的是上一张图（用户报障的正是这条）。
+    //      连截两张，焦点就掉到第三行。
+    //   2. 被 prepend 的条目本来就在列表里（同一张图再复制一次，`insert_clip` 按哈希
+    //      去重、只把它顶到最前面）时列表长度不变，+1 纯属把焦点推歪。
+    // 按 id 找回原来那一行同时解决两者：真有焦点行就跟着它走（用户正看着的那行不该在
+    // 眼皮下换成别的内容），没有就落在最新一条上。
+    const previousFocus = this.getFocusedClip();
     const all = this.snapshot.all.filter((item) => item.id !== clip.id);
     all.unshift(clip);
     const favorites = clip.is_favorite
       ? [clip, ...this.snapshot.favorites.filter((item) => item.id !== clip.id)]
       : this.snapshot.favorites.filter((item) => item.id !== clip.id);
     const visibleChanged = this.snapshot.mode === "all" || clip.is_favorite;
+    const visible = this.snapshot.mode === "favorites" ? favorites : all;
     const focusIndex = !visibleChanged
       ? this.snapshot.navigation.focusedRow
-      : this.getFocusedClip()?.id === clip.id
-        ? 0
-        : this.snapshot.navigation.focusedRow >= 0
-          ? this.snapshot.navigation.focusedRow + 1
-          : 0;
+      : previousFocus
+        ? Math.max(0, visible.findIndex((item) => item.id === previousFocus.id))
+        : 0;
     this.commit({
       all,
       favorites,
