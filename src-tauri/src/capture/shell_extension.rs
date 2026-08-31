@@ -36,12 +36,18 @@ const MIN_TOKEN_LENGTH: usize = 16;
 
 /// 内嵌扩展声明的协议版本，也是能解析的上限。跑着的扩展报出更大的值说明磁盘上的扩展
 /// 比当前二进制新（用户装了新版又跑了旧版），此时宁可退化也不要错解析。
-const EMBEDDED_PROTOCOL_VERSION: u32 = 3;
+const EMBEDDED_PROTOCOL_VERSION: u32 = 4;
 
 /// `Screenshot` 方法从这个协议版本起存在。低于它的扩展只能提供窗口几何：
 /// gnome-shell 只在登录时加载扩展（ReloadExtension 实测已废弃，直接报
 /// "is deprecated and does not work"），所以升级完到下次注销之前跑的仍是旧版。
 const SCREENSHOT_PROTOCOL_VERSION: u32 = 2;
+
+/// 逐屏的 `ScreenshotArea` 从这个协议版本起存在。低于它只能走整屏那条路，
+/// 而整屏图是按**全桌面最大缩放**渲染的，混合缩放时低缩放的屏会被上采样、画面发糊
+/// （见 `screenshot/backends.rs::capture_all_shell_extension_monitor_areas`）。
+/// 所以这是"糊"与"不糊"的分界线，也意味着升级完必须注销一次才真的变清楚。
+const AREA_SCREENSHOT_PROTOCOL_VERSION: u32 = 4;
 
 /// `PlaceWindow` 方法从这个协议版本起存在。低于它的扩展照样能截图与速选，
 /// 只是贴图窗口回不到原位、也压不住别的窗口——退化，不是故障。
@@ -133,23 +139,7 @@ pub(super) fn probe() -> Option<Vec<ShellWindow>> {
 /// 调用方读完必须删掉那个文件。拿不到就返回 `Err`，由截图链路退到下一个后端——
 /// 非 GNOME 桌面、没装扩展、装完还没注销，都属于这一类，只付一次 stat 的代价。
 pub(crate) fn request_screenshot() -> Result<PathBuf, String> {
-    if !is_relevant() {
-        return Err("当前会话不是 GNOME Wayland，不走扩展截图".to_string());
-    }
-    if !is_installed() {
-        return Err("GNOME Shell 截图扩展未安装".to_string());
-    }
-    match running_protocol_version() {
-        Some(version) if version >= SCREENSHOT_PROTOCOL_VERSION => {}
-        Some(version) => {
-            return Err(format!(
-            "跑着的扩展是协议 v{version}，截图需要 v{SCREENSHOT_PROTOCOL_VERSION}（注销一次生效）"
-        ))
-        }
-        None => return Err("GNOME Shell 扩展未应答（可能尚未注销生效）".to_string()),
-    }
-    let token = read_token().ok_or_else(|| "缺少可用的扩展令牌".to_string())?;
-
+    let token = screenshot_token(SCREENSHOT_PROTOCOL_VERSION)?;
     let path: String = shell_call(
         WINDOWS_OBJECT_PATH,
         WINDOWS_INTERFACE,
@@ -161,6 +151,99 @@ pub(crate) fn request_screenshot() -> Result<PathBuf, String> {
     let path = PathBuf::from(path);
     validate_screenshot_path(&screenshot_dir()?, &path)?;
     Ok(path)
+}
+
+/// 逐屏截图：每块屏一次 `ScreenshotArea`，**同时发起**，返回与入参同序的 PNG 路径。
+///
+/// 区域是逻辑像素、stage 坐标（和 `GetWindows` 同一坐标系），必须正好是那块屏的矩形——
+/// 多出一个像素就会碰到隔壁屏的视图，Mutter 又会按两块屏里大的那个缩放渲染，
+/// 上采样就回来了（详见 extension.js 的 `ScreenshotAreaAsync`）。
+///
+/// 并行是有意的：gnome-shell 那边一个 `ShellScreenshot` 实例只允许一次进行中的截图，
+/// 但扩展每次调用都新建一个实例，而 PNG 编码跑在各自的 worker 线程上，所以几块屏的
+/// 编码能真正重叠。调用方读完每个文件都必须删。
+pub(crate) fn request_area_screenshots(
+    areas: &[(i32, i32, u32, u32)],
+) -> Result<Vec<PathBuf>, String> {
+    if areas.is_empty() {
+        return Err("没有要截的显示器区域".to_string());
+    }
+    let token = screenshot_token(AREA_SCREENSHOT_PROTOCOL_VERSION)?;
+    let directory = screenshot_dir()?;
+    let token = token.as_str();
+    let directory = directory.as_path();
+    let shots: Vec<Result<PathBuf, String>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = areas
+            .iter()
+            .map(|&area| scope.spawn(move || request_one_area(token, area, directory)))
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| {
+                handle
+                    .join()
+                    .unwrap_or_else(|_| Err("逐屏截图线程 panic".to_string()))
+            })
+            .collect()
+    });
+    collect_area_screenshots(shots)
+}
+
+/// 一块屏的 `ScreenshotArea`。
+fn request_one_area(
+    token: &str,
+    (x, y, width, height): (i32, i32, u32, u32),
+    directory: &Path,
+) -> Result<PathBuf, String> {
+    // D-Bus 签名是四个 i32，超范围的宽高在这里就挡住——转进 D-Bus 之后只会得到
+    // 一个"参数类型不匹配"，看不出是哪块屏的几何有问题。
+    let width = i32::try_from(width).map_err(|_| format!("显示器宽度 {width} 超出 i32"))?;
+    let height = i32::try_from(height).map_err(|_| format!("显示器高度 {height} 超出 i32"))?;
+    let path: String = shell_call(
+        WINDOWS_OBJECT_PATH,
+        WINDOWS_INTERFACE,
+        "ScreenshotArea",
+        &(token, x, y, width, height),
+    )
+    .map_err(|error| format!("扩展逐屏截图调用失败: {error}"))?;
+
+    let path = PathBuf::from(path);
+    validate_screenshot_path(directory, &path)?;
+    Ok(path)
+}
+
+/// 全成才算成。缺一块屏的冻结帧比整体退回整屏那条路糟得多（覆盖层会有一块屏是空的），
+/// 所以有任何一块失败就把已经落地的文件删掉、整体报错——那些文件再没人会去读，
+/// 留着就是 XDG_RUNTIME_DIR 里的垃圾。
+fn collect_area_screenshots(shots: Vec<Result<PathBuf, String>>) -> Result<Vec<PathBuf>, String> {
+    if let Some(reason) = shots.iter().find_map(|shot| shot.as_ref().err()).cloned() {
+        for path in shots.iter().flatten() {
+            let _ = std::fs::remove_file(path);
+        }
+        return Err(reason);
+    }
+    shots.into_iter().collect()
+}
+
+/// 两条截图路子共同的前置条件：会话对不对、扩展装了没、跑着的协议够不够新。
+/// 过了就返回令牌。
+fn screenshot_token(minimum_version: u32) -> Result<String, String> {
+    if !is_relevant() {
+        return Err("当前会话不是 GNOME Wayland，不走扩展截图".to_string());
+    }
+    if !is_installed() {
+        return Err("GNOME Shell 截图扩展未安装".to_string());
+    }
+    match running_protocol_version() {
+        Some(version) if version >= minimum_version => {}
+        Some(version) => {
+            return Err(format!(
+                "跑着的扩展是协议 v{version}，这次截图需要 v{minimum_version}（注销一次生效）"
+            ))
+        }
+        None => return Err("GNOME Shell 扩展未应答（可能尚未注销生效）".to_string()),
+    }
+    read_token().ok_or_else(|| "缺少可用的扩展令牌".to_string())
 }
 
 /// 扩展写截图的目录。和 extension.js 里的 `GLib.get_user_runtime_dir()` 同一个位置。
@@ -697,8 +780,14 @@ mod tests {
         assert!(EXTENSION_JS.contains(WINDOWS_OBJECT_PATH));
         // 截图落地目录名两侧各写一份，漂移会让 Rust 拒收扩展给出的路径。
         assert!(EXTENSION_JS.contains(&format!("SCREENSHOT_DIR_NAME = '{SCREENSHOT_DIR_NAME}'")));
-        // 四个方法都必须在内嵌的接口 XML 里声明，否则 wrapJSObject 根本不导出它们。
-        for method in ["GetVersion", "GetWindows", "Screenshot", "PlaceWindow"] {
+        // 五个方法都必须在内嵌的接口 XML 里声明，否则 wrapJSObject 根本不导出它们。
+        for method in [
+            "GetVersion",
+            "GetWindows",
+            "Screenshot",
+            "ScreenshotArea",
+            "PlaceWindow",
+        ] {
             assert!(
                 EXTENSION_JS.contains(&format!("<method name=\"{method}\">")),
                 "内嵌扩展缺少 {method} 方法声明"
@@ -706,6 +795,18 @@ mod tests {
         }
         // 截图是异步实现的，wrapJSObject 只认 `<Method>Async` 这个命名。
         assert!(EXTENSION_JS.contains("ScreenshotAsync(params, invocation)"));
+        assert!(EXTENSION_JS.contains("ScreenshotAreaAsync(params, invocation)"));
+        // 逐屏截图的 Shell API 与它的 finish 必须成对出现：只写一半会在运行时才炸，
+        // 而那时错误只进 journal。参数顺序也钉住——错了会截到别处去。
+        for api in [
+            "screenshot_area(x, y, width, height, stream, done)",
+            "screenshot_area_finish(result)",
+        ] {
+            assert!(EXTENSION_JS.contains(api), "内嵌扩展缺少 {api}");
+        }
+        // 每次都新建 ShellScreenshot 实例，否则同时发起的逐屏截图会互相顶掉
+        // （同一个实例第二次直接 G_IO_ERROR_PENDING）。
+        assert!(EXTENSION_JS.contains("start(new Shell.Screenshot(), stream,"));
         // 摆放是同步实现，签名顺序必须和 Rust 侧 place_window 的入参一致，
         // 顺序漂了 D-Bus 只会报参数类型不匹配，排查起来极其费劲。
         assert!(EXTENSION_JS.contains("PlaceWindow(token, pid, marker, x, y, reposition, above)"));
@@ -733,6 +834,32 @@ mod tests {
                 rejected.display()
             );
         }
+    }
+
+    /// 逐屏截图是"全成才算成"：任何一块屏失败，已经落地的文件都要删掉，
+    /// 否则 XDG_RUNTIME_DIR 里会攒下再没人读的整屏画面。
+    #[test]
+    fn a_failed_area_screenshot_cleans_up_the_ones_that_landed() {
+        let directory = tempfile::tempdir().expect("创建临时目录失败");
+        let landed = directory.path().join("frame-a.png");
+        std::fs::write(&landed, b"png").expect("写入临时截图失败");
+
+        let error = collect_area_screenshots(vec![
+            Ok(landed.clone()),
+            Err("第二块屏截图失败".to_string()),
+        ])
+        .expect_err("有失败就该整体报错");
+        assert_eq!(error, "第二块屏截图失败");
+        assert!(!landed.exists(), "失败路径上的临时截图没有被删掉");
+    }
+
+    #[test]
+    fn area_screenshots_keep_the_order_they_were_requested_in() {
+        let paths = vec![PathBuf::from("/a.png"), PathBuf::from("/b.png")];
+        assert_eq!(
+            collect_area_screenshots(paths.iter().cloned().map(Ok).collect()).unwrap(),
+            paths
+        );
     }
 
     #[test]
