@@ -50,7 +50,8 @@ pub(super) fn create_pin_window(
 /// 显示贴图窗口，并让它落到该去的位置、压在别的窗口上面。
 ///
 /// 顺序不能换：Wayland 下只有窗口真的映射之后 Shell 里才有对应的 MetaWindow，
-/// 扩展才找得到它，所以摆放必须在 `show()` 之后。
+/// 扩展才找得到它，所以摆放必须在 `show()` 之后。但 `show()` 返回**不等于**映射完成
+/// （见 `PLACEMENT_RETRY_DELAYS_MS`），所以第一次摆放几乎必然落空，要重试。
 pub(super) fn reveal_pin_window(
     app: &tauri::AppHandle,
     window: &tauri::WebviewWindow,
@@ -58,8 +59,113 @@ pub(super) fn reveal_pin_window(
 ) -> Result<(), PinError> {
     window.show().map_err(PinError::window)?;
     window.set_focus().map_err(PinError::window)?;
-    keep_pin_above(window, pin_target_position(app, entry));
+    let logical = pin_target_position(app, entry);
+    if let Placement::NotMappedYet { generation } = keep_pin_above(window, logical) {
+        retry_placement(
+            window.label().to_string(),
+            shell_target(logical),
+            generation,
+        );
+    }
     Ok(())
+}
+
+/// 一次摆放的结果，调用方据此决定要不要等窗口出现再试。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Placement {
+    /// 扩展已经把窗口摆好、压到最上层了。
+    Done,
+    /// 扩展在，但 Shell 里还没有这个窗口。`generation` 是这次请求的代次，
+    /// 重试要带着它，好在有更新的请求出现时自己作废。
+    NotMappedYet { generation: u64 },
+    /// 没有扩展这条路（X11、非 GNOME、扩展装了还没生效），已退回 Tauri 自己那套。
+    NoExtension,
+}
+
+/// Shell 认出一个刚显示的窗口要等多久：实测 GTK `show()` 之后 **+0 ms 时
+/// `PlaceWindow` 返回 false，几十毫秒后才返回 true**（本机 GNOME 50 多次采样 28~137 ms，
+/// 系统忙时偏后）。MetaWindow 是合成器那边建的，客户端的 `show()` 返回时它还不存在——
+/// 这正是"贴图不回原位、也不置顶"的根因：唯一一次摆放尝试恰好落在那个空窗里，
+/// 于是 `move_frame` 与 `make_above` 两个动作全被跳过，窗口留在 Mutter 给的居中位置。
+///
+/// 于是改成退避重试。等待必须在后台线程上：`create_pin` / `update_pin` 都是同步命令，
+/// 跑在 GTK 主线程，在这里睡几十毫秒就是把整个界面卡住几十毫秒。
+const PLACEMENT_RETRY_DELAYS_MS: [u64; 8] = [30, 50, 80, 120, 200, 300, 500, 800];
+
+/// 后台等窗口在 Shell 里出现，出现了就摆好。只在 `NotMappedYet` 时起一条线程，
+/// 线程最多活 `PLACEMENT_RETRY_DELAYS_MS` 之和（约 2 秒）。
+///
+/// 摆成功之后**再补摆一次**（隔一个退避步）。实测 Mutter 自己的初始摆放在窗口刚出现在
+/// Shell 里时就已经定稿（+28 ms 读到居中坐标，此后不再变），所以正常情况下一次就够；
+/// 但有一次采样里摆放成功后窗口仍回到了居中位置，补摆是针对这种竞争的兜底。
+/// 只补一次、且紧跟着收工：拖久了会跟用户抢——刚出现就被拖走的贴图会被拽回原位。
+fn retry_placement(label: String, target: Option<(i32, i32)>, generation: u64) {
+    std::thread::spawn(move || {
+        let marker = window_marker(&label);
+        let mut placed = false;
+        for delay in PLACEMENT_RETRY_DELAYS_MS {
+            std::thread::sleep(std::time::Duration::from_millis(delay));
+            if !placement_is_current(&label, generation) {
+                // 这几百毫秒里用户缩放或换了位置，旧坐标已经作废。
+                return;
+            }
+            match crate::capture::shell_extension_place_window(&marker, target, true) {
+                // 补摆也成功了，收工。
+                Ok(true) if placed => return,
+                Ok(true) => placed = true,
+                // 窗口还没在 Shell 里出现，继续等。
+                Ok(false) => placed = false,
+                Err(reason) => {
+                    log::debug!("贴图窗口 {marker} 重试摆放中止: {reason}");
+                    return;
+                }
+            }
+        }
+        if !placed {
+            log::info!("贴图窗口 {marker} 等到超时也没被 GNOME Shell 认出来，位置与层级交给合成器");
+        }
+    });
+}
+
+/// 把逻辑坐标折成扩展要的整数像素。
+fn shell_target(logical: Option<LogicalPosition<f64>>) -> Option<(i32, i32)> {
+    logical.map(|position| (position.x.round() as i32, position.y.round() as i32))
+}
+
+/// 每个贴图窗口最近一次摆放请求的代次。
+///
+/// 摆放要重试（刚 `show()` 的窗口在 Shell 里还不存在），而重试是异步的：万一用户在这
+/// 几百毫秒里缩放或拖动了贴图，一个迟到的重试就会把它拽回旧坐标。所以每次新请求把代次
+/// +1，重试线程每轮先确认自己那一代还是最新的。窗口关掉时 `forget_placement` 抹掉记录，
+/// 于是待命的重试也一并作废（查不到就是不是最新）。
+fn placement_generations() -> &'static std::sync::Mutex<std::collections::HashMap<String, u64>> {
+    static GENERATIONS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, u64>>,
+    > = std::sync::OnceLock::new();
+    GENERATIONS.get_or_init(Default::default)
+}
+
+fn next_placement_generation(label: &str) -> u64 {
+    let Ok(mut generations) = placement_generations().lock() else {
+        return 0;
+    };
+    let slot = generations.entry(label.to_string()).or_default();
+    *slot += 1;
+    *slot
+}
+
+fn placement_is_current(label: &str, generation: u64) -> bool {
+    let Ok(generations) = placement_generations().lock() else {
+        return false;
+    };
+    generations.get(label) == Some(&generation)
+}
+
+/// 窗口关闭时丢掉它的代次记录，同时让还在等的重试线程停下来。
+pub(super) fn forget_placement(label: &str) {
+    if let Ok(mut generations) = placement_generations().lock() {
+        generations.remove(label);
+    }
 }
 
 /// 把窗口摆到 `logical`（逻辑像素，窗口左上角）并置顶。`None` 表示只置顶、不动位置。
@@ -71,15 +177,31 @@ pub(super) fn reveal_pin_window(
 /// 不是 GNOME）时退回 Tauri 自己那套：在 X11 上它本来就管用。
 ///
 /// 两条路都失败只意味着"位置或层级不理想"，绝不能让贴图本身失败。
-pub(super) fn keep_pin_above(window: &tauri::WebviewWindow, logical: Option<LogicalPosition<f64>>) {
+///
+/// 只试一次，不等待——调用方里有热路径（缩放的每一帧）。需要等窗口映射的只有
+/// `reveal_pin_window`，它拿返回值自己去排重试。
+pub(super) fn keep_pin_above(
+    window: &tauri::WebviewWindow,
+    logical: Option<LogicalPosition<f64>>,
+) -> Placement {
+    // 无论走哪条分支都先推进代次：这次请求的坐标就是最新的，
+    // 还在后台等待的旧重试从此作废。
+    let generation = next_placement_generation(window.label());
     let marker = window_marker(window.label());
-    let target = logical.map(|position| (position.x.round() as i32, position.y.round() as i32));
-    match crate::capture::shell_extension_place_window(&marker, target, true) {
-        Ok(true) => return,
-        Ok(false) => log::info!("GNOME Shell 扩展没在会话里找到贴图窗口 {marker}"),
+    let outcome =
+        crate::capture::shell_extension_place_window(&marker, shell_target(logical), true);
+    let placement = match outcome {
+        Ok(true) => return Placement::Done,
+        Ok(false) => {
+            log::info!("GNOME Shell 扩展没在会话里找到贴图窗口 {marker}");
+            Placement::NotMappedYet { generation }
+        }
         // 非 GNOME Wayland、未安装、未注销生效都走到这里，是常态而不是故障。
-        Err(reason) => log::debug!("贴图窗口不经扩展摆放: {reason}"),
-    }
+        Err(reason) => {
+            log::debug!("贴图窗口不经扩展摆放: {reason}");
+            Placement::NoExtension
+        }
+    };
     if let Err(error) = window.set_always_on_top(true) {
         log::warn!("贴图窗口置顶失败: {error}");
     }
@@ -88,6 +210,7 @@ pub(super) fn keep_pin_above(window: &tauri::WebviewWindow, logical: Option<Logi
             log::warn!("贴图窗口定位失败: {error}");
         }
     }
+    placement
 }
 
 /// 贴图窗口该待的逻辑坐标：让内容区正好盖住图片原本所在的那块屏幕。
@@ -359,4 +482,65 @@ pub(super) fn outer_size(content_width: f64, content_height: f64, scale: f64) ->
         content_width * scale + SHADOW_GUTTER * 2.0 + CONTROLS_GUTTER,
         content_height * scale + SHADOW_GUTTER * 2.0 + TOOLBAR_GUTTER,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 代次登记表是进程级的静态量，测试之间必须用不同的 label 才互不干扰。
+    #[test]
+    fn a_newer_placement_request_invalidates_the_pending_retry() {
+        let label = "pin-generation-newer";
+        let first = next_placement_generation(label);
+        assert!(placement_is_current(label, first));
+
+        // 用户缩放/拖动贴图 → 又一次摆放请求：上一代作废，只有最新那代能继续摆放。
+        // 少了这一层，一个迟到的重试会把贴图拽回它刚出现时的坐标。
+        let second = next_placement_generation(label);
+        assert!(!placement_is_current(label, first));
+        assert!(placement_is_current(label, second));
+    }
+
+    /// 窗口关掉之后，还在后台等它出现的重试必须停下来（查不到记录就不是最新）。
+    #[test]
+    fn forgetting_a_window_stops_its_retry() {
+        let label = "pin-generation-forget";
+        let generation = next_placement_generation(label);
+        forget_placement(label);
+        assert!(!placement_is_current(label, generation));
+    }
+
+    /// 两个贴图各自记代次：先后开两张图，第二张不能把第一张还没落地的摆放作废。
+    #[test]
+    fn generations_are_tracked_per_window() {
+        let (first_label, second_label) = ("pin-generation-a", "pin-generation-b");
+        let first = next_placement_generation(first_label);
+        next_placement_generation(second_label);
+        assert!(placement_is_current(first_label, first));
+    }
+
+    /// 重试的等待总额要够覆盖实测的映射延迟（~65 ms），又不能长到让用户看着贴图
+    /// 自己跳位置；同时必须是递增退避，头几次快、后面稀。
+    #[test]
+    fn the_retry_schedule_covers_the_measured_map_delay() {
+        let total: u64 = PLACEMENT_RETRY_DELAYS_MS.iter().sum();
+        assert!((300..=3000).contains(&total), "重试总时长 {total}ms 不合理");
+        assert!(PLACEMENT_RETRY_DELAYS_MS
+            .windows(2)
+            .all(|pair| pair[0] <= pair[1]));
+        assert!(
+            PLACEMENT_RETRY_DELAYS_MS[0] < 65,
+            "第一次重试必须早于实测的映射时刻"
+        );
+    }
+
+    #[test]
+    fn shell_targets_are_rounded_and_optional() {
+        assert_eq!(shell_target(None), None);
+        assert_eq!(
+            shell_target(Some(LogicalPosition::new(10.4, -20.6))),
+            Some((10, -21))
+        );
+    }
 }

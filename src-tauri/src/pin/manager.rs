@@ -41,6 +41,8 @@ impl PinManager {
     }
 
     pub(super) fn remove(&self, label: &str) -> Result<Option<PinEntry>, PinError> {
+        // 窗口没了，还在后台等它出现的摆放重试也该停下来。
+        super::window::forget_placement(label);
         Ok(self
             .entries
             .lock()
