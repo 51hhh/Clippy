@@ -3,12 +3,20 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; back
 button { font: inherit; }
 .overlay-root { position: relative; width: 100%; height: 100%; overflow: hidden; cursor: crosshair; font-family: Inter, system-ui, sans-serif; }
 .overlay-root.loading { background: #050505; }
-/* 冻结底图、标注和裁剪压暗都画在这一块画布上：一次 drawScene 出一帧完整画面 */
+/* 冻结底图与标注画在这一块画布上：一次 drawScene 出一帧完整画面 */
 .overlay-canvas { position: absolute; left: 0; top: 0; display: block; }
 .overlay-shade { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.38); pointer-events: none; }
-.window-preview { position: absolute; border: 2px solid #2f8cff; background: rgba(47, 140, 255, 0.12); pointer-events: none; }
-/* 选区的虚线蓝框由画布上的 drawCropOverlay 画，这层只承载手柄，别再描一遍边 */
-.selection { position: absolute; pointer-events: none; }
+.window-preview { position: absolute; z-index: 2; border: 2px solid #2f8cff; background: rgba(47, 140, 255, 0.12); pointer-events: none; }
+/*
+ * 选区的虚线蓝框与"选区之外压暗"都在这一层，**不要搬回画布**：
+ * 画一帧要把整张冻结帧高质量缩绘一遍，而拖动/缩放选区是每个 pointermove 都在改这个
+ * 矩形，压暗留在画布上等于每帧白做一次全图重采样（见 canvasRenderer.ts::drawScene）。
+ * 压暗用一个铺满视口的巨大 box-shadow spread 做，因此不需要额外的 DOM 节点；
+ * outline 而不是 border 是为了不受 box-sizing 影响，offset -1px 让 2px 的线跨在
+ * 选区边界上（和原来画布 strokeRect 的居中描边一致）。
+ * z-index 1 让它压在底图之上、又不盖住窗口速选的高亮（z-index 2）。
+ */
+.selection { position: absolute; z-index: 1; outline: 2px dashed #0a84ff; outline-offset: -1px; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.34); pointer-events: none; }
 /* 手柄要吃 hover 才能给出缩放光标；命中判定仍在 JS 里按几何做，事件照旧冒泡到根元素 */
 .selection-handle { position: absolute; width: 10px; height: 10px; border: 1px solid #fff; border-radius: 2px; background: #2f8cff; transform: translate(-50%, -50%); pointer-events: auto; }
 .selection-handle.nw { left: 0; top: 0; cursor: nwse-resize; }

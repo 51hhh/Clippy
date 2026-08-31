@@ -1,4 +1,5 @@
 import { annotationBounds, isEffectAnnotation, isVectorAnnotation } from "./annotationGeometry";
+import { type FrameImage, frameHeight, frameWidth } from "./frameImage";
 import { cssFilterForImageAdjustments, type ImageAdjustments } from "./imageAdjustments";
 import type {
   Annotation,
@@ -27,11 +28,21 @@ const SPOTLIGHT_DIM = 0.55;
 /** 放大镜的放大倍数 */
 const MAGNIFIER_ZOOM = 2;
 
+/**
+ * 把底图、效果类标注、矢量标注和"选中标注"的虚线框画成一帧。
+ *
+ * **裁剪选区的压暗与虚线蓝框不在这里**，它们是 DOM 的事（覆盖层的 `.selection`
+ * 用 `outline` + `box-shadow` 画）。原因是性能：这个函数每次都要把整张冻结帧
+ * （本机 2560×1600）以 `imageSmoothingQuality = "high"` 缩绘进 1920×1200 的画布，
+ * 而拖动/缩放选区时每一个 pointermove 都会改变选区矩形。压暗留在画布上意味着
+ * 纯粹为了重画一层半透明蒙版和一个虚线框，每帧白做一次全图重采样；交给合成器之后
+ * 拖选区引发的画布重绘次数是 0。导出路径 `renderExport` 本来就不画压暗（那是取景
+ * 辅助线，不是画面内容），所以这一层职责搬走不影响产物。
+ */
 export function drawScene(
   canvas: HTMLCanvasElement,
-  image: HTMLImageElement,
+  image: FrameImage,
   viewport: RenderViewport,
-  crop: Rect | null,
   annotations: Annotation[],
   draft: Annotation | null,
   adjustments: ImageAdjustments,
@@ -61,12 +72,11 @@ export function drawScene(
     const selected = annotations.find((annotation) => annotation.id === selectedId);
     if (selected) drawSelectedBounds(ctx, annotationBounds(selected), viewport.scale);
   }
-  if (crop) drawCropOverlay(ctx, crop, viewport);
 }
 
 export function renderExport(
   ctx: CanvasRenderingContext2D,
-  image: HTMLImageElement,
+  image: FrameImage,
   crop: Rect,
   annotations: Annotation[],
   adjustments: ImageAdjustments,
@@ -88,7 +98,7 @@ export function renderExport(
 
 function drawBaseImage(
   ctx: CanvasRenderingContext2D,
-  image: HTMLImageElement,
+  image: FrameImage,
   adjustments: ImageAdjustments,
   scale: number,
   offset: Point,
@@ -99,15 +109,15 @@ function drawBaseImage(
     image,
     offset.x * scale,
     offset.y * scale,
-    image.naturalWidth * scale,
-    image.naturalHeight * scale,
+    frameWidth(image) * scale,
+    frameHeight(image) * scale,
   );
   ctx.restore();
 }
 
 function drawEffects(
   ctx: CanvasRenderingContext2D,
-  image: HTMLImageElement,
+  image: FrameImage,
   annotations: Annotation[],
   adjustments: ImageAdjustments,
   scale: number,
@@ -120,7 +130,7 @@ function drawEffects(
 
 function drawEffect(
   ctx: CanvasRenderingContext2D,
-  image: HTMLImageElement,
+  image: FrameImage,
   annotation: EffectAnnotation,
   adjustments: ImageAdjustments,
   scale: number,
@@ -155,8 +165,8 @@ function drawEffect(
       image,
       offset.x * scale,
       offset.y * scale,
-      image.naturalWidth * scale,
-      image.naturalHeight * scale,
+      frameWidth(image) * scale,
+      frameHeight(image) * scale,
     );
   } else {
     const cell = Math.max(6, 12 / Math.max(scale, 0.01));
@@ -180,14 +190,14 @@ function drawEffect(
 /** 聚光灯：把选区之外的底图压暗，选区内保持原样 */
 function drawSpotlight(
   ctx: CanvasRenderingContext2D,
-  image: HTMLImageElement,
+  image: FrameImage,
   destination: Rect,
   scale: number,
   offset: Point,
 ) {
   ctx.save();
   ctx.beginPath();
-  ctx.rect(offset.x * scale, offset.y * scale, image.naturalWidth * scale, image.naturalHeight * scale);
+  ctx.rect(offset.x * scale, offset.y * scale, frameWidth(image) * scale, frameHeight(image) * scale);
   ctx.rect(destination.x, destination.y, destination.width, destination.height);
   ctx.fillStyle = `rgba(0, 0, 0, ${SPOTLIGHT_DIM})`;
   ctx.fill("evenodd");
@@ -200,7 +210,7 @@ function drawSpotlight(
  */
 function drawMagnifier(
   ctx: CanvasRenderingContext2D,
-  image: HTMLImageElement,
+  image: FrameImage,
   rect: Rect,
   destination: Rect,
   adjustments: ImageAdjustments,
@@ -218,8 +228,8 @@ function drawMagnifier(
     image,
     centerX - (rect.x + rect.width / 2) * zoomed,
     centerY - (rect.y + rect.height / 2) * zoomed,
-    image.naturalWidth * zoomed,
-    image.naturalHeight * zoomed,
+    frameWidth(image) * zoomed,
+    frameHeight(image) * zoomed,
   );
   ctx.restore();
 
@@ -379,24 +389,6 @@ function drawSelectedBounds(ctx: CanvasRenderingContext2D, rect: Rect, scale: nu
   ctx.lineWidth = 1;
   ctx.setLineDash([5, 4]);
   ctx.strokeRect(rect.x * scale - 3, rect.y * scale - 3, rect.width * scale + 6, rect.height * scale + 6);
-  ctx.restore();
-}
-
-function drawCropOverlay(ctx: CanvasRenderingContext2D, crop: Rect, viewport: RenderViewport) {
-  const x = crop.x * viewport.scale;
-  const y = crop.y * viewport.scale;
-  const width = crop.width * viewport.scale;
-  const height = crop.height * viewport.scale;
-  ctx.save();
-  ctx.fillStyle = "rgba(0, 0, 0, 0.34)";
-  ctx.beginPath();
-  ctx.rect(0, 0, viewport.width, viewport.height);
-  ctx.rect(x, y, width, height);
-  ctx.fill("evenodd");
-  ctx.strokeStyle = "#0a84ff";
-  ctx.lineWidth = 2;
-  ctx.setLineDash([8, 5]);
-  ctx.strokeRect(x, y, width, height);
   ctx.restore();
 }
 

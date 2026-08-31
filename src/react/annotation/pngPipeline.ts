@@ -1,4 +1,5 @@
 import { renderExport } from "./canvasRenderer";
+import type { FrameImage } from "./frameImage";
 import type { ImageAdjustments } from "./imageAdjustments";
 import type { Annotation, Rect } from "./types";
 
@@ -44,7 +45,7 @@ function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
 }
 
 export async function exportPngBase64(
-  image: HTMLImageElement,
+  image: FrameImage,
   crop: Rect,
   annotations: Annotation[],
   adjustments: ImageAdjustments,

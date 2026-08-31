@@ -29,6 +29,13 @@ export function contains(rect: Rect, point: Point): boolean {
   );
 }
 
+/**
+ * 光标下的窗口。
+ *
+ * 后端下发的候选数组即堆叠顺序（索引 0 最上层），所以取第一个包含光标的候选，
+ * 选到的就是肉眼看到的那个窗口——被完全遮住的窗口自然轮不到。
+ * 不能按面积挑：一个大窗口压在小窗口上时，"最小的赢"会选中看不见的那个。
+ */
 export function windowAt(windows: WindowCandidate[], point: Point): WindowCandidate | null {
   return windows.find((candidate) => contains(candidate, point)) || null;
 }

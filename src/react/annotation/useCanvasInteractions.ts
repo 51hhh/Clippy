@@ -6,6 +6,7 @@ import {
   hasRect,
   translateAnnotation,
 } from "./annotationGeometry";
+import { type FrameImage, frameHeight, frameWidth } from "./frameImage";
 import type { Annotation, EffectType, Point, Rect, Tool } from "./types";
 
 export type CanvasDragState =
@@ -54,7 +55,7 @@ function draftFor(tool: DraftTool, point: Point, color: string, size: number): C
 }
 
 type Params = {
-  imageRef: React.RefObject<HTMLImageElement | null>;
+  imageRef: React.RefObject<FrameImage | null>;
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   scale: number;
   tool: Tool;
@@ -148,8 +149,8 @@ export function useCanvasInteractions(params: Params) {
     if (!canvas || !image || params.scale <= 0) return null;
     const bounds = canvas.getBoundingClientRect();
     return {
-      x: Math.max(0, Math.min(image.naturalWidth, (event.clientX - bounds.left) / params.scale)),
-      y: Math.max(0, Math.min(image.naturalHeight, (event.clientY - bounds.top) / params.scale)),
+      x: Math.max(0, Math.min(frameWidth(image), (event.clientX - bounds.left) / params.scale)),
+      y: Math.max(0, Math.min(frameHeight(image), (event.clientY - bounds.top) / params.scale)),
     };
   }
 
@@ -203,8 +204,8 @@ export function useCanvasInteractions(params: Params) {
       if (!image) return;
       const bounds = annotationBounds(active.initial);
       const delta = {
-        x: Math.max(-bounds.x, Math.min(point.x - active.start.x, image.naturalWidth - bounds.x - bounds.width)),
-        y: Math.max(-bounds.y, Math.min(point.y - active.start.y, image.naturalHeight - bounds.y - bounds.height)),
+        x: Math.max(-bounds.x, Math.min(point.x - active.start.x, frameWidth(image) - bounds.x - bounds.width)),
+        y: Math.max(-bounds.y, Math.min(point.y - active.start.y, frameHeight(image) - bounds.y - bounds.height)),
       };
       scheduleDraft({ ...active, annotation: translateAnnotation(active.initial, delta) });
     }

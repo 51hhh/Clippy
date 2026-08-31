@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getConfig: vi.fn(async () => ({ language: "en" })),
   overlayApi: {
     get: vi.fn(),
+    frame: vi.fn(),
     ready: vi.fn(),
     cancel: vi.fn(),
     commit: vi.fn(),
@@ -14,7 +15,6 @@ const mocks = vi.hoisted(() => ({
     copyText: vi.fn(),
   },
   exportPngBase64: vi.fn(async () => "exported-png"),
-  pngBase64ToObjectUrl: vi.fn(() => "blob:capture"),
 }));
 
 vi.mock("../js/api.ts", () => ({
@@ -25,7 +25,6 @@ vi.mock("../react/capture-overlay/api.ts", () => ({ overlayApi: mocks.overlayApi
 // jsdom 没有 canvas 后端，导出必须替身；同时记录裁剪矩形，用来断言"裁剪 + 标注"合成。
 vi.mock("../react/annotation/pngPipeline", () => ({
   exportPngBase64: mocks.exportPngBase64,
-  pngBase64ToObjectUrl: mocks.pngBase64ToObjectUrl,
 }));
 
 import * as i18n from "../i18n/i18n.js";
@@ -34,12 +33,15 @@ import { App } from "../react/capture-overlay/App.tsx";
 const basePayload = {
   sessionId: "session-1",
   monitorId: 0,
-  pngBase64: "AAEC",
+  // 故意不是 (0,0)：这块屏在桌面坐标里靠右，能验出"选区 + 显示器偏移"有没有做对
+  logicalX: 1920,
+  logicalY: 24,
   logicalWidth: 200,
   logicalHeight: 150,
   pixelWidth: 200,
   pixelHeight: 150,
   windows: [{ x: 40, y: 30, width: 60, height: 50, title: "editor" }],
+  probeHint: false,
 };
 
 async function flush() {
@@ -85,27 +87,29 @@ describe("capture overlay app", () => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     document.body.innerHTML = '<div id="root"></div>';
     i18n.init("en");
-    // jsdom 缺这些：覆盖层的指针捕获、Blob URL 与画布上下文都会直接抛错。
+    // jsdom 缺这些：覆盖层的指针捕获与画布上下文都会直接抛错。
     Element.prototype.setPointerCapture = () => {};
-    HTMLCanvasElement.prototype.getContext = () => null;
-    URL.createObjectURL = vi.fn(() => "blob:capture");
-    URL.revokeObjectURL = vi.fn();
-    // jsdom 不会真的去解码 blob: URL，onload 永远不触发，冻结帧就一直"没准备好"。
-    globalThis.Image = class {
-      naturalWidth = basePayload.pixelWidth;
-      naturalHeight = basePayload.pixelHeight;
-      onload = null;
-      onerror = null;
-      set src(value) {
-        this._src = value;
-        queueMicrotask(() => this.onload?.());
-      }
-      get src() {
-        return this._src;
+    // 没有 canvas 后端，但底图现在是真的 putImageData 出来的离屏画布，
+    // 所以上下文不能是 null（那样 rgbaToFrameCanvas 会直接抛）。给个万能空实现：
+    // 任何方法都是 no-op，任何属性都可写，绘制结果反正不参与断言。
+    HTMLCanvasElement.prototype.getContext = () =>
+      new Proxy(
+        {},
+        {
+          get: (target, key) => (target[key] ??= () => {}),
+          set: () => true,
+        },
+      );
+    globalThis.ImageData = class {
+      constructor(data, width, height) {
+        Object.assign(this, { data, width, height });
       }
     };
     for (const fn of Object.values(mocks.overlayApi)) fn.mockReset();
     mocks.overlayApi.ready.mockResolvedValue(undefined);
+    mocks.overlayApi.frame.mockResolvedValue(
+      new ArrayBuffer(basePayload.pixelWidth * basePayload.pixelHeight * 4),
+    );
     mocks.exportPngBase64.mockClear();
     mocks.overlayApi.commit.mockResolvedValue({ action: "copy", path: null, pinLabel: null });
     root = createRoot(document.getElementById("root"));
@@ -117,7 +121,12 @@ describe("capture overlay app", () => {
   });
 
   async function mount(overrides = {}) {
-    mocks.overlayApi.get.mockResolvedValue({ ...basePayload, ...overrides });
+    const payload = { ...basePayload, ...overrides };
+    mocks.overlayApi.get.mockResolvedValue(payload);
+    // 冻结帧走二进制 IPC：字节数必须正好是 4 × 像素数，否则前端会当成损坏的帧。
+    mocks.overlayApi.frame.mockResolvedValue(
+      new ArrayBuffer(payload.pixelWidth * payload.pixelHeight * 4),
+    );
     await act(async () => root.render(React.createElement(App)));
     await flush();
   }
@@ -183,7 +192,14 @@ describe("capture overlay app", () => {
       width: 100,
       height: 80,
     });
-    expect(mocks.overlayApi.commit).toHaveBeenCalledWith("copy", "session-1", "exported-png");
+    // origin 是选区在**桌面**逻辑坐标里的矩形（选区坐标 + 这块屏的 logicalX/logicalY）：
+    // 贴图靠它回到原位，复制时后端也记一份，之后从历史里 Pin 同一张图仍能回到原处
+    expect(mocks.overlayApi.commit).toHaveBeenCalledWith("copy", "session-1", "exported-png", {
+      x: 1930,
+      y: 34,
+      width: 100,
+      height: 80,
+    });
   });
 
   it("routes save and pin through the same commit path", async () => {
@@ -192,7 +208,12 @@ describe("capture overlay app", () => {
 
     await act(async () => button("Pin").click());
     await flush();
-    expect(mocks.overlayApi.commit).toHaveBeenCalledWith("pin", "session-1", "exported-png");
+    expect(mocks.overlayApi.commit).toHaveBeenCalledWith("pin", "session-1", "exported-png", {
+      x: 1930,
+      y: 34,
+      width: 100,
+      height: 80,
+    });
   });
 
   it("drops the selection on right click so a new area can be framed", async () => {
@@ -217,6 +238,22 @@ describe("capture overlay app", () => {
   it("keeps the overlay clean once window geometry is available", async () => {
     await mount();
     expect(document.querySelector(".overlay-hint")).toBeNull();
+  });
+
+  // GNOME Wayland 上速选不是"用不了"而是"缺个服务"，得给出照着做的说法。
+  it("points at the installable service when the backend says so", async () => {
+    await mount({ windows: [], probeHint: true });
+    expect(document.querySelector(".overlay-hint")?.textContent).toBe(
+      "Screenshots work better with a small GNOME service: install it in Settings \u2192 Screenshot, "
+        + "then log out once. Drag to select an area in the meantime.",
+    );
+  });
+
+  // 后端只在首次遇到时置 probeHint，此后即使还是没装也不再提示——不装照样能框选。
+  it("falls back to the plain notice once the one-time hint has been spent", async () => {
+    await mount({ windows: [], probeHint: false });
+    expect(document.querySelector(".overlay-hint")?.textContent)
+      .toBe("Window picking unavailable in this session — drag to select an area");
   });
 
   // 覆盖层是隐藏建窗的，显示时机由前端决定：早一步显示就是一整屏白屏。
@@ -247,6 +284,21 @@ describe("capture overlay app", () => {
 
     expect(mocks.overlayApi.ready).toHaveBeenCalledTimes(1);
     expect(document.querySelector(".overlay-error")?.textContent).toContain("frame gone");
+  });
+
+  /**
+   * 像素走二进制 IPC，尺寸只由 payload 声明，没有 PNG 头去自我校验。
+   * 字节数不对就必须报错并把窗口显示出来，绝不能拿错位的像素当底图铺满全屏。
+   */
+  it("reports a truncated frame buffer instead of drawing skewed pixels", async () => {
+    mocks.overlayApi.get.mockResolvedValue(basePayload);
+    mocks.overlayApi.frame.mockResolvedValue(new ArrayBuffer(64));
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+
+    expect(mocks.overlayApi.frame).toHaveBeenCalledWith("capture-overlay-session-1-0");
+    expect(mocks.overlayApi.ready).toHaveBeenCalledTimes(1);
+    expect(document.querySelector(".overlay-error")).not.toBeNull();
   });
 
   it("does not block capture when revealing fails", async () => {

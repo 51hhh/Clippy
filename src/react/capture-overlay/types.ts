@@ -3,6 +3,7 @@ import type { Tool } from "../annotation/types";
 
 export type {
   CaptureAction,
+  CaptureOrigin,
   CaptureOverlayPayload,
   CaptureSelection,
   CaptureTranslationResult,
