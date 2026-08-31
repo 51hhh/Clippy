@@ -2,7 +2,9 @@
 //! 哈希去重、敏感判定和（HTML 时）标签剥离，这三步都是全量扫描，
 //! 所以大段内容下的成本值得有基线。不碰真实剪贴板，纯函数即可。
 
-use clippy_lib::bench_support::{compute_hash, is_sensitive_text, strip_html_tags};
+use clippy_lib::bench_support::{
+    compute_hash, is_sensitive_text, rgba_fingerprint, strip_html_tags,
+};
 use criterion::{criterion_group, criterion_main, Criterion};
 use std::hint::black_box;
 
@@ -33,6 +35,14 @@ fn bench(c: &mut Criterion) {
     });
     c.bench_function("strip_html_tags_1mib", |b| {
         b.iter(|| strip_html_tags(black_box(&html)))
+    });
+    // 剪贴板里躺着一张 1080p 截图时，轮询每 500 ms 都要走一次这个指纹。
+    // 它替掉的是一整次 PNG 编码，所以这个数只要远小于 `encode_png_1080p` 就算成立。
+    let rgba: Vec<u8> = (0..(1920 * 1080 * 4))
+        .map(|index| (index % 251) as u8)
+        .collect();
+    c.bench_function("rgba_fingerprint_1080p", |b| {
+        b.iter(|| rgba_fingerprint(1920, 1080, black_box(&rgba)))
     });
 }
 

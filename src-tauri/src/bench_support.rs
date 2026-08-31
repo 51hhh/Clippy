@@ -15,6 +15,11 @@ pub fn compute_hash(data: &[u8]) -> String {
     crate::clipboard_watcher::content::compute_hash(data)
 }
 
+/// 图片轮询之间的"还是上一张吗"指纹。挡掉的是一整次 PNG 编码。
+pub fn rgba_fingerprint(width: usize, height: usize, bytes: &[u8]) -> u64 {
+    crate::clipboard_watcher::content::rgba_fingerprint(width, height, bytes)
+}
+
 /// 敏感内容判定。命中前缀会提前返回，最坏情况是整段文本转小写后多次 contains。
 pub fn is_sensitive_text(text: &str) -> bool {
     crate::clipboard_watcher::content::is_sensitive_text(text)
