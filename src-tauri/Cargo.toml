@@ -61,6 +61,11 @@ gdk = { version = "0.18", features = ["v3_24"] }
 inotify = "0.11"
 ashpd = { version = "0.13", features = ["screenshot", "documents", "remote_desktop", "screencast"] }
 libwayshot-xcap = "0.3"
+# Mutter 的 org.gnome.Mutter.ScreenCast 把画面走 PipeWire 送出来（不编 PNG，快一个数量级，
+# 见 docs/capture-linux.md §3.4）。版本已经被 xcap 锁在 lockfile 里，不引入新的下载。
+pipewire = "0.9"
+# 只为在 zbus 的信号流上调一次 `.next()`（等 PipeWireStreamAdded）。zbus 自己就依赖它。
+futures-util = { version = "0.3", default-features = false }
 x11rb = "0.13"
 nix = { version = "0.30", features = ["poll"] }
 
