@@ -42,6 +42,7 @@ const payload = {
   locked: false,
   canSave: true,
   position: null,
+  deviceScale: 1,
 };
 
 async function flush() {
@@ -111,6 +112,8 @@ describe("pin window is not zoomable and not selectable", () => {
     mocks.pinApi.ready.mockResolvedValue(undefined);
     mocks.pinApi.close.mockResolvedValue(undefined);
     mocks.pinApi.get.mockResolvedValue(payload);
+    mocks.startDraggingCurrentWindow.mockReset();
+    mocks.startDraggingCurrentWindow.mockResolvedValue(undefined);
     mocks.pinApi.update.mockImplementation(async (_label, update) => ({ ...payload, ...update }));
     root = createRoot(document.getElementById("root"));
   });
@@ -213,6 +216,41 @@ describe("pin window is not zoomable and not selectable", () => {
     // 内容与"能不能保存"都来自本地那份 payload，不能被应答抹掉
     expect(document.querySelector(".pin-media pre")?.textContent).toBe("Pinned text");
     expect(document.querySelector('[aria-label="Save image"]')).not.toBeNull();
+  });
+
+  /**
+   * 回归防线："第一下能拖、第二下拖不动、第三下又能拖"。
+   *
+   * Wayland 上 `startDragging` 之后指针被合成器抓走，这一次的 `pointerup` 不会送到
+   * WebKit，迟到的 `pointercancel` 往往落在**下一次** `pointerdown` 之后。所以拖动判据
+   * 不能依赖跨事件记账，只能看每个事件自带的按键状态。
+   */
+  it("keeps dragging on every gesture even when pointercancel arrives late", async () => {
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+
+    const root_ = document.querySelector(".pin-root");
+    // jsdom 没有 PointerEvent 构造器，用 MouseEvent 派发同名事件；React 只看类型名。
+    const pointer = (type, init) =>
+      new MouseEvent(type, { bubbles: true, cancelable: true, ...init });
+
+    async function dragOnce() {
+      await act(async () => root_.dispatchEvent(pointer("pointerdown", { button: 0, buttons: 1, clientX: 40, clientY: 40 })));
+      await act(async () => window.dispatchEvent(pointer("pointermove", { buttons: 1, clientX: 60, clientY: 60 })));
+    }
+
+    await dragOnce();
+    expect(mocks.startDraggingCurrentWindow).toHaveBeenCalledTimes(1);
+
+    // 合成器抓走指针后迟到的取消事件：它现在什么都不该影响
+    await act(async () => window.dispatchEvent(pointer("pointercancel", { buttons: 0 })));
+
+    await dragOnce();
+    expect(mocks.startDraggingCurrentWindow).toHaveBeenCalledTimes(2);
+
+    // 松手后的移动依然不算拖动
+    await act(async () => window.dispatchEvent(pointer("pointermove", { buttons: 0, clientX: 200, clientY: 200 })));
+    expect(mocks.startDraggingCurrentWindow).toHaveBeenCalledTimes(2);
   });
 
   /** 键盘的页面缩放快捷键也要吃掉，并且转成贴图自己的缩放。 */

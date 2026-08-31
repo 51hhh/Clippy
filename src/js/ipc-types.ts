@@ -292,6 +292,14 @@ export interface PinPayload {
   locked: boolean;
   canSave: boolean;
   position: { x: number; y: number } | null;
+  /**
+   * 内容所在那块屏上，一个 CSS 像素等于几个设备像素（合成器报的真实缩放）。
+   *
+   * `devicePixelRatio` 顶替不了它：GTK3 不支持 `wp_fractional_scale_v1`，分数缩放的桌面上
+   * WebKit 一律拿到整数缓冲区缩放 2。判断"屏上一个图片像素是不是正好一个设备像素"
+   * 只能靠这个数，见 `react/pin/rendering.ts`。
+   */
+  deviceScale: number;
 }
 
 /**

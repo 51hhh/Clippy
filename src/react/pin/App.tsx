@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWindowLabel, startDraggingCurrentWindow } from "../../js/api.ts";
 import { pngBase64ToObjectUrl } from "../annotation/pngPipeline";
 import { pinApi } from "./api";
-import { allowsTextSelection, isZoomShortcut, pinWheelIntent } from "./gestures";
+import { allowsTextSelection, isZoomShortcut, pinWheelIntent, pointerStillHeld } from "./gestures";
 import { PinToolbar } from "./PinToolbar";
+import { pinImageRendering } from "./rendering";
 import type { PinPayload, PinUpdate } from "./types";
 import { mergePinState, shouldApplyPinUpdateResponse } from "./update-order";
 import { t } from "../shared/i18n";
@@ -26,6 +27,19 @@ export function App() {
   const [copied, setCopied] = useState(false);
   const [opacityOpen, setOpacityOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pixelSize, setPixelSize] = useState<{ width: number; height: number } | null>(null);
+  const updateInFlight = useRef(false);
+  // `flushUpdate` 要在自己的 finally 里再排一次，而 `scheduleFlush` 又要调它，
+  // 两个 useCallback 互相依赖成环。用一个 ref 打破环，rAF 里读到的永远是最新那个。
+  const flushRef = useRef<() => void>(() => {});
+
+  const scheduleFlush = useCallback(() => {
+    if (wheelFrame.current !== null) return;
+    wheelFrame.current = requestAnimationFrame(() => {
+      wheelFrame.current = null;
+      flushRef.current();
+    });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -81,6 +95,63 @@ export function App() {
     });
   }, [label, ready]);
 
+  /**
+   * 把攒下的那一份改动发出去。
+   *
+   * **同一时刻只允许一个请求在飞。** `update_pin` 是同步命令，跑在 GTK 主线程上，
+   * 里面还有改窗口尺寸和一次摆位的 D-Bus 往返；按 rAF 无条件发就是 60 次/秒地往
+   * 主线程上压活，缩放于是一顿一顿的。改成"在飞就先攒着，落地了再发最新的一份"之后，
+   * 发送频率自动跟上后端的处理能力，而本地 CSS 仍然每帧都跟手（乐观更新那一段没变）。
+   */
+  const flushUpdate = useCallback(() => {
+    if (updateInFlight.current) return;
+    const next = pendingUpdate.current;
+    if (Object.keys(next).length === 0) return;
+    pendingUpdate.current = {};
+    updateInFlight.current = true;
+    const requestGeneration = updateGeneration.current;
+    pinApi
+      .update(label, next)
+      .then((state) => {
+        // 应答只有可变字段，内容字段来自手里那份 payload。
+        const merged = mergePinState(confirmedPinRef.current ?? pinRef.current, state);
+        if (!merged) return;
+        if (requestGeneration >= confirmedGeneration.current) {
+          confirmedGeneration.current = requestGeneration;
+          confirmedPinRef.current = merged;
+        }
+        // 用户在请求返回前继续调整时，旧响应不能覆盖本地乐观状态。
+        if (!shouldApplyPinUpdateResponse(requestGeneration, updateGeneration.current, pendingUpdate.current)) {
+          return;
+        }
+        pinRef.current = merged;
+        setPin(merged);
+      })
+      .catch((reason) => {
+        if (
+          confirmedPinRef.current
+          && shouldApplyPinUpdateResponse(
+            requestGeneration,
+            updateGeneration.current,
+            pendingUpdate.current,
+          )
+        ) {
+          pinRef.current = confirmedPinRef.current;
+          setPin(confirmedPinRef.current);
+        }
+        setError(String(reason));
+      })
+      .finally(() => {
+        updateInFlight.current = false;
+        // 这一趟飞在天上时用户还在滚，落地后把攒下的补发出去。
+        if (Object.keys(pendingUpdate.current).length > 0) scheduleFlush();
+      });
+  }, [label, scheduleFlush]);
+
+  useEffect(() => {
+    flushRef.current = flushUpdate;
+  }, [flushUpdate]);
+
   const commitUpdate = useCallback(
     (update: PinUpdate) => {
       const normalized: PinUpdate = {
@@ -95,46 +166,9 @@ export function App() {
       });
       updateGeneration.current += 1;
       pendingUpdate.current = { ...pendingUpdate.current, ...normalized };
-      if (wheelFrame.current !== null) return;
-      wheelFrame.current = requestAnimationFrame(() => {
-        wheelFrame.current = null;
-        const next = pendingUpdate.current;
-        pendingUpdate.current = {};
-        const requestGeneration = updateGeneration.current;
-        pinApi
-          .update(label, next)
-          .then((state) => {
-            // 应答只有可变字段，内容字段来自手里那份 payload。
-            const merged = mergePinState(confirmedPinRef.current ?? pinRef.current, state);
-            if (!merged) return;
-            if (requestGeneration >= confirmedGeneration.current) {
-              confirmedGeneration.current = requestGeneration;
-              confirmedPinRef.current = merged;
-            }
-            // 用户在请求返回前继续调整时，旧响应不能覆盖本地乐观状态。
-            if (!shouldApplyPinUpdateResponse(requestGeneration, updateGeneration.current, pendingUpdate.current)) {
-              return;
-            }
-            pinRef.current = merged;
-            setPin(merged);
-          })
-          .catch((reason) => {
-            if (
-              confirmedPinRef.current
-              && shouldApplyPinUpdateResponse(
-                requestGeneration,
-                updateGeneration.current,
-                pendingUpdate.current,
-              )
-            ) {
-              pinRef.current = confirmedPinRef.current;
-              setPin(confirmedPinRef.current);
-            }
-            setError(String(reason));
-          });
-      });
+      scheduleFlush();
     },
-    [label],
+    [scheduleFlush],
   );
 
   const adjustScale = useCallback(
@@ -175,22 +209,19 @@ export function App() {
   useEffect(() => {
     function onPointerMove(event: PointerEvent) {
       if (!dragStart.current || pin?.locked) return;
+      // 松手之后的移动不是拖动。这一条同时替掉了原来的 pointerup / pointercancel
+      // 清理——理由见 `gestures.ts::pointerStillHeld`。
+      if (!pointerStillHeld(event)) {
+        dragStart.current = null;
+        return;
+      }
       const distance = Math.hypot(event.clientX - dragStart.current.x, event.clientY - dragStart.current.y);
       if (distance < DRAG_THRESHOLD) return;
       dragStart.current = null;
       startDraggingCurrentWindow().catch((reason) => setError(String(reason)));
     }
-    function clearDrag() {
-      dragStart.current = null;
-    }
     window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", clearDrag);
-    window.addEventListener("pointercancel", clearDrag);
-    return () => {
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", clearDrag);
-      window.removeEventListener("pointercancel", clearDrag);
-    };
+    return () => window.removeEventListener("pointermove", onPointerMove);
   }, [pin?.locked]);
 
   /**
@@ -275,6 +306,22 @@ export function App() {
   }
   if (!pin) return null;
 
+  // 内容区的 CSS 尺寸。窗口外框可能比它大——矮贴图为了放下工具条有高度下限
+  // （`pin/window.rs::MIN_OUTER_HEIGHT`），多出来的高度必须留成透明留白，
+  // 不能让图片在变高的框里居中，否则"贴回原处"当场就偏了。`max-*` 而不是定死宽高：
+  // 缩放时窗口尺寸落后本地状态一两帧，那几帧里内容区跟着窗口缩，才不会溢出被裁。
+  const mediaWidth = pin.contentWidth * pin.scale;
+  const mediaHeight = pin.contentHeight * pin.scale;
+  const imageRendering = pixelSize
+    ? pinImageRendering({
+      cssWidth: mediaWidth,
+      cssHeight: mediaHeight,
+      pixelWidth: pixelSize.width,
+      pixelHeight: pixelSize.height,
+      deviceScale: pin.deviceScale,
+    })
+    : "auto";
+
   return (
     <main
       className={`pin-root${pin.locked ? " locked" : ""}`}
@@ -286,13 +333,27 @@ export function App() {
         }
       }}
     >
-      <section className={`pin-media ${pin.kind}`} aria-label={t("pin.content")}>
+      <section
+        className={`pin-media ${pin.kind}`}
+        aria-label={t("pin.content")}
+        style={
+          pin.kind === "image"
+            ? { maxWidth: `${mediaWidth}px`, maxHeight: `${mediaHeight}px` }
+            : undefined
+        }
+      >
         {pin.kind === "image" && imageUrl ? (
           <img
             src={imageUrl}
             alt={t("pin.imageAlt")}
             draggable={false}
-            onLoad={() => setReady(true)}
+            // 见 `rendering.ts`：屏上一个图片像素正好一个设备像素时，最近邻反而是最清晰的。
+            style={{ imageRendering }}
+            onLoad={(event) => {
+              const image = event.currentTarget;
+              setPixelSize({ width: image.naturalWidth, height: image.naturalHeight });
+              setReady(true);
+            }}
             onError={() => {
               setError(t("pin.imageLoadFailed"));
               setReady(true);
