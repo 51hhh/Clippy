@@ -193,6 +193,48 @@ mod tests {
         assert_eq!(registry.lookup(&other), None);
     }
 
+    /// 整条链路：登记 → 写系统剪贴板 → 像 watcher 那样读回并重新编码 → 查回来。
+    ///
+    /// 这张表的全部前提是"像素经剪贴板往返不变"。arboard 在两边各解各编一次 PNG，
+    /// 万一某个后端动了颜色（预乘 alpha、丢通道），表永远查不中，而症状是
+    /// "贴图不回原位"——离这里很远，排查会先怀疑窗口摆放。所以把前提钉成一个测试。
+    ///
+    /// `#[ignore]`：它要动真实的系统剪贴板（改用户当前剪贴板内容，无头环境里还没有），
+    /// 手动跑 `cargo test -- --ignored pixels_survive` 验证。
+    #[test]
+    #[ignore = "需要真实的系统剪贴板"]
+    fn pixels_survive_the_system_clipboard_so_the_lookup_still_hits() {
+        let registry = PinOriginRegistry::default();
+        // 用渐变而不是纯色：纯色图任何色彩处理下都长得一样，测不出问题。
+        let (width, height) = (64u32, 48u32);
+        let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+        for y in 0..height {
+            for x in 0..width {
+                rgba.extend_from_slice(&[(x * 4) as u8, (y * 5) as u8, 128, 255]);
+            }
+        }
+        let png = crate::screenshot::encode_png(&rgba, width, height).unwrap();
+
+        // 复制路径：解码一次，剪贴板和登记共用这份像素。
+        let image = crate::image_io::png_to_clipboard_image(&png).unwrap();
+        let fingerprint = PinFingerprint::of(image.width as u32, image.height as u32, &image.bytes);
+        crate::clipboard_watcher::clipboard_set_image_with_retry(image).unwrap();
+        registry.remember(fingerprint, origin(70.0));
+        std::thread::sleep(std::time::Duration::from_millis(300));
+
+        // watcher 路径：读回 RGBA，重新编码成入库的那串 PNG。
+        let read = arboard::Clipboard::new().unwrap().get_image().unwrap();
+        let stored =
+            crate::screenshot::encode_png(&read.bytes, read.width as u32, read.height as u32)
+                .unwrap();
+
+        assert_eq!(
+            registry.lookup(&stored),
+            Some(origin(70.0)),
+            "像素经剪贴板往返变了，来源表整套机制就是空的"
+        );
+    }
+
     #[test]
     fn oldest_entries_are_dropped_and_repeats_are_deduplicated() {
         let registry = PinOriginRegistry::default();
