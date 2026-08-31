@@ -121,22 +121,21 @@ pub(crate) fn capture_monitor_frames() -> Result<Vec<CapturedMonitorFrame>> {
         .collect()
 }
 
-/// 逐屏截图要的那组区域：每块屏的逻辑矩形（x, y, 宽, 高）。
+/// 逐屏取画面要的那组区域：每块屏的逻辑矩形加它自己的缩放。
 ///
 /// 只给诊断用（`capture::timing_diagnostics`）：那里要在**不走截图链路**的前提下拿到区域，
-/// 好把逐屏截图单独计时。真正跑截图的那条路在 `backends` 里自己枚举，因为它还要
-/// 每块屏的 id 与缩放。
+/// 好把逐屏那条路单独计时。真正跑截图的那条路在 `backends` 里自己枚举，因为它还要
+/// 每块屏的 id，而且要把镜像屏并成一次请求。
 #[cfg(all(test, target_os = "linux"))]
-pub(crate) fn logical_monitor_areas() -> Result<Vec<(i32, i32, u32, u32)>> {
+pub(crate) fn logical_monitor_areas() -> Result<Vec<crate::capture::CaptureArea>> {
     Ok(backends::enumerate_wayland_monitors()?
         .iter()
-        .map(|monitor| {
-            (
-                monitor.rect.x,
-                monitor.rect.y,
-                monitor.rect.width,
-                monitor.rect.height,
-            )
+        .map(|monitor| crate::capture::CaptureArea {
+            x: monitor.rect.x,
+            y: monitor.rect.y,
+            width: monitor.rect.width,
+            height: monitor.rect.height,
+            scale: f64::from(monitor.scale_factor),
         })
         .collect())
 }
@@ -182,7 +181,7 @@ pub fn encode_png(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>> {
 
 use backends::capture_all_monitors;
 #[cfg(all(test, target_os = "linux"))]
-use backends::{dedupe_monitor_areas, split_portal_screenshot};
+use backends::{dedupe_monitor_areas, load_area_tile, split_portal_screenshot};
 #[cfg(test)]
 use backends::{
     monitor_union, normalize_monitor_geometry, portal_screenshot_uri_to_path, scaled_monitor_rect,

@@ -13,12 +13,14 @@ pub use manager::CaptureManager;
 /// 贴图窗口的摆放与置顶也只有这个扩展做得到（Wayland 不许客户端自己来），
 /// 所以 `pin/` 借道这里，而不是自己再开一份 D-Bus 契约。
 pub(crate) use shell_extension::place_window as shell_extension_place_window;
-/// 逐屏原生截图（协议 v4）。整屏那条路会把低缩放的屏上采样，所以这是首选，
-/// 上面那个整屏入口现在只是它的兜底。
-pub(crate) use shell_extension::request_area_screenshots as shell_extension_area_screenshots;
 /// 截图后端要用扩展这条路取冻结帧。扩展的全部 IPC 都留在 `shell_extension` 里，
 /// 这里只把入口露出去，免得契约散成两份。
 pub(crate) use shell_extension::request_screenshot as shell_extension_screenshot;
+/// 逐屏原生取像素（协议 v5）。整屏那条路既会把低缩放的屏上采样、又要 gnome-shell
+/// 编一张全桌面 PNG（实测 1.8 秒），所以这是首选，上面那个整屏入口只是它的兜底。
+pub(crate) use shell_extension::{
+    request_area_captures as shell_extension_area_captures, AreaCapture, CaptureArea,
+};
 pub use shell_extension::{InstallOutcome, ShellExtensionStatus};
 pub use types::{
     CaptureAction, CaptureActionResult, CaptureOverlayPayload, CaptureSelection,
@@ -454,42 +456,59 @@ mod timing_diagnostics {
         at.elapsed().as_secs_f64() * 1000.0
     }
 
-    /// 逐屏原生截图（协议 v4）单独计时，好和整屏那条路直接对比。
+    /// 逐屏原生取像素（协议 v5）单独计时，好和整屏那条路直接对比。
     ///
     /// 区域从 Tauri 的显示器几何来而不是 `capture_monitor_frames`：那样这一段就不依赖
     /// 截图链路本身，扩展还是旧版（截图很糊那种状态）时也能量出"新路子能快多少"。
     /// 拿不到几何就跳过——这只是诊断，不该在这里失败。
+    ///
+    /// 打印里区分 RGBA 与 PNG：扩展那边原始像素走不通时会自动退回 PNG，那时这条日志
+    /// 是"为什么还是慢"的第一手证据（另一手在 journal 的 `Clippy raw capture failed`）。
     fn print_area_screenshot_timings() {
         let Ok(monitors) = crate::screenshot::logical_monitor_areas() else {
             println!("逐屏截图：拿不到显示器几何，跳过");
             return;
         };
         let at = Instant::now();
-        match super::shell_extension::request_area_screenshots(&monitors) {
-            Ok(paths) => {
+        match super::shell_extension::request_area_captures(&monitors) {
+            Ok(captures) => {
                 println!(
-                    "扩展 ScreenshotArea × {} 并行往返: {:.1} ms",
+                    "扩展 CaptureArea × {} 并行往返: {:.1} ms",
                     monitors.len(),
                     ms(at)
                 );
-                for (area, path) in monitors.iter().zip(paths.iter()) {
+                for (area, capture) in monitors.iter().zip(captures.iter()) {
                     let at = Instant::now();
-                    let bytes = std::fs::read(path).unwrap_or_default();
-                    let decoded = image::load_from_memory(&bytes).map(|image| image.to_rgba8());
+                    let bytes = std::fs::read(capture.path()).unwrap_or_default();
+                    let dimensions = match capture {
+                        super::shell_extension::AreaCapture::Raw { width, height, .. } => {
+                            Some((*width, *height))
+                        }
+                        super::shell_extension::AreaCapture::Png { .. } => {
+                            image::load_from_memory(&bytes)
+                                .map(|image| image.to_rgba8().dimensions())
+                                .ok()
+                        }
+                    };
                     println!(
-                        "  区域 {}x{}@{},{} → {:?}，读+解码 {:.1} ms（{} KiB）",
-                        area.2,
-                        area.3,
-                        area.0,
-                        area.1,
-                        decoded.as_ref().map(|image| image.dimensions()).ok(),
+                        "  区域 {}x{}@{},{}×{:.4} → {:?} {:?}，读+解码 {:.1} ms（{} KiB）",
+                        area.width,
+                        area.height,
+                        area.x,
+                        area.y,
+                        area.scale,
+                        dimensions,
+                        match capture {
+                            super::shell_extension::AreaCapture::Raw { .. } => "RGBA",
+                            super::shell_extension::AreaCapture::Png { .. } => "PNG",
+                        },
                         ms(at),
                         bytes.len() / 1024,
                     );
-                    let _ = std::fs::remove_file(path);
+                    let _ = std::fs::remove_file(capture.path());
                 }
             }
-            Err(error) => println!("逐屏截图不可用（{:.1} ms）: {error}", ms(at)),
+            Err(error) => println!("逐屏取像素不可用（{:.1} ms）: {error}", ms(at)),
         }
     }
 
