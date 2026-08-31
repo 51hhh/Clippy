@@ -122,7 +122,12 @@ fn worth_reconnecting(error: &zbus::Error) -> bool {
 ///
 /// 用 scoped thread 是为了让闭包能直接借用调用方的 `&str` 与参数，不必为了 `'static`
 /// 把每个参数都克隆一遍。线程内的 panic 原样抛回调用方，不吞掉。
-fn off_async_runtime<T: Send>(work: impl FnOnce() -> T + Send) -> T {
+///
+/// `screenshot::screencast` 也用它，但用法不同：那里要的不是"借一条线程发个阻塞调用"，
+/// 而是"借一条线程自己开 runtime + 跑 PipeWire 的 main loop"。共用这一个入口是因为
+/// 要躲的坑是同一个（`Cannot start a runtime from within a runtime`），而它不缓存连接——
+/// Mutter 把录制会话绑在创建它的那条连接上，缓存的共享连接会让会话活到进程退出。
+pub(crate) fn off_async_runtime<T: Send>(work: impl FnOnce() -> T + Send) -> T {
     std::thread::scope(|scope| match scope.spawn(work).join() {
         Ok(value) => value,
         Err(payload) => std::panic::resume_unwind(payload),
