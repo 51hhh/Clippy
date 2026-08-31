@@ -256,26 +256,53 @@ export default class ClippyWindowsExtension extends Extension {
      *
      * 任何一步抛异常都由调用者退回 `screenshot_area` 的 PNG 路径——慢，但画面是对的。
      */
+    // stage 的色彩状态。`paint_to_content` 的 color_state 允许为 null（typelib 里标了
+    // nullable），而 `get_color_state` 是从 Clutter.Actor 继承来的、并非每个版本都有，
+    // 所以拿不到就传 null，不要让整条路死在一个 getter 上。
+    _stageColorState() {
+        try {
+            return global.stage.get_color_state?.() ?? null;
+        } catch (_error) {
+            return null;
+        }
+    }
+
     _captureAreaToRawFile(x, y, width, height, scale) {
         const content = global.stage.paint_to_content(
             new Mtk.Rectangle({x, y, width, height}),
             scale,
-            global.stage.get_color_state(),
+            this._stageColorState(),
             // 不含光标：冻结帧是覆盖层的底图，烧进一个光标只会碍事。
             Clutter.PaintFlag.NO_CURSORS);
+        if (typeof content?.get_texture !== 'function')
+            throw new Error(`paint_to_content gave ${content}`);
         const texture = content.get_texture();
         const pixelWidth = texture.get_width();
         const pixelHeight = texture.get_height();
         if (!(pixelWidth > 0) || !(pixelHeight > 0))
             throw new Error(`texture is ${pixelWidth}x${pixelHeight}`);
+        if (!texture.is_get_data_supported())
+            throw new Error('this texture cannot be read back');
 
         const stride = pixelWidth * 4;
         const data = new Uint8Array(stride * pixelHeight);
+        // 埋哨兵再读回。`get_data` 的 data 参数在 typelib 里是没有长度标注的 array<u8>，
+        // 万一 GJS 把 Uint8Array **复制**一份交给 Cogl，Cogl 写的是那份副本，我们手里
+        // 这份仍是原样——那样得到的是一张全黑的图，而不是一个能被 catch 的异常。
+        // 32 个哨兵全都没被覆盖才判定失败，误判概率 (1/256)^32，实际为零。
+        const probes = [];
+        const step = Math.max(1, Math.floor(data.length / 32));
+        for (let offset = 0; offset < data.length; offset += step) {
+            data[offset] = 0xCD;
+            probes.push(offset);
+        }
         // 直接要非预乘的 RGBA，省掉 Rust 侧的还原：截图内容 alpha 恒为 255，
         // 预乘与否本无差别，但把格式钉死能让前端那份"RGBA8 行优先"的契约不打折扣。
         const copied = texture.get_data(Cogl.PixelFormat.RGBA_8888, stride, data);
-        if (!copied)
-            throw new Error('Cogl refused to read the texture back');
+        if (!(copied > 0))
+            throw new Error(`Cogl copied ${copied} bytes`);
+        if (probes.every(offset => data[offset] === 0xCD))
+            throw new Error('the pixel buffer never reached Cogl');
 
         const [path, stream] = this._createScreenshotStream('rgba');
         try {
