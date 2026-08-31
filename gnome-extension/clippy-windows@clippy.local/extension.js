@@ -50,6 +50,14 @@ const IFACE = `
       <arg type="s" direction="in" name="token"/>
       <arg type="s" direction="out" name="path"/>
     </method>
+    <method name="ScreenshotArea">
+      <arg type="s" direction="in" name="token"/>
+      <arg type="i" direction="in" name="x"/>
+      <arg type="i" direction="in" name="y"/>
+      <arg type="i" direction="in" name="width"/>
+      <arg type="i" direction="in" name="height"/>
+      <arg type="s" direction="out" name="path"/>
+    </method>
     <method name="PlaceWindow">
       <arg type="s" direction="in" name="token"/>
       <arg type="u" direction="in" name="pid"/>
@@ -69,7 +77,7 @@ const OBJECT_PATH = '/org/gnome/Shell/Extensions/ClippyWindows';
 /// gnome-shell 只在登录时加载扩展（ReloadExtension 实测已废弃，直接报
 /// "is deprecated and does not work"），所以升级后磁盘上是新版、跑着的是旧版，
 /// 这个版本号就是区分两者的唯一依据。
-const PROTOCOL_VERSION = 3;
+const PROTOCOL_VERSION = 4;
 
 /// 截图落地目录名，挂在 XDG_RUNTIME_DIR 下（tmpfs、0700、注销即清）。
 /// 必须与 Rust 侧 shell_extension.rs 的 SCREENSHOT_DIR_NAME 一致。
@@ -149,6 +157,9 @@ export default class ClippyWindowsExtension extends Extension {
      *
      * 不闪白、不落文件到用户的图片目录：闪白是 Shell 截图 UI 自己加的效果，
      * 保存到 ~/Pictures 是 xdg-desktop-portal 的行为，这里两者都没有。
+     *
+     * **混合缩放的多屏上这条路会把画面弄糊**，原因见 ScreenshotAreaAsync。
+     * 它现在只是那条路的兜底（Rust 侧协议低于 v4、或逐屏截图失败时才用）。
      */
     ScreenshotAsync(params, invocation) {
         const [token] = params;
@@ -159,6 +170,56 @@ export default class ClippyWindowsExtension extends Extension {
             return;
         }
 
+        // 不含光标：冻结帧是给覆盖层当底图的，烧进去一个光标只会碍事。
+        this._captureToFile(invocation,
+            (shooter, stream, done) => shooter.screenshot(false, stream, done),
+            (shooter, result) => shooter.screenshot_finish(result));
+    }
+
+    /**
+     * 截 stage 上的**一块矩形区域**（逻辑像素，与 GetWindows 同一坐标系）到私有 PNG。
+     *
+     * 为什么需要它——这是"截图很糊"的根因所在。Mutter 算截图尺寸用的是
+     * `clutter_stage_get_capture_final_size`：`区域 × max(与该区域相交的各视图的缩放)`。
+     * 整个 stage 的矩形当然和每块屏都相交，于是**整张图都按全桌面最大的那个缩放渲染**，
+     * 缩放较低的屏在图里是被上采样的。实测本机：eDP 原生 2560x1600（逻辑 1920x1200，
+     * 缩放 1.3333）在整屏图里是 2880x1800（= 逻辑 × 外接 4K 的 1.5），糊在最开始那一步，
+     * 后面无论怎么裁都救不回来。把区域收成**单块屏的逻辑矩形**之后，相交的只有这块屏
+     * 自己的视图，max(scale) 就是它自己的缩放，出来的正好是原生像素。
+     *
+     * 区域必须**正好是**那块屏的矩形，不要向外留边：多出去的一个像素就会碰到隔壁屏的
+     * 视图，把它的缩放重新拉进 max() 里，等于又回到上采样。
+     *
+     * 每次都 `new Shell.Screenshot()`：一个 ShellScreenshot 实例同时只允许一次截图
+     * （第二次直接 G_IO_ERROR_PENDING "Only one screenshot operation at a time"），
+     * 而逐屏截图要的正是它们同时进行——PNG 编码在各自的 worker 线程里跑，能真正重叠。
+     *
+     * 区域截图不含光标（shell_screenshot_screenshot_area 压根没有这个参数），
+     * 和整屏那条路一致。
+     */
+    ScreenshotAreaAsync(params, invocation) {
+        const [token, x, y, width, height] = params;
+        if (!this._tokenMatches(token)) {
+            invocation.return_gerror(Gio.DBusError.new_for_dbus_error(
+                'org.freedesktop.DBus.Error.AccessDenied',
+                'Clippy screenshot requires a matching token'));
+            return;
+        }
+        // 空矩形会让 Clutter 那边直接失败，报错还很难懂；在门口挡掉。
+        if (!(width > 0) || !(height > 0)) {
+            invocation.return_gerror(Gio.DBusError.new_for_dbus_error(
+                'org.freedesktop.DBus.Error.InvalidArgs',
+                `Clippy screenshot area ${width}x${height} is empty`));
+            return;
+        }
+
+        this._captureToFile(invocation,
+            (shooter, stream, done) => shooter.screenshot_area(x, y, width, height, stream, done),
+            (shooter, result) => shooter.screenshot_area_finish(result));
+    }
+
+    /// 两个截图方法共用的收尾：开一个私有文件、发起截图、成败都把文件处置干净。
+    _captureToFile(invocation, start, finish) {
         let path, stream;
         try {
             [path, stream] = this._createScreenshotStream();
@@ -169,10 +230,9 @@ export default class ClippyWindowsExtension extends Extension {
             return;
         }
 
-        // 不含光标：冻结帧是给覆盖层当底图的，烧进去一个光标只会碍事。
-        new Shell.Screenshot().screenshot(false, stream, (shooter, result) => {
+        start(new Shell.Screenshot(), stream, (shooter, result) => {
             try {
-                shooter.screenshot_finish(result);
+                finish(shooter, result);
                 stream.close(null);
                 invocation.return_value(new GLib.Variant('(s)', [path]));
             } catch (error) {
