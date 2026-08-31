@@ -101,7 +101,7 @@ Rust 后端 (src-tauri/src/)
 
 ### 数据流
 
-1. `ClipboardWatcher` 独立线程每 500ms 轮询系统剪贴板（arboard）
+1. `ClipboardWatcher` 独立线程每 500ms 轮询系统剪贴板（arboard）；程序化写入不必等这一轮——`clipboard_watcher/writer.rs` 写成功后敲 `wake::nudge()`，轮询等待当场结束
 2. SHA-256 哈希去重 → 重复内容只更新 `created_at` 置顶
 3. 写入 SQLite `clips` 表 + 同步 `clips_fts` FTS5 虚拟表
 4. `app.emit("clip-added")` / `app.emit("clip-removed")` 通知前端
@@ -136,7 +136,7 @@ Rust 后端 (src-tauri/src/)
 
 ## 关键设计约束
 
-- 剪贴板监听采用轮询（~500ms），不使用系统通知机制
+- 剪贴板监听采用轮询（~500ms），不使用系统通知机制；但**自己写入**时会唤醒轮询（`clipboard_watcher/wake.rs`），否则"截图复制完立刻 Pin"会取到上一条
 - 内容去重基于 SHA-256 哈希（`content_hash` 字段 UNIQUE 约束）
 - 收藏条目不受历史上限清理影响（`cleanup_old_entries` 跳过 `is_favorite = 1`）
 - SQLite 数据库位于 Tauri app data 目录，`config.storage_mode` 可切换为 `"memory"`
