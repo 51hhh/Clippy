@@ -1,0 +1,47 @@
+{
+  "name": "三屏三种缩放",
+  "note": "两屏时\"最大缩放\"和\"另一块屏的缩放\"只有两个候选，容易蒙对；三屏才能区分\"用了最大缩放\"和\"用了第一块屏的缩放\"。三块屏高度不同，所以并集不是矩形、覆盖率只有 0.88——那是正常的，不能当成错误报。",
+  "session": {
+    "compositor": "GNOME Shell (Wayland, 分数缩放)",
+    "backend": "gnome-shell-extension"
+  },
+  "stage": { "width": 8640, "height": 2160 },
+  "monitors": [
+    { "id": 1, "x": 0, "y": 0, "width": 2560, "height": 1440, "scale": 1.5 },
+    { "id": 2, "x": 2560, "y": 0, "width": 1920, "height": 1200, "scale": 1.3333334 },
+    { "id": 3, "x": 4480, "y": 0, "width": 1280, "height": 1024, "scale": 1.0 }
+  ],
+  "expect": {
+    "stageClass": "logical",
+    "invariants": [],
+    "monitors": [
+      {
+        "id": 1,
+        "x": 0,
+        "y": 0,
+        "width": 2560,
+        "height": 1440,
+        "scale": 1.5,
+        "crop": { "x": 0, "y": 0, "width": 3840, "height": 2160 }
+      },
+      {
+        "id": 2,
+        "x": 2560,
+        "y": 0,
+        "width": 1920,
+        "height": 1200,
+        "scale": 1.5,
+        "crop": { "x": 3840, "y": 0, "width": 2880, "height": 1800 }
+      },
+      {
+        "id": 3,
+        "x": 4480,
+        "y": 0,
+        "width": 1280,
+        "height": 1024,
+        "scale": 1.5,
+        "crop": { "x": 6720, "y": 0, "width": 1920, "height": 1536 }
+      }
+    ]
+  }
+}

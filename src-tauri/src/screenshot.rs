@@ -12,6 +12,15 @@ use image::{
 use std::sync::Arc;
 
 mod backends;
+mod geometry_check;
+
+/// fixture 的格式定义，诊断的输出侧与回归测试的输入侧共用。
+#[cfg(target_os = "linux")]
+mod layout_format;
+
+/// 显示器配置即数据：一个 json 一种环境，见 `tests/fixtures/monitor-layouts/`。
+#[cfg(all(test, target_os = "linux"))]
+mod layout_fixtures;
 
 #[cfg(test)]
 mod test_geometry;
@@ -19,7 +28,7 @@ mod test_geometry;
 #[cfg(test)]
 use test_geometry::compose_desktop_image;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Rect {
     x: i32,
     y: i32,
@@ -131,8 +140,12 @@ pub fn encode_png(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>> {
 }
 
 use backends::capture_all_monitors;
+#[cfg(all(test, target_os = "linux"))]
+use backends::split_portal_screenshot;
 #[cfg(test)]
-use backends::{monitor_union, portal_screenshot_uri_to_path, scaled_monitor_rect};
+use backends::{
+    monitor_union, normalize_monitor_geometry, portal_screenshot_uri_to_path, scaled_monitor_rect,
+};
 
 #[cfg(test)]
 mod tests;

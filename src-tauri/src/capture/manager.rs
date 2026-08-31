@@ -55,6 +55,20 @@ fn since(at: Instant) -> f64 {
 #[derive(Default)]
 pub struct CaptureManager {
     session: Mutex<Option<CaptureSession>>,
+    /// 最近一次 I4 观测。**刻意活得比会话长**：用户总是"截完图发现界面错位"之后才去点诊断，
+    /// 那时会话早就结束了。存在这里，诊断报告才有唯一那条闭环自检的结果可写。
+    last_viewport: Mutex<Option<ViewportObservation>>,
+}
+
+/// 一次 I4 观测：后端算的逻辑尺寸、前端实测的视口，以及两者的差。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ViewportObservation {
+    /// 后端下发给这块覆盖层的显示器逻辑尺寸。
+    pub expected: (u32, u32),
+    /// 前端 `window.innerWidth/innerHeight` 实测到的。
+    pub actual: (u32, u32),
+    /// `None` 表示这次对上了。
+    pub mismatch: Option<(i64, i64)>,
 }
 
 pub(super) struct CaptureSession {
@@ -78,6 +92,32 @@ impl CaptureSession {
             .iter()
             .map(|spec| spec.label.clone())
             .collect()
+    }
+}
+
+/// 视口比对允许的误差：CSS 像素和逻辑像素之间会有一格取整噪声。
+const VIEWPORT_TOLERANCE: i64 = 1;
+
+/// **不变量 I4：覆盖层的真实可见视口必须等于它那块屏的逻辑尺寸。**
+///
+/// 这是整条几何链路上唯一的**闭环**。I1–I3 都是后端拿自己的数据互相对账，只有这一条
+/// 看到了"合成器最终摆出来的样子"——而那才是用户看到的东西。全屏请求并不保证窗口被压到
+/// 显示器尺寸：内容的最小尺寸比显示器大时，合成器给了 fullscreen 状态、GTK 仍按内容尺寸
+/// 分配，窗口于是居中摆放并溢到隔壁屏（实测，见 docs/capture-linux.md §4）。那种情况下
+/// I1–I3 全过，用户看到的却是错位加工具条消失。
+///
+/// 返回宽高各自的差值（实测 − 预期），在容差内返回 `None`。
+pub(super) fn viewport_mismatch(expected: (u32, u32), actual: (u32, u32)) -> Option<(i64, i64)> {
+    // 视口为 0 说明窗口还没布局完（或前端拿不到），不是几何错误。
+    if actual.0 == 0 || actual.1 == 0 {
+        return None;
+    }
+    let dx = actual.0 as i64 - expected.0 as i64;
+    let dy = actual.1 as i64 - expected.1 as i64;
+    if dx.abs() <= VIEWPORT_TOLERANCE && dy.abs() <= VIEWPORT_TOLERANCE {
+        None
+    } else {
+        Some((dx, dy))
     }
 }
 
@@ -137,15 +177,44 @@ impl CaptureManager {
     ///
     /// 覆盖层是隐藏建窗的：webview 加载 + 取 payload + 铺底图期间窗口一旦可见，
     /// 用户看到的就是一整屏 webview 默认底色（白屏）。所以显示时机由前端决定。
+    /// `viewport` 是前端实测的可见视口（CSS 像素），用来闭合不变量 I4；
+    /// 拿不到时传 `None`，只是少一条自检，绝不影响显示。
     pub(super) fn reveal(
         &self,
         label: &str,
         cursor: Option<(f64, f64)>,
+        viewport: Option<(u32, u32)>,
     ) -> Result<RevealPlan, CaptureError> {
         let mut current = self.session.lock().map_err(CaptureError::state_lock)?;
         let session = current.as_mut().ok_or(CaptureError::SessionMissing)?;
-        if !session.overlays.iter().any(|spec| spec.label == label) {
-            return Err(CaptureError::OverlayNotInSession);
+        let spec = session
+            .overlays
+            .iter()
+            .find(|spec| spec.label == label)
+            .ok_or(CaptureError::OverlayNotInSession)?;
+
+        // **不变量 I4**：合成器最终摆出来的尺寸和我们算的逻辑尺寸对不上，这里是唯一的发现机会。
+        if let Some(actual) = viewport {
+            let expected = (spec.width, spec.height);
+            let mismatch = viewport_mismatch(expected, actual);
+            // 对上了也要记：诊断报告里"查过、通过了"和"没查过"是两回事。
+            if let Ok(mut last) = self.last_viewport.lock() {
+                *last = Some(ViewportObservation {
+                    expected,
+                    actual,
+                    mismatch,
+                });
+            }
+            if let Some((dx, dy)) = mismatch {
+                log::error!(
+                    "I4 覆盖层 {label} 的可见视口 {}x{} 与显示器逻辑尺寸 {}x{} 不一致（差 {dx}x{dy}）：\
+                     几何很可能算错了，界面会错位；诊断见 docs/capture-linux.md §4",
+                    actual.0,
+                    actual.1,
+                    spec.width,
+                    spec.height,
+                );
+            }
         }
         // 光标所在的那块覆盖层独占焦点：合成器可能拒绝第二次 set_focus，
         // 所以不能让先画完的那块先抢一次再让给它。
@@ -176,6 +245,12 @@ impl CaptureManager {
             timings.elapsed_ms() - timings.payload_at_ms - timings.deliver_ms,
         );
         Ok(RevealPlan { take_focus })
+    }
+
+    /// 最近一次 I4 观测，给诊断报告用。`None` 表示这个进程还没有截过图
+    /// （或前端一次都没报上视口）——那时报告必须说"未观测"，不能说"通过"。
+    pub(crate) fn last_viewport(&self) -> Option<ViewportObservation> {
+        self.last_viewport.lock().ok().and_then(|last| *last)
     }
 
     pub(super) fn payload(&self, label: &str) -> Result<CaptureOverlayPayload, CaptureError> {
@@ -598,13 +673,41 @@ mod tests {
     }
 
     #[test]
+    fn viewport_mismatch_only_fires_on_real_disagreement() {
+        // 一致（含 1 像素取整噪声）→ 不报。
+        assert_eq!(viewport_mismatch((1920, 1200), (1920, 1200)), None);
+        assert_eq!(viewport_mismatch((1920, 1200), (1919, 1201)), None);
+        // 还没布局完 → 不是几何错误。
+        assert_eq!(viewport_mismatch((1920, 1200), (0, 0)), None);
+        // 真机上出过的那一幕：几何被算大 1.125 倍，窗口按 1920x1200 摆，
+        // 画布却按 2160x1350 画，右下工具条落到窗口外面。
+        assert_eq!(
+            viewport_mismatch((2160, 1350), (1920, 1200)),
+            Some((-240, -150))
+        );
+    }
+
+    #[test]
+    fn reveal_reports_the_viewport_without_refusing_to_show_the_overlay() {
+        // I4 失败只该留日志：拒绝显示等于让用户完全用不了截图。
+        let manager = CaptureManager::new();
+        let (left, _) = two_monitor_session(&manager);
+        assert!(
+            manager
+                .reveal(&left, None, Some((800, 600)))
+                .unwrap()
+                .take_focus
+        );
+    }
+
+    #[test]
     fn reveal_gives_focus_to_the_overlay_under_the_cursor() {
         let manager = CaptureManager::new();
         let (left, right) = two_monitor_session(&manager);
         // 光标在右屏：左屏先报告首帧也不该抢走焦点。
         let cursor = Some((2400.0, 300.0));
-        assert!(!manager.reveal(&left, cursor).unwrap().take_focus);
-        assert!(manager.reveal(&right, cursor).unwrap().take_focus);
+        assert!(!manager.reveal(&left, cursor, None).unwrap().take_focus);
+        assert!(manager.reveal(&right, cursor, None).unwrap().take_focus);
     }
 
     #[test]
@@ -612,8 +715,8 @@ mod tests {
         let manager = CaptureManager::new();
         let (left, right) = two_monitor_session(&manager);
         // Wayland 下拿不到光标位置时必须有人接键盘，否则 Esc 取消都用不了。
-        assert!(manager.reveal(&left, None).unwrap().take_focus);
-        assert!(!manager.reveal(&right, None).unwrap().take_focus);
+        assert!(manager.reveal(&left, None, None).unwrap().take_focus);
+        assert!(!manager.reveal(&right, None, None).unwrap().take_focus);
     }
 
     #[test]
@@ -621,7 +724,7 @@ mod tests {
         let manager = CaptureManager::new();
         assert_eq!(
             manager
-                .reveal("capture-overlay-none-1", None)
+                .reveal("capture-overlay-none-1", None, None)
                 .unwrap_err()
                 .code(),
             "session_missing"
@@ -629,11 +732,11 @@ mod tests {
         let (left, _) = two_monitor_session(&manager);
         assert_eq!(
             manager
-                .reveal("capture-overlay-other-1", None)
+                .reveal("capture-overlay-other-1", None, None)
                 .unwrap_err()
                 .code(),
             "overlay_not_in_session"
         );
-        assert!(manager.reveal(&left, None).is_ok());
+        assert!(manager.reveal(&left, None, None).is_ok());
     }
 }

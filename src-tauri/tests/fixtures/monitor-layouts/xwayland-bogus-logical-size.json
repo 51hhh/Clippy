@@ -1,0 +1,27 @@
+{
+  "name": "xcap 在 XWayland 上报出的物理味几何",
+  "note": "xcap 0.9.6 把 RandR 尺寸除以自己探测的缩放当逻辑尺寸：真实 1920x1200 的桌面被报成 2880x1800（3840x2400 ÷ 1.3333）。并集和舞台图一样大而显示器自称有缩放，这是 physical 的判据；这时候必须按最大缩放反推逻辑尺寸，否则覆盖层既错位又错缩放。",
+  "session": {
+    "compositor": "GNOME Shell 50.1 (Wayland, XWayland 客户端)",
+    "backend": "xcap"
+  },
+  "stage": { "width": 2880, "height": 1800 },
+  "monitors": [
+    { "id": 1, "x": 0, "y": 0, "width": 2880, "height": 1800, "scale": 1.5 }
+  ],
+  "expect": {
+    "stageClass": "physical",
+    "invariants": [],
+    "monitors": [
+      {
+        "id": 1,
+        "x": 0,
+        "y": 0,
+        "width": 1920,
+        "height": 1200,
+        "scale": 1.5,
+        "crop": { "x": 0, "y": 0, "width": 2880, "height": 1800 }
+      }
+    ]
+  }
+}

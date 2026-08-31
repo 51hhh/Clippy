@@ -1,0 +1,38 @@
+{
+  "name": "镜像输出（两块屏同一个矩形）",
+  "note": "投影常用。两块屏几何完全相同，于是两次裁剪从舞台图的同一处取像素。这一条曾经被记成 I2a 失败（\"裁剪矩形重叠\"），也就是说一接投影仪就报几何错——而 I2a 真正要抓的是已拔掉的屏和热插拔前的陈几何那种**部分**重叠，没有任何正常配置能解释。现在完全相同的裁剪先被 find_mirror_sources 摘成镜像：I2a 不再响，镜像关系写在 mirrorOf 里（并且切图时直接共享源屏那份缓冲，1080p 省掉一次 8 MB 的拷贝）。mirrorOf 必须钉住：光钉\"I2a 不报\"的话，有人把镜像识别整段删掉这条测试照样过。另外注意覆盖率现在只算非镜像的那些，否则同一块面积会被数两遍算出 200%。",
+  "session": {
+    "compositor": "GNOME Shell (Wayland, 镜像模式)",
+    "backend": "gnome-shell-extension"
+  },
+  "stage": { "width": 1920, "height": 1080 },
+  "monitors": [
+    { "id": 1, "x": 0, "y": 0, "width": 1920, "height": 1080, "scale": 1.0 },
+    { "id": 2, "x": 0, "y": 0, "width": 1920, "height": 1080, "scale": 1.0 }
+  ],
+  "expect": {
+    "stageClass": "logical",
+    "invariants": [],
+    "monitors": [
+      {
+        "id": 1,
+        "x": 0,
+        "y": 0,
+        "width": 1920,
+        "height": 1080,
+        "scale": 1.0,
+        "crop": { "x": 0, "y": 0, "width": 1920, "height": 1080 }
+      },
+      {
+        "id": 2,
+        "x": 0,
+        "y": 0,
+        "width": 1920,
+        "height": 1080,
+        "scale": 1.0,
+        "crop": { "x": 0, "y": 0, "width": 1920, "height": 1080 },
+        "mirrorOf": 1
+      }
+    ]
+  }
+}

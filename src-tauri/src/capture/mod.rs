@@ -167,9 +167,15 @@ pub fn get_capture_frame(
 /// 之前是建窗就 `show()`，于是 webview 加载 + 取 payload + 铺底图的整段时间里
 /// 用户盯着一整屏白色（webview 默认底色），画面才姗姗出现。现在窗口先隐藏，
 /// 由前端决定显示时机；兜底定时器见 `overlay_windows::READY_FALLBACK_MS`。
+///
+/// 顺带捎上前端实测的可见视口，闭合不变量 I4（见 `manager::viewport_mismatch`）：
+/// 这是唯一一条能看到"合成器最终摆成什么样"的自检，而这里恰好是它天然的时机——
+/// 首帧画完意味着窗口已经布局完成。为它单开一个 IPC 命令纯属多余。
 #[tauri::command]
 pub fn mark_capture_overlay_ready(
     label: String,
+    viewport_width: Option<u32>,
+    viewport_height: Option<u32>,
     app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
@@ -178,7 +184,8 @@ pub fn mark_capture_overlay_ready(
         .cursor_position()
         .ok()
         .map(|cursor| (cursor.x, cursor.y));
-    let plan = state.capture_manager.reveal(&label, cursor)?;
+    let viewport = viewport_width.zip(viewport_height);
+    let plan = state.capture_manager.reveal(&label, cursor, viewport)?;
     overlay_windows::reveal(&app_handle, &label, plan.take_focus)?;
     Ok(())
 }

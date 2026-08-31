@@ -1,0 +1,27 @@
+{
+  "name": "热插拔后的陈几何（少了一块屏）",
+  "note": "舞台图是两块屏的，几何却只枚举到一块——插拔瞬间或缓存没失效时的真实状态。舞台倍率 x/y 各不相同（2.625 与 1.675），既不等于最大缩放也不等于 1，所以判为 unknown 并**放弃修正**：这时候任何修正都是在错上加错。截图不会失败，但覆盖层会错位，日志里必须留下 I1/I3 两条。",
+  "session": {
+    "compositor": "GNOME Shell (Wayland)",
+    "backend": "gnome-shell-extension"
+  },
+  "stage": { "width": 6720, "height": 2412 },
+  "monitors": [
+    { "id": 1, "x": 0, "y": 0, "width": 2560, "height": 1440, "scale": 2.0 }
+  ],
+  "expect": {
+    "stageClass": "unknown",
+    "invariants": ["I1", "I3"],
+    "monitors": [
+      {
+        "id": 1,
+        "x": 0,
+        "y": 0,
+        "width": 2560,
+        "height": 1440,
+        "scale": 2.625,
+        "crop": { "x": 0, "y": 0, "width": 6720, "height": 2412 }
+      }
+    ]
+  }
+}

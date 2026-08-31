@@ -20,8 +20,15 @@ export const overlayApi = {
   get: (label: string): Promise<CaptureOverlayPayload> => getCaptureOverlay(label),
   /** 冻结帧像素（原始 RGBA，二进制 IPC）。payload 里没有图，底图从这里来。 */
   frame: (label: string): Promise<ArrayBuffer> => getCaptureFrame(label),
-  /** 首帧已画好 / 或已经有错误可以显示——两种情况都该让窗口露出来。 */
-  ready: (label: string): Promise<void> => markCaptureOverlayReady(label),
+  /**
+   * 首帧已画好 / 或已经有错误可以显示——两种情况都该让窗口露出来。
+   *
+   * 顺手把**当下实测的**视口交给后端做 I4 自检。刻意在这里读
+   * `window.innerWidth/innerHeight` 而不是从 React 状态里取：这一刻窗口刚布局完，
+   * 是全链路里最新、也是唯一能反映"合成器最终摆成什么样"的数字。
+   */
+  ready: (label: string): Promise<void> =>
+    markCaptureOverlayReady(label, window.innerWidth, window.innerHeight),
   cancel: (sessionId: string): Promise<void> => cancelCaptureOverlay(sessionId),
   /**
    * 提交画布渲染好的 PNG：裁剪与标注都已经合成进去，后端只负责落地。
