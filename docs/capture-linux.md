@@ -228,17 +228,22 @@ gnome-shell 加载失败才暴露，而报错只进 journal。
 
 `screenshot/backends.rs::capture_all_monitors` 在 Wayland 上按这个顺序试，**顺序是结论，不是偏好**：
 
-1. **自带 GNOME Shell 扩展，逐屏原生取像素**（`CaptureArea`，协议 v5）。GNOME Wayland 上的首选：
-   每块屏拿到的都是它自己面板的原生像素，而且**不经过 PNG**——画质见 §3.3，为什么必须绕开
-   PNG 见 §3.1。
+1. **Mutter 的 PipeWire 屏幕流**（`org.gnome.Mutter.ScreenCast`，见 §3.4）。GNOME Wayland
+   上的首选，**分辨率和速度都出自这一条**：每块屏拿到自己面板的原生像素，而且完全不生成 PNG。
+   本机双屏实测 `capture_monitor_frames` 全程 **280 ms**（此前 1900 ms）。不经 Portal、
+   不弹对话框、不需要 restore token、不需要装扩展也不需要注销。不是 GNOME 就在几毫秒内失败退下一条。
+2. **自带 GNOME Shell 扩展，逐屏原生取像素**（`CaptureArea`，协议 v5）。画质上的兜底：
+   每块屏也是原生像素，但它仍然要在 gnome-shell 里编一次 PNG（4K 那块屏约 1.7 s，见 §3.1），
+   所以只在上面那条不可用时才有意义。
    - 扩展跑在 v5 但 GI 那条路失败时，它自己回退到 `screenshot_area`（返回 `format = 'PNG'`），
-     Rust 侧照常解码，只是慢回 v4 的水平。
+     Rust 侧照常解码。**注意 v5 的原始像素分支在 GJS 上根本不可能成功**（§3.1），
+     实际跑的一直是这个回退。
    - 协议低于 v5（装了新版还没注销）或逐屏这条路任何一步失败时，退到**同一个扩展的整屏舞台图**
      （`Screenshot`）。画面可用，但混合缩放的多屏上低缩放那块会被上采样，偏糊，而且慢。
-2. **wlroots**（`libwayshot-xcap`）。sway/Hyprland 用这条。
-3. **xdg-desktop-portal**（非交互 `Screenshot`）。非 GNOME 的桌面用这条。
-4. **`org.gnome.Shell.Screenshot`**（不带扩展时的 D-Bus 直调，白名单外一律拒绝，基本只是聊胜于无）。
-5. **xcap**。最后兜底。
+3. **wlroots**（`libwayshot-xcap`）。sway/Hyprland 用这条。
+4. **xdg-desktop-portal**（非交互 `Screenshot`）。非 GNOME 的桌面用这条。
+5. **`org.gnome.Shell.Screenshot`**（不带扩展时的 D-Bus 直调，白名单外一律拒绝，基本只是聊胜于无）。
+6. **xcap**。最后兜底。
 
 为什么扩展要排在 Portal 前面——这是一个被真实 bug 逼出来的顺序，别改回去：
 
@@ -347,26 +352,34 @@ PNG 解开，再用同一个 gdk-pixbuf 把**这些一模一样的像素**在本
 `Clutter.Content` → `get_texture()` → `Cogl.Texture.get_data(RGBA_8888, stride, buffer)`，
 把原始字节写进 tmpfs。绘制照旧，压缩没了，读回是 `$XDG_RUNTIME_DIR`（内存文件系统）里的
 一次顺序读。我方也不再解 PNG——`stride` 正好一行时字节**原样**变成帧缓冲，
-有行内填充才按行重排（`load_area_tile`）。按上表推算，4K 那块屏应该从 1704 ms 降到
-约 100 ms，而且尺寸仍是**原生** 3840×2160（`scale` 由调用方指定，不再依赖"区域正好等于
-单块屏"这个前提）——分辨率与速度是同一个修改带来的，不是二选一。
+有行内填充才按行重排（`load_area_tile`）。**尺寸这一半兑现了**——每块屏都是原生
+3840×2160 / 2560×1600（`scale` 由调用方指定，不再依赖"区域正好等于单块屏"这个前提），
+**速度那一半没有**，原因在下面。
 
-**这条路唯一测不出来的风险，以及它为什么仍然安全。**
+**但这条路是死的：GJS 不可能把可写缓冲区交给 Cogl。**
 `Cogl.Texture.get_data` 在 typelib 里的签名是
 `get_data(format, rowstride: u32, data: array<u8>) -> i32`，那个数组**没有长度标注**
-（`len_arg=False, fixed=False, zero_terminated=False`），所以 GJS 到底是把
-`Uint8Array` 的内存直接交给 Cogl、还是**复制**一份过去，从内省信息里看不出来。
-若是复制，Cogl 写的是副本，我们手里那份仍是初值——结果是一张**全黑的图**，
-而不是一个能被 `catch` 的异常，也就不会触发回退。查证过、都不能证伪：
-gnome-shell 自己的 JS（从 `libshell-*.so` 用 `gresource` 抽出来的 160 个文件）
-只用 `actor.paint_to_content(null)`，**全库没有一处 `get_data`、`paint_to_buffer` 或
-`Uint8Array`**；GJS 里也建不出无头 Cogl 上下文（`Cogl.Renderer.connect()` 报
-`no winsys set`，`Cogl.Context.new` 还要一个 `Cogl.Display`），没法在 gnome-shell 之外试。
+（`len_arg=False, fixed=False, zero_terminated=False`）。没有长度标注的 `array<uint8>`
+在 GJS 里一律是**入参语义**：把 `Uint8Array` 复制一份交给 C，调用返回后立刻释放那份副本。
+Cogl 写的是副本，JS 手里那份仍是初值——结果是一张**全黑的图**，而不是能被 `catch` 的异常。
 
-所以扩展里加了两道自检，把"静默黑图"变成"能被 catch 的异常"，从而落进已有的 PNG 回退：
-1. `texture.is_get_data_supported()` —— 纹理自己说能不能读回；
-2. **哨兵字节**：读回前在缓冲区里等距埋 32 个 `0xCD`，读回后如果这 32 个位置**一个都没被
-   覆盖**，就判定"缓冲区没真的交给 Cogl"并抛错。误判概率 (1/256)^32，实际为零。
+**证法**（不能直接试 `get_data`，GJS 里建不出无头 Cogl 上下文：`Cogl.Renderer.connect()`
+报 `no winsys set`，`Cogl.Context.new` 还要一个 `Cogl.Display`）：找一个**同形状**的函数
+——`GdkPixbuf.Pixbuf.new_from_data`，同样是没有长度标注的 `array<uint8>`，但它会**保留**
+指针，于是可以拿"改 JS 侧的数组，看 pixbuf 有没有跟着变"来判定是不是别名：
+
+| 缓冲区 | 结果 |
+|---|---|
+| 4×4（64 B） | 改 JS 侧的字节，pixbuf 读出来**没变** ⇒ 是副本 |
+| 256×256（196 608 B） | pixbuf 读回来**全是垃圾** ⇒ 副本已被释放 |
+| 1024×1024（3 MB） | **段错误** |
+
+所以 v5 的两道自检（`texture.is_get_data_supported()` + 读回前在缓冲区等距埋 32 个 `0xCD`、
+读回后若一个都没被覆盖就抛错，误判概率 (1/256)^32）**不是加速手段，只是把静默黑图变成
+能 catch 的异常**，好落进已有的 PNG 回退。它们要留着，但别再指望这条路提速。
+
+**真正绕开 PNG 的办法在合成器外面：`org.gnome.Mutter.ScreenCast` + PipeWire，见 §3.4。**
+同一个用户直接可调，拿到的就是原生像素的原始帧，不经过任何压缩。
 
 **不注销就能验证：`scripts/probe-shell-capture.sh`。** gnome-shell 只在登录时加载扩展
 （`ReloadExtension` 已废弃，disable/enable 会复用缓存的 ESM 模块），所以改一行扩展 JS
@@ -485,6 +498,68 @@ WebKitGTK 走 GTK3，而 GTK3 不支持 `wp_fractional_scale_v1`，Mutter 只能
 版本前后的对比一条命令就能出。注意抬过协议版本之后当前会话必然是 `stale`
 （设置页显示 "Update pending"），**必须注销重登一次新路径才会生效**，
 否则画质与耗时和以前完全一样。
+
+### 3.4 Mutter 的 PipeWire 屏幕流：原生分辨率 + 一个数量级的提速
+
+前面两节各留了一半问题：§3.3 修好了分辨率（逐屏原生），§3.1 证明了剩下的时间几乎全在
+gnome-shell 内部的 PNG deflate 上，而 `Shell.Screenshot` 不暴露压缩档位、GJS 又不可能
+把可写缓冲区交给 Cogl。**两半一起解决的办法是不从 gnome-shell 要图片，改从 Mutter 要视频帧。**
+
+`org.gnome.Mutter.ScreenCast`（`Version = 4`）**同一个用户直接可调**：不经
+xdg-desktop-portal、不弹授权对话框、不需要 restore token、不需要装扩展、不需要注销。
+实现在 `screenshot/screencast.rs`，流程是
+
+```
+CreateSession(a{sv}) -> o
+  Session.RecordMonitor(connector, {cursor-mode: 0, is-recording: true}) -> o   # 每块屏一次
+  订阅每条 Stream 的 PipeWireStreamAdded(u)        ← 必须早于 Start
+  Session.Start()
+  收到 node id 后连 PipeWire，每个 node 取第一帧就够
+  Session.Stop()                                   ← RAII 守卫无条件发
+```
+
+本机实测（GNOME 50.1 Wayland，HDMI-1 3840×2160 ×1.5 + eDP-1 2560×1600 ×1.3333）：
+
+| | 耗时 | 拿到的画面 |
+|---|---|---|
+| 分段（单屏） | CreateSession 1 ms、RecordMonitor 1 ms、Start 61 ms、node 就绪 18 ms、第一帧 104 ms | 3840×2160 = 33 177 600 B |
+| 一个会话同时录两块屏 | **351 ms**（dev 构建，含两次共 48 MB 的通道重排） | 3840×2160 + 2560×1600，都是**原生** |
+| 单独录一块 | HDMI-1 158 ms / eDP-1 106 ms | 同上 |
+| `capture_monitor_frames` 全程 | **280 ms**（此前 **1900 ms**） | |
+
+几条必须记住的约束：
+
+- **`is-recording` 必须传 `true`。** 取流期间 GNOME 顶栏会亮一下 `media-record-symbolic`
+  隐私点（约 200 ms），这是合成器对"有人在读屏幕"的诚实提示，不该也不能绕开。但传 `false`
+  会落到 `ScreenSharingIndicator` 那条分支，而那个"停止共享"胶囊有 **5 秒最短显示时间**
+  （gnome-shell `js/ui/status/remoteAccess.js` 的 `MIN_SHARED_INDICATOR_VISIBLE_TIME_US`）。
+  一次截图在顶栏留五秒胶囊，比闪一下小红点糟得多。
+- **会话的命绑在创建它的那条 D-Bus 连接上**：对端一断开，Mutter 立刻销毁会话（`Stop` 都来不及发）。
+  所以这条路**不能用 `dbus.rs` 缓存的共享连接**，它自己开一条，取完帧才放。
+  这也是"用 `gdbus call` 手工建会话再去 introspect 什么都看不到"的原因。
+- **`cursor-mode: 0`**（`MetaCursorMode.HIDDEN`）：冻结帧是覆盖层的底图，烧进一个光标只会碍事。
+- **像素尺寸只能看实际收到的帧**。Stream 的 `Parameters` 属性里的 `size` 是**逻辑**尺寸
+  （本机 HDMI 报 2560×1440），拿它当帧尺寸会算错 stride。
+- **`EnumFormat` 里故意不写 `modifier`**。写了 Mutter 就会尝试 DMA-BUF，而我们要的是能直接
+  memcpy 的共享内存。协商出来通常是 `BGRx`；8 种 32 位排列都报出去并且都认
+  （`every_advertised_format_has_a_layout` 钉住"报了就得认"，报了却不认会在协商成功之后
+  才在运行时失败，那时已经退不回别的后端了）。
+- **行尾填充要丢掉**，最后一行没有填充（字节数下限是 `stride × (行数−1) + 一行`，
+  按 `stride × 行数` 算会把合法帧判成截断）。这几条在 `repack_to_rgba` 的单元测试里。
+- **线程模型**：整段（zbus + PipeWire main loop）跑在 `dbus::off_async_runtime` 借的一条
+  干净 OS 线程上。调用方可能已经在 tokio worker 上（那里新建 runtime 会
+  `Cannot start a runtime from within a runtime`），而 PipeWire 的 main loop 又会把所在线程占住。
+- **Rust 侧的析构顺序**：`StreamListener` 必须先于 `Stream` 析构，而局部变量按声明的**逆序**
+  析构，所以 `streams` 要声明在 `listeners` 前面。
+
+**验证方式**：`cargo test --lib screencast_timings -- --ignored --nocapture`，会先打印每块屏
+"逻辑尺寸 × 真实缩放 = 期望像素"，再打印一次会话录全部屏、以及逐块单独录的耗时和实收尺寸。
+不需要注销，也不需要装扩展。
+
+非 GNOME 的合成器上这条路会在几毫秒内失败（`CreateSession` 直接没有这个 bus name），
+照旧退到后面的 wlroots / Portal。KDE 与 wlroots 那边的等价物是 Portal 的 ScreenCast +
+restore token，**目前没做**：那条路第一次要弹一次授权对话框，而截图是全局快捷键触发的，
+和 §3 里 Portal 截图失败的原因是同一个。
 
 ## 4. 三套坐标空间
 

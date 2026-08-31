@@ -84,15 +84,32 @@ cargo bench -- --warm-up-time 0.5 --measurement-time 1.5 --sample-size 20
   按输出字节数也自洽（同屏放大区域）：100x100 → 20 ms/24 KiB、640x400 → 238 ms/607 KiB、
   1280x720 → 647 ms/1905 KiB、整块 → 1784 ms/6185 KiB。内容熵是放大器，但它解释的是
   "字节为什么多"，时间花在 **deflate**，而 `Shell.Screenshot` 不暴露压缩档位。
-- **所以 v5 干脆不生成 PNG**：`Clutter.Stage.paint_to_content` → `Cogl.Texture.get_data`
-  写原始 RGBA 到 `$XDG_RUNTIME_DIR`（tmpfs），我方 `stride` 正好一行时**原样**接管字节
-  （8 Mpx 重排一次十几毫秒，这条路存在的理由就是省时间）。并行发请求依旧重要
-  （每次一个新的 `Shell.Screenshot` 实例，shell 侧绘制在工作线程里重叠）。**要现场量就跑**
-  `cargo test --lib capture_stage_timings -- --ignored --nocapture`：它先逐屏取一遍，打印每块屏的
-  尺寸、格式（`RGBA` 还是扩展内部回退的 `PNG`）与耗时，再打印整屏那条路的分段。
-  注意抬过协议版本后必须**注销重登一次**新路径才生效——**想跳过这次注销就跑**
-  `scripts/probe-shell-capture.sh`，它借 `org.gnome.Shell.Eval` 在活着的会话里把同一段
-  取像素代码量一遍（需要先在 Looking Glass 里开 `unsafe_mode`，细节写在脚本头部注释里）。
+- **v5 想在扩展里不生成 PNG，但那条路在 GJS 上不可能成立。**
+  `Cogl.Texture.get_data` 的 `data` 参数是**没有长度标注**的 `array<uint8>`，GJS 一律按
+  入参处理：复制一份给 C、返回就释放。用同形状但会保留指针的
+  `GdkPixbuf.Pixbuf.new_from_data` 做别名实验：4×4 时改 JS 侧看不到变化（是副本）、
+  196 608 B 时读回来全是垃圾（副本已释放）、3 MB 时**直接段错误**。所以扩展里的
+  `is_get_data_supported()` + 32 个 `0xCD` 哨兵只是把"静默黑图"变成能 catch 的异常，
+  不是加速手段；实际跑的一直是它内部的 PNG 回退。
+- **真正不生成 PNG 的路子在合成器外面：`org.gnome.Mutter.ScreenCast` + PipeWire**
+  （`screenshot/screencast.rs`，见 docs/capture-linux.md §3.4）。同一个用户直接可调，
+  不经 Portal、不弹对话框、不需要扩展也不需要注销。本机双屏实测：
+
+  | 段 | 耗时 |
+  |---|---|
+  | CreateSession / RecordMonitor / Start | 1 / 1 / 61 ms |
+  | node 就绪 + 第一帧 | 18 + 104 ms |
+  | 一个会话同时录两块屏（3840x2160 + 2560x1600，都是原生） | **351 ms**（dev，含 48 MB 通道重排） |
+  | `capture_monitor_frames` 全程 | **280 ms**（此前 1900 ms） |
+
+  代价是顶栏闪一下录制点（约 200 ms），且**必须传 `is-recording: true`**——传 false 会落到
+  有 5 秒最短显示时间的"停止共享"胶囊上。**要现场量就跑**
+  `cargo test --lib screencast_timings -- --ignored --nocapture`（打印每块屏"逻辑 × 真实缩放 =
+  期望像素"和实收尺寸），整条链路的分段仍看
+  `cargo test --lib capture_stage_timings -- --ignored --nocapture`。
+  扩展那条路要跳过注销就跑 `scripts/probe-shell-capture.sh`，它借 `org.gnome.Shell.Eval`
+  在活着的会话里把同一段取像素代码量一遍（需要先在 Looking Glass 里开 `unsafe_mode`，
+  细节写在脚本头部注释里）。
 - **剪贴板里躺着一张图，是个持续开销，不是一次开销。** 轮询走到图片分支时唯一能
   和 `last_hash` 比较的东西是 **PNG 的哈希**，于是每 500 ms 都要把 RGBA 重新编码成
   PNG（1080p ~85 ms）才发现"还是刚才那张"——截图复制完之后这就一直烧着 CPU。
