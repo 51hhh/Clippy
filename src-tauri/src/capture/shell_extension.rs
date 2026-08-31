@@ -904,6 +904,12 @@ mod tests {
         ] {
             assert!(EXTENSION_JS.contains(api), "内嵌扩展缺少 {api}");
         }
+        // 原始像素这条路唯一无法在本机测出的风险是 GJS 怎么编排那个没有长度标注的
+        // `array<u8>`：万一它把 Uint8Array **复制**一份给 Cogl，Cogl 写的是副本，
+        // 我们手里仍是原样——那是一张**全黑的图**，不是一个能被 catch 的异常，也就不会
+        // 退回 PNG。所以两道自检必须在：纹理声明自己能不能读回，以及哨兵字节有没有被覆盖。
+        assert!(EXTENSION_JS.contains("texture.is_get_data_supported()"));
+        assert!(EXTENSION_JS.contains("the pixel buffer never reached Cogl"));
         // 出参签名两侧各写一份，漂了就是"路径能拿到、像素解释全错"。
         assert!(EXTENSION_JS.contains("new GLib.Variant('(siiis)'"));
         // 原始像素这条路失败时必须自动退回 PNG：慢，但画面仍然是对的。
