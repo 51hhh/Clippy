@@ -36,18 +36,19 @@ const MIN_TOKEN_LENGTH: usize = 16;
 
 /// 内嵌扩展声明的协议版本，也是能解析的上限。跑着的扩展报出更大的值说明磁盘上的扩展
 /// 比当前二进制新（用户装了新版又跑了旧版），此时宁可退化也不要错解析。
-const EMBEDDED_PROTOCOL_VERSION: u32 = 4;
+const EMBEDDED_PROTOCOL_VERSION: u32 = 5;
 
 /// `Screenshot` 方法从这个协议版本起存在。低于它的扩展只能提供窗口几何：
 /// gnome-shell 只在登录时加载扩展（ReloadExtension 实测已废弃，直接报
 /// "is deprecated and does not work"），所以升级完到下次注销之前跑的仍是旧版。
 const SCREENSHOT_PROTOCOL_VERSION: u32 = 2;
 
-/// 逐屏的 `ScreenshotArea` 从这个协议版本起存在。低于它只能走整屏那条路，
+/// 逐屏原生取像素的 `CaptureArea` 从这个协议版本起存在。低于它只能走整屏那条路，
 /// 而整屏图是按**全桌面最大缩放**渲染的，混合缩放时低缩放的屏会被上采样、画面发糊
 /// （见 `screenshot/backends.rs::capture_all_shell_extension_monitor_areas`）。
-/// 所以这是"糊"与"不糊"的分界线，也意味着升级完必须注销一次才真的变清楚。
-const AREA_SCREENSHOT_PROTOCOL_VERSION: u32 = 4;
+/// 所以这是"糊"与"不糊"的分界线，也是"快"与"慢"的分界线（整屏那条路要 gnome-shell
+/// 编一张全桌面 PNG，实测 1.8 秒），两者都意味着升级完必须注销一次才真的生效。
+const RAW_CAPTURE_PROTOCOL_VERSION: u32 = 5;
 
 /// `PlaceWindow` 方法从这个协议版本起存在。低于它的扩展照样能截图与速选，
 /// 只是贴图窗口回不到原位、也压不住别的窗口——退化，不是故障。
@@ -153,26 +154,65 @@ pub(crate) fn request_screenshot() -> Result<PathBuf, String> {
     Ok(path)
 }
 
-/// 逐屏截图：每块屏一次 `ScreenshotArea`，**同时发起**，返回与入参同序的 PNG 路径。
+/// 要向扩展索取的一块屏。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct CaptureArea {
+    /// 这块屏的逻辑矩形（stage 坐标，与 `GetWindows` 同一坐标系）。
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    /// 这块屏自己的缩放。扩展按它把区域画成原生像素——**不是**由相交视图推出来的，
+    /// 所以混合缩放的多屏上也不会被邻屏的缩放带偏。
+    pub scale: f64,
+}
+
+/// 扩展交回来的一块屏的画面。文件都在 XDG_RUNTIME_DIR（tmpfs）里，调用方读完必须删。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AreaCapture {
+    /// 原始 RGBA8，行优先。`stride` 是一行的字节数，可能大于 `width * 4`。
+    Raw {
+        path: PathBuf,
+        width: u32,
+        height: u32,
+        stride: usize,
+    },
+    /// 扩展那边原始像素这条路没走通（journal 里有一行 `Clippy raw capture failed`），
+    /// 退回了 PNG。尺寸由调用方从文件头读——反正它本来就要解这张图。
+    Png { path: PathBuf },
+}
+
+impl AreaCapture {
+    pub(crate) fn path(&self) -> &Path {
+        match self {
+            Self::Raw { path, .. } | Self::Png { path } => path,
+        }
+    }
+}
+
+/// 逐屏取画面：每块屏一次 `CaptureArea`，**同时发起**，返回与入参同序的结果。
 ///
-/// 区域是逻辑像素、stage 坐标（和 `GetWindows` 同一坐标系），必须正好是那块屏的矩形——
-/// 多出一个像素就会碰到隔壁屏的视图，Mutter 又会按两块屏里大的那个缩放渲染，
-/// 上采样就回来了（详见 extension.js 的 `ScreenshotAreaAsync`）。
+/// 为什么是原始像素而不是 PNG：实测（GNOME 50.1，双屏，Intel Arc iGPU）同样 4.1 Mpx 的
+/// 一块区域，内容简单的 eDP 要 124 ms（PNG 640 KiB），内容复杂的 4K 屏要 884 ms
+/// （PNG 3217 KiB）——像素数一样、时间差 7 倍，差额全在 gnome-shell 的 deflate 上，
+/// 而 `Shell.Screenshot` 没有调压缩级别的入口。所以整条链路上最贵的一步是"编一张没人
+/// 需要的 PNG"，扩展改用 `paint_to_content` + `Cogl.Texture.get_data` 直接落原始字节，
+/// 我们这侧连解码都省了。扩展那边万一 GI 编排不通会自动退回 PNG，于是有 `AreaCapture::Png`。
 ///
-/// 并行是有意的：gnome-shell 那边一个 `ShellScreenshot` 实例只允许一次进行中的截图，
-/// 但扩展每次调用都新建一个实例，而 PNG 编码跑在各自的 worker 线程上，所以几块屏的
-/// 编码能真正重叠。调用方读完每个文件都必须删。
-pub(crate) fn request_area_screenshots(
-    areas: &[(i32, i32, u32, u32)],
-) -> Result<Vec<PathBuf>, String> {
+/// 区域必须正好是那块屏的逻辑矩形：虽然像素尺寸现在由 `scale` 决定、不再依赖
+/// "相交视图的最大缩放"，但画面内容仍然是按这个矩形裁的，多一个像素就会带进邻屏的内容。
+///
+/// 并行是有意的：读回像素在 gnome-shell 主循环上会串行，但每块屏只要几十到两百毫秒，
+/// 而 D-Bus 往返本身是能重叠的。调用方读完每个文件都必须删。
+pub(crate) fn request_area_captures(areas: &[CaptureArea]) -> Result<Vec<AreaCapture>, String> {
     if areas.is_empty() {
         return Err("没有要截的显示器区域".to_string());
     }
-    let token = screenshot_token(AREA_SCREENSHOT_PROTOCOL_VERSION)?;
+    let token = screenshot_token(RAW_CAPTURE_PROTOCOL_VERSION)?;
     let directory = screenshot_dir()?;
     let token = token.as_str();
     let directory = directory.as_path();
-    let shots: Vec<Result<PathBuf, String>> = std::thread::scope(|scope| {
+    let shots: Vec<Result<AreaCapture, String>> = std::thread::scope(|scope| {
         let handles: Vec<_> = areas
             .iter()
             .map(|&area| scope.spawn(move || request_one_area(token, area, directory)))
@@ -186,39 +226,88 @@ pub(crate) fn request_area_screenshots(
             })
             .collect()
     });
-    collect_area_screenshots(shots)
+    collect_area_captures(shots)
 }
 
-/// 一块屏的 `ScreenshotArea`。
+/// 一块屏的 `CaptureArea`。
 fn request_one_area(
     token: &str,
-    (x, y, width, height): (i32, i32, u32, u32),
+    area: CaptureArea,
     directory: &Path,
-) -> Result<PathBuf, String> {
+) -> Result<AreaCapture, String> {
     // D-Bus 签名是四个 i32，超范围的宽高在这里就挡住——转进 D-Bus 之后只会得到
     // 一个"参数类型不匹配"，看不出是哪块屏的几何有问题。
-    let width = i32::try_from(width).map_err(|_| format!("显示器宽度 {width} 超出 i32"))?;
-    let height = i32::try_from(height).map_err(|_| format!("显示器高度 {height} 超出 i32"))?;
-    let path: String = shell_call(
-        WINDOWS_OBJECT_PATH,
-        WINDOWS_INTERFACE,
-        "ScreenshotArea",
-        &(token, x, y, width, height),
-    )
-    .map_err(|error| format!("扩展逐屏截图调用失败: {error}"))?;
+    let width =
+        i32::try_from(area.width).map_err(|_| format!("显示器宽度 {} 超出 i32", area.width))?;
+    let height =
+        i32::try_from(area.height).map_err(|_| format!("显示器高度 {} 超出 i32", area.height))?;
+    let (path, pixel_width, pixel_height, stride, format): (String, i32, i32, i32, String) =
+        shell_call(
+            WINDOWS_OBJECT_PATH,
+            WINDOWS_INTERFACE,
+            "CaptureArea",
+            &(token, area.x, area.y, width, height, area.scale),
+        )
+        .map_err(|error| format!("扩展逐屏取像素调用失败: {error}"))?;
 
     let path = PathBuf::from(path);
+    // 先校验路径再谈内容：校验不过的路径不是我们的文件，绝不能去删。
     validate_screenshot_path(directory, &path)?;
-    Ok(path)
+    let capture = interpret_capture_reply(path.clone(), pixel_width, pixel_height, stride, &format);
+    if capture.is_err() {
+        // 应答自相矛盾时文件已经落地了，谁也不会再去读它。
+        let _ = std::fs::remove_file(&path);
+    }
+    capture
+}
+
+/// 把扩展的应答翻译成 `AreaCapture`。单独拆出来是为了能直接钉住这份格式契约——
+/// 尺寸/stride 一旦对不上，画面会整张斜掉，而那种错很难从像素里反推。
+fn interpret_capture_reply(
+    path: PathBuf,
+    pixel_width: i32,
+    pixel_height: i32,
+    stride: i32,
+    format: &str,
+) -> Result<AreaCapture, String> {
+    match format {
+        "PNG" => Ok(AreaCapture::Png { path }),
+        "RGBA" => {
+            let width = u32::try_from(pixel_width)
+                .ok()
+                .filter(|width| *width > 0)
+                .ok_or_else(|| format!("扩展报的像素宽 {pixel_width} 不是正数"))?;
+            let height = u32::try_from(pixel_height)
+                .ok()
+                .filter(|height| *height > 0)
+                .ok_or_else(|| format!("扩展报的像素高 {pixel_height} 不是正数"))?;
+            let stride = usize::try_from(stride)
+                .map_err(|_| format!("扩展报的 stride {stride} 不是正数"))?;
+            if stride < width as usize * 4 {
+                return Err(format!(
+                    "扩展报的 stride {stride} 装不下 {width} 像素的一行 RGBA"
+                ));
+            }
+            Ok(AreaCapture::Raw {
+                path,
+                width,
+                height,
+                stride,
+            })
+        }
+        other => Err(format!("扩展报了未知的画面格式 {other}")),
+    }
 }
 
 /// 全成才算成。缺一块屏的冻结帧比整体退回整屏那条路糟得多（覆盖层会有一块屏是空的），
 /// 所以有任何一块失败就把已经落地的文件删掉、整体报错——那些文件再没人会去读，
 /// 留着就是 XDG_RUNTIME_DIR 里的垃圾。
-fn collect_area_screenshots(shots: Vec<Result<PathBuf, String>>) -> Result<Vec<PathBuf>, String> {
+fn collect_area_captures(
+    shots: Vec<Result<AreaCapture, String>>,
+) -> Result<Vec<AreaCapture>, String> {
     if let Some(reason) = shots.iter().find_map(|shot| shot.as_ref().err()).cloned() {
-        for path in shots.iter().flatten() {
-            let _ = std::fs::remove_file(path);
+        for shot in shots.iter().flatten() {
+            let _ = std::fs::remove_file(shot.path());
         }
         return Err(reason);
     }
@@ -255,7 +344,10 @@ fn screenshot_dir() -> Result<PathBuf, String> {
     Ok(runtime.join(SCREENSHOT_DIR_NAME))
 }
 
-/// 只接受约定目录里的普通 .png。读完就删，所以宁可错拒也不能删错文件；
+/// 扩展写出来的两种后缀：`png` 是编码过的，`rgba` 是原始像素。
+const SCREENSHOT_EXTENSIONS: [&str; 2] = ["png", "rgba"];
+
+/// 只接受约定目录里后缀在册的普通文件。读完就删，所以宁可错拒也不能删错文件；
 /// 而且路径来自 D-Bus 应答，即便发送方只能是 gnome-shell 也不该无条件相信。
 fn validate_screenshot_path(directory: &Path, path: &Path) -> Result<(), String> {
     if path.parent() != Some(directory) {
@@ -265,8 +357,13 @@ fn validate_screenshot_path(directory: &Path, path: &Path) -> Result<(), String>
             directory.display()
         ));
     }
-    if path.extension().and_then(|ext| ext.to_str()) != Some("png") {
-        return Err(format!("扩展截图路径 {} 不是 .png", path.display()));
+    let extension = path.extension().and_then(|ext| ext.to_str());
+    if !extension.is_some_and(|ext| SCREENSHOT_EXTENSIONS.contains(&ext)) {
+        return Err(format!(
+            "扩展截图路径 {} 的后缀不是 {}",
+            path.display(),
+            SCREENSHOT_EXTENSIONS.join(" / ")
+        ));
     }
     Ok(())
 }
@@ -780,12 +877,13 @@ mod tests {
         assert!(EXTENSION_JS.contains(WINDOWS_OBJECT_PATH));
         // 截图落地目录名两侧各写一份，漂移会让 Rust 拒收扩展给出的路径。
         assert!(EXTENSION_JS.contains(&format!("SCREENSHOT_DIR_NAME = '{SCREENSHOT_DIR_NAME}'")));
-        // 五个方法都必须在内嵌的接口 XML 里声明，否则 wrapJSObject 根本不导出它们。
+        // 六个方法都必须在内嵌的接口 XML 里声明，否则 wrapJSObject 根本不导出它们。
         for method in [
             "GetVersion",
             "GetWindows",
             "Screenshot",
             "ScreenshotArea",
+            "CaptureArea",
             "PlaceWindow",
         ] {
             assert!(
@@ -796,6 +894,27 @@ mod tests {
         // 截图是异步实现的，wrapJSObject 只认 `<Method>Async` 这个命名。
         assert!(EXTENSION_JS.contains("ScreenshotAsync(params, invocation)"));
         assert!(EXTENSION_JS.contains("ScreenshotAreaAsync(params, invocation)"));
+        assert!(EXTENSION_JS.contains("CaptureAreaAsync(params, invocation)"));
+        // 原始像素那条路的三个 GI 调用：少一个就只会在 journal 里报错并退回 PNG，
+        // 而"退回 PNG"的症状就是慢回 1.8 秒——用户看得见，测试看不见，所以钉在这里。
+        for api in [
+            "global.stage.paint_to_content(",
+            "content.get_texture()",
+            "texture.get_data(Cogl.PixelFormat.RGBA_8888, stride, data)",
+        ] {
+            assert!(EXTENSION_JS.contains(api), "内嵌扩展缺少 {api}");
+        }
+        // 出参签名两侧各写一份，漂了就是"路径能拿到、像素解释全错"。
+        assert!(EXTENSION_JS.contains("new GLib.Variant('(siiis)'"));
+        // 原始像素这条路失败时必须自动退回 PNG：慢，但画面仍然是对的。
+        assert!(EXTENSION_JS.contains("falling back to PNG"));
+        // 后缀是 Rust 侧 validate_screenshot_path 的白名单，两侧必须一致。
+        for suffix in SCREENSHOT_EXTENSIONS {
+            assert!(
+                EXTENSION_JS.contains(&format!("'{suffix}'")),
+                "内嵌扩展没写 .{suffix} 这个后缀"
+            );
+        }
         // 逐屏截图的 Shell API 与它的 finish 必须成对出现：只写一半会在运行时才炸，
         // 而那时错误只进 journal。参数顺序也钉住——错了会截到别处去。
         for api in [
@@ -816,16 +935,19 @@ mod tests {
         }
     }
 
-    /// 读完就删，所以路径校验必须严：只认约定目录里的 .png。
+    /// 读完就删，所以路径校验必须严：只认约定目录里的 .png / .rgba。
     #[test]
     fn screenshot_path_must_stay_in_the_agreed_directory() {
         let directory = Path::new("/run/user/1000").join(SCREENSHOT_DIR_NAME);
         assert!(validate_screenshot_path(&directory, &directory.join("frame-abc.png")).is_ok());
-        // 别的目录、上跳一级、非 png 一律拒收。
+        // 原始像素那条路写的是 .rgba，同样必须放行，否则 v5 一上来就整体退回。
+        assert!(validate_screenshot_path(&directory, &directory.join("frame-abc.rgba")).is_ok());
+        // 别的目录、上跳一级、后缀不在册的一律拒收。
         for rejected in [
             PathBuf::from("/run/user/1000/frame-abc.png"),
             directory.join("nested").join("frame-abc.png"),
             directory.join("frame-abc.png.txt"),
+            directory.join("frame-abc.rgba.sh"),
             directory.join("frame-abc"),
         ] {
             assert!(
@@ -836,29 +958,80 @@ mod tests {
         }
     }
 
-    /// 逐屏截图是"全成才算成"：任何一块屏失败，已经落地的文件都要删掉，
+    /// 应答里的格式与尺寸就是像素的解释方式，错一点整张画面就斜掉，所以逐项钉住。
+    #[test]
+    fn capture_replies_are_interpreted_strictly() {
+        let path = PathBuf::from("/run/user/1000/clippy-shots/frame-a.rgba");
+        assert_eq!(
+            interpret_capture_reply(path.clone(), 2560, 1600, 10240, "RGBA").unwrap(),
+            AreaCapture::Raw {
+                path: path.clone(),
+                width: 2560,
+                height: 1600,
+                stride: 10240,
+            }
+        );
+        // stride 大于一行是合法的（Cogl 可以按自己的对齐给），小于一行不可能是真的。
+        assert!(interpret_capture_reply(path.clone(), 2560, 1600, 10496, "RGBA").is_ok());
+        assert!(interpret_capture_reply(path.clone(), 2560, 1600, 10236, "RGBA").is_err());
+        // 退回 PNG 时宽高与 stride 是 0，由调用方从文件头读，不该被当成非法。
+        assert_eq!(
+            interpret_capture_reply(path.clone(), 0, 0, 0, "PNG").unwrap(),
+            AreaCapture::Png { path: path.clone() }
+        );
+        // 空/负尺寸与没听说过的格式一律拒收：宁可退回整屏那条路，也不要拿它当像素解。
+        for (width, height, stride, format) in [
+            (0, 1600, 10240, "RGBA"),
+            (2560, 0, 10240, "RGBA"),
+            (-1, 1600, 10240, "RGBA"),
+            (2560, 1600, -1, "RGBA"),
+            (2560, 1600, 10240, "JPEG"),
+        ] {
+            assert!(
+                interpret_capture_reply(path.clone(), width, height, stride, format).is_err(),
+                "{width}x{height} stride {stride} {format} 本该被拒"
+            );
+        }
+    }
+
+    /// 逐屏取画面是"全成才算成"：任何一块屏失败，已经落地的文件都要删掉，
     /// 否则 XDG_RUNTIME_DIR 里会攒下再没人读的整屏画面。
     #[test]
     fn a_failed_area_screenshot_cleans_up_the_ones_that_landed() {
         let directory = tempfile::tempdir().expect("创建临时目录失败");
-        let landed = directory.path().join("frame-a.png");
-        std::fs::write(&landed, b"png").expect("写入临时截图失败");
+        let landed = directory.path().join("frame-a.rgba");
+        std::fs::write(&landed, b"pixels").expect("写入临时画面失败");
 
-        let error = collect_area_screenshots(vec![
-            Ok(landed.clone()),
-            Err("第二块屏截图失败".to_string()),
+        let error = collect_area_captures(vec![
+            Ok(AreaCapture::Raw {
+                path: landed.clone(),
+                width: 1,
+                height: 1,
+                stride: 4,
+            }),
+            Err("第二块屏取像素失败".to_string()),
         ])
         .expect_err("有失败就该整体报错");
-        assert_eq!(error, "第二块屏截图失败");
-        assert!(!landed.exists(), "失败路径上的临时截图没有被删掉");
+        assert_eq!(error, "第二块屏取像素失败");
+        assert!(!landed.exists(), "失败路径上的临时画面没有被删掉");
     }
 
     #[test]
     fn area_screenshots_keep_the_order_they_were_requested_in() {
-        let paths = vec![PathBuf::from("/a.png"), PathBuf::from("/b.png")];
+        let captures = vec![
+            AreaCapture::Png {
+                path: PathBuf::from("/a.png"),
+            },
+            AreaCapture::Raw {
+                path: PathBuf::from("/b.rgba"),
+                width: 2,
+                height: 1,
+                stride: 8,
+            },
+        ];
         assert_eq!(
-            collect_area_screenshots(paths.iter().cloned().map(Ok).collect()).unwrap(),
-            paths
+            collect_area_captures(captures.iter().cloned().map(Ok).collect()).unwrap(),
+            captures
         );
     }
 

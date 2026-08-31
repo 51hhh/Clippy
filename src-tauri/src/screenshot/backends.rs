@@ -8,12 +8,9 @@ use image::RgbaImage;
 use std::sync::Arc;
 use xcap::Monitor;
 
-/// 逐屏截图要发给扩展的一块区域：逻辑坐标下的 (x, y, 宽, 高)。
-///
-/// 必须**正好**是那块屏的逻辑矩形。Mutter 用 `graphene_rect_intersection` 找与区域相交的
-/// 视图，向外留哪怕 1 像素都会把邻屏的缩放拉进 `max()`，画质又回到整屏图那样被上采样。
+/// 逐屏取画面时一块屏的画面：像素宽高 + RGBA8（行优先、行内无填充）。
 #[cfg(target_os = "linux")]
-pub(super) type MonitorArea = (i32, i32, u32, u32);
+type MonitorTile = (u32, u32, Arc<[u8]>);
 
 /// 一个用完即删的截图文件。三个后端都用它：GNOME Shell / 扩展写在私有临时目录，
 /// Portal 则把文件塞进用户的图片目录，任由它留着会把相册塞满。
@@ -202,19 +199,22 @@ fn capture_all_wayland_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)
     Ok((infos, frames))
 }
 
-/// 逐屏走扩展的 `ScreenshotArea`：每块屏拿到的都是**它自己面板的原生像素**。
+/// 逐屏走扩展的 `CaptureArea`：每块屏拿到的都是**它自己面板的原生像素**，
+/// 而且是原始 RGBA，两头都不经过 PNG。
 ///
-/// **这条路存在的全部理由是画质**，而根因在 Mutter 里：整屏截图的尺寸由
+/// **理由一是画质**，根因在 Mutter 里：整屏截图的尺寸由
 /// `clutter_stage_get_capture_final_size` 算成"矩形 × max(与该矩形相交的各视图的缩放)"，
 /// 而整个 stage 的矩形跟每块屏都相交，于是整张图都按全桌面最大的那个缩放渲染。
 /// 实测本机（eDP 原生 2560x1600、逻辑 1920x1200、缩放 1.3333；外接 4K 缩放 1.5）：
 /// 舞台图 6720x2412 里 eDP 那块是 2880x1800 —— 逻辑 × 1.5，比原生**多出 1.125 倍**，
 /// 全是插值出来的像素。糊就糊在这最开始的一步，后面裁剪、传输、导出一个环节都救不回来。
-/// 把矩形收成单块屏之后相交的只有这块屏自己的视图，出来的正好是原生像素。
-/// 单屏用户看不出区别（自己的缩放就是最大缩放），也不会退化。
+/// 现在像素尺寸由我们传给扩展的 `scale` 决定，与相交视图无关。
 ///
-/// 顺带还快：像素总量少了（本机 16.2 → 12.4 Mpx），而且每块屏一次调用、同时发起，
-/// gnome-shell 侧的 PNG 编码各在自己的 worker 线程里，我们这侧的解码也逐屏并行。
+/// **理由二是速度，而且这一头更大**：整条链路上最贵的一步是 gnome-shell 编 PNG。
+/// 实测同样 4.1 Mpx 的区域，内容简单的 eDP 要 124 ms（PNG 640 KiB）、内容复杂的 4K 屏要
+/// 884 ms（PNG 3217 KiB）——像素数一样，时间差 7 倍，差额全在 deflate 上。所以只减像素
+/// 没用（v4 减了 24% 的像素，整体反而更慢），得根本不让它编码：扩展用
+/// `paint_to_content` + `Cogl.Texture.get_data` 落原始字节，我们这侧连解码都省了。
 ///
 /// **只在几何来自 Wayland 输出时才走**：区域坐标必须是 stage 的逻辑像素，而 xcap 在
 /// XWayland 上报的是"逻辑 × 整数倍"的 X screen 尺寸（见 `normalize_monitor_geometry`），
@@ -224,35 +224,36 @@ fn capture_all_wayland_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)
 fn capture_all_shell_extension_monitor_areas() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
     let monitors = enumerate_wayland_monitors().context("逐屏扩展截图无法枚举 Wayland 几何")?;
     let (areas, assignment) = dedupe_monitor_areas(&monitors);
-    let paths =
-        crate::capture::shell_extension_area_screenshots(&areas).map_err(|error| anyhow!(error))?;
-    // 包成 TemporaryScreenshotFile：解码成功也好、失败也好，出了作用域文件一定被删。
-    let shots: Vec<TemporaryScreenshotFile> = paths
+    let captures =
+        crate::capture::shell_extension_area_captures(&areas).map_err(|error| anyhow!(error))?;
+    // 包成 TemporaryScreenshotFile：读成功也好、失败也好，出了作用域文件一定被删。
+    let shots: Vec<(TemporaryScreenshotFile, crate::capture::AreaCapture)> = captures
         .into_iter()
-        .map(TemporaryScreenshotFile::new)
+        .map(|capture| {
+            (
+                TemporaryScreenshotFile::new(capture.path().to_path_buf()),
+                capture,
+            )
+        })
         .collect();
 
-    // 解码也逐屏并行：一张 8 Mpx 的 PNG 解出来要几十毫秒，而这几张之间毫无依赖。
-    let decoded: Vec<Result<RgbaImage>> = std::thread::scope(|scope| {
+    // 逐屏并行：原始像素只是一次 tmpfs 读，退回 PNG 的那块屏才需要解码（8 Mpx 几十毫秒），
+    // 而这几块屏之间毫无依赖。
+    let loaded: Vec<Result<MonitorTile>> = std::thread::scope(|scope| {
         let handles: Vec<_> = shots
             .iter()
-            .map(|shot| scope.spawn(move || decode_screenshot_file(shot.path())))
+            .map(|(_, capture)| scope.spawn(move || load_area_tile(capture)))
             .collect();
         handles
             .into_iter()
             .map(|handle| {
                 handle
                     .join()
-                    .unwrap_or_else(|_| Err(anyhow!("解码逐屏截图的线程 panic")))
+                    .unwrap_or_else(|_| Err(anyhow!("读取逐屏画面的线程 panic")))
             })
             .collect()
     });
-    let tiles: Vec<(u32, u32, Arc<[u8]>)> = decoded
-        .into_iter()
-        .collect::<Result<Vec<_>>>()?
-        .into_iter()
-        .map(|image| (image.width(), image.height(), Arc::from(image.into_raw())))
-        .collect();
+    let tiles = loaded.into_iter().collect::<Result<Vec<_>>>()?;
 
     let mut infos = Vec::with_capacity(monitors.len());
     let mut frames = Vec::with_capacity(monitors.len());
@@ -326,31 +327,71 @@ fn capture_all_shell_extension_monitor_areas() -> Result<(Vec<MonitorInfo>, Vec<
     Ok((infos, frames))
 }
 
+/// 把扩展交回来的一块屏读成 RGBA8。原始像素只是一次 tmpfs 读，PNG 那条路才解码。
 #[cfg(target_os = "linux")]
-fn decode_screenshot_file(path: &std::path::Path) -> Result<RgbaImage> {
+pub(super) fn load_area_tile(capture: &crate::capture::AreaCapture) -> Result<MonitorTile> {
+    let path = capture.path();
     let bytes =
-        std::fs::read(path).with_context(|| format!("无法读取扩展逐屏截图 {}", path.display()))?;
-    Ok(image::load_from_memory(&bytes)
-        .context("无法解码扩展逐屏截图")?
-        .to_rgba8())
+        std::fs::read(path).with_context(|| format!("无法读取扩展逐屏画面 {}", path.display()))?;
+    match capture {
+        crate::capture::AreaCapture::Png { .. } => {
+            let image = image::load_from_memory(&bytes)
+                .context("无法解码扩展逐屏截图")?
+                .to_rgba8();
+            Ok((image.width(), image.height(), Arc::from(image.into_raw())))
+        }
+        &crate::capture::AreaCapture::Raw {
+            width,
+            height,
+            stride,
+            ..
+        } => {
+            let row = width as usize * 4;
+            let rows = height as usize;
+            // 最后一行不需要行内填充，所以下限是 stride × (行数 − 1) + 一行的有效字节。
+            let minimum = stride * rows.saturating_sub(1) + row;
+            if bytes.len() < minimum {
+                bail!(
+                    "扩展逐屏画面 {} 只有 {} 字节，装不下 {width}x{height}（stride {stride}）",
+                    path.display(),
+                    bytes.len()
+                );
+            }
+            // 常态：stride 正好是一行，扩展写下来的字节就是我们要的那块内存，
+            // 直接交出去——一次 8 Mpx 的重排也要十几毫秒，白花。
+            if stride == row && bytes.len() == row * rows {
+                return Ok((width, height, Arc::from(bytes)));
+            }
+            let mut packed = Vec::with_capacity(row * rows);
+            for y in 0..rows {
+                let start = y * stride;
+                packed.extend_from_slice(&bytes[start..start + row]);
+            }
+            Ok((width, height, Arc::from(packed)))
+        }
+    }
 }
 
-/// 逐屏截图前把**逻辑矩形完全相同**的屏并成一次请求，返回去重后的区域
+/// 逐屏取画面前把**逻辑矩形与缩放都相同**的屏并成一次请求，返回去重后的区域
 /// 与"第 i 块屏用第几个区域"的对照表。
 ///
-/// 镜像/投影就是这个形态：两块屏共用同一个逻辑矩形，截出来的像素也一模一样，
-/// 发两次同样的请求只是让用户多等一次整屏编码。
+/// 镜像/投影就是这个形态：两块屏共用同一个逻辑矩形，取出来的像素也一模一样，
+/// 发两次同样的请求只是让用户多等一次读回。缩放必须进比较键——它决定像素尺寸，
+/// 同一个矩形按两种缩放取出来根本不是同一张画面。
 #[cfg(target_os = "linux")]
-pub(super) fn dedupe_monitor_areas(monitors: &[MonitorInfo]) -> (Vec<MonitorArea>, Vec<usize>) {
-    let mut areas: Vec<MonitorArea> = Vec::new();
+pub(super) fn dedupe_monitor_areas(
+    monitors: &[MonitorInfo],
+) -> (Vec<crate::capture::CaptureArea>, Vec<usize>) {
+    let mut areas: Vec<crate::capture::CaptureArea> = Vec::new();
     let mut assignment = Vec::with_capacity(monitors.len());
     for monitor in monitors {
-        let area = (
-            monitor.rect.x,
-            monitor.rect.y,
-            monitor.rect.width,
-            monitor.rect.height,
-        );
+        let area = crate::capture::CaptureArea {
+            x: monitor.rect.x,
+            y: monitor.rect.y,
+            width: monitor.rect.width,
+            height: monitor.rect.height,
+            scale: f64::from(monitor.scale_factor),
+        };
         let found = areas.iter().position(|candidate| *candidate == area);
         assignment.push(match found {
             Some(index) => index,

@@ -30,9 +30,12 @@
 // 进程当然读得到那个文件（同用户之间本来就没有边界），但沙箱应用（Flatpak/Snap）
 // 通常只有 session bus 而没有 $HOME 读权限，令牌能把这类调用挡在外面。
 
+import Clutter from 'gi://Clutter';
+import Cogl from 'gi://Cogl';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
+import Mtk from 'gi://Mtk';
 import Shell from 'gi://Shell';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
@@ -58,6 +61,19 @@ const IFACE = `
       <arg type="i" direction="in" name="height"/>
       <arg type="s" direction="out" name="path"/>
     </method>
+    <method name="CaptureArea">
+      <arg type="s" direction="in" name="token"/>
+      <arg type="i" direction="in" name="x"/>
+      <arg type="i" direction="in" name="y"/>
+      <arg type="i" direction="in" name="width"/>
+      <arg type="i" direction="in" name="height"/>
+      <arg type="d" direction="in" name="scale"/>
+      <arg type="s" direction="out" name="path"/>
+      <arg type="i" direction="out" name="pixelWidth"/>
+      <arg type="i" direction="out" name="pixelHeight"/>
+      <arg type="i" direction="out" name="stride"/>
+      <arg type="s" direction="out" name="format"/>
+    </method>
     <method name="PlaceWindow">
       <arg type="s" direction="in" name="token"/>
       <arg type="u" direction="in" name="pid"/>
@@ -77,7 +93,7 @@ const OBJECT_PATH = '/org/gnome/Shell/Extensions/ClippyWindows';
 /// gnome-shell 只在登录时加载扩展（ReloadExtension 实测已废弃，直接报
 /// "is deprecated and does not work"），所以升级后磁盘上是新版、跑着的是旧版，
 /// 这个版本号就是区分两者的唯一依据。
-const PROTOCOL_VERSION = 4;
+const PROTOCOL_VERSION = 5;
 
 /// 截图落地目录名，挂在 XDG_RUNTIME_DIR 下（tmpfs、0700、注销即清）。
 /// 必须与 Rust 侧 shell_extension.rs 的 SCREENSHOT_DIR_NAME 一致。
@@ -218,8 +234,110 @@ export default class ClippyWindowsExtension extends Extension {
             (shooter, result) => shooter.screenshot_area_finish(result));
     }
 
-    /// 两个截图方法共用的收尾：开一个私有文件、发起截图、成败都把文件处置干净。
-    _captureToFile(invocation, start, finish) {
+    /**
+     * 截一块区域，**不编码成 PNG**，直接把原始 RGBA 字节落进私有文件。
+     *
+     * 这是"截图慢"的正解。实测（GNOME 50.1，双屏，Intel Arc iGPU）把区域截图拆开量：
+     * 同样 4.1 Mpx，内容简单的 eDP 要 124 ms、PNG 640 KiB；内容复杂的 4K 屏要 884 ms、
+     * PNG 3217 KiB。**像素数一样、时间差 7 倍、字节差 5 倍**——差的那 760 ms 全在
+     * PNG 的 deflate 上，而 `Shell.Screenshot` 没有任何调压缩级别的入口。整屏 8.3 Mpx
+     * 的 4K 因此要 1.7 秒，占了整条截图链路的绝大部分。
+     *
+     * 于是绕开编码器：`paint_to_content` 把区域画进一张纹理，`get_data` 读回原始像素，
+     * 写文件（XDG_RUNTIME_DIR 是 tmpfs，等于写内存）。Rust 侧读到的就是能直接当冻结帧
+     * 用的 RGBA，两头各省一次编解码。
+     *
+     * **`scale` 由调用方指定**，这比 `ScreenshotArea` 更可靠：那条路的尺寸由 Mutter 算成
+     * `区域 × max(相交视图的缩放)`，得靠"区域正好等于单块屏"才拿得到原生像素；这里直接
+     * 传这块屏自己的缩放，与相交视图无关。
+     *
+     * 尺寸取**纹理自己报的宽高**，不去复刻 Mutter 的取整（`ceilf` 还是 `round` 属于实现
+     * 细节，猜错一个像素整张图就斜了）。stride 也一并回给 Rust，让它自己决定要不要重排行。
+     *
+     * 任何一步抛异常都由调用者退回 `screenshot_area` 的 PNG 路径——慢，但画面是对的。
+     */
+    _captureAreaToRawFile(x, y, width, height, scale) {
+        const content = global.stage.paint_to_content(
+            new Mtk.Rectangle({x, y, width, height}),
+            scale,
+            global.stage.get_color_state(),
+            // 不含光标：冻结帧是覆盖层的底图，烧进一个光标只会碍事。
+            Clutter.PaintFlag.NO_CURSORS);
+        const texture = content.get_texture();
+        const pixelWidth = texture.get_width();
+        const pixelHeight = texture.get_height();
+        if (!(pixelWidth > 0) || !(pixelHeight > 0))
+            throw new Error(`texture is ${pixelWidth}x${pixelHeight}`);
+
+        const stride = pixelWidth * 4;
+        const data = new Uint8Array(stride * pixelHeight);
+        // 直接要非预乘的 RGBA，省掉 Rust 侧的还原：截图内容 alpha 恒为 255，
+        // 预乘与否本无差别，但把格式钉死能让前端那份"RGBA8 行优先"的契约不打折扣。
+        const copied = texture.get_data(Cogl.PixelFormat.RGBA_8888, stride, data);
+        if (!copied)
+            throw new Error('Cogl refused to read the texture back');
+
+        const [path, stream] = this._createScreenshotStream('rgba');
+        try {
+            stream.write_all(data, null);
+            stream.close(null);
+        } catch (error) {
+            try {
+                stream.close(null);
+            } catch (_closeError) {
+                // 已经关掉或写坏了都无所谓，下面照样删文件。
+            }
+            GLib.unlink(path);
+            throw error;
+        }
+        return [path, pixelWidth, pixelHeight, stride, 'RGBA'];
+    }
+
+    /**
+     * 逐屏取原始像素，失败就退回 `ScreenshotArea` 的 PNG。返回
+     * `(路径, 像素宽, 像素高, stride, 格式)`；PNG 那条路的宽高与 stride 是 0，
+     * 由 Rust 侧从文件头读——反正它本来就要解这张图。
+     */
+    CaptureAreaAsync(params, invocation) {
+        const [token, x, y, width, height, scale] = params;
+        if (!this._tokenMatches(token)) {
+            invocation.return_gerror(Gio.DBusError.new_for_dbus_error(
+                'org.freedesktop.DBus.Error.AccessDenied',
+                'Clippy screenshot requires a matching token'));
+            return;
+        }
+        if (!(width > 0) || !(height > 0)) {
+            invocation.return_gerror(Gio.DBusError.new_for_dbus_error(
+                'org.freedesktop.DBus.Error.InvalidArgs',
+                `Clippy capture area ${width}x${height} is empty`));
+            return;
+        }
+        if (!(scale > 0)) {
+            invocation.return_gerror(Gio.DBusError.new_for_dbus_error(
+                'org.freedesktop.DBus.Error.InvalidArgs',
+                `Clippy capture scale ${scale} is not positive`));
+            return;
+        }
+
+        try {
+            invocation.return_value(new GLib.Variant('(siiis)',
+                this._captureAreaToRawFile(x, y, width, height, scale)));
+            return;
+        } catch (error) {
+            // 只在这里打日志：真跑起来才知道这套 GI 编排在哪个 Shell 版本上不通，
+            // 而 journal 里这一行就是唯一线索。退回 PNG 只是慢，画面仍然是对的。
+            console.warn(`Clippy raw capture failed, falling back to PNG: ${error}`);
+        }
+
+        this._captureToFile(invocation,
+            (shooter, stream, done) => shooter.screenshot_area(x, y, width, height, stream, done),
+            (shooter, result) => shooter.screenshot_area_finish(result),
+            path => new GLib.Variant('(siiis)', [path, 0, 0, 0, 'PNG']));
+    }
+
+    /// 三个 PNG 截图方法共用的收尾：开一个私有文件、发起截图、成败都把文件处置干净。
+    /// `reply` 决定怎么把路径包成应答——`CaptureArea` 的出参比另两个多。
+    _captureToFile(invocation, start, finish, reply = path => new GLib.Variant('(s)', [path])) {
         let path, stream;
         try {
             [path, stream] = this._createScreenshotStream();
@@ -234,7 +352,7 @@ export default class ClippyWindowsExtension extends Extension {
             try {
                 finish(shooter, result);
                 stream.close(null);
-                invocation.return_value(new GLib.Variant('(s)', [path]));
+                invocation.return_value(reply(path));
             } catch (error) {
                 // 失败就别把空文件留在 runtime dir 里：Rust 侧只会删自己读到的那个路径。
                 try {
@@ -292,8 +410,9 @@ export default class ClippyWindowsExtension extends Extension {
         return true;
     }
 
-    /// 在 XDG_RUNTIME_DIR 下开一个 0600 的 PNG，返回 [路径, 输出流]。
-    _createScreenshotStream() {
+    /// 在 XDG_RUNTIME_DIR 下开一个 0600 的截图文件，返回 [路径, 输出流]。
+    /// 后缀区分内容：`png` 是编码过的，`rgba` 是原始像素（Rust 侧据此决定要不要解码）。
+    _createScreenshotStream(suffix = 'png') {
         const directory = GLib.build_filenamev([
             GLib.get_user_runtime_dir(), SCREENSHOT_DIR_NAME]);
         const folder = Gio.File.new_for_path(directory);
@@ -304,7 +423,7 @@ export default class ClippyWindowsExtension extends Extension {
                 throw error;
         }
         const path = GLib.build_filenamev([
-            directory, `frame-${GLib.uuid_string_random()}.png`]);
+            directory, `frame-${GLib.uuid_string_random()}.${suffix}`]);
         const file = Gio.File.new_for_path(path);
         // PRIVATE = 0600。整屏画面不该让同机器的别人读到。
         const stream = file.replace(null, false, Gio.FileCreateFlags.PRIVATE, null);

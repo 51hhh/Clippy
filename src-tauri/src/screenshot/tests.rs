@@ -150,8 +150,64 @@ fn header_reading_still_rejects_bytes_that_are_not_png_at_all() {
     assert!(png_dimensions(&[]).is_err());
 }
 
-/// 逐屏截图对镜像屏只发一次请求：两块屏共用同一个逻辑矩形时截出来的像素一模一样，
-/// 多发一次就是让用户多等一次整屏 PNG 编码。同时保证对照表把两块屏都指回那一份。
+/// 原始像素这条路的三条规矩：stride 正好一行时**原样交出去**（8 Mpx 重排一次要十几毫秒，
+/// 而这条路存在的理由就是省时间）；stride 更大时按行取前 `width * 4` 字节重排，
+/// 不能把行内填充当成像素（否则整张图会一行一行地斜）；字节不够就报错，不能读出边界。
+#[cfg(target_os = "linux")]
+#[test]
+fn raw_area_tiles_are_taken_as_is_or_repacked_by_row() {
+    use crate::capture::AreaCapture;
+
+    let directory = tempfile::tempdir().unwrap();
+
+    // 2x2 像素，stride 正好是一行。
+    let tight = directory.path().join("tight.rgba");
+    let pixels: Vec<u8> = (0..16).collect();
+    std::fs::write(&tight, &pixels).unwrap();
+    let (width, height, rgba) = load_area_tile(&AreaCapture::Raw {
+        path: tight,
+        width: 2,
+        height: 2,
+        stride: 8,
+    })
+    .expect("stride 等于一行时应当直接读出来");
+    assert_eq!((width, height), (2, 2));
+    assert_eq!(&rgba[..], &pixels[..]);
+
+    // 同样 2x2，但每行末尾多 4 字节填充，重排后必须只剩像素。
+    let padded = directory.path().join("padded.rgba");
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&pixels[0..8]);
+    bytes.extend_from_slice(&[0xFF; 4]);
+    bytes.extend_from_slice(&pixels[8..16]);
+    bytes.extend_from_slice(&[0xFF; 4]);
+    std::fs::write(&padded, &bytes).unwrap();
+    let (_, _, rgba) = load_area_tile(&AreaCapture::Raw {
+        path: padded,
+        width: 2,
+        height: 2,
+        stride: 12,
+    })
+    .expect("有行内填充时应当重排");
+    assert_eq!(&rgba[..], &pixels[..]);
+
+    // 文件比声明的尺寸小：宁可整体退回整屏那条路，也不要拿半张画面铺覆盖层。
+    let truncated = directory.path().join("truncated.rgba");
+    std::fs::write(&truncated, &pixels[..12]).unwrap();
+    assert!(load_area_tile(&AreaCapture::Raw {
+        path: truncated,
+        width: 2,
+        height: 2,
+        stride: 8,
+    })
+    .is_err());
+}
+
+/// 逐屏取画面对镜像屏只发一次请求：两块屏共用同一个逻辑矩形**且缩放相同**时取出来的
+/// 像素一模一样，多发一次就是让用户多等一次读回。同时保证对照表把两块屏都指回那一份。
+///
+/// 反过来，缩放不同就**不能**并——缩放决定像素尺寸，同一个矩形按 1.3333 和 1.0 取出来
+/// 根本不是同一张画面，并了会让其中一块屏拿到别人分辨率的帧。
 #[cfg(target_os = "linux")]
 #[test]
 fn mirrored_monitors_share_a_single_area_screenshot() {
@@ -161,17 +217,24 @@ fn mirrored_monitors_share_a_single_area_screenshot() {
         width,
         height: 1200,
     };
+    let area = |x: i32, width: u32, scale: f64| crate::capture::CaptureArea {
+        x,
+        y: 0,
+        width,
+        height: 1200,
+        scale,
+    };
     let monitors = vec![
         MonitorInfo {
             id: 1,
             rect: rect(0, 1920),
             scale_factor: 1.3333334,
         },
-        // 投影：和 #1 完全同一个逻辑矩形。
+        // 投影：和 #1 完全同一个逻辑矩形、同一个缩放。
         MonitorInfo {
             id: 2,
             rect: rect(0, 1920),
-            scale_factor: 1.0,
+            scale_factor: 1.3333334,
         },
         MonitorInfo {
             id: 3,
@@ -181,8 +244,31 @@ fn mirrored_monitors_share_a_single_area_screenshot() {
     ];
 
     let (areas, assignment) = dedupe_monitor_areas(&monitors);
-    assert_eq!(areas, vec![(0, 0, 1920, 1200), (1920, 0, 2560, 1200)]);
+    assert_eq!(
+        areas,
+        vec![
+            area(0, 1920, f64::from(1.3333334_f32)),
+            area(1920, 2560, 1.5)
+        ]
+    );
     assert_eq!(assignment, vec![0, 0, 1]);
+
+    // 同矩形不同缩放：两次请求，各拿自己分辨率的画面。
+    let mixed = vec![
+        MonitorInfo {
+            id: 1,
+            rect: rect(0, 1920),
+            scale_factor: 1.3333334,
+        },
+        MonitorInfo {
+            id: 2,
+            rect: rect(0, 1920),
+            scale_factor: 1.0,
+        },
+    ];
+    let (areas, assignment) = dedupe_monitor_areas(&mixed);
+    assert_eq!(areas.len(), 2);
+    assert_eq!(assignment, vec![0, 1]);
 }
 
 #[test]
