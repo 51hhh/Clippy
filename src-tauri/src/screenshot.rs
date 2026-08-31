@@ -121,6 +121,26 @@ pub(crate) fn capture_monitor_frames() -> Result<Vec<CapturedMonitorFrame>> {
         .collect()
 }
 
+/// 逐屏截图要的那组区域：每块屏的逻辑矩形（x, y, 宽, 高）。
+///
+/// 只给诊断用（`capture::timing_diagnostics`）：那里要在**不走截图链路**的前提下拿到区域，
+/// 好把逐屏截图单独计时。真正跑截图的那条路在 `backends` 里自己枚举，因为它还要
+/// 每块屏的 id 与缩放。
+#[cfg(all(test, target_os = "linux"))]
+pub(crate) fn logical_monitor_areas() -> Result<Vec<(i32, i32, u32, u32)>> {
+    Ok(backends::enumerate_wayland_monitors()?
+        .iter()
+        .map(|monitor| {
+            (
+                monitor.rect.x,
+                monitor.rect.y,
+                monitor.rect.width,
+                monitor.rect.height,
+            )
+        })
+        .collect())
+}
+
 /// 读 PNG 的宽高，**只解文件头**。
 ///
 /// 曾经这里是 `load_from_memory`：为了两个 u32 把整张图解成位图，1080p 要 19.6 ms，
@@ -162,7 +182,7 @@ pub fn encode_png(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>> {
 
 use backends::capture_all_monitors;
 #[cfg(all(test, target_os = "linux"))]
-use backends::split_portal_screenshot;
+use backends::{dedupe_monitor_areas, split_portal_screenshot};
 #[cfg(test)]
 use backends::{
     monitor_union, normalize_monitor_geometry, portal_screenshot_uri_to_path, scaled_monitor_rect,

@@ -150,6 +150,41 @@ fn header_reading_still_rejects_bytes_that_are_not_png_at_all() {
     assert!(png_dimensions(&[]).is_err());
 }
 
+/// 逐屏截图对镜像屏只发一次请求：两块屏共用同一个逻辑矩形时截出来的像素一模一样，
+/// 多发一次就是让用户多等一次整屏 PNG 编码。同时保证对照表把两块屏都指回那一份。
+#[cfg(target_os = "linux")]
+#[test]
+fn mirrored_monitors_share_a_single_area_screenshot() {
+    let rect = |x: i32, width: u32| Rect {
+        x,
+        y: 0,
+        width,
+        height: 1200,
+    };
+    let monitors = vec![
+        MonitorInfo {
+            id: 1,
+            rect: rect(0, 1920),
+            scale_factor: 1.3333334,
+        },
+        // 投影：和 #1 完全同一个逻辑矩形。
+        MonitorInfo {
+            id: 2,
+            rect: rect(0, 1920),
+            scale_factor: 1.0,
+        },
+        MonitorInfo {
+            id: 3,
+            rect: rect(1920, 2560),
+            scale_factor: 1.5,
+        },
+    ];
+
+    let (areas, assignment) = dedupe_monitor_areas(&monitors);
+    assert_eq!(areas, vec![(0, 0, 1920, 1200), (1920, 0, 2560, 1200)]);
+    assert_eq!(assignment, vec![0, 0, 1]);
+}
+
 #[test]
 fn portal_mapping_splits_horizontal_monitors() {
     let monitors = vec![
