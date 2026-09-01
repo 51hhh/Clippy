@@ -316,6 +316,153 @@ fn logical_work_area(
     fallback
 }
 
+/// 贴图窗口里"还落在屏幕工作区内"的那块矩形，**窗口局部坐标**、逻辑像素。
+///
+/// 工具条要靠它决定翻边还是进内部。为什么必须由后端算：前端只知道
+/// `window.innerWidth/innerHeight`，而贴图窗口的外框恒等于「内容 + 阴影 + 控件栏」，
+/// 也就是永远给工具条留够了位置——拿窗口自己当边界，右侧候选永远装得下，
+/// "超出屏幕自动调整"一次都不会触发。真正会超出的是**窗口在屏幕上**的位置，
+/// 而 Wayland 下客户端连自己窗口在哪都不知道（见 `known_pin_position`），
+/// 只有合成器/扩展知道。
+///
+/// 拿不到窗口位置时返回整个窗口（等于"假定完全在屏内"），也就是这个功能之前的行为：
+/// 宁可不调整，也不能因为查不到几何就把工具条摆到奇怪的地方。
+pub(super) fn pin_toolbar_bounds(app: &tauri::AppHandle, label: &str) -> ToolbarBounds {
+    let window = app.get_webview_window(label);
+    let scale = window
+        .as_ref()
+        .and_then(|window| window.scale_factor().ok())
+        .unwrap_or(1.0)
+        .max(0.1);
+    let size = window
+        .as_ref()
+        .and_then(|window| window.outer_size().ok())
+        .map(|outer| (outer.width as f64 / scale, outer.height as f64 / scale));
+    let Some((width, height)) = size else {
+        return ToolbarBounds::UNKNOWN;
+    };
+    let whole = ToolbarBounds {
+        x: 0.0,
+        y: 0.0,
+        width,
+        height,
+    };
+    let position = visible_window_origin(label).or_else(|| {
+        window
+            .as_ref()
+            .and_then(|window| x11_window_origin(window, scale))
+    });
+    let Some(position) = position else {
+        return whole;
+    };
+    let Some(area) = logical_work_area(app, position) else {
+        return whole;
+    };
+    visible_window_part(
+        (position.x, position.y),
+        (width, height),
+        (area.x, area.y, area.width, area.height),
+    )
+}
+
+/// 窗口矩形与工作区的交集，换算成**窗口局部坐标**。
+///
+/// 纯函数，好让"窗口挂在屏幕边缘外"这件事能被测到——上一版把这段算式和 `AppHandle`
+/// 缠在一起，于是唯一能测的是 placement 那个函数，而真正决定行为的输入（可用范围）
+/// 反而没人验，"超出屏幕自动调整"因此一次都没生效过还全绿。
+///
+/// 交集退化（多屏热插拔的瞬间、窗口整个在屏外）时返回整个窗口：摆得不完美也比算出
+/// 空矩形、把工具条挤成一条线要好。
+fn visible_window_part(
+    origin: (f64, f64),
+    size: (f64, f64),
+    work: (f64, f64, f64, f64),
+) -> ToolbarBounds {
+    let (window_x, window_y) = origin;
+    let (width, height) = size;
+    let (area_x, area_y, area_width, area_height) = work;
+    let whole = ToolbarBounds {
+        x: 0.0,
+        y: 0.0,
+        width,
+        height,
+    };
+    let left = (area_x - window_x).max(0.0);
+    let top = (area_y - window_y).max(0.0);
+    let right = (area_x + area_width - window_x).min(width);
+    let bottom = (area_y + area_height - window_y).min(height);
+    if right - left < 1.0 || bottom - top < 1.0 {
+        return whole;
+    }
+    ToolbarBounds {
+        x: left,
+        y: top,
+        width: right - left,
+        height: bottom - top,
+    }
+}
+
+/// 工具条可用范围，窗口局部逻辑坐标。宽或高为 0 表示"查不到，前端自己用整个窗口"。
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolbarBounds {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+impl ToolbarBounds {
+    /// 连窗口尺寸都问不到（窗口刚关掉）。前端看到 0 宽高就退回 `window.innerWidth`。
+    const UNKNOWN: Self = Self {
+        x: 0.0,
+        y: 0.0,
+        width: 0.0,
+        height: 0.0,
+    };
+}
+
+/// 贴图窗口左上角的逻辑坐标（桌面全局）。
+///
+/// **不能用 `outer_position()`**：GNOME Wayland 上它是假的，协议不把窗口位置告诉客户端，
+/// GTK 只会回它自己最后一次 move 的值（也就是 0,0）——这个坑在 `known_pin_position`
+/// 里已经栽过一次，缩放时拿它算"保持中心"会把窗口传送到屏幕角上。
+///
+/// 唯一知道真值的是合成器，所以问扩展。贴图窗口的标题是扩展的查找键
+/// （`window_marker`），而且上一轮已经让贴图出现在 `GetWindows` 里了。
+/// 扩展不可用（X11、非 GNOME、没装）时退回 `outer_position()`——X11 上它是真的。
+fn visible_window_origin(label: &str) -> Option<LogicalPosition<f64>> {
+    let marker = window_marker(label);
+    let own_pid = std::process::id();
+    if let Some(windows) = crate::capture::shell_extension_windows() {
+        if let Some(window) = windows
+            .iter()
+            .find(|candidate| candidate.pid == own_pid && candidate.title == marker)
+        {
+            return Some(LogicalPosition::new(window.x as f64, window.y as f64));
+        }
+        // 扩展在但没报出这个窗口（刚建好还没映射进 Shell，实测 28~137 ms）：
+        // 只能当作"位置未知"，这一轮不做边界调整。下一次询问就有了。
+        return None;
+    }
+    None
+}
+
+/// X11 与非 GNOME 会话上的位置来源：那里 `outer_position()` 是真的。
+///
+/// 单独一个函数是为了让"哪条路是可信的"留在明面上——Wayland 与 X11 在这件事上
+/// 完全不同，混在一个表达式里下次一定被误改。
+fn x11_window_origin(window: &tauri::WebviewWindow, scale: f64) -> Option<LogicalPosition<f64>> {
+    if crate::gsettings_shortcuts::is_wayland() {
+        return None;
+    }
+    let physical = window.outer_position().ok()?;
+    Some(LogicalPosition::new(
+        physical.x as f64 / scale,
+        physical.y as f64 / scale,
+    ))
+}
+
 pub(super) fn resize_pin_window(app: &tauri::AppHandle, entry: &PinEntry) -> Result<(), PinError> {
     let window = app
         .get_webview_window(&entry.label)
@@ -669,6 +816,69 @@ mod tests {
             PLACEMENT_RETRY_DELAYS_MS[0] < 65,
             "第一次重试必须早于实测的映射时刻"
         );
+    }
+
+    /// 窗口完全在屏内：可用范围就是整个窗口，工具条行为和以前一致。
+    #[test]
+    fn a_fully_visible_window_yields_its_whole_area() {
+        let bounds =
+            visible_window_part((100.0, 100.0), (868.0, 672.0), (0.0, 0.0, 1920.0, 1080.0));
+        assert_eq!(
+            (bounds.x, bounds.y, bounds.width, bounds.height),
+            (0.0, 0.0, 868.0, 672.0)
+        );
+    }
+
+    /// **这条是"超出屏幕自动调整"的真正入口。** 窗口右边挂在屏幕外面时，可用范围要窄，
+    /// 工具条才会翻边——上一版没有这一步，于是那个功能一次都没生效过。
+    #[test]
+    fn a_window_hanging_off_the_right_edge_reports_a_narrower_area() {
+        // 屏幕宽 1920，窗口左上角在 x=1600，宽 868 → 只有 320 可见。
+        let bounds =
+            visible_window_part((1600.0, 100.0), (868.0, 672.0), (0.0, 0.0, 1920.0, 1080.0));
+        assert_eq!((bounds.x, bounds.width), (0.0, 320.0));
+        // 纵向没超，高度不该被动。
+        assert_eq!((bounds.y, bounds.height), (0.0, 672.0));
+    }
+
+    /// 窗口左上角在屏幕外（拖到左上角）：可用范围要带偏移，工具条不能摆到偏移之前。
+    #[test]
+    fn a_window_past_the_top_left_reports_an_offset_area() {
+        let bounds =
+            visible_window_part((-200.0, -150.0), (868.0, 672.0), (0.0, 0.0, 1920.0, 1080.0));
+        assert_eq!((bounds.x, bounds.y), (200.0, 150.0));
+        assert_eq!((bounds.width, bounds.height), (668.0, 522.0));
+    }
+
+    /// 工作区本身带偏移（顶栏、副屏在负坐标上）时同样成立。
+    #[test]
+    fn the_work_area_offset_is_respected() {
+        // 顶栏占 32 px：工作区从 y=32 开始，窗口贴在 y=0。
+        let bounds = visible_window_part((0.0, 0.0), (868.0, 672.0), (0.0, 32.0, 1920.0, 1048.0));
+        assert_eq!((bounds.y, bounds.height), (32.0, 640.0));
+        // 副屏在主屏左边：工作区原点是负数，窗口整体可见。
+        let left_screen = visible_window_part(
+            (-1800.0, 24.0),
+            (868.0, 672.0),
+            (-1920.0, 24.0, 1920.0, 1056.0),
+        );
+        assert_eq!(
+            (left_screen.x, left_screen.y, left_screen.width),
+            (0.0, 0.0, 868.0)
+        );
+    }
+
+    /// 交集退化（窗口整个在屏外、热插拔瞬间）时退回整个窗口，绝不返回空矩形——
+    /// 空矩形会让工具条被钳成一条线，一个按钮都点不到。
+    #[test]
+    fn a_degenerate_intersection_falls_back_to_the_whole_window() {
+        let off_screen =
+            visible_window_part((5000.0, 5000.0), (868.0, 672.0), (0.0, 0.0, 1920.0, 1080.0));
+        assert_eq!((off_screen.width, off_screen.height), (868.0, 672.0));
+        // 只剩一条缝也算退化。
+        let sliver =
+            visible_window_part((1919.5, 100.0), (868.0, 672.0), (0.0, 0.0, 1920.0, 1080.0));
+        assert_eq!((sliver.width, sliver.height), (868.0, 672.0));
     }
 
     #[test]

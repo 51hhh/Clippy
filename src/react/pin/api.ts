@@ -2,6 +2,7 @@ import {
   closePin,
   copyPin,
   getPinPayload,
+  getPinToolbarBounds,
   onPinAlreadyOpen,
   onPinImageSharpened,
   pinReady,
@@ -9,11 +10,19 @@ import {
   savePinCanvas,
   updatePin,
 } from "../../js/api.ts";
-import type { PinImageSharpened, PinPayload, PinState, PinUpdate } from "./types";
+import type {
+  PinImageSharpened,
+  PinPayload,
+  PinState,
+  PinToolbarBounds,
+  PinUpdate,
+} from "./types";
 
 export const pinApi = {
   get: (label: string): Promise<PinPayload> => getPinPayload(label),
   ready: (label: string): Promise<void> => pinReady(label),
+  /** 工具条能待的范围（窗口局部逻辑坐标）。见 `usePinToolbarBounds`。 */
+  toolbarBounds: (label: string): Promise<PinToolbarBounds> => getPinToolbarBounds(label),
   update: (label: string, update: PinUpdate): Promise<PinState> => updatePin(label, update),
   copy: (label: string): Promise<void> => copyPin(label),
   save: (label: string): Promise<string> => savePin(label),

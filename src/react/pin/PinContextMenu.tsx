@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { clampToolbarPosition } from "../shared/toolbarPlacement";
+import { clampToolbarPosition, fullWindowBounds } from "../shared/toolbarPlacement";
 
 /** jsdom 与首帧量不到尺寸时的兜底。 */
 const FALLBACK_SIZE = { width: 176, height: 200 };
@@ -75,7 +75,9 @@ export function PinContextMenu(props: Props) {
   const spot = clampToolbarPosition(
     { left: props.at.x, top: props.at.y },
     size,
-    { width: window.innerWidth, height: window.innerHeight },
+    // 菜单是右键当场弹的，用整个窗口做边界就够——它不像工具条那样长期停在某处，
+    // 不值得为它多问一次后端（那是一趟 D-Bus）。
+    fullWindowBounds({ width: window.innerWidth, height: window.innerHeight }),
     4,
   );
 

@@ -205,6 +205,29 @@ pub(crate) fn raise_focused_pin(app_handle: &tauri::AppHandle, state: &AppState,
     }
 }
 
+/// 工具条能待的范围：贴图窗口里"还落在屏幕工作区内"的那块，窗口局部逻辑坐标。
+///
+/// **前端算不了这个。** 它只有 `window.innerWidth/innerHeight`，而贴图窗口的外框恒等于
+/// 「内容 + 阴影 + 控件栏」，永远给工具条留够了位置——拿窗口自己当边界，"超出屏幕自动
+/// 调整"一次都不会触发。真正超出的是窗口在屏幕上的位置，那要问合成器
+/// （见 `super::window::pin_toolbar_bounds`）。
+///
+/// **异步**：Wayland 下要走一次 D-Bus 问扩展（本机实测 1~3 ms），不能压在 GTK 主线程上。
+/// 前端只在"窗口位置或尺寸可能变了"之后问一次，不是每帧——见 `usePinToolbarBounds`。
+#[tauri::command]
+pub async fn get_pin_toolbar_bounds(
+    label: String,
+    app_handle: tauri::AppHandle,
+) -> Result<super::window::ToolbarBounds, String> {
+    validate_label(&label)?;
+    // 查询里有阻塞的 D-Bus 调用与显示器枚举，挪出运行时线程。
+    tauri::async_runtime::spawn_blocking(move || {
+        super::window::pin_toolbar_bounds(&app_handle, &label)
+    })
+    .await
+    .map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 pub fn get_pin_payload(label: String, state: State<'_, AppState>) -> Result<PinPayload, String> {
     validate_label(&label)?;

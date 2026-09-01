@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
     onSharpened: vi.fn(),
     onAlreadyOpen: vi.fn(),
     saveCanvas: vi.fn(),
+    toolbarBounds: vi.fn(),
   },
 }));
 
@@ -89,7 +90,13 @@ describe("React pin app", () => {
     mocks.pinApi.onAlreadyOpen.mockResolvedValue(() => {});
     mocks.pinApi.saveCanvas.mockResolvedValue("/tmp/pin.png");
     mocks.pinApi.save.mockResolvedValue("/tmp/pin.png");
+    // 默认：整个窗口都在屏幕内（宽高取自 payload 的内容尺寸 + 边距）。
+    mocks.pinApi.toolbarBounds.mockResolvedValue({ x: 0, y: 0, width: 388, height: 252 });
     mocks.pinApi.update.mockImplementation(async (_label, update) => ({ ...payload, ...update }));
+    // 产品代码会对它 `.catch()`，必须回 Promise（Wayland 上这条会真的失败，
+    // 所以那个 catch 不是多余的）。
+    mocks.startDraggingCurrentWindow.mockReset();
+    mocks.startDraggingCurrentWindow.mockResolvedValue(undefined);
     root = createRoot(document.getElementById("root"));
   });
 
@@ -231,6 +238,40 @@ describe("React pin app", () => {
     second.resolve({ ...payload, scale: 1.2 });
     await flush();
     expect(document.querySelector(".pin-scale")?.textContent).toBe("120");
+  });
+
+  /**
+   * 拖工具条不能把整个贴图窗口拖走。
+   *
+   * 窗口拖动的判据是"主键按着 + 位移够大 + 落点不在 `[data-pin-controls]` 里"
+   * （`gestures.ts` 刻意不跨事件记账）。工具条跟着指针走，指针很容易落到工具条外面，
+   * 那一刻判据当场成立——这就是那个 bug。pointer capture 让 target 钉在把手上，
+   * `isToolbarDragging()` 是捕获没生效时的第二道闸。
+   */
+  it("never drags the window while the toolbar handle is being dragged", async () => {
+    mocks.pinApi.get.mockResolvedValue(payload);
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+
+    const grip = document.querySelector(".pin-tool-grip");
+    grip.setPointerCapture = () => {};
+    grip.releasePointerCapture = () => {};
+    await act(async () => grip.dispatchEvent(pointer("pointerdown", 300, 40)));
+
+    // 指针拖到工具条外面（落点是 .pin-root），位移远超阈值。
+    await act(async () => {
+      window.dispatchEvent(pointer("pointermove", 120, 300));
+      window.dispatchEvent(pointer("pointermove", 60, 400));
+    });
+    expect(mocks.startDraggingCurrentWindow).not.toHaveBeenCalled();
+
+    // 松手之后普通拖动要恢复，否则窗口从此拖不动。
+    await act(async () => window.dispatchEvent(pointer("pointerup", 60, 400)));
+    await act(async () => {
+      document.querySelector(".pin-root").dispatchEvent(pointer("pointerdown", 200, 200));
+      window.dispatchEvent(pointer("pointermove", 260, 260));
+    });
+    expect(mocks.startDraggingCurrentWindow).toHaveBeenCalled();
   });
 
   /**

@@ -13,6 +13,25 @@
 export type Size = { width: number; height: number };
 export type Box = { x: number; y: number; width: number; height: number };
 
+/**
+ * 工具条可以待的范围，**窗口局部坐标**。
+ *
+ * 不是 `window.innerWidth/innerHeight`，这一点是这个模块最容易搞错的地方，而且我搞错过：
+ * 贴图窗口的外框恒等于「内容 + 12×2 阴影 + 44 控件栏」，也就是**永远给工具条留够了
+ * 位置**。拿窗口自己当边界的话，右侧候选永远装得下、一次都不会翻边，"超出屏幕自动调整"
+ * 于是完全不生效——而真正会超出的是**窗口在屏幕上**的位置（用户把贴图拖到屏幕边缘）。
+ *
+ * 所以这个矩形要由后端给：窗口矩形与显示器工作区的交集，换算到窗口局部坐标
+ * （见 `pin::commands::get_pin_bounds`）。窗口完全在屏内时它就等于整个窗口，
+ * 那时行为和以前一致。
+ */
+export type ToolbarBounds = Box;
+
+/** 窗口完全在屏幕内时的边界：整个窗口。 */
+export function fullWindowBounds(size: Size): ToolbarBounds {
+  return { x: 0, y: 0, width: size.width, height: size.height };
+}
+
 /** 工具条落点。`placement` 说明最后选中了哪个候选，调用方据此改样式（进内部要加底色）。 */
 export type ToolbarPlacement = {
   left: number;
@@ -31,21 +50,23 @@ const GAP = 8;
 export function horizontalToolbarPlacement(
   anchor: Box,
   toolbar: Size,
-  viewport: Size,
+  bounds: ToolbarBounds,
   gap = GAP,
 ): ToolbarPlacement {
-  const width = Math.min(toolbar.width, Math.max(0, viewport.width - gap * 2));
-  const maxLeft = Math.max(gap, viewport.width - width - gap);
-  const left = Math.max(gap, Math.min(anchor.x + anchor.width - width, maxLeft));
+  const minLeft = bounds.x + gap;
+  const minTop = bounds.y + gap;
+  const width = Math.min(toolbar.width, Math.max(0, bounds.width - gap * 2));
+  const maxLeft = Math.max(minLeft, bounds.x + bounds.width - width - gap);
+  const left = clamp(anchor.x + anchor.width - width, minLeft, maxLeft);
   const below = anchor.y + anchor.height + gap;
   const above = anchor.y - toolbar.height - gap;
-  const maxTop = Math.max(gap, viewport.height - toolbar.height - gap);
+  const maxTop = Math.max(minTop, bounds.y + bounds.height - toolbar.height - gap);
   if (below <= maxTop) return { left, top: below, placement: "below" };
-  if (above >= gap) return { left, top: above, placement: "above" };
-  // 内部：贴在内容底边上方，仍然钳进视口。
+  if (above >= minTop) return { left, top: above, placement: "above" };
+  // 内部：贴在内容底边上方，仍然钳进可用范围。
   return {
     left,
-    top: clamp(anchor.y + anchor.height - toolbar.height - gap, gap, maxTop),
+    top: clamp(anchor.y + anchor.height - toolbar.height - gap, minTop, maxTop),
     placement: "inside",
   };
 }
@@ -59,19 +80,21 @@ export function horizontalToolbarPlacement(
 export function verticalToolbarPlacement(
   anchor: Box,
   toolbar: Size,
-  viewport: Size,
+  bounds: ToolbarBounds,
   gap = GAP,
 ): ToolbarPlacement {
-  const height = Math.min(toolbar.height, Math.max(0, viewport.height - gap * 2));
-  const maxTop = Math.max(gap, viewport.height - height - gap);
-  const top = clamp(anchor.y, gap, maxTop);
+  const minLeft = bounds.x + gap;
+  const minTop = bounds.y + gap;
+  const height = Math.min(toolbar.height, Math.max(0, bounds.height - gap * 2));
+  const maxTop = Math.max(minTop, bounds.y + bounds.height - height - gap);
+  const top = clamp(anchor.y, minTop, maxTop);
   const right = anchor.x + anchor.width + gap;
   const left = anchor.x - toolbar.width - gap;
-  const maxLeft = Math.max(gap, viewport.width - toolbar.width - gap);
+  const maxLeft = Math.max(minLeft, bounds.x + bounds.width - toolbar.width - gap);
   if (right <= maxLeft) return { left: right, top, placement: "right" };
-  if (left >= gap) return { left, top, placement: "left" };
+  if (left >= minLeft) return { left, top, placement: "left" };
   return {
-    left: clamp(anchor.x + anchor.width - toolbar.width - gap, gap, maxLeft),
+    left: clamp(anchor.x + anchor.width - toolbar.width - gap, minLeft, maxLeft),
     top,
     placement: "inside",
   };
@@ -86,12 +109,14 @@ export function verticalToolbarPlacement(
 export function clampToolbarPosition(
   position: { left: number; top: number },
   toolbar: Size,
-  viewport: Size,
+  bounds: ToolbarBounds,
   gap = GAP,
 ): { left: number; top: number } {
+  const minLeft = bounds.x + gap;
+  const minTop = bounds.y + gap;
   return {
-    left: clamp(position.left, gap, Math.max(gap, viewport.width - toolbar.width - gap)),
-    top: clamp(position.top, gap, Math.max(gap, viewport.height - toolbar.height - gap)),
+    left: clamp(position.left, minLeft, Math.max(minLeft, bounds.x + bounds.width - toolbar.width - gap)),
+    top: clamp(position.top, minTop, Math.max(minTop, bounds.y + bounds.height - toolbar.height - gap)),
   };
 }
 
