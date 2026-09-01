@@ -37,6 +37,9 @@ pub(super) struct PinEntry {
     /// 建窗时定下来就不再变：payload 是前端起来之后才取的，那时候光标可能已经挪到
     /// 另一块缩放不同的屏上，现场再查会得出和内容尺寸不配套的比例。
     pub device_scale: f64,
+    /// 同一块屏上 GTK 报的**整数缓冲区缩放**。它与 `device_scale` 的差值就是
+    /// WebKit 缓冲区里那一趟逃不掉的放大，`super::resample` 靠这两个数把它抵消掉。
+    pub buffer_scale: f64,
 }
 
 /// 图片在屏幕上的来源矩形，逻辑像素、桌面全局坐标（与截图覆盖层同一坐标系）。
@@ -82,6 +85,9 @@ pub struct PinPayload {
     /// 见 `PinEntry::device_scale`。前端拿它判断"屏上一个图片像素是不是正好一个设备
     /// 像素"，只有相等时才让 WebKit 用最近邻搬图（`src/react/pin/rendering.ts`）。
     pub device_scale: f64,
+    /// 见 `PinEntry::buffer_scale`。图片已按缓冲区分辨率补偿过时，
+    /// `pixelWidth == cssWidth * bufferScale`，前端据此知道这张图是 1:1 搬进缓冲区的。
+    pub buffer_scale: f64,
 }
 
 /// `update_pin` 的应答：只有这次真的可能变的那几个字段。

@@ -81,6 +81,36 @@ export function App() {
     pinRef.current = pin;
   }, [pin]);
 
+  /**
+   * 后台算好的清晰版图片换进来（见 `rendering.ts` 与 `pin/resample.rs`）。
+   *
+   * **只换 `imageBase64`**：这一刻用户可能已经滚过滚轮，整份覆盖会把缩放弹回去。
+   * 三份引用都得更新——`flushUpdate` 是拿 `confirmedPinRef` 当基底去合并 `update_pin`
+   * 的应答的，漏掉它的话下一次缩放就把原图换回来了。
+   */
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    const sharpen = (current: PinPayload | null, imageBase64: string) =>
+      current ? { ...current, imageBase64 } : current;
+    pinApi
+      .onSharpened((payload) => {
+        if (payload.label !== label) return;
+        pinRef.current = sharpen(pinRef.current, payload.imageBase64);
+        confirmedPinRef.current = sharpen(confirmedPinRef.current, payload.imageBase64);
+        setPin((current) => sharpen(current, payload.imageBase64));
+      })
+      .then((stop) => {
+        if (cancelled) stop();
+        else unlisten = stop;
+      })
+      .catch((reason) => console.error(reason));
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [label]);
+
   useEffect(() => {
     if (!pin?.imageBase64) {
       setImageUrl(null);
@@ -335,6 +365,7 @@ export function App() {
       pixelWidth: pixelSize.width,
       pixelHeight: pixelSize.height,
       deviceScale: pin.deviceScale,
+      bufferScale: pin.bufferScale,
     })
     : "auto";
 

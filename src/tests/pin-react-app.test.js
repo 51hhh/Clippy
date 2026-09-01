@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
     save: vi.fn(),
     edit: vi.fn(),
     close: vi.fn(),
+    onSharpened: vi.fn(),
   },
 }));
 
@@ -73,6 +74,7 @@ describe("React pin app", () => {
     for (const fn of Object.values(mocks.pinApi)) fn.mockReset();
     mocks.pinApi.ready.mockResolvedValue(undefined);
     mocks.pinApi.close.mockResolvedValue(undefined);
+    mocks.pinApi.onSharpened.mockResolvedValue(() => {});
     mocks.pinApi.update.mockImplementation(async (_label, update) => ({ ...payload, ...update }));
     root = createRoot(document.getElementById("root"));
   });
@@ -126,6 +128,69 @@ describe("React pin app", () => {
 
     expect(document.querySelector(".pin-scale")?.textContent).toBe("100");
     expect(document.querySelector(".pin-toast")?.textContent).toBe("Action failed");
+  });
+
+  /**
+   * 后台算好的清晰版图片换进来（`pin/resample.rs` + `spawn_sharpen`）。
+   *
+   * 两条都要锁住：
+   * 1. 事件到货后 `<img>` 真的换成了新图；
+   * 2. 之后的 `update_pin` 应答**不会**把它换回原图。应答只带可变字段，前端拿
+   *    `confirmedPinRef` 当基底合并——那份引用里的图片没跟着更新的话，用户滚一下滚轮
+   *    刚变清楚的图就退回去了。
+   */
+  it("swaps in the sharpened image and keeps it across later updates", async () => {
+    const urls = [];
+    const createObjectURL = vi.fn((blob) => {
+      const url = `blob:pin-${urls.length}`;
+      urls.push({ url, blob });
+      return url;
+    });
+    vi.stubGlobal("URL", Object.assign(Object.create(URL), {
+      createObjectURL,
+      revokeObjectURL: vi.fn(),
+    }));
+    // `update_pin` 的应答只有可变字段，不带图片（见 `PinState`）。
+    mocks.pinApi.update.mockImplementation(async (label, update) => ({
+      label,
+      contentWidth: payload.contentWidth,
+      contentHeight: payload.contentHeight,
+      scale: update.scale ?? payload.scale,
+      opacity: update.opacity ?? payload.opacity,
+      locked: update.locked ?? payload.locked,
+      position: null,
+    }));
+    let deliver;
+    mocks.pinApi.onSharpened.mockImplementation(async (callback) => {
+      deliver = callback;
+      return () => {};
+    });
+    mocks.pinApi.get.mockResolvedValue({
+      ...payload,
+      kind: "image",
+      text: null,
+      // 1x1 透明 PNG
+      imageBase64:
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=",
+    });
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+
+    const original = document.querySelector(".pin-media img")?.getAttribute("src");
+    expect(original).toBe("blob:pin-0");
+
+    await act(async () => deliver({ label: "pin-image-test", imageBase64: "c2hhcnA=" }));
+    await flush();
+    const sharpened = document.querySelector(".pin-media img")?.getAttribute("src");
+    expect(sharpened).toBe("blob:pin-1");
+
+    // 缩放一次：应答里没有图片，合并后仍然必须是清晰版那份
+    await act(async () => document.querySelector('button[aria-label="Zoom in"]').click());
+    await flushFrame();
+    await flush();
+    expect(document.querySelector(".pin-media img")?.getAttribute("src")).toBe(sharpened);
+
+    vi.unstubAllGlobals();
   });
 
   it("does not let an older failed resize replace a newer update", async () => {

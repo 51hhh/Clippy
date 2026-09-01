@@ -50,6 +50,17 @@
  * 所以判据不能写成 `scale === 1`：全屏截图贴出来时内容会被 `origin_content_size` 按工作区
  * 缩小，而 `scale` 仍然是 1，那种情况按最近邻画就是上表 0.6 那一行。必须直接比
  * **显示尺寸与图片像素**，这也顺带覆盖了 X11（真实缩放 = 1，两者本来就相等）。
+ *
+ * ## 上面这些都只是"没有更好办法时"的选择
+ *
+ * `pixelated` 的 33.95 dB 比默认的 30.28 dB 好，但仍然看得出糊——因为它没有改变"信息在
+ * 4/3 上采样里丢掉"这件事，只是丢得整齐一点。真正的解法在后端：把图**预先渲染成缓冲区
+ * 分辨率**，并按合成器那一步的实测核做反投影补偿，实测 43.45 dB（`pin/resample.rs`）。
+ * 那份图算起来要几百毫秒，所以贴图先用原图上屏、算完再换进来。
+ *
+ * 换进来之后图片像素数正好等于 `cssWidth * bufferScale`，也就是 1:1 搬进缓冲区——
+ * 这时候**任何滤镜都不该介入**（缩放比为 1，`auto` 就是恒等），所以判据要认这一条，
+ * 而不是让它掉进"不是像素对齐"的分支里靠巧合拿到 `auto`。
  */
 
 export interface PinImageMetrics {
@@ -61,6 +72,24 @@ export interface PinImageMetrics {
   pixelHeight: number;
   /** 这块屏上一个 CSS 像素等于几个设备像素，由后端查合成器得到。 */
   deviceScale: number;
+  /**
+   * WebKit 缓冲区的整数缩放（GTK 报的那个）。图片是后端补偿过的版本时，
+   * `pixelWidth === cssWidth * bufferScale`，也就是 1:1 搬进缓冲区。
+   */
+  bufferScale: number;
+}
+
+/** 图片是不是正好 1:1 落进 WebKit 缓冲区（= 后端补偿过的那份）。 */
+export function isBufferExact(metrics: PinImageMetrics): boolean {
+  const { cssWidth, cssHeight, pixelWidth, pixelHeight, bufferScale } = metrics;
+  if (![cssWidth, cssHeight, pixelWidth, pixelHeight, bufferScale].every(Number.isFinite)) {
+    return false;
+  }
+  if (bufferScale <= 0 || pixelWidth <= 0 || pixelHeight <= 0) return false;
+  return (
+    Math.abs(cssWidth * bufferScale - pixelWidth) <= 1
+    && Math.abs(cssHeight * bufferScale - pixelHeight) <= 1
+  );
 }
 
 /**
@@ -84,7 +113,18 @@ export function isPixelExact(metrics: PinImageMetrics): boolean {
 /** 交给 CSS `image-rendering` 的值。 */
 export type PinImageRendering = "pixelated" | "auto";
 
-/** 上面那套结论的唯一出口。 */
+/**
+ * 上面那套结论的唯一出口。
+ *
+ * 两个分支的含义不一样，但结果碰巧一致，所以不写成三个分支：
+ * - 像素对齐（没有补偿、屏上一个图片像素一个设备像素）→ `pixelated`，实测 +3.7 dB。
+ * - 补偿过的图（[`isBufferExact`]，1:1 进缓冲区）→ 缩放比为 1，`auto` 就是恒等变换。
+ * - 其余（缩放过、被工作区缩小过）→ 真的在重采样，`auto` 的平滑最好。
+ *
+ * 两个判据不会同时成立：只有 `bufferScale !== deviceScale` 时后端才补偿，
+ * 那时 `cssWidth * deviceScale` 与 `cssWidth * bufferScale` 差着几百像素。
+ * [`isBufferExact`] 把这条不变量摆在明面上，由测试锁住。
+ */
 export function pinImageRendering(metrics: PinImageMetrics): PinImageRendering {
   return isPixelExact(metrics) ? "pixelated" : "auto";
 }

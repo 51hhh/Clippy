@@ -557,6 +557,23 @@ pub(super) fn content_device_scale(app: &tauri::AppHandle, origin: Option<PinOri
     }
 }
 
+/// 贴图窗口的**缓冲区缩放**：GTK/GDK 给这块屏报的那个整数。
+///
+/// 它和 `content_device_scale` 的真实缩放常常不相等（1.5 倍缩放的桌面上是 2 对 1.5），
+/// 差出来的那一趟放大就是"贴出来发糊"的根源。两个数一起交给
+/// `super::resample`，那边据此把显示用的图预先渲染成缓冲区分辨率。
+/// 选屏规则必须和 `content_device_scale` 逐字一致，否则两个缩放不配套。
+pub(super) fn content_buffer_scale(app: &tauri::AppHandle, origin: Option<PinOrigin>) -> f64 {
+    match origin {
+        Some(origin) => {
+            logical_scale_near(app, LogicalPosition::new(origin.x + 1.0, origin.y + 1.0))
+        }
+        None => cursor_monitor(app)
+            .map(|monitor| monitor.scale_factor().max(0.1))
+            .unwrap_or(1.0),
+    }
+}
+
 /// 这块屏上一个逻辑像素等于几个设备像素。取屏幕自己的原点去问，不用光标位置——
 /// 光标可能正好停在屏幕边界上，原点加一像素一定落在这块屏里面。
 fn monitor_device_scale(monitor: &tauri::Monitor, gdk_scale: f64) -> f64 {
