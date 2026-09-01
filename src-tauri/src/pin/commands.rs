@@ -354,16 +354,28 @@ const MAX_CANVAS_PNG_BYTES: usize = 64 * 1024 * 1024;
 /// 这个语义不该被"画了几笔"改掉。画完要留下来就走这条命令，产物是前端导出的 PNG。
 ///
 /// `to_clipboard` 为真时同时进剪贴板，于是"画完直接粘到别处"不用先存盘。
+///
+/// # 落盘的那份带工程数据
+///
+/// **进剪贴板的是纯渲染结果，落盘的那份多一个 iTXt 工程块**（原图 + 标注，
+/// 见 `super::project`）。于是同一个文件既能被任何看图软件当普通 PNG 打开，
+/// 又能被 Clippy 重新打开继续编辑。
+///
+/// 剪贴板那份不带：粘贴的目标是别的应用，工程数据对它没有意义，而且很多应用粘贴图片
+/// 走的是 RGBA 而不是 PNG 字节，元数据本来就到不了对面。
+///
+/// 工程块写失败**不让保存失败**：那时落盘一张普通 PNG，用户至少拿到了图。
 #[tauri::command]
 pub fn save_pin_canvas(
     label: String,
     png_base64: String,
     to_clipboard: bool,
+    project: Option<PinCanvasProject>,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     validate_label(&label)?;
     // 条目必须还在：窗口关掉之后再来存盘是没有意义的（而且 label 校验只管格式）。
-    let _ = state.pin_manager.get(&label)?;
+    let entry = state.pin_manager.get(&label)?;
     if png_base64.len() / 4 * 3 > MAX_CANVAS_PNG_BYTES {
         return Err("画布内容过大".to_string());
     }
@@ -382,8 +394,68 @@ pub fn save_pin_canvas(
             crate::image_io::rgba_to_clipboard_image(pixels),
         )?;
     }
-    let path = crate::image_io::save_png(&png, "clippy-pin", &state.save_target())?;
+    let to_disk = project
+        .and_then(|project| embed_canvas_project(&png, project, &entry))
+        .unwrap_or(png);
+    let path = crate::image_io::save_png(&to_disk, "clippy-pin", &state.save_target())?;
     Ok(path.to_string_lossy().to_string())
+}
+
+/// 读一个 PNG 文件里的贴图工程数据。
+///
+/// 返回 `None` 表示"这是张普通图片"——没有工程块、块坏了、版本比当前新，三种情况对用户
+/// 都是同一件事：能看，不能继续编辑（见 `super::project::extract`）。
+///
+/// **异步**：要读盘 + 解一次 PNG（工程块里还有一张 base64 原图），不能压在 GTK 主线程上。
+///
+/// 路径来自用户（文件对话框 / 命令行 / 文件关联），所以这里是信任边界：只按文件读，
+/// 大小超限、不是 PNG、元数据坏掉都只是"读不出工程"，不会让调用方崩。
+#[tauri::command]
+pub async fn read_pin_project(path: String) -> Result<Option<super::project::PinProject>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = std::fs::read(&path).map_err(|error| format!("读取文件失败: {error}"))?;
+        if bytes.len() > MAX_CANVAS_PNG_BYTES {
+            return Err("文件过大".to_string());
+        }
+        super::project::extract(&bytes)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// 前端随保存一起送来的工程内容。原图由**后端**自己取，不经前端。
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PinCanvasProject {
+    /// 前端 `Annotation[]` 的原样 JSON。后端不解释它，见 `project::PinProject`。
+    pub annotations: serde_json::Value,
+    /// 前端 `ImageAdjustments` 的原样 JSON。
+    pub adjustments: serde_json::Value,
+}
+
+/// 给落盘的 PNG 加上工程块；任何一步不成就返回 `None`，调用方落盘普通 PNG。
+///
+/// 原图从条目里取而不是让前端回传：前端手上那张可能是补偿版（这正是 `get_pin_source_image`
+/// 存在的理由），而且让前端把几 MB 原图再回传一趟纯属浪费——后端本来就有。
+fn embed_canvas_project(
+    png: &[u8],
+    project: PinCanvasProject,
+    entry: &PinEntry,
+) -> Option<Vec<u8>> {
+    let source = source_png(&entry.source)?;
+    let document = super::project::PinProject::new(
+        STANDARD.encode(source),
+        project.annotations,
+        project.adjustments,
+    );
+    match super::project::embed(png, &document) {
+        Ok(bytes) => Some(bytes),
+        Err(error) => {
+            // 工程块只影响"以后能不能继续编辑"，不该连图都存不下来。
+            log::warn!("贴图工程数据写入失败，落盘普通 PNG: {error}");
+            None
+        }
+    }
 }
 
 #[tauri::command]

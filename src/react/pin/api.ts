@@ -12,6 +12,7 @@ import {
   updatePin,
 } from "../../js/api.ts";
 import type {
+  PinCanvasProject,
   PinImageSharpened,
   PinPayload,
   PinState,
@@ -30,8 +31,12 @@ export const pinApi = {
   /** 画布导出用的原图（base64 PNG）。见 `getPinSourceImage`。 */
   sourceImage: (label: string): Promise<string | null> => getPinSourceImage(label),
   /** 存下贴图上画过的那一版（`toClipboard` 为真时同时进剪贴板）。 */
-  saveCanvas: (label: string, pngBase64: string, toClipboard: boolean): Promise<string> =>
-    savePinCanvas(label, pngBase64, toClipboard),
+  saveCanvas: (
+    label: string,
+    pngBase64: string,
+    toClipboard: boolean,
+    project: PinCanvasProject | null,
+  ): Promise<string> => savePinCanvas(label, pngBase64, toClipboard, project),
   close: (label: string): Promise<void> => closePin(label),
   /** 订阅后台算好的清晰版图片（见 `rendering.ts` 与 `pin/resample.rs`）。 */
   onSharpened: (callback: (payload: PinImageSharpened) => void): Promise<() => void> =>
