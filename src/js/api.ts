@@ -465,6 +465,20 @@ export function savePin(label: string): Promise<string> {
 }
 
 /**
+ * 把贴图上画过的那一版存盘，可选同时进剪贴板。
+ *
+ * 画布产物不写回贴图条目——条目里那张是原图，`copyPin`/`savePin` 一直交付它。
+ * 返回落盘路径。
+ */
+export function savePinCanvas(
+  label: string,
+  pngBase64: string,
+  toClipboard: boolean,
+): Promise<string> {
+  return invoke<string>("save_pin_canvas", { label, pngBase64, toClipboard });
+}
+
+/**
  * 后台算好的清晰版贴图到货了。
  *
  * 贴图先用原图上屏（开窗才不会被卡住），后端随后在别的线程上把它重新渲染成缓冲区

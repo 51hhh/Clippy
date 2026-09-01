@@ -301,6 +301,47 @@ pub fn save_pin(label: String, state: State<'_, AppState>) -> Result<String, Str
     Ok(path.to_string_lossy().to_string())
 }
 
+/// 画布上限。和截图提交那条路同一个数量级，理由也一样：挡住畸形载荷把内存吃光。
+const MAX_CANVAS_PNG_BYTES: usize = 64 * 1024 * 1024;
+
+/// 把贴图上画过的那一版存盘 / 复制。
+///
+/// 画布产物**不写回贴图条目**：条目里那张是原图，`copy_pin`/`save_pin` 一直交付它，
+/// 这个语义不该被"画了几笔"改掉。画完要留下来就走这条命令，产物是前端导出的 PNG。
+///
+/// `to_clipboard` 为真时同时进剪贴板，于是"画完直接粘到别处"不用先存盘。
+#[tauri::command]
+pub fn save_pin_canvas(
+    label: String,
+    png_base64: String,
+    to_clipboard: bool,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    validate_label(&label)?;
+    // 条目必须还在：窗口关掉之后再来存盘是没有意义的（而且 label 校验只管格式）。
+    let _ = state.pin_manager.get(&label)?;
+    if png_base64.len() / 4 * 3 > MAX_CANVAS_PNG_BYTES {
+        return Err("画布内容过大".to_string());
+    }
+    let png = crate::screenshot::decode_png_base64(&png_base64)
+        .map_err(|_| "画布内容无效".to_string())?;
+    if png.len() > MAX_CANVAS_PNG_BYTES {
+        return Err("画布内容过大".to_string());
+    }
+    // 信任边界：前端送上来的字节必须真的能解成图像，后面存盘与剪贴板都假设它是合法 PNG。
+    // 这里顺手把解出来的像素留着给剪贴板用，省掉第二次整张解码（同 `capture::CommitImage`）。
+    let pixels = image::load_from_memory_with_format(&png, image::ImageFormat::Png)
+        .map_err(|_| "画布内容无效".to_string())?
+        .into_rgba8();
+    if to_clipboard {
+        crate::clipboard_watcher::clipboard_set_image_with_retry(
+            crate::image_io::rgba_to_clipboard_image(pixels),
+        )?;
+    }
+    let path = crate::image_io::save_png(&png, "clippy-pin", &state.save_target())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 pub fn close_pin(
     label: String,

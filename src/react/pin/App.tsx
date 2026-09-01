@@ -11,16 +11,23 @@ import {
   trackDragMove,
   trackDragPointerDown,
 } from "./gestures";
+import { PinCanvasToolbar } from "./PinCanvasToolbar";
+import { PinContextMenu, type PinMenuItem } from "./PinContextMenu";
 import { PinToolbar } from "./PinToolbar";
 import { pinImageRendering } from "./rendering";
 import type { PinPayload, PinUpdate } from "./types";
 import { mergePinState, shouldApplyPinUpdateResponse } from "./update-order";
+import { usePinCanvas } from "./usePinCanvas";
 import { t } from "../shared/i18n";
 
 /** 事件落点是不是工具条/滑块那一片。 */
 function onPinControls(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest("[data-pin-controls]") !== null;
 }
+
+/** 内容区相对窗口原点的偏移，与 `pin.css` 的 `.pin-media` inset 和 `pin/window.rs` 的
+ *  `SHADOW_GUTTER` 是一份契约。工具条要按内容区的位置选边，所以这里要知道它。 */
+const MEDIA_INSET = 12;
 
 export function App() {
   const label = getCurrentWindowLabel();
@@ -41,6 +48,17 @@ export function App() {
   const [pixelSize, setPixelSize] = useState<{ width: number; height: number } | null>(null);
   const [reminding, setReminding] = useState(false);
   const remindTimer = useRef<number | null>(null);
+  const [canvasOpen, setCanvasOpen] = useState(false);
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  /** 关窗时"要不要保存画布"的询问。`null` 表示没在问。 */
+  const [closePrompt, setClosePrompt] = useState(false);
+  const [savedPath, setSavedPath] = useState<string | null>(null);
+  const savedTimer = useRef<number | null>(null);
+  const imageElement = useRef<HTMLImageElement | null>(null);
+  const [viewport, setViewport] = useState({
+    width: window.innerWidth,
+    height: window.innerHeight,
+  });
   const updateInFlight = useRef(false);
   // `flushUpdate` 要在自己的 finally 里再排一次，而 `scheduleFlush` 又要调它，
   // 两个 useCallback 互相依赖成环。用一个 ref 打破环，rAF 里读到的永远是最新那个。
@@ -141,6 +159,15 @@ export function App() {
       cancelled = true;
       unlisten?.();
     };
+  }, []);
+
+  /** 工具条要按可见视口选边，窗口缩放（滚轮改 scale）时它会变。 */
+  useEffect(() => {
+    function onResize() {
+      setViewport({ width: window.innerWidth, height: window.innerHeight });
+    }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
   }, []);
 
   useEffect(() => {
@@ -279,9 +306,56 @@ export function App() {
     });
   }, []);
 
+  // 内容区的 CSS 尺寸与在窗口里的矩形。工具条按它选边，画布按它定尺寸。
+  const mediaWidth = (pin?.contentWidth ?? 0) * (pin?.scale ?? 1);
+  const mediaHeight = (pin?.contentHeight ?? 0) * (pin?.scale ?? 1);
+  const mediaBox = {
+    x: MEDIA_INSET,
+    y: MEDIA_INSET,
+    width: mediaWidth,
+    height: mediaHeight,
+  };
+
+  const canvas = usePinCanvas({
+    image: imageElement.current,
+    pixelWidth: pixelSize?.width ?? 0,
+    pixelHeight: pixelSize?.height ?? 0,
+    cssWidth: mediaWidth,
+    cssHeight: mediaHeight,
+    open: canvasOpen,
+  });
+
+  const showSaved = useCallback((path: string) => {
+    setSavedPath(path);
+    if (savedTimer.current !== null) window.clearTimeout(savedTimer.current);
+    savedTimer.current = window.setTimeout(() => setSavedPath(null), 2200);
+  }, []);
+
+  /** 把画布上那一版存下来（顺带进剪贴板，"画完直接粘走"是最常见的下一步）。 */
+  const saveCanvas = useCallback(async () => {
+    const pngBase64 = await canvas.exportPng();
+    showSaved(await pinApi.saveCanvas(label, pngBase64, true));
+  }, [canvas, label, showSaved]);
+
+  /**
+   * 关窗。画布上有没保存的东西就先问一句。
+   *
+   * 问的时机在这里而不是后端：只有前端知道画布是不是脏的（标注从不写回条目，
+   * 见 `usePinCanvas`）。窗口的关闭按钮、Esc、右键菜单三条路都走这里。
+   */
+  const requestClose = useCallback(() => {
+    if (canvas.dirty) {
+      setClosePrompt(true);
+      return;
+    }
+    runAction(() => pinApi.close(label));
+  }, [canvas.dirty, label, runAction]);
+
   useEffect(() => {
     function onPointerMove(event: PointerEvent) {
-      if (pin?.locked) {
+      // 画布开着的时候整块内容区都在画画，拖动窗口只剩把手与空白处那条路——
+      // 否则画第一笔就把窗口拖走了。
+      if (pin?.locked || canvasOpen) {
         drag.current = NO_DRAG;
         return;
       }
@@ -300,7 +374,7 @@ export function App() {
     }
     window.addEventListener("pointermove", onPointerMove);
     return () => window.removeEventListener("pointermove", onPointerMove);
-  }, [pin?.locked]);
+  }, [canvasOpen, pin?.locked]);
 
   /**
    * 滚轮、捏合、划选、拖拽这四件事都得用非被动的原生监听器接。
@@ -359,25 +433,35 @@ export function App() {
         else if (event.key === "-" || event.key === "_") adjustScale(-0.1);
         return;
       }
-      if (event.key === "Escape") runAction(() => pinApi.close(label));
+      // 画布开着时 Ctrl+Z/Y 归撤销栈；不开着则不拦，免得吃掉别的用途。
+      if (canvasOpen && command && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        if (event.shiftKey) canvas.redo();
+        else canvas.undo();
+        return;
+      }
+      if (event.key === "Escape") requestClose();
       else if (command && event.key.toLowerCase() === "c") {
         event.preventDefault();
         void copy();
       } else if (event.key === "+" || event.key === "=") adjustScale(0.1);
       else if (event.key === "-") adjustScale(-0.1);
+      // 画布开着时这些字母键要留给以后的工具快捷键，而且用户可能在输入文字标注。
+      else if (canvasOpen) return;
       else if (event.key.toLowerCase() === "l") commitUpdate({ locked: !pin.locked });
       else if (event.key.toLowerCase() === "t") commitUpdate({ above: !pin.above });
       else if (event.key.toLowerCase() === "s" && pin.canSave) runAction(() => pinApi.save(label));
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [adjustScale, commitUpdate, copy, label, pin, runAction]);
+  }, [adjustScale, canvas, canvasOpen, commitUpdate, copy, label, pin, requestClose, runAction]);
 
   useEffect(() => {
     return () => {
       if (wheelFrame.current !== null) cancelAnimationFrame(wheelFrame.current);
       if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
       if (remindTimer.current !== null) window.clearTimeout(remindTimer.current);
+      if (savedTimer.current !== null) window.clearTimeout(savedTimer.current);
     };
   }, []);
 
@@ -386,12 +470,11 @@ export function App() {
   }
   if (!pin) return null;
 
-  // 内容区的 CSS 尺寸。窗口外框可能比它大——矮贴图为了放下工具条有高度下限
-  // （`pin/window.rs::MIN_OUTER_HEIGHT`），多出来的高度必须留成透明留白，
-  // 不能让图片在变高的框里居中，否则"贴回原处"当场就偏了。`max-*` 而不是定死宽高：
-  // 缩放时窗口尺寸落后本地状态一两帧，那几帧里内容区跟着窗口缩，才不会溢出被裁。
-  const mediaWidth = pin.contentWidth * pin.scale;
-  const mediaHeight = pin.contentHeight * pin.scale;
+  // `mediaWidth` / `mediaHeight` 在上面就算好了（画布与工具条都要用）。窗口外框可能
+  // 比内容区大——矮贴图为了放下工具条有高度下限（`pin/window.rs::MIN_OUTER_HEIGHT`），
+  // 多出来的高度必须留成透明留白，不能让图片在变高的框里居中，否则"贴回原处"当场就偏了。
+  // `max-*` 而不是定死宽高：缩放时窗口尺寸落后本地状态一两帧，那几帧里内容区跟着窗口缩，
+  // 才不会溢出被裁。
   const imageRendering = pixelSize
     ? pinImageRendering({
       cssWidth: mediaWidth,
@@ -403,19 +486,61 @@ export function App() {
     })
     : "auto";
 
+  const menuItems: PinMenuItem[] = [
+    {
+      id: "above",
+      label: t(pin.above ? "pin.unpinAbove" : "pin.pinAbove"),
+      checked: pin.above,
+      onSelect: () => commitUpdate({ above: !pin.above }),
+    },
+    {
+      id: "locked",
+      label: t(pin.locked ? "pin.unlock" : "pin.lock"),
+      checked: pin.locked,
+      onSelect: () => commitUpdate({ locked: !pin.locked }),
+    },
+    ...(pin.canSave
+      ? [
+        {
+          id: "canvas",
+          label: t(canvasOpen ? "pin.canvasClose" : "pin.canvasOpen"),
+          checked: canvasOpen,
+          onSelect: () => setCanvasOpen((open) => !open),
+        },
+        {
+          id: "save",
+          label: t("pin.save"),
+          onSelect: () => {
+            if (canvas.dirty) runAction(saveCanvas);
+            else runAction(async () => showSaved(await pinApi.save(label)));
+          },
+        },
+      ]
+      : []),
+    { id: "copy", label: t("pin.copy"), onSelect: () => void copy() },
+    { id: "close", label: t("pin.close"), danger: true, onSelect: requestClose },
+  ];
+
   return (
     <main
-      className={`pin-root${pin.locked ? " locked" : ""}`}
+      className={`pin-root${pin.locked ? " locked" : ""}${canvasOpen ? " drawing" : ""}`}
       tabIndex={0}
       style={{ opacity: pin.opacity }}
       onPointerDown={(event) => {
-        if (pin.locked) return;
+        if (pin.locked || canvasOpen) return;
         drag.current = trackDragPointerDown(drag.current, {
           button: event.button,
           x: event.clientX,
           y: event.clientY,
           onControls: onPinControls(event.target),
         });
+      }}
+      onContextMenu={(event) => {
+        // WebKit 自带的网页菜单已经在 GTK 层关掉了（`webview_hardening.rs`），
+        // 这里把腾出来的右键接成快速操作。仍然 preventDefault：万一那一层没生效
+        // （非 Linux、信号连接失败），也不要弹出"重新加载/检查元素"。
+        event.preventDefault();
+        setMenuAt({ x: event.clientX, y: event.clientY });
       }}
     >
       <section
@@ -436,6 +561,7 @@ export function App() {
             style={{ imageRendering }}
             onLoad={(event) => {
               const image = event.currentTarget;
+              imageElement.current = image;
               setPixelSize({ width: image.naturalWidth, height: image.naturalHeight });
               setReady(true);
             }}
@@ -447,12 +573,28 @@ export function App() {
         ) : (
           <pre>{pin.text || ""}</pre>
         )}
+        {/* 画布盖在图片上，尺寸与内容区一致。关着的时候整个不渲染，
+            于是不开画布的贴图完全没有画布开销（这是绝大多数情况）。 */}
+        {canvasOpen && (
+          <canvas
+            ref={canvas.canvasRef}
+            className="pin-canvas"
+            style={{ width: mediaWidth, height: mediaHeight }}
+            onPointerDown={canvas.onPointerDown}
+            onPointerMove={canvas.onPointerMove}
+            onPointerUp={canvas.onPointerUp}
+          />
+        )}
       </section>
       <PinToolbar
+        media={mediaBox}
+        viewportWidth={viewport.width}
+        viewportHeight={viewport.height}
         scale={pin.scale}
         opacity={pin.opacity}
         locked={pin.locked}
         above={pin.above}
+        canvasOpen={canvasOpen}
         canSave={pin.canSave}
         copied={copied}
         opacityOpen={opacityOpen}
@@ -461,10 +603,73 @@ export function App() {
         onToggleOpacity={() => setOpacityOpen((open) => !open)}
         onToggleLock={() => commitUpdate({ locked: !pin.locked })}
         onToggleAbove={() => commitUpdate({ above: !pin.above })}
+        onToggleCanvas={() => setCanvasOpen((open) => !open)}
         onCopy={() => void copy()}
-        onSave={() => runAction(() => pinApi.save(label))}
-        onClose={() => runAction(() => pinApi.close(label))}
+        onSave={() => {
+          // 画过东西就存画过的那一版，否则存原图。
+          if (canvas.dirty) runAction(saveCanvas);
+          else runAction(async () => showSaved(await pinApi.save(label)));
+        }}
+        onClose={requestClose}
       />
+      {canvasOpen && (
+        <PinCanvasToolbar
+          media={mediaBox}
+          viewportWidth={viewport.width}
+          viewportHeight={viewport.height}
+          tool={canvas.tool}
+          color={canvas.color}
+          stroke={canvas.stroke}
+          text={canvas.text}
+          canUndo={canvas.canUndo}
+          canRedo={canvas.canRedo}
+          hasSelectedObject={canvas.hasSelectedObject}
+          onTool={canvas.setTool}
+          onColor={canvas.setColor}
+          onStroke={canvas.setStroke}
+          onText={canvas.setText}
+          onUndo={canvas.undo}
+          onRedo={canvas.redo}
+          onDeleteObject={canvas.deleteSelected}
+          onClose={() => setCanvasOpen(false)}
+        />
+      )}
+      {menuAt && (
+        <PinContextMenu at={menuAt} items={menuItems} onDismiss={() => setMenuAt(null)} />
+      )}
+      {closePrompt && (
+        <div className="pin-close-prompt" role="dialog" aria-label={t("pin.saveBeforeClose")}>
+          <p>{t("pin.saveBeforeClose")}</p>
+          <div className="pin-close-actions">
+            <button
+              type="button"
+              className="primary"
+              onClick={() => {
+                setClosePrompt(false);
+                runAction(async () => {
+                  await saveCanvas();
+                  await pinApi.close(label);
+                });
+              }}
+            >
+              {t("pin.saveAndClose")}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setClosePrompt(false);
+                runAction(() => pinApi.close(label));
+              }}
+            >
+              {t("pin.discardAndClose")}
+            </button>
+            <button type="button" onClick={() => setClosePrompt(false)}>
+              {t("pin.cancelClose")}
+            </button>
+          </div>
+        </div>
+      )}
+      {savedPath && <div className="pin-toast" role="status">{t("pin.saved")}</div>}
       {error && <div className="pin-toast" role="status">{t("pin.actionFailed")}</div>}
     </main>
   );
