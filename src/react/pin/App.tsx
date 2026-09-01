@@ -2,18 +2,29 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWindowLabel, startDraggingCurrentWindow } from "../../js/api.ts";
 import { pngBase64ToObjectUrl } from "../annotation/pngPipeline";
 import { pinApi } from "./api";
-import { allowsTextSelection, isZoomShortcut, pinWheelIntent, pointerStillHeld } from "./gestures";
+import {
+  allowsTextSelection,
+  type DragTracking,
+  isZoomShortcut,
+  NO_DRAG,
+  pinWheelIntent,
+  trackDragMove,
+  trackDragPointerDown,
+} from "./gestures";
 import { PinToolbar } from "./PinToolbar";
 import { pinImageRendering } from "./rendering";
 import type { PinPayload, PinUpdate } from "./types";
 import { mergePinState, shouldApplyPinUpdateResponse } from "./update-order";
 import { t } from "../shared/i18n";
 
-const DRAG_THRESHOLD = 5;
+/** 事件落点是不是工具条/滑块那一片。 */
+function onPinControls(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest("[data-pin-controls]") !== null;
+}
 
 export function App() {
   const label = getCurrentWindowLabel();
-  const dragStart = useRef<{ x: number; y: number } | null>(null);
+  const drag = useRef<DragTracking>(NO_DRAG);
   const wheelFrame = useRef<number | null>(null);
   const pendingUpdate = useRef<PinUpdate>({});
   const updateGeneration = useRef(0);
@@ -208,17 +219,22 @@ export function App() {
 
   useEffect(() => {
     function onPointerMove(event: PointerEvent) {
-      if (!dragStart.current || pin?.locked) return;
-      // 松手之后的移动不是拖动。这一条同时替掉了原来的 pointerup / pointercancel
-      // 清理——理由见 `gestures.ts::pointerStillHeld`。
-      if (!pointerStillHeld(event)) {
-        dragStart.current = null;
+      if (pin?.locked) {
+        drag.current = NO_DRAG;
         return;
       }
-      const distance = Math.hypot(event.clientX - dragStart.current.x, event.clientY - dragStart.current.y);
-      if (distance < DRAG_THRESHOLD) return;
-      dragStart.current = null;
-      startDraggingCurrentWindow().catch((reason) => setError(String(reason)));
+      const next = trackDragMove(
+        drag.current,
+        {
+          buttons: event.buttons,
+          x: event.clientX,
+          y: event.clientY,
+          onControls: onPinControls(event.target),
+        },
+        performance.now(),
+      );
+      drag.current = next.state;
+      if (next.start) startDraggingCurrentWindow().catch((reason) => setError(String(reason)));
     }
     window.addEventListener("pointermove", onPointerMove);
     return () => window.removeEventListener("pointermove", onPointerMove);
@@ -328,9 +344,13 @@ export function App() {
       tabIndex={0}
       style={{ opacity: pin.opacity }}
       onPointerDown={(event) => {
-        if (event.button === 0 && !pin.locked && !(event.target as Element).closest("[data-pin-controls]")) {
-          dragStart.current = { x: event.clientX, y: event.clientY };
-        }
+        if (pin.locked) return;
+        drag.current = trackDragPointerDown(drag.current, {
+          button: event.button,
+          x: event.clientX,
+          y: event.clientY,
+          onControls: onPinControls(event.target),
+        });
       }}
     >
       <section

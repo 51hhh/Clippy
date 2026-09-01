@@ -41,16 +41,102 @@ export function pinWheelIntent(event: PinWheelEvent): PinWheelIntent {
 }
 
 /**
- * 一次 `pointermove` 还算不算"正在拖窗口"。
- *
- * 只看主键还按着没有，**不再依赖 pointerup / pointercancel 把起点清干净**。
- * Wayland 上 `startDragging` 之后指针被合成器抓走，这一次的 `pointerup` 根本不会送到
- * WebKit，迟到的 `pointercancel` 往往落在**下一次** `pointerdown` 之后，把刚记下的
- * 起点又抹掉——症状就是"第一下能拖、第二下拖不动、第三下又能拖"。
- * 按键状态每个事件自带，不需要跨事件记账，也就没有被迟到事件污染的可能。
+ * 一次事件里主键还按着没有。按键状态是每个事件自带的，不需要跨事件记账。
  */
 export function pointerStillHeld(event: { buttons: number }): boolean {
   return (event.buttons & 1) !== 0;
+}
+
+/** 拖动起点与按压归属。只有这三样，全部由 `trackDrag*` 两个纯函数推进。 */
+export interface DragTracking {
+  /** 拖动起点（CSS 坐标）。`null` = 还没有起点。 */
+  origin: { x: number; y: number } | null;
+  /** 这次按压是从工具条上按下去的：整个按压期间都不许拖窗口。 */
+  suppressed: boolean;
+  /**
+   * 上一次真的发出 `startDragging` 的时刻，用来给"抓不住指针"的情况限速。
+   * `-Infinity` = 还没发过，随时可以发。
+   */
+  startedAt: number;
+}
+
+export const NO_DRAG: DragTracking = {
+  origin: null,
+  suppressed: false,
+  startedAt: Number.NEGATIVE_INFINITY,
+};
+
+/** 超过这么多 CSS 像素才算拖动，否则一次普通点击就会把窗口挪走。 */
+export const DRAG_THRESHOLD = 5;
+
+/**
+ * 没等到新的 `pointerdown` 时，两次 `startDragging` 之间的最短间隔。
+ *
+ * 它只防一件事：合成器**没**接手指针（`startDragging` 失败、或者 X11 上被拒），
+ * 于是 `pointermove` 继续送进来、起点一次次重新长出来，把 IPC 刷成每帧一次。
+ * 一个真的新按压会带着 `pointerdown` 把它清零（见 `trackDragPointerDown`），
+ * 所以这个限速永远不会吃掉用户明确发起的下一次拖动。
+ */
+const DRAG_RETRY_INTERVAL_MS = 300;
+
+export interface DragPointerEvent {
+  buttons: number;
+  x: number;
+  y: number;
+  /** 事件落点是否在 `[data-pin-controls]` 里（工具条、滑块……）。 */
+  onControls: boolean;
+}
+
+/**
+ * `pointerdown`：记起点，或者认出"这次按压属于工具条"。
+ *
+ * 它是**优化**而不是必需——真正决定能不能拖的是下面的 `trackDragMove`；这个事件被
+ * 吞掉时那边照样能从 `pointermove` 里把起点长出来。它同时是"新按压"的唯一确凿证据，
+ * 所以顺手把限速清零：一次明确的新按压不该被上一次拖动的冷却挡住。
+ */
+export function trackDragPointerDown(
+  state: DragTracking,
+  event: { button: number; x: number; y: number; onControls: boolean },
+): DragTracking {
+  if (event.button !== 0) return state;
+  if (event.onControls) return { ...NO_DRAG, suppressed: true };
+  return { ...NO_DRAG, origin: { x: event.x, y: event.y } };
+}
+
+/**
+ * `pointermove`：判断这一下要不要真的开始拖窗口。
+ *
+ * **起点可以在这里自己长出来，不必等 `pointerdown`。** 这是"第一下能拖、第二下拖不动、
+ * 第三下又能拖"的真正修法：Wayland 上 `startDragging` 之后指针被合成器抓走，这一次的
+ * `pointerup` 不会送到 WebKit，于是每次拖完都会留下一件迟到的事情落在**下一次**按压
+ * 之后——可能是 `pointercancel`，可能是 `buttons=0` 的收尾 `pointermove`，也可能是
+ * WebKit 自己那份"按键还按着"的残留状态把下一个 `pointerdown` 吃掉。三种都是同一个
+ * 症状（隔一次拖不动），也都无法靠"再多记一个标记"避开，因为记账本身就是被污染的东西。
+ *
+ * 所以判据只用每个事件自带的信息：主键按着 + 位移够大 + 落点不在工具条上 = 拖窗口。
+ * 迟到的事件最多让这一次多花一个 `pointermove` 重新起点，用户感觉不到。
+ */
+export function trackDragMove(
+  state: DragTracking,
+  event: DragPointerEvent,
+  now: number,
+): { state: DragTracking; start: boolean } {
+  // 松手了：把这次按压的一切都忘掉，包括"从工具条按下去"的抑制。
+  if (!pointerStillHeld(event)) return { state: NO_DRAG, start: false };
+  if (state.suppressed) return { state, start: false };
+  if (!state.origin) {
+    // 工具条上按住不动地划来划去不该拖窗口；离开工具条之后才认起点。
+    if (event.onControls) return { state, start: false };
+    return { state: { ...state, origin: { x: event.x, y: event.y } }, start: false };
+  }
+  const distance = Math.hypot(event.x - state.origin.x, event.y - state.origin.y);
+  if (distance < DRAG_THRESHOLD) return { state, start: false };
+  // 起点一律清掉：合成器接手之后 WebKit 收不到后续事件，收得到就说明这次没抓住，
+  // 那时按限速再试一次比卡住不动好。
+  if (now - state.startedAt < DRAG_RETRY_INTERVAL_MS) {
+    return { state: { ...state, origin: null }, start: false };
+  }
+  return { state: { ...state, origin: null, startedAt: now }, start: true };
 }
 
 /**
