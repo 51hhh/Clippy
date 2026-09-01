@@ -54,6 +54,7 @@ pub(crate) fn handle_overlay_destroyed(
 ) {
     if let Some(session) = state.capture_manager.abort_if_overlay(label) {
         overlay_windows::close(app_handle, &session.overlay_labels());
+        crate::pin::restore_pins_after_capture(app_handle, state, &session.lowered_pins);
         overlay_windows::restore(app_handle, &session.restore_labels);
     }
 }
@@ -117,22 +118,30 @@ pub(crate) async fn show_capture_overlay_for_app(
         }
     };
     timings.frames_ms = timings.started.elapsed().as_secs_f64() * 1000.0;
+    // **降贴图要在拍完之后。** 贴图该被截进冻结帧（屏幕上有它，画面里就该有它），
+    // 而且要按用户看到的那个层级截——先降层再拍，被贴图压着的窗口就会出现在画面里，
+    // 拍出来的东西和刚才屏幕上的不一样。降层的唯一目的是别让它盖住选择器。
+    let lowered_pins = crate::pin::lower_pins_for_capture(&app_handle, state);
     let probe_hint = take_probe_hint(state);
-    let specs =
-        match state
-            .capture_manager
-            .begin(frames, restore_labels.clone(), probe_hint, timings)
-        {
-            Ok(specs) => specs,
-            Err(error) => {
-                overlay_windows::restore(&app_handle, &restore_labels);
-                return Err(capture_failure(error));
-            }
-        };
+    let specs = match state.capture_manager.begin(
+        frames,
+        restore_labels.clone(),
+        lowered_pins.clone(),
+        probe_hint,
+        timings,
+    ) {
+        Ok(specs) => specs,
+        Err(error) => {
+            crate::pin::restore_pins_after_capture(&app_handle, state, &lowered_pins);
+            overlay_windows::restore(&app_handle, &restore_labels);
+            return Err(capture_failure(error));
+        }
+    };
     if let Err(error) = overlay_windows::create(&app_handle, &specs) {
         if let Some(session) = state.capture_manager.abort() {
             overlay_windows::close(&app_handle, &session.overlay_labels());
         }
+        crate::pin::restore_pins_after_capture(&app_handle, state, &lowered_pins);
         overlay_windows::restore(&app_handle, &restore_labels);
         return Err(capture_failure(error));
     }
@@ -205,6 +214,7 @@ pub fn cancel_capture_overlay(
 ) -> Result<(), String> {
     let session = state.capture_manager.finish(&session_id)?;
     overlay_windows::close(&app_handle, &session.overlay_labels());
+    crate::pin::restore_pins_after_capture(&app_handle, &state, &session.lowered_pins);
     overlay_windows::restore(&app_handle, &session.restore_labels);
     Ok(())
 }
@@ -252,7 +262,12 @@ pub fn commit_capture_action(
         png,
         || state.capture_manager.finish(&session_id),
         |session| overlay_windows::close(&app_handle, &session.overlay_labels()),
-        |session| overlay_windows::restore(&app_handle, &session.restore_labels),
+        |session| {
+            // 贴图的层级要在覆盖层关掉之后才放回去，否则刚恢复置顶的贴图会先盖住
+            // 还没消失的覆盖层，闪一下。
+            crate::pin::restore_pins_after_capture(&app_handle, &state, &session.lowered_pins);
+            overlay_windows::restore(&app_handle, &session.restore_labels);
+        },
         |png| execute_action(action, png, origin, &app_handle, &state),
     );
     // 覆盖层在动作之前就关掉了，错误已经没有窗口可以显示——只能留在日志里，

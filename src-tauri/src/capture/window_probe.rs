@@ -43,6 +43,18 @@ pub(super) struct FrameExtents {
 /// 速选候选区小于这个尺寸就没有点击价值，也挡不住误命中。
 const MIN_CANDIDATE_SIZE: i32 = 20;
 
+/// 这个窗口是"Clippy 自己的、但不是贴图"吗？是的话不该成为速选目标。
+///
+/// 悬浮面板与覆盖层要排除：它们是截图这件事的一部分，框选它们没有意义（而且覆盖层
+/// 铺满整块屏，会把所有别的候选盖住）。
+///
+/// **贴图不排除。** 贴图在用户眼里就是屏幕上的一块内容——它已经被截进冻结帧了，
+/// 那么"鼠标移过去一点就选中它"也该和别的窗口一样成立。以前这里只看 pid，于是唯一
+/// 选不中的窗口恰好是最可能想再截一次的那个。
+fn is_own_non_pin_window(pid: u32, own_pid: u32, title: &str) -> bool {
+    pid != 0 && pid == own_pid && crate::pin::label_from_window_marker(title).is_none()
+}
+
 pub(super) fn probe_windows(frames: &[CapturedMonitorFrame]) -> HashMap<u32, Vec<WindowCandidate>> {
     if let Some(windows) = super::shell_extension::probe() {
         let result = candidates_from_shell(frames, &windows);
@@ -62,8 +74,9 @@ pub(super) fn candidates_from_shell(
     let mut result: HashMap<u32, Vec<WindowCandidate>> = HashMap::new();
     let own_pid = std::process::id();
     for window in windows {
-        // 自己的悬浮面板/覆盖层不该成为速选目标。
-        if window.pid != 0 && window.pid == own_pid {
+        // 自己的悬浮面板/覆盖层不该成为速选目标，**但贴图是例外**：它在用户眼里就是
+        // 屏幕上的一块内容，和别的窗口一样该能被框选（见 `is_own_non_pin_window`）。
+        if is_own_non_pin_window(window.pid, own_pid, &window.title) {
             continue;
         }
         if window.width < MIN_CANDIDATE_SIZE || window.height < MIN_CANDIDATE_SIZE {
@@ -112,7 +125,12 @@ fn candidates_from_x11(frames: &[CapturedMonitorFrame]) -> HashMap<u32, Vec<Wind
     let mut collected: Vec<(Option<u32>, ProbeRect, String)> = Vec::new();
 
     for window in windows {
-        if window.pid().unwrap_or(0) == own_pid {
+        // 同上：自己的窗口里只有贴图该留下来当候选。
+        if is_own_non_pin_window(
+            window.pid().unwrap_or(0),
+            own_pid,
+            &window.title().unwrap_or_default(),
+        ) {
             continue;
         }
         let id = window.id().ok();
@@ -696,6 +714,44 @@ mod tests {
         let candidates = result.get(&1).expect("应有候选");
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].title, "keeper");
+    }
+
+    /// **贴图要能被速选选中。** 它在屏幕上就是一块内容，已经被截进冻结帧了，
+    /// 那么"鼠标移过去点一下就选中它"也该和别的窗口一样成立。以前这里只看 pid，
+    /// 于是唯一选不中的窗口恰好是最可能想再截一次的那个。
+    #[test]
+    fn our_own_pin_windows_stay_selectable_while_the_panel_does_not() {
+        let own = std::process::id();
+        let mut panel = shell_window(0, 0, 380, 500, "Clippy");
+        panel.pid = own;
+        let mut overlay = shell_window(0, 0, 1920, 1200, "");
+        overlay.pid = own;
+        let mut pin = shell_window(300, 200, 640, 480, "Clippy Pin pin-image-7");
+        pin.pid = own;
+        // 标题只是"看着像"但 label 不合法的，仍然按自己的窗口排除掉。
+        let mut spoofed = shell_window(400, 300, 500, 400, "Clippy Pin ../../etc");
+        spoofed.pid = own;
+
+        let result = candidates_from_shell(&[frame(1)], &[panel, overlay, pin, spoofed]);
+        let candidates = result.get(&1).expect("应有候选");
+        assert_eq!(
+            candidates
+                .iter()
+                .map(|candidate| candidate.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Clippy Pin pin-image-7"]
+        );
+    }
+
+    /// 别人的窗口一律不受这条例外影响，哪怕标题恰好长得像贴图。
+    #[test]
+    fn another_process_is_never_filtered_by_the_pin_exception() {
+        let own = std::process::id();
+        assert!(is_own_non_pin_window(own, own, "Clippy"));
+        assert!(!is_own_non_pin_window(own, own, "Clippy Pin pin-clip-3"));
+        assert!(!is_own_non_pin_window(own + 1, own, "Clippy"));
+        // pid 为 0 表示扩展没报出来，不能据此判断是不是自己的窗口。
+        assert!(!is_own_non_pin_window(0, own, "Clippy"));
     }
 
     #[test]

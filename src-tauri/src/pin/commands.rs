@@ -141,6 +141,51 @@ pub(crate) fn create_screenshot_pin(
     Ok(label)
 }
 
+/// 截图期间让置顶的贴图暂时退出置顶层，返回被降下来的那些 label。
+///
+/// **贴图仍然会被截进冻结帧，这是刻意的**：它在屏幕上就是一块内容，用户看到的画面里有它，
+/// 截出来就该有它。要避免的只是"它浮在截图选择器上面"——覆盖层在 Wayland 下进不了置顶层
+/// （Mutter 忽略客户端的 `always_on_top`，见 `pin::window::keep_pin_above`），所以一张开着
+/// 图钉的贴图会盖住选择器，挡住选区和工具条。
+///
+/// 只动**当前确实在置顶层**的那些：没开图钉的贴图本来就是普通窗口，覆盖层刚映射、
+/// 刚拿到焦点，天然压在它上面，不需要碰。
+pub(crate) fn lower_pins_for_capture(
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+) -> Vec<String> {
+    let mut lowered = Vec::new();
+    for label in state.pin_manager.labels_above() {
+        if let Some(window) = app_handle.get_webview_window(&label) {
+            keep_pin_above(&window, None, false);
+            lowered.push(label);
+        }
+    }
+    lowered
+}
+
+/// 截图结束后把刚才降下来的贴图放回置顶层。
+///
+/// 按 label 逐个查条目而不是无条件置顶：这几百毫秒里用户可能已经关掉了那张贴图，
+/// 或者（更细的情形）在别的窗口里把图钉关掉了，那就该尊重现在的状态。
+pub(crate) fn restore_pins_after_capture(
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+    labels: &[String],
+) {
+    for label in labels {
+        let Ok(entry) = state.pin_manager.get(label) else {
+            continue;
+        };
+        if !entry.above {
+            continue;
+        }
+        if let Some(window) = app_handle.get_webview_window(label) {
+            keep_pin_above(&window, None, true);
+        }
+    }
+}
+
 #[tauri::command]
 pub fn get_pin_payload(label: String, state: State<'_, AppState>) -> Result<PinPayload, String> {
     validate_label(&label)?;

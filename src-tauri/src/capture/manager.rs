@@ -75,6 +75,9 @@ pub(super) struct CaptureSession {
     pub id: String,
     pub overlays: Vec<OverlaySpec>,
     pub restore_labels: Vec<String>,
+    /// 截图期间被临时降出置顶层的贴图。会话无论怎么结束都要把它们放回去，
+    /// 所以跟着会话走而不是留在调用方的局部变量里（取消、覆盖层被杀、提交失败都算结束）。
+    pub lowered_pins: Vec<String>,
     frames: Vec<CapturedMonitorFrame>,
     windows: HashMap<u32, Vec<WindowCandidate>>,
     /// 本次会话要不要在覆盖层里提示安装窗口速选服务。由 `begin` 的调用方决定，
@@ -136,6 +139,7 @@ impl CaptureManager {
         &self,
         frames: Vec<CapturedMonitorFrame>,
         restore_labels: Vec<String>,
+        lowered_pins: Vec<String>,
         probe_hint: bool,
         mut timings: StageTimings,
     ) -> Result<Vec<OverlaySpec>, CaptureError> {
@@ -165,6 +169,7 @@ impl CaptureManager {
             frames,
             overlays: specs.clone(),
             restore_labels,
+            lowered_pins,
             windows,
             probe_hint,
             focus_assigned: false,
@@ -473,6 +478,7 @@ mod tests {
             timings: StageTimings::default(),
             probe_hint: false,
             restore_labels: Vec::new(),
+            lowered_pins: Vec::new(),
             frames: vec![monitor_frame],
             windows: HashMap::new(),
         });
@@ -500,6 +506,7 @@ mod tests {
             timings: StageTimings::default(),
             probe_hint: false,
             restore_labels: Vec::new(),
+            lowered_pins: Vec::new(),
             frames: vec![frame(2.0)],
             windows: HashMap::from([(
                 7,
@@ -541,6 +548,7 @@ mod tests {
             timings: StageTimings::default(),
             probe_hint: false,
             restore_labels: Vec::new(),
+            lowered_pins: Vec::new(),
             frames: vec![frame(2.0)],
             windows: HashMap::new(),
         });
@@ -571,6 +579,7 @@ mod tests {
             .begin(
                 vec![frame(1.0), frame(1.0)],
                 Vec::new(),
+                Vec::new(),
                 true,
                 StageTimings::default(),
             )
@@ -593,6 +602,7 @@ mod tests {
             timings: StageTimings::default(),
             probe_hint: false,
             restore_labels: vec!["main".to_string()],
+            lowered_pins: Vec::new(),
             frames: vec![frame(1.0)],
             windows: HashMap::new(),
         });
@@ -626,6 +636,7 @@ mod tests {
             timings: StageTimings::default(),
             probe_hint: false,
             restore_labels: Vec::new(),
+            lowered_pins: Vec::new(),
             frames: vec![frame(1.0)],
             windows: HashMap::new(),
         });
@@ -666,6 +677,7 @@ mod tests {
             timings: StageTimings::default(),
             probe_hint: false,
             restore_labels: Vec::new(),
+            lowered_pins: Vec::new(),
             frames: vec![frame(1.0)],
             windows: HashMap::new(),
         });
