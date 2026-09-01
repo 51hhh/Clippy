@@ -1,11 +1,30 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { drawScene } from "../annotation/canvasRenderer";
 import { DEFAULT_IMAGE_ADJUSTMENTS } from "../annotation/imageAdjustments";
-import { exportPngBase64 } from "../annotation/pngPipeline";
+import { exportPngBase64, pngBase64ToObjectUrl } from "../annotation/pngPipeline";
 import type { Annotation, Tool } from "../annotation/types";
 import { useCanvasInteractions } from "../annotation/useCanvasInteractions";
 import { useHistory } from "../annotation/useHistory";
 import { DEFAULT_COLOR, DEFAULT_STROKE } from "../capture-overlay/tools";
+
+/**
+ * 把 base64 PNG 解成一个可以喂给 `drawImage` 的 `<img>`。
+ *
+ * 调用方负责 `URL.revokeObjectURL(image.src)`——object URL 不会自己释放，
+ * 而这里的图可能有几 MB。
+ */
+function decodeImage(pngBase64: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = pngBase64ToObjectUrl(pngBase64);
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Failed to decode pin source image"));
+    };
+    image.src = url;
+  });
+}
 
 /**
  * 贴图上的画布：标注状态、渲染与导出。
@@ -31,6 +50,13 @@ export function usePinCanvas(params: {
   cssHeight: number;
   /** 画布是否开着。关着时不挂交互、不渲染。 */
   open: boolean;
+  /**
+   * 取贴图原图（base64 PNG）。导出时才调，见 `exportPng`。
+   *
+   * 传函数而不是传字节：常驻一份原图与"上屏后释放补偿结果"的方向相反，
+   * 而导出是低频动作。
+   */
+  loadSourceImage: () => Promise<string | null>;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(params.image);
@@ -103,17 +129,42 @@ export function usePinCanvas(params: {
   /** 画过东西了吗？关窗时据此决定要不要问"保存？"。 */
   const dirty = annotations.length > 0;
 
-  /** 导出"底图 + 标注"的 PNG（图片原始分辨率，不受屏上缩放影响）。 */
+  /**
+   * 导出"底图 + 标注"的 PNG，**底图取自后端的原图**。
+   *
+   * 屏上那个 `<img>` 不能当底图：`get_pin_payload` 给的 `imageBase64` 优先是清晰度
+   * 补偿版——按缓冲区分辨率渲染（2560x1440 的贴图会是 3413x1920），而且为"随后被
+   * 合成器缩小 0.75"预先做了反投影锐化。拿它导出，存下来的就是一张大一圈、发硬的图，
+   * 违反 `pin/resample.rs` 模块头写的"复制与保存永远用原图"。
+   *
+   * 所以导出时单独取一次原图（`get_pin_source_image`），用完即弃。多一趟 IPC 加一次
+   * 解码（1440p 约 36 ms），但导出是低频动作，而让每个贴图窗口长期多驻一份原图
+   * 和刚做的"上屏后释放补偿结果"正好相反。
+   *
+   * 标注坐标本来就在**图片像素空间**，所以换底图不用动任何坐标——这也是当初把坐标
+   * 定在像素空间的收益之一。
+   */
+  // `params` 每次渲染都是新的对象字面量，不能进依赖数组——那会让 `exportPng` 每帧重建，
+  // 把上一轮 F1（每帧重挂 keydown 监听）又带回来。用 ref 转一手拿最新的那个回调。
+  const loadSource = useRef(params.loadSourceImage);
+  loadSource.current = params.loadSourceImage;
+
   const exportPng = useCallback(async (): Promise<string> => {
-    const image = imageRef.current;
-    if (!image) throw new Error("Pin image is not ready");
-    return exportPngBase64(
-      image,
-      { x: 0, y: 0, width: params.pixelWidth, height: params.pixelHeight },
-      annotations,
-      DEFAULT_IMAGE_ADJUSTMENTS,
-    );
-  }, [annotations, params.pixelHeight, params.pixelWidth]);
+    const sourceBase64 = await loadSource.current();
+    if (!sourceBase64) throw new Error("Pin source image is unavailable");
+    const source = await decodeImage(sourceBase64);
+    try {
+      return await exportPngBase64(
+        source,
+        { x: 0, y: 0, width: source.naturalWidth, height: source.naturalHeight },
+        annotations,
+        DEFAULT_IMAGE_ADJUSTMENTS,
+      );
+    } finally {
+      // object URL 必须显式释放，否则这张几 MB 的图留到页面卸载。
+      URL.revokeObjectURL(source.src);
+    }
+  }, [annotations]);
 
   const deleteSelected = useCallback(() => {
     if (!selectedId) return;

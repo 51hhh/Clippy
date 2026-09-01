@@ -478,6 +478,17 @@ export function savePin(label: string): Promise<string> {
 }
 
 /**
+ * 贴图的**原图**（base64 PNG），画布导出的底图。
+ *
+ * 不能用 `getPinPayload` 给的那张：它优先是清晰度补偿版——按缓冲区分辨率渲染、
+ * 并为"随后被合成器缩小"预先锐化过，单独看偏大且过冲。导出时单独取一次，
+ * 用完即弃（导出是低频动作，不该让每个贴图窗口长期多驻一份原图）。
+ */
+export function getPinSourceImage(label: string): Promise<string | null> {
+  return invoke<string | null>("get_pin_source_image", { label });
+}
+
+/**
  * 把贴图上画过的那一版存盘，可选同时进剪贴板。
  *
  * 画布产物不写回贴图条目——条目里那张是原图，`copyPin`/`savePin` 一直交付它。

@@ -324,6 +324,27 @@ pub fn save_pin(label: String, state: State<'_, AppState>) -> Result<String, Str
     Ok(path.to_string_lossy().to_string())
 }
 
+/// 贴图的**原图**（base64 PNG）。画布导出要用它当底图。
+///
+/// **为什么不能用屏上那张。** `get_pin_payload` 给前端的 `image_base64` 优先是清晰度
+/// 补偿版（见 `payload_from_entry`）：它按**缓冲区分辨率**渲染（2560x1440 的贴图会是
+/// 3413x1920），而且为"随后被合成器缩小 0.75"预先做了反投影锐化。那串字节只适合
+/// 贴到那一个窗口的那一块缓冲区里，单独看是偏大且过冲的。拿它当导出底图，存出来的
+/// 就是一张大一圈、发硬的图——这违反 `super::resample` 模块头写的
+/// "复制与保存永远用原图"。
+///
+/// 所以导出时单独来取一次。**按需取而不是常驻**：导出是低频动作，而贴图窗口可以开
+/// 好几个，让每个窗口长期多驻一份原图和刚做的"上屏后释放补偿结果"正好相反。
+#[tauri::command]
+pub fn get_pin_source_image(
+    label: String,
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    validate_label(&label)?;
+    let entry = state.pin_manager.get(&label)?;
+    Ok(source_png(&entry.source).map(|png| STANDARD.encode(png)))
+}
+
 /// 画布上限。和截图提交那条路同一个数量级，理由也一样：挡住畸形载荷把内存吃光。
 const MAX_CANVAS_PNG_BYTES: usize = 64 * 1024 * 1024;
 
