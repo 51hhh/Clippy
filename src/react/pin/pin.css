@@ -138,19 +138,54 @@ input {
   user-select: text;
 }
 
+/* 落点由 JS 算（`shared/toolbarPlacement.ts`）并写成 inline 的 left/top：
+   以前这里是 `inset: 8px 6px auto auto`，也就是死钉在窗口右上角——贴图贴在屏幕
+   右边缘时工具条就在屏幕外面，一个按钮都点不到。现在优先贴在内容区右侧，
+   放不下翻到左侧，两边都放不下才压进内容里（`.inside`）。 */
 .pin-controls {
   position: absolute;
-  inset: 8px 6px auto auto;
   z-index: 10;
   opacity: 0;
-  transform: translateX(4px);
-  transition: opacity 120ms ease, transform 120ms ease;
+  transition: opacity 120ms ease;
+}
+
+/* 压在图上时给一层更实的背板：透过按钮看到图片会让两者都难认。 */
+.pin-controls.inside .pin-tools-vertical {
+  background: rgba(18, 20, 24, 0.97);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+
+/* 拖动把手。它是 <button> 而不是 <div>：键盘能聚焦到、读屏能读出来，
+   而拖动本身走 pointer 事件。 */
+.pin-tool-grip {
+  display: grid;
+  width: 28px;
+  height: 16px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #6b7280;
+  cursor: move;
+  touch-action: none;
+}
+
+.pin-tool-grip:hover,
+.pin-tool-grip:focus-visible {
+  outline: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: #d1d5db;
 }
 
 .pin-root:hover .pin-controls,
 .pin-root:focus-within .pin-controls {
   opacity: 1;
-  transform: translateX(0);
+}
+
+/* 画布开着的时候工具条必须一直可见：用户正在画，不能因为指针移到图上就淡出。 */
+.pin-root.drawing .pin-controls {
+  opacity: 1;
 }
 
 .pin-tools-vertical {
@@ -241,6 +276,244 @@ input {
   width: 34px;
   font-size: 11px;
   text-align: right;
+}
+
+/* 画布：盖在图片上，尺寸与内容区一致。`touch-action: none` 让触控板/触屏的拖动
+   落成 pointer 事件而不是滚动手势。 */
+.pin-canvas {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+/* 画布工具条。横排、两三行，落点由 JS 算（外围优先，见 `shared/toolbarPlacement.ts`）。 */
+.pin-canvas-toolbar {
+  position: absolute;
+  z-index: 11;
+  display: flex;
+  max-width: calc(100vw - 16px);
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 7px;
+  background: rgba(18, 20, 24, 0.96);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  cursor: default;
+}
+
+.pin-canvas-toolbar.inside {
+  background: rgba(18, 20, 24, 0.99);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.58);
+}
+
+.pin-canvas-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.pin-canvas-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.pin-canvas-toolbar button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #e5e7eb;
+  cursor: pointer;
+}
+
+.pin-canvas-toolbar button:hover:not(:disabled),
+.pin-canvas-toolbar button:focus-visible {
+  outline: none;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.pin-canvas-toolbar button.active {
+  background: rgba(96, 165, 250, 0.28);
+  color: #fff;
+}
+
+.pin-canvas-toolbar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pin-canvas-grip {
+  cursor: move;
+  color: #6b7280;
+  touch-action: none;
+}
+
+.pin-canvas-separator {
+  width: 1px;
+  height: 18px;
+  margin: 0 3px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.pin-canvas-colors {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.pin-canvas-toolbar button.pin-canvas-swatch {
+  width: 16px;
+  height: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 50%;
+}
+
+.pin-canvas-toolbar button.pin-canvas-swatch.active {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px rgba(47, 140, 255, 0.55);
+}
+
+.pin-canvas-stroke,
+.pin-canvas-text {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: #cbd5e1;
+  font-size: 11px;
+}
+
+.pin-canvas-stroke input[type="range"] {
+  width: 72px;
+  min-width: 0;
+}
+
+.pin-canvas-text input {
+  width: 150px;
+  height: 24px;
+  min-width: 0;
+  padding: 0 6px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #f3f4f6;
+}
+
+.pin-canvas-text input:focus-visible {
+  outline: none;
+  border-color: #5ca5ff;
+}
+
+/* 右键菜单。落点钳进视口——贴图窗口很小而且无边框，溢出去的部分会被直接裁掉。 */
+.pin-context-menu {
+  position: absolute;
+  z-index: 20;
+  display: flex;
+  min-width: 168px;
+  flex-direction: column;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: rgba(22, 24, 28, 0.98);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+}
+
+.pin-context-menu button {
+  display: flex;
+  height: 28px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #e5e7eb;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pin-context-menu button:hover,
+.pin-context-menu button:focus-visible {
+  outline: none;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.pin-context-menu button.danger:hover,
+.pin-context-menu button.danger:focus-visible {
+  background: rgba(220, 60, 60, 0.28);
+}
+
+.pin-context-check {
+  width: 14px;
+  flex-shrink: 0;
+  color: #7dd3fc;
+  text-align: center;
+}
+
+/* 关窗前的"要保存吗"。盖在整个窗口上——这是个必须先答的问题。 */
+.pin-close-prompt {
+  position: absolute;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  inset: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(12, 14, 18, 0.9);
+  color: #f3f4f6;
+  font-size: 12px;
+  text-align: center;
+}
+
+.pin-close-prompt p {
+  margin: 0;
+}
+
+.pin-close-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+}
+
+.pin-close-actions button {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #f3f4f6;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pin-close-actions button:hover,
+.pin-close-actions button:focus-visible {
+  outline: none;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.pin-close-actions button.primary {
+  border-color: rgba(47, 140, 255, 0.6);
+  background: rgba(47, 140, 255, 0.28);
+}
+
+.pin-close-actions button.primary:hover,
+.pin-close-actions button.primary:focus-visible {
+  background: rgba(47, 140, 255, 0.42);
 }
 
 .pin-error,

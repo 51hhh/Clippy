@@ -6,6 +6,7 @@ import {
   onPinImageSharpened,
   pinReady,
   savePin,
+  savePinCanvas,
   updatePin,
 } from "../../js/api.ts";
 import type { PinImageSharpened, PinPayload, PinState, PinUpdate } from "./types";
@@ -16,6 +17,9 @@ export const pinApi = {
   update: (label: string, update: PinUpdate): Promise<PinState> => updatePin(label, update),
   copy: (label: string): Promise<void> => copyPin(label),
   save: (label: string): Promise<string> => savePin(label),
+  /** 存下贴图上画过的那一版（`toClipboard` 为真时同时进剪贴板）。 */
+  saveCanvas: (label: string, pngBase64: string, toClipboard: boolean): Promise<string> =>
+    savePinCanvas(label, pngBase64, toClipboard),
   close: (label: string): Promise<void> => closePin(label),
   /** 订阅后台算好的清晰版图片（见 `rendering.ts` 与 `pin/resample.rs`）。 */
   onSharpened: (callback: (payload: PinImageSharpened) => void): Promise<() => void> =>
