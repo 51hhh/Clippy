@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
     close: vi.fn(),
     onSharpened: vi.fn(),
     onAlreadyOpen: vi.fn(),
+    saveCanvas: vi.fn(),
   },
 }));
 
@@ -56,6 +57,14 @@ async function flushFrame() {
   });
 }
 
+/** jsdom 没有 PointerEvent，用 MouseEvent 顶替并补上画布要读的那几个字段。 */
+function pointer(type, x, y) {
+  const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y });
+  Object.defineProperty(event, "pointerId", { value: 1 });
+  Object.defineProperty(event, "buttons", { value: type === "pointerup" ? 0 : 1 });
+  return event;
+}
+
 function deferred() {
   let resolve;
   let reject;
@@ -78,6 +87,8 @@ describe("React pin app", () => {
     mocks.pinApi.close.mockResolvedValue(undefined);
     mocks.pinApi.onSharpened.mockResolvedValue(() => {});
     mocks.pinApi.onAlreadyOpen.mockResolvedValue(() => {});
+    mocks.pinApi.saveCanvas.mockResolvedValue("/tmp/pin.png");
+    mocks.pinApi.save.mockResolvedValue("/tmp/pin.png");
     mocks.pinApi.update.mockImplementation(async (_label, update) => ({ ...payload, ...update }));
     root = createRoot(document.getElementById("root"));
   });
@@ -220,6 +231,141 @@ describe("React pin app", () => {
     second.resolve({ ...payload, scale: 1.2 });
     await flush();
     expect(document.querySelector(".pin-scale")?.textContent).toBe("120");
+  });
+
+  /**
+   * 右键接管：WebKit 自带的网页菜单（重新加载/检查元素）已经在 GTK 层关掉了，
+   * 这里断言腾出来的右键真的接成了快速操作，而且默认行为被拦住
+   * （那一层万一没生效，也不能弹出浏览器菜单）。
+   */
+  it("replaces the browser context menu with pin actions", async () => {
+    mocks.pinApi.get.mockResolvedValue(payload);
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    await act(async () => {
+      document.querySelector(".pin-root").dispatchEvent(event);
+    });
+    expect(event.defaultPrevented).toBe(true);
+
+    const labels = [...document.querySelectorAll(".pin-context-menu button")].map(
+      (button) => button.textContent,
+    );
+    // 文本贴图没有画布与保存（canSave 为 true 但 kind 是 text 时仍给保存，
+    // 这里用的 payload 是 text + canSave，所以画布项在）。
+    expect(labels).toContain("Keep above other windows");
+    expect(labels).toContain("Lock position");
+    expect(labels).toContain("Close");
+
+    // 选一项：动作发出去，菜单收起。
+    const above = [...document.querySelectorAll(".pin-context-menu button")].find(
+      (button) => button.textContent === "Keep above other windows",
+    );
+    await act(async () => above.click());
+    await flushFrame();
+    await flush();
+    expect(mocks.pinApi.update).toHaveBeenCalledWith("pin-image-test", { above: true });
+    expect(document.querySelector(".pin-context-menu")).toBeNull();
+  });
+
+  /**
+   * 画布按钮开合，且**没画东西时关窗不问**。
+   *
+   * "关闭前提醒保存"只在画布真的脏了的时候才该出现，否则每次关贴图都要多点一下。
+   */
+  it("opens the drawing canvas and closes without prompting when nothing was drawn", async () => {
+    mocks.pinApi.get.mockResolvedValue({
+      ...payload,
+      kind: "image",
+      text: null,
+      imageBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=",
+    });
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+
+    const canvasButton = () => document.querySelector('button[aria-label="Draw on image"], button[aria-label="Close drawing tools"]');
+    expect(document.querySelector(".pin-canvas-toolbar")).toBeNull();
+
+    await act(async () => canvasButton().click());
+    await flush();
+    expect(document.querySelector(".pin-canvas-toolbar")).not.toBeNull();
+    expect(canvasButton()?.getAttribute("aria-pressed")).toBe("true");
+
+    // 一笔都没画：关窗直接走，不弹询问。
+    await act(async () => document.querySelector('button[aria-label="Close"]').click());
+    await flush();
+    expect(document.querySelector(".pin-close-prompt")).toBeNull();
+    expect(mocks.pinApi.close).toHaveBeenCalledWith("pin-image-test");
+  });
+
+  /**
+   * 画过东西再关窗：必须先问，而且三条出路都要在。
+   *
+   * 这是"画布产物不写回条目"的必然结果——不问就等于静默丢掉用户画的东西
+   * （`copy_pin`/`save_pin` 交付的一直是原图，见 `usePinCanvas`）。
+   */
+  it("asks before closing when the canvas has unsaved drawing", async () => {
+    mocks.pinApi.get.mockResolvedValue({
+      ...payload,
+      kind: "image",
+      text: null,
+      imageBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=",
+    });
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+
+    // jsdom 不会真的加载图片，手动把 load 派发出去并给出像素尺寸——
+    // 画布的坐标换算要靠它（scale = CSS 宽 ÷ 图片像素宽）。
+    const image = document.querySelector(".pin-media img");
+    Object.defineProperty(image, "naturalWidth", { value: 320, configurable: true });
+    Object.defineProperty(image, "naturalHeight", { value: 180, configurable: true });
+    await act(async () => image.dispatchEvent(new Event("load")));
+    await flush();
+
+    await act(async () => document.querySelector('button[aria-label="Draw on image"]').click());
+    await flush();
+
+    // 画一笔：画布的坐标来自 getBoundingClientRect，jsdom 里全是 0，给它一个真的矩形。
+    const canvas = document.querySelector(".pin-canvas");
+    canvas.getBoundingClientRect = () => ({
+      left: 0, top: 0, right: 320, bottom: 180, width: 320, height: 180, x: 0, y: 0,
+    });
+    canvas.setPointerCapture = () => {};
+    canvas.releasePointerCapture = () => {};
+    await act(async () => {
+      canvas.dispatchEvent(pointer("pointerdown", 10, 10));
+      canvas.dispatchEvent(pointer("pointermove", 60, 70));
+      canvas.dispatchEvent(pointer("pointerup", 60, 70));
+    });
+    await flushFrame();
+    await flush();
+
+    await act(async () => document.querySelector('button[aria-label="Close"]').click());
+    await flush();
+    const prompt = document.querySelector(".pin-close-prompt");
+    expect(prompt).not.toBeNull();
+    expect([...prompt.querySelectorAll("button")].map((button) => button.textContent)).toEqual([
+      "Save and close",
+      "Discard",
+      "Cancel",
+    ]);
+    // 问的时候绝不能已经关掉了
+    expect(mocks.pinApi.close).not.toHaveBeenCalled();
+
+    // 取消：窗口留着，画的东西也留着。
+    await act(async () => [...prompt.querySelectorAll("button")][2].click());
+    await flush();
+    expect(document.querySelector(".pin-close-prompt")).toBeNull();
+    expect(mocks.pinApi.close).not.toHaveBeenCalled();
+
+    // 不保存：直接关，不碰 saveCanvas。
+    await act(async () => document.querySelector('button[aria-label="Close"]').click());
+    await flush();
+    await act(async () => [...document.querySelectorAll(".pin-close-prompt button")][1].click());
+    await flush();
+    expect(mocks.pinApi.saveCanvas).not.toHaveBeenCalled();
+    expect(mocks.pinApi.close).toHaveBeenCalledWith("pin-image-test");
   });
 
   /**
