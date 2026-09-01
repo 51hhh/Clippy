@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fullWindowBounds, type ToolbarBounds } from "../shared/toolbarPlacement";
+import { isToolbarDragging } from "../shared/useToolbarDrag";
 import { pinApi } from "./api";
 
 /**
@@ -24,6 +25,11 @@ export function usePinToolbarBounds(label: string, viewport: { width: number; he
   // 和 `update_pin` 的在飞合并同一个套路，避免拖动时堆出一串 D-Bus 请求。
   const inFlight = useRef(false);
   const again = useRef(false);
+  // 关掉贴图时查询可能还在飞（异步命令），落地后不能再动已卸载组件的状态。
+  const alive = useRef(true);
+  useEffect(() => () => {
+    alive.current = false;
+  }, []);
 
   const refresh = useCallback(() => {
     if (inFlight.current) {
@@ -35,16 +41,16 @@ export function usePinToolbarBounds(label: string, viewport: { width: number; he
       .toolbarBounds(label)
       .then((next) => {
         // 宽或高为 0 = 后端查不到（窗口刚关掉、扩展还没认出这个窗口）。
-        setBounds(next.width > 0 && next.height > 0 ? next : null);
+        if (alive.current) setBounds(next.width > 0 && next.height > 0 ? next : null);
       })
       .catch((reason) => {
         // 边界查不到只影响工具条落点，不该打扰用户，也不该让贴图看起来出错了。
         console.debug("贴图工具条边界查询失败", reason);
-        setBounds(null);
+        if (alive.current) setBounds(null);
       })
       .finally(() => {
         inFlight.current = false;
-        if (again.current) {
+        if (again.current && alive.current) {
           again.current = false;
           refresh();
         }
@@ -66,10 +72,15 @@ export function usePinToolbarBounds(label: string, viewport: { width: number; he
    * `focus`：拖完窗口一定会重新拿到焦点。两条都只是"重问一次"，重复无害。
    */
   useEffect(() => {
-    window.addEventListener("pointerup", refresh);
+    function onPointerUp() {
+      // 拖工具条不会挪动窗口，边界没变——那一趟 D-Bus 是白跑的。
+      if (isToolbarDragging()) return;
+      refresh();
+    }
+    window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("focus", refresh);
     return () => {
-      window.removeEventListener("pointerup", refresh);
+      window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("focus", refresh);
     };
   }, [refresh]);
