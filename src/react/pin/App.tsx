@@ -18,6 +18,8 @@ import { pinImageRendering } from "./rendering";
 import type { PinPayload, PinUpdate } from "./types";
 import { mergePinState, shouldApplyPinUpdateResponse } from "./update-order";
 import { usePinCanvas } from "./usePinCanvas";
+import { usePinToolbarBounds } from "./usePinToolbarBounds";
+import { isToolbarDragging } from "../shared/useToolbarDrag";
 import { t } from "../shared/i18n";
 
 /** 事件落点是不是工具条/滑块那一片。 */
@@ -316,6 +318,10 @@ export function App() {
     height: mediaHeight,
   };
 
+  // 工具条能待的范围。**必须问后端**：窗口外框永远给工具条留够了位置，
+  // 拿 viewport 当边界的话"超出屏幕自动调整"一次都不会触发（见 `usePinToolbarBounds`）。
+  const toolbarBounds = usePinToolbarBounds(label, viewport);
+
   const canvas = usePinCanvas({
     // 渲染期读 ref 本身不会触发重渲染，但 `onLoad` 里紧跟着有 `setPixelSize`，
     // 那次重渲染会把已加载的 <img> 带进来——所以画布不会停在"底图是 null"的状态。
@@ -358,7 +364,11 @@ export function App() {
     function onPointerMove(event: PointerEvent) {
       // 画布开着的时候整块内容区都在画画，拖动窗口只剩把手与空白处那条路——
       // 否则画第一笔就把窗口拖走了。
-      if (pin?.locked || canvasOpen) {
+      //
+      // `isToolbarDragging()` 是第二道闸：工具条跟着指针走，指针很容易落到工具条外面，
+      // 那一刻 `onControls` 为假、判据当场成立，"拖工具条"就变成"拖整个贴图窗口"。
+      // pointer capture 已经让 target 钉在把手上，这条只防捕获没生效的环境。
+      if (pin?.locked || canvasOpen || isToolbarDragging()) {
         drag.current = NO_DRAG;
         return;
       }
@@ -591,8 +601,7 @@ export function App() {
       </section>
       <PinToolbar
         media={mediaBox}
-        viewportWidth={viewport.width}
-        viewportHeight={viewport.height}
+        bounds={toolbarBounds}
         scale={pin.scale}
         opacity={pin.opacity}
         locked={pin.locked}
@@ -618,8 +627,7 @@ export function App() {
       {canvasOpen && (
         <PinCanvasToolbar
           media={mediaBox}
-          viewportWidth={viewport.width}
-          viewportHeight={viewport.height}
+          bounds={toolbarBounds}
           tool={canvas.tool}
           color={canvas.color}
           stroke={canvas.stroke}

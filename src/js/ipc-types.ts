@@ -317,6 +317,20 @@ export interface PinPayload {
   bufferScale: number;
 }
 
+/**
+ * 贴图工具条能待的范围：窗口里"还落在屏幕工作区内"的那块，窗口局部逻辑坐标。
+ *
+ * 宽或高为 0 表示后端查不到窗口几何（窗口刚关掉、扩展还没认出这个窗口），
+ * 前端此时退回整个窗口。**不要拿 `window.innerWidth` 当边界**：贴图窗口的外框恒等于
+ * 「内容 + 阴影 + 控件栏」，永远给工具条留够了位置，那样"超出屏幕自动调整"永不触发。
+ */
+export interface PinToolbarBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 /** 后台算好的清晰版贴图。见 `pin/commands.rs` 的 `spawn_sharpen`。 */
 export interface PinImageSharpened {
   label: string;

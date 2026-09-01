@@ -96,7 +96,7 @@ pub struct InstallOutcome {
 
 /// 扩展下发的单个窗口。坐标是逻辑像素、且已排除 CSD 阴影。
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-pub(super) struct ShellWindow {
+pub(crate) struct ShellWindow {
     pub x: i32,
     pub y: i32,
     pub width: i32,
@@ -113,7 +113,7 @@ pub(super) struct ShellWindow {
 ///
 /// 不可用时返回 `None`，调用方退回 X11 枚举。非 GNOME 桌面只付一次 stat 的代价，
 /// 不会白跑一趟 D-Bus。
-pub(super) fn probe() -> Option<Vec<ShellWindow>> {
+pub(crate) fn probe() -> Option<Vec<ShellWindow>> {
     if !is_installed() {
         log::debug!("GNOME Shell 窗口扩展未安装，窗口几何退回 X11 枚举");
         return None;

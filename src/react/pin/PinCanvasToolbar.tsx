@@ -8,7 +8,11 @@ import {
   TOOL_GROUPS,
 } from "../capture-overlay/tools";
 import { t } from "../shared/i18n";
-import { horizontalToolbarPlacement, type Box } from "../shared/toolbarPlacement";
+import {
+  horizontalToolbarPlacement,
+  type Box,
+  type ToolbarBounds,
+} from "../shared/toolbarPlacement";
 import { useToolbarDrag } from "../shared/useToolbarDrag";
 
 /** jsdom 与首帧量不到尺寸时的兜底，数量级取自实际布局。 */
@@ -33,8 +37,8 @@ const PIN_TOOL_GROUPS = TOOL_GROUPS.map((group) => ({
 type Props = {
   /** 贴图内容区在窗口里的矩形。工具条优先贴在它下面/上面，都放不下才压上去。 */
   media: Box;
-  viewportWidth: number;
-  viewportHeight: number;
+  /** 工具条能待的范围（窗口局部坐标）。**不是窗口尺寸**，见 `ToolbarBounds`。 */
+  bounds: ToolbarBounds;
   tool: Tool;
   color: string;
   stroke: number;
@@ -55,8 +59,7 @@ type Props = {
 export function PinCanvasToolbar(props: Props) {
   const panel = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState(FALLBACK_SIZE);
-  const viewport = { width: props.viewportWidth, height: props.viewportHeight };
-  const { position, startDrag } = useToolbarDrag(size, viewport);
+  const { position, startDrag } = useToolbarDrag(size, props.bounds);
 
   useLayoutEffect(() => {
     const element = panel.current;
@@ -71,7 +74,7 @@ export function PinCanvasToolbar(props: Props) {
     );
   });
 
-  const auto = horizontalToolbarPlacement(props.media, size, viewport);
+  const auto = horizontalToolbarPlacement(props.media, size, props.bounds);
   const spot = position ?? auto;
   const inside = position ? false : auto.placement === "inside";
 

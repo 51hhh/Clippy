@@ -13,6 +13,9 @@ pub use manager::CaptureManager;
 /// 贴图窗口的摆放与置顶也只有这个扩展做得到（Wayland 不许客户端自己来），
 /// 所以 `pin/` 借道这里，而不是自己再开一份 D-Bus 契约。
 pub(crate) use shell_extension::place_window as shell_extension_place_window;
+/// 窗口几何查询。`pin/` 借它问"我这个贴图窗口现在在屏幕的哪儿"——Wayland 下
+/// `outer_position()` 是假的（见 `pin::window::known_pin_position`），只有扩展知道真值。
+pub(crate) use shell_extension::probe as shell_extension_windows;
 /// 截图后端要用扩展这条路取冻结帧。扩展的全部 IPC 都留在 `shell_extension` 里，
 /// 这里只把入口露出去，免得契约散成两份。
 pub(crate) use shell_extension::request_screenshot as shell_extension_screenshot;

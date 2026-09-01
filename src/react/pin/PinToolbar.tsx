@@ -15,7 +15,11 @@ import {
 } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { t } from "../shared/i18n";
-import { verticalToolbarPlacement, type Box } from "../shared/toolbarPlacement";
+import {
+  verticalToolbarPlacement,
+  type Box,
+  type ToolbarBounds,
+} from "../shared/toolbarPlacement";
 import { useToolbarDrag } from "../shared/useToolbarDrag";
 
 /** jsdom 与首帧量不到尺寸时的兜底，数量级取自实际布局（38 宽 + 九个 28 高的按钮）。 */
@@ -24,8 +28,8 @@ const FALLBACK_SIZE = { width: 38, height: 249 };
 type Props = {
   /** 贴图内容区在窗口里的矩形。工具条优先贴在它外面，放不下才压上去。 */
   media: Box;
-  viewportWidth: number;
-  viewportHeight: number;
+  /** 工具条能待的范围（窗口局部坐标）。**不是窗口尺寸**，见 `ToolbarBounds`。 */
+  bounds: ToolbarBounds;
   scale: number;
   opacity: number;
   locked: boolean;
@@ -74,8 +78,7 @@ function ToolButton({
 export function PinToolbar(props: Props) {
   const panel = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState(FALLBACK_SIZE);
-  const viewport = { width: props.viewportWidth, height: props.viewportHeight };
-  const { position, startDrag } = useToolbarDrag(size, viewport);
+  const { position, startDrag } = useToolbarDrag(size, props.bounds);
 
   // 工具条的高度随按钮增减变化（保存按钮只在可保存时出现，画布开着时多一行），
   // 量出来比写死常量可靠。没有依赖数组是有意的，靠等值判断避免自激——
@@ -94,7 +97,7 @@ export function PinToolbar(props: Props) {
   });
 
   // 用户拖过就听用户的；没拖过则自动选边（右 → 左 → 内部）。
-  const auto = verticalToolbarPlacement(props.media, size, viewport);
+  const auto = verticalToolbarPlacement(props.media, size, props.bounds);
   const spot = position ?? auto;
   const inside = position ? false : auto.placement === "inside";
 

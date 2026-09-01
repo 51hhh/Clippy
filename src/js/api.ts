@@ -29,6 +29,7 @@ import type {
   PasteStatus,
   PinImageSharpened,
   PinPayload,
+  PinToolbarBounds,
   PinState,
   PinUpdate,
   ShortcutConflict,
@@ -62,6 +63,7 @@ export type {
   PasteStatus,
   PinImageSharpened,
   PinPayload,
+  PinToolbarBounds,
   PinState,
   PinUpdate,
   ServiceTranslation,
@@ -442,6 +444,17 @@ export function closePin(label: string): Promise<void> {
 /** 获取统一贴图渲染与交互状态 */
 export function getPinPayload(label: string): Promise<PinPayload> {
   return invoke<PinPayload>("get_pin_payload", { label });
+}
+
+/**
+ * 贴图工具条能待的范围（窗口局部逻辑坐标）。
+ *
+ * 前端算不了这个：它只有 `window.innerWidth`，而贴图窗口的外框永远给工具条留够了位置，
+ * 真正会超出屏幕的是窗口在屏幕上的位置——那要问合成器。宽或高为 0 表示查不到，
+ * 调用方退回整个窗口。
+ */
+export function getPinToolbarBounds(label: string): Promise<PinToolbarBounds> {
+  return invoke<PinToolbarBounds>("get_pin_toolbar_bounds", { label });
 }
 
 /** 贴图内容首帧加载完成后显示原生窗口 */
