@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
     onAlreadyOpen: vi.fn(),
     saveCanvas: vi.fn(),
     toolbarBounds: vi.fn(),
+    sourceImage: vi.fn(),
   },
 }));
 
@@ -101,6 +102,35 @@ async function drawOneStroke() {
   await flush();
 }
 
+/**
+ * jsdom 的 `Image` 不会真的加载 `blob:` URL——`onload` 永不触发，于是导出会挂住。
+ * 换一个立刻 load 并带尺寸的实现，让"导出走了哪条路"可断言。
+ */
+function stubImageDecoding(width = 320, height = 180) {
+  const RealImage = globalThis.Image;
+  class InstantImage {
+    constructor() {
+      this.naturalWidth = width;
+      this.naturalHeight = height;
+      this.onload = null;
+      this.onerror = null;
+      this._src = "";
+    }
+    set src(value) {
+      this._src = value;
+      // 微任务里回调，模拟异步解码。
+      Promise.resolve().then(() => this.onload?.());
+    }
+    get src() {
+      return this._src;
+    }
+  }
+  globalThis.Image = InstantImage;
+  return () => {
+    globalThis.Image = RealImage;
+  };
+}
+
 function deferred() {
   let resolve;
   let reject;
@@ -127,6 +157,7 @@ describe("React pin app", () => {
     mocks.pinApi.save.mockResolvedValue("/tmp/pin.png");
     // 默认：整个窗口都在屏幕内（宽高取自 payload 的内容尺寸 + 边距）。
     mocks.pinApi.toolbarBounds.mockResolvedValue({ x: 0, y: 0, width: 388, height: 252 });
+    mocks.pinApi.sourceImage.mockResolvedValue(TINY_PNG);
     mocks.pinApi.update.mockImplementation(async (_label, update) => ({ ...payload, ...update }));
     // 产品代码会对它 `.catch()`，必须回 Promise（Wayland 上这条会真的失败，
     // 所以那个 catch 不是多余的）。
@@ -305,6 +336,56 @@ describe("React pin app", () => {
       window.dispatchEvent(pointer("pointermove", 260, 260));
     });
     expect(mocks.startDraggingCurrentWindow).toHaveBeenCalled();
+  });
+
+  /**
+   * 导出用的底图必须是**后端原图**，不是屏上那张。
+   *
+   * payload 里的 imageBase64 优先是清晰度补偿版：按缓冲区分辨率渲染（2560x1440 的贴图
+   * 会是 3413x1920）、并为"随后被合成器缩小"预先锐化过。拿它导出会存出一张大一圈、
+   * 发硬的图，违反 `pin/resample.rs` 写的"复制与保存永远用原图"。
+   */
+  it("exports from the backend source image instead of the compensated one", async () => {
+    const restoreImage = stubImageDecoding();
+    mocks.pinApi.get.mockResolvedValue({
+      ...payload,
+      kind: "image",
+      text: null,
+      // 屏上那张（假装是补偿版）
+      imageBase64: TINY_PNG,
+    });
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+    await drawOneStroke();
+
+    await act(async () => document.querySelector('button[aria-label="Save image"]').click());
+    await flush();
+
+    // 关键断言：导出向**后端**要了原图。屏上那张（payload 的 imageBase64，可能是
+    // 补偿版）绝不能当底图——jsdom 没有 canvas 2D 上下文，所以导出的后半段
+    // （drawImage + toBlob）在这里走不完，那部分由 Rust 侧的往返测试与真机验证覆盖。
+    expect(mocks.pinApi.sourceImage).toHaveBeenCalledWith("pin-image-test");
+    restoreImage();
+  });
+
+  /** 原图取不到时要报错，不能悄悄拿屏上那张顶替。 */
+  it("fails loudly when the source image cannot be fetched", async () => {
+    mocks.pinApi.get.mockResolvedValue({
+      ...payload,
+      kind: "image",
+      text: null,
+      imageBase64: TINY_PNG,
+    });
+    mocks.pinApi.sourceImage.mockResolvedValue(null);
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+    await drawOneStroke();
+
+    await act(async () => document.querySelector('button[aria-label="Save image"]').click());
+    await flush();
+
+    expect(mocks.pinApi.saveCanvas).not.toHaveBeenCalled();
+    expect(document.querySelector(".pin-toast")?.textContent).toBe("Action failed");
   });
 
   /**

@@ -318,6 +318,8 @@ export function App() {
     height: mediaHeight,
   };
 
+  const loadSourceImage = useCallback(() => pinApi.sourceImage(label), [label]);
+
   // 工具条能待的范围。**必须问后端**：窗口外框永远给工具条留够了位置，
   // 拿 viewport 当边界的话"超出屏幕自动调整"一次都不会触发（见 `usePinToolbarBounds`）。
   const toolbarBounds = usePinToolbarBounds(label, viewport);
@@ -332,6 +334,8 @@ export function App() {
     cssWidth: mediaWidth,
     cssHeight: mediaHeight,
     open: canvasOpen,
+    // 导出底图取后端原图，不是屏上那张（可能是补偿版）。见 `usePinCanvas.exportPng`。
+    loadSourceImage: loadSourceImage,
   });
 
   const showSaved = useCallback((path: string) => {

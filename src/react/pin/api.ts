@@ -2,6 +2,7 @@ import {
   closePin,
   copyPin,
   getPinPayload,
+  getPinSourceImage,
   getPinToolbarBounds,
   onPinAlreadyOpen,
   onPinImageSharpened,
@@ -26,6 +27,8 @@ export const pinApi = {
   update: (label: string, update: PinUpdate): Promise<PinState> => updatePin(label, update),
   copy: (label: string): Promise<void> => copyPin(label),
   save: (label: string): Promise<string> => savePin(label),
+  /** 画布导出用的原图（base64 PNG）。见 `getPinSourceImage`。 */
+  sourceImage: (label: string): Promise<string | null> => getPinSourceImage(label),
   /** 存下贴图上画过的那一版（`toClipboard` 为真时同时进剪贴板）。 */
   saveCanvas: (label: string, pngBase64: string, toClipboard: boolean): Promise<string> =>
     savePinCanvas(label, pngBase64, toClipboard),
