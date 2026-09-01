@@ -317,6 +317,9 @@ export function App() {
   };
 
   const canvas = usePinCanvas({
+    // 渲染期读 ref 本身不会触发重渲染，但 `onLoad` 里紧跟着有 `setPixelSize`，
+    // 那次重渲染会把已加载的 <img> 带进来——所以画布不会停在"底图是 null"的状态。
+    // 两件事必须留在同一个 onLoad 里，别把 setPixelSize 挪走。
     image: imageElement.current,
     pixelWidth: pixelSize?.width ?? 0,
     pixelHeight: pixelSize?.height ?? 0,
