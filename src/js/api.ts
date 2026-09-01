@@ -27,6 +27,7 @@ import type {
   InstallType,
   PasteOutcome,
   PasteStatus,
+  PinImageSharpened,
   PinPayload,
   PinState,
   PinUpdate,
@@ -59,6 +60,7 @@ export type {
   PasteOutcome,
   PastePhase,
   PasteStatus,
+  PinImageSharpened,
   PinPayload,
   PinState,
   PinUpdate,
@@ -460,6 +462,18 @@ export function copyPin(label: string): Promise<void> {
 
 export function savePin(label: string): Promise<string> {
   return invoke<string>("save_pin", { label });
+}
+
+/**
+ * 后台算好的清晰版贴图到货了。
+ *
+ * 贴图先用原图上屏（开窗才不会被卡住），后端随后在别的线程上把它重新渲染成缓冲区
+ * 分辨率并补偿掉合成器的缩小，算完通过这个事件换进来。见 `pin/resample.rs`。
+ */
+export function onPinImageSharpened(
+  callback: (payload: PinImageSharpened) => void,
+): Promise<UnlistenFn> {
+  return listen<PinImageSharpened>("pin-image-sharpened", (event) => callback(event.payload));
 }
 
 /** 检查 OCR 是否可用（系统是否安装了 tesseract） */

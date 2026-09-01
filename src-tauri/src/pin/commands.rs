@@ -2,14 +2,14 @@ use super::model::{
     validate_label, PinEntry, PinOrigin, PinPayload, PinSource, PinState, PinUpdate,
 };
 use super::window::{
-    content_device_scale, create_pin_window, fit_content_size, origin_content_size,
-    resize_pin_window, reveal_pin_window,
+    content_buffer_scale, content_device_scale, create_pin_window, fit_content_size,
+    origin_content_size, resize_pin_window, reveal_pin_window,
 };
 use crate::commands::AppState;
 use crate::models::ContentType;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use std::sync::Arc;
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 
 #[tauri::command]
 pub fn pin_clip(
@@ -73,6 +73,7 @@ pub fn pin_clip(
         position: None,
         origin,
         device_scale: content_device_scale(&app_handle, origin),
+        buffer_scale: content_buffer_scale(&app_handle, origin),
     })?;
     if let Err(error) =
         create_pin_window(&app_handle, &label, content_width, content_height, origin)
@@ -114,6 +115,7 @@ pub(crate) fn create_screenshot_pin(
         position: None,
         origin,
         device_scale: content_device_scale(app_handle, origin),
+        buffer_scale: content_buffer_scale(app_handle, origin),
     })?;
     if let Err(error) = create_pin_window(app_handle, &label, content_width, content_height, origin)
     {
@@ -146,7 +148,10 @@ pub fn pin_ready(
         .ok_or_else(|| "贴图窗口不存在".to_string())?;
     // 平台适配（置顶 + 缩放锁）在建窗时就做过了，这里只负责显示与摆位；
     // 重复调用会给 zoom-level 挂上第二个回调。
-    reveal_pin_window(&app_handle, &window, &entry).map_err(|error| error.to_string())
+    reveal_pin_window(&app_handle, &window, &entry).map_err(|error| error.to_string())?;
+    // 原图这会儿已经在屏上了，清晰版慢慢算，算完再换（见 `spawn_sharpen`）。
+    spawn_sharpen(&app_handle, &entry);
+    Ok(())
 }
 
 /// 改缩放/不透明度/锁定，应答只带变了的那几个字段（见 `PinState`）。
@@ -239,20 +244,16 @@ fn state_from_entry(entry: &PinEntry) -> PinState {
 }
 
 fn payload_from_entry(entry: PinEntry) -> Result<PinPayload, String> {
-    let (kind, text, image_base64, can_save) = match &*entry.source {
+    let (kind, text, image, can_save) = match &*entry.source {
         PinSource::Clip { item, image } => match item.content_type {
-            ContentType::Image => (
-                "image",
-                None,
-                image.as_ref().map(|png| STANDARD.encode(png)),
-                true,
-            ),
+            ContentType::Image => ("image", None, image.as_deref(), true),
             ContentType::Text | ContentType::Html => {
                 ("text", item.text_content.clone(), None, false)
             }
         },
-        PinSource::Screenshot { png } => ("image", None, Some(STANDARD.encode(png)), true),
+        PinSource::Screenshot { png } => ("image", None, Some(png.as_slice()), true),
     };
+    let image_base64 = image.map(|png| STANDARD.encode(png));
     Ok(PinPayload {
         label: entry.label,
         kind,
@@ -266,7 +267,80 @@ fn payload_from_entry(entry: PinEntry) -> Result<PinPayload, String> {
         can_save,
         position: entry.position,
         device_scale: entry.device_scale,
+        buffer_scale: entry.buffer_scale,
     })
+}
+
+/// 清晰版图片就绪的事件名。与 `src/js/api.ts` 的 `onPinImageSharpened` 是一份契约。
+const PIN_IMAGE_SHARPENED: &str = "pin-image-sharpened";
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PinImageSharpened {
+    label: String,
+    image_base64: String,
+}
+
+/// 在后台把贴图重新渲染成"缓冲区分辨率 + 已补偿"的版本，算完推给它自己那个窗口。
+///
+/// 为什么这么做、以及不做的话糊在哪里，见 `super::resample`。
+///
+/// **为什么不在 `get_pin_payload` 里同步做**：release 构建本机实测，屏上 1200x900 的
+/// 贴图要 380 ms，接近全屏的 2560x1440 要 1.9 s，而那条命令跑在 GTK 主线程上——同步做
+/// 等于把贴图窗口的出现卡住一两秒，而"慢"正是这个功能一直在修的另一个毛病。改成
+/// 原图先上屏、清晰版随后换进来之后，开窗延迟一点没变，用户看到的只是"一瞬之后更清楚"。
+///
+/// 复制（`copy_pin`）与保存/编辑（`save_pin`）不受影响：它们走 `image_bytes`，永远是原图。
+fn spawn_sharpen(app_handle: &tauri::AppHandle, entry: &PinEntry) {
+    let Some(geometry) = super::resample::display_geometry(
+        entry.content_width,
+        entry.content_height,
+        entry.device_scale,
+        entry.buffer_scale,
+    ) else {
+        return;
+    };
+    let source = Arc::clone(&entry.source);
+    let label = entry.label.clone();
+    let app_handle = app_handle.clone();
+    let (device_scale, buffer_scale) = (entry.device_scale, entry.buffer_scale);
+    // 补偿是"锦上添花"的一步，失败只影响清晰度，所以线程里所有错误都只记日志。
+    std::thread::spawn(move || {
+        let Some(png) = source_png(&source) else {
+            return;
+        };
+        let started = std::time::Instant::now();
+        match super::resample::compensated_png(png, geometry) {
+            Ok(bytes) => {
+                // 记到 info：两个缩放是**按机器不同**的那两个数，一旦有人报"贴图还是糊"
+                // 或者"过锐"，这一行就是第一手证据。每个贴图窗口只打一次。
+                log::info!(
+                    "{label} 清晰度补偿完成：真实缩放 {device_scale} / 缓冲区缩放 {buffer_scale}，\
+                     屏上 {:?} → 缓冲区 {:?}，耗时 {:?}",
+                    geometry.panel,
+                    geometry.buffer,
+                    started.elapsed()
+                );
+                let payload = PinImageSharpened {
+                    label: label.clone(),
+                    image_base64: STANDARD.encode(&bytes),
+                };
+                if let Err(error) = app_handle.emit_to(label.as_str(), PIN_IMAGE_SHARPENED, payload)
+                {
+                    log::warn!("推送贴图清晰版失败: {error}");
+                }
+            }
+            Err(error) => log::warn!("贴图清晰度补偿失败，保留原图: {error}"),
+        }
+    });
+}
+
+/// 贴图内容里的 PNG 字节，文本贴图没有。
+fn source_png(source: &PinSource) -> Option<&[u8]> {
+    match source {
+        PinSource::Clip { image, .. } => image.as_deref(),
+        PinSource::Screenshot { png } => Some(png),
+    }
 }
 
 fn image_bytes(entry: &PinEntry) -> Result<Vec<u8>, String> {

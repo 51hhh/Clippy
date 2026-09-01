@@ -2,11 +2,12 @@ import {
   closePin,
   copyPin,
   getPinPayload,
+  onPinImageSharpened,
   pinReady,
   savePin,
   updatePin,
 } from "../../js/api.ts";
-import type { PinPayload, PinState, PinUpdate } from "./types";
+import type { PinImageSharpened, PinPayload, PinState, PinUpdate } from "./types";
 
 export const pinApi = {
   get: (label: string): Promise<PinPayload> => getPinPayload(label),
@@ -15,4 +16,7 @@ export const pinApi = {
   copy: (label: string): Promise<void> => copyPin(label),
   save: (label: string): Promise<string> => savePin(label),
   close: (label: string): Promise<void> => closePin(label),
+  /** 订阅后台算好的清晰版图片（见 `rendering.ts` 与 `pin/resample.rs`）。 */
+  onSharpened: (callback: (payload: PinImageSharpened) => void): Promise<() => void> =>
+    onPinImageSharpened(callback),
 };

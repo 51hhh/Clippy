@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isPixelExact, pinImageRendering } from "../react/pin/rendering.ts";
+import { isBufferExact, isPixelExact, pinImageRendering } from "../react/pin/rendering.ts";
 import { pointerStillHeld } from "../react/pin/gestures.ts";
 
 /**
@@ -18,6 +18,7 @@ describe("pin image rendering filter", () => {
     pixelWidth: 1200,
     pixelHeight: 900,
     deviceScale: 1.5,
+    bufferScale: 2,
   };
 
   it("uses nearest neighbour when one image pixel lands on one device pixel", () => {
@@ -33,7 +34,49 @@ describe("pin image rendering filter", () => {
       pixelWidth: 1200,
       pixelHeight: 900,
       deviceScale: 1,
+      bufferScale: 1,
     })).toBe("pixelated");
+  });
+
+  /**
+   * 后端把图补偿成缓冲区分辨率之后（`pin/resample.rs`，实测 43.45 dB），图片是 1:1
+   * 搬进缓冲区的，缩放比就是 1，任何滤镜都不该介入。这一条必须是**明写的判据**，
+   * 不能靠"它不满足像素对齐所以掉进 auto 分支"的巧合——那样改一次判据就悄悄退化了。
+   */
+  it("leaves the back-projected buffer-resolution image alone", () => {
+    const compensated = { ...fractional, pixelWidth: 1600, pixelHeight: 1200 };
+    expect(isBufferExact(compensated)).toBe(true);
+    expect(isPixelExact(compensated)).toBe(false);
+    expect(pinImageRendering(compensated)).toBe("auto");
+  });
+
+  /** 缩放（滚轮）之后就不再是 1:1 了，这份补偿不再成立。 */
+  it("stops trusting the compensated image once the pin is zoomed", () => {
+    expect(isBufferExact({
+      ...fractional,
+      cssWidth: 960,
+      cssHeight: 720,
+      pixelWidth: 1600,
+      pixelHeight: 1200,
+    })).toBe(false);
+  });
+
+  /**
+   * 两个判据不会同时成立：只有 `bufferScale !== deviceScale` 时后端才补偿。
+   * 整数缩放的桌面上两者相等，补偿不会发生，判据照旧给出最近邻。
+   */
+  it("never lets the two criteria collide", () => {
+    const integer = {
+      cssWidth: 600,
+      cssHeight: 400,
+      pixelWidth: 1200,
+      pixelHeight: 800,
+      deviceScale: 2,
+      bufferScale: 2,
+    };
+    expect(pinImageRendering(integer)).toBe("pixelated");
+    const compensated = { ...fractional, pixelWidth: 1600, pixelHeight: 1200 };
+    expect(isPixelExact(compensated) && isBufferExact(compensated)).toBe(false);
   });
 
   /**

@@ -3,6 +3,7 @@ mod error;
 mod manager;
 mod model;
 mod origins;
+mod resample;
 mod window;
 
 pub(crate) use commands::create_screenshot_pin;
@@ -36,6 +37,7 @@ mod tests {
             position: None,
             origin: None,
             device_scale: 1.0,
+            buffer_scale: 1.0,
         }
     }
 

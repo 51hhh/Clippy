@@ -300,6 +300,20 @@ export interface PinPayload {
    * 只能靠这个数，见 `react/pin/rendering.ts`。
    */
   deviceScale: number;
+  /**
+   * 同一块屏上 GTK 报的**整数缓冲区缩放**（分数缩放的桌面上通常是 2）。
+   *
+   * 后端会在后台把图重新渲染成缓冲区分辨率并预先补偿掉合成器的缩小
+   * （`pin/resample.rs`），换进来之后 `pixelWidth == cssWidth * bufferScale`，
+   * 前端据此知道这张图是 1:1 搬进缓冲区的、不该再动滤镜。
+   */
+  bufferScale: number;
+}
+
+/** 后台算好的清晰版贴图。见 `pin/commands.rs` 的 `spawn_sharpen`。 */
+export interface PinImageSharpened {
+  label: string;
+  imageBase64: string;
 }
 
 /**
