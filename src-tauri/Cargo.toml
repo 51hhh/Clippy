@@ -93,10 +93,17 @@ harness = false
 lto = false
 codegen-units = 16
 
-# 截图链路的墙钟时间几乎全在 PNG 编码上（release 下 1080p 约 77 ms，见 docs/bench-baseline.md）。
-# 这几个库不优化就慢十几倍，`cargo tauri dev` 下 2560x1600 的冻结帧要编码一两秒——
-# 覆盖层的首帧就得等这么久，调试时完全无法判断交互是否流畅。只给依赖开优化，
-# 自己的代码仍是 opt-level = 0，断点和 panic 行号照旧。
+# dev 也要能测出真实的快慢。这个项目里绝大多数问题都是"慢"或"糊"，而它们全都是在
+# `cargo tauri dev` 里被观察到的——opt-level = 0 下贴图清晰度补偿要 1.23 s
+# （release 0.25 s），于是"糊一下才变清"这种纯属 debug 构建的现象会被当成 bug 报上来，
+# 反过来真正的性能回归又淹在噪声里。opt-level = 1 把这条路拉回 0.20 s，
+# 代价只是增量编译 26 s → 29 s；`debug = true` 没动，panic 行号与回溯照旧。
+[profile.dev]
+opt-level = 1
+
+# 上面那档对纯计算够用了，但 PNG 编解码不到 opt-level = 3 就慢十几倍：
+# 截图链路的墙钟时间几乎全在它上面（release 下 1080p 约 77 ms，见 docs/bench-baseline.md），
+# dev 下 2560x1600 的冻结帧要编码一两秒，覆盖层首帧就得等这么久。
 [profile.dev.package.image]
 opt-level = 3
 [profile.dev.package.png]
