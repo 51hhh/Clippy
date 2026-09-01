@@ -334,6 +334,7 @@ export function App() {
       } else if (event.key === "+" || event.key === "=") adjustScale(0.1);
       else if (event.key === "-") adjustScale(-0.1);
       else if (event.key.toLowerCase() === "l") commitUpdate({ locked: !pin.locked });
+      else if (event.key.toLowerCase() === "t") commitUpdate({ above: !pin.above });
       else if (event.key.toLowerCase() === "s" && pin.canSave) runAction(() => pinApi.save(label));
     }
     window.addEventListener("keydown", onKeyDown);
@@ -418,6 +419,7 @@ export function App() {
         scale={pin.scale}
         opacity={pin.opacity}
         locked={pin.locked}
+        above={pin.above}
         canSave={pin.canSave}
         copied={copied}
         opacityOpen={opacityOpen}
@@ -425,6 +427,7 @@ export function App() {
         onOpacity={(opacity) => commitUpdate({ opacity })}
         onToggleOpacity={() => setOpacityOpen((open) => !open)}
         onToggleLock={() => commitUpdate({ locked: !pin.locked })}
+        onToggleAbove={() => commitUpdate({ above: !pin.above })}
         onCopy={() => void copy()}
         onSave={() => runAction(() => pinApi.save(label))}
         onClose={() => runAction(() => pinApi.close(label))}

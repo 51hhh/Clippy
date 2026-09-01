@@ -27,6 +27,14 @@ pub(super) struct PinEntry {
     pub scale: f64,
     pub opacity: f64,
     pub locked: bool,
+    /// 压在普通窗口上面（工具条里的图钉）。**默认关**。
+    ///
+    /// 关着的时候贴图就是一个普普通通的窗口：谁最后拿到焦点谁在上面，别的窗口能盖住它，
+    /// 全交给合成器。开着的时候进 Mutter 的 above 层，于是压在所有普通窗口之上；
+    /// 同时开着的几张贴图之间仍然是"谁最后拿到焦点谁在上面"，因为它们在同一层里，
+    /// 层内顺序照旧由合成器按栈序管——这一层的语义和普通窗口完全一致，见
+    /// `super::window::keep_pin_above`。
+    pub above: bool,
     pub position: Option<PinPosition>,
     /// 这张图原本在屏幕上的位置与大小（逻辑像素）。截图选区带着它过来，
     /// 于是贴图能贴回原处、原尺寸；从别处来的图片没有它，落回光标/居中。
@@ -198,6 +206,8 @@ pub struct PinPayload {
     pub scale: f64,
     pub opacity: f64,
     pub locked: bool,
+    /// 见 `PinEntry::above`。默认 false，工具条据此画图钉的按下态。
+    pub above: bool,
     pub can_save: bool,
     pub position: Option<PinPosition>,
     /// 见 `PinEntry::device_scale`。前端拿它判断"屏上一个图片像素是不是正好一个设备
@@ -223,6 +233,7 @@ pub struct PinState {
     pub scale: f64,
     pub opacity: f64,
     pub locked: bool,
+    pub above: bool,
     pub position: Option<PinPosition>,
 }
 
@@ -232,6 +243,7 @@ pub struct PinUpdate {
     pub scale: Option<f64>,
     pub opacity: Option<f64>,
     pub locked: Option<bool>,
+    pub above: Option<bool>,
 }
 
 /// 贴图窗口的原生标题。

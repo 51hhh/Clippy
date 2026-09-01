@@ -400,6 +400,8 @@
   "pin.zoomIn": "放大",
   "pin.zoomOut": "缩小",
   "pin.scale": "缩放 {percent}%",
+  "pin.pinAbove": "置顶显示",
+  "pin.unpinAbove": "取消置顶",
   "pin.lock": "锁定位置",
   "pin.unlock": "解锁位置",
   "pin.opacity": "不透明度",

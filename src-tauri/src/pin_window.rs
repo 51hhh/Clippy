@@ -1,14 +1,15 @@
 //! Pin 窗口平台适配
 //!
 //! Pin 是可拖动小窗，不能复用截图 overlay 的 layer-shell 四边锚定逻辑；
-//! 那会把窗口拉伸成全屏层。这里做两件平台相关的事：再次确认 always-on-top，
+//! 那会把窗口拉伸成全屏层。这里做两件平台相关的事：吃掉触控板捏合手势，
 //! 以及把 WebKit 的页面缩放锁死在 100%。
+//!
+//! **置顶不在这里做。** 它是用户可开关的选项、默认关，由 `pin::window::keep_pin_above`
+//! 按条目状态表态（见 `pin::model::PinEntry::above`）。这里以前无条件
+//! `set_always_on_top(true)`，那会把默认值悄悄改回"总是置顶"。
 
 /// 配置 pin 窗口的平台特定属性。
 pub fn configure_pin_window(window: &tauri::WebviewWindow) {
-    if let Err(e) = window.set_always_on_top(true) {
-        log::warn!("pin 窗口置顶确认失败: {e}");
-    }
     swallow_touchpad_pinch(window);
     lock_pin_zoom(window);
 }

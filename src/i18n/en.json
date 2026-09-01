@@ -400,6 +400,8 @@
   "pin.zoomIn": "Zoom in",
   "pin.zoomOut": "Zoom out",
   "pin.scale": "Scale {percent} percent",
+  "pin.pinAbove": "Keep above other windows",
+  "pin.unpinAbove": "Stop keeping above other windows",
   "pin.lock": "Lock position",
   "pin.unlock": "Unlock position",
   "pin.opacity": "Opacity",

@@ -62,6 +62,9 @@ impl PinManager {
         if let Some(locked) = update.locked {
             entry.locked = locked;
         }
+        if let Some(above) = update.above {
+            entry.above = above;
+        }
         Ok(entry.clone())
     }
 

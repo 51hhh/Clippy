@@ -145,6 +145,18 @@ input {
   color: #fff;
 }
 
+/* 开关类按钮（图钉、锁）的按下态。工具条只在悬停时出现，所以状态必须一眼看得出来，
+   不能只靠图标换形状。 */
+.pin-tool-button.active {
+  background: rgba(96, 165, 250, 0.26);
+  color: #bfdbfe;
+}
+
+.pin-tool-button.active:hover {
+  background: rgba(96, 165, 250, 0.36);
+  color: #fff;
+}
+
 .pin-scale {
   width: 28px;
   color: #9ca3af;

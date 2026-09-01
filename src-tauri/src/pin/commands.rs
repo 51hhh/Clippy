@@ -3,7 +3,7 @@ use super::model::{
 };
 use super::window::{
     content_buffer_scale, content_device_scale, create_pin_window, fit_content_size,
-    origin_content_size, resize_pin_window, reveal_pin_window,
+    keep_pin_above, origin_content_size, resize_pin_window, reveal_pin_window,
 };
 use crate::commands::AppState;
 use crate::models::ContentType;
@@ -68,6 +68,7 @@ pub fn pin_clip(
         scale: 1.0,
         opacity: 1.0,
         locked: false,
+        above: false,
         position: None,
         origin,
         device_scale: content_device_scale(&app_handle, origin),
@@ -113,6 +114,7 @@ pub(crate) fn create_screenshot_pin(
         scale: 1.0,
         opacity: 1.0,
         locked: false,
+        above: false,
         position: None,
         origin,
         device_scale: content_device_scale(app_handle, origin),
@@ -178,6 +180,13 @@ pub fn update_pin(
         .map_err(|error| error.to_string())?;
     let previous = state.pin_manager.get(&label)?;
     let entry = state.pin_manager.update(&label, &update)?;
+    // 图钉开关：只改层级、不动位置和尺寸。关掉就是 `unmake_above`，贴图从此是个普通窗口。
+    // 缩放那条路自己会把层级重新表态一次，所以这里只处理"只按了图钉"的情况。
+    if update.above.is_some() && update.scale.is_none() {
+        if let Some(window) = app_handle.get_webview_window(&label) {
+            keep_pin_above(&window, None, entry.above);
+        }
+    }
     if update.scale.is_some() {
         if let Err(error) = resize_pin_window(&app_handle, &entry) {
             if let Err(rollback_error) = resize_pin_window(&app_handle, &previous) {
@@ -244,6 +253,7 @@ fn state_from_entry(entry: &PinEntry) -> PinState {
         scale: entry.scale,
         opacity: entry.opacity,
         locked: entry.locked,
+        above: entry.above,
         position: entry.position,
     }
 }
@@ -276,6 +286,7 @@ fn payload_from_entry(entry: PinEntry) -> Result<PinPayload, String> {
         scale: entry.scale,
         opacity: entry.opacity,
         locked: entry.locked,
+        above: entry.above,
         can_save,
         position: entry.position,
         device_scale: entry.device_scale,

@@ -4,6 +4,8 @@ import {
   Lock,
   LockOpen,
   Minus,
+  Pin,
+  PinOff,
   Save,
   SlidersHorizontal,
   X,
@@ -15,6 +17,7 @@ type Props = {
   scale: number;
   opacity: number;
   locked: boolean;
+  above: boolean;
   canSave: boolean;
   copied: boolean;
   opacityOpen: boolean;
@@ -22,6 +25,7 @@ type Props = {
   onOpacity: (opacity: number) => void;
   onToggleOpacity: () => void;
   onToggleLock: () => void;
+  onToggleAbove: () => void;
   onCopy: () => void;
   onSave: () => void;
   onClose: () => void;
@@ -30,14 +34,24 @@ type Props = {
 function ToolButton({
   label,
   onClick,
+  active,
   children,
 }: {
   label: string;
   onClick: () => void;
+  /** 开关类按钮的按下态。`aria-pressed` 让读屏软件也能读出开关状态。 */
+  active?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <button type="button" className="pin-tool-button" aria-label={label} title={label} onClick={onClick}>
+    <button
+      type="button"
+      className={`pin-tool-button${active ? " active" : ""}`}
+      aria-label={label}
+      aria-pressed={active}
+      title={label}
+      onClick={onClick}
+    >
       {children}
     </button>
   );
@@ -57,7 +71,18 @@ export function PinToolbar(props: Props) {
           <Minus size={16} />
         </ToolButton>
         <span className="pin-tool-separator" />
-        <ToolButton label={t(props.locked ? "pin.unlock" : "pin.lock")} onClick={props.onToggleLock}>
+        <ToolButton
+          label={t(props.above ? "pin.unpinAbove" : "pin.pinAbove")}
+          active={props.above}
+          onClick={props.onToggleAbove}
+        >
+          {props.above ? <Pin size={16} /> : <PinOff size={16} />}
+        </ToolButton>
+        <ToolButton
+          label={t(props.locked ? "pin.unlock" : "pin.lock")}
+          active={props.locked}
+          onClick={props.onToggleLock}
+        >
           {props.locked ? <Lock size={16} /> : <LockOpen size={16} />}
         </ToolButton>
         <ToolButton label={t("pin.opacity")} onClick={props.onToggleOpacity}>

@@ -34,6 +34,7 @@ mod tests {
             scale: 1.0,
             opacity: 1.0,
             locked: false,
+            above: false,
             position: None,
             origin: None,
             device_scale: 1.0,
@@ -144,11 +145,52 @@ mod tests {
                     scale: Some(2.0),
                     opacity: None,
                     locked: None,
+                    above: None,
                 },
             )
             .unwrap();
         assert!(Arc::ptr_eq(&first.source, &updated.source));
         assert_eq!(updated.scale, 2.0);
+    }
+
+    /// 置顶默认关，而且是可以来回切的。
+    ///
+    /// 默认值这条要锁住：以前建窗写死 `always_on_top(true)`、`configure_pin_window` 再确认
+    /// 一次、缩放又无条件置顶一次，三处都朝一个方向，用户没有任何办法让贴图退回普通层。
+    #[test]
+    fn pins_start_below_other_windows_and_the_toggle_goes_both_ways() {
+        let manager = PinManager::new();
+        manager.insert(screenshot_entry("pin-image-above")).unwrap();
+        assert!(
+            !manager.get("pin-image-above").unwrap().above,
+            "置顶必须默认关"
+        );
+
+        let toggle = |above: Option<bool>| super::model::PinUpdate {
+            scale: None,
+            opacity: None,
+            locked: None,
+            above,
+        };
+        assert!(
+            manager
+                .update("pin-image-above", &toggle(Some(true)))
+                .unwrap()
+                .above
+        );
+        assert!(
+            !manager
+                .update("pin-image-above", &toggle(Some(false)))
+                .unwrap()
+                .above
+        );
+        // 没提到 above 的更新不该动它（滚轮缩放每帧都发这种更新）。
+        assert!(
+            !manager
+                .update("pin-image-above", &toggle(None))
+                .unwrap()
+                .above
+        );
     }
 
     #[test]
