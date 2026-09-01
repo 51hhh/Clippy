@@ -36,16 +36,14 @@ pub fn pin_clip(
 
     let (item, image) = {
         let storage = state.storage.lock().map_err(|error| error.to_string())?;
-        let item = storage
+        let mut item = storage
             .get_clip_by_id(id)
             .map_err(|error| error.to_string())?;
-        let image = if item.content_type == ContentType::Image {
-            storage
-                .get_clip_image(id)
-                .map_err(|error| error.to_string())?
-        } else {
-            None
-        };
+        // `get_clip_by_id` 已经把整张图读出来了，从条目里**拿走**它而不是再查一遍库：
+        // 全屏截图是几 MB，多读一遍就是多一次几 MB 的 blob 拷贝，而且贴图窗口活着的
+        // 期间条目里那份会一直占着内存（`pin/` 只用 `image`，从不看 `item.image_data`）。
+        // 只有图片条目有 blob，所以 take 出来的东西和按 content_type 判断是一回事。
+        let image = item.image_data.take();
         (item, image)
     };
     let (width, height) = image
