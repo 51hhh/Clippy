@@ -16,6 +16,10 @@
 //! 已被处理"，WebKit 于是什么都不弹，这一层对所有页面一次生效。返回 `true` **不会**阻止
 //! DOM 的 `contextmenu` 事件，所以前端接管右键的能力不受影响（贴图菜单就靠这个）。
 //!
+//! **可编辑区域是例外，照旧给默认菜单。** 设置页里有十几个输入框（含翻译 API key 与
+//! 密码框），把它们的右键粘贴也拦掉是纯粹的体验回退——没人手打一串长密钥。可编辑区域的
+//! 默认菜单只有剪切/复制/粘贴/全选，不含上面那两个会弄坏界面的入口，所以放行是安全的。
+//!
 //! 另外把 `enable_developer_extras` 关掉：它是开发者工具的总开关，关了之后连快捷键
 //! （Ctrl+Shift+I / F12）也进不去。**dev 构建保留它**——调试界面本来就要用，
 //! 而 dev 构建不会发给用户。
@@ -40,12 +44,17 @@ pub(crate) fn plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
 
 #[cfg(target_os = "linux")]
 fn harden(label: &str, platform: tauri::webview::PlatformWebview) {
-    use webkit2gtk::{SettingsExt, WebViewExt};
+    use webkit2gtk::{HitTestResultExt, SettingsExt, WebViewExt};
 
     let webkit = platform.inner();
     // 返回 true = "这次右键菜单我处理了"，WebKit 因此不弹任何菜单。
     // DOM 的 contextmenu 事件照旧派发，前端接管右键的能力不受影响。
-    webkit.connect_context_menu(|_, _, _, _| true);
+    //
+    // **可编辑区域例外。** 一律拦掉的话，设置页里那些输入框（9 个文本框、2 个密码框、
+    // 1 个 URL 框）就没有右键粘贴了——而翻译 API key 恰恰是最需要粘贴的东西，没人手打
+    // 一串长密钥。那里的默认菜单只有剪切/复制/粘贴/全选这类编辑项，本来就是用户要的，
+    // 也没有"重新加载/检查元素"那两个会弄坏界面的入口。
+    webkit.connect_context_menu(|_, _, _, hit| !hit.context_is_editable());
     // debug_assertions 而不是某个环境变量：这是"开发时可用、发布版没有"的开关，
     // 不该让用户能在运行时打开。
     if !cfg!(debug_assertions) {
