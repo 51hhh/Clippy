@@ -58,12 +58,47 @@ async function flushFrame() {
   });
 }
 
+/** 1x1 透明 PNG。 */
+const TINY_PNG =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=";
+
 /** jsdom 没有 PointerEvent，用 MouseEvent 顶替并补上画布要读的那几个字段。 */
 function pointer(type, x, y) {
   const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y });
   Object.defineProperty(event, "pointerId", { value: 1 });
   Object.defineProperty(event, "buttons", { value: type === "pointerup" ? 0 : 1 });
   return event;
+}
+
+/**
+ * 打开画布并画一笔。
+ *
+ * jsdom 不会真的加载图片、也没有布局，所以要手动派发 load、给出像素尺寸，
+ * 并给画布一个真的 `getBoundingClientRect`——交互层靠它把指针位置换算成图片坐标。
+ */
+async function drawOneStroke() {
+  const image = document.querySelector(".pin-media img");
+  Object.defineProperty(image, "naturalWidth", { value: 320, configurable: true });
+  Object.defineProperty(image, "naturalHeight", { value: 180, configurable: true });
+  await act(async () => image.dispatchEvent(new Event("load")));
+  await flush();
+
+  await act(async () => document.querySelector('button[aria-label="Draw on image"]').click());
+  await flush();
+
+  const canvas = document.querySelector(".pin-canvas");
+  canvas.getBoundingClientRect = () => ({
+    left: 0, top: 0, right: 320, bottom: 180, width: 320, height: 180, x: 0, y: 0,
+  });
+  canvas.setPointerCapture = () => {};
+  canvas.releasePointerCapture = () => {};
+  await act(async () => {
+    canvas.dispatchEvent(pointer("pointerdown", 10, 10));
+    canvas.dispatchEvent(pointer("pointermove", 60, 70));
+    canvas.dispatchEvent(pointer("pointerup", 60, 70));
+  });
+  await flushFrame();
+  await flush();
 }
 
 function deferred() {
@@ -190,9 +225,7 @@ describe("React pin app", () => {
       ...payload,
       kind: "image",
       text: null,
-      // 1x1 透明 PNG
-      imageBase64:
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=",
+      imageBase64: TINY_PNG,
     });
     await act(async () => root.render(React.createElement(App)));
     await flush();
@@ -275,6 +308,64 @@ describe("React pin app", () => {
   });
 
   /**
+   * 确认框开着时 Esc = 取消，而且背后的交互要被挡住。
+   *
+   * 以前 Esc 无条件走 requestClose()，那时 dirty 仍为真，于是只是把 closePrompt 又设一次
+   * true——框不关、也没别的反应，用户会觉得按键失灵。`role="dialog"` 也得名副其实：
+   * 开着时滚轮不该还在改缩放。
+   */
+  it("closes the prompt on Escape and blocks interaction behind it", async () => {
+    mocks.pinApi.get.mockResolvedValue({
+      ...payload,
+      kind: "image",
+      text: null,
+      imageBase64: TINY_PNG,
+    });
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+    await drawOneStroke();
+
+    await act(async () => document.querySelector('button[aria-label="Close"]').click());
+    await flush();
+    expect(document.querySelector(".pin-close-prompt")).not.toBeNull();
+
+    // 滚轮被挡住：缩放不变。
+    await act(async () => {
+      window.dispatchEvent(new WheelEvent("wheel", { deltaY: -120, cancelable: true }));
+    });
+    await flushFrame();
+    await flush();
+    expect(document.querySelector(".pin-scale")?.textContent).toBe("100");
+
+    // Esc 收框，不关窗。
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    await flush();
+    expect(document.querySelector(".pin-close-prompt")).toBeNull();
+    expect(mocks.pinApi.close).not.toHaveBeenCalled();
+  });
+
+  /** 两条消息只占一个 toast 位（CSS 把它定位在右下角），出错优先。 */
+  it("shows only one toast at a time", async () => {
+    mocks.pinApi.get.mockResolvedValue(payload);
+    mocks.pinApi.copy.mockRejectedValue(new Error("copy failed"));
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+
+    await act(async () => document.querySelector('button[aria-label="Save image"]').click());
+    await flush();
+    expect(document.querySelectorAll(".pin-toast")).toHaveLength(1);
+    expect(document.querySelector(".pin-toast").textContent).toBe("Saved");
+
+    // 出错之后仍然只有一个，而且显示的是错误。
+    await act(async () => document.querySelector('button[aria-label="Copy"]').click());
+    await flush();
+    expect(document.querySelectorAll(".pin-toast")).toHaveLength(1);
+    expect(document.querySelector(".pin-toast").textContent).toBe("Action failed");
+  });
+
+  /**
    * 右键接管：WebKit 自带的网页菜单（重新加载/检查元素）已经在 GTK 层关掉了，
    * 这里断言腾出来的右键真的接成了快速操作，而且默认行为被拦住
    * （那一层万一没生效，也不能弹出浏览器菜单）。
@@ -320,7 +411,7 @@ describe("React pin app", () => {
       ...payload,
       kind: "image",
       text: null,
-      imageBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=",
+      imageBase64: TINY_PNG,
     });
     await act(async () => root.render(React.createElement(App)));
     await flush();
@@ -351,36 +442,12 @@ describe("React pin app", () => {
       ...payload,
       kind: "image",
       text: null,
-      imageBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=",
+      imageBase64: TINY_PNG,
     });
     await act(async () => root.render(React.createElement(App)));
     await flush();
 
-    // jsdom 不会真的加载图片，手动把 load 派发出去并给出像素尺寸——
-    // 画布的坐标换算要靠它（scale = CSS 宽 ÷ 图片像素宽）。
-    const image = document.querySelector(".pin-media img");
-    Object.defineProperty(image, "naturalWidth", { value: 320, configurable: true });
-    Object.defineProperty(image, "naturalHeight", { value: 180, configurable: true });
-    await act(async () => image.dispatchEvent(new Event("load")));
-    await flush();
-
-    await act(async () => document.querySelector('button[aria-label="Draw on image"]').click());
-    await flush();
-
-    // 画一笔：画布的坐标来自 getBoundingClientRect，jsdom 里全是 0，给它一个真的矩形。
-    const canvas = document.querySelector(".pin-canvas");
-    canvas.getBoundingClientRect = () => ({
-      left: 0, top: 0, right: 320, bottom: 180, width: 320, height: 180, x: 0, y: 0,
-    });
-    canvas.setPointerCapture = () => {};
-    canvas.releasePointerCapture = () => {};
-    await act(async () => {
-      canvas.dispatchEvent(pointer("pointerdown", 10, 10));
-      canvas.dispatchEvent(pointer("pointermove", 60, 70));
-      canvas.dispatchEvent(pointer("pointerup", 60, 70));
-    });
-    await flushFrame();
-    await flush();
+    await drawOneStroke();
 
     await act(async () => document.querySelector('button[aria-label="Close"]').click());
     await flush();

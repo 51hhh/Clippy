@@ -344,7 +344,8 @@ export function App() {
   const saveCanvas = useCallback(async () => {
     const pngBase64 = await canvas.exportPng();
     showSaved(await pinApi.saveCanvas(label, pngBase64, true));
-  }, [canvas, label, showSaved]);
+    // 只依赖 `exportPng` 而不是整个 `canvas`：后者含 `dirty` 等每笔都变的字段。
+  }, [canvas.exportPng, label, showSaved]);
 
   /**
    * 关窗。画布上有没保存的东西就先问一句。
@@ -404,6 +405,8 @@ export function App() {
     function onWheel(event: WheelEvent) {
       // 无条件 preventDefault：即使这一下什么都不做，也不能让它落到 WebKit 的页面缩放上。
       event.preventDefault();
+      // 确认框是个必须先答的问题（`role="dialog"`），开着时不该还能改缩放/不透明度。
+      if (closePrompt) return;
       const intent = pinWheelIntent(event);
       if (intent.kind === "scale") adjustScale(intent.delta);
       else if (intent.kind === "opacity") adjustOpacity(intent.delta);
@@ -432,7 +435,7 @@ export function App() {
         window.removeEventListener(name, onGesture);
       }
     };
-  }, [adjustOpacity, adjustScale]);
+  }, [adjustOpacity, adjustScale, closePrompt]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -453,7 +456,12 @@ export function App() {
         else canvas.undo();
         return;
       }
-      if (event.key === "Escape") requestClose();
+      // 确认框开着时 Esc = 取消。以前无条件走 requestClose()，而那时 `dirty` 仍为真，
+      // 于是只是把 `closePrompt` 又设一次 true——框不关、也没别的反应，用户会觉得按键失灵。
+      if (event.key === "Escape") {
+        if (closePrompt) setClosePrompt(false);
+        else requestClose();
+      }
       else if (command && event.key.toLowerCase() === "c") {
         event.preventDefault();
         void copy();
@@ -467,7 +475,22 @@ export function App() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [adjustScale, canvas, canvasOpen, commitUpdate, copy, label, pin, requestClose, runAction]);
+    // 依赖只收窄到真正用到的那两个回调（都来自 `useHistory` 的 `useCallback`，稳定），
+    // 而不是整个 `canvas`：那个对象里有依赖 `annotations` 的字段，画一笔就变一次，
+    // 于是每画一笔都要重挂一次 keydown 监听。
+  }, [
+    adjustScale,
+    canvas.redo,
+    canvas.undo,
+    canvasOpen,
+    closePrompt,
+    commitUpdate,
+    copy,
+    label,
+    pin,
+    requestClose,
+    runAction,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -553,6 +576,8 @@ export function App() {
         // 这里把腾出来的右键接成快速操作。仍然 preventDefault：万一那一层没生效
         // （非 Linux、信号连接失败），也不要弹出"重新加载/检查元素"。
         event.preventDefault();
+        // 同上：确认框开着时不叠一层菜单上去。
+        if (closePrompt) return;
         setMenuAt({ x: event.clientX, y: event.clientY });
       }}
     >
@@ -680,8 +705,13 @@ export function App() {
           </div>
         </div>
       )}
-      {savedPath && <div className="pin-toast" role="status">{t("pin.saved")}</div>}
-      {error && <div className="pin-toast" role="status">{t("pin.actionFailed")}</div>}
+      {/* 只有一个 toast 位（`pin.css` 把它绝对定位在右下角），所以两条消息不能各渲染
+          一个——那样会完全叠在一起。出错优先：它是用户需要处置的那一条。 */}
+      {(error || savedPath) && (
+        <div className="pin-toast" role="status">
+          {error ? t("pin.actionFailed") : t("pin.saved")}
+        </div>
+      )}
     </main>
   );
 }

@@ -115,40 +115,56 @@ export function usePinCanvas(params: {
     );
   }, [annotations, params.pixelHeight, params.pixelWidth]);
 
-  const discard = useCallback(() => {
-    history.reset([]);
-    setSelectedId(null);
-  }, [history]);
-
   const deleteSelected = useCallback(() => {
     if (!selectedId) return;
     history.commit((items) => items.filter((item) => item.id !== selectedId));
     setSelectedId(null);
   }, [history, selectedId]);
 
-  return {
-    canvasRef,
-    scale,
-    tool,
-    setTool,
-    color,
-    setColor,
-    stroke,
-    setStroke,
-    text,
-    setText,
-    selectedId,
-    hasSelectedObject: selectedId !== null,
-    canUndo: history.canUndo,
-    canRedo: history.canRedo,
-    undo: history.undo,
-    redo: history.redo,
-    dirty,
-    exportPng,
-    discard,
-    deleteSelected,
-    onPointerDown: canvas.onPointerDown,
-    onPointerMove: canvas.onPointerMove,
-    onPointerUp: canvas.onPointerUp,
-  };
+  // **返回值必须是稳定引用。** 这个 hook 的结果会进 `App.tsx` 里 keydown effect 的
+  // 依赖数组，而滚轮缩放的每一帧都会重渲染贴图——返回裸对象字面量的话，那个 effect
+  // 每帧都要 remove/addEventListener 一次，`requestClose` / `saveCanvas` 也跟着每帧重建。
+  // 缩放是这个窗口最高频的交互，那条路专门优化过（`update_pin` 的在飞合并），
+  // 不能在这里又加一份每帧开销。
+  return useMemo(
+    () => ({
+      canvasRef,
+      tool,
+      setTool,
+      color,
+      setColor,
+      stroke,
+      setStroke,
+      text,
+      setText,
+      hasSelectedObject: selectedId !== null,
+      canUndo: history.canUndo,
+      canRedo: history.canRedo,
+      undo: history.undo,
+      redo: history.redo,
+      dirty,
+      exportPng,
+      deleteSelected,
+      onPointerDown: canvas.onPointerDown,
+      onPointerMove: canvas.onPointerMove,
+      onPointerUp: canvas.onPointerUp,
+    }),
+    [
+      canvas.onPointerDown,
+      canvas.onPointerMove,
+      canvas.onPointerUp,
+      color,
+      deleteSelected,
+      dirty,
+      exportPng,
+      history.canRedo,
+      history.canUndo,
+      history.redo,
+      history.undo,
+      selectedId,
+      stroke,
+      text,
+      tool,
+    ],
+  );
 }
