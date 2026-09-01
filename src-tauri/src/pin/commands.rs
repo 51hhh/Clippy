@@ -153,6 +153,9 @@ pub fn pin_ready(
     // 平台适配（置顶 + 缩放锁）在建窗时就做过了，这里只负责显示与摆位；
     // 重复调用会给 zoom-level 挂上第二个回调。
     reveal_pin_window(&app_handle, &window, &entry).map_err(|error| error.to_string())?;
+    // 图已经在屏上了，补偿结果（最大十几 MB）没人会再来取，扔掉它——贴图窗口可以开好几个，
+    // 留着就是每个窗口白占十几 MB 到关闭为止。见 `SharpenSlot::release`。
+    entry.sharpen.release();
     Ok(())
 }
 
@@ -326,7 +329,7 @@ fn spawn_sharpen(app_handle: &tauri::AppHandle, entry: &PinEntry) {
         match super::resample::compensated_png(png, geometry) {
             Ok(bytes) => {
                 let bytes = Arc::new(bytes);
-                let late = slot.finish(Arc::clone(&bytes));
+                let late = slot.finish(&bytes);
                 // 记到 info：两个缩放是**按机器不同**的那两个数，一旦有人报"贴图还是糊"
                 // 或者"过锐"，这一行就是第一手证据。`late` 说明这一张没赶上第一帧，
                 // 用户会看见一次"由糊变清"——报这种现象时也是看这一行。
