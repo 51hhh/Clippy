@@ -166,6 +166,17 @@ export function usePinCanvas(params: {
     }
   }, [annotations]);
 
+  /**
+   * 随保存一起送出的工程内容：标注 + 图像调整。
+   *
+   * 原图不在这里——后端自己从条目取（前端手上那张可能是补偿版），而且让前端把几 MB
+   * 原图再回传一趟纯属浪费。见 `pin/project.rs`。
+   */
+  const projectData = useMemo(
+    () => ({ annotations, adjustments: DEFAULT_IMAGE_ADJUSTMENTS }),
+    [annotations],
+  );
+
   const deleteSelected = useCallback(() => {
     if (!selectedId) return;
     history.commit((items) => items.filter((item) => item.id !== selectedId));
@@ -195,6 +206,7 @@ export function usePinCanvas(params: {
       redo: history.redo,
       dirty,
       exportPng,
+      projectData,
       deleteSelected,
       onPointerDown: canvas.onPointerDown,
       onPointerMove: canvas.onPointerMove,
@@ -208,6 +220,7 @@ export function usePinCanvas(params: {
       deleteSelected,
       dirty,
       exportPng,
+      projectData,
       history.canRedo,
       history.canUndo,
       history.redo,

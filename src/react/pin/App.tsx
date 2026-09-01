@@ -347,9 +347,11 @@ export function App() {
   /** 把画布上那一版存下来（顺带进剪贴板，"画完直接粘走"是最常见的下一步）。 */
   const saveCanvas = useCallback(async () => {
     const pngBase64 = await canvas.exportPng();
-    showSaved(await pinApi.saveCanvas(label, pngBase64, true));
-    // 只依赖 `exportPng` 而不是整个 `canvas`：后者含 `dirty` 等每笔都变的字段。
-  }, [canvas.exportPng, label, showSaved]);
+    // 工程数据一起送去：落盘那份会带一个 iTXt 块（原图 + 标注），于是同一个文件既是
+    // 普通 PNG 又能被 Clippy 重新打开继续编辑。进剪贴板的那份不带（见 `save_pin_canvas`）。
+    showSaved(await pinApi.saveCanvas(label, pngBase64, true, canvas.projectData));
+    // 只依赖用到的那两个字段而不是整个 `canvas`：后者含 `dirty` 等每笔都变的东西。
+  }, [canvas.exportPng, canvas.projectData, label, showSaved]);
 
   /**
    * 关窗。画布上有没保存的东西就先问一句。

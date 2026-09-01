@@ -31,6 +31,10 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 arboard = "3"
 sha2 = "0.10"
 image = { version = "0.25", default-features = false, features = ["png"] }
+# 直接用 png crate 只为一件事：往 PNG 里写/读 iTXt 元数据块（贴图工程数据，
+# 见 pin/project.rs）。image crate 不暴露 chunk API。版本跟随 image 已经锁定的这一个，
+# 不引入新的下载。
+png = "0.17"
 base64 = "0.22"
 thiserror = "2"
 anyhow = "1"

@@ -331,6 +331,34 @@ export interface PinToolbarBounds {
   height: number;
 }
 
+/**
+ * 随保存一起送去的画布工程内容。**原图不在这里**——后端自己从条目取
+ * （前端手上那张可能是清晰度补偿版）。
+ */
+export interface PinCanvasProject {
+  /** `Annotation[]` 的原样 JSON。后端不解释它，只搬运进 PNG 的 iTXt 块。 */
+  annotations: unknown;
+  /** `ImageAdjustments` 的原样 JSON。 */
+  adjustments: unknown;
+}
+
+/**
+ * 从一张 PNG 里读回来的贴图工程（`read_pin_project`）。
+ *
+ * 拿不到就是 `null`：没有工程块、块坏了、版本比当前应用新——对用户都是同一件事，
+ * 这张图能看但不能继续编辑。
+ */
+export interface PinProject {
+  format: string;
+  version: number;
+  createdAt: number;
+  appVersion: string;
+  /** 底图：条目原图的 base64 PNG。 */
+  sourcePngBase64: string;
+  annotations: unknown;
+  adjustments: unknown;
+}
+
 /** 后台算好的清晰版贴图。见 `pin/commands.rs` 的 `spawn_sharpen`。 */
 export interface PinImageSharpened {
   label: string;

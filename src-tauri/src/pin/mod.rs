@@ -3,6 +3,7 @@ mod error;
 mod manager;
 mod model;
 mod origins;
+mod project;
 mod resample;
 mod window;
 

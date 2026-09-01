@@ -52,6 +52,19 @@ async function flush() {
   });
 }
 
+/**
+ * 把微任务队列跑到干净。
+ *
+ * 导出是一条多段异步链（取原图 → 解码 <img> → canvas.toBlob → FileReader），
+ * `flush()` 那两个 `await` 不够走完它。用宏任务（setTimeout 0）让所有微任务先跑完。
+ */
+async function flushAsyncChain() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
 async function flushFrame() {
   await act(async () => {
     await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -131,6 +144,35 @@ function stubImageDecoding(width = 320, height = 180) {
   };
 }
 
+/**
+ * jsdom 没有 2D 上下文也没有 `toBlob`，导出链路会在那里断掉。给它们最小的实现，
+ * 好让"送出去的工程内容"可断言——这里不验像素，只验数据流。
+ *
+ * **返回恢复函数，必须调用**：这两个是原型上的方法，不还回去会污染同文件里别的测试
+ * （之前就因为忘了这件事把 drawScene 弄坏过）。
+ */
+function stubCanvasExport() {
+  const proto = globalThis.HTMLCanvasElement.prototype;
+  const realGetContext = proto.getContext;
+  const realToBlob = proto.toBlob;
+  const noop = () => {};
+  proto.getContext = () => new Proxy({}, {
+    get: (_target, key) => {
+      if (key === "measureText") return () => ({ width: 10 });
+      if (key === "getImageData") return () => ({ data: new Uint8ClampedArray(4) });
+      if (key === "createPattern") return () => null;
+      if (key === "canvas") return { width: 1, height: 1 };
+      return noop;
+    },
+    set: () => true,
+  });
+  proto.toBlob = (callback) => callback(new Blob(["png"], { type: "image/png" }));
+  return () => {
+    proto.getContext = realGetContext;
+    proto.toBlob = realToBlob;
+  };
+}
+
 function deferred() {
   let resolve;
   let reject;
@@ -143,6 +185,8 @@ function deferred() {
 
 describe("React pin app", () => {
   let root;
+  /** 本条测试装过的 stub 恢复函数，afterEach 统一还原。 */
+  const restoreStubs = [];
 
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -168,6 +212,10 @@ describe("React pin app", () => {
 
   afterEach(async () => {
     await act(async () => root.unmount());
+    // stub 是装在原型 / globalThis 上的，断言失败时也必须还回去，
+    // 否则会污染同文件里后面的测试（之前就这样把 drawScene 弄坏过）。
+    restoreStubs.forEach((restore) => restore());
+    restoreStubs.length = 0;
     delete globalThis.IS_REACT_ACT_ENVIRONMENT;
   });
 
@@ -346,7 +394,7 @@ describe("React pin app", () => {
    * 发硬的图，违反 `pin/resample.rs` 写的"复制与保存永远用原图"。
    */
   it("exports from the backend source image instead of the compensated one", async () => {
-    const restoreImage = stubImageDecoding();
+    restoreStubs.push(stubImageDecoding());
     mocks.pinApi.get.mockResolvedValue({
       ...payload,
       kind: "image",
@@ -365,7 +413,41 @@ describe("React pin app", () => {
     // 补偿版）绝不能当底图——jsdom 没有 canvas 2D 上下文，所以导出的后半段
     // （drawImage + toBlob）在这里走不完，那部分由 Rust 侧的往返测试与真机验证覆盖。
     expect(mocks.pinApi.sourceImage).toHaveBeenCalledWith("pin-image-test");
-    restoreImage();
+  });
+
+  /**
+   * 保存时要把工程内容一起送去（落盘那份会带 iTXt 块，见 `pin/project.rs`），
+   * 而且**原图不在里面**——后端自己从条目取，前端回传几 MB 纯属浪费。
+   */
+  it("sends the canvas project alongside the rendered PNG", async () => {
+    restoreStubs.push(stubImageDecoding());
+    mocks.pinApi.get.mockResolvedValue({
+      ...payload,
+      kind: "image",
+      text: null,
+      imageBase64: TINY_PNG,
+    });
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+    await drawOneStroke();
+
+    // 导出的后半段（drawImage + toBlob）在 jsdom 里走不完，saveCanvas 因此不会被调到。
+    // 但要断言的是"送出去的工程内容长什么样"，所以把导出那一步替掉：
+    // exportPng 之后紧接着就是 saveCanvas，替掉它就能看到真实的第四个参数。
+    restoreStubs.push(stubCanvasExport());
+    await act(async () => document.querySelector('button[aria-label="Save image"]').click());
+    await flushAsyncChain();
+
+    expect(mocks.pinApi.saveCanvas).toHaveBeenCalledTimes(1);
+    const [, , toClipboard, sent] = mocks.pinApi.saveCanvas.mock.calls[0];
+    expect(toClipboard).toBe(true);
+    // 画了一笔，标注必须在。
+    expect(sent.annotations).toHaveLength(1);
+    expect(sent.annotations[0].type).toBe("pen");
+    expect(sent.adjustments).toMatchObject({ grayscale: false });
+    // 原图绝不能出现在前端送的这份里——后端自己从条目取。
+    expect(sent).not.toHaveProperty("sourcePngBase64");
+
   });
 
   /** 原图取不到时要报错，不能悄悄拿屏上那张顶替。 */
@@ -382,7 +464,7 @@ describe("React pin app", () => {
     await drawOneStroke();
 
     await act(async () => document.querySelector('button[aria-label="Save image"]').click());
-    await flush();
+    await flushAsyncChain();
 
     expect(mocks.pinApi.saveCanvas).not.toHaveBeenCalled();
     expect(document.querySelector(".pin-toast")?.textContent).toBe("Action failed");

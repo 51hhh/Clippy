@@ -28,7 +28,9 @@ import type {
   PasteOutcome,
   PasteStatus,
   PinImageSharpened,
+  PinCanvasProject,
   PinPayload,
+  PinProject,
   PinToolbarBounds,
   PinState,
   PinUpdate,
@@ -62,7 +64,9 @@ export type {
   PastePhase,
   PasteStatus,
   PinImageSharpened,
+  PinCanvasProject,
   PinPayload,
+  PinProject,
   PinToolbarBounds,
   PinState,
   PinUpdate,
@@ -498,8 +502,19 @@ export function savePinCanvas(
   label: string,
   pngBase64: string,
   toClipboard: boolean,
+  project: PinCanvasProject | null,
 ): Promise<string> {
-  return invoke<string>("save_pin_canvas", { label, pngBase64, toClipboard });
+  return invoke<string>("save_pin_canvas", { label, pngBase64, toClipboard, project });
+}
+
+/**
+ * 读一个 PNG 文件里的贴图工程数据。
+ *
+ * `null` = 这是张普通图片（没有工程块、块坏了、版本比当前应用新）。三种情况对用户都是
+ * 同一件事：能看，不能继续编辑，所以不区分。
+ */
+export function readPinProject(path: string): Promise<PinProject | null> {
+  return invoke<PinProject | null>("read_pin_project", { path });
 }
 
 /**

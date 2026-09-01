@@ -827,6 +827,7 @@ dependencies = [
  "md-5",
  "nix",
  "pipewire",
+ "png 0.17.16",
  "regex-lite",
  "resvg",
  "rusqlite",

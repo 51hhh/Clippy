@@ -268,6 +268,7 @@ pub fn run() {
             pin::commands::copy_pin,
             pin::commands::save_pin,
             pin::commands::save_pin_canvas,
+            pin::commands::read_pin_project,
             pin::commands::close_pin,
             commands::ocr_available,
             commands::ocr_image,
