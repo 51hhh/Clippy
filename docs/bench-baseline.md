@@ -29,6 +29,30 @@ cargo bench -- --warm-up-time 0.5 --measurement-time 1.5 --sample-size 20
 （跑过 `cargo tauri build`），`cargo bench` 会报 `requires panic strategy abort` 链接冲突。
 `cargo clean --release` 后重跑即可。
 
+**`undefined hidden symbol: anon.<hash>.N.llvm.<hash>` 是增量编译缓存坏了，不是源码问题。**
+症状是链接期报一串这种符号，落点集中在 `anyhow::Context`、`zvariant::ser::serialized_size`
+这些**被大量泛型实例化**的地方（`error.rs:243` 会出现几十次）。`anon.*` 与带 `.llvm.` 后缀的
+名字都是 LLVM 的 CGU 私有符号，只在一个 codegen unit 内可见——链接器说它未定义，
+意味着某个 `.rcgu.o` 引用了另一个 CGU 里的私有符号，而那个 CGU 的目标文件还是上一轮
+编译留下的旧版本。
+
+这个仓库比一般项目更容易撞上，因为 `[profile.dev] opt-level = 1` 加上 image/png 那几个
+包的 `opt-level = 3`：优化开着时 LLVM 会跨 CGU 内联并生成这类私有符号，而
+`opt-level = 0` 下几乎不会。切换 profile、改 `Cargo.toml` 里的 opt-level、或者编译中途
+被打断（Ctrl-C、OOM）之后最容易出现。
+
+恢复：
+
+```bash
+cd src-tauri
+cargo clean -p clippy-app          # 只清本 crate，依赖不用重编（约 30 秒）
+cargo build --bin clippy-app
+# 还不行就把增量缓存整个扔掉
+rm -rf target/debug/incremental
+```
+
+不要因为这个错误去改源码——报错点在依赖的泛型实例化里，改自己的代码不会让它消失。
+
 ## 首次基线
 
 2026-08-29，Intel Core Ultra 5 125H / 18 线程 / 30 GiB / rustc 1.98.0，
