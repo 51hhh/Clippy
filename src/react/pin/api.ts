@@ -2,6 +2,7 @@ import {
   closePin,
   copyPin,
   getPinPayload,
+  onPinAlreadyOpen,
   onPinImageSharpened,
   pinReady,
   savePin,
@@ -19,4 +20,6 @@ export const pinApi = {
   /** 订阅后台算好的清晰版图片（见 `rendering.ts` 与 `pin/resample.rs`）。 */
   onSharpened: (callback: (payload: PinImageSharpened) => void): Promise<() => void> =>
     onPinImageSharpened(callback),
+  /** 订阅"这张图已经贴出来了"，用来闪一下外围边框提醒用户。 */
+  onAlreadyOpen: (callback: () => void): Promise<() => void> => onPinAlreadyOpen(callback),
 };

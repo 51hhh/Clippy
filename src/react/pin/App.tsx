@@ -39,6 +39,8 @@ export function App() {
   const [opacityOpen, setOpacityOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pixelSize, setPixelSize] = useState<{ width: number; height: number } | null>(null);
+  const [reminding, setReminding] = useState(false);
+  const remindTimer = useRef<number | null>(null);
   const updateInFlight = useRef(false);
   // `flushUpdate` 要在自己的 finally 里再排一次，而 `scheduleFlush` 又要调它，
   // 两个 useCallback 互相依赖成环。用一个 ref 打破环，rAF 里读到的永远是最新那个。
@@ -110,6 +112,36 @@ export function App() {
       unlisten?.();
     };
   }, [label]);
+
+  /**
+   * 用户又对同一个条目按了 Pin：闪一下外围边框说明"它已经在这儿了"。
+   *
+   * 动画靠加一个 class 驱动，所以连按两次要先摘掉再挂上，否则第二次不会重新播放。
+   * 时长比 `pin-remind` 的 1.1s 略长一点，等动画自己走完。
+   */
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    pinApi
+      .onAlreadyOpen(() => {
+        if (remindTimer.current !== null) window.clearTimeout(remindTimer.current);
+        setReminding(false);
+        requestAnimationFrame(() => setReminding(true));
+        remindTimer.current = window.setTimeout(() => {
+          remindTimer.current = null;
+          setReminding(false);
+        }, 1200);
+      })
+      .then((stop) => {
+        if (cancelled) stop();
+        else unlisten = stop;
+      })
+      .catch((reason) => console.error(reason));
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
 
   useEffect(() => {
     if (!pin?.imageBase64) {
@@ -345,6 +377,7 @@ export function App() {
     return () => {
       if (wheelFrame.current !== null) cancelAnimationFrame(wheelFrame.current);
       if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
+      if (remindTimer.current !== null) window.clearTimeout(remindTimer.current);
     };
   }, []);
 
@@ -386,7 +419,7 @@ export function App() {
       }}
     >
       <section
-        className={`pin-media ${pin.kind}`}
+        className={`pin-media ${pin.kind}${reminding ? " reminding" : ""}`}
         aria-label={t("pin.content")}
         style={
           pin.kind === "image"

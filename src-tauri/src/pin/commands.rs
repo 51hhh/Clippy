@@ -24,8 +24,18 @@ pub fn pin_clip(
     let label = format!("pin-clip-{id}");
     if let Some(window) = app_handle.get_webview_window(&label) {
         if state.pin_manager.get(&label).is_ok() {
+            // 同一个条目只对应一个贴图窗口，这是刻意的：label 是 GNOME Shell 扩展唯一的
+            // 查找键（`window_marker` = 标题 + pid），同名开两个的话扩展的查找只会命中
+            // 第一个，第二张贴图从此摆不了位也置不了顶。
+            //
+            // 但"什么都不发生"是个坏反馈——那张贴图可能正被别的窗口压着、或在另一个
+            // 工作区，`set_focus` 的效果用户根本看不见。所以让它闪一下外围蓝框说明
+            // "它已经在这儿了"。
             window.show().map_err(|error| error.to_string())?;
             let _ = window.set_focus();
+            if let Err(error) = window.emit(PIN_ALREADY_OPEN, ()) {
+                log::debug!("提醒既有贴图窗口失败: {error}");
+            }
             return Ok(label);
         }
         // A previous creation failed after the native window was built. Do not
@@ -296,6 +306,10 @@ fn payload_from_entry(entry: PinEntry) -> Result<PinPayload, String> {
 
 /// 清晰版图片就绪的事件名。与 `src/js/api.ts` 的 `onPinImageSharpened` 是一份契约。
 const PIN_IMAGE_SHARPENED: &str = "pin-image-sharpened";
+
+/// "这张图已经贴出来了"。与 `src/js/api.ts` 的 `onPinAlreadyOpen` 是一份契约。
+/// 发给那个既有窗口自己，它闪一下外围蓝框。
+const PIN_ALREADY_OPEN: &str = "pin-already-open";
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]

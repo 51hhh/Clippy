@@ -476,6 +476,17 @@ export function onPinImageSharpened(
   return listen<PinImageSharpened>("pin-image-sharpened", (event) => callback(event.payload));
 }
 
+/**
+ * 用户又对同一个条目按了 Pin，而这张图已经贴出来了。
+ *
+ * 一个条目只对应一个贴图窗口（label 是 GNOME Shell 扩展的查找键，同名开两个会让第二张
+ * 摆不了位）。后端因此只把既有窗口显示出来并发这个事件，由前端闪一下外围边框告诉用户
+ * "它已经在这儿了"——不然那张贴图被压住或在别的工作区时，用户看到的就是"什么都没发生"。
+ */
+export function onPinAlreadyOpen(callback: () => void): Promise<UnlistenFn> {
+  return listen<null>("pin-already-open", () => callback());
+}
+
 /** 检查 OCR 是否可用（系统是否安装了 tesseract） */
 export function ocrAvailable(): Promise<boolean> {
   return invoke<boolean>("ocr_available");
