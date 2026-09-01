@@ -61,8 +61,49 @@ input {
   overflow: hidden;
 }
 
+/* 贴图的外围边框。
+   截图里选中窗口的样式是 `border + 半透明蓝底`（overlay.css 的 `.window-preview`），
+   这里**只要那圈边、不要那层底**：贴图给出的是图片本身，蒙一层蓝会改变用户看到的颜色。
+
+   用 `outline` 而不是 `border`：border 参与盒模型，会把 12px 的内容区往里挤一圈，
+   而内容区尺寸正是"贴回原尺寸"的依据（见 `pin/window.rs` 的 SHADOW_GUTTER 契约）。
+   outline 画在盒子外面，一个像素都不动内容。2px 的线正好落在那 12px 阴影留白里。 */
 .pin-media.image {
+  outline: 2px solid rgba(47, 140, 255, 0.9);
   filter: drop-shadow(0 5px 12px rgba(0, 0, 0, 0.34));
+}
+
+/* 想再 pin 同一张图时闪这圈边提醒用户"它已经在这儿了"。
+   闪的是 outline 的颜色而不是 opacity：整块闪会让图片本身跟着忽明忽暗。 */
+.pin-media.image.reminding {
+  animation: pin-remind 1.1s ease-in-out;
+}
+
+@keyframes pin-remind {
+  0%,
+  100% {
+    outline-color: rgba(47, 140, 255, 0.9);
+    outline-width: 2px;
+  }
+  15%,
+  55% {
+    outline-color: rgba(120, 190, 255, 1);
+    outline-width: 4px;
+  }
+  35%,
+  75% {
+    outline-color: rgba(47, 140, 255, 0.35);
+    outline-width: 2px;
+  }
+}
+
+/* 用户在系统里关了动画就不要闪，静态加粗一下代替。 */
+@media (prefers-reduced-motion: reduce) {
+  .pin-media.image.reminding {
+    animation: none;
+    outline-width: 4px;
+    outline-color: rgba(120, 190, 255, 1);
+  }
 }
 
 .pin-media img {

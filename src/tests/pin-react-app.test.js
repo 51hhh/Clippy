@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
     edit: vi.fn(),
     close: vi.fn(),
     onSharpened: vi.fn(),
+    onAlreadyOpen: vi.fn(),
   },
 }));
 
@@ -76,6 +77,7 @@ describe("React pin app", () => {
     mocks.pinApi.ready.mockResolvedValue(undefined);
     mocks.pinApi.close.mockResolvedValue(undefined);
     mocks.pinApi.onSharpened.mockResolvedValue(() => {});
+    mocks.pinApi.onAlreadyOpen.mockResolvedValue(() => {});
     mocks.pinApi.update.mockImplementation(async (_label, update) => ({ ...payload, ...update }));
     root = createRoot(document.getElementById("root"));
   });
@@ -218,6 +220,37 @@ describe("React pin app", () => {
     second.resolve({ ...payload, scale: 1.2 });
     await flush();
     expect(document.querySelector(".pin-scale")?.textContent).toBe("120");
+  });
+
+  /**
+   * 又对同一个条目按了 Pin：闪一下外围边框。
+   *
+   * 一个条目只对应一个贴图窗口是刻意的（label 是 GNOME Shell 扩展的查找键），
+   * 但"什么都不发生"是个坏反馈——那张贴图可能正被别的窗口压着。动画靠 class 驱动，
+   * 所以连按两次必须先摘掉再挂上，否则第二次不重新播放。
+   */
+  it("flashes the border when the same clip is pinned again", async () => {
+    let remind;
+    mocks.pinApi.onAlreadyOpen.mockImplementation(async (callback) => {
+      remind = callback;
+      return () => {};
+    });
+    mocks.pinApi.get.mockResolvedValue(payload);
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+
+    const media = () => document.querySelector(".pin-media");
+    expect(media()?.classList.contains("reminding")).toBe(false);
+
+    await act(async () => remind());
+    await flushFrame();
+    expect(media()?.classList.contains("reminding")).toBe(true);
+
+    // 再按一次：class 先摘掉（这一帧），下一帧再挂上，动画因此重新播放。
+    await act(async () => remind());
+    expect(media()?.classList.contains("reminding")).toBe(false);
+    await flushFrame();
+    expect(media()?.classList.contains("reminding")).toBe(true);
   });
 
   /**
