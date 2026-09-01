@@ -26,6 +26,19 @@ pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
         tauri::WindowEvent::Focused(false) if window.label() == "main" => {
             hide_main_after_focus_loss(window.clone());
         }
+        // 置顶的贴图拿到焦点：在置顶层内重新抬到最前。
+        //
+        // 置顶层里可以同时有好几张贴图，它们之间该和普通窗口一样"谁最后拿到焦点谁在上面"。
+        // 层内顺序本来由合成器按栈序管，但 Wayland 下客户端点击一张被压住的贴图时我们做不了
+        // 任何事——以前只有建窗和缩放两处会 `make_above`，于是缩放一张被压住的贴图会让它突然
+        // 跳到最前，而单纯点它却不动。这里补上焦点这条路，让两者一致。
+        //
+        // 没开图钉的贴图不管：它是普通窗口，合成器自己就会把它抬上来。
+        tauri::WindowEvent::Focused(true) if window.label().starts_with("pin-") => {
+            if let Some(state) = window.app_handle().try_state::<AppState>() {
+                crate::pin::raise_focused_pin(window.app_handle(), &state, window.label());
+            }
+        }
         tauri::WindowEvent::Destroyed if window.label().starts_with("pin-") => {
             if let Some(state) = window.app_handle().try_state::<AppState>() {
                 // A fixed-label clip pin can be recreated before an older
