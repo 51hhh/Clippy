@@ -6,11 +6,13 @@ mod origins;
 mod resample;
 mod window;
 
-pub(crate) use commands::create_screenshot_pin;
+pub(crate) use commands::{
+    create_screenshot_pin, lower_pins_for_capture, restore_pins_after_capture,
+};
 pub use error::PinError;
 pub(crate) use manager::remember_pin_window_position;
 pub use manager::PinManager;
-pub(crate) use model::PinOrigin;
+pub(crate) use model::{label_from_window_marker, PinOrigin};
 pub(crate) use origins::{PinFingerprint, PinOriginRegistry};
 
 #[cfg(test)]
@@ -264,6 +266,22 @@ mod tests {
     fn window_marker_is_unique_per_label() {
         assert_eq!(window_marker("pin-image-7"), "Clippy Pin pin-image-7");
         assert_ne!(window_marker("pin-image-7"), window_marker("pin-image-8"));
+    }
+
+    /// 标记要能反着认回来：截图的窗口速选靠它把贴图和"Clippy 自己别的窗口"分开
+    /// （贴图该能被框选，面板和覆盖层不该）。
+    #[test]
+    fn a_pin_window_is_recognised_from_its_title() {
+        use super::model::label_from_window_marker;
+        assert_eq!(
+            label_from_window_marker(&window_marker("pin-image-7")),
+            Some("pin-image-7")
+        );
+        assert_eq!(label_from_window_marker("Clippy"), None);
+        assert_eq!(label_from_window_marker(""), None);
+        // 前缀对但 label 不合法：不能当成贴图放进候选，那等于让标题决定信任。
+        assert_eq!(label_from_window_marker("Clippy Pin ../../etc"), None);
+        assert_eq!(label_from_window_marker("Clippy Pin "), None);
     }
 
     #[test]

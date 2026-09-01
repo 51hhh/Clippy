@@ -83,6 +83,19 @@ impl PinManager {
         }
     }
 
+    /// 当前开着图钉的那些贴图。截图期间要让它们暂时退出置顶层
+    /// （见 `super::commands::lower_pins_for_capture`）。
+    pub(super) fn labels_above(&self) -> Vec<String> {
+        let Ok(entries) = self.entries.lock() else {
+            return Vec::new();
+        };
+        entries
+            .values()
+            .filter(|entry| entry.above)
+            .map(|entry| entry.label.clone())
+            .collect()
+    }
+
     pub fn remove_window(&self, label: &str) {
         if is_safe_pin_label(label) {
             let _ = self.remove(label);

@@ -256,6 +256,19 @@ pub(crate) fn window_marker(label: &str) -> String {
     format!("Clippy Pin {label}")
 }
 
+/// 窗口标题的固定前缀。窗口枚举那侧靠它认出"这是一张贴图"。
+const WINDOW_MARKER_PREFIX: &str = "Clippy Pin ";
+
+/// 这个窗口标题是一张贴图吗？是的话给出它的 label。
+///
+/// 截图的窗口速选要用它：Clippy 自己的窗口一律不该成为速选目标（悬浮面板、覆盖层），
+/// **但贴图是例外**——它在用户眼里就是屏幕上的一块内容，和别的窗口一样该能被框选。
+/// 所以那边的过滤条件不能停留在"pid 是自己就跳过"。
+pub(crate) fn label_from_window_marker(title: &str) -> Option<&str> {
+    let label = title.strip_prefix(WINDOW_MARKER_PREFIX)?;
+    is_safe_pin_label(label).then_some(label)
+}
+
 pub(super) fn validate_label(label: &str) -> Result<(), String> {
     if is_safe_pin_label(label) {
         Ok(())
