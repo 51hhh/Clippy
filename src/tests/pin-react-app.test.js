@@ -36,6 +36,7 @@ const payload = {
   scale: 1,
   opacity: 1,
   locked: false,
+  above: false,
   canSave: true,
   position: null,
 };
@@ -217,5 +218,36 @@ describe("React pin app", () => {
     second.resolve({ ...payload, scale: 1.2 });
     await flush();
     expect(document.querySelector(".pin-scale")?.textContent).toBe("120");
+  });
+
+  /**
+   * 置顶是可开关的、默认关。
+   *
+   * 默认关这一条要锁住：贴图以前在建窗、平台适配、缩放三处都被无条件置顶，
+   * 用户没有任何办法让它退回普通层。按钮的按下态也要断言——工具条只在悬停时出现，
+   * 状态看不出来的话用户不知道自己现在是开还是关。
+   */
+  it("keeps pins out of the always-on-top layer until the pin button is pressed", async () => {
+    mocks.pinApi.get.mockResolvedValue(payload);
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+
+    const button = () => document.querySelector('button[aria-label^="Keep above"], button[aria-label^="Stop keeping above"]');
+    expect(button()?.getAttribute("aria-label")).toBe("Keep above other windows");
+    expect(button()?.getAttribute("aria-pressed")).toBe("false");
+
+    await act(async () => button().click());
+    await flushFrame();
+    await flush();
+    expect(mocks.pinApi.update).toHaveBeenCalledWith("pin-image-test", { above: true });
+    expect(button()?.getAttribute("aria-label")).toBe("Stop keeping above other windows");
+    expect(button()?.getAttribute("aria-pressed")).toBe("true");
+
+    // 再按一次必须真的退出置顶层，而不是只换图标。
+    await act(async () => button().click());
+    await flushFrame();
+    await flush();
+    expect(mocks.pinApi.update).toHaveBeenLastCalledWith("pin-image-test", { above: false });
+    expect(button()?.getAttribute("aria-pressed")).toBe("false");
   });
 });

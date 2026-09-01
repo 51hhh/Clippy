@@ -290,6 +290,13 @@ export interface PinPayload {
   scale: number;
   opacity: number;
   locked: boolean;
+  /**
+   * 压在普通窗口上面（工具条里的图钉）。**默认 false**。
+   *
+   * 关着的时候贴图就是个普通窗口：谁最后拿到焦点谁在上面。开着的时候进合成器的置顶层，
+   * 压在所有普通窗口之上；同时置顶的几张贴图之间仍然按焦点顺序互相遮挡。
+   */
+  above: boolean;
   canSave: boolean;
   position: { x: number; y: number } | null;
   /**
@@ -329,6 +336,7 @@ export interface PinState {
   scale: number;
   opacity: number;
   locked: boolean;
+  above: boolean;
   position: { x: number; y: number } | null;
 }
 
@@ -336,6 +344,7 @@ export interface PinUpdate {
   scale?: number;
   opacity?: number;
   locked?: boolean;
+  above?: boolean;
 }
 
 export interface ClipboardStats {

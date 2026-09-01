@@ -40,7 +40,9 @@ pub(super) fn create_pin_window(
     .title(window_marker(label))
     .inner_size(outer_width, outer_height)
     .decorations(false)
-    .always_on_top(true)
+    // 置顶是可选项、默认关（见 `PinEntry::above`）。建窗时一律不置顶，
+    // 开着图钉的贴图由 `reveal_pin_window` 那一步进 above 层。
+    .always_on_top(false)
     .transparent(true)
     .shadow(false)
     .skip_taskbar(true)
@@ -72,11 +74,12 @@ pub(super) fn reveal_pin_window(
     window.show().map_err(PinError::window)?;
     window.set_focus().map_err(PinError::window)?;
     let logical = pin_target_position(app, entry);
-    if let Placement::NotMappedYet { generation } = keep_pin_above(window, logical) {
+    if let Placement::NotMappedYet { generation } = keep_pin_above(window, logical, entry.above) {
         retry_placement(
             window.label().to_string(),
             shell_target(logical),
             generation,
+            entry.above,
         );
     }
     Ok(())
@@ -111,7 +114,7 @@ const PLACEMENT_RETRY_DELAYS_MS: [u64; 8] = [30, 50, 80, 120, 200, 300, 500, 800
 /// Shell 里时就已经定稿（+28 ms 读到居中坐标，此后不再变），所以正常情况下一次就够；
 /// 但有一次采样里摆放成功后窗口仍回到了居中位置，补摆是针对这种竞争的兜底。
 /// 只补一次、且紧跟着收工：拖久了会跟用户抢——刚出现就被拖走的贴图会被拽回原位。
-fn retry_placement(label: String, target: Option<(i32, i32)>, generation: u64) {
+fn retry_placement(label: String, target: Option<(i32, i32)>, generation: u64, above: bool) {
     std::thread::spawn(move || {
         let marker = window_marker(&label);
         let mut placed = false;
@@ -121,7 +124,7 @@ fn retry_placement(label: String, target: Option<(i32, i32)>, generation: u64) {
                 // 这几百毫秒里用户缩放或换了位置，旧坐标已经作废。
                 return;
             }
-            match crate::capture::shell_extension_place_window(&marker, target, true) {
+            match crate::capture::shell_extension_place_window(&marker, target, above) {
                 // 补摆也成功了，收工。
                 Ok(true) if placed => return,
                 Ok(true) => placed = true,
@@ -180,13 +183,18 @@ pub(super) fn forget_placement(label: &str) {
     }
 }
 
-/// 把窗口摆到 `logical`（逻辑像素，窗口左上角）并置顶。`None` 表示只置顶、不动位置。
+/// 把窗口摆到 `logical`（逻辑像素，窗口左上角），并按 `above` 决定进不进置顶层。
+/// `logical` 传 `None` 表示只管层级、不动位置。
 ///
 /// Wayland 协议里客户端既无权决定自己窗口的位置、也无权置顶，Mutter 把
 /// `set_position` / `set_always_on_top` 静默忽略——这正是"贴图出现在屏幕中间"和
 /// "贴图被别的窗口盖住"的原因。只有 GNOME Shell 扩展进得去 Shell 里调
-/// `MetaWindow.move_frame()` / `make_above()`。扩展不可用（没装、装了还没注销生效、
-/// 不是 GNOME）时退回 Tauri 自己那套：在 X11 上它本来就管用。
+/// `MetaWindow.move_frame()` / `make_above()` / `unmake_above()`。扩展不可用（没装、
+/// 装了还没注销生效、不是 GNOME）时退回 Tauri 自己那套：在 X11 上它本来就管用。
+///
+/// **`above == false` 不是"什么都不做"，是明确地退出置顶层**（`unmake_above`）：
+/// 用户关掉图钉、以及截图期间临时让路，靠的都是这一条。退出之后贴图就是个普通窗口，
+/// 层内顺序交回合成器——"谁最后拿到焦点谁在上面"因此是自动成立的，不需要我们插手。
 ///
 /// 两条路都失败只意味着"位置或层级不理想"，绝不能让贴图本身失败。
 ///
@@ -195,13 +203,14 @@ pub(super) fn forget_placement(label: &str) {
 pub(super) fn keep_pin_above(
     window: &tauri::WebviewWindow,
     logical: Option<LogicalPosition<f64>>,
+    above: bool,
 ) -> Placement {
     // 无论走哪条分支都先推进代次：这次请求的坐标就是最新的，
     // 还在后台等待的旧重试从此作废。
     let generation = next_placement_generation(window.label());
     let marker = window_marker(window.label());
     let outcome =
-        crate::capture::shell_extension_place_window(&marker, shell_target(logical), true);
+        crate::capture::shell_extension_place_window(&marker, shell_target(logical), above);
     let placement = match outcome {
         Ok(true) => return Placement::Done,
         // 刚 show() 的窗口在 Shell 里还不存在（实测 28~137 ms 才出现），所以这是**常态**，
@@ -216,8 +225,8 @@ pub(super) fn keep_pin_above(
             Placement::NoExtension
         }
     };
-    if let Err(error) = window.set_always_on_top(true) {
-        log::warn!("贴图窗口置顶失败: {error}");
+    if let Err(error) = window.set_always_on_top(above) {
+        log::warn!("贴图窗口置顶状态设置失败: {error}");
     }
     if let Some(position) = logical {
         if let Err(error) = window.set_position(Position::Logical(position)) {
@@ -357,8 +366,12 @@ pub(super) fn resize_pin_window(app: &tauri::AppHandle, entry: &PinEntry) -> Res
             .set_position(Position::Physical(position))
             .map_err(PinError::window)?;
     }
-    // 改尺寸有可能把窗口带回普通层，所以每次都要重新置顶。位置未知时只置顶、不摆位
-    // （`keep_pin_above` 的 `None`）。
+    // 改尺寸有可能把窗口带回普通层，所以每次都要把层级重新表态一次。位置未知时只管层级、
+    // 不摆位（`keep_pin_above` 的 `None`）。
+    //
+    // **表态的内容是 `entry.above`，不是无条件置顶。** 以前这里写死 `true`，于是缩放一张
+    // 没开图钉的贴图会把它弹到所有窗口上面——"谁最后拿到焦点谁在上"的语义被缩放这条路
+    // 破坏掉了，而且用户没有任何办法让它退回去。
     keep_pin_above(
         &window,
         position.map(|position| {
@@ -367,6 +380,7 @@ pub(super) fn resize_pin_window(app: &tauri::AppHandle, entry: &PinEntry) -> Res
                 position.y as f64 / scale_factor,
             )
         }),
+        entry.above,
     );
     Ok(())
 }
