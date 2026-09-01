@@ -8,6 +8,12 @@ use std::hint::black_box;
 const WIDTH: u32 = 1920;
 const HEIGHT: u32 = 1080;
 
+/// 本机 HDMI-1 的逻辑分辨率，也就是"整屏截图提交回来"的常见最坏尺寸。
+/// 只量整张解码：截图提交的信任边界必须解一次，省下的第二次就是这个数
+/// （见 `capture::CommitImage`）。
+const COMMIT_WIDTH: u32 = 2560;
+const COMMIT_HEIGHT: u32 = 1440;
+
 /// 渐变而不是纯色：纯色会被 PNG 过滤器压到极小，量不出真实截图的编码成本。
 fn gradient_rgba(width: u32, height: u32) -> Vec<u8> {
     let mut rgba = Vec::with_capacity((width * height * 4) as usize);
@@ -42,6 +48,13 @@ fn bench(c: &mut Criterion) {
     });
     c.bench_function("decode_png_base64_1080p", |b| {
         b.iter(|| decode_png_base64(black_box(&base64)).expect("解码失败"))
+    });
+
+    let commit_rgba = gradient_rgba(COMMIT_WIDTH, COMMIT_HEIGHT);
+    let commit_png =
+        encode_png(&commit_rgba, COMMIT_WIDTH, COMMIT_HEIGHT).expect("编码基准数据失败");
+    c.bench_function("validate_png_1440p", |b| {
+        b.iter(|| validate_png(black_box(&commit_png)).expect("校验失败"))
     });
 }
 
