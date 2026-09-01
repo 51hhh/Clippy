@@ -263,8 +263,20 @@ pub fn commit_capture_action(
     result
 }
 
+/// 覆盖层提交上来的那张图，字节和像素各一份。
+///
+/// 校验这张 PNG 必须整张解码（见 [`decode_commit_png`]），所以**顺手把像素留下来**：
+/// 复制那条路要的正是 RGBA，不留就得再解一遍同一张全屏 PNG（1080p 约 20 ms，
+/// 2560x1440 起跳 40 ms 上下，见 docs/bench-baseline.md），而用户此刻正等着对钩生效。
+/// 保存与贴图要的是原样的 PNG 字节，它们会当场把 `pixels` 扔掉（十几 MB）。
+#[derive(Debug)]
+struct CommitImage {
+    png: Vec<u8>,
+    pixels: image::RgbaImage,
+}
+
 /// 解码并校验覆盖层提交的 PNG。先看 base64 长度再解码，避免为一个畸形载荷先分配几百 MB。
-fn decode_commit_png(png_base64: &str) -> Result<Vec<u8>, CaptureError> {
+fn decode_commit_png(png_base64: &str) -> Result<CommitImage, CaptureError> {
     // base64 每 4 个字符出 3 字节，用这个上界提前拒绝。
     if png_base64.len() / 4 * 3 > MAX_COMMIT_PNG_BYTES {
         return Err(CaptureError::CommitPayloadTooLarge);
@@ -275,9 +287,11 @@ fn decode_commit_png(png_base64: &str) -> Result<Vec<u8>, CaptureError> {
         return Err(CaptureError::CommitPayloadTooLarge);
     }
     // 必须真的能解成图像：后续 copy/save/pin 都假设手里是合法 PNG。这里是信任边界，
-    // 所以走整张解码的 `validate_png`，而不是只看文件头的 `png_dimensions`。
-    crate::screenshot::validate_png(&png).map_err(|_| CaptureError::CommitPayloadInvalid)?;
-    Ok(png)
+    // 所以整张解码，而不是只看文件头的 `png_dimensions`。
+    let pixels = image::load_from_memory_with_format(&png, image::ImageFormat::Png)
+        .map_err(|_| CaptureError::CommitPayloadInvalid)?
+        .into_rgba8();
+    Ok(CommitImage { png, pixels })
 }
 
 /// 显式执行“选区 -> 本地 OCR -> 文本翻译”。裁剪帧只进入 Tesseract，永不发送给 provider。
@@ -363,16 +377,18 @@ fn translation_ipc_error(error: TranslationError) -> String {
 
 fn execute_action(
     action: CaptureAction,
-    png: Vec<u8>,
+    image: CommitImage,
     origin: Option<crate::pin::PinOrigin>,
     app_handle: &tauri::AppHandle,
     state: &AppState,
 ) -> Result<CaptureActionResult, String> {
+    let CommitImage { png, pixels } = image;
     match action {
         CaptureAction::Copy => {
-            // 解码一次，剪贴板和来源登记共用同一份像素：两边各解一遍这张全屏 PNG
-            // 要多花几十毫秒，而用户此刻正等着对钩生效。
-            let image = crate::image_io::png_to_clipboard_image(&png)?;
+            // 像素是校验那一步解出来的（见 `CommitImage`），剪贴板和来源登记共用它：
+            // 三处各解一遍这张全屏 PNG 要多花上百毫秒，而用户此刻正等着对钩生效。
+            drop(png);
+            let image = crate::image_io::rgba_to_clipboard_image(pixels);
             let fingerprint = origin.map(|origin| {
                 (
                     crate::pin::PinFingerprint::of(
@@ -392,6 +408,8 @@ fn execute_action(
             Ok(action_result("copy", None, None))
         }
         CaptureAction::Save => {
+            // 存盘写的是原样的 PNG 字节，校验解出来的那十几 MB 像素当场释放。
+            drop(pixels);
             let path = crate::image_io::save_png(&png, "clippy-screenshot", &state.save_target())?;
             Ok(action_result(
                 "save",
@@ -400,6 +418,8 @@ fn execute_action(
             ))
         }
         CaptureAction::Pin => {
+            // 同上：贴图窗口拿的是 PNG，像素先扔掉再去建窗（建窗那条路本身就要几百毫秒）。
+            drop(pixels);
             let label = crate::pin::create_screenshot_pin(png, origin, app_handle, state)?;
             Ok(action_result("pin", None, Some(label)))
         }
@@ -627,11 +647,24 @@ mod tests {
     fn commit_payload_accepts_the_data_url_form_the_canvas_produces() {
         let png = crate::screenshot::encode_png(&[255, 0, 0, 255], 1, 1).unwrap();
         let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &png);
-        assert_eq!(decode_commit_png(&encoded).unwrap(), png);
+        assert_eq!(decode_commit_png(&encoded).unwrap().png, png);
         assert_eq!(
-            decode_commit_png(&format!("data:image/png;base64,{encoded}")).unwrap(),
+            decode_commit_png(&format!("data:image/png;base64,{encoded}"))
+                .unwrap()
+                .png,
             png
         );
+    }
+
+    /// 校验解出来的像素必须能直接交给剪贴板：复制那条路就靠它省下第二次整张解码。
+    #[test]
+    fn commit_payload_keeps_the_pixels_it_decoded_for_validation() {
+        let png = crate::screenshot::encode_png(&[9, 8, 7, 255], 1, 1).unwrap();
+        let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &png);
+        let image =
+            crate::image_io::rgba_to_clipboard_image(decode_commit_png(&encoded).unwrap().pixels);
+        assert_eq!((image.width, image.height), (1, 1));
+        assert_eq!(image.bytes.as_ref(), [9, 8, 7, 255]);
     }
 
     #[test]
