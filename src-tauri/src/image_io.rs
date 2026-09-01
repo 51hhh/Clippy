@@ -16,13 +16,20 @@ pub fn png_to_clipboard_image(png: &[u8]) -> Result<arboard::ImageData<'static>,
         .map_err(|error| format!("PNG 解码失败: {error}"))?;
     // `into_rgba8` 而不是 `to_rgba8`：解出来本来就是 RGBA8 时（PNG 的常见情形）
     // 前者原地接管缓冲区，后者要再拷一份 16 MB。
-    let rgba = image.into_rgba8();
+    Ok(rgba_to_clipboard_image(image.into_rgba8()))
+}
+
+/// 已经解好的像素直接交给剪贴板，不再走一遍 PNG。
+///
+/// 给"这张图刚刚才解码过"的调用方用（截图提交要先校验再复制，见
+/// `capture::CommitImage`）。`into_raw` 接管缓冲区，这里没有任何一次全图拷贝。
+pub fn rgba_to_clipboard_image(rgba: image::RgbaImage) -> arboard::ImageData<'static> {
     let (width, height) = rgba.dimensions();
-    Ok(arboard::ImageData {
+    arboard::ImageData {
         width: width as usize,
         height: height as usize,
         bytes: std::borrow::Cow::Owned(rgba.into_raw()),
-    })
+    }
 }
 
 pub fn copy_png_to_clipboard(png: &[u8]) -> Result<(), String> {
