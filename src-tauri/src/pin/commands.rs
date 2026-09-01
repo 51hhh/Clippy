@@ -1,5 +1,5 @@
 use super::model::{
-    validate_label, PinEntry, PinOrigin, PinPayload, PinSource, PinState, PinUpdate,
+    validate_label, PinEntry, PinOrigin, PinPayload, PinSource, PinState, PinUpdate, SharpenSlot,
 };
 use super::window::{
     content_buffer_scale, content_device_scale, create_pin_window, fit_content_size,
@@ -74,7 +74,10 @@ pub fn pin_clip(
         origin,
         device_scale: content_device_scale(&app_handle, origin),
         buffer_scale: content_buffer_scale(&app_handle, origin),
+        sharpen: Arc::new(SharpenSlot::default()),
     })?;
+    // 建窗之前就把清晰度补偿放出去跑，好和 WebKit 起步那几百毫秒重叠。
+    spawn_sharpen(&app_handle, &state.pin_manager.get(&label)?);
     if let Err(error) =
         create_pin_window(&app_handle, &label, content_width, content_height, origin)
     {
@@ -116,7 +119,10 @@ pub(crate) fn create_screenshot_pin(
         origin,
         device_scale: content_device_scale(app_handle, origin),
         buffer_scale: content_buffer_scale(app_handle, origin),
+        sharpen: Arc::new(SharpenSlot::default()),
     })?;
+    // 同上：补偿与开窗并行，抢在前端来取 payload 之前算完。
+    spawn_sharpen(app_handle, &state.pin_manager.get(&label)?);
     if let Err(error) = create_pin_window(app_handle, &label, content_width, content_height, origin)
     {
         let _ = state.pin_manager.remove(&label);
@@ -149,8 +155,6 @@ pub fn pin_ready(
     // 平台适配（置顶 + 缩放锁）在建窗时就做过了，这里只负责显示与摆位；
     // 重复调用会给 zoom-level 挂上第二个回调。
     reveal_pin_window(&app_handle, &window, &entry).map_err(|error| error.to_string())?;
-    // 原图这会儿已经在屏上了，清晰版慢慢算，算完再换（见 `spawn_sharpen`）。
-    spawn_sharpen(&app_handle, &entry);
     Ok(())
 }
 
@@ -253,7 +257,14 @@ fn payload_from_entry(entry: PinEntry) -> Result<PinPayload, String> {
         },
         PinSource::Screenshot { png } => ("image", None, Some(png.as_slice()), true),
     };
-    let image_base64 = image.map(|png| STANDARD.encode(png));
+    // 补偿赶上了就直接发清晰版，这样第一帧就是清楚的；没赶上发原图，
+    // 后台线程算完会走 `pin-image-sharpened` 补上（见 `SharpenSlot`）。
+    let sharpened = image.and(entry.sharpen.take_for_payload());
+    let image_base64 = match (&sharpened, image) {
+        (Some(sharp), _) => Some(STANDARD.encode(sharp.as_slice())),
+        (None, Some(png)) => Some(STANDARD.encode(png)),
+        (None, None) => None,
+    };
     Ok(PinPayload {
         label: entry.label,
         kind,
@@ -281,14 +292,17 @@ struct PinImageSharpened {
     image_base64: String,
 }
 
-/// 在后台把贴图重新渲染成"缓冲区分辨率 + 已补偿"的版本，算完推给它自己那个窗口。
+/// 在后台把贴图重新渲染成"缓冲区分辨率 + 已补偿"的版本。
 ///
-/// 为什么这么做、以及不做的话糊在哪里，见 `super::resample`。
+/// 为什么要补偿、以及不补偿的话糊在哪里，见 `super::resample`。
 ///
-/// **为什么不在 `get_pin_payload` 里同步做**：release 构建本机实测，屏上 1200x900 的
-/// 贴图要 380 ms，接近全屏的 2560x1440 要 1.9 s，而那条命令跑在 GTK 主线程上——同步做
-/// 等于把贴图窗口的出现卡住一两秒，而"慢"正是这个功能一直在修的另一个毛病。改成
-/// 原图先上屏、清晰版随后换进来之后，开窗延迟一点没变，用户看到的只是"一瞬之后更清楚"。
+/// **在建条目时就开跑，不等窗口。** 补偿在 release 本机实测要 250 ms 上下（屏上 1200x900）
+/// 到 800 ms 上下（2560x1440），而建窗 + WebKit 起步 + React 挂载本来也要几百毫秒。两件事
+/// 并行之后，前端来取 payload 时清晰版多半已经躺在 `SharpenSlot` 里了，于是**第一帧
+/// 就是清楚的**；没赶上才退回"原图先上屏、事件补送"，用户最多看到一次变清楚。
+///
+/// **为什么不在 `get_pin_payload` 里同步等**：那条命令跑在 GTK 主线程上，同步等于把
+/// 整个界面卡住几百毫秒，而"慢"正是这个功能一直在修的另一个毛病。
 ///
 /// 复制（`copy_pin`）与保存/编辑（`save_pin`）不受影响：它们走 `image_bytes`，永远是原图。
 fn spawn_sharpen(app_handle: &tauri::AppHandle, entry: &PinEntry) {
@@ -301,6 +315,7 @@ fn spawn_sharpen(app_handle: &tauri::AppHandle, entry: &PinEntry) {
         return;
     };
     let source = Arc::clone(&entry.source);
+    let slot = Arc::clone(&entry.sharpen);
     let label = entry.label.clone();
     let app_handle = app_handle.clone();
     let (device_scale, buffer_scale) = (entry.device_scale, entry.buffer_scale);
@@ -312,18 +327,29 @@ fn spawn_sharpen(app_handle: &tauri::AppHandle, entry: &PinEntry) {
         let started = std::time::Instant::now();
         match super::resample::compensated_png(png, geometry) {
             Ok(bytes) => {
+                let bytes = Arc::new(bytes);
+                let late = slot.finish(Arc::clone(&bytes));
                 // 记到 info：两个缩放是**按机器不同**的那两个数，一旦有人报"贴图还是糊"
-                // 或者"过锐"，这一行就是第一手证据。每个贴图窗口只打一次。
+                // 或者"过锐"，这一行就是第一手证据。`late` 说明这一张没赶上第一帧，
+                // 用户会看见一次"由糊变清"——报这种现象时也是看这一行。
                 log::info!(
                     "{label} 清晰度补偿完成：真实缩放 {device_scale} / 缓冲区缩放 {buffer_scale}，\
-                     屏上 {:?} → 缓冲区 {:?}，耗时 {:?}",
+                     屏上 {:?} → 缓冲区 {:?}，耗时 {:?}{}",
                     geometry.panel,
                     geometry.buffer,
-                    started.elapsed()
+                    started.elapsed(),
+                    if late {
+                        "（没赶上首帧，改用事件换图）"
+                    } else {
+                        ""
+                    }
                 );
+                if !late {
+                    return;
+                }
                 let payload = PinImageSharpened {
                     label: label.clone(),
-                    image_base64: STANDARD.encode(&bytes),
+                    image_base64: STANDARD.encode(bytes.as_slice()),
                 };
                 if let Err(error) = app_handle.emit_to(label.as_str(), PIN_IMAGE_SHARPENED, payload)
                 {

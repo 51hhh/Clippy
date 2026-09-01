@@ -1,6 +1,6 @@
 use crate::models::ClipItem;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 #[derive(Debug)]
 pub(super) enum PinSource {
@@ -40,6 +40,88 @@ pub(super) struct PinEntry {
     /// 同一块屏上 GTK 报的**整数缓冲区缩放**。它与 `device_scale` 的差值就是
     /// WebKit 缓冲区里那一趟逃不掉的放大，`super::resample` 靠这两个数把它抵消掉。
     pub buffer_scale: f64,
+    /// 后台补偿出来的清晰版图片。见 [`SharpenSlot`]。
+    pub sharpen: Arc<SharpenSlot>,
+}
+
+/// 清晰版贴图的交接点：后台线程往里放，取 payload 的那一刻往外拿。
+///
+/// 补偿要几百毫秒（见 `super::resample`），而建窗 + WebKit 起步 + React 挂载本来也要
+/// 几百毫秒。所以补偿在**建条目时就开跑**，和开窗并行；等前端来取 payload 时它多半
+/// 已经算完了，第一帧就是清楚的。没赶上也不要紧：那时原图先上屏，算完之后走
+/// `pin-image-sharpened` 事件换进去。这个类型存在的唯一理由就是把"谁先到"这件事
+/// 收在一把锁里判断——不然会出现"payload 刚发走、清晰版刚算完、事件没人听"的空窗。
+#[derive(Debug, Default)]
+pub(super) struct SharpenSlot {
+    inner: Mutex<SharpenState>,
+}
+
+#[derive(Debug, Default)]
+struct SharpenState {
+    image: Option<Arc<Vec<u8>>>,
+    /// 原图（或清晰版）已经随 payload 发出去了。
+    served: bool,
+}
+
+impl SharpenSlot {
+    /// 取 payload 时叫一次：算好了就把清晰版交出来。
+    ///
+    /// 无论有没有算好都会记下"payload 已发出"，好让后台线程知道自己得改走事件。
+    pub(super) fn take_for_payload(&self) -> Option<Arc<Vec<u8>>> {
+        let mut state = self.lock();
+        state.served = true;
+        state.image.clone()
+    }
+
+    /// 后台线程算完时叫一次。返回 `true` 表示 payload 已经发走了，需要补一个事件。
+    pub(super) fn finish(&self, image: Arc<Vec<u8>>) -> bool {
+        let mut state = self.lock();
+        state.image = Some(image);
+        state.served
+    }
+
+    /// 临界区里只有两次赋值，不会 panic，所以中毒的锁直接接着用。
+    fn lock(&self) -> MutexGuard<'_, SharpenState> {
+        self.inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+#[cfg(test)]
+mod sharpen_tests {
+    use super::SharpenSlot;
+    use std::sync::Arc;
+
+    /// 补偿赶在 payload 之前算完：清晰版直接随 payload 走，不需要事件。
+    #[test]
+    fn early_compensation_rides_along_with_the_payload() {
+        let slot = SharpenSlot::default();
+        assert!(
+            !slot.finish(Arc::new(vec![7, 8, 9])),
+            "还没发 payload，不该要事件"
+        );
+        assert_eq!(
+            slot.take_for_payload().map(|image| image.to_vec()),
+            Some(vec![7, 8, 9])
+        );
+    }
+
+    /// 没赶上：payload 已经带着原图走了，这时必须补一个事件。
+    #[test]
+    fn late_compensation_asks_for_an_event() {
+        let slot = SharpenSlot::default();
+        assert!(slot.take_for_payload().is_none(), "还没算完，只能发原图");
+        assert!(slot.finish(Arc::new(vec![1])), "原图已上屏，必须发事件换图");
+    }
+
+    /// 文本贴图那种"永远不会算完"的情况：取 payload 不该被卡住，也不该报错。
+    #[test]
+    fn a_slot_that_never_finishes_is_harmless() {
+        let slot = SharpenSlot::default();
+        assert!(slot.take_for_payload().is_none());
+        assert!(slot.take_for_payload().is_none());
+    }
 }
 
 /// 图片在屏幕上的来源矩形，逻辑像素、桌面全局坐标（与截图覆盖层同一坐标系）。
