@@ -74,10 +74,25 @@ impl SharpenSlot {
     }
 
     /// 后台线程算完时叫一次。返回 `true` 表示 payload 已经发走了，需要补一个事件。
-    pub(super) fn finish(&self, image: Arc<Vec<u8>>) -> bool {
+    ///
+    /// **没赶上首帧的那一份不留副本**：它会直接随事件走出去，槽里再存一份就是白占
+    /// 十几 MB（2560x1440 的补偿结果 13 MB），而且一直占到窗口关闭。
+    pub(super) fn finish(&self, image: &Arc<Vec<u8>>) -> bool {
         let mut state = self.lock();
-        state.image = Some(image);
-        state.served
+        if state.served {
+            return true;
+        }
+        state.image = Some(Arc::clone(image));
+        false
+    }
+
+    /// 前端已经把图画上屏了，槽里那份可以扔了。
+    ///
+    /// 补偿结果最大十几 MB，贴图窗口能开好几个，留着就是纯占内存——`copy_pin`/`save_pin`
+    /// 用的是原图，缩放走 `update_pin`（不带图片），谁都不会再来取它。唯一会再取一次的
+    /// 是 webview 重新加载（只有开发时手动刷新会发生），那时拿到的是原图，比清晰版略软。
+    pub(super) fn release(&self) {
+        self.lock().image = None;
     }
 
     /// 临界区里只有两次赋值，不会 panic，所以中毒的锁直接接着用。
@@ -98,9 +113,14 @@ mod sharpen_tests {
     fn early_compensation_rides_along_with_the_payload() {
         let slot = SharpenSlot::default();
         assert!(
-            !slot.finish(Arc::new(vec![7, 8, 9])),
+            !slot.finish(&Arc::new(vec![7, 8, 9])),
             "还没发 payload，不该要事件"
         );
+        assert_eq!(
+            slot.take_for_payload().map(|image| image.to_vec()),
+            Some(vec![7, 8, 9])
+        );
+        // 开发时刷新 webview 会再取一次；这条路必须还能拿到东西，不能变成空图。
         assert_eq!(
             slot.take_for_payload().map(|image| image.to_vec()),
             Some(vec![7, 8, 9])
@@ -112,7 +132,23 @@ mod sharpen_tests {
     fn late_compensation_asks_for_an_event() {
         let slot = SharpenSlot::default();
         assert!(slot.take_for_payload().is_none(), "还没算完，只能发原图");
-        assert!(slot.finish(Arc::new(vec![1])), "原图已上屏，必须发事件换图");
+        let bytes = Arc::new(vec![1]);
+        assert!(slot.finish(&bytes), "原图已上屏，必须发事件换图");
+        // 事件已经把这份字节送出去了，槽里不该再留一份十几 MB 的副本。
+        assert_eq!(Arc::strong_count(&bytes), 1);
+    }
+
+    /// 上屏之后释放：十几 MB 的补偿结果不该跟着贴图窗口一直活着。
+    #[test]
+    fn release_drops_the_compensated_bytes() {
+        let slot = SharpenSlot::default();
+        let bytes = Arc::new(vec![4, 5]);
+        assert!(!slot.finish(&bytes));
+        assert!(slot.take_for_payload().is_some());
+        assert_eq!(Arc::strong_count(&bytes), 2, "槽里还留着一份");
+        slot.release();
+        assert_eq!(Arc::strong_count(&bytes), 1, "release 之后只剩调用方那份");
+        assert!(slot.take_for_payload().is_none());
     }
 
     /// 文本贴图那种"永远不会算完"的情况：取 payload 不该被卡住，也不该报错。
