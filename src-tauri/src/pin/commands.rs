@@ -186,6 +186,25 @@ pub(crate) fn restore_pins_after_capture(
     }
 }
 
+/// 置顶的贴图拿到焦点：在置顶层内重新抬到最前。
+///
+/// 只对开着图钉的那些做。没开图钉的贴图是普通窗口，合成器自己会把它抬上来；对它调
+/// `make_above` 反而会把它塞进置顶层，等于偷偷替用户开了图钉。
+///
+/// 不动位置（`keep_pin_above` 传 `None`）：这一刻用户可能正拖着这张贴图，
+/// 顺手摆位就会把它拽回旧坐标。
+pub(crate) fn raise_focused_pin(app_handle: &tauri::AppHandle, state: &AppState, label: &str) {
+    let Ok(entry) = state.pin_manager.get(label) else {
+        return;
+    };
+    if !entry.above {
+        return;
+    }
+    if let Some(window) = app_handle.get_webview_window(label) {
+        keep_pin_above(&window, None, true);
+    }
+}
+
 #[tauri::command]
 pub fn get_pin_payload(label: String, state: State<'_, AppState>) -> Result<PinPayload, String> {
     validate_label(&label)?;
