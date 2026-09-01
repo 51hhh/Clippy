@@ -17,7 +17,7 @@ pub(crate) use origins::{PinFingerprint, PinOriginRegistry};
 mod tests {
     use super::manager::PinManager;
     use super::model::{
-        is_safe_pin_label, window_marker, PinEntry, PinOrigin, PinPosition, PinSource,
+        is_safe_pin_label, window_marker, PinEntry, PinOrigin, PinPosition, PinSource, SharpenSlot,
     };
     use super::window::{
         clamp_pin_position, clamp_span, fit_dimensions, fit_image_content_size, outer_size,
@@ -38,6 +38,7 @@ mod tests {
             origin: None,
             device_scale: 1.0,
             buffer_scale: 1.0,
+            sharpen: Arc::new(SharpenSlot::default()),
         }
     }
 

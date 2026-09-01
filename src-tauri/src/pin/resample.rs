@@ -20,14 +20,14 @@
 //! | 源图，WebKit 默认平滑放大 | 30.28 dB |
 //! | 源图，`image-rendering: pixelated` | 33.95 dB |
 //! | 预先 Lanczos3 放到 1600x1200，1:1 搬进去 | 34.73 dB |
-//! | **同上再做 4~6 轮反投影补偿** | **43.45 dB** |
+//! | **同上再做 4 轮反投影补偿（本模块）** | **43.02 dB** |
 //!
 //! 前三行都在"能看出糊"的量级上，只有最后一行到了肉眼分不出来的程度——所以这里做的是
 //! 最后一行：先把图渲染成缓冲区尺寸，再迭代地问"这张缓冲区图被合成器缩完等于原图吗"，
 //! 把差值加回去。合成器那一步的核也是实测出来的：缓冲区里一个孤立白点在屏上只留下
 //! **一个** 177/255 的点（= 0.8333²），正是"输出像素中心映射回输入坐标"的标准双线性，
-//! 与 [`resample_bilinear`] 完全一致，所以反投影用的前向模型是准的（离线预测 43.49 dB
-//! 与实测 43.45 dB 对得上）。
+//! 与 [`resample_bilinear`] 完全一致，所以反投影用的前向模型是准的：拿本模块真正输出的
+//! 那串字节离线预测 43.09 dB，贴到屏上实测 43.02 dB，对得上。
 //!
 //! # 边界
 //!
@@ -36,8 +36,9 @@
 //!   看起来会有一点过锐——Wayland 不告诉客户端窗口在哪，没法跟着重算，而这比"一直糊"
 //!   划算。缩放（滚轮）之后同理：那时 WebKit 会重新采样这张图，不再是 1:1，
 //!   前端因此只在 1:1 时才认这份补偿（`src/react/pin/rendering.ts`）。
-//! - 不便宜（见 [`MAX_COMPENSATED_PIXELS`]），所以**跑在后台线程上**：原图先上屏，
-//!   算完了再换（`super::commands::spawn_sharpen`），开窗延迟不受影响。
+//! - 不便宜（见 [`MAX_COMPENSATED_PIXELS`]），所以**跑在后台线程上，而且从建条目那一刻
+//!   就开跑**，和建窗、WebKit 起步并行；赶上了第一帧就是清楚的，没赶上才是"原图先上屏、
+//!   算完换图"（`super::commands::spawn_sharpen`）。两种情况下开窗延迟都不受影响。
 //! - 复制与保存**永远用原图**，补偿只进贴图窗口的显示。
 
 use anyhow::{Context, Result};
@@ -49,9 +50,13 @@ const BACK_PROJECTION_ROUNDS: usize = 4;
 
 /// 缓冲区超过这么多像素就不补偿了，原图照旧显示。
 ///
-/// 代价与像素数成正比：本机 release 实测，缓冲区 1600x1200 要 380 ms、3413x1920 要 1.9 s，
-/// 出来的 PNG 分别是 3.8 MB 与 13 MB。这条上限放得下"整块 2560x1440 屏"那种最坏情况
-/// （6.55 MP），再大的贴图（多屏拼接、超宽屏）就不值得为清晰度花那份时间和内存了。
+/// 代价与像素数成正比：本机 release 实测（18 核，两趟重采样都按行并行），缓冲区
+/// 1600x1200 要 220~270 ms、3413x1920 要 710~840 ms，出来的 PNG 分别是 3.8 MB 与 13 MB。
+/// 这条上限放得下"整块 2560x1440 屏"那种最坏情况（6.55 MP），再大的贴图
+/// （多屏拼接、超宽屏）就不值得为清晰度花那份时间和内存了。
+///
+/// 那 220 ms 里反投影占 92 ms、PNG 编码占 87 ms，其余是解码与两次格式转换；
+/// 反投影已经是内存带宽受限，再往下要动的是"别走 PNG 交接"那一层。
 const MAX_COMPENSATED_PIXELS: u64 = 7_000_000;
 
 /// 一条成像链路上的两个尺寸。都是像素，都已经取整。
@@ -116,32 +121,29 @@ pub(super) fn compensated_png(png: &[u8], geometry: DisplayGeometry) -> Result<V
         .context("PNG 解码失败")?
         .to_rgba8();
     let (buffer_width, buffer_height) = geometry.buffer;
-    let (panel_width, panel_height) = geometry.panel;
 
-    // 屏上"应该"长什么样：源图按物理尺寸缩放一次（尺寸相同就是它自己）。
-    let panel = if source.width() == panel_width && source.height() == panel_height {
-        source.clone()
+    let source_size = (source.width(), source.height());
+    let source = to_f32(source.as_raw());
+    // 屏上"应该"长什么样：源图按物理尺寸重采样一次（尺寸相同就是它自己）。
+    let panel = if source_size == geometry.panel {
+        source
     } else {
-        image::imageops::resize(
-            &source,
-            panel_width,
-            panel_height,
-            image::imageops::FilterType::Lanczos3,
-        )
+        resample_lanczos3(&source, source_size, geometry.panel)
     };
-    // 反投影的初值：Lanczos3 预放大。实测比双线性初值同轮次高约 1.4 dB。
-    let initial = image::imageops::resize(
-        &panel,
-        buffer_width,
-        buffer_height,
-        image::imageops::FilterType::Lanczos3,
-    );
+    // 反投影的初值：Lanczos3 预放大。双线性初值便宜但收敛到的上限低 3 dB 左右
+    // （同一张截图上 44.33 dB 对 47.66 dB），差的那部分再多迭代也补不回来。
+    let mut initial = resample_lanczos3(&panel, geometry.panel, geometry.buffer);
+    // Lanczos 的负瓣会让初值冲出 0..255；反投影每轮都会夹一次，初值也得夹，
+    // 否则第一轮的残差里混着永远显示不出来的部分。
+    for value in initial.iter_mut() {
+        *value = value.clamp(0.0, 255.0);
+    }
 
     let buffer = back_project(
-        &to_f32(panel.as_raw()),
-        (panel_width, panel_height),
-        to_f32(initial.as_raw()),
-        (buffer_width, buffer_height),
+        &panel,
+        geometry.panel,
+        initial,
+        geometry.buffer,
         BACK_PROJECTION_ROUNDS,
     );
     crate::screenshot::encode_png(&to_u8(&buffer), buffer_width, buffer_height)
@@ -169,60 +171,192 @@ fn back_project(
     buffer
 }
 
-/// 双线性重采样，RGBA、可分离（先横后纵）。
+/// 双线性重采样，RGBA、可分离（先横后纵），两趟都按行并行。
 ///
-/// 映射规则是"输出像素中心映射回输入坐标"：`u = (i + 0.5) * in / out - 0.5`。
-/// 这正是 Mutter 缩小整张画面时用的那一个（脉冲实测见模块头），反投影的前向模型
-/// 必须和它逐字一致，否则补偿量会偏。
+/// 映射规则是"输出像素中心映射回输入坐标"：`u = (i + 0.5) * in / out - 0.5`，
+/// 而且**缩小时也不把核拉宽**。这正是 Mutter 缩小整张画面时用的那一个（脉冲实测见
+/// 模块头），反投影的前向模型必须和它逐字一致，否则补偿量会偏——所以这里既不能换成
+/// 下面那个通用实现（它按缩放比拉宽核），也不能"顺手改成更正确的面积平均"。
+///
+/// 反投影每轮要走它两次，是整个补偿里最热的一段，因此专门写死成两点采样：
+/// 通用实现每个输出像素要过一层 `Vec` 间接，实测慢 4~5 倍。
 fn resample_bilinear(source: &[f32], from: (u32, u32), to: (u32, u32)) -> Vec<f32> {
     let (in_width, in_height) = (from.0 as usize, from.1 as usize);
     let (out_width, out_height) = (to.0 as usize, to.1 as usize);
+
+    let taps_x = bilinear_taps(in_width, out_width);
     let mut horizontal = vec![0.0f32; out_width * in_height * 4];
-    let taps_x = taps(in_width, out_width);
-    for row in 0..in_height {
+    for_each_row(&mut horizontal, out_width * 4, |row, target| {
         let source_row = &source[row * in_width * 4..(row + 1) * in_width * 4];
-        let target_row = &mut horizontal[row * out_width * 4..(row + 1) * out_width * 4];
         for (column, tap) in taps_x.iter().enumerate() {
+            let low = &source_row[tap.low * 4..tap.low * 4 + 4];
+            let high = &source_row[tap.high * 4..tap.high * 4 + 4];
+            let target_pixel = &mut target[column * 4..column * 4 + 4];
             for channel in 0..4 {
-                target_row[column * 4 + channel] = source_row[tap.low * 4 + channel]
-                    * (1.0 - tap.weight)
-                    + source_row[tap.high * 4 + channel] * tap.weight;
+                target_pixel[channel] =
+                    low[channel] * (1.0 - tap.weight) + high[channel] * tap.weight;
             }
         }
-    }
+    });
+
+    let taps_y = bilinear_taps(in_height, out_height);
     let mut out = vec![0.0f32; out_width * out_height * 4];
-    let taps_y = taps(in_height, out_height);
-    for (row, tap) in taps_y.iter().enumerate() {
-        let (low, high) = (tap.low * out_width * 4, tap.high * out_width * 4);
-        let target_row = &mut out[row * out_width * 4..(row + 1) * out_width * 4];
-        for index in 0..out_width * 4 {
-            target_row[index] = horizontal[low + index] * (1.0 - tap.weight)
-                + horizontal[high + index] * tap.weight;
+    for_each_row(&mut out, out_width * 4, |row, target| {
+        let tap = &taps_y[row];
+        let low = &horizontal[tap.low * out_width * 4..(tap.low + 1) * out_width * 4];
+        let high = &horizontal[tap.high * out_width * 4..(tap.high + 1) * out_width * 4];
+        for ((value, above), below) in target.iter_mut().zip(low).zip(high) {
+            *value = above * (1.0 - tap.weight) + below * tap.weight;
         }
-    }
+    });
     out
 }
 
-struct Tap {
+struct BilinearTap {
     low: usize,
     high: usize,
     weight: f32,
 }
 
-fn taps(input: usize, output: usize) -> Vec<Tap> {
+fn bilinear_taps(input: usize, output: usize) -> Vec<BilinearTap> {
     (0..output)
         .map(|index| {
             let position = (index as f64 + 0.5) * input as f64 / output as f64 - 0.5;
             let low = position.floor();
             let weight = (position - low) as f32;
             let low = low.max(0.0) as usize;
-            Tap {
+            BilinearTap {
                 low: low.min(input - 1),
                 high: (low + 1).min(input - 1),
                 weight: if position < 0.0 { 0.0 } else { weight },
             }
         })
         .collect()
+}
+
+/// Lanczos3 重采样，同样可分离、按行并行。只用在反投影的初值上。
+///
+/// 缩小时核跟着缩放比拉宽（不然会漏采样、出摩尔纹）；放大时保持原宽度。
+/// 这条路一次贴图最多走两趟，所以用通用的"权重表"写法，不值得为它再展开一遍。
+fn resample_lanczos3(source: &[f32], from: (u32, u32), to: (u32, u32)) -> Vec<f32> {
+    let (in_width, in_height) = (from.0 as usize, from.1 as usize);
+    let (out_width, out_height) = (to.0 as usize, to.1 as usize);
+
+    let taps_x = lanczos3_taps(in_width, out_width);
+    let mut horizontal = vec![0.0f32; out_width * in_height * 4];
+    for_each_row(&mut horizontal, out_width * 4, |row, target| {
+        let source_row = &source[row * in_width * 4..(row + 1) * in_width * 4];
+        for (column, tap) in taps_x.iter().enumerate() {
+            let mut sum = [0.0f32; 4];
+            for &(index, weight) in tap.iter() {
+                let sample = &source_row[index * 4..index * 4 + 4];
+                for (total, value) in sum.iter_mut().zip(sample) {
+                    *total += value * weight;
+                }
+            }
+            target[column * 4..column * 4 + 4].copy_from_slice(&sum);
+        }
+    });
+
+    let taps_y = lanczos3_taps(in_height, out_height);
+    let mut out = vec![0.0f32; out_width * out_height * 4];
+    for_each_row(&mut out, out_width * 4, |row, target| {
+        target.fill(0.0);
+        for &(index, weight) in taps_y[row].iter() {
+            let source_row = &horizontal[index * out_width * 4..(index + 1) * out_width * 4];
+            for (value, sample) in target.iter_mut().zip(source_row) {
+                *value += sample * weight;
+            }
+        }
+    });
+    out
+}
+
+/// 一个输出像素的采样点：输入下标 + 权重，权重之和为 1。
+type Tap = Vec<(usize, f32)>;
+
+fn lanczos3_taps(input: usize, output: usize) -> Vec<Tap> {
+    let ratio = (input as f64 / output as f64).max(1.0);
+    let support = 3.0 * ratio;
+    (0..output)
+        .map(|index| {
+            let center = (index as f64 + 0.5) * input as f64 / output as f64 - 0.5;
+            let first = ((center - support).ceil() as i64).max(0);
+            let last = ((center + support).floor() as i64).min(input as i64 - 1);
+            let mut tap: Tap = (first..=last)
+                .filter_map(|position| {
+                    let weight = lanczos3((center - position as f64) / ratio);
+                    (weight != 0.0).then_some((position as usize, weight as f32))
+                })
+                .collect();
+            // 边缘上核会被截掉一部分，归一化等于把缺的那份摊给留下来的采样点，
+            // 也就是"边界像素向外延伸"。
+            let total: f32 = tap.iter().map(|(_, weight)| weight).sum();
+            if total.abs() > f32::EPSILON {
+                for (_, weight) in tap.iter_mut() {
+                    *weight /= total;
+                }
+            } else {
+                tap = vec![(center.round().clamp(0.0, input as f64 - 1.0) as usize, 1.0)];
+            }
+            tap
+        })
+        .collect()
+}
+
+fn lanczos3(x: f64) -> f64 {
+    let x = x.abs();
+    if x < 1e-9 {
+        1.0
+    } else if x < 3.0 {
+        let pi_x = std::f64::consts::PI * x;
+        3.0 * pi_x.sin() * (pi_x / 3.0).sin() / (pi_x * pi_x)
+    } else {
+        0.0
+    }
+}
+
+/// 把 `output` 按行切块，交给作用域线程各算一块。
+///
+/// 重采样的每一行都只读输入、只写自己那一行，天然可并行；本机 18 核上补偿因此从
+/// 秒级掉到百毫秒级（见 [`compensation_cost`](tests::compensation_cost)）。用
+/// `std::thread::scope` 而不是引一个线程池依赖：这段路一次贴图只走一趟，
+/// 建线程的几十微秒相比整张图的重采样可以忽略。
+fn for_each_row(
+    output: &mut [f32],
+    row_len: usize,
+    work: impl Fn(usize, &mut [f32]) + Send + Sync,
+) {
+    let rows = output.len() / row_len;
+    let blocks = worker_count(rows);
+    if blocks <= 1 {
+        for (row, target) in output.chunks_mut(row_len).enumerate() {
+            work(row, target);
+        }
+        return;
+    }
+    let block_rows = rows.div_ceil(blocks);
+    let work = &work;
+    std::thread::scope(|scope| {
+        for (block, chunk) in output.chunks_mut(block_rows * row_len).enumerate() {
+            scope.spawn(move || {
+                for (row, target) in chunk.chunks_mut(row_len).enumerate() {
+                    work(block * block_rows + row, target);
+                }
+            });
+        }
+    });
+}
+
+/// 切几块。每块至少 32 行，行数少的小图不值得摊到所有核上。
+fn worker_count(rows: usize) -> usize {
+    static CORES: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    let cores = *CORES.get_or_init(|| {
+        std::thread::available_parallelism()
+            .map(std::num::NonZeroUsize::get)
+            .unwrap_or(1)
+    });
+    cores.min(rows.div_ceil(32)).max(1)
 }
 
 fn to_f32(bytes: &[u8]) -> Vec<f32> {
