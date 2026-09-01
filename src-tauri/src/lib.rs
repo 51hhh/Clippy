@@ -21,6 +21,7 @@ mod shortcut_conflict;
 mod storage;
 mod translation;
 mod tray_icon;
+mod webview_hardening;
 mod window_controller;
 
 use commands::AppState;
@@ -69,6 +70,9 @@ pub fn run() {
             app::shortcuts::on_second_instance(app, args, cwd);
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // 关掉 WebKit 自带的右键菜单与开发者工具。注册成插件是为了覆盖**每一个** webview，
+        // 包括按需创建的设置窗口与贴图窗口（见 `webview_hardening`）。
+        .plugin(webview_hardening::plugin())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::Builder::new().build())
@@ -261,6 +265,7 @@ pub fn run() {
             pin::commands::update_pin,
             pin::commands::copy_pin,
             pin::commands::save_pin,
+            pin::commands::save_pin_canvas,
             pin::commands::close_pin,
             commands::ocr_available,
             commands::ocr_image,
