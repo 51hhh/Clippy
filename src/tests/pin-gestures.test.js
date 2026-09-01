@@ -5,7 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   allowsTextSelection,
   isZoomShortcut,
+  NO_DRAG,
   pinWheelIntent,
+  trackDragMove,
+  trackDragPointerDown,
 } from "../react/pin/gestures.ts";
 
 const mocks = vi.hoisted(() => ({
@@ -18,6 +21,7 @@ const mocks = vi.hoisted(() => ({
     copy: vi.fn(),
     save: vi.fn(),
     close: vi.fn(),
+    onSharpened: vi.fn(),
   },
 }));
 
@@ -43,6 +47,7 @@ const payload = {
   canSave: true,
   position: null,
   deviceScale: 1,
+  bufferScale: 1,
 };
 
 async function flush() {
@@ -101,6 +106,117 @@ describe("pin wheel and pinch rules", () => {
   });
 });
 
+/**
+ * 拖动判据的单元测试。回归的是那个"第一下能拖、第二下拖不动、第三下又能拖"的毛病。
+ *
+ * 根因不是某一个迟到的事件，而是"拖动依赖跨事件记账"这件事本身：Wayland 上
+ * `startDragging` 之后指针被合成器抓走，这一次的 `pointerup` 永远送不到 WebKit，
+ * 于是每次拖完都会留下一件迟到的事情落在**下一次**按压之后——`pointercancel`、
+ * `buttons=0` 的收尾 `pointermove`、或者 WebKit 那份"按键还按着"的残留状态把下一个
+ * `pointerdown` 整个吃掉。三种机制症状一样，也都会污染任何记账。
+ *
+ * 所以这里锁死的规则是：**每个事件只按自己带的数据判断**，而且起点可以从
+ * `pointermove` 自己长出来，一个 `pointerdown` 都不需要。
+ */
+describe("drag tracking judges each event on its own data", () => {
+  const held = { buttons: 1, onControls: false };
+
+  /** 核心一条：`pointerdown` 被吞掉时，光靠 `pointermove` 也必须能拖起来。 */
+  it("starts a drag from pointermove alone, with no pointerdown at all", () => {
+    const armed = trackDragMove(NO_DRAG, { ...held, x: 40, y: 40 }, 1_000);
+    expect(armed.start).toBe(false);
+    expect(armed.state.origin).toEqual({ x: 40, y: 40 });
+
+    const moved = trackDragMove(armed.state, { ...held, x: 60, y: 60 }, 1_010);
+    expect(moved.start).toBe(true);
+    // 起点用完即清：合成器接手后 WebKit 收不到后续事件
+    expect(moved.state.origin).toBeNull();
+  });
+
+  it("needs more than a few pixels so a plain click never moves the window", () => {
+    const armed = trackDragMove(NO_DRAG, { ...held, x: 40, y: 40 }, 0);
+    expect(trackDragMove(armed.state, { ...held, x: 43, y: 40 }, 5).start).toBe(false);
+    expect(trackDragMove(armed.state, { ...held, x: 46, y: 40 }, 5).start).toBe(true);
+  });
+
+  /** 松手把一切忘掉——包括"从工具条按下去"的抑制，不然抑制会漏到下一次按压。 */
+  it("forgets everything once the button is released", () => {
+    const suppressed = trackDragPointerDown(NO_DRAG, {
+      button: 0,
+      x: 10,
+      y: 10,
+      onControls: true,
+    });
+    expect(suppressed.suppressed).toBe(true);
+
+    const released = trackDragMove(suppressed, { buttons: 0, x: 90, y: 90, onControls: false }, 20);
+    expect(released.start).toBe(false);
+    expect(released.state).toEqual(NO_DRAG);
+  });
+
+  /** 从工具条按下去的那次按压，全程都不许拖窗口（滑块得能拖到底）。 */
+  it("keeps a toolbar press suppressed for the whole gesture", () => {
+    let state = trackDragPointerDown(NO_DRAG, { button: 0, x: 10, y: 10, onControls: true });
+    for (const x of [40, 80, 160]) {
+      const step = trackDragMove(state, { ...held, x, y: 10 }, x);
+      expect(step.start).toBe(false);
+      state = step.state;
+    }
+  });
+
+  /** 起点还没长出来时落在工具条上的移动不算起点，否则会从滑块上把窗口拖走。 */
+  it("does not arm an origin from a move over the toolbar", () => {
+    const onControls = trackDragMove(NO_DRAG, { buttons: 1, x: 10, y: 10, onControls: true }, 0);
+    expect(onControls.state.origin).toBeNull();
+    expect(onControls.start).toBe(false);
+  });
+
+  it("ignores presses that are not the primary button", () => {
+    expect(trackDragPointerDown(NO_DRAG, { button: 2, x: 5, y: 5, onControls: false }))
+      .toEqual(NO_DRAG);
+    expect(trackDragMove(NO_DRAG, { buttons: 2, x: 5, y: 5, onControls: false }, 0).state)
+      .toEqual(NO_DRAG);
+  });
+
+  /**
+   * 限速只防"合成器没接手指针、`pointermove` 继续送进来"那一路：没有新按压时
+   * 300 ms 内不重复发。一个真的新按压带着 `pointerdown` 会把它清零，
+   * 所以用户明确发起的下一次拖动**永远不会**被冷却挡住——那就是原来那个 bug。
+   */
+  it("rate limits only the retry path, never a fresh press", () => {
+    const first = trackDragMove(
+      trackDragMove(NO_DRAG, { ...held, x: 40, y: 40 }, 1_000).state,
+      { ...held, x: 60, y: 60 },
+      1_000,
+    );
+    expect(first.start).toBe(true);
+
+    // 没有 pointerdown，紧接着又移动：限速挡住
+    const throttled = trackDragMove(
+      trackDragMove(first.state, { ...held, x: 60, y: 60 }, 1_050).state,
+      { ...held, x: 90, y: 90 },
+      1_060,
+    );
+    expect(throttled.start).toBe(false);
+    // 过了冷却就该放行
+    const retried = trackDragMove(
+      trackDragMove(first.state, { ...held, x: 60, y: 60 }, 1_500).state,
+      { ...held, x: 90, y: 90 },
+      1_510,
+    );
+    expect(retried.start).toBe(true);
+
+    // 而带着 pointerdown 的新按压立刻就能拖，哪怕只过了 10 ms
+    const pressed = trackDragPointerDown(first.state, {
+      button: 0,
+      x: 60,
+      y: 60,
+      onControls: false,
+    });
+    expect(trackDragMove(pressed, { ...held, x: 90, y: 90 }, 1_010).start).toBe(true);
+  });
+});
+
 describe("pin window is not zoomable and not selectable", () => {
   let root;
 
@@ -112,6 +228,7 @@ describe("pin window is not zoomable and not selectable", () => {
     mocks.pinApi.ready.mockResolvedValue(undefined);
     mocks.pinApi.close.mockResolvedValue(undefined);
     mocks.pinApi.get.mockResolvedValue(payload);
+    mocks.pinApi.onSharpened.mockResolvedValue(() => {});
     mocks.startDraggingCurrentWindow.mockReset();
     mocks.startDraggingCurrentWindow.mockResolvedValue(undefined);
     mocks.pinApi.update.mockImplementation(async (_label, update) => ({ ...payload, ...update }));
@@ -251,6 +368,26 @@ describe("pin window is not zoomable and not selectable", () => {
     // 松手后的移动依然不算拖动
     await act(async () => window.dispatchEvent(pointer("pointermove", { buttons: 0, clientX: 200, clientY: 200 })));
     expect(mocks.startDraggingCurrentWindow).toHaveBeenCalledTimes(2);
+  });
+
+  /**
+   * 同一个 bug 的第三种机制：WebKit 那份"按键还按着"的残留状态把下一次的
+   * `pointerdown` 整个吃掉。这时候只剩 `pointermove`，也必须能拖起来。
+   */
+  it("drags from pointermove alone when the pointerdown never arrives", async () => {
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+
+    const pointer = (type, init) =>
+      new MouseEvent(type, { bubbles: true, cancelable: true, ...init });
+    // 一个 pointerdown 都不发，直接按住移动
+    await act(async () =>
+      window.dispatchEvent(pointer("pointermove", { buttons: 1, clientX: 40, clientY: 40 })));
+    expect(mocks.startDraggingCurrentWindow).not.toHaveBeenCalled();
+
+    await act(async () =>
+      window.dispatchEvent(pointer("pointermove", { buttons: 1, clientX: 70, clientY: 70 })));
+    expect(mocks.startDraggingCurrentWindow).toHaveBeenCalledTimes(1);
   });
 
   /** 键盘的页面缩放快捷键也要吃掉，并且转成贴图自己的缩放。 */
