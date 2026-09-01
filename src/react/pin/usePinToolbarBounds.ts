@@ -4,6 +4,14 @@ import { isToolbarDragging } from "../shared/useToolbarDrag";
 import { pinApi } from "./api";
 
 /**
+ * 尺寸停止变化多久之后才重问边界。
+ *
+ * 取值比一格滚轮之间的间隔宽松（滚轮连续滚动时事件间隔通常几十毫秒），
+ * 又短到用户察觉不出工具条"晚了一下才归位"。
+ */
+const RESIZE_SETTLE_MS = 180;
+
+/**
  * 工具条能待的范围：贴图窗口里"还落在屏幕工作区内"的那块。
  *
  * **为什么要问后端。** 前端只有 `window.innerWidth/innerHeight`，而贴图窗口的外框恒等于
@@ -57,10 +65,20 @@ export function usePinToolbarBounds(label: string, viewport: { width: number; he
       });
   }, [label]);
 
-  // 尺寸变化（滚轮缩放会改窗口尺寸）之后重问一次。`viewport` 本身就是 resize 驱动的，
-  // 所以这一条同时覆盖了"缩放完"和"窗口被合成器改了尺寸"。
+  /**
+   * 尺寸变化（滚轮缩放会改窗口尺寸）之后重问一次，但要**等它停下来**。
+   *
+   * `viewport` 是 `resize` 事件驱动的，而滚轮缩放会让窗口尺寸连续变化——每格滚轮
+   * 至少一次 resize。不延迟的话每格都触发一次查询，而单次查询在 Wayland 下是
+   * 「25 KB 文件读 + 全串比较 + 一趟 D-Bus + 全窗口 JSON 解析」。在飞合并只挡住了并发，
+   * 挡不住这条连续的补发链。
+   *
+   * 延迟到尺寸稳定之后再问一次就够：缩放期间工具条用的是上一份边界，而缩放本身
+   * 不会把窗口挪出屏幕（左上角钉住、往右下长大），边界最多短暂偏一点。
+   */
   useEffect(() => {
-    refresh();
+    const timer = window.setTimeout(refresh, RESIZE_SETTLE_MS);
+    return () => window.clearTimeout(timer);
   }, [refresh, viewport.width, viewport.height]);
 
   /**
