@@ -95,7 +95,7 @@
 - [ ] Wayland 缺少窗口几何或绝对定位能力时，区域截图仍可用且 UI 不声称支持窗口命中或固定置顶。
 - [ ] 三平台保存路径来自系统目录 API；可编辑 PNG 在三平台可打开、继续编辑并导出相同合成结果。
 - [x] OCR 安装入口不会在错误平台执行 Linux 命令；keyring 不降级为明文。
-- [ ] 平台 Tauri 配置、安装包和 updater manifest 与实际目标匹配。
+- [x] 平台 Tauri 配置、安装包和 updater manifest 与实际目标匹配。
 - [x] `cargo fmt --check`、`cargo check/test/clippy`、前端 test/typecheck/build、quick CI 和完整 CI 全部通过；无法在本机执行的平台项准确记录在 QA 矩阵。
 
 ## Out of Scope

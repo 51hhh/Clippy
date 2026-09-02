@@ -37,6 +37,21 @@ Windows job 生成临时代码签名证书，仅将公钥短暂加入 `LocalMach
 全部绑定上述完整 SHA 与 `0.1.18`；初始状态均为 `not_run`，不会被误判为人工验收通过。Ubuntu 24
 证据记录主窗口为可见的 380×500 X11 窗口，单实例回调成功，首帧亮度统计非空白。
 
+四个平台 QA artifact 也已完整下载并在解包目录执行 `sha256sum -c SHA256SUMS.txt`，全部通过：
+
+| 产物 | 字节数 | SHA-256 | QA 签名边界 |
+|---|---:|---|---|
+| Linux AppImage | 97,491,448 | `bca910129677a1dc6ae0ff9c43920983c5e774c710c7bc9457e2461f3ca67473` | `unsigned-qa-only` |
+| Linux DEB | 20,438,436 | `904bed66fe4c00ee4a142d120e4998426e4255b07263bc8f58b2c1ebfe261933` | `unsigned-qa-only` |
+| Windows NSIS | 15,191,288 | `fe1a326b69430d0ee1bc19a7f4f94aabc97e1974a90c71bab73b05573f8ee7b3` | `self-signed-qa-only` |
+| Windows MSI | 19,066,880 | `32a8c1ce94d48ea39c0c99f6092400c59389ebec83b681dc05a50d7e9150d728` | `self-signed-qa-only` |
+| macOS Apple Silicon DMG | 18,794,044 | `fe6a1968ede23d40f2804c107306b85e733c9b012ea8ee4ffbc9a945c2fa7d89` | `ad-hoc-qa-only` |
+| macOS Intel DMG | 19,409,323 | `b7641afebaeb5bc3573e6e3c2a75e515835f94af3692f42e19368d48802c9075` | `ad-hoc-qa-only` |
+
+Linux tar 保留 AppImage 执行位；四份 `QA-BUILD.txt` 均精确记录完整 commit、0.1.18、平台和上述签名
+边界。结合正式 Release 的四目标 `latest.json`，PRD 中“平台配置、安装包和 updater manifest 与实际
+目标匹配”验收项已具备直接产物证据。
+
 ## Release v0.1.18
 
 Run: [`33656502908`](https://github.com/51hhh/Clippy/actions/runs/33656502908)
