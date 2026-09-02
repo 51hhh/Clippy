@@ -11,6 +11,7 @@ import { initUpdateModal, checkForUpdate } from "./update-modal.js";
 import {
   getConfig, getClips, onClipAdded, onClipRemoved, onConfigChanged,
   hideCurrentWindow, onShortcutRegisterFailed, onPinCurrent, pinClip,
+  openPinImageDialog,
 } from "./api.ts";
 import "../styles/themes.css";
 import "../styles/base.css";
@@ -107,6 +108,10 @@ whenReady(async () => {
     previewPanel,
     codec,
     pinClip,
+    openImage: () => openPinImageDialog().catch((error) => {
+      window.dispatchEvent(new CustomEvent("pin-image-open-error"));
+      throw error;
+    }),
     hidePanel: tryHidePanel,
     // 翻译面板的动作以适配器注入，路由不直接依赖 React store（保持可单测）
     translation: { translate: () => translationStore.translate() },

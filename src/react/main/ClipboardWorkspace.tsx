@@ -1,6 +1,7 @@
-import { Clipboard, Search } from "lucide-react";
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { Clipboard, FolderOpen, Search } from "lucide-react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { currentLocale } from "../../i18n/i18n.js";
+import { openPinImageDialog } from "../../js/api.ts";
 import { t } from "../shared/i18n";
 import { clipboardStore } from "./clipboardStore";
 import { ClipboardRow, type ClipboardRowHandlers } from "./ClipboardRow";
@@ -29,6 +30,7 @@ export function ClipboardWorkspace() {
     clipboardStore.getSnapshot,
   );
   const searchRef = useRef<HTMLInputElement>(null);
+  const [openError, setOpenError] = useState(false);
   const items = snapshot.mode === "favorites" ? snapshot.favorites : snapshot.all;
   const navigation = snapshot.navigation;
   // 语言是渲染的隐式输入（`t()` 不是 props 的函数），所以要显式喂给被 memo 的行，
@@ -38,6 +40,12 @@ export function ClipboardWorkspace() {
   useEffect(() => {
     if (snapshot.searchVisible) searchRef.current?.focus();
   }, [snapshot.searchVisible]);
+
+  useEffect(() => {
+    const onOpenError = () => setOpenError(true);
+    window.addEventListener("pin-image-open-error", onOpenError);
+    return () => window.removeEventListener("pin-image-open-error", onOpenError);
+  }, []);
 
   useEffect(() => {
     const focused = document.querySelector<HTMLElement>(
@@ -98,6 +106,24 @@ export function ClipboardWorkspace() {
           {t(snapshot.mode === "favorites" ? "empty.favorites" : "empty.text")}
         </span>
       </div>
+
+      <button
+        type="button"
+        className="open-image-button"
+        title={t("pin.openImageShortcut")}
+        onClick={() => {
+          setOpenError(false);
+          void openPinImageDialog().catch((reason) => {
+            console.warn("Open image failed:", reason);
+            setOpenError(true);
+          });
+        }}
+      >
+        <FolderOpen size={14} aria-hidden="true" />
+        <span>{t("pin.openImage")}</span>
+        <kbd>Ctrl+O</kbd>
+      </button>
+      {openError && <div className="open-image-error" role="alert">{t("pin.openImageFailed")}</div>}
 
       <footer id="segment-tabs" className="segment-tabs" role="tablist">
         <span className="segment-indicator" data-position={snapshot.mode === "favorites" ? "left" : "right"} />

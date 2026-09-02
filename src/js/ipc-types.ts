@@ -315,6 +315,8 @@ export interface PinPayload {
    * 前端据此知道这张图是 1:1 搬进缓冲区的、不该再动滤镜。
    */
   bufferScale: number;
+  /** 合法 v2 工程的精简恢复载荷；普通/损坏/未来版本 PNG 为 null。 */
+  initialProject: PinInitialProject | null;
 }
 
 /**
@@ -336,10 +338,34 @@ export interface PinToolbarBounds {
  * （前端手上那张可能是清晰度补偿版）。
  */
 export interface PinCanvasProject {
-  /** `Annotation[]` 的原样 JSON。后端不解释它，只搬运进 PNG 的 iTXt 块。 */
+  rendererVersion: 1;
+  sourceWidth: number;
+  sourceHeight: number;
   annotations: unknown;
-  /** `ImageAdjustments` 的原样 JSON。 */
   adjustments: unknown;
+}
+
+export interface PinInitialProject {
+  format: "clippy-pin-project";
+  formatVersion: 2;
+  rendererVersion: 1;
+  source: {
+    width: number;
+    height: number;
+    sha256: string;
+  };
+  document: {
+    annotations: unknown;
+    adjustments: unknown;
+  };
+}
+
+export type PinCanvasSaveMode = "editable" | "flat";
+
+export interface PinCanvasSaveResult {
+  path: string;
+  clipboardWritten: boolean;
+  clipboardError?: string | null;
 }
 
 /**
@@ -349,14 +375,21 @@ export interface PinCanvasProject {
  * 这张图能看但不能继续编辑。
  */
 export interface PinProject {
-  format: string;
-  version: number;
+  format: "clippy-pin-project";
+  formatVersion: 2;
+  rendererVersion: 1;
   createdAt: number;
   appVersion: string;
-  /** 底图：条目原图的 base64 PNG。 */
-  sourcePngBase64: string;
-  annotations: unknown;
-  adjustments: unknown;
+  source: {
+    pngBase64: string;
+    width: number;
+    height: number;
+    sha256: string;
+  };
+  document: {
+    annotations: unknown;
+    adjustments: unknown;
+  };
 }
 
 /** 后台算好的清晰版贴图。见 `pin/commands.rs` 的 `spawn_sharpen`。 */

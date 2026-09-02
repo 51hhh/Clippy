@@ -42,6 +42,7 @@ export function resolveKeyboardMode(event, { searchFocused = false } = {}) {
  * @param {object} deps.previewPanel  预览面板（isVisible/toggle/hide/updatePreview）
  * @param {object} deps.codec         编解码面板（toggle/hide/isVisible）
  * @param {function} deps.pinClip     Pin 当前条目
+ * @param {function} deps.openImage   打开 PNG 文件选择器
  * @param {function} deps.hidePanel   隐藏主窗口
  * @param {object} [deps.translation] 翻译面板动作（translate），默认空实现
  */
@@ -50,6 +51,7 @@ export function createKeyboardRouter({
   previewPanel,
   codec,
   pinClip,
+  openImage = () => Promise.resolve(null),
   hidePanel,
   translation = {},
 }) {
@@ -259,6 +261,11 @@ export function createKeyboardRouter({
   }
 
   function onKeyDown(e) {
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "o") {
+      e.preventDefault();
+      Promise.resolve(openImage()).catch((error) => console.warn("open image:", error));
+      return;
+    }
     const searchFocused = clipboardList.search.isVisible()
       && Boolean(document.activeElement?.classList?.contains("search-bar-input"));
     switch (resolveKeyboardMode(e, { searchFocused })) {
