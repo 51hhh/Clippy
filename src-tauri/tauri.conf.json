@@ -18,6 +18,7 @@
   },
   "app": {
     "enableGTKAppId": true,
+    "macOSPrivateApi": true,
     "windows": [
       {
         "title": "Clippy",
