@@ -1,6 +1,8 @@
 export type {
   PinImageSharpened,
   PinCanvasProject,
+  PinCanvasSaveMode,
+  PinCanvasSaveResult,
   PinPayload,
   PinState,
   PinToolbarBounds,

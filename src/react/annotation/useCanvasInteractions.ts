@@ -7,7 +7,14 @@ import {
   translateAnnotation,
 } from "./annotationGeometry";
 import { type FrameImage, frameHeight, frameWidth } from "./frameImage";
-import type { Annotation, EffectType, Point, Rect, Tool } from "./types";
+import {
+  DEFAULT_EFFECT_PARAMETERS,
+  type Annotation,
+  type EffectType,
+  type Point,
+  type Rect,
+  type Tool,
+} from "./types";
 
 export type CanvasDragState =
   | { kind: "crop"; start: Point }
@@ -51,7 +58,16 @@ function draftFor(tool: DraftTool, point: Point, color: string, size: number): C
       annotation: { id, type: tool as "arrow" | "line" | "measure", color, size, from: point, to: point },
     };
   }
-  return { kind, start: point, annotation: { id, type: tool as EffectType, rect } };
+  return {
+    kind,
+    start: point,
+    annotation: {
+      id,
+      type: tool as EffectType,
+      rect,
+      effect: { ...DEFAULT_EFFECT_PARAMETERS },
+    },
+  };
 }
 
 type Params = {
@@ -177,7 +193,7 @@ export function useCanvasInteractions(params: Params) {
       if (!params.text.trim()) return;
       const annotation: Annotation = {
         id: makeId("text"), type: "text", color: params.color, size: params.size,
-        at: point, text: params.text.trim(),
+        at: point, text: params.text.trim(), fontFamily: "system-ui",
       };
       params.commitAnnotations((items) => [...items, annotation]);
       params.onSelect(annotation);

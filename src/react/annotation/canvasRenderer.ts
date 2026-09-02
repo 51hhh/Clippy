@@ -1,13 +1,14 @@
 import { annotationBounds, isEffectAnnotation, isVectorAnnotation } from "./annotationGeometry";
 import { type FrameImage, frameHeight, frameWidth } from "./frameImage";
 import { cssFilterForImageAdjustments, type ImageAdjustments } from "./imageAdjustments";
-import type {
-  Annotation,
-  EffectAnnotation,
-  Point,
-  Rect,
-  SegmentAnnotation,
-  VectorAnnotation,
+import {
+  DEFAULT_EFFECT_PARAMETERS,
+  type Annotation,
+  type EffectAnnotation,
+  type Point,
+  type Rect,
+  type SegmentAnnotation,
+  type VectorAnnotation,
 } from "./types";
 
 export type RenderViewport = {
@@ -23,10 +24,6 @@ const MAX_CANVAS_DPR = 2;
 const HIGHLIGHT_ALPHA = 0.32;
 /** 荧光笔笔尖相对线宽的倍数 */
 const MARKER_WIDTH_FACTOR = 2.6;
-/** 聚光灯之外区域压暗的强度 */
-const SPOTLIGHT_DIM = 0.55;
-/** 放大镜的放大倍数 */
-const MAGNIFIER_ZOOM = 2;
 
 /**
  * 把底图、效果类标注、矢量标注和"选中标注"的虚线框画成一帧。
@@ -137,6 +134,7 @@ function drawEffect(
   offset: Point,
 ) {
   const rect = annotation.rect;
+  const effect = annotation.effect ?? DEFAULT_EFFECT_PARAMETERS;
   const destination = {
     x: (rect.x + offset.x) * scale,
     y: (rect.y + offset.y) * scale,
@@ -146,11 +144,11 @@ function drawEffect(
   if (destination.width <= 0 || destination.height <= 0) return;
 
   if (annotation.type === "spotlight") {
-    drawSpotlight(ctx, image, destination, scale, offset);
+    drawSpotlight(ctx, image, destination, scale, offset, effect.spotlightDim);
     return;
   }
   if (annotation.type === "magnifier") {
-    drawMagnifier(ctx, image, rect, destination, adjustments, scale);
+    drawMagnifier(ctx, image, rect, destination, adjustments, scale, effect.magnifierZoom);
     return;
   }
 
@@ -160,7 +158,7 @@ function drawEffect(
   ctx.clip();
   if (annotation.type === "blur") {
     const filter = cssFilterForImageAdjustments(adjustments);
-    ctx.filter = `${filter === "none" ? "" : `${filter} `}blur(${Math.max(4, 8 * scale)}px)`;
+    ctx.filter = `${filter === "none" ? "" : `${filter} `}blur(${Math.max(4, effect.blurRadius * scale)}px)`;
     ctx.drawImage(
       image,
       offset.x * scale,
@@ -169,7 +167,7 @@ function drawEffect(
       frameHeight(image) * scale,
     );
   } else {
-    const cell = Math.max(6, 12 / Math.max(scale, 0.01));
+    const cell = Math.max(6, effect.mosaicCell / Math.max(scale, 0.01));
     const width = Math.max(1, Math.ceil(rect.width / cell));
     const height = Math.max(1, Math.ceil(rect.height / cell));
     const buffer = document.createElement("canvas");
@@ -194,12 +192,13 @@ function drawSpotlight(
   destination: Rect,
   scale: number,
   offset: Point,
+  dim: number,
 ) {
   ctx.save();
   ctx.beginPath();
   ctx.rect(offset.x * scale, offset.y * scale, frameWidth(image) * scale, frameHeight(image) * scale);
   ctx.rect(destination.x, destination.y, destination.width, destination.height);
-  ctx.fillStyle = `rgba(0, 0, 0, ${SPOTLIGHT_DIM})`;
+  ctx.fillStyle = `rgba(0, 0, 0, ${dim})`;
   ctx.fill("evenodd");
   ctx.restore();
 }
@@ -215,10 +214,11 @@ function drawMagnifier(
   destination: Rect,
   adjustments: ImageAdjustments,
   scale: number,
+  zoom: number,
 ) {
   const centerX = destination.x + destination.width / 2;
   const centerY = destination.y + destination.height / 2;
-  const zoomed = scale * MAGNIFIER_ZOOM;
+  const zoomed = scale * zoom;
   ctx.save();
   ctx.beginPath();
   ctx.ellipse(centerX, centerY, destination.width / 2, destination.height / 2, 0, 0, Math.PI * 2);
@@ -321,7 +321,7 @@ export function drawAnnotation(
     case "text": {
       const at = point(annotation.at);
       const fontSize = Math.max(14, annotation.size * 4) * scale;
-      ctx.font = `600 ${fontSize}px system-ui, sans-serif`;
+      ctx.font = `600 ${fontSize}px ${annotation.fontFamily ?? "system-ui"}, sans-serif`;
       ctx.textBaseline = "top";
       ctx.lineWidth = Math.max(3, annotation.size * scale);
       ctx.strokeStyle = "rgba(0, 0, 0, 0.55)";
