@@ -27,7 +27,8 @@
 | 前端测试 | `npx vitest run` | 前端测试（jsdom） |
 | 前端类型检查 | `npx tsc --noEmit` | 检查 React/TS 功能岛 |
 | 前端构建 | `npx vite build` | 验证正式前端产物 |
-| 原生平台检查 | Rust check/clippy/test + 前端 test/typecheck/build | Windows 与 macOS 原生 runner 完整门禁 |
+| 原生平台检查 | Rust check/clippy/test + 前端 test/typecheck/build | Windows 与 macOS 原生 runner 编译测试门禁 |
+| 原生安装包 smoke | `npx --prefix src tauri build --ci --no-sign --config src-tauri/tauri.ci.conf.json` | 实际生成并核对 NSIS/MSI 或 app/DMG |
 
 ### 环境
 - **Runner**: Linux 使用 `ubuntu-22.04` 作为最低构建基线；原生编译门禁使用 `windows-latest` 与 `macos-latest`
@@ -37,6 +38,10 @@
 - **Rust**: stable（含 clippy + rustfmt 组件）
 - **Node.js**: 20
 - **缓存**: `Swatinem/rust-cache@v2`（加速 Rust 编译）
+
+普通 CI 使用 `tauri.ci.conf.json` 关闭 updater 附加产物，并用 `--no-sign` 跳过发布证书；这不会关闭
+平台 bundler。Windows 必须实际出现 NSIS 与 MSI，macOS 必须实际出现 app 与 DMG。这个 smoke 只证明
+无签名安装包链路可构建，不能替代 release workflow 的 Authenticode、Developer ID 和公证验收。
 
 ### 本地复现
 

@@ -18,7 +18,8 @@
   实际接受的绑定；录制或修改快捷键会取消待确认请求并关闭旧 session。GNOME Wayland 继续使用
   Ubuntu 22 可用的 GSettings/D-Bus，Portal 不可用或被拒绝时保留可操作的手动绑定提示。
 - 公共 Tauri 配置只保留跨平台字段，Linux、Windows、macOS 分别生成 deb/AppImage、NSIS/MSI、
-  app/DMG；CI 在三个原生 runner 上执行 Rust 与前端门禁，release 汇总各平台 updater 产物。
+  app/DMG；CI 在三个原生 runner 上执行 Rust 与前端门禁，并在无发布密钥模式下实际生成和核对
+  Windows NSIS/MSI 与 macOS app/DMG，release 再汇总签名后的各平台 updater 产物。
 - Ubuntu 22.04 重新成为 Linux 最低构建基线：默认依赖图使用 Jammy 可编译的截图实现，
   `pipewire-rs` 仅作为较新 Linux 可显式启用的增强 feature。
 
