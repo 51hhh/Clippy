@@ -73,15 +73,6 @@ impl SaveTarget {
     }
 }
 
-impl Default for SaveTarget {
-    fn default() -> Self {
-        Self {
-            directory: default_screenshot_dir(),
-            template: DEFAULT_FILENAME_TEMPLATE.to_string(),
-        }
-    }
-}
-
 /// 按配置的目录与模板保存 PNG，返回实际写入的路径。
 pub fn save_png(png: &[u8], prefix: &str, target: &SaveTarget) -> Result<PathBuf, String> {
     crate::screenshot::png_dimensions(png).map_err(|error| error.to_string())?;
@@ -91,11 +82,12 @@ pub fn save_png(png: &[u8], prefix: &str, target: &SaveTarget) -> Result<PathBuf
     write_new_png(&target.directory, &stem, png)
 }
 
-pub fn default_screenshot_dir() -> PathBuf {
-    home_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("Pictures")
-        .join("Clippy")
+/// 系统默认保存目录。优先使用 Tauri 解析出的 Pictures；不可用时落到同样由 Tauri
+/// 解析出的应用数据目录，避免猜测各平台的用户目录名。
+pub fn system_screenshot_dir(picture_dir: Option<&Path>, app_data_dir: &Path) -> PathBuf {
+    picture_dir
+        .map(|directory| directory.join("Clippy"))
+        .unwrap_or_else(|| app_data_dir.join("Screenshots"))
 }
 
 pub fn unique_image_id() -> String {
@@ -144,7 +136,7 @@ pub fn expand_user_path(path: &str) -> PathBuf {
             return home;
         }
     }
-    if let Some(rest) = path.strip_prefix("~/") {
+    if let Some(rest) = path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\")) {
         if let Some(home) = home_dir() {
             return home.join(rest);
         }
@@ -379,6 +371,26 @@ mod tests {
         let target = SaveTarget::from_config(&config, Path::new("/unused"));
         assert_eq!(target.directory, PathBuf::from("/tmp/clippy-shots"));
         assert_eq!(target.template, "cap-{date}");
+    }
+
+    #[test]
+    fn system_directory_uses_tauri_paths_without_guessing_platform_folders() {
+        let pictures = PathBuf::from("/system/Pictures");
+        let app_data = PathBuf::from("/system/AppData/Clippy");
+        assert_eq!(
+            system_screenshot_dir(Some(&pictures), &app_data),
+            pictures.join("Clippy")
+        );
+        assert_eq!(
+            system_screenshot_dir(None, &app_data),
+            app_data.join("Screenshots")
+        );
+    }
+
+    #[test]
+    fn windows_tilde_separator_expands_like_the_unix_separator() {
+        let home = home_dir().expect("测试环境应当有 HOME");
+        assert_eq!(expand_user_path("~\\Shots"), home.join("Shots"));
     }
 
     #[test]
