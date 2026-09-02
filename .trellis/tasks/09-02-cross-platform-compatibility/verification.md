@@ -4,11 +4,11 @@
 
 审查基线：`621e36f289a386dcf84d26c77742f6b0f1eae31e`
 
-实现与最近一次完整本机 CI 已审查至：`7420d8a1db4c015f87e05097384e1a7dd5673171`
+实现审查与最新本机快速门禁已完成至：`8973f346b82e3ab802f3a88dc78f45ffc7630660`
 
 ## 审查范围
 
-- 截至上述实现审查点，审查基线之后共 140 个提交，以及提交时仍存在的工作区内容。
+- 截至上述实现审查点，审查基线之后共 151 个提交，以及提交时仍存在的工作区内容。
 - 逐项检查截图、窗口命中、Pin、标注画布、可编辑 PNG、剪贴板、自动粘贴、快捷键、OCR、
   私有存储、自动启动、平台配置、CI 和 release 数据流。
 - `.omo/` 与 `.trellis/workspace/codex/` 是未跟踪的用户工作区，本次未读取、未修改、未提交。
@@ -28,7 +28,7 @@
 | GNOME 扩展静态检查 | 通过，Shell 45–51 |
 | `npm ci` | 通过，0 个已报告漏洞 |
 | `tsc --noEmit` | 通过 |
-| Vitest | 44 个文件、813 项测试通过 |
+| Vitest | 44 个文件、815 项测试通过 |
 | DOM/Xvfb smoke | 9 项通过 |
 | Canvas 导出像素 smoke | 通过，抽样像素 `0 208 0` |
 | 主窗口布局像素 smoke | 通过，抽样像素 `0 208 0` |
@@ -120,23 +120,25 @@
 
 ## 原生平台验证状态
 
-截至上述实现审查点，`dev` 比 `origin/dev` 多 166 个本地提交。公开 GitHub API 显示最近一次
-`build.yml` 成功运行是 2026-08-30 的 run 60、commit
-`8f6c1b57ad844ebc98254b9f88b16e88f3cce314`；该 run 只有一个 `Check (ubuntu-24.04)` job，明确没有
-执行本轮新增的 `windows-latest` / `macos-latest` 原生矩阵，也不包含本轮实现。
+`dev` 与 `origin/dev` 已同步到实施 SHA
+`8973f346b82e3ab802f3a88dc78f45ffc7630660`。GitHub Actions run
+[`33634040166`](https://github.com/51hhh/Clippy/actions/runs/33634040166) 对这个完整 SHA 给出三项原生
+job 全绿；`scripts/verify-native-ci.mjs` 再从 check-runs API 独立核对精确 job 名、状态和结论，结果为
+PASS。机器生成的逐 job 时间与链接保存在 [native-ci-evidence.md](native-ci-evidence.md)。
 
-仓库现提供 `scripts/verify-native-ci.mjs` 按完整 SHA 读取 GitHub check-runs API，并要求 Ubuntu 22、
-Windows、macOS 三个精确 job 名全部为 `completed/success`。用上述远端 SHA 做反例实测时，校验器
-正确返回 1，并把三个当前必需 job 全部列为 `missing`；它不会把旧的 Ubuntu 24 job 误判为验收证据。
+| 原生 job | 结果 | 已执行门禁 |
+|---|---|---|
+| `Check (ubuntu-22.04)` | `completed/success` | fmt、check、Jammy 依赖基线、clippy、425 项 Rust 测试、815 项前端测试、DOM/Xvfb、typecheck、build |
+| `Native Check (windows-latest)` | `completed/success` | 原生 check/clippy/test、前端 test/typecheck/build、Tauri bundle、NSIS/MSI 产物核对 |
+| `Native Check (macos-latest)` | `completed/success` | 原生 check/clippy/test、前端 test/typecheck/build、Tauri bundle、app/DMG 产物核对 |
 
-- Windows MSVC：完整工程在 Linux 主机交叉检查时缺少 `llvm-rc`、MSVC `lib.exe`/SDK 以及
-  `ring`/SQLite 所需原生构建工具，因而在依赖构建阶段停止；私有文件模块的独立 MSVC 目标检查已
-  通过；自动粘贴使用的 `OpenProcess`、令牌、SID 与完整性 RID API 也通过独立 MSVC 目标类型检查，
-  但这些都不能作为 Windows 原生运行通过证据。
-- macOS：Linux 主机没有 Apple SDK/clang，交叉 `cargo check` 在 `-arch`/SDK 参数处停止；
-  这既不是项目源码失败，也不能作为 macOS 通过证据。
-- 发布前必须把本分支推送到远端，让 `windows-latest` 与 `macos-latest` 原生 runner 完成
-  check、clippy、test、前端测试、类型检查，以及新增的 NSIS/MSI、app/DMG bundle smoke。
+Windows runner 同时执行并通过私有文件/目录 ACL 修复验证；Windows 与 macOS runner 都执行 renderer
+v2 固定 RGBA 摘要测试，因此软件渲染器在三平台对同一 fixture 输出相同像素。上述 CI 证明原生编译、
+自动测试和无发布签名的安装包能够生成，不替代 Windows/macOS 真实桌面交互，也不证明 Authenticode、
+Developer ID、公证或正式 updater 发布链。
+
+Linux 主机上的 Windows 交叉检查仍会因缺少 MSVC `lib.exe`/SDK 及 C 依赖工具停止，macOS 交叉检查
+仍缺 Apple SDK；现在它们只是本机环境限制，原生 runner 结果才是本轮的平台构建证据。
 
 ## 实机 QA 矩阵
 
@@ -234,11 +236,12 @@ Windows、macOS 三个精确 job 名全部为 `completed/success`。用上述远
 - macOS 最终产物验证门禁已接入，但仍需带真实 Developer ID 和公证凭据的 release runner 运行证据。
 - Tauri 2.11 的默认 linuxdeploy 路径仍会生成包含 `libwayland-*` 的原始 AppImage；Clippy 正式
   release workflow 已通过 finalization 修复并重签名，但手工分发未经 finalization 的原始产物仍不受支持。
-- Windows 私有文件 ACL 已有显式实现、目标编译测试和单元测试，但仍需 Windows 原生 runner 执行
-  ACL 测试，并在 NTFS 实机确认旧文件修复、目录继承与连续 token 更新；keyring 失败不会退回明文。
-- renderer v2 的固定字体、调整、效果和矢量金图已在 Linux 通过，但当前分支尚未交给 Windows 与
-  macOS 原生 runner 执行同一摘要测试；在取得这些证据前，“三平台哈希相同”仍是已实现、待原生验证，
-  不能写成已验收。旧 renderer v1 未修改时继续复用 IDAT，第一次真实编辑才升级到 v2。
+- Windows 私有文件 ACL 已由原生 runner 在 NTFS 临时目录执行文件/目录修复测试并通过；真实安装后的
+  旧配置升级、系统 keyring 与连续 Portal token 更新仍属于 Windows 10/11 实机矩阵，keyring 失败不会
+  退回明文。
+- renderer v2 的固定字体、调整、效果和矢量金图已由 Linux、Windows 与 macOS 原生 runner 执行同一
+  RGBA 摘要测试并通过；跨系统手工打开、继续编辑和导出可编辑 PNG 仍需实机记录。旧 renderer v1
+  未修改时继续复用 IDAT，第一次真实编辑才升级到 v2。
 
 ## 画布与可编辑 PNG 结论
 
