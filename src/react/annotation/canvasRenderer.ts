@@ -11,6 +11,12 @@ import {
   type VectorAnnotation,
 } from "./types";
 
+/**
+ * renderer v1 使用宿主 WebView 的 Canvas 2D、字体和 CSS filter，保证的是工程语义与坐标合同，
+ * 不是跨 WebKitGTK/WebView2/WKWebView 的逐像素确定性。未修改的可编辑 PNG 必须复用其 IDAT；
+ * 若未来要求跨平台重绘也完全一致，需要由 renderer v2 固定字体、滤镜和光栅化实现。
+ */
+
 export type RenderViewport = {
   width: number;
   height: number;
