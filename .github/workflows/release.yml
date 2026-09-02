@@ -290,17 +290,24 @@ jobs:
             }
             else {
               Write-Host "Creating ephemeral self-signed code-signing certificate"
-              $certificate = New-SelfSignedCertificate `
-                -Type CodeSigningCert `
-                -Subject "CN=Clippy Self-Signed Release" `
-                -FriendlyName "Clippy ephemeral self-signed release certificate" `
-                -CertStoreLocation Cert:\CurrentUser\My `
-                -Provider "Microsoft Software Key Storage Provider" `
-                -KeyAlgorithm RSA `
-                -KeyLength 2048 `
-                -HashAlgorithm SHA256 `
-                -KeyExportPolicy Exportable `
-                -NotAfter (Get-Date).AddYears(1)
+              $selfSignedParams = @{
+                Type = "Custom"
+                Subject = "CN=Clippy Self-Signed Release"
+                FriendlyName = "Clippy ephemeral self-signed release certificate"
+                CertStoreLocation = "Cert:\CurrentUser\My"
+                Provider = "Microsoft Software Key Storage Provider"
+                KeyAlgorithm = "RSA"
+                KeyLength = 2048
+                HashAlgorithm = "SHA256"
+                KeyExportPolicy = "Exportable"
+                KeyUsage = "DigitalSignature"
+                TextExtension = @(
+                  "2.5.29.37={text}1.3.6.1.5.5.7.3.3"
+                  "2.5.29.19={text}"
+                )
+                NotAfter = (Get-Date).AddYears(1)
+              }
+              $certificate = New-SelfSignedCertificate @selfSignedParams
               $signingMode = "self-signed"
             }
 
