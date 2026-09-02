@@ -1352,6 +1352,7 @@ mod backend_diagnostics {
 
     /// 窗口枚举对截图链路的副作用诊断。报障是"加了窗口枚举之后截图变黑"，
     /// 而枚举本身在捕获之后才跑，所以要单独确认：枚举是否慢、是否会污染下一帧。
+    /// 诊断只输出数量、状态与几何，不让窗口标题和进程标识离开当前进程。
     #[test]
     #[ignore = "需要真实桌面会话"]
     fn window_probe_diagnostics() {
@@ -1363,14 +1364,12 @@ mod backend_diagnostics {
                 println!("枚举到 {} 个窗口", list.len());
                 for window in list.iter().take(12) {
                     println!(
-                        "  pid={:?} minimized={:?} rect=({:?},{:?} {:?}x{:?}) title={:?}",
-                        window.pid(),
+                        "  minimized={:?} rect=({:?},{:?} {:?}x{:?})",
                         window.is_minimized(),
                         window.x(),
                         window.y(),
                         window.width(),
                         window.height(),
-                        window.title(),
                     );
                 }
             }
