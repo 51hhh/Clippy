@@ -15,7 +15,7 @@ import { PinCanvasToolbar } from "./PinCanvasToolbar";
 import { PinContextMenu, type PinMenuItem } from "./PinContextMenu";
 import { PinToolbar } from "./PinToolbar";
 import { pinImageRendering } from "./rendering";
-import type { PinPayload, PinUpdate } from "./types";
+import type { PinPayload, PinUpdate, PlatformCapability } from "./types";
 import { mergePinState, shouldApplyPinUpdateResponse } from "./update-order";
 import { usePinCanvas } from "./usePinCanvas";
 import { usePinToolbarBounds } from "./usePinToolbarBounds";
@@ -42,6 +42,7 @@ export function App() {
   const confirmedPinRef = useRef<PinPayload | null>(null);
   const confirmedGeneration = useRef(0);
   const [pin, setPin] = useState<PinPayload | null>(null);
+  const [alwaysOnTop, setAlwaysOnTop] = useState<PlatformCapability | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -100,6 +101,19 @@ export function App() {
       cancelled = true;
     };
   }, [label]);
+
+  useEffect(() => {
+    let cancelled = false;
+    pinApi
+      .platform()
+      .then((platform) => {
+        if (!cancelled) setAlwaysOnTop(platform.capabilities.always_on_top);
+      })
+      .catch((reason) => console.error(reason));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     pinRef.current = pin;
@@ -487,7 +501,12 @@ export function App() {
       // 画布开着时这些字母键要留给以后的工具快捷键，而且用户可能在输入文字标注。
       else if (canvasOpen) return;
       else if (event.key.toLowerCase() === "l") commitUpdate({ locked: !pin.locked });
-      else if (event.key.toLowerCase() === "t") commitUpdate({ above: !pin.above });
+      else if (
+        event.key.toLowerCase() === "t"
+        && (pin.above || alwaysOnTop?.state !== "unsupported")
+      ) {
+        commitUpdate({ above: !pin.above });
+      }
       else if (event.key.toLowerCase() === "s" && pin.canSave) requestSave();
     }
     window.addEventListener("keydown", onKeyDown);
@@ -497,6 +516,7 @@ export function App() {
     // 于是每画一笔都要重挂一次 keydown 监听。
   }, [
     adjustScale,
+    alwaysOnTop?.state,
     canvas.redo,
     canvas.undo,
     canvasOpen,
@@ -525,6 +545,20 @@ export function App() {
   }
   if (!pin) return null;
 
+  // 未拿到能力前维持原行为；明确 unsupported 时隐藏“开启置顶”，但已开启的状态仍允许关闭。
+  const aboveSupported = pin.above || alwaysOnTop?.state !== "unsupported";
+  const aboveLimited =
+    alwaysOnTop?.state === "degraded" || alwaysOnTop?.state === "permission_required";
+  const aboveLabel = t(
+    pin.above
+      ? aboveLimited
+        ? "pin.unpinAboveLimited"
+        : "pin.unpinAbove"
+      : aboveLimited
+        ? "pin.pinAboveLimited"
+        : "pin.pinAbove",
+  );
+
   // `mediaWidth` / `mediaHeight` 在上面就算好了（画布与工具条都要用）。窗口外框可能
   // 比内容区大——矮贴图为了放下工具条有高度下限（`pin/window.rs::MIN_OUTER_HEIGHT`），
   // 多出来的高度必须留成透明留白，不能让图片在变高的框里居中，否则"贴回原处"当场就偏了。
@@ -542,12 +576,14 @@ export function App() {
     : "auto";
 
   const menuItems: PinMenuItem[] = [
-    {
-      id: "above",
-      label: t(pin.above ? "pin.unpinAbove" : "pin.pinAbove"),
-      checked: pin.above,
-      onSelect: () => commitUpdate({ above: !pin.above }),
-    },
+    ...(aboveSupported
+      ? [{
+        id: "above",
+        label: aboveLabel,
+        checked: pin.above,
+        onSelect: () => commitUpdate({ above: !pin.above }),
+      }]
+      : []),
     {
       id: "locked",
       label: t(pin.locked ? "pin.unlock" : "pin.lock"),
@@ -646,6 +682,8 @@ export function App() {
         opacity={pin.opacity}
         locked={pin.locked}
         above={pin.above}
+        aboveSupported={aboveSupported}
+        aboveLimited={aboveLimited}
         canvasOpen={canvasOpen}
         canSave={pin.canSave}
         copied={copied}

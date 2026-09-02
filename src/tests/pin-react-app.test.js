@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   startDraggingCurrentWindow: vi.fn(),
   pinApi: {
     get: vi.fn(),
+    platform: vi.fn(),
     ready: vi.fn(),
     update: vi.fn(),
     copy: vi.fn(),
@@ -195,6 +196,9 @@ describe("React pin app", () => {
     i18n.init("en");
     for (const fn of Object.values(mocks.pinApi)) fn.mockReset();
     mocks.pinApi.ready.mockResolvedValue(undefined);
+    mocks.pinApi.platform.mockResolvedValue({
+      capabilities: { always_on_top: { state: "available", reason: null } },
+    });
     mocks.pinApi.close.mockResolvedValue(undefined);
     mocks.pinApi.onSharpened.mockResolvedValue(() => {});
     mocks.pinApi.onAlreadyOpen.mockResolvedValue(() => {});
@@ -846,5 +850,45 @@ describe("React pin app", () => {
     await flush();
     expect(mocks.pinApi.update).toHaveBeenLastCalledWith("pin-image-test", { above: false });
     expect(button()?.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("does not promise reliable keep-above when Wayland limits window levels", async () => {
+    mocks.pinApi.platform.mockResolvedValue({
+      capabilities: {
+        always_on_top: { state: "degraded", reason: "wayland_protocol_limited" },
+      },
+    });
+    mocks.pinApi.get.mockResolvedValue(payload);
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+
+    expect(
+      document.querySelector('button[aria-label="Try keeping above (desktop-dependent)"]'),
+    ).not.toBeNull();
+  });
+
+  it("removes keep-above actions when the compositor does not expose them", async () => {
+    mocks.pinApi.platform.mockResolvedValue({
+      capabilities: {
+        always_on_top: { state: "unsupported", reason: "wayland_protocol_limited" },
+      },
+    });
+    mocks.pinApi.get.mockResolvedValue(payload);
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+
+    expect(document.querySelector('button[aria-label*="above"]')).toBeNull();
+    await act(async () => {
+      document.querySelector(".pin-root").dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
+      );
+    });
+    const menuLabels = [...document.querySelectorAll(".pin-context-menu button")].map(
+      (button) => button.textContent,
+    );
+    expect(menuLabels).not.toContain("Keep above other windows");
+    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "t" })));
+    await flushFrame();
+    expect(mocks.pinApi.update).not.toHaveBeenCalledWith("pin-image-test", { above: true });
   });
 });

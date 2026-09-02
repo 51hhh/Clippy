@@ -460,6 +460,8 @@
   "pin.scale": "Scale {percent} percent",
   "pin.pinAbove": "Keep above other windows",
   "pin.unpinAbove": "Stop keeping above other windows",
+  "pin.pinAboveLimited": "Try keeping above (desktop-dependent)",
+  "pin.unpinAboveLimited": "Stop requesting keep-above",
   "pin.lock": "Lock position",
   "pin.unlock": "Unlock position",
   "pin.opacity": "Opacity",

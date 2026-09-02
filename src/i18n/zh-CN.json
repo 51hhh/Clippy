@@ -460,6 +460,8 @@
   "pin.scale": "缩放 {percent}%",
   "pin.pinAbove": "置顶显示",
   "pin.unpinAbove": "取消置顶",
+  "pin.pinAboveLimited": "尝试置顶（取决于桌面环境）",
+  "pin.unpinAboveLimited": "取消置顶请求",
   "pin.lock": "锁定位置",
   "pin.unlock": "解锁位置",
   "pin.opacity": "不透明度",
