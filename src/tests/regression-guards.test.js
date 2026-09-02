@@ -17,8 +17,8 @@
  *   9. 选区压暗搬回 drawScene → 拖一次选区就是几十次全屏重采样，帧率掉下来但功能"是对的"
  *  10. 列表行收整个 snapshot / 回调在渲染里新建 → memo 失效，一次按键重渲全部 30 行
  *  11. 列表行取原图画 48 px 缩略图 → 每开一次面板十几 MB IPC + 十几次全尺寸 PNG 解码
- *  12. deb 不声明 libpipewire → 装上去的包在没装 PipeWire 的机器上根本起不来
- *      （硬链接失败发生在 main 之前，后端回退链一层都轮不到）
+ *  12. 默认构建移除 PipeWire 后 deb 仍声明它 → Ubuntu 22 被迫安装无用运行库，
+ *      也掩盖了依赖图是否意外重新启用 PipeWire 的真实回归
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -65,26 +65,22 @@ describe("Linux CI 固守 Ubuntu 22 构建基线", () => {
   });
 });
 
-describe("deb 声明了二进制硬链接的库", () => {
+describe("deb 只声明默认二进制真实需要的额外运行库", () => {
   const deb = JSON.parse(read("src-tauri/tauri.conf.json")).bundle.linux.deb;
 
   /**
    * Tauri 的 deb 打包器只会自动写 webkit2gtk / gtk 那几条，不做 shlibdeps 扫描。
-   * 而 PipeWire 取流（`screenshot/screencast.rs`）与 libwayshot 的 Wayland 截图让
-   * 二进制**动态链接**上了 libpipewire / libgbm / libEGL —— 缺一个就是启动时
-   * 动态链接失败，进程根本起不来，一层后端都轮不到。所以必须显式声明。
-   *
-   * t64 过渡把包名改了（24.04 起是 `libpipewire-0.3-0t64`），用 `|` 备选同时覆盖
-   * 新旧发行版：写死单个名字会让 deb 在另一边直接装不上，比不声明更糟。
+   * 默认构建已经不编译 PipeWire 增强后端，ELF 的 NEEDED 表里也没有 PipeWire/libspa；
+   * deb 若继续声明它，会把可选能力错误变成安装期硬依赖。libwayshot 与 WebKit 的
+   * Wayland 链仍使用 GBM/EGL，所以保留这两项兼容声明。
    */
-  it.each([
-    ["libpipewire-0.3", true],
-    ["libgbm1", false],
-    ["libegl1", false],
-  ])("%s 在 depends 里", (library, needsAlternative) => {
+  it.each(["libgbm1", "libegl1"])("%s 在 depends 里", (library) => {
     const entry = deb.depends.find((item) => item.includes(library));
     expect(entry, `depends 里没有 ${library}`).toBeTruthy();
-    if (needsAlternative) expect(entry).toContain("|");
+  });
+
+  it("PipeWire 保持为源码构建时显式启用的可选能力", () => {
+    expect(deb.depends.some((item) => item.includes("pipewire"))).toBe(false);
   });
 });
 

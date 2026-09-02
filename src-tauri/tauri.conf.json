@@ -50,7 +50,6 @@
     "linux": {
       "deb": {
         "depends": [
-          "libpipewire-0.3-0t64 | libpipewire-0.3-0",
           "libgbm1",
           "libegl1",
           "libdrm2",
