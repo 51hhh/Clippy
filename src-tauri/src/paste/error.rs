@@ -28,6 +28,10 @@ pub enum PasteError {
     NativeTargetMissing,
     #[error("原生目标窗口已经失效")]
     NativeTargetInvalid,
+    #[error("无法读取 Windows 进程完整性级别: {0}")]
+    WindowsIntegrityQuery(String),
+    #[error("Windows 拒绝向更高完整性进程注入输入（当前 {current_rid:#x}，目标 {target_rid:#x}）")]
+    WindowsIntegrityBoundary { current_rid: u32, target_rid: u32 },
     #[error("无法恢复原生目标窗口焦点: {0}")]
     NativeFocusNotRestored(String),
     #[error("macOS 辅助功能权限尚未授予")]
@@ -83,6 +87,8 @@ impl PasteError {
             Self::X11ThreadPanic(_) => "x11_thread_panic",
             Self::NativeTargetMissing => "native_target_missing",
             Self::NativeTargetInvalid => "native_target_invalid",
+            Self::WindowsIntegrityQuery(_) => "windows_integrity_query_failed",
+            Self::WindowsIntegrityBoundary { .. } => "windows_integrity_boundary",
             Self::NativeFocusNotRestored(_) => "native_focus_not_restored",
             Self::MacosAccessibilityPermissionRequired => "macos_accessibility_permission_required",
             Self::NativeThreadPanic(_) => "native_thread_panic",
@@ -164,6 +170,11 @@ mod tests {
             PasteError::X11ThreadPanic(String::new()),
             PasteError::NativeTargetMissing,
             PasteError::NativeTargetInvalid,
+            PasteError::WindowsIntegrityQuery(String::new()),
+            PasteError::WindowsIntegrityBoundary {
+                current_rid: 0x2000,
+                target_rid: 0x3000,
+            },
             PasteError::NativeFocusNotRestored(String::new()),
             PasteError::MacosAccessibilityPermissionRequired,
             PasteError::NativeThreadPanic(String::new()),

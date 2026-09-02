@@ -242,7 +242,7 @@ describe("typed IPC wrappers", () => {
       copied: true,
       pasted: false,
       backend: "windows_send_input",
-      reason_code: "native_focus_not_restored",
+      reason_code: "windows_integrity_boundary",
       detail: "blocked by UIPI",
     };
 
