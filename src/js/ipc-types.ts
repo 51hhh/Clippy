@@ -114,7 +114,7 @@ export interface ShortcutRegisterFailure {
   action: "global" | "pin" | "capture";
   shortcut: string;
   /** 会话类型，决定提示里给出的处置建议 */
-  session: "wayland" | "x11";
+  session: DesktopSession;
   /** 底层原因（中文日志文案，只作为补充信息展示） */
   reason: string;
 }

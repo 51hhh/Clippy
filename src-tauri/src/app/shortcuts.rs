@@ -1,5 +1,6 @@
 use crate::commands::{self, AppState};
 use crate::models::AppConfig;
+use crate::platform::DesktopSession;
 use crate::window_controller;
 use std::collections::HashSet;
 use std::str::FromStr;
@@ -23,18 +24,18 @@ pub struct ShortcutRegisterFailure {
     /// `global` / `pin` / `capture`
     pub action: String,
     pub shortcut: String,
-    /// `wayland` / `x11`
-    pub session: String,
+    /// `wayland` / `x11` / `native`
+    pub session: DesktopSession,
     /// 失败原因（底层命令的错误文本）
     pub reason: String,
 }
 
 impl ShortcutRegisterFailure {
-    pub fn new(action: &str, shortcut: &str, wayland: bool, reason: String) -> Self {
+    pub fn new(action: &str, shortcut: &str, session: DesktopSession, reason: String) -> Self {
         Self {
             action: action.to_string(),
             shortcut: shortcut.to_string(),
-            session: if wayland { "wayland" } else { "x11" }.to_string(),
+            session,
             reason,
         }
     }
@@ -48,10 +49,10 @@ pub(crate) fn report_register_failure(
     app: &tauri::AppHandle,
     action: &str,
     shortcut: &str,
-    wayland: bool,
+    session: DesktopSession,
     reason: impl std::fmt::Display,
 ) {
-    let failure = ShortcutRegisterFailure::new(action, shortcut, wayland, reason.to_string());
+    let failure = ShortcutRegisterFailure::new(action, shortcut, session, reason.to_string());
     log::warn!(
         "快捷键注册失败[{}] {}: {}",
         failure.action,
@@ -86,12 +87,12 @@ pub(crate) fn record_register_result(
     app: &tauri::AppHandle,
     actions: &[&str],
     shortcut: &str,
-    wayland: bool,
+    session: DesktopSession,
     result: Result<(), String>,
 ) {
     match result {
         Ok(()) => clear_register_failure(app, actions),
-        Err(reason) => report_register_failure(app, actions[0], shortcut, wayland, reason),
+        Err(reason) => report_register_failure(app, actions[0], shortcut, session, reason),
     }
 }
 
@@ -128,7 +129,7 @@ pub(crate) fn handle_registered(app: &tauri::AppHandle, shortcut: &Shortcut) {
     }
 }
 
-/// X11 下逐个动作注册并按动作记账。
+/// Tauri 原生后端逐个动作注册并按动作记账。
 ///
 /// 不用 `register_multiple`：它是全有或全无，一个键位被别的程序抓走就整批失败，
 /// 而且失败信息里没有"是哪个动作"，只能笼统归给 `global`。逐个注册既能把失败归到
@@ -136,7 +137,7 @@ pub(crate) fn handle_registered(app: &tauri::AppHandle, shortcut: &Shortcut) {
 ///
 /// 返回 `Err` 只表示"一个键位都没注册上"（`unregister_all` 失败，或所有配置的动作都失败），
 /// 调用方据此决定是否把状态退回"已暂停"；部分成功返回 `Ok`，失败细节在失败记录里。
-pub(crate) fn register_x11_shortcuts(
+pub(crate) fn register_tauri_shortcuts(
     handle: &tauri::AppHandle,
     config: &AppConfig,
 ) -> Result<(), String> {
@@ -148,11 +149,11 @@ pub(crate) fn register_x11_shortcuts(
     let mut attempted = 0usize;
     let mut failed = 0usize;
     let mut first_error: Option<String> = None;
-    for (action, raw, plan) in plan_x11_registration(config) {
+    for (action, raw, plan) in plan_tauri_registration(config) {
         let result = match plan {
-            X11Registration::Unset | X11Registration::Shared => Ok(()),
-            X11Registration::Invalid(reason) => Err(reason),
-            X11Registration::Register(shortcut) => global_shortcuts
+            TauriRegistration::Unset | TauriRegistration::Shared => Ok(()),
+            TauriRegistration::Invalid(reason) => Err(reason),
+            TauriRegistration::Register(shortcut) => global_shortcuts
                 .register(shortcut)
                 .map_err(|e| e.to_string()),
         };
@@ -163,26 +164,32 @@ pub(crate) fn register_x11_shortcuts(
                 first_error.get_or_insert_with(|| reason.clone());
             }
         }
-        record_register_result(handle, &[action], &raw, false, result);
+        record_register_result(
+            handle,
+            &[action],
+            &raw,
+            crate::platform::current_session(),
+            result,
+        );
     }
 
     match first_error {
         // 全部失败：一个键位都没生效，让调用方能把状态退回暂停态并重试
         Some(reason) if failed == attempted => Err(reason),
         Some(reason) => {
-            log::warn!("X11 快捷键部分注册失败: {reason}");
+            log::warn!("Tauri 全局快捷键部分注册失败: {reason}");
             Ok(())
         }
         None => {
-            log::info!("X11 快捷键注册完成");
+            log::info!("Tauri 全局快捷键注册完成");
             Ok(())
         }
     }
 }
 
-/// 一个动作的 X11 注册计划
+/// 一个动作的 Tauri 注册计划。
 #[derive(Debug)]
-enum X11Registration {
+enum TauriRegistration {
     /// 未配置键位
     Unset,
     /// 与前一个动作共用同一键位，插件侧只需注册一次
@@ -202,24 +209,24 @@ fn action_shortcuts(config: &AppConfig) -> [(&'static str, &str); 3] {
 }
 
 /// 纯计算：把配置里的三个键位映射成注册计划（去重、空值与解析失败都在这里定型）
-fn plan_x11_registration(config: &AppConfig) -> Vec<(&'static str, String, X11Registration)> {
+fn plan_tauri_registration(config: &AppConfig) -> Vec<(&'static str, String, TauriRegistration)> {
     let mut ids = HashSet::new();
     action_shortcuts(config)
         .into_iter()
         .map(|(action, raw)| {
             let raw = raw.trim().to_string();
             let plan = if raw.is_empty() {
-                X11Registration::Unset
+                TauriRegistration::Unset
             } else {
                 match Shortcut::from_str(&raw) {
                     Err(error) => {
-                        X11Registration::Invalid(format!("快捷键 `{raw}` 解析失败: {error}"))
+                        TauriRegistration::Invalid(format!("快捷键 `{raw}` 解析失败: {error}"))
                     }
                     Ok(shortcut) => {
                         if ids.insert(shortcut.id()) {
-                            X11Registration::Register(shortcut)
+                            TauriRegistration::Register(shortcut)
                         } else {
-                            X11Registration::Shared
+                            TauriRegistration::Shared
                         }
                     }
                 }
@@ -283,14 +290,14 @@ mod tests {
     use super::*;
 
     fn plan_kinds(config: &AppConfig) -> Vec<(&'static str, String)> {
-        plan_x11_registration(config)
+        plan_tauri_registration(config)
             .into_iter()
             .map(|(action, _, plan)| {
                 let kind = match plan {
-                    X11Registration::Unset => "unset".to_string(),
-                    X11Registration::Shared => "shared".to_string(),
-                    X11Registration::Register(_) => "register".to_string(),
-                    X11Registration::Invalid(reason) => format!("invalid: {reason}"),
+                    TauriRegistration::Unset => "unset".to_string(),
+                    TauriRegistration::Shared => "shared".to_string(),
+                    TauriRegistration::Register(_) => "register".to_string(),
+                    TauriRegistration::Invalid(reason) => format!("invalid: {reason}"),
                 };
                 (action, kind)
             })
@@ -336,7 +343,7 @@ mod tests {
 
     #[test]
     fn plan_covers_every_action_exactly_once() {
-        let actions: Vec<&str> = plan_x11_registration(&AppConfig::default())
+        let actions: Vec<&str> = plan_tauri_registration(&AppConfig::default())
             .into_iter()
             .map(|(action, _, _)| action)
             .collect();
@@ -351,5 +358,17 @@ mod tests {
             shortcut_action(&config, &pressed),
             Some(ShortcutAction::Capture)
         );
+    }
+
+    #[test]
+    fn native_registration_failure_keeps_its_platform_session() {
+        let failure = ShortcutRegisterFailure::new(
+            "capture",
+            "Ctrl+Shift+A",
+            DesktopSession::Native,
+            "reserved".to_string(),
+        );
+        let json = serde_json::to_value(failure).unwrap();
+        assert_eq!(json["session"], "native");
     }
 }

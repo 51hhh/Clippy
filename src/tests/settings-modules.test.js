@@ -368,6 +368,7 @@ describe("settings shortcut registration failures", () => {
         "settings.shortcut.action.capture": "Screenshot",
         "settings.shortcut.registerFailed.wayland": "{action} shortcut ({shortcut}) needs a manual binding",
         "settings.shortcut.registerFailed.x11": "{action} shortcut ({shortcut}) is already taken",
+        "settings.shortcut.registerFailed.native": "{action} shortcut ({shortcut}) was rejected by the OS",
       },
       "zh-CN": {
         "settings.shortcut.action.global": "面板",
@@ -401,6 +402,14 @@ describe("settings shortcut registration failures", () => {
       "Panel shortcut (Super+V) needs a manual binding",
       "Screenshot shortcut (Ctrl+Shift+S) is already taken",
     ]);
+  });
+
+  it("labels Windows and macOS failures as native instead of X11", () => {
+    const { warning, notice } = mount();
+    notice.replaceAll([
+      { action: "global", shortcut: "Alt+V", session: "native", reason: "reserved" },
+    ]);
+    expect(warning.textContent).toBe("Panel shortcut (Alt+V) was rejected by the OS");
   });
 
   it("keeps one line per action and clears when a later query reports success", () => {

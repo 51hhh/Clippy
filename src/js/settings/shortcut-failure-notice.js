@@ -16,6 +16,7 @@ const ACTION_KEYS = {
 const SESSION_KEYS = {
   wayland: "settings.shortcut.registerFailed.wayland",
   x11: "settings.shortcut.registerFailed.x11",
+  native: "settings.shortcut.registerFailed.native",
 };
 
 export function createShortcutFailureNotice({ warning, translate }) {

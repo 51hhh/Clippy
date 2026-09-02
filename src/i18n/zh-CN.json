@@ -39,6 +39,7 @@
   "settings.shortcut.action.capture": "截图",
   "settings.shortcut.registerFailed.wayland": "{action}快捷键（{shortcut}）未注册成功：当前 Wayland 桌面不接管 Clippy 的快捷键，请在系统键盘设置中手动添加。",
   "settings.shortcut.registerFailed.x11": "{action}快捷键（{shortcut}）未注册成功，可能已被其他程序占用，请更换组合。",
+  "settings.shortcut.registerFailed.native": "操作系统未能注册{action}快捷键（{shortcut}），请更换组合。",
   "settings.pinShortcut.label": "贴图快捷键",
   "settings.pinShortcut.placeholder": "点击录制设置...",
   "settings.pinShortcut.hint": "将当前选中条目钉到桌面的快捷键",
