@@ -79,9 +79,13 @@ mod tests {
         let config = AppConfig::default();
         assert_eq!(config.max_history, 100);
         assert_eq!(config.storage_mode, "persistent");
-        assert_eq!(config.global_shortcut, "Alt+V");
-        assert_eq!(config.pin_shortcut, "Ctrl+2");
-        assert_eq!(config.capture_shortcut, "Ctrl+Shift+S");
+        #[cfg(target_os = "macos")]
+        let expected_shortcuts = ("Command+Shift+V", "Command+2", "Command+Shift+S");
+        #[cfg(not(target_os = "macos"))]
+        let expected_shortcuts = ("Alt+V", "Ctrl+2", "Ctrl+Shift+S");
+        assert_eq!(config.global_shortcut, expected_shortcuts.0);
+        assert_eq!(config.pin_shortcut, expected_shortcuts.1);
+        assert_eq!(config.capture_shortcut, expected_shortcuts.2);
         assert_eq!(config.theme, "light");
         assert_eq!(config.language, "auto");
         assert_eq!(config.translation_source_language, "auto");
