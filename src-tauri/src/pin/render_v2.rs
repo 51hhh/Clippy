@@ -18,8 +18,11 @@ const FONT_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/assets/fonts/NotoSansCJKsc-Medium.otf"
 ));
+// v2 同时持有 source、效果合成图和 tiny-skia 输出；单独限制为 16 Mi 像素，
+// 可覆盖 4K、5K 和 7680x2160 超宽截图，又不会让 64 Mi 像素的容器上限变成数 GiB 峰值内存。
+const MAX_RENDERER_PIXELS: u64 = 16 * 1024 * 1024;
 const MAX_EFFECT_WORK_PIXELS: u64 = 512 * 1024 * 1024;
-const MAX_BLUR_CACHE_PIXELS: u64 = 128 * 1024 * 1024;
+const MAX_BLUR_CACHE_PIXELS: u64 = 32 * 1024 * 1024;
 const HIGHLIGHT_ALPHA: f64 = 0.32;
 const MARKER_WIDTH_FACTOR: f64 = 2.6;
 
@@ -247,7 +250,7 @@ pub(super) fn render(
     validate_renderer_values(&annotations)?;
     validate_effect_budget(&annotations, source_width, source_height)?;
 
-    let adjusted = apply_adjustments(&source, adjustments);
+    let adjusted = apply_adjustments(source, adjustments);
     let composited = apply_effects(&adjusted, &annotations)?;
     render_vectors(&composited, &annotations, adjustments.corner_radius)
 }
@@ -295,6 +298,9 @@ fn validate_effect_budget(
     height: u32,
 ) -> Result<(), String> {
     let full_area = u64::from(width).saturating_mul(u64::from(height));
+    if full_area > MAX_RENDERER_PIXELS {
+        return Err("renderer v2 图像像素超过安全预算".to_string());
+    }
     let mut work = 0u64;
     let mut blur_radii = HashSet::new();
     for annotation in annotations {
@@ -320,12 +326,11 @@ fn validate_effect_budget(
     Ok(())
 }
 
-fn apply_adjustments(source: &RgbaImage, adjustments: Adjustments) -> RgbaImage {
+fn apply_adjustments(mut source: RgbaImage, adjustments: Adjustments) -> RgbaImage {
     let brightness = 100 + normalized_percent(adjustments.brightness);
     let contrast = 100 + normalized_percent(adjustments.contrast);
     let saturation = 100 + normalized_percent(adjustments.saturation);
-    let mut output = source.clone();
-    for pixel in output.pixels_mut() {
+    for pixel in source.pixels_mut() {
         let mut rgb = [
             i32::from(pixel[0]),
             i32::from(pixel[1]),
@@ -347,7 +352,7 @@ fn apply_adjustments(source: &RgbaImage, adjustments: Adjustments) -> RgbaImage 
         pixel[1] = clamp_u8(rgb[1]);
         pixel[2] = clamp_u8(rgb[2]);
     }
-    output
+    source
 }
 
 fn normalized_percent(value: f64) -> i32 {
@@ -967,6 +972,7 @@ fn number(value: f64) -> String {
 mod tests {
     use super::*;
     use sha2::{Digest, Sha256};
+    use std::time::Instant;
 
     fn png(width: u32, height: u32) -> Vec<u8> {
         let mut rgba = Vec::with_capacity(width as usize * height as usize * 4);
@@ -1012,7 +1018,7 @@ mod tests {
     fn fixed_point_adjustments_are_stable_and_keep_alpha() {
         let source = RgbaImage::from_raw(1, 1, vec![20, 100, 220, 77]).unwrap();
         let output = apply_adjustments(
-            &source,
+            source,
             Adjustments {
                 grayscale: true,
                 brightness: 20.0,
@@ -1064,8 +1070,16 @@ mod tests {
             {"id":"b","type":"blur","rect":{"x":0,"y":0,"width":18,"height":16},"effect":effect()},
             {"id":"m","type":"mosaic","rect":{"x":18,"y":0,"width":18,"height":16},"effect":effect()},
             {"id":"z","type":"magnifier","rect":{"x":36,"y":0,"width":20,"height":18},"effect":effect()},
-            {"id":"p","type":"pen","color":"#ff3b30","size":3,"points":[{"x":2,"y":25},{"x":60,"y":42}]},
-            {"id":"t","type":"text","color":"#ffffff","size":3,"at":{"x":4,"y":5},"text":"跨平台 v2","fontFamily":"system-ui"}
+            {"id":"s","type":"spotlight","rect":{"x":3,"y":3,"width":58,"height":42},"effect":effect()},
+            {"id":"p","type":"pen","color":"#ff3b30","size":2,"points":[{"x":2,"y":22},{"x":30,"y":27}]},
+            {"id":"k","type":"marker","color":"#ffcc00","size":2,"points":[{"x":32,"y":22},{"x":61,"y":25}]},
+            {"id":"r","type":"rect","color":"#34c759","size":2,"rect":{"x":3,"y":29,"width":12,"height":9}},
+            {"id":"e","type":"ellipse","color":"#0a84ff","size":2,"rect":{"x":17,"y":29,"width":12,"height":9}},
+            {"id":"h","type":"highlight","color":"#ffcc00","size":2,"rect":{"x":31,"y":29,"width":12,"height":9}},
+            {"id":"l","type":"line","color":"#ffffff","size":2,"from":{"x":45,"y":30},"to":{"x":61,"y":38}},
+            {"id":"a","type":"arrow","color":"#ff3b30","size":2,"from":{"x":2,"y":43},"to":{"x":18,"y":41}},
+            {"id":"q","type":"measure","color":"#34c759","size":2,"from":{"x":22,"y":43},"to":{"x":42,"y":43}},
+            {"id":"t","type":"text","color":"#ffffff","size":2,"at":{"x":44,"y":39},"text":"中A<&>","fontFamily":"system-ui"}
         ]);
         let adjusted = serde_json::json!({
             "grayscale": false,
@@ -1079,8 +1093,50 @@ mod tests {
         let digest = format!("{:x}", Sha256::digest(image.as_raw()));
         assert_eq!(
             digest,
-            "b861ccf21f467b41409aaebcc3453519fe27dadf90e1ce4d03fb7c5611c680ff"
+            "0868d38bf2e18a1f62d01cfa55d37954b1a66d3f2b99b3affb83dbe5d1b64478"
         );
+    }
+
+    #[test]
+    fn renderer_rejects_oversized_images_and_blur_caches_without_allocating_them() {
+        let empty = Vec::new();
+        assert!(validate_effect_budget(&empty, 4_096, 4_096).is_ok());
+        assert_eq!(
+            validate_effect_budget(&empty, 4_096, 4_097).unwrap_err(),
+            "renderer v2 图像像素超过安全预算"
+        );
+
+        let annotations: Vec<Annotation> = serde_json::from_value(serde_json::json!([
+            {"id":"a","type":"blur","rect":{"x":0,"y":0,"width":1,"height":1},"effect":{"blurRadius":1,"mosaicCell":6,"spotlightDim":0.5,"magnifierZoom":2}},
+            {"id":"b","type":"blur","rect":{"x":0,"y":0,"width":1,"height":1},"effect":{"blurRadius":2,"mosaicCell":6,"spotlightDim":0.5,"magnifierZoom":2}},
+            {"id":"c","type":"blur","rect":{"x":0,"y":0,"width":1,"height":1},"effect":{"blurRadius":3,"mosaicCell":6,"spotlightDim":0.5,"magnifierZoom":2}}
+        ]))
+        .unwrap();
+        assert_eq!(
+            validate_effect_budget(&annotations, 4_096, 4_096).unwrap_err(),
+            "renderer v2 模糊缓存超过安全预算"
+        );
+    }
+
+    #[test]
+    #[ignore = "4K renderer v2 手动性能探针"]
+    fn renderer_v2_4k_performance_probe() {
+        let source_png = png(3_840, 2_160);
+        let annotations = serde_json::json!([
+            {"id":"b","type":"blur","rect":{"x":40,"y":40,"width":700,"height":420},"effect":{"blurRadius":8,"mosaicCell":16,"spotlightDim":0.5,"magnifierZoom":2}},
+            {"id":"m","type":"mosaic","rect":{"x":800,"y":80,"width":800,"height":500},"effect":{"blurRadius":8,"mosaicCell":16,"spotlightDim":0.5,"magnifierZoom":2}},
+            {"id":"z","type":"magnifier","rect":{"x":1700,"y":120,"width":640,"height":480},"effect":{"blurRadius":8,"mosaicCell":16,"spotlightDim":0.5,"magnifierZoom":2}},
+            {"id":"s","type":"spotlight","rect":{"x":200,"y":160,"width":3400,"height":1800},"effect":{"blurRadius":8,"mosaicCell":16,"spotlightDim":0.3,"magnifierZoom":2}},
+            {"id":"p","type":"pen","color":"#ff3b30","size":8,"points":[{"x":100,"y":800},{"x":1900,"y":1100},{"x":3600,"y":900}]},
+            {"id":"r","type":"rect","color":"#34c759","size":8,"rect":{"x":400,"y":1200,"width":900,"height":600}},
+            {"id":"a","type":"arrow","color":"#0a84ff","size":8,"from":{"x":1500,"y":1800},"to":{"x":3000,"y":1200}},
+            {"id":"t","type":"text","color":"#ffffff","size":10,"at":{"x":2600,"y":1700},"text":"Clippy 4K 跨平台","fontFamily":"system-ui"}
+        ]);
+        let started = Instant::now();
+        let output = render(&source_png, 3_840, 2_160, &annotations, &adjustments()).unwrap();
+        let elapsed = started.elapsed();
+        assert_eq!(decode(&output).dimensions(), (3_840, 2_160));
+        eprintln!("renderer v2 4K 合成耗时: {elapsed:?}");
     }
 
     #[test]
