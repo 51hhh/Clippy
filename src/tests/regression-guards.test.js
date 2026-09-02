@@ -49,6 +49,7 @@ describe("tauri 构建钩子不依赖 cwd", () => {
 
 describe("Linux CI 固守 Ubuntu 22 构建基线", () => {
   const buildWorkflow = read(".github/workflows/build.yml");
+  const qaWorkflow = read(".github/workflows/native-qa.yml");
   const releaseWorkflow = read(".github/workflows/release.yml");
 
   it.each([
@@ -69,11 +70,20 @@ describe("Linux CI 固守 Ubuntu 22 构建基线", () => {
     // Linux runner 只看 runner.os 会把 Jammy 与更新发行版都归到 Linux，缓存中的
     // build-script 会因较新 glibc 无法在 Ubuntu 22 启动；runner 名必须进入 key。
     const cacheBlocks = [...buildWorkflow.matchAll(/- name: Rust cache[\s\S]*?workspaces: src-tauri/g)];
-    expect(cacheBlocks).toHaveLength(3);
+    expect(cacheBlocks).toHaveLength(2);
     for (const [block] of cacheBlocks) {
       expect(block).toContain("prefix-key: v1-rust");
-      expect(block).toMatch(/key: (\$\{\{ matrix\.runner \}\}|qa-macos-x64)/);
+      expect(block).toMatch(/key: (ubuntu-22\.04|\$\{\{ matrix\.runner \}\})/);
     }
+  });
+
+  it("Jammy 构建的 AppImage 在 Ubuntu 24 执行强制运行 smoke", () => {
+    expect(qaWorkflow).toMatch(/build-linux:[\s\S]*runs-on: ubuntu-22\.04/);
+    expect(qaWorkflow).toMatch(
+      /smoke-ubuntu24:[\s\S]*needs: build-linux[\s\S]*runs-on: ubuntu-24\.04/,
+    );
+    expect(qaWorkflow).toContain('CLIPPY_APPIMAGE_SMOKE_REQUIRED: "1"');
+    expect(qaWorkflow).toContain("./scripts/smoke-appimage-x11.sh");
   });
 });
 
@@ -88,31 +98,43 @@ describe("原生平台由真实 runner 编译", () => {
     expect(buildWorkflow).toMatch(/native-check:[\s\S]*cargo clippy --all-targets -- -D warnings/);
   });
 
-  it("原生 job 同时执行 Rust 测试和前端完整门禁", () => {
+  it("原生 job 执行 Rust 测试，平台无关前端门禁只在 Jammy 执行一次", () => {
     const nativeJob = buildWorkflow.slice(buildWorkflow.indexOf("  native-check:"));
     expect(nativeJob).toContain("cargo test");
-    expect(nativeJob).toContain("npx vitest run");
-    expect(nativeJob).toContain("npx tsc --noEmit");
-    expect(nativeJob).toContain("npx vite build");
+    expect(nativeJob).not.toContain("npx vitest run");
+    expect(nativeJob).not.toContain("npx tsc --noEmit");
+    expect(nativeJob).not.toContain("npx vite build");
+    expect(buildWorkflow.slice(0, buildWorkflow.indexOf("  native-check:"))).toContain(
+      "npx vitest run",
+    );
   });
 
-  it("同一 SHA 生成四架构 QA 包与九环境记录", () => {
+  it("手动 QA workflow 为同一 SHA 生成四架构包、Ubuntu 24 证据与九环境记录", () => {
+    const qaWorkflow = read(".github/workflows/native-qa.yml");
+    expect(buildWorkflow).not.toContain("QA artifact");
+    expect(qaWorkflow).toMatch(/on:\s*\n\s+workflow_dispatch:/);
     for (const artifact of [
       "qa-linux-x64-${{ github.sha }}",
       "qa-windows-x64-${{ github.sha }}",
-      "qa-macos-aarch64-${{ github.sha }}",
-      "qa-macos-x64-${{ github.sha }}",
+      "qa-macos-${{ matrix.asset_arch }}-${{ github.sha }}",
+      "qa-ubuntu24-x11-smoke-${{ github.sha }}",
       "qa-record-templates-${{ github.sha }}",
     ]) {
-      expect(buildWorkflow).toContain(artifact);
+      expect(qaWorkflow).toContain(artifact);
     }
-    expect(buildWorkflow.match(/uses: actions\/upload-artifact@v7/g)).toHaveLength(5);
-    expect(buildWorkflow.match(/retention-days: 14/g)).toHaveLength(5);
-    expect(buildWorkflow).toContain("signing=unsigned-qa-only");
-    expect(buildWorkflow).toContain("signing=ad-hoc-qa-only");
-    expect(buildWorkflow).toContain("./scripts/finalize-appimage.sh");
-    expect(buildWorkflow).toContain("--target x86_64-apple-darwin");
-    expect(buildWorkflow).toContain("linux-gnome-wayland-ubuntu24");
+    expect(qaWorkflow.match(/uses: actions\/upload-artifact@v7/g)).toHaveLength(5);
+    expect(qaWorkflow.match(/retention-days: 14/g)).toHaveLength(5);
+    expect(qaWorkflow).toContain("signing=unsigned-qa-only");
+    expect(qaWorkflow).toContain("signing=ad-hoc-qa-only");
+    expect(qaWorkflow).toContain("./scripts/finalize-appimage.sh");
+    expect(qaWorkflow).toContain("rust_target: x86_64-apple-darwin");
+    expect(qaWorkflow).toContain("rust_target: aarch64-apple-darwin");
+    expect(qaWorkflow).toContain("linux-gnome-wayland-ubuntu24");
+    expect(qaWorkflow).toContain("--config src-tauri/tauri.linux.conf.json");
+    expect(qaWorkflow).toContain("--config src-tauri/tauri.windows.conf.json");
+    expect(qaWorkflow).toContain("--config src-tauri/tauri.macos.conf.json");
+    expect(qaWorkflow).toContain("--config src-tauri/tauri.macos.qa.conf.json");
+    expect(qaWorkflow).not.toMatch(/macOS QA[\s\S]*--no-sign/);
   });
 });
 
@@ -140,6 +162,7 @@ describe("Tauri 打包目标按平台隔离", () => {
   const linux = JSON.parse(read("src-tauri/tauri.linux.conf.json"));
   const windows = JSON.parse(read("src-tauri/tauri.windows.conf.json"));
   const macos = JSON.parse(read("src-tauri/tauri.macos.conf.json"));
+  const macosQa = JSON.parse(read("src-tauri/tauri.macos.qa.conf.json"));
 
   it("公共配置不携带任何平台专属 bundle", () => {
     expect(base.bundle.targets).toBeUndefined();
@@ -179,6 +202,10 @@ describe("Tauri 打包目标按平台隔离", () => {
       /^tauri\s*=\s*\{[^\n]*features\s*=\s*\[[^\n]*"macos-private-api"/m,
     );
   });
+
+  it("macOS QA 使用真实 ad-hoc 签名而不是伪标记无签名包", () => {
+    expect(macosQa.bundle.macOS.signingIdentity).toBe("-");
+  });
 });
 
 describe("codec 输出区能装下多字段结果", () => {
@@ -215,19 +242,27 @@ describe("release 下载链接与构建矩阵同步", () => {
     expect(script).toMatch(/! -s "\$\{TARGET\}\.sig"/);
   });
 
-  it("updater 用的无后缀产物只从一个 label 上传一次", () => {
-    // 无后缀名是更新器按固定 URL 找的那份；两个 runner 都传就会互相覆盖。
-    const uploaders = [...release.matchAll(/if: matrix\.label == '([a-z0-9]+)'/g)].map((m) => m[1]);
-    expect(new Set(uploaders).size).toBe(1);
+  it("updater 用的无后缀 Linux 产物只从单一 Jammy label 进入汇总", () => {
+    // 无后缀名是更新器按固定 URL 找的那份；Linux matrix 若扩成多个 runner，必须先
+    // 重新设计 artifact 名，不能让多个生产者写入同一个 release-linux-x64。
+    const linuxJob = release.slice(
+      release.indexOf("  build-linux:"),
+      release.indexOf("  build-windows:"),
+    );
+    expect([...linuxJob.matchAll(/^\s+label: ([a-z0-9]+)$/gm)].map((match) => match[1])).toEqual([
+      "ubuntu22",
+    ]);
+    expect(linuxJob.match(/dist-artifacts\/Clippy_\$\{VER\}_amd64\.AppImage"/g)).toHaveLength(1);
   });
 
-  it("Windows 和 macOS 产物交给受测生成器写入 manifest", () => {
+  it("Windows 与双架构 macOS 产物交给受测生成器写入 manifest", () => {
     expect(release).toContain("windows-latest");
     expect(release).toContain("macos-latest");
     expect(release).toContain("Clippy_$env:APP_VERSION`_x64-setup.exe.sig");
     expect(release).toContain("Clippy_${APP_VERSION}_${ASSET_ARCH}.app.tar.gz.sig");
     expect(release).toContain("node scripts/generate-updater-manifest.mjs");
     expect(release).toContain("--signature-dir release-assets");
+    expect(release).toContain('--platforms "$PLATFORMS"');
   });
 
   it("latest.json 上传成功后才公开发布", () => {
@@ -237,13 +272,57 @@ describe("release 下载链接与构建矩阵同步", () => {
     expect(publishRelease).toBeGreaterThan(uploadManifest);
   });
 
-  it("release 仅申请上传产物所需的 contents 写权限", () => {
-    expect(release).toMatch(/permissions:\s*\n\s+contents: write/);
+  it("release 默认只读，只有 artifact 生产者和最终发布者提升最小权限", () => {
+    expect(release).toMatch(/^permissions:\s*\n\s+contents: read/m);
+    expect(release.match(/artifact-metadata: write/g)).toHaveLength(3);
+    expect(release.match(/artifact-metadata: read/g)).toHaveLength(1);
+    expect(release.match(/contents: write/g)).toHaveLength(1);
     expect(release).not.toContain("write-all");
   });
 
+  it("正式构建前核对同 SHA 原生 CI 并解析签名策略", () => {
+    expect(release).toContain("node scripts/verify-native-ci.mjs");
+    expect(release).toContain('--sha "$GITHUB_SHA"');
+    expect(release).toContain("Missing required updater secret");
+    expect(release).toContain("windows_signing_mode=self-signed");
+    expect(release).toContain("Build ad-hoc signed Tauri");
+    expect(release).toContain("--config src-tauri/tauri.macos.qa.conf.json");
+  });
+
+  it("可用平台先汇总为 workflow artifacts，再创建并公开 release", () => {
+    const linuxJob = release.slice(
+      release.indexOf("  build-linux:"),
+      release.indexOf("  build-windows:"),
+    );
+    expect(linuxJob).toContain("name: release-linux-x64");
+    expect(linuxJob).not.toContain("gh release");
+    const createDraft = release.indexOf("Ensure unpublished draft release exists");
+    const uploadNative = release.indexOf("Upload native artifacts to release");
+    const publishRelease = release.indexOf("Publish complete release");
+    expect(createDraft).toBeGreaterThan(0);
+    expect(uploadNative).toBeGreaterThan(createDraft);
+    expect(publishRelease).toBeGreaterThan(uploadNative);
+  });
+
+  it("Windows 无 PFX 时生成自签名证书并在发布说明中明确告警", () => {
+    expect(release).toContain("New-SelfSignedCertificate");
+    expect(release).toContain('Subject "CN=Clippy Self-Signed Release"');
+    expect(release).toContain("WINDOWS_TRUSTED_ROOT_THUMBPRINT");
+    expect(release).toContain("Windows SmartScreen");
+  });
+
+  it("macOS 两个架构始终使用 ad-hoc 签名进入构建与 manifest", () => {
+    expect(release).toContain("rust_target: aarch64-apple-darwin");
+    expect(release).toContain("rust_target: x86_64-apple-darwin");
+    expect(release).toContain("Signature=adhoc");
+    expect(release).toContain("未经过 Apple Developer ID 公证");
+    expect(release).toContain(
+      'PLATFORMS="linux-x86_64,windows-x86_64,darwin-aarch64,darwin-x86_64"',
+    );
+  });
+
   it("发布产物 Actions 使用 Node 24 运行时版本", () => {
-    expect(release.match(/actions\/upload-artifact@v7/g)).toHaveLength(2);
+    expect(release.match(/actions\/upload-artifact@v7/g)).toHaveLength(3);
     expect(release.match(/actions\/download-artifact@v8/g)).toHaveLength(1);
     expect(release).not.toMatch(/actions\/(?:upload|download)-artifact@v[1-6]\b/);
   });

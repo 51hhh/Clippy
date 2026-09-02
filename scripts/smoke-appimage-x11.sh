@@ -5,6 +5,17 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 BUNDLE_DIR="${ROOT_DIR}/src-tauri/target/release/bundle/appimage"
 APPIMAGE="${1:-}"
+SMOKE_REQUIRED="${CLIPPY_APPIMAGE_SMOKE_REQUIRED:-0}"
+
+skip_or_fail() {
+    local reason="$1"
+    if [[ "$SMOKE_REQUIRED" == "1" ]]; then
+        printf 'AppImage X11 smoke failed: %s\n' "$reason" >&2
+        exit 1
+    fi
+    printf 'AppImage X11 smoke skipped: %s\n' "$reason"
+    exit 0
+}
 
 if [[ "${APPIMAGE}" == "--help" || "${APPIMAGE}" == "-h" ]]; then
     printf '用法: %s [Clippy_*_amd64.AppImage]\n' "$0"
@@ -14,14 +25,12 @@ if [[ -z "$APPIMAGE" ]]; then
     APPIMAGE="$(find "$BUNDLE_DIR" -maxdepth 1 -type f -name '*_amd64.AppImage' -print 2>/dev/null | sort | tail -n 1 || true)"
 fi
 if [[ -z "$APPIMAGE" || ! -f "$APPIMAGE" ]]; then
-    printf 'AppImage X11 smoke skipped: release AppImage not found\n'
-    exit 0
+    skip_or_fail "release AppImage not found"
 fi
 
 for command_name in xvfb-run xauth xwininfo xprop ffmpeg dbus-run-session unsquashfs busctl; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
-        printf 'AppImage X11 smoke skipped: required command is unavailable: %s\n' "$command_name"
-        exit 0
+        skip_or_fail "required command is unavailable: ${command_name}"
     fi
 done
 if [[ ! -x "$APPIMAGE" ]]; then

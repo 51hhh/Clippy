@@ -1,0 +1,290 @@
+name: Native QA Packages
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: '${{ github.workflow }}-${{ github.ref }}'
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  artifact-metadata: write
+
+env:
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: short
+
+jobs:
+  build-linux:
+    name: QA Bundle (Linux x64)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
+            pkg-config squashfs-tools xdg-utils \
+            libgbm-dev libegl-dev libdrm-dev libwayland-dev libxcb1-dev
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-rust
+          key: qa-linux-x64
+          workspaces: src-tauri
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: src/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: src
+        run: npm ci
+
+      - name: Build Linux QA bundles
+        run: >-
+          npx --prefix src tauri build --ci --no-sign
+          --config src-tauri/tauri.linux.conf.json
+          --config src-tauri/tauri.ci.conf.json
+
+      - name: Finalize Linux QA AppImage
+        run: ./scripts/finalize-appimage.sh
+
+      - name: Prepare Linux QA artifact
+        run: |
+          mkdir -p qa-stage qa-artifacts
+          cp src-tauri/target/release/bundle/deb/*.deb qa-stage/
+          cp src-tauri/target/release/bundle/appimage/*.AppImage qa-stage/
+          printf 'commit=%s\nversion=%s\nplatform=linux-x64\nsigning=unsigned-qa-only\n' \
+            "$GITHUB_SHA" "$(jq -r '.version' src-tauri/tauri.conf.json)" \
+            > qa-stage/QA-BUILD.txt
+          (cd qa-stage && sha256sum ./*.deb ./*.AppImage > SHA256SUMS.txt)
+          tar -czf "qa-artifacts/Clippy_QA_${GITHUB_SHA}_linux-x64.tar.gz" -C qa-stage .
+
+      - name: Generate version-bound QA record templates
+        run: |
+          mkdir -p qa-records
+          VERSION=$(jq -r '.version' src-tauri/tauri.conf.json)
+          for PROFILE in \
+            linux-gnome-x11 linux-gnome-wayland linux-gnome-wayland-ubuntu24 \
+            linux-kde-wayland linux-wlroots-wayland windows-10-x64 windows-11-x64 \
+            macos-intel macos-apple-silicon; do
+            node scripts/manual-qa.mjs template \
+              --profile "$PROFILE" --sha "$GITHUB_SHA" --version "$VERSION" \
+              --output "qa-records/${PROFILE}.json"
+          done
+          cp docs/native-qa.md qa-records/README.md
+
+      - name: Upload Linux QA artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: qa-linux-x64-${{ github.sha }}
+          path: qa-artifacts/*.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload QA record templates
+        uses: actions/upload-artifact@v7
+        with:
+          name: qa-record-templates-${{ github.sha }}
+          path: qa-records
+          if-no-files-found: error
+          retention-days: 14
+
+  smoke-ubuntu24:
+    name: Runtime Smoke (Ubuntu 24.04 x64)
+    needs: build-linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install runtime smoke dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-0 libgtk-3-0 libayatana-appindicator3-1 librsvg2-2 \
+            libgbm1 libegl1 libdrm2 libwayland-egl1 \
+            xvfb xauth x11-utils ffmpeg dbus-daemon squashfs-tools
+
+      - name: Download Ubuntu 22 QA bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: qa-linux-x64-${{ github.sha }}
+          path: qa-download
+
+      - name: Verify and extract Ubuntu 22 QA bundle
+        run: |
+          mkdir -p qa-runtime src-tauri/target
+          tar -xzf "qa-download/Clippy_QA_${GITHUB_SHA}_linux-x64.tar.gz" -C qa-runtime
+          (cd qa-runtime && sha256sum -c SHA256SUMS.txt)
+
+      - name: Run packaged AppImage on Ubuntu 24
+        env:
+          CLIPPY_APPIMAGE_SMOKE_REQUIRED: "1"
+        run: |
+          APPIMAGE=$(find qa-runtime -maxdepth 1 -type f -name '*.AppImage' -print -quit)
+          [ -n "$APPIMAGE" ] || { echo '::error::QA AppImage is missing'; exit 1; }
+          ./scripts/smoke-appimage-x11.sh "$APPIMAGE"
+
+      - name: Upload Ubuntu 24 smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: qa-ubuntu24-x11-smoke-${{ github.sha }}
+          path: src-tauri/target/appimage-x11-smoke.*
+          if-no-files-found: warn
+          retention-days: 14
+
+  build-windows:
+    name: QA Bundle (Windows x64)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-rust
+          key: qa-windows-x64
+          workspaces: src-tauri
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: src/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: src
+        run: npm ci
+
+      - name: Build Windows QA bundles
+        run: >-
+          npx --prefix src tauri build --ci --no-sign
+          --config src-tauri/tauri.windows.conf.json
+          --config src-tauri/tauri.ci.conf.json
+
+      - name: Prepare Windows QA artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path qa-artifacts | Out-Null
+          $nsis = Get-ChildItem src-tauri/target/release/bundle/nsis -File -Filter "*-setup.exe"
+          $msi = Get-ChildItem src-tauri/target/release/bundle/msi -File -Filter "*.msi"
+          if (-not $nsis -or -not $msi) { throw "Windows QA installers are incomplete" }
+          Copy-Item $nsis.FullName qa-artifacts/
+          Copy-Item $msi.FullName qa-artifacts/
+          $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          @(
+            "commit=$env:GITHUB_SHA"
+            "version=$version"
+            "platform=windows-x64"
+            "signing=unsigned-qa-only"
+          ) | Set-Content qa-artifacts/QA-BUILD.txt -Encoding utf8
+          Get-ChildItem qa-artifacts -File | Where-Object Name -ne "SHA256SUMS.txt" |
+            ForEach-Object {
+              $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              "$hash  $($_.Name)"
+            } | Set-Content qa-artifacts/SHA256SUMS.txt -Encoding ascii
+
+      - name: Upload Windows QA artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: qa-windows-x64-${{ github.sha }}
+          path: qa-artifacts
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  build-macos:
+    name: QA Bundle (macOS ${{ matrix.label }})
+    runs-on: macos-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Apple-Silicon
+            rust_target: aarch64-apple-darwin
+            asset_arch: aarch64
+          - label: Intel
+            rust_target: x86_64-apple-darwin
+            asset_arch: x64
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-rust
+          key: qa-macos-${{ matrix.asset_arch }}
+          workspaces: src-tauri -> target
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: src/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: src
+        run: npm ci
+
+      - name: Build ad-hoc signed macOS QA bundle
+        run: >-
+          npx --prefix src tauri build --ci --target ${{ matrix.rust_target }}
+          --config src-tauri/tauri.macos.conf.json
+          --config src-tauri/tauri.ci.conf.json
+          --config src-tauri/tauri.macos.qa.conf.json
+
+      - name: Verify and prepare macOS QA artifact
+        env:
+          ASSET_ARCH: ${{ matrix.asset_arch }}
+          RUST_TARGET: ${{ matrix.rust_target }}
+        run: |
+          mkdir -p qa-artifacts
+          BUNDLE_DIR="src-tauri/target/${RUST_TARGET}/release/bundle"
+          APP=$(find "$BUNDLE_DIR/macos" -maxdepth 1 -type d -name '*.app' -print -quit)
+          [ -n "$APP" ] || { echo '::error::macOS app bundle was not generated'; exit 1; }
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign --display --verbose=4 "$APP" 2>&1 | grep -q 'Signature=adhoc'
+          DMG=$(find "$BUNDLE_DIR/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)
+          [ -n "$DMG" ] || { echo '::error::macOS DMG was not generated'; exit 1; }
+          cp "$DMG" qa-artifacts/
+          printf 'commit=%s\nversion=%s\nplatform=macos-%s\nsigning=ad-hoc-qa-only\n' \
+            "$GITHUB_SHA" "$(jq -r '.version' src-tauri/tauri.conf.json)" "$ASSET_ARCH" \
+            > qa-artifacts/QA-BUILD.txt
+          (cd qa-artifacts && shasum -a 256 ./*.dmg > SHA256SUMS.txt)
+
+      - name: Upload macOS QA artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: qa-macos-${{ matrix.asset_arch }}-${{ github.sha }}
+          path: qa-artifacts
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
