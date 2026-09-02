@@ -4,8 +4,9 @@
 
 审查基线：`621e36f289a386dcf84d26c77742f6b0f1eae31e`
 
-应用实现、九环境 QA 合同、三平台原生门禁与 0.1.18 正式发布已完成至：
-`7dcf9bf28d013ff4ff7991bb2b7b0509453a01fa`
+应用实现、三平台原生门禁与 0.1.18 正式发布已完成至：
+`7dcf9bf28d013ff4ff7991bb2b7b0509453a01fa`。发布后补充的可编辑工程往返测试与
+九环境 QA 合同修正已完成至 `91e76d7b81b5960f29cdb11e2db17d2912c00f0b`。
 
 ## 审查范围
 
@@ -25,11 +26,11 @@
 | `cargo fmt --check` | 通过 |
 | `cargo check` | 通过 |
 | `cargo clippy -- -D warnings` | 通过 |
-| `cargo test` | 425 通过、0 失败、7 个真实桌面/诊断/手动性能测试忽略 |
+| `cargo test` | 426 通过、0 失败、7 个真实桌面/诊断/手动性能测试忽略 |
 | GNOME 扩展静态检查 | 通过，Shell 45–51 |
 | `npm ci` | 通过，0 个已报告漏洞 |
 | `tsc --noEmit` | 通过 |
-| Vitest | 832 项测试通过 |
+| Vitest | 834 项测试通过 |
 | DOM/Xvfb smoke | 9 项通过 |
 | Canvas 导出像素 smoke | 通过，抽样像素 `0 208 0` |
 | 主窗口布局像素 smoke | 通过，抽样像素 `0 208 0` |
@@ -70,6 +71,25 @@
 - 3840×2160 手动性能探针包含模糊、马赛克、聚光、放大镜、矢量和中英文文字；当前 Linux 主机的
   优化 dev profile 合成耗时 1.627 秒。探针在常规 CI 中忽略，需显式 `--ignored` 运行以免硬件噪声
   造成不稳定门禁。
+
+## 发布后 dev 回归
+
+- `46f8e21a783678b67770cc0471e71d1917bcfaf5` 增加可编辑 PNG 的完整文件往返测试：首轮保存后从
+  临时文件重新打开、恢复原图与工程、执行第二次调整、再次保存并重开，最后扁平导出；测试同时断言
+  工程元数据已移除且最终 RGBA 与第二次合成预览一致。
+- `91e76d7b81b5960f29cdb11e2db17d2912c00f0b` 修正 macOS QA 合同：当前 Ad-Hoc 发布不再被错误要求
+  提供 Developer ID、Hardened Runtime、公证和 stapling，两个 macOS profile 改为验证严格 Ad-Hoc
+  签名、目标架构、未公证边界与首次打开恢复。
+- 最新 HEAD 的本地 `./scripts/ci-local.sh --quick` 为 11 通过、0 失败、1 个按参数跳过；其中 Rust
+  426 项通过、前端 834 项通过。GitHub CI Check run
+  [`33660266381`](https://github.com/51hhh/Clippy/actions/runs/33660266381) 的 Ubuntu 22、Windows 与 macOS
+  三个 job 均指向该完整 SHA 并通过。
+- 同一 SHA 的 Native QA run
+  [`33660451393`](https://github.com/51hhh/Clippy/actions/runs/33660451393) 再次完成 Linux x64、Windows
+  x64、macOS Intel、macOS Apple Silicon 四个平台 bundle，以及 Ubuntu 24 对 Jammy AppImage 的真实
+  X11 启动 smoke。下载后四套 `QA-BUILD.txt` 均绑定 `91e76d7...`/0.1.18/对应签名边界，DEB、AppImage、
+  NSIS、MSI 和两份 DMG 的内置 SHA-256 清单全部通过。九份新模板仍为 287 个 `not_run` 场景，两个
+  macOS profile 均包含 `adhoc_bundle_boundary`，且不再包含错误的 `signed_notarized_bundle`。
 
 ## Ubuntu 22 release 与 AppImage 前向兼容验证
 
@@ -239,6 +259,9 @@ Linux 主机上的 Windows 交叉检查仍会因缺少 MSVC `lib.exe`/SDK 及 C 
   复用该结果；跨选区路径、模糊邻域和取消竞态有 Rust/前端合同测试。
 - 完整 CI 首轮发现旧 `pin-gestures` 夹具没有实现新增的 typed 平台能力查询，导致组件挂载失败；补齐
   与产品 API 一致的 `platform()` mock 后，相关 42 项测试及上述完整门禁全部通过。
+- macOS 真机 QA 模板仍把 Developer ID、Hardened Runtime、公证和 stapling 列为必须通过，但 0.1.18
+  的明确发布策略是 Ad-Hoc 且未公证，导致矩阵在产品行为正确时也无法通过；现已把两架构合同改成
+  验证真实的 Ad-Hoc 签名边界、架构、首次打开恢复和未公证提示，并用回归测试防止重新漂移。
 
 ## 已知限制与发布阻断项
 
