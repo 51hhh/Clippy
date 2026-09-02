@@ -30,7 +30,7 @@ pub(super) fn write_restore_token(path: &Path, token: &str) -> Result<(), PasteE
     crate::private_files::restrict_directory(parent).map_err(io)?;
     let temp = path.with_extension("tmp");
     crate::private_files::write_private(&temp, token.as_bytes()).map_err(io)?;
-    std::fs::rename(temp, path).map_err(io)
+    crate::private_files::replace_private_file(&temp, path).map_err(io)
 }
 
 #[cfg(test)]
@@ -51,6 +51,17 @@ mod tests {
                 0o600
             );
         }
+    }
+
+    #[test]
+    fn rolling_token_update_replaces_the_existing_private_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("portal-token");
+        write_restore_token(&path, "first-token").unwrap();
+        write_restore_token(&path, "second-token").unwrap();
+
+        assert_eq!(read_restore_token(&path).as_deref(), Some("second-token"));
+        assert!(crate::private_files::is_private(&path));
     }
 
     #[test]
