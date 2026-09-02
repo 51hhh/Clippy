@@ -146,6 +146,7 @@ export interface PasteOutcome {
   copied: boolean;
   pasted: boolean;
   backend: PasteBackend;
+  reason_code: string | null;
   detail: string | null;
 }
 

@@ -1,6 +1,7 @@
 {
   "search.placeholder": "搜索剪贴板历史...",
   "clipboard.history": "剪贴板历史",
+  "clipboard.pasteFallback": "已复制，系统拦截了自动粘贴，请手动按 Ctrl/Cmd+V",
   "search.escHint": "Esc",
   "tabs.all": "全部",
   "tabs.favorites": "收藏",
@@ -19,6 +20,7 @@
   "action.ocrEmpty": "未识别到文字",
   "action.ocrCopyHint": "Ctrl+C 复制选中文字",
   "action.more": "更多操作",
+  "action.dismiss": "关闭提示",
   "time.justNow": "刚刚",
   "time.minutesAgo": "{n} 分钟前",
   "time.hoursAgo": "{n} 小时前",

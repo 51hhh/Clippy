@@ -52,15 +52,21 @@ pub struct PasteOutcome {
     pub copied: bool,
     pub pasted: bool,
     pub backend: PasteBackend,
+    pub reason_code: Option<String>,
     pub detail: Option<String>,
 }
 
 impl PasteOutcome {
-    pub fn copied_only(backend: PasteBackend, detail: impl Into<Option<String>>) -> Self {
+    pub fn copied_only(
+        backend: PasteBackend,
+        reason_code: impl Into<Option<String>>,
+        detail: impl Into<Option<String>>,
+    ) -> Self {
         Self {
             copied: true,
             pasted: false,
             backend,
+            reason_code: reason_code.into(),
             detail: detail.into(),
         }
     }
@@ -182,6 +188,7 @@ impl PasteManager {
                     copied: true,
                     pasted: true,
                     backend: self.backend,
+                    reason_code: None,
                     detail: None,
                 })
             }
@@ -192,11 +199,13 @@ impl PasteManager {
                     copied: true,
                     pasted: true,
                     backend: self.backend,
+                    reason_code: None,
                     detail: None,
                 })
             }
             PasteBackend::CopyOnly => Ok(PasteOutcome::copied_only(
                 self.backend,
+                Some("backend_unavailable".to_string()),
                 Some("Automatic paste is unavailable in this session".to_string()),
             )),
         }
@@ -259,6 +268,7 @@ impl PasteManager {
             copied: true,
             pasted: true,
             backend: self.backend,
+            reason_code: None,
             detail: None,
         })
     }
@@ -298,6 +308,7 @@ impl PasteManager {
     pub async fn paste(&self) -> Result<PasteOutcome, PasteError> {
         Ok(PasteOutcome::copied_only(
             self.backend,
+            Some("unsupported_platform".to_string()),
             Some("Automatic paste is unavailable on this platform".to_string()),
         ))
     }
@@ -327,6 +338,26 @@ fn detect_backend_from(
         _ if has_wayland_display => PasteBackend::WaylandPortal,
         _ if has_x11_display => PasteBackend::X11,
         _ => PasteBackend::CopyOnly,
+    }
+}
+
+#[cfg(test)]
+mod outcome_tests {
+    use super::*;
+
+    #[test]
+    fn copy_only_outcome_exposes_a_stable_reason_code() {
+        let outcome = PasteOutcome::copied_only(
+            PasteBackend::CopyOnly,
+            Some("backend_unavailable".to_string()),
+            Some("detail".to_string()),
+        );
+        let json = serde_json::to_value(outcome).unwrap();
+
+        assert_eq!(json["copied"], true);
+        assert_eq!(json["pasted"], false);
+        assert_eq!(json["backend"], "copy_only");
+        assert_eq!(json["reason_code"], "backend_unavailable");
     }
 }
 

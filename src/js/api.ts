@@ -620,6 +620,11 @@ export function onShortcutRegisterFailed(
     callback(event.payload));
 }
 
+/** 自动粘贴受系统权限/会话限制时，剪贴板已写入但需要用户手动粘贴。 */
+export function onPasteFallback(callback: (outcome: PasteOutcome) => void): Promise<UnlistenFn> {
+  return listen<PasteOutcome>("paste-fallback", (event) => callback(event.payload));
+}
+
 /** 已记录的快捷键注册失败。启动阶段的失败早于前端监听，只能主动查 */
 export function getShortcutFailures(): Promise<ShortcutRegisterFailure[]> {
   return invoke<ShortcutRegisterFailure[]>("get_shortcut_failures");
