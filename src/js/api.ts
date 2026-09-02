@@ -29,6 +29,8 @@ import type {
   PasteStatus,
   PinImageSharpened,
   PinCanvasProject,
+  PinCanvasSaveMode,
+  PinCanvasSaveResult,
   PinPayload,
   PinProject,
   PinToolbarBounds,
@@ -65,6 +67,8 @@ export type {
   PasteStatus,
   PinImageSharpened,
   PinCanvasProject,
+  PinCanvasSaveMode,
+  PinCanvasSaveResult,
   PinPayload,
   PinProject,
   PinToolbarBounds,
@@ -495,16 +499,27 @@ export function getPinSourceImage(label: string): Promise<string | null> {
 /**
  * 把贴图上画过的那一版存盘，可选同时进剪贴板。
  *
- * 画布产物不写回贴图条目——条目里那张是原图，`copyPin`/`savePin` 一直交付它。
- * 返回落盘路径。
+ * 普通来源条目由 `copyPin`/`savePin` 交付原图；工程来源条目交付保存时的 IDAT 预览。
+ * 当前编辑结果必须由调用方渲染后走 `copyPinCanvas` 或本命令，不能退回旧预览。
  */
 export function savePinCanvas(
   label: string,
   pngBase64: string,
   toClipboard: boolean,
+  mode: PinCanvasSaveMode,
   project: PinCanvasProject | null,
-): Promise<string> {
-  return invoke<string>("save_pin_canvas", { label, pngBase64, toClipboard, project });
+): Promise<PinCanvasSaveResult> {
+  return invoke<PinCanvasSaveResult>("save_pin_canvas", { label, pngBase64, toClipboard, mode, project });
+}
+
+/** 把已编辑的最新合成像素写入剪贴板，不携带工程 iTXt。 */
+export function copyPinCanvas(label: string, pngBase64: string): Promise<void> {
+  return invoke<void>("copy_pin_canvas", { label, pngBase64 });
+}
+
+/** 选择 PNG 并打开为贴图；取消返回 null。 */
+export function openPinImageDialog(): Promise<string | null> {
+  return invoke<string | null>("open_pin_image_dialog");
 }
 
 /**
