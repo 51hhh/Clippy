@@ -52,7 +52,7 @@ pub fn save_config(config_path: &Path, config: &AppConfig) {
         Ok(json) => {
             let temporary_path = config_path.with_extension("tmp");
             if let Err(error) = write_private(&temporary_path, json.as_bytes())
-                .and_then(|_| fs::rename(&temporary_path, config_path))
+                .and_then(|_| replace_file(&temporary_path, config_path))
                 .and_then(|_| crate::private_files::restrict_file(config_path))
             {
                 log::error!("配置文件写入失败: {}", error);
@@ -61,6 +61,47 @@ pub fn save_config(config_path: &Path, config: &AppConfig) {
         Err(e) => {
             log::error!("配置序列化失败: {}", e);
         }
+    }
+}
+
+/// 用已经完整同步到磁盘的临时文件替换当前配置。
+///
+/// Unix 的 `rename` 会原子替换目标；Windows 的 `std::fs::rename` 在目标已存在时失败，
+/// 必须显式请求 `MOVEFILE_REPLACE_EXISTING`，否则用户第一次启动后再改设置就无法持久化。
+#[cfg(not(target_os = "windows"))]
+fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
+    fs::rename(source, destination)
+}
+
+#[cfg(target_os = "windows")]
+fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+
+    const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn MoveFileExW(existing: *const u16, replacement: *const u16, flags: u32) -> i32;
+    }
+
+    let source: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
+    let destination: Vec<u16> = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    let replaced = unsafe {
+        MoveFileExW(
+            source.as_ptr(),
+            destination.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if replaced == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
     }
 }
 
@@ -206,11 +247,18 @@ mod tests {
         save_config(&config_path, &config);
         assert!(config_path.exists(), "save_config 应写出文件");
 
+        let updated = AppConfig {
+            max_history: 321,
+            theme: "rose".to_string(),
+            ..config.clone()
+        };
+        save_config(&config_path, &updated);
+
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&config_path, fs::Permissions::from_mode(0o664)).unwrap();
-            save_config(&config_path, &config);
+            save_config(&config_path, &updated);
             assert_eq!(
                 fs::metadata(&config_path).unwrap().permissions().mode() & 0o777,
                 0o600
@@ -218,8 +266,8 @@ mod tests {
         }
 
         let loaded = load_config(&config_path);
-        assert_eq!(loaded.max_history, 200);
-        assert_eq!(loaded.theme, "dark");
+        assert_eq!(loaded.max_history, 321);
+        assert_eq!(loaded.theme, "rose");
         assert_eq!(loaded.storage_mode, config.storage_mode);
         assert_eq!(loaded.global_shortcut, config.global_shortcut);
         assert_eq!(loaded.pin_shortcut, config.pin_shortcut);
