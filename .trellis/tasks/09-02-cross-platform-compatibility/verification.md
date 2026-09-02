@@ -4,11 +4,11 @@
 
 审查基线：`621e36f289a386dcf84d26c77742f6b0f1eae31e`
 
-代码与 CI 已审查至：`a1543117d2e380c9bb45e3b11066be1ac1e5f86b`
+代码与 CI 已审查至：`546e76d19dda85c578fa02bf3a176db09805af64`
 
 ## 审查范围
 
-- 截至上述审查点，审查基线之后共 107 个提交、133 个变更文件，以及提交时仍存在的工作区内容。
+- 截至上述审查点，审查基线之后共 109 个提交、133 个变更文件，以及提交时仍存在的工作区内容。
 - 逐项检查截图、窗口命中、Pin、标注画布、可编辑 PNG、剪贴板、自动粘贴、快捷键、OCR、
   私有存储、自动启动、平台配置、CI 和 release 数据流。
 - `.omo/` 与 `.trellis/workspace/codex/` 是未跟踪的用户工作区，本次未读取、未修改、未提交。
@@ -47,8 +47,8 @@
 - Linux 默认依赖图不含 `pipewire-rs`。
 - Windows/macOS 目标依赖图不含 GTK、WebKitGTK、zbus、ashpd、libwayshot、PipeWire、inotify、
   x11rb 或 Linux `nix` 实现。
-- Windows 私有文件 ACL 与原子替换模块在独立最小工程中完成 MSVC 目标 `cargo check --tests`
-  和 `cargo clippy --tests -- -D warnings`；这验证目标条件编译和 Win32 类型调用，不代替原生运行。
+- Windows 私有文件 ACL、原子替换，以及自动粘贴完整性令牌所用的 Win32 API 在独立最小工程中完成
+  MSVC 目标检查；这验证目标条件编译和 `windows-sys 0.61.2` 类型调用，不代替原生运行。
 - 原生 CI 增加真正的 Tauri bundle smoke：关闭 updater 附加产物和代码签名，但不关闭 bundler；
   Windows 必须生成 NSIS/MSI，macOS 必须生成 app/DMG。本机已用同一 CI 配置完成
   `tauri build --debug --no-bundle`，验证配置合并、前端钩子和应用构建；安装包仍必须由原生 runner 生成。
@@ -84,12 +84,13 @@
 
 ## 原生平台验证状态
 
-截至上述审查点，`dev` 比 `origin/dev` 多 133 个本地提交。GitHub 上最近一次 `build.yml` 成功运行是
+截至上述审查点，`dev` 比 `origin/dev` 多 135 个本地提交。GitHub 上最近一次 `build.yml` 成功运行是
 2026-08-30 的 `8f6c1b57ad844ebc98254b9f88b16e88f3cce314`，不包含本轮改动。
 
 - Windows MSVC：完整工程在 Linux 主机交叉检查时缺少 `llvm-rc`、MSVC `lib.exe`/SDK 以及
   `ring`/SQLite 所需原生构建工具，因而在依赖构建阶段停止；私有文件模块的独立 MSVC 目标检查已
-  通过，但两者都不能作为 Windows 原生运行通过证据。
+  通过；自动粘贴使用的 `OpenProcess`、令牌、SID 与完整性 RID API 也通过独立 MSVC 目标类型检查，
+  但这些都不能作为 Windows 原生运行通过证据。
 - macOS：Linux 主机没有 Apple SDK/clang，交叉 `cargo check` 在 `-arch`/SDK 参数处停止；
   这既不是项目源码失败，也不能作为 macOS 通过证据。
 - 发布前必须把本分支推送到远端，让 `windows-latest` 与 `macos-latest` 原生 runner 完成
@@ -142,6 +143,11 @@
   和开发文档都显式安装 `xdg-utils`，同一 Jammy 容器已完成 release AppImage 构建。
 - Ubuntu 22 构建的 AppImage 在 Ubuntu 26/Mesa 25 混载内置 Wayland ABI 库后空白：release
   finalization 现移除整组 `libwayland-*`，验证 SquashFS 无残留，并已用失败/通过 A/B 首帧复现闭环。
+- Windows 自动粘贴不再把所有 `SetForegroundWindow` 失败都猜成 UIPI：捕获目标时同时记录 PID，
+  粘贴前校验 HWND 所属进程未变化，并比较当前与目标进程的 Mandatory Integrity Level RID。目标更高
+  时不恢复焦点、不注入按键，稳定返回 `windows_integrity_boundary`；令牌查询失败同样安全降级为
+  copy-only，并返回 `windows_integrity_query_failed`。错误码、IPC 透传和 Win32 API 类型均有自动检查，
+  普通/管理员目标的实际行为仍留在 Windows 10/11 实机矩阵。
 
 ## 已知限制与发布阻断项
 
