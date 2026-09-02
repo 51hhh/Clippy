@@ -18,6 +18,7 @@ export type CapabilityReason =
   | "windows_integrity_boundary"
   | "macos_screen_recording_permission"
   | "macos_accessibility_permission"
+  | "ocr_not_installed"
   | "unsupported_platform";
 
 export interface PlatformCapability {

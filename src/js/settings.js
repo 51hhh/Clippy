@@ -9,6 +9,7 @@ import {
   getAppVersion,
   getConfig,
   getPasteStatus,
+  getPlatformInfo,
   getShortcutFailures,
   getStats,
   getWindowProbeStatus,
@@ -394,7 +395,14 @@ tmuxToggle.addEventListener("change", async () => {
   }
 });
 
-void ocrSettings.checkStatus();
+void getPlatformInfo()
+  .then((platform) => {
+    ocrSettings.setInstallSupported(platform.operating_system === "linux");
+    return ocrSettings.checkStatus();
+  })
+  .catch(() => {
+    // 平台未知时不暴露安装按钮，避免在错误系统上调用 Linux 包管理器。
+  });
 void tmuxAvailable()
   .then((available) => {
     if (available) tmuxGroup.hidden = false;

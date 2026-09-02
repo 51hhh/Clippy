@@ -64,6 +64,7 @@ pub enum CapabilityReason {
     WindowsIntegrityBoundary,
     MacosScreenRecordingPermission,
     MacosAccessibilityPermission,
+    OcrNotInstalled,
     UnsupportedPlatform,
 }
 
@@ -400,6 +401,7 @@ pub fn current_info() -> PlatformInfo {
         capabilities.window_pick = capture;
         capabilities
     };
+    let capabilities = with_ocr_availability(capabilities, crate::ocr::is_available());
     PlatformInfo {
         operating_system,
         session,
@@ -407,6 +409,17 @@ pub fn current_info() -> PlatformInfo {
         desktop_environment,
         architecture: std::env::consts::ARCH.to_string(),
     }
+}
+
+fn with_ocr_availability(
+    mut capabilities: PlatformCapabilities,
+    ocr_available: bool,
+) -> PlatformCapabilities {
+    if !ocr_available && capabilities.ocr.state != CapabilityState::Unsupported {
+        capabilities.ocr =
+            Capability::with_reason(CapabilityState::Degraded, CapabilityReason::OcrNotInstalled);
+    }
+    capabilities
 }
 
 #[cfg(test)]
@@ -474,6 +487,22 @@ mod tests {
         assert_eq!(
             install_type_from(OperatingSystem::Windows, false, true),
             InstallType::Development
+        );
+    }
+
+    #[test]
+    fn missing_tesseract_degrades_supported_platforms() {
+        let windows = capabilities_for(OperatingSystem::Windows, DesktopSession::Native, None);
+        let windows = with_ocr_availability(windows, false);
+        assert_eq!(windows.ocr.state, CapabilityState::Degraded);
+        assert_eq!(windows.ocr.reason, Some(CapabilityReason::OcrNotInstalled));
+
+        let other = capabilities_for(OperatingSystem::Other, DesktopSession::Unknown, None);
+        let other = with_ocr_availability(other, false);
+        assert_eq!(other.ocr.state, CapabilityState::Unsupported);
+        assert_eq!(
+            other.ocr.reason,
+            Some(CapabilityReason::UnsupportedPlatform)
         );
     }
 

@@ -10,6 +10,8 @@ export function createOcrSettings({
   translate,
   showToast,
 }) {
+  let installSupported = false;
+
   function updateOptionsVisibility() {
     options.hidden = !toggle.checked;
   }
@@ -25,7 +27,7 @@ export function createOcrSettings({
     statusText.textContent = translate(
       available ? "settings.ocr.installed" : "settings.ocr.notInstalled",
     );
-    installButton.hidden = available;
+    installButton.hidden = available || !installSupported;
   }
 
   async function installOcr() {
@@ -54,6 +56,10 @@ export function createOcrSettings({
 
   return {
     checkStatus,
+    setInstallSupported(supported) {
+      installSupported = supported;
+      if (!supported) installButton.hidden = true;
+    },
     fill(config) {
       modeControl.value = config.ocr_result_mode || "preview";
       toggle.checked = config.ocr_enabled !== false;

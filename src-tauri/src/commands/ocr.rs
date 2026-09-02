@@ -35,8 +35,9 @@ pub async fn ocr_image(id: i64, state: State<'_, AppState>) -> Result<String, St
     Ok(text)
 }
 
-/// 通过 pkexec 安装 tesseract-ocr。
+/// Linux 下通过 pkexec 安装发行版提供的 Tesseract。
 #[tauri::command]
+#[cfg(target_os = "linux")]
 pub async fn ocr_install() -> Result<String, String> {
     let output = tauri::async_runtime::spawn_blocking(|| {
         std::process::Command::new("pkexec")
@@ -64,4 +65,11 @@ pub async fn ocr_install() -> Result<String, String> {
             Err(format!("安装失败: {}", stderr.trim()))
         }
     }
+}
+
+/// Windows/macOS 没有安全、统一的系统包管理入口；设置页应隐藏安装按钮，IPC 再做兜底拒绝。
+#[tauri::command]
+#[cfg(not(target_os = "linux"))]
+pub async fn ocr_install() -> Result<String, String> {
+    Err("当前平台不支持应用内安装 OCR，请通过系统软件管理方式安装 Tesseract".to_string())
 }
