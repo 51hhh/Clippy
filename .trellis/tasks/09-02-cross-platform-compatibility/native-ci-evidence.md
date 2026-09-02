@@ -52,6 +52,17 @@ Linux tar 保留 AppImage 执行位；四份 `QA-BUILD.txt` 均精确记录完�
 边界。结合正式 Release 的四目标 `latest.json`，PRD 中“平台配置、安装包和 updater manifest 与实际
 目标匹配”验收项已具备直接产物证据。
 
+离线解包内容审计进一步确认：
+
+- DEB control 为 `clippy 0.1.18 amd64`，依赖使用 Ubuntu 22 可提供的 GTK/WebKitGTK 4.1、GBM、EGL、
+  DRM、Wayland EGL 与 Ayatana AppIndicator 包。
+- AppImage 的应用 ELF 为 x86-64，最高引用 `GLIBC_2.35`；SquashFS 从实际 offset 944632 解出后没有
+  `libwayland-*` 残留，证明 finalization 没把宿主图形 ABI 再捆进去。
+- Windows NSIS 外层是标准 32 位安装引导程序，内部 `clippy-app.exe` 为 PE32+ x86-64；MSI metadata
+  的 Template 为 `x64;0`、Product/File version 为 0.1.18。
+- Apple Silicon 与 Intel DMG 都能完整解开 HFS+ 内容，分别包含 arm64 和 x86_64 Mach-O；两份
+  `Info.plist` 均为版本 0.1.18、bundle id `com.clippy.desktop`、最低系统 11.0，并含 `_CodeSignature`。
+
 ## Release v0.1.18
 
 Run: [`33656502908`](https://github.com/51hhh/Clippy/actions/runs/33656502908)
