@@ -12,9 +12,9 @@ import {
 } from "./types";
 
 /**
- * 这里的 Canvas 2D 负责交互预览和截图覆盖层导出，不是可编辑 PNG 的最终渲染事实源。
- * Pin 工程的 Copy/Save 在 renderer v2 下统一交给 Rust 固定字体与软件光栅器；旧 v1 工程未修改时
- * 复用 IDAT，第一次真实编辑后再升级。截图覆盖层仍走本文件的 Canvas 导出，不能宣称哈希级一致。
+ * 这里的 Canvas 2D 只负责交互预览和像素 smoke，不是最终渲染事实源。
+ * Pin 工程与截图覆盖层的 Copy/Save/Pin 都会把 v2 操作层交给 Rust 固定字体与
+ * 软件光栅器。旧 v1 工程未修改时复用 IDAT，第一次真实编辑后再升级。
  */
 
 export type RenderViewport = {

@@ -468,9 +468,10 @@ Cogl 写的是副本，JS 手里那份仍是初值——结果是一张**全黑�
 **捕获这一步已经修好，验证方式是看日志里的几何汇总行**，例如本机双屏：
 `#3682789390@0,0 2560x1440×1.5000→3840x2160，#181221938@2560,408 1920x1200×1.3333→2560x1600`
 ——两块屏的像素尺寸都正好是原生模式，没有任何一块被上采样。
-导出这一侧也是原生的：`toPixelRect(selection, 1/scale, 1/scaleY, frame)` 把选区换成
-**帧像素**，`exportPngBase64` 按裁剪尺寸开画布，所以复制/保存出来的 PNG 是原生分辨率
-（本机实测一条 4K 全屏条目就是 3840×2160）。
+导出这一侧也是原生的：前端提交逻辑选区，后端复用 `selection_pixel_rect`
+按该帧的 `scale_x/scale_y` 换成**帧像素**视口，renderer v2 以这个尺寸输出 PNG。
+因此复制/保存仍是原生分辨率（本机实测一条 4K 全屏条目就是 3840×2160），
+但最终像素不再受 WebView Canvas 差异影响。
 
 #### 还有一种"糊"是屏幕显示，不是画面
 
@@ -566,7 +567,7 @@ restore token，**目前没做**：那条路第一次要弹一次授权对话框
 | 空间 | 谁在用 | 单位 |
 |---|---|---|
 | 逻辑像素 | 覆盖层 DOM、选区、`WindowCandidate` | 桌面逻辑尺寸（本机 1920×1200） |
-| 冻结帧物理像素 | `FrozenFrame.rgba`、标注、`exportPngBase64` 的裁剪矩形 | 帧的真实宽高（本机 2560×1600） |
+| 冻结帧物理像素 | `FrozenFrame.rgba`、标注、renderer v2 输入与输出视口 | 帧的真实宽高（本机 2560×1600） |
 | X screen 像素 | `xcap::Window::x()/y()/width()/height()` | XWayland 的 X 屏（本机 3840×2400） |
 
 无缩放的 X11 会话里三者恰好相等，所以这段代码长期看着是对的；一有缩放就错得离谱——
@@ -630,7 +631,7 @@ restore token，**目前没做**：那条路第一次要弹一次授权对话框
   比值钳在 1.0..=4.0），再和帧的逻辑边界求交。
 - **选区在逻辑空间，标注在帧像素空间。** 前端 `scale = logicalWidth / pixelWidth`，
   `useCanvasInteractions.pointFromEvent` 把客户端坐标除以 `scale` 得到帧像素坐标；
-  导出时用 `geometry.ts::toPixelRect(selection, 1/scale, 1/scaleY, frame)` 把选区换算回帧像素并钳进帧内。
+  提交后由 Rust `selection_pixel_rect` 以同一 `scale_x/scale_y` 把逻辑选区换算回帧像素并钳进帧内。
 - **选区坐标是相对覆盖层的，不是桌面全局的。** 覆盖层铺满一块显示器，它的 (0,0) 就是那块屏的
   左上角。要拿到"屏幕上的哪一块"必须加 payload 的 `logicalX`/`logicalY`（来自
   `CapturedMonitorFrame.x/y`）——贴图回原位就是这么算的（`App.tsx::originRect` →
@@ -813,7 +814,8 @@ Tauri（`available_monitors` / `monitor_from_point`）。所以"插上外接屏�
    停在某个窗口上就取那个窗口，停在空地上就取**整个显示器**（参考项目 flashot 的手感）。
    位移超过 slop 就是拖拽，原样落地并钳进屏幕边界；面积不足 2×2 作废。
 4. 点击或拖拽**都不结束截图**：工具条贴到选区旁边，选区仍可拖动与缩放，
-   点对钩才把"裁剪 + 标注"后的 PNG 提交。铺满全屏的选区靠 `coversBounds` 让内部拖拽回到重新框选。
+   点对钩才提交选区和 v2 操作层，后端合成权威 PNG。铺满全屏的选区靠
+   `coversBounds` 让内部拖拽回到重新框选。
 5. 右键丢掉选区回到 idle，Esc 取消整个截图。
 
 ## 6. 真实桌面上仍需人工验收的部分
