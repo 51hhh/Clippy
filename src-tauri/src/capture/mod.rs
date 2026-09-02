@@ -38,7 +38,7 @@ use crate::commands::AppState;
 use crate::translation::types::TranslationError;
 use tauri::State;
 
-/// 覆盖层提交回来的 PNG 上限。全屏 4K 的标注 PNG 大约十几 MB，
+/// renderer v2 输出的 PNG 上限。全屏 4K 的标注 PNG 大约十几 MB，
 /// 64 MiB 足够宽松，同时挡住畸形/恶意载荷把内存吃光。
 const MAX_COMMIT_PNG_BYTES: usize = 64 * 1024 * 1024;
 
@@ -246,28 +246,55 @@ pub fn uninstall_window_probe_extension() -> Result<ShellExtensionStatus, String
     shell_extension::uninstall()
 }
 
-/// 覆盖层内完成裁剪与标注之后的唯一提交入口。
+/// 覆盖层内完成选区与标注之后的唯一提交入口。
 ///
-/// PNG 由覆盖层的画布渲染（`renderExport` 已经把裁剪、图像调整和矢量标注合成进去），
-/// 后端不再自己裁一遍——否则标注会被丢掉。会话在执行动作前先被认领，
-/// 并发取消或连点两次都不会产生两份副作用。
+/// 前端只提交选区和 renderer v2 操作文档；后端从会话中取可信冻结帧，
+/// 在 blocking worker 合成完整帧后只输出选区视口。这样既保留跨边界标注/模糊邻域，
+/// 又不让 WebView Canvas 成为最终像素事实源。会话在执行动作前仍会被唯一认领。
 ///
 /// `origin` 是选区在桌面逻辑坐标系里的矩形（覆盖层用 payload 的 `logicalX/logicalY`
 /// 换算好）。贴图靠它回到原处、按原尺寸显示；复制时也记一份，方便之后从历史里
 /// 把同一张图 Pin 回原位。
 #[tauri::command]
-pub fn commit_capture_action(
+pub async fn commit_capture_action(
     action: CaptureAction,
-    session_id: String,
-    png_base64: String,
+    selection: CaptureSelection,
+    project: crate::pin::commands::PinCanvasProject,
     origin: Option<crate::pin::PinOrigin>,
     app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<CaptureActionResult, String> {
-    let png = decode_commit_png(&png_base64);
+    let session_id = selection.session_id.clone();
+    let capture_manager = state.capture_manager.clone();
+    let rendered = tauri::async_runtime::spawn_blocking(move || {
+        if project.renderer_version != crate::pin::render_v2::RENDERER_VERSION {
+            return Err("截图只接受 renderer v2 文档".to_string());
+        }
+        let input = capture_manager
+            .render_input(&selection)
+            .map_err(String::from)?;
+        if input.source.dimensions() != (project.source_width, project.source_height) {
+            return Err("截图工程尺寸与冻结帧不匹配".to_string());
+        }
+        let png = crate::pin::render_v2::render_capture(
+            input.source,
+            input.crop,
+            &project.annotations,
+            &project.adjustments,
+        )?;
+        commit_image_from_png(png).map_err(String::from)
+    })
+    .await
+    .map_err(|error| format!("截图合成任务异常: {error}"))
+    .and_then(|result| result);
     let result = action_lifecycle::complete_capture_action(
-        png,
-        || state.capture_manager.finish(&session_id),
+        rendered,
+        || {
+            state
+                .capture_manager
+                .finish(&session_id)
+                .map_err(String::from)
+        },
         |session| overlay_windows::close(&app_handle, &session.overlay_labels()),
         |session| {
             // 贴图的层级要在覆盖层关掉之后才放回去，否则刚恢复置顶的贴图会先盖住
@@ -285,9 +312,9 @@ pub fn commit_capture_action(
     result
 }
 
-/// 覆盖层提交上来的那张图，字节和像素各一份。
+/// renderer v2 产生的那张图，字节和像素各一份。
 ///
-/// 校验这张 PNG 必须整张解码（见 [`decode_commit_png`]），所以**顺手把像素留下来**：
+/// 校验这张 PNG 必须整张解码（见 [`commit_image_from_png`]），所以**顺手把像素留下来**：
 /// 复制那条路要的正是 RGBA，不留就得再解一遍同一张全屏 PNG（1080p 约 20 ms，
 /// 2560x1440 起跳 40 ms 上下，见 docs/bench-baseline.md），而用户此刻正等着对钩生效。
 /// 保存与贴图要的是原样的 PNG 字节，它们会当场把 `pixels` 扔掉（十几 MB）。
@@ -297,14 +324,8 @@ struct CommitImage {
     pixels: image::RgbaImage,
 }
 
-/// 解码并校验覆盖层提交的 PNG。先看 base64 长度再解码，避免为一个畸形载荷先分配几百 MB。
-fn decode_commit_png(png_base64: &str) -> Result<CommitImage, CaptureError> {
-    // base64 每 4 个字符出 3 字节，用这个上界提前拒绝。
-    if png_base64.len() / 4 * 3 > MAX_COMMIT_PNG_BYTES {
-        return Err(CaptureError::CommitPayloadTooLarge);
-    }
-    let png = crate::screenshot::decode_png_base64(png_base64)
-        .map_err(|_| CaptureError::CommitPayloadInvalid)?;
+/// 不信任编码器的长度或输出：即使像素来自应用自身，也要在副作用前完整解码。
+fn commit_image_from_png(png: Vec<u8>) -> Result<CommitImage, CaptureError> {
     if png.len() > MAX_COMMIT_PNG_BYTES {
         return Err(CaptureError::CommitPayloadTooLarge);
     }
@@ -647,44 +668,21 @@ mod tests {
     }
 
     #[test]
-    fn commit_payload_must_be_a_real_png_within_the_size_limit() {
+    fn rendered_capture_must_be_a_real_png() {
         assert_eq!(
-            decode_commit_png("not base64!!").unwrap_err().code(),
+            commit_image_from_png(b"not a png".to_vec())
+                .unwrap_err()
+                .code(),
             "commit_payload_invalid"
-        );
-        // 合法 base64 但不是 PNG
-        assert_eq!(
-            decode_commit_png("aGVsbG8=").unwrap_err().code(),
-            "commit_payload_invalid"
-        );
-        // 长度上界在解码之前就拦住，不为畸形载荷分配内存
-        let oversized = "A".repeat(MAX_COMMIT_PNG_BYTES / 3 * 4 + 8);
-        assert_eq!(
-            decode_commit_png(&oversized).unwrap_err().code(),
-            "commit_payload_too_large"
-        );
-    }
-
-    #[test]
-    fn commit_payload_accepts_the_data_url_form_the_canvas_produces() {
-        let png = crate::screenshot::encode_png(&[255, 0, 0, 255], 1, 1).unwrap();
-        let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &png);
-        assert_eq!(decode_commit_png(&encoded).unwrap().png, png);
-        assert_eq!(
-            decode_commit_png(&format!("data:image/png;base64,{encoded}"))
-                .unwrap()
-                .png,
-            png
         );
     }
 
     /// 校验解出来的像素必须能直接交给剪贴板：复制那条路就靠它省下第二次整张解码。
     #[test]
-    fn commit_payload_keeps_the_pixels_it_decoded_for_validation() {
+    fn rendered_capture_keeps_the_pixels_it_decoded_for_clipboard() {
         let png = crate::screenshot::encode_png(&[9, 8, 7, 255], 1, 1).unwrap();
-        let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &png);
         let image =
-            crate::image_io::rgba_to_clipboard_image(decode_commit_png(&encoded).unwrap().pixels);
+            crate::image_io::rgba_to_clipboard_image(commit_image_from_png(png).unwrap().pixels);
         assert_eq!((image.width, image.height), (1, 1));
         assert_eq!(image.bytes.as_ref(), [9, 8, 7, 255]);
     }

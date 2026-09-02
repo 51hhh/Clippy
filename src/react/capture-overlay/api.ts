@@ -14,6 +14,7 @@ import type {
   CaptureOverlayPayload,
   CaptureSelection,
   CaptureTranslationResult,
+  PinCanvasProject,
 } from "../../js/ipc-types.ts";
 
 export const overlayApi = {
@@ -30,16 +31,13 @@ export const overlayApi = {
   ready: (label: string): Promise<void> =>
     markCaptureOverlayReady(label, window.innerWidth, window.innerHeight),
   cancel: (sessionId: string): Promise<void> => cancelCaptureOverlay(sessionId),
-  /**
-   * 提交画布渲染好的 PNG：裁剪与标注都已经合成进去，后端只负责落地。
-   * `origin` 是选区在桌面逻辑坐标里的位置，贴图靠它回到原处。
-   */
+  /** 提交选区和 v2 操作层；后端用会话冻结帧生成权威 PNG。 */
   commit: (
     action: CaptureAction,
-    sessionId: string,
-    pngBase64: string,
+    selection: CaptureSelection,
+    project: PinCanvasProject,
     origin: CaptureOrigin | null,
-  ): Promise<CaptureActionResult> => commitCaptureAction(action, sessionId, pngBase64, origin),
+  ): Promise<CaptureActionResult> => commitCaptureAction(action, selection, project, origin),
   /** 选区翻译仍走后端裁剪：OCR 要的是原始像素，不是带标注的画布。 */
   translate: (selection: CaptureSelection): Promise<CaptureTranslationResult> =>
     translateCaptureSelection(selection),

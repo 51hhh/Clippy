@@ -6,13 +6,11 @@ import {
   DEFAULT_IMAGE_ADJUSTMENTS,
   type ImageAdjustments,
 } from "../annotation/imageAdjustments";
-import { exportPngBase64 } from "../annotation/pngPipeline";
 import type { Annotation, Tool } from "../annotation/types";
 import { useCanvasInteractions } from "../annotation/useCanvasInteractions";
 import { useHistory } from "../annotation/useHistory";
 import { t } from "../shared/i18n";
 import { overlayApi } from "./api";
-import { toPixelRect } from "./geometry";
 import { OverlayToolbar } from "./OverlayToolbar";
 import { DEFAULT_COLOR, DEFAULT_STROKE } from "./tools";
 import { TranslationPopover } from "./TranslationPopover";
@@ -198,20 +196,6 @@ export function App() {
   }, [payload]);
 
   const selection = region.selection;
-  const frame = useMemo(
-    () => ({
-      x: 0,
-      y: 0,
-      width: payload?.pixelWidth || 1,
-      height: payload?.pixelHeight || 1,
-    }),
-    [payload],
-  );
-  const cropInPixels = useMemo(
-    () => (selection ? toPixelRect(selection, 1 / scale, 1 / scaleY, frame) : null),
-    [frame, scale, scaleY, selection],
-  );
-
   // `crop` 草稿不是注解（选区由 useSelection 管），画布只关心能画出来的那几种。
   const draftAnnotation = canvas.draft && "annotation" in canvas.draft
     ? canvas.draft.annotation
@@ -285,26 +269,34 @@ export function App() {
     [payload, selection],
   );
 
-  /**
-   * 提交：把画布渲染的 PNG（裁剪 + 图像调整 + 矢量标注已经合成好）交给后端落地。
-   * 成功后后端会关掉覆盖层，所以这里不复位 busy。
-   */
+  /** 提交 v2 操作层；后端从会话冻结帧合成并裁出权威 PNG。 */
   const run = useCallback(
     (action: CaptureAction) => {
       const image = imageRef.current;
-      if (!payload || !image || !cropInPixels || busy || translation?.status === "loading") return;
+      if (!payload || !image || !selection || busy || translation?.status === "loading") return;
       translationGeneration.current += 1;
       setTranslation(null);
       setBusy(true);
       setError(null);
-      exportPngBase64(image, cropInPixels, annotations, adjustments)
-        .then((png) => overlayApi.commit(action, payload.sessionId, png, originRect))
+      overlayApi
+        .commit(
+          action,
+          { ...selection, sessionId: payload.sessionId, monitorId: payload.monitorId },
+          {
+            rendererVersion: 2,
+            sourceWidth: payload.pixelWidth,
+            sourceHeight: payload.pixelHeight,
+            annotations,
+            adjustments,
+          },
+          originRect,
+        )
         .catch((reason) => {
           setError(String(reason));
           setBusy(false);
         });
     },
-    [adjustments, annotations, busy, cropInPixels, originRect, payload, translation?.status],
+    [adjustments, annotations, busy, originRect, payload, selection, translation?.status],
   );
 
   const closeTranslation = useCallback(() => {

@@ -706,7 +706,7 @@ fn read_png_file_with_project(
     Ok((bytes, project))
 }
 
-/// 前端随保存一起送来的工程内容。原图由**后端**自己取，不经前端。
+/// 前端送来的工程操作层。原图一律由**后端**从 Pin 条目或 Capture 会话取。
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PinCanvasProject {

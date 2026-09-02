@@ -395,8 +395,8 @@ export interface PinToolbarBounds {
 }
 
 /**
- * 随保存一起送去的画布工程内容。**原图不在这里**——后端自己从条目取
- * （前端手上那张可能是清晰度补偿版）。
+ * 提交给后端的画布工程内容。**原图不在这里**——Pin 从条目取，
+ * Capture 从冻结会话取，都不信任前端预览像素。
  */
 export interface PinCanvasProject {
   rendererVersion: 2;

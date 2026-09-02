@@ -339,23 +339,17 @@ export function cancelCaptureOverlay(sessionId: string): Promise<void> {
   return invoke<void>("cancel_capture_overlay", { sessionId });
 }
 
-/**
- * 提交覆盖层里已经裁剪并标注好的 PNG。
- * 后端不再自己裁一遍，否则画布上的标注会被丢掉。
- *
- * `origin` 是选区在桌面逻辑坐标里的矩形：贴图靠它回到原位，复制时后端也记一份，
- * 之后从历史里 Pin 同一张图仍能回到原处。传 null 表示"不知道来源"。
- */
+/** 提交选区与 renderer v2 操作层；权威 PNG 由后端从可信冻结帧生成。 */
 export function commitCaptureAction(
   action: CaptureAction,
-  sessionId: string,
-  pngBase64: string,
+  selection: CaptureSelection,
+  project: PinCanvasProject,
   origin: CaptureOrigin | null = null,
 ): Promise<CaptureActionResult> {
   return invoke<CaptureActionResult>("commit_capture_action", {
     action,
-    sessionId,
-    pngBase64,
+    selection,
+    project,
     origin,
   });
 }
