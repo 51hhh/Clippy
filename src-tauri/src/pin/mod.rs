@@ -4,7 +4,7 @@ mod manager;
 mod model;
 mod origins;
 mod project;
-mod render_v2;
+pub(crate) mod render_v2;
 mod resample;
 mod window;
 

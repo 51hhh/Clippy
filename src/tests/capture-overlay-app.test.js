@@ -14,7 +14,6 @@ const mocks = vi.hoisted(() => ({
     translate: vi.fn(),
     copyText: vi.fn(),
   },
-  exportPngBase64: vi.fn(async () => "exported-png"),
 }));
 
 vi.mock("../js/api.ts", () => ({
@@ -22,10 +21,6 @@ vi.mock("../js/api.ts", () => ({
   getConfig: mocks.getConfig,
 }));
 vi.mock("../react/capture-overlay/api.ts", () => ({ overlayApi: mocks.overlayApi }));
-// jsdom 没有 canvas 后端，导出必须替身；同时记录裁剪矩形，用来断言"裁剪 + 标注"合成。
-vi.mock("../react/annotation/pngPipeline", () => ({
-  exportPngBase64: mocks.exportPngBase64,
-}));
 
 import * as i18n from "../i18n/i18n.js";
 import { App } from "../react/capture-overlay/App.tsx";
@@ -110,7 +105,6 @@ describe("capture overlay app", () => {
     mocks.overlayApi.frame.mockResolvedValue(
       new ArrayBuffer(basePayload.pixelWidth * basePayload.pixelHeight * 4),
     );
-    mocks.exportPngBase64.mockClear();
     mocks.overlayApi.commit.mockResolvedValue({ action: "copy", path: null, pinLabel: null });
     root = createRoot(document.getElementById("root"));
   });
@@ -178,28 +172,32 @@ describe("capture overlay app", () => {
     expect(selectionRect()).toEqual({ x: 20, y: 20, width: 120, height: 100 });
   });
 
-  it("copies the cropped and annotated PNG when the check mark is pressed", async () => {
+  it("submits the selection and renderer document when copy is pressed", async () => {
     await mount();
     await drag({ x: 10, y: 10 }, { x: 110, y: 90 });
     await act(async () => button("Copy").click());
     await flush();
 
-    // 裁剪在前端完成：后端只落地这张 PNG，否则画布上的标注会被丢掉
-    expect(mocks.exportPngBase64).toHaveBeenCalledTimes(1);
-    expect(mocks.exportPngBase64.mock.calls[0][1]).toEqual({
-      x: 10,
-      y: 10,
-      width: 100,
-      height: 80,
-    });
     // origin 是选区在**桌面**逻辑坐标里的矩形（选区坐标 + 这块屏的 logicalX/logicalY）：
     // 贴图靠它回到原位，复制时后端也记一份，之后从历史里 Pin 同一张图仍能回到原处
-    expect(mocks.overlayApi.commit).toHaveBeenCalledWith("copy", "session-1", "exported-png", {
-      x: 1930,
-      y: 34,
-      width: 100,
-      height: 80,
-    });
+    expect(mocks.overlayApi.commit).toHaveBeenCalledWith(
+      "copy",
+      { x: 10, y: 10, width: 100, height: 80, sessionId: "session-1", monitorId: 0 },
+      {
+        rendererVersion: 2,
+        sourceWidth: 200,
+        sourceHeight: 150,
+        annotations: [],
+        adjustments: {
+          grayscale: false,
+          brightness: 0,
+          contrast: 0,
+          saturation: 0,
+          cornerRadius: 0,
+        },
+      },
+      { x: 1930, y: 34, width: 100, height: 80 },
+    );
   });
 
   it("routes save and pin through the same commit path", async () => {
@@ -208,12 +206,12 @@ describe("capture overlay app", () => {
 
     await act(async () => button("Pin").click());
     await flush();
-    expect(mocks.overlayApi.commit).toHaveBeenCalledWith("pin", "session-1", "exported-png", {
-      x: 1930,
-      y: 34,
-      width: 100,
-      height: 80,
-    });
+    expect(mocks.overlayApi.commit).toHaveBeenCalledWith(
+      "pin",
+      { x: 10, y: 10, width: 100, height: 80, sessionId: "session-1", monitorId: 0 },
+      expect.objectContaining({ rendererVersion: 2, sourceWidth: 200, sourceHeight: 150 }),
+      { x: 1930, y: 34, width: 100, height: 80 },
+    );
   });
 
   it("drops the selection on right click so a new area can be framed", async () => {

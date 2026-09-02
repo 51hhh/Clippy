@@ -60,6 +60,12 @@ pub struct CaptureManager {
     last_viewport: Mutex<Option<ViewportObservation>>,
 }
 
+/// renderer v2 在锁外消耗的冻结帧快照。
+pub(super) struct CaptureRenderInput {
+    pub source: image::RgbaImage,
+    pub crop: (u32, u32, u32, u32),
+}
+
 /// 一次 I4 观测：后端算的逻辑尺寸、前端实测的视口，以及两者的差。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ViewportObservation {
@@ -334,6 +340,31 @@ impl CaptureManager {
         crop_frame(frame, selection)
     }
 
+    /// 只在锁内核对会话并复制帧；数秒级合成必须由调用方在 blocking worker 执行。
+    pub(super) fn render_input(
+        &self,
+        selection: &CaptureSelection,
+    ) -> Result<CaptureRenderInput, CaptureError> {
+        let current = self.session.lock().map_err(CaptureError::state_lock)?;
+        let session = current.as_ref().ok_or(CaptureError::SessionMissing)?;
+        if session.id != selection.session_id {
+            return Err(CaptureError::SessionSupersededRetry);
+        }
+        let frame = session
+            .frames
+            .iter()
+            .find(|frame| frame.monitor_id == selection.monitor_id)
+            .ok_or(CaptureError::SelectionMonitorMismatch)?;
+        let (left, top, right, bottom) = selection_pixel_rect(frame, selection)?;
+        let source =
+            image::RgbaImage::from_raw(frame.pixel_width, frame.pixel_height, frame.rgba.to_vec())
+                .ok_or(CaptureError::OverlayFrameMissing)?;
+        Ok(CaptureRenderInput {
+            source,
+            crop: (left, top, right - left, bottom - top),
+        })
+    }
+
     pub(super) fn finish(&self, session_id: &str) -> Result<CaptureSession, CaptureError> {
         let mut current = self.session.lock().map_err(CaptureError::state_lock)?;
         let session = current.take().ok_or(CaptureError::SessionMissing)?;
@@ -365,6 +396,26 @@ fn crop_frame(
     frame: &CapturedMonitorFrame,
     selection: &CaptureSelection,
 ) -> Result<Vec<u8>, CaptureError> {
+    let (left, top, right, bottom) = selection_pixel_rect(frame, selection)?;
+    let width = right - left;
+    let height = bottom - top;
+    let row_bytes = width as usize * 4;
+    let mut rgba = Vec::with_capacity(row_bytes * height as usize);
+    for row in top..bottom {
+        let start = (row * frame.pixel_width + left) as usize * 4;
+        let source = frame
+            .rgba
+            .get(start..start + row_bytes)
+            .ok_or(CaptureError::CropOutOfBounds)?;
+        rgba.extend_from_slice(source);
+    }
+    crate::screenshot::encode_png(&rgba, width, height).map_err(CaptureError::codec)
+}
+
+fn selection_pixel_rect(
+    frame: &CapturedMonitorFrame,
+    selection: &CaptureSelection,
+) -> Result<(u32, u32, u32, u32), CaptureError> {
     for value in [selection.x, selection.y, selection.width, selection.height] {
         if !value.is_finite() {
             return Err(CaptureError::SelectionNotFinite);
@@ -386,19 +437,7 @@ fn crop_frame(
     if right <= left || bottom <= top {
         return Err(CaptureError::SelectionEmpty);
     }
-    let width = right - left;
-    let height = bottom - top;
-    let row_bytes = width as usize * 4;
-    let mut rgba = Vec::with_capacity(row_bytes * height as usize);
-    for row in top..bottom {
-        let start = (row * frame.pixel_width + left) as usize * 4;
-        let source = frame
-            .rgba
-            .get(start..start + row_bytes)
-            .ok_or(CaptureError::CropOutOfBounds)?;
-        rgba.extend_from_slice(source);
-    }
-    crate::screenshot::encode_png(&rgba, width, height).map_err(CaptureError::codec)
+    Ok((left, top, right, bottom))
 }
 
 #[cfg(test)]
@@ -492,6 +531,9 @@ mod tests {
             height: 10.0,
         };
         assert!(manager.crop(&selection).is_ok());
+        let input = manager.render_input(&selection).unwrap();
+        assert_eq!(input.source.dimensions(), (100, 50));
+        assert_eq!(input.crop, (1, 1, 10, 10));
         assert!(manager.payload(&label).is_ok());
     }
 

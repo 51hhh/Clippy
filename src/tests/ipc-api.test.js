@@ -152,20 +152,24 @@ describe("typed IPC wrappers", () => {
     expect(invoke).toHaveBeenCalledWith("update_config", { newConfig: config });
   });
 
-  /**
-   * 覆盖层自己完成裁剪与标注，提交时送的是渲染好的 PNG——后端不再收选区，
-   * 否则画布上的标注会被丢掉。这四个字段名是合同，改名就会静默失败。
-   * `origin` 是选区在桌面逻辑坐标里的矩形，贴图靠它回到原位；省略即 null。
-   */
+  /** 选区和 v2 操作层是合同；后端从会话冻结帧生成权威 PNG。 */
   it("preserves the commit contract and sessionId names", () => {
     const origin = { x: 120, y: 48, width: 640, height: 360 };
-    commitCaptureAction("pin", "capture-7", "encoded-png", origin);
+    const selection = { sessionId: "capture-7", monitorId: 2, x: 4, y: 5, width: 640, height: 360 };
+    const project = {
+      rendererVersion: 2,
+      sourceWidth: 1920,
+      sourceHeight: 1080,
+      annotations: [],
+      adjustments: { grayscale: false, brightness: 0, contrast: 0, saturation: 0, cornerRadius: 0 },
+    };
+    commitCaptureAction("pin", selection, project, origin);
     cancelCaptureOverlay("capture-7");
 
     expect(invoke).toHaveBeenNthCalledWith(1, "commit_capture_action", {
       action: "pin",
-      sessionId: "capture-7",
-      pngBase64: "encoded-png",
+      selection,
+      project,
       origin,
     });
     expect(invoke).toHaveBeenNthCalledWith(2, "cancel_capture_overlay", {
@@ -175,11 +179,19 @@ describe("typed IPC wrappers", () => {
 
   /** 不知道来源的图片（不是从截图选区来的）必须显式传 null，后端据此落回默认摆放。 */
   it("sends a null origin when the caller does not know where the image came from", () => {
-    commitCaptureAction("copy", "capture-8", "encoded-png");
+    const selection = { sessionId: "capture-8", monitorId: 0, x: 0, y: 0, width: 10, height: 10 };
+    const project = {
+      rendererVersion: 2,
+      sourceWidth: 10,
+      sourceHeight: 10,
+      annotations: [],
+      adjustments: { grayscale: false, brightness: 0, contrast: 0, saturation: 0, cornerRadius: 0 },
+    };
+    commitCaptureAction("copy", selection, project);
     expect(invoke).toHaveBeenCalledWith("commit_capture_action", {
       action: "copy",
-      sessionId: "capture-8",
-      pngBase64: "encoded-png",
+      selection,
+      project,
       origin: null,
     });
   });

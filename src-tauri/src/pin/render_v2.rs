@@ -11,16 +11,16 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::sync::{Arc, OnceLock};
 
-pub(super) const RENDERER_VERSION: u32 = 2;
+pub(crate) const RENDERER_VERSION: u32 = 2;
 
 const FONT_FAMILY: &str = "Noto Sans CJK SC";
 const FONT_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/assets/fonts/NotoSansCJKsc-Medium.otf"
 ));
-// v2 同时持有 source、效果合成图和 tiny-skia 输出；单独限制为 16 Mi 像素，
-// 可覆盖 4K、5K 和 7680x2160 超宽截图，又不会让 64 Mi 像素的容器上限变成数 GiB 峰值内存。
-const MAX_RENDERER_PIXELS: u64 = 16 * 1024 * 1024;
+// v2 同时持有 source、效果合成图和 tiny-skia 输出；32 Mi 像素可覆盖
+// 4K/5K/6K 显示器和 8K UHD，又不会让 64 Mi 像素的容器上限变成数 GiB 峰值内存。
+const MAX_RENDERER_PIXELS: u64 = 32 * 1024 * 1024;
 const MAX_EFFECT_WORK_PIXELS: u64 = 512 * 1024 * 1024;
 const MAX_BLUR_CACHE_PIXELS: u64 = 32 * 1024 * 1024;
 const HIGHLIGHT_ALPHA: f64 = 0.32;
@@ -243,6 +243,61 @@ pub(super) fn render(
     if source.dimensions() != (source_width, source_height) {
         return Err("工程 sourceWidth/sourceHeight 与原图不匹配".to_string());
     }
+    render_image(
+        source,
+        annotations,
+        adjustments,
+        PixelRect {
+            x0: 0,
+            y0: 0,
+            x1: source_width,
+            y1: source_height,
+        },
+    )
+}
+
+/// 截图覆盖层与 Pin 共用同一 v2 语义，但只输出选区视口。
+///
+/// 先渲染完整冻结帧再取视口，是为了让跨过选区边界的路径和模糊邻域保持原有语义。
+pub(crate) fn render_capture(
+    source: RgbaImage,
+    crop: (u32, u32, u32, u32),
+    annotations: &Value,
+    adjustments: &Value,
+) -> Result<Vec<u8>, String> {
+    let (source_width, source_height) = source.dimensions();
+    super::project::validate_canvas_document(
+        annotations,
+        adjustments,
+        source_width,
+        source_height,
+    )?;
+    let (x, y, width, height) = crop;
+    let x1 = x.checked_add(width).ok_or("截图渲染视口越界")?;
+    let y1 = y.checked_add(height).ok_or("截图渲染视口越界")?;
+    if width == 0 || height == 0 || x1 > source_width || y1 > source_height {
+        return Err("截图渲染视口越界".to_string());
+    }
+    render_image(
+        source,
+        annotations,
+        adjustments,
+        PixelRect {
+            x0: x,
+            y0: y,
+            x1,
+            y1,
+        },
+    )
+}
+
+fn render_image(
+    source: RgbaImage,
+    annotations: &Value,
+    adjustments: &Value,
+    output_rect: PixelRect,
+) -> Result<Vec<u8>, String> {
+    let (source_width, source_height) = source.dimensions();
     let annotations: Vec<Annotation> = serde_json::from_value(annotations.clone())
         .map_err(|error| format!("renderer v2 annotations 解析失败: {error}"))?;
     let adjustments: Adjustments = serde_json::from_value(adjustments.clone())
@@ -252,7 +307,12 @@ pub(super) fn render(
 
     let adjusted = apply_adjustments(source, adjustments);
     let composited = apply_effects(&adjusted, &annotations)?;
-    render_vectors(&composited, &annotations, adjustments.corner_radius)
+    render_vectors(
+        &composited,
+        &annotations,
+        adjustments.corner_radius,
+        output_rect,
+    )
 }
 
 fn validate_renderer_values(annotations: &[Annotation]) -> Result<(), String> {
@@ -633,23 +693,30 @@ fn render_vectors(
     composited: &RgbaImage,
     annotations: &[Annotation],
     corner_radius: f64,
+    output_rect: PixelRect,
 ) -> Result<Vec<u8>, String> {
-    let (width, height) = composited.dimensions();
-    let base_png = crate::screenshot::encode_png(composited.as_raw(), width, height)
+    let (source_width, source_height) = composited.dimensions();
+    let output_width = output_rect.width();
+    let output_height = output_rect.height();
+    let base_png = crate::screenshot::encode_png(composited.as_raw(), source_width, source_height)
         .map_err(|error| format!("renderer v2 中间 PNG 编码失败: {error}"))?;
     let mut svg = String::with_capacity(base_png.len().saturating_mul(4) / 3 + 8_192);
     write!(
         svg,
-        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" shape-rendering="geometricPrecision" text-rendering="geometricPrecision"><defs>"#
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{output_width}" height="{output_height}" viewBox="{} {} {output_width} {output_height}" shape-rendering="geometricPrecision" text-rendering="geometricPrecision"><defs>"#,
+        output_rect.x0,
+        output_rect.y0
     )
     .expect("写 String 不会失败");
     let radius = corner_radius
         .round()
-        .clamp(0.0, f64::from(width.min(height)) / 2.0);
+        .clamp(0.0, f64::from(output_width.min(output_height)) / 2.0);
     if radius > 0.0 {
         write!(
             svg,
-            r#"<clipPath id="rounded"><rect width="{width}" height="{height}" rx="{}" ry="{}"/></clipPath>"#,
+            r#"<clipPath id="rounded"><rect x="{}" y="{}" width="{output_width}" height="{output_height}" rx="{}" ry="{}"/></clipPath>"#,
+            output_rect.x0,
+            output_rect.y0,
             number(radius),
             number(radius)
         )
@@ -663,7 +730,7 @@ fn render_vectors(
     }
     write!(
         svg,
-        r#"<image width="{width}" height="{height}" preserveAspectRatio="none" image-rendering="optimizeSpeed" href="data:image/png;base64,{}"/>"#,
+        r#"<image width="{source_width}" height="{source_height}" preserveAspectRatio="none" image-rendering="optimizeSpeed" href="data:image/png;base64,{}"/>"#,
         STANDARD.encode(base_png)
     )
     .expect("写 String 不会失败");
@@ -699,7 +766,7 @@ fn render_vectors(
     options.fontdb = renderer_font_database();
     let tree = resvg::usvg::Tree::from_data(svg.as_bytes(), &options)
         .map_err(|error| format!("renderer v2 SVG 解析失败: {error}"))?;
-    let mut pixmap = resvg::tiny_skia::Pixmap::new(width, height)
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(output_width, output_height)
         .ok_or_else(|| "renderer v2 无法分配输出像素".to_string())?;
     resvg::render(
         &tree,
@@ -1045,6 +1112,38 @@ mod tests {
     }
 
     #[test]
+    fn capture_viewport_matches_the_same_area_of_a_full_render() {
+        let source_png = png(24, 18);
+        let source = decode(&source_png);
+        let annotations = serde_json::json!([
+            {"id":"b","type":"blur","rect":{"x":2,"y":2,"width":15,"height":10},"effect":effect()},
+            {"id":"p","type":"pen","color":"#ff3b30","size":2,"points":[{"x":1,"y":1},{"x":22,"y":16}]}
+        ]);
+        let full = decode(&render(&source_png, 24, 18, &annotations, &adjustments()).unwrap());
+        let cropped =
+            decode(&render_capture(source, (5, 4, 12, 9), &annotations, &adjustments()).unwrap());
+        assert_eq!(
+            cropped,
+            image::imageops::crop_imm(&full, 5, 4, 12, 9).to_image()
+        );
+    }
+
+    #[test]
+    fn capture_viewport_rejects_empty_or_out_of_bounds_rectangles() {
+        let source = decode(&png(8, 6));
+        assert!(render_capture(
+            source.clone(),
+            (0, 0, 0, 2),
+            &serde_json::json!([]),
+            &adjustments()
+        )
+        .is_err());
+        assert!(
+            render_capture(source, (7, 5, 2, 2), &serde_json::json!([]), &adjustments()).is_err()
+        );
+    }
+
+    #[test]
     fn every_vector_tool_and_fixed_chinese_font_render_without_system_fonts() {
         let source_png = png(240, 160);
         let annotations = serde_json::json!([
@@ -1100,9 +1199,9 @@ mod tests {
     #[test]
     fn renderer_rejects_oversized_images_and_blur_caches_without_allocating_them() {
         let empty = Vec::new();
-        assert!(validate_effect_budget(&empty, 4_096, 4_096).is_ok());
+        assert!(validate_effect_budget(&empty, 8_192, 4_096).is_ok());
         assert_eq!(
-            validate_effect_budget(&empty, 4_096, 4_097).unwrap_err(),
+            validate_effect_budget(&empty, 8_192, 4_097).unwrap_err(),
             "renderer v2 图像像素超过安全预算"
         );
 
