@@ -1168,6 +1168,124 @@ mod project_command_tests {
     }
 
     #[test]
+    fn editable_project_reopens_for_second_edit_and_flat_export() {
+        let original_entry = screenshot_entry("pin-image-round-trip-source");
+        let first_document = PinCanvasProject {
+            renderer_version: super::super::render_v2::RENDERER_VERSION,
+            source_width: 1,
+            source_height: 1,
+            annotations: serde_json::json!([]),
+            adjustments: serde_json::json!({
+                "grayscale": false,
+                "brightness": 100,
+                "contrast": 0,
+                "saturation": 0,
+                "cornerRadius": 0
+            }),
+        };
+        let (first_preview, first_editable) = prepare_canvas_save(
+            &original_entry,
+            None,
+            PinCanvasSaveMode::Editable,
+            Some(first_document),
+        )
+        .unwrap();
+
+        let directory = tempfile::tempdir().unwrap();
+        let first_path = directory.path().join("first-editable.png");
+        std::fs::write(&first_path, first_editable).unwrap();
+        let PreparedPinImage {
+            preview_png,
+            project,
+        } = prepare_open_selection(Some(first_path)).unwrap().unwrap();
+        assert_eq!(
+            image::load_from_memory_with_format(&preview_png, image::ImageFormat::Png)
+                .unwrap()
+                .into_rgba8(),
+            image::load_from_memory_with_format(&first_preview, image::ImageFormat::Png)
+                .unwrap()
+                .into_rgba8()
+        );
+
+        let (source_png, restored_project) = project.unwrap();
+        assert_eq!(source_png, sample_png());
+        let reopened_entry = PinEntry {
+            label: "pin-image-round-trip-reopened".to_string(),
+            source: Arc::new(PinSource::Project {
+                source_png,
+                preview_png,
+                project: restored_project,
+            }),
+            content_width: 1.0,
+            content_height: 1.0,
+            scale: 1.0,
+            opacity: 1.0,
+            locked: false,
+            above: false,
+            position: None,
+            origin: None,
+            device_scale: 1.0,
+            buffer_scale: 1.0,
+            sharpen: Arc::new(SharpenSlot::default()),
+        };
+        let second_document = PinCanvasProject {
+            renderer_version: super::super::render_v2::RENDERER_VERSION,
+            source_width: 1,
+            source_height: 1,
+            annotations: serde_json::json!([]),
+            adjustments: serde_json::json!({
+                "grayscale": false,
+                "brightness": 50,
+                "contrast": 0,
+                "saturation": 0,
+                "cornerRadius": 0
+            }),
+        };
+        let (second_preview, second_editable) = prepare_canvas_save(
+            &reopened_entry,
+            None,
+            PinCanvasSaveMode::Editable,
+            Some(second_document.clone()),
+        )
+        .unwrap();
+        assert_ne!(
+            image::load_from_memory_with_format(&second_preview, image::ImageFormat::Png)
+                .unwrap()
+                .into_rgba8(),
+            image::load_from_memory_with_format(&first_preview, image::ImageFormat::Png)
+                .unwrap()
+                .into_rgba8()
+        );
+
+        let second_path = directory.path().join("second-editable.png");
+        std::fs::write(&second_path, &second_editable).unwrap();
+        let reopened_again = prepare_open_selection(Some(second_path)).unwrap().unwrap();
+        let (_, reopened_project) = reopened_again.project.unwrap();
+        assert_eq!(
+            reopened_project.document.adjustments,
+            second_document.adjustments
+        );
+
+        let (flat_clipboard, flat_file) = prepare_canvas_save(
+            &reopened_entry,
+            None,
+            PinCanvasSaveMode::Flat,
+            Some(second_document),
+        )
+        .unwrap();
+        assert_eq!(flat_clipboard, second_preview);
+        assert_eq!(super::super::project::extract(&flat_file).unwrap(), None);
+        assert_eq!(
+            image::load_from_memory_with_format(&flat_file, image::ImageFormat::Png)
+                .unwrap()
+                .into_rgba8(),
+            image::load_from_memory_with_format(&second_preview, image::ImageFormat::Png)
+                .unwrap()
+                .into_rgba8()
+        );
+    }
+
+    #[test]
     fn cancelled_open_has_zero_manager_side_effects() {
         let manager = super::super::manager::PinManager::new();
         let result = complete_open_selection(prepare_open_selection(None), |_| {
