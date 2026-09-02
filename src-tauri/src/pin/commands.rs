@@ -524,12 +524,32 @@ fn prepare_canvas_save(
 #[tauri::command]
 pub fn copy_pin_canvas(
     label: String,
-    png_base64: String,
+    png_base64: Option<String>,
+    project: Option<PinCanvasProject>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     validate_label(&label)?;
-    state.pin_manager.get(&label)?;
-    let png = decode_canvas_png(&png_base64)?;
+    let entry = state.pin_manager.get(&label)?;
+    let png = match project {
+        Some(project) if project.renderer_version == super::render_v2::RENDERER_VERSION => {
+            if png_base64.is_some() {
+                return Err("renderer v2 不接受 WebView 上传的合成 PNG".to_string());
+            }
+            render_canvas_project(&entry, &project)?
+        }
+        Some(_) => {
+            let encoded = png_base64
+                .as_deref()
+                .ok_or_else(|| "renderer v1 复制缺少合成 PNG".to_string())?;
+            decode_canvas_png(encoded)?
+        }
+        None => {
+            let encoded = png_base64
+                .as_deref()
+                .ok_or_else(|| "复制画布缺少工程文档".to_string())?;
+            decode_canvas_png(encoded)?
+        }
+    };
     crate::image_io::copy_png_to_clipboard(&png)
 }
 

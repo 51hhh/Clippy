@@ -16,6 +16,7 @@ const MAX_TEXT_LENGTH = 16 * 1024;
 const MAX_ID_LENGTH = 128;
 const VECTOR_TYPES = new Set(["pen", "marker", "rect", "ellipse", "highlight", "arrow", "line", "measure", "text"]);
 const EFFECT_TYPE_SET = new Set<string>(EFFECT_TYPES);
+const HEX_COLOR = /^#[0-9a-f]{3,4}(?:[0-9a-f]{3,4})?$/i;
 
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -86,8 +87,8 @@ function annotation(
       ? { value: { id, type: type as Annotation["type"] & ("blur" | "mosaic" | "spotlight" | "magnifier"), rect: bounds, effect }, pointCount: 0 }
       : null;
   }
-  if (!VECTOR_TYPES.has(type) || typeof item.color !== "string" || item.color.length === 0
-    || item.color.length > 128 || !finite(item.size, 0.1, 128)) return null;
+  if (!VECTOR_TYPES.has(type) || typeof item.color !== "string" || !HEX_COLOR.test(item.color)
+    || !finite(item.size, 0.1, 128)) return null;
   const common = { id, color: item.color, size: item.size };
   if (type === "pen" || type === "marker") {
     if (!Array.isArray(item.points) || item.points.length > MAX_STROKE_POINTS) return null;
@@ -122,7 +123,7 @@ export function parseInitialPinProject(value: unknown): EditorDocument | null {
   const document = record(project?.document);
   if (!project || project.format !== "clippy-pin-project"
     || (project.formatVersion !== 2 && project.formatVersion !== 3)
-    || project.rendererVersion !== 1 || !source || !document
+    || (project.rendererVersion !== 1 && project.rendererVersion !== 2) || !source || !document
     || !Number.isInteger(source.width) || !finite(source.width, 1, 100_000)
     || !Number.isInteger(source.height) || !finite(source.height, 1, 100_000)
     || typeof source.sha256 !== "string" || !/^[a-f0-9]{64}$/i.test(source.sha256)
@@ -141,7 +142,7 @@ export function parseInitialPinProject(value: unknown): EditorDocument | null {
     annotations.push(parsed.value);
   }
   return {
-    rendererVersion: 1,
+    rendererVersion: project.rendererVersion,
     sourceWidth: source.width,
     sourceHeight: source.height,
     annotations,
@@ -151,7 +152,7 @@ export function parseInitialPinProject(value: unknown): EditorDocument | null {
 
 export function emptyEditorDocument(width: number, height: number): EditorDocument {
   return {
-    rendererVersion: 1,
+    rendererVersion: 2,
     sourceWidth: width,
     sourceHeight: height,
     annotations: [],

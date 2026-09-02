@@ -16,20 +16,25 @@ function project(annotations = [], overrides = {}) {
 }
 
 describe("pin project runtime schema", () => {
-  it.each([2, 3])("hydrates a v%s document and normalizes renderer appearance parameters", (formatVersion) => {
+  it.each([
+    [2, 1],
+    [3, 1],
+    [3, 2],
+  ])("hydrates format v%s / renderer v%s and normalizes appearance parameters", (formatVersion, rendererVersion) => {
     const parsed = parseInitialPinProject(project([
       { id: "pen-1", type: "pen", color: "#fff", size: 3, points: [{ x: 1, y: 2 }, { x: 3, y: 4 }] },
       { id: "blur-1", type: "blur", rect: { x: 10, y: 20, width: 30, height: 40 }, effect: EFFECT },
       { id: "text-1", type: "text", color: "#fff", size: 4, at: { x: 8, y: 9 }, text: "safe", fontFamily: "system-ui" },
-    ], { formatVersion }));
+    ], { formatVersion, rendererVersion }));
 
-    expect(parsed).toMatchObject({ rendererVersion: 1, sourceWidth: 320, sourceHeight: 180 });
+    expect(parsed).toMatchObject({ rendererVersion, sourceWidth: 320, sourceHeight: 180 });
     expect(parsed.annotations[1].effect).toEqual(EFFECT);
     expect(parsed.annotations[2].fontFamily).toBe("system-ui");
   });
 
   it.each([
-    ["future renderer", project([], { rendererVersion: 2 })],
+    ["future renderer", project([], { rendererVersion: 3 })],
+    ["markup color", project([{ id: "x", type: "rect", color: "url(javascript:1)", size: 2, rect: { x: 0, y: 0, width: 2, height: 2 } }])],
     ["invalid hash", { ...project(), source: { width: 320, height: 180, sha256: "bad" } }],
     ["non-finite coordinate", project([{ id: "x", type: "pen", color: "#fff", size: 2, points: [{ x: NaN, y: 0 }] }])],
     ["out-of-bounds rect", project([{ id: "x", type: "blur", rect: { x: 300, y: 0, width: 30, height: 20 }, effect: EFFECT }])],

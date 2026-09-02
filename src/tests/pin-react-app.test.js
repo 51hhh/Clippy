@@ -431,7 +431,7 @@ describe("React pin app", () => {
    * 保存时要把工程内容一起送去（落盘那份会带 iTXt 块，见 `pin/project.rs`），
    * 而且**原图不在里面**——后端自己从条目取，前端回传几 MB 纯属浪费。
    */
-  it("sends the canvas project alongside the rendered PNG", async () => {
+  it("sends only the renderer v2 document and leaves final pixels to the backend", async () => {
     restoreStubs.push(stubImageDecoding());
     mocks.pinApi.get.mockResolvedValue({
       ...payload,
@@ -443,19 +443,17 @@ describe("React pin app", () => {
     await flush();
     await drawOneStroke();
 
-    // 导出的后半段（drawImage + toBlob）在 jsdom 里走不完，saveCanvas 因此不会被调到。
-    // 但要断言的是"送出去的工程内容长什么样"，所以把导出那一步替掉：
-    // exportPng 之后紧接着就是 saveCanvas，替掉它就能看到真实的第四个参数。
-    restoreStubs.push(stubCanvasExport());
     await act(async () => document.querySelector('button[aria-label="Save image"]').click());
     await flush();
     await act(async () => [...document.querySelectorAll(".pin-close-prompt button")][0].click());
     await flushAsyncChain();
 
     expect(mocks.pinApi.saveCanvas).toHaveBeenCalledTimes(1);
-    const [, , toClipboard, mode, sent] = mocks.pinApi.saveCanvas.mock.calls[0];
+    const [, pngBase64, toClipboard, mode, sent] = mocks.pinApi.saveCanvas.mock.calls[0];
+    expect(pngBase64).toBeNull();
     expect(toClipboard).toBe(true);
     expect(mode).toBe("editable");
+    expect(sent.rendererVersion).toBe(2);
     // 画了一笔，标注必须在。
     expect(sent.annotations).toHaveLength(1);
     expect(sent.annotations[0].type).toBe("pen");
@@ -783,7 +781,6 @@ describe("React pin app", () => {
   });
 
   it("copies the latest composition and advances the saved revision even if clipboard writing warns", async () => {
-    restoreStubs.push(stubCanvasExport());
     mocks.pinApi.saveCanvas.mockResolvedValue({ path: "/tmp/edited.png", clipboardWritten: false, clipboardError: "busy" });
     mocks.pinApi.get.mockResolvedValue({ ...payload, kind: "image", text: null, imageBase64: TINY_PNG });
     await act(async () => root.render(React.createElement(App)));
@@ -792,7 +789,10 @@ describe("React pin app", () => {
 
     await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "c", ctrlKey: true, bubbles: true })));
     await flushAsyncChain();
-    expect(mocks.pinApi.copyCanvas).toHaveBeenCalledWith("pin-image-test", expect.any(String));
+    expect(mocks.pinApi.copyCanvas).toHaveBeenCalledWith(
+      "pin-image-test",
+      expect.objectContaining({ rendererVersion: 2, sourceWidth: 320, sourceHeight: 180 }),
+    );
     expect(mocks.pinApi.copy).not.toHaveBeenCalled();
 
     await act(async () => document.querySelector('button[aria-label="Save image"]').click());
@@ -821,7 +821,6 @@ describe("React pin app", () => {
   });
 
   it("separates editable save from privacy-safe flat export", async () => {
-    restoreStubs.push(stubCanvasExport());
     mocks.pinApi.get.mockResolvedValue({ ...payload, kind: "image", text: null, imageBase64: TINY_PNG });
     await act(async () => root.render(React.createElement(App)));
     await flush();
@@ -833,7 +832,11 @@ describe("React pin app", () => {
     await act(async () => [...document.querySelectorAll(".pin-close-prompt button")][1].click());
     await flushAsyncChain();
     expect(mocks.pinApi.saveCanvas).toHaveBeenLastCalledWith(
-      "pin-image-test", expect.any(String), false, "flat", null,
+      "pin-image-test",
+      null,
+      false,
+      "flat",
+      expect.objectContaining({ rendererVersion: 2 }),
     );
   });
 

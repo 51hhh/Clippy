@@ -509,8 +509,8 @@ export function getPinSourceImage(label: string): Promise<string | null> {
  * 把贴图上画过的那一版存盘，可选同时进剪贴板。
  *
  * 普通来源条目由 `copyPin`/`savePin` 交付原图；工程来源条目交付保存时的 IDAT 预览。
- * 当前编辑结果必须由调用方渲染后走 `copyPinCanvas` 或本命令；只有未修改的导入工程
- * 可以传 `null`，由后端复用权威 IDAT，避免无意义的跨平台重渲染。
+ * renderer v2 的当前编辑结果只提交工程文档并让后端渲染；`pngBase64` 只保留给 v1 兼容路径。
+ * 未修改的导入工程同时传两个 `null`，由后端复用权威 IDAT。
  */
 export function savePinCanvas(
   label: string,
@@ -522,9 +522,9 @@ export function savePinCanvas(
   return invoke<PinCanvasSaveResult>("save_pin_canvas", { label, pngBase64, toClipboard, mode, project });
 }
 
-/** 把已编辑的最新合成像素写入剪贴板，不携带工程 iTXt。 */
-export function copyPinCanvas(label: string, pngBase64: string): Promise<void> {
-  return invoke<void>("copy_pin_canvas", { label, pngBase64 });
+/** 由后端按固定 renderer v2 合成并写入剪贴板，不携带工程 iTXt。 */
+export function copyPinCanvas(label: string, project: PinCanvasProject): Promise<void> {
+  return invoke<void>("copy_pin_canvas", { label, pngBase64: null, project });
 }
 
 /** 选择 PNG 并打开为贴图；取消返回 null。 */
