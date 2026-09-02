@@ -18,7 +18,7 @@ function completedRecord(profileId) {
   for (const [index, result] of record.results.entries()) {
     const contract = casesForProfile(profileId)[index];
     result.status = contract.acceptedStatuses[0];
-    result.observedReasonCode = contract.requiredReasonCode ?? null;
+    result.observedReasonCode = contract.acceptedReasonCodes?.[0] ?? null;
     result.observation = "已按步骤验证";
     result.evidence = [`evidence/${result.id}.txt`];
   }
@@ -59,7 +59,7 @@ describe("真机 QA 合同", () => {
     expect(verification.errors).toContain("clipboard_text 状态 not_run 不满足 pass");
   });
 
-  it("模板直接写明每项允许状态和必需 reason code", () => {
+  it("模板直接写明每项允许状态和可接受 reason code", () => {
     const record = createQaTemplate({
       profileId: "windows-11-x64",
       commit: SHA,
@@ -68,7 +68,7 @@ describe("真机 QA 合同", () => {
     const highIntegrity = record.results.find((result) => result.id === "auto_paste_high_integrity");
 
     expect(highIntegrity.acceptedStatuses).toEqual(["expected_degraded"]);
-    expect(highIntegrity.requiredReasonCode).toBe("windows_integrity_boundary");
+    expect(highIntegrity.acceptedReasonCodes).toEqual(["windows_integrity_boundary"]);
   });
 
   it("缺场景、重复场景和额外场景全部失败", () => {
@@ -93,6 +93,16 @@ describe("真机 QA 合同", () => {
     expect(verification.errors).toContain(
       "auto_paste_high_integrity 必须观测 reason code windows_integrity_boundary",
     );
+  });
+
+  it("Portal 拒绝接受产品实际可能返回的四个授权结果码", () => {
+    const record = completedRecord("linux-kde-wayland");
+    const denied = record.results.find((result) => result.id === "auto_paste_denied");
+    denied.observedReasonCode = "portal_keyboard_not_granted";
+
+    expect(verifyQaRecord(record).passed).toBe(true);
+    denied.observedReasonCode = "wayland_portal_permission";
+    expect(verifyQaRecord(record).passed).toBe(false);
   });
 
   it("每项必须同时有文字观测和证据引用", () => {
