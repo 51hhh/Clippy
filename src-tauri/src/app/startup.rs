@@ -1,3 +1,4 @@
+#[cfg(target_os = "linux")]
 use tauri::Manager;
 use tauri_plugin_autostart::ManagerExt;
 
@@ -14,7 +15,7 @@ pub(crate) fn guard_dev_autostart(app: &tauri::App) {
 }
 
 /// 仅在显式诊断开关启用时关闭硬件加速，避免全局策略导致 X11 黑屏。
-pub(crate) fn configure_webkit_diagnostics(app: &tauri::App) {
+pub(crate) fn configure_webkit_diagnostics(_app: &tauri::App) {
     #[cfg(target_os = "linux")]
     match webkit_diagnostic_policy(std::env::var("CLIPPY_DISABLE_GPU").ok().as_deref()) {
         WebkitDiagnosticPolicy::Default => {
@@ -24,7 +25,7 @@ pub(crate) fn configure_webkit_diagnostics(app: &tauri::App) {
             log::warn!(
                 "WebKit GPU 诊断已启用：关闭硬件加速、WebGL、媒体与页面缓存；删除 CLIPPY_DISABLE_GPU 即可回退"
             );
-            let Some(main_window) = app.get_webview_window("main") else {
+            let Some(main_window) = _app.get_webview_window("main") else {
                 log::warn!("WebKit GPU 诊断未应用：找不到 main 窗口");
                 return;
             };

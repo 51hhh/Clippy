@@ -31,9 +31,9 @@ pub fn configure_pin_window(window: &tauri::WebviewWindow) {
 /// 返回 `Stop` 就终止这次信号发射，WebKit 那边收不到事件、也就无从缩放。
 /// 只吃 `TouchpadPinch` 一种类型：按键、移动、触摸都要照常放过去，
 /// 否则贴图的拖动和按钮就全废了。
-fn swallow_touchpad_pinch(window: &tauri::WebviewWindow) {
+fn swallow_touchpad_pinch(_window: &tauri::WebviewWindow) {
     #[cfg(target_os = "linux")]
-    if let Err(error) = window.with_webview(|webview| {
+    if let Err(error) = _window.with_webview(|webview| {
         use gtk::glib::Propagation;
         use gtk::prelude::WidgetExt;
 
@@ -58,9 +58,9 @@ fn swallow_touchpad_pinch(window: &tauri::WebviewWindow) {
 /// 快捷键。捏合手势不走这条路（见 `swallow_touchpad_pinch`），别指望这里能拦住它。
 /// WebKitGTK 没有"禁用页面缩放"的开关（`webkit_settings_*` 里只有 `zoom-text-only`），
 /// 唯一能拿到的抓手就是 `zoom-level` 属性。于是监听它的变更、每次被改动就打回 1.0。
-fn lock_pin_zoom(window: &tauri::WebviewWindow) {
+fn lock_pin_zoom(_window: &tauri::WebviewWindow) {
     #[cfg(target_os = "linux")]
-    if let Err(error) = window.with_webview(|webview| {
+    if let Err(error) = _window.with_webview(|webview| {
         use webkit2gtk::WebViewExt;
         let webkit = webview.inner();
         webkit.set_zoom_level(1.0);
