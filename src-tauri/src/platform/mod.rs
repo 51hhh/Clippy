@@ -26,6 +26,17 @@ pub enum DesktopSession {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
+pub enum InstallType {
+    Appimage,
+    Deb,
+    Windows,
+    Macos,
+    Development,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CapabilityState {
     Available,
     PermissionRequired,
@@ -100,6 +111,41 @@ pub fn current_operating_system() -> OperatingSystem {
     } else {
         OperatingSystem::Other
     }
+}
+
+fn install_type_from(
+    operating_system: OperatingSystem,
+    appimage: bool,
+    development: bool,
+) -> InstallType {
+    if development {
+        return InstallType::Development;
+    }
+    match operating_system {
+        OperatingSystem::Linux if appimage => InstallType::Appimage,
+        OperatingSystem::Linux => InstallType::Deb,
+        OperatingSystem::Windows => InstallType::Windows,
+        OperatingSystem::Macos => InstallType::Macos,
+        OperatingSystem::Other => InstallType::Unknown,
+    }
+}
+
+pub fn is_dev_binary() -> bool {
+    match std::env::current_exe() {
+        Ok(path) => {
+            let path = path.to_string_lossy().replace('\\', "/");
+            path.contains("/target/debug/") || path.contains("/target/release/")
+        }
+        Err(_) => false,
+    }
+}
+
+pub fn current_install_type() -> InstallType {
+    install_type_from(
+        current_operating_system(),
+        std::env::var_os("APPIMAGE").is_some(),
+        is_dev_binary(),
+    )
 }
 
 fn detect_session_from(
@@ -370,6 +416,30 @@ mod tests {
         assert_eq!(
             detect_session_from(OperatingSystem::Macos, Some("x11"), false, true),
             DesktopSession::Native
+        );
+    }
+
+    #[test]
+    fn install_type_never_labels_native_platforms_as_deb() {
+        assert_eq!(
+            install_type_from(OperatingSystem::Windows, false, false),
+            InstallType::Windows
+        );
+        assert_eq!(
+            install_type_from(OperatingSystem::Macos, false, false),
+            InstallType::Macos
+        );
+        assert_eq!(
+            install_type_from(OperatingSystem::Linux, true, false),
+            InstallType::Appimage
+        );
+        assert_eq!(
+            install_type_from(OperatingSystem::Linux, false, false),
+            InstallType::Deb
+        );
+        assert_eq!(
+            install_type_from(OperatingSystem::Windows, false, true),
+            InstallType::Development
         );
     }
 
