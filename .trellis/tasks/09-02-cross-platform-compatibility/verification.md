@@ -260,8 +260,8 @@ Linux 主机上的 Windows 交叉检查仍会因缺少 MSVC `lib.exe`/SDK 及 C 
 - OCR 尚未捆绑签名 sidecar；当前依赖用户安装的 Tesseract 5，并在 Linux 才展示应用内安装按钮。
   Windows 新版安装器来自 Tesseract 文档列出的第三方构建，正式捆绑前仍需单独完成来源、许可、
   DLL、traineddata、签名和更新策略审计。
-- Windows Authenticode workflow 已接入；仓库没有 `WINDOWS_CERTIFICATE*` 时会生成 runner 临时自签名
-  证书并在当前用户信任库内验证 NSIS/MSI 的摘要与 signer thumbprint。该模式不建立公共 CA 信任，
+- Windows Authenticode workflow 已接入；仓库没有 `WINDOWS_CERTIFICATE*` 时会在 runner 的个人证书库
+  生成临时自签名证书，不导入 Root 信任库，并验证 NSIS/MSI 的摘要与 signer thumbprint。该模式不建立公共 CA 信任，
   正式页面必须保留 SmartScreen 警告；首次 tag 运行仍需补齐实际 runner 证据。
 - macOS Intel/Apple Silicon 已固定进入 release 并使用 Ad-Hoc 签名；这满足当前功能分发策略，但不建立
   Developer ID、公证或 Gatekeeper 公共信任。首次 tag 运行仍需补齐两架构产物与 updater 的 runner 证据。
