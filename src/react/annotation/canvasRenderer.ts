@@ -12,9 +12,9 @@ import {
 } from "./types";
 
 /**
- * renderer v1 使用宿主 WebView 的 Canvas 2D、字体和 CSS filter，保证的是工程语义与坐标合同，
- * 不是跨 WebKitGTK/WebView2/WKWebView 的逐像素确定性。未修改的可编辑 PNG 必须复用其 IDAT；
- * 若未来要求跨平台重绘也完全一致，需要由 renderer v2 固定字体、滤镜和光栅化实现。
+ * 这里的 Canvas 2D 负责交互预览和截图覆盖层导出，不是可编辑 PNG 的最终渲染事实源。
+ * Pin 工程的 Copy/Save 在 renderer v2 下统一交给 Rust 固定字体与软件光栅器；旧 v1 工程未修改时
+ * 复用 IDAT，第一次真实编辑后再升级。截图覆盖层仍走本文件的 Canvas 导出，不能宣称哈希级一致。
  */
 
 export type RenderViewport = {

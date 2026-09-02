@@ -64,9 +64,8 @@ export type TextAnnotation = {
   at: Point;
   text: string;
   /**
-   * 渲染器 v1 固定为系统 UI 字体策略，但不固定具体字体文件或字形。
-   * 未修改工程复用 IDAT 时像素不变；跨系统继续编辑触发重绘后，历史文字仍可能因
-   * 字体、字宽和抗锯齿不同而变化。要保证像素级一致需由后续渲染器保存字形或栅格快照。
+   * 文档里的稳定语义令牌。v1 交互/旧导出把它解释为宿主系统 UI 字体；v2 最终合成固定映射到
+   * 仓库内 Noto Sans CJK SC，不读取系统字体。Canvas 交互预览仍允许与最终文件有轻微光栅差异。
    */
   fontFamily?: "system-ui";
 };
@@ -97,7 +96,7 @@ export type EffectAnnotation = {
   id: string;
   type: EffectType;
   rect: Rect;
-  /** rendererVersion=1 的外观参数；旧的内存对象缺席时渲染器使用同一组默认值。 */
+  /** v1/v2 共用的稳定外观参数；旧的内存对象缺席时渲染器使用同一组默认值。 */
   effect?: EffectParameters;
 };
 

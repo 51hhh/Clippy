@@ -402,7 +402,7 @@ pub fn save_pin(label: String, state: State<'_, AppState>) -> Result<String, Str
     Ok(path.to_string_lossy().to_string())
 }
 
-/// 贴图的**原图**（base64 PNG）。画布导出要用它当底图。
+/// 贴图的**原图**（base64 PNG），只供前端 Canvas 交互预览；v2 最终导出由后端读取同一可信原图。
 ///
 /// **为什么不能用屏上那张。** `get_pin_payload` 给前端的 `image_base64` 优先是清晰度
 /// 补偿版（见 `payload_from_entry`）：它按**缓冲区分辨率**渲染（2560x1440 的贴图会是

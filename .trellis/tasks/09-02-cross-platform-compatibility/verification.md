@@ -4,11 +4,11 @@
 
 审查基线：`621e36f289a386dcf84d26c77742f6b0f1eae31e`
 
-代码与 CI 已审查至：`2e0dea493489f5e9fb65c7ab9832668daa313d6c`
+实现与本机 CI 已审查至：`7e5a4333259ed046470bf0c9edb99c6aaa13b444`
 
 ## 审查范围
 
-- 截至上述审查点，审查基线之后共 115 个提交、133 个变更文件，以及提交时仍存在的工作区内容。
+- 截至上述实现审查点，审查基线之后共 126 个提交，以及提交时仍存在的工作区内容。
 - 逐项检查截图、窗口命中、Pin、标注画布、可编辑 PNG、剪贴板、自动粘贴、快捷键、OCR、
   私有存储、自动启动、平台配置、CI 和 release 数据流。
 - `.omo/` 与 `.trellis/workspace/codex/` 是未跟踪的用户工作区，本次未读取、未修改、未提交。
@@ -24,16 +24,16 @@
 | `cargo fmt --check` | 通过 |
 | `cargo check` | 通过 |
 | `cargo clippy -- -D warnings` | 通过 |
-| `cargo test` | 413 通过、0 失败、6 个真实桌面/诊断测试忽略 |
+| `cargo test` | 424 通过、0 失败、7 个真实桌面/诊断/手动性能测试忽略 |
 | GNOME 扩展静态检查 | 通过，Shell 45–51 |
 | `npm ci` | 通过，0 个已报告漏洞 |
 | `tsc --noEmit` | 通过 |
-| Vitest | 41 个文件、781 项测试通过 |
+| Vitest | 41 个文件、784 项测试通过 |
 | DOM/Xvfb smoke | 9 项通过 |
 | Canvas 导出像素 smoke | 通过，抽样像素 `0 208 0` |
 | 主窗口布局像素 smoke | 通过，抽样像素 `0 208 0` |
 | Vite production build | 通过，1888 个模块完成转换 |
-| AppImage X11 可视 smoke | 通过；本机构建产物与 Ubuntu 22 finalized 产物均验证窗口、单实例回调和首帧 |
+| AppImage X11 可视 smoke | 本次按环境开关跳过；此前本机构建产物与 Ubuntu 22 finalized 产物已独立验证窗口、单实例回调和首帧 |
 
 受限沙箱内首次运行时，16 个回环 HTTP 测试因禁止 `TcpListener::bind` 失败，Vite/Xvfb smoke
 也无法绑定端口或显示；在允许回环网络和虚拟显示的同一主机上复跑后全部通过。该差异属于执行环境，
@@ -61,6 +61,11 @@
   文件名和 `linux/windows/darwin` 四个 `OS-ARCH` manifest key 与该规则一致。旧式 zip/tar 规则仅
   属于已弃用的 `v1Compatible` 模式。本结论是源码/配置审查，产物仍需原生 release job 验证。
 - `git diff --check` 通过。
+- renderer v2 组合金图覆盖四种效果、九种矢量/文字工具、调整与圆角，Linux RGBA SHA-256 为
+  `0868d38bf2e18a1f62d01cfa55d37954b1a66d3f2b99b3affb83dbe5d1b64478`；同一常量已进入原生 CI 测试。
+- 3840×2160 手动性能探针包含模糊、马赛克、聚光、放大镜、矢量和中英文文字；当前 Linux 主机的
+  优化 dev profile 合成耗时 1.627 秒。探针在常规 CI 中忽略，需显式 `--ignored` 运行以免硬件噪声
+  造成不稳定门禁。
 
 ## Ubuntu 22 release 与 AppImage 前向兼容验证
 
@@ -160,6 +165,10 @@
 - 打开可编辑 PNG 后，在用户尚未修改工程时直接显示并复用文件里的 IDAT 合成预览；复制、扁平保存和
   再存工程都不经过当前平台 WebView Canvas 重渲染，避免字体、模糊和滤镜实现差异改变像素。第一次真实
   编辑后才加载内嵌原图并提交新的合成图与工程文档；普通图片不能使用“复用预览”捷径。
+- 新建或首次编辑后的工程改用 renderer v2：Copy、扁平保存、可编辑保存共用后端唯一合成入口，固定
+  调整顺序、整数效果算法、纯 Rust 软件光栅器和仓库内 Noto Sans CJK SC 字体；v2 拒绝前端同时上传
+  另一份 PNG。16 Mi 像素、32 Mi 模糊缓存和 512 Mi 效果工作量预算在分配前检查，渲染放到 blocking
+  worker，不阻塞 WebView/GTK 事件线程。
 - 完整 CI 首轮发现旧 `pin-gestures` 夹具没有实现新增的 typed 平台能力查询，导致组件挂载失败；补齐
   与产品 API 一致的 `platform()` mock 后，相关 42 项测试及上述完整门禁全部通过。
 
@@ -182,13 +191,12 @@
   release workflow 已通过 finalization 修复并重签名，但手工分发未经 finalization 的原始产物仍不受支持。
 - Windows 私有文件 ACL 已有显式实现、目标编译测试和单元测试，但仍需 Windows 原生 runner 执行
   ACL 测试，并在 NTFS 实机确认旧文件修复、目录继承与连续 token 更新；keyring 失败不会退回明文。
-- 工程 v1 的文字层只固定 `fontFamily: system-ui` 策略，没有内嵌字体、字形轮廓或文字层栅格快照。
-  未修改工程复用 IDAT 时像素严格不变；但在另一平台继续编辑并触发整图重绘后，既有文字仍可能因
-  系统字体、字宽和抗锯齿不同而变化。因此“三平台继续编辑后像素完全相同”仍未验收；renderer v2
-  应选择可再发行的捆绑字体，或为文字层保存可移植字形/栅格 fallback，并为旧 v1 保留 IDAT 预览。
-- 同一次重绘中的模糊、图像调整、路径抗锯齿与缩放采样也由宿主 WebView Canvas 实现；v1 保证操作、
-  参数与原图坐标一致，不保证 WebKitGTK、WebView2 和 WKWebView 的逐像素输出一致。若发布标准要求
-  哈希级一致，renderer v2 还必须固定这些光栅算法，不能只解决字体。
+- renderer v2 的固定字体、调整、效果和矢量金图已在 Linux 通过，但当前分支尚未交给 Windows 与
+  macOS 原生 runner 执行同一摘要测试；在取得这些证据前，“三平台哈希相同”仍是已实现、待原生验证，
+  不能写成已验收。旧 renderer v1 未修改时继续复用 IDAT，第一次真实编辑才升级到 v2。
+- 截图覆盖层的即时 Copy/Save 仍由宿主 WebView Canvas 导出，尚未复用 Pin 工程的 renderer v2；
+  它的坐标与操作语义一致，但 WebKitGTK、WebView2 和 WKWebView 的最终像素仍可能不同。该限制不影响
+  可编辑 PNG 的原图/操作/iTXt 设计结论，但属于全截图链路要达到哈希级一致时的后续工作。
 
 ## 画布与可编辑 PNG 结论
 
@@ -202,8 +210,9 @@
    sha256 绑定 IDAT 合成像素：移植到另一张图的工程块会安全降级成扁平 PNG；同像素、不同压缩编码
    仍可读取。旧 v2 保持可读，并在下一次可编辑保存时升级为 v3。
 5. 未修改工程的显示、Copy 与再次保存直接复用已验证的 IDAT，不因操作系统字体或 WebView Canvas
-   实现不同而发生无意义重渲染；开始编辑后才以原图和操作层生成新的合成像素。
-6. 扁平导出移除工程数据；编辑后的 Copy 只复制合成像素。
+   实现不同而发生无意义重渲染；开始编辑后才把原图和操作层交给 renderer v2 生成新合成像素。
+6. renderer v2 的 Copy、扁平保存和可编辑保存共用同一次后端权威合成语义；扁平导出移除工程数据，
+   Copy 只复制合成像素，editable 文件则同时保存合成 IDAT 与可继续编辑的 iTXt 工程。
 
 不可把“原图指针”理解为持久化内存地址、临时路径或 clip id：它们在重启、清理、移动和分享后都会失效。
 若未来大图导致单文件成本过高，可增加内容寻址资产仓库（hash + 外部引用），但可编辑文件仍应保留内嵌
