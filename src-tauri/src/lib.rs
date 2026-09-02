@@ -34,7 +34,7 @@ use tauri::Manager;
 use tauri_plugin_global_shortcut::ShortcutState;
 
 pub(crate) use app::shortcuts::{
-    record_register_result, register_x11_shortcuts, toggle_main_window,
+    record_register_result, register_tauri_shortcuts, toggle_main_window,
 };
 
 /// 命令行截图诊断：`clippy --capture-diagnose` / `--emit-test-case` /
@@ -175,21 +175,21 @@ pub fn run() {
                     app.handle(),
                     &["global"],
                     &app_config.global_shortcut,
-                    true,
+                    platform::DesktopSession::Wayland,
                     gsettings_shortcuts::register(&app_config.global_shortcut),
                 );
                 record_register_result(
                     app.handle(),
                     &["pin"],
                     &app_config.pin_shortcut,
-                    true,
+                    platform::DesktopSession::Wayland,
                     gsettings_shortcuts::register_pin(&app_config.pin_shortcut),
                 );
                 record_register_result(
                     app.handle(),
                     &["capture"],
                     &app_config.capture_shortcut,
-                    true,
+                    platform::DesktopSession::Wayland,
                     gsettings_shortcuts::register_capture(&app_config.capture_shortcut),
                 );
                 // 用户装过窗口速选扩展的话，顺手做一次内容对齐与孤儿清理；
@@ -225,7 +225,7 @@ pub fn run() {
             } else {
                 log::info!("检测到 X11 会话，使用 tauri-plugin-global-shortcut");
                 // 逐个动作注册并在内部按动作记账，这里只需记录"全都没注册上"的整体失败。
-                if let Err(error) = register_x11_shortcuts(app.handle(), &app_config) {
+                if let Err(error) = register_tauri_shortcuts(app.handle(), &app_config) {
                     log::warn!("X11 快捷键全部注册失败: {error}");
                 }
             }
@@ -233,7 +233,7 @@ pub fn run() {
             #[cfg(not(target_os = "linux"))]
             {
                 log::info!("使用操作系统原生的 Tauri 全局快捷键后端");
-                if let Err(error) = register_x11_shortcuts(app.handle(), &app_config) {
+                if let Err(error) = register_tauri_shortcuts(app.handle(), &app_config) {
                     log::warn!("Tauri 全局快捷键全部注册失败: {error}");
                 }
             }

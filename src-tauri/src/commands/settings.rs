@@ -103,7 +103,7 @@ pub fn update_config(
                     &app_handle,
                     &["global"],
                     &config.global_shortcut,
-                    true,
+                    crate::platform::DesktopSession::Wayland,
                     crate::gsettings_shortcuts::update_binding(&config.global_shortcut),
                 );
             }
@@ -112,7 +112,7 @@ pub fn update_config(
                     &app_handle,
                     &["pin"],
                     &config.pin_shortcut,
-                    true,
+                    crate::platform::DesktopSession::Wayland,
                     crate::gsettings_shortcuts::update_pin_binding(&config.pin_shortcut),
                 );
             }
@@ -121,13 +121,13 @@ pub fn update_config(
                     &app_handle,
                     &["capture"],
                     &config.capture_shortcut,
-                    true,
+                    crate::platform::DesktopSession::Wayland,
                     crate::gsettings_shortcuts::update_capture_binding(&config.capture_shortcut),
                 );
             }
             return Ok(());
         }
-        if let Err(error) = crate::register_x11_shortcuts(&app_handle, &config) {
+        if let Err(error) = crate::register_tauri_shortcuts(&app_handle, &config) {
             // 逐个动作的失败已在注册内部记账，这里只记录整体失败
             log::warn!("Tauri 全局快捷键全部注册失败: {error}");
         }
@@ -154,8 +154,8 @@ pub async fn pick_screenshot_directory(
 
 /// 检查指定快捷键是否已被桌面或本应用占用。
 ///
-/// GNOME/Wayland 下枚举 gsettings 里已声明的绑定做精确比较；X11 下只能看到
-/// Clippy 自己的注册（X 服务器不提供他人 grab 的枚举），此时结果的
+/// GNOME/Wayland 下枚举 gsettings 里已声明的绑定做精确比较；Tauri 原生后端只能看到
+/// Clippy 自己的注册（系统不提供他人全局注册的通用枚举），此时结果的
 /// `enumerable = false`，前端据此不把"没查到"说成"没有冲突"。
 #[tauri::command]
 pub fn check_shortcut_conflict(
@@ -242,7 +242,13 @@ fn resume_gnome_shortcuts(app_handle: &tauri::AppHandle, config: &AppConfig) -> 
         if let Err(reason) = outcome {
             first_error.get_or_insert_with(|| reason.clone());
         }
-        crate::record_register_result(app_handle, &[action], shortcut, true, outcome.clone());
+        crate::record_register_result(
+            app_handle,
+            &[action],
+            shortcut,
+            crate::platform::DesktopSession::Wayland,
+            outcome.clone(),
+        );
     }
     match first_error {
         Some(reason) if failed == outcomes.len() => Err(reason),
@@ -283,11 +289,11 @@ pub(crate) fn resume_shortcuts_for_app(
         if crate::platform::uses_gnome_shortcuts() {
             resume_gnome_shortcuts(app_handle, &config)
         } else {
-            crate::register_x11_shortcuts(app_handle, &config)
+            crate::register_tauri_shortcuts(app_handle, &config)
         }
     };
     #[cfg(not(target_os = "linux"))]
-    let result = crate::register_x11_shortcuts(app_handle, &config);
+    let result = crate::register_tauri_shortcuts(app_handle, &config);
     if result.is_err() {
         state.shortcuts_paused.store(true, Ordering::Release);
     }
