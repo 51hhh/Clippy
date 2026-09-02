@@ -11,15 +11,19 @@
 //! 历史教训见 [`classify_stage`]：舞台图的倍率和"某一块屏自己的缩放"不是一回事，
 //! 混用过一次，代价是插上第二块屏后覆盖层整体错位。
 
-use super::{ImageRect, MonitorInfo};
+#[cfg(any(test, target_os = "linux"))]
+use super::ImageRect;
+use super::MonitorInfo;
 
 /// 比值判等的容差。舞台图尺寸是取整后的整数，`round()` 最多带来半像素误差，
 /// 换成比值后在 4K 量级上是 1e-4 的数量级，1e-3 足够松也足够严。
+#[cfg(any(test, target_os = "linux"))]
 const RATIO_EPSILON: f32 = 1e-3;
 
 /// 整张舞台图和显示器几何处于哪个坐标空间的关系。
 ///
 /// 判定依据只有一个：**舞台图 ÷ 逻辑并集**这个比值。
+#[cfg(any(test, target_os = "linux"))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum StageClass {
     /// 几何是逻辑像素，舞台图 = 逻辑并集 × 各视图里最大的缩放。
@@ -59,6 +63,7 @@ pub(super) fn desktop_max_scale_factor(monitors: &[MonitorInfo]) -> f32 {
 /// 这一条同时区分了"几何可信"与"几何是物理味"，因此切图前必须先问它走哪个分支，
 /// 而不是像以前那样无条件调用修正函数、靠"差值 ≤ 1 像素就提前返回"这个护栏碰运气——
 /// 混合缩放的多屏上护栏正好被绕过，非最大缩放的那块屏被改写成 1.125 倍。
+#[cfg(any(test, target_os = "linux"))]
 pub(super) fn classify_stage(
     monitors: &[MonitorInfo],
     union_width: u32,
@@ -112,6 +117,7 @@ pub(super) fn classify_stage(
 /// 配一块下移 408 像素的 1920x1200 笔记本屏），舞台图是并集的**外接矩形**，那些空出来的
 /// 区域根本没有显示器对应。"面积之和等于图面积"只在恰好平铺时成立，拿它当不变量会在
 /// 完全正常的布局上天天误报——覆盖率是诊断报告里的一个数字，不是判据。
+#[cfg(any(test, target_os = "linux"))]
 pub(super) fn verify_crops_do_not_overlap(crops: &[ImageRect]) -> Result<(), String> {
     for (index, crop) in crops.iter().enumerate() {
         for other in crops.iter().skip(index + 1) {
@@ -136,6 +142,7 @@ pub(super) fn verify_crops_do_not_overlap(crops: &[ImageRect]) -> Result<(), Str
 ///
 /// 返回 `(镜像屏下标, 源屏下标)`，按镜像屏下标升序。源屏只取**第一个**相同的，
 /// 所以三屏镜像会得到 `[(1,0),(2,0)]` 而不是链式的 `(2,1)`。
+#[cfg(any(test, target_os = "linux"))]
 pub(super) fn find_mirror_sources(crops: &[ImageRect]) -> Vec<(usize, usize)> {
     let mut mirrors = Vec::new();
     for (index, crop) in crops.iter().enumerate() {
@@ -153,6 +160,7 @@ pub(super) fn find_mirror_sources(crops: &[ImageRect]) -> Vec<(usize, usize)> {
 /// 常见成因：枚举到了已经拔掉的屏、几何是分辨率切换前的陈数据。
 ///
 /// 返回两个方向上偏差的最大像素数，0 表示通过。
+#[cfg(any(test, target_os = "linux"))]
 pub(super) fn verify_crop_not_clamped(
     rect_width: u32,
     rect_height: u32,
@@ -178,6 +186,7 @@ pub(super) fn verify_crop_not_clamped(
 
 /// 裁剪覆盖了舞台图的多大比例。**这是诊断报告里的一个数字，不是判据**（见
 /// [`verify_crops_do_not_overlap`] 里为什么）。前提是裁剪互不重叠。
+#[cfg(any(test, target_os = "linux"))]
 pub(super) fn crop_coverage_ratio(crops: &[ImageRect], image_width: u32, image_height: u32) -> f32 {
     let image_area = image_width as u64 * image_height as u64;
     if image_area == 0 {
@@ -200,6 +209,7 @@ pub(super) fn crop_coverage_ratio(crops: &[ImageRect], image_width: u32, image_h
 ///
 /// 拿不到可信比值（逻辑边长为 0、比值非有限或非正）时返回 `None`，由调用方决定退路，
 /// 而不是在这里悄悄兜一个 1.0。
+#[cfg(any(test, target_os = "linux"))]
 pub(super) fn output_scale_from_sizes(
     physical: (u32, u32),
     logical: (u32, u32),
@@ -228,6 +238,7 @@ pub(super) fn output_scale_from_sizes(
 /// **旋转屏不该在这里报错。** 舞台图是合成器合出来的桌面，旋转已经烤进去了，
 /// 旋转屏的逻辑矩形本身就是旋转后的（1080x1920），裁剪也是，两个方向的比值一致。
 /// 真正需要处理旋转的地方是 [`output_scale_from_sizes`]。
+#[cfg(any(test, target_os = "linux"))]
 pub(super) fn verify_frame_isotropy(rect_width: u32, rect_height: u32, crop: ImageRect) -> f32 {
     if rect_width == 0 || rect_height == 0 {
         return 0.0;
@@ -241,6 +252,7 @@ pub(super) fn verify_frame_isotropy(rect_width: u32, rect_height: u32, crop: Ima
     }
 }
 
+#[cfg(any(test, target_os = "linux"))]
 fn image_rect_overlap(a: ImageRect, b: ImageRect) -> u64 {
     let left = a.x.max(b.x);
     let top = a.y.max(b.y);
@@ -253,6 +265,7 @@ fn image_rect_overlap(a: ImageRect, b: ImageRect) -> u64 {
 }
 
 /// 两个比值是否可以认为相等。除数为 0 或非有限一律判否，免得 NaN 顺着往下传。
+#[cfg(any(test, target_os = "linux"))]
 fn ratios_match(a: f32, b: f32) -> bool {
     if !a.is_finite() || !b.is_finite() || a <= 0.0 || b <= 0.0 {
         return false;

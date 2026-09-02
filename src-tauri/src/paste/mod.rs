@@ -19,12 +19,19 @@ use std::{path::PathBuf, sync::Mutex};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PasteBackend {
+    #[cfg(target_os = "linux")]
     X11,
+    #[cfg(target_os = "linux")]
     WaylandPortal,
     #[cfg(target_os = "windows")]
     WindowsSendInput,
     #[cfg(target_os = "macos")]
     MacosQuartz,
+    #[cfg(any(
+        test,
+        target_os = "linux",
+        not(any(target_os = "linux", target_os = "windows", target_os = "macos"))
+    ))]
     CopyOnly,
 }
 
@@ -33,8 +40,14 @@ pub enum PasteBackend {
 pub enum PastePhase {
     Ready,
     PermissionRequired,
+    #[cfg(target_os = "linux")]
     Initializing,
+    #[cfg(target_os = "linux")]
     Denied,
+    #[cfg(any(
+        target_os = "linux",
+        not(any(target_os = "linux", target_os = "windows", target_os = "macos"))
+    ))]
     Unavailable,
 }
 

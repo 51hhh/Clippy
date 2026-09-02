@@ -65,5 +65,3 @@ pub fn install() -> Result<InstallOutcome, String> {
 pub fn uninstall() -> Result<ShellExtensionStatus, String> {
     Ok(ShellExtensionStatus::default())
 }
-
-pub fn reconcile_on_startup() {}

@@ -90,6 +90,7 @@ pub fn replace_private_file(source: &Path, destination: &Path) -> io::Result<()>
 }
 
 /// 判断文件是否没有向组或其他用户授予权限。
+#[cfg(any(test, target_os = "linux"))]
 pub fn is_private(path: &Path) -> bool {
     #[cfg(unix)]
     {

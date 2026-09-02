@@ -215,6 +215,7 @@ fn teardown_tmux_hook() {
 }
 
 /// tmux 缓冲区文件路径。
+#[cfg(target_os = "linux")]
 pub fn tmux_buf_path() -> std::path::PathBuf {
     std::path::PathBuf::from(
         std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string()),
