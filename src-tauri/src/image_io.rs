@@ -65,9 +65,9 @@ pub struct SaveTarget {
 }
 
 impl SaveTarget {
-    pub fn from_config(config: &AppConfig) -> Self {
+    pub fn from_config(config: &AppConfig, default_directory: &Path) -> Self {
         Self {
-            directory: resolve_save_dir(&config.screenshot_save_dir),
+            directory: resolve_save_dir(&config.screenshot_save_dir, default_directory),
             template: resolve_template(&config.screenshot_filename_template),
         }
     }
@@ -118,10 +118,10 @@ fn home_dir() -> Option<PathBuf> {
 }
 
 /// 配置留空表示跟随内置默认目录，不把当前默认路径固化进用户配置。
-fn resolve_save_dir(configured: &str) -> PathBuf {
+fn resolve_save_dir(configured: &str, default_directory: &Path) -> PathBuf {
     let configured = configured.trim();
     if configured.is_empty() {
-        return default_screenshot_dir();
+        return default_directory.to_path_buf();
     }
     expand_user_path(configured)
 }
@@ -307,23 +307,30 @@ mod tests {
     #[test]
     fn save_dir_expands_tilde_and_falls_back_to_the_default() {
         let home = home_dir().expect("测试环境应当有 HOME");
-        assert_eq!(resolve_save_dir(""), default_screenshot_dir());
-        assert_eq!(resolve_save_dir("  "), default_screenshot_dir());
-        assert_eq!(resolve_save_dir("~"), home);
-        assert_eq!(resolve_save_dir("~/Shots"), home.join("Shots"));
-        assert_eq!(resolve_save_dir("/tmp/shots"), PathBuf::from("/tmp/shots"));
+        let default = PathBuf::from("/system/Pictures/Clippy");
+        assert_eq!(resolve_save_dir("", &default), default);
+        assert_eq!(resolve_save_dir("  ", &default), default);
+        assert_eq!(resolve_save_dir("~", &default), home);
+        assert_eq!(resolve_save_dir("~/Shots", &default), home.join("Shots"));
+        assert_eq!(
+            resolve_save_dir("/tmp/shots", &default),
+            PathBuf::from("/tmp/shots")
+        );
         // `~` 只在开头且紧跟分隔符时展开，普通相对路径原样保留。
-        assert_eq!(resolve_save_dir("a~b"), PathBuf::from("a~b"));
+        assert_eq!(resolve_save_dir("a~b", &default), PathBuf::from("a~b"));
     }
 
     #[test]
     fn save_target_from_config_resolves_empty_values() {
         let mut config = AppConfig::default();
-        assert_eq!(SaveTarget::from_config(&config), SaveTarget::default());
+        let system_default = PathBuf::from("/system/Pictures/Clippy");
+        let target = SaveTarget::from_config(&config, &system_default);
+        assert_eq!(target.directory, system_default);
+        assert_eq!(target.template, DEFAULT_FILENAME_TEMPLATE);
 
         config.screenshot_save_dir = "/tmp/clippy-shots".to_string();
         config.screenshot_filename_template = "cap-{date}.png".to_string();
-        let target = SaveTarget::from_config(&config);
+        let target = SaveTarget::from_config(&config, Path::new("/unused"));
         assert_eq!(target.directory, PathBuf::from("/tmp/clippy-shots"));
         assert_eq!(target.template, "cap-{date}");
     }

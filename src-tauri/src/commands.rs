@@ -28,6 +28,8 @@ pub struct AppState {
     pub storage: Arc<Mutex<StorageEngine>>,
     pub config: Arc<Mutex<AppConfig>>,
     pub config_path: PathBuf,
+    /// Tauri 按当前操作系统解析出的图片目录；配置留空时保存到其 `Clippy` 子目录。
+    pub default_screenshot_dir: PathBuf,
     pub watcher: ClipboardWatcher,
     pub preview_visible: Arc<Mutex<bool>>,
     pub codec_visible: Arc<Mutex<bool>>,
@@ -53,10 +55,15 @@ impl AppState {
     /// 保存动作不该因为别处的 panic 而失败。
     pub fn save_target(&self) -> crate::image_io::SaveTarget {
         match self.config.lock() {
-            Ok(config) => crate::image_io::SaveTarget::from_config(&config),
+            Ok(config) => {
+                crate::image_io::SaveTarget::from_config(&config, &self.default_screenshot_dir)
+            }
             Err(error) => {
                 log::warn!("读取保存目录配置失败，使用默认目录: {error}");
-                crate::image_io::SaveTarget::default()
+                crate::image_io::SaveTarget {
+                    directory: self.default_screenshot_dir.clone(),
+                    template: crate::image_io::DEFAULT_FILENAME_TEMPLATE.to_string(),
+                }
             }
         }
     }
