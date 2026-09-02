@@ -78,13 +78,17 @@ sudo dpkg -i clippy_*.deb
 chmod +x Clippy_*.AppImage && ./Clippy_*.AppImage
 ```
 
-**OCR（可选）：** 图片文字识别需要 tesseract。可在 设置 → OCR → 点击"一键安装"按钮，或手动安装：
+**OCR（可选）：** 图片文字识别需要 Tesseract 5。“一键安装”仅在 Linux 展示；其他平台会显示对应的手动安装命令：
 
 ```bash
+# Debian / Ubuntu
 sudo apt install tesseract-ocr tesseract-ocr-chi-sim
+
+# macOS（Homebrew；也支持 MacPorts）
+brew install tesseract
 ```
 
-未安装 tesseract 时，Clippy 正常运行，设置页会显示安装状态和一键安装按钮。
+Windows 请安装当前 Tesseract 5 构建后重启 Clippy。Clippy 依次探测 `CLIPPY_TESSERACT_PATH`、未来随包 sidecar、进程 `PATH` 和 Linux/macOS/Windows 常见安装位置；未找到时其他功能仍正常工作，仅 OCR 不可用。
 
 ## 从源码构建
 

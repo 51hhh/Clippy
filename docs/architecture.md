@@ -217,6 +217,11 @@ GNOME 自定义快捷键条目路径按 command 认领而不是写死 `custom0/1
 `XDG_SESSION_TYPE` 优先于残留的 display 环境变量；只有已判定为 Wayland 且同时存在 `DISPLAY` 才报告 XWayland。Portal 服务存在不等于所有接口都存在，能力探测按接口读取 `version`，缺失时不再误报成“等待授权”。Portal token 不进入普通配置；Unix 独立文件必须为 0600、目录为 0700，Windows 文件和目录使用禁止继承宽松权限的受保护 DACL，只保留当前用户的完整访问 ACE。配置与 restore token 都通过同一私有文件替换函数提交：Unix 使用 `rename`，Windows 使用 `MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH)`，替换后再次校正最终路径权限。首次 Portal 确认、撤权和桌面后端是否允许静默恢复仍属于真实桌面人工验收。
 截图 Portal 的交互模式由截图用户动作显式开启；后台或未来自动任务应传入非交互模式，避免隐式弹出桌面授权。
 
+OCR 仍通过 CLI 子进程隔离 Tesseract ABI。解析顺序为显式 `CLIPPY_TESSERACT_PATH`、应用同目录/
+macOS Resources 中的未来 sidecar、进程 PATH、平台常见安装目录；每个候选必须通过 `--version` 才会
+用于识别，因此能力探测与真正执行不会指向两份不同程序。当前发布包不含 Tesseract，Linux 才提供
+用户点击触发的 apt 安装；Windows/macOS 设置页展示各自安装方式，不能调用 Linux 提权命令。
+
 ## 安全规则
 
 - 敏感条目在 Rust 内容选择阶段拒绝翻译；朗读条目文本走同一条内容选择路径，因此同样被拒绝。

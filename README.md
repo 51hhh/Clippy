@@ -78,13 +78,17 @@ sudo dpkg -i clippy_*.deb
 chmod +x Clippy_*.AppImage && ./Clippy_*.AppImage
 ```
 
-**OCR (optional):** Image text recognition requires tesseract. You can install it from Settings → OCR → "Install" button, or manually:
+**OCR (optional):** Image text recognition requires Tesseract 5. The in-app Install button is Linux-only; other platforms show their manual installation command:
 
 ```bash
+# Debian / Ubuntu
 sudo apt install tesseract-ocr tesseract-ocr-chi-sim
+
+# macOS (Homebrew; MacPorts is also supported)
+brew install tesseract
 ```
 
-If tesseract is not installed, Clippy works normally — OCR just shows an install hint in the Settings page.
+On Windows, install a current Tesseract 5 build, then restart Clippy. Clippy checks `CLIPPY_TESSERACT_PATH`, a future bundled sidecar, the process `PATH`, and conventional Linux/macOS/Windows install locations in that order. Without Tesseract, Clippy works normally and only OCR is unavailable.
 
 ## Build from Source
 

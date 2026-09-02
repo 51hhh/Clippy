@@ -24,6 +24,8 @@
   同时验证 NSIS/MSI 的 Authenticode 状态和证书指纹，缺少或过期证书不再发布“未知发布者”安装包。
 - release tag 必须是合法 SemVer、可从 `main`/`dev` 到达，并与 Tauri、Cargo 和 CHANGELOG 精确一致；
   macOS 产物上传前另行验证 Developer ID、Hardened Runtime、Gatekeeper 和已 stapling 的公证票据。
+- OCR 探测与执行共用同一个已验证路径，依次支持 `CLIPPY_TESSERACT_PATH`、随包 sidecar、PATH 和
+  三平台常见安装目录；设置页在未捆绑 sidecar 时显示 Linux、Windows、macOS 对应安装方式。
 - Ubuntu 22.04 重新成为 Linux 最低构建基线：默认依赖图使用 Jammy 可编译的截图实现，
   `pipewire-rs` 仅作为较新 Linux 可显式启用的增强 feature。
 
