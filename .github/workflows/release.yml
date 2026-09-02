@@ -299,13 +299,7 @@ jobs:
 
           foreach ($artifact in @($nsis, $msi)) {
             $signature = Get-AuthenticodeSignature $artifact.FullName
-            $allowedStatuses = if ($env:WINDOWS_SIGNING_MODE -eq "self-signed") {
-              @("Valid", "NotTrusted")
-            }
-            else {
-              @("Valid")
-            }
-            if ($signature.Status.ToString() -notin $allowedStatuses) {
+            if ($signature.Status.ToString() -ne "Valid") {
               throw "Invalid Authenticode signature on $($artifact.Name): $($signature.Status)"
             }
             if (-not $signature.SignerCertificate) {
@@ -331,6 +325,10 @@ jobs:
           if (-not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_THUMBPRINT)) {
             Remove-Item "Cert:\CurrentUser\My\$env:WINDOWS_CERTIFICATE_THUMBPRINT" `
               -Force -ErrorAction SilentlyContinue
+            if ($env:WINDOWS_SIGNING_MODE -eq "self-signed") {
+              Remove-Item "Cert:\CurrentUser\TrustedPeople\$env:WINDOWS_CERTIFICATE_THUMBPRINT" `
+                -Force -ErrorAction SilentlyContinue
+            }
           }
 
   build-macos:

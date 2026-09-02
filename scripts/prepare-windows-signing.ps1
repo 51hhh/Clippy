@@ -6,6 +6,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $pfxPath = Join-Path $env:RUNNER_TEMP "clippy-signing.pfx"
+$cerPath = Join-Path $env:RUNNER_TEMP "clippy-signing.cer"
 try {
   $hasCertificate = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)
   $hasPassword = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)
@@ -68,6 +69,16 @@ try {
     throw "The Windows code-signing certificate is not currently valid"
   }
 
+  if ($signingMode -eq "self-signed") {
+    Export-Certificate -Cert $certificate -FilePath $cerPath | Out-Null
+    $trustedCertificate = Import-Certificate -FilePath $cerPath `
+      -CertStoreLocation Cert:\CurrentUser\TrustedPeople
+    if (-not $trustedCertificate -or
+        $trustedCertificate.Thumbprint.ToUpperInvariant() -ne $thumbprint) {
+      throw "The self-signed certificate was not installed in TrustedPeople"
+    }
+  }
+
   "WINDOWS_CERTIFICATE_THUMBPRINT=$thumbprint" |
     Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
   "WINDOWS_SIGNING_MODE=$signingMode" |
@@ -89,4 +100,5 @@ try {
 }
 finally {
   Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
+  Remove-Item $cerPath -Force -ErrorAction SilentlyContinue
 }
