@@ -294,6 +294,10 @@ describe("release 下载链接与构建矩阵同步", () => {
     expect(release).not.toContain("write-all");
   });
 
+  it("每个 release job 都有超时保护", () => {
+    expect(release.match(/^\s{4}timeout-minutes: \d+$/gm)).toHaveLength(6);
+  });
+
   it("正式构建前核对同 SHA 原生 CI 并解析签名策略", () => {
     expect(release).toContain("node scripts/verify-native-ci.mjs");
     expect(release).toContain('--sha "$GITHUB_SHA"');

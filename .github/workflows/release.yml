@@ -20,6 +20,7 @@ jobs:
   check-version:
     name: Check Tag & Version
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       version: ${{ steps.get_version.outputs.version }}
     steps:
@@ -76,6 +77,7 @@ jobs:
     name: Check CI & Signing Readiness
     needs: check-version
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       windows_signing_mode: ${{ steps.release_options.outputs.windows_signing_mode }}
     permissions:
@@ -130,6 +132,7 @@ jobs:
     name: Build (${{ matrix.label }})
     needs: [check-version, release-preflight]
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
     permissions:
       contents: read
       artifact-metadata: write
@@ -233,6 +236,7 @@ jobs:
     name: Build (Windows x64)
     needs: [check-version, release-preflight]
     runs-on: windows-latest
+    timeout-minutes: 60
     permissions:
       contents: read
       artifact-metadata: write
@@ -333,6 +337,7 @@ jobs:
     name: Build (macOS ${{ matrix.label }})
     needs: [check-version, release-preflight]
     runs-on: macos-latest
+    timeout-minutes: 60
     permissions:
       contents: read
       artifact-metadata: write
@@ -433,6 +438,7 @@ jobs:
     name: Update Release Notes
     needs: [check-version, release-preflight, build-linux, build-windows, build-macos]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
       artifact-metadata: read
