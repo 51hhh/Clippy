@@ -165,6 +165,11 @@ git push origin vx.y.z
 NSIS、macOS 使用 `.app.tar.gz`。DEB、MSI 和 DMG 是人工安装入口，不写入默认 updater manifest。
 签名文件内容直接嵌入 manifest，不能写成签名文件 URL。
 
+`scripts/generate-updater-manifest.mjs` 是 manifest 的唯一生成入口。它把四个 `OS-ARCH` key、平台
+Tauri bundle target、标准化 artifact 名和签名文件名绑定在同一份受测契约中，并拒绝缺签名、错误
+SemVer、非 UTC RFC 3339 时间或非 HTTPS 下载地址。release workflow 只负责汇总构建产物和调用该
+生成器，不再在 YAML 中维护第二份平台映射。
+
 ## 常见 CI 失败原因
 
 | 错误 | 原因 | 修复 |

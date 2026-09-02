@@ -4,11 +4,11 @@
 
 审查基线：`621e36f289a386dcf84d26c77742f6b0f1eae31e`
 
-实现与本机 CI 已审查至：`8eaf3911e9fee837795b99a6f327c14238ad7238`
+实现与最近一次完整本机 CI 已审查至：`9fc6882609bbdf964616225c0ccb95478960a2c0`
 
 ## 审查范围
 
-- 截至上述实现审查点，审查基线之后共 128 个提交，以及提交时仍存在的工作区内容。
+- 截至上述实现审查点，审查基线之后共 131 个提交，以及提交时仍存在的工作区内容。
 - 逐项检查截图、窗口命中、Pin、标注画布、可编辑 PNG、剪贴板、自动粘贴、快捷键、OCR、
   私有存储、自动启动、平台配置、CI 和 release 数据流。
 - `.omo/` 与 `.trellis/workspace/codex/` 是未跟踪的用户工作区，本次未读取、未修改、未提交。
@@ -28,7 +28,7 @@
 | GNOME 扩展静态检查 | 通过，Shell 45–51 |
 | `npm ci` | 通过，0 个已报告漏洞 |
 | `tsc --noEmit` | 通过 |
-| Vitest | 41 个文件、784 项测试通过 |
+| Vitest | 42 个文件、791 项测试通过 |
 | DOM/Xvfb smoke | 9 项通过 |
 | Canvas 导出像素 smoke | 通过，抽样像素 `0 208 0` |
 | 主窗口布局像素 smoke | 通过，抽样像素 `0 208 0` |
@@ -60,6 +60,9 @@
   AppImage 与 Windows NSIS/MSI 是自包含更新器并直接签名，macOS 使用 `app.tar.gz`；工作流收集的
   文件名和 `linux/windows/darwin` 四个 `OS-ARCH` manifest key 与该规则一致。旧式 zip/tar 规则仅
   属于已弃用的 `v1Compatible` 模式。本结论是源码/配置审查，产物仍需原生 release job 验证。
+- `latest.json` 现由受测 Node 生成器统一生成：同一份平台契约同时绑定 Tauri 覆盖配置中的 bundle
+  target、四个 `OS-ARCH` key、标准化 artifact 文件名和 `.sig` 文件名；生成器拒绝缺失/空签名、
+  非 SemVer 版本、非 UTC RFC 3339 时间和非 HTTPS 下载地址。签名内容直接内嵌，不接受签名 URL。
 - `git diff --check` 通过。
 - renderer v2 组合金图覆盖四种效果、九种矢量/文字工具、调整与圆角，Linux RGBA SHA-256 为
   `0868d38bf2e18a1f62d01cfa55d37954b1a66d3f2b99b3affb83dbe5d1b64478`；同一常量已进入原生 CI 测试。
@@ -93,8 +96,10 @@
 
 ## 原生平台验证状态
 
-截至上述审查点，`dev` 比 `origin/dev` 多 141 个本地提交。GitHub 上最近一次 `build.yml` 成功运行是
-2026-08-30 的 `8f6c1b57ad844ebc98254b9f88b16e88f3cce314`，不包含本轮改动。
+截至上述审查点，`dev` 比 `origin/dev` 多 157 个本地提交。公开 GitHub API 显示最近一次
+`build.yml` 成功运行是 2026-08-30 的 run 60、commit
+`8f6c1b57ad844ebc98254b9f88b16e88f3cce314`；该 run 只有一个 `Check (ubuntu-24.04)` job，明确没有
+执行本轮新增的 `windows-latest` / `macos-latest` 原生矩阵，也不包含本轮实现。
 
 - Windows MSVC：完整工程在 Linux 主机交叉检查时缺少 `llvm-rc`、MSVC `lib.exe`/SDK 以及
   `ring`/SQLite 所需原生构建工具，因而在依赖构建阶段停止；私有文件模块的独立 MSVC 目标检查已
@@ -135,6 +140,8 @@
   EKU 与有效期，以 SHA-256/RFC 3161 签名，并在上传前验证两个安装包的状态和 signer thumbprint。
 - release 曾只比较 tag 与 Tauri 版本、对非发布分支 tag 仅给 warning：现在硬校验 SemVer、Tauri/Cargo/
   CHANGELOG 三方一致性和 `main`/`dev` 可达性；现有 `v0.1.17` fixture 已通过同一组本地命令。
+- release 曾在 YAML 内联 `jq` 中重复硬编码四个平台键、artifact URL 和签名变量，配置 target 改动后
+  可能静默漂移；现改由可单测生成器维护唯一平台契约，并从标准化产物目录读取精确同名的四份签名。
 - macOS 构建仅依赖 bundler 成功返回：上传前现在独立核对 Developer ID authority、Hardened Runtime、
   严格代码签名、Gatekeeper assessment 和 stapled notarization ticket。
 - 非 GNOME Wayland 只尝试 GNOME GSettings 并必然失败：接入 GlobalShortcuts Portal，按 XDG/xkb
