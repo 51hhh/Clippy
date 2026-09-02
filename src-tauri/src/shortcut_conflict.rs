@@ -120,6 +120,7 @@ pub fn normalize_accel(accel: &str) -> Option<String> {
 ///
 /// 每行形如 `schema key value`，value 可能是 `['<Alt>F4']`、`['']`、`@as []`
 /// 或多个值。取所有单引号内的字符串作为 accelerator 候选。
+#[cfg(any(test, target_os = "linux"))]
 pub fn parse_bindings(raw: &str) -> Vec<Binding> {
     raw.lines()
         .filter_map(|line| {
@@ -137,6 +138,7 @@ pub fn parse_bindings(raw: &str) -> Vec<Binding> {
 }
 
 /// 取出 `['a', 'b']` 里的 `a`、`b`
+#[cfg(any(test, target_os = "linux"))]
 fn quoted_values(value: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut rest = value;

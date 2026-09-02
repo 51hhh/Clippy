@@ -52,6 +52,7 @@ const MAX_COMMIT_PNG_BYTES: usize = 64 * 1024 * 1024;
 const HIDE_SETTLE_MS: u64 = 140;
 
 /// 启动自检：扩展内容过期就静默升级，目录被手工删掉就清理 gsettings 里的孤儿条目。
+#[cfg(target_os = "linux")]
 pub(crate) fn reconcile_window_probe_extension() {
     shell_extension::reconcile_on_startup();
 }

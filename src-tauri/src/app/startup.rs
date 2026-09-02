@@ -53,12 +53,14 @@ pub(crate) fn configure_webkit_diagnostics(_app: &tauri::App) {
     }
 }
 
+#[cfg(any(test, target_os = "linux"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WebkitDiagnosticPolicy {
     Default,
     DisableGpu,
 }
 
+#[cfg(any(test, target_os = "linux"))]
 fn webkit_diagnostic_policy(value: Option<&str>) -> WebkitDiagnosticPolicy {
     match value {
         Some("1") => WebkitDiagnosticPolicy::DisableGpu,

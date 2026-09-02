@@ -122,6 +122,7 @@ pub struct PortalInterfaceInfo {
 }
 
 impl PortalInterfaceInfo {
+    #[cfg(any(test, target_os = "linux"))]
     fn from_version(version: Option<u32>) -> Self {
         Self {
             available: version.is_some(),
@@ -261,6 +262,7 @@ pub fn uses_gnome_shortcuts() -> bool {
     is_wayland() && is_gnome_desktop()
 }
 
+#[cfg(target_os = "linux")]
 pub fn uses_portal_shortcuts() -> bool {
     is_wayland() && !is_gnome_desktop()
 }
@@ -269,6 +271,7 @@ fn detect_xwayland(session: DesktopSession, has_x11_display: bool) -> bool {
     session == DesktopSession::Wayland && has_x11_display
 }
 
+#[cfg(any(test, target_os = "linux"))]
 fn portal_info_from(
     desktop_service_available: bool,
     version: impl Fn(&str) -> Option<u32>,

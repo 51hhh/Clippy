@@ -1269,6 +1269,7 @@ pub(super) fn portal_screenshot_uri_to_path(uri: &str) -> Result<std::path::Path
     Ok(std::path::PathBuf::from(decoded.into_owned()))
 }
 
+#[cfg(target_os = "linux")]
 fn unique_suffix() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let millis = SystemTime::now()

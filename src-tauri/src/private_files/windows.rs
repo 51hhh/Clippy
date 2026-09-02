@@ -4,22 +4,31 @@ use std::ffi::c_void;
 use std::io;
 use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
-use std::ptr::{addr_of, null, null_mut};
+#[cfg(test)]
+use std::ptr::addr_of;
+use std::ptr::{null, null_mut};
 
 use windows_sys::Win32::Foundation::{CloseHandle, LocalFree, ERROR_SUCCESS, GENERIC_ALL, HANDLE};
+#[cfg(test)]
+use windows_sys::Win32::Security::Authorization::GetNamedSecurityInfoW;
 use windows_sys::Win32::Security::Authorization::{
-    GetNamedSecurityInfoW, SetEntriesInAclW, SetNamedSecurityInfoW, EXPLICIT_ACCESS_W,
-    NO_MULTIPLE_TRUSTEE, SET_ACCESS, SE_FILE_OBJECT, TRUSTEE_IS_SID, TRUSTEE_IS_USER, TRUSTEE_W,
+    SetEntriesInAclW, SetNamedSecurityInfoW, EXPLICIT_ACCESS_W, NO_MULTIPLE_TRUSTEE, SET_ACCESS,
+    SE_FILE_OBJECT, TRUSTEE_IS_SID, TRUSTEE_IS_USER, TRUSTEE_W,
+};
+#[cfg(test)]
+use windows_sys::Win32::Security::{
+    EqualSid, GetAce, GetSecurityDescriptorControl, IsValidAcl, ACCESS_ALLOWED_ACE,
+    SE_DACL_PROTECTED,
 };
 use windows_sys::Win32::Security::{
-    EqualSid, GetAce, GetSecurityDescriptorControl, GetTokenInformation, IsValidAcl, IsValidSid,
-    TokenUser, ACCESS_ALLOWED_ACE, ACL, DACL_SECURITY_INFORMATION, NO_INHERITANCE,
-    PROTECTED_DACL_SECURITY_INFORMATION, PSID, SE_DACL_PROTECTED,
-    SUB_CONTAINERS_AND_OBJECTS_INHERIT, TOKEN_QUERY, TOKEN_USER,
+    GetTokenInformation, IsValidSid, TokenUser, ACL, DACL_SECURITY_INFORMATION, NO_INHERITANCE,
+    PROTECTED_DACL_SECURITY_INFORMATION, PSID, SUB_CONTAINERS_AND_OBJECTS_INHERIT, TOKEN_QUERY,
+    TOKEN_USER,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
 };
+#[cfg(test)]
 use windows_sys::Win32::System::SystemServices::ACCESS_ALLOWED_ACE_TYPE;
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
@@ -187,10 +196,12 @@ pub(super) fn restrict(path: &Path, directory: bool) -> io::Result<()> {
     }
 }
 
+#[cfg(test)]
 pub(super) fn is_private(path: &Path) -> bool {
     private_acl(path).unwrap_or(false)
 }
 
+#[cfg(test)]
 fn private_acl(path: &Path) -> io::Result<bool> {
     let path = wide_path(path)?;
     let user = CurrentUser::query()?;

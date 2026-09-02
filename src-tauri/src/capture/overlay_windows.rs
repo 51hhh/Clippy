@@ -85,6 +85,7 @@ fn spawn_ready_fallback(app: &tauri::AppHandle, specs: &[OverlaySpec]) {
 }
 
 /// 覆盖层的目标矩形，单位是逻辑像素，与 GDK 显示器几何同一个坐标系。
+#[cfg(any(test, target_os = "linux"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct OverlayRect {
     pub x: i32,
@@ -93,6 +94,7 @@ pub(super) struct OverlayRect {
     pub height: u32,
 }
 
+#[cfg(target_os = "linux")]
 impl From<&OverlaySpec> for OverlayRect {
     fn from(spec: &OverlaySpec) -> Self {
         Self {
@@ -105,6 +107,7 @@ impl From<&OverlaySpec> for OverlayRect {
 }
 
 /// 两个矩形的重叠面积。用 i64 是因为 4K 多屏下 `width * height` 会接近 i32 上限。
+#[cfg(any(test, target_os = "linux"))]
 pub(super) fn overlap_area(a: OverlayRect, b: OverlayRect) -> i64 {
     let left = a.x.max(b.x) as i64;
     let top = a.y.max(b.y) as i64;
@@ -114,6 +117,7 @@ pub(super) fn overlap_area(a: OverlayRect, b: OverlayRect) -> i64 {
 }
 
 /// 在候选显示器里挑与目标矩形重叠面积最大的那个，重叠为 0 就返回 None（交给全屏兜底）。
+#[cfg(any(test, target_os = "linux"))]
 pub(super) fn best_monitor_index(target: OverlayRect, monitors: &[OverlayRect]) -> Option<i32> {
     monitors
         .iter()

@@ -81,6 +81,7 @@ struct DesktopBounds {
     height: u32,
 }
 
+#[cfg(any(test, target_os = "linux"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ImageRect {
     x: u32,

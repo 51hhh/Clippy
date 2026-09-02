@@ -218,6 +218,7 @@ fn keep_native_z_order(_candidates: &mut [(Option<u32>, ProbeRect, String)]) {
 ///
 /// 有 `_NET_CLIENT_LIST_STACKING`（由下到上）时按它排，这是真正的遮挡关系；拿不到时
 /// 退化成面积小的优先——纯猜，但比任意顺序好：小窗口通常压在大窗口上面。
+#[cfg(any(test, target_os = "linux"))]
 pub(super) fn order_x11_candidates(
     candidates: &mut [(Option<u32>, ProbeRect, String)],
     stacking: Option<&[u32]>,
@@ -526,14 +527,6 @@ mod x11_probe {
         }
 
         pub(super) fn extents(&mut self, _window: u32) -> Option<FrameExtents> {
-            None
-        }
-
-        pub(super) fn is_iconified(&mut self, _window: u32) -> bool {
-            false
-        }
-
-        pub(super) fn stacking_order(&self) -> Option<Vec<u32>> {
             None
         }
     }
