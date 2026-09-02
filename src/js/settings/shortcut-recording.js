@@ -22,6 +22,7 @@ export function createShortcutRecordingController({
   pauseShortcuts,
   resumeShortcuts,
   translate,
+  metaModifier = () => "Super",
   eventTarget = window,
   defer = (callback) => setTimeout(callback, 0),
 }) {
@@ -85,7 +86,7 @@ export function createShortcutRecordingController({
     event.preventDefault();
     event.stopImmediatePropagation();
 
-    const shortcut = keyEventToShortcut(event);
+    const shortcut = keyEventToShortcut(event, metaModifier());
     if (!shortcut || !activeKey) return;
 
     const recordedKey = activeKey;

@@ -70,6 +70,7 @@ const toast = element("toast");
 const ocrModeControl = initCustomSelect(element("ocr-mode-select"));
 
 let savedConfig = null;
+let operatingSystem = null;
 
 function showToast(message) {
   toast.textContent = message;
@@ -108,6 +109,7 @@ const shortcutRecording = createShortcutRecordingController({
   pauseShortcuts,
   resumeShortcuts,
   translate: i18n.t,
+  metaModifier: () => (operatingSystem === "macos" ? "Command" : "Super"),
   recorders: {
     global: {
       input: shortcutInput,
@@ -397,6 +399,7 @@ tmuxToggle.addEventListener("change", async () => {
 
 void getPlatformInfo()
   .then((platform) => {
+    operatingSystem = platform.operating_system;
     ocrSettings.setInstallSupported(platform.operating_system === "linux");
     return ocrSettings.checkStatus();
   })
