@@ -19,6 +19,7 @@
  *  11. 列表行取原图画 48 px 缩略图 → 每开一次面板十几 MB IPC + 十几次全尺寸 PNG 解码
  *  12. 默认构建移除 PipeWire 后 deb 仍声明它 → Ubuntu 22 被迫安装无用运行库，
  *      也掩盖了依赖图是否意外重新启用 PipeWire 的真实回归
+ *  13. release 在 latest.json 上传前就取消 draft → 用户可见的更新端点短暂缺文件
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -165,6 +166,28 @@ describe("release 下载链接与构建矩阵同步", () => {
     // 无后缀名是更新器按固定 URL 找的那份；两个 runner 都传就会互相覆盖。
     const uploaders = [...release.matchAll(/if: matrix\.label == '([a-z0-9]+)'/g)].map((m) => m[1]);
     expect(new Set(uploaders).size).toBe(1);
+  });
+
+  it("Windows 和 macOS 的 updater 产物与签名进入 manifest", () => {
+    expect(release).toContain("windows-latest");
+    expect(release).toContain("macos-latest");
+    expect(release).toContain("Clippy_${VER}_x64-setup.exe.sig");
+    expect(release).toContain("Clippy_${VER}_aarch64.app.tar.gz.sig");
+    expect(release).toContain('"windows-x86_64"');
+    expect(release).toContain('"darwin-aarch64"');
+    expect(release).toContain('"darwin-x86_64"');
+  });
+
+  it("latest.json 上传成功后才公开发布", () => {
+    const uploadManifest = release.indexOf('gh release upload "${TAG}" latest.json');
+    const publishRelease = release.indexOf('--draft=false');
+    expect(uploadManifest).toBeGreaterThan(0);
+    expect(publishRelease).toBeGreaterThan(uploadManifest);
+  });
+
+  it("release 仅申请上传产物所需的 contents 写权限", () => {
+    expect(release).toMatch(/permissions:\s*\n\s+contents: write/);
+    expect(release).not.toContain("write-all");
   });
 });
 

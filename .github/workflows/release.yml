@@ -5,7 +5,8 @@ on:
     tags:
       - "v*.*.*"
 
-permissions: write-all
+permissions:
+  contents: write
 
 env:
   CARGO_INCREMENTAL: 0
@@ -379,9 +380,7 @@ jobs:
           gh release upload "${{ github.ref_name }}" release-assets/* \
             --repo "${{ github.repository }}" --clobber
 
-      - name: Extract changelog and publish release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Extract changelog and prepare release notes
         run: |
           TAG="${{ github.ref_name }}"
           VER="${{ needs.check-version.outputs.version }}"
@@ -423,12 +422,6 @@ jobs:
           ---
           Built at ${BUILDTIME}
           ENDOFBODY
-
-          gh release edit "${TAG}" \
-            --repo "${{ github.repository }}" \
-            --title "Clippy ${TAG}" \
-            --notes-file release_body.md \
-            --draft=false
 
       - name: Generate and upload updater manifest (latest.json)
         env:
@@ -481,3 +474,14 @@ jobs:
             }' > latest.json
 
           gh release upload "${TAG}" latest.json --repo "${{ github.repository }}" --clobber
+
+      - name: Publish complete release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          gh release edit "${TAG}" \
+            --repo "${{ github.repository }}" \
+            --title "Clippy ${TAG}" \
+            --notes-file release_body.md \
+            --draft=false
