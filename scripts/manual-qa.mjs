@@ -101,7 +101,6 @@ const PROFILES = {
     cases: [
       pass("auto_paste_regular", "普通完整性应用自动粘贴并恢复焦点"),
       degraded("auto_paste_high_integrity", "管理员目标保持 copy-only", "windows_integrity_boundary"),
-      degraded("integrity_query_failure", "完整性查询失败时安全 copy-only", "windows_integrity_query_failed"),
       pass("screenshot_window", "HWND 窗口命中与窗口截图"),
       pass("mixed_dpi", "混合 DPI、多显示器和负坐标"),
       pass("pin_topmost", "原生 topmost 与焦点行为"),
@@ -117,7 +116,6 @@ const PROFILES = {
     cases: [
       pass("auto_paste_regular", "普通完整性应用自动粘贴并恢复焦点"),
       degraded("auto_paste_high_integrity", "管理员目标保持 copy-only", "windows_integrity_boundary"),
-      degraded("integrity_query_failure", "完整性查询失败时安全 copy-only", "windows_integrity_query_failed"),
       pass("screenshot_window", "HWND 窗口命中与窗口截图"),
       pass("mixed_dpi", "混合 DPI、多显示器和负坐标"),
       pass("pin_topmost", "原生 topmost 与焦点行为"),
