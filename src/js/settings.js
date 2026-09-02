@@ -188,7 +188,7 @@ async function loadPlatformCapabilities() {
     const platform = await getPlatformInfo();
     operatingSystem = platform.operating_system;
     platformCapabilities.render(platform);
-    ocrSettings.setInstallSupported(platform.operating_system === "linux");
+    ocrSettings.setPlatform(platform.operating_system);
     await ocrSettings.checkStatus();
   } catch (error) {
     console.warn("读取平台能力失败:", error);

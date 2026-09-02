@@ -22,7 +22,11 @@ function setup(available = false) {
     translate: (key) => key,
     showToast: vi.fn(),
   });
-  return { controller, installButton: document.querySelector("#install") };
+  return {
+    controller,
+    installButton: document.querySelector("#install"),
+    statusText: document.querySelector("#status"),
+  };
 }
 
 describe("OCR 设置", () => {
@@ -34,15 +38,27 @@ describe("OCR 设置", () => {
 
   it("仅在 Linux 明确支持安装且 Tesseract 缺失时显示按钮", async () => {
     const { controller, installButton } = setup(false);
-    controller.setInstallSupported(true);
+    controller.setPlatform("linux");
     await controller.checkStatus();
     expect(installButton.hidden).toBe(false);
   });
 
   it("已经安装 Tesseract 时始终隐藏安装按钮", async () => {
     const { controller, installButton } = setup(true);
-    controller.setInstallSupported(true);
+    controller.setPlatform("linux");
     await controller.checkStatus();
     expect(installButton.hidden).toBe(true);
+  });
+
+  it.each([
+    ["linux", "settings.ocr.notInstalledLinux"],
+    ["windows", "settings.ocr.notInstalledWindows"],
+    ["macos", "settings.ocr.notInstalledMacos"],
+    ["other", "settings.ocr.notInstalled"],
+  ])("%s 缺少 Tesseract 时显示对应安装提示", async (platform, key) => {
+    const { controller, statusText } = setup(false);
+    controller.setPlatform(platform);
+    await controller.checkStatus();
+    expect(statusText.textContent).toBe(key);
   });
 });
