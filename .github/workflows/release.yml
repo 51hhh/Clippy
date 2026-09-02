@@ -479,6 +479,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       - name: Download native release artifacts
         uses: actions/download-artifact@v4
         with:
@@ -545,46 +550,20 @@ jobs:
           DL="https://github.com/${{ github.repository }}/releases/download/${TAG}"
           PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-          # Extract changelog notes for this version
-          NOTES=$(awk "/^## ${TAG//./\\.}/{found=1; next} /^## v/{if(found) exit} found" CHANGELOG.md | head -20)
+          # Linux 产物由 build-linux 直接上传到 draft release；原生平台产物已经由
+          # download-artifact 放入同一目录。生成器会按受测契约读取四份签名，并拒绝
+          # 缺签名、错误平台键、非 HTTPS URL 或无效版本/时间。
+          gh release download "${TAG}" --repo "${{ github.repository }}" \
+            --pattern "Clippy_${VER}_amd64.AppImage.sig" \
+            --dir release-assets --clobber
 
-          # 每个平台只发布一个 updater 入口。Linux 使用 AppImage，Windows 使用 NSIS，
-          # macOS 使用已签名并公证的 app.tar.gz，而不是面向人工安装的 DMG。
-          APPIMAGE_SIG=$(gh release download "${TAG}" --repo "${{ github.repository }}" \
-            --pattern "Clippy_${VER}_amd64.AppImage.sig" --output - 2>/dev/null || echo "")
-          WINDOWS_SIG=$(cat "release-assets/Clippy_${VER}_x64-setup.exe.sig")
-          MAC_ARM_SIG=$(cat "release-assets/Clippy_${VER}_aarch64.app.tar.gz.sig")
-          MAC_X64_SIG=$(cat "release-assets/Clippy_${VER}_x64.app.tar.gz.sig")
-
-          if [ -z "$APPIMAGE_SIG" ] || [ -z "$WINDOWS_SIG" ] || \
-             [ -z "$MAC_ARM_SIG" ] || [ -z "$MAC_X64_SIG" ]; then
-            echo '::error::One or more updater signatures are missing'
-            exit 1
-          fi
-
-          jq -n \
-            --arg ver "$VER" \
-            --arg notes "$NOTES" \
-            --arg pub_date "$PUB_DATE" \
-            --arg app_sig "$APPIMAGE_SIG" \
-            --arg app_url "${DL}/Clippy_${VER}_amd64.AppImage" \
-            --arg windows_sig "$WINDOWS_SIG" \
-            --arg windows_url "${DL}/Clippy_${VER}_x64-setup.exe" \
-            --arg mac_arm_sig "$MAC_ARM_SIG" \
-            --arg mac_arm_url "${DL}/Clippy_${VER}_aarch64.app.tar.gz" \
-            --arg mac_x64_sig "$MAC_X64_SIG" \
-            --arg mac_x64_url "${DL}/Clippy_${VER}_x64.app.tar.gz" \
-            '{
-              version: $ver,
-              notes: $notes,
-              pub_date: $pub_date,
-              platforms: {
-                "linux-x86_64": { signature: $app_sig, url: $app_url },
-                "windows-x86_64": { signature: $windows_sig, url: $windows_url },
-                "darwin-aarch64": { signature: $mac_arm_sig, url: $mac_arm_url },
-                "darwin-x86_64": { signature: $mac_x64_sig, url: $mac_x64_url }
-              }
-            }' > latest.json
+          node scripts/generate-updater-manifest.mjs \
+            --version "$VER" \
+            --notes-file release_notes.txt \
+            --pub-date "$PUB_DATE" \
+            --base-url "$DL" \
+            --signature-dir release-assets \
+            --output latest.json
 
           gh release upload "${TAG}" latest.json --repo "${{ github.repository }}" --clobber
 

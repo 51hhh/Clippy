@@ -182,14 +182,13 @@ describe("release 下载链接与构建矩阵同步", () => {
     expect(new Set(uploaders).size).toBe(1);
   });
 
-  it("Windows 和 macOS 的 updater 产物与签名进入 manifest", () => {
+  it("Windows 和 macOS 产物交给受测生成器写入 manifest", () => {
     expect(release).toContain("windows-latest");
     expect(release).toContain("macos-latest");
-    expect(release).toContain("Clippy_${VER}_x64-setup.exe.sig");
-    expect(release).toContain("Clippy_${VER}_aarch64.app.tar.gz.sig");
-    expect(release).toContain('"windows-x86_64"');
-    expect(release).toContain('"darwin-aarch64"');
-    expect(release).toContain('"darwin-x86_64"');
+    expect(release).toContain("Clippy_$env:APP_VERSION`_x64-setup.exe.sig");
+    expect(release).toContain("Clippy_${APP_VERSION}_${ASSET_ARCH}.app.tar.gz.sig");
+    expect(release).toContain("node scripts/generate-updater-manifest.mjs");
+    expect(release).toContain("--signature-dir release-assets");
   });
 
   it("latest.json 上传成功后才公开发布", () => {
