@@ -84,6 +84,7 @@ describe("主窗口键盘路由", () => {
   let hidePanel;
   let pinClip;
   let translation;
+  let openImage;
 
   function router(previewPanel = preview) {
     return createKeyboardRouter({
@@ -93,6 +94,7 @@ describe("主窗口键盘路由", () => {
       pinClip,
       hidePanel,
       translation,
+      openImage,
     });
   }
 
@@ -117,9 +119,21 @@ describe("主窗口键盘路由", () => {
     hidePanel = vi.fn();
     pinClip = vi.fn().mockResolvedValue("pinned");
     translation = { translate: vi.fn().mockResolvedValue(undefined) };
+    openImage = vi.fn().mockResolvedValue("pin-file-1");
   });
 
   describe("列表模式", () => {
+    it("Ctrl/Cmd+O 从任意焦点打开图片选择器", () => {
+      const listEvent = keyEvent("o", document.body, { ctrlKey: true });
+      router().onKeyDown(listEvent);
+      expect(listEvent.preventDefault).toHaveBeenCalled();
+      expect(openImage).toHaveBeenCalledTimes(1);
+
+      const codecEvent = keyEvent("O", document.getElementById("codec-input"), { metaKey: true });
+      router().onKeyDown(codecEvent);
+      expect(codecEvent.preventDefault).toHaveBeenCalled();
+      expect(openImage).toHaveBeenCalledTimes(2);
+    });
     it("Tab 只切预览开合，焦点留在列表", () => {
       router().onKeyDown(keyEvent("Tab", document.body));
       expect(preview.toggle).toHaveBeenCalled();
