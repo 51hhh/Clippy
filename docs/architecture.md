@@ -11,7 +11,7 @@
 
 | 模块 | 职责 |
 |---|---|
-| `lib.rs` / `app/` | `lib.rs` 组装 Tauri builder、managed state 和 Wayland gsettings/D-Bus；`app/` 管理开发自启防护、WebKit 诊断、托盘、X11 快捷键和窗口事件；托盘菜单文案取自 `i18n.rs`，`config-changed` 同时刷新图标（主题）与菜单文案（语言） |
+| `lib.rs` / `app/` | `lib.rs` 组装 Tauri builder、managed state 和快捷键后端；GNOME Wayland 使用 gsettings/D-Bus，非 GNOME Wayland 使用 GlobalShortcuts Portal，X11/Windows/macOS 使用 Tauri 原生插件。`app/` 管理开发自启防护、WebKit 诊断、托盘、快捷键动作和窗口事件；托盘菜单文案取自 `i18n.rs`，`config-changed` 同时刷新图标（主题）与菜单文案（语言） |
 | `commands/` | 按 clipboard/settings/tmux/capture/OCR/URL 拆分薄 IPC 命令 |
 | `clipboard_watcher.rs` + `clipboard_watcher/*` | 主轮询与去重协调；内容分类、写入重试和 tmux/inotify 监听各自隔离。**入库只有 watcher 这一条路径**——`writer.rs` 的三个写入口只管写系统剪贴板，写完敲 `wake::nudge()` 让轮询等待当场结束（`wake.rs` 的条件变量 + 待处理标记），所以自己复制的内容也是几毫秒内进历史，而不是最多等满 500 ms。别让写入方自己 `insert_clip`：watcher 哈希的是它自己从剪贴板 RGBA 重编的 PNG，字节对不上就会在 500 ms 后被再插一条 |
 | `paste/mod.rs` | 自动粘贴协调器、后端选择、Copy-only fallback 和稳定状态契约 |
@@ -20,6 +20,7 @@
 | `i18n.rs` | 托盘菜单与 Rust 侧窗口标题的静态文案；语言解析与前端 `i18n.js` 同规则（显式值优先，`auto` 看 `LC_ALL`/`LC_MESSAGES`/`LANG`，其余回退英文） |
 | `capture/` | 单一 CaptureSession、冻结帧、多显示器覆盖层、裁剪与动作；`window_probe.rs` 按堆叠顺序（扩展 `sort_windows_by_stacking` / X11 `_NET_CLIENT_LIST_STACKING`）下发速选候选。冻结帧像素由 `get_capture_frame` 以二进制 IPC 直传原始 RGBA（payload 只带几何），`StageTimings` 每次会话记一条分段耗时日志 |
 | `capture/shell_extension.rs` | 自带 GNOME Shell 扩展的安装/卸载/状态、令牌校验与截图调用（逐屏原始 RGBA `CaptureArea`、逐屏 PNG `ScreenshotArea`、整屏 `Screenshot`，`include_str!` 内嵌 `gnome-extension/`）。GNOME Wayland 下既没有面向普通应用的窗口几何接口，Portal 截图也要求"聚焦的应用"才能弹授权对话框（快捷键触发时必然失败），两件事都只能以扩展身份进 gnome-shell 做；装了要注销一次生效，升级同样要（`ReloadExtension` 已废弃，故有 `stale` 状态），卸载即时。安装只由设置页显式触发，启动时只做 `reconcile_on_startup`，绝不擅自安装。`place_window` 是贴图缩放的每帧热路径，它的前置检查（是不是 GNOME Wayland、装没装、协议版本够不够、令牌文件内容）缓存在 `placement_token()` 里：成功的结果一直有效，失败的结果 30 秒后重试，安装/卸载会立刻作废缓存。详见 [docs/capture-linux.md](capture-linux.md) |
+| `portal_shortcuts.rs` | 非 GNOME Wayland 的 XDG GlobalShortcuts Portal worker。完整配置一次性绑定到长生命周期 session；Portal 返回子集时逐动作记账。配置变化或录制快捷键会以代次取消正在等待用户确认的旧 Bind、关闭旧 session，再按完整配置建立新 session，避免旧会话与新会话同时响应。Tauri accelerator 会转换为 XDG `CTRL/ALT/SHIFT/LOGO + xkb keysym` 格式。 |
 | `screenshot.rs` + `screenshot/*` | 原始截图帧契约与 PNG 编解码；Wayland 上按 **Mutter 的 PipeWire 屏幕流**（`screenshot/screencast.rs`）→ Shell 扩展逐屏（`CaptureArea`，协议 v5；扩展内部会自动回退成逐屏 PNG）→ 同一扩展的整屏舞台图 → wlroots → Portal（非交互）→ GNOME → xcap 依次回退，返回的临时文件一律由 `TemporaryScreenshotFile` 兜底删除；几何测试隔离。取一次冻结帧的时间绝大部分是 **gnome-shell 自己 deflate PNG**：同一批像素的对照实验（拍下来再用同一个 gdk-pixbuf 重编一次）显示 4K 那块屏 1704 ms 里有 **1607 ms（94%）是 PNG 编码**，合成器绘制 + 读回只有约 100 ms（eDP 126/81 ms）。因此"少拍像素"是错的方向（v4 逐屏两次 1830 ms vs 整屏一次 1900 ms，本来就没差），而"在扩展里绕开 PNG 直接读像素"在 GJS 上根本不成立（没有长度标注的 `array<uint8>` 一律是复制入参，别名实验 3 MB 直接段错误）。真正的修法是**不从 gnome-shell 要图片，改从 Mutter 要视频帧**：`org.gnome.Mutter.ScreenCast` 同一个用户直接可调，不经 Portal、不弹对话框、不需要扩展也不需要注销，本机双屏实测 `capture_monitor_frames` 全程 **280 ms**（此前 1900 ms）且每块屏都是原生像素——原生分辨率与十倍速度出自同一个修改（[capture-linux.md](capture-linux.md) §3.1、§3.3、§3.4）。取流期间顶栏会闪一下录制点，必须传 `is-recording: true`，否则会落到有 5 秒最短显示时间的"停止共享"胶囊上。改扩展不必每次注销：`scripts/probe-shell-capture.sh` 借 `org.gnome.Shell.Eval` 在活着的会话里量同一段取像素代码。整屏舞台图在混合缩放的多屏上会把低缩放那块上采样，画面发糊，所以逐屏是首选、整屏只是兜底。`desktop_scale_at` 是这里唯一对外的"真实缩放"查询：GTK3 不支持 `wp_fractional_scale_v1`，`Monitor::scale_factor()` 在分数缩放的桌面上报的是**整数缓冲区缩放**（本机两块 1.3333/1.5 的屏都报 2），要把图片像素换算成 CSS 像素必须问合成器 |
 | `pin/` | PinManager、内容来源、窗口尺寸、缩放/透明度/锁定和清理；`origins.rs` 的 `PinOriginRegistry`（挂在 `AppState.pin_origins`）记住"我们自己截下来复制走的图"原本在屏幕上的矩形，之后从历史里 Pin 同一张图时靠它贴回原处。键是**解码后像素**的 sha256（含宽高），不是 PNG 字节——图片经 arboard 走一圈是原始 RGBA，watcher 会重新编码，PNG 字节不稳定。登记方交出的是 `PinFingerprint`（已经算好的摘要 + 宽高），这样调用方能和剪贴板写入共用同一份解码像素，不必为登记再解一次或复制一份 16 MB；`lookup` 先只读 PNG 头比宽高，尺寸不匹配就直接返回，省掉整张解码。**内容尺寸的单位**：有原始矩形时直接用它（选区本来就是逻辑像素）；没有时入参是**图片像素**，`fit_content_size` 必须先按 `screenshot::desktop_scale_at` 查到的真实缩放折成 CSS 像素，拿 `scale_factor()` 或干脆不折算都会让贴图被放大再重采样。窗口外框另有 **252 px 高度下限**（竖排工具条要 249 px，随手框个小按钮的贴图按内容算只有一百来像素高，工具条会被切掉）——下限**只加高窗口、不改内容尺寸**，多出来的高度由前端留成左上角对齐的透明留白，否则"贴回原处"当场就偏。缩放时**只有位置真的可信才重新摆位**：Wayland 协议不把窗口位置告诉客户端，`outer_position()` 与 `Moved` 都是 GTK 自己那份假值，拿它算"保持中心"等于每格滚轮都把窗口传送到工作区原点（`known_pin_position` 因此在 Wayland 上返回 `None`） |
 | `pin/project.rs` | 可编辑 PNG v2 的信任边界。标准 PNG 的 IDAT 是最新合成图，真正压缩的 `clippy-project` iTXt 自包含 canonical 原图、尺寸/sha256、annotations、adjustments 和 rendererVersion。运行时 `PinSource::Project` 分开保存 source 与 flattened preview：屏幕/快速复制走 preview，画布/再次保存按需取 source。writer 与 reader 共用 64 MiB 合成图、64 MiB 原图、96 MiB 解压 JSON、160 MiB 容器预算；v1、未来版本或损坏元数据只丢可编辑性，IDAT 仍按普通 PNG 打开。editable 保存失败不得静默伪装成 flat；flat 导出会重编码并移除工程块，避免模糊/马赛克文件泄露内嵌原图 |
@@ -202,11 +203,11 @@ Wayland : select keyboard + persist_mode=2 -> rolling restore token -> reused se
 Fallback: permission/backend/injection failure -> clipboard remains populated, no key injection
 ```
 
-快捷键注册失败（Wayland 桌面不受管、X11 组合被占用）由后端记账，`get_shortcut_failures` 可随时读取，因此启动阶段早于设置页监听的失败也能显示；设置页对同一动作只保留最新一条，保存成功后重新拉取。注册、保存后更新和录制结束的恢复三条路径都记账，且都按动作归因：X11 逐个 `register`（不用全有或全无的 `register_multiple`），GNOME 恢复逐个写 binding 后只重启一次 gsd，因此一个键位被占用不会连坐另外两个。全部失败才把状态退回"已暂停"，部分成功保持"已恢复"，否则录制期的暂停会被跳过。Clippy 内部三个快捷键互相冲突由前端判定（它能读到未保存的录制值），桌面级冲突由 Rust 判定，X11 无法枚举时明确报告"无法检查"而不是"无冲突"。
+快捷键注册失败（Wayland Portal 不可用/被拒绝、GNOME 写入失败、X11 组合被占用）由后端记账，`get_shortcut_failures` 可随时读取，因此启动阶段早于设置页监听的失败也能显示；设置页对同一动作只保留最新一条，保存成功后重新拉取。注册、保存后更新和录制结束的恢复三条路径都记账，且都按动作归因：X11 逐个 `register`（不用全有或全无的 `register_multiple`），GNOME 恢复逐个写 binding 后只重启一次 gsd，Portal 则核对 Bind 返回的真实子集，因此一个键位失败不会连坐另外两个。Clippy 内部三个快捷键互相冲突由前端判定（它能读到未保存的录制值），GNOME 桌面级冲突由 Rust 枚举，X11 与 Portal 无法通用枚举其它应用时明确报告"无法检查"而不是"无冲突"。
 
 GNOME 自定义快捷键条目路径按 command 认领而不是写死 `custom0/1/2`：这些编号先到先得，用户自己建的快捷键很可能已经占用，直接覆盖 name/command/binding 会静默销毁它。启动时读一次 `custom-keybindings`，认出带 Clippy D-Bus 方法的条目就原地复用，认不出来的再取未占用编号，结果在进程内缓存（`gsettings_shortcuts::plan_slots`）。
 
-设置窗口关闭时，快捷键录制控制器先等待 `resume_shortcuts` 完成再关闭；Rust `AppState` 以原子标志和转换锁提供窗口销毁后的幂等恢复兜底。
+设置窗口关闭时，快捷键录制控制器先等待 `resume_shortcuts` 完成再关闭；Rust `AppState` 以原子标志和转换锁提供窗口销毁后的幂等恢复兜底。Portal 录制暂停还会等待 session 真正关闭；若 Bind 正停在系统确认界面，代次 watch 会先取消请求并清理 session，再确认暂停完成。
 
 `XDG_SESSION_TYPE` 优先于残留的 display 环境变量。Portal token 不进入普通配置；独立文件必须为 0600。首次 Portal 确认、撤权和桌面后端是否允许静默恢复仍属于真实桌面人工验收。
 截图 Portal 的交互模式由截图用户动作显式开启；后台或未来自动任务应传入非交互模式，避免隐式弹出桌面授权。

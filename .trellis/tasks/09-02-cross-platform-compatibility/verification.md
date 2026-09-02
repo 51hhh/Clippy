@@ -4,11 +4,11 @@
 
 审查基线：`621e36f289a386dcf84d26c77742f6b0f1eae31e`
 
-已审查至：`0d9884ce8f93609c8d8e6a73212bf8819a5a4e32`
+已审查至：`66e292be6ed1f995217ed4294b180584b025c57f`
 
 ## 审查范围
 
-- 审查基线之后 80 个提交、121 个变更文件，以及提交时仍存在的工作区内容。
+- 审查基线之后 83 个提交、123 个变更文件，以及提交时仍存在的工作区内容。
 - 逐项检查截图、窗口命中、Pin、标注画布、可编辑 PNG、剪贴板、自动粘贴、快捷键、OCR、
   私有存储、自动启动、平台配置、CI 和 release 数据流。
 - `.omo/` 与 `.trellis/workspace/codex/` 是未跟踪的用户工作区，本次未读取、未修改、未提交。
@@ -24,7 +24,7 @@
 | `cargo fmt --check` | 通过 |
 | `cargo check` | 通过 |
 | `cargo clippy -- -D warnings` | 通过 |
-| `cargo test` | 393 通过、0 失败、6 个真实桌面/诊断测试忽略 |
+| `cargo test` | 399 通过、0 失败、6 个真实桌面/诊断测试忽略 |
 | GNOME 扩展静态检查 | 通过，Shell 45–51 |
 | `npm ci` | 通过，0 个已报告漏洞 |
 | `tsc --noEmit` | 通过 |
@@ -49,7 +49,7 @@
 
 ## 原生平台验证状态
 
-当前 `dev` 比 `origin/dev` 多 106 个本地提交。GitHub 上最近一次 `build.yml` 成功运行是
+当前 `dev` 比 `origin/dev` 多 109 个本地提交。GitHub 上最近一次 `build.yml` 成功运行是
 2026-08-30 的 `8f6c1b57ad844ebc98254b9f88b16e88f3cce314`，不包含本轮改动。
 
 - Windows MSVC：Linux 主机缺少 MSVC `lib.exe`，交叉 `cargo check` 在原生工具链依赖处停止；
@@ -68,8 +68,8 @@
 | Ubuntu 22.04 GNOME 42 X11 | 文本/HTML/图片、快捷键、自动粘贴、区域/窗口截图、混合 DPI、Pin、画布、可编辑 PNG、OCR、keyring、更新 | 待测 |
 | Ubuntu 22.04 GNOME 42 Wayland | 上述场景；另测 Portal 授权/恢复、GNOME Helper 未装/待注销/已就绪、窗口层级降级 | 待测 |
 | Ubuntu 24.04 GNOME Wayland | 原生 Wayland 截图 fallback、快捷键、Pin、Portal 版本差异 | 待测 |
-| KDE Wayland | Portal 截图、缺少窗口几何和绝对定位时的 UI/reason code | 待测 |
-| wlroots compositor | 区域截图、data-control、窗口枚举缺失与 copy-only 降级 | 待测 |
+| KDE Wayland | GlobalShortcuts Portal 首次授权/部分接受/修改/录制暂停、Portal 截图、缺少窗口几何和绝对定位时的 UI/reason code | 待测 |
+| wlroots compositor | GlobalShortcuts Portal 存在/缺失、区域截图、data-control、窗口枚举缺失与 copy-only 降级 | 待测 |
 | Windows 10 22H2 / Windows 11 | 普通与管理员目标自动粘贴、UIPI 降级、混合 DPI/多屏、topmost、截图、安装/更新 | 待测 |
 | macOS Intel / Apple Silicon | TCC 未决定/拒绝/允许/撤销、Spaces、全屏辅助窗口、截图、粘贴、签名/公证/更新 | 待测 |
 
@@ -81,11 +81,14 @@
 - 设置页的 OCR 与保存路径提示写死 Linux：改为平台中性文案和系统 Pictures 目录语义。
 - `CHANGELOG.md` 仍宣称停止 Ubuntu 22：改为与依赖图、CI 和 release 一致的 Ubuntu 22 基线。
 - 发布文档混淆 updater `.sig` 与 Authenticode：明确 Windows 可信代码签名仍是发布前置项。
+- 非 GNOME Wayland 只尝试 GNOME GSettings 并必然失败：接入 GlobalShortcuts Portal，按 XDG/xkb
+  格式提交完整动作集合，核对 Portal 返回子集，并用可取消代次管理 Bind/session 生命周期。
 
 ## 已知限制与发布阻断项
 
-- 非 GNOME Wayland 尚未实现 GlobalShortcuts Portal；注册失败时会提示用户在系统设置中配置，
-  不能宣称所有 Wayland 桌面都有应用内全局快捷键。
+- 非 GNOME Wayland 已实现 GlobalShortcuts Portal，但要求系统 portal 与桌面 backend 支持该接口；
+  Ubuntu 22 自带的 portal 1.14 没有该接口，GNOME/Jammy 因此继续使用 GSettings/D-Bus。Portal
+  不可用或用户拒绝时会逐动作报告失败并提示系统设置手动绑定，不会假装注册成功或无限重试。
 - Wayland compositor 可以拒绝窗口枚举、绝对定位和永久置顶；此时区域截图仍是保底能力。
 - Windows `SendInput` 不能越过 UIPI 控制更高完整性目标；设计行为是复制成功后降级为 copy-only。
 - macOS 屏幕录制与辅助功能受 TCC 控制，必须覆盖未决定、拒绝、允许和撤销四种实机状态。

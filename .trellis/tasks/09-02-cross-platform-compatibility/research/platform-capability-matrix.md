@@ -30,6 +30,8 @@
 - Tauri AppImage 应在最老支持发行版构建，避免无意抬高 glibc 基线：https://v2.tauri.app/distribute/appimage/
 - Tauri global-shortcut 插件覆盖 Linux、Windows、macOS：https://v2.tauri.app/plugin/global-shortcut/
 - xdg-desktop-portal GlobalShortcuts 在 1.16 引入；Ubuntu 22 的 portal 为 1.14 系列，因此 Jammy 不可只依赖该接口：https://github.com/flatpak/xdg-desktop-portal/blob/main/NEWS.md
+- GlobalShortcuts 的 `BindShortcuts` 每个 session 只能调用一次，返回值允许是请求集合的任意子集；实现必须核对实际返回项，配置变化时重建 session：https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.GlobalShortcuts.html
+- `preferred_trigger` 使用 XDG Shortcuts 语法：`CTRL` / `ALT` / `SHIFT` / `LOGO` 与去掉 `XKB_KEY_` 前缀的 keysym 通过 `+` 连接：https://specifications.freedesktop.org/shortcuts/latest/
 - xdg-shell 不给普通客户端任意设置顶层窗口全局坐标的通用协议：https://wayland.app/protocols/xdg-shell
 - RemoteDesktop Portal 的输入注入由用户授权决定：https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.RemoteDesktop.html
 - Windows `SendInput` 受 UIPI 限制，不能保证从普通完整性进程向高完整性进程注入：https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput
