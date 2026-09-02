@@ -22,7 +22,7 @@ jobs:
         # 从 Jammy 构建可保证产物不会意外要求更高版本的 glibc 或 PipeWire 头文件。
         runner: [ubuntu-22.04]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install system dependencies
         run: |
@@ -47,9 +47,9 @@ jobs:
           workspaces: src-tauri
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: "npm"
           cache-dependency-path: src/package-lock.json
 
@@ -98,7 +98,7 @@ jobs:
       matrix:
         runner: [windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -113,9 +113,9 @@ jobs:
           workspaces: src-tauri
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: "npm"
           cache-dependency-path: src/package-lock.json
 

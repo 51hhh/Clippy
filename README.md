@@ -92,7 +92,7 @@ On Windows, install a current Tesseract 5 build, then restart Clippy. Clippy che
 
 ## Build from Source
 
-Requires: Rust toolchain, Node.js ≥ 20.19, Tauri v2 system dependencies.
+Requires: Rust toolchain, Node.js ≥ 22.12, Tauri v2 system dependencies.
 
 ```bash
 sudo apt install -y \
