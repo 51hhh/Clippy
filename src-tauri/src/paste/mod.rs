@@ -273,7 +273,10 @@ impl PasteManager {
     }
 
     pub async fn paste(&self) -> Result<PasteOutcome, PasteError> {
+        #[cfg(target_os = "windows")]
         let target = self.target.lock().ok().and_then(|target| target.clone());
+        #[cfg(target_os = "macos")]
+        let target = self.target.lock().ok().and_then(|target| *target);
         tauri::async_runtime::spawn_blocking(move || native::paste(target))
             .await
             .map_err(|error| PasteError::NativeThreadPanic(error.to_string()))??;
