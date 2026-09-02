@@ -20,7 +20,6 @@
  *  12. deb 不声明 libpipewire → 装上去的包在没装 PipeWire 的机器上根本起不来
  *      （硬链接失败发生在 main 之前，后端回退链一层都轮不到）
  */
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -35,17 +34,15 @@ function read(relativeToRepo) {
 describe("tauri 构建钩子不依赖 cwd", () => {
   const conf = JSON.parse(read("src-tauri/tauri.conf.json"));
 
-  // CLI 把钩子的 cwd 设成仓库根还是 src-tauri/ 取决于版本与调用方式（cargo tauri
-  // 与 npx tauri 就不一致）。写死 `cd ../src` 时，从仓库根跑会解析到仓库外面去。
+  // 让 Tauri 自己按配置文件目录解析 cwd；脚本不再包含 POSIX shell 的 cd、重定向和
+  // 逻辑运算符，因此同一份配置可以由 sh、cmd.exe 或 PowerShell 启动。
   it.each([
-    ["beforeDevCommand", conf.build.beforeDevCommand],
-    ["beforeBuildCommand", conf.build.beforeBuildCommand],
-  ])("%s 从任一 cwd 都能进到前端目录", (_name, command) => {
-    const cd = command.split("&&")[0];
-    for (const cwd of [repoRoot, resolve(repoRoot, "src-tauri")]) {
-      const landed = execFileSync("sh", ["-c", `${cd} && pwd`], { cwd, encoding: "utf8" }).trim();
-      expect(landed, cwd).toBe(frontendRoot);
-    }
+    ["beforeDevCommand", conf.build.beforeDevCommand, "npm run dev"],
+    ["beforeBuildCommand", conf.build.beforeBuildCommand, "npm run build"],
+  ])("%s 使用跨平台结构化 cwd", (_name, command, expectedScript) => {
+    expect(command).toEqual({ script: expectedScript, cwd: "../src" });
+    expect(resolve(repoRoot, "src-tauri", command.cwd)).toBe(frontendRoot);
+    expect(command.script).not.toMatch(/[;&|<>]/);
   });
 });
 
