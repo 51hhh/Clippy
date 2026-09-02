@@ -33,6 +33,10 @@ Windows job 生成临时代码签名证书，仅将公钥短暂加入 `LocalMach
 的 Authenticode 状态为 `Valid` 且 signer thumbprint 精确匹配。macOS 两个 job 均验证严格 Ad-Hoc
 签名、`Signature=adhoc` 与 Mach-O 目标架构。
 
+发布后重新下载 QA 模板与 Ubuntu 24 冒烟证据：九份模板覆盖九个约定 profile，共 287 个场景，
+全部绑定上述完整 SHA 与 `0.1.18`；初始状态均为 `not_run`，不会被误判为人工验收通过。Ubuntu 24
+证据记录主窗口为可见的 380×500 X11 窗口，单实例回调成功，首帧亮度统计非空白。
+
 ## Release v0.1.18
 
 Run: [`33656502908`](https://github.com/51hhh/Clippy/actions/runs/33656502908)

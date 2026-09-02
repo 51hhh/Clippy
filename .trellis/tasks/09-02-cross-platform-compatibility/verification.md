@@ -129,8 +129,8 @@ Linux x64、Windows x64、macOS Intel/Apple Silicon 全部进入 workflow artifa
 SmartScreen 风险，不把它冒充为公共 CA 信任。macOS QA 与正式 release 都通过
 `signingIdentity: "-"` 使用 Ad-Hoc 签名，并独立验证 `codesign --strict`、`Signature=adhoc` 和目标架构；
 发布说明明确它没有 Developer ID 公证。
-`dev`、`origin/dev` 与正式标签 `v0.1.18` 的发布提交均为
-`7dcf9bf28d013ff4ff7991bb2b7b0509453a01fa`。最终 CI run
+正式标签 `v0.1.18` 的发布提交为 `7dcf9bf28d013ff4ff7991bb2b7b0509453a01fa`，发布前的 `dev`
+与三个验证 run 均指向该 SHA。最终 CI run
 [`33654963258`](https://github.com/51hhh/Clippy/actions/runs/33654963258)、Native QA run
 [`33654979798`](https://github.com/51hhh/Clippy/actions/runs/33654979798) 和 Release run
 [`33656502908`](https://github.com/51hhh/Clippy/actions/runs/33656502908) 全部通过；逐 job 链接与发布后
@@ -147,6 +147,9 @@ runner 下载同一 run 的 Ubuntu 22 AppImage，在隔离 X11/DBus 环境完成
 Windows NSIS/MSI 在临时信任边界内严格得到 `Valid`，并匹配本次生成的 signer thumbprint；两个
 macOS 产物都通过 Ad-Hoc 严格签名和目标架构核对。正式 Release 再独立完成相同四个平台构建，最后
 生成四目标 updater manifest 并公开发布，因而这里不再把 QA bundle 冒充正式 updater 证据。
+
+最终 QA artifact 已核对为四个平台包、九环境记录模板和 Ubuntu 24 冒烟证据。九份模板共 287 个场景，
+全部绑定发布 SHA 与 0.1.18；初始值严格保持 `not_run`，等待对应真实桌面填写观测与证据。
 
 正式发布资产包含 Linux DEB/AppImage、Windows NSIS/MSI、macOS ARM/Intel DMG 及四个平台 updater
 所需的签名包。发布后下载并解析 `latest.json`，确认版本、UTC 发布时间、四个固定平台键、HTTPS URL
