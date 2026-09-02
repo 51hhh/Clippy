@@ -49,7 +49,7 @@
 附加产物的 `tauri.ci.conf.json`，保留 14 天并上传绑定完整 commit SHA 的四套安装包：
 
 - Ubuntu 22 构建的 x64 deb 与已移除宿主 Wayland ABI 库的 AppImage；
-- Windows x64 NSIS 与 MSI；
+- 临时自签名并核对 Authenticode 的 Windows x64 NSIS 与 MSI；
 - ad-hoc 签名的 macOS Apple Silicon DMG；
 - ad-hoc 签名的 macOS Intel DMG。
 
@@ -58,8 +58,9 @@ run 还会上传 `qa-record-templates-<SHA>`，其中是绑定该 SHA、应用�
 Linux 包由 Ubuntu 22.04 构建后，独立的 Ubuntu 24.04 runner 下载同一 tar、校验 SHA-256，并强制执行
 AppImage X11 窗口几何、首帧和单实例 smoke；smoke 缺依赖或缺产物会失败，不会静默跳过。
 
-这些安装包明确是 `unsigned-qa-only` 或 `ad-hoc-qa-only`，只用于功能测试。它们不能用于 Windows
-Authenticode 或 Tauri updater 签名验收。当前正式 release 的 macOS 包同样采用 Ad-Hoc 签名，能验证
+这些安装包明确是 `unsigned-qa-only`、`self-signed-qa-only` 或 `ad-hoc-qa-only`，只用于功能测试。
+Windows QA 包可验证 Authenticode 摘要与 signer 一致，但不具备公共 CA 信任，也不能用于 Tauri updater
+签名验收。当前正式 release 的 macOS 包同样采用 Ad-Hoc 签名，能验证
 产物完整性与架构，但不具备 Developer ID、公证或 Gatekeeper 公共信任；发布说明必须明确这一限制。
 
 ### 原生 runner 证据
