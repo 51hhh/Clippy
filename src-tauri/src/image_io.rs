@@ -112,8 +112,20 @@ fn next_sequence() -> u64 {
 }
 
 fn home_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME")
-        .filter(|home| !home.is_empty())
+    environment_path("HOME")
+        .or_else(|| environment_path("USERPROFILE"))
+        .or_else(|| {
+            let drive = std::env::var_os("HOMEDRIVE").filter(|value| !value.is_empty())?;
+            let path = std::env::var_os("HOMEPATH").filter(|value| !value.is_empty())?;
+            let mut combined = PathBuf::from(drive);
+            combined.push(path);
+            Some(combined)
+        })
+}
+
+fn environment_path(key: &str) -> Option<PathBuf> {
+    std::env::var_os(key)
+        .filter(|value| !value.is_empty())
         .map(PathBuf::from)
 }
 
@@ -171,20 +183,45 @@ fn render_filename(template: &str, prefix: &str, now: DateTime<Local>) -> String
     sanitized
 }
 
-/// 只保留能安全出现在文件名里的字符：分隔符与控制字符换成 `-`，
-/// 并去掉开头的 `.`，避免生成隐藏文件或 `..`。
+/// 只保留能安全出现在三平台文件名里的字符。Windows 禁止的标点、路径分隔符与控制字符
+/// 统一换成 `-`；前导点与尾部点/空格也去掉，避免隐藏文件和 Windows 路径错误。
 fn sanitize_filename(value: &str) -> String {
     let replaced: String = value
         .chars()
         .map(|character| {
-            if character == '/' || character == '\\' || character.is_control() {
+            if matches!(
+                character,
+                '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*'
+            ) || character.is_control()
+            {
                 '-'
             } else {
                 character
             }
         })
         .collect();
-    replaced.trim().trim_start_matches('.').trim().to_string()
+    let sanitized = replaced
+        .trim()
+        .trim_start_matches('.')
+        .trim_end_matches([' ', '.'])
+        .to_string();
+    if is_windows_reserved_name(&sanitized) {
+        format!("_{sanitized}")
+    } else {
+        sanitized
+    }
+}
+
+fn is_windows_reserved_name(value: &str) -> bool {
+    let basename = value.split('.').next().unwrap_or_default();
+    let uppercase = basename.to_ascii_uppercase();
+    matches!(uppercase.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || uppercase
+            .strip_prefix("COM")
+            .or_else(|| uppercase.strip_prefix("LPT"))
+            .is_some_and(|suffix| {
+                matches!(suffix, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9")
+            })
 }
 
 /// 逐个候选名用 `create_new` 试写：既不覆盖已有文件，也不会让同一毫秒内的
@@ -287,6 +324,15 @@ mod tests {
             "-evil"
         );
         assert_eq!(resolve_template(".hidden"), "hidden");
+    }
+
+    #[test]
+    fn template_is_portable_to_windows() {
+        assert_eq!(resolve_template("capture:21*05?07"), "capture-21-05-07");
+        assert_eq!(resolve_template("shot. "), "shot");
+        assert_eq!(resolve_template("CON"), "_CON");
+        assert_eq!(resolve_template("lpt9.notes"), "_lpt9.notes");
+        assert_eq!(resolve_template("COM10"), "COM10");
     }
 
     #[test]
