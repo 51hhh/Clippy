@@ -272,6 +272,20 @@ jobs:
           [ -n "$APP" ] || { echo '::error::macOS app bundle was not generated'; exit 1; }
           codesign --verify --deep --strict --verbose=2 "$APP"
           codesign --display --verbose=4 "$APP" 2>&1 | grep -q 'Signature=adhoc'
+
+          INFO_PLIST="$APP/Contents/Info.plist"
+          [ -f "$INFO_PLIST" ] || { echo '::error::macOS Info.plist is missing'; exit 1; }
+          EXECUTABLE_NAME=$(plutil -extract CFBundleExecutable raw -o - "$INFO_PLIST")
+          [ -n "$EXECUTABLE_NAME" ] || { echo '::error::CFBundleExecutable is missing'; exit 1; }
+          EXECUTABLE="$APP/Contents/MacOS/$EXECUTABLE_NAME"
+          [ -x "$EXECUTABLE" ] || { echo '::error::macOS executable is missing'; exit 1; }
+          if [ "$ASSET_ARCH" = "aarch64" ]; then
+            EXPECTED_ARCH="arm64"
+          else
+            EXPECTED_ARCH="x86_64"
+          fi
+          lipo -archs "$EXECUTABLE" | tr ' ' '\n' | grep -qx "$EXPECTED_ARCH"
+
           DMG=$(find "$BUNDLE_DIR/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)
           [ -n "$DMG" ] || { echo '::error::macOS DMG was not generated'; exit 1; }
           cp "$DMG" qa-artifacts/
