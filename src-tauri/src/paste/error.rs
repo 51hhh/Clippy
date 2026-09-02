@@ -23,6 +23,18 @@ pub enum PasteError {
     #[error("X11 粘贴线程异常: {0}")]
     X11ThreadPanic(String),
 
+    // ── Windows / macOS ──
+    #[error("没有可恢复的原生目标窗口")]
+    NativeTargetMissing,
+    #[error("原生目标窗口已经失效")]
+    NativeTargetInvalid,
+    #[error("无法恢复原生目标窗口焦点: {0}")]
+    NativeFocusNotRestored(String),
+    #[error("macOS 辅助功能权限尚未授予")]
+    MacosAccessibilityPermissionRequired,
+    #[error("原生粘贴线程异常: {0}")]
+    NativeThreadPanic(String),
+
     // ── 按键注入 ──
     #[error("初始化 enigo 失败: {0}")]
     InputBackendUnavailable(String),
@@ -69,6 +81,11 @@ impl PasteError {
             Self::X11TargetMissing => "x11_target_missing",
             Self::X11Protocol(_) => "x11_protocol",
             Self::X11ThreadPanic(_) => "x11_thread_panic",
+            Self::NativeTargetMissing => "native_target_missing",
+            Self::NativeTargetInvalid => "native_target_invalid",
+            Self::NativeFocusNotRestored(_) => "native_focus_not_restored",
+            Self::MacosAccessibilityPermissionRequired => "macos_accessibility_permission_required",
+            Self::NativeThreadPanic(_) => "native_thread_panic",
             Self::InputBackendUnavailable(_) => "input_backend_unavailable",
             Self::KeyInjection { .. } => "key_injection",
             Self::PortalSessionMissing => "portal_session_missing",
@@ -94,6 +111,7 @@ impl PasteError {
                 | Self::PortalStartRejected(_)
                 | Self::PortalKeyboardNotGranted
                 | Self::PortalAttemptExhausted(_)
+                | Self::MacosAccessibilityPermissionRequired
         )
     }
 }
@@ -144,6 +162,11 @@ mod tests {
             PasteError::X11TargetMissing,
             PasteError::X11Protocol(String::new()),
             PasteError::X11ThreadPanic(String::new()),
+            PasteError::NativeTargetMissing,
+            PasteError::NativeTargetInvalid,
+            PasteError::NativeFocusNotRestored(String::new()),
+            PasteError::MacosAccessibilityPermissionRequired,
+            PasteError::NativeThreadPanic(String::new()),
             PasteError::InputBackendUnavailable(String::new()),
             PasteError::KeyInjection {
                 action: String::new(),
@@ -173,6 +196,7 @@ mod tests {
     fn only_authorization_failures_offer_explicit_retry() {
         assert!(PasteError::PortalKeyboardNotGranted.is_authorization_failure());
         assert!(PasteError::PortalStartRejected(String::new()).is_authorization_failure());
+        assert!(PasteError::MacosAccessibilityPermissionRequired.is_authorization_failure());
         assert!(!PasteError::PortalConnect(String::new()).is_authorization_failure());
         assert!(!PasteError::X11ScreenMissing.is_authorization_failure());
     }

@@ -50,6 +50,24 @@ describe("settings paste permission status", () => {
   it.each([
     [{ backend: "x11", phase: "ready" }, "settings.autoPaste.x11Ready", "ready", false],
     [
+      { backend: "windows_send_input", phase: "ready" },
+      "settings.autoPaste.windowsReady",
+      "ready",
+      false,
+    ],
+    [
+      { backend: "macos_quartz", phase: "ready" },
+      "settings.autoPaste.macosReady",
+      "ready",
+      false,
+    ],
+    [
+      { backend: "macos_quartz", phase: "permission_required" },
+      "settings.autoPaste.macosPermissionRequired",
+      "pending",
+      true,
+    ],
+    [
       { backend: "wayland_portal", phase: "ready" },
       "settings.autoPaste.portalReady",
       "ready",

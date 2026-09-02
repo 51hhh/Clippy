@@ -84,6 +84,10 @@ nix = { version = "0.30", features = ["poll"] }
 
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
 xcap = "0.9"
+enigo = { version = "0.6", default-features = false }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3", default-features = false, features = ["libc", "NSRunningApplication", "NSWorkspace"] }
 
 [dev-dependencies]
 tempfile = "3"

@@ -119,7 +119,12 @@ export interface ShortcutRegisterFailure {
   reason: string;
 }
 
-export type PasteBackend = "x11" | "wayland_portal" | "copy_only";
+export type PasteBackend =
+  | "x11"
+  | "wayland_portal"
+  | "windows_send_input"
+  | "macos_quartz"
+  | "copy_only";
 
 export type PastePhase =
   | "ready"
