@@ -5,8 +5,9 @@
 ### ✨ 新功能
 
 **建立 Linux、Windows 与 macOS 平台能力层**
-- 后端按目标系统编译截图、自动粘贴、窗口层级、快捷键、OCR 安装和 tmux 实现，前端使用结构化能力与
-  reason code 展示可用、需授权、降级或不支持状态，不再通过浏览器信息猜测平台。
+- 后端按目标系统编译截图、自动粘贴、窗口层级、快捷键、OCR 安装和 tmux 实现，通过 typed IPC
+  暴露结构化能力与 reason code，不再通过浏览器信息猜测平台。截图诊断会一并记录操作系统、会话、
+  XWayland、各 Portal 接口版本以及可用/需授权/降级/不支持状态，但不记录剪贴板、token 或密钥。
 - Windows 使用原生前台窗口恢复与 `SendInput`，macOS 使用应用激活与 `CGEvent`；系统安全模型拒绝时
   保留复制结果并明确降级为 copy-only。macOS 另行处理屏幕录制、辅助功能、Spaces 与全屏辅助窗口。
 - 非 GNOME Wayland 使用 XDG GlobalShortcuts Portal：按 XDG/xkb 语法提交建议组合，逐项核对 Portal
