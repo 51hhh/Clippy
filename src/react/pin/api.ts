@@ -37,7 +37,7 @@ export const pinApi = {
   copyCanvas: (label: string, project: PinCanvasProject): Promise<void> =>
     copyPinCanvas(label, project),
   save: (label: string): Promise<string> => savePin(label),
-  /** 画布导出用的原图（base64 PNG）。见 `getPinSourceImage`。 */
+  /** Canvas 交互预览用的原图；renderer v2 最终导出由后端直接读取可信原图。 */
   sourceImage: (label: string): Promise<string | null> => getPinSourceImage(label),
   /** 存下贴图上画过的那一版（`toClipboard` 为真时同时进剪贴板）。 */
   saveCanvas: (
