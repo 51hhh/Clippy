@@ -12,6 +12,8 @@
   同时列出桌面会话、XWayland 和具体 Portal 接口版本。
 - Windows 使用原生前台窗口恢复与 `SendInput`，macOS 使用应用激活与 `CGEvent`；系统安全模型拒绝时
   保留复制结果并明确降级为 copy-only。macOS 另行处理屏幕录制、辅助功能、Spaces 与全屏辅助窗口。
+- Windows 配置、Portal restore token 等私有文件使用受保护 DACL，只允许当前用户访问；滚动更新
+  通过 `MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH)` 原子覆盖，避免第二次保存因目标已存在而失败。
 - 非 GNOME Wayland 使用 XDG GlobalShortcuts Portal：按 XDG/xkb 语法提交建议组合，逐项核对 Portal
   实际接受的绑定；录制或修改快捷键会取消待确认请求并关闭旧 session。GNOME Wayland 继续使用
   Ubuntu 22 可用的 GSettings/D-Bus，Portal 不可用或被拒绝时保留可操作的手动绑定提示。

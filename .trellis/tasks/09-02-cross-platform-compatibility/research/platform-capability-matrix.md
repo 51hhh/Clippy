@@ -40,6 +40,9 @@
 - Windows `SendInput` 受 UIPI 限制，不能保证从普通完整性进程向高完整性进程注入：https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput
 - Windows 前台窗口切换本身有限制：https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setforegroundwindow
 - Windows Graphics Capture 提供系统安全选择器，并要求检测 `IsSupported`：https://learn.microsoft.com/en-us/windows/apps/develop/media-authoring-processing/screen-capture
+- Windows 文件默认从父目录继承 ACL；敏感文件需要显式设置和验证 DACL：https://learn.microsoft.com/en-us/windows/win32/fileio/file-security-and-access-rights
+- `SetNamedSecurityInfoW` 可更新文件或目录 DACL，`PROTECTED_DACL_SECURITY_INFORMATION` 用于阻止宽松父 ACL 继续继承：https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-setnamedsecurityinfow
+- `MoveFileExW` 的 `MOVEFILE_REPLACE_EXISTING` 与 `MOVEFILE_WRITE_THROUGH` 提供 Windows 已有目标覆盖和落盘语义：https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefileexw
 - macOS 屏幕捕获和输入控制分别受 Screen Recording 与 Accessibility 权限约束：https://developer.apple.com/documentation/screencapturekit/ ，https://support.apple.com/guide/mac-help/mh43185/mac
 - macOS 外部分发需要 Developer ID、Hardened Runtime 与 notarization：https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution
 

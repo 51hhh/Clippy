@@ -4,11 +4,11 @@
 
 审查基线：`621e36f289a386dcf84d26c77742f6b0f1eae31e`
 
-已审查至：`39da43d6de6fc2a8d76335828a0b7c61056ee80a`
+功能代码已审查至：`9236a02ee419926bc31896afc6011b1e63ac4dd7`
 
 ## 审查范围
 
-- 审查基线之后 88 个提交、127 个变更文件，以及提交时仍存在的工作区内容。
+- 审查基线之后 91 个提交、130 个变更文件，以及提交时仍存在的工作区内容。
 - 逐项检查截图、窗口命中、Pin、标注画布、可编辑 PNG、剪贴板、自动粘贴、快捷键、OCR、
   私有存储、自动启动、平台配置、CI 和 release 数据流。
 - `.omo/` 与 `.trellis/workspace/codex/` 是未跟踪的用户工作区，本次未读取、未修改、未提交。
@@ -24,7 +24,7 @@
 | `cargo fmt --check` | 通过 |
 | `cargo check` | 通过 |
 | `cargo clippy -- -D warnings` | 通过 |
-| `cargo test` | 404 通过、0 失败、6 个真实桌面/诊断测试忽略 |
+| `cargo test` | 406 通过、0 失败、6 个真实桌面/诊断测试忽略 |
 | GNOME 扩展静态检查 | 通过，Shell 45–51 |
 | `npm ci` | 通过，0 个已报告漏洞 |
 | `tsc --noEmit` | 通过 |
@@ -47,15 +47,18 @@
 - Linux 默认依赖图不含 `pipewire-rs`。
 - Windows/macOS 目标依赖图不含 GTK、WebKitGTK、zbus、ashpd、libwayshot、PipeWire、inotify、
   x11rb 或 Linux `nix` 实现。
+- Windows 私有文件 ACL 与原子替换模块在独立最小工程中完成 MSVC 目标 `cargo check --tests`
+  和 `cargo clippy --tests -- -D warnings`；这验证目标条件编译和 Win32 类型调用，不代替原生运行。
 - `git diff --check` 通过。
 
 ## 原生平台验证状态
 
-当前 `dev` 比 `origin/dev` 多 114 个本地提交。GitHub 上最近一次 `build.yml` 成功运行是
+当前 `dev` 比 `origin/dev` 多 117 个本地提交。GitHub 上最近一次 `build.yml` 成功运行是
 2026-08-30 的 `8f6c1b57ad844ebc98254b9f88b16e88f3cce314`，不包含本轮改动。
 
-- Windows MSVC：Linux 主机缺少 MSVC `lib.exe`，交叉 `cargo check` 在原生工具链依赖处停止；
-  这既不是项目源码失败，也不能作为 Windows 通过证据。
+- Windows MSVC：完整工程在 Linux 主机交叉检查时缺少 `llvm-rc`、MSVC `lib.exe`/SDK 以及
+  `ring`/SQLite 所需原生构建工具，因而在依赖构建阶段停止；私有文件模块的独立 MSVC 目标检查已
+  通过，但两者都不能作为 Windows 原生运行通过证据。
 - macOS：Linux 主机没有 Apple SDK/clang，交叉 `cargo check` 在 `-arch`/SDK 参数处停止；
   这既不是项目源码失败，也不能作为 macOS 通过证据。
 - 发布前必须把本分支推送到远端，让 `windows-latest` 与 `macos-latest` 原生 runner 完成
@@ -78,6 +81,10 @@
 ## 已修复的审查问题
 
 - Windows 无法用 Unix `rename` 原子覆盖已有配置：改用 `MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH)`。
+- Windows Portal restore token 的滚动更新同样无法用 `std::fs::rename` 覆盖已有目标：配置与 token
+  现共用跨平台私有文件原子替换函数，并回归验证连续两次写入和最终权限。
+- Windows 私有文件不再只依赖父目录继承权限：为文件和目录设置受保护 DACL，只保留当前用户
+  `GENERIC_ALL` ACE，目录 ACE 向子项继承；启动读取旧文件时会校正并验证 ACL。
 - 截图目录 fallback 和文件名只适配 Unix：增加 Windows home 变量、非法字符、尾随点/空格及保留设备名处理。
 - 自动启动开发二进制判断只识别 `/target/`：改为平台路径规范化判断。
 - 设置页的 OCR 与保存路径提示写死 Linux：改为平台中性文案和系统 Pictures 目录语义。
@@ -101,7 +108,8 @@
 - macOS 屏幕录制与辅助功能受 TCC 控制，必须覆盖未决定、拒绝、允许和撤销四种实机状态。
 - OCR 目前依赖系统 PATH 中的 Tesseract，尚未捆绑签名 sidecar；安装按钮仅在 Linux 展示。
 - Windows updater 产物有 Tauri updater 签名，但 workflow 尚未接入 Authenticode 证书。
-- Windows 私有文件当前依赖应用数据目录继承的用户 ACL，尚无显式 ACL 加固验证；keyring 失败不会退回明文。
+- Windows 私有文件 ACL 已有显式实现、目标编译测试和单元测试，但仍需 Windows 原生 runner 执行
+  ACL 测试，并在 NTFS 实机确认旧文件修复、目录继承与连续 token 更新；keyring 失败不会退回明文。
 
 ## 画布与可编辑 PNG 结论
 
