@@ -7,6 +7,44 @@
 
 export type ContentType = "text" | "html" | "image";
 
+export type OperatingSystem = "linux" | "windows" | "macos" | "other";
+export type DesktopSession = "x11" | "wayland" | "native" | "unknown";
+export type CapabilityState = "available" | "permission_required" | "degraded" | "unsupported";
+export type CapabilityReason =
+  | "no_display_server"
+  | "wayland_protocol_limited"
+  | "wayland_portal_permission"
+  | "non_gnome_wayland_shortcut"
+  | "windows_integrity_boundary"
+  | "macos_screen_recording_permission"
+  | "macos_accessibility_permission"
+  | "unsupported_platform";
+
+export interface PlatformCapability {
+  state: CapabilityState;
+  reason: CapabilityReason | null;
+}
+
+export interface PlatformCapabilities {
+  clipboard_text: PlatformCapability;
+  clipboard_image: PlatformCapability;
+  auto_paste: PlatformCapability;
+  global_shortcuts: PlatformCapability;
+  screen_capture: PlatformCapability;
+  window_pick: PlatformCapability;
+  absolute_window_position: PlatformCapability;
+  always_on_top: PlatformCapability;
+  ocr: PlatformCapability;
+}
+
+export interface PlatformInfo {
+  operating_system: OperatingSystem;
+  session: DesktopSession;
+  desktop_environment: string | null;
+  architecture: string;
+  capabilities: PlatformCapabilities;
+}
+
 export interface ClipItem {
   id: number;
   content_type: ContentType;

@@ -32,34 +32,6 @@ const DBUS_CAPTURE_CMD: &str =
 pub const NOT_GNOME_REASON: &str =
     "当前 Wayland 桌面不由 gsd-media-keys 管理自定义快捷键，无法自动注册";
 
-/// 检测当前是否运行在 Wayland 会话中
-pub fn is_wayland() -> bool {
-    std::env::var("WAYLAND_DISPLAY").is_ok()
-        || std::env::var("XDG_SESSION_TYPE")
-            .map(|v| v == "wayland")
-            .unwrap_or(false)
-}
-
-/// 桌面是否是 GNOME 系。
-///
-/// Wayland 下的自动注册依赖 gsd-media-keys 读取 dconf 再向 Mutter grab 键位，
-/// 这是 GNOME 特有的链路：KDE/wlroots 上即使 gsettings 写入成功也没有任何组件会读它，
-/// 快捷键会静默失效。因此这里必须显式判断，而不是"能写入就算注册成功"。
-pub fn is_gnome_desktop_with(desktop: Option<&str>, session: Option<&str>) -> bool {
-    [desktop, session].iter().flatten().any(|value| {
-        value
-            .split(':')
-            .any(|part| part.trim().eq_ignore_ascii_case("gnome"))
-    })
-}
-
-pub fn is_gnome_desktop() -> bool {
-    is_gnome_desktop_with(
-        std::env::var("XDG_CURRENT_DESKTOP").ok().as_deref(),
-        std::env::var("XDG_SESSION_DESKTOP").ok().as_deref(),
-    )
-}
-
 /// Clippy 三个动作各自使用的自定义快捷键条目路径
 ///
 /// 不能写死 custom0/1/2：GNOME 里这些编号是先到先得的，用户自己建的快捷键很可能已经
@@ -241,7 +213,7 @@ pub fn to_gnome_accel(tauri_shortcut: &str) -> String {
 
 /// 注册 gsettings 自定义快捷键（应用启动时调用）
 pub fn register(shortcut: &str) -> Result<(), String> {
-    if !is_gnome_desktop() {
+    if !crate::platform::is_gnome_desktop() {
         return Err(NOT_GNOME_REASON.to_string());
     }
     let accel = to_gnome_accel(shortcut);
@@ -260,7 +232,7 @@ pub fn register(shortcut: &str) -> Result<(), String> {
 
 /// 注册 Pin 快捷键（应用启动时调用）
 pub fn register_pin(shortcut: &str) -> Result<(), String> {
-    if !is_gnome_desktop() {
+    if !crate::platform::is_gnome_desktop() {
         return Err(NOT_GNOME_REASON.to_string());
     }
     let accel = to_gnome_accel(shortcut);
@@ -279,7 +251,7 @@ pub fn register_pin(shortcut: &str) -> Result<(), String> {
 
 /// 注册 Capture 快捷键（应用启动时调用）
 pub fn register_capture(shortcut: &str) -> Result<(), String> {
-    if !is_gnome_desktop() {
+    if !crate::platform::is_gnome_desktop() {
         return Err(NOT_GNOME_REASON.to_string());
     }
     let accel = to_gnome_accel(shortcut);
@@ -298,7 +270,7 @@ pub fn register_capture(shortcut: &str) -> Result<(), String> {
 
 /// 更新 Pin 快捷键绑定
 pub fn update_pin_binding(shortcut: &str) -> Result<(), String> {
-    if !is_gnome_desktop() {
+    if !crate::platform::is_gnome_desktop() {
         return Err(NOT_GNOME_REASON.to_string());
     }
     let accel = to_gnome_accel(shortcut);
@@ -309,7 +281,7 @@ pub fn update_pin_binding(shortcut: &str) -> Result<(), String> {
 
 /// 更新 Capture 快捷键绑定
 pub fn update_capture_binding(shortcut: &str) -> Result<(), String> {
-    if !is_gnome_desktop() {
+    if !crate::platform::is_gnome_desktop() {
         return Err(NOT_GNOME_REASON.to_string());
     }
     let accel = to_gnome_accel(shortcut);
@@ -320,7 +292,7 @@ pub fn update_capture_binding(shortcut: &str) -> Result<(), String> {
 
 /// 更新绑定（设置页面修改快捷键时调用）
 pub fn update_binding(shortcut: &str) -> Result<(), String> {
-    if !is_gnome_desktop() {
+    if !crate::platform::is_gnome_desktop() {
         return Err(NOT_GNOME_REASON.to_string());
     }
     let accel = to_gnome_accel(shortcut);
@@ -331,7 +303,7 @@ pub fn update_binding(shortcut: &str) -> Result<(), String> {
 
 /// 暂停快捷键（录制新快捷键时调用）
 pub fn pause() -> Result<(), String> {
-    if !is_gnome_desktop() {
+    if !crate::platform::is_gnome_desktop() {
         // 这条路径下本来就没有注册成功的键位，没有东西需要暂停。
         log::debug!("非 GNOME 桌面，跳过暂停快捷键");
         return Ok(());
@@ -353,7 +325,7 @@ pub fn resume_with_results(
     pin_shortcut: &str,
     capture_shortcut: &str,
 ) -> Vec<(&'static str, String, Result<(), String>)> {
-    if !is_gnome_desktop() {
+    if !crate::platform::is_gnome_desktop() {
         log::debug!("非 GNOME 桌面，跳过恢复快捷键");
         return Vec::new();
     }
@@ -609,23 +581,6 @@ mod tests {
         );
         assert_eq!(to_gnome_accel("Cmd+V"), "<Super>v");
         assert_eq!(to_gnome_accel("Meta+V"), "<Super>v");
-    }
-
-    #[test]
-    fn test_is_wayland() {
-        let _ = is_wayland();
-    }
-
-    #[test]
-    fn gnome_detection_reads_both_desktop_variables() {
-        // Ubuntu 的 XDG_CURRENT_DESKTOP 是冒号分隔的复合值
-        assert!(is_gnome_desktop_with(Some("ubuntu:GNOME"), None));
-        assert!(is_gnome_desktop_with(Some("GNOME"), None));
-        assert!(is_gnome_desktop_with(None, Some("gnome")));
-        // KDE/wlroots 上没有 gsd-media-keys，必须判为不支持
-        assert!(!is_gnome_desktop_with(Some("KDE"), Some("plasmawayland")));
-        assert!(!is_gnome_desktop_with(Some("sway"), None));
-        assert!(!is_gnome_desktop_with(None, None));
     }
 
     fn paths(indices: &[usize]) -> Vec<String> {
