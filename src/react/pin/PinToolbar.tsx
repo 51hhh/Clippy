@@ -34,6 +34,8 @@ type Props = {
   opacity: number;
   locked: boolean;
   above: boolean;
+  aboveSupported: boolean;
+  aboveLimited: boolean;
   canvasOpen: boolean;
   canSave: boolean;
   copied: boolean;
@@ -129,13 +131,23 @@ export function PinToolbar(props: Props) {
           <Minus size={16} />
         </ToolButton>
         <span className="pin-tool-separator" />
-        <ToolButton
-          label={t(props.above ? "pin.unpinAbove" : "pin.pinAbove")}
-          active={props.above}
-          onClick={props.onToggleAbove}
-        >
-          {props.above ? <Pin size={16} /> : <PinOff size={16} />}
-        </ToolButton>
+        {props.aboveSupported && (
+          <ToolButton
+            label={t(
+              props.above
+                ? props.aboveLimited
+                  ? "pin.unpinAboveLimited"
+                  : "pin.unpinAbove"
+                : props.aboveLimited
+                  ? "pin.pinAboveLimited"
+                  : "pin.pinAbove",
+            )}
+            active={props.above}
+            onClick={props.onToggleAbove}
+          >
+            {props.above ? <Pin size={16} /> : <PinOff size={16} />}
+          </ToolButton>
+        )}
         <ToolButton
           label={t(props.locked ? "pin.unlock" : "pin.lock")}
           active={props.locked}

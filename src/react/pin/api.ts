@@ -5,6 +5,7 @@ import {
   getPinPayload,
   getPinSourceImage,
   getPinToolbarBounds,
+  getPlatformInfo,
   onPinAlreadyOpen,
   onPinImageSharpened,
   pinReady,
@@ -21,10 +22,13 @@ import type {
   PinState,
   PinToolbarBounds,
   PinUpdate,
+  PlatformInfo,
 } from "./types";
 
 export const pinApi = {
   get: (label: string): Promise<PinPayload> => getPinPayload(label),
+  /** Pin 的层级动作也必须服从后端能力判断，不能在 Wayland 上自行猜测。 */
+  platform: (): Promise<PlatformInfo> => getPlatformInfo(),
   ready: (label: string): Promise<void> => pinReady(label),
   /** 工具条能待的范围（窗口局部逻辑坐标）。见 `usePinToolbarBounds`。 */
   toolbarBounds: (label: string): Promise<PinToolbarBounds> => getPinToolbarBounds(label),

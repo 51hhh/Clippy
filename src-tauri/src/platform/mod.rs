@@ -373,7 +373,11 @@ fn capabilities_for(
                         CapabilityReason::WaylandProtocolLimited,
                     ),
                     always_on_top: Capability::with_reason(
-                        CapabilityState::Degraded,
+                        if gnome {
+                            CapabilityState::Degraded
+                        } else {
+                            CapabilityState::Unsupported
+                        },
                         CapabilityReason::WaylandProtocolLimited,
                     ),
                     ocr: available,
@@ -679,6 +683,13 @@ mod tests {
             )
         );
         assert_eq!(
+            capabilities.always_on_top,
+            Capability::with_reason(
+                CapabilityState::Degraded,
+                CapabilityReason::WaylandProtocolLimited
+            )
+        );
+        assert_eq!(
             capabilities.global_shortcuts.state,
             CapabilityState::Available
         );
@@ -693,6 +704,13 @@ mod tests {
             Capability::with_reason(
                 CapabilityState::PermissionRequired,
                 CapabilityReason::WaylandPortalPermission
+            )
+        );
+        assert_eq!(
+            capabilities.always_on_top,
+            Capability::with_reason(
+                CapabilityState::Unsupported,
+                CapabilityReason::WaylandProtocolLimited
             )
         );
     }

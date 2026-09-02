@@ -7,4 +7,6 @@ export type {
   PinState,
   PinToolbarBounds,
   PinUpdate,
+  PlatformCapability,
+  PlatformInfo,
 } from "../../js/ipc-types.ts";
