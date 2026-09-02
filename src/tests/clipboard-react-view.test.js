@@ -2,10 +2,18 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../js/api.ts", () => ({ getClipThumbnail: vi.fn() }));
+vi.mock("../js/api.ts", () => ({
+  getClipThumbnail: vi.fn(),
+  openPinImageDialog: vi.fn(),
+  deleteClip: vi.fn(),
+  getClips: vi.fn(),
+  selectClip: vi.fn(),
+  toggleFavorite: vi.fn(),
+}));
 
 import * as i18n from "../i18n/i18n.js";
 import { ClipboardRow } from "../react/main/ClipboardRow.tsx";
+import { ClipboardWorkspace } from "../react/main/ClipboardWorkspace.tsx";
 
 /**
  * 行的 props 是拍扁的标量（不是整个 snapshot），这样它能被 `memo` 挡住——
@@ -53,6 +61,13 @@ describe("React clipboard row", () => {
     expect(html).not.toContain("<img src=x");
     expect(html).toContain('aria-label="Copy"');
     expect(html).toContain('role="option"');
+  });
+
+  it("exposes a discoverable open-image entry with its keyboard hint", () => {
+    const html = renderToStaticMarkup(React.createElement(ClipboardWorkspace));
+    expect(html).toContain("Open image");
+    expect(html).toContain("Ctrl+O");
+    expect(html).toContain("open-image-button");
   });
 
   it("keeps empty text empty and shows only size and time", () => {

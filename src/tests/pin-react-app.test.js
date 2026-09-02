@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
     ready: vi.fn(),
     update: vi.fn(),
     copy: vi.fn(),
+    copyCanvas: vi.fn(),
     save: vi.fn(),
     edit: vi.fn(),
     close: vi.fn(),
@@ -197,11 +198,16 @@ describe("React pin app", () => {
     mocks.pinApi.close.mockResolvedValue(undefined);
     mocks.pinApi.onSharpened.mockResolvedValue(() => {});
     mocks.pinApi.onAlreadyOpen.mockResolvedValue(() => {});
-    mocks.pinApi.saveCanvas.mockResolvedValue("/tmp/pin.png");
+    mocks.pinApi.saveCanvas.mockResolvedValue({
+      path: "/tmp/pin.png",
+      clipboardWritten: true,
+      clipboardError: null,
+    });
     mocks.pinApi.save.mockResolvedValue("/tmp/pin.png");
     // 默认：整个窗口都在屏幕内（宽高取自 payload 的内容尺寸 + 边距）。
     mocks.pinApi.toolbarBounds.mockResolvedValue({ x: 0, y: 0, width: 388, height: 252 });
     mocks.pinApi.sourceImage.mockResolvedValue(TINY_PNG);
+    restoreStubs.push(stubImageDecoding());
     mocks.pinApi.update.mockImplementation(async (_label, update) => ({ ...payload, ...update }));
     // 产品代码会对它 `.catch()`，必须回 Promise（Wayland 上这条会真的失败，
     // 所以那个 catch 不是多余的）。
@@ -214,7 +220,7 @@ describe("React pin app", () => {
     await act(async () => root.unmount());
     // stub 是装在原型 / globalThis 上的，断言失败时也必须还回去，
     // 否则会污染同文件里后面的测试（之前就这样把 drawScene 弄坏过）。
-    restoreStubs.forEach((restore) => restore());
+    restoreStubs.reverse().forEach((restore) => restore());
     restoreStubs.length = 0;
     delete globalThis.IS_REACT_ACT_ENVIRONMENT;
   });
@@ -408,6 +414,8 @@ describe("React pin app", () => {
 
     await act(async () => document.querySelector('button[aria-label="Save image"]').click());
     await flush();
+    await act(async () => [...document.querySelectorAll(".pin-close-prompt button")][0].click());
+    await flush();
 
     // 关键断言：导出向**后端**要了原图。屏上那张（payload 的 imageBase64，可能是
     // 补偿版）绝不能当底图——jsdom 没有 canvas 2D 上下文，所以导出的后半段
@@ -436,11 +444,14 @@ describe("React pin app", () => {
     // exportPng 之后紧接着就是 saveCanvas，替掉它就能看到真实的第四个参数。
     restoreStubs.push(stubCanvasExport());
     await act(async () => document.querySelector('button[aria-label="Save image"]').click());
+    await flush();
+    await act(async () => [...document.querySelectorAll(".pin-close-prompt button")][0].click());
     await flushAsyncChain();
 
     expect(mocks.pinApi.saveCanvas).toHaveBeenCalledTimes(1);
-    const [, , toClipboard, sent] = mocks.pinApi.saveCanvas.mock.calls[0];
+    const [, , toClipboard, mode, sent] = mocks.pinApi.saveCanvas.mock.calls[0];
     expect(toClipboard).toBe(true);
+    expect(mode).toBe("editable");
     // 画了一笔，标注必须在。
     expect(sent.annotations).toHaveLength(1);
     expect(sent.annotations[0].type).toBe("pen");
@@ -450,8 +461,8 @@ describe("React pin app", () => {
 
   });
 
-  /** 原图取不到时要报错，不能悄悄拿屏上那张顶替。 */
-  it("fails loudly when the source image cannot be fetched", async () => {
+  /** 原图取不到时画布不得拿补偿预览顶替。 */
+  it("does not substitute the compensated preview when the source cannot be fetched", async () => {
     mocks.pinApi.get.mockResolvedValue({
       ...payload,
       kind: "image",
@@ -461,13 +472,10 @@ describe("React pin app", () => {
     mocks.pinApi.sourceImage.mockResolvedValue(null);
     await act(async () => root.render(React.createElement(App)));
     await flush();
-    await drawOneStroke();
-
-    await act(async () => document.querySelector('button[aria-label="Save image"]').click());
+    await act(async () => document.querySelector('button[aria-label="Draw on image"]').click());
     await flushAsyncChain();
-
+    expect(document.querySelector(".pin-canvas")).toBeNull();
     expect(mocks.pinApi.saveCanvas).not.toHaveBeenCalled();
-    expect(document.querySelector(".pin-toast")?.textContent).toBe("Action failed");
   });
 
   /**
@@ -592,6 +600,7 @@ describe("React pin app", () => {
     await flush();
     expect(document.querySelector(".pin-close-prompt")).toBeNull();
     expect(mocks.pinApi.close).toHaveBeenCalledWith("pin-image-test");
+
   });
 
   /**
@@ -637,6 +646,144 @@ describe("React pin app", () => {
     await flush();
     expect(mocks.pinApi.saveCanvas).not.toHaveBeenCalled();
     expect(mocks.pinApi.close).toHaveBeenCalledWith("pin-image-test");
+  });
+
+  it("uses canonical source coordinates when the displayed preview has compensated dimensions", async () => {
+    restoreStubs.push(stubCanvasExport());
+    mocks.pinApi.get.mockResolvedValue({
+      ...payload,
+      kind: "image",
+      text: null,
+      imageBase64: TINY_PNG,
+      initialProject: null,
+    });
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+    const image = document.querySelector(".pin-media img");
+    Object.defineProperty(image, "naturalWidth", { value: 640, configurable: true });
+    Object.defineProperty(image, "naturalHeight", { value: 360, configurable: true });
+    await act(async () => image.dispatchEvent(new Event("load")));
+    await act(async () => document.querySelector('button[aria-label="Draw on image"]').click());
+    await flushAsyncChain();
+
+    const canvas = document.querySelector(".pin-canvas");
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 320, bottom: 180, width: 320, height: 180, x: 0, y: 0 });
+    canvas.setPointerCapture = () => {};
+    canvas.releasePointerCapture = () => {};
+    await act(async () => {
+      canvas.dispatchEvent(pointer("pointerdown", 10, 10));
+      canvas.dispatchEvent(pointer("pointermove", 60, 70));
+      canvas.dispatchEvent(pointer("pointerup", 60, 70));
+    });
+    await flushFrame();
+    await act(async () => document.querySelector('button[aria-label="Save image"]').click());
+    await flush();
+    await act(async () => [...document.querySelectorAll(".pin-close-prompt button")][0].click());
+    await flushAsyncChain();
+
+    const sent = mocks.pinApi.saveCanvas.mock.calls[0][4];
+    expect(sent.sourceWidth).toBe(320);
+    expect(sent.sourceHeight).toBe(180);
+    expect(sent.annotations[0].points[0]).toEqual({ x: 10, y: 10 });
+    expect(sent.annotations[0].points.at(-1)).toEqual({ x: 60, y: 70 });
+  });
+
+  it("hydrates a project as the history baseline and keeps its composition visible with tools closed", async () => {
+    restoreStubs.push(stubCanvasExport());
+    mocks.pinApi.get.mockResolvedValue({
+      ...payload,
+      kind: "image",
+      text: null,
+      imageBase64: TINY_PNG,
+      initialProject: {
+        format: "clippy-pin-project",
+        formatVersion: 2,
+        rendererVersion: 1,
+        source: { width: 320, height: 180, sha256: "a".repeat(64) },
+        document: {
+          annotations: [{ id: "baseline", type: "pen", color: "#fff", size: 2, points: [{ x: 1, y: 1 }, { x: 2, y: 2 }] }],
+          adjustments: { grayscale: false, brightness: 0, contrast: 0, saturation: 0, cornerRadius: 0 },
+        },
+      },
+    });
+    await act(async () => root.render(React.createElement(App)));
+    await flushAsyncChain();
+    expect(document.querySelector(".pin-canvas")).not.toBeNull();
+    expect(document.querySelector(".pin-canvas").classList.contains("editing")).toBe(false);
+
+    await act(async () => document.querySelector('button[aria-label="Draw on image"]').click());
+    await flush();
+    const canvas = document.querySelector(".pin-canvas");
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 320, bottom: 180, width: 320, height: 180, x: 0, y: 0 });
+    canvas.setPointerCapture = () => {};
+    canvas.releasePointerCapture = () => {};
+    await act(async () => {
+      canvas.dispatchEvent(pointer("pointerdown", 10, 10));
+      canvas.dispatchEvent(pointer("pointermove", 20, 20));
+      canvas.dispatchEvent(pointer("pointerup", 20, 20));
+    });
+    await flushFrame();
+    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true })));
+    await act(async () => document.querySelector('button[aria-label="Save image"]').click());
+    await flush();
+    await act(async () => [...document.querySelectorAll(".pin-close-prompt button")][0].click());
+    await flushAsyncChain();
+    expect(mocks.pinApi.saveCanvas.mock.calls[0][4].annotations.map((item) => item.id)).toEqual(["baseline"]);
+  });
+
+  it("copies the latest composition and advances the saved revision even if clipboard writing warns", async () => {
+    restoreStubs.push(stubCanvasExport());
+    mocks.pinApi.saveCanvas.mockResolvedValue({ path: "/tmp/edited.png", clipboardWritten: false, clipboardError: "busy" });
+    mocks.pinApi.get.mockResolvedValue({ ...payload, kind: "image", text: null, imageBase64: TINY_PNG });
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+    await drawOneStroke();
+
+    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "c", ctrlKey: true, bubbles: true })));
+    await flushAsyncChain();
+    expect(mocks.pinApi.copyCanvas).toHaveBeenCalledWith("pin-image-test", expect.any(String));
+    expect(mocks.pinApi.copy).not.toHaveBeenCalled();
+
+    await act(async () => document.querySelector('button[aria-label="Save image"]').click());
+    await flush();
+    await act(async () => [...document.querySelectorAll(".pin-close-prompt button")][0].click());
+    await flushAsyncChain();
+    expect(document.querySelector(".pin-toast")?.textContent).toBe("File saved, but clipboard copy failed");
+
+    await act(async () => document.querySelector('button[aria-label="Close"]').click());
+    await flush();
+    expect(document.querySelector(".pin-close-prompt")).toBeNull();
+    expect(mocks.pinApi.close).toHaveBeenCalledWith("pin-image-test");
+
+    mocks.pinApi.close.mockClear();
+    const canvas = document.querySelector(".pin-canvas");
+    await act(async () => {
+      canvas.dispatchEvent(pointer("pointerdown", 70, 70));
+      canvas.dispatchEvent(pointer("pointermove", 90, 90));
+      canvas.dispatchEvent(pointer("pointerup", 90, 90));
+    });
+    await flushFrame();
+    await act(async () => document.querySelector('button[aria-label="Close"]').click());
+    await flush();
+    expect(document.querySelector(".pin-close-prompt")).not.toBeNull();
+    expect(mocks.pinApi.close).not.toHaveBeenCalled();
+  });
+
+  it("separates editable save from privacy-safe flat export", async () => {
+    restoreStubs.push(stubCanvasExport());
+    mocks.pinApi.get.mockResolvedValue({ ...payload, kind: "image", text: null, imageBase64: TINY_PNG });
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+    await drawOneStroke();
+
+    await act(async () => document.querySelector('button[aria-label="Save image"]').click());
+    await flush();
+    expect(document.querySelector(".pin-privacy-warning")?.textContent).toContain("unredacted original");
+    await act(async () => [...document.querySelectorAll(".pin-close-prompt button")][1].click());
+    await flushAsyncChain();
+    expect(mocks.pinApi.saveCanvas).toHaveBeenLastCalledWith(
+      "pin-image-test", expect.any(String), false, "flat", null,
+    );
   });
 
   /**

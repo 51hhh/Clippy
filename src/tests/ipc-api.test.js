@@ -50,6 +50,9 @@ import {
   startDraggingCurrentWindow,
   updateConfig,
   updatePin,
+  copyPinCanvas,
+  openPinImageDialog,
+  savePinCanvas,
 } from "../js/api.ts";
 
 describe("typed IPC wrappers", () => {
@@ -78,6 +81,32 @@ describe("typed IPC wrappers", () => {
   it("uses the explicit text-copy command without paste side effects", () => {
     copyText("translated result");
     expect(invoke).toHaveBeenCalledWith("copy_text", { text: "translated result" });
+  });
+
+  it("keeps editable/flat canvas save and current-composition copy contracts explicit", () => {
+    const project = {
+      rendererVersion: 1,
+      sourceWidth: 320,
+      sourceHeight: 180,
+      annotations: [],
+      adjustments: {},
+    };
+    savePinCanvas("pin-1", "png", true, "editable", project);
+    copyPinCanvas("pin-1", "composed");
+    openPinImageDialog();
+
+    expect(invoke).toHaveBeenNthCalledWith(1, "save_pin_canvas", {
+      label: "pin-1",
+      pngBase64: "png",
+      toClipboard: true,
+      mode: "editable",
+      project,
+    });
+    expect(invoke).toHaveBeenNthCalledWith(2, "copy_pin_canvas", {
+      label: "pin-1",
+      pngBase64: "composed",
+    });
+    expect(invoke).toHaveBeenNthCalledWith(3, "open_pin_image_dialog");
   });
 
   it("sends AppConfig through the stable newConfig argument", () => {
