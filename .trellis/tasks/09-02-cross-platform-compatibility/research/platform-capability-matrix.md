@@ -27,6 +27,10 @@
 ## 官方资料与版本事实
 
 - Tauri 支持平台覆盖配置，公共配置可与 `tauri.linux.conf.json`、`tauri.windows.conf.json`、`tauri.macos.conf.json` 合并：https://v2.tauri.app/reference/config/
+- Tauri `build` 默认执行配置中的 bundling，也允许把应用构建和 bundling 拆开；因此普通 CI 不能只用
+  `cargo check` 或 `vite build` 代替安装包门禁：https://v2.tauri.app/distribute/
+- `createUpdaterArtifacts` 只控制 updater 附加产物，普通 CI 可关闭它以避免要求 updater 私钥，同时
+  仍实际生成平台安装包：https://v2.tauri.app/plugin/updater/
 - Tauri AppImage 应在最老支持发行版构建，避免无意抬高 glibc 基线：https://v2.tauri.app/distribute/appimage/
 - Tauri global-shortcut 插件覆盖 Linux、Windows、macOS：https://v2.tauri.app/plugin/global-shortcut/
 - xdg-desktop-portal GlobalShortcuts 在 1.16 引入；Ubuntu 22 的 portal 为 1.14 系列，因此 Jammy 不可只依赖该接口：https://github.com/flatpak/xdg-desktop-portal/blob/main/NEWS.md

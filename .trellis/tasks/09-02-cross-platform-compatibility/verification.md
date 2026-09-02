@@ -4,11 +4,11 @@
 
 审查基线：`621e36f289a386dcf84d26c77742f6b0f1eae31e`
 
-功能代码已审查至：`9236a02ee419926bc31896afc6011b1e63ac4dd7`
+代码与 CI 已审查至：`707a320e50e40cdc53a60fe302fedbcc5ea3f966`
 
 ## 审查范围
 
-- 审查基线之后 91 个提交、130 个变更文件，以及提交时仍存在的工作区内容。
+- 审查基线之后 93 个提交、131 个变更文件，以及提交时仍存在的工作区内容。
 - 逐项检查截图、窗口命中、Pin、标注画布、可编辑 PNG、剪贴板、自动粘贴、快捷键、OCR、
   私有存储、自动启动、平台配置、CI 和 release 数据流。
 - `.omo/` 与 `.trellis/workspace/codex/` 是未跟踪的用户工作区，本次未读取、未修改、未提交。
@@ -49,11 +49,14 @@
   x11rb 或 Linux `nix` 实现。
 - Windows 私有文件 ACL 与原子替换模块在独立最小工程中完成 MSVC 目标 `cargo check --tests`
   和 `cargo clippy --tests -- -D warnings`；这验证目标条件编译和 Win32 类型调用，不代替原生运行。
+- 原生 CI 增加真正的 Tauri bundle smoke：关闭 updater 附加产物和代码签名，但不关闭 bundler；
+  Windows 必须生成 NSIS/MSI，macOS 必须生成 app/DMG。本机已用同一 CI 配置完成
+  `tauri build --debug --no-bundle`，验证配置合并、前端钩子和应用构建；安装包仍必须由原生 runner 生成。
 - `git diff --check` 通过。
 
 ## 原生平台验证状态
 
-当前 `dev` 比 `origin/dev` 多 117 个本地提交。GitHub 上最近一次 `build.yml` 成功运行是
+当前 `dev` 比 `origin/dev` 多 119 个本地提交。GitHub 上最近一次 `build.yml` 成功运行是
 2026-08-30 的 `8f6c1b57ad844ebc98254b9f88b16e88f3cce314`，不包含本轮改动。
 
 - Windows MSVC：完整工程在 Linux 主机交叉检查时缺少 `llvm-rc`、MSVC `lib.exe`/SDK 以及
@@ -62,7 +65,7 @@
 - macOS：Linux 主机没有 Apple SDK/clang，交叉 `cargo check` 在 `-arch`/SDK 参数处停止；
   这既不是项目源码失败，也不能作为 macOS 通过证据。
 - 发布前必须把本分支推送到远端，让 `windows-latest` 与 `macos-latest` 原生 runner 完成
-  check、clippy、test、前端测试、类型检查和构建。
+  check、clippy、test、前端测试、类型检查，以及新增的 NSIS/MSI、app/DMG bundle smoke。
 
 ## 实机 QA 矩阵
 

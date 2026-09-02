@@ -103,7 +103,7 @@ Portal 接口存在性必须读取各接口的 `version` 属性；不能用 port
 ### Phase F：验证和发布门禁
 
 1. 纯逻辑单测覆盖能力选择、fallback、目录、快捷键和 IPC schema。
-2. 三平台原生 CI 编译与测试。
+2. 三平台原生 CI 编译与测试；Windows/macOS 普通 CI 另以无签名模式实际生成并核对平台安装包。
 3. 维护实机矩阵：多屏、混合 DPI、热插拔、权限拒绝/撤销、Windows elevated target、macOS Spaces/fullscreen。
 4. 对每个安装包做安装、自动启动、更新、卸载和数据保留测试。
 
