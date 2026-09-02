@@ -46,6 +46,25 @@ describe("tauri 构建钩子不依赖 cwd", () => {
   });
 });
 
+describe("Linux CI 固守 Ubuntu 22 构建基线", () => {
+  const buildWorkflow = read(".github/workflows/build.yml");
+  const releaseWorkflow = read(".github/workflows/release.yml");
+
+  it.each([
+    ["CI", buildWorkflow],
+    ["release", releaseWorkflow],
+  ])("%s 使用 Jammy 且不安装 PipeWire 开发包", (_name, workflow) => {
+    expect(workflow).toContain("ubuntu-22.04");
+    expect(workflow).not.toContain("ubuntu-24.04");
+    expect(workflow).not.toContain("libpipewire-0.3-dev");
+  });
+
+  it("默认依赖图出现 pipewire-rs 时 CI 会失败", () => {
+    expect(buildWorkflow).toContain("Default Linux dependency graph must not include pipewire-rs");
+    expect(releaseWorkflow).toContain("Default Linux dependency graph must not include pipewire-rs");
+  });
+});
+
 describe("deb 声明了二进制硬链接的库", () => {
   const deb = JSON.parse(read("src-tauri/tauri.conf.json")).bundle.linux.deb;
 
