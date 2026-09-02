@@ -1,6 +1,6 @@
 //! 窗口速选候选区的采集。
 //!
-//! 有两条来源，按可靠性排序：
+//! Linux 有两条来源，按可靠性排序：
 //!
 //! 1. **GNOME Shell 扩展**（`shell_extension`）。给的是逻辑像素、已排除 CSD 阴影的
 //!    `frame_rect`，还带真正的堆叠顺序，不需要任何折算。GNOME Wayland 下这是唯一能
@@ -15,7 +15,9 @@
 //! **不变量：下发给覆盖层的候选数组即堆叠顺序，索引 0 是最上层。** 覆盖层的 `windowAt`
 //! 取第一个命中的候选，所以这个顺序就是遮挡关系的答案：点落在两个窗口重叠处时选上面
 //! 那个，落在下层窗口露出来的部分时选下层，被完全盖住的窗口自然选不到。拿不到堆叠顺序
-//! 时才退化成"面积小的优先"这种猜测。
+//! 时才退化成"面积小的优先"这种猜测。Windows/macOS 的 xcap 枚举本身已经按 Z 序
+//! 从上到下返回，必须保留原顺序；Windows 的窗口矩形还是物理像素，需要按窗口所在屏的
+//! DPI 换成与覆盖层一致的逻辑像素。
 
 use super::shell_extension::ShellWindow;
 use super::types::WindowCandidate;
@@ -110,14 +112,14 @@ fn candidates_from_x11(frames: &[CapturedMonitorFrame]) -> HashMap<u32, Vec<Wind
     }
 
     let mut x11 = X11Probe::open();
-    let ratio = x11_pixel_ratio(frames, &x11);
+    let desktop_ratio = x11_pixel_ratio(frames, &x11);
     // **这条路的已知天花板，日志里要说清楚。** X screen 只有一个全局比例，各屏缩放不同时
     // 压根不存在这样一个数：按它折算，缩放不等于该比例的那些屏上速选框必然偏。没法在这里
     // 修——XWayland 不提供逐屏的缩放，能彻底避开这条路的办法是装扩展（GNOME Wayland）
     // 或者关掉分数缩放。不吭声的话，症状表现为"某块屏上的速选框莫名偏移"。
     if !frame_scales_are_uniform(frames) {
         log::warn!(
-            "窗口速选走 X11 枚举，但各屏缩放不一致：只能按全局比例 {ratio:.4} 折算，\
+            "窗口速选走 X11 枚举，但各屏缩放不一致：只能按全局比例 {desktop_ratio:.4} 折算，\
              缩放不同的屏上速选框会偏；GNOME Wayland 上装窗口速选扩展可以绕开这条路"
         );
     }
@@ -135,8 +137,9 @@ fn candidates_from_x11(frames: &[CapturedMonitorFrame]) -> HashMap<u32, Vec<Wind
         }
         let id = window.id().ok();
         // xcap 的 is_minimized 在 XWayland 下不可信（实测把肉眼可见的 QQ 报成已最小化，
-        // 于是唯一的候选被滤掉了）。改用 EWMH 的权威信号 WM_STATE == IconicState。
-        if id.map(|id| x11.is_iconified(id)).unwrap_or(false) {
+        // 于是唯一的候选被滤掉了）。Linux 改用 EWMH 的权威信号 WM_STATE == IconicState；
+        // Windows/macOS 仍使用各自的原生实现。
+        if window_is_minimized(&window, &mut x11, id) {
             continue;
         }
         let Ok(x) = window.x() else { continue };
@@ -154,6 +157,7 @@ fn candidates_from_x11(frames: &[CapturedMonitorFrame]) -> HashMap<u32, Vec<Wind
             height,
         };
         let extents = id.and_then(|id| x11.extents(id)).unwrap_or_default();
+        let ratio = window_coordinate_ratio(&window, desktop_ratio);
         let rect = to_logical(trim_frame_extents(raw, extents), ratio);
         if (rect.width as i32) < MIN_CANDIDATE_SIZE || (rect.height as i32) < MIN_CANDIDATE_SIZE {
             continue;
@@ -161,11 +165,53 @@ fn candidates_from_x11(frames: &[CapturedMonitorFrame]) -> HashMap<u32, Vec<Wind
         collected.push((id, rect, window.title().unwrap_or_default()));
     }
 
-    order_x11_candidates(&mut collected, x11.stacking_order().as_deref());
+    order_platform_candidates(&mut collected, &x11);
     for (_, rect, title) in &collected {
         append_window_intersections(&mut result, frames, *rect, title);
     }
     result
+}
+
+#[cfg(target_os = "linux")]
+fn window_is_minimized(window: &xcap::Window, x11: &mut X11Probe, id: Option<u32>) -> bool {
+    let _ = window;
+    id.map(|id| x11.is_iconified(id)).unwrap_or(false)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn window_is_minimized(window: &xcap::Window, _x11: &mut X11Probe, _id: Option<u32>) -> bool {
+    window.is_minimized().unwrap_or(false)
+}
+
+#[cfg(target_os = "windows")]
+fn window_coordinate_ratio(window: &xcap::Window, _desktop_ratio: f32) -> f32 {
+    window
+        .current_monitor()
+        .and_then(|monitor| monitor.scale_factor())
+        .ok()
+        .filter(|scale| scale.is_finite() && *scale > 0.0)
+        .unwrap_or(1.0)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn window_coordinate_ratio(_window: &xcap::Window, desktop_ratio: f32) -> f32 {
+    desktop_ratio
+}
+
+#[cfg(target_os = "linux")]
+fn order_platform_candidates(candidates: &mut [(Option<u32>, ProbeRect, String)], x11: &X11Probe) {
+    order_x11_candidates(candidates, x11.stacking_order().as_deref());
+}
+
+#[cfg(not(target_os = "linux"))]
+fn order_platform_candidates(candidates: &mut [(Option<u32>, ProbeRect, String)], _x11: &X11Probe) {
+    keep_native_z_order(candidates);
+}
+
+#[cfg(any(not(target_os = "linux"), test))]
+fn keep_native_z_order(_candidates: &mut [(Option<u32>, ProbeRect, String)]) {
+    // xcap::Window::all 的公开契约是按 Z 坐标排序；Windows 的 EnumWindows 与 macOS 的
+    // CGWindowListCopyWindowInfo 都从最上层向下枚举，所以不应再按面积打乱遮挡关系。
 }
 
 /// 把 X11 候选排成"索引 0 最上层"。
@@ -771,6 +817,17 @@ mod tests {
             // 面积排序会给出完全相反的答案，这个断言就是用来锁住"堆叠序优先"的。
             vec!["top", "middle", "bottom"]
         );
+    }
+
+    #[test]
+    fn native_window_order_is_not_replaced_by_area_sorting() {
+        let mut candidates = vec![
+            (Some(1), rect(0, 0, 1600, 900), "top".to_string()),
+            (Some(2), rect(100, 100, 200, 120), "bottom".to_string()),
+        ];
+        keep_native_z_order(&mut candidates);
+        assert_eq!(candidates[0].2, "top");
+        assert_eq!(candidates[1].2, "bottom");
     }
 
     #[test]
