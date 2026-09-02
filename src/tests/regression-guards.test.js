@@ -320,9 +320,11 @@ describe("拖动选区不引发画布重绘", () => {
     const call = source.indexOf("drawScene(");
     expect(call).toBeGreaterThan(0);
     const deps = source.slice(call, source.indexOf("]);", call));
-    expect(deps).not.toMatch(/cropInPixels/);
-    // 但选区本身还要喂给导出与选区翻译，别把它一起删了
-    expect(source).toContain("cropInPixels");
+    expect(deps).not.toMatch(/selection/);
+    // 选区只进后端提交/翻译；禁止恢复 WebView 最终 PNG 导出。
+    expect(source).toContain("{ ...selection, sessionId:");
+    expect(source).toContain("rendererVersion: 2");
+    expect(source).not.toContain("exportPngBase64");
   });
 
   it("压暗与虚线框由 .selection 这一层 CSS 承担", () => {
