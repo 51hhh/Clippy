@@ -34,6 +34,10 @@
 
 ## 前端模块
 
+`js/settings/platform-capabilities.js` 只消费后端 typed `PlatformInfo`：设置页“关于”展示系统、会话、
+桌面环境、架构、XWayland、Portal 接口版本，以及九项能力的状态和本地化 reason。它不读 user-agent、
+不重复推断平台，所有后端文本通过文本节点写入 DOM。
+
 | 模块 | 职责 |
 |---|---|
 | `js/clipboard-list.js` | 列表 facade、数据加载、IPC 动作与增量渲染装配 |
