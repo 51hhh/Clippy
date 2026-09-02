@@ -11,6 +11,13 @@ pub(super) enum PinSource {
     Screenshot {
         png: Vec<u8>,
     },
+    /// 从可编辑 PNG 恢复：屏幕/快速复制使用保存时合成图，画布与再次保存使用 canonical
+    /// 原图和已验证工程。整个枚举位于 `Arc` 后，不会在缩放热路径复制这些字节。
+    Project {
+        source_png: Vec<u8>,
+        preview_png: Vec<u8>,
+        project: super::project::PinProject,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -216,6 +223,8 @@ pub struct PinPayload {
     /// 见 `PinEntry::buffer_scale`。图片已按缓冲区分辨率补偿过时，
     /// `pixelWidth == cssWidth * bufferScale`，前端据此知道这张图是 1:1 搬进缓冲区的。
     pub buffer_scale: f64,
+    /// 只有从合法 v2 工程打开的贴图才有。原图字节由 `get_pin_source_image` 按需提供。
+    pub initial_project: Option<super::project::InitialProject>,
 }
 
 /// `update_pin` 的应答：只有这次真的可能变的那几个字段。

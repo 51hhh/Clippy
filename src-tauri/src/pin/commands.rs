@@ -8,6 +8,8 @@ use super::window::{
 use crate::commands::AppState;
 use crate::models::ContentType;
 use base64::{engine::general_purpose::STANDARD, Engine};
+use serde::{Deserialize, Serialize};
+use std::path::Path;
 use std::sync::Arc;
 use tauri::{Emitter, Manager, State};
 
@@ -139,6 +141,79 @@ pub(crate) fn create_screenshot_pin(
         return Err(crate::error::report("创建截图贴图窗口失败", error));
     }
     Ok(label)
+}
+
+/// 从文件打开后的扁平图/工程创建贴图。所有读取和工程校验在调用前完成，因此插入 manager
+/// 后唯一可能失败的是建窗；失败路径会立刻移除条目，不留下半初始化状态。
+fn create_opened_image_pin(
+    preview_png: Vec<u8>,
+    project: Option<(Vec<u8>, super::project::PinProject)>,
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+) -> Result<String, String> {
+    let _transition = state
+        .pin_transition
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let (width, height) = crate::screenshot::png_dimensions(&preview_png)
+        .map_err(|_| "所选文件不是合法 PNG".to_string())?;
+    let label = format!("pin-image-{}", crate::image_io::unique_image_id());
+    let (content_width, content_height) =
+        fit_content_size(app_handle, f64::from(width), f64::from(height));
+    let source = match project {
+        Some((source_png, project)) => PinSource::Project {
+            source_png,
+            preview_png,
+            project,
+        },
+        None => PinSource::Screenshot { png: preview_png },
+    };
+    let entry = PinEntry {
+        label: label.clone(),
+        source: Arc::new(source),
+        content_width,
+        content_height,
+        scale: 1.0,
+        opacity: 1.0,
+        locked: false,
+        above: false,
+        position: None,
+        origin: None,
+        device_scale: content_device_scale(app_handle, None),
+        buffer_scale: content_buffer_scale(app_handle, None),
+        sharpen: Arc::new(SharpenSlot::default()),
+    };
+    insert_pin_with_rollback(&state.pin_manager, entry, |inserted| {
+        spawn_sharpen(app_handle, inserted);
+        create_pin_window(app_handle, &label, content_width, content_height, None)
+            .map_err(|error| crate::error::report("创建图片贴图窗口失败", error))
+    })?;
+    Ok(label)
+}
+
+/// PinManager 插入与原生建窗是一笔事务：后续步骤失败时必须删除刚插入的 entry。
+/// 抽成纯状态 helper 后，窗口系统不可用的单元测试环境也能钉住 rollback 不变量。
+fn insert_pin_with_rollback<T>(
+    manager: &super::manager::PinManager,
+    entry: PinEntry,
+    after_insert: impl FnOnce(&PinEntry) -> Result<T, String>,
+) -> Result<T, String> {
+    let label = entry.label.clone();
+    manager.insert(entry)?;
+    let inserted = match manager.get(&label) {
+        Ok(entry) => entry,
+        Err(error) => {
+            let _ = manager.remove(&label);
+            return Err(error.into());
+        }
+    };
+    match after_insert(&inserted) {
+        Ok(value) => Ok(value),
+        Err(error) => {
+            let _ = manager.remove(&label);
+            Err(error)
+        }
+    }
 }
 
 /// 截图期间让置顶的贴图暂时退出置顶层，返回被降下来的那些 label。
@@ -313,6 +388,9 @@ pub fn copy_pin(label: String, state: State<'_, AppState>) -> Result<(), String>
         // 全图 sha256）。后果只是这张图重新进一次历史——`insert_clip` 按哈希去重，
         // 已有的那条只会被顶到最前面，没有重复存储。
         PinSource::Screenshot { png } => crate::image_io::copy_png_to_clipboard(png),
+        PinSource::Project { preview_png, .. } => {
+            crate::image_io::copy_png_to_clipboard(preview_png)
+        }
     }
 }
 
@@ -345,60 +423,78 @@ pub fn get_pin_source_image(
     Ok(source_png(&entry.source).map(|png| STANDARD.encode(png)))
 }
 
-/// 画布上限。和截图提交那条路同一个数量级，理由也一样：挡住畸形载荷把内存吃光。
-const MAX_CANVAS_PNG_BYTES: usize = 64 * 1024 * 1024;
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PinCanvasSaveMode {
+    Editable,
+    Flat,
+}
 
-/// 把贴图上画过的那一版存盘 / 复制。
-///
-/// 画布产物**不写回贴图条目**：条目里那张是原图，`copy_pin`/`save_pin` 一直交付它，
-/// 这个语义不该被"画了几笔"改掉。画完要留下来就走这条命令，产物是前端导出的 PNG。
-///
-/// `to_clipboard` 为真时同时进剪贴板，于是"画完直接粘到别处"不用先存盘。
-///
-/// # 落盘的那份带工程数据
-///
-/// **进剪贴板的是纯渲染结果，落盘的那份多一个 iTXt 工程块**（原图 + 标注，
-/// 见 `super::project`）。于是同一个文件既能被任何看图软件当普通 PNG 打开，
-/// 又能被 Clippy 重新打开继续编辑。
-///
-/// 剪贴板那份不带：粘贴的目标是别的应用，工程数据对它没有意义，而且很多应用粘贴图片
-/// 走的是 RGBA 而不是 PNG 字节，元数据本来就到不了对面。
-///
-/// 工程块写失败**不让保存失败**：那时落盘一张普通 PNG，用户至少拿到了图。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PinCanvasSaveResult {
+    pub path: String,
+    pub clipboard_written: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clipboard_error: Option<String>,
+}
+
+/// 把最新合成图保存为可编辑工程或安全扁平 PNG。文件先原子落盘，剪贴板随后写入；后者
+/// 失败不会谎报文件失败，而是通过结构化结果单独告知调用方。
 #[tauri::command]
 pub fn save_pin_canvas(
     label: String,
     png_base64: String,
     to_clipboard: bool,
+    mode: PinCanvasSaveMode,
     project: Option<PinCanvasProject>,
     state: State<'_, AppState>,
-) -> Result<String, String> {
+) -> Result<PinCanvasSaveResult, String> {
     validate_label(&label)?;
-    // 条目必须还在：窗口关掉之后再来存盘是没有意义的（而且 label 校验只管格式）。
     let entry = state.pin_manager.get(&label)?;
-    if png_base64.len() / 4 * 3 > MAX_CANVAS_PNG_BYTES {
-        return Err("画布内容过大".to_string());
-    }
-    let png = crate::screenshot::decode_png_base64(&png_base64)
-        .map_err(|_| "画布内容无效".to_string())?;
-    if png.len() > MAX_CANVAS_PNG_BYTES {
-        return Err("画布内容过大".to_string());
-    }
-    // 信任边界：前端送上来的字节必须真的能解成图像，后面存盘与剪贴板都假设它是合法 PNG。
-    // 这里顺手把解出来的像素留着给剪贴板用，省掉第二次整张解码（同 `capture::CommitImage`）。
-    let pixels = image::load_from_memory_with_format(&png, image::ImageFormat::Png)
-        .map_err(|_| "画布内容无效".to_string())?
-        .into_rgba8();
-    if to_clipboard {
-        crate::clipboard_watcher::clipboard_set_image_with_retry(
-            crate::image_io::rgba_to_clipboard_image(pixels),
-        )?;
-    }
-    let to_disk = project
-        .and_then(|project| embed_canvas_project(&png, project, &entry))
-        .unwrap_or(png);
+    let png = decode_canvas_png(&png_base64)?;
+    let to_disk = match mode {
+        PinCanvasSaveMode::Flat => super::project::flatten(&png)?,
+        PinCanvasSaveMode::Editable => {
+            let project = project.ok_or_else(|| "保存可编辑 PNG 缺少工程数据".to_string())?;
+            embed_canvas_project(&png, project, &entry)?
+        }
+    };
     let path = crate::image_io::save_png(&to_disk, "clippy-pin", &state.save_target())?;
-    Ok(path.to_string_lossy().to_string())
+    let clipboard_error = if to_clipboard {
+        crate::image_io::copy_png_to_clipboard(&png).err()
+    } else {
+        None
+    };
+    Ok(PinCanvasSaveResult {
+        path: path.to_string_lossy().to_string(),
+        clipboard_written: to_clipboard && clipboard_error.is_none(),
+        clipboard_error,
+    })
+}
+
+/// 已编辑贴图的 Copy/Ctrl+C：只把最新合成像素送入剪贴板，不携带 iTXt。
+#[tauri::command]
+pub fn copy_pin_canvas(
+    label: String,
+    png_base64: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    validate_label(&label)?;
+    state.pin_manager.get(&label)?;
+    let png = decode_canvas_png(&png_base64)?;
+    crate::image_io::copy_png_to_clipboard(&png)
+}
+
+fn decode_canvas_png(png_base64: &str) -> Result<Vec<u8>, String> {
+    // 在 base64 分配前先做保守长度判断；精确字节与完整 PNG 随后再验证。
+    if png_base64.len() > super::project::MAX_RENDERED_PNG_BYTES.saturating_mul(4) / 3 + 64 {
+        return Err("画布内容过大".to_string());
+    }
+    let png = crate::screenshot::decode_png_base64(png_base64)
+        .map_err(|_| "画布内容 base64 无效".to_string())?;
+    super::project::validate_rendered_png(&png)?;
+    Ok(png)
 }
 
 /// 读一个 PNG 文件里的贴图工程数据。
@@ -413,27 +509,136 @@ pub fn save_pin_canvas(
 #[tauri::command]
 pub async fn read_pin_project(path: String) -> Result<Option<super::project::PinProject>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let bytes = std::fs::read(&path).map_err(|error| format!("读取文件失败: {error}"))?;
-        if bytes.len() > MAX_CANVAS_PNG_BYTES {
-            return Err("文件过大".to_string());
-        }
-        super::project::extract(&bytes)
+        let (_, project) = read_png_file_with_project(Path::new(&path))?;
+        Ok(project)
     })
     .await
     .map_err(|error| error.to_string())?
+}
+
+/// 从主窗口选择 PNG 并创建贴图。取消返回 `None`；读取/验证/建窗任一步失败都不会遗留
+/// manager 条目或孤儿窗口。
+#[tauri::command]
+pub async fn open_pin_image_dialog(
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    let start = state.save_target().directory;
+    let dialog_handle = app_handle.clone();
+    let selected = tauri::async_runtime::spawn_blocking(move || {
+        crate::dialogs::choose_png(&dialog_handle, &start)
+    })
+    .await
+    .map_err(|error| format!("图片选择线程异常: {error}"))?;
+    let prepared = tauri::async_runtime::spawn_blocking(move || prepare_open_selection(selected))
+        .await
+        .map_err(|error| format!("图片读取线程异常: {error}"))?;
+    complete_open_selection(prepared, |prepared| {
+        create_opened_image_pin(prepared.preview_png, prepared.project, &app_handle, &state)
+    })
+}
+
+struct PreparedPinImage {
+    preview_png: Vec<u8>,
+    project: Option<(Vec<u8>, super::project::PinProject)>,
+}
+
+/// chooser 取消时直接返回 `None`，不读盘、不创建窗口、不接触 PinManager。
+fn prepare_open_selection(
+    selected: Option<std::path::PathBuf>,
+) -> Result<Option<PreparedPinImage>, String> {
+    let Some(path) = selected else {
+        return Ok(None);
+    };
+    prepare_opened_image(&path).map(Some)
+}
+
+/// 打开流程的提交边界：取消或准备失败时绝不调用创建步骤；只有完整、已验证的图片才能
+/// 进入 PinManager 插入和原生窗口创建。把这一层收成纯函数，测试才能观察同一个 manager，
+/// 避免用一个从未传给被测函数的空 manager 写出恒真的“无残留”断言。
+fn complete_open_selection<F>(
+    prepared: Result<Option<PreparedPinImage>, String>,
+    create: F,
+) -> Result<Option<String>, String>
+where
+    F: FnOnce(PreparedPinImage) -> Result<String, String>,
+{
+    let Some(prepared) = prepared? else {
+        return Ok(None);
+    };
+    create(prepared).map(Some)
+}
+
+fn prepare_opened_image(path: &Path) -> Result<PreparedPinImage, String> {
+    let (container, extracted) = read_png_file_with_project(path)?;
+    prepare_opened_png(container, extracted)
+}
+
+fn prepare_opened_png(
+    container: Vec<u8>,
+    extracted: Option<super::project::PinProject>,
+) -> Result<PreparedPinImage, String> {
+    let project = match extracted {
+        Some(project) => {
+            // `extract` 已做完整验证，这里只解 base64，不重复解码整张原图。
+            let source_png = project.decoded_source()?;
+            Some((source_png, project))
+        }
+        None => None,
+    };
+    let preview_png = super::project::flatten_container(&container)?;
+    Ok(PreparedPinImage {
+        preview_png,
+        project,
+    })
+}
+
+#[cfg(test)]
+fn read_png_file(path: &Path) -> Result<Vec<u8>, String> {
+    read_png_file_with_project(path).map(|(bytes, _)| bytes)
+}
+
+fn read_png_file_with_project(
+    path: &Path,
+) -> Result<(Vec<u8>, Option<super::project::PinProject>), String> {
+    use std::io::Read;
+
+    let file = std::fs::File::open(path).map_err(|error| format!("打开文件失败: {error}"))?;
+    let metadata = file
+        .metadata()
+        .map_err(|error| format!("读取文件信息失败: {error}"))?;
+    if !metadata.is_file() {
+        return Err("所选路径不是普通文件".to_string());
+    }
+    if metadata.len() > super::project::MAX_CONTAINER_BYTES as u64 {
+        return Err("PNG 文件超过 160 MiB 上限".to_string());
+    }
+    // 文件可能在 metadata 后被别的进程替换/增长；take(+1) 保证竞争下也不会无界读取。
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.take(super::project::MAX_CONTAINER_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("读取文件失败: {error}"))?;
+    if bytes.len() > super::project::MAX_CONTAINER_BYTES {
+        return Err("PNG 文件超过 160 MiB 上限".to_string());
+    }
+    // `extract` 同时验证整张 PNG；损坏工程只返回 None，损坏 IDAT 会报错。
+    let project = super::project::extract(&bytes)?;
+    Ok((bytes, project))
 }
 
 /// 前端随保存一起送来的工程内容。原图由**后端**自己取，不经前端。
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PinCanvasProject {
-    /// 前端 `Annotation[]` 的原样 JSON。后端不解释它，见 `project::PinProject`。
+    pub renderer_version: u32,
+    pub source_width: u32,
+    pub source_height: u32,
     pub annotations: serde_json::Value,
-    /// 前端 `ImageAdjustments` 的原样 JSON。
     pub adjustments: serde_json::Value,
 }
 
-/// 给落盘的 PNG 加上工程块；任何一步不成就返回 `None`，调用方落盘普通 PNG。
+/// 给落盘的 PNG 加上工程块；任何一步失败都让 editable save 明确失败，禁止伪装成
+/// 扁平保存成功。
 ///
 /// 原图从条目里取而不是让前端回传：前端手上那张可能是补偿版（这正是 `get_pin_source_image`
 /// 存在的理由），而且让前端把几 MB 原图再回传一趟纯属浪费——后端本来就有。
@@ -441,21 +646,25 @@ fn embed_canvas_project(
     png: &[u8],
     project: PinCanvasProject,
     entry: &PinEntry,
-) -> Option<Vec<u8>> {
-    let source = source_png(&entry.source)?;
-    let document = super::project::PinProject::new(
-        STANDARD.encode(source),
-        project.annotations,
-        project.adjustments,
-    );
-    match super::project::embed(png, &document) {
-        Ok(bytes) => Some(bytes),
-        Err(error) => {
-            // 工程块只影响"以后能不能继续编辑"，不该连图都存不下来。
-            log::warn!("贴图工程数据写入失败，落盘普通 PNG: {error}");
-            None
-        }
+) -> Result<Vec<u8>, String> {
+    if project.renderer_version != super::project::RENDERER_VERSION {
+        return Err("工程渲染器版本不受支持".to_string());
     }
+    let source =
+        source_png(&entry.source).ok_or_else(|| "文本贴图不能保存为可编辑 PNG".to_string())?;
+    let dimensions =
+        crate::screenshot::png_dimensions(source).map_err(|_| "贴图原图无效".to_string())?;
+    if dimensions != (project.source_width, project.source_height) {
+        return Err("工程 sourceWidth/sourceHeight 与原图不匹配".to_string());
+    }
+    let rendered_dimensions =
+        crate::screenshot::png_dimensions(png).map_err(|_| "合成 PNG 无效".to_string())?;
+    if rendered_dimensions != dimensions {
+        return Err("合成 PNG 尺寸必须与工程原图一致".to_string());
+    }
+    let document =
+        super::project::PinProject::new(source, project.annotations, project.adjustments)?;
+    super::project::embed(png, &document)
 }
 
 #[tauri::command]
@@ -490,14 +699,25 @@ fn state_from_entry(entry: &PinEntry) -> PinState {
 }
 
 fn payload_from_entry(entry: PinEntry) -> Result<PinPayload, String> {
-    let (kind, text, image, can_save) = match &*entry.source {
+    let (kind, text, image, can_save, initial_project) = match &*entry.source {
         PinSource::Clip { item, image } => match item.content_type {
-            ContentType::Image => ("image", None, image.as_deref(), true),
+            ContentType::Image => ("image", None, image.as_deref(), true, None),
             ContentType::Text | ContentType::Html => {
-                ("text", item.text_content.clone(), None, false)
+                ("text", item.text_content.clone(), None, false, None)
             }
         },
-        PinSource::Screenshot { png } => ("image", None, Some(png.as_slice()), true),
+        PinSource::Screenshot { png } => ("image", None, Some(png.as_slice()), true, None),
+        PinSource::Project {
+            preview_png,
+            project,
+            ..
+        } => (
+            "image",
+            None,
+            Some(preview_png.as_slice()),
+            true,
+            Some(project.initial_payload()),
+        ),
     };
     // 补偿赶上了就直接发清晰版，这样第一帧就是清楚的；没赶上发原图，
     // 后台线程算完会走 `pin-image-sharpened` 补上（见 `SharpenSlot`）。
@@ -522,6 +742,7 @@ fn payload_from_entry(entry: PinEntry) -> Result<PinPayload, String> {
         position: entry.position,
         device_scale: entry.device_scale,
         buffer_scale: entry.buffer_scale,
+        initial_project,
     })
 }
 
@@ -551,7 +772,7 @@ struct PinImageSharpened {
 /// **为什么不在 `get_pin_payload` 里同步等**：那条命令跑在 GTK 主线程上，同步等于把
 /// 整个界面卡住几百毫秒，而"慢"正是这个功能一直在修的另一个毛病。
 ///
-/// 复制（`copy_pin`）与保存/编辑（`save_pin`）不受影响：它们走 `image_bytes`，永远是原图。
+/// 普通贴图的复制/保存不受影响；工程贴图则以保存时合成预览为显示与快速复制来源。
 fn spawn_sharpen(app_handle: &tauri::AppHandle, entry: &PinEntry) {
     let Some(geometry) = super::resample::display_geometry(
         entry.content_width,
@@ -568,7 +789,7 @@ fn spawn_sharpen(app_handle: &tauri::AppHandle, entry: &PinEntry) {
     let (device_scale, buffer_scale) = (entry.device_scale, entry.buffer_scale);
     // 补偿是"锦上添花"的一步，失败只影响清晰度，所以线程里所有错误都只记日志。
     std::thread::spawn(move || {
-        let Some(png) = source_png(&source) else {
+        let Some(png) = display_png(&source) else {
             return;
         };
         let started = std::time::Instant::now();
@@ -613,6 +834,16 @@ fn source_png(source: &PinSource) -> Option<&[u8]> {
     match source {
         PinSource::Clip { image, .. } => image.as_deref(),
         PinSource::Screenshot { png } => Some(png),
+        PinSource::Project { source_png, .. } => Some(source_png),
+    }
+}
+
+/// 屏幕清晰度补偿必须基于用户当前看到的合成预览；工程 canonical source 只供画布使用。
+fn display_png(source: &PinSource) -> Option<&[u8]> {
+    match source {
+        PinSource::Clip { image, .. } => image.as_deref(),
+        PinSource::Screenshot { png } => Some(png),
+        PinSource::Project { preview_png, .. } => Some(preview_png),
     }
 }
 
@@ -622,6 +853,199 @@ fn image_bytes(entry: &PinEntry) -> Result<Vec<u8>, String> {
             image: Some(png), ..
         }
         | PinSource::Screenshot { png } => Ok(png.clone()),
+        PinSource::Project { preview_png, .. } => Ok(preview_png.clone()),
         _ => Err("文本贴图不能保存或编辑为图片".to_string()),
+    }
+}
+
+#[cfg(test)]
+mod project_command_tests {
+    use super::*;
+
+    fn adjustments() -> serde_json::Value {
+        serde_json::json!({"grayscale":false,"brightness":0,"contrast":0,
+                           "saturation":0,"cornerRadius":0})
+    }
+
+    fn sample_png() -> Vec<u8> {
+        crate::screenshot::encode_png(&[10, 20, 30, 255], 1, 1).unwrap()
+    }
+
+    fn png_with_project_text(text: &str) -> Vec<u8> {
+        let image = image::load_from_memory_with_format(&sample_png(), image::ImageFormat::Png)
+            .unwrap()
+            .into_rgba8();
+        let mut out = Vec::new();
+        let mut encoder = png::Encoder::new(&mut out, 1, 1);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder
+            .add_itxt_chunk(
+                super::super::project::PROJECT_KEYWORD.to_string(),
+                text.to_string(),
+            )
+            .unwrap();
+        let mut writer = encoder.write_header().unwrap();
+        writer.write_image_data(image.as_raw()).unwrap();
+        drop(writer);
+        out
+    }
+
+    fn screenshot_entry(label: &str) -> PinEntry {
+        PinEntry {
+            label: label.to_string(),
+            source: Arc::new(PinSource::Screenshot { png: sample_png() }),
+            content_width: 1.0,
+            content_height: 1.0,
+            scale: 1.0,
+            opacity: 1.0,
+            locked: false,
+            above: false,
+            position: None,
+            origin: None,
+            device_scale: 1.0,
+            buffer_scale: 1.0,
+            sharpen: Arc::new(SharpenSlot::default()),
+        }
+    }
+
+    #[test]
+    fn oversized_file_is_rejected_from_metadata_before_reading_contents() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("oversized.png");
+        let file = std::fs::File::create(&path).unwrap();
+        file.set_len(super::super::project::MAX_CONTAINER_BYTES as u64 + 1)
+            .unwrap();
+        drop(file);
+        assert_eq!(
+            read_png_file(&path).unwrap_err(),
+            "PNG 文件超过 160 MiB 上限"
+        );
+    }
+
+    #[test]
+    fn canvas_base64_is_bounded_and_fully_validated() {
+        assert!(decode_canvas_png("not base64").is_err());
+        let truncated = STANDARD.encode([137, 80, 78, 71, 13, 10, 26, 10]);
+        assert!(decode_canvas_png(&truncated).is_err());
+        let png = crate::screenshot::encode_png(&[1, 2, 3, 255], 1, 1).unwrap();
+        assert_eq!(decode_canvas_png(&STANDARD.encode(&png)).unwrap(), png);
+    }
+
+    #[test]
+    fn project_entry_separates_preview_source_and_restore_payload() {
+        let source = crate::screenshot::encode_png(&[255, 0, 0, 255], 1, 1).unwrap();
+        let preview = crate::screenshot::encode_png(&[0, 0, 255, 255], 1, 1).unwrap();
+        let project =
+            super::super::project::PinProject::new(&source, serde_json::json!([]), adjustments())
+                .unwrap();
+        let entry = PinEntry {
+            label: "pin-image-project-test".to_string(),
+            source: Arc::new(PinSource::Project {
+                source_png: source.clone(),
+                preview_png: preview.clone(),
+                project,
+            }),
+            content_width: 1.0,
+            content_height: 1.0,
+            scale: 1.0,
+            opacity: 1.0,
+            locked: false,
+            above: false,
+            position: None,
+            origin: None,
+            device_scale: 1.0,
+            buffer_scale: 1.0,
+            sharpen: Arc::new(SharpenSlot::default()),
+        };
+
+        assert_eq!(source_png(&entry.source), Some(source.as_slice()));
+        assert_eq!(display_png(&entry.source), Some(preview.as_slice()));
+        let payload = payload_from_entry(entry).unwrap();
+        assert_eq!(payload.image_base64, Some(STANDARD.encode(preview)));
+        assert!(payload.initial_project.is_some());
+    }
+
+    #[test]
+    fn cancelled_open_has_zero_manager_side_effects() {
+        let manager = super::super::manager::PinManager::new();
+        let result = complete_open_selection(prepare_open_selection(None), |_| {
+            manager.insert(screenshot_entry("pin-image-cancel-should-not-insert"))?;
+            Ok("pin-image-cancel-should-not-insert".to_string())
+        });
+        assert_eq!(result.unwrap(), None);
+        assert_eq!(manager.len(), 0);
+    }
+
+    #[test]
+    fn plain_v1_corrupt_and_future_projects_prepare_as_flat_images() {
+        let directory = tempfile::tempdir().unwrap();
+        let variants = [
+            sample_png(),
+            png_with_project_text(
+                &serde_json::json!({"format":"clippy-pin-project","version":1}).to_string(),
+            ),
+            png_with_project_text("{broken"),
+            png_with_project_text(
+                &serde_json::json!({
+                    "format":"clippy-pin-project",
+                    "formatVersion":super::super::project::PROJECT_VERSION + 1
+                })
+                .to_string(),
+            ),
+        ];
+
+        for (index, container) in variants.into_iter().enumerate() {
+            let path = directory.path().join(format!("variant-{index}.png"));
+            std::fs::write(&path, container).unwrap();
+            let prepared = prepare_open_selection(Some(path)).unwrap().unwrap();
+            assert!(prepared.project.is_none());
+            assert_eq!(
+                super::super::project::extract(&prepared.preview_png).unwrap(),
+                None,
+                "flat 预览不能残留工程块"
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_oversized_and_unreadable_files_never_insert_entries() {
+        let manager = super::super::manager::PinManager::new();
+        let directory = tempfile::tempdir().unwrap();
+
+        let assert_prepare_failure = |path: std::path::PathBuf| {
+            let result = complete_open_selection(prepare_open_selection(Some(path)), |_| {
+                manager.insert(screenshot_entry("pin-image-invalid-should-not-insert"))?;
+                Ok("pin-image-invalid-should-not-insert".to_string())
+            });
+            assert!(result.is_err());
+            assert_eq!(manager.len(), 0);
+        };
+
+        let invalid = directory.path().join("invalid.png");
+        std::fs::write(&invalid, b"not png").unwrap();
+        assert_prepare_failure(invalid);
+
+        let oversized = directory.path().join("oversized.png");
+        let file = std::fs::File::create(&oversized).unwrap();
+        file.set_len(super::super::project::MAX_CONTAINER_BYTES as u64 + 1)
+            .unwrap();
+        drop(file);
+        assert_prepare_failure(oversized);
+
+        let missing = directory.path().join("missing.png");
+        assert_prepare_failure(missing);
+    }
+
+    #[test]
+    fn post_insert_window_failure_rolls_back_manager_entry() {
+        let manager = super::super::manager::PinManager::new();
+        let label = "pin-image-rollback-test";
+        let result = insert_pin_with_rollback(&manager, screenshot_entry(label), |_| {
+            Err::<(), String>("simulated native window failure".to_string())
+        });
+        assert_eq!(result.unwrap_err(), "simulated native window failure");
+        assert_eq!(manager.len(), 0);
+        assert!(manager.get(label).is_err());
     }
 }

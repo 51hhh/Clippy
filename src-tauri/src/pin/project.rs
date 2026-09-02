@@ -1,169 +1,318 @@
-//! 贴图工程：把"原图 + 标注"塞进导出 PNG 自己的元数据块里。
+//! 可编辑贴图 PNG 工程格式。
 //!
-//! # 为什么是单文件而不是两个文件
-//!
-//! 画布产物存下来之后要能**继续编辑**，而复原标注需要原图（模糊、马赛克、聚光、放大镜
-//! 每次渲染都从原图重新采样，见 `src/react/annotation/canvasRenderer.ts`——没有任何工具
-//! 依赖"上一步的像素结果"，所以"原图 + 操作"在信息上是无损的）。
-//!
-//! 存成 `x.png` + `x.json` 两个文件的话，用户拖走一个、重命名、只删一个，工程就散了；
-//! 而 PNG 规范要求解码器**忽略不认识的辅助块**，所以把工程数据放进 PNG 自己的
-//! iTXt 块里，对任何看图软件、任何粘贴目标都还是一张普通图片，同时 Clippy 打开它就能
-//! 接着编辑。这也是 `.psd` / `.kra` 的思路：容器里同时放合成结果与图层。
-//!
-//! # 为什么是 iTXt 而不是 zTXt
-//!
-//! zTXt 是 **Latin-1**：`png` crate 的 `encode_iso_8859_1` 要求每个 char ≤ U+00FF，
-//! 塞任意字节要构造畸形 `String`，是在滥用文本字段。iTXt 是 **UTF-8**，JSON 天然合规，
-//! 内嵌原图走 base64（纯 ASCII）也安全；而且 iTXt 有压缩开关，读侧还有带上限的解压
-//! （见 [`MAX_PROJECT_BYTES`]）。
-//!
-//! # 边界
-//!
-//! 工程块是**用户可控输入**——任何人都能构造一个 PNG 塞进恶意 iTXt。所以读的那一侧
-//! 每一步都要能失败而不炸：解压有上限、内嵌原图仍走整张解码校验、版本不认识就当普通
-//! PNG 处理。**读不出工程只意味着"这张图不能继续编辑"，绝不能让打开图片本身失败。**
+//! PNG 的 IDAT 始终是最新合成图；压缩 iTXt `clippy-project` 保存自包含的 v2 工程。
+//! 元数据是用户可控输入，本模块在它进入运行时状态前完成全部验证。工程损坏、v1 或未来
+//! 版本只会让调用方退回扁平 PNG，不会妨碍 IDAT 被正常使用。
 
+use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 
-/// 工程块的 iTXt keyword。PNG 规范限制 keyword 为 1~79 字节的 Latin-1。
-const PROJECT_KEYWORD: &str = "clippy-project";
-
-/// `format` 字段的固定值。用来在同名 keyword 撞车时确认这真是我们的数据。
+pub(super) const PROJECT_KEYWORD: &str = "clippy-project";
 const PROJECT_FORMAT: &str = "clippy-pin-project";
+pub(super) const PROJECT_VERSION: u32 = 2;
+pub(super) const RENDERER_VERSION: u32 = 1;
 
-/// 当前工程格式版本。
-///
-/// **读到更大的版本号就当普通 PNG 处理**，不要猜着解析：工具语义会变（箭头画法、
-/// 马赛克格子大小），猜出来的复原会让用户看到一张和当初不一样的图，那比"不能编辑"更糟。
-const PROJECT_VERSION: u32 = 1;
+pub(super) const MAX_RENDERED_PNG_BYTES: usize = 64 * 1024 * 1024;
+pub(super) const MAX_SOURCE_PNG_BYTES: usize = 64 * 1024 * 1024;
+pub(super) const MAX_PROJECT_JSON_BYTES: usize = 96 * 1024 * 1024;
+pub(super) const MAX_CONTAINER_BYTES: usize = 160 * 1024 * 1024;
+const MAX_IMAGE_DIMENSION: u32 = 32_768;
+const MAX_IMAGE_PIXELS: u64 = 64 * 1024 * 1024;
+const MAX_ANNOTATIONS: usize = 10_000;
+const MAX_STROKE_POINTS: usize = 100_000;
+const MAX_TOTAL_POINTS: usize = 500_000;
+const MAX_TEXT_BYTES: usize = 16 * 1024;
+const MAX_ID_BYTES: usize = 128;
+const MAX_COLOR_BYTES: usize = 128;
 
-/// 解压后的工程 JSON 上限。
-///
-/// 和 `capture::MAX_COMMIT_PNG_BYTES` 同一个数量级、同一个理由：工程块含 base64 的原图
-/// （1440p 截图约 1.6 MB），64 MiB 足够宽松，同时挡住"一个几 KB 的 iTXt 解压成几 GB"
-/// 这种压缩炸弹。`png` crate 的 `decompress_text_with_limit` 正好接这个数。
-const MAX_PROJECT_BYTES: usize = 64 * 1024 * 1024;
-
-/// 贴图工程。字段与前端 `annotation/types.ts` 的 `EditorDocument` 对应。
-///
-/// **后端不解释 `annotations` 与 `adjustments`**：它们是前端渲染器的数据结构，
-/// 后端只负责原样搬运（`serde_json::Value`）。把它们在 Rust 里再定义一遍等于把
-/// 16 个工具的形状抄第二份，改一个工具要改两处，而后端一行都不会用到它们。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PinProject {
-    /// 固定为 [`PROJECT_FORMAT`]。
     pub format: String,
-    pub version: u32,
-    /// 落盘时刻（Unix 秒）。排障用：能对上是哪一版应用写的。
+    pub format_version: u32,
+    pub renderer_version: u32,
     pub created_at: i64,
-    /// 写这个工程的应用版本。
     pub app_version: String,
-    /// 底图：**条目原图**的 base64 PNG，不是屏上那张补偿版（见 `get_pin_source_image`）。
-    pub source_png_base64: String,
-    /// 标注数组，原样搬运前端的 `Annotation[]`。
-    pub annotations: serde_json::Value,
-    /// 图像调整，原样搬运前端的 `ImageAdjustments`。
-    pub adjustments: serde_json::Value,
+    pub source: ProjectSource,
+    pub document: ProjectDocument,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectSource {
+    pub png_base64: String,
+    pub width: u32,
+    pub height: u32,
+    pub sha256: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectDocument {
+    pub annotations: Value,
+    pub adjustments: Value,
+}
+
+/// 发给贴图窗口的恢复数据。原图字节由 `get_pin_source_image` 按需取，避免 payload 再带一份
+/// 几 MB 的 base64。
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct InitialProject {
+    pub format: String,
+    pub format_version: u32,
+    pub renderer_version: u32,
+    pub source: InitialProjectSource,
+    pub document: ProjectDocument,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct InitialProjectSource {
+    pub width: u32,
+    pub height: u32,
+    pub sha256: String,
 }
 
 impl PinProject {
-    /// 组装一份当前版本的工程。
-    pub fn new(
-        source_png_base64: String,
-        annotations: serde_json::Value,
-        adjustments: serde_json::Value,
-    ) -> Self {
-        Self {
-            format: PROJECT_FORMAT.to_string(),
-            version: PROJECT_VERSION,
-            created_at: chrono::Local::now().timestamp(),
-            app_version: env!("CARGO_PKG_VERSION").to_string(),
-            source_png_base64,
+    pub(super) fn new(
+        source_png: &[u8],
+        annotations: Value,
+        adjustments: Value,
+    ) -> Result<Self, String> {
+        let (width, height) = validate_png(source_png, MAX_SOURCE_PNG_BYTES, "工程原图")?;
+        let document = ProjectDocument {
             annotations,
             adjustments,
+        };
+        validate_document(&document, width, height)?;
+        Ok(Self {
+            format: PROJECT_FORMAT.to_string(),
+            format_version: PROJECT_VERSION,
+            renderer_version: RENDERER_VERSION,
+            created_at: chrono::Local::now().timestamp(),
+            app_version: env!("CARGO_PKG_VERSION").to_string(),
+            source: ProjectSource {
+                png_base64: STANDARD.encode(source_png),
+                width,
+                height,
+                sha256: sha256_hex(source_png),
+            },
+            document,
+        })
+    }
+
+    pub(super) fn validate(&self) -> Result<Vec<u8>, String> {
+        if self.format != PROJECT_FORMAT {
+            return Err("工程格式标识不匹配".to_string());
+        }
+        if self.format_version != PROJECT_VERSION {
+            return Err("工程版本不受支持".to_string());
+        }
+        if self.renderer_version != RENDERER_VERSION {
+            return Err("工程渲染器版本不受支持".to_string());
+        }
+        if self.app_version.len() > 128 {
+            return Err("工程应用版本字段过长".to_string());
+        }
+        let estimated = self
+            .source
+            .png_base64
+            .len()
+            .saturating_div(4)
+            .saturating_mul(3);
+        if estimated > MAX_SOURCE_PNG_BYTES {
+            return Err("工程原图过大".to_string());
+        }
+        let source = STANDARD
+            .decode(&self.source.png_base64)
+            .map_err(|_| "工程原图 base64 无效".to_string())?;
+        let (width, height) = validate_png(&source, MAX_SOURCE_PNG_BYTES, "工程原图")?;
+        if (width, height) != (self.source.width, self.source.height) {
+            return Err("工程原图尺寸不匹配".to_string());
+        }
+        if self.source.sha256.len() != 64
+            || !self
+                .source
+                .sha256
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit())
+            || !self
+                .source
+                .sha256
+                .eq_ignore_ascii_case(&sha256_hex(&source))
+        {
+            return Err("工程原图哈希不匹配".to_string());
+        }
+        validate_document(&self.document, width, height)?;
+        Ok(source)
+    }
+
+    pub(super) fn initial_payload(&self) -> InitialProject {
+        InitialProject {
+            format: self.format.clone(),
+            format_version: self.format_version,
+            renderer_version: self.renderer_version,
+            source: InitialProjectSource {
+                width: self.source.width,
+                height: self.source.height,
+                sha256: self.source.sha256.clone(),
+            },
+            document: self.document.clone(),
         }
     }
 
-    /// 这份工程是当前代码能理解的吗？
-    fn is_supported(&self) -> bool {
-        self.format == PROJECT_FORMAT && self.version <= PROJECT_VERSION
+    /// 仅供 `extract` 已完成校验后的运行时恢复，避免把原图再次完整解码一遍。
+    pub(super) fn decoded_source(&self) -> Result<Vec<u8>, String> {
+        STANDARD
+            .decode(&self.source.png_base64)
+            .map_err(|_| "工程原图 base64 无效".to_string())
     }
 }
 
-/// 把工程数据写进一张已编码好的 PNG，返回新的 PNG 字节。
-///
-/// **重新编码一遍，而不是往字节流里插块。** 手工插块要自己算 CRC、找 IEND 的位置、
-/// 处理可能存在的其它辅助块——那是在重写一个 PNG 写入器。走 `png` crate 的编码器则由
-/// 它保证结构合法；代价是多一次编解码（1440p 约 36 + 77 ms），而这条路只在
-/// "用户点保存"时走一次。
-pub fn embed(png: &[u8], project: &PinProject) -> Result<Vec<u8>, String> {
+pub(super) fn validate_rendered_png(png: &[u8]) -> Result<(u32, u32), String> {
+    validate_png(png, MAX_RENDERED_PNG_BYTES, "合成 PNG")
+}
+
+fn validate_png(png: &[u8], byte_limit: usize, name: &str) -> Result<(u32, u32), String> {
+    if png.len() > byte_limit {
+        return Err(format!("{name}超过 {} MiB 上限", byte_limit / 1024 / 1024));
+    }
+    let sanitized = strip_project_chunks(png).map_err(|_| format!("{name}不是合法 PNG"))?;
+    let (width, height) =
+        crate::screenshot::png_dimensions(&sanitized).map_err(|_| format!("{name}不是合法 PNG"))?;
+    let pixels = u64::from(width).saturating_mul(u64::from(height));
+    if width == 0
+        || height == 0
+        || width > MAX_IMAGE_DIMENSION
+        || height > MAX_IMAGE_DIMENSION
+        || pixels > MAX_IMAGE_PIXELS
+    {
+        return Err(format!("{name}尺寸超过安全上限"));
+    }
+    crate::screenshot::validate_png(&sanitized).map_err(|_| format!("{name}无法完整解码"))?;
+    Ok((width, height))
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+/// 重新编码合成图并写入真正压缩的 iTXt。
+pub(super) fn embed(png: &[u8], project: &PinProject) -> Result<Vec<u8>, String> {
+    validate_rendered_png(png)?;
+    project.validate()?;
     let json =
         serde_json::to_string(project).map_err(|error| format!("工程序列化失败: {error}"))?;
-    let image = image::load_from_memory_with_format(png, image::ImageFormat::Png)
-        .map_err(|error| format!("PNG 解码失败: {error}"))?
-        .to_rgba8();
+    if json.len() > MAX_PROJECT_JSON_BYTES {
+        return Err("工程 JSON 过大".to_string());
+    }
+    let sanitized = strip_project_chunks(png)?;
+    let image = image::load_from_memory_with_format(&sanitized, image::ImageFormat::Png)
+        .map_err(|_| "合成 PNG 无法完整解码".to_string())?
+        .into_rgba8();
     let (width, height) = image.dimensions();
-
-    let mut out = Vec::with_capacity(png.len() + json.len());
+    let mut out = Vec::with_capacity(png.len().saturating_add(json.len() / 2));
     {
         let mut encoder = png::Encoder::new(&mut out, width, height);
         encoder.set_color(png::ColorType::Rgba);
         encoder.set_depth(png::BitDepth::Eight);
-        // 和 `screenshot::encode_png` 一致：这条路上用户在等着，压缩比不如速度重要。
         encoder.set_compression(png::Compression::Fast);
-        // iTXt 而不是 zTXt：JSON 是 UTF-8，见模块头。
-        encoder
-            .add_itxt_chunk(PROJECT_KEYWORD.to_string(), json)
-            .map_err(|error| format!("写入工程数据失败: {error}"))?;
         let mut writer = encoder
             .write_header()
             .map_err(|error| format!("PNG 头写入失败: {error}"))?;
+        let mut chunk = png::text_metadata::ITXtChunk::new(PROJECT_KEYWORD, json);
+        chunk.compressed = true;
+        writer
+            .write_text_chunk(&chunk)
+            .map_err(|error| format!("写入工程数据失败: {error}"))?;
         writer
             .write_image_data(image.as_raw())
             .map_err(|error| format!("PNG 数据写入失败: {error}"))?;
     }
+    if out.len() > MAX_CONTAINER_BYTES {
+        return Err("可编辑 PNG 容器过大".to_string());
+    }
     Ok(out)
 }
 
-/// 从一张 PNG 里读回工程数据。
-///
-/// 返回 `Ok(None)` 表示"这是张普通 PNG"——没有工程块、块坏了、版本不认识，
-/// 三种情况对用户都是同一件事：能看，不能继续编辑。所以不区分，也**不返回 Err**：
-/// 这条路的调用方是"打开一张图片"，它不该因为元数据有问题而失败。
-///
-/// 真正的 `Err` 只留给"连 PNG 都不是"。
-pub fn extract(png: &[u8]) -> Result<Option<PinProject>, String> {
-    let decoder = png::Decoder::new(std::io::Cursor::new(png));
-    let reader = decoder
-        .read_info()
-        .map_err(|error| format!("PNG 解析失败: {error}"))?;
-    let info = reader.info();
+/// 重新编码为不含任何工程块的普通 PNG。扁平导出不能信任前端传来的 PNG 没有元数据。
+pub(super) fn flatten(png: &[u8]) -> Result<Vec<u8>, String> {
+    validate_rendered_png(png)?;
+    encode_flattened(png)
+}
 
-    for chunk in &info.utf8_text {
+/// 打开可编辑容器时只把 IDAT 重编码后的轻量预览送给 webview，不把内嵌原图再随
+/// `imageBase64` 复制一遍。
+pub(super) fn flatten_container(png: &[u8]) -> Result<Vec<u8>, String> {
+    validate_rendered_png_container(png)?;
+    encode_flattened(png)
+}
+
+fn encode_flattened(png: &[u8]) -> Result<Vec<u8>, String> {
+    let sanitized = strip_project_chunks(png)?;
+    let image = image::load_from_memory_with_format(&sanitized, image::ImageFormat::Png)
+        .map_err(|_| "合成 PNG 无法完整解码".to_string())?
+        .into_rgba8();
+    let (width, height) = image.dimensions();
+    let flat = crate::screenshot::encode_png(image.as_raw(), width, height)
+        .map_err(|error| format!("扁平 PNG 编码失败: {error}"))?;
+    if flat.len() > MAX_RENDERED_PNG_BYTES {
+        return Err("合成 PNG 超过 64 MiB 上限".to_string());
+    }
+    Ok(flat)
+}
+
+/// 元数据缺失、损坏、v1、未来版本或信任边界校验失败均返回 `Ok(None)`；只有容器本身不是
+/// PNG 才返回 `Err`。
+pub(super) fn extract(png: &[u8]) -> Result<Option<PinProject>, String> {
+    if png.len() > MAX_CONTAINER_BYTES {
+        return Err("PNG 文件超过 160 MiB 上限".to_string());
+    }
+    validate_rendered_png_container(png)?;
+    let decoder = png::Decoder::new(std::io::Cursor::new(png));
+    let reader = match decoder.read_info() {
+        Ok(reader) => reader,
+        Err(error) => {
+            // IDAT 已通过去除工程块后的完整解码。此处失败只可能来自工程辅助块本身，
+            // 因而安全降级，不让损坏元数据阻止图片打开。
+            log::info!("贴图工程块解析失败，按普通图片处理: {error}");
+            return Ok(None);
+        }
+    };
+    for chunk in &reader.info().utf8_text {
         if chunk.keyword != PROJECT_KEYWORD {
             continue;
         }
-        // 带上限解压：工程块是用户可控输入，不能让一个几 KB 的块解压成几 GB。
         let mut chunk = chunk.clone();
-        if chunk.decompress_text_with_limit(MAX_PROJECT_BYTES).is_err() {
-            log::info!("贴图工程数据超过 {MAX_PROJECT_BYTES} 字节上限或解压失败，按普通图片处理");
+        if chunk
+            .decompress_text_with_limit(MAX_PROJECT_JSON_BYTES)
+            .is_err()
+        {
+            log::info!("贴图工程解压失败或超过上限，按普通图片处理");
             return Ok(None);
         }
         let Ok(text) = chunk.get_text() else {
-            log::info!("贴图工程数据不是合法文本，按普通图片处理");
+            log::info!("贴图工程文本无效，按普通图片处理");
             return Ok(None);
         };
-        let Ok(project) = serde_json::from_str::<PinProject>(&text) else {
-            log::info!("贴图工程数据无法解析，按普通图片处理");
+        if text.len() > MAX_PROJECT_JSON_BYTES {
+            return Ok(None);
+        }
+        let Ok(value) = serde_json::from_str::<Value>(&text) else {
             return Ok(None);
         };
-        if !project.is_supported() {
-            log::info!(
-                "贴图工程版本 {} 高于当前支持的 {PROJECT_VERSION}（或格式不符），按普通图片处理",
-                project.version
-            );
+        // v1 的 `version` 与 v2 的 `formatVersion` 明确区分；不猜测旧坐标语义。
+        if value.get("formatVersion").and_then(Value::as_u64) != Some(u64::from(PROJECT_VERSION)) {
+            return Ok(None);
+        }
+        let Ok(project) = serde_json::from_value::<PinProject>(value) else {
+            return Ok(None);
+        };
+        if let Err(error) = project.validate() {
+            log::info!("贴图工程校验失败，按普通图片处理: {error}");
             return Ok(None);
         }
         return Ok(Some(project));
@@ -171,103 +320,440 @@ pub fn extract(png: &[u8]) -> Result<Option<PinProject>, String> {
     Ok(None)
 }
 
+fn validate_rendered_png_container(png: &[u8]) -> Result<(u32, u32), String> {
+    let sanitized = strip_project_chunks(png)?;
+    let (width, height) = crate::screenshot::png_dimensions(&sanitized)
+        .map_err(|_| "文件不是合法 PNG".to_string())?;
+    let pixels = u64::from(width).saturating_mul(u64::from(height));
+    if width == 0
+        || height == 0
+        || width > MAX_IMAGE_DIMENSION
+        || height > MAX_IMAGE_DIMENSION
+        || pixels > MAX_IMAGE_PIXELS
+    {
+        return Err("PNG 尺寸超过安全上限".to_string());
+    }
+    crate::screenshot::validate_png(&sanitized).map_err(|_| "PNG 无法完整解码".to_string())?;
+    Ok((width, height))
+}
+
+/// 删除 raw PNG 流里 keyword 为 `clippy-project` 的 iTXt。这里不解析文本、不信任 CRC，
+/// 因而即使该块的压缩流/CRC 损坏，也能继续验证并显示其余 IDAT。
+fn strip_project_chunks(png: &[u8]) -> Result<Vec<u8>, String> {
+    const SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
+    if png.len() < SIGNATURE.len() || &png[..8] != SIGNATURE {
+        return Err("文件不是合法 PNG".to_string());
+    }
+    let mut out = Vec::with_capacity(png.len());
+    out.extend_from_slice(SIGNATURE);
+    let mut cursor = 8usize;
+    let mut saw_iend = false;
+    while cursor < png.len() {
+        if png.len().saturating_sub(cursor) < 12 {
+            return Err("PNG chunk 被截断".to_string());
+        }
+        let length = u32::from_be_bytes(
+            png[cursor..cursor + 4]
+                .try_into()
+                .map_err(|_| "PNG chunk 长度无效".to_string())?,
+        ) as usize;
+        let end = cursor
+            .checked_add(12)
+            .and_then(|value| value.checked_add(length))
+            .ok_or_else(|| "PNG chunk 长度溢出".to_string())?;
+        if end > png.len() {
+            return Err("PNG chunk 被截断".to_string());
+        }
+        let chunk_type = &png[cursor + 4..cursor + 8];
+        let data = &png[cursor + 8..cursor + 8 + length];
+        let is_project = chunk_type == b"iTXt"
+            && data
+                .split(|byte| *byte == 0)
+                .next()
+                .is_some_and(|keyword| keyword == PROJECT_KEYWORD.as_bytes());
+        if !is_project {
+            out.extend_from_slice(&png[cursor..end]);
+        }
+        cursor = end;
+        if chunk_type == b"IEND" {
+            saw_iend = true;
+            break;
+        }
+    }
+    if !saw_iend || cursor != png.len() {
+        return Err("PNG 缺少有效 IEND".to_string());
+    }
+    Ok(out)
+}
+
+fn validate_document(document: &ProjectDocument, width: u32, height: u32) -> Result<(), String> {
+    let annotations = document
+        .annotations
+        .as_array()
+        .ok_or_else(|| "annotations 必须是数组".to_string())?;
+    if annotations.len() > MAX_ANNOTATIONS {
+        return Err("annotations 数量超过上限".to_string());
+    }
+    let mut ids = HashSet::with_capacity(annotations.len());
+    let mut total_points = 0usize;
+    for annotation in annotations {
+        validate_annotation(
+            annotation,
+            &mut ids,
+            &mut total_points,
+            f64::from(width),
+            f64::from(height),
+        )?;
+    }
+    validate_adjustments(&document.adjustments)
+}
+
+fn validate_annotation(
+    value: &Value,
+    ids: &mut HashSet<String>,
+    total_points: &mut usize,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| "annotation 必须是对象".to_string())?;
+    let id = required_string(object, "id", MAX_ID_BYTES)?;
+    if id.is_empty() || !ids.insert(id.to_string()) {
+        return Err("annotation id 为空或重复".to_string());
+    }
+    let kind = required_string(object, "type", 32)?;
+    match kind {
+        "pen" | "marker" => {
+            validate_keys(object, &["id", "type", "color", "size", "points"])?;
+            validate_color_and_size(object)?;
+            let points = object
+                .get("points")
+                .and_then(Value::as_array)
+                .ok_or_else(|| "stroke points 必须是数组".to_string())?;
+            if points.len() > MAX_STROKE_POINTS {
+                return Err("单个 stroke 点数超过上限".to_string());
+            }
+            *total_points = total_points.saturating_add(points.len());
+            if *total_points > MAX_TOTAL_POINTS {
+                return Err("工程总点数超过上限".to_string());
+            }
+            for point in points {
+                validate_point(point, width, height)?;
+            }
+        }
+        "rect" | "ellipse" | "highlight" => {
+            validate_keys(object, &["id", "type", "color", "size", "rect"])?;
+            validate_color_and_size(object)?;
+            validate_rect(required(object, "rect")?, width, height)?;
+        }
+        "line" | "arrow" | "measure" => {
+            validate_keys(object, &["id", "type", "color", "size", "from", "to"])?;
+            validate_color_and_size(object)?;
+            add_points(total_points, 2)?;
+            validate_point(required(object, "from")?, width, height)?;
+            validate_point(required(object, "to")?, width, height)?;
+        }
+        "text" => {
+            validate_keys(
+                object,
+                &["id", "type", "color", "size", "at", "text", "fontFamily"],
+            )?;
+            validate_color_and_size(object)?;
+            add_points(total_points, 1)?;
+            validate_point(required(object, "at")?, width, height)?;
+            required_string(object, "text", MAX_TEXT_BYTES)?;
+            if required(object, "fontFamily")?.as_str() != Some("system-ui") {
+                return Err("fontFamily 不受支持".to_string());
+            }
+        }
+        "blur" | "mosaic" | "spotlight" | "magnifier" => {
+            validate_keys(object, &["id", "type", "rect", "effect"])?;
+            validate_rect(required(object, "rect")?, width, height)?;
+            validate_effect(required(object, "effect")?)?;
+        }
+        _ => return Err(format!("不支持的 annotation 类型: {kind}")),
+    }
+    Ok(())
+}
+
+fn validate_effect(value: &Value) -> Result<(), String> {
+    let effect = value
+        .as_object()
+        .ok_or_else(|| "effect 必须是对象".to_string())?;
+    validate_keys(
+        effect,
+        &["blurRadius", "mosaicCell", "spotlightDim", "magnifierZoom"],
+    )?;
+    validate_required_number(effect, "blurRadius", 1.0, 100.0)?;
+    validate_required_number(effect, "mosaicCell", 1.0, 256.0)?;
+    validate_required_number(effect, "spotlightDim", 0.0, 1.0)?;
+    validate_required_number(effect, "magnifierZoom", 1.0, 16.0)
+}
+
+fn validate_adjustments(value: &Value) -> Result<(), String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| "adjustments 必须是对象".to_string())?;
+    validate_keys(
+        object,
+        &[
+            "grayscale",
+            "brightness",
+            "contrast",
+            "saturation",
+            "cornerRadius",
+        ],
+    )?;
+    if !matches!(object.get("grayscale"), Some(Value::Bool(_))) {
+        return Err("adjustments.grayscale 必须是布尔值".to_string());
+    }
+    validate_required_number(object, "brightness", -100.0, 100.0)?;
+    validate_required_number(object, "contrast", -100.0, 100.0)?;
+    validate_required_number(object, "saturation", -100.0, 100.0)?;
+    validate_required_number(object, "cornerRadius", 0.0, 120.0)
+}
+
+fn validate_color_and_size(object: &Map<String, Value>) -> Result<(), String> {
+    let color = required_string(object, "color", MAX_COLOR_BYTES)?;
+    if color.is_empty() {
+        return Err("annotation color 不能为空".to_string());
+    }
+    validate_required_number(object, "size", 0.1, 128.0)
+}
+
+fn validate_point(value: &Value, width: f64, height: f64) -> Result<(), String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| "point 必须是对象".to_string())?;
+    validate_keys(object, &["x", "y"])?;
+    validate_required_number(object, "x", 0.0, width)?;
+    validate_required_number(object, "y", 0.0, height)
+}
+
+fn validate_rect(value: &Value, image_width: f64, image_height: f64) -> Result<(), String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| "rect 必须是对象".to_string())?;
+    validate_keys(object, &["x", "y", "width", "height"])?;
+    validate_required_number(object, "x", 0.0, image_width)?;
+    validate_required_number(object, "y", 0.0, image_height)?;
+    validate_required_number(object, "width", 0.0, image_width)?;
+    validate_required_number(object, "height", 0.0, image_height)?;
+    let x = object["x"].as_f64().unwrap_or(f64::INFINITY);
+    let y = object["y"].as_f64().unwrap_or(f64::INFINITY);
+    let width = object["width"].as_f64().unwrap_or(f64::INFINITY);
+    let height = object["height"].as_f64().unwrap_or(f64::INFINITY);
+    if x + width > image_width || y + height > image_height {
+        return Err("rect 超出原图边界".to_string());
+    }
+    Ok(())
+}
+
+fn add_points(total: &mut usize, count: usize) -> Result<(), String> {
+    *total = total.saturating_add(count);
+    if *total > MAX_TOTAL_POINTS {
+        return Err("工程总点数超过上限".to_string());
+    }
+    Ok(())
+}
+
+fn required<'a>(object: &'a Map<String, Value>, key: &str) -> Result<&'a Value, String> {
+    object.get(key).ok_or_else(|| format!("缺少字段 {key}"))
+}
+
+fn validate_keys(object: &Map<String, Value>, allowed: &[&str]) -> Result<(), String> {
+    if let Some(key) = object.keys().find(|key| !allowed.contains(&key.as_str())) {
+        return Err(format!("不支持的字段 {key}"));
+    }
+    Ok(())
+}
+
+fn required_string<'a>(
+    object: &'a Map<String, Value>,
+    key: &str,
+    max_bytes: usize,
+) -> Result<&'a str, String> {
+    let value = required(object, key)?
+        .as_str()
+        .ok_or_else(|| format!("{key} 必须是字符串"))?;
+    if value.len() > max_bytes {
+        return Err(format!("{key} 过长"));
+    }
+    Ok(value)
+}
+
+fn validate_required_number(
+    object: &Map<String, Value>,
+    key: &str,
+    min: f64,
+    max: f64,
+) -> Result<(), String> {
+    let value = required(object, key)?
+        .as_f64()
+        .ok_or_else(|| format!("{key} 必须是数字"))?;
+    if !value.is_finite() || !(min..=max).contains(&value) {
+        return Err(format!("{key} 超出允许范围"));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn sample_png() -> Vec<u8> {
-        // 4x3 渐变，够小又不是纯色（纯色会被 PNG 过滤器压到极小，掩盖体积问题）。
-        let mut image = image::RgbaImage::new(4, 3);
-        for (x, y, pixel) in image.enumerate_pixels_mut() {
-            *pixel = image::Rgba([(x * 60) as u8, (y * 80) as u8, 40, 255]);
-        }
-        crate::screenshot::encode_png(image.as_raw(), 4, 3).unwrap()
+        crate::screenshot::encode_png(&[40, 80, 120, 255, 9, 8, 7, 255], 2, 1).unwrap()
     }
 
-    fn sample_project() -> PinProject {
-        PinProject::new(
-            "c291cmNl".to_string(),
-            serde_json::json!([{ "id": "pen-1", "type": "pen", "color": "#ff0000", "size": 4,
-                                 "points": [{ "x": 1.0, "y": 2.0 }, { "x": 3.0, "y": 4.0 }] }]),
-            serde_json::json!({ "grayscale": false, "brightness": 0, "contrast": 0,
-                                "saturation": 0, "cornerRadius": 0 }),
-        )
+    fn annotations() -> Value {
+        serde_json::json!([
+            {"id":"pen-1","type":"pen","color":"#f00","size":4,
+             "points":[{"x":0.0,"y":0.0},{"x":1.0,"y":1.0}]},
+            {"id":"blur-1","type":"blur","rect":{"x":0,"y":0,"width":1,"height":1},
+             "effect":{"blurRadius":8,"mosaicCell":12,"spotlightDim":0.55,"magnifierZoom":2}}
+        ])
     }
 
-    /// 往返：写进去能原样读回来，而且图像本身仍然是合法 PNG、尺寸不变。
+    fn adjustments() -> Value {
+        serde_json::json!({"grayscale":false,"brightness":0,"contrast":0,"saturation":0,"cornerRadius":0})
+    }
+
+    fn project() -> PinProject {
+        PinProject::new(&sample_png(), annotations(), adjustments()).unwrap()
+    }
+
     #[test]
-    fn a_project_survives_a_round_trip() {
-        let png = sample_png();
-        let project = sample_project();
-        let embedded = embed(&png, &project).expect("写入工程");
-
-        assert_eq!(
-            crate::screenshot::png_dimensions(&embedded).expect("读头"),
-            (4, 3)
-        );
-        // 关键：像素照旧能解出来——工程块绝不能影响图像本身。
-        crate::screenshot::validate_png(&embedded).expect("图像仍然合法");
-
-        let read = extract(&embedded).expect("解析").expect("应有工程");
-        assert_eq!(read, project);
-        assert_eq!(read.source_png_base64, "c291cmNl");
-        assert_eq!(read.annotations[0]["type"], "pen");
+    fn v2_round_trip_is_compressed_and_self_contained() {
+        let rendered = sample_png();
+        let original = project();
+        let embedded = embed(&rendered, &original).unwrap();
+        crate::screenshot::validate_png(&embedded).unwrap();
+        let decoder = png::Decoder::new(std::io::Cursor::new(&embedded));
+        let reader = decoder.read_info().unwrap();
+        let chunk = reader
+            .info()
+            .utf8_text
+            .iter()
+            .find(|chunk| chunk.keyword == PROJECT_KEYWORD)
+            .unwrap();
+        assert!(chunk.compressed, "工程 iTXt 必须启用压缩");
+        assert_eq!(extract(&embedded).unwrap(), Some(original));
     }
 
-    /// 普通 PNG（没有工程块）读出来是 `None`，不是错误。
     #[test]
-    fn a_plain_png_has_no_project() {
-        assert_eq!(extract(&sample_png()).expect("解析"), None);
-    }
-
-    /// 连 PNG 都不是才返回 `Err`。
-    #[test]
-    fn garbage_is_not_a_png() {
-        assert!(extract(b"not a png at all").is_err());
-        assert!(embed(b"not a png at all", &sample_project()).is_err());
-    }
-
-    /// **版本比当前新就当普通图片**，不要猜着解析：工具语义会变，猜出来的复原会让
-    /// 用户看到一张和当初不一样的图。
-    #[test]
-    fn a_newer_version_is_ignored_rather_than_guessed() {
-        let png = sample_png();
-        let mut future = sample_project();
-        future.version = PROJECT_VERSION + 1;
-        let embedded = embed(&png, &future).expect("写入");
-        assert_eq!(extract(&embedded).expect("解析"), None);
-    }
-
-    /// keyword 撞车时靠 `format` 认自己的数据；别人的同名块要被忽略。
-    #[test]
-    fn a_foreign_chunk_with_the_same_keyword_is_ignored() {
-        let png = sample_png();
-        let mut alien = sample_project();
-        alien.format = "someone-elses-format".to_string();
-        let embedded = embed(&png, &alien).expect("写入");
-        assert_eq!(extract(&embedded).expect("解析"), None);
-    }
-
-    /// 块里是垃圾文本时按普通图片处理，而且**图像照旧能打开**——
-    /// 这是"读不出工程绝不让打开图片失败"那条约定的回归测试。
-    #[test]
-    fn a_corrupt_project_still_leaves_a_usable_image() {
-        let png = sample_png();
-        let image = image::load_from_memory_with_format(&png, image::ImageFormat::Png)
-            .unwrap()
-            .to_rgba8();
-        let mut out = Vec::new();
-        {
-            let mut encoder = png::Encoder::new(&mut out, 4, 3);
+    fn plain_corrupt_v1_and_future_metadata_fall_back_to_flat() {
+        assert_eq!(extract(&sample_png()).unwrap(), None);
+        let rendered = sample_png();
+        for text in [
+            "{broken".to_string(),
+            serde_json::json!({"format":"clippy-pin-project","version":1}).to_string(),
+            serde_json::json!({"format":"clippy-pin-project","formatVersion":99}).to_string(),
+        ] {
+            let image = image::load_from_memory_with_format(&rendered, image::ImageFormat::Png)
+                .unwrap()
+                .into_rgba8();
+            let mut out = Vec::new();
+            let mut encoder = png::Encoder::new(&mut out, 2, 1);
             encoder.set_color(png::ColorType::Rgba);
             encoder.set_depth(png::BitDepth::Eight);
             encoder
-                .add_itxt_chunk(PROJECT_KEYWORD.to_string(), "{ not json".to_string())
+                .add_itxt_chunk(PROJECT_KEYWORD.to_string(), text)
                 .unwrap();
             let mut writer = encoder.write_header().unwrap();
             writer.write_image_data(image.as_raw()).unwrap();
+            drop(writer);
+            assert_eq!(extract(&out).unwrap(), None);
+            crate::screenshot::validate_png(&out).unwrap();
         }
-        assert_eq!(extract(&out).expect("解析"), None);
-        crate::screenshot::validate_png(&out).expect("图像仍然可用");
+    }
+
+    #[test]
+    fn forged_source_and_dangerous_documents_are_rejected() {
+        let mut bad_hash = project();
+        bad_hash.source.sha256 = "0".repeat(64);
+        assert!(bad_hash.validate().is_err());
+
+        let mut bad_dimensions = project();
+        bad_dimensions.source.width += 1;
+        assert!(bad_dimensions.validate().is_err());
+
+        let mut non_png_source = project();
+        non_png_source.source.png_base64 = STANDARD.encode(b"not png");
+        assert!(non_png_source.validate().is_err());
+
+        let mut duplicate = project();
+        duplicate.document.annotations = serde_json::json!([
+            {"id":"same","type":"text","color":"#fff","size":1,"at":{"x":0,"y":0},"text":"a"},
+            {"id":"same","type":"text","color":"#fff","size":1,"at":{"x":0,"y":0},"text":"b"}
+        ]);
+        assert!(duplicate.validate().is_err());
+
+        let mut oversized = project();
+        oversized.document.annotations = serde_json::json!([
+            {"id":"t","type":"text","color":"#fff","size":1,"at":{"x":0,"y":0},"text":"x".repeat(MAX_TEXT_BYTES + 1)}
+        ]);
+        assert!(oversized.validate().is_err());
+
+        let mut fake_base64 = project();
+        fake_base64.source.png_base64 = "%%%".to_string();
+        assert!(fake_base64.validate().is_err());
+
+        let mut bad_effect = project();
+        bad_effect.document.annotations[1]["effect"]["magnifierZoom"] = serde_json::json!(1000);
+        assert!(bad_effect.validate().is_err());
+    }
+
+    #[test]
+    fn oversized_stroke_point_array_is_rejected() {
+        let points = (0..=MAX_STROKE_POINTS)
+            .map(|_| serde_json::json!({"x":0,"y":0}))
+            .collect::<Vec<_>>();
+        let result = PinProject::new(
+            &sample_png(),
+            serde_json::json!([{"id":"pen","type":"pen","color":"#fff","size":1,
+                               "points":points}]),
+            adjustments(),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn flat_export_removes_project_metadata_and_preserves_pixels() {
+        let rendered = sample_png();
+        let editable = embed(&rendered, &project()).unwrap();
+        let flat = flatten(&editable).unwrap();
+        assert_eq!(extract(&flat).unwrap(), None);
+        assert_eq!(
+            image::load_from_memory_with_format(&flat, image::ImageFormat::Png)
+                .unwrap()
+                .into_rgba8(),
+            image::load_from_memory_with_format(&rendered, image::ImageFormat::Png)
+                .unwrap()
+                .into_rgba8()
+        );
+    }
+
+    #[test]
+    fn corrupt_project_compression_does_not_block_idat_fallback() {
+        let rendered = sample_png();
+        let mut damaged = embed(&rendered, &project()).unwrap();
+        let keyword = PROJECT_KEYWORD.as_bytes();
+        let keyword_offset = damaged
+            .windows(keyword.len())
+            .position(|window| window == keyword)
+            .expect("应有工程 keyword");
+        let chunk_start = keyword_offset - 8;
+        // iTXt data = keyword + NUL + compression flag + method + language NUL + translated NUL
+        // + compressed bytes。破坏 zlib 头，模拟工程压缩流损坏。
+        let compressed_offset = chunk_start + 8 + keyword.len() + 5;
+        damaged[compressed_offset] ^= 0xff;
+
+        assert_eq!(extract(&damaged).unwrap(), None);
+        let fallback = flatten_container(&damaged).expect("损坏工程仍应能取出 IDAT");
+        assert_eq!(
+            crate::screenshot::png_dimensions(&fallback).unwrap(),
+            (2, 1)
+        );
     }
 }
