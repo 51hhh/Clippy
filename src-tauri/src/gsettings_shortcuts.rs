@@ -12,6 +12,8 @@ use std::process::Command;
 use std::sync::OnceLock;
 use tauri::AppHandle;
 
+use crate::shortcut_conflict::to_gnome_accel;
+
 /// GNOME 自定义快捷键的 dconf 路径前缀（条目按 customN 编号）
 const CUSTOM_PREFIX: &str = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/";
 /// gsettings schema
@@ -187,30 +189,6 @@ pub fn entry_schema() -> &'static str {
 /// 将 Tauri 快捷键格式转为 GNOME accelerator 格式
 ///
 /// `Ctrl+Alt+V` → `<Control><Alt>v`
-/// `Super+V`    → `<Super>v`
-pub fn to_gnome_accel(tauri_shortcut: &str) -> String {
-    let parts: Vec<&str> = tauri_shortcut.split('+').collect();
-    let mut result = String::new();
-    for (i, part) in parts.iter().enumerate() {
-        let is_last = i == parts.len() - 1;
-        if is_last {
-            result.push_str(&part.to_lowercase());
-        } else {
-            result.push('<');
-            let modifier = match part.trim() {
-                "Ctrl" | "Control" | "CmdOrCtrl" | "CommandOrControl" => "Control",
-                "Alt" => "Alt",
-                "Shift" => "Shift",
-                "Super" | "Meta" | "Cmd" | "Command" => "Super",
-                other => other,
-            };
-            result.push_str(modifier);
-            result.push('>');
-        }
-    }
-    result
-}
-
 /// 注册 gsettings 自定义快捷键（应用启动时调用）
 pub fn register(shortcut: &str) -> Result<(), String> {
     if !crate::platform::is_gnome_desktop() {

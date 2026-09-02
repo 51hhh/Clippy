@@ -4,9 +4,11 @@ mod capture;
 mod clipboard_watcher;
 mod commands;
 mod config;
+#[cfg(target_os = "linux")]
 mod dbus;
 mod dialogs;
 mod error;
+#[cfg(target_os = "linux")]
 mod gsettings_shortcuts;
 mod i18n;
 mod image_io;
@@ -164,6 +166,7 @@ pub fn run() {
             app::tray::listen_for_config_changes(app, tray_items);
 
             // ── 7. 注册全局快捷键（从配置读取）────────────────────────────────
+            #[cfg(target_os = "linux")]
             if platform::uses_gnome_shortcuts() {
                 log::info!("检测到 Wayland 会话，使用 gsettings 自定义快捷键 + D-Bus");
                 // 三个动作的失败都要上报：非 GNOME 的 Wayland 桌面没有 media-keys schema，
@@ -224,6 +227,14 @@ pub fn run() {
                 // 逐个动作注册并在内部按动作记账，这里只需记录"全都没注册上"的整体失败。
                 if let Err(error) = register_x11_shortcuts(app.handle(), &app_config) {
                     log::warn!("X11 快捷键全部注册失败: {error}");
+                }
+            }
+
+            #[cfg(not(target_os = "linux"))]
+            {
+                log::info!("使用操作系统原生的 Tauri 全局快捷键后端");
+                if let Err(error) = register_x11_shortcuts(app.handle(), &app_config) {
+                    log::warn!("Tauri 全局快捷键全部注册失败: {error}");
                 }
             }
 

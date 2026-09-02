@@ -96,6 +96,7 @@ pub fn update_config(
 
     // 保存后的注册失败必须回到界面上，否则设置页显示新键位而系统里根本没绑上。
     if global_changed || pin_changed || capture_changed {
+        #[cfg(target_os = "linux")]
         if crate::platform::uses_gnome_shortcuts() {
             if global_changed {
                 crate::record_register_result(
@@ -124,9 +125,11 @@ pub fn update_config(
                     crate::gsettings_shortcuts::update_capture_binding(&config.capture_shortcut),
                 );
             }
-        } else if let Err(error) = crate::register_x11_shortcuts(&app_handle, &config) {
+            return Ok(());
+        }
+        if let Err(error) = crate::register_x11_shortcuts(&app_handle, &config) {
             // 逐个动作的失败已在注册内部记账，这里只记录整体失败
-            log::warn!("X11 快捷键全部注册失败: {error}");
+            log::warn!("Tauri 全局快捷键全部注册失败: {error}");
         }
     }
     Ok(())
@@ -212,14 +215,42 @@ pub fn pause_shortcuts(app_handle: tauri::AppHandle, state: State<AppState>) -> 
 }
 
 fn pause_shortcuts_for_platform(app_handle: &tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
     if crate::platform::uses_gnome_shortcuts() {
-        crate::gsettings_shortcuts::pause().map_err(|e| e.to_string())
-    } else {
-        use tauri_plugin_global_shortcut::GlobalShortcutExt;
-        app_handle
-            .global_shortcut()
-            .unregister_all()
-            .map_err(|e| e.to_string())
+        return crate::gsettings_shortcuts::pause().map_err(|e| e.to_string());
+    }
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    app_handle
+        .global_shortcut()
+        .unregister_all()
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn resume_gnome_shortcuts(app_handle: &tauri::AppHandle, config: &AppConfig) -> Result<(), String> {
+    let outcomes = crate::gsettings_shortcuts::resume_with_results(
+        &config.global_shortcut,
+        &config.pin_shortcut,
+        &config.capture_shortcut,
+    );
+    let failed = outcomes
+        .iter()
+        .filter(|(_, _, result)| result.is_err())
+        .count();
+    let mut first_error = None;
+    for (action, shortcut, outcome) in outcomes.iter() {
+        if let Err(reason) = outcome {
+            first_error.get_or_insert_with(|| reason.clone());
+        }
+        crate::record_register_result(app_handle, &[action], shortcut, true, outcome.clone());
+    }
+    match first_error {
+        Some(reason) if failed == outcomes.len() => Err(reason),
+        Some(reason) => {
+            log::warn!("恢复 GNOME 快捷键部分失败: {reason}");
+            Ok(())
+        }
+        None => Ok(()),
     }
 }
 
@@ -247,35 +278,16 @@ pub(crate) fn resume_shortcuts_for_app(
     };
 
     // 恢复同样要记账：录制结束后没绑回去，用户按键就没反应，而设置页显示得好好的。
-    let result = if crate::platform::uses_gnome_shortcuts() {
-        let outcomes = crate::gsettings_shortcuts::resume_with_results(
-            &config.global_shortcut,
-            &config.pin_shortcut,
-            &config.capture_shortcut,
-        );
-        let failed = outcomes
-            .iter()
-            .filter(|(_, _, result)| result.is_err())
-            .count();
-        let mut first_error = None;
-        for (action, shortcut, outcome) in outcomes.iter() {
-            if let Err(reason) = outcome {
-                first_error.get_or_insert_with(|| reason.clone());
-            }
-            crate::record_register_result(app_handle, &[action], shortcut, true, outcome.clone());
+    #[cfg(target_os = "linux")]
+    let result = {
+        if crate::platform::uses_gnome_shortcuts() {
+            resume_gnome_shortcuts(app_handle, &config)
+        } else {
+            crate::register_x11_shortcuts(app_handle, &config)
         }
-        // 只有全都失败才算"仍处于暂停"，部分成功的键位已经生效，状态不能再说暂停
-        match first_error {
-            Some(reason) if failed == outcomes.len() => Err(reason),
-            Some(reason) => {
-                log::warn!("恢复 GNOME 快捷键部分失败: {reason}");
-                Ok(())
-            }
-            None => Ok(()),
-        }
-    } else {
-        crate::register_x11_shortcuts(app_handle, &config)
     };
+    #[cfg(not(target_os = "linux"))]
+    let result = crate::register_x11_shortcuts(app_handle, &config);
     if result.is_err() {
         state.shortcuts_paused.store(true, Ordering::Release);
     }

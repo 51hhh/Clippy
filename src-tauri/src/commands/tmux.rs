@@ -5,6 +5,10 @@ use tauri::State;
 /// 切换 tmux 缓冲区捕获。
 #[tauri::command]
 pub fn toggle_tmux_capture(enabled: bool, state: State<AppState>) -> Result<(), String> {
+    #[cfg(not(target_os = "linux"))]
+    if enabled {
+        return Err("tmux clipboard capture is not available on this platform".to_string());
+    }
     if enabled {
         setup_tmux_hook()?;
     } else {
@@ -20,6 +24,9 @@ pub fn toggle_tmux_capture(enabled: bool, state: State<AppState>) -> Result<(), 
 /// 检测 tmux 是否可用。
 #[tauri::command]
 pub fn tmux_available() -> bool {
+    if !cfg!(target_os = "linux") {
+        return false;
+    }
     std::process::Command::new("tmux")
         .arg("-V")
         .stdout(std::process::Stdio::null())

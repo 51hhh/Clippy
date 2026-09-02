@@ -12,10 +12,13 @@
 //! Clippy 三个动作之间的自冲突不在这里判断：设置页里用户可能已经改了输入框但还没保存，
 //! 前端拿到的是更新的值，那一层的比较由 `shortcut-recording.js` 负责。
 
-use crate::gsettings_shortcuts::{clippy_custom_paths, entry_schema, to_gnome_accel};
+#[cfg(target_os = "linux")]
+use crate::gsettings_shortcuts::{clippy_custom_paths, entry_schema};
+#[cfg(target_os = "linux")]
 use std::process::Command;
 
 /// 需要扫描的 GNOME 快捷键 schema。缺失的 schema（非 GNOME 桌面）直接跳过。
+#[cfg(target_os = "linux")]
 const SCAN_SCHEMAS: &[&str] = &[
     "org.gnome.desktop.wm.keybindings",
     "org.gnome.settings-daemon.plugins.media-keys",
@@ -23,6 +26,28 @@ const SCAN_SCHEMAS: &[&str] = &[
     "org.gnome.mutter.keybindings",
     "org.gnome.mutter.wayland.keybindings",
 ];
+
+/// 把 Tauri accelerator 转成 GNOME 使用的 accelerator 表示。
+///
+/// 纯字符串转换留在平台无关模块内，让 Windows/macOS 的冲突检测仍可编译；只有真正枚举
+/// GNOME schema 的部分受 Linux 条件编译约束。
+pub(crate) fn to_gnome_accel(tauri_shortcut: &str) -> String {
+    let mut result = String::new();
+    let parts: Vec<&str> = tauri_shortcut.split('+').collect();
+    for part in &parts[..parts.len().saturating_sub(1)] {
+        match part.trim().to_ascii_lowercase().as_str() {
+            "ctrl" | "control" | "cmdorctrl" | "commandorcontrol" => result.push_str("<Control>"),
+            "alt" | "option" => result.push_str("<Alt>"),
+            "shift" => result.push_str("<Shift>"),
+            "super" | "meta" | "cmd" | "command" => result.push_str("<Super>"),
+            _ => {}
+        }
+    }
+    if let Some(key) = parts.last() {
+        result.push_str(&key.trim().to_ascii_lowercase());
+    }
+    result
+}
 
 /// 快捷键占用检测结果
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -168,6 +193,7 @@ pub fn detect_with(
 }
 
 /// 枚举 GNOME 已声明的快捷键。所有 schema 都不可用时返回 None（"查不出来"）。
+#[cfg(target_os = "linux")]
 pub fn scan_gnome_bindings() -> Option<Vec<Binding>> {
     let mut bindings = Vec::new();
     let mut any_schema = false;
@@ -191,8 +217,14 @@ pub fn scan_gnome_bindings() -> Option<Vec<Binding>> {
     Some(bindings)
 }
 
+#[cfg(not(target_os = "linux"))]
+pub fn scan_gnome_bindings() -> Option<Vec<Binding>> {
+    None
+}
+
 /// 自定义快捷键的 binding 不在 `list-recursively` 里（relocatable schema），
 /// 需要按路径逐个读；Clippy 自己的三个路径必须排除。
+#[cfg(target_os = "linux")]
 fn scan_custom_keybindings() -> Vec<Binding> {
     let Ok(output) = Command::new("gsettings")
         .args([
@@ -225,6 +257,7 @@ fn scan_custom_keybindings() -> Vec<Binding> {
         .collect()
 }
 
+#[cfg(target_os = "linux")]
 fn gsettings_entry(path: &str, key: &str) -> Option<String> {
     let target = format!("{}:{}", entry_schema(), path);
     let output = Command::new("gsettings")
