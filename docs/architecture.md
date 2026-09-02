@@ -214,7 +214,7 @@ GNOME 自定义快捷键条目路径按 command 认领而不是写死 `custom0/1
 
 设置窗口关闭时，快捷键录制控制器先等待 `resume_shortcuts` 完成再关闭；Rust `AppState` 以原子标志和转换锁提供窗口销毁后的幂等恢复兜底。Portal 录制暂停还会等待 session 真正关闭；若 Bind 正停在系统确认界面，代次 watch 会先取消请求并清理 session，再确认暂停完成。
 
-`XDG_SESSION_TYPE` 优先于残留的 display 环境变量；只有已判定为 Wayland 且同时存在 `DISPLAY` 才报告 XWayland。Portal 服务存在不等于所有接口都存在，能力探测按接口读取 `version`，缺失时不再误报成“等待授权”。Portal token 不进入普通配置；独立文件必须为 0600。首次 Portal 确认、撤权和桌面后端是否允许静默恢复仍属于真实桌面人工验收。
+`XDG_SESSION_TYPE` 优先于残留的 display 环境变量；只有已判定为 Wayland 且同时存在 `DISPLAY` 才报告 XWayland。Portal 服务存在不等于所有接口都存在，能力探测按接口读取 `version`，缺失时不再误报成“等待授权”。Portal token 不进入普通配置；Unix 独立文件必须为 0600、目录为 0700，Windows 文件和目录使用禁止继承宽松权限的受保护 DACL，只保留当前用户的完整访问 ACE。配置与 restore token 都通过同一私有文件替换函数提交：Unix 使用 `rename`，Windows 使用 `MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH)`，替换后再次校正最终路径权限。首次 Portal 确认、撤权和桌面后端是否允许静默恢复仍属于真实桌面人工验收。
 截图 Portal 的交互模式由截图用户动作显式开启；后台或未来自动任务应传入非交互模式，避免隐式弹出桌面授权。
 
 ## 安全规则
@@ -223,6 +223,8 @@ GNOME 自定义快捷键条目路径按 command 认领而不是写死 `custom0/1
 - 朗读音频由 Rust 取回后以 data URL 播放，webview 不直接请求 dictvoice；文本长度上限 200 字符。
 - 图片翻译只把本地 OCR 文本发送给 provider，不上传原图。
 - API key 只进入系统 Secret Service，不提供明文 fallback。
+- 配置、数据库、Portal restore token 等本地私有文件在 Unix 校正为 0600/0700，在 Windows 校正为
+  仅当前用户可访问的受保护 DACL；临时文件替换后必须重新验证最终路径权限。
 - 成功的译文与原文落在同一个 SQLite 库（`translation_history`，全库上限 500 条）：条目删除、历史清空和上限清理都会一并删除它的译文，设置里另有"清空已保存的译文"入口。敏感条目从不进入翻译，因此也不会产生记录。
 - 上面这条"删条目必然删译文"以及 `clips` 与 `clips_fts` 的一致性由事务保证：`insert_clip`、`delete_clip`、`clear_history`、`delete_entries` 都用 `unchecked_transaction()` 包住多条语句（`StorageEngine` 只持有 `&self`，并发已由外层 `Arc<Mutex<_>>` 串行化）。没有事务时中途失败会留下"搜得到但已不存在"的 FTS 幽灵行或删不掉的译文，而 `rebuild_fts_once` 只在 schema 版本变化时跑，索引不会自己长回来。
 - 截图保存目录与文件名模板可配置（留空即内置默认 `~/Pictures/Clippy`）：模板只生成文件名，路径分隔符与前导点被清洗，写不到目录之外；同名时追加序号，不覆盖已有文件。
