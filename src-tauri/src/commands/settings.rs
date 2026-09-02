@@ -235,7 +235,7 @@ pub fn pause_shortcuts(app_handle: tauri::AppHandle, state: State<AppState>) -> 
 
 fn pause_shortcuts_for_platform(
     app_handle: &tauri::AppHandle,
-    state: &AppState,
+    _state: &AppState,
 ) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     if crate::platform::uses_gnome_shortcuts() {
@@ -243,7 +243,7 @@ fn pause_shortcuts_for_platform(
     }
     #[cfg(target_os = "linux")]
     if crate::platform::uses_portal_shortcuts() {
-        return state
+        return _state
             .portal_shortcuts
             .as_ref()
             .ok_or_else(|| "GlobalShortcuts Portal manager 未初始化".to_string())?

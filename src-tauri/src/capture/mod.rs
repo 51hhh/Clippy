@@ -22,9 +22,11 @@ pub(crate) use shell_extension::place_window as shell_extension_place_window;
 pub(crate) use shell_extension::probe as shell_extension_windows;
 /// 截图后端要用扩展这条路取冻结帧。扩展的全部 IPC 都留在 `shell_extension` 里，
 /// 这里只把入口露出去，免得契约散成两份。
+#[cfg(target_os = "linux")]
 pub(crate) use shell_extension::request_screenshot as shell_extension_screenshot;
 /// 逐屏原生取像素（协议 v5）。整屏那条路既会把低缩放的屏上采样、又要 gnome-shell
 /// 编一张全桌面 PNG（实测 1.8 秒），所以这是首选，上面那个整屏入口只是它的兜底。
+#[cfg(target_os = "linux")]
 pub(crate) use shell_extension::{
     request_area_captures as shell_extension_area_captures, AreaCapture, CaptureArea,
 };

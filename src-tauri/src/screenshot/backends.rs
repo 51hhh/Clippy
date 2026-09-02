@@ -1,9 +1,15 @@
+#[cfg(target_os = "linux")]
 use super::geometry_check::{
     classify_stage, crop_coverage_ratio, desktop_max_scale_factor, find_mirror_sources,
     verify_crop_not_clamped, verify_crops_do_not_overlap, verify_frame_isotropy, StageClass,
 };
-use super::{DesktopBounds, FrozenFrame, ImageRect, MonitorInfo, Rect};
-use anyhow::{anyhow, bail, Context, Result};
+#[cfg(any(test, target_os = "linux"))]
+use super::ImageRect;
+use super::{DesktopBounds, FrozenFrame, MonitorInfo, Rect};
+#[cfg(any(test, target_os = "linux"))]
+use anyhow::anyhow;
+use anyhow::{bail, Context, Result};
+#[cfg(target_os = "linux")]
 use image::RgbaImage;
 use std::sync::Arc;
 use xcap::Monitor;
@@ -1031,7 +1037,7 @@ pub(super) fn monitor_union(monitors: &[MonitorInfo]) -> Result<DesktopBounds> {
     })
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(test, target_os = "linux"))]
 pub(super) fn scaled_monitor_rect(
     rect: &Rect,
     desktop: &DesktopBounds,
@@ -1067,7 +1073,7 @@ pub(super) fn scaled_monitor_rect(
     })
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(test, target_os = "linux"))]
 fn scaled_edge(edge: i32, origin: i32, scale: f32, max: u32) -> u32 {
     (((edge - origin) as f32) * scale)
         .round()
@@ -1243,7 +1249,7 @@ fn is_wayland_session() -> bool {
         || std::env::var_os("WAYLAND_DISPLAY").is_some()
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(test, target_os = "linux"))]
 pub(super) fn portal_screenshot_uri_to_path(uri: &str) -> Result<std::path::PathBuf> {
     let rest = uri
         .strip_prefix("file://")

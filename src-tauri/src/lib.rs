@@ -35,9 +35,9 @@ use std::sync::{Arc, Mutex};
 use tauri::Manager;
 use tauri_plugin_global_shortcut::ShortcutState;
 
-pub(crate) use app::shortcuts::{
-    record_register_result, register_tauri_shortcuts, toggle_main_window,
-};
+pub(crate) use app::shortcuts::register_tauri_shortcuts;
+#[cfg(target_os = "linux")]
+pub(crate) use app::shortcuts::{record_register_result, toggle_main_window};
 
 /// 命令行截图诊断：`clippy --capture-diagnose` / `--emit-test-case` /
 /// `CLIPPY_CAPTURE_DIAGNOSE=1`。返回 `Some(退出码)` 表示这次启动只做诊断。

@@ -4,7 +4,6 @@
 //! 与截图由各自原生后端负责。
 
 use serde::Serialize;
-use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -35,50 +34,12 @@ pub(crate) struct ShellWindow {
     pub pid: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct CaptureArea {
-    pub x: i32,
-    pub y: i32,
-    pub width: u32,
-    pub height: u32,
-    pub scale: f64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum AreaCapture {
-    Raw {
-        path: PathBuf,
-        width: u32,
-        height: u32,
-        stride: usize,
-    },
-    Png {
-        path: PathBuf,
-    },
-}
-
-impl AreaCapture {
-    pub(crate) fn path(&self) -> &Path {
-        match self {
-            Self::Raw { path, .. } | Self::Png { path } => path,
-        }
-    }
-}
-
 fn unsupported() -> String {
     "GNOME Shell extension is only available on Linux".to_string()
 }
 
 pub(crate) fn probe() -> Option<Vec<ShellWindow>> {
     None
-}
-
-pub(crate) fn request_screenshot() -> Result<PathBuf, String> {
-    Err(unsupported())
-}
-
-pub(crate) fn request_area_captures(_areas: &[CaptureArea]) -> Result<Vec<AreaCapture>, String> {
-    Err(unsupported())
 }
 
 pub(crate) fn place_window(
