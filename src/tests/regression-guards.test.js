@@ -151,6 +151,15 @@ describe("Tauri 打包目标按平台隔离", () => {
     expect(linux.identifier).toBeUndefined();
     expect(windows.identifier).toBeUndefined();
   });
+
+  it("macOS Pin 同时启用透明 WebView 的配置与 Cargo feature", () => {
+    // Tauri 在 macOS 只有这两个开关同时存在才暴露 builder.transparent；删掉任一项，
+    // 原生 cargo check 会失败，或 Pin 的透明留白退化成不透明矩形。
+    expect(macos.app.macOSPrivateApi).toBe(true);
+    expect(read("src-tauri/Cargo.toml")).toMatch(
+      /\[target\.'cfg\(target_os = "macos"\)'\.dependencies\][\s\S]*?tauri\s*=\s*\{[^\n]*"macos-private-api"/,
+    );
+  });
 });
 
 describe("codec 输出区能装下多字段结果", () => {
