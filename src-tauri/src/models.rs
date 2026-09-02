@@ -156,7 +156,7 @@ pub struct AppConfig {
     pub preferred_languages: Vec<String>,
     #[serde(default)]
     pub main_window_position: Option<MainWindowPosition>,
-    /// 截图/Pin 的保存目录，支持 `~` 开头。空表示内置默认（`$HOME/Pictures/Clippy`），
+    /// 截图/Pin 的保存目录，支持 `~` 开头。空表示系统图片目录下的 `Clippy` 子目录，
     /// 这样以后改默认值对老用户同样生效，因此新增此字段不需要迁移或提升配置版本。
     #[serde(default)]
     pub screenshot_save_dir: String,
