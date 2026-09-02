@@ -132,8 +132,9 @@ check-version → release-preflight ─┬→ build-linux ──────┐
 #### 4. build-windows
 - 在 `windows-latest` x64 runner 上生成 NSIS 与 MSI
 - NSIS 安装程序作为 Windows updater 入口
-- 优先使用仓库 PFX；未配置时生成仅在 runner 内受信的临时自签名代码签名证书
-- 两种模式都校验 Authenticode 摘要和 signer thumbprint；自签名模式会在 Release Notes 标注
+- 优先使用仓库 PFX；未配置时在 runner 的个人证书库生成临时自签名代码签名证书，不写入 Root 信任库
+- 两种模式都校验 Authenticode 摘要和 signer thumbprint；自签名模式只允许预期的 `NotTrusted` 链状态，
+  仍拒绝无签名、哈希不匹配和错误 signer，并在 Release Notes 标注
   SmartScreen/未知发布者风险
 
 #### 5. build-macos
@@ -175,7 +176,8 @@ check-version → release-preflight ─┬→ build-linux ──────┐
    - 两项都没有时，release 生成临时自签名代码签名证书；它只能验证文件签名完整性，不建立公共信任，
      SmartScreen 仍可能显示未知发布者。发布说明必须保留该警告。
    - release 会检查证书私钥、代码签名 EKU 和有效期，以 SHA-256 + RFC 3161 时间戳签名，并在上传前
-     验证 NSIS/MSI 的 Authenticode 状态及 signer thumbprint；任何一步失败都不会发布 Windows 产物。
+     验证 NSIS/MSI 的 Authenticode 摘要及 signer thumbprint；临时自签名只接受预期的 `NotTrusted`
+     证书链，不把证书导入 Root 信任库。任何其它状态都会阻止发布 Windows 产物。
 
 ### 发版命令
 
