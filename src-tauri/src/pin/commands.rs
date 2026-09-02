@@ -442,7 +442,7 @@ pub struct PinCanvasSaveResult {
 /// 把最新合成图保存为可编辑工程或安全扁平 PNG。文件先原子落盘，剪贴板随后写入；后者
 /// 失败不会谎报文件失败，而是通过结构化结果单独告知调用方。
 #[tauri::command]
-pub fn save_pin_canvas(
+pub async fn save_pin_canvas(
     label: String,
     png_base64: Option<String>,
     to_clipboard: bool,
@@ -452,18 +452,23 @@ pub fn save_pin_canvas(
 ) -> Result<PinCanvasSaveResult, String> {
     validate_label(&label)?;
     let entry = state.pin_manager.get(&label)?;
-    let (png, to_disk) = prepare_canvas_save(&entry, png_base64.as_deref(), mode, project)?;
-    let path = crate::image_io::save_png(&to_disk, "clippy-pin", &state.save_target())?;
-    let clipboard_error = if to_clipboard {
-        crate::image_io::copy_png_to_clipboard(&png).err()
-    } else {
-        None
-    };
-    Ok(PinCanvasSaveResult {
-        path: path.to_string_lossy().to_string(),
-        clipboard_written: to_clipboard && clipboard_error.is_none(),
-        clipboard_error,
+    let save_target = state.save_target();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (png, to_disk) = prepare_canvas_save(&entry, png_base64.as_deref(), mode, project)?;
+        let path = crate::image_io::save_png(&to_disk, "clippy-pin", &save_target)?;
+        let clipboard_error = if to_clipboard {
+            crate::image_io::copy_png_to_clipboard(&png).err()
+        } else {
+            None
+        };
+        Ok(PinCanvasSaveResult {
+            path: path.to_string_lossy().to_string(),
+            clipboard_written: to_clipboard && clipboard_error.is_none(),
+            clipboard_error,
+        })
     })
+    .await
+    .map_err(|error| format!("画布保存线程异常: {error}"))?
 }
 
 /// 生成剪贴板合成图与落盘容器。
@@ -522,7 +527,7 @@ fn prepare_canvas_save(
 
 /// 已编辑贴图的 Copy/Ctrl+C：只把最新合成像素送入剪贴板，不携带 iTXt。
 #[tauri::command]
-pub fn copy_pin_canvas(
+pub async fn copy_pin_canvas(
     label: String,
     png_base64: Option<String>,
     project: Option<PinCanvasProject>,
@@ -530,27 +535,35 @@ pub fn copy_pin_canvas(
 ) -> Result<(), String> {
     validate_label(&label)?;
     let entry = state.pin_manager.get(&label)?;
-    let png = match project {
+    tauri::async_runtime::spawn_blocking(move || {
+        let png = prepare_canvas_copy(&entry, png_base64.as_deref(), project)?;
+        crate::image_io::copy_png_to_clipboard(&png)
+    })
+    .await
+    .map_err(|error| format!("画布复制线程异常: {error}"))?
+}
+
+fn prepare_canvas_copy(
+    entry: &PinEntry,
+    png_base64: Option<&str>,
+    project: Option<PinCanvasProject>,
+) -> Result<Vec<u8>, String> {
+    match project {
         Some(project) if project.renderer_version == super::render_v2::RENDERER_VERSION => {
             if png_base64.is_some() {
                 return Err("renderer v2 不接受 WebView 上传的合成 PNG".to_string());
             }
-            render_canvas_project(&entry, &project)?
+            render_canvas_project(entry, &project)
         }
         Some(_) => {
-            let encoded = png_base64
-                .as_deref()
-                .ok_or_else(|| "renderer v1 复制缺少合成 PNG".to_string())?;
-            decode_canvas_png(encoded)?
+            let encoded = png_base64.ok_or_else(|| "renderer v1 复制缺少合成 PNG".to_string())?;
+            decode_canvas_png(encoded)
         }
         None => {
-            let encoded = png_base64
-                .as_deref()
-                .ok_or_else(|| "复制画布缺少工程文档".to_string())?;
-            decode_canvas_png(encoded)?
+            let encoded = png_base64.ok_or_else(|| "复制画布缺少工程文档".to_string())?;
+            decode_canvas_png(encoded)
         }
-    };
-    crate::image_io::copy_png_to_clipboard(&png)
+    }
 }
 
 fn decode_canvas_png(png_base64: &str) -> Result<Vec<u8>, String> {
@@ -1140,14 +1153,18 @@ mod project_command_tests {
         assert_eq!(restored.document.annotations, project.annotations);
         assert_eq!(restored.document.adjustments, project.adjustments);
 
+        let copied = prepare_canvas_copy(&entry, None, Some(project.clone())).unwrap();
+        assert_eq!(copied, clipboard);
+
         let uploaded = STANDARD.encode(&clipboard);
         assert!(prepare_canvas_save(
             &entry,
             Some(&uploaded),
             PinCanvasSaveMode::Editable,
-            Some(project)
+            Some(project.clone())
         )
         .is_err());
+        assert!(prepare_canvas_copy(&entry, Some(&uploaded), Some(project)).is_err());
     }
 
     #[test]
