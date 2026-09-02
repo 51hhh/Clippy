@@ -134,6 +134,7 @@ describe("原生平台由真实 runner 编译", () => {
     expect(qaWorkflow.match(/uses: actions\/upload-artifact@v7/g)).toHaveLength(5);
     expect(qaWorkflow.match(/retention-days: 14/g)).toHaveLength(5);
     expect(qaWorkflow).toContain("signing=unsigned-qa-only");
+    expect(qaWorkflow).toContain("signing=self-signed-qa-only");
     expect(qaWorkflow).toContain("signing=ad-hoc-qa-only");
     expect(qaWorkflow).toContain("./scripts/finalize-appimage.sh");
     expect(qaWorkflow).toContain("rust_target: x86_64-apple-darwin");
@@ -141,6 +142,7 @@ describe("原生平台由真实 runner 编译", () => {
     expect(qaWorkflow).toContain("linux-gnome-wayland-ubuntu24");
     expect(qaWorkflow).toContain("--config src-tauri/tauri.linux.conf.json");
     expect(qaWorkflow).toContain("--config src-tauri/tauri.windows.conf.json");
+    expect(qaWorkflow).toContain("--config src-tauri/tauri.windows.signing.conf.json");
     expect(qaWorkflow).toContain("--config src-tauri/tauri.macos.conf.json");
     expect(qaWorkflow).toContain("--config src-tauri/tauri.macos.qa.conf.json");
     expect(qaWorkflow).not.toMatch(/macOS QA[\s\S]*--no-sign/);
@@ -317,14 +319,16 @@ describe("release 下载链接与构建矩阵同步", () => {
   });
 
   it("Windows 无 PFX 时生成自签名证书并在发布说明中明确告警", () => {
-    expect(release).toContain("New-SelfSignedCertificate");
-    expect(release).toContain('Subject = "CN=Clippy Self-Signed Release"');
-    expect(release).toContain('Provider = "Microsoft Software Key Storage Provider"');
-    expect(release).toContain('KeyUsage = "DigitalSignature"');
-    expect(release).toContain('"2.5.29.37={text}1.3.6.1.5.5.7.3.3"');
+    const signingScript = read("scripts/prepare-windows-signing.ps1");
+    expect(release).toContain("./scripts/prepare-windows-signing.ps1");
+    expect(signingScript).toContain("New-SelfSignedCertificate");
+    expect(signingScript).toContain('Subject = "CN=Clippy Self-Signed Release"');
+    expect(signingScript).toContain('Provider = "Microsoft Software Key Storage Provider"');
+    expect(signingScript).toContain('KeyUsage = "DigitalSignature"');
+    expect(signingScript).toContain('"2.5.29.37={text}1.3.6.1.5.5.7.3.3"');
     expect(release).toContain('@("Valid", "NotTrusted")');
-    expect(release).not.toContain("WINDOWS_TRUSTED_ROOT_THUMBPRINT");
-    expect(release).not.toContain("Cert:\\CurrentUser\\Root");
+    expect(signingScript).not.toContain("WINDOWS_TRUSTED_ROOT_THUMBPRINT");
+    expect(signingScript).not.toContain("Cert:\\CurrentUser\\Root");
     expect(release).toContain("Windows SmartScreen");
   });
 
