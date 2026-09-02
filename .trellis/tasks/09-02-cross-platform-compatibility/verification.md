@@ -4,11 +4,11 @@
 
 审查基线：`621e36f289a386dcf84d26c77742f6b0f1eae31e`
 
-代码与 CI 已审查至：`7a1685df1180ebbff658b7c1fd6f7ee99e713d3e`
+代码与 CI 已审查至：`a1543117d2e380c9bb45e3b11066be1ac1e5f86b`
 
 ## 审查范围
 
-- 审查基线之后 104 个提交、132 个变更文件，以及提交时仍存在的工作区内容。
+- 截至上述审查点，审查基线之后共 107 个提交、133 个变更文件，以及提交时仍存在的工作区内容。
 - 逐项检查截图、窗口命中、Pin、标注画布、可编辑 PNG、剪贴板、自动粘贴、快捷键、OCR、
   私有存储、自动启动、平台配置、CI 和 release 数据流。
 - `.omo/` 与 `.trellis/workspace/codex/` 是未跟踪的用户工作区，本次未读取、未修改、未提交。
@@ -33,7 +33,7 @@
 | Canvas 导出像素 smoke | 通过，抽样像素 `0 208 0` |
 | 主窗口布局像素 smoke | 通过，抽样像素 `0 208 0` |
 | Vite production build | 通过，1888 个模块完成转换 |
-| AppImage X11 可视 smoke | 未执行；需 `CLIPPY_APPIMAGE_SMOKE=1` 和真实 AppImage |
+| AppImage X11 可视 smoke | 通过；本机构建产物与 Ubuntu 22 finalized 产物均验证窗口、单实例回调和首帧 |
 
 受限沙箱内首次运行时，16 个回环 HTTP 测试因禁止 `TcpListener::bind` 失败，Vite/Xvfb smoke
 也无法绑定端口或显示；在允许回环网络和虚拟显示的同一主机上复跑后全部通过。该差异属于执行环境，
@@ -58,9 +58,33 @@
   属于已弃用的 `v1Compatible` 模式。本结论是源码/配置审查，产物仍需原生 release job 验证。
 - `git diff --check` 通过。
 
+## Ubuntu 22 release 与 AppImage 前向兼容验证
+
+- 使用 Docker 官方 `ubuntu:22.04` 镜像、`5c71dde` 的干净 `git archive` 和 Jammy 官方仓库完成
+  release 构建；随后两个提交只修改依赖清单和 finalization 脚本，没有改变应用源码。没有使用 PPA，
+  系统 PipeWire 为 0.3.48，`cargo tree` 明确不含 `pipewire-rs`。
+- 首轮在 Rust release 链接完成后发现 AppImage bundler 需要 `/usr/bin/xdg-open`，而仓库依赖清单未
+  显式安装 `xdg-utils`。补齐 CI、release 和两份开发文档后，同一干净 Jammy 环境成功生成
+  `Clippy_0.1.17_amd64.AppImage`。
+- Jammy 原始 AppImage 为 83,192,312 字节，SHA-256
+  `5cf2fa2bdf116f6a6b73a6e2cc519792946ea07b0c9e358e320126e04b62bacc`，SquashFS offset
+  944632，`.DirIcon` 是相对链接；但在 Ubuntu 26.04 / Mesa 25 上启动时，内置 Jammy
+  `libwayland-*` 与宿主图形栈混载，WebKit 报 `EGL_BAD_PARAMETER` 并产生空白首帧。
+- 该结果与 Tauri 上游问题 `tauri-apps/tauri#15665` 的根因一致。`finalize-appimage.sh` 现把
+  `libwayland-client/cursor/egl/server` 四个 ABI 库作为一个集合移除，重封装后再从 SquashFS
+  反查，发现残留会直接失败：
+  https://github.com/tauri-apps/tauri/issues/15665
+- finalized Jammy AppImage 为 83,134,968 字节，SHA-256
+  `10edc7680aa1f1745673e6bb31eb0d985d2de5115154a4263b6ca297a320480b`。同一 Ubuntu 26 主机的
+  隔离 X11/DBus smoke 通过：主窗口 380×500、无装饰、位于 1280×800 屏幕内，单实例回调成功，
+  首帧非空白。修改后的脚本同时通过 `bash -n` 和 ShellCheck。
+- Ubuntu 26 本机直接构建的原始 AppImage 为 85,899,768 字节，SHA-256
+  `e4cff34b1d00d0140a48e87e7193cc951cc275672b5b31b335b4549f8adf6103`，同样通过隔离 X11 smoke；
+  此项只证明当前发行版运行，不替代 Jammy 构建证据。
+
 ## 原生平台验证状态
 
-当前 `dev` 比 `origin/dev` 多 130 个本地提交。GitHub 上最近一次 `build.yml` 成功运行是
+截至上述审查点，`dev` 比 `origin/dev` 多 133 个本地提交。GitHub 上最近一次 `build.yml` 成功运行是
 2026-08-30 的 `8f6c1b57ad844ebc98254b9f88b16e88f3cce314`，不包含本轮改动。
 
 - Windows MSVC：完整工程在 Linux 主机交叉检查时缺少 `llvm-rc`、MSVC `lib.exe`/SDK 以及
@@ -114,6 +138,10 @@
   未来 sidecar、PATH 与三平台常见目录，识别复用同一路径。设置页按 typed OS 显示对应安装提示。
 - macOS 每次截图失败都会再次调用屏幕录制授权请求：现在每个进程最多请求一次，同时每次截图前仍
   重新 preflight；用户在系统设置中授权后无需重启即可恢复，拒绝或撤销后不会在进程内反复请求。
+- 干净 Ubuntu 22 只按仓库清单安装依赖时，AppImage bundler 缺少 `xdg-open`：现在 CI、release
+  和开发文档都显式安装 `xdg-utils`，同一 Jammy 容器已完成 release AppImage 构建。
+- Ubuntu 22 构建的 AppImage 在 Ubuntu 26/Mesa 25 混载内置 Wayland ABI 库后空白：release
+  finalization 现移除整组 `libwayland-*`，验证 SquashFS 无残留，并已用失败/通过 A/B 首帧复现闭环。
 
 ## 已知限制与发布阻断项
 
@@ -130,6 +158,8 @@
 - Windows Authenticode workflow 已接入，但仓库尚未提供可由本任务读取的证书 secret，也未在原生
   release runner 上执行；必须配置 `WINDOWS_CERTIFICATE*` 并取得 NSIS/MSI 签名验证通过的运行证据。
 - macOS 最终产物验证门禁已接入，但仍需带真实 Developer ID 和公证凭据的 release runner 运行证据。
+- Tauri 2.11 的默认 linuxdeploy 路径仍会生成包含 `libwayland-*` 的原始 AppImage；Clippy 正式
+  release workflow 已通过 finalization 修复并重签名，但手工分发未经 finalization 的原始产物仍不受支持。
 - Windows 私有文件 ACL 已有显式实现、目标编译测试和单元测试，但仍需 Windows 原生 runner 执行
   ACL 测试，并在 NTFS 实机确认旧文件修复、目录继承与连续 token 更新；keyring 失败不会退回明文。
 

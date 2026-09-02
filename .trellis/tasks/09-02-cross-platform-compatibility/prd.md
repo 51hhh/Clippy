@@ -85,8 +85,8 @@
 
 ## Acceptance Criteria
 
-- [ ] Linux 本机现有功能通过完整测试，且平台抽象不改变已验证的 X11/Wayland选择结果。
-- [ ] 在干净 Ubuntu 22.04 环境中无需第三方 PipeWire PPA 即可完成 release 构建。
+- [x] Linux 本机现有功能通过完整测试，且平台抽象不改变已验证的 X11/Wayland 选择结果。
+- [x] 在干净 Ubuntu 22.04 环境中无需第三方 PipeWire PPA 即可完成 release 构建。
 - [ ] Ubuntu 22 GNOME 42 X11 与 Wayland 的快捷键、截图、复制和可用的粘贴路径有实机记录。
 - [ ] Windows 10/11 和 macOS 原生 runner 能完成 Rust compile、前端 typecheck/test/build 和 Tauri bundle。
 - [ ] Windows 普通目标自动粘贴成功；高完整性目标稳定降级为 copy-only 并显示 reason code。
