@@ -4,11 +4,11 @@
 
 审查基线：`621e36f289a386dcf84d26c77742f6b0f1eae31e`
 
-已审查至：`c718981894df8ac68dd07b7fdf4bea7861bb523b`
+已审查至：`39da43d6de6fc2a8d76335828a0b7c61056ee80a`
 
 ## 审查范围
 
-- 审查基线之后 86 个提交、124 个变更文件，以及提交时仍存在的工作区内容。
+- 审查基线之后 88 个提交、127 个变更文件，以及提交时仍存在的工作区内容。
 - 逐项检查截图、窗口命中、Pin、标注画布、可编辑 PNG、剪贴板、自动粘贴、快捷键、OCR、
   私有存储、自动启动、平台配置、CI 和 release 数据流。
 - `.omo/` 与 `.trellis/workspace/codex/` 是未跟踪的用户工作区，本次未读取、未修改、未提交。
@@ -28,11 +28,11 @@
 | GNOME 扩展静态检查 | 通过，Shell 45–51 |
 | `npm ci` | 通过，0 个已报告漏洞 |
 | `tsc --noEmit` | 通过 |
-| Vitest | 41 个文件、771 项测试通过 |
+| Vitest | 41 个文件、774 项测试通过 |
 | DOM/Xvfb smoke | 9 项通过 |
 | Canvas 导出像素 smoke | 通过，抽样像素 `0 208 0` |
 | 主窗口布局像素 smoke | 通过，抽样像素 `0 208 0` |
-| Vite production build | 通过，1887 个模块完成转换 |
+| Vite production build | 通过，1888 个模块完成转换 |
 | AppImage X11 可视 smoke | 未执行；需 `CLIPPY_APPIMAGE_SMOKE=1` 和真实 AppImage |
 
 受限沙箱内首次运行时，16 个回环 HTTP 测试因禁止 `TcpListener::bind` 失败，Vite/Xvfb smoke
@@ -42,6 +42,8 @@
 附加静态检查：
 
 - 四份 Tauri JSON 配置均可解析，两份 GitHub Actions YAML 均可解析。
+- 设置页 About/平台能力区域在本地 Vite 页面完成浏览器结构与空载布局检查；普通浏览器没有 Tauri
+  IPC，因此填充后的九项能力列表由 3 个 DOM 单测验证状态色、原因文案和纯文本节点渲染。
 - Linux 默认依赖图不含 `pipewire-rs`。
 - Windows/macOS 目标依赖图不含 GTK、WebKitGTK、zbus、ashpd、libwayshot、PipeWire、inotify、
   x11rb 或 Linux `nix` 实现。
@@ -49,7 +51,7 @@
 
 ## 原生平台验证状态
 
-当前 `dev` 比 `origin/dev` 多 112 个本地提交。GitHub 上最近一次 `build.yml` 成功运行是
+当前 `dev` 比 `origin/dev` 多 114 个本地提交。GitHub 上最近一次 `build.yml` 成功运行是
 2026-08-30 的 `8f6c1b57ad844ebc98254b9f88b16e88f3cce314`，不包含本轮改动。
 
 - Windows MSVC：Linux 主机缺少 MSVC `lib.exe`，交叉 `cargo check` 在原生工具链依赖处停止；
@@ -86,6 +88,8 @@
 - 平台能力只按 Wayland 环境变量推断 Portal：现在分别探测 Portal 桌面服务和 GlobalShortcuts、
   RemoteDesktop、Screenshot、ScreenCast 接口版本，并单独记录 XWayland；接口不存在时不会误报为
   “等待授权”。同一份 typed `PlatformInfo` 进入 IPC 和本地截图诊断报告。
+- 前端仅用平台信息控制 OCR 安装入口、用户看不到其他降级原因：现在设置页按同一 typed 结构展示
+  九项能力、稳定状态、本地化 reason、XWayland 与 Portal 接口版本，不再要求用户从日志猜测。
 
 ## 已知限制与发布阻断项
 
