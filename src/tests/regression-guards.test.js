@@ -130,9 +130,15 @@ describe("Tauri 打包目标按平台隔离", () => {
     expect(windows.bundle.windows.webviewInstallMode.type).toBe("downloadBootstrapper");
   });
 
-  it("macOS 最低版本与 AppKit/Quartz 后端一致", () => {
+  it("macOS 最低版本与应用身份保持稳定", () => {
     expect(macos.bundle.macOS.minimumSystemVersion).toBe("11.0");
-    expect(macos.identifier).not.toMatch(/\.app$/);
+    // Tauri 会警告公共标识 com.clippy.app 与 macOS 的 .app 包扩展冲突；macOS 因此
+    // 使用固定覆盖值。这里不能只断言“不以 .app 结尾”：任意改名都会让 TCC 授权、
+    // WebView 数据目录与更新身份一起漂移。
+    expect(macos.identifier).toBe("com.clippy.desktop");
+    expect(base.identifier).toBe("com.clippy.app");
+    expect(linux.identifier).toBeUndefined();
+    expect(windows.identifier).toBeUndefined();
   });
 });
 
