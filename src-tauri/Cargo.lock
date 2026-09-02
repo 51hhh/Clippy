@@ -852,6 +852,7 @@ dependencies = [
  "urlencoding",
  "usvg",
  "webkit2gtk",
+ "windows-sys 0.61.2",
  "x11rb",
  "xcap 0.4.1",
  "xcap 0.9.6",

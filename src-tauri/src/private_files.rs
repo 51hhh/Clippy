@@ -4,6 +4,10 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+#[cfg(target_os = "windows")]
+#[path = "private_files/windows.rs"]
+mod windows;
+
 /// 将文件权限收紧为仅当前用户可读写。
 pub fn restrict_file(path: &Path) -> io::Result<()> {
     #[cfg(unix)]
@@ -11,7 +15,11 @@ pub fn restrict_file(path: &Path) -> io::Result<()> {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
     }
-    #[cfg(not(unix))]
+    #[cfg(target_os = "windows")]
+    {
+        windows::restrict(path, false)?;
+    }
+    #[cfg(not(any(unix, target_os = "windows")))]
     let _ = path;
     Ok(())
 }
@@ -23,7 +31,11 @@ pub fn restrict_directory(path: &Path) -> io::Result<()> {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
     }
-    #[cfg(not(unix))]
+    #[cfg(target_os = "windows")]
+    {
+        windows::restrict(path, true)?;
+    }
+    #[cfg(not(any(unix, target_os = "windows")))]
     let _ = path;
     Ok(())
 }
@@ -74,7 +86,11 @@ pub fn is_private(path: &Path) -> bool {
             .map(|metadata| metadata.permissions().mode() & 0o077 == 0)
             .unwrap_or(false)
     }
-    #[cfg(not(unix))]
+    #[cfg(target_os = "windows")]
+    {
+        windows::is_private(path)
+    }
+    #[cfg(not(any(unix, target_os = "windows")))]
     {
         let _ = path;
         true
@@ -100,6 +116,29 @@ mod tests {
                 0o600
             );
         }
+
+        #[cfg(target_os = "windows")]
+        assert!(is_private(&path));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_file_acl_is_repaired_and_verified() {
+        let directory = tempfile::tempdir().expect("创建临时目录失败");
+        let path = directory.path().join("existing");
+        fs::write(&path, b"secret").expect("创建文件失败");
+
+        restrict_file(&path).expect("收紧 Windows 文件 ACL 失败");
+        assert!(is_private(&path));
+        assert_eq!(fs::read(path).unwrap(), b"secret");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_directory_acl_is_repaired_and_verified() {
+        let directory = tempfile::tempdir().expect("创建临时目录失败");
+        restrict_directory(directory.path()).expect("收紧 Windows 目录 ACL 失败");
+        assert!(is_private(directory.path()));
     }
 
     #[cfg(unix)]
