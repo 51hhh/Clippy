@@ -182,6 +182,10 @@
   release workflow 已通过 finalization 修复并重签名，但手工分发未经 finalization 的原始产物仍不受支持。
 - Windows 私有文件 ACL 已有显式实现、目标编译测试和单元测试，但仍需 Windows 原生 runner 执行
   ACL 测试，并在 NTFS 实机确认旧文件修复、目录继承与连续 token 更新；keyring 失败不会退回明文。
+- 工程 v1 的文字层只固定 `fontFamily: system-ui` 策略，没有内嵌字体、字形轮廓或文字层栅格快照。
+  未修改工程复用 IDAT 时像素严格不变；但在另一平台继续编辑并触发整图重绘后，既有文字仍可能因
+  系统字体、字宽和抗锯齿不同而变化。因此“三平台继续编辑后像素完全相同”仍未验收；renderer v2
+  应选择可再发行的捆绑字体，或为文字层保存可移植字形/栅格 fallback，并为旧 v1 保留 IDAT 预览。
 
 ## 画布与可编辑 PNG 结论
 
