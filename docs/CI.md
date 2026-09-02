@@ -60,6 +60,9 @@ node scripts/verify-native-ci.mjs \
 `completed/success` 时返回 0。输出的 Markdown 可直接归档到任务验证记录。公开仓库无需 token；受限
 环境或私有仓库可通过 `GITHUB_TOKEN` / `GH_TOKEN` 提供只读权限，脚本不会打印 token。
 
+原生 CI 之后的权限、焦点、输入注入、混合 DPI、Spaces 和 Wayland compositor 行为按
+[`native-qa.md`](native-qa.md) 生成结构化真机记录；CI 绿色不能替代这些场景。
+
 ### 本地复现
 
 ```bash
