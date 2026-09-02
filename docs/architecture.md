@@ -25,7 +25,7 @@
 | `screenshot.rs` + `screenshot/*` | 原始截图帧契约与 PNG 编解码；Wayland 上按 **Mutter 的 PipeWire 屏幕流**（`screenshot/screencast.rs`）→ Shell 扩展逐屏（`CaptureArea`，协议 v5；扩展内部会自动回退成逐屏 PNG）→ 同一扩展的整屏舞台图 → wlroots → Portal（非交互）→ GNOME → xcap 依次回退，返回的临时文件一律由 `TemporaryScreenshotFile` 兜底删除；几何测试隔离。取一次冻结帧的时间绝大部分是 **gnome-shell 自己 deflate PNG**：同一批像素的对照实验（拍下来再用同一个 gdk-pixbuf 重编一次）显示 4K 那块屏 1704 ms 里有 **1607 ms（94%）是 PNG 编码**，合成器绘制 + 读回只有约 100 ms（eDP 126/81 ms）。因此"少拍像素"是错的方向（v4 逐屏两次 1830 ms vs 整屏一次 1900 ms，本来就没差），而"在扩展里绕开 PNG 直接读像素"在 GJS 上根本不成立（没有长度标注的 `array<uint8>` 一律是复制入参，别名实验 3 MB 直接段错误）。真正的修法是**不从 gnome-shell 要图片，改从 Mutter 要视频帧**：`org.gnome.Mutter.ScreenCast` 同一个用户直接可调，不经 Portal、不弹对话框、不需要扩展也不需要注销，本机双屏实测 `capture_monitor_frames` 全程 **280 ms**（此前 1900 ms）且每块屏都是原生像素——原生分辨率与十倍速度出自同一个修改（[capture-linux.md](capture-linux.md) §3.1、§3.3、§3.4）。取流期间顶栏会闪一下录制点，必须传 `is-recording: true`，否则会落到有 5 秒最短显示时间的"停止共享"胶囊上。改扩展不必每次注销：`scripts/probe-shell-capture.sh` 借 `org.gnome.Shell.Eval` 在活着的会话里量同一段取像素代码。整屏舞台图在混合缩放的多屏上会把低缩放那块上采样，画面发糊，所以逐屏是首选、整屏只是兜底。`desktop_scale_at` 是这里唯一对外的"真实缩放"查询：GTK3 不支持 `wp_fractional_scale_v1`，`Monitor::scale_factor()` 在分数缩放的桌面上报的是**整数缓冲区缩放**（本机两块 1.3333/1.5 的屏都报 2），要把图片像素换算成 CSS 像素必须问合成器 |
 | `pin/` | PinManager、内容来源、窗口尺寸、缩放/透明度/锁定和清理；`origins.rs` 的 `PinOriginRegistry`（挂在 `AppState.pin_origins`）记住"我们自己截下来复制走的图"原本在屏幕上的矩形，之后从历史里 Pin 同一张图时靠它贴回原处。键是**解码后像素**的 sha256（含宽高），不是 PNG 字节——图片经 arboard 走一圈是原始 RGBA，watcher 会重新编码，PNG 字节不稳定。登记方交出的是 `PinFingerprint`（已经算好的摘要 + 宽高），这样调用方能和剪贴板写入共用同一份解码像素，不必为登记再解一次或复制一份 16 MB；`lookup` 先只读 PNG 头比宽高，尺寸不匹配就直接返回，省掉整张解码。**内容尺寸的单位**：有原始矩形时直接用它（选区本来就是逻辑像素）；没有时入参是**图片像素**，`fit_content_size` 必须先按 `screenshot::desktop_scale_at` 查到的真实缩放折成 CSS 像素，拿 `scale_factor()` 或干脆不折算都会让贴图被放大再重采样。窗口外框另有 **252 px 高度下限**（竖排工具条要 249 px，随手框个小按钮的贴图按内容算只有一百来像素高，工具条会被切掉）——下限**只加高窗口、不改内容尺寸**，多出来的高度由前端留成左上角对齐的透明留白，否则"贴回原处"当场就偏。缩放时**只有位置真的可信才重新摆位**：Wayland 协议不把窗口位置告诉客户端，`outer_position()` 与 `Moved` 都是 GTK 自己那份假值，拿它算"保持中心"等于每格滚轮都把窗口传送到工作区原点（`known_pin_position` 因此在 Wayland 上返回 `None`） |
 | `pin/project.rs` | 可编辑 PNG v3 的信任边界。标准 PNG 的 IDAT 是最新合成图，真正压缩的 `clippy-project` iTXt 自包含 canonical 原图、尺寸/sha256、annotations、adjustments 和 rendererVersion；`preview.rgbaSha256` 再以“宽高 + 解码 RGBA”绑定当前 IDAT，拒绝把合法工程块移植到另一张图，同时允许同像素 PNG 改变压缩级别或 chunk 切分。容器 v2 仍可读取并在下一次可编辑保存时升级为 v3；renderer v1/v2 都可恢复，未知版本安全降级成普通 PNG。运行时 `PinSource::Project` 分开保存 source 与 flattened preview：屏幕/快速复制走 preview，画布/再次保存按需取 source。writer 与 reader 共用 64 MiB 合成图、64 MiB 原图、96 MiB 解压 JSON、160 MiB 容器预算；损坏元数据或摘要不匹配只丢可编辑性，IDAT 仍按普通 PNG 打开。editable 保存失败不得静默伪装成 flat；flat 导出会重编码并移除工程块，避免模糊/马赛克文件泄露内嵌原图 |
-| `pin/render_v2.rs` | 可编辑工程的权威最终合成器。Copy、扁平保存和可编辑保存复用同一 canonical 原图与文档入口；调整、四种效果、九种矢量/文字工具全部走锁定版本的纯 Rust CPU 路径和内嵌 Noto 字体，不查询 WebView、GPU 或系统字体。相同输入以 RGBA SHA-256 金图锁定。渲染上限 16 Mi 像素、模糊缓存 32 Mi 像素、效果工作量 512 Mi 像素；任务在 blocking worker 执行。v1 未修改时复用 IDAT，第一次真实编辑才升级 v2 |
+| `pin/render_v2.rs` | Pin 工程与截图选区的权威最终合成器。Copy、扁平保存、可编辑保存和截图 Copy/Save/Pin 复用同一语义；调整、四种效果、九种矢量/文字工具全部走锁定版本的纯 Rust CPU 路径和内嵌 Noto 字体，不查询 WebView、GPU 或系统字体。相同输入以 RGBA SHA-256 金图锁定。渲染上限 32 Mi 像素、模糊缓存 32 Mi 像素、效果工作量 512 Mi 像素；任务在 blocking worker 执行。v1 未修改时复用 IDAT，第一次真实编辑才升级 v2 |
 | `pin/resample.rs` | 贴图图片按**缓冲区分辨率**出图并预先补偿合成器那一步缩小。合成器的核是脉冲实测出来的标准双线性（缓冲区里一个孤立白点在屏上只留下一个 177/255 的点 = 0.8333²），所以能反过来迭代地问"这张缓冲区图被缩完等于原图吗"、把残差加回去（Lanczos3 预放大作初值 + 4 轮反投影）。屏上实测 PSNR：默认平滑 30.28 → `pixelated` 33.95 → Lanczos 预放大 34.73 → **反投影 43.02 dB**。双线性那条路缩小时**不**拉宽核，因为它是前向模型、必须和合成器逐字一致。代价按像素数走（release 18 核并行：1600x1200 约 250 ms、3413x1920 约 800 ms），所以**建条目时就在后台线程开跑**、和建窗并行：赶上了随第一份 payload 下发（`SharpenSlot`），没赶上走 `pin-image-sharpened` 事件换图，谁先到由同一把锁判定。超过 7 MP 不补偿；复制与保存永远用原图 |
 | `pin/` 的 `update_pin` 应答 | 缩放/不透明度是**每帧**都会走的路，所以应答是 `PinState`（label、内容尺寸、scale、opacity、locked、position），**不带 `image_base64`/`text`**——每帧重编一张全图 base64 纯属浪费，而且会让前端重建图片 object URL、造成闪烁。前端 `react/pin/update-order.ts::mergePinState` 把它合并进手里那份 payload |
 | `translation/` | provider、超时/重试、request-id、内容选择、Secret Service；启用的服务按 `spawn_blocking` 并行，单服务失败作为数据返回；`direction.rs` 在文本已是目标语言时按备选语言换向；`tts.rs` 走 dictvoice 取回音频 |
@@ -50,7 +50,7 @@
 | `styles/components.css::.translation-host` | React 翻译面板的挂载壳：`.preview-panel` 的 flex 子项必须自己有 `min-height: 0` 与 `max-height`，否则 `.translation-panel` 的百分比 `max-height` 相对 auto 高度失效，翻译区会把预览内容挤没、自己被窗口裁掉。主窗口高度对所有面板组合恒定（`MAIN_WINDOW_HEIGHT`），翻译区靠这个上限和自身滚动落位——高度随预览变化会连带改变列表可见行数，列表跟着重排比翻译区挤一点更难用 |
 | `js/translation-providers.ts` | 服务显示名、默认端点与能力标记（设置页/主面板/选区翻译共用） |
 | `react/capture-overlay/` | 冻结画面上的全部截图交互：窗口速选、选区移动/缩放、贴着选区的完整工具条、标注、提交与选区翻译（只有这一个窗口） |
-| `react/annotation/` | 与窗口无关的标注核心：16 个工具（选择/绘制/效果三组）、图像调整、撤销/重做和 Canvas 交互预览。截图覆盖层仍由这里导出 PNG；Pin 工程的最终 Copy/Save 则交给后端 renderer v2，Canvas 不再决定持久化像素 |
+| `react/annotation/` | 与窗口无关的标注核心：16 个工具（选择/绘制/效果三组）、图像调整、撤销/重做和 Canvas 交互预览。Pin 与截图覆盖层都只提交 v2 操作文档，最终 Copy/Save/Pin 由后端合成，Canvas 不再决定产物像素 |
 | `js/settings/` | 主题、自动粘贴授权、快捷键录制与注册失败提示、OCR、统计、分页（`tabs.js`）与窗口速选服务卡片（`window-probe.js`）控制器 |
 | `react/pin/` | 首帧就绪、工具栏、拖动阈值和 rAF 更新合并。画布文档的唯一坐标系是 canonical source pixels；补偿 preview 不进入交互/renderer。`projectSchema.ts` 在 IPC 后再次防御性校验持久化文档，`usePinCanvas.ts` 恢复 annotations/adjustments/history baseline 并用 revision/savedRevision 判断 dirty；新建/编辑后文档提交 renderer v2 操作层，不上传一份互相竞争的 WebView PNG。关闭工具只停交互，已有 composition 仍覆盖显示。editable save、flat export 与最新合成复制是三个显式动作，但共用后端权威合成结果。手势仍由 `gestures.ts` 的纯规则与 `App.tsx` 的非被动原生监听器执行；`update_pin` 同一时刻只许一个请求在飞、在飞就攒着，避免每帧向 GTK 主线程堆同步 IPC |
 | `react/pin/rendering.ts` | 贴图该用哪种 `image-rendering`。GTK3 不支持 `wp_fractional_scale_v1`，1.5 倍缩放的桌面上 WebKit 只拿到**整数缓冲区缩放 2**，按原物理尺寸显示就要先被平滑放大 4/3 再被合成器缩回 3/4，头一趟就把细节抹平了——这是"选区里清楚、贴出来糊"的根因。真正的修法在后端（`pin/resample.rs` 直接按缓冲区分辨率出图并预补偿，实测 43.02 dB），这里只剩两条兜底判据：`isPixelExact`（显示尺寸 × 真实缩放 == 图片像素数 → 最近邻，实测默认 30.28 dB → `pixelated` 33.95 dB）与 `isBufferExact`（图片已是缓冲区分辨率 → 1:1 搬入，任何滤镜都不该介入）。判据不能写成 `scale == 1`：全屏贴图会被 `origin_content_size` 缩小而 `scale` 仍是 1，那种情况最近邻反而差 4.5 dB。真实缩放与缓冲区缩放都由后端查好随 payload 下发，`devicePixelRatio` 顶替不了（它就是那个整数 2） |
@@ -167,7 +167,7 @@ clipboard item -> preview -> translate/copy
 shortcut -> frozen monitor frames -> overlay window (hidden) -> geometry payload + raw RGBA frame
          -> click empty space = whole screen / click a window = that window / drag = free area
          -> toolbar beside the selection: annotate, adjust, still re-frame
-         -> check mark -> canvas PNG (crop + annotations) -> commit_capture_action -> copy/save/pin
+         -> check mark -> selection + renderer v2 document -> backend frozen-frame render -> copy/save/pin
          -> translate -> backend crop -> local OCR -> text translation
 
 clip/image/capture -> PinManager -> hidden window -> first frame ready
@@ -186,10 +186,11 @@ clip/image/capture -> PinManager -> hidden window -> first frame ready
 
 截图只有覆盖层一个窗口，不再有独立的编辑器窗口。三态由选区推导，不额外存状态：
 没有选区是 idle（悬停高亮可速选），按住不放是 dragging（框选/移动/缩放选区，或画一笔标注），
-有选区是 editing（工具条贴在选区旁，选区仍可拖动与缩放）。点对钩时前端用
-`react/annotation/pngPipeline.ts::exportPngBase64` 把"裁剪 + 图像调整 + 矢量标注"渲染成一张 PNG，
-再交给 `commit_capture_action` 落地——**后端不再按选区裁第二遍**，否则画布上的标注会被丢掉。
-只有选区翻译仍走后端裁剪：OCR 要的是原始像素而不是带标注的画布。
+有选区是 editing（工具条贴在选区旁，选区仍可拖动与缩放）。点对钩时前端只把
+逻辑选区与 renderer v2 操作层交给 `commit_capture_action`。后端核对 session/monitor/物理尺寸，
+从可信冻结帧渲染完整画面，再通过同一 SVG viewBox 只输出选区；所以跨选区的路径与模糊邻域
+不会丢失，WebView 也不再上传另一份最终 PNG。合成在 blocking worker 执行；渲染期间取消会让
+后续 session 认领失败，不会产生剪贴板/文件/窗口副作用。选区翻译仍直接后端裁原始像素给本地 OCR。
 
 铺满全屏的选区没有"移动"余量，所以 `geometry.ts::coversBounds` 让它内部的拖拽回到重新框选
 （否则点一下取了整屏之后就再也框不出小区域）；缩放手柄不受当前工具影响，标注工具激活时仍可改框。
