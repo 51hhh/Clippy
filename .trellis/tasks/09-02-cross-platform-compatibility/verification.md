@@ -41,7 +41,7 @@
 
 附加静态检查：
 
-- 四份 Tauri JSON 配置均可解析，两份 GitHub Actions YAML 均可解析。
+- 五份 Tauri JSON 配置均可解析，三份 GitHub Actions YAML 均可解析。
 - 设置页 About/平台能力区域在本地 Vite 页面完成浏览器结构与空载布局检查；普通浏览器没有 Tauri
   IPC，因此填充后的九项能力列表由 3 个 DOM 单测验证状态色、原因文案和纯文本节点渲染。
 - Linux 默认依赖图不含 `pipewire-rs`。
@@ -53,8 +53,8 @@
   会一起漂移。
 - Windows 私有文件 ACL、原子替换，以及自动粘贴完整性令牌所用的 Win32 API 在独立最小工程中完成
   MSVC 目标检查；这验证目标条件编译和 `windows-sys 0.61.2` 类型调用，不代替原生运行。
-- 原生 CI 增加真正的 Tauri bundle smoke：关闭 updater 附加产物和代码签名，但不关闭 bundler；
-  Windows 必须生成 NSIS/MSI，macOS 必须生成 app/DMG。本机已用同一 CI 配置完成
+- 独立 Native QA workflow 增加真正的 Tauri bundle：关闭 updater 附加产物但不关闭 bundler；
+  Windows 必须生成 NSIS/MSI，macOS 必须生成 ad-hoc 签名的 app/DMG。本机已用同一 CI 配置完成
   `tauri build --debug --no-bundle`，验证配置合并、前端钩子和应用构建；安装包仍必须由原生 runner 生成。
 - 已按仓库锁定的 Tauri CLI 2.11.4 / bundler 2.9.4 复核 updater 产物：`true` 模式下 Linux
   AppImage 与 Windows NSIS/MSI 是自包含更新器并直接签名，macOS 使用 `app.tar.gz`；工作流收集的
@@ -119,6 +119,17 @@
   不替代 Ubuntu 22/24 GNOME profile，也没有被写成九环境真机验收通过。
 
 ## 原生平台验证状态
+
+2026-09-02 的 0.1.18 发布前 CI 复审把职责拆成三条：`CI Check` 仅保留三平台源码门禁，
+`Native QA Packages` 手动生成 Linux x64、Windows x64、macOS Intel/Apple Silicon 测试包，并由
+Ubuntu 24 runner 强制运行 Jammy AppImage；`Release` 在同 SHA CI 与签名策略预检通过后并行构建，
+Linux x64、Windows x64、macOS Intel/Apple Silicon 全部进入 workflow artifacts，最终 job 才创建 draft、
+生成固定四目标的 `latest.json` 并公开发布。Windows 没有 PFX 时使用临时自签名证书并在发布说明标出
+SmartScreen 风险，不把它冒充为公共 CA 信任。macOS QA 与正式 release 都通过
+`signingIdentity: "-"` 使用 Ad-Hoc 签名，并独立验证 `codesign --strict`、`Signature=adhoc` 和目标架构；
+发布说明明确它没有 Developer ID 公证。
+这套新结构的 GitHub 原生运行证据需在修复提交推送后补记，以下 `8ec2e25` 记录保留为上一版可安装
+产物基线，不冒充新 workflow 的验证结果。
 
 `dev` 与 `origin/dev` 已同步到实施 SHA
 `8ec2e252f7949db384c64d497789bfc12b6fdb77`。GitHub Actions run
@@ -197,8 +208,8 @@ Linux 主机上的 Windows 交叉检查仍会因缺少 MSVC `lib.exe`/SDK 及 C 
   CHANGELOG 三方一致性和 `main`/`dev` 可达性；现有 `v0.1.17` fixture 已通过同一组本地命令。
 - release 曾在 YAML 内联 `jq` 中重复硬编码四个平台键、artifact URL 和签名变量，配置 target 改动后
   可能静默漂移；现改由可单测生成器维护唯一平台契约，并从标准化产物目录读取精确同名的四份签名。
-- macOS 构建仅依赖 bundler 成功返回：上传前现在独立核对 Developer ID authority、Hardened Runtime、
-  严格代码签名、Gatekeeper assessment 和 stapled notarization ticket。
+- macOS 构建仅依赖 bundler 成功返回：上传前现在独立核对严格 Ad-Hoc 代码签名、`Signature=adhoc`
+  和 Mach-O 目标架构；发布说明明确不具备 Developer ID、公证或 Gatekeeper 公共信任。
 - 非 GNOME Wayland 只尝试 GNOME GSettings 并必然失败：接入 GlobalShortcuts Portal，按 XDG/xkb
   格式提交完整动作集合，核对 Portal 返回子集，并用可取消代次管理 Bind/session 生命周期。
 - 平台能力只按 Wayland 环境变量推断 Portal：现在分别探测 Portal 桌面服务和 GlobalShortcuts、
@@ -249,9 +260,11 @@ Linux 主机上的 Windows 交叉检查仍会因缺少 MSVC `lib.exe`/SDK 及 C 
 - OCR 尚未捆绑签名 sidecar；当前依赖用户安装的 Tesseract 5，并在 Linux 才展示应用内安装按钮。
   Windows 新版安装器来自 Tesseract 文档列出的第三方构建，正式捆绑前仍需单独完成来源、许可、
   DLL、traineddata、签名和更新策略审计。
-- Windows Authenticode workflow 已接入，但仓库尚未提供可由本任务读取的证书 secret，也未在原生
-  release runner 上执行；必须配置 `WINDOWS_CERTIFICATE*` 并取得 NSIS/MSI 签名验证通过的运行证据。
-- macOS 最终产物验证门禁已接入，但仍需带真实 Developer ID 和公证凭据的 release runner 运行证据。
+- Windows Authenticode workflow 已接入；仓库没有 `WINDOWS_CERTIFICATE*` 时会生成 runner 临时自签名
+  证书并在当前用户信任库内验证 NSIS/MSI 的摘要与 signer thumbprint。该模式不建立公共 CA 信任，
+  正式页面必须保留 SmartScreen 警告；首次 tag 运行仍需补齐实际 runner 证据。
+- macOS Intel/Apple Silicon 已固定进入 release 并使用 Ad-Hoc 签名；这满足当前功能分发策略，但不建立
+  Developer ID、公证或 Gatekeeper 公共信任。首次 tag 运行仍需补齐两架构产物与 updater 的 runner 证据。
 - Tauri 2.11 的默认 linuxdeploy 路径仍会生成包含 `libwayland-*` 的原始 AppImage；Clippy 正式
   release workflow 已通过 finalization 修复并重签名，但手工分发未经 finalization 的原始产物仍不受支持。
 - Windows 私有文件 ACL 已由原生 runner 在 NTFS 临时目录执行文件/目录修复测试并通过；真实安装后的

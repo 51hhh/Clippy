@@ -20,12 +20,15 @@
   实际接受的绑定；录制或修改快捷键会取消待确认请求并关闭旧 session。GNOME Wayland 继续使用
   Ubuntu 22 可用的 GSettings/D-Bus，Portal 不可用或被拒绝时保留可操作的手动绑定提示。
 - 公共 Tauri 配置只保留跨平台字段，Linux、Windows、macOS 分别生成 deb/AppImage、NSIS/MSI、
-  app/DMG；CI 在三个原生 runner 上执行 Rust 与前端门禁，并在无发布密钥模式下实际生成和核对
-  Windows NSIS/MSI 与 macOS app/DMG，release 再汇总签名后的各平台 updater 产物。
+  app/DMG。普通 CI 专注三平台源码门禁；手动 Native QA workflow 按同一平台配置生成四架构测试包，
+  macOS 使用真实 ad-hoc 签名，并在 Ubuntu 24 运行 Ubuntu 22 构建的 AppImage 可视 smoke。
 - Windows 正式 release 强制导入带代码签名私钥的 PFX，以 SHA-256 和 RFC 3161 时间戳签名；上传前
-  同时验证 NSIS/MSI 的 Authenticode 状态和证书指纹，缺少或过期证书不再发布“未知发布者”安装包。
+  同时验证 NSIS/MSI 的 Authenticode 状态和证书指纹；未配置 PFX 时改用 runner 临时自签名证书并在
+  发布说明明确提示 SmartScreen 风险，不把自签名误写成公共 CA 信任。
 - release tag 必须是合法 SemVer、可从 `main`/`dev` 到达，并与 Tauri、Cargo 和 CHANGELOG 精确一致；
-  macOS 产物上传前另行验证 Developer ID、Hardened Runtime、Gatekeeper 和已 stapling 的公证票据。
+  正式构建前还会核对同一 SHA 的三平台 CI 与 updater 密钥。Linux x64、Windows x64、macOS
+  Intel/Apple Silicon 四个 updater 目标全部构建成功后才发布；macOS 使用 Ad-Hoc 签名并在发布说明明确
+  标注未经过 Developer ID 公证，Windows 未配置 PFX 时使用临时自签名证书并提示 SmartScreen 风险。
 - OCR 探测与执行共用同一个已验证路径，依次支持 `CLIPPY_TESSERACT_PATH`、随包 sidecar、PATH 和
   三平台常见安装目录；设置页在未捆绑 sidecar 时显示 Linux、Windows、macOS 对应安装方式。
 - Ubuntu 22.04 重新成为 Linux 最低构建基线：默认依赖图使用 Jammy 可编译的截图实现，

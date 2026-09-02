@@ -98,12 +98,14 @@ Portal 接口存在性必须读取各接口的 `version` 属性；不能用 port
 2. CoreGraphics/xcap 或 ScreenCaptureKit 捕获以及 Screen Recording onboarding。
 3. CGWindowList 窗口候选、Retina 坐标、NSWindow level/Spaces 行为。
 4. Command 快捷键展示、系统目录、keychain。
-5. Intel/Apple Silicon 构建、Developer ID/Hardened Runtime/Gatekeeper 校验、公证票据和 updater。
+5. Intel/Apple Silicon 构建、Ad-Hoc 代码签名与 updater；Developer ID、公证和 Gatekeeper 公共信任
+   作为未来发布加固项，不属于当前无 Apple 密钥的构建策略。
 
 ### Phase F：验证和发布门禁
 
 1. 纯逻辑单测覆盖能力选择、fallback、目录、快捷键和 IPC schema。
-2. 三平台原生 CI 编译与测试；Windows/macOS 普通 CI 另以无签名模式实际生成并核对平台安装包。
+2. 三平台普通 CI 编译与测试；独立 Native QA workflow 按平台覆盖配置生成并核对四架构安装包，
+   Ubuntu 24 再运行 Jammy 构建的同一 AppImage。
 3. 维护实机矩阵：多屏、混合 DPI、热插拔、权限拒绝/撤销、Windows elevated target、macOS Spaces/fullscreen。
 4. 对每个安装包做安装、自动启动、更新、卸载和数据保留测试。
 

@@ -141,7 +141,8 @@ Rust 后端 (src-tauri/src/)
 - 收藏条目不受历史上限清理影响（`cleanup_old_entries` 跳过 `is_favorite = 1`）
 - SQLite 数据库位于 Tauri app data 目录，`config.storage_mode` 可切换为 `"memory"`
 - FTS 索引需手动同步：插入时同步写 `clips_fts`，删除时用 FTS5 `'delete'` 命令清理
-- 构建目标仅 Linux（deb, appimage），`tauri.conf.json` 中无 macOS/Windows bundle 配置
+- 公共 `tauri.conf.json` 不含平台专属 bundle；Linux、Windows、macOS 覆盖配置分别生成
+  deb/AppImage、NSIS/MSI 与 Intel/Apple Silicon app/DMG
 - 前端通过 Vite 构建输出到 `dist/`，Tauri 从 `frontendDist: "../dist"` 加载静态文件
 
 ## 语言约定
