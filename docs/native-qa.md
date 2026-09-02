@@ -1,0 +1,151 @@
+# 跨平台真机 QA
+
+本手册用于完成 `.trellis/tasks/09-02-cross-platform-compatibility/prd.md` 中不能由 Linux 本机或
+交叉编译证明的验收项。每份记录必须绑定完整 commit SHA 和实际安装包版本；“能编译”“看起来正常”
+或旧版本截图不能代替指定场景的观测证据。
+
+## 1. 先验证原生 CI
+
+推送待测 commit 并等待 GitHub Actions 完成，然后运行：
+
+```bash
+node scripts/verify-native-ci.mjs \
+  --repo 51hhh/Clippy \
+  --sha <40位commit SHA> \
+  --output native-ci-evidence.md
+```
+
+只有以下三个 job 对同一个 SHA 都是 `completed/success` 才能进入真机验收：
+
+- `Check (ubuntu-22.04)`
+- `Native Check (windows-latest)`
+- `Native Check (macos-latest)`
+
+原生 job 会执行 Rust check/clippy/test、前端 test/typecheck/build 和真实 Tauri bundle smoke。它能证明
+NSIS/MSI、app/DMG 可由对应 runner 生成，但不能证明桌面权限、焦点恢复、输入注入、混合 DPI 或签名
+证书链在真实用户环境中工作。
+
+## 2. 生成绑定版本的记录
+
+选择目标环境并生成模板：
+
+```bash
+node scripts/manual-qa.mjs template \
+  --profile windows-11-x64 \
+  --sha <40位commit SHA> \
+  --version <SemVer> \
+  --output windows-11-x64.json
+```
+
+支持的 profile：
+
+| Profile | 环境 |
+|---|---|
+| `linux-gnome-x11` | Ubuntu 22.04 GNOME 42 X11 |
+| `linux-gnome-wayland` | Ubuntu 22.04 GNOME 42 Wayland |
+| `linux-kde-wayland` | KDE Wayland |
+| `linux-wlroots-wayland` | 一个 wlroots compositor |
+| `windows-10-x64` | Windows 10 22H2 x64 |
+| `windows-11-x64` | Windows 11 x64 |
+| `macos-intel` | macOS 11+ Intel |
+| `macos-apple-silicon` | macOS 11+ Apple Silicon |
+
+先补齐 `testedAt`、`environment.osVersion`、实际桌面/架构，再逐项填写：
+
+- `status`：必须等于模板提示的 `acceptedStatuses`；初始 `not_run` 永远不能通过。
+- `observedReasonCode`：安全降级场景必须属于 `acceptedReasonCodes`。
+- `observation`：写实际发生了什么，不写“同预期”或“应该可以”。
+- `evidence`：填写日志、诊断报告、录屏、截图或哈希记录的相对路径/URL。
+
+模板里的期望字段只方便测试人员阅读。校验器以仓库内合同为准，修改 JSON 中的
+`acceptedStatuses` 或 `acceptedReasonCodes` 不会放宽验收标准。
+
+完成后生成归档报告：
+
+```bash
+node scripts/manual-qa.mjs verify \
+  --input windows-11-x64.json \
+  --output windows-11-x64.md
+```
+
+缺场景、重复场景、未知场景、错误环境、错误 reason code、无文字观测或无证据都会返回非零退出码。
+
+## 3. 所有平台的公共场景
+
+每个平台都必须使用真实系统剪贴板和目标应用完成以下步骤：
+
+1. 分别复制 Unicode 文本、带样式 HTML 和透明 PNG，确认历史记录内容、预览和再次复制一致。
+2. 修改全局快捷键，验证注册、冲突提示、暂停、恢复及重启后保持；不得只点击界面而不触发动作。
+3. 截取区域并分别执行 Copy、Save、Pin、Translate 和取消；确认取消没有写文件、复制或创建 Pin。
+4. 对同一图片依次验证九种标注工具、四种效果、调整、撤销/重做、Copy 和扁平导出。
+5. 保存可编辑 PNG，关闭应用后重开，继续编辑并导出；记录重开前后已验证 IDAT 预览和最终 PNG 的
+   SHA-256。跨平台比较必须使用相同工程文件和 renderer v2 金图测试，不能用目测代替摘要。
+6. 验证系统 Pictures 目录、自定义目录、重名不覆盖及系统目录不可用时的应用数据目录 fallback。
+7. 分别在 Tesseract 可用/不可用状态检查 OCR 与平台提示；Windows/macOS 不得出现 Linux 安装按钮。
+8. 保存翻译凭据并检查系统凭据管理器；模拟 keyring 失败时，不得在配置或日志出现明文密钥。
+9. 使用该平台正式安装包完成检查更新、下载、安装和重启；确认安装类型不是被错误识别为 deb。
+
+证据中不得包含真实剪贴板秘密、翻译 token、Portal restore token、完整截图像素或窗口标题。测试内容
+使用专门的无敏感 fixture。截图诊断报告已按设计排除像素与窗口标题。
+
+## 4. Linux X11
+
+- 从登录界面明确选择 Xorg，会话内记录 `XDG_SESSION_TYPE=x11`。
+- 用普通文本编辑器验证自动粘贴恢复焦点；再分别测试主面板打开/关闭和快捷键触发。
+- 使用两块不同缩放/负坐标显示器验证窗口命中、选区边界、Pin 初始位置和拖动。
+- 运行 `clippy --capture-diagnose`，保存 I1–I5、typed `PlatformInfo` 和 monitor-layout fixture。
+- Pin 后切换工作区、全屏窗口和普通窗口，确认 X11 topmost 行为与工具条状态一致。
+
+## 5. GNOME 42 Wayland
+
+- 会话内记录 `XDG_SESSION_TYPE=wayland`、`XDG_CURRENT_DESKTOP`、Portal 接口版本和 XWayland 状态。
+- 按顺序验证窗口速选扩展：未安装、安装后待注销、注销后 active、磁盘升级但会话仍旧、再次注销恢复。
+- 在 RemoteDesktop 授权允许时验证自动粘贴；拒绝时确认复制已成功、没有输入注入循环，并观测
+  `portal_select_devices_rejected`、`portal_start_rejected`、`portal_keyboard_not_granted` 或
+  `portal_attempt_exhausted` 之一；设置页能力原因仍应是 `wayland_portal_permission`。
+- 验证区域截图始终可用；窗口几何缺失时 UI 不得声称窗口命中可用。
+- 绝对定位和永久置顶受 compositor 限制时，能力面板与 Pin UI 必须显示
+  `wayland_protocol_limited`，不得循环调用无效定位。
+- 使用混合缩放多屏完成截图诊断并保存 I1–I5；I4/I5 未观测不能写成 PASS。
+
+## 6. KDE 与 wlroots Wayland
+
+- GlobalShortcuts Portal 分别验证首次允许、部分允许、全部拒绝、修改快捷键、暂停和恢复。
+- RemoteDesktop Portal 分别验证允许与拒绝；拒绝后必须保持 copy-only 并显示稳定 reason code。
+- KDE 验证 Portal 区域截图；wlroots 验证逐输出/data-control 可用路径及 Portal 缺失路径。
+- 当全局窗口枚举、绝对定位或永久置顶不可用时，区域截图仍须成功，相应按钮不得承诺不可兑现能力。
+- 暂停/移除 Portal backend 后重新打开设置页，typed capability 必须实时反映
+  `wayland_portal_unavailable`，恢复 backend 后无需清理用户数据。
+
+## 7. Windows 10/11
+
+- 使用普通权限启动 Clippy 和记事本，确认选择条目后恢复目标窗口并注入一次粘贴。
+- 保持 Clippy 为普通权限，以管理员身份启动记事本；再次选择条目，确认剪贴板更新但不抢焦点、不注入，
+  UI 显示 `windows_integrity_boundary`。
+- 在 100%/125%/150% 混合 DPI、多屏和负坐标排布下验证区域/窗口截图、窗口命中、Pin 初始位置和拖动。
+- 验证 Pin 原生 topmost、最小化/恢复、全屏应用切换和目标窗口销毁后的行为。
+- 分别安装 NSIS 和 MSI，验证升级、卸载、WebView2 bootstrapper、自动启动和 updater；记录安装包
+  Authenticode 状态与 signer thumbprint。
+- 检查应用私有目录 DACL：当前用户可访问，普通其他用户不可访问；旧宽松配置文件启动后被修复，
+  连续配置更新可原子覆盖。`windows_integrity_query_failed` 的安全 copy-only 分支由自动化测试守卫。
+
+## 8. macOS Intel/Apple Silicon
+
+- 在系统设置中分别制造屏幕录制的未决定、拒绝、允许和允许后撤销状态。每个状态都重新触发截图：
+  进程内最多主动请求一次；授权后无需重启即可恢复；撤销后实时回到
+  `macos_screen_recording_permission`。
+- 对辅助功能重复未决定、拒绝、允许和撤销流程。拒绝/撤销时复制成功但不注入，显示
+  `macos_accessibility_permission_required`；设置页能力原因是 `macos_accessibility_permission`。
+  允许后恢复目标应用并只注入一次粘贴。
+- 在多个 Spaces、全屏应用、不同缩放显示器和外接屏上验证截图覆盖层、Pin、工具条和窗口层级。
+- Intel 与 Apple Silicon 分别打开同一可编辑 PNG，继续编辑并比较 renderer v2 RGBA 摘要。
+- 对最终 `.app`/DMG 验证 Developer ID authority、Hardened Runtime、Gatekeeper assessment、notarization
+  和 stapled ticket；ad-hoc 或自签名构建只能做功能测试，不能作为发布验收。
+
+## 9. 结论规则
+
+- 原生 CI 与对应 profile 的结构化记录必须绑定同一 commit SHA。
+- `pass` 表示功能按步骤实际成功；`expected_degraded` 表示操作系统明确限制且产品按合同安全降级。
+- `fail`、`not_run`、缺证据、reason code 不符或仅有交叉编译结果都不能勾选 PRD 验收项。
+- 某个平台修复后必须重新运行受影响 profile；不得沿用修复前记录。
+- 八个 profile 全部通过前，跨平台任务保持 `in_progress`。
