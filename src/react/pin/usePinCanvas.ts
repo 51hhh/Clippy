@@ -59,12 +59,15 @@ export function usePinCanvas(params: {
   }, [history.reset, params.initialProject, parsedProject]);
 
   const dirty = revision !== savedRevision;
+  // 导入工程在发生第一次本地编辑前，IDAT 就是权威合成预览；无需让不同平台的 Canvas
+  // 无意义地重放一次文字、滤镜和模糊。复制/再保存也可直接复用后端持有的预览。
+  const pristineProject = parsedProject !== null && revision === 0;
   // 删除最后一个对象仍是一次未保存编辑；不能因此释放 source、复制旧预览或绕过工程保存。
   const hasDocument = parsedProject !== null
     || annotations.length > 0
     || hasImageAdjustments(adjustments)
     || dirty;
-  const needsSource = params.open || hasDocument;
+  const needsSource = params.open || (hasDocument && !pristineProject);
   const loadSource = useRef(params.loadSourceImage);
   loadSource.current = params.loadSourceImage;
 
@@ -133,7 +136,7 @@ export function usePinCanvas(params: {
     commitAnnotations,
   });
   const draft = canvas.draft && "annotation" in canvas.draft ? canvas.draft.annotation : null;
-  const visible = Boolean(sourceImage && (params.open || hasDocument));
+  const visible = Boolean(sourceImage && (params.open || (hasDocument && !pristineProject)));
 
   useEffect(() => {
     const target = canvasRef.current;
@@ -214,6 +217,7 @@ export function usePinCanvas(params: {
     redo,
     dirty,
     hasDocument,
+    pristineProject,
     exportPng,
     projectData,
     markSaved,
@@ -224,6 +228,6 @@ export function usePinCanvas(params: {
   }), [
     canvas.onPointerDown, canvas.onPointerMove, canvas.onPointerUp, color, deleteSelected,
     exportPng, hasDocument, history.canRedo, history.canUndo, markSaved, projectData, redo,
-    dirty, selectedId, stroke, text, tool, undo, visible,
+    dirty, pristineProject, selectedId, stroke, text, tool, undo, visible,
   ]);
 }

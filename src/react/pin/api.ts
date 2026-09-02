@@ -41,7 +41,7 @@ export const pinApi = {
   /** 存下贴图上画过的那一版（`toClipboard` 为真时同时进剪贴板）。 */
   saveCanvas: (
     label: string,
-    pngBase64: string,
+    pngBase64: string | null,
     toClipboard: boolean,
     mode: PinCanvasSaveMode,
     project: PinCanvasProject | null,

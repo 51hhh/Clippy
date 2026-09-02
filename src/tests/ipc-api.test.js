@@ -93,6 +93,7 @@ describe("typed IPC wrappers", () => {
       adjustments: {},
     };
     savePinCanvas("pin-1", "png", true, "editable", project);
+    savePinCanvas("pin-1", null, false, "flat", null);
     copyPinCanvas("pin-1", "composed");
     openPinImageDialog();
 
@@ -103,11 +104,18 @@ describe("typed IPC wrappers", () => {
       mode: "editable",
       project,
     });
-    expect(invoke).toHaveBeenNthCalledWith(2, "copy_pin_canvas", {
+    expect(invoke).toHaveBeenNthCalledWith(2, "save_pin_canvas", {
+      label: "pin-1",
+      pngBase64: null,
+      toClipboard: false,
+      mode: "flat",
+      project: null,
+    });
+    expect(invoke).toHaveBeenNthCalledWith(3, "copy_pin_canvas", {
       label: "pin-1",
       pngBase64: "composed",
     });
-    expect(invoke).toHaveBeenNthCalledWith(3, "open_pin_image_dialog");
+    expect(invoke).toHaveBeenNthCalledWith(4, "open_pin_image_dialog");
   });
 
   it("sends AppConfig through the stable newConfig argument", () => {
