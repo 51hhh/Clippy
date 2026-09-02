@@ -2,7 +2,7 @@
 
 ## 概览
 
-本项目使用 GitHub Actions 进行持续集成和发布。共有两个 workflow：
+本项目使用 GitHub Actions 进行持续集成、真机 QA 产物交付和正式发布。共有两个 workflow：
 
 | Workflow | 文件 | 触发条件 | 用途 |
 |----------|------|----------|------|
@@ -42,6 +42,23 @@
 普通 CI 使用 `tauri.ci.conf.json` 关闭 updater 附加产物，并用 `--no-sign` 跳过发布证书；这不会关闭
 平台 bundler。Windows 必须实际出现 NSIS 与 MSI，macOS 必须实际出现 app 与 DMG。这个 smoke 只证明
 无签名安装包链路可构建，不能替代 release workflow 的 Authenticode、Developer ID 和公证验收。
+
+### 真机 QA 安装包
+
+push 到 `dev`/`main` 或手动运行 CI 时，同一 run 会保留 14 天、上传绑定完整 commit SHA 的四套安装包：
+
+- Ubuntu 22 构建的 x64 deb 与已移除宿主 Wayland ABI 库的 AppImage；
+- Windows x64 NSIS 与 MSI；
+- macOS Apple Silicon DMG；
+- macOS Intel DMG。
+
+Linux 产物先装入 tar 以保留 AppImage 执行权限。每套产物均含 `QA-BUILD.txt` 与 `SHA256SUMS.txt`；同一
+run 还会上传 `qa-record-templates-<SHA>`，其中是绑定该 SHA、应用版本和九个目标环境的结构化记录模板。
+PR 只运行源码与 bundle smoke，不上传大体积 QA 产物。
+
+这些安装包明确是 `unsigned-qa-only` 或 `ad-hoc-qa-only`，只用于功能测试。它们不能用于 Windows
+Authenticode、macOS Developer ID/Gatekeeper/公证、Tauri updater 签名或正式更新验收；上述项目必须用
+tag 触发的 `release.yml` 正式产物验证。
 
 ### 原生 runner 证据
 

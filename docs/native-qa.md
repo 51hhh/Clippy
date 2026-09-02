@@ -25,6 +25,11 @@ node scripts/verify-native-ci.mjs \
 NSIS/MSI、app/DMG 可由对应 runner 生成，但不能证明桌面权限、焦点恢复、输入注入、混合 DPI 或签名
 证书链在真实用户环境中工作。
 
+对 `dev`/`main` 的 push 或手动运行还会在该 run 的 Artifacts 区提供四套以完整 SHA 命名的 QA 安装包，
+以及 `qa-record-templates-<SHA>`。先核对安装包内的 `QA-BUILD.txt` 与 `SHA256SUMS.txt`，再使用同一 run
+生成的 JSON 记录；不要把其它 run、旧 SHA 或本地临时构建混入证据。QA 包无正式签名，只能完成以下
+功能场景；签名、证书链、公证和 updater 安装必须改用同 SHA 的正式 release 产物。
+
 ## 2. 生成绑定版本的记录
 
 选择目标环境并生成模板：

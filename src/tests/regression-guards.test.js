@@ -69,10 +69,10 @@ describe("Linux CI 固守 Ubuntu 22 构建基线", () => {
     // Linux runner 只看 runner.os 会把 Jammy 与更新发行版都归到 Linux，缓存中的
     // build-script 会因较新 glibc 无法在 Ubuntu 22 启动；runner 名必须进入 key。
     const cacheBlocks = [...buildWorkflow.matchAll(/- name: Rust cache[\s\S]*?workspaces: src-tauri/g)];
-    expect(cacheBlocks).toHaveLength(2);
+    expect(cacheBlocks).toHaveLength(3);
     for (const [block] of cacheBlocks) {
       expect(block).toContain("prefix-key: v1-rust");
-      expect(block).toContain("key: ${{ matrix.runner }}");
+      expect(block).toMatch(/key: (\$\{\{ matrix\.runner \}\}|qa-macos-x64)/);
     }
   });
 });
@@ -94,6 +94,25 @@ describe("原生平台由真实 runner 编译", () => {
     expect(nativeJob).toContain("npx vitest run");
     expect(nativeJob).toContain("npx tsc --noEmit");
     expect(nativeJob).toContain("npx vite build");
+  });
+
+  it("同一 SHA 生成四架构 QA 包与九环境记录", () => {
+    for (const artifact of [
+      "qa-linux-x64-${{ github.sha }}",
+      "qa-windows-x64-${{ github.sha }}",
+      "qa-macos-aarch64-${{ github.sha }}",
+      "qa-macos-x64-${{ github.sha }}",
+      "qa-record-templates-${{ github.sha }}",
+    ]) {
+      expect(buildWorkflow).toContain(artifact);
+    }
+    expect(buildWorkflow.match(/uses: actions\/upload-artifact@v7/g)).toHaveLength(5);
+    expect(buildWorkflow.match(/retention-days: 14/g)).toHaveLength(5);
+    expect(buildWorkflow).toContain("signing=unsigned-qa-only");
+    expect(buildWorkflow).toContain("signing=ad-hoc-qa-only");
+    expect(buildWorkflow).toContain("./scripts/finalize-appimage.sh");
+    expect(buildWorkflow).toContain("--target x86_64-apple-darwin");
+    expect(buildWorkflow).toContain("linux-gnome-wayland-ubuntu24");
   });
 });
 
