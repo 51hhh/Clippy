@@ -24,29 +24,52 @@ jobs:
       version: ${{ steps.get_version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust for manifest validation
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Get tag version
         id: get_version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          if [[ ! "$TAG_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Release tag is not a supported semantic version: ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+          echo "version=${TAG_VERSION}" >> "$GITHUB_OUTPUT"
 
-      - name: Verify tag matches tauri.conf.json
+      - name: Verify release versions and changelog
         run: |
           CONF_VERSION=$(jq -r '.version' src-tauri/tauri.conf.json)
+          CARGO_VERSION=$(cargo metadata --no-deps --format-version 1 \
+            --manifest-path src-tauri/Cargo.toml \
+            | jq -r '.packages[] | select(.name == "clippy-app") | .version')
           TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+
           if [ "$CONF_VERSION" != "$TAG_VERSION" ]; then
             echo "::error::Tag version ($TAG_VERSION) does not match tauri.conf.json ($CONF_VERSION)"
+            exit 1
+          fi
+          if [ -z "$CARGO_VERSION" ] || [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Tag version ($TAG_VERSION) does not match Cargo.toml ($CARGO_VERSION)"
+            exit 1
+          fi
+          if ! grep -Fqx "## v${TAG_VERSION}" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md is missing the exact heading: ## v${TAG_VERSION}"
             exit 1
           fi
 
       - name: Verify tag is on main or dev branch
         run: |
-          git fetch origin main dev --depth=1 || true
           TAG_SHA=$(git rev-parse HEAD)
           if git merge-base --is-ancestor "$TAG_SHA" origin/main 2>/dev/null || \
              git merge-base --is-ancestor "$TAG_SHA" origin/dev 2>/dev/null; then
             echo "Tag is on main or dev branch"
           else
-            echo "::warning::Tag may not be on main/dev branch"
+            echo "::error::Release tag is not reachable from main or dev"
+            exit 1
           fi
 
   build-linux:
