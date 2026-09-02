@@ -84,6 +84,15 @@ describe("Linux CI 固守 Ubuntu 22 构建基线", () => {
     );
     expect(qaWorkflow).toContain('CLIPPY_APPIMAGE_SMOKE_REQUIRED: "1"');
     expect(qaWorkflow).toContain("./scripts/smoke-appimage-x11.sh");
+    expect(qaWorkflow).toContain("appimage-x11-smoke.*/runner.log");
+    expect(qaWorkflow).not.toMatch(/^\s+path: src-tauri\/target\/appimage-x11-smoke\.\*$/m);
+  });
+
+  it("AppImage smoke 不允许子进程从 bash -s 的脚本流读取 stdin", () => {
+    const smokeScript = read("scripts/smoke-appimage-x11.sh");
+    expect(smokeScript).toContain('"$APP_RUN" </dev/null');
+    expect(smokeScript).toContain("ffmpeg -nostdin");
+    expect(smokeScript).toContain('</dev/null >"$FFMPEG_LOG"');
   });
 });
 

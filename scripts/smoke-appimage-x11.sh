@@ -95,7 +95,7 @@ trap cleanup EXIT INT TERM
 
 export XDG_SESSION_TYPE=x11
 unset WAYLAND_DISPLAY WAYLAND_SOCKET
-"$APP_RUN" >"$FIRST_LOG" 2>&1 &
+"$APP_RUN" </dev/null >"$FIRST_LOG" 2>&1 &
 FIRST_PID=$!
 for _ in {1..20}; do
     kill -0 "$FIRST_PID" 2>/dev/null || { printf 'first AppImage exited early\n' >&2; exit 1; }
@@ -176,10 +176,10 @@ else
 fi
 
 # 直接按窗口 ID 捕获，避免 root 截图混入其他进程的像素。
-ffmpeg -hide_banner -loglevel warning -f x11grab -window_id "$WINDOW_ID" \
+ffmpeg -nostdin -hide_banner -loglevel warning -f x11grab -window_id "$WINDOW_ID" \
     -framerate 1 -draw_mouse 0 -i "$DISPLAY" \
     -vf "signalstats,metadata=print:file=${SIGNALSTATS}" -frames:v 1 -y "$SCREENSHOT" \
-    >"$FFMPEG_LOG" 2>&1
+    </dev/null >"$FFMPEG_LOG" 2>&1
 awk -F= '
     /lavfi.signalstats.YMIN=/ { ymin = $2 }
     /lavfi.signalstats.YMAX=/ { ymax = $2 }
