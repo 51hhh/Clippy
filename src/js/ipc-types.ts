@@ -376,7 +376,7 @@ export interface PinPayload {
    * 前端据此知道这张图是 1:1 搬进缓冲区的、不该再动滤镜。
    */
   bufferScale: number;
-  /** 合法 v2 工程的精简恢复载荷；普通/损坏/未来版本 PNG 为 null。 */
+  /** 合法 v2/v3 工程的精简恢复载荷；普通、损坏或未来版本 PNG 为 null。 */
   initialProject: PinInitialProject | null;
 }
 
@@ -408,7 +408,7 @@ export interface PinCanvasProject {
 
 export interface PinInitialProject {
   format: "clippy-pin-project";
-  formatVersion: 2;
+  formatVersion: 2 | 3;
   rendererVersion: 1;
   source: {
     width: number;
@@ -437,7 +437,7 @@ export interface PinCanvasSaveResult {
  */
 export interface PinProject {
   format: "clippy-pin-project";
-  formatVersion: 2;
+  formatVersion: 2 | 3;
   rendererVersion: 1;
   createdAt: number;
   appVersion: string;
@@ -446,6 +446,11 @@ export interface PinProject {
     width: number;
     height: number;
     sha256: string;
+  };
+  preview?: {
+    width: number;
+    height: number;
+    rgbaSha256: string;
   };
   document: {
     annotations: unknown;

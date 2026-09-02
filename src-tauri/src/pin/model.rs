@@ -223,7 +223,7 @@ pub struct PinPayload {
     /// 见 `PinEntry::buffer_scale`。图片已按缓冲区分辨率补偿过时，
     /// `pixelWidth == cssWidth * bufferScale`，前端据此知道这张图是 1:1 搬进缓冲区的。
     pub buffer_scale: f64,
-    /// 只有从合法 v2 工程打开的贴图才有。原图字节由 `get_pin_source_image` 按需提供。
+    /// 只有从合法 v2/v3 工程打开的贴图才有。原图字节由 `get_pin_source_image` 按需提供。
     pub initial_project: Option<super::project::InitialProject>,
 }
 

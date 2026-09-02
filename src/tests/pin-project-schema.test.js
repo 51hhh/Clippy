@@ -16,12 +16,12 @@ function project(annotations = [], overrides = {}) {
 }
 
 describe("pin project runtime schema", () => {
-  it("hydrates a v2 document and normalizes renderer appearance parameters", () => {
+  it.each([2, 3])("hydrates a v%s document and normalizes renderer appearance parameters", (formatVersion) => {
     const parsed = parseInitialPinProject(project([
       { id: "pen-1", type: "pen", color: "#fff", size: 3, points: [{ x: 1, y: 2 }, { x: 3, y: 4 }] },
       { id: "blur-1", type: "blur", rect: { x: 10, y: 20, width: 30, height: 40 }, effect: EFFECT },
       { id: "text-1", type: "text", color: "#fff", size: 4, at: { x: 8, y: 9 }, text: "safe", fontFamily: "system-ui" },
-    ]));
+    ], { formatVersion }));
 
     expect(parsed).toMatchObject({ rendererVersion: 1, sourceWidth: 320, sourceHeight: 180 });
     expect(parsed.annotations[1].effect).toEqual(EFFECT);
