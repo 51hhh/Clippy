@@ -51,6 +51,7 @@ pub(super) fn create_pin_window(
     .center()
     .build()
     .map_err(PinError::window)?;
+    configure_native_pin_window(&window);
     if let Err(error) = position_new_pin_window(app, &window, outer_width, outer_height, origin) {
         if let Err(close_error) = window.close() {
             log::warn!("关闭定位失败的贴图窗口失败: {close_error}");
@@ -60,6 +61,25 @@ pub(super) fn create_pin_window(
     crate::pin_window::configure_pin_window(&window);
     Ok(())
 }
+
+#[cfg(target_os = "macos")]
+fn configure_native_pin_window(window: &tauri::WebviewWindow) {
+    let raw_window = match window.ns_window() {
+        Ok(raw_window) => raw_window,
+        Err(error) => {
+            log::warn!("读取贴图 NSWindow 失败，无法配置 Spaces 行为: {error}");
+            return;
+        }
+    };
+    if let Err(error) =
+        unsafe { crate::platform::configure_macos_pin_collection_behavior(raw_window) }
+    {
+        log::warn!("配置贴图 Spaces 行为失败: {error}");
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn configure_native_pin_window(_window: &tauri::WebviewWindow) {}
 
 /// 显示贴图窗口，并让它落到该去的位置、压在别的窗口上面。
 ///
