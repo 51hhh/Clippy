@@ -15,7 +15,7 @@ mod backends;
 mod geometry_check;
 
 /// GNOME Wayland 的首选取像素路径：Mutter 的 PipeWire 屏幕流，不经过 PNG。
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "linux-pipewire"))]
 mod screencast;
 
 /// 几何诊断报告：报障时把数字摊开，不含像素与窗口标题。
