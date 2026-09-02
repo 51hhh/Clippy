@@ -263,6 +263,19 @@ fn trigger_capture(handle: &tauri::AppHandle) {
     });
 }
 
+/// GlobalShortcuts Portal 使用稳定动作 ID，而不是平台相关的物理键码。
+#[cfg(target_os = "linux")]
+pub(crate) fn handle_portal_action(app: &tauri::AppHandle, shortcut_id: &str) {
+    match shortcut_id {
+        "global" => toggle_main_window(app),
+        "pin" => {
+            let _ = app.emit("pin-current", ());
+        }
+        "capture" => trigger_capture(app),
+        other => log::warn!("收到未知 Portal 快捷键动作: {other}"),
+    }
+}
+
 fn shortcut_matches(pressed: &Shortcut, configured: &str) -> bool {
     let configured = configured.trim();
     if configured.is_empty() {

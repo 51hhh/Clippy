@@ -127,6 +127,18 @@ pub fn update_config(
             }
             return Ok(());
         }
+        #[cfg(target_os = "linux")]
+        if crate::platform::uses_portal_shortcuts() {
+            let result = state
+                .portal_shortcuts
+                .as_ref()
+                .ok_or_else(|| "GlobalShortcuts Portal manager 未初始化".to_string())?
+                .activate(config.clone());
+            if let Err(error) = result {
+                crate::portal_shortcuts::report_config_failure(&app_handle, &config, &error);
+            }
+            return Ok(());
+        }
         if let Err(error) = crate::register_tauri_shortcuts(&app_handle, &config) {
             // 逐个动作的失败已在注册内部记账，这里只记录整体失败
             log::warn!("Tauri 全局快捷键全部注册失败: {error}");
@@ -164,11 +176,18 @@ pub fn check_shortcut_conflict(
 ) -> Result<crate::shortcut_conflict::ShortcutConflict, String> {
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
     let probe = shortcut.clone();
+    let gnome_wayland = crate::platform::uses_gnome_shortcuts();
     Ok(crate::shortcut_conflict::detect_with(
         &shortcut,
-        crate::platform::uses_gnome_shortcuts(),
+        crate::platform::is_wayland(),
         || app_handle.global_shortcut().is_registered(probe.as_str()),
-        crate::shortcut_conflict::scan_gnome_bindings,
+        || {
+            if gnome_wayland {
+                crate::shortcut_conflict::scan_gnome_bindings()
+            } else {
+                None
+            }
+        },
     ))
 }
 
@@ -203,7 +222,7 @@ pub fn pause_shortcuts(app_handle: tauri::AppHandle, state: State<AppState>) -> 
             // 先记录暂停意图：Wayland 由多次 gsettings 写入组成，部分失败时
             // 仍必须让销毁兜底尝试恢复，不能把状态留在“未暂停”。
             state.shortcuts_paused.store(true, Ordering::Release);
-            pause_result = pause_shortcuts_for_platform(&app_handle);
+            pause_result = pause_shortcuts_for_platform(&app_handle, &state);
         }
     }
 
@@ -214,10 +233,21 @@ pub fn pause_shortcuts(app_handle: tauri::AppHandle, state: State<AppState>) -> 
     pause_result
 }
 
-fn pause_shortcuts_for_platform(app_handle: &tauri::AppHandle) -> Result<(), String> {
+fn pause_shortcuts_for_platform(
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     if crate::platform::uses_gnome_shortcuts() {
         return crate::gsettings_shortcuts::pause().map_err(|e| e.to_string());
+    }
+    #[cfg(target_os = "linux")]
+    if crate::platform::uses_portal_shortcuts() {
+        return state
+            .portal_shortcuts
+            .as_ref()
+            .ok_or_else(|| "GlobalShortcuts Portal manager 未初始化".to_string())?
+            .pause();
     }
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
     app_handle
@@ -288,6 +318,12 @@ pub(crate) fn resume_shortcuts_for_app(
     let result = {
         if crate::platform::uses_gnome_shortcuts() {
             resume_gnome_shortcuts(app_handle, &config)
+        } else if crate::platform::uses_portal_shortcuts() {
+            state
+                .portal_shortcuts
+                .as_ref()
+                .ok_or_else(|| "GlobalShortcuts Portal manager 未初始化".to_string())?
+                .activate(config.clone())
         } else {
             crate::register_tauri_shortcuts(app_handle, &config)
         }
