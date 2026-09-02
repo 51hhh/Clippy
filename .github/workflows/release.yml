@@ -98,11 +98,13 @@ jobs:
         run: cd src && npm ci
 
       - name: Build Tauri
-        uses: tauri-apps/tauri-action@v0.5
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          args: --config src-tauri/tauri.linux.conf.json
 
       - name: Finalize portable AppImage
         env:
@@ -170,12 +172,212 @@ jobs:
           DEB_SIG="${BUNDLE_DIR}/deb/Clippy_${VER}_amd64.deb.sig"
           [ -f "$DEB_SIG" ] && gh release upload "${TAG}" "$DEB_SIG" --repo "${{ github.repository }}" --clobber
 
+  build-windows:
+    name: Build (Windows x64)
+    needs: check-version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-rust
+          key: release-windows-x64
+          workspaces: src-tauri -> target
+          cache-all-crates: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: src/package-lock.json
+
+      - name: Install frontend dependencies
+        run: cd src && npm ci
+
+      - name: Build Tauri
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          args: --config src-tauri/tauri.windows.conf.json
+
+      - name: Normalize Windows artifact names
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ needs.check-version.outputs.version }}
+        run: |
+          New-Item -ItemType Directory -Force -Path dist-artifacts | Out-Null
+
+          $nsis = Get-ChildItem src-tauri/target -Recurse -File -Filter "*-setup.exe" | Select-Object -First 1
+          if (-not $nsis) { throw "NSIS installer was not generated" }
+          Copy-Item $nsis.FullName "dist-artifacts/Clippy_$env:APP_VERSION`_x64-setup.exe"
+          if (-not (Test-Path "$($nsis.FullName).sig")) { throw "NSIS updater signature was not generated" }
+          Copy-Item "$($nsis.FullName).sig" "dist-artifacts/Clippy_$env:APP_VERSION`_x64-setup.exe.sig"
+
+          $msi = Get-ChildItem src-tauri/target -Recurse -File -Filter "*.msi" | Select-Object -First 1
+          if (-not $msi) { throw "MSI installer was not generated" }
+          Copy-Item $msi.FullName "dist-artifacts/Clippy_$env:APP_VERSION`_x64.msi"
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-x64
+          path: dist-artifacts/*
+          if-no-files-found: error
+
+  build-macos:
+    name: Build (macOS ${{ matrix.label }})
+    needs: check-version
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Apple-Silicon
+            rust_target: aarch64-apple-darwin
+            asset_arch: aarch64
+          - label: Intel
+            rust_target: x86_64-apple-darwin
+            asset_arch: x64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-rust
+          key: release-macos-${{ matrix.asset_arch }}
+          workspaces: src-tauri -> target
+          cache-all-crates: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: src/package-lock.json
+
+      - name: Install frontend dependencies
+        run: cd src && npm ci
+
+      - name: Import Developer ID certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          for required in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD KEYCHAIN_PASSWORD; do
+            if [ -z "${!required:-}" ]; then
+              echo "::error::Missing required macOS signing secret: ${required}"
+              exit 1
+            fi
+          done
+
+          KEYCHAIN_PATH="$RUNNER_TEMP/clippy-build.keychain-db"
+          openssl base64 -d -A -in <(printf '%s' "$APPLE_CERTIFICATE") -out "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -t 3600 -u "$KEYCHAIN_PATH"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$KEYCHAIN_PATH" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          CERT_INFO=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
+            | grep '"Developer ID Application:' | head -1)
+          if [ -z "$CERT_INFO" ]; then
+            echo "::error::A Developer ID Application identity is required for release"
+            exit 1
+          fi
+          CERT_ID=$(echo "$CERT_INFO" | awk -F'"' '{print $2}')
+          echo "APPLE_SIGNING_IDENTITY=$CERT_ID" >> "$GITHUB_ENV"
+
+      - name: Verify notarization credentials
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for required in APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!required:-}" ]; then
+              echo "::error::Missing required macOS notarization secret: ${required}"
+              exit 1
+            fi
+          done
+
+      - name: Build, sign and notarize Tauri
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          args: --target ${{ matrix.rust_target }} --config src-tauri/tauri.macos.conf.json
+
+      - name: Normalize macOS artifact names
+        env:
+          APP_VERSION: ${{ needs.check-version.outputs.version }}
+          ASSET_ARCH: ${{ matrix.asset_arch }}
+          RUST_TARGET: ${{ matrix.rust_target }}
+        run: |
+          mkdir -p dist-artifacts
+          BUNDLE_DIR="src-tauri/target/${RUST_TARGET}/release/bundle"
+
+          DMG_SRC=$(find "$BUNDLE_DIR/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)
+          [ -n "$DMG_SRC" ] || { echo '::error::DMG was not generated'; exit 1; }
+          cp "$DMG_SRC" "dist-artifacts/Clippy_${APP_VERSION}_${ASSET_ARCH}.dmg"
+
+          UPDATE_SRC=$(find "$BUNDLE_DIR/macos" -maxdepth 1 -type f -name '*.app.tar.gz' -print -quit)
+          [ -n "$UPDATE_SRC" ] || { echo '::error::macOS updater bundle was not generated'; exit 1; }
+          cp "$UPDATE_SRC" "dist-artifacts/Clippy_${APP_VERSION}_${ASSET_ARCH}.app.tar.gz"
+          [ -f "${UPDATE_SRC}.sig" ] || { echo '::error::macOS updater signature was not generated'; exit 1; }
+          cp "${UPDATE_SRC}.sig" "dist-artifacts/Clippy_${APP_VERSION}_${ASSET_ARCH}.app.tar.gz.sig"
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-macos-${{ matrix.asset_arch }}
+          path: dist-artifacts/*
+          if-no-files-found: error
+
   update-release:
     name: Update Release Notes
-    needs: [check-version, build-linux]
+    needs: [check-version, build-linux, build-windows, build-macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download native release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Upload native artifacts to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" release-assets/* \
+            --repo "${{ github.repository }}" --clobber
 
       - name: Extract changelog and publish release
         env:
@@ -210,6 +412,14 @@ jobs:
 
           > OCR 功能需要单独安装 tesseract：\`sudo apt install tesseract-ocr tesseract-ocr-chi-sim\`
 
+          ### Windows 10/11（x64）
+          - NSIS 安装程序（支持自动更新）：[下载](${DL}/Clippy_${VER}_x64-setup.exe)
+          - MSI 安装程序：[下载](${DL}/Clippy_${VER}_x64.msi)
+
+          ### macOS 11+（Developer ID 签名并公证）
+          - Apple Silicon：[DMG](${DL}/Clippy_${VER}_aarch64.dmg)
+          - Intel：[DMG](${DL}/Clippy_${VER}_x64.dmg)
+
           ---
           Built at ${BUILDTIME}
           ENDOFBODY
@@ -232,11 +442,19 @@ jobs:
           # Extract changelog notes for this version
           NOTES=$(awk "/^## ${TAG//./\\.}/{found=1; next} /^## v/{if(found) exit} found" CHANGELOG.md | head -20)
 
-          # Download signature files from the release
+          # 每个平台只发布一个 updater 入口。Linux 使用 AppImage，Windows 使用 NSIS，
+          # macOS 使用已签名并公证的 app.tar.gz，而不是面向人工安装的 DMG。
           APPIMAGE_SIG=$(gh release download "${TAG}" --repo "${{ github.repository }}" \
             --pattern "Clippy_${VER}_amd64.AppImage.sig" --output - 2>/dev/null || echo "")
-          DEB_SIG=$(gh release download "${TAG}" --repo "${{ github.repository }}" \
-            --pattern "Clippy_${VER}_amd64.deb.sig" --output - 2>/dev/null || echo "")
+          WINDOWS_SIG=$(cat "release-assets/Clippy_${VER}_x64-setup.exe.sig")
+          MAC_ARM_SIG=$(cat "release-assets/Clippy_${VER}_aarch64.app.tar.gz.sig")
+          MAC_X64_SIG=$(cat "release-assets/Clippy_${VER}_x64.app.tar.gz.sig")
+
+          if [ -z "$APPIMAGE_SIG" ] || [ -z "$WINDOWS_SIG" ] || \
+             [ -z "$MAC_ARM_SIG" ] || [ -z "$MAC_X64_SIG" ]; then
+            echo '::error::One or more updater signatures are missing'
+            exit 1
+          fi
 
           jq -n \
             --arg ver "$VER" \
@@ -244,16 +462,21 @@ jobs:
             --arg pub_date "$PUB_DATE" \
             --arg app_sig "$APPIMAGE_SIG" \
             --arg app_url "${DL}/Clippy_${VER}_amd64.AppImage" \
-            --arg deb_sig "$DEB_SIG" \
-            --arg deb_url "${DL}/Clippy_${VER}_amd64.deb" \
+            --arg windows_sig "$WINDOWS_SIG" \
+            --arg windows_url "${DL}/Clippy_${VER}_x64-setup.exe" \
+            --arg mac_arm_sig "$MAC_ARM_SIG" \
+            --arg mac_arm_url "${DL}/Clippy_${VER}_aarch64.app.tar.gz" \
+            --arg mac_x64_sig "$MAC_X64_SIG" \
+            --arg mac_x64_url "${DL}/Clippy_${VER}_x64.app.tar.gz" \
             '{
               version: $ver,
               notes: $notes,
               pub_date: $pub_date,
               platforms: {
                 "linux-x86_64": { signature: $app_sig, url: $app_url },
-                "linux-x86_64-appimage": { signature: $app_sig, url: $app_url },
-                "linux-x86_64-deb": { signature: $deb_sig, url: $deb_url }
+                "windows-x86_64": { signature: $windows_sig, url: $windows_url },
+                "darwin-aarch64": { signature: $mac_arm_sig, url: $mac_arm_url },
+                "darwin-x86_64": { signature: $mac_x64_sig, url: $mac_x64_url }
               }
             }' > latest.json
 
