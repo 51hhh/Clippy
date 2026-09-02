@@ -21,12 +21,72 @@ import {
   createCaptureDiagnosticsCard,
   describeReportPath,
 } from "../js/settings/capture-diagnostics.js";
+import {
+  createPlatformCapabilities,
+  describePlatformEnvironment,
+  describePortalInterfaces,
+} from "../js/settings/platform-capabilities.js";
 
 const translate = (key) => ({
   "settings.shortcut.record": "Record",
   "settings.shortcut.recording": "Recording...",
   "settings.shortcut.stop": "Stop",
 }[key] || key);
+
+const platform = {
+  operating_system: "linux",
+  session: "wayland",
+  desktop_environment: "kde",
+  architecture: "x86_64",
+  xwayland_available: true,
+  portal: {
+    desktop_service_available: true,
+    global_shortcuts: { available: true, version: 2 },
+    remote_desktop: { available: false, version: null },
+    screenshot: { available: true, version: 1 },
+    screen_cast: { available: false, version: null },
+  },
+  capabilities: {
+    clipboard_text: { state: "available", reason: null },
+    auto_paste: { state: "degraded", reason: "wayland_portal_unavailable" },
+    global_shortcuts: { state: "permission_required", reason: "wayland_portal_permission" },
+  },
+};
+
+describe("settings platform capabilities", () => {
+  it("describes the backend facts without inferring from the browser", () => {
+    expect(describePlatformEnvironment(platform, translate)).toContain("XWayland");
+    expect(describePlatformEnvironment(platform, translate)).toContain("kde");
+    expect(describePortalInterfaces(platform, translate)).toContain("GlobalShortcuts v2");
+    expect(describePortalInterfaces(platform, translate)).toContain("RemoteDesktop —");
+  });
+
+  it("renders every capability with a translated state and reason using text nodes", () => {
+    const summary = document.createElement("div");
+    const portal = document.createElement("div");
+    const list = document.createElement("div");
+    const controller = createPlatformCapabilities({ summary, portal, list, translate });
+    controller.render(platform);
+
+    expect(list.children).toHaveLength(3);
+    expect(list.children[0].classList.contains("ready")).toBe(true);
+    expect(list.children[1].classList.contains("pending")).toBe(true);
+    expect(list.textContent).toContain("settings.platform.reason.wayland_portal_unavailable");
+    expect(list.querySelectorAll("script")).toHaveLength(0);
+  });
+
+  it("reports loading failure without leaving stale capability rows", () => {
+    const summary = document.createElement("div");
+    const portal = document.createElement("div");
+    const list = document.createElement("div");
+    const controller = createPlatformCapabilities({ summary, portal, list, translate });
+    controller.render(platform);
+    controller.renderError();
+    expect(summary.textContent).toBe("settings.platform.loadFailed");
+    expect(portal.textContent).toBe("");
+    expect(list.children).toHaveLength(0);
+  });
+});
 
 function createRecorder(name, options = {}) {
   const input = document.createElement("input");

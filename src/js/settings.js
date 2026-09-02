@@ -34,6 +34,7 @@ import { initCustomSelect } from "./custom-select.js";
 import { createCaptureDiagnosticsCard } from "./settings/capture-diagnostics.js";
 import { createOcrSettings } from "./settings/ocr-settings.js";
 import { createPastePermissionController } from "./settings/paste-permission.js";
+import { createPlatformCapabilities } from "./settings/platform-capabilities.js";
 import { createScreenshotSettings } from "./settings/screenshot-settings.js";
 import { createShortcutFailureNotice } from "./settings/shortcut-failure-notice.js";
 import {
@@ -175,6 +176,27 @@ const windowProbe = createWindowProbeCard({
   notify: showToast,
 });
 
+const platformCapabilities = createPlatformCapabilities({
+  summary: element("platform-summary"),
+  portal: element("platform-portal-summary"),
+  list: element("platform-capability-list"),
+  translate: i18n.t,
+});
+
+async function loadPlatformCapabilities() {
+  try {
+    const platform = await getPlatformInfo();
+    operatingSystem = platform.operating_system;
+    platformCapabilities.render(platform);
+    ocrSettings.setInstallSupported(platform.operating_system === "linux");
+    await ocrSettings.checkStatus();
+  } catch (error) {
+    console.warn("读取平台能力失败:", error);
+    platformCapabilities.renderError();
+    // 平台未知时不暴露安装按钮，避免在错误系统上调用 Linux 包管理器。
+  }
+}
+
 // 只有用户点"Run Diagnostics"才会采集：里面有一次真实的舞台图请求，打开设置页不该付这个钱。
 createCaptureDiagnosticsCard({
   noteInput: element("capture-diagnostics-note"),
@@ -266,6 +288,7 @@ whenReady(async () => {
       pastePermission.load(),
       windowProbe.load(),
       translationSettings.loadKeyStatus(),
+      loadPlatformCapabilities(),
     ]);
 
     try {
@@ -397,15 +420,6 @@ tmuxToggle.addEventListener("change", async () => {
   }
 });
 
-void getPlatformInfo()
-  .then((platform) => {
-    operatingSystem = platform.operating_system;
-    ocrSettings.setInstallSupported(platform.operating_system === "linux");
-    return ocrSettings.checkStatus();
-  })
-  .catch(() => {
-    // 平台未知时不暴露安装按钮，避免在错误系统上调用 Linux 包管理器。
-  });
 void tmuxAvailable()
   .then((available) => {
     if (available) tmuxGroup.hidden = false;
