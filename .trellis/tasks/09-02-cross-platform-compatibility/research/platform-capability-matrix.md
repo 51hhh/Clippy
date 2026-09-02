@@ -53,7 +53,12 @@
 - Windows 文件默认从父目录继承 ACL；敏感文件需要显式设置和验证 DACL：https://learn.microsoft.com/en-us/windows/win32/fileio/file-security-and-access-rights
 - `SetNamedSecurityInfoW` 可更新文件或目录 DACL，`PROTECTED_DACL_SECURITY_INFORMATION` 用于阻止宽松父 ACL 继续继承：https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-setnamedsecurityinfow
 - `MoveFileExW` 的 `MOVEFILE_REPLACE_EXISTING` 与 `MOVEFILE_WRITE_THROUGH` 提供 Windows 已有目标覆盖和落盘语义：https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefileexw
-- macOS 屏幕捕获和输入控制分别受 Screen Recording 与 Accessibility 权限约束：https://developer.apple.com/documentation/screencapturekit/ ，https://support.apple.com/guide/mac-help/mh43185/mac
+- macOS 的 `CGPreflightScreenCaptureAccess` / `CGRequestScreenCaptureAccess` 只提供布尔预检与请求结果，
+  不公开未决定、拒绝、撤销三态；应用应实时预检，并把系统请求限定为用户明确动作：
+  https://developer.apple.com/documentation/coregraphics/cgpreflightscreencaptureaccess ，
+  https://developer.apple.com/documentation/coregraphics/cgrequestscreencaptureaccess
+- macOS `AXIsProcessTrustedWithOptions` 同样只返回是否可信；`kAXTrustedCheckOptionPrompt` 的提示异步发生，
+  不改变本次返回值：https://developer.apple.com/documentation/applicationservices/1459186-axisprocesstrustedwithoptions
 - macOS 外部分发需要 Developer ID、Hardened Runtime 与 notarization：https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution
 - Apple 建议把公证票据 staple 到实际分发内容，并以系统策略检查产物；离线 Gatekeeper 才不依赖在线取票：https://developer.apple.com/documentation/security/customizing-the-notarization-workflow
 
