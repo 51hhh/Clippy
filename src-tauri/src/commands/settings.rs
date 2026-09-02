@@ -295,26 +295,16 @@ pub fn resume_shortcuts(
     resume_shortcuts_for_app(&app_handle, &state)
 }
 
-/// 检测安装类型：AppImage 支持自动更新，deb/dev 不支持。
+/// 检测安装类型；Windows/macOS 不再被误报为 deb。
 #[tauri::command]
-pub fn get_install_type() -> String {
-    if std::env::var("APPIMAGE").is_ok() {
-        "appimage".into()
-    } else {
-        "deb".into()
-    }
+pub fn get_install_type() -> crate::platform::InstallType {
+    crate::platform::current_install_type()
 }
 
 /// 当前可执行文件是否位于 cargo target 产物目录。
 #[tauri::command]
 pub fn is_dev_binary() -> bool {
-    match std::env::current_exe() {
-        Ok(path) => {
-            let path = path.to_string_lossy();
-            path.contains("/target/debug/") || path.contains("/target/release/")
-        }
-        Err(_) => false,
-    }
+    crate::platform::is_dev_binary()
 }
 
 #[cfg(test)]

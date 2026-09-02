@@ -35,6 +35,7 @@ function getElements() {
 }
 
 let pendingUpdate = null;
+const AUTO_UPDATE_INSTALL_TYPES = new Set(["appimage", "windows", "macos"]);
 let totalBytes = 0;
 let receivedBytes = 0;
 
@@ -200,10 +201,10 @@ export async function checkForUpdate(manual = false) {
 
     pendingUpdate = result;
 
-    // 检测安装方式：仅 AppImage 支持自动更新
+    // deb、开发二进制和未知安装方式只展示下载入口；AppImage、Windows 和 macOS
+    // 在发布流程生成 updater artifact 后可由 Tauri updater 原地安装。
     const installType = await getInstallType();
-    if (installType !== "appimage") {
-      // deb / dev：展示版本和 changelog，但只提供手动下载
+    if (!AUTO_UPDATE_INSTALL_TYPES.has(installType)) {
       showDebUpdateState(result.version, result.body);
     } else {
       showInfoState(result.version, result.body);

@@ -479,4 +479,10 @@ export interface UrlMeta {
   site_name: string | null;
 }
 
-export type InstallType = "appimage" | "deb";
+export type InstallType =
+  | "appimage"
+  | "deb"
+  | "windows"
+  | "macos"
+  | "development"
+  | "unknown";
