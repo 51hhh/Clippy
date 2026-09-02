@@ -696,7 +696,7 @@ fn embed_canvas_project(
         return Err("合成 PNG 尺寸必须与工程原图一致".to_string());
     }
     let document =
-        super::project::PinProject::new(source, project.annotations, project.adjustments)?;
+        super::project::PinProject::new(source, png, project.annotations, project.adjustments)?;
     super::project::embed(png, &document)
 }
 
@@ -969,9 +969,13 @@ mod project_command_tests {
     fn project_entry_separates_preview_source_and_restore_payload() {
         let source = crate::screenshot::encode_png(&[255, 0, 0, 255], 1, 1).unwrap();
         let preview = crate::screenshot::encode_png(&[0, 0, 255, 255], 1, 1).unwrap();
-        let project =
-            super::super::project::PinProject::new(&source, serde_json::json!([]), adjustments())
-                .unwrap();
+        let project = super::super::project::PinProject::new(
+            &source,
+            &preview,
+            serde_json::json!([]),
+            adjustments(),
+        )
+        .unwrap();
         let entry = PinEntry {
             label: "pin-image-project-test".to_string(),
             source: Arc::new(PinSource::Project {
@@ -1003,9 +1007,13 @@ mod project_command_tests {
     fn pristine_project_save_reuses_the_stored_composite() {
         let source = crate::screenshot::encode_png(&[255, 0, 0, 255], 1, 1).unwrap();
         let preview = crate::screenshot::encode_png(&[0, 0, 255, 255], 1, 1).unwrap();
-        let project =
-            super::super::project::PinProject::new(&source, serde_json::json!([]), adjustments())
-                .unwrap();
+        let project = super::super::project::PinProject::new(
+            &source,
+            &preview,
+            serde_json::json!([]),
+            adjustments(),
+        )
+        .unwrap();
         let entry = PinEntry {
             label: "pin-image-pristine-project".to_string(),
             source: Arc::new(PinSource::Project {

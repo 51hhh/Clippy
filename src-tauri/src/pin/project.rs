@@ -1,8 +1,9 @@
 //! 可编辑贴图 PNG 工程格式。
 //!
-//! PNG 的 IDAT 始终是最新合成图；压缩 iTXt `clippy-project` 保存自包含的 v2 工程。
+//! PNG 的 IDAT 始终是最新合成图；压缩 iTXt `clippy-project` 保存自包含的 v3 工程。
 //! 元数据是用户可控输入，本模块在它进入运行时状态前完成全部验证。工程损坏、v1 或未来
-//! 版本只会让调用方退回扁平 PNG，不会妨碍 IDAT 被正常使用。
+//! 版本只会让调用方退回扁平 PNG，不会妨碍 IDAT 被正常使用。v2 仍可读取和无损再存；
+//! v3 新增合成像素摘要，防止合法 iTXt 被移植到另一张合法 IDAT 后冒充同一工程。
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
@@ -12,7 +13,8 @@ use std::collections::HashSet;
 
 pub(super) const PROJECT_KEYWORD: &str = "clippy-project";
 const PROJECT_FORMAT: &str = "clippy-pin-project";
-pub(super) const PROJECT_VERSION: u32 = 2;
+const LEGACY_PROJECT_VERSION: u32 = 2;
+pub(super) const PROJECT_VERSION: u32 = 3;
 pub(super) const RENDERER_VERSION: u32 = 1;
 
 pub(super) const MAX_RENDERED_PNG_BYTES: usize = 64 * 1024 * 1024;
@@ -37,6 +39,8 @@ pub struct PinProject {
     pub created_at: i64,
     pub app_version: String,
     pub source: ProjectSource,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<ProjectPreview>,
     pub document: ProjectDocument,
 }
 
@@ -47,6 +51,16 @@ pub struct ProjectSource {
     pub width: u32,
     pub height: u32,
     pub sha256: String,
+}
+
+/// IDAT 解码后的像素身份。绑定像素而不是 PNG 文件字节，避免压缩级别、chunk 切分或
+/// 无关辅助块变化让同一张合成图失效。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectPreview {
+    pub width: u32,
+    pub height: u32,
+    pub rgba_sha256: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -79,10 +93,15 @@ pub struct InitialProjectSource {
 impl PinProject {
     pub(super) fn new(
         source_png: &[u8],
+        rendered_png: &[u8],
         annotations: Value,
         adjustments: Value,
     ) -> Result<Self, String> {
         let (width, height) = validate_png(source_png, MAX_SOURCE_PNG_BYTES, "工程原图")?;
+        let preview = preview_fingerprint(rendered_png)?;
+        if (preview.width, preview.height) != (width, height) {
+            return Err("合成 PNG 尺寸必须与工程原图一致".to_string());
+        }
         let document = ProjectDocument {
             annotations,
             adjustments,
@@ -100,6 +119,7 @@ impl PinProject {
                 height,
                 sha256: sha256_hex(source_png),
             },
+            preview: Some(preview),
             document,
         })
     }
@@ -108,7 +128,10 @@ impl PinProject {
         if self.format != PROJECT_FORMAT {
             return Err("工程格式标识不匹配".to_string());
         }
-        if self.format_version != PROJECT_VERSION {
+        if !matches!(
+            self.format_version,
+            LEGACY_PROJECT_VERSION | PROJECT_VERSION
+        ) {
             return Err("工程版本不受支持".to_string());
         }
         if self.renderer_version != RENDERER_VERSION {
@@ -146,8 +169,35 @@ impl PinProject {
         {
             return Err("工程原图哈希不匹配".to_string());
         }
+        match (self.format_version, &self.preview) {
+            (LEGACY_PROJECT_VERSION, None) => {}
+            (PROJECT_VERSION, Some(preview)) => {
+                validate_preview_metadata(preview, width, height)?;
+            }
+            (LEGACY_PROJECT_VERSION, Some(_)) => {
+                return Err("v2 工程不能包含合成图摘要".to_string());
+            }
+            (PROJECT_VERSION, None) => return Err("v3 工程缺少合成图摘要".to_string()),
+            _ => unreachable!("工程版本已在上方校验"),
+        }
         validate_document(&self.document, width, height)?;
         Ok(source)
+    }
+
+    /// 验证容器当前 IDAT 与工程声明的是同一份合成像素。v2 没有该字段，只维持旧版兼容。
+    fn validate_preview_fingerprint(&self, actual: &ProjectPreview) -> Result<(), String> {
+        let Some(expected) = &self.preview else {
+            return Ok(());
+        };
+        if expected.width != actual.width
+            || expected.height != actual.height
+            || !expected
+                .rgba_sha256
+                .eq_ignore_ascii_case(&actual.rgba_sha256)
+        {
+            return Err("工程合成图摘要与 IDAT 不匹配".to_string());
+        }
+        Ok(())
     }
 
     pub(super) fn initial_payload(&self) -> InitialProject {
@@ -177,6 +227,12 @@ pub(super) fn validate_rendered_png(png: &[u8]) -> Result<(u32, u32), String> {
 }
 
 fn validate_png(png: &[u8], byte_limit: usize, name: &str) -> Result<(u32, u32), String> {
+    Ok(decode_png(png, byte_limit, name)?.dimensions())
+}
+
+/// 在分配像素缓冲区前先校验文件大小和 IHDR 尺寸，再完成一次完整解码。
+/// 调用方需要像素做摘要或重编码时复用返回值，不能为了每一步重新解同一张 4K PNG。
+fn decode_png(png: &[u8], byte_limit: usize, name: &str) -> Result<image::RgbaImage, String> {
     if png.len() > byte_limit {
         return Err(format!("{name}超过 {} MiB 上限", byte_limit / 1024 / 1024));
     }
@@ -192,27 +248,76 @@ fn validate_png(png: &[u8], byte_limit: usize, name: &str) -> Result<(u32, u32),
     {
         return Err(format!("{name}尺寸超过安全上限"));
     }
-    crate::screenshot::validate_png(&sanitized).map_err(|_| format!("{name}无法完整解码"))?;
-    Ok((width, height))
+    let image = image::load_from_memory_with_format(&sanitized, image::ImageFormat::Png)
+        .map_err(|_| format!("{name}无法完整解码"))?
+        .into_rgba8();
+    if image.dimensions() != (width, height) {
+        return Err(format!("{name}解码尺寸不匹配"));
+    }
+    Ok(image)
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
+fn preview_fingerprint(png: &[u8]) -> Result<ProjectPreview, String> {
+    let image = decode_png(png, MAX_RENDERED_PNG_BYTES, "合成 PNG")?;
+    Ok(preview_fingerprint_from_image(&image))
+}
+
+fn preview_fingerprint_from_image(image: &image::RgbaImage) -> ProjectPreview {
+    let (width, height) = image.dimensions();
+    let mut digest = Sha256::new();
+    digest.update(width.to_be_bytes());
+    digest.update(height.to_be_bytes());
+    digest.update(image.as_raw());
+    ProjectPreview {
+        width,
+        height,
+        rgba_sha256: format!("{:x}", digest.finalize()),
+    }
+}
+
+fn validate_preview_metadata(
+    preview: &ProjectPreview,
+    source_width: u32,
+    source_height: u32,
+) -> Result<(), String> {
+    if (preview.width, preview.height) != (source_width, source_height) {
+        return Err("工程合成图尺寸与原图不匹配".to_string());
+    }
+    if preview.rgba_sha256.len() != 64
+        || !preview
+            .rgba_sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err("工程合成图摘要无效".to_string());
+    }
+    Ok(())
+}
+
 /// 重新编码合成图并写入真正压缩的 iTXt。
 pub(super) fn embed(png: &[u8], project: &PinProject) -> Result<Vec<u8>, String> {
-    validate_rendered_png(png)?;
+    let image = decode_png(png, MAX_RENDERED_PNG_BYTES, "合成 PNG")?;
+    let actual_preview = preview_fingerprint_from_image(&image);
     project.validate()?;
+    let project = if project.format_version == LEGACY_PROJECT_VERSION {
+        let mut upgraded = project.clone();
+        upgraded.format_version = PROJECT_VERSION;
+        upgraded.preview = Some(actual_preview.clone());
+        upgraded.validate()?;
+        upgraded
+    } else {
+        project.validate_preview_fingerprint(&actual_preview)?;
+        project.clone()
+    };
     let json =
-        serde_json::to_string(project).map_err(|error| format!("工程序列化失败: {error}"))?;
+        serde_json::to_string(&project).map_err(|error| format!("工程序列化失败: {error}"))?;
     if json.len() > MAX_PROJECT_JSON_BYTES {
         return Err("工程 JSON 过大".to_string());
     }
-    let sanitized = strip_project_chunks(png)?;
-    let image = image::load_from_memory_with_format(&sanitized, image::ImageFormat::Png)
-        .map_err(|_| "合成 PNG 无法完整解码".to_string())?
-        .into_rgba8();
     let (width, height) = image.dimensions();
     let mut out = Vec::with_capacity(png.len().saturating_add(json.len() / 2));
     {
@@ -271,7 +376,7 @@ pub(super) fn extract(png: &[u8]) -> Result<Option<PinProject>, String> {
     if png.len() > MAX_CONTAINER_BYTES {
         return Err("PNG 文件超过 160 MiB 上限".to_string());
     }
-    validate_rendered_png_container(png)?;
+    let actual_preview = validate_rendered_png_container(png)?;
     let decoder = png::Decoder::new(std::io::Cursor::new(png));
     let reader = match decoder.read_info() {
         Ok(reader) => reader,
@@ -304,8 +409,14 @@ pub(super) fn extract(png: &[u8]) -> Result<Option<PinProject>, String> {
         let Ok(value) = serde_json::from_str::<Value>(&text) else {
             return Ok(None);
         };
-        // v1 的 `version` 与 v2 的 `formatVersion` 明确区分；不猜测旧坐标语义。
-        if value.get("formatVersion").and_then(Value::as_u64) != Some(u64::from(PROJECT_VERSION)) {
+        // v1 的 `version` 与 v2/v3 的 `formatVersion` 明确区分；不猜测旧坐标语义。
+        let format_version = value.get("formatVersion").and_then(Value::as_u64);
+        if !matches!(
+            format_version,
+            Some(version)
+                if version == u64::from(LEGACY_PROJECT_VERSION)
+                    || version == u64::from(PROJECT_VERSION)
+        ) {
             return Ok(None);
         }
         let Ok(project) = serde_json::from_value::<PinProject>(value) else {
@@ -315,26 +426,19 @@ pub(super) fn extract(png: &[u8]) -> Result<Option<PinProject>, String> {
             log::info!("贴图工程校验失败，按普通图片处理: {error}");
             return Ok(None);
         }
+        if let Err(error) = project.validate_preview_fingerprint(&actual_preview) {
+            log::info!("贴图工程与合成图不匹配，按普通图片处理: {error}");
+            return Ok(None);
+        }
         return Ok(Some(project));
     }
     Ok(None)
 }
 
-fn validate_rendered_png_container(png: &[u8]) -> Result<(u32, u32), String> {
+fn validate_rendered_png_container(png: &[u8]) -> Result<ProjectPreview, String> {
     let sanitized = strip_project_chunks(png)?;
-    let (width, height) = crate::screenshot::png_dimensions(&sanitized)
-        .map_err(|_| "文件不是合法 PNG".to_string())?;
-    let pixels = u64::from(width).saturating_mul(u64::from(height));
-    if width == 0
-        || height == 0
-        || width > MAX_IMAGE_DIMENSION
-        || height > MAX_IMAGE_DIMENSION
-        || pixels > MAX_IMAGE_PIXELS
-    {
-        return Err("PNG 尺寸超过安全上限".to_string());
-    }
-    crate::screenshot::validate_png(&sanitized).map_err(|_| "PNG 无法完整解码".to_string())?;
-    Ok((width, height))
+    let image = decode_png(&sanitized, MAX_RENDERED_PNG_BYTES, "合成 PNG")?;
+    Ok(preview_fingerprint_from_image(&image))
 }
 
 /// 删除 raw PNG 流里 keyword 为 `clippy-project` 的 iTXt。这里不解析文本、不信任 CRC，
@@ -619,12 +723,30 @@ mod tests {
         serde_json::json!({"grayscale":false,"brightness":0,"contrast":0,"saturation":0,"cornerRadius":0})
     }
 
+    fn png_with_project_text(rendered: &[u8], text: String) -> Vec<u8> {
+        let image = image::load_from_memory_with_format(rendered, image::ImageFormat::Png)
+            .unwrap()
+            .into_rgba8();
+        let mut out = Vec::new();
+        let mut encoder = png::Encoder::new(&mut out, image.width(), image.height());
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder
+            .add_itxt_chunk(PROJECT_KEYWORD.to_string(), text)
+            .unwrap();
+        let mut writer = encoder.write_header().unwrap();
+        writer.write_image_data(image.as_raw()).unwrap();
+        drop(writer);
+        out
+    }
+
     fn project() -> PinProject {
-        PinProject::new(&sample_png(), annotations(), adjustments()).unwrap()
+        let png = sample_png();
+        PinProject::new(&png, &png, annotations(), adjustments()).unwrap()
     }
 
     #[test]
-    fn v2_round_trip_is_compressed_and_self_contained() {
+    fn v3_round_trip_is_compressed_bound_and_self_contained() {
         let rendered = sample_png();
         let original = project();
         let embedded = embed(&rendered, &original).unwrap();
@@ -642,6 +764,68 @@ mod tests {
     }
 
     #[test]
+    fn legacy_v2_project_is_readable_and_resaves_as_bound_v3() {
+        let rendered = sample_png();
+        let mut legacy = project();
+        legacy.format_version = LEGACY_PROJECT_VERSION;
+        legacy.preview = None;
+
+        let old_container =
+            png_with_project_text(&rendered, serde_json::to_string(&legacy).unwrap());
+        assert_eq!(extract(&old_container).unwrap(), Some(legacy.clone()));
+
+        let upgraded_container = embed(&rendered, &legacy).unwrap();
+        let upgraded = extract(&upgraded_container).unwrap().unwrap();
+        assert_eq!(upgraded.format_version, PROJECT_VERSION);
+        assert!(upgraded.preview.is_some());
+        assert_eq!(upgraded.source, legacy.source);
+        assert_eq!(upgraded.document, legacy.document);
+    }
+
+    #[test]
+    fn v3_project_cannot_be_transplanted_onto_another_idat() {
+        let rendered = sample_png();
+        let project = project();
+        let replacement =
+            crate::screenshot::encode_png(&[1, 2, 3, 255, 4, 5, 6, 255], 2, 1).unwrap();
+        let forged = png_with_project_text(&replacement, serde_json::to_string(&project).unwrap());
+
+        assert_eq!(extract(&forged).unwrap(), None);
+        let flat = flatten_container(&forged).unwrap();
+        assert_eq!(
+            image::load_from_memory_with_format(&flat, image::ImageFormat::Png)
+                .unwrap()
+                .into_rgba8(),
+            image::load_from_memory_with_format(&replacement, image::ImageFormat::Png)
+                .unwrap()
+                .into_rgba8(),
+            "工程不匹配只能降级，不能妨碍安全显示当前 IDAT"
+        );
+        assert!(embed(&replacement, &project).is_err());
+        assert_ne!(rendered, replacement);
+    }
+
+    #[test]
+    fn preview_binding_follows_pixels_not_png_compression_bytes() {
+        let rendered = sample_png();
+        let image = image::load_from_memory_with_format(&rendered, image::ImageFormat::Png)
+            .unwrap()
+            .into_rgba8();
+        let mut differently_encoded = Vec::new();
+        let mut encoder = png::Encoder::new(&mut differently_encoded, 2, 1);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder.set_compression(png::Compression::Best);
+        let mut writer = encoder.write_header().unwrap();
+        writer.write_image_data(image.as_raw()).unwrap();
+        drop(writer);
+
+        assert_ne!(rendered, differently_encoded);
+        let embedded = embed(&differently_encoded, &project()).unwrap();
+        assert!(extract(&embedded).unwrap().is_some());
+    }
+
+    #[test]
     fn plain_corrupt_v1_and_future_metadata_fall_back_to_flat() {
         assert_eq!(extract(&sample_png()).unwrap(), None);
         let rendered = sample_png();
@@ -650,19 +834,7 @@ mod tests {
             serde_json::json!({"format":"clippy-pin-project","version":1}).to_string(),
             serde_json::json!({"format":"clippy-pin-project","formatVersion":99}).to_string(),
         ] {
-            let image = image::load_from_memory_with_format(&rendered, image::ImageFormat::Png)
-                .unwrap()
-                .into_rgba8();
-            let mut out = Vec::new();
-            let mut encoder = png::Encoder::new(&mut out, 2, 1);
-            encoder.set_color(png::ColorType::Rgba);
-            encoder.set_depth(png::BitDepth::Eight);
-            encoder
-                .add_itxt_chunk(PROJECT_KEYWORD.to_string(), text)
-                .unwrap();
-            let mut writer = encoder.write_header().unwrap();
-            writer.write_image_data(image.as_raw()).unwrap();
-            drop(writer);
+            let out = png_with_project_text(&rendered, text);
             assert_eq!(extract(&out).unwrap(), None);
             crate::screenshot::validate_png(&out).unwrap();
         }
@@ -702,6 +874,14 @@ mod tests {
         let mut bad_effect = project();
         bad_effect.document.annotations[1]["effect"]["magnifierZoom"] = serde_json::json!(1000);
         assert!(bad_effect.validate().is_err());
+
+        let mut missing_preview = project();
+        missing_preview.preview = None;
+        assert!(missing_preview.validate().is_err());
+
+        let mut bad_preview_dimensions = project();
+        bad_preview_dimensions.preview.as_mut().unwrap().width += 1;
+        assert!(bad_preview_dimensions.validate().is_err());
     }
 
     #[test]
@@ -710,6 +890,7 @@ mod tests {
             .map(|_| serde_json::json!({"x":0,"y":0}))
             .collect::<Vec<_>>();
         let result = PinProject::new(
+            &sample_png(),
             &sample_png(),
             serde_json::json!([{"id":"pen","type":"pen","color":"#fff","size":1,
                                "points":points}]),

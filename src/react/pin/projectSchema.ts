@@ -120,7 +120,8 @@ export function parseInitialPinProject(value: unknown): EditorDocument | null {
   const project = record(value);
   const source = record(project?.source);
   const document = record(project?.document);
-  if (!project || project.format !== "clippy-pin-project" || project.formatVersion !== 2
+  if (!project || project.format !== "clippy-pin-project"
+    || (project.formatVersion !== 2 && project.formatVersion !== 3)
     || project.rendererVersion !== 1 || !source || !document
     || !Number.isInteger(source.width) || !finite(source.width, 1, 100_000)
     || !Number.isInteger(source.height) || !finite(source.height, 1, 100_000)
