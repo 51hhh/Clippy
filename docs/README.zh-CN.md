@@ -92,7 +92,7 @@ Windows 请安装当前 Tesseract 5 构建后重启 Clippy。Clippy 依次探测
 
 ## 从源码构建
 
-前置要求：Rust 工具链、Node.js ≥ 20.19、Tauri v2 系统依赖。
+前置要求：Rust 工具链、Node.js ≥ 22.12、Tauri v2 系统依赖。
 
 ```bash
 sudo apt install -y \

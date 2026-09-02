@@ -36,7 +36,7 @@
   仍需 `libgbm-dev/libegl-dev/libdrm-dev/libwayland-dev/libxcb1-dev`，以及 DOM smoke 使用的
   `xvfb`/`x11-utils`
 - **Rust**: stable（含 clippy + rustfmt 组件）
-- **Node.js**: 20
+- **Node.js**: 24
 - **缓存**: `Swatinem/rust-cache@v2`（加速 Rust 编译）
 
 普通 CI 使用 `tauri.ci.conf.json` 关闭 updater 附加产物，并用 `--no-sign` 跳过发布证书；这不会关闭
