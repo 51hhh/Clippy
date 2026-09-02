@@ -56,6 +56,7 @@ Clippy 安静地驻留在系统托盘，后台监听剪贴板变化，让你通�
 - **即时搜索** — SQLite FTS5 全文搜索，毫秒级响应
 - **悬浮面板** — 无边框弹出窗口，全局快捷键唤起，失焦自动隐藏
 - **键盘驱动** — 完整键盘导航，支持 Vim 风格按键 (WASD)
+- **编解码工具箱** — Base64/URL/HTML/Unicode/Hex/ROT13、MD5/SHA、JSON/JWT/URL 解析、时间戳与进制转换
 - **全局快捷键** — 同时支持 X11（`tauri-plugin-global-shortcut`）和 Wayland（XDG Portal / gsettings）
 - **自动粘贴** — X11 恢复原目标窗口；Wayland 复用 RemoteDesktop Portal 持久会话，不可用时安全回退为仅复制
 - **截图工作流** — 多显示器冻结选区、窗口命中、移动/缩放，可直接复制/保存/Pin/编辑；本地 OCR 后仅发送文字翻译

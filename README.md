@@ -56,6 +56,7 @@ Built with **Tauri v2 + Rust**. No Electron. No bloat.
 - **Instant search** — SQLite FTS5 full-text search, millisecond results
 - **Floating panel** — Borderless popup, global hotkey toggle, auto-hide on blur
 - **Keyboard-driven** — Full keyboard navigation with vim-style keys (WASD)
+- **Codec toolbox** — Base64/URL/HTML/Unicode/Hex/ROT13, MD5/SHA, JSON/JWT/URL parsing, timestamps and number bases
 - **Global shortcuts** — X11 (`tauri-plugin-global-shortcut`) + Wayland (XDG Portal / gsettings)
 - **Automatic paste** — X11 restores the previous target window; Wayland reuses a persistent RemoteDesktop Portal session and falls back to copy-only when unavailable
 - **Screenshot workflow** — One frozen overlay does everything: click empty space for the whole screen, click a window to grab it, or drag a free area; the full toolbar sits next to the selection and the selection stays re-framable; the check mark copies the cropped and annotated image straight to the clipboard
