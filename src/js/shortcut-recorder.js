@@ -7,7 +7,8 @@
  *   - 至少要求一个非 Shift 修饰键（Ctrl / Alt / Meta），避免单键热键和
  *     "Shift+字母"误录。
  *   - 修饰键名严格使用 global-hotkey crate 的解析器可识别的名称：
- *     Ctrl / Alt / Shift / Super。不使用 CmdOrCtrl（Linux 无歧义）。
+ *     Ctrl / Alt / Shift / Super / Command。macOS 显示 Command，其他平台显示
+ *     Super；两者在底层解析器中都是 Meta 修饰键。
  */
 
 const MOD_CODES = new Set([
@@ -42,7 +43,7 @@ const CODE_TO_KEY = (() => {
   return map;
 })();
 
-export function keyEventToShortcut(e) {
+export function keyEventToShortcut(e, metaModifier = "Super") {
   if (MOD_CODES.has(e.code) || MOD_KEYS.has(e.key)) return null;
   if (e.isComposing || e.key === "Dead" || e.key === "Process" || e.key === "Unidentified") {
     return null;
@@ -52,7 +53,7 @@ export function keyEventToShortcut(e) {
   if (e.ctrlKey)  modifiers.push("Ctrl");
   if (e.altKey)   modifiers.push("Alt");
   if (e.shiftKey) modifiers.push("Shift");
-  if (e.metaKey)  modifiers.push("Super");
+  if (e.metaKey)  modifiers.push(metaModifier === "Command" ? "Command" : "Super");
 
   const hasNonShift = modifiers.some((m) => m !== "Shift");
   if (!hasNonShift) return null;

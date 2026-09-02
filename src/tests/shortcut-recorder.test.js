@@ -57,6 +57,13 @@ describe("keyEventToShortcut", () => {
     ).toBe("Super+Space");
   });
 
+  it("macOS 可以用 Command 语义展示 Meta 键", () => {
+    expect(
+      keyEventToShortcut(ev({ code: "KeyV", key: "v", metaKey: true }), "Command"),
+    ).toBe("Command+V");
+    expect(normalizeShortcut("Command+V")).toBe(normalizeShortcut("Super+V"));
+  });
+
   it("Ctrl+ArrowUp → Ctrl+Up", () => {
     expect(
       keyEventToShortcut(ev({ code: "ArrowUp", key: "ArrowUp", ctrlKey: true })),
