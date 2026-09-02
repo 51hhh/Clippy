@@ -10,7 +10,17 @@ export function createOcrSettings({
   translate,
   showToast,
 }) {
+  let platform = "unknown";
   let installSupported = false;
+
+  function missingStatusKey() {
+    const keys = {
+      linux: "settings.ocr.notInstalledLinux",
+      windows: "settings.ocr.notInstalledWindows",
+      macos: "settings.ocr.notInstalledMacos",
+    };
+    return keys[platform] || "settings.ocr.notInstalled";
+  }
 
   function updateOptionsVisibility() {
     options.hidden = !toggle.checked;
@@ -25,7 +35,7 @@ export function createOcrSettings({
     }
     statusDot.className = `ocr-status-dot ${available ? "ocr-ok" : "ocr-missing"}`;
     statusText.textContent = translate(
-      available ? "settings.ocr.installed" : "settings.ocr.notInstalled",
+      available ? "settings.ocr.installed" : missingStatusKey(),
     );
     installButton.hidden = available || !installSupported;
   }
@@ -56,9 +66,10 @@ export function createOcrSettings({
 
   return {
     checkStatus,
-    setInstallSupported(supported) {
-      installSupported = supported;
-      if (!supported) installButton.hidden = true;
+    setPlatform(operatingSystem) {
+      platform = operatingSystem || "unknown";
+      installSupported = platform === "linux";
+      if (!installSupported) installButton.hidden = true;
     },
     fill(config) {
       modeControl.value = config.ocr_result_mode || "preview";
