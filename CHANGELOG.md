@@ -4,6 +4,16 @@
 
 ### ✨ 新功能
 
+**建立 Linux、Windows 与 macOS 平台能力层**
+- 后端按目标系统编译截图、自动粘贴、窗口层级、快捷键、OCR 安装和 tmux 实现，前端使用结构化能力与
+  reason code 展示可用、需授权、降级或不支持状态，不再通过浏览器信息猜测平台。
+- Windows 使用原生前台窗口恢复与 `SendInput`，macOS 使用应用激活与 `CGEvent`；系统安全模型拒绝时
+  保留复制结果并明确降级为 copy-only。macOS 另行处理屏幕录制、辅助功能、Spaces 与全屏辅助窗口。
+- 公共 Tauri 配置只保留跨平台字段，Linux、Windows、macOS 分别生成 deb/AppImage、NSIS/MSI、
+  app/DMG；CI 在三个原生 runner 上执行 Rust 与前端门禁，release 汇总各平台 updater 产物。
+- Ubuntu 22.04 重新成为 Linux 最低构建基线：默认依赖图使用 Jammy 可编译的截图实现，
+  `pipewire-rs` 仅作为较新 Linux 可显式启用的增强 feature。
+
 **贴图画布支持单文件可编辑 PNG 工程**
 - 画布、交互和导出统一使用原图像素坐标；分数缩放下的清晰度补偿图只负责普通贴图显示，
   不再导致标注在保存时按补偿图/原图尺寸比例漂移。
@@ -403,11 +413,9 @@
 
 ### ⚠️ 升级说明
 
-- **不再提供 Ubuntu 22.04 构建**：截图用的 `xcap 0.9` 必然拉入 `pipewire`/`libspa 0.9`，而 `libspa`
-  无条件访问 `spa_video_info_raw.flags`（pipewire ≥ 0.3.65 才有该字段），jammy 仓库只有 0.3.48，
-  bindgen 生成的结构体缺字段，编译直接失败。用第三方 PPA 换新头文件能骗过编译，但产出的二进制
-  与 22.04 实机上的 libpipewire ABI 不一致，比明确不支持更危险。22.04 用户请留在 v0.1.16 或自行编译。
-  发布产物只剩 `ubuntu24` 后缀（以及 updater 用的无后缀件）。
+- **恢复 Ubuntu 22.04 构建**：Linux 默认目标固定使用 Jammy 可编译的截图依赖，不再把需要新版
+  PipeWire 头文件的 `xcap 0.9` Linux 后端放入默认依赖图；较新 Linux 仍可从源码显式启用
+  `linux-pipewire` 增强。发布产物使用 `ubuntu22` 后缀，并保留 updater 使用的无后缀 AppImage。
 - 配置会自动从 v1 迁移到 v2（翻译服务列表）并回写，无需手工编辑；旧的单服务配置保留原有端点与模型。
 - 翻译需要自己配置服务凭据；未配置凭据时部分服务走非官方 web 端点，设置页对这些服务标注"随时可能失效"。
 - OCR 需单独安装 tesseract：`sudo apt install tesseract-ocr tesseract-ocr-chi-sim`。
