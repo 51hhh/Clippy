@@ -338,7 +338,8 @@ export function App() {
 
   const copy = useCallback(async () => {
     try {
-      if (canvas.hasDocument) await pinApi.copyCanvas(label, await canvas.exportPng());
+      if (canvas.pristineProject) await pinApi.copy(label);
+      else if (canvas.hasDocument) await pinApi.copyCanvas(label, await canvas.exportPng());
       else await pinApi.copy(label);
       setCopied(true);
       if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
@@ -347,7 +348,7 @@ export function App() {
       console.error(reason);
       setError(t("pin.actionFailed"));
     }
-  }, [canvas.exportPng, canvas.hasDocument, label]);
+  }, [canvas.exportPng, canvas.hasDocument, canvas.pristineProject, label]);
 
   const showSaved = useCallback((path: string, messageKey = "pin.saved") => {
     setNoticeKey(messageKey);
@@ -358,19 +359,29 @@ export function App() {
 
   /** 把画布上那一版存下来（顺带进剪贴板，"画完直接粘走"是最常见的下一步）。 */
   const saveCanvas = useCallback(async (mode: "editable" | "flat" = "editable") => {
-    const pngBase64 = await canvas.exportPng();
-    if (mode === "editable" && !canvas.projectData) throw new Error("Canvas source is unavailable");
+    // 未修改的导入工程由后端直接复用 IDAT，避免跨平台 Canvas 重放造成像素漂移。
+    const pngBase64 = canvas.pristineProject ? null : await canvas.exportPng();
+    if (mode === "editable" && !canvas.pristineProject && !canvas.projectData) {
+      throw new Error("Canvas source is unavailable");
+    }
     const result = await pinApi.saveCanvas(
       label,
       pngBase64,
       mode === "editable",
       mode,
-      mode === "editable" ? canvas.projectData : null,
+      mode === "editable" && !canvas.pristineProject ? canvas.projectData : null,
     );
     // 文件先落盘；即使随后剪贴板失败，这个 revision 也已经安全保存，不能诱导重复保存。
     if (mode === "editable") canvas.markSaved();
     showSaved(result.path, result.clipboardError ? "pin.savedClipboardFailed" : "pin.saved");
-  }, [canvas.exportPng, canvas.markSaved, canvas.projectData, label, showSaved]);
+  }, [
+    canvas.exportPng,
+    canvas.markSaved,
+    canvas.pristineProject,
+    canvas.projectData,
+    label,
+    showSaved,
+  ]);
 
   const requestSave = useCallback(() => {
     if (canvas.hasDocument) setSavePrompt(true);

@@ -444,7 +444,7 @@ pub struct PinCanvasSaveResult {
 #[tauri::command]
 pub fn save_pin_canvas(
     label: String,
-    png_base64: String,
+    png_base64: Option<String>,
     to_clipboard: bool,
     mode: PinCanvasSaveMode,
     project: Option<PinCanvasProject>,
@@ -452,14 +452,7 @@ pub fn save_pin_canvas(
 ) -> Result<PinCanvasSaveResult, String> {
     validate_label(&label)?;
     let entry = state.pin_manager.get(&label)?;
-    let png = decode_canvas_png(&png_base64)?;
-    let to_disk = match mode {
-        PinCanvasSaveMode::Flat => super::project::flatten(&png)?,
-        PinCanvasSaveMode::Editable => {
-            let project = project.ok_or_else(|| "保存可编辑 PNG 缺少工程数据".to_string())?;
-            embed_canvas_project(&png, project, &entry)?
-        }
-    };
+    let (png, to_disk) = prepare_canvas_save(&entry, png_base64.as_deref(), mode, project)?;
     let path = crate::image_io::save_png(&to_disk, "clippy-pin", &state.save_target())?;
     let clipboard_error = if to_clipboard {
         crate::image_io::copy_png_to_clipboard(&png).err()
@@ -471,6 +464,46 @@ pub fn save_pin_canvas(
         clipboard_written: to_clipboard && clipboard_error.is_none(),
         clipboard_error,
     })
+}
+
+/// 生成剪贴板合成图与落盘容器。
+///
+/// `png_base64 = None` 只表示“导入工程尚未发生本地编辑”：这时后端持有的 IDAT 预览
+/// 比任一平台重新跑 Canvas 更权威。普通图片或已编辑文档必须提交最新渲染结果。
+fn prepare_canvas_save(
+    entry: &PinEntry,
+    png_base64: Option<&str>,
+    mode: PinCanvasSaveMode,
+    project: Option<PinCanvasProject>,
+) -> Result<(Vec<u8>, Vec<u8>), String> {
+    let Some(png_base64) = png_base64 else {
+        if project.is_some() {
+            return Err("复用工程预览时不能提交新的工程数据".to_string());
+        }
+        let PinSource::Project {
+            preview_png,
+            project,
+            ..
+        } = &*entry.source
+        else {
+            return Err("只有未修改的导入工程可以复用合成预览".to_string());
+        };
+        let to_disk = match mode {
+            PinCanvasSaveMode::Flat => preview_png.clone(),
+            PinCanvasSaveMode::Editable => super::project::embed(preview_png, project)?,
+        };
+        return Ok((preview_png.clone(), to_disk));
+    };
+
+    let png = decode_canvas_png(png_base64)?;
+    let to_disk = match mode {
+        PinCanvasSaveMode::Flat => super::project::flatten(&png)?,
+        PinCanvasSaveMode::Editable => {
+            let project = project.ok_or_else(|| "保存可编辑 PNG 缺少工程数据".to_string())?;
+            embed_canvas_project(&png, project, entry)?
+        }
+    };
+    Ok((png, to_disk))
 }
 
 /// 已编辑贴图的 Copy/Ctrl+C：只把最新合成像素送入剪贴板，不携带 iTXt。
@@ -964,6 +997,50 @@ mod project_command_tests {
         let payload = payload_from_entry(entry).unwrap();
         assert_eq!(payload.image_base64, Some(STANDARD.encode(preview)));
         assert!(payload.initial_project.is_some());
+    }
+
+    #[test]
+    fn pristine_project_save_reuses_the_stored_composite() {
+        let source = crate::screenshot::encode_png(&[255, 0, 0, 255], 1, 1).unwrap();
+        let preview = crate::screenshot::encode_png(&[0, 0, 255, 255], 1, 1).unwrap();
+        let project =
+            super::super::project::PinProject::new(&source, serde_json::json!([]), adjustments())
+                .unwrap();
+        let entry = PinEntry {
+            label: "pin-image-pristine-project".to_string(),
+            source: Arc::new(PinSource::Project {
+                source_png: source,
+                preview_png: preview.clone(),
+                project,
+            }),
+            content_width: 1.0,
+            content_height: 1.0,
+            scale: 1.0,
+            opacity: 1.0,
+            locked: false,
+            above: false,
+            position: None,
+            origin: None,
+            device_scale: 1.0,
+            buffer_scale: 1.0,
+            sharpen: Arc::new(SharpenSlot::default()),
+        };
+
+        let (clipboard, editable) =
+            prepare_canvas_save(&entry, None, PinCanvasSaveMode::Editable, None).unwrap();
+        assert_eq!(clipboard, preview);
+        assert!(super::super::project::extract(&editable).unwrap().is_some());
+        let (clipboard, flat) =
+            prepare_canvas_save(&entry, None, PinCanvasSaveMode::Flat, None).unwrap();
+        assert_eq!(clipboard, preview);
+        assert_eq!(flat, preview);
+        assert_eq!(super::super::project::extract(&flat).unwrap(), None);
+    }
+
+    #[test]
+    fn ordinary_images_cannot_omit_the_latest_canvas_render() {
+        let entry = screenshot_entry("pin-image-missing-render");
+        assert!(prepare_canvas_save(&entry, None, PinCanvasSaveMode::Flat, None).is_err());
     }
 
     #[test]

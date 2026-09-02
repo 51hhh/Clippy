@@ -711,13 +711,15 @@ describe("React pin app", () => {
       },
     });
     await act(async () => root.render(React.createElement(App)));
-    await flushAsyncChain();
-    expect(document.querySelector(".pin-canvas")).not.toBeNull();
-    expect(document.querySelector(".pin-canvas").classList.contains("editing")).toBe(false);
+    await flush();
+    expect(document.querySelector(".pin-canvas")).toBeNull();
+    expect(mocks.pinApi.sourceImage).not.toHaveBeenCalled();
 
     await act(async () => document.querySelector('button[aria-label="Draw on image"]').click());
-    await flush();
+    await flushAsyncChain();
     const canvas = document.querySelector(".pin-canvas");
+    expect(canvas).not.toBeNull();
+    expect(canvas.classList.contains("editing")).toBe(true);
     canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 320, bottom: 180, width: 320, height: 180, x: 0, y: 0 });
     canvas.setPointerCapture = () => {};
     canvas.releasePointerCapture = () => {};
@@ -733,6 +735,51 @@ describe("React pin app", () => {
     await act(async () => [...document.querySelectorAll(".pin-close-prompt button")][0].click());
     await flushAsyncChain();
     expect(mocks.pinApi.saveCanvas.mock.calls[0][4].annotations.map((item) => item.id)).toEqual(["baseline"]);
+  });
+
+  it("reuses an untouched project preview for copy and save", async () => {
+    mocks.pinApi.get.mockResolvedValue({
+      ...payload,
+      kind: "image",
+      text: null,
+      imageBase64: TINY_PNG,
+      initialProject: {
+        format: "clippy-pin-project",
+        formatVersion: 2,
+        rendererVersion: 1,
+        source: { width: 320, height: 180, sha256: "a".repeat(64) },
+        document: {
+          annotations: [],
+          adjustments: {
+            grayscale: false,
+            brightness: 0,
+            contrast: 0,
+            saturation: 0,
+            cornerRadius: 0,
+          },
+        },
+      },
+    });
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+
+    await act(async () => document.querySelector('button[aria-label="Copy"]').click());
+    await flush();
+    expect(mocks.pinApi.copy).toHaveBeenCalledWith("pin-image-test");
+    expect(mocks.pinApi.copyCanvas).not.toHaveBeenCalled();
+
+    await act(async () => document.querySelector('button[aria-label="Save image"]').click());
+    await flush();
+    await act(async () => [...document.querySelectorAll(".pin-close-prompt button")][0].click());
+    await flush();
+    expect(mocks.pinApi.saveCanvas).toHaveBeenCalledWith(
+      "pin-image-test",
+      null,
+      true,
+      "editable",
+      null,
+    );
+    expect(mocks.pinApi.sourceImage).not.toHaveBeenCalled();
   });
 
   it("copies the latest composition and advances the saved revision even if clipboard writing warns", async () => {

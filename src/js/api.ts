@@ -509,11 +509,12 @@ export function getPinSourceImage(label: string): Promise<string | null> {
  * 把贴图上画过的那一版存盘，可选同时进剪贴板。
  *
  * 普通来源条目由 `copyPin`/`savePin` 交付原图；工程来源条目交付保存时的 IDAT 预览。
- * 当前编辑结果必须由调用方渲染后走 `copyPinCanvas` 或本命令，不能退回旧预览。
+ * 当前编辑结果必须由调用方渲染后走 `copyPinCanvas` 或本命令；只有未修改的导入工程
+ * 可以传 `null`，由后端复用权威 IDAT，避免无意义的跨平台重渲染。
  */
 export function savePinCanvas(
   label: string,
-  pngBase64: string,
+  pngBase64: string | null,
   toClipboard: boolean,
   mode: PinCanvasSaveMode,
   project: PinCanvasProject | null,
