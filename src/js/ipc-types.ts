@@ -14,6 +14,7 @@ export type CapabilityReason =
   | "no_display_server"
   | "wayland_protocol_limited"
   | "wayland_portal_permission"
+  | "wayland_portal_unavailable"
   | "windows_integrity_boundary"
   | "macos_screen_recording_permission"
   | "macos_accessibility_permission"
@@ -42,7 +43,23 @@ export interface PlatformInfo {
   session: DesktopSession;
   desktop_environment: string | null;
   architecture: string;
+  /** Wayland 会话同时暴露 DISPLAY 时，X11-only fallback 可以经 XWayland 使用。 */
+  xwayland_available: boolean;
+  portal: PortalInfo;
   capabilities: PlatformCapabilities;
+}
+
+export interface PortalInterfaceInfo {
+  available: boolean;
+  version: number | null;
+}
+
+export interface PortalInfo {
+  desktop_service_available: boolean;
+  global_shortcuts: PortalInterfaceInfo;
+  remote_desktop: PortalInterfaceInfo;
+  screenshot: PortalInterfaceInfo;
+  screen_cast: PortalInterfaceInfo;
 }
 
 export interface ClipItem {
