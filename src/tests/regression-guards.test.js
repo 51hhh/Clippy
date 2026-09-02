@@ -241,6 +241,12 @@ describe("release 下载链接与构建矩阵同步", () => {
     expect(release).toMatch(/permissions:\s*\n\s+contents: write/);
     expect(release).not.toContain("write-all");
   });
+
+  it("发布产物 Actions 使用 Node 24 运行时版本", () => {
+    expect(release.match(/actions\/upload-artifact@v7/g)).toHaveLength(2);
+    expect(release.match(/actions\/download-artifact@v8/g)).toHaveLength(1);
+    expect(release).not.toMatch(/actions\/(?:upload|download)-artifact@v[1-6]\b/);
+  });
 });
 
 describe("内容类型只有一套标准", () => {
