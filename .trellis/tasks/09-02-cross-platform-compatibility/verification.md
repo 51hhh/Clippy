@@ -4,11 +4,11 @@
 
 审查基线：`621e36f289a386dcf84d26c77742f6b0f1eae31e`
 
-代码与 CI 已审查至：`9e23b7772dc5c56c6b5fa5980b24549e5a3dde4d`
+代码与 CI 已审查至：`438e9869186086224393d1d61224faa9269d4466`
 
 ## 审查范围
 
-- 审查基线之后 98 个提交、131 个变更文件，以及提交时仍存在的工作区内容。
+- 审查基线之后 101 个提交、131 个变更文件，以及提交时仍存在的工作区内容。
 - 逐项检查截图、窗口命中、Pin、标注画布、可编辑 PNG、剪贴板、自动粘贴、快捷键、OCR、
   私有存储、自动启动、平台配置、CI 和 release 数据流。
 - `.omo/` 与 `.trellis/workspace/codex/` 是未跟踪的用户工作区，本次未读取、未修改、未提交。
@@ -24,7 +24,7 @@
 | `cargo fmt --check` | 通过 |
 | `cargo check` | 通过 |
 | `cargo clippy -- -D warnings` | 通过 |
-| `cargo test` | 406 通过、0 失败、6 个真实桌面/诊断测试忽略 |
+| `cargo test` | 409 通过、0 失败、6 个真实桌面/诊断测试忽略 |
 | GNOME 扩展静态检查 | 通过，Shell 45–51 |
 | `npm ci` | 通过，0 个已报告漏洞 |
 | `tsc --noEmit` | 通过 |
@@ -56,7 +56,7 @@
 
 ## 原生平台验证状态
 
-当前 `dev` 比 `origin/dev` 多 124 个本地提交。GitHub 上最近一次 `build.yml` 成功运行是
+当前 `dev` 比 `origin/dev` 多 127 个本地提交。GitHub 上最近一次 `build.yml` 成功运行是
 2026-08-30 的 `8f6c1b57ad844ebc98254b9f88b16e88f3cce314`，不包含本轮改动。
 
 - Windows MSVC：完整工程在 Linux 主机交叉检查时缺少 `llvm-rc`、MSVC `lib.exe`/SDK 以及
@@ -106,6 +106,8 @@
   “等待授权”。同一份 typed `PlatformInfo` 进入 IPC 和本地截图诊断报告。
 - 前端仅用平台信息控制 OCR 安装入口、用户看不到其他降级原因：现在设置页按同一 typed 结构展示
   九项能力、稳定状态、本地化 reason、XWayland 与 Portal 接口版本，不再要求用户从日志猜测。
+- OCR 可用性只检查 PATH，macOS GUI 和 Windows 常规安装后容易误报缺失；现在探测显式 override、
+  未来 sidecar、PATH 与三平台常见目录，识别复用同一路径。设置页按 typed OS 显示对应安装提示。
 
 ## 已知限制与发布阻断项
 
@@ -115,7 +117,9 @@
 - Wayland compositor 可以拒绝窗口枚举、绝对定位和永久置顶；此时区域截图仍是保底能力。
 - Windows `SendInput` 不能越过 UIPI 控制更高完整性目标；设计行为是复制成功后降级为 copy-only。
 - macOS 屏幕录制与辅助功能受 TCC 控制，必须覆盖未决定、拒绝、允许和撤销四种实机状态。
-- OCR 目前依赖系统 PATH 中的 Tesseract，尚未捆绑签名 sidecar；安装按钮仅在 Linux 展示。
+- OCR 尚未捆绑签名 sidecar；当前依赖用户安装的 Tesseract 5，并在 Linux 才展示应用内安装按钮。
+  Windows 新版安装器来自 Tesseract 文档列出的第三方构建，正式捆绑前仍需单独完成来源、许可、
+  DLL、traineddata、签名和更新策略审计。
 - Windows Authenticode workflow 已接入，但仓库尚未提供可由本任务读取的证书 secret，也未在原生
   release runner 上执行；必须配置 `WINDOWS_CERTIFICATE*` 并取得 NSIS/MSI 签名验证通过的运行证据。
 - macOS 最终产物验证门禁已接入，但仍需带真实 Developer ID 和公证凭据的 release runner 运行证据。

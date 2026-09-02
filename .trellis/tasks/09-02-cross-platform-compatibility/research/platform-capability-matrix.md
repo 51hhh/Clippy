@@ -33,6 +33,9 @@
   仍实际生成平台安装包：https://v2.tauri.app/plugin/updater/
 - Tauri AppImage 应在最老支持发行版构建，避免无意抬高 glibc 基线：https://v2.tauri.app/distribute/appimage/
 - Tauri global-shortcut 插件覆盖 Linux、Windows、macOS：https://v2.tauri.app/plugin/global-shortcut/
+- Tauri 文档提醒 macOS GUI 应用不继承 shell dotfiles 中的 PATH，因此 OCR 不能只依赖 `Command::new("tesseract")`：https://v2.tauri.app/distribute/macos-application-bundle/
+- Tesseract 官方安装文档列出 Debian/Ubuntu、Homebrew/MacPorts 和 Windows 构建入口；下载页同时说明
+  新版 Windows installer 并非官方产物：https://tesseract-ocr.github.io/tessdoc/Installation.html ，https://tesseract-ocr.github.io/tessdoc/Downloads.html
 - xdg-desktop-portal GlobalShortcuts 在 1.16 引入；Ubuntu 22 的 portal 为 1.14 系列，因此 Jammy 不可只依赖该接口：https://github.com/flatpak/xdg-desktop-portal/blob/main/NEWS.md
 - GlobalShortcuts 的 `BindShortcuts` 每个 session 只能调用一次，返回值允许是请求集合的任意子集；实现必须核对实际返回项，配置变化时重建 session：https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.GlobalShortcuts.html
 - Portal 前端对象的各功能接口分别公开只读 `version` 属性；运行时应逐接口探测，不能因为
