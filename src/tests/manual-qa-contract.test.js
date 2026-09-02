@@ -26,10 +26,11 @@ function completedRecord(profileId) {
 }
 
 describe("真机 QA 合同", () => {
-  it("覆盖 PRD 的八个目标环境", () => {
+  it("覆盖 PRD 的九个目标环境", () => {
     expect(Object.keys(QA_PROFILES)).toEqual([
       "linux-gnome-x11",
       "linux-gnome-wayland",
+      "linux-gnome-wayland-ubuntu24",
       "linux-kde-wayland",
       "linux-wlroots-wayland",
       "windows-10-x64",
@@ -37,6 +38,13 @@ describe("真机 QA 合同", () => {
       "macos-intel",
       "macos-apple-silicon",
     ]);
+  });
+
+  it("Ubuntu 24 单独验证 Portal 版本与截图 fallback", () => {
+    const ids = casesForProfile("linux-gnome-wayland-ubuntu24").map((testCase) => testCase.id);
+
+    expect(ids).toContain("portal_capability_versions");
+    expect(ids).toContain("wayland_capture_fallbacks");
   });
 
   it.each(Object.keys(QA_PROFILES))("%s 的完整证据可以通过", (profileId) => {
