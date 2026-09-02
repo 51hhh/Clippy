@@ -4,11 +4,11 @@
 
 审查基线：`621e36f289a386dcf84d26c77742f6b0f1eae31e`
 
-代码与 CI 已审查至：`546e76d19dda85c578fa02bf3a176db09805af64`
+代码与 CI 已审查至：`2e0dea493489f5e9fb65c7ab9832668daa313d6c`
 
 ## 审查范围
 
-- 截至上述审查点，审查基线之后共 109 个提交、133 个变更文件，以及提交时仍存在的工作区内容。
+- 截至上述审查点，审查基线之后共 115 个提交、133 个变更文件，以及提交时仍存在的工作区内容。
 - 逐项检查截图、窗口命中、Pin、标注画布、可编辑 PNG、剪贴板、自动粘贴、快捷键、OCR、
   私有存储、自动启动、平台配置、CI 和 release 数据流。
 - `.omo/` 与 `.trellis/workspace/codex/` 是未跟踪的用户工作区，本次未读取、未修改、未提交。
@@ -24,11 +24,11 @@
 | `cargo fmt --check` | 通过 |
 | `cargo check` | 通过 |
 | `cargo clippy -- -D warnings` | 通过 |
-| `cargo test` | 409 通过、0 失败、6 个真实桌面/诊断测试忽略 |
+| `cargo test` | 413 通过、0 失败、6 个真实桌面/诊断测试忽略 |
 | GNOME 扩展静态检查 | 通过，Shell 45–51 |
 | `npm ci` | 通过，0 个已报告漏洞 |
 | `tsc --noEmit` | 通过 |
-| Vitest | 41 个文件、778 项测试通过 |
+| Vitest | 41 个文件、781 项测试通过 |
 | DOM/Xvfb smoke | 9 项通过 |
 | Canvas 导出像素 smoke | 通过，抽样像素 `0 208 0` |
 | 主窗口布局像素 smoke | 通过，抽样像素 `0 208 0` |
@@ -47,6 +47,10 @@
 - Linux 默认依赖图不含 `pipewire-rs`。
 - Windows/macOS 目标依赖图不含 GTK、WebKitGTK、zbus、ashpd、libwayshot、PipeWire、inotify、
   x11rb 或 Linux `nix` 实现。
+- 三平台应用身份由回归测试固定：Linux/Windows 继承公共 `com.clippy.app`；macOS 有意覆盖为
+  `com.clippy.desktop`。仓库锁定的 Tauri CLI 2.11.4 会明确警告以 `.app` 结尾的 bundle identifier
+  与 macOS 应用包扩展冲突；macOS 覆盖值不得随意变化，否则 TCC 授权、WebView 数据目录和更新身份
+  会一起漂移。
 - Windows 私有文件 ACL、原子替换，以及自动粘贴完整性令牌所用的 Win32 API 在独立最小工程中完成
   MSVC 目标检查；这验证目标条件编译和 `windows-sys 0.61.2` 类型调用，不代替原生运行。
 - 原生 CI 增加真正的 Tauri bundle smoke：关闭 updater 附加产物和代码签名，但不关闭 bundler；
@@ -84,7 +88,7 @@
 
 ## 原生平台验证状态
 
-截至上述审查点，`dev` 比 `origin/dev` 多 135 个本地提交。GitHub 上最近一次 `build.yml` 成功运行是
+截至上述审查点，`dev` 比 `origin/dev` 多 141 个本地提交。GitHub 上最近一次 `build.yml` 成功运行是
 2026-08-30 的 `8f6c1b57ad844ebc98254b9f88b16e88f3cce314`，不包含本轮改动。
 
 - Windows MSVC：完整工程在 Linux 主机交叉检查时缺少 `llvm-rc`、MSVC `lib.exe`/SDK 以及
@@ -148,6 +152,16 @@
   时不恢复焦点、不注入按键，稳定返回 `windows_integrity_boundary`；令牌查询失败同样安全降级为
   copy-only，并返回 `windows_integrity_query_failed`。错误码、IPC 透传和 Win32 API 类型均有自动检查，
   普通/管理员目标的实际行为仍留在 Windows 10/11 实机矩阵。
+- GNOME Wayland 的贴图置顶现在明确为依赖 Shell 扩展的降级能力；其它 Wayland 桌面标记为不支持，
+  Pin 工具条、右键菜单和 `T` 快捷键不会再提供无法兑现的“置顶”操作。已置顶窗口仍允许关闭该状态。
+- 截图默认目录不再在 Tauri `picture_dir()` 失败时猜测 `$HOME/Pictures`，也不会把 `Clippy` 重复拼接
+  成 `Clippy/Clippy`：正常路径使用系统 Pictures/Clippy，系统图片目录不可用时使用应用数据目录下的
+  Screenshots。Windows 风格的 `~\\Shots` 自定义目录也能正确展开。
+- 打开可编辑 PNG 后，在用户尚未修改工程时直接显示并复用文件里的 IDAT 合成预览；复制、扁平保存和
+  再存工程都不经过当前平台 WebView Canvas 重渲染，避免字体、模糊和滤镜实现差异改变像素。第一次真实
+  编辑后才加载内嵌原图并提交新的合成图与工程文档；普通图片不能使用“复用预览”捷径。
+- 完整 CI 首轮发现旧 `pin-gestures` 夹具没有实现新增的 typed 平台能力查询，导致组件挂载失败；补齐
+  与产品 API 一致的 `platform()` mock 后，相关 42 项测试及上述完整门禁全部通过。
 
 ## 已知限制与发布阻断项
 
@@ -178,7 +192,9 @@
 3. 保存可编辑 PNG 时，标准 IDAT 写入最新合成像素，普通图片软件与快速粘贴无需重放操作。
 4. 压缩 iTXt `clippy-project` 同时内嵌原始 PNG、尺寸/哈希、标注、调整、schema 和渲染器版本，
    重开后可继续编辑且不依赖原路径、数据库行或进程生命周期。
-5. 扁平导出移除工程数据；编辑后的 Copy 只复制合成像素。
+5. 未修改工程的显示、Copy 与再次保存直接复用已验证的 IDAT，不因操作系统字体或 WebView Canvas
+   实现不同而发生无意义重渲染；开始编辑后才以原图和操作层生成新的合成像素。
+6. 扁平导出移除工程数据；编辑后的 Copy 只复制合成像素。
 
 不可把“原图指针”理解为持久化内存地址、临时路径或 clip id：它们在重启、清理、移动和分享后都会失效。
 若未来大图导致单文件成本过高，可增加内容寻址资产仓库（hash + 外部引用），但可编辑文件仍应保留内嵌
