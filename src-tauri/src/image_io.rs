@@ -193,18 +193,40 @@ fn write_new_png(directory: &Path, stem: &str, png: &[u8]) -> Result<PathBuf, St
     use std::io::Write;
     for candidate in filename_candidates(stem) {
         let path = directory.join(candidate);
-        match std::fs::OpenOptions::new()
+        if path.exists() {
+            continue;
+        }
+        // 先完整写入同目录临时文件并 flush，再用 hard_link 原子、且不覆盖地提交目标名。
+        // 直接 create_new(target)+write 在磁盘满/进程中断时会留下看似成功的截断 PNG。
+        let temp = directory.join(format!(".clippy-save-{}.tmp", unique_image_id()));
+        let mut file = match std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(&path)
+            .open(&temp)
         {
-            Ok(mut file) => {
-                file.write_all(png)
-                    .map_err(|error| format!("保存图片失败: {error}"))?;
-                return Ok(path);
-            }
+            Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(format!("保存图片失败: {error}")),
+        };
+        let write_result = file.write_all(png).and_then(|()| file.sync_all());
+        drop(file);
+        if let Err(error) = write_result {
+            let _ = std::fs::remove_file(&temp);
+            return Err(format!("保存图片失败: {error}"));
+        }
+        match std::fs::hard_link(&temp, &path) {
+            Ok(()) => {
+                let _ = std::fs::remove_file(&temp);
+                return Ok(path);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                let _ = std::fs::remove_file(&temp);
+                continue;
+            }
+            Err(error) => {
+                let _ = std::fs::remove_file(&temp);
+                return Err(format!("保存图片失败: {error}"));
+            }
         }
     }
     Err("保存图片失败: 同名文件过多".to_string())
@@ -330,6 +352,16 @@ mod tests {
         assert_eq!(first.file_name().unwrap(), "fixed.png");
         assert_eq!(second.file_name().unwrap(), "fixed-2.png");
         assert!(first.exists() && second.exists());
+        assert!(
+            std::fs::read_dir(directory.path())
+                .unwrap()
+                .all(|entry| !entry
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .ends_with(".tmp")),
+            "成功提交后不能遗留临时文件"
+        );
     }
 
     #[test]
