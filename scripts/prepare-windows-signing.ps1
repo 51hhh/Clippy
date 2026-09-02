@@ -59,7 +59,7 @@ try {
     throw "The Windows code-signing certificate has no private key"
   }
   $codeSigningEku = @($certificate.EnhancedKeyUsageList) |
-    Where-Object { $_.ObjectId.Value -eq "1.3.6.1.5.5.7.3.3" }
+    Where-Object { $_.ObjectId -eq "1.3.6.1.5.5.7.3.3" }
   if (-not $codeSigningEku) {
     throw "The Windows certificate is not valid for code signing"
   }
