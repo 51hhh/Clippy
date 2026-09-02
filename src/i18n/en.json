@@ -39,7 +39,7 @@
   "settings.shortcut.action.global": "Panel",
   "settings.shortcut.action.pin": "Pin",
   "settings.shortcut.action.capture": "Screenshot",
-  "settings.shortcut.registerFailed.wayland": "{action} shortcut ({shortcut}) was not registered: this Wayland desktop does not manage Clippy's shortcuts. Add it manually in the system keyboard settings.",
+  "settings.shortcut.registerFailed.wayland": "{action} shortcut ({shortcut}) was not registered. Allow the system global-shortcut request, or add it manually in the system keyboard settings.",
   "settings.shortcut.registerFailed.x11": "{action} shortcut ({shortcut}) was not registered — another application may already hold it. Try another combination.",
   "settings.shortcut.registerFailed.native": "{action} shortcut ({shortcut}) was not registered by the operating system. Try another combination.",
   "settings.pinShortcut.label": "Pin Shortcut",

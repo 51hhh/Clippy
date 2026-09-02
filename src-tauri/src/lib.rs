@@ -18,6 +18,8 @@ mod paste;
 mod pin;
 mod pin_window;
 mod platform;
+#[cfg(target_os = "linux")]
+mod portal_shortcuts;
 mod private_files;
 mod screenshot;
 mod shortcut_conflict;
@@ -123,6 +125,12 @@ pub fn run() {
             let pin_manager = Arc::new(pin::PinManager::new());
             let capture_manager = Arc::new(capture::CaptureManager::new());
             let translation = Arc::new(translation::TranslationService::new());
+            #[cfg(target_os = "linux")]
+            let portal_shortcuts = platform::uses_portal_shortcuts().then(|| {
+                Arc::new(portal_shortcuts::PortalShortcutManager::new(
+                    app.handle().clone(),
+                ))
+            });
 
             // ── 4. 启动剪贴板监听器 ──────────────────────────────────────────
             let watcher = clipboard_watcher::ClipboardWatcher::new();
@@ -159,6 +167,8 @@ pub fn run() {
                 translation,
                 shortcuts_paused: AtomicBool::new(false),
                 shortcut_transition: Mutex::new(()),
+                #[cfg(target_os = "linux")]
+                portal_shortcuts: portal_shortcuts.clone(),
                 shortcut_failures: Mutex::new(Vec::new()),
             });
 
@@ -169,9 +179,7 @@ pub fn run() {
             // ── 7. 注册全局快捷键（从配置读取）────────────────────────────────
             #[cfg(target_os = "linux")]
             if platform::uses_gnome_shortcuts() {
-                log::info!("检测到 Wayland 会话，使用 gsettings 自定义快捷键 + D-Bus");
-                // 三个动作的失败都要上报：非 GNOME 的 Wayland 桌面没有 media-keys schema，
-                // 只写日志会让快捷键静默失效。
+                log::info!("检测到 GNOME Wayland 会话，使用 gsettings 自定义快捷键 + D-Bus");
                 record_register_result(
                     app.handle(),
                     &["global"],
@@ -222,6 +230,23 @@ pub fn run() {
                         app.handle().exit(1);
                         return Ok(());
                     }
+                }
+            } else if platform::uses_portal_shortcuts() {
+                log::info!("检测到非 GNOME Wayland 会话，使用 GlobalShortcuts Portal");
+                if let Some(manager) = portal_shortcuts.as_ref() {
+                    if let Err(error) = manager.activate(app_config.clone()) {
+                        portal_shortcuts::report_config_failure(
+                            app.handle(),
+                            &app_config,
+                            &error,
+                        );
+                    }
+                } else {
+                    portal_shortcuts::report_config_failure(
+                        app.handle(),
+                        &app_config,
+                        "GlobalShortcuts Portal manager 未初始化",
+                    );
                 }
             } else {
                 log::info!("检测到 X11 会话，使用 tauri-plugin-global-shortcut");

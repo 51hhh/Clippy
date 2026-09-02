@@ -61,7 +61,6 @@ pub enum CapabilityReason {
     NoDisplayServer,
     WaylandProtocolLimited,
     WaylandPortalPermission,
-    NonGnomeWaylandShortcut,
     WindowsIntegrityBoundary,
     MacosScreenRecordingPermission,
     MacosAccessibilityPermission,
@@ -232,7 +231,11 @@ pub fn is_gnome_desktop() -> bool {
 }
 
 pub fn uses_gnome_shortcuts() -> bool {
-    is_wayland()
+    is_wayland() && is_gnome_desktop()
+}
+
+pub fn uses_portal_shortcuts() -> bool {
+    is_wayland() && !is_gnome_desktop()
 }
 
 fn capabilities_for(
@@ -273,8 +276,8 @@ fn capabilities_for(
                         available
                     } else {
                         Capability::with_reason(
-                            CapabilityState::Degraded,
-                            CapabilityReason::NonGnomeWaylandShortcut,
+                            CapabilityState::PermissionRequired,
+                            CapabilityReason::WaylandPortalPermission,
                         )
                     },
                     screen_capture: Capability::with_reason(
@@ -532,14 +535,14 @@ mod tests {
     }
 
     #[test]
-    fn non_gnome_wayland_shortcuts_are_not_reported_as_fully_available() {
+    fn non_gnome_wayland_shortcuts_report_the_portal_permission_boundary() {
         let capabilities =
             capabilities_for(OperatingSystem::Linux, DesktopSession::Wayland, Some("KDE"));
         assert_eq!(
             capabilities.global_shortcuts,
             Capability::with_reason(
-                CapabilityState::Degraded,
-                CapabilityReason::NonGnomeWaylandShortcut
+                CapabilityState::PermissionRequired,
+                CapabilityReason::WaylandPortalPermission
             )
         );
     }

@@ -14,7 +14,6 @@ export type CapabilityReason =
   | "no_display_server"
   | "wayland_protocol_limited"
   | "wayland_portal_permission"
-  | "non_gnome_wayland_shortcut"
   | "windows_integrity_boundary"
   | "macos_screen_recording_permission"
   | "macos_accessibility_permission"

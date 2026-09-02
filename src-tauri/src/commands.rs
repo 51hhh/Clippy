@@ -45,6 +45,9 @@ pub struct AppState {
     pub translation: Arc<crate::translation::TranslationService>,
     pub shortcuts_paused: AtomicBool,
     pub shortcut_transition: Mutex<()>,
+    /// 非 GNOME Wayland 使用 XDG GlobalShortcuts Portal；其它会话不启动 worker。
+    #[cfg(target_os = "linux")]
+    pub portal_shortcuts: Option<Arc<crate::portal_shortcuts::PortalShortcutManager>>,
     /// 快捷键注册失败记录（按动作）。启动阶段的失败事件早于前端监听，
     /// 因此必须留一份可查询的状态，否则设置页永远看不到它。
     pub shortcut_failures: Mutex<Vec<crate::app::shortcuts::ShortcutRegisterFailure>>,
