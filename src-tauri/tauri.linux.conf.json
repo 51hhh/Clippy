@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "targets": ["deb", "appimage"],
+    "linux": {
+      "deb": {
+        "depends": ["libgbm1", "libegl1", "libdrm2", "libwayland-egl1"],
+        "recommends": ["tesseract-ocr", "tesseract-ocr-chi-sim"],
+        "desktopTemplate": "com.clippy.app.desktop",
+        "postInstallScript": "scripts/postinst.sh",
+        "postRemoveScript": "scripts/postrm.sh"
+      }
+    }
+  }
+}
