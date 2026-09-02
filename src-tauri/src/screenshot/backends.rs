@@ -69,6 +69,7 @@ impl Drop for TemporaryScreenshotFile {
 #[cfg(target_os = "linux")]
 pub(super) fn capture_all_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
     if is_wayland_session() {
+        #[cfg(feature = "linux-pipewire")]
         match capture_all_screencast_monitors() {
             Ok(result) => return Ok(result),
             Err(e) => log::info!("Mutter PipeWire 取流不可用，回退到扩展逐屏截图: {e:#}"),
@@ -280,7 +281,7 @@ fn capture_all_shell_extension_monitor_areas() -> Result<(Vec<MonitorInfo>, Vec<
 ///
 /// **只在几何来自 Wayland 输出时才走**，理由和下面逐屏那条路一样：`RecordMonitor` 认的是
 /// 连接器名（`eDP-1`），只有 Wayland 输出枚举给得出，xcap 那边压根没有这个字段。
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "linux-pipewire"))]
 fn capture_all_screencast_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
     let monitors = enumerate_wayland_monitors_with_connectors()
         .context("PipeWire 取流无法枚举 Wayland 几何")?;
