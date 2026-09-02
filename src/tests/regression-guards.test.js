@@ -135,6 +135,9 @@ describe("原生平台由真实 runner 编译", () => {
     expect(qaWorkflow).toContain("--config src-tauri/tauri.macos.conf.json");
     expect(qaWorkflow).toContain("--config src-tauri/tauri.macos.qa.conf.json");
     expect(qaWorkflow).not.toMatch(/macOS QA[\s\S]*--no-sign/);
+    expect(qaWorkflow).toContain("plutil -extract CFBundleExecutable raw");
+    expect(qaWorkflow).toContain('lipo -archs "$EXECUTABLE"');
+    expect(qaWorkflow).not.toContain('Contents/MacOS/Clippy"');
   });
 });
 
@@ -315,6 +318,8 @@ describe("release 下载链接与构建矩阵同步", () => {
     expect(release).toContain("rust_target: aarch64-apple-darwin");
     expect(release).toContain("rust_target: x86_64-apple-darwin");
     expect(release).toContain("Signature=adhoc");
+    expect(release).toContain("plutil -extract CFBundleExecutable raw");
+    expect(release).not.toContain('Contents/MacOS/Clippy"');
     expect(release).toContain("未经过 Apple Developer ID 公证");
     expect(release).toContain(
       'PLATFORMS="linux-x86_64,windows-x86_64,darwin-aarch64,darwin-x86_64"',
