@@ -61,6 +61,7 @@ pub enum CapabilityReason {
     NoDisplayServer,
     WaylandProtocolLimited,
     WaylandPortalPermission,
+    WaylandPortalUnavailable,
     WindowsIntegrityBoundary,
     MacosScreenRecordingPermission,
     MacosAccessibilityPermission,
@@ -109,7 +110,33 @@ pub struct PlatformInfo {
     pub session: DesktopSession,
     pub desktop_environment: Option<String>,
     pub architecture: String,
+    pub xwayland_available: bool,
+    pub portal: PortalInfo,
     pub capabilities: PlatformCapabilities,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
+pub struct PortalInterfaceInfo {
+    pub available: bool,
+    pub version: Option<u32>,
+}
+
+impl PortalInterfaceInfo {
+    fn from_version(version: Option<u32>) -> Self {
+        Self {
+            available: version.is_some(),
+            version,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
+pub struct PortalInfo {
+    pub desktop_service_available: bool,
+    pub global_shortcuts: PortalInterfaceInfo,
+    pub remote_desktop: PortalInterfaceInfo,
+    pub screenshot: PortalInterfaceInfo,
+    pub screen_cast: PortalInterfaceInfo,
 }
 
 pub fn current_operating_system() -> OperatingSystem {
@@ -236,6 +263,59 @@ pub fn uses_gnome_shortcuts() -> bool {
 
 pub fn uses_portal_shortcuts() -> bool {
     is_wayland() && !is_gnome_desktop()
+}
+
+fn detect_xwayland(session: DesktopSession, has_x11_display: bool) -> bool {
+    session == DesktopSession::Wayland && has_x11_display
+}
+
+fn portal_info_from(
+    desktop_service_available: bool,
+    version: impl Fn(&str) -> Option<u32>,
+) -> PortalInfo {
+    if !desktop_service_available {
+        return PortalInfo::default();
+    }
+    PortalInfo {
+        desktop_service_available: true,
+        global_shortcuts: PortalInterfaceInfo::from_version(version(
+            "org.freedesktop.portal.GlobalShortcuts",
+        )),
+        remote_desktop: PortalInterfaceInfo::from_version(version(
+            "org.freedesktop.portal.RemoteDesktop",
+        )),
+        screenshot: PortalInterfaceInfo::from_version(version("org.freedesktop.portal.Screenshot")),
+        screen_cast: PortalInterfaceInfo::from_version(version(
+            "org.freedesktop.portal.ScreenCast",
+        )),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn current_portal_info() -> PortalInfo {
+    const DESTINATION: &str = "org.freedesktop.portal.Desktop";
+    const PATH: &str = "/org/freedesktop/portal/desktop";
+    let service_available = crate::dbus::call::<_, bool>(
+        "org.freedesktop.DBus",
+        "/org/freedesktop/DBus",
+        "org.freedesktop.DBus",
+        "NameHasOwner",
+        &(DESTINATION,),
+    )
+    .unwrap_or(false);
+    portal_info_from(service_available, |interface| {
+        crate::dbus::property::<u32>(DESTINATION, PATH, interface, "version")
+            .map_err(|error| {
+                log::debug!("Portal 接口 {interface} 不可用: {error}");
+                error
+            })
+            .ok()
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn current_portal_info() -> PortalInfo {
+    PortalInfo::default()
 }
 
 fn capabilities_for(
@@ -381,7 +461,15 @@ pub fn current_info() -> PlatformInfo {
     let operating_system = current_operating_system();
     let session = current_session();
     let desktop_environment = current_desktop_environment();
+    let portal = current_portal_info();
     let capabilities = capabilities_for(operating_system, session, desktop_environment.as_deref());
+    let capabilities = with_portal_availability(
+        capabilities,
+        operating_system,
+        session,
+        desktop_environment.as_deref(),
+        portal,
+    );
     #[cfg(target_os = "macos")]
     let capabilities = {
         let mut capabilities = capabilities;
@@ -412,7 +500,43 @@ pub fn current_info() -> PlatformInfo {
         capabilities,
         desktop_environment,
         architecture: std::env::consts::ARCH.to_string(),
+        xwayland_available: detect_xwayland(session, std::env::var_os("DISPLAY").is_some()),
+        portal,
     }
+}
+
+fn with_portal_availability(
+    mut capabilities: PlatformCapabilities,
+    operating_system: OperatingSystem,
+    session: DesktopSession,
+    desktop_environment: Option<&str>,
+    portal: PortalInfo,
+) -> PlatformCapabilities {
+    if operating_system != OperatingSystem::Linux || session != DesktopSession::Wayland {
+        return capabilities;
+    }
+
+    if !portal.remote_desktop.available {
+        capabilities.auto_paste = Capability::with_reason(
+            CapabilityState::Degraded,
+            CapabilityReason::WaylandPortalUnavailable,
+        );
+    }
+    let gnome = normalize_desktop(desktop_environment, None).as_deref() == Some("gnome");
+    if !gnome && !portal.global_shortcuts.available {
+        capabilities.global_shortcuts = Capability::with_reason(
+            CapabilityState::Unsupported,
+            CapabilityReason::WaylandPortalUnavailable,
+        );
+    }
+    if !portal.screenshot.available {
+        // Shell helper、Mutter 和 wlroots 仍可能成功，所以这里只能标记降级，不能说截图不可用。
+        capabilities.screen_capture = Capability::with_reason(
+            CapabilityState::Degraded,
+            CapabilityReason::WaylandPortalUnavailable,
+        );
+    }
+    capabilities
 }
 
 fn with_ocr_availability(
@@ -456,6 +580,32 @@ mod tests {
             detect_session_from(OperatingSystem::Linux, Some("tty"), false, false),
             DesktopSession::Unknown
         );
+    }
+
+    #[test]
+    fn xwayland_is_only_reported_inside_a_wayland_session() {
+        assert!(detect_xwayland(DesktopSession::Wayland, true));
+        assert!(!detect_xwayland(DesktopSession::Wayland, false));
+        assert!(!detect_xwayland(DesktopSession::X11, true));
+        assert!(!detect_xwayland(DesktopSession::Native, true));
+    }
+
+    #[test]
+    fn portal_probe_keeps_interface_versions_separate() {
+        let portal = portal_info_from(true, |interface| match interface {
+            "org.freedesktop.portal.GlobalShortcuts" => Some(2),
+            "org.freedesktop.portal.RemoteDesktop" => Some(1),
+            "org.freedesktop.portal.Screenshot" => Some(3),
+            _ => None,
+        });
+        assert!(portal.desktop_service_available);
+        assert_eq!(portal.global_shortcuts.version, Some(2));
+        assert_eq!(portal.remote_desktop.version, Some(1));
+        assert_eq!(portal.screenshot.version, Some(3));
+        assert_eq!(portal.screen_cast, PortalInterfaceInfo::default());
+
+        let unavailable = portal_info_from(false, |_| Some(99));
+        assert_eq!(unavailable, PortalInfo::default());
     }
 
     #[test]
@@ -544,6 +694,72 @@ mod tests {
                 CapabilityState::PermissionRequired,
                 CapabilityReason::WaylandPortalPermission
             )
+        );
+    }
+
+    #[test]
+    fn missing_portal_interfaces_change_permission_claims_into_real_degradation() {
+        let capabilities =
+            capabilities_for(OperatingSystem::Linux, DesktopSession::Wayland, Some("KDE"));
+        let capabilities = with_portal_availability(
+            capabilities,
+            OperatingSystem::Linux,
+            DesktopSession::Wayland,
+            Some("KDE"),
+            PortalInfo::default(),
+        );
+        assert_eq!(
+            capabilities.global_shortcuts,
+            Capability::with_reason(
+                CapabilityState::Unsupported,
+                CapabilityReason::WaylandPortalUnavailable
+            )
+        );
+        assert_eq!(
+            capabilities.auto_paste,
+            Capability::with_reason(
+                CapabilityState::Degraded,
+                CapabilityReason::WaylandPortalUnavailable
+            )
+        );
+        assert_eq!(
+            capabilities.screen_capture,
+            Capability::with_reason(
+                CapabilityState::Degraded,
+                CapabilityReason::WaylandPortalUnavailable
+            )
+        );
+    }
+
+    #[test]
+    fn available_portal_interfaces_preserve_permission_required_states() {
+        let capabilities =
+            capabilities_for(OperatingSystem::Linux, DesktopSession::Wayland, Some("KDE"));
+        let available = PortalInterfaceInfo::from_version(Some(1));
+        let capabilities = with_portal_availability(
+            capabilities,
+            OperatingSystem::Linux,
+            DesktopSession::Wayland,
+            Some("KDE"),
+            PortalInfo {
+                desktop_service_available: true,
+                global_shortcuts: available,
+                remote_desktop: available,
+                screenshot: available,
+                screen_cast: PortalInterfaceInfo::default(),
+            },
+        );
+        assert_eq!(
+            capabilities.global_shortcuts.state,
+            CapabilityState::PermissionRequired
+        );
+        assert_eq!(
+            capabilities.auto_paste.state,
+            CapabilityState::PermissionRequired
+        );
+        assert_eq!(
+            capabilities.screen_capture.state,
+            CapabilityState::PermissionRequired
         );
     }
 
