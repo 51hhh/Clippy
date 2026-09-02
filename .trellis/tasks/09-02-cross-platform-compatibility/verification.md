@@ -93,6 +93,15 @@
 - Ubuntu 26 本机直接构建的原始 AppImage 为 85,899,768 字节，SHA-256
   `e4cff34b1d00d0140a48e87e7193cc951cc275672b5b31b335b4549f8adf6103`，同样通过隔离 X11 smoke；
   此项只证明当前发行版运行，不替代 Jammy 构建证据。
+- 2026-09-02 在当前 Ubuntu 26 GNOME Wayland 真机从沙箱外执行
+  `clippy-app --capture-diagnose`：typed 平台探测为 `linux/wayland/gnome/x86_64`、XWayland 可用，
+  Portal Desktop/GlobalShortcuts/RemoteDesktop/Screenshot/ScreenCast 均存在，接口版本分别为
+  `1/2/2/5`。GNOME 扩展能应答但运行会话版本陈旧，正确报告“磁盘已升级，等注销一次”。
+- 同次诊断的 `wl_output` 为 2560×1440@1.5 与 1920×1200@1.3333，逻辑排布
+  `4480×1608@0,0`；截图选择 `gnome-shell-extension + wl_output`，获得 6720×2412 舞台图，I1、I2a、
+  I2b、I3 全部 PASS。XWayland/xcap 同时误报两屏为 2.0，证明运行时没有拿错误来源覆盖可信几何。
+  命令行模式没有 Tauri 窗口和覆盖层会话，所以 I4 明确为“未观测”、I5 为“未检查”，没有伪记 PASS。
+  该几何已经由 `gnome-dual-mixed-scale.json` 覆盖；仅运行期 output ID/枚举顺序不同，不重复添加 fixture。
 
 ## 原生平台验证状态
 
