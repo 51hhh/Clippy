@@ -73,7 +73,8 @@
 - dev/build 命令不依赖 POSIX shell 语法。
 - CI 至少包含 Ubuntu 22、Windows 和 macOS 的 fmt/typecheck/test/build 或可行的 compile gate。
 - Linux 在 Ubuntu 22 runner 构建 deb/AppImage；Windows 生成 MSI/NSIS；macOS 生成签名后的 app/dmg。
-- macOS 正式发布执行 Developer ID 签名、Hardened Runtime 和 notarization；测试用自签名证书不得作为发布验收依据。
+- macOS Intel 与 Apple Silicon 正式发布均执行 Ad-Hoc 签名并校验包内签名与目标架构；发布页必须明确
+  标注未使用 Developer ID、未公证及由此产生的 Gatekeeper 限制，不得把 Ad-Hoc 冒充为 Apple 信任链。
 - updater manifest 包含每个已发布平台与架构，安装类型判断不得把非 AppImage 平台统称为 deb。
 
 ### 9. 诊断与测试
