@@ -106,6 +106,12 @@ pub(super) fn capture_all_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFram
 
 #[cfg(not(target_os = "linux"))]
 pub(super) fn capture_all_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
+    #[cfg(target_os = "macos")]
+    if !crate::platform::macos_screen_capture_trusted()
+        && !crate::platform::request_macos_screen_capture_permission()
+    {
+        bail!("macOS 屏幕录制权限尚未授予");
+    }
     capture_all_xcap_monitors()
 }
 
