@@ -5,8 +5,22 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const pass = (id, title) => Object.freeze({ id, title, acceptedStatuses: ["pass"] });
-const degraded = (id, title, requiredReasonCode) =>
-  Object.freeze({ id, title, acceptedStatuses: ["expected_degraded"], requiredReasonCode });
+const degraded = (id, title, acceptedReasonCodes) =>
+  Object.freeze({
+    id,
+    title,
+    acceptedStatuses: ["expected_degraded"],
+    acceptedReasonCodes: Array.isArray(acceptedReasonCodes)
+      ? Object.freeze([...acceptedReasonCodes])
+      : Object.freeze([acceptedReasonCodes]),
+  });
+
+const PORTAL_AUTHORIZATION_OUTCOMES = Object.freeze([
+  "portal_select_devices_rejected",
+  "portal_start_rejected",
+  "portal_keyboard_not_granted",
+  "portal_attempt_exhausted",
+]);
 
 const COMMON_CASES = Object.freeze([
   pass("clipboard_text", "文本复制、历史记录与粘贴"),
@@ -42,7 +56,7 @@ const PROFILES = {
     session: "wayland",
     cases: [
       pass("auto_paste_authorized", "授权后的 RemoteDesktop 自动粘贴"),
-      degraded("auto_paste_denied", "拒绝粘贴授权后保持 copy-only", "wayland_portal_permission"),
+      degraded("auto_paste_denied", "拒绝粘贴授权后保持 copy-only", PORTAL_AUTHORIZATION_OUTCOMES),
       pass("gnome_extension_lifecycle", "窗口扩展未装、待注销、就绪和旧版恢复"),
       pass("screenshot_window", "Shell helper 窗口命中与区域截图 fallback"),
       degraded("absolute_position_limit", "绝对定位限制与 UI 如实降级", "wayland_protocol_limited"),
@@ -59,7 +73,7 @@ const PROFILES = {
       pass("portal_shortcut_authorized", "GlobalShortcuts Portal 首次授权、修改和恢复"),
       degraded("portal_shortcut_denied", "快捷键拒绝后逐动作报告", "wayland_portal_permission"),
       pass("auto_paste_authorized", "授权后的 RemoteDesktop 自动粘贴"),
-      degraded("auto_paste_denied", "拒绝粘贴授权后保持 copy-only", "wayland_portal_permission"),
+      degraded("auto_paste_denied", "拒绝粘贴授权后保持 copy-only", PORTAL_AUTHORIZATION_OUTCOMES),
       pass("portal_screenshot", "Portal 区域截图与取消恢复"),
       degraded("window_pick_limit", "缺少全局窗口几何时不声称窗口命中", "wayland_protocol_limited"),
       degraded("absolute_position_limit", "绝对定位限制与 UI 如实降级", "wayland_protocol_limited"),
@@ -122,9 +136,17 @@ const PROFILES = {
       pass("screen_recording_authorized", "授权后无需重启恢复截图与窗口命中"),
       degraded("screen_recording_revoked", "撤销后实时降级且可再次恢复", "macos_screen_recording_permission"),
       degraded("accessibility_undecided", "辅助功能未决定时请求授权", "macos_accessibility_permission"),
-      degraded("accessibility_denied", "辅助功能拒绝后保持 copy-only", "macos_accessibility_permission"),
+      degraded(
+        "accessibility_denied",
+        "辅助功能拒绝后保持 copy-only",
+        "macos_accessibility_permission_required",
+      ),
       pass("accessibility_authorized", "授权后自动粘贴并恢复应用"),
-      degraded("accessibility_revoked", "撤销后实时降级且可再次恢复", "macos_accessibility_permission"),
+      degraded(
+        "accessibility_revoked",
+        "撤销后实时降级且可再次恢复",
+        "macos_accessibility_permission_required",
+      ),
       pass("spaces_fullscreen", "Spaces、全屏窗口与辅助窗口层级"),
       pass("signed_notarized_bundle", "Developer ID、Hardened Runtime、公证与 stapling"),
     ],
@@ -140,9 +162,17 @@ const PROFILES = {
       pass("screen_recording_authorized", "授权后无需重启恢复截图与窗口命中"),
       degraded("screen_recording_revoked", "撤销后实时降级且可再次恢复", "macos_screen_recording_permission"),
       degraded("accessibility_undecided", "辅助功能未决定时请求授权", "macos_accessibility_permission"),
-      degraded("accessibility_denied", "辅助功能拒绝后保持 copy-only", "macos_accessibility_permission"),
+      degraded(
+        "accessibility_denied",
+        "辅助功能拒绝后保持 copy-only",
+        "macos_accessibility_permission_required",
+      ),
       pass("accessibility_authorized", "授权后自动粘贴并恢复应用"),
-      degraded("accessibility_revoked", "撤销后实时降级且可再次恢复", "macos_accessibility_permission"),
+      degraded(
+        "accessibility_revoked",
+        "撤销后实时降级且可再次恢复",
+        "macos_accessibility_permission_required",
+      ),
       pass("spaces_fullscreen", "Spaces、全屏窗口与辅助窗口层级"),
       pass("signed_notarized_bundle", "Developer ID、Hardened Runtime、公证与 stapling"),
     ],
@@ -184,7 +214,7 @@ export function createQaTemplate({ profileId, commit, appVersion }) {
       id: testCase.id,
       title: testCase.title,
       acceptedStatuses: testCase.acceptedStatuses,
-      requiredReasonCode: testCase.requiredReasonCode ?? null,
+      acceptedReasonCodes: testCase.acceptedReasonCodes ?? [],
       status: "not_run",
       observedReasonCode: null,
       observation: "",
@@ -241,8 +271,13 @@ export function verifyQaRecord(record) {
 
     let passed = testCase.acceptedStatuses.includes(result.status);
     if (!passed) errors.push(`${testCase.id} 状态 ${result.status} 不满足 ${testCase.acceptedStatuses.join("/")}`);
-    if (testCase.requiredReasonCode && result.observedReasonCode !== testCase.requiredReasonCode) {
-      errors.push(`${testCase.id} 必须观测 reason code ${testCase.requiredReasonCode}`);
+    if (
+      testCase.acceptedReasonCodes?.length &&
+      !testCase.acceptedReasonCodes.includes(result.observedReasonCode)
+    ) {
+      errors.push(
+        `${testCase.id} 必须观测 reason code ${testCase.acceptedReasonCodes.join("/")}`,
+      );
       passed = false;
     }
     if (!String(result.observation ?? "").trim()) {
