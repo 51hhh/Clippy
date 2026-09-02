@@ -1,4 +1,6 @@
 mod error;
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+mod native;
 #[cfg(target_os = "linux")]
 mod portal;
 #[cfg(target_os = "linux")]
@@ -19,6 +21,10 @@ use std::{path::PathBuf, sync::Mutex};
 pub enum PasteBackend {
     X11,
     WaylandPortal,
+    #[cfg(target_os = "windows")]
+    WindowsSendInput,
+    #[cfg(target_os = "macos")]
+    MacosQuartz,
     CopyOnly,
 }
 
@@ -68,7 +74,13 @@ pub struct PasteManager {
     token_path: PathBuf,
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+pub struct PasteManager {
+    backend: PasteBackend,
+    target: std::sync::Mutex<Option<native::Target>>,
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
 pub struct PasteManager {
     backend: PasteBackend,
 }
@@ -191,7 +203,68 @@ impl PasteManager {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+impl PasteManager {
+    pub fn new(_app_data_dir: &Path) -> Self {
+        Self {
+            backend: native::backend(),
+            target: std::sync::Mutex::new(None),
+        }
+    }
+
+    pub fn backend(&self) -> PasteBackend {
+        self.backend
+    }
+
+    pub fn capture_target(&self) {
+        let captured = native::capture_target();
+        if let Ok(mut current) = self.target.lock() {
+            *current = captured.as_ref().ok().cloned();
+        }
+        if let Err(error) = captured {
+            // 清空旧值很重要：否则本次捕获失败会把内容粘到上一次的目标应用。
+            log::debug!("无法记录原生粘贴目标: {error}");
+        }
+    }
+
+    pub async fn status(&self, auto_paste_enabled: bool) -> PasteStatus {
+        let permission_ready = native::permission_ready();
+        PasteStatus {
+            backend: self.backend,
+            phase: if permission_ready {
+                PastePhase::Ready
+            } else {
+                PastePhase::PermissionRequired
+            },
+            auto_paste_enabled,
+            can_request_permission: native::can_request_permission() && !permission_ready,
+            detail: (!permission_ready).then(|| native::permission_detail().to_string()),
+        }
+    }
+
+    pub async fn request_permission(
+        &self,
+        auto_paste_enabled: bool,
+    ) -> Result<PasteStatus, PasteError> {
+        native::request_permission();
+        Ok(self.status(auto_paste_enabled).await)
+    }
+
+    pub async fn paste(&self) -> Result<PasteOutcome, PasteError> {
+        let target = self.target.lock().ok().and_then(|target| target.clone());
+        tauri::async_runtime::spawn_blocking(move || native::paste(target))
+            .await
+            .map_err(|error| PasteError::NativeThreadPanic(error.to_string()))??;
+        Ok(PasteOutcome {
+            copied: true,
+            pasted: true,
+            backend: self.backend,
+            detail: None,
+        })
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
 impl PasteManager {
     pub fn new(_app_data_dir: &Path) -> Self {
         Self {
@@ -211,10 +284,7 @@ impl PasteManager {
             phase: PastePhase::Unavailable,
             auto_paste_enabled,
             can_request_permission: false,
-            detail: Some(
-                "Native automatic paste backend has not been initialized on this platform"
-                    .to_string(),
-            ),
+            detail: Some("Automatic paste is unavailable on this platform".to_string()),
         }
     }
 

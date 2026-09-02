@@ -11,6 +11,22 @@ export function describePasteStatus(status) {
   if (backend === "x11") {
     return { i18nKey: "settings.autoPaste.x11Ready", tone: "ready", showAuthorize: false };
   }
+  if (backend === "windows_send_input") {
+    return { i18nKey: "settings.autoPaste.windowsReady", tone: "ready", showAuthorize: false };
+  }
+  if (backend === "macos_quartz" && phase === "ready") {
+    return { i18nKey: "settings.autoPaste.macosReady", tone: "ready", showAuthorize: false };
+  }
+  if (backend === "macos_quartz" && phase === "initializing") {
+    return { i18nKey: "settings.autoPaste.initializing", tone: "pending", showAuthorize: true };
+  }
+  if (backend === "macos_quartz") {
+    return {
+      i18nKey: "settings.autoPaste.macosPermissionRequired",
+      tone: "pending",
+      showAuthorize: true,
+    };
+  }
   if (backend === "wayland_portal" && phase === "ready") {
     return { i18nKey: "settings.autoPaste.portalReady", tone: "ready", showAuthorize: false };
   }
@@ -63,11 +79,12 @@ export function createPastePermissionController({
 
   async function authorize() {
     authorizeButton.disabled = true;
-    render({ backend: "wayland_portal", phase: "initializing" });
+    const backend = currentStatus?.backend || "wayland_portal";
+    render({ backend, phase: "initializing" });
     try {
       render(await requestPermission());
     } catch (error) {
-      render({ backend: "wayland_portal", phase: "denied", detail: String(error) });
+      render({ backend, phase: "denied", detail: String(error) });
     } finally {
       authorizeButton.disabled = false;
     }
