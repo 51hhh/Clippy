@@ -185,11 +185,16 @@ jobs:
         working-directory: src
         run: npm ci
 
+      - name: Prepare self-signed Windows code-signing certificate
+        shell: pwsh
+        run: ./scripts/prepare-windows-signing.ps1
+
       - name: Build Windows QA bundles
         run: >-
-          npx --prefix src tauri build --ci --no-sign
+          npx --prefix src tauri build --ci
           --config src-tauri/tauri.windows.conf.json
           --config src-tauri/tauri.ci.conf.json
+          --config src-tauri/tauri.windows.signing.conf.json
 
       - name: Prepare Windows QA artifact
         shell: pwsh
@@ -198,6 +203,17 @@ jobs:
           $nsis = Get-ChildItem src-tauri/target/release/bundle/nsis -File -Filter "*-setup.exe"
           $msi = Get-ChildItem src-tauri/target/release/bundle/msi -File -Filter "*.msi"
           if (-not $nsis -or -not $msi) { throw "Windows QA installers are incomplete" }
+          foreach ($artifact in @($nsis, $msi)) {
+            $signature = Get-AuthenticodeSignature $artifact.FullName
+            if ($signature.Status.ToString() -notin @("Valid", "NotTrusted")) {
+              throw "Invalid Authenticode signature on $($artifact.Name): $($signature.Status)"
+            }
+            if (-not $signature.SignerCertificate -or
+                $signature.SignerCertificate.Thumbprint.ToUpperInvariant() -ne
+                $env:WINDOWS_CERTIFICATE_THUMBPRINT) {
+              throw "Unexpected Authenticode signer on $($artifact.Name)"
+            }
+          }
           Copy-Item $nsis.FullName qa-artifacts/
           Copy-Item $msi.FullName qa-artifacts/
           $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
@@ -205,7 +221,7 @@ jobs:
             "commit=$env:GITHUB_SHA"
             "version=$version"
             "platform=windows-x64"
-            "signing=unsigned-qa-only"
+            "signing=self-signed-qa-only"
           ) | Set-Content qa-artifacts/QA-BUILD.txt -Encoding utf8
           Get-ChildItem qa-artifacts -File | Where-Object Name -ne "SHA256SUMS.txt" |
             ForEach-Object {
@@ -221,6 +237,15 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+
+      - name: Remove Windows code-signing certificate
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_THUMBPRINT)) {
+            Remove-Item "Cert:\CurrentUser\My\$env:WINDOWS_CERTIFICATE_THUMBPRINT" `
+              -Force -ErrorAction SilentlyContinue
+          }
 
   build-macos:
     name: QA Bundle (macOS ${{ matrix.label }})
