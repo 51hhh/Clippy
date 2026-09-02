@@ -17,6 +17,9 @@ use windows_sys::Win32::Security::{
     PROTECTED_DACL_SECURITY_INFORMATION, PSID, SE_DACL_PROTECTED,
     SUB_CONTAINERS_AND_OBJECTS_INHERIT, TOKEN_QUERY, TOKEN_USER,
 };
+use windows_sys::Win32::Storage::FileSystem::{
+    MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+};
 use windows_sys::Win32::System::SystemServices::ACCESS_ALLOWED_ACE_TYPE;
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
@@ -116,6 +119,24 @@ fn wide_path(path: &Path) -> io::Result<Vec<u16>> {
 
 fn from_win32(code: u32) -> io::Error {
     io::Error::from_raw_os_error(code as i32)
+}
+
+pub(super) fn replace(source: &Path, destination: &Path) -> io::Result<()> {
+    let source = wide_path(source)?;
+    let destination = wide_path(destination)?;
+    // SAFETY: 两个路径都是 NUL 结尾的 UTF-16，生命周期覆盖整个调用。
+    if unsafe {
+        MoveFileExW(
+            source.as_ptr(),
+            destination.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    } == 0
+    {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
 }
 
 pub(super) fn restrict(path: &Path, directory: bool) -> io::Result<()> {

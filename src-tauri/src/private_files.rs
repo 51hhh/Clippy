@@ -77,6 +77,18 @@ pub fn write_private(path: &Path, contents: &[u8]) -> io::Result<()> {
     restrict_file(path)
 }
 
+/// 用已经完整写入的私有临时文件原子替换目标，并再次校正最终路径权限。
+///
+/// Unix `rename` 可以覆盖目标；Windows 必须显式传 `MOVEFILE_REPLACE_EXISTING`，否则配置和
+/// Portal restore token 从第二次保存开始就会失败。
+pub fn replace_private_file(source: &Path, destination: &Path) -> io::Result<()> {
+    #[cfg(target_os = "windows")]
+    windows::replace(source, destination)?;
+    #[cfg(not(target_os = "windows"))]
+    fs::rename(source, destination)?;
+    restrict_file(destination)
+}
+
 /// 判断文件是否没有向组或其他用户授予权限。
 pub fn is_private(path: &Path) -> bool {
     #[cfg(unix)]
@@ -119,6 +131,20 @@ mod tests {
 
         #[cfg(target_os = "windows")]
         assert!(is_private(&path));
+    }
+
+    #[test]
+    fn private_replace_overwrites_without_losing_permissions() {
+        let directory = tempfile::tempdir().expect("创建临时目录失败");
+        let source = directory.path().join("source.tmp");
+        let destination = directory.path().join("destination");
+        write_private(&source, b"new").expect("写入临时文件失败");
+        write_private(&destination, b"old").expect("写入旧文件失败");
+
+        replace_private_file(&source, &destination).expect("替换私有文件失败");
+        assert_eq!(fs::read(&destination).unwrap(), b"new");
+        assert!(!source.exists());
+        assert!(is_private(&destination));
     }
 
     #[cfg(target_os = "windows")]
