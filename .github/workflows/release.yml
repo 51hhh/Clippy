@@ -446,6 +446,15 @@ jobs:
           mkdir -p dist-artifacts
           BUNDLE_DIR="src-tauri/target/${RUST_TARGET}/release/bundle"
 
+          APP_SRC=$(find "$BUNDLE_DIR/macos" -maxdepth 1 -type d -name '*.app' -print -quit)
+          [ -n "$APP_SRC" ] || { echo '::error::macOS app bundle was not generated'; exit 1; }
+          codesign --verify --deep --strict --verbose=2 "$APP_SRC"
+          SIGNING_INFO=$(codesign --display --verbose=4 "$APP_SRC" 2>&1)
+          printf '%s\n' "$SIGNING_INFO" | grep -q 'Authority=Developer ID Application:'
+          printf '%s\n' "$SIGNING_INFO" | grep -Eq 'flags=.*runtime'
+          spctl --assess --type execute --verbose=4 "$APP_SRC"
+          xcrun stapler validate "$APP_SRC"
+
           DMG_SRC=$(find "$BUNDLE_DIR/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)
           [ -n "$DMG_SRC" ] || { echo '::error::DMG was not generated'; exit 1; }
           cp "$DMG_SRC" "dist-artifacts/Clippy_${APP_VERSION}_${ASSET_ARCH}.dmg"
