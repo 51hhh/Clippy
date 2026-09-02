@@ -114,6 +114,10 @@ check-version ─┬→ build-linux ───┐
    - `APPLE_ID`
    - `APPLE_PASSWORD`（app-specific password）
    - `APPLE_TEAM_ID`
+6. **Windows 代码签名状态已确认**：
+   - Tauri updater 的 `.sig` 只验证更新包完整性，不是 Windows Authenticode 签名。
+   - 当前 workflow 尚未配置 Windows 代码签名证书；正式对外发布前需接入可信证书，
+     否则安装包可能触发 SmartScreen 的“未知发布者”提示。
 
 ### 发版命令
 
@@ -122,7 +126,7 @@ check-version ─┬→ build-linux ───┐
 # 2. 更新 CHANGELOG.md
 # 3. 提交
 git add -A
-git commit -m "chore: bump version to x.y.z"
+git commit -m "release: vX.Y.Z"
 
 # 4. 打 tag
 git tag -a vx.y.z -m "vx.y.z: 简要说明"
@@ -162,6 +166,7 @@ NSIS、macOS 使用 `.app.tar.gz`。DEB、MSI 和 DMG 是人工安装入口，�
 | 默认依赖图出现 `pipewire v` | 可选 `linux-pipewire` 被误加入默认 feature | 保持 feature 显式 opt-in，不给 Ubuntu 22 默认包增加 PipeWire 构建依赖 |
 | macOS 缺少 signing secret | Developer ID 或公证凭据未配置 | 按发版检查清单补齐全部 Apple Secrets；正式发布禁止退回 ad-hoc 签名 |
 | NSIS/macOS `.sig` 缺失 | Tauri updater 私钥未配置或构建未生成 updater artifact | 检查 `TAURI_SIGNING_PRIVATE_KEY*` 与 `createUpdaterArtifacts` |
+| Windows 显示未知发布者 | updater `.sig` 不提供 Authenticode 身份 | 配置可信 Windows 代码签名证书并在打包阶段签名 |
 
 ### 为什么默认包仍可在 Ubuntu 22.04 构建
 
