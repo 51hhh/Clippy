@@ -54,7 +54,9 @@ export function App() {
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
   /** 关窗时"要不要保存画布"的询问。`null` 表示没在问。 */
   const [closePrompt, setClosePrompt] = useState(false);
+  const [savePrompt, setSavePrompt] = useState(false);
   const [savedPath, setSavedPath] = useState<string | null>(null);
+  const [noticeKey, setNoticeKey] = useState("pin.saved");
   const savedTimer = useRef<number | null>(null);
   const imageElement = useRef<HTMLImageElement | null>(null);
   const [viewport, setViewport] = useState({
@@ -289,18 +291,6 @@ export function App() {
     [commitUpdate],
   );
 
-  const copy = useCallback(async () => {
-    try {
-      await pinApi.copy(label);
-      setCopied(true);
-      if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
-      copiedTimer.current = window.setTimeout(() => setCopied(false), 1000);
-    } catch (reason) {
-      console.error(reason);
-      setError(t("pin.actionFailed"));
-    }
-  }, [label]);
-
   const runAction = useCallback((action: () => Promise<unknown>) => {
     void action().catch((reason) => {
       console.error(reason);
@@ -325,33 +315,53 @@ export function App() {
   const toolbarBounds = usePinToolbarBounds(label, viewport);
 
   const canvas = usePinCanvas({
-    // 渲染期读 ref 本身不会触发重渲染，但 `onLoad` 里紧跟着有 `setPixelSize`，
-    // 那次重渲染会把已加载的 <img> 带进来——所以画布不会停在"底图是 null"的状态。
-    // 两件事必须留在同一个 onLoad 里，别把 setPixelSize 挪走。
-    image: imageElement.current,
-    pixelWidth: pixelSize?.width ?? 0,
-    pixelHeight: pixelSize?.height ?? 0,
     cssWidth: mediaWidth,
     cssHeight: mediaHeight,
     open: canvasOpen,
-    // 导出底图取后端原图，不是屏上那张（可能是补偿版）。见 `usePinCanvas.exportPng`。
+    initialProject: pin?.initialProject ?? null,
     loadSourceImage: loadSourceImage,
   });
 
-  const showSaved = useCallback((path: string) => {
+  const copy = useCallback(async () => {
+    try {
+      if (canvas.hasDocument) await pinApi.copyCanvas(label, await canvas.exportPng());
+      else await pinApi.copy(label);
+      setCopied(true);
+      if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
+      copiedTimer.current = window.setTimeout(() => setCopied(false), 1000);
+    } catch (reason) {
+      console.error(reason);
+      setError(t("pin.actionFailed"));
+    }
+  }, [canvas.exportPng, canvas.hasDocument, label]);
+
+  const showSaved = useCallback((path: string, messageKey = "pin.saved") => {
+    setNoticeKey(messageKey);
     setSavedPath(path);
     if (savedTimer.current !== null) window.clearTimeout(savedTimer.current);
     savedTimer.current = window.setTimeout(() => setSavedPath(null), 2200);
   }, []);
 
   /** 把画布上那一版存下来（顺带进剪贴板，"画完直接粘走"是最常见的下一步）。 */
-  const saveCanvas = useCallback(async () => {
+  const saveCanvas = useCallback(async (mode: "editable" | "flat" = "editable") => {
     const pngBase64 = await canvas.exportPng();
-    // 工程数据一起送去：落盘那份会带一个 iTXt 块（原图 + 标注），于是同一个文件既是
-    // 普通 PNG 又能被 Clippy 重新打开继续编辑。进剪贴板的那份不带（见 `save_pin_canvas`）。
-    showSaved(await pinApi.saveCanvas(label, pngBase64, true, canvas.projectData));
-    // 只依赖用到的那两个字段而不是整个 `canvas`：后者含 `dirty` 等每笔都变的东西。
-  }, [canvas.exportPng, canvas.projectData, label, showSaved]);
+    if (mode === "editable" && !canvas.projectData) throw new Error("Canvas source is unavailable");
+    const result = await pinApi.saveCanvas(
+      label,
+      pngBase64,
+      mode === "editable",
+      mode,
+      mode === "editable" ? canvas.projectData : null,
+    );
+    // 文件先落盘；即使随后剪贴板失败，这个 revision 也已经安全保存，不能诱导重复保存。
+    if (mode === "editable") canvas.markSaved();
+    showSaved(result.path, result.clipboardError ? "pin.savedClipboardFailed" : "pin.saved");
+  }, [canvas.exportPng, canvas.markSaved, canvas.projectData, label, showSaved]);
+
+  const requestSave = useCallback(() => {
+    if (canvas.hasDocument) setSavePrompt(true);
+    else runAction(async () => showSaved(await pinApi.save(label)));
+  }, [canvas.hasDocument, label, runAction, showSaved]);
 
   /**
    * 关窗。画布上有没保存的东西就先问一句。
@@ -412,7 +422,7 @@ export function App() {
       // 无条件 preventDefault：即使这一下什么都不做，也不能让它落到 WebKit 的页面缩放上。
       event.preventDefault();
       // 确认框是个必须先答的问题（`role="dialog"`），开着时不该还能改缩放/不透明度。
-      if (closePrompt) return;
+      if (closePrompt || savePrompt) return;
       const intent = pinWheelIntent(event);
       if (intent.kind === "scale") adjustScale(intent.delta);
       else if (intent.kind === "opacity") adjustOpacity(intent.delta);
@@ -441,7 +451,7 @@ export function App() {
         window.removeEventListener(name, onGesture);
       }
     };
-  }, [adjustOpacity, adjustScale, closePrompt]);
+  }, [adjustOpacity, adjustScale, closePrompt, savePrompt]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -465,7 +475,8 @@ export function App() {
       // 确认框开着时 Esc = 取消。以前无条件走 requestClose()，而那时 `dirty` 仍为真，
       // 于是只是把 `closePrompt` 又设一次 true——框不关、也没别的反应，用户会觉得按键失灵。
       if (event.key === "Escape") {
-        if (closePrompt) setClosePrompt(false);
+        if (savePrompt) setSavePrompt(false);
+        else if (closePrompt) setClosePrompt(false);
         else requestClose();
       }
       else if (command && event.key.toLowerCase() === "c") {
@@ -477,7 +488,7 @@ export function App() {
       else if (canvasOpen) return;
       else if (event.key.toLowerCase() === "l") commitUpdate({ locked: !pin.locked });
       else if (event.key.toLowerCase() === "t") commitUpdate({ above: !pin.above });
-      else if (event.key.toLowerCase() === "s" && pin.canSave) runAction(() => pinApi.save(label));
+      else if (event.key.toLowerCase() === "s" && pin.canSave) requestSave();
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -495,7 +506,9 @@ export function App() {
     label,
     pin,
     requestClose,
+    requestSave,
     runAction,
+    savePrompt,
   ]);
 
   useEffect(() => {
@@ -552,10 +565,7 @@ export function App() {
         {
           id: "save",
           label: t("pin.save"),
-          onSelect: () => {
-            if (canvas.dirty) runAction(saveCanvas);
-            else runAction(async () => showSaved(await pinApi.save(label)));
-          },
+          onSelect: requestSave,
         },
       ]
       : []),
@@ -583,7 +593,7 @@ export function App() {
         // （非 Linux、信号连接失败），也不要弹出"重新加载/检查元素"。
         event.preventDefault();
         // 同上：确认框开着时不叠一层菜单上去。
-        if (closePrompt) return;
+        if (closePrompt || savePrompt) return;
         setMenuAt({ x: event.clientX, y: event.clientY });
       }}
     >
@@ -617,12 +627,11 @@ export function App() {
         ) : (
           <pre>{pin.text || ""}</pre>
         )}
-        {/* 画布盖在图片上，尺寸与内容区一致。关着的时候整个不渲染，
-            于是不开画布的贴图完全没有画布开销（这是绝大多数情况）。 */}
-        {canvasOpen && (
+        {/* 有文档时关闭工具仍保留合成预览；只有打开工具时接收指针事件。 */}
+        {canvas.visible && (
           <canvas
             ref={canvas.canvasRef}
-            className="pin-canvas"
+            className={`pin-canvas${canvasOpen ? " editing" : ""}`}
             style={{ width: mediaWidth, height: mediaHeight }}
             onPointerDown={canvas.onPointerDown}
             onPointerMove={canvas.onPointerMove}
@@ -649,9 +658,7 @@ export function App() {
         onToggleCanvas={() => setCanvasOpen((open) => !open)}
         onCopy={() => void copy()}
         onSave={() => {
-          // 画过东西就存画过的那一版，否则存原图。
-          if (canvas.dirty) runAction(saveCanvas);
-          else runAction(async () => showSaved(await pinApi.save(label)));
+          requestSave();
         }}
         onClose={requestClose}
       />
@@ -682,6 +689,7 @@ export function App() {
       {closePrompt && (
         <div className="pin-close-prompt" role="dialog" aria-label={t("pin.saveBeforeClose")}>
           <p>{t("pin.saveBeforeClose")}</p>
+          <p className="pin-privacy-warning">{t("pin.editableContainsOriginal")}</p>
           <div className="pin-close-actions">
             <button
               type="button"
@@ -689,7 +697,7 @@ export function App() {
               onClick={() => {
                 setClosePrompt(false);
                 runAction(async () => {
-                  await saveCanvas();
+                  await saveCanvas("editable");
                   await pinApi.close(label);
                 });
               }}
@@ -711,11 +719,28 @@ export function App() {
           </div>
         </div>
       )}
+      {savePrompt && (
+        <div className="pin-close-prompt" role="dialog" aria-label={t("pin.saveOptions")}>
+          <p>{t("pin.saveOptions")}</p>
+          <p className="pin-privacy-warning">{t("pin.editableContainsOriginal")}</p>
+          <div className="pin-close-actions">
+            <button type="button" className="primary" onClick={() => {
+              setSavePrompt(false);
+              runAction(() => saveCanvas("editable"));
+            }}>{t("pin.saveEditable")}</button>
+            <button type="button" onClick={() => {
+              setSavePrompt(false);
+              runAction(() => saveCanvas("flat"));
+            }}>{t("pin.exportFlat")}</button>
+            <button type="button" onClick={() => setSavePrompt(false)}>{t("pin.cancelClose")}</button>
+          </div>
+        </div>
+      )}
       {/* 只有一个 toast 位（`pin.css` 把它绝对定位在右下角），所以两条消息不能各渲染
           一个——那样会完全叠在一起。出错优先：它是用户需要处置的那一条。 */}
       {(error || savedPath) && (
         <div className="pin-toast" role="status">
-          {error ? t("pin.actionFailed") : t("pin.saved")}
+          {error ? t("pin.actionFailed") : t(noticeKey)}
         </div>
       )}
     </main>

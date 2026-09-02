@@ -285,7 +285,19 @@ input {
   z-index: 5;
   inset: 0;
   cursor: crosshair;
+  pointer-events: none;
   touch-action: none;
+}
+
+.pin-canvas.editing {
+  pointer-events: auto;
+}
+
+.pin-privacy-warning {
+  max-width: 360px;
+  color: #fbbf24;
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 /* 画布工具条。横排、两三行，落点由 JS 算（外围优先，见 `shared/toolbarPlacement.ts`）。 */

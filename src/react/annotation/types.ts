@@ -63,6 +63,8 @@ export type TextAnnotation = {
   size: number;
   at: Point;
   text: string;
+  /** 渲染器 v1 固定的字体策略，避免系统默认字体规则随版本漂移。 */
+  fontFamily?: "system-ui";
 };
 
 /**
@@ -73,10 +75,26 @@ export const EFFECT_TYPES = ["blur", "mosaic", "spotlight", "magnifier"] as cons
 
 export type EffectType = (typeof EFFECT_TYPES)[number];
 
+export type EffectParameters = {
+  blurRadius: number;
+  mosaicCell: number;
+  spotlightDim: number;
+  magnifierZoom: number;
+};
+
+export const DEFAULT_EFFECT_PARAMETERS: EffectParameters = {
+  blurRadius: 8,
+  mosaicCell: 12,
+  spotlightDim: 0.55,
+  magnifierZoom: 2,
+};
+
 export type EffectAnnotation = {
   id: string;
   type: EffectType;
   rect: Rect;
+  /** rendererVersion=1 的外观参数；旧的内存对象缺席时渲染器使用同一组默认值。 */
+  effect?: EffectParameters;
 };
 
 export type VectorAnnotation =
@@ -88,7 +106,9 @@ export type VectorAnnotation =
 export type Annotation = VectorAnnotation | EffectAnnotation;
 
 export type EditorDocument = {
+  rendererVersion: 1;
+  sourceWidth: number;
+  sourceHeight: number;
   annotations: Annotation[];
   adjustments: import("./imageAdjustments").ImageAdjustments;
 };
-

@@ -1,6 +1,7 @@
 import {
   closePin,
   copyPin,
+  copyPinCanvas,
   getPinPayload,
   getPinSourceImage,
   getPinToolbarBounds,
@@ -13,6 +14,8 @@ import {
 } from "../../js/api.ts";
 import type {
   PinCanvasProject,
+  PinCanvasSaveMode,
+  PinCanvasSaveResult,
   PinImageSharpened,
   PinPayload,
   PinState,
@@ -27,6 +30,7 @@ export const pinApi = {
   toolbarBounds: (label: string): Promise<PinToolbarBounds> => getPinToolbarBounds(label),
   update: (label: string, update: PinUpdate): Promise<PinState> => updatePin(label, update),
   copy: (label: string): Promise<void> => copyPin(label),
+  copyCanvas: (label: string, pngBase64: string): Promise<void> => copyPinCanvas(label, pngBase64),
   save: (label: string): Promise<string> => savePin(label),
   /** 画布导出用的原图（base64 PNG）。见 `getPinSourceImage`。 */
   sourceImage: (label: string): Promise<string | null> => getPinSourceImage(label),
@@ -35,8 +39,9 @@ export const pinApi = {
     label: string,
     pngBase64: string,
     toClipboard: boolean,
+    mode: PinCanvasSaveMode,
     project: PinCanvasProject | null,
-  ): Promise<string> => savePinCanvas(label, pngBase64, toClipboard, project),
+  ): Promise<PinCanvasSaveResult> => savePinCanvas(label, pngBase64, toClipboard, mode, project),
   close: (label: string): Promise<void> => closePin(label),
   /** 订阅后台算好的清晰版图片（见 `rendering.ts` 与 `pin/resample.rs`）。 */
   onSharpened: (callback: (payload: PinImageSharpened) => void): Promise<() => void> =>
