@@ -113,4 +113,3 @@ Reason code 必须是 serde 稳定枚举，文案由前端 i18n 决定。诊断�
 12. `docs(platform): 记录实机验收结果和系统边界`
 
 未经对应平台验证的提交不得使用“完成 Windows/macOS 支持”措辞。
-

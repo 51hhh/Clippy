@@ -57,4 +57,3 @@
 - DRM/受保护内容可以返回黑帧或拒绝捕获。
 
 这些边界必须进入 `PlatformCapabilities` 和 UI fallback，而不是被当成需要无限重试的偶发错误。
-
