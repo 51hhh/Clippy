@@ -93,6 +93,8 @@
 - 设置页的 OCR 与保存路径提示写死 Linux：改为平台中性文案和系统 Pictures 目录语义。
 - `CHANGELOG.md` 仍宣称停止 Ubuntu 22：改为与依赖图、CI 和 release 一致的 Ubuntu 22 基线。
 - 发布文档混淆 updater `.sig` 与 Authenticode：明确 Windows 可信代码签名仍是发布前置项。
+- Windows release 会直接发布未做 Authenticode 的 NSIS/MSI：现在强制导入 PFX，检查私钥、代码签名
+  EKU 与有效期，以 SHA-256/RFC 3161 签名，并在上传前验证两个安装包的状态和 signer thumbprint。
 - 非 GNOME Wayland 只尝试 GNOME GSettings 并必然失败：接入 GlobalShortcuts Portal，按 XDG/xkb
   格式提交完整动作集合，核对 Portal 返回子集，并用可取消代次管理 Bind/session 生命周期。
 - 平台能力只按 Wayland 环境变量推断 Portal：现在分别探测 Portal 桌面服务和 GlobalShortcuts、
@@ -110,7 +112,8 @@
 - Windows `SendInput` 不能越过 UIPI 控制更高完整性目标；设计行为是复制成功后降级为 copy-only。
 - macOS 屏幕录制与辅助功能受 TCC 控制，必须覆盖未决定、拒绝、允许和撤销四种实机状态。
 - OCR 目前依赖系统 PATH 中的 Tesseract，尚未捆绑签名 sidecar；安装按钮仅在 Linux 展示。
-- Windows updater 产物有 Tauri updater 签名，但 workflow 尚未接入 Authenticode 证书。
+- Windows Authenticode workflow 已接入，但仓库尚未提供可由本任务读取的证书 secret，也未在原生
+  release runner 上执行；必须配置 `WINDOWS_CERTIFICATE*` 并取得 NSIS/MSI 签名验证通过的运行证据。
 - Windows 私有文件 ACL 已有显式实现、目标编译测试和单元测试，但仍需 Windows 原生 runner 执行
   ACL 测试，并在 NTFS 实机确认旧文件修复、目录继承与连续 token 更新；keyring 失败不会退回明文。
 

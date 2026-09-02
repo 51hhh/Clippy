@@ -44,6 +44,9 @@
 - Windows `SendInput` 受 UIPI 限制，不能保证从普通完整性进程向高完整性进程注入：https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput
 - Windows 前台窗口切换本身有限制：https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setforegroundwindow
 - Windows Graphics Capture 提供系统安全选择器，并要求检测 `IsSupported`：https://learn.microsoft.com/en-us/windows/apps/develop/media-authoring-processing/screen-capture
+- Tauri Windows 签名支持把 PFX 导入当前用户证书存储，再以证书 thumbprint、SHA-256 摘要和时间戳
+  配置签名：https://v2.tauri.app/distribute/sign/windows/
+- DigiCert 当前 RFC 3161 时间戳入口为 `http://timestamp.digicert.com`：https://knowledge.digicert.com/general-information/rfc3161-compliant-time-stamp-authority-server
 - Windows 文件默认从父目录继承 ACL；敏感文件需要显式设置和验证 DACL：https://learn.microsoft.com/en-us/windows/win32/fileio/file-security-and-access-rights
 - `SetNamedSecurityInfoW` 可更新文件或目录 DACL，`PROTECTED_DACL_SECURITY_INFORMATION` 用于阻止宽松父 ACL 继续继承：https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-setnamedsecurityinfow
 - `MoveFileExW` 的 `MOVEFILE_REPLACE_EXISTING` 与 `MOVEFILE_WRITE_THROUGH` 提供 Windows 已有目标覆盖和落盘语义：https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefileexw

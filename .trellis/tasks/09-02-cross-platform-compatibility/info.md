@@ -89,7 +89,7 @@ Portal 接口存在性必须读取各接口的 `version` 属性；不能用 port
 2. `SendInput` 自动粘贴；失败/UIPI 场景 copy-only。
 3. xcap 或 Windows Graphics Capture 截图和 per-monitor DPI 坐标换算。
 4. topmost/layered Pin、透明覆盖层和多显示器 placement。
-5. MSI/NSIS、WebView2 策略、updater 和 Tesseract sidecar/提示。
+5. MSI/NSIS、WebView2 策略、updater、Authenticode 签名验证和 Tesseract sidecar/提示。
 6. 私有文件使用仅当前用户可访问的受保护 DACL；配置和 Portal token 可原子覆盖并在替换后复验权限。
 
 ### Phase E：macOS

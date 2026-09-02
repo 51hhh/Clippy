@@ -121,8 +121,10 @@ check-version ─┬→ build-linux ───┐
    - `APPLE_TEAM_ID`
 6. **Windows 代码签名状态已确认**：
    - Tauri updater 的 `.sig` 只验证更新包完整性，不是 Windows Authenticode 签名。
-   - 当前 workflow 尚未配置 Windows 代码签名证书；正式对外发布前需接入可信证书，
-     否则安装包可能触发 SmartScreen 的“未知发布者”提示。
+   - `WINDOWS_CERTIFICATE`（含代码签名私钥的 `.pfx` Base64）
+   - `WINDOWS_CERTIFICATE_PASSWORD`（PFX 导出密码）
+   - release 会检查证书私钥、代码签名 EKU 和有效期，以 SHA-256 + RFC 3161 时间戳签名，并在上传前
+     验证 NSIS/MSI 的 Authenticode 状态及 signer thumbprint；任何一步失败都不会发布 Windows 产物。
 
 ### 发版命令
 
@@ -171,7 +173,7 @@ NSIS、macOS 使用 `.app.tar.gz`。DEB、MSI 和 DMG 是人工安装入口，�
 | 默认依赖图出现 `pipewire v` | 可选 `linux-pipewire` 被误加入默认 feature | 保持 feature 显式 opt-in，不给 Ubuntu 22 默认包增加 PipeWire 构建依赖 |
 | macOS 缺少 signing secret | Developer ID 或公证凭据未配置 | 按发版检查清单补齐全部 Apple Secrets；正式发布禁止退回 ad-hoc 签名 |
 | NSIS/macOS `.sig` 缺失 | Tauri updater 私钥未配置或构建未生成 updater artifact | 检查 `TAURI_SIGNING_PRIVATE_KEY*` 与 `createUpdaterArtifacts` |
-| Windows 显示未知发布者 | updater `.sig` 不提供 Authenticode 身份 | 配置可信 Windows 代码签名证书并在打包阶段签名 |
+| Windows 签名门禁失败 | PFX secret 缺失、证书无私钥/代码签名 EKU、已过期，或安装包签名无效 | 检查 `WINDOWS_CERTIFICATE*`，并确认可信证书链和时间戳服务可用 |
 
 ### 为什么默认包仍可在 Ubuntu 22.04 构建
 
