@@ -43,6 +43,7 @@ node scripts/manual-qa.mjs template \
 |---|---|
 | `linux-gnome-x11` | Ubuntu 22.04 GNOME 42 X11 |
 | `linux-gnome-wayland` | Ubuntu 22.04 GNOME 42 Wayland |
+| `linux-gnome-wayland-ubuntu24` | Ubuntu 24.04 GNOME Wayland |
 | `linux-kde-wayland` | KDE Wayland |
 | `linux-wlroots-wayland` | 一个 wlroots compositor |
 | `windows-10-x64` | Windows 10 22H2 x64 |
@@ -77,7 +78,9 @@ node scripts/manual-qa.mjs verify \
 1. 分别复制 Unicode 文本、带样式 HTML 和透明 PNG，确认历史记录内容、预览和再次复制一致。
 2. 修改全局快捷键，验证注册、冲突提示、暂停、恢复及重启后保持；不得只点击界面而不触发动作。
 3. 截取区域并分别执行 Copy、Save、Pin、Translate 和取消；确认取消没有写文件、复制或创建 Pin。
-4. 对同一图片依次验证九种标注工具、四种效果、调整、撤销/重做、Copy 和扁平导出。
+4. 对同一图片依次验证全部 16 种画布工具：裁剪、对象、橡皮、文本，pen/marker/rect/ellipse/
+   highlight/arrow/line/measure 八种绘制，以及 blur/mosaic/spotlight/magnifier 四种像素效果；再验证
+   调整、撤销/重做、Copy 和扁平导出。
 5. 保存可编辑 PNG，关闭应用后重开，继续编辑并导出；记录重开前后已验证 IDAT 预览和最终 PNG 的
    SHA-256。跨平台比较必须使用相同工程文件和 renderer v2 金图测试，不能用目测代替摘要。
 6. 验证系统 Pictures 目录、自定义目录、重名不覆盖及系统目录不可用时的应用数据目录 fallback。
@@ -96,7 +99,7 @@ node scripts/manual-qa.mjs verify \
 - 运行 `clippy --capture-diagnose`，保存 I1–I5、typed `PlatformInfo` 和 monitor-layout fixture。
 - Pin 后切换工作区、全屏窗口和普通窗口，确认 X11 topmost 行为与工具条状态一致。
 
-## 5. GNOME 42 Wayland
+## 5. GNOME Wayland
 
 - 会话内记录 `XDG_SESSION_TYPE=wayland`、`XDG_CURRENT_DESKTOP`、Portal 接口版本和 XWayland 状态。
 - 按顺序验证窗口速选扩展：未安装、安装后待注销、注销后 active、磁盘升级但会话仍旧、再次注销恢复。
@@ -107,6 +110,9 @@ node scripts/manual-qa.mjs verify \
 - 绝对定位和永久置顶受 compositor 限制时，能力面板与 Pin UI 必须显示
   `wayland_protocol_limited`，不得循环调用无效定位。
 - 使用混合缩放多屏完成截图诊断并保存 I1–I5；I4/I5 未观测不能写成 PASS。
+- Ubuntu 24.04 还必须记录 GNOME、xdg-desktop-portal 与 desktop portal backend 版本，分别触发
+  Mutter、Shell helper、Portal 和后续 fallback 中环境实际支持的路径；诊断记录的 selected backend
+  必须与观测一致，不能沿用 Ubuntu 22 的结论。
 
 ## 6. KDE 与 wlroots Wayland
 
@@ -148,4 +154,4 @@ node scripts/manual-qa.mjs verify \
 - `pass` 表示功能按步骤实际成功；`expected_degraded` 表示操作系统明确限制且产品按合同安全降级。
 - `fail`、`not_run`、缺证据、reason code 不符或仅有交叉编译结果都不能勾选 PRD 验收项。
 - 某个平台修复后必须重新运行受影响 profile；不得沿用修复前记录。
-- 八个 profile 全部通过前，跨平台任务保持 `in_progress`。
+- 九个 profile 全部通过前，跨平台任务保持 `in_progress`。

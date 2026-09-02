@@ -4,11 +4,11 @@
 
 审查基线：`621e36f289a386dcf84d26c77742f6b0f1eae31e`
 
-实现审查与最新本机快速门禁已完成至：`8973f346b82e3ab802f3a88dc78f45ffc7630660`
+应用实现与三平台原生门禁已完成至：`7ff68b9c168d493e6b47e9ebd0042fcbe2dfc1e4`
 
 ## 审查范围
 
-- 截至上述实现审查点，审查基线之后共 151 个提交，以及提交时仍存在的工作区内容。
+- 截至上述审查点，审查基线之后共 153 个提交，以及提交时仍存在的工作区内容。
 - 逐项检查截图、窗口命中、Pin、标注画布、可编辑 PNG、剪贴板、自动粘贴、快捷键、OCR、
   私有存储、自动启动、平台配置、CI 和 release 数据流。
 - `.omo/` 与 `.trellis/workspace/codex/` 是未跟踪的用户工作区，本次未读取、未修改、未提交。
@@ -28,7 +28,7 @@
 | GNOME 扩展静态检查 | 通过，Shell 45–51 |
 | `npm ci` | 通过，0 个已报告漏洞 |
 | `tsc --noEmit` | 通过 |
-| Vitest | 44 个文件、815 项测试通过 |
+| Vitest | 44 个文件、817 项测试通过 |
 | DOM/Xvfb smoke | 9 项通过 |
 | Canvas 导出像素 smoke | 通过，抽样像素 `0 208 0` |
 | 主窗口布局像素 smoke | 通过，抽样像素 `0 208 0` |
@@ -116,13 +116,13 @@
 - 脱敏后的 `window_probe_diagnostics` 枚举到 2 个窗口，耗时 0.802 ms；输出只包含最小化状态与几何，
   不包含标题或 PID。枚举后再次截取两屏均成功，平均亮度约 236.4/233.8、全黑 0%/2.5%、全透明均
   为 0%，证明窗口枚举没有污染后续截图。以上三组结果只属于当前 Ubuntu 26 GNOME Wayland 主机，
-  不替代 Ubuntu 22 GNOME 42 profile，也没有被写成八环境真机验收通过。
+  不替代 Ubuntu 22/24 GNOME profile，也没有被写成九环境真机验收通过。
 
 ## 原生平台验证状态
 
 `dev` 与 `origin/dev` 已同步到实施 SHA
-`8973f346b82e3ab802f3a88dc78f45ffc7630660`。GitHub Actions run
-[`33634040166`](https://github.com/51hhh/Clippy/actions/runs/33634040166) 对这个完整 SHA 给出三项原生
+`7ff68b9c168d493e6b47e9ebd0042fcbe2dfc1e4`。GitHub Actions run
+[`33636327379`](https://github.com/51hhh/Clippy/actions/runs/33636327379) 对这个完整 SHA 给出三项原生
 job 全绿；`scripts/verify-native-ci.mjs` 再从 check-runs API 独立核对精确 job 名、状态和结论，结果为
 PASS。机器生成的逐 job 时间与链接保存在 [native-ci-evidence.md](native-ci-evidence.md)。
 
@@ -144,7 +144,7 @@ Linux 主机上的 Windows 交叉检查仍会因缺少 MSVC `lib.exe`/SDK 及 C 
 
 “待测”不得在没有目标系统证据时改成“通过”。
 
-八个环境现由 `scripts/manual-qa.mjs` 生成结构化 JSON 模板并校验：每份记录绑定完整 SHA/SemVer，
+九个环境现由 `scripts/manual-qa.mjs` 生成结构化 JSON 模板并校验：每份记录绑定完整 SHA/SemVer，
 逐场景要求实际状态、文字观测和证据引用，安全降级还必须记录精确 reason code；缺失、重复、额外场景
 或 `not_run` 均返回失败。完整操作步骤见 `docs/native-qa.md`。下表仍保持人读摘要，最终结论以通过校验
 且与原生 CI 同 SHA 的记录为准。
