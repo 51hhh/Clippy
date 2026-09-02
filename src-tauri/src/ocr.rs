@@ -12,7 +12,28 @@ pub fn is_available() -> bool {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
-        .is_ok()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(target_os = "linux")]
+fn missing_tesseract_message() -> &'static str {
+    "OCR 不可用：未安装 tesseract。请运行 sudo apt install tesseract-ocr tesseract-ocr-chi-sim"
+}
+
+#[cfg(target_os = "windows")]
+fn missing_tesseract_message() -> &'static str {
+    "OCR 不可用：未找到 tesseract.exe。请安装 Tesseract，并将安装目录加入 PATH"
+}
+
+#[cfg(target_os = "macos")]
+fn missing_tesseract_message() -> &'static str {
+    "OCR 不可用：未找到 tesseract。请安装 Tesseract，并确保 GUI 应用的 PATH 可以找到它"
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+fn missing_tesseract_message() -> &'static str {
+    "OCR 不可用：未找到 tesseract"
 }
 
 /// 对 PNG 图片字节进行 OCR 识别，返回文字内容。
@@ -26,7 +47,7 @@ pub fn recognize(png_bytes: &[u8]) -> Result<String, String> {
         .spawn()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
-                "OCR 不可用：未安装 tesseract。请运行 sudo apt install tesseract-ocr tesseract-ocr-chi-sim".to_string()
+                missing_tesseract_message().to_string()
             } else {
                 format!("启动 tesseract 失败: {}", e)
             }
