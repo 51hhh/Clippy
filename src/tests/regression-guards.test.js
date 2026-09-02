@@ -78,7 +78,7 @@ describe("原生平台由真实 runner 编译", () => {
 });
 
 describe("deb 只声明默认二进制真实需要的额外运行库", () => {
-  const deb = JSON.parse(read("src-tauri/tauri.conf.json")).bundle.linux.deb;
+  const deb = JSON.parse(read("src-tauri/tauri.linux.conf.json")).bundle.linux.deb;
 
   /**
    * Tauri 的 deb 打包器只会自动写 webkit2gtk / gtk 那几条，不做 shlibdeps 扫描。
@@ -93,6 +93,37 @@ describe("deb 只声明默认二进制真实需要的额外运行库", () => {
 
   it("PipeWire 保持为源码构建时显式启用的可选能力", () => {
     expect(deb.depends.some((item) => item.includes("pipewire"))).toBe(false);
+  });
+});
+
+describe("Tauri 打包目标按平台隔离", () => {
+  const base = JSON.parse(read("src-tauri/tauri.conf.json"));
+  const linux = JSON.parse(read("src-tauri/tauri.linux.conf.json"));
+  const windows = JSON.parse(read("src-tauri/tauri.windows.conf.json"));
+  const macos = JSON.parse(read("src-tauri/tauri.macos.conf.json"));
+
+  it("公共配置不携带任何平台专属 bundle", () => {
+    expect(base.bundle.targets).toBeUndefined();
+    expect(base.bundle.linux).toBeUndefined();
+    expect(base.bundle.windows).toBeUndefined();
+    expect(base.bundle.macOS).toBeUndefined();
+  });
+
+  it.each([
+    ["Linux", linux.bundle.targets, ["deb", "appimage"]],
+    ["Windows", windows.bundle.targets, ["nsis", "msi"]],
+    ["macOS", macos.bundle.targets, ["app", "dmg"]],
+  ])("%s 只构建自己的安装包", (_name, actual, expected) => {
+    expect(actual).toEqual(expected);
+  });
+
+  it("Windows 安装器会补装缺失的 WebView2", () => {
+    expect(windows.bundle.windows.webviewInstallMode.type).toBe("downloadBootstrapper");
+  });
+
+  it("macOS 最低版本与 AppKit/Quartz 后端一致", () => {
+    expect(macos.bundle.macOS.minimumSystemVersion).toBe("11.0");
+    expect(macos.identifier).not.toMatch(/\.app$/);
   });
 });
 
