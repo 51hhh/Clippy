@@ -93,6 +93,14 @@ pub fn run() {
             // ── 1. 确定数据目录 ──────────────────────────────────────────────
             let app_data_dir = app.path().app_data_dir().expect("无法获取应用数据目录");
             std::fs::create_dir_all(&app_data_dir).expect("无法创建应用数据目录");
+            let default_screenshot_dir = app
+                .path()
+                .picture_dir()
+                .unwrap_or_else(|error| {
+                    log::warn!("无法获取系统图片目录，退回兼容路径: {error}");
+                    image_io::default_screenshot_dir()
+                })
+                .join("Clippy");
 
             // ── 2. 加载配置 ──────────────────────────────────────────────────
             let config_path = app_data_dir.join("config.json");
@@ -134,6 +142,7 @@ pub fn run() {
                 storage,
                 config,
                 config_path,
+                default_screenshot_dir,
                 watcher,
                 preview_visible: Arc::new(Mutex::new(false)),
                 codec_visible: Arc::new(Mutex::new(false)),
