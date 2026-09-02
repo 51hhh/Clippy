@@ -24,8 +24,8 @@ usvg = "0.43"
 [dependencies]
 # macOS 的透明 WKWebView 是 Pin 透明留白/阴影的必要条件。Tauri 的构建脚本会把
 # Cargo feature 与公共配置一起校验，因此不能只把它放进 macOS target dependency；
-# 该 feature 在非 macOS 平台不启用私有系统 API。应用采用 Developer ID/DMG 直接分发，
-# 不走禁止私有 API 的 Mac App Store。
+# 该 feature 在非 macOS 平台不启用私有系统 API。应用当前采用 Ad-Hoc 签名的 DMG 直接分发，
+# 不走禁止私有 API 的 Mac App Store；它不代表 Developer ID 或公证信任。
 tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-updater = "2"

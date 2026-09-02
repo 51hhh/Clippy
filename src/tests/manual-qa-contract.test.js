@@ -47,6 +47,26 @@ describe("真机 QA 合同", () => {
     expect(ids).toContain("wayland_capture_fallbacks");
   });
 
+  it.each(["macos-intel", "macos-apple-silicon"])(
+    "%s 的签名合同与当前 Ad-Hoc 发布策略一致",
+    (profileId) => {
+      const signingCase = casesForProfile(profileId).find(
+        (testCase) => testCase.id === "adhoc_bundle_boundary",
+      );
+
+      expect(signingCase).toEqual({
+        id: "adhoc_bundle_boundary",
+        title: "Ad-Hoc 签名、目标架构、未公证边界与首次打开恢复",
+        acceptedStatuses: ["pass"],
+      });
+      expect(
+        casesForProfile(profileId).some(
+          (testCase) => testCase.id === "signed_notarized_bundle",
+        ),
+      ).toBe(false);
+    },
+  );
+
   it("公共合同覆盖完整产品能力而不只覆盖平台后端", () => {
     const ids = new Set(casesForProfile("linux-gnome-x11").map((testCase) => testCase.id));
 
