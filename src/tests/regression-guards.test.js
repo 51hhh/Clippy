@@ -378,3 +378,15 @@ describe("移动焦点不重渲整份列表", () => {
     expect(row).not.toMatch(/=>/);
   });
 });
+
+describe("截图诊断不泄露窗口身份", () => {
+  it("窗口探测只打印数量、状态与几何", () => {
+    const source = read("src-tauri/src/screenshot/backends.rs");
+    const start = source.indexOf("fn window_probe_diagnostics()");
+    expect(start).toBeGreaterThan(0);
+    const diagnostic = source.slice(start);
+    expect(diagnostic).toContain("window.is_minimized()");
+    expect(diagnostic).not.toContain("window.title()");
+    expect(diagnostic).not.toContain("window.pid()");
+  });
+});
