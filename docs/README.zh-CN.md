@@ -97,7 +97,7 @@ Windows 请安装当前 Tesseract 5 构建后重启 Clippy。Clippy 依次探测
 ```bash
 sudo apt install -y \
   libwebkit2gtk-4.1-dev build-essential curl wget file \
-  libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev pkg-config
+  libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev pkg-config xdg-utils
 
 cargo install tauri-cli --version "^2"
 
