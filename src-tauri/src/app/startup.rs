@@ -3,7 +3,7 @@ use tauri_plugin_autostart::ManagerExt;
 
 /// 防止开发期二进制被写入自启后抢占正式安装版实例。
 pub(crate) fn guard_dev_autostart(app: &tauri::App) {
-    if !is_dev_binary() {
+    if !crate::platform::is_dev_binary() {
         return;
     }
     let autostart = app.autolaunch();
@@ -66,16 +66,6 @@ fn webkit_diagnostic_policy(value: Option<&str>) -> WebkitDiagnosticPolicy {
             WebkitDiagnosticPolicy::Default
         }
         _ => WebkitDiagnosticPolicy::Default,
-    }
-}
-
-fn is_dev_binary() -> bool {
-    match std::env::current_exe() {
-        Ok(path) => {
-            let path = path.to_string_lossy();
-            path.contains("/target/debug/") || path.contains("/target/release/")
-        }
-        Err(_) => false,
     }
 }
 
