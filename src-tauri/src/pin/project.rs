@@ -15,7 +15,8 @@ pub(super) const PROJECT_KEYWORD: &str = "clippy-project";
 const PROJECT_FORMAT: &str = "clippy-pin-project";
 const LEGACY_PROJECT_VERSION: u32 = 2;
 pub(super) const PROJECT_VERSION: u32 = 3;
-pub(super) const RENDERER_VERSION: u32 = 1;
+pub(super) const LEGACY_RENDERER_VERSION: u32 = 1;
+pub(super) const RENDERER_VERSION: u32 = super::render_v2::RENDERER_VERSION;
 
 pub(super) const MAX_RENDERED_PNG_BYTES: usize = 64 * 1024 * 1024;
 pub(super) const MAX_SOURCE_PNG_BYTES: usize = 64 * 1024 * 1024;
@@ -94,6 +95,7 @@ impl PinProject {
     pub(super) fn new(
         source_png: &[u8],
         rendered_png: &[u8],
+        renderer_version: u32,
         annotations: Value,
         adjustments: Value,
     ) -> Result<Self, String> {
@@ -110,7 +112,7 @@ impl PinProject {
         Ok(Self {
             format: PROJECT_FORMAT.to_string(),
             format_version: PROJECT_VERSION,
-            renderer_version: RENDERER_VERSION,
+            renderer_version,
             created_at: chrono::Local::now().timestamp(),
             app_version: env!("CARGO_PKG_VERSION").to_string(),
             source: ProjectSource {
@@ -134,7 +136,10 @@ impl PinProject {
         ) {
             return Err("工程版本不受支持".to_string());
         }
-        if self.renderer_version != RENDERER_VERSION {
+        if !matches!(
+            self.renderer_version,
+            LEGACY_RENDERER_VERSION | RENDERER_VERSION
+        ) {
             return Err("工程渲染器版本不受支持".to_string());
         }
         if self.app_version.len() > 128 {
@@ -232,7 +237,11 @@ fn validate_png(png: &[u8], byte_limit: usize, name: &str) -> Result<(u32, u32),
 
 /// 在分配像素缓冲区前先校验文件大小和 IHDR 尺寸，再完成一次完整解码。
 /// 调用方需要像素做摘要或重编码时复用返回值，不能为了每一步重新解同一张 4K PNG。
-fn decode_png(png: &[u8], byte_limit: usize, name: &str) -> Result<image::RgbaImage, String> {
+pub(super) fn decode_png(
+    png: &[u8],
+    byte_limit: usize,
+    name: &str,
+) -> Result<image::RgbaImage, String> {
     if png.len() > byte_limit {
         return Err(format!("{name}超过 {} MiB 上限", byte_limit / 1024 / 1024));
     }
@@ -491,8 +500,17 @@ fn strip_project_chunks(png: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 fn validate_document(document: &ProjectDocument, width: u32, height: u32) -> Result<(), String> {
-    let annotations = document
-        .annotations
+    validate_canvas_document(&document.annotations, &document.adjustments, width, height)
+}
+
+/// 保存前的工程文档与导入工程使用同一条信任边界，renderer v2 不能另写一份宽松 schema。
+pub(super) fn validate_canvas_document(
+    annotations: &Value,
+    adjustments: &Value,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    let annotations = annotations
         .as_array()
         .ok_or_else(|| "annotations 必须是数组".to_string())?;
     if annotations.len() > MAX_ANNOTATIONS {
@@ -509,7 +527,7 @@ fn validate_document(document: &ProjectDocument, width: u32, height: u32) -> Res
             f64::from(height),
         )?;
     }
-    validate_adjustments(&document.adjustments)
+    validate_adjustments(adjustments)
 }
 
 fn validate_annotation(
@@ -742,7 +760,7 @@ mod tests {
 
     fn project() -> PinProject {
         let png = sample_png();
-        PinProject::new(&png, &png, annotations(), adjustments()).unwrap()
+        PinProject::new(&png, &png, RENDERER_VERSION, annotations(), adjustments()).unwrap()
     }
 
     #[test]
@@ -780,6 +798,19 @@ mod tests {
         assert!(upgraded.preview.is_some());
         assert_eq!(upgraded.source, legacy.source);
         assert_eq!(upgraded.document, legacy.document);
+    }
+
+    #[test]
+    fn legacy_renderer_v1_remains_readable_without_reinterpreting_pixels() {
+        let rendered = sample_png();
+        let mut legacy = project();
+        legacy.renderer_version = LEGACY_RENDERER_VERSION;
+        let container = embed(&rendered, &legacy).unwrap();
+
+        let restored = extract(&container).unwrap().unwrap();
+        assert_eq!(restored.renderer_version, LEGACY_RENDERER_VERSION);
+        assert_eq!(restored.preview, legacy.preview);
+        assert_eq!(flatten_container(&container).unwrap(), rendered);
     }
 
     #[test]
@@ -892,6 +923,7 @@ mod tests {
         let result = PinProject::new(
             &sample_png(),
             &sample_png(),
+            RENDERER_VERSION,
             serde_json::json!([{"id":"pen","type":"pen","color":"#fff","size":1,
                                "points":points}]),
             adjustments(),

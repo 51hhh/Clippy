@@ -477,8 +477,16 @@ fn prepare_canvas_save(
     project: Option<PinCanvasProject>,
 ) -> Result<(Vec<u8>, Vec<u8>), String> {
     let Some(png_base64) = png_base64 else {
-        if project.is_some() {
-            return Err("复用工程预览时不能提交新的工程数据".to_string());
+        if let Some(project) = project {
+            if project.renderer_version != super::render_v2::RENDERER_VERSION {
+                return Err("只有 renderer v2 文档可以由后端生成合成图".to_string());
+            }
+            let png = render_canvas_project(entry, &project)?;
+            let to_disk = match mode {
+                PinCanvasSaveMode::Flat => super::project::flatten(&png)?,
+                PinCanvasSaveMode::Editable => embed_canvas_project(&png, project, entry)?,
+            };
+            return Ok((png, to_disk));
         }
         let PinSource::Project {
             preview_png,
@@ -496,6 +504,12 @@ fn prepare_canvas_save(
     };
 
     let png = decode_canvas_png(png_base64)?;
+    if project
+        .as_ref()
+        .is_some_and(|project| project.renderer_version == super::render_v2::RENDERER_VERSION)
+    {
+        return Err("renderer v2 不接受 WebView 上传的合成 PNG".to_string());
+    }
     let to_disk = match mode {
         PinCanvasSaveMode::Flat => super::project::flatten(&png)?,
         PinCanvasSaveMode::Editable => {
@@ -680,7 +694,10 @@ fn embed_canvas_project(
     project: PinCanvasProject,
     entry: &PinEntry,
 ) -> Result<Vec<u8>, String> {
-    if project.renderer_version != super::project::RENDERER_VERSION {
+    if !matches!(
+        project.renderer_version,
+        super::project::LEGACY_RENDERER_VERSION | super::project::RENDERER_VERSION
+    ) {
         return Err("工程渲染器版本不受支持".to_string());
     }
     let source =
@@ -695,9 +712,26 @@ fn embed_canvas_project(
     if rendered_dimensions != dimensions {
         return Err("合成 PNG 尺寸必须与工程原图一致".to_string());
     }
-    let document =
-        super::project::PinProject::new(source, png, project.annotations, project.adjustments)?;
+    let document = super::project::PinProject::new(
+        source,
+        png,
+        project.renderer_version,
+        project.annotations,
+        project.adjustments,
+    )?;
     super::project::embed(png, &document)
+}
+
+/// renderer v2 的原图和最终像素都留在后端；前端只提交经过 schema 限制的操作文档。
+fn render_canvas_project(entry: &PinEntry, project: &PinCanvasProject) -> Result<Vec<u8>, String> {
+    let source = source_png(&entry.source).ok_or_else(|| "文本贴图不能渲染画布工程".to_string())?;
+    super::render_v2::render(
+        source,
+        project.source_width,
+        project.source_height,
+        &project.annotations,
+        &project.adjustments,
+    )
 }
 
 #[tauri::command]
@@ -972,6 +1006,7 @@ mod project_command_tests {
         let project = super::super::project::PinProject::new(
             &source,
             &preview,
+            super::super::project::RENDERER_VERSION,
             serde_json::json!([]),
             adjustments(),
         )
@@ -1010,6 +1045,7 @@ mod project_command_tests {
         let project = super::super::project::PinProject::new(
             &source,
             &preview,
+            super::super::project::RENDERER_VERSION,
             serde_json::json!([]),
             adjustments(),
         )
@@ -1049,6 +1085,49 @@ mod project_command_tests {
     fn ordinary_images_cannot_omit_the_latest_canvas_render() {
         let entry = screenshot_entry("pin-image-missing-render");
         assert!(prepare_canvas_save(&entry, None, PinCanvasSaveMode::Flat, None).is_err());
+    }
+
+    #[test]
+    fn renderer_v2_generates_one_authoritative_png_for_clipboard_and_container() {
+        let entry = screenshot_entry("pin-image-renderer-v2");
+        let project = PinCanvasProject {
+            renderer_version: super::super::render_v2::RENDERER_VERSION,
+            source_width: 1,
+            source_height: 1,
+            annotations: serde_json::json!([]),
+            adjustments: serde_json::json!({
+                "grayscale": false,
+                "brightness": 100,
+                "contrast": 0,
+                "saturation": 0,
+                "cornerRadius": 0
+            }),
+        };
+
+        let (clipboard, editable) = prepare_canvas_save(
+            &entry,
+            None,
+            PinCanvasSaveMode::Editable,
+            Some(project.clone()),
+        )
+        .unwrap();
+        let pixels = image::load_from_memory_with_format(&clipboard, image::ImageFormat::Png)
+            .unwrap()
+            .into_rgba8();
+        assert_eq!(pixels.as_raw(), &[20, 40, 60, 255]);
+        let restored = super::super::project::extract(&editable).unwrap().unwrap();
+        assert_eq!(restored.renderer_version, project.renderer_version);
+        assert_eq!(restored.document.annotations, project.annotations);
+        assert_eq!(restored.document.adjustments, project.adjustments);
+
+        let uploaded = STANDARD.encode(&clipboard);
+        assert!(prepare_canvas_save(
+            &entry,
+            Some(&uploaded),
+            PinCanvasSaveMode::Editable,
+            Some(project)
+        )
+        .is_err());
     }
 
     #[test]

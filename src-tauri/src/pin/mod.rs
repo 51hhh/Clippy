@@ -4,6 +4,7 @@ mod manager;
 mod model;
 mod origins;
 mod project;
+mod render_v2;
 mod resample;
 mod window;
 
