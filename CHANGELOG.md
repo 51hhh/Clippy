@@ -21,7 +21,8 @@
   Ubuntu 22 可用的 GSettings/D-Bus，Portal 不可用或被拒绝时保留可操作的手动绑定提示。
 - 公共 Tauri 配置只保留跨平台字段，Linux、Windows、macOS 分别生成 deb/AppImage、NSIS/MSI、
   app/DMG。普通 CI 专注三平台源码门禁；手动 Native QA workflow 按同一平台配置生成四架构测试包，
-  macOS 使用真实 ad-hoc 签名，并在 Ubuntu 24 运行 Ubuntu 22 构建的 AppImage 可视 smoke。
+  Windows 使用临时自签名并核对 Authenticode，macOS 使用真实 ad-hoc 签名，并在 Ubuntu 24 运行
+  Ubuntu 22 构建的 AppImage 可视 smoke。
 - Windows 正式 release 强制导入带代码签名私钥的 PFX，以 SHA-256 和 RFC 3161 时间戳签名；上传前
   同时验证 NSIS/MSI 的 Authenticode 状态和证书指纹；未配置 PFX 时改用 runner 临时自签名证书并在
   发布说明明确提示 SmartScreen 风险，不把自签名误写成公共 CA 信任。

@@ -28,8 +28,8 @@ Jammy job 执行完整 Rust 与前端门禁；Windows/macOS 原生 job 执行 Ru
 CI 通过后，在 GitHub Actions 中对同一 ref 手动运行 `Native QA Packages`。该 run 的 Artifacts 区会提供
 四套以完整 SHA 命名的 QA 安装包、Ubuntu 24 AppImage X11 smoke 证据，以及
 `qa-record-templates-<SHA>`。先核对安装包内的 `QA-BUILD.txt` 与 `SHA256SUMS.txt`，再使用同一 run
-生成的 JSON 记录；不要把其它 run、旧 SHA 或本地临时构建混入证据。Windows QA 包无正式签名，macOS
-QA 包仅做 Ad-Hoc 签名；updater 安装必须改用同 SHA 的正式 release 产物。当前正式 macOS release 也
+生成的 JSON 记录；不要把其它 run、旧 SHA 或本地临时构建混入证据。Windows QA 包使用临时自签名，
+macOS QA 包仅做 Ad-Hoc 签名；updater 安装必须改用同 SHA 的正式 release 产物。当前正式 macOS release 也
 采用 Ad-Hoc 签名，因此只能验证功能和更新链，不能作为 Developer ID、公证或 Gatekeeper 信任证据。
 
 ## 2. 生成绑定版本的记录
