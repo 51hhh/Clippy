@@ -11,6 +11,7 @@ mod macos;
 #[cfg(target_os = "macos")]
 pub(crate) use macos::{
     accessibility_trusted as macos_accessibility_trusted,
+    configure_pin_collection_behavior as configure_macos_pin_collection_behavior,
     request_accessibility_permission as request_macos_accessibility_permission,
     request_screen_capture_permission as request_macos_screen_capture_permission,
     screen_capture_trusted as macos_screen_capture_trusted,

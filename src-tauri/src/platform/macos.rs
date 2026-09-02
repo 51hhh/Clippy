@@ -66,3 +66,24 @@ pub(crate) fn screen_capture_trusted() -> bool {
 pub(crate) fn request_screen_capture_permission() -> bool {
     unsafe { CGRequestScreenCaptureAccess() }
 }
+
+/// 让贴图同时出现在全部 Spaces，并能伴随其它应用的原生全屏窗口显示。
+///
+/// `WebviewWindow::set_visible_on_all_workspaces` 只设置 `CanJoinAllSpaces`；AppKit 把
+/// “进入全屏 Space”单独建模为 `FullScreenAuxiliary`，所以这里必须在原生 NSWindow 上
+/// 合并两项而不是覆盖 Tauri 已经设置的其它行为。
+pub(crate) unsafe fn configure_pin_collection_behavior(
+    raw_window: *mut c_void,
+) -> Result<(), &'static str> {
+    use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
+
+    if raw_window.is_null() {
+        return Err("NSWindow 指针为空");
+    }
+    let window: &NSWindow = unsafe { &*raw_window.cast() };
+    let behavior = window.collectionBehavior()
+        | NSWindowCollectionBehavior::CanJoinAllSpaces
+        | NSWindowCollectionBehavior::FullScreenAuxiliary;
+    window.setCollectionBehavior(behavior);
+    Ok(())
+}
