@@ -72,7 +72,7 @@ try {
   if ($signingMode -eq "self-signed") {
     Export-Certificate -Cert $certificate -FilePath $cerPath | Out-Null
     $trustedCertificate = Import-Certificate -FilePath $cerPath `
-      -CertStoreLocation Cert:\CurrentUser\TrustedPeople
+      -CertStoreLocation Cert:\LocalMachine\TrustedPeople
     if (-not $trustedCertificate -or
         $trustedCertificate.Thumbprint.ToUpperInvariant() -ne $thumbprint) {
       throw "The self-signed certificate was not installed in TrustedPeople"

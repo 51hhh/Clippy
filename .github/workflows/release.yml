@@ -326,7 +326,7 @@ jobs:
             Remove-Item "Cert:\CurrentUser\My\$env:WINDOWS_CERTIFICATE_THUMBPRINT" `
               -Force -ErrorAction SilentlyContinue
             if ($env:WINDOWS_SIGNING_MODE -eq "self-signed") {
-              Remove-Item "Cert:\CurrentUser\TrustedPeople\$env:WINDOWS_CERTIFICATE_THUMBPRINT" `
+              Remove-Item "Cert:\LocalMachine\TrustedPeople\$env:WINDOWS_CERTIFICATE_THUMBPRINT" `
                 -Force -ErrorAction SilentlyContinue
             }
           }
