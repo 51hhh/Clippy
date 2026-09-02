@@ -65,6 +65,18 @@ describe("Linux CI 固守 Ubuntu 22 构建基线", () => {
   });
 });
 
+describe("原生平台由真实 runner 编译", () => {
+  const buildWorkflow = read(".github/workflows/build.yml");
+
+  it.each(["windows-latest", "macos-latest"])("%s 执行 check 与 clippy", (runner) => {
+    expect(buildWorkflow).toContain(runner);
+  });
+  it("原生 job 不用 Linux 交叉工具链冒充验证", () => {
+    expect(buildWorkflow).toMatch(/native-check:[\s\S]*cargo check --all-targets/);
+    expect(buildWorkflow).toMatch(/native-check:[\s\S]*cargo clippy --all-targets -- -D warnings/);
+  });
+});
+
 describe("deb 只声明默认二进制真实需要的额外运行库", () => {
   const deb = JSON.parse(read("src-tauri/tauri.conf.json")).bundle.linux.deb;
 
