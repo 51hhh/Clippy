@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { getCurrentWindowLabel, startDraggingCurrentWindow } from "../../js/api.ts";
 import { pngBase64ToObjectUrl } from "../annotation/pngPipeline";
 import { pinApi } from "./api";
@@ -161,7 +162,9 @@ export function App() {
     pinApi
       .onAlreadyOpen(() => {
         if (remindTimer.current !== null) window.clearTimeout(remindTimer.current);
-        setReminding(false);
+        // Tauri 事件不属于 React 合成事件；若 React 把摘 class 与下一帧重新添加合并，
+        // 浏览器看不到中间状态，连续按 Pin 时 CSS 动画不会重播。先同步提交摘除再等帧。
+        flushSync(() => setReminding(false));
         requestAnimationFrame(() => setReminding(true));
         remindTimer.current = window.setTimeout(() => {
           remindTimer.current = null;
