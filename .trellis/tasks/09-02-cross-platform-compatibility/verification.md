@@ -4,11 +4,11 @@
 
 审查基线：`621e36f289a386dcf84d26c77742f6b0f1eae31e`
 
-应用实现与三平台原生门禁已完成至：`7ff68b9c168d493e6b47e9ebd0042fcbe2dfc1e4`
+应用实现、九环境 QA 合同与三平台原生门禁已完成至：`5d703675aefc082e5ad10656f8288c05058200a1`
 
 ## 审查范围
 
-- 截至上述审查点，审查基线之后共 153 个提交，以及提交时仍存在的工作区内容。
+- 截至上述审查点，审查基线之后共 154 个提交，以及提交时仍存在的工作区内容。
 - 逐项检查截图、窗口命中、Pin、标注画布、可编辑 PNG、剪贴板、自动粘贴、快捷键、OCR、
   私有存储、自动启动、平台配置、CI 和 release 数据流。
 - `.omo/` 与 `.trellis/workspace/codex/` 是未跟踪的用户工作区，本次未读取、未修改、未提交。
@@ -28,7 +28,7 @@
 | GNOME 扩展静态检查 | 通过，Shell 45–51 |
 | `npm ci` | 通过，0 个已报告漏洞 |
 | `tsc --noEmit` | 通过 |
-| Vitest | 44 个文件、817 项测试通过 |
+| Vitest | 44 个文件、818 项测试通过 |
 | DOM/Xvfb smoke | 9 项通过 |
 | Canvas 导出像素 smoke | 通过，抽样像素 `0 208 0` |
 | 主窗口布局像素 smoke | 通过，抽样像素 `0 208 0` |
@@ -121,14 +121,14 @@
 ## 原生平台验证状态
 
 `dev` 与 `origin/dev` 已同步到实施 SHA
-`7ff68b9c168d493e6b47e9ebd0042fcbe2dfc1e4`。GitHub Actions run
-[`33636327379`](https://github.com/51hhh/Clippy/actions/runs/33636327379) 对这个完整 SHA 给出三项原生
+`5d703675aefc082e5ad10656f8288c05058200a1`。GitHub Actions run
+[`33637964462`](https://github.com/51hhh/Clippy/actions/runs/33637964462) 对这个完整 SHA 给出三项原生
 job 全绿；`scripts/verify-native-ci.mjs` 再从 check-runs API 独立核对精确 job 名、状态和结论，结果为
 PASS。机器生成的逐 job 时间与链接保存在 [native-ci-evidence.md](native-ci-evidence.md)。
 
 | 原生 job | 结果 | 已执行门禁 |
 |---|---|---|
-| `Check (ubuntu-22.04)` | `completed/success` | fmt、check、Jammy 依赖基线、clippy、425 项 Rust 测试、815 项前端测试、DOM/Xvfb、typecheck、build |
+| `Check (ubuntu-22.04)` | `completed/success` | fmt、check、Jammy 依赖基线、clippy、425 项 Rust 测试、817 项前端测试、DOM/Xvfb、typecheck、build |
 | `Native Check (windows-latest)` | `completed/success` | 原生 check/clippy/test、前端 test/typecheck/build、Tauri bundle、NSIS/MSI 产物核对 |
 | `Native Check (macos-latest)` | `completed/success` | 原生 check/clippy/test、前端 test/typecheck/build、Tauri bundle、app/DMG 产物核对 |
 
@@ -148,6 +148,9 @@ Linux 主机上的 Windows 交叉检查仍会因缺少 MSVC `lib.exe`/SDK 及 C 
 逐场景要求实际状态、文字观测和证据引用，安全降级还必须记录精确 reason code；缺失、重复、额外场景
 或 `not_run` 均返回失败。完整操作步骤见 `docs/native-qa.md`。下表仍保持人读摘要，最终结论以通过校验
 且与原生 CI 同 SHA 的记录为准。
+公共合同另外锁定监听与去重、搜索/收藏/清理/统计、键盘状态机、全部 codec 操作、安全富预览与 URL 元数据、
+多服务翻译/TTS/隐私、主题/语言/设置持久化、托盘/单实例/窗口复用、自启动、tmux 平台行为和诊断隐私，
+防止只测平台后端却漏掉产品功能。
 
 | 平台/会话 | 必测场景 | 状态 |
 |---|---|---|

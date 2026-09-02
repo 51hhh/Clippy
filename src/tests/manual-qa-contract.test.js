@@ -47,6 +47,27 @@ describe("真机 QA 合同", () => {
     expect(ids).toContain("wayland_capture_fallbacks");
   });
 
+  it("公共合同覆盖完整产品能力而不只覆盖平台后端", () => {
+    const ids = new Set(casesForProfile("linux-gnome-x11").map((testCase) => testCase.id));
+
+    for (const id of [
+      "clipboard_monitoring",
+      "history_search_favorites",
+      "keyboard_navigation",
+      "codec_tools",
+      "rich_preview_safety",
+      "translation_roundtrip",
+      "translation_privacy_tts",
+      "settings_theme_i18n",
+      "tray_single_instance",
+      "autostart_roundtrip",
+      "tmux_platform_behavior",
+      "diagnostics_privacy",
+    ]) {
+      expect(ids.has(id), `${id} 应进入每个平台的公共合同`).toBe(true);
+    }
+  });
+
   it.each(Object.keys(QA_PROFILES))("%s 的完整证据可以通过", (profileId) => {
     const verification = verifyQaRecord(completedRecord(profileId));
     expect(verification.errors).toEqual([]);
