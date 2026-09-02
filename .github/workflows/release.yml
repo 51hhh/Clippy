@@ -55,11 +55,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 只保留 ubuntu-24.04，原因见 build.yml：xcap 0.9 → libspa 0.9 需要
-        # pipewire ≥ 0.3.65 的头文件，jammy 只有 0.3.48，编译不过。
+        # Ubuntu 22.04 是 Linux 发行基线；默认截图路径不编译可选 PipeWire 增强后端。
         include:
-          - runner: ubuntu-24.04
-            label: ubuntu24
+          - runner: ubuntu-22.04
+            label: ubuntu22
     steps:
       - uses: actions/checkout@v4
 
@@ -70,11 +69,17 @@ jobs:
             libwebkit2gtk-4.1-dev libgtk-3-dev build-essential curl wget file \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
             pkg-config squashfs-tools \
-            libpipewire-0.3-dev \
             libgbm-dev libegl-dev libdrm-dev libwayland-dev libxcb1-dev
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify Ubuntu 22 dependency baseline
+        run: |
+          if cd src-tauri && cargo tree --target x86_64-unknown-linux-gnu -e normal | grep -q 'pipewire v'; then
+            echo '::error::Default Linux dependency graph must not include pipewire-rs'
+            exit 1
+          fi
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -143,8 +148,8 @@ jobs:
             gh release upload "${TAG}" "$f" --repo "${{ github.repository }}" --clobber
           done
 
-      - name: Upload default artifacts for updater (ubuntu24 only)
-        if: matrix.label == 'ubuntu24'
+      - name: Upload default artifacts for updater (ubuntu22 baseline)
+        if: matrix.label == 'ubuntu22'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -194,14 +199,14 @@ jobs:
 
           ## 下载
 
-          ### Linux（Ubuntu 24.04+ / 同等 glibc 发行版）
+          ### Linux（Ubuntu 22.04+ / 同等 glibc 发行版）
           #### DEB 包
-          - Ubuntu 24.04+：[64位](${DL}/Clippy_${VER}_amd64_ubuntu24.deb)
+          - Ubuntu 22.04+：[64位](${DL}/Clippy_${VER}_amd64_ubuntu22.deb)
 
           #### AppImage（支持自动更新）
-          - Ubuntu 24.04+：[64位](${DL}/Clippy_${VER}_amd64_ubuntu24.AppImage)
+          - Ubuntu 22.04+：[64位](${DL}/Clippy_${VER}_amd64_ubuntu22.AppImage)
 
-          > 本版起不再提供 Ubuntu 22.04 构建：截图功能依赖的 pipewire 头文件在 22.04 上过旧（需 ≥ 0.3.65，jammy 只有 0.3.48）。22.04 用户请留在 v0.1.16 或自行编译。
+          > 默认构建使用兼容 Ubuntu 22.04 的截图后端；新版 Linux 环境仍可从源码显式启用 `linux-pipewire` 增强后端。
 
           > OCR 功能需要单独安装 tesseract：\`sudo apt install tesseract-ocr tesseract-ocr-chi-sim\`
 
