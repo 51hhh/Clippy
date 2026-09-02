@@ -4,11 +4,11 @@
 
 审查基线：`621e36f289a386dcf84d26c77742f6b0f1eae31e`
 
-实现与最近一次完整本机 CI 已审查至：`9b560105673539e2af7068ed83b4d8ae50982706`
+实现与最近一次完整本机 CI 已审查至：`7420d8a1db4c015f87e05097384e1a7dd5673171`
 
 ## 审查范围
 
-- 截至上述实现审查点，审查基线之后共 137 个提交，以及提交时仍存在的工作区内容。
+- 截至上述实现审查点，审查基线之后共 140 个提交，以及提交时仍存在的工作区内容。
 - 逐项检查截图、窗口命中、Pin、标注画布、可编辑 PNG、剪贴板、自动粘贴、快捷键、OCR、
   私有存储、自动启动、平台配置、CI 和 release 数据流。
 - `.omo/` 与 `.trellis/workspace/codex/` 是未跟踪的用户工作区，本次未读取、未修改、未提交。
@@ -28,7 +28,7 @@
 | GNOME 扩展静态检查 | 通过，Shell 45–51 |
 | `npm ci` | 通过，0 个已报告漏洞 |
 | `tsc --noEmit` | 通过 |
-| Vitest | 44 个文件、812 项测试通过 |
+| Vitest | 44 个文件、813 项测试通过 |
 | DOM/Xvfb smoke | 9 项通过 |
 | Canvas 导出像素 smoke | 通过，抽样像素 `0 208 0` |
 | 主窗口布局像素 smoke | 通过，抽样像素 `0 208 0` |
@@ -102,10 +102,25 @@
   I2b、I3 全部 PASS。XWayland/xcap 同时误报两屏为 2.0，证明运行时没有拿错误来源覆盖可信几何。
   命令行模式没有 Tauri 窗口和覆盖层会话，所以 I4 明确为“未观测”、I5 为“未检查”，没有伪记 PASS。
   该几何已经由 `gnome-dual-mixed-scale.json` 覆盖；仅运行期 output ID/枚举顺序不同，不重复添加 fixture。
+- 同一真实桌面环境继续运行后端逐链路诊断：当前会话中的扩展协议为 v4、磁盘为 v5，因此逐屏 v5
+  路径按预期拒绝；扩展整屏舞台图和非交互 Portal 均返回两块有效画面，分别为 2880×1800
+  （平均亮度约 236.8、全黑 0%、全透明 0%）与 3840×2160（平均亮度约 233.5、全黑 2.5%、
+  全透明 0%）。wlroots 因会话没有所需协议而拒绝，GNOME Screenshot D-Bus 被策略拒绝；xcap 则给出
+  错误的 2.0 缩放与一块 14.2% 透明画面。实际选择链仍取得扩展与 `wl_output` 的可信帧，证明回退链
+  能区分“后端可调用”和“几何/像素可信”。
+- `capture_stage_timings` 真机探针显示：扩展 Screenshot D-Bus 680.8 ms、2102192 字节文件读取
+  1.3 ms、6720×2412 PNG 解码 131.0 ms，`capture_monitor_frames` 总计 1039.0 ms；窗口枚举 4.3 ms、
+  候选探测 3.7 ms；两屏 PNG 编码/BASE64 分别为 73.0/0.5 ms（1050/1400 KiB）和
+  100.4/1.1 ms（1501/2002 KiB）。这些数字说明当前会话因扩展尚未注销升级到 v5，仍在使用较慢的
+  PNG 兜底，不把它误记成 Mutter ScreenCast 快速路径结果。
+- 脱敏后的 `window_probe_diagnostics` 枚举到 2 个窗口，耗时 0.802 ms；输出只包含最小化状态与几何，
+  不包含标题或 PID。枚举后再次截取两屏均成功，平均亮度约 236.4/233.8、全黑 0%/2.5%、全透明均
+  为 0%，证明窗口枚举没有污染后续截图。以上三组结果只属于当前 Ubuntu 26 GNOME Wayland 主机，
+  不替代 Ubuntu 22 GNOME 42 profile，也没有被写成八环境真机验收通过。
 
 ## 原生平台验证状态
 
-截至上述审查点，`dev` 比 `origin/dev` 多 163 个本地提交。公开 GitHub API 显示最近一次
+截至上述实现审查点，`dev` 比 `origin/dev` 多 166 个本地提交。公开 GitHub API 显示最近一次
 `build.yml` 成功运行是 2026-08-30 的 run 60、commit
 `8f6c1b57ad844ebc98254b9f88b16e88f3cce314`；该 run 只有一个 `Check (ubuntu-24.04)` job，明确没有
 执行本轮新增的 `windows-latest` / `macos-latest` 原生矩阵，也不包含本轮实现。
@@ -144,6 +159,8 @@ Windows、macOS 三个精确 job 名全部为 `completed/success`。用上述远
 
 ## 已修复的审查问题
 
+- 真实桌面用的窗口探测诊断原先会把窗口标题和 PID 打到终端，违反诊断证据的隐私边界；现在只输出
+  窗口数量、最小化状态和几何，并由前端回归守卫禁止 `.title()`/`.pid()` 重新进入该诊断函数。
 - Windows 无法用 Unix `rename` 原子覆盖已有配置：改用 `MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH)`。
 - Windows Portal restore token 的滚动更新同样无法用 `std::fs::rename` 覆盖已有目标：配置与 token
   现共用跨平台私有文件原子替换函数，并回归验证连续两次写入和最终权限。
