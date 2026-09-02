@@ -1,7 +1,7 @@
 import { Clipboard, FolderOpen, Search } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { currentLocale } from "../../i18n/i18n.js";
-import { openPinImageDialog } from "../../js/api.ts";
+import { onPasteFallback, openPinImageDialog, type PasteOutcome } from "../../js/api.ts";
 import { t } from "../shared/i18n";
 import { clipboardStore } from "./clipboardStore";
 import { ClipboardRow, type ClipboardRowHandlers } from "./ClipboardRow";
@@ -31,6 +31,7 @@ export function ClipboardWorkspace() {
   );
   const searchRef = useRef<HTMLInputElement>(null);
   const [openError, setOpenError] = useState(false);
+  const [pasteFallback, setPasteFallback] = useState<PasteOutcome | null>(null);
   const items = snapshot.mode === "favorites" ? snapshot.favorites : snapshot.all;
   const navigation = snapshot.navigation;
   // 语言是渲染的隐式输入（`t()` 不是 props 的函数），所以要显式喂给被 memo 的行，
@@ -45,6 +46,21 @@ export function ClipboardWorkspace() {
     const onOpenError = () => setOpenError(true);
     window.addEventListener("pin-image-open-error", onOpenError);
     return () => window.removeEventListener("pin-image-open-error", onOpenError);
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void onPasteFallback((outcome) => {
+      if (!disposed) setPasteFallback(outcome);
+    }).then((stop) => {
+      if (disposed) stop();
+      else unlisten = stop;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, []);
 
   useEffect(() => {
@@ -124,6 +140,17 @@ export function ClipboardWorkspace() {
         <kbd>Ctrl+O</kbd>
       </button>
       {openError && <div className="open-image-error" role="alert">{t("pin.openImageFailed")}</div>}
+      {pasteFallback && (
+        <div className="paste-fallback" role="status" title={pasteFallback.detail ?? ""}>
+          <span>
+            {t("clipboard.pasteFallback")}
+            {pasteFallback.reason_code ? ` (${pasteFallback.reason_code})` : ""}
+          </span>
+          <button type="button" onClick={() => setPasteFallback(null)} aria-label={t("action.dismiss")}>
+            ×
+          </button>
+        </div>
+      )}
 
       <footer id="segment-tabs" className="segment-tabs" role="tablist">
         <span className="segment-indicator" data-position={snapshot.mode === "favorites" ? "left" : "right"} />

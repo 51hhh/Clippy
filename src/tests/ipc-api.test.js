@@ -44,6 +44,7 @@ import {
   hideCurrentWindow,
   isAutostartEnabled,
   onClipAdded,
+  onPasteFallback,
   pickScreenshotDirectory,
   runCaptureDiagnostics,
   commitCaptureAction,
@@ -228,6 +229,28 @@ describe("typed IPC wrappers", () => {
 
     expect(listen).toHaveBeenCalledWith("clip-added", expect.any(Function));
     expect(callback).toHaveBeenCalledWith(clip);
+  });
+
+  it("delivers structured automatic-paste fallback reasons", async () => {
+    let listener;
+    listen.mockImplementation((_event, callback) => {
+      listener = callback;
+      return Promise.resolve(vi.fn());
+    });
+    const callback = vi.fn();
+    const outcome = {
+      copied: true,
+      pasted: false,
+      backend: "windows_send_input",
+      reason_code: "native_focus_not_restored",
+      detail: "blocked by UIPI",
+    };
+
+    await onPasteFallback(callback);
+    listener({ payload: outcome });
+
+    expect(listen).toHaveBeenCalledWith("paste-fallback", expect.any(Function));
+    expect(callback).toHaveBeenCalledWith(outcome);
   });
 
   it("keeps current-window access behind the typed boundary", () => {

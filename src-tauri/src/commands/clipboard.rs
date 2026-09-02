@@ -68,25 +68,45 @@ pub async fn select_clip(
     if !auto_paste {
         return Ok(PasteOutcome::copied_only(
             state.paste_manager.backend(),
+            Some("auto_paste_disabled".to_string()),
             Some("Automatic paste is disabled".to_string()),
         ));
     }
 
     match state.paste_manager.paste().await {
-        Ok(outcome) => Ok(outcome),
+        Ok(outcome) => {
+            if !outcome.pasted {
+                reveal_paste_fallback(&app_handle, &outcome);
+            }
+            Ok(outcome)
+        }
         Err(error) => {
             // Wayland 尚未授权是正常路径：用户可以在设置里显式授权，这里只降级为纯复制。
             let context = "自动粘贴失败，内容已保留在剪贴板";
+            let reason_code = error.code().to_string();
             let detail = if error.is_authorization_failure() {
                 crate::error::note(context, error)
             } else {
                 crate::error::report(context, error)
             };
-            let outcome = PasteOutcome::copied_only(state.paste_manager.backend(), Some(detail));
-            let _ = app_handle.emit("paste-fallback", &outcome);
+            let outcome = PasteOutcome::copied_only(
+                state.paste_manager.backend(),
+                Some(reason_code),
+                Some(detail),
+            );
+            reveal_paste_fallback(&app_handle, &outcome);
             Ok(outcome)
         }
     }
+}
+
+/// 自动粘贴失败时内容已安全进入剪贴板，但不能让主面板继续隐藏：
+/// 否则用户既看不到降级原因，也不知道可以手动按 Ctrl/Cmd+V。
+fn reveal_paste_fallback(app_handle: &tauri::AppHandle, outcome: &PasteOutcome) {
+    if let Err(error) = crate::window_controller::show_main_window(app_handle) {
+        log::warn!("自动粘贴降级后恢复主面板失败: {error}");
+    }
+    let _ = app_handle.emit("paste-fallback", outcome);
 }
 
 /// 纯复制命令，供 Pin 和其他不应注入按键的入口使用。

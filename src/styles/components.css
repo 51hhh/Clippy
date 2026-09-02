@@ -74,6 +74,34 @@
   background: var(--bg-hover);
 }
 
+.paste-fallback {
+  position: absolute;
+  right: 10px;
+  bottom: 50px;
+  left: 10px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+  font-size: 12px;
+}
+
+.paste-fallback button {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+
 /* ---------- 右侧预览面板 ---------- */
 .preview-panel {
   flex: 1;

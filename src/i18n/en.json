@@ -1,6 +1,7 @@
 {
   "search.placeholder": "Search clipboard history...",
   "clipboard.history": "Clipboard history",
+  "clipboard.pasteFallback": "Copied. Automatic paste was blocked; press Ctrl/Cmd+V manually",
   "search.escHint": "Esc",
   "tabs.all": "All",
   "tabs.favorites": "Favorites",
@@ -19,6 +20,7 @@
   "action.ocrEmpty": "No text recognized",
   "action.ocrCopyHint": "Ctrl+C to copy selected text",
   "action.more": "More actions",
+  "action.dismiss": "Dismiss",
   "time.justNow": "just now",
   "time.minutesAgo": "{n} min ago",
   "time.hoursAgo": "{n} hr ago",
