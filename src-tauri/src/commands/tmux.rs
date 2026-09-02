@@ -6,19 +6,32 @@ use tauri::State;
 #[tauri::command]
 pub fn toggle_tmux_capture(enabled: bool, state: State<AppState>) -> Result<(), String> {
     #[cfg(not(target_os = "linux"))]
-    if enabled {
-        return Err("tmux clipboard capture is not available on this platform".to_string());
-    }
-    if enabled {
-        setup_tmux_hook()?;
-    } else {
-        teardown_tmux_hook();
+    {
+        if enabled {
+            return Err("tmux clipboard capture is not available on this platform".to_string());
+        }
+
+        // 配置可能从 Linux 设备同步而来。非 Linux 系统只需将其关闭，
+        // 不应尝试执行或恢复本机根本不存在的 tmux 绑定。
+        let mut config = state.config.lock().map_err(|e| e.to_string())?;
+        config.tmux_capture = false;
+        save_config(&state.config_path, &config);
+        return Ok(());
     }
 
-    let mut config = state.config.lock().map_err(|e| e.to_string())?;
-    config.tmux_capture = enabled;
-    save_config(&state.config_path, &config);
-    Ok(())
+    #[cfg(target_os = "linux")]
+    {
+        if enabled {
+            setup_tmux_hook()?;
+        } else {
+            teardown_tmux_hook();
+        }
+
+        let mut config = state.config.lock().map_err(|e| e.to_string())?;
+        config.tmux_capture = enabled;
+        save_config(&state.config_path, &config);
+        Ok(())
+    }
 }
 
 /// 检测 tmux 是否可用。
@@ -36,6 +49,7 @@ pub fn tmux_available() -> bool {
 }
 
 /// 配置 tmux copy-mode 绑定和 after-copy-mode 兜底 hook。
+#[cfg(target_os = "linux")]
 pub(crate) fn setup_tmux_hook() -> Result<(), String> {
     let buf_path = tmux_buf_path();
     if let Some(parent) = buf_path.parent() {
@@ -141,6 +155,7 @@ pub(crate) fn setup_tmux_hook() -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
 fn teardown_tmux_hook() {
     let _ = std::process::Command::new("tmux")
         .args([
