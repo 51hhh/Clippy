@@ -141,3 +141,27 @@ jobs:
       - name: Native frontend build
         working-directory: src
         run: npx vite build
+
+      # 普通 CI 没有 updater 私钥或发布证书，但仍必须真正跑过 Tauri bundler；
+      # --no-sign 只跳过平台代码签名，tauri.ci.conf.json 只关闭 updater 附加产物，
+      # Windows 的 NSIS/MSI 与 macOS 的 app/DMG 目标仍来自各自的平台配置。
+      - name: Native Tauri bundle smoke
+        timeout-minutes: 30
+        run: npx --prefix src tauri build --ci --no-sign --config src-tauri/tauri.ci.conf.json
+
+      - name: Verify Windows bundle outputs
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bundle = "src-tauri/target/release/bundle"
+          $nsis = Get-ChildItem "$bundle/nsis" -File -Filter "*-setup.exe" -ErrorAction SilentlyContinue
+          $msi = Get-ChildItem "$bundle/msi" -File -Filter "*.msi" -ErrorAction SilentlyContinue
+          if (-not $nsis) { throw "Native CI did not generate an NSIS installer" }
+          if (-not $msi) { throw "Native CI did not generate an MSI installer" }
+
+      - name: Verify macOS bundle outputs
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          find src-tauri/target/release/bundle/macos -maxdepth 1 -type d -name '*.app' -print -quit | grep -q .
+          find src-tauri/target/release/bundle/dmg -maxdepth 1 -type f -name '*.dmg' -print -quit | grep -q .
