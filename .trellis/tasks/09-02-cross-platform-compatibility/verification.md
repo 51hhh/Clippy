@@ -261,8 +261,9 @@ Linux 主机上的 Windows 交叉检查仍会因缺少 MSVC `lib.exe`/SDK 及 C 
   Windows 新版安装器来自 Tesseract 文档列出的第三方构建，正式捆绑前仍需单独完成来源、许可、
   DLL、traineddata、签名和更新策略审计。
 - Windows Authenticode workflow 已接入；仓库没有 `WINDOWS_CERTIFICATE*` 时会在 runner 的个人证书库
-  生成临时自签名证书，不导入 Root 信任库，并验证 NSIS/MSI 的摘要与 signer thumbprint。该模式不建立公共 CA 信任，
-  正式页面必须保留 SmartScreen 警告；首次 tag 运行仍需补齐实际 runner 证据。
+  生成临时自签名证书，并只把其公钥短暂加入 `CurrentUser\TrustedPeople`，使 NSIS/MSI 的摘要校验
+  必须严格返回 `Valid`；验证后删除个人证书与临时信任，不导入 Root 信任库。该模式不建立公共 CA
+  信任，正式页面必须保留 SmartScreen 警告；首次 tag 运行仍需补齐实际 runner 证据。
 - macOS Intel/Apple Silicon 已固定进入 release 并使用 Ad-Hoc 签名；这满足当前功能分发策略，但不建立
   Developer ID、公证或 Gatekeeper 公共信任。首次 tag 运行仍需补齐两架构产物与 updater 的 runner 证据。
 - Tauri 2.11 的默认 linuxdeploy 路径仍会生成包含 `libwayland-*` 的原始 AppImage；Clippy 正式
