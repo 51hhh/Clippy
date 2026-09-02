@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/error-handling.md","reason":"检查平台失败路径和 IPC 错误是否安全"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"执行 Rust 完整质量门禁"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"核对平台能力 IPC schema 和外部输入验证"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"执行前端门禁并检查能力 UI 无不安全 DOM 操作"}
+{"file":".trellis/tasks/09-02-cross-platform-compatibility/research/platform-capability-matrix.md","reason":"按平台矩阵核对实现与降级声明"}
+{"file":".trellis/tasks/09-02-cross-platform-compatibility/info.md","reason":"按阶段和提交边界审核完成度"}

@@ -1,0 +1,10 @@
+{"file":".trellis/spec/backend/index.md","reason":"遵循 Rust/Tauri 后端总体约定"}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"平台模块必须符合 feature 子目录和 wiring layer 约定"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"平台探测和原生接口失败必须结构化传播且不 panic"}
+{"file":".trellis/spec/backend/external-tools.md","reason":"OCR 和 Linux 系统依赖需要遵循跨版本外部工具约束"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Rust 实现和测试质量门禁"}
+{"file":".trellis/spec/frontend/index.md","reason":"平台能力 IPC 必须通过统一 typed wrapper"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"PlatformCapabilities 是新的跨 IPC 数据契约"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"前端能力降级 UI 和测试约束"}
+{"file":".trellis/tasks/09-02-cross-platform-compatibility/research/platform-capability-matrix.md","reason":"实现时依据已核验的平台接口、版本差异和硬边界"}
+{"file":".trellis/tasks/09-02-cross-platform-compatibility/info.md","reason":"分阶段技术设计和小步提交边界"}
