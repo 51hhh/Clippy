@@ -16,7 +16,7 @@ pub fn toggle_tmux_capture(enabled: bool, state: State<AppState>) -> Result<(), 
         let mut config = state.config.lock().map_err(|e| e.to_string())?;
         config.tmux_capture = false;
         save_config(&state.config_path, &config);
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(target_os = "linux")]
