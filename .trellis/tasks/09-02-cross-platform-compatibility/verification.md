@@ -4,11 +4,11 @@
 
 审查基线：`621e36f289a386dcf84d26c77742f6b0f1eae31e`
 
-代码与 CI 已审查至：`4db4f6743507efb9496c120160def800c24deaa2`
+代码与 CI 已审查至：`7a1685df1180ebbff658b7c1fd6f7ee99e713d3e`
 
 ## 审查范围
 
-- 审查基线之后 103 个提交、132 个变更文件，以及提交时仍存在的工作区内容。
+- 审查基线之后 104 个提交、132 个变更文件，以及提交时仍存在的工作区内容。
 - 逐项检查截图、窗口命中、Pin、标注画布、可编辑 PNG、剪贴板、自动粘贴、快捷键、OCR、
   私有存储、自动启动、平台配置、CI 和 release 数据流。
 - `.omo/` 与 `.trellis/workspace/codex/` 是未跟踪的用户工作区，本次未读取、未修改、未提交。
@@ -28,7 +28,7 @@
 | GNOME 扩展静态检查 | 通过，Shell 45–51 |
 | `npm ci` | 通过，0 个已报告漏洞 |
 | `tsc --noEmit` | 通过 |
-| Vitest | 41 个文件、774 项测试通过 |
+| Vitest | 41 个文件、778 项测试通过 |
 | DOM/Xvfb smoke | 9 项通过 |
 | Canvas 导出像素 smoke | 通过，抽样像素 `0 208 0` |
 | 主窗口布局像素 smoke | 通过，抽样像素 `0 208 0` |
@@ -52,11 +52,15 @@
 - 原生 CI 增加真正的 Tauri bundle smoke：关闭 updater 附加产物和代码签名，但不关闭 bundler；
   Windows 必须生成 NSIS/MSI，macOS 必须生成 app/DMG。本机已用同一 CI 配置完成
   `tauri build --debug --no-bundle`，验证配置合并、前端钩子和应用构建；安装包仍必须由原生 runner 生成。
+- 已按仓库锁定的 Tauri CLI 2.11.4 / bundler 2.9.4 复核 updater 产物：`true` 模式下 Linux
+  AppImage 与 Windows NSIS/MSI 是自包含更新器并直接签名，macOS 使用 `app.tar.gz`；工作流收集的
+  文件名和 `linux/windows/darwin` 四个 `OS-ARCH` manifest key 与该规则一致。旧式 zip/tar 规则仅
+  属于已弃用的 `v1Compatible` 模式。本结论是源码/配置审查，产物仍需原生 release job 验证。
 - `git diff --check` 通过。
 
 ## 原生平台验证状态
 
-当前 `dev` 比 `origin/dev` 多 129 个本地提交。GitHub 上最近一次 `build.yml` 成功运行是
+当前 `dev` 比 `origin/dev` 多 130 个本地提交。GitHub 上最近一次 `build.yml` 成功运行是
 2026-08-30 的 `8f6c1b57ad844ebc98254b9f88b16e88f3cce314`，不包含本轮改动。
 
 - Windows MSVC：完整工程在 Linux 主机交叉检查时缺少 `llvm-rc`、MSVC `lib.exe`/SDK 以及

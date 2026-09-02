@@ -31,6 +31,9 @@
   `cargo check` 或 `vite build` 代替安装包门禁：https://v2.tauri.app/distribute/
 - `createUpdaterArtifacts` 只控制 updater 附加产物，普通 CI 可关闭它以避免要求 updater 私钥，同时
   仍实际生成平台安装包：https://v2.tauri.app/plugin/updater/
+- Tauri v2 的 `createUpdaterArtifacts: true` 对 AppImage、NSIS、MSI 直接生成签名，对 macOS 生成
+  `app.tar.gz`；静态 manifest key 使用 `OS-ARCH`。旧式 AppImage/Windows zip 更新包属于
+  `v1Compatible` 模式：https://v2.tauri.app/plugin/updater/
 - Tauri AppImage 应在最老支持发行版构建，避免无意抬高 glibc 基线：https://v2.tauri.app/distribute/appimage/
 - Tauri global-shortcut 插件覆盖 Linux、Windows、macOS：https://v2.tauri.app/plugin/global-shortcut/
 - Tauri 文档提醒 macOS GUI 应用不继承 shell dotfiles 中的 PATH，因此 OCR 不能只依赖 `Command::new("tesseract")`：https://v2.tauri.app/distribute/macos-application-bundle/
