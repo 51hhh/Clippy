@@ -13,18 +13,12 @@ concurrency:
 
 permissions:
   contents: read
-  artifact-metadata: write
 
 jobs:
   check:
-    name: Check (${{ matrix.runner }})
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        # Linux 发布基线是 Ubuntu 22.04。默认依赖图不得启用可选的 linux-pipewire，
-        # 从 Jammy 构建可保证产物不会意外要求更高版本的 glibc 或 PipeWire 头文件。
-        runner: [ubuntu-22.04]
+    name: Check (ubuntu-22.04)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
 
@@ -34,7 +28,7 @@ jobs:
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev libgtk-3-dev build-essential curl wget file \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
-            pkg-config squashfs-tools xvfb x11-utils xdg-utils \
+            pkg-config xvfb x11-utils xdg-utils \
             libgbm-dev libegl-dev libdrm-dev libwayland-dev libxcb1-dev
 
       - name: Setup Rust
@@ -45,26 +39,29 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
-          # runner 名是发行基线的一部分；Linux 不能复用较新 glibc 主机生成的 target。
+          # Jammy 是发布基线，缓存键不能与更高 glibc 的 Linux runner 共用。
           prefix-key: v1-rust
-          key: ${{ matrix.runner }}
+          key: ubuntu-22.04
           workspaces: src-tauri
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: "npm"
+          cache: npm
           cache-dependency-path: src/package-lock.json
 
       - name: Install frontend dependencies
-        run: cd src && npm ci
+        working-directory: src
+        run: npm ci
 
       - name: Rust format check
-        run: cd src-tauri && cargo fmt -- --check
+        working-directory: src-tauri
+        run: cargo fmt -- --check
 
       - name: Rust check
-        run: cd src-tauri && cargo check --all-targets
+        working-directory: src-tauri
+        run: cargo check --all-targets
 
       - name: Verify Ubuntu 22 dependency baseline
         run: |
@@ -74,86 +71,35 @@ jobs:
           fi
 
       - name: Rust clippy
-        run: cd src-tauri && cargo clippy --all-targets -- -D warnings
+        working-directory: src-tauri
+        run: cargo clippy --all-targets -- -D warnings
 
       - name: Rust tests
-        run: cd src-tauri && cargo test
+        working-directory: src-tauri
+        run: cargo test
 
       - name: GNOME extension check
         run: ./scripts/check-gnome-extension.sh
 
       - name: Frontend tests
-        run: cd src && npx vitest run
+        working-directory: src
+        run: npx vitest run
 
       - name: DOM/Xvfb smoke
         run: ./scripts/smoke-dom.sh
 
       - name: Frontend typecheck
-        run: cd src && npx tsc --noEmit
+        working-directory: src
+        run: npx tsc --noEmit
 
       - name: Frontend build
-        run: cd src && npx vite build
-
-      # PR 仍执行完整源码门禁；可安装 QA 包只为受信分支和手动运行生成，避免 fork
-      # 消耗大体积 artifact 配额。该包没有发布签名，不能替代 release workflow。
-      - name: Build Linux QA bundles
-        if: github.event_name != 'pull_request'
-        timeout-minutes: 30
-        run: npx --prefix src tauri build --ci --no-sign --config src-tauri/tauri.ci.conf.json
-
-      - name: Finalize Linux QA AppImage
-        if: github.event_name != 'pull_request'
-        run: ./scripts/finalize-appimage.sh
-
-      - name: Prepare Linux QA artifact
-        if: github.event_name != 'pull_request'
-        run: |
-          mkdir -p qa-stage qa-artifacts
-          cp src-tauri/target/release/bundle/deb/*.deb qa-stage/
-          cp src-tauri/target/release/bundle/appimage/*.AppImage qa-stage/
-          printf 'commit=%s\nversion=%s\nplatform=linux-x64\nsigning=unsigned-qa-only\n' \
-            "$GITHUB_SHA" "$(jq -r '.version' src-tauri/tauri.conf.json)" \
-            > qa-stage/QA-BUILD.txt
-          (cd qa-stage && sha256sum ./*.deb ./*.AppImage > SHA256SUMS.txt)
-          tar -czf "qa-artifacts/Clippy_QA_${GITHUB_SHA}_linux-x64.tar.gz" -C qa-stage .
-
-      - name: Generate version-bound QA record templates
-        if: github.event_name != 'pull_request'
-        run: |
-          mkdir -p qa-records
-          VERSION=$(jq -r '.version' src-tauri/tauri.conf.json)
-          for PROFILE in \
-            linux-gnome-x11 linux-gnome-wayland linux-gnome-wayland-ubuntu24 \
-            linux-kde-wayland linux-wlroots-wayland windows-10-x64 windows-11-x64 \
-            macos-intel macos-apple-silicon; do
-            node scripts/manual-qa.mjs template \
-              --profile "$PROFILE" --sha "$GITHUB_SHA" --version "$VERSION" \
-              --output "qa-records/${PROFILE}.json"
-          done
-          cp docs/native-qa.md qa-records/README.md
-
-      - name: Upload Linux QA artifact
-        if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v7
-        with:
-          name: qa-linux-x64-${{ github.sha }}
-          path: qa-artifacts/*.tar.gz
-          if-no-files-found: error
-          retention-days: 14
-          compression-level: 0
-
-      - name: Upload QA record templates
-        if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v7
-        with:
-          name: qa-record-templates-${{ github.sha }}
-          path: qa-records
-          if-no-files-found: error
-          retention-days: 14
+        working-directory: src
+        run: npx vite build
 
   native-check:
     name: Native Check (${{ matrix.runner }})
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -166,10 +112,6 @@ jobs:
         with:
           components: clippy
 
-      - name: Install Apple Silicon Rust target
-        if: runner.os == 'macOS'
-        run: rustup target add aarch64-apple-darwin
-
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
@@ -177,17 +119,7 @@ jobs:
           key: ${{ matrix.runner }}
           workspaces: src-tauri
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: "npm"
-          cache-dependency-path: src/package-lock.json
-
-      - name: Install frontend dependencies
-        working-directory: src
-        run: npm ci
-
+      # 前端门禁只需在 Jammy 执行一次；原生 runner 专注验证 cfg 分支、平台 API 与测试。
       - name: Native Rust check
         working-directory: src-tauri
         run: cargo check --all-targets
@@ -199,158 +131,3 @@ jobs:
       - name: Native Rust tests
         working-directory: src-tauri
         run: cargo test
-
-      - name: Native frontend tests
-        working-directory: src
-        run: npx vitest run
-
-      - name: Native frontend typecheck
-        working-directory: src
-        run: npx tsc --noEmit
-
-      - name: Native frontend build
-        working-directory: src
-        run: npx vite build
-
-      # 普通 CI 没有 updater 私钥或发布证书，但仍必须真正跑过 Tauri bundler；
-      # --no-sign 只跳过平台代码签名，tauri.ci.conf.json 只关闭 updater 附加产物，
-      # Windows 的 NSIS/MSI 与 macOS 的 app/DMG 目标仍来自各自的平台配置。
-      - name: Native Windows Tauri bundle smoke
-        if: runner.os == 'Windows'
-        timeout-minutes: 30
-        run: npx --prefix src tauri build --ci --no-sign --config src-tauri/tauri.ci.conf.json
-
-      - name: Native Apple Silicon Tauri bundle smoke
-        if: runner.os == 'macOS'
-        timeout-minutes: 30
-        run: npx --prefix src tauri build --ci --no-sign --target aarch64-apple-darwin --config src-tauri/tauri.ci.conf.json
-
-      - name: Verify Windows bundle outputs
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $bundle = "src-tauri/target/release/bundle"
-          $nsis = Get-ChildItem "$bundle/nsis" -File -Filter "*-setup.exe" -ErrorAction SilentlyContinue
-          $msi = Get-ChildItem "$bundle/msi" -File -Filter "*.msi" -ErrorAction SilentlyContinue
-          if (-not $nsis) { throw "Native CI did not generate an NSIS installer" }
-          if (-not $msi) { throw "Native CI did not generate an MSI installer" }
-
-      - name: Verify macOS bundle outputs
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          BUNDLE_DIR=src-tauri/target/aarch64-apple-darwin/release/bundle
-          find "$BUNDLE_DIR/macos" -maxdepth 1 -type d -name '*.app' -print -quit | grep -q .
-          find "$BUNDLE_DIR/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit | grep -q .
-
-      - name: Prepare Windows QA artifact
-        if: runner.os == 'Windows' && github.event_name != 'pull_request'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path qa-artifacts | Out-Null
-          $nsis = Get-ChildItem src-tauri/target/release/bundle/nsis -File -Filter "*-setup.exe"
-          $msi = Get-ChildItem src-tauri/target/release/bundle/msi -File -Filter "*.msi"
-          if (-not $nsis -or -not $msi) { throw "Windows QA installers are incomplete" }
-          Copy-Item $nsis.FullName qa-artifacts/
-          Copy-Item $msi.FullName qa-artifacts/
-          $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
-          @(
-            "commit=$env:GITHUB_SHA"
-            "version=$version"
-            "platform=windows-x64"
-            "signing=unsigned-qa-only"
-          ) | Set-Content qa-artifacts/QA-BUILD.txt -Encoding utf8
-          Get-ChildItem qa-artifacts -File | Where-Object Name -ne "SHA256SUMS.txt" |
-            ForEach-Object {
-              $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-              "$hash  $($_.Name)"
-            } | Set-Content qa-artifacts/SHA256SUMS.txt -Encoding ascii
-
-      - name: Upload Windows QA artifact
-        if: runner.os == 'Windows' && github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v7
-        with:
-          name: qa-windows-x64-${{ github.sha }}
-          path: qa-artifacts
-          if-no-files-found: error
-          retention-days: 14
-          compression-level: 0
-
-      - name: Prepare Apple Silicon QA artifact
-        if: runner.os == 'macOS' && github.event_name != 'pull_request'
-        shell: bash
-        run: |
-          mkdir -p qa-artifacts
-          BUNDLE_DIR=src-tauri/target/aarch64-apple-darwin/release/bundle
-          DMG=$(find "$BUNDLE_DIR/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)
-          [ -n "$DMG" ] || { echo '::error::Apple Silicon DMG was not generated'; exit 1; }
-          cp "$DMG" qa-artifacts/
-          printf 'commit=%s\nversion=%s\nplatform=macos-aarch64\nsigning=ad-hoc-qa-only\n' \
-            "$GITHUB_SHA" "$(jq -r '.version' src-tauri/tauri.conf.json)" \
-            > qa-artifacts/QA-BUILD.txt
-          (cd qa-artifacts && shasum -a 256 ./*.dmg > SHA256SUMS.txt)
-
-      - name: Upload Apple Silicon QA artifact
-        if: runner.os == 'macOS' && github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v7
-        with:
-          name: qa-macos-aarch64-${{ github.sha }}
-          path: qa-artifacts
-          if-no-files-found: error
-          retention-days: 14
-          compression-level: 0
-
-  qa-macos-intel:
-    name: QA Bundle (macOS Intel)
-    if: github.event_name != 'pull_request'
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-apple-darwin
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: v1-rust
-          key: qa-macos-x64
-          workspaces: src-tauri -> target
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: "npm"
-          cache-dependency-path: src/package-lock.json
-
-      - name: Install frontend dependencies
-        working-directory: src
-        run: npm ci
-
-      - name: Build Intel QA bundle
-        timeout-minutes: 30
-        run: npx --prefix src tauri build --ci --no-sign --target x86_64-apple-darwin --config src-tauri/tauri.ci.conf.json
-
-      - name: Prepare Intel QA artifact
-        run: |
-          mkdir -p qa-artifacts
-          BUNDLE_DIR=src-tauri/target/x86_64-apple-darwin/release/bundle
-          DMG=$(find "$BUNDLE_DIR/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)
-          [ -n "$DMG" ] || { echo '::error::Intel DMG was not generated'; exit 1; }
-          cp "$DMG" qa-artifacts/
-          printf 'commit=%s\nversion=%s\nplatform=macos-x64\nsigning=ad-hoc-qa-only\n' \
-            "$GITHUB_SHA" "$(jq -r '.version' src-tauri/tauri.conf.json)" \
-            > qa-artifacts/QA-BUILD.txt
-          (cd qa-artifacts && shasum -a 256 ./*.dmg > SHA256SUMS.txt)
-
-      - name: Upload Intel QA artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: qa-macos-x64-${{ github.sha }}
-          path: qa-artifacts
-          if-no-files-found: error
-          retention-days: 14
-          compression-level: 0

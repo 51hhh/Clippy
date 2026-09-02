@@ -8,6 +8,7 @@ import {
   artifactName,
   buildUpdaterManifest,
   readUpdaterSignatures,
+  selectUpdaterPlatforms,
 } from "../../scripts/generate-updater-manifest.mjs";
 
 const repoRoot = resolve(process.cwd(), "..");
@@ -73,6 +74,30 @@ describe("updater 平台契约", () => {
     }
 
     expect(readUpdaterSignatures(directory, version)).toEqual(signatureFixture());
+  });
+
+  it("未发布 macOS 时只要求并生成 Linux/Windows 平台", () => {
+    const platformKeys = ["linux-x86_64", "windows-x86_64"];
+    const signatures = Object.fromEntries(
+      Object.entries(signatureFixture()).filter(([key]) => platformKeys.includes(key)),
+    );
+    const manifest = buildUpdaterManifest({
+      version: "1.2.3",
+      notes: "",
+      pubDate: "2026-09-02T01:02:03Z",
+      baseUrl: "https://example.test/release",
+      signatures,
+      platformKeys,
+    });
+    expect(Object.keys(manifest.platforms)).toEqual(platformKeys);
+  });
+
+  it.each([
+    ["空列表", [], /至少需要/],
+    ["重复平台", ["linux-x86_64", "linux-x86_64"], /不能重复/],
+    ["未知平台", ["freebsd-x86_64"], /不支持/],
+  ])("拒绝%s", (_name, platformKeys, expectedError) => {
+    expect(() => selectUpdaterPlatforms(platformKeys)).toThrow(expectedError);
   });
 
   it.each([

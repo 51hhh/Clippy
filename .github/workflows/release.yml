@@ -6,7 +6,7 @@ on:
       - "v*.*.*"
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_INCREMENTAL: 0
@@ -72,10 +72,67 @@ jobs:
             exit 1
           fi
 
+  release-preflight:
+    name: Check CI & Signing Readiness
+    needs: check-version
+    runs-on: ubuntu-latest
+    outputs:
+      windows_signing_mode: ${{ steps.release_options.outputs.windows_signing_mode }}
+    permissions:
+      contents: read
+      checks: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Verify native CI passed for tagged commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          node scripts/verify-native-ci.mjs
+          --repo "${{ github.repository }}"
+          --sha "$GITHUB_SHA"
+
+      - name: Resolve release targets and signing policy
+        id: release_options
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          missing_updater=()
+          for required in TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
+            if [ -z "${!required:-}" ]; then
+              missing_updater+=("$required")
+            fi
+          done
+          if [ "${#missing_updater[@]}" -ne 0 ]; then
+            printf '::error::Missing required updater secret: %s\n' "${missing_updater[@]}"
+            exit 1
+          fi
+
+          if [ -n "$WINDOWS_CERTIFICATE" ] && [ -n "$WINDOWS_CERTIFICATE_PASSWORD" ]; then
+            echo 'windows_signing_mode=certificate' >> "$GITHUB_OUTPUT"
+          elif [ -z "$WINDOWS_CERTIFICATE" ] && [ -z "$WINDOWS_CERTIFICATE_PASSWORD" ]; then
+            echo '::warning::Windows release will use an ephemeral self-signed certificate'
+            echo 'windows_signing_mode=self-signed' >> "$GITHUB_OUTPUT"
+          else
+            echo '::error::WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD must be configured together'
+            exit 1
+          fi
+
   build-linux:
     name: Build (${{ matrix.label }})
-    needs: check-version
+    needs: [check-version, release-preflight]
     runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      artifact-metadata: write
     strategy:
       fail-fast: false
       matrix:
@@ -140,66 +197,45 @@ jobs:
           APPIMAGE_SRC="src-tauri/target/release/bundle/appimage/Clippy_${APP_VERSION}_amd64.AppImage"
           ./scripts/finalize-appimage.sh "$APPIMAGE_SRC"
 
-      - name: Ensure draft release exists
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ github.ref_name }}"
-          gh release create "${TAG}" --title "Clippy ${TAG}" --draft --notes "Building..." \
-            --repo "${{ github.repository }}" 2>/dev/null || true
-
-      - name: Rename artifacts with distro suffix
+      - name: Normalize Linux artifact names
         run: |
           VER="${{ needs.check-version.outputs.version }}"
           LABEL="${{ matrix.label }}"
           BUNDLE_DIR="src-tauri/target/release/bundle"
+          mkdir -p dist-artifacts
 
           DEB_SRC="${BUNDLE_DIR}/deb/Clippy_${VER}_amd64.deb"
-          [ -f "$DEB_SRC" ] && cp "$DEB_SRC" "Clippy_${VER}_amd64_${LABEL}.deb"
+          [ -f "$DEB_SRC" ] || { echo '::error::DEB was not generated'; exit 1; }
+          cp "$DEB_SRC" "dist-artifacts/Clippy_${VER}_amd64.deb"
+          cp "$DEB_SRC" "dist-artifacts/Clippy_${VER}_amd64_${LABEL}.deb"
 
           APPIMAGE_SRC="${BUNDLE_DIR}/appimage/Clippy_${VER}_amd64.AppImage"
-          [ -f "$APPIMAGE_SRC" ] && cp "$APPIMAGE_SRC" "Clippy_${VER}_amd64_${LABEL}.AppImage"
+          [ -f "$APPIMAGE_SRC" ] || { echo '::error::AppImage was not generated'; exit 1; }
+          cp "$APPIMAGE_SRC" "dist-artifacts/Clippy_${VER}_amd64.AppImage"
+          cp "$APPIMAGE_SRC" "dist-artifacts/Clippy_${VER}_amd64_${LABEL}.AppImage"
 
           APPIMAGE_SIG="${APPIMAGE_SRC}.sig"
-          [ -f "$APPIMAGE_SIG" ] && cp "$APPIMAGE_SIG" "Clippy_${VER}_amd64_${LABEL}.AppImage.sig"
-
-      - name: Upload suffixed artifacts to release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ github.ref_name }}"
-          for f in Clippy_*_amd64_*.{deb,AppImage,AppImage.sig}; do
-            [ -f "$f" ] || continue
-            echo "Uploading $f ..."
-            gh release upload "${TAG}" "$f" --repo "${{ github.repository }}" --clobber
-          done
-
-      - name: Upload default artifacts for updater (ubuntu22 baseline)
-        if: matrix.label == 'ubuntu22'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ github.ref_name }}"
-          VER="${{ needs.check-version.outputs.version }}"
-          BUNDLE_DIR="src-tauri/target/release/bundle"
-
-          # Upload unsuffixed AppImage + sig + deb for updater compatibility
-          APPIMAGE_SRC="${BUNDLE_DIR}/appimage/Clippy_${VER}_amd64.AppImage"
-          [ -f "$APPIMAGE_SRC" ] && gh release upload "${TAG}" "$APPIMAGE_SRC" --repo "${{ github.repository }}" --clobber
-
-          APPIMAGE_SIG="${APPIMAGE_SRC}.sig"
-          [ -f "$APPIMAGE_SIG" ] && gh release upload "${TAG}" "$APPIMAGE_SIG" --repo "${{ github.repository }}" --clobber
-
-          DEB_SRC="${BUNDLE_DIR}/deb/Clippy_${VER}_amd64.deb"
-          [ -f "$DEB_SRC" ] && gh release upload "${TAG}" "$DEB_SRC" --repo "${{ github.repository }}" --clobber
+          [ -s "$APPIMAGE_SIG" ] || { echo '::error::AppImage updater signature was not generated'; exit 1; }
+          cp "$APPIMAGE_SIG" "dist-artifacts/Clippy_${VER}_amd64.AppImage.sig"
+          cp "$APPIMAGE_SIG" "dist-artifacts/Clippy_${VER}_amd64_${LABEL}.AppImage.sig"
 
           DEB_SIG="${BUNDLE_DIR}/deb/Clippy_${VER}_amd64.deb.sig"
-          [ -f "$DEB_SIG" ] && gh release upload "${TAG}" "$DEB_SIG" --repo "${{ github.repository }}" --clobber
+          [ ! -f "$DEB_SIG" ] || cp "$DEB_SIG" "dist-artifacts/Clippy_${VER}_amd64.deb.sig"
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-linux-x64
+          path: dist-artifacts/*
+          if-no-files-found: error
 
   build-windows:
     name: Build (Windows x64)
-    needs: check-version
+    needs: [check-version, release-preflight]
     runs-on: windows-latest
+    permissions:
+      contents: read
+      artifact-metadata: write
     steps:
       - uses: actions/checkout@v7
 
@@ -224,35 +260,56 @@ jobs:
       - name: Install frontend dependencies
         run: cd src && npm ci
 
-      - name: Import Windows code-signing certificate
+      - name: Prepare Windows code-signing certificate
         shell: pwsh
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)) {
-            throw "Missing required Windows signing secret: WINDOWS_CERTIFICATE"
-          }
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)) {
-            throw "Missing required Windows signing secret: WINDOWS_CERTIFICATE_PASSWORD"
-          }
-
           $pfxPath = Join-Path $env:RUNNER_TEMP "clippy-signing.pfx"
+          $cerPath = Join-Path $env:RUNNER_TEMP "clippy-self-signed.cer"
           try {
-            [IO.File]::WriteAllBytes(
-              $pfxPath,
-              [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
-            )
-            $password = ConvertTo-SecureString `
-              -String $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
-            $imported = Import-PfxCertificate -FilePath $pfxPath `
-              -CertStoreLocation Cert:\CurrentUser\My -Password $password
-            $certificate = @($imported) |
-              Where-Object { $_.HasPrivateKey } |
-              Select-Object -First 1
+            $hasCertificate = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)
+            $hasPassword = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)
+            if ($hasCertificate -ne $hasPassword) {
+              throw "WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD must be configured together"
+            }
+
+            if ($hasCertificate) {
+              [IO.File]::WriteAllBytes(
+                $pfxPath,
+                [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
+              )
+              $password = ConvertTo-SecureString `
+                -String $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+              $imported = Import-PfxCertificate -FilePath $pfxPath `
+                -CertStoreLocation Cert:\CurrentUser\My -Password $password
+              $certificate = @($imported) |
+                Where-Object { $_.HasPrivateKey } |
+                Select-Object -First 1
+              $signingMode = "certificate"
+            }
+            else {
+              $certificate = New-SelfSignedCertificate `
+                -Type CodeSigningCert `
+                -Subject "CN=Clippy Self-Signed Release" `
+                -FriendlyName "Clippy ephemeral self-signed release certificate" `
+                -CertStoreLocation Cert:\CurrentUser\My `
+                -KeyAlgorithm RSA `
+                -KeyLength 3072 `
+                -HashAlgorithm SHA256 `
+                -KeyExportPolicy Exportable `
+                -NotAfter (Get-Date).AddYears(1)
+              Export-Certificate -Cert $certificate -FilePath $cerPath | Out-Null
+              $trustedRoot = Import-Certificate -FilePath $cerPath `
+                -CertStoreLocation Cert:\CurrentUser\Root
+              "WINDOWS_TRUSTED_ROOT_THUMBPRINT=$($trustedRoot.Thumbprint.ToUpperInvariant())" |
+                Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+              $signingMode = "self-signed"
+            }
 
             if (-not $certificate) {
-              throw "The imported PFX does not contain a certificate with a private key"
+              throw "No Windows code-signing certificate was created or imported"
             }
             $codeSigningEku = $certificate.EnhancedKeyUsageList |
               Where-Object { $_.ObjectId.Value -eq "1.3.6.1.5.5.7.3.3" }
@@ -266,6 +323,8 @@ jobs:
 
             $thumbprint = $certificate.Thumbprint.ToUpperInvariant()
             "WINDOWS_CERTIFICATE_THUMBPRINT=$thumbprint" |
+              Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            "WINDOWS_SIGNING_MODE=$signingMode" |
               Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
             $signingConfig = @{
@@ -283,6 +342,7 @@ jobs:
           }
           finally {
             Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
+            Remove-Item $cerPath -Force -ErrorAction SilentlyContinue
           }
 
       - name: Build Tauri
@@ -337,11 +397,18 @@ jobs:
             Remove-Item "Cert:\CurrentUser\My\$env:WINDOWS_CERTIFICATE_THUMBPRINT" `
               -Force -ErrorAction SilentlyContinue
           }
+          if (-not [string]::IsNullOrWhiteSpace($env:WINDOWS_TRUSTED_ROOT_THUMBPRINT)) {
+            Remove-Item "Cert:\CurrentUser\Root\$env:WINDOWS_TRUSTED_ROOT_THUMBPRINT" `
+              -Force -ErrorAction SilentlyContinue
+          }
 
   build-macos:
     name: Build (macOS ${{ matrix.label }})
-    needs: check-version
+    needs: [check-version, release-preflight]
     runs-on: macos-latest
+    permissions:
+      contents: read
+      artifact-metadata: write
     strategy:
       fail-fast: false
       matrix:
@@ -378,64 +445,17 @@ jobs:
       - name: Install frontend dependencies
         run: cd src && npm ci
 
-      - name: Import Developer ID certificate
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        run: |
-          for required in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD KEYCHAIN_PASSWORD; do
-            if [ -z "${!required:-}" ]; then
-              echo "::error::Missing required macOS signing secret: ${required}"
-              exit 1
-            fi
-          done
-
-          KEYCHAIN_PATH="$RUNNER_TEMP/clippy-build.keychain-db"
-          openssl base64 -d -A -in <(printf '%s' "$APPLE_CERTIFICATE") -out "$RUNNER_TEMP/certificate.p12"
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security default-keychain -s "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -t 3600 -u "$KEYCHAIN_PATH"
-          security import "$RUNNER_TEMP/certificate.p12" -k "$KEYCHAIN_PATH" \
-            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: \
-            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
-          CERT_INFO=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
-            | grep '"Developer ID Application:' | head -1)
-          if [ -z "$CERT_INFO" ]; then
-            echo "::error::A Developer ID Application identity is required for release"
-            exit 1
-          fi
-          CERT_ID=$(echo "$CERT_INFO" | awk -F'"' '{print $2}')
-          echo "APPLE_SIGNING_IDENTITY=$CERT_ID" >> "$GITHUB_ENV"
-
-      - name: Verify notarization credentials
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          for required in APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
-            if [ -z "${!required:-}" ]; then
-              echo "::error::Missing required macOS notarization secret: ${required}"
-              exit 1
-            fi
-          done
-
-      - name: Build, sign and notarize Tauri
+      - name: Build ad-hoc signed Tauri
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
-          args: --target ${{ matrix.rust_target }} --config src-tauri/tauri.macos.conf.json
+          args: >-
+            --target ${{ matrix.rust_target }}
+            --config src-tauri/tauri.macos.conf.json
+            --config src-tauri/tauri.macos.qa.conf.json
 
       - name: Normalize macOS artifact names
         env:
@@ -450,10 +470,16 @@ jobs:
           [ -n "$APP_SRC" ] || { echo '::error::macOS app bundle was not generated'; exit 1; }
           codesign --verify --deep --strict --verbose=2 "$APP_SRC"
           SIGNING_INFO=$(codesign --display --verbose=4 "$APP_SRC" 2>&1)
-          printf '%s\n' "$SIGNING_INFO" | grep -q 'Authority=Developer ID Application:'
-          printf '%s\n' "$SIGNING_INFO" | grep -Eq 'flags=.*runtime'
-          spctl --assess --type execute --verbose=4 "$APP_SRC"
-          xcrun stapler validate "$APP_SRC"
+          printf '%s\n' "$SIGNING_INFO" | grep -q 'Signature=adhoc'
+
+          EXECUTABLE="$APP_SRC/Contents/MacOS/Clippy"
+          [ -x "$EXECUTABLE" ] || { echo '::error::macOS executable is missing'; exit 1; }
+          if [ "$ASSET_ARCH" = "aarch64" ]; then
+            EXPECTED_ARCH="arm64"
+          else
+            EXPECTED_ARCH="x86_64"
+          fi
+          lipo -archs "$EXECUTABLE" | tr ' ' '\n' | grep -qx "$EXPECTED_ARCH"
 
           DMG_SRC=$(find "$BUNDLE_DIR/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)
           [ -n "$DMG_SRC" ] || { echo '::error::DMG was not generated'; exit 1; }
@@ -474,8 +500,11 @@ jobs:
 
   update-release:
     name: Update Release Notes
-    needs: [check-version, build-linux, build-windows, build-macos]
+    needs: [check-version, release-preflight, build-linux, build-windows, build-macos]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      artifact-metadata: read
     steps:
       - uses: actions/checkout@v7
 
@@ -490,6 +519,22 @@ jobs:
           pattern: release-*
           path: release-assets
           merge-multiple: true
+
+      - name: Ensure unpublished draft release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            IS_DRAFT=$(gh release view "$TAG" --repo "${{ github.repository }}" --json isDraft --jq .isDraft)
+            if [ "$IS_DRAFT" != "true" ]; then
+              echo "::error::Release ${TAG} already exists and is public"
+              exit 1
+            fi
+          else
+            gh release create "$TAG" --repo "${{ github.repository }}" \
+              --title "Clippy ${TAG}" --draft --notes "Building..."
+          fi
 
       - name: Upload native artifacts to release
         env:
@@ -512,7 +557,6 @@ jobs:
           fi
 
           CHANGELOG=$(cat release_notes.txt)
-
           cat > release_body.md <<ENDOFBODY
           ${CHANGELOG}
 
@@ -532,11 +576,27 @@ jobs:
           ### Windows 10/11（x64）
           - NSIS 安装程序（支持自动更新）：[下载](${DL}/Clippy_${VER}_x64-setup.exe)
           - MSI 安装程序：[下载](${DL}/Clippy_${VER}_x64.msi)
+          ENDOFBODY
 
-          ### macOS 11+（Developer ID 签名并公证）
+          if [ "${{ needs.release-preflight.outputs.windows_signing_mode }}" = "self-signed" ]; then
+            cat >> release_body.md <<'ENDOFBODY'
+
+          > Windows 安装包使用临时自签名证书完成 Authenticode 签名；签名可校验文件完整性，
+          > 但不受公共 CA 信任，Windows SmartScreen 仍可能显示“未知发布者”警告。
+          ENDOFBODY
+          fi
+
+          cat >> release_body.md <<ENDOFBODY
+
+          ### macOS 11+（Ad-Hoc 签名）
           - Apple Silicon：[DMG](${DL}/Clippy_${VER}_aarch64.dmg)
           - Intel：[DMG](${DL}/Clippy_${VER}_x64.dmg)
 
+          > macOS 应用使用 ad-hoc 签名，未经过 Apple Developer ID 公证；首次打开时可能需要在
+          > “系统设置 → 隐私与安全性”中手动允许。
+          ENDOFBODY
+
+          cat >> release_body.md <<ENDOFBODY
           ---
           Built at ${BUILDTIME}
           ENDOFBODY
@@ -549,20 +609,18 @@ jobs:
           VER="${{ needs.check-version.outputs.version }}"
           DL="https://github.com/${{ github.repository }}/releases/download/${TAG}"
           PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          PLATFORMS="linux-x86_64,windows-x86_64,darwin-aarch64,darwin-x86_64"
 
-          # Linux 产物由 build-linux 直接上传到 draft release；原生平台产物已经由
-          # download-artifact 放入同一目录。生成器会按受测契约读取四份签名，并拒绝
-          # 缺签名、错误平台键、非 HTTPS URL 或无效版本/时间。
-          gh release download "${TAG}" --repo "${{ github.repository }}" \
-            --pattern "Clippy_${VER}_amd64.AppImage.sig" \
-            --dir release-assets --clobber
-
+          # 四个平台都先进入 workflow artifact，所有构建成功后才在这里创建 draft。
+          # 生成器按受测契约读取四份签名，并拒绝缺签名、错误平台键、非 HTTPS URL
+          # 或无效版本/时间。
           node scripts/generate-updater-manifest.mjs \
             --version "$VER" \
             --notes-file release_notes.txt \
             --pub-date "$PUB_DATE" \
             --base-url "$DL" \
             --signature-dir release-assets \
+            --platforms "$PLATFORMS" \
             --output latest.json
 
           gh release upload "${TAG}" latest.json --repo "${{ github.repository }}" --clobber

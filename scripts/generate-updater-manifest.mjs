@@ -38,6 +38,23 @@ export function artifactName(spec, version) {
   return spec.artifactTemplate.replace("{version}", version);
 }
 
+export function selectUpdaterPlatforms(platformKeys) {
+  const requested = platformKeys ?? UPDATER_PLATFORMS.map((spec) => spec.key);
+  if (!Array.isArray(requested) || requested.length === 0) {
+    throw new Error("至少需要发布一个 updater 平台");
+  }
+  if (new Set(requested).size !== requested.length) {
+    throw new Error("updater 平台不能重复");
+  }
+
+  const specs = new Map(UPDATER_PLATFORMS.map((spec) => [spec.key, spec]));
+  return requested.map((key) => {
+    const spec = specs.get(key);
+    if (!spec) throw new Error(`不支持的 updater 平台: ${key}`);
+    return spec;
+  });
+}
+
 function requireNonEmptyString(value, name) {
   if (typeof value !== "string" || value.trim() === "") {
     throw new Error(`${name} 不能为空`);
@@ -64,12 +81,19 @@ function validateInputs({ version, pubDate, baseUrl }) {
   }
 }
 
-export function buildUpdaterManifest({ version, notes = "", pubDate, baseUrl, signatures }) {
+export function buildUpdaterManifest({
+  version,
+  notes = "",
+  pubDate,
+  baseUrl,
+  signatures,
+  platformKeys,
+}) {
   validateInputs({ version, pubDate, baseUrl });
   const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
   const platforms = {};
 
-  for (const spec of UPDATER_PLATFORMS) {
+  for (const spec of selectUpdaterPlatforms(platformKeys)) {
     const signature = requireNonEmptyString(signatures?.[spec.key], `${spec.key} signature`);
     const artifact = artifactName(spec, version);
     platforms[spec.key] = {
@@ -86,9 +110,9 @@ export function buildUpdaterManifest({ version, notes = "", pubDate, baseUrl, si
   };
 }
 
-export function readUpdaterSignatures(signatureDir, version) {
+export function readUpdaterSignatures(signatureDir, version, platformKeys) {
   return Object.fromEntries(
-    UPDATER_PLATFORMS.map((spec) => {
+    selectUpdaterPlatforms(platformKeys).map((spec) => {
       const signaturePath = resolve(signatureDir, `${artifactName(spec, version)}.sig`);
       let signature;
       try {
@@ -127,12 +151,20 @@ function main() {
     requireNonEmptyString(options[required], `--${required}`);
   }
 
+  const platformKeys = options.platforms
+    ? options.platforms.split(",").map((key) => key.trim())
+    : undefined;
   const manifest = buildUpdaterManifest({
     version: options.version,
     notes: readFileSync(resolve(options["notes-file"]), "utf8"),
     pubDate: options["pub-date"],
     baseUrl: options["base-url"],
-    signatures: readUpdaterSignatures(resolve(options["signature-dir"]), options.version),
+    signatures: readUpdaterSignatures(
+      resolve(options["signature-dir"]),
+      options.version,
+      platformKeys,
+    ),
+    platformKeys,
   });
   writeFileSync(resolve(options.output), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 }
