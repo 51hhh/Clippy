@@ -6,6 +6,16 @@
 
 use serde::Serialize;
 
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "macos")]
+pub(crate) use macos::{
+    accessibility_trusted as macos_accessibility_trusted,
+    request_accessibility_permission as request_macos_accessibility_permission,
+    request_screen_capture_permission as request_macos_screen_capture_permission,
+    screen_capture_trusted as macos_screen_capture_trusted,
+};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OperatingSystem {
@@ -366,10 +376,34 @@ pub fn current_info() -> PlatformInfo {
     let operating_system = current_operating_system();
     let session = current_session();
     let desktop_environment = current_desktop_environment();
+    let capabilities = capabilities_for(operating_system, session, desktop_environment.as_deref());
+    #[cfg(target_os = "macos")]
+    let capabilities = {
+        let mut capabilities = capabilities;
+        capabilities.auto_paste = if macos_accessibility_trusted() {
+            Capability::available()
+        } else {
+            Capability::with_reason(
+                CapabilityState::PermissionRequired,
+                CapabilityReason::MacosAccessibilityPermission,
+            )
+        };
+        let capture = if macos_screen_capture_trusted() {
+            Capability::available()
+        } else {
+            Capability::with_reason(
+                CapabilityState::PermissionRequired,
+                CapabilityReason::MacosScreenRecordingPermission,
+            )
+        };
+        capabilities.screen_capture = capture;
+        capabilities.window_pick = capture;
+        capabilities
+    };
     PlatformInfo {
         operating_system,
         session,
-        capabilities: capabilities_for(operating_system, session, desktop_environment.as_deref()),
+        capabilities,
         desktop_environment,
         architecture: std::env::consts::ARCH.to_string(),
     }

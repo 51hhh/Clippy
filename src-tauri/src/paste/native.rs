@@ -105,32 +105,9 @@ mod implementation {
 mod implementation {
     use super::*;
     use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication, NSWorkspace};
-    use std::ffi::{c_long, c_void};
     use std::time::{Duration, Instant};
 
     pub type Target = i32;
-    type CfTypeRef = *const c_void;
-
-    #[link(name = "ApplicationServices", kind = "framework")]
-    unsafe extern "C" {
-        fn AXIsProcessTrusted() -> u8;
-        fn AXIsProcessTrustedWithOptions(options: CfTypeRef) -> u8;
-        static kAXTrustedCheckOptionPrompt: CfTypeRef;
-    }
-
-    #[link(name = "CoreFoundation", kind = "framework")]
-    unsafe extern "C" {
-        static kCFBooleanTrue: CfTypeRef;
-        fn CFDictionaryCreate(
-            allocator: CfTypeRef,
-            keys: *const CfTypeRef,
-            values: *const CfTypeRef,
-            count: c_long,
-            key_callbacks: *const c_void,
-            value_callbacks: *const c_void,
-        ) -> CfTypeRef;
-        fn CFRelease(value: CfTypeRef);
-    }
 
     pub fn backend() -> PasteBackend {
         PasteBackend::MacosQuartz
@@ -148,7 +125,7 @@ mod implementation {
     }
 
     pub fn permission_ready() -> bool {
-        unsafe { AXIsProcessTrusted() != 0 }
+        crate::platform::macos_accessibility_trusted()
     }
 
     pub fn can_request_permission() -> bool {
@@ -160,24 +137,7 @@ mod implementation {
     }
 
     pub fn request_permission() {
-        let keys = [unsafe { kAXTrustedCheckOptionPrompt }];
-        let values = [unsafe { kCFBooleanTrue }];
-        let options = unsafe {
-            CFDictionaryCreate(
-                std::ptr::null(),
-                keys.as_ptr(),
-                values.as_ptr(),
-                1,
-                std::ptr::null(),
-                std::ptr::null(),
-            )
-        };
-        if !options.is_null() {
-            unsafe {
-                AXIsProcessTrustedWithOptions(options);
-                CFRelease(options);
-            }
-        }
+        crate::platform::request_macos_accessibility_permission();
     }
 
     pub fn paste(target: Option<Target>) -> Result<(), PasteError> {
