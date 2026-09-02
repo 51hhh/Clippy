@@ -41,6 +41,9 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
+          # runner 名是发行基线的一部分；Linux 不能复用较新 glibc 主机生成的 target。
+          prefix-key: v1-rust
+          key: ${{ matrix.runner }}
           workspaces: src-tauri
 
       - name: Setup Node.js
@@ -105,6 +108,8 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
+          prefix-key: v1-rust
+          key: ${{ matrix.runner }}
           workspaces: src-tauri
 
       - name: Setup Node.js

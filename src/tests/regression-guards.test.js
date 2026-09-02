@@ -64,6 +64,17 @@ describe("Linux CI 固守 Ubuntu 22 构建基线", () => {
     expect(buildWorkflow).toContain("Default Linux dependency graph must not include pipewire-rs");
     expect(releaseWorkflow).toContain("Default Linux dependency graph must not include pipewire-rs");
   });
+
+  it("Rust target 缓存按 runner 隔离", () => {
+    // Linux runner 只看 runner.os 会把 Jammy 与更新发行版都归到 Linux，缓存中的
+    // build-script 会因较新 glibc 无法在 Ubuntu 22 启动；runner 名必须进入 key。
+    const cacheBlocks = [...buildWorkflow.matchAll(/- name: Rust cache[\s\S]*?workspaces: src-tauri/g)];
+    expect(cacheBlocks).toHaveLength(2);
+    for (const [block] of cacheBlocks) {
+      expect(block).toContain("prefix-key: v1-rust");
+      expect(block).toContain("key: ${{ matrix.runner }}");
+    }
+  });
 });
 
 describe("原生平台由真实 runner 编译", () => {
