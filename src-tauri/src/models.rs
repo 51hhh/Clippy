@@ -118,6 +118,7 @@ pub struct AppConfig {
     pub version: u32,
     pub max_history: u32,
     pub storage_mode: String,
+    #[serde(default = "default_global_shortcut")]
     pub global_shortcut: String,
     #[serde(default = "default_pin_shortcut")]
     pub pin_shortcut: String,
@@ -174,12 +175,33 @@ fn default_language() -> String {
     "auto".to_string()
 }
 
+fn default_shortcuts_for(
+    operating_system: crate::platform::OperatingSystem,
+) -> (&'static str, &'static str, &'static str) {
+    match operating_system {
+        crate::platform::OperatingSystem::Macos => {
+            ("Command+Shift+V", "Command+2", "Command+Shift+S")
+        }
+        _ => ("Alt+V", "Ctrl+2", "Ctrl+Shift+S"),
+    }
+}
+
+fn default_global_shortcut() -> String {
+    default_shortcuts_for(crate::platform::current_operating_system())
+        .0
+        .to_string()
+}
+
 fn default_pin_shortcut() -> String {
-    "Ctrl+2".to_string()
+    default_shortcuts_for(crate::platform::current_operating_system())
+        .1
+        .to_string()
 }
 
 fn default_capture_shortcut() -> String {
-    "Ctrl+Shift+S".to_string()
+    default_shortcuts_for(crate::platform::current_operating_system())
+        .2
+        .to_string()
 }
 
 fn default_delete_confirm_ms() -> u32 {
@@ -221,13 +243,15 @@ fn default_translation_target_language() -> String {
 
 impl Default for AppConfig {
     fn default() -> Self {
+        let (global_shortcut, pin_shortcut, capture_shortcut) =
+            default_shortcuts_for(crate::platform::current_operating_system());
         Self {
             version: CURRENT_CONFIG_VERSION,
             max_history: 100,
             storage_mode: "persistent".to_string(),
-            global_shortcut: "Alt+V".to_string(),
-            pin_shortcut: "Ctrl+2".to_string(),
-            capture_shortcut: "Ctrl+Shift+S".to_string(),
+            global_shortcut: global_shortcut.to_string(),
+            pin_shortcut: pin_shortcut.to_string(),
+            capture_shortcut: capture_shortcut.to_string(),
             theme: "light".to_string(),
             language: "auto".to_string(),
             delete_confirm_ms: 1200,
@@ -345,6 +369,22 @@ pub struct UrlMeta {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_install_shortcuts_follow_native_modifier_conventions() {
+        assert_eq!(
+            default_shortcuts_for(crate::platform::OperatingSystem::Macos),
+            ("Command+Shift+V", "Command+2", "Command+Shift+S")
+        );
+        assert_eq!(
+            default_shortcuts_for(crate::platform::OperatingSystem::Windows),
+            ("Alt+V", "Ctrl+2", "Ctrl+Shift+S")
+        );
+        assert_eq!(
+            default_shortcuts_for(crate::platform::OperatingSystem::Linux),
+            ("Alt+V", "Ctrl+2", "Ctrl+Shift+S")
+        );
+    }
 
     /// 发给前端的条目必须不带图片二进制：JSON 序列化会把 `Vec<u8>` 摊成一串十进制数字，
     /// 几 MB 的截图能膨胀到十几 MB 文本，而前端根本不读这个字段。其余字段一个都不能动——
