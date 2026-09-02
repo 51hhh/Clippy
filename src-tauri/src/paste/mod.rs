@@ -1,13 +1,18 @@
 mod error;
+#[cfg(target_os = "linux")]
 mod portal;
+#[cfg(target_os = "linux")]
 mod token_store;
+#[cfg(target_os = "linux")]
 mod x11;
 
 pub use error::PasteError;
+#[cfg(target_os = "linux")]
 use portal::PortalState;
 use serde::Serialize;
-use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::path::Path;
+#[cfg(target_os = "linux")]
+use std::{path::PathBuf, sync::Mutex};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -55,6 +60,7 @@ impl PasteOutcome {
     }
 }
 
+#[cfg(target_os = "linux")]
 pub struct PasteManager {
     backend: PasteBackend,
     x11_target: Mutex<Option<u32>>,
@@ -62,6 +68,12 @@ pub struct PasteManager {
     token_path: PathBuf,
 }
 
+#[cfg(not(target_os = "linux"))]
+pub struct PasteManager {
+    backend: PasteBackend,
+}
+
+#[cfg(target_os = "linux")]
 impl PasteManager {
     pub fn new(app_data_dir: &Path) -> Self {
         let backend = detect_backend();
@@ -179,6 +191,49 @@ impl PasteManager {
     }
 }
 
+#[cfg(not(target_os = "linux"))]
+impl PasteManager {
+    pub fn new(_app_data_dir: &Path) -> Self {
+        Self {
+            backend: PasteBackend::CopyOnly,
+        }
+    }
+
+    pub fn backend(&self) -> PasteBackend {
+        self.backend
+    }
+
+    pub fn capture_target(&self) {}
+
+    pub async fn status(&self, auto_paste_enabled: bool) -> PasteStatus {
+        PasteStatus {
+            backend: self.backend,
+            phase: PastePhase::Unavailable,
+            auto_paste_enabled,
+            can_request_permission: false,
+            detail: Some(
+                "Native automatic paste backend has not been initialized on this platform"
+                    .to_string(),
+            ),
+        }
+    }
+
+    pub async fn request_permission(
+        &self,
+        auto_paste_enabled: bool,
+    ) -> Result<PasteStatus, PasteError> {
+        Ok(self.status(auto_paste_enabled).await)
+    }
+
+    pub async fn paste(&self) -> Result<PasteOutcome, PasteError> {
+        Ok(PasteOutcome::copied_only(
+            self.backend,
+            Some("Automatic paste is unavailable on this platform".to_string()),
+        ))
+    }
+}
+
+#[cfg(target_os = "linux")]
 fn detect_backend() -> PasteBackend {
     let session_type = std::env::var("XDG_SESSION_TYPE")
         .unwrap_or_default()
@@ -190,6 +245,7 @@ fn detect_backend() -> PasteBackend {
     )
 }
 
+#[cfg(target_os = "linux")]
 fn detect_backend_from(
     session_type: &str,
     has_wayland_display: bool,
@@ -204,7 +260,7 @@ fn detect_backend_from(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
 

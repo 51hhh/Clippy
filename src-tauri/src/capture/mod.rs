@@ -4,6 +4,10 @@ pub mod diagnostics;
 mod error;
 mod manager;
 mod overlay_windows;
+#[cfg(target_os = "linux")]
+mod shell_extension;
+#[cfg(not(target_os = "linux"))]
+#[path = "shell_extension_stub.rs"]
 mod shell_extension;
 mod types;
 mod window_probe;

@@ -1,4 +1,5 @@
 pub(crate) mod content;
+#[cfg(target_os = "linux")]
 mod tmux;
 mod wake;
 mod writer;
@@ -94,6 +95,7 @@ impl ClipboardWatcher {
             };
 
             // 启动 tmux inotify 监听线程
+            #[cfg(target_os = "linux")]
             {
                 let running = Arc::clone(&running);
                 let config = Arc::clone(&config);
