@@ -98,7 +98,7 @@ Portal 接口存在性必须读取各接口的 `version` 属性；不能用 port
 2. CoreGraphics/xcap 或 ScreenCaptureKit 捕获以及 Screen Recording onboarding。
 3. CGWindowList 窗口候选、Retina 坐标、NSWindow level/Spaces 行为。
 4. Command 快捷键展示、系统目录、keychain。
-5. Intel/Apple Silicon 构建、签名、公证和 updater。
+5. Intel/Apple Silicon 构建、Developer ID/Hardened Runtime/Gatekeeper 校验、公证票据和 updater。
 
 ### Phase F：验证和发布门禁
 

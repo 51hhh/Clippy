@@ -22,6 +22,8 @@
   Windows NSIS/MSI 与 macOS app/DMG，release 再汇总签名后的各平台 updater 产物。
 - Windows 正式 release 强制导入带代码签名私钥的 PFX，以 SHA-256 和 RFC 3161 时间戳签名；上传前
   同时验证 NSIS/MSI 的 Authenticode 状态和证书指纹，缺少或过期证书不再发布“未知发布者”安装包。
+- release tag 必须是合法 SemVer、可从 `main`/`dev` 到达，并与 Tauri、Cargo 和 CHANGELOG 精确一致；
+  macOS 产物上传前另行验证 Developer ID、Hardened Runtime、Gatekeeper 和已 stapling 的公证票据。
 - Ubuntu 22.04 重新成为 Linux 最低构建基线：默认依赖图使用 Jammy 可编译的截图实现，
   `pipewire-rs` 仅作为较新 Linux 可显式启用的增强 feature。
 

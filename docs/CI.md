@@ -73,9 +73,10 @@ check-version ─┬→ build-linux ───┐
 ```
 
 #### 1. check-version
-- 提取 tag 版本号（去掉 `v` 前缀）
-- **验证 tag 版本与 `src-tauri/tauri.conf.json` 中的 `version` 字段一致**
-- 检查 tag 是否在 `main` 或 `dev` 分支上（仅 warning）
+- 校验并提取 SemVer tag（去掉 `v` 前缀）
+- **验证 tag、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml` 三处版本完全一致**
+- 验证 `CHANGELOG.md` 存在精确的 `## vX.Y.Z` 标题
+- 验证 tag commit 可从 `main` 或 `dev` 到达；不满足时停止发布，不再只给 warning
 
 #### 2. build-linux
 - 安装系统依赖 + Rust + Node.js
@@ -90,6 +91,8 @@ check-version ─┬→ build-linux ───┐
 #### 4. build-macos
 - 在 `macos-latest` ARM64 runner 上分别编译 `aarch64-apple-darwin` 与 `x86_64-apple-darwin`
 - 强制使用 Developer ID Application 证书签名，并通过 Apple 服务公证
+- 上传前验证严格代码签名、Developer ID authority、Hardened Runtime、Gatekeeper assessment 和 app 的
+  stapled notarization ticket
 - 产出两个架构的 DMG，以及 updater 使用的 `.app.tar.gz` 和签名
 
 #### 5. update-release
@@ -168,10 +171,11 @@ NSIS、macOS 使用 `.app.tar.gz`。DEB、MSI 和 DMG 是人工安装入口，�
 |------|------|------|
 | `cargo fmt -- --check` 失败 | 代码未格式化 | `cd src-tauri && cargo fmt` |
 | `cargo clippy` 失败 | 代码有 warning | 按 clippy 提示修复 |
-| Release 版本验证失败 | tag 版本 ≠ tauri.conf.json | 确保三处版本号一致 |
+| Release 版本验证失败 | tag 不是 SemVer、三处版本不一致、CHANGELOG 缺章节或 tag 不在发布分支 | 修正版本、变更日志或 tag 来源后重新创建 tag |
 | vitest 失败 | 前端测试不通过 | `cd src && npx vitest run` 本地复现 |
 | 默认依赖图出现 `pipewire v` | 可选 `linux-pipewire` 被误加入默认 feature | 保持 feature 显式 opt-in，不给 Ubuntu 22 默认包增加 PipeWire 构建依赖 |
 | macOS 缺少 signing secret | Developer ID 或公证凭据未配置 | 按发版检查清单补齐全部 Apple Secrets；正式发布禁止退回 ad-hoc 签名 |
+| macOS 最终产物校验失败 | 签名、Hardened Runtime、Gatekeeper 或 stapled ticket 任一不成立 | 检查 Developer ID、entitlements 和公证日志，不上传未通过产物 |
 | NSIS/macOS `.sig` 缺失 | Tauri updater 私钥未配置或构建未生成 updater artifact | 检查 `TAURI_SIGNING_PRIVATE_KEY*` 与 `createUpdaterArtifacts` |
 | Windows 签名门禁失败 | PFX secret 缺失、证书无私钥/代码签名 EKU、已过期，或安装包签名无效 | 检查 `WINDOWS_CERTIFICATE*`，并确认可信证书链和时间戳服务可用 |
 
