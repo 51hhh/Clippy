@@ -4,11 +4,11 @@
 
 审查基线：`621e36f289a386dcf84d26c77742f6b0f1eae31e`
 
-实现与最近一次完整本机 CI 已审查至：`9fc6882609bbdf964616225c0ccb95478960a2c0`
+实现与最近一次完整本机 CI 已审查至：`dc676091c626900ecb9cc520b740067abb4448ce`
 
 ## 审查范围
 
-- 截至上述实现审查点，审查基线之后共 131 个提交，以及提交时仍存在的工作区内容。
+- 截至上述实现审查点，审查基线之后共 133 个提交，以及提交时仍存在的工作区内容。
 - 逐项检查截图、窗口命中、Pin、标注画布、可编辑 PNG、剪贴板、自动粘贴、快捷键、OCR、
   私有存储、自动启动、平台配置、CI 和 release 数据流。
 - `.omo/` 与 `.trellis/workspace/codex/` 是未跟踪的用户工作区，本次未读取、未修改、未提交。
@@ -28,7 +28,7 @@
 | GNOME 扩展静态检查 | 通过，Shell 45–51 |
 | `npm ci` | 通过，0 个已报告漏洞 |
 | `tsc --noEmit` | 通过 |
-| Vitest | 42 个文件、791 项测试通过 |
+| Vitest | 43 个文件、796 项测试通过 |
 | DOM/Xvfb smoke | 9 项通过 |
 | Canvas 导出像素 smoke | 通过，抽样像素 `0 208 0` |
 | 主窗口布局像素 smoke | 通过，抽样像素 `0 208 0` |
@@ -96,10 +96,14 @@
 
 ## 原生平台验证状态
 
-截至上述审查点，`dev` 比 `origin/dev` 多 157 个本地提交。公开 GitHub API 显示最近一次
+截至上述审查点，`dev` 比 `origin/dev` 多 159 个本地提交。公开 GitHub API 显示最近一次
 `build.yml` 成功运行是 2026-08-30 的 run 60、commit
 `8f6c1b57ad844ebc98254b9f88b16e88f3cce314`；该 run 只有一个 `Check (ubuntu-24.04)` job，明确没有
 执行本轮新增的 `windows-latest` / `macos-latest` 原生矩阵，也不包含本轮实现。
+
+仓库现提供 `scripts/verify-native-ci.mjs` 按完整 SHA 读取 GitHub check-runs API，并要求 Ubuntu 22、
+Windows、macOS 三个精确 job 名全部为 `completed/success`。用上述远端 SHA 做反例实测时，校验器
+正确返回 1，并把三个当前必需 job 全部列为 `missing`；它不会把旧的 Ubuntu 24 job 误判为验收证据。
 
 - Windows MSVC：完整工程在 Linux 主机交叉检查时缺少 `llvm-rc`、MSVC `lib.exe`/SDK 以及
   `ring`/SQLite 所需原生构建工具，因而在依赖构建阶段停止；私有文件模块的独立 MSVC 目标检查已

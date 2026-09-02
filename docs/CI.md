@@ -43,6 +43,23 @@
 平台 bundler。Windows 必须实际出现 NSIS 与 MSI，macOS 必须实际出现 app 与 DMG。这个 smoke 只证明
 无签名安装包链路可构建，不能替代 release workflow 的 Authenticode、Developer ID 和公证验收。
 
+### 原生 runner 证据
+
+本地分支推送并完成 CI 后，用完整 commit SHA 校验三个必需 job，避免把旧 workflow、其它分支或只有
+Linux 的 run 误记为跨平台通过：
+
+```bash
+node scripts/verify-native-ci.mjs \
+  --repo 51hhh/Clippy \
+  --sha <40位commit SHA> \
+  --output native-ci-evidence.md
+```
+
+校验器只读取 GitHub check-runs API；仅当 `Check (ubuntu-22.04)`、
+`Native Check (windows-latest)` 和 `Native Check (macos-latest)` 对该 SHA 都是
+`completed/success` 时返回 0。输出的 Markdown 可直接归档到任务验证记录。公开仓库无需 token；受限
+环境或私有仓库可通过 `GITHUB_TOKEN` / `GH_TOKEN` 提供只读权限，脚本不会打印 token。
+
 ### 本地复现
 
 ```bash
