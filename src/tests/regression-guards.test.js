@@ -76,6 +76,14 @@ describe("原生平台由真实 runner 编译", () => {
     expect(buildWorkflow).toMatch(/native-check:[\s\S]*cargo check --all-targets/);
     expect(buildWorkflow).toMatch(/native-check:[\s\S]*cargo clippy --all-targets -- -D warnings/);
   });
+
+  it("原生 job 同时执行 Rust 测试和前端完整门禁", () => {
+    const nativeJob = buildWorkflow.slice(buildWorkflow.indexOf("  native-check:"));
+    expect(nativeJob).toContain("cargo test");
+    expect(nativeJob).toContain("npx vitest run");
+    expect(nativeJob).toContain("npx tsc --noEmit");
+    expect(nativeJob).toContain("npx vite build");
+  });
 });
 
 describe("deb 只声明默认二进制真实需要的额外运行库", () => {

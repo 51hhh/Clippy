@@ -27,7 +27,7 @@
 | 前端测试 | `npx vitest run` | 前端测试（jsdom） |
 | 前端类型检查 | `npx tsc --noEmit` | 检查 React/TS 功能岛 |
 | 前端构建 | `npx vite build` | 验证正式前端产物 |
-| 原生平台检查 | `cargo check/clippy --all-targets` | Windows 与 macOS 原生 runner 编译门禁 |
+| 原生平台检查 | Rust check/clippy/test + 前端 test/typecheck/build | Windows 与 macOS 原生 runner 完整门禁 |
 
 ### 环境
 - **Runner**: Linux 使用 `ubuntu-22.04` 作为最低构建基线；原生编译门禁使用 `windows-latest` 与 `macos-latest`
