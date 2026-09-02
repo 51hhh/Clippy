@@ -17,7 +17,7 @@ use windows_sys::Win32::Security::Authorization::{
 };
 #[cfg(test)]
 use windows_sys::Win32::Security::{
-    EqualSid, GetAce, GetSecurityDescriptorControl, IsValidAcl, ACCESS_ALLOWED_ACE,
+    EqualSid, GetAce, GetSecurityDescriptorControl, IsValidAcl, ACCESS_ALLOWED_ACE, ACE_HEADER,
     SE_DACL_PROTECTED,
 };
 use windows_sys::Win32::Security::{
@@ -237,22 +237,33 @@ fn private_acl(path: &Path) -> io::Result<bool> {
     {
         return Ok(false);
     }
-    // SAFETY: acl 位于仍存活的 descriptor 内。
-    if unsafe { IsValidAcl(acl) } == 0 || unsafe { (*acl).AceCount } != 1 {
+    // SAFETY: acl 位于仍存活的 descriptor 内。空 DACL 会拒绝所有人，但它也会让当前用户
+    // 无法继续维护文件，不符合“仅当前用户可读写”的契约。
+    if unsafe { IsValidAcl(acl) } == 0 || unsafe { (*acl).AceCount } == 0 {
         return Ok(false);
     }
 
-    let mut raw_ace = null_mut();
-    // SAFETY: 已验证 ACL 且 AceCount == 1，索引 0 有效。
-    if unsafe { GetAce(acl, 0, &mut raw_ace) } == 0 || raw_ace.is_null() {
-        return Ok(false);
+    // 目录的可继承权限可能被 Windows 规范化成多个 ACE。数量不是安全边界；真正的不变量是
+    // 每一条都只能是授予当前用户的 allow ACE，不能夹入 Everyone、Users 或 deny 条目。
+    let ace_count = unsafe { (*acl).AceCount };
+    for index in 0..u32::from(ace_count) {
+        let mut raw_ace = null_mut();
+        // SAFETY: ACL 已验证，index 严格小于 AceCount。
+        if unsafe { GetAce(acl, index, &mut raw_ace) } == 0 || raw_ace.is_null() {
+            return Ok(false);
+        }
+        // SAFETY: GetAce 返回的每种 ACE 都以 ACE_HEADER 开头；确认类型后再按
+        // ACCESS_ALLOWED_ACE 解释其余字段。
+        let header = unsafe { &*raw_ace.cast::<ACE_HEADER>() };
+        if u32::from(header.AceType) != ACCESS_ALLOWED_ACE_TYPE {
+            return Ok(false);
+        }
+        let ace = unsafe { &*raw_ace.cast::<ACCESS_ALLOWED_ACE>() };
+        let sid = addr_of!(ace.SidStart).cast_mut().cast();
+        // SAFETY: ACCESS_ALLOWED_ACE 的 SidStart 是变长 SID 的首字段，user.sid() 在缓冲区内有效。
+        if unsafe { IsValidSid(sid) == 0 || EqualSid(sid, user.sid()) == 0 } {
+            return Ok(false);
+        }
     }
-    // SAFETY: GetAce 返回至少含 ACE_HEADER 的有效 ACE；类型匹配后布局为 ACCESS_ALLOWED_ACE。
-    let ace = unsafe { &*(raw_ace.cast::<ACCESS_ALLOWED_ACE>()) };
-    if u32::from(ace.Header.AceType) != ACCESS_ALLOWED_ACE_TYPE {
-        return Ok(false);
-    }
-    let sid = addr_of!(ace.SidStart).cast_mut().cast();
-    // SAFETY: ACCESS_ALLOWED_ACE 的 SidStart 是变长 SID 的首字段，user.sid() 在缓冲区内有效。
-    Ok(unsafe { IsValidSid(sid) != 0 && EqualSid(sid, user.sid()) != 0 })
+    Ok(true)
 }
