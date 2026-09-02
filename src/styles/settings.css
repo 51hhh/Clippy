@@ -707,6 +707,39 @@ html, body {
 }
 .about-status.hidden { display: none !important; }
 
+.platform-portal-summary {
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+.platform-capability-list {
+  display: grid;
+  gap: 7px;
+  margin-top: 12px;
+}
+.platform-capability {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 12px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--text-muted);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+}
+.platform-capability.ready { border-left-color: var(--status-ok); }
+.platform-capability.pending { border-left-color: var(--status-warn); }
+.platform-capability.unavailable { border-left-color: var(--status-bad); }
+.platform-capability-name,
+.platform-capability-state {
+  font-size: 12.5px;
+  color: var(--text-primary);
+}
+.platform-capability-state { font-weight: 600; }
+.platform-capability-reason {
+  grid-column: 1 / -1;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
 /* ── 统计卡片 ── */
 .stats-grid {
   display: grid;
