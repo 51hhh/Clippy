@@ -202,12 +202,22 @@ fn invariant_lines(warnings: &[String], has_stage: bool) -> Vec<String> {
     .collect()
 }
 
+/// 平台能力是排查“为什么这台机器只能复制、不能粘贴/截图/注册快捷键”的事实源。
+///
+/// 这里直接复用 typed IPC 的结构，而不是再从环境变量推断一遍。JSON 字段名稳定、便于 issue
+/// 和自动化工具读取；结构本身不含剪贴板内容、Portal token、密钥或窗口标题。
+fn platform_info_json(platform: &crate::platform::PlatformInfo) -> String {
+    serde_json::to_string_pretty(platform)
+        .unwrap_or_else(|error| format!("{{\"serialization_error\":\"{error}\"}}"))
+}
+
 /// 拼出整份报告。
 ///
 /// 刻意做成纯函数：不碰 D-Bus、不碰文件，全部输入由调用方传进来，于是排版可以单测，
 /// 而排版恰恰是最容易悄悄退化的部分——报障的人读的就是这几行。
 fn render(
     version: &str,
+    platform: &crate::platform::PlatformInfo,
     extension: &ShellExtensionStatus,
     geometry: &crate::screenshot::diagnostics::GeometryDiagnostics,
     tauri_monitors: &Result<Vec<String>, String>,
@@ -222,6 +232,10 @@ fn render(
     out.push_str(&format!("{}\n", env_presence("WAYLAND_DISPLAY")));
     out.push_str(&format!("{}\n", env_presence("DISPLAY")));
     out.push_str(&format!("{}\n", extension_line(extension)));
+
+    out.push_str("\n--- 平台能力（typed PlatformInfo）---\n");
+    out.push_str(&platform_info_json(platform));
+    out.push('\n');
 
     out.push_str("\n--- 显示器几何（逐来源）---\n");
     for source in &geometry.sources {
@@ -379,8 +393,10 @@ pub(crate) fn collect_report(
         .filter(|note| !note.is_empty())
         .unwrap_or_else(|| DEFAULT_NOTE.to_string());
     let geometry = crate::screenshot::diagnostics::collect(FIXTURE_NAME, &note, &compositor);
+    let platform = crate::platform::current_info();
     let text = render(
         version,
+        &platform,
         &extension,
         &geometry,
         &tauri_monitors,
@@ -561,6 +577,39 @@ pub async fn run_capture_diagnostics(
 mod tests {
     use super::*;
 
+    fn platform_info() -> crate::platform::PlatformInfo {
+        let available = crate::platform::Capability {
+            state: crate::platform::CapabilityState::Available,
+            reason: None,
+        };
+        crate::platform::PlatformInfo {
+            operating_system: crate::platform::OperatingSystem::Linux,
+            session: crate::platform::DesktopSession::Wayland,
+            desktop_environment: Some("kde".to_string()),
+            architecture: "x86_64".to_string(),
+            xwayland_available: true,
+            portal: crate::platform::PortalInfo {
+                desktop_service_available: true,
+                global_shortcuts: crate::platform::PortalInterfaceInfo {
+                    available: true,
+                    version: Some(2),
+                },
+                ..Default::default()
+            },
+            capabilities: crate::platform::PlatformCapabilities {
+                clipboard_text: available,
+                clipboard_image: available,
+                auto_paste: available,
+                global_shortcuts: available,
+                screen_capture: available,
+                window_pick: available,
+                absolute_window_position: available,
+                always_on_top: available,
+                ocr: available,
+            },
+        }
+    }
+
     fn status(active: bool, stale: bool) -> ShellExtensionStatus {
         ShellExtensionStatus {
             supported: true,
@@ -718,6 +767,7 @@ mod tests {
         let lines = vec!["#1 0,0 2560x1440 ×1.5000".to_string()];
         let text = render(
             "0.0.0",
+            &platform_info(),
             &status(true, false),
             &empty_geometry(),
             &Ok(lines),
@@ -734,6 +784,7 @@ mod tests {
     fn a_missing_monitor_model_says_why_instead_of_vanishing() {
         let text = render(
             "0.0.0",
+            &platform_info(),
             &status(true, false),
             &empty_geometry(),
             &Err("命令行模式下 Tauri 还没启动".to_string()),
@@ -742,6 +793,24 @@ mod tests {
         );
         assert!(text.contains("Tauri/GTK"), "{text}");
         assert!(text.contains("命令行模式下 Tauri 还没启动"), "{text}");
+    }
+
+    #[test]
+    fn the_report_includes_structured_platform_and_portal_capabilities() {
+        let platform = platform_info();
+        let text = render(
+            "0.0.0",
+            &platform,
+            &status(true, false),
+            &empty_geometry(),
+            &Err("测试".to_string()),
+            None,
+            &Err("测试".to_string()),
+        );
+        assert!(text.contains("typed PlatformInfo"), "{text}");
+        assert!(text.contains("\"xwayland_available\": true"), "{text}");
+        assert!(text.contains("\"global_shortcuts\""), "{text}");
+        assert!(text.contains("\"version\": 2"), "{text}");
     }
 
     fn args(list: &[&str]) -> Vec<String> {
