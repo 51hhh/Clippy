@@ -1,14 +1,15 @@
 # 跨平台兼容验证记录
 
-日期：2026-09-02
+日期：2026-09-03
 
 审查基线：`621e36f289a386dcf84d26c77742f6b0f1eae31e`
 
-应用实现、九环境 QA 合同与三平台原生门禁已完成至：`5d703675aefc082e5ad10656f8288c05058200a1`
+应用实现、九环境 QA 合同、三平台原生门禁与 0.1.18 正式发布已完成至：
+`7dcf9bf28d013ff4ff7991bb2b7b0509453a01fa`
 
 ## 审查范围
 
-- 截至上述审查点，审查基线之后共 154 个提交，以及提交时仍存在的工作区内容。
+- 截至上述审查点，审查基线之后共 176 个提交，以及提交时仍存在的工作区内容。
 - 逐项检查截图、窗口命中、Pin、标注画布、可编辑 PNG、剪贴板、自动粘贴、快捷键、OCR、
   私有存储、自动启动、平台配置、CI 和 release 数据流。
 - `.omo/` 与 `.trellis/workspace/codex/` 是未跟踪的用户工作区，本次未读取、未修改、未提交。
@@ -17,7 +18,7 @@
 
 ## 本机自动验证
 
-在 Linux 主机上执行 `./scripts/ci-local.sh`，结果为 12 通过、0 失败、1 跳过：
+在 Linux 主机上执行 `./scripts/ci-local.sh --quick`，结果为 11 通过、0 失败、1 跳过：
 
 | 门禁 | 结果 |
 |---|---|
@@ -28,7 +29,7 @@
 | GNOME 扩展静态检查 | 通过，Shell 45–51 |
 | `npm ci` | 通过，0 个已报告漏洞 |
 | `tsc --noEmit` | 通过 |
-| Vitest | 44 个文件、818 项测试通过 |
+| Vitest | 832 项测试通过 |
 | DOM/Xvfb smoke | 9 项通过 |
 | Canvas 导出像素 smoke | 通过，抽样像素 `0 208 0` |
 | 主窗口布局像素 smoke | 通过，抽样像素 `0 208 0` |
@@ -120,7 +121,7 @@
 
 ## 原生平台验证状态
 
-2026-09-02 的 0.1.18 发布前 CI 复审把职责拆成三条：`CI Check` 仅保留三平台源码门禁，
+2026-09-03 的 0.1.18 发布闭环把职责拆成三条：`CI Check` 仅保留三平台源码门禁，
 `Native QA Packages` 手动生成 Linux x64、Windows x64、macOS Intel/Apple Silicon 测试包，并由
 Ubuntu 24 runner 强制运行 Jammy AppImage；`Release` 在同 SHA CI 与签名策略预检通过后并行构建，
 Linux x64、Windows x64、macOS Intel/Apple Silicon 全部进入 workflow artifacts，最终 job 才创建 draft、
@@ -128,40 +129,28 @@ Linux x64、Windows x64、macOS Intel/Apple Silicon 全部进入 workflow artifa
 SmartScreen 风险，不把它冒充为公共 CA 信任。macOS QA 与正式 release 都通过
 `signingIdentity: "-"` 使用 Ad-Hoc 签名，并独立验证 `codesign --strict`、`Signature=adhoc` 和目标架构；
 发布说明明确它没有 Developer ID 公证。
-这套新结构的 GitHub 原生运行证据需在修复提交推送后补记，以下 `8ec2e25` 记录保留为上一版可安装
-产物基线，不冒充新 workflow 的验证结果。
-
-`dev` 与 `origin/dev` 已同步到实施 SHA
-`8ec2e252f7949db384c64d497789bfc12b6fdb77`。GitHub Actions run
-[`33641161291`](https://github.com/51hhh/Clippy/actions/runs/33641161291) 对这个完整 SHA 给出三项原生
-job 全绿；`scripts/verify-native-ci.mjs` 再从 check-runs API 独立核对精确 job 名、状态和结论，结果为
-PASS。机器生成的逐 job 时间与链接保存在 [native-ci-evidence.md](native-ci-evidence.md)。
+`dev`、`origin/dev` 与正式标签 `v0.1.18` 的发布提交均为
+`7dcf9bf28d013ff4ff7991bb2b7b0509453a01fa`。最终 CI run
+[`33654963258`](https://github.com/51hhh/Clippy/actions/runs/33654963258)、Native QA run
+[`33654979798`](https://github.com/51hhh/Clippy/actions/runs/33654979798) 和 Release run
+[`33656502908`](https://github.com/51hhh/Clippy/actions/runs/33656502908) 全部通过；逐 job 链接与发布后
+清单审计记录在 [native-ci-evidence.md](native-ci-evidence.md)。
 
 | 原生 job | 结果 | 已执行门禁 |
 |---|---|---|
-| `Check (ubuntu-22.04)` | `completed/success` | fmt、check、Jammy 依赖基线、clippy、425 项 Rust 测试、819 项前端测试、DOM/Xvfb、typecheck、build、deb/AppImage |
-| `Native Check (windows-latest)` | `completed/success` | 原生 check/clippy/test、前端 test/typecheck/build、Tauri bundle、NSIS/MSI 产物核对 |
-| `Native Check (macos-latest)` | `completed/success` | 原生 check/clippy/test、前端 test/typecheck/build、Apple Silicon Tauri bundle、app/DMG 产物核对 |
+| `Check (ubuntu-22.04)` | `completed/success` | fmt、check、Jammy 依赖基线、clippy、425 项 Rust 测试、832 项前端测试、DOM/Xvfb、typecheck、build |
+| `Native Check (windows-latest)` | `completed/success` | 原生 check/clippy/test |
+| `Native Check (macos-latest)` | `completed/success` | 原生 check/clippy/test |
 
-Windows runner 同时执行并通过私有文件/目录 ACL 修复验证；Windows 与 macOS runner 都执行 renderer
-v2 固定 RGBA 摘要测试，因此软件渲染器在三平台对同一 fixture 输出相同像素。上述 CI 证明原生编译、
-自动测试和无发布签名的安装包能够生成，不替代 Windows/macOS 真实桌面交互，也不证明 Authenticode、
-Developer ID、公证或正式 updater 发布链。
+Native QA 的 Linux、Windows、macOS Intel、macOS Apple Silicon 四个 bundle job 全绿；Ubuntu 24
+runner 下载同一 run 的 Ubuntu 22 AppImage，在隔离 X11/DBus 环境完成真实启动、窗口和首帧冒烟。
+Windows NSIS/MSI 在临时信任边界内严格得到 `Valid`，并匹配本次生成的 signer thumbprint；两个
+macOS 产物都通过 Ad-Hoc 严格签名和目标架构核对。正式 Release 再独立完成相同四个平台构建，最后
+生成四目标 updater manifest 并公开发布，因而这里不再把 QA bundle 冒充正式 updater 证据。
 
-同一 run 的独立 `QA Bundle (macOS Intel)` job 也以 `completed/success` 结束。五份保留 14 天的 artifact
-均以完整 SHA 命名，已从 GitHub 重新下载到临时目录并检查实际内容：
-
-| QA artifact | 远端大小 | 下载后核验 |
-|---|---:|---|
-| `qa-linux-x64-8ec2e252…` | 117,180,099 B | deb 与 finalized AppImage SHA-256 通过；tar 保留 AppImage 执行位 |
-| `qa-windows-x64-8ec2e252…` | 34,195,786 B | NSIS、MSI 与 `QA-BUILD.txt` SHA-256 通过 |
-| `qa-macos-aarch64-8ec2e252…` | 18,926,875 B | Apple Silicon DMG SHA-256 通过 |
-| `qa-macos-x64-8ec2e252…` | 19,192,994 B | Intel DMG SHA-256 通过 |
-| `qa-record-templates-8ec2e252…` | 26,924 B | 九份 JSON 均绑定完整 SHA、0.1.17 和至少 20 项场景 |
-
-每套安装包内的 `QA-BUILD.txt` 都明确标记 `unsigned-qa-only` 或 `ad-hoc-qa-only`，因此只解决“真机
-测试人员拿不到同 SHA 安装包”的交付缺口，不会被误当作签名发布证据。Linux artifact 额外把 deb、
-AppImage、元数据和摘要封装到 tar，规避 GitHub artifact 解压后丢失可执行权限的问题。
+正式发布资产包含 Linux DEB/AppImage、Windows NSIS/MSI、macOS ARM/Intel DMG 及四个平台 updater
+所需的签名包。发布后下载并解析 `latest.json`，确认版本、UTC 发布时间、四个固定平台键、HTTPS URL
+和非空签名均正确。上述自动证据仍不替代 Windows/macOS 真实桌面交互与 TCC/UIPI 场景。
 
 Linux 主机上的 Windows 交叉检查仍会因缺少 MSVC `lib.exe`/SDK 及 C 依赖工具停止，macOS 交叉检查
 仍缺 Apple SDK；现在它们只是本机环境限制，原生 runner 结果才是本轮的平台构建证据。
@@ -263,9 +252,9 @@ Linux 主机上的 Windows 交叉检查仍会因缺少 MSVC `lib.exe`/SDK 及 C 
 - Windows Authenticode workflow 已接入；仓库没有 `WINDOWS_CERTIFICATE*` 时会在 runner 的个人证书库
   生成临时自签名证书，并只把其公钥短暂加入 `LocalMachine\TrustedPeople`，使 NSIS/MSI 的摘要校验
   必须严格返回 `Valid`；验证后删除个人证书与临时信任，不导入 Root 信任库。该模式不建立公共 CA
-  信任，正式页面必须保留 SmartScreen 警告；首次 tag 运行仍需补齐实际 runner 证据。
+  信任，正式页面必须保留 SmartScreen 警告；0.1.18 的 Native QA 与 tag release runner 均已通过。
 - macOS Intel/Apple Silicon 已固定进入 release 并使用 Ad-Hoc 签名；这满足当前功能分发策略，但不建立
-  Developer ID、公证或 Gatekeeper 公共信任。首次 tag 运行仍需补齐两架构产物与 updater 的 runner 证据。
+  Developer ID、公证或 Gatekeeper 公共信任。0.1.18 两架构 DMG、updater 包与签名已实际发布。
 - Tauri 2.11 的默认 linuxdeploy 路径仍会生成包含 `libwayland-*` 的原始 AppImage；Clippy 正式
   release workflow 已通过 finalization 修复并重签名，但手工分发未经 finalization 的原始产物仍不受支持。
 - Windows 私有文件 ACL 已由原生 runner 在 NTFS 临时目录执行文件/目录修复测试并通过；真实安装后的
