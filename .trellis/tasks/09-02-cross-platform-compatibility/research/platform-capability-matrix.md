@@ -31,6 +31,9 @@
 - Tauri global-shortcut 插件覆盖 Linux、Windows、macOS：https://v2.tauri.app/plugin/global-shortcut/
 - xdg-desktop-portal GlobalShortcuts 在 1.16 引入；Ubuntu 22 的 portal 为 1.14 系列，因此 Jammy 不可只依赖该接口：https://github.com/flatpak/xdg-desktop-portal/blob/main/NEWS.md
 - GlobalShortcuts 的 `BindShortcuts` 每个 session 只能调用一次，返回值允许是请求集合的任意子集；实现必须核对实际返回项，配置变化时重建 session：https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.GlobalShortcuts.html
+- Portal 前端对象的各功能接口分别公开只读 `version` 属性；运行时应逐接口探测，不能因为
+  `org.freedesktop.portal.Desktop` 服务有 owner 就假定 GlobalShortcuts、RemoteDesktop、Screenshot
+  或 ScreenCast 都可用：https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.GlobalShortcuts.html
 - `preferred_trigger` 使用 XDG Shortcuts 语法：`CTRL` / `ALT` / `SHIFT` / `LOGO` 与去掉 `XKB_KEY_` 前缀的 keysym 通过 `+` 连接：https://specifications.freedesktop.org/shortcuts/latest/
 - xdg-shell 不给普通客户端任意设置顶层窗口全局坐标的通用协议：https://wayland.app/protocols/xdg-shell
 - RemoteDesktop Portal 的输入注入由用户授权决定：https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.RemoteDesktop.html

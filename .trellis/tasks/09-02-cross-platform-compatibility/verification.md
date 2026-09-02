@@ -4,11 +4,11 @@
 
 审查基线：`621e36f289a386dcf84d26c77742f6b0f1eae31e`
 
-已审查至：`66e292be6ed1f995217ed4294b180584b025c57f`
+已审查至：`c718981894df8ac68dd07b7fdf4bea7861bb523b`
 
 ## 审查范围
 
-- 审查基线之后 83 个提交、123 个变更文件，以及提交时仍存在的工作区内容。
+- 审查基线之后 86 个提交、124 个变更文件，以及提交时仍存在的工作区内容。
 - 逐项检查截图、窗口命中、Pin、标注画布、可编辑 PNG、剪贴板、自动粘贴、快捷键、OCR、
   私有存储、自动启动、平台配置、CI 和 release 数据流。
 - `.omo/` 与 `.trellis/workspace/codex/` 是未跟踪的用户工作区，本次未读取、未修改、未提交。
@@ -24,7 +24,7 @@
 | `cargo fmt --check` | 通过 |
 | `cargo check` | 通过 |
 | `cargo clippy -- -D warnings` | 通过 |
-| `cargo test` | 399 通过、0 失败、6 个真实桌面/诊断测试忽略 |
+| `cargo test` | 404 通过、0 失败、6 个真实桌面/诊断测试忽略 |
 | GNOME 扩展静态检查 | 通过，Shell 45–51 |
 | `npm ci` | 通过，0 个已报告漏洞 |
 | `tsc --noEmit` | 通过 |
@@ -49,7 +49,7 @@
 
 ## 原生平台验证状态
 
-当前 `dev` 比 `origin/dev` 多 109 个本地提交。GitHub 上最近一次 `build.yml` 成功运行是
+当前 `dev` 比 `origin/dev` 多 112 个本地提交。GitHub 上最近一次 `build.yml` 成功运行是
 2026-08-30 的 `8f6c1b57ad844ebc98254b9f88b16e88f3cce314`，不包含本轮改动。
 
 - Windows MSVC：Linux 主机缺少 MSVC `lib.exe`，交叉 `cargo check` 在原生工具链依赖处停止；
@@ -83,6 +83,9 @@
 - 发布文档混淆 updater `.sig` 与 Authenticode：明确 Windows 可信代码签名仍是发布前置项。
 - 非 GNOME Wayland 只尝试 GNOME GSettings 并必然失败：接入 GlobalShortcuts Portal，按 XDG/xkb
   格式提交完整动作集合，核对 Portal 返回子集，并用可取消代次管理 Bind/session 生命周期。
+- 平台能力只按 Wayland 环境变量推断 Portal：现在分别探测 Portal 桌面服务和 GlobalShortcuts、
+  RemoteDesktop、Screenshot、ScreenCast 接口版本，并单独记录 XWayland；接口不存在时不会误报为
+  “等待授权”。同一份 typed `PlatformInfo` 进入 IPC 和本地截图诊断报告。
 
 ## 已知限制与发布阻断项
 

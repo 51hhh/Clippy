@@ -13,6 +13,7 @@
 |---|---|
 | `lib.rs` / `app/` | `lib.rs` 组装 Tauri builder、managed state 和快捷键后端；GNOME Wayland 使用 gsettings/D-Bus，非 GNOME Wayland 使用 GlobalShortcuts Portal，X11/Windows/macOS 使用 Tauri 原生插件。`app/` 管理开发自启防护、WebKit 诊断、托盘、快捷键动作和窗口事件；托盘菜单文案取自 `i18n.rs`，`config-changed` 同时刷新图标（主题）与菜单文案（语言） |
 | `commands/` | 按 clipboard/settings/tmux/capture/OCR/URL 拆分薄 IPC 命令 |
+| `platform/` | 操作系统、会话、桌面环境与能力状态的单一事实源。Linux Wayland 额外记录 `DISPLAY` 是否表明 XWayland 可用，并分别从 `org.freedesktop.portal.Desktop` 读取 GlobalShortcuts、RemoteDesktop、Screenshot、ScreenCast 的 `version` 属性；服务或具体接口缺失与“接口存在但需用户授权”是不同 reason code。`get_platform_info` 与截图诊断复用同一份结构，业务和前端不得自行猜测。 |
 | `clipboard_watcher.rs` + `clipboard_watcher/*` | 主轮询与去重协调；内容分类、写入重试和 tmux/inotify 监听各自隔离。**入库只有 watcher 这一条路径**——`writer.rs` 的三个写入口只管写系统剪贴板，写完敲 `wake::nudge()` 让轮询等待当场结束（`wake.rs` 的条件变量 + 待处理标记），所以自己复制的内容也是几毫秒内进历史，而不是最多等满 500 ms。别让写入方自己 `insert_clip`：watcher 哈希的是它自己从剪贴板 RGBA 重编的 PNG，字节对不上就会在 500 ms 后被再插一条 |
 | `paste/mod.rs` | 自动粘贴协调器、后端选择、Copy-only fallback 和稳定状态契约 |
 | `paste/portal.rs` / `x11.rs` / `token_store.rs` | Portal 会话与授权状态机、X11 窗口恢复与输入、私有 restore token 持久化 |
@@ -209,7 +210,7 @@ GNOME 自定义快捷键条目路径按 command 认领而不是写死 `custom0/1
 
 设置窗口关闭时，快捷键录制控制器先等待 `resume_shortcuts` 完成再关闭；Rust `AppState` 以原子标志和转换锁提供窗口销毁后的幂等恢复兜底。Portal 录制暂停还会等待 session 真正关闭；若 Bind 正停在系统确认界面，代次 watch 会先取消请求并清理 session，再确认暂停完成。
 
-`XDG_SESSION_TYPE` 优先于残留的 display 环境变量。Portal token 不进入普通配置；独立文件必须为 0600。首次 Portal 确认、撤权和桌面后端是否允许静默恢复仍属于真实桌面人工验收。
+`XDG_SESSION_TYPE` 优先于残留的 display 环境变量；只有已判定为 Wayland 且同时存在 `DISPLAY` 才报告 XWayland。Portal 服务存在不等于所有接口都存在，能力探测按接口读取 `version`，缺失时不再误报成“等待授权”。Portal token 不进入普通配置；独立文件必须为 0600。首次 Portal 确认、撤权和桌面后端是否允许静默恢复仍属于真实桌面人工验收。
 截图 Portal 的交互模式由截图用户动作显式开启；后台或未来自动任务应传入非交互模式，避免隐式弹出桌面授权。
 
 ## 安全规则

@@ -41,9 +41,20 @@ struct PlatformCapabilities {
     always_on_top: Capability,
     ocr: Capability,
 }
+
+struct PlatformInfo {
+    operating_system: OperatingSystem,
+    session: DesktopSession,
+    desktop_environment: Option<String>,
+    architecture: String,
+    xwayland_available: bool,
+    portal: PortalInfo, // 服务状态与四个接口各自的 available/version
+    capabilities: PlatformCapabilities,
+}
 ```
 
 Reason code 必须是 serde 稳定枚举，文案由前端 i18n 决定。诊断信息可以携带后端名称，但不能把自由文本错误当成 UI 逻辑条件。
+Portal 接口存在性必须读取各接口的 `version` 属性；不能用 portal 进程存在或软件包总版本推断。
 
 ## 分阶段实施
 
