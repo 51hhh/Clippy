@@ -15,6 +15,7 @@ mod ocr;
 mod paste;
 mod pin;
 mod pin_window;
+mod platform;
 mod private_files;
 mod screenshot;
 mod shortcut_conflict;
@@ -154,7 +155,7 @@ pub fn run() {
             app::tray::listen_for_config_changes(app, tray_items);
 
             // ── 7. 注册全局快捷键（从配置读取）────────────────────────────────
-            if gsettings_shortcuts::is_wayland() {
+            if platform::uses_gnome_shortcuts() {
                 log::info!("检测到 Wayland 会话，使用 gsettings 自定义快捷键 + D-Bus");
                 // 三个动作的失败都要上报：非 GNOME 的 Wayland 桌面没有 media-keys schema，
                 // 只写日志会让快捷键静默失效。
@@ -246,6 +247,7 @@ pub fn run() {
             commands::pause_shortcuts,
             commands::resume_shortcuts,
             commands::get_install_type,
+            commands::get_platform_info,
             commands::is_dev_binary,
             capture::show_capture_overlay,
             capture::get_capture_overlay,

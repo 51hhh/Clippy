@@ -453,7 +453,7 @@ fn visible_window_origin(label: &str) -> Option<LogicalPosition<f64>> {
 /// 单独一个函数是为了让"哪条路是可信的"留在明面上——Wayland 与 X11 在这件事上
 /// 完全不同，混在一个表达式里下次一定被误改。
 fn x11_window_origin(window: &tauri::WebviewWindow, scale: f64) -> Option<LogicalPosition<f64>> {
-    if crate::gsettings_shortcuts::is_wayland() {
+    if crate::platform::is_wayland() {
         return None;
     }
     let physical = window.outer_position().ok()?;
@@ -542,7 +542,7 @@ fn known_pin_position(
     window: &tauri::WebviewWindow,
     entry: &PinEntry,
 ) -> Option<PhysicalPosition<i32>> {
-    if crate::gsettings_shortcuts::is_wayland() {
+    if crate::platform::is_wayland() {
         return None;
     }
     entry

@@ -96,7 +96,7 @@ pub fn update_config(
 
     // 保存后的注册失败必须回到界面上，否则设置页显示新键位而系统里根本没绑上。
     if global_changed || pin_changed || capture_changed {
-        if crate::gsettings_shortcuts::is_wayland() {
+        if crate::platform::uses_gnome_shortcuts() {
             if global_changed {
                 crate::record_register_result(
                     &app_handle,
@@ -163,7 +163,7 @@ pub fn check_shortcut_conflict(
     let probe = shortcut.clone();
     Ok(crate::shortcut_conflict::detect_with(
         &shortcut,
-        crate::gsettings_shortcuts::is_wayland(),
+        crate::platform::uses_gnome_shortcuts(),
         || app_handle.global_shortcut().is_registered(probe.as_str()),
         crate::shortcut_conflict::scan_gnome_bindings,
     ))
@@ -212,7 +212,7 @@ pub fn pause_shortcuts(app_handle: tauri::AppHandle, state: State<AppState>) -> 
 }
 
 fn pause_shortcuts_for_platform(app_handle: &tauri::AppHandle) -> Result<(), String> {
-    if crate::gsettings_shortcuts::is_wayland() {
+    if crate::platform::uses_gnome_shortcuts() {
         crate::gsettings_shortcuts::pause().map_err(|e| e.to_string())
     } else {
         use tauri_plugin_global_shortcut::GlobalShortcutExt;
@@ -247,7 +247,7 @@ pub(crate) fn resume_shortcuts_for_app(
     };
 
     // 恢复同样要记账：录制结束后没绑回去，用户按键就没反应，而设置页显示得好好的。
-    let result = if crate::gsettings_shortcuts::is_wayland() {
+    let result = if crate::platform::uses_gnome_shortcuts() {
         let outcomes = crate::gsettings_shortcuts::resume_with_results(
             &config.global_shortcut,
             &config.pin_shortcut,

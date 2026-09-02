@@ -1,6 +1,7 @@
 mod capture_entry;
 mod clipboard;
 mod ocr;
+mod platform;
 mod settings;
 mod tmux;
 mod url_metadata;
@@ -17,6 +18,7 @@ use std::sync::{Arc, Mutex};
 pub(crate) use capture_entry::*;
 pub use clipboard::*;
 pub use ocr::*;
+pub use platform::*;
 pub use settings::*;
 pub use tmux::*;
 pub use url_metadata::*;

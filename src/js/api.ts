@@ -27,6 +27,7 @@ import type {
   InstallType,
   PasteOutcome,
   PasteStatus,
+  PlatformInfo,
   PinImageSharpened,
   PinCanvasProject,
   PinCanvasSaveMode,
@@ -65,6 +66,9 @@ export type {
   PasteOutcome,
   PastePhase,
   PasteStatus,
+  PlatformCapabilities,
+  PlatformCapability,
+  PlatformInfo,
   PinImageSharpened,
   PinCanvasProject,
   PinCanvasSaveMode,
@@ -97,6 +101,11 @@ export function getClips(
   limit = 20,
 ): Promise<ClipItem[]> {
   return invoke<ClipItem[]>("get_clips", { query, favoritesOnly, offset, limit });
+}
+
+/** 后端检测到的平台、桌面会话和能力边界。 */
+export function getPlatformInfo(): Promise<PlatformInfo> {
+  return invoke<PlatformInfo>("get_platform_info");
 }
 
 /** 删除条目 */

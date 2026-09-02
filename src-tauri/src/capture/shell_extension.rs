@@ -479,7 +479,7 @@ fn invalidate_placement_probe() {
 /// 只有 GNOME Wayland 需要它：GNOME X11 下 xcap 能直接枚举窗口几何，
 /// 而别的合成器根本不认 GNOME Shell 扩展，装了也不会跑。
 pub(super) fn is_relevant() -> bool {
-    crate::gsettings_shortcuts::is_gnome_desktop() && crate::gsettings_shortcuts::is_wayland()
+    crate::platform::is_gnome_desktop() && crate::platform::is_wayland()
 }
 
 /// 覆盖层要不要提示"装个服务才能窗口速选"。
@@ -554,7 +554,7 @@ pub fn uninstall() -> Result<ShellExtensionStatus, String> {
 ///
 /// 只在"用户已经装过"的前提下动手——从不擅自替用户安装 GNOME 扩展。
 pub fn reconcile_on_startup() {
-    if !crate::gsettings_shortcuts::is_gnome_desktop() {
+    if !crate::platform::is_gnome_desktop() {
         return;
     }
     let Ok(directory) = extension_dir() else {
