@@ -133,6 +133,7 @@ pub fn run() {
             );
 
             // ── 4b. 若 tmux 捕获已启用，配置 hook ────────────────────────────
+            #[cfg(target_os = "linux")]
             if app_config.tmux_capture {
                 if let Err(e) = commands::setup_tmux_hook() {
                     log::warn!("tmux hook 配置失败（可能 tmux 未运行）: {}", e);

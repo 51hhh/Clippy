@@ -84,6 +84,7 @@ impl ClipboardWatcher {
             const SENSITIVE_CHECK_INTERVAL: u32 = 60; // 每 60 次循环（~30秒）检查一次
 
             // tmux inotify 线程共享的 last_tmux_hash
+            #[cfg(target_os = "linux")]
             let tmux_last_hash: Arc<Mutex<String>> = {
                 let tmux_buf_path = crate::commands::tmux_buf_path();
                 let initial_hash = std::fs::read_to_string(&tmux_buf_path)
@@ -93,6 +94,8 @@ impl ClipboardWatcher {
                     .unwrap_or_default();
                 Arc::new(Mutex::new(initial_hash))
             };
+            #[cfg(not(target_os = "linux"))]
+            let tmux_last_hash = Arc::new(Mutex::new(String::new()));
 
             // 启动 tmux inotify 监听线程
             #[cfg(target_os = "linux")]
