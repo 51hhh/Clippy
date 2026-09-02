@@ -319,7 +319,10 @@ describe("release 下载链接与构建矩阵同步", () => {
   it("Windows 无 PFX 时生成自签名证书并在发布说明中明确告警", () => {
     expect(release).toContain("New-SelfSignedCertificate");
     expect(release).toContain('Subject "CN=Clippy Self-Signed Release"');
-    expect(release).toContain("WINDOWS_TRUSTED_ROOT_THUMBPRINT");
+    expect(release).toContain('Provider "Microsoft Software Key Storage Provider"');
+    expect(release).toContain('@("Valid", "NotTrusted")');
+    expect(release).not.toContain("WINDOWS_TRUSTED_ROOT_THUMBPRINT");
+    expect(release).not.toContain("Cert:\\CurrentUser\\Root");
     expect(release).toContain("Windows SmartScreen");
   });
 
