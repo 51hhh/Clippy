@@ -82,6 +82,9 @@ After implementation:
 - [ ] Tested with edge cases (null, empty, invalid)
 - [ ] Verified error handling at each boundary
 - [ ] Checked data survives round-trip
+- [ ] For self-writing formats, verified every writer-accepted artifact is accepted by the same-version reader
+- [ ] Kept the display/preview representation separate from the canonical editable source and coordinate space
+- [ ] Defined partial-success semantics explicitly (for example, file committed but clipboard delivery failed)
 
 ---
 

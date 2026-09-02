@@ -1,0 +1,8 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/frontend/index.md", "reason": "React/TS 功能岛与 IPC 总约定"}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "画布资源、事件与异步 IPC 生命周期"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "工程文件是用户输入，需运行时校验"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Rust/Tauri 模块与 IPC 约定"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "文件和 PNG 解析错误边界"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "PNG/IPC/React 跨层数据流"}
+{"file": ".trellis/tasks/09-02-pin-editable-png-project/research/review-findings.md", "reason": "审查发现与已定架构约束"}

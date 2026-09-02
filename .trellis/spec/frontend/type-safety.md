@@ -58,7 +58,7 @@ export async function getClips(query, favoritesOnly, offset, limit) { ... }
 
 ## Validation
 
-- Trust backend data — Tauri IPC guarantees type correctness from Rust serde
+- 普通进程内 IPC 数据可依赖 Rust serde 的类型契约；但由文件、网络或剪贴板恢复的持久化数据仍是用户可控输入。Rust 必须先校验信任边界，React/TS 在放入状态前再做防御性逐字段 schema 校验，不能用 type assertion 把 `unknown` 直接变成文档对象
 - Validate user input at the UI boundary (search input sanitization)
 - No runtime type checking library needed
 
