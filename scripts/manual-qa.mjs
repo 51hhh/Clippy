@@ -178,7 +178,10 @@ const PROFILES = {
         "macos_accessibility_permission_required",
       ),
       pass("spaces_fullscreen", "Spaces、全屏窗口与辅助窗口层级"),
-      pass("signed_notarized_bundle", "Developer ID、Hardened Runtime、公证与 stapling"),
+      pass(
+        "adhoc_bundle_boundary",
+        "Ad-Hoc 签名、目标架构、未公证边界与首次打开恢复",
+      ),
     ],
   },
   "macos-apple-silicon": {
@@ -204,7 +207,10 @@ const PROFILES = {
         "macos_accessibility_permission_required",
       ),
       pass("spaces_fullscreen", "Spaces、全屏窗口与辅助窗口层级"),
-      pass("signed_notarized_bundle", "Developer ID、Hardened Runtime、公证与 stapling"),
+      pass(
+        "adhoc_bundle_boundary",
+        "Ad-Hoc 签名、目标架构、未公证边界与首次打开恢复",
+      ),
     ],
   },
 };
