@@ -2,12 +2,13 @@
 
 ## 概览
 
-本项目使用 GitHub Actions 进行持续集成、真机 QA 产物交付和正式发布。共有两个 workflow：
+本项目使用 GitHub Actions 进行持续集成、真机 QA 产物交付和正式发布。共有三个 workflow：
 
 | Workflow | 文件 | 触发条件 | 用途 |
 |----------|------|----------|------|
 | CI Check | `.github/workflows/build.yml` | push/PR 到 `dev`/`main` | 代码质量检查 |
-| Release  | `.github/workflows/release.yml` | push `v*.*.*` 标签 | 构建 + 发布 |
+| Native QA Packages | `.github/workflows/native-qa.yml` | 手动触发 | 四架构 QA 包与 Ubuntu 24 运行证据 |
+| Release  | `.github/workflows/release.yml` | push `v*.*.*` 标签 | 构建四个 updater 目标 + 发布 |
 
 ## CI Check（build.yml）
 
@@ -27,8 +28,7 @@
 | 前端测试 | `npx vitest run` | 前端测试（jsdom） |
 | 前端类型检查 | `npx tsc --noEmit` | 检查 React/TS 功能岛 |
 | 前端构建 | `npx vite build` | 验证正式前端产物 |
-| 原生平台检查 | Rust check/clippy/test + 前端 test/typecheck/build | Windows 与 macOS 原生 runner 编译测试门禁 |
-| 原生安装包 smoke | `npx --prefix src tauri build --ci --no-sign --config src-tauri/tauri.ci.conf.json` | 实际生成并核对 NSIS/MSI 或 app/DMG |
+| 原生平台检查 | Rust check/clippy/test | Windows 与 macOS 原生 runner 编译、平台 API 与测试门禁 |
 
 ### 环境
 - **Runner**: Linux 使用 `ubuntu-22.04` 作为最低构建基线；原生编译门禁使用 `windows-latest` 与 `macos-latest`
@@ -39,26 +39,28 @@
 - **Node.js**: 24
 - **缓存**: `Swatinem/rust-cache@v2`（加速 Rust 编译）
 
-普通 CI 使用 `tauri.ci.conf.json` 关闭 updater 附加产物，并用 `--no-sign` 跳过发布证书；这不会关闭
-平台 bundler。Windows 必须实际出现 NSIS 与 MSI，macOS 必须实际出现 app 与 DMG。这个 smoke 只证明
-无签名安装包链路可构建，不能替代 release workflow 的 Authenticode、Developer ID 和公证验收。
+平台无关的前端测试、类型检查和构建只在 Jammy 执行一次；Windows/macOS runner 专注 Rust 的目标条件
+编译、lint 和单元测试。安装包构建移入独立 Native QA workflow，避免每次 push 重复生成约 190 MB
+测试产物，也避免普通 CI 在界面上与正式发布混淆。
 
-### 真机 QA 安装包
+## Native QA Packages（native-qa.yml）
 
-push 到 `dev`/`main` 或手动运行 CI 时，同一 run 会保留 14 天、上传绑定完整 commit SHA 的四套安装包：
+在 GitHub Actions 中选择待测 ref 并手动运行。workflow 会显式合并公共配置、对应平台配置和关闭 updater
+附加产物的 `tauri.ci.conf.json`，保留 14 天并上传绑定完整 commit SHA 的四套安装包：
 
 - Ubuntu 22 构建的 x64 deb 与已移除宿主 Wayland ABI 库的 AppImage；
 - Windows x64 NSIS 与 MSI；
-- macOS Apple Silicon DMG；
-- macOS Intel DMG。
+- ad-hoc 签名的 macOS Apple Silicon DMG；
+- ad-hoc 签名的 macOS Intel DMG。
 
 Linux 产物先装入 tar 以保留 AppImage 执行权限。每套产物均含 `QA-BUILD.txt` 与 `SHA256SUMS.txt`；同一
 run 还会上传 `qa-record-templates-<SHA>`，其中是绑定该 SHA、应用版本和九个目标环境的结构化记录模板。
-PR 只运行源码与 bundle smoke，不上传大体积 QA 产物。
+Linux 包由 Ubuntu 22.04 构建后，独立的 Ubuntu 24.04 runner 下载同一 tar、校验 SHA-256，并强制执行
+AppImage X11 窗口几何、首帧和单实例 smoke；smoke 缺依赖或缺产物会失败，不会静默跳过。
 
 这些安装包明确是 `unsigned-qa-only` 或 `ad-hoc-qa-only`，只用于功能测试。它们不能用于 Windows
-Authenticode、macOS Developer ID/Gatekeeper/公证、Tauri updater 签名或正式更新验收；上述项目必须用
-tag 触发的 `release.yml` 正式产物验证。
+Authenticode 或 Tauri updater 签名验收。当前正式 release 的 macOS 包同样采用 Ad-Hoc 签名，能验证
+产物完整性与架构，但不具备 Developer ID、公证或 Gatekeeper 公共信任；发布说明必须明确这一限制。
 
 ### 原生 runner 证据
 
@@ -77,7 +79,7 @@ node scripts/verify-native-ci.mjs \
 `completed/success` 时返回 0。输出的 Markdown 可直接归档到任务验证记录。公开仓库无需 token；受限
 环境或私有仓库可通过 `GITHUB_TOKEN` / `GH_TOKEN` 提供只读权限，脚本不会打印 token。
 
-原生 CI 之后的权限、焦点、输入注入、混合 DPI、Spaces 和 Wayland compositor 行为按
+Native QA 之后的权限、焦点、输入注入、混合 DPI、Spaces 和 Wayland compositor 行为按
 [`native-qa.md`](native-qa.md) 生成结构化真机记录；CI 绿色不能替代这些场景。
 
 ### 本地复现
@@ -101,12 +103,13 @@ cd src && npx vitest run
 ### 触发条件
 - push 符合 `v*.*.*` 格式的 tag（如 `v0.1.4`）
 
-### 流程（5 个 Job）
+### 流程
 
 ```
-check-version ─┬→ build-linux ───┐
-               ├→ build-windows ─┼→ update-release
-               └→ build-macos ───┘
+check-version → release-preflight ─┬→ build-linux ──────┐
+                                   ├→ build-windows ────┤
+                                   ├→ build-macos ARM ──┼→ update-release
+                                   └→ build-macos Intel ┘
 ```
 
 #### 1. check-version
@@ -115,28 +118,37 @@ check-version ─┬→ build-linux ───┐
 - 验证 `CHANGELOG.md` 存在精确的 `## vX.Y.Z` 标题
 - 验证 tag commit 可从 `main` 或 `dev` 到达；不满足时停止发布，不再只给 warning
 
-#### 2. build-linux
+#### 2. release-preflight
+- 使用完整 tag SHA 核对 `CI Check` 的 Ubuntu、Windows、macOS 三项原生门禁均为成功
+- updater 私钥缺失时停止；Windows PFX 成对配置，未配置时选择自签名模式
+- macOS Intel/ARM 固定启用并采用 Ad-Hoc 签名，不依赖 Apple Developer 凭据
+
+#### 3. build-linux
 - 安装系统依赖 + Rust + Node.js
 - 在 Ubuntu 22.04 上使用 `tauri-apps/tauri-action@v1` 构建
 - 产出：deb 包 + AppImage + updater 签名
-- 创建 GitHub Release（draft 状态）
+- 上传到 `release-linux-x64` workflow artifact，不提前创建 GitHub Release
 
-#### 3. build-windows
+#### 4. build-windows
 - 在 `windows-latest` x64 runner 上生成 NSIS 与 MSI
 - NSIS 安装程序作为 Windows updater 入口
+- 优先使用仓库 PFX；未配置时生成仅在 runner 内受信的临时自签名代码签名证书
+- 两种模式都校验 Authenticode 摘要和 signer thumbprint；自签名模式会在 Release Notes 标注
+  SmartScreen/未知发布者风险
 
-#### 4. build-macos
+#### 5. build-macos
 - 在 `macos-latest` ARM64 runner 上分别编译 `aarch64-apple-darwin` 与 `x86_64-apple-darwin`
-- 强制使用 Developer ID Application 证书签名，并通过 Apple 服务公证
-- 上传前验证严格代码签名、Developer ID authority、Hardened Runtime、Gatekeeper assessment 和 app 的
-  stapled notarization ticket
+- 通过 `signingIdentity: "-"` 使用 Tauri 官方支持的 Ad-Hoc 签名，并验证 `codesign --strict` 与
+  `Signature=adhoc`
+- 上传前用 `lipo` 核对可执行文件与矩阵目标架构一致；产物不做 Developer ID 签名或 Apple 公证
 - 产出两个架构的 DMG，以及 updater 使用的 `.app.tar.gz` 和签名
 
-#### 5. update-release
-- 等待三个平台构建完成并汇总原生产物
+#### 6. update-release
+- 等待四个目标构建完成并汇总原生产物
+- 所有目标成功后才创建 GitHub Release draft
 - 从 `CHANGELOG.md` 提取当前版本的变更记录
 - 生成包含下载链接的 Release Body
-- 生成包含 Linux x64、Windows x64、macOS ARM64/Intel 的 `latest.json`
+- 生成固定包含 Linux x64、Windows x64、macOS ARM64/Intel 的 `latest.json`
 - 将 Release 从 draft 改为正式发布
 
 ### 发版检查清单
@@ -148,21 +160,20 @@ check-version ─┬→ build-linux ───┐
    - `src-tauri/Cargo.toml` → `version = "x.y.z"`
    - Git tag → `vx.y.z`
 2. **CHANGELOG.md** 包含 `## vx.y.z` 章节
-3. **CI Check 通过**（push 到 dev/main 时自动运行）
+3. **同一 commit SHA 的 CI Check 通过**（release preflight 会再次调用 GitHub check-runs API）
 4. **Updater Secrets 已配置**：
    - `TAURI_SIGNING_PRIVATE_KEY`
    - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
-5. **macOS 签名与公证 Secrets 已配置**：
-   - `APPLE_CERTIFICATE`（Developer ID Application `.p12` 的 Base64）
-   - `APPLE_CERTIFICATE_PASSWORD`
-   - `KEYCHAIN_PASSWORD`
-   - `APPLE_ID`
-   - `APPLE_PASSWORD`（app-specific password）
-   - `APPLE_TEAM_ID`
-6. **Windows 代码签名状态已确认**：
+5. **macOS 签名限制已确认**：
+   - Intel 与 Apple Silicon 均固定构建，不需要 Apple Secrets。
+   - `signingIdentity: "-"` 只提供 Ad-Hoc 代码签名，不提供 Developer ID 身份、公证或 Gatekeeper 信任。
+   - 首次打开时用户可能需要在“系统设置 → 隐私与安全性”中手动允许；发布说明必须保留该警告。
+6. **Windows 代码签名模式已确认**：
    - Tauri updater 的 `.sig` 只验证更新包完整性，不是 Windows Authenticode 签名。
    - `WINDOWS_CERTIFICATE`（含代码签名私钥的 `.pfx` Base64）
    - `WINDOWS_CERTIFICATE_PASSWORD`（PFX 导出密码）
+   - 两项都没有时，release 生成临时自签名代码签名证书；它只能验证文件签名完整性，不建立公共信任，
+     SmartScreen 仍可能显示未知发布者。发布说明必须保留该警告。
    - release 会检查证书私钥、代码签名 EKU 和有效期，以 SHA-256 + RFC 3161 时间戳签名，并在上传前
      验证 NSIS/MSI 的 Authenticode 状态及 signer thumbprint；任何一步失败都不会发布 Windows 产物。
 
@@ -171,8 +182,8 @@ check-version ─┬→ build-linux ───┐
 ```bash
 # 1. 更新版本号（tauri.conf.json + Cargo.toml）
 # 2. 更新 CHANGELOG.md
-# 3. 提交
-git add -A
+# 3. 显式暂存本次版本文件和 CHANGELOG，避免带入无关工作区文件
+git add src-tauri/tauri.conf.json src-tauri/Cargo.toml CHANGELOG.md
 git commit -m "release: vX.Y.Z"
 
 # 4. 打 tag
@@ -191,15 +202,16 @@ git push origin vx.y.z
 | AppImage | `Clippy_{version}_amd64_ubuntu22.AppImage` | Ubuntu 22.04+ 可执行文件 |
 | NSIS | `Clippy_{version}_x64-setup.exe` | Windows 10/11 安装与自动更新 |
 | MSI | `Clippy_{version}_x64.msi` | Windows 10/11 管理式安装 |
-| DMG | `Clippy_{version}_aarch64.dmg` | Apple Silicon 安装包 |
-| DMG | `Clippy_{version}_x64.dmg` | Intel Mac 安装包 |
-| macOS updater | `Clippy_{version}_{arch}.app.tar.gz` | 签名、公证后的自动更新包 |
+| DMG | `Clippy_{version}_aarch64.dmg` | Ad-Hoc 签名的 Apple Silicon 安装包 |
+| DMG | `Clippy_{version}_x64.dmg` | Ad-Hoc 签名的 Intel Mac 安装包 |
+| macOS updater | `Clippy_{version}_{arch}.app.tar.gz` | Ad-Hoc 签名的自动更新包 |
 | Linux updater 固定名 | `Clippy_{version}_amd64.AppImage` | 与 ubuntu22 AppImage 相同，供 manifest 使用 |
 
 ### 自动更新
 
-发布流程根据各平台的 Tauri v2 产物显式生成 `latest.json`：Linux 使用 AppImage、Windows 使用
-NSIS、macOS 使用 `.app.tar.gz`。DEB、MSI 和 DMG 是人工安装入口，不写入默认 updater manifest。
+发布流程根据本次真实存在的 Tauri v2 产物显式生成 `latest.json`：Linux 使用 AppImage、Windows 使用
+NSIS，macOS 使用两个 `.app.tar.gz`。DEB、MSI 和 DMG 是人工安装入口，不写入 updater manifest；
+任何一个目标缺少产物或签名都会阻止整次发布，避免生成死链接。
 签名文件内容直接嵌入 manifest，不能写成签名文件 URL。
 
 `scripts/generate-updater-manifest.mjs` 是 manifest 的唯一生成入口。它把四个 `OS-ARCH` key、平台
@@ -216,10 +228,9 @@ SemVer、非 UTC RFC 3339 时间或非 HTTPS 下载地址。release workflow 只
 | Release 版本验证失败 | tag 不是 SemVer、三处版本不一致、CHANGELOG 缺章节或 tag 不在发布分支 | 修正版本、变更日志或 tag 来源后重新创建 tag |
 | vitest 失败 | 前端测试不通过 | `cd src && npx vitest run` 本地复现 |
 | 默认依赖图出现 `pipewire v` | 可选 `linux-pipewire` 被误加入默认 feature | 保持 feature 显式 opt-in，不给 Ubuntu 22 默认包增加 PipeWire 构建依赖 |
-| macOS 缺少 signing secret | Developer ID 或公证凭据未配置 | 按发版检查清单补齐全部 Apple Secrets；正式发布禁止退回 ad-hoc 签名 |
-| macOS 最终产物校验失败 | 签名、Hardened Runtime、Gatekeeper 或 stapled ticket 任一不成立 | 检查 Developer ID、entitlements 和公证日志，不上传未通过产物 |
+| macOS Ad-Hoc 校验失败 | `.app` 没有严格签名、不是 `Signature=adhoc` 或架构不匹配 | 检查 macOS 覆盖配置、目标 triple 与 Tauri bundle 输出 |
 | NSIS/macOS `.sig` 缺失 | Tauri updater 私钥未配置或构建未生成 updater artifact | 检查 `TAURI_SIGNING_PRIVATE_KEY*` 与 `createUpdaterArtifacts` |
-| Windows 签名门禁失败 | PFX secret 缺失、证书无私钥/代码签名 EKU、已过期，或安装包签名无效 | 检查 `WINDOWS_CERTIFICATE*`，并确认可信证书链和时间戳服务可用 |
+| Windows 签名门禁失败 | PFX 只配置一项、证书无私钥/代码签名 EKU、已过期，或安装包签名无效 | 成对修复 `WINDOWS_CERTIFICATE*`，或全部移除以使用明确标注的临时自签名模式 |
 
 ### 为什么默认包仍可在 Ubuntu 22.04 构建
 

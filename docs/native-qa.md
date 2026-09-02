@@ -21,14 +21,16 @@ node scripts/verify-native-ci.mjs \
 - `Native Check (windows-latest)`
 - `Native Check (macos-latest)`
 
-原生 job 会执行 Rust check/clippy/test、前端 test/typecheck/build 和真实 Tauri bundle smoke。它能证明
-NSIS/MSI、app/DMG 可由对应 runner 生成，但不能证明桌面权限、焦点恢复、输入注入、混合 DPI 或签名
-证书链在真实用户环境中工作。
+Jammy job 执行完整 Rust 与前端门禁；Windows/macOS 原生 job 执行 Rust check/clippy/test，证明平台
+条件编译、原生 API 与单元测试成立。安装包由下一步的 Native QA workflow 构建；CI 仍不能证明桌面权限、
+焦点恢复、输入注入、混合 DPI 或签名证书链在真实用户环境中工作。
 
-对 `dev`/`main` 的 push 或手动运行还会在该 run 的 Artifacts 区提供四套以完整 SHA 命名的 QA 安装包，
-以及 `qa-record-templates-<SHA>`。先核对安装包内的 `QA-BUILD.txt` 与 `SHA256SUMS.txt`，再使用同一 run
-生成的 JSON 记录；不要把其它 run、旧 SHA 或本地临时构建混入证据。QA 包无正式签名，只能完成以下
-功能场景；签名、证书链、公证和 updater 安装必须改用同 SHA 的正式 release 产物。
+CI 通过后，在 GitHub Actions 中对同一 ref 手动运行 `Native QA Packages`。该 run 的 Artifacts 区会提供
+四套以完整 SHA 命名的 QA 安装包、Ubuntu 24 AppImage X11 smoke 证据，以及
+`qa-record-templates-<SHA>`。先核对安装包内的 `QA-BUILD.txt` 与 `SHA256SUMS.txt`，再使用同一 run
+生成的 JSON 记录；不要把其它 run、旧 SHA 或本地临时构建混入证据。Windows QA 包无正式签名，macOS
+QA 包仅做 Ad-Hoc 签名；updater 安装必须改用同 SHA 的正式 release 产物。当前正式 macOS release 也
+采用 Ad-Hoc 签名，因此只能验证功能和更新链，不能作为 Developer ID、公证或 Gatekeeper 信任证据。
 
 ## 2. 生成绑定版本的记录
 
@@ -167,8 +169,8 @@ node scripts/manual-qa.mjs verify \
   允许后恢复目标应用并只注入一次粘贴。
 - 在多个 Spaces、全屏应用、不同缩放显示器和外接屏上验证截图覆盖层、Pin、工具条和窗口层级。
 - Intel 与 Apple Silicon 分别打开同一可编辑 PNG，继续编辑并比较 renderer v2 RGBA 摘要。
-- 对最终 `.app`/DMG 验证 Developer ID authority、Hardened Runtime、Gatekeeper assessment、notarization
-  和 stapled ticket；ad-hoc 或自签名构建只能做功能测试，不能作为发布验收。
+- 对最终 `.app`/DMG 验证严格代码签名、`Signature=adhoc`、目标架构、首次打开提示和 updater；明确记录
+  它没有 Developer ID authority、公证或 stapled ticket，不能把手动允许误记成 Gatekeeper 公共信任。
 
 ## 9. 结论规则
 
