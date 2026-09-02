@@ -399,7 +399,7 @@ export interface PinToolbarBounds {
  * （前端手上那张可能是清晰度补偿版）。
  */
 export interface PinCanvasProject {
-  rendererVersion: 1;
+  rendererVersion: 2;
   sourceWidth: number;
   sourceHeight: number;
   annotations: unknown;
@@ -409,7 +409,7 @@ export interface PinCanvasProject {
 export interface PinInitialProject {
   format: "clippy-pin-project";
   formatVersion: 2 | 3;
-  rendererVersion: 1;
+  rendererVersion: 1 | 2;
   source: {
     width: number;
     height: number;
@@ -438,7 +438,7 @@ export interface PinCanvasSaveResult {
 export interface PinProject {
   format: "clippy-pin-project";
   formatVersion: 2 | 3;
-  rendererVersion: 1;
+  rendererVersion: 1 | 2;
   createdAt: number;
   appVersion: string;
   source: {

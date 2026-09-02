@@ -110,7 +110,7 @@ export type VectorAnnotation =
 export type Annotation = VectorAnnotation | EffectAnnotation;
 
 export type EditorDocument = {
-  rendererVersion: 1;
+  rendererVersion: 1 | 2;
   sourceWidth: number;
   sourceHeight: number;
   annotations: Annotation[];

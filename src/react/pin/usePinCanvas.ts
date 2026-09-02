@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { drawScene } from "../annotation/canvasRenderer";
 import { DEFAULT_IMAGE_ADJUSTMENTS, hasImageAdjustments, type ImageAdjustments } from "../annotation/imageAdjustments";
-import { exportPngBase64, pngBase64ToObjectUrl } from "../annotation/pngPipeline";
+import { pngBase64ToObjectUrl } from "../annotation/pngPipeline";
 import type { Annotation, Tool } from "../annotation/types";
 import { useCanvasInteractions } from "../annotation/useCanvasInteractions";
 import { useHistory } from "../annotation/useHistory";
@@ -36,8 +36,6 @@ export function usePinCanvas(params: {
   const parsedProject = useMemo(() => parseInitialPinProject(params.initialProject), [params.initialProject]);
   const history = useHistory<Annotation[]>([]);
   const annotations = history.value;
-  const annotationsRef = useRef(annotations);
-  annotationsRef.current = annotations;
   const [adjustments, setAdjustments] = useState<ImageAdjustments>({ ...DEFAULT_IMAGE_ADJUSTMENTS });
   const [tool, setTool] = useState<Tool>("pen");
   const [color, setColor] = useState(DEFAULT_COLOR);
@@ -152,31 +150,8 @@ export function usePinCanvas(params: {
     );
   }, [adjustments, annotations, draft, params.cssHeight, params.cssWidth, params.open, scale, selectedId, sourceImage, visible]);
 
-  const exportPng = useCallback(async (): Promise<string> => {
-    // 一次复制/保存必须锁定同一份文档快照；取原图或编码期间的新笔画属于下一 revision。
-    const snapshotAnnotations = annotationsRef.current;
-    let source = sourceRef.current;
-    let temporary = false;
-    if (!source) {
-      const sourceBase64 = await loadSource.current();
-      if (!sourceBase64) throw new Error("Pin source image is unavailable");
-      source = await decodeImage(sourceBase64);
-      temporary = true;
-    }
-    try {
-      return await exportPngBase64(
-        source,
-        { x: 0, y: 0, width: source.naturalWidth, height: source.naturalHeight },
-        snapshotAnnotations,
-        adjustments,
-      );
-    } finally {
-      if (temporary) URL.revokeObjectURL(source.src);
-    }
-  }, [adjustments]);
-
   const projectData = useMemo<PinCanvasProject | null>(() => sourceWidth > 0 && sourceHeight > 0 ? ({
-    rendererVersion: 1,
+    rendererVersion: 2,
     sourceWidth,
     sourceHeight,
     annotations,
@@ -218,7 +193,6 @@ export function usePinCanvas(params: {
     dirty,
     hasDocument,
     pristineProject,
-    exportPng,
     projectData,
     markSaved,
     deleteSelected,
@@ -227,7 +201,7 @@ export function usePinCanvas(params: {
     onPointerUp: canvas.onPointerUp,
   }), [
     canvas.onPointerDown, canvas.onPointerMove, canvas.onPointerUp, color, deleteSelected,
-    exportPng, hasDocument, history.canRedo, history.canUndo, markSaved, projectData, redo,
+    hasDocument, history.canRedo, history.canUndo, markSaved, projectData, redo,
     dirty, pristineProject, selectedId, stroke, text, tool, undo, visible,
   ]);
 }

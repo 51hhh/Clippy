@@ -34,7 +34,8 @@ export const pinApi = {
   toolbarBounds: (label: string): Promise<PinToolbarBounds> => getPinToolbarBounds(label),
   update: (label: string, update: PinUpdate): Promise<PinState> => updatePin(label, update),
   copy: (label: string): Promise<void> => copyPin(label),
-  copyCanvas: (label: string, pngBase64: string): Promise<void> => copyPinCanvas(label, pngBase64),
+  copyCanvas: (label: string, project: PinCanvasProject): Promise<void> =>
+    copyPinCanvas(label, project),
   save: (label: string): Promise<string> => savePin(label),
   /** 画布导出用的原图（base64 PNG）。见 `getPinSourceImage`。 */
   sourceImage: (label: string): Promise<string | null> => getPinSourceImage(label),

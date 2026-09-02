@@ -86,20 +86,20 @@ describe("typed IPC wrappers", () => {
 
   it("keeps editable/flat canvas save and current-composition copy contracts explicit", () => {
     const project = {
-      rendererVersion: 1,
+      rendererVersion: 2,
       sourceWidth: 320,
       sourceHeight: 180,
       annotations: [],
       adjustments: {},
     };
-    savePinCanvas("pin-1", "png", true, "editable", project);
+    savePinCanvas("pin-1", null, true, "editable", project);
     savePinCanvas("pin-1", null, false, "flat", null);
-    copyPinCanvas("pin-1", "composed");
+    copyPinCanvas("pin-1", project);
     openPinImageDialog();
 
     expect(invoke).toHaveBeenNthCalledWith(1, "save_pin_canvas", {
       label: "pin-1",
-      pngBase64: "png",
+      pngBase64: null,
       toClipboard: true,
       mode: "editable",
       project,
@@ -113,7 +113,8 @@ describe("typed IPC wrappers", () => {
     });
     expect(invoke).toHaveBeenNthCalledWith(3, "copy_pin_canvas", {
       label: "pin-1",
-      pngBase64: "composed",
+      pngBase64: null,
+      project,
     });
     expect(invoke).toHaveBeenNthCalledWith(4, "open_pin_image_dialog");
   });
