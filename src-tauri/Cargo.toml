@@ -37,6 +37,9 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 arboard = "3"
 sha2 = "0.10"
 image = { version = "0.25", default-features = false, features = ["png"] }
+# renderer v2 的最终 PNG 只走固定版本的纯 Rust 软件光栅路径；运行时不加载系统字体或 GPU。
+# build.rs 已用同一版本生成托盘 SVG，这里复用锁文件中的依赖，不增加第二套渲染栈。
+resvg = "0.43"
 # 直接用 png crate 只为一件事：往 PNG 里写/读 iTXt 元数据块（贴图工程数据，
 # 见 pin/project.rs）。image crate 不暴露 chunk API。版本跟随 image 已经锁定的这一个，
 # 不引入新的下载。
