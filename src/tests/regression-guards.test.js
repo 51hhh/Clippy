@@ -330,6 +330,8 @@ describe("release 下载链接与构建矩阵同步", () => {
     expect(signingScript).toContain('Provider = "Microsoft Software Key Storage Provider"');
     expect(signingScript).toContain('KeyUsage = "DigitalSignature"');
     expect(signingScript).toContain('"2.5.29.37={text}1.3.6.1.5.5.7.3.3"');
+    expect(signingScript).toContain('$_.ObjectId -eq "1.3.6.1.5.5.7.3.3"');
+    expect(signingScript).not.toContain("$_.ObjectId.Value");
     expect(release).toContain('@("Valid", "NotTrusted")');
     expect(signingScript).not.toContain("WINDOWS_TRUSTED_ROOT_THUMBPRINT");
     expect(signingScript).not.toContain("Cert:\\CurrentUser\\Root");
