@@ -63,7 +63,9 @@ const CURSOR_MODE_HIDDEN: u32 = 0;
 const CALL_TIMEOUT: Duration = Duration::from_millis(1500);
 
 /// 从 `Start` 到收到第一帧的上限（含等 node id）。实测 18 ms + 104 ms。
-const FRAME_TIMEOUT: Duration = Duration::from_millis(1500);
+// 正常首帧实测约 100 ms。某个输出若进入 running 却不送帧，继续等到 1.5 秒不会让它
+// 恢复，只会把截图手感拖垮；350 ms 后把这一块交给逐屏原始像素兜底，其余已到帧照用。
+const FRAME_TIMEOUT: Duration = Duration::from_millis(350);
 
 /// 一块屏的原生像素。宽高是**实际拿到的帧**，不是我们要求的尺寸。
 pub(super) struct ScreencastFrame {
@@ -76,14 +78,14 @@ pub(super) struct ScreencastFrame {
 ///
 /// `connectors` 是 Wayland 输出名（`eDP-1`、`HDMI-1`……），也就是 `RecordMonitor`
 /// 认的那个字符串。
-pub(super) fn capture_monitors(connectors: &[String]) -> Result<Vec<ScreencastFrame>> {
+pub(super) fn capture_monitors(connectors: &[String]) -> Result<Vec<Result<ScreencastFrame>>> {
     if connectors.is_empty() {
         bail!("没有要录制的显示器");
     }
     crate::dbus::off_async_runtime(|| capture_off_runtime(connectors))
 }
 
-fn capture_off_runtime(connectors: &[String]) -> Result<Vec<ScreencastFrame>> {
+fn capture_off_runtime(connectors: &[String]) -> Result<Vec<Result<ScreencastFrame>>> {
     // current_thread：这条线程接下来要被 PipeWire 的 main loop 占住，多开工作线程没意义。
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -245,7 +247,7 @@ async fn with_timeout<T>(
 }
 
 /// 每块屏取第一帧。所有 node 共用一个 main loop，帧之间天然并行。
-fn pull_first_frames(nodes: &[StreamNode]) -> Result<Vec<ScreencastFrame>> {
+fn pull_first_frames(nodes: &[StreamNode]) -> Result<Vec<Result<ScreencastFrame>>> {
     init_pipewire();
     let mainloop = pw::main_loop::MainLoopRc::new(None).context("无法创建 PipeWire main loop")?;
     let context =
@@ -264,8 +266,8 @@ fn pull_first_frames(nodes: &[StreamNode]) -> Result<Vec<ScreencastFrame>> {
     let mut streams = Vec::with_capacity(nodes.len());
     let mut listeners = Vec::with_capacity(nodes.len());
     for (index, node) in nodes.iter().enumerate() {
-        let stream = pw::stream::StreamBox::new(
-            &core,
+        let stream = pw::stream::StreamRc::new(
+            core.clone(),
             "clippy-frozen-frame",
             pw::properties::properties! {
                 *pw::keys::MEDIA_TYPE => "Video",
@@ -323,7 +325,12 @@ fn pull_first_frames(nodes: &[StreamNode]) -> Result<Vec<ScreencastFrame>> {
             .connect(
                 spa::utils::Direction::Input,
                 Some(node.node_id),
-                pw::stream::StreamFlags::AUTOCONNECT | pw::stream::StreamFlags::MAP_BUFFERS,
+                // 一次性截图不能依赖源节点恰好自行调度。PipeWire 1.x 上外接 4K 输出可能
+                // 已进入 streaming 却保持 driving=0，结果永远没有首帧；DRIVER 让这个
+                // 输入流主动驱动图，收到第一帧后仍会立即退出。
+                pw::stream::StreamFlags::AUTOCONNECT
+                    | pw::stream::StreamFlags::MAP_BUFFERS
+                    | pw::stream::StreamFlags::DRIVER,
                 &mut params,
             )
             .with_context(|| {
@@ -337,6 +344,25 @@ fn pull_first_frames(nodes: &[StreamNode]) -> Result<Vec<ScreencastFrame>> {
         listeners.push(listener);
     }
 
+    // DRIVER 流必须由消费者主动触发；PipeWire 也明确说明一次 graph iteration 可能没有
+    // 完成，所以不能只触发一次。16 ms 的短周期只活到首帧到达（常态不足 200 ms），
+    // 对未成为 driver 的流则只是向已有 driver 发送 RequestProcess。
+    let trigger_streams: Vec<_> = streams.iter().map(|stream| stream.downgrade()).collect();
+    let trigger = mainloop.loop_().add_timer(move |_| {
+        for stream in &trigger_streams {
+            if let Some(stream) = stream.upgrade() {
+                let _ = stream.trigger_process();
+            }
+        }
+    });
+    trigger
+        .update_timer(
+            Some(Duration::from_millis(1)),
+            Some(Duration::from_millis(16)),
+        )
+        .into_result()
+        .map_err(|error| anyhow!("无法启动 PipeWire 首帧驱动器：{error}"))?;
+
     // 看门狗：一帧都没来也要退出，否则 main loop 会一直转下去。
     let watchdog = mainloop.loop_().add_timer({
         let mainloop = mainloop.clone();
@@ -348,21 +374,22 @@ fn pull_first_frames(nodes: &[StreamNode]) -> Result<Vec<ScreencastFrame>> {
         .map_err(|error| anyhow!("无法给 PipeWire 看门狗上弦：{error}"))?;
     mainloop.run();
 
+    drop(trigger);
     drop(listeners);
     drop(streams);
 
     let mut frames = Vec::with_capacity(nodes.len());
     for (node, slot) in nodes.iter().zip(slots.borrow_mut().iter_mut()) {
         match slot.frame.take() {
-            Some(Ok(frame)) => frames.push(frame),
-            Some(Err(error)) => {
-                return Err(error.context(format!("显示器 {} 取流失败", node.connector)))
-            }
-            None => bail!(
+            Some(Ok(frame)) => frames.push(Ok(frame)),
+            Some(Err(error)) => frames.push(Err(
+                error.context(format!("显示器 {} 取流失败", node.connector))
+            )),
+            None => frames.push(Err(anyhow!(
                 "显示器 {} 在 {} ms 内没有送出画面",
                 node.connector,
                 FRAME_TIMEOUT.as_millis()
-            ),
+            ))),
         }
     }
     Ok(frames)
@@ -718,12 +745,15 @@ mod tests {
         match &frames {
             Ok(frames) => {
                 for (connector, frame) in connectors.iter().zip(frames) {
-                    println!(
-                        "  {connector}: {}x{}，{} KiB",
-                        frame.width,
-                        frame.height,
-                        frame.rgba.len() / 1024
-                    );
+                    match frame {
+                        Ok(frame) => println!(
+                            "  {connector}: {}x{}，{} KiB",
+                            frame.width,
+                            frame.height,
+                            frame.rgba.len() / 1024
+                        ),
+                        Err(error) => println!("  {connector}: 失败: {error:#}"),
+                    }
                 }
             }
             Err(error) => println!("  失败: {error:#}"),
@@ -737,7 +767,12 @@ mod tests {
                 at.elapsed().as_secs_f64() * 1000.0,
                 single.map(|frames| frames
                     .iter()
-                    .map(|frame| (frame.width, frame.height))
+                    .map(|frame| {
+                        frame
+                            .as_ref()
+                            .map(|frame| (frame.width, frame.height))
+                            .map_err(|error| format!("{error:#}"))
+                    })
                     .collect::<Vec<_>>())
             );
         }
@@ -767,8 +802,9 @@ mod tests {
             .iter()
             .map(|(_, connector)| connector.clone())
             .collect();
-        let frames = capture_monitors(&connectors).expect("取流失败");
+        let frames = capture_monitors(&connectors).expect("取流会话失败");
         for (connector, frame) in connectors.iter().zip(&frames) {
+            let frame = frame.as_ref().expect("取流失败");
             let png = crate::screenshot::encode_png(&frame.rgba, frame.width, frame.height)
                 .expect("编码失败");
             let path = std::path::Path::new(&directory).join(format!("frame-{connector}.png"));
