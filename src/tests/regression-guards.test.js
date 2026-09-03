@@ -17,8 +17,8 @@
  *   9. 选区压暗搬回 drawScene → 拖一次选区就是几十次全屏重采样，帧率掉下来但功能"是对的"
  *  10. 列表行收整个 snapshot / 回调在渲染里新建 → memo 失效，一次按键重渲全部 30 行
  *  11. 列表行取原图画 48 px 缩略图 → 每开一次面板十几 MB IPC + 十几次全尺寸 PNG 解码
- *  12. 默认构建移除 PipeWire 后 deb 仍声明它 → Ubuntu 22 被迫安装无用运行库，
- *      也掩盖了依赖图是否意外重新启用 PipeWire 的真实回归
+ *  12. 为兼容 Ubuntu 22 把 PipeWire 快路径裁掉 → GNOME Wayland 静默退到逐屏 PNG，
+ *      双屏截图从约 230 ms 回退到 4–6 秒
  *  13. release 在 latest.json 上传前就取消 draft → 用户可见的更新端点短暂缺文件
  */
 import { readFileSync } from "node:fs";
@@ -55,15 +55,32 @@ describe("Linux CI 固守 Ubuntu 22 构建基线", () => {
   it.each([
     ["CI", buildWorkflow],
     ["release", releaseWorkflow],
-  ])("%s 使用 Jammy 且不安装 PipeWire 开发包", (_name, workflow) => {
+  ])("%s 使用 Jammy 并编译 PipeWire 快路径", (_name, workflow) => {
     expect(workflow).toContain("ubuntu-22.04");
     expect(workflow).not.toContain("ubuntu-24.04");
-    expect(workflow).not.toContain("libpipewire-0.3-dev");
+    expect(workflow).toContain("libpipewire-0.3-dev");
   });
 
-  it("默认依赖图出现 pipewire-rs 时 CI 会失败", () => {
-    expect(buildWorkflow).toContain("Default Linux dependency graph must not include pipewire-rs");
-    expect(releaseWorkflow).toContain("Default Linux dependency graph must not include pipewire-rs");
+  it("默认依赖图缺少 pipewire-rs 或 Jammy 补丁时 CI 会失败", () => {
+    for (const workflow of [buildWorkflow, releaseWorkflow]) {
+      expect(workflow).toContain("Default Linux build must include pipewire-rs fast path");
+      expect(workflow).toContain(
+        "Default Linux build must use the Jammy-compatible vendored libspa patch",
+      );
+      expect(workflow).not.toContain("must not include pipewire-rs");
+    }
+  });
+
+  it("Rust 默认与 no-default-features 构建都不能裁掉 screencast", () => {
+    const cargo = read("src-tauri/Cargo.toml");
+    const screenshot = read("src-tauri/src/screenshot.rs");
+    const backends = read("src-tauri/src/screenshot/backends.rs");
+    expect(cargo).toMatch(/^pipewire\s*=.*version\s*=\s*"0\.9"/m);
+    expect(cargo).not.toMatch(/^pipewire\s*=.*optional\s*=\s*true/m);
+    expect(cargo).toContain('libspa = { path = "vendor/libspa" }');
+    expect(screenshot).toContain('#[cfg(target_os = "linux")]\nmod screencast;');
+    expect(backends).not.toContain('feature = "linux-pipewire"');
+    expect(buildWorkflow).toContain("cargo check --no-default-features --lib");
   });
 
   it("Rust target 缓存按 runner 隔离", () => {
@@ -152,22 +169,21 @@ describe("原生平台由真实 runner 编译", () => {
   });
 });
 
-describe("deb 只声明默认二进制真实需要的额外运行库", () => {
+describe("deb 声明默认二进制真实需要的额外运行库", () => {
   const deb = JSON.parse(read("src-tauri/tauri.linux.conf.json")).bundle.linux.deb;
 
   /**
    * Tauri 的 deb 打包器只会自动写 webkit2gtk / gtk 那几条，不做 shlibdeps 扫描。
-   * 默认构建已经不编译 PipeWire 增强后端，ELF 的 NEEDED 表里也没有 PipeWire/libspa；
-   * deb 若继续声明它，会把可选能力错误变成安装期硬依赖。libwayshot 与 WebKit 的
-   * Wayland 链仍使用 GBM/EGL，所以保留这两项兼容声明。
+   * GNOME Wayland 的 PipeWire 主路径是正式 Linux 产物的一部分，ELF 会直接 NEEDED
+   * libpipewire-0.3.so.0，因此 deb 必须声明 Jammy/Noble 都提供的运行库。
    */
   it.each(["libgbm1", "libegl1"])("%s 在 depends 里", (library) => {
     const entry = deb.depends.find((item) => item.includes(library));
     expect(entry, `depends 里没有 ${library}`).toBeTruthy();
   });
 
-  it("PipeWire 保持为源码构建时显式启用的可选能力", () => {
-    expect(deb.depends.some((item) => item.includes("pipewire"))).toBe(false);
+  it("PipeWire 是正式包的必需运行时能力", () => {
+    expect(deb.depends).toContain("libpipewire-0.3-0");
   });
 });
 
@@ -254,6 +270,14 @@ describe("release 下载链接与构建矩阵同步", () => {
     expect(script).toContain("src/node_modules/.bin/tauri");
     // 签名后必须验产物存在，否则 updater 会静默拿不到 .sig
     expect(script).toMatch(/! -s "\$\{TARGET\}\.sig"/);
+  });
+
+  it("AppImage 不捆绑构建机的 PipeWire ABI", () => {
+    const script = read("scripts/finalize-appimage.sh");
+    expect(script).toContain("BUNDLED_PIPEWIRE_LIBS");
+    expect(script).toContain("libpipewire-*.so*");
+    expect(script).toContain("libspa-*.so*");
+    expect(script).toContain("Final AppImage still bundles host PipeWire ABI libraries");
   });
 
   it("updater 用的无后缀 Linux 产物只从单一 Jammy label 进入汇总", () => {

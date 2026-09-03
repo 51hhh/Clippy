@@ -30,7 +30,8 @@ jobs:
             libwebkit2gtk-4.1-dev libgtk-3-dev build-essential curl wget file \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
             pkg-config squashfs-tools xdg-utils \
-            libgbm-dev libegl-dev libdrm-dev libwayland-dev libxcb1-dev
+            libgbm-dev libegl-dev libdrm-dev libwayland-dev libxcb1-dev \
+            libpipewire-0.3-dev
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -53,11 +54,26 @@ jobs:
         working-directory: src
         run: npm ci
 
+      - name: Verify PipeWire fast-path baseline
+        run: |
+          TREE="$(cd src-tauri && cargo tree --target x86_64-unknown-linux-gnu -e normal)"
+          grep -q 'pipewire v' <<<"$TREE" || {
+            echo '::error::Linux QA build must include pipewire-rs fast path'
+            exit 1
+          }
+          grep -Eq 'libspa v.*\(.*vendor/libspa\)' <<<"$TREE" || {
+            echo '::error::Linux QA build must use the Jammy-compatible vendored libspa patch'
+            exit 1
+          }
+
       - name: Build Linux QA bundles
         run: >-
           npx --prefix src tauri build --ci --no-sign
           --config src-tauri/tauri.linux.conf.json
           --config src-tauri/tauri.ci.conf.json
+
+      - name: Verify QA binary links PipeWire
+        run: readelf -d src-tauri/target/release/clippy-app | grep -q 'libpipewire-0.3.so.0'
 
       - name: Finalize Linux QA AppImage
         run: ./scripts/finalize-appimage.sh
@@ -117,8 +133,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-0 libgtk-3-0 libayatana-appindicator3-1 librsvg2-2 \
-            libgbm1 libegl1 libdrm2 libwayland-egl1 \
+            libgbm1 libegl1 libdrm2 libwayland-egl1 libpipewire-0.3-0 \
             xvfb xauth x11-utils ffmpeg dbus-daemon squashfs-tools
+
+      - name: Verify PipeWire runtime dependency
+        run: ldconfig -p | grep -q 'libpipewire-0.3.so.0'
 
       - name: Download Ubuntu 22 QA bundle
         uses: actions/download-artifact@v8

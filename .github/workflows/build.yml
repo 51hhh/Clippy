@@ -29,7 +29,8 @@ jobs:
             libwebkit2gtk-4.1-dev libgtk-3-dev build-essential curl wget file \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
             pkg-config xvfb x11-utils xdg-utils \
-            libgbm-dev libegl-dev libdrm-dev libwayland-dev libxcb1-dev
+            libgbm-dev libegl-dev libdrm-dev libwayland-dev libxcb1-dev \
+            libpipewire-0.3-dev
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -61,12 +62,19 @@ jobs:
 
       - name: Rust check
         working-directory: src-tauri
-        run: cargo check --all-targets
-
-      - name: Verify Ubuntu 22 dependency baseline
         run: |
-          if cd src-tauri && cargo tree --target x86_64-unknown-linux-gnu -e normal | grep -q 'pipewire v'; then
-            echo '::error::Default Linux dependency graph must not include pipewire-rs'
+          cargo check --all-targets
+          cargo check --no-default-features --lib
+
+      - name: Verify PipeWire fast-path baseline
+        run: |
+          TREE="$(cd src-tauri && cargo tree --target x86_64-unknown-linux-gnu -e normal)"
+          if ! grep -q 'pipewire v' <<<"$TREE"; then
+            echo '::error::Default Linux build must include pipewire-rs fast path'
+            exit 1
+          fi
+          if ! grep -Eq 'libspa v.*\(.*vendor/libspa\)' <<<"$TREE"; then
+            echo '::error::Default Linux build must use the Jammy-compatible vendored libspa patch'
             exit 1
           fi
 
