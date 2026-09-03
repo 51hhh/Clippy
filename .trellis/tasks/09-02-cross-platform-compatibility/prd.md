@@ -94,11 +94,11 @@
 ## Acceptance Criteria
 
 - [x] Linux 本机现有功能通过完整测试，且平台抽象不改变已验证的 X11/Wayland 选择结果。
-- [ ] 在干净 Ubuntu 22.04 环境中无需第三方 PipeWire PPA、且不裁掉 Mutter/PipeWire
+- [x] 在干净 Ubuntu 22.04 环境中无需第三方 PipeWire PPA、且不裁掉 Mutter/PipeWire
   快速截图后端即可完成 release 构建。
-- [ ] 正式 Linux 构建和发布 workflow 明确启用并校验 PipeWire 快速截图后端；不存在
+- [x] 正式 Linux 构建和发布 workflow 明确启用并校验 PipeWire 快速截图后端；不存在
   “默认依赖图不得包含 PipeWire”这类反向能力守卫。
-- [ ] 当前 GNOME Wayland 双屏机器的 `capture_monitor_frames` 恢复到 700 ms P95 以内，
+- [x] 当前 GNOME Wayland 双屏机器的 `capture_monitor_frames` 恢复到 700 ms P95 以内，
   并保留真实端到端首帧计时证据。
 - [ ] Ubuntu 22 GNOME 42 X11 与 Wayland 的快捷键、截图、复制和可用的粘贴路径有实机记录。
 - [x] Windows 10/11 和 macOS 原生 runner 能完成 Rust compile、前端 typecheck/test/build 和 Tauri bundle。

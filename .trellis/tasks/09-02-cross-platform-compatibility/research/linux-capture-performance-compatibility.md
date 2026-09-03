@@ -74,3 +74,18 @@
 - CI 和 Release 必须显式校验正式 Linux 构建包含快速后端。
 - 真机 QA 必须保存 `frames_ms`、首块/全部覆盖层 `ready_ms`、实际后端和 fallback reason；
   构建成功或 Xvfb 启动不构成性能验收。
+
+## v0.1.19 覆盖层交付回归与热修复证据
+
+- v0.1.19 的 Mutter/PipeWire 后端已经恢复到 174–215 ms，但双屏约 50 MiB 原始 RGBA 经
+  Tauri invoke 进入两个 WebView 后，前端阶段仍需 1.7–2.2 秒；日志里的 `deliver_ms = 0`
+  只量到会话内 `Arc` 取引用，不包含 `rgba.to_vec()`、IPC 和 WebKit 接收，不能用来排除交付瓶颈。
+- 覆盖层曾直接使用 WebKit 的整数 DPR=2，导致 3840×2160 帧创建 5120×2880 backing store；
+  现改为显示器自己的 `pixelWidth/logicalWidth`，保持原生物理尺寸，不降采样。
+- 正常路径改为 Tauri 自定义 `capture-frame` 资源协议，以无损 top-down 32-bit BMP 交给 WebKit；
+  原始 RGBA IPC 仅作带尺寸校验的自动兜底，首次编辑前也不再额外保留全屏离屏 canvas。
+- 当前 GNOME Wayland 混合缩放双屏连续三轮端到端为 557/799、596/867、583/860 ms；
+  两块屏均在 2.5 秒兜底前主动 ready，没有黑屏、PipeWire 缺帧或 WebKit 崩溃。
+- Mutter 仍会为每个独立全屏 Wayland 覆盖层记录一次 `stack_position >= 0` 内部断言；移除
+  X11-only 的 keep-above/stick/type-hint 后仍复现，说明它不是本次 IPC/内存回归的原因。
+  当前架构需要每块显示器一个 compositor-managed fullscreen，暂不以错位或单屏覆盖换取静默日志。
