@@ -36,9 +36,12 @@
 //!   看起来会有一点过锐——Wayland 不告诉客户端窗口在哪，没法跟着重算，而这比"一直糊"
 //!   划算。缩放（滚轮）之后同理：那时 WebKit 会重新采样这张图，不再是 1:1，
 //!   前端因此只在 1:1 时才认这份补偿（`src/react/pin/rendering.ts`）。
-//! - 不便宜（见 [`MAX_COMPENSATED_PIXELS`]），所以**跑在后台线程上，而且从建条目那一刻
+//! - 不便宜，所以**跑在后台线程上，而且从建条目那一刻
 //!   就开跑**，和建窗、WebKit 起步并行；赶上了第一帧就是清楚的，没赶上才是"原图先上屏、
 //!   算完换图"（`super::commands::spawn_sharpen`）。两种情况下开窗延迟都不受影响。
+//! - 生产算法以 `u8` 保留目标、Q7 `u16` 保留缓冲图，只用一份 `i16` 残差；Lanczos 逐行缓存、
+//!   双线性逐行前向/回投影，不再同时分配多份全图 `f32 RGBA`。因此 4K 分数
+//!   缩放可以完整跑 4 轮，而不会像旧实现那样把峰值推到接近 1 GiB。
 //! - 复制与保存**永远用原图**，补偿只进贴图窗口的显示。
 
 use anyhow::{Context, Result};
@@ -48,16 +51,17 @@ use anyhow::{Context, Result};
 /// 而每轮都是两次全图重采样，所以停在 4。
 const BACK_PROJECTION_ROUNDS: usize = 4;
 
-/// 缓冲区超过这么多像素就不补偿了，原图照旧显示。
-///
-/// 代价与像素数成正比：本机 release 实测（18 核，两趟重采样都按行并行），缓冲区
-/// 1600x1200 要 220~270 ms、3413x1920 要 710~840 ms，出来的 PNG 分别是 3.8 MB 与 13 MB。
-/// 这条上限放得下"整块 2560x1440 屏"那种最坏情况（6.55 MP），再大的贴图
-/// （多屏拼接、超宽屏）就不值得为清晰度花那份时间和内存了。
-///
-/// 那 220 ms 里反投影占 92 ms、PNG 编码占 87 ms，其余是解码与两次格式转换；
-/// 反投影已经是内存带宽受限，再往下要动的是"别走 PNG 交接"那一层。
-const MAX_COMPENSATED_PIXELS: u64 = 7_000_000;
+/// 反投影内部的定点小数精度。`u16` 保留 7 位小数，而残差的
+/// 最大幅度刚好落在 `i16` 内；不会像每轮回写 `u8` 那样丢失子像素精度。
+const FIXED_SCALE: f32 = 128.0;
+const FIXED_SCALE_I32: i32 = 128;
+const FIXED_MAX: u16 = 255 * FIXED_SCALE_I32 as u16;
+
+/// 单份 RGBA 平面的硬预算。用字节而不是一个没有语义的像素阈值表达：
+/// 64 MiB 可完整容纳 5120x2880（56.25 MiB），即 3840x2160 显示器在
+/// device=1.5 / buffer=2 下的全尺寸 Pin。超过这个防御性边界时由
+/// [`compensated_png_after_wait`] 返回明确错误，后台路径会记录原因，不再在几何阶段静默跳过。
+const MAX_RGBA_PLANE_BYTES: usize = 64 * 1024 * 1024;
 
 /// 一条成像链路上的两个尺寸。都是像素，都已经取整。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,9 +99,6 @@ pub(super) fn display_geometry(
         pixels(content_width * buffer_scale)?,
         pixels(content_height * buffer_scale)?,
     );
-    if u64::from(buffer.0) * u64::from(buffer.1) > MAX_COMPENSATED_PIXELS {
-        return None;
-    }
     let panel = (
         pixels(content_width * device_scale)?,
         pixels(content_height * device_scale)?,
@@ -116,59 +117,171 @@ fn pixels(value: f64) -> Option<u32> {
 /// 把一张 PNG 换成"缓冲区尺寸 + 已补偿"的 PNG。
 ///
 /// 失败一律返回 `Err`，调用方退回原图——清晰度差一点也好过贴不出来。
+#[cfg(test)]
 pub(super) fn compensated_png(png: &[u8], geometry: DisplayGeometry) -> Result<Vec<u8>> {
+    let _guard = compensation_guard();
+    compensated_png_inner(png, geometry)
+}
+
+/// 后台 Pin 专用入口：等到全局工作位后先查取消，已关闭的排队窗口不再耗费
+/// 1s 级 CPU。当前正在算的一张最多跑完本轮，不在像素内循环里加原子分支。
+pub(super) fn compensated_png_after_wait(
+    png: &[u8],
+    geometry: DisplayGeometry,
+    cancelled: impl FnOnce() -> bool,
+) -> Result<Option<Vec<u8>>> {
+    let _guard = compensation_guard();
+    if cancelled() {
+        return Ok(None);
+    }
+    compensated_png_inner(png, geometry).map(Some)
+}
+
+fn compensation_guard() -> std::sync::MutexGuard<'static, ()> {
+    // 同时开多张 Pin 时只让一张占用补偿工作集。等待发生在后台线程，
+    // 窗口仍立刻用原图显示；串行化把进程峰值锁在单张图的预算内。
+    static COMPENSATION_GATE: std::sync::OnceLock<std::sync::Mutex<()>> =
+        std::sync::OnceLock::new();
+    COMPENSATION_GATE
+        .get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn compensated_png_inner(png: &[u8], geometry: DisplayGeometry) -> Result<Vec<u8>> {
+    checked_rgba_len(geometry.panel).context("贴图屏显目标超出 64 MiB RGBA 预算")?;
+    checked_rgba_len(geometry.buffer).context("贴图 WebKit 缓冲区超出 64 MiB RGBA 预算")?;
+    let source_size = crate::screenshot::png_dimensions(png).context("贴图 PNG 头无效")?;
+    checked_rgba_len(source_size).context("贴图原图超出 64 MiB RGBA 预算")?;
     let source = image::load_from_memory_with_format(png, image::ImageFormat::Png)
         .context("PNG 解码失败")?
         .to_rgba8();
-    let (buffer_width, buffer_height) = geometry.buffer;
 
-    let source_size = (source.width(), source.height());
-    let source = to_f32(source.as_raw());
     // 屏上"应该"长什么样：源图按物理尺寸重采样一次（尺寸相同就是它自己）。
     let panel = if source_size == geometry.panel {
-        source
+        std::borrow::Cow::Borrowed(source.as_raw().as_slice())
     } else {
-        resample_lanczos3(&source, source_size, geometry.panel)
+        std::borrow::Cow::Owned(resample_lanczos3_u8(
+            source.as_raw(),
+            source_size,
+            geometry.panel,
+        ))
     };
     // 反投影的初值：Lanczos3 预放大。双线性初值便宜但收敛到的上限低 3 dB 左右
     // （同一张截图上 44.33 dB 对 47.66 dB），差的那部分再多迭代也补不回来。
-    let mut initial = resample_lanczos3(&panel, geometry.panel, geometry.buffer);
-    // Lanczos 的负瓣会让初值冲出 0..255；反投影每轮都会夹一次，初值也得夹，
-    // 否则第一轮的残差里混着永远显示不出来的部分。
-    for value in initial.iter_mut() {
-        *value = value.clamp(0.0, 255.0);
-    }
-
-    let buffer = back_project(
+    let initial = resample_lanczos3_fixed(&panel, geometry.panel, geometry.buffer);
+    let buffer = back_project_fixed(
         &panel,
         geometry.panel,
         initial,
         geometry.buffer,
         BACK_PROJECTION_ROUNDS,
     );
-    crate::screenshot::encode_png(&to_u8(&buffer), buffer_width, buffer_height)
+    let buffer = fixed_to_u8(&buffer);
+    crate::screenshot::encode_png(&buffer, geometry.buffer.0, geometry.buffer.1)
+}
+
+fn checked_rgba_len(size: (u32, u32)) -> Result<usize> {
+    let bytes = usize::try_from(size.0)
+        .ok()
+        .and_then(|width| {
+            usize::try_from(size.1)
+                .ok()
+                .and_then(|height| width.checked_mul(height))
+        })
+        .and_then(|pixels| pixels.checked_mul(4))
+        .context("RGBA 尺寸溢出")?;
+    anyhow::ensure!(bytes <= MAX_RGBA_PLANE_BYTES, "{bytes} 字节");
+    Ok(bytes)
 }
 
 /// 迭代反投影：让"缓冲区图被合成器缩小之后"尽量等于 `panel`。
-fn back_project(
-    panel: &[f32],
+fn back_project_fixed(
+    panel: &[u8],
     panel_size: (u32, u32),
-    mut buffer: Vec<f32>,
+    mut buffer: Vec<u16>,
     buffer_size: (u32, u32),
     rounds: usize,
-) -> Vec<f32> {
+) -> Vec<u16> {
+    let mut residual = vec![0i16; panel.len()];
+    let panel_x = bilinear_taps(buffer_size.0 as usize, panel_size.0 as usize);
+    let panel_y = bilinear_taps(buffer_size.1 as usize, panel_size.1 as usize);
+    let buffer_x = bilinear_taps(panel_size.0 as usize, buffer_size.0 as usize);
+    let buffer_y = bilinear_taps(panel_size.1 as usize, buffer_size.1 as usize);
     for _ in 0..rounds {
-        let shown = resample_bilinear(&buffer, buffer_size, panel_size);
-        let mut residual = shown;
-        for (value, target) in residual.iter_mut().zip(panel) {
-            *value = target - *value;
-        }
-        let correction = resample_bilinear(&residual, panel_size, buffer_size);
-        for (value, delta) in buffer.iter_mut().zip(&correction) {
-            *value = (*value + delta).clamp(0.0, 255.0);
-        }
+        for_each_row(&mut residual, panel_size.0 as usize * 4, |row, target| {
+            let y = &panel_y[row];
+            for (column, x) in panel_x.iter().enumerate() {
+                for channel in 0..4 {
+                    let shown =
+                        bilinear_sample_u16(&buffer, buffer_size.0 as usize, x, y, column, channel);
+                    let index = column * 4 + channel;
+                    target[index] =
+                        (f32::from(panel[row * panel_size.0 as usize * 4 + index]) * FIXED_SCALE
+                            - shown)
+                            .round()
+                            .clamp(i16::MIN as f32, i16::MAX as f32) as i16;
+                }
+            }
+        });
+        for_each_row(&mut buffer, buffer_size.0 as usize * 4, |row, target| {
+            let y = &buffer_y[row];
+            for (column, x) in buffer_x.iter().enumerate() {
+                for channel in 0..4 {
+                    let correction = bilinear_sample_i16(
+                        &residual,
+                        panel_size.0 as usize,
+                        x,
+                        y,
+                        column,
+                        channel,
+                    );
+                    let index = column * 4 + channel;
+                    target[index] = (f32::from(target[index]) + correction)
+                        .round()
+                        .clamp(0.0, f32::from(FIXED_MAX))
+                        as u16;
+                }
+            }
+        });
     }
     buffer
+}
+
+fn bilinear_sample_u16(
+    source: &[u16],
+    width: usize,
+    x: &BilinearTap,
+    y: &BilinearTap,
+    _column: usize,
+    channel: usize,
+) -> f32 {
+    bilinear_sample(source, width, x, y, channel, |value| f32::from(*value))
+}
+
+fn bilinear_sample_i16(
+    source: &[i16],
+    width: usize,
+    x: &BilinearTap,
+    y: &BilinearTap,
+    _column: usize,
+    channel: usize,
+) -> f32 {
+    bilinear_sample(source, width, x, y, channel, |value| f32::from(*value))
+}
+
+fn bilinear_sample<T>(
+    source: &[T],
+    width: usize,
+    x: &BilinearTap,
+    y: &BilinearTap,
+    channel: usize,
+    value: impl Fn(&T) -> f32,
+) -> f32 {
+    let at = |row: usize, column: usize| value(&source[(row * width + column) * 4 + channel]);
+    let top = at(y.low, x.low) * (1.0 - x.weight) + at(y.low, x.high) * x.weight;
+    let bottom = at(y.high, x.low) * (1.0 - x.weight) + at(y.high, x.high) * x.weight;
+    top * (1.0 - y.weight) + bottom * y.weight
 }
 
 /// 双线性重采样，RGBA、可分离（先横后纵），两趟都按行并行。
@@ -180,6 +293,7 @@ fn back_project(
 ///
 /// 反投影每轮要走它两次，是整个补偿里最热的一段，因此专门写死成两点采样：
 /// 通用实现每个输出像素要过一层 `Vec` 间接，实测慢 4~5 倍。
+#[cfg(test)]
 fn resample_bilinear(source: &[f32], from: (u32, u32), to: (u32, u32)) -> Vec<f32> {
     let (in_width, in_height) = (from.0 as usize, from.1 as usize);
     let (out_width, out_height) = (to.0 as usize, to.1 as usize);
@@ -234,42 +348,92 @@ fn bilinear_taps(input: usize, output: usize) -> Vec<BilinearTap> {
         .collect()
 }
 
-/// Lanczos3 重采样，同样可分离、按行并行。只用在反投影的初值上。
+/// Lanczos3 重采样，结果直接保留为 8 位 RGBA。
 ///
-/// 缩小时核跟着缩放比拉宽（不然会漏采样、出摩尔纹）；放大时保持原宽度。
-/// 这条路一次贴图最多走两趟，所以用通用的"权重表"写法，不值得为它再展开一遍。
-fn resample_lanczos3(source: &[f32], from: (u32, u32), to: (u32, u32)) -> Vec<f32> {
+/// 旧算法先分配整张横向 `f32` 中间图，再分配整张 `f32` 输出；4K 下光这
+/// 两份就超过 400 MiB。这里每个并行分块只缓存垂直核当前用到的几行横向
+/// `f32` 结果，整图输出一直是 `u8`。缩小时核仍按比例拉宽，采样语义不变。
+fn resample_lanczos3_u8(source: &[u8], from: (u32, u32), to: (u32, u32)) -> Vec<u8> {
+    fixed_to_u8(&resample_lanczos3_fixed(source, from, to))
+}
+
+fn resample_lanczos3_fixed(source: &[u8], from: (u32, u32), to: (u32, u32)) -> Vec<u16> {
     let (in_width, in_height) = (from.0 as usize, from.1 as usize);
     let (out_width, out_height) = (to.0 as usize, to.1 as usize);
-
     let taps_x = lanczos3_taps(in_width, out_width);
-    let mut horizontal = vec![0.0f32; out_width * in_height * 4];
-    for_each_row(&mut horizontal, out_width * 4, |row, target| {
-        let source_row = &source[row * in_width * 4..(row + 1) * in_width * 4];
-        for (column, tap) in taps_x.iter().enumerate() {
-            let mut sum = [0.0f32; 4];
-            for &(index, weight) in tap.iter() {
-                let sample = &source_row[index * 4..index * 4 + 4];
-                for (total, value) in sum.iter_mut().zip(sample) {
-                    *total += value * weight;
-                }
-            }
-            target[column * 4..column * 4 + 4].copy_from_slice(&sum);
-        }
-    });
-
     let taps_y = lanczos3_taps(in_height, out_height);
-    let mut out = vec![0.0f32; out_width * out_height * 4];
-    for_each_row(&mut out, out_width * 4, |row, target| {
-        target.fill(0.0);
-        for &(index, weight) in taps_y[row].iter() {
-            let source_row = &horizontal[index * out_width * 4..(index + 1) * out_width * 4];
-            for (value, sample) in target.iter_mut().zip(source_row) {
-                *value += sample * weight;
-            }
+    let mut out = vec![0u16; out_width * out_height * 4];
+    let blocks = worker_count(out_height);
+    let block_rows = out_height.div_ceil(blocks);
+    std::thread::scope(|scope| {
+        for (block, chunk) in out.chunks_mut(block_rows * out_width * 4).enumerate() {
+            let first_row = block * block_rows;
+            let taps_x = &taps_x;
+            let taps_y = &taps_y;
+            scope.spawn(move || {
+                let mut horizontal = std::collections::BTreeMap::<usize, Vec<f32>>::new();
+                for (offset, target) in chunk.chunks_mut(out_width * 4).enumerate() {
+                    let row = first_row + offset;
+                    let vertical = &taps_y[row];
+                    for &(source_row, _) in vertical {
+                        horizontal.entry(source_row).or_insert_with(|| {
+                            lanczos_horizontal_row(source, in_width, source_row, out_width, taps_x)
+                        });
+                    }
+                    for value in target.iter_mut() {
+                        *value = 0;
+                    }
+                    for column in 0..out_width {
+                        for channel in 0..4 {
+                            let value = vertical
+                                .iter()
+                                .map(|&(source_row, weight)| {
+                                    horizontal[&source_row][column * 4 + channel] * weight
+                                })
+                                .sum::<f32>();
+                            target[column * 4 + channel] = (value * FIXED_SCALE)
+                                .round()
+                                .clamp(0.0, f32::from(FIXED_MAX))
+                                as u16;
+                        }
+                    }
+                    if let Some(&(oldest_needed, _)) = vertical.first() {
+                        horizontal.retain(|source_row, _| *source_row >= oldest_needed);
+                    }
+                }
+            });
         }
     });
     out
+}
+
+fn fixed_to_u8(values: &[u16]) -> Vec<u8> {
+    values
+        .iter()
+        .map(|value| {
+            ((u32::from(*value) + (FIXED_SCALE_I32 as u32 / 2)) / FIXED_SCALE_I32 as u32) as u8
+        })
+        .collect()
+}
+
+fn lanczos_horizontal_row(
+    source: &[u8],
+    in_width: usize,
+    row: usize,
+    out_width: usize,
+    taps_x: &[Tap],
+) -> Vec<f32> {
+    let source_row = &source[row * in_width * 4..(row + 1) * in_width * 4];
+    let mut target = vec![0.0f32; out_width * 4];
+    for (column, tap) in taps_x.iter().enumerate() {
+        for channel in 0..4 {
+            target[column * 4 + channel] = tap
+                .iter()
+                .map(|&(index, weight)| f32::from(source_row[index * 4 + channel]) * weight)
+                .sum();
+        }
+    }
+    target
 }
 
 /// 一个输出像素的采样点：输入下标 + 权重，权重之和为 1。
@@ -322,10 +486,10 @@ fn lanczos3(x: f64) -> f64 {
 /// 秒级掉到百毫秒级（见 [`compensation_cost`](tests::compensation_cost)）。用
 /// `std::thread::scope` 而不是引一个线程池依赖：这段路一次贴图只走一趟，
 /// 建线程的几十微秒相比整张图的重采样可以忽略。
-fn for_each_row(
-    output: &mut [f32],
+fn for_each_row<T: Send>(
+    output: &mut [T],
     row_len: usize,
-    work: impl Fn(usize, &mut [f32]) + Send + Sync,
+    work: impl Fn(usize, &mut [T]) + Send + Sync,
 ) {
     let rows = output.len() / row_len;
     let blocks = worker_count(rows);
@@ -359,10 +523,7 @@ fn worker_count(rows: usize) -> usize {
     cores.min(rows.div_ceil(32)).max(1)
 }
 
-fn to_f32(bytes: &[u8]) -> Vec<f32> {
-    bytes.iter().map(|value| f32::from(*value)).collect()
-}
-
+#[cfg(test)]
 fn to_u8(values: &[f32]) -> Vec<u8> {
     values
         .iter()
@@ -392,14 +553,48 @@ mod tests {
         assert_eq!(geometry.panel, (1200, 900));
     }
 
-    /// 大到不值得补偿的贴图直接放弃，让原图照旧显示。
-    /// 边界就在"整块 2560x1440 屏"上方：那个最坏情况必须仍然被补偿。
+    /// 3840x2160 原生屏在 logical 2560x1440、device=1.5 / buffer=2 下，
+    /// 全尺寸 Pin 的 WebKit 缓冲区是 5120x2880。这条曾被 7 MP 阈值静默跳过。
     #[test]
-    fn oversized_buffers_are_left_alone() {
-        // 2560x1440 物理的整屏贴图：CSS 1706.67 → 缓冲区 3413x1920 = 6.55 MP，要做。
-        assert!(display_geometry(2560.0 / 1.5, 1440.0 / 1.5, 1.5, 2.0).is_some());
-        // 再宽一截（多屏拼接）就超预算了。
-        assert!(display_geometry(2560.0, 1440.0, 1.5, 2.0).is_none());
+    fn native_4k_fractional_scale_is_compensated() {
+        let geometry = display_geometry(2560.0, 1440.0, 1.5, 2.0).expect("4K 必须补偿");
+        assert_eq!(geometry.panel, (3840, 2160));
+        assert_eq!(geometry.buffer, (5120, 2880));
+        assert_eq!(
+            checked_rgba_len(geometry.buffer).expect("在预算内"),
+            58_982_400
+        );
+    }
+
+    /// 全屏 origin 因工作区/控件边距缩小后仍要补偿，而不是因 `scale == 1`
+    /// 误判。按 `window::origin_content_size` 的实际常量，2560x1440 工作区可用
+    /// 2492x1368，全屏 16:9 origin 按高度缩成 2432x1368。
+    #[test]
+    fn workspace_shrunk_4k_origin_is_still_compensated() {
+        let geometry = display_geometry(2432.0, 1368.0, 1.5, 2.0).expect("缩小后仍需补偿");
+        assert_eq!(geometry.panel, (3648, 2052));
+        assert_eq!(geometry.buffer, (4864, 2736));
+        assert!(checked_rgba_len(geometry.buffer).is_ok());
+    }
+
+    #[test]
+    fn allocations_above_the_explicit_plane_budget_are_rejected() {
+        assert!(checked_rgba_len((4096, 4096)).is_ok());
+        assert!(checked_rgba_len((4097, 4096)).is_err());
+    }
+
+    #[test]
+    fn cancelled_queue_item_exits_before_png_decode() {
+        let result = compensated_png_after_wait(
+            "这不是 PNG，若继续必然报错".as_bytes(),
+            DisplayGeometry {
+                panel: (1, 1),
+                buffer: (2, 2),
+            },
+            || true,
+        )
+        .expect("取消不是失败");
+        assert!(result.is_none(), "已取消任务不应解码图片");
     }
 
     /// 重采样的映射必须和合成器一致：缓冲区里一个孤立白点，按 0.75 缩小之后
@@ -442,21 +637,20 @@ mod tests {
                 panel[index + 3] = 255.0;
             }
         }
-        let panel_image =
-            image::RgbaImage::from_raw(panel_width, panel_height, to_u8(&panel)).expect("构造图片");
-        let initial = to_f32(
-            image::imageops::resize(
-                &panel_image,
-                buffer_width,
-                buffer_height,
-                image::imageops::FilterType::Lanczos3,
-            )
-            .as_raw(),
+        let panel_u8 = to_u8(&panel);
+        let initial = resample_lanczos3_fixed(
+            &panel_u8,
+            (panel_width, panel_height),
+            (buffer_width, buffer_height),
         );
 
-        let psnr = |buffer: &[f32]| {
+        let psnr = |buffer: &[u16]| {
+            let buffer = buffer
+                .iter()
+                .map(|value| f32::from(*value) / FIXED_SCALE)
+                .collect::<Vec<_>>();
             let shown = resample_bilinear(
-                buffer,
+                &buffer,
                 (buffer_width, buffer_height),
                 (panel_width, panel_height),
             );
@@ -470,8 +664,8 @@ mod tests {
         };
 
         let plain = psnr(&initial);
-        let compensated = psnr(&back_project(
-            &panel,
+        let compensated = psnr(&back_project_fixed(
+            &panel_u8,
             (panel_width, panel_height),
             initial.clone(),
             (buffer_width, buffer_height),
@@ -481,15 +675,99 @@ mod tests {
             compensated > plain + 4.0,
             "补偿 {compensated:.2} dB 应当明显好过纯预放大 {plain:.2} dB"
         );
+
+        // 用改造前的全图 f32 算法在同一 fixture 上做基线；有界内存实现不能以
+        // 量化为代价偷掉原有画质。
+        let baseline_initial = baseline_lanczos3(
+            &panel,
+            (panel_width, panel_height),
+            (buffer_width, buffer_height),
+        );
+        let baseline = baseline_back_project(
+            &panel,
+            (panel_width, panel_height),
+            baseline_initial,
+            (buffer_width, buffer_height),
+            BACK_PROJECTION_ROUNDS,
+        );
+        let baseline_psnr = {
+            let shown = resample_bilinear(
+                &baseline,
+                (buffer_width, buffer_height),
+                (panel_width, panel_height),
+            );
+            let mse = shown
+                .iter()
+                .zip(&panel)
+                .map(|(a, b)| f64::from(a - b).powi(2))
+                .sum::<f64>()
+                / shown.len() as f64;
+            10.0 * (255.0f64 * 255.0 / mse).log10()
+        };
+        println!("同 fixture PSNR：旧 f32 {baseline_psnr:.3} dB，新 Q7 {compensated:.3} dB");
+        assert!(
+            compensated + 0.05 >= baseline_psnr,
+            "新路径 {compensated:.3} dB 不得低于旧路径 {baseline_psnr:.3} dB"
+        );
     }
 
-    /// 补偿这一步的耗时，用来定 [`MAX_COMPENSATED_PIXELS`]。默认不跑（数字与机器相关，
+    fn baseline_back_project(
+        panel: &[f32],
+        panel_size: (u32, u32),
+        mut buffer: Vec<f32>,
+        buffer_size: (u32, u32),
+        rounds: usize,
+    ) -> Vec<f32> {
+        for _ in 0..rounds {
+            let mut residual = resample_bilinear(&buffer, buffer_size, panel_size);
+            for (value, target) in residual.iter_mut().zip(panel) {
+                *value = target - *value;
+            }
+            let correction = resample_bilinear(&residual, panel_size, buffer_size);
+            for (value, delta) in buffer.iter_mut().zip(&correction) {
+                *value = (*value + delta).clamp(0.0, 255.0);
+            }
+        }
+        buffer
+    }
+
+    fn baseline_lanczos3(source: &[f32], from: (u32, u32), to: (u32, u32)) -> Vec<f32> {
+        let (in_width, in_height) = (from.0 as usize, from.1 as usize);
+        let (out_width, out_height) = (to.0 as usize, to.1 as usize);
+        let taps_x = lanczos3_taps(in_width, out_width);
+        let mut horizontal = vec![0.0f32; out_width * in_height * 4];
+        for_each_row(&mut horizontal, out_width * 4, |row, target| {
+            let source_row = &source[row * in_width * 4..(row + 1) * in_width * 4];
+            for (column, tap) in taps_x.iter().enumerate() {
+                for channel in 0..4 {
+                    target[column * 4 + channel] = tap
+                        .iter()
+                        .map(|&(index, weight)| source_row[index * 4 + channel] * weight)
+                        .sum();
+                }
+            }
+        });
+        let taps_y = lanczos3_taps(in_height, out_height);
+        let mut out = vec![0.0f32; out_width * out_height * 4];
+        for_each_row(&mut out, out_width * 4, |row, target| {
+            for &(source_row, weight) in &taps_y[row] {
+                let source_row =
+                    &horizontal[source_row * out_width * 4..(source_row + 1) * out_width * 4];
+                for (value, sample) in target.iter_mut().zip(source_row) {
+                    *value += sample * weight;
+                }
+            }
+        });
+        out
+    }
+
+    /// 补偿这一步的耗时，用来复验后台时间预算。默认不跑（数字与机器相关，
     /// 而且 debug 构建比 release 慢一个量级），要看就
     /// `cargo test --release --lib compensation_cost -- --ignored --nocapture`。
     #[test]
     #[ignore = "性能探针，只在需要重新定阈值时手动跑"]
     fn compensation_cost() {
-        for (panel_width, panel_height) in [(1200u32, 900u32), (2160, 1215), (2560, 1440)] {
+        for (panel_width, panel_height) in [(1200u32, 900u32), (2560, 1440), (3840, 2160)] {
             let mut source = image::RgbaImage::new(panel_width, panel_height);
             for (x, y, pixel) in source.enumerate_pixels_mut() {
                 let value = ((x * 7 + y * 13) % 256) as u8;

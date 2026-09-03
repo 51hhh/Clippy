@@ -43,11 +43,15 @@ impl PinManager {
     pub(super) fn remove(&self, label: &str) -> Result<Option<PinEntry>, PinError> {
         // 窗口没了，还在后台等它出现的摆放重试也该停下来。
         super::window::forget_placement(label);
-        Ok(self
+        let removed = self
             .entries
             .lock()
             .map_err(PinError::state_lock)?
-            .remove(label))
+            .remove(label);
+        if let Some(entry) = &removed {
+            entry.sharpen.cancel();
+        }
+        Ok(removed)
     }
 
     pub(super) fn update(&self, label: &str, update: &PinUpdate) -> Result<PinEntry, PinError> {
