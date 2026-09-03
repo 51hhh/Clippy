@@ -222,6 +222,34 @@ impl PixelRect {
     fn area(self) -> u64 {
         u64::from(self.width()).saturating_mul(u64::from(self.height()))
     }
+
+    fn intersection(self, other: Self) -> Option<Self> {
+        let intersection = Self {
+            x0: self.x0.max(other.x0),
+            y0: self.y0.max(other.y0),
+            x1: self.x1.min(other.x1),
+            y1: self.y1.min(other.y1),
+        };
+        (intersection.width() > 0 && intersection.height() > 0).then_some(intersection)
+    }
+
+    fn union(self, other: Self) -> Self {
+        Self {
+            x0: self.x0.min(other.x0),
+            y0: self.y0.min(other.y0),
+            x1: self.x1.max(other.x1),
+            y1: self.y1.max(other.y1),
+        }
+    }
+
+    fn expand(self, radius: u32, width: u32, height: u32) -> Self {
+        Self {
+            x0: self.x0.saturating_sub(radius),
+            y0: self.y0.saturating_sub(radius),
+            x1: self.x1.saturating_add(radius).min(width),
+            y1: self.y1.saturating_add(radius).min(height),
+        }
+    }
 }
 
 /// 以 renderer v2 的固定语义合成一张完整 PNG。
@@ -258,7 +286,7 @@ pub(super) fn render(
 
 /// 截图覆盖层与 Pin 共用同一 v2 语义，但只输出选区视口。
 ///
-/// 先渲染完整冻结帧再取视口，是为了让跨过选区边界的路径和模糊邻域保持原有语义。
+/// 只渲染视口及效果采样所需的依赖工作集，同时保持跨边界路径和模糊邻域语义。
 pub(crate) fn render_capture(
     source: RgbaImage,
     crop: (u32, u32, u32, u32),
@@ -305,14 +333,94 @@ fn render_image(
     validate_renderer_values(&annotations)?;
     validate_effect_budget(&annotations, source_width, source_height)?;
 
-    let adjusted = apply_adjustments(source, adjustments);
-    let composited = apply_effects(&adjusted, &annotations)?;
+    // 截图通常只取 4K 冻结帧中的一小块。只保留输出视口及效果真正会采样的邻域，
+    // 避免为一个几百像素的选区调整、模糊并复制整张 4K。blur 的三遍盒模糊支持半径
+    // 是 3r；mosaic 保留与原标注起点对齐的完整 cell；magnifier 保留其采样椭圆。
+    let work_rect = effect_work_rect(&annotations, output_rect, source_width, source_height);
+    let work_source = image::imageops::crop_imm(
+        &source,
+        work_rect.x0,
+        work_rect.y0,
+        work_rect.width(),
+        work_rect.height(),
+    )
+    .to_image();
+    let adjusted = apply_adjustments(work_source, adjustments);
+    let composited = apply_effects(
+        &adjusted,
+        work_rect,
+        &annotations,
+        output_rect,
+        source_width,
+        source_height,
+    )?;
     render_vectors(
         &composited,
         &annotations,
         adjustments.corner_radius,
         output_rect,
     )
+}
+
+fn effect_work_rect(
+    annotations: &[Annotation],
+    output_rect: PixelRect,
+    width: u32,
+    height: u32,
+) -> PixelRect {
+    let mut work = output_rect;
+    for annotation in annotations
+        .iter()
+        .filter(|annotation| annotation.is_effect())
+    {
+        match annotation {
+            Annotation::Blur { rect, effect, .. } => {
+                let effect_rect = PixelRect::from_rect(*rect, width, height);
+                if let Some(visible) = effect_rect.intersection(output_rect) {
+                    let radius = effect.blur_radius.round().clamp(1.0, 100.0) as u32;
+                    work = work.union(visible.expand(radius.saturating_mul(3), width, height));
+                }
+            }
+            Annotation::Mosaic { rect, effect, .. } => {
+                let effect_rect = PixelRect::from_rect(*rect, width, height);
+                if let Some(visible) = effect_rect.intersection(output_rect) {
+                    let cell = effect.mosaic_cell.round().clamp(6.0, 256.0) as u32;
+                    let x0 = effect_rect.x0 + (visible.x0 - effect_rect.x0) / cell * cell;
+                    let y0 = effect_rect.y0 + (visible.y0 - effect_rect.y0) / cell * cell;
+                    let x1 = effect_rect
+                        .x0
+                        .saturating_add(
+                            visible
+                                .x1
+                                .saturating_sub(effect_rect.x0)
+                                .div_ceil(cell)
+                                .saturating_mul(cell),
+                        )
+                        .min(effect_rect.x1);
+                    let y1 = effect_rect
+                        .y0
+                        .saturating_add(
+                            visible
+                                .y1
+                                .saturating_sub(effect_rect.y0)
+                                .div_ceil(cell)
+                                .saturating_mul(cell),
+                        )
+                        .min(effect_rect.y1);
+                    work = work.union(PixelRect { x0, y0, x1, y1 });
+                }
+            }
+            Annotation::Magnifier { rect, .. } => {
+                let effect_rect = PixelRect::from_rect(*rect, width, height);
+                if effect_rect.intersection(output_rect).is_some() {
+                    work = work.union(effect_rect);
+                }
+            }
+            Annotation::Spotlight { .. } => {}
+            _ => unreachable!("只遍历效果标注"),
+        }
+    }
+    work
 }
 
 fn validate_renderer_values(annotations: &[Annotation]) -> Result<(), String> {
@@ -431,9 +539,22 @@ fn clamp_u8(value: i32) -> u8 {
     value.clamp(0, 255) as u8
 }
 
-fn apply_effects(source: &RgbaImage, annotations: &[Annotation]) -> Result<RgbaImage, String> {
-    let (width, height) = source.dimensions();
-    let mut output = source.clone();
+fn apply_effects(
+    source: &RgbaImage,
+    source_rect: PixelRect,
+    annotations: &[Annotation],
+    output_rect: PixelRect,
+    full_width: u32,
+    full_height: u32,
+) -> Result<RgbaImage, String> {
+    let mut output = image::imageops::crop_imm(
+        source,
+        output_rect.x0 - source_rect.x0,
+        output_rect.y0 - source_rect.y0,
+        output_rect.width(),
+        output_rect.height(),
+    )
+    .to_image();
     let mut blurred = HashMap::<u32, RgbaImage>::new();
     for annotation in annotations
         .iter()
@@ -445,29 +566,36 @@ fn apply_effects(source: &RgbaImage, annotations: &[Annotation]) -> Result<RgbaI
                 let pixels = blurred
                     .entry(radius)
                     .or_insert_with(|| three_pass_box_blur(source, radius));
-                copy_rect(
+                copy_region_rect(
                     pixels,
+                    source_rect,
                     &mut output,
-                    PixelRect::from_rect(*rect, width, height),
+                    output_rect,
+                    PixelRect::from_rect(*rect, full_width, full_height),
                 );
             }
             Annotation::Mosaic { rect, effect, .. } => {
-                apply_mosaic(
+                apply_mosaic_region(
                     source,
+                    source_rect,
                     &mut output,
-                    PixelRect::from_rect(*rect, width, height),
+                    output_rect,
+                    PixelRect::from_rect(*rect, full_width, full_height),
                     effect.mosaic_cell.round().clamp(6.0, 256.0) as u32,
                 );
             }
-            Annotation::Spotlight { rect, effect, .. } => apply_spotlight(
+            Annotation::Spotlight { rect, effect, .. } => apply_spotlight_region(
                 &mut output,
-                PixelRect::from_rect(*rect, width, height),
+                output_rect,
+                PixelRect::from_rect(*rect, full_width, full_height),
                 (effect.spotlight_dim.clamp(0.0, 1.0) * 255.0).round() as u8,
             ),
-            Annotation::Magnifier { rect, effect, .. } => apply_magnifier(
+            Annotation::Magnifier { rect, effect, .. } => apply_magnifier_region(
                 source,
+                source_rect,
                 &mut output,
-                PixelRect::from_rect(*rect, width, height),
+                output_rect,
+                PixelRect::from_rect(*rect, full_width, full_height),
                 effect.magnifier_zoom,
             ),
             _ => unreachable!("只遍历效果标注"),
@@ -476,46 +604,108 @@ fn apply_effects(source: &RgbaImage, annotations: &[Annotation]) -> Result<RgbaI
     Ok(output)
 }
 
-fn copy_rect(source: &RgbaImage, target: &mut RgbaImage, rect: PixelRect) {
-    for y in rect.y0..rect.y1 {
-        for x in rect.x0..rect.x1 {
-            target.put_pixel(x, y, *source.get_pixel(x, y));
+fn copy_region_rect(
+    source: &RgbaImage,
+    source_rect: PixelRect,
+    target: &mut RgbaImage,
+    target_rect: PixelRect,
+    rect: PixelRect,
+) {
+    let Some(visible) = rect.intersection(target_rect) else {
+        return;
+    };
+    for y in visible.y0..visible.y1 {
+        for x in visible.x0..visible.x1 {
+            target.put_pixel(
+                x - target_rect.x0,
+                y - target_rect.y0,
+                *source.get_pixel(x - source_rect.x0, y - source_rect.y0),
+            );
         }
     }
 }
 
-fn apply_spotlight(target: &mut RgbaImage, rect: PixelRect, alpha: u8) {
+fn apply_spotlight_region(
+    target: &mut RgbaImage,
+    target_rect: PixelRect,
+    rect: PixelRect,
+    alpha: u8,
+) {
     for (x, y, pixel) in target.enumerate_pixels_mut() {
+        let x = x + target_rect.x0;
+        let y = y + target_rect.y0;
         if x < rect.x0 || x >= rect.x1 || y < rect.y0 || y >= rect.y1 {
             *pixel = blend_over(*pixel, Rgba([0, 0, 0, alpha]));
         }
     }
 }
 
-fn apply_mosaic(source: &RgbaImage, target: &mut RgbaImage, rect: PixelRect, cell: u32) {
+fn apply_mosaic_region(
+    source: &RgbaImage,
+    source_rect: PixelRect,
+    target: &mut RgbaImage,
+    target_rect: PixelRect,
+    rect: PixelRect,
+    cell: u32,
+) {
     if rect.width() == 0 || rect.height() == 0 {
         return;
     }
-    let mut y = rect.y0;
-    while y < rect.y1 {
+    let Some(visible_effect) = rect.intersection(target_rect) else {
+        return;
+    };
+    let first_x = rect.x0 + (visible_effect.x0 - rect.x0) / cell * cell;
+    let first_y = rect.y0 + (visible_effect.y0 - rect.y0) / cell * cell;
+    let last_x = rect
+        .x0
+        .saturating_add(
+            visible_effect
+                .x1
+                .saturating_sub(rect.x0)
+                .div_ceil(cell)
+                .saturating_mul(cell),
+        )
+        .min(rect.x1);
+    let last_y = rect
+        .y0
+        .saturating_add(
+            visible_effect
+                .y1
+                .saturating_sub(rect.y0)
+                .div_ceil(cell)
+                .saturating_mul(cell),
+        )
+        .min(rect.y1);
+    let mut y = first_y;
+    while y < last_y {
         let end_y = y.saturating_add(cell).min(rect.y1);
-        let mut x = rect.x0;
-        while x < rect.x1 {
+        let mut x = first_x;
+        while x < last_x {
             let end_x = x.saturating_add(cell).min(rect.x1);
             let mut sums = [0u64; 4];
             let count = u64::from(end_x - x) * u64::from(end_y - y);
             for sample_y in y..end_y {
                 for sample_x in x..end_x {
-                    let pixel = source.get_pixel(sample_x, sample_y);
+                    let pixel =
+                        source.get_pixel(sample_x - source_rect.x0, sample_y - source_rect.y0);
                     for channel in 0..4 {
                         sums[channel] += u64::from(pixel[channel]);
                     }
                 }
             }
             let average = Rgba(sums.map(|sum| ((sum + count / 2) / count) as u8));
-            for fill_y in y..end_y {
-                for fill_x in x..end_x {
-                    target.put_pixel(fill_x, fill_y, average);
+            if let Some(visible) = (PixelRect {
+                x0: x,
+                y0: y,
+                x1: end_x,
+                y1: end_y,
+            })
+            .intersection(target_rect)
+            {
+                for fill_y in visible.y0..visible.y1 {
+                    for fill_x in visible.x0..visible.x1 {
+                        target.put_pixel(fill_x - target_rect.x0, fill_y - target_rect.y0, average);
+                    }
                 }
             }
             x = end_x;
@@ -524,7 +714,14 @@ fn apply_mosaic(source: &RgbaImage, target: &mut RgbaImage, rect: PixelRect, cel
     }
 }
 
-fn apply_magnifier(source: &RgbaImage, target: &mut RgbaImage, rect: PixelRect, zoom: f64) {
+fn apply_magnifier_region(
+    source: &RgbaImage,
+    source_rect: PixelRect,
+    target: &mut RgbaImage,
+    target_rect: PixelRect,
+    rect: PixelRect,
+    zoom: f64,
+) {
     let width = rect.width();
     let height = rect.height();
     if width == 0 || height == 0 {
@@ -536,9 +733,12 @@ fn apply_magnifier(source: &RgbaImage, target: &mut RgbaImage, rect: PixelRect, 
     let width_i = i64::from(width);
     let height_i = i64::from(height);
     let ellipse_limit = width_i * width_i * height_i * height_i;
-    for y in rect.y0..rect.y1 {
+    let Some(visible) = rect.intersection(target_rect) else {
+        return;
+    };
+    for y in visible.y0..visible.y1 {
         let dy = i64::from(2 * (y - rect.y0) + 1) - height_i;
-        for x in rect.x0..rect.x1 {
+        for x in visible.x0..visible.x1 {
             let dx = i64::from(2 * (x - rect.x0) + 1) - width_i;
             if dx * dx * height_i * height_i + dy * dy * width_i * width_i > ellipse_limit {
                 continue;
@@ -547,9 +747,15 @@ fn apply_magnifier(source: &RgbaImage, target: &mut RgbaImage, rect: PixelRect, 
             let pixel_y_q16 = i64::from(y) * 65_536 + 32_768;
             let source_x_q16 = center_x_q16 + (pixel_x_q16 - center_x_q16) * 65_536 / zoom_q16;
             let source_y_q16 = center_y_q16 + (pixel_y_q16 - center_y_q16) * 65_536 / zoom_q16;
-            let sampled = bilinear_sample(source, source_x_q16, source_y_q16);
-            let existing = *target.get_pixel(x, y);
-            target.put_pixel(x, y, blend_over(existing, sampled));
+            let sampled = bilinear_sample(
+                source,
+                source_x_q16 - i64::from(source_rect.x0) * 65_536,
+                source_y_q16 - i64::from(source_rect.y0) * 65_536,
+            );
+            let target_x = x - target_rect.x0;
+            let target_y = y - target_rect.y0;
+            let existing = *target.get_pixel(target_x, target_y);
+            target.put_pixel(target_x, target_y, blend_over(existing, sampled));
         }
     }
 }
@@ -695,10 +901,20 @@ fn render_vectors(
     corner_radius: f64,
     output_rect: PixelRect,
 ) -> Result<Vec<u8>, String> {
-    let (source_width, source_height) = composited.dimensions();
     let output_width = output_rect.width();
     let output_height = output_rect.height();
-    let base_png = crate::screenshot::encode_png(composited.as_raw(), source_width, source_height)
+    let needs_vector_pass = corner_radius.round() > 0.0
+        || annotations.iter().any(|annotation| {
+            !annotation.is_effect() || matches!(annotation, Annotation::Magnifier { .. })
+        });
+    if !needs_vector_pass {
+        return crate::screenshot::encode_png(composited.as_raw(), output_width, output_height)
+            .map_err(|error| format!("renderer v2 PNG 编码失败: {error}"));
+    }
+
+    // composited 已经是输出视口；这里只把这块小图嵌入 SVG。旧实现会先把整张 4K
+    // 中间图编码成 PNG、base64，再让 resvg 为几百像素的选区重新解码整图。
+    let base_png = crate::screenshot::encode_png(composited.as_raw(), output_width, output_height)
         .map_err(|error| format!("renderer v2 中间 PNG 编码失败: {error}"))?;
     let mut svg = String::with_capacity(base_png.len().saturating_mul(4) / 3 + 8_192);
     write!(
@@ -730,7 +946,9 @@ fn render_vectors(
     }
     write!(
         svg,
-        r#"<image width="{source_width}" height="{source_height}" preserveAspectRatio="none" image-rendering="optimizeSpeed" href="data:image/png;base64,{}"/>"#,
+        r#"<image x="{}" y="{}" width="{output_width}" height="{output_height}" preserveAspectRatio="none" image-rendering="optimizeSpeed" href="data:image/png;base64,{}"/>"#,
+        output_rect.x0,
+        output_rect.y0,
         STANDARD.encode(base_png)
     )
     .expect("写 String 不会失败");
@@ -1129,6 +1347,51 @@ mod tests {
     }
 
     #[test]
+    fn capture_viewport_preserves_every_cross_boundary_effect_and_vector() {
+        let source_png = png(120, 90);
+        let source = decode(&source_png);
+        let annotations = serde_json::json!([
+            {"id":"b","type":"blur","rect":{"x":18,"y":14,"width":42,"height":35},"effect":{"blurRadius":5,"mosaicCell":11,"spotlightDim":0.35,"magnifierZoom":2.25}},
+            {"id":"m","type":"mosaic","rect":{"x":23,"y":11,"width":78,"height":54},"effect":{"blurRadius":5,"mosaicCell":11,"spotlightDim":0.35,"magnifierZoom":2.25}},
+            {"id":"z","type":"magnifier","rect":{"x":20,"y":5,"width":85,"height":75},"effect":{"blurRadius":5,"mosaicCell":11,"spotlightDim":0.35,"magnifierZoom":2.25}},
+            {"id":"s","type":"spotlight","rect":{"x":32,"y":22,"width":51,"height":43},"effect":{"blurRadius":5,"mosaicCell":11,"spotlightDim":0.35,"magnifierZoom":2.25}},
+            {"id":"p","type":"pen","color":"#ff3b30","size":4,"points":[{"x":8,"y":8},{"x":112,"y":79}]},
+            {"id":"e","type":"ellipse","color":"#0a84ff","size":3,"rect":{"x":29,"y":17,"width":63,"height":58}},
+            {"id":"q","type":"measure","color":"#34c759","size":3,"from":{"x":14,"y":54},"to":{"x":108,"y":54}},
+            {"id":"t","type":"text","color":"#ffffff","size":3,"at":{"x":28,"y":31},"text":"跨边界 A<&>","fontFamily":"system-ui"}
+        ]);
+        let adjusted = serde_json::json!({
+            "grayscale": true,
+            "brightness": 9,
+            "contrast": -7,
+            "saturation": 13,
+            "cornerRadius": 0
+        });
+        let crop = (37, 26, 39, 31);
+        let effects = serde_json::Value::Array(annotations.as_array().unwrap()[..4].to_vec());
+        let full = decode(&render(&source_png, 120, 90, &effects, &adjusted).unwrap());
+        let effect_viewport = decode(
+            &render_capture(source.clone(), crop, &effects, &adjusted)
+                .expect("选区效果工作集渲染失败"),
+        );
+        let expected = image::imageops::crop_imm(&full, crop.0, crop.1, crop.2, crop.3).to_image();
+        assert_eq!(effect_viewport, expected);
+
+        // resvg 对视口边缘裁剪的长路径与整图后裁剪会产生细微抗锯齿差异，
+        // 因此矢量层用固定 RGBA 金图约束，而效果采样仍保持上面的逐像素等价。
+        let first = render_capture(source.clone(), crop, &annotations, &adjusted).unwrap();
+        let second = render_capture(source, crop, &annotations, &adjusted).unwrap();
+        assert_eq!(first, second, "相同工程的选区 PNG 必须字节级确定");
+        let viewport = decode(&first);
+        assert_ne!(viewport, effect_viewport, "跨边界矢量必须进入选区输出");
+        let digest = format!("{:x}", Sha256::digest(viewport.as_raw()));
+        assert_eq!(
+            digest,
+            "f2de1b3f268bde1aa5e2ee814a64ec64ca00df7dbfaf81f61f934df9701c3cad"
+        );
+    }
+
+    #[test]
     fn capture_viewport_rejects_empty_or_out_of_bounds_rectangles() {
         let source = decode(&png(8, 6));
         assert!(render_capture(
@@ -1236,6 +1499,42 @@ mod tests {
         let elapsed = started.elapsed();
         assert_eq!(decode(&output).dimensions(), (3_840, 2_160));
         eprintln!("renderer v2 4K 合成耗时: {elapsed:?}");
+    }
+
+    #[test]
+    #[ignore = "4K 冻结帧小选区手动性能探针"]
+    fn renderer_v2_4k_small_capture_performance_probe() {
+        let source = decode(&png(3_840, 2_160));
+        let annotations = serde_json::json!([
+            {"id":"b","type":"blur","rect":{"x":1420,"y":700,"width":900,"height":620},"effect":{"blurRadius":8,"mosaicCell":16,"spotlightDim":0.3,"magnifierZoom":2}},
+            {"id":"m","type":"mosaic","rect":{"x":1500,"y":760,"width":800,"height":500},"effect":{"blurRadius":8,"mosaicCell":16,"spotlightDim":0.3,"magnifierZoom":2}},
+            {"id":"z","type":"magnifier","rect":{"x":1700,"y":820,"width":380,"height":300},"effect":{"blurRadius":8,"mosaicCell":16,"spotlightDim":0.3,"magnifierZoom":2}},
+            {"id":"s","type":"spotlight","rect":{"x":1300,"y":650,"width":1300,"height":900},"effect":{"blurRadius":8,"mosaicCell":16,"spotlightDim":0.3,"magnifierZoom":2}},
+            {"id":"p","type":"pen","color":"#ff3b30","size":8,"points":[{"x":1000,"y":600},{"x":1900,"y":1100},{"x":2800,"y":1400}]},
+            {"id":"t","type":"text","color":"#ffffff","size":10,"at":{"x":1650,"y":900},"text":"Clippy 4K 选区","fontFamily":"system-ui"}
+        ]);
+        let parsed: Vec<Annotation> = serde_json::from_value(annotations.clone()).unwrap();
+        let output_rect = PixelRect {
+            x0: 1_600,
+            y0: 800,
+            x1: 2_240,
+            y1: 1_280,
+        };
+        let work_rect = effect_work_rect(&parsed, output_rect, 3_840, 2_160);
+        assert!(
+            work_rect.area() < 3_840_u64 * 2_160 / 8,
+            "小选区工作集不得退化为整张 4K: {work_rect:?}"
+        );
+        let started = Instant::now();
+        let output =
+            render_capture(source, (1_600, 800, 640, 480), &annotations, &adjustments()).unwrap();
+        let elapsed = started.elapsed();
+        assert_eq!(decode(&output).dimensions(), (640, 480));
+        eprintln!(
+            "renderer v2 4K 冻结帧 640x480 选区工作集: {}x{}，耗时: {elapsed:?}",
+            work_rect.width(),
+            work_rect.height()
+        );
     }
 
     #[test]
