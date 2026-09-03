@@ -46,6 +46,18 @@ for library in "${BUNDLED_WAYLAND_LIBS[@]}"; do
   rm -f -- "${library}"
 done
 
+# PipeWire 与 Wayland 一样属于宿主桌面的 ABI。截图客户端只使用 Ubuntu 22 已提供的
+# libpipewire-0.3.so.0 符号；把 Jammy 构建机的客户端库塞进 AppImage 会让它优先读取
+# 新系统的 PipeWire 配置和 SPA 插件，重新制造跨版本混载。AppImage 支持基线已明确为
+# Ubuntu 22.04+，这些系统由宿主提供该 SONAME；deb 则另有显式 depends。
+mapfile -t BUNDLED_PIPEWIRE_LIBS < <(
+  find "${APP_DIR}/usr/lib" \( -type f -o -type l \) \
+    \( -name 'libpipewire-*.so*' -o -name 'libspa-*.so*' \) -print | sort
+)
+for library in "${BUNDLED_PIPEWIRE_LIBS[@]}"; do
+  rm -f -- "${library}"
+done
+
 PLUGIN="${TAURI_APPIMAGE_PLUGIN:-${HOME}/.cache/tauri/linuxdeploy-plugin-appimage.AppImage}"
 if [[ ! -x "${PLUGIN}" ]]; then
   printf 'Tauri AppImage plugin is unavailable: %s\n' "${PLUGIN}" >&2
@@ -98,6 +110,14 @@ if [[ -n "${WAYLAND_LIBRARY_ENTRIES}" ]]; then
   exit 1
 fi
 
+PIPEWIRE_LIBRARY_ENTRIES="$(unsquashfs -o "${VALID_OFFSET}" -lls "${TARGET}" | \
+  grep -E 'squashfs-root/.*/lib(pipewire|spa)-[^/]*\.so' || true)"
+if [[ -n "${PIPEWIRE_LIBRARY_ENTRIES}" ]]; then
+  printf 'Final AppImage still bundles host PipeWire ABI libraries:\n%s\n' \
+    "${PIPEWIRE_LIBRARY_ENTRIES}" >&2
+  exit 1
+fi
+
 # 签名用的 tauri CLI：优先仓库锁定的 npm 侧 CLI（`src/` 的 devDependency，与 cargo-tauri 同版本），
 # 其次才是 cargo-tauri。release runner 上只有 tauri-action 自带的 CLI，没有 cargo-tauri，
 # 这里原来写死 `cargo tauri` 会直接 `no such command: tauri`，AppImage 签名步骤必挂。
@@ -130,3 +150,4 @@ fi
 printf 'Finalized AppImage: %s\n' "${TARGET}"
 printf 'Portable .DirIcon: %s\n' "${ICON_NAME}"
 printf 'Removed bundled Wayland ABI libraries: %d\n' "${#BUNDLED_WAYLAND_LIBS[@]}"
+printf 'Removed bundled PipeWire ABI libraries: %d\n' "${#BUNDLED_PIPEWIRE_LIBS[@]}"

@@ -139,7 +139,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Ubuntu 22.04 是 Linux 发行基线；默认截图路径不编译可选 PipeWire 增强后端。
+        # Ubuntu 22.04 是 Linux 发行基线；同一个产物必须保留 PipeWire 低延迟主路径。
         include:
           - runner: ubuntu-22.04
             label: ubuntu22
@@ -153,15 +153,21 @@ jobs:
             libwebkit2gtk-4.1-dev libgtk-3-dev build-essential curl wget file \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
             pkg-config squashfs-tools xdg-utils \
-            libgbm-dev libegl-dev libdrm-dev libwayland-dev libxcb1-dev
+            libgbm-dev libegl-dev libdrm-dev libwayland-dev libxcb1-dev \
+            libpipewire-0.3-dev
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Verify Ubuntu 22 dependency baseline
+      - name: Verify PipeWire fast-path baseline
         run: |
-          if cd src-tauri && cargo tree --target x86_64-unknown-linux-gnu -e normal | grep -q 'pipewire v'; then
-            echo '::error::Default Linux dependency graph must not include pipewire-rs'
+          TREE="$(cd src-tauri && cargo tree --target x86_64-unknown-linux-gnu -e normal)"
+          if ! grep -q 'pipewire v' <<<"$TREE"; then
+            echo '::error::Default Linux build must include pipewire-rs fast path'
+            exit 1
+          fi
+          if ! grep -Eq 'libspa v.*\(.*vendor/libspa\)' <<<"$TREE"; then
+            echo '::error::Default Linux build must use the Jammy-compatible vendored libspa patch'
             exit 1
           fi
 
@@ -189,6 +195,14 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           args: --config src-tauri/tauri.linux.conf.json
+
+      - name: Verify release binary links PipeWire
+        run: |
+          BINARY="src-tauri/target/release/clippy-app"
+          if ! readelf -d "$BINARY" | grep -q 'libpipewire-0.3.so.0'; then
+            echo '::error::Linux release binary does not link the PipeWire fast-path runtime'
+            exit 1
+          fi
 
       - name: Finalize portable AppImage
         env:
@@ -504,7 +518,7 @@ jobs:
           #### AppImage（支持自动更新）
           - Ubuntu 22.04+：[64位](${DL}/Clippy_${VER}_amd64_ubuntu22.AppImage)
 
-          > 默认构建使用兼容 Ubuntu 22.04 的截图后端；新版 Linux 环境仍可从源码显式启用 `linux-pipewire` 增强后端。
+          > Linux 正式包在 Ubuntu 22.04 基线上构建，并默认包含 GNOME Mutter/PipeWire 低延迟截图后端。
 
           > OCR 功能需要单独安装 tesseract：\`sudo apt install tesseract-ocr tesseract-ocr-chi-sim\`
 
