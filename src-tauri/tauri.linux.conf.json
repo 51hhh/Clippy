@@ -4,7 +4,13 @@
     "targets": ["deb", "appimage"],
     "linux": {
       "deb": {
-        "depends": ["libgbm1", "libegl1", "libdrm2", "libwayland-egl1"],
+        "depends": [
+          "libgbm1",
+          "libegl1",
+          "libdrm2",
+          "libwayland-egl1",
+          "libpipewire-0.3-0"
+        ],
         "recommends": ["tesseract-ocr", "tesseract-ocr-chi-sim"],
         "desktopTemplate": "com.clippy.app.desktop",
         "postInstallScript": "scripts/postinst.sh",

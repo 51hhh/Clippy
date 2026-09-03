@@ -10,10 +10,10 @@ name = "clippy_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
-default = []
-# Ubuntu 22 基线默认不编译新版 pipewire-rs。需要 Mutter 原生取流的新版发行环境可显式
-# 启用；关闭时仍按 Shell 扩展、wlroots、Portal 和 X11 链路截图。
-linux-pipewire = ["dep:pipewire"]
+default = ["linux-pipewire"]
+# 兼容已有的显式构建命令，但 PipeWire 依赖和截图后端不再受 feature 控制：即使调用
+# `--no-default-features`，正式 Linux 产物也不能把 GNOME 的低延迟主路径裁掉。
+linux-pipewire = []
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -82,8 +82,9 @@ inotify = "0.11"
 ashpd = { version = "0.13", features = ["screenshot", "documents", "remote_desktop", "screencast", "global_shortcuts"] }
 libwayshot-xcap = "0.3"
 # Mutter 的 org.gnome.Mutter.ScreenCast 把画面走 PipeWire 送出来（不编 PNG，快一个数量级，
-# 见 docs/capture-linux.md §3.4）。它是新版 Linux 发行环境可选的增强链路。
-pipewire = { version = "0.9", optional = true }
+# 见 docs/capture-linux.md §3.4）。所有 Linux 产物都必须包含这条主路径；仓库内的 libspa
+# 补丁只修复其对 stock Ubuntu 22 PipeWire 0.3.48 头文件的错误结构字段假设。
+pipewire = { version = "0.9", features = ["v0_3_34"] }
 # 只为在 zbus 的信号流上调一次 `.next()`（等 PipeWireStreamAdded）。zbus 自己就依赖它。
 futures-util = { version = "0.3", default-features = false }
 x11rb = "0.13"
@@ -105,6 +106,9 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_SystemServices",
     "Win32_System_Threading",
 ] }
+
+[patch.crates-io]
+libspa = { path = "vendor/libspa" }
 
 [dev-dependencies]
 tempfile = "3"
