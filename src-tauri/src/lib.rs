@@ -71,6 +71,9 @@ pub fn run() {
     .init();
 
     tauri::Builder::default()
+        // 冻结帧走 WebKit 原生资源管线，避免 16–33 MB RGBA 穿过 JS invoke 桥；
+        // `get_capture_frame` 仍作为协议加载失败时的兼容兜底。
+        .register_uri_scheme_protocol("capture-frame", capture::frame_protocol)
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             app::shortcuts::on_second_instance(app, args, cwd);
         }))

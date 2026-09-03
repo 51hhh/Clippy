@@ -3,7 +3,7 @@
  * 唯一允许直接访问 Tauri invoke/listen API 的模块。
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -317,6 +317,11 @@ export function getCaptureOverlay(label: string): Promise<CaptureOverlayPayload>
  */
 export function getCaptureFrame(label: string): Promise<ArrayBuffer> {
   return invoke<ArrayBuffer>("get_capture_frame", { label });
+}
+
+/** WebKit 原生资源管线使用的无损冻结帧 URL；convertFileSrc 会处理 Windows URL 形式。 */
+export function getCaptureFrameUrl(label: string): string {
+  return convertFileSrc(label, "capture-frame");
 }
 
 /**

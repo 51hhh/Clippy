@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindowLabel } from "../../js/api.ts";
 import { drawScene } from "../annotation/canvasRenderer";
-import { rgbaToFrameCanvas } from "../annotation/frameImage";
+import { type FrameImage, paintRgbaFrame, rgbaToFrameCanvas } from "../annotation/frameImage";
 import {
   DEFAULT_IMAGE_ADJUSTMENTS,
+  hasImageAdjustments,
   type ImageAdjustments,
 } from "../annotation/imageAdjustments";
 import type { Annotation, Tool } from "../annotation/types";
@@ -60,6 +61,7 @@ export function App() {
   const label = getCurrentWindowLabel();
   const [payload, setPayload] = useState<CaptureOverlayPayload | null>(null);
   const [frameBuffer, setFrameBuffer] = useState<ArrayBuffer | null>(null);
+  const [frameProtocolFailed, setFrameProtocolFailed] = useState(false);
   const [imageReady, setImageReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,7 +75,7 @@ export function App() {
   const [copyStatus, setCopyStatus] = useState<"copied" | "failed" | null>(null);
   const translationGeneration = useRef(0);
   const translateButtonRef = useRef<HTMLButtonElement>(null);
-  const imageRef = useRef<HTMLCanvasElement | null>(null);
+  const imageRef = useRef<FrameImage | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const activeDrag = useRef<"selection" | "canvas" | null>(null);
   const revealed = useRef(false);
@@ -147,13 +149,37 @@ export function App() {
     };
   }, [label]);
 
-  // 底图与 payload 分两次取：像素走二进制 IPC，一次 putImageData 就能用，
-  // 不必等 <img> 的 onload，也没有 PNG 编解码。
-  //
-  // 两个请求**同时**发出，不等 payload 回来再要像素：像素是这两次里慢的那个（16 MB），
-  // 串起来等于把它的往返白加在覆盖层出现之前。尺寸只有 payload 才知道，所以铺画布
-  // 放在下一个 effect 里，等两边都到齐。
+  // 首选 WebKit 原生资源管线，避免把双屏约 50 MB RGBA 穿过 JS invoke 桥。
+  // 图像协议仍是无损原始像素封装；只有协议加载失败才退回旧的 ArrayBuffer 路径。
   useEffect(() => {
+    if (!payload) return;
+    let cancelled = false;
+    overlayApi
+      .image(label)
+      .then((image) => {
+        if (cancelled) return;
+        if (image.naturalWidth !== payload.pixelWidth || image.naturalHeight !== payload.pixelHeight) {
+          throw new Error(
+            `capture frame size mismatch: ${image.naturalWidth}x${image.naturalHeight}`,
+          );
+        }
+        imageRef.current = image;
+        setImageReady(true);
+      })
+      .catch((reason) => {
+        if (cancelled) return;
+        console.warn("截图帧协议加载失败，回退到二进制 IPC", reason);
+        setFrameProtocolFailed(true);
+      });
+    return () => {
+      cancelled = true;
+      imageRef.current = null;
+      setImageReady(false);
+    };
+  }, [label, payload]);
+
+  useEffect(() => {
+    if (!frameProtocolFailed) return;
     let cancelled = false;
     overlayApi
       .frame(label)
@@ -167,17 +193,24 @@ export function App() {
       cancelled = true;
       setFrameBuffer(null);
     };
-  }, [label]);
+  }, [frameProtocolFailed, label]);
 
   useEffect(() => {
-    if (!payload || !frameBuffer) return;
+    if (!payload || !frameBuffer || !frameProtocolFailed) return;
+    const target = canvasRef.current;
+    if (!target) return;
     try {
-      imageRef.current = rgbaToFrameCanvas(
+      // 首帧直接写最终画布。旧路径先创建同尺寸离屏画布，再整屏 drawImage 一次；
+      // 双屏 4K 下会多占几十 MB，并把窗口显示推迟一整次全图合成。
+      paintRgbaFrame(
+        target,
         new Uint8ClampedArray(frameBuffer),
         payload.pixelWidth,
         payload.pixelHeight,
       );
+      imageRef.current = target;
       setImageReady(true);
+      reveal();
     } catch (reason) {
       console.warn("截图冻结帧解码失败", reason);
       setError(t("capture.decodeFailed"));
@@ -186,7 +219,7 @@ export function App() {
       imageRef.current = null;
       setImageReady(false);
     };
-  }, [frameBuffer, payload]);
+  }, [frameBuffer, frameProtocolFailed, payload, reveal]);
 
   useEffect(() => {
     // 排障线索：窗口几何拿不到时界面只有一句提示，日志里要留下原因可查。
@@ -210,12 +243,37 @@ export function App() {
   // 于是"拖选区"这条最高频的交互引发的画布重绘次数是 0。
   useEffect(() => {
     const target = canvasRef.current;
-    const image = imageRef.current;
+    let image = imageRef.current;
     if (!target || !image || !imageReady) return;
+    const needsComposite =
+      annotations.length > 0 ||
+      draftAnnotation !== null ||
+      selectedId !== null ||
+      hasImageAdjustments(adjustments);
+    // setup effect 已经画好了未编辑首帧，不要紧接着再复制、再重画。
+    if (image === target && !needsComposite) return;
+    if (image === target) {
+      if (!payload || !frameBuffer) return;
+      image = rgbaToFrameCanvas(
+        new Uint8ClampedArray(frameBuffer),
+        payload.pixelWidth,
+        payload.pixelHeight,
+      );
+      imageRef.current = image;
+    }
     drawScene(
       target,
       image,
-      { width: logicalWidth, height: logicalHeight, fitScale: scale, zoom: 1, scale },
+      {
+        width: logicalWidth,
+        height: logicalHeight,
+        fitScale: scale,
+        zoom: 1,
+        scale,
+        // 冻结帧已经按显示器实际缩放抓取；画布保持同样的物理像素尺寸，
+        // 避免 WebKit 的整数 DPR 在混合缩放下把它再次放大后交给 Mutter 缩回。
+        pixelRatio: 1 / scale,
+      },
       annotations,
       draftAnnotation,
       adjustments,
@@ -227,9 +285,11 @@ export function App() {
     adjustments,
     annotations,
     draftAnnotation,
+    frameBuffer,
     imageReady,
     logicalHeight,
     logicalWidth,
+    payload,
     reveal,
     scale,
     selectedId,
