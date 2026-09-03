@@ -402,27 +402,35 @@ Cogl 写的是副本，JS 手里那份仍是初值——结果是一张**全黑�
 
 ### 3.2 冻结帧像素怎么送进覆盖层
 
-**像素不走 JSON。** `get_capture_overlay` 只给几何与窗口候选，底图由
-`get_capture_frame` 单独交付：后端 `tauri::ipc::Response` 直接回原始字节，前端拿到
-`ArrayBuffer` 后 `new ImageData(...)` + `putImageData` 铺进一块离屏 canvas
-（`react/annotation/frameImage.ts`），那块 canvas 就是 `drawImage` 的源。
+**像素不走 JSON，也不把 16–33 MB RGBA 当作正常 IPC 返回值。** `get_capture_overlay`
+只给几何与窗口候选；冻结帧由只读 `capture-frame` 自定义资源协议交给 WebKit。协议响应是
+无损 32-bit BMP：负高度保持 top-down，RGBA 只交换成标准 BGRA，不压缩、不降采样。
+前端用 Tauri `convertFileSrc(label, "capture-frame")` 生成平台 URL，Linux/macOS 是
+`capture-frame://localhost/...`，Windows 是 `http://capture-frame.localhost/...`。
 
-**两个请求同时发出。** 覆盖层的 `payload` effect 与 `frame` effect 都只依赖窗口 label，
-互不等待；铺画布放在第三个 effect 里（依赖 `[frameBuffer, payload]`），等两边都到齐才做。
-像素是这两次里慢的那个（16 MB），串起来等于把它的往返白加在覆盖层出现之前——
-而覆盖层出现之前用户什么都看不到。**不要为了"拿到尺寸再要像素"把它们改回串行。**
+协议 handler 同时核对请求 path 与发起请求的 webview label，某块覆盖层只能读取自己的帧；
+响应禁止缓存，CSP 只放行这两个本地协议来源。浏览器解码后还必须核对
+`naturalWidth/naturalHeight === pixelWidth/pixelHeight`，尺寸不一致就立即回退，不能拿错帧。
 
-契约：**RGBA8、行优先、无 padding，尺寸取 payload 的 `pixelWidth`/`pixelHeight`。**
-原始字节没有自校验的文件头，所以前端必须核对 `length === 4 × w × h`，不对就报错——
-拿错位的像素铺满全屏比干净地失败糟糕得多（`rgbaToFrameCanvas` 的尺寸校验和
-`capture-overlay-app.test.js` 里那条截断帧的用例钉住了这一点）。
+`get_capture_frame` 原始 RGBA IPC **保留为兼容兜底**。协议加载失败时才请求它，并校验
+`length === 4 × w × h`；首帧直接 `putImageData` 到最终原生尺寸 canvas，不再先建一块全屏
+离屏 canvas 再 `drawImage`。只有用户第一次标注或调色时，兜底路径才按需创建不可变底图。
+这保证协议不可用的平台仍能截图，同时正常路径不再把双屏约 50 MB 像素穿过 JS invoke 桥。
 
-曾经的做法是 payload 里带一个 `pngBase64`，代价是同一张图要被处理四次：Rust 编 PNG
-（215 ms）→ base64（3 MB 字符串）→ webview `atob` → WebKit 解 PNG。原始 RGBA 虽然字节数
-更大（16 MB vs 2.2 MB），但两头都是零编码，实测总时长反而少一半。**别改回字符串。**
-标注渲染层为此把底图类型放宽成 `FrameImage = HTMLImageElement | HTMLCanvasElement`
-（图片编辑器与 Pin 窗口仍用 `<img>`），尺寸统一走 `frameWidth`/`frameHeight`
-而不是 `naturalWidth`。
+2026-09-03 同机双屏实测（3840×2160@1.5 + 2560×1600@1.3333）：v0.1.19 原始 IPC
+首帧为 **2019/2069 ms**，其中前端阶段 **1727/1778 ms**；资源协议连续三轮为
+**557/799、596/867、583/860 ms**，前端阶段 **241/482、234/505、236/513 ms**。
+三轮都走 Mutter/PipeWire 原生帧，没有协议回退、超时或 WebKit 崩溃。
+
+画布 backing store 也必须等于显示器原生像素：覆盖层传 `pixelRatio = pixelWidth / logicalWidth`
+给共享 renderer，不能照抄 WebKit 在 GTK 混合缩放下常见的整数 `devicePixelRatio = 2`。
+否则 3840×2160 会先膨胀成 5120×2880，再让 Mutter 缩回去，徒增内存与重采样开销。
+标注、复制、保存与 Pin 仍使用会话里的原始 RGBA 和 Rust renderer v2，预览传输方式不改变
+最终像素事实源。
+
+更早的 `pngBase64` 做法会让同一张图经历 Rust PNG 编码 → base64 → JSON → `atob` →
+WebKit PNG 解码；高熵 4K 单是 PNG deflate 就实测 1607 ms。它不能作为协议失败时的回退，
+也不能为了缩小传输量重新引入。
 
 另外，隐藏自己的窗口之后那 140 ms 的合成器落定等待（`HIDE_SETTLE_MS`）现在**只在真的藏了
 窗口时才等**。快捷键截图的常态是面板本来就没开着，`hide_sources` 返回空列表，这时白等
