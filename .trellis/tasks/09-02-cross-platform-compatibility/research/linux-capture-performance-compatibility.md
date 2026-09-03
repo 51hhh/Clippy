@@ -20,20 +20,23 @@
   得到 `capture_monitor_frames 全程: 228.6 ms`。未启用 feature 的正式路径此前为
   2950.4 ms，实际应用日志为 2993–4004 ms。
 
-## 多屏首帧回归的第二层原因
+## 多屏首帧回归的第二层原因与最终修复
 
 - 将 `96c947a` 的 `screenshot/screencast.rs` 与当前代码逐字对照后，历史取流算法本身没有
   被多平台代码改写；真正的发行回归是 `11d38dc`/`39e8bf3` 把它移出了默认产物。
 - 恢复历史代码后，当前机器的内屏仍可在约 52–72 ms 到帧，但外接 HDMI 偶发进入
   PipeWire `streaming/running` 后不触发 process callback。历史实现会等满 1500 ms，随后
   因一块屏缺帧丢弃另一块已经成功的原始帧，再为全部屏幕执行 PNG 兜底。
-- 修正后的流以 `PW_STREAM_FLAG_DRIVER` 连接，并每 16 ms 调用一次
-  `pw_stream_trigger_process()`，符合 PipeWire 对 driving stream 的调度合同；正常双屏应用
-  实测冻结帧约 146–301 ms，覆盖层完成约 678–966 ms。
-- 单个输出仍可能拒绝送首帧，因此等待上限收紧为 350 ms。超时只对该显示器执行扩展
-  原始像素兜底，不再丢弃其他显示器已经到达的 PipeWire 帧。实测该异常样本冻结帧约
-  784–877 ms、覆盖层约 1348–1577 ms；相较 v0.1.18 的 2.4–6.1 秒已被严格限界。
-- 会话清理保持历史 RAII `Stop`，不以省掉 D-Bus 清理换取速度，避免 GNOME 顶栏录制
+- PipeWire debug 证明两个源都完成格式协商和 8 个缓冲区分配；客户端每 16 ms 向源 driver
+  发送 `RequestProcess`，eDP-1 会产帧，HDMI-1 在 350 ms 内一次也不响应。给客户端增加
+  `node.always-process` 也无效，说明问题在 Mutter 的显示器源调度，不在 PNG、像素大小、缓冲
+  分配或客户端是否主动触发。
+- 最终不再用 `RecordMonitor(connector)` 建源，改成对每块输出的 stage 逻辑矩形调用
+  `RecordArea(x, y, width, height)`。Mutter 仍按相交显示器 DPI 输出原生像素，不牺牲清晰度。
+  同机同轮 A/B：旧路径约 371–379 ms 且 HDMI-1 连续缺帧；新路径连续 5 轮均拿到
+  eDP-1 2560×1600 与 HDMI-1 3840×2160，合计 108–130 ms。
+- 350 ms 逐屏兜底继续保留，处理其它 Mutter/PipeWire 运行时异常，但不再是这台机器的正常
+  路径。会话清理保持历史 RAII `Stop`，不以省掉 D-Bus 清理换取速度，避免 GNOME 顶栏录制
   指示残留。
 
 ## Ubuntu 22/24 依赖边界
@@ -59,8 +62,9 @@
 - Mutter ScreenCast 是 GNOME 私有接口，运行时调用失败必须带原因退回下一后端，不能让
   私有接口差异阻断截图。当前实现保持 `96c947a` 已验证的调用形状，不新增未经真机证明
   有效的 Version 分支。
-- `RecordMonitor`/`PipeWireStreamAdded` 是共同主路径；`is-recording` 保持历史已验证值，
-  避免 GNOME 显示至少五秒的共享胶囊。
+- `RecordArea`/`PipeWireStreamAdded` 是共同主路径；`is-recording` 保持历史已验证值，避免
+  GNOME 显示至少五秒的共享胶囊。`RecordArea` 自 API v2 即存在，当前使用的
+  `is-recording` 属性要求 API v4，与原实现的最低接口要求不变。
 - GNOME 支持环境首选 Mutter/PipeWire；wlroots 走 libwayshot；其他 Wayland 走 Portal；
   X11 走 x11rb/xcap。PNG 只保留为带原因的最后兜底。
 

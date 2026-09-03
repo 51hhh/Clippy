@@ -304,8 +304,8 @@ fn capture_shell_extension_tiles(monitors: &[MonitorInfo]) -> Result<Vec<Monitor
 /// 快是因为**没有 PNG**（旧路径 94% 的时间在 deflate），清楚是因为每块屏都按自己的缩放
 /// 单独取流、拿到的就是面板原生像素。两件事同一个改动，细节与实测数字见 `screencast.rs`。
 ///
-/// **只在几何来自 Wayland 输出时才走**，理由和下面逐屏那条路一样：`RecordMonitor` 认的是
-/// 连接器名（`eDP-1`），只有 Wayland 输出枚举给得出，xcap 那边压根没有这个字段。
+/// **只在几何来自 Wayland 输出时才走**，因为 `RecordArea` 需要 Mutter stage 的逻辑坐标；
+/// xcap 在 XWayland 下报告的是另一套坐标，不能混用。
 #[cfg(target_os = "linux")]
 fn capture_all_screencast_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
     let monitors = enumerate_wayland_monitors_with_connectors()
@@ -314,11 +314,11 @@ fn capture_all_screencast_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFram
         .iter()
         .map(|(_, connector)| connector.clone())
         .collect();
-    if let Some(index) = connectors.iter().position(|name| name.is_empty()) {
-        bail!("第 {index} 块 Wayland 输出没有连接器名，RecordMonitor 无从指定显示器");
-    }
-
-    let captured = super::screencast::capture_monitors(&connectors)?;
+    let areas: Vec<(String, Rect)> = monitors
+        .iter()
+        .map(|(info, connector)| (connector.clone(), info.rect))
+        .collect();
+    let captured = super::screencast::capture_areas(&areas)?;
     let infos: Vec<MonitorInfo> = monitors.into_iter().map(|(info, _)| info).collect();
     let mut tiles: Vec<Option<MonitorTile>> = Vec::with_capacity(captured.len());
     let mut missing_indices = Vec::new();
@@ -634,10 +634,8 @@ pub(super) fn enumerate_wayland_monitors() -> Result<Vec<MonitorInfo>> {
 
 /// 同一次枚举，额外带上**连接器名**（`eDP-1`、`HDMI-1`……）。
 ///
-/// `org.gnome.Mutter.ScreenCast.Session.RecordMonitor` 只认这个字符串，而 `MonitorInfo`
-/// 里只有一个哈希出来的 id（FNV over `output.name`，为的是热插拔后仍然稳定），从 id 反推
-/// 不回来。几何仍旧只有这一个来源：两个函数共用一遍枚举，免得"取流用一份几何、覆盖层用
-/// 另一份"这种分叉。
+/// 连接器名用于逐屏日志及缺帧兜底定位；几何仍旧只有这一个来源：两个函数共用一遍枚举，
+/// 免得“取流用一份几何、覆盖层用另一份”这种分叉。
 #[cfg(target_os = "linux")]
 pub(super) fn enumerate_wayland_monitors_with_connectors() -> Result<Vec<(MonitorInfo, String)>> {
     let conn = wayland_connection()?;
