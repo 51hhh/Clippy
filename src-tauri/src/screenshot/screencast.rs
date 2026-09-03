@@ -12,9 +12,10 @@
 //!    看不见改动、196608 字节读回来全是垃圾、3 MB 直接段错误）。那条路只能靠哨兵字节拦住
 //!    "黑图"，永远快不了，见 `docs/capture-linux.md` §3.1。
 //! 3. **Mutter 的 ScreenCast 同一个用户直接可调**：不经 Portal、不弹授权对话框、不需要
-//!    restore token。本机实测 CreateSession 1 ms、RecordMonitor 1 ms、Start 61 ms、
-//!    node 就绪 18 ms、第一帧 104 ms —— 单屏 **185 ms**；一个会话同时录两块屏 **190 ms**，
-//!    拿到的是 3840x2160 与 2560x1600 的**原生像素**，不含鼠标指针。
+//!    restore token。逐屏 `RecordArea` 实测一个会话同时录两块屏 **173 ms**，拿到的是
+//!    3840x2160 与 2560x1600 的**原生像素**，不含鼠标指针。这里不能换成看起来更直接的
+//!    `RecordMonitor`：GNOME 50.1 上外接屏的源会进入 streaming 却不送首帧，白等超时；
+//!    同轮 A/B 中它耗时 378 ms 且缺一屏，`RecordArea` 两屏均成功。
 //!
 //! 也就是说分辨率和速度出自同一个改动，不是二选一。
 //!
@@ -50,6 +51,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use zbus::zvariant::{OwnedObjectPath, Value};
 
+use super::Rect;
+
 const SCREEN_CAST_NAME: &str = "org.gnome.Mutter.ScreenCast";
 const SCREEN_CAST_PATH: &str = "/org/gnome/Mutter/ScreenCast";
 const SESSION_INTERFACE: &str = "org.gnome.Mutter.ScreenCast.Session";
@@ -58,7 +61,7 @@ const STREAM_INTERFACE: &str = "org.gnome.Mutter.ScreenCast.Stream";
 /// `MetaCursorMode` 的 `HIDDEN`：冻结帧里不要鼠标指针（覆盖层自己画）。
 const CURSOR_MODE_HIDDEN: u32 = 0;
 
-/// 单次 D-Bus 往返的上限。实测 CreateSession / RecordMonitor 各 1 ms、Start 61 ms，
+/// 单次 D-Bus 往返的上限。实测 CreateSession / RecordArea 各 1 ms、Start 61 ms，
 /// 留出两个数量级的余量：超时就退回下一条路，绝不能让截图卡在这里。
 const CALL_TIMEOUT: Duration = Duration::from_millis(1500);
 
@@ -74,24 +77,68 @@ pub(super) struct ScreencastFrame {
     pub(super) rgba: Arc<[u8]>,
 }
 
-/// 逐屏取一帧原生像素，顺序与 `connectors` 一致。
+/// 逐屏取一帧原生像素，顺序与 `areas` 一致。
 ///
-/// `connectors` 是 Wayland 输出名（`eDP-1`、`HDMI-1`……），也就是 `RecordMonitor`
-/// 认的那个字符串。
-pub(super) fn capture_monitors(connectors: &[String]) -> Result<Vec<Result<ScreencastFrame>>> {
+/// `RecordArea` 的坐标是 Mutter stage 的逻辑坐标；每次只传一块显示器的逻辑矩形，输出就会
+/// 按该屏自己的 DPI 缩放到原生像素。字符串只用于日志，不参与 D-Bus 定位。
+pub(super) fn capture_areas(areas: &[(String, Rect)]) -> Result<Vec<Result<ScreencastFrame>>> {
+    if areas.is_empty() {
+        bail!("没有要录制的显示器区域");
+    }
+    let sources = areas
+        .iter()
+        .map(|(label, rect)| ScreencastSource::Area {
+            label: label.clone(),
+            rect: *rect,
+        })
+        .collect::<Vec<_>>();
+    crate::dbus::off_async_runtime(|| capture_off_runtime(&sources))
+}
+
+/// 只保留作 `RecordArea` / `RecordMonitor` 真机 A/B；生产路径必须走前者，见文件头。
+#[cfg(test)]
+fn capture_monitors(connectors: &[String]) -> Result<Vec<Result<ScreencastFrame>>> {
     if connectors.is_empty() {
         bail!("没有要录制的显示器");
     }
-    crate::dbus::off_async_runtime(|| capture_off_runtime(connectors))
+    let sources = connectors
+        .iter()
+        .map(|connector| ScreencastSource::Monitor {
+            connector: connector.clone(),
+        })
+        .collect::<Vec<_>>();
+    crate::dbus::off_async_runtime(|| capture_off_runtime(&sources))
 }
 
-fn capture_off_runtime(connectors: &[String]) -> Result<Vec<Result<ScreencastFrame>>> {
+#[derive(Clone)]
+enum ScreencastSource {
+    #[cfg(test)]
+    Monitor {
+        connector: String,
+    },
+    Area {
+        label: String,
+        rect: Rect,
+    },
+}
+
+impl ScreencastSource {
+    fn label(&self) -> &str {
+        match self {
+            #[cfg(test)]
+            Self::Monitor { connector } => connector,
+            Self::Area { label, .. } => label,
+        }
+    }
+}
+
+fn capture_off_runtime(sources: &[ScreencastSource]) -> Result<Vec<Result<ScreencastFrame>>> {
     // current_thread：这条线程接下来要被 PipeWire 的 main loop 占住，多开工作线程没意义。
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .context("无法创建 ScreenCast runtime")?;
-    let session = runtime.block_on(open_session(connectors))?;
+    let session = runtime.block_on(open_session(sources))?;
     let session = SessionGuard {
         runtime: &runtime,
         session,
@@ -134,7 +181,7 @@ impl Drop for SessionGuard<'_> {
     }
 }
 
-async fn open_session(connectors: &[String]) -> Result<Session> {
+async fn open_session(sources: &[ScreencastSource]) -> Result<Session> {
     let connection = with_timeout("连接 session bus", CALL_TIMEOUT, async {
         zbus::Connection::session()
             .await
@@ -153,20 +200,37 @@ async fn open_session(connectors: &[String]) -> Result<Session> {
     .await?;
     let session = proxy(&connection, session_path, SESSION_INTERFACE).await?;
 
-    let mut stream_paths = Vec::with_capacity(connectors.len());
-    for connector in connectors {
+    let mut stream_paths = Vec::with_capacity(sources.len());
+    for source in sources {
         let mut options: HashMap<&str, Value> = HashMap::new();
         options.insert("cursor-mode", Value::U32(CURSOR_MODE_HIDDEN));
         // 见文件头：false 会换来一个 5 秒起步的"停止共享"胶囊。
         options.insert("is-recording", Value::Bool(true));
-        let path: OwnedObjectPath = with_timeout("RecordMonitor", CALL_TIMEOUT, async {
-            session
-                .call("RecordMonitor", &(connector.as_str(), options))
-                .await
-                .with_context(|| format!("RecordMonitor {connector} 失败"))
-        })
-        .await?;
-        stream_paths.push((connector.clone(), path));
+        let label = source.label().to_string();
+        let path: OwnedObjectPath = match source {
+            #[cfg(test)]
+            ScreencastSource::Monitor { connector } => {
+                with_timeout("RecordMonitor", CALL_TIMEOUT, async {
+                    session
+                        .call("RecordMonitor", &(connector.as_str(), options))
+                        .await
+                        .with_context(|| format!("RecordMonitor {connector} 失败"))
+                })
+                .await?
+            }
+            ScreencastSource::Area { rect, .. } => {
+                let width = i32::try_from(rect.width).context("RecordArea 宽度超过 i32")?;
+                let height = i32::try_from(rect.height).context("RecordArea 高度超过 i32")?;
+                with_timeout("RecordArea", CALL_TIMEOUT, async {
+                    session
+                        .call("RecordArea", &(rect.x, rect.y, width, height, options))
+                        .await
+                        .with_context(|| format!("RecordArea {label} 失败"))
+                })
+                .await?
+            }
+        };
+        stream_paths.push((label, path));
     }
 
     // **订阅必须早于 `Start`。** node id 只从 `PipeWireStreamAdded` 来，而它在 `Start`
@@ -776,6 +840,29 @@ mod tests {
                     .collect::<Vec<_>>())
             );
         }
+
+        let areas = monitors
+            .iter()
+            .map(|(info, connector)| (connector.clone(), info.rect))
+            .collect::<Vec<_>>();
+        let at = std::time::Instant::now();
+        let frames = capture_areas(&areas);
+        println!(
+            "RecordArea 一次会话取 {} 块屏: {:.1} ms",
+            areas.len(),
+            at.elapsed().as_secs_f64() * 1000.0
+        );
+        match frames {
+            Ok(frames) => {
+                for ((label, _), frame) in areas.iter().zip(frames) {
+                    match frame {
+                        Ok(frame) => println!("  {label}: {}x{}", frame.width, frame.height),
+                        Err(error) => println!("  {label}: 失败: {error:#}"),
+                    }
+                }
+            }
+            Err(error) => println!("  失败: {error:#}"),
+        }
     }
 
     /// 把当前每块屏的原生画面存成 PNG，默认 `#[ignore]`：
@@ -798,12 +885,12 @@ mod tests {
             println!("拿不到 Wayland 显示器，跳过");
             return;
         };
-        let connectors: Vec<String> = monitors
+        let areas: Vec<(String, Rect)> = monitors
             .iter()
-            .map(|(_, connector)| connector.clone())
+            .map(|(info, connector)| (connector.clone(), info.rect))
             .collect();
-        let frames = capture_monitors(&connectors).expect("取流会话失败");
-        for (connector, frame) in connectors.iter().zip(&frames) {
+        let frames = capture_areas(&areas).expect("取流失败");
+        for ((connector, _), frame) in areas.iter().zip(&frames) {
             let frame = frame.as_ref().expect("取流失败");
             let png = crate::screenshot::encode_png(&frame.rgba, frame.width, frame.height)
                 .expect("编码失败");

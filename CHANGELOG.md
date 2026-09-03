@@ -2,6 +2,13 @@
 
 ## 未发布
 
+### 🐛 修复
+
+- **恢复 GNOME Wayland 混合缩放双屏的即时截图响应**：Mutter `RecordMonitor` 在 GNOME 50.1
+  上可能让外接屏进入 PipeWire streaming 却始终不送首帧，进而触发 350 ms 等待和慢速 PNG
+  兜底。现在按每块屏的 stage 逻辑矩形调用 `RecordArea`，仍直接取得各屏原生像素；同机连续
+  5 轮双屏实测均为 108–130 ms，HDMI-1 不再缺帧。
+
 ## v0.1.18
 
 ### ✨ 新功能

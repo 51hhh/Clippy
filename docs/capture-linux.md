@@ -512,7 +512,8 @@ xdg-desktop-portal、不弹授权对话框、不需要 restore token、不需要
 
 ```
 CreateSession(a{sv}) -> o
-  Session.RecordMonitor(connector, {cursor-mode: 0, is-recording: true}) -> o   # 每块屏一次
+  Session.RecordArea(x, y, width, height,
+                     {cursor-mode: 0, is-recording: true}) -> o  # 每块屏的逻辑矩形
   订阅每条 Stream 的 PipeWireStreamAdded(u)        ← 必须早于 Start
   Session.Start()
   收到 node id 后连 PipeWire，每个 node 取第一帧就够
@@ -523,10 +524,13 @@ CreateSession(a{sv}) -> o
 
 | | 耗时 | 拿到的画面 |
 |---|---|---|
-| 分段（单屏） | CreateSession 1 ms、RecordMonitor 1 ms、Start 61 ms、node 就绪 18 ms、第一帧 104 ms | 3840×2160 = 33 177 600 B |
-| 一个会话同时录两块屏 | **351 ms**（dev 构建，含两次共 48 MB 的通道重排） | 3840×2160 + 2560×1600，都是**原生** |
-| 单独录一块 | HDMI-1 158 ms / eDP-1 106 ms | 同上 |
-| `capture_monitor_frames` 全程 | **280 ms**（此前 **1900 ms**） | |
+| `RecordArea` 一个会话同时录两块屏 | **108–130 ms**（连续 5 轮） | 3840×2160 + 2560×1600，都是**原生** |
+| `RecordMonitor` 对照 | **371–379 ms**，HDMI-1 每轮均在 350 ms 内无首帧 | 只有 eDP-1 2560×1600 |
+
+`RecordArea` 不是降分辨率的裁剪兜底：参数是每块输出在 Mutter stage 中的**逻辑矩形**，Mutter
+按该区域相交输出的 DPI 生成视频帧，所以收到的仍是各面板原生像素。之所以不用名字更直观的
+`RecordMonitor`，是 GNOME 50.1 + PipeWire 1.6.2 上可稳定复现外接 HDMI 源已链接、收到
+`RequestProcess` 却不产出第一帧；继续驱动或延长等待都不会恢复，只会再落回 PNG 编码路径。
 
 几条必须记住的约束：
 
@@ -554,8 +558,8 @@ CreateSession(a{sv}) -> o
   析构，所以 `streams` 要声明在 `listeners` 前面。
 
 **验证方式**：`cargo test --lib screencast_timings -- --ignored --nocapture`，会先打印每块屏
-"逻辑尺寸 × 真实缩放 = 期望像素"，再打印一次会话录全部屏、以及逐块单独录的耗时和实收尺寸。
-不需要注销，也不需要装扩展。
+“逻辑尺寸 × 真实缩放 = 期望像素”，再把旧 `RecordMonitor` 与生产使用的 `RecordArea` 做
+同轮 A/B，打印耗时和实收尺寸。不需要注销，也不需要装扩展。
 
 非 GNOME 的合成器上这条路会在几毫秒内失败（`CreateSession` 直接没有这个 bus name），
 照旧退到后面的 wlroots / Portal。KDE 与 wlroots 那边的等价物是 Portal 的 ScreenCast +
