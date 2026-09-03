@@ -8,3 +8,5 @@
 {"file":".trellis/spec/frontend/quality-guidelines.md","reason":"前端能力降级 UI 和测试约束"}
 {"file":".trellis/tasks/09-02-cross-platform-compatibility/research/platform-capability-matrix.md","reason":"实现时依据已核验的平台接口、版本差异和硬边界"}
 {"file":".trellis/tasks/09-02-cross-platform-compatibility/info.md","reason":"分阶段技术设计和小步提交边界"}
+{"file": ".trellis/tasks/09-02-cross-platform-compatibility/research/linux-capture-performance-compatibility.md", "reason": "恢复 PipeWire 快路径时依据已复现性能、Jammy 依赖边界与运行时版本策略"}
+{"file": ".trellis/tasks/09-02-cross-platform-compatibility/research/cross-platform-tradeoff-audit.md", "reason": "跨平台兼容取舍与发布门禁审计"}

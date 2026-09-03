@@ -39,6 +39,13 @@
 
 - 保持区域截图、窗口命中、多显示器、混合 DPI、编辑、Copy/Save/Pin/Translate 工作流。
 - Ubuntu 22 构建不得强制依赖比系统 PipeWire 0.3.48 更新的开发头文件。
+- GNOME Wayland 正式产物必须编入 Mutter ScreenCast/PipeWire 原生取流后端；Ubuntu 22
+  构建基线不得以条件编译删除该后端，也不得把逐屏 PNG 当成支持环境的默认路径。
+- Linux 平台差异必须在运行时按 compositor/API 版本选择后端；构建时兼容通过约束
+  PipeWire 客户端 ABI、依赖版本或隔离适配层实现，不能通过牺牲截图延迟实现。
+- 定义截图性能合同：当前双屏混合缩放 GNOME Wayland 基准机上，冻结帧中位数不超过
+  400 ms、P95 不超过 700 ms；快捷键到首块覆盖层可见中位数不超过 800 ms、P95 不超过
+  1200 ms。进入 PNG 兜底必须记录结构化后端与原因，不能静默冒充正常路径。
 - Linux X11 使用 Jammy 可编译的显示器/窗口/像素捕获实现；Wayland 依次使用可用的 GNOME、Portal、wlroots 或 copy-safe fallback。
 - Windows 首版可使用 xcap 捕获并用 Win32 完成 HWND 枚举、窗口几何和前台窗口；后续可切换 Windows Graphics Capture。
 - macOS 使用 CoreGraphics/xcap 或 ScreenCaptureKit，并正确处理屏幕录制权限。
@@ -87,7 +94,12 @@
 ## Acceptance Criteria
 
 - [x] Linux 本机现有功能通过完整测试，且平台抽象不改变已验证的 X11/Wayland 选择结果。
-- [x] 在干净 Ubuntu 22.04 环境中无需第三方 PipeWire PPA 即可完成 release 构建。
+- [ ] 在干净 Ubuntu 22.04 环境中无需第三方 PipeWire PPA、且不裁掉 Mutter/PipeWire
+  快速截图后端即可完成 release 构建。
+- [ ] 正式 Linux 构建和发布 workflow 明确启用并校验 PipeWire 快速截图后端；不存在
+  “默认依赖图不得包含 PipeWire”这类反向能力守卫。
+- [ ] 当前 GNOME Wayland 双屏机器的 `capture_monitor_frames` 恢复到 700 ms P95 以内，
+  并保留真实端到端首帧计时证据。
 - [ ] Ubuntu 22 GNOME 42 X11 与 Wayland 的快捷键、截图、复制和可用的粘贴路径有实机记录。
 - [x] Windows 10/11 和 macOS 原生 runner 能完成 Rust compile、前端 typecheck/test/build 和 Tauri bundle。
 - [ ] Windows 普通目标自动粘贴成功；高完整性目标稳定降级为 copy-only 并显示 reason code。

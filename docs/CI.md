@@ -32,8 +32,9 @@
 
 ### 环境
 - **Runner**: Linux 使用 `ubuntu-22.04` 作为最低构建基线；原生编译门禁使用 `windows-latest` 与 `macos-latest`
-- **系统依赖**: 默认 Linux 依赖图不包含 `pipewire-rs`，因此 Jammy 无需安装新版 PipeWire 开发头文件；
-  仍需 `libgbm-dev/libegl-dev/libdrm-dev/libwayland-dev/libxcb1-dev`，以及 DOM smoke 使用的
+- **系统依赖**: 默认 Linux 依赖图必须包含 `pipewire-rs`；Jammy 使用官方
+  `libpipewire-0.3-dev` 0.3.48 和仓库内的最小 `libspa` 兼容补丁构建，不依赖第三方 PPA；
+  另需 `libgbm-dev/libegl-dev/libdrm-dev/libwayland-dev/libxcb1-dev`，以及 DOM smoke 使用的
   `xvfb`/`x11-utils`
 - **Rust**: stable（含 clippy + rustfmt 组件）
 - **Node.js**: 24
@@ -48,7 +49,7 @@
 在 GitHub Actions 中选择待测 ref 并手动运行。workflow 会显式合并公共配置、对应平台配置和关闭 updater
 附加产物的 `tauri.ci.conf.json`，保留 14 天并上传绑定完整 commit SHA 的四套安装包：
 
-- Ubuntu 22 构建的 x64 deb 与已移除宿主 Wayland ABI 库的 AppImage；
+- Ubuntu 22 构建的 x64 deb 与已移除宿主 Wayland/PipeWire ABI 库的 AppImage；
 - 临时自签名并核对 Authenticode 的 Windows x64 NSIS 与 MSI；
 - ad-hoc 签名的 macOS Apple Silicon DMG；
 - ad-hoc 签名的 macOS Intel DMG。
@@ -232,13 +233,15 @@ SemVer、非 UTC RFC 3339 时间或非 HTTPS 下载地址。release workflow 只
 | `cargo clippy` 失败 | 代码有 warning | 按 clippy 提示修复 |
 | Release 版本验证失败 | tag 不是 SemVer、三处版本不一致、CHANGELOG 缺章节或 tag 不在发布分支 | 修正版本、变更日志或 tag 来源后重新创建 tag |
 | vitest 失败 | 前端测试不通过 | `cd src && npx vitest run` 本地复现 |
-| 默认依赖图出现 `pipewire v` | 可选 `linux-pipewire` 被误加入默认 feature | 保持 feature 显式 opt-in，不给 Ubuntu 22 默认包增加 PipeWire 构建依赖 |
+| 默认依赖图缺少 `pipewire v` 或 vendored `libspa` | GNOME Wayland 快路径被裁掉或 Jammy 兼容补丁失效 | 恢复非可选 PipeWire 依赖，并在 Ubuntu 22/24 重跑编译和真机性能验证 |
 | macOS Ad-Hoc 校验失败 | `.app` 没有严格签名、不是 `Signature=adhoc` 或架构不匹配 | 检查 macOS 覆盖配置、目标 triple 与 Tauri bundle 输出 |
 | NSIS/macOS `.sig` 缺失 | Tauri updater 私钥未配置或构建未生成 updater artifact | 检查 `TAURI_SIGNING_PRIVATE_KEY*` 与 `createUpdaterArtifacts` |
 | Windows 签名门禁失败 | PFX 只配置一项、证书无私钥/代码签名 EKU、已过期，或安装包签名无效 | 成对修复 `WINDOWS_CERTIFICATE*`，或全部移除以使用明确标注的临时自签名模式 |
 
 ### 为什么默认包仍可在 Ubuntu 22.04 构建
 
-Linux 默认目标固定使用 Jammy 可编译的截图依赖，不编译可选 `linux-pipewire` 增强后端；Windows
-和 macOS 则通过 target-specific dependency 使用新版原生 `xcap`。CI 额外检查 Linux 默认依赖图，
-一旦重新出现 `pipewire-rs` 就直接失败，从而防止发布包意外抬高 glibc 或 PipeWire 基线。
+Linux 默认目标直接编译 Mutter/PipeWire 快路径。仓库内固定的 `libspa 0.9.2` 补丁只消除
+上游对 PipeWire 0.3.65 结构字段的无条件假设，因此可以使用 Jammy 官方 0.3.48 开发头文件，
+同时链接从 Jammy 至新发行版都提供的 `libpipewire-0.3.so.0`。CI 正向检查 PipeWire 和补丁均
+出现在默认依赖图；deb 显式依赖宿主运行库，AppImage 则在最终封装后确认没有捆入构建机的
+Wayland/PipeWire ABI 库，避免与新系统的 Mesa、SPA 插件和配置混载。

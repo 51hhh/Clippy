@@ -77,7 +77,8 @@ Portal 接口存在性必须读取各接口的 `version` 属性；不能用 port
 
 ### Phase C：Ubuntu 22 基线
 
-1. 从 Linux 全局路径移除 xcap 0.9/PipeWire 0.9 强依赖。
+1. 从 Linux 全局路径移除 xcap 0.9 的间接新版 PipeWire 约束；保留主动使用的
+   Mutter/PipeWire 快路径，并用可审计的 libspa 补丁兼容 Jammy 0.3.48 头文件。
 2. 实现或接入 Jammy-compatible X11 截图、窗口枚举和显示器信息。
 3. Wayland 后端按实际接口探测：Mutter → GNOME extension → Portal → wlroots → 明确失败。
 4. 对 Ubuntu 22 portal 缺少 GlobalShortcuts/restore 的情况提供 GSettings 和会话级授权。

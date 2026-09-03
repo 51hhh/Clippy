@@ -4,3 +4,5 @@
 {"file":".trellis/spec/frontend/quality-guidelines.md","reason":"执行前端门禁并检查能力 UI 无不安全 DOM 操作"}
 {"file":".trellis/tasks/09-02-cross-platform-compatibility/research/platform-capability-matrix.md","reason":"按平台矩阵核对实现与降级声明"}
 {"file":".trellis/tasks/09-02-cross-platform-compatibility/info.md","reason":"按阶段和提交边界审核完成度"}
+{"file": ".trellis/tasks/09-02-cross-platform-compatibility/research/linux-capture-performance-compatibility.md", "reason": "核对正式产物不再以兼容为由裁掉快速截图后端并满足性能合同"}
+{"file": ".trellis/tasks/09-02-cross-platform-compatibility/research/cross-platform-tradeoff-audit.md", "reason": "复核是否仍有以兼容为名裁剪能力"}
