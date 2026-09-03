@@ -2,6 +2,7 @@ mod action_lifecycle;
 /// 几何诊断报告。报障与"补一条回归测试"之间的那一步，见 docs/capture-linux.md §4.2。
 pub mod diagnostics;
 mod error;
+mod frame_protocol;
 mod manager;
 mod overlay_windows;
 #[cfg(target_os = "linux")]
@@ -13,6 +14,7 @@ mod types;
 mod window_probe;
 
 pub use error::CaptureError;
+pub(crate) use frame_protocol::handle as frame_protocol;
 pub use manager::CaptureManager;
 /// 贴图窗口的摆放与置顶也只有这个扩展做得到（Wayland 不许客户端自己来），
 /// 所以 `pin/` 借道这里，而不是自己再开一份 D-Bus 契约。

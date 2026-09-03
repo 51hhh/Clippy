@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getConfig: vi.fn(async () => ({ language: "en" })),
   overlayApi: {
     get: vi.fn(),
+    image: vi.fn(),
     frame: vi.fn(),
     ready: vi.fn(),
     cancel: vi.fn(),
@@ -84,8 +85,7 @@ describe("capture overlay app", () => {
     i18n.init("en");
     // jsdom 缺这些：覆盖层的指针捕获与画布上下文都会直接抛错。
     Element.prototype.setPointerCapture = () => {};
-    // 没有 canvas 后端，但底图现在是真的 putImageData 出来的离屏画布，
-    // 所以上下文不能是 null（那样 rgbaToFrameCanvas 会直接抛）。给个万能空实现：
+    // jsdom 没有 canvas 后端，给底图与标注层一个万能空实现：
     // 任何方法都是 no-op，任何属性都可写，绘制结果反正不参与断言。
     HTMLCanvasElement.prototype.getContext = () =>
       new Proxy(
@@ -102,6 +102,10 @@ describe("capture overlay app", () => {
     };
     for (const fn of Object.values(mocks.overlayApi)) fn.mockReset();
     mocks.overlayApi.ready.mockResolvedValue(undefined);
+    mocks.overlayApi.image.mockResolvedValue({
+      naturalWidth: basePayload.pixelWidth,
+      naturalHeight: basePayload.pixelHeight,
+    });
     mocks.overlayApi.frame.mockResolvedValue(
       new ArrayBuffer(basePayload.pixelWidth * basePayload.pixelHeight * 4),
     );
@@ -117,13 +121,43 @@ describe("capture overlay app", () => {
   async function mount(overrides = {}) {
     const payload = { ...basePayload, ...overrides };
     mocks.overlayApi.get.mockResolvedValue(payload);
-    // 冻结帧走二进制 IPC：字节数必须正好是 4 × 像素数，否则前端会当成损坏的帧。
+    mocks.overlayApi.image.mockResolvedValue({
+      naturalWidth: payload.pixelWidth,
+      naturalHeight: payload.pixelHeight,
+    });
+    // raw IPC 是图像协议失败时的兜底，字节数仍必须正好是 4 × 像素数。
     mocks.overlayApi.frame.mockResolvedValue(
       new ArrayBuffer(payload.pixelWidth * payload.pixelHeight * 4),
     );
     await act(async () => root.render(React.createElement(App)));
     await flush();
   }
+
+  it("keeps the capture canvas at the monitor's native pixel size", async () => {
+    await mount({ logicalWidth: 100, logicalHeight: 50, pixelWidth: 300, pixelHeight: 150 });
+    const canvas = document.querySelector(".overlay-canvas");
+    expect([canvas.width, canvas.height]).toEqual([300, 150]);
+  });
+
+  it("prefers the native image protocol without requesting the raw IPC frame", async () => {
+    await mount();
+    expect(mocks.overlayApi.image).toHaveBeenCalledWith("capture-overlay-session-1-0");
+    expect(mocks.overlayApi.frame).not.toHaveBeenCalled();
+  });
+
+  it("falls back to raw IPC when the native image protocol is unavailable", async () => {
+    mocks.overlayApi.get.mockResolvedValue(basePayload);
+    mocks.overlayApi.image.mockRejectedValue(new Error("protocol unavailable"));
+    mocks.overlayApi.frame.mockResolvedValue(
+      new ArrayBuffer(basePayload.pixelWidth * basePayload.pixelHeight * 4),
+    );
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+
+    expect(mocks.overlayApi.frame).toHaveBeenCalledWith("capture-overlay-session-1-0");
+    expect(mocks.overlayApi.ready).toHaveBeenCalledTimes(1);
+    expect(document.querySelector(".overlay-error")).toBeNull();
+  });
 
   it("shows the toolbar next to a dragged selection instead of finishing", async () => {
     await mount();
@@ -290,6 +324,7 @@ describe("capture overlay app", () => {
    */
   it("reports a truncated frame buffer instead of drawing skewed pixels", async () => {
     mocks.overlayApi.get.mockResolvedValue(basePayload);
+    mocks.overlayApi.image.mockRejectedValue(new Error("protocol unavailable"));
     mocks.overlayApi.frame.mockResolvedValue(new ArrayBuffer(64));
     await act(async () => root.render(React.createElement(App)));
     await flush();

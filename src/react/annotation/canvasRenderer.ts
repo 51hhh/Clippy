@@ -23,6 +23,8 @@ export type RenderViewport = {
   fitScale: number;
   zoom: number;
   scale: number;
+  /** CSS 像素到画布物理像素的倍率；未指定时沿用窗口 DPR。 */
+  pixelRatio?: number;
 };
 
 const MAX_CANVAS_DPR = 2;
@@ -53,7 +55,9 @@ export function drawScene(
 ) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
-  const dpr = Math.min(MAX_CANVAS_DPR, Math.max(1, window.devicePixelRatio || 1));
+  const dpr = viewport.pixelRatio === undefined
+    ? Math.min(MAX_CANVAS_DPR, Math.max(1, window.devicePixelRatio || 1))
+    : Math.max(1, viewport.pixelRatio);
   const pixelWidth = Math.max(1, Math.round(viewport.width * dpr));
   const pixelHeight = Math.max(1, Math.round(viewport.height * dpr));
   if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {

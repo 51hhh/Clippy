@@ -1,10 +1,9 @@
 /**
  * 标注渲染的底图来源。
  *
- * 截图覆盖层的底图是后端直传的原始 RGBA，用 `putImageData` 落在一块离屏 canvas 上
- * （见 docs/capture-linux.md §3：像素走 PNG + base64 要在两头各编解码一次，
- * 全屏帧实测占掉覆盖层出现前的一半时间）。图片编辑器与 Pin 窗口的底图仍然是
- * `<img>`。两者都是合法的 `drawImage` 源，所以渲染层只需要认这个联合类型。
+ * 截图覆盖层、图片编辑器与 Pin 窗口通常使用浏览器原生解码的 `<img>`；截图协议
+ * 不可用时会把原始 RGBA 用 `putImageData` 落进 canvas 兜底。两者都是合法的
+ * `drawImage` 源，所以渲染层只需要认这个联合类型。
  */
 export type FrameImage = HTMLImageElement | HTMLCanvasElement;
 
@@ -32,11 +31,20 @@ export function rgbaToFrameCanvas(
   width: number,
   height: number,
 ): HTMLCanvasElement {
+  return paintRgbaFrame(document.createElement("canvas"), rgba, width, height);
+}
+
+/** 把原始 RGBA 直接写进指定画布，避免截图首帧额外创建并合成一块全屏画布。 */
+export function paintRgbaFrame(
+  canvas: HTMLCanvasElement,
+  rgba: Uint8ClampedArray<ArrayBuffer>,
+  width: number,
+  height: number,
+): HTMLCanvasElement {
   const expected = width * height * 4;
   if (width < 1 || height < 1 || rgba.length !== expected) {
     throw new Error(`Frame buffer size mismatch: got ${rgba.length}, expected ${expected}`);
   }
-  const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext("2d");

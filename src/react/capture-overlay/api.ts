@@ -3,6 +3,7 @@ import {
   commitCaptureAction,
   copyText,
   getCaptureFrame,
+  getCaptureFrameUrl,
   getCaptureOverlay,
   markCaptureOverlayReady,
   translateCaptureSelection,
@@ -19,6 +20,14 @@ import type {
 
 export const overlayApi = {
   get: (label: string): Promise<CaptureOverlayPayload> => getCaptureOverlay(label),
+  /** 首选 WebKit 原生资源管线；避开大块 RGBA 的 JS invoke 桥。 */
+  image: (label: string): Promise<HTMLImageElement> =>
+    new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error("capture frame protocol failed"));
+      image.src = getCaptureFrameUrl(label);
+    }),
   /** 冻结帧像素（原始 RGBA，二进制 IPC）。payload 里没有图，底图从这里来。 */
   frame: (label: string): Promise<ArrayBuffer> => getCaptureFrame(label),
   /**

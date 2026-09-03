@@ -308,6 +308,14 @@ impl CaptureManager {
     /// "Rust 编 PNG → base64 → JSON → atob → webview 解 PNG"，实测四段加起来占了
     /// 覆盖层出现前的一半时间。
     pub(super) fn frame_rgba(&self, label: &str) -> Result<std::sync::Arc<[u8]>, CaptureError> {
+        Ok(self.frame_source(label)?.0)
+    }
+
+    /// 自定义帧协议需要一次取得像素与尺寸，避免先取 payload、再取像素时重复锁会话。
+    pub(super) fn frame_source(
+        &self,
+        label: &str,
+    ) -> Result<(std::sync::Arc<[u8]>, u32, u32), CaptureError> {
         let at = Instant::now();
         let mut current = self.session.lock().map_err(CaptureError::state_lock)?;
         let session = current.as_mut().ok_or(CaptureError::SessionMissing)?;
@@ -316,14 +324,13 @@ impl CaptureManager {
             .iter()
             .position(|spec| spec.label == label)
             .ok_or(CaptureError::OverlayNotInSession)?;
-        let rgba = session
+        let frame = session
             .frames
             .get(index)
-            .ok_or(CaptureError::OverlayFrameMissing)?
-            .rgba
-            .clone();
+            .ok_or(CaptureError::OverlayFrameMissing)?;
+        let source = (frame.rgba.clone(), frame.pixel_width, frame.pixel_height);
         session.timings.deliver_ms += since(at);
-        Ok(rgba)
+        Ok(source)
     }
 
     pub(super) fn crop(&self, selection: &CaptureSelection) -> Result<Vec<u8>, CaptureError> {

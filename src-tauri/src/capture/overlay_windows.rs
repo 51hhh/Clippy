@@ -20,7 +20,7 @@ const READY_FALLBACK_MS: u64 = 2500;
 
 pub(super) fn create(app: &tauri::AppHandle, specs: &[OverlaySpec]) -> Result<(), CaptureError> {
     for spec in specs {
-        let window = tauri::WebviewWindowBuilder::new(
+        let builder = tauri::WebviewWindowBuilder::new(
             app,
             &spec.label,
             tauri::WebviewUrl::App(format!("capture-overlay.html?label={}", spec.label).into()),
@@ -29,7 +29,6 @@ pub(super) fn create(app: &tauri::AppHandle, specs: &[OverlaySpec]) -> Result<()
         .position(spec.x as f64, spec.y as f64)
         .inner_size(spec.width as f64, spec.height as f64)
         .decorations(false)
-        .always_on_top(true)
         .skip_taskbar(true)
         .shadow(false)
         .resizable(false)
@@ -38,9 +37,18 @@ pub(super) fn create(app: &tauri::AppHandle, specs: &[OverlaySpec]) -> Result<()
         // 铺满整屏时任何一帧没画完的画面都是刺眼的白闪。
         .background_color(tauri::window::Color(0, 0, 0, 255))
         // 隐藏建窗，等前端把冻结帧画完再显示（见 `READY_FALLBACK_MS`）。
-        .visible(false)
-        .build()
-        .map_err(|error| CaptureError::OverlayCreate(error.to_string()))?;
+        .visible(false);
+        #[cfg(target_os = "linux")]
+        let builder = if crate::platform::is_wayland() {
+            builder
+        } else {
+            builder.always_on_top(true)
+        };
+        #[cfg(not(target_os = "linux"))]
+        let builder = builder.always_on_top(true);
+        let window = builder
+            .build()
+            .map_err(|error| CaptureError::OverlayCreate(error.to_string()))?;
         configure_platform_overlay(&window, spec)?;
     }
     spawn_ready_fallback(app, specs);
@@ -139,13 +147,15 @@ fn configure_platform_overlay(
         .gtk_window()
         .map_err(|error| CaptureError::OverlayCreate(error.to_string()))?;
 
-    // X11 下这些提示决定覆盖层能不能盖住面板、不进任务栏、跟随工作区；
-    // Wayland 会忽略它们，但设置本身无害，两条路走同一段代码。
-    gtk_window.set_type_hint(gdk::WindowTypeHint::Splashscreen);
+    // 这些是 X11 窗口管理器提示；Wayland 不定义客户端全局置顶与跨工作区粘附，
+    // 只在 X11 下设置，避免把不受支持的状态叠到合成器管理的全屏窗口上。
+    if !crate::platform::is_wayland() {
+        gtk_window.set_type_hint(gdk::WindowTypeHint::Splashscreen);
+        gtk_window.set_keep_above(true);
+        gtk_window.stick();
+    }
     gtk_window.set_decorated(false);
     gtk_window.set_skip_taskbar_hint(true);
-    gtk_window.set_keep_above(true);
-    gtk_window.stick();
 
     let target = OverlayRect::from(spec);
     match (
