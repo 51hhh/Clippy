@@ -76,6 +76,18 @@ struct SharpenState {
     image: Option<Arc<Vec<u8>>>,
     /// 原图（或清晰版）已经随 payload 发出去了。
     served: bool,
+    /// 这个 slot 所属的窗口已关闭；同 label 后来的新窗口会有自己的 slot。
+    cancelled: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SharpenFinish {
+    /// 赶在 payload 之前，图已存入 slot。
+    Stored,
+    /// payload 已发，需要在再次核对未取消后发事件。
+    NeedsEvent,
+    /// 计算期间窗口已关闭，结果必须丢弃。
+    Cancelled,
 }
 
 impl SharpenSlot {
@@ -88,17 +100,21 @@ impl SharpenSlot {
         state.image.clone()
     }
 
-    /// 后台线程算完时叫一次。返回 `true` 表示 payload 已经发走了，需要补一个事件。
+    /// 后台线程算完时叫一次。取消与结果入槽在同一把锁下判定，不会在
+    /// `cancel` 之后把旧图再塞回来。
     ///
     /// **没赶上首帧的那一份不留副本**：它会直接随事件走出去，槽里再存一份就是白占
     /// 十几 MB（2560x1440 的补偿结果 13 MB），而且一直占到窗口关闭。
-    pub(super) fn finish(&self, image: &Arc<Vec<u8>>) -> bool {
+    pub(super) fn finish(&self, image: &Arc<Vec<u8>>) -> SharpenFinish {
         let mut state = self.lock();
+        if state.cancelled {
+            return SharpenFinish::Cancelled;
+        }
         if state.served {
-            return true;
+            return SharpenFinish::NeedsEvent;
         }
         state.image = Some(Arc::clone(image));
-        false
+        SharpenFinish::Stored
     }
 
     /// 前端已经把图画上屏了，槽里那份可以扔了。
@@ -108,6 +124,30 @@ impl SharpenSlot {
     /// 是 webview 重新加载（只有开发时手动刷新会发生），那时拿到的是原图，比清晰版略软。
     pub(super) fn release(&self) {
         self.lock().image = None;
+    }
+
+    /// 窗口已关闭：让还在全局工作位后面排队的补偿任务直接退出。
+    pub(super) fn cancel(&self) {
+        let mut state = self.lock();
+        state.cancelled = true;
+        state.image = None;
+    }
+
+    pub(super) fn is_cancelled(&self) -> bool {
+        self.lock().cancelled
+    }
+
+    /// 把“未取消”检查与事件发布放在同一个线性化区间。
+    ///
+    /// `cancel` 要取同一把锁：若它先完成，`publish_if_active` 不会执行；若发布
+    /// 先开始，`cancel` 会等它结束后才返回。因此关窗返回后绝不会再有旧事件命中
+    /// 同 label 的新窗口。
+    pub(super) fn publish_if_active<T>(&self, publish: impl FnOnce() -> T) -> Option<T> {
+        let state = self.lock();
+        if state.cancelled {
+            return None;
+        }
+        Some(publish())
     }
 
     /// 临界区里只有两次赋值，不会 panic，所以中毒的锁直接接着用。
@@ -120,16 +160,18 @@ impl SharpenSlot {
 
 #[cfg(test)]
 mod sharpen_tests {
-    use super::SharpenSlot;
+    use super::{SharpenFinish, SharpenSlot};
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
     /// 补偿赶在 payload 之前算完：清晰版直接随 payload 走，不需要事件。
     #[test]
     fn early_compensation_rides_along_with_the_payload() {
         let slot = SharpenSlot::default();
-        assert!(
-            !slot.finish(&Arc::new(vec![7, 8, 9])),
-            "还没发 payload，不该要事件"
+        assert_eq!(
+            slot.finish(&Arc::new(vec![7, 8, 9])),
+            SharpenFinish::Stored,
+            "还没发 payload，应直接存入 slot"
         );
         assert_eq!(
             slot.take_for_payload().map(|image| image.to_vec()),
@@ -148,7 +190,11 @@ mod sharpen_tests {
         let slot = SharpenSlot::default();
         assert!(slot.take_for_payload().is_none(), "还没算完，只能发原图");
         let bytes = Arc::new(vec![1]);
-        assert!(slot.finish(&bytes), "原图已上屏，必须发事件换图");
+        assert_eq!(
+            slot.finish(&bytes),
+            SharpenFinish::NeedsEvent,
+            "原图已上屏，必须发事件换图"
+        );
         // 事件已经把这份字节送出去了，槽里不该再留一份十几 MB 的副本。
         assert_eq!(Arc::strong_count(&bytes), 1);
     }
@@ -158,7 +204,7 @@ mod sharpen_tests {
     fn release_drops_the_compensated_bytes() {
         let slot = SharpenSlot::default();
         let bytes = Arc::new(vec![4, 5]);
-        assert!(!slot.finish(&bytes));
+        assert_eq!(slot.finish(&bytes), SharpenFinish::Stored);
         assert!(slot.take_for_payload().is_some());
         assert_eq!(Arc::strong_count(&bytes), 2, "槽里还留着一份");
         slot.release();
@@ -172,6 +218,49 @@ mod sharpen_tests {
         let slot = SharpenSlot::default();
         assert!(slot.take_for_payload().is_none());
         assert!(slot.take_for_payload().is_none());
+    }
+
+    #[test]
+    fn closed_pin_cancels_queued_compensation() {
+        let slot = SharpenSlot::default();
+        assert!(!slot.is_cancelled());
+        slot.cancel();
+        assert!(slot.is_cancelled());
+        assert!(slot.take_for_payload().is_none());
+    }
+
+    /// worker 已经开始计算才关窗：完成结果不能再入槽，也不能请求发事件。
+    #[test]
+    fn cancellation_after_work_started_discards_the_result() {
+        let slot = SharpenSlot::default();
+        assert!(
+            slot.take_for_payload().is_none(),
+            "模拟 worker 开始后原图先上屏"
+        );
+        slot.cancel();
+        let bytes = Arc::new(vec![9, 9, 9]);
+        assert_eq!(slot.finish(&bytes), SharpenFinish::Cancelled);
+        assert_eq!(Arc::strong_count(&bytes), 1, "取消后不得留存结果");
+    }
+
+    /// 旧 slot 的 label 即使被新窗口复用，旧 worker 也不能发布任何事件。
+    #[test]
+    fn reused_label_never_receives_an_event_from_the_cancelled_old_slot() {
+        let old = SharpenSlot::default();
+        let replacement = SharpenSlot::default();
+        let published = AtomicUsize::new(0);
+
+        old.take_for_payload();
+        old.cancel();
+        assert_eq!(old.finish(&Arc::new(vec![1])), SharpenFinish::Cancelled);
+        assert!(old
+            .publish_if_active(|| published.fetch_add(1, Ordering::SeqCst))
+            .is_none());
+
+        assert!(replacement
+            .publish_if_active(|| published.fetch_add(1, Ordering::SeqCst))
+            .is_some());
+        assert_eq!(published.load(Ordering::SeqCst), 1, "只有新 slot 可以发布");
     }
 }
 

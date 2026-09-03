@@ -1,5 +1,6 @@
 use super::model::{
-    validate_label, PinEntry, PinOrigin, PinPayload, PinSource, PinState, PinUpdate, SharpenSlot,
+    validate_label, PinEntry, PinOrigin, PinPayload, PinSource, PinState, PinUpdate, SharpenFinish,
+    SharpenSlot,
 };
 use super::window::{
     content_buffer_scale, content_device_scale, create_pin_window, fit_content_size,
@@ -893,10 +894,15 @@ fn spawn_sharpen(app_handle: &tauri::AppHandle, entry: &PinEntry) {
             return;
         };
         let started = std::time::Instant::now();
-        match super::resample::compensated_png(png, geometry) {
-            Ok(bytes) => {
+        match super::resample::compensated_png_after_wait(png, geometry, || slot.is_cancelled()) {
+            Ok(Some(bytes)) => {
                 let bytes = Arc::new(bytes);
-                let late = slot.finish(&bytes);
+                let finish = slot.finish(&bytes);
+                if finish == SharpenFinish::Cancelled {
+                    log::debug!("{label} 在补偿期间已关闭，丢弃计算结果");
+                    return;
+                }
+                let late = finish == SharpenFinish::NeedsEvent;
                 // 记到 info：两个缩放是**按机器不同**的那两个数，一旦有人报"贴图还是糊"
                 // 或者"过锐"，这一行就是第一手证据。`late` 说明这一张没赶上第一帧，
                 // 用户会看见一次"由糊变清"——报这种现象时也是看这一行。
@@ -919,11 +925,15 @@ fn spawn_sharpen(app_handle: &tauri::AppHandle, entry: &PinEntry) {
                     label: label.clone(),
                     image_base64: STANDARD.encode(bytes.as_slice()),
                 };
-                if let Err(error) = app_handle.emit_to(label.as_str(), PIN_IMAGE_SHARPENED, payload)
-                {
-                    log::warn!("推送贴图清晰版失败: {error}");
+                match slot.publish_if_active(|| {
+                    app_handle.emit_to(label.as_str(), PIN_IMAGE_SHARPENED, payload)
+                }) {
+                    None => log::debug!("{label} 在事件发布前已关闭，丢弃旧结果"),
+                    Some(Err(error)) => log::warn!("推送贴图清晰版失败: {error}"),
+                    Some(Ok(())) => {}
                 }
             }
+            Ok(None) => log::debug!("{label} 已关闭，取消排队中的清晰度补偿"),
             Err(error) => log::warn!("贴图清晰度补偿失败，保留原图: {error}"),
         }
     });
