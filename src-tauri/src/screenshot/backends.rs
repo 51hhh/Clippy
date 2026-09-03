@@ -75,7 +75,6 @@ impl Drop for TemporaryScreenshotFile {
 #[cfg(target_os = "linux")]
 pub(super) fn capture_all_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
     if is_wayland_session() {
-        #[cfg(feature = "linux-pipewire")]
         match capture_all_screencast_monitors() {
             Ok(result) => return Ok(result),
             Err(e) => log::info!("Mutter PipeWire 取流不可用，回退到扩展逐屏截图: {e:#}"),
@@ -245,7 +244,21 @@ fn capture_all_wayland_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)
 #[cfg(target_os = "linux")]
 fn capture_all_shell_extension_monitor_areas() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
     let monitors = enumerate_wayland_monitors().context("逐屏扩展截图无法枚举 Wayland 几何")?;
-    let (areas, assignment) = dedupe_monitor_areas(&monitors);
+    let tiles = capture_shell_extension_tiles(&monitors)?;
+    let ordered: Vec<&MonitorTile> = tiles.iter().collect();
+
+    assemble_native_frames(
+        &monitors,
+        &ordered,
+        &format!("逐屏原生截取（{} 块屏）", tiles.len()),
+    )
+}
+
+/// 只为给定显示器取扩展原始像素。PipeWire 部分成功时会传入缺帧子集，避免把已经在
+/// 几十毫秒内拿到的屏幕再截一遍；完整扩展兜底也复用同一实现。
+#[cfg(target_os = "linux")]
+fn capture_shell_extension_tiles(monitors: &[MonitorInfo]) -> Result<Vec<MonitorTile>> {
+    let (areas, assignment) = dedupe_monitor_areas(monitors);
     let captures =
         crate::capture::shell_extension_area_captures(&areas).map_err(|error| anyhow!(error))?;
     // 包成 TemporaryScreenshotFile：读成功也好、失败也好，出了作用域文件一定被删。
@@ -275,15 +288,15 @@ fn capture_all_shell_extension_monitor_areas() -> Result<(Vec<MonitorInfo>, Vec<
             })
             .collect()
     });
-    let tiles = loaded.into_iter().collect::<Result<Vec<_>>>()?;
+    let unique_tiles = loaded.into_iter().collect::<Result<Vec<_>>>()?;
     // 去重表还原成"每块屏一块画面"：镜像的两块屏共享同一个 Arc，不复制像素。
-    let ordered: Vec<&MonitorTile> = assignment.iter().map(|&index| &tiles[index]).collect();
-
-    assemble_native_frames(
-        &monitors,
-        &ordered,
-        &format!("逐屏原生截取（{} 次区域截图）", areas.len()),
-    )
+    Ok(assignment
+        .iter()
+        .map(|&index| {
+            let (width, height, rgba) = &unique_tiles[index];
+            (*width, *height, Arc::clone(rgba))
+        })
+        .collect())
 }
 
 /// GNOME Wayland 的首选路径：从 Mutter 直接拿 PipeWire 视频流。
@@ -293,7 +306,7 @@ fn capture_all_shell_extension_monitor_areas() -> Result<(Vec<MonitorInfo>, Vec<
 ///
 /// **只在几何来自 Wayland 输出时才走**，理由和下面逐屏那条路一样：`RecordMonitor` 认的是
 /// 连接器名（`eDP-1`），只有 Wayland 输出枚举给得出，xcap 那边压根没有这个字段。
-#[cfg(all(target_os = "linux", feature = "linux-pipewire"))]
+#[cfg(target_os = "linux")]
 fn capture_all_screencast_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
     let monitors = enumerate_wayland_monitors_with_connectors()
         .context("PipeWire 取流无法枚举 Wayland 几何")?;
@@ -307,13 +320,38 @@ fn capture_all_screencast_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFram
 
     let captured = super::screencast::capture_monitors(&connectors)?;
     let infos: Vec<MonitorInfo> = monitors.into_iter().map(|(info, _)| info).collect();
-    let tiles: Vec<MonitorTile> = captured
+    let mut tiles: Vec<Option<MonitorTile>> = Vec::with_capacity(captured.len());
+    let mut missing_indices = Vec::new();
+    for (index, frame) in captured.into_iter().enumerate() {
+        match frame {
+            Ok(frame) => tiles.push(Some((frame.width, frame.height, frame.rgba))),
+            Err(error) => {
+                log::info!(
+                    "显示器 {} 的 PipeWire 首帧不可用，单屏回退到扩展原始像素: {error:#}",
+                    connectors[index]
+                );
+                tiles.push(None);
+                missing_indices.push(index);
+            }
+        }
+    }
+    if !missing_indices.is_empty() {
+        let missing_monitors: Vec<MonitorInfo> = missing_indices
+            .iter()
+            .map(|&index| infos[index].clone())
+            .collect();
+        let fallback = capture_shell_extension_tiles(&missing_monitors)?;
+        for (index, tile) in missing_indices.into_iter().zip(fallback) {
+            tiles[index] = Some(tile);
+        }
+    }
+    let tiles: Vec<MonitorTile> = tiles
         .into_iter()
-        .map(|frame| (frame.width, frame.height, frame.rgba))
-        .collect();
+        .collect::<Option<Vec<_>>>()
+        .context("截图后仍有显示器缺少画面")?;
     let ordered: Vec<&MonitorTile> = tiles.iter().collect();
 
-    assemble_native_frames(&infos, &ordered, "逐屏 PipeWire 取流")
+    assemble_native_frames(&infos, &ordered, "逐屏 PipeWire 取流（缺帧单屏兜底）")
 }
 
 /// 把"每块屏一块原生画面"装成冻结帧：校验尺寸、按实际帧重算缩放、跑 I3 自检、留一行摘要。
