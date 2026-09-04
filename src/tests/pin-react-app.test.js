@@ -291,9 +291,10 @@ describe("React pin app", () => {
       urls.push({ url, blob });
       return url;
     });
+    const revokeObjectURL = vi.fn();
     vi.stubGlobal("URL", Object.assign(Object.create(URL), {
       createObjectURL,
-      revokeObjectURL: vi.fn(),
+      revokeObjectURL,
     }));
     // `update_pin` 的应答只有可变字段，不带图片（见 `PinState`）。
     mocks.pinApi.update.mockImplementation(async (label, update) => ({
@@ -326,12 +327,14 @@ describe("React pin app", () => {
     await flush();
     const sharpened = document.querySelector(".pin-media img")?.getAttribute("src");
     expect(sharpened).toBe("blob:pin-1");
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:pin-0");
 
     // 缩放一次：应答里没有图片，合并后仍然必须是清晰版那份
     await act(async () => document.querySelector('button[aria-label="Zoom in"]').click());
     await flushFrame();
     await flush();
     expect(document.querySelector(".pin-media img")?.getAttribute("src")).toBe(sharpened);
+    expect(createObjectURL).toHaveBeenCalledTimes(2);
 
     vi.unstubAllGlobals();
   });
