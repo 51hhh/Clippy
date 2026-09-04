@@ -4,8 +4,8 @@
 
 - 基线提交：`c9e3d68`（`release: v0.1.20`），分支 `dev`。
 - 发布基线自动化：Rust 441 项通过、10 项忽略；前端 839 项通过；DOM、Canvas 像素与布局
-  smoke 通过；Linux/Windows/macOS 发布流水线通过。审计结果截至 `449571e`，当前回归为 Rust
-  445 项通过、10 项忽略，前端 840 项通过。
+  smoke 通过；Linux/Windows/macOS 发布流水线通过。当前 `d702407` 回归为 Rust 447 项通过、
+  10 项忽略，前端 842 项通过；CI Check 与全平台 Native QA 均成功。
 - 已通过的实机路径：GNOME Wayland、两块混合缩放显示器连续截图；覆盖层首帧约
   0.56–0.87 秒，没有黑屏、缺帧或 WebKit 崩溃。
 - 当前构建产物已清理，`target/` 与前端 `dist/` 均不存在；后续验证会重新产生，结束时再清理。
@@ -16,11 +16,11 @@
 | --- | --- | --- | --- |
 | 剪贴板监听/写回 | `clipboard_watcher*`、`clipboard_content*`、`clipboard_writer*` | Rust 单测、前端 IPC 测试 | 长时间图片轮询 CPU/RSS |
 | 历史、搜索、收藏、删除 | `storage*`、`commands/clipboard.rs`、React `main/` | SQLite/FTS 单测、React 测试 | 大库查询延迟 |
-| 图片缩略图/预览 | `get_clip_thumbnail`、`get_clip_image`、`ClipboardRow.tsx` | 两路冷解码上限、缓存边界与回归守卫 | 大图库滚动 PSS/帧时间 |
+| 图片缩略图/预览 | `get_clip_thumbnail`、`get_clip_image`、`ClipboardRow.tsx` | 两路冷解码上限、缓存边界、屏外释放与回归守卫 | 大图库滚动 PSS/帧时间 |
 | 快捷键/托盘/窗口 | `gsettings_shortcuts*`、`portal_shortcuts*`、`tray_icon*`、`window*` | Rust 单测、Linux 实机、移动事件压力守卫 | Windows/macOS 实机边界 |
 | 自动粘贴 | `paste*`、主窗口 React facade | Rust/前端测试 | 各桌面目标应用实机 |
 | 截图/选区/编辑 | `screenshot*`、`capture*`、React `capture/` | 像素测试、Wayland 双屏实机 | X11、Windows、macOS 实机 |
-| Pin/画布/保存 | `pin*`、React `pin/` | Rust 往返/像素测试、React 测试 | 重复开关 Pin 的 PSS 曲线 |
+| Pin/画布/保存 | `pin*`、React `pin/` | Rust 往返/像素测试、React 测试、GNOME 五图早到/晚到协议实测 | Pin 关闭后的 PSS 回收曲线 |
 | OCR/翻译 | `ocr*`、`translation*` | Rust/前端测试 | 外部服务与本机 OCR 可用性 |
 | 设置/更新/发布 | `config*`、`updater*`、CI workflow | 单测、v0.1.20 全平台发布 | 各平台安装与更新实机 |
 
@@ -52,28 +52,28 @@ base64 副本，并以往返、原图哈希与合成像素测试证明不损失�
 60 Hz 连续拖动会稳定叠加约 18 个睡眠线程及其栈保留。改为所有事件只覆盖最新坐标并推进代次，
 整个拖动周期由唯一 worker 等待静默窗口、保存最终坐标；停止与新事件交界处用原子 CAS 交接。
 
-### P1：Pin 解码后仍常驻完整 base64 显示图
+### 已修复：Pin 显示图的 base64 常驻与瞬时复制
 
-`PinPayload.imageBase64` 创建 Blob URL 后仍被 React state、乐观引用和确认引用长期持有。三处引用共享
-同一字符串，但该字符串本身仍有 `4 * ceil(png_len / 3)` 个字符；4K PNG 与清晰度补偿图会让每个
-Pin 白留数 MiB 到十余 MiB。显示 URL 建好后立刻把 payload 瘦身为纯元数据；补偿换图先创建新 URL、
-再撤销旧 URL。画布、复制、保存继续单独向后端取 canonical source，不使用屏上补偿图。
+第一步已让 Blob URL 建好后立即从 React 状态丢弃 `PinPayload.imageBase64`；后续 `e7c693b` 又把
+首图与迟到补偿图都迁到按 WebView label 隔离的 `pin-frame` 协议。revision=0 直接取首图，revision=1
+只取晚到补偿图，响应接管 `Vec<u8>` 所有权，不再经过 Rust base64、JSON、JS 解码与 Blob URL。
+画布、复制、保存继续单独向后端取 canonical source，不使用屏上补偿图。
 
 ## 已检查且有界的生命周期
 
 - 后端缩略图缓存固定 64 条；Pin 原始位置注册表固定 16 条。
 - Pin 条目内容位于 `Arc<PinSource>`，滚轮缩放不复制大 PNG；窗口销毁时 manager、清晰化槽位和
   placement generation 均会清理。
-- React Pin 图片对象 URL 在替换和卸载时撤销；主列表失焦会清空数据快照与搜索定时器。
+- React Pin 只持有 `pin-frame` URL；主列表失焦会清空数据快照与搜索定时器，屏外图片行同时释放
+  缩略图 base64 与解码纹理。
 - 截图会话与后台清晰化任务带 generation/cancel 防护，不会把旧结果写入新窗口。
 - 链接预览缓存原先只在读取时忽略 7 天前的记录，却不删除旧行；现改为写入时清除过期行并保留
   最近 512 条，避免长期复制不同链接造成 SQLite 文件单向增长。
 
 ## 已评估、暂不在本轮冒险改动
 
-- Pin 首图与迟到的清晰度补偿图仍以 base64 跨 Rust→WebView 边界；本轮已消除解码后的长期持有，
-  但编码、JS 字符串、`atob` 字符串与 Blob 字节仍会造成短暂峰值。若继续优化，应像截图冻结帧一样
-  设计带 label/revision 校验的本地资源协议，不能直接删除补偿事件或拿屏上图替代权威原图。
+- Pin 的 label/revision 本地资源协议已按上述约束落地，并由真实 GNOME 五图验证覆盖早到/晚到
+  两条补偿路径；这项不再是剩余风险。
 - `CaptureManager::render_input` 会在提交动作时复制被选显示器的完整 RGBA，随后才在 blocking worker
   裁选区并合成；4K 单屏的短暂重复约 31.6 MiB。直接提前 `take` 会破坏“提交失败仍能唯一认领并
   恢复会话”以及并发新截图的竞态约束，因此需要新增 finalizing 状态机和压力测试后再改。它不在

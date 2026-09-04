@@ -7,12 +7,12 @@
 - `cargo clippy --all-targets -- -D warnings`：通过。
 - 主窗口位置 debounce 专项：7 项通过；500 次连续 worker 申请只允许首个创建线程，释放后才允许
   下一轮接管。
-- Pin React/手势专项：2 个文件、42 项通过；清晰度补偿换图会撤销旧 Blob URL，后续缩放不重建
-  URL，显示 payload 的 base64 不再进入长期状态。
-- `cargo test`（沙箱外，允许 loopback）：445 通过、0 失败、10 个真实桌面/手动性能探针忽略；
-  覆盖层变更后又单独复跑冻结帧协议 2 项，全部通过。
+- Pin React/手势专项及回归守卫：3 个文件、87 项通过；显示图改走带 revision 的原生资源 URL，
+  后续缩放不重建 URL，早到/晚到清晰度补偿的交接状态均有单测。
+- `cargo test`（沙箱外，允许 loopback）：447 通过、0 失败、10 个真实桌面/手动性能探针忽略；
+  新增 `pin-frame` revision 解析 2 项与补偿槽所有权交接回归覆盖。
 - `npx tsc --noEmit`：通过。
-- `npx vitest run`：44 个文件、840 项通过。
+- `npx vitest run`：44 个文件、842 项通过。
 - GNOME 扩展静态检查：Shell 45–51 通过。
 - DOM/Xvfb：9 项通过。
 - Canvas 导出像素 smoke：通过，探针像素 `0 208 0`。
@@ -24,7 +24,12 @@
 - `449571e` 原生 QA：Linux x64 的 deb/AppImage 构建、PipeWire 动态链接与校验通过；Windows x64
   自签名 NSIS/MSI 通过；macOS Intel 与 Apple Silicon 的 Ad-Hoc 签名包通过；Ubuntu 24.04
   下载同一份 Ubuntu 22 AppImage 并完成 X11 可视运行 smoke（Actions `33850955167`）。
-- 本地验证结束后执行 `cargo clean`，删除 11,942 个文件、11.7 GiB；根目录 `dist/` 同步删除，
+- `158da7f` 文档收口提交的 CI Check 已通过（Actions `33853135642`）。
+- 当前代码提交为 `e7c693b`（Pin 原生资源协议）与 `d702407`（屏外缩略图释放）；本机完整预检
+  已通过。CI Check `33854814443` 的 Ubuntu 22.04、Windows、macOS 三组门禁全部成功；Native QA
+  `33854884030` 的 Linux x64、Windows x64、macOS Intel、macOS Apple Silicon 构建，以及
+  Ubuntu 24.04 已打包 AppImage 可视运行 smoke 全部成功。
+- 本地验证结束后执行 `cargo clean`，删除 18,059 个文件、14.5 GiB；根目录 `dist/` 同步删除，
   两个构建输出路径均确认不存在。
 
 受限沙箱内的 16 个翻译测试因无法绑定本机 loopback 失败，Canvas/Layout smoke 也因无法连接
@@ -68,8 +73,11 @@ async worker 和 UI 热路径。连续切换不同 Criterion target 时 Cargo �
   清晰化结果；对象 URL 在替换/卸载时撤销。
 - 主窗口移动事件共享一份最新坐标与单一 debounce worker；连续拖动不再按事件创建 OS 线程，
   worker 在最后一次移动 300 ms 后落盘，并在退出竞态中用 CAS 把新一轮工作唯一交接出去。
-- Pin 显示图转成 Blob URL 后，React 的当前/乐观/确认状态只保留轻量元数据；每张图释放
-  `4 * ceil(png_len / 3)` 个 base64 字符。补偿图替换时立即撤销旧 URL，卸载时撤销当前 URL。
+- Pin 显示图不再进入 JSON/JS：`pin-frame` 响应直接接管补偿 PNG 的 `Vec` 所有权；初始 URL
+  revision=0，补偿晚到事件只带 revision=1。由此同时去掉 Rust base64、JSON 字符串、JS
+  `atob`/`Uint8Array` 与 Blob URL 的瞬时链路；复制、保存和画布仍读取 canonical source。
+- 列表允许配置到 10,000 条，但屏外图片行现在会取消/释放缩略图 base64 与解码纹理；CSS
+  `content-visibility:auto` 保留完整滚动几何并跳过屏外行布局/绘制，旧 WebKit 则安全退回原行为。
 - 本轮把导入工程的常驻表示从“原图 PNG + 同源 base64 + 合成预览”改为“原图 PNG + 轻量元数据
   + 合成预览”。节省量精确为 `4 * ceil(source_png_len / 3)` 附近的 base64 字符串容量，具体取决
   于分配器容量取整；磁盘工程仍保持自包含。
@@ -81,6 +89,10 @@ async worker 和 UI 热路径。连续切换不同 Criterion target 时 Cargo �
   PSS 为 235,870 kB；连续 5 轮双屏截图后为 332,754 kB，连续 10 轮后为 334,242 kB。前五轮
   建立约 94.6 MiB 的全屏 allocator 高水位，后五轮只增加约 1.45 MiB，没有按截图次数线性增长；
   主进程、WebProcess 与 NetworkProcess 均持续存活且 Swap 为 0。
+- 当前 `d702407` 本地 release 后端配合当前 Vite 前端，在真实 GNOME Wayland 依次 Pin 2730×1535、
+  760×1000、1776×1410、1560×1000、1560×1000 五张仓库图片。第一张 Pin 后进程组 PSS
+  450,861 kB，五轮完成时 542,271 kB，静置后回落到 524,845 kB；补偿 PNG 被协议取走后没有继续
+  增长。该曲线包含用户仍保留的解码图与 WebView 工作集，不能当作关闭后泄漏曲线。
 
 ## 现场截图时序
 
@@ -100,12 +112,16 @@ async worker 和 UI 热路径。连续切换不同 Criterion target 时 Cargo �
   会失败；这不影响已完整执行的冻结帧、建窗、资源协议与首绘计时，测试后系统 deb 已恢复运行。
 - 隔离 Xvfb 中默认快捷键可以注册并触发；虚拟服务器没有 Mutter/wlroots/Portal 输出，最终在
   `xcap` 捕获前置阶段返回“无法捕获显示器”，因此它不能替代真实 GNOME Wayland 的整链路截图。
-  覆盖层显示、Canvas 切换及像素导出由 840 项前端测试与三组 Xvfb 冒烟继续兜底。
+  覆盖层显示、Canvas 切换及像素导出由 842 项前端测试与三组 Xvfb 冒烟继续兜底。
+- 当前 Pin 真机覆盖：2730×1535 原图在 1.5 倍真实缩放/2 倍 WebKit 缓冲区下显示为
+  1827×1061 逻辑窗口，截取该窗口确认实际内容完整、非黑屏/空图；后台生成 3517×1978 补偿图
+  用时 801 ms，晚到 revision=1 路径成功。其余四张同时覆盖“赶上首帧”与“事件换图”，耗时
+  156–398 ms，日志无协议、解码或 WebKit 错误。测试结束已停止 QA/Vite 并恢复 `/usr/bin/clippy-app`。
 
 ## 仍需实机覆盖
 
-- 当前提交已取得真实 GNOME Wayland 连续截图时序与 0/5/10 轮 PSS 曲线；尚未完成长时间图片列表
-  滚动、连续 Pin 打开/关闭，以及带正确 Xwayland 凭据的临时 AppImage 剪贴板动作压力曲线。
+- 当前提交已取得真实 GNOME Wayland 连续截图 0/5/10 轮与连续 Pin 1/5 轮 PSS 曲线；尚未完成
+  长时间图片列表滚动和连续 Pin **关闭后**的 PSS 回收曲线。
 - Rust 权威冻结帧、裁剪、标注、保存与 Pin 渲染器都未修改；协议尺寸、原图哈希、工程往返和
   合成像素测试继续通过，因此首帧直显不改变保存/复制/Pin 的原生分辨率。
 - Windows/macOS 已生成并验证签名测试包；截图、粘贴、权限提示等实际桌面交互仍需对应机器手工复核。
