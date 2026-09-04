@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>A lightweight, blazing-fast clipboard manager for Linux</strong>
+  <strong>A lightweight, blazing-fast cross-platform clipboard manager</strong>
 </p>
 
 <p align="center">
@@ -61,6 +61,7 @@ Built with **Tauri v2 + Rust**. No Electron. No bloat.
 - **Automatic paste** — X11 restores the previous target window; Wayland reuses a persistent RemoteDesktop Portal session and falls back to copy-only when unavailable
 - **Screenshot workflow** — One frozen overlay does everything: click empty space for the whole screen, click a window to grab it, or drag a free area; the full toolbar sits next to the selection and the selection stays re-framable; the check mark copies the cropped and annotated image straight to the clipboard
 - **Annotation** — 16 tools in three groups (select/draw/effects) with image adjustments, undo/redo and a single-canvas export, shared by the overlay and Pin windows
+- **Editable PNG projects** — Saves a flattened preview together with the canonical source and edit operations in one PNG; drag that project PNG onto the main window to continue editing, while ordinary images continue to enter through the clipboard automatically
 - **Translation** — LibreTranslate-compatible and OpenAI-compatible providers with Secret Service keys, timeout/retry and sensitive-content protection
 - **6 themes** — Light, Dark, Nord, Solarized, Rose, Midnight
 - **Favorites** — Pin clips to a dedicated tab, immune to history cleanup
@@ -69,7 +70,7 @@ Built with **Tauri v2 + Rust**. No Electron. No bloat.
 
 ## Install
 
-Grab the latest `.deb` or `.AppImage` from [Releases](https://github.com/51hhh/Clippy/releases/latest).
+Grab the latest Linux `.deb`/`.AppImage`, Windows NSIS/MSI, or macOS Intel/Apple Silicon DMG from [Releases](https://github.com/51hhh/Clippy/releases/latest).
 
 ```bash
 # Debian / Ubuntu

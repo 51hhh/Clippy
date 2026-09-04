@@ -1,0 +1,9 @@
+{"file":".trellis/spec/frontend/state-management.md","reason":"异步渲染代次、模块状态和隐藏生命周期规范"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"主窗口拖放提示、DOM 与可访问性实现规范"}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"Tauri 事件监听与卸载生命周期规范"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"IPC 边界、用户内容安全和前端质量要求"}
+{"file":".trellis/spec/backend/external-tools.md","reason":"Tesseract CLI 探测、调用与兼容性规范"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"文件、图片和 IPC 信任边界错误处理"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Rust 并发、测试与 lint 要求"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"拖放事件到工程恢复、OCR 前后端的一致性"}
+{"file":".trellis/tasks/09-04-preview-ocr-project-review-fixes/research/review-findings.md","reason":"本次 review 已确认问题与设计决定"}

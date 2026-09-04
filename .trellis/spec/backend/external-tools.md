@@ -44,6 +44,16 @@ pub fn process(input: &[u8]) -> Result<String, String> {
 - 前端在功能入口检查可用性，不可用时显示安装指引
 - i18n 键约定：`action.{feature}Unavailable`
 
+## 探测缓存与重任务协调
+
+- `tool --version` 属于真实子进程，不得在同一用户操作中由 availability 检查和执行路径重复探测；
+  成功与失败结果都应做进程内缓存。
+- 应用内安装成功、缓存路径在启动时返回 `NotFound` 等会改变外部工具状态的事件必须使缓存失效；
+  其它平台通过文档明确要求安装后重启。
+- OCR 等 CPU/内存重任务必须设置全局并发上限；同一不可变输入的同时请求使用 single-flight 合并，
+  完成后再由持久缓存服务后续调用。
+- 不得持有同步 `Mutex` 跨越 `.await` 或子进程执行；锁只保护短暂的缓存/进行中表变更。
+
 ## CI 检查
 
 - Release 阶段用 `readelf -d target/release/binary | grep NEEDED` 审计动态依赖

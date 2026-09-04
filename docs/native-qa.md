@@ -98,8 +98,9 @@ node scripts/manual-qa.mjs verify \
 8. 对同一图片依次验证全部 16 种画布工具：裁剪、对象、橡皮、文本，pen/marker/rect/ellipse/
    highlight/arrow/line/measure 八种绘制，以及 blur/mosaic/spotlight/magnifier 四种像素效果；再验证
    调整、撤销/重做、Copy 和扁平导出。
-9. 保存可编辑 PNG，关闭应用后重开，继续编辑并导出；记录重开前后已验证 IDAT 预览和最终 PNG 的
-   SHA-256。跨平台比较必须使用相同工程文件和 renderer v2 金图测试，不能用目测代替摘要。
+9. 保存可编辑 PNG，关闭应用后重开，把该 PNG 拖入主窗口继续编辑并导出；确认普通 PNG 不会绕过
+   剪贴板队列直接创建 Pin，并记录重开前后已验证 IDAT 预览和最终 PNG 的 SHA-256。跨平台比较必须
+   使用相同工程文件和 renderer v2 金图测试，不能用目测代替摘要。
 10. 验证系统 Pictures 目录、自定义目录、重名不覆盖及系统目录不可用时的应用数据目录 fallback。
 11. 分别在 Tesseract 可用/不可用状态检查 OCR 与平台提示；Windows/macOS 不得出现 Linux 安装按钮。
 12. 使用至少两个已启用翻译服务验证并行结果、自动换向、单服务重试、缓存和删除；图片只允许发送
@@ -168,7 +169,7 @@ node scripts/manual-qa.mjs verify \
   `macos_accessibility_permission_required`；设置页能力原因是 `macos_accessibility_permission`。
   允许后恢复目标应用并只注入一次粘贴。
 - 在多个 Spaces、全屏应用、不同缩放显示器和外接屏上验证截图覆盖层、Pin、工具条和窗口层级。
-- Intel 与 Apple Silicon 分别打开同一可编辑 PNG，继续编辑并比较 renderer v2 RGBA 摘要。
+- Intel 与 Apple Silicon 分别把同一可编辑 PNG 拖入主窗口，继续编辑并比较 renderer v2 RGBA 摘要。
 - 对最终 `.app`/DMG 验证严格代码签名、`Signature=adhoc`、目标架构、首次打开提示和 updater；明确记录
   它没有 Developer ID authority、公证或 stapled ticket，不能把手动允许误记成 Gatekeeper 公共信任。
 

@@ -1,0 +1,8 @@
+{"file":".trellis/spec/frontend/state-management.md","reason":"复核异步状态不会跨条目泄漏"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"复核拖放 UI 与可访问性"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"复核 IPC、XSS、内联样式和前端测试"}
+{"file":".trellis/spec/backend/external-tools.md","reason":"复核 OCR 子进程兼容性与探测缓存"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"复核图片与路径信任边界"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"复核并发、错误处理、clippy 与测试"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"复核跨层流程和失败路径"}
+{"file":".trellis/tasks/09-04-preview-ocr-project-review-fixes/research/review-findings.md","reason":"逐项核验 review 发现是否关闭"}

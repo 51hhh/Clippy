@@ -69,6 +69,16 @@ import { currentQuery } from './search.js'; // Don't do this
 - On tab switch (All / Favorites)
 - On `clip-added` / `clip-removed` events (incremental update)
 
+## 异步预览的渲染代次
+
+- 复用同一个 DOM 容器显示不同条目时，只比较条目 id 不足以防竞态；每次真正切换或清空都要递增
+  单调 `render generation`，异步工作捕获当时代次。
+- 每个 `await`、Promise continuation、图片 `load/error` 等回调在修改共享 DOM、元信息或触发下一项
+  昂贵工作前，都必须同时确认条目 id 和代次仍然有效。
+- 同一条目的重复焦点通知应保持当前在途渲染，不能先使代次失效再因“id 未变化”提前返回；如果取消了
+  另一个待处理切换，则必须完整重渲染当前条目。
+- 旧代次不仅不能写 UI，也不能继续触发 OCR、复制等有副作用的 IPC。
+
 ## 可复用 WebView 的隐藏生命周期
 
 - Tauri/GTK 的 `window.hide()` **不保证产生新的 DOM `blur`**：窗口可能早已失焦，或由
