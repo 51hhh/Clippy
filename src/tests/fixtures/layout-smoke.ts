@@ -88,6 +88,53 @@ function verifyPreviewAndTranslationShareTheColumn(app: HTMLElement): void {
     `preview content is not scrollable: ${content.scrollHeight} vs ${content.clientHeight}`);
 }
 
+/** 大图和 OCR 必须是一篇连续文档：只有 preview-content 拥有纵向滚动。 */
+function verifyImageAndOcrUseOneScroller(app: HTMLElement): void {
+  const content = element<HTMLElement>(app, "#preview-content");
+  content.className = "preview-content preview-content--image";
+  content.replaceChildren();
+
+  const image = document.createElement("img");
+  image.alt = "large clipboard preview";
+  image.width = 1200;
+  image.height = 900;
+
+  const ocr = document.createElement("div");
+  ocr.className = "preview-ocr-result";
+  ocr.dataset.status = "done";
+  const text = document.createElement("pre");
+  text.textContent = Array.from(
+    { length: 80 },
+    (_, index) => `OCR line ${index + 1}: selectable recognized text`,
+  ).join("\n");
+  ocr.append(text);
+  content.append(image, ocr);
+
+  const contentStyle = getComputedStyle(content);
+  const ocrStyle = getComputedStyle(ocr);
+  assert(contentStyle.overflowY === "auto",
+    `preview content lost its scroll ownership: ${contentStyle.overflowY}`);
+  assert(ocrStyle.overflowY === "visible",
+    `OCR created a nested scroller: ${ocrStyle.overflowY}`);
+  assert(ocrStyle.maxHeight === "none",
+    `OCR is still height-capped: ${ocrStyle.maxHeight}`);
+  assert(ocr.scrollHeight <= ocr.clientHeight + 1,
+    `OCR content is internally clipped: ${ocr.scrollHeight} > ${ocr.clientHeight}`);
+  assert(content.scrollHeight > content.clientHeight,
+    `large image/OCR document does not scroll: ${content.scrollHeight} vs ${content.clientHeight}`);
+
+  const imageBox = image.getBoundingClientRect();
+  const ocrBox = ocr.getBoundingClientRect();
+  assert(imageBox.bottom <= ocrBox.top + 1,
+    `image overlaps OCR content: ${imageBox.bottom} > ${ocrBox.top}`);
+
+  content.scrollTop = content.scrollHeight;
+  const contentBox = content.getBoundingClientRect();
+  const scrolledOcrBox = ocr.getBoundingClientRect();
+  assert(scrolledOcrBox.bottom <= contentBox.bottom + 1,
+    `OCR tail is unreachable through preview scroll: ${scrolledOcrBox.bottom} > ${contentBox.bottom}`);
+}
+
 function verifyCodecPanelKeepsListWidth(app: HTMLElement): void {
   const codec = element<HTMLElement>(app, "#codec-panel");
   codec.classList.remove("hidden");
@@ -158,6 +205,7 @@ function paint(color: string, reason?: string): void {
 try {
   const app = mountProductLayout();
   verifyPreviewAndTranslationShareTheColumn(app);
+  verifyImageAndOcrUseOneScroller(app);
   verifyCodecPanelKeepsListWidth(app);
   verifyVirtualRowHeights(app);
   document.documentElement.dataset.layoutSmoke = "passed";

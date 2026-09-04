@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../js/api.ts", () => ({
   getClipThumbnail: vi.fn(),
-  openPinImageDialog: vi.fn(),
   deleteClip: vi.fn(),
   getClips: vi.fn(),
   onPasteFallback: vi.fn(),
@@ -74,11 +73,11 @@ describe("React clipboard row", () => {
     expect(html).toContain('role="option"');
   });
 
-  it("exposes a discoverable open-image entry with its keyboard hint", () => {
+  it("does not add a manual image-open entry to the clipboard workspace", () => {
     const html = renderToStaticMarkup(React.createElement(ClipboardWorkspace));
-    expect(html).toContain("Open image");
-    expect(html).toContain("Ctrl+O");
-    expect(html).toContain("open-image-button");
+    expect(html).not.toContain("Open image");
+    expect(html).not.toContain("Ctrl+O");
+    expect(html).not.toContain("open-image-button");
   });
 
   it("keeps empty text empty and shows only size and time", () => {
