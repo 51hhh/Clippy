@@ -1,5 +1,36 @@
 use sha2::{Digest, Sha256};
 
+/// 允许完整 8K 原图，但拒绝异常剪贴板提供者制造的超大分配。
+const MAX_CLIPBOARD_IMAGE_DIMENSION: usize = 16_384;
+const MAX_CLIPBOARD_IMAGE_PIXELS: usize = 40_000_000;
+const RGBA_BYTES_PER_PIXEL: usize = 4;
+
+pub(super) fn validate_image_layout(
+    width: usize,
+    height: usize,
+    byte_len: usize,
+) -> Result<(u32, u32), &'static str> {
+    if width == 0 || height == 0 {
+        return Err("图片尺寸不能为空");
+    }
+    if width > MAX_CLIPBOARD_IMAGE_DIMENSION || height > MAX_CLIPBOARD_IMAGE_DIMENSION {
+        return Err("图片尺寸超过安全上限");
+    }
+    let pixels = width.checked_mul(height).ok_or("图片尺寸计算溢出")?;
+    if pixels > MAX_CLIPBOARD_IMAGE_PIXELS {
+        return Err("图片像素数超过安全上限");
+    }
+    let expected = pixels
+        .checked_mul(RGBA_BYTES_PER_PIXEL)
+        .ok_or("图片字节数计算溢出")?;
+    if byte_len != expected {
+        return Err("图片 RGBA 字节长度与尺寸不匹配");
+    }
+    let width = u32::try_from(width).map_err(|_| "图片宽度无法编码")?;
+    let height = u32::try_from(height).map_err(|_| "图片高度无法编码")?;
+    Ok((width, height))
+}
+
 /// 简单去除 HTML 标签，用于生成 FTS 可搜索的纯文本。
 pub(crate) fn strip_html_tags(html: &str) -> String {
     let mut result = String::with_capacity(html.len());
@@ -77,7 +108,14 @@ pub(crate) fn rgba_fingerprint(width: usize, height: usize, bytes: &[u8]) -> u64
 /// 压缩级别不是这里的动机——实测 `write_to` 的默认级别和 `CompressionType::Fast`
 /// 在 1080p 上输出字节完全相同、耗时也一样（都是 ~85 ms）。省下的只有那次拷贝。
 pub(super) fn encode_image_to_png(img: &arboard::ImageData) -> Option<Vec<u8>> {
-    match crate::screenshot::encode_png(&img.bytes, img.width as u32, img.height as u32) {
+    let (width, height) = match validate_image_layout(img.width, img.height, img.bytes.len()) {
+        Ok(dimensions) => dimensions,
+        Err(error) => {
+            log::warn!("拒绝异常剪贴板图片: {error}");
+            return None;
+        }
+    };
+    match crate::screenshot::encode_png(&img.bytes, width, height) {
         Ok(png) => Some(png),
         Err(error) => {
             log::warn!("PNG 编码失败: {error:#}");
@@ -116,5 +154,35 @@ mod tests {
     #[test]
     fn html_fallback_drops_markup() {
         assert_eq!(strip_html_tags("<p>Hello <b>world</b></p>"), "Hello world");
+    }
+
+    #[test]
+    fn image_layout_accepts_4k_and_8k_without_changing_dimensions() {
+        for (width, height) in [(3840usize, 2160usize), (7680, 4320)] {
+            let byte_len = width * height * RGBA_BYTES_PER_PIXEL;
+            assert_eq!(
+                validate_image_layout(width, height, byte_len).unwrap(),
+                (width as u32, height as u32)
+            );
+        }
+    }
+
+    #[test]
+    fn image_layout_rejects_budget_overflow_and_mismatched_rgba() {
+        assert!(validate_image_layout(0, 1, 0).is_err());
+        assert!(validate_image_layout(usize::MAX, 2, 0).is_err());
+        assert!(validate_image_layout(10_000, 5_000, 200_000_000).is_err());
+        assert!(validate_image_layout(32, 32, 4095).is_err());
+        assert!(validate_image_layout(32, 32, 4097).is_err());
+    }
+
+    #[test]
+    fn image_layout_accepts_the_pixel_budget_boundary() {
+        let width = 8_000usize;
+        let height = 5_000usize;
+        assert_eq!(
+            validate_image_layout(width, height, width * height * RGBA_BYTES_PER_PIXEL).unwrap(),
+            (8_000, 5_000)
+        );
     }
 }

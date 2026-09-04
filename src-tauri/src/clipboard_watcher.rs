@@ -13,6 +13,7 @@ use crate::storage::StorageEngine;
 use arboard::Clipboard;
 use content::{
     compute_hash, encode_image_to_png, is_sensitive_text, rgba_fingerprint, strip_html_tags,
+    validate_image_layout,
 };
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -24,6 +25,12 @@ use tauri::{AppHandle, Emitter};
 /// 但**程序化写入不必等这一整轮**：`writer.rs` 写完会敲 `wake::nudge()`，
 /// 于是 `wait_for_next_poll` 当场返回，自己复制的内容立刻入库。
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
+
+fn reset_after_rejected_image(last_hash: &mut String, last_image_fingerprint: &mut Option<u64>) {
+    // 非法图片也代表剪贴板内容已经离开上一张合法图；两级去重状态都要失效。
+    last_hash.clear();
+    *last_image_fingerprint = None;
+}
 
 pub struct ClipboardWatcher {
     running: Arc<Mutex<bool>>,
@@ -79,6 +86,7 @@ impl ClipboardWatcher {
             // 文本/HTML 接管剪贴板时清空它，好让"复制别的东西再复制回这张图"仍然能
             // 走完入库路径（哈希去重会把它顶到最前面）。
             let mut last_image_fingerprint: Option<u64> = None;
+            let mut last_rejected_image_layout: Option<(usize, usize, usize)> = None;
             let mut sensitive_check_counter: u32 = 0;
             const SENSITIVE_TTL_SECS: i64 = 300; // 5 分钟后自动删除敏感条目
             const SENSITIVE_CHECK_INTERVAL: u32 = 60; // 每 60 次循环（~30秒）检查一次
@@ -147,6 +155,7 @@ impl ClipboardWatcher {
                 if let Ok(html) = clipboard.get().html() {
                     if !html.is_empty() {
                         last_image_fingerprint = None;
+                        last_rejected_image_layout = None;
                         let hash = compute_hash(html.as_bytes());
                         if hash != last_hash && hash != last_tmux_hash {
                             {
@@ -212,6 +221,7 @@ impl ClipboardWatcher {
                 if let Ok(text) = clipboard.get_text() {
                     if !text.is_empty() {
                         last_image_fingerprint = None;
+                        last_rejected_image_layout = None;
                         let hash = compute_hash(text.as_bytes());
                         if hash != last_hash && hash != last_tmux_hash {
                             // 跳过 select_clip 写入的内容
@@ -272,72 +282,80 @@ impl ClipboardWatcher {
 
                 // 无文本内容时尝试获取图片
                 if let Ok(img) = clipboard.get_image() {
-                    if !img.bytes.is_empty() {
-                        // 先看还是不是上一轮那张图：是的话连编码都不用做。
-                        let fingerprint = rgba_fingerprint(img.width, img.height, &img.bytes);
-                        if last_image_fingerprint == Some(fingerprint) {
-                            wake::wait_for_next_poll(POLL_INTERVAL);
-                            continue;
+                    if let Err(error) =
+                        validate_image_layout(img.width, img.height, img.bytes.len())
+                    {
+                        let layout = (img.width, img.height, img.bytes.len());
+                        if last_rejected_image_layout != Some(layout) {
+                            log::warn!("忽略异常剪贴板图片: {error}");
                         }
-                        last_image_fingerprint = Some(fingerprint);
+                        last_rejected_image_layout = Some(layout);
+                        // 非法内容是一种明确的剪贴板状态转换；之后复制回上一张合法图时
+                        // 必须重新走入库/置顶流程，不能被旧指纹或 PNG 哈希短路。
+                        reset_after_rejected_image(&mut last_hash, &mut last_image_fingerprint);
+                        wake::wait_for_next_poll(POLL_INTERVAL);
+                        continue;
+                    }
+                    last_rejected_image_layout = None;
+                    // 先看还是不是上一轮那张图：是的话连编码都不用做。
+                    let fingerprint = rgba_fingerprint(img.width, img.height, &img.bytes);
+                    if last_image_fingerprint == Some(fingerprint) {
+                        wake::wait_for_next_poll(POLL_INTERVAL);
+                        continue;
+                    }
+                    last_image_fingerprint = Some(fingerprint);
 
-                        if let Some(png_bytes) = encode_image_to_png(&img) {
-                            let hash = compute_hash(&png_bytes);
-                            if hash != last_hash && hash != last_tmux_hash {
-                                // 跳过 select_clip 写入的图片
-                                {
-                                    let mut skip =
-                                        skip_hash.lock().unwrap_or_else(|e| e.into_inner());
-                                    if skip.as_deref() == Some(&hash) {
-                                        *skip = None;
-                                        wake::wait_for_next_poll(POLL_INTERVAL);
-                                        continue;
+                    if let Some(png_bytes) = encode_image_to_png(&img) {
+                        let hash = compute_hash(&png_bytes);
+                        if hash != last_hash && hash != last_tmux_hash {
+                            // 跳过 select_clip 写入的图片
+                            {
+                                let mut skip = skip_hash.lock().unwrap_or_else(|e| e.into_inner());
+                                if skip.as_deref() == Some(&hash) {
+                                    *skip = None;
+                                    wake::wait_for_next_poll(POLL_INTERVAL);
+                                    continue;
+                                }
+                            }
+                            last_hash = hash.clone();
+
+                            let max_history =
+                                config.lock().unwrap_or_else(|e| e.into_inner()).max_history;
+                            let byte_size = png_bytes.len() as i64;
+
+                            let result = {
+                                let storage = storage.lock().unwrap_or_else(|e| e.into_inner());
+                                let clip_result = storage.insert_clip(
+                                    &ContentType::Image,
+                                    None,
+                                    None,
+                                    Some(&png_bytes),
+                                    &hash,
+                                    byte_size,
+                                    false,
+                                );
+                                match clip_result {
+                                    Ok(clip) => {
+                                        // 事件中不携带图片数据，前端按需加载
+                                        let clip = clip.without_image_data();
+                                        let removed = storage.cleanup_old_entries(max_history).ok();
+                                        Some((clip, removed))
+                                    }
+                                    Err(e) => {
+                                        crate::error::report("剪贴板图片保存失败", e);
+                                        None
                                     }
                                 }
-                                last_hash = hash.clone();
+                            };
 
-                                let max_history =
-                                    config.lock().unwrap_or_else(|e| e.into_inner()).max_history;
-                                let byte_size = png_bytes.len() as i64;
-
-                                let result = {
-                                    let storage = storage.lock().unwrap_or_else(|e| e.into_inner());
-                                    let clip_result = storage.insert_clip(
-                                        &ContentType::Image,
-                                        None,
-                                        None,
-                                        Some(&png_bytes),
-                                        &hash,
-                                        byte_size,
-                                        false,
-                                    );
-                                    match clip_result {
-                                        Ok(clip) => {
-                                            // 事件中不携带图片数据，前端按需加载
-                                            let clip = clip.without_image_data();
-                                            let removed =
-                                                storage.cleanup_old_entries(max_history).ok();
-                                            Some((clip, removed))
-                                        }
-                                        Err(e) => {
-                                            crate::error::report("剪贴板图片保存失败", e);
-                                            None
-                                        }
+                            if let Some((clip, removed)) = result {
+                                if let Some(removed_ids) = removed {
+                                    for rid in removed_ids {
+                                        let _ = app_handle.emit("clip-removed", rid);
                                     }
-                                };
-
-                                if let Some((clip, removed)) = result {
-                                    if let Some(removed_ids) = removed {
-                                        for rid in removed_ids {
-                                            let _ = app_handle.emit("clip-removed", rid);
-                                        }
-                                    }
-                                    let _ = app_handle.emit("clip-added", &clip);
-                                    log::debug!(
-                                        "新剪贴板内容，类型: image, 大小: {} 字节",
-                                        byte_size
-                                    );
                                 }
+                                let _ = app_handle.emit("clip-added", &clip);
+                                log::debug!("新剪贴板内容，类型: image, 大小: {} 字节", byte_size);
                             }
                         }
                     }
@@ -353,5 +371,21 @@ impl ClipboardWatcher {
 impl Default for ClipboardWatcher {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reset_after_rejected_image;
+
+    #[test]
+    fn rejected_image_invalidates_both_image_deduplication_levels() {
+        let mut last_hash = "previous-png".to_string();
+        let mut last_image_fingerprint = Some(42);
+
+        reset_after_rejected_image(&mut last_hash, &mut last_image_fingerprint);
+
+        assert!(last_hash.is_empty());
+        assert_eq!(last_image_fingerprint, None);
     }
 }
