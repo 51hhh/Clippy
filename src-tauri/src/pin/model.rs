@@ -73,8 +73,10 @@ pub(super) struct SharpenSlot {
 
 #[derive(Debug, Default)]
 struct SharpenState {
-    image: Option<Arc<Vec<u8>>>,
-    /// 原图（或清晰版）已经随 payload 发出去了。
+    /// 待 `pin-frame` 资源请求直接取走的 PNG。用 Vec 而不是 Arc：协议响应可以接管
+    /// 所有权，不必为了 HTTP body 再复制一份 4K 图片。
+    image: Option<Vec<u8>>,
+    /// 初始显示图已经由 `pin-frame` 请求过。
     served: bool,
     /// 这个 slot 所属的窗口已关闭；同 label 后来的新窗口会有自己的 slot。
     cancelled: bool,
@@ -91,39 +93,35 @@ pub(super) enum SharpenFinish {
 }
 
 impl SharpenSlot {
-    /// 取 payload 时叫一次：算好了就把清晰版交出来。
-    ///
-    /// 无论有没有算好都会记下"payload 已发出"，好让后台线程知道自己得改走事件。
-    pub(super) fn take_for_payload(&self) -> Option<Arc<Vec<u8>>> {
+    /// 初始 `pin-frame` 请求到达时叫一次：算好了就把清晰版的所有权直接交给响应；
+    /// 没算好则返回 None，让协议用原始显示 PNG 立即上屏。
+    pub(super) fn take_for_initial_request(&self) -> Option<Vec<u8>> {
         let mut state = self.lock();
         state.served = true;
-        state.image.clone()
+        state.image.take()
+    }
+
+    /// `pin-image-sharpened` 事件触发的第二次资源请求。事件只带版本号，PNG 留在 Rust
+    /// 这一侧直到这里被响应接管，避免 base64、JSON 字符串、Uint8Array 与 Blob 四份峰值。
+    pub(super) fn take_for_update_request(&self) -> Option<Vec<u8>> {
+        self.lock().image.take()
     }
 
     /// 后台线程算完时叫一次。取消与结果入槽在同一把锁下判定，不会在
     /// `cancel` 之后把旧图再塞回来。
     ///
-    /// **没赶上首帧的那一份不留副本**：它会直接随事件走出去，槽里再存一份就是白占
-    /// 十几 MB（2560x1440 的补偿结果 13 MB），而且一直占到窗口关闭。
-    pub(super) fn finish(&self, image: &Arc<Vec<u8>>) -> SharpenFinish {
+    /// 无论早晚都只存一份 Vec：早到由初始资源请求取走，晚到由事件后的版本化请求取走。
+    pub(super) fn finish(&self, image: Vec<u8>) -> SharpenFinish {
         let mut state = self.lock();
         if state.cancelled {
             return SharpenFinish::Cancelled;
         }
+        state.image = Some(image);
         if state.served {
-            return SharpenFinish::NeedsEvent;
+            SharpenFinish::NeedsEvent
+        } else {
+            SharpenFinish::Stored
         }
-        state.image = Some(Arc::clone(image));
-        SharpenFinish::Stored
-    }
-
-    /// 前端已经把图画上屏了，槽里那份可以扔了。
-    ///
-    /// 补偿结果最大十几 MB，贴图窗口能开好几个，留着就是纯占内存——`copy_pin`/`save_pin`
-    /// 用的是原图，缩放走 `update_pin`（不带图片），谁都不会再来取它。唯一会再取一次的
-    /// 是 webview 重新加载（只有开发时手动刷新会发生），那时拿到的是原图，比清晰版略软。
-    pub(super) fn release(&self) {
-        self.lock().image = None;
     }
 
     /// 窗口已关闭：让还在全局工作位后面排队的补偿任务直接退出。
@@ -162,62 +160,51 @@ impl SharpenSlot {
 mod sharpen_tests {
     use super::{SharpenFinish, SharpenSlot};
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
 
     /// 补偿赶在 payload 之前算完：清晰版直接随 payload 走，不需要事件。
     #[test]
     fn early_compensation_rides_along_with_the_payload() {
         let slot = SharpenSlot::default();
         assert_eq!(
-            slot.finish(&Arc::new(vec![7, 8, 9])),
+            slot.finish(vec![7, 8, 9]),
             SharpenFinish::Stored,
             "还没发 payload，应直接存入 slot"
         );
-        assert_eq!(
-            slot.take_for_payload().map(|image| image.to_vec()),
-            Some(vec![7, 8, 9])
-        );
-        // 开发时刷新 webview 会再取一次；这条路必须还能拿到东西，不能变成空图。
-        assert_eq!(
-            slot.take_for_payload().map(|image| image.to_vec()),
-            Some(vec![7, 8, 9])
-        );
+        assert_eq!(slot.take_for_initial_request(), Some(vec![7, 8, 9]));
+        assert!(slot.take_for_initial_request().is_none());
     }
 
     /// 没赶上：payload 已经带着原图走了，这时必须补一个事件。
     #[test]
     fn late_compensation_asks_for_an_event() {
         let slot = SharpenSlot::default();
-        assert!(slot.take_for_payload().is_none(), "还没算完，只能发原图");
-        let bytes = Arc::new(vec![1]);
+        assert!(
+            slot.take_for_initial_request().is_none(),
+            "还没算完，只能发原图"
+        );
         assert_eq!(
-            slot.finish(&bytes),
+            slot.finish(vec![1]),
             SharpenFinish::NeedsEvent,
             "原图已上屏，必须发事件换图"
         );
-        // 事件已经把这份字节送出去了，槽里不该再留一份十几 MB 的副本。
-        assert_eq!(Arc::strong_count(&bytes), 1);
+        assert_eq!(slot.take_for_update_request(), Some(vec![1]));
     }
 
     /// 上屏之后释放：十几 MB 的补偿结果不该跟着贴图窗口一直活着。
     #[test]
-    fn release_drops_the_compensated_bytes() {
+    fn protocol_request_takes_the_compensated_bytes() {
         let slot = SharpenSlot::default();
-        let bytes = Arc::new(vec![4, 5]);
-        assert_eq!(slot.finish(&bytes), SharpenFinish::Stored);
-        assert!(slot.take_for_payload().is_some());
-        assert_eq!(Arc::strong_count(&bytes), 2, "槽里还留着一份");
-        slot.release();
-        assert_eq!(Arc::strong_count(&bytes), 1, "release 之后只剩调用方那份");
-        assert!(slot.take_for_payload().is_none());
+        assert_eq!(slot.finish(vec![4, 5]), SharpenFinish::Stored);
+        assert_eq!(slot.take_for_initial_request(), Some(vec![4, 5]));
+        assert!(slot.take_for_update_request().is_none());
     }
 
     /// 文本贴图那种"永远不会算完"的情况：取 payload 不该被卡住，也不该报错。
     #[test]
     fn a_slot_that_never_finishes_is_harmless() {
         let slot = SharpenSlot::default();
-        assert!(slot.take_for_payload().is_none());
-        assert!(slot.take_for_payload().is_none());
+        assert!(slot.take_for_initial_request().is_none());
+        assert!(slot.take_for_initial_request().is_none());
     }
 
     #[test]
@@ -226,7 +213,7 @@ mod sharpen_tests {
         assert!(!slot.is_cancelled());
         slot.cancel();
         assert!(slot.is_cancelled());
-        assert!(slot.take_for_payload().is_none());
+        assert!(slot.take_for_initial_request().is_none());
     }
 
     /// worker 已经开始计算才关窗：完成结果不能再入槽，也不能请求发事件。
@@ -234,13 +221,15 @@ mod sharpen_tests {
     fn cancellation_after_work_started_discards_the_result() {
         let slot = SharpenSlot::default();
         assert!(
-            slot.take_for_payload().is_none(),
+            slot.take_for_initial_request().is_none(),
             "模拟 worker 开始后原图先上屏"
         );
         slot.cancel();
-        let bytes = Arc::new(vec![9, 9, 9]);
-        assert_eq!(slot.finish(&bytes), SharpenFinish::Cancelled);
-        assert_eq!(Arc::strong_count(&bytes), 1, "取消后不得留存结果");
+        assert_eq!(slot.finish(vec![9, 9, 9]), SharpenFinish::Cancelled);
+        assert!(
+            slot.take_for_update_request().is_none(),
+            "取消后不得留存结果"
+        );
     }
 
     /// 旧 slot 的 label 即使被新窗口复用，旧 worker 也不能发布任何事件。
@@ -250,9 +239,9 @@ mod sharpen_tests {
         let replacement = SharpenSlot::default();
         let published = AtomicUsize::new(0);
 
-        old.take_for_payload();
+        old.take_for_initial_request();
         old.cancel();
-        assert_eq!(old.finish(&Arc::new(vec![1])), SharpenFinish::Cancelled);
+        assert_eq!(old.finish(vec![1]), SharpenFinish::Cancelled);
         assert!(old
             .publish_if_active(|| published.fetch_add(1, Ordering::SeqCst))
             .is_none());
@@ -296,7 +285,6 @@ pub struct PinPayload {
     pub label: String,
     pub kind: &'static str,
     pub text: Option<String>,
-    pub image_base64: Option<String>,
     pub content_width: f64,
     pub content_height: f64,
     pub scale: f64,
@@ -318,10 +306,9 @@ pub struct PinPayload {
 
 /// `update_pin` 的应答：只有这次真的可能变的那几个字段。
 ///
-/// **故意不带 `image_base64` 与 `text`。** 滚轮缩放时每一帧都会调一次 `update_pin`，
-/// 而贴图的内容从头到尾没变过；带上图片意味着每帧都要把 PNG 重新 base64 编一遍
-/// （一张全屏截图 2 MB → 2.8 MB 字符串）再过一次 IPC，纯粹的浪费。前端拿到这个应答后
-/// 合并进已有的 payload（`App.tsx` 的 `mergePinState`），图片对象 URL 因此也不会被重建。
+/// **故意不带图片与 `text`。** 滚轮缩放时每一帧都会调一次 `update_pin`，而贴图内容
+/// 从头到尾没变过；带上图片意味着每帧都把整张 PNG 再过一次 IPC。前端拿到这个应答后
+/// 合并进已有 payload（`App.tsx` 的 `mergePinState`），原生资源 URL 因此也不会被重建。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PinState {

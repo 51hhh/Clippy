@@ -463,6 +463,14 @@ export function getPinPayload(label: string): Promise<PinPayload> {
 }
 
 /**
+ * 贴图显示 PNG 的原生资源 URL。revision=0 是首帧（补偿赶上就直接取补偿图，否则取原图），
+ * 后台补偿晚到时事件给出更高版本号，避免 WebKit 复用已经解码过的首帧。
+ */
+export function getPinImageUrl(label: string, revision: number): string {
+  return `${convertFileSrc(label, "pin-frame")}?revision=${revision}`;
+}
+
+/**
  * 贴图工具条能待的范围（窗口局部逻辑坐标）。
  *
  * 前端算不了这个：它只有 `window.innerWidth`，而贴图窗口的外框永远给工具条留够了位置，
@@ -545,7 +553,8 @@ export function readPinProject(path: string): Promise<PinProject | null> {
  * 后台算好的清晰版贴图到货了。
  *
  * 贴图先用原图上屏（开窗才不会被卡住），后端随后在别的线程上把它重新渲染成缓冲区
- * 分辨率并补偿掉合成器的缩小，算完通过这个事件换进来。见 `pin/resample.rs`。
+ * 分辨率并补偿掉合成器的缩小。事件只传资源版本号，PNG 由 WebKit 直接从 `pin-frame`
+ * 取走，不再经 base64/JSON/JS 解码。见 `pin/resample.rs`。
  */
 export function onPinImageSharpened(
   callback: (payload: PinImageSharpened) => void,

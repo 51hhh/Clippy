@@ -2,6 +2,7 @@ import {
   closePin,
   copyPin,
   copyPinCanvas,
+  getPinImageUrl,
   getPinPayload,
   getPinSourceImage,
   getPinToolbarBounds,
@@ -27,6 +28,7 @@ import type {
 
 export const pinApi = {
   get: (label: string): Promise<PinPayload> => getPinPayload(label),
+  imageUrl: (label: string, revision: number): string => getPinImageUrl(label, revision),
   /** Pin 的层级动作也必须服从后端能力判断，不能在 Wayland 上自行猜测。 */
   platform: (): Promise<PlatformInfo> => getPlatformInfo(),
   ready: (label: string): Promise<void> => pinReady(label),
