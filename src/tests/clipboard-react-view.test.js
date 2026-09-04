@@ -1,21 +1,23 @@
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../js/api.ts", () => ({
   getClipThumbnail: vi.fn(),
   openPinImageDialog: vi.fn(),
   deleteClip: vi.fn(),
   getClips: vi.fn(),
+  onPasteFallback: vi.fn(),
   selectClip: vi.fn(),
   toggleFavorite: vi.fn(),
 }));
 
 import * as i18n from "../i18n/i18n.js";
-import { getClipThumbnail } from "../js/api.ts";
+import { getClipThumbnail, onPasteFallback } from "../js/api.ts";
 import { ClipboardRow } from "../react/main/ClipboardRow.tsx";
 import { ClipboardWorkspace } from "../react/main/ClipboardWorkspace.tsx";
+import { clipboardStore } from "../react/main/clipboardStore.ts";
 
 /**
  * 行的 props 是拍扁的标量（不是整个 snapshot），这样它能被 `memo` 挡住——
@@ -51,7 +53,14 @@ function clip(overrides = {}) {
 }
 
 describe("React clipboard row", () => {
-  beforeEach(() => i18n.init("en"));
+  beforeEach(() => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    i18n.init("en");
+  });
+
+  afterEach(() => {
+    delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+  });
 
   it("escapes user content and exposes accessible actions", () => {
     const html = renderToStaticMarkup(React.createElement(ClipboardRow, {
@@ -151,5 +160,55 @@ describe("React clipboard row", () => {
     }
 
     expect(disconnect).toHaveBeenCalledOnce();
+  });
+
+  it("mounts only a small window for ten thousand clipboard rows", async () => {
+    const originalSnapshot = clipboardStore.getSnapshot();
+    const items = Array.from({ length: 10_000 }, (_, index) => clip({
+      id: index + 1,
+      text_content: `clip ${index + 1}`,
+    }));
+    clipboardStore.snapshot = {
+      ...originalSnapshot,
+      all: items,
+      navigation: { ...originalSnapshot.navigation, focusedRow: 0 },
+      revision: originalSnapshot.revision + 1,
+    };
+    vi.mocked(onPasteFallback).mockResolvedValue(() => undefined);
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      disconnect() {}
+    });
+
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => root.render(React.createElement(ClipboardWorkspace)));
+      const list = container.querySelector(".clip-list");
+      expect(list.querySelectorAll(".clip-row").length).toBeLessThan(20);
+      expect(list.querySelector(".clip-row")?.dataset.idx).toBe("0");
+      expect(list.querySelector(".clip-row")?.getAttribute("aria-setsize")).toBe("10000");
+      expect(list.querySelector(".clip-row")?.getAttribute("aria-posinset")).toBe("1");
+
+      Object.defineProperty(list, "clientHeight", { configurable: true, value: 600 });
+      Object.defineProperty(list, "scrollHeight", { configurable: true, value: 770_008 });
+      list.scrollTop = 385_000;
+      await act(async () => list.dispatchEvent(new Event("scroll", { bubbles: true })));
+
+      expect(list.querySelectorAll(".clip-row").length).toBeLessThan(20);
+      expect(Number(list.querySelector(".clip-row")?.dataset.idx)).toBeGreaterThan(4_900);
+
+      await act(async () => clipboardStore.focusRow(9_999));
+      const focused = list.querySelector('.clip-row.focused[data-idx="9999"]');
+      expect(focused).not.toBeNull();
+      expect(focused?.getAttribute("aria-posinset")).toBe("10000");
+      expect(list.scrollTop).toBe(769_400);
+    } finally {
+      await act(async () => root.unmount());
+      clipboardStore.snapshot = originalSnapshot;
+      container.remove();
+      vi.unstubAllGlobals();
+    }
   });
 });

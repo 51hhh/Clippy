@@ -98,6 +98,51 @@ function verifyCodecPanelKeepsListWidth(app: HTMLElement): void {
   assert(list.tabIndex === -1, "list panel must stay focusable for the keyboard state machine");
 }
 
+/** 虚拟列表的偏移算法依赖这两个固定高度，必须用真实布局引擎校验 CSS 契约。 */
+function verifyVirtualRowHeights(app: HTMLElement): void {
+  const host = element<HTMLElement>(app, "#clipboard-react-root");
+  const list = document.createElement("main");
+  list.className = "clip-list";
+  const content = document.createElement("div");
+  content.className = "clip-list-virtual-content";
+  const textRow = document.createElement("div");
+  textRow.className = "clip-row";
+  const imageRow = document.createElement("div");
+  imageRow.className = "clip-row clip-row--image";
+  const fillRow = (row: HTMLElement, image: boolean) => {
+    const main = document.createElement("div");
+    main.className = "clip-row-main";
+    const preview = document.createElement("div");
+    preview.className = `clip-row-preview${image ? " clip-row-preview--image" : ""}`;
+    if (image) {
+      const thumbnail = document.createElement("span");
+      thumbnail.className = "clip-row-thumb";
+      preview.append(thumbnail);
+    } else {
+      preview.textContent = "two-line clipboard preview long enough to wrap without overflowing its fixed row";
+    }
+    const meta = document.createElement("div");
+    meta.className = "clip-row-meta";
+    meta.textContent = "24 B · now";
+    main.append(preview, meta);
+    row.append(main);
+  };
+  fillRow(textRow, false);
+  fillRow(imageRow, true);
+  content.append(textRow, imageRow);
+  list.append(content);
+  host.replaceChildren(list);
+
+  assert(textRow.getBoundingClientRect().height === 77,
+    `text row height drifted: ${textRow.getBoundingClientRect().height}`);
+  assert(imageRow.getBoundingClientRect().height === 87,
+    `image row height drifted: ${imageRow.getBoundingClientRect().height}`);
+  assert(textRow.scrollHeight <= textRow.clientHeight,
+    `text row content overflowed: ${textRow.scrollHeight} > ${textRow.clientHeight}`);
+  assert(imageRow.scrollHeight <= imageRow.clientHeight,
+    `image row content overflowed: ${imageRow.scrollHeight} > ${imageRow.clientHeight}`);
+}
+
 /**
  * 产品 CSS 会覆盖 body 背景，所以结果画在一个独立浮层上供脚本读像素。
  * 失败时把原因画进浮层：headless 截图模式读不到 console，截图本身就是唯一的诊断信息。
@@ -114,6 +159,7 @@ try {
   const app = mountProductLayout();
   verifyPreviewAndTranslationShareTheColumn(app);
   verifyCodecPanelKeepsListWidth(app);
+  verifyVirtualRowHeights(app);
   document.documentElement.dataset.layoutSmoke = "passed";
   paint("#00d000");
 } catch (error) {

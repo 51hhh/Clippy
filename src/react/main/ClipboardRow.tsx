@@ -20,6 +20,7 @@ export type ClipboardRowHandlers = {
 type Props = {
   clip: ClipItem;
   index: number;
+  totalCount?: number;
   focused: boolean;
   /** 焦点落在第几个行内动作上；`-1` 是行本体，未获焦的行恒为 `-1`。 */
   focusedAction: number;
@@ -41,6 +42,7 @@ type Props = {
 export const ClipboardRow = memo(function ClipboardRow({
   clip,
   index,
+  totalCount,
   focused,
   focusedAction,
   expanded,
@@ -110,11 +112,14 @@ export const ClipboardRow = memo(function ClipboardRow({
         focused ? "focused" : "",
         expanded ? "expanded" : "",
         favoriteMode ? "favorites-mode" : "",
+        clip.content_type === "image" ? "clip-row--image" : "",
         clip.is_favorite ? "favorite" : "",
         clip.is_sensitive ? "sensitive" : "",
       ].filter(Boolean).join(" ")}
       role="option"
       aria-selected={focused}
+      aria-setsize={totalCount}
+      aria-posinset={totalCount === undefined ? undefined : index + 1}
       data-id={clip.id}
       data-idx={index}
       onPointerMove={() => handlers.onFocus(index)}
