@@ -5,6 +5,8 @@
 - `cargo fmt --check`：通过。
 - `cargo check --all-targets`：通过。
 - `cargo clippy --all-targets -- -D warnings`：通过。
+- 主窗口位置 debounce 专项：7 项通过；500 次连续 worker 申请只允许首个创建线程，释放后才允许
+  下一轮接管。
 - `cargo test`（沙箱外，允许 loopback）：444 通过、0 失败、10 个真实桌面/手动性能探针忽略；
   覆盖层变更后又单独复跑冻结帧协议 2 项，全部通过。
 - `npx tsc --noEmit`：通过。
@@ -54,6 +56,8 @@ async worker 和 UI 热路径。连续切换不同 Criterion target 时 Cargo �
   从而同时约束响应线程饥饿与 RGBA/CPU 峰值。
 - 主列表失焦清空条目数组和搜索 timer；Pin 关闭会移除 manager 条目、placement generation 和
   清晰化结果；对象 URL 在替换/卸载时撤销。
+- 主窗口移动事件共享一份最新坐标与单一 debounce worker；连续拖动不再按事件创建 OS 线程，
+  worker 在最后一次移动 300 ms 后落盘，并在退出竞态中用 CAS 把新一轮工作唯一交接出去。
 - 本轮把导入工程的常驻表示从“原图 PNG + 同源 base64 + 合成预览”改为“原图 PNG + 轻量元数据
   + 合成预览”。节省量精确为 `4 * ceil(source_png_len / 3)` 附近的 base64 字符串容量，具体取决
   于分配器容量取整；磁盘工程仍保持自包含。
