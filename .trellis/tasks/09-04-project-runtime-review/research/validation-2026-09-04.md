@@ -7,6 +7,8 @@
 - `cargo clippy --all-targets -- -D warnings`：通过。
 - 主窗口位置 debounce 专项：7 项通过；500 次连续 worker 申请只允许首个创建线程，释放后才允许
   下一轮接管。
+- Pin React/手势专项：2 个文件、42 项通过；清晰度补偿换图会撤销旧 Blob URL，后续缩放不重建
+  URL，显示 payload 的 base64 不再进入长期状态。
 - `cargo test`（沙箱外，允许 loopback）：444 通过、0 失败、10 个真实桌面/手动性能探针忽略；
   覆盖层变更后又单独复跑冻结帧协议 2 项，全部通过。
 - `npx tsc --noEmit`：通过。
@@ -58,6 +60,8 @@ async worker 和 UI 热路径。连续切换不同 Criterion target 时 Cargo �
   清晰化结果；对象 URL 在替换/卸载时撤销。
 - 主窗口移动事件共享一份最新坐标与单一 debounce worker；连续拖动不再按事件创建 OS 线程，
   worker 在最后一次移动 300 ms 后落盘，并在退出竞态中用 CAS 把新一轮工作唯一交接出去。
+- Pin 显示图转成 Blob URL 后，React 的当前/乐观/确认状态只保留轻量元数据；每张图释放
+  `4 * ceil(png_len / 3)` 个 base64 字符。补偿图替换时立即撤销旧 URL，卸载时撤销当前 URL。
 - 本轮把导入工程的常驻表示从“原图 PNG + 同源 base64 + 合成预览”改为“原图 PNG + 轻量元数据
   + 合成预览”。节省量精确为 `4 * ceil(source_png_len / 3)` 附近的 base64 字符串容量，具体取决
   于分配器容量取整；磁盘工程仍保持自包含。

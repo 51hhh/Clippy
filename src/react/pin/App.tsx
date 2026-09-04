@@ -61,6 +61,7 @@ export function App() {
   const [noticeKey, setNoticeKey] = useState("pin.saved");
   const savedTimer = useRef<number | null>(null);
   const imageElement = useRef<HTMLImageElement | null>(null);
+  const imageUrlRef = useRef<string | null>(null);
   const [viewport, setViewport] = useState({
     width: window.innerWidth,
     height: window.innerHeight,
@@ -69,6 +70,25 @@ export function App() {
   // `flushUpdate` 要在自己的 finally 里再排一次，而 `scheduleFlush` 又要调它，
   // 两个 useCallback 互相依赖成环。用一个 ref 打破环，rAF 里读到的永远是最新那个。
   const flushRef = useRef<() => void>(() => {});
+
+  /**
+   * 显示图一旦进 Blob URL，原始 base64 就不该再跟着整个 Pin 状态常驻。
+   * 复制/保存/画布都从后端权威原图读取；这里的 URL 只负责当前窗口上屏。
+   */
+  const replaceDisplayImage = useCallback((pngBase64: string): boolean => {
+    try {
+      const next = pngBase64ToObjectUrl(pngBase64);
+      const previous = imageUrlRef.current;
+      imageUrlRef.current = next;
+      setImageUrl(next);
+      if (previous) URL.revokeObjectURL(previous);
+      return true;
+    } catch (reason) {
+      console.error(reason);
+      setError(t("pin.loadFailed"));
+      return false;
+    }
+  }, []);
 
   const scheduleFlush = useCallback(() => {
     if (wheelFrame.current !== null) return;
@@ -84,9 +104,15 @@ export function App() {
       .get(label)
       .then((payload) => {
         if (!cancelled) {
-          pinRef.current = payload;
-          confirmedPinRef.current = payload;
-          setPin(payload);
+          if (payload.imageBase64 && !replaceDisplayImage(payload.imageBase64)) {
+            void pinApi.close(label).catch(() => undefined);
+            return;
+          }
+          // Blob URL 已拥有压缩图字节；三份状态只留轻量元数据，避免 4K base64 常驻。
+          const state = payload.imageBase64 ? { ...payload, imageBase64: null } : payload;
+          pinRef.current = state;
+          confirmedPinRef.current = state;
+          setPin(state);
         }
       })
       .catch((reason) => {
@@ -101,7 +127,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [label]);
+  }, [label, replaceDisplayImage]);
 
   useEffect(() => {
     let cancelled = false;
@@ -123,21 +149,22 @@ export function App() {
   /**
    * 后台算好的清晰版图片换进来（见 `rendering.ts` 与 `pin/resample.rs`）。
    *
-   * **只换 `imageBase64`**：这一刻用户可能已经滚过滚轮，整份覆盖会把缩放弹回去。
-   * 三份引用都得更新——`flushUpdate` 是拿 `confirmedPinRef` 当基底去合并 `update_pin`
-   * 的应答的，漏掉它的话下一次缩放就把原图换回来了。
+   * **只换显示 URL**：这一刻用户可能已经滚过滚轮，整份覆盖会把缩放弹回去。
+   * base64 转成 Blob URL 后立刻丢弃；`flushUpdate` 继续拿轻量的 `confirmedPinRef`
+   * 当基底合并 `update_pin` 应答，滚轮不会把清晰版 URL 换回原图。
    */
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     let cancelled = false;
-    const sharpen = (current: PinPayload | null, imageBase64: string) =>
+    const sharpen = (current: PinPayload | null, imageBase64: string | null) =>
       current ? { ...current, imageBase64 } : current;
     pinApi
       .onSharpened((payload) => {
         if (payload.label !== label) return;
-        pinRef.current = sharpen(pinRef.current, payload.imageBase64);
-        confirmedPinRef.current = sharpen(confirmedPinRef.current, payload.imageBase64);
-        setPin((current) => sharpen(current, payload.imageBase64));
+        if (!replaceDisplayImage(payload.imageBase64)) return;
+        pinRef.current = sharpen(pinRef.current, null);
+        confirmedPinRef.current = sharpen(confirmedPinRef.current, null);
+        setPin((current) => sharpen(current, null));
       })
       .then((stop) => {
         if (cancelled) stop();
@@ -148,7 +175,7 @@ export function App() {
       cancelled = true;
       unlisten?.();
     };
-  }, [label]);
+  }, [label, replaceDisplayImage]);
 
   /**
    * 用户又对同一个条目按了 Pin：闪一下外围边框说明"它已经在这儿了"。
@@ -191,15 +218,10 @@ export function App() {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  useEffect(() => {
-    if (!pin?.imageBase64) {
-      setImageUrl(null);
-      return;
-    }
-    const url = pngBase64ToObjectUrl(pin.imageBase64);
-    setImageUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [pin?.imageBase64]);
+  useEffect(() => () => {
+    if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current);
+    imageUrlRef.current = null;
+  }, []);
 
   useEffect(() => {
     if (!pin || ready || (pin.kind === "image" && !imageUrl)) return;
