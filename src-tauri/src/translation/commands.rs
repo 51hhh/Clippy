@@ -479,19 +479,17 @@ async fn resolve_clip_text(
     match prepare_clip_text(input)? {
         PreparedClipText::Ready(text) => Ok(text),
         PreparedClipText::NeedsOcr { clip_id, image } => {
-            let text = run_blocking(move || {
-                crate::ocr::recognize(&image).map_err(|_| TranslationError::OcrFailed)
+            let cache_storage = Arc::clone(&storage);
+            let text = crate::ocr::recognize_clip(clip_id, image, move |text| {
+                if cache_ocr_text(&cache_storage, clip_id, text).is_err() {
+                    log::warn!("翻译 OCR 缓存写入失败");
+                }
+                Ok(())
             })
-            .await?;
+            .await
+            .map_err(|_| TranslationError::OcrFailed)?;
             if text.trim().is_empty() {
                 return Err(TranslationError::EmptyInput);
-            }
-
-            let cached_text = text.clone();
-            let cache_result =
-                run_blocking(move || cache_ocr_text(&storage, clip_id, &cached_text)).await;
-            if cache_result.is_err() {
-                log::warn!("翻译 OCR 缓存写入失败");
             }
             Ok(text)
         }
