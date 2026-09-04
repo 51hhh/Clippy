@@ -1,6 +1,6 @@
 use crate::commands::AppState;
 use crate::models::MainWindowPosition;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{Manager, Monitor, PhysicalPosition, PhysicalSize, Position, Size};
 
 const EDGE_MARGIN: i32 = 12;
@@ -106,39 +106,78 @@ pub(crate) fn remember_main_window_position(
     let Some(state) = app_handle.try_state::<AppState>() else {
         return;
     };
+    let remembered = MainWindowPosition {
+        x: position.x,
+        y: position.y,
+    };
+    let Ok(mut pending) = state.main_window_position_pending.lock() else {
+        return;
+    };
+    *pending = Some(remembered);
+    drop(pending);
     let generation = state
         .main_window_position_generation
         .fetch_add(1, Ordering::AcqRel)
         + 1;
+    // 一次拖动会以 60 Hz 左右产生 Moved；旧实现每个事件都创建一个睡眠线程。
+    // 这里只让第一个事件启动 worker，其余事件仅覆盖 pending 并推进代次。
+    if !claim_position_save_worker(&state.main_window_position_worker_scheduled) {
+        return;
+    }
     std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(POSITION_SAVE_DEBOUNCE_MS));
-        let Some(state) = app_handle.try_state::<AppState>() else {
-            return;
-        };
-        if state
-            .main_window_position_generation
-            .load(Ordering::Acquire)
-            != generation
-        {
-            return;
-        }
-        let mut config = match state.config.lock() {
-            Ok(config) => config,
-            Err(error) => {
-                log::warn!("保存主窗口位置时读取配置失败: {error}");
+        let mut observed = generation;
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(POSITION_SAVE_DEBOUNCE_MS));
+            let Some(state) = app_handle.try_state::<AppState>() else {
+                return;
+            };
+            let current = state
+                .main_window_position_generation
+                .load(Ordering::Acquire);
+            if current != observed {
+                observed = current;
+                continue;
+            }
+
+            let remembered = state
+                .main_window_position_pending
+                .lock()
+                .ok()
+                .and_then(|mut pending| pending.take());
+            if let Some(remembered) = remembered {
+                match state.config.lock() {
+                    Ok(mut config) if config.main_window_position != Some(remembered) => {
+                        config.main_window_position = Some(remembered);
+                        crate::config::save_config(&state.config_path, &config);
+                    }
+                    Ok(_) => {}
+                    Err(error) => log::warn!("保存主窗口位置时读取配置失败: {error}"),
+                }
+            }
+
+            state
+                .main_window_position_worker_scheduled
+                .store(false, Ordering::Release);
+            let latest = state
+                .main_window_position_generation
+                .load(Ordering::Acquire);
+            if latest == current {
                 return;
             }
-        };
-        let remembered = MainWindowPosition {
-            x: position.x,
-            y: position.y,
-        };
-        if config.main_window_position == Some(remembered) {
-            return;
+            // 新事件可能恰好发生在 store(false) 前后。谁先把标志从 false 改回 true，
+            // 谁负责下一轮；CAS 失败说明新 worker 已经接手，本线程直接退出。
+            if !claim_position_save_worker(&state.main_window_position_worker_scheduled) {
+                return;
+            }
+            observed = latest;
         }
-        config.main_window_position = Some(remembered);
-        crate::config::save_config(&state.config_path, &config);
     });
+}
+
+fn claim_position_save_worker(scheduled: &AtomicBool) -> bool {
+    scheduled
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_ok()
 }
 
 pub fn resize_main_window(app: &tauri::AppHandle) -> Result<(), String> {
@@ -392,6 +431,17 @@ fn clamp_axis(value: i32, min: i32, max: i32, window_size: i32) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn moved_event_burst_claims_only_one_position_save_worker() {
+        let scheduled = AtomicBool::new(false);
+        assert!(claim_position_save_worker(&scheduled));
+        for _ in 0..500 {
+            assert!(!claim_position_save_worker(&scheduled));
+        }
+        scheduled.store(false, Ordering::Release);
+        assert!(claim_position_save_worker(&scheduled));
+    }
 
     #[test]
     fn clamps_position_to_negative_origin_work_area() {

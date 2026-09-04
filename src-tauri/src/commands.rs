@@ -35,7 +35,10 @@ pub struct AppState {
     pub codec_visible: Arc<Mutex<bool>>,
     pub main_window_transition: Mutex<()>,
     pub pin_transition: Mutex<()>,
+    /// 主窗口拖动事件只更新这份待保存位置；一个 debounce worker 负责最终落盘。
+    pub main_window_position_pending: Mutex<Option<crate::models::MainWindowPosition>>,
     pub main_window_position_generation: AtomicU64,
+    pub main_window_position_worker_scheduled: AtomicBool,
     pub capture_manager: Arc<crate::capture::CaptureManager>,
     pub pin_manager: Arc<crate::pin::PinManager>,
     /// 我们自己截下来、复制进剪贴板的图 → 它原本在屏幕上的位置。
