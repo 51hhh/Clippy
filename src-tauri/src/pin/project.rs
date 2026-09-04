@@ -91,6 +91,23 @@ pub struct InitialProjectSource {
     pub sha256: String,
 }
 
+/// 已验证工程进入 Pin 运行时后的轻量表示。
+///
+/// 原图字节由 `PinSource::Project::source_png` 单独持有；这里故意不保留
+/// `ProjectSource::png_base64`，否则每个打开的工程都会常驻一份相同 PNG 的 Vec 和一份
+/// 大 33% 的 base64 String。再次保存时用不可变原图临时补回完整工程，磁盘格式不变。
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct RuntimeProject {
+    format: String,
+    format_version: u32,
+    renderer_version: u32,
+    created_at: i64,
+    app_version: String,
+    source: InitialProjectSource,
+    preview: Option<ProjectPreview>,
+    document: ProjectDocument,
+}
+
 impl PinProject {
     pub(super) fn new(
         source_png: &[u8],
@@ -205,25 +222,58 @@ impl PinProject {
         Ok(())
     }
 
+    /// `extract` 已完成完整校验后，将工程拆成唯一一份原图字节和不含 base64 的运行时元数据。
+    pub(super) fn into_runtime(self) -> Result<(Vec<u8>, RuntimeProject), String> {
+        let source_png = STANDARD
+            .decode(&self.source.png_base64)
+            .map_err(|_| "工程原图 base64 无效".to_string())?;
+        let runtime = RuntimeProject {
+            format: self.format,
+            format_version: self.format_version,
+            renderer_version: self.renderer_version,
+            created_at: self.created_at,
+            app_version: self.app_version,
+            source: InitialProjectSource {
+                width: self.source.width,
+                height: self.source.height,
+                sha256: self.source.sha256,
+            },
+            preview: self.preview,
+            document: self.document,
+        };
+        Ok((source_png, runtime))
+    }
+}
+
+impl RuntimeProject {
     pub(super) fn initial_payload(&self) -> InitialProject {
         InitialProject {
             format: self.format.clone(),
             format_version: self.format_version,
             renderer_version: self.renderer_version,
-            source: InitialProjectSource {
-                width: self.source.width,
-                height: self.source.height,
-                sha256: self.source.sha256.clone(),
-            },
+            source: self.source.clone(),
             document: self.document.clone(),
         }
     }
 
-    /// 仅供 `extract` 已完成校验后的运行时恢复，避免把原图再次完整解码一遍。
-    pub(super) fn decoded_source(&self) -> Result<Vec<u8>, String> {
-        STANDARD
-            .decode(&self.source.png_base64)
-            .map_err(|_| "工程原图 base64 无效".to_string())
+    /// 保存未编辑工程时临时恢复自包含表示。`embed` 会再次验证原图哈希、尺寸和合成图摘要，
+    /// 因此运行时状态即使意外不一致也不会写出伪造工程。
+    pub(super) fn materialize(&self, source_png: &[u8]) -> PinProject {
+        PinProject {
+            format: self.format.clone(),
+            format_version: self.format_version,
+            renderer_version: self.renderer_version,
+            created_at: self.created_at,
+            app_version: self.app_version.clone(),
+            source: ProjectSource {
+                png_base64: STANDARD.encode(source_png),
+                width: self.source.width,
+                height: self.source.height,
+                sha256: self.source.sha256.clone(),
+            },
+            preview: self.preview.clone(),
+            document: self.document.clone(),
+        }
     }
 }
 
@@ -761,6 +811,17 @@ mod tests {
     fn project() -> PinProject {
         let png = sample_png();
         PinProject::new(&png, &png, RENDERER_VERSION, annotations(), adjustments()).unwrap()
+    }
+
+    #[test]
+    fn runtime_project_drops_base64_copy_and_materializes_losslessly() {
+        let original = project();
+        let expected_source = sample_png();
+        let (source, runtime) = original.clone().into_runtime().unwrap();
+
+        assert_eq!(source, expected_source);
+        assert_eq!(runtime.materialize(&source), original);
+        assert_eq!(runtime.initial_payload().source.sha256, sha256_hex(&source));
     }
 
     #[test]

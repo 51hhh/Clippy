@@ -16,7 +16,7 @@ pub(super) enum PinSource {
     Project {
         source_png: Vec<u8>,
         preview_png: Vec<u8>,
-        project: super::project::PinProject,
+        project: super::project::RuntimeProject,
     },
 }
 
