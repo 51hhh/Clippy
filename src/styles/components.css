@@ -625,6 +625,9 @@
 /* ---------- 行 ---------- */
 .clip-row {
   position: relative;
+  /* 历史量可配置到 10,000；屏外行保留滚动几何，但跳过布局/绘制。旧 WebKit 会忽略。 */
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 76px;
   display: flex;
   align-items: center;
   gap: 8px;

@@ -557,6 +557,20 @@ describe("移动焦点不重渲整份列表", () => {
   });
 });
 
+describe("长列表不会持续解码屏外缩略图", () => {
+  it("React 行按视口加载缩略图，并在离开视口后释放显示数据", () => {
+    const source = read("src/react/main/ClipboardRow.tsx");
+    expect(source).toContain("IntersectionObserver");
+    expect(source).toMatch(/!nearViewport[\s\S]*setImageBase64\(null\)/);
+  });
+
+  it("浏览器可以跳过屏外行的布局与绘制", () => {
+    const styles = read("src/styles/components.css");
+    expect(styles).toMatch(/\.clip-row\s*\{[\s\S]*?content-visibility:\s*auto/);
+    expect(styles).toMatch(/\.clip-row\s*\{[\s\S]*?contain-intrinsic-block-size:/);
+  });
+});
+
 describe("截图诊断不泄露窗口身份", () => {
   it("窗口探测只打印数量、状态与几何", () => {
     const source = read("src-tauri/src/screenshot/backends.rs");

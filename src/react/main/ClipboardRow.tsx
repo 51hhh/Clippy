@@ -1,5 +1,5 @@
 import { Copy, Ellipsis, Image, Star, Trash2 } from "lucide-react";
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { getClipThumbnail, type ClipItem } from "../../js/api.ts";
 import { formatRelativeTime, formatSize } from "../../js/clipboard/formatters.js";
 import { t } from "../shared/i18n";
@@ -47,6 +47,8 @@ export const ClipboardRow = memo(function ClipboardRow({
   favoriteMode,
   handlers,
 }: Props) {
+  const rowRef = useRef<HTMLDivElement>(null);
+  const [nearViewport, setNearViewport] = useState(false);
   const [imageBase64, setImageBase64] = useState<string | null>(null);
   // 行里不显示内容类型（既不是 badge 也不进 meta）：后端 content_type 只有
   // text/html/image 三档，而右侧预览按内容嗅探，同一条会一边写 HTML 一边写 YAML。
@@ -57,15 +59,38 @@ export const ClipboardRow = memo(function ClipboardRow({
     : (clip.text_content || "");
 
   useEffect(() => {
+    if (clip.content_type !== "image") {
+      setNearViewport(false);
+      return;
+    }
+    const row = rowRef.current;
+    if (!row || typeof IntersectionObserver === "undefined") {
+      // 旧 WebKit 没有 IntersectionObserver 时保持原有行为，功能不能因优化而消失。
+      setNearViewport(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => setNearViewport(entry?.isIntersecting === true),
+      { root: row.closest(".clip-list"), rootMargin: "160px 0px" },
+    );
+    observer.observe(row);
+    return () => observer.disconnect();
+  }, [clip.content_type, clip.id]);
+
+  useEffect(() => {
     let cancelled = false;
-    if (clip.content_type !== "image") return;
+    if (clip.content_type !== "image" || !nearViewport) {
+      setImageBase64(null);
+      return;
+    }
     // 缩略图而不是原图：这一格是 48×48，取原图等于为了画 48 px 把几 MB 的 PNG
-    // 送进 webview 再全尺寸解码一次，而列表里可能同时有十几个图片条目。
+    // 送进 webview 再全尺寸解码一次。并且只保留视口附近的缩略图：最大历史量允许
+    // 10,000 条，滚过的每一张都常驻 base64 + 解码纹理会让面板内存只增不减。
     getClipThumbnail(clip.id)
       .then((value) => !cancelled && setImageBase64(value))
       .catch(() => undefined);
     return () => { cancelled = true; };
-  }, [clip.content_type, clip.id]);
+  }, [clip.content_type, clip.id, nearViewport]);
 
   const actions: Array<{ key: Action; label: string; icon: React.ReactNode }> = [
     { key: "copy", label: t("action.copy"), icon: <Copy size={16} /> },
@@ -79,6 +104,7 @@ export const ClipboardRow = memo(function ClipboardRow({
 
   return (
     <div
+      ref={rowRef}
       className={[
         "clip-row",
         focused ? "focused" : "",
