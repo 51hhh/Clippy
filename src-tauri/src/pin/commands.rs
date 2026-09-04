@@ -148,7 +148,7 @@ pub(crate) fn create_screenshot_pin(
 /// 后唯一可能失败的是建窗；失败路径会立刻移除条目，不留下半初始化状态。
 fn create_opened_image_pin(
     preview_png: Vec<u8>,
-    project: Option<(Vec<u8>, super::project::PinProject)>,
+    project: Option<(Vec<u8>, super::project::RuntimeProject)>,
     app_handle: &tauri::AppHandle,
     state: &AppState,
 ) -> Result<String, String> {
@@ -495,16 +495,19 @@ fn prepare_canvas_save(
             return Ok((png, to_disk));
         }
         let PinSource::Project {
+            source_png,
             preview_png,
             project,
-            ..
         } = &*entry.source
         else {
             return Err("只有未修改的导入工程可以复用合成预览".to_string());
         };
         let to_disk = match mode {
             PinCanvasSaveMode::Flat => preview_png.clone(),
-            PinCanvasSaveMode::Editable => super::project::embed(preview_png, project)?,
+            PinCanvasSaveMode::Editable => {
+                let materialized = project.materialize(source_png);
+                super::project::embed(preview_png, &materialized)?
+            }
         };
         return Ok((preview_png.clone(), to_disk));
     };
@@ -621,7 +624,7 @@ pub async fn open_pin_image_dialog(
 
 struct PreparedPinImage {
     preview_png: Vec<u8>,
-    project: Option<(Vec<u8>, super::project::PinProject)>,
+    project: Option<(Vec<u8>, super::project::RuntimeProject)>,
 }
 
 /// chooser 取消时直接返回 `None`，不读盘、不创建窗口、不接触 PinManager。
@@ -661,9 +664,8 @@ fn prepare_opened_png(
 ) -> Result<PreparedPinImage, String> {
     let project = match extracted {
         Some(project) => {
-            // `extract` 已做完整验证，这里只解 base64，不重复解码整张原图。
-            let source_png = project.decoded_source()?;
-            Some((source_png, project))
+            // `extract` 已做完整验证；进入运行时立即丢弃 base64 副本，只保留唯一原图字节。
+            Some(project.into_runtime()?)
         }
         None => None,
     };
@@ -1054,10 +1056,12 @@ mod project_command_tests {
             adjustments(),
         )
         .unwrap();
+        let (runtime_source, project) = project.into_runtime().unwrap();
+        assert_eq!(runtime_source, source);
         let entry = PinEntry {
             label: "pin-image-project-test".to_string(),
             source: Arc::new(PinSource::Project {
-                source_png: source.clone(),
+                source_png: runtime_source,
                 preview_png: preview.clone(),
                 project,
             }),
@@ -1093,6 +1097,7 @@ mod project_command_tests {
             adjustments(),
         )
         .unwrap();
+        let (source, project) = project.into_runtime().unwrap();
         let entry = PinEntry {
             label: "pin-image-pristine-project".to_string(),
             source: Arc::new(PinSource::Project {
@@ -1272,7 +1277,7 @@ mod project_command_tests {
         let reopened_again = prepare_open_selection(Some(second_path)).unwrap().unwrap();
         let (_, reopened_project) = reopened_again.project.unwrap();
         assert_eq!(
-            reopened_project.document.adjustments,
+            reopened_project.initial_payload().document.adjustments,
             second_document.adjustments
         );
 
