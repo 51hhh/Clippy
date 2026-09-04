@@ -240,7 +240,7 @@ pub(crate) fn toggle_main_window(handle: &tauri::AppHandle) {
     log::info!("全局快捷键触发 toggle_main_window");
     if let Some(window) = handle.get_webview_window("main") {
         if window.is_visible().unwrap_or(false) {
-            let _ = window.hide();
+            let _ = window_controller::hide_main_window(handle);
         } else {
             if let Some(state) = handle.try_state::<AppState>() {
                 state.paste_manager.capture_target();

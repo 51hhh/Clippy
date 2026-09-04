@@ -10,7 +10,7 @@ import * as i18n          from "../i18n/i18n.js";
 import { initUpdateModal, checkForUpdate } from "./update-modal.js";
 import {
   getConfig, getClips, onClipAdded, onClipRemoved, onConfigChanged,
-  hideCurrentWindow, onShortcutRegisterFailed, onPinCurrent, pinClip,
+  hideCurrentWindow, onShortcutRegisterFailed, onPinCurrent, onMainWindowWillHide, pinClip,
   openPinImageDialog,
 } from "./api.ts";
 import "../styles/themes.css";
@@ -83,6 +83,8 @@ whenReady(async () => {
     );
   });
 
+  await onMainWindowWillHide(releaseWindowMemory);
+
   await onPinCurrent(async () => {
     // 系统快捷键触发：面板真的握着焦点时 pin 焦点条目，否则问后端要最新一条。
     // 面板没焦点时留在状态里的"焦点行"是上一轮会话的残影，信它就会贴出上一张图
@@ -123,6 +125,8 @@ whenReady(async () => {
 });
 
 function tryHidePanel() {
+  // JS 自己发起 hide 时不会经过 Rust 的 will-hide 事件，先同步释放再隐藏。
+  releaseWindowMemory();
   void hideCurrentWindow();
 }
 
@@ -140,6 +144,10 @@ async function onWindowFocus() {
 
 function onWindowBlur() {
   if (previewPanel.isVisible() || codec.isVisible()) return; // 面板打开时不隐藏窗口
+  releaseWindowMemory();
+}
+
+function releaseWindowMemory() {
   clipboardList.releaseMemory();
   previewPanel.clearContent();
   translationStore.clear();

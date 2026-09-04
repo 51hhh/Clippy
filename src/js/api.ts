@@ -643,6 +643,11 @@ export function onPinCurrent(callback: () => void): Promise<UnlistenFn> {
   return listen<null>("pin-current", () => callback());
 }
 
+/** 原生层即将显式隐藏主窗口；blur 不一定发生，前端必须据此释放大快照。 */
+export function onMainWindowWillHide(callback: () => void): Promise<UnlistenFn> {
+  return listen<null>("main-window-will-hide", () => callback());
+}
+
 // -- 更新相关（懒加载，避免 settings 窗口因 plugin 未就绪而阻塞） --
 
 export interface AvailableUpdate {

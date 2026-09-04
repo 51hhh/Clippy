@@ -44,6 +44,7 @@ import {
   hideCurrentWindow,
   isAutostartEnabled,
   onClipAdded,
+  onMainWindowWillHide,
   onPasteFallback,
   pickScreenshotDirectory,
   runCaptureDiagnostics,
@@ -272,6 +273,21 @@ describe("typed IPC wrappers", () => {
 
     expect(listen).toHaveBeenCalledWith("paste-fallback", expect.any(Function));
     expect(callback).toHaveBeenCalledWith(outcome);
+  });
+
+  it("delivers explicit main-window hide notifications", async () => {
+    let listener;
+    listen.mockImplementation((_event, callback) => {
+      listener = callback;
+      return Promise.resolve(vi.fn());
+    });
+    const callback = vi.fn();
+
+    await onMainWindowWillHide(callback);
+    listener({ payload: null });
+
+    expect(listen).toHaveBeenCalledWith("main-window-will-hide", expect.any(Function));
+    expect(callback).toHaveBeenCalledOnce();
   });
 
   it("keeps current-window access behind the typed boundary", () => {
