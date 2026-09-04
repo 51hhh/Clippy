@@ -558,6 +558,12 @@ describe("移动焦点不重渲整份列表", () => {
 });
 
 describe("长列表不会持续解码屏外缩略图", () => {
+  it("工作区只挂载虚拟窗口内的行", () => {
+    const source = read("src/react/main/ClipboardWorkspace.tsx");
+    expect(source).toContain("clipboardVisibleRange");
+    expect(source).toMatch(/items\.slice\(virtualRange\.start, virtualRange\.end\)/);
+  });
+
   it("React 行按视口加载缩略图，并在离开视口后释放显示数据", () => {
     const source = read("src/react/main/ClipboardRow.tsx");
     expect(source).toContain("IntersectionObserver");

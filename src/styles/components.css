@@ -625,9 +625,11 @@
 /* ---------- 行 ---------- */
 .clip-row {
   position: relative;
-  /* 历史量可配置到 10,000；屏外行保留滚动几何，但跳过布局/绘制。旧 WebKit 会忽略。 */
+  box-sizing: border-box;
+  height: 77px;
+  /* 虚拟列表只挂载视口附近行；这两项继续减少 overscan 行的布局和绘制。 */
   content-visibility: auto;
-  contain-intrinsic-block-size: auto 76px;
+  contain-intrinsic-block-size: auto 77px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -635,6 +637,14 @@
   cursor: pointer;
   transition: background-color var(--transition-fast) ease;
   border-bottom: 1px solid var(--border);
+}
+.clip-row--image {
+  height: 87px;
+  contain-intrinsic-block-size: auto 87px;
+}
+.clip-list-virtual-content {
+  min-height: 100%;
+  box-sizing: border-box;
 }
 .clip-row:last-child { border-bottom: none; }
 

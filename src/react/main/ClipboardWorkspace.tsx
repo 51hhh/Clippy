@@ -1,10 +1,18 @@
 import { Clipboard, FolderOpen, Search } from "lucide-react";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { currentLocale } from "../../i18n/i18n.js";
 import { onPasteFallback, openPinImageDialog, type PasteOutcome } from "../../js/api.ts";
 import { t } from "../shared/i18n";
 import { clipboardStore } from "./clipboardStore";
 import { ClipboardRow, type ClipboardRowHandlers } from "./ClipboardRow";
+import { clipboardRowOffsets, clipboardVisibleRange } from "./clipboardVirtualization";
 
 /**
  * 行的回调表，模块级常量。
@@ -30,10 +38,18 @@ export function ClipboardWorkspace() {
     clipboardStore.getSnapshot,
   );
   const searchRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLElement>(null);
   const [openError, setOpenError] = useState(false);
   const [pasteFallback, setPasteFallback] = useState<PasteOutcome | null>(null);
+  const [viewport, setViewport] = useState({ scrollTop: 0, height: 600 });
   const items = snapshot.mode === "favorites" ? snapshot.favorites : snapshot.all;
   const navigation = snapshot.navigation;
+  const rowOffsets = useMemo(() => clipboardRowOffsets(items), [items]);
+  const virtualRange = clipboardVisibleRange(
+    rowOffsets,
+    viewport.scrollTop,
+    viewport.height,
+  );
   // 语言是渲染的隐式输入（`t()` 不是 props 的函数），所以要显式喂给被 memo 的行，
   // 否则 `refreshLabels()` 之后行内的按钮文案不会跟着换。
   const locale = currentLocale();
@@ -63,12 +79,40 @@ export function ClipboardWorkspace() {
     };
   }, []);
 
+  const syncViewport = useCallback((element: HTMLElement) => {
+    const next = { scrollTop: element.scrollTop, height: element.clientHeight || 600 };
+    setViewport((current) => (
+      current.scrollTop === next.scrollTop && current.height === next.height ? current : next
+    ));
+  }, []);
+
   useEffect(() => {
-    const focused = document.querySelector<HTMLElement>(
-      `.clip-row[data-idx="${snapshot.navigation.focusedRow}"]`,
-    );
-    focused?.scrollIntoView?.({ block: "nearest" });
-  }, [snapshot.navigation.focusedRow, snapshot.mode]);
+    const list = listRef.current;
+    if (!list) return;
+    syncViewport(list);
+    if (typeof ResizeObserver === "undefined") {
+      const update = () => syncViewport(list);
+      window.addEventListener("resize", update);
+      return () => window.removeEventListener("resize", update);
+    }
+    const observer = new ResizeObserver(() => syncViewport(list));
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [syncViewport]);
+
+  useEffect(() => {
+    const list = listRef.current;
+    const index = snapshot.navigation.focusedRow;
+    if (!list || index < 0 || index + 1 >= rowOffsets.length) return;
+    const rowTop = rowOffsets[index];
+    const rowBottom = rowOffsets[index + 1];
+    const viewportBottom = list.scrollTop + list.clientHeight;
+    if (rowTop < list.scrollTop) list.scrollTop = rowTop;
+    else if (rowBottom > viewportBottom) list.scrollTop = rowBottom - list.clientHeight;
+    syncViewport(list);
+    // 只在焦点或面板切换时校正；分页追加不能把用户从列表底部拉回焦点行。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot.navigation.focusedRow, snapshot.mode, syncViewport]);
 
   return (
     <>
@@ -89,31 +133,46 @@ export function ClipboardWorkspace() {
       </aside>
 
       <main
+        ref={listRef}
         id="clip-list"
         className="clip-list"
         role="listbox"
         aria-label={t("clipboard.history")}
         onScroll={(event) => {
           const element = event.currentTarget;
+          syncViewport(element);
           if (element.scrollTop + element.clientHeight >= element.scrollHeight - 50) {
             void clipboardStore.loadMore();
           }
         }}
       >
-        {items.map((clip, index) => (
-          <ClipboardRow
-            key={clip.id}
-            clip={clip}
-            index={index}
-            focused={navigation.focusedRow === index}
-            // 未获焦的行恒为 -1：否则在动作之间左右移动焦点会让每一行的 props 都变。
-            focusedAction={navigation.focusedRow === index ? navigation.focusedCol : -1}
-            expanded={navigation.expandedRow === clip.id}
-            favoriteMode={snapshot.mode === "favorites"}
-            locale={locale}
-            handlers={ROW_HANDLERS}
-          />
-        ))}
+        <div
+          className="clip-list-virtual-content"
+          role="presentation"
+          style={{
+            paddingTop: virtualRange.paddingTop,
+            paddingBottom: virtualRange.paddingBottom,
+          }}
+        >
+          {items.slice(virtualRange.start, virtualRange.end).map((clip, relativeIndex) => {
+            const index = virtualRange.start + relativeIndex;
+            return (
+              <ClipboardRow
+                key={clip.id}
+                clip={clip}
+                index={index}
+                totalCount={items.length}
+                focused={navigation.focusedRow === index}
+                // 未获焦的行恒为 -1：否则在动作之间左右移动焦点会让每一行的 props 都变。
+                focusedAction={navigation.focusedRow === index ? navigation.focusedCol : -1}
+                expanded={navigation.expandedRow === clip.id}
+                favoriteMode={snapshot.mode === "favorites"}
+                locale={locale}
+                handlers={ROW_HANDLERS}
+              />
+            );
+          })}
+        </div>
       </main>
 
       <div id="empty-state" className="empty-state" hidden={items.length > 0}>
