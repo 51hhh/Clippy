@@ -74,6 +74,9 @@ pub fn run() {
         // 冻结帧走 WebKit 原生资源管线，避免 16–33 MB RGBA 穿过 JS invoke 桥；
         // `get_capture_frame` 仍作为协议加载失败时的兼容兜底。
         .register_uri_scheme_protocol("capture-frame", capture::frame_protocol)
+        // 贴图 PNG 也走 WebKit 原生资源管线，避免 4K 图在 Rust/JSON/JS/Blob 间产生
+        // 多份瞬时副本。协议按 WebView label 隔离，补偿图用版本化 URL 二次换入。
+        .register_uri_scheme_protocol("pin-frame", pin::frame_protocol::handle)
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             app::shortcuts::on_second_instance(app, args, cwd);
         }))

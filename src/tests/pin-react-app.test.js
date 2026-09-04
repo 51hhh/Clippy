@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   startDraggingCurrentWindow: vi.fn(),
   pinApi: {
     get: vi.fn(),
+    imageUrl: vi.fn(),
     platform: vi.fn(),
     ready: vi.fn(),
     update: vi.fn(),
@@ -36,7 +37,6 @@ const payload = {
   label: "pin-image-test",
   kind: "text",
   text: "Pinned text",
-  imageBase64: null,
   contentWidth: 320,
   contentHeight: 180,
   scale: 1,
@@ -196,6 +196,9 @@ describe("React pin app", () => {
     i18n.init("en");
     for (const fn of Object.values(mocks.pinApi)) fn.mockReset();
     mocks.pinApi.ready.mockResolvedValue(undefined);
+    mocks.pinApi.imageUrl.mockImplementation(
+      (label, revision) => `http://pin-frame.localhost/${label}?revision=${revision}`,
+    );
     mocks.pinApi.platform.mockResolvedValue({
       capabilities: { always_on_top: { state: "available", reason: null } },
     });
@@ -285,17 +288,6 @@ describe("React pin app", () => {
    *    刚变清楚的图就退回去了。
    */
   it("swaps in the sharpened image and keeps it across later updates", async () => {
-    const urls = [];
-    const createObjectURL = vi.fn((blob) => {
-      const url = `blob:pin-${urls.length}`;
-      urls.push({ url, blob });
-      return url;
-    });
-    const revokeObjectURL = vi.fn();
-    vi.stubGlobal("URL", Object.assign(Object.create(URL), {
-      createObjectURL,
-      revokeObjectURL,
-    }));
     // `update_pin` 的应答只有可变字段，不带图片（见 `PinState`）。
     mocks.pinApi.update.mockImplementation(async (label, update) => ({
       label,
@@ -315,28 +307,24 @@ describe("React pin app", () => {
       ...payload,
       kind: "image",
       text: null,
-      imageBase64: TINY_PNG,
     });
     await act(async () => root.render(React.createElement(App)));
     await flush();
 
     const original = document.querySelector(".pin-media img")?.getAttribute("src");
-    expect(original).toBe("blob:pin-0");
+    expect(original).toBe("http://pin-frame.localhost/pin-image-test?revision=0");
 
-    await act(async () => deliver({ label: "pin-image-test", imageBase64: "c2hhcnA=" }));
+    await act(async () => deliver({ label: "pin-image-test", revision: 1 }));
     await flush();
     const sharpened = document.querySelector(".pin-media img")?.getAttribute("src");
-    expect(sharpened).toBe("blob:pin-1");
-    expect(revokeObjectURL).toHaveBeenCalledWith("blob:pin-0");
+    expect(sharpened).toBe("http://pin-frame.localhost/pin-image-test?revision=1");
 
     // 缩放一次：应答里没有图片，合并后仍然必须是清晰版那份
     await act(async () => document.querySelector('button[aria-label="Zoom in"]').click());
     await flushFrame();
     await flush();
     expect(document.querySelector(".pin-media img")?.getAttribute("src")).toBe(sharpened);
-    expect(createObjectURL).toHaveBeenCalledTimes(2);
-
-    vi.unstubAllGlobals();
+    expect(mocks.pinApi.imageUrl).toHaveBeenCalledTimes(2);
   });
 
   it("does not let an older failed resize replace a newer update", async () => {
@@ -402,7 +390,7 @@ describe("React pin app", () => {
   /**
    * 导出用的底图必须是**后端原图**，不是屏上那张。
    *
-   * payload 里的 imageBase64 优先是清晰度补偿版：按缓冲区分辨率渲染（2560x1440 的贴图
+   * `pin-frame` 的显示图优先是清晰度补偿版：按缓冲区分辨率渲染（2560x1440 的贴图
    * 会是 3413x1920）、并为"随后被合成器缩小"预先锐化过。拿它导出会存出一张大一圈、
    * 发硬的图，违反 `pin/resample.rs` 写的"复制与保存永远用原图"。
    */
@@ -412,8 +400,6 @@ describe("React pin app", () => {
       ...payload,
       kind: "image",
       text: null,
-      // 屏上那张（假装是补偿版）
-      imageBase64: TINY_PNG,
     });
     await act(async () => root.render(React.createElement(App)));
     await flush();
@@ -424,7 +410,7 @@ describe("React pin app", () => {
     await act(async () => [...document.querySelectorAll(".pin-close-prompt button")][0].click());
     await flush();
 
-    // 关键断言：导出向**后端**要了原图。屏上那张（payload 的 imageBase64，可能是
+    // 关键断言：导出向**后端**要了原图。屏上那张（`pin-frame`，可能是
     // 补偿版）绝不能当底图——jsdom 没有 canvas 2D 上下文，所以导出的后半段
     // （drawImage + toBlob）在这里走不完，那部分由 Rust 侧的往返测试与真机验证覆盖。
     expect(mocks.pinApi.sourceImage).toHaveBeenCalledWith("pin-image-test");
@@ -440,7 +426,6 @@ describe("React pin app", () => {
       ...payload,
       kind: "image",
       text: null,
-      imageBase64: TINY_PNG,
     });
     await act(async () => root.render(React.createElement(App)));
     await flush();
@@ -472,7 +457,6 @@ describe("React pin app", () => {
       ...payload,
       kind: "image",
       text: null,
-      imageBase64: TINY_PNG,
     });
     mocks.pinApi.sourceImage.mockResolvedValue(null);
     await act(async () => root.render(React.createElement(App)));
@@ -495,7 +479,6 @@ describe("React pin app", () => {
       ...payload,
       kind: "image",
       text: null,
-      imageBase64: TINY_PNG,
     });
     await act(async () => root.render(React.createElement(App)));
     await flush();
@@ -587,7 +570,6 @@ describe("React pin app", () => {
       ...payload,
       kind: "image",
       text: null,
-      imageBase64: TINY_PNG,
     });
     await act(async () => root.render(React.createElement(App)));
     await flush();
@@ -619,7 +601,6 @@ describe("React pin app", () => {
       ...payload,
       kind: "image",
       text: null,
-      imageBase64: TINY_PNG,
     });
     await act(async () => root.render(React.createElement(App)));
     await flush();
@@ -659,7 +640,6 @@ describe("React pin app", () => {
       ...payload,
       kind: "image",
       text: null,
-      imageBase64: TINY_PNG,
       initialProject: null,
     });
     await act(async () => root.render(React.createElement(App)));
@@ -699,7 +679,6 @@ describe("React pin app", () => {
       ...payload,
       kind: "image",
       text: null,
-      imageBase64: TINY_PNG,
       initialProject: {
         format: "clippy-pin-project",
         formatVersion: 2,
@@ -743,7 +722,6 @@ describe("React pin app", () => {
       ...payload,
       kind: "image",
       text: null,
-      imageBase64: TINY_PNG,
       initialProject: {
         format: "clippy-pin-project",
         formatVersion: 2,
@@ -785,7 +763,7 @@ describe("React pin app", () => {
 
   it("copies the latest composition and advances the saved revision even if clipboard writing warns", async () => {
     mocks.pinApi.saveCanvas.mockResolvedValue({ path: "/tmp/edited.png", clipboardWritten: false, clipboardError: "busy" });
-    mocks.pinApi.get.mockResolvedValue({ ...payload, kind: "image", text: null, imageBase64: TINY_PNG });
+    mocks.pinApi.get.mockResolvedValue({ ...payload, kind: "image", text: null });
     await act(async () => root.render(React.createElement(App)));
     await flush();
     await drawOneStroke();
@@ -824,7 +802,7 @@ describe("React pin app", () => {
   });
 
   it("separates editable save from privacy-safe flat export", async () => {
-    mocks.pinApi.get.mockResolvedValue({ ...payload, kind: "image", text: null, imageBase64: TINY_PNG });
+    mocks.pinApi.get.mockResolvedValue({ ...payload, kind: "image", text: null });
     await act(async () => root.render(React.createElement(App)));
     await flush();
     await drawOneStroke();

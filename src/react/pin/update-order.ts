@@ -12,8 +12,8 @@ export function shouldApplyPinUpdateResponse(
 /**
  * 把 `update_pin` 的轻量应答合并进手里的完整 payload。
  *
- * 应答故意不带 `imageBase64`/`text`（缩放时每帧一次，重编一遍图纯属浪费），所以内容字段
- * 只能来自本地那份。这样也顺带保证图片的 object URL 不会因为一次缩放被重建。
+ * 应答故意不带图片/`text`（缩放时每帧一次，重传一遍图纯属浪费），所以内容字段
+ * 只能来自本地那份。这样也顺带保证 `pin-frame` URL 不会因为一次缩放被重建。
  */
 export function mergePinState(
   current: PinPayload | null,

@@ -408,8 +408,8 @@ pub(super) fn flatten(png: &[u8]) -> Result<Vec<u8>, String> {
     encode_flattened(png)
 }
 
-/// 打开可编辑容器时只把 IDAT 重编码后的轻量预览送给 webview，不把内嵌原图再随
-/// `imageBase64` 复制一遍。
+/// 打开可编辑容器时只让 `pin-frame` 交付 IDAT 重编码后的轻量预览，不把内嵌原图
+/// 一起复制进显示路径。
 pub(super) fn flatten_container(png: &[u8]) -> Result<Vec<u8>, String> {
     validate_rendered_png_container(png)?;
     encode_flattened(png)

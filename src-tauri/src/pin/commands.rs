@@ -328,9 +328,6 @@ pub fn pin_ready(
     // 平台适配（置顶 + 缩放锁）在建窗时就做过了，这里只负责显示与摆位；
     // 重复调用会给 zoom-level 挂上第二个回调。
     reveal_pin_window(&app_handle, &window, &entry).map_err(|error| error.to_string())?;
-    // 图已经在屏上了，补偿结果（最大十几 MB）没人会再来取，扔掉它——贴图窗口可以开好几个，
-    // 留着就是每个窗口白占十几 MB 到关闭为止。见 `SharpenSlot::release`。
-    entry.sharpen.release();
     Ok(())
 }
 
@@ -405,8 +402,8 @@ pub fn save_pin(label: String, state: State<'_, AppState>) -> Result<String, Str
 
 /// 贴图的**原图**（base64 PNG），只供前端 Canvas 交互预览；v2 最终导出由后端读取同一可信原图。
 ///
-/// **为什么不能用屏上那张。** `get_pin_payload` 给前端的 `image_base64` 优先是清晰度
-/// 补偿版（见 `payload_from_entry`）：它按**缓冲区分辨率**渲染（2560x1440 的贴图会是
+/// **为什么不能用屏上那张。** `pin-frame` 给前端的显示图优先是清晰度补偿版
+/// （见 `spawn_sharpen`）：它按**缓冲区分辨率**渲染（2560x1440 的贴图会是
 /// 3413x1920），而且为"随后被合成器缩小 0.75"预先做了反投影锐化。那串字节只适合
 /// 贴到那一个窗口的那一块缓冲区里，单独看是偏大且过冲的。拿它当导出底图，存出来的
 /// 就是一张大一圈、发硬的图——这违反 `super::resample` 模块头写的
@@ -802,39 +799,22 @@ fn state_from_entry(entry: &PinEntry) -> PinState {
 }
 
 fn payload_from_entry(entry: PinEntry) -> Result<PinPayload, String> {
-    let (kind, text, image, can_save, initial_project) = match &*entry.source {
-        PinSource::Clip { item, image } => match item.content_type {
-            ContentType::Image => ("image", None, image.as_deref(), true, None),
+    let (kind, text, can_save, initial_project) = match &*entry.source {
+        PinSource::Clip { item, .. } => match item.content_type {
+            ContentType::Image => ("image", None, true, None),
             ContentType::Text | ContentType::Html => {
-                ("text", item.text_content.clone(), None, false, None)
+                ("text", item.text_content.clone(), false, None)
             }
         },
-        PinSource::Screenshot { png } => ("image", None, Some(png.as_slice()), true, None),
-        PinSource::Project {
-            preview_png,
-            project,
-            ..
-        } => (
-            "image",
-            None,
-            Some(preview_png.as_slice()),
-            true,
-            Some(project.initial_payload()),
-        ),
-    };
-    // 补偿赶上了就直接发清晰版，这样第一帧就是清楚的；没赶上发原图，
-    // 后台线程算完会走 `pin-image-sharpened` 补上（见 `SharpenSlot`）。
-    let sharpened = image.and(entry.sharpen.take_for_payload());
-    let image_base64 = match (&sharpened, image) {
-        (Some(sharp), _) => Some(STANDARD.encode(sharp.as_slice())),
-        (None, Some(png)) => Some(STANDARD.encode(png)),
-        (None, None) => None,
+        PinSource::Screenshot { .. } => ("image", None, true, None),
+        PinSource::Project { project, .. } => {
+            ("image", None, true, Some(project.initial_payload()))
+        }
     };
     Ok(PinPayload {
         label: entry.label,
         kind,
         text,
-        image_base64,
         content_width: entry.content_width,
         content_height: entry.content_height,
         scale: entry.scale,
@@ -860,7 +840,8 @@ const PIN_ALREADY_OPEN: &str = "pin-already-open";
 #[serde(rename_all = "camelCase")]
 struct PinImageSharpened {
     label: String,
-    image_base64: String,
+    /// 前端把版本号放进 `pin-frame` URL，既绕过 WebKit 缓存，也让协议知道这是补偿图请求。
+    revision: u8,
 }
 
 /// 在后台把贴图重新渲染成"缓冲区分辨率 + 已补偿"的版本。
@@ -898,8 +879,7 @@ fn spawn_sharpen(app_handle: &tauri::AppHandle, entry: &PinEntry) {
         let started = std::time::Instant::now();
         match super::resample::compensated_png_after_wait(png, geometry, || slot.is_cancelled()) {
             Ok(Some(bytes)) => {
-                let bytes = Arc::new(bytes);
-                let finish = slot.finish(&bytes);
+                let finish = slot.finish(bytes);
                 if finish == SharpenFinish::Cancelled {
                     log::debug!("{label} 在补偿期间已关闭，丢弃计算结果");
                     return;
@@ -925,7 +905,7 @@ fn spawn_sharpen(app_handle: &tauri::AppHandle, entry: &PinEntry) {
                 }
                 let payload = PinImageSharpened {
                     label: label.clone(),
-                    image_base64: STANDARD.encode(bytes.as_slice()),
+                    revision: 1,
                 };
                 match slot.publish_if_active(|| {
                     app_handle.emit_to(label.as_str(), PIN_IMAGE_SHARPENED, payload)
@@ -951,7 +931,7 @@ fn source_png(source: &PinSource) -> Option<&[u8]> {
 }
 
 /// 屏幕清晰度补偿必须基于用户当前看到的合成预览；工程 canonical source 只供画布使用。
-fn display_png(source: &PinSource) -> Option<&[u8]> {
+pub(super) fn display_png(source: &PinSource) -> Option<&[u8]> {
     match source {
         PinSource::Clip { image, .. } => image.as_deref(),
         PinSource::Screenshot { png } => Some(png),
@@ -1081,7 +1061,8 @@ mod project_command_tests {
         assert_eq!(source_png(&entry.source), Some(source.as_slice()));
         assert_eq!(display_png(&entry.source), Some(preview.as_slice()));
         let payload = payload_from_entry(entry).unwrap();
-        assert_eq!(payload.image_base64, Some(STANDARD.encode(preview)));
+        assert_eq!(payload.kind, "image");
+        assert!(payload.can_save);
         assert!(payload.initial_project.is_some());
     }
 
