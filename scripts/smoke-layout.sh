@@ -15,6 +15,7 @@ if [[ -z "$FIREFOX" || ( -z "$FFMPEG" && -z "$PYTHON_PIL" ) ]]; then
   exit 0
 fi
 
+mkdir -p "${ROOT_DIR}/src-tauri/target"
 ARTIFACT_DIR="$(mktemp -d "${ROOT_DIR}/src-tauri/target/layout-smoke.XXXXXX")"
 PROFILE_DIR="${ARTIFACT_DIR}/firefox-profile"
 SCREENSHOT="${ARTIFACT_DIR}/result.png"

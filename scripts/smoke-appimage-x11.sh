@@ -38,6 +38,7 @@ if [[ ! -x "$APPIMAGE" ]]; then
     exit 1
 fi
 
+mkdir -p "${ROOT_DIR}/src-tauri/target"
 ARTIFACT_DIR="$(mktemp -d "${ROOT_DIR}/src-tauri/target/appimage-x11-smoke.XXXXXX")"
 RUN_LOG="${ARTIFACT_DIR}/runner.log"
 mkdir -p "$ARTIFACT_DIR"/{home,runtime,config,data,cache,tmp}
