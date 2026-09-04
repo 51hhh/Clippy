@@ -129,6 +129,15 @@ let _renderers;
 let _visible = false;
 let _visibility;
 let _currentClipId = null;
+// 每轮 updatePreview 都递增。条目 id 不足以防竞态：同一 id 的重新渲染、延迟库加载
+// 与旧图片 onload 都可能在 DOM 已经清空后回来，因此所有异步延续必须同时持有此代次。
+let _renderGeneration = 0;
+
+function _isCurrentRender(clipId, generation) {
+  return _visible
+    && _currentClipId === clipId
+    && _renderGeneration === generation;
+}
 
 export function init({ onVisibilityChange } = {}) {
   _panelEl   = document.getElementById("preview-panel");
@@ -138,6 +147,10 @@ export function init({ onVisibilityChange } = {}) {
   _visibility = createPanelVisibilityController({
     apply: (visible) => {
       _visible = visible;
+      if (!visible) {
+        _renderGeneration += 1;
+        _currentClipId = null;
+      }
       _panelEl.classList.toggle("hidden", !visible);
       // 面板显隐是翻译面板"是否值得查历史"的唯一依据（apply 可能重复调用，接收方需幂等）
       onVisibilityChange?.(visible);
@@ -149,7 +162,7 @@ export function init({ onVisibilityChange } = {}) {
     badgeEl: _badgeEl,
     metaEl: _metaEl,
     getLibraries: () => ({ hljs, DOMPurify, marked }),
-    isCurrentClip: (clipId) => _currentClipId === clipId,
+    isCurrentRender: () => false,
   });
 
   // 拦截预览面板内的链接点击，防止 webview 导航丢失
@@ -164,7 +177,10 @@ export function init({ onVisibilityChange } = {}) {
 
 export async function toggle() {
   const requested = !_visible;
-  if (requested) _currentClipId = null;
+  if (requested) {
+    _renderGeneration += 1;
+    _currentClipId = null;
+  }
   try {
     await _visibility.request(requested);
   } catch (e) {
@@ -174,6 +190,7 @@ export async function toggle() {
 
 /** 清空预览内容，释放内存（窗口隐藏时调用） */
 export function clearContent() {
+  _renderGeneration += 1;
   _contentEl.innerHTML = "";
   _contentEl.className = "preview-content";
   _badgeEl.textContent = "";
@@ -198,15 +215,25 @@ let _debounceTimer = null;
 const DEBOUNCE_MS = 80;
 
 export function updatePreview(clip) {
+  const hadPendingUpdate = _debounceTimer !== null;
   clearTimeout(_debounceTimer);
+  _debounceTimer = null;
+  // 重复聚焦同一条目时保持正在进行的渲染；否则递增代次却被同 id 提前返回，
+  // 会把图片/OCR 停在半成品状态。
+  if (_visible && clip?.id === _currentClipId && !hadPendingUpdate) return;
+  const generation = ++_renderGeneration;
   if (!_visible || !clip) {
-    _doUpdatePreview(clip);
+    void _doUpdatePreview(clip, generation);
     return;
   }
-  _debounceTimer = setTimeout(() => _doUpdatePreview(clip), DEBOUNCE_MS);
+  _debounceTimer = setTimeout(() => {
+    _debounceTimer = null;
+    void _doUpdatePreview(clip, generation);
+  }, DEBOUNCE_MS);
 }
 
-async function _doUpdatePreview(clip) {
+async function _doUpdatePreview(clip, generation) {
+  if (generation !== _renderGeneration) return;
   if (!_visible || !clip) {
     _contentEl.innerHTML = "";
     _contentEl.className = "preview-content";
@@ -216,8 +243,8 @@ async function _doUpdatePreview(clip) {
     return;
   }
 
-  if (clip.id === _currentClipId) return;
   _currentClipId = clip.id;
+  const isCurrent = () => _isCurrentRender(clip.id, generation);
 
   const size = clip.byte_size;
   _metaEl.textContent = size > 1024
@@ -228,7 +255,7 @@ async function _doUpdatePreview(clip) {
   _contentEl.className = "preview-content";
 
   if (clip.content_type === "image") {
-    await _renderers.renderImage(clip);
+    await _renderers.renderImage(clip, isCurrent);
     return;
   }
 
@@ -240,12 +267,18 @@ async function _doUpdatePreview(clip) {
   const decision = classifyText(trimmed);
   if (decision) {
     if (decision.needsLibs) await ensureLibs();
-    _renderers[decision.renderer](...decision.args);
+    if (!isCurrent()) return;
+    if (decision.renderer === "renderUrlCard") {
+      _renderers.renderUrlCard(...decision.args, isCurrent);
+    } else {
+      _renderers[decision.renderer](...decision.args);
+    }
     return;
   }
 
   // 延迟加载渲染库（首次调用时初始化 hljs/marked/DOMPurify）
   await ensureLibs();
+  if (!isCurrent()) return;
 
   // 超大条目只画开头一段：几 MB 文本高亮出来的 DOM 有六位数节点，画完也滚不动。
   // 原文没动，复制/翻译/保存走的都是库里那份（见 preview/large-text.js）。
@@ -281,7 +314,7 @@ async function _doUpdatePreview(clip) {
   if (clip.content_type === "html") {
     try {
       const detail = await getClipDetail(clip.id);
-      if (_currentClipId !== clip.id) return; // 异步期间焦点已切换
+      if (!isCurrent()) return;
       if (detail.html_content) {
         // 富文本同样要限长：DOMPurify 要把整份 HTML 解析一遍。截断可能切在标签中间，
         // 而 DOMPurify 的解析器本来就负责补齐未闭合标签，不会漏出裸标签。
@@ -290,10 +323,14 @@ async function _doUpdatePreview(clip) {
         _noteTruncation(limitedHtml);
         return;
       }
-    } catch (_) { /* 回退到纯文本 */ }
+    } catch (_) {
+      if (!isCurrent()) return;
+      // 详情读取失败时仅当前代次可以回退到纯文本。
+    }
   }
 
   // 4. 纯文本
+  if (!isCurrent()) return;
   _renderers.renderPlainText(limited.body);
   _noteTruncation(limited);
 }

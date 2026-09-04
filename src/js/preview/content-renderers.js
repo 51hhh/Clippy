@@ -39,7 +39,7 @@ export function createContentRenderers({
   badgeEl,
   metaEl,
   getLibraries,
-  isCurrentClip,
+  isCurrentRender = () => true,
 }) {
   function renderMarkdown(text) {
     badgeEl.textContent = "MARKDOWN";
@@ -54,7 +54,7 @@ export function createContentRenderers({
     contentEl.innerHTML = getLibraries().DOMPurify.sanitize(html, PURIFY_CONFIG);
   }
 
-  function renderUrlCard(url) {
+  function renderUrlCard(url, isCurrent = isCurrentRender) {
     badgeEl.textContent = "URL";
     contentEl.classList.add("preview-content--url");
 
@@ -76,7 +76,7 @@ export function createContentRenderers({
 
     // 异步抓取 OG 元数据
     fetchUrlMeta(url).then(meta => {
-      if (contentEl.querySelector(".url-card") !== card) return; // 已切换
+      if (!isCurrent() || contentEl.querySelector(".url-card") !== card) return;
       loading.remove();
 
       if (meta.favicon) {
@@ -107,6 +107,7 @@ export function createContentRenderers({
         card.insertBefore(site, urlDisplay);
       }
     }).catch(() => {
+      if (!isCurrent()) return;
       loading.textContent = url;
     });
   }
@@ -117,16 +118,18 @@ export function createContentRenderers({
     contentEl.textContent = text;
   }
 
-  async function renderImage(clip) {
+  async function renderImage(clip, isCurrent = isCurrentRender) {
     badgeEl.textContent = "IMAGE";
     contentEl.classList.add("preview-content--image");
     try {
       const base64 = await getClipImage(clip.id);
+      if (!isCurrent()) return;
       if (base64) {
         const img = document.createElement("img");
         img.src = `data:image/png;base64,${base64}`;
         img.alt = "clipboard image";
         img.onload = () => {
+          if (!isCurrent()) return;
           metaEl.textContent = `${img.naturalWidth}×${img.naturalHeight} · ${
             clip.byte_size > 1024
               ? (clip.byte_size / 1024).toFixed(1) + " KB"
@@ -145,14 +148,19 @@ export function createContentRenderers({
         // 检查 OCR 是否已启用
         try {
           const config = await getConfig();
+          if (!isCurrent()) return;
           if (config.ocr_enabled === false) {
-            ocrArea.style.display = "none";
+            ocrArea.classList.add("preview-ocr-result--hidden");
             return;
           }
-        } catch (_) { /* 读取配置失败则继续 */ }
+        } catch (_) {
+          if (!isCurrent()) return;
+          // 读取配置失败则继续，保持预览 OCR 的默认行为。
+        }
 
         // 先检查 OCR 是否可用
         const available = await ocrAvailable().catch(() => false);
+        if (!isCurrent()) return;
         if (!available) {
           ocrText.textContent = t("action.ocrUnavailable");
           ocrArea.dataset.status = "unavailable";
@@ -162,20 +170,27 @@ export function createContentRenderers({
         ocrArea.dataset.status = "loading";
         ocrText.textContent = t("action.ocrProcessing");
 
-        // 异步识别
-        ocrImage(clip.id).then(async (text) => {
-          if (!isCurrentClip(clip.id)) return; // 焦点已切换
+        // 异步识别。每个异步边界都守住本次渲染代次，旧图片不得污染新预览，
+        // 也不得在切换后继续发起 OCR 或复制识别结果。
+        void ocrImage(clip.id).then(async (text) => {
+          if (!isCurrent()) return;
           if (text && text.trim()) {
             // 检查配置：clipboard 模式直接复制，preview 模式显示文字
             try {
               const config = await getConfig();
+              if (!isCurrent()) return;
               if (config.ocr_result_mode === "clipboard") {
                 await copyText(text);
+                if (!isCurrent()) return;
                 ocrText.textContent = "✓ " + t("settings.ocr.clipboard");
                 ocrArea.dataset.status = "done";
                 return;
               }
-            } catch (_) { /* 读取配置失败则默认 preview 模式 */ }
+            } catch (_) {
+              if (!isCurrent()) return;
+              // 读取配置失败则默认 preview 模式。
+            }
+            if (!isCurrent()) return;
             ocrText.textContent = text;
             ocrArea.dataset.status = "done";
           } else {
@@ -183,12 +198,13 @@ export function createContentRenderers({
             ocrArea.dataset.status = "empty";
           }
         }).catch(() => {
-          if (!isCurrentClip(clip.id)) return;
+          if (!isCurrent()) return;
           ocrText.textContent = t("action.ocrFailed");
           ocrArea.dataset.status = "error";
         });
       }
     } catch (e) {
+      if (!isCurrent()) return;
       contentEl.textContent = t("preview.imageLoadFailed");
       console.warn("预览图片加载失败:", e);
     }

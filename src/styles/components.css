@@ -438,6 +438,9 @@
   padding: 8px;
   background: var(--bg-secondary, #222);
 }
+.preview-ocr-result--hidden {
+  display: none;
+}
 .preview-ocr-result pre {
   font-size: 13px;
   white-space: pre-wrap;
@@ -459,6 +462,27 @@
   font-style: italic;
   user-select: none;
   cursor: default;
+}
+
+/* 只在原生拖放进入主窗口时出现；不提供常态导入按钮，也不拦截原生拖放事件。 */
+.pin-project-drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  pointer-events: none;
+  border: 2px dashed var(--accent);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+}
+.pin-project-drop-overlay[hidden] {
+  display: none;
 }
 .preview-ocr-hint {
   font-size: 11px;

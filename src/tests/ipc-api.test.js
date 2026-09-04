@@ -15,6 +15,7 @@ const {
     close: vi.fn(),
     hide: vi.fn(),
     startDragging: vi.fn(),
+    onDragDropEvent: vi.fn(),
   },
   enableAutostartPlugin: vi.fn(),
   disableAutostartPlugin: vi.fn(),
@@ -53,6 +54,8 @@ import {
   updateConfig,
   updatePin,
   copyPinCanvas,
+  onCurrentWindowDragDrop,
+  openPinProjectFile,
   savePinCanvas,
 } from "../js/api.ts";
 
@@ -63,6 +66,7 @@ describe("typed IPC wrappers", () => {
     currentWindow.close.mockReset();
     currentWindow.hide.mockReset();
     currentWindow.startDragging.mockReset();
+    currentWindow.onDragDropEvent.mockReset();
     enableAutostartPlugin.mockReset();
     disableAutostartPlugin.mockReset();
     isAutostartEnabledPlugin.mockReset();
@@ -297,6 +301,25 @@ describe("typed IPC wrappers", () => {
     expect(currentWindow.close).toHaveBeenCalledOnce();
     expect(currentWindow.hide).toHaveBeenCalledOnce();
     expect(currentWindow.startDragging).toHaveBeenCalledOnce();
+  });
+
+  it("keeps native project drop and project-open IPC behind the typed boundary", async () => {
+    const unlisten = vi.fn();
+    const callback = vi.fn();
+    let nativeCallback;
+    currentWindow.onDragDropEvent.mockImplementation((handler) => {
+      nativeCallback = handler;
+      return Promise.resolve(unlisten);
+    });
+
+    await expect(onCurrentWindowDragDrop(callback)).resolves.toBe(unlisten);
+    openPinProjectFile("/tmp/annotated.png");
+    const payload = { type: "drop", paths: ["/tmp/annotated.png"], position: { x: 0, y: 0 } };
+    nativeCallback({ payload });
+
+    expect(currentWindow.onDragDropEvent).toHaveBeenCalledWith(expect.any(Function));
+    expect(callback).toHaveBeenCalledWith(payload);
+    expect(invoke).toHaveBeenCalledWith("open_pin_project_file", { path: "/tmp/annotated.png" });
   });
 
   it("keeps autostart plugin access behind the typed boundary", () => {

@@ -144,11 +144,11 @@ pub(crate) fn create_screenshot_pin(
     Ok(label)
 }
 
-/// 从文件打开后的扁平图/工程创建贴图。所有读取和工程校验在调用前完成，因此插入 manager
+/// 从文件恢复出的可编辑工程创建贴图。所有读取和工程校验在调用前完成，因此插入 manager
 /// 后唯一可能失败的是建窗；失败路径会立刻移除条目，不留下半初始化状态。
-fn create_opened_image_pin(
+fn create_opened_project_pin(
     preview_png: Vec<u8>,
-    project: Option<(Vec<u8>, super::project::RuntimeProject)>,
+    project: (Vec<u8>, super::project::RuntimeProject),
     app_handle: &tauri::AppHandle,
     state: &AppState,
 ) -> Result<String, String> {
@@ -161,13 +161,11 @@ fn create_opened_image_pin(
     let label = format!("pin-image-{}", crate::image_io::unique_image_id());
     let (content_width, content_height) =
         fit_content_size(app_handle, f64::from(width), f64::from(height));
-    let source = match project {
-        Some((source_png, project)) => PinSource::Project {
-            source_png,
-            preview_png,
-            project,
-        },
-        None => PinSource::Screenshot { png: preview_png },
+    let (source_png, project) = project;
+    let source = PinSource::Project {
+        source_png,
+        preview_png,
+        project,
     };
     let entry = PinEntry {
         label: label.clone(),
@@ -578,94 +576,50 @@ fn decode_canvas_png(png_base64: &str) -> Result<Vec<u8>, String> {
     Ok(png)
 }
 
-/// 读一个 PNG 文件里的贴图工程数据。
-///
-/// 返回 `None` 表示"这是张普通图片"——没有工程块、块坏了、版本比当前新，三种情况对用户
-/// 都是同一件事：能看，不能继续编辑（见 `super::project::extract`）。
-///
-/// **异步**：要读盘 + 解一次 PNG（工程块里还有一张 base64 原图），不能压在 GTK 主线程上。
-///
-/// 路径来自用户（文件对话框 / 命令行 / 文件关联），所以这里是信任边界：只按文件读，
-/// 大小超限、不是 PNG、元数据坏掉都只是"读不出工程"，不会让调用方崩。
+/// 从主窗口拖入的单个文件恢复 Clippy 可编辑贴图工程。
+/// 普通 PNG、非 PNG 和不兼容工程返回 `None`，绝不作为普通贴图绕过剪贴板队列。
 #[tauri::command]
-pub async fn read_pin_project(path: String) -> Result<Option<super::project::PinProject>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let (_, project) = read_png_file_with_project(Path::new(&path))?;
-        Ok(project)
-    })
-    .await
-    .map_err(|error| error.to_string())?
-}
-
-/// 从主窗口选择 PNG 并创建贴图。取消返回 `None`；读取/验证/建窗任一步失败都不会遗留
-/// manager 条目或孤儿窗口。
-#[tauri::command]
-pub async fn open_pin_image_dialog(
+pub async fn open_pin_project_file(
+    path: String,
     app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Option<String>, String> {
-    let start = state.save_target().directory;
-    let dialog_handle = app_handle.clone();
-    let selected = tauri::async_runtime::spawn_blocking(move || {
-        crate::dialogs::choose_png(&dialog_handle, &start)
-    })
-    .await
-    .map_err(|error| format!("图片选择线程异常: {error}"))?;
-    let prepared = tauri::async_runtime::spawn_blocking(move || prepare_open_selection(selected))
-        .await
-        .map_err(|error| format!("图片读取线程异常: {error}"))?;
-    complete_open_selection(prepared, |prepared| {
-        create_opened_image_pin(prepared.preview_png, prepared.project, &app_handle, &state)
-    })
+    let prepared =
+        tauri::async_runtime::spawn_blocking(move || prepare_pin_project_file(Path::new(&path)))
+            .await
+            .map_err(|error| format!("工程读取线程异常: {error}"))??;
+    let Some(prepared) = prepared else {
+        return Ok(None);
+    };
+    create_opened_project_pin(prepared.preview_png, prepared.project, &app_handle, &state).map(Some)
 }
 
 struct PreparedPinImage {
     preview_png: Vec<u8>,
-    project: Option<(Vec<u8>, super::project::RuntimeProject)>,
+    project: (Vec<u8>, super::project::RuntimeProject),
 }
 
-/// chooser 取消时直接返回 `None`，不读盘、不创建窗口、不接触 PinManager。
-fn prepare_open_selection(
-    selected: Option<std::path::PathBuf>,
-) -> Result<Option<PreparedPinImage>, String> {
-    let Some(path) = selected else {
+fn prepare_pin_project_file(path: &Path) -> Result<Option<PreparedPinImage>, String> {
+    if !path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("png"))
+    {
         return Ok(None);
-    };
-    prepare_opened_image(&path).map(Some)
-}
-
-/// 打开流程的提交边界：取消或准备失败时绝不调用创建步骤；只有完整、已验证的图片才能
-/// 进入 PinManager 插入和原生窗口创建。把这一层收成纯函数，测试才能观察同一个 manager，
-/// 避免用一个从未传给被测函数的空 manager 写出恒真的“无残留”断言。
-fn complete_open_selection<F>(
-    prepared: Result<Option<PreparedPinImage>, String>,
-    create: F,
-) -> Result<Option<String>, String>
-where
-    F: FnOnce(PreparedPinImage) -> Result<String, String>,
-{
-    let Some(prepared) = prepared? else {
-        return Ok(None);
-    };
-    create(prepared).map(Some)
-}
-
-fn prepare_opened_image(path: &Path) -> Result<PreparedPinImage, String> {
+    }
     let (container, extracted) = read_png_file_with_project(path)?;
-    prepare_opened_png(container, extracted)
+    let Some(project) = extracted else {
+        return Ok(None);
+    };
+    prepare_opened_png(container, project).map(Some)
 }
 
 fn prepare_opened_png(
     container: Vec<u8>,
-    extracted: Option<super::project::PinProject>,
+    extracted: super::project::PinProject,
 ) -> Result<PreparedPinImage, String> {
-    let project = match extracted {
-        Some(project) => {
-            // `extract` 已做完整验证；进入运行时立即丢弃 base64 副本，只保留唯一原图字节。
-            Some(project.into_runtime()?)
-        }
-        None => None,
-    };
+    // `extract` 已做完整验证；进入运行时立即丢弃 base64 副本，只保留唯一原图字节。
+    let project = extracted.into_runtime()?;
     let preview_png = super::project::flatten_container(&container)?;
     Ok(PreparedPinImage {
         preview_png,
@@ -1193,7 +1147,7 @@ mod project_command_tests {
         let PreparedPinImage {
             preview_png,
             project,
-        } = prepare_open_selection(Some(first_path)).unwrap().unwrap();
+        } = prepare_pin_project_file(&first_path).unwrap().unwrap();
         assert_eq!(
             image::load_from_memory_with_format(&preview_png, image::ImageFormat::Png)
                 .unwrap()
@@ -1203,7 +1157,7 @@ mod project_command_tests {
                 .into_rgba8()
         );
 
-        let (source_png, restored_project) = project.unwrap();
+        let (source_png, restored_project) = project;
         assert_eq!(source_png, sample_png());
         let reopened_entry = PinEntry {
             label: "pin-image-round-trip-reopened".to_string(),
@@ -1255,8 +1209,8 @@ mod project_command_tests {
 
         let second_path = directory.path().join("second-editable.png");
         std::fs::write(&second_path, &second_editable).unwrap();
-        let reopened_again = prepare_open_selection(Some(second_path)).unwrap().unwrap();
-        let (_, reopened_project) = reopened_again.project.unwrap();
+        let reopened_again = prepare_pin_project_file(&second_path).unwrap().unwrap();
+        let (_, reopened_project) = reopened_again.project;
         assert_eq!(
             reopened_project.initial_payload().document.adjustments,
             second_document.adjustments
@@ -1282,18 +1236,7 @@ mod project_command_tests {
     }
 
     #[test]
-    fn cancelled_open_has_zero_manager_side_effects() {
-        let manager = super::super::manager::PinManager::new();
-        let result = complete_open_selection(prepare_open_selection(None), |_| {
-            manager.insert(screenshot_entry("pin-image-cancel-should-not-insert"))?;
-            Ok("pin-image-cancel-should-not-insert".to_string())
-        });
-        assert_eq!(result.unwrap(), None);
-        assert_eq!(manager.len(), 0);
-    }
-
-    #[test]
-    fn plain_v1_corrupt_and_future_projects_prepare_as_flat_images() {
+    fn plain_v1_corrupt_and_future_projects_are_not_opened() {
         let directory = tempfile::tempdir().unwrap();
         let variants = [
             sample_png(),
@@ -1313,28 +1256,20 @@ mod project_command_tests {
         for (index, container) in variants.into_iter().enumerate() {
             let path = directory.path().join(format!("variant-{index}.png"));
             std::fs::write(&path, container).unwrap();
-            let prepared = prepare_open_selection(Some(path)).unwrap().unwrap();
-            assert!(prepared.project.is_none());
-            assert_eq!(
-                super::super::project::extract(&prepared.preview_png).unwrap(),
-                None,
-                "flat 预览不能残留工程块"
-            );
+            assert!(prepare_pin_project_file(&path).unwrap().is_none());
         }
+
+        let non_png = directory.path().join("project.txt");
+        std::fs::write(&non_png, b"not read").unwrap();
+        assert!(prepare_pin_project_file(&non_png).unwrap().is_none());
     }
 
     #[test]
     fn invalid_oversized_and_unreadable_files_never_insert_entries() {
-        let manager = super::super::manager::PinManager::new();
         let directory = tempfile::tempdir().unwrap();
 
         let assert_prepare_failure = |path: std::path::PathBuf| {
-            let result = complete_open_selection(prepare_open_selection(Some(path)), |_| {
-                manager.insert(screenshot_entry("pin-image-invalid-should-not-insert"))?;
-                Ok("pin-image-invalid-should-not-insert".to_string())
-            });
-            assert!(result.is_err());
-            assert_eq!(manager.len(), 0);
+            assert!(prepare_pin_project_file(&path).is_err());
         };
 
         let invalid = directory.path().join("invalid.png");

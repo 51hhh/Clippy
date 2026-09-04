@@ -428,35 +428,6 @@ export interface PinCanvasSaveResult {
   clipboardError?: string | null;
 }
 
-/**
- * 从一张 PNG 里读回来的贴图工程（`read_pin_project`）。
- *
- * 拿不到就是 `null`：没有工程块、块坏了、版本比当前应用新——对用户都是同一件事，
- * 这张图能看但不能继续编辑。
- */
-export interface PinProject {
-  format: "clippy-pin-project";
-  formatVersion: 2 | 3;
-  rendererVersion: 1 | 2;
-  createdAt: number;
-  appVersion: string;
-  source: {
-    pngBase64: string;
-    width: number;
-    height: number;
-    sha256: string;
-  };
-  preview?: {
-    width: number;
-    height: number;
-    rgbaSha256: string;
-  };
-  document: {
-    annotations: unknown;
-    adjustments: unknown;
-  };
-}
-
 /** 后台算好的清晰版贴图。见 `pin/commands.rs` 的 `spawn_sharpen`。 */
 export interface PinImageSharpened {
   label: string;
