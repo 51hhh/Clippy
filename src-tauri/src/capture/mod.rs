@@ -363,8 +363,7 @@ pub async fn translate_capture_selection(
     .await
     .map_err(translation_ipc_error)?;
 
-    let source_text = run_translation_blocking(move || recognize_capture_text(&png))
-        .await
+    let source_text = normalize_ocr_text(crate::ocr::recognize_image(png).await)
         .map_err(translation_ipc_error)?;
     let translated = crate::translation::commands::translate_configured_text(
         state.translation.clone(),
@@ -403,10 +402,6 @@ where
     tauri::async_runtime::spawn_blocking(task)
         .await
         .map_err(|_| TranslationError::Internal)?
-}
-
-fn recognize_capture_text(png: &[u8]) -> Result<String, TranslationError> {
-    normalize_ocr_text(crate::ocr::recognize(png))
 }
 
 fn normalize_ocr_text(result: Result<String, String>) -> Result<String, TranslationError> {

@@ -2,13 +2,92 @@
 //! 通过命令行调用系统 tesseract，避免编译时动态链接依赖。
 //! tesseract 缺失时返回友好错误，不影响应用启动。
 
+use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
+use std::future::Future;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex, OnceLock};
+use tokio::sync::{oneshot, Semaphore};
 
 const TESSERACT_PATH_ENV: &str = "CLIPPY_TESSERACT_PATH";
+const OCR_MAX_CONCURRENCY: usize = 1;
+type OcrResult = Result<String, String>;
+
+struct OcrRuntime {
+    permits: Arc<Semaphore>,
+    in_flight: Mutex<HashMap<i64, Vec<oneshot::Sender<OcrResult>>>>,
+}
+
+impl OcrRuntime {
+    fn new(max_concurrency: usize) -> Self {
+        Self {
+            permits: Arc::new(Semaphore::new(max_concurrency)),
+            in_flight: Mutex::new(HashMap::new()),
+        }
+    }
+
+    async fn run_image<F, Fut>(&self, work: F) -> OcrResult
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = OcrResult>,
+    {
+        let _permit = self
+            .permits
+            .acquire()
+            .await
+            .map_err(|_| "OCR 并发控制器已关闭".to_string())?;
+        work().await
+    }
+
+    async fn run_clip<F, Fut>(&'static self, id: i64, work: F) -> OcrResult
+    where
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: Future<Output = OcrResult> + Send + 'static,
+    {
+        let (sender, receiver) = oneshot::channel();
+        let should_start = {
+            let mut in_flight = self
+                .in_flight
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            match in_flight.get_mut(&id) {
+                Some(waiters) => {
+                    waiters.push(sender);
+                    false
+                }
+                None => {
+                    in_flight.insert(id, vec![sender]);
+                    true
+                }
+            }
+        };
+        if should_start {
+            tauri::async_runtime::spawn(async move {
+                let result = self.run_image(work).await;
+                let waiters = self
+                    .in_flight
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .remove(&id)
+                    .unwrap_or_default();
+                for waiter in waiters {
+                    let _ = waiter.send(result.clone());
+                }
+            });
+        }
+        receiver
+            .await
+            .unwrap_or_else(|_| Err("OCR 任务意外结束".to_string()))
+    }
+}
+
+fn ocr_runtime() -> &'static OcrRuntime {
+    static RUNTIME: OnceLock<OcrRuntime> = OnceLock::new();
+    RUNTIME.get_or_init(|| OcrRuntime::new(OCR_MAX_CONCURRENCY))
+}
 
 fn push_unique(candidates: &mut Vec<PathBuf>, candidate: impl Into<PathBuf>) {
     let candidate = candidate.into();
@@ -122,11 +201,70 @@ fn probe_tesseract(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+#[derive(Default)]
+struct ExecutableCache {
+    state: Mutex<ExecutableCacheState>,
+}
+
+#[derive(Default)]
+struct ExecutableCacheState {
+    generation: u64,
+    value: Option<Option<PathBuf>>,
+}
+
+impl ExecutableCache {
+    fn resolve_with<F>(&self, mut resolver: F) -> Option<PathBuf>
+    where
+        F: FnMut() -> Option<PathBuf>,
+    {
+        loop {
+            let generation = {
+                let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+                if let Some(cached) = state.value.as_ref() {
+                    return cached.clone();
+                }
+                state.generation
+            };
+
+            // 探测会启动外部进程，不能占着同步锁阻塞其它查询或安装后的失效操作。
+            let resolved = resolver();
+            let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+            if state.generation != generation {
+                // 探测期间发生过安装/卸载，旧结果不得覆盖新一代缓存。
+                continue;
+            }
+            if let Some(cached) = state.value.as_ref() {
+                return cached.clone();
+            }
+            state.value = Some(resolved.clone());
+            return resolved;
+        }
+    }
+
+    fn invalidate(&self) {
+        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        state.generation = state.generation.wrapping_add(1);
+        state.value = None;
+    }
+}
+
+fn executable_cache() -> &'static ExecutableCache {
+    static CACHE: OnceLock<ExecutableCache> = OnceLock::new();
+    CACHE.get_or_init(ExecutableCache::default)
+}
+
 fn tesseract_executable() -> Option<PathBuf> {
-    first_available(
-        tesseract_candidates(env::var_os(TESSERACT_PATH_ENV)),
-        probe_tesseract,
-    )
+    executable_cache().resolve_with(|| {
+        first_available(
+            tesseract_candidates(env::var_os(TESSERACT_PATH_ENV)),
+            probe_tesseract,
+        )
+    })
+}
+
+/// 安装流程改变了外部工具状态，下一次查询必须重新探测。
+pub(crate) fn invalidate_executable_cache() {
+    executable_cache().invalidate();
 }
 
 /// 检查系统是否安装了可实际执行的 Tesseract。
@@ -156,7 +294,7 @@ fn missing_tesseract_message() -> &'static str {
 
 /// 对 PNG 图片字节进行 OCR 识别，返回文字内容。
 /// 通过 stdin 管道传入图片数据，stdout 获取识别结果。
-pub fn recognize(png_bytes: &[u8]) -> Result<String, String> {
+fn recognize(png_bytes: &[u8]) -> Result<String, String> {
     let executable =
         tesseract_executable().ok_or_else(|| missing_tesseract_message().to_string())?;
     let mut child = Command::new(executable)
@@ -167,6 +305,8 @@ pub fn recognize(png_bytes: &[u8]) -> Result<String, String> {
         .spawn()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
+                // 已缓存的文件可能在运行期间被卸载或替换，下次请求重新解析候选路径。
+                invalidate_executable_cache();
                 missing_tesseract_message().to_string()
             } else {
                 format!("启动 tesseract 失败: {}", e)
@@ -195,9 +335,38 @@ pub fn recognize(png_bytes: &[u8]) -> Result<String, String> {
     Ok(text)
 }
 
+/// 所有无 clip 身份的 OCR（例如截图选区）也必须经过同一全局资源门。
+pub(crate) async fn recognize_image(png_bytes: Vec<u8>) -> OcrResult {
+    ocr_runtime()
+        .run_image(move || async move {
+            tauri::async_runtime::spawn_blocking(move || recognize(&png_bytes))
+                .await
+                .map_err(|error| format!("OCR 线程异常: {error}"))?
+        })
+        .await
+}
+
+/// 按 clip ID 合并预览与翻译发起的识别，并共用全局资源门。
+pub(crate) async fn recognize_clip<F>(id: i64, png_bytes: Vec<u8>, cache: F) -> OcrResult
+where
+    F: FnOnce(&str) -> Result<(), String> + Send + 'static,
+{
+    ocr_runtime()
+        .run_clip(id, move || async move {
+            let text = tauri::async_runtime::spawn_blocking(move || recognize(&png_bytes))
+                .await
+                .map_err(|error| format!("OCR 线程异常: {error}"))??;
+            cache(&text)?;
+            Ok(text)
+        })
+        .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
 
     #[test]
     fn resolver_skips_broken_candidates_and_returns_the_executable_it_probed() {
@@ -240,5 +409,116 @@ mod tests {
     fn resolver_returns_none_when_every_probe_fails() {
         let resolved = first_available([PathBuf::from("missing")], |_| false);
         assert_eq!(resolved, None);
+    }
+
+    #[test]
+    fn executable_cache_caches_success_and_failure_until_invalidated() {
+        let cache = ExecutableCache::default();
+        let calls = AtomicUsize::new(0);
+        let resolve = || {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Some(PathBuf::from("working"))
+        };
+        assert_eq!(cache.resolve_with(resolve), Some(PathBuf::from("working")));
+        assert_eq!(cache.resolve_with(resolve), Some(PathBuf::from("working")));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        cache.invalidate();
+        assert_eq!(cache.resolve_with(|| None), None);
+        assert_eq!(cache.resolve_with(|| Some(PathBuf::from("late"))), None);
+        cache.invalidate();
+        assert_eq!(
+            cache.resolve_with(|| Some(PathBuf::from("late"))),
+            Some(PathBuf::from("late"))
+        );
+    }
+
+    #[test]
+    fn invalidation_during_probe_discards_the_old_generation_result() {
+        use std::sync::mpsc;
+
+        let cache = Arc::new(ExecutableCache::default());
+        let (started_tx, started_rx) = mpsc::channel();
+        let (resume_tx, resume_rx) = mpsc::channel();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let worker_cache = Arc::clone(&cache);
+        let worker_calls = Arc::clone(&calls);
+        let worker = std::thread::spawn(move || {
+            worker_cache.resolve_with(|| {
+                let call = worker_calls.fetch_add(1, Ordering::SeqCst);
+                if call == 0 {
+                    started_tx.send(()).unwrap();
+                    resume_rx.recv().unwrap();
+                    Some(PathBuf::from("old"))
+                } else {
+                    Some(PathBuf::from("new"))
+                }
+            })
+        });
+
+        started_rx.recv().unwrap();
+        cache.invalidate();
+        resume_tx.send(()).unwrap();
+        assert_eq!(worker.join().unwrap(), Some(PathBuf::from("new")));
+        assert_eq!(
+            cache.resolve_with(|| Some(PathBuf::from("wrong"))),
+            Some(PathBuf::from("new"))
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn same_clip_uses_one_in_flight_task() {
+        let runtime = Box::leak(Box::new(OcrRuntime::new(1)));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let first_calls = Arc::clone(&calls);
+        let first = runtime.run_clip(7, move || async move {
+            first_calls.fetch_add(1, Ordering::SeqCst);
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            Ok("shared".to_string())
+        });
+        let second_calls = Arc::clone(&calls);
+        let second = runtime.run_clip(7, move || async move {
+            second_calls.fetch_add(1, Ordering::SeqCst);
+            Ok("duplicate".to_string())
+        });
+        let (first, second) = tokio::join!(first, second);
+        assert_eq!(first.unwrap(), "shared");
+        assert_eq!(second.unwrap(), "shared");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn keyed_and_unkeyed_jobs_share_one_global_permit() {
+        let runtime = Box::leak(Box::new(OcrRuntime::new(1)));
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let work = |active: Arc<AtomicUsize>, peak: Arc<AtomicUsize>| async move {
+            let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+            peak.fetch_max(current, Ordering::SeqCst);
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            active.fetch_sub(1, Ordering::SeqCst);
+            Ok("ok".to_string())
+        };
+        let keyed = runtime.run_clip(1, {
+            let active = Arc::clone(&active);
+            let peak = Arc::clone(&peak);
+            move || work(active, peak)
+        });
+        let unkeyed = runtime.run_image({
+            let active = Arc::clone(&active);
+            let peak = Arc::clone(&peak);
+            move || work(active, peak)
+        });
+        let different_key = runtime.run_clip(2, {
+            let active = Arc::clone(&active);
+            let peak = Arc::clone(&peak);
+            move || work(active, peak)
+        });
+        let (keyed, unkeyed, different_key) = tokio::join!(keyed, unkeyed, different_key);
+        keyed.unwrap();
+        unkeyed.unwrap();
+        different_key.unwrap();
+        assert_eq!(peak.load(Ordering::SeqCst), 1);
     }
 }
