@@ -534,11 +534,6 @@ export function copyPinCanvas(label: string, project: PinCanvasProject): Promise
   return invoke<void>("copy_pin_canvas", { label, pngBase64: null, project });
 }
 
-/** 选择 PNG 并打开为贴图；取消返回 null。 */
-export function openPinImageDialog(): Promise<string | null> {
-  return invoke<string | null>("open_pin_image_dialog");
-}
-
 /**
  * 读一个 PNG 文件里的贴图工程数据。
  *

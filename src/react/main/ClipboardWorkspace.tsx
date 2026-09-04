@@ -1,4 +1,4 @@
-import { Clipboard, FolderOpen, Search } from "lucide-react";
+import { Clipboard, Search } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -8,7 +8,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { currentLocale } from "../../i18n/i18n.js";
-import { onPasteFallback, openPinImageDialog, type PasteOutcome } from "../../js/api.ts";
+import { onPasteFallback, type PasteOutcome } from "../../js/api.ts";
 import { t } from "../shared/i18n";
 import { clipboardStore } from "./clipboardStore";
 import { ClipboardRow, type ClipboardRowHandlers } from "./ClipboardRow";
@@ -39,7 +39,6 @@ export function ClipboardWorkspace() {
   );
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLElement>(null);
-  const [openError, setOpenError] = useState(false);
   const [pasteFallback, setPasteFallback] = useState<PasteOutcome | null>(null);
   const [viewport, setViewport] = useState({ scrollTop: 0, height: 600 });
   const items = snapshot.mode === "favorites" ? snapshot.favorites : snapshot.all;
@@ -57,12 +56,6 @@ export function ClipboardWorkspace() {
   useEffect(() => {
     if (snapshot.searchVisible) searchRef.current?.focus();
   }, [snapshot.searchVisible]);
-
-  useEffect(() => {
-    const onOpenError = () => setOpenError(true);
-    window.addEventListener("pin-image-open-error", onOpenError);
-    return () => window.removeEventListener("pin-image-open-error", onOpenError);
-  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -182,23 +175,6 @@ export function ClipboardWorkspace() {
         </span>
       </div>
 
-      <button
-        type="button"
-        className="open-image-button"
-        title={t("pin.openImageShortcut")}
-        onClick={() => {
-          setOpenError(false);
-          void openPinImageDialog().catch((reason) => {
-            console.warn("Open image failed:", reason);
-            setOpenError(true);
-          });
-        }}
-      >
-        <FolderOpen size={14} aria-hidden="true" />
-        <span>{t("pin.openImage")}</span>
-        <kbd>Ctrl+O</kbd>
-      </button>
-      {openError && <div className="open-image-error" role="alert">{t("pin.openImageFailed")}</div>}
       {pasteFallback && (
         <div className="paste-fallback" role="status" title={pasteFallback.detail ?? ""}>
           <span>

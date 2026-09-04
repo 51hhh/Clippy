@@ -53,7 +53,6 @@ import {
   updateConfig,
   updatePin,
   copyPinCanvas,
-  openPinImageDialog,
   savePinCanvas,
 } from "../js/api.ts";
 
@@ -96,7 +95,6 @@ describe("typed IPC wrappers", () => {
     savePinCanvas("pin-1", null, true, "editable", project);
     savePinCanvas("pin-1", null, false, "flat", null);
     copyPinCanvas("pin-1", project);
-    openPinImageDialog();
 
     expect(invoke).toHaveBeenNthCalledWith(1, "save_pin_canvas", {
       label: "pin-1",
@@ -117,7 +115,6 @@ describe("typed IPC wrappers", () => {
       pngBase64: null,
       project,
     });
-    expect(invoke).toHaveBeenNthCalledWith(4, "open_pin_image_dialog");
   });
 
   it("sends AppConfig through the stable newConfig argument", () => {
