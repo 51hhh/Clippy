@@ -9,7 +9,7 @@
   下一轮接管。
 - Pin React/手势专项：2 个文件、42 项通过；清晰度补偿换图会撤销旧 Blob URL，后续缩放不重建
   URL，显示 payload 的 base64 不再进入长期状态。
-- `cargo test`（沙箱外，允许 loopback）：444 通过、0 失败、10 个真实桌面/手动性能探针忽略；
+- `cargo test`（沙箱外，允许 loopback）：445 通过、0 失败、10 个真实桌面/手动性能探针忽略；
   覆盖层变更后又单独复跑冻结帧协议 2 项，全部通过。
 - `npx tsc --noEmit`：通过。
 - `npx vitest run`：44 个文件、840 项通过。
@@ -18,6 +18,14 @@
 - Canvas 导出像素 smoke：通过，探针像素 `0 208 0`。
 - 主窗口布局像素 smoke：通过，探针像素 `0 208 0`。
 - Vite production build：通过（1888 modules）。
+- `449571e` 三平台 CI：Windows 与 macOS 原生 `check/clippy/test` 通过；Ubuntu 22.04 的格式、
+  PipeWire 快路径基线、`check/clippy/test`、GNOME 扩展、前端测试、DOM/Xvfb、类型检查与生产构建
+  全部通过（Actions `33850790082`）。
+- `449571e` 原生 QA：Linux x64 的 deb/AppImage 构建、PipeWire 动态链接与校验通过；Windows x64
+  自签名 NSIS/MSI 通过；macOS Intel 与 Apple Silicon 的 Ad-Hoc 签名包通过；Ubuntu 24.04
+  下载同一份 Ubuntu 22 AppImage 并完成 X11 可视运行 smoke（Actions `33850955167`）。
+- 本地验证结束后执行 `cargo clean`，删除 11,942 个文件、11.7 GiB；根目录 `dist/` 同步删除，
+  两个构建输出路径均确认不存在。
 
 受限沙箱内的 16 个翻译测试因无法绑定本机 loopback 失败，Canvas/Layout smoke 也因无法连接
 Xvfb/Vite 本地端口失败；同一提交在沙箱外全部通过，因此这些不是产品回归。
@@ -69,6 +77,10 @@ async worker 和 UI 热路径。连续切换不同 Criterion target 时 Cargo �
   `<img>`，Canvas 保持浏览器默认 300×150 backing store；首次真正合成时才按冻结帧原生像素分配。
   3840×2160 + 2560×1600 两屏避免提前分配 49,111,040 字节（约 46.84 MiB）的 Canvas 像素，
   同时省掉首次 `drawImage`。切入合成使用 `useLayoutEffect`，避免先隐藏原图再出现空白帧。
+- 当前 `449571e` QA AppImage 在本机 Ubuntu 26.04/GNOME Wayland 的第二次独立启动中，进程组空闲
+  PSS 为 235,870 kB；连续 5 轮双屏截图后为 332,754 kB，连续 10 轮后为 334,242 kB。前五轮
+  建立约 94.6 MiB 的全屏 allocator 高水位，后五轮只增加约 1.45 MiB，没有按截图次数线性增长；
+  主进程、WebProcess 与 NetworkProcess 均持续存活且 Swap 为 0。
 
 ## 现场截图时序
 
@@ -77,14 +89,23 @@ async worker 和 UI 热路径。连续切换不同 Criterion target 时 Cargo �
   原生图片直显路径的直接依据。
 - 同一进程预热约 5 分钟后，双屏覆盖层降到约 0.55/0.81 秒（冻结帧 195 ms、建窗 127 ms、
   前端绘制 226/487 ms）。日志未出现新崩溃，但扩展屏冷首帧成本依旧显著。
+- 当前安装包确认为 `0.1.20`；14:44 重启后的第一轮双屏为 712/990 ms，仍使用逐屏 PipeWire
+  且没有缺帧或兜底。15:38 的 `GTK_IS_WIDGET` 断言在 Clippy、`update-notifier` 与 `cc-switch`
+  同一秒共同出现；内核日志没有 OOM、segfault 或 systemd-coredump 记录，因此只能归为桌面级
+  GTK 状态切换线索，不能据此宣称 Clippy 崩溃或已经定位黑屏根因。
+- 从 Actions 下载并校验 `449571e` QA AppImage 后，在本机 Ubuntu 26.04/GNOME Wayland 两次启动
+  共连续测 15 轮。2560×1600 外接屏总时延中位数 504 ms、样本 P95 591 ms；3840×2160 主屏
+  中位数 622 ms、样本 P95 719 ms。全部使用逐屏 PipeWire，前端绘制 141–372 ms，没有缺帧、
+  首帧超时、黑屏或 WebKit 崩溃。临时解包运行漏传 Xwayland `XAUTHORITY`，因此动作提交到剪贴板
+  会失败；这不影响已完整执行的冻结帧、建窗、资源协议与首绘计时，测试后系统 deb 已恢复运行。
 - 隔离 Xvfb 中默认快捷键可以注册并触发；虚拟服务器没有 Mutter/wlroots/Portal 输出，最终在
   `xcap` 捕获前置阶段返回“无法捕获显示器”，因此它不能替代真实 GNOME Wayland 的整链路截图。
   覆盖层显示、Canvas 切换及像素导出由 840 项前端测试与三组 Xvfb 冒烟继续兜底。
 
 ## 仍需实机覆盖
 
-- 未中断用户当前运行的正式实例，因此本轮未取得“本次未提交二进制”在真实 GNOME Wayland
-  连续 Pin/截图后的独立 PSS 曲线；新路径需要下一份安装包继续采集冷/热时序。
+- 当前提交已取得真实 GNOME Wayland 连续截图时序与 0/5/10 轮 PSS 曲线；尚未完成长时间图片列表
+  滚动、连续 Pin 打开/关闭，以及带正确 Xwayland 凭据的临时 AppImage 剪贴板动作压力曲线。
 - Rust 权威冻结帧、裁剪、标注、保存与 Pin 渲染器都未修改；协议尺寸、原图哈希、工程往返和
   合成像素测试继续通过，因此首帧直显不改变保存/复制/Pin 的原生分辨率。
-- Windows/macOS 行为以同代码 CI 为证，实际桌面交互仍应在下一次 native QA 构建中复核。
+- Windows/macOS 已生成并验证签名测试包；截图、粘贴、权限提示等实际桌面交互仍需对应机器手工复核。

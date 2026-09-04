@@ -3,8 +3,9 @@
 ## 范围与事实基线
 
 - 基线提交：`c9e3d68`（`release: v0.1.20`），分支 `dev`。
-- 已通过的自动化：Rust 441 项通过、10 项忽略；前端 839 项通过；DOM、Canvas 像素与布局
-  smoke 通过；Linux/Windows/macOS 发布流水线通过。
+- 发布基线自动化：Rust 441 项通过、10 项忽略；前端 839 项通过；DOM、Canvas 像素与布局
+  smoke 通过；Linux/Windows/macOS 发布流水线通过。审计结果截至 `449571e`，当前回归为 Rust
+  445 项通过、10 项忽略，前端 840 项通过。
 - 已通过的实机路径：GNOME Wayland、两块混合缩放显示器连续截图；覆盖层首帧约
   0.56–0.87 秒，没有黑屏、缺帧或 WebKit 崩溃。
 - 当前构建产物已清理，`target/` 与前端 `dist/` 均不存在；后续验证会重新产生，结束时再清理。
@@ -15,8 +16,8 @@
 | --- | --- | --- | --- |
 | 剪贴板监听/写回 | `clipboard_watcher*`、`clipboard_content*`、`clipboard_writer*` | Rust 单测、前端 IPC 测试 | 长时间图片轮询 CPU/RSS |
 | 历史、搜索、收藏、删除 | `storage*`、`commands/clipboard.rs`、React `main/` | SQLite/FTS 单测、React 测试 | 大库查询延迟 |
-| 图片缩略图/预览 | `get_clip_thumbnail`、`get_clip_image`、`ClipboardRow.tsx` | 缓存边界与回归守卫 | 并发冷缓存的 runtime 阻塞 |
-| 快捷键/托盘/窗口 | `gsettings_shortcuts*`、`portal_shortcuts*`、`tray_icon*`、`window*` | Rust 单测、Linux 实机 | Windows/macOS 实机边界 |
+| 图片缩略图/预览 | `get_clip_thumbnail`、`get_clip_image`、`ClipboardRow.tsx` | 两路冷解码上限、缓存边界与回归守卫 | 大图库滚动 PSS/帧时间 |
+| 快捷键/托盘/窗口 | `gsettings_shortcuts*`、`portal_shortcuts*`、`tray_icon*`、`window*` | Rust 单测、Linux 实机、移动事件压力守卫 | Windows/macOS 实机边界 |
 | 自动粘贴 | `paste*`、主窗口 React facade | Rust/前端测试 | 各桌面目标应用实机 |
 | 截图/选区/编辑 | `screenshot*`、`capture*`、React `capture/` | 像素测试、Wayland 双屏实机 | X11、Windows、macOS 实机 |
 | Pin/画布/保存 | `pin*`、React `pin/` | Rust 往返/像素测试、React 测试 | 重复开关 Pin 的 PSS 曲线 |
@@ -68,4 +69,16 @@ Pin 白留数 MiB 到十余 MiB。显示 URL 建好后立刻把 payload 瘦身�
 - 链接预览缓存原先只在读取时忽略 7 天前的记录，却不删除旧行；现改为写入时清除过期行并保留
   最近 512 条，避免长期复制不同链接造成 SQLite 文件单向增长。
 
-以上只是第一轮静态审计结论；压力实验与其余模块 findings 在验证后继续补充。
+## 已评估、暂不在本轮冒险改动
+
+- Pin 首图与迟到的清晰度补偿图仍以 base64 跨 Rust→WebView 边界；本轮已消除解码后的长期持有，
+  但编码、JS 字符串、`atob` 字符串与 Blob 字节仍会造成短暂峰值。若继续优化，应像截图冻结帧一样
+  设计带 label/revision 校验的本地资源协议，不能直接删除补偿事件或拿屏上图替代权威原图。
+- `CaptureManager::render_input` 会在提交动作时复制被选显示器的完整 RGBA，随后才在 blocking worker
+  裁选区并合成；4K 单屏的短暂重复约 31.6 MiB。直接提前 `take` 会破坏“提交失败仍能唯一认领并
+  恢复会话”以及并发新截图的竞态约束，因此需要新增 finalizing 状态机和压力测试后再改。它不在
+  覆盖层首帧路径上，也不是常驻泄漏，本轮不以未经验证的生命周期重构换取峰值数字。
+
+以上结论已覆盖主要缓存、线程、监听器和大对象生命周期，并已补测当前提交的真实 GNOME 双屏
+截图与 0/5/10 轮 PSS。剩余风险集中在长时间图片列表滚动与重复 Pin PSS 曲线；不把 CI 构建成功
+等同于 Windows/macOS 实际桌面交互已经通过。
