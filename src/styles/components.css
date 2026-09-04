@@ -637,6 +637,7 @@
   cursor: pointer;
   transition: background-color var(--transition-fast) ease;
   border-bottom: 1px solid var(--border);
+  overflow: hidden;
 }
 .clip-row--image {
   height: 87px;

@@ -110,9 +110,9 @@ export function ClipboardWorkspace() {
     if (rowTop < list.scrollTop) list.scrollTop = rowTop;
     else if (rowBottom > viewportBottom) list.scrollTop = rowBottom - list.clientHeight;
     syncViewport(list);
-    // 只在焦点或面板切换时校正；分页追加不能把用户从列表底部拉回焦点行。
+    // 只在焦点、面板或查询切换时校正；分页追加不能把用户从列表底部拉回焦点行。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [snapshot.navigation.focusedRow, snapshot.mode, syncViewport]);
+  }, [snapshot.navigation.focusedRow, snapshot.mode, snapshot.query, syncViewport]);
 
   return (
     <>
