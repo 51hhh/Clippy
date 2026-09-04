@@ -1,4 +1,5 @@
-import React from "react";
+import React, { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -12,6 +13,7 @@ vi.mock("../js/api.ts", () => ({
 }));
 
 import * as i18n from "../i18n/i18n.js";
+import { getClipThumbnail } from "../js/api.ts";
 import { ClipboardRow } from "../react/main/ClipboardRow.tsx";
 import { ClipboardWorkspace } from "../react/main/ClipboardWorkspace.tsx";
 
@@ -94,5 +96,60 @@ describe("React clipboard row", () => {
     expect(html).not.toContain("clip-row-html-badge");
     expect(html).not.toContain("HTML");
     expect(html).toMatch(/clip-row-meta[^>]*>5 B ·/);
+  });
+
+  it("loads image thumbnails near the viewport and releases them offscreen", async () => {
+    let deliverIntersection;
+    let observedRow;
+    let observerOptions;
+    const disconnect = vi.fn();
+    class FakeIntersectionObserver {
+      constructor(callback, options) {
+        deliverIntersection = (isIntersecting) => callback([{ isIntersecting }]);
+        observerOptions = options;
+      }
+
+      observe(row) {
+        observedRow = row;
+      }
+
+      disconnect() {
+        disconnect();
+      }
+    }
+    vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
+    vi.mocked(getClipThumbnail).mockResolvedValue("thumbnail-bytes");
+
+    const container = document.createElement("div");
+    container.className = "clip-list";
+    document.body.append(container);
+    const root = createRoot(container);
+
+    try {
+      await act(async () => root.render(React.createElement(ClipboardRow, {
+        clip: clip({ id: 42, content_type: "image", byte_size: 1024 }),
+        ...props(),
+      })));
+
+      const row = container.querySelector(".clip-row");
+      expect(observedRow).toBe(row);
+      expect(observerOptions).toEqual({ root: container, rootMargin: "160px 0px" });
+      expect(getClipThumbnail).not.toHaveBeenCalled();
+
+      await act(async () => deliverIntersection(true));
+      expect(getClipThumbnail).toHaveBeenCalledOnce();
+      expect(getClipThumbnail).toHaveBeenCalledWith(42);
+      expect(container.querySelector(".clip-row-thumb-img")?.getAttribute("src"))
+        .toBe("data:image/png;base64,thumbnail-bytes");
+
+      await act(async () => deliverIntersection(false));
+      expect(container.querySelector(".clip-row-thumb-img")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      vi.unstubAllGlobals();
+    }
+
+    expect(disconnect).toHaveBeenCalledOnce();
   });
 });
