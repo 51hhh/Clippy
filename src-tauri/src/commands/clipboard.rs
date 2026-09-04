@@ -199,14 +199,20 @@ pub async fn request_paste_permission(state: State<'_, AppState>) -> Result<Past
 ///
 /// `async`：同步命令跑在 GTK 主线程上，而这条路要读一个几 MB 的 blob 再 base64 编一遍
 /// （4 MB 的图约 3 ms，还要多分配 33% 的内存）。打开面板时前端会为每个图片条目各发一次，
-/// 十几条串起来就是主线程上一段肉眼可见的卡顿。挪到异步 runtime 上之后 UI 线程不参与。
+/// 十几条串起来就是主线程上一段肉眼可见的卡顿。阻塞工作必须进 blocking pool：只把函数
+/// 声明成 `async` 仍会占住 Tauri runtime worker，和其他异步命令争执行线程。
 #[tauri::command]
 pub async fn get_clip_image(id: i64, state: State<'_, AppState>) -> Result<Option<String>, String> {
-    let data = {
-        let storage = state.storage.lock().map_err(|e| e.to_string())?;
-        storage.get_clip_image(id).map_err(|e| e.to_string())?
-    };
-    Ok(data.map(|bytes| STANDARD.encode(&bytes)))
+    let storage = std::sync::Arc::clone(&state.storage);
+    tauri::async_runtime::spawn_blocking(move || -> Result<Option<String>, String> {
+        let data = {
+            let storage = storage.lock().map_err(|e| e.to_string())?;
+            storage.get_clip_image(id).map_err(|e| e.to_string())?
+        };
+        Ok(data.map(|bytes| STANDARD.encode(&bytes)))
+    })
+    .await
+    .map_err(|error| format!("读取剪贴板原图线程异常: {error}"))?
 }
 
 /// 列表行缩略图的最长边（像素）。行里那一格是 48 CSS px，2x 屏上 96 物理像素，
@@ -233,16 +239,23 @@ pub async fn get_clip_thumbnail(
     if let Some(hit) = thumbnail_cache().get(id) {
         return Ok(Some(hit));
     }
-    let data = {
-        let storage = state.storage.lock().map_err(|e| e.to_string())?;
-        storage.get_clip_image(id).map_err(|e| e.to_string())?
-    };
-    let Some(png) = data else {
-        return Ok(None);
-    };
-    let encoded = STANDARD.encode(crate::image_io::thumbnail_png(&png, THUMBNAIL_MAX_EDGE)?);
-    thumbnail_cache().put(id, encoded.clone());
-    Ok(Some(encoded))
+    let storage = std::sync::Arc::clone(&state.storage);
+    tauri::async_runtime::spawn_blocking(move || -> Result<Option<String>, String> {
+        // 数据库 blob、整图 PNG 解码、缩放与重编码都是阻塞/CPU 工作。冷缓存同时出现多张
+        // 图片时不能占满 Tauri async worker，否则设置、翻译等无关异步命令也会一起迟钝。
+        let data = {
+            let storage = storage.lock().map_err(|e| e.to_string())?;
+            storage.get_clip_image(id).map_err(|e| e.to_string())?
+        };
+        let Some(png) = data else {
+            return Ok(None);
+        };
+        let encoded = STANDARD.encode(crate::image_io::thumbnail_png(&png, THUMBNAIL_MAX_EDGE)?);
+        thumbnail_cache().put(id, encoded.clone());
+        Ok(Some(encoded))
+    })
+    .await
+    .map_err(|error| format!("生成剪贴板缩略图线程异常: {error}"))?
 }
 
 fn thumbnail_cache() -> &'static ThumbnailCache {
