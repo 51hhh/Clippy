@@ -76,6 +76,15 @@ function selectionRect() {
 
 const button = (label) => document.querySelector(`button[aria-label="${label}"]`);
 
+function protocolImage(width, height) {
+  const image = document.createElement("img");
+  Object.defineProperties(image, {
+    naturalWidth: { value: width },
+    naturalHeight: { value: height },
+  });
+  return image;
+}
+
 describe("capture overlay app", () => {
   let root;
 
@@ -102,10 +111,9 @@ describe("capture overlay app", () => {
     };
     for (const fn of Object.values(mocks.overlayApi)) fn.mockReset();
     mocks.overlayApi.ready.mockResolvedValue(undefined);
-    mocks.overlayApi.image.mockResolvedValue({
-      naturalWidth: basePayload.pixelWidth,
-      naturalHeight: basePayload.pixelHeight,
-    });
+    mocks.overlayApi.image.mockResolvedValue(
+      protocolImage(basePayload.pixelWidth, basePayload.pixelHeight),
+    );
     mocks.overlayApi.frame.mockResolvedValue(
       new ArrayBuffer(basePayload.pixelWidth * basePayload.pixelHeight * 4),
     );
@@ -121,10 +129,7 @@ describe("capture overlay app", () => {
   async function mount(overrides = {}) {
     const payload = { ...basePayload, ...overrides };
     mocks.overlayApi.get.mockResolvedValue(payload);
-    mocks.overlayApi.image.mockResolvedValue({
-      naturalWidth: payload.pixelWidth,
-      naturalHeight: payload.pixelHeight,
-    });
+    mocks.overlayApi.image.mockResolvedValue(protocolImage(payload.pixelWidth, payload.pixelHeight));
     // raw IPC 是图像协议失败时的兜底，字节数仍必须正好是 4 × 像素数。
     mocks.overlayApi.frame.mockResolvedValue(
       new ArrayBuffer(payload.pixelWidth * payload.pixelHeight * 4),
@@ -133,9 +138,13 @@ describe("capture overlay app", () => {
     await flush();
   }
 
-  it("keeps the capture canvas at the monitor's native pixel size", async () => {
-    await mount({ logicalWidth: 100, logicalHeight: 50, pixelWidth: 300, pixelHeight: 150 });
+  it("shows the protocol image at native resolution without allocating the canvas first", async () => {
+    await mount({ logicalWidth: 100, logicalHeight: 50, pixelWidth: 320, pixelHeight: 180 });
+    const image = document.querySelector(".overlay-frame");
     const canvas = document.querySelector(".overlay-canvas");
+    expect([image.naturalWidth, image.naturalHeight]).toEqual([320, 180]);
+    expect(canvas.classList.contains("is-idle")).toBe(true);
+    // 浏览器默认尺寸仍是 300×150，说明首帧没有为冻结图调整/分配 Canvas backing store。
     expect([canvas.width, canvas.height]).toEqual([300, 150]);
   });
 
@@ -143,6 +152,19 @@ describe("capture overlay app", () => {
     await mount();
     expect(mocks.overlayApi.image).toHaveBeenCalledWith("capture-overlay-session-1-0");
     expect(mocks.overlayApi.frame).not.toHaveBeenCalled();
+  });
+
+  it("allocates and shows the native-size canvas only after a real image adjustment", async () => {
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 100, y: 80 });
+    await act(async () => button("Image").click());
+    await act(async () => document.querySelector(".overlay-toggle input").click());
+
+    const canvas = document.querySelector(".overlay-canvas");
+    expect(document.querySelector(".overlay-frame-host").classList.contains("is-composited"))
+      .toBe(true);
+    expect(canvas.classList.contains("is-idle")).toBe(false);
+    expect([canvas.width, canvas.height]).toEqual([basePayload.pixelWidth, basePayload.pixelHeight]);
   });
 
   it("falls back to raw IPC when the native image protocol is unavailable", async () => {
@@ -156,6 +178,7 @@ describe("capture overlay app", () => {
 
     expect(mocks.overlayApi.frame).toHaveBeenCalledWith("capture-overlay-session-1-0");
     expect(mocks.overlayApi.ready).toHaveBeenCalledTimes(1);
+    expect(document.querySelector(".overlay-canvas").classList.contains("is-idle")).toBe(false);
     expect(document.querySelector(".overlay-error")).toBeNull();
   });
 

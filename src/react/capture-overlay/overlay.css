@@ -3,8 +3,12 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; back
 button { font: inherit; }
 .overlay-root { position: relative; width: 100%; height: 100%; overflow: hidden; cursor: crosshair; font-family: Inter, system-ui, sans-serif; }
 .overlay-root.loading { background: #050505; }
-/* 冻结底图与标注画在这一块画布上：一次 drawScene 出一帧完整画面 */
+/* 原生协议的未编辑首帧直接显示已解码图片，避免额外分配一块 4K Canvas；真正编辑后才显示画布。 */
+.overlay-frame-host { position: absolute; inset: 0; }
+.overlay-frame-host.is-composited { visibility: hidden; }
+.overlay-frame { display: block; width: 100%; height: 100%; pointer-events: none; }
 .overlay-canvas { position: absolute; left: 0; top: 0; display: block; }
+.overlay-canvas.is-idle { visibility: hidden; }
 .overlay-shade { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.38); pointer-events: none; }
 .window-preview { position: absolute; z-index: 2; border: 2px solid #2f8cff; background: rgba(47, 140, 255, 0.12); pointer-events: none; }
 /*

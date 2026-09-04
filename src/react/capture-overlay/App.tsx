@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindowLabel } from "../../js/api.ts";
 import { drawScene } from "../annotation/canvasRenderer";
 import { type FrameImage, paintRgbaFrame, rgbaToFrameCanvas } from "../annotation/frameImage";
@@ -76,6 +76,7 @@ export function App() {
   const translationGeneration = useRef(0);
   const translateButtonRef = useRef<HTMLButtonElement>(null);
   const imageRef = useRef<FrameImage | null>(null);
+  const frameHostRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const activeDrag = useRef<"selection" | "canvas" | null>(null);
   const revealed = useRef(false);
@@ -163,6 +164,10 @@ export function App() {
             `capture frame size mismatch: ${image.naturalWidth}x${image.naturalHeight}`,
           );
         }
+        image.className = "overlay-frame";
+        image.draggable = false;
+        image.setAttribute("aria-hidden", "true");
+        frameHostRef.current?.replaceChildren(image);
         imageRef.current = image;
         setImageReady(true);
       })
@@ -173,6 +178,7 @@ export function App() {
       });
     return () => {
       cancelled = true;
+      frameHostRef.current?.replaceChildren();
       imageRef.current = null;
       setImageReady(false);
     };
@@ -233,6 +239,11 @@ export function App() {
   const draftAnnotation = canvas.draft && "annotation" in canvas.draft
     ? canvas.draft.annotation
     : null;
+  const needsComposite =
+    annotations.length > 0 ||
+    draftAnnotation !== null ||
+    selectedId !== null ||
+    hasImageAdjustments(adjustments);
 
   // 底图与标注画在这块画布上，因此标注相关的状态一变就要重绘。
   //
@@ -241,16 +252,17 @@ export function App() {
   // 虚线框留在画布上的话，等于每帧白做一次全图重采样。它们现在由 `.selection` 的
   // `outline` + `box-shadow` 画（overlay.css），合成器代价近似为零，
   // 于是"拖选区"这条最高频的交互引发的画布重绘次数是 0。
-  useEffect(() => {
+  useLayoutEffect(() => {
     const target = canvasRef.current;
     let image = imageRef.current;
     if (!target || !image || !imageReady) return;
-    const needsComposite =
-      annotations.length > 0 ||
-      draftAnnotation !== null ||
-      selectedId !== null ||
-      hasImageAdjustments(adjustments);
-    // setup effect 已经画好了未编辑首帧，不要紧接着再复制、再重画。
+    // 原生协议已经把无损冻结帧解成 <img>；未编辑时直接显示它，不再为了首帧额外分配并
+    // 填满一块同尺寸 Canvas。用户开始标注/调色后才走下面的合成路径。
+    if (image !== target && !needsComposite && !frameProtocolFailed) {
+      reveal();
+      return;
+    }
+    // 原始 RGBA 兜底已经把首帧直接写进最终 Canvas，不要紧接着再复制、再重画。
     if (image === target && !needsComposite) return;
     if (image === target) {
       if (!payload || !frameBuffer) return;
@@ -286,6 +298,7 @@ export function App() {
     annotations,
     draftAnnotation,
     frameBuffer,
+    frameProtocolFailed,
     imageReady,
     logicalHeight,
     logicalWidth,
@@ -293,6 +306,7 @@ export function App() {
     reveal,
     scale,
     selectedId,
+    needsComposite,
   ]);
 
   // 出错时也要把窗口显示出来，否则用户只看到截图"没反应"，错误提示压根没露面。
@@ -506,9 +520,13 @@ export function App() {
         setSelectedId(null);
       }}
     >
+      <div
+        ref={frameHostRef}
+        className={`overlay-frame-host${needsComposite ? " is-composited" : ""}`}
+      />
       <canvas
         ref={canvasRef}
-        className="overlay-canvas"
+        className={`overlay-canvas${!frameProtocolFailed && !needsComposite ? " is-idle" : ""}`}
         style={{ width: logicalWidth, height: logicalHeight }}
       />
       {!selection && <div className="overlay-shade" />}
