@@ -12,14 +12,16 @@
 - `cargo test`（沙箱外，允许 loopback）：447 通过、0 失败、10 个真实桌面/手动性能探针忽略；
   新增 `pin-frame` revision 解析 2 项与补偿槽所有权交接回归覆盖。
 - `npx tsc --noEmit`：通过。
-- 列表行为专项：5 项通过；图片行在进入 `160px` 预取区前不请求缩略图，进入后加载，离开后
-  释放图片节点，组件卸载时断开观察器。
-- `npx vitest run`：44 个文件、843 项通过。
+- 列表行为与窗口化专项：2 个文件、9 项通过；图片行在进入 `160px` 预取区前不请求缩略图，
+  进入后加载、离开后释放；10,000 条混合行高列表只挂载不足 20 行，滚到中段与键盘跳到末行
+  均保留真实索引及无障碍位置。
+- `npx vitest run`：45 个文件、848 项通过。
 - GNOME 扩展静态检查：Shell 45–51 通过。
 - DOM/Xvfb：9 项通过。
 - Canvas 导出像素 smoke：通过，探针像素 `0 208 0`。
-- 主窗口布局像素 smoke：通过，探针像素 `0 208 0`。
-- Vite production build：通过（1888 modules）。
+- 主窗口布局像素 smoke：通过，探针像素 `0 208 0`；真实 Firefox 同时确认文本行 77 px、
+  图片行 87 px，完整内容没有溢出固定行高。
+- Vite production build：通过（1889 modules）。
 - `449571e` 三平台 CI：Windows 与 macOS 原生 `check/clippy/test` 通过；Ubuntu 22.04 的格式、
   PipeWire 快路径基线、`check/clippy/test`、GNOME 扩展、前端测试、DOM/Xvfb、类型检查与生产构建
   全部通过（Actions `33850790082`）。
@@ -56,6 +58,10 @@ Xvfb/Vite 本地端口失败；同一提交在沙箱外全部通过，因此这�
 | 1080p base64 解码 | 1.273–1.274 ms |
 | 1440p PNG 完整校验 | 36.32–38.10 ms |
 
+长列表专项（同机 Node/jsdom，用于比较 React/DOM 规模而非替代 WebKit 实机数字）：旧实现一次挂载
+10,000 个完整 `ClipboardRow` 约 5.76 秒，堆增量约 2.03 GiB；窗口化后同一 10,000 条组件测试只
+挂载不足 20 行，单项测试约 72 ms。后者还覆盖中段滚动和焦点直接跳到第 10,000 条。
+
 结论：列表/搜索 SQLite 路径远低于 1 ms，不是当前交互瓶颈；图片全尺寸解码与编码才应隔离出
 async worker 和 UI 热路径。连续切换不同 Criterion target 时 Cargo 偶发复用到 release
 `panic=abort` 产物并报 unwind 不兼容；对单个包执行 `cargo clean --profile bench -p clippy-app`
@@ -78,8 +84,9 @@ async worker 和 UI 热路径。连续切换不同 Criterion target 时 Cargo �
 - Pin 显示图不再进入 JSON/JS：`pin-frame` 响应直接接管补偿 PNG 的 `Vec` 所有权；初始 URL
   revision=0，补偿晚到事件只带 revision=1。由此同时去掉 Rust base64、JSON 字符串、JS
   `atob`/`Uint8Array` 与 Blob URL 的瞬时链路；复制、保存和画布仍读取 canonical source。
-- 列表允许配置到 10,000 条，但屏外图片行现在会取消/释放缩略图 base64 与解码纹理；CSS
-  `content-visibility:auto` 保留完整滚动几何并跳过屏外行布局/绘制，旧 WebKit 则安全退回原行为。
+- 列表允许配置到 10,000 条，但 React 现在只挂载视口前后 320 px 的窗口；前后 padding 保留完整
+  滚动几何，文本/图片 77/87 px 行高由真实 Firefox 锁定。屏外图片行卸载时会取消/释放缩略图
+  base64 与解码纹理，`content-visibility:auto` 继续减少 overscan 行的布局/绘制。
 - 本轮把导入工程的常驻表示从“原图 PNG + 同源 base64 + 合成预览”改为“原图 PNG + 轻量元数据
   + 合成预览”。节省量精确为 `4 * ceil(source_png_len / 3)` 附近的 base64 字符串容量，具体取决
   于分配器容量取整；磁盘工程仍保持自包含。
@@ -122,8 +129,9 @@ async worker 和 UI 热路径。连续切换不同 Criterion target 时 Cargo �
 
 ## 仍需实机覆盖
 
-- 当前提交已取得真实 GNOME Wayland 连续截图 0/5/10 轮与连续 Pin 1/5 轮 PSS 曲线；尚未完成
-  长时间图片列表滚动和连续 Pin **关闭后**的 PSS 回收曲线。
+- 当前提交已取得真实 GNOME Wayland 连续截图 0/5/10 轮与连续 Pin 1/5 轮 PSS 曲线，并完成
+  10,000 条 React 窗口化压力与 Firefox 行高实测；尚未完成 WebKit 实机长时间图片滚动和连续
+  Pin **关闭后**的 PSS 回收曲线。
 - Rust 权威冻结帧、裁剪、标注、保存与 Pin 渲染器都未修改；协议尺寸、原图哈希、工程往返和
   合成像素测试继续通过，因此首帧直显不改变保存/复制/Pin 的原生分辨率。
 - Windows/macOS 已生成并验证签名测试包；截图、粘贴、权限提示等实际桌面交互仍需对应机器手工复核。

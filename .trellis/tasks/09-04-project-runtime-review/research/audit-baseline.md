@@ -4,8 +4,8 @@
 
 - 基线提交：`c9e3d68`（`release: v0.1.20`），分支 `dev`。
 - 发布基线自动化：Rust 441 项通过、10 项忽略；前端 839 项通过；DOM、Canvas 像素与布局
-  smoke 通过；Linux/Windows/macOS 发布流水线通过。当前 `3dbae20` 本机回归为 Rust 447 项通过、
-  10 项忽略，前端 843 项通过；核心代码 `d702407` 的 CI Check 与全平台 Native QA 均成功。
+  smoke 通过；Linux/Windows/macOS 发布流水线通过。当前 `f8ac057` 本机回归为 Rust 447 项通过、
+  10 项忽略，前端 848 项通过；核心代码 `d702407` 的 CI Check 与全平台 Native QA 均成功。
 - 已通过的实机路径：GNOME Wayland、两块混合缩放显示器连续截图；覆盖层首帧约
   0.56–0.87 秒，没有黑屏、缺帧或 WebKit 崩溃。
 - 当前构建产物已清理，`target/` 与前端 `dist/` 均不存在；后续验证会重新产生，结束时再清理。
@@ -16,7 +16,7 @@
 | --- | --- | --- | --- |
 | 剪贴板监听/写回 | `clipboard_watcher*`、`clipboard_content*`、`clipboard_writer*` | Rust 单测、前端 IPC 测试 | 长时间图片轮询 CPU/RSS |
 | 历史、搜索、收藏、删除 | `storage*`、`commands/clipboard.rs`、React `main/` | SQLite/FTS 单测、React 测试 | 大库查询延迟 |
-| 图片缩略图/预览 | `get_clip_thumbnail`、`get_clip_image`、`ClipboardRow.tsx` | 两路冷解码上限、缓存边界、屏外释放与回归守卫 | 大图库滚动 PSS/帧时间 |
+| 图片缩略图/预览 | `get_clip_thumbnail`、`ClipboardRow.tsx`、`clipboardVirtualization.ts` | 两路冷解码上限、10,000 条窗口化、屏外释放、Firefox 行高 | WebKit 大图库滚动 PSS/帧时间 |
 | 快捷键/托盘/窗口 | `gsettings_shortcuts*`、`portal_shortcuts*`、`tray_icon*`、`window*` | Rust 单测、Linux 实机、移动事件压力守卫 | Windows/macOS 实机边界 |
 | 自动粘贴 | `paste*`、主窗口 React facade | Rust/前端测试 | 各桌面目标应用实机 |
 | 截图/选区/编辑 | `screenshot*`、`capture*`、React `capture/` | 像素测试、Wayland 双屏实机 | X11、Windows、macOS 实机 |
@@ -59,13 +59,20 @@ base64 副本，并以往返、原图哈希与合成像素测试证明不损失�
 只取晚到补偿图，响应接管 `Vec<u8>` 所有权，不再经过 Rust base64、JSON、JS 解码与 Blob URL。
 画布、复制、保存继续单独向后端取 canonical source，不使用屏上补偿图。
 
+### 已修复：10,000 条历史全部常驻 DOM
+
+仅用 `content-visibility` 会跳过屏外绘制，却仍让 React 和 DOM 保留全部行；压力探针中一次挂载
+10,000 行约 5.76 秒并增加约 2.03 GiB jsdom 堆。现在根据文本/图片 77/87 px 行高计算前后 padding，
+只挂载视口前后 320 px 的窗口；中段滚动、末行键盘焦点、无限分页和 ARIA 总数/序号均有回归覆盖。
+真实 Firefox 已确认固定高度与实际内容不溢出，WebKit PSS/帧时间仍作为实机验证边界保留。
+
 ## 已检查且有界的生命周期
 
 - 后端缩略图缓存固定 64 条；Pin 原始位置注册表固定 16 条。
 - Pin 条目内容位于 `Arc<PinSource>`，滚轮缩放不复制大 PNG；窗口销毁时 manager、清晰化槽位和
   placement generation 均会清理。
-- React Pin 只持有 `pin-frame` URL；主列表失焦会清空数据快照与搜索定时器，屏外图片行同时释放
-  缩略图 base64 与解码纹理。
+- React Pin 只持有 `pin-frame` URL；主列表失焦会清空数据快照与搜索定时器，窗口化列表只挂载
+  视口附近行，屏外图片行同时释放缩略图 base64 与解码纹理。
 - 截图会话与后台清晰化任务带 generation/cancel 防护，不会把旧结果写入新窗口。
 - 链接预览缓存原先只在读取时忽略 7 天前的记录，却不删除旧行；现改为写入时清除过期行并保留
   最近 512 条，避免长期复制不同链接造成 SQLite 文件单向增长。
@@ -80,5 +87,5 @@ base64 副本，并以往返、原图哈希与合成像素测试证明不损失�
   覆盖层首帧路径上，也不是常驻泄漏，本轮不以未经验证的生命周期重构换取峰值数字。
 
 以上结论已覆盖主要缓存、线程、监听器和大对象生命周期，并已补测当前提交的真实 GNOME 双屏
-截图与 0/5/10 轮 PSS。剩余风险集中在长时间图片列表滚动与重复 Pin PSS 曲线；不把 CI 构建成功
-等同于 Windows/macOS 实际桌面交互已经通过。
+截图、0/5/10 轮 PSS 与 10,000 条窗口化列表。剩余风险集中在 WebKit 实机长时间图片滚动与
+Pin 关闭后 PSS 曲线；不把 CI 构建成功等同于 Windows/macOS 实际桌面交互已经通过。
