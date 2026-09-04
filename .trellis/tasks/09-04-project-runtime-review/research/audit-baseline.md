@@ -4,8 +4,8 @@
 
 - 基线提交：`c9e3d68`（`release: v0.1.20`），分支 `dev`。
 - 发布基线自动化：Rust 441 项通过、10 项忽略；前端 839 项通过；DOM、Canvas 像素与布局
-  smoke 通过；Linux/Windows/macOS 发布流水线通过。当前 `d702407` 回归为 Rust 447 项通过、
-  10 项忽略，前端 842 项通过；CI Check 与全平台 Native QA 均成功。
+  smoke 通过；Linux/Windows/macOS 发布流水线通过。当前 `3dbae20` 本机回归为 Rust 447 项通过、
+  10 项忽略，前端 843 项通过；核心代码 `d702407` 的 CI Check 与全平台 Native QA 均成功。
 - 已通过的实机路径：GNOME Wayland、两块混合缩放显示器连续截图；覆盖层首帧约
   0.56–0.87 秒，没有黑屏、缺帧或 WebKit 崩溃。
 - 当前构建产物已清理，`target/` 与前端 `dist/` 均不存在；后续验证会重新产生，结束时再清理。

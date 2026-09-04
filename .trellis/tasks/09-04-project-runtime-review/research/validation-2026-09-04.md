@@ -12,7 +12,9 @@
 - `cargo test`（沙箱外，允许 loopback）：447 通过、0 失败、10 个真实桌面/手动性能探针忽略；
   新增 `pin-frame` revision 解析 2 项与补偿槽所有权交接回归覆盖。
 - `npx tsc --noEmit`：通过。
-- `npx vitest run`：44 个文件、842 项通过。
+- 列表行为专项：5 项通过；图片行在进入 `160px` 预取区前不请求缩略图，进入后加载，离开后
+  释放图片节点，组件卸载时断开观察器。
+- `npx vitest run`：44 个文件、843 项通过。
 - GNOME 扩展静态检查：Shell 45–51 通过。
 - DOM/Xvfb：9 项通过。
 - Canvas 导出像素 smoke：通过，探针像素 `0 208 0`。
@@ -25,7 +27,7 @@
   自签名 NSIS/MSI 通过；macOS Intel 与 Apple Silicon 的 Ad-Hoc 签名包通过；Ubuntu 24.04
   下载同一份 Ubuntu 22 AppImage 并完成 X11 可视运行 smoke（Actions `33850955167`）。
 - `158da7f` 文档收口提交的 CI Check 已通过（Actions `33853135642`）。
-- 当前代码提交为 `e7c693b`（Pin 原生资源协议）与 `d702407`（屏外缩略图释放）；本机完整预检
+- 核心代码提交为 `e7c693b`（Pin 原生资源协议）与 `d702407`（屏外缩略图释放）；本机完整预检
   已通过。CI Check `33854814443` 的 Ubuntu 22.04、Windows、macOS 三组门禁全部成功；Native QA
   `33854884030` 的 Linux x64、Windows x64、macOS Intel、macOS Apple Silicon 构建，以及
   Ubuntu 24.04 已打包 AppImage 可视运行 smoke 全部成功。
@@ -112,7 +114,7 @@ async worker 和 UI 热路径。连续切换不同 Criterion target 时 Cargo �
   会失败；这不影响已完整执行的冻结帧、建窗、资源协议与首绘计时，测试后系统 deb 已恢复运行。
 - 隔离 Xvfb 中默认快捷键可以注册并触发；虚拟服务器没有 Mutter/wlroots/Portal 输出，最终在
   `xcap` 捕获前置阶段返回“无法捕获显示器”，因此它不能替代真实 GNOME Wayland 的整链路截图。
-  覆盖层显示、Canvas 切换及像素导出由 842 项前端测试与三组 Xvfb 冒烟继续兜底。
+  覆盖层显示、Canvas 切换及像素导出由 843 项前端测试与三组 Xvfb 冒烟继续兜底。
 - 当前 Pin 真机覆盖：2730×1535 原图在 1.5 倍真实缩放/2 倍 WebKit 缓冲区下显示为
   1827×1061 逻辑窗口，截取该窗口确认实际内容完整、非黑屏/空图；后台生成 3517×1978 补偿图
   用时 801 ms，晚到 revision=1 路径成功。其余四张同时覆盖“赶上首帧”与“事件换图”，耗时
