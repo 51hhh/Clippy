@@ -7,6 +7,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import type { DragDropEvent } from "@tauri-apps/api/window";
 import {
   disable as disableAutostartPlugin,
   enable as enableAutostartPlugin,
@@ -33,7 +34,6 @@ import type {
   PinCanvasSaveMode,
   PinCanvasSaveResult,
   PinPayload,
-  PinProject,
   PinToolbarBounds,
   PinState,
   PinUpdate,
@@ -74,7 +74,6 @@ export type {
   PinCanvasSaveMode,
   PinCanvasSaveResult,
   PinPayload,
-  PinProject,
   PinToolbarBounds,
   PinState,
   PinUpdate,
@@ -427,6 +426,13 @@ export function onCurrentWindowCloseRequested(callback: () => void): Promise<Unl
   });
 }
 
+/** 监听当前原生窗口的文件拖放事件，调用方负责在不再需要时卸载。 */
+export function onCurrentWindowDragDrop(
+  callback: (event: DragDropEvent) => void,
+): Promise<UnlistenFn> {
+  return getCurrentWindow().onDragDropEvent((event) => callback(event.payload));
+}
+
 /** 开启登录时自动启动。 */
 export function enableAutostart(): Promise<void> {
   return enableAutostartPlugin();
@@ -534,14 +540,9 @@ export function copyPinCanvas(label: string, project: PinCanvasProject): Promise
   return invoke<void>("copy_pin_canvas", { label, pngBase64: null, project });
 }
 
-/**
- * 读一个 PNG 文件里的贴图工程数据。
- *
- * `null` = 这是张普通图片（没有工程块、块坏了、版本比当前应用新）。三种情况对用户都是
- * 同一件事：能看，不能继续编辑，所以不区分。
- */
-export function readPinProject(path: string): Promise<PinProject | null> {
-  return invoke<PinProject | null>("read_pin_project", { path });
+/** 打开已验证的 Clippy 可编辑 PNG 工程；普通 PNG 由后端拒绝。 */
+export function openPinProjectFile(path: string): Promise<string | null> {
+  return invoke<string | null>("open_pin_project_file", { path });
 }
 
 /**

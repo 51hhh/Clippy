@@ -19,6 +19,7 @@ import { mountClipboardWorkspace, mountTranslationPanel } from "../react/main/mo
 import { translationStore } from "../react/main/translationStore";
 import { createKeyboardRouter } from "./keyboard-router.js";
 import { resolvePinTarget } from "./pin-target.js";
+import { initPinProjectDrop } from "./pin-project-drop.js";
 
 function whenReady(fn) {
   if (document.readyState === "loading") {
@@ -83,6 +84,11 @@ whenReady(async () => {
   });
 
   await onMainWindowWillHide(releaseWindowMemory);
+
+  // 仅拖放进入时出现工程恢复提示，常态界面不增加图片导入按钮或快捷键。
+  initPinProjectDrop().catch((error) => {
+    console.warn("可编辑 PNG 拖放入口初始化失败:", error);
+  });
 
   await onPinCurrent(async () => {
     // 系统快捷键触发：面板真的握着焦点时 pin 焦点条目，否则问后端要最新一条。

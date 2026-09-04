@@ -16,22 +16,6 @@ pub fn choose_directory(app_handle: &tauri::AppHandle, start: &Path) -> Option<P
         .and_then(local_path)
 }
 
-/// 选择一张本地 PNG。取消或 Portal 返回非本地 URI 时返回 `None`。
-pub fn choose_png(app_handle: &tauri::AppHandle, start: &Path) -> Option<PathBuf> {
-    let start = if start.is_dir() {
-        start.to_path_buf()
-    } else {
-        crate::image_io::expand_user_path("~")
-    };
-    app_handle
-        .dialog()
-        .file()
-        .set_directory(start)
-        .add_filter("PNG image", &["png"])
-        .blocking_pick_file()
-        .and_then(local_path)
-}
-
 /// 初始目录不存在时对话框会退回到主目录，先建出来让用户看到预期位置。
 fn prepared_directory(directory: &Path) -> PathBuf {
     if let Err(error) = std::fs::create_dir_all(directory) {
