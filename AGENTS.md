@@ -54,7 +54,7 @@ cd src && npx tsc --noEmit                 # React/TS 功能岛类型检查
 - **前端 XSS 防护**：所有用户内容用 `textContent`，禁止 `innerHTML`
 - **IPC 封装**：只有 `api.js` 直接访问 `window.__TAURI__`
 - **语言**：代码注释 / commit 中文，前端 UI 英文
-- **构建目标**：仅 Linux（deb, AppImage）
+- **构建目标**：Linux x64（deb、AppImage）、Windows x64（NSIS、MSI）、macOS Intel/Apple Silicon（DMG、updater bundle）
 - **编码规范**：见 `.trellis/spec/backend/` 和 `.trellis/spec/frontend/`
 
 ## Git Commit 规范

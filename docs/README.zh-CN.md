@@ -60,7 +60,7 @@ Clippy 安静地驻留在系统托盘，后台监听剪贴板变化，让你通�
 - **全局快捷键** — 同时支持 X11（`tauri-plugin-global-shortcut`）和 Wayland（XDG Portal / gsettings）
 - **自动粘贴** — X11 恢复原目标窗口；Wayland 复用 RemoteDesktop Portal 持久会话，不可用时安全回退为仅复制
 - **截图工作流** — 多显示器冻结选区、窗口命中、移动/缩放，可直接复制/保存/Pin/编辑；本地 OCR 后仅发送文字翻译
-- **Pin 与图片编辑** — 文本、图片、截图统一贴图控件，支持对象标注、模糊/马赛克、撤销重做和图像调整；可保存“合成预览 + 原图/操作”的单文件可编辑 PNG，也可导出不含原图的安全扁平 PNG，并从主窗口 Ctrl+O 继续编辑
+- **Pin 与图片编辑** — 文本、图片、截图统一贴图控件，支持对象标注、模糊/马赛克、撤销重做和图像调整；可保存“合成预览 + 原图/操作”的单文件可编辑 PNG，也可导出不含原图的安全扁平 PNG；把可编辑 PNG 拖入主窗口即可继续编辑，普通图片仍通过剪贴板自动进入队列
 - **翻译集成** — LibreTranslate-compatible/OpenAI-compatible 服务、Secret Service 密钥、超时重试和敏感内容保护
 - **6 款主题** — 亚麻、石墨、极地、晒纸、玫瑰、深夜
 - **收藏夹** — 置顶重要条目，不受历史清理影响
@@ -69,7 +69,7 @@ Clippy 安静地驻留在系统托盘，后台监听剪贴板变化，让你通�
 
 ## 安装
 
-前往 [Releases](https://github.com/51hhh/Clippy/releases/latest) 下载最新的 `.deb` 或 `.AppImage`。
+前往 [Releases](https://github.com/51hhh/Clippy/releases/latest) 下载 Linux `.deb`/`.AppImage`、Windows NSIS/MSI，或 macOS Intel/Apple Silicon DMG。
 
 ```bash
 # Debian / Ubuntu
