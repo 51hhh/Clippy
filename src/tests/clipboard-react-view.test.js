@@ -199,6 +199,9 @@ describe("React clipboard row", () => {
       expect(list.querySelectorAll(".clip-row").length).toBeLessThan(20);
       expect(Number(list.querySelector(".clip-row")?.dataset.idx)).toBeGreaterThan(4_900);
 
+      await act(async () => clipboardStore.scheduleQuery("needle"));
+      expect(list.scrollTop).toBe(0);
+
       await act(async () => clipboardStore.focusRow(9_999));
       const focused = list.querySelector('.clip-row.focused[data-idx="9999"]');
       expect(focused).not.toBeNull();
@@ -206,6 +209,7 @@ describe("React clipboard row", () => {
       expect(list.scrollTop).toBe(769_400);
     } finally {
       await act(async () => root.unmount());
+      clipboardStore.releaseMemory();
       clipboardStore.snapshot = originalSnapshot;
       container.remove();
       vi.unstubAllGlobals();
