@@ -1,4 +1,6 @@
+use super::url_cache::{MAX_URL_META_ENTRIES, URL_META_TTL_SECS};
 use super::*;
+use crate::models::UrlMeta;
 use std::time::Duration;
 
 /// 构造一条文本类型的测试 ClipItem 插入参数。
@@ -444,4 +446,65 @@ fn failed_cleanup_rolls_back_every_deletion() {
         4,
         "FTS 行不能被单独删掉"
     );
+}
+
+fn url_meta(url: String) -> UrlMeta {
+    UrlMeta {
+        url,
+        title: Some("title".to_string()),
+        description: Some("description".to_string()),
+        favicon: Some("https://example.com/favicon.ico".to_string()),
+        site_name: Some("example".to_string()),
+    }
+}
+
+#[test]
+fn url_meta_cache_discards_expired_rows_when_writing() {
+    let engine = StorageEngine::new_in_memory().unwrap();
+    engine
+        .conn
+        .execute(
+            "INSERT INTO url_meta_cache
+                (url, title, description, favicon, site_name, fetched_at)
+             VALUES (?1, NULL, NULL, NULL, NULL, ?2)",
+            params![
+                "https://expired.example",
+                now_secs() - URL_META_TTL_SECS - 1
+            ],
+        )
+        .unwrap();
+
+    engine
+        .set_url_meta(&url_meta("https://fresh.example".to_string()))
+        .unwrap();
+
+    let count: i64 = engine
+        .conn
+        .query_row("SELECT COUNT(*) FROM url_meta_cache", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 1);
+    assert!(engine
+        .get_url_meta("https://fresh.example")
+        .unwrap()
+        .is_some());
+}
+
+#[test]
+fn url_meta_cache_keeps_only_the_newest_bounded_set() {
+    let engine = StorageEngine::new_in_memory().unwrap();
+    for index in 0..MAX_URL_META_ENTRIES + 8 {
+        engine
+            .set_url_meta(&url_meta(format!("https://example.com/{index}")))
+            .unwrap();
+    }
+
+    let count: i64 = engine
+        .conn
+        .query_row("SELECT COUNT(*) FROM url_meta_cache", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, MAX_URL_META_ENTRIES);
+    assert!(engine
+        .get_url_meta("https://example.com/519")
+        .unwrap()
+        .is_some());
 }
