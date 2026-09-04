@@ -1,0 +1,9 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"复核 Rust 正确性、测试与禁用模式"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"复核数据库一致性与查询/事务性能"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"复核错误、取消与资源清理路径"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"复核诊断证据准确且不泄露用户数据"}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"复核事件、IPC 和定时器释放"}
+{"file":".trellis/spec/frontend/state-management.md","reason":"复核前端状态与大对象生命周期"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"复核 XSS、可访问性、性能和回归"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"复核 Rust/TypeScript 契约一致性"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"复核端到端事实源与跨层副作用"}
