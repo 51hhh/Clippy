@@ -6,7 +6,8 @@
 
 ## Overview
 
-Clippy uses **module-scoped variables** for state — no state management library. Each JS module manages its own state as module-level `let` variables. There is no global store.
+Clippy 的传统功能模块使用模块级变量；React 功能岛使用 `useSyncExternalStore` 对接模块级 store。
+不引入跨窗口的全局状态库，后端仍是持久数据的权威来源。
 
 ---
 
@@ -15,6 +16,8 @@ Clippy uses **module-scoped variables** for state — no state management librar
 | Module | State it owns |
 |--------|---------------|
 | `clipboard-list.js` | `clips[]` array, `offset`, `currentQuery`, `favoritesOnly`, `selectedIndex` |
+| `react/main/clipboardStore.ts` | 当前页列表、分页、查询、面板与键盘焦点；隐藏时必须释放 |
+| `react/main/translationStore.ts` | 当前条目、翻译结果、历史与请求代次 |
 | `search.js` | `debounceTimer`, current search value |
 | `theme.js` | Current theme name |
 | `app.js` | None — wiring only |
@@ -65,3 +68,14 @@ import { currentQuery } from './search.js'; // Don't do this
 - On search query change
 - On tab switch (All / Favorites)
 - On `clip-added` / `clip-removed` events (incremental update)
+
+## 可复用 WebView 的隐藏生命周期
+
+- Tauri/GTK 的 `window.hide()` **不保证产生新的 DOM `blur`**：窗口可能早已失焦，或由
+  D-Bus、托盘、关闭请求和后端命令直接隐藏。
+- 大列表、图片缩略图、预览和翻译结果不能只靠 `blur` 释放。所有原生主窗口隐藏入口必须经过
+  `window_controller::hide_main_window`，由 `main-window-will-hide` 通知前端执行同一份幂等清理。
+- 前端自己调用 `hideCurrentWindow()` 的路径要在隐藏时显式清理；正常 `blur` 仍负责用户切走窗口的
+  路径。新增隐藏入口时，两条路径都要有回归守卫。
+- 释放列表后把 store 标成 dirty；下一次真正获得焦点时只从后端重新加载首屏，不能保留上一次
+  10,000 条分页快照或滚动位置。

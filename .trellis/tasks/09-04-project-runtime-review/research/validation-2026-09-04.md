@@ -15,13 +15,17 @@
 - 列表行为与窗口化专项：2 个文件、9 项通过；图片行在进入 `160px` 预取区前不请求缩略图，
   进入后加载、离开后释放；10,000 条混合行高列表只挂载不足 20 行，滚到中段与键盘跳到末行
   均保留真实索引及无障碍位置。
-- `npx vitest run`：45 个文件、848 项通过。
+- `npx vitest run`：45 个文件、850 项通过。
 - GNOME 扩展静态检查：Shell 45–51 通过。
 - DOM/Xvfb：9 项通过。
 - Canvas 导出像素 smoke：通过，探针像素 `0 208 0`。
 - 主窗口布局像素 smoke：通过，探针像素 `0 208 0`；真实 Firefox 同时确认文本行 77 px、
   图片行 87 px，完整内容没有溢出固定行高。
 - Vite production build：通过（1889 modules）。
+- 当前 `9db86d4` 本机完整代码门禁：Rust `fmt/check/clippy/test` 通过（447 通过、10 忽略）；前端
+  45 个文件、850 项，TypeScript、1889 modules production build、DOM 9 项、Canvas/Layout 像素
+  smoke 全部通过。`ci-local --quick` 的 `npm ci` 在无输出网络等待阶段被人工中止，随后直接使用
+  已存在的锁定依赖完成上述全部前端执行；精确 HEAD CI 已独立成功执行 `npm ci` 与全部门禁。
 - `449571e` 三平台 CI：Windows 与 macOS 原生 `check/clippy/test` 通过；Ubuntu 22.04 的格式、
   PipeWire 快路径基线、`check/clippy/test`、GNOME 扩展、前端测试、DOM/Xvfb、类型检查与生产构建
   全部通过（Actions `33850790082`）。
@@ -36,10 +40,15 @@
 - 当前精确 HEAD `8869573` 的 CI Check `33858757463` 已成功：Windows 与 macOS 原生
   `check/clippy/test` 全部通过；Ubuntu 22.04 的 npm 安装、格式、PipeWire 快路径基线、
   `check/clippy/test`、GNOME 扩展、848 项前端测试、DOM/Xvfb、类型检查和生产构建全部通过。
+- 内存修复代码提交 `9db86d4` 的 CI Check `33864388323` 已成功：Windows 与 macOS 原生
+  `check/clippy/test` 全部通过；Ubuntu 22.04 独立完成 `npm ci`、格式、PipeWire 快路径基线、
+  `check/clippy/test`、GNOME 扩展、850 项前端测试、DOM/Xvfb、类型检查与生产构建。
 - 本地验证结束后执行 `cargo clean`，删除 18,059 个文件、14.5 GiB；根目录 `dist/` 同步删除，
   两个构建输出路径均确认不存在。
 - 为 Pin 关闭实测临时生成当前 HEAD 的 Tauri production binary；验证后再次 `cargo clean`，删除
   6,631 个文件、2.7 GiB，并删除前端 `dist/` 和 AT-SPI 临时探针。恢复的系统 v0.1.20 服务正常运行。
+- WebKit 长列表与隐藏态复测结束后再次执行 `cargo clean`，删除 17,544 个文件、12.9 GiB；
+  76 MiB 隔离数据库、全部 AT-SPI/PSS 探针和根目录 `dist/` 均已删除，两个构建输出路径不存在。
 
 受限沙箱内的 16 个翻译测试因无法绑定本机 loopback 失败，Canvas/Layout smoke 也因无法连接
 Xvfb/Vite 本地端口失败；同一提交在沙箱外全部通过，因此这些不是产品回归。
@@ -66,6 +75,14 @@ Xvfb/Vite 本地端口失败；同一提交在沙箱外全部通过，因此这�
 长列表专项（同机 Node/jsdom，用于比较 React/DOM 规模而非替代 WebKit 实机数字）：旧实现一次挂载
 10,000 个完整 `ClipboardRow` 约 5.76 秒，堆增量约 2.03 GiB；窗口化后同一 10,000 条组件测试只
 挂载不足 20 行，单项测试约 72 ms。后者还覆盖中段滚动和焦点直接跳到第 10,000 条。
+
+真实 GNOME Wayland/WebKitGTK 隔离数据库共 10,000 条（每 5 条一张 37,979-byte PNG，共 2,000
+张）。隐藏基线 cgroup PSS 165,791 kB，显示首 30 条后 202,054 kB；依次滚过 1,020、5,010、
+10,000 条时为 232,770、241,147、246,788 kB，任一时刻 AT-SPI 可见树只有 10–15 个 `list item`。
+随后从第 10,000 条完整回到第 1 条，再完整滚到底部，共 4,688 次标准 scroll-to 动作、0 失败；
+PSS 依次为 253,464、256,792 kB，15 秒后 255,769 kB。第二次遍历 2,000 张图片相对首次末端只
+增加约 9 MiB，没有按解码图片数线性增长。45.2/43.7 秒是 AT-SPI 自动化遍历吞吐，不代表用户
+滚轮帧率；测试期间无 WebKit 崩溃、OOM、panic 或缩略图错误。
 
 结论：列表/搜索 SQLite 路径远低于 1 ms，不是当前交互瓶颈；图片全尺寸解码与编码才应隔离出
 async worker 和 UI 热路径。连续切换不同 Criterion target 时 Cargo 偶发复用到 release
@@ -142,8 +159,8 @@ async worker 和 UI 热路径。连续切换不同 Criterion target 时 Cargo �
 ## 仍需实机覆盖
 
 - 当前提交已取得真实 GNOME Wayland 连续截图 0/5/10 轮与连续 Pin 1/5 轮 PSS 曲线，并完成
-  10,000 条 React 窗口化压力、Firefox 行高实测和连续 Pin 关闭后的 PSS 回收曲线；尚未完成
-  WebKit 实机长时间图片滚动的 PSS/帧时间。
+  10,000 条 React 窗口化压力、Firefox 行高、WebKitGTK 10,000 条/2,000 图完整往返滚动，以及
+  连续 Pin 关闭后的 PSS 回收曲线；尚未取得可与用户滚轮体验直接对应的 WebKit 帧时间。
 - Rust 权威冻结帧、裁剪、标注、保存与 Pin 渲染器都未修改；协议尺寸、原图哈希、工程往返和
   合成像素测试继续通过，因此首帧直显不改变保存/复制/Pin 的原生分辨率。
 - Windows/macOS 已生成并验证签名测试包；截图、粘贴、权限提示等实际桌面交互仍需对应机器手工复核。
