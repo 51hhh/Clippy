@@ -33,8 +33,13 @@
   已通过。CI Check `33854814443` 的 Ubuntu 22.04、Windows、macOS 三组门禁全部成功；Native QA
   `33854884030` 的 Linux x64、Windows x64、macOS Intel、macOS Apple Silicon 构建，以及
   Ubuntu 24.04 已打包 AppImage 可视运行 smoke 全部成功。
+- 当前精确 HEAD `8869573` 的 CI Check `33858757463` 已成功：Windows 与 macOS 原生
+  `check/clippy/test` 全部通过；Ubuntu 22.04 的 npm 安装、格式、PipeWire 快路径基线、
+  `check/clippy/test`、GNOME 扩展、848 项前端测试、DOM/Xvfb、类型检查和生产构建全部通过。
 - 本地验证结束后执行 `cargo clean`，删除 18,059 个文件、14.5 GiB；根目录 `dist/` 同步删除，
   两个构建输出路径均确认不存在。
+- 为 Pin 关闭实测临时生成当前 HEAD 的 Tauri production binary；验证后再次 `cargo clean`，删除
+  6,631 个文件、2.7 GiB，并删除前端 `dist/` 和 AT-SPI 临时探针。恢复的系统 v0.1.20 服务正常运行。
 
 受限沙箱内的 16 个翻译测试因无法绑定本机 loopback 失败，Canvas/Layout smoke 也因无法连接
 Xvfb/Vite 本地端口失败；同一提交在沙箱外全部通过，因此这些不是产品回归。
@@ -102,6 +107,13 @@ async worker 和 UI 热路径。连续切换不同 Criterion target 时 Cargo �
   760×1000、1776×1410、1560×1000、1560×1000 五张仓库图片。第一张 Pin 后进程组 PSS
   450,861 kB，五轮完成时 542,271 kB，静置后回落到 524,845 kB；补偿 PNG 被协议取走后没有继续
   增长。该曲线包含用户仍保留的解码图与 WebView 工作集，不能当作关闭后泄漏曲线。
+- 当前 `8869573` production binary 在真实 GNOME Wayland 用精确应用名、Pin 窗口前缀和“关闭”
+  控件执行五次有效关闭；每次都对整个 systemd service cgroup 汇总 `smaps_rollup`。首轮冷基线为
+  165,466 kB，有效关闭后依次为 168,746、177,720、178,142、177,744、177,828 kB，15 秒静置后
+  为 179,497 kB。独立重启的基线为 169,388 kB，两次有效关闭并静置 15 秒后为 177,434 kB。
+  曲线在首次建立 WebKit/图像 allocator 高水位后进入平台，没有随关闭次数线性增长；约 8–14 MiB
+  残留应解释为进程高水位，而不是承诺分配器把物理页逐字节归还。探针拒绝多窗口歧义，AT-SPI
+  客户端未观察到目标窗口的轮次被剔除，没有当成成功关闭样本。
 
 ## 现场截图时序
 
@@ -130,8 +142,8 @@ async worker 和 UI 热路径。连续切换不同 Criterion target 时 Cargo �
 ## 仍需实机覆盖
 
 - 当前提交已取得真实 GNOME Wayland 连续截图 0/5/10 轮与连续 Pin 1/5 轮 PSS 曲线，并完成
-  10,000 条 React 窗口化压力与 Firefox 行高实测；尚未完成 WebKit 实机长时间图片滚动和连续
-  Pin **关闭后**的 PSS 回收曲线。
+  10,000 条 React 窗口化压力、Firefox 行高实测和连续 Pin 关闭后的 PSS 回收曲线；尚未完成
+  WebKit 实机长时间图片滚动的 PSS/帧时间。
 - Rust 权威冻结帧、裁剪、标注、保存与 Pin 渲染器都未修改；协议尺寸、原图哈希、工程往返和
   合成像素测试继续通过，因此首帧直显不改变保存/复制/Pin 的原生分辨率。
 - Windows/macOS 已生成并验证签名测试包；截图、粘贴、权限提示等实际桌面交互仍需对应机器手工复核。

@@ -4,8 +4,9 @@
 
 - 基线提交：`c9e3d68`（`release: v0.1.20`），分支 `dev`。
 - 发布基线自动化：Rust 441 项通过、10 项忽略；前端 839 项通过；DOM、Canvas 像素与布局
-  smoke 通过；Linux/Windows/macOS 发布流水线通过。当前 `f8ac057` 本机回归为 Rust 447 项通过、
-  10 项忽略，前端 848 项通过；核心代码 `d702407` 的 CI Check 与全平台 Native QA 均成功。
+  smoke 通过；Linux/Windows/macOS 发布流水线通过。当前 `8869573` 本机回归为 Rust 447 项通过、
+  10 项忽略，前端 848 项通过；同一 HEAD 的三平台 CI Check 成功，核心代码 `d702407` 的全平台
+  Native QA 也已成功。
 - 已通过的实机路径：GNOME Wayland、两块混合缩放显示器连续截图；覆盖层首帧约
   0.56–0.87 秒，没有黑屏、缺帧或 WebKit 崩溃。
 - 当前构建产物已清理，`target/` 与前端 `dist/` 均不存在；后续验证会重新产生，结束时再清理。
@@ -20,7 +21,7 @@
 | 快捷键/托盘/窗口 | `gsettings_shortcuts*`、`portal_shortcuts*`、`tray_icon*`、`window*` | Rust 单测、Linux 实机、移动事件压力守卫 | Windows/macOS 实机边界 |
 | 自动粘贴 | `paste*`、主窗口 React facade | Rust/前端测试 | 各桌面目标应用实机 |
 | 截图/选区/编辑 | `screenshot*`、`capture*`、React `capture/` | 像素测试、Wayland 双屏实机 | X11、Windows、macOS 实机 |
-| Pin/画布/保存 | `pin*`、React `pin/` | Rust 往返/像素测试、React 测试、GNOME 五图早到/晚到协议实测 | Pin 关闭后的 PSS 回收曲线 |
+| Pin/画布/保存 | `pin*`、React `pin/` | Rust 往返/像素测试、React 测试、GNOME 五图协议与五次关闭 PSS 实测 | Windows/macOS 实机 |
 | OCR/翻译 | `ocr*`、`translation*` | Rust/前端测试 | 外部服务与本机 OCR 可用性 |
 | 设置/更新/发布 | `config*`、`updater*`、CI workflow | 单测、v0.1.20 全平台发布 | 各平台安装与更新实机 |
 
@@ -70,7 +71,9 @@ base64 副本，并以往返、原图哈希与合成像素测试证明不损失�
 
 - 后端缩略图缓存固定 64 条；Pin 原始位置注册表固定 16 条。
 - Pin 条目内容位于 `Arc<PinSource>`，滚轮缩放不复制大 PNG；窗口销毁时 manager、清晰化槽位和
-  placement generation 均会清理。
+  placement generation 均会清理。真实 GNOME 五次有效关闭后的 cgroup PSS 为 168,746、
+  177,720、178,142、177,744、177,828 kB，15 秒静置后 179,497 kB；独立重启复测也在约
+  177 MiB 平台，没有随关闭次数线性增长。
 - React Pin 只持有 `pin-frame` URL；主列表失焦会清空数据快照与搜索定时器，窗口化列表只挂载
   视口附近行，屏外图片行同时释放缩略图 base64 与解码纹理。
 - 截图会话与后台清晰化任务带 generation/cancel 防护，不会把旧结果写入新窗口。
@@ -87,5 +90,5 @@ base64 副本，并以往返、原图哈希与合成像素测试证明不损失�
   覆盖层首帧路径上，也不是常驻泄漏，本轮不以未经验证的生命周期重构换取峰值数字。
 
 以上结论已覆盖主要缓存、线程、监听器和大对象生命周期，并已补测当前提交的真实 GNOME 双屏
-截图、0/5/10 轮 PSS 与 10,000 条窗口化列表。剩余风险集中在 WebKit 实机长时间图片滚动与
-Pin 关闭后 PSS 曲线；不把 CI 构建成功等同于 Windows/macOS 实际桌面交互已经通过。
+截图、0/5/10 轮 PSS、Pin 关闭回收曲线与 10,000 条窗口化列表。剩余风险集中在 WebKit 实机
+长时间图片滚动；不把 CI 构建成功等同于 Windows/macOS 实际桌面交互已经通过。

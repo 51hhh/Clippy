@@ -22,6 +22,8 @@
 ### 🔧 验证
 
 - 新增运行时工程无损物化测试；原图哈希、合成预览、二次编辑、扁平导出与 iTXt 往返保持不变。
+- 当前 HEAD 的 Windows、macOS、Ubuntu 22.04 原生 CI 全部通过；GNOME Wayland 连续五次有效
+  Pin 关闭后，service cgroup PSS 在首次建立 WebKit/图像分配高水位后稳定，没有随关闭次数线性增长。
 
 ## v0.1.20
 
