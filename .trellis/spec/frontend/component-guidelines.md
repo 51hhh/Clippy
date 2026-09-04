@@ -69,6 +69,10 @@ document.addEventListener('DOMContentLoaded', () => {
 - Theme colors via CSS custom properties: `var(--bg-primary)`, `var(--accent)`
 - Toggle states by adding/removing CSS classes, never by manipulating `style` directly
 
+连续内容（例如图片及其 OCR 文本）应共享最外层内容区的滚动容器。不要给下半段内容设置固定
+`max-height` 和第二个 `overflow: auto`，否则鼠标滚轮会被嵌套滚动区域截获，内容也容易被挤成
+不可读的小窗口。使用普通文档流排列子项，并让面板级容器统一承担滚动。
+
 ```javascript
 // Good
 el.classList.add('selected');
