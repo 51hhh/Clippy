@@ -56,8 +56,8 @@ pub async fn select_clip(
     // 事件里不带图片数据，前端按需取（见 `ClipItem::without_image_data`）。
     let _ = app_handle.emit("clip-added", &updated_clip.without_image_data());
 
-    if let Some(window) = app_handle.get_webview_window("main") {
-        window.hide().map_err(|e| e.to_string())?;
+    if app_handle.get_webview_window("main").is_some() {
+        crate::window_controller::hide_main_window(&app_handle)?;
     }
 
     let auto_paste = state

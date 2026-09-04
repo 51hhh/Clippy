@@ -464,6 +464,34 @@ describe("Pin 贴的是当前焦点条目，不是上一条", () => {
     expect(body).not.toMatch(/else/);
   });
 
+  it("显式隐藏与失焦共用同一份大对象清理", () => {
+    const source = read("src/js/app.js");
+    expect(source).toContain("await onMainWindowWillHide(releaseWindowMemory)");
+    const directHide = source.slice(
+      source.indexOf("function tryHidePanel"),
+      source.indexOf("async function onWindowFocus"),
+    );
+    expect(directHide.indexOf("releaseWindowMemory()")).toBeLessThan(
+      directHide.indexOf("hideCurrentWindow()"),
+    );
+    const blur = source.slice(source.indexOf("function onWindowBlur"));
+    expect(blur).toContain("releaseWindowMemory()");
+
+    const controller = read("src-tauri/src/window_controller.rs");
+    const hideHelper = controller.slice(controller.indexOf("pub(crate) fn hide_main_window"));
+    expect(hideHelper).toMatch(/emit_to\("main",\s*MAIN_WINDOW_WILL_HIDE/);
+    expect(hideHelper.indexOf("emit_to")).toBeLessThan(hideHelper.indexOf("window.hide()"));
+    for (const path of [
+      "src-tauri/src/app/shortcuts.rs",
+      "src-tauri/src/app/window_events.rs",
+      "src-tauri/src/commands/clipboard.rs",
+    ]) {
+      const rust = read(path);
+      expect(rust, path).not.toMatch(/\bwindow\.hide\(\)/);
+      expect(rust, path).toContain("hide_main_window");
+    }
+  });
+
   it("剪贴板写入口写完都会唤醒 watcher", () => {
     // 少敲一次的后果是那条写入路径重新变成"最多 500 ms 后才进历史"。
     const source = read("src-tauri/src/clipboard_watcher/writer.rs");

@@ -1,9 +1,10 @@
 use crate::commands::AppState;
 use crate::models::MainWindowPosition;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::{Manager, Monitor, PhysicalPosition, PhysicalSize, Position, Size};
+use tauri::{Emitter, Manager, Monitor, PhysicalPosition, PhysicalSize, Position, Size};
 
 const EDGE_MARGIN: i32 = 12;
+const MAIN_WINDOW_WILL_HIDE: &str = "main-window-will-hide";
 pub(crate) const MAIN_WINDOW_BASE_WIDTH: f64 = 380.0;
 pub(crate) const MAIN_WINDOW_PANEL_WIDTH: f64 = 400.0;
 /// 高度对所有面板组合恒定：开关预览会连带改变列表能显示的行数，
@@ -58,6 +59,21 @@ pub fn show_main_window(app: &tauri::AppHandle) -> Result<(), String> {
 
     window.show().map_err(|error| error.to_string())?;
     window.set_focus().map_err(|error| error.to_string())
+}
+
+/// 显式隐藏主窗口前先通知 WebView 释放长列表、预览和翻译快照。
+///
+/// `window.hide()` 不保证产生新的 blur：窗口可能已经失去焦点，或由 D-Bus/托盘直接切换。
+/// 只依赖前端 blur 会让最多 10,000 条列表在隐藏后继续常驻。事件投递失败不应阻止窗口隐藏，
+/// 但要留下诊断线索；前端清理本身是幂等的，和正常 blur 重复执行没有副作用。
+pub(crate) fn hide_main_window(app: &tauri::AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "找不到 main 窗口".to_string())?;
+    if let Err(error) = app.emit_to("main", MAIN_WINDOW_WILL_HIDE, ()) {
+        log::warn!("通知主窗口释放隐藏态内存失败: {error}");
+    }
+    window.hide().map_err(|error| error.to_string())
 }
 
 /// 打开（或重开）设置窗口。托盘菜单和 IPC 命令共用这一处，

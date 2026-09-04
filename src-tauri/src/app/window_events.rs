@@ -21,7 +21,7 @@ pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
             if hides_instead_of_closing(window.label()) =>
         {
             api.prevent_close();
-            let _ = window.hide();
+            let _ = window_controller::hide_main_window(window.app_handle());
         }
         tauri::WindowEvent::Focused(false) if window.label() == "main" => {
             hide_main_after_focus_loss(window.clone());
@@ -105,7 +105,7 @@ fn hide_main_after_focus_loss(window: tauri::Window) {
                 return;
             }
         }
-        let _ = window.hide();
+        let _ = window_controller::hide_main_window(&app_handle);
     });
 }
 
