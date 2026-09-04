@@ -46,6 +46,8 @@ async worker 和 UI 热路径。连续切换不同 Criterion target 时 Cargo �
 - 已安装 v0.1.20 在 GNOME Wayland 连续运行约 4 小时后：主进程 PSS 109.0 MiB、NetworkProcess
   11.6 MiB、主 WebProcess 94.2 MiB，总 PSS 约 214.8 MiB。
 - 后端缩略图缓存固定 64 条；原点注册表固定 16 条；代码高亮结论缓存固定 200 条。
+- 冷缩略图使用异步 Semaphore 限制为两路全尺寸 PNG 解码；等待任务不占 Tauri async worker，
+  从而同时约束响应线程饥饿与 RGBA/CPU 峰值。
 - 主列表失焦清空条目数组和搜索 timer；Pin 关闭会移除 manager 条目、placement generation 和
   清晰化结果；对象 URL 在替换/卸载时撤销。
 - 本轮把导入工程的常驻表示从“原图 PNG + 同源 base64 + 合成预览”改为“原图 PNG + 轻量元数据

@@ -222,6 +222,11 @@ const THUMBNAIL_MAX_EDGE: u32 = 128;
 /// 缩略图缓存的条数上限。一条 128 px 的 PNG base64 大约 3~8 KB，64 条不到半兆。
 const THUMBNAIL_CACHE_CAPACITY: usize = 64;
 
+/// 冷缩略图同时解码的上限。Tokio blocking pool 的默认上限远大于列表页数；不设门会让
+/// 30 张全屏 PNG 同时展开成 RGBA，瞬时占用数百 MiB 并抢满 CPU。两路足以利用多核且把
+/// 4K 解码工作集限制在可预期范围。
+const THUMBNAIL_MAX_CONCURRENCY: usize = 2;
+
 /// 列表行用的缩略图，base64 编码的 PNG；非图片条目返回 `None`。
 ///
 /// 为什么不复用 `get_clip_image`：行里那格是 48×48，库里存的是原图。为了画 48 px 把整张
@@ -236,6 +241,14 @@ pub async fn get_clip_thumbnail(
     id: i64,
     state: State<'_, AppState>,
 ) -> Result<Option<String>, String> {
+    if let Some(hit) = thumbnail_cache().get(id) {
+        return Ok(Some(hit));
+    }
+    let _permit = thumbnail_gate()
+        .acquire()
+        .await
+        .map_err(|_| "缩略图生成队列已关闭".to_string())?;
+    // 等待期间前面的请求可能已经生成同一条，避免快速重挂载时重复解码。
     if let Some(hit) = thumbnail_cache().get(id) {
         return Ok(Some(hit));
     }
@@ -261,6 +274,12 @@ pub async fn get_clip_thumbnail(
 fn thumbnail_cache() -> &'static ThumbnailCache {
     static CACHE: std::sync::OnceLock<ThumbnailCache> = std::sync::OnceLock::new();
     CACHE.get_or_init(ThumbnailCache::default)
+}
+
+fn thumbnail_gate() -> &'static tokio::sync::Semaphore {
+    static GATE: tokio::sync::Semaphore =
+        tokio::sync::Semaphore::const_new(THUMBNAIL_MAX_CONCURRENCY);
+    &GATE
 }
 
 /// 先进先出的缩略图缓存。

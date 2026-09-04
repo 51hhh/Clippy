@@ -29,8 +29,8 @@
 
 `get_clip_thumbnail` 虽声明为 `async`，但数据库读取、全尺寸 PNG 解码、缩放和编码都直接在
 Tauri async runtime worker 上执行。一次 2560×1600 解码约几十毫秒，打开含多张图片的列表时
-会并发占满 worker，影响其他异步命令响应。应将整段阻塞工作移入 `spawn_blocking`；命中缓存时
-继续零调度返回。
+会并发占满 worker，影响其他异步命令响应。应将整段阻塞工作移入 `spawn_blocking`，同时限制
+冷解码并行度，避免宽 blocking pool 把几十张全屏 PNG 同时展开成 RGBA；命中缓存继续零调度返回。
 
 ### P1：导入可编辑 PNG 后常驻两份同源压缩数据
 
