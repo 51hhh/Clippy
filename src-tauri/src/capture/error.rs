@@ -67,13 +67,21 @@ pub enum CaptureError {
     LongshotEstimateDisplacementTooLarge,
     #[error("长截图相邻帧没有新增内容")]
     LongshotEstimateNoExtension,
+    #[error("已有长截图会话正在进行")]
+    LongshotSessionBusy,
+    #[error("长截图会话不存在")]
+    LongshotSessionMissing,
+    #[error("长截图会话已经更新")]
+    LongshotSessionSuperseded,
+    #[error("长截图会话代次已耗尽")]
+    LongshotGenerationExhausted,
     #[error("创建截图覆盖层失败: {0}")]
     OverlayCreate(String),
     #[error("截图失败: {0}")]
     Screenshot(String),
     #[error("截图线程异常: {0}")]
     ThreadPanic(String),
-    /// CaptureManager 的 Mutex 被 poison，属于不可恢复状态。
+    /// 截图领域状态 Mutex 被 poison，属于不可恢复状态。
     #[error("{0}")]
     StateLock(String),
     /// PNG 编解码失败。
@@ -119,6 +127,10 @@ impl CaptureError {
                 "longshot_estimate_displacement_too_large"
             }
             Self::LongshotEstimateNoExtension => "longshot_estimate_no_extension",
+            Self::LongshotSessionBusy => "longshot_session_busy",
+            Self::LongshotSessionMissing => "longshot_session_missing",
+            Self::LongshotSessionSuperseded => "longshot_session_superseded",
+            Self::LongshotGenerationExhausted => "longshot_generation_exhausted",
             Self::OverlayCreate(_) => "overlay_create",
             Self::Screenshot(_) => "screenshot",
             Self::ThreadPanic(_) => "thread_panic",
@@ -222,6 +234,10 @@ mod tests {
             CaptureError::LongshotEstimateAmbiguous,
             CaptureError::LongshotEstimateDisplacementTooLarge,
             CaptureError::LongshotEstimateNoExtension,
+            CaptureError::LongshotSessionBusy,
+            CaptureError::LongshotSessionMissing,
+            CaptureError::LongshotSessionSuperseded,
+            CaptureError::LongshotGenerationExhausted,
             CaptureError::OverlayCreate(String::new()),
             CaptureError::Screenshot(String::new()),
             CaptureError::ThreadPanic(String::new()),
