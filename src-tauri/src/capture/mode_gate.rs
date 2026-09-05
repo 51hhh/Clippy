@@ -3,7 +3,7 @@
 //! 该 gate 只做短临界区中的认领与释放；窗口、截图和会话工作由调用方在锁外完成。
 
 use super::CaptureError;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 /// 共享 gate 管理的截图入口模式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,6 +19,33 @@ pub(crate) enum CaptureMode {
 pub(crate) struct CaptureModeLease {
     mode: CaptureMode,
     generation: u64,
+}
+
+/// 把 lease 与创建它的 gate 绑定，避免调用方把凭据交给错误的 gate。
+///
+/// 该所有权不可复制，也不会在 `Drop` 时提前开放 gate；资源恢复完成后必须显式消费释放。
+pub(crate) struct CaptureModeOwnership {
+    gate: Arc<CaptureModeGate>,
+    lease: CaptureModeLease,
+}
+
+impl std::fmt::Debug for CaptureModeOwnership {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CaptureModeOwnership")
+            .field("lease", &self.lease)
+            .finish_non_exhaustive()
+    }
+}
+
+impl CaptureModeOwnership {
+    /// 消费来源绑定所有权。空槽意味着生命周期已被其它终结者取走，不能静默成功。
+    pub(crate) fn release(self) -> Result<(), CaptureError> {
+        match self.gate.release(&self.lease)? {
+            true => Ok(()),
+            false => Err(CaptureError::CaptureModeSuperseded),
+        }
+    }
 }
 
 /// 普通截图和长截图共享的原子互斥 gate。
@@ -66,6 +93,18 @@ impl CaptureModeGate {
         state.last_generation = generation;
         state.owner = Some(OwnerRecord { mode, generation });
         Ok(CaptureModeLease { mode, generation })
+    }
+
+    /// 原子认领并把 lease 绑定到这一个共享 gate。
+    pub(crate) fn try_claim_owned(
+        self: &Arc<Self>,
+        mode: CaptureMode,
+    ) -> Result<CaptureModeOwnership, CaptureError> {
+        let lease = self.try_claim(mode)?;
+        Ok(CaptureModeOwnership {
+            gate: Arc::clone(self),
+            lease,
+        })
     }
 
     /// 只允许完整匹配的 lease 清除当前 owner。
@@ -248,6 +287,41 @@ mod tests {
         assert_eq!(
             gate.active_mode().expect("Drop 后 owner 仍在"),
             Some(CaptureMode::Ordinary)
+        );
+    }
+
+    #[test]
+    fn owned_claim_releases_only_its_source_gate_and_drop_is_inert() {
+        let first = Arc::new(CaptureModeGate::new());
+        let second = Arc::new(CaptureModeGate::new());
+        let first_owner = first
+            .try_claim_owned(CaptureMode::Ordinary)
+            .expect("第一 gate 可认领");
+        let second_owner = second
+            .try_claim_owned(CaptureMode::Ordinary)
+            .expect("第二 gate 可独立认领");
+
+        first_owner.release().expect("只释放来源 gate");
+        assert_eq!(first.active_mode().unwrap(), None);
+        assert_eq!(second.active_mode().unwrap(), Some(CaptureMode::Ordinary));
+        drop(second_owner);
+        assert_eq!(second.active_mode().unwrap(), Some(CaptureMode::Ordinary));
+    }
+
+    #[test]
+    fn owned_release_normalizes_an_already_empty_slot_to_superseded() {
+        let gate = Arc::new(CaptureModeGate::new());
+        let ownership = gate
+            .try_claim_owned(CaptureMode::Ordinary)
+            .expect("应取得绑定所有权");
+        assert!(gate.release(&ownership.lease).expect("测试预先清槽"));
+
+        assert_eq!(
+            ownership
+                .release()
+                .expect_err("重复终结不能静默成功")
+                .code(),
+            "capture_mode_superseded"
         );
     }
 

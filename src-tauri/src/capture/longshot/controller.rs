@@ -255,12 +255,19 @@ impl LongshotController {
 mod tests {
     use super::*;
     use crate::capture::manager::StageTimings;
+    use crate::capture::{CaptureMode, CaptureModeGate, CaptureModeOwnership};
     use image::{imageops, RgbaImage};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{mpsc, Arc};
     use std::time::Duration;
 
     const WAIT: Duration = Duration::from_secs(3);
+
+    fn ordinary_ownership() -> CaptureModeOwnership {
+        Arc::new(CaptureModeGate::new())
+            .try_claim_owned(CaptureMode::Ordinary)
+            .expect("测试应取得 Ordinary")
+    }
 
     fn repeated_id() -> String {
         "controller-repeated-id".to_string()
@@ -329,9 +336,12 @@ mod tests {
                 Vec::new(),
                 false,
                 StageTimings::default(),
+                ordinary_ownership(),
             )
             .expect("普通截图应启动");
-        let payload = capture.payload(&overlays[0].label).expect("payload 应存在");
+        let payload = capture
+            .payload(&overlays.overlays[0].label)
+            .expect("payload 应存在");
         let selection = selection(&payload.session_id, 7);
         let selected = capture.selected_frame(&selection).expect("应取得冻结帧");
         assert!(Arc::ptr_eq(&pixels, &selected.rgba));
@@ -357,9 +367,10 @@ mod tests {
                 Vec::new(),
                 false,
                 StageTimings::default(),
+                ordinary_ownership(),
             )
             .unwrap();
-        let payload = capture.payload(&overlays[0].label).unwrap();
+        let payload = capture.payload(&overlays.overlays[0].label).unwrap();
         let stale = selection("stale", 7);
         assert_eq!(
             controller.begin(&capture, &stale).unwrap_err().code(),

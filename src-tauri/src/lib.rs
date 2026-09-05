@@ -132,6 +132,7 @@ pub fn run() {
             let paste_manager = Arc::new(paste::PasteManager::new(&app_data_dir));
             let pin_manager = Arc::new(pin::PinManager::new());
             let capture_manager = Arc::new(capture::CaptureManager::new());
+            let capture_mode_gate = Arc::new(capture::CaptureModeGate::new());
             let translation = Arc::new(translation::TranslationService::new());
             #[cfg(target_os = "linux")]
             let portal_shortcuts = platform::uses_portal_shortcuts().then(|| {
@@ -171,6 +172,7 @@ pub fn run() {
                 main_window_position_generation: AtomicU64::new(0),
                 main_window_position_worker_scheduled: AtomicBool::new(false),
                 capture_manager,
+                capture_mode_gate,
                 pin_manager,
                 pin_origins: Arc::new(pin::PinOriginRegistry::default()),
                 paste_manager,
