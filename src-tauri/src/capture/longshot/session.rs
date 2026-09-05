@@ -95,7 +95,7 @@ fn validate_session_frame_budget(image: &RgbaImage) -> Result<(), CaptureError> 
     validate_session_frame_budget_for_dimensions(image.width(), image.height())
 }
 
-fn validate_session_frame_budget_for_dimensions(
+pub(super) fn validate_session_frame_budget_for_dimensions(
     width: u32,
     height: u32,
 ) -> Result<(), CaptureError> {

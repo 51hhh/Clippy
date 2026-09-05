@@ -6,12 +6,15 @@
 use super::CaptureError;
 use image::RgbaImage;
 
+mod frame_adapter;
 mod manager;
 mod overlap;
 mod session;
 
-// 下一层 manager 会从 capture 域消费这三个内部值；当前尚无生产调用方，保留重导出
-// 以固定其领域边界而不是为了消除 dead-code 伪造调用。
+// 后续 provider/controller 会从 capture 域消费这些内部值；当前尚无生产调用方，保留重导出
+// 以固定领域边界，而不是为了消除 dead-code 伪造调用。
+#[allow(unused_imports)]
+pub(super) use frame_adapter::LongshotFrameAdapter;
 #[allow(unused_imports)]
 pub(super) use manager::{LongshotManager, LongshotSessionToken, LongshotStart};
 #[allow(unused_imports)]

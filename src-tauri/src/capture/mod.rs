@@ -2,8 +2,9 @@ mod action_lifecycle;
 /// 几何诊断报告。报障与"补一条回归测试"之间的那一步，见 docs/capture-linux.md §4.2。
 pub mod diagnostics;
 mod error;
+mod frame_crop;
 mod frame_protocol;
-/// 长截图核心尚未接入会话或 IPC；下一切片消费它之前保留为截图领域的内部原语。
+/// 长截图像素、会话与帧适配核心尚未接入重捕获 provider 或 IPC，先保留为截图领域内部原语。
 ///
 /// 非测试构建中没有调用方是当前任务刻意的分层边界，不能为了消除 lint 伪造生产调用。
 #[cfg_attr(not(test), allow(dead_code))]
