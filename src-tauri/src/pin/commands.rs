@@ -10,9 +10,66 @@ use crate::commands::AppState;
 use crate::models::ContentType;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::path::Path;
 use std::sync::Arc;
 use tauri::{Emitter, Manager, State};
+
+/// 截图贴图在跨过原生建窗边界后的失败不能安全重试：窗口 API 的失败与销毁成功
+/// 都不能证明原生窗口没有留下。普通截图 IPC 仍只见到原先的字符串，这个类型只供
+/// 需要决定重试策略的 crate 内调用方使用。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ScreenshotPinCreateError {
+    /// 尚未调用原生窗口 builder，确认没有创建贴图窗口。
+    NotCreated { message: String },
+    /// 已调用 builder；即使尽力销毁了已知窗口，结果仍不能确认。
+    Uncertain {
+        attempted_label: String,
+        message: String,
+    },
+}
+
+impl ScreenshotPinCreateError {
+    fn not_created(error: impl fmt::Display) -> Self {
+        Self::NotCreated {
+            message: error.to_string(),
+        }
+    }
+
+    fn uncertain(attempted_label: String, message: String) -> Self {
+        Self::Uncertain {
+            attempted_label,
+            message,
+        }
+    }
+
+    /// 原生窗口可能已创建，调用方不得自动重试 Pin。
+    #[allow(dead_code)] // 长截图 Pin 输出将据此决定是否禁止重试。
+    pub(crate) fn is_uncertain(&self) -> bool {
+        matches!(self, Self::Uncertain { .. })
+    }
+
+    /// 不确定失败所尝试创建的窗口 label，供诊断和后续保守收敛使用。
+    #[allow(dead_code)] // 长截图 Pin 输出尚未接入此内部合同。
+    pub(crate) fn attempted_label(&self) -> Option<&str> {
+        match self {
+            Self::NotCreated { .. } => None,
+            Self::Uncertain {
+                attempted_label, ..
+            } => Some(attempted_label),
+        }
+    }
+}
+
+impl fmt::Display for ScreenshotPinCreateError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotCreated { message } | Self::Uncertain { message, .. } => {
+                formatter.write_str(message)
+            }
+        }
+    }
+}
 
 #[tauri::command]
 pub fn pin_clip(
@@ -136,6 +193,7 @@ pub(crate) fn create_screenshot_pin(
     state: &AppState,
 ) -> Result<String, String> {
     create_screenshot_pin_shared(into_shared_png(png), origin, app_handle, state)
+        .map_err(|error| error.to_string())
 }
 
 /// 与普通截图入口共用同一条建条目/建窗路径，但接管调用方已经持有的 PNG `Arc`。
@@ -146,13 +204,13 @@ pub(crate) fn create_screenshot_pin_shared(
     origin: Option<PinOrigin>,
     app_handle: &tauri::AppHandle,
     state: &AppState,
-) -> Result<String, String> {
+) -> Result<String, ScreenshotPinCreateError> {
     let _transition = state
         .pin_transition
         .lock()
-        .map_err(|error| error.to_string())?;
-    let (width, height) =
-        crate::screenshot::png_dimensions(png.as_slice()).map_err(|error| error.to_string())?;
+        .map_err(ScreenshotPinCreateError::not_created)?;
+    let (width, height) = crate::screenshot::png_dimensions(png.as_slice())
+        .map_err(ScreenshotPinCreateError::not_created)?;
     let label = format!("pin-image-{}", crate::image_io::unique_image_id());
     let origin = origin.and_then(PinOrigin::sanitized);
     let (content_width, content_height) = match origin {
@@ -168,19 +226,54 @@ pub(crate) fn create_screenshot_pin_shared(
         content_device_scale(app_handle, origin),
         content_buffer_scale(app_handle, origin),
     );
-    state.pin_manager.insert(entry)?;
+    state
+        .pin_manager
+        .insert(entry)
+        .map_err(ScreenshotPinCreateError::not_created)?;
     // 同上：补偿与开窗并行，抢在前端来取 payload 之前算完。
-    spawn_sharpen(app_handle, &state.pin_manager.get(&label)?);
+    let inserted = match state.pin_manager.get(&label) {
+        Ok(entry) => entry,
+        Err(error) => {
+            let _ = state.pin_manager.remove(&label);
+            return Err(ScreenshotPinCreateError::not_created(error));
+        }
+    };
+    spawn_sharpen(app_handle, &inserted);
     if let Err(error) = create_pin_window(app_handle, &label, content_width, content_height, origin)
     {
-        let _ = state.pin_manager.remove(&label);
-        return Err(crate::error::report("创建截图贴图窗口失败", error));
+        return Err(screenshot_window_failure(&state.pin_manager, label, error));
     }
     Ok(label)
 }
 
+/// 原生 builder 一旦被调用，Tauri/Wry 只能给我们操作是否投递成功，不能给出窗口已经
+/// 消失的确认。因此 manager 的清理只是释放 payload 与取消清晰化，不能把失败降为可重试。
+fn screenshot_window_failure(
+    manager: &super::manager::PinManager,
+    label: String,
+    error: super::error::PinError,
+) -> ScreenshotPinCreateError {
+    let message = crate::error::report("创建截图贴图窗口失败", error);
+    let rollback_label = label.clone();
+    uncertain_after_window_attempt(label, message, || {
+        manager.remove(&rollback_label).map(|_| ())
+    })
+}
+
+/// builder 调用后的任意清理都只是 best effort。即使清理动作返回 Ok，也不能证明窗口已被
+/// 事件循环销毁，所以这个纯 helper 始终保留 Uncertain 分类。
+fn uncertain_after_window_attempt<E>(
+    label: String,
+    message: String,
+    rollback: impl FnOnce() -> Result<(), E>,
+) -> ScreenshotPinCreateError {
+    let _ = rollback();
+    ScreenshotPinCreateError::uncertain(label, message)
+}
+
 /// 从文件恢复出的可编辑工程创建贴图。所有读取和工程校验在调用前完成，因此插入 manager
-/// 后唯一可能失败的是建窗；失败路径会立刻移除条目，不留下半初始化状态。
+/// 后唯一可能失败的是建窗；失败路径会尽力移除 manager entry（释放 payload、取消清晰化）。
+/// 原生窗口的 destroy 只是 best effort，不能据此断言没有遗留的半初始化窗口。
 fn create_opened_project_pin(
     preview_png: Vec<u8>,
     project: (Vec<u8>, super::project::RuntimeProject),
@@ -225,8 +318,10 @@ fn create_opened_project_pin(
     Ok(label)
 }
 
-/// PinManager 插入与原生建窗是一笔事务：后续步骤失败时必须删除刚插入的 entry。
-/// 抽成纯状态 helper 后，窗口系统不可用的单元测试环境也能钉住 rollback 不变量。
+/// PinManager entry 的插入与回滚是原子的：后续步骤失败时尽力删除刚插入的 payload。
+/// 这不是 manager 与原生建窗的全局事务；原生窗口 destroy 只能 best effort，调用方不能
+/// 用这里的清理结果推断窗口已消失。抽成纯状态 helper 后，窗口系统不可用的单元测试环境
+/// 也能钉住 payload rollback 不变量。
 fn insert_pin_with_rollback<T>(
     manager: &super::manager::PinManager,
     entry: PinEntry,
@@ -954,7 +1049,7 @@ mod project_command_tests {
         Option<PinOrigin>,
         &tauri::AppHandle,
         &crate::commands::AppState,
-    ) -> Result<String, String> = super::create_screenshot_pin_shared;
+    ) -> Result<String, super::ScreenshotPinCreateError> = super::create_screenshot_pin_shared;
 
     fn adjustments() -> serde_json::Value {
         serde_json::json!({"grayscale":false,"brightness":0,"contrast":0,
@@ -1028,6 +1123,54 @@ mod project_command_tests {
         let shared = super::into_shared_png(png);
         assert_eq!(shared.as_ptr(), original_ptr);
         assert_eq!(Arc::strong_count(&shared), 1);
+    }
+
+    #[test]
+    fn pre_builder_failures_are_confirmed_not_created() {
+        let error = super::ScreenshotPinCreateError::not_created("invalid png");
+        assert!(!error.is_uncertain());
+        assert_eq!(error.attempted_label(), None);
+        assert_eq!(error.to_string(), "invalid png");
+    }
+
+    #[test]
+    fn post_builder_failure_stays_uncertain_after_successful_rollback() {
+        let manager = super::super::manager::PinManager::new();
+        let label = "pin-image-window-failure".to_string();
+        manager.insert(screenshot_entry(&label)).unwrap();
+
+        let error = super::screenshot_window_failure(
+            &manager,
+            label.clone(),
+            super::super::error::PinError::window("position failed"),
+        );
+        assert!(error.is_uncertain());
+        assert_eq!(error.attempted_label(), Some(label.as_str()));
+        assert_eq!(error.to_string(), "position failed");
+        assert!(manager.get(&label).is_err(), "entry 必须尽力回滚");
+    }
+
+    #[test]
+    fn cleanup_outcome_never_downgrades_a_builder_boundary_failure() {
+        for (stage, cleanup) in [("build", Ok(())), ("position", Err("destroy failed"))] {
+            let label = format!("pin-image-{stage}");
+            let error = super::uncertain_after_window_attempt(
+                label.clone(),
+                format!("{stage} failed"),
+                || cleanup,
+            );
+            assert!(error.is_uncertain(), "{stage} 失败不能自动重试");
+            assert_eq!(error.attempted_label(), Some(label.as_str()));
+        }
+    }
+
+    #[test]
+    fn legacy_and_shared_error_text_stay_compatible() {
+        let error = super::ScreenshotPinCreateError::uncertain(
+            "pin-image-legacy-text".to_string(),
+            "创建截图贴图窗口失败".to_string(),
+        );
+        assert_eq!(error.to_string(), "创建截图贴图窗口失败");
     }
 
     #[test]
