@@ -2,9 +2,10 @@
 
 use super::{
     ControlWindowActions, LongshotControllerHandle, LongshotControllerRegistry, LongshotIpcError,
-    LongshotOutputAction, LongshotOutputResult, Slot, TerminationOrigin, CONTROLLER_PREFIX,
+    LongshotOutputAction, LongshotOutputArtifact, LongshotOutputResult, Slot, TerminationOrigin,
+    CONTROLLER_PREFIX,
 };
-use crate::capture::longshot::LongshotSessionToken;
+use crate::capture::longshot::{LongshotArtifact, LongshotSessionToken};
 use crate::capture::CaptureError;
 use std::sync::Arc;
 
@@ -13,7 +14,7 @@ pub(super) enum FinishStage {
     Encoding(LongshotOutputAction),
     Outputting {
         action: LongshotOutputAction,
-        png: Arc<Vec<u8>>,
+        artifact: Arc<LongshotOutputArtifact>,
         retry_policy: RetryPolicy,
     },
 }
@@ -21,7 +22,7 @@ pub(super) enum FinishStage {
 #[derive(Debug)]
 pub(super) enum FinishClaim {
     Encoding(LongshotSessionToken),
-    Outputting(LongshotSessionToken, Arc<Vec<u8>>),
+    Outputting(LongshotSessionToken, Arc<LongshotOutputArtifact>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,7 +91,7 @@ impl<W, P, O, X, H> FinishOperations<W, P, O, X, H> {
     where
         W: FnOnce(LongshotSessionToken) -> WF,
         P: FnOnce(&LongshotSessionToken) -> bool,
-        O: FnOnce(LongshotOutputAction, Arc<Vec<u8>>) -> OF,
+        O: FnOnce(LongshotOutputAction, Arc<LongshotOutputArtifact>) -> OF,
         X: FnOnce(LongshotSessionToken) -> XF,
         H: FnMut(FinishBoundary),
     {
@@ -140,7 +141,7 @@ impl LongshotControllerRegistry {
                 label: current,
                 token,
                 snapshot,
-                png,
+                artifact,
                 retry_policy,
             } if current == label && token == wire_token => {
                 if retry_policy == RetryPolicy::CopyOnly && action == LongshotOutputAction::Save {
@@ -148,7 +149,7 @@ impl LongshotControllerRegistry {
                         label: current,
                         token,
                         snapshot,
-                        png,
+                        artifact,
                         retry_policy,
                     };
                     return Err(LongshotIpcError::save_uncertain(
@@ -161,12 +162,12 @@ impl LongshotControllerRegistry {
                     snapshot,
                     stage: FinishStage::Outputting {
                         action,
-                        png: Arc::clone(&png),
+                        artifact: Arc::clone(&artifact),
                         retry_policy,
                     },
                     window_destroyed: false,
                 };
-                Ok(FinishClaim::Outputting(token, png))
+                Ok(FinishClaim::Outputting(token, artifact))
             }
             Slot::Active {
                 label: current,
@@ -229,14 +230,14 @@ impl LongshotControllerRegistry {
                 label: current,
                 token,
                 snapshot,
-                png,
+                artifact,
                 retry_policy,
             } if current == label => {
                 *slot = Slot::OutputPending {
                     label: current,
                     token,
                     snapshot,
-                    png,
+                    artifact,
                     retry_policy,
                 };
                 Err(LongshotIpcError::superseded())
@@ -274,7 +275,7 @@ impl LongshotControllerRegistry {
         label: &str,
         token: &LongshotSessionToken,
         action: LongshotOutputAction,
-        png: Arc<Vec<u8>>,
+        artifact: Arc<LongshotOutputArtifact>,
     ) -> Result<(), LongshotIpcError> {
         let mut slot = self
             .slot
@@ -295,7 +296,7 @@ impl LongshotControllerRegistry {
                     snapshot,
                     stage: FinishStage::Outputting {
                         action,
-                        png,
+                        artifact,
                         retry_policy: RetryPolicy::Any,
                     },
                     window_destroyed,
@@ -392,7 +393,7 @@ impl LongshotControllerRegistry {
         label: &str,
         token: &LongshotSessionToken,
         action: LongshotOutputAction,
-        png: &Arc<Vec<u8>>,
+        artifact: &Arc<LongshotOutputArtifact>,
         uncertain: bool,
     ) -> OutputFailureAction {
         let Ok(mut slot) = self.slot.lock() else {
@@ -407,14 +408,14 @@ impl LongshotControllerRegistry {
                 stage:
                     FinishStage::Outputting {
                         action: current_action,
-                        png: current_png,
+                        artifact: current_artifact,
                         retry_policy,
                     },
                 window_destroyed,
             } if current == label
                 && current_token == *token
                 && current_action == action
-                && Arc::ptr_eq(&current_png, png) =>
+                && Arc::ptr_eq(&current_artifact, artifact) =>
             {
                 if window_destroyed {
                     *slot = Slot::Empty;
@@ -429,7 +430,7 @@ impl LongshotControllerRegistry {
                         label: current,
                         token: current_token,
                         snapshot,
-                        png: current_png,
+                        artifact: current_artifact,
                         retry_policy,
                     };
                     OutputFailureAction::Pending
@@ -442,12 +443,12 @@ impl LongshotControllerRegistry {
         }
     }
 
-    fn complete_output_success(
+    pub(super) fn complete_output_success(
         &self,
         label: &str,
         token: &LongshotSessionToken,
         action: LongshotOutputAction,
-        png: &Arc<Vec<u8>>,
+        artifact: &Arc<LongshotOutputArtifact>,
     ) -> bool {
         let Ok(mut slot) = self.slot.lock() else {
             return false;
@@ -457,14 +458,14 @@ impl LongshotControllerRegistry {
             token: current_token,
             stage: FinishStage::Outputting {
                 action: current_action,
-                png: current_png,
+                artifact: current_artifact,
                 ..
             },
             ..
         } if current == label
             && current_token == token
             && *current_action == action
-            && Arc::ptr_eq(current_png, png));
+            && Arc::ptr_eq(current_artifact, artifact));
         if exact {
             *slot = Slot::Empty;
         }
@@ -483,9 +484,9 @@ pub(super) async fn execute_finish_with_ops<A, W, WF, P, O, OF, X, XF, H>(
 where
     A: ControlWindowActions,
     W: FnOnce(LongshotSessionToken) -> WF,
-    WF: std::future::Future<Output = Result<Vec<u8>, FinishWorkerError>>,
+    WF: std::future::Future<Output = Result<LongshotArtifact, FinishWorkerError>>,
     P: FnOnce(&LongshotSessionToken) -> bool,
-    O: FnOnce(LongshotOutputAction, Arc<Vec<u8>>) -> OF,
+    O: FnOnce(LongshotOutputAction, Arc<LongshotOutputArtifact>) -> OF,
     OF: std::future::Future<Output = Result<Option<String>, OutputWorkerError>>,
     X: FnOnce(LongshotSessionToken) -> XF,
     XF: std::future::Future<Output = Result<(), LongshotIpcError>>,
@@ -502,13 +503,13 @@ where
     let token = claim.token().clone();
     boundary(FinishBoundary::AfterClaim);
 
-    let png = match claim {
+    let artifact = match claim {
         FinishClaim::Encoding(token) => match finish_worker(token.clone()).await {
-            Ok(bytes) => {
+            Ok(lifecycle_artifact) => {
                 boundary(FinishBoundary::AfterFinish);
-                let png = Arc::new(bytes);
-                registry.publish_outputting(label, &token, action, Arc::clone(&png))?;
-                png
+                let artifact = Arc::new(LongshotOutputArtifact::from(lifecycle_artifact));
+                registry.publish_outputting(label, &token, action, Arc::clone(&artifact))?;
+                artifact
             }
             Err(FinishWorkerError::Business(primary)) => {
                 let exact_active = probe_exact_active(&token);
@@ -536,11 +537,11 @@ where
                 return Err(LongshotIpcError::cleanup_failed(message));
             }
         },
-        FinishClaim::Outputting(_, png) => png,
+        FinishClaim::Outputting(_, artifact) => artifact,
     };
 
     boundary(FinishBoundary::BeforeOutput);
-    let output_result = match (action, output_worker(action, Arc::clone(&png)).await) {
+    let output_result = match (action, output_worker(action, Arc::clone(&artifact)).await) {
         (LongshotOutputAction::Copy, Ok(_)) => Ok(None),
         (LongshotOutputAction::Save, Ok(Some(path))) if !path.is_empty() => Ok(Some(path)),
         (LongshotOutputAction::Save, Ok(_)) => Err(OutputWorkerError::Business(
@@ -557,7 +558,9 @@ where
             let message = match error {
                 OutputWorkerError::Business(message) | OutputWorkerError::Join(message) => message,
             };
-            return match registry.complete_output_failure(label, &token, action, &png, uncertain) {
+            return match registry
+                .complete_output_failure(label, &token, action, &artifact, uncertain)
+            {
                 OutputFailureAction::Pending | OutputFailureAction::Dropped => Err(match action {
                     LongshotOutputAction::Copy => LongshotIpcError::copy_failed(message),
                     LongshotOutputAction::Save if uncertain => {
@@ -573,7 +576,7 @@ where
     };
 
     boundary(FinishBoundary::BeforeCommit);
-    if !registry.complete_output_success(label, &token, action, &png) {
+    if !registry.complete_output_success(label, &token, action, &artifact) {
         return Err(LongshotIpcError::cleanup_failed(
             "长截图输出成功后控制权已经丢失",
         ));
@@ -582,12 +585,12 @@ where
     Ok(LongshotOutputResult { action, path })
 }
 
-pub(super) async fn run_finish_worker<F>(work: F) -> Result<Vec<u8>, FinishWorkerError>
+pub(super) async fn run_finish_worker<F>(work: F) -> Result<LongshotArtifact, FinishWorkerError>
 where
-    F: FnOnce() -> Result<Vec<u8>, CaptureError> + Send + 'static,
+    F: FnOnce() -> Result<LongshotArtifact, CaptureError> + Send + 'static,
 {
     match tauri::async_runtime::spawn_blocking(work).await {
-        Ok(Ok(png)) => Ok(png),
+        Ok(Ok(artifact)) => Ok(artifact),
         Ok(Err(error)) => Err(FinishWorkerError::Business(error)),
         Err(error) => Err(FinishWorkerError::Join(format!(
             "长截图完成线程异常: {error}"
