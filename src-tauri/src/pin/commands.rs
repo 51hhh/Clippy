@@ -1038,18 +1038,21 @@ fn image_bytes(entry: &PinEntry) -> Result<Vec<u8>, String> {
 mod project_command_tests {
     use super::*;
 
-    const _: fn(
+    type CreateScreenshotPinFn = fn(
         Vec<u8>,
         Option<PinOrigin>,
         &tauri::AppHandle,
         &crate::commands::AppState,
-    ) -> Result<String, String> = super::create_screenshot_pin;
-    const _: fn(
+    ) -> Result<String, String>;
+    type CreateScreenshotPinSharedFn = fn(
         Arc<Vec<u8>>,
         Option<PinOrigin>,
         &tauri::AppHandle,
         &crate::commands::AppState,
-    ) -> Result<String, super::ScreenshotPinCreateError> = super::create_screenshot_pin_shared;
+    ) -> Result<String, super::ScreenshotPinCreateError>;
+
+    const _: CreateScreenshotPinFn = super::create_screenshot_pin;
+    const _: CreateScreenshotPinSharedFn = super::create_screenshot_pin_shared;
 
     fn adjustments() -> serde_json::Value {
         serde_json::json!({"grayscale":false,"brightness":0,"contrast":0,
