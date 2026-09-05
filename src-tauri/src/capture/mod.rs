@@ -10,6 +10,11 @@ mod frame_protocol;
 #[cfg_attr(not(test), allow(dead_code))]
 mod longshot;
 mod manager;
+/// 普通截图与长截图尚未接入生命周期；先固定跨入口共享的原子所有权契约。
+///
+/// 当前没有生产调用方是本切片刻意的分层边界，不能为了消除 lint 伪造调用。
+#[cfg_attr(not(test), allow(dead_code))]
+mod mode_gate;
 mod overlay_windows;
 #[cfg(target_os = "linux")]
 mod shell_extension;
@@ -22,6 +27,9 @@ mod window_probe;
 pub use error::CaptureError;
 pub(crate) use frame_protocol::handle as frame_protocol;
 pub use manager::CaptureManager;
+/// 后续 AppState 与截图入口使用的模式互斥原语；lease 的字段始终只在模块内可见。
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use mode_gate::{CaptureMode, CaptureModeGate, CaptureModeLease};
 /// 贴图窗口的摆放与置顶也只有这个扩展做得到（Wayland 不许客户端自己来），
 /// 所以 `pin/` 借道这里，而不是自己再开一份 D-Bus 契约。
 pub(crate) use shell_extension::place_window as shell_extension_place_window;
