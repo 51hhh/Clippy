@@ -27,7 +27,7 @@ mod window_probe;
 pub use error::CaptureError;
 pub(crate) use frame_protocol::handle as frame_protocol;
 /// AppState 通过此边界持有唯一长截图桌面生命周期；业务方法继续限制在 capture 域内。
-pub(crate) use longshot::LongshotLifecycle;
+pub(crate) use longshot::{LongshotControllerRegistry, LongshotLifecycle};
 pub use manager::CaptureManager;
 /// AppState 与截图入口共用的模式互斥原语；lease 的字段始终只在模块内可见。
 #[cfg_attr(not(test), allow(unused_imports))]
@@ -86,6 +86,50 @@ pub(crate) fn handle_overlay_destroyed(
     if let Err(error) = terminate_capture_overlay(app_handle, state, label) {
         log::error!("截图覆盖层 {label} 销毁后终结会话失败: {error}");
     }
+}
+
+pub(crate) fn handle_longshot_controller_destroyed(app: &tauri::AppHandle, label: &str) {
+    longshot::handle_controller_destroyed(app, label);
+}
+
+/// 普通覆盖层只创建隐藏控制窗，不在本调用中消费 ordinary 会话。
+#[tauri::command]
+pub fn open_longshot_controller(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    selection: CaptureSelection,
+) -> Result<longshot::LongshotControllerLaunch, longshot::LongshotIpcError> {
+    longshot::window_host::open(&app, &state, window.label(), selection)
+}
+
+/// 由已经加载完成且不会随 ordinary overlays 销毁的控制窗发起真实接管。
+#[tauri::command]
+pub async fn activate_longshot_controller(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<longshot::LongshotActivation, longshot::LongshotIpcError> {
+    longshot::window_host::activate(app, &state, window.label()).await
+}
+
+#[tauri::command]
+pub async fn mark_longshot_controller_ready(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), longshot::LongshotIpcError> {
+    longshot::window_host::ready(app, &state, window.label()).await
+}
+
+#[tauri::command]
+pub async fn cancel_longshot_controller(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    handle: Option<longshot::LongshotControllerHandle>,
+) -> Result<(), longshot::LongshotIpcError> {
+    longshot::window_host::cancel(app, &state, window.label(), handle).await
 }
 
 /// 在任何桌面副作用之前取得 Ordinary 所有权；Busy 时不构造后续 future。

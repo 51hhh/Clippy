@@ -42,9 +42,10 @@ pub struct AppState {
     pub capture_manager: Arc<crate::capture::CaptureManager>,
     /// 普通截图与未来长截图入口共享的唯一模式 gate。
     pub capture_mode_gate: Arc<crate::capture::CaptureModeGate>,
-    /// 长截图像素与桌面资源的唯一进程级生命周期；IPC 入口仍待后续接入。
-    #[allow(dead_code)]
+    /// 长截图像素与桌面资源的唯一进程级生命周期。
     pub longshot_lifecycle: Arc<crate::capture::LongshotLifecycle>,
+    /// 独立长截图控制窗口的唯一轻量单槽 registry。
+    pub longshot_windows: Arc<crate::capture::LongshotControllerRegistry>,
     pub pin_manager: Arc<crate::pin::PinManager>,
     /// 我们自己截下来、复制进剪贴板的图 → 它原本在屏幕上的位置。
     /// 之后从历史里 Pin 这张图时靠它贴回原处，见 `pin::PinOriginRegistry`。

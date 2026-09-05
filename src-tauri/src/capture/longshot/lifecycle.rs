@@ -131,6 +131,15 @@ impl LongshotLifecycle {
         Ok(!matches!(*slot, LifecycleSlot::Empty))
     }
 
+    /// cleanup 失败后只读确认 exact token 是否仍处于可重试 Active。
+    pub(in crate::capture) fn is_exact_active(
+        &self,
+        token: &LongshotSessionToken,
+    ) -> Result<bool, CaptureError> {
+        let slot = self.slot.lock().map_err(CaptureError::state_lock)?;
+        Ok(matches!(&*slot, LifecycleSlot::Active(session) if session.token == *token))
+    }
+
     fn begin_with<B, C>(&self, begin: B, close_overlays: C) -> Result<LongshotStart, CaptureError>
     where
         B: FnOnce() -> Result<LongshotControllerStart, CaptureError>,

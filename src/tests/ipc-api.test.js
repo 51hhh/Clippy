@@ -35,7 +35,10 @@ vi.mock("@tauri-apps/plugin-autostart", () => ({
 
 import {
   cancelCaptureOverlay,
+  cancelLongshotController,
+  activateLongshotController,
   markCaptureOverlayReady,
+  markLongshotControllerReady,
   copyText,
   closeCurrentWindow,
   disableAutostart,
@@ -56,6 +59,7 @@ import {
   copyPinCanvas,
   onCurrentWindowDragDrop,
   openPinProjectFile,
+  openLongshotController,
   savePinCanvas,
 } from "../js/api.ts";
 
@@ -209,6 +213,30 @@ describe("typed IPC wrappers", () => {
       viewportWidth: 1920,
       viewportHeight: 1200,
     });
+  });
+
+  it("keeps the longshot controller wire contract label-free and lossless", () => {
+    const selection = {
+      sessionId: "capture-7",
+      monitorId: 2,
+      x: 4,
+      y: 5,
+      width: 640,
+      height: 360,
+    };
+    const handle = { sessionId: "longshot-7", generation: "18446744073709551615" };
+
+    openLongshotController(selection);
+    activateLongshotController();
+    markLongshotControllerReady();
+    cancelLongshotController(handle);
+    cancelLongshotController(null);
+
+    expect(invoke).toHaveBeenNthCalledWith(1, "open_longshot_controller", { selection });
+    expect(invoke).toHaveBeenNthCalledWith(2, "activate_longshot_controller");
+    expect(invoke).toHaveBeenNthCalledWith(3, "mark_longshot_controller_ready");
+    expect(invoke).toHaveBeenNthCalledWith(4, "cancel_longshot_controller", { handle });
+    expect(invoke).toHaveBeenNthCalledWith(5, "cancel_longshot_controller", { handle: null });
   });
 
   it("sends a null note when the user did not describe the symptom", () => {

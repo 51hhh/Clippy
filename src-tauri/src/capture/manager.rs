@@ -493,6 +493,35 @@ impl CaptureManager {
         })
     }
 
+    /// 控制窗创建前只读核对调用覆盖层、会话、显示器和选区几何。
+    ///
+    /// 这里不克隆冻结帧，也不消费普通会话；activation 会再次做权威 prepare。
+    pub(super) fn validate_longshot_open(
+        &self,
+        caller_label: &str,
+        selection: &CaptureSelection,
+    ) -> Result<(), CaptureError> {
+        let current = self.session.lock().map_err(CaptureError::state_lock)?;
+        let session = current.as_ref().ok_or(CaptureError::SessionMissing)?;
+        if session.id != selection.session_id {
+            return Err(CaptureError::SessionSupersededRetry);
+        }
+        let overlay_index = session
+            .overlays
+            .iter()
+            .position(|overlay| overlay.label == caller_label)
+            .ok_or(CaptureError::OverlayNotInSession)?;
+        let caller_frame = session
+            .frames
+            .get(overlay_index)
+            .ok_or(CaptureError::OverlayFrameMissing)?;
+        if caller_frame.monitor_id != selection.monitor_id {
+            return Err(CaptureError::SelectionMonitorMismatch);
+        }
+        selection_pixel_rect(caller_frame, selection)?;
+        Ok(())
+    }
+
     /// 精确消费 prepare 候选，并在 manager 锁内原子转换 mode ownership。
     #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn commit_longshot(
@@ -1264,6 +1293,56 @@ mod tests {
 
         drop(candidate);
         assert_eq!(gate.active_mode().unwrap(), Some(CaptureMode::Ordinary));
+        manager
+            .finish(&start.session_id)
+            .unwrap()
+            .finalize_mode()
+            .unwrap();
+    }
+
+    #[test]
+    fn longshot_open_validation_binds_caller_session_monitor_and_geometry() {
+        let manager = CaptureManager::new();
+        let gate = Arc::new(CaptureModeGate::new());
+        let start = manager
+            .begin(
+                vec![frame(1.0)],
+                Vec::new(),
+                Vec::new(),
+                false,
+                StageTimings::default(),
+                ownership_on(&gate),
+            )
+            .expect("启动普通会话");
+        let label = &start.overlays[0].label;
+        let mut selection = selection_for(&start.session_id);
+        assert!(manager.validate_longshot_open(label, &selection).is_ok());
+        assert_eq!(
+            manager
+                .validate_longshot_open("capture-overlay-forged-7", &selection)
+                .expect_err("伪造 caller")
+                .code(),
+            "overlay_not_in_session"
+        );
+        selection.monitor_id = 99;
+        assert_eq!(
+            manager
+                .validate_longshot_open(label, &selection)
+                .expect_err("错误显示器")
+                .code(),
+            "selection_monitor_mismatch"
+        );
+        selection.monitor_id = 7;
+        selection.width = f64::NAN;
+        assert_eq!(
+            manager
+                .validate_longshot_open(label, &selection)
+                .expect_err("无效几何")
+                .code(),
+            "selection_not_finite"
+        );
+        assert_eq!(gate.active_mode().unwrap(), Some(CaptureMode::Ordinary));
+        assert!(manager.payload(label).is_ok());
         manager
             .finish(&start.session_id)
             .unwrap()

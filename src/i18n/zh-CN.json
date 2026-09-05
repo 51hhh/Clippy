@@ -512,5 +512,17 @@
   "settings.captureDiagnostics.copied": "报告已复制，粘贴到 issue 里即可。",
   "settings.captureDiagnostics.openIssue": "反馈问题",
   "settings.captureDiagnostics.savedTo": "已保存到",
-  "capture.windowProbeHint": "截图配合一个小的 GNOME 服务更可靠：请在 设置 → 截图 中安装并注销一次生效。在此之前拖动即可框选区域。"
+  "capture.windowProbeHint": "截图配合一个小的 GNOME 服务更可靠：请在 设置 → 截图 中安装并注销一次生效。在此之前拖动即可框选区域。",
+  "longshot.title": "长截图",
+  "longshot.preparing": "正在准备截图会话…",
+  "longshot.ready": "已准备好继续捕获画面。",
+  "longshot.frameCount": "帧数",
+  "longshot.totalHeight": "总高度",
+  "longshot.cancel": "取消",
+  "longshot.close": "关闭",
+  "longshot.cancelling": "正在取消并恢复桌面…",
+  "longshot.failed": "无法启动长截图会话。",
+  "longshot.busy": "已有另一个长截图会话正在运行。",
+  "longshot.superseded": "这个长截图会话已不再是当前会话。",
+  "longshot.cleanupFailed": "Clippy 无法安全恢复桌面。请重启 Clippy 后再开始新的长截图。"
 }

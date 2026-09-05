@@ -13,9 +13,9 @@ mod manager;
 mod overlap;
 mod recapture;
 mod session;
+pub(crate) mod window_host;
 
-// lifecycle 已注入 AppState；IPC 尚未接线。保留 crate 内重导出以固定 capture 领域边界，
-// 而不是为了消除 dead-code 伪造调用。
+// lifecycle 与控制窗 registry 通过 AppState 保持唯一实例；重导出固定 capture 领域边界。
 #[allow(unused_imports)]
 pub(super) use frame_adapter::LongshotFrameAdapter;
 pub(crate) use lifecycle::LongshotLifecycle;
@@ -25,6 +25,10 @@ pub(super) use manager::{LongshotManager, LongshotSessionToken, LongshotStart};
 pub(super) use recapture::capture_monitor_frame;
 #[allow(unused_imports)]
 pub(super) use session::{LongshotAppendOutcome, LongshotSession, LongshotSnapshot};
+pub(crate) use window_host::{
+    handle_controller_destroyed, LongshotActivation, LongshotControllerHandle,
+    LongshotControllerLaunch, LongshotControllerRegistry, LongshotIpcError,
+};
 
 /// 资源边界只在此处定义；后续会话层必须复用而不是另设一组限制。
 const MAX_FRAMES: usize = 64;

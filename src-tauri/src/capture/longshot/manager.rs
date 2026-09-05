@@ -17,6 +17,16 @@ pub(in crate::capture) struct LongshotSessionToken {
     generation: u64,
 }
 
+impl LongshotSessionToken {
+    pub(super) fn wire_parts(&self) -> (&str, u64) {
+        (&self.id, self.generation)
+    }
+
+    pub(super) fn from_wire_parts(id: String, generation: u64) -> Self {
+        Self { id, generation }
+    }
+}
+
 /// `begin` 成功后交给调用方的会话标识与首帧快照。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::capture) struct LongshotStart {
