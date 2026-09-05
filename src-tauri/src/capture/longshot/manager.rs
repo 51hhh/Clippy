@@ -118,7 +118,7 @@ impl LongshotManager {
         token: &LongshotSessionToken,
         incoming: RgbaImage,
     ) -> Result<LongshotAppendOutcome, CaptureError> {
-        self.append_with(token, incoming, LongshotSession::append)
+        self.append_with(token, move |session| session.append(incoming))
     }
 
     /// 返回最后一次已提交的快照，不编码或复制会话像素。
@@ -192,21 +192,20 @@ impl LongshotManager {
         Ok(())
     }
 
-    fn append_with<F>(
+    pub(super) fn append_with<F>(
         &self,
         token: &LongshotSessionToken,
-        incoming: RgbaImage,
         operation: F,
     ) -> Result<LongshotAppendOutcome, CaptureError>
     where
-        F: FnOnce(&mut LongshotSession, RgbaImage) -> Result<LongshotAppendOutcome, CaptureError>,
+        F: FnOnce(&mut LongshotSession) -> Result<LongshotAppendOutcome, CaptureError>,
     {
         let mut lease = self.claim(token, Operation::Append)?;
-        let result = operation(&mut lease.session, incoming);
+        let result = operation(&mut lease.session);
         self.complete_append(lease, result)
     }
 
-    fn finish_with<F>(
+    pub(super) fn finish_with<F>(
         &self,
         token: &LongshotSessionToken,
         operation: F,
@@ -323,7 +322,7 @@ fn in_flight_matches(slot: &Slot, token: &LongshotSessionToken, operation: Opera
 
 #[cfg(test)]
 impl LongshotManager {
-    fn with_test_state(id_supplier: fn() -> String, last_generation: u64) -> Self {
+    pub(super) fn with_test_state(id_supplier: fn() -> String, last_generation: u64) -> Self {
         Self {
             state: Mutex::new(ManagerState {
                 last_generation,

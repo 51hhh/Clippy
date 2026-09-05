@@ -55,7 +55,7 @@ impl FrameSignature {
 }
 
 /// 在同一显示器连续帧里复用的、不可重新换算的物理选区。
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(in crate::capture) struct LongshotFrameAdapter {
     signature: FrameSignature,
     crop: PixelRect,

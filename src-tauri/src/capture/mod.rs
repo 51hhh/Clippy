@@ -4,7 +4,7 @@ pub mod diagnostics;
 mod error;
 mod frame_crop;
 mod frame_protocol;
-/// 长截图像素、会话与帧适配核心尚未接入重捕获 provider 或 IPC，先保留为截图领域内部原语。
+/// 长截图像素、会话、重捕获与控制器核心尚未接入 AppState 或 IPC，先保留为截图领域内部原语。
 ///
 /// 非测试构建中没有调用方是当前任务刻意的分层边界，不能为了消除 lint 伪造生产调用。
 #[cfg_attr(not(test), allow(dead_code))]
