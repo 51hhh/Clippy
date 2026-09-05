@@ -9,7 +9,7 @@ pub(super) enum PinSource {
         image: Option<Vec<u8>>,
     },
     Screenshot {
-        png: Vec<u8>,
+        png: Arc<Vec<u8>>,
     },
     /// 从可编辑 PNG 恢复：屏幕/快速复制使用保存时合成图，画布与再次保存使用 canonical
     /// 原图和已验证工程。整个枚举位于 `Arc` 后，不会在缩放热路径复制这些字节。
