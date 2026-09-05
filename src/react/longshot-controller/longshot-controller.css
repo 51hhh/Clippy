@@ -70,3 +70,21 @@ button { font: inherit; }
   outline: none;
   background: var(--longshot-focus-background);
 }
+
+.longshot-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.longshot-actions button { flex: 1; }
+
+.longshot-controller button:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+.longshot-controller button:disabled:hover,
+.longshot-controller button:disabled:focus-visible {
+  border-color: var(--longshot-border);
+  background: var(--longshot-button);
+}

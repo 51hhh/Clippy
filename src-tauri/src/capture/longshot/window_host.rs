@@ -148,17 +148,36 @@ enum Slot {
         snapshot: LongshotSnapshot,
         revealed: bool,
     },
+    Appending {
+        label: String,
+        token: LongshotSessionToken,
+        snapshot: LongshotSnapshot,
+    },
     Terminating {
         label: String,
         token: LongshotSessionToken,
         snapshot: Option<LongshotSnapshot>,
         window_destroyed: bool,
+        origin: TerminationOrigin,
     },
     CleanupFailed {
         label: String,
         _token: Option<LongshotSessionToken>,
         revealed: bool,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RetryVisibility {
+    NotClaimed,
+    InProgress,
+    Forbidden,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TerminationOrigin {
+    RevealedActive,
+    HiddenAppending(RetryVisibility),
 }
 
 #[derive(Debug)]
@@ -189,6 +208,19 @@ enum CancelAction {
 }
 
 #[derive(Debug)]
+struct AppendClaim {
+    token: LongshotSessionToken,
+    old_snapshot: LongshotSnapshot,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CancelFailureRecovery {
+    Revealed,
+    Hidden,
+    CleanupFailed,
+}
+
+#[derive(Debug)]
 enum DeadlineAction {
     None,
     Close,
@@ -204,8 +236,10 @@ enum EmergencyDecision {
 
 trait ControlWindowActions {
     fn destroy(&self, label: &str);
+    fn hide(&self, label: &str) -> Result<(), LongshotIpcError>;
     fn show(&self, label: &str) -> Result<(), LongshotIpcError>;
     fn focus(&self, label: &str);
+    fn exists(&self, label: &str) -> bool;
 }
 
 struct TauriControlWindowActions<'a> {
@@ -219,6 +253,16 @@ impl ControlWindowActions for TauriControlWindowActions<'_> {
                 log::warn!("销毁长截图控制窗 {label} 失败: {error}");
             }
         }
+    }
+
+    fn hide(&self, label: &str) -> Result<(), LongshotIpcError> {
+        let window = self
+            .app
+            .get_webview_window(label)
+            .ok_or_else(LongshotIpcError::missing)?;
+        window.hide().map_err(|error| {
+            LongshotIpcError::new("longshot_controller_hide_failed", error.to_string())
+        })
     }
 
     fn show(&self, label: &str) -> Result<(), LongshotIpcError> {
@@ -235,6 +279,10 @@ impl ControlWindowActions for TauriControlWindowActions<'_> {
         if let Some(window) = self.app.get_webview_window(label) {
             let _ = window.set_focus();
         }
+    }
+
+    fn exists(&self, label: &str) -> bool {
+        self.app.get_webview_window(label).is_some()
     }
 }
 
@@ -318,6 +366,7 @@ impl LongshotControllerRegistry {
             Slot::Activating { label: current, .. }
             | Slot::Failed { label: current, .. }
             | Slot::Active { label: current, .. }
+            | Slot::Appending { label: current, .. }
             | Slot::Terminating { label: current, .. }
             | Slot::CleanupFailed { label: current, .. } => current == label,
             Slot::Empty => false,
@@ -380,6 +429,7 @@ impl LongshotControllerRegistry {
                     token: token.clone(),
                     snapshot: Some(start.snapshot),
                     window_destroyed: true,
+                    origin: TerminationOrigin::RevealedActive,
                 };
                 Ok((None, Some(token)))
             }
@@ -453,6 +503,152 @@ impl LongshotControllerRegistry {
                 }
             }
             _ => Err(LongshotIpcError::missing()),
+        }
+    }
+
+    fn claim_append(
+        &self,
+        label: &str,
+        handle: &LongshotControllerHandle,
+    ) -> Result<AppendClaim, LongshotIpcError> {
+        if !label.starts_with(CONTROLLER_PREFIX) {
+            return Err(LongshotIpcError::missing());
+        }
+        let wire_token = handle.to_token()?;
+        let mut slot = self
+            .slot
+            .lock()
+            .map_err(|error| LongshotIpcError::internal(error.to_string()))?;
+        let previous = std::mem::take(&mut *slot);
+        match previous {
+            Slot::Active {
+                label: current,
+                token,
+                snapshot,
+                revealed: true,
+            } if current == label && token == wire_token => {
+                *slot = Slot::Appending {
+                    label: current,
+                    token: token.clone(),
+                    snapshot,
+                };
+                Ok(AppendClaim {
+                    token,
+                    old_snapshot: snapshot,
+                })
+            }
+            Slot::Active {
+                label: current,
+                token,
+                snapshot,
+                revealed,
+            } if current == label => {
+                *slot = Slot::Active {
+                    label: current,
+                    token,
+                    snapshot,
+                    revealed,
+                };
+                if revealed {
+                    Err(LongshotIpcError::superseded())
+                } else {
+                    Err(LongshotIpcError::missing())
+                }
+            }
+            Slot::Appending {
+                label: current,
+                token,
+                snapshot,
+            } if current == label => {
+                let error = if wire_token == token {
+                    LongshotIpcError::busy()
+                } else {
+                    LongshotIpcError::superseded()
+                };
+                *slot = Slot::Appending {
+                    label: current,
+                    token,
+                    snapshot,
+                };
+                Err(error)
+            }
+            other => {
+                *slot = other;
+                Err(LongshotIpcError::missing())
+            }
+        }
+    }
+
+    fn owns_append(&self, label: &str, token: &LongshotSessionToken) -> bool {
+        self.slot.lock().is_ok_and(|slot| {
+            matches!(&*slot, Slot::Appending {
+                label: current,
+                token: current_token,
+                ..
+            } if current == label && current_token == token)
+        })
+    }
+
+    fn complete_append_visible(
+        &self,
+        label: &str,
+        token: &LongshotSessionToken,
+        snapshot: LongshotSnapshot,
+    ) -> Result<LongshotSnapshotDto, LongshotIpcError> {
+        let mut slot = self
+            .slot
+            .lock()
+            .map_err(|error| LongshotIpcError::internal(error.to_string()))?;
+        let previous = std::mem::take(&mut *slot);
+        match previous {
+            Slot::Appending {
+                label: current,
+                token: current_token,
+                ..
+            } if current == label && current_token == *token => {
+                *slot = Slot::Active {
+                    label: current,
+                    token: current_token,
+                    snapshot,
+                    revealed: true,
+                };
+                Ok(snapshot.into())
+            }
+            other => {
+                *slot = other;
+                Err(LongshotIpcError::superseded())
+            }
+        }
+    }
+
+    fn claim_append_visibility_failure(
+        &self,
+        label: &str,
+        token: &LongshotSessionToken,
+    ) -> Option<LongshotSessionToken> {
+        let Ok(mut slot) = self.slot.lock() else {
+            return None;
+        };
+        let previous = std::mem::take(&mut *slot);
+        match previous {
+            Slot::Appending {
+                label: current,
+                token: current_token,
+                snapshot,
+            } if current == label && current_token == *token => {
+                *slot = Slot::Terminating {
+                    label: current,
+                    token: current_token.clone(),
+                    snapshot: Some(snapshot),
+                    window_destroyed: true,
+                    origin: TerminationOrigin::HiddenAppending(RetryVisibility::Forbidden),
+                };
+                Some(current_token)
+            }
+            other => {
+                *slot = other;
+                None
+            }
         }
     }
 
@@ -535,6 +731,29 @@ impl LongshotControllerRegistry {
                     token: token.clone(),
                     snapshot: Some(snapshot),
                     window_destroyed: false,
+                    origin: TerminationOrigin::RevealedActive,
+                };
+                Ok(CancelAction::Terminate(token))
+            }
+            Slot::Appending {
+                label: current,
+                token,
+                snapshot,
+            } if current == label => {
+                if token_from_wire.as_ref() != Some(&token) {
+                    *slot = Slot::Appending {
+                        label: current,
+                        token,
+                        snapshot,
+                    };
+                    return Err(LongshotIpcError::superseded());
+                }
+                *slot = Slot::Terminating {
+                    label: current,
+                    token: token.clone(),
+                    snapshot: Some(snapshot),
+                    window_destroyed: false,
+                    origin: TerminationOrigin::HiddenAppending(RetryVisibility::NotClaimed),
                 };
                 Ok(CancelAction::Terminate(token))
             }
@@ -582,6 +801,7 @@ impl LongshotControllerRegistry {
                     snapshot: Some(snapshot),
                     // deadline 随后必定关窗，失败不能开放一个已经没有 UI 的重试态。
                     window_destroyed: true,
+                    origin: TerminationOrigin::RevealedActive,
                 };
                 DeadlineAction::Terminate(token)
             }
@@ -625,6 +845,21 @@ impl LongshotControllerRegistry {
                     token: token.clone(),
                     snapshot: Some(snapshot),
                     window_destroyed: true,
+                    origin: TerminationOrigin::RevealedActive,
+                };
+                Some(token)
+            }
+            Slot::Appending {
+                label: current,
+                token,
+                snapshot,
+            } if current == label => {
+                *slot = Slot::Terminating {
+                    label: current,
+                    token: token.clone(),
+                    snapshot: Some(snapshot),
+                    window_destroyed: true,
+                    origin: TerminationOrigin::HiddenAppending(RetryVisibility::Forbidden),
                 };
                 Some(token)
             }
@@ -632,6 +867,7 @@ impl LongshotControllerRegistry {
                 label: current,
                 token,
                 snapshot,
+                origin,
                 ..
             } if current == label => {
                 *slot = Slot::Terminating {
@@ -639,6 +875,12 @@ impl LongshotControllerRegistry {
                     token,
                     snapshot,
                     window_destroyed: true,
+                    origin: match origin {
+                        TerminationOrigin::HiddenAppending(_) => {
+                            TerminationOrigin::HiddenAppending(RetryVisibility::Forbidden)
+                        }
+                        other => other,
+                    },
                 };
                 None
             }
@@ -661,36 +903,185 @@ impl LongshotControllerRegistry {
         }
     }
 
-    fn complete_cancel_failure(&self, label: &str, token: &LongshotSessionToken, retryable: bool) {
+    fn begin_cancel_failure_recovery(
+        &self,
+        label: &str,
+        token: &LongshotSessionToken,
+    ) -> CancelFailureRecovery {
         let Ok(mut slot) = self.slot.lock() else {
-            log::error!("长截图取消失败后无法保留 registry");
-            return;
+            return CancelFailureRecovery::CleanupFailed;
         };
         let previous = std::mem::take(&mut *slot);
-        *slot = match previous {
+        match previous {
+            Slot::Terminating {
+                label: current,
+                token: current_token,
+                snapshot,
+                window_destroyed: false,
+                origin: TerminationOrigin::HiddenAppending(RetryVisibility::NotClaimed),
+            } if current == label && current_token == *token => {
+                *slot = Slot::Terminating {
+                    label: current,
+                    token: current_token,
+                    snapshot,
+                    window_destroyed: false,
+                    origin: TerminationOrigin::HiddenAppending(RetryVisibility::InProgress),
+                };
+                CancelFailureRecovery::Hidden
+            }
             Slot::Terminating {
                 label: current,
                 token: current_token,
                 snapshot,
                 window_destroyed,
+                origin: TerminationOrigin::RevealedActive,
             } if current == label && current_token == *token => {
-                if let (true, false, Some(snapshot)) = (retryable, window_destroyed, snapshot) {
-                    Slot::Active {
-                        label: current,
-                        token: current_token,
+                *slot = Slot::Terminating {
+                    label: current,
+                    token: current_token,
+                    snapshot,
+                    window_destroyed,
+                    origin: TerminationOrigin::RevealedActive,
+                };
+                CancelFailureRecovery::Revealed
+            }
+            Slot::Terminating {
+                label: current,
+                token: current_token,
+                origin: TerminationOrigin::HiddenAppending(_),
+                ..
+            } if current == label && current_token == *token => {
+                *slot = Slot::CleanupFailed {
+                    label: current,
+                    _token: Some(current_token),
+                    revealed: false,
+                };
+                CancelFailureRecovery::CleanupFailed
+            }
+            other => {
+                *slot = other;
+                CancelFailureRecovery::CleanupFailed
+            }
+        }
+    }
+
+    fn owns_hidden_cancel_reveal(&self, label: &str, token: &LongshotSessionToken) -> bool {
+        self.slot.lock().is_ok_and(|slot| {
+            matches!(&*slot, Slot::Terminating {
+                label: current,
+                token: current_token,
+                window_destroyed: false,
+                origin: TerminationOrigin::HiddenAppending(RetryVisibility::InProgress),
+                ..
+            } if current == label && current_token == token)
+        })
+    }
+
+    fn complete_cancel_failure(
+        &self,
+        label: &str,
+        token: &LongshotSessionToken,
+        retryable: bool,
+    ) -> CancelFailureRecovery {
+        let Ok(mut slot) = self.slot.lock() else {
+            log::error!("长截图取消失败后无法保留 registry");
+            return CancelFailureRecovery::CleanupFailed;
+        };
+        let previous = std::mem::take(&mut *slot);
+        let (next, recovery) = match previous {
+            Slot::Terminating {
+                label: current,
+                token: current_token,
+                snapshot,
+                window_destroyed,
+                origin,
+            } if current == label && current_token == *token => {
+                match (retryable, window_destroyed, snapshot, origin) {
+                    (true, false, Some(snapshot), TerminationOrigin::RevealedActive) => (
+                        Slot::Active {
+                            label: current,
+                            token: current_token,
+                            snapshot,
+                            revealed: true,
+                        },
+                        CancelFailureRecovery::Revealed,
+                    ),
+                    (
+                        true,
+                        false,
                         snapshot,
-                        revealed: true,
-                    }
-                } else {
-                    Slot::CleanupFailed {
-                        label: current,
-                        _token: Some(current_token),
-                        revealed: false,
-                    }
+                        TerminationOrigin::HiddenAppending(RetryVisibility::NotClaimed),
+                    ) => (
+                        Slot::Terminating {
+                            label: current,
+                            token: current_token,
+                            snapshot,
+                            window_destroyed: false,
+                            origin: TerminationOrigin::HiddenAppending(RetryVisibility::InProgress),
+                        },
+                        CancelFailureRecovery::Hidden,
+                    ),
+                    (_, _, _, _) => (
+                        Slot::CleanupFailed {
+                            label: current,
+                            _token: Some(current_token),
+                            revealed: false,
+                        },
+                        CancelFailureRecovery::CleanupFailed,
+                    ),
                 }
             }
-            other => other,
+            other => (other, CancelFailureRecovery::CleanupFailed),
         };
+        *slot = next;
+        recovery
+    }
+
+    fn complete_hidden_cancel_reveal(&self, label: &str, token: &LongshotSessionToken) -> bool {
+        let Ok(mut slot) = self.slot.lock() else {
+            return false;
+        };
+        let previous = std::mem::take(&mut *slot);
+        match previous {
+            Slot::Terminating {
+                label: current,
+                token: current_token,
+                snapshot: Some(snapshot),
+                window_destroyed: false,
+                origin: TerminationOrigin::HiddenAppending(RetryVisibility::InProgress),
+            } if current == label && current_token == *token => {
+                *slot = Slot::Active {
+                    label: current,
+                    token: current_token,
+                    snapshot,
+                    revealed: true,
+                };
+                true
+            }
+            other => {
+                *slot = other;
+                false
+            }
+        }
+    }
+
+    fn fail_hidden_cancel_reveal(&self, label: &str, token: &LongshotSessionToken) {
+        let Ok(mut slot) = self.slot.lock() else {
+            return;
+        };
+        if matches!(&*slot, Slot::Terminating {
+            label: current,
+            token: current_token,
+            origin: TerminationOrigin::HiddenAppending(_),
+            ..
+        } if current == label && current_token == token)
+        {
+            *slot = Slot::CleanupFailed {
+                label: label.to_string(),
+                _token: Some(token.clone()),
+                revealed: false,
+            };
+        }
     }
 
     /// show 已失败，控制窗马上会关闭；只有从 Active 成功认领的线程可以执行 cancel。
@@ -716,6 +1107,7 @@ impl LongshotControllerRegistry {
                     token: current_token.clone(),
                     snapshot: Some(snapshot),
                     window_destroyed: true,
+                    origin: TerminationOrigin::RevealedActive,
                 };
                 Some(current_token)
             }
@@ -746,6 +1138,44 @@ impl LongshotControllerRegistry {
             true
         } else {
             false
+        }
+    }
+
+    /// 强制终结 worker 返回失败后的 exact 收敛；允许已由真实 cancel worker 提前写入。
+    fn settle_termination_cleanup_failed(&self, label: &str, token: &LongshotSessionToken) -> bool {
+        let Ok(mut slot) = self.slot.lock() else {
+            return false;
+        };
+        let previous = std::mem::take(&mut *slot);
+        match previous {
+            Slot::Terminating {
+                label: current,
+                token: current_token,
+                ..
+            } if current == label && current_token == *token => {
+                *slot = Slot::CleanupFailed {
+                    label: current,
+                    _token: Some(current_token),
+                    revealed: false,
+                };
+                true
+            }
+            Slot::CleanupFailed {
+                label: current,
+                _token: Some(current_token),
+                revealed,
+            } if current == label && current_token == *token => {
+                *slot = Slot::CleanupFailed {
+                    label: current,
+                    _token: Some(current_token),
+                    revealed,
+                };
+                true
+            }
+            other => {
+                *slot = other;
+                false
+            }
         }
     }
 
@@ -925,6 +1355,220 @@ where
     }
     windows.focus(label);
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AppendBoundary {
+    AfterClaim,
+    AfterHide,
+    AfterSettle,
+    AfterWorker,
+    AfterShow,
+    BeforeCommit,
+}
+
+async fn terminate_hidden_append<A, C, F>(
+    registry: &LongshotControllerRegistry,
+    label: &str,
+    token: &LongshotSessionToken,
+    windows: &A,
+    cancel: C,
+    visibility_error: LongshotIpcError,
+) -> LongshotIpcError
+where
+    A: ControlWindowActions,
+    C: FnOnce(LongshotSessionToken) -> F,
+    F: std::future::Future<Output = Result<(), LongshotIpcError>>,
+{
+    let claimed = registry.claim_append_visibility_failure(label, token);
+    let cleanup = if let Some(claimed) = claimed {
+        cancel(claimed).await
+    } else {
+        return LongshotIpcError::superseded();
+    };
+    windows.destroy(label);
+    match cleanup {
+        Ok(()) => visibility_error,
+        Err(error) => {
+            let _ = registry.settle_termination_cleanup_failed(label, token);
+            LongshotIpcError::cleanup_failed(error.message)
+        }
+    }
+}
+
+// 编排 seam 显式注入窗口、等待、worker、cleanup 与边界钩子，避免测试绕开生产路径。
+#[allow(clippy::too_many_arguments)]
+async fn execute_append_with_ops<A, S, SF, W, WF, C, CF, H>(
+    registry: &LongshotControllerRegistry,
+    label: &str,
+    handle: &LongshotControllerHandle,
+    windows: &A,
+    settle: S,
+    worker: W,
+    cancel: C,
+    mut boundary: H,
+) -> Result<LongshotSnapshotDto, LongshotIpcError>
+where
+    A: ControlWindowActions,
+    S: FnOnce() -> SF,
+    SF: std::future::Future<Output = ()>,
+    W: FnOnce(LongshotSessionToken) -> WF,
+    WF: std::future::Future<Output = Result<LongshotSnapshot, LongshotIpcError>>,
+    C: FnOnce(LongshotSessionToken) -> CF,
+    CF: std::future::Future<Output = Result<(), LongshotIpcError>>,
+    H: FnMut(AppendBoundary),
+{
+    let claim = registry.claim_append(label, handle)?;
+    boundary(AppendBoundary::AfterClaim);
+    if !registry.owns_append(label, &claim.token) {
+        return Err(LongshotIpcError::superseded());
+    }
+    if let Err(hide_error) = windows.hide(label) {
+        if !registry.owns_append(label, &claim.token) {
+            return Err(LongshotIpcError::superseded());
+        }
+        if let Err(show_error) = windows.show(label) {
+            return Err(terminate_hidden_append(
+                registry,
+                label,
+                &claim.token,
+                windows,
+                cancel,
+                show_error,
+            )
+            .await);
+        }
+        if !registry.owns_append(label, &claim.token) {
+            windows.destroy(label);
+            return Err(LongshotIpcError::superseded());
+        }
+        windows.focus(label);
+        if let Err(error) =
+            registry.complete_append_visible(label, &claim.token, claim.old_snapshot)
+        {
+            windows.destroy(label);
+            return Err(error);
+        }
+        return Err(LongshotIpcError::new(
+            "longshot_controller_hide_failed",
+            hide_error.message,
+        ));
+    }
+
+    boundary(AppendBoundary::AfterHide);
+    if !registry.owns_append(label, &claim.token) {
+        return Err(LongshotIpcError::superseded());
+    }
+    settle().await;
+    boundary(AppendBoundary::AfterSettle);
+    if !registry.owns_append(label, &claim.token) {
+        return Err(LongshotIpcError::superseded());
+    }
+
+    let worker_result = worker(claim.token.clone()).await;
+    boundary(AppendBoundary::AfterWorker);
+    if !registry.owns_append(label, &claim.token) {
+        return Err(LongshotIpcError::superseded());
+    }
+    if let Err(show_error) = windows.show(label) {
+        return Err(terminate_hidden_append(
+            registry,
+            label,
+            &claim.token,
+            windows,
+            cancel,
+            show_error,
+        )
+        .await);
+    }
+    boundary(AppendBoundary::AfterShow);
+    if !registry.owns_append(label, &claim.token) {
+        // show 与 ownership 核验之间若被取消，强销毁可能被迟到 show 暴露的旧窗口。
+        windows.destroy(label);
+        return Err(LongshotIpcError::superseded());
+    }
+    windows.focus(label);
+    boundary(AppendBoundary::BeforeCommit);
+    if !registry.owns_append(label, &claim.token) {
+        windows.destroy(label);
+        return Err(LongshotIpcError::superseded());
+    }
+
+    match worker_result {
+        Ok(snapshot) => registry.complete_append_visible(label, &claim.token, snapshot),
+        Err(error) => {
+            registry.complete_append_visible(label, &claim.token, claim.old_snapshot)?;
+            Err(error)
+        }
+    }
+}
+
+async fn run_append_worker<F>(work: F) -> Result<LongshotSnapshot, LongshotIpcError>
+where
+    F: FnOnce() -> Result<LongshotSnapshot, CaptureError> + Send + 'static,
+{
+    match tauri::async_runtime::spawn_blocking(work).await {
+        Ok(Ok(snapshot)) => Ok(snapshot),
+        Ok(Err(error)) => Err(error.into()),
+        Err(error) => Err(LongshotIpcError::internal(format!(
+            "长截图追加线程异常: {error}"
+        ))),
+    }
+}
+
+fn recover_cancel_failure_with_ops<A, P>(
+    registry: &LongshotControllerRegistry,
+    label: &str,
+    token: &LongshotSessionToken,
+    windows: &A,
+    primary: CaptureError,
+    probe_exact_active: P,
+) -> Result<(), LongshotIpcError>
+where
+    A: ControlWindowActions,
+    P: FnOnce() -> bool,
+{
+    let recovery = registry.begin_cancel_failure_recovery(label, token);
+    match recovery {
+        CancelFailureRecovery::Revealed => {
+            let retryable = windows.exists(label) && probe_exact_active();
+            if registry.complete_cancel_failure(label, token, retryable)
+                == CancelFailureRecovery::Revealed
+            {
+                Err(primary.into())
+            } else {
+                Err(LongshotIpcError::cleanup_failed(primary.to_string()))
+            }
+        }
+        CancelFailureRecovery::Hidden => {
+            let retryable = windows.exists(label) && probe_exact_active();
+            if !retryable || !registry.owns_hidden_cancel_reveal(label, token) {
+                registry.fail_hidden_cancel_reveal(label, token);
+                return Err(LongshotIpcError::cleanup_failed(primary.to_string()));
+            }
+            if windows.show(label).is_err() {
+                registry.fail_hidden_cancel_reveal(label, token);
+                return Err(LongshotIpcError::cleanup_failed(primary.to_string()));
+            }
+            if !registry.owns_hidden_cancel_reveal(label, token) {
+                windows.destroy(label);
+                registry.fail_hidden_cancel_reveal(label, token);
+                return Err(LongshotIpcError::cleanup_failed(primary.to_string()));
+            }
+            windows.focus(label);
+            if registry.complete_hidden_cancel_reveal(label, token) {
+                Err(primary.into())
+            } else {
+                windows.destroy(label);
+                registry.fail_hidden_cancel_reveal(label, token);
+                Err(LongshotIpcError::cleanup_failed(primary.to_string()))
+            }
+        }
+        CancelFailureRecovery::CleanupFailed => {
+            log::error!("长截图控制窗 {label} 清理失败且状态不可安全重试: {primary}");
+            Err(LongshotIpcError::cleanup_failed(primary.to_string()))
+        }
+    }
 }
 
 fn complete_build_attempt<A: ControlWindowActions>(
@@ -1179,6 +1823,37 @@ pub(crate) async fn ready(
     .await
 }
 
+pub(crate) async fn append(
+    app: tauri::AppHandle,
+    state: &AppState,
+    caller_label: &str,
+    handle: LongshotControllerHandle,
+) -> Result<LongshotSnapshotDto, LongshotIpcError> {
+    let longshot_lifecycle = state.longshot_lifecycle.clone();
+    execute_append_with_ops(
+        &state.longshot_windows,
+        caller_label,
+        &handle,
+        &TauriControlWindowActions { app: &app },
+        || async {
+            tokio::time::sleep(Duration::from_millis(crate::capture::HIDE_SETTLE_MS)).await;
+        },
+        move |token| {
+            let longshot_lifecycle = longshot_lifecycle.clone();
+            async move {
+                run_append_worker(move || {
+                    let outcome = longshot_lifecycle.append(&token)?;
+                    Ok(outcome.snapshot)
+                })
+                .await
+            }
+        },
+        |token| cancel_claimed(&app, state, caller_label, token),
+        |_| {},
+    )
+    .await
+}
+
 pub(crate) async fn cancel(
     app: tauri::AppHandle,
     state: &AppState,
@@ -1230,21 +1905,20 @@ async fn cancel_claimed(
             Ok(())
         }
         Err(primary) => {
-            let window_alive = app.get_webview_window(label).is_some();
-            let retryable = window_alive
-                && state
-                    .longshot_lifecycle
-                    .is_exact_active(&token)
-                    .unwrap_or(false);
-            state
-                .longshot_windows
-                .complete_cancel_failure(label, &token, retryable);
-            if retryable {
-                Err(primary.into())
-            } else {
-                log::error!("长截图控制窗 {label} 清理失败且状态不可安全重试: {primary}");
-                Err(LongshotIpcError::cleanup_failed(primary.to_string()))
-            }
+            let windows = TauriControlWindowActions { app };
+            recover_cancel_failure_with_ops(
+                &state.longshot_windows,
+                label,
+                &token,
+                &windows,
+                primary,
+                || {
+                    state
+                        .longshot_lifecycle
+                        .is_exact_active(&token)
+                        .unwrap_or(false)
+                },
+            )
         }
     }
 }
@@ -1283,7 +1957,10 @@ mod tests {
         attempts: Mutex<Vec<String>>,
         destroyed: Mutex<Vec<String>>,
         shown: Mutex<Vec<String>>,
+        hidden: Mutex<Vec<String>>,
         focused: Mutex<Vec<String>>,
+        trace: Mutex<Vec<String>>,
+        hide_fails: AtomicBool,
         show_fails: AtomicBool,
     }
 
@@ -1322,6 +1999,14 @@ mod tests {
             self.show_fails.store(fails, Ordering::SeqCst);
         }
 
+        fn set_hide_fails(&self, fails: bool) {
+            self.hide_fails.store(fails, Ordering::SeqCst);
+        }
+
+        fn hide_count(&self) -> usize {
+            self.hidden.lock().expect("hidden").len()
+        }
+
         fn show_count(&self) -> usize {
             self.shown.lock().expect("shown").len()
         }
@@ -1329,10 +2014,19 @@ mod tests {
         fn focus_count(&self) -> usize {
             self.focused.lock().expect("focused").len()
         }
+
+        fn trace(&self) -> Vec<String> {
+            self.trace.lock().expect("trace").clone()
+        }
+
+        fn record(&self, event: impl Into<String>) {
+            self.trace.lock().expect("trace").push(event.into());
+        }
     }
 
     impl ControlWindowActions for TestWindows {
         fn destroy(&self, label: &str) {
+            self.record("destroy");
             self.attempts
                 .lock()
                 .expect("attempts")
@@ -1348,7 +2042,21 @@ mod tests {
             }
         }
 
+        fn hide(&self, label: &str) -> Result<(), LongshotIpcError> {
+            self.record("hide");
+            self.hidden.lock().expect("hidden").push(label.to_string());
+            if self.hide_fails.load(Ordering::SeqCst) {
+                Err(LongshotIpcError::new(
+                    "longshot_controller_hide_failed",
+                    "injected hide failure",
+                ))
+            } else {
+                Ok(())
+            }
+        }
+
         fn show(&self, label: &str) -> Result<(), LongshotIpcError> {
+            self.record("show");
             self.shown.lock().expect("shown").push(label.to_string());
             if self.show_fails.load(Ordering::SeqCst) {
                 Err(LongshotIpcError::new(
@@ -1361,10 +2069,50 @@ mod tests {
         }
 
         fn focus(&self, label: &str) {
+            self.record("focus");
             self.focused
                 .lock()
                 .expect("focused")
                 .push(label.to_string());
+        }
+
+        fn exists(&self, label: &str) -> bool {
+            *self.existing.lock().expect("existing")
+                || self
+                    .named_alive
+                    .lock()
+                    .expect("named alive")
+                    .contains(label)
+        }
+    }
+
+    struct DestroyOnShowWindows<'a> {
+        registry: &'a LongshotControllerRegistry,
+        label: &'a str,
+        inner: TestWindows,
+    }
+
+    impl ControlWindowActions for DestroyOnShowWindows<'_> {
+        fn destroy(&self, label: &str) {
+            self.inner.destroy(label);
+        }
+
+        fn hide(&self, label: &str) -> Result<(), LongshotIpcError> {
+            self.inner.hide(label)
+        }
+
+        fn show(&self, label: &str) -> Result<(), LongshotIpcError> {
+            self.inner.show(label)?;
+            let _ = self.registry.claim_destroyed(self.label);
+            Ok(())
+        }
+
+        fn focus(&self, label: &str) {
+            self.inner.focus(label);
+        }
+
+        fn exists(&self, label: &str) -> bool {
+            self.inner.exists(label)
         }
     }
 
@@ -1472,6 +2220,15 @@ mod tests {
         assert!(activation.is_some());
         assert!(compensation.is_none());
         let token = LongshotSessionToken::from_wire_parts("longshot".to_string(), 9);
+        (registry, label, token)
+    }
+
+    fn revealed_active_registry() -> (LongshotControllerRegistry, String, LongshotSessionToken) {
+        let (registry, label, token) = active_registry();
+        assert!(matches!(
+            registry.claim_ready(&label),
+            Ok(ReadyAction::ShowActive(_))
+        ));
         (registry, label, token)
     }
 
@@ -1788,6 +2545,7 @@ mod tests {
                 token: token.clone(),
                 snapshot: Some(start(3).snapshot),
                 window_destroyed: false,
+                origin: TerminationOrigin::RevealedActive,
             },
             Slot::CleanupFailed {
                 label: "longshot-controller-cleanup".to_string(),
@@ -2552,5 +3310,627 @@ mod tests {
                 .code,
             "longshot_controller_busy"
         );
+    }
+
+    #[test]
+    fn append_claim_accepts_only_exact_revealed_active() {
+        let (registry, label, token) = revealed_active_registry();
+        let handle = LongshotControllerHandle::from_token(&token);
+        let claim = registry
+            .claim_append(&label, &handle)
+            .expect("exact append");
+        assert_eq!(claim.token, token);
+        assert_eq!(claim.old_snapshot, start(9).snapshot);
+        let stale = LongshotControllerHandle {
+            session_id: token.wire_parts().0.to_string(),
+            generation: "8".to_string(),
+        };
+        assert_eq!(
+            registry
+                .claim_append(&label, &stale)
+                .expect_err("valid stale token is superseded while appending")
+                .code,
+            "longshot_controller_superseded"
+        );
+        assert_eq!(
+            registry
+                .claim_append(&label, &handle)
+                .expect_err("second append is busy")
+                .code,
+            "longshot_controller_busy"
+        );
+
+        let (unrevealed, unrevealed_label, unrevealed_token) = active_registry();
+        assert_eq!(
+            unrevealed
+                .claim_append(
+                    &unrevealed_label,
+                    &LongshotControllerHandle::from_token(&unrevealed_token),
+                )
+                .expect_err("unrevealed")
+                .code,
+            "longshot_controller_missing"
+        );
+    }
+
+    #[test]
+    fn append_claim_rejects_stale_malformed_and_unrevealed_before_actions() {
+        let (registry, label, token) = revealed_active_registry();
+        let windows = TestWindows::default();
+        for generation in ["", "01", "18446744073709551616", "8"] {
+            let error = registry
+                .claim_append(
+                    &label,
+                    &LongshotControllerHandle {
+                        session_id: token.wire_parts().0.to_string(),
+                        generation: generation.to_string(),
+                    },
+                )
+                .expect_err("invalid or stale");
+            assert_eq!(error.code, "longshot_controller_superseded");
+        }
+        assert_eq!(
+            registry
+                .claim_append(
+                    "capture-overlay-not-controller",
+                    &LongshotControllerHandle::from_token(&token),
+                )
+                .expect_err("bad caller")
+                .code,
+            "longshot_controller_missing"
+        );
+        let exact = LongshotControllerHandle::from_token(&token);
+        registry.claim_append(&label, &exact).expect("exact claim");
+        let stale = LongshotControllerHandle {
+            session_id: token.wire_parts().0.to_string(),
+            generation: "8".to_string(),
+        };
+        assert_eq!(
+            registry
+                .claim_append(&label, &stale)
+                .expect_err("stale token while Appending")
+                .code,
+            "longshot_controller_superseded"
+        );
+        assert!(registry.owns_append(&label, &token));
+        assert_eq!(
+            registry
+                .claim_append(&label, &exact)
+                .expect_err("exact duplicate remains busy")
+                .code,
+            "longshot_controller_busy"
+        );
+        assert_eq!(windows.hide_count(), 0);
+        assert_eq!(windows.show_count(), 0);
+        assert_eq!(windows.attempt_count(), 0);
+    }
+
+    #[test]
+    fn append_completion_requires_exact_owner_and_visible_commit() {
+        let (registry, label, token) = revealed_active_registry();
+        let handle = LongshotControllerHandle::from_token(&token);
+        registry.claim_append(&label, &handle).expect("claim");
+        let next = LongshotSnapshot {
+            frame_count: 2,
+            width: 30,
+            frame_height: 40,
+            total_height: 70,
+        };
+        assert_eq!(
+            registry
+                .complete_append_visible("longshot-controller-old", &token, next)
+                .expect_err("old label")
+                .code,
+            "longshot_controller_superseded"
+        );
+        let stale = LongshotSessionToken::from_wire_parts("longshot".to_string(), 8);
+        assert_eq!(
+            registry
+                .complete_append_visible(&label, &stale, next)
+                .expect_err("stale token")
+                .code,
+            "longshot_controller_superseded"
+        );
+        let dto = registry
+            .complete_append_visible(&label, &token, next)
+            .expect("exact visible commit");
+        assert_eq!(dto.frame_count, 2);
+        assert_eq!(dto.total_height, 70);
+        assert_eq!(
+            registry
+                .complete_append_visible(&label, &token, start(9).snapshot)
+                .expect_err("commit once")
+                .code,
+            "longshot_controller_superseded"
+        );
+    }
+
+    #[tokio::test]
+    async fn append_executor_orders_hide_settle_worker_show_focus_commit() {
+        let (registry, label, token) = revealed_active_registry();
+        let handle = LongshotControllerHandle::from_token(&token);
+        let windows = TestWindows::default();
+        windows.add_alive(&label);
+        let next = LongshotSnapshot {
+            frame_count: 2,
+            width: 30,
+            frame_height: 40,
+            total_height: 72,
+        };
+        let result = execute_append_with_ops(
+            &registry,
+            &label,
+            &handle,
+            &windows,
+            || async { windows.record(format!("settle:{}", crate::capture::HIDE_SETTLE_MS)) },
+            |_| async {
+                windows.record("append");
+                Ok(next)
+            },
+            |_| async { panic!("success must not cancel") },
+            |boundary| {
+                if boundary == AppendBoundary::BeforeCommit {
+                    windows.record("commit-attempt");
+                }
+            },
+        )
+        .await
+        .expect("append success");
+        assert_eq!(result.frame_count, 2);
+        assert_eq!(result.total_height, 72);
+        assert_eq!(
+            windows.trace(),
+            vec![
+                "hide",
+                "settle:140",
+                "append",
+                "show",
+                "focus",
+                "commit-attempt"
+            ]
+        );
+        assert!(matches!(
+            &*registry.slot.lock().expect("slot after append"),
+            Slot::Active {
+                label: current,
+                token: current_token,
+                snapshot,
+                revealed: true,
+            } if current == &label && current_token == &token && snapshot == &next
+        ));
+        registry
+            .claim_append(&label, &handle)
+            .expect("actual visible commit permits the next exact append");
+    }
+
+    #[tokio::test]
+    async fn append_hide_and_business_failures_restore_visible_old_snapshot() {
+        let (hidden, hidden_label, hidden_token) = revealed_active_registry();
+        let hidden_handle = LongshotControllerHandle::from_token(&hidden_token);
+        let hidden_windows = TestWindows::default();
+        hidden_windows.add_alive(&hidden_label);
+        hidden_windows.set_hide_fails(true);
+        let worker_calls = AtomicUsize::new(0);
+        let error = execute_append_with_ops(
+            &hidden,
+            &hidden_label,
+            &hidden_handle,
+            &hidden_windows,
+            || async {},
+            |_| {
+                worker_calls.fetch_add(1, Ordering::SeqCst);
+                std::future::ready(Ok(start(10).snapshot))
+            },
+            |_| async { Ok(()) },
+            |_| {},
+        )
+        .await
+        .expect_err("hide failure");
+        assert_eq!(error.code, "longshot_controller_hide_failed");
+        assert_eq!(worker_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(hidden_windows.show_count(), 1);
+        assert_eq!(hidden_windows.focus_count(), 1);
+        hidden
+            .claim_append(&hidden_label, &hidden_handle)
+            .expect("hide failure is retryable");
+
+        let (business, business_label, business_token) = revealed_active_registry();
+        let business_handle = LongshotControllerHandle::from_token(&business_token);
+        let business_windows = TestWindows::default();
+        business_windows.add_alive(&business_label);
+        let error = execute_append_with_ops(
+            &business,
+            &business_label,
+            &business_handle,
+            &business_windows,
+            || async {},
+            |_| async {
+                Err(LongshotIpcError::from(
+                    CaptureError::LongshotEstimateLowTexture,
+                ))
+            },
+            |_| async { Ok(()) },
+            |_| {},
+        )
+        .await
+        .expect_err("business failure");
+        assert_eq!(error.code, "longshot_estimate_low_texture");
+        assert_eq!(business_windows.show_count(), 1);
+        business
+            .claim_append(&business_label, &business_handle)
+            .expect("business failure is retryable");
+
+        let (raced, raced_label, raced_token) = revealed_active_registry();
+        let raced_handle = LongshotControllerHandle::from_token(&raced_token);
+        let race_windows = DestroyOnShowWindows {
+            registry: &raced,
+            label: &raced_label,
+            inner: TestWindows::default(),
+        };
+        race_windows.inner.add_alive(&raced_label);
+        race_windows.inner.set_hide_fails(true);
+        let error = execute_append_with_ops(
+            &raced,
+            &raced_label,
+            &raced_handle,
+            &race_windows,
+            || async {},
+            |_| async { panic!("hide failure must not append") },
+            |_| async { Ok(()) },
+            |_| {},
+        )
+        .await
+        .expect_err("Destroyed during hide recovery show wins");
+        assert_eq!(error.code, "longshot_controller_superseded");
+        assert_eq!(race_windows.inner.destroy_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn append_spawn_blocking_panic_is_internal_and_retryable() {
+        let (registry, label, token) = revealed_active_registry();
+        let handle = LongshotControllerHandle::from_token(&token);
+        let windows = TestWindows::default();
+        windows.add_alive(&label);
+        let error = execute_append_with_ops(
+            &registry,
+            &label,
+            &handle,
+            &windows,
+            || async {},
+            |_| {
+                run_append_worker(|| -> Result<LongshotSnapshot, CaptureError> {
+                    panic!("injected append panic")
+                })
+            },
+            |_| async { Ok(()) },
+            |_| {},
+        )
+        .await
+        .expect_err("panic is structured");
+        assert_eq!(error.code, "longshot_controller_internal");
+        assert_eq!(windows.show_count(), 1);
+        registry
+            .claim_append(&label, &handle)
+            .expect("join failure is retryable");
+    }
+
+    #[tokio::test]
+    async fn append_cancel_wins_at_every_boundary_without_resurrection() {
+        for target in [
+            AppendBoundary::AfterClaim,
+            AppendBoundary::AfterHide,
+            AppendBoundary::AfterSettle,
+            AppendBoundary::AfterWorker,
+            AppendBoundary::AfterShow,
+            AppendBoundary::BeforeCommit,
+        ] {
+            let (registry, label, token) = revealed_active_registry();
+            let handle = LongshotControllerHandle::from_token(&token);
+            let windows = TestWindows::default();
+            windows.add_alive(&label);
+            let cancels = AtomicUsize::new(0);
+            let result = execute_append_with_ops(
+                &registry,
+                &label,
+                &handle,
+                &windows,
+                || async {},
+                |_| async { Ok(start(10).snapshot) },
+                |_| async { panic!("boundary winner owns cleanup") },
+                |boundary| {
+                    if boundary == target {
+                        let action = registry
+                            .claim_cancel(&label, Some(&handle))
+                            .expect("cancel winner");
+                        let CancelAction::Terminate(claimed) = action else {
+                            panic!("active append cancellation must terminate")
+                        };
+                        cancels.fetch_add(1, Ordering::SeqCst);
+                        registry.complete_cancel_success(&label, &claimed);
+                    }
+                },
+            )
+            .await;
+            assert_eq!(
+                result.expect_err("cancel supersedes append").code,
+                "longshot_controller_superseded"
+            );
+            assert_eq!(cancels.load(Ordering::SeqCst), 1);
+            assert!(registry
+                .reserve("capture-overlay-next-7".to_string(), selection())
+                .is_ok());
+        }
+    }
+
+    #[tokio::test]
+    async fn append_destroyed_wins_at_every_boundary_without_second_cleanup() {
+        for target in [
+            AppendBoundary::AfterClaim,
+            AppendBoundary::AfterHide,
+            AppendBoundary::AfterSettle,
+            AppendBoundary::AfterWorker,
+            AppendBoundary::AfterShow,
+            AppendBoundary::BeforeCommit,
+        ] {
+            let (registry, label, token) = revealed_active_registry();
+            let handle = LongshotControllerHandle::from_token(&token);
+            let windows = TestWindows::default();
+            windows.add_alive(&label);
+            let cancels = AtomicUsize::new(0);
+            let result = execute_append_with_ops(
+                &registry,
+                &label,
+                &handle,
+                &windows,
+                || async {},
+                |_| async { Ok(start(10).snapshot) },
+                |_| async { panic!("Destroyed winner owns cleanup") },
+                |boundary| {
+                    if boundary == target {
+                        let claimed = registry.claim_destroyed(&label).expect("Destroyed winner");
+                        cancels.fetch_add(1, Ordering::SeqCst);
+                        registry.complete_cancel_success(&label, &claimed);
+                    }
+                },
+            )
+            .await;
+            assert_eq!(
+                result.expect_err("Destroyed supersedes append").code,
+                "longshot_controller_superseded"
+            );
+            assert_eq!(cancels.load(Ordering::SeqCst), 1);
+            assert!(registry
+                .reserve("capture-overlay-next-7".to_string(), selection())
+                .is_ok());
+        }
+    }
+
+    #[test]
+    fn appending_cancel_failure_reveals_before_retry_or_enters_cleanup_failed() {
+        let (registry, label, token) = revealed_active_registry();
+        let handle = LongshotControllerHandle::from_token(&token);
+        registry.claim_append(&label, &handle).expect("append");
+        assert!(matches!(
+            registry.claim_cancel(&label, Some(&handle)),
+            Ok(CancelAction::Terminate(_))
+        ));
+        let windows = TestWindows::default();
+        windows.add_alive(&label);
+        let result = recover_cancel_failure_with_ops(
+            &registry,
+            &label,
+            &token,
+            &windows,
+            CaptureError::LongshotSessionMissing,
+            || {
+                windows.record("probe");
+                true
+            },
+        );
+        assert_eq!(
+            result.expect_err("primary remains").code,
+            "longshot_session_missing"
+        );
+        assert_eq!(windows.trace(), vec!["probe", "show", "focus"]);
+        registry
+            .claim_append(&label, &handle)
+            .expect("visible Active retry");
+
+        for mode in [0, 1, 2] {
+            let (failed, failed_label, failed_token) = revealed_active_registry();
+            let failed_handle = LongshotControllerHandle::from_token(&failed_token);
+            failed
+                .claim_append(&failed_label, &failed_handle)
+                .expect("append");
+            failed
+                .claim_cancel(&failed_label, Some(&failed_handle))
+                .expect("cancel");
+            let failed_windows = TestWindows::default();
+            if mode != 0 {
+                failed_windows.add_alive(&failed_label);
+            }
+            if mode == 2 {
+                failed_windows.set_show_fails(true);
+            }
+            let error = recover_cancel_failure_with_ops(
+                &failed,
+                &failed_label,
+                &failed_token,
+                &failed_windows,
+                CaptureError::LongshotSessionMissing,
+                || mode != 1,
+            )
+            .expect_err("unsafe retry must fail cleanup");
+            assert_eq!(error.code, "longshot_controller_cleanup_failed");
+            assert_eq!(
+                failed
+                    .reserve("capture-overlay-next-7".to_string(), selection())
+                    .expect_err("CleanupFailed blocks open")
+                    .code,
+                "longshot_controller_busy"
+            );
+        }
+
+        let (before_show, before_label, before_token) = revealed_active_registry();
+        let before_handle = LongshotControllerHandle::from_token(&before_token);
+        before_show
+            .claim_append(&before_label, &before_handle)
+            .expect("append");
+        before_show
+            .claim_cancel(&before_label, Some(&before_handle))
+            .expect("cancel");
+        assert_eq!(before_show.claim_destroyed(&before_label), None);
+        let before_windows = TestWindows::default();
+        let error = recover_cancel_failure_with_ops(
+            &before_show,
+            &before_label,
+            &before_token,
+            &before_windows,
+            CaptureError::LongshotSessionMissing,
+            || panic!("Forbidden retry visibility must not probe lifecycle"),
+        )
+        .expect_err("Destroyed before recovery becomes CleanupFailed");
+        assert_eq!(error.code, "longshot_controller_cleanup_failed");
+        assert!(matches!(
+            before_show.claim_ready(&before_label),
+            Ok(ReadyAction::ShowCleanup)
+        ));
+        assert_eq!(
+            before_show
+                .reserve("capture-overlay-next-7".to_string(), selection())
+                .expect_err("Destroyed during retry reveal is CleanupFailed")
+                .code,
+            "longshot_controller_busy"
+        );
+
+        let (after_show, after_label, after_token) = revealed_active_registry();
+        let after_handle = LongshotControllerHandle::from_token(&after_token);
+        after_show
+            .claim_append(&after_label, &after_handle)
+            .expect("append");
+        after_show
+            .claim_cancel(&after_label, Some(&after_handle))
+            .expect("cancel");
+        let race_windows = DestroyOnShowWindows {
+            registry: &after_show,
+            label: &after_label,
+            inner: TestWindows::default(),
+        };
+        race_windows.inner.add_alive(&after_label);
+        let error = recover_cancel_failure_with_ops(
+            &after_show,
+            &after_label,
+            &after_token,
+            &race_windows,
+            CaptureError::LongshotSessionMissing,
+            || true,
+        )
+        .expect_err("Destroyed after show prevents Active commit");
+        assert_eq!(error.code, "longshot_controller_cleanup_failed");
+        assert_eq!(race_windows.inner.destroy_count(), 1);
+        assert_eq!(
+            after_show
+                .reserve("capture-overlay-next-7".to_string(), selection())
+                .expect_err("race remains CleanupFailed")
+                .code,
+            "longshot_controller_busy"
+        );
+    }
+
+    #[test]
+    fn appending_deadline_and_old_aba_events_are_noops() {
+        let (registry, label, token) = revealed_active_registry();
+        let handle = LongshotControllerHandle::from_token(&token);
+        registry.claim_append(&label, &handle).expect("append");
+        assert!(matches!(
+            registry.claim_deadline(&label),
+            DeadlineAction::None
+        ));
+        assert_eq!(registry.claim_destroyed("longshot-controller-old"), None);
+        let stale = LongshotSessionToken::from_wire_parts("longshot".to_string(), 8);
+        assert_eq!(
+            registry
+                .complete_append_visible(&label, &stale, start(11).snapshot)
+                .expect_err("stale worker")
+                .code,
+            "longshot_controller_superseded"
+        );
+        let dto = registry
+            .complete_append_visible(&label, &token, start(10).snapshot)
+            .expect("current commit");
+        assert_eq!(dto.frame_count, 1);
+    }
+
+    #[tokio::test]
+    async fn append_show_failure_prioritizes_visibility_cleanup_for_all_worker_results() {
+        for worker_kind in 0..3 {
+            let (registry, label, token) = revealed_active_registry();
+            let handle = LongshotControllerHandle::from_token(&token);
+            let windows = TestWindows::default();
+            windows.add_alive(&label);
+            windows.set_show_fails(true);
+            let cancels = AtomicUsize::new(0);
+            let result = execute_append_with_ops(
+                &registry,
+                &label,
+                &handle,
+                &windows,
+                || async {},
+                |_| async move {
+                    match worker_kind {
+                        0 => Ok(start(10).snapshot),
+                        1 => Err(LongshotIpcError::from(
+                            CaptureError::LongshotEstimateLowTexture,
+                        )),
+                        _ => Err(LongshotIpcError::internal("join failure")),
+                    }
+                },
+                |claimed| {
+                    cancels.fetch_add(1, Ordering::SeqCst);
+                    registry.complete_cancel_success(&label, &claimed);
+                    std::future::ready(Ok(()))
+                },
+                |_| {},
+            )
+            .await;
+            assert_eq!(
+                result.expect_err("show outranks worker").code,
+                "longshot_controller_show_failed"
+            );
+            assert_eq!(cancels.load(Ordering::SeqCst), 1);
+            assert_eq!(windows.destroy_count(), 1);
+            assert!(registry
+                .reserve("capture-overlay-next-7".to_string(), selection())
+                .is_ok());
+        }
+
+        let (registry, label, token) = revealed_active_registry();
+        let handle = LongshotControllerHandle::from_token(&token);
+        let windows = TestWindows::default();
+        windows.add_alive(&label);
+        windows.set_show_fails(true);
+        let result = execute_append_with_ops(
+            &registry,
+            &label,
+            &handle,
+            &windows,
+            || async {},
+            |_| async { Ok(start(10).snapshot) },
+            |_| {
+                std::future::ready(Err(LongshotIpcError::cleanup_failed(
+                    "injected direct cleanup failure",
+                )))
+            },
+            |_| {},
+        )
+        .await;
+        assert_eq!(
+            result.expect_err("cleanup outranks show").code,
+            "longshot_controller_cleanup_failed"
+        );
+        assert!(matches!(
+            registry.claim_ready(&label),
+            Ok(ReadyAction::ShowCleanup)
+        ));
     }
 }

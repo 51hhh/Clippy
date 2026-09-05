@@ -70,7 +70,7 @@ const MAX_COMMIT_PNG_BYTES: usize = 64 * 1024 * 1024;
 /// 少了这一等会把 Clippy 自己的面板烧进冻结帧。但它**只在真的藏了窗口时才需要**：
 /// 快捷键截图的常态是面板本来就没开着（`hide_sources` 返回空），这时白等 140 ms
 /// 纯粹是加在用户感知延迟上的。所以按需等待，不要改回无条件 sleep。
-const HIDE_SETTLE_MS: u64 = 140;
+pub(crate) const HIDE_SETTLE_MS: u64 = 140;
 
 /// 启动自检：扩展内容过期就静默升级，目录被手工删掉就清理 gsettings 里的孤儿条目。
 #[cfg(target_os = "linux")]
@@ -130,6 +130,17 @@ pub async fn cancel_longshot_controller(
     handle: Option<longshot::LongshotControllerHandle>,
 ) -> Result<(), longshot::LongshotIpcError> {
     longshot::window_host::cancel(app, &state, window.label(), handle).await
+}
+
+/// 控制窗自身发起一次隐藏重捕获；窗口身份只取注入的 caller。
+#[tauri::command]
+pub async fn append_longshot_controller(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    handle: longshot::LongshotControllerHandle,
+) -> Result<longshot::LongshotSnapshotDto, longshot::LongshotIpcError> {
+    longshot::window_host::append(app, &state, window.label(), handle).await
 }
 
 /// 在任何桌面副作用之前取得 Ordinary 所有权；Busy 时不构造后续 future。
