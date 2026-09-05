@@ -59,7 +59,7 @@ describe("longshot controller app", () => {
     for (const fn of Object.values(mocks.controllerApi)) fn.mockReset();
     mocks.controllerApi.activate.mockResolvedValue(activation);
     mocks.controllerApi.append.mockResolvedValue(activation.snapshot);
-    mocks.controllerApi.finish.mockResolvedValue({ action: "copy", path: null });
+    mocks.controllerApi.finish.mockResolvedValue({ action: "copy", path: null, pinLabel: null });
     mocks.controllerApi.ready.mockResolvedValue(undefined);
     mocks.controllerApi.cancel.mockResolvedValue(undefined);
     mocks.controllerApi.onCloseRequested.mockImplementation((callback) => {
@@ -174,7 +174,9 @@ describe("longshot controller app", () => {
   });
 
   it("finishes with Save exactly once and renders the returned Unicode path as text", async () => {
-    mocks.controllerApi.finish.mockResolvedValue({ action: "save", path: "/tmp/长截图/结果.png" });
+    mocks.controllerApi.finish.mockResolvedValue({
+      action: "save", path: "/tmp/长截图/结果.png", pinLabel: null,
+    });
     await mount();
 
     await act(async () => document.querySelector('[data-testid="longshot-save"]').click());
@@ -185,6 +187,22 @@ describe("longshot controller app", () => {
     expect(document.body.textContent).toContain("Saved to /tmp/长截图/结果.png. Closing this window");
     expect(document.querySelector('[data-testid="longshot-append"]')).toBeNull();
     expect(document.querySelector('[data-testid="longshot-save"]')).toBeNull();
+  });
+
+  it("finishes with Pin through the shared barrier without exposing its internal label", async () => {
+    mocks.controllerApi.finish.mockResolvedValue({
+      action: "pin", path: null, pinLabel: "pin-image-internal-42",
+    });
+    await mount();
+
+    await act(async () => document.querySelector('[data-testid="longshot-pin"]').click());
+    await flush();
+
+    expect(mocks.controllerApi.finish).toHaveBeenCalledWith(activation.handle, "pin");
+    expect(document.body.textContent).toContain("Pinned. Closing this window");
+    expect(document.body.textContent).not.toContain("pin-image-internal-42");
+    expect(document.querySelector('[data-testid="longshot-append"]')).toBeNull();
+    expect(document.querySelector('[data-testid="longshot-pin"]')).toBeNull();
   });
 
   it("keeps the snapshot and Ready controls after a retryable finish-domain failure", async () => {
@@ -205,7 +223,7 @@ describe("longshot controller app", () => {
     expect(document.querySelector('[data-testid="longshot-copy"]')).not.toBeNull();
   });
 
-  it("prevents same-tick Copy/Save reentry and disables every output action while Finishing", async () => {
+  it("prevents same-tick Copy/Save/Pin reentry and disables every output action while Finishing", async () => {
     const pending = deferred();
     mocks.controllerApi.finish.mockReturnValue(pending.promise);
     await mount();
@@ -213,16 +231,18 @@ describe("longshot controller app", () => {
     await act(async () => {
       document.querySelector('[data-testid="longshot-copy"]').click();
       document.querySelector('[data-testid="longshot-save"]').click();
+      document.querySelector('[data-testid="longshot-pin"]').click();
     });
 
     expect(mocks.controllerApi.finish).toHaveBeenCalledTimes(1);
     expect(mocks.controllerApi.finish).toHaveBeenCalledWith(activation.handle, "copy");
     expect(document.querySelector('[data-testid="longshot-copy"]')?.disabled).toBe(true);
     expect(document.querySelector('[data-testid="longshot-save"]')?.disabled).toBe(true);
+    expect(document.querySelector('[data-testid="longshot-pin"]')?.disabled).toBe(true);
     expect(document.querySelector('[data-testid="longshot-append"]')?.disabled).toBe(true);
     expect(document.body.textContent).toContain("Finishing the long screenshot and copying it");
 
-    await act(async () => pending.resolve({ action: "copy", path: null }));
+    await act(async () => pending.resolve({ action: "copy", path: null, pinLabel: null }));
     await flush();
   });
 
@@ -232,18 +252,19 @@ describe("longshot controller app", () => {
         code: "longshot_controller_copy_failed",
         message: "untrusted clipboard detail",
       })
-      .mockResolvedValueOnce({ action: "save", path: "/tmp/recovered.png" });
+      .mockResolvedValueOnce({ action: "save", path: "/tmp/recovered.png", pinLabel: null });
     await mount();
 
     await act(async () => document.querySelector('[data-testid="longshot-copy"]').click());
     await flush();
 
-    expect(document.body.textContent).toContain("Retry copying, save it instead, or discard it");
+    expect(document.body.textContent).toContain("An output attempt did not finish");
     expect(document.body.textContent).not.toContain("untrusted clipboard detail");
     expect(document.querySelector('[data-testid="longshot-append"]')).toBeNull();
     expect(document.querySelector('[data-testid="longshot-copy"]')).toBeNull();
     expect(document.querySelector('[data-testid="longshot-retry-copy"]')).not.toBeNull();
     expect(document.querySelector('[data-testid="longshot-retry-save"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="longshot-retry-pin"]')).not.toBeNull();
     expect(document.querySelector('[data-testid="longshot-discard"]')).not.toBeNull();
 
     await act(async () => document.querySelector('[data-testid="longshot-retry-save"]').click());
@@ -267,7 +288,7 @@ describe("longshot controller app", () => {
     expect(document.querySelector('[data-testid="longshot-save"]')?.disabled).toBe(true);
     expect(document.querySelector('[data-testid="longshot-append"]')?.disabled).toBe(true);
 
-    await act(async () => pending.resolve({ action: "save", path: "/tmp/one.png" }));
+    await act(async () => pending.resolve({ action: "save", path: "/tmp/one.png", pinLabel: null }));
     await flush();
   });
 
@@ -277,7 +298,7 @@ describe("longshot controller app", () => {
         code: "longshot_controller_save_failed",
         message: "untrusted filesystem detail",
       })
-      .mockResolvedValueOnce({ action: "copy", path: null });
+      .mockResolvedValueOnce({ action: "copy", path: null, pinLabel: null });
     await mount();
 
     await act(async () => document.querySelector('[data-testid="longshot-save"]').click());
@@ -287,6 +308,7 @@ describe("longshot controller app", () => {
     expect(document.body.textContent).not.toContain("untrusted filesystem detail");
     expect(document.querySelector('[data-testid="longshot-retry-copy"]')).not.toBeNull();
     expect(document.querySelector('[data-testid="longshot-retry-save"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="longshot-retry-pin"]')).not.toBeNull();
 
     await act(async () => document.querySelector('[data-testid="longshot-retry-copy"]').click());
     await flush();
@@ -295,7 +317,84 @@ describe("longshot controller app", () => {
     expect(document.body.textContent).toContain("Copied. Closing this window");
   });
 
-  it("keeps Save JoinError recovery Copy-only after a later Copy failure", async () => {
+  it("moves an explicit Pin failure to Any OutputPending and can retry it", async () => {
+    mocks.controllerApi.finish
+      .mockRejectedValueOnce({
+        code: "longshot_controller_pin_failed",
+        message: "untrusted window detail",
+      })
+      .mockResolvedValueOnce({ action: "pin", path: null, pinLabel: "pin-image-10" });
+    await mount();
+
+    await act(async () => document.querySelector('[data-testid="longshot-pin"]').click());
+    await flush();
+
+    expect(document.body.textContent).toContain("Could not pin the long screenshot");
+    expect(document.body.textContent).not.toContain("untrusted window detail");
+    expect(document.body.textContent).toContain("An output attempt did not finish");
+    expect(document.querySelector('[data-testid="longshot-append"]')).toBeNull();
+    expect(document.querySelector('[data-testid="longshot-retry-copy"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="longshot-retry-save"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="longshot-retry-pin"]')).not.toBeNull();
+
+    await act(async () => document.querySelector('[data-testid="longshot-retry-pin"]').click());
+    await flush();
+
+    expect(mocks.controllerApi.finish).toHaveBeenNthCalledWith(2, activation.handle, "pin");
+    expect(document.body.textContent).toContain("Pinned. Closing this window");
+    expect(document.body.textContent).not.toContain("pin-image-10");
+  });
+
+  it.each([
+    [
+      "Pin then Save",
+      "pin",
+      "longshot_controller_pin_uncertain",
+      "save",
+      "longshot_controller_save_uncertain",
+    ],
+    [
+      "Save then Pin",
+      "save",
+      "longshot_controller_save_uncertain",
+      "pin",
+      "longshot_controller_pin_uncertain",
+    ],
+  ])("monotonically reduces %s uncertain outputs to Copy-only", async (
+    _name,
+    firstAction,
+    firstError,
+    secondAction,
+    secondError,
+  ) => {
+    mocks.controllerApi.finish
+      .mockRejectedValueOnce({ code: firstError, message: "untrusted first detail" })
+      .mockRejectedValueOnce({ code: secondError, message: "untrusted second detail" })
+      .mockRejectedValueOnce({ code: "longshot_controller_copy_failed", message: "untrusted copy detail" });
+    await mount();
+
+    await act(async () => document.querySelector(`[data-testid="longshot-${firstAction}"]`).click());
+    await flush();
+
+    const removedFirst = firstAction === "pin" ? "save" : "pin";
+    expect(document.querySelector(`[data-testid="longshot-retry-${firstAction}"]`)).toBeNull();
+    expect(document.querySelector(`[data-testid="longshot-retry-${removedFirst}"]`)).not.toBeNull();
+    await act(async () => document.querySelector(`[data-testid="longshot-retry-${secondAction}"]`).click());
+    await flush();
+
+    expect(document.querySelector('[data-testid="longshot-retry-copy"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="longshot-retry-save"]')).toBeNull();
+    expect(document.querySelector('[data-testid="longshot-retry-pin"]')).toBeNull();
+    await act(async () => document.querySelector('[data-testid="longshot-retry-copy"]').click());
+    await flush();
+
+    // 已被 uncertain 移除的动作不会因之后的业务失败重新出现。
+    expect(document.querySelector('[data-testid="longshot-retry-save"]')).toBeNull();
+    expect(document.querySelector('[data-testid="longshot-retry-pin"]')).toBeNull();
+    expect(document.querySelector('[data-testid="longshot-append"]')).toBeNull();
+  });
+
+  it("keeps Save JoinError recovery Copy+Pin after a later Copy failure", async () => {
     mocks.controllerApi.finish
       .mockRejectedValueOnce({
         code: "longshot_controller_save_uncertain",
@@ -314,6 +413,7 @@ describe("longshot controller app", () => {
     expect(document.body.textContent).not.toContain("untrusted save worker detail");
     expect(document.querySelector('[data-testid="longshot-retry-copy"]')).not.toBeNull();
     expect(document.querySelector('[data-testid="longshot-retry-save"]')).toBeNull();
+    expect(document.querySelector('[data-testid="longshot-retry-pin"]')).not.toBeNull();
     expect(document.querySelector('[data-testid="longshot-append"]')).toBeNull();
 
     await act(async () => document.querySelector('[data-testid="longshot-retry-copy"]').click());
@@ -321,16 +421,22 @@ describe("longshot controller app", () => {
 
     expect(mocks.controllerApi.finish).toHaveBeenNthCalledWith(2, activation.handle, "copy");
     expect(document.querySelector('[data-testid="longshot-retry-save"]')).toBeNull();
+    expect(document.querySelector('[data-testid="longshot-retry-pin"]')).not.toBeNull();
   });
 
   it.each([
-    ["mismatched action", { action: "copy", path: null }],
-    ["empty Save path", { action: "save", path: "" }],
-  ])("treats a %s finish response as a conservative cleanup error", async (_name, result) => {
+    ["mismatched action", "save", { action: "copy", path: null, pinLabel: null }],
+    ["empty Save path", "save", { action: "save", path: "", pinLabel: null }],
+    ["Copy with a Pin label", "copy", { action: "copy", path: null, pinLabel: "pin-image-1" }],
+    ["Save with a Pin label", "save", { action: "save", path: "/tmp/cross.png", pinLabel: "pin-image-1" }],
+    ["Pin with a path", "pin", { action: "pin", path: "/tmp/cross.png", pinLabel: "pin-image-1" }],
+    ["empty Pin label", "pin", { action: "pin", path: null, pinLabel: "" }],
+    ["missing Pin label", "pin", { action: "pin", path: null }],
+  ])("treats a %s finish response as a conservative cleanup error", async (_name, action, result) => {
     mocks.controllerApi.finish.mockResolvedValue(result);
     await mount();
 
-    await act(async () => document.querySelector('[data-testid="longshot-save"]').click());
+    await act(async () => document.querySelector(`[data-testid="longshot-${action}"]`).click());
     await flush();
 
     expect(document.body.textContent).toContain("Restart Clippy");
@@ -429,7 +535,7 @@ describe("longshot controller app", () => {
     expect(mocks.controllerApi.cancel).toHaveBeenCalledWith(activation.handle);
     expect(document.body.textContent).toContain("Cancelling");
 
-    await act(async () => pending.resolve({ action: "copy", path: null }));
+    await act(async () => pending.resolve({ action: "copy", path: null, pinLabel: null }));
     await flush();
     expect(document.body.textContent).toContain("Cancelling");
     expect(document.body.textContent).not.toContain("Copied. Closing");
@@ -457,12 +563,32 @@ describe("longshot controller app", () => {
 
     await act(async () => document.querySelector('[data-testid="longshot-save"]').click());
     await act(async () => document.querySelector('[data-testid="longshot-cancel"]').click());
-    await act(async () => pending.resolve({ action: "save", path: "/tmp/late.png" }));
+    await act(async () => pending.resolve({ action: "save", path: "/tmp/late.png", pinLabel: null }));
     await flush();
 
     expect(mocks.controllerApi.cancel).toHaveBeenCalledTimes(1);
     expect(document.body.textContent).toContain("Cancelling");
     expect(document.body.textContent).not.toContain("/tmp/late.png");
+  });
+
+  it.each([
+    ["Cancel", async () => document.querySelector('[data-testid="longshot-cancel"]').click()],
+    ["Escape", async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))],
+    ["native close", async () => closeRequested()],
+  ])("does not revive a Pin result after %s has linearized the controller", async (_name, trigger) => {
+    const pending = deferred();
+    mocks.controllerApi.finish.mockReturnValue(pending.promise);
+    await mount();
+
+    await act(async () => document.querySelector('[data-testid="longshot-pin"]').click());
+    await act(async () => trigger());
+    await act(async () => pending.resolve({ action: "pin", path: null, pinLabel: "pin-image-late" }));
+    await flush();
+
+    expect(mocks.controllerApi.cancel).toHaveBeenCalledTimes(1);
+    expect(document.body.textContent).toContain("Cancelling");
+    expect(document.body.textContent).not.toContain("Pinned. Closing");
+    expect(document.body.textContent).not.toContain("pin-image-late");
   });
 
   it.each([
@@ -542,7 +668,7 @@ describe("longshot controller app", () => {
 
     await act(async () => document.querySelector('[data-testid="longshot-copy"]').click());
     await act(async () => root.unmount());
-    await act(async () => pending.resolve({ action: "copy", path: null }));
+    await act(async () => pending.resolve({ action: "copy", path: null, pinLabel: null }));
     await flush();
 
     expect(document.body.textContent).not.toContain("Copied. Closing");
@@ -555,10 +681,26 @@ describe("longshot controller app", () => {
 
     await act(async () => document.querySelector('[data-testid="longshot-save"]').click());
     await act(async () => root.unmount());
-    await act(async () => pending.resolve({ action: "save", path: "/tmp/late-save.png" }));
+    await act(async () => pending.resolve({
+      action: "save", path: "/tmp/late-save.png", pinLabel: null,
+    }));
     await flush();
 
     expect(document.body.textContent).not.toContain("/tmp/late-save.png");
+  });
+
+  it("invalidates a pending Pin attempt when the controller unmounts", async () => {
+    const pending = deferred();
+    mocks.controllerApi.finish.mockReturnValue(pending.promise);
+    await mount(false);
+
+    await act(async () => document.querySelector('[data-testid="longshot-pin"]').click());
+    await act(async () => root.unmount());
+    await act(async () => pending.resolve({ action: "pin", path: null, pinLabel: "pin-image-late" }));
+    await flush();
+
+    expect(document.body.textContent).not.toContain("Pinned. Closing");
+    expect(document.body.textContent).not.toContain("pin-image-late");
   });
 
   it("ignores a late ready rejection after the controller unmounts", async () => {

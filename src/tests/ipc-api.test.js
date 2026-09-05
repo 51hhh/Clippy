@@ -234,6 +234,7 @@ describe("typed IPC wrappers", () => {
     appendLongshotController(handle);
     finishLongshotController(handle, "copy");
     finishLongshotController(handle, "save");
+    finishLongshotController(handle, "pin");
     cancelLongshotController(handle);
     cancelLongshotController(null);
 
@@ -249,18 +250,24 @@ describe("typed IPC wrappers", () => {
       handle,
       action: "save",
     });
-    expect(invoke).toHaveBeenNthCalledWith(7, "cancel_longshot_controller", { handle });
-    expect(invoke).toHaveBeenNthCalledWith(8, "cancel_longshot_controller", { handle: null });
+    expect(invoke).toHaveBeenNthCalledWith(7, "finish_longshot_controller", {
+      handle,
+      action: "pin",
+    });
+    expect(invoke).toHaveBeenNthCalledWith(8, "cancel_longshot_controller", { handle });
+    expect(invoke).toHaveBeenNthCalledWith(9, "cancel_longshot_controller", { handle: null });
   });
 
-  it("passes longshot Copy and Save results through without rewriting their path contract", async () => {
+  it("passes complete longshot Copy, Save, and Pin result contracts through unchanged", async () => {
     const handle = { sessionId: "longshot-8", generation: "42" };
-    const copied = { action: "copy", path: null };
-    const saved = { action: "save", path: "/tmp/长截图.png" };
-    invoke.mockResolvedValueOnce(copied).mockResolvedValueOnce(saved);
+    const copied = { action: "copy", path: null, pinLabel: null };
+    const saved = { action: "save", path: "/tmp/长截图.png", pinLabel: null };
+    const pinned = { action: "pin", path: null, pinLabel: "pin-image-9" };
+    invoke.mockResolvedValueOnce(copied).mockResolvedValueOnce(saved).mockResolvedValueOnce(pinned);
 
     await expect(finishLongshotController(handle, "copy")).resolves.toBe(copied);
     await expect(finishLongshotController(handle, "save")).resolves.toBe(saved);
+    await expect(finishLongshotController(handle, "pin")).resolves.toBe(pinned);
     expect(invoke).toHaveBeenNthCalledWith(1, "finish_longshot_controller", {
       handle,
       action: "copy",
@@ -268,6 +275,10 @@ describe("typed IPC wrappers", () => {
     expect(invoke).toHaveBeenNthCalledWith(2, "finish_longshot_controller", {
       handle,
       action: "save",
+    });
+    expect(invoke).toHaveBeenNthCalledWith(3, "finish_longshot_controller", {
+      handle,
+      action: "pin",
     });
   });
 
