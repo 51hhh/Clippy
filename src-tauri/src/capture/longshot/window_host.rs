@@ -2,9 +2,10 @@
 
 mod finish;
 
-use super::{LongshotSessionToken, LongshotSnapshot};
+use super::{LongshotArtifact, LongshotSessionToken, LongshotSnapshot};
 use crate::capture::{CaptureError, CaptureSelection};
 use crate::commands::AppState;
+use crate::pin::PinOrigin;
 use finish::{
     execute_finish_with_ops, run_finish_worker, run_output_worker, FinishOperations, FinishStage,
     RetryPolicy,
@@ -162,6 +163,24 @@ pub(crate) struct LongshotOutputResult {
     pub path: Option<String>,
 }
 
+/// 一次长截图编码产生的不可拆分输出载荷。
+///
+/// 外层 `Arc` 是 registry 的 exact 身份；内层 PNG `Arc` 可由具体输出实现零复制共享。
+#[derive(Debug)]
+pub(super) struct LongshotOutputArtifact {
+    pub(super) png: Arc<Vec<u8>>,
+    pub(super) origin: PinOrigin,
+}
+
+impl From<LongshotArtifact> for LongshotOutputArtifact {
+    fn from(artifact: LongshotArtifact) -> Self {
+        Self {
+            png: Arc::new(artifact.png),
+            origin: artifact.origin,
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 enum Slot {
     #[default]
@@ -198,7 +217,7 @@ enum Slot {
         label: String,
         token: LongshotSessionToken,
         snapshot: LongshotSnapshot,
-        png: Arc<Vec<u8>>,
+        artifact: Arc<LongshotOutputArtifact>,
         retry_policy: RetryPolicy,
     },
     Terminating {
@@ -647,7 +666,7 @@ impl LongshotControllerRegistry {
                 label: current,
                 token,
                 snapshot,
-                png,
+                artifact,
                 retry_policy,
             } if current == label => {
                 let error = if wire_token == token {
@@ -659,7 +678,7 @@ impl LongshotControllerRegistry {
                     label: current,
                     token,
                     snapshot,
-                    png,
+                    artifact,
                     retry_policy,
                 };
                 Err(error)
@@ -879,7 +898,7 @@ impl LongshotControllerRegistry {
                 label: current,
                 token,
                 snapshot,
-                png,
+                artifact,
                 retry_policy,
             } if current == label => {
                 if token_from_wire.as_ref() != Some(&token) {
@@ -887,7 +906,7 @@ impl LongshotControllerRegistry {
                         label: current,
                         token,
                         snapshot,
-                        png,
+                        artifact,
                         retry_policy,
                     };
                     return Err(LongshotIpcError::superseded());
@@ -2036,9 +2055,7 @@ pub(crate) async fn finish(
                         let state = finish_app.try_state::<AppState>().ok_or_else(|| {
                             CaptureError::StateLock("AppState 已不可用".to_string())
                         })?;
-                        lifecycle
-                            .finish_png(&token, &finish_app, &state)
-                            .map(|artifact| artifact.png)
+                        lifecycle.finish_png(&token, &finish_app, &state)
                     })
                     .await
                 }
@@ -2049,15 +2066,15 @@ pub(crate) async fn finish(
                     .is_exact_active(token)
                     .unwrap_or(false)
             },
-            move |requested_action, png: Arc<Vec<u8>>| async move {
+            move |requested_action, artifact: Arc<LongshotOutputArtifact>| async move {
                 run_output_worker(requested_action, move || match requested_action {
                     LongshotOutputAction::Copy => {
-                        crate::image_io::copy_png_to_clipboard(png.as_slice())?;
+                        crate::image_io::copy_png_to_clipboard(artifact.png.as_slice())?;
                         Ok(None)
                     }
                     LongshotOutputAction::Save => {
                         let path = crate::image_io::save_png(
-                            png.as_slice(),
+                            artifact.png.as_slice(),
                             "clippy-screenshot",
                             &save_target,
                         )?;
@@ -2460,6 +2477,26 @@ mod tests {
             width: 30.0,
             height: 40.0,
         }
+    }
+
+    fn lifecycle_artifact(png: Vec<u8>) -> LongshotArtifact {
+        LongshotArtifact {
+            png,
+            origin: test_origin(),
+        }
+    }
+
+    fn test_origin() -> PinOrigin {
+        PinOrigin {
+            x: -12.5,
+            y: 8.25,
+            width: 320.5,
+            height: 640.75,
+        }
+    }
+
+    fn output_artifact(png: Vec<u8>) -> Arc<LongshotOutputArtifact> {
+        Arc::new(LongshotOutputArtifact::from(lifecycle_artifact(png)))
     }
 
     #[test]
@@ -4174,12 +4211,13 @@ mod tests {
                 move |claimed| {
                     assert_eq!(claimed, token);
                     finish_trace.lock().expect("trace").push("finish".into());
-                    std::future::ready(Ok(png))
+                    std::future::ready(Ok(lifecycle_artifact(png)))
                 },
                 |_| false,
                 move |requested_action, artifact| {
                     assert_eq!(requested_action, LongshotOutputAction::Copy);
-                    assert_eq!(artifact.as_slice(), &[1, 2, 3, 4, 5]);
+                    assert_eq!(artifact.png.as_slice(), &[1, 2, 3, 4, 5]);
+                    assert_eq!(artifact.origin, test_origin());
                     copy_trace.lock().expect("trace").push("copy".into());
                     std::future::ready(Ok(None))
                 },
@@ -4206,7 +4244,7 @@ mod tests {
         let windows = TestWindows::default();
         windows.add_alive(&label);
         let finishes = AtomicUsize::new(0);
-        let first_seen = Arc::new(Mutex::new(None::<Arc<Vec<u8>>>));
+        let first_seen = Arc::new(Mutex::new(None::<Arc<LongshotOutputArtifact>>));
         let first_slot = Arc::clone(&first_seen);
 
         let first = execute_finish_with_ops(
@@ -4218,7 +4256,7 @@ mod tests {
             FinishOperations::new(
                 |_| {
                     finishes.fetch_add(1, Ordering::SeqCst);
-                    std::future::ready(Ok(vec![9, 8, 7]))
+                    std::future::ready(Ok(lifecycle_artifact(vec![9, 8, 7])))
                 },
                 |_| false,
                 move |_, artifact| {
@@ -4242,11 +4280,14 @@ mod tests {
             .expect("recorded artifact")
             .clone();
         match &*registry.slot.lock().expect("slot") {
-            Slot::OutputPending { png, .. } => assert!(Arc::ptr_eq(png, &retained)),
+            Slot::OutputPending { artifact, .. } => {
+                assert!(Arc::ptr_eq(artifact, &retained));
+                assert_eq!(artifact.origin, retained.origin);
+            }
             other => panic!("expected OutputPending, got {other:?}"),
         }
 
-        let retry_seen = Arc::new(Mutex::new(None::<Arc<Vec<u8>>>));
+        let retry_seen = Arc::new(Mutex::new(None::<Arc<LongshotOutputArtifact>>));
         let retry_slot = Arc::clone(&retry_seen);
         execute_finish_with_ops(
             &registry,
@@ -4257,7 +4298,7 @@ mod tests {
             FinishOperations::new(
                 |_| {
                     finishes.fetch_add(1, Ordering::SeqCst);
-                    std::future::ready(Ok(Vec::new()))
+                    std::future::ready(Ok(lifecycle_artifact(Vec::new())))
                 },
                 |_| false,
                 move |_, artifact| {
@@ -4279,6 +4320,8 @@ mod tests {
             .expect("retry recorded")
             .clone();
         assert!(Arc::ptr_eq(&retained, &retried));
+        assert!(Arc::ptr_eq(&retained.png, &retried.png));
+        assert_eq!(retained.origin, retried.origin);
         assert_eq!(windows.destroy_count(), 1);
     }
 
@@ -4300,12 +4343,12 @@ mod tests {
             FinishOperations::new(
                 |_| {
                     finishes.fetch_add(1, Ordering::SeqCst);
-                    std::future::ready(Ok(vec![8, 6, 7, 5]))
+                    std::future::ready(Ok(lifecycle_artifact(vec![8, 6, 7, 5])))
                 },
                 |_| false,
                 |action, artifact| {
                     assert_eq!(action, LongshotOutputAction::Save);
-                    assert_eq!(artifact.as_slice(), &[8, 6, 7, 5]);
+                    assert_eq!(artifact.png.as_slice(), &[8, 6, 7, 5]);
                     saves.fetch_add(1, Ordering::SeqCst);
                     std::future::ready(Ok(Some("/tmp/截图-完成.png".to_string())))
                 },
@@ -4331,7 +4374,7 @@ mod tests {
         let (registry, label, token) = revealed_active_registry();
         let handle = LongshotControllerHandle::from_token(&token);
         let finishes = AtomicUsize::new(0);
-        let retained = Arc::new(Mutex::new(None::<Arc<Vec<u8>>>));
+        let retained = Arc::new(Mutex::new(None::<Arc<LongshotOutputArtifact>>));
         let first_artifact = Arc::clone(&retained);
 
         let error = execute_finish_with_ops(
@@ -4343,7 +4386,7 @@ mod tests {
             FinishOperations::new(
                 |_| {
                     finishes.fetch_add(1, Ordering::SeqCst);
-                    std::future::ready(Ok(vec![2, 7, 1, 8]))
+                    std::future::ready(Ok(lifecycle_artifact(vec![2, 7, 1, 8])))
                 },
                 |_| false,
                 move |action, artifact| {
@@ -4368,11 +4411,11 @@ mod tests {
             .clone();
         assert!(matches!(
             &*registry.slot.lock().expect("slot"),
-            Slot::OutputPending { png, retry_policy: RetryPolicy::Any, .. }
-                if Arc::ptr_eq(png, &original)
+            Slot::OutputPending { artifact, retry_policy: RetryPolicy::Any, .. }
+                if Arc::ptr_eq(artifact, &original)
         ));
 
-        let retry_artifact = Arc::new(Mutex::new(None::<Arc<Vec<u8>>>));
+        let retry_artifact = Arc::new(Mutex::new(None::<Arc<LongshotOutputArtifact>>));
         let retry_seen = Arc::clone(&retry_artifact);
         let result = execute_finish_with_ops(
             &registry,
@@ -4383,7 +4426,7 @@ mod tests {
             FinishOperations::new(
                 |_| {
                     finishes.fetch_add(1, Ordering::SeqCst);
-                    std::future::ready(Ok(Vec::new()))
+                    std::future::ready(Ok(lifecycle_artifact(Vec::new())))
                 },
                 |_| false,
                 move |action, artifact| {
@@ -4408,6 +4451,14 @@ mod tests {
                 .as_ref()
                 .expect("recorded retry")
         ));
+        let retried = retry_artifact
+            .lock()
+            .expect("retry")
+            .as_ref()
+            .expect("recorded retry")
+            .clone();
+        assert!(Arc::ptr_eq(&original.png, &retried.png));
+        assert_eq!(original.origin, retried.origin);
     }
 
     #[tokio::test]
@@ -4415,7 +4466,7 @@ mod tests {
         let (registry, label, token) = revealed_active_registry();
         let handle = LongshotControllerHandle::from_token(&token);
         let finishes = AtomicUsize::new(0);
-        let first = Arc::new(Mutex::new(None::<Arc<Vec<u8>>>));
+        let first = Arc::new(Mutex::new(None::<Arc<LongshotOutputArtifact>>));
         let first_seen = Arc::clone(&first);
 
         execute_finish_with_ops(
@@ -4427,7 +4478,7 @@ mod tests {
             FinishOperations::new(
                 |_| {
                     finishes.fetch_add(1, Ordering::SeqCst);
-                    std::future::ready(Ok(vec![3, 1, 4, 1]))
+                    std::future::ready(Ok(lifecycle_artifact(vec![3, 1, 4, 1])))
                 },
                 |_| false,
                 move |_, artifact| {
@@ -4458,12 +4509,14 @@ mod tests {
             FinishOperations::new(
                 |_| {
                     finishes.fetch_add(1, Ordering::SeqCst);
-                    std::future::ready(Ok(Vec::new()))
+                    std::future::ready(Ok(lifecycle_artifact(Vec::new())))
                 },
                 |_| false,
                 move |action, artifact| {
                     assert_eq!(action, LongshotOutputAction::Save);
                     assert!(Arc::ptr_eq(&artifact, &original));
+                    assert!(Arc::ptr_eq(&artifact.png, &original.png));
+                    assert_eq!(artifact.origin, original.origin);
                     std::future::ready(Ok(Some("/tmp/recovered.png".to_string())))
                 },
                 |_| std::future::ready(Ok(())),
@@ -4566,7 +4619,7 @@ mod tests {
             LongshotOutputAction::Copy,
             &TestWindows::default(),
             FinishOperations::new(
-                |_| std::future::ready(Ok(vec![4, 3, 2, 1])),
+                |_| std::future::ready(Ok(lifecycle_artifact(vec![4, 3, 2, 1]))),
                 |_| false,
                 |_, _| {
                     std::future::ready(Err(finish::OutputWorkerError::Business(
@@ -4685,7 +4738,7 @@ mod tests {
             registry.claim_finish(&label, &handle, LongshotOutputAction::Save),
             Ok(FinishClaim::Encoding(_))
         ));
-        let artifact = Arc::new(vec![5, 8, 9, 7]);
+        let artifact = output_artifact(vec![5, 8, 9, 7]);
         assert_eq!(
             registry
                 .publish_outputting(
@@ -4707,6 +4760,24 @@ mod tests {
             )
             .expect("exact publish");
 
+        let fake_same_bytes = output_artifact(artifact.png.as_ref().clone());
+        assert!(!registry.complete_output_success(
+            &label,
+            &token,
+            LongshotOutputAction::Save,
+            &fake_same_bytes,
+        ));
+        let fake_outer = Arc::new(LongshotOutputArtifact {
+            png: Arc::clone(&artifact.png),
+            origin: artifact.origin,
+        });
+        assert!(!registry.complete_output_success(
+            &label,
+            &token,
+            LongshotOutputAction::Save,
+            &fake_outer,
+        ));
+
         assert_eq!(
             registry.complete_output_failure(
                 &label,
@@ -4722,7 +4793,7 @@ mod tests {
                 &label,
                 &token,
                 LongshotOutputAction::Save,
-                &Arc::new(artifact.as_ref().clone()),
+                &fake_same_bytes,
                 false,
             ),
             OutputFailureAction::OwnershipLost
@@ -4750,7 +4821,7 @@ mod tests {
             LongshotOutputAction::Copy,
             &TestWindows::default(),
             FinishOperations::new(
-                |_| std::future::ready(Ok(vec![6, 5, 4])),
+                |_| std::future::ready(Ok(lifecycle_artifact(vec![6, 5, 4]))),
                 |_| false,
                 |action, _| async move {
                     run_output_worker(action, || panic!("injected copy panic")).await
@@ -4764,7 +4835,7 @@ mod tests {
         assert_eq!(result.code, "longshot_controller_copy_failed");
         assert!(matches!(
             &*registry.slot.lock().expect("slot"),
-            Slot::OutputPending { png, .. } if png.as_slice() == [6, 5, 4]
+            Slot::OutputPending { artifact, .. } if artifact.png.as_slice() == [6, 5, 4]
         ));
     }
 
@@ -4783,7 +4854,7 @@ mod tests {
             FinishOperations::new(
                 |_| {
                     finishes.fetch_add(1, Ordering::SeqCst);
-                    std::future::ready(Ok(vec![1, 6, 1, 8]))
+                    std::future::ready(Ok(lifecycle_artifact(vec![1, 6, 1, 8])))
                 },
                 |_| false,
                 |action, _| async move {
@@ -4815,7 +4886,7 @@ mod tests {
             FinishOperations::new(
                 |_| {
                     forbidden_finishes.fetch_add(1, Ordering::SeqCst);
-                    std::future::ready(Ok(Vec::new()))
+                    std::future::ready(Ok(lifecycle_artifact(Vec::new())))
                 },
                 |_| false,
                 |_, _| {
@@ -4841,7 +4912,7 @@ mod tests {
             FinishOperations::new(
                 |_| {
                     finishes.fetch_add(1, Ordering::SeqCst);
-                    std::future::ready(Ok(Vec::new()))
+                    std::future::ready(Ok(lifecycle_artifact(Vec::new())))
                 },
                 |_| false,
                 |action, _| {
@@ -4878,7 +4949,7 @@ mod tests {
             LongshotOutputAction::Save,
             &TestWindows::default(),
             FinishOperations::new(
-                |_| std::future::ready(Ok(vec![2, 0, 2, 6])),
+                |_| std::future::ready(Ok(lifecycle_artifact(vec![2, 0, 2, 6]))),
                 |_| false,
                 |_, _| {
                     std::future::ready(Err(finish::OutputWorkerError::Join(
@@ -4905,7 +4976,7 @@ mod tests {
     fn finish_output_pending_discard_drops_artifact_without_lifecycle_cancel() {
         let (registry, label, token) = revealed_active_registry();
         let handle = LongshotControllerHandle::from_token(&token);
-        let artifact = Arc::new(vec![3, 1, 4]);
+        let artifact = output_artifact(vec![3, 1, 4]);
         assert!(matches!(
             registry.claim_finish(&label, &handle, LongshotOutputAction::Copy),
             Ok(FinishClaim::Encoding(_))
@@ -4967,7 +5038,7 @@ mod tests {
                 FinishOperations::new(
                     |_| {
                         finishes.fetch_add(1, Ordering::SeqCst);
-                        std::future::ready(Ok(vec![1, 9, 9, 8]))
+                        std::future::ready(Ok(lifecycle_artifact(vec![1, 9, 9, 8])))
                     },
                     |_| false,
                     |_, _| {
