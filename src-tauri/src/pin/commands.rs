@@ -186,6 +186,22 @@ fn into_shared_png(png: Vec<u8>) -> Arc<Vec<u8>> {
     Arc::new(png)
 }
 
+fn with_validated_screenshot_png<T, F>(
+    png: Arc<Vec<u8>>,
+    next: F,
+) -> Result<T, ScreenshotPinCreateError>
+where
+    F: FnOnce(Arc<Vec<u8>>, u32, u32) -> Result<T, ScreenshotPinCreateError>,
+{
+    let (width, height) = super::image_validation::validate_strict_png(
+        png.as_slice(),
+        super::project::MAX_RENDERED_PNG_BYTES,
+        "截图 PNG",
+    )
+    .map_err(ScreenshotPinCreateError::not_created)?;
+    next(png, width, height)
+}
+
 pub(crate) fn create_screenshot_pin(
     png: Vec<u8>,
     origin: Option<PinOrigin>,
@@ -205,45 +221,46 @@ pub(crate) fn create_screenshot_pin_shared(
     app_handle: &tauri::AppHandle,
     state: &AppState,
 ) -> Result<String, ScreenshotPinCreateError> {
-    let _transition = state
-        .pin_transition
-        .lock()
-        .map_err(ScreenshotPinCreateError::not_created)?;
-    let (width, height) = crate::screenshot::png_dimensions(png.as_slice())
-        .map_err(ScreenshotPinCreateError::not_created)?;
-    let label = format!("pin-image-{}", crate::image_io::unique_image_id());
-    let origin = origin.and_then(PinOrigin::sanitized);
-    let (content_width, content_height) = match origin {
-        Some(origin) => origin_content_size(app_handle, origin),
-        None => fit_content_size(app_handle, width as f64, height as f64),
-    };
-    let entry = screenshot_entry(
-        label.clone(),
-        png,
-        content_width,
-        content_height,
-        origin,
-        content_device_scale(app_handle, origin),
-        content_buffer_scale(app_handle, origin),
-    );
-    state
-        .pin_manager
-        .insert(entry)
-        .map_err(ScreenshotPinCreateError::not_created)?;
-    // 同上：补偿与开窗并行，抢在前端来取 payload 之前算完。
-    let inserted = match state.pin_manager.get(&label) {
-        Ok(entry) => entry,
-        Err(error) => {
-            let _ = state.pin_manager.remove(&label);
-            return Err(ScreenshotPinCreateError::not_created(error));
+    with_validated_screenshot_png(png, |png, width, height| {
+        let _transition = state
+            .pin_transition
+            .lock()
+            .map_err(ScreenshotPinCreateError::not_created)?;
+        let label = format!("pin-image-{}", crate::image_io::unique_image_id());
+        let origin = origin.and_then(PinOrigin::sanitized);
+        let (content_width, content_height) = match origin {
+            Some(origin) => origin_content_size(app_handle, origin),
+            None => fit_content_size(app_handle, width as f64, height as f64),
+        };
+        let entry = screenshot_entry(
+            label.clone(),
+            png,
+            content_width,
+            content_height,
+            origin,
+            content_device_scale(app_handle, origin),
+            content_buffer_scale(app_handle, origin),
+        );
+        state
+            .pin_manager
+            .insert(entry)
+            .map_err(ScreenshotPinCreateError::not_created)?;
+        // 同上：补偿与开窗并行，抢在前端来取 payload 之前算完。
+        let inserted = match state.pin_manager.get(&label) {
+            Ok(entry) => entry,
+            Err(error) => {
+                let _ = state.pin_manager.remove(&label);
+                return Err(ScreenshotPinCreateError::not_created(error));
+            }
+        };
+        spawn_sharpen(app_handle, &inserted);
+        if let Err(error) =
+            create_pin_window(app_handle, &label, content_width, content_height, origin)
+        {
+            return Err(screenshot_window_failure(&state.pin_manager, label, error));
         }
-    };
-    spawn_sharpen(app_handle, &inserted);
-    if let Err(error) = create_pin_window(app_handle, &label, content_width, content_height, origin)
-    {
-        return Err(screenshot_window_failure(&state.pin_manager, label, error));
-    }
-    Ok(label)
+        Ok(label)
+    })
 }
 
 /// 原生 builder 一旦被调用，Tauri/Wry 只能给我们操作是否投递成功，不能给出窗口已经
@@ -1037,6 +1054,7 @@ fn image_bytes(entry: &PinEntry) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod project_command_tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     type CreateScreenshotPinFn = fn(
         Vec<u8>,
@@ -1129,11 +1147,29 @@ mod project_command_tests {
     }
 
     #[test]
-    fn pre_builder_failures_are_confirmed_not_created() {
-        let error = super::ScreenshotPinCreateError::not_created("invalid png");
+    fn successful_preflight_forwards_the_same_arc_and_dimensions() {
+        let png = Arc::new(sample_png());
+        let forwarded = super::with_validated_screenshot_png(Arc::clone(&png), |received, w, h| {
+            assert!(Arc::ptr_eq(&received, &png));
+            Ok((w, h))
+        })
+        .expect("合法截图应通过预检");
+        assert_eq!(forwarded, (1, 1));
+    }
+
+    #[test]
+    fn preflight_failures_are_not_created_and_never_start_side_effects() {
+        let side_effect_started = AtomicBool::new(false);
+        let error =
+            super::with_validated_screenshot_png(Arc::new(b"invalid png".to_vec()), |_, _, _| {
+                side_effect_started.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+            .unwrap_err();
         assert!(!error.is_uncertain());
         assert_eq!(error.attempted_label(), None);
-        assert_eq!(error.to_string(), "invalid png");
+        assert!(error.to_string().contains("PNG"));
+        assert!(!side_effect_started.load(Ordering::SeqCst));
     }
 
     #[test]

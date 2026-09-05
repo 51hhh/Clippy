@@ -22,8 +22,6 @@ pub(super) const MAX_RENDERED_PNG_BYTES: usize = 64 * 1024 * 1024;
 pub(super) const MAX_SOURCE_PNG_BYTES: usize = 64 * 1024 * 1024;
 pub(super) const MAX_PROJECT_JSON_BYTES: usize = 96 * 1024 * 1024;
 pub(super) const MAX_CONTAINER_BYTES: usize = 160 * 1024 * 1024;
-const MAX_IMAGE_DIMENSION: u32 = 32_768;
-const MAX_IMAGE_PIXELS: u64 = 64 * 1024 * 1024;
 const MAX_ANNOTATIONS: usize = 10_000;
 const MAX_STROKE_POINTS: usize = 100_000;
 const MAX_TOTAL_POINTS: usize = 500_000;
@@ -296,24 +294,7 @@ pub(super) fn decode_png(
         return Err(format!("{name}超过 {} MiB 上限", byte_limit / 1024 / 1024));
     }
     let sanitized = strip_project_chunks(png).map_err(|_| format!("{name}不是合法 PNG"))?;
-    let (width, height) =
-        crate::screenshot::png_dimensions(&sanitized).map_err(|_| format!("{name}不是合法 PNG"))?;
-    let pixels = u64::from(width).saturating_mul(u64::from(height));
-    if width == 0
-        || height == 0
-        || width > MAX_IMAGE_DIMENSION
-        || height > MAX_IMAGE_DIMENSION
-        || pixels > MAX_IMAGE_PIXELS
-    {
-        return Err(format!("{name}尺寸超过安全上限"));
-    }
-    let image = image::load_from_memory_with_format(&sanitized, image::ImageFormat::Png)
-        .map_err(|_| format!("{name}无法完整解码"))?
-        .into_rgba8();
-    if image.dimensions() != (width, height) {
-        return Err(format!("{name}解码尺寸不匹配"));
-    }
-    Ok(image)
+    super::image_validation::decode_strict_png(&sanitized, byte_limit, name)
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
