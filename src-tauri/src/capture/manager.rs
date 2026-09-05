@@ -348,6 +348,24 @@ impl CaptureManager {
         crop_frame(frame, selection)
     }
 
+    /// 只在锁内核对普通截图会话并浅克隆目标帧；整屏像素仍由同一个 `Arc` 承载。
+    pub(super) fn selected_frame(
+        &self,
+        selection: &CaptureSelection,
+    ) -> Result<CapturedMonitorFrame, CaptureError> {
+        let current = self.session.lock().map_err(CaptureError::state_lock)?;
+        let session = current.as_ref().ok_or(CaptureError::SessionMissing)?;
+        if session.id != selection.session_id {
+            return Err(CaptureError::SessionSupersededRetry);
+        }
+        session
+            .frames
+            .iter()
+            .find(|frame| frame.monitor_id == selection.monitor_id)
+            .cloned()
+            .ok_or(CaptureError::SelectionMonitorMismatch)
+    }
+
     /// 只在锁内核对会话并复制帧；数秒级合成必须由调用方在 blocking worker 执行。
     pub(super) fn render_input(
         &self,
