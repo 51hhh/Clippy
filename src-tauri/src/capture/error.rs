@@ -53,6 +53,20 @@ pub enum CaptureError {
     LongshotResourceLimit,
     #[error("长截图内存分配失败")]
     LongshotAllocationFailed,
+    #[error("长截图相邻帧尺寸不一致")]
+    LongshotEstimateSizeMismatch,
+    #[error("长截图相邻帧尺寸过小")]
+    LongshotEstimateTooSmall,
+    #[error("长截图相邻帧纹理不足")]
+    LongshotEstimateLowTexture,
+    #[error("长截图相邻帧相似度不足")]
+    LongshotEstimateLowSimilarity,
+    #[error("长截图相邻帧匹配存在歧义")]
+    LongshotEstimateAmbiguous,
+    #[error("长截图相邻帧位移超过上限")]
+    LongshotEstimateDisplacementTooLarge,
+    #[error("长截图相邻帧没有新增内容")]
+    LongshotEstimateNoExtension,
     #[error("创建截图覆盖层失败: {0}")]
     OverlayCreate(String),
     #[error("截图失败: {0}")]
@@ -96,6 +110,15 @@ impl CaptureError {
             Self::LongshotFrameLimit => "longshot_frame_limit",
             Self::LongshotResourceLimit => "longshot_resource_limit",
             Self::LongshotAllocationFailed => "longshot_allocation_failed",
+            Self::LongshotEstimateSizeMismatch => "longshot_estimate_size_mismatch",
+            Self::LongshotEstimateTooSmall => "longshot_estimate_too_small",
+            Self::LongshotEstimateLowTexture => "longshot_estimate_low_texture",
+            Self::LongshotEstimateLowSimilarity => "longshot_estimate_low_similarity",
+            Self::LongshotEstimateAmbiguous => "longshot_estimate_ambiguous",
+            Self::LongshotEstimateDisplacementTooLarge => {
+                "longshot_estimate_displacement_too_large"
+            }
+            Self::LongshotEstimateNoExtension => "longshot_estimate_no_extension",
             Self::OverlayCreate(_) => "overlay_create",
             Self::Screenshot(_) => "screenshot",
             Self::ThreadPanic(_) => "thread_panic",
@@ -192,6 +215,13 @@ mod tests {
             CaptureError::LongshotFrameLimit,
             CaptureError::LongshotResourceLimit,
             CaptureError::LongshotAllocationFailed,
+            CaptureError::LongshotEstimateSizeMismatch,
+            CaptureError::LongshotEstimateTooSmall,
+            CaptureError::LongshotEstimateLowTexture,
+            CaptureError::LongshotEstimateLowSimilarity,
+            CaptureError::LongshotEstimateAmbiguous,
+            CaptureError::LongshotEstimateDisplacementTooLarge,
+            CaptureError::LongshotEstimateNoExtension,
             CaptureError::OverlayCreate(String::new()),
             CaptureError::Screenshot(String::new()),
             CaptureError::ThreadPanic(String::new()),
