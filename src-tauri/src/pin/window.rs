@@ -31,7 +31,7 @@ pub(super) fn create_pin_window(
     origin: Option<PinOrigin>,
 ) -> Result<(), PinError> {
     let (outer_width, outer_height) = outer_size(content_width, content_height, 1.0);
-    let window = tauri::WebviewWindowBuilder::new(
+    let builder = tauri::WebviewWindowBuilder::new(
         app,
         label,
         tauri::WebviewUrl::App(format!("pin.html?label={label}").into()),
@@ -48,18 +48,65 @@ pub(super) fn create_pin_window(
     .skip_taskbar(true)
     .resizable(false)
     .visible(false)
-    .center()
-    .build()
-    .map_err(PinError::window)?;
-    configure_native_pin_window(&window);
-    if let Err(error) = position_new_pin_window(app, &window, outer_width, outer_height, origin) {
-        if let Err(close_error) = window.close() {
-            log::warn!("关闭定位失败的贴图窗口失败: {close_error}");
-        }
-        return Err(error);
-    }
+    .center();
+    let window = build_and_prepare_pin_window(
+        label,
+        || builder.build().map_err(PinError::window),
+        |label| app.get_webview_window(label),
+        |window| {
+            configure_native_pin_window(window);
+            position_new_pin_window(app, window, outer_width, outer_height, origin)
+        },
+        |window| window.destroy(),
+    )?;
     crate::pin_window::configure_pin_window(&window);
     Ok(())
+}
+
+/// 原生窗口创建与初始化的副作用边界。
+///
+/// builder 已报错时仍尝试按 label 查找可能已登记的窗口；初始化（目前是原生配置加定位）
+/// 报错时则销毁已持有的窗口。无论 destroy 的投递结果是什么，都原样返回最初的 build /
+/// prepare 错误——投递成功并不等于事件循环已经销毁了原生窗口。
+fn build_and_prepare_pin_window<W, E, Build, Lookup, Prepare, Destroy, DestroyError>(
+    label: &str,
+    build: Build,
+    lookup: Lookup,
+    prepare: Prepare,
+    destroy: Destroy,
+) -> Result<W, E>
+where
+    Build: FnOnce() -> Result<W, E>,
+    Lookup: FnOnce(&str) -> Option<W>,
+    Prepare: FnOnce(&W) -> Result<(), E>,
+    Destroy: Fn(&W) -> Result<(), DestroyError>,
+    DestroyError: std::fmt::Display,
+{
+    match build() {
+        Ok(window) => match prepare(&window) {
+            Ok(()) => Ok(window),
+            Err(error) => {
+                destroy_pin_window_best_effort(&window, &destroy);
+                Err(error)
+            }
+        },
+        Err(error) => {
+            if let Some(window) = lookup(label) {
+                destroy_pin_window_best_effort(&window, &destroy);
+            }
+            Err(error)
+        }
+    }
+}
+
+fn destroy_pin_window_best_effort<W, Destroy, DestroyError>(window: &W, destroy: &Destroy)
+where
+    Destroy: Fn(&W) -> Result<(), DestroyError>,
+    DestroyError: std::fmt::Display,
+{
+    if let Err(error) = destroy(window) {
+        log::warn!("清理创建失败的贴图窗口时投递 destroy 失败: {error}");
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -790,6 +837,109 @@ pub(super) fn outer_size(content_width: f64, content_height: f64, scale: f64) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn build_failure_without_registered_window_never_destroys() {
+        let destroys = Cell::new(0);
+        let result = build_and_prepare_pin_window(
+            "pin-build-none",
+            || Err::<usize, _>("build failed"),
+            |_| None::<usize>,
+            |_| Ok::<(), &str>(()),
+            |_| {
+                destroys.set(destroys.get() + 1);
+                Ok::<(), &str>(())
+            },
+        );
+        assert_eq!(result, Err("build failed"));
+        assert_eq!(destroys.get(), 0);
+    }
+
+    #[test]
+    fn build_failure_destroys_known_window_even_when_destroy_succeeds() {
+        let destroys = Cell::new(0);
+        let result = build_and_prepare_pin_window(
+            "pin-build-known-ok",
+            || Err::<usize, _>("build failed"),
+            |_| Some(7usize),
+            |_| Ok::<(), &str>(()),
+            |_| {
+                destroys.set(destroys.get() + 1);
+                Ok::<(), &str>(())
+            },
+        );
+        assert_eq!(result, Err("build failed"));
+        assert_eq!(destroys.get(), 1);
+    }
+
+    #[test]
+    fn build_failure_destroys_known_window_even_when_destroy_fails() {
+        let destroys = Cell::new(0);
+        let result = build_and_prepare_pin_window(
+            "pin-build-known-err",
+            || Err::<usize, _>("build failed"),
+            |_| Some(7usize),
+            |_| Ok::<(), &str>(()),
+            |_| {
+                destroys.set(destroys.get() + 1);
+                Err::<(), _>("destroy failed")
+            },
+        );
+        assert_eq!(result, Err("build failed"));
+        assert_eq!(destroys.get(), 1);
+    }
+
+    #[test]
+    fn prepare_failure_destroys_new_window_even_when_destroy_succeeds() {
+        let destroys = Cell::new(0);
+        let result = build_and_prepare_pin_window(
+            "pin-prepare-ok",
+            || Ok::<usize, &str>(7),
+            |_| None,
+            |_| Err::<(), _>("position failed"),
+            |_| {
+                destroys.set(destroys.get() + 1);
+                Ok::<(), &str>(())
+            },
+        );
+        assert_eq!(result, Err("position failed"));
+        assert_eq!(destroys.get(), 1);
+    }
+
+    #[test]
+    fn prepare_failure_destroys_new_window_even_when_destroy_fails() {
+        let destroys = Cell::new(0);
+        let result = build_and_prepare_pin_window(
+            "pin-prepare-err",
+            || Ok::<usize, &str>(7),
+            |_| None,
+            |_| Err::<(), _>("position failed"),
+            |_| {
+                destroys.set(destroys.get() + 1);
+                Err::<(), _>("destroy failed")
+            },
+        );
+        assert_eq!(result, Err("position failed"));
+        assert_eq!(destroys.get(), 1);
+    }
+
+    #[test]
+    fn successful_prepare_never_destroys_the_window() {
+        let destroys = Cell::new(0);
+        let result = build_and_prepare_pin_window(
+            "pin-success",
+            || Ok::<usize, &str>(7),
+            |_| None,
+            |_| Ok::<(), &str>(()),
+            |_| {
+                destroys.set(destroys.get() + 1);
+                Ok::<(), &str>(())
+            },
+        );
+        assert_eq!(result, Ok(7));
+        assert_eq!(destroys.get(), 0);
+    }
 
     /// 代次登记表是进程级的静态量，测试之间必须用不同的 label 才互不干扰。
     #[test]
