@@ -29,7 +29,10 @@ pub(crate) use frame_protocol::handle as frame_protocol;
 pub use manager::CaptureManager;
 /// AppState 与截图入口共用的模式互斥原语；lease 的字段始终只在模块内可见。
 #[cfg_attr(not(test), allow(unused_imports))]
-pub(crate) use mode_gate::{CaptureMode, CaptureModeGate, CaptureModeLease, CaptureModeOwnership};
+pub(crate) use mode_gate::{
+    CaptureMode, CaptureModeGate, CaptureModeLease, CaptureModeOwnership,
+    CaptureModeTransitionFailure,
+};
 /// 贴图窗口的摆放与置顶也只有这个扩展做得到（Wayland 不许客户端自己来），
 /// 所以 `pin/` 借道这里，而不是自己再开一份 D-Bus 契约。
 pub(crate) use shell_extension::place_window as shell_extension_place_window;
