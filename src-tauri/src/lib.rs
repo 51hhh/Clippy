@@ -325,6 +325,7 @@ pub fn run() {
             capture::activate_longshot_controller,
             capture::mark_longshot_controller_ready,
             capture::append_longshot_controller,
+            capture::finish_longshot_controller,
             capture::cancel_longshot_controller,
             capture::diagnostics::run_capture_diagnostics,
             commands::pick_screenshot_directory,

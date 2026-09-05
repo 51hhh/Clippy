@@ -29,6 +29,8 @@ import type {
   LongshotActivation,
   LongshotControllerOpenResult,
   LongshotHandle,
+  LongshotOutputAction,
+  LongshotOutputResult,
   LongshotSnapshot,
   PasteOutcome,
   PasteStatus,
@@ -70,6 +72,8 @@ export type {
   LongshotControllerError,
   LongshotControllerOpenResult,
   LongshotHandle,
+  LongshotOutputAction,
+  LongshotOutputResult,
   LongshotSnapshot,
   PasteBackend,
   PasteOutcome,
@@ -378,6 +382,17 @@ export function markLongshotControllerReady(): Promise<void> {
  */
 export function appendLongshotController(handle: LongshotHandle): Promise<LongshotSnapshot> {
   return invoke<LongshotSnapshot>("append_longshot_controller", { handle });
+}
+
+/**
+ * 原子结束 exact 长截图会话，并在后端将最终 PNG 输出到指定目标。
+ * 这个边界绝不传递窗口标签、PNG 或 base64；失败重试由后端保留 artifact。
+ */
+export function finishLongshotController(
+  handle: LongshotHandle,
+  action: LongshotOutputAction,
+): Promise<LongshotOutputResult> {
+  return invoke<LongshotOutputResult>("finish_longshot_controller", { handle, action });
 }
 
 /**

@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   controllerApi: {
     activate: vi.fn(),
     append: vi.fn(),
+    finish: vi.fn(),
     ready: vi.fn(),
     cancel: vi.fn(),
     onCloseRequested: vi.fn(),
@@ -58,6 +59,7 @@ describe("longshot controller app", () => {
     for (const fn of Object.values(mocks.controllerApi)) fn.mockReset();
     mocks.controllerApi.activate.mockResolvedValue(activation);
     mocks.controllerApi.append.mockResolvedValue(activation.snapshot);
+    mocks.controllerApi.finish.mockResolvedValue({ action: "copy" });
     mocks.controllerApi.ready.mockResolvedValue(undefined);
     mocks.controllerApi.cancel.mockResolvedValue(undefined);
     mocks.controllerApi.onCloseRequested.mockImplementation((callback) => {
@@ -158,6 +160,114 @@ describe("longshot controller app", () => {
     expect(document.body.textContent).toContain("Ready to capture more frames.");
   });
 
+  it("finishes with Copy exactly once and keeps the result terminal while the backend closes", async () => {
+    await mount();
+
+    await act(async () => document.querySelector('[data-testid="longshot-copy"]').click());
+    await flush();
+
+    expect(mocks.controllerApi.finish).toHaveBeenCalledTimes(1);
+    expect(mocks.controllerApi.finish).toHaveBeenCalledWith(activation.handle, "copy");
+    expect(document.body.textContent).toContain("Copied. Closing this window");
+    expect(document.querySelector('[data-testid="longshot-append"]')).toBeNull();
+    expect(document.querySelector('[data-testid="longshot-copy"]')).toBeNull();
+  });
+
+  it("keeps the snapshot and Ready controls after a retryable finish-domain failure", async () => {
+    mocks.controllerApi.finish.mockRejectedValue({
+      code: "longshot_estimate_low_texture",
+      message: "untrusted encoder detail",
+    });
+    await mount();
+
+    await act(async () => document.querySelector('[data-testid="longshot-copy"]').click());
+    await flush();
+
+    expect(document.body.textContent).toContain("3");
+    expect(document.body.textContent).toContain("1700");
+    expect(document.body.textContent).toContain("Could not finish the long screenshot");
+    expect(document.body.textContent).not.toContain("untrusted encoder detail");
+    expect(document.querySelector('[data-testid="longshot-append"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="longshot-copy"]')).not.toBeNull();
+  });
+
+  it("prevents a double click from starting a second finish and disables append/copy while Finishing", async () => {
+    const pending = deferred();
+    mocks.controllerApi.finish.mockReturnValue(pending.promise);
+    await mount();
+
+    await act(async () => {
+      document.querySelector('[data-testid="longshot-copy"]').click();
+      document.querySelector('[data-testid="longshot-copy"]').click();
+    });
+
+    expect(mocks.controllerApi.finish).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[data-testid="longshot-copy"]')?.disabled).toBe(true);
+    expect(document.querySelector('[data-testid="longshot-append"]')?.disabled).toBe(true);
+    expect(document.body.textContent).toContain("Finishing the long screenshot");
+
+    await act(async () => pending.resolve({ action: "copy" }));
+    await flush();
+  });
+
+  it("moves a clipboard failure to OutputPending and retries the exact copy action", async () => {
+    mocks.controllerApi.finish
+      .mockRejectedValueOnce({
+        code: "longshot_controller_copy_failed",
+        message: "untrusted clipboard detail",
+      })
+      .mockResolvedValueOnce({ action: "copy" });
+    await mount();
+
+    await act(async () => document.querySelector('[data-testid="longshot-copy"]').click());
+    await flush();
+
+    expect(document.body.textContent).toContain("Retry copying or discard it");
+    expect(document.body.textContent).not.toContain("untrusted clipboard detail");
+    expect(document.querySelector('[data-testid="longshot-append"]')).toBeNull();
+    expect(document.querySelector('[data-testid="longshot-copy"]')).toBeNull();
+    expect(document.querySelector('[data-testid="longshot-retry-copy"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="longshot-discard"]')).not.toBeNull();
+
+    await act(async () => document.querySelector('[data-testid="longshot-retry-copy"]').click());
+    await flush();
+
+    expect(mocks.controllerApi.finish).toHaveBeenCalledTimes(2);
+    expect(mocks.controllerApi.finish).toHaveBeenNthCalledWith(2, activation.handle, "copy");
+    expect(document.body.textContent).toContain("Copied. Closing this window");
+  });
+
+  it("discards an OutputPending artifact through the exact cancel handle", async () => {
+    mocks.controllerApi.finish.mockRejectedValue({ code: "longshot_controller_copy_failed" });
+    await mount();
+
+    await act(async () => document.querySelector('[data-testid="longshot-copy"]').click());
+    await flush();
+    await act(async () => document.querySelector('[data-testid="longshot-discard"]').click());
+    await flush();
+
+    expect(mocks.controllerApi.cancel).toHaveBeenCalledTimes(1);
+    expect(mocks.controllerApi.cancel).toHaveBeenCalledWith(activation.handle);
+    expect(document.body.textContent).toContain("Cancelling");
+  });
+
+  it.each([
+    ["Escape", async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))],
+    ["native close", async () => closeRequested()],
+  ])("uses the one-shot cancel path when %s discards OutputPending", async (_name, trigger) => {
+    mocks.controllerApi.finish.mockRejectedValue({ code: "longshot_controller_copy_failed" });
+    await mount();
+
+    await act(async () => document.querySelector('[data-testid="longshot-copy"]').click());
+    await flush();
+    await act(async () => trigger());
+    await flush();
+
+    expect(mocks.controllerApi.cancel).toHaveBeenCalledTimes(1);
+    expect(mocks.controllerApi.cancel).toHaveBeenCalledWith(activation.handle);
+    expect(document.body.textContent).toContain("Cancelling");
+  });
+
   it("keeps the previous snapshot after an append business error and allows retry", async () => {
     const nextSnapshot = {
       frameCount: 4,
@@ -200,6 +310,43 @@ describe("longshot controller app", () => {
 
     await act(async () => pending.resolve(activation.snapshot));
     await flush();
+  });
+
+  it.each([
+    ["Cancel", async () => document.querySelector('[data-testid="longshot-cancel"]').click()],
+    ["Escape", async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))],
+    ["native close", async () => closeRequested()],
+  ])("cancels exactly once when %s occurs during Finish and ignores its late result", async (_name, trigger) => {
+    const pending = deferred();
+    mocks.controllerApi.finish.mockReturnValue(pending.promise);
+    await mount();
+
+    await act(async () => document.querySelector('[data-testid="longshot-copy"]').click());
+    await act(async () => trigger());
+    await flush();
+    expect(mocks.controllerApi.cancel).toHaveBeenCalledTimes(1);
+    expect(mocks.controllerApi.cancel).toHaveBeenCalledWith(activation.handle);
+    expect(document.body.textContent).toContain("Cancelling");
+
+    await act(async () => pending.resolve({ action: "copy" }));
+    await flush();
+    expect(document.body.textContent).toContain("Cancelling");
+    expect(document.body.textContent).not.toContain("Copied. Closing");
+  });
+
+  it("ignores a late finish rejection after cancellation has won", async () => {
+    const pending = deferred();
+    mocks.controllerApi.finish.mockReturnValue(pending.promise);
+    await mount();
+
+    await act(async () => document.querySelector('[data-testid="longshot-copy"]').click());
+    await act(async () => document.querySelector('[data-testid="longshot-cancel"]').click());
+    await act(async () => pending.reject({ code: "longshot_controller_copy_failed", message: "late detail" }));
+    await flush();
+
+    expect(document.body.textContent).toContain("Cancelling");
+    expect(document.body.textContent).not.toContain("late detail");
+    expect(document.querySelector('[data-testid="longshot-retry-copy"]')).toBeNull();
   });
 
   it.each([
@@ -272,6 +419,19 @@ describe("longshot controller app", () => {
     expect(document.body.textContent).not.toContain("9999");
   });
 
+  it("invalidates a pending Finish attempt when the controller unmounts", async () => {
+    const pending = deferred();
+    mocks.controllerApi.finish.mockReturnValue(pending.promise);
+    await mount(false);
+
+    await act(async () => document.querySelector('[data-testid="longshot-copy"]').click());
+    await act(async () => root.unmount());
+    await act(async () => pending.resolve({ action: "copy" }));
+    await flush();
+
+    expect(document.body.textContent).not.toContain("Copied. Closing");
+  });
+
   it("ignores a late ready rejection after the controller unmounts", async () => {
     const pending = deferred();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -300,6 +460,22 @@ describe("longshot controller app", () => {
     expect(document.querySelector('[data-testid="longshot-append"]')).toBeNull();
     expect(document.querySelector('[data-testid="longshot-cancel"]')).toBeNull();
     expect(document.body.textContent).not.toContain("untrusted cleanup detail");
+  });
+
+  it("shows restart guidance without actions after a finish cleanup failure", async () => {
+    mocks.controllerApi.finish.mockRejectedValue({
+      code: "longshot_controller_cleanup_failed",
+      message: "untrusted finish cleanup detail",
+    });
+    await mount();
+
+    await act(async () => document.querySelector('[data-testid="longshot-copy"]').click());
+    await flush();
+
+    expect(document.body.textContent).toContain("Restart Clippy");
+    expect(document.querySelector('[data-testid="longshot-append"]')).toBeNull();
+    expect(document.querySelector('[data-testid="longshot-copy"]')).toBeNull();
+    expect(document.body.textContent).not.toContain("untrusted finish cleanup detail");
   });
 
   it.each(["longshot_controller_hide_failed", "longshot_controller_internal"])(

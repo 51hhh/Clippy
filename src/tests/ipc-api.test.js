@@ -38,6 +38,7 @@ import {
   cancelLongshotController,
   activateLongshotController,
   appendLongshotController,
+  finishLongshotController,
   markCaptureOverlayReady,
   markLongshotControllerReady,
   copyText,
@@ -231,6 +232,7 @@ describe("typed IPC wrappers", () => {
     activateLongshotController();
     markLongshotControllerReady();
     appendLongshotController(handle);
+    finishLongshotController(handle, "copy");
     cancelLongshotController(handle);
     cancelLongshotController(null);
 
@@ -238,8 +240,12 @@ describe("typed IPC wrappers", () => {
     expect(invoke).toHaveBeenNthCalledWith(2, "activate_longshot_controller");
     expect(invoke).toHaveBeenNthCalledWith(3, "mark_longshot_controller_ready");
     expect(invoke).toHaveBeenNthCalledWith(4, "append_longshot_controller", { handle });
-    expect(invoke).toHaveBeenNthCalledWith(5, "cancel_longshot_controller", { handle });
-    expect(invoke).toHaveBeenNthCalledWith(6, "cancel_longshot_controller", { handle: null });
+    expect(invoke).toHaveBeenNthCalledWith(5, "finish_longshot_controller", {
+      handle,
+      action: "copy",
+    });
+    expect(invoke).toHaveBeenNthCalledWith(6, "cancel_longshot_controller", { handle });
+    expect(invoke).toHaveBeenNthCalledWith(7, "cancel_longshot_controller", { handle: null });
   });
 
   it("sends a null note when the user did not describe the symptom", () => {

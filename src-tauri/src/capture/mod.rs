@@ -143,6 +143,18 @@ pub async fn append_longshot_controller(
     longshot::window_host::append(app, &state, window.label(), handle).await
 }
 
+/// 原子完成 exact 长截图会话并在后端复制最终 PNG，不让像素经过 IPC。
+#[tauri::command]
+pub async fn finish_longshot_controller(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    handle: longshot::LongshotControllerHandle,
+    action: longshot::LongshotOutputAction,
+) -> Result<longshot::LongshotOutputResult, longshot::LongshotIpcError> {
+    longshot::window_host::finish(app, &state, window.label(), handle, action).await
+}
+
 /// 在任何桌面副作用之前取得 Ordinary 所有权；Busy 时不构造后续 future。
 async fn claim_ordinary_then<T, F, Fut>(
     gate: &std::sync::Arc<CaptureModeGate>,
