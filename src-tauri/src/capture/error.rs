@@ -81,6 +81,12 @@ pub enum CaptureError {
     LongshotSessionSuperseded,
     #[error("长截图会话代次已耗尽")]
     LongshotGenerationExhausted,
+    #[error("已有截图模式正在进行")]
+    CaptureModeBusy,
+    #[error("截图模式所有权已经更新")]
+    CaptureModeSuperseded,
+    #[error("截图模式代次已耗尽")]
+    CaptureModeGenerationExhausted,
     #[error("创建截图覆盖层失败: {0}")]
     OverlayCreate(String),
     #[error("截图失败: {0}")]
@@ -140,6 +146,9 @@ impl CaptureError {
             Self::LongshotSessionMissing => "longshot_session_missing",
             Self::LongshotSessionSuperseded => "longshot_session_superseded",
             Self::LongshotGenerationExhausted => "longshot_generation_exhausted",
+            Self::CaptureModeBusy => "capture_mode_busy",
+            Self::CaptureModeSuperseded => "capture_mode_superseded",
+            Self::CaptureModeGenerationExhausted => "capture_mode_generation_exhausted",
             Self::OverlayCreate(_) => "overlay_create",
             Self::Screenshot(_) => "screenshot",
             Self::ThreadPanic(_) => "thread_panic",
@@ -208,6 +217,18 @@ mod tests {
             CaptureError::ThreadPanic("boom".to_string()).to_string(),
             "截图线程异常: boom"
         );
+        assert_eq!(
+            CaptureError::CaptureModeBusy.to_string(),
+            "已有截图模式正在进行"
+        );
+        assert_eq!(
+            CaptureError::CaptureModeSuperseded.to_string(),
+            "截图模式所有权已经更新"
+        );
+        assert_eq!(
+            CaptureError::CaptureModeGenerationExhausted.to_string(),
+            "截图模式代次已耗尽"
+        );
     }
 
     #[test]
@@ -250,6 +271,9 @@ mod tests {
             CaptureError::LongshotSessionMissing,
             CaptureError::LongshotSessionSuperseded,
             CaptureError::LongshotGenerationExhausted,
+            CaptureError::CaptureModeBusy,
+            CaptureError::CaptureModeSuperseded,
+            CaptureError::CaptureModeGenerationExhausted,
             CaptureError::OverlayCreate(String::new()),
             CaptureError::Screenshot(String::new()),
             CaptureError::ThreadPanic(String::new()),
