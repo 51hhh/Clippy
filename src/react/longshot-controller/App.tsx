@@ -11,12 +11,15 @@ type ControllerPhase =
   | "preparing"
   | "ready"
   | "appending"
+  | "finishing"
+  | "outputPending"
+  | "finished"
   | "activationError"
   | "cancelling"
   | "cleanupError";
 
 type DisplayError = Pick<LongshotControllerError, "code">;
-type ErrorContext = "activation" | "append";
+type ErrorContext = "activation" | "append" | "finish" | "copy";
 
 function parseControllerError(reason: unknown): LongshotControllerError {
   if (typeof reason === "object" && reason !== null) {
@@ -40,8 +43,13 @@ function errorText(error: DisplayError | null, context: ErrorContext): string {
       return t("longshot.superseded");
     case "longshot_controller_busy":
       return t("longshot.busy");
+    case "longshot_controller_copy_failed":
+      return t("longshot.copyFailed");
     default:
-      return t(context === "append" ? "longshot.appendFailed" : "longshot.failed");
+      if (context === "append") return t("longshot.appendFailed");
+      if (context === "finish") return t("longshot.finishFailed");
+      if (context === "copy") return t("longshot.copyFailed");
+      return t("longshot.failed");
   }
 }
 
@@ -57,6 +65,8 @@ export function App() {
   const mounted = useRef(false);
   const appendEpoch = useRef(0);
   const appendInFlight = useRef(false);
+  const finishEpoch = useRef(0);
+  const finishInFlight = useRef(false);
   const phaseRef = useRef<ControllerPhase>("preparing");
   const [phase, setPhase] = useState<ControllerPhase>("preparing");
   const [activation, setActivation] = useState<LongshotActivation | null>(null);
@@ -73,10 +83,21 @@ export function App() {
     appendInFlight.current = false;
   };
 
+  const invalidateFinishAttempt = () => {
+    finishEpoch.current += 1;
+    finishInFlight.current = false;
+  };
+
   const cancel = useCallback(async (handle: LongshotHandle | null) => {
-    if (cancelling.current || phaseRef.current === "cleanupError") return;
-    // 取消是追加 promise 的线性化边界：它之后的任何完成都不得复活 UI。
+    if (
+      cancelling.current
+      || phaseRef.current === "cleanupError"
+      || phaseRef.current === "finished"
+    ) return;
+    const phaseBeforeCancel = phaseRef.current;
+    // 取消是所有本地异步 promise 的线性化边界：它之后的任何完成都不得复活 UI。
     invalidateAppendAttempt();
+    invalidateFinishAttempt();
     cancelling.current = true;
     transition("cancelling");
     setError(null);
@@ -92,7 +113,7 @@ export function App() {
       setErrorContext("activation");
       // 仅 cleanup failure 代表后端无法安全证明资源已释放，不能再尝试取消。
       transition(parsed.code === "longshot_controller_cleanup_failed" ? "cleanupError" :
-        handle ? "ready" : "activationError");
+        handle ? phaseBeforeCancel === "outputPending" ? "outputPending" : "ready" : "activationError");
     }
   }, []);
 
@@ -123,6 +144,7 @@ export function App() {
       effectMounted = false;
       mounted.current = false;
       invalidateAppendAttempt();
+      invalidateFinishAttempt();
     };
   }, []);
 
@@ -198,6 +220,60 @@ export function App() {
       });
   }, [activation]);
 
+  const finishCurrent = useCallback(() => {
+    const currentActivation = activation;
+    const retryingOutput = phaseRef.current === "outputPending";
+    if (
+      !currentActivation
+      || (phaseRef.current !== "ready" && !retryingOutput)
+      || cancelling.current
+      || finishInFlight.current
+    ) return;
+
+    finishInFlight.current = true;
+    const attempt = ++finishEpoch.current;
+    setError(null);
+    setErrorContext(retryingOutput ? "copy" : "finish");
+    transition("finishing");
+
+    void longshotControllerApi.finish(currentActivation.handle, "copy")
+      .then(() => {
+        if (
+          !mounted.current
+          || attempt !== finishEpoch.current
+          || cancelling.current
+          || phaseRef.current === "cleanupError"
+        ) return;
+        finishInFlight.current = false;
+        // 成功后由后端清空 exact owner 并关闭原生窗口；终态禁止旧回调重新开放操作。
+        transition("finished");
+      })
+      .catch((reason) => {
+        if (
+          !mounted.current
+          || attempt !== finishEpoch.current
+          || cancelling.current
+          || phaseRef.current === "cleanupError"
+        ) return;
+        finishInFlight.current = false;
+        const parsed = parseControllerError(reason);
+        console.warn("长截图控制窗口完成复制失败", parsed.message);
+        setError(parsed);
+        if (parsed.code === "longshot_controller_cleanup_failed") {
+          setErrorContext("finish");
+          transition("cleanupError");
+        } else if (parsed.code === "longshot_controller_copy_failed" || retryingOutput) {
+          // OutputPending 只能继续复制或丢弃，不能错误地重新开放 Append。
+          setErrorContext("copy");
+          transition("outputPending");
+        } else {
+          // 普通编码/领域错误由后端恢复 exact Active；保留旧快照以便继续 Append 或 Copy。
+          setErrorContext("finish");
+          transition("ready");
+        }
+      });
+  }, [activation]);
+
   const cancelCurrent = useCallback(() => {
     void cancel(activation?.handle ?? null);
   }, [activation, cancel]);
@@ -226,18 +302,28 @@ export function App() {
   }, [cancelCurrent]);
 
   const snapshot = activation?.snapshot;
+  const isBusy = phase === "appending" || phase === "finishing" || phase === "cancelling";
   return (
-    <main className="longshot-controller" aria-live="polite" aria-busy={phase === "appending"}>
+    <main className="longshot-controller" aria-live="polite" aria-busy={isBusy}>
       <header className="longshot-titlebar" data-tauri-drag-region>
         <h1 data-tauri-drag-region>{t("longshot.title")}</h1>
       </header>
 
       {phase === "preparing" && <p className="longshot-status">{t("longshot.preparing")}</p>}
 
-      {(phase === "ready" || phase === "appending") && snapshot && (
+      {(
+        phase === "ready"
+        || phase === "appending"
+        || phase === "finishing"
+        || phase === "outputPending"
+        || phase === "finished"
+      ) && snapshot && (
         <>
           <p className="longshot-status">
-            {phase === "appending" ? t("longshot.appending") : t("longshot.ready")}
+            {phase === "appending" && t("longshot.appending")}
+            {phase === "finishing" && t("longshot.finishing")}
+            {phase === "finished" && t("longshot.copied")}
+            {(phase === "ready" || phase === "outputPending") && t("longshot.ready")}
           </p>
           <dl className="longshot-details">
             <div><dt>{t("longshot.frameCount")}</dt><dd>{snapshot.frameCount}</dd></div>
@@ -246,19 +332,48 @@ export function App() {
           {phase === "ready" && error && (
             <p className="longshot-error" role="alert">{errorText(error, errorContext)}</p>
           )}
-          <div className="longshot-actions">
-            <button
-              type="button"
-              data-testid="longshot-append"
-              onClick={appendCurrent}
-              disabled={phase === "appending"}
-            >
-              {t("longshot.append")}
-            </button>
-            <button type="button" data-testid="longshot-cancel" onClick={cancelCurrent}>
-              {t("longshot.cancel")}
-            </button>
-          </div>
+          {phase === "outputPending" && error && (
+            <p className="longshot-error" role="alert">{errorText(error, "copy")}</p>
+          )}
+          {phase !== "finished" && (
+            <div className="longshot-actions">
+              {(phase === "ready" || phase === "appending" || phase === "finishing") && (
+                <>
+                  <button
+                    type="button"
+                    data-testid="longshot-append"
+                    onClick={appendCurrent}
+                    disabled={phase !== "ready"}
+                  >
+                    {t("longshot.append")}
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="longshot-copy"
+                    onClick={finishCurrent}
+                    disabled={phase !== "ready"}
+                  >
+                    {t("longshot.copy")}
+                  </button>
+                </>
+              )}
+              {phase === "outputPending" && (
+                <>
+                  <button type="button" data-testid="longshot-retry-copy" onClick={finishCurrent}>
+                    {t("longshot.retryCopy")}
+                  </button>
+                  <button type="button" data-testid="longshot-discard" onClick={cancelCurrent}>
+                    {t("longshot.discard")}
+                  </button>
+                </>
+              )}
+              {(phase === "ready" || phase === "appending" || phase === "finishing") && (
+                <button type="button" data-testid="longshot-cancel" onClick={cancelCurrent}>
+                  {t("longshot.cancel")}
+                </button>
+              )}
+            </div>
+          )}
         </>
       )}
 
