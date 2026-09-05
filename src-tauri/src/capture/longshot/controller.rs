@@ -45,6 +45,13 @@ pub(in crate::capture) struct LongshotControllerStart {
     pub resources: OrdinaryCaptureResources,
 }
 
+/// 编码成功后移交给桌面生命周期层的像素结果与唯一模式所有权。
+#[derive(Debug)]
+pub(in crate::capture) struct LongshotControllerFinish {
+    pub png: Vec<u8>,
+    pub ownership: CaptureModeOwnership,
+}
+
 impl Default for LongshotController {
     fn default() -> Self {
         Self::new()
@@ -165,7 +172,7 @@ impl LongshotController {
         self.append_with(token, capture_monitor_frame)
     }
 
-    fn append_with<F>(
+    pub(super) fn append_with<F>(
         &self,
         token: &LongshotSessionToken,
         capture: F,
@@ -196,7 +203,7 @@ impl LongshotController {
     pub(in crate::capture) fn finish_png(
         &self,
         token: &LongshotSessionToken,
-    ) -> Result<Vec<u8>, CaptureError> {
+    ) -> Result<LongshotControllerFinish, CaptureError> {
         self.finish_with(token, LongshotSession::finish_png)
     }
 
@@ -204,7 +211,7 @@ impl LongshotController {
         &self,
         token: &LongshotSessionToken,
         operation: F,
-    ) -> Result<Vec<u8>, CaptureError>
+    ) -> Result<LongshotControllerFinish, CaptureError>
     where
         F: FnOnce(&LongshotSession) -> Result<Vec<u8>, CaptureError>,
     {
@@ -214,19 +221,21 @@ impl LongshotController {
             .finish_with(token, operation)
             .map_err(normalize_claim_race)?;
         let owner = self.take_owner(token)?;
-        owner.mode_ownership.release()?;
-        Ok(png)
+        Ok(LongshotControllerFinish {
+            png,
+            ownership: owner.mode_ownership,
+        })
     }
 
     /// 立即使 matching owner 及其 manager lease 失效，不等待锁外工作结束。
     pub(in crate::capture) fn cancel(
         &self,
         token: &LongshotSessionToken,
-    ) -> Result<bool, CaptureError> {
+    ) -> Result<CaptureModeOwnership, CaptureError> {
         {
             let slot = self.slot.lock().map_err(CaptureError::state_lock)?;
             match &*slot {
-                ControllerSlot::Empty => return Ok(false),
+                ControllerSlot::Empty => return Err(CaptureError::LongshotSessionMissing),
                 ControllerSlot::Starting => return Err(CaptureError::LongshotSessionBusy),
                 ControllerSlot::Active(owner) if owner.token != *token => {
                     return Err(CaptureError::LongshotSessionSuperseded);
@@ -235,11 +244,10 @@ impl LongshotController {
             }
         }
         let cancelled = self.manager.cancel(token)?;
-        if cancelled {
-            let owner = self.take_owner(token)?;
-            owner.mode_ownership.release()?;
+        if !cancelled {
+            return Err(CaptureError::LongshotSessionSuperseded);
         }
-        Ok(cancelled)
+        Ok(self.take_owner(token)?.mode_ownership)
     }
 
     /// `Starting` 也属于占用状态，避免准备首帧时另一模式进入。
@@ -331,7 +339,7 @@ fn normalize_claim_race(error: CaptureError) -> CaptureError {
 
 #[cfg(test)]
 impl LongshotController {
-    fn with_test_state(id_supplier: fn() -> String, last_generation: u64) -> Self {
+    pub(super) fn with_test_state(id_supplier: fn() -> String, last_generation: u64) -> Self {
         Self {
             manager: LongshotManager::with_test_state(id_supplier, last_generation),
             slot: Mutex::new(ControllerSlot::Empty),
@@ -444,6 +452,26 @@ mod tests {
         (result.start, selection, gate)
     }
 
+    fn cancel_and_release(controller: &LongshotController, token: &LongshotSessionToken) {
+        controller
+            .cancel(token)
+            .expect("matching 会话应可取消")
+            .release()
+            .expect("测试模式所有权应可释放");
+    }
+
+    fn finish_and_release(
+        controller: &LongshotController,
+        token: &LongshotSessionToken,
+    ) -> Vec<u8> {
+        let finished = controller.finish_png(token).expect("会话应可编码");
+        finished
+            .ownership
+            .release()
+            .expect("测试模式所有权应可释放");
+        finished.png
+    }
+
     #[test]
     fn begin_handoff_moves_resources_and_longshot_mode() {
         let gate = Arc::new(CaptureModeGate::new());
@@ -483,7 +511,7 @@ mod tests {
             .abort_if_overlay(&overlay_labels[0])
             .unwrap()
             .is_none());
-        assert!(controller.cancel(&result.start.token).unwrap());
+        cancel_and_release(&controller, &result.start.token);
         assert_eq!(gate.active_mode().unwrap(), None);
     }
 
@@ -638,7 +666,7 @@ mod tests {
                 .code(),
             "longshot_session_busy"
         );
-        assert!(controller.cancel(&first.start.token).unwrap());
+        cancel_and_release(&controller, &first.start.token);
         second_capture
             .finish(&second_selection.session_id)
             .unwrap()
@@ -730,7 +758,7 @@ mod tests {
             .expect("合法帧应可重试");
         assert_eq!(outcome.snapshot.frame_count, 2);
         assert_eq!(outcome.snapshot.total_height, 96);
-        let png = controller.finish_png(&started.token).expect("两帧应可完成");
+        let png = finish_and_release(&controller, &started.token);
         let decoded = image::load_from_memory(&png).unwrap().to_rgba8();
         let expected = imageops::crop_imm(&source, 0, 0, 64, 96).to_image();
         assert_eq!(decoded, expected, "拼接 PNG 应逐像素等于原始全景前 96 行");
@@ -759,7 +787,7 @@ mod tests {
         assert!(capture.crop(&selection).is_ok());
         assert_eq!(gate.active_mode().unwrap(), Some(CaptureMode::Ordinary));
         let retried = controller.begin(&capture, &selection).unwrap();
-        assert!(controller.cancel(&retried.start.token).unwrap());
+        cancel_and_release(&controller, &retried.start.token);
     }
 
     #[test]
@@ -787,7 +815,7 @@ mod tests {
         let (retry_capture, retry_selection, _) =
             ordinary_capture(panorama(64, 72, 23), Arc::clone(&gate), vec![], vec![]);
         let retry = controller.begin(&retry_capture, &retry_selection).unwrap();
-        assert!(controller.cancel(&retry.start.token).unwrap());
+        cancel_and_release(&controller, &retry.start.token);
     }
 
     #[test]
@@ -829,21 +857,27 @@ mod tests {
             started.snapshot
         );
 
-        let png = controller
+        let finished = controller
             .finish_png(&started.token)
             .expect("失败后应可真实完成");
+        let png = finished.png;
         assert_eq!(crate::screenshot::validate_png(&png).unwrap(), (64, 72));
         assert_eq!(
             image::load_from_memory(&png).unwrap().to_rgba8().as_raw(),
             &expected
         );
         assert!(!controller.is_active().unwrap());
+        assert_eq!(gate.active_mode().unwrap(), Some(CaptureMode::Longshot));
+        finished.ownership.release().unwrap();
         assert_eq!(gate.active_mode().unwrap(), None);
         assert_eq!(
             controller.snapshot(&started.token).unwrap_err().code(),
             "longshot_session_missing"
         );
-        assert!(!controller.cancel(&started.token).unwrap());
+        assert_eq!(
+            controller.cancel(&started.token).unwrap_err().code(),
+            "longshot_session_missing"
+        );
     }
 
     #[test]
@@ -875,7 +909,7 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.code(), "longshot_session_busy");
         assert!(!second_called.load(Ordering::SeqCst));
-        assert!(controller.cancel(&started.token).unwrap());
+        cancel_and_release(&controller, &started.token);
         assert_eq!(gate.active_mode().unwrap(), None);
         let (next_capture, next_selection, _) =
             ordinary_capture(panorama(64, 72, 16), Arc::clone(&gate), vec![], vec![]);
@@ -897,7 +931,7 @@ mod tests {
             controller.cancel(&started.token).unwrap_err().code(),
             "longshot_session_superseded"
         );
-        assert!(controller.cancel(&next.start.token).unwrap());
+        cancel_and_release(&controller, &next.start.token);
         assert_eq!(gate.active_mode().unwrap(), None);
     }
 
@@ -934,14 +968,20 @@ mod tests {
             "longshot_session_superseded"
         );
         assert_eq!(gate.active_mode().unwrap(), Some(CaptureMode::Longshot));
-        assert!(controller.cancel(&started.token).unwrap());
-        assert!(!controller.cancel(&started.token).unwrap());
+        cancel_and_release(&controller, &started.token);
+        assert_eq!(
+            controller.cancel(&started.token).unwrap_err().code(),
+            "longshot_session_missing"
+        );
         assert_eq!(gate.active_mode().unwrap(), None);
-        assert!(other.cancel(&other_start.token).unwrap());
+        cancel_and_release(&other, &other_start.token);
 
         let (false_start, _, false_gate) = begin_direct(&controller, panorama(64, 72, 24));
         assert!(controller.manager.cancel(&false_start.token).unwrap());
-        assert!(!controller.cancel(&false_start.token).unwrap());
+        assert_eq!(
+            controller.cancel(&false_start.token).unwrap_err().code(),
+            "longshot_session_superseded"
+        );
         assert!(controller.is_active().unwrap());
         assert_eq!(
             false_gate.active_mode().unwrap(),
