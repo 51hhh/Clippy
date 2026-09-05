@@ -5,7 +5,7 @@ use super::types::{CaptureOverlayPayload, CaptureSelection, OverlaySpec, WindowC
 use super::window_probe::probe_windows;
 use crate::screenshot::CapturedMonitorFrame;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 /// 一次截图从按下快捷键到覆盖层显示的分段耗时。
@@ -82,6 +82,9 @@ pub(crate) struct ViewportObservation {
 #[derive(Debug)]
 pub(super) struct CaptureSession {
     pub id: String,
+    /// 每次 begin 都新建的后端身份，阻止可重复字符串 id 形成 ABA。
+    #[cfg_attr(not(test), allow(dead_code))]
+    identity: Arc<()>,
     pub overlays: Vec<OverlaySpec>,
     pub restore_labels: Vec<String>,
     /// 截图期间被临时降出置顶层的贴图。会话无论怎么结束都要把它们放回去，
@@ -125,6 +128,69 @@ pub(super) struct CaptureStart {
 pub(super) struct CaptureBeginFailure {
     pub error: CaptureError,
     pub ownership: CaptureModeOwnership,
+}
+
+/// 长截图首帧与精确普通会话身份的只读候选。
+///
+/// 候选不可复制；冻结帧像素只浅克隆其 `Arc`，prepare 不消费普通会话。
+#[derive(Debug)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(super) struct CaptureLongshotCandidate {
+    selection: CaptureSelection,
+    frame: CapturedMonitorFrame,
+    identity: Arc<()>,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+impl CaptureLongshotCandidate {
+    pub(super) fn selection(&self) -> &CaptureSelection {
+        &self.selection
+    }
+
+    pub(super) fn frame(&self) -> &CapturedMonitorFrame {
+        &self.frame
+    }
+}
+
+/// 从普通截图会话唯一移出的桌面清理资源。
+#[derive(Debug)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(super) struct OrdinaryCaptureResources {
+    pub overlays: Vec<OverlaySpec>,
+    pub restore_labels: Vec<String>,
+    pub lowered_pins: Vec<String>,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+impl OrdinaryCaptureResources {
+    pub(super) fn overlay_labels(&self) -> Vec<String> {
+        self.overlays
+            .iter()
+            .map(|spec| spec.label.clone())
+            .collect()
+    }
+}
+
+/// 普通截图原子移交给长截图后的唯一所有权与清理资源。
+#[derive(Debug)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(super) struct CaptureLongshotHandoff {
+    pub ownership: CaptureModeOwnership,
+    pub resources: OrdinaryCaptureResources,
+}
+
+fn selected_frame_in_session<'a>(
+    session: &'a CaptureSession,
+    selection: &CaptureSelection,
+) -> Result<&'a CapturedMonitorFrame, CaptureError> {
+    if session.id != selection.session_id {
+        return Err(CaptureError::SessionSupersededRetry);
+    }
+    session
+        .frames
+        .iter()
+        .find(|frame| frame.monitor_id == selection.monitor_id)
+        .ok_or(CaptureError::SelectionMonitorMismatch)
 }
 
 /// 视口比对允许的误差：CSS 像素和逻辑像素之间会有一格取整噪声。
@@ -210,6 +276,7 @@ impl CaptureManager {
         }
         *current = Some(CaptureSession {
             id: id.clone(),
+            identity: Arc::new(()),
             frames,
             overlays: specs.clone(),
             restore_labels,
@@ -406,15 +473,84 @@ impl CaptureManager {
     ) -> Result<CapturedMonitorFrame, CaptureError> {
         let current = self.session.lock().map_err(CaptureError::state_lock)?;
         let session = current.as_ref().ok_or(CaptureError::SessionMissing)?;
-        if session.id != selection.session_id {
-            return Err(CaptureError::SessionSupersededRetry);
+        selected_frame_in_session(session, selection).cloned()
+    }
+
+    /// 准备长截图首帧候选；普通会话和 Ordinary ownership 均保持原样。
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(super) fn prepare_longshot(
+        &self,
+        selection: &CaptureSelection,
+    ) -> Result<CaptureLongshotCandidate, CaptureError> {
+        let current = self.session.lock().map_err(CaptureError::state_lock)?;
+        let session = current.as_ref().ok_or(CaptureError::SessionMissing)?;
+        let frame = selected_frame_in_session(session, selection)?.clone();
+        Ok(CaptureLongshotCandidate {
+            selection: selection.clone(),
+            frame,
+            identity: Arc::clone(&session.identity),
+        })
+    }
+
+    /// 精确消费 prepare 候选，并在 manager 锁内原子转换 mode ownership。
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(super) fn commit_longshot(
+        &self,
+        candidate: CaptureLongshotCandidate,
+    ) -> Result<CaptureLongshotHandoff, CaptureError> {
+        let mut current = self.session.lock().map_err(CaptureError::state_lock)?;
+        let Some(session) = current.take() else {
+            return Err(CaptureError::SessionMissing);
+        };
+        if session.id != candidate.selection.session_id
+            || !Arc::ptr_eq(&session.identity, &candidate.identity)
+        {
+            *current = Some(session);
+            return Err(CaptureError::SessionSuperseded);
         }
-        session
-            .frames
-            .iter()
-            .find(|frame| frame.monitor_id == selection.monitor_id)
-            .cloned()
-            .ok_or(CaptureError::SelectionMonitorMismatch)
+
+        let CaptureSession {
+            id,
+            identity,
+            overlays,
+            restore_labels,
+            lowered_pins,
+            frames,
+            windows,
+            probe_hint,
+            focus_assigned,
+            timings,
+            mode_ownership,
+        } = session;
+
+        let ownership = match mode_ownership.into_longshot() {
+            Ok(ownership) => ownership,
+            Err(failure) => {
+                *current = Some(CaptureSession {
+                    id,
+                    identity,
+                    overlays,
+                    restore_labels,
+                    lowered_pins,
+                    frames,
+                    windows,
+                    probe_hint,
+                    focus_assigned,
+                    timings,
+                    mode_ownership: failure.ownership,
+                });
+                return Err(failure.error);
+            }
+        };
+
+        Ok(CaptureLongshotHandoff {
+            ownership,
+            resources: OrdinaryCaptureResources {
+                overlays,
+                restore_labels,
+                lowered_pins,
+            },
+        })
     }
 
     /// 只在锁内核对会话并复制帧；数秒级合成必须由调用方在 blocking worker 执行。
@@ -572,6 +708,7 @@ mod tests {
         let label = "capture-overlay-test-7".to_string();
         *manager.session.lock().unwrap() = Some(CaptureSession {
             id: "session-1".to_string(),
+            identity: Arc::new(()),
             overlays: vec![overlay(&label)],
             focus_assigned: false,
             timings: StageTimings::default(),
@@ -604,6 +741,7 @@ mod tests {
         let label = "capture-overlay-session-3-7".to_string();
         *manager.session.lock().unwrap() = Some(CaptureSession {
             id: "session-3".to_string(),
+            identity: Arc::new(()),
             overlays: vec![overlay(&label)],
             focus_assigned: false,
             timings: StageTimings::default(),
@@ -647,6 +785,7 @@ mod tests {
         let label = "capture-overlay-session-4-7".to_string();
         *manager.session.lock().unwrap() = Some(CaptureSession {
             id: "session-4".to_string(),
+            identity: Arc::new(()),
             overlays: vec![overlay(&label)],
             focus_assigned: false,
             timings: StageTimings::default(),
@@ -920,6 +1059,7 @@ mod tests {
         let label = "capture-overlay-session-1-7".to_string();
         *manager.session.lock().unwrap() = Some(CaptureSession {
             id: "session-1".to_string(),
+            identity: Arc::new(()),
             overlays: vec![overlay(&label)],
             focus_assigned: false,
             timings: StageTimings::default(),
@@ -955,6 +1095,7 @@ mod tests {
         let label = "capture-overlay-session-2-7".to_string();
         *manager.session.lock().unwrap() = Some(CaptureSession {
             id: "session-2".to_string(),
+            identity: Arc::new(()),
             overlays: vec![overlay(&label)],
             focus_assigned: false,
             timings: StageTimings::default(),
@@ -982,6 +1123,7 @@ mod tests {
         );
         *manager.session.lock().unwrap() = Some(CaptureSession {
             id: "session-9".to_string(),
+            identity: Arc::new(()),
             overlays: vec![
                 OverlaySpec {
                     label: left.clone(),
@@ -1076,5 +1218,480 @@ mod tests {
             "overlay_not_in_session"
         );
         assert!(manager.reveal(&left, None, None).is_ok());
+    }
+
+    fn selection_for(session_id: &str) -> CaptureSelection {
+        CaptureSelection {
+            session_id: session_id.to_string(),
+            monitor_id: 7,
+            x: 1.0,
+            y: 1.0,
+            width: 10.0,
+            height: 10.0,
+        }
+    }
+
+    #[test]
+    fn longshot_prepare_shares_pixels_and_preserves_the_ordinary_session() {
+        let manager = CaptureManager::new();
+        let gate = Arc::new(CaptureModeGate::new());
+        let source = frame(1.0);
+        let source_pixels = Arc::clone(&source.rgba);
+        let start = manager
+            .begin(
+                vec![source],
+                vec!["main".to_string()],
+                vec!["pin-a".to_string()],
+                true,
+                StageTimings::default(),
+                ownership_on(&gate),
+            )
+            .expect("启动普通会话");
+        let selection = selection_for(&start.session_id);
+
+        let candidate = manager.prepare_longshot(&selection).expect("prepare 成功");
+        assert_eq!(candidate.selection().session_id, selection.session_id);
+        assert_eq!(candidate.selection().monitor_id, selection.monitor_id);
+        assert!(Arc::ptr_eq(&candidate.frame().rgba, &source_pixels));
+        assert!(Arc::ptr_eq(
+            &manager.selected_frame(&selection).unwrap().rgba,
+            &candidate.frame().rgba
+        ));
+        assert!(manager.payload(&start.overlays[0].label).is_ok());
+        assert!(manager.crop(&selection).is_ok());
+        assert_eq!(gate.active_mode().unwrap(), Some(CaptureMode::Ordinary));
+
+        drop(candidate);
+        assert_eq!(gate.active_mode().unwrap(), Some(CaptureMode::Ordinary));
+        manager
+            .finish(&start.session_id)
+            .unwrap()
+            .finalize_mode()
+            .unwrap();
+    }
+
+    #[test]
+    fn longshot_prepare_error_order_preserves_session_and_gate() {
+        let missing = CaptureManager::new();
+        assert_eq!(
+            missing
+                .prepare_longshot(&selection_for("none"))
+                .unwrap_err()
+                .code(),
+            "session_missing"
+        );
+
+        let manager = CaptureManager::new();
+        let gate = Arc::new(CaptureModeGate::new());
+        let start = manager
+            .begin(
+                vec![frame(1.0)],
+                Vec::new(),
+                Vec::new(),
+                false,
+                StageTimings::default(),
+                ownership_on(&gate),
+            )
+            .unwrap();
+        let mut stale = selection_for("stale");
+        assert_eq!(
+            manager.prepare_longshot(&stale).unwrap_err().code(),
+            "session_superseded_retry"
+        );
+        stale.session_id = start.session_id.clone();
+        stale.monitor_id = 999;
+        assert_eq!(
+            manager.prepare_longshot(&stale).unwrap_err().code(),
+            "selection_monitor_mismatch"
+        );
+        assert_eq!(gate.active_mode().unwrap(), Some(CaptureMode::Ordinary));
+        assert!(manager.payload(&start.overlays[0].label).is_ok());
+        manager
+            .finish(&start.session_id)
+            .unwrap()
+            .finalize_mode()
+            .unwrap();
+
+        let poisoned = CaptureManager::new();
+        let poisoned_gate = Arc::new(CaptureModeGate::new());
+        poisoned
+            .begin(
+                vec![frame(1.0)],
+                Vec::new(),
+                Vec::new(),
+                false,
+                StageTimings::default(),
+                ownership_on(&poisoned_gate),
+            )
+            .unwrap();
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = poisoned.session.lock().unwrap();
+            panic!("制造 manager poison");
+        }));
+        assert_eq!(
+            poisoned
+                .prepare_longshot(&selection_for("none"))
+                .unwrap_err()
+                .code(),
+            "state_lock"
+        );
+        assert_eq!(
+            poisoned_gate.active_mode().unwrap(),
+            Some(CaptureMode::Ordinary)
+        );
+    }
+
+    #[test]
+    fn longshot_commit_moves_resources_and_has_one_explicit_finalizer() {
+        let manager = CaptureManager::new();
+        let gate = Arc::new(CaptureModeGate::new());
+        let start = manager
+            .begin(
+                vec![frame(1.0)],
+                vec!["main", "settings"]
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect(),
+                vec!["pin-b", "pin-a"]
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect(),
+                false,
+                StageTimings::default(),
+                ownership_on(&gate),
+            )
+            .unwrap();
+        let candidate = manager
+            .prepare_longshot(&selection_for(&start.session_id))
+            .unwrap();
+        let second = manager
+            .prepare_longshot(&selection_for(&start.session_id))
+            .unwrap();
+
+        let handoff = manager.commit_longshot(candidate).expect("commit 成功");
+        assert_eq!(gate.active_mode().unwrap(), Some(CaptureMode::Longshot));
+        assert_eq!(
+            handoff.resources.overlay_labels(),
+            vec![start.overlays[0].label.clone()]
+        );
+        assert_eq!(handoff.resources.restore_labels, vec!["main", "settings"]);
+        assert_eq!(handoff.resources.lowered_pins, vec!["pin-b", "pin-a"]);
+        assert_eq!(
+            manager.finish(&start.session_id).unwrap_err().code(),
+            "session_missing"
+        );
+        assert!(manager
+            .abort_if_overlay(&start.overlays[0].label)
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            manager.commit_longshot(second).unwrap_err().code(),
+            "session_missing"
+        );
+        handoff.ownership.release().expect("handoff 唯一释放 gate");
+        assert_eq!(gate.active_mode().unwrap(), None);
+    }
+
+    #[test]
+    fn ordinary_finish_before_commit_keeps_the_candidate_inert() {
+        let manager = CaptureManager::new();
+        let gate = Arc::new(CaptureModeGate::new());
+        let start = manager
+            .begin(
+                vec![frame(1.0)],
+                Vec::new(),
+                Vec::new(),
+                false,
+                StageTimings::default(),
+                ownership_on(&gate),
+            )
+            .unwrap();
+        let candidate = manager
+            .prepare_longshot(&selection_for(&start.session_id))
+            .unwrap();
+        let ordinary = manager.finish(&start.session_id).unwrap();
+
+        assert_eq!(
+            manager.commit_longshot(candidate).unwrap_err().code(),
+            "session_missing"
+        );
+        assert_eq!(gate.active_mode().unwrap(), Some(CaptureMode::Ordinary));
+        ordinary.finalize_mode().unwrap();
+        assert_eq!(gate.active_mode().unwrap(), None);
+    }
+
+    #[test]
+    fn longshot_candidate_rejects_same_string_id_aba() {
+        let manager = CaptureManager::new();
+        let old_gate = Arc::new(CaptureModeGate::new());
+        let old = manager
+            .begin(
+                vec![frame(1.0)],
+                Vec::new(),
+                Vec::new(),
+                false,
+                StageTimings::default(),
+                ownership_on(&old_gate),
+            )
+            .unwrap();
+        let candidate = manager
+            .prepare_longshot(&selection_for(&old.session_id))
+            .unwrap();
+        manager
+            .finish(&old.session_id)
+            .unwrap()
+            .finalize_mode()
+            .unwrap();
+
+        let new_gate = Arc::new(CaptureModeGate::new());
+        let new = manager
+            .begin(
+                vec![frame(2.0)],
+                vec!["new-window".to_string()],
+                vec!["new-pin".to_string()],
+                true,
+                StageTimings::default(),
+                ownership_on(&new_gate),
+            )
+            .unwrap();
+        manager.session.lock().unwrap().as_mut().unwrap().id = old.session_id.clone();
+        let (new_identity, new_pixels) = {
+            let guard = manager.session.lock().unwrap();
+            let session = guard.as_ref().unwrap();
+            (
+                Arc::clone(&session.identity),
+                Arc::clone(&session.frames[0].rgba),
+            )
+        };
+
+        assert_eq!(
+            manager.commit_longshot(candidate).unwrap_err().code(),
+            "session_superseded"
+        );
+        assert_eq!(new_gate.active_mode().unwrap(), Some(CaptureMode::Ordinary));
+        assert!(manager.payload(&new.overlays[0].label).is_ok());
+        {
+            let guard = manager.session.lock().unwrap();
+            let session = guard.as_ref().unwrap();
+            assert!(Arc::ptr_eq(&new_identity, &session.identity));
+            assert!(Arc::ptr_eq(&new_pixels, &session.frames[0].rgba));
+            assert!(session.probe_hint);
+        }
+        let preserved = manager.finish(&old.session_id).unwrap();
+        assert_eq!(preserved.restore_labels, vec!["new-window"]);
+        assert_eq!(preserved.lowered_pins, vec!["new-pin"]);
+        preserved.finalize_mode().unwrap();
+    }
+
+    #[test]
+    fn longshot_generation_exhaustion_restores_the_complete_session() {
+        let manager = CaptureManager::new();
+        let gate = Arc::new(CaptureModeGate::with_last_generation(u64::MAX - 1));
+        let session_id = "exhausted-session".to_string();
+        let label = "capture-overlay-exhausted-session-7".to_string();
+        let timings = StageTimings {
+            started: Instant::now(),
+            frames_ms: 11.0,
+            probe_ms: 12.0,
+            payload_at_ms: 13.0,
+            deliver_ms: 14.0,
+        };
+        *manager.session.lock().unwrap() = Some(CaptureSession {
+            id: session_id.clone(),
+            identity: Arc::new(()),
+            overlays: vec![overlay(&label)],
+            restore_labels: vec!["restore-b", "restore-a"]
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
+            lowered_pins: vec!["pin-b", "pin-a"]
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
+            frames: vec![frame(1.0)],
+            windows: HashMap::from([(
+                7,
+                vec![WindowCandidate {
+                    x: 4.0,
+                    y: 6.0,
+                    width: 40.0,
+                    height: 30.0,
+                    title: "preserved-window".to_string(),
+                }],
+            )]),
+            probe_hint: true,
+            focus_assigned: true,
+            timings,
+            mode_ownership: ownership_on(&gate),
+        });
+        let selection = selection_for(&session_id);
+        let candidate = manager.prepare_longshot(&selection).unwrap();
+        let before = {
+            let guard = manager.session.lock().unwrap();
+            let session = guard.as_ref().unwrap();
+            (
+                session.id.clone(),
+                Arc::clone(&session.identity),
+                Arc::clone(&session.frames[0].rgba),
+                (
+                    session.frames[0].monitor_id,
+                    session.frames[0].x,
+                    session.frames[0].y,
+                    session.frames[0].logical_width,
+                    session.frames[0].logical_height,
+                    session.frames[0].pixel_width,
+                    session.frames[0].pixel_height,
+                    session.frames[0].scale_x,
+                    session.frames[0].scale_y,
+                ),
+                session
+                    .overlays
+                    .iter()
+                    .map(|spec| (spec.label.clone(), spec.x, spec.y, spec.width, spec.height))
+                    .collect::<Vec<_>>(),
+                session.restore_labels.clone(),
+                session.lowered_pins.clone(),
+                serde_json::to_value(&session.windows).unwrap(),
+                session.probe_hint,
+                session.focus_assigned,
+                session.timings.started,
+                session.timings.frames_ms,
+                session.timings.probe_ms,
+                session.timings.payload_at_ms,
+                session.timings.deliver_ms,
+            )
+        };
+
+        assert_eq!(
+            manager.commit_longshot(candidate).unwrap_err().code(),
+            "capture_mode_generation_exhausted"
+        );
+        let guard = manager.session.lock().unwrap();
+        let restored = guard.as_ref().expect("失败必须放回 session");
+        assert_eq!(before.0, restored.id);
+        assert!(Arc::ptr_eq(&before.1, &restored.identity));
+        assert!(Arc::ptr_eq(&before.2, &restored.frames[0].rgba));
+        assert_eq!(
+            before.3,
+            (
+                restored.frames[0].monitor_id,
+                restored.frames[0].x,
+                restored.frames[0].y,
+                restored.frames[0].logical_width,
+                restored.frames[0].logical_height,
+                restored.frames[0].pixel_width,
+                restored.frames[0].pixel_height,
+                restored.frames[0].scale_x,
+                restored.frames[0].scale_y,
+            )
+        );
+        assert_eq!(
+            before.4,
+            restored
+                .overlays
+                .iter()
+                .map(|spec| { (spec.label.clone(), spec.x, spec.y, spec.width, spec.height,) })
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(before.5, restored.restore_labels);
+        assert_eq!(before.6, restored.lowered_pins);
+        assert_eq!(before.7, serde_json::to_value(&restored.windows).unwrap());
+        assert_eq!(before.8, restored.probe_hint);
+        assert_eq!(before.9, restored.focus_assigned);
+        assert_eq!(before.10, restored.timings.started);
+        assert_eq!(before.11, restored.timings.frames_ms);
+        assert_eq!(before.12, restored.timings.probe_ms);
+        assert_eq!(before.13, restored.timings.payload_at_ms);
+        assert_eq!(before.14, restored.timings.deliver_ms);
+        drop(guard);
+        assert_eq!(gate.active_mode().unwrap(), Some(CaptureMode::Ordinary));
+        assert!(manager.payload(&label).is_ok());
+        assert!(manager.crop(&selection).is_ok());
+        manager
+            .finish(&session_id)
+            .unwrap()
+            .finalize_mode()
+            .unwrap();
+        assert_eq!(gate.active_mode().unwrap(), None);
+    }
+
+    #[test]
+    fn eight_concurrent_longshot_commits_have_exactly_one_winner() {
+        let manager = Arc::new(CaptureManager::new());
+        let gate = Arc::new(CaptureModeGate::new());
+        let start = manager
+            .begin(
+                vec![frame(1.0)],
+                Vec::new(),
+                Vec::new(),
+                false,
+                StageTimings::default(),
+                ownership_on(&gate),
+            )
+            .unwrap();
+        let candidates: Vec<_> = (0..8)
+            .map(|_| {
+                manager
+                    .prepare_longshot(&selection_for(&start.session_id))
+                    .unwrap()
+            })
+            .collect();
+        let barrier = Arc::new(std::sync::Barrier::new(9));
+        let workers: Vec<_> = candidates
+            .into_iter()
+            .map(|candidate| {
+                let manager = Arc::clone(&manager);
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    manager.commit_longshot(candidate)
+                })
+            })
+            .collect();
+        barrier.wait();
+
+        let mut winner = None;
+        let mut loser_codes = Vec::new();
+        for worker in workers {
+            match worker.join().expect("commit worker 不应 panic") {
+                Ok(handoff) => {
+                    assert!(winner.replace(handoff).is_none(), "只能产生一份 handoff")
+                }
+                Err(error) => loser_codes.push(error.code()),
+            }
+        }
+        assert_eq!(loser_codes.len(), 7);
+        assert!(loser_codes
+            .iter()
+            .all(|code| matches!(*code, "session_missing" | "session_superseded")));
+        assert_eq!(gate.active_mode().unwrap(), Some(CaptureMode::Longshot));
+        winner.expect("必须有一个赢家").ownership.release().unwrap();
+        assert_eq!(gate.active_mode().unwrap(), None);
+    }
+
+    #[test]
+    fn dropping_a_successful_handoff_does_not_release_longshot_mode() {
+        let manager = CaptureManager::new();
+        let gate = Arc::new(CaptureModeGate::new());
+        let start = manager
+            .begin(
+                vec![frame(1.0)],
+                Vec::new(),
+                Vec::new(),
+                false,
+                StageTimings::default(),
+                ownership_on(&gate),
+            )
+            .unwrap();
+        let handoff = manager
+            .commit_longshot(
+                manager
+                    .prepare_longshot(&selection_for(&start.session_id))
+                    .unwrap(),
+            )
+            .unwrap();
+
+        drop(handoff);
+        assert_eq!(gate.active_mode().unwrap(), Some(CaptureMode::Longshot));
     }
 }

@@ -182,7 +182,7 @@ impl CaptureModeGate {
 
 #[cfg(test)]
 impl CaptureModeGate {
-    fn with_last_generation(last_generation: u64) -> Self {
+    pub(super) fn with_last_generation(last_generation: u64) -> Self {
         Self {
             state: Mutex::new(GateState {
                 last_generation,
