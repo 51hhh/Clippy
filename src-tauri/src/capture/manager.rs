@@ -467,6 +467,7 @@ impl CaptureManager {
     }
 
     /// 只在锁内核对普通截图会话并浅克隆目标帧；整屏像素仍由同一个 `Arc` 承载。
+    #[cfg(test)]
     pub(super) fn selected_frame(
         &self,
         selection: &CaptureSelection,
