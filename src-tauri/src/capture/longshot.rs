@@ -1,9 +1,12 @@
-//! 长截图的确定性垂直像素拼接核心。
+//! 长截图的确定性垂直像素核心。
 //!
-//! 调用方提供后端捕获到的帧和显式重叠行；本模块不估算重叠，也不负责会话、IPC 或 UI。
+//! [`VerticalStitcher`] 消费显式重叠行，`overlap` 子模块负责从相邻帧估算该值；
+//! 会话、IPC 和 UI 仍由后续层负责。
 
 use super::CaptureError;
 use image::RgbaImage;
+
+mod overlap;
 
 /// 资源边界只在此处定义；后续会话层必须复用而不是另设一组限制。
 const MAX_FRAMES: usize = 64;
