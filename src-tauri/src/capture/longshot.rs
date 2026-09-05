@@ -1,12 +1,18 @@
 //! 长截图的确定性垂直像素核心。
 //!
-//! [`VerticalStitcher`] 消费显式重叠行，`overlap` 子模块负责从相邻帧估算该值；
-//! 会话、IPC 和 UI 仍由后续层负责。
+//! [`VerticalStitcher`] 消费显式重叠行，`overlap` 子模块负责从相邻帧估算该值，
+//! `session` 子模块把两者组合为单所有者事务核心；IPC 和 UI 仍由后续层负责。
 
 use super::CaptureError;
 use image::RgbaImage;
 
 mod overlap;
+mod session;
+
+// 下一层 manager 会从 capture 域消费这三个内部值；当前尚无生产调用方，保留重导出
+// 以固定其领域边界而不是为了消除 dead-code 伪造调用。
+#[allow(unused_imports)]
+pub(super) use session::{LongshotAppendOutcome, LongshotSession, LongshotSnapshot};
 
 /// 资源边界只在此处定义；后续会话层必须复用而不是另设一组限制。
 const MAX_FRAMES: usize = 64;
@@ -39,7 +45,7 @@ impl VerticalStitcher {
     /// 状态之前完成，失败后拼接器仍可继续使用。
     pub(super) fn append(
         &mut self,
-        frame: RgbaImage,
+        frame: &RgbaImage,
         overlap_rows: u32,
     ) -> Result<(), CaptureError> {
         let width = frame.width();
@@ -207,8 +213,8 @@ mod tests {
         );
         let mut stitcher = VerticalStitcher::new();
 
-        stitcher.append(first, 0).expect("首帧应可追加");
-        stitcher.append(second, 1).expect("第二帧应可追加");
+        stitcher.append(&first, 0).expect("首帧应可追加");
+        stitcher.append(&second, 1).expect("第二帧应可追加");
 
         assert_eq!(stitcher.width, Some(2));
         assert_eq!(stitcher.height, 4);
@@ -238,27 +244,27 @@ mod tests {
     fn rejects_each_invalid_frame_contract_with_a_structured_error() {
         let mut stitcher = VerticalStitcher::new();
         assert!(matches!(
-            stitcher.append(solid(1, 1, [1, 2, 3, 4]), 1),
+            stitcher.append(&solid(1, 1, [1, 2, 3, 4]), 1),
             Err(CaptureError::LongshotFirstFrameOverlap)
         ));
         assert!(matches!(
-            stitcher.append(RgbaImage::new(0, 1), 0),
+            stitcher.append(&RgbaImage::new(0, 1), 0),
             Err(CaptureError::LongshotFrameEmpty)
         ));
 
         stitcher
-            .append(solid(2, 2, [1, 2, 3, 4]), 0)
+            .append(&solid(2, 2, [1, 2, 3, 4]), 0)
             .expect("有效首帧应可追加");
         assert!(matches!(
-            stitcher.append(solid(2, 2, [1, 2, 3, 4]), 2),
+            stitcher.append(&solid(2, 2, [1, 2, 3, 4]), 2),
             Err(CaptureError::LongshotOverlapInvalid)
         ));
         assert!(matches!(
-            stitcher.append(solid(2, 2, [1, 2, 3, 4]), 3),
+            stitcher.append(&solid(2, 2, [1, 2, 3, 4]), 3),
             Err(CaptureError::LongshotOverlapInvalid)
         ));
         assert!(matches!(
-            stitcher.append(solid(3, 1, [1, 2, 3, 4]), 0),
+            stitcher.append(&solid(3, 1, [1, 2, 3, 4]), 0),
             Err(CaptureError::LongshotWidthMismatch)
         ));
     }
@@ -268,12 +274,12 @@ mod tests {
         let mut stitcher = VerticalStitcher::new();
         for _ in 0..MAX_FRAMES {
             stitcher
-                .append(solid(1, 1, [1, 2, 3, 4]), 0)
+                .append(&solid(1, 1, [1, 2, 3, 4]), 0)
                 .expect("第 64 帧应可追加");
         }
         let bytes_before_limit = stitcher.rgba.clone();
         assert!(matches!(
-            stitcher.append(solid(1, 1, [9, 9, 9, 9]), 0),
+            stitcher.append(&solid(1, 1, [9, 9, 9, 9]), 0),
             Err(CaptureError::LongshotFrameLimit)
         ));
         assert_eq!(stitcher.rgba, bytes_before_limit);

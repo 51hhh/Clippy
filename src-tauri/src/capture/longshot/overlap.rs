@@ -40,13 +40,13 @@ impl Default for OverlapConfig {
 
 /// 可直接交给 [`super::VerticalStitcher::append`] 的内部估计结果。
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct OverlapEstimate {
-    pub(super) overlap_rows: u32,
-    pub(super) displacement_rows: u32,
-    pub(super) score: f32,
-    pub(super) confidence: f32,
-    pub(super) sampled_width: u32,
-    pub(super) sampled_rows: u32,
+pub(in crate::capture) struct OverlapEstimate {
+    pub(in crate::capture) overlap_rows: u32,
+    pub(in crate::capture) displacement_rows: u32,
+    pub(in crate::capture) score: f32,
+    pub(in crate::capture) confidence: f32,
+    pub(in crate::capture) sampled_width: u32,
+    pub(in crate::capture) sampled_rows: u32,
 }
 
 #[derive(Clone)]
@@ -184,6 +184,7 @@ pub(super) fn estimate_vertical_overlap(
 }
 
 fn validate_input(previous: &RgbaImage, incoming: &RgbaImage) -> Result<(), CaptureError> {
+    // 保持成对入口原有的全局优先级：任一帧为空时，不能先被另一帧的资源错误遮蔽。
     if previous.width() == 0
         || previous.height() == 0
         || incoming.width() == 0
@@ -196,11 +197,31 @@ fn validate_input(previous: &RgbaImage, incoming: &RgbaImage) -> Result<(), Capt
     if previous.dimensions() != incoming.dimensions() {
         return Err(CaptureError::LongshotEstimateSizeMismatch);
     }
-    if previous.width() < MIN_WIDTH
-        || previous.height() < MIN_HEIGHT
-        || previous.height() > MAX_ESTIMATE_HEIGHT
+    validate_estimator_dimensions(previous)
+}
+
+/// 验证可作为会话首帧保存的单张估计器输入。
+///
+/// 成对估计必须先比较尺寸才检查最小估计尺寸，因此它使用本文件中的两段式 helper
+/// 保持既有错误优先级；会话创建则直接复用此完整的单帧合同。
+pub(super) fn validate_single_frame(image: &RgbaImage) -> Result<(), CaptureError> {
+    validate_frame_nonempty_and_global(image)?;
+    validate_estimator_dimensions(image)
+}
+
+pub(super) fn validate_frame_nonempty_and_global(image: &RgbaImage) -> Result<(), CaptureError> {
+    if image.width() == 0 || image.height() == 0 {
+        return Err(CaptureError::LongshotFrameEmpty);
+    }
+    validate_dimensions(image.width(), image.height())
+}
+
+fn validate_estimator_dimensions(image: &RgbaImage) -> Result<(), CaptureError> {
+    if image.width() < MIN_WIDTH
+        || image.height() < MIN_HEIGHT
+        || image.height() > MAX_ESTIMATE_HEIGHT
     {
-        return if previous.height() > MAX_ESTIMATE_HEIGHT {
+        return if image.height() > MAX_ESTIMATE_HEIGHT {
             Err(CaptureError::LongshotResourceLimit)
         } else {
             Err(CaptureError::LongshotEstimateTooSmall)
@@ -566,6 +587,11 @@ mod tests {
             estimate_vertical_overlap(&RgbaImage::new(0, 1), &valid),
             Err(CaptureError::LongshotFrameEmpty)
         ));
+        let oversized = RgbaImage::new(super::super::MAX_WIDTH + 1, 1);
+        assert!(matches!(
+            estimate_vertical_overlap(&oversized, &RgbaImage::new(1, 0)),
+            Err(CaptureError::LongshotFrameEmpty)
+        ));
         assert!(matches!(
             estimate_vertical_overlap(&valid, &panorama(9, 24, 9)),
             Err(CaptureError::LongshotEstimateSizeMismatch)
@@ -602,9 +628,9 @@ mod tests {
             );
         }
         let mut stitcher = super::super::VerticalStitcher::new();
-        stitcher.append(previous, 0).expect("首帧应可追加");
+        stitcher.append(&previous, 0).expect("首帧应可追加");
         stitcher
-            .append(incoming, first.overlap_rows)
+            .append(&incoming, first.overlap_rows)
             .expect("估计值应可直接拼接");
         assert_eq!(stitcher.width, Some(64));
         assert_eq!(stitcher.height, 96);
