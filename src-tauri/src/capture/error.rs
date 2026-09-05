@@ -37,6 +37,22 @@ pub enum CaptureError {
     CommitPayloadInvalid,
     #[error("提交的截图数据过大")]
     CommitPayloadTooLarge,
+    #[error("长截图帧为空")]
+    LongshotFrameEmpty,
+    #[error("长截图尚未追加任何帧")]
+    LongshotEmpty,
+    #[error("长截图首帧不能包含重叠行")]
+    LongshotFirstFrameOverlap,
+    #[error("长截图重叠行无效")]
+    LongshotOverlapInvalid,
+    #[error("长截图帧宽度与首帧不一致")]
+    LongshotWidthMismatch,
+    #[error("长截图帧数超过上限")]
+    LongshotFrameLimit,
+    #[error("长截图尺寸或缓冲超过资源上限")]
+    LongshotResourceLimit,
+    #[error("长截图内存分配失败")]
+    LongshotAllocationFailed,
     #[error("创建截图覆盖层失败: {0}")]
     OverlayCreate(String),
     #[error("截图失败: {0}")]
@@ -72,6 +88,14 @@ impl CaptureError {
             Self::CropOutOfBounds => "crop_out_of_bounds",
             Self::CommitPayloadInvalid => "commit_payload_invalid",
             Self::CommitPayloadTooLarge => "commit_payload_too_large",
+            Self::LongshotFrameEmpty => "longshot_frame_empty",
+            Self::LongshotEmpty => "longshot_empty",
+            Self::LongshotFirstFrameOverlap => "longshot_first_frame_overlap",
+            Self::LongshotOverlapInvalid => "longshot_overlap_invalid",
+            Self::LongshotWidthMismatch => "longshot_width_mismatch",
+            Self::LongshotFrameLimit => "longshot_frame_limit",
+            Self::LongshotResourceLimit => "longshot_resource_limit",
+            Self::LongshotAllocationFailed => "longshot_allocation_failed",
             Self::OverlayCreate(_) => "overlay_create",
             Self::Screenshot(_) => "screenshot",
             Self::ThreadPanic(_) => "thread_panic",
@@ -160,6 +184,14 @@ mod tests {
             CaptureError::CropOutOfBounds,
             CaptureError::CommitPayloadInvalid,
             CaptureError::CommitPayloadTooLarge,
+            CaptureError::LongshotFrameEmpty,
+            CaptureError::LongshotEmpty,
+            CaptureError::LongshotFirstFrameOverlap,
+            CaptureError::LongshotOverlapInvalid,
+            CaptureError::LongshotWidthMismatch,
+            CaptureError::LongshotFrameLimit,
+            CaptureError::LongshotResourceLimit,
+            CaptureError::LongshotAllocationFailed,
             CaptureError::OverlayCreate(String::new()),
             CaptureError::Screenshot(String::new()),
             CaptureError::ThreadPanic(String::new()),
