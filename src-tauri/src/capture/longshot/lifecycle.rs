@@ -4,7 +4,9 @@
 //! 释放都在锁外执行，避免桌面调用反向阻塞会话状态机。
 
 use super::controller::{LongshotController, LongshotControllerFinish, LongshotControllerStart};
-use super::{LongshotAppendOutcome, LongshotSessionToken, LongshotSnapshot, LongshotStart};
+use super::{
+    LongshotAppendOutcome, LongshotArtifact, LongshotSessionToken, LongshotSnapshot, LongshotStart,
+};
 use crate::capture::manager::OrdinaryCaptureResources;
 use crate::capture::{CaptureError, CaptureManager, CaptureModeOwnership, CaptureSelection};
 use crate::commands::AppState;
@@ -111,7 +113,7 @@ impl LongshotLifecycle {
         token: &LongshotSessionToken,
         app: &tauri::AppHandle,
         state: &AppState,
-    ) -> Result<Vec<u8>, CaptureError> {
+    ) -> Result<LongshotArtifact, CaptureError> {
         let actions = TauriDesktopActions { app, state };
         self.finish_with(token, || self.controller.finish_png(token), &actions)
     }
@@ -211,7 +213,7 @@ impl LongshotLifecycle {
         token: &LongshotSessionToken,
         operation: F,
         actions: &A,
-    ) -> Result<Vec<u8>, CaptureError>
+    ) -> Result<LongshotArtifact, CaptureError>
     where
         F: FnOnce() -> Result<LongshotControllerFinish, CaptureError>,
         A: DesktopActions,
@@ -224,9 +226,9 @@ impl LongshotLifecycle {
                 return Err(error);
             }
         };
-        let png = finished.png;
+        let artifact = finished.artifact;
         self.restore_and_release(token, finished.ownership, actions)?;
-        Ok(png)
+        Ok(artifact)
     }
 
     fn cancel_with<F, A>(
@@ -774,14 +776,21 @@ mod tests {
         assert_eq!(gate.active_mode().unwrap(), Some(CaptureMode::Longshot));
         assert_eq!(lifecycle.snapshot(&start.token).unwrap(), start.snapshot);
 
-        let png = lifecycle
+        let artifact = lifecycle
             .finish_with(
                 &start.token,
                 || lifecycle.controller.finish_png(&start.token),
                 &actions,
             )
             .expect("编码重试应成功");
-        assert_eq!(crate::screenshot::validate_png(&png).unwrap(), (64, 72));
+        assert_eq!(
+            crate::screenshot::validate_png(&artifact.png).unwrap(),
+            (64, 72)
+        );
+        assert_eq!(artifact.origin.x, 0.0);
+        assert_eq!(artifact.origin.y, 0.0);
+        assert_eq!(artifact.origin.width, 64.0);
+        assert_eq!(artifact.origin.height, 72.0);
         assert_eq!(
             *actions.events.lock().unwrap(),
             vec![
@@ -910,8 +919,11 @@ mod tests {
         assert_eq!(error.code(), "longshot_session_busy");
         assert_eq!(losing_cancel_calls.load(Ordering::SeqCst), 0);
         finish_release_tx.send(()).unwrap();
-        let png = finish_worker.join().unwrap().unwrap();
-        assert_eq!(crate::screenshot::validate_png(&png).unwrap(), (64, 72));
+        let artifact = finish_worker.join().unwrap().unwrap();
+        assert_eq!(
+            crate::screenshot::validate_png(&artifact.png).unwrap(),
+            (64, 72)
+        );
         assert_eq!(finish_actions.events.lock().unwrap().len(), 3);
         assert_eq!(finish_gate.active_mode().unwrap(), None);
     }

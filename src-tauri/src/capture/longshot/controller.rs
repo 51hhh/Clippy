@@ -4,8 +4,8 @@
 //! manager 的事务 lease 在两把状态锁之外完成。
 
 use super::{
-    capture_monitor_frame, LongshotAppendOutcome, LongshotFrameAdapter, LongshotManager,
-    LongshotSession, LongshotSessionToken, LongshotSnapshot, LongshotStart,
+    capture_monitor_frame, LongshotAppendOutcome, LongshotArtifact, LongshotFrameAdapter,
+    LongshotManager, LongshotSession, LongshotSessionToken, LongshotSnapshot, LongshotStart,
 };
 use crate::capture::manager::{
     CaptureLongshotCandidate, CaptureLongshotHandoff, OrdinaryCaptureResources,
@@ -48,7 +48,7 @@ pub(in crate::capture) struct LongshotControllerStart {
 /// 编码成功后移交给桌面生命周期层的像素结果与唯一模式所有权。
 #[derive(Debug)]
 pub(in crate::capture) struct LongshotControllerFinish {
-    pub png: Vec<u8>,
+    pub artifact: LongshotArtifact,
     pub ownership: CaptureModeOwnership,
 }
 
@@ -215,14 +215,21 @@ impl LongshotController {
     where
         F: FnOnce(&LongshotSession) -> Result<Vec<u8>, CaptureError>,
     {
-        self.owner_lease(token)?;
-        let png = self
+        let lease = self.owner_lease(token)?;
+        let artifact = self
             .manager
-            .finish_with(token, operation)
+            .finish_with(token, move |session| {
+                let snapshot = session.snapshot();
+                let origin = lease
+                    .adapter
+                    .output_origin(snapshot.width, snapshot.total_height)?;
+                let png = operation(session)?;
+                Ok(LongshotArtifact { png, origin })
+            })
             .map_err(normalize_claim_race)?;
         let owner = self.take_owner(token)?;
         Ok(LongshotControllerFinish {
-            png,
+            artifact,
             ownership: owner.mode_ownership,
         })
     }
@@ -458,18 +465,6 @@ mod tests {
             .expect("matching 会话应可取消")
             .release()
             .expect("测试模式所有权应可释放");
-    }
-
-    fn finish_and_release(
-        controller: &LongshotController,
-        token: &LongshotSessionToken,
-    ) -> Vec<u8> {
-        let finished = controller.finish_png(token).expect("会话应可编码");
-        finished
-            .ownership
-            .release()
-            .expect("测试模式所有权应可释放");
-        finished.png
     }
 
     #[test]
@@ -758,7 +753,15 @@ mod tests {
             .expect("合法帧应可重试");
         assert_eq!(outcome.snapshot.frame_count, 2);
         assert_eq!(outcome.snapshot.total_height, 96);
-        let png = finish_and_release(&controller, &started.token);
+        let finished = controller
+            .finish_png(&started.token)
+            .expect("追加后应可完成并保留最终来源高度");
+        assert_eq!(finished.artifact.origin.x, -20.0);
+        assert_eq!(finished.artifact.origin.y, 30.0);
+        assert_eq!(finished.artifact.origin.width, 64.0);
+        assert_eq!(finished.artifact.origin.height, 96.0);
+        finished.ownership.release().unwrap();
+        let png = finished.artifact.png;
         let decoded = image::load_from_memory(&png).unwrap().to_rgba8();
         let expected = imageops::crop_imm(&source, 0, 0, 64, 96).to_image();
         assert_eq!(decoded, expected, "拼接 PNG 应逐像素等于原始全景前 96 行");
@@ -860,7 +863,7 @@ mod tests {
         let finished = controller
             .finish_png(&started.token)
             .expect("失败后应可真实完成");
-        let png = finished.png;
+        let png = finished.artifact.png;
         assert_eq!(crate::screenshot::validate_png(&png).unwrap(), (64, 72));
         assert_eq!(
             image::load_from_memory(&png).unwrap().to_rgba8().as_raw(),
@@ -878,6 +881,47 @@ mod tests {
             controller.cancel(&started.token).unwrap_err().code(),
             "longshot_session_missing"
         );
+    }
+
+    #[test]
+    fn finish_artifact_keeps_trusted_origin_from_frozen_crop() {
+        let controller = LongshotController::new();
+        let gate = Arc::new(CaptureModeGate::new());
+        let frame = CapturedMonitorFrame {
+            monitor_id: 7,
+            x: -1920,
+            y: -120,
+            logical_width: 64,
+            logical_height: 72,
+            pixel_width: 80,
+            pixel_height: 108,
+            scale_x: 1.25,
+            scale_y: 1.5,
+            rgba: Arc::from(panorama(80, 108, 28).into_raw()),
+        };
+        let (capture, mut selection, _) =
+            ordinary_capture_frame(frame, Arc::clone(&gate), vec![], vec![]);
+        selection.x = 1.1;
+        selection.y = 2.2;
+        selection.width = 50.4;
+        selection.height = 50.3;
+        let started = controller
+            .begin(&capture, &selection)
+            .expect("带分数缩放的长截图应可启动");
+
+        let finished = controller
+            .finish_png(&started.start.token)
+            .expect("完成产物应保留可信来源");
+        assert_eq!(
+            crate::screenshot::validate_png(&finished.artifact.png).unwrap(),
+            (64, 76)
+        );
+        assert!((finished.artifact.origin.x - -1919.2).abs() < f64::EPSILON);
+        assert!((finished.artifact.origin.y - -118.0).abs() < f64::EPSILON);
+        assert!((finished.artifact.origin.width - 51.2).abs() < f64::EPSILON);
+        assert!((finished.artifact.origin.height - (76.0 / 1.5)).abs() < f64::EPSILON);
+        finished.ownership.release().unwrap();
+        assert_eq!(gate.active_mode().unwrap(), None);
     }
 
     #[test]
