@@ -1,6 +1,7 @@
 //! 独立长截图控制窗的两阶段接管与补偿状态机。
 
 mod finish;
+mod output;
 
 use super::{LongshotArtifact, LongshotSessionToken, LongshotSnapshot};
 use crate::capture::{CaptureError, CaptureSelection};
@@ -12,6 +13,7 @@ use finish::{
 };
 #[cfg(test)]
 use finish::{FinishBoundary, FinishClaim, FinishWorkerError, OutputFailureAction};
+use output::copy_longshot_artifact;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -2041,6 +2043,7 @@ pub(crate) async fn finish(
     let lifecycle = state.longshot_lifecycle.clone();
     let finish_app = app.clone();
     let save_target = state.save_target();
+    let pin_origins = Arc::clone(&state.pin_origins);
     execute_finish_with_ops(
         &state.longshot_windows,
         caller_label,
@@ -2069,7 +2072,9 @@ pub(crate) async fn finish(
             move |requested_action, artifact: Arc<LongshotOutputArtifact>| async move {
                 run_output_worker(requested_action, move || match requested_action {
                     LongshotOutputAction::Copy => {
-                        crate::image_io::copy_png_to_clipboard(artifact.png.as_slice())?;
+                        copy_longshot_artifact(&artifact, &pin_origins, |image| {
+                            crate::clipboard_watcher::clipboard_set_image_with_retry(image)
+                        })?;
                         Ok(None)
                     }
                     LongshotOutputAction::Save => {
