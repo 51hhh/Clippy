@@ -2036,7 +2036,9 @@ pub(crate) async fn finish(
                         let state = finish_app.try_state::<AppState>().ok_or_else(|| {
                             CaptureError::StateLock("AppState 已不可用".to_string())
                         })?;
-                        lifecycle.finish_png(&token, &finish_app, &state)
+                        lifecycle
+                            .finish_png(&token, &finish_app, &state)
+                            .map(|artifact| artifact.png)
                     })
                     .await
                 }

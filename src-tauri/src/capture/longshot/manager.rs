@@ -215,13 +215,13 @@ impl LongshotManager {
         self.complete_append(lease, result)
     }
 
-    pub(super) fn finish_with<F>(
+    pub(super) fn finish_with<T, F>(
         &self,
         token: &LongshotSessionToken,
         operation: F,
-    ) -> Result<Vec<u8>, CaptureError>
+    ) -> Result<T, CaptureError>
     where
-        F: FnOnce(&LongshotSession) -> Result<Vec<u8>, CaptureError>,
+        F: FnOnce(&LongshotSession) -> Result<T, CaptureError>,
     {
         let lease = self.claim(token, Operation::Finish)?;
         let result = operation(&lease.session);
@@ -288,11 +288,11 @@ impl LongshotManager {
         }
     }
 
-    fn complete_finish(
+    fn complete_finish<T>(
         &self,
         lease: Lease,
-        result: Result<Vec<u8>, CaptureError>,
-    ) -> Result<Vec<u8>, CaptureError> {
+        result: Result<T, CaptureError>,
+    ) -> Result<T, CaptureError> {
         let Lease {
             token,
             operation,
@@ -442,7 +442,7 @@ mod tests {
         assert!(matches!(
             manager.complete_finish(
                 before_lease,
-                Err(CaptureError::Codec("restore-before-append".into()))
+                Err::<Vec<u8>, _>(CaptureError::Codec("restore-before-append".into()))
             ),
             Err(CaptureError::Codec(message)) if message == "restore-before-append"
         ));
@@ -469,7 +469,7 @@ mod tests {
         assert!(matches!(
             manager.complete_finish(
                 after_lease,
-                Err(CaptureError::Codec("restore-after-append".into()))
+                Err::<Vec<u8>, _>(CaptureError::Codec("restore-after-append".into()))
             ),
             Err(CaptureError::Codec(message)) if message == "restore-after-append"
         ));
@@ -487,7 +487,9 @@ mod tests {
         let manager = LongshotManager::with_id_supplier(repeated_id);
         let (started, _) = start(&manager);
         assert!(matches!(
-            manager.finish_with(&started.token, |_| Err(CaptureError::Codec("injected".into()))),
+            manager.finish_with(&started.token, |_| {
+                Err::<Vec<u8>, _>(CaptureError::Codec("injected".into()))
+            }),
             Err(CaptureError::Codec(message)) if message == "injected"
         ));
         assert_eq!(
@@ -505,6 +507,35 @@ mod tests {
             manager.snapshot(&started.token),
             Err(CaptureError::LongshotSessionMissing)
         ));
+    }
+
+    #[test]
+    fn generic_finish_value_preserves_failure_rollback_and_success_consumption() {
+        let manager = LongshotManager::with_id_supplier(repeated_id);
+        let (started, _) = start(&manager);
+        assert!(matches!(
+            manager.finish_with(&started.token, |_| {
+                Err::<(u32, String), _>(CaptureError::Codec("injected".into()))
+            }),
+            Err(CaptureError::Codec(message)) if message == "injected"
+        ));
+        assert_eq!(
+            manager
+                .snapshot(&started.token)
+                .expect("泛型 finish 业务失败后会话必须恢复"),
+            started.snapshot
+        );
+
+        let value = manager
+            .finish_with(&started.token, |session| {
+                Ok((session.snapshot().total_height, "artifact".to_string()))
+            })
+            .expect("非 PNG 泛型结果也应提交并消费会话");
+        assert_eq!(value, (72, "artifact".to_string()));
+        assert_eq!(
+            manager.snapshot(&started.token).unwrap_err().code(),
+            "longshot_session_missing"
+        );
     }
 
     #[test]

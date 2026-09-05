@@ -7,6 +7,7 @@ use super::session::validate_session_frame_budget_for_dimensions;
 use super::CaptureError;
 use crate::capture::frame_crop::{selection_pixel_rect, PixelRect};
 use crate::capture::CaptureSelection;
+use crate::pin::PinOrigin;
 use crate::screenshot::CapturedMonitorFrame;
 use image::RgbaImage;
 
@@ -97,6 +98,43 @@ impl LongshotFrameAdapter {
         }
         validate_exact_rgba(frame)?;
         crop_frame(frame, self.crop)
+    }
+
+    /// 根据冻结首帧与实际物理裁剪区反算最终产物的桌面全局逻辑来源矩形。
+    ///
+    /// 最终 PNG 的宽度不能偏离固定裁剪区，且高度至少要包含首帧裁剪区；这样不会把
+    /// 前端原始选区的舍入或 clamp 前坐标泄漏到后续贴图定位。
+    pub(in crate::capture) fn output_origin(
+        &self,
+        final_width: u32,
+        final_height: u32,
+    ) -> Result<PinOrigin, CaptureError> {
+        let crop_width = self
+            .crop
+            .right
+            .checked_sub(self.crop.left)
+            .ok_or(CaptureError::LongshotFrameInvalid)?;
+        let crop_height = self
+            .crop
+            .bottom
+            .checked_sub(self.crop.top)
+            .ok_or(CaptureError::LongshotFrameInvalid)?;
+        if final_width != crop_width {
+            return Err(CaptureError::LongshotWidthMismatch);
+        }
+        if final_height < crop_height {
+            return Err(CaptureError::LongshotFrameInvalid);
+        }
+
+        let scale_x = f64::from(self.signature.scale_x);
+        let scale_y = f64::from(self.signature.scale_y);
+        let origin = PinOrigin {
+            x: f64::from(self.signature.x) + f64::from(self.crop.left) / scale_x,
+            y: f64::from(self.signature.y) + f64::from(self.crop.top) / scale_y,
+            width: f64::from(final_width) / scale_x,
+            height: f64::from(final_height) / scale_y,
+        };
+        origin.sanitized().ok_or(CaptureError::LongshotFrameInvalid)
     }
 }
 
@@ -329,6 +367,57 @@ mod tests {
                 .expect("右下越界应被 clamp");
         assert_eq!(edge.dimensions(), (2, 1));
         assert_pixel(&edge, 1, 0, &negative_origin, 9, 9);
+    }
+
+    #[test]
+    fn output_origin_uses_frozen_global_frame_crop_and_each_axis_scale() {
+        let frame = encoded_frame(-1920, -120, 80, 50, 100, 75, 1.25, 1.5, 40);
+        let (adapter, cropped) =
+            LongshotFrameAdapter::from_first(&frame, &selection(1.1, 2.2, 4.4, 3.3))
+                .expect("带分数缩放的首帧应可冻结");
+        assert_eq!(cropped.dimensions(), (6, 6));
+
+        let origin = adapter
+            .output_origin(6, 15)
+            .expect("拼接后的物理尺寸应可反算来源矩形");
+        assert!((origin.x - -1919.2).abs() < f64::EPSILON);
+        assert!((origin.y - -118.0).abs() < f64::EPSILON);
+        assert!((origin.width - 4.8).abs() < f64::EPSILON);
+        assert!((origin.height - 10.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn output_origin_uses_clamped_crop_and_rejects_invalid_final_dimensions() {
+        let frame = encoded_frame(-1920, -120, 80, 50, 100, 75, 1.25, 1.5, 41);
+        let (adapter, cropped) =
+            LongshotFrameAdapter::from_first(&frame, &selection(-2.0, -1.0, 5.0, 5.0))
+                .expect("越界选区应按实际帧边界冻结");
+        assert_eq!(cropped.dimensions(), (4, 6));
+
+        let origin = adapter
+            .output_origin(4, 9)
+            .expect("clamp 后矩形应可反算来源");
+        assert_eq!(origin.x, -1920.0);
+        assert_eq!(origin.y, -120.0);
+        assert!((origin.width - 3.2).abs() < f64::EPSILON);
+        assert_eq!(origin.height, 6.0);
+
+        assert_eq!(
+            adapter.output_origin(5, 9).unwrap_err().code(),
+            "longshot_width_mismatch"
+        );
+        assert_eq!(
+            adapter.output_origin(4, 5).unwrap_err().code(),
+            "longshot_frame_invalid"
+        );
+        assert_eq!(
+            adapter.output_origin(0, 0).unwrap_err().code(),
+            "longshot_width_mismatch"
+        );
+        assert!(
+            adapter.output_origin(4, 9).is_ok(),
+            "失败不能污染冻结适配器"
+        );
     }
 
     #[test]

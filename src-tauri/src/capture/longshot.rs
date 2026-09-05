@@ -4,6 +4,7 @@
 //! `session` 子模块把两者组合为单所有者事务核心；IPC 和 UI 仍由后续层负责。
 
 use super::CaptureError;
+use crate::pin::PinOrigin;
 use image::RgbaImage;
 
 mod controller;
@@ -30,6 +31,15 @@ pub(crate) use window_host::{
     LongshotControllerLaunch, LongshotControllerRegistry, LongshotIpcError, LongshotOutputAction,
     LongshotOutputResult, LongshotSnapshotDto,
 };
+
+/// 长截图完成后的可信像素及其桌面全局逻辑来源矩形。
+///
+/// 来源矩形只由冻结首帧和实际物理裁剪区反算，不能由控制窗或前端提交。
+#[derive(Debug, Clone, PartialEq)]
+pub(in crate::capture) struct LongshotArtifact {
+    pub(in crate::capture) png: Vec<u8>,
+    pub(in crate::capture) origin: PinOrigin,
+}
 
 /// 资源边界只在此处定义；后续会话层必须复用而不是另设一组限制。
 const MAX_FRAMES: usize = 64;
