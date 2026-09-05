@@ -1,6 +1,7 @@
 pub(crate) mod commands;
 mod error;
 pub(crate) mod frame_protocol;
+mod image_validation;
 mod manager;
 mod model;
 mod origins;
