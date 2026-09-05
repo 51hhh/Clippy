@@ -53,6 +53,10 @@ pub enum CaptureError {
     LongshotResourceLimit,
     #[error("长截图内存分配失败")]
     LongshotAllocationFailed,
+    #[error("长截图帧元数据或像素缓冲无效")]
+    LongshotFrameInvalid,
+    #[error("长截图连续帧几何发生变化")]
+    LongshotFrameGeometryChanged,
     #[error("长截图相邻帧尺寸不一致")]
     LongshotEstimateSizeMismatch,
     #[error("长截图相邻帧尺寸过小")]
@@ -118,6 +122,8 @@ impl CaptureError {
             Self::LongshotFrameLimit => "longshot_frame_limit",
             Self::LongshotResourceLimit => "longshot_resource_limit",
             Self::LongshotAllocationFailed => "longshot_allocation_failed",
+            Self::LongshotFrameInvalid => "longshot_frame_invalid",
+            Self::LongshotFrameGeometryChanged => "longshot_frame_geometry_changed",
             Self::LongshotEstimateSizeMismatch => "longshot_estimate_size_mismatch",
             Self::LongshotEstimateTooSmall => "longshot_estimate_too_small",
             Self::LongshotEstimateLowTexture => "longshot_estimate_low_texture",
@@ -227,6 +233,8 @@ mod tests {
             CaptureError::LongshotFrameLimit,
             CaptureError::LongshotResourceLimit,
             CaptureError::LongshotAllocationFailed,
+            CaptureError::LongshotFrameInvalid,
+            CaptureError::LongshotFrameGeometryChanged,
             CaptureError::LongshotEstimateSizeMismatch,
             CaptureError::LongshotEstimateTooSmall,
             CaptureError::LongshotEstimateLowTexture,

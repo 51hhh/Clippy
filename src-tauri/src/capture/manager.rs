@@ -1,4 +1,5 @@
 use super::error::CaptureError;
+use super::frame_crop::selection_pixel_rect;
 use super::types::{CaptureOverlayPayload, CaptureSelection, OverlaySpec, WindowCandidate};
 use super::window_probe::probe_windows;
 use crate::screenshot::CapturedMonitorFrame;
@@ -362,13 +363,13 @@ impl CaptureManager {
             .iter()
             .find(|frame| frame.monitor_id == selection.monitor_id)
             .ok_or(CaptureError::SelectionMonitorMismatch)?;
-        let (left, top, right, bottom) = selection_pixel_rect(frame, selection)?;
+        let crop = selection_pixel_rect(frame, selection)?;
         let source =
             image::RgbaImage::from_raw(frame.pixel_width, frame.pixel_height, frame.rgba.to_vec())
                 .ok_or(CaptureError::OverlayFrameMissing)?;
         Ok(CaptureRenderInput {
             source,
-            crop: (left, top, right - left, bottom - top),
+            crop: crop.as_crop(),
         })
     }
 
@@ -403,13 +404,13 @@ fn crop_frame(
     frame: &CapturedMonitorFrame,
     selection: &CaptureSelection,
 ) -> Result<Vec<u8>, CaptureError> {
-    let (left, top, right, bottom) = selection_pixel_rect(frame, selection)?;
-    let width = right - left;
-    let height = bottom - top;
+    let crop = selection_pixel_rect(frame, selection)?;
+    let width = crop.width();
+    let height = crop.height();
     let row_bytes = width as usize * 4;
     let mut rgba = Vec::with_capacity(row_bytes * height as usize);
-    for row in top..bottom {
-        let start = (row * frame.pixel_width + left) as usize * 4;
+    for row in crop.top..crop.bottom {
+        let start = (row * frame.pixel_width + crop.left) as usize * 4;
         let source = frame
             .rgba
             .get(start..start + row_bytes)
@@ -417,34 +418,6 @@ fn crop_frame(
         rgba.extend_from_slice(source);
     }
     crate::screenshot::encode_png(&rgba, width, height).map_err(CaptureError::codec)
-}
-
-fn selection_pixel_rect(
-    frame: &CapturedMonitorFrame,
-    selection: &CaptureSelection,
-) -> Result<(u32, u32, u32, u32), CaptureError> {
-    for value in [selection.x, selection.y, selection.width, selection.height] {
-        if !value.is_finite() {
-            return Err(CaptureError::SelectionNotFinite);
-        }
-    }
-    if selection.width < 2.0 || selection.height < 2.0 {
-        return Err(CaptureError::SelectionTooSmall);
-    }
-    let left = (selection.x.max(0.0) * frame.scale_x as f64).floor() as u32;
-    let top = (selection.y.max(0.0) * frame.scale_y as f64).floor() as u32;
-    let right = ((selection.x + selection.width).min(frame.logical_width as f64)
-        * frame.scale_x as f64)
-        .ceil() as u32;
-    let bottom = ((selection.y + selection.height).min(frame.logical_height as f64)
-        * frame.scale_y as f64)
-        .ceil() as u32;
-    let (left, top) = (left.min(frame.pixel_width), top.min(frame.pixel_height));
-    let (right, bottom) = (right.min(frame.pixel_width), bottom.min(frame.pixel_height));
-    if right <= left || bottom <= top {
-        return Err(CaptureError::SelectionEmpty);
-    }
-    Ok((left, top, right, bottom))
 }
 
 #[cfg(test)]
