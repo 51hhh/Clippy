@@ -59,7 +59,7 @@ describe("longshot controller app", () => {
     for (const fn of Object.values(mocks.controllerApi)) fn.mockReset();
     mocks.controllerApi.activate.mockResolvedValue(activation);
     mocks.controllerApi.append.mockResolvedValue(activation.snapshot);
-    mocks.controllerApi.finish.mockResolvedValue({ action: "copy" });
+    mocks.controllerApi.finish.mockResolvedValue({ action: "copy", path: null });
     mocks.controllerApi.ready.mockResolvedValue(undefined);
     mocks.controllerApi.cancel.mockResolvedValue(undefined);
     mocks.controllerApi.onCloseRequested.mockImplementation((callback) => {
@@ -173,6 +173,20 @@ describe("longshot controller app", () => {
     expect(document.querySelector('[data-testid="longshot-copy"]')).toBeNull();
   });
 
+  it("finishes with Save exactly once and renders the returned Unicode path as text", async () => {
+    mocks.controllerApi.finish.mockResolvedValue({ action: "save", path: "/tmp/长截图/结果.png" });
+    await mount();
+
+    await act(async () => document.querySelector('[data-testid="longshot-save"]').click());
+    await flush();
+
+    expect(mocks.controllerApi.finish).toHaveBeenCalledTimes(1);
+    expect(mocks.controllerApi.finish).toHaveBeenCalledWith(activation.handle, "save");
+    expect(document.body.textContent).toContain("Saved to /tmp/长截图/结果.png. Closing this window");
+    expect(document.querySelector('[data-testid="longshot-append"]')).toBeNull();
+    expect(document.querySelector('[data-testid="longshot-save"]')).toBeNull();
+  });
+
   it("keeps the snapshot and Ready controls after a retryable finish-domain failure", async () => {
     mocks.controllerApi.finish.mockRejectedValue({
       code: "longshot_estimate_low_texture",
@@ -191,50 +205,137 @@ describe("longshot controller app", () => {
     expect(document.querySelector('[data-testid="longshot-copy"]')).not.toBeNull();
   });
 
-  it("prevents a double click from starting a second finish and disables append/copy while Finishing", async () => {
+  it("prevents same-tick Copy/Save reentry and disables every output action while Finishing", async () => {
     const pending = deferred();
     mocks.controllerApi.finish.mockReturnValue(pending.promise);
     await mount();
 
     await act(async () => {
       document.querySelector('[data-testid="longshot-copy"]').click();
-      document.querySelector('[data-testid="longshot-copy"]').click();
+      document.querySelector('[data-testid="longshot-save"]').click();
     });
 
     expect(mocks.controllerApi.finish).toHaveBeenCalledTimes(1);
+    expect(mocks.controllerApi.finish).toHaveBeenCalledWith(activation.handle, "copy");
     expect(document.querySelector('[data-testid="longshot-copy"]')?.disabled).toBe(true);
+    expect(document.querySelector('[data-testid="longshot-save"]')?.disabled).toBe(true);
     expect(document.querySelector('[data-testid="longshot-append"]')?.disabled).toBe(true);
-    expect(document.body.textContent).toContain("Finishing the long screenshot");
+    expect(document.body.textContent).toContain("Finishing the long screenshot and copying it");
 
-    await act(async () => pending.resolve({ action: "copy" }));
+    await act(async () => pending.resolve({ action: "copy", path: null }));
     await flush();
   });
 
-  it("moves a clipboard failure to OutputPending and retries the exact copy action", async () => {
+  it("moves a Copy failure to Any OutputPending and can retry it as Save without reopening Append", async () => {
     mocks.controllerApi.finish
       .mockRejectedValueOnce({
         code: "longshot_controller_copy_failed",
         message: "untrusted clipboard detail",
       })
-      .mockResolvedValueOnce({ action: "copy" });
+      .mockResolvedValueOnce({ action: "save", path: "/tmp/recovered.png" });
     await mount();
 
     await act(async () => document.querySelector('[data-testid="longshot-copy"]').click());
     await flush();
 
-    expect(document.body.textContent).toContain("Retry copying or discard it");
+    expect(document.body.textContent).toContain("Retry copying, save it instead, or discard it");
     expect(document.body.textContent).not.toContain("untrusted clipboard detail");
     expect(document.querySelector('[data-testid="longshot-append"]')).toBeNull();
     expect(document.querySelector('[data-testid="longshot-copy"]')).toBeNull();
     expect(document.querySelector('[data-testid="longshot-retry-copy"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="longshot-retry-save"]')).not.toBeNull();
     expect(document.querySelector('[data-testid="longshot-discard"]')).not.toBeNull();
+
+    await act(async () => document.querySelector('[data-testid="longshot-retry-save"]').click());
+    await flush();
+
+    expect(mocks.controllerApi.finish).toHaveBeenCalledTimes(2);
+    expect(mocks.controllerApi.finish).toHaveBeenNthCalledWith(2, activation.handle, "save");
+    expect(document.body.textContent).toContain("Saved to /tmp/recovered.png. Closing this window");
+  });
+
+  it("shows Save-specific Finishing text and keeps both output buttons disabled", async () => {
+    const pending = deferred();
+    mocks.controllerApi.finish.mockReturnValue(pending.promise);
+    await mount();
+
+    await act(async () => document.querySelector('[data-testid="longshot-save"]').click());
+
+    expect(mocks.controllerApi.finish).toHaveBeenCalledWith(activation.handle, "save");
+    expect(document.body.textContent).toContain("Finishing the long screenshot and saving it");
+    expect(document.querySelector('[data-testid="longshot-copy"]')?.disabled).toBe(true);
+    expect(document.querySelector('[data-testid="longshot-save"]')?.disabled).toBe(true);
+    expect(document.querySelector('[data-testid="longshot-append"]')?.disabled).toBe(true);
+
+    await act(async () => pending.resolve({ action: "save", path: "/tmp/one.png" }));
+    await flush();
+  });
+
+  it("moves an explicit Save failure to Any OutputPending and can retry it as Copy", async () => {
+    mocks.controllerApi.finish
+      .mockRejectedValueOnce({
+        code: "longshot_controller_save_failed",
+        message: "untrusted filesystem detail",
+      })
+      .mockResolvedValueOnce({ action: "copy", path: null });
+    await mount();
+
+    await act(async () => document.querySelector('[data-testid="longshot-save"]').click());
+    await flush();
+
+    expect(document.body.textContent).toContain("Could not save the long screenshot");
+    expect(document.body.textContent).not.toContain("untrusted filesystem detail");
+    expect(document.querySelector('[data-testid="longshot-retry-copy"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="longshot-retry-save"]')).not.toBeNull();
 
     await act(async () => document.querySelector('[data-testid="longshot-retry-copy"]').click());
     await flush();
 
-    expect(mocks.controllerApi.finish).toHaveBeenCalledTimes(2);
     expect(mocks.controllerApi.finish).toHaveBeenNthCalledWith(2, activation.handle, "copy");
     expect(document.body.textContent).toContain("Copied. Closing this window");
+  });
+
+  it("keeps Save JoinError recovery Copy-only after a later Copy failure", async () => {
+    mocks.controllerApi.finish
+      .mockRejectedValueOnce({
+        code: "longshot_controller_save_uncertain",
+        message: "untrusted save worker detail",
+      })
+      .mockRejectedValueOnce({
+        code: "longshot_controller_copy_failed",
+        message: "untrusted copy worker detail",
+      });
+    await mount();
+
+    await act(async () => document.querySelector('[data-testid="longshot-save"]').click());
+    await flush();
+
+    expect(document.body.textContent).toContain("Saving may have completed");
+    expect(document.body.textContent).not.toContain("untrusted save worker detail");
+    expect(document.querySelector('[data-testid="longshot-retry-copy"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="longshot-retry-save"]')).toBeNull();
+    expect(document.querySelector('[data-testid="longshot-append"]')).toBeNull();
+
+    await act(async () => document.querySelector('[data-testid="longshot-retry-copy"]').click());
+    await flush();
+
+    expect(mocks.controllerApi.finish).toHaveBeenNthCalledWith(2, activation.handle, "copy");
+    expect(document.querySelector('[data-testid="longshot-retry-save"]')).toBeNull();
+  });
+
+  it.each([
+    ["mismatched action", { action: "copy", path: null }],
+    ["empty Save path", { action: "save", path: "" }],
+  ])("treats a %s finish response as a conservative cleanup error", async (_name, result) => {
+    mocks.controllerApi.finish.mockResolvedValue(result);
+    await mount();
+
+    await act(async () => document.querySelector('[data-testid="longshot-save"]').click());
+    await flush();
+
+    expect(document.body.textContent).toContain("Restart Clippy");
+    expect(document.body.textContent).not.toContain("undefined");
+    expect(document.querySelector('[data-testid="longshot-save"]')).toBeNull();
   });
 
   it("discards an OutputPending artifact through the exact cancel handle", async () => {
@@ -328,7 +429,7 @@ describe("longshot controller app", () => {
     expect(mocks.controllerApi.cancel).toHaveBeenCalledWith(activation.handle);
     expect(document.body.textContent).toContain("Cancelling");
 
-    await act(async () => pending.resolve({ action: "copy" }));
+    await act(async () => pending.resolve({ action: "copy", path: null }));
     await flush();
     expect(document.body.textContent).toContain("Cancelling");
     expect(document.body.textContent).not.toContain("Copied. Closing");
@@ -347,6 +448,21 @@ describe("longshot controller app", () => {
     expect(document.body.textContent).toContain("Cancelling");
     expect(document.body.textContent).not.toContain("late detail");
     expect(document.querySelector('[data-testid="longshot-retry-copy"]')).toBeNull();
+  });
+
+  it("does not revive a Save result after Cancel has linearized the controller", async () => {
+    const pending = deferred();
+    mocks.controllerApi.finish.mockReturnValue(pending.promise);
+    await mount();
+
+    await act(async () => document.querySelector('[data-testid="longshot-save"]').click());
+    await act(async () => document.querySelector('[data-testid="longshot-cancel"]').click());
+    await act(async () => pending.resolve({ action: "save", path: "/tmp/late.png" }));
+    await flush();
+
+    expect(mocks.controllerApi.cancel).toHaveBeenCalledTimes(1);
+    expect(document.body.textContent).toContain("Cancelling");
+    expect(document.body.textContent).not.toContain("/tmp/late.png");
   });
 
   it.each([
@@ -426,10 +542,23 @@ describe("longshot controller app", () => {
 
     await act(async () => document.querySelector('[data-testid="longshot-copy"]').click());
     await act(async () => root.unmount());
-    await act(async () => pending.resolve({ action: "copy" }));
+    await act(async () => pending.resolve({ action: "copy", path: null }));
     await flush();
 
     expect(document.body.textContent).not.toContain("Copied. Closing");
+  });
+
+  it("invalidates a pending Save attempt when the controller unmounts", async () => {
+    const pending = deferred();
+    mocks.controllerApi.finish.mockReturnValue(pending.promise);
+    await mount(false);
+
+    await act(async () => document.querySelector('[data-testid="longshot-save"]').click());
+    await act(async () => root.unmount());
+    await act(async () => pending.resolve({ action: "save", path: "/tmp/late-save.png" }));
+    await flush();
+
+    expect(document.body.textContent).not.toContain("/tmp/late-save.png");
   });
 
   it("ignores a late ready rejection after the controller unmounts", async () => {

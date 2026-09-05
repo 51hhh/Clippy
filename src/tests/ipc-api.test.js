@@ -233,6 +233,7 @@ describe("typed IPC wrappers", () => {
     markLongshotControllerReady();
     appendLongshotController(handle);
     finishLongshotController(handle, "copy");
+    finishLongshotController(handle, "save");
     cancelLongshotController(handle);
     cancelLongshotController(null);
 
@@ -244,8 +245,30 @@ describe("typed IPC wrappers", () => {
       handle,
       action: "copy",
     });
-    expect(invoke).toHaveBeenNthCalledWith(6, "cancel_longshot_controller", { handle });
-    expect(invoke).toHaveBeenNthCalledWith(7, "cancel_longshot_controller", { handle: null });
+    expect(invoke).toHaveBeenNthCalledWith(6, "finish_longshot_controller", {
+      handle,
+      action: "save",
+    });
+    expect(invoke).toHaveBeenNthCalledWith(7, "cancel_longshot_controller", { handle });
+    expect(invoke).toHaveBeenNthCalledWith(8, "cancel_longshot_controller", { handle: null });
+  });
+
+  it("passes longshot Copy and Save results through without rewriting their path contract", async () => {
+    const handle = { sessionId: "longshot-8", generation: "42" };
+    const copied = { action: "copy", path: null };
+    const saved = { action: "save", path: "/tmp/长截图.png" };
+    invoke.mockResolvedValueOnce(copied).mockResolvedValueOnce(saved);
+
+    await expect(finishLongshotController(handle, "copy")).resolves.toBe(copied);
+    await expect(finishLongshotController(handle, "save")).resolves.toBe(saved);
+    expect(invoke).toHaveBeenNthCalledWith(1, "finish_longshot_controller", {
+      handle,
+      action: "copy",
+    });
+    expect(invoke).toHaveBeenNthCalledWith(2, "finish_longshot_controller", {
+      handle,
+      action: "save",
+    });
   });
 
   it("sends a null note when the user did not describe the symptom", () => {
