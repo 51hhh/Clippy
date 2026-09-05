@@ -1,0 +1,72 @@
+:root {
+  --longshot-surface: #17191f;
+  --longshot-text: #f3f4f6;
+  --longshot-muted: #d1d5db;
+  --longshot-error: #fecaca;
+  --longshot-panel: rgba(255, 255, 255, .07);
+  --longshot-button: rgba(255, 255, 255, .09);
+  --longshot-border: rgba(255, 255, 255, .18);
+  --longshot-focus: #5ca5ff;
+  --longshot-focus-background: rgba(47, 140, 255, .25);
+}
+
+* { box-sizing: border-box; }
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--longshot-surface);
+  color: var(--longshot-text);
+  font-family: Inter, system-ui, sans-serif;
+}
+
+button { font: inherit; }
+
+.longshot-controller {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+}
+
+.longshot-titlebar {
+  cursor: grab;
+  user-select: none;
+}
+
+.longshot-titlebar:active { cursor: grabbing; }
+.longshot-titlebar h1 { margin: 0; font-size: 16px; font-weight: 650; }
+.longshot-status { margin: 0; color: var(--longshot-muted); font-size: 13px; line-height: 1.45; }
+.longshot-error { margin: 0; color: var(--longshot-error); font-size: 13px; line-height: 1.45; }
+
+.longshot-details {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 0;
+}
+
+.longshot-details div { padding: 9px; border-radius: 6px; background: var(--longshot-panel); }
+.longshot-details dt { color: var(--longshot-muted); font-size: 11px; }
+.longshot-details dd { margin: 3px 0 0; font-size: 16px; font-variant-numeric: tabular-nums; }
+
+.longshot-controller button {
+  min-height: 32px;
+  border: 1px solid var(--longshot-border);
+  border-radius: 6px;
+  background: var(--longshot-button);
+  color: var(--longshot-text);
+  cursor: pointer;
+}
+
+.longshot-controller button:hover,
+.longshot-controller button:focus-visible {
+  border-color: var(--longshot-focus);
+  outline: none;
+  background: var(--longshot-focus-background);
+}

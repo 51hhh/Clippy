@@ -57,6 +57,9 @@ pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
                 capture::handle_overlay_destroyed(window.app_handle(), &state, window.label());
             }
         }
+        tauri::WindowEvent::Destroyed if window.label().starts_with("longshot-controller-") => {
+            capture::handle_longshot_controller_destroyed(window.app_handle(), window.label());
+        }
         tauri::WindowEvent::Destroyed if window.label() == "settings" => {
             if let Some(state) = window.app_handle().try_state::<AppState>() {
                 if let Err(error) = commands::resume_shortcuts_for_app(window.app_handle(), &state)

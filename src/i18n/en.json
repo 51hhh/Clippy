@@ -512,5 +512,17 @@
   "settings.captureDiagnostics.copied": "Report copied. Paste it into the issue.",
   "settings.captureDiagnostics.openIssue": "Report an Issue",
   "settings.captureDiagnostics.savedTo": "Saved to",
-  "capture.windowProbeHint": "Screenshots work better with a small GNOME service: install it in Settings → Screenshot, then log out once. Drag to select an area in the meantime."
+  "capture.windowProbeHint": "Screenshots work better with a small GNOME service: install it in Settings → Screenshot, then log out once. Drag to select an area in the meantime.",
+  "longshot.title": "Long screenshot",
+  "longshot.preparing": "Preparing the capture session…",
+  "longshot.ready": "Ready to capture more frames.",
+  "longshot.frameCount": "Frames",
+  "longshot.totalHeight": "Total height",
+  "longshot.cancel": "Cancel",
+  "longshot.close": "Close",
+  "longshot.cancelling": "Cancelling and restoring your desktop…",
+  "longshot.failed": "Could not start the long screenshot session.",
+  "longshot.busy": "Another long screenshot session is already active.",
+  "longshot.superseded": "This long screenshot session is no longer current.",
+  "longshot.cleanupFailed": "Clippy could not safely restore the desktop. Restart Clippy before starting another long screenshot."
 }

@@ -26,6 +26,9 @@ import type {
   ClipboardStats,
   ClipItem,
   InstallType,
+  LongshotActivation,
+  LongshotControllerOpenResult,
+  LongshotHandle,
   PasteOutcome,
   PasteStatus,
   PlatformInfo,
@@ -62,6 +65,11 @@ export type {
   ClipItem,
   ContentType,
   InstallType,
+  LongshotActivation,
+  LongshotControllerError,
+  LongshotControllerOpenResult,
+  LongshotHandle,
+  LongshotSnapshot,
   PasteBackend,
   PasteOutcome,
   PastePhase,
@@ -341,6 +349,34 @@ export function markCaptureOverlayReady(
 
 export function cancelCaptureOverlay(sessionId: string): Promise<void> {
   return invoke<void>("cancel_capture_overlay", { sessionId });
+}
+
+/**
+ * 只创建并隐藏独立长截图控制窗口；此时 ordinary 截图会话仍保持可用。
+ * 调用者身份由后端的 WebviewWindow 注入，不允许前端提交 label。
+ */
+export function openLongshotController(
+  selection: CaptureSelection,
+): Promise<LongshotControllerOpenResult> {
+  return invoke<LongshotControllerOpenResult>("open_longshot_controller", { selection });
+}
+
+/** 由存活的独立控制窗口发起 ordinary → longshot 交接。 */
+export function activateLongshotController(): Promise<LongshotActivation> {
+  return invoke<LongshotActivation>("activate_longshot_controller");
+}
+
+/** 控制页已经渲染 activation 结果，可以由后端显示并聚焦窗口。 */
+export function markLongshotControllerReady(): Promise<void> {
+  return invoke<void>("mark_longshot_controller_ready");
+}
+
+/**
+ * 关闭独立控制窗口；Active 会话必须携带完整 handle，尚未拿到 handle 时显式传 null。
+ * 调用者窗口身份仍只由后端注入。
+ */
+export function cancelLongshotController(handle: LongshotHandle | null): Promise<void> {
+  return invoke<void>("cancel_longshot_controller", { handle });
 }
 
 /** 提交选区与 renderer v2 操作层；权威 PNG 由后端从可信冻结帧生成。 */

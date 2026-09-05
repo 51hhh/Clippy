@@ -27,6 +27,7 @@ describe("built window entrypoints", () => {
       ["theme-grid", "auto-paste-toggle", "translation-group"],
     ],
     ["capture-overlay.html", ["root"]],
+    ["longshot-controller.html", ["root"]],
     ["pin.html", ["root"]],
   ])("contains stable mount points in %s", (name, ids) => {
     const document = loadEntrypoint(name);

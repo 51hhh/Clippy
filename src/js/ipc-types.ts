@@ -246,6 +246,40 @@ export interface CaptureSelection {
   height: number;
 }
 
+/**
+ * 长截图会话的不可变身份。`generation` 必须始终作为十进制字符串保留，
+ * 因为 Rust 的 u64 不能安全地经由 JavaScript number 往返。
+ */
+export interface LongshotHandle {
+  sessionId: string;
+  generation: string;
+}
+
+/** 当前已拼接帧的轻量摘要；不携带任何像素。 */
+export interface LongshotSnapshot {
+  frameCount: number;
+  width: number;
+  frameHeight: number;
+  totalHeight: number;
+}
+
+/** 独立控制窗口完成 ordinary → longshot 交接后的首个响应。 */
+export interface LongshotActivation {
+  handle: LongshotHandle;
+  snapshot: LongshotSnapshot;
+}
+
+/** 普通覆盖层只会收到新控制窗口的唯一标签，不会启动 longshot。 */
+export interface LongshotControllerOpenResult {
+  label: string;
+}
+
+/** 新控制窗口命令固定使用的结构化失败载荷。 */
+export interface LongshotControllerError {
+  code: string;
+  message: string;
+}
+
 /** 覆盖层里点提交按钮后要做的事。标注在覆盖层内完成，所以没有"转到编辑器"。 */
 export type CaptureAction = "copy" | "save" | "pin";
 

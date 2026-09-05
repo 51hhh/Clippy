@@ -6,7 +6,8 @@
     "main",
     "settings",
     "pin-*",
-    "capture-overlay-*"
+    "capture-overlay-*",
+    "longshot-controller-*"
   ],
   "permissions": [
     "core:default",

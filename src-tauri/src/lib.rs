@@ -134,6 +134,7 @@ pub fn run() {
             let capture_manager = Arc::new(capture::CaptureManager::new());
             let capture_mode_gate = Arc::new(capture::CaptureModeGate::new());
             let longshot_lifecycle = Arc::new(capture::LongshotLifecycle::default());
+            let longshot_windows = Arc::new(capture::LongshotControllerRegistry::new());
             let translation = Arc::new(translation::TranslationService::new());
             #[cfg(target_os = "linux")]
             let portal_shortcuts = platform::uses_portal_shortcuts().then(|| {
@@ -175,6 +176,7 @@ pub fn run() {
                 capture_manager,
                 capture_mode_gate,
                 longshot_lifecycle,
+                longshot_windows,
                 pin_manager,
                 pin_origins: Arc::new(pin::PinOriginRegistry::default()),
                 paste_manager,
@@ -319,6 +321,10 @@ pub fn run() {
             capture::get_window_probe_status,
             capture::install_window_probe_extension,
             capture::uninstall_window_probe_extension,
+            capture::open_longshot_controller,
+            capture::activate_longshot_controller,
+            capture::mark_longshot_controller_ready,
+            capture::cancel_longshot_controller,
             capture::diagnostics::run_capture_diagnostics,
             commands::pick_screenshot_directory,
             pin::commands::pin_clip,
