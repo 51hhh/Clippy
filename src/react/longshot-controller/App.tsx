@@ -22,7 +22,28 @@ type ControllerPhase =
 
 type DisplayError = Pick<LongshotControllerError, "code">;
 type ErrorContext = "activation" | "append" | "finish" | LongshotOutputAction;
-type OutputRetryPolicy = "any" | "copyOnly";
+/**
+ * 后端 OutputPending 当前能安全接受的动作集合。Copy 没有 uncertain 结果；Save 和
+ * Pin 的 uncertain 结果只会从集合中移除一个动作，绝不能重新授权它。
+ */
+type OutputRetryPolicy = "any" | "copySave" | "copyPin" | "copyOnly";
+
+function allowsOutputAction(policy: OutputRetryPolicy, action: LongshotOutputAction): boolean {
+  if (action === "copy") return true;
+  if (policy === "any") return true;
+  return policy === "copySave" ? action === "save" : policy === "copyPin" && action === "pin";
+}
+
+function withoutUncertainOutputAction(
+  policy: OutputRetryPolicy,
+  action: LongshotOutputAction,
+): OutputRetryPolicy {
+  if (action === "copy" || policy === "copyOnly") return policy;
+  if (policy === "any") return action === "save" ? "copyPin" : "copySave";
+  if (policy === "copySave" && action === "save") return "copyOnly";
+  if (policy === "copyPin" && action === "pin") return "copyOnly";
+  return policy;
+}
 
 function parseControllerError(reason: unknown): LongshotControllerError {
   if (typeof reason === "object" && reason !== null) {
@@ -52,11 +73,16 @@ function errorText(error: DisplayError | null, context: ErrorContext): string {
       return t("longshot.saveFailed");
     case "longshot_controller_save_uncertain":
       return t("longshot.saveUncertain");
+    case "longshot_controller_pin_failed":
+      return t("longshot.pinFailed");
+    case "longshot_controller_pin_uncertain":
+      return t("longshot.pinUncertain");
     default:
       if (context === "append") return t("longshot.appendFailed");
       if (context === "finish") return t("longshot.finishFailed");
       if (context === "copy") return t("longshot.copyFailed");
       if (context === "save") return t("longshot.saveFailed");
+      if (context === "pin") return t("longshot.pinFailed");
       return t("longshot.failed");
   }
 }
@@ -64,7 +90,9 @@ function errorText(error: DisplayError | null, context: ErrorContext): string {
 function isOutputFailure(error: DisplayError): boolean {
   return error.code === "longshot_controller_copy_failed"
     || error.code === "longshot_controller_save_failed"
-    || error.code === "longshot_controller_save_uncertain";
+    || error.code === "longshot_controller_save_uncertain"
+    || error.code === "longshot_controller_pin_failed"
+    || error.code === "longshot_controller_pin_uncertain";
 }
 
 /** IPC 成功响应也属于不可信边界，不能用伪成功覆盖控制窗的保守终态。 */
@@ -75,9 +103,13 @@ function isExpectedOutputResult(
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Partial<LongshotOutputResult>;
   if (candidate.action !== action) return false;
-  return action === "copy"
-    ? candidate.path === null
-    : typeof candidate.path === "string" && candidate.path.length > 0;
+  if (action === "copy") return candidate.path === null && candidate.pinLabel === null;
+  if (action === "save") {
+    return typeof candidate.path === "string" && candidate.path.length > 0 && candidate.pinLabel === null;
+  }
+  return candidate.path === null
+    && typeof candidate.pinLabel === "string"
+    && candidate.pinLabel.length > 0;
 }
 
 /**
@@ -265,7 +297,7 @@ export function App() {
       || (phaseRef.current !== "ready" && !retryingOutput)
       || cancelling.current
       || finishInFlight.current
-      || (retryingOutput && outputRetryPolicyRef.current === "copyOnly" && action === "save")
+      || (retryingOutput && !allowsOutputAction(outputRetryPolicyRef.current, action))
     ) return;
 
     finishInFlight.current = true;
@@ -314,11 +346,15 @@ export function App() {
           setErrorContext("finish");
           transition("cleanupError");
         } else if (isOutputFailure(parsed) || retryingOutput) {
-          // OutputPending 只能继续输出或丢弃，不能错误地重新开放 Append。Save 的不确定
-          // 结果永久降为 Copy-only，之后 Copy 失败也不能重新开放 Save。
-          setPendingRetryPolicy(parsed.code === "longshot_controller_save_uncertain"
-            ? "copyOnly"
-            : retryingOutput ? outputRetryPolicyRef.current : "any");
+          // OutputPending 只能继续输出或丢弃，不能错误地重新开放 Append。Save/Pin 的
+          // uncertain 结果只会收紧集合；后续业务失败也不能升级此前移除的动作。
+          setPendingRetryPolicy(
+            parsed.code === "longshot_controller_save_uncertain"
+              ? withoutUncertainOutputAction(outputRetryPolicyRef.current, "save")
+              : parsed.code === "longshot_controller_pin_uncertain"
+                ? withoutUncertainOutputAction(outputRetryPolicyRef.current, "pin")
+                : retryingOutput ? outputRetryPolicyRef.current : "any",
+          );
           setErrorContext(action);
           transition("outputPending");
         } else {
@@ -378,11 +414,14 @@ export function App() {
             {phase === "appending" && t("longshot.appending")}
             {phase === "finishing" && finishingAction === "copy" && t("longshot.finishingCopy")}
             {phase === "finishing" && finishingAction === "save" && t("longshot.finishingSave")}
+            {phase === "finishing" && finishingAction === "pin" && t("longshot.finishingPin")}
             {phase === "finished" && finishedResult?.action === "copy" && t("longshot.copied")}
             {phase === "finished" && finishedResult?.action === "save" && t("longshot.saved", {
               path: finishedResult.path,
             })}
-            {(phase === "ready" || phase === "outputPending") && t("longshot.ready")}
+            {phase === "finished" && finishedResult?.action === "pin" && t("longshot.pinned")}
+            {phase === "ready" && t("longshot.ready")}
+            {phase === "outputPending" && t("longshot.outputPending")}
           </p>
           <dl className="longshot-details">
             <div><dt>{t("longshot.frameCount")}</dt><dd>{snapshot.frameCount}</dd></div>
@@ -422,6 +461,14 @@ export function App() {
                   >
                     {t("longshot.save")}
                   </button>
+                  <button
+                    type="button"
+                    data-testid="longshot-pin"
+                    onClick={() => finishCurrent("pin")}
+                    disabled={phase !== "ready"}
+                  >
+                    {t("longshot.pin")}
+                  </button>
                 </>
               )}
               {phase === "outputPending" && (
@@ -433,13 +480,22 @@ export function App() {
                   >
                     {t("longshot.retryCopy")}
                   </button>
-                  {outputRetryPolicy === "any" && (
+                  {allowsOutputAction(outputRetryPolicy, "save") && (
                     <button
                       type="button"
                       data-testid="longshot-retry-save"
                       onClick={() => finishCurrent("save")}
                     >
                       {t("longshot.retrySave")}
+                    </button>
+                  )}
+                  {allowsOutputAction(outputRetryPolicy, "pin") && (
+                    <button
+                      type="button"
+                      data-testid="longshot-retry-pin"
+                      onClick={() => finishCurrent("pin")}
+                    >
+                      {t("longshot.retryPin")}
                     </button>
                   )}
                   <button type="button" data-testid="longshot-discard" onClick={cancelCurrent}>
