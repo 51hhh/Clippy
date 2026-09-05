@@ -133,6 +133,7 @@ pub fn run() {
             let pin_manager = Arc::new(pin::PinManager::new());
             let capture_manager = Arc::new(capture::CaptureManager::new());
             let capture_mode_gate = Arc::new(capture::CaptureModeGate::new());
+            let longshot_controller = Arc::new(capture::LongshotController::default());
             let translation = Arc::new(translation::TranslationService::new());
             #[cfg(target_os = "linux")]
             let portal_shortcuts = platform::uses_portal_shortcuts().then(|| {
@@ -173,6 +174,7 @@ pub fn run() {
                 main_window_position_worker_scheduled: AtomicBool::new(false),
                 capture_manager,
                 capture_mode_gate,
+                longshot_controller,
                 pin_manager,
                 pin_origins: Arc::new(pin::PinOriginRegistry::default()),
                 paste_manager,

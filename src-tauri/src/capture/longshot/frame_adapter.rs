@@ -226,6 +226,7 @@ mod tests {
         }
     }
 
+    #[allow(clippy::too_many_arguments)] // 测试需逐项表达帧几何、缩放与种子，避免为此新增生产抽象。
     fn encoded_frame(
         x: i32,
         y: i32,
