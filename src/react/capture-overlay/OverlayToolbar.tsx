@@ -4,6 +4,7 @@ import {
   Pin,
   Redo2,
   Save,
+  ScanLine,
   SlidersHorizontal,
   Trash2,
   Undo2,
@@ -30,6 +31,9 @@ type Props = {
   adjustments: ImageAdjustments;
   busy: boolean;
   translationBusy: boolean;
+  longshotPending: boolean;
+  longshotDisabled: boolean;
+  longshotDisabledReason: string;
   canUndo: boolean;
   canRedo: boolean;
   hasSelectedObject: boolean;
@@ -43,6 +47,7 @@ type Props = {
   onDeleteObject: () => void;
   onAction: (action: CaptureAction) => void;
   onTranslate: () => void;
+  onLongshot: () => void;
   onCancel: () => void;
   translateButtonRef: RefObject<HTMLButtonElement>;
 };
@@ -75,7 +80,9 @@ export function OverlayToolbar(props: Props) {
     width: props.viewportWidth,
     height: props.viewportHeight,
   });
-  const actionsDisabled = props.busy || props.translationBusy;
+  // 翻译在后台运行时原有工具编辑仍可用；只有终端输出需等它结束。
+  const editDisabled = props.busy || props.longshotPending;
+  const actionsDisabled = editDisabled || props.translationBusy;
 
   return (
     <div
@@ -97,6 +104,7 @@ export function OverlayToolbar(props: Props) {
                 title={t(option.labelKey)}
                 aria-label={t(option.labelKey)}
                 aria-pressed={props.tool === option.id}
+                disabled={editDisabled}
                 onClick={() => props.onTool(option.id)}
               >
                 {option.icon}
@@ -117,6 +125,7 @@ export function OverlayToolbar(props: Props) {
               title={t("capture.color", { color })}
               aria-label={t("capture.color", { color })}
               aria-pressed={props.color === color}
+              disabled={editDisabled}
               onClick={() => props.onColor(color)}
             />
           ))}
@@ -129,6 +138,7 @@ export function OverlayToolbar(props: Props) {
             max={MAX_STROKE}
             value={props.stroke}
             aria-label={t("capture.size")}
+            disabled={editDisabled}
             onChange={(event) => props.onStroke(Number(event.target.value))}
           />
         </label>
@@ -137,7 +147,7 @@ export function OverlayToolbar(props: Props) {
           type="button"
           title={t("capture.undo")}
           aria-label={t("capture.undo")}
-          disabled={!props.canUndo}
+          disabled={editDisabled || !props.canUndo}
           onClick={props.onUndo}
         >
           <Undo2 size={15} />
@@ -146,7 +156,7 @@ export function OverlayToolbar(props: Props) {
           type="button"
           title={t("capture.redo")}
           aria-label={t("capture.redo")}
-          disabled={!props.canRedo}
+          disabled={editDisabled || !props.canRedo}
           onClick={props.onRedo}
         >
           <Redo2 size={15} />
@@ -155,7 +165,7 @@ export function OverlayToolbar(props: Props) {
           type="button"
           title={t("capture.deleteObject")}
           aria-label={t("capture.deleteObject")}
-          disabled={!props.hasSelectedObject}
+          disabled={editDisabled || !props.hasSelectedObject}
           onClick={props.onDeleteObject}
         >
           <Trash2 size={15} />
@@ -166,6 +176,7 @@ export function OverlayToolbar(props: Props) {
           title={t("capture.image")}
           aria-label={t("capture.image")}
           aria-pressed={adjustOpen}
+          disabled={editDisabled}
           onClick={() => setAdjustOpen((open) => !open)}
         >
           <SlidersHorizontal size={15} />
@@ -201,6 +212,16 @@ export function OverlayToolbar(props: Props) {
         </button>
         <button
           type="button"
+          title={props.longshotDisabled ? props.longshotDisabledReason : t("capture.longshot")}
+          aria-label={t("capture.longshot")}
+          aria-description={props.longshotDisabled ? props.longshotDisabledReason : undefined}
+          disabled={props.longshotDisabled || actionsDisabled}
+          onClick={props.onLongshot}
+        >
+          <ScanLine size={15} />
+        </button>
+        <button
+          type="button"
           className="overlay-confirm"
           title={t("capture.copy")}
           aria-label={t("capture.copy")}
@@ -213,7 +234,7 @@ export function OverlayToolbar(props: Props) {
           type="button"
           title={t("capture.cancel")}
           aria-label={t("capture.cancel")}
-          disabled={props.busy}
+          disabled={editDisabled}
           onClick={props.onCancel}
         >
           <X size={15} />
@@ -227,6 +248,7 @@ export function OverlayToolbar(props: Props) {
             <input
               value={props.text}
               aria-label={t("capture.text")}
+              disabled={editDisabled}
               onChange={(event) => props.onText(event.target.value)}
             />
           </label>
@@ -239,6 +261,7 @@ export function OverlayToolbar(props: Props) {
             <input
               type="checkbox"
               checked={props.adjustments.grayscale}
+              disabled={editDisabled}
               onChange={(event) => props.onAdjust({ grayscale: event.target.checked })}
             />
             <span>{t("capture.grayscale")}</span>
@@ -252,6 +275,7 @@ export function OverlayToolbar(props: Props) {
                 max={100}
                 value={props.adjustments[key]}
                 aria-label={t(`capture.${key}`)}
+                disabled={editDisabled}
                 onChange={(event) => props.onAdjust({ [key]: Number(event.target.value) })}
               />
             </label>
@@ -264,6 +288,7 @@ export function OverlayToolbar(props: Props) {
               max={120}
               value={props.adjustments.cornerRadius}
               aria-label={t("capture.corners")}
+              disabled={editDisabled}
               onChange={(event) => props.onAdjust({ cornerRadius: Number(event.target.value) })}
             />
           </label>

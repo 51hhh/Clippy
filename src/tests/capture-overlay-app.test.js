@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
     commit: vi.fn(),
     translate: vi.fn(),
     copyText: vi.fn(),
+    openLongshot: vi.fn(),
   },
 }));
 
@@ -85,6 +86,12 @@ function protocolImage(width, height) {
   return image;
 }
 
+function changeRange(input, value) {
+  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+  setValue.call(input, String(value));
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 describe("capture overlay app", () => {
   let root;
 
@@ -118,6 +125,13 @@ describe("capture overlay app", () => {
       new ArrayBuffer(basePayload.pixelWidth * basePayload.pixelHeight * 4),
     );
     mocks.overlayApi.commit.mockResolvedValue({ action: "copy", path: null, pinLabel: null });
+    mocks.overlayApi.translate.mockResolvedValue({
+      sourceText: "source",
+      translatedText: "translated",
+      provider: "offline",
+      detectedSourceLanguage: null,
+    });
+    mocks.overlayApi.openLongshot.mockResolvedValue({ label: "longshot-controller-session-1" });
     root = createRoot(document.getElementById("root"));
   });
 
@@ -269,6 +283,271 @@ describe("capture overlay app", () => {
       expect.objectContaining({ rendererVersion: 2, sourceWidth: 200, sourceHeight: 150 }),
       { x: 1930, y: 34, width: 100, height: 80 },
     );
+  });
+
+  it("opens one label-free longshot controller from a clean, complete selection", async () => {
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 110, y: 90 });
+
+    await act(async () => {
+      button("Long screenshot").click();
+      // React 尚未来得及重渲染 disabled；同步 ref 仍必须挡住这一击。
+      button("Long screenshot").click();
+    });
+    await flush();
+
+    expect(mocks.overlayApi.openLongshot).toHaveBeenCalledTimes(1);
+    expect(mocks.overlayApi.openLongshot).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      monitorId: 0,
+      x: 10,
+      y: 10,
+      width: 100,
+      height: 80,
+    });
+    expect(mocks.overlayApi.cancel).not.toHaveBeenCalled();
+    expect(mocks.overlayApi.commit).not.toHaveBeenCalled();
+  });
+
+  it("does not open Longshot after a same-tick ordinary copy wins", async () => {
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 110, y: 90 });
+
+    await act(async () => {
+      button("Copy").click();
+      button("Long screenshot").click();
+    });
+    await flush();
+
+    expect(mocks.overlayApi.commit).toHaveBeenCalledTimes(1);
+    expect(mocks.overlayApi.openLongshot).not.toHaveBeenCalled();
+    expect(button("Long screenshot").disabled).toBe(true);
+  });
+
+  it("does not open Longshot after a same-tick translation starts", async () => {
+    let resolveTranslation;
+    mocks.overlayApi.translate.mockReturnValue(new Promise((resolve) => (resolveTranslation = resolve)));
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 110, y: 90 });
+
+    await act(async () => {
+      button("Translate selection").click();
+      button("Long screenshot").click();
+    });
+    await flush();
+
+    expect(mocks.overlayApi.translate).toHaveBeenCalledTimes(1);
+    expect(mocks.overlayApi.openLongshot).not.toHaveBeenCalled();
+    expect(button("Long screenshot").disabled).toBe(true);
+
+    await act(async () => resolveTranslation({
+      sourceText: "source",
+      translatedText: "translated",
+      provider: "offline",
+      detectedSourceLanguage: null,
+    }));
+  });
+
+  it("freezes edits, redo, and ordinary IPC while opening the controller", async () => {
+    let rejectOpen;
+    mocks.overlayApi.openLongshot.mockReturnValue(new Promise((_, reject) => (rejectOpen = reject)));
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 110, y: 90 });
+    await act(async () => button("Pen").click());
+    await drag({ x: 24, y: 24 }, { x: 56, y: 56 });
+    await act(async () => button("Undo").click());
+    await act(async () => button("Image").click());
+    const before = selectionRect();
+
+    await act(async () => button("Long screenshot").click());
+    await act(async () => {
+      // 此时工具仍是 Pen：根画布路由必须在已捕获的绘制路径前同步拦住它。
+      pointer("pointerdown", 20, 20);
+      pointer("pointermove", 160, 130);
+      pointer("pointerup", 160, 130);
+      document.querySelector(".overlay-root").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      button("Redo").click();
+      document.querySelector(".overlay-toggle input").click();
+      button("Copy").click();
+      button("Translate selection").click();
+      button("Cancel").click();
+    });
+    await flush();
+
+    expect(selectionRect()).toEqual(before);
+    expect(button("Pen").disabled).toBe(true);
+    expect(button("Redo").disabled).toBe(true);
+    expect(document.querySelector(".overlay-toggle input").disabled).toBe(true);
+    expect(button("Copy").disabled).toBe(true);
+    expect(button("Translate selection").disabled).toBe(true);
+    expect(button("Cancel").disabled).toBe(true);
+    expect(mocks.overlayApi.openLongshot).toHaveBeenCalledTimes(1);
+    expect(mocks.overlayApi.commit).not.toHaveBeenCalled();
+    expect(mocks.overlayApi.translate).not.toHaveBeenCalled();
+    expect(mocks.overlayApi.copyText).not.toHaveBeenCalled();
+    expect(mocks.overlayApi.cancel).not.toHaveBeenCalled();
+
+    await act(async () => rejectOpen(new Error("controller unavailable")));
+    await flush();
+    expect(selectionRect()).toEqual(before);
+    expect(button("Long screenshot").disabled).toBe(false);
+    expect(button("Redo").disabled).toBe(false);
+    expect(document.querySelector(".overlay-toggle input").checked).toBe(false);
+  });
+
+  it("keeps ordinary output available after open accepts while latching Longshot", async () => {
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 110, y: 90 });
+
+    await act(async () => button("Long screenshot").click());
+    await flush();
+
+    expect(button("Long screenshot").disabled).toBe(true);
+    expect(button("Copy").disabled).toBe(false);
+    expect(button("Cancel").disabled).toBe(false);
+    expect(mocks.overlayApi.cancel).not.toHaveBeenCalled();
+    expect(mocks.overlayApi.commit).not.toHaveBeenCalled();
+
+    await act(async () => button("Copy").click());
+    await flush();
+    expect(mocks.overlayApi.commit).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps Longshot disabled for image edits without blocking ordinary output", async () => {
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 110, y: 90 });
+    await act(async () => button("Image").click());
+    await act(async () => document.querySelector(".overlay-toggle input").click());
+
+    expect(button("Long screenshot").disabled).toBe(true);
+    expect(button("Long screenshot").getAttribute("aria-description")).toBe(
+      "Long screenshot starts from the original selection and cannot include current annotations or image adjustments.",
+    );
+    expect(button("Pin").disabled).toBe(false);
+
+    await act(async () => document.querySelector(".overlay-toggle input").click());
+    expect(button("Long screenshot").disabled).toBe(false);
+  });
+
+  it("treats nonzero corner rounding as a Longshot-dirty image edit", async () => {
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 110, y: 90 });
+    await act(async () => button("Image").click());
+    const corners = document.querySelector('input[aria-label="Corners"]');
+
+    await act(async () => changeRange(corners, 24));
+    expect(button("Long screenshot").disabled).toBe(true);
+    expect(button("Long screenshot").getAttribute("aria-description")).toBe(
+      "Long screenshot starts from the original selection and cannot include current annotations or image adjustments.",
+    );
+    expect(button("Copy").disabled).toBe(false);
+
+    await act(async () => changeRange(corners, 0));
+    expect(button("Long screenshot").disabled).toBe(false);
+  });
+
+  it("disables Longshot for annotations and re-enables it after undo", async () => {
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 110, y: 90 });
+    await act(async () => button("Pen").click());
+    await drag({ x: 24, y: 24 }, { x: 56, y: 56 });
+
+    expect(button("Long screenshot").disabled).toBe(true);
+    expect(button("Undo").disabled).toBe(false);
+
+    await act(async () => button("Undo").click());
+    expect(button("Long screenshot").disabled).toBe(false);
+  });
+
+  it("treats an in-progress annotation as dirty before it reaches history", async () => {
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 110, y: 90 });
+    await act(async () => button("Pen").click());
+    await act(async () => pointer("pointerdown", 24, 24));
+    await flush();
+
+    expect(button("Long screenshot").disabled).toBe(true);
+
+    await act(async () => pointer("pointerup", 24, 24));
+    await flush();
+    expect(button("Long screenshot").disabled).toBe(false);
+  });
+
+  it("recovers from a rejected open without cancelling the ordinary session", async () => {
+    mocks.overlayApi.openLongshot
+      .mockRejectedValueOnce(new Error("raw controller build failure"))
+      .mockResolvedValueOnce({ label: "longshot-controller-session-1" });
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 110, y: 90 });
+
+    await act(async () => button("Long screenshot").click());
+    await flush();
+
+    expect(document.querySelector(".overlay-error")?.textContent).toBe(
+      "Could not open the long screenshot controller. Please try again.",
+    );
+    expect(document.body.textContent).not.toContain("raw controller build failure");
+    expect(button("Long screenshot").disabled).toBe(false);
+    expect(mocks.overlayApi.cancel).not.toHaveBeenCalled();
+    expect(mocks.overlayApi.commit).not.toHaveBeenCalled();
+
+    await act(async () => button("Long screenshot").click());
+    await flush();
+    expect(mocks.overlayApi.openLongshot).toHaveBeenCalledTimes(2);
+    expect(button("Long screenshot").disabled).toBe(true);
+  });
+
+  it("blocks a stale translation-copy click in the same tick as Longshot", async () => {
+    let resolveOpen;
+    mocks.overlayApi.openLongshot.mockReturnValue(new Promise((resolve) => (resolveOpen = resolve)));
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 110, y: 90 });
+    await act(async () => button("Translate selection").click());
+    await flush();
+
+    expect(document.querySelector(".translation-copy")).not.toBeNull();
+    await act(async () => {
+      button("Long screenshot").click();
+      document.querySelector(".translation-copy").click();
+    });
+    await flush();
+
+    expect(mocks.overlayApi.openLongshot).toHaveBeenCalledTimes(1);
+    expect(mocks.overlayApi.copyText).not.toHaveBeenCalled();
+    await act(async () => resolveOpen({ label: "longshot-controller-session-1" }));
+  });
+
+  it("ignores late controller rejection after unmount without a compensating IPC", async () => {
+    let rejectOpen;
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.overlayApi.openLongshot.mockReturnValue(new Promise((_, reject) => (rejectOpen = reject)));
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 110, y: 90 });
+    await act(async () => button("Long screenshot").click());
+    await act(async () => root.unmount());
+    await act(async () => rejectOpen(new Error("late failure")));
+    await flush();
+
+    expect(warning).not.toHaveBeenCalled();
+    expect(mocks.overlayApi.cancel).not.toHaveBeenCalled();
+    expect(mocks.overlayApi.commit).not.toHaveBeenCalled();
+    warning.mockRestore();
+  });
+
+  it("ignores late controller resolution after unmount without a compensating IPC", async () => {
+    let resolveOpen;
+    mocks.overlayApi.openLongshot.mockReturnValue(new Promise((resolve) => (resolveOpen = resolve)));
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 110, y: 90 });
+    await act(async () => button("Long screenshot").click());
+    await act(async () => root.unmount());
+    await act(async () => resolveOpen({ label: "longshot-controller-session-1" }));
+    await flush();
+
+    expect(mocks.overlayApi.cancel).not.toHaveBeenCalled();
+    expect(mocks.overlayApi.commit).not.toHaveBeenCalled();
   });
 
   it("drops the selection on right click so a new area can be framed", async () => {

@@ -24,6 +24,7 @@ import type {
   CaptureAction,
   CaptureOrigin,
   CaptureOverlayPayload,
+  CaptureSelection,
   CaptureTranslationState,
   OverlayTool,
   Point,
@@ -33,6 +34,39 @@ import type {
 import { useSelection } from "./useSelection";
 
 const HANDLES: ResizeHandle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
+type LongshotLaunchState = "idle" | "pending" | "accepted";
+
+/** 普通覆盖层只做一次轻量预检，实际会话/模式权威仍在后端。 */
+function longshotSelection(
+  payload: CaptureOverlayPayload | null,
+  selection: Rect | null,
+): CaptureSelection | null {
+  if (!payload || !selection) return null;
+  const geometry = [
+    payload.logicalWidth,
+    payload.logicalHeight,
+    selection.x,
+    selection.y,
+    selection.width,
+    selection.height,
+  ];
+  if (
+    !payload.sessionId ||
+    !Number.isFinite(payload.monitorId) ||
+    geometry.some((value) => !Number.isFinite(value)) ||
+    payload.logicalWidth < 2 ||
+    payload.logicalHeight < 2 ||
+    selection.x < 0 ||
+    selection.y < 0 ||
+    selection.width < 2 ||
+    selection.height < 2 ||
+    selection.x + selection.width > payload.logicalWidth ||
+    selection.y + selection.height > payload.logicalHeight
+  ) {
+    return null;
+  }
+  return { ...selection, sessionId: payload.sessionId, monitorId: payload.monitorId };
+}
 
 /** 覆盖层窗口的可见视口尺寸（CSS 像素）。合成器最终摆放的尺寸只有这里能看到。 */
 function useViewportSize() {
@@ -64,6 +98,7 @@ export function App() {
   const [frameProtocolFailed, setFrameProtocolFailed] = useState(false);
   const [imageReady, setImageReady] = useState(false);
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [tool, setTool] = useState<OverlayTool>("select");
   const [color, setColor] = useState(DEFAULT_COLOR);
@@ -74,12 +109,24 @@ export function App() {
   const [translation, setTranslation] = useState<CaptureTranslationState | null>(null);
   const [copyStatus, setCopyStatus] = useState<"copied" | "failed" | null>(null);
   const translationGeneration = useRef(0);
+  const translationBusyRef = useRef(false);
+  const [longshotLaunch, setLongshotLaunch] = useState<LongshotLaunchState>("idle");
+  const longshotLaunchRef = useRef<LongshotLaunchState>("idle");
+  const mountedEpoch = useRef(0);
   const translateButtonRef = useRef<HTMLButtonElement>(null);
   const imageRef = useRef<FrameImage | null>(null);
   const frameHostRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const activeDrag = useRef<"selection" | "canvas" | null>(null);
   const revealed = useRef(false);
+
+  useEffect(() => {
+    const epoch = mountedEpoch.current + 1;
+    mountedEpoch.current = epoch;
+    return () => {
+      if (mountedEpoch.current === epoch) mountedEpoch.current += 1;
+    };
+  }, []);
 
   /**
    * 让后端把覆盖层显示出来。窗口是隐藏建窗的：加载 webview、取 payload 与底图的
@@ -244,6 +291,11 @@ export function App() {
     draftAnnotation !== null ||
     selectedId !== null ||
     hasImageAdjustments(adjustments);
+  const longshotDirty =
+    annotations.length > 0 ||
+    draftAnnotation !== null ||
+    hasImageAdjustments(adjustments) ||
+    adjustments.cornerRadius !== 0;
 
   // 底图与标注画在这块画布上，因此标注相关的状态一变就要重绘。
   //
@@ -315,16 +367,19 @@ export function App() {
   }, [error, reveal]);
 
   const cancel = useCallback(() => {
-    if (!payload || busy) return;
+    if (!payload || busyRef.current || longshotLaunchRef.current === "pending") return;
     translationGeneration.current += 1;
+    translationBusyRef.current = false;
     setTranslation(null);
     setCopyStatus(null);
+    busyRef.current = true;
     setBusy(true);
     overlayApi.cancel(payload.sessionId).catch((reason) => {
       setError(String(reason));
+      busyRef.current = false;
       setBusy(false);
     });
-  }, [busy, payload]);
+  }, [payload]);
 
   /**
    * 选区在**桌面**逻辑坐标里的位置。覆盖层坐标是相对自己这块屏幕的，加上
@@ -347,9 +402,18 @@ export function App() {
   const run = useCallback(
     (action: CaptureAction) => {
       const image = imageRef.current;
-      if (!payload || !image || !selection || busy || translation?.status === "loading") return;
+      if (
+        !payload ||
+        !image ||
+        !selection ||
+        busyRef.current ||
+        translationBusyRef.current ||
+        longshotLaunchRef.current === "pending"
+      ) return;
       translationGeneration.current += 1;
+      translationBusyRef.current = false;
       setTranslation(null);
+      busyRef.current = true;
       setBusy(true);
       setError(null);
       overlayApi
@@ -367,41 +431,53 @@ export function App() {
         )
         .catch((reason) => {
           setError(String(reason));
+          busyRef.current = false;
           setBusy(false);
         });
     },
-    [adjustments, annotations, busy, originRect, payload, selection, translation?.status],
+    [adjustments, annotations, originRect, payload, selection],
   );
 
   const closeTranslation = useCallback(() => {
+    if (longshotLaunchRef.current === "pending") return;
     translationGeneration.current += 1;
+    translationBusyRef.current = false;
     setTranslation(null);
     setCopyStatus(null);
     requestAnimationFrame(() => translateButtonRef.current?.focus());
   }, []);
 
   const translate = useCallback(() => {
-    if (!payload || !selection || busy || translation?.status === "loading") return;
+    if (
+      !payload ||
+      !selection ||
+      busyRef.current ||
+      translationBusyRef.current ||
+      longshotLaunchRef.current === "pending"
+    ) return;
     const generation = translationGeneration.current + 1;
     translationGeneration.current = generation;
+    translationBusyRef.current = true;
     setCopyStatus(null);
     setTranslation({ status: "loading" });
     overlayApi
       .translate({ ...selection, sessionId: payload.sessionId, monitorId: payload.monitorId })
       .then((result) => {
         if (isCurrentTranslation(translationGeneration.current, generation)) {
+          translationBusyRef.current = false;
           setTranslation({ status: "result", result });
         }
       })
       .catch((reason) => {
         if (isCurrentTranslation(translationGeneration.current, generation)) {
+          translationBusyRef.current = false;
           setTranslation({ status: "error", message: translationErrorMessage(reason) });
         }
       });
-  }, [busy, payload, selection, translation?.status]);
+  }, [payload, selection]);
 
   const copyTranslation = useCallback(async () => {
-    if (translation?.status !== "result") return;
+    if (translation?.status !== "result" || longshotLaunchRef.current === "pending") return;
     try {
       await overlayApi.copyText(translation.result.translatedText);
       setCopyStatus("copied");
@@ -411,13 +487,77 @@ export function App() {
   }, [translation]);
 
   const deleteObject = useCallback(() => {
-    if (!selectedId) return;
+    if (!selectedId || longshotLaunchRef.current === "pending") return;
     history.commit((items) => items.filter((item) => item.id !== selectedId));
     setSelectedId(null);
   }, [history, selectedId]);
 
+  const openLongshot = useCallback(() => {
+    if (
+      longshotLaunchRef.current !== "idle" ||
+      longshotDirty ||
+      busyRef.current ||
+      translationBusyRef.current
+    ) return;
+    const candidate = longshotSelection(payload, selection);
+    if (!candidate) return;
+
+    // React state 到下一轮渲染才可见；先写 ref 才能挡住同 tick 的双击与键盘事件。
+    longshotLaunchRef.current = "pending";
+    setLongshotLaunch("pending");
+    translationGeneration.current += 1;
+    translationBusyRef.current = false;
+    setTranslation(null);
+    setCopyStatus(null);
+    setError(null);
+    const epoch = mountedEpoch.current;
+
+    overlayApi.openLongshot(candidate).then(
+      () => {
+        if (mountedEpoch.current !== epoch) return;
+        longshotLaunchRef.current = "accepted";
+        setLongshotLaunch("accepted");
+      },
+      (reason) => {
+        if (mountedEpoch.current !== epoch) return;
+        console.warn("长截图控制窗口创建失败", reason);
+        longshotLaunchRef.current = "idle";
+        setLongshotLaunch("idle");
+        setError(t("capture.longshotOpenFailed"));
+      },
+    );
+  }, [longshotDirty, payload, selection]);
+
+  const setToolIfEditable = useCallback((next: OverlayTool) => {
+    if (longshotLaunchRef.current !== "pending") setTool(next);
+  }, []);
+  const setColorIfEditable = useCallback((next: string) => {
+    if (longshotLaunchRef.current !== "pending") setColor(next);
+  }, []);
+  const setStrokeIfEditable = useCallback((next: number) => {
+    if (longshotLaunchRef.current !== "pending") setStroke(next);
+  }, []);
+  const setTextIfEditable = useCallback((next: string) => {
+    if (longshotLaunchRef.current !== "pending") setText(next);
+  }, []);
+  const adjustIfEditable = useCallback((update: Partial<ImageAdjustments>) => {
+    if (longshotLaunchRef.current !== "pending") {
+      setAdjustments((current) => ({ ...current, ...update }));
+    }
+  }, []);
+  const undoIfEditable = useCallback(() => {
+    if (longshotLaunchRef.current !== "pending") history.undo();
+  }, [history]);
+  const redoIfEditable = useCallback(() => {
+    if (longshotLaunchRef.current !== "pending") history.redo();
+  }, [history]);
+
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      if (longshotLaunchRef.current === "pending") {
+        event.preventDefault();
+        return;
+      }
       const typing = event.target instanceof HTMLElement && event.target.tagName === "INPUT";
       if (event.key === "Escape") {
         event.preventDefault();
@@ -429,11 +569,11 @@ export function App() {
       const control = event.ctrlKey || event.metaKey;
       if (control && event.key.toLowerCase() === "z") {
         event.preventDefault();
-        if (event.shiftKey) history.redo();
-        else history.undo();
+        if (event.shiftKey) redoIfEditable();
+        else undoIfEditable();
       } else if (control && event.key.toLowerCase() === "y") {
         event.preventDefault();
-        history.redo();
+        redoIfEditable();
       } else if ((event.key === "Delete" || event.key === "Backspace") && selectedId) {
         event.preventDefault();
         deleteObject();
@@ -447,7 +587,7 @@ export function App() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [cancel, closeTranslation, deleteObject, history, run, selectedId, selection, translation]);
+  }, [cancel, closeTranslation, deleteObject, redoIfEditable, run, selectedId, selection, translation, undoIfEditable]);
 
   function point(event: React.PointerEvent): Point {
     return { x: event.clientX, y: event.clientY };
@@ -458,6 +598,7 @@ export function App() {
    * 其余情况下绘制工具归画布、`select` 工具归选区。
    */
   function onPointerDown(event: React.PointerEvent) {
+    if (longshotLaunchRef.current === "pending") return;
     if (event.button !== 0) return;
     if (translation) closeTranslation();
     const at = point(event);
@@ -473,11 +614,13 @@ export function App() {
   }
 
   function onPointerMove(event: React.PointerEvent) {
+    if (longshotLaunchRef.current === "pending") return;
     if (activeDrag.current === "canvas") canvas.onPointerMove(event);
     else region.pointerMove(point(event));
   }
 
   function onPointerUp(event: React.PointerEvent) {
+    if (longshotLaunchRef.current === "pending") return;
     const owner = activeDrag.current;
     activeDrag.current = null;
     if (owner === "canvas") canvas.onPointerUp();
@@ -504,6 +647,17 @@ export function App() {
   const translationPosition = selection && translation
     ? translationPanelPosition(selection, layoutWidth, layoutHeight)
     : null;
+  const validLongshotSelection = longshotSelection(payload, selection) !== null;
+  const longshotActionBusy = busyRef.current || translationBusyRef.current;
+  const longshotDisabledReason = longshotLaunch === "pending"
+    ? t("capture.longshotPending")
+    : longshotLaunch === "accepted"
+      ? t("capture.longshotAccepted")
+      : longshotDirty
+        ? t("capture.longshotDirty")
+        : longshotActionBusy
+          ? t("capture.longshotBusy")
+        : t("capture.longshotInvalid");
 
   return (
     <main
@@ -514,6 +668,10 @@ export function App() {
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
       onContextMenu={(event) => {
+        if (longshotLaunchRef.current === "pending") {
+          event.preventDefault();
+          return;
+        }
         // 右键回到"还没框选"，这样点一次取了整屏之后还能重新框小区域。
         event.preventDefault();
         region.reset();
@@ -567,19 +725,28 @@ export function App() {
               adjustments={adjustments}
               busy={busy}
               translationBusy={translation?.status === "loading"}
+              longshotPending={longshotLaunch === "pending"}
+              longshotDisabled={
+                longshotLaunch !== "idle" ||
+                longshotDirty ||
+                longshotActionBusy ||
+                !validLongshotSelection
+              }
+              longshotDisabledReason={longshotDisabledReason}
               canUndo={history.canUndo}
               canRedo={history.canRedo}
               hasSelectedObject={selectedId !== null}
-              onTool={setTool}
-              onColor={setColor}
-              onStroke={setStroke}
-              onText={setText}
-              onAdjust={(update) => setAdjustments((current) => ({ ...current, ...update }))}
-              onUndo={history.undo}
-              onRedo={history.redo}
+              onTool={setToolIfEditable}
+              onColor={setColorIfEditable}
+              onStroke={setStrokeIfEditable}
+              onText={setTextIfEditable}
+              onAdjust={adjustIfEditable}
+              onUndo={undoIfEditable}
+              onRedo={redoIfEditable}
               onDeleteObject={deleteObject}
               onAction={run}
               onTranslate={translate}
+              onLongshot={openLongshot}
               onCancel={cancel}
               translateButtonRef={translateButtonRef}
             />
