@@ -1,5 +1,6 @@
 use super::error::CaptureError;
 use super::frame_crop::selection_pixel_rect;
+use super::mode_gate::CaptureModeOwnership;
 use super::types::{CaptureOverlayPayload, CaptureSelection, OverlaySpec, WindowCandidate};
 use super::window_probe::probe_windows;
 use crate::screenshot::CapturedMonitorFrame;
@@ -78,6 +79,7 @@ pub(crate) struct ViewportObservation {
     pub mismatch: Option<(i64, i64)>,
 }
 
+#[derive(Debug)]
 pub(super) struct CaptureSession {
     pub id: String,
     pub overlays: Vec<OverlaySpec>,
@@ -94,6 +96,7 @@ pub(super) struct CaptureSession {
     /// 就没人接 Esc，整个会话只能靠杀窗口退出。
     focus_assigned: bool,
     timings: StageTimings,
+    mode_ownership: CaptureModeOwnership,
 }
 
 impl CaptureSession {
@@ -103,6 +106,25 @@ impl CaptureSession {
             .map(|spec| spec.label.clone())
             .collect()
     }
+
+    /// 资源恢复完成后的唯一模式终结入口。
+    pub(super) fn finalize_mode(self) -> Result<(), CaptureError> {
+        self.mode_ownership.release()
+    }
+}
+
+/// 成功启动的精确会话身份与覆盖层规格。
+#[derive(Debug)]
+pub(super) struct CaptureStart {
+    pub session_id: String,
+    pub overlays: Vec<OverlaySpec>,
+}
+
+/// `begin` 失败时把尚未转交的模式所有权原样返还给入口。
+#[derive(Debug)]
+pub(super) struct CaptureBeginFailure {
+    pub error: CaptureError,
+    pub ownership: CaptureModeOwnership,
 }
 
 /// 视口比对允许的误差：CSS 像素和逻辑像素之间会有一格取整噪声。
@@ -149,13 +171,13 @@ impl CaptureManager {
         lowered_pins: Vec<String>,
         probe_hint: bool,
         mut timings: StageTimings,
-    ) -> Result<Vec<OverlaySpec>, CaptureError> {
+        ownership: CaptureModeOwnership,
+    ) -> Result<CaptureStart, CaptureBeginFailure> {
         if frames.is_empty() {
-            return Err(CaptureError::NoMonitorFrames);
-        }
-        let mut current = self.session.lock().map_err(CaptureError::state_lock)?;
-        if current.is_some() {
-            return Err(CaptureError::SessionBusy);
+            return Err(CaptureBeginFailure {
+                error: CaptureError::NoMonitorFrames,
+                ownership,
+            });
         }
         let id = crate::image_io::unique_image_id();
         let at = Instant::now();
@@ -171,8 +193,23 @@ impl CaptureManager {
                 height: frame.logical_height,
             })
             .collect();
+        let mut current = match self.session.lock() {
+            Ok(current) => current,
+            Err(error) => {
+                return Err(CaptureBeginFailure {
+                    error: CaptureError::state_lock(error),
+                    ownership,
+                });
+            }
+        };
+        if current.is_some() {
+            return Err(CaptureBeginFailure {
+                error: CaptureError::SessionBusy,
+                ownership,
+            });
+        }
         *current = Some(CaptureSession {
-            id,
+            id: id.clone(),
             frames,
             overlays: specs.clone(),
             restore_labels,
@@ -181,8 +218,22 @@ impl CaptureManager {
             probe_hint,
             focus_assigned: false,
             timings,
+            mode_ownership: ownership,
         });
-        Ok(specs)
+        Ok(CaptureStart {
+            session_id: id,
+            overlays: specs,
+        })
+    }
+
+    /// 短锁验证创建调用仍属于精确会话。
+    pub(super) fn ensure_current(&self, session_id: &str) -> Result<(), CaptureError> {
+        let current = self.session.lock().map_err(CaptureError::state_lock)?;
+        let session = current.as_ref().ok_or(CaptureError::SessionMissing)?;
+        if session.id != session_id {
+            return Err(CaptureError::SessionSuperseded);
+        }
+        Ok(())
     }
 
     /// 覆盖层报告"首帧已经画好，可以显示了"。
@@ -401,19 +452,18 @@ impl CaptureManager {
         Ok(session)
     }
 
-    pub(super) fn abort(&self) -> Option<CaptureSession> {
-        self.session.lock().ok()?.take()
-    }
-
-    pub(super) fn abort_if_overlay(&self, label: &str) -> Option<CaptureSession> {
-        let mut current = self.session.lock().ok()?;
+    pub(super) fn abort_if_overlay(
+        &self,
+        label: &str,
+    ) -> Result<Option<CaptureSession>, CaptureError> {
+        let mut current = self.session.lock().map_err(CaptureError::state_lock)?;
         if current
             .as_ref()
             .is_some_and(|session| session.overlays.iter().any(|spec| spec.label == label))
         {
-            current.take()
+            Ok(current.take())
         } else {
-            None
+            Ok(None)
         }
     }
 }
@@ -441,7 +491,19 @@ fn crop_frame(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::capture::{CaptureMode, CaptureModeGate};
     use std::sync::Arc;
+
+    fn ownership() -> CaptureModeOwnership {
+        Arc::new(CaptureModeGate::new())
+            .try_claim_owned(CaptureMode::Ordinary)
+            .expect("测试应取得 Ordinary")
+    }
+
+    fn ownership_on(gate: &Arc<CaptureModeGate>) -> CaptureModeOwnership {
+        gate.try_claim_owned(CaptureMode::Ordinary)
+            .expect("测试应取得指定 gate")
+    }
 
     fn overlay(label: &str) -> OverlaySpec {
         OverlaySpec {
@@ -518,6 +580,7 @@ mod tests {
             lowered_pins: Vec::new(),
             frames: vec![monitor_frame],
             windows: HashMap::new(),
+            mode_ownership: ownership(),
         });
 
         let selection = CaptureSelection {
@@ -558,6 +621,7 @@ mod tests {
                     title: "picked".to_string(),
                 }],
             )]),
+            mode_ownership: ownership(),
         });
 
         let json = serde_json::to_value(manager.payload(&label).unwrap()).unwrap();
@@ -591,6 +655,7 @@ mod tests {
             lowered_pins: Vec::new(),
             frames: vec![frame(2.0)],
             windows: HashMap::new(),
+            mode_ownership: ownership(),
         });
 
         let rgba = manager.frame_rgba(&label).unwrap();
@@ -622,13 +687,231 @@ mod tests {
                 Vec::new(),
                 true,
                 StageTimings::default(),
+                ownership(),
             )
             .unwrap();
-        assert_eq!(specs.len(), 2);
+        assert_eq!(specs.overlays.len(), 2);
 
-        for spec in &specs {
+        for spec in &specs.overlays {
             assert!(manager.payload(&spec.label).unwrap().probe_hint);
         }
+    }
+
+    #[test]
+    fn begin_returns_ownership_on_empty_busy_and_state_lock_failures() {
+        let empty_manager = CaptureManager::new();
+        let empty_gate = Arc::new(CaptureModeGate::new());
+        let failure = empty_manager
+            .begin(
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                false,
+                StageTimings::default(),
+                ownership_on(&empty_gate),
+            )
+            .expect_err("空帧应失败");
+        assert_eq!(failure.error.code(), "no_monitor_frames");
+        failure.ownership.release().expect("返还所有权仍可释放");
+        assert_eq!(empty_gate.active_mode().unwrap(), None);
+
+        let busy_manager = CaptureManager::new();
+        let first_gate = Arc::new(CaptureModeGate::new());
+        let first = busy_manager
+            .begin(
+                vec![frame(1.0)],
+                Vec::new(),
+                Vec::new(),
+                false,
+                StageTimings::default(),
+                ownership_on(&first_gate),
+            )
+            .expect("首个会话启动");
+        let rejected_gate = Arc::new(CaptureModeGate::new());
+        let failure = busy_manager
+            .begin(
+                vec![frame(1.0)],
+                Vec::new(),
+                Vec::new(),
+                false,
+                StageTimings::default(),
+                ownership_on(&rejected_gate),
+            )
+            .expect_err("已有会话应失败");
+        assert_eq!(failure.error.code(), "session_busy");
+        failure.ownership.release().expect("Busy 返还可释放");
+        assert_eq!(rejected_gate.active_mode().unwrap(), None);
+        busy_manager
+            .finish(&first.session_id)
+            .unwrap()
+            .finalize_mode()
+            .unwrap();
+
+        let poisoned = CaptureManager::new();
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = poisoned.session.lock().unwrap();
+            panic!("制造 manager poison");
+        }));
+        let poison_gate = Arc::new(CaptureModeGate::new());
+        let failure = poisoned
+            .begin(
+                vec![frame(1.0)],
+                Vec::new(),
+                Vec::new(),
+                false,
+                StageTimings::default(),
+                ownership_on(&poison_gate),
+            )
+            .expect_err("poison 应结构化失败");
+        assert_eq!(failure.error.code(), "state_lock");
+        failure.ownership.release().expect("StateLock 返还可释放");
+        assert_eq!(poison_gate.active_mode().unwrap(), None);
+    }
+
+    #[test]
+    fn exact_session_id_preserves_new_owner_against_late_finish() {
+        let manager = CaptureManager::new();
+        let first_gate = Arc::new(CaptureModeGate::new());
+        let first = manager
+            .begin(
+                vec![frame(1.0)],
+                Vec::new(),
+                Vec::new(),
+                false,
+                StageTimings::default(),
+                ownership_on(&first_gate),
+            )
+            .unwrap();
+        assert!(manager.ensure_current(&first.session_id).is_ok());
+        let first_session = manager.finish(&first.session_id).unwrap();
+        first_session.finalize_mode().unwrap();
+
+        let second_gate = Arc::new(CaptureModeGate::new());
+        let second = manager
+            .begin(
+                vec![frame(1.0)],
+                Vec::new(),
+                Vec::new(),
+                false,
+                StageTimings::default(),
+                ownership_on(&second_gate),
+            )
+            .unwrap();
+        assert_eq!(
+            manager.finish(&first.session_id).unwrap_err().code(),
+            "session_superseded"
+        );
+        assert_eq!(
+            manager
+                .ensure_current(&first.session_id)
+                .unwrap_err()
+                .code(),
+            "session_superseded"
+        );
+        assert_eq!(
+            second_gate.active_mode().unwrap(),
+            Some(CaptureMode::Ordinary)
+        );
+        manager
+            .finish(&second.session_id)
+            .unwrap()
+            .finalize_mode()
+            .unwrap();
+    }
+
+    #[test]
+    fn read_and_render_operations_never_finalize_the_active_mode() {
+        let manager = CaptureManager::new();
+        let gate = Arc::new(CaptureModeGate::new());
+        let start = manager
+            .begin(
+                vec![frame(1.0)],
+                Vec::new(),
+                Vec::new(),
+                false,
+                StageTimings::default(),
+                ownership_on(&gate),
+            )
+            .unwrap();
+        let label = &start.overlays[0].label;
+        let payload = manager.payload(label).unwrap();
+        assert!(manager.frame_rgba(label).is_ok());
+        assert!(manager.reveal(label, None, None).is_ok());
+        let mut selection = CaptureSelection {
+            session_id: payload.session_id,
+            monitor_id: 7,
+            x: 1.0,
+            y: 1.0,
+            width: 10.0,
+            height: 10.0,
+        };
+        assert!(manager.crop(&selection).is_ok());
+        assert!(manager.render_input(&selection).is_ok());
+        selection.width = 1.0;
+        assert_eq!(
+            manager.crop(&selection).unwrap_err().code(),
+            "selection_too_small"
+        );
+        assert_eq!(gate.active_mode().unwrap(), Some(CaptureMode::Ordinary));
+
+        manager
+            .finish(&start.session_id)
+            .unwrap()
+            .finalize_mode()
+            .unwrap();
+        assert_eq!(gate.active_mode().unwrap(), None);
+    }
+
+    #[test]
+    fn abort_if_overlay_is_single_winner_and_reports_poison() {
+        let manager = Arc::new(CaptureManager::new());
+        let gate = Arc::new(CaptureModeGate::new());
+        let start = manager
+            .begin(
+                vec![frame(1.0)],
+                Vec::new(),
+                Vec::new(),
+                false,
+                StageTimings::default(),
+                ownership_on(&gate),
+            )
+            .unwrap();
+        let label = start.overlays[0].label.clone();
+        let barrier = Arc::new(std::sync::Barrier::new(3));
+        let mut workers = Vec::new();
+        for _ in 0..2 {
+            let manager = Arc::clone(&manager);
+            let barrier = Arc::clone(&barrier);
+            let label = label.clone();
+            workers.push(std::thread::spawn(move || {
+                barrier.wait();
+                manager.abort_if_overlay(&label).unwrap()
+            }));
+        }
+        barrier.wait();
+        let mut winner = None;
+        let mut none = 0;
+        for worker in workers {
+            match worker.join().unwrap() {
+                Some(session) => winner = Some(session),
+                None => none += 1,
+            }
+        }
+        assert_eq!(none, 1);
+        let session = winner.expect("只能有一个终结者");
+        assert!(manager.abort_if_overlay(&label).unwrap().is_none());
+        session.finalize_mode().unwrap();
+        assert_eq!(gate.active_mode().unwrap(), None);
+
+        let poisoned = CaptureManager::new();
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = poisoned.session.lock().unwrap();
+            panic!("制造 manager poison");
+        }));
+        assert_eq!(
+            poisoned.abort_if_overlay("any").unwrap_err().code(),
+            "state_lock"
+        );
     }
 
     #[test]
@@ -645,6 +928,7 @@ mod tests {
             lowered_pins: Vec::new(),
             frames: vec![frame(1.0)],
             windows: HashMap::new(),
+            mode_ownership: ownership(),
         });
         let selection = CaptureSelection {
             session_id: "session-1".to_string(),
@@ -679,6 +963,7 @@ mod tests {
             lowered_pins: Vec::new(),
             frames: vec![frame(1.0)],
             windows: HashMap::new(),
+            mode_ownership: ownership(),
         });
 
         assert_eq!(
@@ -720,6 +1005,7 @@ mod tests {
             lowered_pins: Vec::new(),
             frames: vec![frame(1.0)],
             windows: HashMap::new(),
+            mode_ownership: ownership(),
         });
         (left, right)
     }

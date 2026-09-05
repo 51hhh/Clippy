@@ -40,6 +40,8 @@ pub struct AppState {
     pub main_window_position_generation: AtomicU64,
     pub main_window_position_worker_scheduled: AtomicBool,
     pub capture_manager: Arc<crate::capture::CaptureManager>,
+    /// 普通截图与未来长截图入口共享的唯一模式 gate。
+    pub capture_mode_gate: Arc<crate::capture::CaptureModeGate>,
     pub pin_manager: Arc<crate::pin::PinManager>,
     /// 我们自己截下来、复制进剪贴板的图 → 它原本在屏幕上的位置。
     /// 之后从历史里 Pin 这张图时靠它贴回原处，见 `pin::PinOriginRegistry`。

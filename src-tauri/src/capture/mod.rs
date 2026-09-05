@@ -10,9 +10,9 @@ mod frame_protocol;
 #[cfg_attr(not(test), allow(dead_code))]
 mod longshot;
 mod manager;
-/// 普通截图与长截图尚未接入生命周期；先固定跨入口共享的原子所有权契约。
+/// 普通截图已接入共享模式 gate；长截图仍只保留核心原语，后续再接入同一生命周期。
 ///
-/// 当前没有生产调用方是本切片刻意的分层边界，不能为了消除 lint 伪造调用。
+/// Longshot 侧部分 API 尚无生产调用方是刻意的分层边界，不能为了消除 lint 伪造调用。
 #[cfg_attr(not(test), allow(dead_code))]
 mod mode_gate;
 mod overlay_windows;
@@ -27,9 +27,9 @@ mod window_probe;
 pub use error::CaptureError;
 pub(crate) use frame_protocol::handle as frame_protocol;
 pub use manager::CaptureManager;
-/// 后续 AppState 与截图入口使用的模式互斥原语；lease 的字段始终只在模块内可见。
+/// AppState 与截图入口共用的模式互斥原语；lease 的字段始终只在模块内可见。
 #[cfg_attr(not(test), allow(unused_imports))]
-pub(crate) use mode_gate::{CaptureMode, CaptureModeGate, CaptureModeLease};
+pub(crate) use mode_gate::{CaptureMode, CaptureModeGate, CaptureModeLease, CaptureModeOwnership};
 /// 贴图窗口的摆放与置顶也只有这个扩展做得到（Wayland 不许客户端自己来），
 /// 所以 `pin/` 借道这里，而不是自己再开一份 D-Bus 契约。
 pub(crate) use shell_extension::place_window as shell_extension_place_window;
@@ -78,11 +78,56 @@ pub(crate) fn handle_overlay_destroyed(
     state: &AppState,
     label: &str,
 ) {
-    if let Some(session) = state.capture_manager.abort_if_overlay(label) {
-        overlay_windows::close(app_handle, &session.overlay_labels());
-        crate::pin::restore_pins_after_capture(app_handle, state, &session.lowered_pins);
-        overlay_windows::restore(app_handle, &session.restore_labels);
+    if let Err(error) = terminate_capture_overlay(app_handle, state, label) {
+        log::error!("截图覆盖层 {label} 销毁后终结会话失败: {error}");
     }
+}
+
+/// 在任何桌面副作用之前取得 Ordinary 所有权；Busy 时不构造后续 future。
+async fn claim_ordinary_then<T, F, Fut>(
+    gate: &std::sync::Arc<CaptureModeGate>,
+    next: F,
+) -> Result<T, CaptureError>
+where
+    F: FnOnce(CaptureModeOwnership) -> Fut,
+    Fut: std::future::Future<Output = Result<T, CaptureError>>,
+{
+    let ownership = gate.try_claim_owned(CaptureMode::Ordinary)?;
+    next(ownership).await
+}
+
+fn log_release_after_primary(ownership: CaptureModeOwnership, context: &str) {
+    if let Err(error) = ownership.release() {
+        log::error!("{context}后释放截图模式所有权也失败: {error}");
+    }
+}
+
+fn finish_session_if_current(
+    manager: &CaptureManager,
+    session_id: &str,
+) -> Result<Option<manager::CaptureSession>, CaptureError> {
+    match manager.finish(session_id) {
+        Ok(session) => Ok(Some(session)),
+        Err(CaptureError::SessionMissing | CaptureError::SessionSuperseded) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+/// 显式 reveal、兜底 reveal 与 Destroyed 共用的按 label 线性化终结入口。
+pub(super) fn terminate_capture_overlay(
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+    label: &str,
+) -> Result<bool, CaptureError> {
+    action_lifecycle::finish_capture_session(
+        || state.capture_manager.abort_if_overlay(label),
+        |session| overlay_windows::close(app_handle, &session.overlay_labels()),
+        |session| {
+            crate::pin::restore_pins_after_capture(app_handle, state, &session.lowered_pins);
+            overlay_windows::restore(app_handle, &session.restore_labels);
+        },
+        manager::CaptureSession::finalize_mode,
+    )
 }
 
 #[tauri::command]
@@ -116,62 +161,72 @@ pub(crate) async fn show_capture_overlay_for_app(
     app_handle: tauri::AppHandle,
     state: &AppState,
 ) -> Result<(), String> {
-    let mut timings = manager::StageTimings::start();
-    let restore_labels = overlay_windows::hide_sources(&app_handle);
-    let settle = if restore_labels.is_empty() {
-        0
-    } else {
-        HIDE_SETTLE_MS
-    };
-    let frames = match tauri::async_runtime::spawn_blocking(move || {
-        if settle > 0 {
-            std::thread::sleep(std::time::Duration::from_millis(settle));
-        }
-        crate::screenshot::capture_monitor_frames()
+    claim_ordinary_then(&state.capture_mode_gate, |ownership| async move {
+        let mut timings = manager::StageTimings::start();
+        let restore_labels = overlay_windows::hide_sources(&app_handle);
+        let settle = if restore_labels.is_empty() {
+            0
+        } else {
+            HIDE_SETTLE_MS
+        };
+        let frames = match tauri::async_runtime::spawn_blocking(move || {
+            if settle > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(settle));
+            }
+            crate::screenshot::capture_monitor_frames()
+        })
+        .await
+        {
+            Ok(Ok(frames)) => frames,
+            Ok(Err(error)) => {
+                let primary = CaptureError::Screenshot(error.to_string());
+                overlay_windows::restore(&app_handle, &restore_labels);
+                log_release_after_primary(ownership, "截图失败恢复源窗口");
+                return Err(primary);
+            }
+            Err(error) => {
+                let primary = CaptureError::ThreadPanic(error.to_string());
+                overlay_windows::restore(&app_handle, &restore_labels);
+                log_release_after_primary(ownership, "截图线程异常恢复源窗口");
+                return Err(primary);
+            }
+        };
+        timings.frames_ms = timings.started.elapsed().as_secs_f64() * 1000.0;
+        // **降贴图要在拍完之后。** 贴图该被截进冻结帧（屏幕上有它，画面里就该有它），
+        // 而且要按用户看到的那个层级截——先降层再拍，被贴图压着的窗口就会出现在画面里，
+        // 拍出来的东西和刚才屏幕上的不一样。降层的唯一目的是别让它盖住选择器。
+        let lowered_pins = crate::pin::lower_pins_for_capture(&app_handle, state);
+        let probe_hint = take_probe_hint(state);
+        let start = match state.capture_manager.begin(
+            frames,
+            restore_labels.clone(),
+            lowered_pins.clone(),
+            probe_hint,
+            timings,
+            ownership,
+        ) {
+            Ok(start) => start,
+            Err(failure) => {
+                crate::pin::restore_pins_after_capture(&app_handle, state, &lowered_pins);
+                overlay_windows::restore(&app_handle, &restore_labels);
+                log_release_after_primary(failure.ownership, "截图会话启动失败恢复桌面资源");
+                return Err(failure.error);
+            }
+        };
+        action_lifecycle::complete_overlay_create(
+            overlay_windows::create(&app_handle, &state.capture_manager, &start),
+            || finish_session_if_current(&state.capture_manager, &start.session_id),
+            |session| overlay_windows::close(&app_handle, &session.overlay_labels()),
+            |session| {
+                crate::pin::restore_pins_after_capture(&app_handle, state, &session.lowered_pins);
+                overlay_windows::restore(&app_handle, &session.restore_labels);
+            },
+            manager::CaptureSession::finalize_mode,
+        )?;
+        Ok(())
     })
     .await
-    {
-        Ok(Ok(frames)) => frames,
-        Ok(Err(error)) => {
-            overlay_windows::restore(&app_handle, &restore_labels);
-            return Err(capture_failure(CaptureError::Screenshot(error.to_string())));
-        }
-        Err(error) => {
-            overlay_windows::restore(&app_handle, &restore_labels);
-            return Err(capture_failure(CaptureError::ThreadPanic(
-                error.to_string(),
-            )));
-        }
-    };
-    timings.frames_ms = timings.started.elapsed().as_secs_f64() * 1000.0;
-    // **降贴图要在拍完之后。** 贴图该被截进冻结帧（屏幕上有它，画面里就该有它），
-    // 而且要按用户看到的那个层级截——先降层再拍，被贴图压着的窗口就会出现在画面里，
-    // 拍出来的东西和刚才屏幕上的不一样。降层的唯一目的是别让它盖住选择器。
-    let lowered_pins = crate::pin::lower_pins_for_capture(&app_handle, state);
-    let probe_hint = take_probe_hint(state);
-    let specs = match state.capture_manager.begin(
-        frames,
-        restore_labels.clone(),
-        lowered_pins.clone(),
-        probe_hint,
-        timings,
-    ) {
-        Ok(specs) => specs,
-        Err(error) => {
-            crate::pin::restore_pins_after_capture(&app_handle, state, &lowered_pins);
-            overlay_windows::restore(&app_handle, &restore_labels);
-            return Err(capture_failure(error));
-        }
-    };
-    if let Err(error) = overlay_windows::create(&app_handle, &specs) {
-        if let Some(session) = state.capture_manager.abort() {
-            overlay_windows::close(&app_handle, &session.overlay_labels());
-        }
-        crate::pin::restore_pins_after_capture(&app_handle, state, &lowered_pins);
-        overlay_windows::restore(&app_handle, &restore_labels);
-        return Err(capture_failure(error));
-    }
-    Ok(())
+    .map_err(capture_failure)
 }
 
 #[tauri::command]
@@ -228,7 +283,10 @@ pub fn mark_capture_overlay_ready(
         .map(|cursor| (cursor.x, cursor.y));
     let viewport = viewport_width.zip(viewport_height);
     let plan = state.capture_manager.reveal(&label, cursor, viewport)?;
-    overlay_windows::reveal(&app_handle, &label, plan.take_focus)?;
+    action_lifecycle::complete_overlay_reveal(
+        overlay_windows::reveal(&app_handle, &label, plan.take_focus),
+        || terminate_capture_overlay(&app_handle, &state, &label),
+    )?;
     Ok(())
 }
 
@@ -238,11 +296,16 @@ pub fn cancel_capture_overlay(
     app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let session = state.capture_manager.finish(&session_id)?;
-    overlay_windows::close(&app_handle, &session.overlay_labels());
-    crate::pin::restore_pins_after_capture(&app_handle, &state, &session.lowered_pins);
-    overlay_windows::restore(&app_handle, &session.restore_labels);
-    Ok(())
+    action_lifecycle::complete_capture_cancel(
+        || state.capture_manager.finish(&session_id),
+        |session| overlay_windows::close(&app_handle, &session.overlay_labels()),
+        |session| {
+            crate::pin::restore_pins_after_capture(&app_handle, &state, &session.lowered_pins);
+            overlay_windows::restore(&app_handle, &session.restore_labels);
+        },
+        manager::CaptureSession::finalize_mode,
+    )
+    .map_err(String::from)
 }
 
 /// 窗口速选所需的 GNOME Shell 扩展的服务状态。
@@ -321,6 +384,7 @@ pub async fn commit_capture_action(
             crate::pin::restore_pins_after_capture(&app_handle, &state, &session.lowered_pins);
             overlay_windows::restore(&app_handle, &session.restore_labels);
         },
+        |session| session.finalize_mode().map_err(String::from),
         |png| execute_action(action, png, origin, &app_handle, &state),
     );
     // 覆盖层在动作之前就关掉了，错误已经没有窗口可以显示——只能留在日志里，
@@ -500,7 +564,10 @@ fn action_result(
 fn capture_failure(error: CaptureError) -> String {
     let context = "打开截图覆盖层失败";
     // 快捷键连按会撞上仍在进行的会话，这是正常竞争而不是故障。
-    if matches!(error, CaptureError::SessionBusy) {
+    if matches!(
+        error,
+        CaptureError::SessionBusy | CaptureError::CaptureModeBusy
+    ) {
         crate::error::note(context, error)
     } else {
         crate::error::report(context, error)
@@ -665,6 +732,28 @@ mod timing_diagnostics {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn busy_mode_does_not_construct_the_ordinary_capture_future() {
+        let gate = Arc::new(CaptureModeGate::new());
+        let longshot = gate
+            .try_claim_owned(CaptureMode::Longshot)
+            .expect("先占用 Longshot");
+        let calls = AtomicUsize::new(0);
+
+        let error = claim_ordinary_then(&gate, |_ownership| {
+            calls.fetch_add(1, Ordering::SeqCst);
+            async { Ok::<_, CaptureError>(()) }
+        })
+        .await
+        .expect_err("Ordinary 必须在任何后续工作前被拒绝");
+
+        assert_eq!(error.code(), "capture_mode_busy");
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        longshot.release().expect("测试收尾");
+    }
 
     #[test]
     fn capture_ocr_rejects_failures_and_blank_output_with_safe_error() {
