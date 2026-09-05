@@ -280,13 +280,18 @@ export interface LongshotControllerError {
   message: string;
 }
 
-/** 长截图控制窗口的最终输出动作；首版不允许传递图像或窗口身份。 */
-export type LongshotOutputAction = "copy";
+/** 长截图控制窗口的最终输出动作；不允许传递图像或窗口身份。 */
+export type LongshotOutputAction = "copy" | "save";
 
-/** 长截图输出完成后返回的轻量元数据，PNG 始终留在后端。 */
-export interface LongshotOutputResult {
-  action: LongshotOutputAction;
-}
+/**
+ * 长截图输出完成后返回的轻量元数据，PNG 始终留在后端。
+ *
+ * Copy 没有落盘路径，Save 必须返回后端原子提交后的最终路径；用可辨识联合类型让
+ * 控制窗口在运行时也能保守校验 IPC 响应。
+ */
+export type LongshotOutputResult =
+  | { action: "copy"; path: null }
+  | { action: "save"; path: string };
 
 /** 覆盖层里点提交按钮后要做的事。标注在覆盖层内完成，所以没有"转到编辑器"。 */
 export type CaptureAction = "copy" | "save" | "pin";

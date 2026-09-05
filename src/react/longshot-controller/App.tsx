@@ -3,6 +3,8 @@ import type {
   LongshotActivation,
   LongshotControllerError,
   LongshotHandle,
+  LongshotOutputAction,
+  LongshotOutputResult,
 } from "../../js/ipc-types.ts";
 import { t } from "../shared/i18n";
 import { longshotControllerApi } from "./api";
@@ -19,7 +21,8 @@ type ControllerPhase =
   | "cleanupError";
 
 type DisplayError = Pick<LongshotControllerError, "code">;
-type ErrorContext = "activation" | "append" | "finish" | "copy";
+type ErrorContext = "activation" | "append" | "finish" | LongshotOutputAction;
+type OutputRetryPolicy = "any" | "copyOnly";
 
 function parseControllerError(reason: unknown): LongshotControllerError {
   if (typeof reason === "object" && reason !== null) {
@@ -45,12 +48,36 @@ function errorText(error: DisplayError | null, context: ErrorContext): string {
       return t("longshot.busy");
     case "longshot_controller_copy_failed":
       return t("longshot.copyFailed");
+    case "longshot_controller_save_failed":
+      return t("longshot.saveFailed");
+    case "longshot_controller_save_uncertain":
+      return t("longshot.saveUncertain");
     default:
       if (context === "append") return t("longshot.appendFailed");
       if (context === "finish") return t("longshot.finishFailed");
       if (context === "copy") return t("longshot.copyFailed");
+      if (context === "save") return t("longshot.saveFailed");
       return t("longshot.failed");
   }
+}
+
+function isOutputFailure(error: DisplayError): boolean {
+  return error.code === "longshot_controller_copy_failed"
+    || error.code === "longshot_controller_save_failed"
+    || error.code === "longshot_controller_save_uncertain";
+}
+
+/** IPC 成功响应也属于不可信边界，不能用伪成功覆盖控制窗的保守终态。 */
+function isExpectedOutputResult(
+  value: unknown,
+  action: LongshotOutputAction,
+): value is LongshotOutputResult {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<LongshotOutputResult>;
+  if (candidate.action !== action) return false;
+  return action === "copy"
+    ? candidate.path === null
+    : typeof candidate.path === "string" && candidate.path.length > 0;
 }
 
 /**
@@ -67,11 +94,15 @@ export function App() {
   const appendInFlight = useRef(false);
   const finishEpoch = useRef(0);
   const finishInFlight = useRef(false);
+  const outputRetryPolicyRef = useRef<OutputRetryPolicy>("any");
   const phaseRef = useRef<ControllerPhase>("preparing");
   const [phase, setPhase] = useState<ControllerPhase>("preparing");
   const [activation, setActivation] = useState<LongshotActivation | null>(null);
   const [error, setError] = useState<DisplayError | null>(null);
   const [errorContext, setErrorContext] = useState<ErrorContext>("activation");
+  const [finishingAction, setFinishingAction] = useState<LongshotOutputAction | null>(null);
+  const [finishedResult, setFinishedResult] = useState<LongshotOutputResult | null>(null);
+  const [outputRetryPolicy, setOutputRetryPolicy] = useState<OutputRetryPolicy>("any");
 
   const transition = (next: ControllerPhase) => {
     phaseRef.current = next;
@@ -88,6 +119,11 @@ export function App() {
     finishInFlight.current = false;
   };
 
+  const setPendingRetryPolicy = (policy: OutputRetryPolicy) => {
+    outputRetryPolicyRef.current = policy;
+    setOutputRetryPolicy(policy);
+  };
+
   const cancel = useCallback(async (handle: LongshotHandle | null) => {
     if (
       cancelling.current
@@ -98,6 +134,7 @@ export function App() {
     // 取消是所有本地异步 promise 的线性化边界：它之后的任何完成都不得复活 UI。
     invalidateAppendAttempt();
     invalidateFinishAttempt();
+    setFinishingAction(null);
     cancelling.current = true;
     transition("cancelling");
     setError(null);
@@ -220,7 +257,7 @@ export function App() {
       });
   }, [activation]);
 
-  const finishCurrent = useCallback(() => {
+  const finishCurrent = useCallback((action: LongshotOutputAction) => {
     const currentActivation = activation;
     const retryingOutput = phaseRef.current === "outputPending";
     if (
@@ -228,16 +265,19 @@ export function App() {
       || (phaseRef.current !== "ready" && !retryingOutput)
       || cancelling.current
       || finishInFlight.current
+      || (retryingOutput && outputRetryPolicyRef.current === "copyOnly" && action === "save")
     ) return;
 
     finishInFlight.current = true;
     const attempt = ++finishEpoch.current;
     setError(null);
-    setErrorContext(retryingOutput ? "copy" : "finish");
+    setErrorContext(retryingOutput ? action : "finish");
+    setFinishingAction(action);
+    setFinishedResult(null);
     transition("finishing");
 
-    void longshotControllerApi.finish(currentActivation.handle, "copy")
-      .then(() => {
+    void longshotControllerApi.finish(currentActivation.handle, action)
+      .then((result) => {
         if (
           !mounted.current
           || attempt !== finishEpoch.current
@@ -245,7 +285,17 @@ export function App() {
           || phaseRef.current === "cleanupError"
         ) return;
         finishInFlight.current = false;
+        setFinishingAction(null);
+        if (!isExpectedOutputResult(result, action)) {
+          // 输出副作用是否已完成无法由异常响应证明，按 cleanup 终态收口而非渲染伪成功。
+          console.warn("长截图控制窗口完成响应无效");
+          setError({ code: "longshot_controller_cleanup_failed" });
+          setErrorContext("finish");
+          transition("cleanupError");
+          return;
+        }
         // 成功后由后端清空 exact owner 并关闭原生窗口；终态禁止旧回调重新开放操作。
+        setFinishedResult(result);
         transition("finished");
       })
       .catch((reason) => {
@@ -256,15 +306,20 @@ export function App() {
           || phaseRef.current === "cleanupError"
         ) return;
         finishInFlight.current = false;
+        setFinishingAction(null);
         const parsed = parseControllerError(reason);
-        console.warn("长截图控制窗口完成复制失败", parsed.message);
+        console.warn("长截图控制窗口完成输出失败", parsed.message);
         setError(parsed);
         if (parsed.code === "longshot_controller_cleanup_failed") {
           setErrorContext("finish");
           transition("cleanupError");
-        } else if (parsed.code === "longshot_controller_copy_failed" || retryingOutput) {
-          // OutputPending 只能继续复制或丢弃，不能错误地重新开放 Append。
-          setErrorContext("copy");
+        } else if (isOutputFailure(parsed) || retryingOutput) {
+          // OutputPending 只能继续输出或丢弃，不能错误地重新开放 Append。Save 的不确定
+          // 结果永久降为 Copy-only，之后 Copy 失败也不能重新开放 Save。
+          setPendingRetryPolicy(parsed.code === "longshot_controller_save_uncertain"
+            ? "copyOnly"
+            : retryingOutput ? outputRetryPolicyRef.current : "any");
+          setErrorContext(action);
           transition("outputPending");
         } else {
           // 普通编码/领域错误由后端恢复 exact Active；保留旧快照以便继续 Append 或 Copy。
@@ -321,8 +376,12 @@ export function App() {
         <>
           <p className="longshot-status">
             {phase === "appending" && t("longshot.appending")}
-            {phase === "finishing" && t("longshot.finishing")}
-            {phase === "finished" && t("longshot.copied")}
+            {phase === "finishing" && finishingAction === "copy" && t("longshot.finishingCopy")}
+            {phase === "finishing" && finishingAction === "save" && t("longshot.finishingSave")}
+            {phase === "finished" && finishedResult?.action === "copy" && t("longshot.copied")}
+            {phase === "finished" && finishedResult?.action === "save" && t("longshot.saved", {
+              path: finishedResult.path,
+            })}
             {(phase === "ready" || phase === "outputPending") && t("longshot.ready")}
           </p>
           <dl className="longshot-details">
@@ -333,7 +392,7 @@ export function App() {
             <p className="longshot-error" role="alert">{errorText(error, errorContext)}</p>
           )}
           {phase === "outputPending" && error && (
-            <p className="longshot-error" role="alert">{errorText(error, "copy")}</p>
+            <p className="longshot-error" role="alert">{errorText(error, errorContext)}</p>
           )}
           {phase !== "finished" && (
             <div className="longshot-actions">
@@ -350,18 +409,39 @@ export function App() {
                   <button
                     type="button"
                     data-testid="longshot-copy"
-                    onClick={finishCurrent}
+                    onClick={() => finishCurrent("copy")}
                     disabled={phase !== "ready"}
                   >
                     {t("longshot.copy")}
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="longshot-save"
+                    onClick={() => finishCurrent("save")}
+                    disabled={phase !== "ready"}
+                  >
+                    {t("longshot.save")}
                   </button>
                 </>
               )}
               {phase === "outputPending" && (
                 <>
-                  <button type="button" data-testid="longshot-retry-copy" onClick={finishCurrent}>
+                  <button
+                    type="button"
+                    data-testid="longshot-retry-copy"
+                    onClick={() => finishCurrent("copy")}
+                  >
                     {t("longshot.retryCopy")}
                   </button>
+                  {outputRetryPolicy === "any" && (
+                    <button
+                      type="button"
+                      data-testid="longshot-retry-save"
+                      onClick={() => finishCurrent("save")}
+                    >
+                      {t("longshot.retrySave")}
+                    </button>
+                  )}
                   <button type="button" data-testid="longshot-discard" onClick={cancelCurrent}>
                     {t("longshot.discard")}
                   </button>

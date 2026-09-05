@@ -10,14 +10,24 @@ use std::sync::Arc;
 
 #[derive(Debug)]
 pub(super) enum FinishStage {
-    Encoding,
-    Copying(Arc<Vec<u8>>),
+    Encoding(LongshotOutputAction),
+    Outputting {
+        action: LongshotOutputAction,
+        png: Arc<Vec<u8>>,
+        retry_policy: RetryPolicy,
+    },
 }
 
 #[derive(Debug)]
 pub(super) enum FinishClaim {
     Encoding(LongshotSessionToken),
-    Copying(LongshotSessionToken, Arc<Vec<u8>>),
+    Outputting(LongshotSessionToken, Arc<Vec<u8>>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RetryPolicy {
+    Any,
+    CopyOnly,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,7 +38,7 @@ enum FinishFailureAction {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum CopyFailureAction {
+pub(super) enum OutputFailureAction {
     Pending,
     Dropped,
     OwnershipLost,
@@ -37,7 +47,7 @@ pub(super) enum CopyFailureAction {
 impl FinishClaim {
     fn token(&self) -> &LongshotSessionToken {
         match self {
-            Self::Encoding(token) | Self::Copying(token, _) => token,
+            Self::Encoding(token) | Self::Outputting(token, _) => token,
         }
     }
 }
@@ -46,8 +56,8 @@ impl FinishClaim {
 pub(super) enum FinishBoundary {
     AfterClaim,
     AfterFinish,
-    BeforeCopy,
-    AfterCopy,
+    BeforeOutput,
+    AfterOutput,
     BeforeCommit,
 }
 
@@ -56,33 +66,38 @@ pub(super) enum FinishWorkerError {
     Join(String),
 }
 
-pub(super) struct FinishOperations<W, P, C, X, H> {
+pub(super) enum OutputWorkerError {
+    Business(String),
+    Join(String),
+}
+
+pub(super) struct FinishOperations<W, P, O, X, H> {
     finish_worker: W,
     probe_exact_active: P,
-    copy_worker: C,
+    output_worker: O,
     compensate: X,
     boundary: H,
 }
 
-impl<W, P, C, X, H> FinishOperations<W, P, C, X, H> {
-    pub(super) fn new<WF, CF, XF>(
+impl<W, P, O, X, H> FinishOperations<W, P, O, X, H> {
+    pub(super) fn new<WF, OF, XF>(
         finish_worker: W,
         probe_exact_active: P,
-        copy_worker: C,
+        output_worker: O,
         compensate: X,
         boundary: H,
     ) -> Self
     where
         W: FnOnce(LongshotSessionToken) -> WF,
         P: FnOnce(&LongshotSessionToken) -> bool,
-        C: FnOnce(Arc<Vec<u8>>) -> CF,
+        O: FnOnce(LongshotOutputAction, Arc<Vec<u8>>) -> OF,
         X: FnOnce(LongshotSessionToken) -> XF,
         H: FnMut(FinishBoundary),
     {
         Self {
             finish_worker,
             probe_exact_active,
-            copy_worker,
+            output_worker,
             compensate,
             boundary,
         }
@@ -94,7 +109,7 @@ impl LongshotControllerRegistry {
         &self,
         label: &str,
         handle: &LongshotControllerHandle,
-        _action: LongshotOutputAction,
+        action: LongshotOutputAction,
     ) -> Result<FinishClaim, LongshotIpcError> {
         if !label.starts_with(CONTROLLER_PREFIX) {
             return Err(LongshotIpcError::missing());
@@ -116,7 +131,7 @@ impl LongshotControllerRegistry {
                     label: current,
                     token: token.clone(),
                     snapshot,
-                    stage: FinishStage::Encoding,
+                    stage: FinishStage::Encoding(action),
                     window_destroyed: false,
                 };
                 Ok(FinishClaim::Encoding(token))
@@ -126,15 +141,32 @@ impl LongshotControllerRegistry {
                 token,
                 snapshot,
                 png,
+                retry_policy,
             } if current == label && token == wire_token => {
+                if retry_policy == RetryPolicy::CopyOnly && action == LongshotOutputAction::Save {
+                    *slot = Slot::OutputPending {
+                        label: current,
+                        token,
+                        snapshot,
+                        png,
+                        retry_policy,
+                    };
+                    return Err(LongshotIpcError::save_uncertain(
+                        "上次保存结果不确定，禁止再次保存以免生成重复文件",
+                    ));
+                }
                 *slot = Slot::Finishing {
                     label: current,
                     token: token.clone(),
                     snapshot,
-                    stage: FinishStage::Copying(Arc::clone(&png)),
+                    stage: FinishStage::Outputting {
+                        action,
+                        png: Arc::clone(&png),
+                        retry_policy,
+                    },
                     window_destroyed: false,
                 };
-                Ok(FinishClaim::Copying(token, png))
+                Ok(FinishClaim::Outputting(token, png))
             }
             Slot::Active {
                 label: current,
@@ -198,12 +230,14 @@ impl LongshotControllerRegistry {
                 token,
                 snapshot,
                 png,
+                retry_policy,
             } if current == label => {
                 *slot = Slot::OutputPending {
                     label: current,
                     token,
                     snapshot,
                     png,
+                    retry_policy,
                 };
                 Err(LongshotIpcError::superseded())
             }
@@ -235,10 +269,11 @@ impl LongshotControllerRegistry {
         }
     }
 
-    pub(super) fn publish_copying(
+    pub(super) fn publish_outputting(
         &self,
         label: &str,
         token: &LongshotSessionToken,
+        action: LongshotOutputAction,
         png: Arc<Vec<u8>>,
     ) -> Result<(), LongshotIpcError> {
         let mut slot = self
@@ -251,14 +286,18 @@ impl LongshotControllerRegistry {
                 label: current,
                 token: current_token,
                 snapshot,
-                stage: FinishStage::Encoding,
+                stage: FinishStage::Encoding(current_action),
                 window_destroyed,
-            } if current == label && current_token == *token => {
+            } if current == label && current_token == *token && current_action == action => {
                 *slot = Slot::Finishing {
                     label: current,
                     token: current_token,
                     snapshot,
-                    stage: FinishStage::Copying(png),
+                    stage: FinishStage::Outputting {
+                        action,
+                        png,
+                        retry_policy: RetryPolicy::Any,
+                    },
                     window_destroyed,
                 };
                 Ok(())
@@ -276,6 +315,7 @@ impl LongshotControllerRegistry {
         &self,
         label: &str,
         token: &LongshotSessionToken,
+        action: LongshotOutputAction,
         exact_active: bool,
     ) -> FinishFailureAction {
         let Ok(mut slot) = self.slot.lock() else {
@@ -287,9 +327,9 @@ impl LongshotControllerRegistry {
                 label: current,
                 token: current_token,
                 snapshot,
-                stage: FinishStage::Encoding,
+                stage: FinishStage::Encoding(current_action),
                 window_destroyed,
-            } if current == label && current_token == *token => {
+            } if current == label && current_token == *token && current_action == action => {
                 if !exact_active {
                     *slot = Slot::CleanupFailed {
                         label: current,
@@ -323,16 +363,21 @@ impl LongshotControllerRegistry {
         }
     }
 
-    fn fail_finish_uncertain(&self, label: &str, token: &LongshotSessionToken) {
+    fn fail_finish_uncertain(
+        &self,
+        label: &str,
+        token: &LongshotSessionToken,
+        action: LongshotOutputAction,
+    ) {
         let Ok(mut slot) = self.slot.lock() else {
             return;
         };
         if matches!(&*slot, Slot::Finishing {
             label: current,
             token: current_token,
-            stage: FinishStage::Encoding,
+            stage: FinishStage::Encoding(current_action),
             ..
-        } if current == label && current_token == token)
+        } if current == label && current_token == token && *current_action == action)
         {
             *slot = Slot::CleanupFailed {
                 label: label.to_string(),
@@ -342,14 +387,16 @@ impl LongshotControllerRegistry {
         }
     }
 
-    pub(super) fn complete_copy_failure(
+    pub(super) fn complete_output_failure(
         &self,
         label: &str,
         token: &LongshotSessionToken,
+        action: LongshotOutputAction,
         png: &Arc<Vec<u8>>,
-    ) -> CopyFailureAction {
+        uncertain: bool,
+    ) -> OutputFailureAction {
         let Ok(mut slot) = self.slot.lock() else {
-            return CopyFailureAction::OwnershipLost;
+            return OutputFailureAction::OwnershipLost;
         };
         let previous = std::mem::take(&mut *slot);
         match previous {
@@ -357,33 +404,49 @@ impl LongshotControllerRegistry {
                 label: current,
                 token: current_token,
                 snapshot,
-                stage: FinishStage::Copying(current_png),
+                stage:
+                    FinishStage::Outputting {
+                        action: current_action,
+                        png: current_png,
+                        retry_policy,
+                    },
                 window_destroyed,
-            } if current == label && current_token == *token && Arc::ptr_eq(&current_png, png) => {
+            } if current == label
+                && current_token == *token
+                && current_action == action
+                && Arc::ptr_eq(&current_png, png) =>
+            {
                 if window_destroyed {
                     *slot = Slot::Empty;
-                    CopyFailureAction::Dropped
+                    OutputFailureAction::Dropped
                 } else {
+                    let retry_policy = if uncertain && action == LongshotOutputAction::Save {
+                        RetryPolicy::CopyOnly
+                    } else {
+                        retry_policy
+                    };
                     *slot = Slot::OutputPending {
                         label: current,
                         token: current_token,
                         snapshot,
                         png: current_png,
+                        retry_policy,
                     };
-                    CopyFailureAction::Pending
+                    OutputFailureAction::Pending
                 }
             }
             other => {
                 *slot = other;
-                CopyFailureAction::OwnershipLost
+                OutputFailureAction::OwnershipLost
             }
         }
     }
 
-    fn complete_copy_success(
+    fn complete_output_success(
         &self,
         label: &str,
         token: &LongshotSessionToken,
+        action: LongshotOutputAction,
         png: &Arc<Vec<u8>>,
     ) -> bool {
         let Ok(mut slot) = self.slot.lock() else {
@@ -392,9 +455,16 @@ impl LongshotControllerRegistry {
         let exact = matches!(&*slot, Slot::Finishing {
             label: current,
             token: current_token,
-            stage: FinishStage::Copying(current_png),
+            stage: FinishStage::Outputting {
+                action: current_action,
+                png: current_png,
+                ..
+            },
             ..
-        } if current == label && current_token == token && Arc::ptr_eq(current_png, png));
+        } if current == label
+            && current_token == token
+            && *current_action == action
+            && Arc::ptr_eq(current_png, png));
         if exact {
             *slot = Slot::Empty;
         }
@@ -402,21 +472,21 @@ impl LongshotControllerRegistry {
     }
 }
 
-pub(super) async fn execute_finish_with_ops<A, W, WF, P, C, CF, X, XF, H>(
+pub(super) async fn execute_finish_with_ops<A, W, WF, P, O, OF, X, XF, H>(
     registry: &LongshotControllerRegistry,
     label: &str,
     handle: &LongshotControllerHandle,
     action: LongshotOutputAction,
     windows: &A,
-    operations: FinishOperations<W, P, C, X, H>,
+    operations: FinishOperations<W, P, O, X, H>,
 ) -> Result<LongshotOutputResult, LongshotIpcError>
 where
     A: ControlWindowActions,
     W: FnOnce(LongshotSessionToken) -> WF,
     WF: std::future::Future<Output = Result<Vec<u8>, FinishWorkerError>>,
     P: FnOnce(&LongshotSessionToken) -> bool,
-    C: FnOnce(Arc<Vec<u8>>) -> CF,
-    CF: std::future::Future<Output = Result<(), String>>,
+    O: FnOnce(LongshotOutputAction, Arc<Vec<u8>>) -> OF,
+    OF: std::future::Future<Output = Result<Option<String>, OutputWorkerError>>,
     X: FnOnce(LongshotSessionToken) -> XF,
     XF: std::future::Future<Output = Result<(), LongshotIpcError>>,
     H: FnMut(FinishBoundary),
@@ -424,7 +494,7 @@ where
     let FinishOperations {
         finish_worker,
         probe_exact_active,
-        copy_worker,
+        output_worker,
         compensate,
         mut boundary,
     } = operations;
@@ -437,12 +507,12 @@ where
             Ok(bytes) => {
                 boundary(FinishBoundary::AfterFinish);
                 let png = Arc::new(bytes);
-                registry.publish_copying(label, &token, Arc::clone(&png))?;
+                registry.publish_outputting(label, &token, action, Arc::clone(&png))?;
                 png
             }
             Err(FinishWorkerError::Business(primary)) => {
                 let exact_active = probe_exact_active(&token);
-                return match registry.complete_finish_failure(label, &token, exact_active) {
+                return match registry.complete_finish_failure(label, &token, action, exact_active) {
                     FinishFailureAction::Restored => Err(primary.into()),
                     FinishFailureAction::Compensate(claimed) => {
                         match compensate(claimed.clone()).await {
@@ -462,35 +532,54 @@ where
                 };
             }
             Err(FinishWorkerError::Join(message)) => {
-                registry.fail_finish_uncertain(label, &token);
+                registry.fail_finish_uncertain(label, &token, action);
                 return Err(LongshotIpcError::cleanup_failed(message));
             }
         },
-        FinishClaim::Copying(_, png) => png,
+        FinishClaim::Outputting(_, png) => png,
     };
 
-    boundary(FinishBoundary::BeforeCopy);
-    let copy_result = copy_worker(Arc::clone(&png)).await;
-    boundary(FinishBoundary::AfterCopy);
-    if let Err(message) = copy_result {
-        return match registry.complete_copy_failure(label, &token, &png) {
-            CopyFailureAction::Pending | CopyFailureAction::Dropped => {
-                Err(LongshotIpcError::copy_failed(message))
-            }
-            CopyFailureAction::OwnershipLost => Err(LongshotIpcError::cleanup_failed(
-                "长截图复制失败后控制权已经丢失",
-            )),
-        };
-    }
+    boundary(FinishBoundary::BeforeOutput);
+    let output_result = match (action, output_worker(action, Arc::clone(&png)).await) {
+        (LongshotOutputAction::Copy, Ok(_)) => Ok(None),
+        (LongshotOutputAction::Save, Ok(Some(path))) if !path.is_empty() => Ok(Some(path)),
+        (LongshotOutputAction::Save, Ok(_)) => Err(OutputWorkerError::Business(
+            "长截图保存成功但未返回有效路径".to_string(),
+        )),
+        (_, Err(error)) => Err(error),
+    };
+    boundary(FinishBoundary::AfterOutput);
+    let path = match output_result {
+        Ok(path) => path,
+        Err(error) => {
+            let uncertain =
+                matches!(error, OutputWorkerError::Join(_)) && action == LongshotOutputAction::Save;
+            let message = match error {
+                OutputWorkerError::Business(message) | OutputWorkerError::Join(message) => message,
+            };
+            return match registry.complete_output_failure(label, &token, action, &png, uncertain) {
+                OutputFailureAction::Pending | OutputFailureAction::Dropped => Err(match action {
+                    LongshotOutputAction::Copy => LongshotIpcError::copy_failed(message),
+                    LongshotOutputAction::Save if uncertain => {
+                        LongshotIpcError::save_uncertain(message)
+                    }
+                    LongshotOutputAction::Save => LongshotIpcError::save_failed(message),
+                }),
+                OutputFailureAction::OwnershipLost => Err(LongshotIpcError::cleanup_failed(
+                    "长截图输出失败后控制权已经丢失",
+                )),
+            };
+        }
+    };
 
     boundary(FinishBoundary::BeforeCommit);
-    if !registry.complete_copy_success(label, &token, &png) {
+    if !registry.complete_output_success(label, &token, action, &png) {
         return Err(LongshotIpcError::cleanup_failed(
-            "长截图复制成功后控制权已经丢失",
+            "长截图输出成功后控制权已经丢失",
         ));
     }
     windows.destroy(label);
-    Ok(LongshotOutputResult { action })
+    Ok(LongshotOutputResult { action, path })
 }
 
 pub(super) async fn run_finish_worker<F>(work: F) -> Result<Vec<u8>, FinishWorkerError>
@@ -506,12 +595,19 @@ where
     }
 }
 
-pub(super) async fn run_copy_worker<F>(work: F) -> Result<(), String>
+pub(super) async fn run_output_worker<F>(
+    action: LongshotOutputAction,
+    work: F,
+) -> Result<Option<String>, OutputWorkerError>
 where
-    F: FnOnce() -> Result<(), String> + Send + 'static,
+    F: FnOnce() -> Result<Option<String>, String> + Send + 'static,
 {
     match tauri::async_runtime::spawn_blocking(work).await {
-        Ok(result) => result,
-        Err(error) => Err(format!("长截图复制线程异常: {error}")),
+        Ok(Ok(path)) => Ok(path),
+        Ok(Err(error)) => Err(OutputWorkerError::Business(error)),
+        Err(error) => Err(OutputWorkerError::Join(match action {
+            LongshotOutputAction::Copy => format!("长截图复制线程异常: {error}"),
+            LongshotOutputAction::Save => format!("长截图保存线程异常: {error}"),
+        })),
     }
 }

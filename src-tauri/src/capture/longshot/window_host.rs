@@ -6,10 +6,11 @@ use super::{LongshotSessionToken, LongshotSnapshot};
 use crate::capture::{CaptureError, CaptureSelection};
 use crate::commands::AppState;
 use finish::{
-    execute_finish_with_ops, run_copy_worker, run_finish_worker, FinishOperations, FinishStage,
+    execute_finish_with_ops, run_finish_worker, run_output_worker, FinishOperations, FinishStage,
+    RetryPolicy,
 };
 #[cfg(test)]
-use finish::{CopyFailureAction, FinishBoundary, FinishClaim, FinishWorkerError};
+use finish::{FinishBoundary, FinishClaim, FinishWorkerError, OutputFailureAction};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -55,6 +56,14 @@ impl LongshotIpcError {
 
     fn copy_failed(message: impl Into<String>) -> Self {
         Self::new("longshot_controller_copy_failed", message)
+    }
+
+    fn save_failed(message: impl Into<String>) -> Self {
+        Self::new("longshot_controller_save_failed", message)
+    }
+
+    fn save_uncertain(message: impl Into<String>) -> Self {
+        Self::new("longshot_controller_save_uncertain", message)
     }
 
     fn internal(message: impl Into<String>) -> Self {
@@ -143,12 +152,14 @@ pub(crate) struct LongshotActivation {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum LongshotOutputAction {
     Copy,
+    Save,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LongshotOutputResult {
     pub action: LongshotOutputAction,
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -188,6 +199,7 @@ enum Slot {
         token: LongshotSessionToken,
         snapshot: LongshotSnapshot,
         png: Arc<Vec<u8>>,
+        retry_policy: RetryPolicy,
     },
     Terminating {
         label: String,
@@ -636,6 +648,7 @@ impl LongshotControllerRegistry {
                 token,
                 snapshot,
                 png,
+                retry_policy,
             } if current == label => {
                 let error = if wire_token == token {
                     LongshotIpcError::busy()
@@ -647,6 +660,7 @@ impl LongshotControllerRegistry {
                     token,
                     snapshot,
                     png,
+                    retry_policy,
                 };
                 Err(error)
             }
@@ -866,6 +880,7 @@ impl LongshotControllerRegistry {
                 token,
                 snapshot,
                 png,
+                retry_policy,
             } if current == label => {
                 if token_from_wire.as_ref() != Some(&token) {
                     *slot = Slot::OutputPending {
@@ -873,6 +888,7 @@ impl LongshotControllerRegistry {
                         token,
                         snapshot,
                         png,
+                        retry_policy,
                     };
                     return Err(LongshotIpcError::superseded());
                 }
@@ -2005,6 +2021,7 @@ pub(crate) async fn finish(
 ) -> Result<LongshotOutputResult, LongshotIpcError> {
     let lifecycle = state.longshot_lifecycle.clone();
     let finish_app = app.clone();
+    let save_target = state.save_target();
     execute_finish_with_ops(
         &state.longshot_windows,
         caller_label,
@@ -2030,9 +2047,22 @@ pub(crate) async fn finish(
                     .is_exact_active(token)
                     .unwrap_or(false)
             },
-            |png: Arc<Vec<u8>>| async move {
-                run_copy_worker(move || crate::image_io::copy_png_to_clipboard(png.as_slice()))
-                    .await
+            move |requested_action, png: Arc<Vec<u8>>| async move {
+                run_output_worker(requested_action, move || match requested_action {
+                    LongshotOutputAction::Copy => {
+                        crate::image_io::copy_png_to_clipboard(png.as_slice())?;
+                        Ok(None)
+                    }
+                    LongshotOutputAction::Save => {
+                        let path = crate::image_io::save_png(
+                            png.as_slice(),
+                            "clippy-screenshot",
+                            &save_target,
+                        )?;
+                        Ok(Some(path.to_string_lossy().into_owned()))
+                    }
+                })
+                .await
             },
             |token| cancel_claimed(&app, state, caller_label, token),
             |_| {},
@@ -4145,10 +4175,11 @@ mod tests {
                     std::future::ready(Ok(png))
                 },
                 |_| false,
-                move |artifact| {
+                move |requested_action, artifact| {
+                    assert_eq!(requested_action, LongshotOutputAction::Copy);
                     assert_eq!(artifact.as_slice(), &[1, 2, 3, 4, 5]);
                     copy_trace.lock().expect("trace").push("copy".into());
-                    std::future::ready(Ok(()))
+                    std::future::ready(Ok(None))
                 },
                 |_| std::future::ready(Ok(())),
                 |_| {},
@@ -4158,6 +4189,7 @@ mod tests {
         .expect("finish copy");
 
         assert_eq!(result.action, LongshotOutputAction::Copy);
+        assert_eq!(result.path, None);
         assert_eq!(*trace.lock().expect("trace"), vec!["finish", "copy"]);
         assert_eq!(windows.destroy_count(), 1);
         assert!(registry
@@ -4187,9 +4219,11 @@ mod tests {
                     std::future::ready(Ok(vec![9, 8, 7]))
                 },
                 |_| false,
-                move |artifact| {
+                move |_, artifact| {
                     *first_slot.lock().expect("first artifact") = Some(Arc::clone(&artifact));
-                    std::future::ready(Err("injected copy failure".to_string()))
+                    std::future::ready(Err(finish::OutputWorkerError::Business(
+                        "injected copy failure".to_string(),
+                    )))
                 },
                 |_| std::future::ready(Ok(())),
                 |_| {},
@@ -4224,9 +4258,9 @@ mod tests {
                     std::future::ready(Ok(Vec::new()))
                 },
                 |_| false,
-                move |artifact| {
+                move |_, artifact| {
                     *retry_slot.lock().expect("retry artifact") = Some(Arc::clone(&artifact));
-                    std::future::ready(Ok(()))
+                    std::future::ready(Ok(None))
                 },
                 |_| std::future::ready(Ok(())),
                 |_| {},
@@ -4247,6 +4281,201 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn finish_save_success_returns_path_without_copying() {
+        let (registry, label, token) = revealed_active_registry();
+        let handle = LongshotControllerHandle::from_token(&token);
+        let windows = TestWindows::default();
+        windows.add_alive(&label);
+        let finishes = AtomicUsize::new(0);
+        let saves = AtomicUsize::new(0);
+
+        let result = execute_finish_with_ops(
+            &registry,
+            &label,
+            &handle,
+            LongshotOutputAction::Save,
+            &windows,
+            FinishOperations::new(
+                |_| {
+                    finishes.fetch_add(1, Ordering::SeqCst);
+                    std::future::ready(Ok(vec![8, 6, 7, 5]))
+                },
+                |_| false,
+                |action, artifact| {
+                    assert_eq!(action, LongshotOutputAction::Save);
+                    assert_eq!(artifact.as_slice(), &[8, 6, 7, 5]);
+                    saves.fetch_add(1, Ordering::SeqCst);
+                    std::future::ready(Ok(Some("/tmp/截图-完成.png".to_string())))
+                },
+                |_| std::future::ready(Ok(())),
+                |_| {},
+            ),
+        )
+        .await
+        .expect("finish save");
+
+        assert_eq!(result.action, LongshotOutputAction::Save);
+        assert_eq!(result.path.as_deref(), Some("/tmp/截图-完成.png"));
+        assert_eq!(finishes.load(Ordering::SeqCst), 1);
+        assert_eq!(saves.load(Ordering::SeqCst), 1);
+        assert_eq!(windows.destroy_count(), 1);
+        assert!(registry
+            .reserve("capture-overlay-next-save".to_string(), selection())
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn finish_save_failure_retries_copy_with_same_arc_without_reencoding() {
+        let (registry, label, token) = revealed_active_registry();
+        let handle = LongshotControllerHandle::from_token(&token);
+        let finishes = AtomicUsize::new(0);
+        let retained = Arc::new(Mutex::new(None::<Arc<Vec<u8>>>));
+        let first_artifact = Arc::clone(&retained);
+
+        let error = execute_finish_with_ops(
+            &registry,
+            &label,
+            &handle,
+            LongshotOutputAction::Save,
+            &TestWindows::default(),
+            FinishOperations::new(
+                |_| {
+                    finishes.fetch_add(1, Ordering::SeqCst);
+                    std::future::ready(Ok(vec![2, 7, 1, 8]))
+                },
+                |_| false,
+                move |action, artifact| {
+                    assert_eq!(action, LongshotOutputAction::Save);
+                    *first_artifact.lock().expect("artifact") = Some(Arc::clone(&artifact));
+                    std::future::ready(Err(finish::OutputWorkerError::Business(
+                        "disk full".to_string(),
+                    )))
+                },
+                |_| std::future::ready(Ok(())),
+                |_| {},
+            ),
+        )
+        .await
+        .expect_err("save failure");
+        assert_eq!(error.code, "longshot_controller_save_failed");
+        let original = retained
+            .lock()
+            .expect("artifact")
+            .as_ref()
+            .expect("recorded")
+            .clone();
+        assert!(matches!(
+            &*registry.slot.lock().expect("slot"),
+            Slot::OutputPending { png, retry_policy: RetryPolicy::Any, .. }
+                if Arc::ptr_eq(png, &original)
+        ));
+
+        let retry_artifact = Arc::new(Mutex::new(None::<Arc<Vec<u8>>>));
+        let retry_seen = Arc::clone(&retry_artifact);
+        let result = execute_finish_with_ops(
+            &registry,
+            &label,
+            &handle,
+            LongshotOutputAction::Copy,
+            &TestWindows::default(),
+            FinishOperations::new(
+                |_| {
+                    finishes.fetch_add(1, Ordering::SeqCst);
+                    std::future::ready(Ok(Vec::new()))
+                },
+                |_| false,
+                move |action, artifact| {
+                    assert_eq!(action, LongshotOutputAction::Copy);
+                    *retry_seen.lock().expect("retry") = Some(Arc::clone(&artifact));
+                    std::future::ready(Ok(None))
+                },
+                |_| std::future::ready(Ok(())),
+                |_| {},
+            ),
+        )
+        .await
+        .expect("retry copy");
+        assert_eq!(result.action, LongshotOutputAction::Copy);
+        assert_eq!(result.path, None);
+        assert_eq!(finishes.load(Ordering::SeqCst), 1);
+        assert!(Arc::ptr_eq(
+            &original,
+            retry_artifact
+                .lock()
+                .expect("retry")
+                .as_ref()
+                .expect("recorded retry")
+        ));
+    }
+
+    #[tokio::test]
+    async fn finish_copy_failure_can_retry_save_with_same_arc() {
+        let (registry, label, token) = revealed_active_registry();
+        let handle = LongshotControllerHandle::from_token(&token);
+        let finishes = AtomicUsize::new(0);
+        let first = Arc::new(Mutex::new(None::<Arc<Vec<u8>>>));
+        let first_seen = Arc::clone(&first);
+
+        execute_finish_with_ops(
+            &registry,
+            &label,
+            &handle,
+            LongshotOutputAction::Copy,
+            &TestWindows::default(),
+            FinishOperations::new(
+                |_| {
+                    finishes.fetch_add(1, Ordering::SeqCst);
+                    std::future::ready(Ok(vec![3, 1, 4, 1]))
+                },
+                |_| false,
+                move |_, artifact| {
+                    *first_seen.lock().expect("first") = Some(Arc::clone(&artifact));
+                    std::future::ready(Err(finish::OutputWorkerError::Business(
+                        "clipboard busy".to_string(),
+                    )))
+                },
+                |_| std::future::ready(Ok(())),
+                |_| {},
+            ),
+        )
+        .await
+        .expect_err("copy failure");
+        let original = first
+            .lock()
+            .expect("first")
+            .as_ref()
+            .expect("recorded")
+            .clone();
+
+        let result = execute_finish_with_ops(
+            &registry,
+            &label,
+            &handle,
+            LongshotOutputAction::Save,
+            &TestWindows::default(),
+            FinishOperations::new(
+                |_| {
+                    finishes.fetch_add(1, Ordering::SeqCst);
+                    std::future::ready(Ok(Vec::new()))
+                },
+                |_| false,
+                move |action, artifact| {
+                    assert_eq!(action, LongshotOutputAction::Save);
+                    assert!(Arc::ptr_eq(&artifact, &original));
+                    std::future::ready(Ok(Some("/tmp/recovered.png".to_string())))
+                },
+                |_| std::future::ready(Ok(())),
+                |_| {},
+            ),
+        )
+        .await
+        .expect("retry save");
+        assert_eq!(result.action, LongshotOutputAction::Save);
+        assert_eq!(result.path.as_deref(), Some("/tmp/recovered.png"));
+        assert_eq!(finishes.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
     async fn finish_business_error_restores_revealed_snapshot_for_retry() {
         let (registry, label, token) = revealed_active_registry();
         let handle = LongshotControllerHandle::from_token(&token);
@@ -4264,7 +4493,7 @@ mod tests {
                     )))
                 },
                 |_| true,
-                |_| std::future::ready(Ok(())),
+                |_, _| std::future::ready(Ok(None)),
                 |_| std::future::ready(Ok(())),
                 |_| {},
             ),
@@ -4301,7 +4530,7 @@ mod tests {
                     )))
                 },
                 |_| true,
-                |_| std::future::ready(Ok(())),
+                |_, _| std::future::ready(Ok(None)),
                 |claimed| {
                     assert_eq!(claimed, token);
                     cancels.fetch_add(1, Ordering::SeqCst);
@@ -4337,13 +4566,17 @@ mod tests {
             FinishOperations::new(
                 |_| std::future::ready(Ok(vec![4, 3, 2, 1])),
                 |_| false,
-                |_| std::future::ready(Err("clipboard unavailable".to_string())),
+                |_, _| {
+                    std::future::ready(Err(finish::OutputWorkerError::Business(
+                        "clipboard unavailable".to_string(),
+                    )))
+                },
                 |_| {
                     cancels.fetch_add(1, Ordering::SeqCst);
                     std::future::ready(Ok(()))
                 },
                 |boundary| {
-                    if boundary == FinishBoundary::BeforeCopy {
+                    if boundary == FinishBoundary::BeforeOutput {
                         assert_eq!(registry.claim_destroyed(&label), None);
                     }
                 },
@@ -4371,7 +4604,7 @@ mod tests {
             FinishOperations::new(
                 |_| std::future::ready(Err(FinishWorkerError::Join("panic".into()))),
                 |_| true,
-                |_| std::future::ready(Ok(())),
+                |_, _| std::future::ready(Ok(None)),
                 |_| std::future::ready(Ok(())),
                 |_| {},
             ),
@@ -4442,6 +4675,68 @@ mod tests {
         );
     }
 
+    #[test]
+    fn finish_output_transitions_require_exact_action_and_arc() {
+        let (registry, label, token) = revealed_active_registry();
+        let handle = LongshotControllerHandle::from_token(&token);
+        assert!(matches!(
+            registry.claim_finish(&label, &handle, LongshotOutputAction::Save),
+            Ok(FinishClaim::Encoding(_))
+        ));
+        let artifact = Arc::new(vec![5, 8, 9, 7]);
+        assert_eq!(
+            registry
+                .publish_outputting(
+                    &label,
+                    &token,
+                    LongshotOutputAction::Copy,
+                    Arc::clone(&artifact),
+                )
+                .expect_err("wrong publish action")
+                .code,
+            "longshot_controller_cleanup_failed"
+        );
+        registry
+            .publish_outputting(
+                &label,
+                &token,
+                LongshotOutputAction::Save,
+                Arc::clone(&artifact),
+            )
+            .expect("exact publish");
+
+        assert_eq!(
+            registry.complete_output_failure(
+                &label,
+                &token,
+                LongshotOutputAction::Copy,
+                &artifact,
+                false,
+            ),
+            OutputFailureAction::OwnershipLost
+        );
+        assert_eq!(
+            registry.complete_output_failure(
+                &label,
+                &token,
+                LongshotOutputAction::Save,
+                &Arc::new(artifact.as_ref().clone()),
+                false,
+            ),
+            OutputFailureAction::OwnershipLost
+        );
+        assert_eq!(
+            registry.complete_output_failure(
+                &label,
+                &token,
+                LongshotOutputAction::Save,
+                &artifact,
+                false,
+            ),
+            OutputFailureAction::Pending
+        );
+    }
+
     #[tokio::test]
     async fn finish_copy_worker_join_retains_output_pending_for_retry() {
         let (registry, label, token) = revealed_active_registry();
@@ -4455,7 +4750,9 @@ mod tests {
             FinishOperations::new(
                 |_| std::future::ready(Ok(vec![6, 5, 4])),
                 |_| false,
-                |_| async { run_copy_worker(|| panic!("injected copy panic")).await },
+                |action, _| async move {
+                    run_output_worker(action, || panic!("injected copy panic")).await
+                },
                 |_| std::future::ready(Ok(())),
                 |_| {},
             ),
@@ -4469,6 +4766,139 @@ mod tests {
         ));
     }
 
+    #[tokio::test]
+    async fn finish_save_join_allows_only_copy_and_policy_never_upgrades() {
+        let (registry, label, token) = revealed_active_registry();
+        let handle = LongshotControllerHandle::from_token(&token);
+        let finishes = AtomicUsize::new(0);
+
+        let error = execute_finish_with_ops(
+            &registry,
+            &label,
+            &handle,
+            LongshotOutputAction::Save,
+            &TestWindows::default(),
+            FinishOperations::new(
+                |_| {
+                    finishes.fetch_add(1, Ordering::SeqCst);
+                    std::future::ready(Ok(vec![1, 6, 1, 8]))
+                },
+                |_| false,
+                |action, _| async move {
+                    run_output_worker(action, || panic!("injected save panic")).await
+                },
+                |_| std::future::ready(Ok(())),
+                |_| {},
+            ),
+        )
+        .await
+        .expect_err("save join");
+        assert_eq!(error.code, "longshot_controller_save_uncertain");
+        assert!(matches!(
+            &*registry.slot.lock().expect("slot"),
+            Slot::OutputPending {
+                retry_policy: RetryPolicy::CopyOnly,
+                ..
+            }
+        ));
+
+        let forbidden_finishes = AtomicUsize::new(0);
+        let forbidden_outputs = AtomicUsize::new(0);
+        let forbidden = execute_finish_with_ops(
+            &registry,
+            &label,
+            &handle,
+            LongshotOutputAction::Save,
+            &TestWindows::default(),
+            FinishOperations::new(
+                |_| {
+                    forbidden_finishes.fetch_add(1, Ordering::SeqCst);
+                    std::future::ready(Ok(Vec::new()))
+                },
+                |_| false,
+                |_, _| {
+                    forbidden_outputs.fetch_add(1, Ordering::SeqCst);
+                    std::future::ready(Ok(Some("must-not-save.png".to_string())))
+                },
+                |_| std::future::ready(Ok(())),
+                |_| {},
+            ),
+        )
+        .await
+        .expect_err("retry save forbidden");
+        assert_eq!(forbidden.code, "longshot_controller_save_uncertain");
+        assert_eq!(forbidden_finishes.load(Ordering::SeqCst), 0);
+        assert_eq!(forbidden_outputs.load(Ordering::SeqCst), 0);
+
+        let copy_error = execute_finish_with_ops(
+            &registry,
+            &label,
+            &handle,
+            LongshotOutputAction::Copy,
+            &TestWindows::default(),
+            FinishOperations::new(
+                |_| {
+                    finishes.fetch_add(1, Ordering::SeqCst);
+                    std::future::ready(Ok(Vec::new()))
+                },
+                |_| false,
+                |action, _| {
+                    assert_eq!(action, LongshotOutputAction::Copy);
+                    std::future::ready(Err(finish::OutputWorkerError::Business(
+                        "clipboard still busy".to_string(),
+                    )))
+                },
+                |_| std::future::ready(Ok(())),
+                |_| {},
+            ),
+        )
+        .await
+        .expect_err("copy retry failure");
+        assert_eq!(copy_error.code, "longshot_controller_copy_failed");
+        assert_eq!(finishes.load(Ordering::SeqCst), 1);
+        assert!(matches!(
+            &*registry.slot.lock().expect("slot"),
+            Slot::OutputPending {
+                retry_policy: RetryPolicy::CopyOnly,
+                ..
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn finish_destroyed_save_uncertain_drops_artifact() {
+        let (registry, label, token) = revealed_active_registry();
+        let handle = LongshotControllerHandle::from_token(&token);
+        let error = execute_finish_with_ops(
+            &registry,
+            &label,
+            &handle,
+            LongshotOutputAction::Save,
+            &TestWindows::default(),
+            FinishOperations::new(
+                |_| std::future::ready(Ok(vec![2, 0, 2, 6])),
+                |_| false,
+                |_, _| {
+                    std::future::ready(Err(finish::OutputWorkerError::Join(
+                        "save completion unknown".to_string(),
+                    )))
+                },
+                |_| std::future::ready(Ok(())),
+                |boundary| {
+                    if boundary == FinishBoundary::BeforeOutput {
+                        assert_eq!(registry.claim_destroyed(&label), None);
+                    }
+                },
+            ),
+        )
+        .await
+        .expect_err("destroyed save remains uncertain");
+        assert_eq!(error.code, "longshot_controller_save_uncertain");
+        assert!(registry
+            .reserve("capture-overlay-after-save".to_string(), selection())
+            .is_ok());
+    }
+
     #[test]
     fn finish_output_pending_discard_drops_artifact_without_lifecycle_cancel() {
         let (registry, label, token) = revealed_active_registry();
@@ -4479,11 +4909,22 @@ mod tests {
             Ok(FinishClaim::Encoding(_))
         ));
         registry
-            .publish_copying(&label, &token, Arc::clone(&artifact))
-            .expect("publish copying");
+            .publish_outputting(
+                &label,
+                &token,
+                LongshotOutputAction::Copy,
+                Arc::clone(&artifact),
+            )
+            .expect("publish outputting");
         assert_eq!(
-            registry.complete_copy_failure(&label, &token, &artifact),
-            CopyFailureAction::Pending
+            registry.complete_output_failure(
+                &label,
+                &token,
+                LongshotOutputAction::Copy,
+                &artifact,
+                false,
+            ),
+            OutputFailureAction::Pending
         );
         assert_eq!(
             registry
@@ -4506,8 +4947,8 @@ mod tests {
         for injected in [
             FinishBoundary::AfterClaim,
             FinishBoundary::AfterFinish,
-            FinishBoundary::BeforeCopy,
-            FinishBoundary::AfterCopy,
+            FinishBoundary::BeforeOutput,
+            FinishBoundary::AfterOutput,
             FinishBoundary::BeforeCommit,
         ] {
             let (registry, label, token) = revealed_active_registry();
@@ -4527,9 +4968,9 @@ mod tests {
                         std::future::ready(Ok(vec![1, 9, 9, 8]))
                     },
                     |_| false,
-                    |_| {
+                    |_, _| {
                         copies.fetch_add(1, Ordering::SeqCst);
-                        std::future::ready(Ok(()))
+                        std::future::ready(Ok(None))
                     },
                     |_| {
                         cancels.fetch_add(1, Ordering::SeqCst);
