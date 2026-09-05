@@ -13,10 +13,9 @@ mod overlap;
 mod recapture;
 mod session;
 
-// controller 已组合这些内部值；下一层 AppState/IPC 尚未接线，保留重导出以固定 capture
-// 领域边界，而不是为了消除 dead-code 伪造调用。
-#[allow(unused_imports)]
-pub(super) use controller::LongshotController;
+// controller 已注入 AppState；IPC 尚未接线。保留 crate 内重导出以固定 capture 领域边界，
+// 而不是为了消除 dead-code 伪造调用。
+pub(crate) use controller::LongshotController;
 #[allow(unused_imports)]
 pub(super) use frame_adapter::LongshotFrameAdapter;
 #[allow(unused_imports)]

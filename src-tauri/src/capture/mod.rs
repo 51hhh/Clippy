@@ -4,13 +4,13 @@ pub mod diagnostics;
 mod error;
 mod frame_crop;
 mod frame_protocol;
-/// 长截图像素、会话、重捕获与控制器核心尚未接入 AppState 或 IPC，先保留为截图领域内部原语。
+/// 长截图像素、会话、重捕获与控制器核心已注入 AppState；IPC 仍未接入，先保留为截图领域内部原语。
 ///
 /// 非测试构建中没有调用方是当前任务刻意的分层边界，不能为了消除 lint 伪造生产调用。
 #[cfg_attr(not(test), allow(dead_code))]
 mod longshot;
 mod manager;
-/// 普通截图已接入共享模式 gate；长截图仍只保留核心原语，后续再接入同一生命周期。
+/// 普通截图已接入共享模式 gate；长截图 controller 已进入同一 AppState 生命周期，业务入口仍待后续接入。
 ///
 /// Longshot 侧部分 API 尚无生产调用方是刻意的分层边界，不能为了消除 lint 伪造调用。
 #[cfg_attr(not(test), allow(dead_code))]
@@ -26,6 +26,8 @@ mod window_probe;
 
 pub use error::CaptureError;
 pub(crate) use frame_protocol::handle as frame_protocol;
+/// AppState 通过此边界持有长截图 controller；业务方法继续限制在 capture 域内。
+pub(crate) use longshot::LongshotController;
 pub use manager::CaptureManager;
 /// AppState 与截图入口共用的模式互斥原语；lease 的字段始终只在模块内可见。
 #[cfg_attr(not(test), allow(unused_imports))]

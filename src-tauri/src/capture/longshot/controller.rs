@@ -14,7 +14,7 @@ use crate::capture::{CaptureError, CaptureManager, CaptureModeOwnership, Capture
 use crate::screenshot::CapturedMonitorFrame;
 use std::sync::Mutex;
 
-pub(in crate::capture) struct LongshotController {
+pub(crate) struct LongshotController {
     manager: LongshotManager,
     slot: Mutex<ControllerSlot>,
 }
@@ -51,7 +51,7 @@ impl Default for LongshotController {
     }
 }
 
-#[allow(dead_code)] // 下一切片接入 AppState/IPC；当前先固定同步领域合同。
+#[allow(dead_code)] // 已注入 AppState；IPC 尚未接入，当前先固定同步领域合同。
 impl LongshotController {
     pub(in crate::capture) fn new() -> Self {
         Self {
