@@ -8,16 +8,17 @@ use image::RgbaImage;
 
 mod controller;
 mod frame_adapter;
+mod lifecycle;
 mod manager;
 mod overlap;
 mod recapture;
 mod session;
 
-// controller 已注入 AppState；IPC 尚未接线。保留 crate 内重导出以固定 capture 领域边界，
+// lifecycle 已注入 AppState；IPC 尚未接线。保留 crate 内重导出以固定 capture 领域边界，
 // 而不是为了消除 dead-code 伪造调用。
-pub(crate) use controller::LongshotController;
 #[allow(unused_imports)]
 pub(super) use frame_adapter::LongshotFrameAdapter;
+pub(crate) use lifecycle::LongshotLifecycle;
 #[allow(unused_imports)]
 pub(super) use manager::{LongshotManager, LongshotSessionToken, LongshotStart};
 #[allow(unused_imports)]
