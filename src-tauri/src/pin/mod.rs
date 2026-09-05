@@ -33,7 +33,9 @@ mod tests {
     fn screenshot_entry(label: &str) -> PinEntry {
         PinEntry {
             label: label.to_string(),
-            source: Arc::new(PinSource::Screenshot { png: vec![1, 2, 3] }),
+            source: Arc::new(PinSource::Screenshot {
+                png: Arc::new(vec![1, 2, 3]),
+            }),
             content_width: 320.0,
             content_height: 180.0,
             scale: 1.0,

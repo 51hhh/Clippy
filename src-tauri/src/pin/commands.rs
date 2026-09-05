@@ -99,28 +99,17 @@ pub fn pin_clip(
     Ok(label)
 }
 
-/// `origin` 是这张图在屏幕上原本占的矩形（逻辑像素）。截图覆盖层知道选区落在哪，
-/// 于是贴图能贴回原处、原尺寸；不知道来源的图片传 `None`，落回光标附近。
-pub(crate) fn create_screenshot_pin(
-    png: Vec<u8>,
+fn screenshot_entry(
+    label: String,
+    png: Arc<Vec<u8>>,
+    content_width: f64,
+    content_height: f64,
     origin: Option<PinOrigin>,
-    app_handle: &tauri::AppHandle,
-    state: &AppState,
-) -> Result<String, String> {
-    let _transition = state
-        .pin_transition
-        .lock()
-        .map_err(|error| error.to_string())?;
-    let (width, height) =
-        crate::screenshot::png_dimensions(&png).map_err(|error| error.to_string())?;
-    let label = format!("pin-image-{}", crate::image_io::unique_image_id());
-    let origin = origin.and_then(PinOrigin::sanitized);
-    let (content_width, content_height) = match origin {
-        Some(origin) => origin_content_size(app_handle, origin),
-        None => fit_content_size(app_handle, width as f64, height as f64),
-    };
-    state.pin_manager.insert(PinEntry {
-        label: label.clone(),
+    device_scale: f64,
+    buffer_scale: f64,
+) -> PinEntry {
+    PinEntry {
+        label,
         source: Arc::new(PinSource::Screenshot { png }),
         content_width,
         content_height,
@@ -130,10 +119,56 @@ pub(crate) fn create_screenshot_pin(
         above: false,
         position: None,
         origin,
-        device_scale: content_device_scale(app_handle, origin),
-        buffer_scale: content_buffer_scale(app_handle, origin),
+        device_scale,
+        buffer_scale,
         sharpen: Arc::new(SharpenSlot::default()),
-    })?;
+    }
+}
+
+fn into_shared_png(png: Vec<u8>) -> Arc<Vec<u8>> {
+    Arc::new(png)
+}
+
+pub(crate) fn create_screenshot_pin(
+    png: Vec<u8>,
+    origin: Option<PinOrigin>,
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+) -> Result<String, String> {
+    create_screenshot_pin_shared(into_shared_png(png), origin, app_handle, state)
+}
+
+/// 与普通截图入口共用同一条建条目/建窗路径，但接管调用方已经持有的 PNG `Arc`。
+/// `origin` 是这张图在屏幕上原本占的矩形（逻辑像素）。截图覆盖层知道选区落在哪，
+/// 于是贴图能贴回原处、原尺寸；不知道来源的图片传 `None`，落回光标附近。
+pub(crate) fn create_screenshot_pin_shared(
+    png: Arc<Vec<u8>>,
+    origin: Option<PinOrigin>,
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+) -> Result<String, String> {
+    let _transition = state
+        .pin_transition
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let (width, height) =
+        crate::screenshot::png_dimensions(png.as_slice()).map_err(|error| error.to_string())?;
+    let label = format!("pin-image-{}", crate::image_io::unique_image_id());
+    let origin = origin.and_then(PinOrigin::sanitized);
+    let (content_width, content_height) = match origin {
+        Some(origin) => origin_content_size(app_handle, origin),
+        None => fit_content_size(app_handle, width as f64, height as f64),
+    };
+    let entry = screenshot_entry(
+        label.clone(),
+        png,
+        content_width,
+        content_height,
+        origin,
+        content_device_scale(app_handle, origin),
+        content_buffer_scale(app_handle, origin),
+    );
+    state.pin_manager.insert(entry)?;
     // 同上：补偿与开窗并行，抢在前端来取 payload 之前算完。
     spawn_sharpen(app_handle, &state.pin_manager.get(&label)?);
     if let Err(error) = create_pin_window(app_handle, &label, content_width, content_height, origin)
@@ -383,7 +418,7 @@ pub fn copy_pin(label: String, state: State<'_, AppState>) -> Result<(), String>
         // 和我们手上这串字节几乎不可能相同，设了也永远匹配不上（历史上就是这样白算了一次
         // 全图 sha256）。后果只是这张图重新进一次历史——`insert_clip` 按哈希去重，
         // 已有的那条只会被顶到最前面，没有重复存储。
-        PinSource::Screenshot { png } => crate::image_io::copy_png_to_clipboard(png),
+        PinSource::Screenshot { png } => crate::image_io::copy_png_to_clipboard(png.as_slice()),
         PinSource::Project { preview_png, .. } => {
             crate::image_io::copy_png_to_clipboard(preview_png)
         }
@@ -879,7 +914,7 @@ fn spawn_sharpen(app_handle: &tauri::AppHandle, entry: &PinEntry) {
 fn source_png(source: &PinSource) -> Option<&[u8]> {
     match source {
         PinSource::Clip { image, .. } => image.as_deref(),
-        PinSource::Screenshot { png } => Some(png),
+        PinSource::Screenshot { png } => Some(png.as_slice()),
         PinSource::Project { source_png, .. } => Some(source_png),
     }
 }
@@ -888,7 +923,7 @@ fn source_png(source: &PinSource) -> Option<&[u8]> {
 pub(super) fn display_png(source: &PinSource) -> Option<&[u8]> {
     match source {
         PinSource::Clip { image, .. } => image.as_deref(),
-        PinSource::Screenshot { png } => Some(png),
+        PinSource::Screenshot { png } => Some(png.as_slice()),
         PinSource::Project { preview_png, .. } => Some(preview_png),
     }
 }
@@ -897,8 +932,8 @@ fn image_bytes(entry: &PinEntry) -> Result<Vec<u8>, String> {
     match &*entry.source {
         PinSource::Clip {
             image: Some(png), ..
-        }
-        | PinSource::Screenshot { png } => Ok(png.clone()),
+        } => Ok(png.clone()),
+        PinSource::Screenshot { png } => Ok(png.as_ref().clone()),
         PinSource::Project { preview_png, .. } => Ok(preview_png.clone()),
         _ => Err("文本贴图不能保存或编辑为图片".to_string()),
     }
@@ -907,6 +942,19 @@ fn image_bytes(entry: &PinEntry) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod project_command_tests {
     use super::*;
+
+    const _: fn(
+        Vec<u8>,
+        Option<PinOrigin>,
+        &tauri::AppHandle,
+        &crate::commands::AppState,
+    ) -> Result<String, String> = super::create_screenshot_pin;
+    const _: fn(
+        Arc<Vec<u8>>,
+        Option<PinOrigin>,
+        &tauri::AppHandle,
+        &crate::commands::AppState,
+    ) -> Result<String, String> = super::create_screenshot_pin_shared;
 
     fn adjustments() -> serde_json::Value {
         serde_json::json!({"grayscale":false,"brightness":0,"contrast":0,
@@ -938,21 +986,68 @@ mod project_command_tests {
     }
 
     fn screenshot_entry(label: &str) -> PinEntry {
-        PinEntry {
-            label: label.to_string(),
-            source: Arc::new(PinSource::Screenshot { png: sample_png() }),
-            content_width: 1.0,
-            content_height: 1.0,
-            scale: 1.0,
-            opacity: 1.0,
-            locked: false,
-            above: false,
-            position: None,
-            origin: None,
-            device_scale: 1.0,
-            buffer_scale: 1.0,
-            sharpen: Arc::new(SharpenSlot::default()),
-        }
+        super::screenshot_entry(
+            label.to_string(),
+            Arc::new(sample_png()),
+            1.0,
+            1.0,
+            None,
+            1.0,
+            1.0,
+        )
+    }
+
+    #[test]
+    fn shared_screenshot_source_keeps_arc_identity_in_manager() {
+        let png = Arc::new(sample_png());
+        let manager = super::super::manager::PinManager::new();
+        manager
+            .insert(super::screenshot_entry(
+                "pin-image-shared-source".to_string(),
+                png.clone(),
+                1.0,
+                1.0,
+                None,
+                1.0,
+                1.0,
+            ))
+            .unwrap();
+
+        let entry = manager.get("pin-image-shared-source").unwrap();
+        let PinSource::Screenshot { png: stored } = &*entry.source else {
+            panic!("应保留截图来源");
+        };
+        assert!(Arc::ptr_eq(stored, &png));
+        assert_eq!(stored.as_slice(), png.as_slice());
+    }
+
+    #[test]
+    fn legacy_vec_conversion_moves_the_original_buffer_into_arc() {
+        let png = sample_png();
+        let original_ptr = png.as_ptr();
+        let shared = super::into_shared_png(png);
+        assert_eq!(shared.as_ptr(), original_ptr);
+        assert_eq!(Arc::strong_count(&shared), 1);
+    }
+
+    #[test]
+    fn legacy_vec_source_path_and_image_bytes_remain_owned() {
+        let png = sample_png();
+        let entry = super::screenshot_entry(
+            "pin-image-legacy-source".to_string(),
+            Arc::new(png.clone()),
+            1.0,
+            1.0,
+            None,
+            1.0,
+            1.0,
+        );
+        assert_eq!(super::source_png(&entry.source), Some(png.as_slice()));
+
+        let mut copied = super::image_bytes(&entry).unwrap();
+        assert_eq!(copied, png);
+        copied[0] ^= 0xff;
+        assert_eq!(super::source_png(&entry.source), Some(png.as_slice()));
     }
 
     #[test]
