@@ -3,6 +3,11 @@ mod action_lifecycle;
 pub mod diagnostics;
 mod error;
 mod frame_protocol;
+/// 长截图核心尚未接入会话或 IPC；下一切片消费它之前保留为截图领域的内部原语。
+///
+/// 非测试构建中没有调用方是当前任务刻意的分层边界，不能为了消除 lint 伪造生产调用。
+#[cfg_attr(not(test), allow(dead_code))]
+mod longshot;
 mod manager;
 mod overlay_windows;
 #[cfg(target_os = "linux")]
