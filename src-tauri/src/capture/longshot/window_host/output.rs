@@ -1,7 +1,11 @@
 //! 长截图产物到具体本地输出的适配。
 
+use super::finish::OutputWorkerError;
 use super::LongshotOutputArtifact;
-use crate::pin::{PinFingerprint, PinOriginRegistry};
+use crate::pin::commands::ScreenshotPinCreateError;
+use crate::pin::{PinFingerprint, PinOrigin, PinOriginRegistry};
+use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::Arc;
 
 /// 一次解码同时服务剪贴板写入与来源指纹；只有写入成功才登记可信坐标。
 pub(super) fn copy_longshot_artifact<W>(
@@ -19,6 +23,28 @@ where
     write_clipboard(image)?;
     origins.remember(fingerprint, artifact.origin);
     Ok(())
+}
+
+/// 贴图入口接管产物已有的 PNG `Arc` 与后端可信坐标；分类结果直接驱动重试权限。
+pub(super) fn pin_longshot_artifact<C>(
+    artifact: &LongshotOutputArtifact,
+    create_pin: C,
+) -> Result<String, OutputWorkerError>
+where
+    C: FnOnce(Arc<Vec<u8>>, PinOrigin) -> Result<String, ScreenshotPinCreateError>,
+{
+    match catch_unwind(AssertUnwindSafe(|| {
+        create_pin(Arc::clone(&artifact.png), artifact.origin)
+    })) {
+        Ok(Ok(label)) => Ok(label),
+        Ok(Err(error)) if error.is_uncertain() => {
+            Err(OutputWorkerError::Uncertain(error.to_string()))
+        }
+        Ok(Err(error)) => Err(OutputWorkerError::Business(error.to_string())),
+        Err(_) => Err(OutputWorkerError::Uncertain(
+            "长截图贴图执行异常，创建结果无法确认".to_string(),
+        )),
+    }
 }
 
 #[cfg(test)]
@@ -96,5 +122,57 @@ mod tests {
 
         assert_eq!(error, "clipboard unavailable");
         assert_eq!(origins.lookup(&source_png), None);
+    }
+
+    #[test]
+    fn pin_forwards_the_same_png_arc_and_trusted_origin() {
+        let png = Arc::new(vec![1, 2, 3, 4]);
+        let artifact = LongshotOutputArtifact {
+            png: Arc::clone(&png),
+            origin: test_origin(),
+        };
+
+        let label = pin_longshot_artifact(&artifact, |received, origin| {
+            assert!(Arc::ptr_eq(&received, &png));
+            assert_eq!(origin, test_origin());
+            Ok("pin-image-longshot".to_string())
+        })
+        .expect("Pin 应成功");
+
+        assert_eq!(label, "pin-image-longshot");
+    }
+
+    #[test]
+    fn pin_error_certainty_is_preserved_for_retry_policy() {
+        let artifact = LongshotOutputArtifact {
+            png: Arc::new(vec![1, 2, 3, 4]),
+            origin: test_origin(),
+        };
+        let not_created = pin_longshot_artifact(&artifact, |_, _| {
+            Err(ScreenshotPinCreateError::NotCreated {
+                message: "not created".to_string(),
+            })
+        });
+        assert!(matches!(
+            not_created,
+            Err(OutputWorkerError::Business(message)) if message == "not created"
+        ));
+
+        let uncertain = pin_longshot_artifact(&artifact, |_, _| {
+            Err(ScreenshotPinCreateError::Uncertain {
+                attempted_label: "pin-image-attempted".to_string(),
+                message: "unknown outcome".to_string(),
+            })
+        });
+        assert!(matches!(
+            uncertain,
+            Err(OutputWorkerError::Uncertain(message)) if message == "unknown outcome"
+        ));
+
+        let panic = pin_longshot_artifact(&artifact, |_, _| panic!("injected Pin panic"));
+        assert!(matches!(
+            panic,
+            Err(OutputWorkerError::Uncertain(message)) if message.contains("结果无法确认")
+        ));
     }
 }

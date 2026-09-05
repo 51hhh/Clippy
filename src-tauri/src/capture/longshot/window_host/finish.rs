@@ -25,10 +25,65 @@ pub(super) enum FinishClaim {
     Outputting(LongshotSessionToken, Arc<LongshotOutputArtifact>),
 }
 
+/// 尚可安全重试的输出动作集合。
+///
+/// 对未知完成结果的动作只会移除权限，绝不会把已移除的权限加回来。
+/// 虽然当前复制永远可重试，仍把全部三种动作编码出来，避免后续状态迁移
+/// 把「只允许复制」错误地当作「允许所有动作」。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum RetryPolicy {
-    Any,
+    None,
     CopyOnly,
+    SaveOnly,
+    PinOnly,
+    CopySave,
+    CopyPin,
+    SavePin,
+    Any,
+}
+
+impl RetryPolicy {
+    fn allows(self, action: LongshotOutputAction) -> bool {
+        !matches!(
+            (self, action),
+            (Self::None, _)
+                | (
+                    Self::CopyOnly,
+                    LongshotOutputAction::Save | LongshotOutputAction::Pin
+                )
+                | (
+                    Self::SaveOnly,
+                    LongshotOutputAction::Copy | LongshotOutputAction::Pin
+                )
+                | (
+                    Self::PinOnly,
+                    LongshotOutputAction::Copy | LongshotOutputAction::Save
+                )
+                | (Self::CopySave, LongshotOutputAction::Pin)
+                | (Self::CopyPin, LongshotOutputAction::Save)
+                | (Self::SavePin, LongshotOutputAction::Copy)
+        )
+    }
+
+    /// 从许可集合中移除一个动作。返回值始终是 `self` 的子集。
+    fn without(self, action: LongshotOutputAction) -> Self {
+        match (self, action) {
+            (Self::None, _) => Self::None,
+            (Self::CopyOnly, LongshotOutputAction::Copy) => Self::None,
+            (Self::SaveOnly, LongshotOutputAction::Save) => Self::None,
+            (Self::PinOnly, LongshotOutputAction::Pin) => Self::None,
+            (Self::CopySave, LongshotOutputAction::Copy) => Self::SaveOnly,
+            (Self::CopySave, LongshotOutputAction::Save) => Self::CopyOnly,
+            (Self::CopyPin, LongshotOutputAction::Copy) => Self::PinOnly,
+            (Self::CopyPin, LongshotOutputAction::Pin) => Self::CopyOnly,
+            (Self::SavePin, LongshotOutputAction::Save) => Self::PinOnly,
+            (Self::SavePin, LongshotOutputAction::Pin) => Self::SaveOnly,
+            (Self::Any, LongshotOutputAction::Copy) => Self::SavePin,
+            (Self::Any, LongshotOutputAction::Save) => Self::CopyPin,
+            (Self::Any, LongshotOutputAction::Pin) => Self::CopySave,
+            (policy, _) => policy,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,9 +122,21 @@ pub(super) enum FinishWorkerError {
     Join(String),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum OutputWorkerError {
     Business(String),
+    /// 业务线程已返回，但动作是否已经生效无法确定。
+    Uncertain(String),
     Join(String),
+}
+
+/// 输出动作的成功值。`SavePath` 与 `PinLabel` 不能共用 `Option<String>`，
+/// 否则重试状态机无法证明一个返回值确实属于所请求的动作。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum OutputValue {
+    None,
+    SavePath(String),
+    PinLabel(String),
 }
 
 pub(super) struct FinishOperations<W, P, O, X, H> {
@@ -144,7 +211,7 @@ impl LongshotControllerRegistry {
                 artifact,
                 retry_policy,
             } if current == label && token == wire_token => {
-                if retry_policy == RetryPolicy::CopyOnly && action == LongshotOutputAction::Save {
+                if !retry_policy.allows(action) {
                     *slot = Slot::OutputPending {
                         label: current,
                         token,
@@ -152,9 +219,17 @@ impl LongshotControllerRegistry {
                         artifact,
                         retry_policy,
                     };
-                    return Err(LongshotIpcError::save_uncertain(
-                        "上次保存结果不确定，禁止再次保存以免生成重复文件",
-                    ));
+                    return Err(match action {
+                        LongshotOutputAction::Copy => {
+                            LongshotIpcError::cleanup_failed("长截图复制重试权限已经丢失")
+                        }
+                        LongshotOutputAction::Save => LongshotIpcError::save_uncertain(
+                            "上次保存结果不确定，禁止再次保存以免生成重复文件",
+                        ),
+                        LongshotOutputAction::Pin => LongshotIpcError::pin_uncertain(
+                            "上次贴图结果不确定，禁止再次贴图以免创建重复窗口",
+                        ),
+                    });
                 }
                 *slot = Slot::Finishing {
                     label: current,
@@ -421,8 +496,12 @@ impl LongshotControllerRegistry {
                     *slot = Slot::Empty;
                     OutputFailureAction::Dropped
                 } else {
-                    let retry_policy = if uncertain && action == LongshotOutputAction::Save {
-                        RetryPolicy::CopyOnly
+                    let retry_policy = if uncertain
+                        && matches!(
+                            action,
+                            LongshotOutputAction::Save | LongshotOutputAction::Pin
+                        ) {
+                        retry_policy.without(action)
                     } else {
                         retry_policy
                     };
@@ -487,7 +566,7 @@ where
     WF: std::future::Future<Output = Result<LongshotArtifact, FinishWorkerError>>,
     P: FnOnce(&LongshotSessionToken) -> bool,
     O: FnOnce(LongshotOutputAction, Arc<LongshotOutputArtifact>) -> OF,
-    OF: std::future::Future<Output = Result<Option<String>, OutputWorkerError>>,
+    OF: std::future::Future<Output = Result<OutputValue, OutputWorkerError>>,
     X: FnOnce(LongshotSessionToken) -> XF,
     XF: std::future::Future<Output = Result<(), LongshotIpcError>>,
     H: FnMut(FinishBoundary),
@@ -542,21 +621,39 @@ where
 
     boundary(FinishBoundary::BeforeOutput);
     let output_result = match (action, output_worker(action, Arc::clone(&artifact)).await) {
-        (LongshotOutputAction::Copy, Ok(_)) => Ok(None),
-        (LongshotOutputAction::Save, Ok(Some(path))) if !path.is_empty() => Ok(Some(path)),
+        (LongshotOutputAction::Copy, Ok(OutputValue::None)) => Ok((None, None)),
+        (LongshotOutputAction::Save, Ok(OutputValue::SavePath(path))) if !path.is_empty() => {
+            Ok((Some(path), None))
+        }
+        (LongshotOutputAction::Pin, Ok(OutputValue::PinLabel(label))) if !label.is_empty() => {
+            Ok((None, Some(label)))
+        }
+        (LongshotOutputAction::Copy, Ok(_)) => Err(OutputWorkerError::Business(
+            "长截图复制成功却返回了不匹配的输出值".to_string(),
+        )),
         (LongshotOutputAction::Save, Ok(_)) => Err(OutputWorkerError::Business(
             "长截图保存成功但未返回有效路径".to_string(),
+        )),
+        (LongshotOutputAction::Pin, Ok(_)) => Err(OutputWorkerError::Business(
+            "长截图贴图成功但未返回有效窗口标签".to_string(),
         )),
         (_, Err(error)) => Err(error),
     };
     boundary(FinishBoundary::AfterOutput);
-    let path = match output_result {
-        Ok(path) => path,
+    let (path, pin_label) = match output_result {
+        Ok(value) => value,
         Err(error) => {
-            let uncertain =
-                matches!(error, OutputWorkerError::Join(_)) && action == LongshotOutputAction::Save;
+            let uncertain = matches!(
+                error,
+                OutputWorkerError::Uncertain(_) | OutputWorkerError::Join(_)
+            ) && matches!(
+                action,
+                LongshotOutputAction::Save | LongshotOutputAction::Pin
+            );
             let message = match error {
-                OutputWorkerError::Business(message) | OutputWorkerError::Join(message) => message,
+                OutputWorkerError::Business(message)
+                | OutputWorkerError::Uncertain(message)
+                | OutputWorkerError::Join(message) => message,
             };
             return match registry
                 .complete_output_failure(label, &token, action, &artifact, uncertain)
@@ -567,6 +664,10 @@ where
                         LongshotIpcError::save_uncertain(message)
                     }
                     LongshotOutputAction::Save => LongshotIpcError::save_failed(message),
+                    LongshotOutputAction::Pin if uncertain => {
+                        LongshotIpcError::pin_uncertain(message)
+                    }
+                    LongshotOutputAction::Pin => LongshotIpcError::pin_failed(message),
                 }),
                 OutputFailureAction::OwnershipLost => Err(LongshotIpcError::cleanup_failed(
                     "长截图输出失败后控制权已经丢失",
@@ -582,7 +683,11 @@ where
         ));
     }
     windows.destroy(label);
-    Ok(LongshotOutputResult { action, path })
+    Ok(LongshotOutputResult {
+        action,
+        path,
+        pin_label,
+    })
 }
 
 pub(super) async fn run_finish_worker<F>(work: F) -> Result<LongshotArtifact, FinishWorkerError>
@@ -601,16 +706,71 @@ where
 pub(super) async fn run_output_worker<F>(
     action: LongshotOutputAction,
     work: F,
-) -> Result<Option<String>, OutputWorkerError>
+) -> Result<OutputValue, OutputWorkerError>
 where
-    F: FnOnce() -> Result<Option<String>, String> + Send + 'static,
+    F: FnOnce() -> Result<OutputValue, String> + Send + 'static,
 {
+    if action == LongshotOutputAction::Pin {
+        return Err(OutputWorkerError::Business(
+            "长截图贴图必须在 Tauri 控制路径执行".to_string(),
+        ));
+    }
     match tauri::async_runtime::spawn_blocking(work).await {
-        Ok(Ok(path)) => Ok(path),
+        Ok(Ok(value)) => Ok(value),
         Ok(Err(error)) => Err(OutputWorkerError::Business(error)),
         Err(error) => Err(OutputWorkerError::Join(match action {
             LongshotOutputAction::Copy => format!("长截图复制线程异常: {error}"),
             LongshotOutputAction::Save => format!("长截图保存线程异常: {error}"),
+            LongshotOutputAction::Pin => unreachable!("贴图不会进入输出工作线程"),
         })),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ACTIONS: [LongshotOutputAction; 3] = [
+        LongshotOutputAction::Copy,
+        LongshotOutputAction::Save,
+        LongshotOutputAction::Pin,
+    ];
+
+    #[test]
+    fn removing_an_action_never_restores_another_permission() {
+        let policies = [
+            RetryPolicy::None,
+            RetryPolicy::CopyOnly,
+            RetryPolicy::SaveOnly,
+            RetryPolicy::PinOnly,
+            RetryPolicy::CopySave,
+            RetryPolicy::CopyPin,
+            RetryPolicy::SavePin,
+            RetryPolicy::Any,
+        ];
+        for policy in policies {
+            for removed in ACTIONS {
+                let narrowed = policy.without(removed);
+                assert!(!narrowed.allows(removed));
+                for action in ACTIONS {
+                    assert!(
+                        !narrowed.allows(action) || policy.allows(action),
+                        "{policy:?} - {removed:?} unexpectedly restored {action:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn save_and_pin_uncertainty_commute_to_copy_only() {
+        let save_then_pin = RetryPolicy::Any
+            .without(LongshotOutputAction::Save)
+            .without(LongshotOutputAction::Pin);
+        let pin_then_save = RetryPolicy::Any
+            .without(LongshotOutputAction::Pin)
+            .without(LongshotOutputAction::Save);
+        assert_eq!(save_then_pin, RetryPolicy::CopyOnly);
+        assert_eq!(pin_then_save, RetryPolicy::CopyOnly);
     }
 }

@@ -9,11 +9,11 @@ use crate::commands::AppState;
 use crate::pin::PinOrigin;
 use finish::{
     execute_finish_with_ops, run_finish_worker, run_output_worker, FinishOperations, FinishStage,
-    RetryPolicy,
+    OutputValue, OutputWorkerError, RetryPolicy,
 };
 #[cfg(test)]
 use finish::{FinishBoundary, FinishClaim, FinishWorkerError, OutputFailureAction};
-use output::copy_longshot_artifact;
+use output::{copy_longshot_artifact, pin_longshot_artifact};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -67,6 +67,14 @@ impl LongshotIpcError {
 
     fn save_uncertain(message: impl Into<String>) -> Self {
         Self::new("longshot_controller_save_uncertain", message)
+    }
+
+    fn pin_failed(message: impl Into<String>) -> Self {
+        Self::new("longshot_controller_pin_failed", message)
+    }
+
+    fn pin_uncertain(message: impl Into<String>) -> Self {
+        Self::new("longshot_controller_pin_uncertain", message)
     }
 
     fn internal(message: impl Into<String>) -> Self {
@@ -156,6 +164,7 @@ pub(crate) struct LongshotActivation {
 pub(crate) enum LongshotOutputAction {
     Copy,
     Save,
+    Pin,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -163,6 +172,7 @@ pub(crate) enum LongshotOutputAction {
 pub(crate) struct LongshotOutputResult {
     pub action: LongshotOutputAction,
     pub path: Option<String>,
+    pub pin_label: Option<String>,
 }
 
 /// 一次长截图编码产生的不可拆分输出载荷。
@@ -2044,6 +2054,7 @@ pub(crate) async fn finish(
     let finish_app = app.clone();
     let save_target = state.save_target();
     let pin_origins = Arc::clone(&state.pin_origins);
+    let output_app = app.clone();
     execute_finish_with_ops(
         &state.longshot_windows,
         caller_label,
@@ -2069,24 +2080,46 @@ pub(crate) async fn finish(
                     .is_exact_active(token)
                     .unwrap_or(false)
             },
-            move |requested_action, artifact: Arc<LongshotOutputArtifact>| async move {
-                run_output_worker(requested_action, move || match requested_action {
-                    LongshotOutputAction::Copy => {
-                        copy_longshot_artifact(&artifact, &pin_origins, |image| {
-                            crate::clipboard_watcher::clipboard_set_image_with_retry(image)
-                        })?;
-                        Ok(None)
+            move |requested_action, artifact: Arc<LongshotOutputArtifact>| {
+                let output_app = output_app.clone();
+                async move {
+                    match requested_action {
+                        LongshotOutputAction::Copy => {
+                            run_output_worker(requested_action, move || {
+                                copy_longshot_artifact(&artifact, &pin_origins, |image| {
+                                    crate::clipboard_watcher::clipboard_set_image_with_retry(image)
+                                })?;
+                                Ok(OutputValue::None)
+                            })
+                            .await
+                        }
+                        LongshotOutputAction::Save => {
+                            run_output_worker(requested_action, move || {
+                                let path = crate::image_io::save_png(
+                                    artifact.png.as_slice(),
+                                    "clippy-screenshot",
+                                    &save_target,
+                                )?;
+                                Ok(OutputValue::SavePath(path.to_string_lossy().into_owned()))
+                            })
+                            .await
+                        }
+                        LongshotOutputAction::Pin => {
+                            let state = output_app.try_state::<AppState>().ok_or_else(|| {
+                                OutputWorkerError::Business("AppState 已不可用".to_string())
+                            })?;
+                            pin_longshot_artifact(&artifact, |png, origin| {
+                                crate::pin::commands::create_screenshot_pin_shared(
+                                    png,
+                                    Some(origin),
+                                    &output_app,
+                                    &state,
+                                )
+                            })
+                            .map(OutputValue::PinLabel)
+                        }
                     }
-                    LongshotOutputAction::Save => {
-                        let path = crate::image_io::save_png(
-                            artifact.png.as_slice(),
-                            "clippy-screenshot",
-                            &save_target,
-                        )?;
-                        Ok(Some(path.to_string_lossy().into_owned()))
-                    }
-                })
-                .await
+                }
             },
             |token| cancel_claimed(&app, state, caller_label, token),
             |_| {},
@@ -2521,6 +2554,23 @@ mod tests {
                 "longshot_controller_superseded"
             );
         }
+    }
+
+    #[test]
+    fn pin_output_wire_contract_keeps_label_separate_from_save_path() {
+        let action: LongshotOutputAction = serde_json::from_str("\"pin\"").expect("Pin action");
+        assert_eq!(action, LongshotOutputAction::Pin);
+        assert_eq!(serde_json::to_string(&action).unwrap(), "\"pin\"");
+
+        let value = serde_json::to_value(LongshotOutputResult {
+            action,
+            path: None,
+            pin_label: Some("pin-image-longshot".to_string()),
+        })
+        .expect("Pin result");
+        assert_eq!(value["action"], "pin");
+        assert_eq!(value["path"], serde_json::Value::Null);
+        assert_eq!(value["pinLabel"], "pin-image-longshot");
     }
 
     #[test]
@@ -4224,7 +4274,7 @@ mod tests {
                     assert_eq!(artifact.png.as_slice(), &[1, 2, 3, 4, 5]);
                     assert_eq!(artifact.origin, test_origin());
                     copy_trace.lock().expect("trace").push("copy".into());
-                    std::future::ready(Ok(None))
+                    std::future::ready(Ok(OutputValue::None))
                 },
                 |_| std::future::ready(Ok(())),
                 |_| {},
@@ -4235,6 +4285,7 @@ mod tests {
 
         assert_eq!(result.action, LongshotOutputAction::Copy);
         assert_eq!(result.path, None);
+        assert_eq!(result.pin_label, None);
         assert_eq!(*trace.lock().expect("trace"), vec!["finish", "copy"]);
         assert_eq!(windows.destroy_count(), 1);
         assert!(registry
@@ -4308,7 +4359,7 @@ mod tests {
                 |_| false,
                 move |_, artifact| {
                     *retry_slot.lock().expect("retry artifact") = Some(Arc::clone(&artifact));
-                    std::future::ready(Ok(None))
+                    std::future::ready(Ok(OutputValue::None))
                 },
                 |_| std::future::ready(Ok(())),
                 |_| {},
@@ -4355,7 +4406,7 @@ mod tests {
                     assert_eq!(action, LongshotOutputAction::Save);
                     assert_eq!(artifact.png.as_slice(), &[8, 6, 7, 5]);
                     saves.fetch_add(1, Ordering::SeqCst);
-                    std::future::ready(Ok(Some("/tmp/截图-完成.png".to_string())))
+                    std::future::ready(Ok(OutputValue::SavePath("/tmp/截图-完成.png".to_string())))
                 },
                 |_| std::future::ready(Ok(())),
                 |_| {},
@@ -4366,12 +4417,139 @@ mod tests {
 
         assert_eq!(result.action, LongshotOutputAction::Save);
         assert_eq!(result.path.as_deref(), Some("/tmp/截图-完成.png"));
+        assert_eq!(result.pin_label, None);
         assert_eq!(finishes.load(Ordering::SeqCst), 1);
         assert_eq!(saves.load(Ordering::SeqCst), 1);
         assert_eq!(windows.destroy_count(), 1);
         assert!(registry
             .reserve("capture-overlay-next-save".to_string(), selection())
             .is_ok());
+    }
+
+    #[tokio::test]
+    async fn finish_pin_success_returns_label_and_commits_once() {
+        let (registry, label, token) = revealed_active_registry();
+        let handle = LongshotControllerHandle::from_token(&token);
+        let windows = TestWindows::default();
+        windows.add_alive(&label);
+        let finishes = AtomicUsize::new(0);
+        let pins = AtomicUsize::new(0);
+
+        let result = execute_finish_with_ops(
+            &registry,
+            &label,
+            &handle,
+            LongshotOutputAction::Pin,
+            &windows,
+            FinishOperations::new(
+                |_| {
+                    finishes.fetch_add(1, Ordering::SeqCst);
+                    std::future::ready(Ok(lifecycle_artifact(vec![3, 5, 8, 9])))
+                },
+                |_| false,
+                |action, artifact| {
+                    assert_eq!(action, LongshotOutputAction::Pin);
+                    assert_eq!(artifact.png.as_slice(), &[3, 5, 8, 9]);
+                    assert_eq!(artifact.origin, test_origin());
+                    pins.fetch_add(1, Ordering::SeqCst);
+                    std::future::ready(Ok(OutputValue::PinLabel("pin-image-longshot".to_string())))
+                },
+                |_| std::future::ready(Ok(())),
+                |_| {},
+            ),
+        )
+        .await
+        .expect("finish pin");
+
+        assert_eq!(result.action, LongshotOutputAction::Pin);
+        assert_eq!(result.path, None);
+        assert_eq!(result.pin_label.as_deref(), Some("pin-image-longshot"));
+        assert_eq!(finishes.load(Ordering::SeqCst), 1);
+        assert_eq!(pins.load(Ordering::SeqCst), 1);
+        assert_eq!(windows.destroy_count(), 1);
+        assert!(registry
+            .reserve("capture-overlay-next-pin".to_string(), selection())
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn finish_pin_not_created_retries_the_same_artifact_without_reencoding() {
+        let (registry, label, token) = revealed_active_registry();
+        let handle = LongshotControllerHandle::from_token(&token);
+        let finishes = AtomicUsize::new(0);
+        let retained = Arc::new(Mutex::new(None::<Arc<LongshotOutputArtifact>>));
+        let first_seen = Arc::clone(&retained);
+
+        let error = execute_finish_with_ops(
+            &registry,
+            &label,
+            &handle,
+            LongshotOutputAction::Pin,
+            &TestWindows::default(),
+            FinishOperations::new(
+                |_| {
+                    finishes.fetch_add(1, Ordering::SeqCst);
+                    std::future::ready(Ok(lifecycle_artifact(vec![2, 3, 5, 7])))
+                },
+                |_| false,
+                move |action, artifact| {
+                    assert_eq!(action, LongshotOutputAction::Pin);
+                    *first_seen.lock().expect("first") = Some(Arc::clone(&artifact));
+                    std::future::ready(Err(finish::OutputWorkerError::Business(
+                        "Pin manager unavailable".to_string(),
+                    )))
+                },
+                |_| std::future::ready(Ok(())),
+                |_| {},
+            ),
+        )
+        .await
+        .expect_err("confirmed not-created Pin fails");
+        assert_eq!(error.code, "longshot_controller_pin_failed");
+
+        let original = retained
+            .lock()
+            .expect("first")
+            .as_ref()
+            .expect("recorded")
+            .clone();
+        assert!(matches!(
+            &*registry.slot.lock().expect("slot"),
+            Slot::OutputPending {
+                artifact,
+                retry_policy: RetryPolicy::Any,
+                ..
+            } if Arc::ptr_eq(artifact, &original)
+        ));
+
+        let result = execute_finish_with_ops(
+            &registry,
+            &label,
+            &handle,
+            LongshotOutputAction::Pin,
+            &TestWindows::default(),
+            FinishOperations::new(
+                |_| {
+                    finishes.fetch_add(1, Ordering::SeqCst);
+                    std::future::ready(Ok(lifecycle_artifact(Vec::new())))
+                },
+                |_| false,
+                move |action, artifact| {
+                    assert_eq!(action, LongshotOutputAction::Pin);
+                    assert!(Arc::ptr_eq(&artifact, &original));
+                    assert!(Arc::ptr_eq(&artifact.png, &original.png));
+                    assert_eq!(artifact.origin, original.origin);
+                    std::future::ready(Ok(OutputValue::PinLabel("pin-image-retry".to_string())))
+                },
+                |_| std::future::ready(Ok(())),
+                |_| {},
+            ),
+        )
+        .await
+        .expect("Pin retry");
+        assert_eq!(result.pin_label.as_deref(), Some("pin-image-retry"));
+        assert_eq!(result.path, None);
+        assert_eq!(finishes.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
@@ -4437,7 +4615,7 @@ mod tests {
                 move |action, artifact| {
                     assert_eq!(action, LongshotOutputAction::Copy);
                     *retry_seen.lock().expect("retry") = Some(Arc::clone(&artifact));
-                    std::future::ready(Ok(None))
+                    std::future::ready(Ok(OutputValue::None))
                 },
                 |_| std::future::ready(Ok(())),
                 |_| {},
@@ -4447,6 +4625,7 @@ mod tests {
         .expect("retry copy");
         assert_eq!(result.action, LongshotOutputAction::Copy);
         assert_eq!(result.path, None);
+        assert_eq!(result.pin_label, None);
         assert_eq!(finishes.load(Ordering::SeqCst), 1);
         assert!(Arc::ptr_eq(
             &original,
@@ -4522,7 +4701,7 @@ mod tests {
                     assert!(Arc::ptr_eq(&artifact, &original));
                     assert!(Arc::ptr_eq(&artifact.png, &original.png));
                     assert_eq!(artifact.origin, original.origin);
-                    std::future::ready(Ok(Some("/tmp/recovered.png".to_string())))
+                    std::future::ready(Ok(OutputValue::SavePath("/tmp/recovered.png".to_string())))
                 },
                 |_| std::future::ready(Ok(())),
                 |_| {},
@@ -4532,6 +4711,7 @@ mod tests {
         .expect("retry save");
         assert_eq!(result.action, LongshotOutputAction::Save);
         assert_eq!(result.path.as_deref(), Some("/tmp/recovered.png"));
+        assert_eq!(result.pin_label, None);
         assert_eq!(finishes.load(Ordering::SeqCst), 1);
     }
 
@@ -4553,7 +4733,7 @@ mod tests {
                     )))
                 },
                 |_| true,
-                |_, _| std::future::ready(Ok(None)),
+                |_, _| std::future::ready(Ok(OutputValue::None)),
                 |_| std::future::ready(Ok(())),
                 |_| {},
             ),
@@ -4590,7 +4770,7 @@ mod tests {
                     )))
                 },
                 |_| true,
-                |_, _| std::future::ready(Ok(None)),
+                |_, _| std::future::ready(Ok(OutputValue::None)),
                 |claimed| {
                     assert_eq!(claimed, token);
                     cancels.fetch_add(1, Ordering::SeqCst);
@@ -4664,7 +4844,7 @@ mod tests {
             FinishOperations::new(
                 |_| std::future::ready(Err(FinishWorkerError::Join("panic".into()))),
                 |_| true,
-                |_, _| std::future::ready(Ok(None)),
+                |_, _| std::future::ready(Ok(OutputValue::None)),
                 |_| std::future::ready(Ok(())),
                 |_| {},
             ),
@@ -4782,6 +4962,12 @@ mod tests {
             LongshotOutputAction::Save,
             &fake_outer,
         ));
+        assert!(!registry.complete_output_success(
+            &label,
+            &token,
+            LongshotOutputAction::Pin,
+            &artifact,
+        ));
 
         assert_eq!(
             registry.complete_output_failure(
@@ -4845,7 +5031,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn finish_save_join_allows_only_copy_and_policy_never_upgrades() {
+    async fn pin_is_rejected_before_the_blocking_output_worker_runs() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let worker_calls = Arc::clone(&calls);
+        let error = run_output_worker(LongshotOutputAction::Pin, move || {
+            worker_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(OutputValue::PinLabel("must-not-run".to_string()))
+        })
+        .await
+        .expect_err("Pin must stay on the Tauri control path");
+
+        assert!(matches!(
+            error,
+            finish::OutputWorkerError::Business(message)
+                if message.contains("Tauri 控制路径")
+        ));
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn finish_save_join_allows_copy_and_pin_and_policy_never_upgrades() {
         let (registry, label, token) = revealed_active_registry();
         let handle = LongshotControllerHandle::from_token(&token);
         let finishes = AtomicUsize::new(0);
@@ -4875,7 +5080,7 @@ mod tests {
         assert!(matches!(
             &*registry.slot.lock().expect("slot"),
             Slot::OutputPending {
-                retry_policy: RetryPolicy::CopyOnly,
+                retry_policy: RetryPolicy::CopyPin,
                 ..
             }
         ));
@@ -4896,7 +5101,7 @@ mod tests {
                 |_| false,
                 |_, _| {
                     forbidden_outputs.fetch_add(1, Ordering::SeqCst);
-                    std::future::ready(Ok(Some("must-not-save.png".to_string())))
+                    std::future::ready(Ok(OutputValue::SavePath("must-not-save.png".to_string())))
                 },
                 |_| std::future::ready(Ok(())),
                 |_| {},
@@ -4907,6 +5112,36 @@ mod tests {
         assert_eq!(forbidden.code, "longshot_controller_save_uncertain");
         assert_eq!(forbidden_finishes.load(Ordering::SeqCst), 0);
         assert_eq!(forbidden_outputs.load(Ordering::SeqCst), 0);
+
+        let pin_outputs = AtomicUsize::new(0);
+        let pin_error = execute_finish_with_ops(
+            &registry,
+            &label,
+            &handle,
+            LongshotOutputAction::Pin,
+            &TestWindows::default(),
+            FinishOperations::new(
+                |_| {
+                    finishes.fetch_add(1, Ordering::SeqCst);
+                    std::future::ready(Ok(lifecycle_artifact(Vec::new())))
+                },
+                |_| false,
+                |action, _| {
+                    assert_eq!(action, LongshotOutputAction::Pin);
+                    pin_outputs.fetch_add(1, Ordering::SeqCst);
+                    std::future::ready(Err(finish::OutputWorkerError::Business(
+                        "pin temporarily unavailable".to_string(),
+                    )))
+                },
+                |_| std::future::ready(Ok(())),
+                |_| {},
+            ),
+        )
+        .await
+        .expect_err("Save 不确定后仍可尝试 Pin");
+        assert_eq!(pin_error.code, "longshot_controller_pin_failed");
+        assert_eq!(pin_outputs.load(Ordering::SeqCst), 1);
+        assert_eq!(finishes.load(Ordering::SeqCst), 1);
 
         let copy_error = execute_finish_with_ops(
             &registry,
@@ -4937,10 +5172,267 @@ mod tests {
         assert!(matches!(
             &*registry.slot.lock().expect("slot"),
             Slot::OutputPending {
-                retry_policy: RetryPolicy::CopyOnly,
+                retry_policy: RetryPolicy::CopyPin,
                 ..
             }
         ));
+    }
+
+    #[tokio::test]
+    async fn finish_pin_uncertain_forbids_pin_but_keeps_copy_and_save() {
+        let (registry, label, token) = revealed_active_registry();
+        let handle = LongshotControllerHandle::from_token(&token);
+        let windows = TestWindows::default();
+        windows.add_alive(&label);
+        let finishes = AtomicUsize::new(0);
+        let retained = Arc::new(Mutex::new(None::<Arc<LongshotOutputArtifact>>));
+        let first_seen = Arc::clone(&retained);
+
+        let error = execute_finish_with_ops(
+            &registry,
+            &label,
+            &handle,
+            LongshotOutputAction::Pin,
+            &windows,
+            FinishOperations::new(
+                |_| {
+                    finishes.fetch_add(1, Ordering::SeqCst);
+                    std::future::ready(Ok(lifecycle_artifact(vec![1, 4, 1, 4])))
+                },
+                |_| false,
+                move |action, artifact| {
+                    assert_eq!(action, LongshotOutputAction::Pin);
+                    *first_seen.lock().expect("first") = Some(Arc::clone(&artifact));
+                    std::future::ready(Err(finish::OutputWorkerError::Uncertain(
+                        "native Pin completion unknown".to_string(),
+                    )))
+                },
+                |_| std::future::ready(Ok(())),
+                |_| {},
+            ),
+        )
+        .await
+        .expect_err("Pin outcome is uncertain");
+        assert_eq!(error.code, "longshot_controller_pin_uncertain");
+
+        let original = retained
+            .lock()
+            .expect("first")
+            .as_ref()
+            .expect("recorded")
+            .clone();
+        assert!(matches!(
+            &*registry.slot.lock().expect("slot"),
+            Slot::OutputPending {
+                artifact,
+                retry_policy: RetryPolicy::CopySave,
+                ..
+            } if Arc::ptr_eq(artifact, &original)
+        ));
+
+        let forbidden_finishes = AtomicUsize::new(0);
+        let forbidden_outputs = AtomicUsize::new(0);
+        let forbidden = execute_finish_with_ops(
+            &registry,
+            &label,
+            &handle,
+            LongshotOutputAction::Pin,
+            &windows,
+            FinishOperations::new(
+                |_| {
+                    forbidden_finishes.fetch_add(1, Ordering::SeqCst);
+                    std::future::ready(Ok(lifecycle_artifact(Vec::new())))
+                },
+                |_| false,
+                |_, _| {
+                    forbidden_outputs.fetch_add(1, Ordering::SeqCst);
+                    std::future::ready(Ok(OutputValue::PinLabel("must-not-pin".to_string())))
+                },
+                |_| std::future::ready(Ok(())),
+                |_| {},
+            ),
+        )
+        .await
+        .expect_err("uncertain Pin retry must be rejected before side effects");
+        assert_eq!(forbidden.code, "longshot_controller_pin_uncertain");
+        assert_eq!(forbidden_finishes.load(Ordering::SeqCst), 0);
+        assert_eq!(forbidden_outputs.load(Ordering::SeqCst), 0);
+
+        let save_original = Arc::clone(&original);
+        let saves = AtomicUsize::new(0);
+        let save_error = execute_finish_with_ops(
+            &registry,
+            &label,
+            &handle,
+            LongshotOutputAction::Save,
+            &windows,
+            FinishOperations::new(
+                |_| {
+                    finishes.fetch_add(1, Ordering::SeqCst);
+                    std::future::ready(Ok(lifecycle_artifact(Vec::new())))
+                },
+                |_| false,
+                |action, artifact| {
+                    assert_eq!(action, LongshotOutputAction::Save);
+                    assert!(Arc::ptr_eq(&artifact, &save_original));
+                    saves.fetch_add(1, Ordering::SeqCst);
+                    std::future::ready(Err(finish::OutputWorkerError::Business(
+                        "disk temporarily unavailable".to_string(),
+                    )))
+                },
+                |_| std::future::ready(Ok(())),
+                |_| {},
+            ),
+        )
+        .await
+        .expect_err("Save remains allowed");
+        assert_eq!(save_error.code, "longshot_controller_save_failed");
+        assert_eq!(saves.load(Ordering::SeqCst), 1);
+
+        let result = execute_finish_with_ops(
+            &registry,
+            &label,
+            &handle,
+            LongshotOutputAction::Copy,
+            &windows,
+            FinishOperations::new(
+                |_| {
+                    finishes.fetch_add(1, Ordering::SeqCst);
+                    std::future::ready(Ok(lifecycle_artifact(Vec::new())))
+                },
+                |_| false,
+                move |action, artifact| {
+                    assert_eq!(action, LongshotOutputAction::Copy);
+                    assert!(Arc::ptr_eq(&artifact, &original));
+                    std::future::ready(Ok(OutputValue::None))
+                },
+                |_| std::future::ready(Ok(())),
+                |_| {},
+            ),
+        )
+        .await
+        .expect("Copy remains allowed");
+        assert_eq!(result.action, LongshotOutputAction::Copy);
+        assert_eq!(finishes.load(Ordering::SeqCst), 1);
+        assert_eq!(windows.destroy_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn save_and_pin_uncertainty_compose_to_copy_only_without_reencoding() {
+        let (registry, label, token) = revealed_active_registry();
+        let handle = LongshotControllerHandle::from_token(&token);
+        let finishes = AtomicUsize::new(0);
+        let retained = Arc::new(Mutex::new(None::<Arc<LongshotOutputArtifact>>));
+        let first_seen = Arc::clone(&retained);
+
+        let save_error = execute_finish_with_ops(
+            &registry,
+            &label,
+            &handle,
+            LongshotOutputAction::Save,
+            &TestWindows::default(),
+            FinishOperations::new(
+                |_| {
+                    finishes.fetch_add(1, Ordering::SeqCst);
+                    std::future::ready(Ok(lifecycle_artifact(vec![2, 7, 1, 8])))
+                },
+                |_| false,
+                move |_, artifact| {
+                    *first_seen.lock().expect("first") = Some(Arc::clone(&artifact));
+                    std::future::ready(Err(finish::OutputWorkerError::Join(
+                        "save completion unknown".to_string(),
+                    )))
+                },
+                |_| std::future::ready(Ok(())),
+                |_| {},
+            ),
+        )
+        .await
+        .expect_err("Save uncertain");
+        assert_eq!(save_error.code, "longshot_controller_save_uncertain");
+        let original = retained
+            .lock()
+            .expect("first")
+            .as_ref()
+            .expect("recorded")
+            .clone();
+
+        let pin_original = Arc::clone(&original);
+        let pin_error = execute_finish_with_ops(
+            &registry,
+            &label,
+            &handle,
+            LongshotOutputAction::Pin,
+            &TestWindows::default(),
+            FinishOperations::new(
+                |_| {
+                    finishes.fetch_add(1, Ordering::SeqCst);
+                    std::future::ready(Ok(lifecycle_artifact(Vec::new())))
+                },
+                |_| false,
+                move |_, artifact| {
+                    assert!(Arc::ptr_eq(&artifact, &pin_original));
+                    std::future::ready(Err(finish::OutputWorkerError::Uncertain(
+                        "Pin completion unknown".to_string(),
+                    )))
+                },
+                |_| std::future::ready(Ok(())),
+                |_| {},
+            ),
+        )
+        .await
+        .expect_err("Pin uncertain");
+        assert_eq!(pin_error.code, "longshot_controller_pin_uncertain");
+        assert_eq!(finishes.load(Ordering::SeqCst), 1);
+        assert!(matches!(
+            &*registry.slot.lock().expect("slot"),
+            Slot::OutputPending {
+                artifact,
+                retry_policy: RetryPolicy::CopyOnly,
+                ..
+            } if Arc::ptr_eq(artifact, &original)
+        ));
+
+        assert_eq!(
+            registry
+                .claim_finish(&label, &handle, LongshotOutputAction::Save)
+                .expect_err("Save remains forbidden")
+                .code,
+            "longshot_controller_save_uncertain"
+        );
+        assert_eq!(
+            registry
+                .claim_finish(&label, &handle, LongshotOutputAction::Pin)
+                .expect_err("Pin remains forbidden")
+                .code,
+            "longshot_controller_pin_uncertain"
+        );
+
+        let result = execute_finish_with_ops(
+            &registry,
+            &label,
+            &handle,
+            LongshotOutputAction::Copy,
+            &TestWindows::default(),
+            FinishOperations::new(
+                |_| {
+                    finishes.fetch_add(1, Ordering::SeqCst);
+                    std::future::ready(Ok(lifecycle_artifact(Vec::new())))
+                },
+                |_| false,
+                move |action, artifact| {
+                    assert_eq!(action, LongshotOutputAction::Copy);
+                    assert!(Arc::ptr_eq(&artifact, &original));
+                    std::future::ready(Ok(OutputValue::None))
+                },
+                |_| std::future::ready(Ok(())),
+                |_| {},
+            ),
+        )
+        .await
+        .expect("Copy remains allowed");
+        assert_eq!(result.action, LongshotOutputAction::Copy);
+        assert_eq!(finishes.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
@@ -5048,7 +5540,7 @@ mod tests {
                     |_| false,
                     |_, _| {
                         copies.fetch_add(1, Ordering::SeqCst);
-                        std::future::ready(Ok(None))
+                        std::future::ready(Ok(OutputValue::None))
                     },
                     |_| {
                         cancels.fetch_add(1, Ordering::SeqCst);
@@ -5069,6 +5561,60 @@ mod tests {
             assert_eq!(cancels.load(Ordering::SeqCst), 0);
             assert!(registry
                 .reserve("capture-overlay-next-7".to_string(), selection())
+                .is_ok());
+        }
+    }
+
+    #[tokio::test]
+    async fn finish_pin_success_survives_destroyed_at_every_commit_boundary() {
+        for injected in [
+            FinishBoundary::AfterClaim,
+            FinishBoundary::AfterFinish,
+            FinishBoundary::BeforeOutput,
+            FinishBoundary::AfterOutput,
+            FinishBoundary::BeforeCommit,
+        ] {
+            let (registry, label, token) = revealed_active_registry();
+            let handle = LongshotControllerHandle::from_token(&token);
+            let finishes = AtomicUsize::new(0);
+            let pins = AtomicUsize::new(0);
+            let result = execute_finish_with_ops(
+                &registry,
+                &label,
+                &handle,
+                LongshotOutputAction::Pin,
+                &TestWindows::default(),
+                FinishOperations::new(
+                    |_| {
+                        finishes.fetch_add(1, Ordering::SeqCst);
+                        std::future::ready(Ok(lifecycle_artifact(vec![2, 0, 2, 6])))
+                    },
+                    |_| false,
+                    |action, artifact| {
+                        assert_eq!(action, LongshotOutputAction::Pin);
+                        assert_eq!(artifact.origin, test_origin());
+                        pins.fetch_add(1, Ordering::SeqCst);
+                        std::future::ready(Ok(OutputValue::PinLabel(
+                            "pin-image-boundary".to_string(),
+                        )))
+                    },
+                    |_| std::future::ready(Ok(())),
+                    |boundary| {
+                        if boundary == injected {
+                            assert_eq!(registry.claim_destroyed(&label), None);
+                        }
+                    },
+                ),
+            )
+            .await
+            .expect("已领取的 Pin 输出保持授权");
+
+            assert_eq!(result.action, LongshotOutputAction::Pin);
+            assert_eq!(result.pin_label.as_deref(), Some("pin-image-boundary"));
+            assert_eq!(finishes.load(Ordering::SeqCst), 1);
+            assert_eq!(pins.load(Ordering::SeqCst), 1);
+            assert!(registry
+                .reserve("capture-overlay-after-pin".to_string(), selection())
                 .is_ok());
         }
     }
