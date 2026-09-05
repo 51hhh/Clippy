@@ -502,8 +502,8 @@ mod tests {
     #[test]
     fn ignores_bounded_dynamic_rows_and_small_rgb_noise() {
         let (previous, mut incoming, _) = pair(24);
-        for (index, pixel) in incoming.as_mut().chunks_exact_mut(4).enumerate() {
-            for channel in &mut pixel[..3] {
+        for (index, pixel) in incoming.pixels_mut().enumerate() {
+            for channel in &mut pixel.0[..3] {
                 let delta = if index % 2 == 0 { 2 } else { -2 };
                 *channel = channel.saturating_add_signed(delta);
             }
@@ -613,8 +613,12 @@ mod tests {
             estimate_vertical_overlap(&too_tall, &too_tall),
             Err(CaptureError::LongshotResourceLimit)
         ));
-        assert!(MAX_ESTIMATE_HEIGHT as usize * COARSE_COLUMNS * COARSE_ROWS <= 4_718_592);
-        assert!(MAX_FINE_CANDIDATES * FINE_COLUMNS * FINE_ROWS <= 294_912);
+        const {
+            assert!(MAX_ESTIMATE_HEIGHT as usize * COARSE_COLUMNS * COARSE_ROWS <= 4_718_592);
+        };
+        const {
+            assert!(MAX_FINE_CANDIDATES * FINE_COLUMNS * FINE_ROWS <= 294_912);
+        };
     }
 
     #[test]

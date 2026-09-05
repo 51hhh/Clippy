@@ -843,7 +843,7 @@ mod tests {
             controller.snapshot(&started.token).unwrap_err().code(),
             "longshot_session_missing"
         );
-        assert_eq!(controller.cancel(&started.token).unwrap(), false);
+        assert!(!controller.cancel(&started.token).unwrap());
     }
 
     #[test]

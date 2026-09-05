@@ -336,8 +336,9 @@ mod tests {
     #[test]
     fn dropping_a_lease_does_not_release_the_gate() {
         let gate = CaptureModeGate::new();
-        let lease = gate.try_claim(CaptureMode::Ordinary).expect("首次认领");
-        drop(lease);
+        {
+            let _lease = gate.try_claim(CaptureMode::Ordinary).expect("首次认领");
+        }
 
         assert_eq!(
             gate.try_claim(CaptureMode::Longshot)
