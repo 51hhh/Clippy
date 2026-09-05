@@ -7,21 +7,31 @@ import type {
 import { t } from "../shared/i18n";
 import { longshotControllerApi } from "./api";
 
-type ControllerPhase = "preparing" | "ready" | "activationError" | "cancelling" | "cleanupError";
+type ControllerPhase =
+  | "preparing"
+  | "ready"
+  | "appending"
+  | "activationError"
+  | "cancelling"
+  | "cleanupError";
 
 type DisplayError = Pick<LongshotControllerError, "code">;
+type ErrorContext = "activation" | "append";
 
 function parseControllerError(reason: unknown): LongshotControllerError {
   if (typeof reason === "object" && reason !== null) {
     const candidate = reason as Partial<LongshotControllerError>;
-    if (typeof candidate.code === "string" && typeof candidate.message === "string") {
-      return { code: candidate.code, message: candidate.message };
+    if (typeof candidate.code === "string") {
+      return {
+        code: candidate.code,
+        message: typeof candidate.message === "string" ? candidate.message : "structured IPC failure",
+      };
     }
   }
   return { code: "longshot_controller_internal", message: "unstructured IPC failure" };
 }
 
-function errorText(error: DisplayError | null): string {
+function errorText(error: DisplayError | null, context: ErrorContext): string {
   if (!error) return "";
   switch (error.code) {
     case "longshot_controller_cleanup_failed":
@@ -31,7 +41,7 @@ function errorText(error: DisplayError | null): string {
     case "longshot_controller_busy":
       return t("longshot.busy");
     default:
-      return t("longshot.failed");
+      return t(context === "append" ? "longshot.appendFailed" : "longshot.failed");
   }
 }
 
@@ -44,74 +54,149 @@ export function App() {
   const activationRequest = useRef<Promise<LongshotActivation> | null>(null);
   const readySubmitted = useRef(false);
   const cancelling = useRef(false);
+  const mounted = useRef(false);
+  const appendEpoch = useRef(0);
+  const appendInFlight = useRef(false);
+  const phaseRef = useRef<ControllerPhase>("preparing");
   const [phase, setPhase] = useState<ControllerPhase>("preparing");
   const [activation, setActivation] = useState<LongshotActivation | null>(null);
   const [error, setError] = useState<DisplayError | null>(null);
+  const [errorContext, setErrorContext] = useState<ErrorContext>("activation");
+
+  const transition = (next: ControllerPhase) => {
+    phaseRef.current = next;
+    setPhase(next);
+  };
+
+  const invalidateAppendAttempt = () => {
+    appendEpoch.current += 1;
+    appendInFlight.current = false;
+  };
 
   const cancel = useCallback(async (handle: LongshotHandle | null) => {
-    if (cancelling.current || phase === "cleanupError") return;
+    if (cancelling.current || phaseRef.current === "cleanupError") return;
+    // 取消是追加 promise 的线性化边界：它之后的任何完成都不得复活 UI。
+    invalidateAppendAttempt();
     cancelling.current = true;
-    setPhase("cancelling");
+    transition("cancelling");
     setError(null);
     try {
       await longshotControllerApi.cancel(handle);
       // 成功时后端会关闭这个窗口；保留 Cancelling 以免短暂重绘出可操作的旧状态。
     } catch (reason) {
+      if (!mounted.current) return;
       const parsed = parseControllerError(reason);
       console.warn("长截图控制窗口取消失败", parsed.message);
       cancelling.current = false;
       setError(parsed);
+      setErrorContext("activation");
       // 仅 cleanup failure 代表后端无法安全证明资源已释放，不能再尝试取消。
-      setPhase(parsed.code === "longshot_controller_cleanup_failed" ? "cleanupError" :
+      transition(parsed.code === "longshot_controller_cleanup_failed" ? "cleanupError" :
         handle ? "ready" : "activationError");
     }
-  }, [phase]);
+  }, []);
 
   useEffect(() => {
+    mounted.current = true;
     if (!activationStarted.current) {
       activationStarted.current = true;
       activationRequest.current = longshotControllerApi.activate();
     }
     const request = activationRequest.current;
     if (!request) return;
-    let mounted = true;
+    let effectMounted = true;
     void request
       .then((value) => {
-        if (!mounted) return;
+        if (!effectMounted) return;
         setActivation(value);
-        setPhase("ready");
+        transition("ready");
       })
       .catch((reason) => {
-        if (!mounted) return;
+        if (!effectMounted) return;
         const parsed = parseControllerError(reason);
         console.warn("长截图控制窗口启动失败", parsed.message);
         setError(parsed);
-        setPhase(parsed.code === "longshot_controller_cleanup_failed" ? "cleanupError" : "activationError");
+        setErrorContext("activation");
+        transition(parsed.code === "longshot_controller_cleanup_failed" ? "cleanupError" : "activationError");
       });
     return () => {
-      mounted = false;
+      effectMounted = false;
+      mounted.current = false;
+      invalidateAppendAttempt();
     };
   }, []);
 
   // 必须等 activation 结果（包括不可恢复的 CleanupError）已经实际渲染后才能要求后端
   // show，避免隐藏窗口白闪，也避免把重启指引永远留在隐藏 WebView 里。
   useEffect(() => {
+    let disposed = false;
     if (
       (phase !== "ready" && phase !== "activationError" && phase !== "cleanupError")
       || readySubmitted.current
-    ) return;
+    ) return () => {
+      disposed = true;
+    };
     readySubmitted.current = true;
     void longshotControllerApi.ready().catch((reason) => {
+      if (disposed) return;
       const parsed = parseControllerError(reason);
       console.warn("长截图控制窗口显示失败", parsed.message);
       setError(parsed);
+      setErrorContext("activation");
       // 只有后端明确无法证明资源已释放时才阻止再次取消。
       // 其余 show/ready 失败仍可能保有 Active handle，必须保留安全关闭路径。
-      setPhase((current) => parsed.code === "longshot_controller_cleanup_failed"
+      transition(parsed.code === "longshot_controller_cleanup_failed"
         ? "cleanupError"
-        : current === "activationError" ? "activationError" : "ready");
+        : phaseRef.current === "activationError" ? "activationError" : "ready");
     });
+    return () => {
+      disposed = true;
+    };
   }, [phase]);
+
+  const appendCurrent = useCallback(() => {
+    const currentActivation = activation;
+    if (
+      !currentActivation
+      || phaseRef.current !== "ready"
+      || cancelling.current
+      || appendInFlight.current
+    ) return;
+
+    appendInFlight.current = true;
+    const attempt = ++appendEpoch.current;
+    setError(null);
+    setErrorContext("append");
+    transition("appending");
+
+    void longshotControllerApi.append(currentActivation.handle)
+      .then((snapshot) => {
+        if (
+          !mounted.current
+          || attempt !== appendEpoch.current
+          || cancelling.current
+          || phaseRef.current === "cleanupError"
+        ) return;
+        appendInFlight.current = false;
+        setActivation((current) => current ? { ...current, snapshot } : current);
+        setError(null);
+        transition("ready");
+      })
+      .catch((reason) => {
+        if (
+          !mounted.current
+          || attempt !== appendEpoch.current
+          || cancelling.current
+          || phaseRef.current === "cleanupError"
+        ) return;
+        appendInFlight.current = false;
+        const parsed = parseControllerError(reason);
+        console.warn("长截图控制窗口追加失败", parsed.message);
+        setError(parsed);
+        setErrorContext("append");
+        transition(parsed.code === "longshot_controller_cleanup_failed" ? "cleanupError" : "ready");
+      });
+  }, [activation]);
 
   const cancelCurrent = useCallback(() => {
     void cancel(activation?.handle ?? null);
@@ -142,28 +227,44 @@ export function App() {
 
   const snapshot = activation?.snapshot;
   return (
-    <main className="longshot-controller" aria-live="polite">
+    <main className="longshot-controller" aria-live="polite" aria-busy={phase === "appending"}>
       <header className="longshot-titlebar" data-tauri-drag-region>
         <h1 data-tauri-drag-region>{t("longshot.title")}</h1>
       </header>
 
       {phase === "preparing" && <p className="longshot-status">{t("longshot.preparing")}</p>}
 
-      {phase === "ready" && snapshot && (
+      {(phase === "ready" || phase === "appending") && snapshot && (
         <>
-          <p className="longshot-status">{t("longshot.ready")}</p>
+          <p className="longshot-status">
+            {phase === "appending" ? t("longshot.appending") : t("longshot.ready")}
+          </p>
           <dl className="longshot-details">
             <div><dt>{t("longshot.frameCount")}</dt><dd>{snapshot.frameCount}</dd></div>
             <div><dt>{t("longshot.totalHeight")}</dt><dd>{snapshot.totalHeight}</dd></div>
           </dl>
-          {error && <p className="longshot-error" role="alert">{errorText(error)}</p>}
-          <button type="button" onClick={cancelCurrent}>{t("longshot.cancel")}</button>
+          {phase === "ready" && error && (
+            <p className="longshot-error" role="alert">{errorText(error, errorContext)}</p>
+          )}
+          <div className="longshot-actions">
+            <button
+              type="button"
+              data-testid="longshot-append"
+              onClick={appendCurrent}
+              disabled={phase === "appending"}
+            >
+              {t("longshot.append")}
+            </button>
+            <button type="button" data-testid="longshot-cancel" onClick={cancelCurrent}>
+              {t("longshot.cancel")}
+            </button>
+          </div>
         </>
       )}
 
       {phase === "activationError" && (
         <>
-          <p className="longshot-error" role="alert">{errorText(error)}</p>
+          <p className="longshot-error" role="alert">{errorText(error, errorContext)}</p>
           <button type="button" onClick={cancelCurrent}>{t("longshot.close")}</button>
         </>
       )}

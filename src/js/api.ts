@@ -29,6 +29,7 @@ import type {
   LongshotActivation,
   LongshotControllerOpenResult,
   LongshotHandle,
+  LongshotSnapshot,
   PasteOutcome,
   PasteStatus,
   PlatformInfo,
@@ -369,6 +370,14 @@ export function activateLongshotController(): Promise<LongshotActivation> {
 /** 控制页已经渲染 activation 结果，可以由后端显示并聚焦窗口。 */
 export function markLongshotControllerReady(): Promise<void> {
   return invoke<void>("mark_longshot_controller_ready");
+}
+
+/**
+ * 由已显示的独立控制窗口追加一次冻结选区。调用者身份仍由后端注入，
+ * 前端只提交不可变的完整会话 handle，绝不提交窗口 label。
+ */
+export function appendLongshotController(handle: LongshotHandle): Promise<LongshotSnapshot> {
+  return invoke<LongshotSnapshot>("append_longshot_controller", { handle });
 }
 
 /**

@@ -27,7 +27,7 @@ pub(super) use recapture::capture_monitor_frame;
 pub(super) use session::{LongshotAppendOutcome, LongshotSession, LongshotSnapshot};
 pub(crate) use window_host::{
     handle_controller_destroyed, LongshotActivation, LongshotControllerHandle,
-    LongshotControllerLaunch, LongshotControllerRegistry, LongshotIpcError,
+    LongshotControllerLaunch, LongshotControllerRegistry, LongshotIpcError, LongshotSnapshotDto,
 };
 
 /// 资源边界只在此处定义；后续会话层必须复用而不是另设一组限制。
