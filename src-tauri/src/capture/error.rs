@@ -57,6 +57,8 @@ pub enum CaptureError {
     LongshotFrameInvalid,
     #[error("长截图连续帧几何发生变化")]
     LongshotFrameGeometryChanged,
+    #[error("长截图重捕获缺少目标显示器帧")]
+    LongshotRecaptureMonitorMissing,
     #[error("长截图相邻帧尺寸不一致")]
     LongshotEstimateSizeMismatch,
     #[error("长截图相邻帧尺寸过小")]
@@ -124,6 +126,7 @@ impl CaptureError {
             Self::LongshotAllocationFailed => "longshot_allocation_failed",
             Self::LongshotFrameInvalid => "longshot_frame_invalid",
             Self::LongshotFrameGeometryChanged => "longshot_frame_geometry_changed",
+            Self::LongshotRecaptureMonitorMissing => "longshot_recapture_monitor_missing",
             Self::LongshotEstimateSizeMismatch => "longshot_estimate_size_mismatch",
             Self::LongshotEstimateTooSmall => "longshot_estimate_too_small",
             Self::LongshotEstimateLowTexture => "longshot_estimate_low_texture",
@@ -235,6 +238,7 @@ mod tests {
             CaptureError::LongshotAllocationFailed,
             CaptureError::LongshotFrameInvalid,
             CaptureError::LongshotFrameGeometryChanged,
+            CaptureError::LongshotRecaptureMonitorMissing,
             CaptureError::LongshotEstimateSizeMismatch,
             CaptureError::LongshotEstimateTooSmall,
             CaptureError::LongshotEstimateLowTexture,

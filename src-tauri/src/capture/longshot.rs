@@ -9,6 +9,7 @@ use image::RgbaImage;
 mod frame_adapter;
 mod manager;
 mod overlap;
+mod recapture;
 mod session;
 
 // 后续 provider/controller 会从 capture 域消费这些内部值；当前尚无生产调用方，保留重导出
@@ -17,6 +18,8 @@ mod session;
 pub(super) use frame_adapter::LongshotFrameAdapter;
 #[allow(unused_imports)]
 pub(super) use manager::{LongshotManager, LongshotSessionToken, LongshotStart};
+#[allow(unused_imports)]
+pub(super) use recapture::capture_monitor_frame;
 #[allow(unused_imports)]
 pub(super) use session::{LongshotAppendOutcome, LongshotSession, LongshotSnapshot};
 
