@@ -389,10 +389,21 @@ export interface CaptureTranslationResult {
   targetLanguage: string;
 }
 
+export interface PinColor {
+  red: number;
+  green: number;
+  blue: number;
+  alpha: number;
+  /** 后端生成的小写 `#rrggbbaa`；前端只用它构造本地 CSS。 */
+  canonical: string;
+}
+
 export interface PinPayload {
   label: string;
-  kind: "image" | "text";
+  kind: "image" | "text" | "color";
   text: string | null;
+  /** 仅 color Pin 非空；进入 React state 前仍须做运行时 exact-fields 校验。 */
+  color: PinColor | null;
   contentWidth: number;
   contentHeight: number;
   scale: number;

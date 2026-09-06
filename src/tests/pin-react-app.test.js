@@ -923,3 +923,108 @@ describe("React pin app", () => {
     expect(mocks.pinApi.update).not.toHaveBeenCalledWith("pin-image-test", { above: true });
   });
 });
+
+describe("color Pin payload boundary", () => {
+  const safeColorPayload = {
+    label: "pin-image-test",
+    kind: "color",
+    text: '<img src="https://invalid.example/payload.png">\u202e; color: red',
+    color: { red: 10, green: 20, blue: 30, alpha: 128, canonical: "#0a141e80" },
+    contentWidth: 320,
+    contentHeight: 180,
+    scale: 1,
+    opacity: 1,
+    locked: false,
+    above: false,
+    canSave: false,
+    position: null,
+    deviceScale: 1,
+    bufferScale: 1,
+    initialProject: null,
+  };
+
+  let root;
+
+  beforeEach(() => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    document.body.innerHTML = '<div id="root"></div>';
+    i18n.init("en");
+    for (const fn of Object.values(mocks.pinApi)) fn.mockReset();
+    mocks.pinApi.ready.mockResolvedValue(undefined);
+    mocks.pinApi.imageUrl.mockReturnValue("http://pin-frame.localhost/never-requested");
+    mocks.pinApi.platform.mockResolvedValue({
+      capabilities: { always_on_top: { state: "available", reason: null } },
+    });
+    mocks.pinApi.close.mockResolvedValue(undefined);
+    mocks.pinApi.onSharpened.mockResolvedValue(() => {});
+    mocks.pinApi.onAlreadyOpen.mockResolvedValue(() => {});
+    mocks.pinApi.copy.mockResolvedValue(undefined);
+    mocks.pinApi.sourceImage.mockResolvedValue(TINY_PNG);
+    mocks.startDraggingCurrentWindow.mockResolvedValue(undefined);
+    root = createRoot(document.getElementById("root"));
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+  });
+
+  it("renders a validated color locally without image or canvas resources", async () => {
+    let deliverSharpened;
+    mocks.pinApi.onSharpened.mockImplementation(async (callback) => {
+      deliverSharpened = callback;
+      return () => {};
+    });
+    mocks.pinApi.get.mockResolvedValue(safeColorPayload);
+    await act(async () => root.render(React.createElement(App)));
+    await flushFrame();
+    await flush();
+
+    const swatch = document.querySelector(".pin-color-swatch");
+    expect(swatch).not.toBeNull();
+    expect(swatch.style.backgroundColor).toBe("rgba(10, 20, 30, 0.5)");
+    expect(document.querySelector(".pin-color-values")?.textContent).toContain(safeColorPayload.text);
+    expect(document.querySelector(".pin-color-values")?.textContent).toContain("#0a141e80");
+    expect(document.querySelector(".pin-media img, .pin-media pre, .pin-media a")).toBeNull();
+    await act(async () => deliverSharpened({ label: "pin-image-test", revision: 1 }));
+    expect(mocks.pinApi.imageUrl).not.toHaveBeenCalled();
+    expect(mocks.pinApi.sourceImage).not.toHaveBeenCalled();
+    expect(mocks.pinApi.ready).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('button[aria-label="Save image"]')).toBeNull();
+    expect(document.querySelector('button[aria-label="Draw on image"]')).toBeNull();
+
+    await act(async () => document.querySelector('button[aria-label="Copy"]').click());
+    expect(mocks.pinApi.copy).toHaveBeenCalledTimes(1);
+    expect(mocks.pinApi.copy).toHaveBeenCalledWith("pin-image-test");
+    expect(mocks.pinApi.copyCanvas).not.toHaveBeenCalled();
+
+    await act(async () => document.querySelector('button[aria-label="Close"]').click());
+    expect(mocks.pinApi.close).toHaveBeenCalledWith("pin-image-test");
+  });
+
+  it.each([
+    ["an out-of-range channel", { color: { alpha: 256 } }],
+    ["an uppercase canonical", { color: { canonical: "#0A141E80" } }],
+    ["a mismatched canonical", { color: { canonical: "#0a141e81" } }],
+    ["a save-capable contract", { canSave: true }],
+    ["a project-bearing contract", { initialProject: {} }],
+    ["an extra color field", { color: { extra: "no" } }],
+  ])("closes and renders no content for %s", async (_caseName, override) => {
+    const { color: colorOverride, ...payloadOverride } = override;
+    mocks.pinApi.get.mockResolvedValue({
+      ...safeColorPayload,
+      ...payloadOverride,
+      color: colorOverride ? { ...safeColorPayload.color, ...colorOverride } : safeColorPayload.color,
+    });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+
+    expect(mocks.pinApi.close).toHaveBeenCalledWith("pin-image-test");
+    expect(document.querySelector(".pin-root, .pin-media, [data-color-pin], .pin-error, [style]")).toBeNull();
+    expect(mocks.pinApi.ready).not.toHaveBeenCalled();
+    expect(mocks.pinApi.imageUrl).not.toHaveBeenCalled();
+    expect(mocks.pinApi.sourceImage).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+});

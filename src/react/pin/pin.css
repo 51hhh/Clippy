@@ -550,3 +550,57 @@ input {
   padding: 0 10px;
   border-radius: 4px;
 }
+
+.pin-media.color {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  background: rgba(24, 26, 30, 0.94);
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.32);
+}
+
+.pin-color {
+  display: grid;
+  grid-template-columns: minmax(96px, 1fr) minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  padding: 14px;
+  gap: 14px;
+  color: #f3f4f6;
+}
+
+/* 棋盘格完全由固定 CSS 生成；唯一的动态颜色来自已验证的 canonical。 */
+.pin-color-swatch {
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 4px;
+  background-image:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.16) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(255, 255, 255, 0.16) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.16) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.16) 75%);
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  background-size: 16px 16px;
+  background-color: #fff;
+}
+
+.pin-color-values {
+  min-width: 0;
+  margin: 0;
+  align-self: center;
+}
+
+.pin-color-values div + div {
+  margin-top: 12px;
+}
+
+.pin-color-values dt {
+  color: rgba(243, 244, 246, 0.64);
+  font-size: 12px;
+}
+
+.pin-color-values dd {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
