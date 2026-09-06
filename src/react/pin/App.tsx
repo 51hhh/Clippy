@@ -21,6 +21,7 @@ import { usePinCanvas } from "./usePinCanvas";
 import { usePinToolbarBounds } from "./usePinToolbarBounds";
 import { isToolbarDragging } from "../shared/useToolbarDrag";
 import { t } from "../shared/i18n";
+import { isColorPinPayload } from "./colorPayload";
 
 /** 事件落点是不是工具条/滑块那一片。 */
 function onPinControls(target: EventTarget | null): boolean {
@@ -84,7 +85,8 @@ export function App() {
       // 先挂清晰图监听，再请求 payload。这样首帧资源已经取走、后台恰好在同一刻完成时，
       // revision=1 事件也不会掉进“图片已 served、监听还没挂上”的窄缝。
       .onSharpened((payload) => {
-        if (payload.label !== label) return;
+        // 监听先于 payload 请求挂上；只有已确认的 image Pin 才能生成 pin-frame URL。
+        if (payload.label !== label || pinRef.current?.kind !== "image") return;
         setImageUrl(pinApi.imageUrl(label, payload.revision));
       })
       .catch((reason) => {
@@ -102,6 +104,13 @@ export function App() {
       })
       .then((payload) => {
         if (!cancelled && payload) {
+          // 颜色 payload 来自 IPC，不能相信 TypeScript 声明。校验失败时不写 state，
+          // 因此不会建立内容 DOM 或含不可信值的 CSS；直接关闭隐藏原生窗口。
+          if (payload.kind === "color" && !isColorPinPayload(payload)) {
+            console.error("Invalid color pin payload");
+            void pinApi.close(label).catch(() => undefined);
+            return;
+          }
           if (payload.kind === "image") setImageUrl(pinApi.imageUrl(label, 0));
           pinRef.current = payload;
           confirmedPinRef.current = payload;
@@ -183,7 +192,7 @@ export function App() {
 
   useEffect(() => {
     if (!pin || ready || (pin.kind === "image" && !imageUrl)) return;
-    if (pin.kind === "text") {
+    if (pin.kind === "text" || pin.kind === "color") {
       requestAnimationFrame(() => setReady(true));
     }
   }, [imageUrl, pin, ready]);
@@ -637,7 +646,21 @@ export function App() {
             : undefined
         }
       >
-        {pin.kind === "image" && imageUrl ? (
+        {pin.kind === "color" ? (
+          <div className="pin-color" data-color-pin>
+            <div className="pin-color-swatch" aria-label={t("pin.colorSwatch")} style={{ backgroundColor: pin.color!.canonical }} />
+            <dl className="pin-color-values">
+              <div>
+                <dt>{t("pin.colorOriginal")}</dt>
+                <dd>{pin.text}</dd>
+              </div>
+              <div>
+                <dt>{t("pin.colorCanonical")}</dt>
+                <dd>{pin.color!.canonical}</dd>
+              </div>
+            </dl>
+          </div>
+        ) : pin.kind === "image" && imageUrl ? (
           <img
             src={imageUrl}
             alt={t("pin.imageAlt")}
