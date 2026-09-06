@@ -62,6 +62,7 @@ enum Slot {
 enum Operation {
     Append,
     Finish,
+    Preview,
 }
 
 struct Lease {
@@ -162,6 +163,14 @@ impl LongshotManager {
         self.finish_with(token, LongshotSession::finish_png)
     }
 
+    /// 锁外生成只读预览；成功和业务错误都恢复 Active。
+    pub(in crate::capture) fn preview_tail_png(
+        &self,
+        token: &LongshotSessionToken,
+    ) -> Result<Vec<u8>, CaptureError> {
+        self.preview_with(token, LongshotSession::preview_tail_png)
+    }
+
     /// 使匹配会话立即失效。正在锁外运行的 lease 不会被强杀，但不能再回交。
     pub(in crate::capture) fn cancel(
         &self,
@@ -226,6 +235,19 @@ impl LongshotManager {
         let lease = self.claim(token, Operation::Finish)?;
         let result = operation(&lease.session);
         self.complete_finish(lease, result)
+    }
+
+    pub(super) fn preview_with<T, F>(
+        &self,
+        token: &LongshotSessionToken,
+        operation: F,
+    ) -> Result<T, CaptureError>
+    where
+        F: FnOnce(&LongshotSession) -> Result<T, CaptureError>,
+    {
+        let lease = self.claim(token, Operation::Preview)?;
+        let result = operation(&lease.session);
+        self.complete_preview(lease, result)
     }
 
     fn claim(
@@ -315,6 +337,29 @@ impl LongshotManager {
             state.slot = Slot::Active { token, session };
             drop(state);
             result
+        }
+    }
+
+    fn complete_preview<T>(
+        &self,
+        lease: Lease,
+        result: Result<T, CaptureError>,
+    ) -> Result<T, CaptureError> {
+        let Lease {
+            token,
+            operation,
+            session,
+        } = lease;
+        let mut state = self.state.lock().map_err(CaptureError::state_lock)?;
+        if operation == Operation::Preview && in_flight_matches(&state.slot, &token, operation) {
+            state.slot = Slot::Active { token, session };
+            drop(state);
+            result
+        } else {
+            drop(state);
+            session.cancel();
+            drop(result);
+            Err(CaptureError::LongshotSessionSuperseded)
         }
     }
 }
@@ -510,6 +555,101 @@ mod tests {
     }
 
     #[test]
+    fn preview_success_and_business_error_restore_identical_active_session() {
+        let manager = LongshotManager::with_id_supplier(repeated_id);
+        let (started, _) = start(&manager);
+        let baseline_lease = manager
+            .claim(&started.token, Operation::Finish)
+            .expect("应可认领以读取基线 PNG");
+        let before_png = baseline_lease
+            .session
+            .finish_png()
+            .expect("基线 PNG 应成功");
+        assert!(matches!(
+            manager.complete_finish(
+                baseline_lease,
+                Err::<Vec<u8>, _>(CaptureError::Codec("restore-baseline".into()))
+            ),
+            Err(CaptureError::Codec(message)) if message == "restore-baseline"
+        ));
+
+        assert!(matches!(
+            manager.preview_with(&started.token, |_| {
+                Err::<Vec<u8>, _>(CaptureError::Codec("preview-injected".into()))
+            }),
+            Err(CaptureError::Codec(message)) if message == "preview-injected"
+        ));
+        assert_eq!(
+            manager
+                .snapshot(&started.token)
+                .expect("预览错误后仍 Active"),
+            started.snapshot
+        );
+        let preview = manager
+            .preview_tail_png(&started.token)
+            .expect("预览错误后可重试");
+        assert_eq!(
+            crate::screenshot::validate_png(&preview).expect("预览 PNG 有效"),
+            (64, 72)
+        );
+        assert!(!preview.is_empty() && preview.len() <= 1024 * 1024);
+        let after = manager
+            .finish_png(&started.token)
+            .expect("预览成功后仍可完成");
+        assert_eq!(after, before_png);
+    }
+
+    #[test]
+    fn preview_is_mutually_exclusive_and_cancel_discards_late_result() {
+        let manager = LongshotManager::with_id_supplier(repeated_id);
+        let (started, source) = start(&manager);
+        let lease = manager
+            .claim(&started.token, Operation::Preview)
+            .expect("预览应可认领");
+        assert!(matches!(
+            manager.preview_tail_png(&started.token),
+            Err(CaptureError::LongshotSessionBusy)
+        ));
+        assert!(matches!(
+            manager.append(&started.token, frame(&source, 24, 72)),
+            Err(CaptureError::LongshotSessionBusy)
+        ));
+        assert!(matches!(
+            manager.finish_png(&started.token),
+            Err(CaptureError::LongshotSessionBusy)
+        ));
+        assert!(manager.cancel(&started.token).expect("在途预览可取消"));
+        let late = lease.session.preview_tail_png();
+        assert!(matches!(
+            manager.complete_preview(lease, late),
+            Err(CaptureError::LongshotSessionSuperseded)
+        ));
+    }
+
+    #[test]
+    fn stale_preview_cannot_restore_over_repeated_id_new_generation() {
+        let manager = LongshotManager::with_id_supplier(repeated_id);
+        let (old, source) = start(&manager);
+        let lease = manager
+            .claim(&old.token, Operation::Preview)
+            .expect("旧预览应可认领");
+        assert!(manager.cancel(&old.token).expect("旧预览可取消"));
+        let new = manager
+            .begin(frame(&source, 0, 72))
+            .expect("可开始重复 id 新代次");
+        let late = lease.session.preview_tail_png();
+        assert!(matches!(
+            manager.complete_preview(lease, late),
+            Err(CaptureError::LongshotSessionSuperseded)
+        ));
+        assert_eq!(
+            manager.snapshot(&new.token).expect("新代次仍 Active"),
+            new.snapshot
+        );
+        assert!(manager.preview_tail_png(&new.token).is_ok());
+    }
+
+    #[test]
     fn generic_finish_value_preserves_failure_rollback_and_success_consumption() {
         let manager = LongshotManager::with_id_supplier(repeated_id);
         let (started, _) = start(&manager);
@@ -633,6 +773,10 @@ mod tests {
             Err(CaptureError::LongshotSessionSuperseded)
         ));
         assert!(matches!(
+            manager.preview_tail_png(&invalid),
+            Err(CaptureError::LongshotSessionSuperseded)
+        ));
+        assert!(matches!(
             manager.snapshot(&invalid),
             Err(CaptureError::LongshotSessionSuperseded)
         ));
@@ -752,6 +896,10 @@ mod tests {
         ));
         assert!(matches!(
             manager.finish_png(&token),
+            Err(CaptureError::StateLock(_))
+        ));
+        assert!(matches!(
+            manager.preview_tail_png(&token),
             Err(CaptureError::StateLock(_))
         ));
         assert!(matches!(

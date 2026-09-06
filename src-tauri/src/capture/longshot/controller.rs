@@ -199,6 +199,17 @@ impl LongshotController {
         self.manager.snapshot(token).map_err(normalize_claim_race)
     }
 
+    /// 生成已提交像素的只读尾部预览。
+    pub(in crate::capture) fn preview_tail_png(
+        &self,
+        token: &LongshotSessionToken,
+    ) -> Result<Vec<u8>, CaptureError> {
+        self.owner_lease(token)?;
+        self.manager
+            .preview_tail_png(token)
+            .map_err(normalize_claim_race)
+    }
+
     /// 锁外编码 PNG；成功消费 manager 后再按完整 token 条件清除 owner。
     pub(in crate::capture) fn finish_png(
         &self,
@@ -765,6 +776,37 @@ mod tests {
         let decoded = image::load_from_memory(&png).unwrap().to_rgba8();
         let expected = imageops::crop_imm(&source, 0, 0, 64, 96).to_image();
         assert_eq!(decoded, expected, "拼接 PNG 应逐像素等于原始全景前 96 行");
+        assert_eq!(gate.active_mode().unwrap(), None);
+    }
+
+    #[test]
+    fn preview_is_read_only_and_keeps_exact_owner_until_finish() {
+        let controller = LongshotController::new();
+        let first = panorama(64, 72, 31);
+        let expected = first.clone().into_raw();
+        let (started, _, gate) = begin_direct(&controller, first);
+
+        let preview = controller
+            .preview_tail_png(&started.token)
+            .expect("exact owner 应可预览");
+        assert_eq!(crate::screenshot::validate_png(&preview).unwrap(), (64, 72));
+        assert_eq!(
+            image::load_from_memory(&preview)
+                .unwrap()
+                .into_rgba8()
+                .into_raw(),
+            expected
+        );
+        assert_eq!(
+            controller.snapshot(&started.token).unwrap(),
+            started.snapshot
+        );
+        assert_eq!(gate.active_mode().unwrap(), Some(CaptureMode::Longshot));
+
+        let finished = controller
+            .finish_png(&started.token)
+            .expect("预览后仍可完成");
+        finished.ownership.release().unwrap();
         assert_eq!(gate.active_mode().unwrap(), None);
     }
 
