@@ -385,6 +385,26 @@ export function appendLongshotController(handle: LongshotHandle): Promise<Longsh
 }
 
 /**
+ * 获取 exact 长截图会话的尾部 PNG 预览。二进制 IPC 结果仍是不可信输入：
+ * 只接受当前 realm 的非空 ArrayBuffer，并把单次响应限制在 1 MiB 内。
+ */
+export async function previewLongshotController(handle: LongshotHandle): Promise<ArrayBuffer> {
+  const value = await invoke<unknown>("preview_longshot_controller", { handle });
+  try {
+    if (!(value instanceof ArrayBuffer)) {
+      throw new TypeError("invalid longshot preview response");
+    }
+    const byteLength = value.byteLength;
+    if (byteLength <= 0 || byteLength > 1024 * 1024) {
+      throw new TypeError("invalid longshot preview response");
+    }
+  } catch {
+    throw new TypeError("invalid longshot preview response");
+  }
+  return value;
+}
+
+/**
  * 原子结束 exact 长截图会话，并在后端将最终 PNG 输出到指定目标。
  * 这个边界绝不传递窗口标签、PNG 或 base64；失败重试由后端保留 artifact。
  */
