@@ -4,6 +4,7 @@ const api = vi.hoisted(() => ({
   getClipDetail: vi.fn(),
   setPreviewVisible: vi.fn(() => Promise.resolve()),
   getClipImage: vi.fn(),
+  detectImageCodes: vi.fn(),
   ocrAvailable: vi.fn(),
   ocrImage: vi.fn(),
   getConfig: vi.fn(),
@@ -161,5 +162,64 @@ describe("preview render generation", () => {
     expect(api.getClipImage).toHaveBeenCalledTimes(2);
     expect(document.querySelectorAll("#preview-content img")).toHaveLength(1);
     expect(document.getElementById("preview-content").textContent).not.toContain("B");
+  });
+
+  it("does not let a completed stale explicit scan write over the next preview", async () => {
+    vi.useFakeTimers();
+    mountPreviewDom();
+    const scan = deferred();
+    api.getClipImage.mockResolvedValue("image-bytes");
+    api.getConfig.mockResolvedValue({ ocr_enabled: false });
+    api.detectImageCodes.mockReturnValue(scan.promise);
+    const previewPanel = await import("../js/preview-panel.js");
+    previewPanel.init();
+    await previewPanel.toggle();
+
+    previewPanel.updatePreview({ id: 31, content_type: "image", byte_size: 1024 });
+    await vi.advanceTimersByTimeAsync(80);
+    await vi.waitFor(() => {
+      expect(document.querySelector(".preview-code-scan-button")).not.toBeNull();
+    });
+    document.querySelector(".preview-code-scan-button").click();
+    expect(api.detectImageCodes).toHaveBeenCalledWith(31);
+
+    previewPanel.updatePreview({ id: 32, content_type: "text", text_content: "current", byte_size: 1 });
+    await vi.advanceTimersByTimeAsync(80);
+    scan.resolve({ results: [{ format: "qr_code", text: "late scan", points: [] }], limited: false });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(document.getElementById("preview-content").textContent).toContain("current");
+    expect(document.getElementById("preview-content").textContent).not.toContain("late scan");
+  });
+
+  it("does not publish a rejected scan after the preview is hidden", async () => {
+    vi.useFakeTimers();
+    mountPreviewDom();
+    const scan = deferred();
+    api.getClipImage.mockResolvedValue("image-bytes");
+    api.getConfig.mockResolvedValue({ ocr_enabled: false });
+    api.detectImageCodes.mockReturnValue(scan.promise);
+    const previewPanel = await import("../js/preview-panel.js");
+    previewPanel.init();
+    await previewPanel.toggle();
+
+    previewPanel.updatePreview({ id: 33, content_type: "image", byte_size: 1024 });
+    await vi.advanceTimersByTimeAsync(80);
+    await vi.waitFor(() => {
+      expect(document.querySelector(".preview-code-scan-button")).not.toBeNull();
+    });
+    const area = document.querySelector(".preview-code-scan");
+    area.querySelector(".preview-code-scan-button").click();
+    expect(area.dataset.status).toBe("loading");
+
+    await previewPanel.hide();
+    scan.reject(new Error("late scan failure"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(document.getElementById("preview-panel").classList.contains("hidden")).toBe(true);
+    expect(area.dataset.status).toBe("loading");
+    expect(area.querySelector(".preview-code-scan-status").textContent).toBe("codeScan.scanning");
   });
 });

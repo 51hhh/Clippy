@@ -55,6 +55,105 @@ import type {
   WindowProbeStatus,
 } from "./ipc-types.ts";
 
+export type ImageCodePoint = {
+  x: number;
+  y: number;
+};
+
+export type DetectedImageCode = {
+  format: "qr_code" | "code_39";
+  text: string;
+  points: ImageCodePoint[];
+};
+
+export type ImageCodeScanResponse = {
+  results: DetectedImageCode[];
+  limited: boolean;
+};
+
+const MAX_IMAGE_CODE_RESULTS = 32;
+const MAX_IMAGE_CODE_POINTS = 64;
+const MAX_IMAGE_CODE_TEXT_BYTES = 16 * 1024;
+const MAX_IMAGE_CODE_TOTAL_TEXT_BYTES = 64 * 1024;
+const MAX_IMAGE_CODE_COORDINATE = 16_384;
+const imageCodeTextEncoder = new TextEncoder();
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function hasExactKeys(value: Record<string, unknown>, keys: string[]): boolean {
+  const actual = Object.keys(value);
+  return actual.length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+}
+
+/**
+ * 从 IPC 返回的未知 JSON 中恢复受限的本地扫码结果。
+ *
+ * 后端已经按相同预算限制输出；前端仍在边界逐字段校验，避免被损坏或陈旧的 IPC
+ * payload 直接写入 DOM。文本原样保留（包括 NUL 和双向控制字符），调用方必须使用
+ * textContent 渲染。
+ */
+function parseImageCodeScanResponse(value: unknown): ImageCodeScanResponse {
+  if (!isPlainRecord(value) || !hasExactKeys(value, ["results", "limited"])) {
+    throw new Error("invalid image code scan response");
+  }
+  if (!Array.isArray(value.results) || value.results.length > MAX_IMAGE_CODE_RESULTS) {
+    throw new Error("invalid image code scan results");
+  }
+  if (typeof value.limited !== "boolean") {
+    throw new Error("invalid image code scan limit");
+  }
+
+  let totalTextBytes = 0;
+  const results = value.results.map((candidate) => {
+    if (!isPlainRecord(candidate) || !hasExactKeys(candidate, ["format", "text", "points"])) {
+      throw new Error("invalid image code scan result");
+    }
+    if (candidate.format !== "qr_code" && candidate.format !== "code_39") {
+      throw new Error("invalid image code scan format");
+    }
+    const format: DetectedImageCode["format"] = candidate.format;
+    if (typeof candidate.text !== "string") {
+      throw new Error("invalid image code scan text");
+    }
+    const textBytes = imageCodeTextEncoder.encode(candidate.text).byteLength;
+    if (textBytes > MAX_IMAGE_CODE_TEXT_BYTES) {
+      throw new Error("invalid image code scan text length");
+    }
+    totalTextBytes += textBytes;
+    if (totalTextBytes > MAX_IMAGE_CODE_TOTAL_TEXT_BYTES) {
+      throw new Error("invalid image code scan total text length");
+    }
+    if (!Array.isArray(candidate.points) || candidate.points.length > MAX_IMAGE_CODE_POINTS) {
+      throw new Error("invalid image code scan points");
+    }
+    const points = candidate.points.map((point) => {
+      if (!isPlainRecord(point) || !hasExactKeys(point, ["x", "y"])) {
+        throw new Error("invalid image code scan point");
+      }
+      if (
+        typeof point.x !== "number"
+        || typeof point.y !== "number"
+        || !Number.isFinite(point.x)
+        || !Number.isFinite(point.y)
+        || point.x < 0
+        || point.y < 0
+        || point.x > MAX_IMAGE_CODE_COORDINATE
+        || point.y > MAX_IMAGE_CODE_COORDINATE
+      ) {
+        throw new Error("invalid image code scan point coordinate");
+      }
+      return { x: point.x, y: point.y };
+    });
+    return { format, text: candidate.text, points };
+  });
+
+  return { results, limited: value.limited };
+}
+
 export type {
   AppConfig,
   CaptureAction,
@@ -657,6 +756,16 @@ export function ocrAvailable(): Promise<boolean> {
 /** OCR 识别图片中的文字 */
 export function ocrImage(id: number): Promise<string> {
   return invoke<string>("ocr_image", { id });
+}
+
+/**
+ * 显式扫描图片剪贴条目中的本地 QR Code / Code 39。
+ *
+ * 不会联网、不会持久化结果，也不会复制、打开或导航任何识别文本。
+ */
+export async function detectImageCodes(id: number): Promise<ImageCodeScanResponse> {
+  const response = await invoke<unknown>("detect_image_codes", { id });
+  return parseImageCodeScanResponse(response);
 }
 
 /** 一键安装 tesseract-ocr（通过 pkexec 提权） */

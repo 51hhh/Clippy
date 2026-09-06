@@ -4,6 +4,7 @@
 
 import {
   getClipImage,
+  detectImageCodes,
   ocrAvailable,
   ocrImage,
   getConfig,
@@ -118,6 +119,112 @@ export function createContentRenderers({
     contentEl.textContent = text;
   }
 
+  /**
+   * 建立独立于 OCR 的显式本地扫码区。结果文本一律通过 textContent 写入，不能变成
+   * 链接或可执行标记；所有后续异步回调都必须先确认这仍是当前图片代次。
+   */
+  function createCodeScanArea(clip, isCurrent) {
+    const area = document.createElement("section");
+    area.className = "preview-code-scan";
+    area.dataset.status = "idle";
+    area.setAttribute("aria-label", t("action.scanCodes"));
+
+    const header = document.createElement("div");
+    header.className = "preview-code-scan-header";
+    const title = document.createElement("h3");
+    title.textContent = t("preview.codeScanTitle");
+    header.appendChild(title);
+
+    const scanButton = document.createElement("button");
+    scanButton.type = "button";
+    scanButton.className = "preview-code-scan-button";
+    scanButton.textContent = t("action.scanCodes");
+    header.appendChild(scanButton);
+    area.appendChild(header);
+
+    const status = document.createElement("p");
+    status.className = "preview-code-scan-status";
+    status.setAttribute("aria-live", "polite");
+    area.appendChild(status);
+
+    const results = document.createElement("div");
+    results.className = "preview-code-scan-results";
+    area.appendChild(results);
+
+    const setStatus = (nextStatus, message) => {
+      area.dataset.status = nextStatus;
+      status.textContent = message;
+    };
+
+    const appendResult = (result) => {
+      const item = document.createElement("article");
+      item.className = "preview-code-scan-result";
+
+      const itemHeader = document.createElement("div");
+      itemHeader.className = "preview-code-scan-result-header";
+      const format = document.createElement("span");
+      format.className = "preview-code-scan-format";
+      format.textContent = result.format === "qr_code" ? "QR Code" : "Code 39";
+      itemHeader.appendChild(format);
+
+      const copyButton = document.createElement("button");
+      copyButton.type = "button";
+      copyButton.className = "preview-code-scan-copy";
+      copyButton.textContent = t("action.copy");
+      copyButton.addEventListener("click", () => {
+        if (!isCurrent() || copyButton.disabled) return;
+        copyButton.disabled = true;
+        void copyText(result.text).then(() => {
+          if (!isCurrent()) return;
+          copyButton.textContent = t("codeScan.copied");
+          copyButton.disabled = false;
+        }).catch(() => {
+          if (!isCurrent()) return;
+          copyButton.textContent = t("codeScan.copyFailed");
+          copyButton.disabled = false;
+        });
+      });
+      itemHeader.appendChild(copyButton);
+      item.appendChild(itemHeader);
+
+      const text = document.createElement("pre");
+      text.className = "preview-code-scan-text";
+      text.textContent = result.text;
+      item.appendChild(text);
+      results.appendChild(item);
+    };
+
+    const runScan = async () => {
+      if (!isCurrent() || scanButton.disabled) return;
+      scanButton.disabled = true;
+      results.replaceChildren();
+      setStatus("loading", t("codeScan.scanning"));
+      try {
+        const response = await detectImageCodes(clip.id);
+        if (!isCurrent()) return;
+        response.results.forEach(appendResult);
+        if (response.limited) {
+          setStatus("limited", t("codeScan.limited"));
+        } else if (response.results.length === 0) {
+          setStatus("empty", t("codeScan.empty"));
+        } else {
+          setStatus("results", t("codeScan.found", { count: response.results.length }));
+        }
+      } catch (_) {
+        if (!isCurrent()) return;
+        results.replaceChildren();
+        setStatus("error", t("codeScan.failed"));
+      }
+      if (!isCurrent()) return;
+      scanButton.disabled = false;
+    };
+    scanButton.addEventListener("click", () => {
+      void runScan();
+    });
+
+    return area;
+  }
+
   async function renderImage(clip, isCurrent = isCurrentRender) {
     badgeEl.textContent = "IMAGE";
     contentEl.classList.add("preview-content--image");
@@ -137,6 +244,9 @@ export function createContentRenderers({
           }`;
         };
         contentEl.appendChild(img);
+
+        // 扫码只能由用户显式点击触发，和自动 OCR 互不依赖也互不影响。
+        contentEl.appendChild(createCodeScanArea(clip, isCurrent));
 
         // 自动 OCR：在图片下方显示可选择的识别文字
         const ocrArea = document.createElement("div");

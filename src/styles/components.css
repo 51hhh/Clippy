@@ -429,6 +429,84 @@
   border-radius: 4px;
 }
 
+/* 本地扫码与 OCR 同属图片预览的外层文档流，彼此独立且不创建嵌套滚动区域。 */
+.preview-code-scan {
+  flex: 0 0 auto;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px;
+  background: var(--bg-secondary);
+}
+.preview-code-scan-header,
+.preview-code-scan-result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.preview-code-scan-header h3 {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text);
+}
+.preview-code-scan-button,
+.preview-code-scan-copy {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.preview-code-scan-button:hover:not(:disabled),
+.preview-code-scan-copy:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+.preview-code-scan-button:disabled,
+.preview-code-scan-copy:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.preview-code-scan-status {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.preview-code-scan[data-status="idle"] .preview-code-scan-status {
+  display: none;
+}
+.preview-code-scan[data-status="loading"] .preview-code-scan-status,
+.preview-code-scan[data-status="empty"] .preview-code-scan-status,
+.preview-code-scan[data-status="error"] .preview-code-scan-status,
+.preview-code-scan[data-status="limited"] .preview-code-scan-status {
+  font-style: italic;
+}
+.preview-code-scan-results {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.preview-code-scan-result {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.preview-code-scan-format {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.preview-code-scan-text {
+  margin: 6px 0 0;
+  color: var(--text);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+
 /* OCR 结果是图片预览外层滚动文档流的一部分，禁止在这里再创建内层滚动。 */
 .preview-ocr-result {
   flex: 0 0 auto;
