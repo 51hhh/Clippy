@@ -900,22 +900,27 @@ fn state_from_entry(entry: &PinEntry) -> PinState {
 }
 
 fn payload_from_entry(entry: PinEntry) -> Result<PinPayload, String> {
-    let (kind, text, can_save, initial_project) = match &*entry.source {
+    let (kind, text, color, can_save, initial_project) = match &*entry.source {
         PinSource::Clip { item, .. } => match item.content_type {
-            ContentType::Image => ("image", None, true, None),
-            ContentType::Text | ContentType::Html => {
-                ("text", item.text_content.clone(), false, None)
+            ContentType::Image => ("image", None, None, true, None),
+            ContentType::Text => {
+                let text = item.text_content.clone();
+                let color = text.as_deref().and_then(super::color::parse_pin_color);
+                let kind = if color.is_some() { "color" } else { "text" };
+                (kind, text, color, false, None)
             }
+            ContentType::Html => ("text", item.text_content.clone(), None, false, None),
         },
-        PinSource::Screenshot { .. } => ("image", None, true, None),
+        PinSource::Screenshot { .. } => ("image", None, None, true, None),
         PinSource::Project { project, .. } => {
-            ("image", None, true, Some(project.initial_payload()))
+            ("image", None, None, true, Some(project.initial_payload()))
         }
     };
     Ok(PinPayload {
         label: entry.label,
         kind,
         text,
+        color,
         content_width: entry.content_width,
         content_height: entry.content_height,
         scale: entry.scale,
@@ -1056,6 +1061,38 @@ mod project_command_tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};
 
+    fn clip_entry(content_type: ContentType, text: Option<&str>) -> PinEntry {
+        PinEntry {
+            label: "pin-clip-color-contract".to_string(),
+            source: Arc::new(PinSource::Clip {
+                item: crate::models::ClipItem {
+                    id: 1,
+                    content_type,
+                    text_content: text.map(str::to_owned),
+                    html_content: None,
+                    image_data: None,
+                    content_hash: "color-contract".to_string(),
+                    is_favorite: false,
+                    is_sensitive: false,
+                    created_at: 0,
+                    byte_size: 0,
+                },
+                image: None,
+            }),
+            content_width: 1.0,
+            content_height: 1.0,
+            scale: 1.0,
+            opacity: 1.0,
+            locked: false,
+            above: false,
+            position: None,
+            origin: None,
+            device_scale: 1.0,
+            buffer_scale: 1.0,
+            sharpen: Arc::new(SharpenSlot::default()),
+        }
+    }
+
     type CreateScreenshotPinFn = fn(
         Vec<u8>,
         Option<PinOrigin>,
@@ -1111,6 +1148,61 @@ mod project_command_tests {
             1.0,
             1.0,
         )
+    }
+
+    #[test]
+    fn color_payload_classifies_only_valid_plain_text_and_keeps_original_text() {
+        let color = payload_from_entry(clip_entry(ContentType::Text, Some("\t#AbC\t")))
+            .expect("payload 应成功构建");
+        assert_eq!(color.kind, "color");
+        assert_eq!(color.text.as_deref(), Some("\t#AbC\t"));
+        assert!(!color.can_save);
+        assert!(color.initial_project.is_none());
+        let parsed = color.color.expect("color payload 必须携带已规范化颜色");
+        assert_eq!(
+            (parsed.red, parsed.green, parsed.blue, parsed.alpha),
+            (170, 187, 204, 255)
+        );
+        assert_eq!(parsed.canonical, "#aabbccff");
+        assert_eq!(
+            serde_json::to_value(parsed).expect("颜色 IPC 值必须可序列化"),
+            serde_json::json!({
+                "red": 170,
+                "green": 187,
+                "blue": 204,
+                "alpha": 255,
+                "canonical": "#aabbccff",
+            })
+        );
+
+        let invalid = payload_from_entry(clip_entry(ContentType::Text, Some("rgb(256,0,0)")))
+            .expect("无效颜色应降级为普通文本");
+        assert_eq!(invalid.kind, "text");
+        assert_eq!(invalid.text.as_deref(), Some("rgb(256,0,0)"));
+        assert!(invalid.color.is_none());
+        assert!(!invalid.can_save);
+        assert!(invalid.initial_project.is_none());
+
+        let missing = payload_from_entry(clip_entry(ContentType::Text, None))
+            .expect("无文本条目应保持普通文本 payload");
+        assert_eq!(missing.kind, "text");
+        assert!(missing.text.is_none());
+        assert!(missing.color.is_none());
+    }
+
+    #[test]
+    fn non_text_payloads_never_expose_color() {
+        let image = payload_from_entry(clip_entry(ContentType::Image, Some("#abc")))
+            .expect("图片 payload 应成功构建");
+        assert_eq!(image.kind, "image");
+        assert!(image.color.is_none());
+
+        let html = payload_from_entry(clip_entry(ContentType::Html, Some("#abc")))
+            .expect("HTML payload 应成功构建");
+        assert_eq!(html.kind, "text");
+        assert_eq!(html.text.as_deref(), Some("#abc"));
+        assert!(html.color.is_none());
+        assert!(!html.can_save);
     }
 
     #[test]

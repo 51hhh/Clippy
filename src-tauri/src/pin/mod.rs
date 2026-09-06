@@ -1,3 +1,4 @@
+mod color;
 pub(crate) mod commands;
 mod error;
 pub(crate) mod frame_protocol;
