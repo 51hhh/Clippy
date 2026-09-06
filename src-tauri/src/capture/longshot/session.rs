@@ -87,6 +87,11 @@ impl LongshotSession {
         self.stitcher.finish_png()
     }
 
+    /// 以固定资源上限物化已提交缓冲的尾部预览，不消费会话。
+    pub(in crate::capture) fn preview_tail_png(&self) -> Result<Vec<u8>, CaptureError> {
+        self.stitcher.preview_tail_png()
+    }
+
     /// 消费会话并丢弃其内存；上层 manager 负责外部清理与幂等语义。
     pub(in crate::capture) fn cancel(self) {}
 }

@@ -108,6 +108,13 @@ impl LongshotLifecycle {
         self.snapshot_with(token, || self.controller.snapshot(token))
     }
 
+    pub(in crate::capture) fn preview_tail_png(
+        &self,
+        token: &LongshotSessionToken,
+    ) -> Result<Vec<u8>, CaptureError> {
+        self.preview_with(token, || self.controller.preview_tail_png(token))
+    }
+
     pub(in crate::capture) fn finish_png(
         &self,
         token: &LongshotSessionToken,
@@ -206,6 +213,20 @@ impl LongshotLifecycle {
     {
         self.require_active(token)?;
         operation().map_err(normalize_controller_race)
+    }
+
+    fn preview_with<F>(
+        &self,
+        token: &LongshotSessionToken,
+        operation: F,
+    ) -> Result<Vec<u8>, CaptureError>
+    where
+        F: FnOnce() -> Result<Vec<u8>, CaptureError>,
+    {
+        self.require_active(token)?;
+        let result = operation();
+        self.require_still_active(token)?;
+        result.map_err(normalize_controller_race)
     }
 
     fn finish_with<F, A>(
@@ -705,6 +726,60 @@ mod tests {
             ]
         );
         assert_eq!(gate.active_mode().unwrap(), None);
+    }
+
+    #[test]
+    fn preview_checks_active_before_and_after_operation_and_normalizes_race() {
+        let lifecycle = LongshotLifecycle::new();
+        let gate = Arc::new(CaptureModeGate::new());
+        let (capture, selection, _) = ordinary(Arc::clone(&gate), 41);
+        let start = begin_lifecycle(&lifecycle, &capture, &selection, &Mutex::new(Vec::new()));
+
+        let stale = LongshotSessionToken::from_wire_parts("stale".to_string(), 999);
+        let calls = AtomicUsize::new(0);
+        assert!(matches!(
+            lifecycle.preview_with(&stale, || {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(vec![1])
+            }),
+            Err(CaptureError::LongshotSessionSuperseded)
+        ));
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+
+        let error = lifecycle
+            .preview_with(&start.token, || {
+                let mut slot = lifecycle.slot.lock().expect("测试 lifecycle 锁");
+                let previous = std::mem::replace(&mut *slot, LifecycleSlot::Starting);
+                let LifecycleSlot::Active(session) = previous else {
+                    panic!("测试开始时必须 Active")
+                };
+                *slot = LifecycleSlot::Terminating(session);
+                Err(CaptureError::Codec("旧 worker 错误".into()))
+            })
+            .expect_err("阶段变化必须胜过旧 worker 错误");
+        assert!(matches!(error, CaptureError::LongshotSessionSuperseded));
+
+        {
+            let mut slot = lifecycle.slot.lock().expect("测试 lifecycle 锁");
+            let previous = std::mem::replace(&mut *slot, LifecycleSlot::Starting);
+            let LifecycleSlot::Terminating(session) = previous else {
+                panic!("测试应保留 Terminating")
+            };
+            *slot = LifecycleSlot::Active(session);
+        }
+        let preview = lifecycle
+            .preview_tail_png(&start.token)
+            .expect("恢复后可预览");
+        assert_eq!(crate::screenshot::validate_png(&preview).unwrap(), (64, 72));
+
+        let actions = RecordingActions::new(Arc::clone(&gate));
+        lifecycle
+            .cancel_with(
+                &start.token,
+                || lifecycle.controller.cancel(&start.token),
+                &actions,
+            )
+            .unwrap();
     }
 
     #[test]

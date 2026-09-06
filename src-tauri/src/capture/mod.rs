@@ -143,6 +143,16 @@ pub async fn append_longshot_controller(
     longshot::window_host::append(app, &state, window.label(), handle).await
 }
 
+/// 返回 exact 活跃会话的固定上限尾部 PNG，像素不经过 JSON。
+#[tauri::command]
+pub async fn preview_longshot_controller(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+    handle: longshot::LongshotControllerHandle,
+) -> Result<tauri::ipc::Response, longshot::LongshotIpcError> {
+    longshot::window_host::preview(&state, window.label(), handle).await
+}
+
 /// 原子完成 exact 长截图会话并在后端复制最终 PNG，不让像素经过 IPC。
 #[tauri::command]
 pub async fn finish_longshot_controller(
