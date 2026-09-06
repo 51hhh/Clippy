@@ -43,6 +43,7 @@ import {
   markCaptureOverlayReady,
   markLongshotControllerReady,
   copyText,
+  detectImageCodes,
   closeCurrentWindow,
   disableAutostart,
   enableAutostart,
@@ -93,6 +94,60 @@ describe("typed IPC wrappers", () => {
   it("uses the explicit text-copy command without paste side effects", () => {
     copyText("translated result");
     expect(invoke).toHaveBeenCalledWith("copy_text", { text: "translated result" });
+  });
+
+  it("validates the bounded local image-code response before exposing it", async () => {
+    const response = {
+      results: [{
+        format: "qr_code",
+        text: "https://example.test/\u0000\u202E",
+        points: [{ x: 0, y: 1 }, { x: 16_383, y: 16_383 }],
+      }],
+      limited: false,
+    };
+    invoke.mockResolvedValueOnce(response);
+
+    await expect(detectImageCodes(42)).resolves.toEqual(response);
+    expect(invoke).toHaveBeenCalledWith("detect_image_codes", { id: 42 });
+  });
+
+  it("rejects malformed, oversized, or unsupported local image-code responses", async () => {
+    const oversizedText = "测".repeat(5_462); // UTF-8 超过 16 KiB，不能按 JS length 判断。
+    const boundedText = "x".repeat(16 * 1024);
+    const result = { format: "qr_code", text: "x", points: [] };
+    const invalidResponses = [
+      null,
+      [],
+      { results: Array.from({ length: 33 }, () => result), limited: false },
+      { results: [], limited: "false" },
+      { results: [{ format: "aztec", text: "x", points: [] }], limited: false },
+      { results: [{ format: "qr_code", text: oversizedText, points: [] }], limited: false },
+      {
+        results: Array.from(
+          { length: 5 },
+          () => ({ format: "qr_code", text: boundedText, points: [] }),
+        ),
+        limited: false,
+      },
+      {
+        results: [{
+          format: "qr_code",
+          text: "x",
+          points: Array.from({ length: 65 }, () => ({ x: 0, y: 0 })),
+        }],
+        limited: false,
+      },
+      { results: [{ format: "code_39", text: "x", points: [{ x: -1, y: 0 }] }], limited: false },
+      { results: [{ format: "code_39", text: "x", points: [{ x: Infinity, y: 0 }] }], limited: false },
+      { results: [{ format: "code_39", text: "x", points: [{ x: 16_385, y: 0 }] }], limited: false },
+      { results: [{ format: "code_39", text: "x", points: [null] }], limited: false },
+      { results: [], limited: false, unexpected: true },
+    ];
+
+    for (const response of invalidResponses) {
+      invoke.mockResolvedValueOnce(response);
+      await expect(detectImageCodes(43)).rejects.toThrow("invalid image code scan");
+    }
   });
 
   it("keeps editable/flat canvas save and current-composition copy contracts explicit", () => {
