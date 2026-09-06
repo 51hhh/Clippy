@@ -2,6 +2,7 @@ mod app;
 pub mod bench_support;
 mod capture;
 mod clipboard_watcher;
+mod code_detection;
 mod commands;
 mod config;
 #[cfg(target_os = "linux")]
@@ -299,6 +300,7 @@ pub fn run() {
             commands::get_clip_image,
             commands::get_clip_thumbnail,
             commands::get_clip_detail,
+            commands::detect_image_codes,
             commands::set_preview_visible,
             commands::set_codec_visible,
             commands::get_config,

@@ -48,6 +48,8 @@ resvg = "0.43"
 # 见 pin/project.rs）。image crate 不暴露 chunk API。版本跟随 image 已经锁定的这一个，
 # 不引入新的下载。
 png = "0.17"
+# 纯 Rust 的 ZXing 兼容解码器：只编译本地识别所需格式，避免引入图片编解码、编码器或模型资产。
+rxing = { version = "=0.9.2", default-features = false, features = ["decoders", "qrcode", "oned", "multi_barcode_readers", "encoding_rs"] }
 base64 = "0.22"
 thiserror = "2"
 anyhow = "1"

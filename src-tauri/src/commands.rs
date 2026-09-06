@@ -1,5 +1,6 @@
 mod capture_entry;
 mod clipboard;
+mod code_detection;
 mod ocr;
 mod platform;
 mod settings;
@@ -17,6 +18,7 @@ use std::sync::{Arc, Mutex};
 // 截图入口只对 crate 内部可见（托盘 / 快捷键调用），没有 pub 项可以再导出。
 pub(crate) use capture_entry::*;
 pub use clipboard::*;
+pub use code_detection::*;
 pub use ocr::*;
 pub use platform::*;
 pub use settings::*;

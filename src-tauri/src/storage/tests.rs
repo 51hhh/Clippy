@@ -33,6 +33,33 @@ fn insert_image(engine: &StorageEngine, hash: &str) -> ClipItem {
 }
 
 #[test]
+fn bounded_code_scan_image_query_keeps_oversized_blob_out_of_rust_memory() {
+    let engine = StorageEngine::new_in_memory().unwrap();
+    // byte_size 刻意伪造为 1；识别读取必须只信任 SQLite BLOB 的真实 length()。
+    engine
+        .conn
+        .execute(
+            "INSERT INTO clips
+                (content_type, text_content, html_content, image_data, content_hash,
+                 is_favorite, created_at, byte_size, is_sensitive)
+             VALUES ('image', NULL, NULL, zeroblob(128), 'bounded-image-blob', 0, 0, 1, 0)",
+            [],
+        )
+        .unwrap();
+    let id = engine.conn.last_insert_rowid();
+
+    // SQL 的 CASE 分支返回 NULL，而不是把 zeroblob(128) materialize 成 Vec<u8>。
+    assert_eq!(
+        engine.get_bounded_image_for_code_scan(id, 16).unwrap(),
+        BoundedImageData::TooLarge
+    );
+    assert_eq!(
+        engine.get_bounded_image_for_code_scan(id, 128).unwrap(),
+        BoundedImageData::Bytes(vec![0; 128])
+    );
+}
+
+#[test]
 fn test_insert_and_query() {
     let engine = StorageEngine::new_in_memory().unwrap();
     insert_text(&engine, "hello world", "hash_hw");
