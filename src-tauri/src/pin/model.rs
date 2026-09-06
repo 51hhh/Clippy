@@ -285,6 +285,8 @@ pub struct PinPayload {
     pub label: String,
     pub kind: &'static str,
     pub text: Option<String>,
+    /// 仅严格解析成功的纯文本贴图提供；其他 kind 一律为 null。
+    pub color: Option<super::color::PinColor>,
     pub content_width: f64,
     pub content_height: f64,
     pub scale: f64,
