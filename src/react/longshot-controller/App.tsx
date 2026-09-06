@@ -22,6 +22,13 @@ type ControllerPhase =
 
 type DisplayError = Pick<LongshotControllerError, "code">;
 type ErrorContext = "activation" | "append" | "finish" | LongshotOutputAction;
+type PreviewStatus = "loading" | "available" | "unavailable";
+type PreviewRequest = {
+  identity: string;
+  epoch: number;
+  promise: Promise<ArrayBuffer>;
+  handled: boolean;
+};
 /**
  * 后端 OutputPending 当前能安全接受的动作集合。Copy 没有 uncertain 结果；Save 和
  * Pin 的 uncertain 结果只会从集合中移除一个动作，绝不能重新授权它。
@@ -119,15 +126,19 @@ function isExpectedOutputResult(
 export function App() {
   const activationStarted = useRef(false);
   const activationRequest = useRef<Promise<LongshotActivation> | null>(null);
-  const readySubmitted = useRef(false);
+  const readyRequest = useRef<Promise<void> | null>(null);
   const cancelling = useRef(false);
   const mounted = useRef(false);
+  const lifecycleEpoch = useRef(0);
   const appendEpoch = useRef(0);
   const appendInFlight = useRef(false);
   const finishEpoch = useRef(0);
   const finishInFlight = useRef(false);
   const outputRetryPolicyRef = useRef<OutputRetryPolicy>("any");
   const phaseRef = useRef<ControllerPhase>("preparing");
+  const previewEpoch = useRef(0);
+  const previewRequest = useRef<PreviewRequest | null>(null);
+  const previewUrlRef = useRef<string | null>(null);
   const [phase, setPhase] = useState<ControllerPhase>("preparing");
   const [activation, setActivation] = useState<LongshotActivation | null>(null);
   const [error, setError] = useState<DisplayError | null>(null);
@@ -135,6 +146,9 @@ export function App() {
   const [finishingAction, setFinishingAction] = useState<LongshotOutputAction | null>(null);
   const [finishedResult, setFinishedResult] = useState<LongshotOutputResult | null>(null);
   const [outputRetryPolicy, setOutputRetryPolicy] = useState<OutputRetryPolicy>("any");
+  const [readyComplete, setReadyComplete] = useState(false);
+  const [previewStatus, setPreviewStatus] = useState<PreviewStatus>("loading");
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const transition = (next: ControllerPhase) => {
     phaseRef.current = next;
@@ -149,6 +163,17 @@ export function App() {
   const invalidateFinishAttempt = () => {
     finishEpoch.current += 1;
     finishInFlight.current = false;
+  };
+
+  const invalidatePreviewAttempt = () => {
+    previewEpoch.current += 1;
+  };
+
+  const releasePreviewUrl = () => {
+    const owned = previewUrlRef.current;
+    previewUrlRef.current = null;
+    if (owned !== null) URL.revokeObjectURL(owned);
+    if (mounted.current) setPreviewUrl(null);
   };
 
   const setPendingRetryPolicy = (policy: OutputRetryPolicy) => {
@@ -166,12 +191,14 @@ export function App() {
     // 取消是所有本地异步 promise 的线性化边界：它之后的任何完成都不得复活 UI。
     invalidateAppendAttempt();
     invalidateFinishAttempt();
+    invalidatePreviewAttempt();
     setFinishingAction(null);
     cancelling.current = true;
     transition("cancelling");
     setError(null);
     try {
       await longshotControllerApi.cancel(handle);
+      releasePreviewUrl();
       // 成功时后端会关闭这个窗口；保留 Cancelling 以免短暂重绘出可操作的旧状态。
     } catch (reason) {
       if (!mounted.current) return;
@@ -183,11 +210,13 @@ export function App() {
       // 仅 cleanup failure 代表后端无法安全证明资源已释放，不能再尝试取消。
       transition(parsed.code === "longshot_controller_cleanup_failed" ? "cleanupError" :
         handle ? phaseBeforeCancel === "outputPending" ? "outputPending" : "ready" : "activationError");
+      if (parsed.code === "longshot_controller_cleanup_failed") releasePreviewUrl();
     }
   }, []);
 
   useEffect(() => {
     mounted.current = true;
+    lifecycleEpoch.current += 1;
     if (!activationStarted.current) {
       activationStarted.current = true;
       activationRequest.current = longshotControllerApi.activate();
@@ -212,8 +241,15 @@ export function App() {
     return () => {
       effectMounted = false;
       mounted.current = false;
-      invalidateAppendAttempt();
-      invalidateFinishAttempt();
+      const cleanupEpoch = ++lifecycleEpoch.current;
+      queueMicrotask(() => {
+        // React StrictMode 会同步重挂 effect；只在没有重挂时执行真实卸载清理。
+        if (mounted.current || lifecycleEpoch.current !== cleanupEpoch) return;
+        invalidateAppendAttempt();
+        invalidateFinishAttempt();
+        invalidatePreviewAttempt();
+        releasePreviewUrl();
+      });
     };
   }, []);
 
@@ -223,27 +259,98 @@ export function App() {
     let disposed = false;
     if (
       (phase !== "ready" && phase !== "activationError" && phase !== "cleanupError")
-      || readySubmitted.current
     ) return () => {
       disposed = true;
     };
-    readySubmitted.current = true;
-    void longshotControllerApi.ready().catch((reason) => {
-      if (disposed) return;
-      const parsed = parseControllerError(reason);
-      console.warn("长截图控制窗口显示失败", parsed.message);
-      setError(parsed);
-      setErrorContext("activation");
-      // 只有后端明确无法证明资源已释放时才阻止再次取消。
-      // 其余 show/ready 失败仍可能保有 Active handle，必须保留安全关闭路径。
-      transition(parsed.code === "longshot_controller_cleanup_failed"
-        ? "cleanupError"
-        : phaseRef.current === "activationError" ? "activationError" : "ready");
-    });
+    if (!readyRequest.current) readyRequest.current = longshotControllerApi.ready();
+    void readyRequest.current
+      .then(() => {
+        if (!disposed) setReadyComplete(true);
+      })
+      .catch((reason) => {
+        if (disposed) return;
+        const parsed = parseControllerError(reason);
+        console.warn("长截图控制窗口显示失败", parsed.message);
+        setError(parsed);
+        setErrorContext("activation");
+        // 只有后端明确无法证明资源已释放时才阻止再次取消。
+        // 其余 show/ready 失败仍可能保有 Active handle，必须保留安全关闭路径。
+        transition(parsed.code === "longshot_controller_cleanup_failed"
+          ? "cleanupError"
+          : phaseRef.current === "activationError" ? "activationError" : "ready");
+        if (parsed.code === "longshot_controller_cleanup_failed") releasePreviewUrl();
+      });
     return () => {
       disposed = true;
     };
   }, [phase]);
+
+  const snapshot = activation?.snapshot;
+  const previewIdentity = activation && snapshot
+    ? `${activation.handle.sessionId}:${activation.handle.generation}:${snapshot.frameCount}:${snapshot.totalHeight}`
+    : null;
+
+  useEffect(() => {
+    if (!readyComplete || !activation || !previewIdentity || phase !== "ready") return;
+    let request = previewRequest.current;
+    const canReuseRequest = request
+      && request.identity === previewIdentity
+      && (request.epoch === previewEpoch.current || request.handled);
+    if (!canReuseRequest) {
+      const epoch = ++previewEpoch.current;
+      request = {
+        identity: previewIdentity,
+        epoch,
+        promise: longshotControllerApi.preview(activation.handle),
+        handled: false,
+      };
+      previewRequest.current = request;
+      if (previewUrlRef.current === null) setPreviewStatus("loading");
+    }
+    if (!request) return;
+    let disposed = false;
+    const observedRequest = request;
+    void observedRequest.promise
+      .then((bytes) => {
+        // 所有 stale 判定都在创建 object URL 前完成，避免制造无人拥有的 URL。
+        if (
+          disposed
+          || !mounted.current
+          || previewRequest.current !== observedRequest
+          || observedRequest.epoch !== previewEpoch.current
+          || phaseRef.current !== "ready"
+          || observedRequest.handled
+        ) return;
+        observedRequest.handled = true;
+        let nextUrl: string;
+        try {
+          nextUrl = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
+        } catch {
+          if (previewUrlRef.current === null) setPreviewStatus("unavailable");
+          return;
+        }
+        const previousUrl = previewUrlRef.current;
+        previewUrlRef.current = nextUrl;
+        if (previousUrl !== null) URL.revokeObjectURL(previousUrl);
+        setPreviewUrl(nextUrl);
+        setPreviewStatus("available");
+      })
+      .catch(() => {
+        if (
+          disposed
+          || !mounted.current
+          || previewRequest.current !== observedRequest
+          || observedRequest.epoch !== previewEpoch.current
+          || phaseRef.current !== "ready"
+          || observedRequest.handled
+        ) return;
+        observedRequest.handled = true;
+        if (previewUrlRef.current === null) setPreviewStatus("unavailable");
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [activation, phase, previewIdentity, readyComplete]);
 
   const appendCurrent = useCallback(() => {
     const currentActivation = activation;
@@ -256,29 +363,45 @@ export function App() {
 
     appendInFlight.current = true;
     const attempt = ++appendEpoch.current;
+    invalidatePreviewAttempt();
+    const previewBarrier = previewRequest.current?.promise;
     setError(null);
     setErrorContext("append");
     transition("appending");
 
-    void longshotControllerApi.append(currentActivation.handle)
-      .then((snapshot) => {
+    void (async () => {
+      if (previewBarrier) {
+        try {
+          await previewBarrier;
+        } catch {
+          // Preview 失败只用于解除互斥屏障，不进入捕获错误状态机。
+        }
+      }
+      if (
+        !mounted.current
+        || attempt !== appendEpoch.current
+        || !appendInFlight.current
+        || cancelling.current
+        || phaseRef.current !== "appending"
+      ) return;
+      try {
+        const nextSnapshot = await longshotControllerApi.append(currentActivation.handle);
         if (
           !mounted.current
           || attempt !== appendEpoch.current
           || cancelling.current
-          || phaseRef.current === "cleanupError"
+          || phaseRef.current !== "appending"
         ) return;
         appendInFlight.current = false;
-        setActivation((current) => current ? { ...current, snapshot } : current);
+        setActivation((current) => current ? { ...current, snapshot: nextSnapshot } : current);
         setError(null);
         transition("ready");
-      })
-      .catch((reason) => {
+      } catch (reason) {
         if (
           !mounted.current
           || attempt !== appendEpoch.current
           || cancelling.current
-          || phaseRef.current === "cleanupError"
+          || phaseRef.current !== "appending"
         ) return;
         appendInFlight.current = false;
         const parsed = parseControllerError(reason);
@@ -286,7 +409,9 @@ export function App() {
         setError(parsed);
         setErrorContext("append");
         transition(parsed.code === "longshot_controller_cleanup_failed" ? "cleanupError" : "ready");
-      });
+        if (parsed.code === "longshot_controller_cleanup_failed") releasePreviewUrl();
+      }
+    })();
   }, [activation]);
 
   const finishCurrent = useCallback((action: LongshotOutputAction) => {
@@ -302,19 +427,36 @@ export function App() {
 
     finishInFlight.current = true;
     const attempt = ++finishEpoch.current;
+    invalidatePreviewAttempt();
+    const previewBarrier = previewRequest.current?.promise;
     setError(null);
     setErrorContext(retryingOutput ? action : "finish");
     setFinishingAction(action);
     setFinishedResult(null);
     transition("finishing");
 
-    void longshotControllerApi.finish(currentActivation.handle, action)
-      .then((result) => {
+    void (async () => {
+      if (previewBarrier) {
+        try {
+          await previewBarrier;
+        } catch {
+          // Preview 降级不改变输出动作的既有错误与重试策略。
+        }
+      }
+      if (
+        !mounted.current
+        || attempt !== finishEpoch.current
+        || !finishInFlight.current
+        || cancelling.current
+        || phaseRef.current !== "finishing"
+      ) return;
+      try {
+        const result = await longshotControllerApi.finish(currentActivation.handle, action);
         if (
           !mounted.current
           || attempt !== finishEpoch.current
           || cancelling.current
-          || phaseRef.current === "cleanupError"
+          || phaseRef.current !== "finishing"
         ) return;
         finishInFlight.current = false;
         setFinishingAction(null);
@@ -324,18 +466,19 @@ export function App() {
           setError({ code: "longshot_controller_cleanup_failed" });
           setErrorContext("finish");
           transition("cleanupError");
+          releasePreviewUrl();
           return;
         }
         // 成功后由后端清空 exact owner 并关闭原生窗口；终态禁止旧回调重新开放操作。
         setFinishedResult(result);
         transition("finished");
-      })
-      .catch((reason) => {
+        releasePreviewUrl();
+      } catch (reason) {
         if (
           !mounted.current
           || attempt !== finishEpoch.current
           || cancelling.current
-          || phaseRef.current === "cleanupError"
+          || phaseRef.current !== "finishing"
         ) return;
         finishInFlight.current = false;
         setFinishingAction(null);
@@ -345,6 +488,7 @@ export function App() {
         if (parsed.code === "longshot_controller_cleanup_failed") {
           setErrorContext("finish");
           transition("cleanupError");
+          releasePreviewUrl();
         } else if (isOutputFailure(parsed) || retryingOutput) {
           // OutputPending 只能继续输出或丢弃，不能错误地重新开放 Append。Save/Pin 的
           // uncertain 结果只会收紧集合；后续业务失败也不能升级此前移除的动作。
@@ -362,7 +506,8 @@ export function App() {
           setErrorContext("finish");
           transition("ready");
         }
-      });
+      }
+    })();
   }, [activation]);
 
   const cancelCurrent = useCallback(() => {
@@ -392,7 +537,6 @@ export function App() {
     };
   }, [cancelCurrent]);
 
-  const snapshot = activation?.snapshot;
   const isBusy = phase === "appending" || phase === "finishing" || phase === "cancelling";
   return (
     <main className="longshot-controller" aria-live="polite" aria-busy={isBusy}>
@@ -427,6 +571,24 @@ export function App() {
             <div><dt>{t("longshot.frameCount")}</dt><dd>{snapshot.frameCount}</dd></div>
             <div><dt>{t("longshot.totalHeight")}</dt><dd>{snapshot.totalHeight}</dd></div>
           </dl>
+          {phase !== "finished" && (
+            <section
+              className="longshot-preview"
+              role="region"
+              aria-label={t("longshot.previewRegion")}
+              data-testid="longshot-preview"
+            >
+              {previewUrl ? (
+                <img src={previewUrl} alt={t("longshot.previewAlt")} />
+              ) : (
+                <p className="longshot-preview-status">
+                  {previewStatus === "loading"
+                    ? t("longshot.previewLoading")
+                    : t("longshot.previewUnavailable")}
+                </p>
+              )}
+            </section>
+          )}
           {phase === "ready" && error && (
             <p className="longshot-error" role="alert">{errorText(error, errorContext)}</p>
           )}

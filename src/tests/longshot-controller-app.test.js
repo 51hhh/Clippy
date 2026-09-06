@@ -1,5 +1,6 @@
 import React, { StrictMode, act } from "react";
 import { createRoot } from "react-dom/client";
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -7,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   controllerApi: {
     activate: vi.fn(),
     append: vi.fn(),
+    preview: vi.fn(),
     finish: vi.fn(),
     ready: vi.fn(),
     cancel: vi.fn(),
@@ -59,6 +61,7 @@ describe("longshot controller app", () => {
     for (const fn of Object.values(mocks.controllerApi)) fn.mockReset();
     mocks.controllerApi.activate.mockResolvedValue(activation);
     mocks.controllerApi.append.mockResolvedValue(activation.snapshot);
+    mocks.controllerApi.preview.mockResolvedValue(new Uint8Array([137, 80, 78, 71]).buffer);
     mocks.controllerApi.finish.mockResolvedValue({ action: "copy", path: null, pinLabel: null });
     mocks.controllerApi.ready.mockResolvedValue(undefined);
     mocks.controllerApi.cancel.mockResolvedValue(undefined);
@@ -66,6 +69,8 @@ describe("longshot controller app", () => {
       closeRequested = callback;
       return Promise.resolve(vi.fn());
     });
+    URL.createObjectURL = vi.fn(() => "blob:longshot-preview");
+    URL.revokeObjectURL = vi.fn();
     root = createRoot(document.getElementById("root"));
   });
 
@@ -100,6 +105,260 @@ describe("longshot controller app", () => {
     expect(document.body.textContent).toContain("Frames");
     expect(document.body.textContent).toContain("3");
     expect(document.body.textContent).toContain("1700");
+    expect(mocks.controllerApi.preview).toHaveBeenCalledTimes(1);
+    expect(mocks.controllerApi.preview).toHaveBeenCalledWith(activation.handle);
+    const preview = document.querySelector('[data-testid="longshot-preview"]');
+    expect(preview?.getAttribute("role")).toBe("region");
+    expect(preview?.getAttribute("aria-label")).toBe("Long screenshot tail preview");
+    expect(preview?.querySelector("img")?.getAttribute("alt")).toBe("Latest long screenshot tail");
+    expect(preview?.querySelector("img")?.getAttribute("src")).toBe("blob:longshot-preview");
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+    expect(URL.createObjectURL.mock.calls[0][0]).toBeInstanceOf(Blob);
+    expect(URL.createObjectURL.mock.calls[0][0].type).toBe("image/png");
+  });
+
+  it("keeps the first preview loading until the one-shot ready handshake succeeds", async () => {
+    const pendingReady = deferred();
+    mocks.controllerApi.ready.mockReturnValue(pendingReady.promise);
+    await mount();
+
+    expect(mocks.controllerApi.ready).toHaveBeenCalledTimes(1);
+    expect(mocks.controllerApi.preview).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("Loading preview");
+
+    await act(async () => pendingReady.resolve());
+    await flush();
+    expect(mocks.controllerApi.preview).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders a localized unavailable state without exposing a preview rejection", async () => {
+    mocks.controllerApi.preview.mockRejectedValue(new Error("raw preview rejection"));
+    await mount();
+
+    expect(document.body.textContent).toContain("Preview unavailable");
+    expect(document.body.textContent).not.toContain("raw preview rejection");
+    expect(document.querySelector('[data-testid="longshot-preview"] img')).toBeNull();
+  });
+
+  it("keeps the fixed shrinkable preview and non-shrinking wrapping action CSS contract", () => {
+    const css = readFileSync("react/longshot-controller/longshot-controller.css", "utf8");
+
+    expect(css).toContain("height: 100%");
+    expect(css).toContain("max-width: 320px");
+    expect(css).toContain("max-height: 300px");
+    expect(css).toContain("min-height: 0");
+    expect(css).toContain("object-fit: contain");
+    expect(css).toContain("flex: 0 0 auto");
+    expect(css).toContain("flex-wrap: wrap");
+  });
+
+  it.each([
+    ["Append", "longshot-append", "append"],
+    ["Copy", "longshot-copy", "finish"],
+    ["Save", "longshot-save", "finish"],
+    ["Pin", "longshot-pin", "finish"],
+  ])("waits for an in-flight preview before %s IPC", async (_name, testId, method) => {
+    const pendingPreview = deferred();
+    const replacementPreview = deferred();
+    mocks.controllerApi.preview
+      .mockReturnValueOnce(pendingPreview.promise)
+      .mockReturnValueOnce(replacementPreview.promise);
+    await mount();
+
+    await act(async () => document.querySelector(`[data-testid="${testId}"]`).click());
+    expect(mocks.controllerApi[method]).not.toHaveBeenCalled();
+
+    await act(async () => pendingPreview.resolve(new Uint8Array([1]).buffer));
+    await flush();
+    expect(mocks.controllerApi[method]).toHaveBeenCalledTimes(1);
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+  });
+
+  it("lets Cancel preempt an in-flight preview and discards its late bytes before URL creation", async () => {
+    const pendingPreview = deferred();
+    mocks.controllerApi.preview.mockReturnValue(pendingPreview.promise);
+    await mount();
+
+    await act(async () => document.querySelector('[data-testid="longshot-cancel"]').click());
+    expect(mocks.controllerApi.cancel).toHaveBeenCalledTimes(1);
+
+    await act(async () => pendingPreview.resolve(new Uint8Array([1]).buffer));
+    await flush();
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("Cancelling");
+  });
+
+  it("reissues the same snapshot preview after a recoverable Append failure", async () => {
+    const stalePreview = deferred();
+    const replacementPreview = deferred();
+    mocks.controllerApi.preview
+      .mockReturnValueOnce(stalePreview.promise)
+      .mockReturnValueOnce(replacementPreview.promise);
+    mocks.controllerApi.append.mockRejectedValue({
+      code: "longshot_estimate_low_texture",
+      message: "untrusted append detail",
+    });
+    URL.createObjectURL.mockReturnValueOnce("blob:append-recovered-preview");
+    await mount();
+
+    await act(async () => document.querySelector('[data-testid="longshot-append"]').click());
+    expect(mocks.controllerApi.append).not.toHaveBeenCalled();
+    await act(async () => stalePreview.resolve(new Uint8Array([1]).buffer));
+    await flush();
+
+    expect(mocks.controllerApi.append).toHaveBeenCalledTimes(1);
+    expect(mocks.controllerApi.preview).toHaveBeenCalledTimes(2);
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("Could not append another frame");
+
+    await act(async () => replacementPreview.resolve(new Uint8Array([2]).buffer));
+    await flush();
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+    expect(document.querySelector(".longshot-preview img")?.getAttribute("src"))
+      .toBe("blob:append-recovered-preview");
+  });
+
+  it("reissues the same snapshot preview after a recoverable Finish failure", async () => {
+    const stalePreview = deferred();
+    const replacementPreview = deferred();
+    mocks.controllerApi.preview
+      .mockReturnValueOnce(stalePreview.promise)
+      .mockReturnValueOnce(replacementPreview.promise);
+    mocks.controllerApi.finish.mockRejectedValue({
+      code: "longshot_estimate_low_texture",
+      message: "untrusted finish detail",
+    });
+    URL.createObjectURL.mockReturnValueOnce("blob:finish-recovered-preview");
+    await mount();
+
+    await act(async () => document.querySelector('[data-testid="longshot-copy"]').click());
+    expect(mocks.controllerApi.finish).not.toHaveBeenCalled();
+    await act(async () => stalePreview.resolve(new Uint8Array([1]).buffer));
+    await flush();
+
+    expect(mocks.controllerApi.finish).toHaveBeenCalledTimes(1);
+    expect(mocks.controllerApi.preview).toHaveBeenCalledTimes(2);
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("Could not finish the long screenshot");
+
+    await act(async () => replacementPreview.resolve(new Uint8Array([2]).buffer));
+    await flush();
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+    expect(document.querySelector(".longshot-preview img")?.getAttribute("src"))
+      .toBe("blob:finish-recovered-preview");
+  });
+
+  it("keeps a handled preview unchanged after a recoverable Append failure", async () => {
+    mocks.controllerApi.append.mockRejectedValue({
+      code: "longshot_estimate_low_texture",
+      message: "untrusted append detail",
+    });
+    URL.createObjectURL.mockReturnValueOnce("blob:handled-before-append");
+    await mount();
+
+    await act(async () => document.querySelector('[data-testid="longshot-append"]').click());
+    await flush();
+
+    expect(mocks.controllerApi.preview).toHaveBeenCalledTimes(1);
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+    expect(document.querySelector(".longshot-preview img")?.getAttribute("src"))
+      .toBe("blob:handled-before-append");
+    expect(document.body.textContent).toContain("Could not append another frame");
+  });
+
+  it("keeps a handled preview unchanged after a recoverable Finish failure", async () => {
+    mocks.controllerApi.finish.mockRejectedValue({
+      code: "longshot_estimate_low_texture",
+      message: "untrusted finish detail",
+    });
+    URL.createObjectURL.mockReturnValueOnce("blob:handled-before-finish");
+    await mount();
+
+    await act(async () => document.querySelector('[data-testid="longshot-copy"]').click());
+    await flush();
+
+    expect(mocks.controllerApi.preview).toHaveBeenCalledTimes(1);
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+    expect(document.querySelector(".longshot-preview img")?.getAttribute("src"))
+      .toBe("blob:handled-before-finish");
+    expect(document.body.textContent).toContain("Could not finish the long screenshot");
+  });
+
+  it("replaces the owned URL after Append and revokes the old URL exactly once", async () => {
+    const nextSnapshot = { ...activation.snapshot, frameCount: 4, totalHeight: 2200 };
+    const refreshedPreview = deferred();
+    mocks.controllerApi.append.mockResolvedValue(nextSnapshot);
+    mocks.controllerApi.preview
+      .mockResolvedValueOnce(new Uint8Array([1]).buffer)
+      .mockReturnValueOnce(refreshedPreview.promise);
+    URL.createObjectURL
+      .mockReturnValueOnce("blob:preview-first")
+      .mockReturnValueOnce("blob:preview-second");
+    await mount();
+
+    await act(async () => document.querySelector('[data-testid="longshot-append"]').click());
+    expect(document.querySelector(".longshot-preview img")?.getAttribute("src"))
+      .toBe("blob:preview-first");
+    await act(async () => refreshedPreview.resolve(new Uint8Array([2]).buffer));
+    await flush();
+
+    expect(mocks.controllerApi.preview).toHaveBeenCalledTimes(2);
+    expect(document.querySelector(".longshot-preview img")?.getAttribute("src"))
+      .toBe("blob:preview-second");
+    expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-first");
+  });
+
+  it("keeps the previous image when a refreshed preview fails", async () => {
+    const nextSnapshot = { ...activation.snapshot, frameCount: 4, totalHeight: 2200 };
+    mocks.controllerApi.append.mockResolvedValue(nextSnapshot);
+    mocks.controllerApi.preview
+      .mockResolvedValueOnce(new Uint8Array([1]).buffer)
+      .mockRejectedValueOnce(new Error("raw preview failure"));
+    URL.createObjectURL.mockReturnValueOnce("blob:preview-kept");
+    await mount();
+
+    await act(async () => document.querySelector('[data-testid="longshot-append"]').click());
+    await flush();
+
+    expect(document.querySelector(".longshot-preview img")?.getAttribute("src"))
+      .toBe("blob:preview-kept");
+    expect(document.body.textContent).not.toContain("raw preview failure");
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-testid="longshot-copy"]')).not.toBeNull();
+  });
+
+  it("recovers from object URL creation failure after the next successful Append", async () => {
+    const nextSnapshot = { ...activation.snapshot, frameCount: 4, totalHeight: 2200 };
+    mocks.controllerApi.append.mockResolvedValue(nextSnapshot);
+    URL.createObjectURL
+      .mockImplementationOnce(() => { throw new Error("raw object URL failure"); })
+      .mockReturnValueOnce("blob:preview-recovered");
+    await mount();
+
+    expect(document.body.textContent).toContain("Preview unavailable");
+    expect(document.body.textContent).not.toContain("raw object URL failure");
+    await act(async () => document.querySelector('[data-testid="longshot-append"]').click());
+    await flush();
+
+    expect(document.querySelector(".longshot-preview img")?.getAttribute("src"))
+      .toBe("blob:preview-recovered");
+  });
+
+  it.each([
+    ["Finish", "longshot-copy", "finish"],
+    ["Cancel", "longshot-cancel", "cancel"],
+  ])("releases the owned preview exactly once after successful %s", async (_name, testId) => {
+    URL.createObjectURL.mockReturnValueOnce("blob:preview-terminal");
+    await mount();
+
+    await act(async () => document.querySelector(`[data-testid="${testId}"]`).click());
+    await flush();
+
+    expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-terminal");
   });
 
   it("renders a structured activation failure, reveals it, and closes with a null handle", async () => {
@@ -659,6 +918,8 @@ describe("longshot controller app", () => {
     await flush();
 
     expect(document.body.textContent).not.toContain("9999");
+    expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:longshot-preview");
   });
 
   it("invalidates a pending Finish attempt when the controller unmounts", async () => {

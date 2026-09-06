@@ -1999,7 +1999,7 @@ pub(crate) fn open(
                 tauri::WebviewUrl::App("longshot-controller.html".into()),
             )
             .title("")
-            .inner_size(360.0, 180.0)
+            .inner_size(400.0, 560.0)
             .decorations(false)
             .resizable(false)
             .skip_taskbar(true)

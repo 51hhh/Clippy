@@ -38,6 +38,7 @@ import {
   cancelLongshotController,
   activateLongshotController,
   appendLongshotController,
+  previewLongshotController,
   finishLongshotController,
   markCaptureOverlayReady,
   markLongshotControllerReady,
@@ -280,6 +281,35 @@ describe("typed IPC wrappers", () => {
       handle,
       action: "pin",
     });
+  });
+
+  it("accepts only bounded non-empty ArrayBuffer longshot previews with the exact handle", async () => {
+    const handle = { sessionId: "longshot-preview-8", generation: "43" };
+    const valid = new Uint8Array([137, 80, 78, 71]).buffer;
+    invoke.mockResolvedValueOnce(valid);
+
+    await expect(previewLongshotController(handle)).resolves.toBe(valid);
+    expect(invoke).toHaveBeenCalledWith("preview_longshot_controller", { handle });
+  });
+
+  it.each([
+    ["empty", () => new ArrayBuffer(0)],
+    ["over 1 MiB", () => new ArrayBuffer(1024 * 1024 + 1)],
+    ["array", () => [137, 80, 78, 71]],
+    ["string", () => "png"],
+    ["plain object", () => ({ byteLength: 4 })],
+    ["SharedArrayBuffer", () => new SharedArrayBuffer(4)],
+    ["proxied ArrayBuffer", () => new Proxy(new ArrayBuffer(4), {})],
+    ["detached ArrayBuffer", () => {
+      const detached = new ArrayBuffer(4);
+      structuredClone(detached, { transfer: [detached] });
+      return detached;
+    }],
+  ])("rejects a %s longshot preview response", async (_name, value) => {
+    const handle = { sessionId: "longshot-preview-invalid", generation: "44" };
+    invoke.mockResolvedValueOnce(value());
+
+    await expect(previewLongshotController(handle)).rejects.toThrow("invalid longshot preview response");
   });
 
   it("sends a null note when the user did not describe the symptom", () => {
