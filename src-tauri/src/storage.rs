@@ -34,6 +34,17 @@ pub struct StorageEngine {
     conn: Connection,
 }
 
+/// 面向受限本地识别的图片读取结果。超限 BLOB 在 SQL `CASE` 分支中保持 NULL，
+/// 不会被 rusqlite 物化为 `Vec<u8>`。
+#[derive(Debug, PartialEq, Eq)]
+pub enum BoundedImageData {
+    ClipNotFound,
+    NotImage,
+    Missing,
+    TooLarge,
+    Bytes(Vec<u8>),
+}
+
 /// 获取当前 Unix 时间戳（秒）
 fn now_secs() -> i64 {
     SystemTime::now()
@@ -404,6 +415,52 @@ impl StorageEngine {
             Ok(data) => Ok(data),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(e) => Err(StorageError::Database(e)),
+        }
+    }
+
+    /// 一次查询读取识别需要的图片状态。不能先取完整 `ClipItem`：SQLite BLOB 一旦交给
+    /// rusqlite 就已经分配了 `Vec`，之后再检查上限为时已晚。
+    pub fn get_bounded_image_for_code_scan(
+        &self,
+        id: i64,
+        byte_limit: usize,
+    ) -> Result<BoundedImageData, StorageError> {
+        let byte_limit = i64::try_from(byte_limit)
+            .map_err(|error| StorageError::Io(std::io::Error::other(error)))?;
+        let row = self
+            .conn
+            .query_row(
+                "SELECT content_type,
+                        length(image_data),
+                        CASE
+                            WHEN image_data IS NOT NULL AND length(image_data) <= ?1
+                            THEN image_data
+                            ELSE NULL
+                        END
+                   FROM clips
+                  WHERE id = ?2",
+                params![byte_limit, id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<i64>>(1)?,
+                        row.get::<_, Option<Vec<u8>>>(2)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((content_type, length, bytes)) = row else {
+            return Ok(BoundedImageData::ClipNotFound);
+        };
+        if content_type != ContentType::Image.as_str() {
+            return Ok(BoundedImageData::NotImage);
+        }
+        match (length, bytes) {
+            (None, _) => Ok(BoundedImageData::Missing),
+            (Some(_), Some(bytes)) => Ok(BoundedImageData::Bytes(bytes)),
+            // 正常 SQLite BLOB 在长度不超过 CASE 参数时必定返回 bytes；剩余的 NULL
+            // 只能是 CASE 为保护上限刻意留下的结果。
+            (Some(_), None) => Ok(BoundedImageData::TooLarge),
         }
     }
 

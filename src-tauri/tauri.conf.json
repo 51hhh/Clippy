@@ -48,6 +48,11 @@
     "active": true,
     "category": "Utility",
     "createUpdaterArtifacts": true,
+    "license": "MIT",
+    "resources": {
+      "../LICENSE": "licenses/Clippy-MIT.txt",
+      "third-party-licenses/rxing-0.9.2.txt": "licenses/THIRD-PARTY-LICENSES-rxing-0.9.2.txt"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
