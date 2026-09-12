@@ -121,11 +121,14 @@ pub fn copy_clip(id: i64, state: State<AppState>) -> Result<(), String> {
 /// 因此翻译/OCR/编解码结果不会反过来污染剪贴板历史。
 #[tauri::command]
 pub fn copy_text(text: String, state: State<AppState>) -> Result<(), String> {
-    use sha2::{Digest, Sha256};
+    copy_text_suppressed(&text, state.inner())
+}
 
-    let hash = format!("{:x}", Sha256::new_with_prefix(text.as_bytes()).finalize());
-    state.watcher.set_skip_hash(hash);
-    crate::clipboard_watcher::clipboard_set_text_with_retry(&text)
+fn copy_text_suppressed(text: &str, state: &AppState) -> Result<(), String> {
+    let hash = crate::clipboard_watcher::content::compute_hash(text.as_bytes());
+    state.watcher.write_suppressed(vec![hash], || {
+        crate::clipboard_watcher::clipboard_set_text_with_retry(text)
+    })
 }
 
 pub(crate) fn write_clip_to_clipboard(id: i64, state: &AppState) -> Result<(), String> {
@@ -133,43 +136,42 @@ pub(crate) fn write_clip_to_clipboard(id: i64, state: &AppState) -> Result<(), S
         let storage = state.storage.lock().map_err(|e| e.to_string())?;
         storage.get_clip_by_id(id).map_err(|e| e.to_string())?
     };
+    write_clip_snapshot_to_clipboard(&clip, None, state)
+}
+
+/// Pin 持有的快照独立于历史生命周期；删除历史后仍复制当前可见内容。
+/// image_override 是 Pin 已持有的原始图片，避免按 id 回查或再复制大 BLOB。
+pub(crate) fn write_clip_snapshot_to_clipboard(
+    clip: &ClipItem,
+    image_override: Option<&[u8]>,
+    state: &AppState,
+) -> Result<(), String> {
     match clip.content_type {
         ContentType::Text => {
-            if let Some(content) = clip.text_content {
-                use sha2::{Digest, Sha256};
-                let hash = format!(
-                    "{:x}",
-                    Sha256::new_with_prefix(content.as_bytes()).finalize()
-                );
-                state.watcher.set_skip_hash(hash);
-                crate::clipboard_watcher::clipboard_set_text_with_retry(&content)?;
+            if let Some(content) = clip.text_content.as_deref() {
+                copy_text_suppressed(content, state)?;
             }
         }
         ContentType::Image => {
-            // 上面那次 `get_clip_by_id` 已经把这张图整份读出来了，别再查一遍库：
-            // 全屏截图是几 MB，读两遍就是两次几 MB 的拷贝，还多锁一次 storage。
-            let image_bytes = clip.image_data.ok_or_else(|| "图片数据为空".to_string())?;
-            // 图片这一路**没有** skip hash：watcher 哈希的是它自己从剪贴板 RGBA 重新编出来
-            // 的 PNG，和库里这串字节几乎不可能一致，设了也永远匹配不上（白算一次全图
-            // sha256）。文本那几路能生效是因为两边哈希的是同一串字节。后果只是这条图片会被
-            // 顶到历史最前面——`insert_clip` 按哈希去重，不会多存一份。
-            crate::image_io::copy_png_to_clipboard(&image_bytes)?;
+            let bytes = image_override
+                .or(clip.image_data.as_deref())
+                .ok_or_else(|| "图片数据为空".to_string())?;
+            // watcher 按从 RGBA 重新编码的 PNG 去重，不能用输入 PNG 字节假装可抑制。
+            crate::image_io::copy_png_to_clipboard(bytes)?;
         }
         ContentType::Html => {
-            if let Some(html) = &clip.html_content {
-                use sha2::{Digest, Sha256};
-                let hash = format!("{:x}", Sha256::new_with_prefix(html.as_bytes()).finalize());
-                state.watcher.set_skip_hash(hash);
-                let alt_text = clip.text_content.as_deref().or(Some(""));
-                crate::clipboard_watcher::clipboard_set_html_with_retry(html.as_str(), alt_text)?;
-            } else if let Some(content) = clip.text_content {
-                use sha2::{Digest, Sha256};
-                let hash = format!(
-                    "{:x}",
-                    Sha256::new_with_prefix(content.as_bytes()).finalize()
-                );
-                state.watcher.set_skip_hash(hash);
-                crate::clipboard_watcher::clipboard_set_text_with_retry(&content)?;
+            if let Some(html) = clip.html_content.as_deref() {
+                let text = clip.text_content.as_deref().unwrap_or("");
+                // 某些平台只暴露纯文本回退；同次写入的两种表示共享抑制。
+                let hashes = vec![
+                    crate::clipboard_watcher::content::compute_hash(html.as_bytes()),
+                    crate::clipboard_watcher::content::compute_hash(text.as_bytes()),
+                ];
+                state.watcher.write_suppressed(hashes, || {
+                    crate::clipboard_watcher::clipboard_set_html_with_retry(html, Some(text))
+                })?;
+            } else if let Some(content) = clip.text_content.as_deref() {
+                copy_text_suppressed(content, state)?;
             }
         }
     }

@@ -5,33 +5,33 @@ use tauri::State;
 /// 切换 tmux 缓冲区捕获。
 #[tauri::command]
 pub fn toggle_tmux_capture(enabled: bool, state: State<AppState>) -> Result<(), String> {
-    #[cfg(not(target_os = "linux"))]
-    {
-        if enabled {
-            return Err("tmux clipboard capture is not available on this platform".to_string());
-        }
-
-        // 配置可能从 Linux 设备同步而来。非 Linux 系统只需将其关闭，
-        // 不应尝试执行或恢复本机根本不存在的 tmux 绑定。
-        let mut config = state.config.lock().map_err(|e| e.to_string())?;
-        config.tmux_capture = false;
-        save_config(&state.config_path, &config);
-        Ok(())
+    if !cfg!(target_os = "linux") && enabled {
+        return Err("tmux clipboard capture is not available on this platform".to_string());
     }
-
-    #[cfg(target_os = "linux")]
-    {
-        if enabled {
-            setup_tmux_hook()?;
-        } else {
-            teardown_tmux_hook();
-        }
-
-        let mut config = state.config.lock().map_err(|e| e.to_string())?;
-        config.tmux_capture = enabled;
-        save_config(&state.config_path, &config);
-        Ok(())
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    if config.tmux_capture == enabled {
+        return Ok(());
     }
+    let mut next = config.clone();
+    next.tmux_capture = enabled;
+    crate::config::commit_config_change(
+        &mut config,
+        next,
+        |value| {
+            save_config(&state.config_path, value).map_err(|error| format!("配置保存失败: {error}"))
+        },
+        |value| {
+            #[cfg(target_os = "linux")]
+            if value.tmux_capture {
+                setup_tmux_hook()?;
+            } else {
+                teardown_tmux_hook();
+            }
+            #[cfg(not(target_os = "linux"))]
+            let _ = value;
+            Ok(())
+        },
+    )
 }
 
 /// 检测 tmux 是否可用。
