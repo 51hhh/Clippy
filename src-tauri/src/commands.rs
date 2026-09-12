@@ -55,6 +55,8 @@ pub struct AppState {
     pub paste_manager: Arc<PasteManager>,
     pub translation: Arc<crate::translation::TranslationService>,
     pub shortcuts_paused: AtomicBool,
+    /// 合并原生标题栏与前端 Cancel 的并发关闭请求。
+    pub settings_close_pending: AtomicBool,
     pub shortcut_transition: Mutex<()>,
     /// 非 GNOME Wayland 使用 XDG GlobalShortcuts Portal；其它会话不启动 worker。
     #[cfg(target_os = "linux")]

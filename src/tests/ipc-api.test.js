@@ -61,6 +61,8 @@ import {
   onCaptureLongshotHandoff,
   startDraggingCurrentWindow,
   updateConfig,
+  closeSettings,
+  restartApp,
   updatePin,
   copyPinCanvas,
   onCurrentWindowDragDrop,
@@ -501,4 +503,21 @@ describe("typed IPC wrappers", () => {
     expect(disableAutostartPlugin).toHaveBeenCalledOnce();
     expect(isAutostartEnabledPlugin).toHaveBeenCalledOnce();
   });
+});
+
+
+it("只在显式调用时请求重启 IPC，并返回配置的 pending 状态", async () => {
+  invoke.mockResolvedValueOnce({ shortcut_status: "pending" });
+  await expect(updateConfig({ theme: "dark" })).resolves.toEqual({ shortcut_status: "pending" });
+  expect(invoke).toHaveBeenLastCalledWith("update_config", { newConfig: { theme: "dark" } });
+  invoke.mockResolvedValueOnce(undefined);
+  await restartApp();
+  expect(invoke).toHaveBeenLastCalledWith("restart_app");
+});
+
+it("显式 Save 要求快捷键完成恢复，关闭使用后端恢复守卫", async () => {
+  await updateConfig({ theme: "dark" }, { requireShortcutsActive: true });
+  expect(invoke).toHaveBeenLastCalledWith("update_config", { newConfig: { theme: "dark" }, requireShortcutsActive: true });
+  await closeSettings();
+  expect(invoke).toHaveBeenLastCalledWith("close_settings");
 });

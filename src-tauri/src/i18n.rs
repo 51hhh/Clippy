@@ -20,6 +20,7 @@ pub struct NativeText {
     pub quit_menu: &'static str,
     pub settings_title: &'static str,
     pub screenshot_title: &'static str,
+    pub settings_close_failed: &'static str,
 }
 
 pub fn native_text(locale: Locale) -> NativeText {
@@ -30,6 +31,7 @@ pub fn native_text(locale: Locale) -> NativeText {
             quit_menu: "Quit",
             settings_title: "Clippy Settings",
             screenshot_title: "Clippy Screenshot",
+            settings_close_failed: "Settings could not be closed. Your inputs were kept. Click Close again to retry restoring shortcuts and closing the window.",
         },
         Locale::ZhCn => NativeText {
             open_clipboard: "打开剪贴板",
@@ -37,6 +39,7 @@ pub fn native_text(locale: Locale) -> NativeText {
             quit_menu: "退出",
             settings_title: "Clippy 设置",
             screenshot_title: "Clippy 截图",
+            settings_close_failed: "设置窗口关闭失败，输入内容已保留。请再次点击关闭，重试恢复快捷键并关闭窗口。",
         },
     }
 }
@@ -127,6 +130,7 @@ mod tests {
                 text.quit_menu,
                 text.settings_title,
                 text.screenshot_title,
+                text.settings_close_failed,
             ] {
                 assert!(!value.trim().is_empty(), "{locale:?} 存在空文案");
             }

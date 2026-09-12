@@ -5,6 +5,7 @@ import {
 } from "../js/settings/paste-permission.js";
 import {
   closeAfterShortcutCleanup,
+  saveAfterShortcutCleanup,
   createShortcutRecordingController,
 } from "../js/settings/shortcut-recording.js";
 import { createShortcutFailureNotice } from "../js/settings/shortcut-failure-notice.js";
@@ -414,6 +415,83 @@ describe("settings shortcut recording controller", () => {
 
     expect(order).toEqual(["resume", "close"]);
     expect(closeWindow).toHaveBeenCalledOnce();
+  });
+
+  it("keeps failed restoration retryable and prevents Saved or Close until it succeeds", async () => {
+    const global = createRecorder("global");
+    const notify = vi.fn();
+    const resumeShortcuts = vi.fn().mockRejectedValueOnce(new Error("restore failed"))
+      .mockRejectedValueOnce(new Error("restore failed again"))
+      .mockResolvedValue({ shortcut_status: "applied" });
+    const controller = createShortcutRecordingController({ recorders: { global }, pauseShortcuts: vi.fn(), resumeShortcuts, translate, notify });
+    global.recordButton.click();
+    await vi.waitFor(() => expect(controller.activeKey).toBe("global"));
+    const save = vi.fn().mockResolvedValue({ shortcut_status: "unchanged" });
+    const close = vi.fn();
+    await expect(saveAfterShortcutCleanup(controller, save)).rejects.toThrow("restore failed");
+    expect(save).not.toHaveBeenCalled();
+    expect(controller.activeKey).toBeNull();
+    expect(controller.restorePending).toBe(true);
+    expect(global.recordButton.textContent).toBe(translate("settings.shortcut.retry"));
+    expect(global.warning.dataset.i18n).toBe("settings.shortcut.restoreFailed");
+    await expect(closeAfterShortcutCleanup(controller, close)).rejects.toThrow("restore failed again");
+    expect(close).not.toHaveBeenCalled();
+    await expect(saveAfterShortcutCleanup(controller, save)).resolves.toMatchObject({ shortcut_status: "unchanged" });
+    expect(resumeShortcuts).toHaveBeenCalledTimes(3);
+    expect(save).toHaveBeenCalledOnce();
+    expect(controller.restorePending).toBe(false);
+    await closeAfterShortcutCleanup(controller, close);
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("does not start another recorder until a failed pause has been restored", async () => {
+    const global = createRecorder("global"); const pin = createRecorder("pin");
+    const notify = vi.fn();
+    const pauseShortcuts = vi.fn().mockRejectedValueOnce(new Error("partial pause")).mockResolvedValue(undefined);
+    const resumeShortcuts = vi.fn().mockRejectedValueOnce(new Error("partial restore")).mockResolvedValue(undefined);
+    const controller = createShortcutRecordingController({ recorders: { global, pin }, pauseShortcuts, resumeShortcuts, translate, notify });
+    global.recordButton.click();
+    await vi.waitFor(() => expect(notify).toHaveBeenCalledOnce());
+    expect(controller.activeKey).toBeNull();
+    expect(controller.restorePending).toBe(true);
+    pin.recordButton.click();
+    await vi.waitFor(() => expect(resumeShortcuts).toHaveBeenCalledOnce());
+    expect(pauseShortcuts).toHaveBeenCalledOnce();
+    pin.recordButton.click();
+    await vi.waitFor(() => expect(controller.activeKey).toBe("pin"));
+    await controller.stop();
+  });
+
+  it("retains Portal pending across an automatic stop and a subsequent Save", async () => {
+    const global = createRecorder("global");
+    const controller = createShortcutRecordingController({ recorders: { global }, pauseShortcuts: vi.fn(), resumeShortcuts: vi.fn().mockResolvedValue({ shortcut_status: "pending" }), translate });
+    global.recordButton.click();
+    await vi.waitFor(() => expect(controller.activeKey).toBe("global"));
+    await controller.stop();
+    await expect(saveAfterShortcutCleanup(controller, vi.fn().mockResolvedValue({ shortcut_status: "unchanged" }))).resolves.toEqual({ shortcut_status: "pending" });
+  });
+
+  it("keeps restoration failure visible when a delayed conflict check returns", async () => {
+    let resolveConflict;
+    const global = createRecorder("global", { checkConflict: () => new Promise(resolve => { resolveConflict = resolve; }) });
+    const notify = vi.fn();
+    const resumeShortcuts = vi.fn().mockRejectedValueOnce(new Error("restore failed")).mockResolvedValue(undefined);
+    let locale = "en";
+    const controller = createShortcutRecordingController({ recorders: { global }, pauseShortcuts: vi.fn(), resumeShortcuts, translate: key => `${locale}:${key}`, notify });
+    global.recordButton.click();
+    await vi.waitFor(() => expect(controller.activeKey).toBe("global"));
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "v", code: "KeyV", altKey: true }));
+    await vi.waitFor(() => expect(notify).toHaveBeenCalledOnce());
+    resolveConflict({ conflicted: false });
+    await Promise.resolve();
+    expect(global.warning.classList.contains("hidden")).toBe(false);
+    expect(global.warning.dataset.i18n).toBe("settings.shortcut.restoreFailed");
+    locale = "zh-CN";
+    controller.refreshLabels();
+    expect(global.recordButton.textContent).toBe("zh-CN:settings.shortcut.retry");
+    global.recordButton.click();
+    await vi.waitFor(() => expect(controller.restorePending).toBe(false));
+    expect(global.input.value).toBe("Alt+V");
   });
 });
 

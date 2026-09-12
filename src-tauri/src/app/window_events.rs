@@ -28,6 +28,17 @@ pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
             // 让未保存确认与保存中的保护生效；获准后的 close_pin 使用 destroy。
             api.prevent_close();
         }
+        tauri::WindowEvent::CloseRequested { api, .. } if window.label() == "settings" => {
+            // 原生关闭自有恢复→销毁出口，不能依赖前端脚本是否已加载。
+            api.prevent_close();
+            let window = window.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = commands::close_settings_window(window.clone()).await {
+                    log::warn!("设置窗口关闭失败，保留窗口以便重试: {error}");
+                    show_settings_close_failure(&window);
+                }
+            });
+        }
         tauri::WindowEvent::Focused(false) if window.label() == "main" => {
             hide_main_after_focus_loss(window.clone());
         }
@@ -66,15 +77,38 @@ pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
             capture::handle_longshot_controller_destroyed(window.app_handle(), window.label());
         }
         tauri::WindowEvent::Destroyed if window.label() == "settings" => {
-            if let Some(state) = window.app_handle().try_state::<AppState>() {
-                if let Err(error) = commands::resume_shortcuts_for_app(window.app_handle(), &state)
+            let app = window.app_handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = commands::restore_shortcuts_after_settings_destroyed(app).await
                 {
-                    log::warn!("设置窗口销毁后恢复全局快捷键失败: {}", error);
+                    log::warn!("设置窗口销毁后恢复全局快捷键失败: {error}");
                 }
-            }
+            });
         }
         _ => {}
     }
+}
+
+/// 即使 webview 无法启动，也用原生提示说明关闭失败，用户可再次点关闭重试。
+fn show_settings_close_failure(window: &tauri::Window) {
+    use tauri_plugin_dialog::DialogExt;
+    let app = window.app_handle();
+    let language = app
+        .try_state::<AppState>()
+        .and_then(|state| {
+            state
+                .config
+                .lock()
+                .ok()
+                .map(|config| config.language.clone())
+        })
+        .unwrap_or_else(|| "auto".to_string());
+    let text = crate::i18n::text_for_language(&language);
+    app.dialog()
+        .message(text.settings_close_failed)
+        .title(text.settings_title)
+        .kind(tauri_plugin_dialog::MessageDialogKind::Error)
+        .show(|_| {});
 }
 
 /// 主窗口靠快捷键反复显隐，关闭要退化成隐藏；其余窗口（设置、Pin、覆盖层）

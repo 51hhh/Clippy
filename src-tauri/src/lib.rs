@@ -183,6 +183,7 @@ pub fn run() {
                 paste_manager,
                 translation,
                 shortcuts_paused: AtomicBool::new(false),
+                settings_close_pending: AtomicBool::new(false),
                 shortcut_transition: Mutex::new(()),
                 #[cfg(target_os = "linux")]
                 portal_shortcuts: portal_shortcuts.clone(),
@@ -305,6 +306,8 @@ pub fn run() {
             commands::set_codec_visible,
             commands::get_config,
             commands::update_config,
+            commands::restart_app,
+            commands::close_settings,
             commands::check_shortcut_conflict,
             commands::get_shortcut_failures,
             commands::show_settings,

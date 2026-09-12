@@ -61,6 +61,7 @@ const CLIPPY_METHODS: [&str; 3] = [
     "com.clippy.app.PinCurrent",
     "com.clippy.app.Capture",
 ];
+static SLOTS: OnceLock<CustomSlots> = OnceLock::new();
 
 fn custom_path(index: usize) -> String {
     format!("{CUSTOM_PREFIX}custom{index}/")
@@ -110,7 +111,6 @@ fn plan_slots(entries: &[String], command_of: impl Fn(&str) -> Option<String>) -
 
 /// 进程内只解析一次：解析结果决定了后续所有读写的路径，中途变化会写到两个地方去。
 fn slots() -> &'static CustomSlots {
-    static SLOTS: OnceLock<CustomSlots> = OnceLock::new();
     SLOTS.get_or_init(|| {
         let entries = read_custom_list().unwrap_or_default();
         let planned = plan_slots(&entries, |path| entry_value(path, "command"));
@@ -246,87 +246,116 @@ pub fn register_capture(shortcut: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// 更新 Pin 快捷键绑定
-pub fn update_pin_binding(shortcut: &str) -> Result<(), String> {
-    if !crate::platform::is_gnome_desktop() {
-        return Err(NOT_GNOME_REASON.to_string());
-    }
-    let accel = to_gnome_accel(shortcut);
-    log::info!("更新 GNOME Pin 快捷键绑定: {}", accel);
-    gsettings_set(&slots().pin, "binding", &accel)?;
-    restart_gsd_media_keys()
-}
-
-/// 更新 Capture 快捷键绑定
-pub fn update_capture_binding(shortcut: &str) -> Result<(), String> {
-    if !crate::platform::is_gnome_desktop() {
-        return Err(NOT_GNOME_REASON.to_string());
-    }
-    let accel = to_gnome_accel(shortcut);
-    log::info!("更新 GNOME Capture 快捷键绑定: {}", accel);
-    gsettings_set(&slots().capture, "binding", &accel)?;
-    restart_gsd_media_keys()
-}
-
-/// 更新绑定（设置页面修改快捷键时调用）
-pub fn update_binding(shortcut: &str) -> Result<(), String> {
-    if !crate::platform::is_gnome_desktop() {
-        return Err(NOT_GNOME_REASON.to_string());
-    }
-    let accel = to_gnome_accel(shortcut);
-    log::info!("更新 GNOME 快捷键绑定: {}", accel);
-    gsettings_set(&slots().toggle, "binding", &accel)?;
-    restart_gsd_media_keys()
-}
-
-/// 暂停快捷键（录制新快捷键时调用）
-pub fn pause() -> Result<(), String> {
-    if !crate::platform::is_gnome_desktop() {
-        // 这条路径下本来就没有注册成功的键位，没有东西需要暂停。
-        log::debug!("非 GNOME 桌面，跳过暂停快捷键");
-        return Ok(());
-    }
-    log::info!("暂停 GNOME 快捷键");
-    for path in slots().paths() {
-        gsettings_set(path, "binding", "")?;
-    }
-    restart_gsd_media_keys()
-}
-
-/// 恢复快捷键：逐个写回 binding，只重启一次 gsd。
-///
-/// 返回每个动作的 `(动作名, 键位, 结果)`，调用方据此按动作记账——恢复失败同样意味着
-/// 用户按键没反应，不能只写日志。非 GNOME 桌面返回空列表：这条链路上本来就没有注册成功的
-/// 键位（启动时已上报过），没有东西需要恢复，也不该再报一遍错。
-pub fn resume_with_results(
-    global_shortcut: &str,
-    pin_shortcut: &str,
-    capture_shortcut: &str,
+/// 设置页批量更新：只刷新一次，并等待真实命令结果。只能从 blocking worker 调用。
+pub(crate) fn update_bindings_confirmed(
+    global: &str,
+    pin: &str,
+    capture: &str,
 ) -> Vec<(&'static str, String, Result<(), String>)> {
-    if !crate::platform::is_gnome_desktop() {
-        log::debug!("非 GNOME 桌面，跳过恢复快捷键");
-        return Vec::new();
-    }
-    let resolved = slots();
+    // 初始化沿用启动注册路径；恢复不能触发其中无界的发现命令或等待 OnceLock 初始化。
+    let Some(resolved) = SLOTS.get() else {
+        return [("global", global), ("pin", pin), ("capture", capture)]
+            .into_iter()
+            .map(|(action, shortcut)| {
+                (
+                    action,
+                    shortcut.to_string(),
+                    Err("GNOME 快捷键尚未初始化，请稍后重试".to_string()),
+                )
+            })
+            .collect();
+    };
     let targets = [
-        ("global", resolved.toggle.as_str(), global_shortcut),
-        ("pin", resolved.pin.as_str(), pin_shortcut),
-        ("capture", resolved.capture.as_str(), capture_shortcut),
+        ("global", resolved.toggle.as_str(), global),
+        ("pin", resolved.pin.as_str(), pin),
+        ("capture", resolved.capture.as_str(), capture),
     ];
-    let results: Vec<(&'static str, String, Result<(), String>)> = targets
+    apply_binding_batch(
+        targets,
+        |path, shortcut| {
+            let mut command = Command::new("gsettings");
+            command.args([
+                "set",
+                &format!("{ENTRY_SCHEMA}:{path}"),
+                "binding",
+                &to_gnome_accel(shortcut),
+            ]);
+            let status = run_confirmed_command(&mut command, std::time::Duration::from_secs(5))?;
+            if status.success() {
+                Ok(())
+            } else {
+                Err("gsettings 写入失败".to_string())
+            }
+        },
+        || {
+            let status = run_confirmed_command(
+                Command::new("pkill").args(["-9", "gsd-media-keys"]),
+                std::time::Duration::from_secs(5),
+            )?;
+            if !status.success() && status.code() != Some(1) {
+                return Err("停止 gsd-media-keys 失败".to_string());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            let status = run_confirmed_command(
+                Command::new("systemctl").args([
+                    "--user",
+                    "start",
+                    "org.gnome.SettingsDaemon.MediaKeys.target",
+                ]),
+                std::time::Duration::from_secs(5),
+            )?;
+            if status.success() {
+                Ok(())
+            } else {
+                Err("启动 gsd-media-keys 失败".to_string())
+            }
+        },
+    )
+}
+
+fn apply_binding_batch(
+    targets: [(&'static str, &str, &str); 3],
+    mut write: impl FnMut(&str, &str) -> Result<(), String>,
+    refresh: impl FnOnce() -> Result<(), String>,
+) -> Vec<(&'static str, String, Result<(), String>)> {
+    let mut results: Vec<_> = targets
         .into_iter()
-        .map(|(action, path, shortcut)| {
-            let result = gsettings_set(path, "binding", &to_gnome_accel(shortcut));
-            (action, shortcut.to_string(), result)
-        })
+        .map(|(action, path, shortcut)| (action, shortcut.to_string(), write(path, shortcut)))
         .collect();
-    // 只要写进去了一条就得让 gsd 重新 grab，否则成功的那几个也不生效
     if results.iter().any(|(_, _, result)| result.is_ok()) {
-        if let Err(error) = restart_gsd_media_keys() {
-            log::warn!("恢复快捷键后重启 gsd-media-keys 失败: {error}");
+        if let Err(error) = refresh() {
+            for (_, _, result) in &mut results {
+                if result.is_ok() {
+                    *result = Err(format!("绑定已写入但刷新失败: {error}"));
+                }
+            }
         }
     }
     results
+}
+
+fn run_confirmed_command(
+    command: &mut Command,
+    timeout: std::time::Duration,
+) -> Result<std::process::ExitStatus, String> {
+    let mut child = command.spawn().map_err(|error| error.to_string())?;
+    let started = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status),
+            Ok(None) if started.elapsed() < timeout => {
+                std::thread::sleep(std::time::Duration::from_millis(20))
+            }
+            result => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(match result {
+                    Err(error) => error.to_string(),
+                    _ => "快捷键刷新命令超时".to_string(),
+                });
+            }
+        }
+    }
 }
 
 /// 卸载快捷键
@@ -627,5 +656,68 @@ mod tests {
         assert_eq!(format_string_list(&[]), "@as []");
         // 手工写入的路径可能缺末尾斜杠，不能因此重复添加
         assert!(same_path("/a/custom0", "/a/custom0/"));
+    }
+}
+
+#[cfg(test)]
+mod confirmed_update_tests {
+    use super::*;
+    use std::cell::RefCell;
+
+    #[test]
+    fn batch_writes_three_bindings_then_refreshes_only_once() {
+        let calls = RefCell::new(Vec::new());
+        let results = apply_binding_batch(
+            [
+                ("global", "a", "Alt+V"),
+                ("pin", "b", "Ctrl+2"),
+                ("capture", "c", "Ctrl+Shift+S"),
+            ],
+            |path, _| {
+                calls.borrow_mut().push(path.to_string());
+                Ok(())
+            },
+            || {
+                calls.borrow_mut().push("refresh".into());
+                Ok(())
+            },
+        );
+        assert!(results.iter().all(|(_, _, result)| result.is_ok()));
+        assert_eq!(*calls.borrow(), ["a", "b", "c", "refresh"]);
+    }
+
+    #[test]
+    fn batch_preserves_partial_write_errors_and_reports_reload_failure() {
+        let results = apply_binding_batch(
+            [
+                ("global", "a", "Alt+V"),
+                ("pin", "b", "Ctrl+2"),
+                ("capture", "c", "Ctrl+Shift+S"),
+            ],
+            |path, _| {
+                if path == "b" {
+                    Err("permission denied".into())
+                } else {
+                    Ok(())
+                }
+            },
+            || Err("daemon failed".into()),
+        );
+        assert!(results.iter().all(|(_, _, result)| result.is_err()));
+        assert_eq!(results[1].2.as_ref().unwrap_err(), "permission denied");
+        assert!(results[0].2.as_ref().unwrap_err().contains("daemon failed"));
+    }
+
+    #[test]
+    fn confirmed_command_times_out_and_reaps_its_child() {
+        let mut command = Command::new("sleep");
+        command.arg("2");
+        let before = std::time::Instant::now();
+        assert!(
+            run_confirmed_command(&mut command, std::time::Duration::from_millis(20))
+                .unwrap_err()
+                .contains("超时")
+        );
+        assert!(before.elapsed() < std::time::Duration::from_secs(1));
     }
 }

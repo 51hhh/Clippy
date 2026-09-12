@@ -159,7 +159,6 @@ export type {
   AppConfig,
   CaptureAction,
   CaptureActionResult,
-  CaptureLongshotHandoff,
   CaptureDiagnosticsReport,
   CaptureOrigin,
   CaptureOverlayPayload,
@@ -300,8 +299,12 @@ export function getConfig(): Promise<AppConfig> {
 }
 
 /** 保存配置 */
-export function updateConfig(newConfig: AppConfig): Promise<void> {
-  return invoke<void>("update_config", { newConfig });
+export interface ShortcutUpdateOutcome { shortcut_status: "unchanged" | "applied" | "pending"; }
+export function updateConfig(newConfig: AppConfig, options?: { requireShortcutsActive?: boolean }): Promise<ShortcutUpdateOutcome> {
+  return invoke<ShortcutUpdateOutcome>("update_config", {
+    newConfig,
+    ...(options?.requireShortcutsActive ? { requireShortcutsActive: true } : {}),
+  });
 }
 
 /**
@@ -398,8 +401,8 @@ export function pauseShortcuts(): Promise<void> {
 }
 
 /** 恢复全局快捷键 */
-export function resumeShortcuts(): Promise<void> {
-  return invoke<void>("resume_shortcuts");
+export function resumeShortcuts(): Promise<ShortcutUpdateOutcome> {
+  return invoke<ShortcutUpdateOutcome>("resume_shortcuts");
 }
 
 /** 检测安装类型：appimage（支持自动更新）/ deb（需手动下载） */
@@ -606,6 +609,11 @@ export function startDraggingCurrentWindow(): Promise<void> {
 /** 关闭当前 Webview 窗口。 */
 export function closeCurrentWindow(): Promise<void> {
   return getCurrentWindow().close();
+}
+
+/** 设置窗口只在恢复快捷键成功后销毁。 */
+export function closeSettings(): Promise<void> {
+  return invoke<void>("close_settings");
 }
 
 /** 监听当前窗口的原生关闭请求。 */
@@ -888,6 +896,11 @@ export async function downloadAndInstallUpdate(
       onProgress({ chunkLength: event.data.chunkLength });
     }
   });
+}
+
+/** 更新安装完成后，用户明确点击按钮才请求重启。 */
+export function restartApp(): Promise<void> {
+  return invoke<void>("restart_app");
 }
 
 /** 打开外部 URL（用于 deb 回退下载） */

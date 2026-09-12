@@ -1,4 +1,15 @@
 {
+  "update.installedTitle": "Update Installed",
+  "update.installedBody": "Restart Clippy to use the new version. You can restart later.",
+  "update.restart": "Restart now",
+  "update.restartFailed": "Could not restart Clippy. Try again or close and reopen the app.",
+  "update.installerTitle": "Installer Started",
+  "update.installerBody": "Follow the Windows installer to finish updating Clippy.",
+  "update.failedTitle": "Update Failed",
+  "update.failedBody": "Automatic installation failed. You can close this dialog or download the release manually.",
+  "update.manualBody": "This installation requires a manual update. Download the latest release for your platform.",
+  "settings.savedPending": "Saved. Shortcut changes are waiting for system confirmation.",
+  "settings.immediateHint": "Changes apply immediately; Cancel does not undo them.",
   "search.placeholder": "Search clipboard history...",
   "clipboard.history": "Clipboard history",
   "clipboard.pasteFallback": "Copied. Automatic paste was blocked; press Ctrl/Cmd+V manually",
@@ -168,7 +179,7 @@
   "settings.translation.historyClearFailed": "Could not remove the saved translations",
   "settings.tmux.label": "Tmux Capture",
   "settings.tmux.hint": "Capture tmux copy-mode buffer via hook",
-  "settings.autostart.devHint": "(dev build — setting will not persist)",
+  "settings.autostart.devHint": "(Unavailable in development builds)",
   "settings.save": "Save",
   "settings.cancel": "Cancel",
   "settings.saved": "Settings saved!",
@@ -576,5 +587,7 @@
   "capture.outputWorking": "Working…",
   "capture.outputRetained": "Your completed image is retained. Retry an output or discard it.",
   "capture.outputUncertain": "The previous save or pin result could not be confirmed. Copy remains available to avoid creating duplicates.",
-  "capture.discardOutput": "Discard image"
+  "capture.discardOutput": "Discard image",
+  "settings.shortcut.retry": "Retry restore",
+  "settings.shortcut.restoreFailed": "Shortcuts could not be restored. Retry before saving or closing."
 }

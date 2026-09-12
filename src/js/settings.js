@@ -2,7 +2,7 @@
 
 import {
   checkShortcutConflict,
-  closeCurrentWindow,
+  closeSettings,
   copyText,
   disableAutostart,
   enableAutostart,
@@ -31,6 +31,7 @@ import {
   updateConfig,
 } from "./api.ts";
 import { initCustomSelect } from "./custom-select.js";
+import { createAutostartSettings } from "./settings/autostart-settings.js";
 import { createCaptureDiagnosticsCard } from "./settings/capture-diagnostics.js";
 import { createOcrSettings } from "./settings/ocr-settings.js";
 import { createPastePermissionController } from "./settings/paste-permission.js";
@@ -39,10 +40,12 @@ import { createScreenshotSettings } from "./settings/screenshot-settings.js";
 import { createShortcutFailureNotice } from "./settings/shortcut-failure-notice.js";
 import {
   closeAfterShortcutCleanup,
+  saveAfterShortcutCleanup,
   createShortcutRecordingController,
 } from "./settings/shortcut-recording.js";
 import { loadStats } from "./settings/stats.js";
 import { initSettingsTabs } from "./settings/tabs.js";
+import { createConfigWriter } from "./settings/config-writer.js";
 import { createThemePicker } from "./settings/theme-picker.js";
 import { createWindowProbeCard } from "./settings/window-probe.js";
 import { initTranslationSettings } from "./translation-settings.js";
@@ -86,15 +89,12 @@ function showToast(message) {
 
 const translationSettings = initTranslationSettings({ showToast });
 
+const configWriter = createConfigWriter({ getConfig, updateConfig, onSaved: config => { savedConfig = config; } });
 const themePicker = createThemePicker({
   container: element("theme-grid"),
   translate: i18n.t,
-  async persistTheme(theme) {
-    if (!savedConfig) return;
-    const nextConfig = { ...savedConfig, theme };
-    await updateConfig(nextConfig);
-    savedConfig = nextConfig;
-  },
+  persistTheme: theme => configWriter.write({ theme }),
+  notify: showToast,
 });
 
 const pastePermission = createPastePermissionController({
@@ -107,6 +107,7 @@ const pastePermission = createPastePermissionController({
 });
 
 const shortcutRecording = createShortcutRecordingController({
+  notify: () => showToast(i18n.t("settings.shortcut.restoreFailed")),
   pauseShortcuts,
   resumeShortcuts,
   translate: i18n.t,
@@ -236,28 +237,15 @@ function fillForm(config) {
   translationSettings.fill(config);
 }
 
-async function loadAutostartStatus() {
-  try {
-    if (await isDevBinary()) {
-      autostartToggle.checked = false;
-      const hint = autostartToggle
-        .closest(".setting-toggle-row")
-        ?.querySelector(".setting-hint");
-      if (hint) {
-        hint.textContent = `${hint.textContent} ${i18n.t("settings.autostart.devHint")}`;
-      }
-      try {
-        await disableAutostart();
-      } catch (error) {
-        console.warn("清理 dev 自启项失败:", error);
-      }
-    } else {
-      autostartToggle.checked = await isAutostartEnabled();
-    }
-  } catch (error) {
-    console.warn("获取自启动状态失败:", error);
-  }
-}
+const autostartSettings = createAutostartSettings({
+  toggle: autostartToggle,
+  isDevBinary,
+  isEnabled: isAutostartEnabled,
+  enable: enableAutostart,
+  disable: disableAutostart,
+  translate: i18n.t,
+  notify: showToast,
+});
 
 /** 主动拉取存量注册失败记录：启动阶段的失败早于本页监听，事件已经丢了 */
 async function refreshShortcutFailures() {
@@ -296,7 +284,7 @@ whenReady(async () => {
     } catch (error) {
       console.warn("获取版本号失败:", error);
     }
-    await loadAutostartStatus();
+    await autostartSettings.load();
     void refreshShortcutFailures();
     void loadStats({
       getStats,
@@ -329,52 +317,33 @@ languageSelect.addEventListener("change", () => {
   translationSettings.refreshLabels();
 });
 
-autostartToggle.addEventListener("change", async () => {
+element("save-btn").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  if (button.disabled) return;
+  button.disabled = true;
   try {
-    if (autostartToggle.checked) {
-      await enableAutostart();
-    } else {
-      await disableAutostart();
-    }
-  } catch (error) {
-    console.warn("切换自启动失败:", error);
-    autostartToggle.checked = !autostartToggle.checked;
-  }
-});
-
-element("save-btn").addEventListener("click", async () => {
-  const shortcuts = shortcutRecording.getValues();
-  try {
-    const newConfig = {
-      // 这里写出的始终是 v2 结构（translation_services 列表），版本号不能回退到 1。
-      version: savedConfig?.version ?? 2,
-      max_history: parseInt(maxHistoryInput.value, 10) || 0,
-      storage_mode: savedConfig?.storage_mode || "persistent",
-      global_shortcut: shortcuts.global || savedConfig?.global_shortcut || "Super+V",
-      pin_shortcut: shortcuts.pin || savedConfig?.pin_shortcut || "Ctrl+2",
-      capture_shortcut:
-        shortcuts.capture || savedConfig?.capture_shortcut || "Ctrl+Shift+S",
-      theme: themePicker.value,
-      language: languageSelect.value,
-      delete_confirm_ms: savedConfig?.delete_confirm_ms ?? 1200,
-      ...ocrSettings.getConfig(),
-      ...screenshotSettings.getConfig(),
-      tmux_capture: tmuxGroup.hidden
-        ? (savedConfig?.tmux_capture ?? false)
-        : tmuxToggle.checked,
-      auto_paste: autoPasteToggle.checked,
-      ...translationSettings.getConfig(),
-      main_window_position: savedConfig?.main_window_position ?? null,
-    };
-
-    await updateConfig(newConfig);
-    savedConfig = newConfig;
-    // 后端在 update_config 里同步记账，返回后查到的就是这次保存的真实结果。
+    const outcome = await saveAfterShortcutCleanup(shortcutRecording, () => {
+      const shortcuts = shortcutRecording.getValues();
+      return configWriter.write({
+        max_history: parseInt(maxHistoryInput.value, 10) || 0,
+        global_shortcut: shortcuts.global,
+        pin_shortcut: shortcuts.pin,
+        capture_shortcut: shortcuts.capture,
+        language: languageSelect.value,
+        ...ocrSettings.getConfig(),
+        ...screenshotSettings.getConfig(),
+        auto_paste: autoPasteToggle.checked,
+        ...translationSettings.getConfig(),
+      }, { requireShortcutsActive: true });
+    });
     await refreshShortcutFailures();
-    showToast(i18n.t("settings.saved"));
+    showToast(i18n.t(outcome?.shortcut_status === "pending" ? "settings.savedPending" : "settings.saved"));
   } catch (error) {
     console.error("保存失败:", error);
+    await refreshShortcutFailures();
     showToast(i18n.t("settings.saveFailed", { error }));
+  } finally {
+    button.disabled = false;
   }
 });
 
@@ -402,21 +371,35 @@ element("check-update-btn").addEventListener("click", async (event) => {
   }
 });
 
-element("cancel-btn").addEventListener("click", async () => {
+let closingSettings = false;
+async function requestSettingsClose() {
+  if (closingSettings) return;
+  closingSettings = true;
   try {
-    await closeAfterShortcutCleanup(shortcutRecording, closeCurrentWindow);
+    await closeAfterShortcutCleanup(shortcutRecording, closeSettings);
   } catch (error) {
     console.warn(error);
+    showToast(i18n.t("settings.shortcut.restoreFailed"));
+  } finally {
+    closingSettings = false;
   }
-});
+}
+element("cancel-btn").addEventListener("click", () => { void requestSettingsClose(); });
 
 tmuxToggle.addEventListener("change", async () => {
   try {
-    await toggleTmuxCapture(tmuxToggle.checked);
+    const enabled = tmuxToggle.checked;
+    tmuxToggle.disabled = true;
+    await configWriter.run(async () => {
+      await toggleTmuxCapture(enabled);
+      savedConfig = await getConfig();
+    });
   } catch (error) {
     console.warn("tmux 切换失败:", error);
     tmuxToggle.checked = !tmuxToggle.checked;
     showToast(String(error?.message || error || "tmux error"));
+  } finally {
+    tmuxToggle.disabled = false;
   }
 });
 

@@ -1,4 +1,15 @@
 {
+  "update.installedTitle": "更新已安装",
+  "update.installedBody": "重启 Clippy 后使用新版本，也可以稍后重启。",
+  "update.restart": "立即重启",
+  "update.restartFailed": "无法重启 Clippy，请重试或关闭后重新打开应用。",
+  "update.installerTitle": "安装器已启动",
+  "update.installerBody": "请按照 Windows 安装器的提示完成 Clippy 更新。",
+  "update.failedTitle": "更新失败",
+  "update.failedBody": "自动安装失败，可以关闭此窗口或手动下载发布版本。",
+  "update.manualBody": "此安装方式需要手动更新，请下载适合当前平台的最新版本。",
+  "settings.savedPending": "已保存，快捷键变更正在等待系统确认。",
+  "settings.immediateHint": "修改立即生效，“取消”不会撤销这些修改。",
   "search.placeholder": "搜索剪贴板历史...",
   "clipboard.history": "剪贴板历史",
   "clipboard.pasteFallback": "已复制，系统拦截了自动粘贴，请手动按 Ctrl/Cmd+V",
@@ -168,7 +179,7 @@
   "settings.translation.historyClearFailed": "无法清除已保存的译文",
   "settings.tmux.label": "Tmux 捕获",
   "settings.tmux.hint": "通过 hook 捕获 tmux copy-mode 缓冲区内容",
-  "settings.autostart.devHint": "（开发构建，设置不会生效）",
+  "settings.autostart.devHint": "（开发构建不允许修改自启动项）",
   "settings.save": "保存",
   "settings.cancel": "取消",
   "settings.saved": "设置已保存！",
@@ -576,5 +587,7 @@
   "capture.outputWorking": "处理中…",
   "capture.outputRetained": "已保留完成的图片，可以重新输出或放弃。",
   "capture.outputUncertain": "无法确认上次保存或贴图是否成功。为避免重复创建，仍可复制图片。",
-  "capture.discardOutput": "放弃图片"
+  "capture.discardOutput": "放弃图片",
+  "settings.shortcut.retry": "重试恢复",
+  "settings.shortcut.restoreFailed": "快捷键恢复失败。请重试恢复后再保存或关闭。"
 }
