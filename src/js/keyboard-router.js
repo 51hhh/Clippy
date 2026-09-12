@@ -22,17 +22,21 @@ function inside(target, selector) {
 }
 
 /**
- * 解析这次按键归谁。先匹配先赢：codec > search > translation > list。
+ * 弹窗首先阻断背景快捷键；已有局部面板保留自己的契约，其余交互控件走原生行为。
  *
  * @param {KeyboardEvent|{target: EventTarget}} event
  * @param {{searchFocused?: boolean}} context
- * @returns {"codec"|"search"|"translation"|"list"}
+ * @returns {"codec"|"search"|"translation"|"native"|"list"}
  */
 export function resolveKeyboardMode(event, { searchFocused = false } = {}) {
   const target = event?.target;
+  const modal = document.querySelector('#update-modal:not(.hidden):not([hidden]), dialog[open], [aria-modal="true"]:not(.hidden):not([hidden])');
+  if (modal) return "native";
   if (inside(target, CODEC_PANEL_SELECTOR)) return "codec";
   if (searchFocused) return "search";
   if (inside(target, TRANSLATION_ROOT_SELECTOR)) return "translation";
+  if (inside(target, 'input, textarea, select, button, a[href], [contenteditable]:not([contenteditable="false"]), [role="button"]')) return "native";
+  if (document.getSelection()?.toString()) return "native";
   return "list";
 }
 
@@ -259,9 +263,12 @@ export function createKeyboardRouter({
   }
 
   function onKeyDown(e) {
+    if (e.defaultPrevented || e.isComposing) return;
     const searchFocused = clipboardList.search.isVisible()
       && Boolean(document.activeElement?.classList?.contains("search-bar-input"));
     switch (resolveKeyboardMode(e, { searchFocused })) {
+      case "native":
+        return;
       case "codec":
         onCodecKeyDown(e);
         return;

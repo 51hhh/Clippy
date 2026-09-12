@@ -145,6 +145,7 @@ export class TranslationStore {
   };
   private listeners = new Set<() => void>();
   private generation = 0;
+  private speechGeneration = 0;
   /** 预览面板是否可见。面板不可见时翻译界面根本没渲染，不该为它去查历史。 */
   private panelVisible = false;
   private historyTimer: ReturnType<typeof setTimeout> | null = null;
@@ -188,6 +189,11 @@ export class TranslationStore {
   }
 
   setClip(clip: ClipItem | null): void {
+    // 列表刷新会重复通知同一条目；元数据更新不取消正在进行的翻译和朗读。
+    if (clip?.id === this.snapshot.clip?.id && clip?.is_sensitive === this.snapshot.clip?.is_sensitive) {
+      if (clip !== this.snapshot.clip) this.commit({ clip });
+      return;
+    }
     this.generation += 1;
     this.commit({ clip, ...this.reset() });
     this.scheduleHistory(clip, this.generation);
@@ -202,6 +208,8 @@ export class TranslationStore {
     this.panelVisible = visible;
     if (!visible) {
       this.cancelHistory();
+      this.generation += 1;
+      this.commit(this.reset());
       return;
     }
     this.scheduleHistory(this.snapshot.clip, this.generation);
@@ -250,6 +258,7 @@ export class TranslationStore {
 
   private reset(): Partial<TranslationSnapshot> {
     // 条目或配置一变，正在播的音频就不再属于界面上的内容，立刻停掉。
+    this.speechGeneration += 1;
     this.player.stop();
     return {
       loading: false,
@@ -340,22 +349,18 @@ export class TranslationStore {
   private async speak(target: SpeechTarget, request: () => Promise<SpokenText>): Promise<void> {
     const clip = this.snapshot.clip;
     if (!clip || clip.is_sensitive || this.snapshot.speaking) return;
-    const requestGeneration = this.generation;
+    const requestGeneration = ++this.speechGeneration;
+    const isCurrent = () => requestGeneration === this.speechGeneration && this.snapshot.clip?.id === clip.id;
     this.commit({ speaking: target, speechErrorCode: null });
     try {
       const spoken = await request();
       // 条目或配置已经变了：不要在新界面上放旧内容的声音。
-      if (!this.isCurrent(requestGeneration, clip)) return;
+      if (!isCurrent()) return;
       await this.player.play(spoken);
-      this.finishSpeech(target, null);
+      if (isCurrent()) this.commit({ speaking: null, speechErrorCode: null });
     } catch (error) {
-      this.finishSpeech(target, cardErrorCode(stableTranslationErrorCode(error)));
+      if (isCurrent()) this.commit({ speaking: null, speechErrorCode: cardErrorCode(stableTranslationErrorCode(error)) });
     }
-  }
-
-  private finishSpeech(target: SpeechTarget, errorCode: string | null): void {
-    if (this.snapshot.speaking !== target) return;
-    this.commit({ speaking: null, speechErrorCode: errorCode });
   }
 
   /** 复制某个服务的译文；只有这张卡显示复制反馈 */

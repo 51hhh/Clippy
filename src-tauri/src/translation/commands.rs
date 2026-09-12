@@ -555,35 +555,87 @@ mod tests {
         assert_eq!(selected[0].0, TranslationProvider::LibreTranslate);
     }
 
-    /// 方向解析必须落在 `request_from_config` 上，剪贴板、纯文本与选区翻译才共用同一套规则。
+    /// 命令级请求构造必须复用方向解析，不能在不同入口再猜一次源语言。
+    fn direction_request(
+        config: &AppConfig,
+        text: &str,
+        source: Option<&str>,
+        target: Option<&str>,
+    ) -> TranslationRequest {
+        request_from_config(
+            config,
+            TranslationProvider::LibreTranslate,
+            ProviderOptions::default(),
+            TranslationInputs {
+                text: text.to_string(),
+                source_language: source.map(str::to_string),
+                target_language: target.map(str::to_string),
+                request_id: Some(7),
+            },
+            &super::super::service::TranslationService::new(),
+        )
+    }
+
     #[test]
-    fn the_request_switches_the_target_when_the_text_is_already_in_the_target_language() {
+    fn auto_latin_requests_keep_the_configured_target_instead_of_assuming_english() {
+        let mut config = config_with(&["libretranslate"]);
+        config.translation_source_language = "auto".to_string();
+        config.translation_target_language = "en".to_string();
+        config.preferred_languages = vec!["en".to_string(), "zh".to_string()];
+        for text in [
+            "Bonjour le monde",
+            "Hola mundo",
+            "Guten Morgen",
+            "Hello there",
+        ] {
+            let request = direction_request(&config, text, None, None);
+            assert_eq!(request.target_language, "en", "{text}");
+            // 拉丁脚本不能确定是哪门语言，实际源语言仍交给服务检测。
+            assert_eq!(request.source(), None, "{text}");
+        }
+    }
+
+    #[test]
+    fn explicit_english_requests_can_switch_to_the_preferred_counterpart() {
         let mut config = config_with(&["libretranslate"]);
         config.translation_target_language = "en".to_string();
-        let service = super::super::service::TranslationService::new();
-        let build = |text: &str, target: Option<&str>| {
-            request_from_config(
-                &config,
-                TranslationProvider::LibreTranslate,
-                ProviderOptions::default(),
-                TranslationInputs {
-                    text: text.to_string(),
-                    source_language: None,
-                    target_language: target.map(str::to_string),
-                    request_id: Some(7),
-                },
-                &service,
-            )
-        };
+        config.preferred_languages = vec!["en".to_string(), "zh".to_string()];
+        // 设置源语言与单次调用显式源语言都必须参与命令级换向。
+        for (configured_source, source_override) in [("en", None), ("auto", Some("en"))] {
+            config.translation_source_language = configured_source.to_string();
+            let request = direction_request(&config, "Hello there", source_override, None);
+            assert_eq!(request.target_language, "zh");
+            assert_eq!(request.source(), Some("en"));
+            // 显式目标优先，即使源=目标也不能擅自换向。
+            assert_eq!(
+                direction_request(&config, "Hello there", source_override, Some("en"))
+                    .target_language,
+                "en"
+            );
+        }
+    }
 
-        let switched = build("Hello there", None);
-        assert_eq!(switched.target_language, "zh");
-        // 换向只改目标语言，源语言仍交给服务检测。
-        assert_eq!(switched.source(), None);
-
-        assert_eq!(build("你好，世界", None).target_language, "en");
-        // 调用方显式指定目标语言时按原样执行。
-        assert_eq!(build("Hello there", Some("en")).target_language, "en");
+    #[test]
+    fn known_chinese_requests_keep_the_existing_direction_rules() {
+        let mut config = config_with(&["libretranslate"]);
+        config.translation_source_language = "auto".to_string();
+        config.translation_target_language = "zh".to_string();
+        config.preferred_languages = vec!["zh".to_string(), "en".to_string()];
+        let automatic = direction_request(&config, "你好，世界", None, None);
+        assert_eq!(automatic.target_language, "en");
+        assert_eq!(automatic.source(), None);
+        let explicit = direction_request(&config, "你好，世界", Some("zh"), None);
+        assert_eq!(explicit.target_language, "en");
+        assert_eq!(explicit.source(), Some("zh"));
+        assert_eq!(
+            direction_request(&config, "你好，世界", None, Some("zh")).target_language,
+            "zh"
+        );
+        config.translation_target_language = "en".to_string();
+        assert_eq!(
+            direction_request(&config, "你好，世界", None, None).target_language,
+            "en"
+        );
     }
 
     #[test]

@@ -198,14 +198,15 @@ describe("React clipboard row", () => {
       expect(list.querySelectorAll(".clip-row").length).toBeLessThan(20);
       expect(Number(list.querySelector(".clip-row")?.dataset.idx)).toBeGreaterThan(4_900);
 
-      await act(async () => clipboardStore.scheduleQuery("needle"));
-      expect(list.scrollTop).toBe(0);
-
       await act(async () => clipboardStore.focusRow(9_999));
       const focused = list.querySelector('.clip-row.focused[data-idx="9999"]');
       expect(focused).not.toBeNull();
       expect(focused?.getAttribute("aria-posinset")).toBe("10000");
       expect(list.scrollTop).toBe(769_400);
+
+      await act(async () => clipboardStore.scheduleQuery("needle"));
+      expect(list.scrollTop).toBe(0);
+      expect(list.querySelectorAll(".clip-row")).toHaveLength(0);
     } finally {
       await act(async () => root.unmount());
       clipboardStore.releaseMemory();
@@ -213,5 +214,24 @@ describe("React clipboard row", () => {
       container.remove();
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe('折叠操作组的原生键盘焦点', () => {
+  it('展开时按钮可激活，折叠后禁用并将焦点归还列表', async () => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    const panel = document.createElement('section'); panel.id = 'list-panel'; panel.tabIndex = -1;
+    const container = document.createElement('div'); panel.append(container); document.body.append(panel);
+    const root = createRoot(container); const rowProps = { clip: clip(), ...props({ expanded: true }) };
+    try {
+      await act(async () => root.render(React.createElement(ClipboardRow, rowProps)));
+      const button = container.querySelector('[aria-label="Delete"]'); button.focus(); button.click();
+      expect(rowProps.handlers.onAction).toHaveBeenCalledWith(rowProps.clip, 0, 'delete', 2);
+      rowProps.handlers.onAction.mockClear();
+      await act(async () => root.render(React.createElement(ClipboardRow, { ...rowProps, expanded: false })));
+      expect(document.activeElement).toBe(panel);
+      for (const action of container.querySelectorAll('.clip-row-action')) { expect(action.disabled).toBe(true); expect(action.tabIndex).toBe(-1); action.click(); }
+      expect(rowProps.handlers.onAction).not.toHaveBeenCalled();
+    } finally { await act(async () => root.unmount()); panel.remove(); delete globalThis.IS_REACT_ACT_ENVIRONMENT; }
   });
 });

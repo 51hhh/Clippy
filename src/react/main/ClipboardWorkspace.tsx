@@ -96,7 +96,13 @@ export function ClipboardWorkspace() {
   useEffect(() => {
     const list = listRef.current;
     const index = snapshot.navigation.focusedRow;
-    if (!list || index < 0 || index + 1 >= rowOffsets.length) return;
+    if (!list) return;
+    if (index < 0) {
+      list.scrollTop = 0;
+      syncViewport(list);
+      return;
+    }
+    if (index + 1 >= rowOffsets.length) return;
     const rowTop = rowOffsets[index];
     const rowBottom = rowOffsets[index + 1];
     const viewportBottom = list.scrollTop + list.clientHeight;

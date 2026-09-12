@@ -59,7 +59,11 @@ export class ClipboardStore {
   private callbacks: Callbacks = {};
   private allHasMore = true;
   private favoritesHasMore = true;
-  private favoritesDirty = true;
+  private dataRevision = 0;
+  private cacheIdentity: Record<PanelMode, { query: string; revision: number } | null> = { all: null, favorites: null };
+  private loadedLimit: Record<PanelMode, number> = { all: PAGE_SIZE, favorites: PAGE_SIZE };
+  private released = false;
+  private requeryScheduled = false;
   private requestGeneration = 0;
   private queryTimer: number | null = null;
 
@@ -94,55 +98,64 @@ export class ClipboardStore {
     );
   }
 
+  private cacheCurrent(mode = this.snapshot.mode): boolean {
+    const identity = this.cacheIdentity[mode];
+    return identity?.query === this.snapshot.query && identity.revision === this.dataRevision;
+  }
+
+  private navigationFor(items: ClipItem[], previousId = this.getFocusedClip()?.id): Navigation {
+    const index = items.findIndex((item) => item.id === previousId);
+    return normalizeAfterRefresh({
+      ...this.snapshot.navigation,
+      focusedRow: index >= 0 ? index : this.snapshot.navigation.focusedRow,
+    }, items.length);
+  }
+
   async refresh(): Promise<void> {
+    this.released = false;
+    await this.queryRange(PAGE_SIZE);
+  }
+
+  /** 数据事件后重新查询已加载的连续区间，旧 OFFSET 页不能接到新数据版本上。 */
+  private async queryRange(limit: number): Promise<void> {
     const generation = ++this.requestGeneration;
+    const revision = this.dataRevision;
+    const { query, mode } = this.snapshot;
+    const isCurrent = () => generation === this.requestGeneration
+      && revision === this.dataRevision && !this.released;
+    this.commit({ loadingMore: false });
     try {
-      const all = await getClips(this.snapshot.query || null, false, 0, PAGE_SIZE);
-      if (generation !== this.requestGeneration) return;
-      this.allHasMore = all.length >= PAGE_SIZE;
-      this.favoritesDirty = true;
-      let favorites = this.snapshot.favorites;
-      if (this.snapshot.mode === "favorites") {
-        favorites = await this.loadFavorites(generation);
-        if (generation !== this.requestGeneration) return;
-      }
-      const items = this.snapshot.mode === "favorites" ? favorites : all;
+      const items = await getClips(query || null, mode === "favorites", 0, limit);
+      if (!isCurrent()) return;
+      this.cacheIdentity[mode] = { query, revision };
+      this.loadedLimit[mode] = limit;
+      if (mode === "all") this.allHasMore = items.length >= limit;
+      else this.favoritesHasMore = items.length >= limit;
       this.commit({
-        all,
-        favorites,
+        [mode]: items,
         dirty: false,
         loadingMore: false,
-        favoritesLoaded: this.snapshot.mode === "favorites" || this.snapshot.favoritesLoaded,
-        navigation: normalizeAfterRefresh(this.snapshot.navigation, items.length),
+        favoritesLoaded: mode === "favorites" || this.snapshot.favoritesLoaded,
+        navigation: this.navigationFor(items),
       }, true);
     } catch (error) {
-      if (generation !== this.requestGeneration) return;
+      if (!isCurrent()) return;
       console.error("Clipboard query failed", error);
-      this.commit({
-        all: [],
-        navigation: normalizeAfterRefresh(this.snapshot.navigation, 0),
-        dirty: false,
-        loadingMore: false,
-      }, true);
+      // 失败不能把缓存冒充新版本；再次聚焦或分页时仍可重试。
+      this.commit({ dirty: true, loadingMore: false });
     }
   }
 
-  private async loadFavorites(generation = this.requestGeneration): Promise<ClipItem[]> {
-    try {
-      const favorites = await getClips(this.snapshot.query || null, true, 0, PAGE_SIZE);
-      if (generation !== this.requestGeneration) return this.snapshot.favorites;
-      this.favoritesHasMore = favorites.length >= PAGE_SIZE;
-      this.favoritesDirty = false;
-      return favorites;
-    } catch (error) {
-      console.error("Favorites query failed", error);
-      return [];
-    }
+  private changeQuery(query: string): void {
+    this.requestGeneration += 1;
+    this.cacheIdentity = { all: null, favorites: null };
+    this.loadedLimit = { all: PAGE_SIZE, favorites: PAGE_SIZE };
+    this.commit({ query, all: [], favorites: [], favoritesLoaded: false,
+      dirty: true, loadingMore: false, navigation: releaseNavigation(this.snapshot.navigation) }, true);
   }
 
   scheduleQuery(query: string): void {
-    this.requestGeneration += 1;
-    this.commit({ query, loadingMore: false });
+    this.changeQuery(query);
     if (this.queryTimer !== null) window.clearTimeout(this.queryTimer);
     this.queryTimer = window.setTimeout(() => {
       this.queryTimer = null;
@@ -153,7 +166,7 @@ export class ClipboardStore {
   async setQuery(query: string): Promise<void> {
     if (this.queryTimer !== null) window.clearTimeout(this.queryTimer);
     this.queryTimer = null;
-    this.commit({ query, loadingMore: false });
+    this.changeQuery(query);
     await this.refresh();
   }
 
@@ -167,29 +180,17 @@ export class ClipboardStore {
 
   async setPanelMode(mode: PanelMode): Promise<void> {
     if (mode === this.snapshot.mode) return;
-    const generation = ++this.requestGeneration;
-    const query = this.snapshot.query;
-    let favorites = this.snapshot.favorites;
-    const items = mode === "favorites" ? favorites : this.snapshot.all;
+    this.requestGeneration += 1;
+    if (this.queryTimer !== null) window.clearTimeout(this.queryTimer);
+    this.queryTimer = null;
+    const cached = this.cacheIdentity[mode];
+    const items = cached?.query === this.snapshot.query
+      ? (mode === "favorites" ? this.snapshot.favorites : this.snapshot.all) : [];
     this.commit({
-      mode,
-      favorites,
-      loadingMore: false,
-      favoritesLoaded: mode === "favorites" || this.snapshot.favoritesLoaded,
+      mode, [mode]: items, loadingMore: false, dirty: !this.cacheCurrent(mode),
       navigation: normalizeAfterRefresh(resetForPanelChange(this.snapshot.navigation), items.length),
     }, true);
-    if (mode !== "favorites" || !this.favoritesDirty) return;
-
-    favorites = await this.loadFavorites(generation);
-    if (
-      generation !== this.requestGeneration
-      || this.snapshot.mode !== "favorites"
-      || this.snapshot.query !== query
-    ) return;
-    this.commit({
-      favorites,
-      navigation: normalizeAfterRefresh(this.snapshot.navigation, favorites.length),
-    }, true);
+    if (!this.cacheCurrent(mode)) await this.queryRange(this.loadedLimit[mode]);
   }
 
   getPanelMode(): PanelMode {
@@ -197,15 +198,10 @@ export class ClipboardStore {
   }
 
   prependClip(clip: ClipItem): void {
-    // 焦点跟着**条目**走，不跟着索引走。原来这里是 `focusedRow + 1`，有两处会错：
-    //   1. 面板关着时 `releaseMemory` 把列表清空、`focusedRow` 归 0——那不是"用户选中了
-    //      第一行"，而是"没有焦点行"。把它当真焦点去 +1，重新打开面板后焦点就停在
-    //      **第二行**，于是截图复制完按 Pin 贴出来的是上一张图（用户报障的正是这条）。
-    //      连截两张，焦点就掉到第三行。
-    //   2. 被 prepend 的条目本来就在列表里（同一张图再复制一次，`insert_clip` 按哈希
-    //      去重、只把它顶到最前面）时列表长度不变，+1 纯属把焦点推歪。
-    // 按 id 找回原来那一行同时解决两者：真有焦点行就跟着它走（用户正看着的那行不该在
-    // 眼皮下换成别的内容），没有就落在最新一条上。
+    this.invalidateData();
+    // 隐藏后不重新持有缩略图；搜索匹配由后端的 FTS/LIKE 规则决定。
+    if (this.released || this.snapshot.query) return;
+    // 原条目只更新位置时，保持当前选中 ID。
     const previousFocus = this.getFocusedClip();
     const all = this.snapshot.all.filter((item) => item.id !== clip.id);
     all.unshift(clip);
@@ -228,13 +224,15 @@ export class ClipboardStore {
   }
 
   removeClip(id: number): void {
+    const previousId = this.getFocusedClip()?.id;
+    this.invalidateData();
     const all = this.snapshot.all.filter((item) => item.id !== id);
     const favorites = this.snapshot.favorites.filter((item) => item.id !== id);
     const items = this.snapshot.mode === "favorites" ? favorites : all;
     this.commit({
       all,
       favorites,
-      navigation: normalizeAfterRefresh(collapseActions(this.snapshot.navigation), items.length),
+      navigation: this.navigationFor(items, previousId),
     }, true);
   }
 
@@ -314,7 +312,8 @@ export class ClipboardStore {
       if (action === "copy") await selectClip(clip.id);
       else if (action === "favorite") {
         await toggleFavorite(clip.id);
-        await this.refresh();
+        this.invalidateData(false);
+        await this.queryRange(this.loadedLimit[this.snapshot.mode]);
       } else {
         await deleteClip(clip.id);
         this.removeClip(clip.id);
@@ -341,7 +340,11 @@ export class ClipboardStore {
   }
 
   async loadMore(): Promise<void> {
-    if (this.snapshot.loadingMore) return;
+    if (this.snapshot.loadingMore || this.released) return;
+    if (!this.cacheCurrent()) {
+      await this.queryRange(this.loadedLimit[this.snapshot.mode]);
+      return;
+    }
     const favoritesMode = this.snapshot.mode === "favorites";
     if (!(favoritesMode ? this.favoritesHasMore : this.allHasMore)) return;
     const generation = this.requestGeneration;
@@ -363,6 +366,7 @@ export class ClipboardStore {
         if (generation === this.requestGeneration) this.commit({ loadingMore: false });
         return;
       }
+      this.loadedLimit[this.snapshot.mode] = current.length + PAGE_SIZE;
       if (favoritesMode) {
         this.favoritesHasMore = more.length >= PAGE_SIZE;
         this.commit({ favorites: [...this.snapshot.favorites, ...more], loadingMore: false });
@@ -403,20 +407,38 @@ export class ClipboardStore {
   }
 
   releaseMemory(): void {
+    this.released = true;
+    this.cacheIdentity = { all: null, favorites: null };
+    this.loadedLimit = { all: PAGE_SIZE, favorites: PAGE_SIZE };
     this.requestGeneration += 1;
     if (this.queryTimer !== null) window.clearTimeout(this.queryTimer);
     this.queryTimer = null;
     this.commit({
       all: [],
       favorites: [],
+      favoritesLoaded: false,
       dirty: true,
       loadingMore: false,
       navigation: releaseNavigation(this.snapshot.navigation),
     });
   }
 
+  private invalidateData(requery = true): void {
+    this.dataRevision += 1;
+    this.requestGeneration += 1;
+    this.commit({ dirty: true, loadingMore: false });
+    if (!requery || this.released || this.requeryScheduled || this.queryTimer !== null) return;
+    this.requeryScheduled = true;
+    queueMicrotask(() => {
+      this.requeryScheduled = false;
+      if (!this.released && this.snapshot.dirty && this.queryTimer === null) {
+        void this.queryRange(this.loadedLimit[this.snapshot.mode]);
+      }
+    });
+  }
+
   markDirty(): void {
-    this.commit({ dirty: true });
+    this.invalidateData();
   }
 
   isDirty(): boolean {
