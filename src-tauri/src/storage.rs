@@ -181,6 +181,8 @@ impl StorageEngine {
             )?;
         }
 
+        self.migrate_use_order()?;
+
         // URL 元数据缓存表
         self.conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS url_meta_cache (
@@ -217,6 +219,48 @@ impl StorageEngine {
         self.rebuild_fts_once("search_v2")?;
 
         Ok(())
+    }
+
+    /// 用持久序号表达每次使用，而 created_at 继续保留秒级时间和敏感内容 TTL 合同。
+    fn migrate_use_order(&self) -> Result<(), StorageError> {
+        let tx = self.conn.unchecked_transaction()?;
+        let has_column: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('clips') WHERE name='use_order')",
+            [],
+            |row| row.get(0),
+        )?;
+        if !has_column {
+            self.conn.execute(
+                "ALTER TABLE clips ADD COLUMN use_order INTEGER NOT NULL DEFAULT 0",
+                [],
+            )?;
+            // 旧同秒记录的真实使用顺序不可恢复；按原时间/id 确定性回填。
+            self.conn.execute_batch(
+                "WITH ranked AS (
+                    SELECT id, ROW_NUMBER() OVER (ORDER BY created_at ASC, id ASC) AS rank FROM clips
+                 ) UPDATE clips SET use_order = (SELECT rank FROM ranked WHERE ranked.id = clips.id);"
+            )?;
+        }
+        self.conn.execute_batch(
+            "INSERT INTO schema_meta(key, value)
+                VALUES ('clip_use_order', (SELECT COALESCE(MAX(use_order), 0) FROM clips))
+             ON CONFLICT(key) DO UPDATE SET value = MAX(CAST(value AS INTEGER), CAST(excluded.value AS INTEGER));
+             CREATE INDEX IF NOT EXISTS idx_clips_use_order ON clips(use_order DESC, id DESC);
+             CREATE INDEX IF NOT EXISTS idx_clips_favorite_use_order ON clips(is_favorite, use_order DESC, id DESC);"
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// 必须在条目写入事务内调用：失败会连同计数回滚，清空历史也不倒退。
+    fn next_use_order(&self) -> Result<i64, StorageError> {
+        Ok(self.conn.query_row(
+            "UPDATE schema_meta SET value = CAST(value AS INTEGER) + 1
+             WHERE key = 'clip_use_order' AND CAST(value AS INTEGER) < 9223372036854775807
+             RETURNING CAST(value AS INTEGER)",
+            [],
+            |row| row.get(0),
+        )?)
     }
 
     fn restrict_sidecar_permissions(&self, db_path: &Path) -> Result<(), StorageError> {
@@ -268,14 +312,14 @@ impl StorageEngine {
              FROM clips
              WHERE is_favorite = 1
                AND (text_content LIKE ?1 ESCAPE '\\' OR ocr_text LIKE ?1 ESCAPE '\\')
-             ORDER BY created_at DESC
+             ORDER BY use_order DESC, id DESC
              LIMIT ?2 OFFSET ?3"
         } else {
             "SELECT id, content_type, text_content, NULL, NULL,
                     content_hash, is_favorite, created_at, byte_size, is_sensitive
              FROM clips
              WHERE text_content LIKE ?1 ESCAPE '\\' OR ocr_text LIKE ?1 ESCAPE '\\'
-             ORDER BY created_at DESC
+             ORDER BY use_order DESC, id DESC
              LIMIT ?2 OFFSET ?3"
         };
 
@@ -305,7 +349,7 @@ impl StorageEngine {
                     OR text_content LIKE ?2 ESCAPE '\\'
                     OR ocr_text LIKE ?2 ESCAPE '\\'
                )
-             ORDER BY created_at DESC
+             ORDER BY use_order DESC, id DESC
              LIMIT ?3 OFFSET ?4"
         } else {
             "SELECT id, content_type, text_content, NULL, NULL,
@@ -314,7 +358,7 @@ impl StorageEngine {
              WHERE id IN (SELECT rowid FROM clips_fts WHERE clips_fts MATCH ?1)
                 OR text_content LIKE ?2 ESCAPE '\\'
                 OR ocr_text LIKE ?2 ESCAPE '\\'
-             ORDER BY created_at DESC
+             ORDER BY use_order DESC, id DESC
              LIMIT ?3 OFFSET ?4"
         };
 
@@ -346,12 +390,14 @@ impl StorageEngine {
         // 拿不到 &mut Connection（外层已经被 Arc<Mutex<_>> 串行化，没有并发嵌套）。
         let tx = self.conn.unchecked_transaction()?;
 
-        // UPSERT：新插入或哈希重复时更新 created_at 置顶
+        let use_order = self.next_use_order()?;
+
+        // UPSERT：新插入或哈希重复均推进使用顺序和现有 TTL 时间
         self.conn.execute(
             "INSERT INTO clips
-                (content_type, text_content, html_content, image_data, content_hash, is_favorite, created_at, byte_size, is_sensitive)
-             VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7, ?8)
-             ON CONFLICT(content_hash) DO UPDATE SET created_at = excluded.created_at",
+                (content_type, text_content, html_content, image_data, content_hash, is_favorite, created_at, byte_size, is_sensitive, use_order)
+             VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7, ?8, ?9)
+             ON CONFLICT(content_hash) DO UPDATE SET created_at = excluded.created_at, use_order = excluded.use_order",
             params![
                 content_type.as_str(),
                 text_content,
@@ -361,6 +407,7 @@ impl StorageEngine {
                 now,
                 byte_size,
                 is_sensitive as i64,
+                use_order,
             ],
         )?;
 
@@ -397,11 +444,15 @@ impl StorageEngine {
     /// 更新指定条目的 created_at 为当前时间（用于 select_clip 置顶），并返回更新后的条目
     pub fn touch_clip(&self, id: i64) -> Result<ClipItem, StorageError> {
         let now = now_secs();
+        let tx = self.conn.unchecked_transaction()?;
+        let use_order = self.next_use_order()?;
         self.conn.execute(
-            "UPDATE clips SET created_at = ?1 WHERE id = ?2",
-            params![now, id],
+            "UPDATE clips SET created_at = ?1, use_order = ?3 WHERE id = ?2",
+            params![now, id, use_order],
         )?;
-        self.get_clip_by_id(id)
+        let clip = self.get_clip_by_id(id)?;
+        tx.commit()?;
+        Ok(clip)
     }
 
     /// 通过 id 获取图片二进制数据（仅 image 类型有值）
@@ -526,13 +577,13 @@ impl StorageEngine {
                     content_hash, is_favorite, created_at, byte_size, is_sensitive
              FROM clips
              WHERE is_favorite = 1
-             ORDER BY created_at DESC
+             ORDER BY use_order DESC, id DESC
              LIMIT ?1 OFFSET ?2"
         } else {
             "SELECT id, content_type, text_content, NULL, NULL,
                     content_hash, is_favorite, created_at, byte_size, is_sensitive
              FROM clips
-             ORDER BY created_at DESC
+             ORDER BY use_order DESC, id DESC
              LIMIT ?1 OFFSET ?2"
         };
 
