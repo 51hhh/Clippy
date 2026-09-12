@@ -668,8 +668,8 @@ describe("isNumberBase", () => {
   it("detects octal", () => {
     expect(T.isNumberBase("0o777")).toBe(true);
   });
-  it("rejects plain decimal", () => {
-    expect(T.isNumberBase("255")).toBe(false);
+  it("accepts plain decimal", () => {
+    expect(T.isNumberBase("255")).toBe(true);
   });
   it("rejects text", () => {
     expect(T.isNumberBase("hello")).toBe(false);
@@ -679,18 +679,18 @@ describe("isNumberBase", () => {
 describe("numberBaseInfo", () => {
   it("converts hex to all bases", () => {
     const info = T.numberBaseInfo("0xFF");
-    expect(info.decimal).toBe(255);
+    expect(info.decimal).toBe(255n);
     expect(info.binary).toBe("0b11111111");
     expect(info.octal).toBe("0o377");
   });
   it("converts binary to all bases", () => {
     const info = T.numberBaseInfo("0b1010");
-    expect(info.decimal).toBe(10);
+    expect(info.decimal).toBe(10n);
     expect(info.hex).toBe("0xA");
   });
   it("converts octal to all bases", () => {
     const info = T.numberBaseInfo("0o777");
-    expect(info.decimal).toBe(511);
+    expect(info.decimal).toBe(511n);
   });
 });
 

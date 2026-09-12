@@ -295,7 +295,8 @@ export function createMetadataRenderers({ contentEl, badgeEl }) {
   /** 数字进制渲染 */
   function renderNumberBase(text) {
     const info = numberBaseInfo(text);
-    const baseNames = { 2: "BIN", 8: "OCT", 16: "HEX" };
+    if (!info) return;
+    const baseNames = { 2: "BIN", 8: "OCT", 10: "DEC", 16: "HEX" };
     badgeEl.textContent = `NUMBER · ${baseNames[info.base] || `BASE${info.base}`}`;
     contentEl.classList.add("preview-content--encoded");
 

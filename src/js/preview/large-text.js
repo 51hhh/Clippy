@@ -53,3 +53,42 @@ export function limitForRender(text) {
     omitted: text.length - MAX_RENDER_CHARS,
   };
 }
+
+/**
+ * 有界 JSON 排版：解析后的树只用显式栈遍历，输出达到预算或嵌套过深立即退出。
+ * 不能先 JSON.stringify(..., null, 2) 再切片：短而深的 JSON 会先膨胀成巨大字符串。
+ */
+export function formatJsonWithinBudget(value, budget = MAX_RENDER_CHARS) {
+  const chunks = [];
+  let length = 0;
+  const stack = [{ value, depth: 0 }];
+  while (stack.length) {
+    const item = stack.pop();
+    if (typeof item === 'string') {
+      length += item.length;
+      if (length > budget) return null;
+      chunks.push(item);
+      continue;
+    }
+    const { value: current, depth } = item;
+    if (depth > 64) return null;
+    if (current === null || typeof current !== 'object') {
+      const token = JSON.stringify(current);
+      if (typeof token !== 'string') return null;
+      stack.push(token);
+      continue;
+    }
+    const array = Array.isArray(current);
+    const keys = Object.keys(current);
+    if (!keys.length) { stack.push(array ? '[]' : '{}'); continue; }
+    const indent = '  '.repeat(depth);
+    stack.push('\n' + indent + (array ? ']' : '}'));
+    for (let index = keys.length - 1; index >= 0; index--) {
+      if (index < keys.length - 1) stack.push(',\n');
+      stack.push({ value: current[keys[index]], depth: depth + 1 });
+      stack.push(indent + '  ' + (array ? '' : JSON.stringify(keys[index]) + ': '));
+    }
+    stack.push((array ? '[' : '{') + '\n');
+  }
+  return chunks.join('');
+}

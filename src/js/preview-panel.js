@@ -261,6 +261,13 @@ async function _doUpdatePreview(clip, generation) {
 
   // text 和 html 类型共享智能检测逻辑
   const text = clip.text_content || "";
+  const limited = limitForRender(text);
+  // 在 trim、完整格式检测与懒加载前拦截。截断结构不再冒充完整 JSON/JWT/HTML。
+  if (limited.truncated) {
+    _renderers.renderPlainText(limited.body);
+    _noteTruncation(limited);
+    return;
+  }
   const trimmed = text.trim();
 
   // 同步可判的类型全部由 classify.js 那张有序表说话（顺序、badge、渲染器一处定义）
@@ -280,12 +287,8 @@ async function _doUpdatePreview(clip, generation) {
   await ensureLibs();
   if (!isCurrent()) return;
 
-  // 超大条目只画开头一段：几 MB 文本高亮出来的 DOM 有六位数节点，画完也滚不动。
-  // 原文没动，复制/翻译/保存走的都是库里那份（见 preview/large-text.js）。
-  const limited = limitForRender(text);
-
   // 1. Markdown 检测（优先，评分制，需多个特征）
-  if (text.length > 0 && isMarkdown(text)) {
+  if (text.length > 0 && isMarkdown(detectionSample(text))) {
     _renderers.renderMarkdown(limited.body);
     _noteTruncation(limited);
     return;
@@ -316,10 +319,10 @@ async function _doUpdatePreview(clip, generation) {
       const detail = await getClipDetail(clip.id);
       if (!isCurrent()) return;
       if (detail.html_content) {
-        // 富文本同样要限长：DOMPurify 要把整份 HTML 解析一遍。截断可能切在标签中间，
-        // 而 DOMPurify 的解析器本来就负责补齐未闭合标签，不会漏出裸标签。
+        // 详情可能比纯文本副本大很多；超限时只显示标签原文，不解析截断结构。
         const limitedHtml = limitForRender(detail.html_content);
-        _renderers.renderRichText(limitedHtml.body);
+        if (limitedHtml.truncated) _renderers.renderPlainText(limitedHtml.body);
+        else _renderers.renderRichText(limitedHtml.body);
         _noteTruncation(limitedHtml);
         return;
       }
