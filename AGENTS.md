@@ -45,14 +45,14 @@ cd src && npx tsc --noEmit                 # React/TS 功能岛类型检查
 ## 架构要点
 | 层 | 路径 | 说明 |
 |----|------|------|
-| 前端 | `src/js/` | ES Module，`api.js` 是唯一 Tauri IPC 入口 |
+| 前端 | `src/js/` | ES Module，`api.ts` 是唯一 Tauri IPC 入口 |
 | 后端 | `src-tauri/src/` | 扁平模块：commands / storage / clipboard_watcher / config / models / portal_shortcuts / tray_icon |
 | 数据库 | SQLite + FTS5 | `clips` 表 + `clips_fts` 虚拟表，SHA-256 去重 |
 | 快捷键 | X11: tauri-plugin-global-shortcut; Wayland: XDG Portal (ashpd) |
 
 ## 关键约定
 - **前端 XSS 防护**：所有用户内容用 `textContent`，禁止 `innerHTML`
-- **IPC 封装**：只有 `api.js` 直接访问 `window.__TAURI__`
+- **IPC 封装**：只有 `api.ts` 直接访问 `window.__TAURI__`
 - **语言**：代码注释 / commit 中文，前端 UI 英文
 - **构建目标**：Linux x64（deb、AppImage）、Windows x64（NSIS、MSI）、macOS Intel/Apple Silicon（DMG、updater bundle）
 - **编码规范**：见 `.trellis/spec/backend/` 和 `.trellis/spec/frontend/`
