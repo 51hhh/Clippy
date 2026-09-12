@@ -18,6 +18,7 @@ import type {
   AppConfig,
   CaptureAction,
   CaptureActionResult,
+  CaptureLongshotHandoff,
   CaptureDiagnosticsReport,
   CaptureOrigin,
   CaptureOverlayPayload,
@@ -158,6 +159,7 @@ export type {
   AppConfig,
   CaptureAction,
   CaptureActionResult,
+  CaptureLongshotHandoff,
   CaptureDiagnosticsReport,
   CaptureOrigin,
   CaptureOverlayPayload,
@@ -535,6 +537,15 @@ export function commitCaptureAction(
     project,
     origin,
   });
+}
+
+/** 重试已认领产物，调用窗口身份由后端注入。 */
+export function retryCaptureAction(action: CaptureAction): Promise<CaptureActionResult> {
+  return invoke<CaptureActionResult>("retry_capture_action", { action });
+}
+
+export function onCaptureLongshotHandoff(callback: (result: CaptureLongshotHandoff) => void): Promise<UnlistenFn> {
+  return listen<CaptureLongshotHandoff>("capture-longshot-handoff", (event) => callback(event.payload));
 }
 
 /** 窗口速选依赖的 GNOME Shell 扩展的服务状态 */

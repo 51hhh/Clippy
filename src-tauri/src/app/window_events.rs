@@ -23,6 +23,11 @@ pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
             api.prevent_close();
             let _ = window_controller::hide_main_window(window.app_handle());
         }
+        tauri::WindowEvent::CloseRequested { api, .. } if window.label().starts_with("pin-") => {
+            // Tauri 仍会把原生 close-requested 事件交给前端。先拦住默认销毁，
+            // 让未保存确认与保存中的保护生效；获准后的 close_pin 使用 destroy。
+            api.prevent_close();
+        }
         tauri::WindowEvent::Focused(false) if window.label() == "main" => {
             hide_main_after_focus_loss(window.clone());
         }
@@ -73,7 +78,7 @@ pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
 }
 
 /// 主窗口靠快捷键反复显隐，关闭要退化成隐藏；其余窗口（设置、Pin、覆盖层）
-/// 都是用完即销毁，真关掉才对。
+/// 都是用完即销毁；Pin 在前端确认后才进入最终销毁。
 fn hides_instead_of_closing(label: &str) -> bool {
     matches!(label, "main")
 }

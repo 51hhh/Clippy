@@ -100,7 +100,7 @@ pub fn pin_clip(
         }
         // A previous creation failed after the native window was built. Do not
         // reuse an orphaned window with no payload entry.
-        let _ = window.close();
+        let _ = window.destroy();
         return Err("贴图窗口状态不完整，请重试".to_string());
     }
 
@@ -182,10 +182,6 @@ fn screenshot_entry(
     }
 }
 
-fn into_shared_png(png: Vec<u8>) -> Arc<Vec<u8>> {
-    Arc::new(png)
-}
-
 fn with_validated_screenshot_png<T, F>(
     png: Arc<Vec<u8>>,
     next: F,
@@ -200,16 +196,6 @@ where
     )
     .map_err(ScreenshotPinCreateError::not_created)?;
     next(png, width, height)
-}
-
-pub(crate) fn create_screenshot_pin(
-    png: Vec<u8>,
-    origin: Option<PinOrigin>,
-    app_handle: &tauri::AppHandle,
-    state: &AppState,
-) -> Result<String, String> {
-    create_screenshot_pin_shared(into_shared_png(png), origin, app_handle, state)
-        .map_err(|error| error.to_string())
 }
 
 /// 与普通截图入口共用同一条建条目/建窗路径，但接管调用方已经持有的 PNG `Arc`。
@@ -524,16 +510,27 @@ pub fn update_pin(
 pub fn copy_pin(label: String, state: State<'_, AppState>) -> Result<(), String> {
     validate_label(&label)?;
     let entry = state.pin_manager.get(&label)?;
-    match &*entry.source {
-        PinSource::Clip { item, .. } => crate::commands::write_clip_to_clipboard(item.id, &state),
+    copy_source(
+        &entry.source,
+        |item, image| crate::commands::write_clip_snapshot_to_clipboard(item, image, &state),
+        crate::image_io::copy_png_to_clipboard,
+    )
+}
+
+/// 分离系统剪贴板边界，保证所有 Pin 都从持有的快照复制，而不按历史 id 回查。
+fn copy_source(
+    source: &PinSource,
+    write_clip: impl FnOnce(&crate::models::ClipItem, Option<&[u8]>) -> Result<(), String>,
+    write_png: impl FnOnce(&[u8]) -> Result<(), String>,
+) -> Result<(), String> {
+    match source {
+        PinSource::Clip { item, image } => write_clip(item, image.as_deref()),
         // 这里**不设** skip hash：watcher 哈希的是它自己从剪贴板 RGBA 重新编出来的 PNG，
         // 和我们手上这串字节几乎不可能相同，设了也永远匹配不上（历史上就是这样白算了一次
         // 全图 sha256）。后果只是这张图重新进一次历史——`insert_clip` 按哈希去重，
         // 已有的那条只会被顶到最前面，没有重复存储。
-        PinSource::Screenshot { png } => crate::image_io::copy_png_to_clipboard(png.as_slice()),
-        PinSource::Project { preview_png, .. } => {
-            crate::image_io::copy_png_to_clipboard(preview_png)
-        }
+        PinSource::Screenshot { png } => write_png(png.as_slice()),
+        PinSource::Project { preview_png, .. } => write_png(preview_png),
     }
 }
 
@@ -880,7 +877,9 @@ pub fn close_pin(
         .lock()
         .map_err(|error| error.to_string())?;
     if let Some(window) = app_handle.get_webview_window(&label) {
-        window.close().map_err(|error| error.to_string())?;
+        // 此命令只由已经确认保存/放弃的前端调用。destroy 不再发 CloseRequested，
+        // 避免原生保护把最终关闭再送回确认框。
+        window.destroy().map_err(|error| error.to_string())?;
     }
     let _ = state.pin_manager.remove(&label)?;
     Ok(())
@@ -1093,12 +1092,52 @@ mod project_command_tests {
         }
     }
 
-    type CreateScreenshotPinFn = fn(
-        Vec<u8>,
-        Option<PinOrigin>,
-        &tauri::AppHandle,
-        &crate::commands::AppState,
-    ) -> Result<String, String>;
+    #[test]
+    fn deleted_history_does_not_remove_the_pin_copy_snapshot() {
+        let storage = crate::storage::StorageEngine::new_in_memory().unwrap();
+        for (content_type, text, html, image) in [
+            (ContentType::Text, Some("snapshot"), None, None),
+            (
+                ContentType::Html,
+                Some("html text"),
+                Some("<b>html text</b>"),
+                None,
+            ),
+            (ContentType::Image, None, None, Some(sample_png())),
+        ] {
+            let mut item = storage
+                .insert_clip(
+                    &content_type,
+                    text,
+                    html,
+                    image.as_deref(),
+                    &format!("snapshot-{content_type:?}"),
+                    1,
+                    false,
+                )
+                .unwrap();
+            let png = item.image_data.take();
+            let id = item.id;
+            let source = PinSource::Clip { item, image: png };
+            storage.delete_clip(id).unwrap();
+            assert!(storage.get_clip_by_id(id).is_err());
+            let called = AtomicBool::new(false);
+            copy_source(
+                &source,
+                |snapshot, bytes| {
+                    called.store(true, Ordering::SeqCst);
+                    assert_eq!(snapshot.text_content.as_deref(), text);
+                    assert_eq!(snapshot.html_content.as_deref(), html);
+                    assert_eq!(bytes, image.as_deref());
+                    Ok(())
+                },
+                |_| panic!("历史 Pin 应直接复制快照"),
+            )
+            .unwrap();
+            assert!(called.load(Ordering::SeqCst));
+        }
+    }
+
     type CreateScreenshotPinSharedFn = fn(
         Arc<Vec<u8>>,
         Option<PinOrigin>,
@@ -1106,7 +1145,6 @@ mod project_command_tests {
         &crate::commands::AppState,
     ) -> Result<String, super::ScreenshotPinCreateError>;
 
-    const _: CreateScreenshotPinFn = super::create_screenshot_pin;
     const _: CreateScreenshotPinSharedFn = super::create_screenshot_pin_shared;
 
     fn adjustments() -> serde_json::Value {
@@ -1227,15 +1265,6 @@ mod project_command_tests {
         };
         assert!(Arc::ptr_eq(stored, &png));
         assert_eq!(stored.as_slice(), png.as_slice());
-    }
-
-    #[test]
-    fn legacy_vec_conversion_moves_the_original_buffer_into_arc() {
-        let png = sample_png();
-        let original_ptr = png.as_ptr();
-        let shared = super::into_shared_png(png);
-        assert_eq!(shared.as_ptr(), original_ptr);
-        assert_eq!(Arc::strong_count(&shared), 1);
     }
 
     #[test]

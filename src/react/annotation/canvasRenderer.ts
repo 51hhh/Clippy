@@ -52,6 +52,7 @@ export function drawScene(
   draft: Annotation | null,
   adjustments: ImageAdjustments,
   selectedId: string | null,
+  roundedCrop?: Rect | null,
 ) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
@@ -74,6 +75,10 @@ export function drawScene(
   if (draft) {
     if (isVectorAnnotation(draft)) drawAnnotation(ctx, draft, viewport.scale);
     else drawEffect(ctx, image, draft, adjustments, viewport.scale, { x: 0, y: 0 });
+  }
+  if (adjustments.cornerRadius > 0) {
+    const crop = roundedCrop ?? { x: 0, y: 0, width: frameWidth(image), height: frameHeight(image) };
+    clearRoundedCorners(ctx, crop, Math.round(adjustments.cornerRadius), viewport.scale);
   }
   if (selectedId) {
     const selected = annotations.find((annotation) => annotation.id === selectedId);
@@ -162,6 +167,10 @@ function drawEffect(
     return;
   }
 
+  if (annotation.type === "mosaic") {
+    drawMosaic(ctx, image, annotation, adjustments, scale, offset);
+    return;
+  }
   ctx.save();
   ctx.beginPath();
   ctx.rect(destination.x, destination.y, destination.width, destination.height);
@@ -176,22 +185,90 @@ function drawEffect(
       frameWidth(image) * scale,
       frameHeight(image) * scale,
     );
-  } else {
-    const cell = Math.max(6, effect.mosaicCell / Math.max(scale, 0.01));
-    const width = Math.max(1, Math.ceil(rect.width / cell));
-    const height = Math.max(1, Math.ceil(rect.height / cell));
-    const buffer = document.createElement("canvas");
-    buffer.width = width;
-    buffer.height = height;
-    const source = buffer.getContext("2d");
-    if (source) {
-      source.filter = cssFilterForImageAdjustments(adjustments);
-      source.drawImage(image, rect.x, rect.y, rect.width, rect.height, 0, 0, width, height);
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(buffer, destination.x, destination.y, destination.width, destination.height);
-      ctx.imageSmoothingEnabled = true;
-    }
   }
+  ctx.restore();
+}
+
+type MosaicSample = { image: FrameImage; filter: string; buffer: HTMLCanvasElement; rect: Rect; cell: number };
+// 文档对象不变时，缩放只复用采样结果；WeakMap 随撤销文档释放，避免每帧扫描整块源图。
+const mosaicSamples = new WeakMap<EffectAnnotation, MosaicSample>();
+
+function drawMosaic(
+  ctx: CanvasRenderingContext2D,
+  image: FrameImage,
+  annotation: EffectAnnotation,
+  adjustments: ImageAdjustments,
+  scale: number,
+  offset: Point,
+) {
+  const filter = cssFilterForImageAdjustments(adjustments);
+  let sample = mosaicSamples.get(annotation);
+  if (!sample || sample.image !== image || sample.filter !== filter) {
+    // 与 Rust PixelRect / apply_mosaic_region 使用同一源图网格，边缘不足一格时独立求平均。
+    const sourceRect = annotation.rect;
+    const x = Math.max(0, Math.min(frameWidth(image), Math.floor(sourceRect.x)));
+    const y = Math.max(0, Math.min(frameHeight(image), Math.floor(sourceRect.y)));
+    const width = Math.max(0, Math.min(frameWidth(image), Math.ceil(sourceRect.x + sourceRect.width)) - x);
+    const height = Math.max(0, Math.min(frameHeight(image), Math.ceil(sourceRect.y + sourceRect.height)) - y);
+    if (width === 0 || height === 0) return;
+    const cell = Math.max(6, Math.min(256, Math.round((annotation.effect ?? DEFAULT_EFFECT_PARAMETERS).mosaicCell)));
+    const input = document.createElement("canvas");
+    input.width = width;
+    input.height = height;
+    const source = input.getContext("2d", { willReadFrequently: true });
+    if (!source) return;
+    source.filter = filter;
+    source.drawImage(image, x, y, width, height, 0, 0, width, height);
+    const pixels = source.getImageData(0, 0, width, height).data;
+    const buffer = document.createElement("canvas");
+    buffer.width = Math.ceil(width / cell);
+    buffer.height = Math.ceil(height / cell);
+    const target = buffer.getContext("2d");
+    if (!target) return;
+    const output = target.createImageData(buffer.width, buffer.height);
+    for (let row = 0; row < buffer.height; row += 1) {
+      for (let col = 0; col < buffer.width; col += 1) {
+        const endX = Math.min(width, (col + 1) * cell);
+        const endY = Math.min(height, (row + 1) * cell);
+        const sums = [0, 0, 0, 0];
+        for (let py = row * cell; py < endY; py += 1) {
+          for (let px = col * cell; px < endX; px += 1) {
+            const index = (py * width + px) * 4;
+            for (let channel = 0; channel < 4; channel += 1) sums[channel] += pixels[index + channel];
+          }
+        }
+        const count = (endX - col * cell) * (endY - row * cell);
+        const index = (row * buffer.width + col) * 4;
+        for (let channel = 0; channel < 4; channel += 1) output.data[index + channel] = Math.round(sums[channel] / count);
+      }
+    }
+    target.putImageData(output, 0, 0);
+    sample = { image, filter, buffer, rect: { x, y, width, height }, cell };
+    mosaicSamples.set(annotation, sample);
+  }
+  const { rect, cell, buffer } = sample;
+  const x = (rect.x + offset.x) * scale;
+  const y = (rect.y + offset.y) * scale;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, rect.width * scale, rect.height * scale);
+  ctx.clip();
+  // 效果层替换底图，透明像素不能再叠加一次原图而改变 alpha。
+  ctx.clearRect(x, y, rect.width * scale, rect.height * scale);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(buffer, x, y, buffer.width * cell * scale, buffer.height * cell * scale);
+  ctx.restore();
+}
+
+/** 只擦除裁剪框的四角，保留框外冻结帧，选区移动时仍能看清背景。 */
+function clearRoundedCorners(ctx: CanvasRenderingContext2D, crop: Rect, radius: number, scale: number) {
+  const safeRadius = Math.max(0, Math.min(radius, crop.width / 2, crop.height / 2)) * scale;
+  ctx.save();
+  ctx.globalCompositeOperation = "destination-out";
+  ctx.beginPath();
+  ctx.rect(crop.x * scale, crop.y * scale, crop.width * scale, crop.height * scale);
+  ctx.roundRect(crop.x * scale, crop.y * scale, crop.width * scale, crop.height * scale, safeRadius);
+  ctx.fill("evenodd");
   ctx.restore();
 }
 

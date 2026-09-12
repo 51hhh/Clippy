@@ -57,6 +57,8 @@ import {
   pickScreenshotDirectory,
   runCaptureDiagnostics,
   commitCaptureAction,
+  retryCaptureAction,
+  onCaptureLongshotHandoff,
   startDraggingCurrentWindow,
   updateConfig,
   updatePin,
@@ -271,6 +273,18 @@ describe("typed IPC wrappers", () => {
       viewportWidth: 1920,
       viewportHeight: 1200,
     });
+  });
+
+  it("retries the retained capture using the IPC caller and forwards handoff identities", () => {
+    retryCaptureAction("save");
+    expect(invoke).toHaveBeenCalledWith("retry_capture_action", { action: "save" });
+    const callback = vi.fn();
+    onCaptureLongshotHandoff(callback);
+    const [name, receive] = listen.mock.calls[0];
+    expect(name).toBe("capture-longshot-handoff");
+    const payload = { controllerLabel: "controller-1", sessionId: "session-1", accepted: false };
+    receive({ payload });
+    expect(callback).toHaveBeenCalledWith(payload);
   });
 
   it("keeps the longshot controller wire contract label-free and lossless", () => {

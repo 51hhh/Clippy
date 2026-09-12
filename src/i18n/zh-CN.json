@@ -571,5 +571,10 @@
   "longshot.failed": "无法启动长截图会话。",
   "longshot.busy": "已有另一个长截图会话正在运行。",
   "longshot.superseded": "这个长截图会话已不再是当前会话。",
-  "longshot.cleanupFailed": "Clippy 无法安全恢复桌面。请重启 Clippy 后再开始新的长截图。"
+  "longshot.cleanupFailed": "Clippy 无法安全恢复桌面。请重启 Clippy 后再开始新的长截图。",
+  "capture.outputFailed": "截图输出失败",
+  "capture.outputWorking": "处理中…",
+  "capture.outputRetained": "已保留完成的图片，可以重新输出或放弃。",
+  "capture.outputUncertain": "无法确认上次保存或贴图是否成功。为避免重复创建，仍可复制图片。",
+  "capture.discardOutput": "放弃图片"
 }

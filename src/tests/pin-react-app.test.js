@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
     edit: vi.fn(),
     close: vi.fn(),
     onSharpened: vi.fn(),
+    onCloseRequested: vi.fn(),
     onAlreadyOpen: vi.fn(),
     saveCanvas: vi.fn(),
     toolbarBounds: vi.fn(),
@@ -204,6 +205,7 @@ describe("React pin app", () => {
     });
     mocks.pinApi.close.mockResolvedValue(undefined);
     mocks.pinApi.onSharpened.mockResolvedValue(() => {});
+    mocks.pinApi.onCloseRequested.mockResolvedValue(() => {});
     mocks.pinApi.onAlreadyOpen.mockResolvedValue(() => {});
     mocks.pinApi.saveCanvas.mockResolvedValue({
       path: "/tmp/pin.png",
@@ -634,6 +636,102 @@ describe("React pin app", () => {
     expect(mocks.pinApi.close).toHaveBeenCalledWith("pin-image-test");
   });
 
+  it("keeps native input shortcuts and selected-text copying out of the canvas router", async () => {
+    restoreStubs.push(stubCanvasExport());
+    mocks.pinApi.get.mockResolvedValue({ ...payload, kind: "image", text: null });
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+    await drawOneStroke();
+    await act(async () => document.querySelector('button[aria-label="Text"]').click());
+    const input = document.querySelector('input[aria-label="Text"]');
+    for (const options of [{ key: "c", ctrlKey: true }, { key: "z", ctrlKey: true }, { key: "+" }]) {
+      const event = new KeyboardEvent("keydown", { ...options, bubbles: true, cancelable: true });
+      await act(async () => input.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(false);
+    }
+    expect(mocks.pinApi.copyCanvas).not.toHaveBeenCalled();
+    expect(mocks.pinApi.update).not.toHaveBeenCalled();
+    await act(async () => document.querySelector('button[aria-label="Copy"]').click());
+    expect(mocks.pinApi.copyCanvas.mock.calls.at(-1)[1].annotations).toHaveLength(1);
+  });
+
+  it("preserves copying a selection from a text pin", async () => {
+    mocks.pinApi.get.mockResolvedValue(payload);
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+    const range = document.createRange();
+    range.selectNodeContents(document.querySelector(".pin-media pre"));
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    const event = new KeyboardEvent("keydown", { key: "c", ctrlKey: true, bubbles: true, cancelable: true });
+    await act(async () => document.querySelector("pre").dispatchEvent(event));
+    expect(event.defaultPrevented).toBe(false);
+    expect(mocks.pinApi.copy).not.toHaveBeenCalled();
+    selection.removeAllRanges();
+  });
+
+  it("locks edits and repeated native close while saving the current document before close", async () => {
+    restoreStubs.push(stubCanvasExport());
+    mocks.pinApi.get.mockResolvedValue({ ...payload, kind: "image", text: null });
+    const pending = deferred();
+    mocks.pinApi.saveCanvas.mockReturnValue(pending.promise);
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+    await drawOneStroke();
+    const nativeClose = mocks.pinApi.onCloseRequested.mock.calls[0][0];
+    await act(async () => nativeClose());
+    expect(document.querySelector(".pin-close-prompt")).not.toBeNull();
+    const save = document.querySelector(".pin-close-prompt button");
+    await act(async () => save.click());
+    const canvas = document.querySelector(".pin-canvas");
+    await act(async () => {
+      canvas.dispatchEvent(pointer("pointerdown", 30, 30));
+      canvas.dispatchEvent(pointer("pointermove", 90, 90));
+      canvas.dispatchEvent(pointer("pointerup", 90, 90));
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true }));
+      nativeClose();
+      save.click();
+    });
+    expect(mocks.pinApi.saveCanvas).toHaveBeenCalledTimes(1);
+    expect(mocks.pinApi.saveCanvas.mock.calls[0][4].annotations).toHaveLength(1);
+    expect(mocks.pinApi.close).not.toHaveBeenCalled();
+    expect(save.disabled).toBe(true);
+    await act(async () => pending.resolve({ path: "/tmp/saved.png", clipboardError: null }));
+    expect(mocks.pinApi.close).toHaveBeenCalledTimes(1);
+    // mock 关窗后组件仍在，核对实际文档没有收下第二笔或撤销第一笔。
+    await act(async () => document.querySelector('button[aria-label="Copy"]').click());
+    expect(mocks.pinApi.copyCanvas.mock.calls.at(-1)[1].annotations).toHaveLength(1);
+  });
+
+  it("recovers editing and retry after save-before-close fails", async () => {
+    restoreStubs.push(stubCanvasExport());
+    mocks.pinApi.get.mockResolvedValue({ ...payload, kind: "image", text: null });
+    mocks.pinApi.saveCanvas.mockRejectedValueOnce(new Error("disk full"));
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+    await drawOneStroke();
+    await act(async () => mocks.pinApi.onCloseRequested.mock.calls[0][0]());
+    await act(async () => document.querySelector(".pin-close-prompt button").click());
+    expect(mocks.pinApi.close).not.toHaveBeenCalled();
+    expect(document.querySelector(".pin-toast").textContent).toBe("Action failed");
+    expect(document.querySelector(".pin-close-prompt button").disabled).toBe(false);
+    await act(async () => document.querySelector(".pin-close-prompt button").click());
+    expect(mocks.pinApi.close).toHaveBeenCalledTimes(1);
+    expect(document.querySelector(".pin-toast")?.textContent).not.toBe("Action failed");
+  });
+
+  it("clears a failed action notice when a later copy succeeds", async () => {
+    mocks.pinApi.get.mockResolvedValue(payload);
+    mocks.pinApi.copy.mockRejectedValueOnce(new Error("busy")).mockResolvedValueOnce(undefined);
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+    await act(async () => document.querySelector('button[aria-label="Copy"]').click());
+    expect(document.querySelector(".pin-toast").textContent).toBe("Action failed");
+    await act(async () => document.querySelector('button[aria-label="Copy"]').click());
+    expect(document.querySelector(".pin-toast")).toBeNull();
+  });
+
   it("uses canonical source coordinates when the displayed preview has compensated dimensions", async () => {
     restoreStubs.push(stubCanvasExport());
     mocks.pinApi.get.mockResolvedValue({
@@ -957,6 +1055,7 @@ describe("color Pin payload boundary", () => {
     });
     mocks.pinApi.close.mockResolvedValue(undefined);
     mocks.pinApi.onSharpened.mockResolvedValue(() => {});
+    mocks.pinApi.onCloseRequested.mockResolvedValue(() => {});
     mocks.pinApi.onAlreadyOpen.mockResolvedValue(() => {});
     mocks.pinApi.copy.mockResolvedValue(undefined);
     mocks.pinApi.sourceImage.mockResolvedValue(TINY_PNG);

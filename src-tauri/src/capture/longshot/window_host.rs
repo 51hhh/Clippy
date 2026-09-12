@@ -17,7 +17,7 @@ use output::{copy_longshot_artifact, pin_longshot_artifact};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 const CONTROLLER_PREFIX: &str = "longshot-controller-";
 const CONTROLLER_PAGE: &str = "/longshot-controller.html";
@@ -266,9 +266,18 @@ struct Launch {
     caller_label: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HandoffResult {
+    controller_label: String,
+    session_id: String,
+    accepted: bool,
+}
+
 #[derive(Default)]
 pub(crate) struct LongshotControllerRegistry {
     slot: Mutex<Slot>,
+    origins: Mutex<std::collections::HashMap<String, (String, String)>>,
 }
 
 #[derive(Debug)]
@@ -393,12 +402,39 @@ impl LongshotControllerRegistry {
             return Err(LongshotIpcError::busy());
         }
         let label = format!("{CONTROLLER_PREFIX}{}", crate::image_io::unique_image_id());
+        self.origins
+            .lock()
+            .map_err(|error| LongshotIpcError::internal(error.to_string()))?
+            .insert(
+                label.clone(),
+                (caller_label.clone(), selection.session_id.clone()),
+            );
         *slot = Slot::Building(Launch {
             label: label.clone(),
             selection,
             caller_label,
         });
         Ok(label)
+    }
+
+    fn take_handoff(
+        &self,
+        label: &str,
+        accepted: bool,
+        ordinary_current: impl FnOnce(&str) -> bool,
+    ) -> Option<(String, HandoffResult)> {
+        let (caller, session_id) = self.origins.lock().ok()?.remove(label)?;
+        if !accepted && !ordinary_current(&session_id) {
+            return None;
+        }
+        Some((
+            caller,
+            HandoffResult {
+                controller_label: label.to_string(),
+                session_id,
+                accepted,
+            },
+        ))
     }
 
     fn publish_started(&self, label: &str, path: &str) -> bool {
@@ -422,6 +458,9 @@ impl LongshotControllerRegistry {
     }
 
     fn abort_build(&self, label: &str) {
+        if let Ok(mut origins) = self.origins.lock() {
+            origins.remove(label);
+        }
         let Ok(mut slot) = self.slot.lock() else {
             return;
         };
@@ -1957,6 +1996,20 @@ fn reveal_cleanup_fallback(app: &tauri::AppHandle, label: &str) -> bool {
     true
 }
 
+/// 普通覆盖层必须收到二阶段接管结果；token/窗口标签防迟到结果解锁新的尝试。
+fn notify_handoff(app: &tauri::AppHandle, state: &AppState, label: &str, accepted: bool) {
+    // 普通会话已消费时，失败不能伪装成能继续编辑；原覆盖层也已由lifecycle关闭。
+    if let Some((caller, result)) =
+        state
+            .longshot_windows
+            .take_handoff(label, accepted, |session_id| {
+                state.capture_manager.ensure_current(session_id).is_ok()
+            })
+    {
+        let _ = app.emit_to(caller, "capture-longshot-handoff", result);
+    }
+}
+
 fn spawn_deadline(app: tauri::AppHandle, label: String) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_millis(LOAD_DEADLINE_MS)).await;
@@ -1969,6 +2022,7 @@ fn spawn_deadline(app: tauri::AppHandle, label: String) {
             cancel_claimed(&app, &state, &label, token)
         })
         .await;
+        notify_handoff(&app, &state, &label, false);
     });
 }
 
@@ -2022,6 +2076,16 @@ pub(crate) fn open(
 }
 
 pub(crate) async fn activate(
+    app: tauri::AppHandle,
+    state: &AppState,
+    caller_label: &str,
+) -> Result<LongshotActivation, LongshotIpcError> {
+    let result = activate_inner(app.clone(), state, caller_label).await;
+    notify_handoff(&app, state, caller_label, result.is_ok());
+    result
+}
+
+async fn activate_inner(
     app: tauri::AppHandle,
     state: &AppState,
     caller_label: &str,
@@ -2267,10 +2331,12 @@ pub(crate) async fn cancel(
         .longshot_windows
         .claim_cancel(caller_label, handle.as_ref())?;
     let windows = TauriControlWindowActions { app: &app };
-    execute_cancel_action(action, caller_label, &windows, |token| {
+    let result = execute_cancel_action(action, caller_label, &windows, |token| {
         cancel_claimed(&app, state, caller_label, token)
     })
-    .await
+    .await;
+    notify_handoff(&app, state, caller_label, false);
+    result
 }
 
 async fn cancel_claimed(
@@ -2331,6 +2397,7 @@ pub(crate) fn handle_controller_destroyed(app: &tauri::AppHandle, label: &str) {
         return;
     };
     let token = state.longshot_windows.claim_destroyed(label);
+    notify_handoff(app, &state, label, false);
     if token.is_none() {
         return;
     }
@@ -5899,5 +5966,53 @@ mod tests {
                 .reserve("capture-overlay-after-pin".to_string(), selection())
                 .is_ok());
         }
+    }
+    #[test]
+    fn handoff_failure_keeps_the_exact_ordinary_origin_after_activation_consumes_launch() {
+        let registry = LongshotControllerRegistry::new();
+        let source = selection();
+        let label = registry
+            .reserve("capture-overlay-original".into(), source.clone())
+            .unwrap();
+        registry.publish_started(&label, CONTROLLER_PAGE);
+        registry.claim_activation(&label).unwrap();
+        let (caller, result) = registry
+            .take_handoff(&label, false, |id| id == source.session_id)
+            .unwrap();
+        assert_eq!(caller, "capture-overlay-original");
+        let json = serde_json::to_value(result).unwrap();
+        assert_eq!(json["controllerLabel"], label);
+        assert_eq!(json["sessionId"], source.session_id);
+        assert_eq!(json["accepted"], false);
+        assert!(registry.take_handoff(&label, false, |_| true).is_none());
+    }
+
+    #[test]
+    fn controller_deadline_or_destroy_preserves_one_failure_notification() {
+        for destroyed in [true, false] {
+            let registry = LongshotControllerRegistry::new();
+            let label = registry
+                .reserve("capture-overlay-original".into(), selection())
+                .unwrap();
+            if destroyed {
+                registry.claim_destroyed(&label);
+            } else {
+                registry.claim_deadline(&label);
+            }
+            assert!(registry.take_handoff(&label, false, |_| true).is_some());
+            assert!(registry.take_handoff(&label, false, |_| true).is_none());
+        }
+    }
+
+    #[test]
+    fn stale_handoff_cannot_unlock_a_replaced_ordinary_capture() {
+        let registry = LongshotControllerRegistry::new();
+        let label = registry
+            .reserve("capture-overlay-old".into(), selection())
+            .unwrap();
+        assert!(registry.take_handoff(&label, false, |_| false).is_none());
+        assert!(registry
+            .take_handoff("another-controller", false, |_| true)
+            .is_none());
     }
 }

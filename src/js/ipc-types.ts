@@ -269,6 +269,18 @@ export interface LongshotActivation {
   snapshot: LongshotSnapshot;
 }
 
+export interface CaptureOutputError {
+  message: string;
+  outputPending: boolean;
+  retryActions: CaptureAction[];
+}
+
+export interface CaptureLongshotHandoff {
+  controllerLabel: string;
+  sessionId: string;
+  accepted: boolean;
+}
+
 /** 普通覆盖层只会收到新控制窗口的唯一标签，不会启动 longshot。 */
 export interface LongshotControllerOpenResult {
   label: string;

@@ -571,5 +571,10 @@
   "longshot.failed": "Could not start the long screenshot session.",
   "longshot.busy": "Another long screenshot session is already active.",
   "longshot.superseded": "This long screenshot session is no longer current.",
-  "longshot.cleanupFailed": "Clippy could not safely restore the desktop. Restart Clippy before starting another long screenshot."
+  "longshot.cleanupFailed": "Clippy could not safely restore the desktop. Restart Clippy before starting another long screenshot.",
+  "capture.outputFailed": "Screenshot output failed",
+  "capture.outputWorking": "Working…",
+  "capture.outputRetained": "Your completed image is retained. Retry an output or discard it.",
+  "capture.outputUncertain": "The previous save or pin result could not be confirmed. Copy remains available to avoid creating duplicates.",
+  "capture.discardOutput": "Discard image"
 }

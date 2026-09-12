@@ -95,6 +95,11 @@ describe("capture overlay geometry", () => {
       .toEqual({ x: 200, y: 160, width: 1, height: 1 });
   });
 
+  it("uses the backend floor/ceil crop boundary for fractional physical pixels", () => {
+    expect(toPixelRect({ x: 1.2, y: 2.1, width: 10.3, height: 12.2 }, 1.25, 1.25,
+      { x: 0, y: 0, width: 100, height: 100 })).toEqual({ x: 1, y: 2, width: 14, height: 16 });
+  });
+
   it("places the toolbar below the selection, flipping or clamping when it does not fit", () => {
     const toolbar = { width: 60, height: 20 };
     const viewport = { width: 100, height: 80 };

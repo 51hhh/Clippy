@@ -15,6 +15,9 @@ const mocks = vi.hoisted(() => ({
     translate: vi.fn(),
     copyText: vi.fn(),
     openLongshot: vi.fn(),
+    onHandoff: vi.fn(),
+    retry: vi.fn(),
+    closeUninitialized: vi.fn(),
   },
 }));
 
@@ -118,6 +121,10 @@ describe("capture overlay app", () => {
     };
     for (const fn of Object.values(mocks.overlayApi)) fn.mockReset();
     mocks.overlayApi.ready.mockResolvedValue(undefined);
+    mocks.overlayApi.cancel.mockResolvedValue(undefined);
+    mocks.overlayApi.onHandoff.mockResolvedValue(() => {});
+    mocks.overlayApi.retry.mockResolvedValue({ action: "copy", path: null, pinLabel: null });
+    mocks.overlayApi.closeUninitialized.mockResolvedValue(undefined);
     mocks.overlayApi.image.mockResolvedValue(
       protocolImage(basePayload.pixelWidth, basePayload.pixelHeight),
     );
@@ -439,6 +446,8 @@ describe("capture overlay app", () => {
 
     await act(async () => changeRange(corners, 24));
     expect(button("Long screenshot").disabled).toBe(true);
+    expect(document.querySelector(".overlay-canvas").classList.contains("is-idle")).toBe(false);
+    expect(document.querySelector(".overlay-frame-host").classList.contains("is-composited")).toBe(true);
     expect(button("Long screenshot").getAttribute("aria-description")).toBe(
       "Long screenshot starts from the original selection and cannot include current annotations or image adjustments.",
     );
@@ -446,6 +455,7 @@ describe("capture overlay app", () => {
 
     await act(async () => changeRange(corners, 0));
     expect(button("Long screenshot").disabled).toBe(false);
+    expect(document.querySelector(".overlay-canvas").classList.contains("is-idle")).toBe(true);
   });
 
   it("disables Longshot for annotations and re-enables it after undo", async () => {
@@ -644,4 +654,154 @@ describe("capture overlay app", () => {
     expect(document.querySelector(".overlay-toolbar")).not.toBeNull();
     expect(document.querySelector(".overlay-error")).toBeNull();
   });
+  it("exits an initialization error by its current native window without requiring payload", async () => {
+    mocks.overlayApi.get.mockRejectedValue(new Error("payload unavailable"));
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+    expect(document.querySelector(".overlay-error").textContent).toContain("payload unavailable");
+    expect(document.querySelector(".overlay-error button").textContent).toBe("Cancel");
+    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(mocks.overlayApi.closeUninitialized).toHaveBeenCalledTimes(1);
+    expect(mocks.overlayApi.cancel).not.toHaveBeenCalled();
+  });
+
+  it("returns to editing after rendering fails and preserves annotations for a fresh commit", async () => {
+    mocks.overlayApi.commit.mockRejectedValueOnce({ message: "render failed", outputPending: false, retryActions: [] });
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 110, y: 90 });
+    await act(async () => button("Pen").click());
+    await drag({ x: 24, y: 24 }, { x: 56, y: 56 });
+    await act(async () => button("Copy").click());
+    expect(document.querySelector(".overlay-output-failure")).toBeNull();
+    expect(button("Copy").disabled).toBe(false);
+    await act(async () => button("Copy").click());
+    expect(mocks.overlayApi.commit).toHaveBeenCalledTimes(2);
+    expect(mocks.overlayApi.commit.mock.calls[1][2].annotations).toHaveLength(1);
+  });
+
+  it("retains failed output, locks edits, and retries the artifact without another commit", async () => {
+    mocks.overlayApi.commit.mockRejectedValueOnce({ message: "disk full", outputPending: true, retryActions: ["copy", "save", "pin"] });
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 110, y: 90 });
+    await act(async () => button("Save").click());
+    const before = selectionRect();
+    expect(document.querySelector(".overlay-output-failure").textContent).toContain("disk full");
+    expect(button("Copy").disabled).toBe(true);
+    await drag({ x: 125, y: 105 }, { x: 185, y: 140 });
+    expect(selectionRect()).toEqual(before);
+    let resolve;
+    mocks.overlayApi.retry.mockReturnValue(new Promise((done) => (resolve = done)));
+    const retry = [...document.querySelectorAll(".overlay-output-actions button")].find((node) => node.textContent === "Save");
+    await act(async () => { retry.click(); retry.click(); });
+    expect(mocks.overlayApi.retry).toHaveBeenCalledTimes(1);
+    expect(mocks.overlayApi.retry).toHaveBeenCalledWith("save");
+    expect(mocks.overlayApi.commit).toHaveBeenCalledTimes(1);
+    await act(async () => resolve({ action: "save", path: "/tmp/complete.png", pinLabel: null }));
+  });
+
+  it("offers only safe Copy after uncertain output and Escape explicitly discards it", async () => {
+    mocks.overlayApi.commit.mockRejectedValueOnce({ message: "pin result unknown", outputPending: true, retryActions: ["copy"] });
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 110, y: 90 });
+    await act(async () => button("Pin").click());
+    expect([...document.querySelectorAll(".overlay-output-actions button")].map((node) => node.textContent)).toEqual(["Copy", "Discard image"]);
+    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(mocks.overlayApi.cancel).toHaveBeenCalledWith("session-1");
+    expect(mocks.overlayApi.retry).not.toHaveBeenCalled();
+  });
+
+  it("keeps an unconfirmed IPC failure locked and never offers another Save or Pin", async () => {
+    mocks.overlayApi.commit.mockRejectedValueOnce(new Error("reply channel lost"));
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 110, y: 90 });
+    await act(async () => button("Save").click());
+    const actions = () => [...document.querySelectorAll(".overlay-output-actions button")];
+    expect(actions().map((node) => node.textContent)).toEqual(["Copy", "Discard image"]);
+    expect(button("Save").disabled).toBe(true);
+    mocks.overlayApi.retry.mockRejectedValueOnce(new Error("retry reply lost"));
+    await act(async () => actions()[0].click());
+    expect(actions().map((node) => node.textContent)).toEqual(["Copy", "Discard image"]);
+    expect(mocks.overlayApi.retry).toHaveBeenCalledWith("copy");
+    expect(mocks.overlayApi.commit).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps safe recovery through repeated busy rejections and never widens retry permissions", async () => {
+    mocks.overlayApi.commit.mockRejectedValueOnce(new Error("reply channel lost"));
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 110, y: 90 });
+    const before = selectionRect();
+    await act(async () => button("Save").click());
+    const actions = () => [...document.querySelectorAll(".overlay-output-actions button")];
+    const busy = { message: "截图会话正在处理中", outputPending: false, retryActions: [] };
+    for (const failure of [busy, busy, { message: "copy unavailable", outputPending: true, retryActions: ["copy", "save", "pin"] }]) {
+      mocks.overlayApi.retry.mockRejectedValueOnce(failure);
+      await act(async () => actions()[0].click());
+      expect(document.querySelector(".overlay-output-failure")).not.toBeNull();
+      expect(actions().map((node) => node.textContent)).toEqual(["Copy", "Discard image"]);
+      expect(selectionRect()).toEqual(before);
+      expect(button("Save").disabled).toBe(true);
+      expect(button("Pin").disabled).toBe(true);
+    }
+    await act(async () => actions()[0].click());
+    expect(mocks.overlayApi.retry).toHaveBeenCalledTimes(4);
+    expect(mocks.overlayApi.retry.mock.calls.every(([action]) => action === "copy")).toBe(true);
+    expect(mocks.overlayApi.commit).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the selection on right-click during output and restores reset only after confirmed render failure", async () => {
+    let reject;
+    mocks.overlayApi.commit.mockReturnValueOnce(new Promise((_, fail) => (reject = fail)));
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 110, y: 90 });
+    const before = selectionRect();
+    await act(async () => button("Save").click());
+    const rightClick = () => document.querySelector(".overlay-root").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await act(async () => { expect(rightClick()).toBe(false); });
+    expect(selectionRect()).toEqual(before);
+    await act(async () => reject({ message: "render failed", outputPending: false, retryActions: [] }));
+    expect(selectionRect()).toEqual(before);
+    expect(button("Save").disabled).toBe(false);
+    await act(async () => { rightClick(); });
+    expect(selectionRect()).toBeNull();
+  });
+
+  it("keeps the selection on right-click while a failed artifact is retained", async () => {
+    mocks.overlayApi.commit.mockRejectedValueOnce({ message: "disk full", outputPending: true, retryActions: ["copy", "save", "pin"] });
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 110, y: 90 });
+    const before = selectionRect();
+    await act(async () => button("Save").click());
+    await act(async () => document.querySelector(".overlay-root").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true })));
+    expect(selectionRect()).toEqual(before);
+    expect(document.querySelector(".overlay-output-failure")).not.toBeNull();
+  });
+
+  it("rejects too-short physical Longshot selection and unlocks after later activation failure", async () => {
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 110, y: 20 });
+    expect(button("Long screenshot").disabled).toBe(true);
+    await drag({ x: 20, y: 30 }, { x: 120, y: 120 });
+    await act(async () => button("Long screenshot").click());
+    expect(button("Long screenshot").disabled).toBe(true);
+    const handoff = mocks.overlayApi.onHandoff.mock.calls.at(-1)[0];
+    await act(async () => handoff({ sessionId: "session-1", controllerLabel: "longshot-controller-session-1", accepted: false }));
+    expect(button("Long screenshot").disabled).toBe(false);
+    await act(async () => button("Long screenshot").click());
+    expect(mocks.overlayApi.openLongshot).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps an activation failure that arrives before the open response", async () => {
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 110, y: 90 });
+    let resolve;
+    mocks.overlayApi.openLongshot.mockReturnValue(new Promise((done) => (resolve = done)));
+    await act(async () => button("Long screenshot").click());
+    const handoff = mocks.overlayApi.onHandoff.mock.calls.at(-1)[0];
+    await act(async () => handoff({ sessionId: "session-1", controllerLabel: "new-controller", accepted: false }));
+    await act(async () => resolve({ label: "new-controller" }));
+    expect(button("Long screenshot").disabled).toBe(false);
+    await act(async () => handoff({ sessionId: "another-session", controllerLabel: "new-controller", accepted: true }));
+    expect(button("Long screenshot").disabled).toBe(false);
+  });
+
 });

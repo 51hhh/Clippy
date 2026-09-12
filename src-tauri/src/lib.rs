@@ -319,6 +319,7 @@ pub fn run() {
             capture::mark_capture_overlay_ready,
             capture::cancel_capture_overlay,
             capture::commit_capture_action,
+            capture::retry_capture_action,
             capture::translate_capture_selection,
             capture::get_window_probe_status,
             capture::install_window_probe_extension,

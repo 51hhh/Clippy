@@ -56,6 +56,8 @@ export function App() {
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
   /** 关窗时"要不要保存画布"的询问。`null` 表示没在问。 */
   const [closePrompt, setClosePrompt] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const closingRef = useRef(false);
   const [savePrompt, setSavePrompt] = useState(false);
   const [savedPath, setSavedPath] = useState<string | null>(null);
   const [noticeKey, setNoticeKey] = useState("pin.saved");
@@ -298,6 +300,7 @@ export function App() {
   );
 
   const runAction = useCallback((action: () => Promise<unknown>) => {
+    setError(null);
     void action().catch((reason) => {
       console.error(reason);
       setError(t("pin.actionFailed"));
@@ -329,6 +332,7 @@ export function App() {
   });
 
   const copy = useCallback(async () => {
+    setError(null);
     try {
       if (canvas.pristineProject) await pinApi.copy(label);
       else if (canvas.hasDocument && canvas.projectData) {
@@ -345,6 +349,7 @@ export function App() {
   }, [canvas.hasDocument, canvas.pristineProject, canvas.projectData, label]);
 
   const showSaved = useCallback((path: string, messageKey = "pin.saved") => {
+    setError(null);
     setNoticeKey(messageKey);
     setSavedPath(path);
     if (savedTimer.current !== null) window.clearTimeout(savedTimer.current);
@@ -381,6 +386,27 @@ export function App() {
     else runAction(async () => showSaved(await pinApi.save(label)));
   }, [canvas.hasDocument, label, runAction, showSaved]);
 
+  const finishClose = useCallback(async (save: boolean) => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    setClosing(true);
+    setError(null);
+    try {
+      const revision = canvas.currentRevision();
+      if (save) await saveCanvas("editable");
+      // 除了禁用交互，再核对一次版本，防止已经排队的编辑越过保存边界。
+      if (save && canvas.currentRevision() !== revision) return;
+      await pinApi.close(label);
+      setClosePrompt(false);
+    } catch (reason) {
+      console.error(reason);
+      setError(t("pin.actionFailed"));
+    } finally {
+      closingRef.current = false;
+      setClosing(false);
+    }
+  }, [canvas.currentRevision, label, saveCanvas]);
+
   /**
    * 关窗。画布上有没保存的东西就先问一句。
    *
@@ -388,12 +414,34 @@ export function App() {
    * 见 `usePinCanvas`）。窗口的关闭按钮、Esc、右键菜单三条路都走这里。
    */
   const requestClose = useCallback(() => {
-    if (canvas.dirty) {
+    if (closingRef.current) return;
+    if (canvas.isDirty()) {
       setClosePrompt(true);
       return;
     }
-    runAction(() => pinApi.close(label));
-  }, [canvas.dirty, label, runAction]);
+    void finishClose(false);
+  }, [canvas.isDirty, finishClose]);
+
+  const closeHandler = useRef(requestClose);
+  closeHandler.current = requestClose;
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    void pinApi.onCloseRequested(() => closeHandler.current()).then((stop) => {
+      if (cancelled) stop();
+      else unlisten = stop;
+    }).catch((reason) => {
+      console.error(reason);
+      setError(t("pin.actionFailed"));
+    });
+    return () => { cancelled = true; unlisten?.(); };
+  }, []);
+
+  function blockClosingInteraction(event: React.SyntheticEvent) {
+    if (!closingRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+  }
 
   useEffect(() => {
     function onPointerMove(event: PointerEvent) {
@@ -440,7 +488,7 @@ export function App() {
       // 无条件 preventDefault：即使这一下什么都不做，也不能让它落到 WebKit 的页面缩放上。
       event.preventDefault();
       // 确认框是个必须先答的问题（`role="dialog"`），开着时不该还能改缩放/不透明度。
-      if (closePrompt || savePrompt) return;
+      if (closingRef.current || closePrompt || savePrompt) return;
       const intent = pinWheelIntent(event);
       if (intent.kind === "scale") adjustScale(intent.delta);
       else if (intent.kind === "opacity") adjustOpacity(intent.delta);
@@ -473,8 +521,22 @@ export function App() {
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (!pin) return;
+      if (!pin || event.defaultPrevented || event.isComposing) return;
+      if (closingRef.current) { event.preventDefault(); return; }
+      // 确认框拥有焦点与按键；不能在其后继续撤销、复制或缩放文档。
+      if (closePrompt || savePrompt) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          if (savePrompt) setSavePrompt(false);
+          else setClosePrompt(false);
+        }
+        return;
+      }
+      // 原生输入语义优先，尤其是文字标注的复制、撤销以及 +/- 输入。
+      if (event.target instanceof Element
+        && event.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
       const command = event.ctrlKey || event.metaKey;
+      if (command && event.key.toLowerCase() === "c" && window.getSelection()?.toString()) return;
       // Ctrl/Cmd 加 +/-/0 是 WebKit 的页面缩放快捷键，和捏合一样要吃掉；
       // 顺手让它改贴图自己的缩放，这才是用户按这几个键想要的效果。
       if (isZoomShortcut(event)) {
@@ -618,6 +680,13 @@ export function App() {
       className={`pin-root${pin.locked ? " locked" : ""}${canvasOpen ? " drawing" : ""}`}
       tabIndex={0}
       style={{ opacity: pin.opacity }}
+      aria-busy={closing}
+      onPointerDownCapture={blockClosingInteraction}
+      onPointerMoveCapture={blockClosingInteraction}
+      onPointerUpCapture={blockClosingInteraction}
+      onClickCapture={blockClosingInteraction}
+      onInputCapture={blockClosingInteraction}
+      onChangeCapture={blockClosingInteraction}
       onPointerDown={(event) => {
         if (pin.locked || canvasOpen) return;
         drag.current = trackDragPointerDown(drag.current, {
@@ -633,7 +702,7 @@ export function App() {
         // （非 Linux、信号连接失败），也不要弹出"重新加载/检查元素"。
         event.preventDefault();
         // 同上：确认框开着时不叠一层菜单上去。
-        if (closePrompt || savePrompt) return;
+        if (closingRef.current || closePrompt || savePrompt) return;
         setMenuAt({ x: event.clientX, y: event.clientY });
       }}
     >
@@ -666,7 +735,7 @@ export function App() {
             alt={t("pin.imageAlt")}
             draggable={false}
             // 见 `rendering.ts`：屏上一个图片像素正好一个设备像素时，最近邻反而是最清晰的。
-            style={{ imageRendering }}
+            style={{ imageRendering, visibility: canvas.visible ? "hidden" : "visible" }}
             onLoad={(event) => {
               const image = event.currentTarget;
               imageElement.current = image;
@@ -750,26 +819,19 @@ export function App() {
             <button
               type="button"
               className="primary"
-              onClick={() => {
-                setClosePrompt(false);
-                runAction(async () => {
-                  await saveCanvas("editable");
-                  await pinApi.close(label);
-                });
-              }}
+              disabled={closing}
+              onClick={() => void finishClose(true)}
             >
               {t("pin.saveAndClose")}
             </button>
             <button
               type="button"
-              onClick={() => {
-                setClosePrompt(false);
-                runAction(() => pinApi.close(label));
-              }}
+              disabled={closing}
+              onClick={() => void finishClose(false)}
             >
               {t("pin.discardAndClose")}
             </button>
-            <button type="button" onClick={() => setClosePrompt(false)}>
+            <button type="button" disabled={closing} onClick={() => setClosePrompt(false)}>
               {t("pin.cancelClose")}
             </button>
           </div>
