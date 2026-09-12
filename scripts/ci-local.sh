@@ -53,6 +53,11 @@ check_prerequisites() {
   require_cmd npx "随 Node.js 一同安装"
   # DOM/Canvas smoke 在无头环境下依赖 Xvfb，缺失时整条前端 smoke 都无法执行。
   require_cmd xvfb-run "sudo apt install -y xvfb"
+  if [[ "$(uname -s)" == "Linux" ]]; then
+    require_cmd xauth "sudo apt install -y xauth"
+    require_cmd xclip "sudo apt install -y xclip"
+    require_cmd timeout "sudo apt install -y coreutils"
+  fi
 
   if [[ ${#MISSING_COMMANDS[@]} -gt 0 ]]; then
     printf "${RED}缺少以下依赖，无法运行本地门禁：${NC}\n"
@@ -77,6 +82,11 @@ run_step "cargo fmt --check" bash -c "cd src-tauri && cargo fmt -- --check"
 run_step "cargo check" bash -c "cd src-tauri && cargo check --all-targets"
 run_step "cargo clippy" bash -c "cd src-tauri && cargo clippy --all-targets -- -D warnings"
 run_step "cargo test" bash -c "cd src-tauri && cargo test"
+if [[ "$(uname -s)" == "Linux" ]]; then
+  run_step "X11 剪贴板隔离协议回归" ./scripts/test-x11-clipboard.sh
+else
+  skip_step "X11 剪贴板隔离协议回归 (仅 Linux)"
+fi
 
 # --- GNOME Shell 扩展 ---
 run_step "GNOME 扩展静态检查" ./scripts/check-gnome-extension.sh
