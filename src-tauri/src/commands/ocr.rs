@@ -27,8 +27,10 @@ where
 
 /// 检查系统是否安装了 tesseract。
 #[tauri::command]
-pub fn ocr_available() -> bool {
-    crate::ocr::is_available()
+pub async fn ocr_available() -> bool {
+    tauri::async_runtime::spawn_blocking(crate::ocr::is_available)
+        .await
+        .unwrap_or(false)
 }
 
 /// 对指定图片条目进行 OCR 识别，返回文字内容。
@@ -38,26 +40,30 @@ pub async fn ocr_image(id: i64, state: State<'_, AppState>) -> Result<String, St
 
     let storage = Arc::clone(&state.storage);
     cached_or_run(cached, move || async move {
-        let image_bytes = {
-            let storage = storage.lock().map_err(|e| e.to_string())?;
-            storage
-                .get_clip_image(id)
-                .map_err(|e| e.to_string())?
-                .ok_or_else(|| "图片数据为空".to_string())?
-        };
         let cache_storage = Arc::clone(&storage);
-        crate::ocr::recognize_clip(id, image_bytes, move |text| {
-            let result = cache_storage
-                .lock()
-                .map_err(|error| error.to_string())?
-                .set_ocr_text(id, text)
-                .map_err(|error| error.to_string());
-            if let Err(error) = result {
-                // OCR 结果本身已经成功；缓存失败不能让预览与翻译因谁先发起而得到不同结果。
-                log::warn!("OCR 缓存写入失败: {error}");
-            }
-            Ok(())
-        })
+        crate::ocr::recognize_clip_lazy(
+            id,
+            move || {
+                storage
+                    .lock()
+                    .map_err(|error| error.to_string())?
+                    .get_clip_image(id)
+                    .map_err(|error| error.to_string())?
+                    .ok_or_else(|| "图片数据为空".to_string())
+            },
+            move |text| {
+                let result = cache_storage
+                    .lock()
+                    .map_err(|error| error.to_string())?
+                    .set_ocr_text(id, text)
+                    .map_err(|error| error.to_string());
+                if let Err(error) = result {
+                    // OCR 结果本身已经成功；缓存失败不能让预览与翻译因谁先发起而得到不同结果。
+                    log::warn!("OCR 缓存写入失败: {error}");
+                }
+                Ok(())
+            },
+        )
         .await
     })
     .await

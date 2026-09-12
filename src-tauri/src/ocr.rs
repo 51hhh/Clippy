@@ -6,18 +6,24 @@ use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
 use std::future::Future;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use tokio::sync::{oneshot, Semaphore};
 
 const TESSERACT_PATH_ENV: &str = "CLIPPY_TESSERACT_PATH";
 const OCR_MAX_CONCURRENCY: usize = 1;
+const OCR_MAX_QUEUED: usize = 2;
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+const RECOGNITION_TIMEOUT: Duration = Duration::from_secs(60);
+const OCR_STDOUT_LIMIT: usize = 4 * 1024 * 1024;
+const OCR_STDERR_LIMIT: usize = 64 * 1024;
 type OcrResult = Result<String, String>;
 
 struct OcrRuntime {
     permits: Arc<Semaphore>,
+    admission: Arc<Semaphore>,
     in_flight: Mutex<HashMap<i64, Vec<oneshot::Sender<OcrResult>>>>,
 }
 
@@ -25,21 +31,38 @@ impl OcrRuntime {
     fn new(max_concurrency: usize) -> Self {
         Self {
             permits: Arc::new(Semaphore::new(max_concurrency)),
+            admission: Arc::new(Semaphore::new(max_concurrency + OCR_MAX_QUEUED)),
             in_flight: Mutex::new(HashMap::new()),
         }
     }
 
-    async fn run_image<F, Fut>(&self, work: F) -> OcrResult
+    async fn run_image<F, Fut>(&'static self, work: F) -> OcrResult
     where
-        F: FnOnce() -> Fut,
-        Fut: Future<Output = OcrResult>,
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: Future<Output = OcrResult> + Send + 'static,
     {
-        let _permit = self
-            .permits
-            .acquire()
+        let admission = self
+            .admission
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| "OCR 队列已满，请稍后重试".to_string())?;
+        let (mut sender, receiver) = oneshot::channel();
+        tauri::async_runtime::spawn(async move {
+            let _admission = admission;
+            // 仍在排队且唯一消费者已离开，立即释放其冻结 PNG。
+            let permit = tokio::select! {
+                permit = self.permits.acquire() => permit,
+                _ = sender.closed() => return,
+            };
+            let result = match permit {
+                Ok(_permit) => work().await,
+                Err(_) => Err("OCR 并发控制器已关闭".to_string()),
+            };
+            let _ = sender.send(result);
+        });
+        receiver
             .await
-            .map_err(|_| "OCR 并发控制器已关闭".to_string())?;
-        work().await
+            .unwrap_or_else(|_| Err("OCR 任务意外结束".to_string()))
     }
 
     async fn run_clip<F, Fut>(&'static self, id: i64, work: F) -> OcrResult
@@ -56,17 +79,44 @@ impl OcrRuntime {
             match in_flight.get_mut(&id) {
                 Some(waiters) => {
                     waiters.push(sender);
-                    false
+                    None
                 }
                 None => {
+                    // 在接纳新任务前限制队列；同 ID 合并不重复占位。
+                    let admission = self
+                        .admission
+                        .clone()
+                        .try_acquire_owned()
+                        .map_err(|_| "OCR 队列已满，请稍后重试".to_string())?;
                     in_flight.insert(id, vec![sender]);
-                    true
+                    Some(admission)
                 }
             }
         };
-        if should_start {
+        if let Some(admission) = should_start {
             tauri::async_runtime::spawn(async move {
-                let result = self.run_image(work).await;
+                let _admission = admission;
+                let result = async {
+                    let _permit = self
+                        .permits
+                        .acquire()
+                        .await
+                        .map_err(|_| "OCR 并发控制器已关闭".to_string())?;
+                    let has_waiters = {
+                        let mut flights = self
+                            .in_flight
+                            .lock()
+                            .unwrap_or_else(|error| error.into_inner());
+                        let waiters = flights.get_mut(&id).expect("任务持有已登记的 OCR 身份");
+                        waiters.retain(|waiter| !waiter.is_closed());
+                        !waiters.is_empty()
+                    };
+                    if !has_waiters {
+                        return Err("OCR 排队请求已取消".to_string());
+                    }
+                    work().await
+                }
+                .await;
                 let waiters = self
                     .in_flight
                     .lock()
@@ -191,24 +241,45 @@ where
     candidates.into_iter().find(|path| probe(path))
 }
 
-fn probe_tesseract(path: &Path) -> bool {
-    Command::new(path)
-        .arg("--version")
+fn probe_with_timeout(path: &Path, timeout: Duration) -> bool {
+    let mut command = Command::new(path);
+    command.arg("--version");
+    probe_command_with_timeout(command, timeout)
+}
+
+fn probe_command_with_timeout(mut command: Command, timeout: Duration) -> bool {
+    let Ok(mut child) = command
+        .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
+        .spawn()
+    else {
+        return false;
+    };
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
+        }
+    }
 }
 
 #[derive(Default)]
 struct ExecutableCache {
     state: Mutex<ExecutableCacheState>,
+    ready: Condvar,
 }
 
 #[derive(Default)]
 struct ExecutableCacheState {
     generation: u64,
+    probing: bool,
     value: Option<Option<PathBuf>>,
 }
 
@@ -219,16 +290,25 @@ impl ExecutableCache {
     {
         loop {
             let generation = {
-                let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+                let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+                while state.probing {
+                    state = self
+                        .ready
+                        .wait(state)
+                        .unwrap_or_else(|error| error.into_inner());
+                }
                 if let Some(cached) = state.value.as_ref() {
                     return cached.clone();
                 }
+                state.probing = true;
                 state.generation
             };
 
             // 探测会启动外部进程，不能占着同步锁阻塞其它查询或安装后的失效操作。
             let resolved = resolver();
             let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+            state.probing = false;
+            self.ready.notify_all();
             if state.generation != generation {
                 // 探测期间发生过安装/卸载，旧结果不得覆盖新一代缓存。
                 continue;
@@ -255,9 +335,14 @@ fn executable_cache() -> &'static ExecutableCache {
 
 fn tesseract_executable() -> Option<PathBuf> {
     executable_cache().resolve_with(|| {
+        let deadline = Instant::now() + PROBE_TIMEOUT;
         first_available(
             tesseract_candidates(env::var_os(TESSERACT_PATH_ENV)),
-            probe_tesseract,
+            |path| {
+                deadline
+                    .checked_duration_since(Instant::now())
+                    .is_some_and(|remaining| probe_with_timeout(path, remaining))
+            },
         )
     })
 }
@@ -294,68 +379,162 @@ fn missing_tesseract_message() -> &'static str {
 
 /// 对 PNG 图片字节进行 OCR 识别，返回文字内容。
 /// 通过 stdin 管道传入图片数据，stdout 获取识别结果。
-fn recognize(png_bytes: &[u8]) -> Result<String, String> {
-    let executable =
-        tesseract_executable().ok_or_else(|| missing_tesseract_message().to_string())?;
-    let mut child = Command::new(executable)
-        .args(["stdin", "stdout", "-l", "eng+chi_sim"])
+async fn recognize(png_bytes: &[u8]) -> OcrResult {
+    // 探测是带自身截止时间的同步进程，放入 blocking pool 不阻塞 async worker。
+    let executable = tauri::async_runtime::spawn_blocking(tesseract_executable)
+        .await
+        .map_err(|error| format!("OCR 探测线程异常: {error}"))?
+        .ok_or_else(|| missing_tesseract_message().to_string())?;
+    recognize_with_timeout(
+        &executable,
+        png_bytes,
+        RECOGNITION_TIMEOUT,
+        OCR_STDOUT_LIMIT,
+        OCR_STDERR_LIMIT,
+    )
+    .await
+}
+
+async fn read_bounded<R: tokio::io::AsyncRead + Unpin>(
+    mut reader: R,
+    limit: usize,
+) -> Result<Vec<u8>, String> {
+    use tokio::io::AsyncReadExt;
+    let mut output = Vec::new();
+    let mut chunk = [0u8; 8192];
+    loop {
+        let count = reader
+            .read(&mut chunk)
+            .await
+            .map_err(|error| format!("读取 OCR 输出失败: {error}"))?;
+        if count == 0 {
+            return Ok(output);
+        }
+        if output.len().saturating_add(count) > limit {
+            return Err("OCR 输出超过安全上限".to_string());
+        }
+        output.extend_from_slice(&chunk[..count]);
+    }
+}
+
+async fn recognize_with_timeout(
+    executable: &Path,
+    png_bytes: &[u8],
+    timeout: Duration,
+    stdout_limit: usize,
+    stderr_limit: usize,
+) -> OcrResult {
+    let mut command = tokio::process::Command::new(executable);
+    command.args(["stdin", "stdout", "-l", "eng+chi_sim"]);
+    run_recognition_process(command, png_bytes, timeout, stdout_limit, stderr_limit).await
+}
+
+async fn run_recognition_process(
+    mut command: tokio::process::Command,
+    png_bytes: &[u8],
+    timeout: Duration,
+    stdout_limit: usize,
+    stderr_limit: usize,
+) -> OcrResult {
+    use tokio::io::AsyncWriteExt;
+    let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .kill_on_drop(true)
         .spawn()
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                // 已缓存的文件可能在运行期间被卸载或替换，下次请求重新解析候选路径。
+        .map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
                 invalidate_executable_cache();
                 missing_tesseract_message().to_string()
             } else {
-                format!("启动 tesseract 失败: {}", e)
+                format!("启动 tesseract 失败: {error}")
             }
         })?;
-
-    // 通过 stdin 传入图片数据
-    if let Some(ref mut stdin) = child.stdin {
-        stdin
-            .write_all(png_bytes)
-            .map_err(|e| format!("写入图片数据失败: {}", e))?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| "OCR stdin 不可用".to_string())?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "OCR stdout 不可用".to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "OCR stderr 不可用".to_string())?;
+    // 三条管道并行：输出不能堵住输入；所有 I/O 与退出共同受同一个截止时间约束。
+    let result = tokio::time::timeout(timeout, async {
+        tokio::try_join!(
+            async {
+                stdin
+                    .write_all(png_bytes)
+                    .await
+                    .map_err(|error| format!("写入 OCR 图片失败: {error}"))?;
+                drop(stdin);
+                Ok(())
+            },
+            read_bounded(stdout, stdout_limit),
+            read_bounded(stderr, stderr_limit),
+            async {
+                child
+                    .wait()
+                    .await
+                    .map_err(|error| format!("等待 OCR 退出失败: {error}"))
+            }
+        )
+    })
+    .await;
+    match result {
+        Ok(Ok(((), stdout, stderr, status))) => {
+            if !status.success() {
+                return Err(format!(
+                    "tesseract 执行失败: {}",
+                    String::from_utf8_lossy(&stderr).trim()
+                ));
+            }
+            Ok(String::from_utf8_lossy(&stdout).trim().to_string())
+        }
+        failure => {
+            // 超时/输出超限/管道失败都先终止并回收，再把错误交给 runtime 释放许可。
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            match failure {
+                Err(_) => Err("OCR 识别超时，请重试或缩小识别区域".to_string()),
+                Ok(Err(error)) => Err(error),
+                _ => unreachable!(),
+            }
+        }
     }
-    // 关闭 stdin 触发 tesseract 处理
-    drop(child.stdin.take());
-
-    let output = child
-        .wait_with_output()
-        .map_err(|e| format!("等待 tesseract 结束失败: {}", e))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("tesseract 执行失败: {}", stderr.trim()));
-    }
-
-    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    Ok(text)
 }
 
-/// 所有无 clip 身份的 OCR（例如截图选区）也必须经过同一全局资源门。
+/// 让运行中的进程拥有许可直到 kill/wait 完成，即使唯一调用者取消等待。
 pub(crate) async fn recognize_image(png_bytes: Vec<u8>) -> OcrResult {
     ocr_runtime()
-        .run_image(move || async move {
-            tauri::async_runtime::spawn_blocking(move || recognize(&png_bytes))
-                .await
-                .map_err(|error| format!("OCR 线程异常: {error}"))?
-        })
+        .run_image(move || async move { recognize(&png_bytes).await })
         .await
 }
 
-/// 按 clip ID 合并预览与翻译发起的识别，并共用全局资源门。
+/// 兼容已经持有冻结图像的调用；队列入口限制持有图片的任务总数。
 pub(crate) async fn recognize_clip<F>(id: i64, png_bytes: Vec<u8>, cache: F) -> OcrResult
 where
     F: FnOnce(&str) -> Result<(), String> + Send + 'static,
 {
+    recognize_clip_lazy(id, move || Ok(png_bytes), cache).await
+}
+
+/// 预览先加入 single-flight/排队，取得许可后才加载 PNG，等待者不持有 BLOB。
+pub(crate) async fn recognize_clip_lazy<L, F>(id: i64, load: L, cache: F) -> OcrResult
+where
+    L: FnOnce() -> Result<Vec<u8>, String> + Send + 'static,
+    F: FnOnce(&str) -> Result<(), String> + Send + 'static,
+{
     ocr_runtime()
         .run_clip(id, move || async move {
-            let text = tauri::async_runtime::spawn_blocking(move || recognize(&png_bytes))
+            let png = tauri::async_runtime::spawn_blocking(load)
                 .await
-                .map_err(|error| format!("OCR 线程异常: {error}"))??;
+                .map_err(|error| format!("OCR 图片读取线程异常: {error}"))??;
+            let text = recognize(&png).await?;
             cache(&text)?;
             Ok(text)
         })
@@ -522,3 +701,6 @@ mod tests {
         assert_eq!(peak.load(Ordering::SeqCst), 1);
     }
 }
+
+#[cfg(all(test, unix))]
+mod process_tests;
