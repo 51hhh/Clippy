@@ -140,8 +140,16 @@ async function verifyImageAndOcrUseOneScroller(app: HTMLElement): Promise<void> 
   const ocr = element<HTMLElement>(content, ".preview-ocr-result");
   const source = element<HTMLElement>(ocr, ".preview-ocr-source");
   const image = element<HTMLImageElement>(content, ".preview-image-open img");
-  // 只有本地合成data PNG；等待解码，避免以尚无固有尺寸的img验证缩略图布局。
-  await image.decode();
+  // 等 img 自己的 load 事件，而不是 decode()：decode() 在自己的任务里 resolve，可能排在
+  // 文档 load 事件之后，而 --headless --screenshot 正是在文档 load 落盘，那一帧还没画出
+  // 结论，脚本只能读到中性底色。img 的 load 必定早于文档 load（文档 load 要等这张图），
+  // 之后剩下的 await 全是微任务，会在同一个任务的微任务检查点跑完，结论一定先画上。
+  if (!image.complete) {
+    await new Promise<void>((resolve, reject) => {
+      image.addEventListener("load", () => resolve(), { once: true });
+      image.addEventListener("error", () => reject(new Error("synthetic long image failed to load")), { once: true });
+    });
+  }
   assert(image.naturalWidth === 640 && image.naturalHeight === 1800, "synthetic long image did not decode");
   assert(element(source, "pre").textContent === recognized, "real OCR renderer did not publish the complete source");
   assert(!content.querySelector(".preview-code-scan"), "removed sidebar scan UI returned");
