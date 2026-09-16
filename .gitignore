@@ -33,3 +33,7 @@ key/
 
 # 参考项目（不纳入 Clippy 仓库）
 fxxkDJTU/
+
+# 本地工作区（不进仓库）
+.omo/
+.trellis/

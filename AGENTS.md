@@ -1,26 +1,3 @@
-<!-- TRELLIS:START -->
-# Trellis Instructions
-
-These instructions are for AI assistants working in this project.
-
-Use the `/trellis:start` command when starting a new session to:
-- Initialize your developer identity
-- Understand current project context
-- Read relevant guidelines
-
-Use `@/.trellis/` to learn:
-- Development workflow (`workflow.md`)
-- Project structure guidelines (`spec/`)
-- Developer workspace (`workspace/`)
-
-If you're using Codex, project-scoped helpers may also live in:
-- `.agents/skills/` for reusable Trellis skills
-- `.codex/agents/` for optional custom subagents
-
-Keep this managed block so 'trellis update' can refresh the instructions.
-
-<!-- TRELLIS:END -->
-
 # Clippy — AI Agent 速查指引
 
 ## 项目简介
@@ -52,4 +29,4 @@ cd src && npx vitest run                   # 前端测试（jsdom）
 - **IPC 封装**：只有 `api.js` 直接访问 `window.__TAURI__`
 - **语言**：代码注释 / commit 中文，前端 UI 英文
 - **构建目标**：仅 Linux（deb, AppImage）
-- **编码规范**：见 `.trellis/spec/backend/` 和 `.trellis/spec/frontend/`
+- **编码规范**：见项目 Wiki 的「后端编码规范」与「前端编码规范」
