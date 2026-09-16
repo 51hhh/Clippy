@@ -615,14 +615,14 @@ describe("React pin app", () => {
     expect(prompt).not.toBeNull();
     expect([...prompt.querySelectorAll("button")].map((button) => button.textContent)).toEqual([
       "Save and close",
-      "Discard",
       "Cancel",
+      "Discard",
     ]);
     // 问的时候绝不能已经关掉了
     expect(mocks.pinApi.close).not.toHaveBeenCalled();
 
     // 取消：窗口留着，画的东西也留着。
-    await act(async () => [...prompt.querySelectorAll("button")][2].click());
+    await act(async () => [...prompt.querySelectorAll("button")].find(button => button.textContent === "Cancel").click());
     await flush();
     expect(document.querySelector(".pin-close-prompt")).toBeNull();
     expect(mocks.pinApi.close).not.toHaveBeenCalled();
@@ -630,7 +630,7 @@ describe("React pin app", () => {
     // 不保存：直接关，不碰 saveCanvas。
     await act(async () => document.querySelector('button[aria-label="Close"]').click());
     await flush();
-    await act(async () => [...document.querySelectorAll(".pin-close-prompt button")][1].click());
+    await act(async () => [...document.querySelectorAll(".pin-close-prompt button")].find(button => /Discard|Export flat PNG/.test(button.textContent)).click());
     await flush();
     expect(mocks.pinApi.saveCanvas).not.toHaveBeenCalled();
     expect(mocks.pinApi.close).toHaveBeenCalledWith("pin-image-test");
@@ -669,6 +669,114 @@ describe("React pin app", () => {
     expect(event.defaultPrevented).toBe(false);
     expect(mocks.pinApi.copy).not.toHaveBeenCalled();
     selection.removeAllRanges();
+  });
+
+  it.each(["close", "save"])("isolates %s dialog focus, background activation and restores the trigger", async (mode) => {
+    restoreStubs.push(stubCanvasExport());
+    mocks.pinApi.get.mockResolvedValue({ ...payload, kind: "image", text: null });
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+    await drawOneStroke();
+    const undo = document.querySelector('button[aria-label="Undo"]');
+    undo.focus();
+    await act(async () => {
+      if (mode === "close") mocks.pinApi.onCloseRequested.mock.calls[0][0]();
+      else document.querySelector('button[aria-label="Save image"]').click();
+    });
+    const dialog = document.querySelector('[role="dialog"]');
+    const buttons = [...dialog.querySelectorAll("button")];
+    const cancel = buttons.find(button => button.textContent === "Cancel");
+    expect(document.activeElement).toBe(cancel);
+    expect(undo.closest("[inert]")).not.toBeNull();
+    const body = dialog.querySelector(".pin-dialog-body");
+    const scroll = new WheelEvent("wheel", { deltaY: 40, bubbles: true, cancelable: true });
+    const pinch = new WheelEvent("wheel", { deltaY: 40, ctrlKey: true, bubbles: true, cancelable: true });
+    const zoomKey = new KeyboardEvent("keydown", { key: "+", ctrlKey: true, bubbles: true, cancelable: true });
+    await act(async () => { body.dispatchEvent(scroll); body.dispatchEvent(pinch); cancel.dispatchEvent(zoomKey); });
+    expect(scroll.defaultPrevented).toBe(false);
+    expect(pinch.defaultPrevented).toBe(true);
+    expect(zoomKey.defaultPrevented).toBe(true);
+    expect(mocks.pinApi.update).not.toHaveBeenCalled();
+    for (const key of ["Enter", " "]) {
+      const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+      await act(async () => undo.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(true);
+    }
+    // jsdom 不实现 inert 的原生点击边界，捕获守卫仍应挡住旧元素的程序化点击。
+    await act(async () => undo.click());
+    undo.focus();
+    expect(document.activeElement).toBe(cancel);
+    dialog.focus();
+    await act(async () => dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true })));
+    expect(document.activeElement).toBe(buttons.at(-1));
+    await act(async () => buttons.at(-1).dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })));
+    expect(document.activeElement).toBe(buttons[0]);
+    await act(async () => cancel.click());
+    await flush();
+    expect(document.activeElement).toBe(undo);
+    expect(document.querySelector("[inert]")).toBeNull();
+    await act(async () => document.querySelector('button[aria-label="Copy"]').click());
+    expect(mocks.pinApi.copyCanvas.mock.calls.at(-1)[1].annotations).toHaveLength(1);
+    expect(mocks.startDraggingCurrentWindow).not.toHaveBeenCalled();
+  });
+
+  it("keeps one save prompt and restores its original trigger across native close requests", async () => {
+    restoreStubs.push(stubCanvasExport());
+    mocks.pinApi.get.mockResolvedValue({ ...payload, kind: "image", text: null });
+    await act(async () => root.render(React.createElement(App)));
+    await flush(); await drawOneStroke();
+    const undo = document.querySelector('button[aria-label="Undo"]'); undo.focus();
+    await act(async () => document.querySelector('button[aria-label="Save image"]').click());
+    const dialog = document.querySelector('[role="dialog"]');
+    const cancel = [...dialog.querySelectorAll("button")].find(button => button.textContent === "Cancel");
+    await act(async () => mocks.pinApi.onCloseRequested.mock.calls[0][0]());
+    expect(document.querySelector('[role="dialog"]')).toBe(dialog);
+    expect(dialog.querySelector("h2").textContent).toBe("Save image");
+    expect(document.activeElement).toBe(cancel);
+    await act(async () => cancel.click()); await flush();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(undo);
+    expect(mocks.pinApi.close).not.toHaveBeenCalled();
+  });
+
+  it("keeps the save dialog inert and focused while saving, then retains retry after failure", async () => {
+    restoreStubs.push(stubCanvasExport());
+    mocks.pinApi.get.mockResolvedValue({ ...payload, kind: "image", text: null });
+    const pending = deferred();
+    mocks.pinApi.saveCanvas.mockReturnValueOnce(pending.promise);
+    await act(async () => root.render(React.createElement(App)));
+    await flush(); await drawOneStroke();
+    const originalFocus = document.querySelector('button[aria-label="Undo"]');
+    originalFocus.focus();
+    await act(async () => document.querySelector('button[aria-label="Save image"]').click());
+    const dialog = document.querySelector('[role="dialog"]');
+    const [save, cancel] = dialog.querySelectorAll("button");
+    await act(async () => save.click());
+    expect(document.activeElement).toBe(dialog);
+    expect(dialog.getAttribute("aria-busy")).toBe("true");
+    await act(async () => {
+      cancel.click(); save.click();
+      document.querySelector('button[aria-label="Undo"]').click();
+      dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      mocks.pinApi.onCloseRequested.mock.calls[0][0]();
+    });
+    expect(mocks.pinApi.saveCanvas).toHaveBeenCalledTimes(1);
+    expect(mocks.pinApi.close).not.toHaveBeenCalled();
+    expect(document.querySelector('[role="dialog"]')).toBe(dialog);
+    const body = dialog.querySelector(".pin-dialog-body");
+    body.scrollTop = 50;
+    await act(async () => pending.reject(new Error("disk full")));
+    expect(save.disabled).toBe(false);
+    expect(dialog.getAttribute("aria-busy")).toBe("false");
+    expect(body.querySelector('[role="alert"]').textContent).toBe("Action failed");
+    expect(body.scrollTop).toBe(0);
+    expect(body.contains(save)).toBe(false);
+    expect(body.contains(cancel)).toBe(false);
+    await act(async () => save.click());
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    await flush();
+    expect(document.activeElement).toBe(originalFocus);
+    expect(mocks.pinApi.saveCanvas.mock.calls.at(-1)[4].annotations).toHaveLength(1);
   });
 
   it("locks edits and repeated native close while saving the current document before close", async () => {
@@ -714,7 +822,7 @@ describe("React pin app", () => {
     await act(async () => mocks.pinApi.onCloseRequested.mock.calls[0][0]());
     await act(async () => document.querySelector(".pin-close-prompt button").click());
     expect(mocks.pinApi.close).not.toHaveBeenCalled();
-    expect(document.querySelector(".pin-toast").textContent).toBe("Action failed");
+    expect(document.querySelector(".pin-dialog-error").textContent).toBe("Action failed");
     expect(document.querySelector(".pin-close-prompt button").disabled).toBe(false);
     await act(async () => document.querySelector(".pin-close-prompt button").click());
     expect(mocks.pinApi.close).toHaveBeenCalledTimes(1);
@@ -907,8 +1015,8 @@ describe("React pin app", () => {
 
     await act(async () => document.querySelector('button[aria-label="Save image"]').click());
     await flush();
-    expect(document.querySelector(".pin-privacy-warning")?.textContent).toContain("unredacted original");
-    await act(async () => [...document.querySelectorAll(".pin-close-prompt button")][1].click());
+    expect(document.querySelector(".pin-privacy-warning")?.textContent).toContain("original image");
+    await act(async () => [...document.querySelectorAll(".pin-close-prompt button")].find(button => /Discard|Export flat PNG/.test(button.textContent)).click());
     await flushAsyncChain();
     expect(mocks.pinApi.saveCanvas).toHaveBeenLastCalledWith(
       "pin-image-test",

@@ -250,6 +250,25 @@ describe("capture overlay app", () => {
     expect(selectionRect()).toEqual({ x: 20, y: 20, width: 120, height: 100 });
   });
 
+  it("keeps size-label and toolbar drags outside selection ownership while tools and sliders work", async () => {
+    await mount(); await drag({ x: 20, y: 40 }, { x: 160, y: 120 });
+    const before = selectionRect();
+    for (const target of [document.querySelector(".selection-size"), document.querySelector(".overlay-toolbar")]) {
+      await act(async () => {
+        for (const [type, x, y] of [["pointerdown", 20, 20], ["pointermove", 100, 50], ["pointerup", 100, 50]]) {
+          target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y }));
+        }
+      });
+      expect(selectionRect()).toEqual(before);
+    }
+    await act(async () => button("Pen").click());
+    expect(document.querySelector(".overlay-root").dataset.tool).toBe("pen");
+    await act(async () => changeRange(document.querySelector('input[type="range"]'), 12));
+    expect(document.querySelector('input[type="range"]').value).toBe("12");
+    expect(selectionRect()).toEqual(before);
+    expect(mocks.overlayApi.commit).not.toHaveBeenCalled();
+  });
+
   it("submits the selection and renderer document when copy is pressed", async () => {
     await mount();
     await drag({ x: 10, y: 10 }, { x: 110, y: 90 });

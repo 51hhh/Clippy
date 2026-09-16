@@ -31,7 +31,7 @@ button { font: inherit; }
 .selection-handle.s { left: 50%; top: 100%; cursor: ns-resize; }
 .selection-handle.sw { left: 0; top: 100%; cursor: nesw-resize; }
 .selection-handle.w { left: 0; top: 50%; cursor: ew-resize; }
-.selection-size { position: absolute; z-index: 4; height: 22px; padding: 0 7px; border-radius: 4px; background: rgba(18, 20, 24, 0.9); color: #fff; font: 11px/22px ui-monospace, monospace; pointer-events: none; }
+.selection-size { position: absolute; z-index: 4; height: 22px; padding: 0 7px; border-radius: 4px; background: rgba(18, 20, 24, 0.9); color: #fff; font: 11px/22px ui-monospace, monospace; pointer-events: auto; cursor: default; touch-action: none; }
 
 /* 选区旁边的完整工具条 */
 .overlay-toolbar { position: absolute; z-index: 5; display: flex; flex-direction: column; gap: 4px; max-width: calc(100% - 16px); padding: 5px 6px; border: 1px solid rgba(255,255,255,.16); border-radius: 7px; background: rgba(18,20,24,.96); box-shadow: 0 8px 24px rgba(0,0,0,.45); cursor: default; }

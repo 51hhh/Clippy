@@ -98,8 +98,13 @@ function useViewportSize() {
  *   点对钩就把"裁剪 + 标注"后的 PNG 直接送进剪贴板。
  * 输出期间锁定编辑；后端确认渲染失败才恢复编辑，产物输出失败进入独立恢复面板。
  */
-export function App() {
-  const label = getCurrentWindowLabel();
+/** 同一次 mount 的服务保持稳定；生产入口省略该参数。 */
+export type CaptureAppServices = { api: typeof overlayApi; windowLabel: () => string };
+const defaultServices: CaptureAppServices = { api: overlayApi, windowLabel: getCurrentWindowLabel };
+
+export function App({ services = defaultServices }: { services?: CaptureAppServices } = {}) {
+  const overlayApi = services.api;
+  const label = services.windowLabel();
   const [payload, setPayload] = useState<CaptureOverlayPayload | null>(null);
   const [frameBuffer, setFrameBuffer] = useState<ArrayBuffer | null>(null);
   const [frameProtocolFailed, setFrameProtocolFailed] = useState(false);
@@ -786,6 +791,10 @@ export function App() {
           </div>
           <div
             className="selection-size"
+            onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
+            onPointerMove={(event) => event.stopPropagation()}
+            onPointerUp={(event) => event.stopPropagation()}
+            onPointerCancel={(event) => event.stopPropagation()}
             style={{ left: selection.x, top: Math.max(6, selection.y - 28) }}
           >
             {Math.round(selection.width)} × {Math.round(selection.height)}

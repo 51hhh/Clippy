@@ -473,60 +473,94 @@ input {
   text-align: center;
 }
 
-/* 关窗前的"要保存吗"。盖在整个窗口上——这是个必须先答的问题。 */
-.pin-close-prompt {
+/* 共享保存弹窗：窄窗口保持完整按钮，短窗口只滚动说明与隐私内容。 */
+.pin-workspace { display: contents; }
+/* 独立的尺寸容器按实际 Pin 大小选择布局，不依赖宿主浏览器的 viewport。 */
+.pin-dialog-viewport {
   position: absolute;
   z-index: 30;
+  inset: 0;
+  container: pin-dialog-viewport / size;
+}
+.pin-dialog-backdrop {
+  --dialog-bg: var(--surface-elevated, #1c2029);
+  --dialog-fg: var(--text-primary, #f4f6fb);
+  --dialog-muted: var(--text-secondary, #b7c0d0);
+  --dialog-border: var(--control-border, rgba(255, 255, 255, .13));
+  position: absolute;
+  z-index: 30;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  overflow: auto;
+  background: rgba(7, 10, 16, .68);
+  cursor: default;
+}
+.pin-close-prompt {
+  width: min(100%, 360px);
+  min-width: 0;
+  max-height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  inset: 0;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  background: rgba(12, 14, 18, 0.9);
-  color: #f3f4f6;
+  gap: 10px;
+  overflow: hidden;
+  padding: 14px;
+  border: 1px solid var(--dialog-border);
+  border-radius: 12px;
+  background: var(--dialog-bg);
+  color: var(--dialog-fg);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, .3);
   font-size: 12px;
-  text-align: center;
+  line-height: 1.55;
+  text-align: left;
+  word-break: normal;
+  outline: none;
 }
-
-.pin-close-prompt p {
-  margin: 0;
-}
-
-.pin-close-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  justify-content: center;
-}
-
-.pin-close-actions button {
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.08);
-  color: #f3f4f6;
-  font-size: 12px;
+.pin-close-prompt h2 { flex: 0 0 auto; margin: 0; font-size: 17px; font-weight: 650; line-height: 1.35; }
+.pin-dialog-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 10px; }
+.pin-dialog-body:focus-visible { outline: 2px solid var(--accent, #75b5ff); outline-offset: 2px; }
+.pin-dialog-body > p { flex: 0 0 auto; }
+.pin-close-prompt p { margin: 0; color: var(--dialog-muted); }
+.pin-close-prompt .pin-dialog-error { flex: 0 0 auto; color: var(--danger, #f39c9c); }
+.pin-close-prompt .pin-privacy-warning { padding: 10px 12px; border-radius: 7px; background: rgba(128, 143, 168, .1); font-size: 11px; }
+.pin-close-actions { flex: 0 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(56px, auto); gap: 8px; margin-top: 3px; }
+.pin-close-actions button,
+.pin-dialog-alternative {
+  min-width: 0;
+  min-height: 36px;
+  flex-shrink: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--dialog-border);
+  border-radius: 7px;
+  background: rgba(128, 143, 168, .1);
+  color: var(--dialog-fg);
+  font: inherit;
+  line-height: 1.4;
+  white-space: normal;
+  word-break: keep-all;
   cursor: pointer;
 }
+.pin-close-actions button:hover { background: rgba(128, 143, 168, .2); }
+.pin-close-actions button.primary { border-color: var(--accent, #428be0); background: var(--accent, #2568bb); color: var(--text-on-accent, #fff); font-weight: 600; }
+.pin-close-actions button.primary:hover { background: var(--accent-hover, #3078ce); }
+.pin-dialog-alternative { flex: 0 0 auto; border: 0; background: transparent; color: var(--dialog-muted); text-align: center; }
+.pin-dialog-alternative.destructive { color: var(--danger, #f39c9c); }
+.pin-dialog-alternative:hover { background: rgba(128, 143, 168, .1); }
+.pin-close-prompt button:focus-visible { outline: 2px solid var(--accent, #75b5ff); outline-offset: 2px; }
+.pin-close-prompt button:disabled { opacity: .5; cursor: wait; }
 
-.pin-close-actions button:hover,
-.pin-close-actions button:focus-visible {
-  outline: none;
-  background: rgba(255, 255, 255, 0.16);
+/* 窄 Pin 使用接近整窗的 sheet；保持字号和点击尺寸，三个动作清楚纵排。 */
+@container pin-dialog-viewport (max-width: 340px) {
+  .pin-dialog-backdrop { padding: 6px; }
+  .pin-close-prompt { width: 100%; padding: 12px; gap: 8px; border-radius: 10px; }
+  .pin-close-actions { grid-template-columns: minmax(0, 1fr); gap: 6px; margin-top: 0; }
+}
+@container pin-dialog-viewport (max-width: 340px) and (max-height: 280px) {
+  .pin-close-prompt { height: 100%; }
+  .pin-dialog-body { flex: 1 1 auto; }
 }
 
-.pin-close-actions button.primary {
-  border-color: rgba(47, 140, 255, 0.6);
-  background: rgba(47, 140, 255, 0.28);
-}
-
-.pin-close-actions button.primary:hover,
-.pin-close-actions button.primary:focus-visible {
-  background: rgba(47, 140, 255, 0.42);
-}
 
 .pin-error,
 .pin-toast {
