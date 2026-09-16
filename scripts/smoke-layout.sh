@@ -68,29 +68,57 @@ for _ in {1..50}; do
   sleep 0.1
 done
 
-# 780x500 = 预览展开时 window_controller 给出的逻辑尺寸（380 列表 + 400 面板，高度恒定 500）
-HOME="$PROFILE_DIR" timeout 25 "$FIREFOX" --headless \
-  --window-size 780,500 --screenshot "$SCREENSHOT" \
-  "http://127.0.0.1:${PORT}/tests/fixtures/layout-smoke.html" \
-  >"$FIREFOX_LOG" 2>&1 || {
-  printf 'Layout smoke failed: Firefox failed; artifacts: %s\n' "$ARTIFACT_DIR" >&2
-  exit 1
-}
-
-[[ -s "$SCREENSHOT" ]] || {
-  printf 'Layout smoke failed: screenshot is missing; artifacts: %s\n' "$ARTIFACT_DIR" >&2
-  exit 1
-}
-if [[ -n "$FFMPEG" ]]; then
-  PIXEL="$($FFMPEG -v error -i "$SCREENSHOT" -vf 'crop=1:1:390:310,format=rgb24' -f rawvideo - 2>/dev/null | od -An -tu1 -N3)"
-else
-  PIXEL="$("$PYTHON_PIL" -c '
+read_pixel() {
+  if [[ -n "$FFMPEG" ]]; then
+    $FFMPEG -v error -i "$1" -vf 'crop=1:1:390:310,format=rgb24' -f rawvideo - 2>/dev/null | od -An -tu1 -N3
+  else
+    "$PYTHON_PIL" -c '
 import sys
 from PIL import Image
 print(" ".join(str(value) for value in Image.open(sys.argv[1]).convert("RGB").getpixel((390, 310))))
-' "$SCREENSHOT")"
+' "$1"
+  fi
+}
+
+# fixture 的中性底色 #808080（128,128,128）只表示"还没跑完"：它的 run() 是 async，而
+# --headless --screenshot 在 load 事件就落盘，异步断言可能尚未画出结论。判定失败会画红色
+# #d00000，所以只对中性灰重试不会掩盖真实断言失败。首次访问要付 Vite 冷转换的代价，
+# 重试同时也起预热作用（实测冷启动首帧读到灰、预热后稳定读到绿）。
+is_neutral() {
+  (( $1 >= 120 && $1 <= 136 && $2 >= 120 && $2 <= 136 && $3 >= 120 && $3 <= 136 ))
+}
+
+ATTEMPTS=3
+PIXEL=""
+RED=0
+GREEN=0
+BLUE=0
+for _ in $(seq 1 "$ATTEMPTS"); do
+  # 780x500 = 预览展开时 window_controller 给出的逻辑尺寸（380 列表 + 400 面板，高度恒定 500）
+  HOME="$PROFILE_DIR" timeout 25 "$FIREFOX" --headless \
+    --window-size 780,500 --screenshot "$SCREENSHOT" \
+    "http://127.0.0.1:${PORT}/tests/fixtures/layout-smoke.html" \
+    >"$FIREFOX_LOG" 2>&1 || {
+    printf 'Layout smoke failed: Firefox failed; artifacts: %s\n' "$ARTIFACT_DIR" >&2
+    exit 1
+  }
+
+  [[ -s "$SCREENSHOT" ]] || {
+    printf 'Layout smoke failed: screenshot is missing; artifacts: %s\n' "$ARTIFACT_DIR" >&2
+    exit 1
+  }
+
+  PIXEL="$(read_pixel "$SCREENSHOT")"
+  read -r RED GREEN BLUE <<<"$PIXEL"
+  is_neutral "$RED" "$GREEN" "$BLUE" || break
+done
+
+# 三态分开报：未执行完 / 断言失败 / 通过。混报会把冷启动竞态误诊成几何回归。
+if is_neutral "$RED" "$GREEN" "$BLUE"; then
+  printf 'Layout smoke failed: fixture did not finish after %s attempts (neutral background %s; module failed to load or async assertions timed out); artifacts: %s\n' \
+    "$ATTEMPTS" "$PIXEL" "$ARTIFACT_DIR" >&2
+  exit 1
 fi
-read -r RED GREEN BLUE <<<"$PIXEL"
 if (( GREEN < 180 || RED > 40 || BLUE > 40 )); then
   printf 'Layout smoke failed: geometry assertions failed (%s); artifacts: %s\n' "$PIXEL" "$ARTIFACT_DIR" >&2
   exit 1
