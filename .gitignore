@@ -31,6 +31,12 @@ src-tauri/gen/
 *.key.pub
 key/
 
+# codex
+.omo/
+
+# trellis
+.trellis/
+
 # 参考项目（不纳入 Clippy 仓库）
 fxxkDJTU/
 package-lock.json
