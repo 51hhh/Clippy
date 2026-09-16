@@ -38,4 +38,4 @@ cargo test --locked --manifest-path src-tauri/Cargo.toml -p arboard --lib platfo
 
 脚本接入 `ci-local.sh` 和 Linux CI；Windows / macOS 不执行。覆盖高熵 4K / 8K 的独立进程与 xclip 逐像素互操作、慢 chunk、多 reader、selection 更换、同 key 冲突、销毁 / 不消费回收、完整 handover 及后续小文本。预算 / 快照 / 总截止为纯 unit；写屏障回归覆盖受控写序、内部抑制和外部同内容再次置顶。
 
-详细红绿证据及独立复审见 `.trellis/tasks/09-12-remediation-t10/incr-resolution.md` 和 `review-resolution.md`。升级 arboard 时必须逐项核对写完成、INCR 生命周期及预算边界，并复跑上述门禁后决定移除或重放补丁。
+详细红绿证据及独立复审记录保存在本地工作区，不随仓库分发。升级 arboard 时必须逐项核对写完成、INCR 生命周期及预算边界，并复跑上述门禁后决定移除或重放补丁。

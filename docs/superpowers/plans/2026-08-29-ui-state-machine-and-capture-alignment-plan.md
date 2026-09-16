@@ -5,7 +5,7 @@
 状态：**已实施（2026-08-30）**，修 1～修 5 全部落地，`./scripts/ci-local.sh` = 11 通过 / 0 失败 / 1 跳过。
 "不做"清单（滚动截图、Board、原地 Konva 标注、Pin 落回选区原位）保持不做。
 UI 细节与真机行为仍需 `cargo tauri dev` / 真实桌面人工确认，条目见
-`.trellis/tasks/08-08-clippy-integrated-refactor/qa-matrix.md` 的"真实桌面人工矩阵"。
+本地工作区 QA 矩阵中的"真实桌面人工矩阵"。
 
 ## 0. 前置结论：自动粘贴授权已是长期授权
 
