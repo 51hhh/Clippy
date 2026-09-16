@@ -32,6 +32,7 @@ export type ClipboardSnapshot = {
   dirty: boolean;
   loadingMore: boolean;
   favoritesLoaded: boolean;
+  actionError: "copy" | "favorite" | "delete" | null;
   revision: number;
 };
 
@@ -53,6 +54,7 @@ export class ClipboardStore {
     dirty: false,
     loadingMore: false,
     favoritesLoaded: false,
+    actionError: null,
     revision: 0,
   };
   private listeners = new Set<() => void>();
@@ -307,7 +309,8 @@ export class ClipboardStore {
     this.commit({ navigation }, true);
   }
 
-  async invokeAction(clip: ClipItem, action: "copy" | "favorite" | "delete"): Promise<void> {
+  async invokeAction(clip: ClipItem, action: "copy" | "favorite" | "delete"): Promise<boolean> {
+    this.commit({ actionError: null });
     try {
       if (action === "copy") await selectClip(clip.id);
       else if (action === "favorite") {
@@ -318,9 +321,16 @@ export class ClipboardStore {
         await deleteClip(clip.id);
         this.removeClip(clip.id);
       }
+      return true;
     } catch (error) {
       console.error("Clipboard action failed", error);
+      this.commit({ actionError: action });
+      return false;
     }
+  }
+
+  dismissActionError(): void {
+    this.commit({ actionError: null });
   }
 
   async activateFocus(): Promise<void> {
@@ -335,8 +345,7 @@ export class ClipboardStore {
   async selectByIndex(index: number): Promise<boolean> {
     const clip = this.visibleItems()[index];
     if (!clip) return false;
-    await this.invokeAction(clip, "copy");
-    return true;
+    return this.invokeAction(clip, "copy");
   }
 
   async loadMore(): Promise<void> {

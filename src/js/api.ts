@@ -13,9 +13,9 @@ import {
   enable as enableAutostartPlugin,
   isEnabled as isAutostartEnabledPlugin,
 } from "@tauri-apps/plugin-autostart";
-import type { DownloadEvent, Update } from "@tauri-apps/plugin-updater";
 import type {
   AppConfig,
+  AppUpdateSnapshot,
   CaptureAction,
   CaptureActionResult,
   CaptureLongshotHandoff,
@@ -852,18 +852,9 @@ export function onMainWindowWillHide(callback: () => void): Promise<UnlistenFn> 
   return listen<null>("main-window-will-hide", () => callback());
 }
 
-// -- 更新相关（懒加载，避免 settings 窗口因 plugin 未就绪而阻塞） --
+// -- 更新相关：应用进程持有任务，窗口通过 IPC 读取与订阅状态 --
 
-export interface AvailableUpdate {
-  available: true;
-  version: string;
-  body: string;
-  update: Update;
-}
-
-export type UpdateProgress =
-  | { total: number; received: number }
-  | { chunkLength: number };
+export type { AppUpdateSnapshot } from "./ipc-types.ts";
 
 /** 获取应用版本号 */
 export async function getAppVersion(): Promise<string> {
@@ -872,30 +863,21 @@ export async function getAppVersion(): Promise<string> {
 }
 
 /** 检查更新 */
-export async function checkUpdate(): Promise<AvailableUpdate | null> {
-  const { check } = await import("@tauri-apps/plugin-updater");
-  const update = await check();
-  if (!update) return null;
-  return {
-    available: true,
-    version: update.version,
-    body: update.body || "",
-    update,
-  };
+export function checkUpdate(): Promise<AppUpdateSnapshot> {
+  return invoke<AppUpdateSnapshot>("check_app_update");
 }
 
-/** 下载并安装更新 */
-export async function downloadAndInstallUpdate(
-  update: Update,
-  onProgress?: (progress: UpdateProgress) => void,
-): Promise<void> {
-  await update.downloadAndInstall((event: DownloadEvent) => {
-    if (event.event === "Started" && onProgress) {
-      onProgress({ total: event.data.contentLength || 0, received: 0 });
-    } else if (event.event === "Progress" && onProgress) {
-      onProgress({ chunkLength: event.data.chunkLength });
-    }
-  });
+/** 立即返回已接纳的状态；任务属于应用进程，不属于发起窗口。 */
+export function downloadAndInstallUpdate(version: string): Promise<AppUpdateSnapshot> {
+  return invoke<AppUpdateSnapshot>("install_app_update", { version });
+}
+
+export function getAppUpdateState(): Promise<AppUpdateSnapshot> {
+  return invoke<AppUpdateSnapshot>("get_app_update_state");
+}
+
+export function onAppUpdateState(callback: (snapshot: AppUpdateSnapshot) => void): Promise<UnlistenFn> {
+  return listen<AppUpdateSnapshot>("app-update-state", event => callback(event.payload));
 }
 
 /** 更新安装完成后，用户明确点击按钮才请求重启。 */

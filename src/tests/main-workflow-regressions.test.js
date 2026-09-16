@@ -24,6 +24,25 @@ it('收起 Delete 后 Enter 只复制行本体', async () => {
     expect(api.deleteClip).not.toHaveBeenCalled();
     expect(api.selectClip).toHaveBeenCalledWith(1);
 });
+it('数字直选保留后端自动粘贴降级显示，复制失败不隐藏且可重试', async () => {
+    const store = new ClipboardStore();
+    api.getClips.mockResolvedValue([clip(1)]);
+    await store.refresh();
+    const hidePanel = vi.fn();
+    let visible = true;
+    const router = createKeyboardRouter({ clipboardList: { search: { isVisible: () => false }, selectByIndex: index => store.selectByIndex(index) }, previewPanel: {}, codec: {}, pinClip: vi.fn(), hidePanel });
+    api.selectClip.mockImplementation(async () => { visible = false; visible = true; return { copied: true, pasted: false, reason_code: 'permission_required' }; });
+    router.onKeyDown({ key: '1', target: document.body, preventDefault() {} });
+    await vi.waitFor(() => expect(api.selectClip).toHaveBeenCalledOnce());
+    expect(visible).toBe(true);
+    expect(hidePanel).not.toHaveBeenCalled();
+    api.selectClip.mockRejectedValueOnce(new Error('clipboard unavailable'));
+    await expect(store.selectByIndex(0)).resolves.toBe(false);
+    expect(store.getSnapshot().actionError).toBe('copy');
+    expect(hidePanel).not.toHaveBeenCalled();
+    await expect(store.selectByIndex(0)).resolves.toBe(true);
+    expect(store.getSnapshot().actionError).toBeNull();
+});
 it.each(['preview-content', 'update-modal'])('保留 %s 按钮的 Enter/Space 原生激活', rootId => {
     const root = document.createElement('div');
     root.id = rootId;

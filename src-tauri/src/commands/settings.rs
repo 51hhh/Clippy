@@ -160,22 +160,10 @@ fn update_config_for_app(
         shortcuts_changed,
         require_shortcuts_active,
     )?;
-    if shortcuts_changed {
-        use std::str::FromStr;
-        for raw in [
-            &new_config.global_shortcut,
-            &new_config.pin_shortcut,
-            &new_config.capture_shortcut,
-        ] {
-            if !raw.trim().is_empty() {
-                tauri_plugin_global_shortcut::Shortcut::from_str(raw)
-                    .map_err(|error| format!("快捷键格式无效: {error}"))?;
-            }
-        }
-    }
-    let shortcut_status = crate::config::commit_config_change(
+    let shortcut_status = commit_user_config_change(
         &mut config,
         new_config,
+        shortcuts_changed || require_shortcuts_active,
         |value| persist_settings_snapshot(&state, value),
         |value| {
             if shortcuts_changed {
@@ -207,6 +195,40 @@ fn update_config_for_app(
         log::warn!("配置已保存，但变更通知发送失败: {error}");
     }
     Ok(ConfigUpdateOutcome { shortcut_status })
+}
+
+fn commit_user_config_change<T>(
+    current: &mut AppConfig,
+    next: AppConfig,
+    validate_shortcuts: bool,
+    persist: impl FnMut(&AppConfig) -> Result<(), String>,
+    apply: impl FnMut(&AppConfig) -> Result<T, String>,
+) -> Result<T, String> {
+    if validate_shortcuts {
+        validate_user_shortcuts(&next)?;
+    }
+    crate::config::commit_config_change(current, next, persist, apply)
+}
+
+/// 用户保存前按原生解析身份判重；旧配置的启动容错注册不受影响。
+fn validate_user_shortcuts(config: &AppConfig) -> Result<(), String> {
+    use std::str::FromStr;
+    let mut seen = std::collections::HashMap::new();
+    for (action, raw) in [
+        ("global", &config.global_shortcut),
+        ("pin", &config.pin_shortcut),
+        ("capture", &config.capture_shortcut),
+    ] {
+        if raw.trim().is_empty() {
+            continue;
+        }
+        let shortcut = tauri_plugin_global_shortcut::Shortcut::from_str(raw.trim())
+            .map_err(|error| format!("快捷键格式无效: {error}"))?;
+        if let Some(previous) = seen.insert(shortcut.id(), action) {
+            return Err(format!("settings.shortcut.duplicate:{previous},{action}"));
+        }
+    }
+    Ok(())
 }
 
 fn apply_settings_shortcuts(
@@ -266,8 +288,12 @@ fn record_gnome_results(
 
 /// 用户明确点击更新完成后的重启入口时才调用；从不自动重启应用。
 #[tauri::command]
-pub fn restart_app(app_handle: tauri::AppHandle) {
+pub fn restart_app(app_handle: tauri::AppHandle) -> Result<(), String> {
+    app_handle
+        .state::<std::sync::Arc<crate::app_update::AppUpdater>>()
+        .ensure_restart_allowed()?;
     app_handle.request_restart();
+    Ok(())
 }
 
 /// 让用户选择截图保存目录，返回选中的绝对路径；取消返回 None。
@@ -530,6 +556,51 @@ pub fn is_dev_binary() -> bool {
 mod tests {
     use super::*;
     use std::sync::{atomic::AtomicBool, Arc, Mutex};
+
+    #[test]
+    fn user_save_rejects_normalized_duplicate_shortcuts() {
+        let mut config = AppConfig {
+            global_shortcut: "Ctrl+Shift+A".into(),
+            pin_shortcut: "Shift+Control+A".into(),
+            capture_shortcut: String::new(),
+            ..AppConfig::default()
+        };
+        assert_eq!(
+            validate_user_shortcuts(&config).unwrap_err(),
+            "settings.shortcut.duplicate:global,pin"
+        );
+        config.pin_shortcut = String::new();
+        assert!(validate_user_shortcuts(&config).is_ok());
+        config.capture_shortcut = "Control+Shift+A".into();
+        assert_eq!(
+            validate_user_shortcuts(&config).unwrap_err(),
+            "settings.shortcut.duplicate:global,capture"
+        );
+        config.capture_shortcut = "Ctrl+Shift+S".into();
+        assert!(validate_user_shortcuts(&config).is_ok());
+    }
+
+    #[test]
+    fn duplicate_user_save_never_persists_or_changes_existing_bindings() {
+        let mut current = AppConfig::default();
+        let before = current.clone();
+        let mut duplicate = current.clone();
+        duplicate.pin_shortcut = duplicate.global_shortcut.clone();
+        let outcome: Result<(), String> = commit_user_config_change(
+            &mut current,
+            duplicate,
+            true,
+            |_| panic!("重复键位不得落盘"),
+            |_| panic!("重复键位不得解绑或修改现有快捷键"),
+        );
+        assert_eq!(
+            outcome.unwrap_err(),
+            "settings.shortcut.duplicate:global,pin"
+        );
+        assert_eq!(current.global_shortcut, before.global_shortcut);
+        assert_eq!(current.pin_shortcut, before.pin_shortcut);
+        assert_eq!(current.capture_shortcut, before.capture_shortcut);
+    }
 
     #[test]
     fn explicit_save_and_shortcut_changes_reject_pause_but_immediate_theme_does_not() {

@@ -13,7 +13,7 @@ vi.mock("../js/api.ts", () => ({
 }));
 
 import * as i18n from "../i18n/i18n.js";
-import { getClipThumbnail, onPasteFallback } from "../js/api.ts";
+import { getClipThumbnail, onPasteFallback, selectClip } from "../js/api.ts";
 import { ClipboardRow } from "../react/main/ClipboardRow.tsx";
 import { ClipboardWorkspace } from "../react/main/ClipboardWorkspace.tsx";
 import { clipboardStore } from "../react/main/clipboardStore.ts";
@@ -61,6 +61,16 @@ describe("React clipboard row", () => {
     delete globalThis.IS_REACT_ACT_ENVIRONMENT;
   });
 
+  it("action failure is visible and dismissible without removing the clip", async () => {
+    selectClip.mockRejectedValueOnce(new Error("clipboard unavailable"));
+    await clipboardStore.invokeAction(clip(), "copy");
+    const html = renderToStaticMarkup(React.createElement(ClipboardWorkspace));
+    expect(html).toContain('role="alert"');
+    expect(html).toContain(i18n.t("clipboard.actionFailed"));
+    clipboardStore.dismissActionError();
+    expect(renderToStaticMarkup(React.createElement(ClipboardWorkspace))).not.toContain('role="alert"');
+  });
+
   it("escapes user content and exposes accessible actions", () => {
     const html = renderToStaticMarkup(React.createElement(ClipboardRow, {
       clip: clip({ text_content: '<img src=x onerror="alert(1)">' }),
@@ -71,6 +81,19 @@ describe("React clipboard row", () => {
     expect(html).not.toContain("<img src=x");
     expect(html).toContain('aria-label="Copy"');
     expect(html).toContain('role="option"');
+  });
+  it("keeps More expansion and collapse out of row copy actions", async () => {
+    const host = document.createElement("div"); document.body.append(host);
+    const root = createRoot(host); const rowProps = { clip: clip(), ...props() };
+    try {
+      await act(async () => root.render(React.createElement(ClipboardRow, rowProps)));
+      await act(async () => host.querySelector(".clip-row-trigger").click());
+      expect(rowProps.handlers.onToggle).toHaveBeenCalledTimes(1);
+      await act(async () => root.render(React.createElement(ClipboardRow, { ...rowProps, expanded: true })));
+      await act(async () => host.querySelector(".clip-row-trigger").click());
+      expect(rowProps.handlers.onToggle).toHaveBeenCalledTimes(2);
+      expect(rowProps.handlers.onAction).not.toHaveBeenCalled();
+    } finally { await act(async () => root.unmount()); host.remove(); }
   });
 
   it("does not add a manual image-open entry to the clipboard workspace", () => {

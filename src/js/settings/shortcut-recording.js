@@ -22,6 +22,14 @@ export async function saveAfterShortcutCleanup(shortcutRecording, save) {
     ? { ...outcome, shortcut_status: "pending" } : outcome;
 }
 
+/** 原生解析器返回动作身份；UI 显示可定位、可翻译的冲突说明。 */
+export function shortcutSaveErrorMessage(error, translate) {
+  const match = /^settings\.shortcut\.duplicate:(global|pin|capture),(global|pin|capture)$/.exec(String(error?.message || error));
+  return match
+    ? translate("settings.shortcut.duplicate", { first: translate(`settings.shortcut.action.${match[1]}`), second: translate(`settings.shortcut.action.${match[2]}`) })
+    : translate("settings.saveFailed", { error });
+}
+
 /**
  * 统一管理多个互斥快捷键录制器，避免每个录制器复制暂停、恢复和键盘监听逻辑。
  */

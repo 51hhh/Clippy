@@ -41,6 +41,7 @@ import { createShortcutFailureNotice } from "./settings/shortcut-failure-notice.
 import {
   closeAfterShortcutCleanup,
   saveAfterShortcutCleanup,
+  shortcutSaveErrorMessage,
   createShortcutRecordingController,
 } from "./settings/shortcut-recording.js";
 import { loadStats } from "./settings/stats.js";
@@ -341,7 +342,7 @@ element("save-btn").addEventListener("click", async (event) => {
   } catch (error) {
     console.error("保存失败:", error);
     await refreshShortcutFailures();
-    showToast(i18n.t("settings.saveFailed", { error }));
+    showToast(shortcutSaveErrorMessage(error, i18n.t));
   } finally {
     button.disabled = false;
   }

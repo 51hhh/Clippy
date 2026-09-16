@@ -346,48 +346,6 @@ html, body {
   padding: 0 2px;
 }
 
-/* ── 按钮 ── */
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px 20px;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 500;
-  border: 1.5px solid transparent;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
-  white-space: nowrap;
-  gap: 6px;
-}
-.btn-small {
-  padding: 6px 14px;
-  font-size: 13px;
-}
-.btn-primary {
-  background: var(--accent);
-  color: var(--text-on-accent, #fff);
-  border-color: var(--accent);
-}
-.btn-primary:hover {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-}
-.btn-secondary {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  border-color: var(--border);
-}
-.btn-secondary:hover {
-  background: var(--bg-hover);
-}
-.btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
 /* ── 提示 ── */
 
 .setting-hint {

@@ -508,6 +508,9 @@ fn private_x11_handover_waits_for_data_confirmation_and_remains_bounded() {
     if provider() {
         return;
     }
+    // 先保留一个未占有CLIPBOARD_MANAGER的连接，避免plain断开最后一个client时
+    // 私有Xvfb reset恰好打断随后新建连接。没有manager的协议基线仍然成立。
+    let manager = RawReader::new();
     // 没有 manager 不应平白等完整的 handover 截止。
     let mut plain =
         Provider::new("private_x11_handover_waits_for_data_confirmation_and_remains_bounded");
@@ -516,7 +519,6 @@ fn private_x11_handover_waits_for_data_confirmation_and_remains_bounded() {
     plain.write("drop");
     assert!(started.elapsed() < Duration::from_secs(1));
 
-    let manager = RawReader::new();
     let selection = manager
         .connection
         .intern_atom(false, b"CLIPBOARD_MANAGER")

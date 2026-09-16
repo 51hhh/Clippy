@@ -181,6 +181,14 @@ export function ClipboardWorkspace() {
         </span>
       </div>
 
+      {snapshot.actionError && (
+        <div className="paste-fallback" role="alert">
+          <span>{t("clipboard.actionFailed")}</span>
+          <button type="button" onClick={() => clipboardStore.dismissActionError()} aria-label={t("action.dismiss")}>
+            ×
+          </button>
+        </div>
+      )}
       {pasteFallback && (
         <div className="paste-fallback" role="status" title={pasteFallback.detail ?? ""}>
           <span>

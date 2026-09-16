@@ -63,6 +63,10 @@ import {
   updateConfig,
   closeSettings,
   restartApp,
+  checkUpdate,
+  getAppUpdateState,
+  onAppUpdateState,
+  downloadAndInstallUpdate,
   updatePin,
   copyPinCanvas,
   onCurrentWindowDragDrop,
@@ -82,6 +86,21 @@ describe("typed IPC wrappers", () => {
     enableAutostartPlugin.mockReset();
     disableAutostartPlugin.mockReset();
     isAutostartEnabledPlugin.mockReset();
+  });
+
+  it("updates use process commands and absolute state events without plugin resources", async () => {
+    const snapshot = { revision: 4, status: "installed", version: "2.0.0" };
+    invoke.mockResolvedValue(snapshot);
+    await expect(checkUpdate()).resolves.toBe(snapshot);
+    expect(invoke).toHaveBeenLastCalledWith("check_app_update");
+    await expect(getAppUpdateState()).resolves.toBe(snapshot);
+    expect(invoke).toHaveBeenLastCalledWith("get_app_update_state");
+    await expect(downloadAndInstallUpdate("2.0.0")).resolves.toBe(snapshot);
+    expect(invoke).toHaveBeenLastCalledWith("install_app_update", { version: "2.0.0" });
+    const callback = vi.fn(); await onAppUpdateState(callback);
+    expect(listen).toHaveBeenCalledWith("app-update-state", expect.any(Function));
+    listen.mock.calls[0][1]({ payload: snapshot });
+    expect(callback).toHaveBeenCalledWith(snapshot);
   });
 
   it("keeps camelCase query arguments for get_clips", () => {

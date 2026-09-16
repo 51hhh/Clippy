@@ -98,26 +98,12 @@ impl ClipboardWatcher {
             const SENSITIVE_CHECK_INTERVAL: u32 = 60;
 
             #[cfg(target_os = "linux")]
-            let tmux_last_hash = {
-                let initial_hash = std::fs::read_to_string(crate::commands::tmux_buf_path())
-                    .ok()
-                    .filter(|s| !s.is_empty())
-                    .map(|s| compute_hash(s.as_bytes()))
-                    .unwrap_or_default();
-                Arc::new(Mutex::new(initial_hash))
-            };
-            #[cfg(not(target_os = "linux"))]
-            let tmux_last_hash = Arc::new(Mutex::new(String::new()));
-            #[cfg(target_os = "linux")]
             {
                 let running = Arc::clone(&running);
                 let config = Arc::clone(&config);
                 let storage = Arc::clone(&storage);
                 let app_handle = app_handle.clone();
-                let tmux_last_hash = Arc::clone(&tmux_last_hash);
-                thread::spawn(move || {
-                    tmux::start(running, config, storage, app_handle, tmux_last_hash)
-                });
+                thread::spawn(move || tmux::start(running, config, storage, app_handle));
             }
             log::info!("剪贴板监听器已启动");
             loop {
@@ -180,15 +166,10 @@ impl ClipboardWatcher {
                 } else {
                     read_failure.settle();
                 }
-                let last_tmux_hash = tmux_last_hash
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .clone();
                 if let Some(snapshot) = snapshot {
                     if let Some(prepared) = prepare_snapshot(
                         snapshot,
                         &suppressed,
-                        &last_tmux_hash,
                         &mut poll_state,
                         &mut last_rejected_image_layout,
                         Instant::now(),
@@ -291,7 +272,6 @@ struct PreparedContent {
 fn prepare_snapshot(
     snapshot: ClipboardSnapshot,
     suppressed: &[String],
-    tmux_hash: &str,
     state: &mut PollState,
     rejected_layout: &mut Option<(usize, usize, usize)>,
     now: Instant,
@@ -301,11 +281,7 @@ fn prepare_snapshot(
             *rejected_layout = None;
             let hash = compute_hash(text.as_bytes());
             let size = text.len() as i64;
-            if !state.observe(
-                &format!("text:{hash}"),
-                suppressed.contains(&hash) || hash == tmux_hash,
-                now,
-            ) {
+            if !state.observe(&format!("text:{hash}"), suppressed.contains(&hash), now) {
                 return None;
             }
             (ContentType::Text, Some(text), None, None, hash, size)
@@ -314,11 +290,7 @@ fn prepare_snapshot(
             *rejected_layout = None;
             let hash = compute_hash(html.as_bytes());
             let size = html.len() as i64;
-            if !state.observe(
-                &format!("html:{hash}"),
-                suppressed.contains(&hash) || hash == tmux_hash,
-                now,
-            ) {
+            if !state.observe(&format!("html:{hash}"), suppressed.contains(&hash), now) {
                 return None;
             }
             (ContentType::Html, Some(text), Some(html), None, hash, size)

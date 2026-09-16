@@ -16,9 +16,14 @@ pub(super) fn start(
     config: Arc<Mutex<AppConfig>>,
     storage: Arc<Mutex<StorageEngine>>,
     app_handle: AppHandle,
-    tmux_last_hash: Arc<Mutex<String>>,
 ) {
     let tmux_buf_path = crate::commands::tmux_buf_path();
+    // 文件去重只属于 tmux 输入：旧缓冲内容不能永久屏蔽独立的系统 selection。
+    let mut last_hash = std::fs::read_to_string(&tmux_buf_path)
+        .ok()
+        .filter(|text| !text.is_empty())
+        .map(|text| compute_hash(text.as_bytes()))
+        .unwrap_or_default();
     let mut hook_check_counter: u32 = 0;
     const HOOK_CHECK_INTERVAL: u32 = 60;
 
@@ -98,18 +103,12 @@ pub(super) fn start(
             _ => continue,
         };
         let hash = compute_hash(content.as_bytes());
-        let current_hash = tmux_last_hash
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .clone();
-        if !state.observe(&hash, hash == current_hash, Instant::now()) {
+        if !state.observe(&hash, hash == last_hash, Instant::now()) {
             continue;
         }
         if store_content(&config, &storage, &app_handle, &content, &hash) {
             state.settle();
-            *tmux_last_hash
-                .lock()
-                .unwrap_or_else(|error| error.into_inner()) = hash;
+            last_hash = hash;
         } else {
             state.failed(Instant::now());
         }

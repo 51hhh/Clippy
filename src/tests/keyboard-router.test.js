@@ -240,7 +240,8 @@ describe("主窗口键盘路由", () => {
       expect(list.moveRow).toHaveBeenCalledWith(-1);
       r.onKeyDown(keyEvent("3", document.body));
       expect(list.selectByIndex).toHaveBeenCalledWith(2);
-      await vi.waitFor(() => expect(hidePanel).toHaveBeenCalled());
+      await Promise.resolve();
+      expect(hidePanel).not.toHaveBeenCalled();
     });
 
     it("Ctrl+P pin 当前条目，反引号切换编解码面板", () => {

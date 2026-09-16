@@ -166,6 +166,17 @@ export interface PasteOutcome {
   detail: string | null;
 }
 
+/** 应用进程持有的更新任务；revision 用于丢弃跨窗口订阅/查询的旧快照。 */
+export interface AppUpdateSnapshot {
+  revision: number;
+  status: "idle" | "available" | "installing" | "installed" | "failed";
+  version: string | null;
+  body: string;
+  install_type: InstallType;
+  downloaded: number;
+  total: number | null;
+}
+
 /**
  * 窗口速选候选区。
  *

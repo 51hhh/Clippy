@@ -34,7 +34,6 @@ fn every_snapshot_retries_real_database_failure_and_emits_only_one_success() {
             if let Some(item) = prepare_snapshot(
                 snapshot(kind, "payload"),
                 &[],
-                "",
                 &mut state,
                 &mut rejected,
                 time,
@@ -74,7 +73,6 @@ fn text_html_and_image_suppression_cover_successive_polls_and_then_external_cont
         let item = prepare_snapshot(
             snapshot(kind, "result"),
             &[],
-            "",
             &mut probe,
             &mut rejected,
             now,
@@ -90,7 +88,6 @@ fn text_html_and_image_suppression_cover_successive_polls_and_then_external_cont
             assert!(prepare_snapshot(
                 snapshot(kind, "result"),
                 &suppression,
-                "",
                 &mut state,
                 &mut rejected,
                 now
@@ -100,7 +97,6 @@ fn text_html_and_image_suppression_cover_successive_polls_and_then_external_cont
         assert!(prepare_snapshot(
             snapshot(kind, "external"),
             &[],
-            "",
             &mut state,
             &mut rejected,
             now
@@ -110,7 +106,6 @@ fn text_html_and_image_suppression_cover_successive_polls_and_then_external_cont
         assert!(prepare_snapshot(
             snapshot(kind, "result"),
             &[],
-            "",
             &mut state,
             &mut rejected,
             now
@@ -127,7 +122,6 @@ fn rejected_image_does_not_suppress_the_previous_valid_image() {
     assert!(prepare_snapshot(
         snapshot("image", "valid"),
         &[],
-        "",
         &mut state,
         &mut rejected,
         now
@@ -139,11 +133,10 @@ fn rejected_image_does_not_suppress_the_previous_valid_image() {
         height: 1,
         bytes: Cow::Owned(vec![]),
     });
-    assert!(prepare_snapshot(invalid, &[], "", &mut state, &mut rejected, now).is_none());
+    assert!(prepare_snapshot(invalid, &[], &mut state, &mut rejected, now).is_none());
     assert!(prepare_snapshot(
         snapshot("image", "valid"),
         &[],
-        "",
         &mut state,
         &mut rejected,
         now
@@ -231,7 +224,6 @@ fn a_new_external_selection_event_can_recopy_the_same_suppressed_image() {
     let image = prepare_snapshot(
         snapshot("image", "image"),
         &[],
-        "",
         &mut state,
         &mut rejected,
         now,
@@ -241,7 +233,6 @@ fn a_new_external_selection_event_can_recopy_the_same_suppressed_image() {
     assert!(prepare_snapshot(
         snapshot("image", "image"),
         std::slice::from_ref(&image.hash),
-        "",
         &mut state,
         &mut rejected,
         now
@@ -250,7 +241,6 @@ fn a_new_external_selection_event_can_recopy_the_same_suppressed_image() {
     assert!(prepare_snapshot(
         snapshot("image", "image"),
         &[],
-        "",
         &mut state,
         &mut rejected,
         now
@@ -261,7 +251,6 @@ fn a_new_external_selection_event_can_recopy_the_same_suppressed_image() {
     assert!(prepare_snapshot(
         snapshot("image", "image"),
         &[],
-        "",
         &mut state,
         &mut rejected,
         now
@@ -339,7 +328,6 @@ fn x11_internal_writes_are_settled_before_read_and_external_recopies_are_kept() 
         assert!(prepare_snapshot(
             ClipboardSnapshot::read(&mut clipboard).unwrap(),
             &hashes,
-            "",
             &mut state,
             &mut rejected,
             Instant::now(),
@@ -351,7 +339,6 @@ fn x11_internal_writes_are_settled_before_read_and_external_recopies_are_kept() 
             assert!(prepare_snapshot(
                 ClipboardSnapshot::read(&mut clipboard).unwrap(),
                 &[],
-                "",
                 &mut state,
                 &mut rejected,
                 Instant::now(),
@@ -406,7 +393,6 @@ fn x11_internal_writes_are_settled_before_read_and_external_recopies_are_kept() 
         let item = prepare_snapshot(
             ClipboardSnapshot::read(&mut clipboard).unwrap(),
             &[],
-            "",
             &mut state,
             &mut rejected,
             Instant::now(),
@@ -454,7 +440,6 @@ fn unchanged_selection_notification_does_not_block_due_database_retries() {
     assert!(prepare_snapshot(
         snapshot("image", "image"),
         &[],
-        "",
         &mut state,
         &mut rejected,
         now
@@ -466,7 +451,6 @@ fn unchanged_selection_notification_does_not_block_due_database_retries() {
     assert!(prepare_snapshot(
         snapshot("image", "image"),
         &[],
-        "",
         &mut state,
         &mut rejected,
         now + Duration::from_millis(500)
@@ -489,17 +473,67 @@ fn last_pixel_change_is_not_lost_by_the_full_image_fingerprint() {
             bytes: Cow::Owned(bytes),
         })
     };
-    let before = prepare_snapshot(
-        make(pixels.clone()),
-        &[],
-        "",
-        &mut state,
-        &mut rejected,
-        now,
-    )
-    .unwrap();
+    let before =
+        prepare_snapshot(make(pixels.clone()), &[], &mut state, &mut rejected, now).unwrap();
     state.settle();
     pixels[32 * 32 * 4 - 4] ^= 1;
-    let after = prepare_snapshot(make(pixels), &[], "", &mut state, &mut rejected, now).unwrap();
+    let after = prepare_snapshot(make(pixels), &[], &mut state, &mut rejected, now).unwrap();
     assert_ne!(before.hash, after.hash);
+}
+
+#[test]
+fn old_tmux_content_cannot_suppress_independent_clipboard_recopies() {
+    let text = "previous tmux value";
+    let hash = compute_hash(text.as_bytes());
+    let db = StorageEngine::new_in_memory().unwrap();
+    let old = db
+        .insert_clip(
+            &ContentType::Text,
+            Some(text),
+            None,
+            None,
+            &hash,
+            text.len() as i64,
+            false,
+        )
+        .unwrap();
+    db.delete_clip(old.id).unwrap();
+    let mut state = PollState::default();
+    let mut rejected = None;
+    // tmux 自身的最后文件哈希已不进入系统快照处理；即便旧条目已删除，新的
+    // selection 也必须重新入库。内部主动复制仍由当前 WriteEpoch 哈希抑制。
+    for _ in 0..2 {
+        state.reset();
+        let item = prepare_snapshot(
+            ClipboardSnapshot::Text(text.into()),
+            &[],
+            &mut state,
+            &mut rejected,
+            Instant::now(),
+        )
+        .unwrap();
+        let clip = db
+            .insert_clip(
+                &item.kind,
+                item.text.as_deref(),
+                None,
+                None,
+                &item.hash,
+                item.byte_size,
+                item.sensitive,
+            )
+            .unwrap();
+        assert_ne!(clip.id, old.id);
+        state.settle();
+    }
+    assert_eq!(db.get_clips(None, false, 0, 10).unwrap().len(), 1);
+    state.reset();
+    assert!(prepare_snapshot(
+        ClipboardSnapshot::Text(text.into()),
+        &[hash],
+        &mut state,
+        &mut rejected,
+        Instant::now()
+    )
+    .is_none());
 }

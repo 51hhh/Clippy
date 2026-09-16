@@ -1,4 +1,5 @@
 mod app;
+mod app_update;
 pub mod bench_support;
 mod capture;
 mod clipboard_watcher;
@@ -72,6 +73,7 @@ pub fn run() {
     .init();
 
     tauri::Builder::default()
+        .manage(Arc::new(app_update::AppUpdater::new()))
         // 冻结帧走 WebKit 原生资源管线，避免 16–33 MB RGBA 穿过 JS invoke 桥；
         // `get_capture_frame` 仍作为协议加载失败时的兼容兜底。
         .register_uri_scheme_protocol("capture-frame", capture::frame_protocol)
@@ -306,6 +308,9 @@ pub fn run() {
             commands::set_codec_visible,
             commands::get_config,
             commands::update_config,
+            app_update::get_app_update_state,
+            app_update::check_app_update,
+            app_update::install_app_update,
             commands::restart_app,
             commands::close_settings,
             commands::check_shortcut_conflict,
