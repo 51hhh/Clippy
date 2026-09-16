@@ -38,3 +38,7 @@ package-lock.json
 # 参考项目（本地研究用）。translator 是 GPL-3.0-only，其源码不得进入本仓库。
 examples/
 example/
+
+# 本地工作区（不进仓库）
+.omo/
+.trellis/
