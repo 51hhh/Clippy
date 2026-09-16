@@ -95,7 +95,11 @@ GREEN=0
 BLUE=0
 for _ in $(seq 1 "$ATTEMPTS"); do
   # 780x500 = 预览展开时 window_controller 给出的逻辑尺寸（380 列表 + 400 面板，高度恒定 500）
-  HOME="$PROFILE_DIR" timeout 25 "$FIREFOX" --headless \
+  # 用 --profile 而不是改 HOME 来隔离：snap 版 firefox 的启动脚本会把 HOME 重设成
+  # snap 自己的家目录，HOME="$PROFILE_DIR" 其实没隔离到任何东西，于是这里会去抢用户
+  # 正在用的那个 profile 的锁，报 "Firefox is already running" 后退出 0 且不落盘截图。
+  # --profile 明确指定目录才真正独立，开着浏览器也能跑（目录须在 $HOME 内，snap 读不到 /tmp）。
+  timeout 25 "$FIREFOX" --headless --profile "$PROFILE_DIR" \
     --window-size 780,500 --screenshot "$SCREENSHOT" \
     "http://127.0.0.1:${PORT}/tests/fixtures/layout-smoke.html" \
     >"$FIREFOX_LOG" 2>&1 || {
