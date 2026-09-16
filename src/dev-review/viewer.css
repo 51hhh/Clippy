@@ -1,0 +1,16 @@
+body { overflow: auto; }
+.viewer-review-shell { max-width: 1600px; margin: 0 auto; padding: 16px 22px; }
+.viewer-review-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 12px; color: var(--text-secondary); font-size: 11px; }
+.viewer-review-bar a { color: var(--accent); }
+.viewer-review-bar strong { color: var(--text-primary); }
+.viewer-review-options { margin-left: auto; display: flex; gap: 7px; }
+.viewer-review-options :is(select,button) { max-width: 130px; padding: 4px 7px; border: 1px solid var(--border); border-radius: 5px; color: var(--text-primary); background: var(--bg-primary); font-size: 11px; }
+.viewer-review-app { position: relative; height: min(850px,calc(100dvh - 120px)); min-height: 460px; overflow: hidden; border: 1px solid var(--border-strong); border-radius: 10px; box-shadow: var(--shadow); }
+.viewer-review-document { width: 100%; height: 100%; }
+.viewer-review-document.is-minimized { visibility: hidden; pointer-events: none; }
+.viewer-review-app.is-fullscreen { position: fixed; z-index: 100; inset: 0; width: 100dvw !important; height: 100dvh !important; min-height: 0; border: 0; border-radius: 0; }
+.viewer-review-restore { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px; background: var(--bg-primary); color: var(--text-primary); font-size: 12px; }
+.viewer-review-restore button { padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; }
+.viewer-review-fullscreen-note { position: absolute; bottom: 5px; right: 8px; padding: 2px 5px; color: var(--text-secondary); background: var(--bg-primary); pointer-events: none; font-size: 10px; }
+.viewer-review-activity { min-height: 20px; margin-top: 8px; font-size: 11px; color: var(--text-secondary); }
+@media (max-width: 720px) { .viewer-review-shell { padding: 10px; } .viewer-review-options { width: 100%; margin-left: 0; } .viewer-review-app { height: calc(100dvh - 155px); } }

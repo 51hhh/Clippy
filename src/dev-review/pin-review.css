@@ -1,0 +1,8 @@
+html,body { overflow:auto; background:var(--bg-primary,#16181d); color:var(--text-primary,#ecedf1); }
+.pin-review-shell { min-height:100vh; padding:20px; font:13px/1.5 system-ui,sans-serif; }
+.pin-review-shell header { display:flex; flex-wrap:wrap; align-items:center; gap:20px; }
+.pin-review-shell nav { display:flex; flex-wrap:wrap; gap:14px; }
+.pin-review-shell a { color:var(--accent,#8aa4ff); }
+.pin-review-status { min-height:24px; color:var(--text-secondary,#b3b7c2); }
+.pin-review-stage { position:relative; overflow:clip; margin:20px auto; max-width:100%; background:repeating-conic-gradient(#66708422 0% 25%,#6670840b 0% 50%) 50%/20px 20px; outline:1px solid var(--border-strong,#3b3f4a); }
+.pin-review-note { max-width:680px; margin:20px auto; color:var(--text-secondary,#b3b7c2); }

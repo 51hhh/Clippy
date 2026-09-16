@@ -101,6 +101,7 @@ run_step "主窗口布局像素 smoke" ./scripts/smoke-layout.sh
 
 if [[ "$QUICK" == false ]]; then
   run_step "vite build" bash -c "cd src && npx vite build"
+  run_step "built main entry" node scripts/check-built-main.mjs
   if [[ "${CLIPPY_APPIMAGE_SMOKE:-0}" == "1" ]]; then
     if [[ -n "${CLIPPY_APPIMAGE_PATH:-}" ]]; then
       run_step "AppImage X11 可视 smoke" ./scripts/smoke-appimage-x11.sh "${CLIPPY_APPIMAGE_PATH}"
