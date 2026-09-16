@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>轻量、极速的 Linux 剪贴板管理器</strong>
+  <strong>轻量、极速的跨平台剪贴板管理器</strong>
 </p>
 
 <p align="center">

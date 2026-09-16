@@ -1,6 +1,6 @@
 # 跨平台真机 QA
 
-本手册用于完成 `.trellis/tasks/09-02-cross-platform-compatibility/prd.md` 中不能由 Linux 本机或
+本手册用于完成跨平台兼容性验收中不能由 Linux 本机或
 交叉编译证明的验收项。每份记录必须绑定完整 commit SHA 和实际安装包版本；“能编译”“看起来正常”
 或旧版本截图不能代替指定场景的观测证据。
 

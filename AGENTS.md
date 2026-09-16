@@ -1,26 +1,3 @@
-<!-- TRELLIS:START -->
-# Trellis Instructions
-
-These instructions are for AI assistants working in this project.
-
-Use the `/trellis:start` command when starting a new session to:
-- Initialize your developer identity
-- Understand current project context
-- Read relevant guidelines
-
-Use `@/.trellis/` to learn:
-- Development workflow (`workflow.md`)
-- Project structure guidelines (`spec/`)
-- Developer workspace (`workspace/`)
-
-If you're using Codex, project-scoped helpers may also live in:
-- `.agents/skills/` for reusable Trellis skills
-- `.codex/agents/` for optional custom subagents
-
-Keep this managed block so 'trellis update' can refresh the instructions.
-
-<!-- TRELLIS:END -->
-
 # Clippy — AI Agent 速查指引
 
 ## 项目简介
@@ -45,17 +22,17 @@ cd src && npx tsc --noEmit                 # React/TS 功能岛类型检查
 ## 架构要点
 | 层 | 路径 | 说明 |
 |----|------|------|
-| 前端 | `src/js/` | ES Module，`api.js` 是唯一 Tauri IPC 入口 |
+| 前端 | `src/js/` | ES Module，`api.ts` 是唯一 Tauri IPC 入口 |
 | 后端 | `src-tauri/src/` | 扁平模块：commands / storage / clipboard_watcher / config / models / portal_shortcuts / tray_icon |
 | 数据库 | SQLite + FTS5 | `clips` 表 + `clips_fts` 虚拟表，SHA-256 去重 |
 | 快捷键 | X11: tauri-plugin-global-shortcut; Wayland: XDG Portal (ashpd) |
 
 ## 关键约定
 - **前端 XSS 防护**：所有用户内容用 `textContent`，禁止 `innerHTML`
-- **IPC 封装**：只有 `api.js` 直接访问 `window.__TAURI__`
+- **IPC 封装**：只有 `api.ts` 直接访问 `window.__TAURI__`
 - **语言**：代码注释 / commit 中文，前端 UI 英文
 - **构建目标**：Linux x64（deb、AppImage）、Windows x64（NSIS、MSI）、macOS Intel/Apple Silicon（DMG、updater bundle）
-- **编码规范**：见 `.trellis/spec/backend/` 和 `.trellis/spec/frontend/`
+- **编码规范**：见项目 Wiki 的「后端编码规范」与「前端编码规范」
 
 ## Git Commit 规范
 
@@ -101,24 +78,14 @@ release: v0.1.16
 
 ## 任务闭环规则（不可违反）
 
-Trellis task 生命周期必须与代码实际状态同步：
+变更记录必须与代码实际状态同步：
 
-1. **任何代码变更必须在某个 task 的 `in_progress` 状态下进行**
-   - 开发前：`python3 ./.trellis/scripts/task.py start <name>`
-   - 不能在无 task 的情况下直接提交代码
-
-2. **代码合入 dev 后，task 必须标记 `completed`**
-   - 填写 `commit`、`completedAt`、`branch` 字段
-   - 所有 PRD 验收项必须在代码中体现
-
-3. **定期清理**
-   - 每次 release 后 archive 已完成的 task：`task.py archive <name>`
-   - 超过 2 周未推进的 task 标记 `stale` 或关闭
-
-4. **新功能必须有 PRD**
-   - 使用 `task.py create` 创建 task 目录
-   - `prd.md` 必须包含：Goal、Requirements、Acceptance Criteria、Out of Scope
-   - 参考 `docs/feature-lifecycle.md` 了解完整流程
+1. **一个分支做一件事**，分支名反映改动范围，不把无关改动混入同一分支
+2. **合入 dev 前必须通过 `./scripts/ci-local.sh`**，跳过的步骤不计为通过
+3. **用户可见的变更必须写入 `CHANGELOG.md`**，并写清未验证的边界
+4. **新功能先写清 Goal / Requirements / Acceptance Criteria / Out of Scope**，
+   再动代码；验收项必须在代码或测试中有对应体现
+5. **未完成项一律保留**，不写成全部完成；平台矩阵与安装包构建不计入测试通过数
 
 ## 功能开发流程
 

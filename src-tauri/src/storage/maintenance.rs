@@ -4,10 +4,14 @@ use rusqlite::{params, Result as SqlResult};
 impl StorageEngine {
     /// 删除超出 max_history 上限的最旧非收藏条目，返回被删除的 id 列表。
     pub fn cleanup_old_entries(&self, max_history: u32) -> Result<Vec<i64>, StorageError> {
+        // 设置页约定 0 为不限；不能把它当成需要保留零条。
+        if max_history == 0 {
+            return Ok(Vec::new());
+        }
         let mut stmt = self.conn.prepare_cached(
             "SELECT id FROM clips
              WHERE is_favorite = 0
-             ORDER BY created_at ASC
+             ORDER BY use_order ASC, id ASC
              LIMIT MAX(0, (SELECT COUNT(*) FROM clips WHERE is_favorite = 0) - ?1)",
         )?;
         let ids = stmt
@@ -37,27 +41,29 @@ impl StorageEngine {
 
         let tx = self.conn.unchecked_transaction()?;
 
-        let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-        let select_fts = format!(
-            "SELECT id, text_content FROM clips WHERE id IN ({placeholders}) AND text_content IS NOT NULL"
-        );
-        let mut select = self.conn.prepare(&select_fts)?;
-        let fts_entries = select
-            .query_map(rusqlite::params_from_iter(ids.iter()), |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-            })?
-            .collect::<SqlResult<Vec<_>>>()?;
-
         let mut delete_fts = self.conn.prepare_cached(
             "INSERT INTO clips_fts(clips_fts, rowid, text_content) VALUES ('delete', ?1, ?2)",
         )?;
-        for (id, text) in fts_entries {
-            delete_fts.execute(params![id, text])?;
+        // 无限历史切回有限上限可能一次删除数万条。每条 SQL 控制在 500 个参数，
+        // 同时兼容旧 SQLite 的 999 上限；所有分块仍共享同一个事务，不能部分提交。
+        for chunk in ids.chunks(500) {
+            let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+            let select_fts = format!(
+                "SELECT id, text_content FROM clips WHERE id IN ({placeholders}) AND text_content IS NOT NULL"
+            );
+            let mut select = self.conn.prepare(&select_fts)?;
+            let fts_entries = select
+                .query_map(rusqlite::params_from_iter(chunk.iter()), |row| {
+                    Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<SqlResult<Vec<_>>>()?;
+            for (id, text) in fts_entries {
+                delete_fts.execute(params![id, text])?;
+            }
+            let delete_clips = format!("DELETE FROM clips WHERE id IN ({placeholders})");
+            self.conn
+                .execute(&delete_clips, rusqlite::params_from_iter(chunk.iter()))?;
         }
-
-        let delete_clips = format!("DELETE FROM clips WHERE id IN ({placeholders})");
-        self.conn
-            .execute(&delete_clips, rusqlite::params_from_iter(ids.iter()))?;
         // 被清理条目的译文不该留在库里。
         self.purge_orphan_translations()?;
         tx.commit()?;

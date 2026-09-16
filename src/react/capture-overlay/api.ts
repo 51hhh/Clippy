@@ -1,5 +1,8 @@
 import {
   cancelCaptureOverlay,
+  closeCurrentWindow,
+  retryCaptureAction,
+  onCaptureLongshotHandoff,
   commitCaptureAction,
   copyText,
   getCaptureFrame,
@@ -12,6 +15,7 @@ import {
 import type {
   CaptureAction,
   CaptureActionResult,
+  CaptureLongshotHandoff,
   CaptureOrigin,
   CaptureOverlayPayload,
   CaptureSelection,
@@ -20,6 +24,9 @@ import type {
 } from "../../js/ipc-types.ts";
 
 export const overlayApi = {
+  closeUninitialized: (): Promise<void> => closeCurrentWindow(),
+  retry: (action: CaptureAction): Promise<CaptureActionResult> => retryCaptureAction(action),
+  onHandoff: (callback: (result: CaptureLongshotHandoff) => void): Promise<() => void> => onCaptureLongshotHandoff(callback),
   get: (label: string): Promise<CaptureOverlayPayload> => getCaptureOverlay(label),
   /** 首选 WebKit 原生资源管线；避开大块 RGBA 的 JS invoke 桥。 */
   image: (label: string): Promise<HTMLImageElement> =>

@@ -80,7 +80,9 @@ pub(crate) fn hide_main_window(app: &tauri::AppHandle) -> Result<(), String> {
 /// 标题按界面语言取，避免两边各写一份几何与文案。
 pub(crate) fn open_settings_window(app: &tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("settings") {
-        let _ = window.close();
+        window.unminimize().map_err(|error| error.to_string())?;
+        window.show().map_err(|error| error.to_string())?;
+        return window.set_focus().map_err(|error| error.to_string());
     }
     tauri::WebviewWindowBuilder::new(
         app,
@@ -163,8 +165,12 @@ pub(crate) fn remember_main_window_position(
             if let Some(remembered) = remembered {
                 match state.config.lock() {
                     Ok(mut config) if config.main_window_position != Some(remembered) => {
-                        config.main_window_position = Some(remembered);
-                        crate::config::save_config(&state.config_path, &config);
+                        let mut updated = config.clone();
+                        updated.main_window_position = Some(remembered);
+                        match crate::config::save_config(&state.config_path, &updated) {
+                            Ok(()) => *config = updated,
+                            Err(error) => log::warn!("保存主窗口位置失败: {error}"),
+                        }
                     }
                     Ok(_) => {}
                     Err(error) => log::warn!("保存主窗口位置时读取配置失败: {error}"),

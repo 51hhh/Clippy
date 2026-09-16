@@ -1,3 +1,7 @@
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { OutputFailurePanel } from "../../react/capture-overlay/OutputFailurePanel";
+import "../../react/capture-overlay/overlay.css";
 import { drawScene, renderExport } from "../../react/annotation/canvasRenderer";
 import { DEFAULT_IMAGE_ADJUSTMENTS } from "../../react/annotation/imageAdjustments";
 import type { Annotation } from "../../react/annotation/types";
@@ -276,12 +280,93 @@ function verifyCanonicalSourcePixelsAcrossCompensation(): void {
   document.documentElement.dataset.canonicalCanvas = "passed";
 }
 
+/** 与 Rust render_v2 的真实 PNG 回归使用相同像素/平均值，不依赖 Canvas mock。 */
+function verifySourceMosaicGridAtEveryScale(): void {
+  const source = document.createElement("canvas");
+  source.width = 32;
+  source.height = 24;
+  const ctx = context(source);
+  const pixels = ctx.createImageData(32, 24);
+  for (let y = 0; y < 24; y += 1) {
+    for (let x = 0; x < 32; x += 1) {
+      pixels.data.set([(x * 17 + y * 7) % 256, (x * 3 + y * 19) % 256,
+        (x * 11 + y * 5) % 256, 255], (y * 32 + x) * 4);
+    }
+  }
+  ctx.putImageData(pixels, 0, 0);
+  const annotations: Annotation[] = [{ id: "m", type: "mosaic",
+    rect: { x: 1, y: 2, width: 26, height: 14 },
+    effect: { mosaicCell: 12, blurRadius: 8, spotlightDim: 0.5, magnifierZoom: 2 } }];
+  const samples = [
+    [7, 8, [143, 139, 109, 255]], [19, 8, [118, 134, 141, 255]],
+    [25, 8, [177, 134, 62, 255]], [7, 14, [137, 39, 144, 255]],
+    [19, 14, [149, 75, 105, 255]], [25, 14, [23, 96, 97, 255]],
+  ] as const;
+  for (const scale of [0.25, 0.5, 1, 2]) {
+    const view = document.createElement("canvas");
+    drawScene(view, source, { width: 32 * scale, height: 24 * scale, fitScale: scale, zoom: 1,
+      scale, pixelRatio: 1 }, annotations, null, DEFAULT_IMAGE_ADJUSTMENTS, null);
+    for (const [x, y, expected] of samples) {
+      // 小于一个显示像素的最后一格会受到裁剪边界覆盖率影响；1x/2x 精确校验边格。
+      if (scale < 1 && (x === 25 || y === 14)) continue;
+      const actual = pixel(context(view), Math.floor(x * scale), Math.floor(y * scale));
+      assert(actual.every((value, channel) => value === expected[channel]),
+        `mosaic grid differs at scale=${scale}, (${x},${y}): ${actual} vs ${expected}`);
+    }
+  }
+}
+
+function verifyRoundedSelectionPreview(): void {
+  const source = document.createElement("canvas");
+  source.width = 32;
+  source.height = 24;
+  context(source).fillStyle = "rgba(128, 200, 254, 0.5)";
+  context(source).fillRect(0, 0, 32, 24);
+  const view = document.createElement("canvas");
+  drawScene(view, source, { width: 32, height: 24, fitScale: 1, zoom: 1, scale: 1, pixelRatio: 1 },
+    [{ id: "r", type: "highlight", color: "#ff0000", size: 2, rect: { x: 4, y: 4, width: 24, height: 16 } }],
+    null, { ...DEFAULT_IMAGE_ADJUSTMENTS, cornerRadius: 8 }, null,
+    { x: 4, y: 4, width: 24, height: 16 });
+  const preview = context(view);
+  assert(pixel(preview, 4, 4)[3] === 0, `rounded preview kept annotation corner: ${pixel(preview, 4, 4)}`);
+  assert(pixel(preview, 16, 12)[3] > 128, "rounded preview lost center compositing");
+  assert(pixel(preview, 0, 0)[3] === 128, "rounded preview removed context outside selection");
+}
+
+/** 用真实组件和样式检查小屏幕上的长错误信息仍可滚到重试/放弃。 */
+function verifyRecoverableOutputLayout(): void {
+  const wrapper = document.createElement("main");
+  wrapper.className = "overlay-root";
+  wrapper.style.width = "320px";
+  wrapper.style.height = "240px";
+  const markup = renderToStaticMarkup(React.createElement(OutputFailurePanel, {
+    failure: { message: "disk full", outputPending: true, retryActions: ["copy", "save", "pin"] },
+    message: "A long destination name could not be saved. ".repeat(30), busy: false,
+    onRetry: () => {}, onDiscard: () => {},
+  }));
+  const parsed = new DOMParser().parseFromString(markup, "text/html");
+  wrapper.replaceChildren(...Array.from(parsed.body.childNodes).map((node) => document.adoptNode(node)));
+  document.body.append(wrapper);
+  const panel = wrapper.querySelector<HTMLElement>(".overlay-output-failure")!;
+  const bounds = panel.getBoundingClientRect();
+  assert(bounds.top >= 0 && bounds.left >= 0 && bounds.right <= 320 && bounds.bottom <= 240,
+    `output failure panel is clipped: ${JSON.stringify(bounds.toJSON())}`);
+  assert(panel.scrollHeight > panel.clientHeight, "long output error must be scrollable");
+  panel.scrollTop = panel.scrollHeight;
+  const buttons = panel.querySelector<HTMLElement>(".overlay-output-actions")!.getBoundingClientRect();
+  assert(buttons.bottom <= bounds.bottom && buttons.top >= bounds.top, "output recovery actions cannot be reached");
+  wrapper.remove();
+}
+
 try {
   const source = createSource();
   verifyCropAdjustmentsAndRoundedMask(source);
   verifyVectorAnnotation(source);
   verifyTranslucentAndDimmingEffects(source);
   verifyCanonicalSourcePixelsAcrossCompensation();
+  verifySourceMosaicGridAtEveryScale();
+  verifyRoundedSelectionPreview();
+  verifyRecoverableOutputLayout();
   document.documentElement.dataset.canvasExport = "passed";
   document.body.style.background = "#00d000";
 } catch (error) {

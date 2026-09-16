@@ -81,10 +81,10 @@ export function coversBounds(rect: Rect, bounds: Rect, tolerance = 1): boolean {
  * 取整后仍钳在帧内，避免 `renderExport` 采样越界。
  */
 export function toPixelRect(rect: Rect, scaleX: number, scaleY: number, frame: Rect): Rect {
-  const left = Math.round(rect.x * scaleX);
-  const top = Math.round(rect.y * scaleY);
-  const right = Math.round((rect.x + rect.width) * scaleX);
-  const bottom = Math.round((rect.y + rect.height) * scaleY);
+  const left = Math.floor(rect.x * scaleX);
+  const top = Math.floor(rect.y * scaleY);
+  const right = Math.ceil((rect.x + rect.width) * scaleX);
+  const bottom = Math.ceil((rect.y + rect.height) * scaleY);
   const clamped = {
     x: Math.max(frame.x, Math.min(left, frame.x + frame.width)),
     y: Math.max(frame.y, Math.min(top, frame.y + frame.height)),

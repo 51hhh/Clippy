@@ -13,7 +13,7 @@ vi.mock("../js/api.ts", () => ({
 }));
 
 import * as i18n from "../i18n/i18n.js";
-import { getClipThumbnail, onPasteFallback } from "../js/api.ts";
+import { getClipThumbnail, onPasteFallback, selectClip } from "../js/api.ts";
 import { ClipboardRow } from "../react/main/ClipboardRow.tsx";
 import { ClipboardWorkspace } from "../react/main/ClipboardWorkspace.tsx";
 import { clipboardStore } from "../react/main/clipboardStore.ts";
@@ -61,6 +61,16 @@ describe("React clipboard row", () => {
     delete globalThis.IS_REACT_ACT_ENVIRONMENT;
   });
 
+  it("action failure is visible and dismissible without removing the clip", async () => {
+    selectClip.mockRejectedValueOnce(new Error("clipboard unavailable"));
+    await clipboardStore.invokeAction(clip(), "copy");
+    const html = renderToStaticMarkup(React.createElement(ClipboardWorkspace));
+    expect(html).toContain('role="alert"');
+    expect(html).toContain(i18n.t("clipboard.actionFailed"));
+    clipboardStore.dismissActionError();
+    expect(renderToStaticMarkup(React.createElement(ClipboardWorkspace))).not.toContain('role="alert"');
+  });
+
   it("escapes user content and exposes accessible actions", () => {
     const html = renderToStaticMarkup(React.createElement(ClipboardRow, {
       clip: clip({ text_content: '<img src=x onerror="alert(1)">' }),
@@ -71,6 +81,19 @@ describe("React clipboard row", () => {
     expect(html).not.toContain("<img src=x");
     expect(html).toContain('aria-label="Copy"');
     expect(html).toContain('role="option"');
+  });
+  it("keeps More expansion and collapse out of row copy actions", async () => {
+    const host = document.createElement("div"); document.body.append(host);
+    const root = createRoot(host); const rowProps = { clip: clip(), ...props() };
+    try {
+      await act(async () => root.render(React.createElement(ClipboardRow, rowProps)));
+      await act(async () => host.querySelector(".clip-row-trigger").click());
+      expect(rowProps.handlers.onToggle).toHaveBeenCalledTimes(1);
+      await act(async () => root.render(React.createElement(ClipboardRow, { ...rowProps, expanded: true })));
+      await act(async () => host.querySelector(".clip-row-trigger").click());
+      expect(rowProps.handlers.onToggle).toHaveBeenCalledTimes(2);
+      expect(rowProps.handlers.onAction).not.toHaveBeenCalled();
+    } finally { await act(async () => root.unmount()); host.remove(); }
   });
 
   it("does not add a manual image-open entry to the clipboard workspace", () => {
@@ -198,14 +221,15 @@ describe("React clipboard row", () => {
       expect(list.querySelectorAll(".clip-row").length).toBeLessThan(20);
       expect(Number(list.querySelector(".clip-row")?.dataset.idx)).toBeGreaterThan(4_900);
 
-      await act(async () => clipboardStore.scheduleQuery("needle"));
-      expect(list.scrollTop).toBe(0);
-
       await act(async () => clipboardStore.focusRow(9_999));
       const focused = list.querySelector('.clip-row.focused[data-idx="9999"]');
       expect(focused).not.toBeNull();
       expect(focused?.getAttribute("aria-posinset")).toBe("10000");
       expect(list.scrollTop).toBe(769_400);
+
+      await act(async () => clipboardStore.scheduleQuery("needle"));
+      expect(list.scrollTop).toBe(0);
+      expect(list.querySelectorAll(".clip-row")).toHaveLength(0);
     } finally {
       await act(async () => root.unmount());
       clipboardStore.releaseMemory();
@@ -213,5 +237,24 @@ describe("React clipboard row", () => {
       container.remove();
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe('折叠操作组的原生键盘焦点', () => {
+  it('展开时按钮可激活，折叠后禁用并将焦点归还列表', async () => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    const panel = document.createElement('section'); panel.id = 'list-panel'; panel.tabIndex = -1;
+    const container = document.createElement('div'); panel.append(container); document.body.append(panel);
+    const root = createRoot(container); const rowProps = { clip: clip(), ...props({ expanded: true }) };
+    try {
+      await act(async () => root.render(React.createElement(ClipboardRow, rowProps)));
+      const button = container.querySelector('[aria-label="Delete"]'); button.focus(); button.click();
+      expect(rowProps.handlers.onAction).toHaveBeenCalledWith(rowProps.clip, 0, 'delete', 2);
+      rowProps.handlers.onAction.mockClear();
+      await act(async () => root.render(React.createElement(ClipboardRow, { ...rowProps, expanded: false })));
+      expect(document.activeElement).toBe(panel);
+      for (const action of container.querySelectorAll('.clip-row-action')) { expect(action.disabled).toBe(true); expect(action.tabIndex).toBe(-1); action.click(); }
+      expect(rowProps.handlers.onAction).not.toHaveBeenCalled();
+    } finally { await act(async () => root.unmount()); panel.remove(); delete globalThis.IS_REACT_ACT_ENVIRONMENT; }
   });
 });

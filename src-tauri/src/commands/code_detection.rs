@@ -10,7 +10,7 @@ fn scan_gate() -> &'static Arc<Semaphore> {
     GATE.get_or_init(|| Arc::new(Semaphore::new(1)))
 }
 
-fn acquire_scan_permit() -> Result<OwnedSemaphorePermit, CodeScanError> {
+pub(crate) fn acquire_scan_permit() -> Result<OwnedSemaphorePermit, CodeScanError> {
     Arc::clone(scan_gate())
         .try_acquire_owned()
         .map_err(|_| CodeScanError::Busy)

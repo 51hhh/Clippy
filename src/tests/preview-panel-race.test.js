@@ -6,10 +6,11 @@ const api = vi.hoisted(() => ({
   getClipImage: vi.fn(),
   detectImageCodes: vi.fn(),
   ocrAvailable: vi.fn(),
-  ocrImage: vi.fn(),
+  ocrImageResult: vi.fn(),
   getConfig: vi.fn(),
   fetchUrlMeta: vi.fn(),
   copyText: vi.fn(),
+  openImageViewer: vi.fn(),
 }));
 
 function deferred() {
@@ -164,62 +165,77 @@ describe("preview render generation", () => {
     expect(document.getElementById("preview-content").textContent).not.toContain("B");
   });
 
-  it("does not let a completed stale explicit scan write over the next preview", async () => {
+  it("clears the image translation binding immediately when switching to another item", async () => {
     vi.useFakeTimers();
     mountPreviewDom();
-    const scan = deferred();
     api.getClipImage.mockResolvedValue("image-bytes");
     api.getConfig.mockResolvedValue({ ocr_enabled: false });
-    api.detectImageCodes.mockReturnValue(scan.promise);
     const previewPanel = await import("../js/preview-panel.js");
+    const { imageTranslationView } = await import("../js/preview/reveal-translation.js");
     previewPanel.init();
     await previewPanel.toggle();
-
     previewPanel.updatePreview({ id: 31, content_type: "image", byte_size: 1024 });
     await vi.advanceTimersByTimeAsync(80);
-    await vi.waitFor(() => {
-      expect(document.querySelector(".preview-code-scan-button")).not.toBeNull();
-    });
-    document.querySelector(".preview-code-scan-button").click();
-    expect(api.detectImageCodes).toHaveBeenCalledWith(31);
-
+    expect(imageTranslationView.getSnapshot()?.clipId).toBe(31);
+    expect(previewPanel.revealTranslation()).toBe(true);
     previewPanel.updatePreview({ id: 32, content_type: "text", text_content: "current", byte_size: 1 });
+    // 防抖尚未推进时，旧按钮和旧 slot 已不能作为翻译入口。
+    expect(imageTranslationView.getSnapshot()).toBeNull();
+    expect(previewPanel.revealTranslation()).toBe(false);
     await vi.advanceTimersByTimeAsync(80);
-    scan.resolve({ results: [{ format: "qr_code", text: "late scan", points: [] }], limited: false });
-    await Promise.resolve();
-    await Promise.resolve();
-
     expect(document.getElementById("preview-content").textContent).toContain("current");
-    expect(document.getElementById("preview-content").textContent).not.toContain("late scan");
   });
 
-  it("does not publish a rejected scan after the preview is hidden", async () => {
+  it.each(["hide", "clearContent"])("%s invalidates a slow image before it can publish a translation slot", async (operation) => {
     vi.useFakeTimers();
     mountPreviewDom();
-    const scan = deferred();
-    api.getClipImage.mockResolvedValue("image-bytes");
+    const image = deferred();
+    api.getClipImage.mockReturnValue(image.promise);
     api.getConfig.mockResolvedValue({ ocr_enabled: false });
-    api.detectImageCodes.mockReturnValue(scan.promise);
     const previewPanel = await import("../js/preview-panel.js");
+    const { imageTranslationView } = await import("../js/preview/reveal-translation.js");
     previewPanel.init();
     await previewPanel.toggle();
-
     previewPanel.updatePreview({ id: 33, content_type: "image", byte_size: 1024 });
     await vi.advanceTimersByTimeAsync(80);
-    await vi.waitFor(() => {
-      expect(document.querySelector(".preview-code-scan-button")).not.toBeNull();
-    });
-    const area = document.querySelector(".preview-code-scan");
-    area.querySelector(".preview-code-scan-button").click();
-    expect(area.dataset.status).toBe("loading");
-
-    await previewPanel.hide();
-    scan.reject(new Error("late scan failure"));
+    expect(previewPanel.revealTranslation()).toBe(false);
+    await previewPanel[operation]();
+    image.resolve("late-image");
     await Promise.resolve();
     await Promise.resolve();
+    expect(imageTranslationView.getSnapshot()).toBeNull();
+    expect(document.querySelector(".preview-ocr-translation")).toBeNull();
+  });
 
-    expect(document.getElementById("preview-panel").classList.contains("hidden")).toBe(true);
-    expect(area.dataset.status).toBe("loading");
-    expect(area.querySelector(".preview-code-scan-status").textContent).toBe("codeScan.scanning");
+});
+
+describe('预算在预览派发前生效', () => {
+  it('超限 JSON/JWT/Base64 只展示带说明的原文片段，原条目不变', async () => {
+    vi.useFakeTimers(); mountPreviewDom();
+    const { MAX_RENDER_CHARS } = await import('../js/preview/large-text.js');
+    const preview = await import('../js/preview-panel.js'); preview.init(); await preview.toggle();
+    const texts = [JSON.stringify({ body: 'x'.repeat(MAX_RENDER_CHARS) }), 'eyJ.' + 'A'.repeat(MAX_RENDER_CHARS) + '.abc', btoa('a'.repeat(MAX_RENDER_CHARS))];
+    for (const [index, text] of texts.entries()) {
+      const entry = { id: index + 501, content_type: 'text', text_content: text, byte_size: text.length };
+      preview.updatePreview(entry); await vi.advanceTimersByTimeAsync(80);
+      const content = document.getElementById('preview-content');
+      expect(document.getElementById('preview-type-badge').textContent).toBe('TEXT');
+      expect(content.firstChild.textContent.length).toBe(MAX_RENDER_CHARS);
+      expect(content.querySelector('.preview-truncated')).not.toBeNull();
+      expect(content.querySelector('code, img')).toBeNull(); expect(entry.text_content).toBe(text);
+    }
+  });
+
+  it('独立 HTML 详情超过预算时不解析截断标签', async () => {
+    vi.useFakeTimers(); mountPreviewDom();
+    const { MAX_RENDER_CHARS } = await import('../js/preview/large-text.js');
+    api.getClipDetail.mockResolvedValue({ html_content: '<p>' + 'x'.repeat(MAX_RENDER_CHARS) + '</p>' });
+    const preview = await import('../js/preview-panel.js'); preview.init(); await preview.toggle();
+    preview.updatePreview({ id: 601, content_type: 'html', text_content: 'alpha', byte_size: MAX_RENDER_CHARS + 7 });
+    await vi.advanceTimersByTimeAsync(80);
+    await vi.waitFor(() => expect(document.querySelector('#preview-content .preview-truncated')).not.toBeNull());
+    expect(document.getElementById('preview-type-badge').textContent).toBe('TEXT');
+    expect(document.querySelector('#preview-content p')).toBeNull();
+    expect(document.getElementById('preview-content').textContent.startsWith('<p>')).toBe(true);
   });
 });

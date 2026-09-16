@@ -1,8 +1,10 @@
 use super::error::CaptureError;
 use super::frame_crop::selection_pixel_rect;
 use super::mode_gate::CaptureModeOwnership;
+use super::output::{OutputAttempt, OutputClaim, OutputPhase};
 use super::types::{CaptureOverlayPayload, CaptureSelection, OverlaySpec, WindowCandidate};
 use super::window_probe::probe_windows;
+use super::{CaptureAction, CommitImage};
 use crate::screenshot::CapturedMonitorFrame;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -99,6 +101,7 @@ pub(super) struct CaptureSession {
     /// 就没人接 Esc，整个会话只能靠杀窗口退出。
     focus_assigned: bool,
     timings: StageTimings,
+    output: Option<OutputAttempt>,
     mode_ownership: CaptureModeOwnership,
 }
 
@@ -285,6 +288,7 @@ impl CaptureManager {
             probe_hint,
             focus_assigned: false,
             timings,
+            output: None,
             mode_ownership: ownership,
         });
         Ok(CaptureStart {
@@ -485,6 +489,9 @@ impl CaptureManager {
     ) -> Result<CaptureLongshotCandidate, CaptureError> {
         let current = self.session.lock().map_err(CaptureError::state_lock)?;
         let session = current.as_ref().ok_or(CaptureError::SessionMissing)?;
+        if session.output.is_some() {
+            return Err(CaptureError::SessionBusy);
+        }
         let frame = selected_frame_in_session(session, selection)?.clone();
         Ok(CaptureLongshotCandidate {
             selection: selection.clone(),
@@ -518,7 +525,13 @@ impl CaptureManager {
         if caller_frame.monitor_id != selection.monitor_id {
             return Err(CaptureError::SelectionMonitorMismatch);
         }
-        selection_pixel_rect(caller_frame, selection)?;
+        if session.output.is_some() {
+            return Err(CaptureError::SessionBusy);
+        }
+        let crop = selection_pixel_rect(caller_frame, selection)?;
+        if crop.width() < 8 || crop.height() < 24 {
+            return Err(CaptureError::LongshotEstimateTooSmall);
+        }
         Ok(())
     }
 
@@ -532,7 +545,8 @@ impl CaptureManager {
         let Some(session) = current.take() else {
             return Err(CaptureError::SessionMissing);
         };
-        if session.id != candidate.selection.session_id
+        if session.output.is_some()
+            || session.id != candidate.selection.session_id
             || !Arc::ptr_eq(&session.identity, &candidate.identity)
         {
             *current = Some(session);
@@ -550,6 +564,7 @@ impl CaptureManager {
             probe_hint,
             focus_assigned,
             timings,
+            output,
             mode_ownership,
         } = session;
 
@@ -567,6 +582,7 @@ impl CaptureManager {
                     probe_hint,
                     focus_assigned,
                     timings,
+                    output,
                     mode_ownership: failure.ownership,
                 });
                 return Err(failure.error);
@@ -611,6 +627,14 @@ impl CaptureManager {
     pub(super) fn finish(&self, session_id: &str) -> Result<CaptureSession, CaptureError> {
         let mut current = self.session.lock().map_err(CaptureError::state_lock)?;
         let session = current.take().ok_or(CaptureError::SessionMissing)?;
+        if session
+            .output
+            .as_ref()
+            .is_some_and(|output| output.phase != OutputPhase::Failed)
+        {
+            *current = Some(session);
+            return Err(CaptureError::SessionBusy);
+        }
         if session.id != session_id {
             *current = Some(session);
             return Err(CaptureError::SessionSuperseded);
@@ -627,11 +651,191 @@ impl CaptureManager {
             .as_ref()
             .is_some_and(|session| session.overlays.iter().any(|spec| spec.label == label))
         {
+            if let Some(output) = current.as_mut().and_then(|session| session.output.as_mut()) {
+                if output.phase != OutputPhase::Failed {
+                    output.abandoned = true;
+                    return Ok(None);
+                }
+            }
             Ok(current.take())
         } else {
             Ok(None)
         }
     }
+}
+
+impl CaptureManager {
+    pub(super) fn claim_output(
+        &self,
+        caller: &str,
+        selection: &CaptureSelection,
+        origin: Option<crate::pin::PinOrigin>,
+    ) -> Result<OutputClaim, CaptureError> {
+        let mut current = self.session.lock().map_err(CaptureError::state_lock)?;
+        let session = current.as_mut().ok_or(CaptureError::SessionMissing)?;
+        let frame = selected_frame_in_session(session, selection)?;
+        selection_pixel_rect(frame, selection)?;
+        let index = session
+            .overlays
+            .iter()
+            .position(|overlay| overlay.label == caller)
+            .ok_or(CaptureError::OverlayNotInSession)?;
+        if session.frames.get(index).map(|frame| frame.monitor_id) != Some(selection.monitor_id) {
+            return Err(CaptureError::SelectionMonitorMismatch);
+        }
+        if session.output.is_some() {
+            return Err(CaptureError::SessionBusy);
+        }
+        let token = Arc::new(());
+        session.output = Some(OutputAttempt {
+            token: token.clone(),
+            caller: caller.to_string(),
+            phase: OutputPhase::Rendering,
+            artifact: None,
+            origin,
+            copy_only: false,
+            abandoned: false,
+        });
+        Ok(OutputClaim {
+            session_id: session.id.clone(),
+            token,
+            artifact: None,
+            origin,
+        })
+    }
+
+    pub(super) fn retry_output(
+        &self,
+        caller: &str,
+        action: CaptureAction,
+    ) -> Result<OutputClaim, CaptureError> {
+        let mut current = self.session.lock().map_err(CaptureError::state_lock)?;
+        let session = current.as_mut().ok_or(CaptureError::SessionMissing)?;
+        let output = session
+            .output
+            .as_mut()
+            .ok_or(CaptureError::SessionMissing)?;
+        if output.caller != caller || output.phase != OutputPhase::Failed || output.abandoned {
+            return Err(CaptureError::SessionBusy);
+        }
+        if output.copy_only && action != CaptureAction::Copy {
+            return Err(CaptureError::CommitPayloadInvalid);
+        }
+        output.token = Arc::new(());
+        output.phase = OutputPhase::Executing;
+        Ok(OutputClaim {
+            session_id: session.id.clone(),
+            token: output.token.clone(),
+            artifact: output.artifact.clone(),
+            origin: output.origin,
+        })
+    }
+
+    /// 渲染错误回到 Editing；在渲染中取消则由 worker 唯一取走会话做 cleanup。
+    pub(super) fn render_failed(
+        &self,
+        claim: &OutputClaim,
+    ) -> Result<Option<CaptureSession>, CaptureError> {
+        let mut current = self.session.lock().map_err(CaptureError::state_lock)?;
+        let session = output_session(&mut current, claim)?;
+        if !session
+            .output
+            .as_ref()
+            .is_some_and(|output| output.phase == OutputPhase::Rendering)
+        {
+            return Err(CaptureError::SessionBusy);
+        }
+        if session
+            .output
+            .as_ref()
+            .is_some_and(|output| output.abandoned)
+        {
+            return Ok(current.take());
+        }
+        session.output = None;
+        Ok(None)
+    }
+
+    /// PNG已生成但副作用尚未开始：取消胜出时返回会话，禁止继续输出。
+    pub(super) fn publish_output(
+        &self,
+        claim: &OutputClaim,
+        artifact: Arc<CommitImage>,
+    ) -> Result<Option<CaptureSession>, CaptureError> {
+        let mut current = self.session.lock().map_err(CaptureError::state_lock)?;
+        let session = output_session(&mut current, claim)?;
+        let output = session
+            .output
+            .as_mut()
+            .ok_or(CaptureError::SessionMissing)?;
+        if output.abandoned {
+            return Ok(current.take());
+        }
+        if output.phase != OutputPhase::Rendering {
+            return Err(CaptureError::SessionBusy);
+        }
+        output.artifact = Some(artifact);
+        output.phase = OutputPhase::Executing;
+        Ok(None)
+    }
+
+    /// 成功/已放弃时唯一终结；可重试失败保留相同 Arc 和模式所有权。
+    pub(super) fn settle_output(
+        &self,
+        claim: &OutputClaim,
+        success: bool,
+        uncertain: bool,
+    ) -> Result<(Option<CaptureSession>, bool), CaptureError> {
+        let mut current = self.session.lock().map_err(CaptureError::state_lock)?;
+        let session = output_session(&mut current, claim)?;
+        let output = session
+            .output
+            .as_mut()
+            .ok_or(CaptureError::SessionMissing)?;
+        if output.phase != OutputPhase::Executing {
+            return Err(CaptureError::SessionBusy);
+        }
+        if success || output.abandoned {
+            return Ok((current.take(), false));
+        }
+        output.copy_only |= uncertain;
+        output.phase = OutputPhase::Failed;
+        Ok((None, output.copy_only))
+    }
+
+    pub(super) fn request_cancel(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<CaptureSession>, CaptureError> {
+        let mut current = self.session.lock().map_err(CaptureError::state_lock)?;
+        let session = current.as_mut().ok_or(CaptureError::SessionMissing)?;
+        if session.id != session_id {
+            return Err(CaptureError::SessionSuperseded);
+        }
+        if let Some(output) = session.output.as_mut() {
+            if output.phase != OutputPhase::Failed {
+                output.abandoned = true;
+                return Ok(None);
+            }
+        }
+        Ok(current.take())
+    }
+}
+
+fn output_session<'a>(
+    current: &'a mut Option<CaptureSession>,
+    claim: &OutputClaim,
+) -> Result<&'a mut CaptureSession, CaptureError> {
+    let session = current.as_mut().ok_or(CaptureError::SessionMissing)?;
+    if session.id != claim.session_id
+        || !session
+            .output
+            .as_ref()
+            .is_some_and(|output| Arc::ptr_eq(&output.token, &claim.token))
+    {
+        return Err(CaptureError::SessionSuperseded);
+    }
+    Ok(session)
 }
 
 fn crop_frame(
@@ -747,6 +951,7 @@ mod tests {
             lowered_pins: Vec::new(),
             frames: vec![monitor_frame],
             windows: HashMap::new(),
+            output: None,
             mode_ownership: ownership(),
         });
 
@@ -789,6 +994,7 @@ mod tests {
                     title: "picked".to_string(),
                 }],
             )]),
+            output: None,
             mode_ownership: ownership(),
         });
 
@@ -824,6 +1030,7 @@ mod tests {
             lowered_pins: Vec::new(),
             frames: vec![frame(2.0)],
             windows: HashMap::new(),
+            output: None,
             mode_ownership: ownership(),
         });
 
@@ -1098,6 +1305,7 @@ mod tests {
             lowered_pins: Vec::new(),
             frames: vec![frame(1.0)],
             windows: HashMap::new(),
+            output: None,
             mode_ownership: ownership(),
         });
         let selection = CaptureSelection {
@@ -1134,6 +1342,7 @@ mod tests {
             lowered_pins: Vec::new(),
             frames: vec![frame(1.0)],
             windows: HashMap::new(),
+            output: None,
             mode_ownership: ownership(),
         });
 
@@ -1177,6 +1386,7 @@ mod tests {
             lowered_pins: Vec::new(),
             frames: vec![frame(1.0)],
             windows: HashMap::new(),
+            output: None,
             mode_ownership: ownership(),
         });
         (left, right)
@@ -1316,6 +1526,7 @@ mod tests {
             .expect("启动普通会话");
         let label = &start.overlays[0].label;
         let mut selection = selection_for(&start.session_id);
+        selection.height = 30.0;
         assert!(manager.validate_longshot_open(label, &selection).is_ok());
         assert_eq!(
             manager
@@ -1602,6 +1813,7 @@ mod tests {
             probe_hint: true,
             focus_assigned: true,
             timings,
+            output: None,
             mode_ownership: ownership_on(&gate),
         });
         let selection = selection_for(&session_id);
@@ -1773,5 +1985,168 @@ mod tests {
 
         drop(handoff);
         assert_eq!(gate.active_mode().unwrap(), Some(CaptureMode::Longshot));
+    }
+    fn output_fixture() -> (
+        CaptureManager,
+        Arc<CaptureModeGate>,
+        String,
+        CaptureSelection,
+    ) {
+        let manager = CaptureManager::new();
+        let gate = Arc::new(CaptureModeGate::new());
+        let start = manager
+            .begin(
+                vec![frame(1.0)],
+                vec!["main".into()],
+                vec!["pin-source".into()],
+                false,
+                StageTimings::default(),
+                ownership_on(&gate),
+            )
+            .unwrap();
+        let selection = CaptureSelection {
+            session_id: start.session_id,
+            monitor_id: 7,
+            x: 1.0,
+            y: 2.0,
+            width: 40.0,
+            height: 30.0,
+        };
+        (manager, gate, start.overlays[0].label.clone(), selection)
+    }
+
+    fn output_image() -> Arc<CommitImage> {
+        let png = crate::screenshot::encode_png(&[20, 30, 40, 255].repeat(4), 2, 2).unwrap();
+        Arc::new(crate::capture::commit_image_from_png(png).unwrap())
+    }
+
+    #[test]
+    fn output_render_failure_keeps_frozen_frame_and_allows_editing_retry() {
+        let (manager, gate, label, selection) = output_fixture();
+        let original = manager.frame_rgba(&label).unwrap();
+        let claim = manager.claim_output(&label, &selection, None).unwrap();
+        assert!(manager.claim_output(&label, &selection, None).is_err());
+        assert!(manager.prepare_longshot(&selection).is_err());
+        assert!(manager.render_failed(&claim).unwrap().is_none());
+        assert!(Arc::ptr_eq(&original, &manager.frame_rgba(&label).unwrap()));
+        assert!(manager.payload(&label).is_ok());
+        let retry = manager.claim_output(&label, &selection, None).unwrap();
+        assert!(!Arc::ptr_eq(&claim.token, &retry.token));
+        assert!(manager.render_failed(&claim).is_err());
+        manager.render_failed(&retry).unwrap();
+        manager
+            .request_cancel(&selection.session_id)
+            .unwrap()
+            .unwrap()
+            .finalize_mode()
+            .unwrap();
+        assert_eq!(gate.active_mode().unwrap(), None);
+    }
+
+    #[test]
+    fn output_business_failure_retries_same_artifact_once_without_rendering_again() {
+        let (manager, gate, label, selection) = output_fixture();
+        let claim = manager.claim_output(&label, &selection, None).unwrap();
+        let artifact = output_image();
+        assert!(manager
+            .publish_output(&claim, artifact.clone())
+            .unwrap()
+            .is_none());
+        let (finished, copy_only) = manager.settle_output(&claim, false, false).unwrap();
+        assert!(finished.is_none());
+        assert!(!copy_only);
+        assert_eq!(gate.active_mode().unwrap(), Some(CaptureMode::Ordinary));
+        let retry = manager.retry_output(&label, CaptureAction::Save).unwrap();
+        assert!(Arc::ptr_eq(retry.artifact.as_ref().unwrap(), &artifact));
+        assert!(manager.retry_output(&label, CaptureAction::Save).is_err());
+        assert!(manager.settle_output(&claim, true, false).is_err());
+        let (finished, _) = manager.settle_output(&retry, true, false).unwrap();
+        let session = finished.unwrap();
+        assert_eq!(session.restore_labels, ["main"]);
+        assert_eq!(session.lowered_pins, ["pin-source"]);
+        session.finalize_mode().unwrap();
+        assert!(manager.settle_output(&retry, true, false).is_err());
+        assert_eq!(gate.active_mode().unwrap(), None);
+    }
+
+    #[test]
+    fn uncertain_output_never_retries_save_or_pin_and_failed_copy_keeps_the_restriction() {
+        let (manager, gate, label, selection) = output_fixture();
+        let claim = manager.claim_output(&label, &selection, None).unwrap();
+        manager.publish_output(&claim, output_image()).unwrap();
+        assert!(manager.settle_output(&claim, false, true).unwrap().1);
+        assert!(manager.retry_output(&label, CaptureAction::Save).is_err());
+        assert!(manager.retry_output(&label, CaptureAction::Pin).is_err());
+        let copy = manager.retry_output(&label, CaptureAction::Copy).unwrap();
+        assert!(manager.settle_output(&copy, false, false).unwrap().1);
+        manager
+            .request_cancel(&selection.session_id)
+            .unwrap()
+            .unwrap()
+            .finalize_mode()
+            .unwrap();
+        assert_eq!(gate.active_mode().unwrap(), None);
+    }
+
+    #[test]
+    fn cancel_and_destroy_during_render_prevent_output_and_cleanup_once() {
+        for native in [false, true] {
+            let (manager, gate, label, selection) = output_fixture();
+            let claim = manager.claim_output(&label, &selection, None).unwrap();
+            let cancel = if native {
+                manager.abort_if_overlay(&label)
+            } else {
+                manager.request_cancel(&selection.session_id)
+            };
+            assert!(cancel.unwrap().is_none());
+            assert_eq!(gate.active_mode().unwrap(), Some(CaptureMode::Ordinary));
+            let finished = manager
+                .publish_output(&claim, output_image())
+                .unwrap()
+                .unwrap();
+            finished.finalize_mode().unwrap();
+            assert!(manager.settle_output(&claim, true, false).is_err());
+            assert_eq!(gate.active_mode().unwrap(), None);
+        }
+    }
+
+    #[test]
+    fn destroyed_during_claimed_output_waits_for_worker_and_never_retains_or_resurrects() {
+        for success in [false, true] {
+            let (manager, gate, label, selection) = output_fixture();
+            let claim = manager.claim_output(&label, &selection, None).unwrap();
+            manager.publish_output(&claim, output_image()).unwrap();
+            assert!(manager.abort_if_overlay(&label).unwrap().is_none());
+            assert!(manager
+                .request_cancel(&selection.session_id)
+                .unwrap()
+                .is_none());
+            let (finished, _) = manager.settle_output(&claim, success, !success).unwrap();
+            finished.unwrap().finalize_mode().unwrap();
+            assert!(manager.retry_output(&label, CaptureAction::Copy).is_err());
+            assert_eq!(gate.active_mode().unwrap(), None);
+        }
+    }
+
+    #[test]
+    fn longshot_requires_physical_minimum_dimensions_before_creating_controller() {
+        let (manager, gate, label, mut selection) = output_fixture();
+        selection.height = 10.0;
+        assert_eq!(
+            manager
+                .validate_longshot_open(&label, &selection)
+                .unwrap_err()
+                .code(),
+            "longshot_estimate_too_small"
+        );
+        selection.height = 30.0;
+        assert!(manager.validate_longshot_open(&label, &selection).is_ok());
+        manager
+            .request_cancel(&selection.session_id)
+            .unwrap()
+            .unwrap()
+            .finalize_mode()
+            .unwrap();
+        assert_eq!(gate.active_mode().unwrap(), None);
     }
 }

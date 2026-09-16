@@ -7,16 +7,18 @@
 export * from "./identifier-detectors.js";
 export * from "./format-detectors.js";
 
+import { MAX_RENDER_CHARS } from "./large-text.js";
 import { decodeHtmlEntities } from "../html-entities.js";
 
 // URL 检测（仅匹配单行纯 URL 文本）
 const URL_RE = /^https?:\/\/[^\s]+$/;
 export function isUrl(text) {
-  return URL_RE.test(text) && text.length < 2048;
+  return text.length < 2048 && URL_RE.test(text);
 }
 
 // JSON 检测：首字符为 { 或 [，尝试解析
 export function isJson(text) {
+  if (text.length > MAX_RENDER_CHARS) return false;
   const c = text[0];
   if (c !== "{" && c !== "[") return false;
   try { JSON.parse(text); return true; } catch { return false; }
@@ -76,6 +78,7 @@ function base64urlDecode(str) {
 /** JWT 检测：eyJ 开头 + 恰好 2 个 '.' + 每段合法 Base64url */
 const BASE64URL_PART_RE = /^[A-Za-z0-9_-]+={0,2}$/;
 export function isJwt(text) {
+  if (text.length > MAX_RENDER_CHARS) return false;
   if (!text.startsWith("eyJ")) return false;
   const parts = text.split(".");
   if (parts.length !== 3) return false;
@@ -84,6 +87,7 @@ export function isJwt(text) {
 
 /** 解析 JWT → { header, payload, signature } */
 export function parseJwt(text) {
+  if (text.length > MAX_RENDER_CHARS) return { header: null, payload: null, signature: "" };
   const [h, p, s] = text.split(".");
   let header, payload;
   try { header = JSON.parse(base64urlDecode(h)); } catch { header = null; }
@@ -94,12 +98,14 @@ export function parseJwt(text) {
 /** Base64 检测 */
 const BASE64_RE = /^[A-Za-z0-9+/]{24,}={0,2}$/;
 export function isBase64(text) {
+  if (text.length > MAX_RENDER_CHARS) return false;
   // 支持多行 Base64（PEM 证书体等）：先去除空白再检测
   const clean = text.replace(/[\s\r\n]/g, "");
   if (clean.length < 24 || clean.length % 4 !== 0) return false;
   if (!BASE64_RE.test(clean)) return false;
   try {
     const decoded = atob(clean);
+    if (decoded.length > MAX_RENDER_CHARS) return false;
     // 检查是否为图片魔数
     if (decoded.startsWith("\x89PNG") || decoded.startsWith("GIF8") ||
         decoded.startsWith("\xFF\xD8\xFF") || decoded.startsWith("RIFF")) {
@@ -120,12 +126,13 @@ export function isBase64(text) {
 /** URL 编码检测 */
 const URL_ENCODED_RE = /%[0-9A-Fa-f]{2}/g;
 export function isUrlEncoded(text) {
+  if (text.length > MAX_RENDER_CHARS) return false;
   if (text.includes("\n")) return false;
   const matches = text.match(URL_ENCODED_RE);
   if (!matches || matches.length < 2) return false;
   try {
     const decoded = decodeURIComponent(text);
-    if (decoded === text) return false;
+    if (decoded === text || decoded.length > MAX_RENDER_CHARS) return false;
     return { type: "url-encoded", decoded, original: text };
   } catch { return false; }
 }
@@ -133,23 +140,25 @@ export function isUrlEncoded(text) {
 /** HTML 实体检测 */
 const HTML_ENTITY_RE = /&(?:#\d+|#x[0-9a-f]+|\w+);/gi;
 export function isHtmlEntities(text) {
+  if (text.length > MAX_RENDER_CHARS) return false;
   const matches = text.match(HTML_ENTITY_RE);
   if (!matches || matches.length < 2) return false;
   const decoded = decodeHtmlEntities(text);
-  if (decoded === text) return false;
+  if (decoded === text || decoded.length > MAX_RENDER_CHARS) return false;
   return { type: "html-entity", decoded, original: text };
 }
 
 /** Unicode 转义检测 */
 const UNICODE_RE = /\\u[0-9a-fA-F]{4}/g;
 export function isUnicodeEscape(text) {
+  if (text.length > MAX_RENDER_CHARS) return false;
   const matches = text.match(UNICODE_RE);
   if (!matches || matches.length < 2) return false;
   try {
     const decoded = text.replace(UNICODE_RE, (m) =>
       String.fromCharCode(parseInt(m.slice(2), 16))
     );
-    if (decoded === text) return false;
+    if (decoded === text || decoded.length > MAX_RENDER_CHARS) return false;
     return { type: "unicode", decoded, original: text };
   } catch { return false; }
 }
@@ -178,6 +187,7 @@ export function isHexEncoded(text) {
 
 /** 统一编码检测入口 */
 export function detectEncoding(text) {
+  if (text.length > MAX_RENDER_CHARS) return false;
   // 顺序：URL编码 → HTML实体 → Unicode转义 → Base64 → Hex
   return isUrlEncoded(text) || isHtmlEntities(text) || isUnicodeEscape(text)
     || isBase64(text) || isHexEncoded(text) || false;

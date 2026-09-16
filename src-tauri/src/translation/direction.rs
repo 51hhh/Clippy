@@ -5,7 +5,7 @@
 //! 就换到备选语言，避免出现「英文翻成英文」这类无意义请求。
 //!
 //! 粗判**只**用于决定是否换向：发给 provider 的源语言仍然是 `auto`，
-//! 因此粗判错了最多是没换向或多换了一次向，不会让译文质量变差。
+//! 拉丁脚本不能证明英文；不确定时保留用户目标，避免误换成另一门语言。
 
 use crate::models::AppConfig;
 
@@ -137,9 +137,8 @@ fn language_key(language: &str) -> String {
 
 /// 按字符集粗判文本语言，判不出返回 None（例如纯数字或纯符号）。
 ///
-/// 拉丁字母无法区分英/西/法/德，一律返回 `en`：这意味着目标语言是 `de` 时，
-/// 德语文本不会触发换向，provider 会把德语「译成」德语并原样返回。
-/// 需要精确判断时用户可以直接指定源语言。
+/// 拉丁字母无法区分英/西/法/德：以它为主时返回未知，保留配置目标。
+/// 用户显式指定源语言时仍支持英文自动换向。
 fn detect_script_language(text: &str) -> Option<&'static str> {
     let mut latin = 0usize;
     let mut han = 0usize;
@@ -169,12 +168,12 @@ fn detect_script_language(text: &str) -> Option<&'static str> {
         ("zh", han),
         ("ru", cyrillic),
         ("ar", arabic),
-        ("en", latin),
+        ("unknown", latin),
     ]
     .into_iter()
     .filter(|(_, count)| *count > 0)
     .max_by_key(|(_, count)| *count)
-    .map(|(language, _)| language)
+    .and_then(|(language, _)| (language != "unknown").then_some(language))
 }
 
 #[cfg(test)]
@@ -191,12 +190,31 @@ mod tests {
     }
 
     #[test]
-    fn text_already_in_the_target_language_switches_to_the_next_preferred() {
-        let config = config("auto", "en", &["en", "zh", "ja"]);
+    fn explicit_english_in_the_target_language_switches_to_the_next_preferred() {
+        let config = config("en", "en", &["en", "zh", "ja"]);
         let direction = resolve_direction(&config, "Hello there", None, None);
         assert_eq!(direction.target, "zh");
-        // 粗判只影响目标语言，源语言仍交给服务检测。
-        assert_eq!(direction.source, AUTO_LANGUAGE);
+        // 显式源语言保持不变。
+        assert_eq!(direction.source, "en");
+    }
+
+    #[test]
+    fn uncertain_latin_scripts_keep_the_configured_english_target() {
+        let config = config("auto", "en", &["en", "zh"]);
+        for text in [
+            "Bonjour le monde",
+            "Hola mundo",
+            "Guten Morgen",
+            "Hello there",
+        ] {
+            let direction = resolve_direction(&config, text, None, None);
+            assert_eq!(direction.target, "en", "{text}");
+            assert_eq!(direction.source, AUTO_LANGUAGE);
+        }
+        assert_eq!(
+            resolve_direction(&config, "Hello", Some("en"), None).target,
+            "zh"
+        );
     }
 
     #[test]
@@ -224,7 +242,7 @@ mod tests {
 
     #[test]
     fn an_explicit_target_override_is_never_switched() {
-        let config = config("auto", "en", &["en", "zh"]);
+        let config = config("en", "en", &["en", "zh"]);
         let direction = resolve_direction(&config, "Hello", None, Some("en"));
         assert_eq!(direction.target, "en");
         // 空串与 auto 不算显式指定，仍然走换向。
@@ -241,7 +259,7 @@ mod tests {
         assert_eq!(direction.target, "en");
 
         // 源语言是 auto 时只有目标语言可用，补一个对手语言才有换向的落点。
-        let direction = resolve_direction(&config("auto", "en", &[]), "Hello", None, None);
+        let direction = resolve_direction(&config("en", "en", &[]), "Hello", None, None);
         assert_eq!(direction.target, "zh");
         let direction = resolve_direction(&config("auto", "zh", &[]), "你好", None, None);
         assert_eq!(direction.target, "en");
@@ -250,9 +268,9 @@ mod tests {
     #[test]
     fn a_single_preferred_language_gains_a_counterpart() {
         let direction = resolve_direction(&config("auto", "fr", &["fr"]), "Bonjour", None, None);
-        // 拉丁字母粗判为 en，与 fr 不同，因此不换向。
+        // 拉丁脚本源语言未知，保持配置目标。
         assert_eq!(direction.target, "fr");
-        let direction = resolve_direction(&config("auto", "en", &["en"]), "Hello", None, None);
+        let direction = resolve_direction(&config("en", "en", &["en"]), "Hello", None, None);
         assert_eq!(direction.target, "zh");
     }
 
@@ -279,7 +297,7 @@ mod tests {
         assert_eq!(detect_script_language("한국어 문장"), Some("ko"));
         assert_eq!(detect_script_language("Привет"), Some("ru"));
         assert_eq!(detect_script_language("مرحبا"), Some("ar"));
-        assert_eq!(detect_script_language("Grüße"), Some("en"));
+        assert_eq!(detect_script_language("Grüße"), None);
         assert_eq!(detect_script_language("123 —— ()"), None);
     }
 }

@@ -70,7 +70,7 @@ pub struct CaptureSelection {
 
 /// 覆盖层里点勾/保存/贴图时要做的事。标注已经在覆盖层内完成，
 /// 所以没有"转到编辑器"这一项了。
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CaptureAction {
     Copy,

@@ -94,6 +94,13 @@ export const ClipboardRow = memo(function ClipboardRow({
     return () => { cancelled = true; };
   }, [clip.content_type, clip.id, nearViewport]);
 
+  useEffect(() => {
+    // CSS 透明不等于不可聚焦；折叠时同时收回真实按钮焦点。
+    if (!expanded && rowRef.current?.querySelector(".clip-row-actions")?.contains(document.activeElement)) {
+      document.getElementById("list-panel")?.focus();
+    }
+  }, [expanded]);
+
   const actions: Array<{ key: Action; label: string; icon: React.ReactNode }> = [
     { key: "copy", label: t("action.copy"), icon: <Copy size={16} /> },
     {
@@ -144,11 +151,13 @@ export const ClipboardRow = memo(function ClipboardRow({
           )}
         </div>
       </div>
-      <div className="clip-row-actions">
+      <div className="clip-row-actions" aria-hidden={!expanded}>
         {actions.map((action, actionIndex) => (
           <button
             key={action.key}
             type="button"
+            disabled={!expanded}
+            tabIndex={expanded ? 0 : -1}
             className={[
               "clip-row-action",
               action.key === "favorite" && clip.is_favorite ? "is-favorite" : "",

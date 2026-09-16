@@ -60,11 +60,9 @@ whenReady(async () => {
 
   await onClipAdded((clip) => {
     console.debug("[clip-added]", clip.id, clip.content_type, clip.byte_size);
-    clipboardList.markDirty();
     clipboardList.prependClip(clip);
   });
   await onClipRemoved((id) => {
-    clipboardList.markDirty();
     clipboardList.removeClip(id);
   });
   await onConfigChanged((newConfig) => {

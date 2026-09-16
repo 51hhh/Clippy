@@ -28,7 +28,7 @@ jobs:
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev libgtk-3-dev build-essential curl wget file \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
-            pkg-config xvfb x11-utils xdg-utils \
+            pkg-config xvfb xauth xclip x11-utils xdg-utils \
             libgbm-dev libegl-dev libdrm-dev libwayland-dev libxcb1-dev \
             libpipewire-0.3-dev
 
@@ -85,6 +85,9 @@ jobs:
       - name: Rust tests
         working-directory: src-tauri
         run: cargo test
+
+      - name: X11 clipboard isolated protocol tests
+        run: ./scripts/test-x11-clipboard.sh
 
       - name: GNOME extension check
         run: ./scripts/check-gnome-extension.sh

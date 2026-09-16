@@ -535,3 +535,301 @@ fn url_meta_cache_keeps_only_the_newest_bounded_set() {
         .unwrap()
         .is_some());
 }
+
+#[test]
+fn unlimited_history_preserves_new_old_favorites_search_and_translations() {
+    let engine = StorageEngine::new_in_memory().unwrap();
+    assert!(engine.cleanup_old_entries(0).unwrap().is_empty());
+    for index in 0..5 {
+        let text = format!("unlimited needle {index}");
+        let clip = insert_text(&engine, &text, &text);
+        if index < 2 {
+            engine.toggle_favorite(clip.id).unwrap();
+        }
+        engine
+            .record_translation(&NewTranslation {
+                clip_id: Some(clip.id),
+                provider: "test",
+                source_language: "en",
+                target_language: "zh",
+                source_text: &text,
+                translated_text: "译文",
+            })
+            .unwrap();
+        assert!(engine.cleanup_old_entries(0).unwrap().is_empty());
+        insert_text(&engine, &text, &text);
+        assert!(engine.cleanup_old_entries(0).unwrap().is_empty());
+        assert_eq!(
+            engine.translation_history(Some(clip.id), 10).unwrap().len(),
+            1
+        );
+        assert_eq!(
+            engine
+                .get_clips(Some("needle"), false, 0, 10)
+                .unwrap()
+                .len(),
+            index + 1
+        );
+    }
+    assert_eq!(engine.get_clips(None, false, 0, 10).unwrap().len(), 5);
+    assert_eq!(engine.cleanup_old_entries(1).unwrap().len(), 2);
+    assert_eq!(engine.get_clips(None, false, 0, 10).unwrap().len(), 3);
+    assert_eq!(engine.translation_history(None, 10).unwrap().len(), 3);
+    assert!(engine.cleanup_old_entries(9).unwrap().is_empty());
+}
+
+#[test]
+fn same_second_insert_touch_dedup_search_and_cleanup_share_usage_order() {
+    let engine = StorageEngine::new_in_memory().unwrap();
+    let a = insert_text(&engine, "needle alpha", "a");
+    let b = insert_text(&engine, "needle beta", "b");
+    let c = insert_text(&engine, "needle gamma", "c");
+    engine
+        .conn
+        .execute("UPDATE clips SET created_at = 123", [])
+        .unwrap();
+    let ids = |query, favorite| {
+        engine
+            .get_clips(query, favorite, 0, 10)
+            .unwrap()
+            .into_iter()
+            .map(|c| c.id)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ids(None, false), vec![c.id, b.id, a.id]);
+    engine.touch_clip(a.id).unwrap();
+    engine
+        .conn
+        .execute("UPDATE clips SET created_at = 123", [])
+        .unwrap();
+    assert_eq!(ids(None, false), vec![a.id, c.id, b.id]);
+    insert_text(&engine, "needle beta", "b");
+    engine
+        .conn
+        .execute("UPDATE clips SET created_at = 123", [])
+        .unwrap();
+    for query in [None, Some("ne"), Some("needle"), Some("needle b")] {
+        let expected = if query == Some("needle b") {
+            vec![b.id]
+        } else {
+            vec![b.id, a.id, c.id]
+        };
+        assert_eq!(ids(query, false), expected);
+    }
+    engine.toggle_favorite(a.id).unwrap();
+    engine.toggle_favorite(b.id).unwrap();
+    assert_eq!(ids(Some("needle"), true), vec![b.id, a.id]);
+    engine.toggle_favorite(a.id).unwrap();
+    engine.toggle_favorite(b.id).unwrap();
+    assert_eq!(engine.cleanup_old_entries(2).unwrap(), vec![c.id]);
+    assert_eq!(ids(None, false), vec![b.id, a.id]);
+}
+
+#[test]
+fn use_order_migrates_legacy_rows_and_survives_reopen_and_clear() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("legacy-use-order.db");
+    let engine = StorageEngine {
+        conn: Connection::open(&path).unwrap(),
+    };
+    engine
+        .conn
+        .execute_batch(
+            "CREATE TABLE clips (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, content_type TEXT NOT NULL, text_content TEXT,
+        html_content TEXT, image_data BLOB, content_hash TEXT NOT NULL UNIQUE,
+        is_favorite INTEGER DEFAULT 0, created_at INTEGER NOT NULL, byte_size INTEGER NOT NULL);
+        INSERT INTO clips VALUES (1, 'text', 'one', NULL, NULL, 'one', 0, 100, 3);
+        INSERT INTO clips VALUES (2, 'text', 'two', NULL, NULL, 'two', 0, 90, 3);
+        INSERT INTO clips VALUES (3, 'text', 'three', NULL, NULL, 'three', 0, 100, 5);",
+        )
+        .unwrap();
+    engine.init_tables().unwrap();
+    assert_eq!(
+        engine
+            .get_clips(None, false, 0, 10)
+            .unwrap()
+            .iter()
+            .map(|c| c.id)
+            .collect::<Vec<_>>(),
+        vec![3, 1, 2]
+    );
+    engine.touch_clip(2).unwrap();
+    drop(engine);
+    // 真正关闭并重新打开磁盘数据库，不能用同一 Connection 的重复初始化代替持久性验证。
+    let engine = StorageEngine::new(&path).unwrap();
+    assert_eq!(engine.get_clips(None, false, 0, 10).unwrap()[0].id, 2);
+    let order_before: i64 = engine
+        .conn
+        .query_row("SELECT MAX(use_order) FROM clips", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(order_before, 4);
+    // migration 和 use_order 不篡改历史的秒级时间。
+    assert_eq!(engine.get_clip_by_id(1).unwrap().created_at, 100);
+    engine.clear_history().unwrap();
+    drop(engine);
+    let engine = StorageEngine::new(&path).unwrap();
+    let new = insert_text(&engine, "new", "new");
+    let order_after: i64 = engine
+        .conn
+        .query_row("SELECT use_order FROM clips WHERE id=?", [new.id], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert!(order_after > order_before);
+}
+
+#[test]
+fn unlimited_history_can_shrink_beyond_the_sqlite_parameter_limit() {
+    let engine = StorageEngine::new_in_memory().unwrap();
+    let favorite = insert_text(&engine, "favorite needle", "favorite");
+    engine.toggle_favorite(favorite.id).unwrap();
+    let mut ids = Vec::with_capacity(33_000);
+    for index in 0..33_000 {
+        let text = format!("bulk needle {index}");
+        ids.push(insert_text(&engine, &text, &text).id);
+    }
+    // 覆盖首块、中间块、末块，以及不应删除的收藏和保留条目。
+    for id in [favorite.id, ids[0], ids[750], ids[32_899], ids[32_999]] {
+        engine
+            .record_translation(&translation_of(Some(id), "deepl", "synthetic"))
+            .unwrap();
+    }
+    assert!(engine.cleanup_old_entries(0).unwrap().is_empty());
+    let removed = engine.cleanup_old_entries(100).unwrap();
+    assert_eq!(removed, ids[..32_900]);
+    let remaining = engine.get_clips(None, false, 0, 40_000).unwrap();
+    assert_eq!(remaining.len(), 101);
+    assert!(engine.get_clip_by_id(favorite.id).unwrap().is_favorite);
+    assert_eq!(remaining[0].id, ids[32_999]);
+    assert_eq!(
+        engine
+            .get_clips(Some("needle"), false, 0, 40_000)
+            .unwrap()
+            .len(),
+        101
+    );
+    let translations = engine.translation_history(None, 100).unwrap();
+    assert_eq!(translations.len(), 2);
+    assert!(translations
+        .iter()
+        .all(|entry| [favorite.id, ids[32_999]].contains(&entry.clip_id)));
+    engine
+        .conn
+        .execute(
+            "INSERT INTO clips_fts(clips_fts, rank) VALUES ('integrity-check', 1)",
+            [],
+        )
+        .unwrap();
+}
+
+#[test]
+fn cleanup_and_sensitive_purge_roll_back_across_delete_chunks() {
+    let engine = StorageEngine::new_in_memory().unwrap();
+    let mut ids = Vec::new();
+    for index in 0..1_105 {
+        let text = format!("rollback needle {index}");
+        ids.push(insert_text(&engine, &text, &text).id);
+    }
+    engine.toggle_favorite(ids[1_104]).unwrap();
+    for id in [ids[0], ids[750], ids[1_104]] {
+        engine
+            .record_translation(&translation_of(Some(id), "deepl", "synthetic"))
+            .unwrap();
+    }
+    // id 751 位于第二块；首块已执行 DELETE 后才注入错误，必须回滚整个外层事务。
+    engine.conn.execute_batch("CREATE TRIGGER fail_second_chunk BEFORE DELETE ON clips WHEN OLD.id = 751 BEGIN SELECT RAISE(ABORT, 'second chunk failed'); END;").unwrap();
+    engine
+        .conn
+        .execute("UPDATE clips SET is_sensitive = 1, created_at = 0", [])
+        .unwrap();
+    for result in [
+        engine.cleanup_old_entries(100),
+        engine.purge_expired_sensitive(1),
+    ] {
+        assert!(result.is_err());
+        assert_eq!(
+            engine.get_clips(None, false, 0, 2_000).unwrap().len(),
+            1_105
+        );
+        assert_eq!(
+            engine
+                .get_clips(Some("needle"), false, 0, 2_000)
+                .unwrap()
+                .len(),
+            1_105
+        );
+        assert_eq!(engine.translation_history(None, 100).unwrap().len(), 3);
+        engine
+            .conn
+            .execute(
+                "INSERT INTO clips_fts(clips_fts, rank) VALUES ('integrity-check', 1)",
+                [],
+            )
+            .unwrap();
+    }
+    engine
+        .conn
+        .execute_batch("DROP TRIGGER fail_second_chunk;")
+        .unwrap();
+    assert_eq!(engine.purge_expired_sensitive(1).unwrap().len(), 1_104);
+    assert_eq!(
+        engine.get_clips(Some("needle"), false, 0, 2_000).unwrap()[0].id,
+        ids[1_104]
+    );
+    assert_eq!(
+        engine.translation_history(None, 100).unwrap()[0].clip_id,
+        ids[1_104]
+    );
+}
+
+#[test]
+fn use_order_and_clip_update_roll_back_together_on_failure() {
+    let engine = StorageEngine::new_in_memory().unwrap();
+    let clip = insert_text(&engine, "retained", "retained");
+    engine.conn.execute_batch("CREATE TRIGGER reject_touch BEFORE UPDATE ON clips BEGIN SELECT RAISE(ABORT, 'busy'); END;").unwrap();
+    assert!(engine.touch_clip(clip.id).is_err());
+    assert!(engine
+        .insert_clip(
+            &ContentType::Text,
+            Some("retained"),
+            None,
+            None,
+            "retained",
+            8,
+            false
+        )
+        .is_err());
+    let order: i64 = engine
+        .conn
+        .query_row(
+            "SELECT CAST(value AS INTEGER) FROM schema_meta WHERE key='clip_use_order'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(order, 1);
+    assert!(engine.touch_clip(999).is_err());
+    let order: i64 = engine
+        .conn
+        .query_row(
+            "SELECT CAST(value AS INTEGER) FROM schema_meta WHERE key='clip_use_order'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(order, 1);
+}
+
+#[test]
+fn zero_and_positive_history_limits_leave_all_favorites_intact() {
+    let engine = StorageEngine::new_in_memory().unwrap();
+    for index in 0..4 {
+        let clip = insert_text(&engine, &index.to_string(), &index.to_string());
+        engine.toggle_favorite(clip.id).unwrap();
+    }
+    for limit in [0, 1, 2, 10] {
+        assert!(engine.cleanup_old_entries(limit).unwrap().is_empty());
+    }
+    assert_eq!(engine.get_clips(None, true, 0, 10).unwrap().len(), 4);
+}

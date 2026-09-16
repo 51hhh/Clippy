@@ -21,6 +21,7 @@ import * as detectors from "./preview/detectors.js";
 import { classifyText } from "./preview/classify.js";
 import { detectionSample, limitForRender } from "./preview/large-text.js";
 import { createPreviewRenderers } from "./preview/renderers.js";
+import { imageTranslationView, revealImageTranslation } from "./preview/reveal-translation.js";
 import { createPanelVisibilityController } from "./panel-visibility.js";
 
 const { isMarkdown } = detectors;
@@ -150,6 +151,7 @@ export function init({ onVisibilityChange } = {}) {
       if (!visible) {
         _renderGeneration += 1;
         _currentClipId = null;
+        imageTranslationView.clear();
       }
       _panelEl.classList.toggle("hidden", !visible);
       // 面板显隐是翻译面板"是否值得查历史"的唯一依据（apply 可能重复调用，接收方需幂等）
@@ -191,8 +193,10 @@ export async function toggle() {
 /** 清空预览内容，释放内存（窗口隐藏时调用） */
 export function clearContent() {
   _renderGeneration += 1;
+  imageTranslationView.clear();
   _contentEl.innerHTML = "";
   _contentEl.className = "preview-content";
+  _panelEl.classList.remove("preview-panel--image");
   _badgeEl.textContent = "";
   _metaEl.textContent = "";
   _currentClipId = null;
@@ -200,6 +204,11 @@ export function clearContent() {
 
 export function isVisible() {
   return _visible;
+}
+
+/** 打开图片 OCR 内翻译视图，供显式键盘入口复用；本身不发请求。 */
+export function revealTranslation() {
+  return revealImageTranslation(_panelEl);
 }
 
 export async function hide() {
@@ -222,6 +231,7 @@ export function updatePreview(clip) {
   // 会把图片/OCR 停在半成品状态。
   if (_visible && clip?.id === _currentClipId && !hadPendingUpdate) return;
   const generation = ++_renderGeneration;
+  imageTranslationView.clear();
   if (!_visible || !clip) {
     void _doUpdatePreview(clip, generation);
     return;
@@ -237,6 +247,7 @@ async function _doUpdatePreview(clip, generation) {
   if (!_visible || !clip) {
     _contentEl.innerHTML = "";
     _contentEl.className = "preview-content";
+    _panelEl.classList.remove("preview-panel--image");
     _badgeEl.textContent = "";
     _metaEl.textContent = "";
     _currentClipId = null;
@@ -245,6 +256,8 @@ async function _doUpdatePreview(clip, generation) {
 
   _currentClipId = clip.id;
   const isCurrent = () => _isCurrentRender(clip.id, generation);
+  const scroll = _panelEl.querySelector(".preview-scroll");
+  if (scroll) scroll.scrollTop = 0;
 
   const size = clip.byte_size;
   _metaEl.textContent = size > 1024
@@ -253,14 +266,23 @@ async function _doUpdatePreview(clip, generation) {
 
   _contentEl.innerHTML = "";
   _contentEl.className = "preview-content";
+  _panelEl.classList.remove("preview-panel--image");
 
   if (clip.content_type === "image") {
+    _panelEl.classList.add("preview-panel--image");
     await _renderers.renderImage(clip, isCurrent);
     return;
   }
 
   // text 和 html 类型共享智能检测逻辑
   const text = clip.text_content || "";
+  const limited = limitForRender(text);
+  // 在 trim、完整格式检测与懒加载前拦截。截断结构不再冒充完整 JSON/JWT/HTML。
+  if (limited.truncated) {
+    _renderers.renderPlainText(limited.body);
+    _noteTruncation(limited);
+    return;
+  }
   const trimmed = text.trim();
 
   // 同步可判的类型全部由 classify.js 那张有序表说话（顺序、badge、渲染器一处定义）
@@ -280,12 +302,8 @@ async function _doUpdatePreview(clip, generation) {
   await ensureLibs();
   if (!isCurrent()) return;
 
-  // 超大条目只画开头一段：几 MB 文本高亮出来的 DOM 有六位数节点，画完也滚不动。
-  // 原文没动，复制/翻译/保存走的都是库里那份（见 preview/large-text.js）。
-  const limited = limitForRender(text);
-
   // 1. Markdown 检测（优先，评分制，需多个特征）
-  if (text.length > 0 && isMarkdown(text)) {
+  if (text.length > 0 && isMarkdown(detectionSample(text))) {
     _renderers.renderMarkdown(limited.body);
     _noteTruncation(limited);
     return;
@@ -316,10 +334,10 @@ async function _doUpdatePreview(clip, generation) {
       const detail = await getClipDetail(clip.id);
       if (!isCurrent()) return;
       if (detail.html_content) {
-        // 富文本同样要限长：DOMPurify 要把整份 HTML 解析一遍。截断可能切在标签中间，
-        // 而 DOMPurify 的解析器本来就负责补齐未闭合标签，不会漏出裸标签。
+        // 详情可能比纯文本副本大很多；超限时只显示标签原文，不解析截断结构。
         const limitedHtml = limitForRender(detail.html_content);
-        _renderers.renderRichText(limitedHtml.body);
+        if (limitedHtml.truncated) _renderers.renderPlainText(limitedHtml.body);
+        else _renderers.renderRichText(limitedHtml.body);
         _noteTruncation(limitedHtml);
         return;
       }

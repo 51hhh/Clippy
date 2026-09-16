@@ -74,6 +74,8 @@ type Params = {
   imageRef: React.RefObject<FrameImage | null>;
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   scale: number;
+  /** 查看器使用有界 viewport 和平移；默认保持 Pin/截图的原坐标映射。 */
+  pointFromClient?: (clientX: number, clientY: number) => Point | null;
   tool: Tool;
   color: string;
   size: number;
@@ -160,6 +162,7 @@ export function useCanvasInteractions(params: Params) {
   }
 
   function pointFromEvent(event: React.PointerEvent<Element>): Point | null {
+    if (params.pointFromClient) return params.pointFromClient(event.clientX, event.clientY);
     const canvas = params.canvasRef.current;
     const image = params.imageRef.current;
     if (!canvas || !image || params.scale <= 0) return null;

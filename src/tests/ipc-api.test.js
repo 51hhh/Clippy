@@ -57,8 +57,16 @@ import {
   pickScreenshotDirectory,
   runCaptureDiagnostics,
   commitCaptureAction,
+  retryCaptureAction,
+  onCaptureLongshotHandoff,
   startDraggingCurrentWindow,
   updateConfig,
+  closeSettings,
+  restartApp,
+  checkUpdate,
+  getAppUpdateState,
+  onAppUpdateState,
+  downloadAndInstallUpdate,
   updatePin,
   copyPinCanvas,
   onCurrentWindowDragDrop,
@@ -78,6 +86,21 @@ describe("typed IPC wrappers", () => {
     enableAutostartPlugin.mockReset();
     disableAutostartPlugin.mockReset();
     isAutostartEnabledPlugin.mockReset();
+  });
+
+  it("updates use process commands and absolute state events without plugin resources", async () => {
+    const snapshot = { revision: 4, status: "installed", version: "2.0.0" };
+    invoke.mockResolvedValue(snapshot);
+    await expect(checkUpdate()).resolves.toBe(snapshot);
+    expect(invoke).toHaveBeenLastCalledWith("check_app_update");
+    await expect(getAppUpdateState()).resolves.toBe(snapshot);
+    expect(invoke).toHaveBeenLastCalledWith("get_app_update_state");
+    await expect(downloadAndInstallUpdate("2.0.0")).resolves.toBe(snapshot);
+    expect(invoke).toHaveBeenLastCalledWith("install_app_update", { version: "2.0.0" });
+    const callback = vi.fn(); await onAppUpdateState(callback);
+    expect(listen).toHaveBeenCalledWith("app-update-state", expect.any(Function));
+    listen.mock.calls[0][1]({ payload: snapshot });
+    expect(callback).toHaveBeenCalledWith(snapshot);
   });
 
   it("keeps camelCase query arguments for get_clips", () => {
@@ -271,6 +294,18 @@ describe("typed IPC wrappers", () => {
       viewportWidth: 1920,
       viewportHeight: 1200,
     });
+  });
+
+  it("retries the retained capture using the IPC caller and forwards handoff identities", () => {
+    retryCaptureAction("save");
+    expect(invoke).toHaveBeenCalledWith("retry_capture_action", { action: "save" });
+    const callback = vi.fn();
+    onCaptureLongshotHandoff(callback);
+    const [name, receive] = listen.mock.calls[0];
+    expect(name).toBe("capture-longshot-handoff");
+    const payload = { controllerLabel: "controller-1", sessionId: "session-1", accepted: false };
+    receive({ payload });
+    expect(callback).toHaveBeenCalledWith(payload);
   });
 
   it("keeps the longshot controller wire contract label-free and lossless", () => {
@@ -487,4 +522,21 @@ describe("typed IPC wrappers", () => {
     expect(disableAutostartPlugin).toHaveBeenCalledOnce();
     expect(isAutostartEnabledPlugin).toHaveBeenCalledOnce();
   });
+});
+
+
+it("只在显式调用时请求重启 IPC，并返回配置的 pending 状态", async () => {
+  invoke.mockResolvedValueOnce({ shortcut_status: "pending" });
+  await expect(updateConfig({ theme: "dark" })).resolves.toEqual({ shortcut_status: "pending" });
+  expect(invoke).toHaveBeenLastCalledWith("update_config", { newConfig: { theme: "dark" } });
+  invoke.mockResolvedValueOnce(undefined);
+  await restartApp();
+  expect(invoke).toHaveBeenLastCalledWith("restart_app");
+});
+
+it("显式 Save 要求快捷键完成恢复，关闭使用后端恢复守卫", async () => {
+  await updateConfig({ theme: "dark" }, { requireShortcutsActive: true });
+  expect(invoke).toHaveBeenLastCalledWith("update_config", { newConfig: { theme: "dark" }, requireShortcutsActive: true });
+  await closeSettings();
+  expect(invoke).toHaveBeenLastCalledWith("close_settings");
 });

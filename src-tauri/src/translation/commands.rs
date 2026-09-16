@@ -76,11 +76,11 @@ fn provider_options(service: &TranslationServiceConfig) -> ProviderOptions {
 /// 调用方给的一次翻译输入。语言与 request-id 为 None 时回落到配置或服务分配，
 /// 打包成结构是为了不在命令层传一长串同类型的 `Option<String>`。
 #[derive(Clone)]
-struct TranslationInputs {
-    text: String,
-    source_language: Option<String>,
-    target_language: Option<String>,
-    request_id: Option<u64>,
+pub(crate) struct TranslationInputs {
+    pub text: String,
+    pub source_language: Option<String>,
+    pub target_language: Option<String>,
+    pub request_id: Option<u64>,
 }
 
 fn request_from_config(
@@ -404,6 +404,21 @@ fn translate_with_state(
 
 /// 单个服务的完整同步流程。凭据读取也在这里，keyring 调用同样是阻塞操作，
 /// 放进各自的 spawn_blocking 任务里才不会串行化。
+pub(crate) type TranslationGuard = Arc<dyn Fn() -> Result<(), TranslationError> + Send + Sync>;
+
+/// 凭据可能等待系统keyring；必须在读取完成后重新授权，再进入provider发送。
+pub(crate) fn guarded_credentials<C, T>(
+    credentials: impl FnOnce() -> Result<C, TranslationError>,
+    guard: Option<&TranslationGuard>,
+    send: impl FnOnce(C) -> Result<T, TranslationError>,
+) -> Result<T, TranslationError> {
+    let credentials = credentials()?;
+    if let Some(guard) = guard {
+        guard()?;
+    }
+    send(credentials)
+}
+
 fn translate_one_service(
     service: &super::service::TranslationService,
     config: &AppConfig,
@@ -411,10 +426,24 @@ fn translate_one_service(
     service_config: &TranslationServiceConfig,
     inputs: TranslationInputs,
 ) -> Result<TranslationResult, TranslationError> {
+    translate_one_service_guarded(service, config, provider, service_config, inputs, None)
+}
+
+fn translate_one_service_guarded(
+    service: &super::service::TranslationService,
+    config: &AppConfig,
+    provider: TranslationProvider,
+    service_config: &TranslationServiceConfig,
+    inputs: TranslationInputs,
+    guard: Option<&TranslationGuard>,
+) -> Result<TranslationResult, TranslationError> {
     let options = provider_options(service_config);
     let request = request_from_config(config, provider, options, inputs, service);
-    let credentials = secrets::get_credentials(provider)?;
-    service.translate(request, credentials)
+    guarded_credentials(
+        || secrets::get_credentials(provider),
+        guard,
+        |credentials| service.translate(request, credentials),
+    )
 }
 
 /// 并行执行所有参与服务。任一服务失败只影响它自己的结果卡，
@@ -424,6 +453,16 @@ async fn translate_configured_batch(
     config: Arc<Mutex<AppConfig>>,
     inputs: TranslationInputs,
     providers: Vec<TranslationProvider>,
+) -> Result<TranslationBatch, TranslationError> {
+    translate_configured_batch_guarded(service, config, inputs, providers, None).await
+}
+
+async fn translate_configured_batch_guarded(
+    service: Arc<super::service::TranslationService>,
+    config: Arc<Mutex<AppConfig>>,
+    inputs: TranslationInputs,
+    providers: Vec<TranslationProvider>,
+    guard: Option<TranslationGuard>,
 ) -> Result<TranslationBatch, TranslationError> {
     let snapshot = config
         .lock()
@@ -437,13 +476,21 @@ async fn translate_configured_batch(
     let mut tasks = Vec::with_capacity(selected.len());
     for (provider, service_config) in selected {
         let service = service.clone();
+        let guard = guard.clone();
         let snapshot = snapshot.clone();
         let mut inputs = inputs.clone();
         inputs.request_id = Some(request_id);
         tasks.push((
             provider,
             tauri::async_runtime::spawn_blocking(move || {
-                translate_one_service(&service, &snapshot, provider, &service_config, inputs)
+                translate_one_service_guarded(
+                    &service,
+                    &snapshot,
+                    provider,
+                    &service_config,
+                    inputs,
+                    guard.as_ref(),
+                )
             }),
         ));
     }
@@ -494,6 +541,19 @@ async fn resolve_clip_text(
             Ok(text)
         }
     }
+}
+
+/// 查看器提供可信本地 OCR 文本与独立会话 service，复用同一配置/凭据/provider批处理。
+pub(crate) async fn translate_viewer_text(
+    service: Arc<super::service::TranslationService>,
+    config: Arc<Mutex<AppConfig>>,
+    inputs: TranslationInputs,
+    providers: Option<Vec<String>>,
+    guard: TranslationGuard,
+) -> Result<TranslationBatch, TranslationError> {
+    let providers = parse_providers(providers)
+        .map_err(|_| TranslationError::UnsupportedProvider("viewer".into()))?;
+    translate_configured_batch_guarded(service, config, inputs, providers, Some(guard)).await
 }
 
 #[cfg(test)]
@@ -555,35 +615,87 @@ mod tests {
         assert_eq!(selected[0].0, TranslationProvider::LibreTranslate);
     }
 
-    /// 方向解析必须落在 `request_from_config` 上，剪贴板、纯文本与选区翻译才共用同一套规则。
+    /// 命令级请求构造必须复用方向解析，不能在不同入口再猜一次源语言。
+    fn direction_request(
+        config: &AppConfig,
+        text: &str,
+        source: Option<&str>,
+        target: Option<&str>,
+    ) -> TranslationRequest {
+        request_from_config(
+            config,
+            TranslationProvider::LibreTranslate,
+            ProviderOptions::default(),
+            TranslationInputs {
+                text: text.to_string(),
+                source_language: source.map(str::to_string),
+                target_language: target.map(str::to_string),
+                request_id: Some(7),
+            },
+            &super::super::service::TranslationService::new(),
+        )
+    }
+
     #[test]
-    fn the_request_switches_the_target_when_the_text_is_already_in_the_target_language() {
+    fn auto_latin_requests_keep_the_configured_target_instead_of_assuming_english() {
+        let mut config = config_with(&["libretranslate"]);
+        config.translation_source_language = "auto".to_string();
+        config.translation_target_language = "en".to_string();
+        config.preferred_languages = vec!["en".to_string(), "zh".to_string()];
+        for text in [
+            "Bonjour le monde",
+            "Hola mundo",
+            "Guten Morgen",
+            "Hello there",
+        ] {
+            let request = direction_request(&config, text, None, None);
+            assert_eq!(request.target_language, "en", "{text}");
+            // 拉丁脚本不能确定是哪门语言，实际源语言仍交给服务检测。
+            assert_eq!(request.source(), None, "{text}");
+        }
+    }
+
+    #[test]
+    fn explicit_english_requests_can_switch_to_the_preferred_counterpart() {
         let mut config = config_with(&["libretranslate"]);
         config.translation_target_language = "en".to_string();
-        let service = super::super::service::TranslationService::new();
-        let build = |text: &str, target: Option<&str>| {
-            request_from_config(
-                &config,
-                TranslationProvider::LibreTranslate,
-                ProviderOptions::default(),
-                TranslationInputs {
-                    text: text.to_string(),
-                    source_language: None,
-                    target_language: target.map(str::to_string),
-                    request_id: Some(7),
-                },
-                &service,
-            )
-        };
+        config.preferred_languages = vec!["en".to_string(), "zh".to_string()];
+        // 设置源语言与单次调用显式源语言都必须参与命令级换向。
+        for (configured_source, source_override) in [("en", None), ("auto", Some("en"))] {
+            config.translation_source_language = configured_source.to_string();
+            let request = direction_request(&config, "Hello there", source_override, None);
+            assert_eq!(request.target_language, "zh");
+            assert_eq!(request.source(), Some("en"));
+            // 显式目标优先，即使源=目标也不能擅自换向。
+            assert_eq!(
+                direction_request(&config, "Hello there", source_override, Some("en"))
+                    .target_language,
+                "en"
+            );
+        }
+    }
 
-        let switched = build("Hello there", None);
-        assert_eq!(switched.target_language, "zh");
-        // 换向只改目标语言，源语言仍交给服务检测。
-        assert_eq!(switched.source(), None);
-
-        assert_eq!(build("你好，世界", None).target_language, "en");
-        // 调用方显式指定目标语言时按原样执行。
-        assert_eq!(build("Hello there", Some("en")).target_language, "en");
+    #[test]
+    fn known_chinese_requests_keep_the_existing_direction_rules() {
+        let mut config = config_with(&["libretranslate"]);
+        config.translation_source_language = "auto".to_string();
+        config.translation_target_language = "zh".to_string();
+        config.preferred_languages = vec!["zh".to_string(), "en".to_string()];
+        let automatic = direction_request(&config, "你好，世界", None, None);
+        assert_eq!(automatic.target_language, "en");
+        assert_eq!(automatic.source(), None);
+        let explicit = direction_request(&config, "你好，世界", Some("zh"), None);
+        assert_eq!(explicit.target_language, "en");
+        assert_eq!(explicit.source(), Some("zh"));
+        assert_eq!(
+            direction_request(&config, "你好，世界", None, Some("zh")).target_language,
+            "zh"
+        );
+        config.translation_target_language = "en".to_string();
+        assert_eq!(
+            direction_request(&config, "你好，世界", None, None).target_language,
+            "en"
+        );
     }
 
     #[test]

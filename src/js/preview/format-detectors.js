@@ -25,32 +25,26 @@ export function semverInfo(text) {
   };
 }
 
-/** 数字进制检测：0x (hex), 0b (binary), 0o (octal), 或纯大整数 */
-const HEX_NUM_RE = /^0x[0-9a-f]+$/i;
-const BIN_NUM_RE = /^0b[01]+$/i;
-const OCT_NUM_RE = /^0o[0-7]+$/i;
+/** 整数只接受完整合法输入，转换全程使用 BigInt，避免 64 位值被 Number 舍入。 */
+const INTEGER_RE = /^[+-]?(?:0x[0-9a-f]+|0b[01]+|0o[0-7]+|[0-9]+)$/i;
 export function isNumberBase(text) {
-  return HEX_NUM_RE.test(text) || BIN_NUM_RE.test(text) || OCT_NUM_RE.test(text);
+  return text.length <= 258 && INTEGER_RE.test(text);
 }
 
 export function numberBaseInfo(text) {
-  let base, value;
-  if (HEX_NUM_RE.test(text)) {
-    base = 16;
-    value = parseInt(text, 16);
-  } else if (BIN_NUM_RE.test(text)) {
-    base = 2;
-    value = parseInt(text.slice(2), 2);
-  } else {
-    base = 8;
-    value = parseInt(text.slice(2), 8);
-  }
+  const trimmed = text.trim();
+  if (!isNumberBase(trimmed)) return null;
+  const unsigned = trimmed.replace(/^[+-]/, "");
+  const base = /^0x/i.test(unsigned) ? 16 : /^0b/i.test(unsigned) ? 2 : /^0o/i.test(unsigned) ? 8 : 10;
+  const absolute = BigInt(unsigned);
+  const value = trimmed.startsWith("-") ? -absolute : absolute;
+  const sign = value < 0n ? "-" : "";
   return {
     base,
     decimal: value,
-    hex: `0x${value.toString(16).toUpperCase()}`,
-    binary: `0b${value.toString(2)}`,
-    octal: `0o${value.toString(8)}`,
+    hex: `${sign}0x${absolute.toString(16).toUpperCase()}`,
+    binary: `${sign}0b${absolute.toString(2)}`,
+    octal: `${sign}0o${absolute.toString(8)}`,
   };
 }
 

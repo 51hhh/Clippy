@@ -5,6 +5,13 @@ description = "跨平台轻量剪贴板管理器"
 authors = ["zhongweixi2000"]
 edition = "2021"
 
+# 只把补丁库的单元测试纳入显式门禁；普通 cargo test 仍只运行 Clippy。
+[workspace]
+members = ["vendor/arboard"]
+default-members = ["."]
+exclude = ["vendor/libspa"]
+resolver = "2"
+
 [lib]
 name = "clippy_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
@@ -58,7 +65,7 @@ env_logger = "0.11"
 tauri-plugin-autostart = "2"
 ureq = "3"
 regex-lite = "0.1"
-tokio = { version = "1", features = ["rt", "time", "sync", "macros"] }
+tokio = { version = "1", features = ["rt", "time", "sync", "macros", "process", "io-util"] }
 urlencoding = "2"
 url = "2"
 keyring = "4.1"
@@ -89,7 +96,7 @@ libwayshot-xcap = "0.3"
 pipewire = { version = "0.9", features = ["v0_3_34"] }
 # 只为在 zbus 的信号流上调一次 `.next()`（等 PipeWireStreamAdded）。zbus 自己就依赖它。
 futures-util = { version = "0.3", default-features = false }
-x11rb = "0.13"
+x11rb = { version = "0.13", features = ["xfixes"] }
 nix = { version = "0.30", features = ["poll"] }
 
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
@@ -111,6 +118,8 @@ windows-sys = { version = "0.61", features = [
 
 [patch.crates-io]
 libspa = { path = "vendor/libspa" }
+# X11 写完成屏障与有界 INCR 大图传输；补丁范围见 vendor/arboard/PATCHES.md。
+arboard = { path = "vendor/arboard" }
 
 [dev-dependencies]
 tempfile = "3"

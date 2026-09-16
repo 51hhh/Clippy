@@ -7,6 +7,7 @@ import {
   getPinSourceImage,
   getPinToolbarBounds,
   getPlatformInfo,
+  onCurrentWindowCloseRequested,
   onPinAlreadyOpen,
   onPinImageSharpened,
   pinReady,
@@ -50,6 +51,8 @@ export const pinApi = {
     project: PinCanvasProject | null,
   ): Promise<PinCanvasSaveResult> => savePinCanvas(label, pngBase64, toClipboard, mode, project),
   close: (label: string): Promise<void> => closePin(label),
+  onCloseRequested: (callback: () => void): Promise<() => void> =>
+    onCurrentWindowCloseRequested(callback),
   /** 订阅后台算好的清晰版图片（见 `rendering.ts` 与 `pin/resample.rs`）。 */
   onSharpened: (callback: (payload: PinImageSharpened) => void): Promise<() => void> =>
     onPinImageSharpened(callback),

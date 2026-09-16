@@ -19,10 +19,8 @@
     "core:window:allow-set-position",
     "core:window:allow-outer-position",
     "global-shortcut:default",
-    "updater:default",
     "opener:default",
     "autostart:default",
-    "core:window:allow-start-dragging",
     "core:window:allow-set-always-on-top",
     "core:window:allow-destroy",
     "core:window:allow-scale-factor"

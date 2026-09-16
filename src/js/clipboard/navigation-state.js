@@ -87,7 +87,7 @@ export function expandActions(state, clipId) {
 }
 
 export function collapseActions(state) {
-  return { ...state, expandedRow: null };
+  return { ...state, expandedRow: null, focusedCol: ROW_BODY };
 }
 
 export function focusRowBody(state, focusedRow) {

@@ -4,14 +4,15 @@
 
 import {
   getClipImage,
-  detectImageCodes,
   ocrAvailable,
-  ocrImage,
+  ocrImageResult,
   getConfig,
   fetchUrlMeta,
   copyText,
+  openImageViewer,
 } from "../api.ts";
 import { t } from "../../i18n/i18n.js";
+import { imageTranslationView, revealImageTranslation } from "./reveal-translation.js";
 
 const PURIFY_CONFIG = {
   ALLOWED_TAGS: [
@@ -35,12 +36,19 @@ const PURIFY_CONFIG = {
   FORBID_ATTR: ["onerror","onload","onclick","onmouseover","onfocus","onblur"],
 };
 
+/** @type {(id: number) => Promise<import('../ipc-types.ts').StructuredOcr | string>} */
+const recognizeImage = ocrImageResult;
+
 export function createContentRenderers({
   contentEl,
   badgeEl,
   metaEl,
   getLibraries,
   isCurrentRender = () => true,
+  imageTranslation = imageTranslationView,
+  imageActionLabel = t("preview.openInViewer"),
+  // 宿主服务可注入；默认仍通过唯一 api.ts 边界，审阅页不连接真实 IPC。
+  services = { getClipImage, ocrAvailable, ocrImage: recognizeImage, getConfig, fetchUrlMeta, copyText, openImageViewer },
 }) {
   function renderMarkdown(text) {
     badgeEl.textContent = "MARKDOWN";
@@ -76,7 +84,7 @@ export function createContentRenderers({
     contentEl.appendChild(card);
 
     // 异步抓取 OG 元数据
-    fetchUrlMeta(url).then(meta => {
+    services.fetchUrlMeta(url).then(meta => {
       if (!isCurrent() || contentEl.querySelector(".url-card") !== card) return;
       loading.remove();
 
@@ -119,204 +127,223 @@ export function createContentRenderers({
     contentEl.textContent = text;
   }
 
-  /**
-   * 建立独立于 OCR 的显式本地扫码区。结果文本一律通过 textContent 写入，不能变成
-   * 链接或可执行标记；所有后续异步回调都必须先确认这仍是当前图片代次。
-   */
-  function createCodeScanArea(clip, isCurrent) {
-    const area = document.createElement("section");
-    area.className = "preview-code-scan";
-    area.dataset.status = "idle";
-    area.setAttribute("aria-label", t("action.scanCodes"));
-
-    const header = document.createElement("div");
-    header.className = "preview-code-scan-header";
-    const title = document.createElement("h3");
-    title.textContent = t("preview.codeScanTitle");
-    header.appendChild(title);
-
-    const scanButton = document.createElement("button");
-    scanButton.type = "button";
-    scanButton.className = "preview-code-scan-button";
-    scanButton.textContent = t("action.scanCodes");
-    header.appendChild(scanButton);
-    area.appendChild(header);
-
-    const status = document.createElement("p");
-    status.className = "preview-code-scan-status";
-    status.setAttribute("aria-live", "polite");
-    area.appendChild(status);
-
-    const results = document.createElement("div");
-    results.className = "preview-code-scan-results";
-    area.appendChild(results);
-
-    const setStatus = (nextStatus, message) => {
-      area.dataset.status = nextStatus;
-      status.textContent = message;
-    };
-
-    const appendResult = (result) => {
-      const item = document.createElement("article");
-      item.className = "preview-code-scan-result";
-
-      const itemHeader = document.createElement("div");
-      itemHeader.className = "preview-code-scan-result-header";
-      const format = document.createElement("span");
-      format.className = "preview-code-scan-format";
-      format.textContent = result.format === "qr_code" ? "QR Code" : "Code 39";
-      itemHeader.appendChild(format);
-
-      const copyButton = document.createElement("button");
-      copyButton.type = "button";
-      copyButton.className = "preview-code-scan-copy";
-      copyButton.textContent = t("action.copy");
-      copyButton.addEventListener("click", () => {
-        if (!isCurrent() || copyButton.disabled) return;
-        copyButton.disabled = true;
-        void copyText(result.text).then(() => {
-          if (!isCurrent()) return;
-          copyButton.textContent = t("codeScan.copied");
-          copyButton.disabled = false;
-        }).catch(() => {
-          if (!isCurrent()) return;
-          copyButton.textContent = t("codeScan.copyFailed");
-          copyButton.disabled = false;
-        });
-      });
-      itemHeader.appendChild(copyButton);
-      item.appendChild(itemHeader);
-
-      const text = document.createElement("pre");
-      text.className = "preview-code-scan-text";
-      text.textContent = result.text;
-      item.appendChild(text);
-      results.appendChild(item);
-    };
-
-    const runScan = async () => {
-      if (!isCurrent() || scanButton.disabled) return;
-      scanButton.disabled = true;
-      results.replaceChildren();
-      setStatus("loading", t("codeScan.scanning"));
-      try {
-        const response = await detectImageCodes(clip.id);
-        if (!isCurrent()) return;
-        response.results.forEach(appendResult);
-        if (response.limited) {
-          setStatus("limited", t("codeScan.limited"));
-        } else if (response.results.length === 0) {
-          setStatus("empty", t("codeScan.empty"));
-        } else {
-          setStatus("results", t("codeScan.found", { count: response.results.length }));
-        }
-      } catch (_) {
-        if (!isCurrent()) return;
-        results.replaceChildren();
-        setStatus("error", t("codeScan.failed"));
-      }
-      if (!isCurrent()) return;
-      scanButton.disabled = false;
-    };
-    scanButton.addEventListener("click", () => {
-      void runScan();
-    });
-
-    return area;
-  }
-
   async function renderImage(clip, isCurrent = isCurrentRender) {
     badgeEl.textContent = "IMAGE";
     contentEl.classList.add("preview-content--image");
+    const loading = document.createElement("p");
+    loading.className = "preview-image-status";
+    loading.setAttribute("role", "status");
+    loading.textContent = t("preview.imageLoading");
+    contentEl.appendChild(loading);
     try {
-      const base64 = await getClipImage(clip.id);
+      const base64 = await services.getClipImage(clip.id);
       if (!isCurrent()) return;
-      if (base64) {
-        const img = document.createElement("img");
-        img.src = `data:image/png;base64,${base64}`;
-        img.alt = "clipboard image";
-        img.onload = () => {
-          if (!isCurrent()) return;
-          metaEl.textContent = `${img.naturalWidth}×${img.naturalHeight} · ${
-            clip.byte_size > 1024
-              ? (clip.byte_size / 1024).toFixed(1) + " KB"
-              : clip.byte_size + " B"
-          }`;
-        };
-        contentEl.appendChild(img);
+      if (!base64) throw new Error("Image data unavailable");
+      loading.remove();
 
-        // 扫码只能由用户显式点击触发，和自动 OCR 互不依赖也互不影响。
-        contentEl.appendChild(createCodeScanArea(clip, isCurrent));
-
-        // 自动 OCR：在图片下方显示可选择的识别文字
-        const ocrArea = document.createElement("div");
-        ocrArea.className = "preview-ocr-result";
-        const ocrText = document.createElement("pre");
-        ocrArea.appendChild(ocrText);
-        contentEl.appendChild(ocrArea);
-
-        // 检查 OCR 是否已启用
+      const imageCard = document.createElement("section");
+      imageCard.className = "preview-image-card";
+      const imageHeader = document.createElement("div");
+      imageHeader.className = "preview-section-header";
+      const title = document.createElement("h3");
+      title.textContent = t("preview.imagePreview");
+      const openButton = document.createElement("button");
+      openButton.type = "button";
+      openButton.className = "preview-image-open";
+      openButton.setAttribute("aria-label", imageActionLabel);
+      openButton.title = imageActionLabel;
+      imageHeader.append(title);
+      imageCard.appendChild(imageHeader);
+      const img = document.createElement("img");
+      img.alt = t("preview.imagePreview");
+      img.onload = () => {
+        if (!isCurrent() || !imageCard.contains(img)) return;
+        metaEl.textContent = `${img.naturalWidth}×${img.naturalHeight} · ${
+          clip.byte_size > 1024 ? (clip.byte_size / 1024).toFixed(1) + " KB" : clip.byte_size + " B"
+        }`;
+      };
+      img.onerror = () => {
+        if (!isCurrent()) return;
+        openButton.disabled = true;
+        img.remove();
+        imageStatus.textContent = t("preview.imageLoadFailed");
+      };
+      img.src = `data:image/png;base64,${base64}`;
+      openButton.appendChild(img);
+      imageCard.appendChild(openButton);
+      const imageStatus = document.createElement("p");
+      imageStatus.className = "preview-image-status";
+      imageStatus.setAttribute("role", "status");
+      imageCard.appendChild(imageStatus);
+      openButton.addEventListener("click", async () => {
+        if (!isCurrent() || openButton.disabled) return;
+        openButton.disabled = true;
         try {
-          const config = await getConfig();
+          await services.openImageViewer(clip.id);
+          if (isCurrent()) imageStatus.textContent = "";
+        } catch (_) {
+          if (isCurrent()) imageStatus.textContent = t("preview.viewerFailed");
+        } finally {
+          if (isCurrent()) openButton.disabled = false;
+        }
+      });
+      contentEl.appendChild(imageCard);
+
+      const ocrArea = document.createElement("section");
+      ocrArea.className = "preview-ocr-result";
+      const ocrHeader = document.createElement("div");
+      ocrHeader.className = "preview-section-header";
+      const ocrTitle = document.createElement("h3");
+      ocrTitle.textContent = t("preview.ocrTitle");
+      const copyButton = document.createElement("button");
+      copyButton.type = "button";
+      copyButton.className = "preview-ocr-copy";
+      copyButton.textContent = t("action.copy");
+      copyButton.disabled = true;
+      const ocrActions = document.createElement("div");
+      ocrActions.className = "preview-section-actions";
+      const translateButton = document.createElement("button");
+      translateButton.type = "button";
+      translateButton.className = "preview-secondary-action preview-ocr-translate";
+      translateButton.textContent = t("preview.translateOcrAction");
+      translateButton.addEventListener("click", () => {
+        if (isCurrent()) revealImageTranslation(contentEl.closest(".preview-panel") || contentEl, imageTranslation);
+      });
+      const backButton = document.createElement("button");
+      backButton.type = "button";
+      backButton.className = "preview-secondary-action preview-ocr-back";
+      backButton.textContent = t("preview.backToOcr");
+      backButton.hidden = true;
+      ocrActions.append(translateButton, copyButton, backButton);
+      ocrHeader.append(ocrTitle, ocrActions);
+      const ocrText = document.createElement("pre");
+      ocrText.tabIndex = 0;
+      const feedback = document.createElement("p");
+      feedback.className = "preview-ocr-feedback";
+      feedback.setAttribute("role", "status");
+      const retryButton = document.createElement("button");
+      retryButton.type = "button";
+      retryButton.className = "preview-secondary-action preview-ocr-retry";
+      retryButton.textContent = t("preview.recognizeText");
+      retryButton.hidden = true;
+      const sourceView = document.createElement("div");
+      sourceView.className = "preview-ocr-source";
+      const provenance = document.createElement("div");
+      provenance.className = "preview-ocr-provenance";
+      provenance.hidden = true;
+      sourceView.append(provenance, ocrText, feedback, retryButton);
+      const translationSlot = document.createElement("div");
+      translationSlot.className = "preview-ocr-translation";
+      translationSlot.hidden = true;
+      ocrArea.append(ocrHeader, sourceView, translationSlot);
+      contentEl.appendChild(ocrArea);
+      imageTranslation.bind({
+        clipId: clip.id,
+        container: translationSlot,
+        isCurrent,
+        onVisibilityChange(visible) {
+          sourceView.hidden = visible;
+          translationSlot.hidden = !visible;
+          copyButton.hidden = visible;
+          translateButton.hidden = visible;
+          backButton.hidden = !visible;
+          ocrTitle.textContent = t(visible ? "preview.translateOcr" : "preview.ocrTitle");
+          ocrArea.dataset.view = visible ? "translation" : "source";
+        },
+      });
+      backButton.addEventListener("click", () => {
+        if (!isCurrent()) return;
+        imageTranslation.hide(translationSlot);
+        translateButton.focus({ preventScroll: true });
+      });
+      let recognizedText = "";
+      const showOcr = (status, text) => {
+        ocrArea.dataset.status = status;
+        if (["loading", "disabled", "unavailable", "error"].includes(status)) provenance.hidden = true;
+        ocrText.textContent = text;
+        copyButton.disabled = status !== "done";
+        retryButton.hidden = !["error", "empty", "disabled"].includes(status);
+        retryButton.textContent = t(status === "error" ? "preview.retryOcr" : "preview.recognizeText");
+      };
+      copyButton.addEventListener("click", async () => {
+        if (!isCurrent() || copyButton.disabled || !recognizedText) return;
+        copyButton.disabled = true;
+        try {
+          await services.copyText(recognizedText);
+          if (isCurrent()) feedback.textContent = t("codeScan.copied");
+        } catch (_) {
+          if (isCurrent()) feedback.textContent = t("codeScan.copyFailed");
+        } finally {
+          if (isCurrent()) copyButton.disabled = false;
+        }
+      });
+      const runOcr = async () => {
+        if (!isCurrent() || retryButton.disabled) return;
+        retryButton.disabled = true;
+        feedback.textContent = "";
+        showOcr("loading", t("action.ocrProcessing"));
+        try {
+          const available = await services.ocrAvailable().catch(() => false);
           if (!isCurrent()) return;
-          if (config.ocr_enabled === false) {
-            ocrArea.classList.add("preview-ocr-result--hidden");
+          if (!available) {
+            showOcr("unavailable", t("action.ocrUnavailable"));
             return;
           }
-        } catch (_) {
+          const result = await services.ocrImage(clip.id);
           if (!isCurrent()) return;
-          // 读取配置失败则继续，保持预览 OCR 的默认行为。
-        }
-
-        // 先检查 OCR 是否可用
-        const available = await ocrAvailable().catch(() => false);
-        if (!isCurrent()) return;
-        if (!available) {
-          ocrText.textContent = t("action.ocrUnavailable");
-          ocrArea.dataset.status = "unavailable";
-          return;
-        }
-
-        ocrArea.dataset.status = "loading";
-        ocrText.textContent = t("action.ocrProcessing");
-
-        // 异步识别。每个异步边界都守住本次渲染代次，旧图片不得污染新预览，
-        // 也不得在切换后继续发起 OCR 或复制识别结果。
-        void ocrImage(clip.id).then(async (text) => {
-          if (!isCurrent()) return;
-          if (text && text.trim()) {
-            // 检查配置：clipboard 模式直接复制，preview 模式显示文字
-            try {
-              const config = await getConfig();
-              if (!isCurrent()) return;
-              if (config.ocr_result_mode === "clipboard") {
-                await copyText(text);
-                if (!isCurrent()) return;
-                ocrText.textContent = "✓ " + t("settings.ocr.clipboard");
-                ocrArea.dataset.status = "done";
-                return;
-              }
-            } catch (_) {
-              if (!isCurrent()) return;
-              // 读取配置失败则默认 preview 模式。
+          const text = typeof result === "string" ? result : result?.text;
+          provenance.replaceChildren();
+          // 注入式旧 String 服务没有管线信息，不猜测识别引擎；生产 API 始终返回结构化结果。
+          if (result && typeof result !== "string") {
+            const engine = document.createElement("span");
+            engine.textContent = t(result.pipeline.engine === "ppocrv6+edgegnn" ? "viewer.enhancedOcr" : "viewer.tesseractOcr");
+            provenance.appendChild(engine); provenance.hidden = false;
+            if (result.fallbackReason) {
+              const details = document.createElement("details");
+              const summary = document.createElement("summary"); summary.textContent = t("preview.ocrFallbackReason");
+              const reason = document.createElement("p"); reason.textContent = result.fallbackReason;
+              details.append(summary, reason); provenance.appendChild(details);
             }
-            if (!isCurrent()) return;
-            ocrText.textContent = text;
-            ocrArea.dataset.status = "done";
-          } else {
-            ocrText.textContent = t("action.ocrEmpty");
-            ocrArea.dataset.status = "empty";
           }
-        }).catch(() => {
+          if (!text?.trim()) {
+            showOcr("empty", t("action.ocrEmpty"));
+            return;
+          }
+          // 原有自动复制模式仍生效，同时保留可读的识别正文与显式 Copy。
+          const config = await services.getConfig().catch(() => ({}));
           if (!isCurrent()) return;
-          ocrText.textContent = t("action.ocrFailed");
-          ocrArea.dataset.status = "error";
-        });
-      }
-    } catch (e) {
+          recognizedText = text;
+          showOcr("done", text);
+          if (config.ocr_result_mode === "clipboard") {
+            try {
+              await services.copyText(text);
+              if (isCurrent()) feedback.textContent = t("codeScan.copied");
+            } catch (_) {
+              if (isCurrent()) feedback.textContent = t("codeScan.copyFailed");
+            }
+          }
+        } catch (_) {
+          if (isCurrent()) showOcr("error", t("action.ocrFailed"));
+        } finally {
+          if (isCurrent()) retryButton.disabled = false;
+        }
+      };
+      retryButton.addEventListener("click", () => void runOcr());
+      showOcr("loading", t("action.ocrProcessing"));
+      const config = await services.getConfig().catch(() => ({}));
       if (!isCurrent()) return;
-      contentEl.textContent = t("preview.imageLoadFailed");
-      console.warn("预览图片加载失败:", e);
+      if (config.ocr_enabled === false) {
+        showOcr("disabled", t("preview.ocrDisabled"));
+        return;
+      }
+      // 保持 renderImage 的原有非阻塞 OCR 合同，代次由每个异步边界守护。
+      void runOcr();
+    } catch (error) {
+      if (!isCurrent()) return;
+      contentEl.replaceChildren();
+      loading.textContent = t("preview.imageLoadFailed");
+      contentEl.appendChild(loading);
+      console.warn("预览图片加载失败:", error);
     }
   }
 

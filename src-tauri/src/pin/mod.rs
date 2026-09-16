@@ -6,13 +6,15 @@ mod image_validation;
 mod manager;
 mod model;
 mod origins;
+pub(crate) mod output;
 mod project;
 pub(crate) mod render_v2;
 mod resample;
 mod window;
 
 pub(crate) use commands::{
-    create_screenshot_pin, lower_pins_for_capture, raise_focused_pin, restore_pins_after_capture,
+    create_screenshot_pin_shared, lower_pins_for_capture, raise_focused_pin,
+    restore_pins_after_capture,
 };
 pub use error::PinError;
 pub(crate) use manager::remember_pin_window_position;

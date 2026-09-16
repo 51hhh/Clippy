@@ -14,6 +14,22 @@ export async function closeAfterShortcutCleanup(shortcutRecording, closeWindow) 
   await closeWindow();
 }
 
+/** 显式 Save 必须先恢复；Portal 接纳请求仍按 pending 呈现。 */
+export async function saveAfterShortcutCleanup(shortcutRecording, save) {
+  const restored = await shortcutRecording.stop();
+  const outcome = await save();
+  return restored?.shortcut_status === "pending" && outcome?.shortcut_status === "unchanged"
+    ? { ...outcome, shortcut_status: "pending" } : outcome;
+}
+
+/** 原生解析器返回动作身份；UI 显示可定位、可翻译的冲突说明。 */
+export function shortcutSaveErrorMessage(error, translate) {
+  const match = /^settings\.shortcut\.duplicate:(global|pin|capture),(global|pin|capture)$/.exec(String(error?.message || error));
+  return match
+    ? translate("settings.shortcut.duplicate", { first: translate(`settings.shortcut.action.${match[1]}`), second: translate(`settings.shortcut.action.${match[2]}`) })
+    : translate("settings.saveFailed", { error });
+}
+
 /**
  * 统一管理多个互斥快捷键录制器，避免每个录制器复制暂停、恢复和键盘监听逻辑。
  */
@@ -22,11 +38,17 @@ export function createShortcutRecordingController({
   pauseShortcuts,
   resumeShortcuts,
   translate,
+  notify = console.warn,
   metaModifier = () => "Super",
   eventTarget = window,
   defer = (callback) => setTimeout(callback, 0),
 }) {
   let activeKey = null;
+  let restoreKey = null;
+  let restoreOutcome = null;
+  let recordingBeforeValue = "";
+  let recordedValue = false;
+  let recordingGeneration = 0;
   let operationQueue = Promise.resolve();
 
   function recorderFor(key) {
@@ -36,35 +58,47 @@ export function createShortcutRecordingController({
   }
 
   async function stopActive() {
-    if (!activeKey) return;
-    const recorder = recorderFor(activeKey);
-    activeKey = null;
-    recorder.input.classList.remove("recording");
-    recorder.recordButton.textContent = translate("settings.shortcut.record");
-    eventTarget.removeEventListener("keydown", onKeyDown, LISTENER_OPTIONS);
+    if (activeKey) {
+      const recorder = recorderFor(activeKey);
+      activeKey = null;
+      recorder.input.classList.remove("recording");
+      eventTarget.removeEventListener("keydown", onKeyDown, LISTENER_OPTIONS);
+      if (!recordedValue) recorder.input.value = recordingBeforeValue;
+    }
+    if (!restoreKey) return restoreOutcome;
+    const recorder = recorderFor(restoreKey);
     try {
-      await resumeShortcuts();
+      restoreOutcome = await resumeShortcuts();
     } catch (error) {
-      console.warn(error);
+      showRestoreFailure(recorder);
+      throw error;
     }
-    if (recorder.input.value === translate("settings.shortcut.recording")) {
-      recorder.input.value = recorder.getSavedValue() || recorder.defaultValue;
-    }
+    restoreKey = null;
+    recorder.recordButton.textContent = translate("settings.shortcut.record");
+    if (recorder.warning?.dataset.i18n === "settings.shortcut.restoreFailed") hideWarning(recorder);
+    return restoreOutcome;
   }
 
   async function start(key) {
     if (activeKey === key) return;
-    if (activeKey) await stopActive();
+    if (activeKey || restoreKey) await stopActive();
 
     const recorder = recorderFor(key);
-    activeKey = key;
+    recordingGeneration += 1;
+    restoreKey = key;
+    restoreOutcome = null;
     try {
       await pauseShortcuts();
     } catch (error) {
-      console.warn(error);
+      // 暂停也可能只完成了一部分，必须先恢复才能录制或保存。
+      showRestoreFailure(recorder);
+      throw error;
     }
 
     // stop 与切换录制器都通过同一队列执行，因此 pause 完成后才可能恢复。
+    activeKey = key;
+    recordingBeforeValue = recorder.input.value;
+    recordedValue = false;
     recorder.input.value = translate("settings.shortcut.recording");
     recorder.input.classList.add("recording");
     recorder.recordButton.textContent = translate("settings.shortcut.stop");
@@ -90,10 +124,12 @@ export function createShortcutRecordingController({
     if (!shortcut || !activeKey) return;
 
     const recordedKey = activeKey;
+    const generation = recordingGeneration;
     const recorder = recorderFor(recordedKey);
+    recordedValue = true;
     recorder.input.value = shortcut;
     defer(() => {
-      if (activeKey === recordedKey) void stop();
+      if (activeKey === recordedKey) void stop().catch(notify);
     });
 
     // Clippy 三个动作之间的冲突在前端判断：输入框里可能是还没保存的值，
@@ -109,6 +145,7 @@ export function createShortcutRecordingController({
     }
     try {
       const result = await recorder.checkConflict(shortcut);
+      if (generation !== recordingGeneration || recorder.warning?.dataset.i18n === "settings.shortcut.restoreFailed") return;
       const source = conflictSource(result);
       source ? showWarning(recorder, source) : hideWarning(recorder);
     } catch (error) {
@@ -146,15 +183,25 @@ export function createShortcutRecordingController({
     recorder.warning?.classList.add("hidden");
   }
 
+  function showRestoreFailure(recorder) {
+    recorder.recordButton.textContent = translate("settings.shortcut.retry");
+    if (recorder.warning) {
+      recorder.warning.dataset.i18n = "settings.shortcut.restoreFailed";
+      recorder.warning.textContent = translate("settings.shortcut.restoreFailed");
+      recorder.warning.classList.remove("hidden");
+    }
+  }
+
   for (const [key, recorder] of Object.entries(recorders)) {
     recorder.recordButton.addEventListener("click", () => {
-      const operation = enqueue(() => (activeKey === key ? stopActive() : start(key)));
-      operation.catch(console.warn);
+      const operation = enqueue(() => (activeKey === key || restoreKey === key ? stopActive() : start(key)));
+      operation.catch(notify);
     });
     recorder.clearButton.addEventListener("click", () => {
+      if (activeKey === key) recordedValue = true;
       recorder.input.value = recorder.getSavedValue() || recorder.defaultValue;
       recorder.warning?.classList.add("hidden");
-      if (activeKey === key) void stop();
+      if (activeKey === key || restoreKey === key) void stop().catch(notify);
     });
   }
 
@@ -172,11 +219,15 @@ export function createShortcutRecordingController({
     refreshLabels() {
       if (activeKey) {
         recorderFor(activeKey).recordButton.textContent = translate("settings.shortcut.stop");
+        if (!recordedValue) recorderFor(activeKey).input.value = translate("settings.shortcut.recording");
+      } else if (restoreKey) {
+        showRestoreFailure(recorderFor(restoreKey));
       }
     },
     stop,
     get activeKey() {
       return activeKey;
     },
+    get restorePending() { return restoreKey !== null; },
   };
 }

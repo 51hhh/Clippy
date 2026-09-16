@@ -27,7 +27,8 @@ const RESIZE_SETTLE_MS = 180;
  * 拿不到（后端返回 0 宽高、命令失败、窗口刚关掉）就退回整个窗口，也就是这个功能
  * 存在之前的行为。
  */
-export function usePinToolbarBounds(label: string, viewport: { width: number; height: number }) {
+export function usePinToolbarBounds(label: string, viewport: { width: number; height: number },
+  loadBounds = pinApi.toolbarBounds) {
   const [bounds, setBounds] = useState<ToolbarBounds | null>(null);
   // 同一时刻只允许一个查询在飞，落地后如果期间又被请求过就再补一次——
   // 和 `update_pin` 的在飞合并同一个套路，避免拖动时堆出一串 D-Bus 请求。
@@ -35,8 +36,9 @@ export function usePinToolbarBounds(label: string, viewport: { width: number; he
   const again = useRef(false);
   // 关掉贴图时查询可能还在飞（异步命令），落地后不能再动已卸载组件的状态。
   const alive = useRef(true);
-  useEffect(() => () => {
-    alive.current = false;
+  useEffect(() => {
+    alive.current = true;
+    return () => { alive.current = false; };
   }, []);
 
   const refresh = useCallback(() => {
@@ -45,8 +47,7 @@ export function usePinToolbarBounds(label: string, viewport: { width: number; he
       return;
     }
     inFlight.current = true;
-    pinApi
-      .toolbarBounds(label)
+    loadBounds(label)
       .then((next) => {
         // 宽或高为 0 = 后端查不到（窗口刚关掉、扩展还没认出这个窗口）。
         if (alive.current) setBounds(next.width > 0 && next.height > 0 ? next : null);
@@ -63,7 +64,7 @@ export function usePinToolbarBounds(label: string, viewport: { width: number; he
           refresh();
         }
       });
-  }, [label]);
+  }, [label, loadBounds]);
 
   /**
    * 尺寸变化（滚轮缩放会改窗口尺寸）之后重问一次，但要**等它停下来**。

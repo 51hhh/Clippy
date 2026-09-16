@@ -510,7 +510,8 @@ fn apply_adjustments(mut source: RgbaImage, adjustments: Adjustments) -> RgbaIma
         }
         for channel in &mut rgb {
             *channel = div_round(*channel * brightness, 100);
-            *channel = div_round((*channel * 2 - 255) * contrast, 200) + 128;
+            // 把中心偏移放进同一次取整，contrast=100 对所有通道恒等。
+            *channel = div_round((*channel * 2 - 255) * contrast + 25_500, 200);
         }
         let gray = div_round(2_126 * rgb[0] + 7_152 * rgb[1] + 722 * rgb[2], 10_000);
         for channel in &mut rgb {
@@ -1300,6 +1301,58 @@ mod tests {
     }
 
     #[test]
+    fn default_adjustments_preserve_every_channel_and_alpha_in_png_output() {
+        let source = RgbaImage::from_fn(256, 1, |x, _| {
+            Rgba([x as u8, (255 - x) as u8, 200, x as u8])
+        });
+        let source_png = crate::screenshot::encode_png(source.as_raw(), 256, 1).unwrap();
+        let rendered = render(&source_png, 256, 1, &serde_json::json!([]), &adjustments()).unwrap();
+        assert_eq!(decode(&rendered), source);
+    }
+
+    #[test]
+    fn mosaic_uses_source_pixel_cells_including_partial_edge_cells() {
+        let source = RgbaImage::from_fn(32, 24, |x, y| {
+            Rgba([
+                ((x * 17 + y * 7) % 256) as u8,
+                ((x * 3 + y * 19) % 256) as u8,
+                ((x * 11 + y * 5) % 256) as u8,
+                255,
+            ])
+        });
+        let source_png = crate::screenshot::encode_png(source.as_raw(), 32, 24).unwrap();
+        let annotations = serde_json::json!([{"id":"m","type":"mosaic",
+            "rect":{"x":1,"y":2,"width":26,"height":14},
+            "effect":{"mosaicCell":12,"blurRadius":8,"spotlightDim":0.5,"magnifierZoom":2}}]);
+        let output = decode(&render(&source_png, 32, 24, &annotations, &adjustments()).unwrap());
+        // 同一组独立求和结果也由真实浏览器 Canvas smoke 在 25/50/100/200% 校验。
+        for (x, y, expected) in [
+            (7, 8, [143, 139, 109, 255]),
+            (19, 8, [118, 134, 141, 255]),
+            (25, 8, [177, 134, 62, 255]),
+            (7, 14, [137, 39, 144, 255]),
+            (19, 14, [149, 75, 105, 255]),
+            (25, 14, [23, 96, 97, 255]),
+        ] {
+            assert_eq!(output.get_pixel(x, y).0, expected);
+        }
+        assert_eq!(output.get_pixel(0, 0), source.get_pixel(0, 0));
+    }
+
+    #[test]
+    fn rounded_capture_cuts_annotation_corners_but_preserves_center_alpha() {
+        let source = RgbaImage::from_pixel(32, 24, Rgba([128, 200, 254, 128]));
+        let annotations = serde_json::json!([{"id":"r","type":"highlight","color":"#ff0000","size":2,
+            "rect":{"x":4,"y":4,"width":24,"height":16}}]);
+        let mut adjusted = adjustments();
+        adjusted["cornerRadius"] = serde_json::json!(8);
+        let output =
+            decode(&render_capture(source, (4, 4, 24, 16), &annotations, &adjusted).unwrap());
+        assert_eq!(output.get_pixel(0, 0)[3], 0);
+        assert!(output.get_pixel(12, 8)[3] > 128);
+    }
+
+    #[test]
     fn fixed_point_adjustments_are_stable_and_keep_alpha() {
         let source = RgbaImage::from_raw(1, 1, vec![20, 100, 220, 77]).unwrap();
         let output = apply_adjustments(
@@ -1384,10 +1437,11 @@ mod tests {
         assert_eq!(first, second, "相同工程的选区 PNG 必须字节级确定");
         let viewport = decode(&first);
         assert_ne!(viewport, effect_viewport, "跨边界矢量必须进入选区输出");
+        // 对比度中心合并取整修复后更新金图；默认全通道恒等性另有独立逐像素测试。
         let digest = format!("{:x}", Sha256::digest(viewport.as_raw()));
         assert_eq!(
             digest,
-            "f2de1b3f268bde1aa5e2ee814a64ec64ca00df7dbfaf81f61f934df9701c3cad"
+            "62269d1ef10f03d226b5bedd72d3d4ea523d37a70ff76210b3ff48aa5d91572a"
         );
     }
 
@@ -1455,7 +1509,7 @@ mod tests {
         let digest = format!("{:x}", Sha256::digest(image.as_raw()));
         assert_eq!(
             digest,
-            "0868d38bf2e18a1f62d01cfa55d37954b1a66d3f2b99b3affb83dbe5d1b64478"
+            "bafe7304d28734d35fee3cf7dab22b061f8a6a7ecea01093a539cc64422888de"
         );
     }
 

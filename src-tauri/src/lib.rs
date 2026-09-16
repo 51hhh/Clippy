@@ -1,4 +1,5 @@
 mod app;
+mod app_update;
 pub mod bench_support;
 mod capture;
 mod clipboard_watcher;
@@ -27,6 +28,7 @@ mod shortcut_conflict;
 mod storage;
 mod translation;
 mod tray_icon;
+mod viewer;
 mod webview_hardening;
 mod window_controller;
 
@@ -72,12 +74,14 @@ pub fn run() {
     .init();
 
     tauri::Builder::default()
+        .manage(Arc::new(app_update::AppUpdater::new()))
         // 冻结帧走 WebKit 原生资源管线，避免 16–33 MB RGBA 穿过 JS invoke 桥；
         // `get_capture_frame` 仍作为协议加载失败时的兼容兜底。
         .register_uri_scheme_protocol("capture-frame", capture::frame_protocol)
         // 贴图 PNG 也走 WebKit 原生资源管线，避免 4K 图在 Rust/JSON/JS/Blob 间产生
         // 多份瞬时副本。协议按 WebView label 隔离，补偿图用版本化 URL 二次换入。
         .register_uri_scheme_protocol("pin-frame", pin::frame_protocol::handle)
+        .register_uri_scheme_protocol("viewer-frame", viewer::frame_protocol::handle)
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             app::shortcuts::on_second_instance(app, args, cwd);
         }))
@@ -162,6 +166,8 @@ pub fn run() {
 
             // ── 5. 注册全局状态 ──────────────────────────────────────────────
             app.manage(AppState {
+                viewer_manager: Arc::new(viewer::ViewerManager::default()),
+                viewer_transition: Mutex::new(()),
                 storage,
                 config,
                 config_path,
@@ -183,6 +189,7 @@ pub fn run() {
                 paste_manager,
                 translation,
                 shortcuts_paused: AtomicBool::new(false),
+                settings_close_pending: AtomicBool::new(false),
                 shortcut_transition: Mutex::new(()),
                 #[cfg(target_os = "linux")]
                 portal_shortcuts: portal_shortcuts.clone(),
@@ -287,7 +294,24 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(app::window_events::handle)
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(viewer::access::restrict(tauri::generate_handler![
+            viewer::commands::open_image_viewer,
+            viewer::commands::get_viewer_payload,
+            viewer::commands::get_viewer_settings,
+            viewer::commands::viewer_ready,
+            viewer::commands::close_image_viewer,
+            viewer::commands::get_viewer_fullscreen,
+            viewer::commands::set_viewer_fullscreen,
+            viewer::commands::minimize_image_viewer,
+            viewer::commands::start_viewer_drag,
+            viewer::commands::recognize_viewer,
+            viewer::commands::detect_viewer_codes,
+            viewer::commands::translate_viewer,
+            viewer::commands::sample_viewer_color,
+            viewer::commands::copy_viewer_image,
+            viewer::commands::save_viewer_image,
+            viewer::commands::pin_viewer_image,
+            viewer::commands::copy_viewer_text,
             commands::get_clips,
             commands::delete_clip,
             commands::toggle_favorite,
@@ -305,6 +329,11 @@ pub fn run() {
             commands::set_codec_visible,
             commands::get_config,
             commands::update_config,
+            app_update::get_app_update_state,
+            app_update::check_app_update,
+            app_update::install_app_update,
+            commands::restart_app,
+            commands::close_settings,
             commands::check_shortcut_conflict,
             commands::get_shortcut_failures,
             commands::show_settings,
@@ -319,6 +348,7 @@ pub fn run() {
             capture::mark_capture_overlay_ready,
             capture::cancel_capture_overlay,
             capture::commit_capture_action,
+            capture::retry_capture_action,
             capture::translate_capture_selection,
             capture::get_window_probe_status,
             capture::install_window_probe_extension,
@@ -346,6 +376,7 @@ pub fn run() {
             pin::commands::close_pin,
             commands::ocr_available,
             commands::ocr_image,
+            commands::ocr_image_result,
             commands::ocr_install,
             commands::fetch_url_meta,
             commands::get_stats,
@@ -360,7 +391,7 @@ pub fn run() {
             translation::commands::set_translation_api_key,
             translation::commands::has_translation_api_key,
             translation::commands::delete_translation_api_key,
-        ])
+        ]))
         .run(tauri::generate_context!())
         .expect("启动 Tauri 应用失败");
 }

@@ -26,9 +26,11 @@ function appendPreviewRow(document, preview, { active = false, accent = false, s
 }
 
 /** 创建主题选择器并让模块独占其 DOM 与临时选择状态。 */
-export function createThemePicker({ container, translate, persistTheme }) {
+export function createThemePicker({ container, translate, persistTheme, notify = () => {} }) {
   const document = container.ownerDocument;
   let selectedTheme = "light";
+  let savedTheme = "light";
+  let selectionGeneration = 0;
 
   function applyTheme(theme) {
     document.documentElement.dataset.theme = theme;
@@ -43,13 +45,21 @@ export function createThemePicker({ container, translate, persistTheme }) {
   }
 
   async function selectTheme(theme) {
+    const generation = ++selectionGeneration;
     selectedTheme = theme;
     applyTheme(theme);
     updateSelection();
     try {
       await persistTheme(theme);
+      savedTheme = theme;
     } catch (error) {
       console.warn("主题持久化失败:", error);
+      if (generation === selectionGeneration) {
+        selectedTheme = savedTheme;
+        applyTheme(savedTheme);
+        updateSelection();
+      }
+      notify(translate("settings.saveFailed", { error: String(error) }));
     }
   }
 
@@ -92,6 +102,7 @@ export function createThemePicker({ container, translate, persistTheme }) {
   return {
     initialize(theme) {
       selectedTheme = theme || "light";
+      savedTheme = selectedTheme;
       applyTheme(selectedTheme);
       render();
     },

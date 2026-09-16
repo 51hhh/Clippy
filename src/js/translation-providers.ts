@@ -98,9 +98,9 @@ export function primaryTranslationService(
  * 所有启用的服务，顺序与配置一致，与后端 `selected_services` 的参与集合相同。
  * 认不出的 provider 名（更新版本写入的服务）跳过，界面不为它留卡位。
  */
-export function enabledTranslationServices(
-  services: TranslationServiceConfig[] | null | undefined,
-): TranslationServiceConfig[] {
+export function enabledTranslationServices<T extends Pick<TranslationServiceConfig, "enabled" | "provider">>(
+  services: T[] | null | undefined,
+): T[] {
   return (services ?? []).filter(
     (service) => service.enabled && service.provider in TRANSLATION_PROVIDERS,
   );

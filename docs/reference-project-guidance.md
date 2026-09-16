@@ -1,6 +1,6 @@
 # 参考项目与集成原则
 
-本项目曾对比 `/home/rick/desktop/Clippy/examples` 中的 Flashot 与 Translator。完整证据和版本信息见 [example-integration-analysis.md](../.trellis/tasks/08-08-clippy-integrated-refactor/research/example-integration-analysis.md)。本页保留可执行的结论，避免后续重构重复调研。
+本项目曾对比 `examples/` 下的两个参考项目。完整证据与版本信息保存在本地工作区，不随仓库分发；本页保留可执行的结论，避免后续重构重复调研。
 
 ## 可借鉴设计
 

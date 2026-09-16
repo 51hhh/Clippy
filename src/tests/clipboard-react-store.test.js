@@ -96,7 +96,7 @@ describe("React clipboard store", () => {
     await loading;
 
     expect(store.getSnapshot().query).toBe("new");
-    expect(store.getSnapshot().all).toHaveLength(30);
+    expect(store.getSnapshot().all).toEqual([]);
     expect(store.getSnapshot().loadingMore).toBe(false);
   });
 
@@ -171,7 +171,8 @@ describe("React clipboard store", () => {
     store.releaseMemory();
     expect(store.getSnapshot().navigation.focusedRow).toBe(-1);
     store.prependClip(clip(2));
-    expect(store.getSnapshot().navigation.focusedRow).toBe(0);
+    expect(store.getSnapshot().navigation.focusedRow).toBe(-1);
+    expect(store.getSnapshot().all).toEqual([]);
 
     // 重新打开面板：refresh 拉回完整列表，焦点仍应是最新那条
     api.getClips.mockResolvedValueOnce([clip(2), clip(1)]);

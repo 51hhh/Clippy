@@ -15,7 +15,9 @@ mod manager;
 /// Longshot 侧部分 API 尚无生产调用方是刻意的分层边界，不能为了消除 lint 伪造调用。
 #[cfg_attr(not(test), allow(dead_code))]
 mod mode_gate;
+mod output;
 mod overlay_windows;
+use output::{CaptureOutputError, OutputFailure};
 #[cfg(target_os = "linux")]
 mod shell_extension;
 #[cfg(not(target_os = "linux"))]
@@ -59,7 +61,8 @@ pub use types::{
 
 use crate::commands::AppState;
 use crate::translation::types::TranslationError;
-use tauri::State;
+use std::sync::Arc;
+use tauri::{Manager, State};
 
 /// renderer v2 输出的 PNG 上限。全屏 4K 的标注 PNG 大约十几 MB，
 /// 64 MiB 足够宽松，同时挡住畸形/恶意载荷把内存吃光。
@@ -235,7 +238,10 @@ fn take_probe_hint(state: &AppState) -> bool {
         return false;
     }
     config.capture_probe_hint_shown = true;
-    crate::config::save_config(&state.config_path, &config);
+    if let Err(error) = crate::config::save_config(&state.config_path, &config) {
+        // 当前进程仍记住已提示，避免可选提示因磁盘异常反复打扰。
+        log::warn!("截图提示状态保存失败: {error}");
+    }
     true
 }
 
@@ -379,7 +385,7 @@ pub fn cancel_capture_overlay(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     action_lifecycle::complete_capture_cancel(
-        || state.capture_manager.finish(&session_id),
+        || state.capture_manager.request_cancel(&session_id),
         |session| overlay_windows::close(&app_handle, &session.overlay_labels()),
         |session| {
             crate::pin::restore_pins_after_capture(&app_handle, &state, &session.lowered_pins);
@@ -414,7 +420,8 @@ pub fn uninstall_window_probe_extension() -> Result<ShellExtensionStatus, String
 ///
 /// 前端只提交选区和 renderer v2 操作文档；后端从会话中取可信冻结帧，
 /// 在 blocking worker 合成完整帧后只输出选区视口。这样既保留跨边界标注/模糊邻域，
-/// 又不让 WebView Canvas 成为最终像素事实源。会话在执行动作前仍会被唯一认领。
+/// 又不让 WebView Canvas 成为最终像素事实源。渲染前唯一认领输出，失败保留会话，
+/// 成功或放弃后才销毁覆盖层并释放冻结帧。
 ///
 /// `origin` 是选区在桌面逻辑坐标系里的矩形（覆盖层用 payload 的 `logicalX/logicalY`
 /// 换算好）。贴图靠它回到原处、按原尺寸显示；复制时也记一份，方便之后从历史里
@@ -425,10 +432,14 @@ pub async fn commit_capture_action(
     selection: CaptureSelection,
     project: crate::pin::commands::PinCanvasProject,
     origin: Option<crate::pin::PinOrigin>,
+    window: tauri::WebviewWindow,
     app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
-) -> Result<CaptureActionResult, String> {
-    let session_id = selection.session_id.clone();
+) -> Result<CaptureActionResult, CaptureOutputError> {
+    // caller label 来自 IPC 注入窗口，不能用前端可伪造标签认领别的覆盖层。
+    let claim = state
+        .capture_manager
+        .claim_output(window.label(), &selection, origin)?;
     let capture_manager = state.capture_manager.clone();
     let rendered = tauri::async_runtime::spawn_blocking(move || {
         if project.renderer_version != crate::pin::render_v2::RENDERER_VERSION {
@@ -446,35 +457,109 @@ pub async fn commit_capture_action(
             &project.annotations,
             &project.adjustments,
         )?;
-        commit_image_from_png(png).map_err(String::from)
+        commit_image_from_png(png)
+            .map(Arc::new)
+            .map_err(String::from)
     })
     .await
     .map_err(|error| format!("截图合成任务异常: {error}"))
-    .and_then(|result| result);
-    let result = action_lifecycle::complete_capture_action(
-        rendered,
-        || {
-            state
-                .capture_manager
-                .finish(&session_id)
-                .map_err(String::from)
-        },
-        |session| overlay_windows::close(&app_handle, &session.overlay_labels()),
-        |session| {
-            // 贴图的层级要在覆盖层关掉之后才放回去，否则刚恢复置顶的贴图会先盖住
-            // 还没消失的覆盖层，闪一下。
-            crate::pin::restore_pins_after_capture(&app_handle, &state, &session.lowered_pins);
-            overlay_windows::restore(&app_handle, &session.restore_labels);
-        },
-        |session| session.finalize_mode().map_err(String::from),
-        |png| execute_action(action, png, origin, &app_handle, &state),
-    );
-    // 覆盖层在动作之前就关掉了，错误已经没有窗口可以显示——只能留在日志里，
-    // 否则"点了对钩什么都没发生"完全无从排查。
-    if let Err(error) = &result {
-        log::warn!("截图提交失败: {error}");
+    .and_then(|value| value);
+    let artifact = match rendered {
+        Ok(image) => image,
+        Err(error) => {
+            if let Some(session) = state.capture_manager.render_failed(&claim)? {
+                finish_output_session(&app_handle, &state, session);
+            }
+            return Err(CaptureOutputError::editing(error));
+        }
+    };
+    if let Some(session) = state
+        .capture_manager
+        .publish_output(&claim, artifact.clone())?
+    {
+        finish_output_session(&app_handle, &state, session);
+        return Err(CaptureOutputError::editing("截图已取消"));
     }
-    result
+    deliver_capture_output(action, claim, artifact, app_handle, &state).await
+}
+
+/// 只重试此前已渲染的产物，不能从新的文档或当前桌面重新生成。
+#[tauri::command]
+pub async fn retry_capture_action(
+    action: CaptureAction,
+    window: tauri::WebviewWindow,
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<CaptureActionResult, CaptureOutputError> {
+    let claim = state.capture_manager.retry_output(window.label(), action)?;
+    let artifact = claim
+        .artifact
+        .clone()
+        .ok_or_else(|| CaptureOutputError::editing("截图输出产物不存在"))?;
+    deliver_capture_output(action, claim, artifact, app_handle, &state).await
+}
+
+async fn deliver_capture_output(
+    action: CaptureAction,
+    claim: output::OutputClaim,
+    artifact: Arc<CommitImage>,
+    app: tauri::AppHandle,
+    state: &AppState,
+) -> Result<CaptureActionResult, CaptureOutputError> {
+    let worker_app = app.clone();
+    let origin = claim.origin;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let state = worker_app
+            .try_state::<AppState>()
+            .ok_or_else(|| OutputFailure::from("AppState 已不可用".to_string()))?;
+        execute_action(action, &artifact, origin, &worker_app, &state)
+    })
+    .await
+    .unwrap_or_else(|error| {
+        Err(OutputFailure {
+            message: format!("截图输出结果无法确认: {error}"),
+            uncertain: action != CaptureAction::Copy,
+        })
+    });
+    let (session, copy_only) = state.capture_manager.settle_output(
+        &claim,
+        result.is_ok(),
+        result
+            .as_ref()
+            .err()
+            .is_some_and(|failure| failure.uncertain),
+    )?;
+    let completed = session.is_some();
+    if let Some(session) = session {
+        finish_output_session(&app, state, session);
+    }
+    result.map_err(|failure| {
+        log::warn!("截图输出失败，保留产物供用户处理: {}", failure.message);
+        if completed {
+            CaptureOutputError::editing(failure.message)
+        } else {
+            CaptureOutputError::pending(failure.message, copy_only)
+        }
+    })
+}
+
+fn finish_output_session(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    session: manager::CaptureSession,
+) {
+    if let Err(error) = action_lifecycle::cleanup_capture_session(
+        session,
+        |session| overlay_windows::close(app, &session.overlay_labels()),
+        |session| {
+            crate::pin::restore_pins_after_capture(app, state, &session.lowered_pins);
+            overlay_windows::restore(app, &session.restore_labels);
+        },
+        manager::CaptureSession::finalize_mode,
+    ) {
+        // 输出已经成功，清理错误不能伪装成可重试保存，否则会重复副作用。
+        log::error!("截图输出后清理失败: {error}");
+    }
 }
 
 /// renderer v2 产生的那张图，字节和像素各一份。
@@ -482,10 +567,10 @@ pub async fn commit_capture_action(
 /// 校验这张 PNG 必须整张解码（见 [`commit_image_from_png`]），所以**顺手把像素留下来**：
 /// 复制那条路要的正是 RGBA，不留就得再解一遍同一张全屏 PNG（1080p 约 20 ms，
 /// 2560x1440 起跳 40 ms 上下，见 docs/bench-baseline.md），而用户此刻正等着对钩生效。
-/// 保存与贴图要的是原样的 PNG 字节，它们会当场把 `pixels` 扔掉（十几 MB）。
+/// 保存与贴图使用原样 PNG；字节和像素一并保留到成功或放弃，失败后可直接改为复制。
 #[derive(Debug)]
 struct CommitImage {
-    png: Vec<u8>,
+    png: Arc<Vec<u8>>,
     pixels: image::RgbaImage,
 }
 
@@ -499,7 +584,10 @@ fn commit_image_from_png(png: Vec<u8>) -> Result<CommitImage, CaptureError> {
     let pixels = image::load_from_memory_with_format(&png, image::ImageFormat::Png)
         .map_err(|_| CaptureError::CommitPayloadInvalid)?
         .into_rgba8();
-    Ok(CommitImage { png, pixels })
+    Ok(CommitImage {
+        png: Arc::new(png),
+        pixels,
+    })
 }
 
 /// 显式执行“选区 -> 本地 OCR -> 文本翻译”。裁剪帧只进入 Tesseract，永不发送给 provider。
@@ -580,40 +668,37 @@ fn translation_ipc_error(error: TranslationError) -> String {
 
 fn execute_action(
     action: CaptureAction,
-    image: CommitImage,
+    image: &CommitImage,
     origin: Option<crate::pin::PinOrigin>,
     app_handle: &tauri::AppHandle,
     state: &AppState,
-) -> Result<CaptureActionResult, String> {
-    let CommitImage { png, pixels } = image;
+) -> Result<CaptureActionResult, OutputFailure> {
     match action {
         CaptureAction::Copy => {
-            // 像素是校验那一步解出来的（见 `CommitImage`），剪贴板和来源登记共用它：
-            // 三处各解一遍这张全屏 PNG 要多花上百毫秒，而用户此刻正等着对钩生效。
-            drop(png);
-            let image = crate::image_io::rgba_to_clipboard_image(pixels);
             let fingerprint = origin.map(|origin| {
                 (
                     crate::pin::PinFingerprint::of(
-                        image.width as u32,
-                        image.height as u32,
-                        &image.bytes,
+                        image.pixels.width(),
+                        image.pixels.height(),
+                        image.pixels.as_raw(),
                     ),
                     origin,
                 )
             });
-            crate::clipboard_watcher::clipboard_set_image_with_retry(image)?;
-            // 复制成功之后再登记：复制失败的话这张图根本没进剪贴板，
-            // 记下来只会让将来某张碰巧一样的图错位。
+            crate::clipboard_watcher::clipboard_set_image_with_retry(arboard::ImageData {
+                width: image.pixels.width() as usize,
+                height: image.pixels.height() as usize,
+                bytes: std::borrow::Cow::Borrowed(image.pixels.as_raw()),
+            })?;
             if let Some((fingerprint, origin)) = fingerprint {
                 state.pin_origins.remember(fingerprint, origin);
             }
             Ok(action_result("copy", None, None))
         }
         CaptureAction::Save => {
-            // 存盘写的是原样的 PNG 字节，校验解出来的那十几 MB 像素当场释放。
-            drop(pixels);
-            let path = crate::image_io::save_png(&png, "clippy-screenshot", &state.save_target())?;
+            // save_png 只在原子 hard_link 成功前返回业务错误，因此业务失败可重试。
+            let path =
+                crate::image_io::save_png(&image.png, "clippy-screenshot", &state.save_target())?;
             Ok(action_result(
                 "save",
                 Some(path.to_string_lossy().to_string()),
@@ -621,9 +706,16 @@ fn execute_action(
             ))
         }
         CaptureAction::Pin => {
-            // 同上：贴图窗口拿的是 PNG，像素先扔掉再去建窗（建窗那条路本身就要几百毫秒）。
-            drop(pixels);
-            let label = crate::pin::create_screenshot_pin(png, origin, app_handle, state)?;
+            let label = crate::pin::create_screenshot_pin_shared(
+                image.png.clone(),
+                origin,
+                app_handle,
+                state,
+            )
+            .map_err(|error| OutputFailure {
+                uncertain: error.is_uncertain(),
+                message: error.to_string(),
+            })?;
             Ok(action_result("pin", None, Some(label)))
         }
     }

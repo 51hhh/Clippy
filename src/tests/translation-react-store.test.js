@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../js/api.ts", () => ({
   copyText: vi.fn(),
@@ -108,6 +108,7 @@ describe("React translation store", () => {
     api.speakText.mockReset();
     store.setConfig(config);
   });
+  afterEach(() => store.clear());
 
   it("translates only an explicit non-sensitive request and copies through IPC", async () => {
     store.setClip(clip());
@@ -300,14 +301,41 @@ describe("React translation store", () => {
     expect(api.translateClip).not.toHaveBeenCalled();
   });
 
-  it("renders the configured destination and image action without starting a request", () => {
+  it("does not render a duplicate image card outside a registered OCR slot", () => {
     store.setClip(clip(2, false, "image"));
+    expect(renderToStaticMarkup(React.createElement(TranslationPanel, { store }))).toBe("");
+    expect(api.translateClip).not.toHaveBeenCalled();
+    store.setClip(clip(3));
     const html = renderToStaticMarkup(React.createElement(TranslationPanel, { store }));
-    expect(html).toContain("LibreTranslate-compatible");
+    expect(html).toContain('id="translation-title"');
     expect(html).toContain("Target: Chinese");
     expect(html).toContain("https://translate.example.test");
-    expect(html).toContain("OCR &amp; Translate");
-    expect(api.translateClip).not.toHaveBeenCalled();
+    expect(html).not.toContain("details");
+  });
+
+  it("uses injected host services for every side effect without calling production IPC", async () => {
+    const services = {
+      translationHistory: vi.fn().mockResolvedValue([]),
+      translateClip: vi.fn().mockResolvedValue(batch(ok("libretranslate", "fixture translation"))),
+      copyText: vi.fn().mockResolvedValue(undefined),
+      speakClip: vi.fn().mockResolvedValue(spoken),
+      speakText: vi.fn().mockResolvedValue(spoken),
+    };
+    const fixtureStore = new TranslationStore(player, 0, services);
+    fixtureStore.setConfig(config);
+    fixtureStore.setPanelVisible(true);
+    fixtureStore.setClip(clip(24, false, "image"));
+    await vi.waitFor(() => expect(services.translationHistory).toHaveBeenCalledWith(24));
+    await fixtureStore.translate();
+    await fixtureStore.copy("libretranslate");
+    await fixtureStore.speakSource();
+    await fixtureStore.speakTranslation("libretranslate");
+    expect(services.translateClip).toHaveBeenCalledTimes(1);
+    expect(services.copyText).toHaveBeenCalledWith("fixture translation");
+    expect(services.speakClip).toHaveBeenCalledTimes(1);
+    expect(services.speakText).toHaveBeenCalledTimes(1);
+    for (const method of Object.keys(services)) expect(api[method]).not.toHaveBeenCalled();
+    fixtureStore.clear();
   });
 
   it("lists every enabled destination, using built-in endpoints where none is set", () => {

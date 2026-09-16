@@ -1,4 +1,5 @@
 use super::content::{compute_hash, is_sensitive_text};
+use super::poll_state::PollState;
 use crate::models::{AppConfig, ContentType};
 use crate::storage::StorageEngine;
 use inotify::{Inotify, WatchMask};
@@ -6,7 +7,7 @@ use nix::poll::{poll, PollFd, PollFlags};
 use std::os::fd::AsFd;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
 /// 使用 inotify 监控 tmux 缓冲区文件，实现零轮询的即时捕获。
@@ -15,9 +16,14 @@ pub(super) fn start(
     config: Arc<Mutex<AppConfig>>,
     storage: Arc<Mutex<StorageEngine>>,
     app_handle: AppHandle,
-    tmux_last_hash: Arc<Mutex<String>>,
 ) {
     let tmux_buf_path = crate::commands::tmux_buf_path();
+    // 文件去重只属于 tmux 输入：旧缓冲内容不能永久屏蔽独立的系统 selection。
+    let mut last_hash = std::fs::read_to_string(&tmux_buf_path)
+        .ok()
+        .filter(|text| !text.is_empty())
+        .map(|text| compute_hash(text.as_bytes()))
+        .unwrap_or_default();
     let mut hook_check_counter: u32 = 0;
     const HOOK_CHECK_INTERVAL: u32 = 60;
 
@@ -53,6 +59,7 @@ pub(super) fn start(
     log::info!("tmux inotify 监听已启动: {:?}", tmux_buf_path);
 
     let mut buffer = [0u8; 4096];
+    let mut state = PollState::default();
     loop {
         if !*running.lock().unwrap_or_else(|error| error.into_inner()) {
             break;
@@ -75,18 +82,18 @@ pub(super) fn start(
 
         let mut pollfds = [PollFd::new(inotify.as_fd(), PollFlags::POLLIN)];
         let poll_result = poll(&mut pollfds, 1000_u16).unwrap_or(0);
-        if poll_result <= 0 {
-            continue;
-        }
-
-        let events = match inotify.read_events(&mut buffer) {
-            Ok(events) => events,
-            Err(_) => continue,
+        let file_changed = if poll_result > 0 {
+            match inotify.read_events(&mut buffer) {
+                Ok(events) => events
+                    .filter_map(|event| event.name)
+                    .any(|name| name.to_string_lossy() == target_filename),
+                Err(_) => false,
+            }
+        } else {
+            false
         };
-        let file_changed = events
-            .filter_map(|event| event.name)
-            .any(|name| name.to_string_lossy() == target_filename);
-        if !file_changed {
+        // 写入失败不一定再产生 inotify 事件；超时仍需检查待重试内容。
+        if !file_changed && !state.has_pending() {
             continue;
         }
 
@@ -96,18 +103,15 @@ pub(super) fn start(
             _ => continue,
         };
         let hash = compute_hash(content.as_bytes());
-        let current_hash = tmux_last_hash
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .clone();
-        if hash == current_hash {
+        if !state.observe(&hash, hash == last_hash, Instant::now()) {
             continue;
         }
-        *tmux_last_hash
-            .lock()
-            .unwrap_or_else(|error| error.into_inner()) = hash.clone();
-
-        store_content(&config, &storage, &app_handle, &content, &hash);
+        if store_content(&config, &storage, &app_handle, &content, &hash) {
+            state.settle();
+            last_hash = hash;
+        } else {
+            state.failed(Instant::now());
+        }
     }
 
     log::info!("tmux inotify 监听已停止");
@@ -135,7 +139,7 @@ fn store_content(
     app_handle: &AppHandle,
     content: &str,
     hash: &str,
-) {
+) -> bool {
     let max_history = config
         .lock()
         .unwrap_or_else(|error| error.into_inner())
@@ -173,5 +177,8 @@ fn store_content(
         }
         let _ = app_handle.emit("clip-added", &clip);
         log::debug!("tmux 缓冲区内容（inotify），大小: {} 字节", byte_size);
+        true
+    } else {
+        false
     }
 }

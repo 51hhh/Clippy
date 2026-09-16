@@ -3,9 +3,24 @@
  */
 
 import { t } from "../../i18n/i18n.js";
+import { formatJsonWithinBudget, limitForRender, MAX_RENDER_CHARS } from "./large-text.js";
 import { normalizeColor, parseJwt } from "./detectors.js";
 
 export function createCodeRenderers({ contentEl, badgeEl, getLibraries }) {
+  function renderBudgetFallback(text) {
+    const limited = limitForRender(text);
+    badgeEl.textContent = "TEXT";
+    contentEl.classList.add("preview-content--text");
+    const pre = document.createElement("pre");
+    pre.textContent = limited.body;
+    const note = document.createElement("div");
+    note.className = "preview-truncated";
+    note.textContent = limited.truncated
+      ? t("preview.truncated", { count: limited.omitted.toLocaleString() })
+      : t("preview.formatLimited");
+    contentEl.append(pre, note);
+  }
+
   function renderCode(text, result) {
     badgeEl.textContent = result.language.toUpperCase();
     contentEl.classList.add("preview-content--code");
@@ -18,10 +33,12 @@ export function createCodeRenderers({ contentEl, badgeEl, getLibraries }) {
   }
 
   function renderJson(text) {
+    if (text.length > MAX_RENDER_CHARS) return renderBudgetFallback(text);
+    let formatted;
+    try { formatted = formatJsonWithinBudget(JSON.parse(text)); } catch { formatted = null; }
+    if (formatted === null) return renderBudgetFallback(text);
     badgeEl.textContent = "JSON";
     contentEl.classList.add("preview-content--code");
-    let formatted;
-    try { formatted = JSON.stringify(JSON.parse(text), null, 2); } catch { formatted = text; }
     const highlighted = getLibraries().hljs.highlight(formatted, { language: "json" });
     const pre = document.createElement("pre");
     const code = document.createElement("code");
@@ -35,6 +52,7 @@ export function createCodeRenderers({ contentEl, badgeEl, getLibraries }) {
 
   /** 可逆编码对照渲染 */
   function renderEncoded(result) {
+    if (result.original.length + result.decoded.length > MAX_RENDER_CHARS) return renderBudgetFallback(result.original);
     const LABELS = {
       "base64": "BASE64", "url-encoded": "URL ENCODED",
       "html-entity": "HTML ENTITY", "unicode": "UNICODE", "hex": "HEX",
@@ -69,6 +87,7 @@ export function createCodeRenderers({ contentEl, badgeEl, getLibraries }) {
 
   /** Base64 图片渲染 */
   function renderBase64Image(result) {
+    if (result.original.length > MAX_RENDER_CHARS || result.decoded.length > MAX_RENDER_CHARS) return renderBudgetFallback(result.original);
     badgeEl.textContent = "BASE64 → IMAGE";
     contentEl.classList.add("preview-content--image");
     const img = document.createElement("img");
@@ -85,18 +104,23 @@ export function createCodeRenderers({ contentEl, badgeEl, getLibraries }) {
 
   /** JWT 结构化渲染 */
   function renderJwt(text) {
+    if (text.length > MAX_RENDER_CHARS) return renderBudgetFallback(text);
+    const { header, payload, signature } = parseJwt(text);
+    const headerText = header ? formatJsonWithinBudget(header) : "";
+    const payloadText = payload ? formatJsonWithinBudget(payload) : "";
+    if (headerText === null || payloadText === null
+      || headerText.length + payloadText.length + (signature?.length || 0) > MAX_RENDER_CHARS) return renderBudgetFallback(text);
     badgeEl.textContent = "JWT";
     contentEl.classList.add("preview-content--encoded");
-    const { header, payload, signature } = parseJwt(text);
 
     // Header
     if (header) {
-      const sec = _jwtSection("Header", JSON.stringify(header, null, 2));
+      const sec = _jwtSection("Header", headerText);
       contentEl.appendChild(sec);
     }
     // Payload
     if (payload) {
-      const sec = _jwtSection("Payload", JSON.stringify(payload, null, 2));
+      const sec = _jwtSection("Payload", payloadText);
       contentEl.appendChild(sec);
     }
     // Signature

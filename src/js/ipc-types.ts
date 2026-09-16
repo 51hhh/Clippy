@@ -166,6 +166,17 @@ export interface PasteOutcome {
   detail: string | null;
 }
 
+/** 应用进程持有的更新任务；revision 用于丢弃跨窗口订阅/查询的旧快照。 */
+export interface AppUpdateSnapshot {
+  revision: number;
+  status: "idle" | "available" | "installing" | "installed" | "failed";
+  version: string | null;
+  body: string;
+  install_type: InstallType;
+  downloaded: number;
+  total: number | null;
+}
+
 /**
  * 窗口速选候选区。
  *
@@ -267,6 +278,18 @@ export interface LongshotSnapshot {
 export interface LongshotActivation {
   handle: LongshotHandle;
   snapshot: LongshotSnapshot;
+}
+
+export interface CaptureOutputError {
+  message: string;
+  outputPending: boolean;
+  retryActions: CaptureAction[];
+}
+
+export interface CaptureLongshotHandoff {
+  controllerLabel: string;
+  sessionId: string;
+  accepted: boolean;
 }
 
 /** 普通覆盖层只会收到新控制窗口的唯一标签，不会启动 longshot。 */
@@ -480,6 +503,41 @@ export interface PinInitialProject {
 }
 
 export type PinCanvasSaveMode = "editable" | "flat";
+
+export interface StructuredOcr {
+  width: number; height: number; text: string;
+  lines: { id: number; quad: [number, number][]; text: string; confidence: number;
+    charConfidences: number[]; paragraphId: number; readingOrder: number; accepted: boolean }[];
+  paragraphs: { id: number; lineIds: number[]; readingOrder: number }[];
+  pipeline: { id: string; engine: "ppocrv6+edgegnn" | "tesseract";
+    featureSchema: string | null; layoutExecuted: boolean; layoutReason: string | null };
+  fallbackReason: string | null;
+}
+
+/** 查看器使用后端持有的不可变快照；请求身份不能以 clipId 替代。 */
+export interface ViewerHandle { sessionId: string; snapshotId: string }
+export interface ViewerRequest extends ViewerHandle { requestId: number }
+export interface ViewerReply<T> extends ViewerRequest { value: T }
+export interface ViewerPayload {
+  handle: ViewerHandle; label: string;
+  source: { clipId: number | null; contentHash: string; width: number; height: number;
+    byteLength: number; mediaType: "image/png"; sensitive: boolean };
+  initialProject: PinInitialProject | null;
+  limits: { canEdit: boolean; canScan: boolean; reason: string | null };
+}
+/** 查看器显示所需的安全配置子集；不包含快捷键、目录、tmux或凭据。 */
+export interface ViewerSettings {
+  theme: string;
+  language: string;
+  translation_source_language: string;
+  translation_target_language: string;
+  translation_services: Pick<TranslationServiceConfig, "provider" | "enabled" | "endpoint">[];
+}
+export interface ViewerTranslateOptions {
+  sourceLanguage?: string | null; targetLanguage?: string | null; providers?: TranslationProvider[] | null;
+}
+export interface ViewerColor { x: number; y: number; rgba: [number, number, number, number]; hex: string; rgb: string }
+export type ViewerTextSource = "ocr" | "code" | "translation" | "color";
 
 export interface PinCanvasSaveResult {
   path: string;

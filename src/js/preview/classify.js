@@ -29,6 +29,8 @@ import {
   isMimeType, isMathExpr, isHttpStatus,
 } from "./detectors.js";
 
+import { MAX_RENDER_CHARS } from "./large-text.js";
+
 export const CLASSIFY_RULES = [
   { kind: "url", renderer: "renderUrlCard", guard: (s) => s.length > 0, detect: isUrl },
   { kind: "json", renderer: "renderJson", needsLibs: true, guard: (s) => s.length > 1, detect: isJson },
@@ -66,7 +68,7 @@ export const CLASSIFY_RULES = [
   { kind: "cron", renderer: "renderCron", guard: (s) => s.length >= 9, detect: isCron },
   { kind: "date", renderer: "renderDate", guard: (s) => s.length >= 8 && s.length <= 40, detect: isDateString },
   { kind: "semver", renderer: "renderSemver", guard: (s) => s.length >= 5 && s.length <= 60, detect: isSemver },
-  { kind: "number-base", renderer: "renderNumberBase", guard: (s) => s.length >= 3 && s.length <= 66, detect: isNumberBase },
+  { kind: "number-base", renderer: "renderNumberBase", guard: (s) => s.length <= 258 && !isHttpStatus(s), detect: isNumberBase },
   { kind: "gradient", renderer: "renderGradient", guard: (s) => s.length >= 20, detect: isGradient },
   { kind: "data-size", renderer: "renderDataSize", guard: (s) => s.length >= 2 && s.length <= 20, detect: isDataSize },
   { kind: "regex", renderer: "renderRegex", guard: (s) => s.length >= 3 && s.startsWith("/"), detect: isRegex },
@@ -89,6 +91,7 @@ export const CLASSIFY_RULES = [
  *          `null` 表示这张表判不出来，交给 preview-panel.js 的异步尾段
  */
 export function classifyText(trimmed) {
+  if (typeof trimmed !== "string" || trimmed.length > MAX_RENDER_CHARS) return null;
   for (const rule of CLASSIFY_RULES) {
     if (rule.guard && !rule.guard(trimmed)) continue;
     const detected = rule.detect(trimmed);

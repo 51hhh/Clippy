@@ -11,7 +11,8 @@
  */
 
 const CODEC_PANEL_SELECTOR = "#codec-panel";
-const TRANSLATION_ROOT_SELECTOR = "#translation-react-root";
+// OCR 原文和内嵌译文是同一阅读区域，焦点落在原文 pre 时也不能进入列表数字粘贴。
+const TRANSLATION_ROOT_SELECTOR = "#translation-react-root, .translation-panel, .preview-ocr-result";
 /** tabindex="-1" 的节点用不着列进来：它们只能被代码显式聚焦，这里是显式聚焦的兜底 */
 const FOCUSABLE_SELECTOR =
   'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -22,17 +23,21 @@ function inside(target, selector) {
 }
 
 /**
- * 解析这次按键归谁。先匹配先赢：codec > search > translation > list。
+ * 弹窗首先阻断背景快捷键；已有局部面板保留自己的契约，其余交互控件走原生行为。
  *
  * @param {KeyboardEvent|{target: EventTarget}} event
  * @param {{searchFocused?: boolean}} context
- * @returns {"codec"|"search"|"translation"|"list"}
+ * @returns {"codec"|"search"|"translation"|"native"|"list"}
  */
 export function resolveKeyboardMode(event, { searchFocused = false } = {}) {
   const target = event?.target;
+  const modal = document.querySelector('#update-modal:not(.hidden):not([hidden]), dialog[open], [aria-modal="true"]:not(.hidden):not([hidden])');
+  if (modal) return "native";
   if (inside(target, CODEC_PANEL_SELECTOR)) return "codec";
   if (searchFocused) return "search";
   if (inside(target, TRANSLATION_ROOT_SELECTOR)) return "translation";
+  if (inside(target, 'input, textarea, select, button, a[href], [contenteditable]:not([contenteditable="false"]), [role="button"]')) return "native";
+  if (document.getSelection()?.toString()) return "native";
   return "list";
 }
 
@@ -81,15 +86,23 @@ export function createKeyboardRouter({
    * 而不是 preventDefault 之后什么都没发生。
    */
   function focusTranslationPanel() {
+    let imageBack = null;
+    if (clipboardList.getFocusedClip()?.content_type === "image") {
+      // 图片的 React 内容在 OCR slot 内；slot 尚未创建时不能把焦点/请求交给旧条目。
+      if (!previewPanel.revealTranslation?.()) return false;
+      imageBack = document.querySelector(".preview-ocr-back:not([hidden])");
+    }
     const root = document.querySelector(TRANSLATION_ROOT_SELECTOR);
     if (!root) return false;
     const candidates = [
       root.querySelector("#translation-sensitive-react"),
       root.querySelector("#translation-action-react"),
       ...root.querySelectorAll(FOCUSABLE_SELECTOR),
+      // portal 的 React 提交尚未发生时，已同步显示的返回按钮承接此次焦点。
+      imageBack,
     ];
     for (const candidate of candidates) {
-      if (!candidate || candidate.disabled) continue;
+      if (!candidate || candidate.disabled || candidate.closest("[hidden]")) continue;
       candidate.focus();
       if (document.activeElement === candidate) return true;
     }
@@ -127,6 +140,8 @@ export function createKeyboardRouter({
   function onTranslationKeyDown(e) {
     if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
       e.preventDefault();
+      if (clipboardList.getFocusedClip()?.content_type === "image"
+        && !previewPanel.revealTranslation?.()) return;
       void translation.translate?.();
       return;
     }
@@ -161,6 +176,8 @@ export function createKeyboardRouter({
     if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
       if (!previewPanel.isVisible()) return;
       e.preventDefault();
+      if (clipboardList.getFocusedClip()?.content_type === "image"
+        && !previewPanel.revealTranslation?.()) return;
       void translation.translate?.();
       return;
     }
@@ -183,9 +200,8 @@ export function createKeyboardRouter({
       case "6": case "7": case "8": case "9": case "0": {
         e.preventDefault();
         const idx = e.key === "0" ? 9 : parseInt(e.key) - 1;
-        Promise.resolve(clipboardList.selectByIndex(idx)).then(ok => {
-          if (ok) hidePanel();
-        });
+        // select_clip 后端拥有成功隐藏/粘贴降级再显示的协议，前端不能二次隐藏。
+        void Promise.resolve(clipboardList.selectByIndex(idx)).catch(error => console.warn("Clipboard selection failed", error));
         return;
       }
       case "ArrowUp":
@@ -259,9 +275,12 @@ export function createKeyboardRouter({
   }
 
   function onKeyDown(e) {
+    if (e.defaultPrevented || e.isComposing) return;
     const searchFocused = clipboardList.search.isVisible()
       && Boolean(document.activeElement?.classList?.contains("search-bar-input"));
     switch (resolveKeyboardMode(e, { searchFocused })) {
+      case "native":
+        return;
       case "codec":
         onCodecKeyDown(e);
         return;

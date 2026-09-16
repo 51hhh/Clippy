@@ -4,7 +4,7 @@
 起点：`dev` 分支 `ebba448 feat:暂存`
 参考项目：`example/flashot`（`23f16b5` / v0.7.1 / MIT）、`example/translator`（`a8ac6cc` / v0.3.2 / GPL-3.0-only）
 
-两个参考项目版本与 `.trellis/tasks/08-08-clippy-integrated-refactor/research/example-integration-analysis.md`
+两个参考项目版本与本地工作区的集成分析记录
 记录一致，上游无新增可借鉴变更，本方案沿用该分析的许可与边界结论。
 
 ## 当前进度（2026-08-29 收尾）
@@ -13,7 +13,7 @@ Phase 0～4 的**代码侧全部完成**，门禁 `./scripts/ci-local.sh` 10 通
 剩余两项都不该由 AI 自动做：
 
 1. **真实桌面矩阵**（Phase 1 下半段）——只能在真机 GNOME X11 / GNOME Wayland / KDE Wayland
-   上人工完成，结果写回 `qa-matrix.md` 与 `completion-audit.md`，Trellis 任务才能标 `completed`。
+   上人工完成，结果写回本地 QA 矩阵与验收记录后，该阶段才能标为完成。
 2. **拆分 `feat:暂存`**（Phase 0 最后一条）——需要改写已推送的 `origin/dev` 历史并 force push。
 
 本地 `dev` 领先 `origin/dev` 若干提交，**尚未推送**，推送时机由项目所有者决定。
@@ -27,7 +27,7 @@ Phase 0～4 的**代码侧全部完成**，门禁 `./scripts/ci-local.sh` 10 通
 2. Pin React 化扩展（`src/react/pin/App.tsx` + `src/tests/pin-react-app.test.js`）。
 3. Portal restore token 生命周期改为 `PortalAuthorizationStage` 阶段状态机（`src-tauri/src/paste/portal.rs`）。
 
-Trellis 任务 `08-08-clippy-integrated-refactor` 仍为 `in_progress`，阻断项是 `qa-matrix.md`
+该集成重构阶段仍未完成，阻断项是本地 QA 矩阵
 中全部为空的真实桌面矩阵。
 
 ## Phase 0：恢复可验证基线
@@ -69,7 +69,7 @@ AppImage 可视 smoke）。`git log` 里仍有一条 `feat:暂存`，见上条�
 - [ ] KDE Wayland：Portal、截图覆盖层、Pin 置顶
 - [ ] 真实 Secret Service 保存/读取/删除，以及至少一个真实翻译服务回环
 
-验收：结果写回 `qa-matrix.md` 与 `completion-audit.md`，Trellis 任务方可标 `completed`。
+验收：结果写回本地 QA 矩阵与验收记录后，该阶段方可标为完成。
 
 ## Phase 2：翻译全量对齐 translator
 

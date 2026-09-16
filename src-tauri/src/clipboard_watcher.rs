@@ -1,4 +1,6 @@
+mod changes;
 pub(crate) mod content;
+mod poll_state;
 #[cfg(target_os = "linux")]
 mod tmux;
 mod wake;
@@ -15,40 +17,51 @@ use content::{
     compute_hash, encode_image_to_png, is_sensitive_text, rgba_fingerprint, strip_html_tags,
     validate_image_layout,
 };
+use poll_state::PollState;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
-/// 轮询周期。剪贴板没有可用的变更通知机制，只能轮询（见 CLAUDE.md 的关键设计约束）。
-///
-/// 但**程序化写入不必等这一整轮**：`writer.rs` 写完会敲 `wake::nudge()`，
-/// 于是 `wait_for_next_poll` 当场返回，自己复制的内容立刻入库。
+/// 无平台变更信号时的回退周期；程序化写入通过 wake::nudge 提前唤醒。
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 
-fn reset_after_rejected_image(last_hash: &mut String, last_image_fingerprint: &mut Option<u64>) {
-    // 非法图片也代表剪贴板内容已经离开上一张合法图；两级去重状态都要失效。
-    last_hash.clear();
-    *last_image_fingerprint = None;
+#[derive(Default)]
+struct WriteEpoch {
+    generation: u64,
+    hashes: Vec<String>,
 }
+
+type SuppressedHashes = Arc<Mutex<WriteEpoch>>;
 
 pub struct ClipboardWatcher {
     running: Arc<Mutex<bool>>,
-    /// select_clip 写入剪贴板时设置此哈希，watcher 遇到相同哈希时跳过
-    skip_hash: Arc<Mutex<Option<String>>>,
+    /// 写入与登记在同一临界区；读取用前后版本校验，不能持锁等待系统图片。
+    suppressed_hashes: SuppressedHashes,
 }
 
 impl ClipboardWatcher {
     pub fn new() -> Self {
         Self {
             running: Arc::new(Mutex::new(false)),
-            skip_hash: Arc::new(Mutex::new(None)),
+            suppressed_hashes: Arc::new(Mutex::new(WriteEpoch::default())),
         }
     }
 
-    /// 让 watcher 跳过下一次检测到的指定哈希（由 select_clip 调用）
-    pub fn set_skip_hash(&self, hash: String) {
-        *self.skip_hash.lock().unwrap_or_else(|e| e.into_inner()) = Some(hash);
+    /// 写入成功才登记本次快照；失败保留先前有效登记。锁内没有轮询等待或数据库操作。
+    pub(crate) fn write_suppressed(
+        &self,
+        hashes: Vec<String>,
+        write: impl FnOnce() -> Result<(), String>,
+    ) -> Result<(), String> {
+        let mut suppressed = self
+            .suppressed_hashes
+            .lock()
+            .map_err(|error| error.to_string())?;
+        write()?;
+        suppressed.generation = suppressed.generation.wrapping_add(1);
+        suppressed.hashes = hashes;
+        Ok(())
     }
 
     pub fn start(
@@ -58,309 +71,156 @@ impl ClipboardWatcher {
         config: Arc<Mutex<AppConfig>>,
     ) {
         let running = Arc::clone(&self.running);
-        let skip_hash = Arc::clone(&self.skip_hash);
+        let suppressed_hashes = Arc::clone(&self.suppressed_hashes);
         {
-            let mut r = running.lock().unwrap_or_else(|e| e.into_inner());
-            if *r {
+            let mut active = running.lock().unwrap_or_else(|error| error.into_inner());
+            if *active {
                 return;
             }
-            *r = true;
+            *active = true;
         }
-
         thread::spawn(move || {
             let mut clipboard = match Clipboard::new() {
-                Ok(c) => c,
-                Err(e) => {
-                    log::error!("剪贴板初始化失败: {}", e);
+                Ok(clipboard) => clipboard,
+                Err(error) => {
+                    log::error!("剪贴板初始化失败: {error}");
+                    *running.lock().unwrap_or_else(|error| error.into_inner()) = false;
                     return;
                 }
             };
+            let mut poll_state = PollState::default();
+            let mut changes = changes::ChangeMonitor::new();
+            let mut observed_write_generation = None;
+            let mut read_failure = PollState::default();
+            let mut last_rejected_image_layout = None;
+            let mut sensitive_check_counter = 0u32;
+            const SENSITIVE_TTL_SECS: i64 = 300;
+            const SENSITIVE_CHECK_INTERVAL: u32 = 60;
 
-            let mut last_hash = String::new();
-            // 上一轮在剪贴板里看到的那张图的指纹。
-            //
-            // 图片这条分支不能靠 `last_hash` 短路：`last_hash` 是 **PNG** 的哈希，
-            // 要先编码出 PNG 才比得上，于是"剪贴板里躺着一张截图"会让轮询每 500 ms
-            // 白编一次全屏 PNG。指纹直接按 RGBA 算，同一张图第二轮就到不了编码器。
-            //
-            // 文本/HTML 接管剪贴板时清空它，好让"复制别的东西再复制回这张图"仍然能
-            // 走完入库路径（哈希去重会把它顶到最前面）。
-            let mut last_image_fingerprint: Option<u64> = None;
-            let mut last_rejected_image_layout: Option<(usize, usize, usize)> = None;
-            let mut sensitive_check_counter: u32 = 0;
-            const SENSITIVE_TTL_SECS: i64 = 300; // 5 分钟后自动删除敏感条目
-            const SENSITIVE_CHECK_INTERVAL: u32 = 60; // 每 60 次循环（~30秒）检查一次
-
-            // tmux inotify 线程共享的 last_tmux_hash
-            #[cfg(target_os = "linux")]
-            let tmux_last_hash: Arc<Mutex<String>> = {
-                let tmux_buf_path = crate::commands::tmux_buf_path();
-                let initial_hash = std::fs::read_to_string(&tmux_buf_path)
-                    .ok()
-                    .filter(|s| !s.is_empty())
-                    .map(|s| compute_hash(s.as_bytes()))
-                    .unwrap_or_default();
-                Arc::new(Mutex::new(initial_hash))
-            };
-            #[cfg(not(target_os = "linux"))]
-            let tmux_last_hash = Arc::new(Mutex::new(String::new()));
-
-            // 启动 tmux inotify 监听线程
             #[cfg(target_os = "linux")]
             {
                 let running = Arc::clone(&running);
                 let config = Arc::clone(&config);
                 let storage = Arc::clone(&storage);
                 let app_handle = app_handle.clone();
-                let tmux_last_hash = Arc::clone(&tmux_last_hash);
-                thread::spawn(move || {
-                    tmux::start(running, config, storage, app_handle, tmux_last_hash);
-                });
+                thread::spawn(move || tmux::start(running, config, storage, app_handle));
             }
-
             log::info!("剪贴板监听器已启动");
-
             loop {
-                {
-                    let r = running.lock().unwrap_or_else(|e| e.into_inner());
-                    if !*r {
-                        break;
-                    }
+                if !*running.lock().unwrap_or_else(|error| error.into_inner()) {
+                    break;
                 }
-
-                // 读取 tmux 线程最新的 hash，防止剪贴板检测重复捕获 tmux 内容
-                let last_tmux_hash = tmux_last_hash
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .clone();
-
-                // 定时清理过期敏感条目
                 sensitive_check_counter += 1;
                 if sensitive_check_counter >= SENSITIVE_CHECK_INTERVAL {
                     sensitive_check_counter = 0;
                     if let Ok(storage) = storage.lock() {
-                        if let Ok(removed_ids) = storage.purge_expired_sensitive(SENSITIVE_TTL_SECS)
-                        {
-                            for rid in &removed_ids {
-                                let _ = app_handle.emit("clip-removed", rid);
+                        match storage.purge_expired_sensitive(SENSITIVE_TTL_SECS) {
+                            Ok(ids) => {
+                                for id in ids {
+                                    let _ = app_handle.emit("clip-removed", id);
+                                }
                             }
-                            if !removed_ids.is_empty() {
-                                log::debug!("清理 {} 条过期敏感条目", removed_ids.len());
-                            }
+                            Err(error) => log::warn!("敏感历史清理失败: {error}"),
                         }
                     }
                 }
-
-                // 优先检测 HTML 富文本（浏览器复制的内容同时有 HTML 和纯文本）
-                if let Ok(html) = clipboard.get().html() {
-                    if !html.is_empty() {
-                        last_image_fingerprint = None;
-                        last_rejected_image_layout = None;
-                        let hash = compute_hash(html.as_bytes());
-                        if hash != last_hash && hash != last_tmux_hash {
-                            {
-                                let mut skip = skip_hash.lock().unwrap_or_else(|e| e.into_inner());
-                                if skip.as_deref() == Some(&hash) {
-                                    *skip = None;
-                                    wake::wait_for_next_poll(POLL_INTERVAL);
-                                    continue;
-                                }
-                            }
-                            last_hash = hash.clone();
-
-                            // 获取纯文本回退（用于搜索和预览）
-                            let text_fallback = clipboard.get_text().ok().or_else(|| {
-                                // 剪贴板无纯文本时，从 HTML 中提取可搜索文本
-                                Some(strip_html_tags(&html))
-                            });
-
-                            let max_history =
-                                config.lock().unwrap_or_else(|e| e.into_inner()).max_history;
-                            let byte_size = html.len() as i64;
-                            let sensitive = text_fallback.as_deref().is_some_and(is_sensitive_text);
-
-                            let result = {
-                                let storage = storage.lock().unwrap_or_else(|e| e.into_inner());
-                                let clip_result = storage.insert_clip(
-                                    &ContentType::Html,
-                                    text_fallback.as_deref(),
-                                    Some(&html),
-                                    None,
-                                    &hash,
-                                    byte_size,
-                                    sensitive,
-                                );
-                                match clip_result {
-                                    Ok(clip) => {
-                                        let removed = storage.cleanup_old_entries(max_history).ok();
-                                        Some((clip, removed))
-                                    }
-                                    Err(e) => {
-                                        crate::error::report("剪贴板 HTML 保存失败", e);
-                                        None
-                                    }
-                                }
-                            };
-
-                            if let Some((clip, removed)) = result {
-                                if let Some(removed_ids) = removed {
-                                    for rid in removed_ids {
-                                        let _ = app_handle.emit("clip-removed", rid);
-                                    }
+                let generation = suppressed_hashes
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .generation;
+                let (changed, reliable) = changes.poll();
+                let now = Instant::now();
+                if reliable && changed {
+                    // 同一个 owner 重新设定 selection 也会收到 XFixes 事件；同图重新复制应置顶。
+                    poll_state.reset();
+                    read_failure.reset();
+                }
+                if !changed
+                    && observed_write_generation == Some(generation)
+                    && !poll_state.needs_retry(now)
+                    && !read_failure.needs_retry(now)
+                {
+                    wake::wait_for_next_poll(POLL_INTERVAL);
+                    continue;
+                }
+                // 前后短锁版本校验；4s 的系统读取不会阻塞 copy_text 写入。
+                let snapshot = ClipboardSnapshot::read(&mut clipboard);
+                let suppressed = {
+                    let mut guard = suppressed_hashes
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner());
+                    if guard.generation != generation {
+                        // 新写入也已 nudge；无需再等一整个周期。
+                        continue;
+                    }
+                    if snapshot.is_some() {
+                        std::mem::take(&mut guard.hashes)
+                    } else {
+                        Vec::new()
+                    }
+                };
+                observed_write_generation = Some(generation);
+                if snapshot.is_none() {
+                    read_failure.observe("unavailable", false, now);
+                    read_failure.failed(now);
+                } else {
+                    read_failure.settle();
+                }
+                if let Some(snapshot) = snapshot {
+                    if let Some(prepared) = prepare_snapshot(
+                        snapshot,
+                        &suppressed,
+                        &mut poll_state,
+                        &mut last_rejected_image_layout,
+                        Instant::now(),
+                    ) {
+                        let max_history = config
+                            .lock()
+                            .unwrap_or_else(|error| error.into_inner())
+                            .max_history;
+                        let result = {
+                            let storage = storage.lock().unwrap_or_else(|error| error.into_inner());
+                            storage
+                                .insert_clip(
+                                    &prepared.kind,
+                                    prepared.text.as_deref(),
+                                    prepared.html.as_deref(),
+                                    prepared.png.as_deref(),
+                                    &prepared.hash,
+                                    prepared.byte_size,
+                                    prepared.sensitive,
+                                )
+                                .map(|clip| {
+                                    let removed = match storage.cleanup_old_entries(max_history) {
+                                        Ok(ids) => ids,
+                                        Err(error) => {
+                                            log::warn!("历史容量清理失败: {error}");
+                                            Vec::new()
+                                        }
+                                    };
+                                    (clip.without_image_data(), removed)
+                                })
+                        };
+                        match result {
+                            Ok((clip, removed)) => {
+                                poll_state.settle();
+                                for id in removed {
+                                    let _ = app_handle.emit("clip-removed", id);
                                 }
                                 let _ = app_handle.emit("clip-added", &clip);
-                                log::debug!("新剪贴板内容，类型: html, 大小: {} 字节", byte_size);
-                            }
-                        }
-
-                        wake::wait_for_next_poll(POLL_INTERVAL);
-                        continue;
-                    }
-                }
-
-                if let Ok(text) = clipboard.get_text() {
-                    if !text.is_empty() {
-                        last_image_fingerprint = None;
-                        last_rejected_image_layout = None;
-                        let hash = compute_hash(text.as_bytes());
-                        if hash != last_hash && hash != last_tmux_hash {
-                            // 跳过 select_clip 写入的内容
-                            {
-                                let mut skip = skip_hash.lock().unwrap_or_else(|e| e.into_inner());
-                                if skip.as_deref() == Some(&hash) {
-                                    *skip = None;
-                                    wake::wait_for_next_poll(POLL_INTERVAL);
-                                    continue;
-                                }
-                            }
-                            last_hash = hash.clone();
-
-                            // 先读取 config，再锁 storage，缩小锁范围
-                            let max_history =
-                                config.lock().unwrap_or_else(|e| e.into_inner()).max_history;
-                            let byte_size = text.len() as i64;
-                            let sensitive = is_sensitive_text(&text);
-
-                            let result = {
-                                let storage = storage.lock().unwrap_or_else(|e| e.into_inner());
-                                let clip_result = storage.insert_clip(
-                                    &ContentType::Text,
-                                    Some(&text),
-                                    None,
-                                    None,
-                                    &hash,
-                                    byte_size,
-                                    sensitive,
+                                log::debug!(
+                                    "新剪贴板内容，类型: {}, 大小: {} 字节",
+                                    prepared.kind.as_str(),
+                                    prepared.byte_size
                                 );
-                                match clip_result {
-                                    Ok(clip) => {
-                                        let removed = storage.cleanup_old_entries(max_history).ok();
-                                        Some((clip, removed))
-                                    }
-                                    Err(e) => {
-                                        crate::error::report("剪贴板内容保存失败", e);
-                                        None
-                                    }
-                                }
-                            }; // storage lock released here
-
-                            if let Some((clip, removed)) = result {
-                                if let Some(removed_ids) = removed {
-                                    for rid in removed_ids {
-                                        let _ = app_handle.emit("clip-removed", rid);
-                                    }
-                                }
-                                let _ = app_handle.emit("clip-added", &clip);
-                                log::debug!("新剪贴板内容，类型: text, 大小: {} 字节", byte_size);
                             }
-                        }
-
-                        wake::wait_for_next_poll(POLL_INTERVAL);
-                        continue;
-                    }
-                }
-
-                // 无文本内容时尝试获取图片
-                if let Ok(img) = clipboard.get_image() {
-                    if let Err(error) =
-                        validate_image_layout(img.width, img.height, img.bytes.len())
-                    {
-                        let layout = (img.width, img.height, img.bytes.len());
-                        if last_rejected_image_layout != Some(layout) {
-                            log::warn!("忽略异常剪贴板图片: {error}");
-                        }
-                        last_rejected_image_layout = Some(layout);
-                        // 非法内容是一种明确的剪贴板状态转换；之后复制回上一张合法图时
-                        // 必须重新走入库/置顶流程，不能被旧指纹或 PNG 哈希短路。
-                        reset_after_rejected_image(&mut last_hash, &mut last_image_fingerprint);
-                        wake::wait_for_next_poll(POLL_INTERVAL);
-                        continue;
-                    }
-                    last_rejected_image_layout = None;
-                    // 先看还是不是上一轮那张图：是的话连编码都不用做。
-                    let fingerprint = rgba_fingerprint(img.width, img.height, &img.bytes);
-                    if last_image_fingerprint == Some(fingerprint) {
-                        wake::wait_for_next_poll(POLL_INTERVAL);
-                        continue;
-                    }
-                    last_image_fingerprint = Some(fingerprint);
-
-                    if let Some(png_bytes) = encode_image_to_png(&img) {
-                        let hash = compute_hash(&png_bytes);
-                        if hash != last_hash && hash != last_tmux_hash {
-                            // 跳过 select_clip 写入的图片
-                            {
-                                let mut skip = skip_hash.lock().unwrap_or_else(|e| e.into_inner());
-                                if skip.as_deref() == Some(&hash) {
-                                    *skip = None;
-                                    wake::wait_for_next_poll(POLL_INTERVAL);
-                                    continue;
-                                }
-                            }
-                            last_hash = hash.clone();
-
-                            let max_history =
-                                config.lock().unwrap_or_else(|e| e.into_inner()).max_history;
-                            let byte_size = png_bytes.len() as i64;
-
-                            let result = {
-                                let storage = storage.lock().unwrap_or_else(|e| e.into_inner());
-                                let clip_result = storage.insert_clip(
-                                    &ContentType::Image,
-                                    None,
-                                    None,
-                                    Some(&png_bytes),
-                                    &hash,
-                                    byte_size,
-                                    false,
-                                );
-                                match clip_result {
-                                    Ok(clip) => {
-                                        // 事件中不携带图片数据，前端按需加载
-                                        let clip = clip.without_image_data();
-                                        let removed = storage.cleanup_old_entries(max_history).ok();
-                                        Some((clip, removed))
-                                    }
-                                    Err(e) => {
-                                        crate::error::report("剪贴板图片保存失败", e);
-                                        None
-                                    }
-                                }
-                            };
-
-                            if let Some((clip, removed)) = result {
-                                if let Some(removed_ids) = removed {
-                                    for rid in removed_ids {
-                                        let _ = app_handle.emit("clip-removed", rid);
-                                    }
-                                }
-                                let _ = app_handle.emit("clip-added", &clip);
-                                log::debug!("新剪贴板内容，类型: image, 大小: {} 字节", byte_size);
+                            Err(error) => {
+                                poll_state.failed(Instant::now());
+                                crate::error::report("剪贴板内容保存失败，稍后重试", error);
                             }
                         }
                     }
                 }
-
                 wake::wait_for_next_poll(POLL_INTERVAL);
             }
             log::info!("剪贴板监听器已停止");
@@ -374,18 +234,111 @@ impl Default for ClipboardWatcher {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::reset_after_rejected_image;
+enum ClipboardSnapshot {
+    Text(String),
+    Html { html: String, text: String },
+    Image(arboard::ImageData<'static>),
+}
 
-    #[test]
-    fn rejected_image_invalidates_both_image_deduplication_levels() {
-        let mut last_hash = "previous-png".to_string();
-        let mut last_image_fingerprint = Some(42);
-
-        reset_after_rejected_image(&mut last_hash, &mut last_image_fingerprint);
-
-        assert!(last_hash.is_empty());
-        assert_eq!(last_image_fingerprint, None);
+impl ClipboardSnapshot {
+    fn read(clipboard: &mut Clipboard) -> Option<Self> {
+        if let Ok(html) = clipboard.get().html() {
+            if !html.is_empty() {
+                let text = clipboard
+                    .get_text()
+                    .unwrap_or_else(|_| strip_html_tags(&html));
+                return Some(Self::Html { html, text });
+            }
+        }
+        if let Ok(text) = clipboard.get_text() {
+            if !text.is_empty() {
+                return Some(Self::Text(text));
+            }
+        }
+        clipboard.get_image().ok().map(Self::Image)
     }
 }
+
+struct PreparedContent {
+    kind: ContentType,
+    text: Option<String>,
+    html: Option<String>,
+    png: Option<Vec<u8>>,
+    hash: String,
+    byte_size: i64,
+    sensitive: bool,
+}
+
+fn prepare_snapshot(
+    snapshot: ClipboardSnapshot,
+    suppressed: &[String],
+    state: &mut PollState,
+    rejected_layout: &mut Option<(usize, usize, usize)>,
+    now: Instant,
+) -> Option<PreparedContent> {
+    let (kind, text, html, png, hash, byte_size) = match snapshot {
+        ClipboardSnapshot::Text(text) => {
+            *rejected_layout = None;
+            let hash = compute_hash(text.as_bytes());
+            let size = text.len() as i64;
+            if !state.observe(&format!("text:{hash}"), suppressed.contains(&hash), now) {
+                return None;
+            }
+            (ContentType::Text, Some(text), None, None, hash, size)
+        }
+        ClipboardSnapshot::Html { html, text } => {
+            *rejected_layout = None;
+            let hash = compute_hash(html.as_bytes());
+            let size = html.len() as i64;
+            if !state.observe(&format!("html:{hash}"), suppressed.contains(&hash), now) {
+                return None;
+            }
+            (ContentType::Html, Some(text), Some(html), None, hash, size)
+        }
+        ClipboardSnapshot::Image(image) => {
+            if let Err(error) = validate_image_layout(image.width, image.height, image.bytes.len())
+            {
+                let layout = (image.width, image.height, image.bytes.len());
+                if *rejected_layout != Some(layout) {
+                    log::warn!("忽略异常剪贴板图片: {error}");
+                }
+                *rejected_layout = Some(layout);
+                state.reset();
+                return None;
+            }
+            *rejected_layout = None;
+            let identity = format!(
+                "image:{}",
+                rgba_fingerprint(image.width, image.height, &image.bytes)
+            );
+            // 指纹只短路已成功保存/明确抑制的图片；失败按同一状态机退避，编码也不空转。
+            if !state.observe(&identity, false, now) {
+                return None;
+            }
+            let Some(png) = encode_image_to_png(&image) else {
+                state.failed(now);
+                return None;
+            };
+            let hash = compute_hash(&png);
+            if suppressed.contains(&hash) {
+                state.settle();
+                return None;
+            }
+            let size = png.len() as i64;
+            (ContentType::Image, None, None, Some(png), hash, size)
+        }
+    };
+    let sensitive = text.as_deref().is_some_and(is_sensitive_text);
+    Some(PreparedContent {
+        kind,
+        text,
+        html,
+        png,
+        hash,
+        byte_size,
+        sensitive,
+    })
+}
+
+#[cfg(test)]
+mod tests;

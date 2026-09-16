@@ -14,6 +14,9 @@ import {
 import { enabledTranslationServices } from "../../js/translation-providers";
 import { audioElementPlayer, type SpeechPlayer } from "./speech";
 
+const productionServices = { copyText, speakClip, speakText, translateClip, translationHistory };
+export type TranslationServices = typeof productionServices;
+
 /** 单个服务的结果卡。失败同样是一张卡，用户可以只重试出错的那个服务。 */
 export type TranslationCard = {
   provider: TranslationProvider;
@@ -145,6 +148,7 @@ export class TranslationStore {
   };
   private listeners = new Set<() => void>();
   private generation = 0;
+  private speechGeneration = 0;
   /** 预览面板是否可见。面板不可见时翻译界面根本没渲染，不该为它去查历史。 */
   private panelVisible = false;
   private historyTimer: ReturnType<typeof setTimeout> | null = null;
@@ -154,6 +158,8 @@ export class TranslationStore {
     private readonly player: SpeechPlayer = audioElementPlayer,
     /** 历史回填的防抖窗口；连续上下键换条目时只查最后停下的那条 */
     private readonly historyDebounceMs: number = HISTORY_DEBOUNCE_MS,
+    /** 审阅宿主可替换服务；生产默认仍通过 api.ts。 */
+    private readonly services: TranslationServices = productionServices,
   ) {}
 
   subscribe = (listener: () => void): (() => void) => {
@@ -188,6 +194,11 @@ export class TranslationStore {
   }
 
   setClip(clip: ClipItem | null): void {
+    // 列表刷新会重复通知同一条目；元数据更新不取消正在进行的翻译和朗读。
+    if (clip?.id === this.snapshot.clip?.id && clip?.is_sensitive === this.snapshot.clip?.is_sensitive) {
+      if (clip !== this.snapshot.clip) this.commit({ clip });
+      return;
+    }
     this.generation += 1;
     this.commit({ clip, ...this.reset() });
     this.scheduleHistory(clip, this.generation);
@@ -202,6 +213,8 @@ export class TranslationStore {
     this.panelVisible = visible;
     if (!visible) {
       this.cancelHistory();
+      this.generation += 1;
+      this.commit(this.reset());
       return;
     }
     this.scheduleHistory(this.snapshot.clip, this.generation);
@@ -232,7 +245,7 @@ export class TranslationStore {
     if (!clip || clip.is_sensitive) return;
     let entries: TranslationHistoryEntry[];
     try {
-      entries = await translationHistory(clip.id);
+      entries = await this.services.translationHistory(clip.id);
     } catch {
       // 历史是附带功能，读不到就当没有记录。
       return;
@@ -250,6 +263,7 @@ export class TranslationStore {
 
   private reset(): Partial<TranslationSnapshot> {
     // 条目或配置一变，正在播的音频就不再属于界面上的内容，立刻停掉。
+    this.speechGeneration += 1;
     this.player.stop();
     return {
       loading: false,
@@ -275,7 +289,7 @@ export class TranslationStore {
       .map((service) => pendingCard(service.provider));
     this.commit({ loading: true, feedback: "idle", errorCode: null, cards: pending });
     try {
-      const batch = await translateClip(clip.id);
+      const batch = await this.services.translateClip(clip.id);
       if (!this.isCurrent(requestGeneration, clip)) return;
       const cards = batch.services.map(cardFromService);
       this.commit({ loading: false, cards, ...summarize(cards) });
@@ -299,7 +313,7 @@ export class TranslationStore {
     const requestGeneration = ++this.generation;
     this.commit({ cards: this.replaceCard(pendingCard(provider)), feedback: "idle", errorCode: null });
     try {
-      const batch = await translateClip(clip.id, [provider]);
+      const batch = await this.services.translateClip(clip.id, [provider]);
       if (!this.isCurrent(requestGeneration, clip)) return;
       const service = batch.services.find((entry) => entry.provider === provider);
       this.applyCard(service ? cardFromService(service) : failedCard(provider, "invalid_response"));
@@ -323,14 +337,14 @@ export class TranslationStore {
   async speakSource(): Promise<void> {
     const clip = this.snapshot.clip;
     if (!clip) return;
-    await this.speak("source", () => speakClip(clip.id));
+    await this.speak("source", () => this.services.speakClip(clip.id));
   }
 
   /** 朗读某个服务的译文，按它实际使用的目标语言发音 */
   async speakTranslation(provider: TranslationProvider): Promise<void> {
     const card = this.snapshot.cards.find((entry) => entry.provider === provider);
     if (!card?.translatedText) return;
-    await this.speak(provider, () => speakText(card.translatedText, card.targetLanguage || undefined));
+    await this.speak(provider, () => this.services.speakText(card.translatedText, card.targetLanguage || undefined));
   }
 
   /**
@@ -340,22 +354,18 @@ export class TranslationStore {
   private async speak(target: SpeechTarget, request: () => Promise<SpokenText>): Promise<void> {
     const clip = this.snapshot.clip;
     if (!clip || clip.is_sensitive || this.snapshot.speaking) return;
-    const requestGeneration = this.generation;
+    const requestGeneration = ++this.speechGeneration;
+    const isCurrent = () => requestGeneration === this.speechGeneration && this.snapshot.clip?.id === clip.id;
     this.commit({ speaking: target, speechErrorCode: null });
     try {
       const spoken = await request();
       // 条目或配置已经变了：不要在新界面上放旧内容的声音。
-      if (!this.isCurrent(requestGeneration, clip)) return;
+      if (!isCurrent()) return;
       await this.player.play(spoken);
-      this.finishSpeech(target, null);
+      if (isCurrent()) this.commit({ speaking: null, speechErrorCode: null });
     } catch (error) {
-      this.finishSpeech(target, cardErrorCode(stableTranslationErrorCode(error)));
+      if (isCurrent()) this.commit({ speaking: null, speechErrorCode: cardErrorCode(stableTranslationErrorCode(error)) });
     }
-  }
-
-  private finishSpeech(target: SpeechTarget, errorCode: string | null): void {
-    if (this.snapshot.speaking !== target) return;
-    this.commit({ speaking: null, speechErrorCode: errorCode });
   }
 
   /** 复制某个服务的译文；只有这张卡显示复制反馈 */
@@ -365,7 +375,7 @@ export class TranslationStore {
     if (!translatedText) return;
     const requestGeneration = this.generation;
     try {
-      await copyText(translatedText);
+      await this.services.copyText(translatedText);
       this.applyCopyFeedback(requestGeneration, provider, translatedText, "copied");
     } catch {
       this.applyCopyFeedback(requestGeneration, provider, translatedText, "copy_failed");

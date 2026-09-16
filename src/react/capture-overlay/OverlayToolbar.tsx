@@ -91,6 +91,8 @@ export function OverlayToolbar(props: Props) {
       style={{ left: placement.left, top: placement.top }}
       onPointerDown={(event) => event.stopPropagation()}
       onPointerMove={(event) => event.stopPropagation()}
+      onPointerUp={(event) => event.stopPropagation()}
+      onPointerCancel={(event) => event.stopPropagation()}
     >
       <div className="overlay-toolbar-row">
         {TOOL_GROUPS.map((group, index) => (

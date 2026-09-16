@@ -11,11 +11,13 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../js/api.ts", () => ({
   getClipImage: vi.fn(),
+  detectImageCodes: vi.fn(),
   ocrAvailable: vi.fn(),
-  ocrImage: vi.fn(),
+  ocrImageResult: vi.fn(),
   getConfig: vi.fn(),
   fetchUrlMeta: vi.fn(),
   copyText: vi.fn(),
+  openImageViewer: vi.fn(),
 }));
 
 import { CLASSIFY_RULES, classifyText } from "../js/preview/classify.js";

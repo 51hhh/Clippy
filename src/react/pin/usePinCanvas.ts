@@ -43,7 +43,13 @@ export function usePinCanvas(params: {
   const [text, setText] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
+  const revisionRef = useRef(0);
+  const advanceRevision = useCallback(() => {
+    revisionRef.current += 1;
+    setRevision(revisionRef.current);
+  }, []);
   const [savedRevision, setSavedRevision] = useState(0);
+  const savedRevisionRef = useRef(0);
   const hydratedRef = useRef<unknown>(null);
 
   useEffect(() => {
@@ -52,7 +58,9 @@ export function usePinCanvas(params: {
     history.reset(parsedProject.annotations);
     setAdjustments(parsedProject.adjustments);
     setSelectedId(null);
+    revisionRef.current = 0;
     setRevision(0);
+    savedRevisionRef.current = 0;
     setSavedRevision(0);
   }, [history.reset, params.initialProject, parsedProject]);
 
@@ -114,8 +122,8 @@ export function usePinCanvas(params: {
 
   const commitAnnotations = useCallback((update: Annotation[] | ((items: Annotation[]) => Annotation[])) => {
     history.commit(update);
-    setRevision((value) => value + 1);
-  }, [history.commit]);
+    advanceRevision();
+  }, [advanceRevision, history.commit]);
 
   const imageRef = useRef<HTMLImageElement | null>(sourceImage);
   imageRef.current = sourceImage;
@@ -160,19 +168,24 @@ export function usePinCanvas(params: {
   const undo = useCallback(() => {
     if (!history.canUndo) return;
     history.undo();
-    setRevision((value) => value + 1);
-  }, [history.canUndo, history.undo]);
+    advanceRevision();
+  }, [advanceRevision, history.canUndo, history.undo]);
   const redo = useCallback(() => {
     if (!history.canRedo) return;
     history.redo();
-    setRevision((value) => value + 1);
-  }, [history.canRedo, history.redo]);
+    advanceRevision();
+  }, [advanceRevision, history.canRedo, history.redo]);
   const deleteSelected = useCallback(() => {
     if (!selectedId) return;
     commitAnnotations((items) => items.filter((item) => item.id !== selectedId));
     setSelectedId(null);
   }, [commitAnnotations, selectedId]);
-  const markSaved = useCallback(() => setSavedRevision(revision), [revision]);
+  const currentRevision = useCallback(() => revisionRef.current, []);
+  const isDirty = useCallback(() => revisionRef.current !== savedRevisionRef.current, []);
+  const markSaved = useCallback(() => {
+    savedRevisionRef.current = revision;
+    setSavedRevision(revision);
+  }, [revision]);
 
   return useMemo(() => ({
     canvasRef,
@@ -195,13 +208,15 @@ export function usePinCanvas(params: {
     pristineProject,
     projectData,
     markSaved,
+    currentRevision,
+    isDirty,
     deleteSelected,
     onPointerDown: canvas.onPointerDown,
     onPointerMove: canvas.onPointerMove,
     onPointerUp: canvas.onPointerUp,
   }), [
     canvas.onPointerDown, canvas.onPointerMove, canvas.onPointerUp, color, deleteSelected,
-    hasDocument, history.canRedo, history.canUndo, markSaved, projectData, redo,
+    currentRevision, isDirty, hasDocument, history.canRedo, history.canUndo, markSaved, projectData, redo,
     dirty, pristineProject, selectedId, stroke, text, tool, undo, visible,
   ]);
 }

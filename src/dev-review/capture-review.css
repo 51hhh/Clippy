@@ -1,0 +1,6 @@
+html,body { background:#16181d; margin:0; width:100%; height:100%; overflow:hidden; }
+* { box-sizing:border-box; }
+.capture-review-header { height:88px; overflow:auto; display:flex; flex-wrap:wrap; align-content:center; align-items:center; gap:10px 24px; padding:12px 24px; background:#20232a; color:#ecedf1; font:13px/1.5 system-ui,sans-serif; }
+.capture-review-header a { color:#8aa4ff; }
+.capture-review-header span { width:100%; color:#b3b7c2; }
+.capture-review-frame { display:block; width:100%; height:calc(100vh - 88px); border:0; }

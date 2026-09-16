@@ -71,89 +71,98 @@ impl fmt::Display for ScreenshotPinCreateError {
     }
 }
 
-#[tauri::command]
-pub fn pin_clip(
-    id: i64,
-    app_handle: tauri::AppHandle,
-    state: State<'_, AppState>,
-) -> Result<String, String> {
-    let _transition = state
-        .pin_transition
-        .lock()
-        .map_err(|error| error.to_string())?;
-    let label = format!("pin-clip-{id}");
-    if let Some(window) = app_handle.get_webview_window(&label) {
-        if state.pin_manager.get(&label).is_ok() {
-            // 同一个条目只对应一个贴图窗口，这是刻意的：label 是 GNOME Shell 扩展唯一的
-            // 查找键（`window_marker` = 标题 + pid），同名开两个的话扩展的查找只会命中
-            // 第一个，第二张贴图从此摆不了位也置不了顶。
-            //
-            // 但"什么都不发生"是个坏反馈——那张贴图可能正被别的窗口压着、或在另一个
-            // 工作区，`set_focus` 的效果用户根本看不见。所以让它闪一下外围蓝框说明
-            // "它已经在这儿了"。
-            window.show().map_err(|error| error.to_string())?;
-            let _ = window.set_focus();
-            if let Err(error) = window.emit(PIN_ALREADY_OPEN, ()) {
-                log::debug!("提醒既有贴图窗口失败: {error}");
-            }
-            return Ok(label);
-        }
-        // A previous creation failed after the native window was built. Do not
-        // reuse an orphaned window with no payload entry.
-        let _ = window.close();
-        return Err("贴图窗口状态不完整，请重试".to_string());
-    }
+/// 窗口查询会同步等待主事件循环；持 transition 的入口统一离开 UI 线程执行。
+async fn run_pin_window_work<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|error| format!("贴图窗口任务失败: {error}"))?
+}
 
-    let (item, image) = {
-        let storage = state.storage.lock().map_err(|error| error.to_string())?;
-        let mut item = storage
-            .get_clip_by_id(id)
+#[tauri::command]
+pub async fn pin_clip(id: i64, app_handle: tauri::AppHandle) -> Result<String, String> {
+    run_pin_window_work(move || {
+        let state = app_handle.state::<AppState>();
+        let _transition = state
+            .pin_transition
+            .lock()
             .map_err(|error| error.to_string())?;
-        // `get_clip_by_id` 已经把整张图读出来了，从条目里**拿走**它而不是再查一遍库：
-        // 全屏截图是几 MB，多读一遍就是多一次几 MB 的 blob 拷贝，而且贴图窗口活着的
-        // 期间条目里那份会一直占着内存（`pin/` 只用 `image`，从不看 `item.image_data`）。
-        // 只有图片条目有 blob，所以 take 出来的东西和按 content_type 判断是一回事。
-        let image = item.image_data.take();
-        (item, image)
-    };
-    let (width, height) = image
-        .as_deref()
-        .and_then(|png| crate::screenshot::png_dimensions(png).ok())
-        .map(|(width, height)| (width as f64, height as f64))
-        .unwrap_or((420.0, 280.0));
-    // 这张图是不是我们自己截下来复制进剪贴板的？是的话它带着原始矩形，
-    // 贴图就该回到那块屏幕、按那个尺寸；别处来的图片查不到，走常规缩放与光标定位。
-    let origin = image
-        .as_deref()
-        .and_then(|png| state.pin_origins.lookup(png));
-    let (content_width, content_height) = match origin {
-        Some(origin) => origin_content_size(&app_handle, origin),
-        None => fit_content_size(&app_handle, width, height),
-    };
-    state.pin_manager.insert(PinEntry {
-        label: label.clone(),
-        source: Arc::new(PinSource::Clip { item, image }),
-        content_width,
-        content_height,
-        scale: 1.0,
-        opacity: 1.0,
-        locked: false,
-        above: false,
-        position: None,
-        origin,
-        device_scale: content_device_scale(&app_handle, origin),
-        buffer_scale: content_buffer_scale(&app_handle, origin),
-        sharpen: Arc::new(SharpenSlot::default()),
-    })?;
-    // 建窗之前就把清晰度补偿放出去跑，好和 WebKit 起步那几百毫秒重叠。
-    spawn_sharpen(&app_handle, &state.pin_manager.get(&label)?);
-    if let Err(error) =
-        create_pin_window(&app_handle, &label, content_width, content_height, origin)
-    {
-        let _ = state.pin_manager.remove(&label);
-        return Err(crate::error::report("创建剪贴板贴图窗口失败", error));
-    }
-    Ok(label)
+        let label = format!("pin-clip-{id}");
+        if let Some(window) = app_handle.get_webview_window(&label) {
+            if state.pin_manager.get(&label).is_ok() {
+                // 同一个条目只对应一个贴图窗口，这是刻意的：label 是 GNOME Shell 扩展唯一的
+                // 查找键（`window_marker` = 标题 + pid），同名开两个的话扩展的查找只会命中
+                // 第一个，第二张贴图从此摆不了位也置不了顶。
+                //
+                // 但"什么都不发生"是个坏反馈——那张贴图可能正被别的窗口压着、或在另一个
+                // 工作区，`set_focus` 的效果用户根本看不见。所以让它闪一下外围蓝框说明
+                // "它已经在这儿了"。
+                window.show().map_err(|error| error.to_string())?;
+                let _ = window.set_focus();
+                if let Err(error) = window.emit(PIN_ALREADY_OPEN, ()) {
+                    log::debug!("提醒既有贴图窗口失败: {error}");
+                }
+                return Ok(label);
+            }
+            // A previous creation failed after the native window was built. Do not
+            // reuse an orphaned window with no payload entry.
+            let _ = window.destroy();
+            return Err("贴图窗口状态不完整，请重试".to_string());
+        }
+
+        let (item, image) = {
+            let storage = state.storage.lock().map_err(|error| error.to_string())?;
+            let mut item = storage
+                .get_clip_by_id(id)
+                .map_err(|error| error.to_string())?;
+            // `get_clip_by_id` 已经把整张图读出来了，从条目里**拿走**它而不是再查一遍库：
+            // 全屏截图是几 MB，多读一遍就是多一次几 MB 的 blob 拷贝，而且贴图窗口活着的
+            // 期间条目里那份会一直占着内存（`pin/` 只用 `image`，从不看 `item.image_data`）。
+            // 只有图片条目有 blob，所以 take 出来的东西和按 content_type 判断是一回事。
+            let image = item.image_data.take();
+            (item, image)
+        };
+        let (width, height) = image
+            .as_deref()
+            .and_then(|png| crate::screenshot::png_dimensions(png).ok())
+            .map(|(width, height)| (width as f64, height as f64))
+            .unwrap_or((420.0, 280.0));
+        // 这张图是不是我们自己截下来复制进剪贴板的？是的话它带着原始矩形，
+        // 贴图就该回到那块屏幕、按那个尺寸；别处来的图片查不到，走常规缩放与光标定位。
+        let origin = image
+            .as_deref()
+            .and_then(|png| state.pin_origins.lookup(png));
+        let (content_width, content_height) = match origin {
+            Some(origin) => origin_content_size(&app_handle, origin),
+            None => fit_content_size(&app_handle, width, height),
+        };
+        state.pin_manager.insert(PinEntry {
+            label: label.clone(),
+            source: Arc::new(PinSource::Clip { item, image }),
+            content_width,
+            content_height,
+            scale: 1.0,
+            opacity: 1.0,
+            locked: false,
+            above: false,
+            position: None,
+            origin,
+            device_scale: content_device_scale(&app_handle, origin),
+            buffer_scale: content_buffer_scale(&app_handle, origin),
+            sharpen: Arc::new(SharpenSlot::default()),
+        })?;
+        // 建窗之前就把清晰度补偿放出去跑，好和 WebKit 起步那几百毫秒重叠。
+        spawn_sharpen(&app_handle, &state.pin_manager.get(&label)?);
+        if let Err(error) =
+            create_pin_window(&app_handle, &label, content_width, content_height, origin)
+        {
+            let _ = state.pin_manager.remove(&label);
+            return Err(crate::error::report("创建剪贴板贴图窗口失败", error));
+        }
+        Ok(label)
+    })
+    .await
 }
 
 fn screenshot_entry(
@@ -182,10 +191,6 @@ fn screenshot_entry(
     }
 }
 
-fn into_shared_png(png: Vec<u8>) -> Arc<Vec<u8>> {
-    Arc::new(png)
-}
-
 fn with_validated_screenshot_png<T, F>(
     png: Arc<Vec<u8>>,
     next: F,
@@ -202,16 +207,6 @@ where
     next(png, width, height)
 }
 
-pub(crate) fn create_screenshot_pin(
-    png: Vec<u8>,
-    origin: Option<PinOrigin>,
-    app_handle: &tauri::AppHandle,
-    state: &AppState,
-) -> Result<String, String> {
-    create_screenshot_pin_shared(into_shared_png(png), origin, app_handle, state)
-        .map_err(|error| error.to_string())
-}
-
 /// 与普通截图入口共用同一条建条目/建窗路径，但接管调用方已经持有的 PNG `Arc`。
 /// `origin` 是这张图在屏幕上原本占的矩形（逻辑像素）。截图覆盖层知道选区落在哪，
 /// 于是贴图能贴回原处、原尺寸；不知道来源的图片传 `None`，落回光标附近。
@@ -222,10 +217,9 @@ pub(crate) fn create_screenshot_pin_shared(
     state: &AppState,
 ) -> Result<String, ScreenshotPinCreateError> {
     with_validated_screenshot_png(png, |png, width, height| {
-        let _transition = state
-            .pin_transition
-            .lock()
-            .map_err(ScreenshotPinCreateError::not_created)?;
+        // 截图/查看器每次使用唯一 label，manager 自身原子插入足够。
+        // 不持固定 clip 复用窗口的全局 transition：平台尺寸查询/build 会等 UI，
+        // 而 UI 上已有 Pin 的同步 ready/update 命令也要该锁，持有会形成 ABBA。
         let label = format!("pin-image-{}", crate::image_io::unique_image_id());
         let origin = origin.and_then(PinOrigin::sanitized);
         let (content_width, content_height) = match origin {
@@ -456,84 +450,98 @@ pub fn get_pin_payload(label: String, state: State<'_, AppState>) -> Result<PinP
 }
 
 #[tauri::command]
-pub fn pin_ready(
-    label: String,
-    app_handle: tauri::AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    let _transition = state
-        .pin_transition
-        .lock()
-        .map_err(|error| error.to_string())?;
-    validate_label(&label)?;
-    let entry = state.pin_manager.get(&label)?;
-    let window = app_handle
-        .get_webview_window(&label)
-        .ok_or_else(|| "贴图窗口不存在".to_string())?;
-    // 平台适配（置顶 + 缩放锁）在建窗时就做过了，这里只负责显示与摆位；
-    // 重复调用会给 zoom-level 挂上第二个回调。
-    reveal_pin_window(&app_handle, &window, &entry).map_err(|error| error.to_string())?;
-    Ok(())
+pub async fn pin_ready(label: String, app_handle: tauri::AppHandle) -> Result<(), String> {
+    run_pin_window_work(move || {
+        let state = app_handle.state::<AppState>();
+        let _transition = state
+            .pin_transition
+            .lock()
+            .map_err(|error| error.to_string())?;
+        validate_label(&label)?;
+        let entry = state.pin_manager.get(&label)?;
+        let window = app_handle
+            .get_webview_window(&label)
+            .ok_or_else(|| "贴图窗口不存在".to_string())?;
+        // 平台适配（置顶 + 缩放锁）在建窗时就做过了，这里只负责显示与摆位；
+        // 重复调用会给 zoom-level 挂上第二个回调。
+        reveal_pin_window(&app_handle, &window, &entry).map_err(|error| error.to_string())?;
+        Ok(())
+    })
+    .await
 }
 
 /// 改缩放/不透明度/锁定，应答只带变了的那几个字段（见 `PinState`）。
 ///
-/// **这是每帧都会走的路**：滚轮缩放时前端按 rAF 合并后仍是一帧一次。同步命令跑在
-/// 主线程上，所以这条路上不能有整张图的 base64、也不能有多余的文件读与 D-Bus 握手
+/// **这是每帧都会走的路**：滚轮缩放时前端按 rAF 合并后仍是一帧一次。命令在
+/// blocking pool 中执行，但这条路仍不能有整张图的 base64、或多余文件读与 D-Bus 握手
 /// （摆位那侧的缓存见 `capture::shell_extension::place_window`）。
 #[tauri::command]
-pub fn update_pin(
+pub async fn update_pin(
     label: String,
     update: PinUpdate,
     app_handle: tauri::AppHandle,
-    state: State<'_, AppState>,
 ) -> Result<PinState, String> {
-    validate_label(&label)?;
-    let _transition = state
-        .pin_transition
-        .lock()
-        .map_err(|error| error.to_string())?;
-    let previous = state.pin_manager.get(&label)?;
-    let entry = state.pin_manager.update(&label, &update)?;
-    // 图钉开关：只改层级、不动位置和尺寸。关掉就是 `unmake_above`，贴图从此是个普通窗口。
-    // 缩放那条路自己会把层级重新表态一次，所以这里只处理"只按了图钉"的情况。
-    if update.above.is_some() && update.scale.is_none() {
-        if let Some(window) = app_handle.get_webview_window(&label) {
-            keep_pin_above(&window, None, entry.above);
-        }
-    }
-    if update.scale.is_some() {
-        if let Err(error) = resize_pin_window(&app_handle, &entry) {
-            if let Err(rollback_error) = resize_pin_window(&app_handle, &previous) {
-                log::warn!("回滚贴图窗口尺寸失败: {rollback_error}");
+    run_pin_window_work(move || {
+        let state = app_handle.state::<AppState>();
+        validate_label(&label)?;
+        let _transition = state
+            .pin_transition
+            .lock()
+            .map_err(|error| error.to_string())?;
+        let previous = state.pin_manager.get(&label)?;
+        let entry = state.pin_manager.update(&label, &update)?;
+        // 图钉开关：只改层级、不动位置和尺寸。关掉就是 `unmake_above`，贴图从此是个普通窗口。
+        // 缩放那条路自己会把层级重新表态一次，所以这里只处理"只按了图钉"的情况。
+        if update.above.is_some() && update.scale.is_none() {
+            if let Some(window) = app_handle.get_webview_window(&label) {
+                keep_pin_above(&window, None, entry.above);
             }
-            state.pin_manager.replace(previous)?;
-            // 缩放途中窗口被关掉属于正常竞争，不是故障。
-            let context = "缩放贴图窗口失败";
-            return Err(if error.is_gone() {
-                crate::error::note(context, error)
-            } else {
-                crate::error::report(context, error)
-            });
         }
-    }
-    Ok(state_from_entry(&entry))
+        if update.scale.is_some() {
+            if let Err(error) = resize_pin_window(&app_handle, &entry) {
+                if let Err(rollback_error) = resize_pin_window(&app_handle, &previous) {
+                    log::warn!("回滚贴图窗口尺寸失败: {rollback_error}");
+                }
+                state.pin_manager.replace(previous)?;
+                // 缩放途中窗口被关掉属于正常竞争，不是故障。
+                let context = "缩放贴图窗口失败";
+                return Err(if error.is_gone() {
+                    crate::error::note(context, error)
+                } else {
+                    crate::error::report(context, error)
+                });
+            }
+        }
+        Ok(state_from_entry(&entry))
+    })
+    .await
 }
 
 #[tauri::command]
 pub fn copy_pin(label: String, state: State<'_, AppState>) -> Result<(), String> {
     validate_label(&label)?;
     let entry = state.pin_manager.get(&label)?;
-    match &*entry.source {
-        PinSource::Clip { item, .. } => crate::commands::write_clip_to_clipboard(item.id, &state),
+    copy_source(
+        &entry.source,
+        |item, image| crate::commands::write_clip_snapshot_to_clipboard(item, image, &state),
+        crate::image_io::copy_png_to_clipboard,
+    )
+}
+
+/// 分离系统剪贴板边界，保证所有 Pin 都从持有的快照复制，而不按历史 id 回查。
+fn copy_source(
+    source: &PinSource,
+    write_clip: impl FnOnce(&crate::models::ClipItem, Option<&[u8]>) -> Result<(), String>,
+    write_png: impl FnOnce(&[u8]) -> Result<(), String>,
+) -> Result<(), String> {
+    match source {
+        PinSource::Clip { item, image } => write_clip(item, image.as_deref()),
         // 这里**不设** skip hash：watcher 哈希的是它自己从剪贴板 RGBA 重新编出来的 PNG，
         // 和我们手上这串字节几乎不可能相同，设了也永远匹配不上（历史上就是这样白算了一次
         // 全图 sha256）。后果只是这张图重新进一次历史——`insert_clip` 按哈希去重，
         // 已有的那条只会被顶到最前面，没有重复存储。
-        PinSource::Screenshot { png } => crate::image_io::copy_png_to_clipboard(png.as_slice()),
-        PinSource::Project { preview_png, .. } => {
-            crate::image_io::copy_png_to_clipboard(preview_png)
-        }
+        PinSource::Screenshot { png } => write_png(png.as_slice()),
+        PinSource::Project { preview_png, .. } => write_png(preview_png),
     }
 }
 
@@ -869,21 +877,23 @@ fn render_canvas_project(entry: &PinEntry, project: &PinCanvasProject) -> Result
 }
 
 #[tauri::command]
-pub fn close_pin(
-    label: String,
-    app_handle: tauri::AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    validate_label(&label)?;
-    let _transition = state
-        .pin_transition
-        .lock()
-        .map_err(|error| error.to_string())?;
-    if let Some(window) = app_handle.get_webview_window(&label) {
-        window.close().map_err(|error| error.to_string())?;
-    }
-    let _ = state.pin_manager.remove(&label)?;
-    Ok(())
+pub async fn close_pin(label: String, app_handle: tauri::AppHandle) -> Result<(), String> {
+    run_pin_window_work(move || {
+        let state = app_handle.state::<AppState>();
+        validate_label(&label)?;
+        let _transition = state
+            .pin_transition
+            .lock()
+            .map_err(|error| error.to_string())?;
+        if let Some(window) = app_handle.get_webview_window(&label) {
+            // 此命令只由已经确认保存/放弃的前端调用。destroy 不再发 CloseRequested，
+            // 避免原生保护把最终关闭再送回确认框。
+            window.destroy().map_err(|error| error.to_string())?;
+        }
+        let _ = state.pin_manager.remove(&label)?;
+        Ok(())
+    })
+    .await
 }
 
 fn state_from_entry(entry: &PinEntry) -> PinState {
@@ -1093,12 +1103,52 @@ mod project_command_tests {
         }
     }
 
-    type CreateScreenshotPinFn = fn(
-        Vec<u8>,
-        Option<PinOrigin>,
-        &tauri::AppHandle,
-        &crate::commands::AppState,
-    ) -> Result<String, String>;
+    #[test]
+    fn deleted_history_does_not_remove_the_pin_copy_snapshot() {
+        let storage = crate::storage::StorageEngine::new_in_memory().unwrap();
+        for (content_type, text, html, image) in [
+            (ContentType::Text, Some("snapshot"), None, None),
+            (
+                ContentType::Html,
+                Some("html text"),
+                Some("<b>html text</b>"),
+                None,
+            ),
+            (ContentType::Image, None, None, Some(sample_png())),
+        ] {
+            let mut item = storage
+                .insert_clip(
+                    &content_type,
+                    text,
+                    html,
+                    image.as_deref(),
+                    &format!("snapshot-{content_type:?}"),
+                    1,
+                    false,
+                )
+                .unwrap();
+            let png = item.image_data.take();
+            let id = item.id;
+            let source = PinSource::Clip { item, image: png };
+            storage.delete_clip(id).unwrap();
+            assert!(storage.get_clip_by_id(id).is_err());
+            let called = AtomicBool::new(false);
+            copy_source(
+                &source,
+                |snapshot, bytes| {
+                    called.store(true, Ordering::SeqCst);
+                    assert_eq!(snapshot.text_content.as_deref(), text);
+                    assert_eq!(snapshot.html_content.as_deref(), html);
+                    assert_eq!(bytes, image.as_deref());
+                    Ok(())
+                },
+                |_| panic!("历史 Pin 应直接复制快照"),
+            )
+            .unwrap();
+            assert!(called.load(Ordering::SeqCst));
+        }
+    }
+
     type CreateScreenshotPinSharedFn = fn(
         Arc<Vec<u8>>,
         Option<PinOrigin>,
@@ -1106,7 +1156,6 @@ mod project_command_tests {
         &crate::commands::AppState,
     ) -> Result<String, super::ScreenshotPinCreateError>;
 
-    const _: CreateScreenshotPinFn = super::create_screenshot_pin;
     const _: CreateScreenshotPinSharedFn = super::create_screenshot_pin_shared;
 
     fn adjustments() -> serde_json::Value {
@@ -1227,15 +1276,6 @@ mod project_command_tests {
         };
         assert!(Arc::ptr_eq(stored, &png));
         assert_eq!(stored.as_slice(), png.as_slice());
-    }
-
-    #[test]
-    fn legacy_vec_conversion_moves_the_original_buffer_into_arc() {
-        let png = sample_png();
-        let original_ptr = png.as_ptr();
-        let shared = super::into_shared_png(png);
-        assert_eq!(shared.as_ptr(), original_ptr);
-        assert_eq!(Arc::strong_count(&shared), 1);
     }
 
     #[test]
@@ -1666,5 +1706,82 @@ mod project_command_tests {
         assert_eq!(result.unwrap_err(), "simulated native window failure");
         assert_eq!(manager.len(), 0);
         assert!(manager.get(label).is_err());
+    }
+
+    #[test]
+    fn concurrent_screenshot_labels_insert_without_replacing_another_entry() {
+        let manager = Arc::new(super::super::manager::PinManager::new());
+        let barrier = Arc::new(std::sync::Barrier::new(16));
+        let workers: Vec<_> = (0..16)
+            .map(|_| {
+                let manager = Arc::clone(&manager);
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    let label = format!("pin-image-{}", crate::image_io::unique_image_id());
+                    let png = Arc::new(sample_png());
+                    super::with_validated_screenshot_png(png, |png, width, height| {
+                        let entry = super::screenshot_entry(
+                            label.clone(),
+                            png,
+                            width as f64,
+                            height as f64,
+                            None,
+                            1.0,
+                            1.0,
+                        );
+                        manager
+                            .insert(entry)
+                            .map_err(super::ScreenshotPinCreateError::not_created)?;
+                        Ok(())
+                    })
+                    .unwrap();
+                    assert!(manager.get(&label).is_ok());
+                    label
+                })
+            })
+            .collect();
+        let labels: std::collections::HashSet<_> = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .collect();
+        assert_eq!(labels.len(), 16);
+        assert_eq!(manager.len(), 16);
+        let duplicate = labels.iter().next().unwrap();
+        assert!(manager.insert(screenshot_entry(duplicate)).is_err());
+        assert_eq!(manager.len(), 16);
+    }
+
+    #[tokio::test]
+    async fn window_transition_waiters_do_not_block_the_ui_task_pump() {
+        use std::sync::{mpsc, Mutex};
+        use std::time::Duration;
+        let transition = Arc::new(Mutex::new(()));
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let (ui_ack, wait_for_ui) = mpsc::channel();
+        let first = {
+            let transition = Arc::clone(&transition);
+            let entered = Arc::clone(&entered);
+            tokio::spawn(super::run_pin_window_work(move || {
+                let _guard = transition.lock().unwrap();
+                entered.notify_one();
+                wait_for_ui
+                    .recv_timeout(Duration::from_secs(2))
+                    .map_err(|_| "ui_deadlock".to_string())?;
+                Ok("getter_completed")
+            }))
+        };
+        entered.notified().await;
+        let second = tokio::spawn(super::run_pin_window_work(move || {
+            let _guard = transition.lock().unwrap();
+            Ok("next_pin_command")
+        }));
+        // 当前单线程执行器模拟 UI 派发：另一条命令等待同锁时仍能响应 getter。
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
+        ui_ack.send(()).unwrap();
+        assert_eq!(first.await.unwrap().unwrap(), "getter_completed");
+        assert_eq!(second.await.unwrap().unwrap(), "next_pin_command");
     }
 }

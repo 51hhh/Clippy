@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { CaptureOutputError } from "../../js/ipc-types.ts";
 import { getCurrentWindowLabel } from "../../js/api.ts";
 import { drawScene } from "../annotation/canvasRenderer";
 import { type FrameImage, paintRgbaFrame, rgbaToFrameCanvas } from "../annotation/frameImage";
@@ -13,6 +14,7 @@ import { useHistory } from "../annotation/useHistory";
 import { t } from "../shared/i18n";
 import { overlayApi } from "./api";
 import { OverlayToolbar } from "./OverlayToolbar";
+import { OutputFailurePanel } from "./OutputFailurePanel";
 import { DEFAULT_COLOR, DEFAULT_STROKE } from "./tools";
 import { TranslationPopover } from "./TranslationPopover";
 import {
@@ -32,6 +34,7 @@ import type {
   ResizeHandle,
 } from "./types";
 import { useSelection } from "./useSelection";
+import { toPixelRect } from "./geometry";
 
 const HANDLES: ResizeHandle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 type LongshotLaunchState = "idle" | "pending" | "accepted";
@@ -65,6 +68,9 @@ function longshotSelection(
   ) {
     return null;
   }
+  const pixels = toPixelRect(selection, payload.pixelWidth / payload.logicalWidth,
+    payload.pixelHeight / payload.logicalHeight, { x: 0, y: 0, width: payload.pixelWidth, height: payload.pixelHeight });
+  if (!Number.isFinite(pixels.width) || !Number.isFinite(pixels.height) || pixels.width < 8 || pixels.height < 24) return null;
   return { ...selection, sessionId: payload.sessionId, monitorId: payload.monitorId };
 }
 
@@ -85,14 +91,20 @@ function useViewportSize() {
 /**
  * 冻结画面覆盖层：选区、标注和提交全部发生在这一个窗口里。
  *
- * 状态机只有三态，由选区和当前工具推导，不额外存：
+ * 选区交互由选区和当前工具推导，不额外存：
  * - idle：没有选区。悬停窗口高亮可速选，点一下取悬停窗口、点空地取整屏。
  * - dragging：按住不放，正在框选 / 移动 / 缩放选区，或正在画一笔标注。
  * - editing：有选区。工具条贴在选区旁边，选区仍可拖动与缩放，
  *   点对钩就把"裁剪 + 标注"后的 PNG 直接送进剪贴板。
+ * 输出期间锁定编辑；后端确认渲染失败才恢复编辑，产物输出失败进入独立恢复面板。
  */
-export function App() {
-  const label = getCurrentWindowLabel();
+/** 同一次 mount 的服务保持稳定；生产入口省略该参数。 */
+export type CaptureAppServices = { api: typeof overlayApi; windowLabel: () => string };
+const defaultServices: CaptureAppServices = { api: overlayApi, windowLabel: getCurrentWindowLabel };
+
+export function App({ services = defaultServices }: { services?: CaptureAppServices } = {}) {
+  const overlayApi = services.api;
+  const label = services.windowLabel();
   const [payload, setPayload] = useState<CaptureOverlayPayload | null>(null);
   const [frameBuffer, setFrameBuffer] = useState<ArrayBuffer | null>(null);
   const [frameProtocolFailed, setFrameProtocolFailed] = useState(false);
@@ -100,6 +112,12 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  const [outputFailure, setOutputFailure] = useState<CaptureOutputError | null>(null);
+  const outputFailureRef = useRef<CaptureOutputError | null>(null);
+  const handoffLabel = useRef<string | null>(null);
+  const handoffReadyRef = useRef(false);
+  const [handoffReady, setHandoffReady] = useState(false);
+  const handoffResults = useRef(new Map<string, boolean>());
   const [tool, setTool] = useState<OverlayTool>("select");
   const [color, setColor] = useState(DEFAULT_COLOR);
   const [stroke, setStroke] = useState(DEFAULT_STROKE);
@@ -286,11 +304,16 @@ export function App() {
   const draftAnnotation = canvas.draft && "annotation" in canvas.draft
     ? canvas.draft.annotation
     : null;
+  const roundedCrop = useMemo(() => adjustments.cornerRadius > 0 && selection && payload
+    ? toPixelRect(selection, payload.pixelWidth / logicalWidth, payload.pixelHeight / logicalHeight,
+      { x: 0, y: 0, width: payload.pixelWidth, height: payload.pixelHeight })
+    : null, [adjustments.cornerRadius, selection, payload, logicalWidth, logicalHeight]);
   const needsComposite =
     annotations.length > 0 ||
     draftAnnotation !== null ||
     selectedId !== null ||
-    hasImageAdjustments(adjustments);
+    hasImageAdjustments(adjustments) ||
+    adjustments.cornerRadius > 0;
   const longshotDirty =
     annotations.length > 0 ||
     draftAnnotation !== null ||
@@ -299,7 +322,7 @@ export function App() {
 
   // 底图与标注画在这块画布上，因此标注相关的状态一变就要重绘。
   //
-  // **选区不在依赖里，这是有意的。** 画一帧要把 2560×1600 的冻结帧高质量缩绘进
+  // **普通选区不在依赖里，这是有意的；启用圆角时 roundedCrop 需要随选区更新。** 画一帧要把 2560×1600 的冻结帧高质量缩绘进
   // 1920×1200 的画布，而拖动/缩放选区时每个 pointermove 都会改选区矩形——压暗和
   // 虚线框留在画布上的话，等于每帧白做一次全图重采样。它们现在由 `.selection` 的
   // `outline` + `box-shadow` 画（overlay.css），合成器代价近似为零，
@@ -342,6 +365,7 @@ export function App() {
       draftAnnotation,
       adjustments,
       selectedId,
+      roundedCrop,
     );
     // 首帧已经落在画布上，可以显示窗口了。
     reveal();
@@ -359,6 +383,7 @@ export function App() {
     scale,
     selectedId,
     needsComposite,
+    roundedCrop,
   ]);
 
   // 出错时也要把窗口显示出来，否则用户只看到截图"没反应"，错误提示压根没露面。
@@ -366,15 +391,70 @@ export function App() {
     if (error) reveal();
   }, [error, reveal]);
 
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    handoffReadyRef.current = false;
+    setHandoffReady(false);
+    void overlayApi.onHandoff((result) => {
+      if (result.sessionId !== payload?.sessionId) return;
+      handoffResults.current.set(result.controllerLabel, result.accepted);
+      if (handoffLabel.current !== result.controllerLabel) return;
+      longshotLaunchRef.current = result.accepted ? "accepted" : "idle";
+      setLongshotLaunch(longshotLaunchRef.current);
+      if (!result.accepted) setError(t("capture.longshotOpenFailed"));
+    }).then((stop) => {
+      if (cancelled) { stop(); return; }
+      unlisten = stop;
+      handoffReadyRef.current = true;
+      setHandoffReady(true);
+    }).catch((reason) => {
+      console.warn(reason);
+      if (!cancelled) setError(t("capture.longshotOpenFailed"));
+    });
+    return () => { cancelled = true; unlisten?.(); };
+  }, [payload?.sessionId]);
+
+  const handleOutputError = useCallback((reason: unknown, retrying = false) => {
+    const candidate = reason && typeof reason === "object" ? reason as Partial<CaptureOutputError> : null;
+    const structured = typeof candidate?.outputPending === "boolean" && typeof candidate.message === "string"
+      && Array.isArray(candidate.retryActions)
+      && candidate.retryActions.every((action) => action === "copy" || action === "save" || action === "pin");
+    // IPC 回包丢失不能证明输出尚未执行；只允许幂等复制，后端仍检查产物与认领状态。
+    let failure: CaptureOutputError = structured ? candidate as CaptureOutputError
+      : { message: String(reason), outputPending: true, retryActions: ["copy"] };
+    const previous = outputFailureRef.current;
+    if (retrying && previous) {
+      // 恢复请求被拒绝不代表旧输出已结束；只能保持或收紧权限，不能退回编辑。
+      failure = { ...failure, outputPending: true, retryActions: failure.outputPending
+        ? previous.retryActions.filter((action) => failure.retryActions.includes(action))
+        : previous.retryActions };
+    }
+    outputFailureRef.current = failure.outputPending ? failure : null;
+    setOutputFailure(outputFailureRef.current);
+    setError(failure.message);
+    busyRef.current = false;
+    setBusy(false);
+  }, []);
+
+  const retryOutput = useCallback((action: CaptureAction) => {
+    if (busyRef.current || !outputFailureRef.current?.retryActions.includes(action)) return;
+    busyRef.current = true;
+    setBusy(true);
+    setError(null);
+    void overlayApi.retry(action).catch((reason) => handleOutputError(reason, true));
+  }, [handleOutputError]);
+
   const cancel = useCallback(() => {
-    if (!payload || busyRef.current || longshotLaunchRef.current === "pending") return;
+    if (busyRef.current || longshotLaunchRef.current === "pending") return;
     translationGeneration.current += 1;
     translationBusyRef.current = false;
     setTranslation(null);
     setCopyStatus(null);
     busyRef.current = true;
     setBusy(true);
-    overlayApi.cancel(payload.sessionId).catch((reason) => {
+    const operation = payload ? overlayApi.cancel(payload.sessionId) : overlayApi.closeUninitialized();
+    operation.catch((reason) => {
       setError(String(reason));
       busyRef.current = false;
       setBusy(false);
@@ -402,6 +482,7 @@ export function App() {
   const run = useCallback(
     (action: CaptureAction) => {
       const image = imageRef.current;
+      if (outputFailureRef.current) return;
       if (
         !payload ||
         !image ||
@@ -429,17 +510,13 @@ export function App() {
           },
           originRect,
         )
-        .catch((reason) => {
-          setError(String(reason));
-          busyRef.current = false;
-          setBusy(false);
-        });
+        .catch(handleOutputError);
     },
-    [adjustments, annotations, originRect, payload, selection],
+    [adjustments, annotations, handleOutputError, originRect, payload, selection],
   );
 
   const closeTranslation = useCallback(() => {
-    if (longshotLaunchRef.current === "pending") return;
+    if (busyRef.current || outputFailureRef.current || longshotLaunchRef.current === "pending") return;
     translationGeneration.current += 1;
     translationBusyRef.current = false;
     setTranslation(null);
@@ -487,13 +564,14 @@ export function App() {
   }, [translation]);
 
   const deleteObject = useCallback(() => {
-    if (!selectedId || longshotLaunchRef.current === "pending") return;
+    if (!selectedId || busyRef.current || outputFailureRef.current || longshotLaunchRef.current === "pending") return;
     history.commit((items) => items.filter((item) => item.id !== selectedId));
     setSelectedId(null);
   }, [history, selectedId]);
 
   const openLongshot = useCallback(() => {
     if (
+      !handoffReadyRef.current || outputFailureRef.current ||
       longshotLaunchRef.current !== "idle" ||
       longshotDirty ||
       busyRef.current ||
@@ -503,6 +581,8 @@ export function App() {
     if (!candidate) return;
 
     // React state 到下一轮渲染才可见；先写 ref 才能挡住同 tick 的双击与键盘事件。
+    handoffLabel.current = null;
+    handoffResults.current.clear();
     longshotLaunchRef.current = "pending";
     setLongshotLaunch("pending");
     translationGeneration.current += 1;
@@ -513,10 +593,13 @@ export function App() {
     const epoch = mountedEpoch.current;
 
     overlayApi.openLongshot(candidate).then(
-      () => {
+      (result) => {
         if (mountedEpoch.current !== epoch) return;
-        longshotLaunchRef.current = "accepted";
-        setLongshotLaunch("accepted");
+        handoffLabel.current = result.label;
+        const accepted = handoffResults.current.get(result.label);
+        longshotLaunchRef.current = accepted === false ? "idle" : "accepted";
+        setLongshotLaunch(longshotLaunchRef.current);
+        if (accepted === false) setError(t("capture.longshotOpenFailed"));
       },
       (reason) => {
         if (mountedEpoch.current !== epoch) return;
@@ -529,27 +612,27 @@ export function App() {
   }, [longshotDirty, payload, selection]);
 
   const setToolIfEditable = useCallback((next: OverlayTool) => {
-    if (longshotLaunchRef.current !== "pending") setTool(next);
+    if (!busyRef.current && !outputFailureRef.current && longshotLaunchRef.current !== "pending") setTool(next);
   }, []);
   const setColorIfEditable = useCallback((next: string) => {
-    if (longshotLaunchRef.current !== "pending") setColor(next);
+    if (!busyRef.current && !outputFailureRef.current && longshotLaunchRef.current !== "pending") setColor(next);
   }, []);
   const setStrokeIfEditable = useCallback((next: number) => {
-    if (longshotLaunchRef.current !== "pending") setStroke(next);
+    if (!busyRef.current && !outputFailureRef.current && longshotLaunchRef.current !== "pending") setStroke(next);
   }, []);
   const setTextIfEditable = useCallback((next: string) => {
-    if (longshotLaunchRef.current !== "pending") setText(next);
+    if (!busyRef.current && !outputFailureRef.current && longshotLaunchRef.current !== "pending") setText(next);
   }, []);
   const adjustIfEditable = useCallback((update: Partial<ImageAdjustments>) => {
-    if (longshotLaunchRef.current !== "pending") {
+    if (!busyRef.current && !outputFailureRef.current && longshotLaunchRef.current !== "pending") {
       setAdjustments((current) => ({ ...current, ...update }));
     }
   }, []);
   const undoIfEditable = useCallback(() => {
-    if (longshotLaunchRef.current !== "pending") history.undo();
+    if (!busyRef.current && !outputFailureRef.current && longshotLaunchRef.current !== "pending") history.undo();
   }, [history]);
   const redoIfEditable = useCallback(() => {
-    if (longshotLaunchRef.current !== "pending") history.redo();
+    if (!busyRef.current && !outputFailureRef.current && longshotLaunchRef.current !== "pending") history.redo();
   }, [history]);
 
   useEffect(() => {
@@ -565,7 +648,7 @@ export function App() {
         else cancel();
         return;
       }
-      if (typing) return;
+      if (typing || busyRef.current || outputFailureRef.current) return;
       const control = event.ctrlKey || event.metaKey;
       if (control && event.key.toLowerCase() === "z") {
         event.preventDefault();
@@ -598,7 +681,7 @@ export function App() {
    * 其余情况下绘制工具归画布、`select` 工具归选区。
    */
   function onPointerDown(event: React.PointerEvent) {
-    if (longshotLaunchRef.current === "pending") return;
+    if (busyRef.current || outputFailureRef.current || longshotLaunchRef.current === "pending") return;
     if (event.button !== 0) return;
     if (translation) closeTranslation();
     const at = point(event);
@@ -614,13 +697,13 @@ export function App() {
   }
 
   function onPointerMove(event: React.PointerEvent) {
-    if (longshotLaunchRef.current === "pending") return;
+    if (busyRef.current || outputFailureRef.current || longshotLaunchRef.current === "pending") return;
     if (activeDrag.current === "canvas") canvas.onPointerMove(event);
     else region.pointerMove(point(event));
   }
 
   function onPointerUp(event: React.PointerEvent) {
-    if (longshotLaunchRef.current === "pending") return;
+    if (busyRef.current || outputFailureRef.current || longshotLaunchRef.current === "pending") return;
     const owner = activeDrag.current;
     activeDrag.current = null;
     if (owner === "canvas") canvas.onPointerUp();
@@ -630,7 +713,9 @@ export function App() {
   if (!payload) {
     return (
       <main className="overlay-root loading">
-        {error && <div className="overlay-error" role="status">{error}</div>}
+        {error && <div className="overlay-error" role="alert">{error}
+          <button type="button" disabled={busy} onClick={cancel}>{t("capture.cancel")}</button>
+        </div>}
       </main>
     );
   }
@@ -668,12 +753,9 @@ export function App() {
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
       onContextMenu={(event) => {
-        if (longshotLaunchRef.current === "pending") {
-          event.preventDefault();
-          return;
-        }
-        // 右键回到"还没框选"，这样点一次取了整屏之后还能重新框小区域。
         event.preventDefault();
+        if (busyRef.current || outputFailureRef.current || longshotLaunchRef.current === "pending") return;
+        // 右键回到"还没框选"，这样点一次取了整屏之后还能重新框小区域。
         region.reset();
         setSelectedId(null);
       }}
@@ -709,6 +791,10 @@ export function App() {
           </div>
           <div
             className="selection-size"
+            onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
+            onPointerMove={(event) => event.stopPropagation()}
+            onPointerUp={(event) => event.stopPropagation()}
+            onPointerCancel={(event) => event.stopPropagation()}
             style={{ left: selection.x, top: Math.max(6, selection.y - 28) }}
           >
             {Math.round(selection.width)} × {Math.round(selection.height)}
@@ -723,11 +809,11 @@ export function App() {
               stroke={stroke}
               text={text}
               adjustments={adjustments}
-              busy={busy}
+              busy={busy || outputFailure !== null}
               translationBusy={translation?.status === "loading"}
               longshotPending={longshotLaunch === "pending"}
               longshotDisabled={
-                longshotLaunch !== "idle" ||
+                !handoffReady || longshotLaunch !== "idle" ||
                 longshotDirty ||
                 longshotActionBusy ||
                 !validLongshotSelection
@@ -766,7 +852,8 @@ export function App() {
       {!selection && !error && showHint && (
         <div className="overlay-hint" role="status">{t(hintKey)}</div>
       )}
-      {error && <div className="overlay-error" role="status">{error}</div>}
+      {outputFailure ? <OutputFailurePanel failure={outputFailure} message={error} busy={busy}
+        onRetry={retryOutput} onDiscard={cancel} /> : error && <div className="overlay-error" role="status">{error}</div>}
     </main>
   );
 }

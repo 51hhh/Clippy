@@ -9,9 +9,17 @@
 import "../../styles/themes.css";
 import "../../styles/base.css";
 import "../../styles/components.css";
-// 结构直接取产品 index.html：用 ?raw 而不是 fetch，才能同步跑完——
-// headless Firefox 的 --screenshot 不等待顶层 await，异步版本会拍到空白页。
+// 结构和数据都在本模块内；不 fetch，不等待图片/IPC/网络，完成微任务后即可截图。
 import indexMarkup from "../../index.html?raw";
+import React from "react";
+import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
+import { createContentRenderers } from "../../js/preview/content-renderers.js";
+import { createImageTranslationView, revealImageTranslation } from "../../js/preview/reveal-translation.js";
+import { TranslationPanel } from "../../react/main/TranslationPanel";
+import { ClipboardRow } from "../../react/main/ClipboardRow";
+import { TranslationStore, type TranslationServices } from "../../react/main/translationStore";
+import type { AppConfig, ClipItem } from "../../js/ipc-types";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -88,51 +96,92 @@ function verifyPreviewAndTranslationShareTheColumn(app: HTMLElement): void {
     `preview content is not scrollable: ${content.scrollHeight} vs ${content.clientHeight}`);
 }
 
-/** 大图和 OCR 必须是一篇连续文档：只有 preview-content 拥有纵向滚动。 */
-function verifyImageAndOcrUseOneScroller(app: HTMLElement): void {
+/** 使用产品 renderer + React portal；图片/OCR/译文只有 preview-scroll 滚动。 */
+async function verifyImageAndOcrUseOneScroller(app: HTMLElement): Promise<void> {
+  const preview = element<HTMLElement>(app, "#preview-panel");
   const content = element<HTMLElement>(app, "#preview-content");
-  content.className = "preview-content preview-content--image";
-  content.replaceChildren();
+  const host = element<HTMLElement>(app, "#translation-react-root");
+  const scroll = element<HTMLElement>(app, ".preview-scroll");
+  preview.classList.add("preview-panel--image");
+  content.className = "preview-content";
+  content.replaceChildren(); host.replaceChildren();
+  const imageView = createImageTranslationView();
+  const canvas = document.createElement("canvas");
+  canvas.width = 640; canvas.height = 1800;
+  canvas.getContext("2d")!.fillRect(0, 0, 640, 1800);
+  const png = canvas.toDataURL("image/png").split(",")[1];
+  const recognized = Array.from({ length: 80 }, (_, i) => `OCR line ${i + 1}: selectable recognized text`).join("\n");
+  const translated = Array.from({ length: 80 }, (_, i) => `Translation line ${i + 1}: complete result`).join("\n");
+  const clip: ClipItem = { id: 1, content_type: "image", text_content: null, html_content: null,
+    image_data: null, content_hash: "fixture", is_favorite: false, is_sensitive: false, created_at: 1, byte_size: 2048 };
+  const config = { ocr_enabled: true, ocr_result_mode: "preview", translation_target_language: "en",
+    translation_services: [{ provider: "libretranslate", enabled: true, endpoint: "https://example.test", model: "", region: "", project: "" }],
+  } as AppConfig;
+  let requests = 0;
+  const services: TranslationServices = {
+    copyText: async () => {}, translationHistory: async () => [],
+    speakClip: async () => ({ mime_type: "audio/wav", audio_base64: "" }),
+    speakText: async () => ({ mime_type: "audio/wav", audio_base64: "" }),
+    translateClip: async () => { requests++; return { request_id: 1, services: [{ status: "ok", provider: "libretranslate",
+      translated_text: translated, detected_source_language: "zh", target_language: "en" }] }; },
+  };
+  const store = new TranslationStore({ play: async () => {}, stop: () => {} }, 0, services);
+  store.setConfig(config); store.setClip(clip);
+  const root = createRoot(host);
+  const renderReact = () => flushSync(() => root.render(React.createElement(TranslationPanel, { store, imageView })));
+  renderReact();
+  await createContentRenderers({ contentEl: content, badgeEl: element(app, "#preview-type-badge"),
+    metaEl: element(app, "#preview-meta"), getLibraries: () => ({}), imageTranslation: imageView,
+    services: { getClipImage: async () => png, getConfig: async () => config, ocrAvailable: async () => true,
+      ocrImage: async () => recognized, copyText: async () => {}, openImageViewer: async () => { throw new Error("Viewer navigation is not part of this layout fixture"); }, fetchUrlMeta: async () => ({ url: "", title: null, description: null, favicon: null, site_name: null }) },
+  }).renderImage(clip);
+  // renderer 的 OCR 合同是非阻塞；只有已完成本地 promise 的微任务，无 timer 或外部 I/O。
+  for (let i = 0; i < 8; i++) await Promise.resolve();
+  const ocr = element<HTMLElement>(content, ".preview-ocr-result");
+  const source = element<HTMLElement>(ocr, ".preview-ocr-source");
+  const image = element<HTMLImageElement>(content, ".preview-image-open img");
+  // 只有本地合成data PNG；等待解码，避免以尚无固有尺寸的img验证缩略图布局。
+  await image.decode();
+  assert(image.naturalWidth === 640 && image.naturalHeight === 1800, "synthetic long image did not decode");
+  assert(element(source, "pre").textContent === recognized, "real OCR renderer did not publish the complete source");
+  assert(!content.querySelector(".preview-code-scan"), "removed sidebar scan UI returned");
+  assert(host.childElementCount === 0, "image translation duplicated below OCR");
+  assert(getComputedStyle(scroll).overflowY === "auto", "image scroll owner is not preview-scroll");
+  assert(getComputedStyle(content).overflowY === "visible", "preview-content creates a nested scroll");
 
-  const image = document.createElement("img");
-  image.alt = "large clipboard preview";
-  image.width = 1200;
-  image.height = 900;
+  function verifyUnclipped(node: HTMLElement, name: string): void {
+    assert(getComputedStyle(node).overflowY === "visible", `${name} creates a nested scroll`);
+    assert(getComputedStyle(node).maxHeight === "none", `${name} is height-capped`);
+    assert(node.scrollHeight <= node.clientHeight + 1, `${name} is internally clipped`);
+  }
+  function verifyTail(): void {
+    assert(scroll.scrollHeight > scroll.clientHeight, "long image document does not scroll");
+    scroll.scrollTop = scroll.scrollHeight;
+    assert(ocr.getBoundingClientRect().bottom <= scroll.getBoundingClientRect().bottom + 1, "OCR/translation tail is unreachable");
+  }
+  verifyUnclipped(ocr, "OCR"); verifyTail();
+  assert(image.getBoundingClientRect().bottom <= ocr.getBoundingClientRect().top + 1, "image overlaps OCR");
+  // 已批准的侧栏缩略图上限为156px，144px是前一版布局的陈旧期望。
+  const imageHeight = image.getBoundingClientRect().height;
+  assert(imageHeight > 0 && imageHeight <= 156 + 1, `long image thumbnail is not compact: ${imageHeight}`);
 
-  const ocr = document.createElement("div");
-  ocr.className = "preview-ocr-result";
-  ocr.dataset.status = "done";
-  const text = document.createElement("pre");
-  text.textContent = Array.from(
-    { length: 80 },
-    (_, index) => `OCR line ${index + 1}: selectable recognized text`,
-  ).join("\n");
-  ocr.append(text);
-  content.append(image, ocr);
-
-  const contentStyle = getComputedStyle(content);
-  const ocrStyle = getComputedStyle(ocr);
-  assert(contentStyle.overflowY === "auto",
-    `preview content lost its scroll ownership: ${contentStyle.overflowY}`);
-  assert(ocrStyle.overflowY === "visible",
-    `OCR created a nested scroller: ${ocrStyle.overflowY}`);
-  assert(ocrStyle.maxHeight === "none",
-    `OCR is still height-capped: ${ocrStyle.maxHeight}`);
-  assert(ocr.scrollHeight <= ocr.clientHeight + 1,
-    `OCR content is internally clipped: ${ocr.scrollHeight} > ${ocr.clientHeight}`);
-  assert(content.scrollHeight > content.clientHeight,
-    `large image/OCR document does not scroll: ${content.scrollHeight} vs ${content.clientHeight}`);
-
-  const imageBox = image.getBoundingClientRect();
-  const ocrBox = ocr.getBoundingClientRect();
-  assert(imageBox.bottom <= ocrBox.top + 1,
-    `image overlaps OCR content: ${imageBox.bottom} > ${ocrBox.top}`);
-
-  content.scrollTop = content.scrollHeight;
-  const contentBox = content.getBoundingClientRect();
-  const scrolledOcrBox = ocr.getBoundingClientRect();
-  assert(scrolledOcrBox.bottom <= contentBox.bottom + 1,
-    `OCR tail is unreachable through preview scroll: ${scrolledOcrBox.bottom} > ${contentBox.bottom}`);
+  flushSync(() => { assert(revealImageTranslation(preview, imageView), "OCR translation slot failed to open"); });
+  assert(requests === 0, "opening OCR translation sent an implicit request");
+  const slot = element<HTMLElement>(ocr, ".preview-ocr-translation");
+  const panel = element<HTMLElement>(slot, ".translation-panel");
+  assert(source.hidden && !slot.hidden, "source and translation are shown together");
+  assert(host.childElementCount === 0 && panel.parentElement === slot, "React panel is outside its OCR slot");
+  await store.translate(); renderReact();
+  const text = element<HTMLElement>(panel, ".translation-result-text");
+  assert(text.textContent === translated, "translation lost its tail");
+  verifyUnclipped(slot, "translation slot"); verifyUnclipped(panel, "translation panel");
+  verifyUnclipped(text, "translation text"); verifyTail();
+  assert(document.querySelectorAll("#translation-title").length === 0, "image translation duplicated a text heading id");
+  flushSync(() => element<HTMLButtonElement>(ocr, ".preview-ocr-back").click());
+  assert(!source.hidden && slot.hidden && slot.childElementCount === 0, "Back did not restore OCR and unmount the portal");
+  assert(document.getElementById("translation-react-root") === host, "stable root was replaced");
+  verifyTail();
+  flushSync(() => { imageView.clear(); store.clear(); root.unmount(); });
 }
 
 function verifyCodecPanelKeepsListWidth(app: HTMLElement): void {
@@ -190,6 +239,53 @@ function verifyVirtualRowHeights(app: HTMLElement): void {
     `image row content overflowed: ${imageRow.scrollHeight} > ${imageRow.clientHeight}`);
 }
 
+/** 鼠标目标由真实浏览器命中测试选择，不能用 button.click 掩盖 pointer-events 穿透。 */
+async function verifyExpandedMoreButtonHitTarget(app: HTMLElement): Promise<void> {
+  const host = element<HTMLElement>(app, "#clipboard-react-root");
+  host.replaceChildren();
+  const root = createRoot(host);
+  // 隔离审查可重放修前的单条CSS规则，证明此几何回归确实能捕获穿透。
+  const legacyStyle = document.createElement("style");
+  if (new URLSearchParams(location.search).has("legacyMore")) {
+    legacyStyle.textContent = ".clip-row.expanded .clip-row-trigger { pointer-events: none; }";
+    document.head.append(legacyStyle);
+  }
+  const clip: ClipItem = { id: 42, content_type: "text", text_content: "Synthetic hit-test row",
+    html_content: null, image_data: null, content_hash: "fixture", is_favorite: false,
+    is_sensitive: false, created_at: 1, byte_size: 22 };
+  let expanded = false, toggles = 0, copies = 0;
+  const handlers = {
+    onFocus: () => {},
+    onToggle: () => { expanded = !expanded; toggles++; render(); },
+    onAction: () => { copies++; },
+  };
+  function render(): void {
+    flushSync(() => root.render(React.createElement("main", { className: "clip-list" },
+      React.createElement(ClipboardRow, { clip, index: 0, focused: true, focusedAction: -1,
+        expanded, favoriteMode: false, locale: "en", handlers }))));
+    // content-visibility:auto 的离屏优化需先paint；测命中时等价于已进入视口的行。
+    // 只关闭这项布局优化，不改按钮pointer-events/层叠/几何等待测属性。
+    element<HTMLElement>(host, ".clip-row").style.contentVisibility = "visible";
+  }
+  function clickMoreByPosition(): void {
+    const button = element<HTMLButtonElement>(host, ".clip-row-trigger");
+    const rect = button.getBoundingClientRect();
+    const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
+    const hit = document.elementFromPoint(x, y);
+    assert(hit === button || button.contains(hit), `More hit target escaped button while expanded=${expanded}: ${hit?.className}`);
+    hit!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+  }
+  try {
+    render(); clickMoreByPosition();
+    assert(expanded && toggles === 1, "first More click did not expand actions");
+    clickMoreByPosition();
+    assert(!expanded && toggles === 2 && copies === 0, "second More click copied the row instead of collapsing");
+    for (const button of host.querySelectorAll<HTMLButtonElement>(".clip-row-action")) {
+      assert(button.disabled && button.tabIndex === -1, "collapsed action remains keyboard actionable");
+    }
+  } finally { flushSync(() => root.unmount()); legacyStyle.remove(); }
+}
+
 /**
  * 产品 CSS 会覆盖 body 背景，所以结果画在一个独立浮层上供脚本读像素。
  * 失败时把原因画进浮层：headless 截图模式读不到 console，截图本身就是唯一的诊断信息。
@@ -202,12 +298,14 @@ function paint(color: string, reason?: string): void {
   document.body.append(verdict);
 }
 
+async function run(): Promise<void> {
 try {
   const app = mountProductLayout();
   verifyPreviewAndTranslationShareTheColumn(app);
-  verifyImageAndOcrUseOneScroller(app);
+  await verifyImageAndOcrUseOneScroller(app);
   verifyCodecPanelKeepsListWidth(app);
   verifyVirtualRowHeights(app);
+  await verifyExpandedMoreButtonHitTarget(app);
   document.documentElement.dataset.layoutSmoke = "passed";
   paint("#00d000");
 } catch (error) {
@@ -216,3 +314,6 @@ try {
   console.error(String(error));
   paint("#d00000", String(error));
 }
+
+}
+void run();

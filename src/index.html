@@ -104,9 +104,11 @@
         <span id="preview-type-badge" class="preview-type-badge"></span>
         <span id="preview-meta" class="preview-meta"></span>
       </div>
-      <div id="preview-content" class="preview-content"></div>
-      <!-- translation-host 承担 flex 收缩与高度上限，React 只负责面板内部（见 components.css） -->
-      <div id="translation-react-root" class="translation-host"></div>
+      <div class="preview-scroll">
+        <div id="preview-content" class="preview-content"></div>
+        <!-- 静态 React 根不得放进会清空的 preview-content；图片翻译通过 portal 进入 OCR 区。 -->
+        <div id="translation-react-root" class="translation-host"></div>
+      </div>
     </div>
 
     <!-- 更新弹窗（默认隐藏） -->
