@@ -1,307 +1,82 @@
-/**
- * settings.js — 设置面板逻辑
- */
+/** settings.js - 设置页装配与配置保存。 */
 
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import {
-  enable as enableAutostart,
-  disable as disableAutostart,
-  isEnabled as isAutostartEnabled,
-} from "@tauri-apps/plugin-autostart";
 import {
   checkShortcutConflict,
-  getConfig,
+  closeSettings,
+  copyText,
+  disableAutostart,
+  enableAutostart,
   getAppVersion,
+  getConfig,
+  getPasteStatus,
+  getPlatformInfo,
+  getShortcutFailures,
+  getStats,
+  getWindowProbeStatus,
+  installWindowProbeExtension,
+  isAutostartEnabled,
   isDevBinary,
+  ocrAvailable,
+  ocrInstall,
+  onShortcutRegisterFailed,
+  openExternalUrl,
   pauseShortcuts,
+  pickScreenshotDirectory,
+  requestPastePermission,
   resumeShortcuts,
+  runCaptureDiagnostics,
+  tmuxAvailable,
+  toggleTmuxCapture,
+  uninstallWindowProbeExtension,
   updateConfig,
-  updateShortcut,
-} from "./api.js";
-import { keyEventToShortcut } from "./shortcut-recorder.js";
-import { initUpdateModal, checkForUpdate } from "./update-modal.js";
+} from "./api.ts";
+import { initCustomSelect } from "./custom-select.js";
+import { createAutostartSettings } from "./settings/autostart-settings.js";
+import { createCaptureDiagnosticsCard } from "./settings/capture-diagnostics.js";
+import { createOcrSettings } from "./settings/ocr-settings.js";
+import { createPastePermissionController } from "./settings/paste-permission.js";
+import { createPlatformCapabilities } from "./settings/platform-capabilities.js";
+import { createScreenshotSettings } from "./settings/screenshot-settings.js";
+import { createShortcutFailureNotice } from "./settings/shortcut-failure-notice.js";
+import {
+  closeAfterShortcutCleanup,
+  saveAfterShortcutCleanup,
+  shortcutSaveErrorMessage,
+  createShortcutRecordingController,
+} from "./settings/shortcut-recording.js";
+import { loadStats } from "./settings/stats.js";
+import { initSettingsTabs } from "./settings/tabs.js";
+import { createConfigWriter } from "./settings/config-writer.js";
+import { createThemePicker } from "./settings/theme-picker.js";
+import { createWindowProbeCard } from "./settings/window-probe.js";
+import { initTranslationSettings } from "./translation-settings.js";
+import { checkForUpdate, initUpdateModal } from "./update-modal.js";
 import * as i18n from "../i18n/i18n.js";
 import "../styles/themes.css";
 import "../styles/base.css";
 import "../styles/settings.css";
 
-// DOM 引用
-const shortcutInput   = document.getElementById("shortcut-input");
-const recordBtn       = document.getElementById("shortcut-record-btn");
-const clearBtn        = document.getElementById("shortcut-clear-btn");
-const shortcutWarning = document.getElementById("shortcut-warning");
-const themeGrid       = document.getElementById("theme-grid");
-const maxHistoryInput = document.getElementById("max-history-input");
-const languageSelect  = document.getElementById("language-select");
-const saveBtn         = document.getElementById("save-btn");
-const cancelBtn       = document.getElementById("cancel-btn");
-const toast           = document.getElementById("toast");
-const aboutVersion    = document.getElementById("about-version");
-const checkUpdateBtn  = document.getElementById("check-update-btn");
-const updateStatus    = document.getElementById("update-status");
-const autostartToggle = document.getElementById("autostart-toggle");
+function element(id) {
+  const found = document.getElementById(id);
+  if (!found) throw new Error(`Missing settings element: #${id}`);
+  return found;
+}
 
-// 主题清单：id 与 themes.css 中 [data-theme="<id>"] 对应；i18nKey 用于显示名
-const THEMES = [
-  { id: "light",            i18nKey: "settings.theme.light" },
-  { id: "dark",             i18nKey: "settings.theme.dark" },
-  { id: "nord",             i18nKey: "settings.theme.nord" },
-  { id: "solarized-light",  i18nKey: "settings.theme.solarizedLight" },
-  { id: "rose",             i18nKey: "settings.theme.rose" },
-  { id: "midnight",         i18nKey: "settings.theme.midnight" },
-];
-let selectedTheme = "light";
+const shortcutInput = element("shortcut-input");
+const pinShortcutInput = element("pin-shortcut-input");
+const captureShortcutInput = element("capture-shortcut-input");
+const maxHistoryInput = element("max-history-input");
+const languageSelect = element("language-select");
+const autostartToggle = element("autostart-toggle");
+const autoPasteToggle = element("auto-paste-toggle");
+const tmuxGroup = element("tmux-group");
+const tmuxToggle = element("tmux-toggle");
+const toast = element("toast");
+const ocrModeControl = initCustomSelect(element("ocr-mode-select"));
 
 let savedConfig = null;
-let isRecording = false;
+let operatingSystem = null;
 
-// 初始化
-function whenReady(fn) {
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", fn);
-  } else {
-    fn();
-  }
-}
-
-whenReady(async () => {
-  try {
-    savedConfig = await getConfig();
-    fillForm(savedConfig);
-    selectedTheme = savedConfig.theme || "light";
-    renderThemeGrid();
-    applyTheme(selectedTheme);
-    i18n.init(savedConfig.language || "auto");
-    // 显示版本号
-    try {
-      const ver = await getAppVersion();
-      if (aboutVersion) aboutVersion.textContent = `v${ver}`;
-    } catch (e) { console.warn("获取版本号失败:", e); }
-    // 加载开机自启动状态 —— dev 二进制禁止开启自启（避免污染 ~/.config/autostart/Clippy.desktop）
-    try {
-      const dev = await isDevBinary();
-      if (dev) {
-        autostartToggle.checked = false;
-        autostartToggle.disabled = true;
-        autostartToggle.title = "Autostart is disabled for development builds";
-        // 顺手清理已被错误写入的 dev 路径自启项
-        try { await disableAutostart(); } catch (e) { console.warn("清理 dev 自启项失败:", e); }
-      } else {
-        autostartToggle.checked = await isAutostartEnabled();
-      }
-    } catch (e) { console.warn("获取自启动状态失败:", e); }
-  } catch (err) {
-    console.error("加载配置失败:", err);
-    selectedTheme = "light";
-    renderThemeGrid();
-    i18n.init("auto");
-  }
-});
-
-function fillForm(config) {
-  shortcutInput.value   = config.global_shortcut || "";
-  maxHistoryInput.value = config.max_history ?? 100;
-  languageSelect.value  = config.language || "auto";
-}
-
-function applyTheme(theme) {
-  document.documentElement.dataset.theme = theme;
-}
-
-/** 实时把主题持久化并广播，让主窗口同步刷新（无需点 Save）。 */
-async function persistTheme(theme) {
-  selectedTheme = theme;
-  applyTheme(theme);
-  if (!savedConfig) return;
-  const next = { ...savedConfig, theme };
-  try {
-    await updateConfig(next);
-    savedConfig = next;
-  } catch (err) {
-    console.warn("主题持久化失败:", err);
-  }
-}
-
-function renderThemeGrid() {
-  if (!themeGrid) return;
-  themeGrid.replaceChildren();
-  for (const theme of THEMES) {
-    const card = document.createElement("button");
-    card.type = "button";
-    card.className = "theme-card";
-    card.dataset.theme = theme.id;
-    card.setAttribute("role", "radio");
-    card.setAttribute("aria-checked", String(theme.id === selectedTheme));
-    if (theme.id === selectedTheme) card.classList.add("selected");
-
-    // 用嵌套 div 充当真实预览：内层应用 data-theme，复用 themes.css 变量
-    const preview = document.createElement("div");
-    preview.className = "theme-preview";
-    preview.dataset.theme = theme.id;
-    preview.innerHTML = `
-      <div class="tp-bar"></div>
-      <div class="tp-row"><span class="tp-dot"></span><span class="tp-line"></span></div>
-      <div class="tp-row tp-row-active"><span class="tp-dot tp-dot-accent"></span><span class="tp-line tp-line-strong"></span></div>
-      <div class="tp-row"><span class="tp-dot"></span><span class="tp-line tp-line-short"></span></div>
-    `;
-
-    const label = document.createElement("span");
-    label.className = "theme-name";
-    label.dataset.i18n = theme.i18nKey;
-    label.textContent = i18n.t(theme.i18nKey);
-
-    card.append(preview, label);
-    card.addEventListener("click", () => selectTheme(theme.id));
-    themeGrid.appendChild(card);
-  }
-}
-
-function selectTheme(theme) {
-  for (const card of themeGrid.querySelectorAll(".theme-card")) {
-    const isSel = card.dataset.theme === theme;
-    card.classList.toggle("selected", isSel);
-    card.setAttribute("aria-checked", String(isSel));
-  }
-  persistTheme(theme).catch(console.warn);
-}
-
-// 语言预览
-languageSelect.addEventListener("change", () => {
-  i18n.init(languageSelect.value);
-  renderThemeGrid();
-  if (isRecording) {
-    recordBtn.textContent = i18n.t("settings.shortcut.stop");
-  }
-});
-
-// 开机自启动 toggle — 立即生效，无需点 Save
-autostartToggle.addEventListener("change", async () => {
-  try {
-    if (autostartToggle.checked) {
-      await enableAutostart();
-    } else {
-      await disableAutostart();
-    }
-  } catch (e) {
-    console.warn("切换自启动失败:", e);
-    autostartToggle.checked = !autostartToggle.checked;
-  }
-});
-
-// 快捷键录制
-recordBtn.addEventListener("click", () => {
-  isRecording ? stopRecording() : startRecording();
-});
-
-clearBtn.addEventListener("click", () => {
-  if (savedConfig) shortcutInput.value = savedConfig.global_shortcut || "";
-  shortcutWarning.classList.add("hidden");
-  if (isRecording) stopRecording().catch(console.warn);
-});
-
-async function startRecording() {
-  isRecording = true;
-  try { await pauseShortcuts(); } catch (e) { console.warn(e); }
-  shortcutInput.value = i18n.t("settings.shortcut.recording");
-  shortcutInput.classList.add("recording");
-  recordBtn.textContent = i18n.t("settings.shortcut.stop");
-  shortcutWarning.classList.add("hidden");
-  // capture 阶段注册：在录制窗口拿到事件最早期的优先级，
-  // 防止冒泡阶段的其他监听器（或浏览器默认行为）抢先处理。
-  window.addEventListener("keydown", onKeyDown, { capture: true });
-}
-
-async function stopRecording() {
-  isRecording = false;
-  shortcutInput.classList.remove("recording");
-  recordBtn.textContent = i18n.t("settings.shortcut.record");
-  window.removeEventListener("keydown", onKeyDown, { capture: true });
-  try { await resumeShortcuts(); } catch (e) { console.warn(e); }
-  if (shortcutInput.value === i18n.t("settings.shortcut.recording")) {
-    shortcutInput.value = savedConfig?.global_shortcut || "";
-  }
-}
-
-// 修饰键 / e.code → Tauri key 名映射现在在 ./shortcut-recorder.js
-
-async function onKeyDown(e) {
-  // capture 阶段先吞掉默认行为和后续监听器
-  e.preventDefault();
-  e.stopImmediatePropagation();
-
-  const shortcut = keyEventToShortcut(e);
-  if (!shortcut) return;
-
-  shortcutInput.value = shortcut;
-  // setTimeout(0) 把清理推到下一个事件循环 tick，等当前 keydown 派发完成
-  // 后再注销监听器并恢复全局快捷键，避免与异步 IPC 重入。
-  setTimeout(() => { stopRecording().catch(console.warn); }, 0);
-
-  try {
-    const conflict = await checkShortcutConflict(shortcut);
-    conflict ? shortcutWarning.classList.remove("hidden")
-             : shortcutWarning.classList.add("hidden");
-  } catch (err) { console.warn(err); }
-}
-
-// 保存
-saveBtn.addEventListener("click", async () => {
-  const newShortcut   = shortcutInput.value.trim();
-  const newMaxHistory = parseInt(maxHistoryInput.value, 10) || 0;
-  const newLanguage   = languageSelect.value;
-
-  try {
-    if (savedConfig && newShortcut && newShortcut !== savedConfig.global_shortcut) {
-      await updateShortcut(newShortcut);
-    }
-
-    const newConfig = {
-      max_history: newMaxHistory,
-      storage_mode: savedConfig?.storage_mode || "persistent",
-      global_shortcut: newShortcut || savedConfig?.global_shortcut || "Super+V",
-      theme: selectedTheme,
-      language: newLanguage,
-    };
-
-    await updateConfig(newConfig);
-    savedConfig = newConfig;
-    showToast(i18n.t("settings.saved"));
-  } catch (err) {
-    console.error("保存失败:", err);
-    showToast(i18n.t("settings.saveFailed", { error: err }));
-  }
-});
-
-// 检查更新（使用 update-modal 弹窗）
-initUpdateModal();
-checkUpdateBtn.addEventListener("click", async () => {
-  checkUpdateBtn.disabled = true;
-  updateStatus.classList.add("hidden");
-  updateStatus.classList.remove("error");
-  try {
-    const found = await checkForUpdate(true);
-    if (!found) {
-      updateStatus.textContent = i18n.t("settings.about.upToDate");
-      updateStatus.classList.remove("hidden");
-      setTimeout(() => updateStatus.classList.add("hidden"), 3000);
-    }
-  } catch (err) {
-    console.warn("检查更新失败:", err);
-    updateStatus.textContent = i18n.t("settings.about.checkFailed");
-    updateStatus.classList.remove("hidden");
-    updateStatus.classList.add("error");
-    setTimeout(() => updateStatus.classList.add("hidden"), 3000);
-  } finally {
-    checkUpdateBtn.disabled = false;
-  }
-});
-
-// 取消
-cancelBtn.addEventListener("click", async () => {
-  try { await getCurrentWindow().close(); } catch (e) { console.warn(e); }
-});
-
-// Toast
 function showToast(message) {
   toast.textContent = message;
   toast.classList.remove("hidden");
@@ -312,3 +87,327 @@ function showToast(message) {
     setTimeout(() => toast.classList.add("hidden"), 300);
   }, 2000);
 }
+
+const translationSettings = initTranslationSettings({ showToast });
+
+const configWriter = createConfigWriter({ getConfig, updateConfig, onSaved: config => { savedConfig = config; } });
+const themePicker = createThemePicker({
+  container: element("theme-grid"),
+  translate: i18n.t,
+  persistTheme: theme => configWriter.write({ theme }),
+  notify: showToast,
+});
+
+const pastePermission = createPastePermissionController({
+  statusDot: element("paste-status-dot"),
+  statusText: element("paste-status-text"),
+  authorizeButton: element("paste-authorize-btn"),
+  getStatus: getPasteStatus,
+  requestPermission: requestPastePermission,
+  translate: i18n.t,
+});
+
+const shortcutRecording = createShortcutRecordingController({
+  notify: () => showToast(i18n.t("settings.shortcut.restoreFailed")),
+  pauseShortcuts,
+  resumeShortcuts,
+  translate: i18n.t,
+  metaModifier: () => (operatingSystem === "macos" ? "Command" : "Super"),
+  recorders: {
+    global: {
+      input: shortcutInput,
+      recordButton: element("shortcut-record-btn"),
+      clearButton: element("shortcut-clear-btn"),
+      warning: element("shortcut-warning"),
+      defaultValue: "",
+      getSavedValue: () => savedConfig?.global_shortcut || "",
+      checkConflict: checkShortcutConflict,
+    },
+    pin: {
+      input: pinShortcutInput,
+      recordButton: element("pin-shortcut-record-btn"),
+      clearButton: element("pin-shortcut-clear-btn"),
+      warning: element("pin-shortcut-warning"),
+      defaultValue: "Ctrl+2",
+      getSavedValue: () => savedConfig?.pin_shortcut || "Ctrl+2",
+      checkConflict: checkShortcutConflict,
+    },
+    capture: {
+      input: captureShortcutInput,
+      recordButton: element("capture-shortcut-record-btn"),
+      clearButton: element("capture-shortcut-clear-btn"),
+      warning: element("capture-shortcut-warning"),
+      defaultValue: "Ctrl+Shift+S",
+      getSavedValue: () => savedConfig?.capture_shortcut || "Ctrl+Shift+S",
+      checkConflict: checkShortcutConflict,
+    },
+  },
+});
+
+const shortcutFailureNotice = createShortcutFailureNotice({
+  warning: element("shortcut-register-warning"),
+  translate: i18n.t,
+});
+void onShortcutRegisterFailed((failure) => shortcutFailureNotice.add(failure));
+
+const ocrSettings = createOcrSettings({
+  toggle: element("ocr-toggle"),
+  statusDot: element("ocr-status-dot"),
+  statusText: element("ocr-status-text"),
+  installButton: element("ocr-install-btn"),
+  options: element("ocr-options"),
+  modeControl: ocrModeControl,
+  checkAvailable: ocrAvailable,
+  install: ocrInstall,
+  translate: i18n.t,
+  showToast,
+});
+
+const windowProbe = createWindowProbeCard({
+  card: element("window-probe-card"),
+  dot: element("window-probe-dot"),
+  stateText: element("window-probe-state"),
+  detailText: element("window-probe-detail"),
+  installButton: element("window-probe-install-btn"),
+  uninstallButton: element("window-probe-uninstall-btn"),
+  recheckButton: element("window-probe-recheck-btn"),
+  getStatus: getWindowProbeStatus,
+  install: installWindowProbeExtension,
+  uninstall: uninstallWindowProbeExtension,
+  translate: i18n.t,
+  notify: showToast,
+});
+
+const platformCapabilities = createPlatformCapabilities({
+  summary: element("platform-summary"),
+  portal: element("platform-portal-summary"),
+  list: element("platform-capability-list"),
+  translate: i18n.t,
+});
+
+async function loadPlatformCapabilities() {
+  try {
+    const platform = await getPlatformInfo();
+    operatingSystem = platform.operating_system;
+    platformCapabilities.render(platform);
+    ocrSettings.setPlatform(platform.operating_system);
+    await ocrSettings.checkStatus();
+  } catch (error) {
+    console.warn("读取平台能力失败:", error);
+    platformCapabilities.renderError();
+    // 平台未知时不暴露安装按钮，避免在错误系统上调用 Linux 包管理器。
+  }
+}
+
+// 只有用户点"Run Diagnostics"才会采集：里面有一次真实的舞台图请求，打开设置页不该付这个钱。
+createCaptureDiagnosticsCard({
+  noteInput: element("capture-diagnostics-note"),
+  runButton: element("capture-diagnostics-run-btn"),
+  copyButton: element("capture-diagnostics-copy-btn"),
+  reportButton: element("capture-diagnostics-report-btn"),
+  pathText: element("capture-diagnostics-path"),
+  output: element("capture-diagnostics-output"),
+  collect: runCaptureDiagnostics,
+  copyText,
+  openUrl: openExternalUrl,
+  translate: i18n.t,
+  notify: showToast,
+});
+
+const screenshotSettings = createScreenshotSettings({
+  directoryInput: element("screenshot-dir-input"),
+  browseButton: element("screenshot-dir-browse-btn"),
+  templateInput: element("screenshot-template-input"),
+  pickDirectory: pickScreenshotDirectory,
+  translate: i18n.t,
+  showToast,
+});
+
+function fillForm(config) {
+  shortcutRecording.setValues({
+    global: config.global_shortcut || "",
+    pin: config.pin_shortcut || "Ctrl+2",
+    capture: config.capture_shortcut || "Ctrl+Shift+S",
+  });
+  maxHistoryInput.value = config.max_history ?? 100;
+  languageSelect.value = config.language || "auto";
+  ocrSettings.fill(config);
+  screenshotSettings.fill(config);
+  tmuxToggle.checked = config.tmux_capture === true;
+  autoPasteToggle.checked = config.auto_paste !== false;
+  translationSettings.fill(config);
+}
+
+const autostartSettings = createAutostartSettings({
+  toggle: autostartToggle,
+  isDevBinary,
+  isEnabled: isAutostartEnabled,
+  enable: enableAutostart,
+  disable: disableAutostart,
+  translate: i18n.t,
+  notify: showToast,
+});
+
+/** 主动拉取存量注册失败记录：启动阶段的失败早于本页监听，事件已经丢了 */
+async function refreshShortcutFailures() {
+  try {
+    shortcutFailureNotice.replaceAll(await getShortcutFailures());
+  } catch (error) {
+    console.warn("读取快捷键注册状态失败:", error);
+  }
+}
+
+function whenReady(callback) {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", callback);
+  } else {
+    callback();
+  }
+}
+
+whenReady(async () => {
+  initSettingsTabs();
+  try {
+    savedConfig = await getConfig();
+    fillForm(savedConfig);
+    themePicker.initialize(savedConfig.theme || "light");
+    i18n.init(savedConfig.language || "auto");
+    translationSettings.refreshLabels();
+    await Promise.all([
+      pastePermission.load(),
+      windowProbe.load(),
+      translationSettings.loadKeyStatus(),
+      loadPlatformCapabilities(),
+    ]);
+
+    try {
+      element("about-version").textContent = `v${await getAppVersion()}`;
+    } catch (error) {
+      console.warn("获取版本号失败:", error);
+    }
+    await autostartSettings.load();
+    void refreshShortcutFailures();
+    void loadStats({
+      getStats,
+      elements: {
+        total: element("stats-total"),
+        favorites: element("stats-favorites"),
+        text: element("stats-text"),
+        html: element("stats-html"),
+        image: element("stats-image"),
+        size: element("stats-size"),
+      },
+    });
+  } catch (error) {
+    console.error("加载配置失败:", error);
+    themePicker.initialize("light");
+    i18n.init("auto");
+    translationSettings.refreshLabels();
+    void windowProbe.load();
+    void translationSettings.loadKeyStatus();
+  }
+});
+
+languageSelect.addEventListener("change", () => {
+  i18n.init(languageSelect.value);
+  themePicker.refreshLabels();
+  shortcutRecording.refreshLabels();
+  shortcutFailureNotice.refreshLabels();
+  pastePermission.refreshLabels();
+  windowProbe.refreshLabels();
+  translationSettings.refreshLabels();
+});
+
+element("save-btn").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  if (button.disabled) return;
+  button.disabled = true;
+  try {
+    const outcome = await saveAfterShortcutCleanup(shortcutRecording, () => {
+      const shortcuts = shortcutRecording.getValues();
+      return configWriter.write({
+        max_history: parseInt(maxHistoryInput.value, 10) || 0,
+        global_shortcut: shortcuts.global,
+        pin_shortcut: shortcuts.pin,
+        capture_shortcut: shortcuts.capture,
+        language: languageSelect.value,
+        ...ocrSettings.getConfig(),
+        ...screenshotSettings.getConfig(),
+        auto_paste: autoPasteToggle.checked,
+        ...translationSettings.getConfig(),
+      }, { requireShortcutsActive: true });
+    });
+    await refreshShortcutFailures();
+    showToast(i18n.t(outcome?.shortcut_status === "pending" ? "settings.savedPending" : "settings.saved"));
+  } catch (error) {
+    console.error("保存失败:", error);
+    await refreshShortcutFailures();
+    showToast(shortcutSaveErrorMessage(error, i18n.t));
+  } finally {
+    button.disabled = false;
+  }
+});
+
+initUpdateModal();
+element("check-update-btn").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  const status = element("update-status");
+  button.disabled = true;
+  status.classList.add("hidden");
+  status.classList.remove("error");
+  try {
+    if (!(await checkForUpdate(true))) {
+      status.textContent = i18n.t("settings.about.upToDate");
+      status.classList.remove("hidden");
+      setTimeout(() => status.classList.add("hidden"), 3000);
+    }
+  } catch (error) {
+    console.warn("检查更新失败:", error);
+    status.textContent = i18n.t("settings.about.checkFailed");
+    status.classList.remove("hidden");
+    status.classList.add("error");
+    setTimeout(() => status.classList.add("hidden"), 3000);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+let closingSettings = false;
+async function requestSettingsClose() {
+  if (closingSettings) return;
+  closingSettings = true;
+  try {
+    await closeAfterShortcutCleanup(shortcutRecording, closeSettings);
+  } catch (error) {
+    console.warn(error);
+    showToast(i18n.t("settings.shortcut.restoreFailed"));
+  } finally {
+    closingSettings = false;
+  }
+}
+element("cancel-btn").addEventListener("click", () => { void requestSettingsClose(); });
+
+tmuxToggle.addEventListener("change", async () => {
+  try {
+    const enabled = tmuxToggle.checked;
+    tmuxToggle.disabled = true;
+    await configWriter.run(async () => {
+      await toggleTmuxCapture(enabled);
+      savedConfig = await getConfig();
+    });
+  } catch (error) {
+    console.warn("tmux 切换失败:", error);
+    tmuxToggle.checked = !tmuxToggle.checked;
+    showToast(String(error?.message || error || "tmux error"));
+  } finally {
+    tmuxToggle.disabled = false;
+  }
+});
+
+void tmuxAvailable()
+  .then((available) => {
+    if (available) tmuxGroup.hidden = false;
+  })
+  .catch(() => {
+    // tmux 不可用时保持面板隐藏。
+  });

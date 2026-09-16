@@ -11,40 +11,91 @@
 </head>
 <body>
   <div id="app">
-    <!-- 左侧：剪贴板列表面板 -->
-    <div id="list-panel" class="list-panel">
-    <!-- 搜索条（默认隐藏，焦点在第 1 行按 ↑/W 召唤） -->
-    <aside id="search-bar" class="search-bar" hidden>
-      <span class="search-bar-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span>
-      <input
-        id="search-input"
-        class="search-bar-input"
-        type="text"
-        data-i18n="search.placeholder"
-        data-i18n-attr="placeholder"
-        placeholder="Search clipboard history..."
-        autocomplete="off"
-        spellcheck="false"
-      />
-      <span class="search-bar-hint" data-i18n="search.escHint">Esc</span>
-    </aside>
-
-    <!-- 剪贴板列表 -->
-    <main
-      id="clip-list"
-      class="clip-list"
-      role="listbox"
-      aria-label="Clipboard history"
-    ></main>
-
-    <!-- 空状态 -->
-    <div id="empty-state" class="empty-state" hidden>
-      <span class="empty-state-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg></span>
-      <span id="empty-state-text" data-i18n="empty.text">No clipboard items yet</span>
+    <!-- 左侧：编解码面板（默认隐藏） -->
+    <div id="codec-panel" class="codec-panel hidden">
+      <div class="codec-header">
+        <!-- 自定义下拉框而非原生 <select>：原生弹窗是独立 GTK 窗口，
+             一打开就让 webview 失焦，无边框主窗口会被自动隐藏（见 custom-select.js） -->
+        <div id="codec-select" class="custom-select codec-select">
+          <button class="custom-select-trigger" type="button">
+            <span class="custom-select-value">Base64 Encode</span>
+            <svg class="custom-select-arrow" width="12" height="8" viewBox="0 0 12 8" aria-hidden="true">
+              <path d="M1 1L6 6L11 1" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" />
+            </svg>
+          </button>
+          <!-- 选项文本走 data-i18n：下拉标签、分组标题和按钮提示都要跟随界面语言，
+               专有名词（Base64/URL/JWT/SHA…）在各语言里保持原样 -->
+          <ul class="custom-select-dropdown">
+            <li class="custom-select-group" id="codec-favorites-group" hidden>
+              <span class="custom-select-group-title" data-i18n="codec.group.favorites">Favorites</span>
+              <ul class="custom-select-group-options" id="codec-favorites"></ul>
+            </li>
+            <li class="custom-select-group">
+              <span class="custom-select-group-title" data-i18n="codec.group.encode">Encode / Decode</span>
+              <ul class="custom-select-group-options">
+                <li class="custom-select-option selected" data-value="base64-encode" data-i18n="codec.op.base64-encode">Base64 Encode</li>
+                <li class="custom-select-option" data-value="base64-decode" data-i18n="codec.op.base64-decode">Base64 Decode</li>
+                <li class="custom-select-option" data-value="url-encode" data-i18n="codec.op.url-encode">URL Encode</li>
+                <li class="custom-select-option" data-value="url-decode" data-i18n="codec.op.url-decode">URL Decode</li>
+                <li class="custom-select-option" data-value="html-encode" data-i18n="codec.op.html-encode">HTML Entities Encode</li>
+                <li class="custom-select-option" data-value="html-decode" data-i18n="codec.op.html-decode">HTML Entities Decode</li>
+                <li class="custom-select-option" data-value="unicode-escape" data-i18n="codec.op.unicode-escape">Unicode Escape</li>
+                <li class="custom-select-option" data-value="unicode-unescape" data-i18n="codec.op.unicode-unescape">Unicode Unescape</li>
+                <li class="custom-select-option" data-value="hex-encode" data-i18n="codec.op.hex-encode">Hex Encode</li>
+                <li class="custom-select-option" data-value="hex-decode" data-i18n="codec.op.hex-decode">Hex Decode</li>
+                <li class="custom-select-option" data-value="rot13" data-i18n="codec.op.rot13">ROT13</li>
+              </ul>
+            </li>
+            <li class="custom-select-group">
+              <span class="custom-select-group-title" data-i18n="codec.group.hash">Hash</span>
+              <ul class="custom-select-group-options">
+                <li class="custom-select-option" data-value="md5" data-i18n="codec.op.md5">MD5</li>
+                <li class="custom-select-option" data-value="sha1" data-i18n="codec.op.sha1">SHA-1</li>
+                <li class="custom-select-option" data-value="sha256" data-i18n="codec.op.sha256">SHA-256</li>
+                <li class="custom-select-option" data-value="sha512" data-i18n="codec.op.sha512">SHA-512</li>
+              </ul>
+            </li>
+            <li class="custom-select-group">
+              <span class="custom-select-group-title" data-i18n="codec.group.format">Format</span>
+              <ul class="custom-select-group-options">
+                <li class="custom-select-option" data-value="json-format" data-i18n="codec.op.json-format">JSON Format</li>
+                <li class="custom-select-option" data-value="json-minify" data-i18n="codec.op.json-minify">JSON Minify</li>
+                <li class="custom-select-option" data-value="jwt-decode" data-i18n="codec.op.jwt-decode">JWT Decode</li>
+                <li class="custom-select-option" data-value="url-parse" data-i18n="codec.op.url-parse">URL Parse</li>
+              </ul>
+            </li>
+            <li class="custom-select-group">
+              <span class="custom-select-group-title" data-i18n="codec.group.convert">Convert</span>
+              <ul class="custom-select-group-options">
+                <li class="custom-select-option" data-value="ts-to-date" data-i18n="codec.op.ts-to-date">Timestamp → Date</li>
+                <li class="custom-select-option" data-value="date-to-ts" data-i18n="codec.op.date-to-ts">Date → Timestamp</li>
+                <li class="custom-select-option" data-value="num-base" data-i18n="codec.op.num-base">Number Base</li>
+              </ul>
+            </li>
+          </ul>
+        </div>
+        <!-- 收藏当前操作：图标与文案由 codec.js 按状态写入（复用列表收藏的实心/描边星星） -->
+        <button id="codec-favorite" class="codec-icon-btn codec-favorite-btn" type="button" aria-pressed="false"></button>
+        <button id="codec-swap-dir" class="codec-icon-btn" type="button" title="Swap direction" data-i18n="codec.action.swapDirection" data-i18n-attr="title">⇄</button>
+      </div>
+      <div class="codec-smart-hint" id="codec-smart-hint" hidden>
+        <span id="codec-hint-text"></span>
+      </div>
+      <textarea id="codec-input" class="codec-textarea" placeholder="Input..." spellcheck="false" data-i18n="codec.placeholder" data-i18n-attr="placeholder"></textarea>
+      <div class="codec-actions">
+        <button id="codec-swap" class="codec-action-btn" type="button" title="Swap input/output" data-i18n="codec.action.swapIo" data-i18n-attr="title">⇅</button>
+        <button id="codec-clear" class="codec-action-btn" type="button" title="Clear" data-i18n="codec.action.clear" data-i18n-attr="title">✕</button>
+        <button id="codec-copy" class="codec-action-btn" type="button" title="Copy result" data-i18n="codec.action.copy" data-i18n-attr="title">📋</button>
+      </div>
+      <!-- 单值结果直接写进来（CSS 已有 white-space: pre-wrap）；多字段结果由 codec.js
+           渲染成一行一对可单独复制的键值按钮，因此不能是只容纳短语内容的 <pre> -->
+      <div id="codec-output" class="codec-output" tabindex="-1"></div>
     </div>
 
-    <!-- 底部 segment（All / Favorites） -->
-    <footer id="segment-tabs" class="segment-tabs" role="tablist"></footer>
+    <!-- 中间：剪贴板列表面板 -->
+    <!-- tabindex 让关闭侧栏后可以显式把键盘焦点收回列表（见 keyboard-router.js 状态机） -->
+    <div id="list-panel" class="list-panel" tabindex="-1">
+    <div id="clipboard-react-root" class="clipboard-react-root"></div>
     </div><!-- /list-panel -->
 
     <!-- 右侧：富文本预览面板（默认隐藏） -->
@@ -53,7 +104,11 @@
         <span id="preview-type-badge" class="preview-type-badge"></span>
         <span id="preview-meta" class="preview-meta"></span>
       </div>
-      <div id="preview-content" class="preview-content"></div>
+      <div class="preview-scroll">
+        <div id="preview-content" class="preview-content"></div>
+        <!-- 静态 React 根不得放进会清空的 preview-content；图片翻译通过 portal 进入 OCR 区。 -->
+        <div id="translation-react-root" class="translation-host"></div>
+      </div>
     </div>
 
     <!-- 更新弹窗（默认隐藏） -->

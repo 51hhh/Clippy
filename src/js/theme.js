@@ -2,7 +2,7 @@
  * theme.js — 主题管理
  */
 
-import { getConfig } from "./api.js";
+import { getConfig } from "./api.ts";
 
 export async function init() {
   try {

@@ -1,8 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Clippy 主窗口及设置窗口权限",
-  "windows": ["main", "settings"],
+  "description": "Clippy 主窗口、设置窗口、截图窗口及贴图窗口权限",
+  "windows": [
+    "main",
+    "settings",
+    "pin-*",
+    "capture-overlay-*",
+    "longshot-controller-*"
+  ],
   "permissions": [
     "core:default",
     "core:window:allow-show",
@@ -10,9 +16,13 @@
     "core:window:allow-set-focus",
     "core:window:allow-close",
     "core:window:allow-set-size",
+    "core:window:allow-set-position",
+    "core:window:allow-outer-position",
     "global-shortcut:default",
-    "updater:default",
     "opener:default",
-    "autostart:default"
+    "autostart:default",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-destroy",
+    "core:window:allow-scale-factor"
   ]
 }

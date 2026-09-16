@@ -31,9 +31,19 @@ src-tauri/gen/
 *.key.pub
 key/
 
+# codex
+.omo/
+
+# trellis
+.trellis/
+
 # 参考项目（不纳入 Clippy 仓库）
 fxxkDJTU/
+package-lock.json
 
-# 本地工作区（不进仓库）
-.omo/
-.trellis/
+# 参考项目（本地研究用）。translator 是 GPL-3.0-only，其源码不得进入本仓库。
+examples/
+example/
+
+# wiki 暂存（推送到 GitHub Wiki，不进主仓库）
+.wiki/

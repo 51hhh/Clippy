@@ -1,6 +1,14 @@
+mod maintenance;
+mod stats;
+mod translation_history;
+mod url_cache;
+
+pub use translation_history::NewTranslation;
+
 use crate::models::{ClipItem, ContentType};
-use rusqlite::{params, Connection, Result as SqlResult};
-use std::path::Path;
+use crate::private_files::{ensure_private_file, restrict_file};
+use rusqlite::{params, Connection, OptionalExtension, Result as SqlResult};
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
@@ -9,26 +17,101 @@ use thiserror::Error;
 pub enum StorageError {
     #[error("数据库操作失败: {0}")]
     Database(#[from] rusqlite::Error),
+    #[error("本地文件操作失败: {0}")]
+    Io(#[from] std::io::Error),
+}
+
+impl StorageError {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::Database(_) => "database",
+            Self::Io(_) => "io",
+        }
+    }
 }
 
 pub struct StorageEngine {
     conn: Connection,
 }
 
+/// 面向受限本地识别的图片读取结果。超限 BLOB 在 SQL `CASE` 分支中保持 NULL，
+/// 不会被 rusqlite 物化为 `Vec<u8>`。
+#[derive(Debug, PartialEq, Eq)]
+pub enum BoundedImageData {
+    ClipNotFound,
+    NotImage,
+    Missing,
+    TooLarge,
+    Bytes(Vec<u8>),
+}
+
+pub struct BoundedImageSnapshot {
+    pub content_hash: String,
+    pub is_sensitive: bool,
+    pub image: BoundedImageData,
+}
+
 /// 获取当前 Unix 时间戳（秒）
 fn now_secs() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_secs() as i64
+}
+
+fn sanitize_search_query(query: &str) -> String {
+    query
+        .trim()
+        .chars()
+        .filter(|c| !c.is_control())
+        .collect::<String>()
+}
+
+fn like_pattern(query: &str) -> String {
+    let mut pattern = String::with_capacity(query.len() + 2);
+    pattern.push('%');
+    for ch in query.chars() {
+        match ch {
+            '%' | '_' | '\\' => {
+                pattern.push('\\');
+                pattern.push(ch);
+            }
+            _ => pattern.push(ch),
+        }
+    }
+    pattern.push('%');
+    pattern
+}
+
+fn build_fts_prefix_query(query: &str) -> Option<String> {
+    if query
+        .chars()
+        .any(|ch| !ch.is_alphanumeric() && !ch.is_whitespace())
+    {
+        return None;
+    }
+
+    let tokens: Vec<String> = query
+        .split_whitespace()
+        .filter(|token| !token.is_empty())
+        .map(|token| format!("{}*", token))
+        .collect();
+
+    if tokens.is_empty() {
+        None
+    } else {
+        Some(tokens.join(" "))
+    }
 }
 
 impl StorageEngine {
     /// 打开文件数据库并初始化表结构
     pub fn new(db_path: &Path) -> Result<Self, StorageError> {
+        ensure_private_file(db_path)?;
         let conn = Connection::open(db_path)?;
         let engine = Self { conn };
         engine.init_tables()?;
+        engine.restrict_sidecar_permissions(db_path)?;
         Ok(engine)
     }
 
@@ -70,13 +153,233 @@ impl StorageEngine {
 
             CREATE INDEX IF NOT EXISTS idx_clips_created_at ON clips(created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_clips_favorite   ON clips(is_favorite, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS schema_meta (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
             ",
         )?;
+
+        // 迁移：添加 ocr_text 字段（已有数据库可能缺少此列）
+        let has_ocr_col: bool = self
+            .conn
+            .prepare("SELECT COUNT(*) FROM pragma_table_info('clips') WHERE name='ocr_text'")?
+            .query_row([], |r| r.get::<_, i64>(0))
+            .map(|n| n > 0)
+            .unwrap_or(false);
+        if !has_ocr_col {
+            self.conn
+                .execute("ALTER TABLE clips ADD COLUMN ocr_text TEXT", [])?;
+        }
+
+        // 迁移：添加 is_sensitive 字段（敏感内容自动检测）
+        let has_sensitive_col: bool = self
+            .conn
+            .prepare("SELECT COUNT(*) FROM pragma_table_info('clips') WHERE name='is_sensitive'")?
+            .query_row([], |r| r.get::<_, i64>(0))
+            .map(|n| n > 0)
+            .unwrap_or(false);
+        if !has_sensitive_col {
+            self.conn.execute(
+                "ALTER TABLE clips ADD COLUMN is_sensitive INTEGER DEFAULT 0",
+                [],
+            )?;
+        }
+
+        self.migrate_use_order()?;
+
+        // URL 元数据缓存表
+        self.conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS url_meta_cache (
+                url         TEXT PRIMARY KEY,
+                title       TEXT,
+                description TEXT,
+                favicon     TEXT,
+                site_name   TEXT,
+                fetched_at  INTEGER NOT NULL
+            );",
+        )?;
+
+        // 翻译历史表。clip_id = 0 表示不来自剪贴板条目（选区翻译或临时文本）：
+        // SQLite 的 UNIQUE 不约束 NULL，用 0 作哨兵才能对这类记录同样去重。
+        self.conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS translation_history (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                clip_id         INTEGER NOT NULL DEFAULT 0,
+                provider        TEXT NOT NULL,
+                source_language TEXT NOT NULL,
+                target_language TEXT NOT NULL,
+                source_hash     TEXT NOT NULL,
+                source_text     TEXT NOT NULL,
+                translated_text TEXT NOT NULL,
+                created_at      INTEGER NOT NULL
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_translation_history_unique
+                ON translation_history(clip_id, provider, target_language, source_hash);
+            CREATE INDEX IF NOT EXISTS idx_translation_history_created_at
+                ON translation_history(created_at DESC);",
+        )?;
+
+        self.rebuild_fts_once("search_v2")?;
+
         Ok(())
     }
 
+    /// 用持久序号表达每次使用，而 created_at 继续保留秒级时间和敏感内容 TTL 合同。
+    fn migrate_use_order(&self) -> Result<(), StorageError> {
+        let tx = self.conn.unchecked_transaction()?;
+        let has_column: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('clips') WHERE name='use_order')",
+            [],
+            |row| row.get(0),
+        )?;
+        if !has_column {
+            self.conn.execute(
+                "ALTER TABLE clips ADD COLUMN use_order INTEGER NOT NULL DEFAULT 0",
+                [],
+            )?;
+            // 旧同秒记录的真实使用顺序不可恢复；按原时间/id 确定性回填。
+            self.conn.execute_batch(
+                "WITH ranked AS (
+                    SELECT id, ROW_NUMBER() OVER (ORDER BY created_at ASC, id ASC) AS rank FROM clips
+                 ) UPDATE clips SET use_order = (SELECT rank FROM ranked WHERE ranked.id = clips.id);"
+            )?;
+        }
+        self.conn.execute_batch(
+            "INSERT INTO schema_meta(key, value)
+                VALUES ('clip_use_order', (SELECT COALESCE(MAX(use_order), 0) FROM clips))
+             ON CONFLICT(key) DO UPDATE SET value = MAX(CAST(value AS INTEGER), CAST(excluded.value AS INTEGER));
+             CREATE INDEX IF NOT EXISTS idx_clips_use_order ON clips(use_order DESC, id DESC);
+             CREATE INDEX IF NOT EXISTS idx_clips_favorite_use_order ON clips(is_favorite, use_order DESC, id DESC);"
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// 必须在条目写入事务内调用：失败会连同计数回滚，清空历史也不倒退。
+    fn next_use_order(&self) -> Result<i64, StorageError> {
+        Ok(self.conn.query_row(
+            "UPDATE schema_meta SET value = CAST(value AS INTEGER) + 1
+             WHERE key = 'clip_use_order' AND CAST(value AS INTEGER) < 9223372036854775807
+             RETURNING CAST(value AS INTEGER)",
+            [],
+            |row| row.get(0),
+        )?)
+    }
+
+    fn restrict_sidecar_permissions(&self, db_path: &Path) -> Result<(), StorageError> {
+        for suffix in ["-wal", "-shm"] {
+            let mut sidecar_name = db_path.as_os_str().to_os_string();
+            sidecar_name.push(suffix);
+            let sidecar = PathBuf::from(sidecar_name);
+            if sidecar.exists() {
+                restrict_file(&sidecar)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn rebuild_fts_once(&self, version: &str) -> Result<(), StorageError> {
+        let key = "fts_rebuild_version";
+        let current = self
+            .conn
+            .query_row(
+                "SELECT value FROM schema_meta WHERE key = ?1",
+                params![key],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+
+        if current.as_deref() != Some(version) {
+            self.conn
+                .execute("INSERT INTO clips_fts(clips_fts) VALUES ('rebuild')", [])?;
+            self.conn.execute(
+                "INSERT OR REPLACE INTO schema_meta (key, value) VALUES (?1, ?2)",
+                params![key, version],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn search_like(
+        &self,
+        query: &str,
+        favorites_only: bool,
+        offset: i64,
+        limit: i64,
+    ) -> Result<Vec<ClipItem>, StorageError> {
+        let pattern = like_pattern(query);
+        let sql = if favorites_only {
+            "SELECT id, content_type, text_content, NULL, NULL,
+                    content_hash, is_favorite, created_at, byte_size, is_sensitive
+             FROM clips
+             WHERE is_favorite = 1
+               AND (text_content LIKE ?1 ESCAPE '\\' OR ocr_text LIKE ?1 ESCAPE '\\')
+             ORDER BY use_order DESC, id DESC
+             LIMIT ?2 OFFSET ?3"
+        } else {
+            "SELECT id, content_type, text_content, NULL, NULL,
+                    content_hash, is_favorite, created_at, byte_size, is_sensitive
+             FROM clips
+             WHERE text_content LIKE ?1 ESCAPE '\\' OR ocr_text LIKE ?1 ESCAPE '\\'
+             ORDER BY use_order DESC, id DESC
+             LIMIT ?2 OFFSET ?3"
+        };
+
+        let mut stmt = self.conn.prepare_cached(sql)?;
+        let clips = stmt
+            .query_map(params![pattern, limit, offset], row_to_clip)?
+            .collect::<SqlResult<Vec<_>>>()?;
+        Ok(clips)
+    }
+
+    fn search_fts_like(
+        &self,
+        fts_query: &str,
+        query: &str,
+        favorites_only: bool,
+        offset: i64,
+        limit: i64,
+    ) -> Result<Vec<ClipItem>, StorageError> {
+        let pattern = like_pattern(query);
+        let sql = if favorites_only {
+            "SELECT id, content_type, text_content, NULL, NULL,
+                    content_hash, is_favorite, created_at, byte_size, is_sensitive
+             FROM clips
+             WHERE is_favorite = 1
+               AND (
+                    id IN (SELECT rowid FROM clips_fts WHERE clips_fts MATCH ?1)
+                    OR text_content LIKE ?2 ESCAPE '\\'
+                    OR ocr_text LIKE ?2 ESCAPE '\\'
+               )
+             ORDER BY use_order DESC, id DESC
+             LIMIT ?3 OFFSET ?4"
+        } else {
+            "SELECT id, content_type, text_content, NULL, NULL,
+                    content_hash, is_favorite, created_at, byte_size, is_sensitive
+             FROM clips
+             WHERE id IN (SELECT rowid FROM clips_fts WHERE clips_fts MATCH ?1)
+                OR text_content LIKE ?2 ESCAPE '\\'
+                OR ocr_text LIKE ?2 ESCAPE '\\'
+             ORDER BY use_order DESC, id DESC
+             LIMIT ?3 OFFSET ?4"
+        };
+
+        let mut stmt = self.conn.prepare_cached(sql)?;
+        let clips = stmt
+            .query_map(params![fts_query, pattern, limit, offset], row_to_clip)?
+            .collect::<SqlResult<Vec<_>>>()?;
+        Ok(clips)
+    }
+
     /// 插入新条目。若 content_hash 已存在则更新 created_at 并返回该条目。
-    /// Fix #2: 用事务包装 clips INSERT + FTS INSERT，保证原子性。
+    /// 用事务包装 clips INSERT + FTS INSERT：两条语句之间失败会让 FTS 缺一行，
+    /// 而 `rebuild_fts_once` 只在 schema 版本变化时跑，索引不会自己长回来，
+    /// 那条剪贴板记录就永远搜不到。
+    #[allow(clippy::too_many_arguments)]
     pub fn insert_clip(
         &self,
         content_type: &ContentType,
@@ -85,15 +388,22 @@ impl StorageEngine {
         image_data: Option<&[u8]>,
         content_hash: &str,
         byte_size: i64,
+        is_sensitive: bool,
     ) -> Result<ClipItem, StorageError> {
         let now = now_secs();
 
-        // UPSERT：新插入或哈希重复时更新 created_at 置顶
+        // unchecked_transaction 而不是 transaction()：StorageEngine 只持有 &self，
+        // 拿不到 &mut Connection（外层已经被 Arc<Mutex<_>> 串行化，没有并发嵌套）。
+        let tx = self.conn.unchecked_transaction()?;
+
+        let use_order = self.next_use_order()?;
+
+        // UPSERT：新插入或哈希重复均推进使用顺序和现有 TTL 时间
         self.conn.execute(
             "INSERT INTO clips
-                (content_type, text_content, html_content, image_data, content_hash, is_favorite, created_at, byte_size)
-             VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7)
-             ON CONFLICT(content_hash) DO UPDATE SET created_at = excluded.created_at",
+                (content_type, text_content, html_content, image_data, content_hash, is_favorite, created_at, byte_size, is_sensitive, use_order)
+             VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7, ?8, ?9)
+             ON CONFLICT(content_hash) DO UPDATE SET created_at = excluded.created_at, use_order = excluded.use_order",
             params![
                 content_type.as_str(),
                 text_content,
@@ -102,6 +412,8 @@ impl StorageEngine {
                 content_hash,
                 now,
                 byte_size,
+                is_sensitive as i64,
+                use_order,
             ],
         )?;
 
@@ -119,6 +431,7 @@ impl StorageEngine {
             )?;
         }
 
+        tx.commit()?;
         self.get_clip_by_id(id)
     }
 
@@ -126,11 +439,25 @@ impl StorageEngine {
     pub fn get_clip_by_id(&self, id: i64) -> Result<ClipItem, StorageError> {
         let clip = self.conn.query_row(
             "SELECT id, content_type, text_content, html_content, image_data,
-                    content_hash, is_favorite, created_at, byte_size
+                    content_hash, is_favorite, created_at, byte_size, is_sensitive
              FROM clips WHERE id = ?1",
             params![id],
             row_to_clip,
         )?;
+        Ok(clip)
+    }
+
+    /// 更新指定条目的 created_at 为当前时间（用于 select_clip 置顶），并返回更新后的条目
+    pub fn touch_clip(&self, id: i64) -> Result<ClipItem, StorageError> {
+        let now = now_secs();
+        let tx = self.conn.unchecked_transaction()?;
+        let use_order = self.next_use_order()?;
+        self.conn.execute(
+            "UPDATE clips SET created_at = ?1, use_order = ?3 WHERE id = ?2",
+            params![now, id, use_order],
+        )?;
+        let clip = self.get_clip_by_id(id)?;
+        tx.commit()?;
         Ok(clip)
     }
 
@@ -148,6 +475,127 @@ impl StorageEngine {
         }
     }
 
+    /// 一次查询读取识别需要的图片状态。不能先取完整 `ClipItem`：SQLite BLOB 一旦交给
+    /// rusqlite 就已经分配了 `Vec`，之后再检查上限为时已晚。
+    pub fn get_bounded_image_for_code_scan(
+        &self,
+        id: i64,
+        byte_limit: usize,
+    ) -> Result<BoundedImageData, StorageError> {
+        let byte_limit = i64::try_from(byte_limit)
+            .map_err(|error| StorageError::Io(std::io::Error::other(error)))?;
+        let row = self
+            .conn
+            .query_row(
+                "SELECT content_type,
+                        length(image_data),
+                        CASE
+                            WHEN image_data IS NOT NULL AND length(image_data) <= ?1
+                            THEN image_data
+                            ELSE NULL
+                        END
+                   FROM clips
+                  WHERE id = ?2",
+                params![byte_limit, id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<i64>>(1)?,
+                        row.get::<_, Option<Vec<u8>>>(2)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((content_type, length, bytes)) = row else {
+            return Ok(BoundedImageData::ClipNotFound);
+        };
+        if content_type != ContentType::Image.as_str() {
+            return Ok(BoundedImageData::NotImage);
+        }
+        match (length, bytes) {
+            (None, _) => Ok(BoundedImageData::Missing),
+            (Some(_), Some(bytes)) => Ok(BoundedImageData::Bytes(bytes)),
+            // 正常 SQLite BLOB 在长度不超过 CASE 参数时必定返回 bytes；剩余的 NULL
+            // 只能是 CASE 为保护上限刻意留下的结果。
+            (Some(_), None) => Ok(BoundedImageData::TooLarge),
+        }
+    }
+
+    /// 快照元数据与受限图片在同一查询中读取，避免删除/敏感标记与 BLOB 身份错配。
+    pub fn get_bounded_image_snapshot(
+        &self,
+        id: i64,
+        byte_limit: usize,
+    ) -> Result<Option<BoundedImageSnapshot>, StorageError> {
+        let limit = i64::try_from(byte_limit)
+            .map_err(|error| StorageError::Io(std::io::Error::other(error)))?;
+        let row = self
+            .conn
+            .query_row(
+                "SELECT content_type, content_hash, is_sensitive, length(image_data),
+                    CASE WHEN length(image_data) <= ?1 THEN image_data ELSE NULL END
+             FROM clips WHERE id = ?2",
+                params![limit, id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, bool>(2)?,
+                        row.get::<_, Option<i64>>(3)?,
+                        row.get::<_, Option<Vec<u8>>>(4)?,
+                    ))
+                },
+            )
+            .optional()?;
+        Ok(row.map(
+            |(kind, content_hash, is_sensitive, length, bytes)| BoundedImageSnapshot {
+                content_hash,
+                is_sensitive,
+                image: if kind != "image" {
+                    BoundedImageData::NotImage
+                } else {
+                    match (length, bytes) {
+                        (None, _) => BoundedImageData::Missing,
+                        (_, Some(bytes)) => BoundedImageData::Bytes(bytes),
+                        _ => BoundedImageData::TooLarge,
+                    }
+                },
+            },
+        ))
+    }
+
+    /// 旧快照开始联网前复核同一内容的当前敏感标记；删除原条目不影响快照自身保护。
+    pub fn is_hash_sensitive(&self, hash: &str) -> Result<bool, StorageError> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM clips WHERE content_hash = ?1 AND is_sensitive = 1)",
+            [hash],
+            |row| row.get(0),
+        )?)
+    }
+
+    /// 读取缓存的 OCR 文字
+    pub fn get_ocr_text(&self, id: i64) -> Result<Option<String>, StorageError> {
+        let result = self.conn.query_row(
+            "SELECT ocr_text FROM clips WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        );
+        match result {
+            Ok(text) => Ok(text),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(StorageError::Database(e)),
+        }
+    }
+
+    /// 保存 OCR 识别结果
+    pub fn set_ocr_text(&self, id: i64, text: &str) -> Result<(), StorageError> {
+        self.conn.execute(
+            "UPDATE clips SET ocr_text = ?1 WHERE id = ?2",
+            params![text, id],
+        )?;
+        Ok(())
+    }
+
     /// 查询条目列表。有 query 时走 FTS 全文搜索，否则按时间倒序。
     pub fn get_clips(
         &self,
@@ -159,46 +607,41 @@ impl StorageEngine {
         let trimmed = query.map(str::trim).unwrap_or("");
 
         if !trimmed.is_empty() {
-            // FTS 搜索路径
-            let sql = if favorites_only {
-                "SELECT c.id, c.content_type, c.text_content, NULL, NULL,
-                        c.content_hash, c.is_favorite, c.created_at, c.byte_size
-                 FROM clips_fts
-                 JOIN clips c ON clips_fts.rowid = c.id
-                 WHERE clips_fts MATCH ?1
-                   AND c.is_favorite = 1
-                 ORDER BY c.created_at DESC
-                 LIMIT ?2 OFFSET ?3"
-            } else {
-                "SELECT c.id, c.content_type, c.text_content, NULL, NULL,
-                        c.content_hash, c.is_favorite, c.created_at, c.byte_size
-                 FROM clips_fts
-                 JOIN clips c ON clips_fts.rowid = c.id
-                 WHERE clips_fts MATCH ?1
-                 ORDER BY c.created_at DESC
-                 LIMIT ?2 OFFSET ?3"
-            };
+            let sanitized = sanitize_search_query(trimmed);
+            if sanitized.is_empty() {
+                return Ok(Vec::new());
+            }
 
-            let mut stmt = self.conn.prepare_cached(sql)?;
-            let clips = stmt
-                .query_map(params![trimmed, limit, offset], row_to_clip)?
-                .collect::<SqlResult<Vec<_>>>()?;
-            return Ok(clips);
+            if sanitized.chars().count() < 3 {
+                return self.search_like(&sanitized, favorites_only, offset, limit);
+            }
+
+            if let Some(fts_query) = build_fts_prefix_query(&sanitized) {
+                match self.search_fts_like(&fts_query, &sanitized, favorites_only, offset, limit) {
+                    Ok(clips) => return Ok(clips),
+                    Err(StorageError::Database(rusqlite::Error::SqliteFailure(_, _))) => {
+                        return self.search_like(&sanitized, favorites_only, offset, limit);
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+
+            return self.search_like(&sanitized, favorites_only, offset, limit);
         }
 
         // 普通查询路径
         let sql = if favorites_only {
             "SELECT id, content_type, text_content, NULL, NULL,
-                    content_hash, is_favorite, created_at, byte_size
+                    content_hash, is_favorite, created_at, byte_size, is_sensitive
              FROM clips
              WHERE is_favorite = 1
-             ORDER BY created_at DESC
+             ORDER BY use_order DESC, id DESC
              LIMIT ?1 OFFSET ?2"
         } else {
             "SELECT id, content_type, text_content, NULL, NULL,
-                    content_hash, is_favorite, created_at, byte_size
+                    content_hash, is_favorite, created_at, byte_size, is_sensitive
              FROM clips
-             ORDER BY created_at DESC
+             ORDER BY use_order DESC, id DESC
              LIMIT ?1 OFFSET ?2"
         };
 
@@ -209,9 +652,15 @@ impl StorageEngine {
         Ok(clips)
     }
 
-    /// 删除指定条目（先清理 FTS 索引，再删主表）
-    /// Fix #3: 条目不存在时直接返回 Ok 而非静默执行无效操作
+    /// 删除指定条目（先清理 FTS 索引，再删主表、再删译文）。
+    ///
+    /// 条目不存在时直接返回 Ok 而非静默执行无效操作。
+    /// 三条 DELETE 必须同生共死：中途失败要么留下搜得到的幽灵 FTS 行，
+    /// 要么把译文留在 translation_history 里——"删条目会一并删掉它的译文"
+    /// 是对用户承诺的隐私不变量，不能因为一次 SQLite 出错就破功。
     pub fn delete_clip(&self, id: i64) -> Result<(), StorageError> {
+        let tx = self.conn.unchecked_transaction()?;
+
         // 先确认条目存在并取出 text_content
         let text_content: Option<String> = match self.conn.query_row(
             "SELECT text_content FROM clips WHERE id = ?1",
@@ -234,6 +683,12 @@ impl StorageEngine {
         // 删除主表记录
         self.conn
             .execute("DELETE FROM clips WHERE id = ?1", params![id])?;
+        // 条目的译文同样是它的内容，一并删除。
+        self.conn.execute(
+            "DELETE FROM translation_history WHERE clip_id = ?1",
+            params![id],
+        )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -253,68 +708,15 @@ impl StorageEngine {
 
     /// 清空历史（保留收藏），重建 FTS 索引
     pub fn clear_history(&self) -> Result<(), StorageError> {
+        let tx = self.conn.unchecked_transaction()?;
         self.conn
             .execute("DELETE FROM clips WHERE is_favorite = 0", [])?;
         // 重建 FTS 虚拟表
         self.conn
             .execute("INSERT INTO clips_fts(clips_fts) VALUES ('rebuild')", [])?;
+        self.purge_orphan_translations()?;
+        tx.commit()?;
         Ok(())
-    }
-
-    /// 删除超出 max_history 上限的最旧非收藏条目，返回被删除的 id 列表
-    pub fn cleanup_old_entries(&self, max_history: u32) -> Result<Vec<i64>, StorageError> {
-        // 查出要删除的 id：按 created_at 升序排，排除收藏，取超出部分
-        let mut stmt = self.conn.prepare_cached(
-            "SELECT id FROM clips
-             WHERE is_favorite = 0
-             ORDER BY created_at ASC
-             LIMIT MAX(0, (SELECT COUNT(*) FROM clips WHERE is_favorite = 0) - ?1)",
-        )?;
-        let ids: Vec<i64> = stmt
-            .query_map(params![max_history as i64], |row| row.get(0))?
-            .collect::<SqlResult<_>>()?;
-
-        if ids.is_empty() {
-            return Ok(ids);
-        }
-
-        // 批量清理 FTS 索引 + 删除主表（单次查询取 text_content，批量操作）
-        let placeholders: String = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-        let params_boxed: Vec<Box<dyn rusqlite::types::ToSql>> = ids
-            .iter()
-            .map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>)
-            .collect();
-
-        // 一次性取出所有待删条目的 FTS 数据
-        let sql_fts = format!(
-            "SELECT id, text_content FROM clips WHERE id IN ({}) AND text_content IS NOT NULL",
-            placeholders
-        );
-        let mut fts_stmt = self.conn.prepare(&sql_fts)?;
-        let fts_entries: Vec<(i64, String)> = fts_stmt
-            .query_map(rusqlite::params_from_iter(params_boxed.iter()), |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })?
-            .collect::<SqlResult<_>>()?;
-
-        // 批量删除 FTS 索引
-        let mut fts_del = self.conn.prepare_cached(
-            "INSERT INTO clips_fts(clips_fts, rowid, text_content) VALUES ('delete', ?1, ?2)",
-        )?;
-        for (id, text) in &fts_entries {
-            fts_del.execute(params![id, text])?;
-        }
-
-        // 批量删除主表
-        let sql_del = format!("DELETE FROM clips WHERE id IN ({})", placeholders);
-        let params_boxed2: Vec<Box<dyn rusqlite::types::ToSql>> = ids
-            .iter()
-            .map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>)
-            .collect();
-        self.conn
-            .execute(&sql_del, rusqlite::params_from_iter(params_boxed2.iter()))?;
-
-        Ok(ids)
     }
 }
 
@@ -342,6 +744,10 @@ fn row_to_clip(row: &rusqlite::Row<'_>) -> rusqlite::Result<ClipItem> {
         },
         created_at: row.get(7)?,
         byte_size: row.get(8)?,
+        is_sensitive: {
+            let v: i64 = row.get(9).unwrap_or(0);
+            v != 0
+        },
     })
 }
 
@@ -357,154 +763,5 @@ impl std::fmt::Display for StringError {
 
 impl std::error::Error for StringError {}
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 单元测试
-// ─────────────────────────────────────────────────────────────────────────────
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::Duration;
-
-    /// 构造一条文本类型的测试 ClipItem 插入参数
-    fn insert_text(engine: &StorageEngine, text: &str, hash: &str) -> ClipItem {
-        engine
-            .insert_clip(
-                &ContentType::Text,
-                Some(text),
-                None,
-                None,
-                hash,
-                text.len() as i64,
-            )
-            .expect("插入失败")
-    }
-
-    #[test]
-    fn test_insert_and_query() {
-        let engine = StorageEngine::new_in_memory().unwrap();
-        insert_text(&engine, "hello world", "hash_hw");
-
-        let clips = engine.get_clips(None, false, 0, 10).unwrap();
-        assert_eq!(clips.len(), 1);
-        assert_eq!(clips[0].text_content.as_deref(), Some("hello world"));
-        assert_eq!(clips[0].content_hash, "hash_hw");
-        assert!(!clips[0].is_favorite);
-    }
-
-    #[test]
-    fn test_dedup_updates_timestamp() {
-        let engine = StorageEngine::new_in_memory().unwrap();
-
-        let clip1 = insert_text(&engine, "same content", "hash_same");
-        let ts1 = clip1.created_at;
-
-        // 等待 1 秒保证时间戳不同
-        std::thread::sleep(Duration::from_secs(1));
-
-        let clip2 = insert_text(&engine, "same content", "hash_same");
-        let ts2 = clip2.created_at;
-
-        // 只有一条记录
-        let clips = engine.get_clips(None, false, 0, 10).unwrap();
-        assert_eq!(clips.len(), 1, "重复内容不应产生多条记录");
-
-        // 时间戳应被更新
-        assert!(ts2 > ts1, "重复插入应更新 created_at");
-    }
-
-    #[test]
-    fn test_fts_search() {
-        let engine = StorageEngine::new_in_memory().unwrap();
-        insert_text(&engine, "apple pie recipe", "hash_apple");
-        insert_text(&engine, "banana smoothie drink", "hash_banana");
-
-        let results = engine.get_clips(Some("apple"), false, 0, 10).unwrap();
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].content_hash, "hash_apple");
-
-        let results2 = engine.get_clips(Some("banana"), false, 0, 10).unwrap();
-        assert_eq!(results2.len(), 1);
-        assert_eq!(results2[0].content_hash, "hash_banana");
-    }
-
-    #[test]
-    fn test_delete_clip() {
-        let engine = StorageEngine::new_in_memory().unwrap();
-        let clip = insert_text(&engine, "to be deleted", "hash_del");
-
-        engine.delete_clip(clip.id).unwrap();
-
-        let clips = engine.get_clips(None, false, 0, 10).unwrap();
-        assert!(clips.is_empty(), "删除后列表应为空");
-    }
-
-    #[test]
-    fn test_toggle_favorite() {
-        let engine = StorageEngine::new_in_memory().unwrap();
-        let clip = insert_text(&engine, "toggle me", "hash_toggle");
-
-        assert!(!clip.is_favorite);
-
-        let new_state = engine.toggle_favorite(clip.id).unwrap();
-        assert!(new_state, "第一次 toggle 应变为 true");
-
-        let new_state2 = engine.toggle_favorite(clip.id).unwrap();
-        assert!(!new_state2, "第二次 toggle 应变为 false");
-    }
-
-    #[test]
-    fn test_cleanup_preserves_favorites() {
-        let engine = StorageEngine::new_in_memory().unwrap();
-
-        // 插入 5 条，让时间戳各不相同（用不同 hash 即可，created_at 实际秒级相同也没问题，
-        // 但为保证顺序我们用 sleep 或直接操作——这里用 sleep(0) 加毫秒差异不保证，
-        // 所以直接检验按 max_history 逻辑即可）
-        let clips: Vec<ClipItem> = (1..=5)
-            .map(|i| {
-                if i > 1 {
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-                insert_text(&engine, &format!("item {}", i), &format!("hash_{}", i))
-            })
-            .collect();
-
-        // 收藏第 3 条（中间位置）
-        engine.toggle_favorite(clips[2].id).unwrap();
-
-        // max_history = 2：非收藏只保留最新 2 条
-        let removed = engine.cleanup_old_entries(2).unwrap();
-
-        // 原有 5 条，1 条收藏，4 条非收藏，保留 2 条非收藏 → 删除 2 条
-        assert_eq!(removed.len(), 2, "应删除 2 条最旧的非收藏");
-
-        let remaining = engine.get_clips(None, false, 0, 10).unwrap();
-        // 收藏 1 + 非收藏 2 = 3 条
-        assert_eq!(remaining.len(), 3, "应剩余 3 条（1 收藏 + 2 非收藏）");
-
-        // 收藏条目必须仍在
-        let fav_clip = engine.get_clip_by_id(clips[2].id).unwrap();
-        assert!(fav_clip.is_favorite, "收藏条目不应被 cleanup 删除");
-    }
-
-    #[test]
-    fn test_clear_history_preserves_favorites() {
-        let engine = StorageEngine::new_in_memory().unwrap();
-
-        let c1 = insert_text(&engine, "普通条目 1", "hash_c1");
-        let c2 = insert_text(&engine, "普通条目 2", "hash_c2");
-        let c3 = insert_text(&engine, "收藏条目", "hash_c3");
-
-        engine.toggle_favorite(c3.id).unwrap();
-
-        engine.clear_history().unwrap();
-
-        let remaining = engine.get_clips(None, false, 0, 10).unwrap();
-        assert_eq!(remaining.len(), 1, "clear_history 后只剩收藏");
-        assert_eq!(remaining[0].id, c3.id, "剩余条目应为收藏的那条");
-
-        // 确认普通条目已删除
-        assert!(engine.get_clip_by_id(c1.id).is_err());
-        assert!(engine.get_clip_by_id(c2.id).is_err());
-    }
-}
+mod tests;

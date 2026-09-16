@@ -1,0 +1,7 @@
+target
+.vscode
+*.png
+
+# Clippy 根规则忽略研究目录 examples/；保留此原 crate 的正式示例 target。
+!examples/
+!examples/*.rs

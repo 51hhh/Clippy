@@ -3,20 +3,23 @@
  */
 
 import * as theme         from "./theme.js";
-import * as clipboardList from "./clipboard-list.js";
-import * as searchBar     from "./search-bar.js";
-import * as segmentTabs   from "./segment-tabs.js";
+import * as clipboardList from "./clipboard-react-facade.js";
 import * as previewPanel  from "./preview-panel.js";
+import * as codec         from "./codec.js";
 import * as i18n          from "../i18n/i18n.js";
 import { initUpdateModal, checkForUpdate } from "./update-modal.js";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
-  getConfig, onClipAdded, onClipRemoved, onConfigChanged,
-  onShortcutRegisterFailed,
-} from "./api.js";
+  getConfig, getClips, onClipAdded, onClipRemoved, onConfigChanged,
+  hideCurrentWindow, onShortcutRegisterFailed, onPinCurrent, onMainWindowWillHide, pinClip,
+} from "./api.ts";
 import "../styles/themes.css";
 import "../styles/base.css";
 import "../styles/components.css";
+import { mountClipboardWorkspace, mountTranslationPanel } from "../react/main/mount";
+import { translationStore } from "../react/main/translationStore";
+import { createKeyboardRouter } from "./keyboard-router.js";
+import { resolvePinTarget } from "./pin-target.js";
+import { initPinProjectDrop } from "./pin-project-drop.js";
 
 function whenReady(fn) {
   if (document.readyState === "loading") {
@@ -38,145 +41,113 @@ whenReady(async () => {
   theme.applyTheme(config.theme || "light");
   i18n.init(config.language || "auto");
 
-  const listEl    = document.getElementById("clip-list");
-  const emptyEl   = document.getElementById("empty-state");
-  const searchEl  = document.getElementById("search-bar");
-  const segmentEl = document.getElementById("segment-tabs");
-
-  segmentTabs.init(segmentEl, (mode) => clipboardList.setPanelMode(mode));
-  searchBar.init(searchEl, (q) => clipboardList.setQuery(q));
-  previewPanel.init();
+  mountClipboardWorkspace(document.getElementById("clipboard-react-root"));
+  mountTranslationPanel(document.getElementById("translation-react-root"));
+  previewPanel.init({
+    onVisibilityChange: (visible) => translationStore.setPanelVisible(visible),
+  });
+  translationStore.setConfig(config);
+  codec.init();
 
   clipboardList.init({
-    listEl,
-    emptyEl,
-    onCountsChange: (counts) => segmentTabs.setCounts(counts),
-    onSummonSearch: (source) => searchBar.summon(source),
-    onModeChange: (mode) => segmentTabs.setMode(mode),
-    onFocusChange: (clip) => previewPanel.updatePreview(clip),
+    onFocusChange: (clip) => {
+      previewPanel.updatePreview(clip);
+      translationStore.setClip(clip);
+    },
   });
 
   await clipboardList.refresh();
 
   await onClipAdded((clip) => {
-    clipboardList.markDirty();
+    console.debug("[clip-added]", clip.id, clip.content_type, clip.byte_size);
     clipboardList.prependClip(clip);
   });
   await onClipRemoved((id) => {
-    clipboardList.markDirty();
     clipboardList.removeClip(id);
   });
   await onConfigChanged((newConfig) => {
     theme.applyTheme(newConfig.theme || "light");
     i18n.init(newConfig.language || "auto");
-    searchBar.refreshLabels();
-    segmentTabs.refreshLabels();
+    clipboardList.refreshLabels();
+    // 编解码面板的下拉标题与收藏分组是 JS 写入的，applyToDOM 碰不到
+    codec.refreshLabels();
+    translationStore.setConfig(newConfig);
   });
 
-  await onShortcutRegisterFailed((shortcut) => {
-    console.warn(`快捷键 "${shortcut}" 注册失败，请在设置中更换快捷键`);
+  await onShortcutRegisterFailed((failure) => {
+    // 主窗口只记日志；可操作的提示由设置页负责（它能读到存量失败记录）。
+    console.warn(
+      `快捷键 [${failure.action}] "${failure.shortcut}" 在 ${failure.session} 会话注册失败：${failure.reason}`,
+    );
+  });
+
+  await onMainWindowWillHide(releaseWindowMemory);
+
+  // 仅拖放进入时出现工程恢复提示，常态界面不增加图片导入按钮或快捷键。
+  initPinProjectDrop().catch((error) => {
+    console.warn("可编辑 PNG 拖放入口初始化失败:", error);
+  });
+
+  await onPinCurrent(async () => {
+    // 系统快捷键触发：面板真的握着焦点时 pin 焦点条目，否则问后端要最新一条。
+    // 面板没焦点时留在状态里的"焦点行"是上一轮会话的残影，信它就会贴出上一张图
+    // （理由见 resolvePinTarget）。
+    try {
+      const clip = await resolvePinTarget(
+        clipboardList.getFocusedClip(),
+        () => getClips(null, false, 0, 1),
+        document.hasFocus(),
+      );
+      if (clip) await pinClip(clip.id);
+    } catch (err) {
+      console.warn("Pin 失败:", err);
+    }
   });
 
   // 初始化更新弹窗并自动检查
   initUpdateModal();
   checkForUpdate(false).catch(console.warn);
 
-  window.addEventListener("keydown", onKeyDown);
+  const keyboardRouter = createKeyboardRouter({
+    clipboardList,
+    previewPanel,
+    codec,
+    pinClip,
+    hidePanel: tryHidePanel,
+    // 翻译面板的动作以适配器注入，路由不直接依赖 React store（保持可单测）
+    translation: { translate: () => translationStore.translate() },
+  });
+
+  window.addEventListener("keydown", keyboardRouter.onKeyDown);
   window.addEventListener("focus", onWindowFocus);
   window.addEventListener("blur", onWindowBlur);
 });
 
-function onKeyDown(e) {
-  // 搜索条聚焦时：不拦截普通字符；只接管 Esc / Enter
-  if (searchBar.isVisible() && document.activeElement?.classList.contains("search-bar-input")) {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      const stage = searchBar.dismissStage();
-      if (stage === "panel") {
-        clipboardList.hasExpanded() ? clipboardList.collapseActions() : tryHidePanel();
-      }
-      return;
-    }
-    return; // 其它键交给 input
-  }
-
-  switch (e.key) {
-    case "ArrowUp":
-    case "w":
-    case "W":
-      e.preventDefault();
-      clipboardList.moveRow(-1);
-      return;
-    case "ArrowDown":
-    case "s":
-    case "S":
-      e.preventDefault();
-      clipboardList.moveRow(1);
-      return;
-    case "ArrowLeft":
-    case "a":
-    case "A":
-      e.preventDefault();
-      // 收藏模式行体上：展开按钮组（按钮在左侧）
-      if (clipboardList.getPanelMode() === "favorites" && clipboardList.canExpandHere()) {
-        clipboardList.expandRowActions();
-      } else {
-        clipboardList.moveCol(-1);
-      }
-      return;
-    case "ArrowRight":
-    case "d":
-    case "D":
-      e.preventDefault();
-      // 全部模式行体上：展开按钮组
-      if (clipboardList.getPanelMode() === "all" && clipboardList.canExpandHere()) {
-        clipboardList.expandRowActions();
-      } else {
-        clipboardList.moveCol(1);
-      }
-      return;
-    case "Enter":
-    case " ":
-      e.preventDefault();
-      clipboardList.activateFocus("keyboard");
-      return;
-    case "Escape":
-      e.preventDefault();
-      if (searchBar.isVisible()) {
-        const stage = searchBar.dismissStage();
-        if (stage === "panel") {
-          clipboardList.hasExpanded() ? clipboardList.collapseActions() : tryHidePanel();
-        }
-      } else if (clipboardList.hasExpanded()) {
-        clipboardList.collapseActions();
-      } else {
-        tryHidePanel();
-      }
-      return;
-    case "Tab":
-      e.preventDefault();
-      previewPanel.toggle();
-      if (previewPanel.isVisible()) {
-        previewPanel.updatePreview(clipboardList.getFocusedClip());
-      }
-      return;
-  }
-}
-
 function tryHidePanel() {
-  getCurrentWindow().hide();
+  // JS 自己发起 hide 时不会经过 Rust 的 will-hide 事件，先同步释放再隐藏。
+  releaseWindowMemory();
+  void hideCurrentWindow();
 }
 
 async function onWindowFocus() {
-  // 仅在有新数据时才全量刷新，否则只恢复渲染
-  if (clipboardList.isDirty()) {
-    await clipboardList.refresh();
-  } else {
-    clipboardList.restoreRender();
-  }
+  console.debug("[focus] dirty=", clipboardList.isDirty());
+  // 仅在有新数据时才全量刷新（没有新数据就不必再查一遍库）。
+  if (clipboardList.isDirty()) await clipboardList.refresh();
+  // 两条分支都要 restoreRender：重新聚焦面板算一轮新会话，焦点该落在最新那条上。
+  // 以前只有"不脏"那条分支复位，于是面板不可见期间来了新条目时（侧栏开着 =
+  // 列表不会被释放）焦点会留在老条目上——`refresh` 的 normalizeAfterRefresh 只做钳位、
+  // 不复位，而 `prependClip` 已经按 id 把它挪到第 1 行了。打开面板高亮着第二行、
+  // 按回车/Ctrl+P 命中的也是上一条。
+  clipboardList.restoreRender();
 }
 
 function onWindowBlur() {
-  if (previewPanel.isVisible()) return; // 预览面板打开时不隐藏窗口
+  if (previewPanel.isVisible() || codec.isVisible()) return; // 面板打开时不隐藏窗口
+  releaseWindowMemory();
+}
+
+function releaseWindowMemory() {
   clipboardList.releaseMemory();
+  previewPanel.clearContent();
+  translationStore.clear();
 }

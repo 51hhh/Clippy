@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Clippy · Narrow viewer review</title>
+    <style>
+      body { margin: 0; padding: 24px; color: #22342c; background: #edf2ef; font: 14px/1.6 system-ui, sans-serif; }
+      h1 { margin: 0 0 6px; font-size: 20px; }
+      p { margin: 0 0 16px; }
+      a { color: inherit; }
+      iframe { display: block; height: 640px; border: 1px solid #9baea2; border-radius: 8px; background: white; }
+    </style>
+  </head>
+  <body>
+    <h1>Narrow viewer review</h1>
+    <p><span id="dimensions"></span> · <a id="regular">Open regular viewer</a></p>
+    <iframe id="viewer" title="Image viewer at a narrow viewport"></iframe>
+    <script type="module">
+      if (!import.meta.env.DEV) throw new Error("This review host is development-only.");
+      const params = new URLSearchParams(location.search);
+      const requestedWidth = Number(params.get("width") || 320);
+      const width = Number.isFinite(requestedWidth) ? Math.min(720, Math.max(280, Math.round(requestedWidth))) : 320;
+      const requestedHeight = Number(params.get("height") || 640);
+      const height = Number.isFinite(requestedHeight) ? Math.min(1000, Math.max(200, Math.round(requestedHeight))) : 640;
+      const language = params.get("lang") === "zh-CN" ? "zh-CN" : "en";
+      const theme = params.get("theme") === "dark" ? "dark" : "light";
+      const viewerUrl = new URL("./viewer.html", location.href);
+      viewerUrl.searchParams.set("lang", language);
+      viewerUrl.searchParams.set("theme", theme);
+      viewerUrl.searchParams.set("appWidth", String(width));
+      viewerUrl.searchParams.set("appHeight", String(height));
+      if (params.get("sample") === "long") viewerUrl.searchParams.set("sample", "long");
+      document.querySelector("#dimensions").textContent = `Production App: ${width} × ${height} CSS pixels · ${language} · ${theme}`;
+      document.querySelector("#regular").href = viewerUrl.href;
+      const frame = document.querySelector("#viewer");
+      frame.style.width = `${width + 24}px`;
+      frame.style.height = `${height + 240}px`;
+      frame.src = viewerUrl.href;
+    </script>
+  </body>
+</html>

@@ -1,0 +1,37 @@
+{
+  "name": "上下排布（并集原点是负坐标）",
+  "note": "副屏摆在主屏上方，于是它的 y 是 -1080，并集原点也是负的。裁剪必须相对并集原点算，不能相对 (0,0)——差一步就会把整张图上下颠倒地切。负坐标在横向排布里也会出现（副屏在左），这一行同时覆盖那种情形的算法。",
+  "session": {
+    "compositor": "GNOME Shell (Wayland)",
+    "backend": "gnome-shell-extension"
+  },
+  "stage": { "width": 1920, "height": 2160 },
+  "monitors": [
+    { "id": 1, "x": 0, "y": 0, "width": 1920, "height": 1080, "scale": 1.0 },
+    { "id": 2, "x": 0, "y": -1080, "width": 1920, "height": 1080, "scale": 1.0 }
+  ],
+  "expect": {
+    "stageClass": "logical",
+    "invariants": [],
+    "monitors": [
+      {
+        "id": 1,
+        "x": 0,
+        "y": 0,
+        "width": 1920,
+        "height": 1080,
+        "scale": 1.0,
+        "crop": { "x": 0, "y": 1080, "width": 1920, "height": 1080 }
+      },
+      {
+        "id": 2,
+        "x": 0,
+        "y": -1080,
+        "width": 1920,
+        "height": 1080,
+        "scale": 1.0,
+        "crop": { "x": 0, "y": 0, "width": 1920, "height": 1080 }
+      }
+    ]
+  }
+}

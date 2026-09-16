@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Main window layout smoke</title>
+    <style>
+      /* 中性底色：脚本读到灰色说明 fixture 根本没跑（模块加载失败），与断言失败的红色区分 */
+      html, body { width: 100%; height: 100%; margin: 0; background: #808080; }
+    </style>
+  </head>
+  <body>
+    <script type="module" src="./layout-smoke.ts"></script>
+  </body>
+</html>

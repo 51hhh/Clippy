@@ -1,13 +1,26 @@
 [package]
 name = "clippy-app"
-version = "0.1.10"
+version = "0.1.20"
 description = "跨平台轻量剪贴板管理器"
 authors = ["zhongweixi2000"]
 edition = "2021"
 
+# 只把补丁库的单元测试纳入显式门禁；普通 cargo test 仍只运行 Clippy。
+[workspace]
+members = ["vendor/arboard"]
+default-members = ["."]
+exclude = ["vendor/libspa"]
+resolver = "2"
+
 [lib]
 name = "clippy_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+default = ["linux-pipewire"]
+# 兼容已有的显式构建命令，但 PipeWire 依赖和截图后端不再受 feature 控制：即使调用
+# `--no-default-features`，正式 Linux 产物也不能把 GNOME 的低延迟主路径裁掉。
+linux-pipewire = []
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -16,29 +29,149 @@ tiny-skia = "0.11"
 usvg = "0.43"
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+# macOS 的透明 WKWebView 是 Pin 透明留白/阴影的必要条件。Tauri 的构建脚本会把
+# Cargo feature 与公共配置一起校验，因此不能只把它放进 macOS target dependency；
+# 该 feature 在非 macOS 平台不启用私有系统 API。应用当前采用 Ad-Hoc 签名的 DMG 直接分发，
+# 不走禁止私有 API 的 Mac App Store；它不代表 Developer ID 或公证信任。
+tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
+# 另存为/选择目录对话框：由 Tauri 官方插件封装 rfd，Linux 下的 GTK/Portal 差异由插件负责。
+tauri-plugin-dialog = "2"
+# 只用于把保存时间格式化进文件名模板（本地时区）。
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.31", features = ["bundled"] }
 arboard = "3"
 sha2 = "0.10"
 image = { version = "0.25", default-features = false, features = ["png"] }
+# renderer v2 的最终 PNG 只走固定版本的纯 Rust 软件光栅路径；运行时不加载系统字体或 GPU。
+# build.rs 已用同一版本生成托盘 SVG，这里复用锁文件中的依赖，不增加第二套渲染栈。
+resvg = "0.43"
+# 直接用 png crate 只为一件事：往 PNG 里写/读 iTXt 元数据块（贴图工程数据，
+# 见 pin/project.rs）。image crate 不暴露 chunk API。版本跟随 image 已经锁定的这一个，
+# 不引入新的下载。
+png = "0.17"
+# 纯 Rust 的 ZXing 兼容解码器：只编译本地识别所需格式，避免引入图片编解码、编码器或模型资产。
+rxing = { version = "=0.9.2", default-features = false, features = ["decoders", "qrcode", "oned", "multi_barcode_readers", "encoding_rs"] }
 base64 = "0.22"
 thiserror = "2"
+anyhow = "1"
 log = "0.4"
 env_logger = "0.11"
+tauri-plugin-autostart = "2"
+ureq = "3"
+regex-lite = "0.1"
+tokio = { version = "1", features = ["rt", "time", "sync", "macros", "process", "io-util"] }
+urlencoding = "2"
+url = "2"
+keyring = "4.1"
+# 有道 web 端点的签名用 MD5、响应用 AES-128-CBC 加密，只服务于翻译的非官方回退路径。
+md-5 = "0.10"
+aes = "0.8"
+cbc = "0.1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# xcap 0.9 在 Linux 强制引入需要新版 PipeWire 头文件的 pipewire-rs，stock Ubuntu 22
+# 无法编译。0.4.1 保留当前使用的 Monitor/Window API 且不依赖 PipeWire；长期将由
+# x11rb 自有捕获替代，版本必须精确固定，避免 0.x 自动升级重新抬高系统基线。
+xcap = "=0.4.1"
 zbus = "5"
 enigo = { version = "0.6", default-features = false, features = ["x11rb"] }
-tauri-plugin-autostart = "2"
+webkit2gtk = "2.0"
+# 截图覆盖层必须绕过 Tauri 的窗口定位：Wayland 不允许客户端自己摆窗口，
+# set_position/set_size 会被合成器忽略。参考 flashot（MIT）改为直接配置底层 GTK 窗口
+# （`fullscreen_on_monitor`）并用 GDK 的显示器几何选屏。版本跟随 Tauri v2 已锁定的 0.18。
+gtk = { version = "0.18", features = ["v3_24"] }
+gdk = { version = "0.18", features = ["v3_24"] }
+inotify = "0.11"
+ashpd = { version = "0.13", features = ["screenshot", "documents", "remote_desktop", "screencast", "global_shortcuts"] }
+libwayshot-xcap = "0.3"
+# Mutter 的 org.gnome.Mutter.ScreenCast 把画面走 PipeWire 送出来（不编 PNG，快一个数量级，
+# 见 docs/capture-linux.md §3.4）。所有 Linux 产物都必须包含这条主路径；仓库内的 libspa
+# 补丁只修复其对 stock Ubuntu 22 PipeWire 0.3.48 头文件的错误结构字段假设。
+pipewire = { version = "0.9", features = ["v0_3_34"] }
+# 只为在 zbus 的信号流上调一次 `.next()`（等 PipeWireStreamAdded）。zbus 自己就依赖它。
+futures-util = { version = "0.3", default-features = false }
+x11rb = { version = "0.13", features = ["xfixes"] }
+nix = { version = "0.30", features = ["poll"] }
+
+[target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
+xcap = "0.9"
+enigo = { version = "0.6", default-features = false }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3", default-features = false, features = ["libc", "NSRunningApplication", "NSWindow", "NSWorkspace"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+] }
+
+[patch.crates-io]
+libspa = { path = "vendor/libspa" }
+# X11 写完成屏障与有界 INCR 大图传输；补丁范围见 vendor/arboard/PATCHES.md。
+arboard = { path = "vendor/arboard" }
 
 [dev-dependencies]
 tempfile = "3"
+# 性能回归基线，只被 benches/ 使用；harness = false 让 criterion 自己管命令行。
+criterion = "0.8"
+
+[[bench]]
+name = "screenshot_bench"
+harness = false
+
+[[bench]]
+name = "clipboard_bench"
+harness = false
+
+[[bench]]
+name = "storage_bench"
+harness = false
+
+# 基准需要优化后的代码，但不需要 release 那套为发布体积服务的 lto = "fat" +
+# 单 codegen-unit（会让每次 cargo bench 的编译时间高到没人愿意跑）。
+# 因此基准数字用于版本间相对对比，不代表发布二进制的绝对性能。
+[profile.bench]
+lto = false
+codegen-units = 16
+
+# dev 也要能测出真实的快慢。这个项目里绝大多数问题都是"慢"或"糊"，而它们全都是在
+# `cargo tauri dev` 里被观察到的——opt-level = 0 下贴图清晰度补偿要 1.23 s
+# （release 0.25 s），于是"糊一下才变清"这种纯属 debug 构建的现象会被当成 bug 报上来，
+# 反过来真正的性能回归又淹在噪声里。opt-level = 1 把这条路拉回 0.20 s，
+# 代价只是增量编译 26 s → 29 s；`debug = true` 没动，panic 行号与回溯照旧。
+[profile.dev]
+opt-level = 1
+
+# 上面那档对纯计算够用了，但 PNG 编解码不到 opt-level = 3 就慢十几倍：
+# 截图链路的墙钟时间几乎全在它上面（release 下 1080p 约 77 ms，见 docs/bench-baseline.md），
+# dev 下 2560x1600 的冻结帧要编码一两秒，覆盖层首帧就得等这么久。
+[profile.dev.package.image]
+opt-level = 3
+[profile.dev.package.png]
+opt-level = 3
+[profile.dev.package.fdeflate]
+opt-level = 3
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+[profile.dev.package.flate2]
+opt-level = 3
+[profile.dev.package.crc32fast]
+opt-level = 3
 
 [profile.release]
-strip = true
-lto = "thin"
+strip = "symbols"
+lto = "fat"
 codegen-units = 1
+opt-level = "s"
+panic = "abort"

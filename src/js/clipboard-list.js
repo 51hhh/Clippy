@@ -1,5 +1,5 @@
 /**
- * clipboard-list.js — 剪贴板列表 + 行内 ⋯ 操作组 状态机
+ * clipboard-list.js — 剪贴板列表稳定 facade
  *
  * 状态：
  *   panelMode    : "all" | "favorites"
@@ -7,13 +7,27 @@
  *   focusedCol   : -1 | 0 | 1 | 2               -1=行体；0..2=按钮[Copy, Favorite, Delete]
  *   expandedRow  : null | rowId                 当前展开操作组的行 id
  *
+ * 数据加载与 IPC 动作留在 facade；导航状态和单行 DOM 委托给 clipboard/ 子模块。
  * 通过 telemetry 暴露关键事件用于测试与诊断。
  */
 
-import { getClips, deleteClip, toggleFavorite, selectClip, getClipImage } from "./api.js";
+import { getClips, deleteClip, toggleFavorite, selectClip, getClipThumbnail } from "./api.ts";
 import { t } from "../i18n/i18n.js";
 import * as telemetry from "./telemetry.js";
-import * as icons from "./icons.js";
+import {
+  collapseActions as collapseNavigationActions,
+  consumePointerMove,
+  createNavigationState,
+  expandActions as expandNavigationActions,
+  focusAction,
+  focusRowBody,
+  moveColumnFocus,
+  moveRowFocus,
+  normalizeAfterRefresh,
+  releaseNavigation,
+  resetForPanelChange,
+} from "./clipboard/navigation-state.js";
+import { createClipboardRow, syncClipboardRow } from "./clipboard/row-renderer.js";
 
 let _parent = null;
 let _emptyEl = null;
@@ -27,16 +41,14 @@ let _panelMode = "all";
 let _allClips = [];
 let _favClips = [];
 let _favDirty = true; // 收藏列表需要重新加载
-let _focusedRow = -1;
-let _focusedCol = -1;
-let _expandedRow = null;
+let _navigation = createNavigationState();
 let _dirty = false;
 const PAGE_SIZE = 30;
 let _hasMore = true;
 let _favHasMore = true;
 let _loading = false;
-let _keyboardNav = false; // 键盘导航中，鼠标悬浮不抢焦点
 const _thumbCache = new Map();
+const MAX_THUMB_CACHE = 50;
 export function init({ listEl, emptyEl, onCountsChange, onSummonSearch, onModeChange, onFocusChange }) {
   _parent = listEl;
   _emptyEl = emptyEl;
@@ -69,16 +81,12 @@ export async function refresh() {
   if (_panelMode === "favorites") {
     await _loadFavorites();
   }
-  // 焦点收敛：刷新后保持在合法范围；列表空则 -1
   const items = visibleItems();
-  if (items.length === 0) _focusedRow = -1;
-  else _focusedRow = Math.max(0, Math.min(_focusedRow, items.length - 1));
-  _focusedCol = -1;
-  _expandedRow = null;
+  _navigation = normalizeAfterRefresh(_navigation, items.length);
   render();
   emitCounts();
   // 通知预览面板
-  const focusedClip = items[_focusedRow] || null;
+  const focusedClip = items[_navigation.focusedRow] || null;
   _onFocusChange(focusedClip);
 }
 
@@ -91,16 +99,18 @@ export function getQuery() { return _query; }
 
 export function getFocusedClip() {
   const items = visibleItems();
-  return items[_focusedRow] || null;
+  return items[_navigation.focusedRow] || null;
+}
+
+export function getLatestClip() {
+  return _allClips[0] || null;
 }
 
 export async function setPanelMode(mode) {
   if (mode !== "all" && mode !== "favorites") return;
   if (_panelMode === mode) return;
   _panelMode = mode;
-  _focusedRow = 0;
-  _focusedCol = -1;
-  _expandedRow = null;
+  _navigation = resetForPanelChange(_navigation);
   // 切换淡入动画
   if (_parent) {
     _parent.classList.remove("switch-left", "switch-right");
@@ -120,9 +130,51 @@ export async function setPanelMode(mode) {
 export function getPanelMode() { return _panelMode; }
 
 export function prependClip(clip) {
+  // 焦点跟着**条目**走，不跟着索引走（与 react/main/clipboardStore.ts::prependClip 一致，
+  // 两处必须同时改，见 regression-guards.test.js）。原来这里是 `focusedRow + 1`，有两处会错：
+  //   1. 面板关着时 `releaseMemory` 清空列表、`releaseNavigation` 把 focusedRow 归位。那是
+  //      "没有焦点行"而不是"用户选中了第一行"，当成真焦点去 +1，重新打开面板焦点就停在
+  //      **第二行**，于是截图复制完按 Pin 贴出来的是上一张图。连截两张就掉到第三行。
+  //   2. 被 prepend 的条目本来就在列表里（同一张图再复制一次，`insert_clip` 按哈希去重、
+  //      只把它顶到最前）时列表长度不变，+1 纯属把焦点推歪。
+  // 按 id 找回原来那一行同时解决两者：真有焦点行就跟着它走（用户正看着的那行不该在眼皮下
+  // 换成别的内容），没有就落在最新一条上。
+  const previousFocusId = getFocusedClip()?.id ?? null;
+
+  // 重复内容再次复制时：后端已更新 created_at 置顶，前端需移除旧位置再插入头部
+  const existIdx = _allClips.findIndex((c) => c.id === clip.id);
+
+  if (existIdx !== -1) {
+    _allClips.splice(existIdx, 1);
+    // 同步更新收藏列表中的旧对象（保留收藏状态，刷新 created_at）
+    const favIdx = _favClips.findIndex((c) => c.id === clip.id);
+    if (favIdx !== -1) _favClips[favIdx] = clip;
+    if (clip.is_favorite) _favDirty = true;
+    // 移除旧 DOM 节点并重新编号
+    if (!_query && _panelMode === "all" && _parent) {
+      const oldEl = _parent.querySelector(`.clip-row[data-id="${clip.id}"]`);
+      if (oldEl) oldEl.remove();
+      let i = 0;
+      for (const row of _parent.children) {
+        row.dataset.idx = i++;
+      }
+    }
+  } else if (clip.is_favorite) {
+    _favDirty = true;
+  }
+
   _allClips.unshift(clip);
-  if (clip.is_favorite) _favDirty = true;
-  if (_focusedRow >= 0 && _panelMode === "all") _focusedRow += 1;
+
+  // 视图里的行序变了才需要重算焦点：收藏模式下 _allClips 的变化看不见
+  if (_panelMode === "all" || clip.is_favorite) {
+    const items = visibleItems();
+    const restored = previousFocusId === null
+      ? -1
+      : items.findIndex((c) => c.id === previousFocusId);
+    const focusedRow = restored >= 0 ? restored : (items.length ? 0 : -1);
+    _navigation = { ..._navigation, focusedRow };
+  }
+
   // 差量更新：若当前视图匹配（非搜索模式），直接 prepend DOM 节点
   if (!_query && _panelMode === "all" && _parent && _parent.children.length > 0) {
     // 更新现有行的 idx
@@ -134,7 +186,7 @@ export function prependClip(clip) {
     _parent.prepend(newRow);
     if (_emptyEl) _emptyEl.hidden = true;
     // 更新焦点
-    _updateFocusRow(_focusedRow);
+    _updateFocusRow(_navigation.focusedRow);
   } else {
     render();
   }
@@ -144,8 +196,10 @@ export function prependClip(clip) {
 export function removeClip(id) {
   _allClips = _allClips.filter((c) => c.id !== id);
   _favClips = _favClips.filter((c) => c.id !== id);
-  _expandedRow = null;
-  _focusedCol = -1;
+  _navigation = {
+    ...collapseNavigationActions(_navigation),
+    focusedCol: -1,
+  };
   // 差量更新：直接移除 DOM 节点
   if (!_query && _parent) {
     const el = _parent.querySelector(`.clip-row[data-id="${id}"]`);
@@ -159,12 +213,12 @@ export function removeClip(id) {
       // 修正焦点
       const items = visibleItems();
       if (items.length === 0) {
-        _focusedRow = -1;
+        _navigation = { ..._navigation, focusedRow: -1 };
         render(); // 显示空状态
         _onFocusChange(null);
       } else {
-        _focusedRow = Math.min(_focusedRow, items.length - 1);
-        _updateFocusRow(_focusedRow);
+        const focusedRow = Math.min(_navigation.focusedRow, items.length - 1);
+        _updateFocusRow(focusedRow);
       }
     }
   } else {
@@ -177,75 +231,53 @@ export function removeClip(id) {
 
 /** ↑↓/WS：竖直选行；当前在按钮列时仍按行体处理（先收回） */
 export function moveRow(delta) {
-  // 行体焦点在第 0 行，再 ↑ → 召唤搜索
   const items = visibleItems();
-  if (items.length === 0) return;
-  if (delta < 0 && _focusedRow === 0 && _focusedCol === -1) {
+  const transition = moveRowFocus(_navigation, delta, items.length);
+  if (transition.summonSearch) {
     _onSummonSearch("keyboard");
     return;
   }
-  // 标记键盘导航中，鼠标不抢焦点
-  _keyboardNav = true;
-  // 移动行：自动退出按钮区
-  _focusedCol = -1;
-  if (_expandedRow !== null) {
-    _updateExpanded(null);
-  }
-  const newRow = clamp(_focusedRow + delta, 0, items.length - 1);
-  _updateFocusRow(newRow);
-  telemetry.emit("clip-list:focus-row", { idx: _focusedRow, mode: _panelMode });
+  if (transition.nextState === _navigation) return;
+  _applyNavigation(transition.nextState, { syncRow: true, syncColumn: true, syncExpanded: true });
+  telemetry.emit("clip-list:focus-row", { idx: _navigation.focusedRow, mode: _panelMode });
 }
 
 /** ←→/AD：在行体焦点 → 切换 panelMode；在按钮焦点 → 按钮间移动 */
 export function moveCol(delta) {
   const items = visibleItems();
-  if (_focusedCol === -1) {
-    if (delta < 0 && _panelMode === "all") {
-      setPanelMode("favorites");
-    } else if (delta > 0 && _panelMode === "favorites") {
-      setPanelMode("all");
-    }
+  const transition = moveColumnFocus(_navigation, delta, items.length, _panelMode);
+  if (transition.requestedMode) {
+    setPanelMode(transition.requestedMode);
     return;
   }
-  if (items.length === 0) return;
-  // 按钮区：按钮间移动
-  // 收藏模式按钮在左侧，方向反转
-  const effectiveDelta = _panelMode === "favorites" ? -delta : delta;
-  const next = _focusedCol + effectiveDelta;
-  if (next < 0) {
-    _updateExpanded(null);
-    _focusedCol = -1;
-    return;
-  }
-  if (next > 2) return;
-  _updateFocusCol(next);
+  _applyNavigation(transition.nextState, { syncColumn: true, syncExpanded: true });
 }
 
 /** →/D 在行体上：展开按钮组并把焦点放到第 1 个按钮 */
 export function expandRowActions() {
   const items = visibleItems();
   if (items.length === 0) return;
-  const clip = items[_focusedRow];
+  const clip = items[_navigation.focusedRow];
   if (!clip) return;
-  _updateExpanded(clip.id);
-  _updateFocusCol(0);
-  telemetry.emit("clip-list:expand-actions", { idx: _focusedRow });
+  const nextState = expandNavigationActions(_navigation, clip.id);
+  _applyNavigation(nextState, { syncColumn: true, syncExpanded: true });
+  telemetry.emit("clip-list:expand-actions", { idx: _navigation.focusedRow });
 }
 
 /** Esc / 点 ⋯ / 行外：收回按钮组 */
 export function collapseActions() {
-  if (_expandedRow !== null) {
-    telemetry.emit("clip-list:collapse-actions", { id: _expandedRow });
+  if (_navigation.expandedRow !== null) {
+    telemetry.emit("clip-list:collapse-actions", { id: _navigation.expandedRow });
   }
-  _updateExpanded(null);
+  _applyNavigation(collapseNavigationActions(_navigation), { syncExpanded: true });
 }
 
 /** 当前焦点是否在行体且未展开（用于 → 键决定展开还是切 tab） */
 export function canExpandHere() {
-  return _focusedCol === -1 && _expandedRow === null;
+  return _navigation.focusedCol === -1 && _navigation.expandedRow === null;
 }
 
-export function hasExpanded() { return _expandedRow !== null; }
+export function hasExpanded() { return _navigation.expandedRow !== null; }
 
 export function releaseMemory() {
   _allClips = [];
@@ -253,9 +285,7 @@ export function releaseMemory() {
   _favDirty = true;
   _thumbCache.clear();
   _dirty = true; // 内存释放后，下次 focus 必须重新加载
-  _focusedRow = 0; // 下次打开时从第一项（最新）开始
-  _focusedCol = -1;
-  _expandedRow = null;
+  _navigation = releaseNavigation(_navigation);
   if (_parent) _parent.replaceChildren();
 }
 
@@ -268,9 +298,7 @@ export function isDirty() { return _dirty; }
 /** 恢复渲染（无数据变更时 focus 调用，重置焦点到第一行） */
 export function restoreRender() {
   if (_allClips.length > 0) {
-    _focusedRow = 0;
-    _focusedCol = -1;
-    _expandedRow = null;
+    _navigation = resetForPanelChange(_navigation);
     render();
     _onFocusChange(visibleItems()[0] || null);
   }
@@ -280,13 +308,23 @@ export function restoreRender() {
 export async function activateFocus(source = "keyboard") {
   const items = visibleItems();
   if (items.length === 0) return;
-  const clip = items[_focusedRow];
+  const clip = items[_navigation.focusedRow];
   if (!clip) return;
-  if (_focusedCol === -1) {
+  if (_navigation.focusedCol === -1) {
     return invokeAction(clip, "copy", source);
   }
-  const action = ["copy", "favorite", "delete"][_focusedCol];
+  const action = ["copy", "favorite", "delete"][_navigation.focusedCol];
   return invokeAction(clip, action, source);
+}
+
+/** 数字键直选：按索引选中条目并粘贴（0-based） */
+export async function selectByIndex(index) {
+  const items = visibleItems();
+  if (index < 0 || index >= items.length) return false;
+  const clip = items[index];
+  if (!clip) return false;
+  await invokeAction(clip, "copy", "number-key");
+  return true;
 }
 
 async function invokeAction(clip, action, source) {
@@ -314,8 +352,6 @@ function visibleItems() {
   if (_panelMode === "favorites") return _favClips;
   return _allClips;
 }
-
-function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
 /** 独立加载收藏列表 */
 async function _loadFavorites() {
@@ -369,57 +405,57 @@ function emitCounts() {
 
 // ── 差量 DOM 更新辅助 ───────────────────────────────────────
 
-/** 仅切换焦点行的 CSS class，不重建 DOM */
-function _updateFocusRow(newRow) {
+function _applyNavigation(nextState, {
+  syncRow = false,
+  syncColumn = false,
+  syncExpanded = false,
+  notifyFocus = syncRow,
+} = {}) {
+  const previousState = _navigation;
+  _navigation = nextState;
   if (!_parent) return;
-  const prev = _parent.querySelector(".clip-row.focused");
-  if (prev) {
-    prev.classList.remove("focused");
-    prev.setAttribute("aria-selected", "false");
+
+  if (syncExpanded && previousState.expandedRow !== nextState.expandedRow) {
+    const oldRow = _parent.querySelector(`.clip-row[data-id="${previousState.expandedRow}"]`);
+    if (oldRow) oldRow.classList.remove("expanded");
+    const newRow = _parent.querySelector(`.clip-row[data-id="${nextState.expandedRow}"]`);
+    if (newRow) newRow.classList.add("expanded");
   }
-  _focusedRow = newRow;
-  const next = _parent.querySelector(`.clip-row[data-idx="${newRow}"]`);
-  if (next) {
-    next.classList.add("focused");
-    next.setAttribute("aria-selected", "true");
-    if (typeof next.scrollIntoView === "function") {
-      next.scrollIntoView({ block: "nearest" });
+
+  if (syncRow) {
+    const previousRow = _parent.querySelector(".clip-row.focused");
+    if (previousRow) {
+      previousRow.classList.remove("focused");
+      previousRow.setAttribute("aria-selected", "false");
+    }
+    const focusedRow = _parent.querySelector(`.clip-row[data-idx="${nextState.focusedRow}"]`);
+    if (focusedRow) {
+      focusedRow.classList.add("focused");
+      focusedRow.setAttribute("aria-selected", "true");
+      if (typeof focusedRow.scrollIntoView === "function") {
+        focusedRow.scrollIntoView({ block: "nearest" });
+      }
     }
   }
-  // 通知预览面板焦点变化
-  const items = visibleItems();
-  _onFocusChange(items[newRow] || null);
-}
 
-/** 仅切换按钮焦点的 CSS class */
-function _updateFocusCol(newCol) {
-  if (!_parent) return;
-  // 移除旧按钮焦点
-  const prevBtn = _parent.querySelector(".clip-row-action.focused");
-  if (prevBtn) prevBtn.classList.remove("focused");
-  _focusedCol = newCol;
-  // 设置新按钮焦点
-  const row = _parent.querySelector(`.clip-row[data-idx="${_focusedRow}"]`);
-  if (row) {
-    const btns = row.querySelectorAll(".clip-row-action");
-    if (btns[newCol]) btns[newCol].classList.add("focused");
+  if (syncColumn) {
+    const previousButton = _parent.querySelector(".clip-row-action.focused");
+    if (previousButton) previousButton.classList.remove("focused");
+    const row = _parent.querySelector(`.clip-row[data-idx="${nextState.focusedRow}"]`);
+    const buttons = row?.querySelectorAll(".clip-row-action");
+    if (buttons?.[nextState.focusedCol]) buttons[nextState.focusedCol].classList.add("focused");
+  }
+
+  if (notifyFocus) {
+    _onFocusChange(visibleItems()[nextState.focusedRow] || null);
   }
 }
 
-/** 切换行的展开/收起状态 */
-function _updateExpanded(newExpandedId) {
-  if (!_parent) return;
-  // 收起旧的
-  if (_expandedRow !== null) {
-    const old = _parent.querySelector(`.clip-row[data-id="${_expandedRow}"]`);
-    if (old) old.classList.remove("expanded");
-  }
-  _expandedRow = newExpandedId;
-  // 展开新的
-  if (newExpandedId !== null) {
-    const el = _parent.querySelector(`.clip-row[data-id="${newExpandedId}"]`);
-    if (el) el.classList.add("expanded");
-  }
+function _updateFocusRow(focusedRow) {
+  _applyNavigation(
+    { ..._navigation, focusedRow },
+    { syncRow: true },
+  );
 }
 
 // ── 渲染 ─────────────────────────────────────────────────────
@@ -449,18 +485,7 @@ function render() {
 
   if (idsMatch) {
     existingRows.forEach((row, idx) => {
-      const clip = clips[idx];
-      row.classList.toggle("focused", idx === _focusedRow);
-      row.classList.toggle("expanded", _expandedRow === clip.id);
-      row.classList.toggle("favorite", !!clip.is_favorite);
-      const favBtn = row.querySelector('[data-action="favorite"]');
-      if (favBtn) {
-        favBtn.classList.toggle("is-favorite", !!clip.is_favorite);
-        const iconEl = favBtn.querySelector(".clip-row-action-icon");
-        if (iconEl) iconEl.innerHTML = clip.is_favorite ? icons.starFill : icons.star;
-        favBtn.setAttribute("aria-label", clip.is_favorite ? t("action.unfavorite") : t("action.favorite"));
-        favBtn.title = clip.is_favorite ? t("action.unfavorite") : t("action.favorite");
-      }
+      syncClipboardRow(row, clips[idx], idx, _navigation, _panelMode);
     });
   } else {
     _parent.replaceChildren();
@@ -477,189 +502,55 @@ function render() {
 }
 
 function buildRow(clip, idx) {
-  const row = document.createElement("article");
-  row.className = "clip-row";
-  if (idx === _focusedRow) row.classList.add("focused");
-  if (clip.is_favorite) row.classList.add("favorite");
-  if (_expandedRow === clip.id) row.classList.add("expanded");
-  if (_panelMode === "favorites") row.classList.add("favorites-mode");
-  row.dataset.idx = idx;
-  row.dataset.id = clip.id;
-  row.setAttribute("role", "option");
-  row.setAttribute("aria-selected", String(idx === _focusedRow));
-
-  // stripe + favorite 标记由 CSS 处理（::before）
-
-  const main = document.createElement("div");
-  main.className = "clip-row-main";
-
-  const preview = document.createElement("div");
-  preview.className = "clip-row-preview";
-
-  if (clip.content_type === "image") {
-    preview.classList.add("clip-row-preview--image");
-    const thumb = document.createElement("div");
-    thumb.className = "clip-row-thumb";
-    thumb.textContent = "🖼";
-    // 异步加载缩略图（带缓存）
-    const cached = _thumbCache.get(clip.id);
-    if (cached) {
-      const img = document.createElement("img");
-      img.src = `data:image/png;base64,${cached}`;
-      img.alt = "image";
-      img.className = "clip-row-thumb-img";
-      img.draggable = false;
-      thumb.textContent = "";
-      thumb.appendChild(img);
-    } else {
-      getClipImage(clip.id).then(base64 => {
-        if (base64) {
-          _thumbCache.set(clip.id, base64);
-          const img = document.createElement("img");
-          img.src = `data:image/png;base64,${base64}`;
-          img.alt = "image";
-          img.className = "clip-row-thumb-img";
-          img.draggable = false;
-          thumb.textContent = "";
-          thumb.appendChild(img);
-        }
-      }).catch(() => {});
-    }
-    preview.appendChild(thumb);
-  } else if (clip.content_type === "html") {
-    preview.textContent = (clip.text_content || t("preview.richText")).slice(0, 200);
-  } else {
-    preview.textContent = (clip.text_content || "").slice(0, 200);
-  }
-
-  const meta = document.createElement("div");
-  meta.className = "clip-row-meta";
-  meta.textContent = `${formatRelativeTime(clip.created_at)} · ${formatType(clip.content_type)} · ${fmtSize(clip.byte_size)}`;
-
-  main.append(preview, meta);
-
-  // 操作组（默认 collapsed）
-  const actions = document.createElement("div");
-  actions.className = "clip-row-actions";
-  const buttons = [
-    { key: "copy",     label: t("action.copy"),     icon: icons.copy },
-    { key: "favorite", label: clip.is_favorite ? t("action.unfavorite") : t("action.favorite"), icon: clip.is_favorite ? icons.starFill : icons.star },
-    { key: "delete",   label: t("action.delete"),   icon: icons.trash },
-  ];
-  buttons.forEach((b, btnIdx) => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "clip-row-action";
-    if (b.key === "favorite" && clip.is_favorite) btn.classList.add("is-favorite");
-    if (idx === _focusedRow && _focusedCol === btnIdx) btn.classList.add("focused");
-    btn.dataset.action = b.key;
-    btn.setAttribute("aria-label", b.label);
-    btn.title = b.label;
-
-    const icon = document.createElement("span");
-    icon.className = "clip-row-action-icon";
-    icon.innerHTML = b.icon;
-    btn.appendChild(icon);
-
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      _focusedRow = idx;
-      _focusedCol = btnIdx;
-      invokeAction(clip, b.key, "mouse");
-    });
-    actions.appendChild(btn);
+  return createClipboardRow({
+    clip,
+    index: idx,
+    navigation: _navigation,
+    panelMode: _panelMode,
+    thumbnailCache: _thumbCache,
+    maxThumbnailCache: MAX_THUMB_CACHE,
+    // 缩略图而不是原图：行里那格 48×48，取原图等于把几 MB 的 PNG 送进 webview
+    // 再全尺寸解码（后端 get_clip_thumbnail 已经缩到 128 px 并缓存）。
+    loadThumbnail: getClipThumbnail,
+    onAction: (targetClip, action, rowIndex, actionIndex) => {
+      const nextState = actionIndex === -1
+        ? focusRowBody(_navigation, rowIndex)
+        : focusAction(_navigation, rowIndex, actionIndex);
+      _applyNavigation(nextState, { syncRow: true, syncColumn: true });
+      invokeAction(targetClip, action, "mouse");
+    },
+    onToggleActions: (targetClip, rowIndex) => {
+      const wasExpanded = _navigation.expandedRow === targetClip.id;
+      _applyNavigation(
+        focusRowBody(_navigation, rowIndex),
+        { syncRow: true, syncColumn: true },
+      );
+      if (wasExpanded) collapseActions();
+      else expandRowActions();
+    },
+    onPointerFocus: (_targetClip, rowIndex) => {
+      const pointerTransition = consumePointerMove(_navigation);
+      _navigation = pointerTransition.nextState;
+      if (pointerTransition.ignore || rowIndex === _navigation.focusedRow) return;
+      _applyNavigation(
+        focusRowBody(_navigation, rowIndex),
+        { syncRow: true, syncColumn: true },
+      );
+    },
   });
-
-  // ⋯ 触发器
-  const trigger = document.createElement("button");
-  trigger.type = "button";
-  trigger.className = "clip-row-trigger";
-  trigger.setAttribute("aria-label", t("action.more"));
-  trigger.title = t("action.more");
-  trigger.innerHTML = icons.more;
-  trigger.addEventListener("click", (e) => {
-    e.stopPropagation();
-    _focusedRow = idx;
-    if (_expandedRow === clip.id) {
-      collapseActions();
-      _focusedCol = -1;
-    } else {
-      expandRowActions();
-    }
-  });
-
-  // 收藏模式：trigger + actions 在左侧
-  if (_panelMode === "favorites") {
-    row.append(trigger, actions, main);
-  } else {
-    row.append(main, actions, trigger);
-  }
-
-  // 行体点击 = copy（触发器与按钮已 stopPropagation）
-  row.addEventListener("click", () => {
-    _focusedRow = idx;
-    _focusedCol = -1;
-    invokeAction(clip, "copy", "mouse");
-  });
-  row.addEventListener("mousemove", () => {
-    // 键盘导航期间忽略鼠标悬浮（需要实际移动鼠标才激活）
-    if (_keyboardNav) {
-      _keyboardNav = false;
-      return;
-    }
-    if (idx !== _focusedRow) {
-      // 只切换 CSS class，不全量重建 DOM
-      const prev = _parent?.querySelector(".clip-row.focused");
-      if (prev) prev.classList.remove("focused");
-      row.classList.add("focused");
-      _focusedRow = idx;
-      _focusedCol = -1;
-      _onFocusChange(clip);
-    }
-  });
-
-  return row;
-}
-
-// ── 工具 ─────────────────────────────────────────────────────
-
-function fmtSize(bytes) {
-  if (bytes < 1024) return bytes + " B";
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
-}
-
-function formatType(type) {
-  if (!type) return "Text";
-  if (type === "text") return "Text";
-  if (type === "html") return "HTML";
-  if (type === "image") return "Image";
-  return type;
-}
-
-function formatRelativeTime(ts) {
-  const diff = Date.now() - ts * 1000;
-  const min = Math.floor(diff / 60000);
-  if (min < 1)  return t("time.justNow");
-  if (min < 60) return t("time.minutesAgo", { n: min });
-  const hr = Math.floor(min / 60);
-  if (hr < 24)  return t("time.hoursAgo", { n: hr });
-  const days = Math.floor(hr / 24);
-  if (days === 1) return t("time.yesterday");
-  return t("time.daysAgo", { n: days });
 }
 
 // ── 测试用辅助导出（不进生产文档但内部状态可观察） ──
 export const __test__ = {
   state: () => ({
     panelMode: _panelMode,
-    focusedRow: _focusedRow,
-    focusedCol: _focusedCol,
-    expandedRow: _expandedRow,
+    focusedRow: _navigation.focusedRow,
+    focusedCol: _navigation.focusedCol,
+    expandedRow: _navigation.expandedRow,
   }),
   reset() {
     _query = ""; _panelMode = "all"; _allClips = []; _favClips = []; _favDirty = true;
     _hasMore = true; _favHasMore = true; _thumbCache.clear();
-    _focusedRow = -1; _focusedCol = -1; _expandedRow = null;
+    _navigation = createNavigationState();
   },
 };

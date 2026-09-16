@@ -1,0 +1,640 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+  font-family: Inter, system-ui, sans-serif;
+  user-select: none;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+/* 兜底：万一某次划选还是漏了过去，也不要在贴图上刷出一整块系统强调色
+   （Ubuntu 的强调色是橙色，那看着完全像"图片被选中了"）。文本贴图的 <pre>
+   在下面单独恢复正常的选中高亮。 */
+.pin-root ::selection {
+  background: transparent;
+}
+
+.pin-media pre::selection {
+  background: rgba(96, 165, 250, 0.38);
+}
+
+.pin-root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  outline: none;
+  cursor: grab;
+  transition: opacity 120ms ease;
+}
+
+.pin-root:active:not(.locked) {
+  cursor: grabbing;
+}
+
+.pin-root.locked {
+  cursor: default;
+}
+
+/* 四个 inset 与 `pin/window.rs` 的三个 gutter 是一份契约：
+   12 = SHADOW_GUTTER，56 = 12 + CONTROLS_GUTTER(44)，60 = 12 + TOOLBAR_GUTTER(48)。
+   于是内容区尺寸恰好等于窗口外框减去边距，也就是 `内容尺寸 × scale`。
+
+   图片贴图另外由 `App.tsx` 加一对 `max-width` / `max-height`（= 内容尺寸 × scale）：
+   矮贴图的窗口有高度下限（工具条要放得下），多出来的高度必须留在右下当透明留白，
+   不能把图片挤到框中间去。left/top 是锚点，over-constrained 时浏览器忽略的是
+   right/bottom，正好是想要的效果。 */
+.pin-media {
+  position: absolute;
+  inset: 12px 56px 60px 12px;
+  overflow: hidden;
+}
+
+/* 贴图的外围边框。
+   截图里选中窗口的样式是 `border + 半透明蓝底`（overlay.css 的 `.window-preview`），
+   这里**只要那圈边、不要那层底**：贴图给出的是图片本身，蒙一层蓝会改变用户看到的颜色。
+
+   用 `outline` 而不是 `border`：border 参与盒模型，会把 12px 的内容区往里挤一圈，
+   而内容区尺寸正是"贴回原尺寸"的依据（见 `pin/window.rs` 的 SHADOW_GUTTER 契约）。
+   outline 画在盒子外面，一个像素都不动内容。2px 的线正好落在那 12px 阴影留白里。 */
+.pin-media.image {
+  outline: 2px solid rgba(47, 140, 255, 0.9);
+  filter: drop-shadow(0 5px 12px rgba(0, 0, 0, 0.34));
+}
+
+/* 想再 pin 同一张图时闪这圈边提醒用户"它已经在这儿了"。
+   闪的是 outline 的颜色而不是 opacity：整块闪会让图片本身跟着忽明忽暗。 */
+.pin-media.image.reminding {
+  animation: pin-remind 1.1s ease-in-out;
+}
+
+@keyframes pin-remind {
+  0%,
+  100% {
+    outline-color: rgba(47, 140, 255, 0.9);
+    outline-width: 2px;
+  }
+  15%,
+  55% {
+    outline-color: rgba(120, 190, 255, 1);
+    outline-width: 4px;
+  }
+  35%,
+  75% {
+    outline-color: rgba(47, 140, 255, 0.35);
+    outline-width: 2px;
+  }
+}
+
+/* 用户在系统里关了动画就不要闪，静态加粗一下代替。 */
+@media (prefers-reduced-motion: reduce) {
+  .pin-media.image.reminding {
+    animation: none;
+    outline-width: 4px;
+    outline-color: rgba(120, 190, 255, 1);
+  }
+}
+
+.pin-media img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  /* 图片默认可以被拖走（拖成文件/链接），拖到一半会先把它刷成选中态。
+     窗口本身要靠拖动移动，这两件事必须分开：拖动搬窗口，绝不选中内容。 */
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+.pin-media.text {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  background: rgba(24, 26, 30, 0.94);
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.32);
+}
+
+.pin-media pre {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  color: #f3f4f6;
+  font: 13px/1.55 "JetBrains Mono", "Cascadia Code", monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* 落点由 JS 算（`shared/toolbarPlacement.ts`）并写成 inline 的 left/top：
+   以前这里是 `inset: 8px 6px auto auto`，也就是死钉在窗口右上角——贴图贴在屏幕
+   右边缘时工具条就在屏幕外面，一个按钮都点不到。现在优先贴在内容区右侧，
+   放不下翻到左侧，两边都放不下才压进内容里（`.inside`）。 */
+.pin-controls {
+  position: absolute;
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+/* 压在图上时给一层更实的背板：透过按钮看到图片会让两者都难认。 */
+.pin-controls.inside .pin-tools-vertical {
+  background: rgba(18, 20, 24, 0.97);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+
+/* 拖动把手。它是 <button> 而不是 <div>：键盘能聚焦到、读屏能读出来，
+   而拖动本身走 pointer 事件。 */
+.pin-tool-grip {
+  display: grid;
+  width: 28px;
+  height: 16px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #6b7280;
+  cursor: move;
+  touch-action: none;
+}
+
+.pin-tool-grip:hover,
+.pin-tool-grip:focus-visible {
+  outline: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: #d1d5db;
+}
+
+.pin-root:hover .pin-controls,
+.pin-root:focus-within .pin-controls {
+  opacity: 1;
+}
+
+/* 画布开着的时候工具条必须一直可见：用户正在画，不能因为指针移到图上就淡出。 */
+.pin-root.drawing .pin-controls {
+  opacity: 1;
+}
+
+.pin-tools-vertical {
+  display: flex;
+  width: 38px;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: rgba(25, 27, 31, 0.94);
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.36);
+}
+
+.pin-tool-button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #e5e7eb;
+  cursor: pointer;
+}
+
+.pin-tool-button:hover,
+.pin-tool-button:focus-visible {
+  outline: none;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+/* 开关类按钮（图钉、锁）的按下态。工具条只在悬停时出现，所以状态必须一眼看得出来，
+   不能只靠图标换形状。 */
+.pin-tool-button.active {
+  background: rgba(96, 165, 250, 0.26);
+  color: #bfdbfe;
+}
+
+.pin-tool-button.active:hover {
+  background: rgba(96, 165, 250, 0.36);
+  color: #fff;
+}
+
+.pin-scale {
+  width: 28px;
+  color: #9ca3af;
+  font-size: 9px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.pin-tool-separator {
+  width: 22px;
+  height: 1px;
+  margin: 2px 0;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* 宽度跟着窗口收：小贴图的窗口可能只有一百多像素宽（内容 60 px 时外框才 128 px），
+   写死 150 px 会把滑块推出窗口右边，用户拖不到。`min()` 让它在窄窗口里自己变窄，
+   宽窗口里仍是 150 px。 */
+.pin-opacity-popover {
+  position: absolute;
+  top: 120px;
+  right: 42px;
+  display: flex;
+  width: min(150px, calc(100vw - 54px));
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: rgba(25, 27, 31, 0.96);
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.36);
+  color: #f3f4f6;
+}
+
+.pin-opacity-popover input {
+  min-width: 0;
+  flex: 1;
+}
+
+.pin-opacity-popover output {
+  width: 34px;
+  font-size: 11px;
+  text-align: right;
+}
+
+/* 画布：盖在图片上，尺寸与内容区一致。`touch-action: none` 让触控板/触屏的拖动
+   落成 pointer 事件而不是滚动手势。 */
+.pin-canvas {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  cursor: crosshair;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.pin-canvas.editing {
+  pointer-events: auto;
+}
+
+.pin-privacy-warning {
+  max-width: 360px;
+  color: #fbbf24;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+/* 画布工具条。横排、两三行，落点由 JS 算（外围优先，见 `shared/toolbarPlacement.ts`）。 */
+.pin-canvas-toolbar {
+  position: absolute;
+  z-index: 11;
+  display: flex;
+  max-width: calc(100vw - 16px);
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 7px;
+  background: rgba(18, 20, 24, 0.96);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  cursor: default;
+}
+
+.pin-canvas-toolbar.inside {
+  background: rgba(18, 20, 24, 0.99);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.58);
+}
+
+.pin-canvas-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.pin-canvas-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.pin-canvas-toolbar button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #e5e7eb;
+  cursor: pointer;
+}
+
+.pin-canvas-toolbar button:hover:not(:disabled),
+.pin-canvas-toolbar button:focus-visible {
+  outline: none;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.pin-canvas-toolbar button.active {
+  background: rgba(96, 165, 250, 0.28);
+  color: #fff;
+}
+
+.pin-canvas-toolbar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pin-canvas-grip {
+  cursor: move;
+  color: #6b7280;
+  touch-action: none;
+}
+
+.pin-canvas-separator {
+  width: 1px;
+  height: 18px;
+  margin: 0 3px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.pin-canvas-colors {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.pin-canvas-toolbar button.pin-canvas-swatch {
+  width: 16px;
+  height: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 50%;
+}
+
+.pin-canvas-toolbar button.pin-canvas-swatch.active {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px rgba(47, 140, 255, 0.55);
+}
+
+.pin-canvas-stroke,
+.pin-canvas-text {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: #cbd5e1;
+  font-size: 11px;
+}
+
+.pin-canvas-stroke input[type="range"] {
+  width: 72px;
+  min-width: 0;
+}
+
+.pin-canvas-text input {
+  width: 150px;
+  height: 24px;
+  min-width: 0;
+  padding: 0 6px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #f3f4f6;
+}
+
+.pin-canvas-text input:focus-visible {
+  outline: none;
+  border-color: #5ca5ff;
+}
+
+/* 右键菜单。落点钳进视口——贴图窗口很小而且无边框，溢出去的部分会被直接裁掉。 */
+.pin-context-menu {
+  position: absolute;
+  z-index: 20;
+  display: flex;
+  min-width: 168px;
+  flex-direction: column;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: rgba(22, 24, 28, 0.98);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+}
+
+.pin-context-menu button {
+  display: flex;
+  height: 28px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #e5e7eb;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pin-context-menu button:hover,
+.pin-context-menu button:focus-visible {
+  outline: none;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.pin-context-menu button.danger:hover,
+.pin-context-menu button.danger:focus-visible {
+  background: rgba(220, 60, 60, 0.28);
+}
+
+.pin-context-check {
+  width: 14px;
+  flex-shrink: 0;
+  color: #7dd3fc;
+  text-align: center;
+}
+
+/* 共享保存弹窗：窄窗口保持完整按钮，短窗口只滚动说明与隐私内容。 */
+.pin-workspace { display: contents; }
+/* 独立的尺寸容器按实际 Pin 大小选择布局，不依赖宿主浏览器的 viewport。 */
+.pin-dialog-viewport {
+  position: absolute;
+  z-index: 30;
+  inset: 0;
+  container: pin-dialog-viewport / size;
+}
+.pin-dialog-backdrop {
+  --dialog-bg: var(--surface-elevated, #1c2029);
+  --dialog-fg: var(--text-primary, #f4f6fb);
+  --dialog-muted: var(--text-secondary, #b7c0d0);
+  --dialog-border: var(--control-border, rgba(255, 255, 255, .13));
+  position: absolute;
+  z-index: 30;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  overflow: auto;
+  background: rgba(7, 10, 16, .68);
+  cursor: default;
+}
+.pin-close-prompt {
+  width: min(100%, 360px);
+  min-width: 0;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+  padding: 14px;
+  border: 1px solid var(--dialog-border);
+  border-radius: 12px;
+  background: var(--dialog-bg);
+  color: var(--dialog-fg);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, .3);
+  font-size: 12px;
+  line-height: 1.55;
+  text-align: left;
+  word-break: normal;
+  outline: none;
+}
+.pin-close-prompt h2 { flex: 0 0 auto; margin: 0; font-size: 17px; font-weight: 650; line-height: 1.35; }
+.pin-dialog-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 10px; }
+.pin-dialog-body:focus-visible { outline: 2px solid var(--accent, #75b5ff); outline-offset: 2px; }
+.pin-dialog-body > p { flex: 0 0 auto; }
+.pin-close-prompt p { margin: 0; color: var(--dialog-muted); }
+.pin-close-prompt .pin-dialog-error { flex: 0 0 auto; color: var(--danger, #f39c9c); }
+.pin-close-prompt .pin-privacy-warning { padding: 10px 12px; border-radius: 7px; background: rgba(128, 143, 168, .1); font-size: 11px; }
+.pin-close-actions { flex: 0 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(56px, auto); gap: 8px; margin-top: 3px; }
+.pin-close-actions button,
+.pin-dialog-alternative {
+  min-width: 0;
+  min-height: 36px;
+  flex-shrink: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--dialog-border);
+  border-radius: 7px;
+  background: rgba(128, 143, 168, .1);
+  color: var(--dialog-fg);
+  font: inherit;
+  line-height: 1.4;
+  white-space: normal;
+  word-break: keep-all;
+  cursor: pointer;
+}
+.pin-close-actions button:hover { background: rgba(128, 143, 168, .2); }
+.pin-close-actions button.primary { border-color: var(--accent, #428be0); background: var(--accent, #2568bb); color: var(--text-on-accent, #fff); font-weight: 600; }
+.pin-close-actions button.primary:hover { background: var(--accent-hover, #3078ce); }
+.pin-dialog-alternative { flex: 0 0 auto; border: 0; background: transparent; color: var(--dialog-muted); text-align: center; }
+.pin-dialog-alternative.destructive { color: var(--danger, #f39c9c); }
+.pin-dialog-alternative:hover { background: rgba(128, 143, 168, .1); }
+.pin-close-prompt button:focus-visible { outline: 2px solid var(--accent, #75b5ff); outline-offset: 2px; }
+.pin-close-prompt button:disabled { opacity: .5; cursor: wait; }
+
+/* 窄 Pin 使用接近整窗的 sheet；保持字号和点击尺寸，三个动作清楚纵排。 */
+@container pin-dialog-viewport (max-width: 340px) {
+  .pin-dialog-backdrop { padding: 6px; }
+  .pin-close-prompt { width: 100%; padding: 12px; gap: 8px; border-radius: 10px; }
+  .pin-close-actions { grid-template-columns: minmax(0, 1fr); gap: 6px; margin-top: 0; }
+}
+@container pin-dialog-viewport (max-width: 340px) and (max-height: 280px) {
+  .pin-close-prompt { height: 100%; }
+  .pin-dialog-body { flex: 1 1 auto; }
+}
+
+
+.pin-error,
+.pin-toast {
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: rgba(25, 27, 31, 0.94);
+  font-size: 12px;
+}
+
+.pin-error {
+  width: 100%;
+  height: 100%;
+}
+
+.pin-toast {
+  position: absolute;
+  right: 56px;
+  bottom: 16px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 4px;
+}
+
+.pin-media.color {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  background: rgba(24, 26, 30, 0.94);
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.32);
+}
+
+.pin-color {
+  display: grid;
+  grid-template-columns: minmax(96px, 1fr) minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  padding: 14px;
+  gap: 14px;
+  color: #f3f4f6;
+}
+
+/* 棋盘格完全由固定 CSS 生成；唯一的动态颜色来自已验证的 canonical。 */
+.pin-color-swatch {
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 4px;
+  background-image:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.16) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(255, 255, 255, 0.16) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.16) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.16) 75%);
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  background-size: 16px 16px;
+  background-color: #fff;
+}
+
+.pin-color-values {
+  min-width: 0;
+  margin: 0;
+  align-self: center;
+}
+
+.pin-color-values div + div {
+  margin-top: 12px;
+}
+
+.pin-color-values dt {
+  color: rgba(243, 244, 246, 0.64);
+  font-size: 12px;
+}
+
+.pin-color-values dd {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+  user-select: text;
+}

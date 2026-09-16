@@ -1,153 +1,123 @@
+mod app;
+mod app_update;
+pub mod bench_support;
+mod capture;
 mod clipboard_watcher;
+mod code_detection;
 mod commands;
 mod config;
+#[cfg(target_os = "linux")]
+mod dbus;
+mod dialogs;
+mod error;
+#[cfg(target_os = "linux")]
 mod gsettings_shortcuts;
+mod i18n;
+mod image_io;
 mod models;
+mod ocr;
+mod paste;
+mod pin;
+mod pin_window;
+mod platform;
+#[cfg(target_os = "linux")]
+mod portal_shortcuts;
+mod private_files;
+mod screenshot;
+mod shortcut_conflict;
 mod storage;
+mod translation;
 mod tray_icon;
+mod viewer;
+mod webview_hardening;
+mod window_controller;
 
 use commands::AppState;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex};
-use tauri::{Emitter, Listener, Manager};
-use tauri_plugin_autostart::ManagerExt;
-use tauri_plugin_global_shortcut::GlobalShortcutExt;
+use tauri::Manager;
+use tauri_plugin_global_shortcut::ShortcutState;
 
-/// 当前可执行文件是否位于 cargo target 产物目录（开发期产物，不应被自启）
+pub(crate) use app::shortcuts::register_tauri_shortcuts;
+#[cfg(target_os = "linux")]
+pub(crate) use app::shortcuts::{record_register_result, toggle_main_window};
+
+/// 命令行截图诊断：`clippy --capture-diagnose` / `--emit-test-case` /
+/// `CLIPPY_CAPTURE_DIAGNOSE=1`。返回 `Some(退出码)` 表示这次启动只做诊断。
 ///
-/// 防止开发者在 `cargo tauri dev` 状态下点了"开机自启"toggle，把 dev 路径
-/// 写入 ~/.config/autostart/Clippy.desktop —— 那是 v0.1.6 幽灵进程问题的源头之一。
-fn is_dev_binary() -> bool {
-    match std::env::current_exe() {
-        Ok(p) => {
-            let s = p.to_string_lossy();
-            s.contains("/target/debug/") || s.contains("/target/release/")
-        }
-        Err(_) => false,
-    }
-}
-
-/// 已有实例运行时的回调：聚焦主窗口
-fn on_second_instance(app: &tauri::AppHandle, _args: Vec<String>, _cwd: String) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
-}
-
-/// 构建系统托盘：左键点击弹出菜单，包含 Open Clipboard / Settings / Quit
-fn build_tray(app: &tauri::App, theme: &str) -> Result<(), Box<dyn std::error::Error>> {
-    use tauri::menu::{Menu, MenuItem};
-    use tauri::tray::TrayIconBuilder;
-
-    let open_item = MenuItem::with_id(app, "open_clipboard", "Open Clipboard", true, None::<&str>)?;
-    let settings_item = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
-    let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-
-    let menu = Menu::with_items(app, &[&open_item, &settings_item, &quit_item])?;
-
-    // 优先使用按主题渲染的图标；失败回退到默认窗口图标
-    let icon = tray_icon::render_themed_tray_icon(theme)
-        .unwrap_or_else(|| app.default_window_icon().expect("缺少默认窗口图标").clone());
-
-    TrayIconBuilder::with_id("main")
-        .icon(icon)
-        .menu(&menu)
-        .show_menu_on_left_click(true)
-        .tooltip("Clippy")
-        .on_menu_event(|app_handle, event| match event.id.as_ref() {
-            "open_clipboard" => {
-                if let Some(window) = app_handle.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-            }
-            "settings" => {
-                // 打开或聚焦设置窗口（先销毁再重建，确保加载最新页面）
-                if let Some(window) = app_handle.get_webview_window("settings") {
-                    let _ = window.close();
-                }
-                let _ = tauri::WebviewWindowBuilder::new(
-                    app_handle,
-                    "settings",
-                    tauri::WebviewUrl::App("settings.html".into()),
-                )
-                .title("Clippy Settings")
-                .inner_size(720.0, 560.0)
-                .min_inner_size(480.0, 400.0)
-                .center()
-                .resizable(true)
-                .build();
-            }
-            "quit" => {
-                app_handle.exit(0);
-            }
-            _ => {}
-        })
-        .build(app)?;
-
-    Ok(())
-}
-
-/// 全局快捷键回调：切换主窗口可见性。被 plugin 全局 handler 调用。
-fn toggle_main_window(handle: &tauri::AppHandle) {
-    log::info!("全局快捷键触发 toggle_main_window");
-    if let Some(window) = handle.get_webview_window("main") {
-        if window.is_visible().unwrap_or(false) {
-            let _ = window.hide();
-        } else {
-            let _ = window.show();
-            let _ = window.set_focus();
-        }
-    } else {
-        log::warn!("找不到 main 窗口");
-    }
-}
-
-/// 注册全局快捷键：仅 register accelerator，回调由全局 handler 统一处理
-fn register_shortcut(app: &tauri::App, shortcut: &str) -> Result<(), Box<dyn std::error::Error>> {
-    log::info!("注册全局快捷键: {}", shortcut);
-    app.global_shortcut().register(shortcut)?;
-    log::info!("全局快捷键注册成功: {}", shortcut);
-    Ok(())
+/// **必须在 [`run`] 之前调用**：诊断全程是阻塞 D-Bus，且不该拉起窗口，
+/// 更不该撞上 single-instance 的 name 抢占把用户正在用的实例顶掉。
+pub fn capture_diagnostics_cli() -> Option<i32> {
+    let args: Vec<String> = std::env::args().collect();
+    let env_flag = std::env::var(capture::diagnostics::DIAGNOSE_ENV).ok();
+    let mode = capture::diagnostics::cli_mode(&args, env_flag.as_deref())?;
+    let note = capture::diagnostics::cli_note(&args);
+    // 采集过程里的 `log::warn!`（枚举失败、扩展不应答）本身就是诊断信息，得让它出现在
+    // 终端里。这条路一定以 `exit` 结束，所以不会和 `run()` 里那次 init 撞上。
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("clippy_lib=info"))
+        .init();
+    Some(capture::diagnostics::run_cli(
+        mode,
+        env!("CARGO_PKG_VERSION"),
+        note,
+    ))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    env_logger::init();
+    // env_logger 默认只放行 error，于是所有 `log::warn!`/`log::info!` 都是写给空气的——
+    // "覆盖层超时未报告首帧""扩展未应答"这些排障线索一条都看不到。自己的 crate 默认放到
+    // info，其余依赖留在 warn；`RUST_LOG` 仍然优先，需要更细的时候照常覆盖。
+    env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("clippy_lib=info,warn"),
+    )
+    .init();
 
     tauri::Builder::default()
+        .manage(Arc::new(app_update::AppUpdater::new()))
+        // 冻结帧走 WebKit 原生资源管线，避免 16–33 MB RGBA 穿过 JS invoke 桥；
+        // `get_capture_frame` 仍作为协议加载失败时的兼容兜底。
+        .register_uri_scheme_protocol("capture-frame", capture::frame_protocol)
+        // 贴图 PNG 也走 WebKit 原生资源管线，避免 4K 图在 Rust/JSON/JS/Blob 间产生
+        // 多份瞬时副本。协议按 WebView label 隔离，补偿图用版本化 URL 二次换入。
+        .register_uri_scheme_protocol("pin-frame", pin::frame_protocol::handle)
+        .register_uri_scheme_protocol("viewer-frame", viewer::frame_protocol::handle)
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
-            on_second_instance(app, args, cwd);
+            app::shortcuts::on_second_instance(app, args, cwd);
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // 关掉 WebKit 自带的右键菜单与开发者工具。注册成插件是为了覆盖**每一个** webview，
+        // 包括按需创建的设置窗口与贴图窗口（见 `webview_hardening`）。
+        .plugin(webview_hardening::plugin())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
-                    use tauri_plugin_global_shortcut::ShortcutState;
                     if event.state != ShortcutState::Pressed {
                         return;
                     }
-                    toggle_main_window(app);
+                    app::shortcuts::handle_registered(app, _shortcut);
                 })
                 .build(),
         )
         .setup(|app| {
-            // ── 0. 自启路径合法性守护 ────────────────────────────────────────
-            // 若开发期 dev 二进制被错误地写入 autostart（v0.1.6 幽灵进程根因之一），
-            // 立即注销 autostart 并退出，避免抢占 D-Bus name 阻塞正常安装版启动。
-            if is_dev_binary() {
-                let autostart = app.autolaunch();
-                if matches!(autostart.is_enabled(), Ok(true)) {
-                    log::warn!("检测到 dev 二进制被加入开机自启，自动注销以避免幽灵进程");
-                    let _ = autostart.disable();
-                }
-            }
+            app::startup::guard_dev_autostart(app);
 
             // ── 1. 确定数据目录 ──────────────────────────────────────────────
             let app_data_dir = app.path().app_data_dir().expect("无法获取应用数据目录");
             std::fs::create_dir_all(&app_data_dir).expect("无法创建应用数据目录");
+            let picture_dir = app
+                .path()
+                .picture_dir()
+                .map_err(|error| {
+                    log::warn!("无法获取系统图片目录，退回应用数据目录: {error}");
+                    error
+                })
+                .ok();
+            let default_screenshot_dir =
+                image_io::system_screenshot_dir(picture_dir.as_deref(), &app_data_dir);
 
             // ── 2. 加载配置 ──────────────────────────────────────────────────
             let config_path = app_data_dir.join("config.json");
@@ -164,6 +134,19 @@ pub fn run() {
 
             let storage = Arc::new(Mutex::new(storage));
             let config = Arc::new(Mutex::new(app_config.clone()));
+            let paste_manager = Arc::new(paste::PasteManager::new(&app_data_dir));
+            let pin_manager = Arc::new(pin::PinManager::new());
+            let capture_manager = Arc::new(capture::CaptureManager::new());
+            let capture_mode_gate = Arc::new(capture::CaptureModeGate::new());
+            let longshot_lifecycle = Arc::new(capture::LongshotLifecycle::default());
+            let longshot_windows = Arc::new(capture::LongshotControllerRegistry::new());
+            let translation = Arc::new(translation::TranslationService::new());
+            #[cfg(target_os = "linux")]
+            let portal_shortcuts = platform::uses_portal_shortcuts().then(|| {
+                Arc::new(portal_shortcuts::PortalShortcutManager::new(
+                    app.handle().clone(),
+                ))
+            });
 
             // ── 4. 启动剪贴板监听器 ──────────────────────────────────────────
             let watcher = clipboard_watcher::ClipboardWatcher::new();
@@ -173,59 +156,78 @@ pub fn run() {
                 Arc::clone(&config),
             );
 
+            // ── 4b. 若 tmux 捕获已启用，配置 hook ────────────────────────────
+            #[cfg(target_os = "linux")]
+            if app_config.tmux_capture {
+                if let Err(e) = commands::setup_tmux_hook() {
+                    log::warn!("tmux hook 配置失败（可能 tmux 未运行）: {}", e);
+                }
+            }
+
             // ── 5. 注册全局状态 ──────────────────────────────────────────────
             app.manage(AppState {
+                viewer_manager: Arc::new(viewer::ViewerManager::default()),
+                viewer_transition: Mutex::new(()),
                 storage,
                 config,
                 config_path,
+                default_screenshot_dir,
                 watcher,
                 preview_visible: Arc::new(Mutex::new(false)),
+                codec_visible: Arc::new(Mutex::new(false)),
+                main_window_transition: Mutex::new(()),
+                pin_transition: Mutex::new(()),
+                main_window_position_pending: Mutex::new(None),
+                main_window_position_generation: AtomicU64::new(0),
+                main_window_position_worker_scheduled: AtomicBool::new(false),
+                capture_manager,
+                capture_mode_gate,
+                longshot_lifecycle,
+                longshot_windows,
+                pin_manager,
+                pin_origins: Arc::new(pin::PinOriginRegistry::default()),
+                paste_manager,
+                translation,
+                shortcuts_paused: AtomicBool::new(false),
+                settings_close_pending: AtomicBool::new(false),
+                shortcut_transition: Mutex::new(()),
+                #[cfg(target_os = "linux")]
+                portal_shortcuts: portal_shortcuts.clone(),
+                shortcut_failures: Mutex::new(Vec::new()),
             });
 
-            // ── 6. 构建系统托盘 ──────────────────────────────────────────────
-            build_tray(app, &app_config.theme).expect("无法构建系统托盘");
-
-            // ── 6b. 监听 config-changed，主题变更时刷新托盘图标 ──────────────
-            let handle = app.handle().clone();
-            app.listen("config-changed", move |event| {
-                #[derive(serde::Deserialize)]
-                struct Payload {
-                    theme: String,
-                }
-                let theme = match serde_json::from_str::<Payload>(event.payload()) {
-                    Ok(p) => p.theme,
-                    Err(e) => {
-                        log::warn!("config-changed payload 解析失败: {}", e);
-                        return;
-                    }
-                };
-                let Some(tray) = handle.tray_by_id("main") else {
-                    log::warn!("找不到托盘 id=main，跳过主题刷新");
-                    return;
-                };
-                match tray_icon::render_themed_tray_icon(&theme) {
-                    Some(icon) => {
-                        if let Err(e) = tray.set_icon(Some(icon)) {
-                            log::warn!("托盘图标刷新失败: {}", e);
-                        }
-                    }
-                    None => {
-                        log::warn!("托盘图标渲染失败 (theme={}), 保持当前图标", theme);
-                        // emit 事件通知前端（可选：前端显示 toast）
-                        let _ = handle.emit("tray-icon-render-failed", theme);
-                    }
-                }
-            });
+            // ── 6. 构建托盘并监听主题/语言变化 ────────────────────────────
+            let tray_items = app::tray::build(app, &app_config).expect("无法构建系统托盘");
+            app::tray::listen_for_config_changes(app, tray_items);
 
             // ── 7. 注册全局快捷键（从配置读取）────────────────────────────────
-            if gsettings_shortcuts::is_wayland() {
-                log::info!("检测到 Wayland 会话，使用 gsettings 自定义快捷键 + D-Bus");
-                // 注册 gsettings 自定义快捷键
-                if let Err(e) = gsettings_shortcuts::register(&app_config.global_shortcut) {
-                    log::warn!("gsettings 快捷键注册失败: {}", e);
-                    use tauri::Emitter;
-                    let _ = app.emit("shortcut-register-failed", &app_config.global_shortcut);
-                }
+            #[cfg(target_os = "linux")]
+            if platform::uses_gnome_shortcuts() {
+                log::info!("检测到 GNOME Wayland 会话，使用 gsettings 自定义快捷键 + D-Bus");
+                record_register_result(
+                    app.handle(),
+                    &["global"],
+                    &app_config.global_shortcut,
+                    platform::DesktopSession::Wayland,
+                    gsettings_shortcuts::register(&app_config.global_shortcut),
+                );
+                record_register_result(
+                    app.handle(),
+                    &["pin"],
+                    &app_config.pin_shortcut,
+                    platform::DesktopSession::Wayland,
+                    gsettings_shortcuts::register_pin(&app_config.pin_shortcut),
+                );
+                record_register_result(
+                    app.handle(),
+                    &["capture"],
+                    &app_config.capture_shortcut,
+                    platform::DesktopSession::Wayland,
+                    gsettings_shortcuts::register_capture(&app_config.capture_shortcut),
+                );
+                // 用户装过窗口速选扩展的话，顺手做一次内容对齐与孤儿清理；
+                // 没装过就什么都不做——绝不擅自往用户的 GNOME 里塞扩展。
+                capture::reconcile_window_probe_extension();
                 // 启动 D-Bus 服务接收 Toggle 调用 —— name 抢占必须成功，
                 // 否则当前进程是"幽灵副本"，立即退出让 single-instance 自动清理。
                 let handle = app.handle().clone();
@@ -253,66 +255,143 @@ pub fn run() {
                         return Ok(());
                     }
                 }
+            } else if platform::uses_portal_shortcuts() {
+                log::info!("检测到非 GNOME Wayland 会话，使用 GlobalShortcuts Portal");
+                if let Some(manager) = portal_shortcuts.as_ref() {
+                    if let Err(error) = manager.activate(app_config.clone()) {
+                        portal_shortcuts::report_config_failure(
+                            app.handle(),
+                            &app_config,
+                            &error,
+                        );
+                    }
+                } else {
+                    portal_shortcuts::report_config_failure(
+                        app.handle(),
+                        &app_config,
+                        "GlobalShortcuts Portal manager 未初始化",
+                    );
+                }
             } else {
                 log::info!("检测到 X11 会话，使用 tauri-plugin-global-shortcut");
-                if let Err(e) = register_shortcut(app, &app_config.global_shortcut) {
-                    log::warn!("全局快捷键注册失败（可能已被占用）: {}", e);
-                    // 通知前端快捷键注册失败
-                    use tauri::Emitter;
-                    let _ = app.emit("shortcut-register-failed", &app_config.global_shortcut);
+                // 逐个动作注册并在内部按动作记账，这里只需记录"全都没注册上"的整体失败。
+                if let Err(error) = register_tauri_shortcuts(app.handle(), &app_config) {
+                    log::warn!("X11 快捷键全部注册失败: {error}");
                 }
             }
 
+            #[cfg(not(target_os = "linux"))]
+            {
+                log::info!("使用操作系统原生的 Tauri 全局快捷键后端");
+                if let Err(error) = register_tauri_shortcuts(app.handle(), &app_config) {
+                    log::warn!("Tauri 全局快捷键全部注册失败: {error}");
+                }
+            }
+
+            // ── 8. 可回退的 WebKit 诊断开关 ────────────────────────────
+            app::startup::configure_webkit_diagnostics(app);
+
             Ok(())
         })
-        .on_window_event(|window, event| {
-            match event {
-                tauri::WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
-                    // 主窗口：关闭时只隐藏，不退出（仅托盘 Quit 才真正退出）
-                    api.prevent_close();
-                    let _ = window.hide();
-                }
-                tauri::WindowEvent::Focused(false) if window.label() == "main" => {
-                    // 仅主窗口：失焦后延迟隐藏（预览面板打开时跳过）
-                    let window = window.clone();
-                    let app_handle = window.app_handle().clone();
-                    std::thread::spawn(move || {
-                        std::thread::sleep(std::time::Duration::from_millis(200));
-                        if !window.is_focused().unwrap_or(true) {
-                            // 预览面板打开时不自动隐藏
-                            if let Some(state) = app_handle.try_state::<commands::AppState>() {
-                                if let Ok(pv) = state.preview_visible.lock() {
-                                    if *pv {
-                                        return;
-                                    }
-                                }
-                            }
-                            let _ = window.hide();
-                        }
-                    });
-                }
-                _ => {}
-            }
-        })
-        .invoke_handler(tauri::generate_handler![
+        .on_window_event(app::window_events::handle)
+        .invoke_handler(viewer::access::restrict(tauri::generate_handler![
+            viewer::commands::open_image_viewer,
+            viewer::commands::get_viewer_payload,
+            viewer::commands::get_viewer_settings,
+            viewer::commands::viewer_ready,
+            viewer::commands::close_image_viewer,
+            viewer::commands::get_viewer_fullscreen,
+            viewer::commands::set_viewer_fullscreen,
+            viewer::commands::minimize_image_viewer,
+            viewer::commands::start_viewer_drag,
+            viewer::commands::recognize_viewer,
+            viewer::commands::detect_viewer_codes,
+            viewer::commands::translate_viewer,
+            viewer::commands::sample_viewer_color,
+            viewer::commands::copy_viewer_image,
+            viewer::commands::save_viewer_image,
+            viewer::commands::pin_viewer_image,
+            viewer::commands::copy_viewer_text,
             commands::get_clips,
             commands::delete_clip,
             commands::toggle_favorite,
             commands::clear_history,
             commands::select_clip,
+            commands::copy_clip,
+            commands::copy_text,
+            commands::get_paste_status,
+            commands::request_paste_permission,
             commands::get_clip_image,
+            commands::get_clip_thumbnail,
             commands::get_clip_detail,
+            commands::detect_image_codes,
             commands::set_preview_visible,
+            commands::set_codec_visible,
             commands::get_config,
             commands::update_config,
-            commands::update_shortcut,
+            app_update::get_app_update_state,
+            app_update::check_app_update,
+            app_update::install_app_update,
+            commands::restart_app,
+            commands::close_settings,
             commands::check_shortcut_conflict,
+            commands::get_shortcut_failures,
             commands::show_settings,
             commands::pause_shortcuts,
             commands::resume_shortcuts,
             commands::get_install_type,
+            commands::get_platform_info,
             commands::is_dev_binary,
-        ])
+            capture::show_capture_overlay,
+            capture::get_capture_overlay,
+            capture::get_capture_frame,
+            capture::mark_capture_overlay_ready,
+            capture::cancel_capture_overlay,
+            capture::commit_capture_action,
+            capture::retry_capture_action,
+            capture::translate_capture_selection,
+            capture::get_window_probe_status,
+            capture::install_window_probe_extension,
+            capture::uninstall_window_probe_extension,
+            capture::open_longshot_controller,
+            capture::activate_longshot_controller,
+            capture::mark_longshot_controller_ready,
+            capture::append_longshot_controller,
+            capture::preview_longshot_controller,
+            capture::finish_longshot_controller,
+            capture::cancel_longshot_controller,
+            capture::diagnostics::run_capture_diagnostics,
+            commands::pick_screenshot_directory,
+            pin::commands::pin_clip,
+            pin::commands::get_pin_payload,
+            pin::commands::get_pin_toolbar_bounds,
+            pin::commands::get_pin_source_image,
+            pin::commands::pin_ready,
+            pin::commands::update_pin,
+            pin::commands::copy_pin,
+            pin::commands::copy_pin_canvas,
+            pin::commands::save_pin,
+            pin::commands::save_pin_canvas,
+            pin::commands::open_pin_project_file,
+            pin::commands::close_pin,
+            commands::ocr_available,
+            commands::ocr_image,
+            commands::ocr_image_result,
+            commands::ocr_install,
+            commands::fetch_url_meta,
+            commands::get_stats,
+            commands::toggle_tmux_capture,
+            commands::tmux_available,
+            translation::commands::translate_text,
+            translation::commands::translate_clip,
+            translation::commands::translation_history,
+            translation::commands::clear_translation_history,
+            translation::commands::speak_text,
+            translation::commands::speak_clip,
+            translation::commands::set_translation_api_key,
+            translation::commands::has_translation_api_key,
+            translation::commands::delete_translation_api_key,
+        ]))
         .run(tauri::generate_context!())
         .expect("启动 Tauri 应用失败");
 }

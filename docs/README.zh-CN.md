@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>轻量、极速的 Linux 剪贴板管理器</strong>
+  <strong>轻量、极速的跨平台剪贴板管理器</strong>
 </p>
 
 <p align="center">
@@ -47,6 +47,7 @@ Clippy 安静地驻留在系统托盘，后台监听剪贴板变化，让你通�
 ## 功能特性
 
 - **多类型剪贴板** — 自动捕获文本、HTML 和图片，SHA-256 哈希去重
+- **tmux 集成** — 通过 `copy-pipe-and-cancel` 捕获 tmux copy-mode 复制内容，inotify 事件驱动即时检测，自动绑定验证
 - **富文本预览** — 按 `Tab` 键展开预览面板：
   - 代码高亮 — 自动检测 21 种编程语言，highlight.js 渲染
   - Markdown 渲染 — 多特征评分检测，支持 GFM 语法
@@ -55,7 +56,12 @@ Clippy 安静地驻留在系统托盘，后台监听剪贴板变化，让你通�
 - **即时搜索** — SQLite FTS5 全文搜索，毫秒级响应
 - **悬浮面板** — 无边框弹出窗口，全局快捷键唤起，失焦自动隐藏
 - **键盘驱动** — 完整键盘导航，支持 Vim 风格按键 (WASD)
+- **编解码工具箱** — Base64/URL/HTML/Unicode/Hex/ROT13、MD5/SHA、JSON/JWT/URL 解析、时间戳与进制转换
 - **全局快捷键** — 同时支持 X11（`tauri-plugin-global-shortcut`）和 Wayland（XDG Portal / gsettings）
+- **自动粘贴** — X11 恢复原目标窗口；Wayland 复用 RemoteDesktop Portal 持久会话，不可用时安全回退为仅复制
+- **截图工作流** — 多显示器冻结选区、窗口命中、移动/缩放，可直接复制/保存/Pin/编辑；本地 OCR 后仅发送文字翻译
+- **Pin 与图片编辑** — 文本、图片、截图统一贴图控件，支持对象标注、模糊/马赛克、撤销重做和图像调整；可保存“合成预览 + 原图/操作”的单文件可编辑 PNG，也可导出不含原图的安全扁平 PNG；把可编辑 PNG 拖入主窗口即可继续编辑，普通图片仍通过剪贴板自动进入队列
+- **翻译集成** — LibreTranslate-compatible/OpenAI-compatible 服务、Secret Service 密钥、超时重试和敏感内容保护
 - **6 款主题** — 亚麻、石墨、极地、晒纸、玫瑰、深夜
 - **收藏夹** — 置顶重要条目，不受历史清理影响
 - **自动更新** — 内置更新器，从 GitHub Releases 获取新版本
@@ -63,7 +69,7 @@ Clippy 安静地驻留在系统托盘，后台监听剪贴板变化，让你通�
 
 ## 安装
 
-前往 [Releases](https://github.com/51hhh/Clippy/releases/latest) 下载最新的 `.deb` 或 `.AppImage`。
+前往 [Releases](https://github.com/51hhh/Clippy/releases/latest) 下载 Linux `.deb`/`.AppImage`、Windows NSIS/MSI，或 macOS Intel/Apple Silicon DMG。
 
 ```bash
 # Debian / Ubuntu
@@ -73,14 +79,26 @@ sudo dpkg -i clippy_*.deb
 chmod +x Clippy_*.AppImage && ./Clippy_*.AppImage
 ```
 
+**OCR（可选）：** 图片文字识别需要 Tesseract 5。“一键安装”仅在 Linux 展示；其他平台会显示对应的手动安装命令：
+
+```bash
+# Debian / Ubuntu
+sudo apt install tesseract-ocr tesseract-ocr-chi-sim
+
+# macOS（Homebrew；也支持 MacPorts）
+brew install tesseract
+```
+
+Windows 请安装当前 Tesseract 5 构建后重启 Clippy。Clippy 依次探测 `CLIPPY_TESSERACT_PATH`、未来随包 sidecar、进程 `PATH` 和 Linux/macOS/Windows 常见安装位置；未找到时其他功能仍正常工作，仅 OCR 不可用。
+
 ## 从源码构建
 
-前置要求：Rust 工具链、Node.js ≥ 20、Tauri v2 系统依赖。
+前置要求：Rust 工具链、Node.js ≥ 22.12、Tauri v2 系统依赖。
 
 ```bash
 sudo apt install -y \
   libwebkit2gtk-4.1-dev build-essential curl wget file \
-  libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev pkg-config
+  libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev pkg-config xdg-utils
 
 cargo install tauri-cli --version "^2"
 
@@ -90,6 +108,8 @@ cargo tauri build
 ```
 
 构建产物：`src-tauri/target/release/bundle/`
+
+> **提示**：若预构建的 deb 在你的系统上无法运行（如系统库版本不匹配），从源码编译可确保完全兼容。
 
 ## 技术栈
 
@@ -103,6 +123,10 @@ cargo tauri build
 | 构建 | Vite（多页面） |
 
 ## 架构
+
+当前模块所有权、截图/Pin/翻译流程和平台边界见 [architecture.md](architecture.md)。
+
+参考项目（Flashot/Translator）的截图、翻译和授权设计取舍见 [reference-project-guidance.md](reference-project-guidance.md)。
 
 ```mermaid
 flowchart LR
@@ -129,10 +153,12 @@ src/                          # 前端
 ├── index.html                # 主面板（列表 + 预览）
 ├── settings.html             # 设置窗口
 ├── js/
-│   ├── api.js                # Tauri IPC 封装
+│   ├── api.ts                # 类型化 Tauri IPC 封装（唯一边界）
+│   ├── ipc-types.ts          # Rust serde 数据合同
 │   ├── app.js                # 入口 + 键盘路由
 │   ├── clipboard-list.js     # 列表状态机 + 差量渲染
-│   ├── preview-panel.js      # 富文本预览引擎
+│   ├── preview-panel.js      # 预览状态与检测调度
+│   ├── preview/              # 代码、元数据、格式、内容和加密渲染器
 │   ├── search-bar.js         # 搜索 UI
 │   └── settings.js           # 设置逻辑
 ├── styles/                   # CSS
@@ -140,23 +166,30 @@ src/                          # 前端
 
 src-tauri/src/                # Rust 后端
 ├── lib.rs                    # 应用初始化 + 插件注册
-├── commands.rs               # IPC 命令处理
+├── commands.rs               # AppState 与兼容 re-export
+├── commands/                 # 剪贴板、设置、tmux、截图、OCR、URL 命令
 ├── clipboard_watcher.rs      # 剪贴板轮询线程
-├── storage.rs                # SQLite + FTS5 存储
+├── storage.rs                # SQLite/FTS5 核心与搜索
+├── storage/                  # 清理维护、统计、URL 缓存和存储测试
 ├── config.rs                 # JSON 配置
 ├── models.rs                 # 数据模型
 ├── gsettings_shortcuts.rs    # Wayland 快捷键
-└── tray_icon.rs              # 主题自适应托盘图标
+├── tray_icon.rs              # 主题自适应托盘图标
+├── paste/                    # X11、Wayland Portal、仅复制协调器
+├── capture/                  # CaptureSession、多显示器覆盖层与选区动作
+├── pin/                      # 统一 PinManager 与窗口生命周期
+└── translation/              # 服务适配器、错误、request-id 和密钥环
 ```
 
 ## 开发
 
 ```bash
 cargo tauri dev                              # 开发服务器（热重载）
-cd src-tauri && cargo check                  # 编译检查
+cd src-tauri && cargo check --all-targets     # 编译检查
 cd src-tauri && cargo test                   # 单元测试
-cd src-tauri && cargo clippy -- -D warnings  # Lint
+cd src-tauri && cargo clippy --all-targets -- -D warnings  # Lint
 cd src && npx vitest run                     # 前端测试
+./scripts/ci-local.sh                        # 完整门禁 + DOM/Xvfb smoke
 ```
 
 ## 贡献

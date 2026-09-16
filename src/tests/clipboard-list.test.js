@@ -1,14 +1,29 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as telemetry from "../js/telemetry.js";
+import {
+  consumePointerMove,
+  createNavigationState,
+  expandActions,
+  moveColumnFocus,
+  moveRowFocus,
+  normalizeAfterRefresh,
+  releaseNavigation,
+} from "../js/clipboard/navigation-state.js";
+import {
+  formatRelativeTime,
+  formatSize,
+} from "../js/clipboard/formatters.js";
+import { syncClipboardRow } from "../js/clipboard/row-renderer.js";
 
-vi.mock("../js/api.js", () => ({
+vi.mock("../js/api.ts", () => ({
   getClips: vi.fn(),
   deleteClip: vi.fn(),
   toggleFavorite: vi.fn(),
   selectClip: vi.fn(),
+  getClipThumbnail: vi.fn(),
 }));
 
-import * as api from "../js/api.js";
+import * as api from "../js/api.ts";
 import * as clipboardList from "../js/clipboard-list.js";
 
 function clip(o = {}) {
@@ -23,12 +38,15 @@ let counts;
 let summons;
 
 function setup() {
-  document.body.innerHTML = `
-    <main id="clip-list"></main>
-    <div id="empty-state" hidden><span id="empty-state-text"></span></div>
-  `;
-  const listEl = document.getElementById("clip-list");
-  const emptyEl = document.getElementById("empty-state");
+  const listEl = document.createElement("main");
+  listEl.id = "clip-list";
+  const emptyEl = document.createElement("div");
+  emptyEl.id = "empty-state";
+  emptyEl.hidden = true;
+  const emptyText = document.createElement("span");
+  emptyText.id = "empty-state-text";
+  emptyEl.appendChild(emptyText);
+  document.body.replaceChildren(listEl, emptyEl);
   counts = [];
   summons = [];
   clipboardList.__test__.reset();
@@ -48,6 +66,7 @@ describe("clipboard-list 状态机", () => {
     api.toggleFavorite.mockReset();
     api.selectClip.mockReset();
     api.deleteClip.mockReset();
+    api.getClipThumbnail.mockReset();
   });
 
   afterEach(() => {
@@ -191,5 +210,191 @@ describe("clipboard-list 状态机", () => {
     clipboardList.expandRowActions();
     expect(clipboardList.canExpandHere()).toBe(false);
     expect(clipboardList.hasExpanded()).toBe(true);
+  });
+
+  it("用户文本只作为文本节点渲染", async () => {
+    api.getClips.mockResolvedValueOnce([
+      clip({ text_content: '<img src=x onerror="globalThis.hacked=true">' }),
+    ]);
+    await clipboardList.refresh();
+
+    const preview = document.querySelector(".clip-row-preview");
+    expect(preview.textContent).toContain("<img src=x");
+    expect(preview.querySelector("img")).toBeNull();
+    expect(globalThis.hacked).toBeUndefined();
+  });
+
+  it("图片缩略图通过 api wrapper 异步加载", async () => {
+    api.getClips.mockResolvedValueOnce([
+      clip({ id: 21, content_type: "image", text_content: null }),
+    ]);
+    api.getClipThumbnail.mockResolvedValueOnce("cG5n");
+    await clipboardList.refresh();
+    await vi.waitFor(() => {
+      expect(document.querySelector(".clip-row-thumb-img")?.src)
+        .toBe("data:image/png;base64,cG5n");
+    });
+    expect(api.getClipThumbnail).toHaveBeenCalledWith(21);
+  });
+
+  // prependClip 的焦点必须跟着条目走。这几条与 clipboard-react-store.test.js 里的同名用例成对，
+  // 两个列表实现任何一边漏改都会在这里露出来。
+  it("面板关着时到达的新条目，重新加载后焦点落在最新一条", async () => {
+    api.getClips.mockResolvedValueOnce([clip({ id: 1 })]);
+    await clipboardList.refresh();
+    clipboardList.releaseMemory();
+
+    clipboardList.prependClip(clip({ id: 2, text_content: "new" }));
+    expect(clipboardList.__test__.state().focusedRow).toBe(0);
+
+    api.getClips.mockResolvedValueOnce([clip({ id: 2, text_content: "new" }), clip({ id: 1 })]);
+    await clipboardList.refresh();
+    expect(clipboardList.getFocusedClip().id).toBe(2);
+  });
+
+  it("真有焦点行时，新条目到达焦点仍停在原来那条上", async () => {
+    api.getClips.mockResolvedValueOnce([clip({ id: 1 }), clip({ id: 2 }), clip({ id: 3 })]);
+    await clipboardList.refresh();
+    clipboardList.moveRow(1);
+    expect(clipboardList.getFocusedClip().id).toBe(2);
+
+    clipboardList.prependClip(clip({ id: 9 }));
+    expect(clipboardList.getFocusedClip().id).toBe(2);
+    expect(clipboardList.__test__.state().focusedRow).toBe(2);
+  });
+
+  it("被顶到最前的条目正是焦点条目时，焦点跟到第一行", async () => {
+    api.getClips.mockResolvedValueOnce([clip({ id: 1 }), clip({ id: 2 }), clip({ id: 3 })]);
+    await clipboardList.refresh();
+    clipboardList.moveRow(1);
+
+    clipboardList.prependClip(clip({ id: 2 }));
+    expect(clipboardList.__test__.state().focusedRow).toBe(0);
+    expect(clipboardList.getFocusedClip().id).toBe(2);
+  });
+});
+
+describe("clipboard 导航纯状态机", () => {
+  it("刷新后将初始焦点收敛到第一行", () => {
+    expect(normalizeAfterRefresh(createNavigationState(), 3)).toMatchObject({
+      focusedRow: 0,
+      focusedCol: -1,
+      expandedRow: null,
+    });
+    expect(normalizeAfterRefresh(createNavigationState(), 0).focusedRow).toBe(-1);
+  });
+
+  // 面板关闭时列表内容也被释放，此时"焦点在第一行"是假的——0 是个不存在的行。
+  // 报成 0 会让 prependClip 把焦点让给新条目、停在第二行，于是按 Pin 贴出上一条。
+  it("释放列表内容后没有焦点行，重新加载才收拢回第一行", () => {
+    const released = releaseNavigation({ ...createNavigationState(), focusedRow: 2 });
+    expect(released).toMatchObject({ focusedRow: -1, focusedCol: -1, expandedRow: null });
+    expect(normalizeAfterRefresh(released, 5).focusedRow).toBe(0);
+  });
+
+  it("竖向移动收起动作区并启用一次鼠标保护", () => {
+    const expanded = expandActions(
+      { ...createNavigationState(), focusedRow: 0 },
+      7,
+    );
+    const transition = moveRowFocus(expanded, 1, 3);
+    expect(transition).toMatchObject({
+      summonSearch: false,
+      nextState: {
+        focusedRow: 1,
+        focusedCol: -1,
+        expandedRow: null,
+        keyboardNav: true,
+      },
+    });
+
+    const firstPointerMove = consumePointerMove(transition.nextState);
+    expect(firstPointerMove.ignore).toBe(true);
+    expect(consumePointerMove(firstPointerMove.nextState).ignore).toBe(false);
+  });
+
+  it("第一行向上请求搜索，行体横移请求切换面板", () => {
+    const state = { ...createNavigationState(), focusedRow: 0 };
+    expect(moveRowFocus(state, -1, 2).summonSearch).toBe(true);
+    expect(moveColumnFocus(state, -1, 2, "all").requestedMode).toBe("favorites");
+    expect(moveColumnFocus(state, 1, 2, "favorites").requestedMode).toBe("all");
+  });
+
+  it("收藏模式的动作按钮按视觉方向反转", () => {
+    const expanded = expandActions(
+      { ...createNavigationState(), focusedRow: 0 },
+      9,
+    );
+    expect(moveColumnFocus(expanded, -1, 1, "favorites").nextState.focusedCol).toBe(1);
+    expect(moveColumnFocus(expanded, 1, 1, "favorites").nextState).toMatchObject({
+      focusedCol: -1,
+      expandedRow: null,
+    });
+  });
+});
+
+describe("clipboard 差量行渲染", () => {
+  it("相同条目序列切换收藏面板时同步布局 class", () => {
+    const row = document.createElement("article");
+    row.className = "clip-row favorites-mode";
+    const trigger = document.createElement("button");
+    trigger.className = "clip-row-trigger";
+    const actions = document.createElement("div");
+    actions.className = "clip-row-actions";
+    const favorite = document.createElement("button");
+    favorite.dataset.action = "favorite";
+    actions.appendChild(favorite);
+    const main = document.createElement("div");
+    main.className = "clip-row-main";
+    row.append(trigger, actions, main);
+
+    syncClipboardRow(
+      row,
+      clip({ id: 4, is_favorite: true }),
+      0,
+      { focusedRow: 0, focusedCol: -1, expandedRow: null },
+      "all",
+    );
+    expect(row.classList.contains("favorites-mode")).toBe(false);
+    expect([...row.children]).toEqual([main, actions, trigger]);
+
+    syncClipboardRow(
+      row,
+      clip({ id: 4, is_favorite: true }),
+      0,
+      { focusedRow: 0, focusedCol: -1, expandedRow: null },
+      "favorites",
+    );
+    expect(row.classList.contains("favorites-mode")).toBe(true);
+    expect([...row.children]).toEqual([trigger, actions, main]);
+  });
+});
+
+describe("clipboard 展示格式", () => {
+  const translate = (key, params = {}) => `${key}:${params.n ?? ""}`;
+  const now = Date.UTC(2026, 7, 11, 12, 0, 0);
+
+  it("格式化字节边界", () => {
+    expect(formatSize(1023)).toBe("1023 B");
+    expect(formatSize(1024)).toBe("1.0 KB");
+    expect(formatSize(1024 * 1024)).toBe("1.0 MB");
+  });
+
+  // 类型只由 preview/classify.js 判定并显示在预览 badge 上，
+  // 格式化层不再提供"类型"，避免第二套标准长回来。
+  it("不再导出内容类型格式化", async () => {
+    const formatters = await import("../js/clipboard/formatters.js");
+    expect(formatters.formatType).toBeUndefined();
+  });
+
+  it.each([
+    [30, "time.justNow:"],
+    [5 * 60, "time.minutesAgo:5"],
+    [3 * 60 * 60, "time.hoursAgo:3"],
+    [24 * 60 * 60, "time.yesterday:"],
+    [4 * 24 * 60 * 60, "time.daysAgo:4"],
+  ])("按固定 now 格式化相对时间", (elapsedSeconds, expected) => {
+    expect(formatRelativeTime((now - elapsedSeconds * 1000) / 1000, { now, translate }))
+      .toBe(expected);
   });
 });

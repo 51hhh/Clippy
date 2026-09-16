@@ -5,110 +5,496 @@ on:
     tags:
       - "v*.*.*"
 
+permissions:
+  contents: read
+
+env:
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: short
+
+concurrency:
+  group: '${{ github.workflow }}-${{ github.ref }}'
+  cancel-in-progress: false
+
 jobs:
   check-version:
-    runs-on: ubuntu-22.04
+    name: Check Tag & Version
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       version: ${{ steps.get_version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust for manifest validation
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Get tag version
         id: get_version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          if [[ ! "$TAG_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Release tag is not a supported semantic version: ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+          echo "version=${TAG_VERSION}" >> "$GITHUB_OUTPUT"
 
-      - name: Verify tag matches tauri.conf.json
+      - name: Verify release versions and changelog
         run: |
           CONF_VERSION=$(jq -r '.version' src-tauri/tauri.conf.json)
+          CARGO_VERSION=$(cargo metadata --no-deps --format-version 1 \
+            --manifest-path src-tauri/Cargo.toml \
+            | jq -r '.packages[] | select(.name == "clippy-app") | .version')
           TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+
           if [ "$CONF_VERSION" != "$TAG_VERSION" ]; then
             echo "::error::Tag version ($TAG_VERSION) does not match tauri.conf.json ($CONF_VERSION)"
+            exit 1
+          fi
+          if [ -z "$CARGO_VERSION" ] || [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Tag version ($TAG_VERSION) does not match Cargo.toml ($CARGO_VERSION)"
+            exit 1
+          fi
+          if ! grep -Fqx "## v${TAG_VERSION}" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md is missing the exact heading: ## v${TAG_VERSION}"
             exit 1
           fi
 
       - name: Verify tag is on main or dev branch
         run: |
-          git fetch origin main dev --depth=1 || true
           TAG_SHA=$(git rev-parse HEAD)
           if git merge-base --is-ancestor "$TAG_SHA" origin/main 2>/dev/null || \
              git merge-base --is-ancestor "$TAG_SHA" origin/dev 2>/dev/null; then
             echo "Tag is on main or dev branch"
           else
-            echo "::warning::Tag may not be on main/dev branch"
+            echo "::error::Release tag is not reachable from main or dev"
+            exit 1
+          fi
+
+  release-preflight:
+    name: Check CI & Signing Readiness
+    needs: check-version
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      windows_signing_mode: ${{ steps.release_options.outputs.windows_signing_mode }}
+    permissions:
+      contents: read
+      checks: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Verify native CI passed for tagged commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          node scripts/verify-native-ci.mjs
+          --repo "${{ github.repository }}"
+          --sha "$GITHUB_SHA"
+
+      - name: Resolve release targets and signing policy
+        id: release_options
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          missing_updater=()
+          for required in TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
+            if [ -z "${!required:-}" ]; then
+              missing_updater+=("$required")
+            fi
+          done
+          if [ "${#missing_updater[@]}" -ne 0 ]; then
+            printf '::error::Missing required updater secret: %s\n' "${missing_updater[@]}"
+            exit 1
+          fi
+
+          if [ -n "$WINDOWS_CERTIFICATE" ] && [ -n "$WINDOWS_CERTIFICATE_PASSWORD" ]; then
+            echo 'windows_signing_mode=certificate' >> "$GITHUB_OUTPUT"
+          elif [ -z "$WINDOWS_CERTIFICATE" ] && [ -z "$WINDOWS_CERTIFICATE_PASSWORD" ]; then
+            echo '::warning::Windows release will use an ephemeral self-signed certificate'
+            echo 'windows_signing_mode=self-signed' >> "$GITHUB_OUTPUT"
+          else
+            echo '::error::WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD must be configured together'
+            exit 1
           fi
 
   build-linux:
-    needs: check-version
-    runs-on: ubuntu-22.04
+    name: Build (${{ matrix.label }})
+    needs: [check-version, release-preflight]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
     permissions:
-      contents: write
+      contents: read
+      artifact-metadata: write
+    strategy:
+      fail-fast: false
+      matrix:
+        # Ubuntu 22.04 是 Linux 发行基线；同一个产物必须保留 PipeWire 低延迟主路径。
+        include:
+          - runner: ubuntu-22.04
+            label: ubuntu22
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libwebkit2gtk-4.1-dev libgtk-3-dev build-essential curl wget file \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
-            pkg-config
+            pkg-config squashfs-tools xdg-utils \
+            libgbm-dev libegl-dev libdrm-dev libwayland-dev libxcb1-dev \
+            libpipewire-0.3-dev
 
-      - name: Setup Rust
+      - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Rust cache
+      - name: Verify PipeWire fast-path baseline
+        run: |
+          TREE="$(cd src-tauri && cargo tree --target x86_64-unknown-linux-gnu -e normal)"
+          if ! grep -q 'pipewire v' <<<"$TREE"; then
+            echo '::error::Default Linux build must include pipewire-rs fast path'
+            exit 1
+          fi
+          if ! grep -Eq 'libspa v.*\(.*vendor/libspa\)' <<<"$TREE"; then
+            echo '::error::Default Linux build must use the Jammy-compatible vendored libspa patch'
+            exit 1
+          fi
+
+      - name: Rust Cache
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
+          prefix-key: v1-rust
+          key: release-${{ matrix.label }}
+          workspaces: src-tauri -> target
+          cache-all-crates: true
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Install frontend dependencies
-        run: cd src && npm install
+        run: cd src && npm ci
 
-      - name: Extract changelog
-        id: changelog
-        run: |
-          TAG="${GITHUB_REF#refs/tags/}"
-          BODY=$(awk "/^## ${TAG//./\\.}/{found=1; next} /^## v/{if(found) exit} found" CHANGELOG.md)
-          if [ -z "$BODY" ]; then
-            BODY="Release ${TAG}"
-          fi
-          # 使用 GitHub Actions 多行输出语法
-          echo "body<<CHANGELOG_EOF" >> "$GITHUB_OUTPUT"
-          echo "$BODY" >> "$GITHUB_OUTPUT"
-          echo "CHANGELOG_EOF" >> "$GITHUB_OUTPUT"
-
-      - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0.5
+      - name: Build Tauri
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: v__VERSION__
-          releaseName: "Clippy v__VERSION__"
-          releaseBody: ${{ steps.changelog.outputs.body }}
-          releaseDraft: true
-          prerelease: ${{ contains(github.ref, '-rc') }}
-          includeUpdaterJson: true
+          args: --config src-tauri/tauri.linux.conf.json
+
+      - name: Verify release binary links PipeWire
+        run: |
+          BINARY="src-tauri/target/release/clippy-app"
+          if ! readelf -d "$BINARY" | grep -q 'libpipewire-0.3.so.0'; then
+            echo '::error::Linux release binary does not link the PipeWire fast-path runtime'
+            exit 1
+          fi
+
+      - name: Finalize portable AppImage
+        env:
+          APP_VERSION: ${{ needs.check-version.outputs.version }}
+          REQUIRE_TAURI_SIGNATURE: "true"
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          APPIMAGE_SRC="src-tauri/target/release/bundle/appimage/Clippy_${APP_VERSION}_amd64.AppImage"
+          ./scripts/finalize-appimage.sh "$APPIMAGE_SRC"
+
+      - name: Normalize Linux artifact names
+        run: |
+          VER="${{ needs.check-version.outputs.version }}"
+          LABEL="${{ matrix.label }}"
+          BUNDLE_DIR="src-tauri/target/release/bundle"
+          mkdir -p dist-artifacts
+
+          DEB_SRC="${BUNDLE_DIR}/deb/Clippy_${VER}_amd64.deb"
+          [ -f "$DEB_SRC" ] || { echo '::error::DEB was not generated'; exit 1; }
+          cp "$DEB_SRC" "dist-artifacts/Clippy_${VER}_amd64.deb"
+          cp "$DEB_SRC" "dist-artifacts/Clippy_${VER}_amd64_${LABEL}.deb"
+
+          APPIMAGE_SRC="${BUNDLE_DIR}/appimage/Clippy_${VER}_amd64.AppImage"
+          [ -f "$APPIMAGE_SRC" ] || { echo '::error::AppImage was not generated'; exit 1; }
+          cp "$APPIMAGE_SRC" "dist-artifacts/Clippy_${VER}_amd64.AppImage"
+          cp "$APPIMAGE_SRC" "dist-artifacts/Clippy_${VER}_amd64_${LABEL}.AppImage"
+
+          APPIMAGE_SIG="${APPIMAGE_SRC}.sig"
+          [ -s "$APPIMAGE_SIG" ] || { echo '::error::AppImage updater signature was not generated'; exit 1; }
+          cp "$APPIMAGE_SIG" "dist-artifacts/Clippy_${VER}_amd64.AppImage.sig"
+          cp "$APPIMAGE_SIG" "dist-artifacts/Clippy_${VER}_amd64_${LABEL}.AppImage.sig"
+
+          DEB_SIG="${BUNDLE_DIR}/deb/Clippy_${VER}_amd64.deb.sig"
+          [ ! -f "$DEB_SIG" ] || cp "$DEB_SIG" "dist-artifacts/Clippy_${VER}_amd64.deb.sig"
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-linux-x64
+          path: dist-artifacts/*
+          if-no-files-found: error
+
+  build-windows:
+    name: Build (Windows x64)
+    needs: [check-version, release-preflight]
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-rust
+          key: release-windows-x64
+          workspaces: src-tauri -> target
+          cache-all-crates: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: src/package-lock.json
+
+      - name: Install frontend dependencies
+        run: cd src && npm ci
+
+      - name: Prepare Windows code-signing certificate
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: ./scripts/prepare-windows-signing.ps1
+
+      - name: Build Tauri
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          args: --config src-tauri/tauri.windows.conf.json --config src-tauri/tauri.windows.signing.conf.json
+
+      - name: Normalize Windows artifact names
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ needs.check-version.outputs.version }}
+        run: |
+          New-Item -ItemType Directory -Force -Path dist-artifacts | Out-Null
+
+          $nsis = Get-ChildItem src-tauri/target -Recurse -File -Filter "*-setup.exe" | Select-Object -First 1
+          if (-not $nsis) { throw "NSIS installer was not generated" }
+          Copy-Item $nsis.FullName "dist-artifacts/Clippy_$env:APP_VERSION`_x64-setup.exe"
+          if (-not (Test-Path "$($nsis.FullName).sig")) { throw "NSIS updater signature was not generated" }
+          Copy-Item "$($nsis.FullName).sig" "dist-artifacts/Clippy_$env:APP_VERSION`_x64-setup.exe.sig"
+
+          $msi = Get-ChildItem src-tauri/target -Recurse -File -Filter "*.msi" | Select-Object -First 1
+          if (-not $msi) { throw "MSI installer was not generated" }
+          Copy-Item $msi.FullName "dist-artifacts/Clippy_$env:APP_VERSION`_x64.msi"
+
+          foreach ($artifact in @($nsis, $msi)) {
+            $signature = Get-AuthenticodeSignature $artifact.FullName
+            if ($signature.Status.ToString() -ne "Valid") {
+              throw "Invalid Authenticode signature on $($artifact.Name): $($signature.Status)"
+            }
+            if (-not $signature.SignerCertificate) {
+              throw "Authenticode signer is missing on $($artifact.Name)"
+            }
+            if ($signature.SignerCertificate.Thumbprint.ToUpperInvariant() -ne `
+                $env:WINDOWS_CERTIFICATE_THUMBPRINT) {
+              throw "Unexpected Authenticode signer on $($artifact.Name)"
+            }
+          }
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-windows-x64
+          path: dist-artifacts/*
+          if-no-files-found: error
+
+      - name: Remove Windows code-signing certificate
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_THUMBPRINT)) {
+            Remove-Item "Cert:\CurrentUser\My\$env:WINDOWS_CERTIFICATE_THUMBPRINT" `
+              -Force -ErrorAction SilentlyContinue
+            if ($env:WINDOWS_SIGNING_MODE -eq "self-signed") {
+              Remove-Item "Cert:\LocalMachine\TrustedPeople\$env:WINDOWS_CERTIFICATE_THUMBPRINT" `
+                -Force -ErrorAction SilentlyContinue
+            }
+          }
+
+  build-macos:
+    name: Build (macOS ${{ matrix.label }})
+    needs: [check-version, release-preflight]
+    runs-on: macos-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      artifact-metadata: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Apple-Silicon
+            rust_target: aarch64-apple-darwin
+            asset_arch: aarch64
+          - label: Intel
+            rust_target: x86_64-apple-darwin
+            asset_arch: x64
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-rust
+          key: release-macos-${{ matrix.asset_arch }}
+          workspaces: src-tauri -> target
+          cache-all-crates: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: src/package-lock.json
+
+      - name: Install frontend dependencies
+        run: cd src && npm ci
+
+      - name: Build ad-hoc signed Tauri
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          args: >-
+            --target ${{ matrix.rust_target }}
+            --config src-tauri/tauri.macos.conf.json
+            --config src-tauri/tauri.macos.qa.conf.json
+
+      - name: Normalize macOS artifact names
+        env:
+          APP_VERSION: ${{ needs.check-version.outputs.version }}
+          ASSET_ARCH: ${{ matrix.asset_arch }}
+          RUST_TARGET: ${{ matrix.rust_target }}
+        run: |
+          mkdir -p dist-artifacts
+          BUNDLE_DIR="src-tauri/target/${RUST_TARGET}/release/bundle"
+
+          APP_SRC=$(find "$BUNDLE_DIR/macos" -maxdepth 1 -type d -name '*.app' -print -quit)
+          [ -n "$APP_SRC" ] || { echo '::error::macOS app bundle was not generated'; exit 1; }
+          codesign --verify --deep --strict --verbose=2 "$APP_SRC"
+          SIGNING_INFO=$(codesign --display --verbose=4 "$APP_SRC" 2>&1)
+          printf '%s\n' "$SIGNING_INFO" | grep -q 'Signature=adhoc'
+
+          INFO_PLIST="$APP_SRC/Contents/Info.plist"
+          [ -f "$INFO_PLIST" ] || { echo '::error::macOS Info.plist is missing'; exit 1; }
+          EXECUTABLE_NAME=$(plutil -extract CFBundleExecutable raw -o - "$INFO_PLIST")
+          [ -n "$EXECUTABLE_NAME" ] || { echo '::error::CFBundleExecutable is missing'; exit 1; }
+          EXECUTABLE="$APP_SRC/Contents/MacOS/$EXECUTABLE_NAME"
+          [ -x "$EXECUTABLE" ] || { echo '::error::macOS executable is missing'; exit 1; }
+          if [ "$ASSET_ARCH" = "aarch64" ]; then
+            EXPECTED_ARCH="arm64"
+          else
+            EXPECTED_ARCH="x86_64"
+          fi
+          lipo -archs "$EXECUTABLE" | tr ' ' '\n' | grep -qx "$EXPECTED_ARCH"
+
+          DMG_SRC=$(find "$BUNDLE_DIR/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)
+          [ -n "$DMG_SRC" ] || { echo '::error::DMG was not generated'; exit 1; }
+          cp "$DMG_SRC" "dist-artifacts/Clippy_${APP_VERSION}_${ASSET_ARCH}.dmg"
+
+          UPDATE_SRC=$(find "$BUNDLE_DIR/macos" -maxdepth 1 -type f -name '*.app.tar.gz' -print -quit)
+          [ -n "$UPDATE_SRC" ] || { echo '::error::macOS updater bundle was not generated'; exit 1; }
+          cp "$UPDATE_SRC" "dist-artifacts/Clippy_${APP_VERSION}_${ASSET_ARCH}.app.tar.gz"
+          [ -f "${UPDATE_SRC}.sig" ] || { echo '::error::macOS updater signature was not generated'; exit 1; }
+          cp "${UPDATE_SRC}.sig" "dist-artifacts/Clippy_${APP_VERSION}_${ASSET_ARCH}.app.tar.gz.sig"
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-macos-${{ matrix.asset_arch }}
+          path: dist-artifacts/*
+          if-no-files-found: error
 
   update-release:
-    needs: [check-version, build-linux]
-    runs-on: ubuntu-22.04
+    name: Update Release Notes
+    needs: [check-version, release-preflight, build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
+      artifact-metadata: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - name: Extract changelog and publish release
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Download native release artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Ensure unpublished draft release exists
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="v${{ needs.check-version.outputs.version }}"
+          TAG="${{ github.ref_name }}"
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            IS_DRAFT=$(gh release view "$TAG" --repo "${{ github.repository }}" --json isDraft --jq .isDraft)
+            if [ "$IS_DRAFT" != "true" ]; then
+              echo "::error::Release ${TAG} already exists and is public"
+              exit 1
+            fi
+          else
+            gh release create "$TAG" --repo "${{ github.repository }}" \
+              --title "Clippy ${TAG}" --draft --notes "Building..."
+          fi
+
+      - name: Upload native artifacts to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" release-assets/* \
+            --repo "${{ github.repository }}" --clobber
+
+      - name: Extract changelog and prepare release notes
+        run: |
+          TAG="${{ github.ref_name }}"
           VER="${{ needs.check-version.outputs.version }}"
           DL="https://github.com/${{ github.repository }}/releases/download/${TAG}"
           BUILDTIME="$(TZ=Asia/Shanghai date)"
@@ -120,23 +506,79 @@ jobs:
           fi
 
           CHANGELOG=$(cat release_notes.txt)
-
           cat > release_body.md <<ENDOFBODY
           ${CHANGELOG}
 
           ## 下载
 
-          ### Linux
+          ### Linux（Ubuntu 22.04+ / 同等 glibc 发行版）
           #### DEB 包
-          - [64位](${DL}/Clippy_${VER}_amd64.deb)
+          - Ubuntu 22.04+：[64位](${DL}/Clippy_${VER}_amd64_ubuntu22.deb)
 
           #### AppImage（支持自动更新）
-          - [64位](${DL}/Clippy_${VER}_amd64.AppImage)
+          - Ubuntu 22.04+：[64位](${DL}/Clippy_${VER}_amd64_ubuntu22.AppImage)
 
+          > Linux 正式包在 Ubuntu 22.04 基线上构建，并默认包含 GNOME Mutter/PipeWire 低延迟截图后端。
+
+          > OCR 功能需要单独安装 tesseract：\`sudo apt install tesseract-ocr tesseract-ocr-chi-sim\`
+
+          ### Windows 10/11（x64）
+          - NSIS 安装程序（支持自动更新）：[下载](${DL}/Clippy_${VER}_x64-setup.exe)
+          - MSI 安装程序：[下载](${DL}/Clippy_${VER}_x64.msi)
+          ENDOFBODY
+
+          if [ "${{ needs.release-preflight.outputs.windows_signing_mode }}" = "self-signed" ]; then
+            cat >> release_body.md <<'ENDOFBODY'
+
+          > Windows 安装包使用临时自签名证书完成 Authenticode 签名；签名可校验文件完整性，
+          > 但不受公共 CA 信任，Windows SmartScreen 仍可能显示“未知发布者”警告。
+          ENDOFBODY
+          fi
+
+          cat >> release_body.md <<ENDOFBODY
+
+          ### macOS 11+（Ad-Hoc 签名）
+          - Apple Silicon：[DMG](${DL}/Clippy_${VER}_aarch64.dmg)
+          - Intel：[DMG](${DL}/Clippy_${VER}_x64.dmg)
+
+          > macOS 应用使用 ad-hoc 签名，未经过 Apple Developer ID 公证；首次打开时可能需要在
+          > “系统设置 → 隐私与安全性”中手动允许。
+          ENDOFBODY
+
+          cat >> release_body.md <<ENDOFBODY
           ---
           Built at ${BUILDTIME}
           ENDOFBODY
 
+      - name: Generate and upload updater manifest (latest.json)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          VER="${{ needs.check-version.outputs.version }}"
+          DL="https://github.com/${{ github.repository }}/releases/download/${TAG}"
+          PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          PLATFORMS="linux-x86_64,windows-x86_64,darwin-aarch64,darwin-x86_64"
+
+          # 四个平台都先进入 workflow artifact，所有构建成功后才在这里创建 draft。
+          # 生成器按受测契约读取四份签名，并拒绝缺签名、错误平台键、非 HTTPS URL
+          # 或无效版本/时间。
+          node scripts/generate-updater-manifest.mjs \
+            --version "$VER" \
+            --notes-file release_notes.txt \
+            --pub-date "$PUB_DATE" \
+            --base-url "$DL" \
+            --signature-dir release-assets \
+            --platforms "$PLATFORMS" \
+            --output latest.json
+
+          gh release upload "${TAG}" latest.json --repo "${{ github.repository }}" --clobber
+
+      - name: Publish complete release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
           gh release edit "${TAG}" \
             --repo "${{ github.repository }}" \
             --title "Clippy ${TAG}" \
