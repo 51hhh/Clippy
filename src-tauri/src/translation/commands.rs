@@ -76,11 +76,11 @@ fn provider_options(service: &TranslationServiceConfig) -> ProviderOptions {
 /// 调用方给的一次翻译输入。语言与 request-id 为 None 时回落到配置或服务分配，
 /// 打包成结构是为了不在命令层传一长串同类型的 `Option<String>`。
 #[derive(Clone)]
-struct TranslationInputs {
-    text: String,
-    source_language: Option<String>,
-    target_language: Option<String>,
-    request_id: Option<u64>,
+pub(crate) struct TranslationInputs {
+    pub text: String,
+    pub source_language: Option<String>,
+    pub target_language: Option<String>,
+    pub request_id: Option<u64>,
 }
 
 fn request_from_config(
@@ -404,6 +404,21 @@ fn translate_with_state(
 
 /// 单个服务的完整同步流程。凭据读取也在这里，keyring 调用同样是阻塞操作，
 /// 放进各自的 spawn_blocking 任务里才不会串行化。
+pub(crate) type TranslationGuard = Arc<dyn Fn() -> Result<(), TranslationError> + Send + Sync>;
+
+/// 凭据可能等待系统keyring；必须在读取完成后重新授权，再进入provider发送。
+pub(crate) fn guarded_credentials<C, T>(
+    credentials: impl FnOnce() -> Result<C, TranslationError>,
+    guard: Option<&TranslationGuard>,
+    send: impl FnOnce(C) -> Result<T, TranslationError>,
+) -> Result<T, TranslationError> {
+    let credentials = credentials()?;
+    if let Some(guard) = guard {
+        guard()?;
+    }
+    send(credentials)
+}
+
 fn translate_one_service(
     service: &super::service::TranslationService,
     config: &AppConfig,
@@ -411,10 +426,24 @@ fn translate_one_service(
     service_config: &TranslationServiceConfig,
     inputs: TranslationInputs,
 ) -> Result<TranslationResult, TranslationError> {
+    translate_one_service_guarded(service, config, provider, service_config, inputs, None)
+}
+
+fn translate_one_service_guarded(
+    service: &super::service::TranslationService,
+    config: &AppConfig,
+    provider: TranslationProvider,
+    service_config: &TranslationServiceConfig,
+    inputs: TranslationInputs,
+    guard: Option<&TranslationGuard>,
+) -> Result<TranslationResult, TranslationError> {
     let options = provider_options(service_config);
     let request = request_from_config(config, provider, options, inputs, service);
-    let credentials = secrets::get_credentials(provider)?;
-    service.translate(request, credentials)
+    guarded_credentials(
+        || secrets::get_credentials(provider),
+        guard,
+        |credentials| service.translate(request, credentials),
+    )
 }
 
 /// 并行执行所有参与服务。任一服务失败只影响它自己的结果卡，
@@ -424,6 +453,16 @@ async fn translate_configured_batch(
     config: Arc<Mutex<AppConfig>>,
     inputs: TranslationInputs,
     providers: Vec<TranslationProvider>,
+) -> Result<TranslationBatch, TranslationError> {
+    translate_configured_batch_guarded(service, config, inputs, providers, None).await
+}
+
+async fn translate_configured_batch_guarded(
+    service: Arc<super::service::TranslationService>,
+    config: Arc<Mutex<AppConfig>>,
+    inputs: TranslationInputs,
+    providers: Vec<TranslationProvider>,
+    guard: Option<TranslationGuard>,
 ) -> Result<TranslationBatch, TranslationError> {
     let snapshot = config
         .lock()
@@ -437,13 +476,21 @@ async fn translate_configured_batch(
     let mut tasks = Vec::with_capacity(selected.len());
     for (provider, service_config) in selected {
         let service = service.clone();
+        let guard = guard.clone();
         let snapshot = snapshot.clone();
         let mut inputs = inputs.clone();
         inputs.request_id = Some(request_id);
         tasks.push((
             provider,
             tauri::async_runtime::spawn_blocking(move || {
-                translate_one_service(&service, &snapshot, provider, &service_config, inputs)
+                translate_one_service_guarded(
+                    &service,
+                    &snapshot,
+                    provider,
+                    &service_config,
+                    inputs,
+                    guard.as_ref(),
+                )
             }),
         ));
     }
@@ -494,6 +541,19 @@ async fn resolve_clip_text(
             Ok(text)
         }
     }
+}
+
+/// 查看器提供可信本地 OCR 文本与独立会话 service，复用同一配置/凭据/provider批处理。
+pub(crate) async fn translate_viewer_text(
+    service: Arc<super::service::TranslationService>,
+    config: Arc<Mutex<AppConfig>>,
+    inputs: TranslationInputs,
+    providers: Option<Vec<String>>,
+    guard: TranslationGuard,
+) -> Result<TranslationBatch, TranslationError> {
+    let providers = parse_providers(providers)
+        .map_err(|_| TranslationError::UnsupportedProvider("viewer".into()))?;
+    translate_configured_batch_guarded(service, config, inputs, providers, Some(guard)).await
 }
 
 #[cfg(test)]

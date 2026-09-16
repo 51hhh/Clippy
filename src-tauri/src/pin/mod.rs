@@ -6,6 +6,7 @@ mod image_validation;
 mod manager;
 mod model;
 mod origins;
+pub(crate) mod output;
 mod project;
 pub(crate) mod render_v2;
 mod resample;

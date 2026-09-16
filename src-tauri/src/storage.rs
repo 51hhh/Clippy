@@ -45,6 +45,12 @@ pub enum BoundedImageData {
     Bytes(Vec<u8>),
 }
 
+pub struct BoundedImageSnapshot {
+    pub content_hash: String,
+    pub is_sensitive: bool,
+    pub image: BoundedImageData,
+}
+
 /// 获取当前 Unix 时间戳（秒）
 fn now_secs() -> i64 {
     SystemTime::now()
@@ -513,6 +519,58 @@ impl StorageEngine {
             // 只能是 CASE 为保护上限刻意留下的结果。
             (Some(_), None) => Ok(BoundedImageData::TooLarge),
         }
+    }
+
+    /// 快照元数据与受限图片在同一查询中读取，避免删除/敏感标记与 BLOB 身份错配。
+    pub fn get_bounded_image_snapshot(
+        &self,
+        id: i64,
+        byte_limit: usize,
+    ) -> Result<Option<BoundedImageSnapshot>, StorageError> {
+        let limit = i64::try_from(byte_limit)
+            .map_err(|error| StorageError::Io(std::io::Error::other(error)))?;
+        let row = self
+            .conn
+            .query_row(
+                "SELECT content_type, content_hash, is_sensitive, length(image_data),
+                    CASE WHEN length(image_data) <= ?1 THEN image_data ELSE NULL END
+             FROM clips WHERE id = ?2",
+                params![limit, id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, bool>(2)?,
+                        row.get::<_, Option<i64>>(3)?,
+                        row.get::<_, Option<Vec<u8>>>(4)?,
+                    ))
+                },
+            )
+            .optional()?;
+        Ok(row.map(
+            |(kind, content_hash, is_sensitive, length, bytes)| BoundedImageSnapshot {
+                content_hash,
+                is_sensitive,
+                image: if kind != "image" {
+                    BoundedImageData::NotImage
+                } else {
+                    match (length, bytes) {
+                        (None, _) => BoundedImageData::Missing,
+                        (_, Some(bytes)) => BoundedImageData::Bytes(bytes),
+                        _ => BoundedImageData::TooLarge,
+                    }
+                },
+            },
+        ))
+    }
+
+    /// 旧快照开始联网前复核同一内容的当前敏感标记；删除原条目不影响快照自身保护。
+    pub fn is_hash_sensitive(&self, hash: &str) -> Result<bool, StorageError> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM clips WHERE content_hash = ?1 AND is_sensitive = 1)",
+            [hash],
+            |row| row.get(0),
+        )?)
     }
 
     /// 读取缓存的 OCR 文字

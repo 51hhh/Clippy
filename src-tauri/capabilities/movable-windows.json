@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "movable-windows",
+  "description": "仅贴图与长截图控制窗可由前端发起原生拖动；截图覆盖层没有该权限",
+  "windows": ["pin-*", "longshot-controller-*"],
+  "permissions": ["core:window:allow-start-dragging"]
+}

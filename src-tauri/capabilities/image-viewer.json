@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "image-viewer",
+  "description": "普通图片查看器只监听本窗事件；资源与业务命令在后端核验会话归属",
+  "windows": ["image-viewer-*"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

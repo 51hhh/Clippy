@@ -1,0 +1,557 @@
+//! 明确配置的 Python OCR 子进程；复用父模块的并发许可与进程回收。
+use super::{protocol::StructuredOcr, run_recognition_process, OCR_STDERR_LIMIT, OCR_STDOUT_LIMIT};
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
+use std::collections::VecDeque;
+use std::fs::File;
+use std::io::Read;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
+
+pub(super) const MANIFEST_ENV: &str = "CLIPPY_OCR_MANIFEST";
+const MAX_INPUT: usize = 64 * 1024 * 1024;
+const MAX_PIXELS: u64 = 32 * 1024 * 1024;
+const MODULES: [&str; 3] = ["pipeline.py", "edge_features.py", "layout_groups.py"];
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Asset {
+    path: PathBuf,
+    sha256: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Assets {
+    det: Asset,
+    rec: Asset,
+    dictionary: Asset,
+    edge: Asset,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Options {
+    #[serde(default = "bitmap_default")]
+    bitmap_threshold: f64,
+    #[serde(default = "box_default")]
+    box_threshold: f64,
+    #[serde(default = "unclip_default")]
+    unclip_ratio: f64,
+    #[serde(default = "line_default")]
+    line_threshold: f64,
+    #[serde(default = "layout_default")]
+    layout_threshold: f64,
+}
+
+fn bitmap_default() -> f64 {
+    0.3
+}
+fn box_default() -> f64 {
+    0.5
+}
+fn unclip_default() -> f64 {
+    1.2
+}
+fn line_default() -> f64 {
+    0.6
+}
+fn layout_default() -> f64 {
+    0.52
+}
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            bitmap_threshold: bitmap_default(),
+            box_threshold: box_default(),
+            unclip_ratio: unclip_default(),
+            line_threshold: line_default(),
+            layout_threshold: layout_default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Manifest {
+    version: u32,
+    python: PathBuf,
+    script: PathBuf,
+    pipeline_id: String,
+    feature_schema: String,
+    models: Assets,
+    #[serde(default)]
+    options: Options,
+}
+
+#[derive(Clone)]
+pub(super) struct Configuration {
+    pub identity: String,
+    pub fallback_reason: Option<String>,
+    enhanced: Option<(PathBuf, Manifest, String)>,
+}
+
+impl Configuration {
+    pub(super) fn is_enhanced(&self) -> bool {
+        self.enhanced.is_some()
+    }
+}
+
+pub(super) fn configured() -> bool {
+    std::env::var_os(MANIFEST_ENV).is_some()
+}
+
+fn read_bounded_file(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
+    let file = File::open(path).map_err(|_| "OCR 配置或运行文件不可读取".to_string())?;
+    let mut result = Vec::new();
+    file.take(limit + 1)
+        .read_to_end(&mut result)
+        .map_err(|_| "OCR 配置或运行文件读取失败".to_string())?;
+    if result.len() as u64 > limit {
+        return Err("OCR 配置或运行文件超过大小上限".into());
+    }
+    Ok(result)
+}
+
+fn load(path: &Path) -> Result<Configuration, String> {
+    if !path.is_absolute() {
+        return Err("OCR manifest 必须为绝对路径".into());
+    }
+    let raw = read_bounded_file(path, 65536)?;
+    let manifest: Manifest =
+        serde_json::from_slice(&raw).map_err(|_| "OCR manifest 格式错误".to_string())?;
+    if manifest.version != 1
+        || manifest.feature_schema != "clippy-edge-features-v1"
+        || manifest.pipeline_id.is_empty()
+        || manifest.pipeline_id.len() > 128
+        || !manifest.python.is_absolute()
+        || !manifest.script.is_absolute()
+        || !manifest.python.is_file()
+        || !manifest.script.is_file()
+    {
+        return Err("OCR manifest 运行合同无效".into());
+    }
+    for value in [
+        manifest.options.bitmap_threshold,
+        manifest.options.box_threshold,
+        manifest.options.line_threshold,
+        manifest.options.layout_threshold,
+    ] {
+        if !value.is_finite() || value <= 0.0 || value > 1.0 {
+            return Err("OCR 阈值无效".into());
+        }
+    }
+    if !manifest.options.unclip_ratio.is_finite()
+        || manifest.options.unclip_ratio <= 0.0
+        || manifest.options.unclip_ratio > 3.0
+    {
+        return Err("OCR 扩框参数无效".into());
+    }
+    for asset in [
+        &manifest.models.det,
+        &manifest.models.rec,
+        &manifest.models.dictionary,
+        &manifest.models.edge,
+    ] {
+        if !asset.path.is_absolute()
+            || !asset.path.is_file()
+            || asset.sha256.len() != 64
+            || !asset
+                .sha256
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+        {
+            return Err("OCR 模型路径或哈希无效".into());
+        }
+        // 命中结果缓存之前也核对真实资产，坏文件不能被旧的成功文本遮住。
+        let mut file = File::open(&asset.path).map_err(|_| "OCR 模型不可读取".to_string())?;
+        let size = file
+            .metadata()
+            .map_err(|_| "OCR 模型大小不可读取".to_string())?
+            .len();
+        if size == 0 || size > 64 * 1024 * 1024 {
+            return Err("OCR 模型超过大小上限".into());
+        }
+        let mut hash = Sha256::new();
+        let mut buffer = [0u8; 65536];
+        let mut total = 0u64;
+        loop {
+            let count = file
+                .read(&mut buffer)
+                .map_err(|_| "OCR 模型读取失败".to_string())?;
+            if count == 0 {
+                break;
+            }
+            total += count as u64;
+            if total > 64 * 1024 * 1024 {
+                return Err("OCR 模型超过大小上限".into());
+            }
+            hash.update(&buffer[..count]);
+        }
+        if format!("{:x}", hash.finalize()) != asset.sha256 {
+            return Err("OCR 模型哈希不一致".into());
+        }
+    }
+    let directory = manifest
+        .script
+        .parent()
+        .ok_or_else(|| "OCR 脚本目录无效".to_string())?;
+    let mut digest = Sha256::new();
+    digest.update(b"structured-ocr-protocol-v1\0");
+    digest.update(&raw);
+    digest.update(read_bounded_file(&manifest.script, 1024 * 1024)?);
+    for module in MODULES {
+        digest.update(module.as_bytes());
+        digest.update(read_bounded_file(&directory.join(module), 1024 * 1024)?);
+    }
+    Ok(Configuration {
+        identity: format!("{}:{:x}", manifest.pipeline_id, digest.finalize()),
+        fallback_reason: None,
+        enhanced: Some((
+            path.to_path_buf(),
+            manifest,
+            format!("{:x}", Sha256::digest(&raw)),
+        )),
+    })
+}
+
+pub(super) fn configuration() -> Configuration {
+    match std::env::var_os(MANIFEST_ENV) {
+        None => Configuration {
+            identity: "tesseract-v1".into(),
+            enhanced: None,
+            fallback_reason: None,
+        },
+        Some(path) => match load(Path::new(&path)) {
+            Ok(configuration) => configuration,
+            Err(error) => {
+                log::warn!("OCR 增强配置不可用: {error}");
+                Configuration {
+                    identity: "enhanced-invalid-v1".into(),
+                    enhanced: None,
+                    fallback_reason: Some("enhanced_configuration_invalid".into()),
+                }
+            }
+        },
+    }
+}
+
+pub(super) fn image_dimensions(png: &[u8]) -> Result<(u32, u32), String> {
+    if png.len() > MAX_INPUT {
+        return Err("OCR 图片超过字节上限".into());
+    }
+    let reader =
+        image::ImageReader::with_format(std::io::Cursor::new(png), image::ImageFormat::Png);
+    let (width, height) = reader
+        .into_dimensions()
+        .map_err(|_| "OCR 图片不是有效 PNG".to_string())?;
+    if width == 0
+        || height == 0
+        || width > 16384
+        || height > 16384
+        || u64::from(width) * u64::from(height) > MAX_PIXELS
+    {
+        return Err("OCR 图片超过像素上限".into());
+    }
+    Ok((width, height))
+}
+
+pub(super) fn request_key(png: &[u8], configuration: &Configuration) -> String {
+    format!("{}:{:x}", configuration.identity, Sha256::digest(png))
+}
+
+type Cache = VecDeque<(String, StructuredOcr)>;
+fn cache() -> &'static Mutex<Cache> {
+    static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(VecDeque::new()))
+}
+
+fn cached(key: &str) -> Option<StructuredOcr> {
+    cache()
+        .lock()
+        .ok()?
+        .iter()
+        .find(|(identity, _)| identity == key)
+        .map(|(_, result)| result.clone())
+}
+
+fn remember(key: String, result: &StructuredOcr) {
+    // 有 fallbackReason 的结果不能遮住修好的配置/模型；单次输出有界，最多缓存8项。
+    if result.fallback_reason.is_some() {
+        return;
+    }
+    if let Ok(mut cache) = cache().lock() {
+        cache.retain(|(identity, _)| identity != &key);
+        cache.push_back((key, result.clone()));
+        while cache.len() > 8 {
+            cache.pop_front();
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Reply {
+    version: u32,
+    request_id: String,
+    result: StructuredOcr,
+}
+
+async fn enhanced(
+    png: &[u8],
+    configuration: &Configuration,
+    width: u32,
+    height: u32,
+    deadline: Instant,
+) -> Result<StructuredOcr, String> {
+    let (path, manifest, manifest_hash) = configuration
+        .enhanced
+        .as_ref()
+        .ok_or_else(|| "OCR 增强未配置".to_string())?;
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return Err("OCR 识别超时".into());
+    }
+    let request_id = format!("{:x}", Sha256::digest(png));
+    let mut input = serde_json::to_vec(&serde_json::json!({"version":1,"requestId":request_id,"pngBytes":png.len(),"deadlineMs":remaining.as_millis().min(60000) as u64})).map_err(|_| "OCR 请求编码失败".to_string())?;
+    input.push(b'\n');
+    input.extend_from_slice(png);
+    let mut command = tokio::process::Command::new(&manifest.python);
+    command
+        .arg("-I")
+        .arg(&manifest.script)
+        .arg("--manifest")
+        .arg(path)
+        .arg("--manifest-sha256")
+        .arg(manifest_hash);
+    command.env_remove("PYTHONPATH").env_remove("PYTHONHOME");
+    let output = run_recognition_process(
+        command,
+        &input,
+        remaining,
+        OCR_STDOUT_LIMIT,
+        OCR_STDERR_LIMIT,
+    )
+    .await?;
+    let mut reply: Reply =
+        serde_json::from_str(&output).map_err(|_| "OCR 增强结果格式错误".to_string())?;
+    if reply.version != 1 || reply.request_id != request_id {
+        return Err("OCR 增强请求身份不一致".into());
+    }
+    reply
+        .result
+        .validate_enhanced(width, height, &manifest.pipeline_id)?;
+    // 在进程运行期间本地热更新脚本/模型时，拒绝把新运行结果写入旧身份缓存。
+    let check_path = path.clone();
+    let checked = tauri::async_runtime::spawn_blocking(move || load(&check_path))
+        .await
+        .map_err(|_| "OCR 配置复核失败".to_string())??;
+    if Instant::now() >= deadline {
+        return Err("OCR 识别超时".into());
+    }
+    if checked.identity != configuration.identity {
+        return Err("OCR 运行配置在识别期间已变更".into());
+    }
+    reply.result.pipeline.id.clone_from(&configuration.identity);
+    Ok(reply.result)
+}
+
+fn budget_failure(error: &str) -> bool {
+    // Sidecar 稳定错误码与父进程I/O预算都禁止启动第二引擎。
+    error.contains("超时")
+        || error.contains("上限")
+        || error.contains("_budget")
+        || error.contains("ocr_deadline")
+}
+
+/// 调用者已经持有全局许可，不能在这里递归进入 OCR 调度器。
+pub(super) async fn recognize_owned(
+    png: Arc<Vec<u8>>,
+    configuration: Configuration,
+    cancelled: impl Fn() -> bool + Send,
+) -> Result<StructuredOcr, String> {
+    let (width, height) = image_dimensions(&png)?;
+    let key = request_key(&png, &configuration);
+    if let Some(result) = cached(&key) {
+        return Ok(result);
+    }
+    if cancelled() {
+        return Err("OCR 请求已取消".into());
+    }
+    let deadline = Instant::now() + super::RECOGNITION_TIMEOUT;
+    let mut reason = configuration.fallback_reason.clone();
+    if configuration.enhanced.is_some() {
+        match enhanced(&png, &configuration, width, height, deadline).await {
+            Ok(result) => {
+                remember(key, &result);
+                return Ok(result);
+            }
+            Err(error) => {
+                log::warn!("OCR 增强识别失败: {error}");
+                if Instant::now() >= deadline || budget_failure(&error) {
+                    return Err("OCR 增强识别超过预算，请缩小区域或重试".into());
+                }
+                reason = Some("enhanced_failed".into());
+            }
+        }
+    }
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining < Duration::from_millis(1) {
+        return Err("OCR 识别超时".into());
+    }
+    if cancelled() {
+        return Err("OCR 请求已取消".into());
+    }
+    // 冷探测仍在 blocking pool；其等待也计入同一预算，迟到探测自身有kill/wait上限。
+    let executable =
+        tauri::async_runtime::spawn_blocking(move || super::tesseract_executable_until(deadline))
+            .await
+            .map_err(|_| "OCR 探测线程异常".to_string())?
+            .ok_or_else(|| super::missing_tesseract_message().to_string())?;
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return Err("OCR 识别超时".into());
+    }
+    // 增强进程/冷探测结束后再查消费者；取消不能新启动第二引擎。
+    if cancelled() {
+        return Err("OCR 请求已取消".into());
+    }
+    let text = super::recognize_with_timeout(
+        &executable,
+        &png,
+        remaining,
+        OCR_STDOUT_LIMIT,
+        OCR_STDERR_LIMIT,
+    )
+    .await?;
+    let result = StructuredOcr::tesseract(width, height, text, reason);
+    remember(key, &result);
+    Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fixture() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("main.py");
+        std::fs::write(&script, b"# main\n").unwrap();
+        for module in MODULES {
+            std::fs::write(dir.path().join(module), module).unwrap();
+        }
+        let model = dir.path().join("model");
+        std::fs::write(&model, b"fixture model").unwrap();
+        let asset = serde_json::json!({"path":model,"sha256":format!("{:x}",Sha256::digest(b"fixture model"))});
+        let manifest = serde_json::json!({"version":1,"python":script,"script":script,"pipelineId":"test-pipeline","featureSchema":"clippy-edge-features-v1","models":{"det":asset,"rec":asset,"dictionary":asset,"edge":asset}});
+        let path = dir.path().join("manifest.json");
+        std::fs::write(&path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        (dir, path)
+    }
+
+    #[test]
+    fn identity_covers_all_runtime_modules_and_model_changes_cannot_hit_cache() {
+        let (directory, path) = fixture();
+        let original = load(&path).unwrap().identity;
+        for module in MODULES {
+            std::fs::write(directory.path().join(module), format!("{module} changed")).unwrap();
+            let changed = load(&path).unwrap().identity;
+            assert_ne!(original, changed, "{module}");
+            std::fs::write(directory.path().join(module), module).unwrap();
+        }
+        assert_eq!(original, load(&path).unwrap().identity);
+        std::fs::write(directory.path().join("model"), b"fixture Model").unwrap();
+        assert!(load(&path).is_err(), "同路径同长度坏模型不可复用成功缓存");
+    }
+
+    #[test]
+    fn rejects_relative_unknown_and_out_of_range_configuration() {
+        assert!(load(Path::new("relative.json")).is_err());
+        let (_directory, path) = fixture();
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        value["options"] = serde_json::json!({"layoutThreshold":2});
+        std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+        assert!(load(&path).is_err());
+        value["options"] = serde_json::json!({"unknown":0.5});
+        std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+        assert!(load(&path).is_err());
+    }
+
+    #[test]
+    fn sidecar_stage_budget_and_deadline_do_not_allow_fallback() {
+        for code in [
+            "det_tile_budget",
+            "rec_width_budget",
+            "layout_node_budget",
+            "ocr_deadline",
+            "OCR 输出超过上限",
+            "OCR 识别超时",
+        ] {
+            assert!(budget_failure(code), "{code}");
+        }
+        assert!(!budget_failure("model_hash_mismatch"));
+        assert!(!budget_failure("runtime_failure"));
+    }
+
+    #[test]
+    fn fallback_results_are_not_reused_as_an_enhanced_success() {
+        let result =
+            StructuredOcr::tesseract(1, 1, "fallback".into(), Some("enhanced_failed".into()));
+        let key = "test-fallback-never-remembered".to_string();
+        remember(key.clone(), &result);
+        assert!(cached(&key).is_none());
+    }
+
+    #[tokio::test]
+    #[ignore = "需要显式配置本地增强模型和合成PNG，仅在隔离验收运行"]
+    async fn configured_real_pipeline_through_rust_supervisor() {
+        let png_path = std::env::var_os("CLIPPY_OCR_TEST_PNG").expect("CLIPPY_OCR_TEST_PNG");
+        let png = std::fs::read(png_path).unwrap();
+        let result = super::super::recognize_snapshot(png).await.unwrap();
+        assert_eq!(
+            result.pipeline.engine, "ppocrv6+edgegnn",
+            "{:?}",
+            result.fallback_reason
+        );
+        assert!(result.fallback_reason.is_none());
+        assert!(!result.lines.is_empty());
+        assert!(!result.text.is_empty());
+        eprintln!("{}", serde_json::to_string(&result).unwrap());
+    }
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn cancelled_after_enhanced_non_timeout_failure_does_not_start_fallback() {
+        let (directory, path) = fixture();
+        let marker = directory.path().join("started");
+        let script = directory.path().join("main.py");
+        std::fs::write(&script,format!("import sys,time\nopen({:?},'w').write('started')\nsys.stdin.buffer.read()\ntime.sleep(.15)\nsys.exit(7)\n",marker)).unwrap();
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        manifest["python"] = "/usr/bin/python3".into();
+        std::fs::write(&path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let configuration = load(&path).unwrap();
+        let mut output = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::new_rgb8(1, 1)
+            .write_to(&mut output, image::ImageFormat::Png)
+            .unwrap();
+        let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let signal = Arc::clone(&cancelled);
+        let job = tokio::spawn(recognize_owned(
+            Arc::new(output.into_inner()),
+            configuration,
+            move || signal.load(std::sync::atomic::Ordering::SeqCst),
+        ));
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !marker.exists() && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(marker.exists(), "增强假进程必须实际启动");
+        cancelled.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(
+            job.await.unwrap().unwrap_err().contains("已取消"),
+            "不能探测或运行Tesseract fallback"
+        );
+    }
+}

@@ -25,6 +25,8 @@ export type RenderViewport = {
   scale: number;
   /** CSS 像素到画布物理像素的倍率；未指定时沿用窗口 DPR。 */
   pixelRatio?: number;
+  /** 源图左上角在 viewport 的 CSS 坐标；不改变注解的 canonical 坐标。 */
+  origin?: Point;
 };
 
 const MAX_CANVAS_DPR = 2;
@@ -58,7 +60,7 @@ export function drawScene(
   if (!ctx) return;
   const dpr = viewport.pixelRatio === undefined
     ? Math.min(MAX_CANVAS_DPR, Math.max(1, window.devicePixelRatio || 1))
-    : Math.max(1, viewport.pixelRatio);
+    : Math.max(0.01, viewport.pixelRatio);
   const pixelWidth = Math.max(1, Math.round(viewport.width * dpr));
   const pixelHeight = Math.max(1, Math.round(viewport.height * dpr));
   if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
@@ -69,6 +71,8 @@ export function drawScene(
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   ctx.clearRect(0, 0, viewport.width, viewport.height);
+  ctx.save();
+  if (viewport.origin) ctx.translate(viewport.origin.x, viewport.origin.y);
   drawBaseImage(ctx, image, adjustments, viewport.scale, { x: 0, y: 0 });
   drawEffects(ctx, image, annotations, adjustments, viewport.scale, { x: 0, y: 0 });
   annotations.filter(isVectorAnnotation).forEach((annotation) => drawAnnotation(ctx, annotation, viewport.scale));
@@ -84,6 +88,7 @@ export function drawScene(
     const selected = annotations.find((annotation) => annotation.id === selectedId);
     if (selected) drawSelectedBounds(ctx, annotationBounds(selected), viewport.scale);
   }
+  ctx.restore();
 }
 
 export function renderExport(
@@ -214,12 +219,11 @@ function drawMosaic(
     const cell = Math.max(6, Math.min(256, Math.round((annotation.effect ?? DEFAULT_EFFECT_PARAMETERS).mosaicCell)));
     const input = document.createElement("canvas");
     input.width = width;
-    input.height = height;
+    // 按条带读取源像素，避免大图效果区再分配一份完整 RGBA；平均网格仍与 Rust 相同。
+    const rowsPerRead = Math.max(1, Math.min(cell, Math.floor(1_048_576 / width)));
+    input.height = rowsPerRead;
     const source = input.getContext("2d", { willReadFrequently: true });
     if (!source) return;
-    source.filter = filter;
-    source.drawImage(image, x, y, width, height, 0, 0, width, height);
-    const pixels = source.getImageData(0, 0, width, height).data;
     const buffer = document.createElement("canvas");
     buffer.width = Math.ceil(width / cell);
     buffer.height = Math.ceil(height / cell);
@@ -227,19 +231,28 @@ function drawMosaic(
     if (!target) return;
     const output = target.createImageData(buffer.width, buffer.height);
     for (let row = 0; row < buffer.height; row += 1) {
-      for (let col = 0; col < buffer.width; col += 1) {
-        const endX = Math.min(width, (col + 1) * cell);
-        const endY = Math.min(height, (row + 1) * cell);
-        const sums = [0, 0, 0, 0];
-        for (let py = row * cell; py < endY; py += 1) {
-          for (let px = col * cell; px < endX; px += 1) {
+      const startY = row * cell;
+      const endY = Math.min(height, startY + cell);
+      const totals = new Float64Array(buffer.width * 4);
+      for (let tileY = startY; tileY < endY; tileY += rowsPerRead) {
+        const rows = Math.min(rowsPerRead, endY - tileY);
+        source.clearRect(0, 0, width, rowsPerRead);
+        source.filter = filter;
+        source.drawImage(image, x, y + tileY, width, rows, 0, 0, width, rows);
+        const pixels = source.getImageData(0, 0, width, rows).data;
+        for (let py = 0; py < rows; py += 1) {
+          for (let px = 0; px < width; px += 1) {
             const index = (py * width + px) * 4;
-            for (let channel = 0; channel < 4; channel += 1) sums[channel] += pixels[index + channel];
+            const cellIndex = Math.floor(px / cell) * 4;
+            for (let channel = 0; channel < 4; channel += 1) totals[cellIndex + channel] += pixels[index + channel];
           }
         }
-        const count = (endX - col * cell) * (endY - row * cell);
+      }
+      for (let col = 0; col < buffer.width; col += 1) {
+        const endX = Math.min(width, (col + 1) * cell);
+        const count = (endX - col * cell) * (endY - startY);
         const index = (row * buffer.width + col) * 4;
-        for (let channel = 0; channel < 4; channel += 1) output.data[index + channel] = Math.round(sums[channel] / count);
+        for (let channel = 0; channel < 4; channel += 1) output.data[index + channel] = Math.round(totals[col * 4 + channel] / count);
       }
     }
     target.putImageData(output, 0, 0);

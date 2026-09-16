@@ -21,6 +21,7 @@ import * as detectors from "./preview/detectors.js";
 import { classifyText } from "./preview/classify.js";
 import { detectionSample, limitForRender } from "./preview/large-text.js";
 import { createPreviewRenderers } from "./preview/renderers.js";
+import { imageTranslationView, revealImageTranslation } from "./preview/reveal-translation.js";
 import { createPanelVisibilityController } from "./panel-visibility.js";
 
 const { isMarkdown } = detectors;
@@ -150,6 +151,7 @@ export function init({ onVisibilityChange } = {}) {
       if (!visible) {
         _renderGeneration += 1;
         _currentClipId = null;
+        imageTranslationView.clear();
       }
       _panelEl.classList.toggle("hidden", !visible);
       // 面板显隐是翻译面板"是否值得查历史"的唯一依据（apply 可能重复调用，接收方需幂等）
@@ -191,8 +193,10 @@ export async function toggle() {
 /** 清空预览内容，释放内存（窗口隐藏时调用） */
 export function clearContent() {
   _renderGeneration += 1;
+  imageTranslationView.clear();
   _contentEl.innerHTML = "";
   _contentEl.className = "preview-content";
+  _panelEl.classList.remove("preview-panel--image");
   _badgeEl.textContent = "";
   _metaEl.textContent = "";
   _currentClipId = null;
@@ -200,6 +204,11 @@ export function clearContent() {
 
 export function isVisible() {
   return _visible;
+}
+
+/** 打开图片 OCR 内翻译视图，供显式键盘入口复用；本身不发请求。 */
+export function revealTranslation() {
+  return revealImageTranslation(_panelEl);
 }
 
 export async function hide() {
@@ -222,6 +231,7 @@ export function updatePreview(clip) {
   // 会把图片/OCR 停在半成品状态。
   if (_visible && clip?.id === _currentClipId && !hadPendingUpdate) return;
   const generation = ++_renderGeneration;
+  imageTranslationView.clear();
   if (!_visible || !clip) {
     void _doUpdatePreview(clip, generation);
     return;
@@ -237,6 +247,7 @@ async function _doUpdatePreview(clip, generation) {
   if (!_visible || !clip) {
     _contentEl.innerHTML = "";
     _contentEl.className = "preview-content";
+    _panelEl.classList.remove("preview-panel--image");
     _badgeEl.textContent = "";
     _metaEl.textContent = "";
     _currentClipId = null;
@@ -245,6 +256,8 @@ async function _doUpdatePreview(clip, generation) {
 
   _currentClipId = clip.id;
   const isCurrent = () => _isCurrentRender(clip.id, generation);
+  const scroll = _panelEl.querySelector(".preview-scroll");
+  if (scroll) scroll.scrollTop = 0;
 
   const size = clip.byte_size;
   _metaEl.textContent = size > 1024
@@ -253,8 +266,10 @@ async function _doUpdatePreview(clip, generation) {
 
   _contentEl.innerHTML = "";
   _contentEl.className = "preview-content";
+  _panelEl.classList.remove("preview-panel--image");
 
   if (clip.content_type === "image") {
+    _panelEl.classList.add("preview-panel--image");
     await _renderers.renderImage(clip, isCurrent);
     return;
   }

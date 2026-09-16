@@ -54,6 +54,8 @@ import type {
   UrlMeta,
   WindowProbeInstallOutcome,
   WindowProbeStatus,
+  StructuredOcr, ViewerHandle, ViewerRequest, ViewerReply, ViewerPayload,
+  ViewerTranslateOptions, ViewerColor, ViewerTextSource, ViewerSettings,
 } from "./ipc-types.ts";
 
 export type ImageCodePoint = {
@@ -777,6 +779,11 @@ export function ocrImage(id: number): Promise<string> {
   return invoke<string>("ocr_image", { id });
 }
 
+/** 主侧栏显示真实识别管线来源；旧 String API 保持兼容。 */
+export async function ocrImageResult(id: number): Promise<StructuredOcr> {
+  return checkedStructuredOcr(await invoke<StructuredOcr>("ocr_image_result", { id }));
+}
+
 /**
  * 显式扫描图片剪贴条目中的本地 QR Code / Code 39。
  *
@@ -785,6 +792,118 @@ export function ocrImage(id: number): Promise<string> {
 export async function detectImageCodes(id: number): Promise<ImageCodeScanResponse> {
   const response = await invoke<unknown>("detect_image_codes", { id });
   return parseImageCodeScanResponse(response);
+}
+
+function checkedViewerPayload(value: ViewerPayload): ViewerPayload {
+  const source = value?.source;
+  if (!value?.handle?.sessionId || !value.handle.snapshotId || !value.label?.startsWith("image-viewer-")
+    || !source || source.mediaType !== "image/png" || !/^[a-f0-9]{64}$/i.test(source.contentHash)
+    || !Number.isInteger(source.width) || !Number.isInteger(source.height)
+    || source.width < 1 || source.height < 1 || source.width > 16384 || source.height > 16384
+    || source.width * source.height > 32 * 1024 * 1024
+    || !Number.isInteger(source.byteLength) || source.byteLength < 1 || source.byteLength > 64 * 1024 * 1024
+    || typeof source.sensitive !== "boolean" || typeof value.limits?.canEdit !== "boolean"
+    || typeof value.limits?.canScan !== "boolean") throw new Error("viewer.invalid_payload");
+  return value;
+}
+
+/** 查看器 IPC 均携带实际快照和请求身份，不接受旧窗口的晚到回包。 */
+async function viewerInvoke<T>(command: string, request: ViewerRequest, args: Record<string, unknown> = {}): Promise<ViewerReply<T>> {
+  const reply = await invoke<ViewerReply<T>>(command, { request, ...args });
+  if (reply?.sessionId !== request.sessionId || reply.snapshotId !== request.snapshotId || reply.requestId !== request.requestId
+    || !Object.hasOwn(reply, "value")) throw new Error("viewer.stale_request");
+  return reply;
+}
+export async function openImageViewer(id: number): Promise<ViewerPayload> {
+  return checkedViewerPayload(await invoke<ViewerPayload>("open_image_viewer", { id }));
+}
+export async function getViewerPayload(): Promise<ViewerPayload> {
+  return checkedViewerPayload(await invoke<ViewerPayload>("get_viewer_payload"));
+}
+export function getViewerSettings(): Promise<ViewerSettings> {
+  return invoke("get_viewer_settings");
+}
+export function getViewerImageUrl(payload: ViewerPayload): string {
+  // Tauri 会编码整个 filePath，必须在转换窗口段后再连接快照段。
+  return `${convertFileSrc(payload.label, "viewer-frame")}/${encodeURIComponent(payload.handle.snapshotId)}`;
+}
+export function viewerReady(handle: ViewerHandle): Promise<void> { return invoke("viewer_ready", { handle }); }
+export function closeImageViewer(handle: ViewerHandle): Promise<void> { return invoke("close_image_viewer", { handle }); }
+export async function getViewerFullscreen(handle: ViewerHandle): Promise<boolean> {
+  const value = await invoke<boolean>("get_viewer_fullscreen", { handle });
+  if (typeof value !== "boolean") throw new Error("viewer.invalid_window_state");
+  return value;
+}
+export function setViewerFullscreen(handle: ViewerHandle, fullscreen: boolean): Promise<void> {
+  return invoke("set_viewer_fullscreen", { handle, fullscreen });
+}
+export function minimizeImageViewer(handle: ViewerHandle): Promise<void> { return invoke("minimize_image_viewer", { handle }); }
+export function startViewerDrag(handle: ViewerHandle): Promise<void> { return invoke("start_viewer_drag", { handle }); }
+/** 只订阅当前原生窗口；事件提示状态可能改变，实际全屏状态仍由专用IPC查询。 */
+export async function onViewerWindowChanged(callback: () => void): Promise<UnlistenFn> {
+  const current = getCurrentWindow();
+  const listeners = await Promise.allSettled([
+    current.onResized(() => callback()),
+    current.onFocusChanged(event => { if (event.payload) callback(); }),
+  ]);
+  const disposers = listeners.flatMap(result => result.status === "fulfilled" ? [result.value] : []);
+  const failure = listeners.find(result => result.status === "rejected");
+  if (failure?.status === "rejected") { disposers.forEach(dispose => dispose()); throw failure.reason; }
+  return () => disposers.forEach(dispose => dispose());
+}
+function checkedStructuredOcr(value: StructuredOcr): StructuredOcr {
+  const probability = (number: number) => Number.isFinite(number) && number >= 0 && number <= 1;
+  if (!value || !Number.isInteger(value.width) || !Number.isInteger(value.height) || value.width < 1 || value.height < 1
+    || value.width > 16384 || value.height > 16384 || typeof value.text !== "string" || value.text.length > 1_048_576
+    || !Array.isArray(value.lines) || value.lines.length > 512 || !Array.isArray(value.paragraphs) || value.paragraphs.length > value.lines.length
+    || !["ppocrv6+edgegnn", "tesseract"].includes(value.pipeline?.engine) || typeof value.pipeline.id !== "string"
+    || typeof value.pipeline.layoutExecuted !== "boolean" || !(value.fallbackReason === null || typeof value.fallbackReason === "string")) throw new Error("viewer.invalid_ocr");
+  let total = 0;
+  for (const line of value.lines) {
+    if (!line || typeof line.text !== "string" || line.text.length > 65536 || typeof line.accepted !== "boolean"
+      || !Number.isInteger(line.id) || !Number.isInteger(line.readingOrder) || !Number.isInteger(line.paragraphId)
+      || !probability(line.confidence) || !Array.isArray(line.charConfidences) || line.charConfidences.length > 65536
+      || line.charConfidences.some(number => !probability(number)) || !Array.isArray(line.quad) || line.quad.length !== 4
+      || line.quad.some(point => !Array.isArray(point) || point.length !== 2 || !Number.isFinite(point[0]) || !Number.isFinite(point[1]) || point[0] < 0 || point[0] > value.width || point[1] < 0 || point[1] > value.height)) throw new Error("viewer.invalid_ocr");
+    total += line.text.length; if (total > 1_048_576) throw new Error("viewer.invalid_ocr");
+  }
+  for (const paragraph of value.paragraphs) {
+    if (!paragraph || !Number.isInteger(paragraph.id) || !Number.isInteger(paragraph.readingOrder) || !Array.isArray(paragraph.lineIds)
+      || paragraph.lineIds.length > 512 || paragraph.lineIds.some(id => !Number.isInteger(id))) throw new Error("viewer.invalid_ocr");
+  }
+  return value;
+}
+export async function recognizeViewer(request: ViewerRequest): Promise<ViewerReply<StructuredOcr>> {
+  const reply = await viewerInvoke<StructuredOcr>("recognize_viewer", request);
+  return { ...reply, value: checkedStructuredOcr(reply.value) };
+}
+export async function detectViewerCodes(request: ViewerRequest): Promise<ViewerReply<ImageCodeScanResponse>> {
+  const reply = await viewerInvoke<unknown>("detect_viewer_codes", request);
+  return { ...reply, value: parseImageCodeScanResponse(reply.value) };
+}
+export function translateViewer(request: ViewerRequest, options: ViewerTranslateOptions): Promise<ViewerReply<TranslationBatch>> {
+  return viewerInvoke("translate_viewer", request, { options });
+}
+export async function sampleViewerColor(request: ViewerRequest, x: number, y: number): Promise<ViewerReply<ViewerColor>> {
+  const reply = await viewerInvoke<ViewerColor>("sample_viewer_color", request, { x, y });
+  const value = reply.value;
+  if (value?.x !== x || value.y !== y || !Array.isArray(value.rgba) || value.rgba.length !== 4
+    || value.rgba.some(channel => !Number.isInteger(channel) || channel < 0 || channel > 255)
+    || value.hex !== "#" + value.rgba.slice(0, 3).map(channel => channel.toString(16).padStart(2, "0")).join("").toUpperCase()
+    || typeof value.rgb !== "string") throw new Error("viewer.invalid_color");
+  return reply;
+}
+export function copyViewerImage(request: ViewerRequest, document: PinCanvasProject | null): Promise<ViewerReply<null>> {
+  return viewerInvoke("copy_viewer_image", request, { document });
+}
+export function saveViewerImage(request: ViewerRequest, mode: PinCanvasSaveMode, document: PinCanvasProject | null): Promise<ViewerReply<PinCanvasSaveResult>> {
+  return viewerInvoke("save_viewer_image", request, { mode, document });
+}
+export function pinViewerImage(request: ViewerRequest, document: PinCanvasProject | null): Promise<ViewerReply<string>> {
+  return viewerInvoke("pin_viewer_image", request, { document });
+}
+export function copyViewerText(request: ViewerRequest, source: ViewerTextSource, index: number): Promise<ViewerReply<null>> {
+  return viewerInvoke("copy_viewer_text", request, { source, index });
 }
 
 /** 一键安装 tesseract-ocr（通过 pkexec 提权） */

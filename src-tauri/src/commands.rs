@@ -27,6 +27,8 @@ pub use url_metadata::*;
 
 /// 全局应用状态，通过 Tauri 的 manage() 注入并在各命令中共享。
 pub struct AppState {
+    pub viewer_manager: Arc<crate::viewer::ViewerManager>,
+    pub viewer_transition: Mutex<()>,
     pub storage: Arc<Mutex<StorageEngine>>,
     pub config: Arc<Mutex<AppConfig>>,
     pub config_path: PathBuf,

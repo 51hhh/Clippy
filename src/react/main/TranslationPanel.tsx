@@ -1,5 +1,7 @@
 import { Copy, RotateCcw, Volume2 } from "lucide-react";
 import { useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
+import { imageTranslationView } from "../../js/preview/reveal-translation.js";
 import {
   enabledTranslationServices,
   translationProviderMeta,
@@ -89,13 +91,17 @@ export function translationCardStatusText(card: TranslationCard): string {
     : t("translation.result");
 }
 
-export function TranslationPanel({ store = translationStore }: { store?: TranslationStore }) {
+export function TranslationPanel({ store = translationStore, imageView = imageTranslationView }: {
+  store?: TranslationStore;
+  imageView?: typeof imageTranslationView;
+}) {
   const snapshot = useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,
     store.getSnapshot,
   );
   const { clip, config } = snapshot;
+  const imageHost = useSyncExternalStore(imageView.subscribe, imageView.getSnapshot, imageView.getSnapshot);
   if (!clip || !config) return null;
 
   // 未启用任何服务时不假装某个默认服务，直接告诉用户当前没有可用目标。
@@ -109,11 +115,12 @@ export function TranslationPanel({ store = translationStore }: { store?: Transla
   const busy = snapshot.loading || snapshot.cards.some((card) => card.loading);
   const speaking = snapshot.speaking !== null;
 
-  return (
-    <section className="translation-panel" aria-labelledby="translation-title">
+  const isImage = clip.content_type === "image";
+  const content = (
+    <>
       <div className="translation-header">
         <div className="translation-heading">
-          <h2 id="translation-title" className="translation-title">{t("translation.title")}</h2>
+          {!isImage && <h2 id="translation-title" className="translation-title">{t("translation.title")}</h2>}
           <p className="translation-destination">
             <span>{t("translation.target", { language: targetLabel })}</span>
             <span aria-hidden="true">·</span>
@@ -149,8 +156,8 @@ export function TranslationPanel({ store = translationStore }: { store?: Transla
             className="translation-copy translation-speak"
             type="button"
             disabled={clip.is_sensitive || speaking}
-            aria-label={t("translation.speakSource")}
-            title={t("translation.speakSource")}
+            aria-label={t(isImage ? "preview.readOcr" : "translation.speakSource")}
+            title={t(isImage ? "preview.readOcr" : "translation.speakSource")}
             onClick={() => void store.speakSource()}
           >
             <Volume2 size={15} />
@@ -262,6 +269,15 @@ export function TranslationPanel({ store = translationStore }: { store?: Transla
           </div>
         );
       })}
-    </section>
+    </>
   );
+  if (isImage) {
+    // 当前图片的 OCR slot 承载 portal；静态 React 根不进入可清空的 preview-content。
+    if (!imageHost?.visible || imageHost.clipId !== clip.id) return null;
+    return createPortal(
+      <section className="translation-panel translation-panel--image" aria-label={t("preview.translateOcr")}>{content}</section>,
+      imageHost.container,
+    );
+  }
+  return <section className="translation-panel" aria-labelledby="translation-title">{content}</section>;
 }

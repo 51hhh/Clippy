@@ -14,6 +14,9 @@ import {
 import { enabledTranslationServices } from "../../js/translation-providers";
 import { audioElementPlayer, type SpeechPlayer } from "./speech";
 
+const productionServices = { copyText, speakClip, speakText, translateClip, translationHistory };
+export type TranslationServices = typeof productionServices;
+
 /** 单个服务的结果卡。失败同样是一张卡，用户可以只重试出错的那个服务。 */
 export type TranslationCard = {
   provider: TranslationProvider;
@@ -155,6 +158,8 @@ export class TranslationStore {
     private readonly player: SpeechPlayer = audioElementPlayer,
     /** 历史回填的防抖窗口；连续上下键换条目时只查最后停下的那条 */
     private readonly historyDebounceMs: number = HISTORY_DEBOUNCE_MS,
+    /** 审阅宿主可替换服务；生产默认仍通过 api.ts。 */
+    private readonly services: TranslationServices = productionServices,
   ) {}
 
   subscribe = (listener: () => void): (() => void) => {
@@ -240,7 +245,7 @@ export class TranslationStore {
     if (!clip || clip.is_sensitive) return;
     let entries: TranslationHistoryEntry[];
     try {
-      entries = await translationHistory(clip.id);
+      entries = await this.services.translationHistory(clip.id);
     } catch {
       // 历史是附带功能，读不到就当没有记录。
       return;
@@ -284,7 +289,7 @@ export class TranslationStore {
       .map((service) => pendingCard(service.provider));
     this.commit({ loading: true, feedback: "idle", errorCode: null, cards: pending });
     try {
-      const batch = await translateClip(clip.id);
+      const batch = await this.services.translateClip(clip.id);
       if (!this.isCurrent(requestGeneration, clip)) return;
       const cards = batch.services.map(cardFromService);
       this.commit({ loading: false, cards, ...summarize(cards) });
@@ -308,7 +313,7 @@ export class TranslationStore {
     const requestGeneration = ++this.generation;
     this.commit({ cards: this.replaceCard(pendingCard(provider)), feedback: "idle", errorCode: null });
     try {
-      const batch = await translateClip(clip.id, [provider]);
+      const batch = await this.services.translateClip(clip.id, [provider]);
       if (!this.isCurrent(requestGeneration, clip)) return;
       const service = batch.services.find((entry) => entry.provider === provider);
       this.applyCard(service ? cardFromService(service) : failedCard(provider, "invalid_response"));
@@ -332,14 +337,14 @@ export class TranslationStore {
   async speakSource(): Promise<void> {
     const clip = this.snapshot.clip;
     if (!clip) return;
-    await this.speak("source", () => speakClip(clip.id));
+    await this.speak("source", () => this.services.speakClip(clip.id));
   }
 
   /** 朗读某个服务的译文，按它实际使用的目标语言发音 */
   async speakTranslation(provider: TranslationProvider): Promise<void> {
     const card = this.snapshot.cards.find((entry) => entry.provider === provider);
     if (!card?.translatedText) return;
-    await this.speak(provider, () => speakText(card.translatedText, card.targetLanguage || undefined));
+    await this.speak(provider, () => this.services.speakText(card.translatedText, card.targetLanguage || undefined));
   }
 
   /**
@@ -370,7 +375,7 @@ export class TranslationStore {
     if (!translatedText) return;
     const requestGeneration = this.generation;
     try {
-      await copyText(translatedText);
+      await this.services.copyText(translatedText);
       this.applyCopyFeedback(requestGeneration, provider, translatedText, "copied");
     } catch {
       this.applyCopyFeedback(requestGeneration, provider, translatedText, "copy_failed");

@@ -17,6 +17,7 @@ export default defineConfig({
         main: resolve(__dirname, "index.html"),
         settings: resolve(__dirname, "settings.html"),
         pin: resolve(__dirname, "pin.html"),
+        viewer: resolve(__dirname, "viewer.html"),
         captureOverlay: resolve(__dirname, "capture-overlay.html"),
         longshotController: resolve(__dirname, "longshot-controller.html"),
       },

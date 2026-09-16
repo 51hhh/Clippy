@@ -23,6 +23,21 @@ pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
             api.prevent_close();
             let _ = window_controller::hide_main_window(window.app_handle());
         }
+        tauri::WindowEvent::CloseRequested { api, .. }
+            if window.label().starts_with("image-viewer-") =>
+        {
+            if let Some(state) = window.app_handle().try_state::<AppState>() {
+                // 未就绪窗口没有未保存文档，不依赖尚未挂载的 JS 才能关闭。
+                if state.viewer_manager.is_ready(window.label()) {
+                    api.prevent_close();
+                }
+            }
+        }
+        tauri::WindowEvent::Destroyed if window.label().starts_with("image-viewer-") => {
+            if let Some(state) = window.app_handle().try_state::<AppState>() {
+                state.viewer_manager.remove(window.label());
+            }
+        }
         tauri::WindowEvent::CloseRequested { api, .. } if window.label().starts_with("pin-") => {
             // Tauri 仍会把原生 close-requested 事件交给前端。先拦住默认销毁，
             // 让未保存确认与保存中的保护生效；获准后的 close_pin 使用 destroy。

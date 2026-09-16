@@ -173,3 +173,38 @@ async fn queue_has_a_hard_admission_limit() {
         assert_eq!(job.await.unwrap().unwrap(), "ok");
     }
 }
+
+#[tokio::test]
+async fn production_structured_job_reaps_after_last_consumer_cancels_before_releasing_permit() {
+    let runtime: &'static OcrRuntime = Box::leak(Box::new(OcrRuntime::new(1)));
+    let (_directory, executable, pid) = fake_program("sys.stdin.buffer.read(); time.sleep(60)");
+    let active = tokio::spawn(runtime.run_structured("active".into(), move || async move {
+        let text = run_fake_with_timeout(
+            &executable,
+            b"input",
+            Duration::from_millis(250),
+            4096,
+            4096,
+        )
+        .await?;
+        Ok(StructuredOcr::tesseract(1, 1, text, None))
+    }));
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !pid.exists() && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    assert!(pid.exists(), "假进程必须实际启动");
+    active.abort();
+    let _ = active.await;
+    let final_pid = pid.clone();
+    let result = runtime
+        .run_structured("next".into(), move || async move {
+            assert_reaped(&final_pid);
+            Ok(StructuredOcr::tesseract(1, 1, "recovered".into(), None))
+        })
+        .await
+        .unwrap();
+    assert_eq!(result.text, "recovered");
+    assert_reaped(&pid);
+    assert!(runtime.snapshots.lock().unwrap().is_empty());
+}

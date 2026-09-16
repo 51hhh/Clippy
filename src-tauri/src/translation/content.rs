@@ -19,11 +19,20 @@ pub(super) fn load_clip_input(
     storage: &Arc<Mutex<StorageEngine>>,
     id: i64,
 ) -> Result<ClipTranslationInput, TranslationError> {
+    load_clip_input_for_mode(storage, id, crate::ocr::uses_enhanced_configuration())
+}
+
+fn load_clip_input_for_mode(
+    storage: &Arc<Mutex<StorageEngine>>,
+    id: i64,
+    enhanced: bool,
+) -> Result<ClipTranslationInput, TranslationError> {
     let storage = storage.lock().map_err(|_| TranslationError::Internal)?;
     let clip = storage
         .get_clip_by_id(id)
         .map_err(|_| TranslationError::ClipUnavailable)?;
-    let cached_ocr = if clip.content_type == ContentType::Image {
+    // 无版本缓存不能证明使用当前模型；单条/批量翻译与预览使用相同增强旁路。
+    let cached_ocr = if clip.content_type == ContentType::Image && !enhanced {
         storage
             .get_ocr_text(id)
             .map_err(|_| TranslationError::ClipUnavailable)?
@@ -219,6 +228,36 @@ mod tests {
                 clip_id: 12,
                 image: vec![1, 2, 3],
             })
+        );
+    }
+
+    #[test]
+    fn enhanced_translation_bypasses_unversioned_persistent_ocr() {
+        let engine = StorageEngine::new_in_memory().unwrap();
+        let item = engine
+            .insert_clip(
+                &ContentType::Image,
+                None,
+                None,
+                Some(&[1, 2, 3]),
+                "enhanced-translation",
+                3,
+                false,
+            )
+            .unwrap();
+        engine.set_ocr_text(item.id, "old tesseract").unwrap();
+        let storage = Arc::new(Mutex::new(engine));
+        let baseline =
+            prepare_clip_text(load_clip_input_for_mode(&storage, item.id, false).unwrap()).unwrap();
+        assert_eq!(baseline, PreparedClipText::Ready("old tesseract".into()));
+        let enhanced =
+            prepare_clip_text(load_clip_input_for_mode(&storage, item.id, true).unwrap()).unwrap();
+        assert_eq!(
+            enhanced,
+            PreparedClipText::NeedsOcr {
+                clip_id: item.id,
+                image: vec![1, 2, 3]
+            }
         );
     }
 

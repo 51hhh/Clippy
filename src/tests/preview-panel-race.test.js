@@ -6,10 +6,11 @@ const api = vi.hoisted(() => ({
   getClipImage: vi.fn(),
   detectImageCodes: vi.fn(),
   ocrAvailable: vi.fn(),
-  ocrImage: vi.fn(),
+  ocrImageResult: vi.fn(),
   getConfig: vi.fn(),
   fetchUrlMeta: vi.fn(),
   copyText: vi.fn(),
+  openImageViewer: vi.fn(),
 }));
 
 function deferred() {
@@ -164,64 +165,48 @@ describe("preview render generation", () => {
     expect(document.getElementById("preview-content").textContent).not.toContain("B");
   });
 
-  it("does not let a completed stale explicit scan write over the next preview", async () => {
+  it("clears the image translation binding immediately when switching to another item", async () => {
     vi.useFakeTimers();
     mountPreviewDom();
-    const scan = deferred();
     api.getClipImage.mockResolvedValue("image-bytes");
     api.getConfig.mockResolvedValue({ ocr_enabled: false });
-    api.detectImageCodes.mockReturnValue(scan.promise);
     const previewPanel = await import("../js/preview-panel.js");
+    const { imageTranslationView } = await import("../js/preview/reveal-translation.js");
     previewPanel.init();
     await previewPanel.toggle();
-
     previewPanel.updatePreview({ id: 31, content_type: "image", byte_size: 1024 });
     await vi.advanceTimersByTimeAsync(80);
-    await vi.waitFor(() => {
-      expect(document.querySelector(".preview-code-scan-button")).not.toBeNull();
-    });
-    document.querySelector(".preview-code-scan-button").click();
-    expect(api.detectImageCodes).toHaveBeenCalledWith(31);
-
+    expect(imageTranslationView.getSnapshot()?.clipId).toBe(31);
+    expect(previewPanel.revealTranslation()).toBe(true);
     previewPanel.updatePreview({ id: 32, content_type: "text", text_content: "current", byte_size: 1 });
+    // 防抖尚未推进时，旧按钮和旧 slot 已不能作为翻译入口。
+    expect(imageTranslationView.getSnapshot()).toBeNull();
+    expect(previewPanel.revealTranslation()).toBe(false);
     await vi.advanceTimersByTimeAsync(80);
-    scan.resolve({ results: [{ format: "qr_code", text: "late scan", points: [] }], limited: false });
-    await Promise.resolve();
-    await Promise.resolve();
-
     expect(document.getElementById("preview-content").textContent).toContain("current");
-    expect(document.getElementById("preview-content").textContent).not.toContain("late scan");
   });
 
-  it("does not publish a rejected scan after the preview is hidden", async () => {
+  it.each(["hide", "clearContent"])("%s invalidates a slow image before it can publish a translation slot", async (operation) => {
     vi.useFakeTimers();
     mountPreviewDom();
-    const scan = deferred();
-    api.getClipImage.mockResolvedValue("image-bytes");
+    const image = deferred();
+    api.getClipImage.mockReturnValue(image.promise);
     api.getConfig.mockResolvedValue({ ocr_enabled: false });
-    api.detectImageCodes.mockReturnValue(scan.promise);
     const previewPanel = await import("../js/preview-panel.js");
+    const { imageTranslationView } = await import("../js/preview/reveal-translation.js");
     previewPanel.init();
     await previewPanel.toggle();
-
     previewPanel.updatePreview({ id: 33, content_type: "image", byte_size: 1024 });
     await vi.advanceTimersByTimeAsync(80);
-    await vi.waitFor(() => {
-      expect(document.querySelector(".preview-code-scan-button")).not.toBeNull();
-    });
-    const area = document.querySelector(".preview-code-scan");
-    area.querySelector(".preview-code-scan-button").click();
-    expect(area.dataset.status).toBe("loading");
-
-    await previewPanel.hide();
-    scan.reject(new Error("late scan failure"));
+    expect(previewPanel.revealTranslation()).toBe(false);
+    await previewPanel[operation]();
+    image.resolve("late-image");
     await Promise.resolve();
     await Promise.resolve();
-
-    expect(document.getElementById("preview-panel").classList.contains("hidden")).toBe(true);
-    expect(area.dataset.status).toBe("loading");
-    expect(area.querySelector(".preview-code-scan-status").textContent).toBe("codeScan.scanning");
+    expect(imageTranslationView.getSnapshot()).toBeNull();
+    expect(document.querySelector(".preview-ocr-translation")).toBeNull();
   });
+
 });
 
 describe('预算在预览派发前生效', () => {
