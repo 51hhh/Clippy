@@ -65,7 +65,8 @@
 | 5 | 已由 PR #5 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `f1dfd35` / CI `35198689455` | 17 通过、0 失败、2 跳过 |
 | 6 | 已由 PR #7 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `d5fab06` / CI `35201877133` | 17 通过、0 失败、2 跳过 |
 | 7A | 已由 PR #8 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `3775dcf` / CI `35204446458` | 17 通过、0 失败、2 跳过 |
-| 7B | Pin command adapter 与可信输出边界拆分完成，待原生 CI | `codex/pin-command-boundaries` / `ee6d42e` | 17 通过、0 失败、2 跳过 |
+| 7B | 已由 PR #9 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `8937285` / CI `35208078218` | 17 通过、0 失败、2 跳过 |
+| 7C | OCR 领域边界已拆分，等待原生 CI | `codex/ocr-domain-boundaries` | 17 通过、0 失败、2 跳过 |
 
 Phase 4 选择轻量 parity gate 与三个共享 JSON fixture，没有引入代码生成依赖；完整绑定生成可在
 Phase 7 拆分 API facade 时重新评估。Phase 5 的静态类型范围先固定为 `js/preview/` 与
@@ -77,9 +78,10 @@ pin、capture overlay、longshot controller、image viewer 分成独立 capabili
 `https://github.com/51hhh/Clippy/*`，自启动与版本读取只授予 settings，截图覆盖层只额外保留关闭自身，
 原生拖动仍只授予 pin 与 longshot。回归测试同时禁止恢复宽泛 core、opener 和前端全局快捷键权限。
 
-Phase 1～7A 已合入，当前 `dev` SHA `3775dcf736d2f9090dfcec691971b75d305c2c0d` 的 Ubuntu、Windows、
-macOS 原生门禁均在 CI `35204446458` 通过，原生证据脚本输出 `PASS`。Phase 7B 已基于该 SHA
-完成本地拆分；它自己的 Windows/macOS 原生 CI、分支合入和真机 QA 仍未执行。
+Phase 1～7B 已合入，当前 `dev` SHA `893728586685584970ffa9b46b8cfcc2ff569a7f` 的 Ubuntu、Windows、
+macOS 原生门禁均在 CI `35208078218` 通过，原生证据脚本输出 `PASS`。Phase 7B 首次 Ubuntu
+运行暴露了 OCR 等待者上限测试依赖固定调度次数的波动，同一 SHA 失败 job 重跑以及最终 `dev` CI
+均通过；Phase 7C 已将该测试改成观察 runtime 登记状态的确定性等待。
 
 ---
 
@@ -350,13 +352,19 @@ IPC parity gate 均通过。完整 `./scripts/ci-local.sh` 为 17 通过、0 失
 状态组合移入 `lifecycle.rs`，画布 DTO、canonical/preview 选择和 Copy/flat/editable 输出规则
 移入 `output.rs`，文件预算与工程容器读取移入 `project_file.rs`。严格 Clippy、IPC parity、
 113 项 Pin 自动测试（另有 4 个显式人工探针）和完整本地门禁均通过；完整门禁为 17 通过、
-0 失败、2 跳过。Windows/macOS 结论等待本 Phase 的远程原生 CI。
+0 失败、2 跳过。PR #9 合入后的 `dev` CI `35208078218` 在 Ubuntu、Windows、macOS 全部通过；
+原生证据脚本输出 `PASS`。真机 QA 未执行。
 
 ### 7C：OCR
 
-- [ ] 将可执行文件探测/缓存、进程执行、并发/single-flight、Tesseract 解析分别落到子模块；
-- [ ] 保持取消、超时、子进程回收和 fallback 原因不变；
-- [ ] 保持 viewer structured OCR wire contract 不变。
+- [x] 将可执行文件探测/缓存、进程执行、并发/single-flight、Tesseract 解析分别落到子模块；
+- [x] 保持取消、超时、子进程回收和 fallback 原因不变；
+- [x] 保持 viewer structured OCR wire contract 不变。
+
+**7C 定向结果：** `ocr.rs` 从 991 行收敛为 126 行 facade；`runtime.rs`、`executable.rs`、
+`process.rs` 与 `tesseract.rs` 分别拥有调度、探测、子进程监督和文本协议。25 项 OCR 测试通过，
+等待者上限测试连续运行 25 次全部通过，严格 Clippy 通过。完整本地门禁为 17 通过、0 失败、
+2 跳过；Windows/macOS 结论等待本 Phase 的远程原生 CI。
 
 **验收：** 每个 adapter 只做参数转换和错误映射；领域实现可不依赖 Tauri command 直接测试。
 

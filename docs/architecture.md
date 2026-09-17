@@ -31,6 +31,7 @@
 | `pin/resample.rs` | 贴图图片按**缓冲区分辨率**出图并预先补偿合成器那一步缩小。合成器的核是脉冲实测出来的标准双线性（缓冲区里一个孤立白点在屏上只留下一个 177/255 的点 = 0.8333²），所以能反过来迭代地问"这张缓冲区图被缩完等于原图吗"、把残差加回去（Lanczos3 预放大作初值 + 4 轮反投影）。屏上实测 PSNR：默认平滑 30.28 → `pixelated` 33.95 → Lanczos 预放大 34.73 → **反投影 43.02 dB**。生产实现以 Q7 定点保留子像素精度，Lanczos 只缓存当前垂直核需要的行，双线性前向/回投影按行运行，不保留多份全图 `f32 RGBA`。**64 MiB 是每个 RGBA 平面的硬预算，不是进程总内存上限**；最坏工作集还包含 Q7 缓冲（两字节/通道）、i16 残差、解码原图、可选屏显目标和最终 PNG。它可容纳 4K 原生屏在 150% 真实缩放 / 200% WebKit 缓冲缩放下的 5120x2880 补偿图；超限会明确记录失败并回退原图，不在几何阶段静默跳过。release 实测 3413x1920 约 614 ms、5120x2880 约 1.28 s；直接测试进程的**瞬时总峰值** RSS 354 MiB，空测试壳基线 6.6 MiB，补偿增量约 347 MiB。补偿一直在后台运行并且全局串行，多张 Pin 不会叠加工作集或阻塞开窗；关闭后还在排队的补偿会在解码前取消。赶上了随第一份 payload 下发（`SharpenSlot`），没赶上走 `pin-image-sharpened` 事件换图。复制与保存永远用原图 |
 | `pin/` 的 `update_pin` 应答 | 缩放/不透明度是**每帧**都会走的路，所以应答是 `PinState`（label、内容尺寸、scale、opacity、locked、position），**不带 `image_base64`/`text`**——每帧重编一张全图 base64 纯属浪费，而且会让前端重建图片 object URL、造成闪烁。前端 `react/pin/update-order.ts::mergePinState` 把它合并进手里那份 payload |
 | `translation/` | provider、超时/重试、request-id、内容选择、Secret Service；启用的服务按 `spawn_blocking` 并行，单服务失败作为数据返回；`direction.rs` 在文本已是目标语言时按备选语言换向；`tts.rs` 走 dictvoice 取回音频 |
+| `ocr.rs` / `ocr/` | `ocr.rs` 是稳定 facade，只组合 snapshot/clip 入口与增强配置；`runtime.rs` 独占全局并发、队列和 single-flight；`executable.rs` 独占跨平台 Tesseract 候选、限时探测和可失效缓存；`process.rs` 监督子进程管道、输出预算、超时与 kill/wait；`tesseract.rs` 固定 CLI 参数和 UTF-8 文本合同；`enhanced.rs` 管理显式 Python/EdgeGNN 管线与 fallback，`protocol.rs` 固定 viewer structured OCR wire contract。测试不得以固定 `yield` 次数推测任务已经登记，必须观察 runtime 状态并带超时等待 |
 | `storage.rs` + `storage/*` | SQLite/FTS5 初始化与搜索；维护清理、统计、URL 缓存、翻译记录和测试各自隔离 |
 | `dbus.rs` | **全部阻塞式 D-Bus 调用的唯一入口。** ashpd 打开了 zbus 的 `tokio` feature，于是 `zbus::blocking` 内部用一个静态多线程 runtime 做 `block_on`，在 tokio async worker 线程上调必然 panic（`Cannot start a runtime from within a runtime`）。这里先跳到一条干净的 OS 线程再开连接，调用方不必关心自己跑在什么线程上；别处不要直接用 `zbus::blocking`。**session 连接是复用的**：`Connection::session()` 每次都要重做 SASL 握手 + `Hello`（1~2 ms），而贴图缩放每一帧都要发一次 `PlaceWindow`，所以连接缓存在一个 `OnceLock<Mutex<Option<Connection>>>` 里。失效判据是 `worth_reconnecting`——`Error::MethodError` 说明对端应答了（连接是好的，绝不能重连重试），其余错误才丢缓存重连一次。**存入缓存的判据（`worth_caching`）必须是同一个的反面**：只按"调用成功"判会把一条被业务错误拒绝、但本身完好的连接扔掉，于是每次失败的探测都要重新握手一遍 |
 | `image_io.rs` / `dialogs.rs` | PNG 与剪贴板互转；按配置的目录与文件名模板落盘（`SaveTarget`），同目录临时文件完整写入并 `sync_all` 后再原子、不覆盖地提交；`thumbnail_png` 给列表行缩图（`image` crate 的 `thumbnail()` 快路径，不是 Lanczos）；截图目录选择集中在 `dialogs.rs` 调用插件，可编辑 PNG 重开走原生拖放事件而不是文件对话框 |
@@ -226,6 +227,9 @@ macOS Resources 中的未来 sidecar、进程 PATH、平台常见安装目录；
 用于识别，因此能力探测与真正执行不会指向两份不同程序。探测成功和失败都做进程内缓存；Linux
 应用内安装成功或已缓存路径启动时报 `NotFound` 时立即失效。OCR 持久缓存优先，同一 clip 的在途请求
 合并为一次子进程，全局只运行一个 Tesseract，避免快速切换图片时与主窗口/截图争抢 CPU 和内存。
+进程监督返回有界原始 stdout，由 Tesseract 和增强协议各自解析；任何超时、输出超限或管道错误都先
+`kill` 并 `wait` 回收子进程，再释放全局许可。查看器的 `StructuredOcr` 仍由 `protocol.rs` 单点定义，
+领域拆分不得改变 serde 字段、fallback reason 或缓存 identity。
 当前发布包不含 Tesseract，Linux 才提供用户点击触发的 apt 安装；Windows/macOS 设置页展示各自安装
 方式，不能调用 Linux 提权命令。
 
