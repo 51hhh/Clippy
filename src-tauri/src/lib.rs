@@ -14,6 +14,7 @@ mod error;
 mod gsettings_shortcuts;
 mod i18n;
 mod image_io;
+mod ipc_access;
 mod models;
 mod ocr;
 mod paste;
@@ -294,7 +295,7 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(app::window_events::handle)
-        .invoke_handler(viewer::access::restrict(tauri::generate_handler![
+        .invoke_handler(ipc_access::restrict(tauri::generate_handler![
             viewer::commands::open_image_viewer,
             viewer::commands::get_viewer_payload,
             viewer::commands::get_viewer_settings,

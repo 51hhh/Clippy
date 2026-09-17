@@ -483,10 +483,10 @@ fn viewer_custom_ipc_gate_rejects_legacy_data_mutations_and_global_config() {
         "plugin:window|start_dragging",
     ] {
         assert!(
-            !super::access::allowed("image-viewer-one", command),
+            !crate::ipc_access::allowed("image-viewer-one", command),
             "{command}"
         );
-        assert!(super::access::allowed("main", command));
+        assert!(crate::ipc_access::allowed("main", command));
     }
     for command in [
         "get_viewer_payload",
@@ -498,7 +498,7 @@ fn viewer_custom_ipc_gate_rejects_legacy_data_mutations_and_global_config() {
         "minimize_image_viewer",
         "start_viewer_drag",
     ] {
-        assert!(super::access::allowed("image-viewer-one", command));
+        assert!(crate::ipc_access::allowed("image-viewer-one", command));
     }
     let a = entry(1);
     let b = entry(2);
