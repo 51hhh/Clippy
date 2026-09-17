@@ -1,5 +1,15 @@
-use super::*;
+use super::{
+    executable::{probe_command_with_timeout, ExecutableCache},
+    process::run_recognition_process,
+    protocol::StructuredOcr,
+    runtime::OcrRuntime,
+    tesseract, OcrResult,
+};
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 fn fake_program(body: &str) -> (tempfile::TempDir, PathBuf, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
@@ -19,7 +29,8 @@ async fn run_fake_with_timeout(
     // 通过稳定解释器读取临时脚本，避免并行进程 fork 继承临时写 fd 导致 ETXTBSY。
     let mut command = tokio::process::Command::new("python3");
     command.arg(path);
-    run_recognition_process(command, png, timeout, stdout, stderr).await
+    let output = run_recognition_process(command, png, timeout, stdout, stderr).await?;
+    tesseract::parse_output(output)
 }
 
 fn assert_reaped(pid: &Path) {

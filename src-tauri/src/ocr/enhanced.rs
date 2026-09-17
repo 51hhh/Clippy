@@ -1,5 +1,9 @@
 //! 明确配置的 Python OCR 子进程；复用父模块的并发许可与进程回收。
-use super::{protocol::StructuredOcr, run_recognition_process, OCR_STDERR_LIMIT, OCR_STDOUT_LIMIT};
+use super::{
+    process::run_recognition_process,
+    protocol::StructuredOcr,
+    tesseract::{self, OCR_STDERR_LIMIT, OCR_STDOUT_LIMIT, RECOGNITION_TIMEOUT},
+};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::VecDeque;
@@ -334,6 +338,9 @@ async fn enhanced(
         OCR_STDERR_LIMIT,
     )
     .await?;
+    let output = String::from_utf8(output)
+        .map(|text| text.trim().to_string())
+        .map_err(|_| "OCR 输出不是有效 UTF-8".to_string())?;
     let mut reply: Reply =
         serde_json::from_str(&output).map_err(|_| "OCR 增强结果格式错误".to_string())?;
     if reply.version != 1 || reply.request_id != request_id {
@@ -379,7 +386,7 @@ pub(super) async fn recognize_owned(
     if cancelled() {
         return Err("OCR 请求已取消".into());
     }
-    let deadline = Instant::now() + super::RECOGNITION_TIMEOUT;
+    let deadline = Instant::now() + RECOGNITION_TIMEOUT;
     let mut reason = configuration.fallback_reason.clone();
     if configuration.enhanced.is_some() {
         match enhanced(&png, &configuration, width, height, deadline).await {
@@ -404,11 +411,12 @@ pub(super) async fn recognize_owned(
         return Err("OCR 请求已取消".into());
     }
     // 冷探测仍在 blocking pool；其等待也计入同一预算，迟到探测自身有kill/wait上限。
-    let executable =
-        tauri::async_runtime::spawn_blocking(move || super::tesseract_executable_until(deadline))
-            .await
-            .map_err(|_| "OCR 探测线程异常".to_string())?
-            .ok_or_else(|| super::missing_tesseract_message().to_string())?;
+    let executable = tauri::async_runtime::spawn_blocking(move || {
+        super::executable::tesseract_executable_until(deadline)
+    })
+    .await
+    .map_err(|_| "OCR 探测线程异常".to_string())?
+    .ok_or_else(|| super::executable::missing_tesseract_message().to_string())?;
     let remaining = deadline.saturating_duration_since(Instant::now());
     if remaining.is_zero() {
         return Err("OCR 识别超时".into());
@@ -417,7 +425,7 @@ pub(super) async fn recognize_owned(
     if cancelled() {
         return Err("OCR 请求已取消".into());
     }
-    let text = super::recognize_with_timeout(
+    let text = tesseract::recognize_with_timeout(
         &executable,
         &png,
         remaining,
