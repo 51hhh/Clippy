@@ -174,6 +174,7 @@ impl CaptureModeGate {
     }
 
     /// 返回当前占用事实，不泄露内部 owner 或 generation。
+    #[cfg(test)]
     pub(crate) fn active_mode(&self) -> Result<Option<CaptureMode>, CaptureError> {
         let state = self.state.lock().map_err(CaptureError::state_lock)?;
         Ok(state.owner.map(|owner| owner.mode))
@@ -207,9 +208,9 @@ mod tests {
     }
 
     #[test]
-    fn capture_domain_reexports_keep_the_gate_available_to_next_slice() {
+    fn capture_domain_reexports_keep_the_public_gate_surface_available() {
         let gate = crate::capture::CaptureModeGate::new();
-        let lease: crate::capture::CaptureModeLease = gate
+        let lease = gate
             .try_claim(crate::capture::CaptureMode::Ordinary)
             .expect("受限重导出应可供截图领域使用");
         assert!(gate.release(&lease).expect("重导出的 lease 可释放"));
@@ -509,7 +510,7 @@ mod tests {
             .expect("先认领长截图模式");
         let before = state_snapshot(&gate);
 
-        let failure: crate::capture::CaptureModeTransitionFailure = longshot
+        let failure = longshot
             .into_longshot()
             .expect_err("Longshot ownership 不属于 Ordinary 转换来源");
         let CaptureModeTransitionFailure { error, ownership } = failure;

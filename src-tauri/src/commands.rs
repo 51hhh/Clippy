@@ -44,7 +44,7 @@ pub struct AppState {
     pub main_window_position_generation: AtomicU64,
     pub main_window_position_worker_scheduled: AtomicBool,
     pub capture_manager: Arc<crate::capture::CaptureManager>,
-    /// 普通截图与未来长截图入口共享的唯一模式 gate。
+    /// 普通截图与长截图入口共享的唯一模式 gate。
     pub capture_mode_gate: Arc<crate::capture::CaptureModeGate>,
     /// 长截图像素与桌面资源的唯一进程级生命周期。
     pub longshot_lifecycle: Arc<crate::capture::LongshotLifecycle>,

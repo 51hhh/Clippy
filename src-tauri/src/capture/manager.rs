@@ -85,7 +85,6 @@ pub(crate) struct ViewportObservation {
 pub(super) struct CaptureSession {
     pub id: String,
     /// 每次 begin 都新建的后端身份，阻止可重复字符串 id 形成 ABA。
-    #[cfg_attr(not(test), allow(dead_code))]
     identity: Arc<()>,
     pub overlays: Vec<OverlaySpec>,
     pub restore_labels: Vec<String>,
@@ -137,14 +136,12 @@ pub(super) struct CaptureBeginFailure {
 ///
 /// 候选不可复制；冻结帧像素只浅克隆其 `Arc`，prepare 不消费普通会话。
 #[derive(Debug)]
-#[cfg_attr(not(test), allow(dead_code))]
 pub(super) struct CaptureLongshotCandidate {
     selection: CaptureSelection,
     frame: CapturedMonitorFrame,
     identity: Arc<()>,
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 impl CaptureLongshotCandidate {
     pub(super) fn selection(&self) -> &CaptureSelection {
         &self.selection
@@ -157,14 +154,12 @@ impl CaptureLongshotCandidate {
 
 /// 从普通截图会话唯一移出的桌面清理资源。
 #[derive(Debug)]
-#[cfg_attr(not(test), allow(dead_code))]
 pub(super) struct OrdinaryCaptureResources {
     pub overlays: Vec<OverlaySpec>,
     pub restore_labels: Vec<String>,
     pub lowered_pins: Vec<String>,
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 impl OrdinaryCaptureResources {
     pub(super) fn overlay_labels(&self) -> Vec<String> {
         self.overlays
@@ -176,7 +171,6 @@ impl OrdinaryCaptureResources {
 
 /// 普通截图原子移交给长截图后的唯一所有权与清理资源。
 #[derive(Debug)]
-#[cfg_attr(not(test), allow(dead_code))]
 pub(super) struct CaptureLongshotHandoff {
     pub ownership: CaptureModeOwnership,
     pub resources: OrdinaryCaptureResources,
@@ -482,7 +476,6 @@ impl CaptureManager {
     }
 
     /// 准备长截图首帧候选；普通会话和 Ordinary ownership 均保持原样。
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn prepare_longshot(
         &self,
         selection: &CaptureSelection,
@@ -536,7 +529,6 @@ impl CaptureManager {
     }
 
     /// 精确消费 prepare 候选，并在 manager 锁内原子转换 mode ownership。
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn commit_longshot(
         &self,
         candidate: CaptureLongshotCandidate,
