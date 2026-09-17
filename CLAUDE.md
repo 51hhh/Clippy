@@ -76,7 +76,9 @@ cd src-tauri && cargo bench
 ```
 前端 (src/)
 ├── index.html / settings.html         — 主窗口与设置
-├── pin.html / capture*.html           — React 功能岛入口
+├── pin.html / viewer.html             — Pin 与图片查看器功能岛入口
+├── capture-overlay.html               — 冻结截图覆盖层入口
+├── longshot-controller.html           — 长截图控制窗口入口
 ├── js/
 │   ├── api.ts / ipc-types.ts          — 类型化 IPC 边界与 serde 合同
 │   ├── app.js / clipboard-list.js     — 主窗口路由与列表状态
@@ -84,9 +86,13 @@ cd src-tauri && cargo bench
 │   ├── translation-*.js               — 翻译面板与设置
 │   └── settings.js / theme.js         — 设置与主题
 ├── react/
-│   ├── capture-overlay/               — 冻结画面选区与选区翻译
-│   ├── capture/                       — 图片编辑器
-│   └── pin/                           — 统一贴图窗口
+│   ├── main/                          — 主窗口 React 局部面板与状态
+│   ├── annotation/                    — 截图、Pin、查看器共享标注核心
+│   ├── capture-overlay/               — 冻结画面选区、标注与选区翻译
+│   ├── longshot-controller/           — 长截图控制窗口
+│   ├── viewer/                        — 无限画布图片查看器及工具
+│   ├── pin/                           — 贴图、编辑与保存协议
+│   └── shared/                        — i18n 与工具栏共享行为
 └── styles/                            — base/components/settings/themes
 
 Rust 后端 (src-tauri/src/)
@@ -119,20 +125,29 @@ Rust 后端 (src-tauri/src/)
 
 ### 共享状态
 
-`AppState` 通过 `app.manage()` 注入，包含：
-- `storage: Arc<Mutex<StorageEngine>>` — 剪贴板数据库
-- `config: Arc<Mutex<AppConfig>>` — 运行时配置
-- `config_path: PathBuf` — 配置文件路径
-- `watcher: ClipboardWatcher` — 持有监听器生命周期
+`AppState` 通过 `app.manage()` 注入，是以下领域所有者的组合根：
+
+| 领域 | 所有者 |
+|---|---|
+| 剪贴板与持久化 | `StorageEngine`、`ClipboardWatcher`、`AppConfig` |
+| 主窗口 | `window_controller`、`app/window_events` 的转换与位置状态 |
+| 截图与长截图 | `CaptureManager`、`CaptureModeGate`、`LongshotLifecycle`、`LongshotControllerRegistry` |
+| Pin 与查看器 | `PinManager`、`PinOriginRegistry`、`ViewerManager` |
+| 自动化与服务 | `PasteManager`、`TranslationService`、快捷键/Portal worker |
+
+具体字段以 `src-tauri/src/commands.rs` 和 owner 类型为准。命令 adapter 只借用 owner 并做参数转换，
+不要把领域状态机重新放回 `AppState` 或 `commands.rs`。
 
 ### 前端约定
 
 - 主界面无框架，纯 HTML/CSS/JS + ES Module `<script type="module">`
-- 截图编辑页是隔离的 React/TS 功能岛（`src/react/capture/`），不反向重写主界面
+- React/TS 功能岛是 `capture-overlay/`、`longshot-controller/`、`viewer/`、`pin/` 与主窗口局部
+  `main/`；`annotation/` 和 `shared/` 只提供跨岛共享核心，不持有页面生命周期
 - 使用 Vite 作为开发服务器和构建工具（`src/vite.config.mjs`）
 - 业务模块只从 `api.ts` 公共 facade 导入；只有 `scripts/frontend-api-boundary.mjs` 登记的
   `api/*.ts` 领域模块允许直接访问 Tauri IPC
-- 所有用户内容通过 React 文本节点或 `textContent` 写入 DOM；富文本只允许 DOMPurify 严格清洗后的 `innerHTML`
+- 所有用户纯文本通过 React 文本节点或 `textContent` 写入 DOM；只有
+  `scripts/check-html-sinks.mjs` 登记的 sink 能写 `innerHTML`，且必须先经 DOMPurify 严格清洗
 - `scripts/check-html-sinks.mjs` 固定富文本 sink 数量，并禁止未登记模块导入 `@tauri-apps/*`；
   `tsconfig.js.json` 与 Promise 门禁增量覆盖 `js/preview/`、`js/settings/`
 - HTML 实体解码使用隔离 `DOMParser`，禁止 `Function`/`eval` 动态执行

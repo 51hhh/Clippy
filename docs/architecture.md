@@ -3,10 +3,53 @@
 ## 技术边界
 
 - 主窗口：vanilla HTML/CSS/ES modules，保留稳定的剪贴板高频交互。
-- Pin、截图覆盖层（含标注）：React + TypeScript 功能岛。
+- Pin、截图覆盖层、长截图控制器、图片查看器与主窗口局部面板：React + TypeScript 功能岛。
 - 系统资源：Rust/Tauri 拥有剪贴板、数据库、窗口、截图帧、Portal 会话、Pin 数据、密钥和网络请求。
 - IPC：业务模块只依赖 `src/js/api.ts` 公共 facade；`src/js/api/*.ts` 的登记领域模块持有
   Tauri 调用边界，`ipc-types.ts` 对齐 Rust serde 字段。
+
+## 核心调用链
+
+```mermaid
+flowchart LR
+  Clipboard[系统剪贴板] --> Watcher[ClipboardWatcher]
+  Watcher --> Storage[StorageEngine]
+  Storage --> ClipEvent[clip-added / clip-removed]
+  ClipEvent --> Api[api.ts facade]
+  Api --> MainUi[主窗口列表与预览]
+
+  Shortcut[快捷键 / 托盘] --> Capture[CaptureManager]
+  Capture --> Backend[平台截图后端]
+  Backend --> Overlay[capture-overlay]
+  Overlay --> CaptureOutput[复制 / 保存 / Pin]
+  Overlay --> Longshot[longshot-controller]
+  Longshot --> CaptureOutput
+
+  Image[剪贴板图片] --> ViewerManager
+  ViewerManager --> ViewerProtocol[viewer-image 协议]
+  ViewerProtocol --> ViewerTools[viewer 工具栏]
+  ViewerTools --> ViewerOutput[OCR / 扫码 / 取色 / 绘制 / 输出]
+```
+
+三条链分别覆盖剪贴板入库、截图输出和图片查看器。窗口、数据库、剪贴板与文件副作用由 Rust
+拥有；WebView 只持有交互状态和受版本约束的操作文档。任何新入口都应先确定它属于哪条链、由哪个
+领域所有者串行化状态，再增加 IPC。
+
+## `AppState` 领域所有权
+
+`AppState` 是 Tauri managed state 的组合根，不是业务逻辑所有者。它只装配以下领域 bundle；字段
+清单以对应 owner 类型为准，避免在文档中复制一份会快速过期的结构体定义。
+
+| 领域 | 所有者 | 组合根持有的内容 |
+|---|---|---|
+| 剪贴板与持久化 | `StorageEngine`、`ClipboardWatcher`、`AppConfig` | 数据库、监听器生命周期、配置与默认保存目录 |
+| 主窗口 | `window_controller`、`app/window_events` | 显隐转换、侧栏可见性、位置 debounce |
+| 截图与长截图 | `CaptureManager`、`CaptureModeGate`、`LongshotLifecycle`、`LongshotControllerRegistry` | 单一截图会话、模式互斥、像素生命周期与控制窗 registry |
+| Pin 与查看器 | `PinManager`、`PinOriginRegistry`、`ViewerManager` | 图片快照、窗口生命周期、来源位置与串行转换锁 |
+| 自动化与服务 | `PasteManager`、`TranslationService`、`app/shortcuts` | 自动粘贴、翻译、快捷键暂停/恢复/失败状态；Linux 另持 Portal worker |
+
+命令 adapter 可以借用这些 owner，但不得把领域状态机重新实现在 `commands.rs`。跨领域动作由薄组合层
+按固定顺序调用 owner，并由 characterization test 固定事件、错误码和副作用顺序。
 
 ## 后端模块
 
@@ -23,12 +66,12 @@
 | `capture/` | 单一 CaptureSession、冻结帧、多显示器覆盖层、裁剪与动作；`window_probe.rs` 按堆叠顺序（扩展 `sort_windows_by_stacking` / X11 `_NET_CLIENT_LIST_STACKING`）下发速选候选。冻结帧像素由 `get_capture_frame` 以二进制 IPC 直传原始 RGBA（payload 只带几何），`StageTimings` 每次会话记一条分段耗时日志 |
 | `capture/shell_extension.rs` | 自带 GNOME Shell 扩展的安装/卸载/状态、令牌校验与截图调用（逐屏原始 RGBA `CaptureArea`、逐屏 PNG `ScreenshotArea`、整屏 `Screenshot`，`include_str!` 内嵌 `gnome-extension/`）。GNOME Wayland 下既没有面向普通应用的窗口几何接口，Portal 截图也要求"聚焦的应用"才能弹授权对话框（快捷键触发时必然失败），两件事都只能以扩展身份进 gnome-shell 做；装了要注销一次生效，升级同样要（`ReloadExtension` 已废弃，故有 `stale` 状态），卸载即时。安装只由设置页显式触发，启动时只做 `reconcile_on_startup`，绝不擅自安装。`place_window` 是贴图缩放的每帧热路径，它的前置检查（是不是 GNOME Wayland、装没装、协议版本够不够、令牌文件内容）缓存在 `placement_token()` 里：成功的结果一直有效，失败的结果 30 秒后重试，安装/卸载会立刻作废缓存。详见 [docs/capture-linux.md](capture-linux.md) |
 | `portal_shortcuts.rs` | 非 GNOME Wayland 的 XDG GlobalShortcuts Portal worker。完整配置一次性绑定到长生命周期 session；Portal 返回子集时逐动作记账。配置变化或录制快捷键会以代次取消正在等待用户确认的旧 Bind、关闭旧 session，再按完整配置建立新 session，避免旧会话与新会话同时响应。Tauri accelerator 会转换为 XDG `CTRL/ALT/SHIFT/LOGO + xkb keysym` 格式。 |
-| `screenshot.rs` + `screenshot/*` | 原始截图帧契约与 PNG 编解码；Wayland 上按 **Mutter 的 PipeWire 屏幕流**（`screenshot/screencast.rs`）→ Shell 扩展逐屏（`CaptureArea`，协议 v5；扩展内部会自动回退成逐屏 PNG）→ 同一扩展的整屏舞台图 → wlroots → Portal（非交互）→ GNOME → xcap 依次回退，返回的临时文件一律由 `TemporaryScreenshotFile` 兜底删除；几何测试隔离。取一次冻结帧的时间绝大部分是 **gnome-shell 自己 deflate PNG**：同一批像素的对照实验（拍下来再用同一个 gdk-pixbuf 重编一次）显示 4K 那块屏 1704 ms 里有 **1607 ms（94%）是 PNG 编码**，合成器绘制 + 读回只有约 100 ms（eDP 126/81 ms）。因此"少拍像素"是错的方向（v4 逐屏两次 1830 ms vs 整屏一次 1900 ms，本来就没差），而"在扩展里绕开 PNG 直接读像素"在 GJS 上根本不成立（没有长度标注的 `array<uint8>` 一律是复制入参，别名实验 3 MB 直接段错误）。真正的修法是**不从 gnome-shell 要图片，改从 Mutter 要视频帧**：`org.gnome.Mutter.ScreenCast` 同一个用户直接可调，不经 Portal、不弹对话框、不需要扩展也不需要注销，本机双屏实测 `capture_monitor_frames` 全程 **280 ms**（此前 1900 ms）且每块屏都是原生像素——原生分辨率与十倍速度出自同一个修改（[capture-linux.md](capture-linux.md) §3.1、§3.3、§3.4）。取流期间顶栏会闪一下录制点，必须传 `is-recording: true`，否则会落到有 5 秒最短显示时间的"停止共享"胶囊上。改扩展不必每次注销：`scripts/probe-shell-capture.sh` 借 `org.gnome.Shell.Eval` 在活着的会话里量同一段取像素代码。整屏舞台图在混合缩放的多屏上会把低缩放那块上采样，画面发糊，所以逐屏是首选、整屏只是兜底。`desktop_scale_at` 是这里唯一对外的"真实缩放"查询：GTK3 不支持 `wp_fractional_scale_v1`，`Monitor::scale_factor()` 在分数缩放的桌面上报的是**整数缓冲区缩放**（本机两块 1.3333/1.5 的屏都报 2），要把图片像素换算成 CSS 像素必须问合成器 |
+| `screenshot.rs` + `screenshot/*` | 原始截图帧契约、PNG 编解码与平台后端选择。Wayland 按 Mutter PipeWire → Shell 扩展逐屏 → Shell 整屏 → wlroots → Portal（非交互）→ GNOME → xcap 回退；临时文件由 `TemporaryScreenshotFile` 兜底删除。`desktop_scale_at` 是图片像素到 CSS 像素的唯一真实缩放查询。Linux 后端依据、限制和测量记录见 [capture-linux.md](capture-linux.md)，基准方法见 [bench-baseline.md](bench-baseline.md) |
 | `pin/` | PinManager、内容来源、窗口尺寸、缩放/透明度/锁定和清理；`origins.rs` 的 `PinOriginRegistry`（挂在 `AppState.pin_origins`）记住"我们自己截下来复制走的图"原本在屏幕上的矩形，之后从历史里 Pin 同一张图时靠它贴回原处。键是**解码后像素**的 sha256（含宽高），不是 PNG 字节——图片经 arboard 走一圈是原始 RGBA，watcher 会重新编码，PNG 字节不稳定。登记方交出的是 `PinFingerprint`（已经算好的摘要 + 宽高），这样调用方能和剪贴板写入共用同一份解码像素，不必为登记再解一次或复制一份 16 MB；`lookup` 先只读 PNG 头比宽高，尺寸不匹配就直接返回，省掉整张解码。**内容尺寸的单位**：有原始矩形时直接用它（选区本来就是逻辑像素）；没有时入参是**图片像素**，`fit_content_size` 必须先按 `screenshot::desktop_scale_at` 查到的真实缩放折成 CSS 像素，拿 `scale_factor()` 或干脆不折算都会让贴图被放大再重采样。窗口外框另有 **252 px 高度下限**（竖排工具条要 249 px，随手框个小按钮的贴图按内容算只有一百来像素高，工具条会被切掉）——下限**只加高窗口、不改内容尺寸**，多出来的高度由前端留成左上角对齐的透明留白，否则"贴回原处"当场就偏。缩放时**只有位置真的可信才重新摆位**：Wayland 协议不把窗口位置告诉客户端，`outer_position()` 与 `Moved` 都是 GTK 自己那份假值，拿它算"保持中心"等于每格滚轮都把窗口传送到工作区原点（`known_pin_position` 因此在 Wayland 上返回 `None`） |
 | `pin/commands.rs` / `lifecycle.rs` / `output.rs` / `project_file.rs` | `commands.rs` 只保留 Tauri wire adapter 与稳定 DTO re-export；窗口创建、状态迁移和清晰度任务由 `lifecycle.rs` 组合；`output.rs` 拥有画布 DTO、canonical/preview 选取、renderer v1/v2 路由，以及 Copy、flat、editable 三种明确的 PNG 字节语义；`project_file.rs` 在建窗前完成扩展名、普通文件、160 MiB 上限和工程容器校验。领域函数不带 `#[tauri::command]`，可在没有注册 IPC 或创建窗口时直接测试 |
 | `pin/project.rs` | 可编辑 PNG v3 的信任边界。标准 PNG 的 IDAT 是最新合成图，真正压缩的 `clippy-project` iTXt 自包含 canonical 原图、尺寸/sha256、annotations、adjustments 和 rendererVersion；`preview.rgbaSha256` 再以“宽高 + 解码 RGBA”绑定当前 IDAT，拒绝把合法工程块移植到另一张图，同时允许同像素 PNG 改变压缩级别或 chunk 切分。容器 v2 仍可读取并在下一次可编辑保存时升级为 v3；renderer v1/v2 都可恢复，未知版本安全降级成普通 PNG。运行时 `PinSource::Project` 分开保存 source 与 flattened preview：屏幕/快速复制走 preview，画布/再次保存按需取 source。writer 与 reader 共用 64 MiB 合成图、64 MiB 原图、96 MiB 解压 JSON、160 MiB 容器预算；损坏元数据或摘要不匹配只丢可编辑性。主窗口常态不提供普通图片打开按钮；把单个 PNG 拖入时，`open_pin_project_file` 只为通过全部校验的 Clippy 工程创建 Pin，普通/损坏/未来工程返回 `None`，不会绕过剪贴板队列。editable 保存失败不得静默伪装成 flat；flat 导出会重编码并移除工程块，避免模糊/马赛克文件泄露内嵌原图 |
 | `pin/render_v2.rs` | Pin 工程与截图选区的权威最终合成器。Copy、扁平保存、可编辑保存和截图 Copy/Save/Pin 复用同一语义；调整、四种效果、九种矢量/文字工具全部走锁定版本的纯 Rust CPU 路径和内嵌 Noto 字体，不查询 WebView、GPU 或系统字体。相同输入以 RGBA SHA-256 金图锁定。渲染上限 32 Mi 像素、模糊缓存 32 Mi 像素、效果工作量 512 Mi 像素；任务在 blocking worker 执行。v1 未修改时复用 IDAT，第一次真实编辑才升级 v2 |
-| `pin/resample.rs` | 贴图图片按**缓冲区分辨率**出图并预先补偿合成器那一步缩小。合成器的核是脉冲实测出来的标准双线性（缓冲区里一个孤立白点在屏上只留下一个 177/255 的点 = 0.8333²），所以能反过来迭代地问"这张缓冲区图被缩完等于原图吗"、把残差加回去（Lanczos3 预放大作初值 + 4 轮反投影）。屏上实测 PSNR：默认平滑 30.28 → `pixelated` 33.95 → Lanczos 预放大 34.73 → **反投影 43.02 dB**。生产实现以 Q7 定点保留子像素精度，Lanczos 只缓存当前垂直核需要的行，双线性前向/回投影按行运行，不保留多份全图 `f32 RGBA`。**64 MiB 是每个 RGBA 平面的硬预算，不是进程总内存上限**；最坏工作集还包含 Q7 缓冲（两字节/通道）、i16 残差、解码原图、可选屏显目标和最终 PNG。它可容纳 4K 原生屏在 150% 真实缩放 / 200% WebKit 缓冲缩放下的 5120x2880 补偿图；超限会明确记录失败并回退原图，不在几何阶段静默跳过。release 实测 3413x1920 约 614 ms、5120x2880 约 1.28 s；直接测试进程的**瞬时总峰值** RSS 354 MiB，空测试壳基线 6.6 MiB，补偿增量约 347 MiB。补偿一直在后台运行并且全局串行，多张 Pin 不会叠加工作集或阻塞开窗；关闭后还在排队的补偿会在解码前取消。赶上了随第一份 payload 下发（`SharpenSlot`），没赶上走 `pin-image-sharpened` 事件换图。复制与保存永远用原图 |
+| `pin/resample.rs` | 为分数缩放桌面生成缓冲区分辨率的显示预览，并以 Lanczos3 初值和有界反投影补偿合成器缩小；任务后台全局串行、可取消、超预算回退原图。该预览只影响屏显，复制、保存和画布继续使用 canonical 原图。算法、内存预算和环境测量见 [pin-rendering.md](pin-rendering.md) |
 | `pin/` 的 `update_pin` 应答 | 缩放/不透明度是**每帧**都会走的路，所以应答是 `PinState`（label、内容尺寸、scale、opacity、locked、position），**不带 `image_base64`/`text`**——每帧重编一张全图 base64 纯属浪费，而且会让前端重建图片 object URL、造成闪烁。前端 `react/pin/update-order.ts::mergePinState` 把它合并进手里那份 payload |
 | `translation/` | provider、超时/重试、request-id、内容选择、Secret Service；启用的服务按 `spawn_blocking` 并行，单服务失败作为数据返回；`direction.rs` 在文本已是目标语言时按备选语言换向；`tts.rs` 走 dictvoice 取回音频 |
 | `ocr.rs` / `ocr/` | `ocr.rs` 是稳定 facade，只组合 snapshot/clip 入口与增强配置；`runtime.rs` 独占全局并发、队列和 single-flight；`executable.rs` 独占跨平台 Tesseract 候选、限时探测和可失效缓存；`process.rs` 监督子进程管道、输出预算、超时与 kill/wait；`tesseract.rs` 固定 CLI 参数和 UTF-8 文本合同；`enhanced.rs` 管理显式 Python/EdgeGNN 管线与 fallback，`protocol.rs` 固定 viewer structured OCR wire contract。测试不得以固定 `yield` 次数推测任务已经登记，必须观察 runtime 状态并带超时等待 |
@@ -41,6 +84,22 @@
 `js/settings/platform-capabilities.js` 只消费后端 typed `PlatformInfo`：设置页“关于”展示系统、会话、
 桌面环境、架构、XWayland、Portal 接口版本，以及九项能力的状态和本地化 reason。它不读 user-agent、
 不重复推断平台，所有后端文本通过文本节点写入 DOM。
+
+### 页面入口与功能岛
+
+| 入口 / 目录 | 运行形态 | 所有权 |
+|---|---|---|
+| `index.html` + `js/` | vanilla ES modules，局部挂载 `react/main/` | 剪贴板列表、预览、翻译与主窗口键盘状态 |
+| `settings.html` + `js/settings/` | vanilla ES modules | 配置、快捷键、平台能力、OCR 与更新设置 |
+| `capture-overlay.html` + `react/capture-overlay/` | React/TS 功能岛 | 冻结帧选区、标注、翻译与截图提交 |
+| `longshot-controller.html` + `react/longshot-controller/` | React/TS 功能岛 | 长截图追加、预览、完成与取消控制 |
+| `viewer.html` + `react/viewer/` | React/TS 功能岛 | 无限画布、OCR、扫码、取色、绘制与输出 |
+| `pin.html` + `react/pin/` | React/TS 功能岛 | 贴图显示、缩放、编辑、保存与关闭协议 |
+| `react/annotation/` | 无独立入口的共享核心 | 截图、Pin 与查看器共用的操作文档和 Canvas 交互预览 |
+| `react/shared/` | 无独立入口的共享核心 | i18n、工具栏放置与拖动行为 |
+
+六个 HTML 入口由 `vite.config.mjs` 显式登记。功能岛之间不直接导入页面级状态；共享内容必须下沉到
+`annotation/`、`shared/` 或后端稳定协议。
 
 | 模块 | 职责 |
 |---|---|
@@ -56,7 +115,7 @@
 | `react/annotation/` | 与窗口无关的标注核心：16 个工具（选择/绘制/效果三组）、图像调整、撤销/重做和 Canvas 交互预览。Pin 与截图覆盖层都只提交 v2 操作文档，最终 Copy/Save/Pin 由后端合成，Canvas 不再决定产物像素 |
 | `js/settings/` | 主题、自动粘贴授权、快捷键录制与注册失败提示、OCR、统计、分页（`tabs.js`）与窗口速选服务卡片（`window-probe.js`）控制器 |
 | `react/pin/` | 首帧就绪、工具栏、拖动阈值和 rAF 更新合并。画布文档的唯一坐标系是 canonical source pixels；补偿 preview 不进入交互/renderer。`projectSchema.ts` 在 IPC 后再次防御性校验持久化文档，`usePinCanvas.ts` 恢复 annotations/adjustments/history baseline 并用 revision/savedRevision 判断 dirty；新建/编辑后文档提交 renderer v2 操作层，不上传一份互相竞争的 WebView PNG。关闭工具只停交互，已有 composition 仍覆盖显示。editable save、flat export 与最新合成复制是三个显式动作，但共用后端权威合成结果。手势仍由 `gestures.ts` 的纯规则与 `App.tsx` 的非被动原生监听器执行；`update_pin` 同一时刻只许一个请求在飞、在飞就攒着，避免每帧向 GTK 主线程堆同步 IPC |
-| `react/pin/rendering.ts` | 贴图该用哪种 `image-rendering`。GTK3 不支持 `wp_fractional_scale_v1`，1.5 倍缩放的桌面上 WebKit 只拿到**整数缓冲区缩放 2**，按原物理尺寸显示就要先被平滑放大 4/3 再被合成器缩回 3/4，头一趟就把细节抹平了——这是"选区里清楚、贴出来糊"的根因。真正的修法在后端（`pin/resample.rs` 直接按缓冲区分辨率出图并预补偿，实测 43.02 dB），这里只剩两条兜底判据：`isPixelExact`（显示尺寸 × 真实缩放 == 图片像素数 → 最近邻，实测默认 30.28 dB → `pixelated` 33.95 dB）与 `isBufferExact`（图片已是缓冲区分辨率 → 1:1 搬入，任何滤镜都不该介入）。判据不能写成 `scale == 1`：全屏贴图会被 `origin_content_size` 缩小而 `scale` 仍是 1，那种情况最近邻反而差 4.5 dB。真实缩放与缓冲区缩放都由后端查好随 payload 下发，`devicePixelRatio` 顶替不了（它就是那个整数 2） |
+| `react/pin/rendering.ts` | 只保留 `isPixelExact` 与 `isBufferExact` 两条屏显滤镜判据；真实缩放和缓冲区缩放由后端随 payload 下发，不能用 `scale == 1` 或 `devicePixelRatio` 猜测。完整原因和验证数据见 [pin-rendering.md](pin-rendering.md) |
 
 ## 内容类型只有一套标准
 
@@ -162,7 +221,7 @@ WebKitGTK 的原生下拉是独立 GTK 弹窗，一打开 webview 就失焦，�
 | 绘制 | pen、marker、rect、ellipse、line、arrow、measure、text | 四种拖拽形态（折线/矩形/线段/文本）复用同一套包围盒、命中与移动逻辑；marker 半透明且笔宽更粗，ellipse 只在轮廓附近命中，measure 标注原图像素长度 |
 | 效果 | highlight、blur、mosaic、spotlight、magnifier | blur/mosaic/spotlight/magnifier 需要读取或压暗底图，因此始终先于矢量标注绘制，magnifier 从原图重采样使预览与导出清晰度一致；highlight 只是半透明矢量色块，按用途归在这一组，绘制顺序仍跟随矢量标注 |
 
-## 核心流程
+## 详细核心流程
 
 ```text
 clipboard item -> preview -> translate/copy
@@ -244,11 +303,24 @@ macOS Resources 中的未来 sidecar、进程 PATH、平台常见安装目录；
 - 成功的译文与原文落在同一个 SQLite 库（`translation_history`，全库上限 500 条）：条目删除、历史清空和上限清理都会一并删除它的译文，设置里另有"清空已保存的译文"入口。敏感条目从不进入翻译，因此也不会产生记录。
 - 上面这条"删条目必然删译文"以及 `clips` 与 `clips_fts` 的一致性由事务保证：`insert_clip`、`delete_clip`、`clear_history`、`delete_entries` 都用 `unchecked_transaction()` 包住多条语句（`StorageEngine` 只持有 `&self`，并发已由外层 `Arc<Mutex<_>>` 串行化）。没有事务时中途失败会留下"搜得到但已不存在"的 FTS 幽灵行或删不掉的译文，而 `rebuild_fts_once` 只在 schema 版本变化时跑，索引不会自己长回来。
 - 截图保存目录与文件名模板可配置（留空即内置默认 `~/Pictures/Clippy`）：模板只生成文件名，路径分隔符与前导点被清洗，写不到目录之外；同名时追加序号，不覆盖已有文件。
-- 用户文本使用 React 文本节点或 `textContent`；富文本仅使用严格 DOMPurify 配置。
+- 用户纯文本必须使用 React 文本节点或 `textContent`。只有
+  `scripts/check-html-sinks.mjs` 登记的富文本 sink 可以写 `innerHTML`，且输入必须先经过该脚本
+  认可的 DOMPurify 严格配置；增加 sink 必须同时更新 allowlist 和安全回归。
 - URL 元数据仅访问无凭据的 HTTP(S)，拒绝私有/保留 IP、私有 DNS 解析和重定向；请求有 5 秒超时与 1 MiB 上限。
 - 翻译响应有超时与 1 MiB 上限；数学表达式不使用 `eval`/`Function`。
 - 非 2xx 响应只在 4xx 时读取最多 4 KiB 正文用于错误归类（把"缺少/无效 key"从不透明的 `http_status` 里区分出来），5xx 正文一律不读，网关错误页不会被误判成凭据问题。
 
 ## 质量门禁
 
-`./scripts/ci-local.sh` 依次执行 Rust fmt/check/clippy/test、锁文件安装、TypeScript、Vitest、DOM/Xvfb smoke、Canvas 导出像素 smoke、主窗口布局像素 smoke 和 Vite build。两个像素 smoke 都需要 firefox 加 ffmpeg 或 python3-pil 读取截图像素，缺少时整步跳过（不算通过）。布局 smoke 直接 `?raw` 引入产品 `index.html` 的结构（headless Firefox 的 `--screenshot` 不等待顶层 `await`，异步 fixture 只会拍到空白页），断言失败时把原因画进红色浮层。criterion 基准（`src-tauri/benches/`，通过 `bench_support.rs` 调生产代码）被 `--all-targets` 编译但不运行，数字与运行方式见 [bench-baseline.md](bench-baseline.md)。Linux 发布目标仅为 deb/AppImage；updater 签名由 release CI secret 生成。
+| 证据 | 入口 | 能证明什么 | 不能替代什么 |
+|---|---|---|---|
+| 本地完整门禁 | `./scripts/ci-local.sh` | 当前宿主的 Rust、前端测试、DOM/像素 smoke 与生产构建 | 非宿主条件编译、原生桌面行为 |
+| 可选交叉检查 | `CLIPPY_CROSS_CHECK=1 ./scripts/ci-local.sh` | 已安装目标和工具链可覆盖的编译期问题 | 目标系统测试、平台 API、桌面权限 |
+| 同 SHA 原生 CI | `.github/workflows/build.yml` + `verify-native-ci.mjs` | Ubuntu、Windows、macOS 原生 check/clippy/test | 安装包签名、真实桌面交互 |
+| Native/人工 QA | `native-qa.yml` + [native-qa.md](native-qa.md) | 安装包、权限、焦点、混合 DPI、Wayland/macOS/Windows 交互 | 自动单元测试与代码合同门禁 |
+
+四种证据独立记录，不能互相替代；跳过项不计为通过。`./scripts/ci-local.sh` 依次执行 Rust
+fmt/check/clippy/test、X11/GNOME/IPC/HTML 边界、锁文件安装、JS lint、TypeScript、Vitest、
+DOM/Xvfb、Canvas/布局像素 smoke 和 Vite build。AppImage 可视 smoke 由
+`CLIPPY_APPIMAGE_SMOKE=1` 显式启用。criterion 基准会被 `--all-targets` 编译但不会在门禁中运行，
+数字与运行方式见 [bench-baseline.md](bench-baseline.md)。
