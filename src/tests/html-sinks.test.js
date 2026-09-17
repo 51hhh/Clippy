@@ -36,11 +36,19 @@ describe("frontend HTML and Tauri boundaries", () => {
     );
   });
 
-  it("rejects a Tauri import outside api.ts", () => {
+  it("rejects a Tauri import outside the registered API domain modules", () => {
     const input = sources();
     input.set("src/js/preview/new-renderer.js", 'import "@tauri-apps/api/core";\n');
     expect(validateFrontendBoundaries(input)).toContain(
-      "src/js/preview/new-renderer.js:1 只有 src/js/api.ts 可导入 @tauri-apps",
+      "src/js/preview/new-renderer.js:1 只有已登记的 src/js/api 领域模块可导入 @tauri-apps",
+    );
+  });
+
+  it("rejects a new unregistered module inside the API directory", () => {
+    const input = sources();
+    input.set("src/js/api/accidental.ts", 'import "@tauri-apps/api/core";\n');
+    expect(validateFrontendBoundaries(input)).toContain(
+      "src/js/api/accidental.ts:1 只有已登记的 src/js/api 领域模块可导入 @tauri-apps",
     );
   });
 });

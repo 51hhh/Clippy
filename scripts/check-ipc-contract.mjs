@@ -3,6 +3,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { FRONTEND_API_MODULES } from "./frontend-api-boundary.mjs";
 
 function walkRust(directory) {
   const files = [];
@@ -117,10 +118,10 @@ export function validateContract({ rustSources, libSource, apiSource, accessSour
   }
   const frontendCommands = new Set([...literalInvokes, ...viewerRequests]);
   for (const command of missing(frontendCommands, registered)) {
-    errors.push(`api.ts invoke 指向未注册命令: ${command}`);
+    errors.push(`前端 API invoke 指向未注册命令: ${command}`);
   }
   if (dynamicIdentifiers.join(",") !== "command") {
-    errors.push(`api.ts 存在未登记的动态 invoke 参数: ${dynamicIdentifiers.join(",") || "<none>"}`);
+    errors.push(`前端 API 存在未登记的动态 invoke 参数: ${dynamicIdentifiers.join(",") || "<none>"}`);
   }
   if (!/function\s+viewerInvoke<T>\(command:\s*ViewerRequestCommand\b/.test(apiSource)) {
     errors.push("viewerInvoke 的动态 command 未受 ViewerRequestCommand 联合约束");
@@ -149,7 +150,9 @@ export function loadContractSources(repositoryRoot) {
   return {
     rustSources: new Map(walkRust(rustRoot).map(path => [path, readFileSync(path, "utf8")])),
     libSource: readFileSync(join(rustRoot, "lib.rs"), "utf8"),
-    apiSource: readFileSync(join(repositoryRoot, "src", "js", "api.ts"), "utf8"),
+    apiSource: FRONTEND_API_MODULES
+      .map(path => readFileSync(join(repositoryRoot, path), "utf8"))
+      .join("\n"),
     accessSource: readFileSync(join(rustRoot, "ipc_access.rs"), "utf8"),
   };
 }

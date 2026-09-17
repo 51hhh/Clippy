@@ -3,11 +3,14 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { FRONTEND_API_MODULES } from "./frontend-api-boundary.mjs";
 
 const HTML_SINK_ALLOWLIST = new Map([
   ["src/js/preview/code-renderers.js", { target: "code", sanitizer: "DOMPurify.sanitize", count: 3 }],
   ["src/js/preview/content-renderers.js", { target: "contentEl", sanitizer: "DOMPurify.sanitize", count: 2 }],
 ]);
+
+const TAURI_API_MODULES = new Set(FRONTEND_API_MODULES);
 
 function walk(directory) {
   const files = [];
@@ -30,14 +33,14 @@ export function validateFrontendBoundaries(sources) {
   for (const [path, source] of sources) {
     const tauriImport = /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|\brequire\s*\(\s*)["']@tauri-apps\//g;
     for (const match of source.matchAll(tauriImport)) {
-      if (path !== "src/js/api.ts") {
-        errors.push(`${path}:${lineNumber(source, match.index)} 只有 src/js/api.ts 可导入 @tauri-apps`);
+      if (!TAURI_API_MODULES.has(path)) {
+        errors.push(`${path}:${lineNumber(source, match.index)} 只有已登记的 src/js/api 领域模块可导入 @tauri-apps`);
       }
     }
     const tauriGlobal = /\b(?:window|globalThis)\.__TAURI(?:__|_INTERNALS__)/g;
     for (const match of source.matchAll(tauriGlobal)) {
-      if (path !== "src/js/api.ts") {
-        errors.push(`${path}:${lineNumber(source, match.index)} 只有 src/js/api.ts 可访问 Tauri global`);
+      if (!TAURI_API_MODULES.has(path)) {
+        errors.push(`${path}:${lineNumber(source, match.index)} 只有已登记的 src/js/api 领域模块可访问 Tauri global`);
       }
     }
 
@@ -84,7 +87,7 @@ function main() {
     return;
   }
   const sinkCount = [...HTML_SINK_ALLOWLIST.values()].reduce((sum, rule) => sum + rule.count, 0);
-  console.log(`Frontend boundary passed: ${sinkCount} sanitized HTML sinks, Tauri imports confined to api.ts`);
+  console.log(`Frontend boundary passed: ${sinkCount} sanitized HTML sinks, Tauri imports confined to 5 API domain modules`);
 }
 
 const invokedAsScript = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
