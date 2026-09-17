@@ -54,6 +54,7 @@ enum Slot {
     InFlight {
         token: LongshotSessionToken,
         operation: Operation,
+        #[cfg(test)]
         committed_snapshot: LongshotSnapshot,
     },
 }
@@ -124,6 +125,7 @@ impl LongshotManager {
     }
 
     /// 锁外估计和拼接一帧；真实业务错误也会把原会话回交为 Active。
+    #[cfg(test)]
     pub(in crate::capture) fn append(
         &self,
         token: &LongshotSessionToken,
@@ -133,6 +135,7 @@ impl LongshotManager {
     }
 
     /// 返回最后一次已提交的快照，不编码或复制会话像素。
+    #[cfg(test)]
     pub(in crate::capture) fn snapshot(
         &self,
         token: &LongshotSessionToken,
@@ -156,6 +159,7 @@ impl LongshotManager {
     }
 
     /// 锁外编码并在成功后消费会话；编码错误会恢复为 Active 供调用方重试。
+    #[cfg(test)]
     pub(in crate::capture) fn finish_png(
         &self,
         token: &LongshotSessionToken,
@@ -274,10 +278,12 @@ impl LongshotManager {
         let Slot::Active { token, session } = previous else {
             unreachable!("同一把锁内已经确认 Active")
         };
+        #[cfg(test)]
         let committed_snapshot = session.snapshot();
         state.slot = Slot::InFlight {
             token: token.clone(),
             operation,
+            #[cfg(test)]
             committed_snapshot,
         };
         Ok(Lease {

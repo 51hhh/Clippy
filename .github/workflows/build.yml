@@ -95,6 +95,9 @@ jobs:
       - name: Frontend HTML and Tauri boundaries
         run: node scripts/check-html-sinks.mjs
 
+      - name: IPC contract check
+        run: node scripts/check-ipc-contract.mjs
+
       - name: Frontend tests
         working-directory: src
         run: npx vitest run

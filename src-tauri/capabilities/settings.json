@@ -1,12 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "default",
-  "description": "主窗口只监听应用事件、隐藏自身并打开项目发布页",
-  "windows": ["main"],
+  "identifier": "settings",
+  "description": "设置窗口监听状态、读取版本、管理自启动并打开项目问题页",
+  "windows": ["settings"],
   "permissions": [
     "core:event:allow-listen",
     "core:event:allow-unlisten",
-    "core:window:allow-hide",
+    "core:app:allow-version",
+    "autostart:default",
     {
       "identifier": "opener:allow-open-url",
       "allow": [{ "url": "https://github.com/51hhh/Clippy/*" }]

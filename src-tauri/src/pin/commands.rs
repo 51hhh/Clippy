@@ -44,13 +44,12 @@ impl ScreenshotPinCreateError {
     }
 
     /// 原生窗口可能已创建，调用方不得自动重试 Pin。
-    #[allow(dead_code)] // 长截图 Pin 输出将据此决定是否禁止重试。
     pub(crate) fn is_uncertain(&self) -> bool {
         matches!(self, Self::Uncertain { .. })
     }
 
     /// 不确定失败所尝试创建的窗口 label，供诊断和后续保守收敛使用。
-    #[allow(dead_code)] // 长截图 Pin 输出尚未接入此内部合同。
+    #[cfg(test)]
     pub(crate) fn attempted_label(&self) -> Option<&str> {
         match self {
             Self::NotCreated { .. } => None,
@@ -581,7 +580,7 @@ pub enum PinCanvasSaveMode {
     Flat,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct PinCanvasSaveResult {
     pub path: String,
@@ -1070,6 +1069,17 @@ fn image_bytes(entry: &PinEntry) -> Result<Vec<u8>, String> {
 mod project_command_tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[test]
+    fn pin_canvas_save_result_matches_the_shared_json_fixture() {
+        let source = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../src/tests/fixtures/ipc-contract/pin-canvas-save-result.json"
+        ));
+        let result: PinCanvasSaveResult = serde_json::from_str(source).unwrap();
+        let fixture: serde_json::Value = serde_json::from_str(source).unwrap();
+        assert_eq!(serde_json::to_value(result).unwrap(), fixture);
+    }
 
     fn clip_entry(content_type: ContentType, text: Option<&str>) -> PinEntry {
         PinEntry {
