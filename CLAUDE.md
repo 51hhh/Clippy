@@ -95,7 +95,7 @@ Rust 后端 (src-tauri/src/)
 ├── clipboard_watcher.rs / storage.rs  — 剪贴板监听与 SQLite/FTS5
 ├── paste/ / window_controller.rs      — X11/Portal 粘贴与窗口几何
 ├── capture/ / screenshot.rs           — CaptureSession 与平台截图
-├── pin/ / pin_window.rs               — PinManager 与窗口适配
+├── pin/ / pin_window.rs               — Pin command adapter、生命周期、可信输出与窗口适配
 ├── translation/ / ocr.rs              — 翻译服务、密钥与本地 OCR
 └── config.rs / models.rs              — 配置与共享模型
 ```
