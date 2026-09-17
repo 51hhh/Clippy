@@ -621,6 +621,22 @@ describe("长截图生产边界", () => {
   });
 });
 
+describe("平台会话单一事实源", () => {
+  it("截图和自动粘贴不再自行读取桌面会话环境变量", () => {
+    const paste = read("src-tauri/src/paste/mod.rs");
+    const screenshot = read("src-tauri/src/screenshot/backends.rs");
+    const diagnostics = screenshot.indexOf("mod backend_diagnostics");
+    expect(diagnostics).toBeGreaterThan(0);
+    const productionScreenshot = screenshot.slice(0, diagnostics);
+    const rawSessionRead = /std::env::var(?:_os)?\("(?:XDG_SESSION_TYPE|WAYLAND_DISPLAY|DISPLAY)"\)/;
+
+    expect(paste).not.toMatch(rawSessionRead);
+    expect(productionScreenshot).not.toMatch(rawSessionRead);
+    expect(paste).toContain("crate::platform::current_session()");
+    expect(productionScreenshot).toContain("crate::platform::is_wayland()");
+  });
+});
+
 describe("截图诊断不泄露窗口身份", () => {
   it("窗口探测只打印数量、状态与几何", () => {
     const source = read("src-tauri/src/screenshot/backends.rs");

@@ -2,7 +2,8 @@
 //!
 //! 编译期只负责确定操作系统；Linux 的 X11/Wayland、桌面环境和 Portal 能力必须在
 //! 运行时决定。业务模块不应再各自读取环境变量，否则 XWayland 和混合会话会被不同
-//! 功能判成不同平台。
+//! 功能判成不同平台。只有 Tauri/GTK 初始化前的 `main.rs` 和只报告原始现场的
+//! `capture::diagnostics` 可以直接读取这些变量；二者都不能作为业务后端选择来源。
 
 use serde::Serialize;
 
