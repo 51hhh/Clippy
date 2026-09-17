@@ -3,9 +3,11 @@
 //! controller 锁只保护轻量 owner；捕获、裁剪、重叠估计、拼接和 PNG 编码均由
 //! manager 的事务 lease 在两把状态锁之外完成。
 
+#[cfg(test)]
+use super::LongshotSnapshot;
 use super::{
     capture_monitor_frame, LongshotAppendOutcome, LongshotArtifact, LongshotFrameAdapter,
-    LongshotManager, LongshotSession, LongshotSessionToken, LongshotSnapshot, LongshotStart,
+    LongshotManager, LongshotSession, LongshotSessionToken, LongshotStart,
 };
 use crate::capture::manager::{
     CaptureLongshotCandidate, CaptureLongshotHandoff, OrdinaryCaptureResources,
@@ -58,7 +60,6 @@ impl Default for LongshotController {
     }
 }
 
-#[allow(dead_code)] // 已注入 AppState；IPC 尚未接入，当前先固定同步领域合同。
 impl LongshotController {
     pub(in crate::capture) fn new() -> Self {
         Self {
@@ -191,6 +192,7 @@ impl LongshotController {
     }
 
     /// 读取最后一次已提交的几何快照。
+    #[cfg(test)]
     pub(in crate::capture) fn snapshot(
         &self,
         token: &LongshotSessionToken,
@@ -269,6 +271,7 @@ impl LongshotController {
     }
 
     /// `Starting` 也属于占用状态，避免准备首帧时另一模式进入。
+    #[cfg(test)]
     pub(in crate::capture) fn is_active(&self) -> Result<bool, CaptureError> {
         let slot = self.slot.lock().map_err(CaptureError::state_lock)?;
         Ok(!matches!(*slot, ControllerSlot::Empty))

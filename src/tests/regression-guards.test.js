@@ -605,6 +605,22 @@ describe("长列表不会持续解码屏外缩略图", () => {
   });
 });
 
+describe("长截图生产边界", () => {
+  it("已接入的长截图链路不再依赖模块级 dead-code 豁免", () => {
+    const capture = read("src-tauri/src/capture/mod.rs");
+    const longshot = [
+      "src-tauri/src/capture/longshot.rs",
+      "src-tauri/src/capture/longshot/controller.rs",
+      "src-tauri/src/capture/longshot/lifecycle.rs",
+      "src-tauri/src/capture/longshot/recapture.rs",
+    ].map(read).join("\n");
+
+    expect(capture).not.toMatch(/#\[cfg_attr\(not\(test\), allow\(dead_code\)\)\]\s*mod (?:longshot|mode_gate);/);
+    expect(longshot).not.toContain("allow(dead_code)");
+    expect(longshot).not.toMatch(/IPC\s*(?:仍|尚)未接入|UI\s*由后续/);
+  });
+});
+
 describe("截图诊断不泄露窗口身份", () => {
   it("窗口探测只打印数量、状态与几何", () => {
     const source = read("src-tauri/src/screenshot/backends.rs");
