@@ -194,7 +194,7 @@ export async function toggle() {
 export function clearContent() {
   _renderGeneration += 1;
   imageTranslationView.clear();
-  _contentEl.innerHTML = "";
+  _contentEl.replaceChildren();
   _contentEl.className = "preview-content";
   _panelEl.classList.remove("preview-panel--image");
   _badgeEl.textContent = "";
@@ -245,7 +245,7 @@ export function updatePreview(clip) {
 async function _doUpdatePreview(clip, generation) {
   if (generation !== _renderGeneration) return;
   if (!_visible || !clip) {
-    _contentEl.innerHTML = "";
+    _contentEl.replaceChildren();
     _contentEl.className = "preview-content";
     _panelEl.classList.remove("preview-panel--image");
     _badgeEl.textContent = "";
@@ -264,7 +264,7 @@ async function _doUpdatePreview(clip, generation) {
     ? `${(size / 1024).toFixed(1)} KB`
     : `${size} B`;
 
-  _contentEl.innerHTML = "";
+  _contentEl.replaceChildren();
   _contentEl.className = "preview-content";
   _panelEl.classList.remove("preview-panel--image");
 

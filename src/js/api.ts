@@ -50,7 +50,6 @@ import type {
   TranslationBatch,
   TranslationHistoryEntry,
   TranslationProvider,
-  TranslationResult,
   UrlMeta,
   WindowProbeInstallOutcome,
   WindowProbeStatus,

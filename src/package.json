@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "check:html": "node ../scripts/check-html-sinks.mjs",
+    "lint:js": "tsc -p tsconfig.js.json && node scripts/check-floating-promises.mjs",
     "check:ipc": "node ../scripts/check-ipc-contract.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
