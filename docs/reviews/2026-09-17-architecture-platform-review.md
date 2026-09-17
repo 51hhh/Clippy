@@ -2,7 +2,8 @@
 
 审阅日期：2026-09-17
 
-代码基线：`dev` / `80889e32381dcaf28949c7b7b6cbdab4b61d6483`
+代码基线：`dev` / `84e1c1a9fdd93e2c7dfea43b877478dde641804b`
+（移除提交 trailer 前的等价提交为 `80889e32381dcaf28949c7b7b6cbdab4b61d6483`）
 
 对应整改计划：[`2026-09-17-architecture-hardening-plan.md`](../superpowers/plans/2026-09-17-architecture-hardening-plan.md)
 
@@ -49,14 +50,15 @@
 
 - 上一基线 `e59d631` 的 CI 运行 `35178040491`：Ubuntu 成功，Windows 测试失败，
   macOS Clippy 失败；
-- `4fba021` 已包含 Windows `.desktop` 测试隔离、vendored arboard macOS/Wayland API
+- `e9387f5`（重写前 `4fba021`）已包含 Windows `.desktop` 测试隔离、vendored arboard macOS/Wayland API
   迁移和本地门禁覆盖范围说明；其 CI `35179825379` 中 Ubuntu、Windows 成功，macOS 的
   `ocr::enhanced::tests::cancelled_after_enhanced_non_timeout_failure_does_not_start_fallback` 失败；
-- `80889e3` 进一步将该测试从固定 `/usr/bin/python3` 改为 PATH 解析出的真实解释器，并把冷启动
+- `84e1c1a`（重写前 `80889e3`）进一步将该测试从固定 `/usr/bin/python3` 改为 PATH 解析出的真实解释器，并把冷启动
   等待从 2 秒改为 15 秒；其 CI `35180661672` 已完成，Ubuntu、Windows、macOS 三个 job 均为
   success：<https://github.com/51hhh/Clippy/actions/runs/35180661672>。
 
-`80889e3` 是本轮第一个三平台同 SHA 全绿的基线，`scripts/verify-native-ci.mjs` 对该 SHA 输出
+`80889e3` 是历史重写前第一个三平台同 SHA 全绿的基线；其等价 tree 位于 `84e1c1a`。
+`scripts/verify-native-ci.mjs` 对重写前 SHA 输出
 `Result: PASS`（证据文件按仓库惯例只留在本地工作区，不随仓库分发）。
 
 同一 SHA 的 `Native QA Packages` run `35181379112` 也已全部成功，产出 Linux x64、Windows x64、
@@ -112,7 +114,7 @@ flowchart LR
 `src-tauri/Cargo.toml` 的 `[patch.crates-io]` 无条件替换 `arboard`。补丁动机是 Linux X11
 完成屏障和有界 INCR 传输，但替换后的 macOS、Windows、Wayland 源码也由本项目负责维护。
 
-三个原生失败已在 `80889e3` 上由真实 runner 证明修复：
+三个原生失败已在重写前 `80889e3`（等价 tree：`84e1c1a`）上由真实 runner 证明修复：
 
 - Linux `.desktop` 自启动解析与测试只在 `target_os = "linux"` 编译；
 - vendored arboard 的 macOS CoreGraphics 和 `image::ImageReader` 弃用 API 已迁移；
@@ -208,8 +210,8 @@ IPC/UI 未接入；同一模块已经注册完整的打开、激活、ready、ap
 | Linux X11 | xcap/XRandR、X11 自动粘贴、私有 Xvfb INCR 测试 | 分支清晰，本地证据强 | AppImage 真机可视 smoke 未启用 |
 | GNOME Wayland | Mutter PipeWire → GNOME 扩展 → wlroots → Portal →旧 GNOME API → xcap | fallback 顺序和失败语义清楚 | 会话判断没有统一走 platform |
 | 其他 Wayland | wlroots / Portal、RemoteDesktop Portal 粘贴 | 能力降级明确 | compositor 真实矩阵仍依赖人工 QA |
-| Windows | xcap、SendInput、Windows ACL/API | cfg 与依赖切分合理；`80889e3` native check 成功 | 桌面权限、输入注入、混合 DPI 仍只能靠真机 QA |
-| macOS | Screen Recording/Accessibility 权限、xcap、Quartz/AppKit | `80889e3` 编译、Clippy 与全部单元测试成功 | 权限授权流程、Gatekeeper/公证信任链未验证 |
+| Windows | xcap、SendInput、Windows ACL/API | cfg 与依赖切分合理；重写前 `80889e3` native check 成功 | 桌面权限、输入注入、混合 DPI 仍只能靠真机 QA |
+| macOS | Screen Recording/Accessibility 权限、xcap、Quartz/AppKit | 重写前 `80889e3` 编译、Clippy 与全部单元测试成功 | 权限授权流程、Gatekeeper/公证信任链未验证 |
 | 其他系统 | CopyOnly / Unsupported | 不伪装成完整支持 | 不在正式构建目标内 |
 
 ## 已有的强约束

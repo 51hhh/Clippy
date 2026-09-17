@@ -2,7 +2,8 @@
 
 制定日期：2026-09-17
 
-审阅基线：`dev` / `80889e32381dcaf28949c7b7b6cbdab4b61d6483`
+审阅基线：`dev` / `84e1c1a9fdd93e2c7dfea43b877478dde641804b`
+（移除提交 trailer 前的等价提交为 `80889e32381dcaf28949c7b7b6cbdab4b61d6483`）
 
 来源：[`完整结构与平台边界审阅`](../../reviews/2026-09-17-architecture-platform-review.md)
 
@@ -57,18 +58,22 @@
 
 | Phase | 本地状态 | 分支 / 提交 | 完整本地门禁 |
 |---|---|---|---|
-| 0 | 三平台 CI 与安装包基线已具备；真机矩阵未执行 | `dev` / `80889e3` | 远程 CI `35180661672` 三平台 success |
-| 1 | 已由 PR #2 合入 `dev` | merge `c96f737` | 14 通过、0 失败、2 跳过 |
-| 2 | 已由 PR #3 合入 `dev` | merge `a52b296` | 14 通过、0 失败、2 跳过 |
-| 3 | 已由 PR #4 合入 `dev` | merge `e8017c51` | 14 通过、0 失败、2 跳过 |
-| 4 | 已由 PR #6 合入 `dev` | merge `0087949` | 15 通过、0 失败、2 跳过 |
-| 5 | 已由 PR #5 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `f1dfd35` / CI `35198689455` | 17 通过、0 失败、2 跳过 |
-| 6 | 已由 PR #7 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `d5fab06` / CI `35201877133` | 17 通过、0 失败、2 跳过 |
-| 7A | 已由 PR #8 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `3775dcf` / CI `35204446458` | 17 通过、0 失败、2 跳过 |
-| 7B | 已由 PR #9 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `8937285` / CI `35208078218` | 17 通过、0 失败、2 跳过 |
-| 7C | 已由 PR #10 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `2dda132` / CI `35210934512` | 17 通过、0 失败、2 跳过 |
-| 8 | 已由 PR #11 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `d0e08e0` / CI `35214349444` | 17 通过、0 失败、2 跳过 |
-| 9 | 已确认漏洞仅可达测试工具链并升级 Vitest；PR required checks 作为合入门禁 | `codex/npm-audit-vitest` | 17 通过、0 失败、2 跳过 |
+| 0 | 三平台 CI 与安装包基线已具备；真机矩阵未执行 | `dev` / `84e1c1a` | 远程 CI `35180661672` 三平台 success |
+| 1 | 已由 PR #2 合入 `dev` | merge `1409664` | 14 通过、0 失败、2 跳过 |
+| 2 | 已由 PR #3 合入 `dev` | merge `bb662a2` | 14 通过、0 失败、2 跳过 |
+| 3 | 已由 PR #4 合入 `dev` | merge `5ff6e45` | 14 通过、0 失败、2 跳过 |
+| 4 | 已由 PR #6 合入 `dev` | merge `fcc5096` | 15 通过、0 失败、2 跳过 |
+| 5 | 已由 PR #5 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `57ffd9c` / CI `35198689455` | 17 通过、0 失败、2 跳过 |
+| 6 | 已由 PR #7 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `1e9b7ed` / CI `35201877133` | 17 通过、0 失败、2 跳过 |
+| 7A | 已由 PR #8 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `dee50ca` / CI `35204446458` | 17 通过、0 失败、2 跳过 |
+| 7B | 已由 PR #9 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `161df19` / CI `35208078218` | 17 通过、0 失败、2 跳过 |
+| 7C | 已由 PR #10 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `7fb8a7a` / CI `35210934512` | 17 通过、0 失败、2 跳过 |
+| 8 | 已由 PR #11 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `838b536` / CI `35214349444` | 17 通过、0 失败、2 跳过 |
+| 9 | 已由 PR #12 合入 `dev`；漏洞仅可达测试工具链且审计已清零 | merge `a066e99` / CI `35217296022` | 17 通过、0 失败、2 跳过 |
+
+2026-09-17 按项目所有者要求移除了 `dev` 历史中的 `Co-Authored-By` trailer。上表 merge SHA
+已刷新；既有 CI run 是提交消息重写前相同 tree 的历史证据。重写后的 `dev` 仍须由 push CI 在
+新 SHA 上重新执行三平台门禁，最终结论以 `scripts/verify-native-ci.mjs` 的同 SHA 核验为准。
 
 Phase 4 选择轻量 parity gate 与三个共享 JSON fixture，没有引入代码生成依赖；完整绑定生成可在
 Phase 7 拆分 API facade 时重新评估。Phase 5 的静态类型范围先固定为 `js/preview/` 与
@@ -80,7 +85,7 @@ pin、capture overlay、longshot controller、image viewer 分成独立 capabili
 `https://github.com/51hhh/Clippy/*`，自启动与版本读取只授予 settings，截图覆盖层只额外保留关闭自身，
 原生拖动仍只授予 pin 与 longshot。回归测试同时禁止恢复宽泛 core、opener 和前端全局快捷键权限。
 
-Phase 1～7C 已合入，当前 `dev` SHA `2dda13219a402ca75929889c39c389545148c3c3` 的 Ubuntu、Windows、
+Phase 1～7C 已合入，对应重写后 `dev` SHA `7fb8a7ae16a318d5a230686618d949d49132b97f` 的 Ubuntu、Windows、
 macOS 原生门禁均在 CI `35210934512` 通过，原生证据脚本输出 `PASS`。Phase 7B 首次 Ubuntu
 运行暴露了 OCR 等待者上限测试依赖固定调度次数的波动；Phase 7C 已将该测试改成观察 runtime
 登记状态的确定性等待，并在合入后最终 SHA 上通过三平台门禁。
@@ -89,7 +94,7 @@ macOS 原生门禁均在 CI `35210934512` 通过，原生证据脚本输出 `PAS
 
 ## Phase 0：关闭当前三平台发布阻塞
 
-**目标：** 先证明 `80889e3` 的 Windows/macOS 修复真实成立，避免在红基线上继续结构改造。
+**目标：** 先证明 `84e1c1a`（重写前 `80889e3`）的 Windows/macOS 修复真实成立，避免在红基线上继续结构改造。
 
 **涉及：**
 
@@ -102,13 +107,13 @@ macOS 原生门禁均在 CI `35210934512` 通过，原生证据脚本输出 `PAS
 - [x] 修复后的 CI `35180661672` 已完成，逐个 job 结论：`Check (ubuntu-22.04)` success、
   `Native Check (windows-latest)` success、`Native Check (macos-latest)` success；
 - [x] 该失败在独立分支 `fix/macos-ocr-interpreter-test` 修复后以 `--no-ff` 合入 `dev`
-  （`80889e3`），未改动被测产品代码；
+  （重写后等价提交 `84e1c1a`），未改动被测产品代码；
 - [x] 对最终 SHA 运行
   `node scripts/verify-native-ci.mjs --repo 51hhh/Clippy --sha 80889e32381dcaf28949c7b7b6cbdab4b61d6483`，
   输出 `Result: PASS`；证据文件按仓库惯例只留在本地工作区；
 - [x] `dev` / `main` 的 required checks 已由 ruleset `23578066` 覆盖三个原生 job，同时禁止强推与
   删除，且不设 bypass actor；
-- [x] 最终 SHA `80889e3` 与 run URL 已写入审阅记录；
+- [x] 重写前最终 SHA `80889e3`、重写后等价 SHA `84e1c1a` 与 run URL 已写入审阅记录；
 - [ ] 真机矩阵未执行 —— 需要真实 Windows / macOS / KDE 环境，按 `docs/native-qa.md` §3 起逐项完成。
   输入已就绪：`Native QA Packages` run `35181379112` 在同一 SHA 上构建成功（Linux x64、Windows x64、
   macOS Intel、macOS Apple-Silicon 四套包，外加 Ubuntu 24.04 X11 Runtime Smoke），产物与
@@ -118,7 +123,7 @@ macOS 原生门禁均在 CI `35210934512` 通过，原生证据脚本输出 `PAS
 
 **验收：** 同一 SHA 的三个 job 均为 success，验证脚本输出成功；不以“已启动”或“Linux 通过”代替完成。
 
-**当前状态：** 门禁部分已在 `80889e3` 上达成验收；真机矩阵仍为未执行，因此 Phase 0 整体未关闭。
+**当前状态：** 门禁部分已在重写前 `80889e3`（等价 tree：`84e1c1a`）上达成验收；真机矩阵仍为未执行，因此 Phase 0 整体未关闭。
 三平台 CI 只覆盖条件编译、原生 API 与单元测试，不覆盖桌面权限、输入注入、混合 DPI 和签名信任链。
 
 **建议提交：** 若无需改代码则不提交；如需 workflow 调整，单独使用
