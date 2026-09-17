@@ -4,9 +4,9 @@
 //! 释放都在锁外执行，避免桌面调用反向阻塞会话状态机。
 
 use super::controller::{LongshotController, LongshotControllerFinish, LongshotControllerStart};
-use super::{
-    LongshotAppendOutcome, LongshotArtifact, LongshotSessionToken, LongshotSnapshot, LongshotStart,
-};
+#[cfg(test)]
+use super::LongshotSnapshot;
+use super::{LongshotAppendOutcome, LongshotArtifact, LongshotSessionToken, LongshotStart};
 use crate::capture::manager::OrdinaryCaptureResources;
 use crate::capture::{CaptureError, CaptureManager, CaptureModeOwnership, CaptureSelection};
 use crate::commands::AppState;
@@ -73,7 +73,6 @@ impl Default for LongshotLifecycle {
     }
 }
 
-#[allow(dead_code)] // 已进入 AppState；IPC/UI 由后续切片接入。
 impl LongshotLifecycle {
     pub(in crate::capture) fn new() -> Self {
         Self {
@@ -101,6 +100,7 @@ impl LongshotLifecycle {
         self.append_with(token, || self.controller.append(token))
     }
 
+    #[cfg(test)]
     pub(in crate::capture) fn snapshot(
         &self,
         token: &LongshotSessionToken,
@@ -135,6 +135,7 @@ impl LongshotLifecycle {
         self.cancel_with(token, || self.controller.cancel(token), &actions)
     }
 
+    #[cfg(test)]
     pub(in crate::capture) fn is_active(&self) -> Result<bool, CaptureError> {
         let slot = self.slot.lock().map_err(CaptureError::state_lock)?;
         Ok(!matches!(*slot, LifecycleSlot::Empty))
@@ -203,6 +204,7 @@ impl LongshotLifecycle {
         result.map_err(normalize_controller_race)
     }
 
+    #[cfg(test)]
     fn snapshot_with<F>(
         &self,
         token: &LongshotSessionToken,

@@ -57,7 +57,7 @@ pub struct CaptureOverlayPayload {
     pub probe_hint: bool,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CaptureSelection {
     pub session_id: String,
@@ -115,6 +115,17 @@ impl CaptureTranslationResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capture_selection_matches_the_shared_json_fixture() {
+        let source = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../src/tests/fixtures/ipc-contract/capture-selection.json"
+        ));
+        let selection: CaptureSelection = serde_json::from_str(source).unwrap();
+        let fixture: serde_json::Value = serde_json::from_str(source).unwrap();
+        assert_eq!(serde_json::to_value(selection).unwrap(), fixture);
+    }
 
     #[test]
     fn capture_translation_contract_contains_text_but_no_image_payload() {

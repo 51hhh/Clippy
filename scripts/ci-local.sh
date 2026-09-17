@@ -60,6 +60,7 @@ require_cmd() {
 
 check_prerequisites() {
   require_cmd cargo "Rust toolchain: https://rustup.rs"
+  require_cmd node "Node.js >= 22.12: https://nodejs.org"
   require_cmd npm "Node.js >= 20.19: https://nodejs.org"
   require_cmd npx "随 Node.js 一同安装"
   # DOM/Canvas smoke 在无头环境下依赖 Xvfb，缺失时整条前端 smoke 都无法执行。
@@ -134,6 +135,7 @@ fi
 # --- GNOME Shell 扩展 ---
 run_step "GNOME 扩展静态检查" ./scripts/check-gnome-extension.sh
 run_step "前端 HTML 与 Tauri 边界" node scripts/check-html-sinks.mjs
+run_step "IPC 合同一致性" node scripts/check-ipc-contract.mjs
 
 # --- Frontend ---
 run_step "npm ci" bash -c "cd src && npm ci --prefer-offline"
