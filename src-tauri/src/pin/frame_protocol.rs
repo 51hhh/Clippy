@@ -32,7 +32,7 @@ pub(crate) fn handle<R: Runtime>(
         entry
             .sharpen
             .take_for_initial_request()
-            .or_else(|| super::commands::display_png(&entry.source).map(<[u8]>::to_vec))
+            .or_else(|| super::output::display_png(&entry.source).map(<[u8]>::to_vec))
     } else {
         entry.sharpen.take_for_update_request()
     };
