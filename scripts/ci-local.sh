@@ -133,6 +133,7 @@ fi
 
 # --- GNOME Shell 扩展 ---
 run_step "GNOME 扩展静态检查" ./scripts/check-gnome-extension.sh
+run_step "前端 HTML 与 Tauri 边界" node scripts/check-html-sinks.mjs
 
 # --- Frontend ---
 run_step "npm ci" bash -c "cd src && npm ci --prefer-offline"
