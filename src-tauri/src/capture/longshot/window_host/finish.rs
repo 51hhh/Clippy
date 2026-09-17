@@ -1,10 +1,11 @@
 //! 长截图完成、复制与待重试输出的状态转换。
 
-use super::{
-    ControlWindowActions, LongshotControllerHandle, LongshotControllerRegistry, LongshotIpcError,
-    LongshotOutputAction, LongshotOutputArtifact, LongshotOutputResult, Slot, TerminationOrigin,
-    CONTROLLER_PREFIX,
+use super::lifecycle::ControlWindowActions;
+use super::model::{
+    LongshotControllerHandle, LongshotControllerRegistry, LongshotIpcError, LongshotOutputAction,
+    LongshotOutputArtifact, LongshotOutputResult, Slot, TerminationOrigin,
 };
+use super::CONTROLLER_PREFIX;
 use crate::capture::longshot::{LongshotArtifact, LongshotSessionToken};
 use crate::capture::CaptureError;
 use std::sync::Arc;
