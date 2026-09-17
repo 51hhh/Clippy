@@ -8,6 +8,8 @@ mod token_store;
 #[cfg(target_os = "linux")]
 mod x11;
 
+#[cfg(target_os = "linux")]
+use crate::platform::DesktopSession;
 pub use error::PasteError;
 #[cfg(target_os = "linux")]
 use portal::PortalState;
@@ -107,7 +109,7 @@ pub struct PasteManager {
 #[cfg(target_os = "linux")]
 impl PasteManager {
     pub fn new(app_data_dir: &Path) -> Self {
-        let backend = detect_backend();
+        let backend = backend_for_session(crate::platform::current_session());
         let phase = match backend {
             PasteBackend::X11 => PastePhase::Ready,
             PasteBackend::WaylandPortal => PastePhase::PermissionRequired,
@@ -331,29 +333,11 @@ impl PasteManager {
 }
 
 #[cfg(target_os = "linux")]
-fn detect_backend() -> PasteBackend {
-    let session_type = std::env::var("XDG_SESSION_TYPE")
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    detect_backend_from(
-        &session_type,
-        std::env::var_os("WAYLAND_DISPLAY").is_some(),
-        std::env::var_os("DISPLAY").is_some(),
-    )
-}
-
-#[cfg(target_os = "linux")]
-fn detect_backend_from(
-    session_type: &str,
-    has_wayland_display: bool,
-    has_x11_display: bool,
-) -> PasteBackend {
-    match session_type {
-        "wayland" => PasteBackend::WaylandPortal,
-        "x11" => PasteBackend::X11,
-        _ if has_wayland_display => PasteBackend::WaylandPortal,
-        _ if has_x11_display => PasteBackend::X11,
-        _ => PasteBackend::CopyOnly,
+fn backend_for_session(session: DesktopSession) -> PasteBackend {
+    match session {
+        DesktopSession::Wayland => PasteBackend::WaylandPortal,
+        DesktopSession::X11 => PasteBackend::X11,
+        DesktopSession::Native | DesktopSession::Unknown => PasteBackend::CopyOnly,
     }
 }
 
@@ -382,19 +366,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn explicit_session_type_wins_over_stale_display_variables() {
-        assert_eq!(detect_backend_from("x11", true, true), PasteBackend::X11);
+    fn platform_session_is_the_only_paste_backend_input() {
+        assert_eq!(backend_for_session(DesktopSession::X11), PasteBackend::X11);
         assert_eq!(
-            detect_backend_from("wayland", false, true),
+            backend_for_session(DesktopSession::Wayland),
             PasteBackend::WaylandPortal
         );
         assert_eq!(
-            detect_backend_from("", true, true),
-            PasteBackend::WaylandPortal
+            backend_for_session(DesktopSession::Unknown),
+            PasteBackend::CopyOnly
         );
-        assert_eq!(detect_backend_from("", false, true), PasteBackend::X11);
         assert_eq!(
-            detect_backend_from("tty", false, false),
+            backend_for_session(DesktopSession::Native),
             PasteBackend::CopyOnly
         );
     }
