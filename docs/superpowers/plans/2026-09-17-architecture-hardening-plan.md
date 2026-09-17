@@ -25,14 +25,14 @@
 ## Acceptance Criteria
 
 - [ ] Ubuntu、Windows、macOS 三个 CI job 在同一 40 位 SHA 上 `completed/success`；
-- [ ] 除明确登记的启动/诊断例外外，业务模块不直接读取 Linux 会话环境变量；
-- [ ] settings、pin、capture overlay、longshot controller、image viewer 均有命令 allowlist 回归；
-- [ ] CI 会在 command 未注册、wrapper 指向不存在命令或 viewer allowlist 漏项时失败；
-- [ ] `src/js` 的目标目录通过新增静态检查，且没有扩大忽略清单；
-- [ ] 用户富文本 HTML sink 只存在于固定 allowlist，全部经过 DOMPurify；
-- [ ] `capture` 不再用“尚未接入”解释生产模块，也没有模块级 `allow(dead_code)` 掩盖整域；
-- [ ] 第一轮拆分后，长截图窗口宿主的生产职责至少分成 registry/state、window lifecycle、worker/output；
-- [ ] `./scripts/ci-local.sh` 完整通过，并记录跳过项；
+- [x] 除明确登记的启动/诊断例外外，业务模块不直接读取 Linux 会话环境变量；
+- [x] settings、pin、capture overlay、longshot controller、image viewer 均有命令 allowlist 回归；
+- [x] CI 会在 command 未注册、wrapper 指向不存在命令或 viewer allowlist 漏项时失败；
+- [x] `src/js` 的目标目录通过新增静态检查，且没有扩大忽略清单；
+- [x] 用户富文本 HTML sink 只存在于固定 allowlist，全部经过 DOMPurify；
+- [x] `capture` 不再用“尚未接入”解释生产模块，也没有模块级 `allow(dead_code)` 掩盖整域；
+- [x] 第一轮拆分后，长截图窗口宿主的生产职责至少分成 registry/state、window lifecycle、worker/output；
+- [x] `./scripts/ci-local.sh` 完整通过，并记录跳过项；
 - [ ] `docs/architecture.md`、`CLAUDE.md`、`AGENTS.md` 与最终实现一致。
 
 ## Out of Scope
@@ -58,11 +58,12 @@
 | Phase | 本地状态 | 分支 / 提交 | 完整本地门禁 |
 |---|---|---|---|
 | 0 | 三平台 CI 与安装包基线已具备；真机矩阵未执行 | `dev` / `80889e3` | 远程 CI `35180661672` 三平台 success |
-| 1 | 已完成，待推送与原生 CI | `codex/platform-single-source` / `75af809` | 14 通过、0 失败、2 跳过 |
-| 2 | 已完成，待推送与原生 CI | `codex/longshot-production-boundary` / `b75a08b` | 14 通过、0 失败、2 跳过 |
-| 3 | 已完成，待推送与原生 CI | `codex/window-ipc-access` / `b91a52f` | 14 通过、0 失败、2 跳过 |
-| 4 | 已完成，堆叠在 Phase 3；待推送与原生 CI | `codex/ipc-contract-gate` / `4822047` | 15 通过、0 失败、2 跳过 |
-| 5 | 已完成，待推送与原生 CI | `codex/frontend-static-boundary` / `3f8161a`、`a18e3b1` | 16 通过、0 失败、2 跳过 |
+| 1 | 已由 PR #2 合入 `dev` | merge `c96f737` | 14 通过、0 失败、2 跳过 |
+| 2 | 已由 PR #3 合入 `dev` | merge `a52b296` | 14 通过、0 失败、2 跳过 |
+| 3 | 已由 PR #4 合入 `dev` | merge `e8017c51` | 14 通过、0 失败、2 跳过 |
+| 4 | 已由 PR #6 合入 `dev` | merge `0087949` | 15 通过、0 失败、2 跳过 |
+| 5 | 已由 PR #5 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `f1dfd35` / CI `35198689455` | 17 通过、0 失败、2 跳过 |
+| 6 | 本地拆分与 characterization tests 已完成，待原生 CI | `codex/longshot-window-host-split` / `50c1cc0` | 17 通过、0 失败、2 跳过 |
 
 Phase 4 选择轻量 parity gate 与三个共享 JSON fixture，没有引入代码生成依赖；完整绑定生成可在
 Phase 7 拆分 API facade 时重新评估。Phase 5 的静态类型范围先固定为 `js/preview/` 与
@@ -74,9 +75,9 @@ pin、capture overlay、longshot controller、image viewer 分成独立 capabili
 `https://github.com/51hhh/Clippy/*`，自启动与版本读取只授予 settings，截图覆盖层只额外保留关闭自身，
 原生拖动仍只授予 pin 与 longshot。回归测试同时禁止恢复宽泛 core、opener 和前端全局快捷键权限。
 
-以上“已完成”仅表示本地实现与 Linux 门禁完成。Windows/macOS 原生 CI、分支合入和真机 QA 尚未执行。
-Phase 6 依赖 Phase 2、Phase 4 先合入并在同一 SHA 上通过远程门禁，因此当前不提前拆分
-`window_host.rs`。
+Phase 1～5 已合入，最终 `dev` SHA `f1dfd355f2f4ae4faf9173961bca22e3783492fe` 的 Ubuntu、Windows、
+macOS 原生门禁均在 CI `35198689455` 通过。Phase 6 已基于该 SHA 完成本地拆分；它自己的
+Windows/macOS 原生 CI、分支合入和真机 QA 仍未执行。
 
 ---
 
@@ -303,15 +304,19 @@ capture/longshot/window_host/
 └── tests/          # 按状态域拆分 characterization tests
 ```
 
-- [ ] 先按现有测试名称绘制状态转移表，不修改行为；
-- [ ] 移动纯 DTO 和 registry 操作，保持可见性 `pub(super)`；
-- [ ] 移动窗口副作用和 deadline；
-- [ ] 移动 append/preview worker；
-- [ ] 将 3600 行测试按 registry、activation、append、preview、finish/cancel 分类；
-- [ ] 每次移动后执行全部 `capture::longshot::window_host` 测试；
-- [ ] 确认 custom protocol、event、label、error code 和 JSON wire format 无变化。
+- [x] 先按现有测试名称绘制状态转移表，不修改行为；
+- [x] 移动纯 DTO 和 registry 操作，保持可见性 `pub(super)`；
+- [x] 移动窗口副作用和 deadline；
+- [x] 移动 append/preview worker；
+- [x] 将 3600 行测试按 registry、activation、append、preview、finish/cancel 分类；
+- [x] 每次移动后执行全部 `capture::longshot::window_host` 测试；
+- [x] 确认 custom protocol、event、label、error code 和 JSON wire format 无变化。
 
 **验收：** `mod.rs` 只保留 facade 与组合；任何子文件不同时承担 registry 状态转移和真实窗口副作用。
+
+**本地结果：** `mod.rs` 从原单文件宿主收敛为 437 行组合层；宿主 80 项测试、严格 Clippy、
+IPC parity gate 均通过。完整 `./scripts/ci-local.sh` 为 17 通过、0 失败、2 跳过；跳过项是非宿主平台
+交叉 lint 和 AppImage X11 可视 smoke，Windows/macOS 结论等待本 Phase 的远程原生 CI。
 
 **建议提交：** `refactor(capture): 拆分长截图窗口宿主职责`
 
