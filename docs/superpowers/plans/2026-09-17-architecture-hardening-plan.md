@@ -33,7 +33,7 @@
 - [x] `capture` 不再用“尚未接入”解释生产模块，也没有模块级 `allow(dead_code)` 掩盖整域；
 - [x] 第一轮拆分后，长截图窗口宿主的生产职责至少分成 registry/state、window lifecycle、worker/output；
 - [x] `./scripts/ci-local.sh` 完整通过，并记录跳过项；
-- [ ] `docs/architecture.md`、`CLAUDE.md`、`AGENTS.md` 与最终实现一致。
+- [x] `docs/architecture.md`、`CLAUDE.md`、`AGENTS.md` 与最终实现一致。
 
 ## Out of Scope
 
@@ -66,7 +66,8 @@
 | 6 | 已由 PR #7 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `d5fab06` / CI `35201877133` | 17 通过、0 失败、2 跳过 |
 | 7A | 已由 PR #8 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `3775dcf` / CI `35204446458` | 17 通过、0 失败、2 跳过 |
 | 7B | 已由 PR #9 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `8937285` / CI `35208078218` | 17 通过、0 失败、2 跳过 |
-| 7C | OCR 领域边界已拆分，等待原生 CI | `codex/ocr-domain-boundaries` | 17 通过、0 失败、2 跳过 |
+| 7C | 已由 PR #10 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `2dda132` / CI `35210934512` | 17 通过、0 失败、2 跳过 |
+| 8 | 架构、开发流程与验证边界已同步 | `codex/architecture-doc-sync` | 17 通过、0 失败、2 跳过 |
 
 Phase 4 选择轻量 parity gate 与三个共享 JSON fixture，没有引入代码生成依赖；完整绑定生成可在
 Phase 7 拆分 API facade 时重新评估。Phase 5 的静态类型范围先固定为 `js/preview/` 与
@@ -78,10 +79,10 @@ pin、capture overlay、longshot controller、image viewer 分成独立 capabili
 `https://github.com/51hhh/Clippy/*`，自启动与版本读取只授予 settings，截图覆盖层只额外保留关闭自身，
 原生拖动仍只授予 pin 与 longshot。回归测试同时禁止恢复宽泛 core、opener 和前端全局快捷键权限。
 
-Phase 1～7B 已合入，当前 `dev` SHA `893728586685584970ffa9b46b8cfcc2ff569a7f` 的 Ubuntu、Windows、
-macOS 原生门禁均在 CI `35208078218` 通过，原生证据脚本输出 `PASS`。Phase 7B 首次 Ubuntu
-运行暴露了 OCR 等待者上限测试依赖固定调度次数的波动，同一 SHA 失败 job 重跑以及最终 `dev` CI
-均通过；Phase 7C 已将该测试改成观察 runtime 登记状态的确定性等待。
+Phase 1～7C 已合入，当前 `dev` SHA `2dda13219a402ca75929889c39c389545148c3c3` 的 Ubuntu、Windows、
+macOS 原生门禁均在 CI `35210934512` 通过，原生证据脚本输出 `PASS`。Phase 7B 首次 Ubuntu
+运行暴露了 OCR 等待者上限测试依赖固定调度次数的波动；Phase 7C 已将该测试改成观察 runtime
+登记状态的确定性等待，并在合入后最终 SHA 上通过三平台门禁。
 
 ---
 
@@ -364,7 +365,8 @@ IPC parity gate 均通过。完整 `./scripts/ci-local.sh` 为 17 通过、0 失
 **7C 定向结果：** `ocr.rs` 从 991 行收敛为 126 行 facade；`runtime.rs`、`executable.rs`、
 `process.rs` 与 `tesseract.rs` 分别拥有调度、探测、子进程监督和文本协议。25 项 OCR 测试通过，
 等待者上限测试连续运行 25 次全部通过，严格 Clippy 通过。完整本地门禁为 17 通过、0 失败、
-2 跳过；Windows/macOS 结论等待本 Phase 的远程原生 CI。
+2 跳过。PR #10 合入后的 `dev` CI `35210934512` 在 Ubuntu、Windows、macOS 全部通过；原生证据
+脚本输出 `PASS`。真机 QA 未执行。
 
 **验收：** 每个 adapter 只做参数转换和错误映射；领域实现可不依赖 Tauri command 直接测试。
 
@@ -383,13 +385,17 @@ IPC parity gate 均通过。完整 `./scripts/ci-local.sh` 为 17 通过、0 失
 - `docs/CI.md`
 - 领域文档
 
-- [ ] 在 `architecture.md` 顶部加入本审阅中的三条核心调用链；
-- [ ] 完整列出 capture-overlay、longshot-controller、viewer、pin、shared 等功能岛；
-- [ ] 用领域 bundle/所有者描述 `AppState`，避免复制会快速过期的字段清单；
-- [ ] 把实现历史和性能数字下沉到 capture/pin 专题文档；
-- [ ] 统一 DOMPurify/HTML sink 规则；
-- [ ] 要求需求记录拥有稳定 issue、Wiki 或仓库文档 ID，并在 PR/CHANGELOG 引用；
-- [ ] 明确本地门禁、交叉检查、原生 CI、真机 QA 四种证据不能互相替代。
+- [x] 在 `architecture.md` 顶部加入本审阅中的三条核心调用链；
+- [x] 完整列出 capture-overlay、longshot-controller、viewer、pin、shared 等功能岛；
+- [x] 用领域 bundle/所有者描述 `AppState`，避免复制会快速过期的字段清单；
+- [x] 把实现历史和性能数字下沉到 capture/pin 专题文档；
+- [x] 统一 DOMPurify/HTML sink 规则；
+- [x] 要求需求记录拥有稳定 issue、Wiki 或仓库文档 ID，并在 PR/CHANGELOG 引用；
+- [x] 明确本地门禁、交叉检查、原生 CI、真机 QA 四种证据不能互相替代。
+
+**本地结果：** Markdown 相对链接与 24 个架构路径均存在；CI 平台矩阵、命令、可选交叉检查和
+AppImage smoke 开关已与当前 workflow/script 对照。完整 `./scripts/ci-local.sh` 为 17 通过、
+0 失败、2 跳过；跳过项是非宿主平台交叉 lint 和 AppImage X11 可视 smoke。
 
 **验收：** 文档中的路径全部存在；平台矩阵和质量门禁与当前 workflow/script 一致。
 
