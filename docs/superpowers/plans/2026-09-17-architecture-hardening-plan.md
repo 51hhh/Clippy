@@ -60,13 +60,19 @@
 | 0 | 三平台 CI 与安装包基线已具备；真机矩阵未执行 | `dev` / `80889e3` | 远程 CI `35180661672` 三平台 success |
 | 1 | 已完成，待推送与原生 CI | `codex/platform-single-source` / `75af809` | 14 通过、0 失败、2 跳过 |
 | 2 | 已完成，待推送与原生 CI | `codex/longshot-production-boundary` / `b75a08b` | 14 通过、0 失败、2 跳过 |
-| 3 | 已完成，待推送与原生 CI | `codex/window-ipc-access` / `5d3a6f8` | 14 通过、0 失败、2 跳过 |
-| 4 | 已完成，堆叠在 Phase 3；待推送与原生 CI | `codex/ipc-contract-gate` / `1314490` | 15 通过、0 失败、2 跳过 |
+| 3 | 已完成，待推送与原生 CI | `codex/window-ipc-access` / `b91a52f` | 14 通过、0 失败、2 跳过 |
+| 4 | 已完成，堆叠在 Phase 3；待推送与原生 CI | `codex/ipc-contract-gate` / `4822047` | 15 通过、0 失败、2 跳过 |
 | 5 | 已完成，待推送与原生 CI | `codex/frontend-static-boundary` / `3f8161a`、`a18e3b1` | 16 通过、0 失败、2 跳过 |
 
 Phase 4 选择轻量 parity gate 与三个共享 JSON fixture，没有引入代码生成依赖；完整绑定生成可在
 Phase 7 拆分 API facade 时重新评估。Phase 5 的静态类型范围先固定为 `js/preview/` 与
 `js/settings/`，HTML/Tauri 边界则覆盖全部 `src/js` 和 `src/react`。
+
+Phase 3 复审时发现统一业务命令 gate 之外，原 `default` capability 仍把 `core:default`、
+`opener:default`、自启动和多项原生窗口控制同时授予多个子窗口。修订后的提交把 main、settings、
+pin、capture overlay、longshot controller、image viewer 分成独立 capability；外链只允许打开
+`https://github.com/51hhh/Clippy/*`，自启动与版本读取只授予 settings，截图覆盖层只额外保留关闭自身，
+原生拖动仍只授予 pin 与 longshot。回归测试同时禁止恢复宽泛 core、opener 和前端全局快捷键权限。
 
 以上“已完成”仅表示本地实现与 Linux 门禁完成。Windows/macOS 原生 CI、分支合入和真机 QA 尚未执行。
 Phase 6 依赖 Phase 2、Phase 4 先合入并在同一 SHA 上通过远程门禁，因此当前不提前拆分
