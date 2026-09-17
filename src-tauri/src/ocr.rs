@@ -62,6 +62,7 @@ pub(crate) fn uses_enhanced_configuration() -> bool {
 }
 
 /// 安装流程改变了外部工具状态，下一次查询必须重新探测。
+#[cfg(target_os = "linux")]
 pub(crate) fn invalidate_executable_cache() {
     executable::invalidate_executable_cache();
 }
