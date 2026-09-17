@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { FRONTEND_API_MODULES } from "../../scripts/frontend-api-boundary.mjs";
 
 const root = resolve(process.cwd());
 
@@ -89,17 +90,29 @@ describe("built window entrypoints", () => {
   });
 
   it("keeps direct Tauri access out of production feature modules", () => {
-    const apiPath = resolve(root, "js/api.ts");
+    const repositoryRoot = resolve(root, "..");
+    const apiPaths = new Set(FRONTEND_API_MODULES.map((path) => resolve(repositoryRoot, path)));
     const files = [
       ...sourceFiles(resolve(root, "js")),
       ...sourceFiles(resolve(root, "react")),
-    ].filter((path) => path !== apiPath);
+    ].filter((path) => !apiPaths.has(path));
 
     for (const path of files) {
       const source = readFileSync(path, "utf8");
       expect(source, path).not.toContain("@tauri-apps/");
       expect(source, path).not.toMatch(/\binvoke\s*\(/);
       expect(source, path).not.toMatch(/\blisten\s*\(/);
+    }
+  });
+
+  it("keeps api.ts as the complete public facade for every registered domain", () => {
+    const source = readFileSync(resolve(root, "js/api.ts"), "utf8");
+    expect(source).not.toContain("@tauri-apps/");
+    expect(source).not.toMatch(/\binvoke\s*\(/);
+    expect(source).not.toMatch(/\blisten\s*\(/);
+    for (const path of FRONTEND_API_MODULES) {
+      const name = path.split("/").at(-1);
+      expect(source).toContain(`export * from "./api/${name}";`);
     }
   });
 });

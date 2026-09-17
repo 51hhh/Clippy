@@ -157,7 +157,8 @@ src/                          # 前端
 ├── index.html                # 主面板（列表 + 预览）
 ├── settings.html             # 设置窗口
 ├── js/
-│   ├── api.ts                # 类型化 Tauri IPC 封装（唯一边界）
+│   ├── api.ts                # 类型化 Tauri IPC 公共 facade
+│   ├── api/                  # clipboard/capture/pin/viewer/settings 受控 IPC 边界
 │   ├── ipc-types.ts          # Rust serde 数据合同
 │   ├── app.js                # 入口 + 键盘路由
 │   ├── clipboard-list.js     # 列表状态机 + 差量渲染
