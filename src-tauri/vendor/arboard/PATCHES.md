@@ -1,6 +1,6 @@
 # Clippy 本地补丁
 
-基于 crates.io **arboard 3.6.1**。保留原 MIT / Apache-2.0 许可证、版本、所有平台及示例源码；生产补丁只涉及 X11。`Cargo.toml.orig` 保留发布包原件，当前 normalized `Cargo.toml` 的测试适配在下文说明。
+基于 crates.io **arboard 3.6.1**。保留原 MIT / Apache-2.0 许可证、版本、所有平台及示例源码；行为补丁只涉及 X11，macOS 与 Wayland 只有不改变行为的弃用 API 对齐（见「跨平台弃用 API 对齐」）。`Cargo.toml.orig` 保留发布包原件，当前 normalized `Cargo.toml` 的测试适配在下文说明。
 
 - 原始 `.crate` SHA-256：`0348a1c054491f4bfe6ab86a7b6ab1e44e45d899005de92f58b3df180b36ddaf`
 - 原始 `src/platform/linux/x11.rs` SHA-256：`57058170d748f75df9081dc2d886e8a2fa4fa9ca46af09c37bc5eda36309c053`
@@ -19,9 +19,19 @@
 - selection 替换和 SelectionClear 保留已接受请求的旧快照；所有目标在分派前统一拒绝活动 `(requestor, property)` 冲突。requestor 销毁只回收其传输，同窗口多 property 的最后一个结束才恢复旧事件 mask；自有窗口销毁才终止服务。
 - handover 初始握手最多 4s，开始传输后共享 30s 总预算；不消费由空闲超时提前唤醒。manager 通知到达后仍须等待实际数据及最终零块确认，失败清理残留属性，不能把半张图作为成功结果。
 - 接收端先读取零长度属性 metadata，在分配 body 之前检查预算；INCR header 只允许一个 u32，数据按剩余 256MiB 预算读取并拒绝 `bytes_after`。原 10ms 分块截止改为 4s 空闲 / 30s 总截止，兼容合法慢接收链路。
-- `image::io::Reader` 改为等价 `image::ImageReader`，仅消除已锁定 image 0.25 的弃用警告。
+- `x11.rs` 的 `image::io::Reader` 改为等价 `image::ImageReader`，仅消除已锁定 image 0.25 的弃用警告。
 
 没有改变 Windows / macOS / Wayland 实现、PNG 编码参数或像素。256MiB 是压缩传输及保留快照预算，不是 PNG 解码像素预算。超时约束针对正常运行 X server 上停滞的 requestor，不提供挂死 X server 的系统 I/O 超时保证。
+
+## 跨平台弃用 API 对齐
+
+`[patch.crates-io]` 的 arboard 覆盖是无条件的，三平台都编译此目录，因此 macOS / Wayland 源码也必须满足主项目的 `cargo clippy --all-targets -- -D warnings`。上游 3.6.1 是按更早的 objc2 / image 写的，在本仓库锁定的 objc2 0.6.4 + objc2-app-kit 0.3.2 + objc2-core-graphics 0.3.2 + image 0.25 下会产生弃用与 `unused_unsafe` 告警，在 `-D warnings` 下即编译失败。以下改动只换调用形式，不改变参数、所有权语义或像素：
+
+- `osx.rs::image_from_pixels`：`CGDataProviderCreateWithData` / `CGColorSpaceCreateDeviceRGB` / `CGImageCreate` 换成 objc2-core-graphics 0.3 的关联方法 `CGDataProvider::with_data` / `CGColorSpace::new_device_rgb` / `CGImage::new`（旧自由函数只是同签名的弃用别名，返回同样的 `Option<CFRetained<_>>`）；已弃用的 `CGBitmapInfo::ByteOrderDefault` 换成 `CGBitmapInfo(CGImageByteOrderInfo::OrderDefault.0)`，位模式不变（`0 << 12`）。
+- `osx.rs`：`new_device_rgb`、`NSImage::initWithCGImage_size`、`NSPasteboard::{clearContents, pasteboardItems, writeObjects}`、`NSPasteboardItem::stringForType`、`NSURL::{path, fileURLWithPath}` 及 `ns_string!` 常量版 `setString_forType` 在锁定版本中已是安全函数，去掉这些 `unsafe` 块。仍需 unsafe 的调用一律保留：访问 `NSPasteboardType*` 全局静态、`dataForType`、`as_bytes_unchecked`、`msg_send!`。
+- `osx.rs` / `wayland.rs`：`image::io::Reader` 改为 `image::ImageReader`，与 X11 侧一致。
+
+`wayland.rs` 在非默认 feature `wayland-data-control` 之后，Linux 门禁编译不到它；此处与 macOS 一并修正，避免启用该 feature 时再次变红。升级 objc2 / image 时须重新核对本节，安全性判断随绑定版本变化。
 
 ## 可维护测试门禁
 

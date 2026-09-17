@@ -189,7 +189,7 @@ impl Clipboard {
 		use std::io::Cursor;
 
 		handle_clipboard_read(selection, paste::MimeType::Specific(MIME_PNG), |buffer| {
-			let image = image::io::Reader::new(Cursor::new(buffer))
+			let image = image::ImageReader::new(Cursor::new(buffer))
 				.with_guessed_format()
 				.map_err(|_| Error::ConversionFailure)?
 				.decode()
