@@ -92,6 +92,9 @@ jobs:
       - name: GNOME extension check
         run: ./scripts/check-gnome-extension.sh
 
+      - name: Frontend HTML and Tauri boundaries
+        run: node scripts/check-html-sinks.mjs
+
       - name: Frontend tests
         working-directory: src
         run: npx vitest run

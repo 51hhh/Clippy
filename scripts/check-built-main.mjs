@@ -14,7 +14,7 @@ const dom = new JSDOM(readFileSync(resolve(output, "index.html"), "utf8"), {
   url: "https://clippy-build.test/", pretendToBeVisual: true,
 });
 const { window } = dom;
-for (const key of ["window", "document", "navigator", "MutationObserver", "HTMLElement", "Element", "Node", "CustomEvent", "Image", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame"]) {
+for (const key of ["window", "document", "navigator", "MutationObserver", "HTMLElement", "Element", "Node", "CustomEvent", "Image", "DOMParser", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame"]) {
   Object.defineProperty(globalThis, key, { configurable: true, value: key === "window" ? window : window[key] });
 }
 window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });

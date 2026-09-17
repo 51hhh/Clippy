@@ -28,8 +28,9 @@ cd src && npx tsc --noEmit                 # React/TS 功能岛类型检查
 | 快捷键 | X11: tauri-plugin-global-shortcut; Wayland: XDG Portal (ashpd) |
 
 ## 关键约定
-- **前端 XSS 防护**：所有用户内容用 `textContent`，禁止 `innerHTML`
-- **IPC 封装**：只有 `api.ts` 直接访问 `window.__TAURI__`
+- **前端 XSS 防护**：用户纯文本用 `textContent`；富文本 `innerHTML` 仅限
+  `scripts/check-html-sinks.mjs` 登记且经 DOMPurify 清洗的渲染点
+- **IPC 封装**：只有 `api.ts` 可导入 `@tauri-apps/*` 或直接访问 `window.__TAURI__`
 - **语言**：代码注释 / commit 中文，前端 UI 英文
 - **构建目标**：Linux x64（deb、AppImage）、Windows x64（NSIS、MSI）、macOS Intel/Apple Silicon（DMG、updater bundle）
 - **编码规范**：见项目 Wiki 的「后端编码规范」与「前端编码规范」
