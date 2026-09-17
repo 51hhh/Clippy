@@ -11,7 +11,7 @@ Clippy 是跨平台轻量剪贴板管理器。技术栈：Tauri v2 + Rust（后�
 cargo tauri dev                            # 热重载开发（前端 + Rust）
 cd src-tauri && cargo check                # 快速编译检查
 cd src-tauri && cargo test                 # Rust 单元测试
-cd src-tauri && cargo clippy -- -D warnings # Lint（警告即错误）
+cd src-tauri && cargo clippy --all-targets -- -D warnings # Lint（警告即错误）
 cd src-tauri && cargo fmt                  # 格式化
 cd src && npx vitest run                   # 前端测试（jsdom）
 cd src && npx tsc --noEmit                 # React/TS 功能岛类型检查
@@ -88,8 +88,11 @@ release: v0.1.16
    `Native Check (windows-latest)`、`Native Check (macos-latest)` 在**同一个 SHA** 上均为 success
 3. **用户可见的变更必须写入 `CHANGELOG.md`**，并写清未验证的边界
 4. **新功能先写清 Goal / Requirements / Acceptance Criteria / Out of Scope**，
-   再动代码；验收项必须在代码或测试中有对应体现
+   再动代码；需求必须有稳定的 GitHub issue、Wiki 页面或仓库文档 ID，PR 和用户可见 CHANGELOG
+   引用同一 ID；验收项必须在代码或测试中有对应体现
 5. **未完成项一律保留**，不写成全部完成；平台矩阵与安装包构建不计入测试通过数
+6. **验证证据分层记录**：本地完整门禁、可选交叉检查、同一 SHA 原生 CI、Native/人工 QA
+   不能互相替代；跳过项不计为通过
 
 ## 功能开发流程
 

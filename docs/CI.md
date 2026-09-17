@@ -10,6 +10,18 @@
 | Native QA Packages | `.github/workflows/native-qa.yml` | 手动触发 | 四架构 QA 包与 Ubuntu 24 运行证据 |
 | Release  | `.github/workflows/release.yml` | push `v*.*.*` 标签 | 构建四个 updater 目标 + 发布 |
 
+### 四层验证证据
+
+| 层级 | 入口 | 覆盖 | 明确不覆盖 |
+|---|---|---|---|
+| 本地完整门禁 | `./scripts/ci-local.sh` | 当前宿主 Rust/前端、合同门禁、DOM/像素 smoke、生产构建 | 非宿主 `cfg` 分支和真实目标桌面 |
+| 可选交叉检查 | `CLIPPY_CROSS_CHECK=1 ./scripts/ci-local.sh` | 工具链可达的非宿主编译期问题 | 目标平台测试、原生 API 运行和桌面行为 |
+| 同 SHA 原生 CI | `.github/workflows/build.yml` | Ubuntu、Windows、macOS 原生 check/clippy/test | 安装包、签名信任、权限和混合 DPI |
+| Native/人工 QA | `.github/workflows/native-qa.yml` + [`native-qa.md`](native-qa.md) | QA 包、运行 smoke 和真实桌面场景 | 单元测试与静态合同门禁 |
+
+这些证据不能互相替代，跳过项不计为通过。PR 先记录本地门禁，再核对同一个 40 位 SHA 的三项原生
+CI；只有真实安装包和桌面交互可以关闭 Native/人工 QA 项。
+
 ## CI Check（build.yml）
 
 ### 触发条件
@@ -87,11 +99,20 @@ Native QA 之后的权限、焦点、输入注入、混合 DPI、Spaces 和 Wayl
 ### 本地复现
 
 ```bash
+# 完整本地门禁（推荐）
+./scripts/ci-local.sh
+
+# 可选：已安装对应目标/工具链时增加交叉 lint；不能替代原生 runner
+CLIPPY_CROSS_CHECK=1 ./scripts/ci-local.sh
+
+# 可选：对已构建 AppImage 增加 X11 可视 smoke
+CLIPPY_APPIMAGE_SMOKE=1 ./scripts/ci-local.sh
+
 # 格式检查
 cd src-tauri && cargo fmt -- --check
 
 # Lint
-cd src-tauri && cargo clippy -- -D warnings
+cd src-tauri && cargo clippy --all-targets -- -D warnings
 
 # Rust 测试
 cd src-tauri && cargo test
@@ -99,6 +120,10 @@ cd src-tauri && cargo test
 # 前端测试
 cd src && npx vitest run
 ```
+
+`ci-local.sh` 当前还运行 `cargo check --all-targets`、X11 剪贴板隔离协议、GNOME 扩展检查、HTML/Tauri
+边界、IPC 合同、vanilla JS lint、TypeScript、DOM/Canvas/布局 smoke、Vite build 与构建入口检查。
+完整步骤以脚本本身为准；`--quick` 会跳过构建，因此不满足合入前“完整门禁”要求。
 
 ## Release（release.yml）
 
