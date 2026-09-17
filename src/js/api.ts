@@ -808,7 +808,19 @@ function checkedViewerPayload(value: ViewerPayload): ViewerPayload {
 }
 
 /** 查看器 IPC 均携带实际快照和请求身份，不接受旧窗口的晚到回包。 */
-async function viewerInvoke<T>(command: string, request: ViewerRequest, args: Record<string, unknown> = {}): Promise<ViewerReply<T>> {
+const VIEWER_REQUEST_COMMANDS = [
+  "recognize_viewer",
+  "detect_viewer_codes",
+  "translate_viewer",
+  "sample_viewer_color",
+  "copy_viewer_image",
+  "save_viewer_image",
+  "pin_viewer_image",
+  "copy_viewer_text",
+] as const;
+type ViewerRequestCommand = typeof VIEWER_REQUEST_COMMANDS[number];
+
+async function viewerInvoke<T>(command: ViewerRequestCommand, request: ViewerRequest, args: Record<string, unknown> = {}): Promise<ViewerReply<T>> {
   const reply = await invoke<ViewerReply<T>>(command, { request, ...args });
   if (reply?.sessionId !== request.sessionId || reply.snapshotId !== request.snapshotId || reply.requestId !== request.requestId
     || !Object.hasOwn(reply, "value")) throw new Error("viewer.stale_request");
