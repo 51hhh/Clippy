@@ -130,9 +130,10 @@ Rust 后端 (src-tauri/src/)
 - 主界面无框架，纯 HTML/CSS/JS + ES Module `<script type="module">`
 - 截图编辑页是隔离的 React/TS 功能岛（`src/react/capture/`），不反向重写主界面
 - 使用 Vite 作为开发服务器和构建工具（`src/vite.config.mjs`）
-- **只有 `api.ts` 允许直接访问 Tauri IPC**，其他模块通过 typed wrapper 导出函数间接调用
+- 业务模块只从 `api.ts` 公共 facade 导入；只有 `scripts/frontend-api-boundary.mjs` 登记的
+  `api/*.ts` 领域模块允许直接访问 Tauri IPC
 - 所有用户内容通过 React 文本节点或 `textContent` 写入 DOM；富文本只允许 DOMPurify 严格清洗后的 `innerHTML`
-- `scripts/check-html-sinks.mjs` 固定富文本 sink 数量并禁止其他模块导入 `@tauri-apps/*`；
+- `scripts/check-html-sinks.mjs` 固定富文本 sink 数量，并禁止未登记模块导入 `@tauri-apps/*`；
   `tsconfig.js.json` 与 Promise 门禁增量覆盖 `js/preview/`、`js/settings/`
 - HTML 实体解码使用隔离 `DOMParser`，禁止 `Function`/`eval` 动态执行
 - 翻译 API key 只写系统 Secret Service；Wayland restore token 使用单独 0600 文件，不进入 AppConfig

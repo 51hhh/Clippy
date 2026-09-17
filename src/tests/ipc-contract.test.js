@@ -28,7 +28,7 @@ describe("IPC contract gate", () => {
     const input = sources();
     input.apiSource = input.apiSource.replace('"get_clips"', '"get_clipz"');
     expect(validateContract(input)).toContain(
-      "api.ts invoke 指向未注册命令: get_clipz",
+      "前端 API invoke 指向未注册命令: get_clipz",
     );
   });
 
