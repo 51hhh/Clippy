@@ -520,6 +520,19 @@ mod tests {
         assert!(!result.text.is_empty());
         eprintln!("{}", serde_json::to_string(&result).unwrap());
     }
+    /// manifest 合同要求解释器是绝对路径的真实文件，所以从 PATH 解析而不是写死
+    /// `/usr/bin/python3`：那个路径在 macOS 上只是 Command Line Tools 的 shim，不是解释器本体，
+    /// 启动行为与真解释器不同。同目录的 `process_tests` 一直用 PATH 里的 `python3`，在同一个
+    /// macOS runner 上全部通过，因此这里对齐同一约定。
+    #[cfg(unix)]
+    fn path_python3() -> PathBuf {
+        let search = std::env::var_os("PATH").expect("PATH 未设置");
+        std::env::split_paths(&search)
+            .map(|directory| directory.join("python3"))
+            .find(|candidate| candidate.is_absolute() && candidate.is_file())
+            .expect("本测试需要 PATH 中的 python3（与 process_tests 相同的前置条件）")
+    }
+
     #[tokio::test]
     #[cfg(unix)]
     async fn cancelled_after_enhanced_non_timeout_failure_does_not_start_fallback() {
@@ -529,7 +542,8 @@ mod tests {
         std::fs::write(&script,format!("import sys,time\nopen({:?},'w').write('started')\nsys.stdin.buffer.read()\ntime.sleep(.15)\nsys.exit(7)\n",marker)).unwrap();
         let mut manifest: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        manifest["python"] = "/usr/bin/python3".into();
+        let interpreter = path_python3();
+        manifest["python"] = serde_json::to_value(&interpreter).unwrap();
         std::fs::write(&path, serde_json::to_vec(&manifest).unwrap()).unwrap();
         let configuration = load(&path).unwrap();
         let mut output = std::io::Cursor::new(Vec::new());
@@ -543,11 +557,19 @@ mod tests {
             configuration,
             move || signal.load(std::sync::atomic::Ordering::SeqCst),
         ));
-        let deadline = Instant::now() + Duration::from_secs(2);
+        // 这里断言的是"是否启动"而不是"多快启动"：冷解释器在负载中的 runner 上可能超过 2s，
+        // 放宽启动窗口不削弱断言，进程始终没起来照样红。RECOGNITION_TIMEOUT 是 60s，且取消判定
+        // 发生在 enhanced 失败之后，15s 仍在同一预算内。
+        let start_budget = Duration::from_secs(15);
+        let deadline = Instant::now() + start_budget;
         while !marker.exists() && Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
-        assert!(marker.exists(), "增强假进程必须实际启动");
+        // 失败信息带上解释器：headless CI 只留这一行，否则无法区分"解释器起不来"和"启动太慢"。
+        assert!(
+            marker.exists(),
+            "增强假进程必须实际启动（解释器 {interpreter:?}，等待 {start_budget:?} 后标记文件仍不存在）"
+        );
         cancelled.store(true, std::sync::atomic::Ordering::SeqCst);
         assert!(
             job.await.unwrap().unwrap_err().contains("已取消"),
