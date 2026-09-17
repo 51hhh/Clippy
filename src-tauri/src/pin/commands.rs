@@ -580,7 +580,7 @@ pub enum PinCanvasSaveMode {
     Flat,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct PinCanvasSaveResult {
     pub path: String,
@@ -1069,6 +1069,17 @@ fn image_bytes(entry: &PinEntry) -> Result<Vec<u8>, String> {
 mod project_command_tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[test]
+    fn pin_canvas_save_result_matches_the_shared_json_fixture() {
+        let source = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../src/tests/fixtures/ipc-contract/pin-canvas-save-result.json"
+        ));
+        let result: PinCanvasSaveResult = serde_json::from_str(source).unwrap();
+        let fixture: serde_json::Value = serde_json::from_str(source).unwrap();
+        assert_eq!(serde_json::to_value(result).unwrap(), fixture);
+    }
 
     fn clip_entry(content_type: ContentType, text: Option<&str>) -> PinEntry {
         PinEntry {

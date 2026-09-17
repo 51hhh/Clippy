@@ -6,6 +6,17 @@ use crate::pin::commands::{PinCanvasProject, PinCanvasSaveMode};
 use crate::storage::{BoundedImageData, StorageEngine};
 use std::sync::{Arc, Mutex};
 
+#[test]
+fn viewer_handle_matches_the_shared_json_fixture() {
+    let source = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../src/tests/fixtures/ipc-contract/viewer-handle.json"
+    ));
+    let handle: ViewerHandle = serde_json::from_str(source).unwrap();
+    let fixture: serde_json::Value = serde_json::from_str(source).unwrap();
+    assert_eq!(serde_json::to_value(handle).unwrap(), fixture);
+}
+
 fn png() -> Vec<u8> {
     crate::screenshot::encode_png(&[10, 20, 30, 40, 255, 0, 0, 255], 2, 1).unwrap()
 }
