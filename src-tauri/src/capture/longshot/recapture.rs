@@ -9,7 +9,6 @@ use crate::screenshot::CapturedMonitorFrame;
 /// 捕获一次全部显示器，并移出指定显示器的原始帧。
 ///
 /// 入口保持同步，后续 controller 再决定是否把它放进 blocking worker。
-#[allow(dead_code)]
 pub(in crate::capture) fn capture_monitor_frame(
     monitor_id: u32,
 ) -> Result<CapturedMonitorFrame, CaptureError> {

@@ -44,13 +44,12 @@ impl ScreenshotPinCreateError {
     }
 
     /// 原生窗口可能已创建，调用方不得自动重试 Pin。
-    #[allow(dead_code)] // 长截图 Pin 输出将据此决定是否禁止重试。
     pub(crate) fn is_uncertain(&self) -> bool {
         matches!(self, Self::Uncertain { .. })
     }
 
     /// 不确定失败所尝试创建的窗口 label，供诊断和后续保守收敛使用。
-    #[allow(dead_code)] // 长截图 Pin 输出尚未接入此内部合同。
+    #[cfg(test)]
     pub(crate) fn attempted_label(&self) -> Option<&str> {
         match self {
             Self::NotCreated { .. } => None,

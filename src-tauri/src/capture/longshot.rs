@@ -1,7 +1,8 @@
 //! 长截图的确定性垂直像素核心。
 //!
 //! [`VerticalStitcher`] 消费显式重叠行，`overlap` 子模块负责从相邻帧估算该值，
-//! `session` 子模块把两者组合为单所有者事务核心；IPC 和 UI 仍由后续层负责。
+//! `session` 子模块把两者组合为单所有者事务核心；`window_host` 负责控制窗 IPC、
+//! 桌面副作用和输出事务。
 
 use super::CaptureError;
 use crate::pin::PinOrigin;
@@ -17,14 +18,10 @@ mod session;
 pub(crate) mod window_host;
 
 // lifecycle 与控制窗 registry 通过 AppState 保持唯一实例；重导出固定 capture 领域边界。
-#[allow(unused_imports)]
 pub(super) use frame_adapter::LongshotFrameAdapter;
 pub(crate) use lifecycle::LongshotLifecycle;
-#[allow(unused_imports)]
 pub(super) use manager::{LongshotManager, LongshotSessionToken, LongshotStart};
-#[allow(unused_imports)]
 pub(super) use recapture::capture_monitor_frame;
-#[allow(unused_imports)]
 pub(super) use session::{LongshotAppendOutcome, LongshotSession, LongshotSnapshot};
 pub(crate) use window_host::{
     handle_controller_destroyed, LongshotActivation, LongshotControllerHandle,
