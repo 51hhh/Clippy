@@ -48,6 +48,7 @@ export function currentLocale() {
 /** 扫描所有 [data-i18n] 元素并替换文本或属性。 */
 export function applyToDOM() {
   document.querySelectorAll("[data-i18n]").forEach((element) => {
+    if (!(element instanceof HTMLElement)) return;
     const key = element.dataset.i18n;
     const attribute = element.dataset.i18nAttr;
     const translated = t(key);

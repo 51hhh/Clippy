@@ -21,7 +21,7 @@ export function createCodeRenderers({ contentEl, badgeEl, getLibraries }) {
     contentEl.append(pre, note);
   }
 
-  function renderCode(text, result) {
+  function renderCode(_text, result) {
     badgeEl.textContent = result.language.toUpperCase();
     contentEl.classList.add("preview-content--code");
     const pre = document.createElement("pre");

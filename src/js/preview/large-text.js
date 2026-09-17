@@ -59,8 +59,10 @@ export function limitForRender(text) {
  * 不能先 JSON.stringify(..., null, 2) 再切片：短而深的 JSON 会先膨胀成巨大字符串。
  */
 export function formatJsonWithinBudget(value, budget = MAX_RENDER_CHARS) {
+  /** @type {string[]} */
   const chunks = [];
   let length = 0;
+  /** @type {Array<string | { value: any, depth: number }>} */
   const stack = [{ value, depth: 0 }];
   while (stack.length) {
     const item = stack.pop();

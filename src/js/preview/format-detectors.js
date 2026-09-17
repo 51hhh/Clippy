@@ -76,6 +76,7 @@ export function dataSizeInfo(text) {
   const unit = m[2].toLowerCase();
   const bytes = value * (_SIZE_TO_BYTES[unit] || 1);
   const conversions = [];
+  /** @type {Array<[string, number]>} */
   const units = [
     ["B", 1], ["KB", 1e3], ["KiB", 1024],
     ["MB", 1e6], ["MiB", 1048576],

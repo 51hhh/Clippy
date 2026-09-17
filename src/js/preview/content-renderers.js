@@ -310,7 +310,9 @@ export function createContentRenderers({
             return;
           }
           // 原有自动复制模式仍生效，同时保留可读的识别正文与显式 Copy。
-          const config = await services.getConfig().catch(() => ({}));
+          const config = /** @type {Partial<import('../ipc-types.ts').AppConfig>} */ (
+            await services.getConfig().catch(() => ({}))
+          );
           if (!isCurrent()) return;
           recognizedText = text;
           showOcr("done", text);
@@ -330,7 +332,9 @@ export function createContentRenderers({
       };
       retryButton.addEventListener("click", () => void runOcr());
       showOcr("loading", t("action.ocrProcessing"));
-      const config = await services.getConfig().catch(() => ({}));
+      const config = /** @type {Partial<import('../ipc-types.ts').AppConfig>} */ (
+        await services.getConfig().catch(() => ({}))
+      );
       if (!isCurrent()) return;
       if (config.ocr_enabled === false) {
         showOcr("disabled", t("preview.ocrDisabled"));

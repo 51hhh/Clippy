@@ -46,7 +46,8 @@ export function revealImageTranslation(panel, view = imageTranslationView) {
   const container = view.getSnapshot()?.container;
   if (!container || !panel?.contains(container) || !view.show()) return false;
   const area = container.closest(".preview-ocr-result");
-  area?.querySelector(".preview-ocr-back")?.focus({ preventScroll: true });
+  const backButton = area?.querySelector(".preview-ocr-back");
+  if (backButton instanceof HTMLElement) backButton.focus({ preventScroll: true });
   const scroll = panel.querySelector(".preview-scroll");
   if (scroll && area) {
     // 仅调整侧栏的外层滚动，不滚动宿主页面，也不为正文创建内层滚动容器。

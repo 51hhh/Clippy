@@ -96,6 +96,10 @@ jobs:
         working-directory: src
         run: npx vitest run
 
+      - name: Vanilla JS static check
+        working-directory: src
+        run: npm run lint:js
+
       - name: DOM/Xvfb smoke
         run: ./scripts/smoke-dom.sh
 
