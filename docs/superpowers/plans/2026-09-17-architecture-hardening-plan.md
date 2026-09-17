@@ -64,7 +64,7 @@
 | 4 | 已由 PR #6 合入 `dev` | merge `0087949` | 15 通过、0 失败、2 跳过 |
 | 5 | 已由 PR #5 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `f1dfd35` / CI `35198689455` | 17 通过、0 失败、2 跳过 |
 | 6 | 已由 PR #7 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `d5fab06` / CI `35201877133` | 17 通过、0 失败、2 跳过 |
-| 7A | 前端 API facade 本地拆分完成，待提交与原生 CI | `codex/api-domain-facade` | 17 通过、0 失败、2 跳过 |
+| 7A | 前端 API facade 本地拆分完成，待原生 CI | `codex/api-domain-facade` / `5425061` | 17 通过、0 失败、2 跳过 |
 
 Phase 4 选择轻量 parity gate 与三个共享 JSON fixture，没有引入代码生成依赖；完整绑定生成可在
 Phase 7 拆分 API facade 时重新评估。Phase 5 的静态类型范围先固定为 `js/preview/` 与
