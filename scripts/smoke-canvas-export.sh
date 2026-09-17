@@ -68,34 +68,61 @@ for _ in {1..50}; do
   sleep 0.1
 done
 
-# 用 --profile 而不是改 HOME 来隔离：snap 版 firefox 的启动脚本会把 HOME 重设成
-# snap 自己的家目录，HOME="$PROFILE_DIR" 其实没隔离到任何东西，于是这里会去抢用户
-# 正在用的那个 profile 的锁，报 "Firefox is already running" 后退出 0 且不落盘截图。
-# --profile 明确指定目录才真正独立，开着浏览器也能跑（目录须在 $HOME 内，snap 读不到 /tmp）。
-timeout 20 "$FIREFOX" --headless --profile "$PROFILE_DIR" \
-  --window-size 320,240 --screenshot "$SCREENSHOT" \
-  "http://127.0.0.1:${PORT}/tests/fixtures/canvas-export-smoke.html" \
-  >"$FIREFOX_LOG" 2>&1 || {
-  printf 'Canvas export smoke failed: Firefox failed; artifacts: %s\n' "$ARTIFACT_DIR" >&2
-  exit 1
-}
-
-[[ -s "$SCREENSHOT" ]] || {
-  printf 'Canvas export smoke failed: screenshot is missing; artifacts: %s\n' "$ARTIFACT_DIR" >&2
-  exit 1
-}
-if [[ -n "$FFMPEG" ]]; then
-  PIXEL="$($FFMPEG -v error -i "$SCREENSHOT" -vf 'crop=1:1:160:120,format=rgb24' -f rawvideo - 2>/dev/null | od -An -tu1 -N3)"
-else
-  PIXEL="$("$PYTHON_PIL" -c '
+read_pixel() {
+  if [[ -n "$FFMPEG" ]]; then
+    $FFMPEG -v error -i "$1" -vf 'crop=1:1:160:120,format=rgb24' -f rawvideo - 2>/dev/null | od -An -tu1 -N3
+  else
+    "$PYTHON_PIL" -c '
 import sys
 from PIL import Image
 print(" ".join(str(value) for value in Image.open(sys.argv[1]).convert("RGB").getpixel((160, 120))))
-' "$SCREENSHOT")"
+' "$1"
+  fi
+}
+
+# fixture 的中性底色 #808080（128,128,128）只表示"还没跑完"：模块没加载或首帧还没画出结论。
+# 判定失败会画红色 #d00000，所以只对中性灰重试不会掩盖真实断言失败。首次访问要付 Vite 冷转换
+# 的代价，重试同时也起预热作用。
+is_neutral() {
+  (( $1 >= 120 && $1 <= 136 && $2 >= 120 && $2 <= 136 && $3 >= 120 && $3 <= 136 ))
+}
+
+ATTEMPTS=3
+PIXEL=""
+RED=0
+GREEN=0
+BLUE=0
+for _ in $(seq 1 "$ATTEMPTS"); do
+  # 用 --profile 而不是改 HOME 来隔离：snap 版 firefox 的启动脚本会把 HOME 重设成
+  # snap 自己的家目录，HOME="$PROFILE_DIR" 其实没隔离到任何东西，于是这里会去抢用户
+  # 正在用的那个 profile 的锁，报 "Firefox is already running" 后退出 0 且不落盘截图。
+  # --profile 明确指定目录才真正独立，开着浏览器也能跑（目录须在 $HOME 内，snap 读不到 /tmp）。
+  timeout 20 "$FIREFOX" --headless --profile "$PROFILE_DIR" \
+    --window-size 320,240 --screenshot "$SCREENSHOT" \
+    "http://127.0.0.1:${PORT}/tests/fixtures/canvas-export-smoke.html" \
+    >"$FIREFOX_LOG" 2>&1 || {
+    printf 'Canvas export smoke failed: Firefox failed; artifacts: %s\n' "$ARTIFACT_DIR" >&2
+    exit 1
+  }
+
+  [[ -s "$SCREENSHOT" ]] || {
+    printf 'Canvas export smoke failed: screenshot is missing; artifacts: %s\n' "$ARTIFACT_DIR" >&2
+    exit 1
+  }
+
+  PIXEL="$(read_pixel "$SCREENSHOT")"
+  read -r RED GREEN BLUE <<<"$PIXEL"
+  is_neutral "$RED" "$GREEN" "$BLUE" || break
+done
+
+# 三态分开报：未执行完 / 断言失败 / 通过。混报会把冷启动竞态误诊成导出像素回归。
+if is_neutral "$RED" "$GREEN" "$BLUE"; then
+  printf 'Canvas export smoke failed: fixture did not finish after %s attempts (neutral background %s; module failed to load); artifacts: %s\n' \
+    "$ATTEMPTS" "$PIXEL" "$ARTIFACT_DIR" >&2
+  exit 1
 fi
-read -r RED GREEN BLUE <<<"$PIXEL"
 if (( GREEN < 180 || RED > 40 || BLUE > 40 )); then
-  printf 'Canvas export smoke failed: browser pixel check failed (%s); artifacts: %s\n' "$PIXEL" "$ARTIFACT_DIR" >&2
+  printf 'Canvas export smoke failed: export pixel assertions failed (%s); artifacts: %s\n' "$PIXEL" "$ARTIFACT_DIR" >&2
   exit 1
 fi
 

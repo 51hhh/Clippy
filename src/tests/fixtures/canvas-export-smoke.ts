@@ -358,6 +358,19 @@ function verifyRecoverableOutputLayout(): void {
   wrapper.remove();
 }
 
+/**
+ * 结论画在独立浮层上而不是改 body 背景：断言失败时上面那个 320×240 的 overlay-root 还挂在
+ * body 上，它自己的背景会盖住取样点，读到的就不是结论。失败原因也写进浮层：headless 截图
+ * 模式读不到 console，截图本身就是唯一的诊断信息。
+ */
+function paint(color: string, reason?: string): void {
+  const verdict = document.createElement("div");
+  verdict.style.cssText = `position: fixed; inset: 0; z-index: 99999; background: ${color};`
+    + "color: #000; font: 13px/1.4 monospace; padding: 8px; white-space: pre-wrap;";
+  if (reason) verdict.textContent = reason;
+  document.body.append(verdict);
+}
+
 try {
   const source = createSource();
   verifyCropAdjustmentsAndRoundedMask(source);
@@ -368,9 +381,10 @@ try {
   verifyRoundedSelectionPreview();
   verifyRecoverableOutputLayout();
   document.documentElement.dataset.canvasExport = "passed";
-  document.body.style.background = "#00d000";
+  paint("#00d000");
 } catch (error) {
   document.documentElement.dataset.canvasExport = "failed";
   document.body.title = String(error);
   console.error(String(error));
+  paint("#d00000", String(error));
 }

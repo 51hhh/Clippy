@@ -81,7 +81,9 @@ release: v0.1.16
 变更记录必须与代码实际状态同步：
 
 1. **一个分支做一件事**，分支名反映改动范围，不把无关改动混入同一分支
-2. **合入 dev 前必须通过 `./scripts/ci-local.sh`**，跳过的步骤不计为通过
+2. **合入 dev 前必须通过 `./scripts/ci-local.sh`**，跳过的步骤不计为通过。该脚本只验证当前宿主平台，
+   Windows / macOS 的条件编译代码不在本机编译图内；发布前须确认 `Check (ubuntu-22.04)`、
+   `Native Check (windows-latest)`、`Native Check (macos-latest)` 在**同一个 SHA** 上均为 success
 3. **用户可见的变更必须写入 `CHANGELOG.md`**，并写清未验证的边界
 4. **新功能先写清 Goal / Requirements / Acceptance Criteria / Out of Scope**，
    再动代码；验收项必须在代码或测试中有对应体现
