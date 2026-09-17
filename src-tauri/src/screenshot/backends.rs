@@ -74,7 +74,7 @@ impl Drop for TemporaryScreenshotFile {
 /// 6. **xcap/XRandR**——X11 会话的正路，Wayland 下只能看到 XWayland。
 #[cfg(target_os = "linux")]
 pub(super) fn capture_all_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
-    if is_wayland_session() {
+    if crate::platform::is_wayland() {
         match capture_all_screencast_monitors() {
             Ok(result) => return Ok(result),
             Err(e) => log::info!("Mutter PipeWire 取流不可用，回退到扩展逐屏截图: {e:#}"),
@@ -1277,14 +1277,6 @@ fn wayland_connection() -> Result<libwayshot_xcap::WayshotConnection> {
         .context("无法连接 Wayland compositor")
 }
 
-#[cfg(target_os = "linux")]
-fn is_wayland_session() -> bool {
-    std::env::var("XDG_SESSION_TYPE")
-        .map(|session| session.eq_ignore_ascii_case("wayland"))
-        .unwrap_or(false)
-        || std::env::var_os("WAYLAND_DISPLAY").is_some()
-}
-
 #[cfg(any(test, target_os = "linux"))]
 pub(super) fn portal_screenshot_uri_to_path(uri: &str) -> Result<std::path::PathBuf> {
     let rest = uri
@@ -1376,7 +1368,7 @@ mod backend_diagnostics {
             std::env::var("XDG_SESSION_TYPE").ok(),
             std::env::var("WAYLAND_DISPLAY").ok(),
             std::env::var("DISPLAY").ok(),
-            is_wayland_session(),
+            crate::platform::is_wayland(),
         );
         describe(
             "clippy shell extension（逐屏原生）",
