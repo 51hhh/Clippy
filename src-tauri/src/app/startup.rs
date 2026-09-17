@@ -32,7 +32,11 @@ pub(crate) fn guard_dev_autostart(_app: &tauri::App) {
     log::debug!("当前平台无法精确确认自启动项归属，保留现有启动项");
 }
 
-#[cfg(any(test, target_os = "linux"))]
+// `.desktop` 自启动项是 XDG/Linux 专有语义，不是所有 Unix 的共同约定，因此连测试一起限定
+// 到 linux：这里的路径归属判定依赖 POSIX 绝对路径，`Path::is_absolute()` 在 Windows 上对
+// `/workspace/...` 返回 false（只有 has_root() 为真），跨平台跑这套断言得到的是平台差异而
+// 不是逻辑回归。
+#[cfg(target_os = "linux")]
 fn cleanup_dev_autostart(
     path: &std::path::Path,
     executable: &std::path::Path,
@@ -55,7 +59,7 @@ fn cleanup_dev_autostart(
     Ok(true)
 }
 
-#[cfg(any(test, target_os = "linux"))]
+#[cfg(target_os = "linux")]
 fn desktop_exec_path(content: &str) -> Option<std::path::PathBuf> {
     let mut in_entry = false;
     let mut found_entry = false;
@@ -196,7 +200,7 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod autostart_ownership_tests {
     use super::*;
     use std::cell::Cell;
@@ -258,7 +262,6 @@ mod autostart_ownership_tests {
         }
     }
 
-    #[cfg(unix)]
     #[test]
     fn never_follows_a_symlink_to_an_autostart_entry() {
         let directory = tempfile::tempdir().unwrap();
