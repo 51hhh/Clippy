@@ -577,13 +577,18 @@ function _toggleFavorite() {
 function _syncFavoriteButton() {
   if (!_favoriteBtn) return;
   const favorite = _isFavorite(_select?.value);
-  // icons.js 是硬编码 SVG，不含用户输入
-  _favoriteBtn.innerHTML = favorite ? icons.starFill : icons.star;
+  _favoriteBtn.replaceChildren(_parseStaticSvg(favorite ? icons.starFill : icons.star));
   _favoriteBtn.classList.toggle("is-favorite", favorite);
   _favoriteBtn.setAttribute("aria-pressed", String(favorite));
   const label = t(favorite ? "codec.action.unfavorite" : "codec.action.favorite");
   _favoriteBtn.title = label;
   _favoriteBtn.setAttribute("aria-label", label);
+}
+
+/** SVG 字符串均来自本地 icons.js，不接收剪贴板或其他用户输入。 */
+function _parseStaticSvg(markup) {
+  const parsed = new DOMParser().parseFromString(markup, "image/svg+xml");
+  return document.importNode(parsed.documentElement, true);
 }
 
 function _renderFavorites() {

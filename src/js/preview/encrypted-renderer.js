@@ -117,7 +117,7 @@ export function createEncryptedRenderer({ contentEl, badgeEl }) {
           decrypted = await decryptGeneric(text, keyInput.value, ivInput?.value || "", algoSelect.value);
         }
         resultArea.hidden = false;
-        resultArea.innerHTML = "";
+        resultArea.replaceChildren();
         const label = document.createElement("div");
         label.className = "encoded-label";
         label.textContent = t("preview.decrypted") || "Decrypted";
@@ -127,7 +127,7 @@ export function createEncryptedRenderer({ contentEl, badgeEl }) {
         resultArea.append(label, box);
       } catch (err) {
         resultArea.hidden = false;
-        resultArea.innerHTML = "";
+        resultArea.replaceChildren();
         const errEl = document.createElement("div");
         errEl.className = "decrypt-error";
         errEl.textContent = `❌ ${err.message || err}`;

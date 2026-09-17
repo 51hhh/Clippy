@@ -134,10 +134,12 @@ fi
 
 # --- GNOME Shell 扩展 ---
 run_step "GNOME 扩展静态检查" ./scripts/check-gnome-extension.sh
+run_step "前端 HTML 与 Tauri 边界" node scripts/check-html-sinks.mjs
 run_step "IPC 合同一致性" node scripts/check-ipc-contract.mjs
 
 # --- Frontend ---
 run_step "npm ci" bash -c "cd src && npm ci --prefer-offline"
+run_step "vanilla JS 静态检查" bash -c "cd src && npm run lint:js"
 run_step "typecheck" bash -c "cd src && npx tsc --noEmit"
 run_step "vitest" bash -c "cd src && npx vitest run"
 run_step "DOM/Xvfb smoke" ./scripts/smoke-dom.sh

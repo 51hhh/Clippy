@@ -92,12 +92,19 @@ jobs:
       - name: GNOME extension check
         run: ./scripts/check-gnome-extension.sh
 
+      - name: Frontend HTML and Tauri boundaries
+        run: node scripts/check-html-sinks.mjs
+
       - name: IPC contract check
         run: node scripts/check-ipc-contract.mjs
 
       - name: Frontend tests
         working-directory: src
         run: npx vitest run
+
+      - name: Vanilla JS static check
+        working-directory: src
+        run: npm run lint:js
 
       - name: DOM/Xvfb smoke
         run: ./scripts/smoke-dom.sh
