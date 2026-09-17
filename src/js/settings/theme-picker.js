@@ -26,6 +26,14 @@ function appendPreviewRow(document, preview, { active = false, accent = false, s
 }
 
 /** 创建主题选择器并让模块独占其 DOM 与临时选择状态。 */
+/**
+ * @param {{
+ *   container: HTMLElement,
+ *   translate: (key: string, params?: Record<string, string | number>) => string,
+ *   persistTheme: (theme: string) => Promise<unknown>,
+ *   notify?: (message: string) => void,
+ * }} options
+ */
 export function createThemePicker({ container, translate, persistTheme, notify = () => {} }) {
   const document = container.ownerDocument;
   let selectedTheme = "light";
@@ -38,6 +46,7 @@ export function createThemePicker({ container, translate, persistTheme, notify =
 
   function updateSelection() {
     for (const card of container.querySelectorAll(".theme-card")) {
+      if (!(card instanceof HTMLElement)) continue;
       const selected = card.dataset.theme === selectedTheme;
       card.classList.toggle("selected", selected);
       card.setAttribute("aria-checked", String(selected));

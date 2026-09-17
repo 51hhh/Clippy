@@ -136,6 +136,7 @@ run_step "GNOME 扩展静态检查" ./scripts/check-gnome-extension.sh
 
 # --- Frontend ---
 run_step "npm ci" bash -c "cd src && npm ci --prefer-offline"
+run_step "vanilla JS 静态检查" bash -c "cd src && npm run lint:js"
 run_step "typecheck" bash -c "cd src && npx tsc --noEmit"
 run_step "vitest" bash -c "cd src && npx vitest run"
 run_step "DOM/Xvfb smoke" ./scripts/smoke-dom.sh

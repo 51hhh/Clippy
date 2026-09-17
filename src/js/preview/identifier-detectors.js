@@ -188,7 +188,7 @@ export function isDateString(text) {
 export function dateInfo(text) {
   const d = new Date(text);
   const now = new Date();
-  const diff = d - now;
+  const diff = d.getTime() - now.getTime();
   const absDiff = Math.abs(diff);
   let relative;
   if (absDiff < 60_000) relative = "just now";

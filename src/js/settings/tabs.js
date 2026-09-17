@@ -25,12 +25,13 @@ function writeStoredTab(key) {
   }
 }
 
+/** @param {Document | HTMLElement} root */
 export function initSettingsTabs(root = document) {
-  const tablist = root.querySelector("#settings-tabs");
+  const tablist = /** @type {HTMLElement | null} */ (root.querySelector("#settings-tabs"));
   if (!tablist) return null;
-  const tabs = [...tablist.querySelectorAll("[data-settings-tab]")];
+  const tabs = /** @type {HTMLElement[]} */ ([...tablist.querySelectorAll("[data-settings-tab]")]);
   const panels = new Map(
-    [...root.querySelectorAll("[data-settings-panel]")].map((panel) => [
+    /** @type {HTMLElement[]} */ ([...root.querySelectorAll("[data-settings-panel]")]).map((panel) => [
       panel.dataset.settingsPanel,
       panel,
     ]),
@@ -61,6 +62,7 @@ export function initSettingsTabs(root = document) {
   tabs.forEach((tab, index) => {
     tab.addEventListener("click", () => activate(tab.dataset.settingsTab));
     tab.addEventListener("keydown", (event) => {
+      if (!(event instanceof KeyboardEvent)) return;
       switch (event.key) {
         case "ArrowLeft":
         case "ArrowUp":
