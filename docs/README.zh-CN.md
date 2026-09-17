@@ -126,6 +126,10 @@ cargo tauri build
 
 当前模块所有权、截图/Pin/翻译流程和平台边界见 [architecture.md](architecture.md)。
 
+2026-09-17 的完整结构、平台分支与约束审阅见
+[结构与平台边界审阅](reviews/2026-09-17-architecture-platform-review.md)，对应的分阶段整改任务见
+[架构与平台约束整改计划](superpowers/plans/2026-09-17-architecture-hardening-plan.md)。
+
 参考项目（Flashot/Translator）的截图、翻译和授权设计取舍见 [reference-project-guidance.md](reference-project-guidance.md)。
 
 ```mermaid
