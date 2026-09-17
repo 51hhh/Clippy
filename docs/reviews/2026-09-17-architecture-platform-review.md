@@ -53,10 +53,17 @@
   迁移和本地门禁覆盖范围说明；其 CI `35179825379` 中 Ubuntu、Windows 成功，macOS 的
   `ocr::enhanced::tests::cancelled_after_enhanced_non_timeout_failure_does_not_start_fallback` 失败；
 - `80889e3` 进一步将该测试从固定 `/usr/bin/python3` 改为 PATH 解析出的真实解释器，并把冷启动
-  等待从 2 秒改为 15 秒；审阅记录更新时，新 CI `35180661672` 仍在执行：
-  <https://github.com/51hhh/Clippy/actions/runs/35180661672>。
+  等待从 2 秒改为 15 秒；其 CI `35180661672` 已完成，Ubuntu、Windows、macOS 三个 job 均为
+  success：<https://github.com/51hhh/Clippy/actions/runs/35180661672>。
 
-远程 CI 完成后应补充最终结果；在 Ubuntu、Windows、macOS 三个 job 同时成功前，不把平台阻塞项标记为关闭。
+`80889e3` 是本轮第一个三平台同 SHA 全绿的基线，`scripts/verify-native-ci.mjs` 对该 SHA 输出
+`Result: PASS`（证据文件按仓库惯例只留在本地工作区，不随仓库分发）。
+
+同一 SHA 的 `Native QA Packages` run `35181379112` 也已全部成功，产出 Linux x64、Windows x64、
+macOS Intel、macOS Apple-Silicon 四套 QA 安装包与记录模板，并通过 Ubuntu 24.04 X11 Runtime Smoke。
+
+三平台 CI 成功只证明平台条件编译、原生 API 与单元测试成立。桌面权限、焦点恢复、输入注入、
+混合 DPI 和签名信任链都不在其覆盖范围内，真机矩阵尚未执行，因此这不构成发布结论。
 
 ## 核心调用链
 
@@ -100,17 +107,22 @@ flowchart LR
 
 ## 发现与证据
 
-### P0：最新三平台门禁尚未闭环
+### P0：三平台门禁已闭环，但 vendor patch 的跨平台归属是长期风险
 
 `src-tauri/Cargo.toml` 的 `[patch.crates-io]` 无条件替换 `arboard`。补丁动机是 Linux X11
 完成屏障和有界 INCR 传输，但替换后的 macOS、Windows、Wayland 源码也由本项目负责维护。
 
-已知两个原生失败已有本地修复：
+三个原生失败已在 `80889e3` 上由真实 runner 证明修复：
 
 - Linux `.desktop` 自启动解析与测试只在 `target_os = "linux"` 编译；
-- vendored arboard 的 macOS CoreGraphics 和 `image::ImageReader` 弃用 API 已迁移。
+- vendored arboard 的 macOS CoreGraphics 和 `image::ImageReader` 弃用 API 已迁移；
+- OCR 取消测试改用 PATH 解析出的解释器。macOS 的 `/usr/bin/python3` 只是 Command Line Tools
+  的 shim，`is_file()` 能通过所以配置校验不报错，失败点落在子进程启动标记上。这个失败此前一直
+  被 macOS Clippy 失败挡在后面，直到编译恢复才第一次暴露。
 
-这些改动必须由真实 Windows/macOS runner 重新证明，Linux `--all-targets` 仍不会编译其他操作系统分支。
+门禁闭环不等于风险消失。Linux `--all-targets` 不编译其他操作系统分支，所以 vendor 目录里
+macOS / Windows / Wayland 源码的每次改动仍然只能由远程 runner 判定；`wayland.rs` 更位于非默认
+feature `wayland-data-control` 之后，连 Linux 门禁都编译不到它。
 
 ### P1：长截图生产状态与注释/lint 合同矛盾
 
@@ -196,8 +208,8 @@ IPC/UI 未接入；同一模块已经注册完整的打开、激活、ready、ap
 | Linux X11 | xcap/XRandR、X11 自动粘贴、私有 Xvfb INCR 测试 | 分支清晰，本地证据强 | AppImage 真机可视 smoke 未启用 |
 | GNOME Wayland | Mutter PipeWire → GNOME 扩展 → wlroots → Portal →旧 GNOME API → xcap | fallback 顺序和失败语义清楚 | 会话判断没有统一走 platform |
 | 其他 Wayland | wlroots / Portal、RemoteDesktop Portal 粘贴 | 能力降级明确 | compositor 真实矩阵仍依赖人工 QA |
-| Windows | xcap、SendInput、Windows ACL/API | cfg 与依赖切分合理；`4fba021` native check 已成功 | 仍需和最终发布 SHA 同批验证 |
-| macOS | Screen Recording/Accessibility 权限、xcap、Quartz/AppKit | 编译与 Clippy 已恢复；OCR 取消测试另有修复 | `80889e3` 尚待 native runner |
+| Windows | xcap、SendInput、Windows ACL/API | cfg 与依赖切分合理；`80889e3` native check 成功 | 桌面权限、输入注入、混合 DPI 仍只能靠真机 QA |
+| macOS | Screen Recording/Accessibility 权限、xcap、Quartz/AppKit | `80889e3` 编译、Clippy 与全部单元测试成功 | 权限授权流程、Gatekeeper/公证信任链未验证 |
 | 其他系统 | CopyOnly / Unsupported | 不伪装成完整支持 | 不在正式构建目标内 |
 
 ## 已有的强约束
@@ -209,16 +221,21 @@ IPC/UI 未接入；同一模块已经注册完整的打开、激活、ready、ap
 - 图片、PNG、OCR 文本、代码扫描和输出均有尺寸/数量预算；
 - 平台依赖大部分放在 target-specific Cargo section；
 - Linux、Windows、macOS 使用真实原生 runner，而不是只做交叉编译；
+- `dev` / `main` 由 ruleset `23578066` 保护：三个原生 job 为 required checks，禁止强推、禁止删除，
+  且不设 bypass actor（例外必须显式改动 ruleset，属于可审计动作）；
 - 富文本生产 sink 使用 DOMPurify，普通用户文本使用文本节点或 `textContent`。
 
 ## 仍需建立的约束
 
-1. `dev/main` 必须由同一 SHA 的三平台 required checks 保护；
-2. 产品平台决策只允许从 `platform` 获取；
-3. 所有非主窗口使用显式业务命令 allowlist；
-4. command 注册、前端 wrapper、错误码和 serde 合同进入 CI；
-5. vanilla JS 进入静态检查，并固定允许的 HTML sink；
-6. 架构文档保存短调用链、所有权和验证边界，深度实现说明下沉到领域文档。
+1. 产品平台决策只允许从 `platform` 获取；
+2. 所有非主窗口使用显式业务命令 allowlist；
+3. command 注册、前端 wrapper、错误码和 serde 合同进入 CI；
+4. vanilla JS 进入静态检查，并固定允许的 HTML sink；
+5. 架构文档保存短调用链、所有权和验证边界，深度实现说明下沉到领域文档。
+
+原「`dev/main` 必须由三平台 required checks 保护」已落地，移入上一节。副作用是直连推送会被
+required checks 挡住（新提交上还没有通过的检查），后续 `dev` 改动须走 PR；这与
+`docs/feature-lifecycle.md` §2.4 记载的本地 `--no-ff` 合并直推流程冲突，需在 Phase 8 一并更新。
 
 ## 未完成的依赖风险核查
 
