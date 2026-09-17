@@ -67,6 +67,7 @@ cd src-tauri && cargo clippy --all-targets -- -D warnings
 cd src-tauri && cargo bench
 
 # 完整本地门禁（含 DOM/Xvfb smoke 与前端生产构建）
+# 仅覆盖当前宿主平台；Windows / macOS 只能由远程 Native Check 判定
 ./scripts/ci-local.sh
 ```
 

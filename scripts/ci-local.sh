@@ -1,7 +1,18 @@
 #!/usr/bin/env bash
-# 本地质量预检脚本 — 提交前运行，与 CI 门禁保持一致
+# 本地质量预检脚本 — 提交前运行
+#
+# 只验证当前宿主平台。本脚本通过不等于三平台 CI 通过：cargo 只编译当前 target，
+# `#[cfg(target_os = ...)]` 挡住的 Windows / macOS 代码和 vendor 目录里的对应平台文件
+# 在这里根本不进编译图，其告警与测试也就无从触发。发布门禁仍以 build.yml 的
+# Check (ubuntu) + Native Check (windows-latest) + Native Check (macos-latest) 为准。
+#
 # 用法: ./scripts/ci-local.sh [--quick]
 #   --quick: 跳过构建检查，仅运行 lint/test
+#
+# 可选环境变量:
+#   CLIPPY_CROSS_CHECK=1   额外跑非宿主平台的交叉 lint（见下方步骤）。只能发现"编译期"
+#                          问题，发现不了只在目标平台运行时才失败的断言，因此在任何情况下
+#                          都不能替代真实 Windows / macOS runner。
 
 set -euo pipefail
 
@@ -70,9 +81,13 @@ check_prerequisites() {
   fi
 }
 
+HOST_PLATFORM="$(uname -s) $(uname -m)"
+
 echo "=========================================="
 echo " Clippy 本地质量预检"
 echo "=========================================="
+printf "${YELLOW} 仅验证当前宿主平台：%s${NC}\n" "$HOST_PLATFORM"
+printf "${YELLOW} Windows / macOS 的条件编译代码不在本机编译图内，通过此门禁不代表三平台 CI 通过。${NC}\n"
 echo ""
 
 check_prerequisites
@@ -86,6 +101,34 @@ if [[ "$(uname -s)" == "Linux" ]]; then
   run_step "X11 剪贴板隔离协议回归" ./scripts/test-x11-clipboard.sh
 else
   skip_step "X11 剪贴板隔离协议回归 (仅 Linux)"
+fi
+
+# 可选交叉 lint：只覆盖"能不能编译过"，不执行任何测试。
+#
+# vendor/arboard 是 [patch.crates-io] 的无条件覆盖，三平台都编译它，但它的 macOS / Wayland
+# 源码在 Linux 上根本不进编译图——2026-09-16 的 macOS 门禁就是这样被 19 个弃用 / unused_unsafe
+# 告警打红的。这个 crate 的 macOS 依赖全是纯 Rust 的 objc2 绑定，`rustup target add` 之后即可
+# 交叉 lint，成本几秒，值得作为附加检查。
+if [[ "${CLIPPY_CROSS_CHECK:-0}" == "1" ]]; then
+  if rustup target list --installed 2>/dev/null | grep -qx 'aarch64-apple-darwin'; then
+    run_step "交叉 clippy: vendor/arboard @ aarch64-apple-darwin" \
+      bash -c "cd src-tauri && cargo clippy -p arboard --target aarch64-apple-darwin --all-targets -- -D warnings"
+  else
+    skip_step "交叉 clippy: vendor/arboard @ aarch64-apple-darwin — 先 rustup target add aarch64-apple-darwin"
+  fi
+
+  # 主 crate 的 Windows 交叉 lint 需要 MSVC 兼容工具链：依赖里的 C build script 会调用
+  # lib.exe，只装 rustup target 会在 cc-rs 阶段失败，与代码无关。有 cargo-xwin 或
+  # VCINSTALLDIR 时才尝试。
+  if rustup target list --installed 2>/dev/null | grep -qx 'x86_64-pc-windows-msvc' \
+    && { command -v cargo-xwin >/dev/null 2>&1 || [[ -n "${VCINSTALLDIR:-}" ]]; }; then
+    run_step "交叉 clippy: clippy-app @ x86_64-pc-windows-msvc" \
+      bash -c "cd src-tauri && cargo clippy --target x86_64-pc-windows-msvc --all-targets -- -D warnings"
+  else
+    skip_step "交叉 clippy: clippy-app @ x86_64-pc-windows-msvc — 需 MSVC 工具链（cargo-xwin 或 VCINSTALLDIR）"
+  fi
+else
+  skip_step "非宿主平台交叉 lint (设置 CLIPPY_CROSS_CHECK=1 启用)"
 fi
 
 # --- GNOME Shell 扩展 ---
@@ -119,7 +162,12 @@ fi
 echo ""
 echo "=========================================="
 printf " 结果: ${GREEN}%d 通过${NC}, ${RED}%d 失败${NC}, ${YELLOW}%d 跳过${NC}\n" "$PASS" "$FAIL" "$SKIP"
+printf " 覆盖范围: 仅 %s；跳过的步骤不计为通过。\n" "$HOST_PLATFORM"
 echo "=========================================="
+
+if [[ "$FAIL" -eq 0 ]]; then
+  printf "${YELLOW}提醒：Windows / macOS 只能由远程 Native Check 判定，合入前请确认三平台在同一 SHA 上为 success。${NC}\n"
+fi
 
 if [[ "$FAIL" -gt 0 ]]; then
   exit 1
