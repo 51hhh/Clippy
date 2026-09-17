@@ -9,8 +9,11 @@ use image::RgbaImage;
 
 const MAX_SESSION_FRAME_PIXELS: u64 = 8 * 1024 * 1024;
 const MAX_SESSION_FRAME_RAW_BYTES: u64 = 32 * 1024 * 1024;
+#[cfg(test)]
 const MAX_ESTIMATOR_WORK_BYTES: u64 = 48 * 1024 * 1024;
+#[cfg(test)]
 const MAX_SCORING_WORK_BYTES: u64 = 1024 * 1024;
+#[cfg(test)]
 const MAX_APPEND_LOGICAL_WORK_BYTES: u64 = super::MAX_RAW_BYTES
     + MAX_SESSION_FRAME_RAW_BYTES
     + MAX_SESSION_FRAME_RAW_BYTES
