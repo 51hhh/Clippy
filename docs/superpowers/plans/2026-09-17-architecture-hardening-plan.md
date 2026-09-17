@@ -67,14 +67,27 @@
 - GitHub 分支保护设置
 
 - [x] 记录 CI `35179825379` 结论：Ubuntu、Windows 成功；macOS OCR 取消测试失败；
-- [ ] 等待修复后的 CI `35180661672` 完成，记录 Ubuntu、Windows、macOS 每个 job 的结论；
-- [ ] 若任一 job 失败，只在 `fix/cross-platform-ci-*` 分支修对应平台问题；
-- [ ] 对最终 SHA 运行：
-  `node scripts/verify-native-ci.mjs --repo 51hhh/Clippy --sha <40位SHA> --output native-ci-evidence.md`；
-- [ ] 确认 `dev/main` required checks 包含 Ubuntu、Windows、macOS，无法绕过红 CI 合入；
-- [ ] 将最终 SHA、run URL 和未执行的真机矩阵写回验证记录。
+- [x] 修复后的 CI `35180661672` 已完成，逐个 job 结论：`Check (ubuntu-22.04)` success、
+  `Native Check (windows-latest)` success、`Native Check (macos-latest)` success；
+- [x] 该失败在独立分支 `fix/macos-ocr-interpreter-test` 修复后以 `--no-ff` 合入 `dev`
+  （`80889e3`），未改动被测产品代码；
+- [x] 对最终 SHA 运行
+  `node scripts/verify-native-ci.mjs --repo 51hhh/Clippy --sha 80889e32381dcaf28949c7b7b6cbdab4b61d6483`，
+  输出 `Result: PASS`；证据文件按仓库惯例只留在本地工作区；
+- [x] `dev` / `main` 的 required checks 已由 ruleset `23578066` 覆盖三个原生 job，同时禁止强推与
+  删除，且不设 bypass actor；
+- [x] 最终 SHA `80889e3` 与 run URL 已写入审阅记录；
+- [ ] 真机矩阵未执行 —— 需要真实 Windows / macOS / KDE 环境，按 `docs/native-qa.md` §3 起逐项完成。
+  输入已就绪：`Native QA Packages` run `35181379112` 在同一 SHA 上构建成功（Linux x64、Windows x64、
+  macOS Intel、macOS Apple-Silicon 四套包，外加 Ubuntu 24.04 X11 Runtime Smoke），产物与
+  `qa-record-templates-80889e32381dcaf28949c7b7b6cbdab4b61d6483` 均以完整 SHA 命名。
+  这批包版本仍是 `0.1.20`；Windows 为临时自签名、macOS 仅 Ad-Hoc 签名，不能作为 Developer ID、
+  公证或 Gatekeeper 信任证据，updater 验证必须改用同 SHA 的正式 release 产物。
 
 **验收：** 同一 SHA 的三个 job 均为 success，验证脚本输出成功；不以“已启动”或“Linux 通过”代替完成。
+
+**当前状态：** 门禁部分已在 `80889e3` 上达成验收；真机矩阵仍为未执行，因此 Phase 0 整体未关闭。
+三平台 CI 只覆盖条件编译、原生 API 与单元测试，不覆盖桌面权限、输入注入、混合 DPI 和签名信任链。
 
 **建议提交：** 若无需改代码则不提交；如需 workflow 调整，单独使用
 `ci: 将三平台原生检查设为发布门禁`。
