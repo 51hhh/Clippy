@@ -64,7 +64,8 @@
 | 4 | 已由 PR #6 合入 `dev` | merge `0087949` | 15 通过、0 失败、2 跳过 |
 | 5 | 已由 PR #5 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `f1dfd35` / CI `35198689455` | 17 通过、0 失败、2 跳过 |
 | 6 | 已由 PR #7 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `d5fab06` / CI `35201877133` | 17 通过、0 失败、2 跳过 |
-| 7A | 前端 API facade 本地拆分完成，待原生 CI | `codex/api-domain-facade` / `5425061` | 17 通过、0 失败、2 跳过 |
+| 7A | 已由 PR #8 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `3775dcf` / CI `35204446458` | 17 通过、0 失败、2 跳过 |
+| 7B | Pin command adapter 与可信输出边界拆分完成，待原生 CI | `codex/pin-command-boundaries` / `ee6d42e` | 17 通过、0 失败、2 跳过 |
 
 Phase 4 选择轻量 parity gate 与三个共享 JSON fixture，没有引入代码生成依赖；完整绑定生成可在
 Phase 7 拆分 API facade 时重新评估。Phase 5 的静态类型范围先固定为 `js/preview/` 与
@@ -76,8 +77,8 @@ pin、capture overlay、longshot controller、image viewer 分成独立 capabili
 `https://github.com/51hhh/Clippy/*`，自启动与版本读取只授予 settings，截图覆盖层只额外保留关闭自身，
 原生拖动仍只授予 pin 与 longshot。回归测试同时禁止恢复宽泛 core、opener 和前端全局快捷键权限。
 
-Phase 1～6 已合入，当前 `dev` SHA `d5fab0615198a80594afd9c87d03a17f2c25f81f` 的 Ubuntu、Windows、
-macOS 原生门禁均在 CI `35201877133` 通过，原生证据脚本输出 `PASS`。Phase 7A 已基于该 SHA
+Phase 1～7A 已合入，当前 `dev` SHA `3775dcf736d2f9090dfcec691971b75d305c2c0d` 的 Ubuntu、Windows、
+macOS 原生门禁均在 CI `35204446458` 通过，原生证据脚本输出 `PASS`。Phase 7B 已基于该 SHA
 完成本地拆分；它自己的 Windows/macOS 原生 CI、分支合入和真机 QA 仍未执行。
 
 ---
@@ -341,9 +342,15 @@ IPC parity gate 均通过。完整 `./scripts/ci-local.sh` 为 17 通过、0 失
 
 ### 7B：Pin commands
 
-- [ ] 将输入校验、窗口命令、项目保存、渲染输出拆到现有领域模块；
-- [ ] 保留 commands 文件为 Tauri adapter；
-- [ ] 固定可编辑 PNG、扁平 PNG 与复制结果的字节语义。
+- [x] 将输入校验、窗口命令、项目保存、渲染输出拆到现有领域模块；
+- [x] 保留 commands 文件为 Tauri adapter；
+- [x] 固定可编辑 PNG、扁平 PNG 与复制结果的字节语义。
+
+**7B 本地结果：** `pin/commands.rs` 从 1797 行收敛为 101 行、12 个 Tauri adapter；窗口与
+状态组合移入 `lifecycle.rs`，画布 DTO、canonical/preview 选择和 Copy/flat/editable 输出规则
+移入 `output.rs`，文件预算与工程容器读取移入 `project_file.rs`。严格 Clippy、IPC parity、
+113 项 Pin 自动测试（另有 4 个显式人工探针）和完整本地门禁均通过；完整门禁为 17 通过、
+0 失败、2 跳过。Windows/macOS 结论等待本 Phase 的远程原生 CI。
 
 ### 7C：OCR
 
