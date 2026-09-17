@@ -53,6 +53,25 @@
 4. 平台代码只能由对应 native runner 判定完成；本机交叉检查只作早期提示。
 5. wire contract、错误 code、事件名、窗口 label、custom protocol 路径和 PNG 字节语义默认保持不变。
 
+## 执行记录（2026-09-17）
+
+| Phase | 本地状态 | 分支 / 提交 | 完整本地门禁 |
+|---|---|---|---|
+| 0 | 三平台 CI 与安装包基线已具备；真机矩阵未执行 | `dev` / `80889e3` | 远程 CI `35180661672` 三平台 success |
+| 1 | 已完成，待推送与原生 CI | `codex/platform-single-source` / `75af809` | 14 通过、0 失败、2 跳过 |
+| 2 | 已完成，待推送与原生 CI | `codex/longshot-production-boundary` / `b75a08b` | 14 通过、0 失败、2 跳过 |
+| 3 | 已完成，待推送与原生 CI | `codex/window-ipc-access` / `5d3a6f8` | 14 通过、0 失败、2 跳过 |
+| 4 | 已完成，堆叠在 Phase 3；待推送与原生 CI | `codex/ipc-contract-gate` / `1314490` | 15 通过、0 失败、2 跳过 |
+| 5 | 已完成，待推送与原生 CI | `codex/frontend-static-boundary` / `3f8161a`、`a18e3b1` | 16 通过、0 失败、2 跳过 |
+
+Phase 4 选择轻量 parity gate 与三个共享 JSON fixture，没有引入代码生成依赖；完整绑定生成可在
+Phase 7 拆分 API facade 时重新评估。Phase 5 的静态类型范围先固定为 `js/preview/` 与
+`js/settings/`，HTML/Tauri 边界则覆盖全部 `src/js` 和 `src/react`。
+
+以上“已完成”仅表示本地实现与 Linux 门禁完成。Windows/macOS 原生 CI、分支合入和真机 QA 尚未执行。
+Phase 6 依赖 Phase 2、Phase 4 先合入并在同一 SHA 上通过远程门禁，因此当前不提前拆分
+`window_host.rs`。
+
 ---
 
 ## Phase 0：关闭当前三平台发布阻塞
@@ -105,12 +124,12 @@
 - `src-tauri/src/screenshot/backends.rs`
 - 相关 Rust tests
 
-- [ ] 为 `platform::detect_session_from` 补全显式 X11、显式 Wayland、XWayland、仅 display、无 display 表；
-- [ ] 让 `PasteManager::new` 根据 `platform::current_session()` 映射 backend；
-- [ ] 删除 `paste::detect_backend` 对环境变量的重复读取，保留纯映射函数供测试；
-- [ ] 让截图后端使用 `platform::is_wayland()`，删除本地 `is_wayland_session()`；
-- [ ] 明确允许直接读取原始环境变量的两个例外：Tauri 初始化前的 GDK backend 选择、诊断采集；
-- [ ] 增加静态回归，限制 `XDG_SESSION_TYPE`、`WAYLAND_DISPLAY`、`DISPLAY` 的生产读取位置。
+- [x] 为 `platform::detect_session_from` 补全显式 X11、显式 Wayland、XWayland、仅 display、无 display 表；
+- [x] 让 `PasteManager::new` 根据 `platform::current_session()` 映射 backend；
+- [x] 删除 `paste::detect_backend` 对环境变量的重复读取，保留纯映射函数供测试；
+- [x] 让截图后端使用 `platform::is_wayland()`，删除本地 `is_wayland_session()`；
+- [x] 明确允许直接读取原始环境变量的两个例外：Tauri 初始化前的 GDK backend 选择、诊断采集；
+- [x] 增加静态回归，限制 `XDG_SESSION_TYPE`、`WAYLAND_DISPLAY`、`DISPLAY` 的生产读取位置。
 
 **定向验证：**
 
@@ -143,12 +162,12 @@ cargo clippy --all-targets -- -D warnings
 - `src-tauri/src/pin/commands.rs`
 - `src-tauri/src/commands.rs`
 
-- [ ] 更新“IPC 尚未接入”“未来长截图”等过期注释；
-- [ ] 删除 `longshot`、`mode_gate` 的模块级 `allow(dead_code)`；
-- [ ] 删除仅用于压制生产 unused 的 re-export，或把真实调用改为最小可见性；
-- [ ] 对编译器新暴露的 dead code 逐项分类：删除、接线、测试专用 `#[cfg(test)]`、窄范围保留；
-- [ ] 检查 Pin 输出 certainty 注释是否与当前长截图输出调用一致；
-- [ ] 增加源码约束测试，禁止长截图生产入口重新出现“尚未接入”说明或模块级 dead-code 豁免。
+- [x] 更新“IPC 尚未接入”“未来长截图”等过期注释；
+- [x] 删除 `longshot`、`mode_gate` 的模块级 `allow(dead_code)`；
+- [x] 删除仅用于压制生产 unused 的 re-export，或把真实调用改为最小可见性；
+- [x] 对编译器新暴露的 dead code 逐项分类：删除、接线、测试专用 `#[cfg(test)]`、窄范围保留；
+- [x] 检查 Pin 输出 certainty 注释是否与当前长截图输出调用一致；
+- [x] 增加源码约束测试，禁止长截图生产入口重新出现“尚未接入”说明或模块级 dead-code 豁免。
 
 **定向验证：**
 
@@ -178,13 +197,13 @@ cargo test pin::
 - `src/tests/window-capabilities.test.js`
 - Rust allowlist tests
 
-- [ ] 盘点所有 command，按 `main`、`settings`、`pin-*`、`capture-overlay-*`、
+- [x] 盘点所有 command，按 `main`、`settings`、`pin-*`、`capture-overlay-*`、
   `longshot-controller-*`、`image-viewer-*` 建矩阵；
-- [ ] 默认拒绝未知受限窗口标签，main 保留经过审阅的完整能力；
-- [ ] 把 viewer 现有 allowlist 合并进统一模块，保持错误码 `forbidden`；
-- [ ] 对每类窗口测试一项允许命令和多项跨域拒绝；
-- [ ] 测试动态标签、旧窗口标签、未知 label 和 command 拼写错误；
-- [ ] 检查 core/plugin capability 是否仍超出每类窗口实际需要，能拆则拆成多个 capability 文件。
+- [x] 默认拒绝未知受限窗口标签，main 保留经过审阅的完整能力；
+- [x] 把 viewer 现有 allowlist 合并进统一模块，保持错误码 `forbidden`；
+- [x] 对每类窗口测试一项允许命令和多项跨域拒绝；
+- [x] 测试动态标签、旧窗口标签、未知 label 和 command 拼写错误；
+- [x] 检查 core/plugin capability 是否仍超出每类窗口实际需要，能拆则拆成多个 capability 文件。
 
 **定向验证：**
 
@@ -212,13 +231,13 @@ cd src && npx vitest run tests/window-capabilities.test.js tests/viewer-api.test
 - `.github/workflows/build.yml`
 - `scripts/ci-local.sh`
 
-- [ ] 提取或解析 Rust command 名称与 `generate_handler!` 注册列表；
-- [ ] 收集 `api.ts` 中 literal invoke 和显式动态 command 清单；
-- [ ] 校验：command 有注册、wrapper 有目标、viewer command 同时存在于访问矩阵；
-- [ ] 为无法静态解析的动态调用建立显式常量表，禁止任意字符串散落；
-- [ ] 评估 `tauri-specta` 或等价生成绑定的迁移成本；本 Phase 默认先做轻量 parity gate；
-- [ ] 选择 viewer、capture、pin 各一个 DTO 做 serde JSON fixture 双向合同试点；
-- [ ] 将脚本加入本地门禁和 Ubuntu CI。
+- [x] 提取或解析 Rust command 名称与 `generate_handler!` 注册列表；
+- [x] 收集 `api.ts` 中 literal invoke 和显式动态 command 清单；
+- [x] 校验：command 有注册、wrapper 有目标、viewer command 同时存在于访问矩阵；
+- [x] 为无法静态解析的动态调用建立显式常量表，禁止任意字符串散落；
+- [x] 评估 `tauri-specta` 或等价生成绑定的迁移成本；本 Phase 默认先做轻量 parity gate；
+- [x] 选择 viewer、capture、pin 各一个 DTO 做 serde JSON fixture 双向合同试点；
+- [x] 将脚本加入本地门禁和 Ubuntu CI。
 
 **验收：** 故意删除一个 handler、改错一个 wrapper 名称、漏掉一个 viewer allowlist 项时，脚本均失败。
 
@@ -241,13 +260,13 @@ cd src && npx vitest run tests/window-capabilities.test.js tests/viewer-api.test
 - `scripts/ci-local.sh`
 - `.github/workflows/build.yml`
 
-- [ ] 先只覆盖 `src/js/preview/`、`src/js/settings/` 和新增文件，避免一次性处理全仓遗留；
-- [ ] 启用 no-undef、no-unused-vars、Promise 处理、import 边界和必要的浏览器 globals；
-- [ ] 建立规则：生产代码只有 `api.ts` 可导入 `@tauri-apps/*`；
-- [ ] 把清空容器的 `innerHTML = ""` 改为 `replaceChildren()`；
-- [ ] 建立 HTML sink allowlist，只允许 DOMPurify 清洗后的 Markdown、富文本、highlight 结果；
-- [ ] 将 `AGENTS.md` 的绝对禁令改成与 `CLAUDE.md` 一致的 sanitizer 规则；
-- [ ] 每个后续 Phase 扩大一批 JS 目录，忽略必须带 owner/原因/移除条件。
+- [x] 先只覆盖 `src/js/preview/`、`src/js/settings/` 和新增文件，避免一次性处理全仓遗留；
+- [x] 启用 no-undef、no-unused-vars、Promise 处理、import 边界和必要的浏览器 globals；
+- [x] 建立规则：生产代码只有 `api.ts` 可导入 `@tauri-apps/*`；
+- [x] 把清空容器的 `innerHTML = ""` 改为 `replaceChildren()`；
+- [x] 建立 HTML sink allowlist，只允许 DOMPurify 清洗后的 Markdown、富文本、highlight 结果；
+- [x] 将 `AGENTS.md` 的绝对禁令改成与 `CLAUDE.md` 一致的 sanitizer 规则；
+- [x] 每个后续 Phase 扩大一批 JS 目录，忽略必须带 owner/原因/移除条件。
 
 **验收：** 新增直接 Tauri import、裸 `innerHTML = userValue`、未声明变量和未处理 Promise 会让门禁失败。
 
