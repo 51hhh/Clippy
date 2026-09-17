@@ -68,7 +68,7 @@
 | 7B | 已由 PR #9 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `8937285` / CI `35208078218` | 17 通过、0 失败、2 跳过 |
 | 7C | 已由 PR #10 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `2dda132` / CI `35210934512` | 17 通过、0 失败、2 跳过 |
 | 8 | 已由 PR #11 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `d0e08e0` / CI `35214349444` | 17 通过、0 失败、2 跳过 |
-| 9 | 已确认漏洞仅可达测试工具链，并升级 Vitest；等待原生 CI | `codex/npm-audit-vitest` | 17 通过、0 失败、2 跳过 |
+| 9 | 已确认漏洞仅可达测试工具链并升级 Vitest；PR required checks 作为合入门禁 | `codex/npm-audit-vitest` | 17 通过、0 失败、2 跳过 |
 
 Phase 4 选择轻量 parity gate 与三个共享 JSON fixture，没有引入代码生成依赖；完整绑定生成可在
 Phase 7 拆分 API facade 时重新评估。Phase 5 的静态类型范围先固定为 `js/preview/` 与
@@ -422,7 +422,7 @@ AppImage smoke 开关已与当前 workflow/script 对照。完整 `./scripts/ci-
 
 **本地结果：** 63 个 Vitest 文件、1144 项测试、TypeScript 与 Vite 生产构建通过；完整
 `./scripts/ci-local.sh` 为 17 通过、0 失败、2 跳过。跳过项是非宿主平台交叉 lint 和 AppImage X11
-可视 smoke；Windows/macOS 结论等待本分支远程原生 CI。
+可视 smoke；Windows/macOS 由 PR required checks 在本分支同一 SHA 验证，本地结果不替代该证据。
 
 **验收：** 每个 advisory 有“可达/不可达/待确认”结论和升级验证证据。
 
