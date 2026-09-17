@@ -24,7 +24,7 @@
 
 ## Acceptance Criteria
 
-- [ ] Ubuntu、Windows、macOS 三个 CI job 在同一 40 位 SHA 上 `completed/success`；
+- [x] Ubuntu、Windows、macOS 三个 CI job 在同一 40 位 SHA 上 `completed/success`；
 - [x] 除明确登记的启动/诊断例外外，业务模块不直接读取 Linux 会话环境变量；
 - [x] settings、pin、capture overlay、longshot controller、image viewer 均有命令 allowlist 回归；
 - [x] CI 会在 command 未注册、wrapper 指向不存在命令或 viewer allowlist 漏项时失败；
@@ -63,7 +63,8 @@
 | 3 | 已由 PR #4 合入 `dev` | merge `e8017c51` | 14 通过、0 失败、2 跳过 |
 | 4 | 已由 PR #6 合入 `dev` | merge `0087949` | 15 通过、0 失败、2 跳过 |
 | 5 | 已由 PR #5 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `f1dfd35` / CI `35198689455` | 17 通过、0 失败、2 跳过 |
-| 6 | 本地拆分与 characterization tests 已完成，待原生 CI | `codex/longshot-window-host-split` / `50c1cc0` | 17 通过、0 失败、2 跳过 |
+| 6 | 已由 PR #7 合入 `dev`；最终 `dev` 三平台门禁通过 | merge `d5fab06` / CI `35201877133` | 17 通过、0 失败、2 跳过 |
+| 7A | 前端 API facade 本地拆分完成，待原生 CI | `codex/api-domain-facade` / `5425061` | 17 通过、0 失败、2 跳过 |
 
 Phase 4 选择轻量 parity gate 与三个共享 JSON fixture，没有引入代码生成依赖；完整绑定生成可在
 Phase 7 拆分 API facade 时重新评估。Phase 5 的静态类型范围先固定为 `js/preview/` 与
@@ -75,9 +76,9 @@ pin、capture overlay、longshot controller、image viewer 分成独立 capabili
 `https://github.com/51hhh/Clippy/*`，自启动与版本读取只授予 settings，截图覆盖层只额外保留关闭自身，
 原生拖动仍只授予 pin 与 longshot。回归测试同时禁止恢复宽泛 core、opener 和前端全局快捷键权限。
 
-Phase 1～5 已合入，最终 `dev` SHA `f1dfd355f2f4ae4faf9173961bca22e3783492fe` 的 Ubuntu、Windows、
-macOS 原生门禁均在 CI `35198689455` 通过。Phase 6 已基于该 SHA 完成本地拆分；它自己的
-Windows/macOS 原生 CI、分支合入和真机 QA 仍未执行。
+Phase 1～6 已合入，当前 `dev` SHA `d5fab0615198a80594afd9c87d03a17f2c25f81f` 的 Ubuntu、Windows、
+macOS 原生门禁均在 CI `35201877133` 通过，原生证据脚本输出 `PASS`。Phase 7A 已基于该 SHA
+完成本地拆分；它自己的 Windows/macOS 原生 CI、分支合入和真机 QA 仍未执行。
 
 ---
 
@@ -269,7 +270,7 @@ cd src && npx vitest run tests/window-capabilities.test.js tests/viewer-api.test
 
 - [x] 先只覆盖 `src/js/preview/`、`src/js/settings/` 和新增文件，避免一次性处理全仓遗留；
 - [x] 启用 no-undef、no-unused-vars、Promise 处理、import 边界和必要的浏览器 globals；
-- [x] 建立规则：生产代码只有 `api.ts` 可导入 `@tauri-apps/*`；
+- [x] 建立规则：生产代码只有统一前端 API 边界可导入 `@tauri-apps/*`；Phase 7A 后由登记的领域模块承载；
 - [x] 把清空容器的 `innerHTML = ""` 改为 `replaceChildren()`；
 - [x] 建立 HTML sink allowlist，只允许 DOMPurify 清洗后的 Markdown、富文本、highlight 结果；
 - [x] 将 `AGENTS.md` 的绝对禁令改成与 `CLAUDE.md` 一致的 sanitizer 规则；
@@ -328,11 +329,15 @@ IPC parity gate 均通过。完整 `./scripts/ci-local.sh` 为 17 通过、0 失
 
 ### 7A：前端 API facade
 
-- [ ] 保留 `src/js/api.ts` 作为公共 re-export；
-- [ ] 新增 `src/js/api/clipboard.ts`、`capture.ts`、`pin.ts`、`viewer.ts`、`settings.ts`；
-- [ ] 只有这些受控模块可导入 Tauri，其他前端继续从 facade 引用；
-- [ ] IPC parity gate 使用聚合后的显式 command 清单；
-- [ ] 不改变任何现有 export 名称。
+- [x] 保留 `src/js/api.ts` 作为公共 re-export；
+- [x] 新增 `src/js/api/clipboard.ts`、`capture.ts`、`pin.ts`、`viewer.ts`、`settings.ts`；
+- [x] 只有这些受控模块可导入 Tauri，其他前端继续从 facade 引用；
+- [x] IPC parity gate 使用聚合后的显式 command 清单；
+- [x] 不改变任何现有 export 名称。
+
+**7A 本地结果：** 公共 facade 收敛为 64 行，五个 Tauri 领域模块由
+`scripts/frontend-api-boundary.mjs` 单点登记；IPC parity gate、HTML/Tauri 边界、TypeScript、
+1144 项前端测试和生产构建均通过。完整本地门禁为 17 通过、0 失败、2 跳过。
 
 ### 7B：Pin commands
 

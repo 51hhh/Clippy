@@ -5,7 +5,8 @@
 - 主窗口：vanilla HTML/CSS/ES modules，保留稳定的剪贴板高频交互。
 - Pin、截图覆盖层（含标注）：React + TypeScript 功能岛。
 - 系统资源：Rust/Tauri 拥有剪贴板、数据库、窗口、截图帧、Portal 会话、Pin 数据、密钥和网络请求。
-- IPC：`src/js/api.ts` 是唯一 Tauri 调用边界，`ipc-types.ts` 对齐 Rust serde 字段。
+- IPC：业务模块只依赖 `src/js/api.ts` 公共 facade；`src/js/api/*.ts` 的登记领域模块持有
+  Tauri 调用边界，`ipc-types.ts` 对齐 Rust serde 字段。
 
 ## 后端模块
 

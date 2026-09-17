@@ -22,7 +22,7 @@ cd src && npx tsc --noEmit                 # React/TS 功能岛类型检查
 ## 架构要点
 | 层 | 路径 | 说明 |
 |----|------|------|
-| 前端 | `src/js/` | ES Module，`api.ts` 是唯一 Tauri IPC 入口 |
+| 前端 | `src/js/` | ES Module；`api.ts` 是公共 facade，`api/*.ts` 是受控 Tauri IPC 边界 |
 | 后端 | `src-tauri/src/` | 扁平模块：commands / storage / clipboard_watcher / config / models / portal_shortcuts / tray_icon |
 | 数据库 | SQLite + FTS5 | `clips` 表 + `clips_fts` 虚拟表，SHA-256 去重 |
 | 快捷键 | X11: tauri-plugin-global-shortcut; Wayland: XDG Portal (ashpd) |
@@ -30,7 +30,8 @@ cd src && npx tsc --noEmit                 # React/TS 功能岛类型检查
 ## 关键约定
 - **前端 XSS 防护**：用户纯文本用 `textContent`；富文本 `innerHTML` 仅限
   `scripts/check-html-sinks.mjs` 登记且经 DOMPurify 清洗的渲染点
-- **IPC 封装**：只有 `api.ts` 可导入 `@tauri-apps/*` 或直接访问 `window.__TAURI__`
+- **IPC 封装**：业务代码只从 `api.ts` 导入；只有 `scripts/frontend-api-boundary.mjs`
+  登记的 `api/*.ts` 领域模块可导入 `@tauri-apps/*` 或直接访问 `window.__TAURI__`
 - **语言**：代码注释 / commit 中文，前端 UI 英文
 - **构建目标**：Linux x64（deb、AppImage）、Windows x64（NSIS、MSI）、macOS Intel/Apple Silicon（DMG、updater bundle）
 - **编码规范**：见项目 Wiki 的「后端编码规范」与「前端编码规范」
