@@ -37,6 +37,13 @@ PROFILES = {
     "medium-rec": (False, True),
     "medium-both": (True, True),
 }
+RUNTIME_FILES = [
+    "main.py",
+    "pipeline.py",
+    "edge_features.py",
+    "layout_groups.py",
+    "visual_paragraphs.py",
+]
 
 
 def digest(path: Path) -> str:
@@ -72,6 +79,10 @@ def main():
         raise ValueError("A/B base manifest 必须只含 small det/rec、字典和 Edge")
     output = arguments.output_dir
     output.mkdir(mode=0o700, parents=False, exist_ok=False)
+    runtime_root = Path(str(base.get("script", ""))).resolve().parent
+    runtime_files = {name: runtime_root / name for name in RUNTIME_FILES}
+    if any(not path.is_file() for path in runtime_files.values()):
+        raise ValueError("A/B runtime 文件不完整")
 
     environment = {
         "schema": "clippy-ocr-model-tier-ab-v1",
@@ -80,12 +91,17 @@ def main():
         "opencv": cv2.__version__,
         "onnxruntime": onnxruntime.__version__,
         "baseManifestSha256": hashlib.sha256(base_bytes).hexdigest(),
+        "runtimeFiles": {name: digest(path) for name, path in runtime_files.items()},
         "medium": {
             role: {**identity, "pathRecorded": False}
             for role, identity in MEDIUM.items()
         },
         "profiles": list(PROFILES),
         "corpora": [path.resolve().parent.name for path in arguments.corpus],
+        "corpusFiles": {
+            path.resolve().parent.name: digest(path.resolve())
+            for path in arguments.corpus
+        },
     }
     write_new(output / "environment.json", environment)
 

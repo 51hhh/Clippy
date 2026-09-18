@@ -1,0 +1,300 @@
+{
+  "byTag": {
+    "currency": {
+      "caseCount": 1,
+      "cellDetection": {
+        "falseNegative": 6,
+        "falsePositive": 1,
+        "hmean": 0.631578947368421,
+        "iouThreshold": 0.5,
+        "meanMatchedIou": 0.7316636964078631,
+        "precision": 0.8571428571428571,
+        "recall": 0.5,
+        "supported": true,
+        "truePositive": 6
+      },
+      "rawReadingOrder": {
+        "comparablePairs": 21,
+        "errorRate": 0.0,
+        "inversions": 0,
+        "supported": true
+      },
+      "rowDetection": {
+        "falseNegative": 0,
+        "falsePositive": 0,
+        "hmean": 1.0,
+        "iouThreshold": 0.5,
+        "meanMatchedIou": 0.915157344980155,
+        "precision": 1.0,
+        "recall": 1.0,
+        "supported": true,
+        "truePositive": 3
+      },
+      "text": {
+        "exactGeometryRowRecall": 1.0,
+        "expectedNonWhitespaceCodepoints": 46,
+        "geometryNonWhitespaceCer": 0.0,
+        "geometryNonWhitespaceCodepoints": 46,
+        "geometryNonWhitespaceEditDistance": 0,
+        "rawNonWhitespaceCer": 0.0,
+        "rawNonWhitespaceCodepoints": 46,
+        "rawNonWhitespaceEditDistance": 0
+      }
+    },
+    "numbers": {
+      "caseCount": 1,
+      "cellDetection": {
+        "falseNegative": 6,
+        "falsePositive": 1,
+        "hmean": 0.631578947368421,
+        "iouThreshold": 0.5,
+        "meanMatchedIou": 0.7316636964078631,
+        "precision": 0.8571428571428571,
+        "recall": 0.5,
+        "supported": true,
+        "truePositive": 6
+      },
+      "rawReadingOrder": {
+        "comparablePairs": 21,
+        "errorRate": 0.0,
+        "inversions": 0,
+        "supported": true
+      },
+      "rowDetection": {
+        "falseNegative": 0,
+        "falsePositive": 0,
+        "hmean": 1.0,
+        "iouThreshold": 0.5,
+        "meanMatchedIou": 0.915157344980155,
+        "precision": 1.0,
+        "recall": 1.0,
+        "supported": true,
+        "truePositive": 3
+      },
+      "text": {
+        "exactGeometryRowRecall": 1.0,
+        "expectedNonWhitespaceCodepoints": 46,
+        "geometryNonWhitespaceCer": 0.0,
+        "geometryNonWhitespaceCodepoints": 46,
+        "geometryNonWhitespaceEditDistance": 0,
+        "rawNonWhitespaceCer": 0.0,
+        "rawNonWhitespaceCodepoints": 46,
+        "rawNonWhitespaceEditDistance": 0
+      }
+    },
+    "spaces": {
+      "caseCount": 1,
+      "cellDetection": {
+        "falseNegative": 6,
+        "falsePositive": 1,
+        "hmean": 0.631578947368421,
+        "iouThreshold": 0.5,
+        "meanMatchedIou": 0.7316636964078631,
+        "precision": 0.8571428571428571,
+        "recall": 0.5,
+        "supported": true,
+        "truePositive": 6
+      },
+      "rawReadingOrder": {
+        "comparablePairs": 21,
+        "errorRate": 0.0,
+        "inversions": 0,
+        "supported": true
+      },
+      "rowDetection": {
+        "falseNegative": 0,
+        "falsePositive": 0,
+        "hmean": 1.0,
+        "iouThreshold": 0.5,
+        "meanMatchedIou": 0.915157344980155,
+        "precision": 1.0,
+        "recall": 1.0,
+        "supported": true,
+        "truePositive": 3
+      },
+      "text": {
+        "exactGeometryRowRecall": 1.0,
+        "expectedNonWhitespaceCodepoints": 46,
+        "geometryNonWhitespaceCer": 0.0,
+        "geometryNonWhitespaceCodepoints": 46,
+        "geometryNonWhitespaceEditDistance": 0,
+        "rawNonWhitespaceCer": 0.0,
+        "rawNonWhitespaceCodepoints": 46,
+        "rawNonWhitespaceEditDistance": 0
+      }
+    },
+    "table": {
+      "caseCount": 1,
+      "cellDetection": {
+        "falseNegative": 6,
+        "falsePositive": 1,
+        "hmean": 0.631578947368421,
+        "iouThreshold": 0.5,
+        "meanMatchedIou": 0.7316636964078631,
+        "precision": 0.8571428571428571,
+        "recall": 0.5,
+        "supported": true,
+        "truePositive": 6
+      },
+      "rawReadingOrder": {
+        "comparablePairs": 21,
+        "errorRate": 0.0,
+        "inversions": 0,
+        "supported": true
+      },
+      "rowDetection": {
+        "falseNegative": 0,
+        "falsePositive": 0,
+        "hmean": 1.0,
+        "iouThreshold": 0.5,
+        "meanMatchedIou": 0.915157344980155,
+        "precision": 1.0,
+        "recall": 1.0,
+        "supported": true,
+        "truePositive": 3
+      },
+      "text": {
+        "exactGeometryRowRecall": 1.0,
+        "expectedNonWhitespaceCodepoints": 46,
+        "geometryNonWhitespaceCer": 0.0,
+        "geometryNonWhitespaceCodepoints": 46,
+        "geometryNonWhitespaceEditDistance": 0,
+        "rawNonWhitespaceCer": 0.0,
+        "rawNonWhitespaceCodepoints": 46,
+        "rawNonWhitespaceEditDistance": 0
+      }
+    },
+    "ui": {
+      "caseCount": 1,
+      "cellDetection": {
+        "falseNegative": 6,
+        "falsePositive": 1,
+        "hmean": 0.631578947368421,
+        "iouThreshold": 0.5,
+        "meanMatchedIou": 0.7316636964078631,
+        "precision": 0.8571428571428571,
+        "recall": 0.5,
+        "supported": true,
+        "truePositive": 6
+      },
+      "rawReadingOrder": {
+        "comparablePairs": 21,
+        "errorRate": 0.0,
+        "inversions": 0,
+        "supported": true
+      },
+      "rowDetection": {
+        "falseNegative": 0,
+        "falsePositive": 0,
+        "hmean": 1.0,
+        "iouThreshold": 0.5,
+        "meanMatchedIou": 0.915157344980155,
+        "precision": 1.0,
+        "recall": 1.0,
+        "supported": true,
+        "truePositive": 3
+      },
+      "text": {
+        "exactGeometryRowRecall": 1.0,
+        "expectedNonWhitespaceCodepoints": 46,
+        "geometryNonWhitespaceCer": 0.0,
+        "geometryNonWhitespaceCodepoints": 46,
+        "geometryNonWhitespaceEditDistance": 0,
+        "rawNonWhitespaceCer": 0.0,
+        "rawNonWhitespaceCodepoints": 46,
+        "rawNonWhitespaceEditDistance": 0
+      }
+    },
+    "zh-en-ja": {
+      "caseCount": 1,
+      "cellDetection": {
+        "falseNegative": 6,
+        "falsePositive": 1,
+        "hmean": 0.631578947368421,
+        "iouThreshold": 0.5,
+        "meanMatchedIou": 0.7316636964078631,
+        "precision": 0.8571428571428571,
+        "recall": 0.5,
+        "supported": true,
+        "truePositive": 6
+      },
+      "rawReadingOrder": {
+        "comparablePairs": 21,
+        "errorRate": 0.0,
+        "inversions": 0,
+        "supported": true
+      },
+      "rowDetection": {
+        "falseNegative": 0,
+        "falsePositive": 0,
+        "hmean": 1.0,
+        "iouThreshold": 0.5,
+        "meanMatchedIou": 0.915157344980155,
+        "precision": 1.0,
+        "recall": 1.0,
+        "supported": true,
+        "truePositive": 3
+      },
+      "text": {
+        "exactGeometryRowRecall": 1.0,
+        "expectedNonWhitespaceCodepoints": 46,
+        "geometryNonWhitespaceCer": 0.0,
+        "geometryNonWhitespaceCodepoints": 46,
+        "geometryNonWhitespaceEditDistance": 0,
+        "rawNonWhitespaceCer": 0.0,
+        "rawNonWhitespaceCodepoints": 46,
+        "rawNonWhitespaceEditDistance": 0
+      }
+    }
+  },
+  "engine": {
+    "capabilities": {
+      "lineGeometry": true,
+      "structuredFormula": false
+    },
+    "id": "ppocrv6+edgegnn",
+    "version": "ppocrv6-edgegnn-ab-medium-det@313c16bb281b0a4394395c4657df52922ba513ebc43dbcfaf34e803885c369d7"
+  },
+  "schema": "clippy-ocr-table-report-v1",
+  "summary": {
+    "caseCount": 1,
+    "cellDetection": {
+      "falseNegative": 6,
+      "falsePositive": 1,
+      "hmean": 0.631578947368421,
+      "iouThreshold": 0.5,
+      "meanMatchedIou": 0.7316636964078631,
+      "precision": 0.8571428571428571,
+      "recall": 0.5,
+      "supported": true,
+      "truePositive": 6
+    },
+    "rawReadingOrder": {
+      "comparablePairs": 21,
+      "errorRate": 0.0,
+      "inversions": 0,
+      "supported": true
+    },
+    "rowDetection": {
+      "falseNegative": 0,
+      "falsePositive": 0,
+      "hmean": 1.0,
+      "iouThreshold": 0.5,
+      "meanMatchedIou": 0.915157344980155,
+      "precision": 1.0,
+      "recall": 1.0,
+      "supported": true,
+      "truePositive": 3
+    },
+    "text": {
+      "exactGeometryRowRecall": 1.0,
+      "expectedNonWhitespaceCodepoints": 46,
+      "geometryNonWhitespaceCer": 0.0,
+      "geometryNonWhitespaceCodepoints": 46,
+      "geometryNonWhitespaceEditDistance": 0,
+      "rawNonWhitespaceCer": 0.0,
+      "rawNonWhitespaceCodepoints": 46,
+      "rawNonWhitespaceEditDistance": 0
+    }
+  }
+}

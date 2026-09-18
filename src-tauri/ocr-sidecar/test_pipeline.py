@@ -7,7 +7,7 @@ import unittest
 import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from edge_features import build_features, color_features
-from layout_groups import group_lines, order_groups
+from layout_groups import baseline_order, group_lines, order_groups
 from pipeline import crop_line, decode_ctc, decode_ctc_detailed, decode_png, model_contract, orient_line, should_use_english_spacing, tile_origins, reconcile_overview, remove_contained_quads
 
 
@@ -51,6 +51,30 @@ class FeatureTests(unittest.TestCase):
         geometry = [{"min": value.min(0), "max": value.max(0), "center": value.mean(0)} for value in quads]
         self.assertEqual(order_groups([[0], [1], [2], [3]], geometry), [[1], [3], [0], [2]])
         self.assertEqual(order_groups([[0, 2], [1, 3], [4]], geometry), [[4], [1, 3], [0, 2]])
+
+    def test_same_baseline_uses_left_to_right_despite_vertical_detection_jitter(self):
+        geometry = [
+            {"min": np.array([134.4, 158.4]), "max": np.array([206.6, 180.6])},
+            {"min": np.array([27.4, 156.4]), "max": np.array([114.6, 182.6])},
+            {"min": np.array([219.3, 158.3]), "max": np.array([301.7, 180.7])},
+            {"min": np.array([25.0, 220.0]), "max": np.array([100.0, 242.0])},
+        ]
+        bounds = [(item["min"], item["max"]) for item in geometry]
+        self.assertEqual(baseline_order([0, 1, 2, 3], bounds, 22), [1, 0, 2, 3])
+        for item in geometry:
+            item["center"] = (item["min"] + item["max"]) / 2
+        self.assertEqual(order_groups([[0], [1], [2], [3]], geometry), [[1], [0], [2], [3]])
+        quads = [
+            quad(134.4, 158.4, 72.2, 22.2),
+            quad(27.4, 156.4, 87.2, 26.2),
+            quad(219.3, 158.3, 82.4, 22.4),
+            quad(25, 220, 75, 22),
+        ]
+        inputs, built_geometry = build_features(
+            np.full((300, 400, 3), 255, np.uint8), quads
+        )
+        logits = np.full((len(inputs["edge_index"]),), 10, np.float32)
+        self.assertEqual(group_lines(inputs, logits, built_geometry), [[1, 0, 2, 3]])
 
     def test_overview_replaces_seam_fragments_without_swallowing_other_rows(self):
         parts = [quad(0, 0, 80), quad(75, 0, 200), quad(0, 40, 60), quad(350, 0, 60)]

@@ -3,6 +3,24 @@ import math
 import numpy as np
 
 
+def baseline_order(indices, bounds, height):
+    """同一基线容忍少量 det 抖动，再按 x 排序；不同行仍按 y。"""
+    pending = sorted(indices, key=lambda index: (float(bounds[index][0][1]), index))
+    result = []
+    while pending:
+        top = float(bounds[pending[0]][0][1])
+        row = [
+            index
+            for index in pending
+            if float(bounds[index][0][1]) - top <= height * .5
+        ]
+        row.sort(key=lambda index: (float(bounds[index][0][0]), float(bounds[index][0][1]), index))
+        result.extend(row)
+        selected = set(row)
+        pending = [index for index in pending if index not in selected]
+    return result
+
+
 def order_groups(groups, geometry):
     """Clippy XY-cut 顺序：先贯通列空隙，再区段；基线容差不改变GNN组。"""
     if len(groups) < 2:
@@ -27,15 +45,7 @@ def order_groups(groups, geometry):
                 _, at = max(cuts)
                 return ordered(sequence[:at]) + ordered(sequence[at:])
         # 没有贯通gutter时按行阅读。相差不足半个行高的组视为同基线，左到右。
-        pending = sorted(indices, key=lambda index: float(bounds[index][0][1]))
-        result = []
-        while pending:
-            top = float(bounds[pending[0]][0][1])
-            row = [index for index in pending if float(bounds[index][0][1]) - top <= height * .5]
-            row.sort(key=lambda index: (float(bounds[index][0][0]), index))
-            result.extend(row)
-            pending = [index for index in pending if index not in row]
-        return result
+        return baseline_order(indices, bounds, height)
     return [groups[index] for index in ordered(list(range(len(groups))))]
 
 
@@ -83,7 +93,13 @@ def group_lines(inputs, logits, geometry, threshold=.52):
     grouped = {}
     for node in range(n):
         grouped.setdefault(find(node), []).append(node)
-    rank = {node: index for index, node in enumerate(sorted(range(n), key=lambda i: (geometry[i]["center"][1], geometry[i]["min"][0], geometry[i]["center"][0], i)))}
+    heights = sorted(max(float(item["max"][1] - item["min"][1]), 1) for item in geometry)
+    height = heights[(len(heights) - 1) // 2]
+    node_bounds = [(item["min"], item["max"]) for item in geometry]
+    rank = {
+        node: index
+        for index, node in enumerate(baseline_order(list(range(n)), node_bounds, height))
+    }
     groups = [sorted(nodes, key=rank.get) for _, nodes in sorted(grouped.items())]
     bounds = [(np.min([geometry[i]["min"] for i in nodes], axis=0), np.max([geometry[i]["max"] for i in nodes], axis=0)) for nodes in groups]
     fragments = []

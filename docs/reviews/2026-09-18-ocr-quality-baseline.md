@@ -146,6 +146,29 @@ small；后续若做表格结构识别，应建立 cell/row 双层真值和独�
 Rust 产品 manifest 的 `deny_unknown_fields` 会拒绝该字段，所以研究档位不会成为隐藏产品入口。全部
 预测、分标签报告和无本机路径的环境身份保存在 `2026-09-18-ocr-model-tiers/`。
 
+## 表格 row/cell 双层合同与同基线排序
+
+普通行框 Hmean 会把“整行检测”和“拆成多个 cell”视为互斥答案，无法判断表格是否仍能正确复制。
+本轮为固定 `table-values` 图片增加独立 `table-corpus-v1`：真值保存 table、row、cell、列序号和
+原图四边形；评测器分别计算 raw cell 检测、按纯几何聚合后的 row 检测、产品原始 reading order，
+以及按 y 行/x 列重建后的文本。评测重建不参与产品推理。
+
+| 管线 | row Hmean | cell Hmean | raw inversion | raw / 几何非空白 CER |
+|---|---:|---:|---:|---:|
+| small det + small rec | 1.000 | 0.000 | 0 / 3 | 0% / 0% |
+| medium det + small rec（修复前） | 1.000 | 0.632 | 1 / 21 | 17.39% / 0% |
+| medium det + small rec（修复后） | 1.000 | 0.632 | **0 / 21** | **0% / 0%** |
+
+medium 检出的第三行三个框本来已包含完整字符，但 `¥88.00` 的顶边比左侧 `日本茶 3` 低约 2px；
+旧排序先比较精确 y，导致金额跑到行首。`layout_groups.py` 现在把半个中位行高内的框视为同一基线，
+先按 x、再按 y 排序。真实 sidecar 使用相同 medium det、small rec 和 Edge 权重重跑后，输出恢复为
+`日本茶 3 → ¥88.00 → ¥264.00`；检测框、字符、row/cell 指标均未改变。前后预测、报告和运行源码
+SHA 保存在 `2026-09-18-ocr-table-order/`。
+
+cell Hmean 0.632 不表示 medium 比 small 的表格文字更差：表头仍是整行框，前两列也有合框，因此只
+命中 12 个 cell 真值中的 6 个。当前修复只保证可复制的 row-major 文本，不声称已经恢复可导出的
+电子表格结构；空单元格、跨行/跨列、无边框复杂表格仍需更大语料和独立结构模型。
+
 ## 本轮实现
 
 1. `quality-corpus.schema.json` 固定图片相对路径、SHA、尺寸、许可、标签、框、原始文字、顺序与公式；
@@ -160,6 +183,8 @@ Rust 产品 manifest 的 `deny_unknown_fields` 会拒绝该字段，所以研究
    左 3 行 + 右 3 行，已有正确分组保持不变。
 8. `--diagnostics-dir` 为每个 case 在全新私有目录写入有界诊断；逐字符证据包含 class、发射时间步、
    前置 blank-run 和相邻发射间距，总计最多 4096 个发射。普通产品请求不构造或返回这些对象。
+9. `table-corpus-v1` 与 `quality_table.py` 将 cell、聚合 row、原始顺序和几何可恢复性分开计分；
+   同基线稳定排序只使用框几何，不读取 OCR 文字或表格真值。
 
 ## 后续优化顺序
 

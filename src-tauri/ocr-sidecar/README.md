@@ -132,6 +132,18 @@ small/medium 模型档位只能通过研究采集器比较，不能直接生成�
 当前证据显示 medium rec 只在部分英语/日文非空白字符上改善，medium det 会把表格行拆成 cell 并
 破坏现有阅读顺序，整体延迟明显增加，因此设置页没有 medium 档位，64 MiB 产品单模型预算也不提高。
 
+表格样本使用独立 row/cell 合同复核，避免把整行框和 cell 框直接当成互斥答案：
+
+```sh
+python3 src-tauri/ocr-sidecar/quality_table.py \
+  --corpus src-tauri/ocr-sidecar/quality-fixtures/ui-stress-v1/table-corpus.json \
+  --predictions /absolute/model-tier-results/ui-stress-v1-medium-det-predictions.json \
+  --output /new/table-report.json
+```
+
+报告分别给出 raw cell Hmean、几何聚合 row Hmean、产品原始顺序 inversion，以及只按框的 y/x
+重建文本。几何重建只用于诊断可恢复性；产品排序仍由 `layout_groups.py` 执行。
+
 增强链采集时可显式增加 `--diagnostics-dir /new/directory`。采集器只创建全新目录，并为每个 case
 保存有界诊断：det/Edge shape 与分组、逐行文字、CTC 接受字符的 class、发射时间步、前置 blank-run
 和相邻发射间距。诊断不进入产品 IPC，也不保存完整分类张量；单次请求最多记录 4096 个字符发射。

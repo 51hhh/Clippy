@@ -1,0 +1,41 @@
+{
+  "baseManifestSha256": "63e9867fdf586250d4d84ba5db6bfd35f1728e73129a0178104d3f42f64ed8f4",
+  "corpora": [
+    "ui-stress-v1"
+  ],
+  "corpusFiles": {
+    "ui-stress-v1": "2bca7e539de133ab47dc3c1453bdc2b81f411cc83b058f6fe667297ad59a940e"
+  },
+  "medium": {
+    "det": {
+      "bytes": 62032837,
+      "pathRecorded": false,
+      "revision": "61323801669c338b7891481ec7bac61ce31b576a",
+      "sha256": "eb13b44b25bb36f89528b68720af8a61d9cf381176107f465db1757b65d086e1"
+    },
+    "rec": {
+      "bytes": 76554979,
+      "pathRecorded": false,
+      "revision": "50c7eacafc52fa7bcf4194e8cd08e46f8558504b",
+      "sha256": "9c09abf0957f7968c7586464b7397b84ad2387a0497a351af40e9acc71b673ba"
+    }
+  },
+  "numpy": "2.2.6",
+  "onnxruntime": "1.25.0",
+  "opencv": "4.12.0",
+  "profiles": [
+    "small-small",
+    "medium-det",
+    "medium-rec",
+    "medium-both"
+  ],
+  "python": "3.12.14",
+  "runtimeFiles": {
+    "edge_features.py": "8c257fb0f37f52049cf405485bcf25017a5e4748bc7c8068ba5b19f8e58d4d3c",
+    "layout_groups.py": "038e97fd06796fe9013a11f1d252f6e7a815d89bc1351ff1de6ae7789c4b4fd2",
+    "main.py": "56c8bb3f81491b249fb6db26cdb836964330c311435e766ded1c1b28fecc9bf0",
+    "pipeline.py": "4df5d6cca6389876418b146e756e02811bd41717d5edbfd44add410cbedab93f",
+    "visual_paragraphs.py": "574a526edc2c83e1be496e3e0c30515abf7d7d48ffbf4fcf50aeb542379ccd2b"
+  },
+  "schema": "clippy-ocr-model-tier-ab-v1"
+}

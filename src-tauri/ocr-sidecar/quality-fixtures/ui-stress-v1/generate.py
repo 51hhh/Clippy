@@ -73,6 +73,11 @@ CASES = [
             [28, 88, "Coffee  12      ¥19.90     ¥238.80"],
             [28, 154, "日本茶  3       ¥88.00     ¥264.00"],
         ],
+        "tableCells": [
+            ["商品", "数量", "单价", "小计"],
+            ["Coffee", "12", "¥19.90", "¥238.80"],
+            ["日本茶", "3", "¥88.00", "¥264.00"],
+        ],
     },
 ]
 
@@ -129,12 +134,68 @@ def render(spec):
     }
 
 
+def table_case(spec, rendered):
+    logical_width, logical_height = spec["size"]
+    scale = spec["scale"]
+    image = Image.new("RGB", (round(logical_width * scale), round(logical_height * scale)))
+    draw = ImageDraw.Draw(image)
+    font = ImageFont.truetype(str(FONT_PATH), round(spec["fontSize"] * scale))
+    rows = []
+    for row_index, ((x, y, line_text), cell_texts) in enumerate(
+        zip(spec["lines"], spec["tableCells"], strict=True)
+    ):
+        cursor = 0
+        cells = []
+        for column_index, text in enumerate(cell_texts):
+            start = line_text.find(text, cursor)
+            if start < 0:
+                raise ValueError(f"{text!r} 不在表格行 {line_text!r} 中")
+            at = (
+                round(x * scale) + draw.textlength(line_text[:start], font=font),
+                round(y * scale),
+            )
+            left, top, right, bottom = draw.textbbox(at, text, font=font)
+            padding = round(2 * scale)
+            cells.append(
+                {
+                    "id": f"table-values-r{row_index + 1}c{column_index + 1}",
+                    "text": text,
+                    "columnIndex": column_index,
+                    "quad": [
+                        [(left - padding) / scale, (top - padding) / scale],
+                        [(right + padding) / scale, (top - padding) / scale],
+                        [(right + padding) / scale, (bottom + padding) / scale],
+                        [(left - padding) / scale, (bottom + padding) / scale],
+                    ],
+                }
+            )
+            cursor = start + len(text)
+        rows.append({"id": f"table-values-r{row_index + 1}", "cells": cells})
+    return {
+        "id": rendered["id"],
+        "tags": rendered["tags"],
+        "source": rendered["source"],
+        "tables": [{"id": "table-values-main", "rows": rows}],
+    }
+
+
 def main():
     if not FONT_PATH.is_file():
         raise SystemExit(f"missing bundled font: {FONT_PATH}")
-    corpus = {"schema": "clippy-ocr-quality-corpus-v1", "cases": [render(spec) for spec in CASES]}
+    rendered = [render(spec) for spec in CASES]
+    corpus = {"schema": "clippy-ocr-quality-corpus-v1", "cases": rendered}
     (ROOT / "corpus.json").write_text(
         json.dumps(corpus, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    table_spec = next(spec for spec in CASES if spec["id"] == "table-values")
+    table_rendered = next(case for case in rendered if case["id"] == "table-values")
+    table_corpus = {
+        "schema": "clippy-ocr-table-corpus-v1",
+        "cases": [table_case(table_spec, table_rendered)],
+    }
+    (ROOT / "table-corpus.json").write_text(
+        json.dumps(table_corpus, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
         encoding="utf-8",
     )
 

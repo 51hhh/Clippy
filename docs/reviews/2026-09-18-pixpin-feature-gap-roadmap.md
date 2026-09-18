@@ -233,6 +233,27 @@ LaTeX/MathML，也不使用私有 PixPin 模型或指标。
 CER 和空白上回退；medium det 将表格行拆成 cell 后破坏当前排序，且延迟约为 small 的 1.8–2.7 倍。
 因此本轮结论是保留 small 默认并拒绝直接升档；原始报告见 OCR 质量基线。
 
+### `PX-OCR-TABLE-01` 表格行与单元格结构合同
+
+**Goal**：让整行框和拆分 cell 的检测结果都能按各自粒度公平评测，并确保复制文本始终保持
+row-major 顺序，避免金额、编号或表头因微小纵坐标差异错列。
+
+**Requirements**：表格真值必须显式保存 table/row/cell/columnIndex 与原图四边形；raw cell 检测和
+几何聚合后的 row 检测分别计分；产品原始顺序与仅按框几何重建的顺序分别计算 inversion 和非空白
+CER。任何排序修复只能使用检测框几何，不能读取真值、OCR 文字或表格关键词，也不能改变框坐标和
+识别字符。
+
+**Acceptance Criteria**：固定表格样本能证明整行 small 与拆框 medium 都达到 row Hmean 1.000；
+medium 当前输出中的错列必须由 raw inversion/CER 捕获，几何重建应恢复 row-major 且非空白 CER 为
+0；相同基线存在 1–2px 抖动时仍按 x 排序，不同行、双栏和既有分组测试不得回退。
+
+**Out of Scope**：本阶段不导出 HTML/CSV/XLSX，不恢复 rowspan/colspan、边框或空白单元格，不把
+评测时的真值行归属带入产品，也不因此启用 medium 模型。
+
+实现状态：已完成。独立 `table-corpus-v1` 与双层评测器已建立；固定证据显示 small/medium row Hmean 均为
+1.000，medium det 的 raw 顺序有 1 次 inversion、非空白 CER 17.39%，而同一批框按几何重建后 CER
+为 0。同基线稳定排序接入后真实 sidecar 重跑为 0 inversion、0% CER，既有双栏和分组回归保持通过。
+
 官方资料还给出三个与实现直接相关的边界：
 
 - PP-OCRv6 small recognition 是单模型 50 语言路线，但官方指标来自其内部数据集，不能直接外推到
@@ -349,6 +370,7 @@ delta；父链与项目历史留给 `PX-PIN-01`。显式 resize/crop 之外不�
 | P0 | `PX-OCR-QUALITY-01` | 混合文字/空白/符号/公式质量语料、指标与双引擎基线 | 当前 OCR 输出合同 |
 | P0（已完成） | `PX-OCR-ORIENTATION-01` | 可选逐框 0°/180°分类与四向固定语料 | `PX-OCR-QUALITY-01` |
 | P0（已完成调研） | `PX-OCR-MODEL-TIER-01` | small/medium det/rec 四组 A/B；当前不升档 | `PX-OCR-QUALITY-01` |
+| P0（已完成） | `PX-OCR-TABLE-01` | row/cell 双层真值、错列检测与稳定同基线排序 | `PX-OCR-MODEL-TIER-01` |
 | P0 | `PX-OCR-01` | 基于基线完成增强 OCR 安装、健康检查、许可与模型选择 | `PX-OCR-QUALITY-01` |
 | P0 | `PX-CAPTURE-TOOLS-01` | 冻结选区快捷扫码；保留现有长截图入口 | capture session 身份 |
 | P1（进行中） | `PX-LS-2D-01` | 上下左右拼接、viewport 回访与显式撤销已实现；输入透明 guide 待三平台实现 | 真实长截图 fixture |

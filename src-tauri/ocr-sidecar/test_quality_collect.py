@@ -5,6 +5,7 @@ import unittest
 
 import quality_collect as collect
 import quality_metrics as quality
+import quality_table
 
 
 def minimal_png(width, height):
@@ -27,6 +28,12 @@ class QualityCollectTests(unittest.TestCase):
         self.assertGreaterEqual(len(corpora), 2)
         for corpus_path in corpora:
             corpus = quality.validate_corpus(quality.load_json(corpus_path))
+            for case in corpus["cases"]:
+                self.assertTrue(collect.read_case_png(corpus_path, case))
+        table_corpora = sorted(fixtures.glob("*/table-corpus.json"))
+        self.assertGreaterEqual(len(table_corpora), 1)
+        for corpus_path in table_corpora:
+            corpus = quality_table.validate_table_corpus(quality.load_json(corpus_path))
             for case in corpus["cases"]:
                 self.assertTrue(collect.read_case_png(corpus_path, case))
 
