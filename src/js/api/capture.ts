@@ -96,8 +96,13 @@ export function appendLongshotController(handle: LongshotHandle): Promise<Longsh
   return invoke<LongshotSnapshot>("append_longshot_controller", { handle });
 }
 
+/** 显式撤销二维画布最后一次提交；该操作不会重新捕获屏幕。 */
+export function undoLongshotController(handle: LongshotHandle): Promise<LongshotSnapshot> {
+  return invoke<LongshotSnapshot>("undo_longshot_controller", { handle });
+}
+
 /**
- * 获取 exact 长截图会话的尾部 PNG 预览。二进制 IPC 结果仍是不可信输入：
+ * 获取 exact 长截图会话的画布 PNG 预览。二进制 IPC 结果仍是不可信输入：
  * 只接受当前 realm 的非空 ArrayBuffer，并把单次响应限制在 1 MiB 内。
  */
 export async function previewLongshotController(handle: LongshotHandle): Promise<ArrayBuffer> {

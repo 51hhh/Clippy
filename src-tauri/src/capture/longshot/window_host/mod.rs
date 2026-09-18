@@ -29,8 +29,8 @@ use tauri::Manager;
 #[cfg(test)]
 use workers::AppendBoundary;
 use workers::{
-    execute_append_with_ops, execute_preview_with_ops, run_activation_worker, run_append_worker,
-    run_preview_worker,
+    execute_append_with_ops, execute_preview_with_ops, execute_visible_mutation,
+    run_activation_worker, run_append_worker, run_preview_worker,
 };
 
 const CONTROLLER_PREFIX: &str = "longshot-controller-";
@@ -234,6 +234,24 @@ pub(crate) async fn append(
         },
         |token| cancel_claimed(&app, state, caller_label, token),
         |_| {},
+    )
+    .await
+}
+
+pub(crate) async fn undo(
+    state: &AppState,
+    caller_label: &str,
+    handle: LongshotControllerHandle,
+) -> Result<LongshotSnapshotDto, LongshotIpcError> {
+    let lifecycle = state.longshot_lifecycle.clone();
+    execute_visible_mutation(
+        &state.longshot_windows,
+        caller_label,
+        &handle,
+        move |token| {
+            let lifecycle = lifecycle.clone();
+            async move { run_append_worker(move || lifecycle.undo(&token)).await }
+        },
     )
     .await
 }

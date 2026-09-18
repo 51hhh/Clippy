@@ -38,6 +38,7 @@ import {
   cancelLongshotController,
   activateLongshotController,
   appendLongshotController,
+  undoLongshotController,
   previewLongshotController,
   finishLongshotController,
   markCaptureOverlayReady,
@@ -323,6 +324,7 @@ describe("typed IPC wrappers", () => {
     activateLongshotController();
     markLongshotControllerReady();
     appendLongshotController(handle);
+    undoLongshotController(handle);
     finishLongshotController(handle, "copy");
     finishLongshotController(handle, "save");
     finishLongshotController(handle, "pin");
@@ -333,20 +335,21 @@ describe("typed IPC wrappers", () => {
     expect(invoke).toHaveBeenNthCalledWith(2, "activate_longshot_controller");
     expect(invoke).toHaveBeenNthCalledWith(3, "mark_longshot_controller_ready");
     expect(invoke).toHaveBeenNthCalledWith(4, "append_longshot_controller", { handle });
-    expect(invoke).toHaveBeenNthCalledWith(5, "finish_longshot_controller", {
+    expect(invoke).toHaveBeenNthCalledWith(5, "undo_longshot_controller", { handle });
+    expect(invoke).toHaveBeenNthCalledWith(6, "finish_longshot_controller", {
       handle,
       action: "copy",
     });
-    expect(invoke).toHaveBeenNthCalledWith(6, "finish_longshot_controller", {
+    expect(invoke).toHaveBeenNthCalledWith(7, "finish_longshot_controller", {
       handle,
       action: "save",
     });
-    expect(invoke).toHaveBeenNthCalledWith(7, "finish_longshot_controller", {
+    expect(invoke).toHaveBeenNthCalledWith(8, "finish_longshot_controller", {
       handle,
       action: "pin",
     });
-    expect(invoke).toHaveBeenNthCalledWith(8, "cancel_longshot_controller", { handle });
-    expect(invoke).toHaveBeenNthCalledWith(9, "cancel_longshot_controller", { handle: null });
+    expect(invoke).toHaveBeenNthCalledWith(9, "cancel_longshot_controller", { handle });
+    expect(invoke).toHaveBeenNthCalledWith(10, "cancel_longshot_controller", { handle: null });
   });
 
   it("passes complete longshot Copy, Save, and Pin result contracts through unchanged", async () => {

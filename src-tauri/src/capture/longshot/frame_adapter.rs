@@ -104,10 +104,30 @@ impl LongshotFrameAdapter {
     ///
     /// 最终 PNG 的宽度不能偏离固定裁剪区，且高度至少要包含首帧裁剪区；这样不会把
     /// 前端原始选区的舍入或 clamp 前坐标泄漏到后续贴图定位。
+    #[cfg(test)]
     pub(in crate::capture) fn output_origin(
         &self,
         final_width: u32,
         final_height: u32,
+    ) -> Result<PinOrigin, CaptureError> {
+        let crop_width = self
+            .crop
+            .right
+            .checked_sub(self.crop.left)
+            .ok_or(CaptureError::LongshotFrameInvalid)?;
+        if final_width != crop_width {
+            return Err(CaptureError::LongshotWidthMismatch);
+        }
+        self.output_origin_with_offset(final_width, final_height, 0, 0)
+    }
+
+    /// 根据二维 union 的相对首帧偏移反算最终产物位置。
+    pub(in crate::capture) fn output_origin_with_offset(
+        &self,
+        final_width: u32,
+        final_height: u32,
+        offset_x: i64,
+        offset_y: i64,
     ) -> Result<PinOrigin, CaptureError> {
         let crop_width = self
             .crop
@@ -119,18 +139,28 @@ impl LongshotFrameAdapter {
             .bottom
             .checked_sub(self.crop.top)
             .ok_or(CaptureError::LongshotFrameInvalid)?;
-        if final_width != crop_width {
-            return Err(CaptureError::LongshotWidthMismatch);
-        }
-        if final_height < crop_height {
+        if offset_x > 0
+            || offset_y > 0
+            || final_width < crop_width
+            || final_height < crop_height
+            || i64::from(crop_width)
+                .checked_sub(offset_x)
+                .filter(|right| *right <= i64::from(final_width))
+                .is_none()
+            || i64::from(crop_height)
+                .checked_sub(offset_y)
+                .filter(|bottom| *bottom <= i64::from(final_height))
+                .is_none()
+        {
             return Err(CaptureError::LongshotFrameInvalid);
         }
 
         let scale_x = f64::from(self.signature.scale_x);
         let scale_y = f64::from(self.signature.scale_y);
         let origin = PinOrigin {
-            x: f64::from(self.signature.x) + f64::from(self.crop.left) / scale_x,
-            y: f64::from(self.signature.y) + f64::from(self.crop.top) / scale_y,
+            x: f64::from(self.signature.x)
+                + (f64::from(self.crop.left) + offset_x as f64) / scale_x,
+            y: f64::from(self.signature.y) + (f64::from(self.crop.top) + offset_y as f64) / scale_y,
             width: f64::from(final_width) / scale_x,
             height: f64::from(final_height) / scale_y,
         };
@@ -418,6 +448,31 @@ mod tests {
             adapter.output_origin(4, 9).is_ok(),
             "失败不能污染冻结适配器"
         );
+    }
+
+    #[test]
+    fn output_origin_applies_signed_union_offset_on_both_axes() {
+        let source = encoded_frame(-100, -50, 100, 50, 200, 100, 2.0, 2.0, 17);
+        let selection = CaptureSelection {
+            session_id: "capture-origin-2d".to_string(),
+            monitor_id: 7,
+            x: 30.0,
+            y: 20.0,
+            width: 40.0,
+            height: 30.0,
+        };
+        let (adapter, _) = LongshotFrameAdapter::from_first(&source, &selection).unwrap();
+        let origin = adapter
+            .output_origin_with_offset(120, 100, -40, -20)
+            .unwrap();
+        assert_eq!(origin.x, -90.0);
+        assert_eq!(origin.y, -40.0);
+        assert_eq!(origin.width, 60.0);
+        assert_eq!(origin.height, 50.0);
+        assert!(matches!(
+            adapter.output_origin_with_offset(120, 100, 1, 0),
+            Err(CaptureError::LongshotFrameInvalid)
+        ));
     }
 
     #[test]

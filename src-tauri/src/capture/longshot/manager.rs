@@ -228,6 +228,15 @@ impl LongshotManager {
         self.complete_append(lease, result)
     }
 
+    pub(super) fn undo(
+        &self,
+        token: &LongshotSessionToken,
+    ) -> Result<LongshotSnapshot, CaptureError> {
+        let mut lease = self.claim(token, Operation::Append)?;
+        let result = lease.session.undo();
+        self.complete_mutation(lease, result)
+    }
+
     pub(super) fn finish_with<T, F>(
         &self,
         token: &LongshotSessionToken,
@@ -298,6 +307,29 @@ impl LongshotManager {
         lease: Lease,
         result: Result<LongshotAppendOutcome, CaptureError>,
     ) -> Result<LongshotAppendOutcome, CaptureError> {
+        let Lease {
+            token,
+            operation,
+            session,
+        } = lease;
+        let mut state = self.state.lock().map_err(CaptureError::state_lock)?;
+        if operation == Operation::Append && in_flight_matches(&state.slot, &token, operation) {
+            state.slot = Slot::Active { token, session };
+            drop(state);
+            result
+        } else {
+            drop(state);
+            session.cancel();
+            drop(result);
+            Err(CaptureError::LongshotSessionSuperseded)
+        }
+    }
+
+    fn complete_mutation<T>(
+        &self,
+        lease: Lease,
+        result: Result<T, CaptureError>,
+    ) -> Result<T, CaptureError> {
         let Lease {
             token,
             operation,

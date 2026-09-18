@@ -166,6 +166,34 @@ where
     }
 }
 
+/// 对当前可见控制窗执行不需要重捕获的会话变更，例如显式撤销。
+pub(super) async fn execute_visible_mutation<W, WFut>(
+    registry: &LongshotControllerRegistry,
+    label: &str,
+    handle: &LongshotControllerHandle,
+    worker: W,
+) -> Result<LongshotSnapshotDto, LongshotIpcError>
+where
+    W: FnOnce(LongshotSessionToken) -> WFut,
+    WFut: std::future::Future<Output = Result<LongshotSnapshot, LongshotIpcError>>,
+{
+    let claim = registry.claim_append(label, handle)?;
+    if !registry.owns_append(label, &claim.token) {
+        return Err(LongshotIpcError::superseded());
+    }
+    let result = worker(claim.token.clone()).await;
+    if !registry.owns_append(label, &claim.token) {
+        return Err(LongshotIpcError::superseded());
+    }
+    match result {
+        Ok(snapshot) => registry.complete_append_visible(label, &claim.token, snapshot),
+        Err(error) => {
+            registry.complete_append_visible(label, &claim.token, claim.old_snapshot)?;
+            Err(error)
+        }
+    }
+}
+
 pub(super) async fn run_preview_worker<F>(work: F) -> Result<Vec<u8>, LongshotIpcError>
 where
     F: FnOnce() -> Result<Vec<u8>, CaptureError> + Send + 'static,

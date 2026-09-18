@@ -3,7 +3,6 @@
 //! controller 锁只保护轻量 owner；捕获、裁剪、重叠估计、拼接和 PNG 编码均由
 //! manager 的事务 lease 在两把状态锁之外完成。
 
-#[cfg(test)]
 use super::LongshotSnapshot;
 use super::{
     capture_monitor_frame, LongshotAppendOutcome, LongshotArtifact, LongshotFrameAdapter,
@@ -191,6 +190,15 @@ impl LongshotController {
             .map_err(normalize_claim_race)
     }
 
+    /// 撤销最近一次已提交帧，不执行屏幕重捕获。
+    pub(in crate::capture) fn undo(
+        &self,
+        token: &LongshotSessionToken,
+    ) -> Result<LongshotSnapshot, CaptureError> {
+        self.owner_lease(token)?;
+        self.manager.undo(token).map_err(normalize_claim_race)
+    }
+
     /// 读取最后一次已提交的几何快照。
     #[cfg(test)]
     pub(in crate::capture) fn snapshot(
@@ -201,7 +209,7 @@ impl LongshotController {
         self.manager.snapshot(token).map_err(normalize_claim_race)
     }
 
-    /// 生成已提交像素的只读尾部预览。
+    /// 生成已提交二维画布的只读预览。
     pub(in crate::capture) fn preview_tail_png(
         &self,
         token: &LongshotSessionToken,
@@ -232,10 +240,10 @@ impl LongshotController {
         let artifact = self
             .manager
             .finish_with(token, move |session| {
-                let snapshot = session.snapshot();
+                let (width, height, offset_x, offset_y) = session.output_geometry()?;
                 let origin = lease
                     .adapter
-                    .output_origin(snapshot.width, snapshot.total_height)?;
+                    .output_origin_with_offset(width, height, offset_x, offset_y)?;
                 let png = operation(session)?;
                 Ok(LongshotArtifact { png, origin })
             })

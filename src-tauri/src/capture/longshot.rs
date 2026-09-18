@@ -1,13 +1,15 @@
-//! 长截图的确定性垂直像素核心。
+//! 长截图的确定性二维像素核心。
 //!
-//! [`VerticalStitcher`] 消费显式重叠行，`overlap` 子模块负责从相邻帧估算该值，
+//! `overlap` 子模块从相邻帧估算四向位移，`canvas` 保存不可变帧及其有符号位置，
 //! `session` 子模块把两者组合为单所有者事务核心；`window_host` 负责控制窗 IPC、
-//! 桌面副作用和输出事务。
+//! 桌面副作用和输出事务。旧的 [`VerticalStitcher`] 保留为低层纵向回归夹具。
 
 use super::CaptureError;
 use crate::pin::PinOrigin;
+#[cfg(test)]
 use image::{ImageBuffer, Rgba, RgbaImage};
 
+mod canvas;
 mod controller;
 mod frame_adapter;
 mod lifecycle;
@@ -54,6 +56,7 @@ const PREVIEW_MAX_PNG_BYTES: usize = 1024 * 1024;
 /// 缓冲区始终为行优先、无 padding 的 RGBA8。字段不向模块外暴露，确保所有状态只能由
 /// [`Self::append`] 的预检后写入。
 #[derive(Default)]
+#[cfg(test)]
 pub(super) struct VerticalStitcher {
     width: Option<u32>,
     height: u32,
@@ -61,6 +64,7 @@ pub(super) struct VerticalStitcher {
     rgba: Vec<u8>,
 }
 
+#[cfg(test)]
 impl VerticalStitcher {
     pub(super) fn new() -> Self {
         Self::default()
@@ -222,6 +226,7 @@ fn validate_preview_png_bytes(png: Vec<u8>) -> Result<Vec<u8>, CaptureError> {
 }
 
 /// 以像素中心为基准的整数最近邻映射，结果恒落在 `[0, source_extent)`。
+#[cfg(test)]
 fn nearest_source_coordinate(
     target: u32,
     target_extent: u32,
@@ -249,6 +254,7 @@ fn scaled_height(height: u32, numerator: u32, denominator: u32) -> Result<u32, C
     u32::try_from(scaled.max(1)).map_err(|_| CaptureError::LongshotResourceLimit)
 }
 
+#[cfg(test)]
 fn div_ceil_u64(numerator: u64, denominator: u64) -> Result<u64, CaptureError> {
     numerator
         .checked_add(denominator - 1)
@@ -279,6 +285,7 @@ fn checked_pixel_count(width: u32, height: u32) -> Result<u64, CaptureError> {
         .ok_or(CaptureError::LongshotResourceLimit)
 }
 
+#[cfg(test)]
 fn checked_row_bytes(width: u32) -> Result<usize, CaptureError> {
     let bytes = u64::from(width)
         .checked_mul(RGBA_BYTES_PER_PIXEL)
@@ -286,6 +293,7 @@ fn checked_row_bytes(width: u32) -> Result<usize, CaptureError> {
     usize::try_from(bytes).map_err(|_| CaptureError::LongshotResourceLimit)
 }
 
+#[cfg(test)]
 fn checked_raw_bytes(width: u32, height: u32) -> Result<usize, CaptureError> {
     let bytes = checked_pixel_count(width, height)?
         .checked_mul(RGBA_BYTES_PER_PIXEL)

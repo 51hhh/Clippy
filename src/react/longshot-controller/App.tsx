@@ -13,6 +13,7 @@ type ControllerPhase =
   | "preparing"
   | "ready"
   | "appending"
+  | "undoing"
   | "finishing"
   | "outputPending"
   | "finished"
@@ -287,7 +288,7 @@ export function App() {
 
   const snapshot = activation?.snapshot;
   const previewIdentity = activation && snapshot
-    ? `${activation.handle.sessionId}:${activation.handle.generation}:${snapshot.frameCount}:${snapshot.totalHeight}`
+    ? `${activation.handle.sessionId}:${activation.handle.generation}:${snapshot.frameCount}:${snapshot.width}:${snapshot.totalHeight}`
     : null;
 
   useEffect(() => {
@@ -406,6 +407,68 @@ export function App() {
         appendInFlight.current = false;
         const parsed = parseControllerError(reason);
         console.warn("长截图控制窗口追加失败", parsed.message);
+        setError(parsed);
+        setErrorContext("append");
+        transition(parsed.code === "longshot_controller_cleanup_failed" ? "cleanupError" : "ready");
+        if (parsed.code === "longshot_controller_cleanup_failed") releasePreviewUrl();
+      }
+    })();
+  }, [activation]);
+
+  const undoCurrent = useCallback(() => {
+    const currentActivation = activation;
+    if (
+      !currentActivation
+      || currentActivation.snapshot.frameCount <= 1
+      || phaseRef.current !== "ready"
+      || cancelling.current
+      || appendInFlight.current
+    ) return;
+
+    appendInFlight.current = true;
+    const attempt = ++appendEpoch.current;
+    invalidatePreviewAttempt();
+    const previewBarrier = previewRequest.current?.promise;
+    setError(null);
+    setErrorContext("append");
+    transition("undoing");
+
+    void (async () => {
+      if (previewBarrier) {
+        try {
+          await previewBarrier;
+        } catch {
+          // Preview 失败只用于解除互斥屏障。
+        }
+      }
+      if (
+        !mounted.current
+        || attempt !== appendEpoch.current
+        || !appendInFlight.current
+        || cancelling.current
+        || phaseRef.current !== "undoing"
+      ) return;
+      try {
+        const nextSnapshot = await longshotControllerApi.undo(currentActivation.handle);
+        if (
+          !mounted.current
+          || attempt !== appendEpoch.current
+          || cancelling.current
+          || phaseRef.current !== "undoing"
+        ) return;
+        appendInFlight.current = false;
+        setActivation((current) => current ? { ...current, snapshot: nextSnapshot } : current);
+        transition("ready");
+      } catch (reason) {
+        if (
+          !mounted.current
+          || attempt !== appendEpoch.current
+          || cancelling.current
+          || phaseRef.current !== "undoing"
+        ) return;
+        appendInFlight.current = false;
+        const parsed = parseControllerError(reason);
+        console.warn("长截图控制窗口撤销失败", parsed.message);
         setError(parsed);
         setErrorContext("append");
         transition(parsed.code === "longshot_controller_cleanup_failed" ? "cleanupError" : "ready");
@@ -537,7 +600,10 @@ export function App() {
     };
   }, [cancelCurrent]);
 
-  const isBusy = phase === "appending" || phase === "finishing" || phase === "cancelling";
+  const isBusy = phase === "appending"
+    || phase === "undoing"
+    || phase === "finishing"
+    || phase === "cancelling";
   return (
     <main className="longshot-controller" aria-live="polite" aria-busy={isBusy}>
       <header className="longshot-titlebar" data-tauri-drag-region>
@@ -549,6 +615,7 @@ export function App() {
       {(
         phase === "ready"
         || phase === "appending"
+        || phase === "undoing"
         || phase === "finishing"
         || phase === "outputPending"
         || phase === "finished"
@@ -556,6 +623,7 @@ export function App() {
         <>
           <p className="longshot-status">
             {phase === "appending" && t("longshot.appending")}
+            {phase === "undoing" && t("longshot.undoing")}
             {phase === "finishing" && finishingAction === "copy" && t("longshot.finishingCopy")}
             {phase === "finishing" && finishingAction === "save" && t("longshot.finishingSave")}
             {phase === "finishing" && finishingAction === "pin" && t("longshot.finishingPin")}
@@ -569,6 +637,7 @@ export function App() {
           </p>
           <dl className="longshot-details">
             <div><dt>{t("longshot.frameCount")}</dt><dd>{snapshot.frameCount}</dd></div>
+            <div><dt>{t("longshot.totalWidth")}</dt><dd>{snapshot.width}</dd></div>
             <div><dt>{t("longshot.totalHeight")}</dt><dd>{snapshot.totalHeight}</dd></div>
           </dl>
           {phase !== "finished" && (
@@ -597,7 +666,7 @@ export function App() {
           )}
           {phase !== "finished" && (
             <div className="longshot-actions">
-              {(phase === "ready" || phase === "appending" || phase === "finishing") && (
+              {(phase === "ready" || phase === "appending" || phase === "undoing" || phase === "finishing") && (
                 <>
                   <button
                     type="button"
@@ -606,6 +675,14 @@ export function App() {
                     disabled={phase !== "ready"}
                   >
                     {t("longshot.append")}
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="longshot-undo"
+                    onClick={undoCurrent}
+                    disabled={phase !== "ready" || snapshot.frameCount <= 1}
+                  >
+                    {t("longshot.undo")}
                   </button>
                   <button
                     type="button"
@@ -665,7 +742,7 @@ export function App() {
                   </button>
                 </>
               )}
-              {(phase === "ready" || phase === "appending" || phase === "finishing") && (
+              {(phase === "ready" || phase === "appending" || phase === "undoing" || phase === "finishing") && (
                 <button type="button" data-testid="longshot-cancel" onClick={cancelCurrent}>
                   {t("longshot.cancel")}
                 </button>

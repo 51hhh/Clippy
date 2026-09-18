@@ -4,7 +4,6 @@
 //! 释放都在锁外执行，避免桌面调用反向阻塞会话状态机。
 
 use super::controller::{LongshotController, LongshotControllerFinish, LongshotControllerStart};
-#[cfg(test)]
 use super::LongshotSnapshot;
 use super::{LongshotAppendOutcome, LongshotArtifact, LongshotSessionToken, LongshotStart};
 use crate::capture::manager::OrdinaryCaptureResources;
@@ -98,6 +97,13 @@ impl LongshotLifecycle {
         token: &LongshotSessionToken,
     ) -> Result<LongshotAppendOutcome, CaptureError> {
         self.append_with(token, || self.controller.append(token))
+    }
+
+    pub(in crate::capture) fn undo(
+        &self,
+        token: &LongshotSessionToken,
+    ) -> Result<LongshotSnapshot, CaptureError> {
+        self.snapshot_with(token, || self.controller.undo(token))
     }
 
     #[cfg(test)]
@@ -204,7 +210,6 @@ impl LongshotLifecycle {
         result.map_err(normalize_controller_race)
     }
 
-    #[cfg(test)]
     fn snapshot_with<F>(
         &self,
         token: &LongshotSessionToken,

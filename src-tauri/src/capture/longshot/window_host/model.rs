@@ -120,8 +120,11 @@ impl LongshotControllerHandle {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LongshotSnapshotDto {
     pub(super) frame_count: usize,
+    /// 当前 union 画布总宽度。
     pub(super) width: u32,
+    /// 固定捕获 viewport 的高度。
     pub(super) frame_height: u32,
+    /// 当前 union 画布总高度。
     pub(super) total_height: u32,
 }
 

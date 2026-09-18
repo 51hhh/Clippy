@@ -269,8 +269,11 @@ export interface LongshotHandle {
 /** 当前已拼接帧的轻量摘要；不携带任何像素。 */
 export interface LongshotSnapshot {
   frameCount: number;
+  /** 当前二维 union 画布总宽度。 */
   width: number;
+  /** 固定捕获 viewport 的高度。 */
   frameHeight: number;
+  /** 当前二维 union 画布总高度。 */
   totalHeight: number;
 }
 

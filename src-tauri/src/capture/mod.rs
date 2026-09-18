@@ -136,6 +136,16 @@ pub async fn append_longshot_controller(
     longshot::window_host::append(app, &state, window.label(), handle).await
 }
 
+/// 撤销当前二维画布的最近一次提交；不隐藏控制窗，也不重新捕获屏幕。
+#[tauri::command]
+pub async fn undo_longshot_controller(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+    handle: longshot::LongshotControllerHandle,
+) -> Result<longshot::LongshotSnapshotDto, longshot::LongshotIpcError> {
+    longshot::window_host::undo(&state, window.label(), handle).await
+}
+
 /// 返回 exact 活跃会话的固定上限尾部 PNG，像素不经过 JSON。
 #[tauri::command]
 pub async fn preview_longshot_controller(

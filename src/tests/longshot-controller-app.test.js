@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   controllerApi: {
     activate: vi.fn(),
     append: vi.fn(),
+    undo: vi.fn(),
     preview: vi.fn(),
     finish: vi.fn(),
     ready: vi.fn(),
@@ -61,6 +62,11 @@ describe("longshot controller app", () => {
     for (const fn of Object.values(mocks.controllerApi)) fn.mockReset();
     mocks.controllerApi.activate.mockResolvedValue(activation);
     mocks.controllerApi.append.mockResolvedValue(activation.snapshot);
+    mocks.controllerApi.undo.mockResolvedValue({
+      ...activation.snapshot,
+      frameCount: activation.snapshot.frameCount - 1,
+      totalHeight: 1200,
+    });
     mocks.controllerApi.preview.mockResolvedValue(new Uint8Array([137, 80, 78, 71]).buffer);
     mocks.controllerApi.finish.mockResolvedValue({ action: "copy", path: null, pinLabel: null });
     mocks.controllerApi.ready.mockResolvedValue(undefined);
@@ -109,8 +115,8 @@ describe("longshot controller app", () => {
     expect(mocks.controllerApi.preview).toHaveBeenCalledWith(activation.handle);
     const preview = document.querySelector('[data-testid="longshot-preview"]');
     expect(preview?.getAttribute("role")).toBe("region");
-    expect(preview?.getAttribute("aria-label")).toBe("Long screenshot tail preview");
-    expect(preview?.querySelector("img")?.getAttribute("alt")).toBe("Latest long screenshot tail");
+    expect(preview?.getAttribute("aria-label")).toBe("Long screenshot canvas preview");
+    expect(preview?.querySelector("img")?.getAttribute("alt")).toBe("Latest long screenshot canvas");
     expect(preview?.querySelector("img")?.getAttribute("src")).toBe("blob:longshot-preview");
     expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
     expect(URL.createObjectURL.mock.calls[0][0]).toBeInstanceOf(Blob);
@@ -154,6 +160,7 @@ describe("longshot controller app", () => {
 
   it.each([
     ["Append", "longshot-append", "append"],
+    ["Undo", "longshot-undo", "undo"],
     ["Copy", "longshot-copy", "finish"],
     ["Save", "longshot-save", "finish"],
     ["Pin", "longshot-pin", "finish"],

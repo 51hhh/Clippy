@@ -6,6 +6,7 @@ import {
   markLongshotControllerReady,
   onCurrentWindowCloseRequested,
   previewLongshotController,
+  undoLongshotController,
 } from "../../js/api.ts";
 import type {
   LongshotActivation,
@@ -19,6 +20,7 @@ import type {
 export const longshotControllerApi = {
   activate: (): Promise<LongshotActivation> => activateLongshotController(),
   append: (handle: LongshotHandle): Promise<LongshotSnapshot> => appendLongshotController(handle),
+  undo: (handle: LongshotHandle): Promise<LongshotSnapshot> => undoLongshotController(handle),
   preview: (handle: LongshotHandle): Promise<ArrayBuffer> => previewLongshotController(handle),
   finish: (
     handle: LongshotHandle,
