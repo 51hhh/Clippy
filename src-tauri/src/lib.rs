@@ -25,6 +25,7 @@ mod platform;
 #[cfg(target_os = "linux")]
 mod portal_shortcuts;
 mod private_files;
+mod recording;
 mod screenshot;
 mod shortcut_conflict;
 mod storage;
@@ -110,6 +111,21 @@ pub fn run() {
             // ── 1. 确定数据目录 ──────────────────────────────────────────────
             let app_data_dir = app.path().app_data_dir().expect("无法获取应用数据目录");
             std::fs::create_dir_all(&app_data_dir).expect("无法创建应用数据目录");
+            let recording_data_dir = app_data_dir.clone();
+            tauri::async_runtime::spawn(async move {
+                match tauri::async_runtime::spawn_blocking(move || {
+                    recording::recover_interrupted_sessions(&recording_data_dir)
+                })
+                .await
+                {
+                    Ok(Ok(summary)) if summary.has_activity() => {
+                        log::info!("录屏恢复扫描完成: {summary}");
+                    }
+                    Ok(Ok(_)) => {}
+                    Ok(Err(error)) => log::warn!("录屏恢复扫描失败: {error}"),
+                    Err(error) => log::warn!("录屏恢复线程异常: {error}"),
+                }
+            });
             let picture_dir = app
                 .path()
                 .picture_dir()
