@@ -10,6 +10,8 @@ import type {
   PinState,
   PinToolbarBounds,
   PinUpdate,
+  PinWorkspaceGroup,
+  PinWorkspaceStatus,
 } from "../ipc-types.ts";
 
 export function pinClip(id: number): Promise<string> {
@@ -63,6 +65,38 @@ export function copyPin(label: string): Promise<void> {
 
 export function savePin(label: string): Promise<string> {
   return invoke<string>("save_pin", { label });
+}
+
+export function savePinToWorkspace(
+  label: string,
+  groupId: number | null,
+  project: PinCanvasProject | null,
+): Promise<PinWorkspaceStatus> {
+  return invoke<PinWorkspaceStatus>("save_pin_to_workspace", { label, groupId, project });
+}
+
+export function removePinFromWorkspace(label: string): Promise<void> {
+  return invoke<void>("remove_pin_from_workspace", { label });
+}
+
+export function listPinWorkspaceGroups(): Promise<PinWorkspaceGroup[]> {
+  return invoke<PinWorkspaceGroup[]>("list_pin_workspace_groups");
+}
+
+export function createPinWorkspaceGroup(name: string): Promise<PinWorkspaceGroup> {
+  return invoke<PinWorkspaceGroup>("create_pin_workspace_group", { name });
+}
+
+export function renamePinWorkspaceGroup(id: number, name: string): Promise<boolean> {
+  return invoke<boolean>("rename_pin_workspace_group", { id, name });
+}
+
+export function deletePinWorkspaceGroup(id: number): Promise<boolean> {
+  return invoke<boolean>("delete_pin_workspace_group", { id });
+}
+
+export function assignPinWorkspaceGroup(label: string, groupId: number | null): Promise<void> {
+  return invoke<void>("assign_pin_workspace_group", { label, groupId });
 }
 
 /**

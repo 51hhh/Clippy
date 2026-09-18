@@ -626,6 +626,8 @@
   "pin.opacity": "Opacity",
   "pin.edit": "Edit image",
   "pin.save": "Save image",
+  "pin.workspaceSave": "Keep in Pin workspace",
+  "pin.workspaceRemove": "Remove from Pin workspace",
   "pin.copy": "Copy",
   "pin.close": "Close",
   "pin.content": "Pinned content",

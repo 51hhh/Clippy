@@ -626,6 +626,8 @@
   "pin.opacity": "不透明度",
   "pin.edit": "编辑图片",
   "pin.save": "保存图片",
+  "pin.workspaceSave": "保存到贴图工作区",
+  "pin.workspaceRemove": "从贴图工作区移除",
   "pin.copy": "复制",
   "pin.close": "关闭",
   "pin.content": "贴图内容",

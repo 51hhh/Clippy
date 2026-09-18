@@ -138,6 +138,8 @@ pub fn run() {
             let config = Arc::new(Mutex::new(app_config.clone()));
             let paste_manager = Arc::new(paste::PasteManager::new(&app_data_dir));
             let pin_manager = Arc::new(pin::PinManager::new());
+            let pin_workspace_persistence =
+                Arc::new(pin::PinWorkspacePersistence::new(Arc::clone(&storage)));
             let capture_manager = Arc::new(capture::CaptureManager::new());
             let capture_mode_gate = Arc::new(capture::CaptureModeGate::new());
             let longshot_lifecycle = Arc::new(capture::LongshotLifecycle::default());
@@ -187,6 +189,7 @@ pub fn run() {
                 longshot_lifecycle,
                 longshot_windows,
                 pin_manager,
+                pin_workspace_persistence,
                 pin_origins: Arc::new(pin::PinOriginRegistry::default()),
                 paste_manager,
                 translation,
@@ -196,6 +199,22 @@ pub fn run() {
                 #[cfg(target_os = "linux")]
                 portal_shortcuts: portal_shortcuts.clone(),
                 shortcut_failures: Mutex::new(Vec::new()),
+            });
+
+            // 只恢复用户明确保存的工作区；普通临时 Pin 从不进入数据库，也不会跨重启出现。
+            let restore_app = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let app_for_work = restore_app.clone();
+                let result = tauri::async_runtime::spawn_blocking(move || {
+                    let state = app_for_work.state::<AppState>();
+                    pin::restore_saved(&app_for_work, &state)
+                })
+                .await;
+                match result {
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) => log::warn!("恢复 Pin 工作区失败: {error}"),
+                    Err(error) => log::warn!("Pin 工作区恢复线程异常: {error}"),
+                }
             });
 
             // ── 6. 构建托盘并监听主题/语言变化 ────────────────────────────
@@ -377,6 +396,13 @@ pub fn run() {
             pin::commands::save_pin,
             pin::commands::save_pin_canvas,
             pin::commands::open_pin_project_file,
+            pin::commands::save_pin_to_workspace,
+            pin::commands::remove_pin_from_workspace,
+            pin::commands::list_pin_workspace_groups,
+            pin::commands::create_pin_workspace_group,
+            pin::commands::rename_pin_workspace_group,
+            pin::commands::delete_pin_workspace_group,
+            pin::commands::assign_pin_workspace_group,
             pin::commands::close_pin,
             commands::ocr_available,
             commands::ocr_health_status,

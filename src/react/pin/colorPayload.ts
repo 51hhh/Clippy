@@ -8,7 +8,8 @@ type ColorPinPayload = PinPayload & {
 
 const PAYLOAD_FIELDS = [
   "label", "kind", "text", "color", "contentWidth", "contentHeight", "scale", "opacity",
-  "locked", "above", "canSave", "position", "deviceScale", "bufferScale", "initialProject",
+  "locked", "above", "workspaceId", "workspaceGroupId", "canSave", "position", "deviceScale",
+  "bufferScale", "initialProject",
 ] as const;
 const COLOR_FIELDS = ["red", "green", "blue", "alpha", "canonical"] as const;
 
@@ -23,6 +24,10 @@ function isByte(value: unknown): value is number {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function isNullableId(value: unknown): boolean {
+  return value === null || (typeof value === "number" && Number.isSafeInteger(value) && value > 0);
 }
 
 function isPosition(value: unknown): boolean {
@@ -47,6 +52,9 @@ export function isColorPinPayload(value: unknown): value is ColorPinPayload {
     || payload.initialProject !== null
     || typeof payload.locked !== "boolean"
     || typeof payload.above !== "boolean"
+    || !isNullableId(payload.workspaceId)
+    || !isNullableId(payload.workspaceGroupId)
+    || (payload.workspaceId === null && payload.workspaceGroupId !== null)
     || !isFiniteNumber(payload.contentWidth)
     || !isFiniteNumber(payload.contentHeight)
     || !isFiniteNumber(payload.scale)

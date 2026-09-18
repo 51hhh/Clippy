@@ -6,7 +6,7 @@
 
 use super::model::{PinPayload, PinState, PinUpdate};
 use crate::commands::AppState;
-use tauri::State;
+use tauri::{Manager, State};
 
 pub(crate) use super::lifecycle::{
     create_managed_project_pin, create_screenshot_pin_shared, lower_pins_for_capture,
@@ -98,4 +98,78 @@ pub async fn open_pin_project_file(
 #[tauri::command]
 pub async fn close_pin(label: String, app_handle: tauri::AppHandle) -> Result<(), String> {
     super::lifecycle::close_pin(label, app_handle).await
+}
+
+#[tauri::command]
+pub async fn save_pin_to_workspace(
+    label: String,
+    group_id: Option<i64>,
+    project: Option<PinCanvasProject>,
+    app_handle: tauri::AppHandle,
+) -> Result<super::workspace::PinWorkspaceStatus, String> {
+    run_workspace_work(app_handle, move |app_handle, state| {
+        super::workspace::save(&label, group_id, project.as_ref(), app_handle, state)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn remove_pin_from_workspace(
+    label: String,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    run_workspace_work(app_handle, move |_app_handle, state| {
+        super::workspace::remove(&label, state)
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn list_pin_workspace_groups(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::storage::PinWorkspaceGroup>, String> {
+    super::workspace::list_groups(&state)
+}
+
+#[tauri::command]
+pub fn create_pin_workspace_group(
+    name: String,
+    state: State<'_, AppState>,
+) -> Result<crate::storage::PinWorkspaceGroup, String> {
+    super::workspace::create_group(&name, &state)
+}
+
+#[tauri::command]
+pub fn rename_pin_workspace_group(
+    id: i64,
+    name: String,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    super::workspace::rename_group(id, &name, &state)
+}
+
+#[tauri::command]
+pub fn delete_pin_workspace_group(id: i64, state: State<'_, AppState>) -> Result<bool, String> {
+    super::workspace::delete_group(id, &state)
+}
+
+#[tauri::command]
+pub fn assign_pin_workspace_group(
+    label: String,
+    group_id: Option<i64>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    super::workspace::assign_group(&label, group_id, &state)
+}
+
+async fn run_workspace_work<T: Send + 'static>(
+    app_handle: tauri::AppHandle,
+    work: impl FnOnce(&tauri::AppHandle, &AppState) -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        work(&app_handle, &state)
+    })
+    .await
+    .map_err(|error| format!("Pin 工作区任务异常: {error}"))?
 }

@@ -1,10 +1,15 @@
 mod image_revisions;
 mod maintenance;
+mod pin_workspace;
 mod stats;
 mod translation_history;
 mod url_cache;
 
 pub(crate) use image_revisions::{ImageRevisionWrite, StoredImageRevision};
+pub(crate) use pin_workspace::{
+    PinWorkspaceGroup, PinWorkspaceItemWrite, PinWorkspacePresentation, StoredPinPlacement,
+    StoredPinWorkspaceContent, StoredPinWorkspaceItem,
+};
 pub use translation_history::NewTranslation;
 
 use crate::models::{ClipItem, ContentType};
@@ -23,6 +28,8 @@ pub enum StorageError {
     Io(#[from] std::io::Error),
     #[error("图片修订数据不一致: {0}")]
     Invariant(String),
+    #[error("Pin 工作区数据不一致: {0}")]
+    PinWorkspaceInvariant(String),
 }
 
 impl StorageError {
@@ -31,6 +38,7 @@ impl StorageError {
             Self::Database(_) => "database",
             Self::Io(_) => "io",
             Self::Invariant(_) => "image_revision_invariant",
+            Self::PinWorkspaceInvariant(_) => "pin_workspace_invariant",
         }
     }
 }
@@ -195,6 +203,7 @@ impl StorageEngine {
 
         self.migrate_use_order()?;
         self.migrate_image_revisions()?;
+        self.migrate_pin_workspace()?;
 
         // URL 元数据缓存表
         self.conn.execute_batch(

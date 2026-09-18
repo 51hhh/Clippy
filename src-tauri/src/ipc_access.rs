@@ -52,6 +52,13 @@ const PIN_COMMANDS: &[&str] = &[
     "pin_ready",
     "save_pin",
     "save_pin_canvas",
+    "save_pin_to_workspace",
+    "remove_pin_from_workspace",
+    "list_pin_workspace_groups",
+    "create_pin_workspace_group",
+    "rename_pin_workspace_group",
+    "delete_pin_workspace_group",
+    "assign_pin_workspace_group",
     "update_pin",
 ];
 

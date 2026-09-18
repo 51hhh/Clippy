@@ -14,23 +14,19 @@ const MIN_IMAGE_HEIGHT: f64 = 120.0;
 /// 竖排工具条要的最小窗口高度。
 ///
 /// 工具条钉在窗口右上角、按钮 28 px 竖着排：放大 / 比例 / 缩小 / 分隔线 / 锁定 /
-/// 不透明度 / 保存 / 复制 / 关闭，连内边距和 8 px 上边距约 249 px。而窗口高度是
+/// 不透明度 / 工作区 / 保存 / 复制 / 关闭，连内边距和 8 px 上边距约 277 px。而窗口高度是
 /// `内容高 × scale + 72`，于是内容不到 180 px 高的贴图（随手框一个小按钮就是这样）
 /// 会把工具条切掉一截——按钮点不到，贴图只能靠 Esc 关。
 ///
 /// 因此给窗口一个高度下限。**多出来的高度不许改变内容的位置**：`.pin-media` 为此
 /// 按内容尺寸显式定宽高、贴在左上角，而不是用 inset 撑满窗口（撑满会让图片在变高的
 /// 框里居中，"贴回原处"当场对不上）。多出来的那块是透明的，看不见。
-const MIN_OUTER_HEIGHT: f64 = 252.0;
+const MIN_OUTER_HEIGHT: f64 = 280.0;
 
-pub(super) fn create_pin_window(
-    app: &tauri::AppHandle,
-    label: &str,
-    content_width: f64,
-    content_height: f64,
-    origin: Option<PinOrigin>,
-) -> Result<(), PinError> {
-    let (outer_width, outer_height) = outer_size(content_width, content_height, 1.0);
+pub(super) fn create_pin_window(app: &tauri::AppHandle, entry: &PinEntry) -> Result<(), PinError> {
+    let label = &entry.label;
+    let (outer_width, outer_height) =
+        outer_size(entry.content_width, entry.content_height, entry.scale);
     let builder = tauri::WebviewWindowBuilder::new(
         app,
         label,
@@ -55,7 +51,13 @@ pub(super) fn create_pin_window(
         |label| app.get_webview_window(label),
         |window| {
             configure_native_pin_window(window);
-            position_new_pin_window(app, window, outer_width, outer_height, origin)
+            position_new_pin_window(
+                app,
+                window,
+                outer_width,
+                outer_height,
+                pin_target_position(app, entry),
+            )
         },
         |window| window.destroy(),
     )?;
@@ -308,6 +310,14 @@ pub(super) fn keep_pin_above(
 /// 没有原始矩形（从剪贴板历史贴的图、别的程序复制来的图）时返回 `None`，
 /// 位置交给创建时的光标定位与合成器自己的摆放。
 fn pin_target_position(app: &tauri::AppHandle, entry: &PinEntry) -> Option<LogicalPosition<f64>> {
+    if let Some(position) = entry.restore_position {
+        return Some(clamp_logical_position(
+            app,
+            LogicalPosition::new(position.x, position.y),
+            outer_size(entry.content_width, entry.content_height, entry.scale).0,
+            outer_size(entry.content_width, entry.content_height, entry.scale).1,
+        ));
+    }
     let origin = entry.origin?;
     let (outer_width, outer_height) =
         outer_size(entry.content_width, entry.content_height, entry.scale);
@@ -347,7 +357,9 @@ pub(super) fn clamp_span(value: f64, start: f64, span: f64, size: f64) -> f64 {
 /// Tauri 的显示器几何是物理像素，而原始矩形与扩展给的窗口坐标都是逻辑像素；
 /// 多屏混合缩放时不能用同一个系数换算整个桌面，所以逐屏折算再挑包含目标点的那块。
 /// 一块都不包含时返回第一块（目标点在屏幕外，钳一下总比不管要好）。
-struct LogicalWorkArea {
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct LogicalWorkArea {
+    name: Option<String>,
     x: f64,
     y: f64,
     width: f64,
@@ -359,18 +371,9 @@ fn logical_work_area(
     app: &tauri::AppHandle,
     position: LogicalPosition<f64>,
 ) -> Option<LogicalWorkArea> {
-    let monitors = app.available_monitors().ok()?;
+    let areas = logical_work_areas(app);
     let mut fallback = None;
-    for monitor in &monitors {
-        let scale = monitor.scale_factor().max(0.1);
-        let work = monitor.work_area();
-        let area = LogicalWorkArea {
-            x: work.position.x as f64 / scale,
-            y: work.position.y as f64 / scale,
-            width: work.size.width as f64 / scale,
-            height: work.size.height as f64 / scale,
-            scale,
-        };
+    for area in areas {
         if position.x >= area.x
             && position.x < area.x + area.width
             && position.y >= area.y
@@ -381,6 +384,122 @@ fn logical_work_area(
         fallback = fallback.or(Some(area));
     }
     fallback
+}
+
+fn logical_work_areas(app: &tauri::AppHandle) -> Vec<LogicalWorkArea> {
+    app.available_monitors()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|monitor| {
+            let scale = monitor.scale_factor().max(0.1);
+            let work = monitor.work_area();
+            LogicalWorkArea {
+                name: monitor.name().cloned(),
+                x: work.position.x as f64 / scale,
+                y: work.position.y as f64 / scale,
+                width: work.size.width as f64 / scale,
+                height: work.size.height as f64 / scale,
+                scale,
+            }
+        })
+        .collect()
+}
+
+pub(super) fn capture_workspace_placement(
+    app: &tauri::AppHandle,
+    label: &str,
+) -> Option<crate::storage::StoredPinPlacement> {
+    let window = app.get_webview_window(label);
+    let scale = window
+        .as_ref()
+        .and_then(|window| window.scale_factor().ok())
+        .unwrap_or(1.0)
+        .max(0.1);
+    let position = visible_window_origin(label).or_else(|| {
+        window
+            .as_ref()
+            .and_then(|window| x11_window_origin(window, scale))
+    })?;
+    let area = logical_work_area(app, position)?;
+    Some(crate::storage::StoredPinPlacement {
+        x: position.x,
+        y: position.y,
+        display_name: area.name,
+        display_x: area.x,
+        display_y: area.y,
+        display_width: area.width,
+        display_height: area.height,
+        display_scale: area.scale,
+    })
+}
+
+pub(super) fn restore_workspace_position(
+    app: &tauri::AppHandle,
+    saved: &crate::storage::StoredPinPlacement,
+    outer_width: f64,
+    outer_height: f64,
+) -> super::model::PinLogicalPosition {
+    let areas = logical_work_areas(app);
+    let primary_name = app
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .and_then(|monitor| monitor.name().cloned());
+    map_workspace_position(
+        saved,
+        &areas,
+        primary_name.as_deref(),
+        outer_width,
+        outer_height,
+    )
+}
+
+fn map_workspace_position(
+    saved: &crate::storage::StoredPinPlacement,
+    areas: &[LogicalWorkArea],
+    primary_name: Option<&str>,
+    outer_width: f64,
+    outer_height: f64,
+) -> super::model::PinLogicalPosition {
+    let selected = saved
+        .display_name
+        .as_deref()
+        .and_then(|name| areas.iter().find(|area| area.name.as_deref() == Some(name)))
+        .or_else(|| {
+            areas.iter().find(|area| {
+                (area.x - saved.display_x).abs() < 1.0
+                    && (area.y - saved.display_y).abs() < 1.0
+                    && (area.width - saved.display_width).abs() < 1.0
+                    && (area.height - saved.display_height).abs() < 1.0
+            })
+        })
+        .or_else(|| {
+            primary_name
+                .and_then(|name| areas.iter().find(|area| area.name.as_deref() == Some(name)))
+        })
+        .or_else(|| areas.first());
+    let Some(area) = selected else {
+        return super::model::PinLogicalPosition {
+            x: saved.x,
+            y: saved.y,
+        };
+    };
+    let relative_x = (saved.x - saved.display_x) / saved.display_width;
+    let relative_y = (saved.y - saved.display_y) / saved.display_height;
+    super::model::PinLogicalPosition {
+        x: clamp_span(
+            area.x + relative_x * area.width,
+            area.x,
+            area.width,
+            outer_width,
+        ),
+        y: clamp_span(
+            area.y + relative_y * area.height,
+            area.y,
+            area.height,
+            outer_height,
+        ),
+    }
 }
 
 /// 贴图窗口里"还落在屏幕工作区内"的那块矩形，**窗口局部坐标**、逻辑像素。
@@ -623,14 +742,13 @@ fn position_new_pin_window(
     window: &tauri::WebviewWindow,
     logical_width: f64,
     logical_height: f64,
-    origin: Option<PinOrigin>,
+    target: Option<LogicalPosition<f64>>,
 ) -> Result<(), PinError> {
     let cursor = app.cursor_position().ok();
     // 有原始矩形就照它摆（截图贴回原处），否则跟着光标——两种情况都要先找到
     // 目标点所在的显示器，因为工作区与缩放都是按屏算的。
-    let anchor = origin
-        .map(|origin| {
-            let target = LogicalPosition::new(origin.x - SHADOW_GUTTER, origin.y - SHADOW_GUTTER);
+    let anchor = target
+        .map(|target| {
             let scale = logical_scale_near(app, target);
             PhysicalPosition::new((target.x * scale).round(), (target.y * scale).round())
         })
@@ -1058,5 +1176,75 @@ mod tests {
             shell_target(Some(LogicalPosition::new(10.4, -20.6))),
             Some((10, -21))
         );
+    }
+
+    fn saved_placement() -> crate::storage::StoredPinPlacement {
+        crate::storage::StoredPinPlacement {
+            x: -1720.0,
+            y: 124.0,
+            display_name: Some("Left".to_string()),
+            display_x: -1920.0,
+            display_y: 24.0,
+            display_width: 1920.0,
+            display_height: 1056.0,
+            display_scale: 1.0,
+        }
+    }
+
+    #[test]
+    fn workspace_restore_prefers_display_identity_and_preserves_relative_position() {
+        let areas = vec![
+            LogicalWorkArea {
+                name: Some("Primary".to_string()),
+                x: 0.0,
+                y: 0.0,
+                width: 1600.0,
+                height: 900.0,
+                scale: 1.5,
+            },
+            LogicalWorkArea {
+                name: Some("Left".to_string()),
+                x: -1280.0,
+                y: 0.0,
+                width: 1280.0,
+                height: 720.0,
+                scale: 2.0,
+            },
+        ];
+        let mapped =
+            map_workspace_position(&saved_placement(), &areas, Some("Primary"), 300.0, 200.0);
+        assert!((mapped.x - -1_146.666_666).abs() < 0.01, "{}", mapped.x);
+        assert!((mapped.y - 68.181_818).abs() < 0.01, "{}", mapped.y);
+    }
+
+    #[test]
+    fn missing_workspace_display_falls_back_to_primary_and_stays_visible() {
+        let areas = vec![LogicalWorkArea {
+            name: Some("Primary".to_string()),
+            x: 0.0,
+            y: 32.0,
+            width: 1366.0,
+            height: 736.0,
+            scale: 1.25,
+        }];
+        let mapped =
+            map_workspace_position(&saved_placement(), &areas, Some("Primary"), 1400.0, 900.0);
+        assert_eq!((mapped.x, mapped.y), (0.0, 32.0));
+    }
+
+    #[test]
+    fn renamed_display_can_match_unchanged_geometry() {
+        let areas = vec![LogicalWorkArea {
+            name: Some("DP-2".to_string()),
+            x: -1920.0,
+            y: 24.0,
+            width: 1920.0,
+            height: 1056.0,
+            scale: 1.0,
+        }];
+        let mut saved = saved_placement();
+        saved.display_name = Some("Old connector".to_string());
+        let mapped = map_workspace_position(&saved, &areas, None, 300.0, 200.0);
+        assert_eq!((mapped.x, mapped.y), (-1720.0, 124.0));
     }
 }

@@ -397,6 +397,27 @@ export function App({ services = defaultServices }: { services?: PinAppServices 
     else runAction(async () => showSaved(await pinApi.save(label)));
   }, [canvas.hasDocument, label, runAction, showSaved]);
 
+  const toggleWorkspace = useCallback(() => {
+    runAction(async () => {
+      const current = pinRef.current;
+      if (!current) return;
+      if (current.workspaceId != null) {
+        await pinApi.removeWorkspace(label);
+        setPin((value) => value ? { ...value, workspaceId: null, workspaceGroupId: null } : value);
+        return;
+      }
+      const project = canvas.hasDocument ? canvas.projectData : null;
+      if (canvas.hasDocument && !project) throw new Error("Canvas source is unavailable");
+      const status = await pinApi.saveWorkspace(label, project);
+      setPin((value) => value ? {
+        ...value,
+        workspaceId: status.workspaceId,
+        workspaceGroupId: status.groupId,
+      } : value);
+      if (canvas.hasDocument) canvas.markSaved();
+    });
+  }, [canvas.hasDocument, canvas.markSaved, canvas.projectData, label, runAction]);
+
   const finishClose = useCallback(async (save: boolean) => {
     if (closingRef.current) return;
     closingRef.current = true;
@@ -404,7 +425,12 @@ export function App({ services = defaultServices }: { services?: PinAppServices 
     setError(null);
     try {
       const revision = canvas.currentRevision();
-      if (save) await saveCanvas("editable");
+      if (save && pinRef.current?.workspaceId != null) {
+        const project = canvas.projectData;
+        if (!project) throw new Error("Canvas source is unavailable");
+        await pinApi.saveWorkspace(label, project);
+        canvas.markSaved();
+      } else if (save) await saveCanvas("editable");
       // 除了禁用交互，再核对一次版本，防止已经排队的编辑越过保存边界。
       if (save && canvas.currentRevision() !== revision) return;
       await pinApi.close(label);
@@ -416,7 +442,7 @@ export function App({ services = defaultServices }: { services?: PinAppServices 
       closingRef.current = false;
       setClosing(false);
     }
-  }, [canvas.currentRevision, label, saveCanvas]);
+  }, [canvas.currentRevision, canvas.markSaved, canvas.projectData, label, saveCanvas]);
 
   const saveFromDialog = useCallback(async (mode: "editable" | "flat") => {
     if (closingRef.current) return;
@@ -690,6 +716,12 @@ export function App({ services = defaultServices }: { services?: PinAppServices 
       checked: pin.locked,
       onSelect: () => commitUpdate({ locked: !pin.locked }),
     },
+    {
+      id: "workspace",
+      label: t(pin.workspaceId == null ? "pin.workspaceSave" : "pin.workspaceRemove"),
+      checked: pin.workspaceId != null,
+      onSelect: toggleWorkspace,
+    },
     ...(pin.canSave
       ? [
         {
@@ -809,6 +841,7 @@ export function App({ services = defaultServices }: { services?: PinAppServices 
         aboveLimited={aboveLimited}
         canvasOpen={canvasOpen}
         canSave={pin.canSave}
+        workspaceSaved={pin.workspaceId != null}
         copied={copied}
         opacityOpen={opacityOpen}
         onScale={(scale) => commitUpdate({ scale })}
@@ -821,6 +854,7 @@ export function App({ services = defaultServices }: { services?: PinAppServices 
         onSave={() => {
           requestSave();
         }}
+        onToggleWorkspace={toggleWorkspace}
         onClose={requestClose}
       />
       {canvasOpen && (

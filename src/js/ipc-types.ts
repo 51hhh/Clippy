@@ -463,6 +463,9 @@ export interface PinPayload {
    * 压在所有普通窗口之上；同时置顶的几张贴图之间仍然按焦点顺序互相遮挡。
    */
   above: boolean;
+  /** 仅用户明确保存到 Pin 工作区后非空；临时贴图始终为 null。 */
+  workspaceId: number | null;
+  workspaceGroupId: number | null;
   canSave: boolean;
   position: { x: number; y: number } | null;
   /**
@@ -597,6 +600,17 @@ export interface PinUpdate {
   opacity?: number;
   locked?: boolean;
   above?: boolean;
+}
+
+export interface PinWorkspaceStatus {
+  workspaceId: number;
+  groupId: number | null;
+}
+
+export interface PinWorkspaceGroup {
+  id: number;
+  name: string;
+  sortOrder: number;
 }
 
 export interface ClipboardStats {

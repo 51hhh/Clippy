@@ -40,6 +40,29 @@ impl PinManager {
         Ok(())
     }
 
+    pub(super) fn set_workspace(
+        &self,
+        label: &str,
+        workspace_id: Option<i64>,
+        group_id: Option<i64>,
+    ) -> Result<PinEntry, PinError> {
+        let mut entries = self.entries.lock().map_err(PinError::state_lock)?;
+        let entry = entries.get_mut(label).ok_or(PinError::EntryMissing)?;
+        entry.workspace_id = workspace_id;
+        entry.workspace_group_id = workspace_id.and(group_id);
+        Ok(entry.clone())
+    }
+
+    pub(super) fn clear_workspace_group(&self, group_id: i64) -> Result<(), PinError> {
+        let mut entries = self.entries.lock().map_err(PinError::state_lock)?;
+        for entry in entries.values_mut() {
+            if entry.workspace_group_id == Some(group_id) {
+                entry.workspace_group_id = None;
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn remove(&self, label: &str) -> Result<Option<PinEntry>, PinError> {
         // 窗口没了，还在后台等它出现的摆放重试也该停下来。
         super::window::forget_placement(label);
@@ -84,6 +107,7 @@ impl PinManager {
                 x: position.x,
                 y: position.y,
             });
+            entry.restore_position = None;
         }
     }
 

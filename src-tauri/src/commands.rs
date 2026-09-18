@@ -51,6 +51,7 @@ pub struct AppState {
     /// 独立长截图控制窗口的唯一轻量单槽 registry。
     pub longshot_windows: Arc<crate::capture::LongshotControllerRegistry>,
     pub pin_manager: Arc<crate::pin::PinManager>,
+    pub pin_workspace_persistence: Arc<crate::pin::PinWorkspacePersistence>,
     /// 我们自己截下来、复制进剪贴板的图 → 它原本在屏幕上的位置。
     /// 之后从历史里 Pin 这张图时靠它贴回原处，见 `pin::PinOriginRegistry`。
     pub pin_origins: Arc<crate::pin::PinOriginRegistry>,

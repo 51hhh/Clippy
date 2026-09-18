@@ -188,17 +188,19 @@ pub(super) async fn pin_clip(id: i64, app_handle: tauri::AppHandle) -> Result<St
             opacity: 1.0,
             locked: false,
             above: false,
+            workspace_id: None,
+            workspace_group_id: None,
             position: None,
+            restore_position: None,
             origin,
             device_scale: content_device_scale(&app_handle, origin),
             buffer_scale: content_buffer_scale(&app_handle, origin),
             sharpen: Arc::new(SharpenSlot::default()),
         })?;
         // 建窗之前就把清晰度补偿放出去跑，好和 WebKit 起步那几百毫秒重叠。
-        spawn_sharpen(&app_handle, &state.pin_manager.get(&label)?);
-        if let Err(error) =
-            create_pin_window(&app_handle, &label, content_width, content_height, origin)
-        {
+        let inserted = state.pin_manager.get(&label)?;
+        spawn_sharpen(&app_handle, &inserted);
+        if let Err(error) = create_pin_window(&app_handle, &inserted) {
             let _ = state.pin_manager.remove(&label);
             return Err(crate::error::report("创建剪贴板贴图窗口失败", error));
         }
@@ -225,7 +227,10 @@ fn screenshot_entry(
         opacity: 1.0,
         locked: false,
         above: false,
+        workspace_id: None,
+        workspace_group_id: None,
         position: None,
+        restore_position: None,
         origin,
         device_scale,
         buffer_scale,
@@ -290,9 +295,7 @@ pub(crate) fn create_screenshot_pin_shared(
             }
         };
         spawn_sharpen(app_handle, &inserted);
-        if let Err(error) =
-            create_pin_window(app_handle, &label, content_width, content_height, origin)
-        {
+        if let Err(error) = create_pin_window(app_handle, &inserted) {
             return Err(screenshot_window_failure(&state.pin_manager, label, error));
         }
         Ok(label)
@@ -357,7 +360,10 @@ fn create_opened_project_pin(
         opacity: 1.0,
         locked: false,
         above: false,
+        workspace_id: None,
+        workspace_group_id: None,
         position: None,
+        restore_position: None,
         origin: None,
         device_scale: content_device_scale(app_handle, None),
         buffer_scale: content_buffer_scale(app_handle, None),
@@ -365,7 +371,7 @@ fn create_opened_project_pin(
     };
     insert_pin_with_rollback(&state.pin_manager, entry, |inserted| {
         spawn_sharpen(app_handle, inserted);
-        create_pin_window(app_handle, &label, content_width, content_height, None)
+        create_pin_window(app_handle, inserted)
             .map_err(|error| crate::error::report("创建图片贴图窗口失败", error))
     })?;
     Ok(label)
@@ -574,6 +580,7 @@ pub(super) async fn update_pin(
                 });
             }
         }
+        super::workspace::queue_open_pin(&app_handle, &state, &label);
         Ok(state_from_entry(&entry))
     })
     .await
@@ -777,6 +784,8 @@ fn payload_from_entry(entry: PinEntry) -> Result<PinPayload, String> {
         opacity: entry.opacity,
         locked: entry.locked,
         above: entry.above,
+        workspace_id: entry.workspace_id,
+        workspace_group_id: entry.workspace_group_id,
         can_save,
         position: entry.position,
         device_scale: entry.device_scale,
@@ -813,7 +822,7 @@ struct PinImageSharpened {
 /// 整个界面卡住几百毫秒，而"慢"正是这个功能一直在修的另一个毛病。
 ///
 /// 普通贴图的复制/保存不受影响；工程贴图则以保存时合成预览为显示与快速复制来源。
-fn spawn_sharpen(app_handle: &tauri::AppHandle, entry: &PinEntry) {
+pub(super) fn spawn_sharpen(app_handle: &tauri::AppHandle, entry: &PinEntry) {
     let Some(geometry) = super::resample::display_geometry(
         entry.content_width,
         entry.content_height,
@@ -917,7 +926,10 @@ mod tests {
             opacity: 1.0,
             locked: false,
             above: false,
+            workspace_id: None,
+            workspace_group_id: None,
             position: None,
+            restore_position: None,
             origin: None,
             device_scale: 1.0,
             buffer_scale: 1.0,
@@ -1251,7 +1263,10 @@ mod tests {
             opacity: 1.0,
             locked: false,
             above: false,
+            workspace_id: None,
+            workspace_group_id: None,
             position: None,
+            restore_position: None,
             origin: None,
             device_scale: 1.0,
             buffer_scale: 1.0,
@@ -1292,7 +1307,10 @@ mod tests {
             opacity: 1.0,
             locked: false,
             above: false,
+            workspace_id: None,
+            workspace_group_id: None,
             position: None,
+            restore_position: None,
             origin: None,
             device_scale: 1.0,
             buffer_scale: 1.0,
@@ -1337,7 +1355,10 @@ mod tests {
             opacity: 1.0,
             locked: false,
             above: false,
+            workspace_id: None,
+            workspace_group_id: None,
             position: None,
+            restore_position: None,
             origin: None,
             device_scale: 1.0,
             buffer_scale: 1.0,
@@ -1560,7 +1581,10 @@ mod tests {
                 opacity: 1.0,
                 locked: false,
                 above: false,
+                workspace_id: None,
+                workspace_group_id: None,
                 position: None,
+                restore_position: None,
                 origin: None,
                 device_scale: 1.0,
                 buffer_scale: 1.0,

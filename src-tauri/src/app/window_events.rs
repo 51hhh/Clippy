@@ -15,6 +15,7 @@ pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
                     window.label(),
                     *position,
                 );
+                crate::pin::queue_open_pin(window.app_handle(), &state, window.label());
             }
         }
         tauri::WindowEvent::CloseRequested { api, .. }

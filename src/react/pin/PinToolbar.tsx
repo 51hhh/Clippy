@@ -1,5 +1,7 @@
 import {
   Check,
+  Bookmark,
+  BookmarkCheck,
   Copy,
   GripHorizontal,
   Lock,
@@ -22,8 +24,8 @@ import {
 } from "../shared/toolbarPlacement";
 import { useToolbarDrag } from "../shared/useToolbarDrag";
 
-/** jsdom 与首帧量不到尺寸时的兜底，数量级取自实际布局（38 宽 + 九个 28 高的按钮）。 */
-const FALLBACK_SIZE = { width: 38, height: 249 };
+/** jsdom 与首帧量不到尺寸时的兜底，数量级取自实际布局（38 宽 + 工作区按钮）。 */
+const FALLBACK_SIZE = { width: 38, height: 277 };
 
 type Props = {
   /** 贴图内容区在窗口里的矩形。工具条优先贴在它外面，放不下才压上去。 */
@@ -38,6 +40,7 @@ type Props = {
   aboveLimited: boolean;
   canvasOpen: boolean;
   canSave: boolean;
+  workspaceSaved: boolean;
   copied: boolean;
   opacityOpen: boolean;
   onScale: (scale: number) => void;
@@ -48,6 +51,7 @@ type Props = {
   onToggleCanvas: () => void;
   onCopy: () => void;
   onSave: () => void;
+  onToggleWorkspace: () => void;
   onClose: () => void;
 };
 
@@ -166,6 +170,13 @@ export function PinToolbar(props: Props) {
         )}
         <ToolButton label={t("pin.opacity")} onClick={props.onToggleOpacity}>
           <SlidersHorizontal size={16} />
+        </ToolButton>
+        <ToolButton
+          label={t(props.workspaceSaved ? "pin.workspaceRemove" : "pin.workspaceSave")}
+          active={props.workspaceSaved}
+          onClick={props.onToggleWorkspace}
+        >
+          {props.workspaceSaved ? <BookmarkCheck size={16} /> : <Bookmark size={16} />}
         </ToolButton>
         {props.canSave && (
           <ToolButton label={t("pin.save")} onClick={props.onSave}>

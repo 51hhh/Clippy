@@ -12,6 +12,8 @@ import {
   onPinImageSharpened,
   pinReady,
   savePin,
+  savePinToWorkspace,
+  removePinFromWorkspace,
   savePinCanvas,
   updatePin,
 } from "../../js/api.ts";
@@ -40,6 +42,9 @@ export const pinApi = {
   copyCanvas: (label: string, project: PinCanvasProject): Promise<void> =>
     copyPinCanvas(label, project),
   save: (label: string): Promise<string> => savePin(label),
+  saveWorkspace: (label: string, project: PinCanvasProject | null) =>
+    savePinToWorkspace(label, null, project),
+  removeWorkspace: (label: string): Promise<void> => removePinFromWorkspace(label),
   /** Canvas 交互预览用的原图；renderer v2 最终导出由后端直接读取可信原图。 */
   sourceImage: (label: string): Promise<string | null> => getPinSourceImage(label),
   /** 存下贴图上画过的那一版（`toClipboard` 为真时同时进剪贴板）。 */
