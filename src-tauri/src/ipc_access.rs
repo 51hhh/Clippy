@@ -62,6 +62,7 @@ const CAPTURE_OVERLAY_COMMANDS: &[&str] = &[
     "mark_capture_overlay_ready",
     "open_longshot_controller",
     "retry_capture_action",
+    "scan_capture_selection",
     "translate_capture_selection",
 ];
 

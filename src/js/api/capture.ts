@@ -20,6 +20,8 @@ import type {
   WindowProbeInstallOutcome,
   WindowProbeStatus,
 } from "../ipc-types.ts";
+import { parseImageCodeScanResponse } from "./validators.ts";
+import type { ImageCodeScanResponse } from "./validators.ts";
 
 /** 启动冻结屏幕选区覆盖层 */
 export function showCaptureOverlay(): Promise<void> {
@@ -195,4 +197,12 @@ export function translateCaptureSelection(
     targetLanguage: null,
     requestId: null,
   });
+}
+
+/** 扫描当前截图会话的原始选区；不会访问剪贴历史或自动打开识别内容。 */
+export async function scanCaptureSelection(
+  selection: CaptureSelection,
+): Promise<ImageCodeScanResponse> {
+  const response = await invoke<unknown>("scan_capture_selection", { selection });
+  return parseImageCodeScanResponse(response);
 }

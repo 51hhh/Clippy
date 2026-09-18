@@ -40,6 +40,8 @@ pub enum CodeScanError {
     DecodeFailed,
     #[error("storage_failed")]
     StorageFailed,
+    #[error("capture_unavailable")]
+    CaptureUnavailable,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -117,6 +119,32 @@ fn decode_png_to_luma(png_bytes: &[u8]) -> Result<PreparedLuma, CodeScanError> {
 
     let mut prepared = PreparedLuma {
         pixels: decoded,
+        width,
+        height,
+        original_width: width,
+        original_height: height,
+    };
+    downscale_if_needed(&mut prepared)?;
+    Ok(prepared)
+}
+
+/// 将可信截图帧的 RGBA 选区直接转成灰度，避免为一次本地扫码先编码 PNG、再立即解码。
+fn rgba_to_luma(rgba: Vec<u8>, width: u32, height: u32) -> Result<PreparedLuma, CodeScanError> {
+    let pixel_count = validate_dimensions(width, height)?;
+    let expected = pixel_count
+        .checked_mul(4)
+        .ok_or(CodeScanError::ImageTooLarge)?;
+    if rgba.len() != expected {
+        return Err(CodeScanError::ImageInvalid);
+    }
+    let mut pixels = reserve_zeroed(pixel_count)?;
+    for (index, output) in pixels.iter_mut().enumerate() {
+        let input = index * 4;
+        let value = luminance(rgba[input], rgba[input + 1], rgba[input + 2]);
+        *output = alpha_over_white(value, rgba[input + 3]);
+    }
+    let mut prepared = PreparedLuma {
+        pixels,
         width,
         height,
         original_width: width,
@@ -343,6 +371,15 @@ pub(crate) fn scan_png(png_bytes: Vec<u8>) -> Result<CodeScanResponse, CodeScanE
     scan_prepared_luma(decode_png_to_luma(&png_bytes)?)
 }
 
+/// 扫描截图会话已经验证过的原始 RGBA 选区；像素不写入日志、缓存或数据库。
+pub(crate) fn scan_rgba(
+    rgba: Vec<u8>,
+    width: u32,
+    height: u32,
+) -> Result<CodeScanResponse, CodeScanError> {
+    scan_prepared_luma(rgba_to_luma(rgba, width, height)?)
+}
+
 fn candidate_anchor(candidate: &Candidate) -> (f32, f32) {
     candidate
         .points
@@ -530,6 +567,14 @@ mod tests {
         let png = png_from_rgba(2, 1, &[0, 0, 0, 0, 0, 0, 0, 128]);
         let decoded = decode_png_to_luma(&png).expect("应当解码");
         assert_eq!(decoded.pixels, [255, 127]);
+
+        let direct =
+            rgba_to_luma(vec![0, 0, 0, 0, 0, 0, 0, 128], 2, 1).expect("可信 RGBA 应当转换");
+        assert_eq!(direct.pixels, decoded.pixels);
+        assert!(matches!(
+            rgba_to_luma(vec![0; 7], 2, 1),
+            Err(CodeScanError::ImageInvalid)
+        ));
     }
 
     #[test]
@@ -583,6 +628,7 @@ mod tests {
             (CodeScanError::WorkerFailed, "worker_failed"),
             (CodeScanError::DecodeFailed, "decode_failed"),
             (CodeScanError::StorageFailed, "storage_failed"),
+            (CodeScanError::CaptureUnavailable, "capture_unavailable"),
         ];
         for (error, code) in cases {
             assert_eq!(

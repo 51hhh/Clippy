@@ -84,10 +84,39 @@ button { font: inherit; }
 .translation-copy:hover,
 .translation-copy:focus-visible { outline: none; border-color: #5ca5ff; background: rgba(47,140,255,.2); }
 
+.scan-popover { position: absolute; z-index: 7; width: min(360px, calc(100vw - 16px)); max-height: min(320px, calc(100vh - 16px)); overflow: hidden; pointer-events: auto; border: 1px solid rgba(255,255,255,.17); border-radius: 6px; outline: none; background: rgba(18,20,24,.98); box-shadow: 0 10px 30px rgba(0,0,0,.48); color: #f3f4f6; cursor: default; user-select: text; }
+.scan-popover:focus-visible { border-color: #5ca5ff; box-shadow: 0 0 0 2px rgba(47,140,255,.35), 0 10px 30px rgba(0,0,0,.48); }
+.scan-header { display: flex; min-height: 40px; align-items: center; justify-content: space-between; padding: 0 8px 0 12px; border-bottom: 1px solid rgba(255,255,255,.1); }
+.scan-header h2 { display: flex; align-items: center; gap: 7px; margin: 0; font-size: 13px; font-weight: 600; }
+.scan-header > button { display: grid; width: 30px; height: 30px; padding: 0; place-items: center; border: 0; border-radius: 4px; background: transparent; color: #cbd5e1; cursor: pointer; }
+.scan-header > button:hover,
+.scan-header > button:focus-visible { outline: none; background: rgba(255,255,255,.1); color: #fff; }
+.scan-progress,
+.scan-failure { display: flex; min-height: 84px; align-items: flex-start; gap: 10px; padding: 16px; }
+.scan-progress p,
+.scan-failure p { margin: 0; font-size: 12px; line-height: 1.45; }
+.scan-progress span { display: block; margin-top: 3px; color: #9ca3af; font-size: 11px; }
+.scan-failure { color: #fecaca; }
+.scan-failure svg { flex: none; color: #fb7185; }
+.scan-spinner { flex: none; color: #5ca5ff; animation: translation-spin .9s linear infinite; }
+.scan-results { max-height: 278px; overflow-y: auto; padding: 10px; }
+.scan-notice,
+.scan-empty { margin: 4px 2px 8px; color: #cbd5e1; font-size: 11px; line-height: 1.45; }
+.scan-notice { color: #fde68a; }
+.scan-result { overflow: hidden; border: 1px solid rgba(255,255,255,.12); border-radius: 5px; background: rgba(255,255,255,.035); }
+.scan-result + .scan-result { margin-top: 8px; }
+.scan-result header { display: flex; min-height: 34px; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 6px 4px 10px; border-bottom: 1px solid rgba(255,255,255,.08); }
+.scan-result strong { font-size: 11px; font-weight: 600; }
+.scan-result button { display: flex; min-width: 64px; height: 26px; align-items: center; justify-content: center; gap: 5px; padding: 0 8px; border: 1px solid rgba(255,255,255,.14); border-radius: 4px; background: rgba(255,255,255,.06); color: #f3f4f6; font-size: 10px; cursor: pointer; }
+.scan-result button:hover,
+.scan-result button:focus-visible { outline: none; border-color: #5ca5ff; background: rgba(47,140,255,.2); }
+.scan-result pre { max-height: 100px; overflow: auto; margin: 0; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; color: #f3f4f6; font: 12px/1.45 ui-monospace, monospace; }
+
 @keyframes translation-spin { to { transform: rotate(360deg); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .translation-spinner { animation: none; }
+  .translation-spinner,
+  .scan-spinner { animation: none; }
 }
 
 /* 输出失败保留已完成产物，并用一个明确面板承载重试与放弃。 */

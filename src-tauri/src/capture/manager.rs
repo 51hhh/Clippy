@@ -70,6 +70,14 @@ pub(super) struct CaptureRenderInput {
     pub crop: (u32, u32, u32, u32),
 }
 
+/// 截图快捷扫码只需要可信原始选区，不经过 PNG 编解码或剪贴历史。
+#[derive(Debug)]
+pub(super) struct CaptureScanInput {
+    pub rgba: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+}
+
 /// 一次 I4 观测：后端算的逻辑尺寸、前端实测的视口，以及两者的差。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ViewportObservation {
@@ -464,6 +472,34 @@ impl CaptureManager {
         crop_frame(frame, selection)
     }
 
+    /// 核验调用覆盖层后复制原始选区，供本地二维码/条码扫描。
+    pub(super) fn scan_input(
+        &self,
+        caller: &str,
+        selection: &CaptureSelection,
+    ) -> Result<CaptureScanInput, CaptureError> {
+        let current = self.session.lock().map_err(CaptureError::state_lock)?;
+        let session = current.as_ref().ok_or(CaptureError::SessionMissing)?;
+        if session.output.is_some() {
+            return Err(CaptureError::SessionBusy);
+        }
+        let frame = selected_frame_in_session(session, selection)?;
+        let index = session
+            .overlays
+            .iter()
+            .position(|overlay| overlay.label == caller)
+            .ok_or(CaptureError::OverlayNotInSession)?;
+        if session.frames.get(index).map(|item| item.monitor_id) != Some(selection.monitor_id) {
+            return Err(CaptureError::SelectionMonitorMismatch);
+        }
+        let (rgba, width, height) = crop_rgba(frame, selection)?;
+        Ok(CaptureScanInput {
+            rgba,
+            width,
+            height,
+        })
+    }
+
     /// 只在锁内核对普通截图会话并浅克隆目标帧；整屏像素仍由同一个 `Arc` 承载。
     #[cfg(test)]
     pub(super) fn selected_frame(
@@ -834,6 +870,14 @@ fn crop_frame(
     frame: &CapturedMonitorFrame,
     selection: &CaptureSelection,
 ) -> Result<Vec<u8>, CaptureError> {
+    let (rgba, width, height) = crop_rgba(frame, selection)?;
+    crate::screenshot::encode_png(&rgba, width, height).map_err(CaptureError::codec)
+}
+
+fn crop_rgba(
+    frame: &CapturedMonitorFrame,
+    selection: &CaptureSelection,
+) -> Result<(Vec<u8>, u32, u32), CaptureError> {
     let crop = selection_pixel_rect(frame, selection)?;
     let width = crop.width();
     let height = crop.height();
@@ -847,7 +891,7 @@ fn crop_frame(
             .ok_or(CaptureError::CropOutOfBounds)?;
         rgba.extend_from_slice(source);
     }
-    crate::screenshot::encode_png(&rgba, width, height).map_err(CaptureError::codec)
+    Ok((rgba, width, height))
 }
 
 #[cfg(test)]
@@ -956,6 +1000,16 @@ mod tests {
             height: 10.0,
         };
         assert!(manager.crop(&selection).is_ok());
+        let scan = manager.scan_input(&label, &selection).unwrap();
+        assert_eq!((scan.width, scan.height), (10, 10));
+        assert_eq!(scan.rgba.len(), 10 * 10 * 4);
+        assert_eq!(
+            manager
+                .scan_input("capture-overlay-foreign-7", &selection)
+                .unwrap_err()
+                .code(),
+            "overlay_not_in_session"
+        );
         let input = manager.render_input(&selection).unwrap();
         assert_eq!(input.source.dimensions(), (100, 50));
         assert_eq!(input.crop, (1, 1, 10, 10));

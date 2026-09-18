@@ -580,6 +580,29 @@ fn commit_image_from_png(png: Vec<u8>) -> Result<CommitImage, CaptureError> {
     })
 }
 
+/// 在当前覆盖层的原始冻结选区中扫描 QR Code / Code 39。
+///
+/// 调用窗口由 Tauri 注入并在 manager 内与会话、显示器一并核验；选区不会进入数据库，
+/// 标注和图像调整也不会混进扫码像素。全局 permit 覆盖裁切后的完整扫描生命周期。
+#[tauri::command]
+pub async fn scan_capture_selection(
+    selection: CaptureSelection,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<crate::code_detection::CodeScanResponse, crate::code_detection::CodeScanError> {
+    let permit = crate::commands::acquire_scan_permit()?;
+    let input = state
+        .capture_manager
+        .scan_input(window.label(), &selection)
+        .map_err(|_| crate::code_detection::CodeScanError::CaptureUnavailable)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _permit = permit;
+        crate::code_detection::scan_rgba(input.rgba, input.width, input.height)
+    })
+    .await
+    .map_err(|_| crate::code_detection::CodeScanError::WorkerFailed)?
+}
+
 /// 显式执行“选区 -> 本地 OCR -> 文本翻译”。裁剪帧只进入 Tesseract，永不发送给 provider。
 /// 此命令不会结束 CaptureSession，用户可继续复制、保存、Pin 或编辑同一选区。
 #[tauri::command]

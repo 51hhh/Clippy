@@ -2,6 +2,7 @@ import {
   Check,
   Languages,
   Pin,
+  QrCode,
   Redo2,
   Save,
   ScanLine,
@@ -31,6 +32,7 @@ type Props = {
   adjustments: ImageAdjustments;
   busy: boolean;
   translationBusy: boolean;
+  scanBusy: boolean;
   longshotPending: boolean;
   longshotDisabled: boolean;
   longshotDisabledReason: string;
@@ -47,9 +49,11 @@ type Props = {
   onDeleteObject: () => void;
   onAction: (action: CaptureAction) => void;
   onTranslate: () => void;
+  onScan: () => void;
   onLongshot: () => void;
   onCancel: () => void;
   translateButtonRef: RefObject<HTMLButtonElement>;
+  scanButtonRef: RefObject<HTMLButtonElement>;
 };
 
 /**
@@ -80,9 +84,9 @@ export function OverlayToolbar(props: Props) {
     width: props.viewportWidth,
     height: props.viewportHeight,
   });
-  // 翻译在后台运行时原有工具编辑仍可用；只有终端输出需等它结束。
+  // 本地扫码/翻译在后台运行时仍可编辑；终端输出要等当前理解任务结束。
   const editDisabled = props.busy || props.longshotPending;
-  const actionsDisabled = editDisabled || props.translationBusy;
+  const actionsDisabled = editDisabled || props.translationBusy || props.scanBusy;
 
   return (
     <div
@@ -145,6 +149,16 @@ export function OverlayToolbar(props: Props) {
           />
         </label>
         <span className="overlay-separator" />
+        <button
+          ref={props.scanButtonRef}
+          type="button"
+          title={t("capture.scanSelection")}
+          aria-label={t("capture.scanSelection")}
+          disabled={actionsDisabled}
+          onClick={props.onScan}
+        >
+          <QrCode size={15} />
+        </button>
         <button
           type="button"
           title={t("capture.undo")}

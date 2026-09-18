@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
     cancel: vi.fn(),
     commit: vi.fn(),
     translate: vi.fn(),
+    scan: vi.fn(),
     copyText: vi.fn(),
     openLongshot: vi.fn(),
     onHandoff: vi.fn(),
@@ -138,6 +139,7 @@ describe("capture overlay app", () => {
       provider: "offline",
       detectedSourceLanguage: null,
     });
+    mocks.overlayApi.scan.mockResolvedValue({ results: [], limited: false });
     mocks.overlayApi.openLongshot.mockResolvedValue({ label: "longshot-controller-session-1" });
     root = createRoot(document.getElementById("root"));
   });
@@ -309,6 +311,94 @@ describe("capture overlay app", () => {
       expect.objectContaining({ rendererVersion: 2, sourceWidth: 200, sourceHeight: 150 }),
       { x: 1930, y: 34, width: 100, height: 80 },
     );
+  });
+
+  it("scans the authoritative selection and copies only an explicit result", async () => {
+    mocks.overlayApi.scan.mockResolvedValue({
+      limited: false,
+      results: [{ format: "qr_code", text: "https://example.test/<unsafe>", points: [] }],
+    });
+    mocks.overlayApi.copyText.mockResolvedValue(undefined);
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 110, y: 90 });
+
+    await act(async () => button("Scan QR or barcode").click());
+    await flush();
+
+    expect(mocks.overlayApi.scan).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      monitorId: 0,
+      x: 10,
+      y: 10,
+      width: 100,
+      height: 80,
+    });
+    expect(document.querySelector(".scan-result pre").textContent)
+      .toBe("https://example.test/<unsafe>");
+    expect(document.querySelector(".scan-result a")).toBeNull();
+    expect(mocks.overlayApi.copyText).not.toHaveBeenCalled();
+
+    await act(async () => button("Copy code 1").click());
+    await flush();
+    expect(mocks.overlayApi.copyText).toHaveBeenCalledWith("https://example.test/<unsafe>");
+  });
+
+  it("drops a late scan result after the selection moves", async () => {
+    let resolveScan;
+    mocks.overlayApi.scan.mockReturnValue(new Promise((resolve) => (resolveScan = resolve)));
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 110, y: 90 });
+    await act(async () => button("Scan QR or barcode").click());
+
+    await drag({ x: 40, y: 40 }, { x: 60, y: 60 });
+    await act(async () => resolveScan({
+      limited: false,
+      results: [{ format: "qr_code", text: "stale", points: [] }],
+    }));
+    await flush();
+
+    expect(document.querySelector(".scan-popover")).toBeNull();
+    expect(document.body.textContent).not.toContain("stale");
+  });
+
+  it("blocks same-tick output during scan and restores ordinary output after failure", async () => {
+    let rejectScan;
+    mocks.overlayApi.scan.mockReturnValue(new Promise((_, reject) => (rejectScan = reject)));
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 110, y: 90 });
+
+    await act(async () => {
+      button("Scan QR or barcode").click();
+      button("Copy").click();
+    });
+    expect(mocks.overlayApi.commit).not.toHaveBeenCalled();
+
+    await act(async () => rejectScan({ code: "decode_failed", detail: "private" }));
+    await flush();
+    expect(document.querySelector(".scan-failure").textContent)
+      .toBe("Could not scan this selection.");
+    expect(button("Copy").disabled).toBe(false);
+
+    await act(async () => button("Copy").click());
+    await flush();
+    expect(mocks.overlayApi.commit).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops a late scan result after capture cancellation", async () => {
+    let resolveScan;
+    mocks.overlayApi.scan.mockReturnValue(new Promise((resolve) => (resolveScan = resolve)));
+    await mount();
+    await drag({ x: 10, y: 10 }, { x: 110, y: 90 });
+    await act(async () => button("Scan QR or barcode").click());
+    await act(async () => button("Cancel").click());
+    await act(async () => resolveScan({
+      limited: false,
+      results: [{ format: "qr_code", text: "late-after-close", points: [] }],
+    }));
+    await flush();
+
+    expect(mocks.overlayApi.cancel).toHaveBeenCalledWith("session-1");
+    expect(document.body.textContent).not.toContain("late-after-close");
   });
 
   it("opens one label-free longshot controller from a clean, complete selection", async () => {

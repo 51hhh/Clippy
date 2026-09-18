@@ -15,6 +15,8 @@ import { t } from "../shared/i18n";
 import { overlayApi } from "./api";
 import { OverlayToolbar } from "./OverlayToolbar";
 import { OutputFailurePanel } from "./OutputFailurePanel";
+import { ScanPopover, type CaptureScanState } from "./ScanPopover";
+import { captureScanErrorMessage, isCurrentCaptureScan } from "./scanState";
 import { DEFAULT_COLOR, DEFAULT_STROKE } from "./tools";
 import { TranslationPopover } from "./TranslationPopover";
 import {
@@ -128,10 +130,19 @@ export function App({ services = defaultServices }: { services?: CaptureAppServi
   const [copyStatus, setCopyStatus] = useState<"copied" | "failed" | null>(null);
   const translationGeneration = useRef(0);
   const translationBusyRef = useRef(false);
+  const [scan, setScan] = useState<CaptureScanState | null>(null);
+  const [scanCopyStatus, setScanCopyStatus] = useState<{
+    index: number;
+    status: "copied" | "failed";
+  } | null>(null);
+  const scanGeneration = useRef(0);
+  const scanBusyRef = useRef(false);
+  const scanSelectionKeyRef = useRef("");
   const [longshotLaunch, setLongshotLaunch] = useState<LongshotLaunchState>("idle");
   const longshotLaunchRef = useRef<LongshotLaunchState>("idle");
   const mountedEpoch = useRef(0);
   const translateButtonRef = useRef<HTMLButtonElement>(null);
+  const scanButtonRef = useRef<HTMLButtonElement>(null);
   const imageRef = useRef<FrameImage | null>(null);
   const frameHostRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -300,6 +311,16 @@ export function App({ services = defaultServices }: { services?: CaptureAppServi
   }, [payload]);
 
   const selection = region.selection;
+  const scanSelectionKey = payload && selection
+    ? [payload.sessionId, payload.monitorId, selection.x, selection.y, selection.width, selection.height].join(":")
+    : "";
+  scanSelectionKeyRef.current = scanSelectionKey;
+  useEffect(() => {
+    scanGeneration.current += 1;
+    scanBusyRef.current = false;
+    setScan(null);
+    setScanCopyStatus(null);
+  }, [scanSelectionKey]);
   // `crop` 草稿不是注解（选区由 useSelection 管），画布只关心能画出来的那几种。
   const draftAnnotation = canvas.draft && "annotation" in canvas.draft
     ? canvas.draft.annotation
@@ -451,6 +472,10 @@ export function App({ services = defaultServices }: { services?: CaptureAppServi
     translationBusyRef.current = false;
     setTranslation(null);
     setCopyStatus(null);
+    scanGeneration.current += 1;
+    scanBusyRef.current = false;
+    setScan(null);
+    setScanCopyStatus(null);
     busyRef.current = true;
     setBusy(true);
     const operation = payload ? overlayApi.cancel(payload.sessionId) : overlayApi.closeUninitialized();
@@ -489,11 +514,16 @@ export function App({ services = defaultServices }: { services?: CaptureAppServi
         !selection ||
         busyRef.current ||
         translationBusyRef.current ||
-        longshotLaunchRef.current === "pending"
+        longshotLaunchRef.current === "pending" ||
+        scanBusyRef.current
       ) return;
       translationGeneration.current += 1;
       translationBusyRef.current = false;
       setTranslation(null);
+      scanGeneration.current += 1;
+      scanBusyRef.current = false;
+      setScan(null);
+      setScanCopyStatus(null);
       busyRef.current = true;
       setBusy(true);
       setError(null);
@@ -530,11 +560,16 @@ export function App({ services = defaultServices }: { services?: CaptureAppServi
       !selection ||
       busyRef.current ||
       translationBusyRef.current ||
+      scanBusyRef.current ||
       longshotLaunchRef.current === "pending"
     ) return;
     const generation = translationGeneration.current + 1;
     translationGeneration.current = generation;
     translationBusyRef.current = true;
+    scanGeneration.current += 1;
+    scanBusyRef.current = false;
+    setScan(null);
+    setScanCopyStatus(null);
     setCopyStatus(null);
     setTranslation({ status: "loading" });
     overlayApi
@@ -552,6 +587,69 @@ export function App({ services = defaultServices }: { services?: CaptureAppServi
         }
       });
   }, [payload, selection]);
+
+  const closeScan = useCallback(() => {
+    if (busyRef.current || outputFailureRef.current || longshotLaunchRef.current === "pending") return;
+    scanGeneration.current += 1;
+    scanBusyRef.current = false;
+    setScan(null);
+    setScanCopyStatus(null);
+    requestAnimationFrame(() => scanButtonRef.current?.focus());
+  }, []);
+
+  const scanSelection = useCallback(() => {
+    if (
+      !payload || !selection || !scanSelectionKey ||
+      busyRef.current || translationBusyRef.current || scanBusyRef.current ||
+      longshotLaunchRef.current === "pending"
+    ) return;
+    translationGeneration.current += 1;
+    translationBusyRef.current = false;
+    setTranslation(null);
+    setCopyStatus(null);
+    const generation = scanGeneration.current + 1;
+    const epoch = mountedEpoch.current;
+    scanGeneration.current = generation;
+    scanBusyRef.current = true;
+    setScanCopyStatus(null);
+    setScan({ status: "loading" });
+    overlayApi
+      .scan({ ...selection, sessionId: payload.sessionId, monitorId: payload.monitorId })
+      .then((result) => {
+        if (mountedEpoch.current === epoch && isCurrentCaptureScan(
+          scanGeneration.current,
+          generation,
+          scanSelectionKeyRef.current,
+          scanSelectionKey,
+        )) {
+          scanBusyRef.current = false;
+          setScan({ status: "result", result });
+        }
+      })
+      .catch((reason) => {
+        if (mountedEpoch.current === epoch && isCurrentCaptureScan(
+          scanGeneration.current,
+          generation,
+          scanSelectionKeyRef.current,
+          scanSelectionKey,
+        )) {
+          scanBusyRef.current = false;
+          setScan({ status: "error", message: captureScanErrorMessage(reason) });
+        }
+      });
+  }, [payload, scanSelectionKey, selection]);
+
+  const copyScannedCode = useCallback(async (index: number) => {
+    if (scan?.status !== "result") return;
+    const code = scan.result.results[index];
+    if (!code) return;
+    try {
+      await overlayApi.copyText(code.text);
+      setScanCopyStatus({ index, status: "copied" });
+    } catch {
+      setScanCopyStatus({ index, status: "failed" });
+    }
+  }, [scan]);
 
   const copyTranslation = useCallback(async () => {
     if (translation?.status !== "result" || longshotLaunchRef.current === "pending") return;
@@ -575,7 +673,8 @@ export function App({ services = defaultServices }: { services?: CaptureAppServi
       longshotLaunchRef.current !== "idle" ||
       longshotDirty ||
       busyRef.current ||
-      translationBusyRef.current
+      translationBusyRef.current ||
+      scanBusyRef.current
     ) return;
     const candidate = longshotSelection(payload, selection);
     if (!candidate) return;
@@ -589,6 +688,10 @@ export function App({ services = defaultServices }: { services?: CaptureAppServi
     translationBusyRef.current = false;
     setTranslation(null);
     setCopyStatus(null);
+    scanGeneration.current += 1;
+    scanBusyRef.current = false;
+    setScan(null);
+    setScanCopyStatus(null);
     setError(null);
     const epoch = mountedEpoch.current;
 
@@ -645,6 +748,7 @@ export function App({ services = defaultServices }: { services?: CaptureAppServi
       if (event.key === "Escape") {
         event.preventDefault();
         if (translation) closeTranslation();
+        else if (scan) closeScan();
         else cancel();
         return;
       }
@@ -670,7 +774,7 @@ export function App({ services = defaultServices }: { services?: CaptureAppServi
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [cancel, closeTranslation, deleteObject, redoIfEditable, run, selectedId, selection, translation, undoIfEditable]);
+  }, [cancel, closeScan, closeTranslation, deleteObject, redoIfEditable, run, scan, selectedId, selection, translation, undoIfEditable]);
 
   function point(event: React.PointerEvent): Point {
     return { x: event.clientX, y: event.clientY };
@@ -732,8 +836,11 @@ export function App({ services = defaultServices }: { services?: CaptureAppServi
   const translationPosition = selection && translation
     ? translationPanelPosition(selection, layoutWidth, layoutHeight)
     : null;
+  const scanPosition = selection && scan
+    ? translationPanelPosition(selection, layoutWidth, layoutHeight)
+    : null;
   const validLongshotSelection = longshotSelection(payload, selection) !== null;
-  const longshotActionBusy = busyRef.current || translationBusyRef.current;
+  const longshotActionBusy = busyRef.current || translationBusyRef.current || scanBusyRef.current;
   const longshotDisabledReason = longshotLaunch === "pending"
     ? t("capture.longshotPending")
     : longshotLaunch === "accepted"
@@ -811,6 +918,7 @@ export function App({ services = defaultServices }: { services?: CaptureAppServi
               adjustments={adjustments}
               busy={busy || outputFailure !== null}
               translationBusy={translation?.status === "loading"}
+              scanBusy={scan?.status === "loading"}
               longshotPending={longshotLaunch === "pending"}
               longshotDisabled={
                 !handoffReady || longshotLaunch !== "idle" ||
@@ -832,9 +940,11 @@ export function App({ services = defaultServices }: { services?: CaptureAppServi
               onDeleteObject={deleteObject}
               onAction={run}
               onTranslate={translate}
+              onScan={scanSelection}
               onLongshot={openLongshot}
               onCancel={cancel}
               translateButtonRef={translateButtonRef}
+              scanButtonRef={scanButtonRef}
             />
           )}
         </>
@@ -847,6 +957,17 @@ export function App({ services = defaultServices }: { services?: CaptureAppServi
           copyStatus={copyStatus}
           onCopy={() => void copyTranslation()}
           onClose={closeTranslation}
+        />
+      )}
+      {scan && selection && scanPosition && (
+        <ScanPopover
+          state={scan}
+          left={scanPosition.left}
+          top={scanPosition.top}
+          copiedIndex={scanCopyStatus?.status === "copied" ? scanCopyStatus.index : null}
+          copyFailedIndex={scanCopyStatus?.status === "failed" ? scanCopyStatus.index : null}
+          onCopy={(index) => void copyScannedCode(index)}
+          onClose={closeScan}
         />
       )}
       {!selection && !error && showHint && (
