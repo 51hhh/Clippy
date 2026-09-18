@@ -1,0 +1,1 @@
+mod avi_mjpeg;

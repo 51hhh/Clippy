@@ -47,7 +47,8 @@ serde_json = "1"
 rusqlite = { version = "0.31", features = ["bundled"] }
 arboard = "3"
 sha2 = "0.10"
-image = { version = "0.25", default-features = false, features = ["png"] }
+# PNG 服务正式截图/Pin；JPEG 只服务 PX-REC-01 的 MJPEG/AVI 诊断分段，尚不是默认录屏格式。
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 # renderer v2 的最终 PNG 只走固定版本的纯 Rust 软件光栅路径；运行时不加载系统字体或 GPU。
 # build.rs 已用同一版本生成托盘 SVG，这里复用锁文件中的依赖，不增加第二套渲染栈。
 resvg = "0.43"
