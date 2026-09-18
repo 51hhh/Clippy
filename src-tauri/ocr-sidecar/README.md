@@ -102,6 +102,10 @@ python3 src-tauri/ocr-sidecar/quality_metrics.py \
   --output /absolute/ppocrv6-small-report.json
 ```
 
+增强链采集时可显式增加 `--diagnostics-dir /new/directory`。采集器只创建全新目录，并为每个 case
+保存有界诊断：det/Edge shape 与分组、逐行文字、CTC 接受字符的 class、发射时间步、前置 blank-run
+和相邻发射间距。诊断不进入产品 IPC，也不保存完整分类张量；单次请求最多记录 4096 个字符发射。
+
 ## 验证
 
 ```sh

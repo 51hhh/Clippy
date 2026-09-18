@@ -8,7 +8,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from edge_features import build_features, color_features
 from layout_groups import group_lines, order_groups
-from pipeline import decode_ctc, decode_png, tile_origins, reconcile_overview, remove_contained_quads
+from pipeline import decode_ctc, decode_ctc_detailed, decode_png, tile_origins, reconcile_overview, remove_contained_quads
 
 
 def quad(x, y, width=100, height=20):
@@ -112,6 +112,23 @@ class FeatureTests(unittest.TestCase):
         output[0, 0, 0] = float("nan")
         with self.assertRaisesRegex(ValueError, "schema"):
             decode_ctc(output, ["", "A", "B", " "])
+
+    def test_ctc_diagnostics_keep_emission_steps_blank_runs_and_class_identity(self):
+        output = np.zeros((1, 7, 4), np.float32)
+        for step, index in enumerate([1, 1, 0, 1, 3, 2, 2]):
+            output[0, step, index] = .9
+        text, confidences, emissions = decode_ctc_detailed(output, ["", "A", "B", " "])
+        self.assertEqual(text, "AA B")
+        np.testing.assert_allclose(confidences, [.9] * 4)
+        self.assertEqual(
+            [{key: item[key] for key in ["step", "classIndex", "character", "blankBefore", "stepGap"]} for item in emissions],
+            [
+                {"step": 0, "classIndex": 1, "character": "A", "blankBefore": 0, "stepGap": None},
+                {"step": 3, "classIndex": 1, "character": "A", "blankBefore": 1, "stepGap": 3},
+                {"step": 4, "classIndex": 3, "character": " ", "blankBefore": 0, "stepGap": 1},
+                {"step": 5, "classIndex": 2, "character": "B", "blankBefore": 0, "stepGap": 1},
+            ],
+        )
 
     def test_tile_end_alignment_and_png_dimension_budget(self):
         self.assertEqual(tile_origins(1000), [0, 40])

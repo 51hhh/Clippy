@@ -298,22 +298,43 @@ def crop_line(image, quad):
     return cv2.resize(transformed, (target_w, 48), interpolation=cv2.INTER_CUBIC)
 
 
-def decode_ctc(output, dictionary):
+def _decode_ctc(output, dictionary, include_emissions):
     if output.ndim != 3 or output.shape[0] != 1 or output.shape[2] != len(dictionary) or not 1 <= output.shape[1] <= 2048 or not np.isfinite(output).all():
         raise ValueError("rec_output_schema")
     probabilities = output[0]
     if probabilities.min() < -.00001 or probabilities.max() > 1.00001:
         raise ValueError("rec_output_probability")
     indices = probabilities.argmax(axis=1)
-    previous = -1; characters = []; confidence = []
+    previous = -1; characters = []; confidence = []; emissions = []
+    blank_run = 0; previous_emission_step = None
     for step, index in enumerate(indices):
         if index != 0 and index != previous:
-            characters.append(dictionary[index]); confidence.append(float(probabilities[step, index]))
+            character = dictionary[index]
+            probability = float(probabilities[step, index])
+            characters.append(character); confidence.append(probability)
+            if include_emissions:
+                emissions.append({"step": step, "classIndex": int(index), "character": character,
+                                  "confidence": probability, "blankBefore": blank_run,
+                                  "stepGap": None if previous_emission_step is None else step - previous_emission_step})
+            previous_emission_step = step
+        blank_run = blank_run + 1 if index == 0 else 0
         previous = index
-    return "".join(characters), confidence
+    return "".join(characters), confidence, emissions
 
 
-def recognize(png, manifest, deadline, trace=lambda _stage, _data: None):
+def decode_ctc_detailed(output, dictionary):
+    return _decode_ctc(output, dictionary, True)
+
+
+def decode_ctc(output, dictionary):
+    text, confidence, _ = _decode_ctc(output, dictionary, False)
+    return text, confidence
+
+
+def recognize(png, manifest, deadline, trace=None):
+    diagnostics_enabled = trace is not None
+    if trace is None:
+        trace = lambda _stage, _data: None
     cv2.setNumThreads(1)
     options = validate_manifest(manifest); check_deadline(deadline)
     image = decode_png(png); height, width = image.shape[:2]
@@ -338,7 +359,7 @@ def recognize(png, manifest, deadline, trace=lambda _stage, _data: None):
         groups = [[index] for index in range(len(quads))]
         trace("edge_skipped", {"nodes": len(quads), "reason": "no_edges"})
     check_deadline(deadline)
-    lines = []; paragraphs = []; total_crop_pixels = 0
+    lines = []; paragraphs = []; total_crop_pixels = 0; diagnostic_emissions = 0
     for paragraph_id, group in enumerate(groups):
         ids = []
         for node in group:
@@ -348,12 +369,24 @@ def recognize(png, manifest, deadline, trace=lambda _stage, _data: None):
                 raise ValueError("rec_total_budget")
             tensor = np.ascontiguousarray((cv2.cvtColor(crop, cv2.COLOR_BGR2RGB).astype(np.float32) / 255 - .5).transpose(2, 0, 1)[None])
             output = rec.run(["fetch_name_0"], {"x": tensor})[0]
-            text, confidences = decode_ctc(output, dictionary)
+            if diagnostics_enabled:
+                text, confidences, emissions = decode_ctc_detailed(output, dictionary)
+            else:
+                text, confidences = decode_ctc(output, dictionary)
+                emissions = []
             mean = float(np.mean(confidences)) if confidences else 0.0
             line = {"id": int(node), "quad": quads[node].astype(float).tolist(), "text": text, "confidence": mean,
                     "accepted": bool(confidences) and mean >= options["lineThreshold"], "charConfidences": confidences, "paragraphId": paragraph_id, "readingOrder": len(lines)}
             lines.append(line); ids.append(int(node))
-            trace("rec", {"node": int(node), "inputShape": list(tensor.shape), "outputShape": list(output.shape), "text": text, "confidence": mean})
+            # 显式 diagnostics 才消费发射信息；生产 IPC 结果不包含它。总数有界，避免极端长图
+            # 的诊断 JSON 退化成另一份分类张量。
+            if diagnostics_enabled:
+                remaining = max(0, 4096 - diagnostic_emissions)
+                recorded = emissions[:remaining]
+                diagnostic_emissions += len(recorded)
+                trace("rec", {"node": int(node), "inputShape": list(tensor.shape), "outputShape": list(output.shape),
+                              "text": text, "confidence": mean, "emissions": recorded,
+                              "emissionsLimited": len(recorded) != len(emissions)})
             del output, tensor
         paragraphs.append({"id": paragraph_id, "lineIds": ids, "readingOrder": paragraph_id})
     texts = {line["id"]: line["text"] if line["accepted"] else "" for line in lines}

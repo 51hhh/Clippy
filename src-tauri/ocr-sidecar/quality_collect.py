@@ -145,6 +145,7 @@ def enhanced_prediction(result: Any) -> tuple[str, list[dict[str, Any]]]:
 def collect_enhanced(
     manifest_path: Path,
     cases: list[tuple[dict[str, Any], bytes]],
+    diagnostics_dir: Path | None = None,
 ) -> dict[str, Any]:
     manifest, manifest_sha = _read_manifest(manifest_path)
     python = Path(str(manifest.get("python", "")))
@@ -173,16 +174,24 @@ def collect_enhanced(
             separators=(",", ":"),
         ).encode("utf-8") + b"\n"
         started = time.perf_counter()
+        command = [
+            str(python),
+            "-I",
+            str(script),
+            "--manifest",
+            str(manifest_path.resolve()),
+            "--manifest-sha256",
+            manifest_sha,
+        ]
+        if diagnostics_dir is not None:
+            command.extend(
+                [
+                    "--diagnostics",
+                    str(diagnostics_dir / f"{index:03d}-{case['id']}.json"),
+                ]
+            )
         process = subprocess.run(
-            [
-                str(python),
-                "-I",
-                str(script),
-                "--manifest",
-                str(manifest_path.resolve()),
-                "--manifest-sha256",
-                manifest_sha,
-            ],
+            command,
             input=header + png,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -232,6 +241,11 @@ def write_new(path: Path, value: dict[str, Any]) -> None:
         raise ContractError(f"输出已存在，不会覆盖: {path}") from error
 
 
+def create_diagnostics_directory(path: Path) -> Path:
+    path.mkdir(mode=0o700, parents=False, exist_ok=False)
+    return path.resolve()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--corpus", required=True, type=Path)
@@ -241,6 +255,7 @@ def main(argv: list[str] | None = None) -> int:
     tesseract.add_argument("--executable", default="tesseract")
     enhanced = subparsers.add_parser("enhanced")
     enhanced.add_argument("--manifest", required=True, type=Path)
+    enhanced.add_argument("--diagnostics-dir", type=Path)
     arguments = parser.parse_args(argv)
     try:
         corpus = validate_corpus(load_json(arguments.corpus))
@@ -253,7 +268,10 @@ def main(argv: list[str] | None = None) -> int:
                 raise ContractError(f"找不到 Tesseract: {arguments.executable}")
             result = collect_tesseract(Path(executable).resolve(), cases)
         else:
-            result = collect_enhanced(arguments.manifest.resolve(), cases)
+            diagnostics_dir = arguments.diagnostics_dir
+            if diagnostics_dir is not None:
+                diagnostics_dir = create_diagnostics_directory(diagnostics_dir)
+            result = collect_enhanced(arguments.manifest.resolve(), cases, diagnostics_dir)
         validated = validate_predictions(result, {case["id"] for case in corpus["cases"]})
         write_new(arguments.output, validated)
     except (

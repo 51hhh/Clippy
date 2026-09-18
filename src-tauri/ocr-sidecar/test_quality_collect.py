@@ -72,6 +72,15 @@ class QualityCollectTests(unittest.TestCase):
             with self.assertRaisesRegex(quality.ContractError, "不会覆盖"):
                 collect.write_new(path, {"value": "replacement"})
 
+    def test_diagnostics_directory_is_private_and_create_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "diagnostics"
+            self.assertEqual(collect.create_diagnostics_directory(path), path.resolve())
+            self.assertTrue(path.is_dir())
+            self.assertEqual(path.stat().st_mode & 0o777, 0o700)
+            with self.assertRaises(FileExistsError):
+                collect.create_diagnostics_directory(path)
+
 
 if __name__ == "__main__":
     unittest.main()
