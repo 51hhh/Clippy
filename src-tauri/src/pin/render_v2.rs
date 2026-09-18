@@ -1279,7 +1279,147 @@ fn number(value: f64) -> String {
 mod tests {
     use super::*;
     use sha2::{Digest, Sha256};
+    use std::path::{Path, PathBuf};
     use std::time::Instant;
+
+    struct GoldenDifference {
+        changed_pixels: usize,
+        max_channel_delta: u8,
+        dimension_mismatch: bool,
+        diff: RgbaImage,
+    }
+
+    fn compare_golden(
+        expected: &RgbaImage,
+        actual: &RgbaImage,
+        channel_tolerance: u8,
+        changed_pixel_tolerance: usize,
+    ) -> Option<GoldenDifference> {
+        let width = expected.width().max(actual.width());
+        let height = expected.height().max(actual.height());
+        let dimension_mismatch = expected.dimensions() != actual.dimensions();
+        let mut changed_pixels = 0usize;
+        let mut max_channel_delta = 0u8;
+        let mut diff = RgbaImage::from_pixel(width, height, Rgba([0, 0, 0, 255]));
+
+        for y in 0..height {
+            for x in 0..width {
+                let expected_pixel = (x < expected.width() && y < expected.height())
+                    .then(|| expected.get_pixel(x, y).0);
+                let actual_pixel =
+                    (x < actual.width() && y < actual.height()).then(|| actual.get_pixel(x, y).0);
+                let Some((expected_pixel, actual_pixel)) = expected_pixel.zip(actual_pixel) else {
+                    changed_pixels += 1;
+                    max_channel_delta = u8::MAX;
+                    diff.put_pixel(x, y, Rgba([255, 0, 255, 255]));
+                    continue;
+                };
+                let pixel_delta = expected_pixel
+                    .into_iter()
+                    .zip(actual_pixel)
+                    .map(|(expected, actual)| expected.abs_diff(actual))
+                    .max()
+                    .unwrap_or(0);
+                max_channel_delta = max_channel_delta.max(pixel_delta);
+                if pixel_delta > channel_tolerance {
+                    changed_pixels += 1;
+                    let intensity = pixel_delta.saturating_mul(4).max(32);
+                    diff.put_pixel(x, y, Rgba([255, 255 - intensity, 255 - intensity, 255]));
+                }
+            }
+        }
+
+        (dimension_mismatch || changed_pixels > changed_pixel_tolerance).then_some(
+            GoldenDifference {
+                changed_pixels,
+                max_channel_delta,
+                dimension_mismatch,
+                diff,
+            },
+        )
+    }
+
+    fn write_rgba_png(path: &Path, image: &RgbaImage) {
+        let png = crate::screenshot::encode_png(image.as_raw(), image.width(), image.height())
+            .expect("金图证据编码失败");
+        std::fs::write(path, png).expect("金图证据写入失败");
+    }
+
+    fn persist_golden_failure(
+        directory: &Path,
+        name: &str,
+        expected: &RgbaImage,
+        actual: &RgbaImage,
+        difference: &GoldenDifference,
+    ) -> [PathBuf; 3] {
+        std::fs::create_dir_all(directory).expect("金图证据目录创建失败");
+        let paths = [
+            directory.join(format!("{name}-expected.png")),
+            directory.join(format!("{name}-actual.png")),
+            directory.join(format!("{name}-diff.png")),
+        ];
+        write_rgba_png(&paths[0], expected);
+        write_rgba_png(&paths[1], actual);
+        write_rgba_png(&paths[2], &difference.diff);
+        paths
+    }
+
+    fn assert_rgba_golden(
+        name: &str,
+        actual: &RgbaImage,
+        channel_tolerance: u8,
+        changed_pixel_tolerance: usize,
+    ) {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/pin-render-v2")
+            .join(format!("{name}.png"));
+        let expected_png = std::fs::read(&fixture).unwrap_or_else(|error| {
+            let directory = golden_artifact_directory();
+            std::fs::create_dir_all(&directory).expect("金图证据目录创建失败");
+            let actual_path = directory.join(format!("{name}-actual.png"));
+            write_rgba_png(&actual_path, actual);
+            panic!(
+                "金图不存在或不可读：{}；当前输出已写入 {}：{error}",
+                fixture.display(),
+                actual_path.display()
+            );
+        });
+        let expected = decode(&expected_png);
+        let Some(difference) = compare_golden(
+            &expected,
+            actual,
+            channel_tolerance,
+            changed_pixel_tolerance,
+        ) else {
+            return;
+        };
+        let paths = persist_golden_failure(
+            &golden_artifact_directory(),
+            name,
+            &expected,
+            actual,
+            &difference,
+        );
+        panic!(
+            "金图差异超限：尺寸不一致={}，超差像素={}（容差 {}），最大通道差={}（容差 {}）；证据：{}、{}、{}",
+            difference.dimension_mismatch,
+            difference.changed_pixels,
+            changed_pixel_tolerance,
+            difference.max_channel_delta,
+            channel_tolerance,
+            paths[0].display(),
+            paths[1].display(),
+            paths[2].display()
+        );
+    }
+
+    fn golden_artifact_directory() -> PathBuf {
+        std::env::var_os("CLIPPY_TEST_ARTIFACT_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("target/test-artifacts/pin-render-v2")
+            })
+    }
 
     fn png(width: u32, height: u32) -> Vec<u8> {
         let mut rgba = Vec::with_capacity(width as usize * height as usize * 4);
@@ -1527,7 +1667,7 @@ mod tests {
     }
 
     #[test]
-    fn combined_fixture_has_a_stable_rgba_digest() {
+    fn combined_fixture_matches_the_reviewed_rgba_golden() {
         let source_png = png(64, 48);
         let annotations = serde_json::json!([
             {"id":"b","type":"blur","rect":{"x":0,"y":0,"width":18,"height":16},"effect":effect()},
@@ -1553,10 +1693,41 @@ mod tests {
         });
         let output = render(&source_png, 64, 48, &annotations, &adjusted).unwrap();
         let image = decode(&output);
-        let digest = format!("{:x}", Sha256::digest(image.as_raw()));
-        assert_eq!(
-            digest,
-            "bafe7304d28734d35fee3cf7dab22b061f8a6a7ecea01093a539cc64422888de"
+        // 权威软件渲染器必须逐像素稳定。若未来确需放宽平台差异，应在这里显式登记
+        // 通道/像素容差；超差时 target/test-artifacts 会保留三张可视证据。
+        assert_rgba_golden("combined-tools", &image, 0, 0);
+    }
+
+    #[test]
+    fn golden_failure_writer_emits_expected_actual_and_visual_diff() {
+        let expected = RgbaImage::from_pixel(2, 1, Rgba([10, 20, 30, 255]));
+        let mut actual = expected.clone();
+        actual.put_pixel(1, 0, Rgba([40, 20, 30, 255]));
+        assert!(
+            compare_golden(&expected, &actual, 30, 0).is_none(),
+            "已登记通道容差内的差异不应失败"
+        );
+        let difference = compare_golden(&expected, &actual, 0, 0).unwrap();
+        assert_eq!(difference.changed_pixels, 1);
+        assert_eq!(difference.max_channel_delta, 30);
+
+        let directory = tempfile::tempdir().unwrap();
+        let paths = persist_golden_failure(
+            directory.path(),
+            "intentional-mismatch",
+            &expected,
+            &actual,
+            &difference,
+        );
+        for path in &paths {
+            assert!(path.is_file(), "缺少可审阅金图证据：{}", path.display());
+            assert_eq!(decode(&std::fs::read(path).unwrap()).dimensions(), (2, 1));
+        }
+        assert_eq!(decode(&std::fs::read(&paths[0]).unwrap()), expected);
+        assert_eq!(decode(&std::fs::read(&paths[1]).unwrap()), actual);
+        assert_ne!(
+            decode(&std::fs::read(&paths[2]).unwrap()),
+            RgbaImage::from_pixel(2, 1, Rgba([0, 0, 0, 255]))
         );
     }
 

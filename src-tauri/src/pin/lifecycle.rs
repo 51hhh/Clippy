@@ -989,6 +989,21 @@ mod tests {
         crate::screenshot::encode_png(&[10, 20, 30, 255], 1, 1).unwrap()
     }
 
+    fn revision_quality_source_png() -> Vec<u8> {
+        let mut rgba = Vec::with_capacity(48 * 36 * 4);
+        for y in 0..36u32 {
+            for x in 0..48u32 {
+                rgba.extend_from_slice(&[
+                    ((x * 17 + y * 7) % 256) as u8,
+                    ((x * 3 + y * 19) % 256) as u8,
+                    ((x * 11 + y * 5) % 256) as u8,
+                    if x < 4 || y < 3 { 96 } else { 255 },
+                ]);
+            }
+        }
+        crate::screenshot::encode_png(&rgba, 48, 36).unwrap()
+    }
+
     fn png_with_project_text(text: &str) -> Vec<u8> {
         let image = image::load_from_memory_with_format(&sample_png(), image::ImageFormat::Png)
             .unwrap()
@@ -1396,135 +1411,177 @@ mod tests {
     }
 
     #[test]
-    fn editable_project_reopens_for_second_edit_and_flat_export() {
-        let original_entry = screenshot_entry("pin-image-round-trip-source");
+    fn repeated_revision_reopen_uses_the_immutable_root_and_exact_source_coordinates() {
+        let original_source = revision_quality_source_png();
+        let mut entry = super::screenshot_entry(
+            "pin-image-round-trip-source".to_string(),
+            Arc::new(original_source.clone()),
+            48.0,
+            36.0,
+            None,
+            1.0,
+            1.0,
+        );
         let storage = crate::storage::StorageEngine::new_in_memory().unwrap();
-        let first_document = PinCanvasProject {
-            renderer_version: super::super::render_v2::RENDERER_VERSION,
-            source_width: 1,
-            source_height: 1,
-            annotations: serde_json::json!([]),
-            adjustments: serde_json::json!({
-                "grayscale": false,
-                "brightness": 100,
-                "contrast": 0,
-                "saturation": 0,
-                "cornerRadius": 0
-            }),
-        };
-        let (first_preview, first_editable) = prepare_pin_save(
-            &original_entry,
-            None,
-            PinCanvasSaveMode::Editable,
-            Some(first_document.clone()),
-        )
-        .unwrap();
-        super::register_image_revision(&storage, &original_entry, &first_document, &first_preview)
-            .unwrap();
-
         let directory = tempfile::tempdir().unwrap();
-        let first_path = directory.path().join("first-editable.png");
-        std::fs::write(&first_path, first_editable).unwrap();
-        let PreparedPinImage {
-            preview_png,
-            project,
-        } = super::prepare_managed_pin_project_file(&first_path, &storage)
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            image::load_from_memory_with_format(&preview_png, image::ImageFormat::Png)
-                .unwrap()
-                .into_rgba8(),
-            image::load_from_memory_with_format(&first_preview, image::ImageFormat::Png)
-                .unwrap()
-                .into_rgba8()
-        );
+        let make_document =
+            |annotations: &[serde_json::Value], contrast: i32, saturation: i32, corner: f64| {
+                PinCanvasProject {
+                    renderer_version: super::super::render_v2::RENDERER_VERSION,
+                    source_width: 48,
+                    source_height: 36,
+                    annotations: serde_json::Value::Array(annotations.to_vec()),
+                    adjustments: serde_json::json!({
+                        "grayscale": false, "brightness": 8, "contrast": contrast,
+                        "saturation": saturation, "cornerRadius": corner
+                    }),
+                }
+            };
+        let mut annotations = vec![
+            serde_json::json!({
+                "id":"pen", "type":"pen", "color":"#ff3b30", "size":2.5,
+                "points":[{"x":1.25,"y":2.5},{"x":21.75,"y":13.25},{"x":39.5,"y":8.75}]
+            }),
+            serde_json::json!({
+                "id":"blur", "type":"blur",
+                "rect":{"x":3.5,"y":15.25,"width":17.5,"height":12.25},
+                "effect":{"blurRadius":2.5,"mosaicCell":4,"spotlightDim":0.4,"magnifierZoom":2}
+            }),
+        ];
+        let first_document = make_document(&annotations, 0, 0, 0.0);
+        annotations.extend([
+            serde_json::json!({
+                "id":"mosaic", "type":"mosaic",
+                "rect":{"x":22.25,"y":15.5,"width":20.5,"height":11.75},
+                "effect":{"blurRadius":2.5,"mosaicCell":4,"spotlightDim":0.4,"magnifierZoom":2}
+            }),
+            serde_json::json!({
+                "id":"arrow", "type":"arrow", "color":"#34c759", "size":2.25,
+                "from":{"x":5.5,"y":31.25}, "to":{"x":41.75,"y":28.5}
+            }),
+        ]);
+        let second_document = make_document(&annotations, 6, -4, 0.0);
+        annotations.push(serde_json::json!({
+            "id":"magnifier", "type":"magnifier",
+            "rect":{"x":28.5,"y":2.25,"width":14.25,"height":11.5},
+            "effect":{"blurRadius":2.5,"mosaicCell":4,"spotlightDim":0.4,"magnifierZoom":1.75}
+        }));
+        let documents = [
+            first_document,
+            second_document,
+            make_document(&annotations, 6, -4, 3.5),
+        ];
 
-        let (source_png, restored_project) = project;
-        assert_eq!(source_png, sample_png());
-        let reopened_entry = PinEntry {
-            label: "pin-image-round-trip-reopened".to_string(),
-            source: Arc::new(PinSource::Project {
-                source_png,
+        let mut previous_preview: Option<Vec<u8>> = None;
+        for (index, document) in documents.iter().enumerate() {
+            let direct_from_root =
+                super::super::output::render_document(&original_source, Some(document)).unwrap();
+            let (preview, editable) = prepare_pin_save(
+                &entry,
+                None,
+                PinCanvasSaveMode::Editable,
+                Some(document.clone()),
+            )
+            .unwrap();
+            assert_eq!(
+                preview,
+                direct_from_root,
+                "第 {} 轮没有从根图渲染",
+                index + 1
+            );
+            assert_eq!(
+                image::load_from_memory_with_format(&editable, image::ImageFormat::Png)
+                    .unwrap()
+                    .into_rgba8(),
+                image::load_from_memory_with_format(&preview, image::ImageFormat::Png)
+                    .unwrap()
+                    .into_rgba8(),
+                "规范化落盘只能改变 PNG 编码，不能改变像素"
+            );
+            if let Some(previous) = &previous_preview {
+                assert_ne!(
+                    image::load_from_memory_with_format(previous, image::ImageFormat::Png)
+                        .unwrap()
+                        .into_rgba8(),
+                    image::load_from_memory_with_format(&preview, image::ImageFormat::Png)
+                        .unwrap()
+                        .into_rgba8(),
+                    "累计文档必须产生新的合成像素"
+                );
+            }
+
+            super::register_image_revision(&storage, &entry, document, &preview).unwrap();
+            let path = directory.path().join(format!("revision-{}.png", index + 1));
+            std::fs::write(&path, &editable).unwrap();
+            let PreparedPinImage {
                 preview_png,
-                project: restored_project,
-            }),
-            content_width: 1.0,
-            content_height: 1.0,
-            scale: 1.0,
-            opacity: 1.0,
-            locked: false,
-            above: false,
-            position: None,
-            origin: None,
-            device_scale: 1.0,
-            buffer_scale: 1.0,
-            sharpen: Arc::new(SharpenSlot::default()),
-        };
-        let second_document = PinCanvasProject {
-            renderer_version: super::super::render_v2::RENDERER_VERSION,
-            source_width: 1,
-            source_height: 1,
-            annotations: serde_json::json!([]),
-            adjustments: serde_json::json!({
-                "grayscale": false,
-                "brightness": 50,
-                "contrast": 0,
-                "saturation": 0,
-                "cornerRadius": 0
-            }),
-        };
-        let (second_preview, second_editable) = prepare_pin_save(
-            &reopened_entry,
-            None,
-            PinCanvasSaveMode::Editable,
-            Some(second_document.clone()),
-        )
-        .unwrap();
-        super::register_image_revision(
-            &storage,
-            &reopened_entry,
-            &second_document,
-            &second_preview,
-        )
-        .unwrap();
-        assert_ne!(
-            image::load_from_memory_with_format(&second_preview, image::ImageFormat::Png)
+                project: (source_png, restored_project),
+            } = super::prepare_managed_pin_project_file(&path, &storage)
                 .unwrap()
-                .into_rgba8(),
-            image::load_from_memory_with_format(&first_preview, image::ImageFormat::Png)
-                .unwrap()
-                .into_rgba8()
-        );
+                .expect("本机修订必须能从扁平 PNG 恢复");
+            assert_eq!(source_png, original_source, "根图字节不得被上一轮输出替换");
+            assert_eq!(
+                image::load_from_memory_with_format(&preview_png, image::ImageFormat::Png)
+                    .unwrap()
+                    .into_rgba8(),
+                image::load_from_memory_with_format(&preview, image::ImageFormat::Png)
+                    .unwrap()
+                    .into_rgba8(),
+                "落盘 PNG 不能积累压缩或重采样误差"
+            );
+            let payload = restored_project.initial_payload();
+            assert_eq!(payload.document.annotations, document.annotations);
+            assert_eq!(payload.document.adjustments, document.adjustments);
+            let restored_document = PinCanvasProject {
+                renderer_version: payload.renderer_version,
+                source_width: payload.source.width,
+                source_height: payload.source.height,
+                annotations: payload.document.annotations,
+                adjustments: payload.document.adjustments,
+            };
+            assert_eq!(
+                super::super::output::render_document(&source_png, Some(&restored_document))
+                    .unwrap(),
+                direct_from_root,
+                "恢复后的源坐标文档必须逐字节重现权威输出"
+            );
 
-        let second_path = directory.path().join("second-editable.png");
-        std::fs::write(&second_path, &second_editable).unwrap();
-        let reopened_again = super::prepare_managed_pin_project_file(&second_path, &storage)
-            .unwrap()
-            .unwrap();
-        let (_, reopened_project) = reopened_again.project;
-        assert_eq!(
-            reopened_project.initial_payload().document.adjustments,
-            second_document.adjustments
-        );
+            previous_preview = Some(preview.clone());
+            entry = PinEntry {
+                label: format!("pin-image-round-trip-reopened-{}", index + 1),
+                source: Arc::new(PinSource::Project {
+                    source_png,
+                    preview_png,
+                    project: restored_project,
+                }),
+                content_width: 48.0,
+                content_height: 36.0,
+                scale: 1.0,
+                opacity: 1.0,
+                locked: false,
+                above: false,
+                position: None,
+                origin: None,
+                device_scale: 1.0,
+                buffer_scale: 1.0,
+                sharpen: Arc::new(SharpenSlot::default()),
+            };
+        }
 
-        let (flat_clipboard, flat_file) = prepare_pin_save(
-            &reopened_entry,
-            None,
-            PinCanvasSaveMode::Flat,
-            Some(second_document),
-        )
-        .unwrap();
-        assert_eq!(flat_clipboard, second_preview);
-        assert_eq!(super::super::project::extract(&flat_file).unwrap(), None);
+        let final_document = documents.last().unwrap().clone();
+        let (flat_clipboard, flat_file) =
+            prepare_pin_save(&entry, None, PinCanvasSaveMode::Flat, Some(final_document)).unwrap();
+        let final_preview = previous_preview.unwrap();
+        assert_eq!(flat_clipboard, final_preview);
         assert_eq!(
             image::load_from_memory_with_format(&flat_file, image::ImageFormat::Png)
                 .unwrap()
                 .into_rgba8(),
-            image::load_from_memory_with_format(&second_preview, image::ImageFormat::Png)
+            image::load_from_memory_with_format(&flat_clipboard, image::ImageFormat::Png)
                 .unwrap()
                 .into_rgba8()
         );
+        assert_eq!(super::super::project::extract(&flat_file).unwrap(), None);
     }
 
     #[test]
