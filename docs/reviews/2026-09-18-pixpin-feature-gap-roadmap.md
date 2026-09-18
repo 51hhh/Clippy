@@ -372,7 +372,7 @@ delta；父链与项目历史留给 `PX-PIN-01`。显式 resize/crop 之外不�
 | P0（已完成调研） | `PX-OCR-MODEL-TIER-01` | small/medium det/rec 四组 A/B；当前不升档 | `PX-OCR-QUALITY-01` |
 | P0（已完成） | `PX-OCR-TABLE-01` | row/cell 双层真值、错列检测与稳定同基线排序 | `PX-OCR-MODEL-TIER-01` |
 | P0（已完成） | `PX-OCR-01` | 基于基线完成增强 OCR 安装、健康检查、许可与模型选择 | `PX-OCR-QUALITY-01` |
-| P0 | `PX-CAPTURE-TOOLS-01` | 冻结选区快捷扫码；保留现有长截图入口 | capture session 身份 |
+| P0（已完成） | `PX-CAPTURE-TOOLS-01` | 冻结选区快捷扫码；保留现有长截图入口 | capture session 身份 |
 | P1（进行中） | `PX-LS-2D-01` | 上下左右拼接、viewport 回访与显式撤销已实现；输入透明 guide 待三平台实现 | 真实长截图 fixture |
 | P1（已完成） | `PX-ANNOTATION-QUALITY-01` | 16 工具预览/导出画质矩阵与逐项修正 | 权威 Rust 渲染器 |
 | P1（已完成） | `PX-IMAGE-REVISION-01` | 内容寻址根图、累计修订、渲染 clip 关联与安全清理 | 数据库迁移设计 |
@@ -427,6 +427,12 @@ blank-run 阈值改写复制文本。
 - [x] 长截图按钮继续从同一选区启动，扫码失败不影响复制/保存/Pin。
 
 **Out of Scope**：第一阶段不新增未经 fixture 验证的条码格式，不扫描标注后的图像。
+
+**实现状态（2026-09-18）**：覆盖层工具栏直接提供扫码与长截图；扫码从 `CaptureManager` 的权威
+冻结帧裁切，并同时核对调用窗口、session、显示器和选区。前端以 session、monitor 和几何生成
+selection identity，移动选区、取消、输出或卸载都会使晚到结果失效。IPC 白名单仅向截图覆盖层开放
+该命令；扫码失败后普通复制、保存和 Pin 仍可继续。长截图沿用同一 selection 和原有两阶段 handoff，
+没有另建可伪造的选区来源。
 
 ### `PX-LS-2D-01`：二维手动长截图
 

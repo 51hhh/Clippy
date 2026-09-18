@@ -601,7 +601,7 @@ fn commit_image_from_png(png: Vec<u8>) -> Result<CommitImage, CaptureError> {
     })
 }
 
-/// 在当前覆盖层的原始冻结选区中扫描 QR Code / Code 39。
+/// 在当前覆盖层的原始冻结选区中扫描受支持的 QR/条码格式。
 ///
 /// 调用窗口由 Tauri 注入并在 manager 内与会话、显示器一并核验；选区不会进入数据库，
 /// 标注和图像调整也不会混进扫码像素。全局 permit 覆盖裁切后的完整扫描生命周期。
