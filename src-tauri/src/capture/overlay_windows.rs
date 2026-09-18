@@ -220,7 +220,7 @@ pub(super) fn best_monitor_index(target: OverlayRect, monitors: &[OverlayRect]) 
 }
 
 #[cfg(target_os = "linux")]
-fn configure_platform_overlay(
+pub(in crate::capture) fn configure_platform_overlay(
     window: &tauri::WebviewWindow,
     spec: &OverlaySpec,
 ) -> Result<(), CaptureError> {
@@ -322,7 +322,7 @@ fn gdk_monitor_for(
 }
 
 #[cfg(not(target_os = "linux"))]
-fn configure_platform_overlay(
+pub(in crate::capture) fn configure_platform_overlay(
     window: &tauri::WebviewWindow,
     spec: &OverlaySpec,
 ) -> Result<(), CaptureError> {

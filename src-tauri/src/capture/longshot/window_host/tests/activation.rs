@@ -1,6 +1,22 @@
 use super::*;
 
 #[test]
+fn guide_label_is_bound_to_exact_safe_controller_suffix() {
+    assert_eq!(
+        guide_label("longshot-controller-123e4567-e89b-12d3-a456-426614174000"),
+        Some("longshot-guide-123e4567-e89b-12d3-a456-426614174000".to_string())
+    );
+    for label in [
+        "longshot-controller-",
+        "longshot-controller-a/b",
+        "longshot-controller-a?b",
+        "capture-overlay-a",
+    ] {
+        assert_eq!(guide_label(label), None, "{label}");
+    }
+}
+
+#[test]
 fn started_barrier_requires_exact_first_path_and_label() {
     let registry = LongshotControllerRegistry::new();
     let label = registry

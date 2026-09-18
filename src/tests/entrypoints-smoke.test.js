@@ -29,6 +29,7 @@ describe("built window entrypoints", () => {
     ],
     ["capture-overlay.html", ["root"]],
     ["longshot-controller.html", ["root"]],
+    ["longshot-guide.html", ["guide"]],
     ["pin.html", ["root"]],
     ["viewer.html", ["root"]],
   ])("contains stable mount points in %s", (name, ids) => {

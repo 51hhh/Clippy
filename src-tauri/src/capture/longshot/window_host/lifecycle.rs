@@ -25,6 +25,13 @@ pub(super) struct TauriControlWindowActions<'a> {
 
 impl ControlWindowActions for TauriControlWindowActions<'_> {
     fn destroy(&self, label: &str) {
+        if let Some(guide_label) = super::guide_label(label) {
+            if let Some(window) = self.app.get_webview_window(&guide_label) {
+                if let Err(error) = window.destroy() {
+                    log::warn!("销毁长截图 guide {guide_label} 失败: {error}");
+                }
+            }
+        }
         if let Some(window) = self.app.get_webview_window(label) {
             if let Err(error) = window.destroy() {
                 log::warn!("销毁长截图控制窗 {label} 失败: {error}");
@@ -33,6 +40,14 @@ impl ControlWindowActions for TauriControlWindowActions<'_> {
     }
 
     fn hide(&self, label: &str) -> Result<(), LongshotIpcError> {
+        let guide_label = super::guide_label(label).ok_or_else(LongshotIpcError::missing)?;
+        let guide = self
+            .app
+            .get_webview_window(&guide_label)
+            .ok_or_else(LongshotIpcError::missing)?;
+        guide.hide().map_err(|error| {
+            LongshotIpcError::new("longshot_guide_hide_failed", error.to_string())
+        })?;
         let window = self
             .app
             .get_webview_window(label)
@@ -43,13 +58,26 @@ impl ControlWindowActions for TauriControlWindowActions<'_> {
     }
 
     fn show(&self, label: &str) -> Result<(), LongshotIpcError> {
+        let guide_label = super::guide_label(label).ok_or_else(LongshotIpcError::missing)?;
+        let guide = self
+            .app
+            .get_webview_window(&guide_label)
+            .ok_or_else(LongshotIpcError::missing)?;
+        guide.show().map_err(|error| {
+            LongshotIpcError::new("longshot_guide_show_failed", error.to_string())
+        })?;
         let window = self
             .app
             .get_webview_window(label)
             .ok_or_else(LongshotIpcError::missing)?;
-        window.show().map_err(|error| {
-            LongshotIpcError::new("longshot_controller_show_failed", error.to_string())
-        })
+        if let Err(error) = window.show() {
+            let _ = guide.hide();
+            return Err(LongshotIpcError::new(
+                "longshot_controller_show_failed",
+                error.to_string(),
+            ));
+        }
+        Ok(())
     }
 
     fn focus(&self, label: &str) {
@@ -285,15 +313,20 @@ where
 }
 
 pub(super) fn reveal_cleanup_fallback(app: &tauri::AppHandle, label: &str) -> bool {
-    let Some(window) = app.get_webview_window(label) else {
+    let windows = TauriControlWindowActions { app };
+    if !windows.exists(label) {
         log::error!("长截图清理失败且控制窗 {label} 已不存在");
         return false;
-    };
-    if let Err(error) = window.show() {
-        log::error!("长截图清理失败后兜底显示控制窗 {label} 失败: {error}");
+    }
+    if let Err(error) = windows.show(label) {
+        log::error!(
+            "长截图清理失败后兜底显示控制窗 {label} 失败: {} ({})",
+            error.message,
+            error.code
+        );
         return false;
     }
-    let _ = window.set_focus();
+    windows.focus(label);
     true
 }
 

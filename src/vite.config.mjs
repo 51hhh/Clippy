@@ -20,6 +20,7 @@ export default defineConfig({
         viewer: resolve(__dirname, "viewer.html"),
         captureOverlay: resolve(__dirname, "capture-overlay.html"),
         longshotController: resolve(__dirname, "longshot-controller.html"),
+        longshotGuide: resolve(__dirname, "longshot-guide.html"),
       },
     },
   },

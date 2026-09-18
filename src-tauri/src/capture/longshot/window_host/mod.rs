@@ -7,6 +7,8 @@ mod registry;
 mod workers;
 
 use super::LongshotSessionToken;
+use crate::capture::manager::LongshotGuideSpec;
+use crate::capture::types::OverlaySpec;
 use crate::capture::{CaptureError, CaptureSelection};
 use crate::commands::AppState;
 use finish::{
@@ -35,7 +37,74 @@ use workers::{
 
 const CONTROLLER_PREFIX: &str = "longshot-controller-";
 const CONTROLLER_PAGE: &str = "/longshot-controller.html";
+const GUIDE_PREFIX: &str = "longshot-guide-";
 const LOAD_DEADLINE_MS: u64 = 5_000;
+
+fn guide_label(controller_label: &str) -> Option<String> {
+    let suffix = controller_label.strip_prefix(CONTROLLER_PREFIX)?;
+    if suffix.is_empty()
+        || !suffix
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return None;
+    }
+    Some(format!("{GUIDE_PREFIX}{suffix}"))
+}
+
+fn build_guide_window(
+    app: &tauri::AppHandle,
+    controller_label: &str,
+    guide: LongshotGuideSpec,
+) -> Result<(), String> {
+    let label = guide_label(controller_label).ok_or_else(|| "长截图控制窗标签无效".to_string())?;
+    let url = format!(
+        "longshot-guide.html?x={}&y={}&width={}&height={}",
+        guide.selection_x, guide.selection_y, guide.selection_width, guide.selection_height
+    );
+    let builder = tauri::WebviewWindowBuilder::new(app, &label, tauri::WebviewUrl::App(url.into()))
+        .title("")
+        .position(guide.monitor_x as f64, guide.monitor_y as f64)
+        .inner_size(guide.monitor_width as f64, guide.monitor_height as f64)
+        .decorations(false)
+        .transparent(true)
+        .background_color(tauri::window::Color(0, 0, 0, 0))
+        .shadow(false)
+        .resizable(false)
+        .skip_taskbar(true)
+        .focusable(false)
+        .focused(false)
+        .visible(false);
+    // 与截图覆盖层保持同一平台策略：Wayland 不支持客户端声明全局置顶，
+    // 目标显示器全屏已足以避免依赖全局坐标；X11/Windows/macOS 仍请求置顶。
+    #[cfg(target_os = "linux")]
+    let builder = if crate::platform::is_wayland() {
+        builder
+    } else {
+        builder.always_on_top(true)
+    };
+    #[cfg(not(target_os = "linux"))]
+    let builder = builder.always_on_top(true);
+    let window = builder.build().map_err(|error| error.to_string())?;
+    if let Err(error) = window.set_ignore_cursor_events(true) {
+        let _ = window.destroy();
+        return Err(error.to_string());
+    }
+    let overlay = OverlaySpec {
+        label,
+        x: guide.monitor_x,
+        y: guide.monitor_y,
+        width: guide.monitor_width,
+        height: guide.monitor_height,
+    };
+    if let Err(error) =
+        crate::capture::overlay_windows::configure_platform_overlay(&window, &overlay)
+    {
+        let _ = window.destroy();
+        return Err(error.to_string());
+    }
+    Ok(())
+}
 
 mod model;
 
@@ -55,6 +124,7 @@ pub(crate) fn open(
     selection: CaptureSelection,
 ) -> Result<LongshotControllerLaunch, LongshotIpcError> {
     let registry = state.longshot_windows.clone();
+    let guide_selection = selection.clone();
     open_with_ops(
         &state.longshot_windows,
         caller_label,
@@ -67,6 +137,11 @@ pub(crate) fn open(
         },
         |label| spawn_deadline(app.clone(), label.to_string()),
         |label| {
+            let guide = state
+                .capture_manager
+                .longshot_guide_spec(caller_label, &guide_selection)
+                .map_err(|error| error.to_string())?;
+            build_guide_window(app, label, guide)?;
             let callback_label = label.to_string();
             let callback_registry = registry.clone();
             tauri::WebviewWindowBuilder::new(
@@ -465,6 +540,11 @@ async fn cancel_claimed(
 }
 
 pub(crate) fn handle_controller_destroyed(app: &tauri::AppHandle, label: &str) {
+    if let Some(guide_label) = guide_label(label) {
+        if let Some(guide) = app.get_webview_window(&guide_label) {
+            let _ = guide.destroy();
+        }
+    }
     let Some(state) = app.try_state::<AppState>() else {
         return;
     };

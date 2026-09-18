@@ -150,6 +150,19 @@ pub(super) struct CaptureLongshotCandidate {
     identity: Arc<()>,
 }
 
+/// 输入透明 guide 使用的目标显示器与实际裁剪区逻辑几何。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct LongshotGuideSpec {
+    pub(super) monitor_x: i32,
+    pub(super) monitor_y: i32,
+    pub(super) monitor_width: u32,
+    pub(super) monitor_height: u32,
+    pub(super) selection_x: f64,
+    pub(super) selection_y: f64,
+    pub(super) selection_width: f64,
+    pub(super) selection_height: f64,
+}
+
 impl CaptureLongshotCandidate {
     pub(super) fn selection(&self) -> &CaptureSelection {
         &self.selection
@@ -537,6 +550,16 @@ impl CaptureManager {
         caller_label: &str,
         selection: &CaptureSelection,
     ) -> Result<(), CaptureError> {
+        self.longshot_guide_spec(caller_label, selection)
+            .map(|_| ())
+    }
+
+    /// 以冻结帧的实际物理 crop 反算 guide，避免混合 DPI 下显示框与重捕获像素相差一列或一行。
+    pub(super) fn longshot_guide_spec(
+        &self,
+        caller_label: &str,
+        selection: &CaptureSelection,
+    ) -> Result<LongshotGuideSpec, CaptureError> {
         let current = self.session.lock().map_err(CaptureError::state_lock)?;
         let session = current.as_ref().ok_or(CaptureError::SessionMissing)?;
         if session.id != selection.session_id {
@@ -561,7 +584,16 @@ impl CaptureManager {
         if crop.width() < 8 || crop.height() < 24 {
             return Err(CaptureError::LongshotEstimateTooSmall);
         }
-        Ok(())
+        Ok(LongshotGuideSpec {
+            monitor_x: caller_frame.x,
+            monitor_y: caller_frame.y,
+            monitor_width: caller_frame.logical_width,
+            monitor_height: caller_frame.logical_height,
+            selection_x: f64::from(crop.left) / f64::from(caller_frame.scale_x),
+            selection_y: f64::from(crop.top) / f64::from(caller_frame.scale_y),
+            selection_width: f64::from(crop.width()) / f64::from(caller_frame.scale_x),
+            selection_height: f64::from(crop.height()) / f64::from(caller_frame.scale_y),
+        })
     }
 
     /// 精确消费 prepare 候选，并在 manager 锁内原子转换 mode ownership。
@@ -1560,9 +1592,12 @@ mod tests {
     fn longshot_open_validation_binds_caller_session_monitor_and_geometry() {
         let manager = CaptureManager::new();
         let gate = Arc::new(CaptureModeGate::new());
+        let mut source = frame(2.0);
+        source.x = -100;
+        source.y = 30;
         let start = manager
             .begin(
-                vec![frame(1.0)],
+                vec![source],
                 Vec::new(),
                 Vec::new(),
                 false,
@@ -1572,8 +1607,24 @@ mod tests {
             .expect("启动普通会话");
         let label = &start.overlays[0].label;
         let mut selection = selection_for(&start.session_id);
+        selection.x = 1.25;
+        selection.y = 2.25;
+        selection.width = 30.2;
         selection.height = 30.0;
         assert!(manager.validate_longshot_open(label, &selection).is_ok());
+        assert_eq!(
+            manager.longshot_guide_spec(label, &selection).unwrap(),
+            LongshotGuideSpec {
+                monitor_x: -100,
+                monitor_y: 30,
+                monitor_width: 100,
+                monitor_height: 50,
+                selection_x: 1.0,
+                selection_y: 2.0,
+                selection_width: 30.5,
+                selection_height: 30.5,
+            }
+        );
         assert_eq!(
             manager
                 .validate_longshot_open("capture-overlay-forged-7", &selection)
