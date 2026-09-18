@@ -132,7 +132,7 @@ export interface AppConfig {
 }
 
 export interface OcrModelIdentity {
-  role: "det" | "rec" | "dictionary" | "edge";
+  role: "det" | "rec" | "dictionary" | "edge" | "englishRec" | "englishDictionary";
   sha256: string;
 }
 

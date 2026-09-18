@@ -12,6 +12,7 @@ PUBLIC = {
     "rec": ("https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx/resolve/3d2d345e6a299891174f1397a72cdd81331359c7/inference.onnx", "5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634", "rec.onnx"),
     "dictionary": ("https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/2661c7c0ef5c613e8f93c6e93b2e052399f0f854/ppocr/utils/dict/ppocrv6_dict.txt", "b5f2bfe2bdd9448429e3e82b51c789775d9b42f2403d082b00662eb77e401c5d", "dictionary.txt"),
 }
+ENGLISH_REC = ("https://huggingface.co/PaddlePaddle/en_PP-OCRv5_mobile_rec_onnx/resolve/3fafbc3b5dcf93dd72add9f48368be8a3a2cd33b/inference.onnx", "b5f833dfc5d0eb71da397b4efa06ebeee9b431b690a47d6af40d77d8eabc557f", "english-rec.onnx")
 
 
 def digest(path):
@@ -58,6 +59,7 @@ def main():
     parser.add_argument("--python", required=True, type=Path)
     parser.add_argument("--edge", required=True, type=Path)
     parser.add_argument("--edge-sha256", required=True)
+    parser.add_argument("--english-spacing", action="store_true")
     args = parser.parse_args()
     runtime, python, edge = args.runtime.absolute(), args.python.absolute(), args.edge.absolute()
     if not python.is_file() or not edge.is_file() or digest(edge) != args.edge_sha256:
@@ -71,9 +73,19 @@ def main():
         path = runtime / filename
         download(path, url, expected)
         models[name] = {"path": str(path), "sha256": expected}
+    if args.english_spacing:
+        url, expected, filename = ENGLISH_REC
+        path = runtime / filename
+        download(path, url, expected)
+        models["englishRec"] = {"path": str(path), "sha256": expected}
+        english_dictionary = Path(__file__).resolve().with_name("en-ppocrv5-dictionary.txt")
+        english_dictionary_sha = "e025a66d31f327ba0c232e03f407ae8d105e1e709e7ccb3f408aa778c24e70d6"
+        if digest(english_dictionary) != english_dictionary_sha:
+            raise ValueError("内置英语字典SHA不符")
+        models["englishDictionary"] = {"path": str(english_dictionary), "sha256": english_dictionary_sha}
     models["edge"] = {"path": str(edge), "sha256": args.edge_sha256}
     manifest = {"version": 1, "python": str(python), "script": str(Path(__file__).resolve().with_name("main.py")),
-                "pipelineId": "ppocrv6-edgegnn-v1", "featureSchema": "clippy-edge-features-v1", "models": models,
+                "pipelineId": "ppocrv6-edgegnn-en-v2" if args.english_spacing else "ppocrv6-edgegnn-v1", "featureSchema": "clippy-edge-features-v1", "models": models,
                 "options": {"bitmapThreshold": .3, "boxThreshold": .5, "unclipRatio": 1.2, "lineThreshold": .6, "layoutThreshold": .52}}
     with destination.open("x", encoding="utf-8") as handle:
         json.dump(manifest, handle, indent=2, ensure_ascii=False)

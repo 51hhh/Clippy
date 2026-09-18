@@ -23,9 +23,12 @@ const MISSING_KEYS = Object.freeze({
   rec: "settings.ocr.missingRecognizer",
   dictionary: "settings.ocr.missingDictionary",
   edge: "settings.ocr.missingLayoutModel",
+  englishRec: "settings.ocr.missingRecognizer",
+  englishDictionary: "settings.ocr.missingDictionary",
   "pipeline.py": "settings.ocr.missingPipelineModule",
   "edge_features.py": "settings.ocr.missingPipelineModule",
   "layout_groups.py": "settings.ocr.missingPipelineModule",
+  "visual_paragraphs.py": "settings.ocr.missingPipelineModule",
 });
 
 export function describeOcrStatus(status, platform = "unknown") {

@@ -8,7 +8,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from edge_features import build_features, color_features
 from layout_groups import group_lines, order_groups
-from pipeline import decode_ctc, decode_ctc_detailed, decode_png, tile_origins, reconcile_overview, remove_contained_quads
+from pipeline import decode_ctc, decode_ctc_detailed, decode_png, should_use_english_spacing, tile_origins, reconcile_overview, remove_contained_quads
 
 
 def quad(x, y, width=100, height=20):
@@ -129,6 +129,14 @@ class FeatureTests(unittest.TestCase):
                 {"step": 5, "classIndex": 2, "character": "B", "blankBefore": 0, "stepGap": 1},
             ],
         )
+
+    def test_english_spacing_fusion_never_changes_non_whitespace_characters(self):
+        characters = set("AB012.¥#")
+        self.assertTrue(should_use_english_spacing("AA11 B", "AA 11  B", characters))
+        self.assertFalse(should_use_english_spacing("AA  11", "AA 11", characters))
+        self.assertFalse(should_use_english_spacing("AA 11", "A A11 ", characters))
+        self.assertFalse(should_use_english_spacing("¥1.20", "#1.20", characters))
+        self.assertFalse(should_use_english_spacing("中文 A", "A", characters))
 
     def test_tile_end_alignment_and_png_dimension_budget(self):
         self.assertEqual(tile_origins(1000), [0, 40])

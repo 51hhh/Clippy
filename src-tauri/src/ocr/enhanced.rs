@@ -16,7 +16,12 @@ use std::time::{Duration, Instant};
 pub(super) const MANIFEST_ENV: &str = "CLIPPY_OCR_MANIFEST";
 const MAX_INPUT: usize = 64 * 1024 * 1024;
 const MAX_PIXELS: u64 = 32 * 1024 * 1024;
-const MODULES: [&str; 3] = ["pipeline.py", "edge_features.py", "layout_groups.py"];
+const MODULES: [&str; 4] = [
+    "pipeline.py",
+    "edge_features.py",
+    "layout_groups.py",
+    "visual_paragraphs.py",
+];
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -32,6 +37,10 @@ struct Assets {
     rec: Asset,
     dictionary: Asset,
     edge: Asset,
+    #[serde(default)]
+    english_rec: Option<Asset>,
+    #[serde(default)]
+    english_dictionary: Option<Asset>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -192,12 +201,24 @@ fn load(path: &Path) -> Result<Configuration, String> {
     {
         return Err("OCR 扩框参数无效".into());
     }
-    for (role, asset) in [
+    let mut assets = vec![
         ("det", &manifest.models.det),
         ("rec", &manifest.models.rec),
         ("dictionary", &manifest.models.dictionary),
         ("edge", &manifest.models.edge),
-    ] {
+    ];
+    match (
+        manifest.models.english_rec.as_ref(),
+        manifest.models.english_dictionary.as_ref(),
+    ) {
+        (Some(rec), Some(dictionary)) => {
+            assets.push(("englishRec", rec));
+            assets.push(("englishDictionary", dictionary));
+        }
+        (None, None) => {}
+        _ => return Err("OCR 英语模型必须成对配置".into()),
+    }
+    for (role, asset) in assets {
         if !asset.path.is_absolute() {
             return Err(format!("OCR 模型路径无效:{role}"));
         }
@@ -319,7 +340,7 @@ fn validation_issue(error: &str) -> (&'static str, Vec<String>) {
         ("manifest_missing", vec!["manifest".into()])
     } else if error.contains("manifest 格式错误") {
         ("manifest_format_invalid", vec!["manifest".into()])
-    } else if error.contains("manifest 运行合同无效") {
+    } else if error.contains("manifest 运行合同无效") || error.contains("成对配置") {
         ("manifest_contract_invalid", vec!["manifest".into()])
     } else if error.contains("Python") {
         ("python_missing", vec!["python".into()])
@@ -381,18 +402,28 @@ fn status_from(
                 configuration_source: source,
                 pipeline_id: Some(manifest.pipeline_id.clone()),
                 runtime_identity: Some(configuration.identity.clone()),
-                model_identities: [
-                    ("det", &manifest.models.det),
-                    ("rec", &manifest.models.rec),
-                    ("dictionary", &manifest.models.dictionary),
-                    ("edge", &manifest.models.edge),
-                ]
-                .into_iter()
-                .map(|(role, asset)| OcrModelIdentity {
-                    role,
-                    sha256: asset.sha256.clone(),
-                })
-                .collect(),
+                model_identities: {
+                    let mut identities = vec![
+                        ("det", &manifest.models.det),
+                        ("rec", &manifest.models.rec),
+                        ("dictionary", &manifest.models.dictionary),
+                        ("edge", &manifest.models.edge),
+                    ];
+                    if let (Some(rec), Some(dictionary)) = (
+                        manifest.models.english_rec.as_ref(),
+                        manifest.models.english_dictionary.as_ref(),
+                    ) {
+                        identities.push(("englishRec", rec));
+                        identities.push(("englishDictionary", dictionary));
+                    }
+                    identities
+                        .into_iter()
+                        .map(|(role, asset)| OcrModelIdentity {
+                            role,
+                            sha256: asset.sha256.clone(),
+                        })
+                        .collect()
+                },
                 tesseract_available,
                 fallback_reason: None,
                 issue_code: None,
@@ -687,6 +718,24 @@ mod tests {
         assert_eq!(status.pipeline_id.as_deref(), Some("test-pipeline"));
         assert_eq!(status.model_identities.len(), 4);
         assert!(status.issue_code.is_none());
+    }
+
+    #[test]
+    fn optional_english_assets_are_paired_validated_and_reported() {
+        let (_directory, path) = fixture();
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let asset = manifest["models"]["rec"].clone();
+        manifest["models"]["englishRec"] = asset.clone();
+        std::fs::write(&path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        assert!(load(&path).err().unwrap().contains("成对配置"));
+
+        manifest["models"]["englishDictionary"] = asset;
+        std::fs::write(&path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let status = status_from(Some(path), "settings", false);
+        assert_eq!(status.model_identities.len(), 6);
+        assert_eq!(status.model_identities[4].role, "englishRec");
+        assert_eq!(status.model_identities[5].role, "englishDictionary");
     }
 
     #[test]

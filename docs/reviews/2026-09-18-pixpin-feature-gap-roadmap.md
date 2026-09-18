@@ -180,7 +180,11 @@ PaddleOCR 官方把公式识别作为 PP-FormulaNet/UniMERNet 独立模块，Cli
 v1 固定语料已完成增强链实跑：检测 Hmean 1.000、阅读顺序错误率 0、去空白 CER 1.18%，但原始
 CER 13.30%、空白召回 56.1%。逐字符 CTC 诊断证明长 blank-run 不能直接等价为空格：中日文字形也
 会产生长 blank，连续双空格又常被压成一个 space class。因此当前瓶颈在通用识别模型的空白保真，
-不是 EdgeGNN 或检测框；在更广语料及英语专用模型 A/B 前不增加猜测性补空格。
+不是 EdgeGNN 或检测框；不增加猜测性 blank-run 补空格。
+
+英语专用模型 A/B 已落地为可选质量档。安全融合要求英语候选保持全部非空白码点，仅允许增加模型
+实际识别到的空白；混合 v1 的空白 F1 从 0.719 提升至 0.787，去空白 CER 不变，但 P50 从 340.74 ms
+升至 786.31 ms，且连续双空格仍大量漏失。因此它通过 `--english-spacing` 显式启用，不替换默认链。
 
 官方资料还给出三个与实现直接相关的边界：
 
@@ -330,8 +334,8 @@ delta；父链与项目历史留给 `PX-PIN-01`。显式 resize/crop 之外不�
 - [ ] 任一模型/阈值替换均报告目标分层改善、关键分层回退和资源变化。
 
 **2026-09-18 诊断状态**：v1 增强链基线与有界 CTC 发射证据已固化；普通产品请求不承担诊断对象
-开销。当前结果支持继续比较英语专用/medium rec、方向候选和独立公式模型，不支持仅凭 blank-run
-阈值改写复制文本。
+开销。英语专用 rec 已按“不改非空白码点”合同可选接入并记录质量/耗时；下一步比较 medium rec、
+方向候选和独立公式模型，仍不支持仅凭 blank-run 阈值改写复制文本。
 
 **Out of Scope**：用单张 PixPin 样本宣称总体精度、静默改写用户文本、把普通 OCR 当公式识别。
 
@@ -468,7 +472,8 @@ Rust 金图继续约束权威输出。修复了模糊、马赛克和放大镜双
 - `AppConfig.enhanced_ocr_manifest_path` 保存用户选择；运行时优先使用设置值，空值才允许
   `CLIPPY_OCR_MANIFEST` 作为开发环境兜底。选择文件只改变表单，按设置页 Save 后才切换实际识别配置；
 - `ocr_health_status` 与真实识别共用 `enhanced.rs::load`，同时复核 manifest 合同、Python、sidecar
-  模块、四个资产路径/大小/SHA，并探测 Tesseract fallback。前端只依赖稳定枚举码，不解析后端日志文案；
+  模块、四个必需资产及两项可选英语资产的路径/大小/SHA，并探测 Tesseract fallback。前端只依赖
+  稳定枚举码，不解析后端日志文案；
 - 设置页显示当前引擎、pipeline ID、det/rec/dictionary/edge SHA 前缀、Tesseract fallback 与具体缺失角色。
   无增强运行时时显示 `Tesseract`，坏增强配置且 Tesseract 可用时显示 fallback，二者都不可用才显示
   unavailable；

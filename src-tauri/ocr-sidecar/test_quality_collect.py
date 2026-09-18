@@ -21,6 +21,15 @@ def minimal_png(width, height):
 
 
 class QualityCollectTests(unittest.TestCase):
+    def test_checked_in_corpora_and_png_identities_are_valid(self):
+        fixtures = Path(__file__).resolve().parent / "quality-fixtures"
+        corpora = sorted(fixtures.glob("*/corpus.json"))
+        self.assertGreaterEqual(len(corpora), 2)
+        for corpus_path in corpora:
+            corpus = quality.validate_corpus(quality.load_json(corpus_path))
+            for case in corpus["cases"]:
+                self.assertTrue(collect.read_case_png(corpus_path, case))
+
     def test_case_image_must_match_relative_path_hash_and_dimensions(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -22,6 +22,8 @@ EXPECTED = {
     "det": "d73e0058b7a8086bbd57f3d10b8bcd4ff95363f67e06e2762b5e814fe9c9410e",
     "rec": "5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634",
     "dictionary": "b5f2bfe2bdd9448429e3e82b51c789775d9b42f2403d082b00662eb77e401c5d",
+    "englishRec": "b5f833dfc5d0eb71da397b4efa06ebeee9b431b690a47d6af40d77d8eabc557f",
+    "englishDictionary": "e025a66d31f327ba0c232e03f407ae8d105e1e709e7ccb3f408aa778c24e70d6",
 }
 DEFAULTS = {"bitmapThreshold": .3, "boxThreshold": .5, "unclipRatio": 1.2, "lineThreshold": .6, "layoutThreshold": .52}
 
@@ -45,8 +47,17 @@ def validate_manifest(manifest):
         maximum = 3 if key == "unclipRatio" else 1
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 < value <= maximum:
             raise ValueError("manifest_options")
-    for name in ["det", "rec", "dictionary", "edge"]:
-        record = manifest.get("models", {}).get(name, {})
+    models = manifest.get("models", {})
+    if not isinstance(models, dict):
+        raise ValueError("manifest_models")
+    english_roles = ["englishRec", "englishDictionary"]
+    if sum(name in models for name in english_roles) not in (0, 2):
+        raise ValueError("english_model_pair")
+    roles = ["det", "rec", "dictionary", "edge"]
+    if all(name in models for name in english_roles):
+        roles += english_roles
+    for name in roles:
+        record = models.get(name, {})
         path = Path(record.get("path", ""))
         if not path.is_absolute() or not path.is_file() or not 0 < path.stat().st_size <= 64 * 1024 * 1024:
             raise ValueError("model_missing_or_size")
@@ -57,6 +68,35 @@ def validate_manifest(manifest):
         if digest.hexdigest() != record.get("sha256") or (name in EXPECTED and digest.hexdigest() != EXPECTED[name]):
             raise ValueError("model_hash_mismatch")
     return options
+
+
+def load_dictionary(path, expected_classes):
+    characters = Path(path).read_text(encoding="utf-8").splitlines()
+    dictionary = [""] + characters + [" "]
+    if len(dictionary) != expected_classes or any(not character or len(character) != 1 for character in characters):
+        raise ValueError("dictionary_class_count")
+    return dictionary
+
+
+def should_use_english_spacing(generic_text, english_text, english_characters):
+    def split_spacing(text):
+        characters = []
+        gaps = [0]
+        for character in text:
+            if character.isspace():
+                gaps[-1] += 1
+            else:
+                characters.append(character)
+                gaps.append(0)
+        return "".join(characters), gaps
+
+    generic_nonspace, generic_gaps = split_spacing(generic_text)
+    english_nonspace, english_gaps = split_spacing(english_text)
+    if not generic_nonspace or any(character not in english_characters for character in generic_nonspace):
+        return False
+    return (generic_nonspace == english_nonspace
+            and all(english >= generic for generic, english in zip(generic_gaps, english_gaps))
+            and any(english > generic for generic, english in zip(generic_gaps, english_gaps)))
 
 
 def decode_png(png):
@@ -338,9 +378,10 @@ def recognize(png, manifest, deadline, trace=None):
     cv2.setNumThreads(1)
     options = validate_manifest(manifest); check_deadline(deadline)
     image = decode_png(png); height, width = image.shape[:2]
-    dictionary = [""] + Path(manifest["models"]["dictionary"]["path"]).read_text(encoding="utf-8").splitlines() + [" "]
-    if len(dictionary) != 18710:
-        raise ValueError("dictionary_class_count")
+    dictionary = load_dictionary(manifest["models"]["dictionary"]["path"], 18710)
+    english_assets = all(name in manifest["models"] for name in ["englishRec", "englishDictionary"])
+    english_dictionary = load_dictionary(manifest["models"]["englishDictionary"]["path"], 438) if english_assets else None
+    english_characters = set(english_dictionary[1:]) if english_dictionary else set()
     det = session(manifest["models"]["det"]["path"], {"x": ("tensor(float)", 4, {0: 1, 1: 3})}, "fetch_name_0")
     check_deadline(deadline)
     edge = session(manifest["models"]["edge"]["path"], {"node_features": ("tensor(float)", 2, {1: 3}), "edge_index": ("tensor(int64)", 2, {1: 2}), "base_edge_features": ("tensor(float)", 2, {1: 2}), "adv_edge_features": ("tensor(float)", 2, {1: 17})}, "edge_logits")
@@ -359,7 +400,7 @@ def recognize(png, manifest, deadline, trace=None):
         groups = [[index] for index in range(len(quads))]
         trace("edge_skipped", {"nodes": len(quads), "reason": "no_edges"})
     check_deadline(deadline)
-    lines = []; paragraphs = []; total_crop_pixels = 0; diagnostic_emissions = 0
+    lines = []; paragraphs = []; total_crop_pixels = 0; diagnostic_emissions = 0; english_rec = None
     for paragraph_id, group in enumerate(groups):
         ids = []
         for node in group:
@@ -369,11 +410,29 @@ def recognize(png, manifest, deadline, trace=None):
                 raise ValueError("rec_total_budget")
             tensor = np.ascontiguousarray((cv2.cvtColor(crop, cv2.COLOR_BGR2RGB).astype(np.float32) / 255 - .5).transpose(2, 0, 1)[None])
             output = rec.run(["fetch_name_0"], {"x": tensor})[0]
+            trace_output_shape = list(output.shape)
             if diagnostics_enabled:
                 text, confidences, emissions = decode_ctc_detailed(output, dictionary)
             else:
                 text, confidences = decode_ctc(output, dictionary)
                 emissions = []
+            recognition_profile = "multilingual"
+            if english_assets and text and all(character.isspace() or character in english_characters for character in text):
+                if english_rec is None:
+                    english_rec = session(manifest["models"]["englishRec"]["path"], {"x": ("tensor(float)", 4, {0: 1, 1: 3, 2: 48})}, "fetch_name_0")
+                check_deadline(deadline)
+                english_output = english_rec.run(["fetch_name_0"], {"x": tensor})[0]
+                if diagnostics_enabled:
+                    english_text, english_confidences, english_emissions = decode_ctc_detailed(english_output, english_dictionary)
+                else:
+                    english_text, english_confidences = decode_ctc(english_output, english_dictionary)
+                    english_emissions = []
+                if (english_confidences and float(np.mean(english_confidences)) >= options["lineThreshold"]
+                        and should_use_english_spacing(text, english_text, english_characters)):
+                    text, confidences, emissions = english_text, english_confidences, english_emissions
+                    trace_output_shape = list(english_output.shape)
+                    recognition_profile = "english-spacing"
+                del english_output
             mean = float(np.mean(confidences)) if confidences else 0.0
             line = {"id": int(node), "quad": quads[node].astype(float).tolist(), "text": text, "confidence": mean,
                     "accepted": bool(confidences) and mean >= options["lineThreshold"], "charConfidences": confidences, "paragraphId": paragraph_id, "readingOrder": len(lines)}
@@ -384,8 +443,8 @@ def recognize(png, manifest, deadline, trace=None):
                 remaining = max(0, 4096 - diagnostic_emissions)
                 recorded = emissions[:remaining]
                 diagnostic_emissions += len(recorded)
-                trace("rec", {"node": int(node), "inputShape": list(tensor.shape), "outputShape": list(output.shape),
-                              "text": text, "confidence": mean, "emissions": recorded,
+                trace("rec", {"node": int(node), "inputShape": list(tensor.shape), "outputShape": trace_output_shape,
+                              "text": text, "confidence": mean, "profile": recognition_profile, "emissions": recorded,
                               "emissionsLimited": len(recorded) != len(emissions)})
             del output, tensor
         paragraphs.append({"id": paragraph_id, "lineIds": ids, "readingOrder": paragraph_id})

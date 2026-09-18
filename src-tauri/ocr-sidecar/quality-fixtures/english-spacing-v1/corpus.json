@@ -1,0 +1,251 @@
+{
+  "cases": [
+    {
+      "id": "prose-double-space",
+      "lines": [
+        {
+          "id": "prose-double-space-1",
+          "kind": "text",
+          "quad": [
+            [
+              24,
+              28
+            ],
+            [
+              468,
+              28
+            ],
+            [
+              468,
+              79
+            ],
+            [
+              24,
+              79
+            ]
+          ],
+          "text": "Save  as  editable  copy"
+        }
+      ],
+      "source": {
+        "height": 112,
+        "imagePath": "images/prose-double-space.png",
+        "kind": "generated",
+        "license": "Generated Clippy fixture text CC0-1.0; Noto Sans CJK SC font OFL-1.1",
+        "sha256": "f0dba4717fa56550478ff1e46be3ab4f5f565a3e0f4b1e06b2de49eca2c74e47",
+        "width": 1000
+      },
+      "tags": [
+        "english",
+        "spaces",
+        "prose"
+      ]
+    },
+    {
+      "id": "repeated-identifiers",
+      "lines": [
+        {
+          "id": "repeated-identifiers-1",
+          "kind": "text",
+          "quad": [
+            [
+              24,
+              29
+            ],
+            [
+              371,
+              29
+            ],
+            [
+              371,
+              70
+            ],
+            [
+              24,
+              70
+            ]
+          ],
+          "text": "AA  11  ll  00  AABB"
+        }
+      ],
+      "source": {
+        "height": 112,
+        "imagePath": "images/repeated-identifiers.png",
+        "kind": "generated",
+        "license": "Generated Clippy fixture text CC0-1.0; Noto Sans CJK SC font OFL-1.1",
+        "sha256": "433077d008afa86a5711d20d1de64a78394cbb496295fc93a0c62691e05fb932",
+        "width": 1000
+      },
+      "tags": [
+        "english",
+        "spaces",
+        "identifiers"
+      ]
+    },
+    {
+      "id": "serial-punctuation",
+      "lines": [
+        {
+          "id": "serial-punctuation-1",
+          "kind": "text",
+          "quad": [
+            [
+              24,
+              29
+            ],
+            [
+              570,
+              29
+            ],
+            [
+              570,
+              77
+            ],
+            [
+              24,
+              77
+            ]
+          ],
+          "text": "SN: AA11-BB22 / 98.6%  [OK]"
+        }
+      ],
+      "source": {
+        "height": 112,
+        "imagePath": "images/serial-punctuation.png",
+        "kind": "generated",
+        "license": "Generated Clippy fixture text CC0-1.0; Noto Sans CJK SC font OFL-1.1",
+        "sha256": "78ae954be3b011ffd1d0fc72e18c2613d1834966989bdacd949c802523a235a4",
+        "width": 1000
+      },
+      "tags": [
+        "english",
+        "spaces",
+        "punctuation"
+      ]
+    },
+    {
+      "id": "currency-guard",
+      "lines": [
+        {
+          "id": "currency-guard-1",
+          "kind": "text",
+          "quad": [
+            [
+              24,
+              31
+            ],
+            [
+              614,
+              31
+            ],
+            [
+              614,
+              78
+            ],
+            [
+              24,
+              78
+            ]
+          ],
+          "text": "USD 12.50  EUR 9.99  ¥1,234.50"
+        }
+      ],
+      "source": {
+        "height": 112,
+        "imagePath": "images/currency-guard.png",
+        "kind": "generated",
+        "license": "Generated Clippy fixture text CC0-1.0; Noto Sans CJK SC font OFL-1.1",
+        "sha256": "fca70c0cd84b604500d219a69d467f18aef48fc80dcb5dd59e4ad38bb359d8b8",
+        "width": 1000
+      },
+      "tags": [
+        "english",
+        "spaces",
+        "currency"
+      ]
+    },
+    {
+      "id": "linear-math",
+      "lines": [
+        {
+          "id": "linear-math-1",
+          "kind": "text",
+          "quad": [
+            [
+              24,
+              25
+            ],
+            [
+              275,
+              25
+            ],
+            [
+              275,
+              77
+            ],
+            [
+              24,
+              77
+            ]
+          ],
+          "text": "x² + 1/2 = √2"
+        }
+      ],
+      "source": {
+        "height": 112,
+        "imagePath": "images/linear-math.png",
+        "kind": "generated",
+        "license": "Generated Clippy fixture text CC0-1.0; Noto Sans CJK SC font OFL-1.1",
+        "sha256": "505947cdef3b892c4d6fd1669ac0094066d4cec3279d45b717d9bb9cab6e3034",
+        "width": 1000
+      },
+      "tags": [
+        "english",
+        "spaces",
+        "symbols"
+      ]
+    },
+    {
+      "id": "source-code",
+      "lines": [
+        {
+          "id": "source-code-1",
+          "kind": "text",
+          "quad": [
+            [
+              24,
+              28
+            ],
+            [
+              536,
+              28
+            ],
+            [
+              536,
+              78
+            ],
+            [
+              24,
+              78
+            ]
+          ],
+          "text": "const value = foo_bar + 42;"
+        }
+      ],
+      "source": {
+        "height": 112,
+        "imagePath": "images/source-code.png",
+        "kind": "generated",
+        "license": "Generated Clippy fixture text CC0-1.0; Noto Sans CJK SC font OFL-1.1",
+        "sha256": "5aa40a329f1c9dbceae04c705f1156ec1eeca458b5a5e0c2a883583d7ef0b9ed",
+        "width": 1000
+      },
+      "tags": [
+        "english",
+        "spaces",
+        "code"
+      ]
+    }
+  ],
+  "schema": "clippy-ocr-quality-corpus-v1"
+}
