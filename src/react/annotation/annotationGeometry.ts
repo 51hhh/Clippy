@@ -37,33 +37,107 @@ export function hasPoints(annotation: Annotation): annotation is StrokeAnnotatio
 
 export function annotationBounds(annotation: Annotation): Rect {
   if (hasRect(annotation)) {
-    return annotation.rect;
+    if (!("size" in annotation) || annotation.type === "highlight") return annotation.rect;
+    return expandRect(annotation.rect, annotation.size / 2);
   }
   if (hasEndpoints(annotation)) {
-    return {
-      x: Math.min(annotation.from.x, annotation.to.x),
-      y: Math.min(annotation.from.y, annotation.to.y),
-      width: Math.abs(annotation.to.x - annotation.from.x),
-      height: Math.abs(annotation.to.y - annotation.from.y),
-    };
+    const points = [annotation.from, annotation.to];
+    if (annotation.type === "arrow") points.push(...arrowHeadPoints(annotation));
+    let bounds = pointsBounds(points);
+    if (annotation.type === "measure") bounds = unionRect(bounds, measureDecorationBounds(annotation));
+    return expandRect(bounds, annotation.size / 2);
   }
   if (annotation.type === "text") {
     const fontSize = Math.max(14, annotation.size * 4);
-    return {
+    const stroke = Math.max(3, annotation.size) / 2;
+    return expandRect({
       x: annotation.at.x,
       y: annotation.at.y,
-      width: Math.max(fontSize, annotation.text.length * fontSize * 0.62),
+      width: Math.max(fontSize, estimatedTextWidth(annotation.text, fontSize)),
       height: fontSize * 1.25,
-    };
+    }, stroke);
   }
-  const xs = annotation.points.map((point) => point.x);
-  const ys = annotation.points.map((point) => point.y);
+  if (annotation.points.length === 0) {
+    return { x: 0, y: 0, width: 0, height: 0 };
+  }
+  const width = annotation.type === "marker"
+    ? Math.max(2, annotation.size * 2.6)
+    : Math.max(1, annotation.size);
+  return expandRect(pointsBounds(annotation.points), width / 2);
+}
+
+function pointsBounds(points: Point[]): Rect {
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
   return {
     x: Math.min(...xs),
     y: Math.min(...ys),
     width: Math.max(1, Math.max(...xs) - Math.min(...xs)),
     height: Math.max(1, Math.max(...ys) - Math.min(...ys)),
   };
+}
+
+function expandRect(rect: Rect, padding: number): Rect {
+  return {
+    x: rect.x - padding,
+    y: rect.y - padding,
+    width: rect.width + padding * 2,
+    height: rect.height + padding * 2,
+  };
+}
+
+function unionRect(left: Rect, right: Rect): Rect {
+  const x = Math.min(left.x, right.x);
+  const y = Math.min(left.y, right.y);
+  const x1 = Math.max(left.x + left.width, right.x + right.width);
+  const y1 = Math.max(left.y + left.height, right.y + right.height);
+  return { x, y, width: x1 - x, height: y1 - y };
+}
+
+function arrowHeadPoints(annotation: SegmentAnnotation): Point[] {
+  const angle = Math.atan2(annotation.to.y - annotation.from.y, annotation.to.x - annotation.from.x);
+  const length = Math.max(10, annotation.size * 4);
+  return [-1, 1].map((side) => ({
+    x: annotation.to.x - length * Math.cos(angle + side * Math.PI / 7),
+    y: annotation.to.y - length * Math.sin(angle + side * Math.PI / 7),
+  }));
+}
+
+function measureDecorationBounds(annotation: SegmentAnnotation): Rect {
+  const angle = Math.atan2(annotation.to.y - annotation.from.y, annotation.to.x - annotation.from.x);
+  const tick = Math.max(6, annotation.size * 2.5);
+  const normal = { x: -Math.sin(angle) * tick, y: Math.cos(angle) * tick };
+  const tickBounds = pointsBounds([
+    { x: annotation.from.x - normal.x, y: annotation.from.y - normal.y },
+    { x: annotation.from.x + normal.x, y: annotation.from.y + normal.y },
+    { x: annotation.to.x - normal.x, y: annotation.to.y - normal.y },
+    { x: annotation.to.x + normal.x, y: annotation.to.y + normal.y },
+  ]);
+  const fontSize = Math.max(14, annotation.size * 3.2);
+  const label = `${Math.round(Math.hypot(
+    annotation.to.x - annotation.from.x,
+    annotation.to.y - annotation.from.y,
+  ))} px`;
+  const center = {
+    x: (annotation.from.x + annotation.to.x) / 2,
+    y: (annotation.from.y + annotation.to.y) / 2 - tick,
+  };
+  const labelWidth = estimatedTextWidth(label, fontSize);
+  const labelBounds = {
+    x: center.x - labelWidth / 2,
+    y: center.y - fontSize,
+    width: labelWidth,
+    height: fontSize,
+  };
+  return unionRect(tickBounds, labelBounds);
+}
+
+function estimatedTextWidth(text: string, fontSize: number): number {
+  return Array.from(text).reduce((width, character) => {
+    if (/\s/u.test(character)) return width + fontSize * 0.33;
+    // CJK、全角字符和 emoji 在固定 CJK 字体里大致占一个 em；拉丁字符按 0.62 em。
+    return width + fontSize * (/[^\u0000-\u024f]/u.test(character) ? 1 : 0.62);
+  }, 0);
 }
 
 export function annotationAt(annotations: Annotation[], point: Point): Annotation | null {
@@ -109,7 +183,7 @@ function hitAnnotation(annotation: Annotation, point: Point): boolean {
   }
   if (annotation.type === "ellipse") {
     // 椭圆只在轮廓附近命中，否则空心图形会挡住底下的注解。
-    return Math.abs(ellipseDistance(point, bounds)) <= padding;
+    return Math.abs(ellipseDistance(point, annotation.rect)) <= padding;
   }
   return true;
 }

@@ -221,6 +221,17 @@ WebKitGTK 的原生下拉是独立 GTK 弹窗，一打开 webview 就失焦，�
 | 绘制 | pen、marker、rect、ellipse、line、arrow、measure、text | 四种拖拽形态（折线/矩形/线段/文本）复用同一套包围盒、命中与移动逻辑；marker 半透明且笔宽更粗，ellipse 只在轮廓附近命中，measure 标注原图像素长度 |
 | 效果 | highlight、blur、mosaic、spotlight、magnifier | blur/mosaic/spotlight/magnifier 需要读取或压暗底图，因此始终先于矢量标注绘制，magnifier 从原图重采样使预览与导出清晰度一致；highlight 只是半透明矢量色块，按用途归在这一组，绘制顺序仍跟随矢量标注 |
 
+画质验收分为两层：`annotation-tools.test.js` 验证 select/object/eraser 和 13 种像素工具在
+普通、边界、缩放坐标下的交互语义；`canvas-export-smoke.ts` 在真实 Firefox Canvas 中把 13 种
+像素工具逐个跑过普通位置、图像边缘及 1×/2× DPR。Rust `render_v2` 继续作为 Copy/Save/Pin
+的权威输出，以 RGBA 金图、选区/整图逐像素等价和透明边缘测试约束。模糊、马赛克与双线性
+放大采样都必须在预乘 alpha 空间运算，完全透明像素中不可见的 RGB 不得污染可见边缘。
+
+选中框和对象移动使用实际绘制外接框：线宽、marker 笔宽、箭头、测量刻度/文字和 CJK 文本均
+计入边界，避免对象坐标仍在图内但可见像素已被裁掉。Canvas 预览与 Rust 输出都固定为 500
+字重；预览仍使用宿主 UI 字体，最终文件固定使用仓库内 Noto Sans CJK SC，因此仅允许字体
+光栅化造成的小范围像素差异。
+
 ## 详细核心流程
 
 ```text

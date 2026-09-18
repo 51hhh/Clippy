@@ -316,6 +316,98 @@ function verifySourceMosaicGridAtEveryScale(): void {
   }
 }
 
+/** 透明像素里的隐藏 RGB 不得污染马赛克的可见颜色。 */
+function verifyPremultipliedMosaicAlpha(): void {
+  const source = document.createElement("canvas");
+  source.width = 2;
+  source.height = 1;
+  const sourceCtx = context(source);
+  const input = sourceCtx.createImageData(2, 1);
+  input.data.set([255, 0, 0, 255, 0, 0, 255, 0]);
+  sourceCtx.putImageData(input, 0, 0);
+  Object.assign(source, { naturalWidth: 2, naturalHeight: 1 });
+  const output = document.createElement("canvas");
+  output.width = 2;
+  output.height = 1;
+  renderExport(context(output), source, { x: 0, y: 0, width: 2, height: 1 }, [{
+    id: "transparent-mosaic",
+    type: "mosaic",
+    rect: { x: 0, y: 0, width: 2, height: 1 },
+    effect: { blurRadius: 8, mosaicCell: 6, spotlightDim: 0.55, magnifierZoom: 2 },
+  }], DEFAULT_IMAGE_ADJUSTMENTS);
+  for (const x of [0, 1]) {
+    const actual = pixel(context(output), x, 0);
+    assert(actual[0] >= 250 && actual[1] <= 2 && actual[2] <= 2,
+      `transparent hidden RGB polluted mosaic at ${x}: ${actual}`);
+    assert(actual[3] >= 127 && actual[3] <= 128, `mosaic alpha differs at ${x}: ${actual}`);
+  }
+}
+
+/**
+ * 13 种会留下像素的工具都在真实 Canvas 的普通位置与边界位置跑 1x/2x。
+ * select/object/eraser 不产生像素，由 annotation-tools.test.js 验证坐标与命令语义。
+ */
+function verifyRenderedToolMatrixAcrossDpr(): void {
+  const source = document.createElement("canvas");
+  source.width = 64;
+  source.height = 48;
+  const sourceCtx = context(source);
+  for (let y = 0; y < 48; y += 1) {
+    for (let x = 0; x < 64; x += 1) {
+      sourceCtx.fillStyle = `rgb(${(x * 17 + y * 3) % 256}, ${(x * 5 + y * 19) % 256}, ${(x * 11 + y * 7) % 256})`;
+      sourceCtx.fillRect(x, y, 1, 1);
+    }
+  }
+  Object.assign(source, { naturalWidth: 64, naturalHeight: 48 });
+  const effect = { blurRadius: 5, mosaicCell: 8, spotlightDim: 0.5, magnifierZoom: 2 };
+  const normal: Annotation[] = [
+    { id: "pen", type: "pen", color: "#ff3b30", size: 4, points: [{ x: 8, y: 8 }, { x: 32, y: 20 }] },
+    { id: "marker", type: "marker", color: "#ffcc00", size: 4, points: [{ x: 8, y: 14 }, { x: 34, y: 14 }] },
+    { id: "rect", type: "rect", color: "#34c759", size: 3, rect: { x: 8, y: 8, width: 28, height: 22 } },
+    { id: "ellipse", type: "ellipse", color: "#0a84ff", size: 3, rect: { x: 8, y: 8, width: 28, height: 22 } },
+    { id: "highlight", type: "highlight", color: "#ffcc00", size: 3, rect: { x: 8, y: 8, width: 28, height: 22 } },
+    { id: "line", type: "line", color: "#ffffff", size: 3, from: { x: 8, y: 8 }, to: { x: 36, y: 28 } },
+    { id: "arrow", type: "arrow", color: "#ff3b30", size: 3, from: { x: 8, y: 28 }, to: { x: 38, y: 10 } },
+    { id: "measure", type: "measure", color: "#34c759", size: 3, from: { x: 8, y: 30 }, to: { x: 42, y: 30 } },
+    { id: "text", type: "text", color: "#ffffff", size: 3, at: { x: 8, y: 8 }, text: "中A", fontFamily: "system-ui" },
+    { id: "blur", type: "blur", rect: { x: 8, y: 8, width: 28, height: 22 }, effect },
+    { id: "mosaic", type: "mosaic", rect: { x: 8, y: 8, width: 28, height: 22 }, effect },
+    { id: "spotlight", type: "spotlight", rect: { x: 8, y: 8, width: 28, height: 22 }, effect },
+    { id: "magnifier", type: "magnifier", rect: { x: 8, y: 8, width: 28, height: 22 }, effect },
+  ];
+  const atBoundary = (annotation: Annotation): Annotation => {
+    if ("rect" in annotation) return { ...annotation, id: `${annotation.id}-edge`, rect: { x: 0, y: 0, width: 18, height: 16 } };
+    if ("points" in annotation) return { ...annotation, id: `${annotation.id}-edge`, points: [{ x: 0, y: 0 }, { x: 18, y: 8 }] };
+    if ("from" in annotation) return { ...annotation, id: `${annotation.id}-edge`, from: { x: 0, y: 0 }, to: { x: 22, y: 8 } };
+    return { ...annotation, id: `${annotation.id}-edge`, at: { x: 0, y: 0 } };
+  };
+  const changedPixels = (actual: HTMLCanvasElement, base: HTMLCanvasElement) => {
+    const left = context(actual).getImageData(0, 0, actual.width, actual.height).data;
+    const right = context(base).getImageData(0, 0, base.width, base.height).data;
+    let changed = 0;
+    for (let index = 0; index < left.length; index += 4) {
+      if (left[index] !== right[index] || left[index + 1] !== right[index + 1]
+        || left[index + 2] !== right[index + 2] || left[index + 3] !== right[index + 3]) changed += 1;
+    }
+    return changed;
+  };
+  for (const dpr of [1, 2]) {
+    const base = document.createElement("canvas");
+    drawScene(base, source, { width: 64, height: 48, fitScale: 1, zoom: 1, scale: 1, pixelRatio: dpr },
+      [], null, DEFAULT_IMAGE_ADJUSTMENTS, null);
+    assert(base.width === 64 * dpr && base.height === 48 * dpr, `DPR ${dpr} backing store is wrong`);
+    for (const annotation of normal) {
+      for (const candidate of [annotation, atBoundary(annotation)]) {
+        const actual = document.createElement("canvas");
+        drawScene(actual, source, { width: 64, height: 48, fitScale: 1, zoom: 1, scale: 1, pixelRatio: dpr },
+          [candidate], null, DEFAULT_IMAGE_ADJUSTMENTS, null);
+        assert(changedPixels(actual, base) > 0,
+          `${candidate.type} produced no pixels at DPR ${dpr} (${candidate.id.endsWith("-edge") ? "edge" : "normal"})`);
+      }
+    }
+  }
+}
+
 function verifyRoundedSelectionPreview(): void {
   const source = document.createElement("canvas");
   source.width = 32;
@@ -378,6 +470,8 @@ try {
   verifyTranslucentAndDimmingEffects(source);
   verifyCanonicalSourcePixelsAcrossCompensation();
   verifySourceMosaicGridAtEveryScale();
+  verifyPremultipliedMosaicAlpha();
+  verifyRenderedToolMatrixAcrossDpr();
   verifyRoundedSelectionPreview();
   verifyRecoverableOutputLayout();
   document.documentElement.dataset.canvasExport = "passed";
