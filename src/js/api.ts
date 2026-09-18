@@ -64,7 +64,12 @@ export type {
 } from "./ipc-types.ts";
 
 export type { AppUpdateSnapshot } from "./ipc-types.ts";
-export type { DetectedImageCode, ImageCodePoint, ImageCodeScanResponse } from "./api/validators.ts";
+export type {
+  DetectedImageCode,
+  ImageCodeFormat,
+  ImageCodePoint,
+  ImageCodeScanResponse,
+} from "./api/validators.ts";
 
 export * from "./api/clipboard.ts";
 export * from "./api/capture.ts";

@@ -35,6 +35,33 @@ describe("capture overlay code scan", () => {
     expect(html).not.toContain("<a");
   });
 
+  it("renders every supported product format with its stable label", () => {
+    const html = renderToStaticMarkup(React.createElement(ScanPopover, {
+      state: {
+        status: "result",
+        result: {
+          limited: false,
+          results: [
+            { format: "qr_code", text: "qr", points: [] },
+            { format: "code_39", text: "c39", points: [] },
+            { format: "code_128", text: "c128", points: [] },
+            { format: "ean_13", text: "5901234123457", points: [] },
+          ],
+        },
+      },
+      left: 8,
+      top: 8,
+      copiedIndex: null,
+      copyFailedIndex: null,
+      onCopy: vi.fn(),
+      onClose: vi.fn(),
+    }));
+
+    for (const label of ["QR Code", "Code 39", "Code 128", "EAN-13"]) {
+      expect(html).toContain(label);
+    }
+  });
+
   it("uses stable error codes and exact generation plus selection identity", () => {
     expect(captureScanErrorMessage({ code: "busy", detail: "private" }))
       .toBe("Another local code scan is already running.");

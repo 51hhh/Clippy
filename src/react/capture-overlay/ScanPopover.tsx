@@ -1,6 +1,6 @@
 import { Copy, LoaderCircle, QrCode, TriangleAlert, X } from "lucide-react";
 import { useEffect, useRef } from "react";
-import type { ImageCodeScanResponse } from "../../js/api/validators.ts";
+import { imageCodeFormatLabel, type ImageCodeScanResponse } from "../../js/api/validators.ts";
 import { t } from "../shared/i18n";
 
 export type CaptureScanState =
@@ -61,7 +61,7 @@ export function ScanPopover(props: Props) {
           {props.state.result.results.map((code, index) => (
             <section className="scan-result" key={`${code.format}-${index}`}>
               <header>
-                <strong>{code.format === "qr_code" ? "QR Code" : "Code 39"}</strong>
+                <strong>{imageCodeFormatLabel(code.format)}</strong>
                 <button
                   type="button"
                   aria-label={t("capture.scan.copyCode", { index: index + 1 })}

@@ -150,11 +150,16 @@ describe("typed IPC wrappers", () => {
 
   it("validates the bounded local image-code response before exposing it", async () => {
     const response = {
-      results: [{
-        format: "qr_code",
-        text: "https://example.test/\u0000\u202E",
-        points: [{ x: 0, y: 1 }, { x: 16_383, y: 16_383 }],
-      }],
+      results: [
+        {
+          format: "qr_code",
+          text: "https://example.test/\u0000\u202E",
+          points: [{ x: 0, y: 1 }, { x: 16_383, y: 16_383 }],
+        },
+        { format: "code_39", text: "A", points: [] },
+        { format: "code_128", text: "CLIPPY-128", points: [] },
+        { format: "ean_13", text: "5901234123457", points: [] },
+      ],
       limited: false,
     };
     invoke.mockResolvedValueOnce(response);

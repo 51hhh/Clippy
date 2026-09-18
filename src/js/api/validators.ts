@@ -5,8 +5,20 @@ export type ImageCodePoint = {
   y: number;
 };
 
+export type ImageCodeFormat = "qr_code" | "code_39" | "code_128" | "ean_13";
+const IMAGE_CODE_FORMATS: readonly ImageCodeFormat[] = [
+  "qr_code",
+  "code_39",
+  "code_128",
+  "ean_13",
+];
+
+function isImageCodeFormat(value: unknown): value is ImageCodeFormat {
+  return typeof value === "string" && IMAGE_CODE_FORMATS.some((format) => format === value);
+}
+
 export type DetectedImageCode = {
-  format: "qr_code" | "code_39";
+  format: ImageCodeFormat;
   text: string;
   points: ImageCodePoint[];
 };
@@ -57,7 +69,7 @@ export function parseImageCodeScanResponse(value: unknown): ImageCodeScanRespons
     if (!isPlainRecord(candidate) || !hasExactKeys(candidate, ["format", "text", "points"])) {
       throw new Error("invalid image code scan result");
     }
-    if (candidate.format !== "qr_code" && candidate.format !== "code_39") {
+    if (!isImageCodeFormat(candidate.format)) {
       throw new Error("invalid image code scan format");
     }
     const format: DetectedImageCode["format"] = candidate.format;
@@ -97,6 +109,15 @@ export function parseImageCodeScanResponse(value: unknown): ImageCodeScanRespons
   });
 
   return { results, limited: value.limited };
+}
+
+export function imageCodeFormatLabel(format: ImageCodeFormat): string {
+  switch (format) {
+    case "qr_code": return "QR Code";
+    case "code_39": return "Code 39";
+    case "code_128": return "Code 128";
+    case "ean_13": return "EAN-13";
+  }
 }
 
 export function checkedStructuredOcr(value: StructuredOcr): StructuredOcr {

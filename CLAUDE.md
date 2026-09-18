@@ -8,7 +8,7 @@ Clippy 是跨平台轻量剪贴板管理器，基于 Tauri v2 + Rust（后端）
 
 已完成功能：剪贴板监听、SQLite 存储（含 FTS5 全文搜索）、悬浮面板、搜索、系统托盘、
 X11/Wayland 分流自动粘贴、多显示器冻结截图、二维手动长截图、X11 受控自动滚动、Pin 工作区/内部无损图片修订、
-可校验的本地批量归档交换、无限画布图片查看器、QR Code/Code 39 扫码、Tesseract OCR、
+可校验的本地批量归档交换、无限画布图片查看器、QR Code/Code 39/Code 128/EAN-13 扫码、Tesseract OCR、
 可选结构化增强 OCR、翻译和设置面板。
 增强 OCR 运行时需要显式配置，未随三平台安装包默认分发；交付边界见
 `src-tauri/ocr-sidecar/README.md`。
