@@ -41,6 +41,8 @@ pub(super) enum X11FrameSourceError {
     UnsupportedVisual,
     #[error("X11 录屏帧序号耗尽")]
     SequenceExhausted,
+    #[error("X11 录屏单调时间戳耗尽")]
+    TimestampExhausted,
     #[error("X11 录屏光标数据无效")]
     InvalidCursor,
     #[error(transparent)]
@@ -93,14 +95,7 @@ impl X11RegionFrameSource {
     }
 
     pub fn capture_next(&mut self) -> Result<CapturedFrame, X11FrameSourceError> {
-        let sampled_at = self
-            .clock_origin
-            .elapsed()
-            .as_nanos()
-            .min(u128::from(u64::MAX)) as u64;
-        let captured_at_ns = self
-            .last_timestamp_ns
-            .map_or(sampled_at, |last| sampled_at.max(last.saturating_add(1)));
+        let captured_at_ns = self.next_timestamp_ns()?;
         let (image, visual_id) = Image::get(
             &self.connection,
             self.root,
@@ -139,6 +134,21 @@ impl X11RegionFrameSource {
         frame.validate()?;
         Ok(frame)
     }
+
+    fn next_timestamp_ns(&self) -> Result<u64, X11FrameSourceError> {
+        let sampled_at = self
+            .clock_origin
+            .elapsed()
+            .as_nanos()
+            .min(u128::from(u64::MAX)) as u64;
+        match self.last_timestamp_ns {
+            Some(last) => Ok(sampled_at.max(
+                last.checked_add(1)
+                    .ok_or(X11FrameSourceError::TimestampExhausted)?,
+            )),
+            None => Ok(sampled_at),
+        }
+    }
 }
 
 impl RecordingFrameSource for X11RegionFrameSource {
@@ -146,6 +156,12 @@ impl RecordingFrameSource for X11RegionFrameSource {
 
     fn capture_next(&mut self) -> Result<CapturedFrame, Self::Error> {
         X11RegionFrameSource::capture_next(self)
+    }
+
+    fn control_timestamp_ns(&mut self) -> Result<u64, Self::Error> {
+        let timestamp = self.next_timestamp_ns()?;
+        self.last_timestamp_ns = Some(timestamp);
+        Ok(timestamp)
     }
 }
 
@@ -543,9 +559,12 @@ mod tests {
         })
         .expect("连接 X11 根窗口失败");
         let first = source.capture_next().expect("首帧捕获失败");
+        let control_timestamp =
+            RecordingFrameSource::control_timestamp_ns(&mut source).expect("控制时间戳失败");
         let second = source.capture_next().expect("次帧捕获失败");
         assert_eq!((first.sequence, second.sequence), (0, 1));
-        assert!(second.captured_at_ns > first.captured_at_ns);
+        assert!(control_timestamp > first.captured_at_ns);
+        assert!(second.captured_at_ns > control_timestamp);
         assert_eq!((first.width, first.height, first.stride), (32, 32, 128));
         assert_eq!(first.rgba.len(), 32 * 32 * 4);
         assert_eq!(second.rgba.len(), 32 * 32 * 4);
