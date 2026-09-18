@@ -3,11 +3,13 @@
 //! 连接在整个会话内复用；每帧只请求选区物理矩形，不循环抓整块显示器再裁切。调用方必须使用
 //! 冻结截图会话核验后的 RandR 物理区域，不能把前端提交的逻辑坐标直接传进来。
 
+use crate::capture::RecordingCaptureSpec;
 use crate::recording::frame::{CapturedFrame, FrameError, MAX_FRAME_BYTES};
 use std::time::Instant;
 use thiserror::Error;
 use x11rb::connection::Connection;
 use x11rb::image::{Image, PixelLayout};
+use x11rb::protocol::randr::{ConnectionExt as _, MonitorInfo};
 use x11rb::protocol::xfixes::{ConnectionExt as _, GetCursorImageReply};
 use x11rb::protocol::xproto::Visualtype;
 use x11rb::rust_connection::RustConnection;
@@ -26,6 +28,10 @@ pub(super) struct X11PhysicalRegion {
 pub(super) enum X11FrameSourceError {
     #[error("X11 录屏区域无效或超出根窗口")]
     InvalidRegion,
+    #[error("X11 录屏显示器不存在或映射不唯一")]
+    MonitorMissing,
+    #[error("X11 录屏显示器几何已变化")]
+    MonitorGeometryChanged,
     #[error("X11 录屏连接失败: {0}")]
     Connect(String),
     #[error("X11 录屏取帧失败: {0}")]
@@ -50,7 +56,7 @@ pub(super) struct X11RegionFrameSource {
 }
 
 impl X11RegionFrameSource {
-    pub fn connect(region: X11PhysicalRegion) -> Result<Self, X11FrameSourceError> {
+    pub fn connect(selection: RecordingCaptureSpec) -> Result<Self, X11FrameSourceError> {
         let (connection, screen_number) = RustConnection::connect(None)
             .map_err(|error| X11FrameSourceError::Connect(error.to_string()))?;
         let screen = connection
@@ -58,6 +64,17 @@ impl X11RegionFrameSource {
             .roots
             .get(screen_number)
             .ok_or_else(|| X11FrameSourceError::Connect("X11 screen 索引无效".to_string()))?;
+        connection
+            .randr_query_version(1, 5)
+            .map_err(|error| X11FrameSourceError::Connect(error.to_string()))?
+            .reply()
+            .map_err(|error| X11FrameSourceError::Connect(error.to_string()))?;
+        let monitors = connection
+            .randr_get_monitors(screen.root, true)
+            .map_err(|error| X11FrameSourceError::Connect(error.to_string()))?
+            .reply()
+            .map_err(|error| X11FrameSourceError::Connect(error.to_string()))?;
+        let region = resolve_region(selection, &monitors.monitors)?;
         validate_region(screen.width_in_pixels, screen.height_in_pixels, region)?;
         connection
             .xfixes_query_version(5, 0)
@@ -121,6 +138,59 @@ impl X11RegionFrameSource {
         frame.validate()?;
         Ok(frame)
     }
+}
+
+fn resolve_region(
+    selection: RecordingCaptureSpec,
+    monitors: &[MonitorInfo],
+) -> Result<X11PhysicalRegion, X11FrameSourceError> {
+    let mut matches = monitors
+        .iter()
+        .filter(|monitor| monitor.outputs.contains(&selection.monitor_id));
+    let monitor = matches.next().ok_or(X11FrameSourceError::MonitorMissing)?;
+    if matches.next().is_some() {
+        return Err(X11FrameSourceError::MonitorMissing);
+    }
+    if u32::from(monitor.width) != selection.monitor_pixel_width
+        || u32::from(monitor.height) != selection.monitor_pixel_height
+    {
+        return Err(X11FrameSourceError::MonitorGeometryChanged);
+    }
+    let right = selection
+        .crop_left
+        .checked_add(selection.crop_width)
+        .ok_or(X11FrameSourceError::InvalidRegion)?;
+    let bottom = selection
+        .crop_top
+        .checked_add(selection.crop_height)
+        .ok_or(X11FrameSourceError::InvalidRegion)?;
+    if selection.crop_width == 0
+        || selection.crop_height == 0
+        || right > selection.monitor_pixel_width
+        || bottom > selection.monitor_pixel_height
+    {
+        return Err(X11FrameSourceError::InvalidRegion);
+    }
+    let x = i32::from(monitor.x)
+        .checked_add(
+            i32::try_from(selection.crop_left).map_err(|_| X11FrameSourceError::InvalidRegion)?,
+        )
+        .and_then(|value| i16::try_from(value).ok())
+        .ok_or(X11FrameSourceError::InvalidRegion)?;
+    let y = i32::from(monitor.y)
+        .checked_add(
+            i32::try_from(selection.crop_top).map_err(|_| X11FrameSourceError::InvalidRegion)?,
+        )
+        .and_then(|value| i16::try_from(value).ok())
+        .ok_or(X11FrameSourceError::InvalidRegion)?;
+    Ok(X11PhysicalRegion {
+        x,
+        y,
+        width: u16::try_from(selection.crop_width)
+            .map_err(|_| X11FrameSourceError::InvalidRegion)?,
+        height: u16::try_from(selection.crop_height)
+            .map_err(|_| X11FrameSourceError::InvalidRegion)?,
+    })
 }
 
 fn composite_cursor(
@@ -247,6 +317,72 @@ mod tests {
     use std::borrow::Cow;
     use x11rb::image::{BitsPerPixel, ColorComponent, ImageOrder, ScanlinePad};
 
+    fn recording_selection(monitor_id: u32) -> RecordingCaptureSpec {
+        RecordingCaptureSpec {
+            monitor_id,
+            monitor_pixel_width: 200,
+            monitor_pixel_height: 100,
+            crop_left: 2,
+            crop_top: 4,
+            crop_width: 61,
+            crop_height: 31,
+        }
+    }
+
+    fn monitor(output: u32) -> MonitorInfo {
+        MonitorInfo {
+            x: 100,
+            y: 50,
+            width: 200,
+            height: 100,
+            outputs: vec![output],
+            ..MonitorInfo::default()
+        }
+    }
+
+    #[test]
+    fn trusted_selection_maps_output_relative_crop_to_root_region() {
+        assert_eq!(
+            resolve_region(recording_selection(7), &[monitor(7)]),
+            Ok(X11PhysicalRegion {
+                x: 102,
+                y: 54,
+                width: 61,
+                height: 31,
+            })
+        );
+    }
+
+    #[test]
+    fn trusted_selection_rejects_missing_ambiguous_and_changed_monitor() {
+        let selection = recording_selection(7);
+        assert_eq!(
+            resolve_region(selection, &[]),
+            Err(X11FrameSourceError::MonitorMissing)
+        );
+        assert_eq!(
+            resolve_region(selection, &[monitor(7), monitor(7)]),
+            Err(X11FrameSourceError::MonitorMissing)
+        );
+        let mut changed = monitor(7);
+        changed.width = 201;
+        assert_eq!(
+            resolve_region(selection, &[changed]),
+            Err(X11FrameSourceError::MonitorGeometryChanged)
+        );
+    }
+
+    #[test]
+    fn trusted_selection_rejects_crop_outside_frozen_monitor() {
+        let mut selection = recording_selection(7);
+        selection.crop_left = 190;
+        selection.crop_width = 20;
+        assert_eq!(
+            resolve_region(selection, &[monitor(7)]),
+            Err(X11FrameSourceError::InvalidRegion)
+        );
+    }
+
     #[test]
     fn region_validation_rejects_empty_negative_overflow_and_memory_budget() {
         let valid = X11PhysicalRegion {
@@ -370,11 +506,31 @@ mod tests {
     #[test]
     #[ignore = "需要真实 X11/XWayland 根窗口，不保存或输出捕获像素"]
     fn native_region_source_reuses_connection_and_advances_identity() {
-        let mut source = X11RegionFrameSource::connect(X11PhysicalRegion {
-            x: 0,
-            y: 0,
-            width: 32,
-            height: 32,
+        let (connection, screen_number) = RustConnection::connect(None).expect("连接测试 X11");
+        let root = connection.setup().roots[screen_number].root;
+        connection
+            .randr_query_version(1, 5)
+            .expect("请求 RandR 版本")
+            .reply()
+            .expect("读取 RandR 版本");
+        let monitors = connection
+            .randr_get_monitors(root, true)
+            .expect("请求 RandR 显示器")
+            .reply()
+            .expect("读取 RandR 显示器");
+        let monitor = monitors
+            .monitors
+            .iter()
+            .find(|monitor| !monitor.outputs.is_empty())
+            .expect("X11 测试环境至少有一个输出");
+        let mut source = X11RegionFrameSource::connect(RecordingCaptureSpec {
+            monitor_id: monitor.outputs[0],
+            monitor_pixel_width: u32::from(monitor.width),
+            monitor_pixel_height: u32::from(monitor.height),
+            crop_left: 0,
+            crop_top: 0,
+            crop_width: 32,
+            crop_height: 32,
         })
         .expect("连接 X11 根窗口失败");
         let first = source.capture_next().expect("首帧捕获失败");

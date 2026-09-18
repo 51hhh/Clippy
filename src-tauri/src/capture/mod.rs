@@ -25,6 +25,9 @@ pub(crate) use frame_protocol::handle as frame_protocol;
 /// AppState 通过此边界持有唯一长截图桌面生命周期；业务方法继续限制在 capture 域内。
 pub(crate) use longshot::{LongshotControllerRegistry, LongshotLifecycle};
 pub use manager::CaptureManager;
+pub(crate) use manager::{
+    CaptureRecordingCandidate, CaptureRecordingHandoff, RecordingCaptureSpec,
+};
 /// AppState 与截图入口共用的模式互斥原语；lease 的字段始终只在模块内可见。
 pub(crate) use mode_gate::{CaptureMode, CaptureModeGate, CaptureModeOwnership};
 /// 贴图窗口的摆放与置顶也只有这个扩展做得到（Wayland 不许客户端自己来），

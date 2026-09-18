@@ -150,6 +150,35 @@ pub(super) struct CaptureLongshotCandidate {
     identity: Arc<()>,
 }
 
+/// 普通截图覆盖层核验后生成的录屏物理裁剪合同。
+///
+/// 该类型不实现反序列化，也不接受桌面绝对坐标；平台帧源必须再用 `monitor_id` 查询当前原生显示器
+/// 几何，并确认冻结帧尺寸仍一致。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RecordingCaptureSpec {
+    pub(crate) monitor_id: u32,
+    pub(crate) monitor_pixel_width: u32,
+    pub(crate) monitor_pixel_height: u32,
+    pub(crate) crop_left: u32,
+    pub(crate) crop_top: u32,
+    pub(crate) crop_width: u32,
+    pub(crate) crop_height: u32,
+}
+
+/// 录屏平台帧源建立前的只读候选；prepare 不消费普通截图会话。
+#[derive(Debug)]
+pub(crate) struct CaptureRecordingCandidate {
+    spec: RecordingCaptureSpec,
+    selection: CaptureSelection,
+    identity: Arc<()>,
+}
+
+impl CaptureRecordingCandidate {
+    pub(crate) fn spec(&self) -> RecordingCaptureSpec {
+        self.spec
+    }
+}
+
 /// 输入透明 guide 使用的目标显示器与实际裁剪区逻辑几何。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct LongshotGuideSpec {
@@ -175,14 +204,14 @@ impl CaptureLongshotCandidate {
 
 /// 从普通截图会话唯一移出的桌面清理资源。
 #[derive(Debug)]
-pub(super) struct OrdinaryCaptureResources {
-    pub overlays: Vec<OverlaySpec>,
-    pub restore_labels: Vec<String>,
-    pub lowered_pins: Vec<String>,
+pub(crate) struct OrdinaryCaptureResources {
+    pub(super) overlays: Vec<OverlaySpec>,
+    pub(crate) restore_labels: Vec<String>,
+    pub(crate) lowered_pins: Vec<String>,
 }
 
 impl OrdinaryCaptureResources {
-    pub(super) fn overlay_labels(&self) -> Vec<String> {
+    pub(crate) fn overlay_labels(&self) -> Vec<String> {
         self.overlays
             .iter()
             .map(|spec| spec.label.clone())
@@ -195,6 +224,22 @@ impl OrdinaryCaptureResources {
 pub(super) struct CaptureLongshotHandoff {
     pub ownership: CaptureModeOwnership,
     pub resources: OrdinaryCaptureResources,
+}
+
+/// 普通截图原子移交给录屏后的唯一所有权与清理资源。
+pub(crate) struct CaptureRecordingHandoff {
+    pub(crate) ownership: CaptureModeOwnership,
+    pub(crate) resources: OrdinaryCaptureResources,
+}
+
+impl std::fmt::Debug for CaptureRecordingHandoff {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CaptureRecordingHandoff")
+            .field("ownership", &self.ownership)
+            .field("resources", &self.resources)
+            .finish()
+    }
 }
 
 fn selected_frame_in_session<'a>(
@@ -524,6 +569,50 @@ impl CaptureManager {
         selected_frame_in_session(session, selection).cloned()
     }
 
+    /// 核验调用覆盖层并生成录屏平台只能读取、不能由前端构造的物理裁剪合同。
+    ///
+    /// prepare 保留 Ordinary 会话；调用方先用该合同建立平台帧源，成功后再调用
+    /// `commit_recording` 原子移交模式所有权。
+    pub(crate) fn prepare_recording(
+        &self,
+        caller: &str,
+        selection: &CaptureSelection,
+    ) -> Result<CaptureRecordingCandidate, CaptureError> {
+        let current = self.session.lock().map_err(CaptureError::state_lock)?;
+        let session = current.as_ref().ok_or(CaptureError::SessionMissing)?;
+        if session.output.is_some() {
+            return Err(CaptureError::SessionBusy);
+        }
+        let frame = selected_frame_in_session(session, selection)?;
+        let overlay_index = session
+            .overlays
+            .iter()
+            .position(|overlay| overlay.label == caller)
+            .ok_or(CaptureError::OverlayNotInSession)?;
+        if session
+            .frames
+            .get(overlay_index)
+            .map(|item| item.monitor_id)
+            != Some(selection.monitor_id)
+        {
+            return Err(CaptureError::SelectionMonitorMismatch);
+        }
+        let crop = selection_pixel_rect(frame, selection)?;
+        Ok(CaptureRecordingCandidate {
+            spec: RecordingCaptureSpec {
+                monitor_id: frame.monitor_id,
+                monitor_pixel_width: frame.pixel_width,
+                monitor_pixel_height: frame.pixel_height,
+                crop_left: crop.left,
+                crop_top: crop.top,
+                crop_width: crop.width(),
+                crop_height: crop.height(),
+            },
+            selection: selection.clone(),
+            identity: Arc::clone(&session.identity),
+        })
+    }
+
     /// 准备长截图首帧候选；普通会话和 Ordinary ownership 均保持原样。
     pub(super) fn prepare_longshot(
         &self,
@@ -650,6 +739,69 @@ impl CaptureManager {
         };
 
         Ok(CaptureLongshotHandoff {
+            ownership,
+            resources: OrdinaryCaptureResources {
+                overlays,
+                restore_labels,
+                lowered_pins,
+            },
+        })
+    }
+
+    /// 精确消费录屏候选，并在 manager 锁内原子转换 mode ownership。
+    pub(crate) fn commit_recording(
+        &self,
+        candidate: CaptureRecordingCandidate,
+    ) -> Result<CaptureRecordingHandoff, CaptureError> {
+        let mut current = self.session.lock().map_err(CaptureError::state_lock)?;
+        let Some(session) = current.take() else {
+            return Err(CaptureError::SessionMissing);
+        };
+        if session.output.is_some()
+            || session.id != candidate.selection.session_id
+            || !Arc::ptr_eq(&session.identity, &candidate.identity)
+        {
+            *current = Some(session);
+            return Err(CaptureError::SessionSuperseded);
+        }
+
+        let CaptureSession {
+            id,
+            identity,
+            overlays,
+            restore_labels,
+            lowered_pins,
+            frames,
+            windows,
+            probe_hint,
+            focus_assigned,
+            timings,
+            output,
+            mode_ownership,
+        } = session;
+
+        let ownership = match mode_ownership.into_recording() {
+            Ok(ownership) => ownership,
+            Err(failure) => {
+                *current = Some(CaptureSession {
+                    id,
+                    identity,
+                    overlays,
+                    restore_labels,
+                    lowered_pins,
+                    frames,
+                    windows,
+                    probe_hint,
+                    focus_assigned,
+                    timings,
+                    output,
+                    mode_ownership: failure.ownership,
+                });
+                return Err(failure.error);
+            }
+        };
+
+        Ok(CaptureRecordingHandoff {
             ownership,
             resources: OrdinaryCaptureResources {
                 overlays,
@@ -1586,6 +1738,69 @@ mod tests {
             .unwrap()
             .finalize_mode()
             .unwrap();
+    }
+
+    #[test]
+    fn recording_prepare_binds_caller_and_physical_crop_then_commits_ownership() {
+        let manager = CaptureManager::new();
+        let gate = Arc::new(CaptureModeGate::new());
+        let start = manager
+            .begin(
+                vec![frame(2.0)],
+                vec!["main".to_string()],
+                vec!["pin-a".to_string()],
+                false,
+                StageTimings::default(),
+                ownership_on(&gate),
+            )
+            .expect("启动普通会话");
+        let label = start.overlays[0].label.clone();
+        let mut selection = selection_for(&start.session_id);
+        selection.x = 1.25;
+        selection.y = 2.25;
+        selection.width = 30.2;
+        selection.height = 30.0;
+
+        assert_eq!(
+            manager
+                .prepare_recording("capture-overlay-forged-7", &selection)
+                .expect_err("伪造 caller 不得取得录屏合同")
+                .code(),
+            "overlay_not_in_session"
+        );
+        let candidate = manager
+            .prepare_recording(&label, &selection)
+            .expect("可信覆盖层应取得录屏合同");
+        assert_eq!(
+            candidate.spec(),
+            RecordingCaptureSpec {
+                monitor_id: 7,
+                monitor_pixel_width: 200,
+                monitor_pixel_height: 100,
+                crop_left: 2,
+                crop_top: 4,
+                crop_width: 61,
+                crop_height: 61,
+            }
+        );
+        assert!(manager.payload(&label).is_ok());
+        assert_eq!(gate.active_mode().unwrap(), Some(CaptureMode::Ordinary));
+
+        let handoff = manager
+            .commit_recording(candidate)
+            .expect("精确候选应完成录屏 handoff");
+        assert_eq!(handoff.resources.overlay_labels(), vec![label]);
+        assert_eq!(handoff.resources.restore_labels, vec!["main"]);
+        assert_eq!(handoff.resources.lowered_pins, vec!["pin-a"]);
+        assert_eq!(gate.active_mode().unwrap(), Some(CaptureMode::Recording));
+        assert_eq!(
+            manager
+                .payload(&start.overlays[0].label)
+                .unwrap_err()
+                .code(),
+            "session_missing"
+        );
+        handoff.ownership.release().expect("录屏 owner 应可释放");
     }
 
     #[test]

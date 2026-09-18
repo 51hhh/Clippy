@@ -1,4 +1,4 @@
-//! 截图模式的单槽、代次安全所有权。
+//! 截图、长截图与录屏选择流程的单槽、代次安全所有权。
 //!
 //! 该 gate 只做短临界区中的认领与释放；窗口、截图和会话工作由调用方在锁外完成。
 
@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 pub(crate) enum CaptureMode {
     Ordinary,
     Longshot,
+    Recording,
 }
 
 /// 成功认领截图模式后得到的不可复制凭据。
@@ -50,7 +51,19 @@ impl CaptureModeOwnership {
     ///
     /// 失败时原 ownership 会随错误返还，避免 inert Drop 让 gate 永久保持占用。
     pub(crate) fn into_longshot(self) -> Result<Self, CaptureModeTransitionFailure> {
-        match self.gate.transition_to_longshot(&self.lease) {
+        self.transition_from_ordinary(CaptureMode::Longshot)
+    }
+
+    /// 在同一 gate 临界区内把普通截图选区所有权移交给录屏。
+    pub(crate) fn into_recording(self) -> Result<Self, CaptureModeTransitionFailure> {
+        self.transition_from_ordinary(CaptureMode::Recording)
+    }
+
+    fn transition_from_ordinary(
+        self,
+        target: CaptureMode,
+    ) -> Result<Self, CaptureModeTransitionFailure> {
+        match self.gate.transition_from_ordinary(&self.lease, target) {
             Ok(lease) => Ok(Self {
                 gate: self.gate,
                 lease,
@@ -130,11 +143,13 @@ impl CaptureModeGate {
         })
     }
 
-    /// 只允许完整匹配的 Ordinary lease 原子地变为下一代 Longshot lease。
-    fn transition_to_longshot(
+    /// 只允许完整匹配的 Ordinary lease 原子地变为下一代长任务 lease。
+    fn transition_from_ordinary(
         &self,
         lease: &CaptureModeLease,
+        target: CaptureMode,
     ) -> Result<CaptureModeLease, CaptureError> {
+        debug_assert!(target != CaptureMode::Ordinary);
         let mut state = self.state.lock().map_err(CaptureError::state_lock)?;
         let Some(owner) = state.owner else {
             return Err(CaptureError::CaptureModeSuperseded);
@@ -151,11 +166,11 @@ impl CaptureModeGate {
             .ok_or(CaptureError::CaptureModeGenerationExhausted)?;
         state.last_generation = generation;
         state.owner = Some(OwnerRecord {
-            mode: CaptureMode::Longshot,
+            mode: target,
             generation,
         });
         Ok(CaptureModeLease {
-            mode: CaptureMode::Longshot,
+            mode: target,
             generation,
         })
     }
@@ -218,7 +233,11 @@ mod tests {
 
     #[test]
     fn claim_release_matrix_reports_the_exact_active_mode() {
-        for mode in [CaptureMode::Ordinary, CaptureMode::Longshot] {
+        for mode in [
+            CaptureMode::Ordinary,
+            CaptureMode::Longshot,
+            CaptureMode::Recording,
+        ] {
             let gate = CaptureModeGate::new();
             assert_eq!(gate.active_mode().expect("读取空 gate"), None);
 
@@ -231,11 +250,19 @@ mod tests {
 
     #[test]
     fn either_mode_is_busy_without_replacing_the_owner() {
-        for owner_mode in [CaptureMode::Ordinary, CaptureMode::Longshot] {
+        for owner_mode in [
+            CaptureMode::Ordinary,
+            CaptureMode::Longshot,
+            CaptureMode::Recording,
+        ] {
             let gate = CaptureModeGate::new();
             let lease = gate.try_claim(owner_mode).expect("首次认领");
 
-            for requested_mode in [CaptureMode::Ordinary, CaptureMode::Longshot] {
+            for requested_mode in [
+                CaptureMode::Ordinary,
+                CaptureMode::Longshot,
+                CaptureMode::Recording,
+            ] {
                 let error = gate
                     .try_claim(requested_mode)
                     .expect_err("任何第二个认领都应 busy");
@@ -261,7 +288,11 @@ mod tests {
 
     #[test]
     fn stale_lease_cannot_clear_a_new_owner_of_any_mode() {
-        for new_mode in [CaptureMode::Ordinary, CaptureMode::Longshot] {
+        for new_mode in [
+            CaptureMode::Ordinary,
+            CaptureMode::Longshot,
+            CaptureMode::Recording,
+        ] {
             let gate = CaptureModeGate::new();
             let old = gate.try_claim(CaptureMode::Ordinary).expect("旧 owner");
             assert!(gate.release(&old).expect("释放旧 owner"));
@@ -403,6 +434,26 @@ mod tests {
         assert_eq!(longshot.lease.generation, 2);
         assert_eq!(state_snapshot(&gate), (2, Some((CaptureMode::Longshot, 2))));
         longshot.release().expect("转换后的 ownership 应可释放");
+        assert_eq!(gate.active_mode().expect("释放后读取"), None);
+    }
+
+    #[test]
+    fn ordinary_ownership_transitions_to_next_generation_recording() {
+        let gate = Arc::new(CaptureModeGate::new());
+        let ordinary = gate
+            .try_claim_owned(CaptureMode::Ordinary)
+            .expect("空 gate 应可认领普通截图");
+
+        let recording = ordinary
+            .into_recording()
+            .expect("普通截图所有权应可原子转换为录屏");
+        assert_eq!(recording.lease.mode, CaptureMode::Recording);
+        assert_eq!(recording.lease.generation, 2);
+        assert_eq!(
+            state_snapshot(&gate),
+            (2, Some((CaptureMode::Recording, 2)))
+        );
+        recording.release().expect("录屏 ownership 应可释放");
         assert_eq!(gate.active_mode().expect("释放后读取"), None);
     }
 

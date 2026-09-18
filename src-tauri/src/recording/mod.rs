@@ -3,6 +3,9 @@
 //! 平台帧源与编码器尚未接入；这里先固定崩溃恢复合同，避免后续实现把未封尾视频当成一次性临时文件。
 
 mod manifest;
+// 先固定截图覆盖层到平台帧源之间的可信交接；产品会话接入后移除 dead_code 例外。
+#[allow(dead_code)]
+mod selection;
 // PX-REC-01 下一阶段的平台帧源会消费这些生产类型；当前先用合成帧锁定跨平台合同。
 #[allow(dead_code)]
 mod frame;

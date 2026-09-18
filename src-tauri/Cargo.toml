@@ -99,7 +99,7 @@ libwayshot-xcap = "0.3"
 pipewire = { version = "0.9", features = ["v0_3_34"] }
 # 只为在 zbus 的信号流上调一次 `.next()`（等 PipeWireStreamAdded）。zbus 自己就依赖它。
 futures-util = { version = "0.3", default-features = false }
-x11rb = { version = "0.13", features = ["image", "xfixes"] }
+x11rb = { version = "0.13", features = ["image", "randr", "xfixes"] }
 nix = { version = "0.30", features = ["poll"] }
 
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
