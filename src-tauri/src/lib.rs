@@ -123,6 +123,7 @@ pub fn run() {
             // ── 2. 加载配置 ──────────────────────────────────────────────────
             let config_path = app_data_dir.join("config.json");
             let app_config = config::load_config(&config_path);
+            ocr::set_manifest_setting(&app_config.enhanced_ocr_manifest_path);
 
             // ── 3. 初始化存储引擎 ────────────────────────────────────────────
             let storage = if app_config.storage_mode == "memory" {
@@ -378,9 +379,11 @@ pub fn run() {
             pin::commands::open_pin_project_file,
             pin::commands::close_pin,
             commands::ocr_available,
+            commands::ocr_health_status,
             commands::ocr_image,
             commands::ocr_image_result,
             commands::ocr_install,
+            commands::pick_ocr_manifest,
             commands::fetch_url_meta,
             commands::get_stats,
             commands::toggle_tmux_capture,

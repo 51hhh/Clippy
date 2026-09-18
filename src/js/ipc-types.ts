@@ -99,6 +99,8 @@ export interface AppConfig {
   delete_confirm_ms: number;
   ocr_result_mode: string;
   ocr_enabled: boolean;
+  /** 本地增强 OCR manifest；空值表示使用 Tesseract 或显式开发环境变量。 */
+  enhanced_ocr_manifest_path: string;
   tmux_capture: boolean;
   auto_paste: boolean;
   translation_services: TranslationServiceConfig[];
@@ -111,6 +113,25 @@ export interface AppConfig {
   screenshot_save_dir: string;
   /** 保存文件名模板（`{prefix}` `{date}` `{time}` `{unix}` `{seq}`）；留空表示内置默认 */
   screenshot_filename_template: string;
+}
+
+export interface OcrModelIdentity {
+  role: "det" | "rec" | "dictionary" | "edge";
+  sha256: string;
+}
+
+export interface OcrHealthStatus {
+  available: boolean;
+  activeEngine: "ppocrv6+edgegnn" | "tesseract" | "unavailable";
+  enhancedState: "ready" | "not_configured" | "invalid";
+  configurationSource: "settings" | "environment" | "none";
+  pipelineId: string | null;
+  runtimeIdentity: string | null;
+  modelIdentities: OcrModelIdentity[];
+  tesseractAvailable: boolean;
+  fallbackReason: "enhanced_configuration_invalid" | null;
+  issueCode: string | null;
+  missingItems: string[];
 }
 
 /** 快捷键占用检测结果（`check_shortcut_conflict`） */

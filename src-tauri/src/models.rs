@@ -133,6 +133,9 @@ pub struct AppConfig {
     pub ocr_result_mode: String,
     #[serde(default = "default_ocr_enabled")]
     pub ocr_enabled: bool,
+    /// 本地增强 OCR manifest 的绝对路径。空值保留开发环境变量兜底；应用不会自动下载模型。
+    #[serde(default)]
+    pub enhanced_ocr_manifest_path: String,
     #[serde(default)]
     pub tmux_capture: bool,
     #[serde(default = "default_auto_paste")]
@@ -257,6 +260,7 @@ impl Default for AppConfig {
             delete_confirm_ms: 1200,
             ocr_result_mode: "preview".to_string(),
             ocr_enabled: true,
+            enhanced_ocr_manifest_path: String::new(),
             tmux_capture: false,
             auto_paste: true,
             translation_services: default_translation_services(),

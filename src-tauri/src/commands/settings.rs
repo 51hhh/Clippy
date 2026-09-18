@@ -189,6 +189,7 @@ fn update_config_for_app(
         ));
     }
     *current = config;
+    crate::ocr::set_manifest_setting(&current.enhanced_ocr_manifest_path);
     let emitted = current.clone();
     drop(current);
     if let Err(error) = app_handle.emit("config-changed", &emitted) {

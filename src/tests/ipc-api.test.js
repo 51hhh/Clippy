@@ -50,12 +50,14 @@ import {
   enableAutostart,
   getClips,
   getCurrentWindowLabel,
+  getOcrHealthStatus,
   hideCurrentWindow,
   isAutostartEnabled,
   onClipAdded,
   onMainWindowWillHide,
   onPasteFallback,
   pickScreenshotDirectory,
+  pickOcrManifest,
   runCaptureDiagnostics,
   commitCaptureAction,
   retryCaptureAction,
@@ -429,6 +431,18 @@ describe("typed IPC wrappers", () => {
 
     await expect(pickScreenshotDirectory()).resolves.toBeNull();
     expect(invoke).toHaveBeenNthCalledWith(1, "pick_screenshot_directory");
+  });
+
+  it("keeps enhanced OCR health and manifest picking behind settings IPC", async () => {
+    invoke.mockResolvedValueOnce({ activeEngine: "tesseract" });
+    await getOcrHealthStatus("/opt/clippy-ocr/manifest.json");
+    expect(invoke).toHaveBeenLastCalledWith("ocr_health_status", {
+      manifestPath: "/opt/clippy-ocr/manifest.json",
+    });
+
+    invoke.mockResolvedValueOnce("/opt/clippy-ocr/manifest.json");
+    await expect(pickOcrManifest()).resolves.toBe("/opt/clippy-ocr/manifest.json");
+    expect(invoke).toHaveBeenLastCalledWith("pick_ocr_manifest");
   });
 
   it("delivers typed event payloads without exposing the Tauri envelope", async () => {

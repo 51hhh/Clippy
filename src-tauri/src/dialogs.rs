@@ -16,6 +16,17 @@ pub fn choose_directory(app_handle: &tauri::AppHandle, start: &Path) -> Option<P
         .and_then(local_path)
 }
 
+/// 选择增强 OCR manifest。只接受本地 JSON 文件；内容仍由 OCR 运行合同完整校验。
+pub fn choose_ocr_manifest(app_handle: &tauri::AppHandle, start: &Path) -> Option<PathBuf> {
+    app_handle
+        .dialog()
+        .file()
+        .set_directory(prepared_directory(start))
+        .add_filter("OCR manifest", &["json"])
+        .blocking_pick_file()
+        .and_then(local_path)
+}
+
 /// 初始目录不存在时对话框会退回到主目录，先建出来让用户看到预期位置。
 fn prepared_directory(directory: &Path) -> PathBuf {
     if let Err(error) = std::fs::create_dir_all(directory) {

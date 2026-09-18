@@ -24,7 +24,17 @@ python3 -m venv /absolute/clippy-ocr/venv
 CLIPPY_OCR_MANIFEST=/absolute/clippy-ocr/models/manifest.json cargo tauri dev
 ```
 
-Windows manifest 的 `python` 应为 venv 的 `Scripts/python.exe`；路径仍是 JSON 字符串中的绝对路径。Tesseract fallback 沿用 `CLIPPY_TESSERACT_PATH` 或系统探测设置。删除环境变量即恢复单独 Tesseract，工具不会修改应用设置。
+发布版也可在 **Settings → OCR → Enhanced OCR Manifest** 选择生成的 `manifest.json`，先执行与实际
+识别完全相同的运行文件/模型哈希检查，再保存设置。状态卡会显示当前引擎、pipeline ID、四个模型
+SHA 前缀、Tesseract fallback 以及坏配置的稳定原因；选择文件尚未按 Save 时不会切换后台识别。
+清除路径后恢复 Tesseract（开发启动显式设置了 `CLIPPY_OCR_MANIFEST` 时仍以该环境变量兜底）。
+
+Windows manifest 的 `python` 应为 venv 的 `Scripts/python.exe`；路径仍是 JSON 字符串中的绝对路径。Tesseract fallback 沿用 `CLIPPY_TESSERACT_PATH` 或系统探测设置。清除设置页 manifest，并在开发环境中同时删除 `CLIPPY_OCR_MANIFEST`，即可恢复单独 Tesseract；命令行工具不会修改应用设置。
+
+当前安装包不包含 Python、wheel 或任何模型，增强运行时/模型包体增量为 0。Linux、Windows 和 macOS
+均使用相同 manifest 合同，但目前只有 Linux x64 + Python 3.12 CPU 运行时完成实测；其它平台只有在
+用户准备的 Python、wheel、脚本和四项资产全部通过真实校验后才显示 ready，不能因为选过路径就显示
+“已安装”。
 
 ## 模型来源与许可
 

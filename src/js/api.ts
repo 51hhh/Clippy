@@ -17,6 +17,8 @@ export type {
   ClipItem,
   ContentType,
   InstallType,
+  OcrHealthStatus,
+  OcrModelIdentity,
   LongshotActivation,
   LongshotControllerError,
   LongshotControllerOpenResult,

@@ -431,19 +431,39 @@ Rust 金图继续约束权威输出。修复了模糊、马赛克和放大镜双
 
 **Requirements**：
 
-- 设置页展示当前引擎、模型身份、健康状态、回退原因和缺失项；
-- 固定公开模型来源、SHA、许可证和更新策略；
-- Edge 模型的取得和分发必须先完成许可决策；
-- 安装、升级和删除均不得破坏 Tesseract 回退。
+- [x] 设置页展示当前引擎、模型身份、健康状态、回退原因和缺失项；
+- [x] 固定公开模型来源、SHA、许可证和更新策略；
+- [x] Edge 模型的取得和分发必须先完成许可决策；当前决策是只引用用户已有且自行核权的本地模型，
+  不下载、不复制、不随安装包分发；
+- [x] 配置、替换和清除 manifest 均不得破坏 Tesseract 回退。
 
 **Acceptance Criteria**：
 
-- [ ] 全新安装在没有增强运行时时明确显示 Tesseract 状态；
-- [ ] 有效 manifest 能通过 UI 健康检查并完成结构化多行 OCR；
-- [ ] 坏模型、错误 SHA、缺 Python、超时和取消均给出稳定错误且无残留进程；
-- [ ] 三平台安装策略和包体变化有记录，未支持的平台不显示为已安装。
+- [x] 全新安装在没有增强运行时时明确显示 Tesseract 状态；
+- [x] 有效 manifest 能通过 UI 健康检查并完成结构化多行 OCR；
+- [x] 坏模型、错误 SHA、缺 Python、超时和取消均给出稳定错误且无残留进程；
+- [x] 三平台安装策略和包体变化有记录，未支持的平台不显示为已安装。
 
 **Out of Scope**：复制参考产品的私有权重、训练模型、在线 OCR 和无依据的文字纠错。
+
+**实现记录（2026-09-18）**：
+
+- `AppConfig.enhanced_ocr_manifest_path` 保存用户选择；运行时优先使用设置值，空值才允许
+  `CLIPPY_OCR_MANIFEST` 作为开发环境兜底。选择文件只改变表单，按设置页 Save 后才切换实际识别配置；
+- `ocr_health_status` 与真实识别共用 `enhanced.rs::load`，同时复核 manifest 合同、Python、sidecar
+  模块、四个资产路径/大小/SHA，并探测 Tesseract fallback。前端只依赖稳定枚举码，不解析后端日志文案；
+- 设置页显示当前引擎、pipeline ID、det/rec/dictionary/edge SHA 前缀、Tesseract fallback 与具体缺失角色。
+  无增强运行时时显示 `Tesseract`，坏增强配置且 Tesseract 可用时显示 fallback，二者都不可用才显示
+  unavailable；
+- Linux 保留显式 `pkexec apt-get` 的 Tesseract 安装入口；Windows/macOS 仍交给各自系统安装方式。
+  三个平台的增强链都采用用户准备隔离 Python + 固定 manifest 的配置策略，只有同一套真实文件和哈希
+  校验通过才显示 ready。当前未发布三平台增强运行时安装器，也未把 Python、wheel 或模型加入安装包，
+  因而运行时/模型包体增量为 0；应用代码自身的最终安装包字节变化留待发布构建记录；
+- 公开 det/rec/dictionary 继续使用 `setup_models.py` 中的固定 URL、commit 和 SHA。Edge 模型没有完成
+  可再分发许可证明，因此 UI 不提供“自动安装增强 OCR”，避免把本地可加载误写成产品已安装；
+- 状态单测覆盖 ready、Tesseract-only、坏模型哈希与具体资产角色；既有进程监督测试覆盖超时、取消、
+  输出上限、kill/wait 和许可释放，真实增强多行识别证据沿用
+  `docs/reviews/2026-09-18-ocr-quality-baseline.md`。
 
 ### `PX-PIN-01`：Pin 工作区、历史与分组
 

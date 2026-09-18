@@ -13,6 +13,7 @@ import type {
   AppUpdateSnapshot,
   ClipboardStats,
   InstallType,
+  OcrHealthStatus,
   ShortcutConflict,
   ShortcutRegisterFailure,
   TranslationProvider,
@@ -147,6 +148,16 @@ export function pickScreenshotDirectory(): Promise<string | null> {
 /** 一键安装 tesseract-ocr（通过 pkexec 提权） */
 export function ocrInstall(): Promise<string> {
   return invoke<string>("ocr_install");
+}
+
+/** 使用识别路径本身的校验器检查增强 OCR 与 Tesseract fallback。 */
+export function getOcrHealthStatus(manifestPath: string): Promise<OcrHealthStatus> {
+  return invoke<OcrHealthStatus>("ocr_health_status", { manifestPath });
+}
+
+/** 选择增强 OCR manifest；取消返回 null，保存仍由设置页统一完成。 */
+export function pickOcrManifest(): Promise<string | null> {
+  return invoke<string | null>("pick_ocr_manifest");
 }
 
 /** 获取剪贴板统计信息（总数/类型分布/存储大小等） */

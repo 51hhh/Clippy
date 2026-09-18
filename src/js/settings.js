@@ -8,6 +8,7 @@ import {
   enableAutostart,
   getAppVersion,
   getConfig,
+  getOcrHealthStatus,
   getPasteStatus,
   getPlatformInfo,
   getShortcutFailures,
@@ -16,12 +17,12 @@ import {
   installWindowProbeExtension,
   isAutostartEnabled,
   isDevBinary,
-  ocrAvailable,
   ocrInstall,
   onShortcutRegisterFailed,
   openExternalUrl,
   pauseShortcuts,
   pickScreenshotDirectory,
+  pickOcrManifest,
   requestPastePermission,
   resumeShortcuts,
   runCaptureDiagnostics,
@@ -152,12 +153,23 @@ void onShortcutRegisterFailed((failure) => shortcutFailureNotice.add(failure));
 
 const ocrSettings = createOcrSettings({
   toggle: element("ocr-toggle"),
+  card: element("ocr-status-card"),
   statusDot: element("ocr-status-dot"),
   statusText: element("ocr-status-text"),
+  detailText: element("ocr-status-detail"),
+  engineText: element("ocr-engine-text"),
+  pipelineRow: element("ocr-pipeline-row"),
+  pipelineText: element("ocr-pipeline-text"),
+  fallbackText: element("ocr-fallback-text"),
+  manifestInput: element("ocr-manifest-input"),
+  browseButton: element("ocr-manifest-browse-btn"),
+  clearButton: element("ocr-manifest-clear-btn"),
+  recheckButton: element("ocr-recheck-btn"),
   installButton: element("ocr-install-btn"),
   options: element("ocr-options"),
   modeControl: ocrModeControl,
-  checkAvailable: ocrAvailable,
+  getStatus: getOcrHealthStatus,
+  pickManifest: pickOcrManifest,
   install: ocrInstall,
   translate: i18n.t,
   showToast,
@@ -315,6 +327,7 @@ languageSelect.addEventListener("change", () => {
   shortcutFailureNotice.refreshLabels();
   pastePermission.refreshLabels();
   windowProbe.refreshLabels();
+  ocrSettings.refreshLabels();
   translationSettings.refreshLabels();
 });
 

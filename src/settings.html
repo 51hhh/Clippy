@@ -230,11 +230,36 @@
           </label>
           <span class="setting-hint" data-i18n="settings.ocr.toggleHint">Enable OCR text recognition for images</span>
         </div>
-        <div class="ocr-status-row" id="ocr-status-row">
-          <span class="ocr-status-dot" id="ocr-status-dot"></span>
-          <span class="ocr-status-text" id="ocr-status-text"></span>
-          <button class="btn btn-small btn-primary" id="ocr-install-btn" hidden
-                  data-i18n="settings.ocr.install">Install</button>
+        <div class="service-card" id="ocr-status-card">
+          <div class="service-card-header">
+            <span class="service-card-dot" id="ocr-status-dot"></span>
+            <span class="service-card-state" id="ocr-status-text"></span>
+          </div>
+          <p class="service-card-detail" id="ocr-status-detail"></p>
+          <dl class="ocr-runtime-meta">
+            <div><dt data-i18n="settings.ocr.engine">Active engine</dt><dd id="ocr-engine-text">—</dd></div>
+            <div id="ocr-pipeline-row" hidden><dt data-i18n="settings.ocr.pipeline">Pipeline</dt><dd id="ocr-pipeline-text">—</dd></div>
+            <div><dt data-i18n="settings.ocr.fallback">Fallback</dt><dd id="ocr-fallback-text">—</dd></div>
+          </dl>
+          <label class="setting-label setting-label-sub" for="ocr-manifest-input"
+                 data-i18n="settings.ocr.manifest">Enhanced OCR Manifest</label>
+          <div class="ocr-manifest-row">
+            <input type="text" class="setting-input" id="ocr-manifest-input"
+                   autocomplete="off" spellcheck="false"
+                   data-i18n="settings.ocr.manifestPlaceholder" data-i18n-attr="placeholder"
+                   placeholder="/absolute/path/to/manifest.json">
+            <button class="btn btn-small btn-secondary" id="ocr-manifest-browse-btn" type="button"
+                    data-i18n="settings.ocr.browse">Browse...</button>
+          </div>
+          <p class="setting-hint" data-i18n="settings.ocr.manifestHint">Select a locally prepared manifest. Clippy verifies the runtime and every model SHA before use; models are never downloaded automatically.</p>
+          <div class="service-card-actions">
+            <button class="btn btn-small btn-secondary" id="ocr-recheck-btn" type="button"
+                    data-i18n="settings.ocr.recheck">Check again</button>
+            <button class="btn btn-small btn-secondary" id="ocr-manifest-clear-btn" type="button"
+                    data-i18n="settings.ocr.clearManifest">Clear manifest</button>
+            <button class="btn btn-small btn-primary" id="ocr-install-btn" type="button" hidden
+                    data-i18n="settings.ocr.install">Install Tesseract</button>
+          </div>
         </div>
         <div id="ocr-options" class="ocr-options">
           <label class="setting-label setting-label-sub"

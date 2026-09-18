@@ -4,13 +4,13 @@ use super::{
     protocol::StructuredOcr,
     tesseract::{self, OCR_STDERR_LIMIT, OCR_STDOUT_LIMIT, RECOGNITION_TIMEOUT},
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
 pub(super) const MANIFEST_ENV: &str = "CLIPPY_OCR_MANIFEST";
@@ -102,8 +102,37 @@ impl Configuration {
     }
 }
 
+fn manifest_setting() -> &'static RwLock<Option<PathBuf>> {
+    static SETTING: OnceLock<RwLock<Option<PathBuf>>> = OnceLock::new();
+    SETTING.get_or_init(|| RwLock::new(None))
+}
+
+pub(super) fn set_manifest_setting(value: &str) {
+    let selected = (!value.trim().is_empty()).then(|| PathBuf::from(value));
+    *manifest_setting()
+        .write()
+        .unwrap_or_else(|error| error.into_inner()) = selected;
+}
+
+fn selected_manifest(candidate: Option<&str>) -> (Option<PathBuf>, &'static str) {
+    let setting = match candidate {
+        Some(value) => (!value.trim().is_empty()).then(|| PathBuf::from(value)),
+        None => manifest_setting()
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone(),
+    };
+    if setting.is_some() {
+        return (setting, "settings");
+    }
+    match std::env::var_os(MANIFEST_ENV) {
+        Some(path) => (Some(PathBuf::from(path)), "environment"),
+        None => (None, "none"),
+    }
+}
+
 pub(super) fn configured() -> bool {
-    std::env::var_os(MANIFEST_ENV).is_some()
+    selected_manifest(None).0.is_some()
 }
 
 fn read_bounded_file(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
@@ -122,6 +151,9 @@ fn load(path: &Path) -> Result<Configuration, String> {
     if !path.is_absolute() {
         return Err("OCR manifest 必须为绝对路径".into());
     }
+    if !path.is_file() {
+        return Err("OCR manifest 不可读取".into());
+    }
     let raw = read_bounded_file(path, 65536)?;
     let manifest: Manifest =
         serde_json::from_slice(&raw).map_err(|_| "OCR manifest 格式错误".to_string())?;
@@ -129,12 +161,20 @@ fn load(path: &Path) -> Result<Configuration, String> {
         || manifest.feature_schema != "clippy-edge-features-v1"
         || manifest.pipeline_id.is_empty()
         || manifest.pipeline_id.len() > 128
-        || !manifest.python.is_absolute()
-        || !manifest.script.is_absolute()
-        || !manifest.python.is_file()
-        || !manifest.script.is_file()
     {
         return Err("OCR manifest 运行合同无效".into());
+    }
+    if !manifest.python.is_absolute() {
+        return Err("OCR Python 路径无效".into());
+    }
+    if !manifest.python.is_file() {
+        return Err("OCR Python 不可读取".into());
+    }
+    if !manifest.script.is_absolute() {
+        return Err("OCR 脚本路径无效".into());
+    }
+    if !manifest.script.is_file() {
+        return Err("OCR 脚本不可读取".into());
     }
     for value in [
         manifest.options.bitmap_threshold,
@@ -152,30 +192,34 @@ fn load(path: &Path) -> Result<Configuration, String> {
     {
         return Err("OCR 扩框参数无效".into());
     }
-    for asset in [
-        &manifest.models.det,
-        &manifest.models.rec,
-        &manifest.models.dictionary,
-        &manifest.models.edge,
+    for (role, asset) in [
+        ("det", &manifest.models.det),
+        ("rec", &manifest.models.rec),
+        ("dictionary", &manifest.models.dictionary),
+        ("edge", &manifest.models.edge),
     ] {
-        if !asset.path.is_absolute()
-            || !asset.path.is_file()
-            || asset.sha256.len() != 64
+        if !asset.path.is_absolute() {
+            return Err(format!("OCR 模型路径无效:{role}"));
+        }
+        if !asset.path.is_file() {
+            return Err(format!("OCR 模型缺失:{role}"));
+        }
+        if asset.sha256.len() != 64
             || !asset
                 .sha256
                 .bytes()
                 .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
         {
-            return Err("OCR 模型路径或哈希无效".into());
+            return Err(format!("OCR 模型身份无效:{role}"));
         }
         // 命中结果缓存之前也核对真实资产，坏文件不能被旧的成功文本遮住。
-        let mut file = File::open(&asset.path).map_err(|_| "OCR 模型不可读取".to_string())?;
+        let mut file = File::open(&asset.path).map_err(|_| format!("OCR 模型不可读取:{role}"))?;
         let size = file
             .metadata()
-            .map_err(|_| "OCR 模型大小不可读取".to_string())?
+            .map_err(|_| format!("OCR 模型大小不可读取:{role}"))?
             .len();
         if size == 0 || size > 64 * 1024 * 1024 {
-            return Err("OCR 模型超过大小上限".into());
+            return Err(format!("OCR 模型超过大小上限:{role}"));
         }
         let mut hash = Sha256::new();
         let mut buffer = [0u8; 65536];
@@ -183,18 +227,18 @@ fn load(path: &Path) -> Result<Configuration, String> {
         loop {
             let count = file
                 .read(&mut buffer)
-                .map_err(|_| "OCR 模型读取失败".to_string())?;
+                .map_err(|_| format!("OCR 模型读取失败:{role}"))?;
             if count == 0 {
                 break;
             }
             total += count as u64;
             if total > 64 * 1024 * 1024 {
-                return Err("OCR 模型超过大小上限".into());
+                return Err(format!("OCR 模型超过大小上限:{role}"));
             }
             hash.update(&buffer[..count]);
         }
         if format!("{:x}", hash.finalize()) != asset.sha256 {
-            return Err("OCR 模型哈希不一致".into());
+            return Err(format!("OCR 模型哈希不一致:{role}"));
         }
     }
     let directory = manifest
@@ -206,6 +250,9 @@ fn load(path: &Path) -> Result<Configuration, String> {
     digest.update(&raw);
     digest.update(read_bounded_file(&manifest.script, 1024 * 1024)?);
     for module in MODULES {
+        if !directory.join(module).is_file() {
+            return Err(format!("OCR 运行模块缺失:{module}"));
+        }
         digest.update(module.as_bytes());
         digest.update(read_bounded_file(&directory.join(module), 1024 * 1024)?);
     }
@@ -221,13 +268,13 @@ fn load(path: &Path) -> Result<Configuration, String> {
 }
 
 pub(super) fn configuration() -> Configuration {
-    match std::env::var_os(MANIFEST_ENV) {
+    match selected_manifest(None).0 {
         None => Configuration {
             identity: "tesseract-v1".into(),
             enhanced: None,
             fallback_reason: None,
         },
-        Some(path) => match load(Path::new(&path)) {
+        Some(path) => match load(&path) {
             Ok(configuration) => configuration,
             Err(error) => {
                 log::warn!("OCR 增强配置不可用: {error}");
@@ -239,6 +286,149 @@ pub(super) fn configuration() -> Configuration {
             }
         },
     }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OcrModelIdentity {
+    role: &'static str,
+    sha256: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OcrHealthStatus {
+    pub available: bool,
+    pub active_engine: &'static str,
+    pub enhanced_state: &'static str,
+    pub configuration_source: &'static str,
+    pub pipeline_id: Option<String>,
+    pub runtime_identity: Option<String>,
+    pub model_identities: Vec<OcrModelIdentity>,
+    pub tesseract_available: bool,
+    pub fallback_reason: Option<&'static str>,
+    pub issue_code: Option<&'static str>,
+    pub missing_items: Vec<String>,
+}
+
+fn validation_issue(error: &str) -> (&'static str, Vec<String>) {
+    let suffix = || error.split_once(':').map(|(_, value)| value.to_string());
+    if error.contains("manifest 必须为绝对路径") {
+        ("manifest_path_invalid", vec!["manifest".into()])
+    } else if error.contains("manifest 不可读取") {
+        ("manifest_missing", vec!["manifest".into()])
+    } else if error.contains("manifest 格式错误") {
+        ("manifest_format_invalid", vec!["manifest".into()])
+    } else if error.contains("manifest 运行合同无效") {
+        ("manifest_contract_invalid", vec!["manifest".into()])
+    } else if error.contains("Python") {
+        ("python_missing", vec!["python".into()])
+    } else if error.contains("脚本") {
+        ("script_missing", vec!["script".into()])
+    } else if error.contains("阈值") || error.contains("扩框参数") {
+        ("parameters_invalid", vec!["manifest".into()])
+    } else if error.contains("模型缺失") {
+        ("model_missing", suffix().into_iter().collect())
+    } else if error.contains("模型路径无效") || error.contains("模型身份无效") {
+        ("model_identity_invalid", suffix().into_iter().collect())
+    } else if error.contains("模型哈希不一致") {
+        ("model_hash_mismatch", suffix().into_iter().collect())
+    } else if error.contains("模型超过大小上限") {
+        ("model_too_large", suffix().into_iter().collect())
+    } else if error.contains("模型") {
+        ("model_unreadable", suffix().into_iter().collect())
+    } else if error.contains("运行模块缺失") {
+        ("runtime_module_missing", suffix().into_iter().collect())
+    } else {
+        ("runtime_invalid", Vec::new())
+    }
+}
+
+fn status_from(
+    path: Option<PathBuf>,
+    source: &'static str,
+    tesseract_available: bool,
+) -> OcrHealthStatus {
+    let Some(path) = path else {
+        return OcrHealthStatus {
+            available: tesseract_available,
+            active_engine: if tesseract_available {
+                "tesseract"
+            } else {
+                "unavailable"
+            },
+            enhanced_state: "not_configured",
+            configuration_source: source,
+            pipeline_id: None,
+            runtime_identity: None,
+            model_identities: Vec::new(),
+            tesseract_available,
+            fallback_reason: None,
+            issue_code: None,
+            missing_items: vec!["manifest".into()],
+        };
+    };
+    match load(&path) {
+        Ok(configuration) => {
+            let (_, manifest, _) = configuration
+                .enhanced
+                .as_ref()
+                .expect("load 成功必须有增强配置");
+            OcrHealthStatus {
+                available: true,
+                active_engine: "ppocrv6+edgegnn",
+                enhanced_state: "ready",
+                configuration_source: source,
+                pipeline_id: Some(manifest.pipeline_id.clone()),
+                runtime_identity: Some(configuration.identity.clone()),
+                model_identities: [
+                    ("det", &manifest.models.det),
+                    ("rec", &manifest.models.rec),
+                    ("dictionary", &manifest.models.dictionary),
+                    ("edge", &manifest.models.edge),
+                ]
+                .into_iter()
+                .map(|(role, asset)| OcrModelIdentity {
+                    role,
+                    sha256: asset.sha256.clone(),
+                })
+                .collect(),
+                tesseract_available,
+                fallback_reason: None,
+                issue_code: None,
+                missing_items: Vec::new(),
+            }
+        }
+        Err(error) => {
+            let (issue_code, missing_items) = validation_issue(&error);
+            OcrHealthStatus {
+                available: tesseract_available,
+                active_engine: if tesseract_available {
+                    "tesseract"
+                } else {
+                    "unavailable"
+                },
+                enhanced_state: "invalid",
+                configuration_source: source,
+                pipeline_id: None,
+                runtime_identity: None,
+                model_identities: Vec::new(),
+                tesseract_available,
+                fallback_reason: Some("enhanced_configuration_invalid"),
+                issue_code: Some(issue_code),
+                missing_items,
+            }
+        }
+    }
+}
+
+pub(crate) fn health_status(candidate: &str) -> OcrHealthStatus {
+    let (path, source) = selected_manifest(Some(candidate));
+    status_from(
+        path,
+        source,
+        super::executable::tesseract_executable().is_some(),
+    )
 }
 
 pub(super) fn image_dimensions(png: &[u8]) -> Result<(u32, u32), String> {
@@ -485,6 +675,61 @@ mod tests {
         value["options"] = serde_json::json!({"unknown":0.5});
         std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
         assert!(load(&path).is_err());
+    }
+
+    #[test]
+    fn health_status_reports_verified_pipeline_and_model_identities() {
+        let (_directory, path) = fixture();
+        let status = status_from(Some(path), "settings", false);
+        assert!(status.available);
+        assert_eq!(status.active_engine, "ppocrv6+edgegnn");
+        assert_eq!(status.enhanced_state, "ready");
+        assert_eq!(status.pipeline_id.as_deref(), Some("test-pipeline"));
+        assert_eq!(status.model_identities.len(), 4);
+        assert!(status.issue_code.is_none());
+    }
+
+    #[test]
+    fn health_status_keeps_tesseract_fallback_and_names_bad_model_role() {
+        let (directory, path) = fixture();
+        std::fs::write(directory.path().join("model"), b"tampered model").unwrap();
+        let status = status_from(Some(path), "settings", true);
+        assert!(status.available);
+        assert_eq!(status.active_engine, "tesseract");
+        assert_eq!(status.enhanced_state, "invalid");
+        assert_eq!(status.issue_code, Some("model_hash_mismatch"));
+        assert_eq!(status.missing_items, ["det"]);
+        assert_eq!(
+            status.fallback_reason,
+            Some("enhanced_configuration_invalid")
+        );
+    }
+
+    #[test]
+    fn health_status_reports_missing_python_with_a_stable_code() {
+        let (directory, path) = fixture();
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        manifest["python"] = serde_json::Value::String(
+            directory
+                .path()
+                .join("missing-python")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        std::fs::write(&path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let status = status_from(Some(path), "settings", false);
+        assert!(!status.available);
+        assert_eq!(status.issue_code, Some("python_missing"));
+        assert_eq!(status.missing_items, ["python"]);
+    }
+
+    #[test]
+    fn health_status_without_any_manifest_is_explicit_about_tesseract_only() {
+        let status = status_from(None, "none", true);
+        assert_eq!(status.active_engine, "tesseract");
+        assert_eq!(status.enhanced_state, "not_configured");
+        assert_eq!(status.missing_items, ["manifest"]);
     }
 
     #[test]
