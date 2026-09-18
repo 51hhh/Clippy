@@ -19,6 +19,7 @@ xcap 0.9 提供跨平台 `VideoRecorder`，但官方仍把 video recording 标�
 - [xcap 官方录屏示例与 WIP 声明](https://docs.rs/crate/xcap/latest/source/examples/)
 - [xcap 公开问题列表](https://github.com/nashaofu/xcap/issues)
 - [XDG Desktop Portal ScreenCast 接口](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.ScreenCast.html)
+- [X.Org XFixes 协议](https://gitlab.freedesktop.org/xorg/proto/xorgproto/-/blob/master/fixesproto.txt)
 
 ## 产品流程
 
@@ -108,6 +109,13 @@ MJPEG 实现简单但文件大、文字边缘有损；它可以验证 journal �
 4. Wayland 使用用户授权的 ScreenCast Portal 会话和其返回的 PipeWire remote FD/stream node，
    不复用一次性 Screenshot Portal，也不借 XWayland 截取原生窗口；
 5. 三平台视频闭环完成后再引入单一音轨，先分别建立系统音频/麦克风能力矩阵，再做 A/V 同步。
+
+Linux X11 已加入持久 x11rb 连接的根窗口区域帧源：每次只请求选区物理矩形，依据服务器 visual mask
+和字节序转为紧凑 RGBA，并在进入 Clippy 边界时写入单调时间戳。硬件光标通过 XFixes
+`GetCursorImage` 取得；其预乘 ARGB 像素按 hotspot 与选区求交后合成，异常尺寸或数据长度会使当前帧
+明确失败。它没有采用 xcap 公开的已缩放 `Monitor::x/y`，也没有整屏捕获后裁切。冻结会话到 RandR
+物理矩形的可信 handoff、采集 worker、控制窗排除和 X11 真机性能证据仍未接入，因此还不能从 UI
+开始录屏。
 
 ## 第一阶段验收
 

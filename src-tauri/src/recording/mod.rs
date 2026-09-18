@@ -13,6 +13,9 @@ mod timeline;
 // 诊断编码器先验证分段、时间线与恢复；平台默认编码器选型完成前不进入产品入口。
 #[allow(dead_code)]
 mod mux;
+// 平台帧源先在各自系统内验证；尚未接入录屏产品会话。
+#[allow(dead_code)]
+mod platform;
 
 use std::fmt;
 use std::io;
