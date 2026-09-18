@@ -79,8 +79,11 @@ prediction 的 `text` 保存引擎实际返回的整段文本；`engine.capabili
 - 引擎提供的 duration median/P95 与 peak RSS 上限。
 
 原始 CER 会保留空格、换行、全角字符和标点；去空白 CER 只是诊断项，不能替代原始分数。普通 OCR
-字符序列不能算作结构化公式支持。当前仓库只交付评测合同和确定性单元测试；真实 Tesseract/PP-OCR
-基线必须使用有来源的固定图片另行生成，不能把合同夹具写成模型精度结果。
+字符序列不能算作结构化公式支持。仓库已经保存 v1 smoke corpus 的 Tesseract 结果，以及 14 张同源
+合成图上的 Tesseract/PP-OCRv6 small + EdgeGNN A/B；报告、环境和限制见
+[`docs/reviews/2026-09-18-ocr-quality-baseline.md`](../../docs/reviews/2026-09-18-ocr-quality-baseline.md)。
+这些结果验证当前管线和评测器，不代表真实截图、全部语言或公式精度；真实扩展语料仍必须保留来源、
+固定图片 SHA 并重新采集，不能把合同夹具写成模型精度结果。
 
 ```sh
 python3 src-tauri/ocr-sidecar/quality_metrics.py \
