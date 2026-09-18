@@ -5,6 +5,7 @@
 
 use crate::capture::RecordingCaptureSpec;
 use crate::recording::frame::{CapturedFrame, FrameError, MAX_FRAME_BYTES};
+use crate::recording::worker::RecordingFrameSource;
 use std::time::Instant;
 use thiserror::Error;
 use x11rb::connection::Connection;
@@ -137,6 +138,14 @@ impl X11RegionFrameSource {
         };
         frame.validate()?;
         Ok(frame)
+    }
+}
+
+impl RecordingFrameSource for X11RegionFrameSource {
+    type Error = X11FrameSourceError;
+
+    fn capture_next(&mut self) -> Result<CapturedFrame, Self::Error> {
+        X11RegionFrameSource::capture_next(self)
     }
 }
 

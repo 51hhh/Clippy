@@ -743,8 +743,9 @@ XWayland 注入原生窗口。
 已经选定，WebM/原生 H.264 的质量、资源、许可和三平台构建 A/B 仍待完成。Linux X11 的持久连接
 区域帧源也已建立，直接按服务器 visual/字节序解码选区像素，并以 XFixes 的预乘 ARGB 数据合成
 硬件光标。可信选区 handoff 已由覆盖层 caller、会话 identity、物理 crop、RandR output ID、显示器
-几何复核和 Ordinary → Recording 原子模式转换约束；持续采集 worker、控制窗排除与真机性能验收仍
-未完成。
+几何复核和 Ordinary → Recording 原子模式转换约束。持续采集 worker 已接入三槽 pipeline，提供
+1–120 fps 节流、条件变量停止、错误回传和强制 join；暂停/继续、编码消费、控制窗排除与真机性能
+验收仍未完成。
 
 ### `PX-ACT-01`：类型化动作与启动器
 
