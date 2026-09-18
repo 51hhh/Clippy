@@ -95,13 +95,14 @@
       [bench-baseline.md](bench-baseline.md)
 - 来源: flashot benches/
 
-## P9: 长截图（竖向手动主链已实现）
+## P9: 长截图（二维手动主链与 X11 自动滚动已实现）
 - [x] 采用固定选区逐帧重采方案，不依赖 Wayland Portal 高频连续帧；X11/Wayland 复用普通截图后端
 - [x] 竖向向下滚动后的手动追加、重叠估计、尾部预览、复制、保存、Pin、取消和失败重试
 - [x] 对低纹理、低相似、歧义、过大位移、尺寸不一致、帧数与内存预算执行原子失败
-- [ ] 自动滚动与输入注入、反向滚动裁剪、横向/前接拼接
+- [x] 上下左右手动追加、反向前接、回访保护与显式撤销
+- [ ] 自动滚动的 X11 真机验收，以及 Wayland RemoteDesktop/libei、Windows、macOS 输入后端
 - [ ] Linux X11/Wayland、Windows、macOS 的真实桌面、多显示器、混合 DPI 和动态内容验收
 - 决策变化：此前“不做”只针对高频连续帧方案；固定选区逐帧重采消除了当时的跨会话阻塞，
-  因此竖向手动主链已经落地。剩余能力与优先级见
+  因此二维手动主链已经落地；自动输入只在后端能够证明为 X11 时展示。剩余能力与优先级见
   [PixPin 功能差距与后续路线](reviews/2026-09-18-pixpin-feature-gap-roadmap.md)。
 - 来源: flashot scroll_session.rs, scroll_stitch.rs；Clippy `capture/longshot/`

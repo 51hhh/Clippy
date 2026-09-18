@@ -5,7 +5,10 @@
 
 use super::controller::{LongshotController, LongshotControllerFinish, LongshotControllerStart};
 use super::LongshotSnapshot;
-use super::{LongshotAppendOutcome, LongshotArtifact, LongshotSessionToken, LongshotStart};
+use super::{
+    LongshotAppendOutcome, LongshotArtifact, LongshotAutoDirection, LongshotSessionToken,
+    LongshotStart,
+};
 use crate::capture::manager::OrdinaryCaptureResources;
 use crate::capture::{CaptureError, CaptureManager, CaptureModeOwnership, CaptureSelection};
 use crate::commands::AppState;
@@ -97,6 +100,14 @@ impl LongshotLifecycle {
         token: &LongshotSessionToken,
     ) -> Result<LongshotAppendOutcome, CaptureError> {
         self.append_with(token, || self.controller.append(token))
+    }
+
+    pub(in crate::capture) fn auto_append(
+        &self,
+        token: &LongshotSessionToken,
+        direction: LongshotAutoDirection,
+    ) -> Result<LongshotAppendOutcome, CaptureError> {
+        self.append_with(token, || self.controller.auto_append(token, direction))
     }
 
     pub(in crate::capture) fn undo(

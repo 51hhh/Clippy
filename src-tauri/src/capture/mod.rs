@@ -116,6 +116,17 @@ pub async fn mark_longshot_controller_ready(
 }
 
 #[tauri::command]
+pub async fn auto_append_longshot_controller(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    handle: longshot::LongshotControllerHandle,
+    direction: longshot::LongshotAutoDirection,
+) -> Result<longshot::LongshotSnapshotDto, longshot::LongshotIpcError> {
+    longshot::window_host::auto_append(app, &state, window.label(), handle, direction).await
+}
+
+#[tauri::command]
 pub async fn cancel_longshot_controller(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,

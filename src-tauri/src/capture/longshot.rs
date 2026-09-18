@@ -9,6 +9,7 @@ use crate::pin::PinOrigin;
 #[cfg(test)]
 use image::{ImageBuffer, Rgba, RgbaImage};
 
+mod auto_scroll;
 mod canvas;
 mod controller;
 mod frame_adapter;
@@ -20,6 +21,8 @@ mod session;
 pub(crate) mod window_host;
 
 // lifecycle 与控制窗 registry 通过 AppState 保持唯一实例；重导出固定 capture 领域边界。
+pub(crate) use auto_scroll::LongshotAutoDirection;
+pub(in crate::capture) use auto_scroll::LongshotAutoTarget;
 pub(super) use frame_adapter::LongshotFrameAdapter;
 pub(crate) use lifecycle::LongshotLifecycle;
 pub(super) use manager::{LongshotManager, LongshotSessionToken, LongshotStart};

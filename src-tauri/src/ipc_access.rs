@@ -79,11 +79,13 @@ const CAPTURE_OVERLAY_COMMANDS: &[&str] = &[
 
 const LONGSHOT_CONTROLLER_COMMANDS: &[&str] = &[
     "activate_longshot_controller",
+    "auto_append_longshot_controller",
     "append_longshot_controller",
     "cancel_longshot_controller",
     "finish_longshot_controller",
     "mark_longshot_controller_ready",
     "preview_longshot_controller",
+    "undo_longshot_controller",
 ];
 
 const IMAGE_VIEWER_COMMANDS: &[&str] = &[

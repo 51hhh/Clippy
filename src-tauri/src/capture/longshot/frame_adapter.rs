@@ -100,6 +100,24 @@ impl LongshotFrameAdapter {
         crop_frame(frame, self.crop)
     }
 
+    /// 自动滚动只使用首帧确认过的裁剪区中心，避免前端提交任意桌面坐标。
+    pub(in crate::capture) fn scroll_target(&self) -> Result<(i32, i32), CaptureError> {
+        let center_x = (f64::from(self.crop.left) + f64::from(self.crop.right)) / 2.0;
+        let center_y = (f64::from(self.crop.top) + f64::from(self.crop.bottom)) / 2.0;
+        let x = f64::from(self.signature.x) + center_x / f64::from(self.signature.scale_x);
+        let y = f64::from(self.signature.y) + center_y / f64::from(self.signature.scale_y);
+        if !x.is_finite()
+            || !y.is_finite()
+            || x < f64::from(i32::MIN)
+            || x > f64::from(i32::MAX)
+            || y < f64::from(i32::MIN)
+            || y > f64::from(i32::MAX)
+        {
+            return Err(CaptureError::LongshotFrameInvalid);
+        }
+        Ok((x.round() as i32, y.round() as i32))
+    }
+
     /// 根据冻结首帧与实际物理裁剪区反算最终产物的桌面全局逻辑来源矩形。
     ///
     /// 最终 PNG 的宽度不能偏离固定裁剪区，且高度至少要包含首帧裁剪区；这样不会把
@@ -414,6 +432,10 @@ mod tests {
         assert!((origin.y - -118.0).abs() < f64::EPSILON);
         assert!((origin.width - 4.8).abs() < f64::EPSILON);
         assert!((origin.height - 10.0).abs() < f64::EPSILON);
+        assert_eq!(
+            adapter.scroll_target().expect("滚动点应使用同一冻结几何"),
+            (-1917, -116)
+        );
     }
 
     #[test]

@@ -23,6 +23,8 @@ export type {
   OcrHealthStatus,
   OcrModelIdentity,
   LongshotActivation,
+  LongshotAutoCapability,
+  LongshotAutoDirection,
   LongshotControllerError,
   LongshotControllerOpenResult,
   LongshotHandle,

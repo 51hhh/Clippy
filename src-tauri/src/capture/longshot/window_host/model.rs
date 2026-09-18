@@ -144,6 +144,107 @@ impl From<LongshotSnapshot> for LongshotSnapshotDto {
 pub(crate) struct LongshotActivation {
     pub handle: LongshotControllerHandle,
     pub snapshot: LongshotSnapshotDto,
+    pub auto_scroll: LongshotAutoCapability,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum LongshotAutoCapabilityState {
+    Available,
+    Unsupported,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum LongshotAutoCapabilityReason {
+    WaylandRemoteDesktopRequired,
+    NoDisplayServer,
+    PlatformNotImplemented,
+}
+
+/// 控制窗只在真实后端可用时展示自动入口；状态不能由前端根据 UA 猜测。
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LongshotAutoCapability {
+    pub state: LongshotAutoCapabilityState,
+    pub reason: Option<LongshotAutoCapabilityReason>,
+    pub directions: Vec<crate::capture::longshot::LongshotAutoDirection>,
+}
+
+impl LongshotAutoCapability {
+    pub(super) fn current() -> Self {
+        Self::for_platform(
+            crate::platform::current_operating_system(),
+            crate::platform::current_session(),
+        )
+    }
+
+    fn for_platform(
+        operating_system: crate::platform::OperatingSystem,
+        session: crate::platform::DesktopSession,
+    ) -> Self {
+        use crate::platform::{DesktopSession, OperatingSystem};
+
+        if operating_system == OperatingSystem::Linux && session == DesktopSession::X11 {
+            return Self {
+                state: LongshotAutoCapabilityState::Available,
+                reason: None,
+                directions: vec![
+                    crate::capture::longshot::LongshotAutoDirection::Down,
+                    crate::capture::longshot::LongshotAutoDirection::Up,
+                    crate::capture::longshot::LongshotAutoDirection::Right,
+                    crate::capture::longshot::LongshotAutoDirection::Left,
+                ],
+            };
+        }
+        let reason = match (operating_system, session) {
+            (OperatingSystem::Linux, DesktopSession::Wayland) => {
+                LongshotAutoCapabilityReason::WaylandRemoteDesktopRequired
+            }
+            (OperatingSystem::Linux, DesktopSession::Unknown | DesktopSession::Native) => {
+                LongshotAutoCapabilityReason::NoDisplayServer
+            }
+            _ => LongshotAutoCapabilityReason::PlatformNotImplemented,
+        };
+        Self {
+            state: LongshotAutoCapabilityState::Unsupported,
+            reason: Some(reason),
+            directions: Vec::new(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod auto_capability_tests {
+    use super::*;
+    use crate::platform::{DesktopSession, OperatingSystem};
+
+    #[test]
+    fn only_x11_advertises_the_implemented_auto_scroll_backend() {
+        let x11 = LongshotAutoCapability::for_platform(OperatingSystem::Linux, DesktopSession::X11);
+        assert_eq!(x11.state, LongshotAutoCapabilityState::Available);
+        assert_eq!(x11.directions.len(), 4);
+
+        let wayland =
+            LongshotAutoCapability::for_platform(OperatingSystem::Linux, DesktopSession::Wayland);
+        assert_eq!(wayland.state, LongshotAutoCapabilityState::Unsupported);
+        assert_eq!(
+            wayland.reason,
+            Some(LongshotAutoCapabilityReason::WaylandRemoteDesktopRequired)
+        );
+        assert!(wayland.directions.is_empty());
+
+        for operating_system in [OperatingSystem::Windows, OperatingSystem::Macos] {
+            let native =
+                LongshotAutoCapability::for_platform(operating_system, DesktopSession::Native);
+            assert_eq!(native.state, LongshotAutoCapabilityState::Unsupported);
+            assert_eq!(
+                native.reason,
+                Some(LongshotAutoCapabilityReason::PlatformNotImplemented)
+            );
+            assert!(native.directions.is_empty());
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

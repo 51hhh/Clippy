@@ -11,6 +11,7 @@ import type {
   CaptureSelection,
   CaptureTranslationResult,
   LongshotActivation,
+  LongshotAutoDirection,
   LongshotControllerOpenResult,
   LongshotHandle,
   LongshotOutputAction,
@@ -94,6 +95,14 @@ export function markLongshotControllerReady(): Promise<void> {
  */
 export function appendLongshotController(handle: LongshotHandle): Promise<LongshotSnapshot> {
   return invoke<LongshotSnapshot>("append_longshot_controller", { handle });
+}
+
+/** X11 自动滚动一步并通过同一质量门追加；坐标和目标窗口始终由后端会话持有。 */
+export function autoAppendLongshotController(
+  handle: LongshotHandle,
+  direction: LongshotAutoDirection,
+): Promise<LongshotSnapshot> {
+  return invoke<LongshotSnapshot>("auto_append_longshot_controller", { handle, direction });
 }
 
 /** 显式撤销二维画布最后一次提交；该操作不会重新捕获屏幕。 */

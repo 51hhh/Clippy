@@ -318,7 +318,19 @@ export interface LongshotSnapshot {
 export interface LongshotActivation {
   handle: LongshotHandle;
   snapshot: LongshotSnapshot;
+  autoScroll: LongshotAutoCapability;
 }
+
+export type LongshotAutoDirection = "down" | "up" | "right" | "left";
+export type LongshotAutoCapability = {
+  state: "available";
+  reason: null;
+  directions: LongshotAutoDirection[];
+} | {
+  state: "unsupported";
+  reason: "wayland_remote_desktop_required" | "no_display_server" | "platform_not_implemented";
+  directions: [];
+};
 
 export interface CaptureOutputError {
   message: string;

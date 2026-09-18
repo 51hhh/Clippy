@@ -1,5 +1,6 @@
 import {
   activateLongshotController,
+  autoAppendLongshotController,
   appendLongshotController,
   cancelLongshotController,
   finishLongshotController,
@@ -10,6 +11,7 @@ import {
 } from "../../js/api.ts";
 import type {
   LongshotActivation,
+  LongshotAutoDirection,
   LongshotHandle,
   LongshotOutputAction,
   LongshotOutputResult,
@@ -20,6 +22,10 @@ import type {
 export const longshotControllerApi = {
   activate: (): Promise<LongshotActivation> => activateLongshotController(),
   append: (handle: LongshotHandle): Promise<LongshotSnapshot> => appendLongshotController(handle),
+  autoAppend: (
+    handle: LongshotHandle,
+    direction: LongshotAutoDirection,
+  ): Promise<LongshotSnapshot> => autoAppendLongshotController(handle, direction),
   undo: (handle: LongshotHandle): Promise<LongshotSnapshot> => undoLongshotController(handle),
   preview: (handle: LongshotHandle): Promise<ArrayBuffer> => previewLongshotController(handle),
   finish: (

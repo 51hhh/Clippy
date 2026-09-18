@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   LongshotActivation,
+  LongshotAutoDirection,
   LongshotControllerError,
   LongshotHandle,
   LongshotOutputAction,
@@ -22,7 +23,7 @@ type ControllerPhase =
   | "cleanupError";
 
 type DisplayError = Pick<LongshotControllerError, "code">;
-type ErrorContext = "activation" | "append" | "finish" | LongshotOutputAction;
+type ErrorContext = "activation" | "append" | "auto" | "finish" | LongshotOutputAction;
 type PreviewStatus = "loading" | "available" | "unavailable";
 type PreviewRequest = {
   identity: string;
@@ -85,7 +86,16 @@ function errorText(error: DisplayError | null, context: ErrorContext): string {
       return t("longshot.pinFailed");
     case "longshot_controller_pin_uncertain":
       return t("longshot.pinUncertain");
+    case "longshot_auto_target_lost":
+      return t("longshot.autoTargetLost");
+    case "longshot_auto_user_interrupted":
+      return t("longshot.autoUserInterrupted");
+    case "longshot_auto_input":
+      return t("longshot.autoInputFailed");
+    case "longshot_auto_unsupported":
+      return t("longshot.autoUnsupported");
     default:
+      if (context === "auto") return t("longshot.autoPaused");
       if (context === "append") return t("longshot.appendFailed");
       if (context === "finish") return t("longshot.finishFailed");
       if (context === "copy") return t("longshot.copyFailed");
@@ -133,6 +143,10 @@ export function App() {
   const lifecycleEpoch = useRef(0);
   const appendEpoch = useRef(0);
   const appendInFlight = useRef(false);
+  const activationRef = useRef<LongshotActivation | null>(null);
+  const autoRunningRef = useRef(false);
+  const autoTimer = useRef<number | null>(null);
+  const autoStepRef = useRef<(direction: LongshotAutoDirection) => void>(() => {});
   const finishEpoch = useRef(0);
   const finishInFlight = useRef(false);
   const outputRetryPolicyRef = useRef<OutputRetryPolicy>("any");
@@ -150,6 +164,8 @@ export function App() {
   const [readyComplete, setReadyComplete] = useState(false);
   const [previewStatus, setPreviewStatus] = useState<PreviewStatus>("loading");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [autoDirection, setAutoDirection] = useState<LongshotAutoDirection>("down");
+  const [autoRunning, setAutoRunning] = useState(false);
 
   const transition = (next: ControllerPhase) => {
     phaseRef.current = next;
@@ -160,6 +176,15 @@ export function App() {
     appendEpoch.current += 1;
     appendInFlight.current = false;
   };
+
+  const stopAuto = useCallback(() => {
+    autoRunningRef.current = false;
+    if (mounted.current) setAutoRunning(false);
+    if (autoTimer.current !== null) {
+      window.clearTimeout(autoTimer.current);
+      autoTimer.current = null;
+    }
+  }, []);
 
   const invalidateFinishAttempt = () => {
     finishEpoch.current += 1;
@@ -189,6 +214,7 @@ export function App() {
       || phaseRef.current === "finished"
     ) return;
     const phaseBeforeCancel = phaseRef.current;
+    stopAuto();
     // 取消是所有本地异步 promise 的线性化边界：它之后的任何完成都不得复活 UI。
     invalidateAppendAttempt();
     invalidateFinishAttempt();
@@ -213,7 +239,7 @@ export function App() {
         handle ? phaseBeforeCancel === "outputPending" ? "outputPending" : "ready" : "activationError");
       if (parsed.code === "longshot_controller_cleanup_failed") releasePreviewUrl();
     }
-  }, []);
+  }, [stopAuto]);
 
   useEffect(() => {
     mounted.current = true;
@@ -228,6 +254,7 @@ export function App() {
     void request
       .then((value) => {
         if (!effectMounted) return;
+        activationRef.current = value;
         setActivation(value);
         transition("ready");
       })
@@ -249,10 +276,11 @@ export function App() {
         invalidateAppendAttempt();
         invalidateFinishAttempt();
         invalidatePreviewAttempt();
+        stopAuto();
         releasePreviewUrl();
       });
     };
-  }, []);
+  }, [stopAuto]);
 
   // 必须等 activation 结果（包括不可恢复的 CleanupError）已经实际渲染后才能要求后端
   // show，避免隐藏窗口白闪，也避免把重启指引永远留在隐藏 WebView 里。
@@ -353,8 +381,8 @@ export function App() {
     };
   }, [activation, phase, previewIdentity, readyComplete]);
 
-  const appendCurrent = useCallback(() => {
-    const currentActivation = activation;
+  const appendCurrent = useCallback((automaticDirection: LongshotAutoDirection | null = null) => {
+    const currentActivation = activationRef.current;
     if (
       !currentActivation
       || phaseRef.current !== "ready"
@@ -367,7 +395,7 @@ export function App() {
     invalidatePreviewAttempt();
     const previewBarrier = previewRequest.current?.promise;
     setError(null);
-    setErrorContext("append");
+    setErrorContext(automaticDirection ? "auto" : "append");
     transition("appending");
 
     void (async () => {
@@ -383,10 +411,24 @@ export function App() {
         || attempt !== appendEpoch.current
         || !appendInFlight.current
         || cancelling.current
+        || (automaticDirection !== null && !autoRunningRef.current)
         || phaseRef.current !== "appending"
-      ) return;
+      ) {
+        if (
+          automaticDirection !== null
+          && attempt === appendEpoch.current
+          && appendInFlight.current
+          && phaseRef.current === "appending"
+        ) {
+          appendInFlight.current = false;
+          transition("ready");
+        }
+        return;
+      }
       try {
-        const nextSnapshot = await longshotControllerApi.append(currentActivation.handle);
+        const nextSnapshot = automaticDirection
+          ? await longshotControllerApi.autoAppend(currentActivation.handle, automaticDirection)
+          : await longshotControllerApi.append(currentActivation.handle);
         if (
           !mounted.current
           || attempt !== appendEpoch.current
@@ -394,9 +436,17 @@ export function App() {
           || phaseRef.current !== "appending"
         ) return;
         appendInFlight.current = false;
-        setActivation((current) => current ? { ...current, snapshot: nextSnapshot } : current);
+        const nextActivation = { ...currentActivation, snapshot: nextSnapshot };
+        activationRef.current = nextActivation;
+        setActivation(nextActivation);
         setError(null);
         transition("ready");
+        if (automaticDirection && autoRunningRef.current) {
+          autoTimer.current = window.setTimeout(() => {
+            autoTimer.current = null;
+            if (autoRunningRef.current) autoStepRef.current(automaticDirection);
+          }, 650);
+        }
       } catch (reason) {
         if (
           !mounted.current
@@ -405,18 +455,36 @@ export function App() {
           || phaseRef.current !== "appending"
         ) return;
         appendInFlight.current = false;
+        if (automaticDirection) stopAuto();
         const parsed = parseControllerError(reason);
         console.warn("长截图控制窗口追加失败", parsed.message);
         setError(parsed);
-        setErrorContext("append");
+        setErrorContext(automaticDirection ? "auto" : "append");
         transition(parsed.code === "longshot_controller_cleanup_failed" ? "cleanupError" : "ready");
         if (parsed.code === "longshot_controller_cleanup_failed") releasePreviewUrl();
       }
     })();
-  }, [activation]);
+  }, [stopAuto]);
+
+  autoStepRef.current = (direction) => appendCurrent(direction);
+
+  const startAuto = useCallback(() => {
+    const current = activationRef.current;
+    if (
+      !current
+      || current.autoScroll?.state !== "available"
+      || !current.autoScroll.directions.includes(autoDirection)
+      || phaseRef.current !== "ready"
+      || autoRunningRef.current
+    ) return;
+    autoRunningRef.current = true;
+    setAutoRunning(true);
+    setError(null);
+    autoStepRef.current(autoDirection);
+  }, [autoDirection]);
 
   const undoCurrent = useCallback(() => {
-    const currentActivation = activation;
+    const currentActivation = activationRef.current;
     if (
       !currentActivation
       || currentActivation.snapshot.frameCount <= 1
@@ -457,7 +525,9 @@ export function App() {
           || phaseRef.current !== "undoing"
         ) return;
         appendInFlight.current = false;
-        setActivation((current) => current ? { ...current, snapshot: nextSnapshot } : current);
+        const nextActivation = { ...currentActivation, snapshot: nextSnapshot };
+        activationRef.current = nextActivation;
+        setActivation(nextActivation);
         transition("ready");
       } catch (reason) {
         if (
@@ -475,10 +545,10 @@ export function App() {
         if (parsed.code === "longshot_controller_cleanup_failed") releasePreviewUrl();
       }
     })();
-  }, [activation]);
+  }, []);
 
   const finishCurrent = useCallback((action: LongshotOutputAction) => {
-    const currentActivation = activation;
+    const currentActivation = activationRef.current;
     const retryingOutput = phaseRef.current === "outputPending";
     if (
       !currentActivation
@@ -571,7 +641,7 @@ export function App() {
         }
       }
     })();
-  }, [activation]);
+  }, []);
 
   const cancelCurrent = useCallback(() => {
     void cancel(activation?.handle ?? null);
@@ -581,11 +651,15 @@ export function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
+      if (autoRunningRef.current) {
+        stopAuto();
+        return;
+      }
       cancelCurrent();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [cancelCurrent]);
+  }, [cancelCurrent, stopAuto]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -622,7 +696,9 @@ export function App() {
       ) && snapshot && (
         <>
           <p className="longshot-status">
-            {phase === "appending" && t("longshot.appending")}
+            {phase === "appending" && (autoRunning
+              ? t("longshot.autoAppending")
+              : t("longshot.appending"))}
             {phase === "undoing" && t("longshot.undoing")}
             {phase === "finishing" && finishingAction === "copy" && t("longshot.finishingCopy")}
             {phase === "finishing" && finishingAction === "save" && t("longshot.finishingSave")}
@@ -664,6 +740,34 @@ export function App() {
           {phase === "outputPending" && error && (
             <p className="longshot-error" role="alert">{errorText(error, errorContext)}</p>
           )}
+          {activation.autoScroll?.state === "available"
+            && (phase === "ready" || phase === "appending") && (
+            <section className="longshot-auto" aria-label={t("longshot.autoRegion")}>
+              <label htmlFor="longshot-auto-direction">{t("longshot.autoDirection")}</label>
+              <select
+                id="longshot-auto-direction"
+                data-testid="longshot-auto-direction"
+                value={autoDirection}
+                disabled={autoRunning || phase !== "ready"}
+                onChange={(event) => setAutoDirection(event.target.value as LongshotAutoDirection)}
+              >
+                {activation.autoScroll.directions.map((direction) => (
+                  <option key={direction} value={direction}>
+                    {t(`longshot.direction.${direction}`)}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                data-testid={autoRunning ? "longshot-auto-stop" : "longshot-auto-start"}
+                onClick={autoRunning ? stopAuto : startAuto}
+                disabled={!autoRunning && phase !== "ready"}
+              >
+                {autoRunning ? t("longshot.autoStop") : t("longshot.autoStart")}
+              </button>
+              <p>{autoRunning ? t("longshot.autoStopHint") : t("longshot.autoHint")}</p>
+            </section>
+          )}
           {phase !== "finished" && (
             <div className="longshot-actions">
               {(phase === "ready" || phase === "appending" || phase === "undoing" || phase === "finishing") && (
@@ -671,8 +775,8 @@ export function App() {
                   <button
                     type="button"
                     data-testid="longshot-append"
-                    onClick={appendCurrent}
-                    disabled={phase !== "ready"}
+                    onClick={() => appendCurrent(null)}
+                    disabled={phase !== "ready" || autoRunning}
                   >
                     {t("longshot.append")}
                   </button>
@@ -680,7 +784,7 @@ export function App() {
                     type="button"
                     data-testid="longshot-undo"
                     onClick={undoCurrent}
-                    disabled={phase !== "ready" || snapshot.frameCount <= 1}
+                    disabled={phase !== "ready" || autoRunning || snapshot.frameCount <= 1}
                   >
                     {t("longshot.undo")}
                   </button>
@@ -688,7 +792,7 @@ export function App() {
                     type="button"
                     data-testid="longshot-copy"
                     onClick={() => finishCurrent("copy")}
-                    disabled={phase !== "ready"}
+                    disabled={phase !== "ready" || autoRunning}
                   >
                     {t("longshot.copy")}
                   </button>
@@ -696,7 +800,7 @@ export function App() {
                     type="button"
                     data-testid="longshot-save"
                     onClick={() => finishCurrent("save")}
-                    disabled={phase !== "ready"}
+                    disabled={phase !== "ready" || autoRunning}
                   >
                     {t("longshot.save")}
                   </button>
@@ -704,7 +808,7 @@ export function App() {
                     type="button"
                     data-testid="longshot-pin"
                     onClick={() => finishCurrent("pin")}
-                    disabled={phase !== "ready"}
+                    disabled={phase !== "ready" || autoRunning}
                   >
                     {t("longshot.pin")}
                   </button>

@@ -185,6 +185,7 @@ impl LongshotControllerRegistry {
                 let activation = LongshotActivation {
                     handle: LongshotControllerHandle::from_token(&start.token),
                     snapshot: start.snapshot.into(),
+                    auto_scroll: super::model::LongshotAutoCapability::current(),
                 };
                 *slot = Slot::Active {
                     label: label.to_string(),

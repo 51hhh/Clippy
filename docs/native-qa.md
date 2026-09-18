@@ -124,6 +124,10 @@ node scripts/manual-qa.mjs verify \
 - 使用两块不同缩放/负坐标显示器验证窗口命中、选区边界、Pin 初始位置和拖动。
 - 运行 `clippy --capture-diagnose`，保存 I1–I5、typed `PlatformInfo` 和 monitor-layout fixture。
 - Pin 后切换工作区、全屏窗口和普通窗口，确认 X11 topmost 行为与工具条状态一致。
+- 从同一选区进入长截图，依次验证上下左右自动滚动。每个方向至少追加两帧，按 Stop 与 Esc 均只
+  暂停自动循环且保留画布；随后 Copy、Save、Pin 各完成一次。滚动期间移动鼠标、关闭/移动目标窗、
+  页面到底以及插入动态内容，分别确认控制窗恢复、自动模式停止、旧快照可继续手动追加或输出，
+  鼠标回到启动该步前的位置。记录目标窗身份错误与质量门 reason code，不能只看最终 PNG。
 
 ## 5. GNOME Wayland
 
@@ -139,6 +143,8 @@ node scripts/manual-qa.mjs verify \
 - Ubuntu 24.04 还必须记录 GNOME、xdg-desktop-portal 与 desktop portal backend 版本，分别触发
   Mutter、Shell helper、Portal 和后续 fallback 中环境实际支持的路径；诊断记录的 selected backend
   必须与观测一致，不能沿用 Ubuntu 22 的结论。
+- 长截图控制窗不得显示自动滚动入口；当前实现没有建立 RemoteDesktop/libei 指针会话，不能因
+  `DISPLAY` 存在或 XWayland 可用而把原生 Wayland 窗口误报为可自动滚动。
 
 ## 6. KDE 与 wlroots Wayland
 

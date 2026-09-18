@@ -5,8 +5,9 @@
 
 use super::LongshotSnapshot;
 use super::{
-    capture_monitor_frame, LongshotAppendOutcome, LongshotArtifact, LongshotFrameAdapter,
-    LongshotManager, LongshotSession, LongshotSessionToken, LongshotStart,
+    capture_monitor_frame, LongshotAppendOutcome, LongshotArtifact, LongshotAutoDirection,
+    LongshotAutoTarget, LongshotFrameAdapter, LongshotManager, LongshotSession,
+    LongshotSessionToken, LongshotStart,
 };
 use crate::capture::manager::{
     CaptureLongshotCandidate, CaptureLongshotHandoff, OrdinaryCaptureResources,
@@ -31,12 +32,14 @@ struct Owner {
     token: LongshotSessionToken,
     monitor_id: u32,
     adapter: LongshotFrameAdapter,
+    auto_target: LongshotAutoTarget,
     mode_ownership: CaptureModeOwnership,
 }
 
 struct OwnerLease {
     monitor_id: u32,
     adapter: LongshotFrameAdapter,
+    auto_target: LongshotAutoTarget,
 }
 
 /// 长截图开始结果与普通截图桌面资源的唯一移交包。
@@ -99,11 +102,12 @@ impl LongshotController {
             let selection = candidate.selection();
             let monitor_id = frame.monitor_id;
             let (adapter, first_crop) = LongshotFrameAdapter::from_first(frame, selection)?;
+            let auto_target = LongshotAutoTarget::new(adapter.scroll_target()?);
             let started = self.manager.begin(first_crop)?;
-            Ok((candidate, started, monitor_id, adapter))
+            Ok((candidate, started, monitor_id, adapter, auto_target))
         })();
 
-        let (candidate, started, monitor_id, adapter) = match prepared {
+        let (candidate, started, monitor_id, adapter, auto_target) = match prepared {
             Ok(prepared) => prepared,
             Err(error) => {
                 self.rollback_starting_after_primary();
@@ -156,6 +160,7 @@ impl LongshotController {
             token: owner_token,
             monitor_id,
             adapter,
+            auto_target,
             mode_ownership: ownership,
         });
         Ok(LongshotControllerStart {
@@ -170,6 +175,24 @@ impl LongshotController {
         token: &LongshotSessionToken,
     ) -> Result<LongshotAppendOutcome, CaptureError> {
         self.append_with(token, capture_monitor_frame)
+    }
+
+    /// 在同一个 append lease 内完成受控滚动、重捕获与质量门提交。
+    pub(in crate::capture) fn auto_append(
+        &self,
+        token: &LongshotSessionToken,
+        direction: LongshotAutoDirection,
+    ) -> Result<LongshotAppendOutcome, CaptureError> {
+        let lease = self.owner_lease(token)?;
+        self.manager
+            .append_with(token, move |session| {
+                super::auto_scroll::with_scroll(&lease.auto_target, direction, || {
+                    let frame = capture_monitor_frame(lease.monitor_id)?;
+                    lease.adapter.crop_next(&frame)
+                })
+                .and_then(|cropped| session.append(cropped))
+            })
+            .map_err(normalize_claim_race)
     }
 
     pub(super) fn append_with<F>(
@@ -335,6 +358,7 @@ impl LongshotController {
             ControllerSlot::Active(owner) => Ok(OwnerLease {
                 monitor_id: owner.monitor_id,
                 adapter: owner.adapter,
+                auto_target: owner.auto_target.clone(),
             }),
         }
     }

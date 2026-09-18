@@ -238,6 +238,38 @@ pub(crate) async fn append(
     .await
 }
 
+pub(crate) async fn auto_append(
+    app: tauri::AppHandle,
+    state: &AppState,
+    caller_label: &str,
+    handle: LongshotControllerHandle,
+    direction: crate::capture::longshot::LongshotAutoDirection,
+) -> Result<LongshotSnapshotDto, LongshotIpcError> {
+    let longshot_lifecycle = state.longshot_lifecycle.clone();
+    execute_append_with_ops(
+        &state.longshot_windows,
+        caller_label,
+        &handle,
+        &TauriControlWindowActions { app: &app },
+        || async {
+            tokio::time::sleep(Duration::from_millis(crate::capture::HIDE_SETTLE_MS)).await;
+        },
+        move |token| {
+            let longshot_lifecycle = longshot_lifecycle.clone();
+            async move {
+                run_append_worker(move || {
+                    let outcome = longshot_lifecycle.auto_append(&token, direction)?;
+                    Ok(outcome.snapshot)
+                })
+                .await
+            }
+        },
+        |token| cancel_claimed(&app, state, caller_label, token),
+        |_| {},
+    )
+    .await
+}
+
 pub(crate) async fn undo(
     state: &AppState,
     caller_label: &str,

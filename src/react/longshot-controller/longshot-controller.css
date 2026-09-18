@@ -25,6 +25,7 @@ body,
 }
 
 button { font: inherit; }
+select { font: inherit; }
 
 .longshot-controller {
   display: flex;
@@ -110,6 +111,38 @@ button { font: inherit; }
 }
 
 .longshot-actions button { flex: 1 1 72px; }
+
+.longshot-auto {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 9px;
+  border: 1px solid var(--longshot-border);
+  border-radius: 6px;
+  background: var(--longshot-panel);
+}
+
+.longshot-auto label { color: var(--longshot-muted); font-size: 12px; }
+
+.longshot-auto select {
+  min-width: 0;
+  height: 32px;
+  border: 1px solid var(--longshot-border);
+  border-radius: 6px;
+  background: var(--longshot-surface);
+  color: var(--longshot-text);
+}
+
+.longshot-auto button { padding-inline: 12px; }
+
+.longshot-auto p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--longshot-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
 
 .longshot-controller button:disabled {
   cursor: not-allowed;
