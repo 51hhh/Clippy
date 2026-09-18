@@ -18,12 +18,16 @@ MAX_DIMENSION = 16384
 MAX_PNG_BYTES = 64 * 1024 * 1024
 MAX_REC_WIDTH = 4096
 MAX_REC_PIXELS = 48 * MAX_REC_WIDTH * 128
+ORIENTATION_WIDTH = 160
+ORIENTATION_HEIGHT = 80
+ORIENTATION_THRESHOLD = .8
 EXPECTED = {
     "det": "d73e0058b7a8086bbd57f3d10b8bcd4ff95363f67e06e2762b5e814fe9c9410e",
     "rec": "5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634",
     "dictionary": "b5f2bfe2bdd9448429e3e82b51c789775d9b42f2403d082b00662eb77e401c5d",
     "englishRec": "b5f833dfc5d0eb71da397b4efa06ebeee9b431b690a47d6af40d77d8eabc557f",
     "englishDictionary": "e025a66d31f327ba0c232e03f407ae8d105e1e709e7ccb3f408aa778c24e70d6",
+    "lineOrientation": "94a6a0a0425f2b5f08b5df72086f2d72abe40f1d22f6d12d2cd83674f11f2ff3",
 }
 DEFAULTS = {"bitmapThreshold": .3, "boxThreshold": .5, "unclipRatio": 1.2, "lineThreshold": .6, "layoutThreshold": .52}
 
@@ -56,6 +60,8 @@ def validate_manifest(manifest):
     roles = ["det", "rec", "dictionary", "edge"]
     if all(name in models for name in english_roles):
         roles += english_roles
+    if "lineOrientation" in models:
+        roles.append("lineOrientation")
     for name in roles:
         record = models.get(name, {})
         path = Path(record.get("path", ""))
@@ -317,7 +323,7 @@ def detect(image, model, options, deadline, trace):
     return result
 
 
-def crop_line(image, quad):
+def crop_line(image, quad, include_geometry=False):
     width = max(np.linalg.norm(quad[1] - quad[0]), np.linalg.norm(quad[2] - quad[3]))
     height = max(np.linalg.norm(quad[3] - quad[0]), np.linalg.norm(quad[2] - quad[1]))
     if not math.isfinite(width + height) or min(width, height) < 1:
@@ -335,7 +341,28 @@ def crop_line(image, quad):
     transformed = cv2.warpPerspective(image, cv2.getPerspectiveTransform(quad.astype(np.float32), destination), (pixel_w, pixel_h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
     if rotate:
         transformed = cv2.rotate(transformed, cv2.ROTATE_90_COUNTERCLOCKWISE)
-    return cv2.resize(transformed, (target_w, 48), interpolation=cv2.INTER_CUBIC)
+    crop = cv2.resize(transformed, (target_w, 48), interpolation=cv2.INTER_CUBIC)
+    return (crop, 90 if rotate else 0) if include_geometry else crop
+
+
+def orient_line(crop, model, deadline):
+    check_deadline(deadline)
+    rgb = cv2.cvtColor(cv2.resize(crop, (ORIENTATION_WIDTH, ORIENTATION_HEIGHT), interpolation=cv2.INTER_LINEAR), cv2.COLOR_BGR2RGB).astype(np.float32) / 255
+    mean = np.array([.485, .456, .406], np.float32).reshape(1, 1, 3)
+    std = np.array([.229, .224, .225], np.float32).reshape(1, 1, 3)
+    tensor = np.ascontiguousarray(((rgb - mean) / std).transpose(2, 0, 1)[None])
+    probabilities = model.run(["fetch_name_0"], {"x": tensor})[0]
+    check_deadline(deadline)
+    if (probabilities.shape != (1, 2) or not np.isfinite(probabilities).all()
+            or probabilities.min() < -.00001 or probabilities.max() > 1.00001
+            or abs(float(probabilities.sum()) - 1) > .001):
+        raise ValueError("orientation_output_schema")
+    class_id = int(probabilities[0].argmax())
+    score = float(probabilities[0, class_id])
+    applied = class_id == 1 and score >= ORIENTATION_THRESHOLD
+    if applied:
+        crop = cv2.rotate(crop, cv2.ROTATE_180)
+    return crop, {"classifiedAngle": 180 if class_id == 1 else 0, "score": score, "applied180": applied}
 
 
 def _decode_ctc(output, dictionary, include_emissions):
@@ -380,6 +407,7 @@ def recognize(png, manifest, deadline, trace=None):
     image = decode_png(png); height, width = image.shape[:2]
     dictionary = load_dictionary(manifest["models"]["dictionary"]["path"], 18710)
     english_assets = all(name in manifest["models"] for name in ["englishRec", "englishDictionary"])
+    orientation_asset = manifest["models"].get("lineOrientation")
     english_dictionary = load_dictionary(manifest["models"]["englishDictionary"]["path"], 438) if english_assets else None
     english_characters = set(english_dictionary[1:]) if english_dictionary else set()
     det = session(manifest["models"]["det"]["path"], {"x": ("tensor(float)", 4, {0: 1, 1: 3})}, "fetch_name_0")
@@ -400,14 +428,22 @@ def recognize(png, manifest, deadline, trace=None):
         groups = [[index] for index in range(len(quads))]
         trace("edge_skipped", {"nodes": len(quads), "reason": "no_edges"})
     check_deadline(deadline)
-    lines = []; paragraphs = []; total_crop_pixels = 0; diagnostic_emissions = 0; english_rec = None
+    lines = []; paragraphs = []; total_crop_pixels = 0; diagnostic_emissions = 0; english_rec = None; orientation_model = None
     for paragraph_id, group in enumerate(groups):
         ids = []
         for node in group:
             check_deadline(deadline)
-            crop = crop_line(image, quads[node]); total_crop_pixels += crop.shape[0] * crop.shape[1]
+            crop, geometric_rotation = crop_line(image, quads[node], include_geometry=True)
+            total_crop_pixels += crop.shape[0] * crop.shape[1]
+            orientation = None
+            if orientation_asset is not None:
+                total_crop_pixels += ORIENTATION_WIDTH * ORIENTATION_HEIGHT
             if total_crop_pixels > MAX_REC_PIXELS:
                 raise ValueError("rec_total_budget")
+            if orientation_asset is not None:
+                if orientation_model is None:
+                    orientation_model = session(orientation_asset["path"], {"x": ("tensor(float)", 4, {0: 1, 1: 3, 2: ORIENTATION_HEIGHT, 3: ORIENTATION_WIDTH})}, "fetch_name_0")
+                crop, orientation = orient_line(crop, orientation_model, deadline)
             tensor = np.ascontiguousarray((cv2.cvtColor(crop, cv2.COLOR_BGR2RGB).astype(np.float32) / 255 - .5).transpose(2, 0, 1)[None])
             output = rec.run(["fetch_name_0"], {"x": tensor})[0]
             trace_output_shape = list(output.shape)
@@ -444,6 +480,7 @@ def recognize(png, manifest, deadline, trace=None):
                 recorded = emissions[:remaining]
                 diagnostic_emissions += len(recorded)
                 trace("rec", {"node": int(node), "inputShape": list(tensor.shape), "outputShape": trace_output_shape,
+                              "orientation": {"geometricCounterClockwise": geometric_rotation, **orientation} if orientation else {"geometricCounterClockwise": geometric_rotation, "classifiedAngle": None, "score": None, "applied180": False},
                               "text": text, "confidence": mean, "profile": recognition_profile, "emissions": recorded,
                               "emissionsLimited": len(recorded) != len(emissions)})
             del output, tensor

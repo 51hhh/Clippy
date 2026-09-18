@@ -213,6 +213,7 @@
   "settings.ocr.missingScript": "sidecar 脚本",
   "settings.ocr.missingDetector": "检测模型",
   "settings.ocr.missingRecognizer": "识别模型",
+  "settings.ocr.missingOrientation": "文字行方向模型",
   "settings.ocr.missingDictionary": "字典",
   "settings.ocr.missingLayoutModel": "版面模型",
   "settings.ocr.missingPipelineModule": "管线模块",

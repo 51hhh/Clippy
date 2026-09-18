@@ -147,6 +147,18 @@ describe("OCR 设置", () => {
     expect(detailText.textContent).toContain("settings.ocr.missingLayoutModel");
   });
 
+  it("方向模型缺失时显示独立角色", async () => {
+    const bad = {
+      ...tesseract,
+      enhancedState: "invalid",
+      issueCode: "model_missing",
+      missingItems: ["lineOrientation"],
+    };
+    const { controller, detailText } = setup(bad);
+    await controller.checkStatus();
+    expect(detailText.textContent).toContain("settings.ocr.missingOrientation");
+  });
+
   it("选择 manifest 后先按候选路径检查，保存配置时带上该路径", async () => {
     const fixture = setup(enhanced);
     fixture.pickManifest.mockResolvedValue("/opt/clippy-ocr/manifest.json");

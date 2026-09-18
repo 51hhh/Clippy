@@ -25,6 +25,7 @@ const MISSING_KEYS = Object.freeze({
   edge: "settings.ocr.missingLayoutModel",
   englishRec: "settings.ocr.missingRecognizer",
   englishDictionary: "settings.ocr.missingDictionary",
+  lineOrientation: "settings.ocr.missingOrientation",
   "pipeline.py": "settings.ocr.missingPipelineModule",
   "edge_features.py": "settings.ocr.missingPipelineModule",
   "layout_groups.py": "settings.ocr.missingPipelineModule",

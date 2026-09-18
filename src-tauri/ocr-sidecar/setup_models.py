@@ -13,6 +13,7 @@ PUBLIC = {
     "dictionary": ("https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/2661c7c0ef5c613e8f93c6e93b2e052399f0f854/ppocr/utils/dict/ppocrv6_dict.txt", "b5f2bfe2bdd9448429e3e82b51c789775d9b42f2403d082b00662eb77e401c5d", "dictionary.txt"),
 }
 ENGLISH_REC = ("https://huggingface.co/PaddlePaddle/en_PP-OCRv5_mobile_rec_onnx/resolve/3fafbc3b5dcf93dd72add9f48368be8a3a2cd33b/inference.onnx", "b5f833dfc5d0eb71da397b4efa06ebeee9b431b690a47d6af40d77d8eabc557f", "english-rec.onnx")
+LINE_ORIENTATION = ("https://huggingface.co/PaddlePaddle/PP-LCNet_x0_25_textline_ori_onnx/resolve/aea1f18d97338aaf84b463f90192f2820524a00a/inference.onnx", "94a6a0a0425f2b5f08b5df72086f2d72abe40f1d22f6d12d2cd83674f11f2ff3", "line-orientation.onnx")
 
 
 def digest(path):
@@ -60,6 +61,7 @@ def main():
     parser.add_argument("--edge", required=True, type=Path)
     parser.add_argument("--edge-sha256", required=True)
     parser.add_argument("--english-spacing", action="store_true")
+    parser.add_argument("--line-orientation", action="store_true")
     args = parser.parse_args()
     runtime, python, edge = args.runtime.absolute(), args.python.absolute(), args.edge.absolute()
     if not python.is_file() or not edge.is_file() or digest(edge) != args.edge_sha256:
@@ -83,9 +85,22 @@ def main():
         if digest(english_dictionary) != english_dictionary_sha:
             raise ValueError("内置英语字典SHA不符")
         models["englishDictionary"] = {"path": str(english_dictionary), "sha256": english_dictionary_sha}
+    if args.line_orientation:
+        url, expected, filename = LINE_ORIENTATION
+        path = runtime / filename
+        download(path, url, expected)
+        models["lineOrientation"] = {"path": str(path), "sha256": expected}
     models["edge"] = {"path": str(edge), "sha256": args.edge_sha256}
+    if args.english_spacing and args.line_orientation:
+        pipeline_id = "ppocrv6-edgegnn-en-ori-v3"
+    elif args.english_spacing:
+        pipeline_id = "ppocrv6-edgegnn-en-v2"
+    elif args.line_orientation:
+        pipeline_id = "ppocrv6-edgegnn-ori-v2"
+    else:
+        pipeline_id = "ppocrv6-edgegnn-v1"
     manifest = {"version": 1, "python": str(python), "script": str(Path(__file__).resolve().with_name("main.py")),
-                "pipelineId": "ppocrv6-edgegnn-en-v2" if args.english_spacing else "ppocrv6-edgegnn-v1", "featureSchema": "clippy-edge-features-v1", "models": models,
+                "pipelineId": pipeline_id, "featureSchema": "clippy-edge-features-v1", "models": models,
                 "options": {"bitmapThreshold": .3, "boxThreshold": .5, "unclipRatio": 1.2, "lineThreshold": .6, "layoutThreshold": .52}}
     with destination.open("x", encoding="utf-8") as handle:
         json.dump(manifest, handle, indent=2, ensure_ascii=False)

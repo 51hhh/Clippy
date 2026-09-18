@@ -8,7 +8,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from edge_features import build_features, color_features
 from layout_groups import group_lines, order_groups
-from pipeline import decode_ctc, decode_ctc_detailed, decode_png, should_use_english_spacing, tile_origins, reconcile_overview, remove_contained_quads
+from pipeline import crop_line, decode_ctc, decode_ctc_detailed, decode_png, orient_line, should_use_english_spacing, tile_origins, reconcile_overview, remove_contained_quads
 
 
 def quad(x, y, width=100, height=20):
@@ -137,6 +137,41 @@ class FeatureTests(unittest.TestCase):
         self.assertFalse(should_use_english_spacing("AA 11", "A A11 ", characters))
         self.assertFalse(should_use_english_spacing("¥1.20", "#1.20", characters))
         self.assertFalse(should_use_english_spacing("中文 A", "A", characters))
+
+    def test_vertical_crop_normalizes_geometry_before_orientation(self):
+        image = np.zeros((120, 40, 3), np.uint8)
+        image[:60] = [10, 20, 30]
+        image[60:] = [100, 110, 120]
+        crop, geometric_rotation = crop_line(image, quad(5, 10, 20, 100), include_geometry=True)
+        self.assertEqual(geometric_rotation, 90)
+        self.assertEqual(crop.shape, (48, 240, 3))
+        self.assertLess(float(crop[:, :20].mean()), float(crop[:, -20:].mean()))
+
+    def test_orientation_applies_only_high_confidence_180_and_validates_output(self):
+        class FakeModel:
+            def __init__(self, output):
+                self.output = np.asarray(output, np.float32)
+                self.input = None
+
+            def run(self, names, values):
+                self.input = values["x"]
+                return [self.output]
+
+        crop = np.zeros((48, 96, 3), np.uint8)
+        crop[:, :48] = [10, 20, 30]
+        crop[:, 48:] = [100, 110, 120]
+        model = FakeModel([[.05, .95]])
+        result, orientation = orient_line(crop, model, float("inf"))
+        self.assertEqual(model.input.shape, (1, 3, 80, 160))
+        self.assertEqual(orientation["classifiedAngle"], 180)
+        self.assertTrue(orientation["applied180"])
+        np.testing.assert_array_equal(result, crop[::-1, ::-1])
+
+        result, orientation = orient_line(crop, FakeModel([[.3, .7]]), float("inf"))
+        self.assertFalse(orientation["applied180"])
+        np.testing.assert_array_equal(result, crop)
+        with self.assertRaisesRegex(ValueError, "orientation_output_schema"):
+            orient_line(crop, FakeModel([[.5, .4]]), float("inf"))
 
     def test_tile_end_alignment_and_png_dimension_budget(self):
         self.assertEqual(tile_origins(1000), [0, 40])

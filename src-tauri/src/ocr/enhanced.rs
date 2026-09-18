@@ -41,6 +41,8 @@ struct Assets {
     english_rec: Option<Asset>,
     #[serde(default)]
     english_dictionary: Option<Asset>,
+    #[serde(default)]
+    line_orientation: Option<Asset>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -217,6 +219,9 @@ fn load(path: &Path) -> Result<Configuration, String> {
         }
         (None, None) => {}
         _ => return Err("OCR 英语模型必须成对配置".into()),
+    }
+    if let Some(orientation) = manifest.models.line_orientation.as_ref() {
+        assets.push(("lineOrientation", orientation));
     }
     for (role, asset) in assets {
         if !asset.path.is_absolute() {
@@ -415,6 +420,9 @@ fn status_from(
                     ) {
                         identities.push(("englishRec", rec));
                         identities.push(("englishDictionary", dictionary));
+                    }
+                    if let Some(orientation) = manifest.models.line_orientation.as_ref() {
+                        identities.push(("lineOrientation", orientation));
                     }
                     identities
                         .into_iter()
@@ -736,6 +744,19 @@ mod tests {
         assert_eq!(status.model_identities.len(), 6);
         assert_eq!(status.model_identities[4].role, "englishRec");
         assert_eq!(status.model_identities[5].role, "englishDictionary");
+    }
+
+    #[test]
+    fn optional_line_orientation_asset_is_validated_and_reported() {
+        let (_directory, path) = fixture();
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        manifest["models"]["lineOrientation"] = manifest["models"]["rec"].clone();
+        std::fs::write(&path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+
+        let status = status_from(Some(path), "settings", false);
+        assert_eq!(status.model_identities.len(), 5);
+        assert_eq!(status.model_identities[4].role, "lineOrientation");
     }
 
     #[test]

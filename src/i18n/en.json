@@ -213,6 +213,7 @@
   "settings.ocr.missingScript": "sidecar script",
   "settings.ocr.missingDetector": "detector model",
   "settings.ocr.missingRecognizer": "recognizer model",
+  "settings.ocr.missingOrientation": "text-line orientation model",
   "settings.ocr.missingDictionary": "dictionary",
   "settings.ocr.missingLayoutModel": "layout model",
   "settings.ocr.missingPipelineModule": "pipeline module",
