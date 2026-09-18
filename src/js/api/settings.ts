@@ -11,6 +11,9 @@ import {
 import type {
   AppConfig,
   AppUpdateSnapshot,
+  ArchiveExportResult,
+  ArchiveImportSummary,
+  ArchiveScope,
   ClipboardStats,
   InstallType,
   OcrHealthStatus,
@@ -163,6 +166,22 @@ export function pickOcrManifest(): Promise<string | null> {
 /** 获取剪贴板统计信息（总数/类型分布/存储大小等） */
 export function getStats(): Promise<ClipboardStats> {
   return invoke<ClipboardStats>("get_stats");
+}
+
+/** 将历史记录或 Pin 工作区导出为经过校验的本地 Clippy 归档。取消对话框返回 null。 */
+export function exportClippyArchive(
+  scope: ArchiveScope,
+  includeSensitive: boolean,
+): Promise<ArchiveExportResult | null> {
+  return invoke<ArchiveExportResult | null>("export_clippy_archive", {
+    scope,
+    includeSensitive,
+  });
+}
+
+/** 校验并事务导入 Clippy 归档。取消对话框返回 null。 */
+export function importClippyArchive(): Promise<ArchiveImportSummary | null> {
+  return invoke<ArchiveImportSummary | null>("import_clippy_archive");
 }
 
 /** 切换 tmux 缓冲区捕获 */

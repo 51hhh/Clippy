@@ -6,6 +6,7 @@ import {
   copyText,
   disableAutostart,
   enableAutostart,
+  exportClippyArchive,
   getAppVersion,
   getConfig,
   getOcrHealthStatus,
@@ -15,6 +16,7 @@ import {
   getStats,
   getWindowProbeStatus,
   installWindowProbeExtension,
+  importClippyArchive,
   isAutostartEnabled,
   isDevBinary,
   ocrInstall,
@@ -33,6 +35,7 @@ import {
 } from "./api.ts";
 import { initCustomSelect } from "./custom-select.js";
 import { createAutostartSettings } from "./settings/autostart-settings.js";
+import { createArchiveTransfer } from "./settings/archive-transfer.js";
 import { createCaptureDiagnosticsCard } from "./settings/capture-diagnostics.js";
 import { createOcrSettings } from "./settings/ocr-settings.js";
 import { createPastePermissionController } from "./settings/paste-permission.js";
@@ -74,6 +77,31 @@ const tmuxGroup = element("tmux-group");
 const tmuxToggle = element("tmux-toggle");
 const toast = element("toast");
 const ocrModeControl = initCustomSelect(element("ocr-mode-select"));
+
+const statsElements = {
+  total: element("stats-total"),
+  favorites: element("stats-favorites"),
+  text: element("stats-text"),
+  html: element("stats-html"),
+  image: element("stats-image"),
+  size: element("stats-size"),
+};
+
+function refreshStats() {
+  return loadStats({ getStats, elements: statsElements });
+}
+
+createArchiveTransfer({
+  scopeSelect: element("archive-scope-select"),
+  sensitiveToggle: element("archive-sensitive-toggle"),
+  exportButton: element("archive-export-btn"),
+  importButton: element("archive-import-btn"),
+  status: element("archive-status"),
+  exportArchive: exportClippyArchive,
+  importArchive: importClippyArchive,
+  translate: i18n.t,
+  onImported: refreshStats,
+});
 
 let savedConfig = null;
 let operatingSystem = null;
@@ -299,17 +327,7 @@ whenReady(async () => {
     }
     await autostartSettings.load();
     void refreshShortcutFailures();
-    void loadStats({
-      getStats,
-      elements: {
-        total: element("stats-total"),
-        favorites: element("stats-favorites"),
-        text: element("stats-text"),
-        html: element("stats-html"),
-        image: element("stats-image"),
-        size: element("stats-size"),
-      },
-    });
+    void refreshStats();
   } catch (error) {
     console.error("加载配置失败:", error);
     themePicker.initialize("light");

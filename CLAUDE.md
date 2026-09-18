@@ -8,7 +8,8 @@ Clippy 是跨平台轻量剪贴板管理器，基于 Tauri v2 + Rust（后端）
 
 已完成功能：剪贴板监听、SQLite 存储（含 FTS5 全文搜索）、悬浮面板、搜索、系统托盘、
 X11/Wayland 分流自动粘贴、多显示器冻结截图、二维手动长截图、Pin 工作区/内部无损图片修订、
-无限画布图片查看器、QR Code/Code 39 扫码、Tesseract OCR、可选结构化增强 OCR、翻译和设置面板。
+可校验的本地批量归档交换、无限画布图片查看器、QR Code/Code 39 扫码、Tesseract OCR、
+可选结构化增强 OCR、翻译和设置面板。
 增强 OCR 运行时需要显式配置，未随三平台安装包默认分发；交付边界见
 `src-tauri/ocr-sidecar/README.md`。
 
@@ -103,6 +104,7 @@ Rust 后端 (src-tauri/src/)
 ├── lib.rs / main.rs                   — Tauri 初始化与入口
 ├── commands.rs / commands/            — AppState 与按功能 IPC 命令
 ├── clipboard_watcher.rs / storage.rs  — 剪贴板监听与 SQLite/FTS5
+├── archive.rs / storage/archive.rs    — `.clippy.zip` 校验、编解码与事务合并
 ├── paste/ / window_controller.rs      — X11/Portal 粘贴与窗口几何
 ├── capture/ / screenshot.rs           — CaptureSession 与平台截图
 ├── pin/ / pin_window.rs               — Pin command adapter、生命周期、可信输出与窗口适配
@@ -113,7 +115,7 @@ Rust 后端 (src-tauri/src/)
 ### 数据流
 
 1. `ClipboardWatcher` 独立线程每 500ms 轮询系统剪贴板（arboard）；程序化写入不必等这一轮——`clipboard_watcher/writer.rs` 写成功后敲 `wake::nudge()`，轮询等待当场结束
-2. SHA-256 哈希去重 → 重复内容只更新 `created_at` 置顶
+2. SHA-256 哈希去重 → 重复内容递增持久 `use_order` 置顶
 3. 写入 SQLite `clips` 表 + 同步 `clips_fts` FTS5 虚拟表
 4. `app.emit("clip-added")` / `app.emit("clip-removed")` 通知前端
 5. 前端 `api.ts` 监听事件 → `clipboard-list.js` 增量更新 DOM

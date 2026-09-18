@@ -858,6 +858,7 @@ dependencies = [
  "xcap 0.4.1",
  "xcap 0.9.6",
  "zbus",
+ "zip",
 ]
 
 [[package]]

@@ -7,6 +7,22 @@
 
 export type ContentType = "text" | "html" | "image";
 
+export type ArchiveScope = "full" | "favorites" | "pin_workspace";
+
+export interface ArchiveExportResult {
+  path: string;
+  clips: number;
+  groups: number;
+  workspaces: number;
+}
+
+export interface ArchiveImportSummary {
+  clipsAdded: number;
+  clipsMerged: number;
+  groupsAdded: number;
+  workspacesAdded: number;
+}
+
 export type OperatingSystem = "linux" | "windows" | "macos" | "other";
 export type DesktopSession = "x11" | "wayland" | "native" | "unknown";
 export type CapabilityState = "available" | "permission_required" | "degraded" | "unsupported";

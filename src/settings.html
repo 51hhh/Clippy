@@ -159,6 +159,33 @@
           </div>
         </div>
       </div>
+
+      <div class="setting-group">
+        <label class="setting-label" for="archive-scope-select"
+               data-i18n="settings.archive.label">Local Data Transfer</label>
+        <div class="archive-transfer-grid">
+          <select class="setting-select" id="archive-scope-select">
+            <option value="full" data-i18n="settings.archive.scopeFull">History and Pin workspace</option>
+            <option value="favorites" data-i18n="settings.archive.scopeFavorites">Favorites only</option>
+            <option value="pin_workspace" data-i18n="settings.archive.scopeWorkspace">Pin workspace only</option>
+          </select>
+          <label class="setting-toggle-row archive-sensitive-option">
+            <span class="toggle-switch">
+              <input type="checkbox" id="archive-sensitive-toggle">
+              <span class="toggle-slider"></span>
+            </span>
+            <span class="setting-hint" data-i18n="settings.archive.includeSensitive">Include sensitive history</span>
+          </label>
+          <div class="archive-transfer-actions">
+            <button class="btn btn-small btn-primary" id="archive-export-btn" type="button"
+                    data-i18n="settings.archive.export">Export archive</button>
+            <button class="btn btn-small btn-secondary" id="archive-import-btn" type="button"
+                    data-i18n="settings.archive.import">Import archive</button>
+          </div>
+        </div>
+        <div class="setting-hint" data-i18n="settings.archive.hint">Archives are validated before import. Editable images include their original source; use PNG export when you only want flattened pixels.</div>
+        <p class="archive-transfer-status" id="archive-status" role="status" aria-live="polite" hidden></p>
+      </div>
     </div>
 
     <div class="settings-panel" role="tabpanel" id="settings-panel-screenshot"

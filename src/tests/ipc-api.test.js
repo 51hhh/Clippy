@@ -48,11 +48,14 @@ import {
   closeCurrentWindow,
   disableAutostart,
   enableAutostart,
+  exportClippyArchive,
   getClips,
   getCurrentWindowLabel,
   getOcrHealthStatus,
   hideCurrentWindow,
   isAutostartEnabled,
+  importClippyArchive,
+  onArchiveImported,
   onClipAdded,
   onMainWindowWillHide,
   onPasteFallback,
@@ -89,6 +92,28 @@ describe("typed IPC wrappers", () => {
     enableAutostartPlugin.mockReset();
     disableAutostartPlugin.mockReset();
     isAutostartEnabledPlugin.mockReset();
+  });
+
+  it("exports and imports validated local archives", async () => {
+    invoke.mockResolvedValueOnce({ path: "/tmp/a.clippy.zip", clips: 1, groups: 0, workspaces: 0 });
+    await exportClippyArchive("favorites", true);
+    expect(invoke).toHaveBeenLastCalledWith("export_clippy_archive", {
+      scope: "favorites",
+      includeSensitive: true,
+    });
+
+    invoke.mockResolvedValueOnce({ clipsAdded: 1, clipsMerged: 0, groupsAdded: 0, workspacesAdded: 0 });
+    await importClippyArchive();
+    expect(invoke).toHaveBeenLastCalledWith("import_clippy_archive");
+
+    const callback = vi.fn();
+    const unlisten = vi.fn();
+    listen.mockResolvedValueOnce(unlisten);
+    await expect(onArchiveImported(callback)).resolves.toBe(unlisten);
+    const handler = listen.mock.calls.at(-1)[1];
+    handler({ payload: null });
+    expect(listen).toHaveBeenLastCalledWith("archive-imported", expect.any(Function));
+    expect(callback).toHaveBeenCalledOnce();
   });
 
   it("updates use process commands and absolute state events without plugin resources", async () => {

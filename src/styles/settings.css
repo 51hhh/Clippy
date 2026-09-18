@@ -159,6 +159,33 @@ html, body {
   padding-bottom: 24px;
   border-bottom: 1px solid var(--border);
 }
+
+.archive-transfer-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.archive-sensitive-option {
+  width: fit-content;
+}
+
+.archive-transfer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.archive-transfer-status {
+  margin: 10px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.archive-transfer-status.error {
+  color: var(--status-bad);
+}
 .setting-group:last-of-type {
   border-bottom: none;
 }

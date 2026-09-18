@@ -170,6 +170,11 @@ pub(crate) fn decode_source(png: &[u8]) -> Result<image::RgbaImage, String> {
     super::project::decode_png(png, super::project::MAX_SOURCE_PNG_BYTES, "图片原图")
 }
 
+/// 归档导入使用严格 PNG 容器校验，但保留归档自己的字节与像素预算。
+pub(crate) fn validate_archive_png(png: &[u8], byte_limit: usize) -> Result<(u32, u32), String> {
+    super::image_validation::validate_strict_png(png, byte_limit, "归档 PNG")
+}
+
 pub(crate) fn render_document(
     source: &[u8],
     document: Option<&PinCanvasProject>,

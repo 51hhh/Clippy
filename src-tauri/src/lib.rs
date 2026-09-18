@@ -1,5 +1,6 @@
 mod app;
 mod app_update;
+mod archive;
 pub mod bench_support;
 mod capture;
 mod clipboard_watcher;
@@ -348,6 +349,8 @@ pub fn run() {
             commands::detect_image_codes,
             commands::set_preview_visible,
             commands::set_codec_visible,
+            archive::export_clippy_archive,
+            archive::import_clippy_archive,
             commands::get_config,
             commands::update_config,
             app_update::get_app_update_state,

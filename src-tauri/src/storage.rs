@@ -1,3 +1,4 @@
+mod archive;
 mod image_revisions;
 mod maintenance;
 mod pin_workspace;
@@ -5,6 +6,10 @@ mod stats;
 mod translation_history;
 mod url_cache;
 
+pub(crate) use archive::{
+    ArchiveClipSnapshot, ArchiveGroupSnapshot, ArchiveRevisionSnapshot, ArchiveScope,
+    ArchiveSnapshot, ArchiveWorkspaceContentSnapshot, ArchiveWorkspaceSnapshot, ImportSummary,
+};
 pub(crate) use image_revisions::{ImageRevisionWrite, StoredImageRevision};
 pub(crate) use pin_workspace::{
     PinWorkspaceGroup, PinWorkspaceItemWrite, PinWorkspacePresentation, StoredPinPlacement,

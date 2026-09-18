@@ -6,6 +6,9 @@
 
 export type {
   AppConfig,
+  ArchiveExportResult,
+  ArchiveImportSummary,
+  ArchiveScope,
   CaptureAction,
   CaptureActionResult,
   CaptureDiagnosticsReport,

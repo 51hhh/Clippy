@@ -27,6 +27,33 @@ pub fn choose_ocr_manifest(app_handle: &tauri::AppHandle, start: &Path) -> Optio
         .and_then(local_path)
 }
 
+/// 选择 Clippy 归档保存位置。系统对话框负责现有文件覆盖确认，实际写入仍采用私有临时文件替换。
+pub fn choose_archive_save(
+    app_handle: &tauri::AppHandle,
+    start: &Path,
+    file_name: &str,
+) -> Option<PathBuf> {
+    app_handle
+        .dialog()
+        .file()
+        .set_directory(prepared_directory(start))
+        .set_file_name(file_name)
+        .add_filter("Clippy archive", &["clippy.zip", "zip"])
+        .blocking_save_file()
+        .and_then(local_path)
+}
+
+/// 选择要导入的 Clippy 归档。后续读取不信任扩展名，会完整验证 ZIP 与 manifest。
+pub fn choose_archive_open(app_handle: &tauri::AppHandle, start: &Path) -> Option<PathBuf> {
+    app_handle
+        .dialog()
+        .file()
+        .set_directory(prepared_directory(start))
+        .add_filter("Clippy archive", &["clippy.zip", "zip"])
+        .blocking_pick_file()
+        .and_then(local_path)
+}
+
 /// 初始目录不存在时对话框会退回到主目录，先建出来让用户看到预期位置。
 fn prepared_directory(directory: &Path) -> PathBuf {
     if let Err(error) = std::fs::create_dir_all(directory) {
