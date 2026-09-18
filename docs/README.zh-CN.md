@@ -130,6 +130,9 @@ cargo tauri build
 [结构与平台边界审阅](reviews/2026-09-17-architecture-platform-review.md)，对应的分阶段整改任务见
 [架构与平台约束整改计划](superpowers/plans/2026-09-17-architecture-hardening-plan.md)。
 
+PixPin 168 项能力与当前实现的代码、默认交付和验证差距见
+[PixPin 功能差距与后续路线](reviews/2026-09-18-pixpin-feature-gap-roadmap.md)。
+
 参考项目（Flashot/Translator）的截图、翻译和授权设计取舍见 [reference-project-guidance.md](reference-project-guidance.md)。
 
 ```mermaid

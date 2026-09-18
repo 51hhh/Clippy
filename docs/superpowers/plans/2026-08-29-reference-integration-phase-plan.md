@@ -163,9 +163,11 @@ google 976 行、bing 1256 行、deepl 634 行、youdao 1372 行，其中非官�
 
 ## Phase 4：可选
 
-- [x] **滚动截图 — 决定不做**：`scroll_session.rs` + `scroll_stitch.rs` 约 1320 行，
-      Wayland Portal 下拿不到高频连续帧。仅限 X11 就意味着同一个入口在两种会话里给出
-      两种能力，而 Clippy 的截图路径一直按"X11/Wayland 行为一致"设计，成本与收益不匹配
+- [x] **高频连续帧滚动截图 — 当时决定不做，后续由固定选区逐帧重采方案替代**：
+      `scroll_session.rs` + `scroll_stitch.rs` 约 1320 行，Wayland Portal 下拿不到高频连续帧。
+      仅限 X11 会让同一个入口在两种会话里给出两种能力，因此没有移植该方案。2026-09 已实现
+      跨截图后端的竖向手动长截图；当前边界见
+      [`docs/reference-todo.md`](../../reference-todo.md)
 - [x] **criterion benches**：`src-tauri/benches/` 三个文件（screenshot/clipboard/storage），
       经 `src-tauri/src/bench_support.rs` 调生产代码而不是在 bench 里复制实现。
       不做裁剪基准：裁剪是 memcpy，被同一路径上的 `encode_png`（~77 ms/1080p）掩盖两个数量级，

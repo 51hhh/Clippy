@@ -6,7 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Clippy 是跨平台轻量剪贴板管理器，基于 Tauri v2 + Rust（后端）+ vanilla HTML/CSS/JS（主前端）+ React/TS（截图编辑功能岛）。当前架构见 `docs/architecture.md`，历史设计见 `docs/superpowers/specs/2026-04-24-clippy-clipboard-manager-design.md`。
 
-已完成功能：剪贴板监听、SQLite 存储（含 FTS5 全文搜索）、悬浮面板、搜索、系统托盘、X11/Wayland 分流自动粘贴、冻结截图/Pin/图片编辑、OCR、翻译和设置面板。
+已完成功能：剪贴板监听、SQLite 存储（含 FTS5 全文搜索）、悬浮面板、搜索、系统托盘、
+X11/Wayland 分流自动粘贴、多显示器冻结截图、竖向手动长截图、Pin/可编辑 PNG 工程、
+无限画布图片查看器、QR Code/Code 39 扫码、Tesseract OCR、可选结构化增强 OCR、翻译和设置面板。
+增强 OCR 运行时需要显式配置，未随三平台安装包默认分发；交付边界见
+`src-tauri/ocr-sidecar/README.md`。
 
 ## 开发环境搭建（Ubuntu）
 
