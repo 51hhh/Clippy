@@ -1,5 +1,6 @@
 import hashlib
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 
@@ -22,6 +23,31 @@ def minimal_png(width, height):
 
 
 class QualityCollectTests(unittest.TestCase):
+    def test_peak_memory_metric_names_supported_desktop_source(self):
+        if sys.platform.startswith("linux"):
+            self.assertEqual(collect.peak_memory_metric(), "linux-proc-vmhwm")
+        elif sys.platform == "darwin":
+            self.assertEqual(collect.peak_memory_metric(), "macos-ps-rss-sampled")
+        elif sys.platform == "win32":
+            self.assertEqual(collect.peak_memory_metric(), "windows-peak-working-set")
+
+    def test_measured_process_records_peak_rss_without_changing_output(self):
+        process, peak_memory = collect.run_measured(
+            [
+                sys.executable,
+                "-c",
+                "import sys,time; data=bytearray(8*1024*1024); "
+                "sys.stdout.buffer.write(sys.stdin.buffer.read()); time.sleep(0.08)",
+            ],
+            b"measured-output",
+            2,
+        )
+        self.assertEqual(process.returncode, 0)
+        self.assertEqual(process.stdout, b"measured-output")
+        if sys.platform.startswith("linux") or sys.platform == "darwin" or sys.platform == "win32":
+            self.assertIsInstance(peak_memory, int)
+            self.assertGreater(peak_memory, 0)
+
     def test_checked_in_corpora_and_png_identities_are_valid(self):
         fixtures = Path(__file__).resolve().parent / "quality-fixtures"
         corpora = sorted(fixtures.glob("*/corpus.json"))

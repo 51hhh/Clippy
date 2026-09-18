@@ -128,7 +128,9 @@ small/medium 模型档位只能通过研究采集器比较，不能直接生成�
 ```
 
 采集器只接受固定官方 revision、字节数和 SHA，并对 small/small、medium det、medium rec、medium/both
-分别采集。它的临时 manifest 带 `researchModelProfile`；Rust 产品 manifest 明确拒绝该未知字段。
+分别采集。每个 case 使用独立进程，并在 Linux、macOS、Windows 分别通过系统进程指标采样峰值 RSS；
+报告中的内存包含解释器、运行库、模型和工作区，只能在同一平台与环境中横向比较。它的临时 manifest
+带 `researchModelProfile`；Rust 产品 manifest 明确拒绝该未知字段。
 当前证据显示 medium rec 只在部分英语/日文非空白字符上改善，medium det 会把表格行拆成 cell 并
 破坏现有阅读顺序，整体延迟明显增加，因此设置页没有 medium 档位，64 MiB 产品单模型预算也不提高。
 

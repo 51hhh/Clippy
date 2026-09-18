@@ -22,11 +22,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 1664.4618379941676,
-        "durationMsP95": 1664.4618379941676,
-        "durationMsTotal": 1664.4618379941676,
+        "durationMsMedian": 920.5666209745687,
+        "durationMsP95": 920.5666209745687,
+        "durationMsTotal": 920.5666209745687,
         "measuredCases": 1,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 351301632
       },
       "readingOrder": {
         "comparablePairs": 6,
@@ -78,11 +78,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 1872.8491549845785,
-        "durationMsP95": 1872.8491549845785,
-        "durationMsTotal": 1872.8491549845785,
+        "durationMsMedian": 1043.141640984686,
+        "durationMsP95": 1043.141640984686,
+        "durationMsTotal": 1043.141640984686,
         "measuredCases": 1,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 363003904
       },
       "readingOrder": {
         "comparablePairs": 3,
@@ -134,11 +134,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 1155.9329409792554,
-        "durationMsP95": 1155.9329409792554,
-        "durationMsTotal": 1155.9329409792554,
+        "durationMsMedian": 670.5585989984684,
+        "durationMsP95": 670.5585989984684,
+        "durationMsTotal": 670.5585989984684,
         "measuredCases": 1,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 313561088
       },
       "readingOrder": {
         "comparablePairs": 0,
@@ -190,11 +190,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 1762.1886969864136,
-        "durationMsP95": 1872.8491549845785,
-        "durationMsTotal": 3524.377393972827,
+        "durationMsMedian": 996.7440229956992,
+        "durationMsP95": 1043.141640984686,
+        "durationMsTotal": 1993.4880459913984,
         "measuredCases": 2,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 363003904
       },
       "readingOrder": {
         "comparablePairs": 4,
@@ -246,11 +246,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 1546.2584900087677,
-        "durationMsP95": 1546.2584900087677,
-        "durationMsTotal": 1546.2584900087677,
+        "durationMsMedian": 831.8341150006745,
+        "durationMsP95": 831.8341150006745,
+        "durationMsTotal": 831.8341150006745,
         "measuredCases": 1,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 342700032
       },
       "readingOrder": {
         "comparablePairs": 1,
@@ -302,11 +302,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 1651.5282389882486,
-        "durationMsP95": 1872.8491549845785,
-        "durationMsTotal": 5070.635883981595,
+        "durationMsMedian": 950.3464050067123,
+        "durationMsP95": 1043.141640984686,
+        "durationMsTotal": 2825.322160992073,
         "measuredCases": 3,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 363003904
       },
       "readingOrder": {
         "comparablePairs": 5,
@@ -358,11 +358,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 1651.5282389882486,
-        "durationMsP95": 1651.5282389882486,
-        "durationMsTotal": 1651.5282389882486,
+        "durationMsMedian": 950.3464050067123,
+        "durationMsP95": 950.3464050067123,
+        "durationMsTotal": 950.3464050067123,
         "measuredCases": 1,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 350932992
       },
       "readingOrder": {
         "comparablePairs": 1,
@@ -414,11 +414,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 1664.4618379941676,
-        "durationMsP95": 1664.4618379941676,
-        "durationMsTotal": 1664.4618379941676,
+        "durationMsMedian": 920.5666209745687,
+        "durationMsP95": 920.5666209745687,
+        "durationMsTotal": 920.5666209745687,
         "measuredCases": 1,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 351301632
       },
       "readingOrder": {
         "comparablePairs": 6,
@@ -470,11 +470,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 1546.2584900087677,
-        "durationMsP95": 1546.2584900087677,
-        "durationMsTotal": 1546.2584900087677,
+        "durationMsMedian": 831.8341150006745,
+        "durationMsP95": 831.8341150006745,
+        "durationMsTotal": 831.8341150006745,
         "measuredCases": 1,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 342700032
       },
       "readingOrder": {
         "comparablePairs": 1,
@@ -526,11 +526,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 1872.8491549845785,
-        "durationMsP95": 1872.8491549845785,
-        "durationMsTotal": 1872.8491549845785,
+        "durationMsMedian": 1043.141640984686,
+        "durationMsP95": 1043.141640984686,
+        "durationMsTotal": 1043.141640984686,
         "measuredCases": 1,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 363003904
       },
       "readingOrder": {
         "comparablePairs": 3,
@@ -582,11 +582,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 1155.9329409792554,
-        "durationMsP95": 1155.9329409792554,
-        "durationMsTotal": 1155.9329409792554,
+        "durationMsMedian": 670.5585989984684,
+        "durationMsP95": 670.5585989984684,
+        "durationMsTotal": 670.5585989984684,
         "measuredCases": 1,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 313561088
       },
       "readingOrder": {
         "comparablePairs": 0,
@@ -638,11 +638,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 1403.730589983752,
-        "durationMsP95": 1651.5282389882486,
-        "durationMsTotal": 2807.461179967504,
+        "durationMsMedian": 810.4525020025903,
+        "durationMsP95": 950.3464050067123,
+        "durationMsTotal": 1620.9050040051807,
         "measuredCases": 2,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 350932992
       },
       "readingOrder": {
         "comparablePairs": 1,
@@ -694,11 +694,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 1546.2584900087677,
-        "durationMsP95": 1546.2584900087677,
-        "durationMsTotal": 1546.2584900087677,
+        "durationMsMedian": 831.8341150006745,
+        "durationMsP95": 831.8341150006745,
+        "durationMsTotal": 831.8341150006745,
         "measuredCases": 1,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 342700032
       },
       "readingOrder": {
         "comparablePairs": 1,
@@ -750,11 +750,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 1768.655496489373,
-        "durationMsP95": 1872.8491549845785,
-        "durationMsTotal": 3537.310992978746,
+        "durationMsMedian": 981.8541309796274,
+        "durationMsP95": 1043.141640984686,
+        "durationMsTotal": 1963.7082619592547,
         "measuredCases": 2,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 363003904
       },
       "readingOrder": {
         "comparablePairs": 9,
@@ -816,11 +816,11 @@
       "supportedByEngine": false
     },
     "performance": {
-      "durationMsMedian": 1651.5282389882486,
-      "durationMsP95": 1872.8491549845785,
-      "durationMsTotal": 7891.030662955018,
+      "durationMsMedian": 920.5666209745687,
+      "durationMsP95": 1043.141640984686,
+      "durationMsTotal": 4416.44738096511,
       "measuredCases": 5,
-      "peakMemoryBytesMax": null
+      "peakMemoryBytesMax": 363003904
     },
     "readingOrder": {
       "comparablePairs": 11,

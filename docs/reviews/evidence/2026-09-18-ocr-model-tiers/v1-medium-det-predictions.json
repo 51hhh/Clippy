@@ -1,7 +1,7 @@
 {
   "cases": [
     {
-      "durationMs": 1351.3371800072491,
+      "durationMs": 742.4068470136262,
       "id": "mixed-script-spacing",
       "lines": [
         {
@@ -71,10 +71,11 @@
           "text": "AA 11 Il 00 ¥1,234.50"
         }
       ],
+      "peakMemoryBytes": 284250112,
       "text": "订单 Order A 12.50%\n中文 OCR 日本語 2026-09-18\nAA 11 Il 00 ¥1,234.50"
     },
     {
-      "durationMs": 1152.75152400136,
+      "durationMs": 625.4709310014732,
       "id": "numbers-symbols",
       "lines": [
         {
@@ -122,10 +123,11 @@
           "text": "SN: AA11-BB22 /98.6% [OK]"
         }
       ],
+      "peakMemoryBytes": 274452480,
       "text": "±0.02√2≈1.414 Σ ∫ π ∆\nSN: AA11-BB22 /98.6% [OK]"
     },
     {
-      "durationMs": 1213.3030609984417,
+      "durationMs": 665.4104610206559,
       "id": "two-column-order",
       "lines": [
         {
@@ -217,10 +219,11 @@
           "text": "右欄 04 Gamma"
         }
       ],
+      "peakMemoryBytes": 272363520,
       "text": "左栏 01 Alpha\n\n左栏 02 Beta\n\n右欄 03 日本語\n\n右欄 04 Gamma"
     },
     {
-      "durationMs": 904.6448029985186,
+      "durationMs": 533.1165300158318,
       "id": "formula-routing",
       "lines": [
         {
@@ -246,10 +249,11 @@
           "text": "x² + 1/2 = √2"
         }
       ],
+      "peakMemoryBytes": 242487296,
       "text": "x² + 1/2 = √2"
     },
     {
-      "durationMs": 1016.4491659961641,
+      "durationMs": 593.6547890014481,
       "id": "low-contrast-small",
       "lines": [
         {
@@ -297,6 +301,7 @@
           "text": "Ref 001122 value ±0.08"
         }
       ],
+      "peakMemoryBytes": 267628544,
       "text": "Low contrast 中文 OCR 8.5%\n\nRef 001122 value ±0.08"
     }
   ],

@@ -15,7 +15,7 @@ import cv2
 import numpy
 import onnxruntime
 
-from quality_collect import collect_enhanced, read_case_png, write_new
+from quality_collect import collect_enhanced, peak_memory_metric, read_case_png, write_new
 from quality_metrics import evaluate, load_json, validate_corpus, validate_predictions
 
 
@@ -86,11 +86,18 @@ def main():
 
     environment = {
         "schema": "clippy-ocr-model-tier-ab-v1",
+        "host": {
+            "system": platform.system(),
+            "machine": platform.machine(),
+            "peakMemoryMetric": peak_memory_metric(),
+        },
         "python": platform.python_version(),
         "numpy": numpy.__version__,
         "opencv": cv2.__version__,
         "onnxruntime": onnxruntime.__version__,
         "baseManifestSha256": hashlib.sha256(base_bytes).hexdigest(),
+        "collectorSha256": digest(Path(__file__).with_name("quality_collect.py")),
+        "harnessSha256": digest(Path(__file__)),
         "runtimeFiles": {name: digest(path) for name, path in runtime_files.items()},
         "medium": {
             role: {**identity, "pathRecorded": False}

@@ -1,7 +1,7 @@
 {
   "cases": [
     {
-      "durationMs": 1080.3186929842923,
+      "durationMs": 632.4961289938074,
       "id": "dark-settings",
       "lines": [
         {
@@ -71,10 +71,11 @@
           "text": "版本 v0.1.20·状态 Ready"
         }
       ],
+      "peakMemoryBytes": 268984320,
       "text": "设置·OCR模型\n\n中文 English 日本語\n\n版本 v0.1.20·状态 Ready"
     },
     {
-      "durationMs": 1144.067675981205,
+      "durationMs": 674.39097200986,
       "id": "compressed-status",
       "lines": [
         {
@@ -144,10 +145,11 @@
           "text": "2026-09-18 08:05:09 UTC+8"
         }
       ],
+      "peakMemoryBytes": 258777088,
       "text": "CPU 23.7% RAM 1,024 MB\n\nSN: 001l1l00 ¥1,280.50\n\n2026-09-18 08:05:09 UTC+8"
     },
     {
-      "durationMs": 1324.7073579987045,
+      "durationMs": 697.3494509875309,
       "id": "source-code",
       "lines": [
         {
@@ -217,10 +219,11 @@
           "text": "路径/tmp/demo 状態 OK"
         }
       ],
+      "peakMemoryBytes": 262049792,
       "text": "const total = price * 0.85;\n\nif (id === \"AA11-BB22\") return null;\n\n路径/tmp/demo 状態 OK"
     },
     {
-      "durationMs": 1271.563738991972,
+      "durationMs": 718.718477000948,
       "id": "table-values",
       "lines": [
         {
@@ -290,6 +293,7 @@
           "text": "日本茶 3 ¥88.00 ¥264.00"
         }
       ],
+      "peakMemoryBytes": 273354752,
       "text": "商品数量单价小计\n\nCoffee 12 ¥19.90 ¥238.80\n\n日本茶 3 ¥88.00 ¥264.00"
     }
   ],

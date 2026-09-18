@@ -4,12 +4,15 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from typing import Any
 
@@ -26,6 +29,140 @@ MAX_PNG_BYTES = 64 * 1024 * 1024
 MAX_OUTPUT_BYTES = 4 * 1024 * 1024
 MAX_STDERR_BYTES = 64 * 1024
 TIMEOUT_SECONDS = 65
+RSS_SAMPLE_INTERVAL_SECONDS = 0.01
+
+
+def _linux_peak_rss_bytes(pid: int) -> int | None:
+    try:
+        lines = Path(f"/proc/{pid}/status").read_text(encoding="ascii").splitlines()
+    except (OSError, UnicodeError):
+        return None
+    values: dict[str, int] = {}
+    for line in lines:
+        name, separator, raw = line.partition(":")
+        if separator and name in {"VmHWM", "VmRSS"}:
+            fields = raw.split()
+            if fields and fields[0].isdigit():
+                values[name] = int(fields[0]) * 1024
+    return values.get("VmHWM", values.get("VmRSS"))
+
+
+def _macos_rss_bytes(pid: int) -> int | None:
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "rss=", "-p", str(pid)],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=0.5,
+        )
+        value = result.stdout.decode("ascii", errors="strict").strip()
+        return int(value) * 1024 if result.returncode == 0 and value.isdigit() else None
+    except (OSError, UnicodeError, subprocess.SubprocessError):
+        return None
+
+
+def _windows_peak_rss_bytes(pid: int) -> int | None:
+    # PROCESS_MEMORY_COUNTERS 的 PeakWorkingSetSize 是进程自启动以来的峰值驻留集。
+    class ProcessMemoryCounters(ctypes.Structure):
+        _fields_ = [
+            ("cb", ctypes.c_ulong),
+            ("page_fault_count", ctypes.c_ulong),
+            ("peak_working_set_size", ctypes.c_size_t),
+            ("working_set_size", ctypes.c_size_t),
+            ("quota_peak_paged_pool_usage", ctypes.c_size_t),
+            ("quota_paged_pool_usage", ctypes.c_size_t),
+            ("quota_peak_non_paged_pool_usage", ctypes.c_size_t),
+            ("quota_non_paged_pool_usage", ctypes.c_size_t),
+            ("pagefile_usage", ctypes.c_size_t),
+            ("peak_pagefile_usage", ctypes.c_size_t),
+        ]
+
+    try:
+        kernel32 = ctypes.windll.kernel32
+        psapi = ctypes.windll.psapi
+        kernel32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        kernel32.CloseHandle.restype = ctypes.c_int
+        psapi.GetProcessMemoryInfo.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(ProcessMemoryCounters),
+            ctypes.c_ulong,
+        ]
+        psapi.GetProcessMemoryInfo.restype = ctypes.c_int
+        handle = kernel32.OpenProcess(0x0400 | 0x0010, False, pid)
+        if not handle:
+            return None
+        try:
+            counters = ProcessMemoryCounters()
+            counters.cb = ctypes.sizeof(counters)
+            if not psapi.GetProcessMemoryInfo(
+                handle, ctypes.byref(counters), ctypes.sizeof(counters)
+            ):
+                return None
+            return int(counters.peak_working_set_size)
+        finally:
+            kernel32.CloseHandle(handle)
+    except (AttributeError, OSError, ValueError):
+        return None
+
+
+def process_peak_rss_bytes(pid: int) -> int | None:
+    if sys.platform.startswith("linux"):
+        return _linux_peak_rss_bytes(pid)
+    if sys.platform == "darwin":
+        return _macos_rss_bytes(pid)
+    if os.name == "nt":
+        return _windows_peak_rss_bytes(pid)
+    return None
+
+
+def peak_memory_metric() -> str | None:
+    if sys.platform.startswith("linux"):
+        return "linux-proc-vmhwm"
+    if sys.platform == "darwin":
+        return "macos-ps-rss-sampled"
+    if os.name == "nt":
+        return "windows-peak-working-set"
+    return None
+
+
+def run_measured(
+    command: list[str], payload: bytes, timeout: float
+) -> tuple[subprocess.CompletedProcess[bytes], int | None]:
+    """运行一次独立 OCR 进程，并采样该进程自己的峰值 RSS。"""
+    process = subprocess.Popen(
+        command,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    stopped = threading.Event()
+    peak_memory: list[int] = []
+
+    def sample() -> None:
+        while not stopped.is_set():
+            value = process_peak_rss_bytes(process.pid)
+            if value is not None:
+                peak_memory.append(value)
+            stopped.wait(RSS_SAMPLE_INTERVAL_SECONDS)
+
+    monitor = threading.Thread(target=sample, name="ocr-quality-rss", daemon=True)
+    monitor.start()
+    try:
+        stdout, stderr = process.communicate(input=payload, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.communicate()
+        raise
+    finally:
+        stopped.set()
+        monitor.join(timeout=1)
+    return (
+        subprocess.CompletedProcess(command, process.returncode, stdout, stderr),
+        max(peak_memory) if peak_memory else None,
+    )
 
 
 def file_sha256(payload: bytes) -> str:
@@ -78,12 +215,10 @@ def collect_tesseract(
     predictions = []
     for case, png in cases:
         started = time.perf_counter()
-        process = subprocess.run(
+        process, peak_memory = run_measured(
             [str(executable), "stdin", "stdout", "-l", "eng+chi_sim"],
-            input=png,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=TIMEOUT_SECONDS,
+            png,
+            TIMEOUT_SECONDS,
         )
         duration = (time.perf_counter() - started) * 1000
         if len(process.stdout) > MAX_OUTPUT_BYTES or len(process.stderr) > MAX_STDERR_BYTES:
@@ -94,9 +229,15 @@ def collect_tesseract(
             text = process.stdout.decode("utf-8").strip()
         except UnicodeDecodeError as error:
             raise ContractError(f"{case['id']} Tesseract 输出不是 UTF-8") from error
-        predictions.append(
-            {"id": case["id"], "text": text, "lines": [], "durationMs": duration}
-        )
+        prediction = {
+            "id": case["id"],
+            "text": text,
+            "lines": [],
+            "durationMs": duration,
+        }
+        if peak_memory is not None:
+            prediction["peakMemoryBytes"] = peak_memory
+        predictions.append(prediction)
     return {
         "schema": PREDICTION_SCHEMA,
         "engine": {
@@ -190,12 +331,10 @@ def collect_enhanced(
                     str(diagnostics_dir / f"{index:03d}-{case['id']}.json"),
                 ]
             )
-        process = subprocess.run(
+        process, peak_memory = run_measured(
             command,
-            input=header + png,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=TIMEOUT_SECONDS,
+            header + png,
+            TIMEOUT_SECONDS,
         )
         duration = (time.perf_counter() - started) * 1000
         if len(process.stdout) > MAX_OUTPUT_BYTES or len(process.stderr) > MAX_STDERR_BYTES:
@@ -213,14 +352,15 @@ def collect_enhanced(
         ):
             raise ContractError(f"{case['id']} 增强 OCR 请求身份不符")
         text, lines = enhanced_prediction(reply.get("result"))
-        predictions.append(
-            {
-                "id": case["id"],
-                "text": text,
-                "lines": lines,
-                "durationMs": duration,
-            }
-        )
+        prediction = {
+            "id": case["id"],
+            "text": text,
+            "lines": lines,
+            "durationMs": duration,
+        }
+        if peak_memory is not None:
+            prediction["peakMemoryBytes"] = peak_memory
+        predictions.append(prediction)
     return {
         "schema": PREDICTION_SCHEMA,
         "engine": {

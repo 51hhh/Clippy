@@ -15,8 +15,8 @@
       },
       "rawReadingOrder": {
         "comparablePairs": 21,
-        "errorRate": 0.047619047619047616,
-        "inversions": 1,
+        "errorRate": 0.0,
+        "inversions": 0,
         "supported": true
       },
       "rowDetection": {
@@ -36,9 +36,9 @@
         "geometryNonWhitespaceCer": 0.0,
         "geometryNonWhitespaceCodepoints": 46,
         "geometryNonWhitespaceEditDistance": 0,
-        "rawNonWhitespaceCer": 0.17391304347826086,
+        "rawNonWhitespaceCer": 0.0,
         "rawNonWhitespaceCodepoints": 46,
-        "rawNonWhitespaceEditDistance": 8
+        "rawNonWhitespaceEditDistance": 0
       }
     },
     "numbers": {
@@ -56,8 +56,8 @@
       },
       "rawReadingOrder": {
         "comparablePairs": 21,
-        "errorRate": 0.047619047619047616,
-        "inversions": 1,
+        "errorRate": 0.0,
+        "inversions": 0,
         "supported": true
       },
       "rowDetection": {
@@ -77,9 +77,9 @@
         "geometryNonWhitespaceCer": 0.0,
         "geometryNonWhitespaceCodepoints": 46,
         "geometryNonWhitespaceEditDistance": 0,
-        "rawNonWhitespaceCer": 0.17391304347826086,
+        "rawNonWhitespaceCer": 0.0,
         "rawNonWhitespaceCodepoints": 46,
-        "rawNonWhitespaceEditDistance": 8
+        "rawNonWhitespaceEditDistance": 0
       }
     },
     "spaces": {
@@ -97,8 +97,8 @@
       },
       "rawReadingOrder": {
         "comparablePairs": 21,
-        "errorRate": 0.047619047619047616,
-        "inversions": 1,
+        "errorRate": 0.0,
+        "inversions": 0,
         "supported": true
       },
       "rowDetection": {
@@ -118,9 +118,9 @@
         "geometryNonWhitespaceCer": 0.0,
         "geometryNonWhitespaceCodepoints": 46,
         "geometryNonWhitespaceEditDistance": 0,
-        "rawNonWhitespaceCer": 0.17391304347826086,
+        "rawNonWhitespaceCer": 0.0,
         "rawNonWhitespaceCodepoints": 46,
-        "rawNonWhitespaceEditDistance": 8
+        "rawNonWhitespaceEditDistance": 0
       }
     },
     "table": {
@@ -138,8 +138,8 @@
       },
       "rawReadingOrder": {
         "comparablePairs": 21,
-        "errorRate": 0.047619047619047616,
-        "inversions": 1,
+        "errorRate": 0.0,
+        "inversions": 0,
         "supported": true
       },
       "rowDetection": {
@@ -159,9 +159,9 @@
         "geometryNonWhitespaceCer": 0.0,
         "geometryNonWhitespaceCodepoints": 46,
         "geometryNonWhitespaceEditDistance": 0,
-        "rawNonWhitespaceCer": 0.17391304347826086,
+        "rawNonWhitespaceCer": 0.0,
         "rawNonWhitespaceCodepoints": 46,
-        "rawNonWhitespaceEditDistance": 8
+        "rawNonWhitespaceEditDistance": 0
       }
     },
     "ui": {
@@ -179,8 +179,8 @@
       },
       "rawReadingOrder": {
         "comparablePairs": 21,
-        "errorRate": 0.047619047619047616,
-        "inversions": 1,
+        "errorRate": 0.0,
+        "inversions": 0,
         "supported": true
       },
       "rowDetection": {
@@ -200,9 +200,9 @@
         "geometryNonWhitespaceCer": 0.0,
         "geometryNonWhitespaceCodepoints": 46,
         "geometryNonWhitespaceEditDistance": 0,
-        "rawNonWhitespaceCer": 0.17391304347826086,
+        "rawNonWhitespaceCer": 0.0,
         "rawNonWhitespaceCodepoints": 46,
-        "rawNonWhitespaceEditDistance": 8
+        "rawNonWhitespaceEditDistance": 0
       }
     },
     "zh-en-ja": {
@@ -220,8 +220,8 @@
       },
       "rawReadingOrder": {
         "comparablePairs": 21,
-        "errorRate": 0.047619047619047616,
-        "inversions": 1,
+        "errorRate": 0.0,
+        "inversions": 0,
         "supported": true
       },
       "rowDetection": {
@@ -241,9 +241,9 @@
         "geometryNonWhitespaceCer": 0.0,
         "geometryNonWhitespaceCodepoints": 46,
         "geometryNonWhitespaceEditDistance": 0,
-        "rawNonWhitespaceCer": 0.17391304347826086,
+        "rawNonWhitespaceCer": 0.0,
         "rawNonWhitespaceCodepoints": 46,
-        "rawNonWhitespaceEditDistance": 8
+        "rawNonWhitespaceEditDistance": 0
       }
     }
   },
@@ -271,8 +271,8 @@
     },
     "rawReadingOrder": {
       "comparablePairs": 21,
-      "errorRate": 0.047619047619047616,
-      "inversions": 1,
+      "errorRate": 0.0,
+      "inversions": 0,
       "supported": true
     },
     "rowDetection": {
@@ -292,9 +292,9 @@
       "geometryNonWhitespaceCer": 0.0,
       "geometryNonWhitespaceCodepoints": 46,
       "geometryNonWhitespaceEditDistance": 0,
-      "rawNonWhitespaceCer": 0.17391304347826086,
+      "rawNonWhitespaceCer": 0.0,
       "rawNonWhitespaceCodepoints": 46,
-      "rawNonWhitespaceEditDistance": 8
+      "rawNonWhitespaceEditDistance": 0
     }
   }
 }

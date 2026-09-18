@@ -1,7 +1,7 @@
 {
   "cases": [
     {
-      "durationMs": 1208.6995760037098,
+      "durationMs": 692.8313389944378,
       "id": "prose-double-space",
       "lines": [
         {
@@ -27,10 +27,11 @@
           "text": "Save as editable copy"
         }
       ],
+      "peakMemoryBytes": 318267392,
       "text": "Save as editable copy"
     },
     {
-      "durationMs": 1218.5214719793294,
+      "durationMs": 698.0281139840372,
       "id": "repeated-identifiers",
       "lines": [
         {
@@ -56,10 +57,11 @@
           "text": "AA 11 Il 00 AABB"
         }
       ],
+      "peakMemoryBytes": 313937920,
       "text": "AA 11 Il 00 AABB"
     },
     {
-      "durationMs": 1293.1519220001064,
+      "durationMs": 703.2094770111144,
       "id": "serial-punctuation",
       "lines": [
         {
@@ -85,10 +87,11 @@
           "text": "SN: AA11-BB22 / 98.6% [OK]"
         }
       ],
+      "peakMemoryBytes": 321523712,
       "text": "SN: AA11-BB22 / 98.6% [OK]"
     },
     {
-      "durationMs": 1366.940234991489,
+      "durationMs": 743.5391400067601,
       "id": "currency-guard",
       "lines": [
         {
@@ -114,10 +117,11 @@
           "text": "USD 12.50 EUR 9.99 ¥1,234.50"
         }
       ],
+      "peakMemoryBytes": 320983040,
       "text": "USD 12.50 EUR 9.99 ¥1,234.50"
     },
     {
-      "durationMs": 1125.1615910150576,
+      "durationMs": 665.1516490092035,
       "id": "linear-math",
       "lines": [
         {
@@ -143,10 +147,11 @@
           "text": "x² + 1/2 = √2"
         }
       ],
+      "peakMemoryBytes": 314224640,
       "text": "x² + 1/2 = √2"
     },
     {
-      "durationMs": 1243.0634959891904,
+      "durationMs": 713.6295450036414,
       "id": "source-code",
       "lines": [
         {
@@ -172,6 +177,7 @@
           "text": "const value = foo_bar + 42;"
         }
       ],
+      "peakMemoryBytes": 317599744,
       "text": "const value = foo_bar + 42;"
     }
   ],

@@ -22,11 +22,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 1854.255229991395,
-        "durationMsP95": 1854.255229991395,
-        "durationMsTotal": 1854.255229991395,
+        "durationMsMedian": 1025.69777899771,
+        "durationMsP95": 1025.69777899771,
+        "durationMsTotal": 1025.69777899771,
         "measuredCases": 1,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 361385984
       },
       "readingOrder": {
         "comparablePairs": 3,
@@ -78,11 +78,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 1806.4305070001865,
-        "durationMsP95": 2020.5952120013535,
-        "durationMsTotal": 3612.861014000373,
+        "durationMsMedian": 989.8061419808073,
+        "durationMsP95": 1064.800464984728,
+        "durationMsTotal": 1979.6122839616146,
         "measuredCases": 2,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 397160448
       },
       "readingOrder": {
         "comparablePairs": 3,
@@ -94,12 +94,12 @@
         "exactCaseRate": 0.0,
         "exactLinePrecision": 0.0,
         "exactLineRecall": 0.0,
-        "nonWhitespaceCer": 0.08411214953271028,
-        "nonWhitespaceEditDistance": 9,
+        "nonWhitespaceCer": 0.009345794392523364,
+        "nonWhitespaceEditDistance": 1,
         "nonWhitespaceExpectedCodepoints": 107,
         "nonWhitespacePredictedCodepoints": 107,
-        "rawCer": 0.3048780487804878,
-        "rawEditDistance": 50,
+        "rawCer": 0.2804878048780488,
+        "rawEditDistance": 46,
         "rawExpectedCodepoints": 164,
         "rawPredictedCodepoints": 131
       },
@@ -134,11 +134,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 1684.9814789893571,
-        "durationMsP95": 1684.9814789893571,
-        "durationMsTotal": 1684.9814789893571,
+        "durationMsMedian": 938.563111005351,
+        "durationMsP95": 938.563111005351,
+        "durationMsTotal": 938.563111005351,
         "measuredCases": 1,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 356704256
       },
       "readingOrder": {
         "comparablePairs": 3,
@@ -190,11 +190,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 1684.9814789893571,
-        "durationMsP95": 1684.9814789893571,
-        "durationMsTotal": 1684.9814789893571,
+        "durationMsMedian": 938.563111005351,
+        "durationMsP95": 938.563111005351,
+        "durationMsTotal": 938.563111005351,
         "measuredCases": 1,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 356704256
       },
       "readingOrder": {
         "comparablePairs": 3,
@@ -246,11 +246,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 1854.255229991395,
-        "durationMsP95": 1854.255229991395,
-        "durationMsTotal": 1854.255229991395,
+        "durationMsMedian": 1025.69777899771,
+        "durationMsP95": 1025.69777899771,
+        "durationMsTotal": 1025.69777899771,
         "measuredCases": 1,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 361385984
       },
       "readingOrder": {
         "comparablePairs": 3,
@@ -302,11 +302,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 1592.2658019990195,
-        "durationMsP95": 1592.2658019990195,
-        "durationMsTotal": 1592.2658019990195,
+        "durationMsMedian": 914.8118189768866,
+        "durationMsP95": 914.8118189768866,
+        "durationMsTotal": 914.8118189768866,
         "measuredCases": 1,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 350769152
       },
       "readingOrder": {
         "comparablePairs": 3,
@@ -358,11 +358,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 1806.4305070001865,
-        "durationMsP95": 2020.5952120013535,
-        "durationMsTotal": 3612.861014000373,
+        "durationMsMedian": 989.8061419808073,
+        "durationMsP95": 1064.800464984728,
+        "durationMsTotal": 1979.6122839616146,
         "measuredCases": 2,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 397160448
       },
       "readingOrder": {
         "comparablePairs": 3,
@@ -374,12 +374,12 @@
         "exactCaseRate": 0.0,
         "exactLinePrecision": 0.0,
         "exactLineRecall": 0.0,
-        "nonWhitespaceCer": 0.08411214953271028,
-        "nonWhitespaceEditDistance": 9,
+        "nonWhitespaceCer": 0.009345794392523364,
+        "nonWhitespaceEditDistance": 1,
         "nonWhitespaceExpectedCodepoints": 107,
         "nonWhitespacePredictedCodepoints": 107,
-        "rawCer": 0.3048780487804878,
-        "rawEditDistance": 50,
+        "rawCer": 0.2804878048780488,
+        "rawEditDistance": 46,
         "rawExpectedCodepoints": 164,
         "rawPredictedCodepoints": 131
       },
@@ -414,11 +414,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 1854.255229991395,
-        "durationMsP95": 1854.255229991395,
-        "durationMsTotal": 1854.255229991395,
+        "durationMsMedian": 1025.69777899771,
+        "durationMsP95": 1025.69777899771,
+        "durationMsTotal": 1025.69777899771,
         "measuredCases": 1,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 361385984
       },
       "readingOrder": {
         "comparablePairs": 3,
@@ -470,11 +470,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 1592.2658019990195,
-        "durationMsP95": 1592.2658019990195,
-        "durationMsTotal": 1592.2658019990195,
+        "durationMsMedian": 914.8118189768866,
+        "durationMsP95": 914.8118189768866,
+        "durationMsTotal": 914.8118189768866,
         "measuredCases": 1,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 350769152
       },
       "readingOrder": {
         "comparablePairs": 3,
@@ -526,11 +526,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 2020.5952120013535,
-        "durationMsP95": 2020.5952120013535,
-        "durationMsTotal": 2020.5952120013535,
+        "durationMsMedian": 1064.800464984728,
+        "durationMsP95": 1064.800464984728,
+        "durationMsTotal": 1064.800464984728,
         "measuredCases": 1,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 397160448
       },
       "readingOrder": {
         "comparablePairs": 0,
@@ -542,12 +542,12 @@
         "exactCaseRate": 0.0,
         "exactLinePrecision": 0.0,
         "exactLineRecall": 0.0,
-        "nonWhitespaceCer": 0.17391304347826086,
-        "nonWhitespaceEditDistance": 8,
+        "nonWhitespaceCer": 0.0,
+        "nonWhitespaceEditDistance": 0,
         "nonWhitespaceExpectedCodepoints": 46,
         "nonWhitespacePredictedCodepoints": 46,
-        "rawCer": 0.4888888888888889,
-        "rawEditDistance": 44,
+        "rawCer": 0.4444444444444444,
+        "rawEditDistance": 40,
         "rawExpectedCodepoints": 90,
         "rawPredictedCodepoints": 58
       },
@@ -582,11 +582,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 2020.5952120013535,
-        "durationMsP95": 2020.5952120013535,
-        "durationMsTotal": 2020.5952120013535,
+        "durationMsMedian": 1064.800464984728,
+        "durationMsP95": 1064.800464984728,
+        "durationMsTotal": 1064.800464984728,
         "measuredCases": 1,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 397160448
       },
       "readingOrder": {
         "comparablePairs": 0,
@@ -598,12 +598,12 @@
         "exactCaseRate": 0.0,
         "exactLinePrecision": 0.0,
         "exactLineRecall": 0.0,
-        "nonWhitespaceCer": 0.17391304347826086,
-        "nonWhitespaceEditDistance": 8,
+        "nonWhitespaceCer": 0.0,
+        "nonWhitespaceEditDistance": 0,
         "nonWhitespaceExpectedCodepoints": 46,
         "nonWhitespacePredictedCodepoints": 46,
-        "rawCer": 0.4888888888888889,
-        "rawEditDistance": 44,
+        "rawCer": 0.4444444444444444,
+        "rawEditDistance": 40,
         "rawExpectedCodepoints": 90,
         "rawPredictedCodepoints": 58
       },
@@ -638,11 +638,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 1769.618354490376,
-        "durationMsP95": 2020.5952120013535,
-        "durationMsTotal": 7152.097722981125,
+        "durationMsMedian": 982.1304450015305,
+        "durationMsP95": 1064.800464984728,
+        "durationMsTotal": 3943.8731739646755,
         "measuredCases": 4,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 397160448
       },
       "readingOrder": {
         "comparablePairs": 9,
@@ -654,12 +654,12 @@
         "exactCaseRate": 0.0,
         "exactLinePrecision": 0.125,
         "exactLineRecall": 0.16666666666666666,
-        "nonWhitespaceCer": 0.04245283018867924,
-        "nonWhitespaceEditDistance": 9,
+        "nonWhitespaceCer": 0.0047169811320754715,
+        "nonWhitespaceEditDistance": 1,
         "nonWhitespaceExpectedCodepoints": 212,
         "nonWhitespacePredictedCodepoints": 212,
-        "rawCer": 0.22,
-        "rawEditDistance": 66,
+        "rawCer": 0.20666666666666667,
+        "rawEditDistance": 62,
         "rawExpectedCodepoints": 300,
         "rawPredictedCodepoints": 259
       },
@@ -694,11 +694,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 1852.7883454953553,
-        "durationMsP95": 2020.5952120013535,
-        "durationMsTotal": 3705.5766909907106,
+        "durationMsMedian": 1001.6817879950395,
+        "durationMsP95": 1064.800464984728,
+        "durationMsTotal": 2003.363575990079,
         "measuredCases": 2,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 397160448
       },
       "readingOrder": {
         "comparablePairs": 3,
@@ -710,12 +710,12 @@
         "exactCaseRate": 0.0,
         "exactLinePrecision": 0.0,
         "exactLineRecall": 0.0,
-        "nonWhitespaceCer": 0.0963855421686747,
-        "nonWhitespaceEditDistance": 8,
+        "nonWhitespaceCer": 0.0,
+        "nonWhitespaceEditDistance": 0,
         "nonWhitespaceExpectedCodepoints": 83,
         "nonWhitespacePredictedCodepoints": 83,
-        "rawCer": 0.39436619718309857,
-        "rawEditDistance": 56,
+        "rawCer": 0.36619718309859156,
+        "rawEditDistance": 52,
         "rawExpectedCodepoints": 142,
         "rawPredictedCodepoints": 102
       },
@@ -750,11 +750,11 @@
         "supportedByEngine": false
       },
       "performance": {
-        "durationMsMedian": 1854.255229991395,
-        "durationMsP95": 1854.255229991395,
-        "durationMsTotal": 1854.255229991395,
+        "durationMsMedian": 1025.69777899771,
+        "durationMsP95": 1025.69777899771,
+        "durationMsTotal": 1025.69777899771,
         "measuredCases": 1,
-        "peakMemoryBytesMax": null
+        "peakMemoryBytesMax": 361385984
       },
       "readingOrder": {
         "comparablePairs": 3,
@@ -816,11 +816,11 @@
       "supportedByEngine": false
     },
     "performance": {
-      "durationMsMedian": 1769.618354490376,
-      "durationMsP95": 2020.5952120013535,
-      "durationMsTotal": 7152.097722981125,
+      "durationMsMedian": 982.1304450015305,
+      "durationMsP95": 1064.800464984728,
+      "durationMsTotal": 3943.8731739646755,
       "measuredCases": 4,
-      "peakMemoryBytesMax": null
+      "peakMemoryBytesMax": 397160448
     },
     "readingOrder": {
       "comparablePairs": 9,
@@ -832,12 +832,12 @@
       "exactCaseRate": 0.0,
       "exactLinePrecision": 0.125,
       "exactLineRecall": 0.16666666666666666,
-      "nonWhitespaceCer": 0.04245283018867924,
-      "nonWhitespaceEditDistance": 9,
+      "nonWhitespaceCer": 0.0047169811320754715,
+      "nonWhitespaceEditDistance": 1,
       "nonWhitespaceExpectedCodepoints": 212,
       "nonWhitespacePredictedCodepoints": 212,
-      "rawCer": 0.22,
-      "rawEditDistance": 66,
+      "rawCer": 0.20666666666666667,
+      "rawEditDistance": 62,
       "rawExpectedCodepoints": 300,
       "rawPredictedCodepoints": 259
     },

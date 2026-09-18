@@ -371,7 +371,7 @@ delta；父链与项目历史留给 `PX-PIN-01`。显式 resize/crop 之外不�
 | P0（已完成） | `PX-OCR-ORIENTATION-01` | 可选逐框 0°/180°分类与四向固定语料 | `PX-OCR-QUALITY-01` |
 | P0（已完成调研） | `PX-OCR-MODEL-TIER-01` | small/medium det/rec 四组 A/B；当前不升档 | `PX-OCR-QUALITY-01` |
 | P0（已完成） | `PX-OCR-TABLE-01` | row/cell 双层真值、错列检测与稳定同基线排序 | `PX-OCR-MODEL-TIER-01` |
-| P0 | `PX-OCR-01` | 基于基线完成增强 OCR 安装、健康检查、许可与模型选择 | `PX-OCR-QUALITY-01` |
+| P0（已完成） | `PX-OCR-01` | 基于基线完成增强 OCR 安装、健康检查、许可与模型选择 | `PX-OCR-QUALITY-01` |
 | P0 | `PX-CAPTURE-TOOLS-01` | 冻结选区快捷扫码；保留现有长截图入口 | capture session 身份 |
 | P1（进行中） | `PX-LS-2D-01` | 上下左右拼接、viewport 回访与显式撤销已实现；输入透明 guide 待三平台实现 | 真实长截图 fixture |
 | P1（已完成） | `PX-ANNOTATION-QUALITY-01` | 16 工具预览/导出画质矩阵与逐项修正 | 权威 Rust 渲染器 |
@@ -405,8 +405,10 @@ delta；父链与项目历史留给 `PX-PIN-01`。显式 resize/crop 之外不�
 - [ ] 任一模型/阈值替换均报告目标分层改善、关键分层回退和资源变化。
 
 **2026-09-18 诊断状态**：v1 增强链基线与有界 CTC 发射证据已固化；普通产品请求不承担诊断对象
-开销。英语专用 rec 已按“不改非空白码点”合同可选接入并记录质量/耗时；下一步比较 medium rec、
-方向候选和独立公式模型，仍不支持仅凭 blank-run 阈值改写复制文本。
+开销。英语专用 rec、文字行方向和 small/medium det/rec 四组 A/B 已分别记录质量与耗时；模型档位
+报告另补 Linux 独立进程峰值 RSS。medium 的分层回退与工作集增长不满足默认升档条件。下一步是
+真实混合语言/符号语料、独立公式模型可行性以及 Windows/macOS 同源资源复测；仍不支持仅凭
+blank-run 阈值改写复制文本。
 
 **Out of Scope**：用单张 PixPin 样本宣称总体精度、静默改写用户文本、把普通 OCR 当公式识别。
 
