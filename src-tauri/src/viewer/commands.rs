@@ -82,12 +82,21 @@ pub async fn open_image_viewer(
         .min(MAX_PNG_BYTES);
     let storage = state.storage.clone();
     let entry = blocking(move || {
-        let snapshot = storage
+        let storage = storage
             .lock()
-            .map_err(|_| ViewerError::new("storage_failed"))?
+            .map_err(|_| ViewerError::new("storage_failed"))?;
+        let snapshot = storage
             .get_bounded_image_snapshot(id, byte_limit)
             .map_err(|_| ViewerError::new("storage_failed"))?
             .ok_or_else(|| ViewerError::new("not_found"))?;
+        let revision = match storage.get_image_revision_for_clip(id) {
+            Ok(revision) => revision,
+            Err(error) => {
+                log::warn!("读取查看器内部图片修订失败，按普通图片打开: {error}");
+                None
+            }
+        };
+        drop(storage);
         let bytes = match snapshot.image {
             BoundedImageData::Bytes(bytes) => bytes,
             BoundedImageData::NotImage => return Err("not_image".into()),
@@ -99,12 +108,25 @@ pub async fn open_image_viewer(
         validate_dimensions(dimensions.0, dimensions.1)?;
         // 全量校验在独立worker中完成，PNG解压工作区由Pin共用验证器限定。
         crate::pin::output::decode_source(&bytes).map_err(map_image_error)?;
+        let managed = match revision {
+            Some(revision) => {
+                match crate::pin::output::restore_managed_revision(&bytes, revision) {
+                    Ok(managed) => Some(managed),
+                    Err(error) => {
+                        log::warn!("查看器内部图片修订校验失败，按普通图片打开: {error}");
+                        None
+                    }
+                }
+            }
+            None => None,
+        };
         Ok(Arc::new(ViewerSession::new(
             id,
             snapshot.content_hash,
             snapshot.is_sensitive,
             bytes,
             dimensions,
+            managed,
         )))
     })
     .await?;
@@ -401,11 +423,24 @@ pub async fn copy_viewer_image(
 ) -> Result<ViewerReply<()>, ViewerError> {
     let permit = image_permit()?;
     let entry = start(&window, &state, &request, Channel::Output)?;
+    let storage = state.storage.clone();
     blocking(move || {
         let _permit = permit;
         entry.commit(Channel::Output, &request, || Ok(()))?;
-        let png = crate::pin::output::render_document(&entry.png, document.as_ref())
+        let document = entry.effective_project(document.as_ref());
+        let png = crate::pin::output::render_document(&entry.source_png, document.as_ref())
             .map_err(map_image_error)?;
+        if let Some(document) = document.as_ref() {
+            let storage = storage.lock().map_err(|_| ViewerError::new("internal"))?;
+            crate::pin::output::register_source_revision(
+                &storage,
+                &entry.source_png,
+                entry.root_clip_id,
+                document,
+                &png,
+            )
+            .map_err(map_image_error)?;
+        }
         entry.commit(Channel::Output, &request, || {
             crate::image_io::copy_png_to_clipboard(&png)
                 .map_err(|_| ViewerError::new("clipboard_failed"))
@@ -425,12 +460,34 @@ pub async fn save_viewer_image(
     let permit = image_permit()?;
     let entry = start(&window, &state, &request, Channel::Output)?;
     let target = state.save_target();
+    let storage = state.storage.clone();
     blocking(move || {
         let _permit = permit;
         entry.commit(Channel::Output, &request, || Ok(()))?;
         let to_clipboard = matches!(mode, PinCanvasSaveMode::Editable);
-        let (png, disk) = crate::pin::output::prepare_save(&entry.png, document.as_ref(), mode)
+        let mut document = entry.effective_project(document.as_ref());
+        if matches!(mode, PinCanvasSaveMode::Editable) && document.is_none() {
+            document = Some(
+                crate::pin::output::identity_project(&entry.source_png).map_err(map_image_error)?,
+            );
+        }
+        let (png, disk) =
+            crate::pin::output::prepare_save(&entry.source_png, document.as_ref(), mode)
+                .map_err(map_image_error)?;
+        if matches!(mode, PinCanvasSaveMode::Editable) {
+            let document = document
+                .as_ref()
+                .ok_or_else(|| ViewerError::new("invalid_document"))?;
+            let storage = storage.lock().map_err(|_| ViewerError::new("internal"))?;
+            crate::pin::output::register_source_revision(
+                &storage,
+                &entry.source_png,
+                entry.root_clip_id,
+                document,
+                &png,
+            )
             .map_err(map_image_error)?;
+        }
         let result = entry.commit(Channel::Output, &request, || {
             let path = crate::image_io::save_png(&disk, "clippy-viewer", &target)
                 .map_err(|_| ViewerError::new("save_failed"))?;
@@ -464,16 +521,29 @@ pub async fn pin_viewer_image(
     blocking(move || {
         let _permit = permit;
         entry.commit(Channel::Output, &request, || Ok(()))?;
-        let png = crate::pin::output::render_document(&entry.png, document.as_ref())
+        let document = entry.effective_project(document.as_ref());
+        let png = crate::pin::output::render_document(&entry.source_png, document.as_ref())
             .map_err(map_image_error)?;
-        let label = entry.commit_pin(&request, || {
-            crate::pin::create_screenshot_pin_shared(
-                Arc::new(png),
-                None,
-                &app,
-                app.state::<AppState>().inner(),
-            )
-        })?;
+        let label = match document {
+            Some(document) => entry.commit_pin(&request, || {
+                crate::pin::commands::create_managed_project_pin(
+                    entry.source_png.as_ref().clone(),
+                    png,
+                    document,
+                    &app,
+                    app.state::<AppState>().inner(),
+                )
+                .map_err(crate::pin::commands::ScreenshotPinCreateError::not_created)
+            })?,
+            None => entry.commit_pin(&request, || {
+                crate::pin::create_screenshot_pin_shared(
+                    Arc::new(png),
+                    None,
+                    &app,
+                    app.state::<AppState>().inner(),
+                )
+            })?,
+        };
         Ok(request.reply(label))
     })
     .await

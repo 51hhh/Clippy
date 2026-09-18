@@ -67,7 +67,7 @@ pub struct ViewerPayload {
     pub handle: ViewerHandle,
     pub label: String,
     pub source: ViewerSource,
-    // 当前仅打开历史图片，不伪造可编辑工程导入。
+    // 命中本机内部修订时恢复根图上的累计操作层；普通历史图片保持 None。
     pub initial_project: Option<serde_json::Value>,
     pub limits: ViewerLimits,
 }

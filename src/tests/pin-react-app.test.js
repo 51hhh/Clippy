@@ -1015,7 +1015,7 @@ describe("React pin app", () => {
 
     await act(async () => document.querySelector('button[aria-label="Save image"]').click());
     await flush();
-    expect(document.querySelector(".pin-privacy-warning")?.textContent).toContain("original image");
+    expect(document.querySelector(".pin-privacy-warning")?.textContent).toContain("only the current rendered image");
     await act(async () => [...document.querySelectorAll(".pin-close-prompt button")].find(button => /Discard|Export flat PNG/.test(button.textContent)).click());
     await flushAsyncChain();
     expect(mocks.pinApi.saveCanvas).toHaveBeenLastCalledWith(

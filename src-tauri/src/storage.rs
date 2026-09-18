@@ -1,8 +1,10 @@
+mod image_revisions;
 mod maintenance;
 mod stats;
 mod translation_history;
 mod url_cache;
 
+pub(crate) use image_revisions::{ImageRevisionWrite, StoredImageRevision};
 pub use translation_history::NewTranslation;
 
 use crate::models::{ClipItem, ContentType};
@@ -19,6 +21,8 @@ pub enum StorageError {
     Database(#[from] rusqlite::Error),
     #[error("本地文件操作失败: {0}")]
     Io(#[from] std::io::Error),
+    #[error("图片修订数据不一致: {0}")]
+    Invariant(String),
 }
 
 impl StorageError {
@@ -26,6 +30,7 @@ impl StorageError {
         match self {
             Self::Database(_) => "database",
             Self::Io(_) => "io",
+            Self::Invariant(_) => "image_revision_invariant",
         }
     }
 }
@@ -130,6 +135,7 @@ impl StorageEngine {
         self.conn.execute_batch(
             "
             PRAGMA journal_mode = WAL;
+            PRAGMA foreign_keys = ON;
             PRAGMA cache_size = 128;
             PRAGMA temp_store = MEMORY;
 
@@ -188,6 +194,7 @@ impl StorageEngine {
         }
 
         self.migrate_use_order()?;
+        self.migrate_image_revisions()?;
 
         // URL 元数据缓存表
         self.conn.execute_batch(
@@ -224,6 +231,58 @@ impl StorageEngine {
 
         self.rebuild_fts_once("search_v2")?;
 
+        Ok(())
+    }
+
+    fn migrate_image_revisions(&self) -> Result<(), StorageError> {
+        let tx = self.conn.unchecked_transaction()?;
+        self.conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS image_assets (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_hash  TEXT NOT NULL UNIQUE,
+                png          BLOB NOT NULL,
+                width        INTEGER NOT NULL CHECK(width > 0),
+                height       INTEGER NOT NULL CHECK(height > 0),
+                byte_size    INTEGER NOT NULL CHECK(byte_size >= 0),
+                created_at   INTEGER NOT NULL
+            );",
+        )?;
+        let has_asset_column: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('clips') WHERE name='image_asset_id')",
+            [],
+            |row| row.get(0),
+        )?;
+        if !has_asset_column {
+            self.conn.execute(
+                "ALTER TABLE clips ADD COLUMN image_asset_id INTEGER REFERENCES image_assets(id) ON DELETE RESTRICT",
+                [],
+            )?;
+        }
+        self.conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_clips_image_asset ON clips(image_asset_id);
+             CREATE TABLE IF NOT EXISTS image_revisions (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                asset_id         INTEGER NOT NULL REFERENCES image_assets(id) ON DELETE RESTRICT,
+                renderer_version INTEGER NOT NULL,
+                source_width     INTEGER NOT NULL,
+                source_height    INTEGER NOT NULL,
+                annotations_json TEXT NOT NULL,
+                adjustments_json TEXT NOT NULL,
+                document_hash    TEXT NOT NULL,
+                rendered_hash    TEXT NOT NULL,
+                created_at       INTEGER NOT NULL,
+                UNIQUE(asset_id, document_hash)
+             );
+             CREATE INDEX IF NOT EXISTS idx_image_revisions_rendered_hash
+                ON image_revisions(rendered_hash, id DESC);
+             CREATE TABLE IF NOT EXISTS clip_image_revisions (
+                clip_id      INTEGER PRIMARY KEY REFERENCES clips(id) ON DELETE CASCADE,
+                revision_id  INTEGER NOT NULL REFERENCES image_revisions(id) ON DELETE RESTRICT
+             );
+             CREATE INDEX IF NOT EXISTS idx_clip_image_revisions_revision
+                ON clip_image_revisions(revision_id);",
+        )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -422,6 +481,7 @@ impl StorageEngine {
             params![content_hash],
             |row| row.get(0),
         )?;
+        self.link_clip_revision_for_hash(id, content_hash)?;
 
         // 新插入时同步 FTS 索引（last_insert_rowid 仅在真正 INSERT 时更新为新行 id）
         if self.conn.last_insert_rowid() == id {
@@ -438,9 +498,11 @@ impl StorageEngine {
     /// 通过 id 获取单条记录
     pub fn get_clip_by_id(&self, id: i64) -> Result<ClipItem, StorageError> {
         let clip = self.conn.query_row(
-            "SELECT id, content_type, text_content, html_content, image_data,
-                    content_hash, is_favorite, created_at, byte_size, is_sensitive
-             FROM clips WHERE id = ?1",
+            "SELECT c.id, c.content_type, c.text_content, c.html_content,
+                    COALESCE(c.image_data, a.png), c.content_hash, c.is_favorite,
+                    c.created_at, c.byte_size, c.is_sensitive
+               FROM clips c LEFT JOIN image_assets a ON a.id = c.image_asset_id
+              WHERE c.id = ?1",
             params![id],
             row_to_clip,
         )?;
@@ -464,7 +526,9 @@ impl StorageEngine {
     /// 通过 id 获取图片二进制数据（仅 image 类型有值）
     pub fn get_clip_image(&self, id: i64) -> Result<Option<Vec<u8>>, StorageError> {
         let result = self.conn.query_row(
-            "SELECT image_data FROM clips WHERE id = ?1",
+            "SELECT COALESCE(c.image_data, a.png)
+               FROM clips c LEFT JOIN image_assets a ON a.id = c.image_asset_id
+              WHERE c.id = ?1",
             params![id],
             |row| row.get(0),
         );
@@ -487,15 +551,16 @@ impl StorageEngine {
         let row = self
             .conn
             .query_row(
-                "SELECT content_type,
-                        length(image_data),
+                "SELECT c.content_type,
+                        length(COALESCE(c.image_data, a.png)),
                         CASE
-                            WHEN image_data IS NOT NULL AND length(image_data) <= ?1
-                            THEN image_data
+                            WHEN COALESCE(c.image_data, a.png) IS NOT NULL
+                                 AND length(COALESCE(c.image_data, a.png)) <= ?1
+                            THEN COALESCE(c.image_data, a.png)
                             ELSE NULL
                         END
-                   FROM clips
-                  WHERE id = ?2",
+                   FROM clips c LEFT JOIN image_assets a ON a.id = c.image_asset_id
+                  WHERE c.id = ?2",
                 params![byte_limit, id],
                 |row| {
                     Ok((
@@ -532,9 +597,12 @@ impl StorageEngine {
         let row = self
             .conn
             .query_row(
-                "SELECT content_type, content_hash, is_sensitive, length(image_data),
-                    CASE WHEN length(image_data) <= ?1 THEN image_data ELSE NULL END
-             FROM clips WHERE id = ?2",
+                "SELECT c.content_type, c.content_hash, c.is_sensitive,
+                        length(COALESCE(c.image_data, a.png)),
+                        CASE WHEN length(COALESCE(c.image_data, a.png)) <= ?1
+                             THEN COALESCE(c.image_data, a.png) ELSE NULL END
+                   FROM clips c LEFT JOIN image_assets a ON a.id = c.image_asset_id
+                  WHERE c.id = ?2",
                 params![limit, id],
                 |row| {
                     Ok((

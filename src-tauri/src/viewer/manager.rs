@@ -29,7 +29,13 @@ struct SessionState {
 }
 pub(super) struct ViewerSession {
     pub payload: ViewerPayload,
+    /// 当前历史条目的扁平预览，供 OCR、扫码、取色以及输出身份使用。
     pub png: Arc<Vec<u8>>,
+    /// 画布原图。内部修订指向唯一根图；普通图片与 `png` 共享同一 Arc。
+    pub source_png: Arc<Vec<u8>>,
+    /// 只有普通历史图片能在首次保存时迁移自身 BLOB 为根资产。
+    pub root_clip_id: Option<i64>,
+    base_project: Option<crate::pin::commands::PinCanvasProject>,
     pub translation: Arc<crate::translation::TranslationService>,
     state: Mutex<SessionState>,
     // 原生事件线程不能等待输出锁：Pin builder/剪贴板可能反过来等待该线程。
@@ -43,6 +49,11 @@ impl ViewerSession {
         sensitive: bool,
         png: Vec<u8>,
         dimensions: (u32, u32),
+        managed: Option<(
+            Vec<u8>,
+            crate::pin::commands::PinCanvasProject,
+            serde_json::Value,
+        )>,
     ) -> Self {
         let id = crate::image_io::unique_image_id();
         let payload = ViewerPayload {
@@ -60,16 +71,24 @@ impl ViewerSession {
                 media_type: "image/png",
                 sensitive,
             },
-            initial_project: None,
+            initial_project: managed.as_ref().map(|(_, _, initial)| initial.clone()),
             limits: ViewerLimits {
                 can_edit: true,
                 can_scan: true,
                 reason: None,
             },
         };
+        let png = Arc::new(png);
+        let (source_png, root_clip_id, base_project) = match managed {
+            Some((source, project, _)) => (Arc::new(source), None, Some(project)),
+            None => (Arc::clone(&png), Some(clip_id), None),
+        };
         Self {
             payload,
-            png: Arc::new(png),
+            png,
+            source_png,
+            root_clip_id,
+            base_project,
             translation: Arc::new(crate::translation::TranslationService::new()),
             lifecycle: AtomicU8::new(ACTIVE),
             pin_uncertain: AtomicBool::new(false),
@@ -78,6 +97,13 @@ impl ViewerSession {
                 ..Default::default()
             }),
         }
+    }
+
+    pub fn effective_project(
+        &self,
+        submitted: Option<&crate::pin::commands::PinCanvasProject>,
+    ) -> Option<crate::pin::commands::PinCanvasProject> {
+        submitted.cloned().or_else(|| self.base_project.clone())
     }
     pub fn authorize(&self, caller: &str, handle: &ViewerHandle) -> Result<(), ViewerError> {
         if caller != self.payload.label || handle != &self.payload.handle {
@@ -364,15 +390,23 @@ impl ViewerManager {
             .sources
             .lock()
             .map_err(|_| ViewerError::new("internal"))?;
+        let distinct_source_bytes = if Arc::ptr_eq(&entry.png, &entry.source_png) {
+            0
+        } else {
+            entry.source_png.len()
+        };
         check_budget(
             entries.len(),
             retained_source_bytes(&mut sources),
-            entry.png.len(),
+            entry.png.len().saturating_add(distinct_source_bytes),
         )?;
         if entries.contains_key(&entry.payload.label) {
             return Err("busy".into());
         }
         sources.push((Arc::downgrade(&entry.png), entry.png.len()));
+        if !Arc::ptr_eq(&entry.png, &entry.source_png) {
+            sources.push((Arc::downgrade(&entry.source_png), entry.source_png.len()));
+        }
         entries.insert(entry.payload.label.clone(), entry);
         Ok(())
     }

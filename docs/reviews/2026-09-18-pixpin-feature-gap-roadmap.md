@@ -36,7 +36,7 @@
 | 长截图 | 15 | 🟡 | 🟡 | 固定选区、竖向向下、手动追加主链完整；无自动滚动、反向裁剪、横向与前接 |
 | 标注与图像效果 | 23 | 🟡 | 🟡 | 16 种工具及模糊、马赛克、聚光灯、放大镜、调色和圆角已接入；无语义智能擦除 |
 | 贴图 / 历史 / 分组 | 29 | 🟡 | 🟡 | Pin、缩放、透明度、锁定、置顶、编辑和工程 PNG 已实现；Pin 会话只在内存中，无工作区、分组或恢复库 |
-| 本地导出与交换 | 12 | 🟡 | 🟡 | 单图复制、保存、另存、扁平 PNG 与 iTXt 工程 PNG 已实现；无批量归档导入导出 |
+| 本地导出与交换 | 12 | 🟡 | 🟡 | 单图复制、保存、扁平 PNG 与本机内部修订已实现，旧 iTXt 可导入；无批量归档导入导出 |
 | 录屏 / 音频 / 编码 | 20 | ❌ | ❌ | 没有录制领域、音频采集、编码、封装、恢复清单或产品入口 |
 | 动作 / 脚本 / 启动器 | 12 | ❌ | ❌ | 没有用户动作注册表、权限模型、脚本运行时或动作启动器 |
 
@@ -114,8 +114,8 @@ Rust 侧 `ocr/enhanced.rs` 校验绝对路径、模型 SHA、运行脚本身份�
 图片预览仍有必要，但复杂工具继续集中在查看器。
 
 `PinManager` 使用进程内 `HashMap<String, PinEntry>` 持有打开的窗口；窗口销毁就移除条目。
-数据库只有 clips、FTS、URL 元数据和翻译历史，没有 Pin 工作区或分组表。可编辑 PNG 通过 iTXt
-保存原图、标注和调整参数，能够拖入主窗口继续编辑；这是一种文件级恢复，不等于 Pin 历史库。
+数据库已有 clips、FTS、URL 元数据、翻译历史以及根图/图片修订表，但仍没有 Pin 工作区或分组表。
+编辑状态由本机根资产和累计文档恢复，旧 iTXt 只保留兼容导入；这仍不等于 Pin 历史库。
 
 ### 导出、录制与动作
 
@@ -246,36 +246,37 @@ precision/recall/Hmean、原始码点 CER、去空白 CER、空白 precision/rec
 但“指针”必须是数据库内稳定的内容地址 ID，不能是临时文件路径，也不能只指向会被历史清理的
 `clips.id`。
 
-目标数据模型：
+实现数据模型：
 
 ```text
 image_assets
-  asset_id = SHA-256(canonical source bytes/pixels), immutable PNG/blob, dimensions
-
-image_projects
-  project_id, root_asset_id, current_revision_id, lifecycle
+  asset_id, SHA-256(canonical source PNG), immutable PNG/blob, dimensions
 
 image_revisions
-  revision_id, project_id, parent_revision_id,
-  canonical_document(源像素坐标的累计标注/调整), rendered_asset_id, renderer_version
+  revision_id, root_asset_id,
+  canonical_document(源像素坐标的累计标注/调整), rendered_hash, renderer_version
 
-clips
-  rendered_asset_id, optional image_revision_id
+clip_image_revisions
+  clip_id → revision_id
 ```
+
+当前阶段每个 revision 已保存完整累计 document，因此重开不依赖父链；显式 project、parent DAG、
+Pin 工作区和分组留给 `PX-PIN-01`。根图仍只存一次，功能语义不依赖 `clips.id` 或文件路径。
 
 保存流程严格是“从根图渲染”，不是“从上次渲染图继续画”：原图 1 只存一次；保存修订 2 时写入
 `root 1 + document 2`，生成无损 PNG 2；再次编辑修订 2 时加载根图 1 和 document 2，保存为
-`root 1 + document 3`，生成 PNG 3。`document 3` 可以是规范化累计文档并带 `parent_revision_id`；
-这样读取不需要重放无限 delta，同时仍能追踪历史。显式 resize/crop 之外不重采样，PNG 输出和源像素
-坐标保证代际间没有画质损失。
+`root 1 + document 3`，生成 PNG 3。本阶段的 `document 3` 是规范化累计文档，读取不需要重放无限
+delta；父链与项目历史留给 `PX-PIN-01`。显式 resize/crop 之外不重采样，PNG 输出和源像素坐标
+保证代际间没有画质损失。
 
 剪贴板只复制渲染 PNG，不携带未打码原图和编辑操作。Clippy 自己重新收到完全相同的 PNG 时，可按
-渲染内容哈希恢复其 `image_revision_id`；经过第三方转码、缩放或像素修改后按普通图片处理。跨设备或
-文件级继续编辑改为显式“导出工程归档”，现有自包含 iTXt PNG 只作为兼容导入/显式导出格式，
-不再是默认内部保存格式。
+规范化像素哈希恢复其 `image_revision_id`；仅改变 PNG 压缩/chunk 而像素完全相同仍可恢复，缩放、
+有损转码或任一像素修改后按普通图片处理。文件级跨设备继续编辑将在 `PX-IO-01` 提供显式工程
+归档；现有自包含 iTXt PNG 当前只作为兼容
+导入格式，不再是默认内部保存格式。
 
-清理采用外键加可达性，而不是手工引用计数猜测：只要 project、revision、clip 或保存的 Pin 工作区
-仍可达根 asset，根图就禁止删除；后台清理只能移除没有任何引用的临时渲染和中断修订。删除一个
+清理采用外键加可达性，而不是手工引用计数猜测：当前只要 revision 仍可达根 asset，根图就禁止
+删除；未来 project 或保存的 Pin 工作区同样通过外键引用。删除一个
 剪贴板条目不能破坏仍被后续修订引用的根图。迁移现有 iTXt 工程时解出根图、规范化 document 和
 当前渲染图，校验哈希后一次性导入新结构；损坏工程仍退回扁平 PNG。
 
@@ -288,7 +289,7 @@ clips
 | P0 | `PX-CAPTURE-TOOLS-01` | 冻结选区快捷扫码；保留现有长截图入口 | capture session 身份 |
 | P1（进行中） | `PX-LS-2D-01` | 上下左右拼接、viewport 回访与显式撤销已实现；输入透明 guide 待三平台实现 | 真实长截图 fixture |
 | P1 | `PX-ANNOTATION-QUALITY-01` | 16 工具预览/导出画质矩阵与逐项修正 | 权威 Rust 渲染器 |
-| P1 | `PX-IMAGE-REVISION-01` | 内容寻址根图、修订 DAG、渲染 clip 关联与安全清理 | 数据库迁移设计 |
+| P1（已完成） | `PX-IMAGE-REVISION-01` | 内容寻址根图、累计修订、渲染 clip 关联与安全清理 | 数据库迁移设计 |
 | P1 | `PX-PIN-01` | 基于 image project 的 Pin 工作区、历史恢复和分组 | `PX-IMAGE-REVISION-01` |
 | P1 | `PX-IO-01` | 工程归档与批量导出/导入 | image project/clipboard 数据版本 |
 | P2 | `PX-LS-AUTO-01` | 在二维手动主链稳定后增加受控自动滚动 | `PX-LS-2D-01` + 平台输入能力 |
@@ -384,18 +385,26 @@ Rust 金图继续约束权威输出。修复了模糊、马赛克和放大镜双
 
 **Goal**：根图只保存一次，每个可编辑版本引用根图与规范化编辑文档，同时提供可粘贴的扁平 PNG。
 
-**Requirements**：新增不可变 asset、project、revision 和 clip 关联；每次从根图渲染；剪贴板只输出渲染图；
-清理基于外键可达性；兼容导入现有 iTXt 工程；显式归档才携带根图和编辑信息。
+**Requirements**：新增不可变 asset、累计 revision 和 clip 关联；每次从根图渲染；剪贴板只输出渲染图；
+清理基于外键可达性；兼容导入现有 iTXt 工程；跨设备归档留给 `PX-IO-01`。
 
 **Acceptance Criteria**：
 
-- [ ] “原图 1→修订 2→修订 3”数据库中只有一份根图，两个 revision 都能独立重开；
-- [ ] PNG 2 的精确回流能恢复 revision 2，第三方转码后安全退回普通图片；
-- [ ] 删除任一 clip、运行历史清理或应用重启都不会删除仍可达的根图；
-- [ ] PNG 3 由根图 1 与累计 document 3 渲染，像素测试证明没有从 PNG 2 二次采样；
-- [ ] iTXt v2/v3 可迁移，损坏/未来版本只导入扁平 IDAT；事务失败不留下孤儿 asset/revision。
+- [x] “原图 1→修订 2→修订 3”数据库中只有一份根图，两个 revision 都能独立重开；
+- [x] PNG 2 的规范化像素回流能恢复 revision 2，像素变化后安全退回普通图片；
+- [x] 删除任一 clip、运行历史清理或应用重启都不会删除仍可达的根图；
+- [x] PNG 3 由根图 1 与累计 document 3 渲染，像素测试证明没有从 PNG 2 二次采样；
+- [x] iTXt v2/v3 可迁移，损坏/未来版本只导入扁平 IDAT；事务失败不留下孤儿 asset/revision。
 
-**Out of Scope**：默认把未打码原图放进系统剪贴板、依赖文件路径、云同步和无限修订保留。
+**Out of Scope**：默认把未打码原图放进系统剪贴板、依赖文件路径、云同步、跨设备归档，以及
+面向用户的修订删除/配额管理；这些持久修订在提供显式管理入口前不会被历史清理误删。
+
+**2026-09-18 实施状态**：新增 `image_assets`、`image_revisions`、`clip_image_revisions` 与
+`clips.image_asset_id`。普通根图片段在首次编辑时原子迁入 asset；每个保存版本记录累计文档和
+规范化渲染哈希，watcher 插入对应扁平 PNG 时在同一事务自动回链。查看器和 Pin 分别持有当前
+预览与唯一根图：OCR/扫码读取预览，画布从根图重放；复制、文件保存和系统剪贴板都不再嵌入原图。
+根 asset 由 revision 外键保护，历史清理不影响恢复。旧 iTXt v2/v3 继续严格校验并在下一次保存
+或复制时迁入；未来显式跨设备归档属于 `PX-IO-01`。
 
 ### `PX-BASE-01`：现有能力真实平台验收
 

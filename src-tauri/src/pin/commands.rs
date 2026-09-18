@@ -9,8 +9,8 @@ use crate::commands::AppState;
 use tauri::State;
 
 pub(crate) use super::lifecycle::{
-    create_screenshot_pin_shared, lower_pins_for_capture, raise_focused_pin,
-    restore_pins_after_capture, ScreenshotPinCreateError,
+    create_managed_project_pin, create_screenshot_pin_shared, lower_pins_for_capture,
+    raise_focused_pin, restore_pins_after_capture, ScreenshotPinCreateError,
 };
 pub use super::output::{PinCanvasProject, PinCanvasSaveMode, PinCanvasSaveResult};
 

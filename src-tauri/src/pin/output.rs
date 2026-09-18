@@ -4,6 +4,7 @@
 //! 规则，不需要构造 Tauri command 或窗口。
 use super::model::{PinEntry, PinSource};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -30,6 +31,139 @@ pub struct PinCanvasProject {
     pub source_height: u32,
     pub annotations: serde_json::Value,
     pub adjustments: serde_json::Value,
+}
+
+pub(super) fn effective_project(
+    entry: &PinEntry,
+    submitted: Option<&PinCanvasProject>,
+) -> Option<PinCanvasProject> {
+    submitted.cloned().or_else(|| {
+        let PinSource::Project { project, .. } = &*entry.source else {
+            return None;
+        };
+        let (renderer_version, source_width, source_height, annotations, adjustments) =
+            project.document_parts();
+        Some(PinCanvasProject {
+            renderer_version,
+            source_width,
+            source_height,
+            annotations,
+            adjustments,
+        })
+    })
+}
+
+/// 把已由 renderer v2 验证并合成的结果登记为内部修订。系统剪贴板仍只收到扁平
+/// 像素；稍后 watcher 以相同规范 PNG 哈希入库时会在同一事务里自动关联该修订。
+pub(super) fn register_image_revision(
+    storage: &crate::storage::StorageEngine,
+    entry: &PinEntry,
+    project: &PinCanvasProject,
+    rendered_png: &[u8],
+) -> Result<i64, String> {
+    if project.renderer_version == super::project::LEGACY_RENDERER_VERSION {
+        // renderer v1 的历史坐标/字体语义不能伪装成 v2 累计文档。未修改保存时以当前
+        // 已验证预览作为新的无损根图，后续编辑从这组像素开始；第一次真实编辑会由
+        // 前端提交 renderer v2 文档，并继续使用旧工程原图走下面的正常路径。
+        let identity = identity_project(rendered_png)?;
+        return register_source_revision(storage, rendered_png, None, &identity, rendered_png);
+    }
+    let source = source_png(&entry.source).ok_or_else(|| "文本贴图不能登记图片修订".to_string())?;
+    let root_clip_id = match &*entry.source {
+        PinSource::Clip { item, .. } => Some(item.id),
+        PinSource::Screenshot { .. } | PinSource::Project { .. } => None,
+    };
+    register_source_revision(storage, source, root_clip_id, project, rendered_png)
+}
+
+pub(crate) fn register_source_revision(
+    storage: &crate::storage::StorageEngine,
+    source: &[u8],
+    root_clip_id: Option<i64>,
+    project: &PinCanvasProject,
+    rendered_png: &[u8],
+) -> Result<i64, String> {
+    if project.renderer_version != super::render_v2::RENDERER_VERSION {
+        return Err("只有 renderer v2 文档可以登记内部图片修订".to_string());
+    }
+    let dimensions = decode_source(source)?.dimensions();
+    if dimensions != (project.source_width, project.source_height) {
+        return Err("图片修订原图尺寸不匹配".to_string());
+    }
+    let canonical_render = super::project::flatten(rendered_png)?;
+    let source_hash = crate::clipboard_watcher::content::compute_hash(source);
+    let rendered_hash = crate::clipboard_watcher::content::compute_hash(&canonical_render);
+    let annotations_json = serde_json::to_string(&project.annotations)
+        .map_err(|error| format!("标注序列化失败: {error}"))?;
+    let adjustments_json = serde_json::to_string(&project.adjustments)
+        .map_err(|error| format!("调整序列化失败: {error}"))?;
+    let mut digest = Sha256::new();
+    digest.update(project.renderer_version.to_be_bytes());
+    digest.update(project.source_width.to_be_bytes());
+    digest.update(project.source_height.to_be_bytes());
+    for value in [&annotations_json, &adjustments_json] {
+        digest.update((value.len() as u64).to_be_bytes());
+        digest.update(value.as_bytes());
+    }
+    let document_hash = format!("{:x}", digest.finalize());
+    storage
+        .register_image_revision(crate::storage::ImageRevisionWrite {
+            source_png: source,
+            source_hash: &source_hash,
+            source_width: project.source_width,
+            source_height: project.source_height,
+            renderer_version: project.renderer_version,
+            annotations_json: &annotations_json,
+            adjustments_json: &adjustments_json,
+            document_hash: &document_hash,
+            rendered_hash: &rendered_hash,
+            root_clip_id,
+        })
+        .map_err(|error| error.to_string())
+}
+
+pub(crate) fn identity_project(source: &[u8]) -> Result<PinCanvasProject, String> {
+    let (source_width, source_height) = decode_source(source)?.dimensions();
+    Ok(PinCanvasProject {
+        renderer_version: super::render_v2::RENDERER_VERSION,
+        source_width,
+        source_height,
+        annotations: serde_json::json!([]),
+        adjustments: serde_json::json!({
+            "grayscale": false,
+            "brightness": 0,
+            "contrast": 0,
+            "saturation": 0,
+            "cornerRadius": 0
+        }),
+    })
+}
+
+/// 把存储层修订恢复为查看器所需的根图、累计操作层与初始 payload。预览只参与
+/// 像素身份校验；画布必须从根图重放操作，不能在扁平预览上重复绘制。
+pub(crate) fn restore_managed_revision(
+    preview_png: &[u8],
+    revision: crate::storage::StoredImageRevision,
+) -> Result<(Vec<u8>, PinCanvasProject, serde_json::Value), String> {
+    let project = super::project::RuntimeProject::from_managed(
+        &revision.source_png,
+        preview_png,
+        revision.renderer_version,
+        revision.source_width,
+        revision.source_height,
+        revision.annotations.clone(),
+        revision.adjustments.clone(),
+    )?;
+    let initial = serde_json::to_value(project.initial_payload())
+        .map_err(|error| format!("图片修订 payload 序列化失败: {error}"))?;
+    let document = PinCanvasProject {
+        renderer_version: revision.renderer_version,
+        source_width: revision.source_width,
+        source_height: revision.source_height,
+        annotations: revision.annotations,
+        adjustments: revision.adjustments,
+    };
+    Ok((revision.source_png, document, initial))
 }
 
 pub(crate) fn decode_source(png: &[u8]) -> Result<image::RgbaImage, String> {
@@ -61,22 +195,10 @@ pub(crate) fn prepare_save(
     mode: PinCanvasSaveMode,
 ) -> Result<(Vec<u8>, Vec<u8>), String> {
     let rendered = render_document(source, document)?;
+    // 新修订的可编辑状态由 SQLite asset/revision 管理，磁盘与剪贴板都只得到扁平
+    // 合成图。这样分享打码图不会夹带原图，根图也不会在每个版本里重复保存。
     let disk = match mode {
-        PinCanvasSaveMode::Flat => rendered.clone(),
-        PinCanvasSaveMode::Editable => {
-            let (annotations, adjustments) = document.map(|doc| (doc.annotations.clone(), doc.adjustments.clone()))
-                .unwrap_or_else(|| (serde_json::json!([]), serde_json::json!({
-                    "grayscale":false,"brightness":0,"contrast":0,"saturation":0,"cornerRadius":0
-                })));
-            let project = super::project::PinProject::new(
-                source,
-                &rendered,
-                super::render_v2::RENDERER_VERSION,
-                annotations,
-                adjustments,
-            )?;
-            super::project::embed(&rendered, &project)?
-        }
+        PinCanvasSaveMode::Flat | PinCanvasSaveMode::Editable => rendered.clone(),
     };
     Ok((rendered, disk))
 }
@@ -88,7 +210,7 @@ pub(crate) fn prepare_save(
 pub(super) fn prepare_pin_save(
     entry: &PinEntry,
     png_base64: Option<&str>,
-    mode: PinCanvasSaveMode,
+    _mode: PinCanvasSaveMode,
     project: Option<PinCanvasProject>,
 ) -> Result<(Vec<u8>, Vec<u8>), String> {
     let Some(png_base64) = png_base64 else {
@@ -97,27 +219,13 @@ pub(super) fn prepare_pin_save(
                 return Err("只有 renderer v2 文档可以由后端生成合成图".to_string());
             }
             let png = render_pin_document(entry, &project)?;
-            let to_disk = match mode {
-                PinCanvasSaveMode::Flat => super::project::flatten(&png)?,
-                PinCanvasSaveMode::Editable => embed_pin_project(&png, project, entry)?,
-            };
+            let to_disk = super::project::flatten(&png)?;
             return Ok((png, to_disk));
         }
-        let PinSource::Project {
-            source_png,
-            preview_png,
-            project,
-        } = &*entry.source
-        else {
+        let PinSource::Project { preview_png, .. } = &*entry.source else {
             return Err("只有未修改的导入工程可以复用合成预览".to_string());
         };
-        let to_disk = match mode {
-            PinCanvasSaveMode::Flat => preview_png.clone(),
-            PinCanvasSaveMode::Editable => {
-                let materialized = project.materialize(source_png);
-                super::project::embed(preview_png, &materialized)?
-            }
-        };
+        let to_disk = super::project::flatten(preview_png)?;
         return Ok((preview_png.clone(), to_disk));
     };
 
@@ -128,13 +236,7 @@ pub(super) fn prepare_pin_save(
     {
         return Err("renderer v2 不接受 WebView 上传的合成 PNG".to_string());
     }
-    let to_disk = match mode {
-        PinCanvasSaveMode::Flat => super::project::flatten(&png)?,
-        PinCanvasSaveMode::Editable => {
-            let project = project.ok_or_else(|| "保存可编辑 PNG 缺少工程数据".to_string())?;
-            embed_pin_project(&png, project, entry)?
-        }
-    };
+    let to_disk = super::project::flatten(&png)?;
     Ok((png, to_disk))
 }
 
@@ -171,40 +273,6 @@ pub(super) fn decode_canvas_png(png_base64: &str) -> Result<Vec<u8>, String> {
         .map_err(|_| "画布内容 base64 无效".to_string())?;
     super::project::validate_rendered_png(&png)?;
     Ok(png)
-}
-
-/// 给落盘的 PNG 加上工程块；任何一步失败都让 editable save 明确失败。
-fn embed_pin_project(
-    png: &[u8],
-    project: PinCanvasProject,
-    entry: &PinEntry,
-) -> Result<Vec<u8>, String> {
-    if !matches!(
-        project.renderer_version,
-        super::project::LEGACY_RENDERER_VERSION | super::project::RENDERER_VERSION
-    ) {
-        return Err("工程渲染器版本不受支持".to_string());
-    }
-    let source =
-        source_png(&entry.source).ok_or_else(|| "文本贴图不能保存为可编辑 PNG".to_string())?;
-    let dimensions =
-        crate::screenshot::png_dimensions(source).map_err(|_| "贴图原图无效".to_string())?;
-    if dimensions != (project.source_width, project.source_height) {
-        return Err("工程 sourceWidth/sourceHeight 与原图不匹配".to_string());
-    }
-    let rendered_dimensions =
-        crate::screenshot::png_dimensions(png).map_err(|_| "合成 PNG 无效".to_string())?;
-    if rendered_dimensions != dimensions {
-        return Err("合成 PNG 尺寸必须与工程原图一致".to_string());
-    }
-    let document = super::project::PinProject::new(
-        source,
-        png,
-        project.renderer_version,
-        project.annotations,
-        project.adjustments,
-    )?;
-    super::project::embed(png, &document)
 }
 
 fn render_pin_document(entry: &PinEntry, project: &PinCanvasProject) -> Result<Vec<u8>, String> {

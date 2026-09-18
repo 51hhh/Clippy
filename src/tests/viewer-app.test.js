@@ -207,10 +207,10 @@ describe("production viewer workflows", () => {
   });
   it("retains dirty edits after failure, restores focus on cancel, and keeps partial save success", async () => {
     await draw(); const save = button("Save image"); await act(async () => save.focus()); await click(save);
-    services.save.mockRejectedValueOnce({ code: "save_failed" }); await click("Save editable PNG");
+    services.save.mockRejectedValueOnce({ code: "save_failed" }); await click("Save editable version");
     expect(document.querySelector('[data-pin-dialog] [role="alert"]')).not.toBeNull();
     await click("Cancel"); expect(document.activeElement).toBe(save); expect(document.querySelector('[aria-label="Unsaved changes"]')).not.toBeNull();
-    await click("Save image"); services.save.mockImplementationOnce(async request => result(request, { path: "/saved.png", clipboardWritten: false, clipboardError: "busy" })); await click("Save editable PNG");
+    await click("Save image"); services.save.mockImplementationOnce(async request => result(request, { path: "/saved.png", clipboardWritten: false, clipboardError: "busy" })); await click("Save editable version");
     expect(document.querySelector('[aria-label="Unsaved changes"]')).toBeNull(); expect(document.body.textContent).toContain("file was saved"); expect(services.close).not.toHaveBeenCalled();
   });
   it("protects sensitive translation and does not retry uncertain Pin creation", async () => {

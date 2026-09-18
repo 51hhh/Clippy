@@ -5,12 +5,16 @@ use super::model::{
 #[cfg(test)]
 use super::output::decode_canvas_png;
 use super::output::{
-    copy_source, display_png, image_bytes, prepare_pin_copy, prepare_pin_save, source_png,
-    PinCanvasProject, PinCanvasSaveMode, PinCanvasSaveResult,
+    copy_source, display_png, effective_project, image_bytes, prepare_pin_copy, prepare_pin_save,
+    register_image_revision, source_png, PinCanvasProject, PinCanvasSaveMode, PinCanvasSaveResult,
 };
-use super::project_file::prepare_pin_project_file;
+use super::project_file::{
+    prepare_managed_pin_image, prepare_pin_project_candidate, PreparedPinCandidate,
+};
 #[cfg(test)]
-use super::project_file::{read_png_file, PreparedPinImage};
+use super::project_file::{
+    prepare_managed_pin_project_file, prepare_pin_project_file, read_png_file, PreparedPinImage,
+};
 use super::window::{
     content_buffer_scale, content_device_scale, create_pin_window, fit_content_size,
     keep_pin_above, origin_content_size, resize_pin_window, reveal_pin_window,
@@ -38,7 +42,7 @@ pub(crate) enum ScreenshotPinCreateError {
 }
 
 impl ScreenshotPinCreateError {
-    fn not_created(error: impl fmt::Display) -> Self {
+    pub(crate) fn not_created(error: impl fmt::Display) -> Self {
         Self::NotCreated {
             message: error.to_string(),
         }
@@ -117,7 +121,7 @@ pub(super) async fn pin_clip(id: i64, app_handle: tauri::AppHandle) -> Result<St
             return Err("贴图窗口状态不完整，请重试".to_string());
         }
 
-        let (item, image) = {
+        let (item, image, stored_revision) = {
             let storage = state.storage.lock().map_err(|error| error.to_string())?;
             let mut item = storage
                 .get_clip_by_id(id)
@@ -127,7 +131,15 @@ pub(super) async fn pin_clip(id: i64, app_handle: tauri::AppHandle) -> Result<St
             // 期间条目里那份会一直占着内存（`pin/` 只用 `image`，从不看 `item.image_data`）。
             // 只有图片条目有 blob，所以 take 出来的东西和按 content_type 判断是一回事。
             let image = item.image_data.take();
-            (item, image)
+            let revision = match storage.get_image_revision_for_clip(id) {
+                Ok(revision) => revision,
+                Err(error) => {
+                    // 修订索引损坏不能阻止用户查看自己的扁平图片；只丢可编辑性。
+                    log::warn!("读取内部图片修订失败，按普通图片贴图: {error}");
+                    None
+                }
+            };
+            (item, image, revision)
         };
         let (width, height) = image
             .as_deref()
@@ -143,9 +155,33 @@ pub(super) async fn pin_clip(id: i64, app_handle: tauri::AppHandle) -> Result<St
             Some(origin) => origin_content_size(&app_handle, origin),
             None => fit_content_size(&app_handle, width, height),
         };
+        let source = match (stored_revision, image.as_ref()) {
+            (Some(revision), Some(preview_png)) => {
+                match super::project::RuntimeProject::from_managed(
+                    &revision.source_png,
+                    preview_png,
+                    revision.renderer_version,
+                    revision.source_width,
+                    revision.source_height,
+                    revision.annotations,
+                    revision.adjustments,
+                ) {
+                    Ok(project) => PinSource::Project {
+                        source_png: revision.source_png,
+                        preview_png: preview_png.clone(),
+                        project,
+                    },
+                    Err(error) => {
+                        log::warn!("内部图片修订校验失败，按普通图片贴图: {error}");
+                        PinSource::Clip { item, image }
+                    }
+                }
+            }
+            _ => PinSource::Clip { item, image },
+        };
         state.pin_manager.insert(PinEntry {
             label: label.clone(),
-            source: Arc::new(PinSource::Clip { item, image }),
+            source: Arc::new(source),
             content_width,
             content_height,
             scale: 1.0,
@@ -333,6 +369,27 @@ fn create_opened_project_pin(
             .map_err(|error| crate::error::report("创建图片贴图窗口失败", error))
     })?;
     Ok(label)
+}
+
+/// 查看器把内部修订直接提升为可编辑 Pin。画布从唯一根图重放累计操作，预览仅作为
+/// 当前渲染结果校验，避免把扁平结果当新原图而逐代降质。
+pub(crate) fn create_managed_project_pin(
+    source_png: Vec<u8>,
+    preview_png: Vec<u8>,
+    document: PinCanvasProject,
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+) -> Result<String, String> {
+    let project = super::project::RuntimeProject::from_managed(
+        &source_png,
+        &preview_png,
+        document.renderer_version,
+        document.source_width,
+        document.source_height,
+        document.annotations,
+        document.adjustments,
+    )?;
+    create_opened_project_pin(preview_png, (source_png, project), app_handle, state)
 }
 
 /// PinManager entry 的插入与回滚是原子的：后续步骤失败时尽力删除刚插入的 payload。
@@ -559,7 +616,7 @@ pub(super) fn get_pin_source_image(
     Ok(source_png(&entry.source).map(|png| STANDARD.encode(png)))
 }
 
-/// 把最新合成图保存为可编辑工程或安全扁平 PNG。文件先原子落盘，剪贴板随后写入；后者
+/// 把最新合成图保存为本机内部修订与安全扁平 PNG。文件先原子落盘，剪贴板随后写入；后者
 /// 失败不会谎报文件失败，而是通过结构化结果单独告知调用方。
 pub(super) async fn save_pin_canvas(
     label: String,
@@ -572,8 +629,17 @@ pub(super) async fn save_pin_canvas(
     validate_label(&label)?;
     let entry = state.pin_manager.get(&label)?;
     let save_target = state.save_target();
+    let storage = state.storage.clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let revision_project = effective_project(&entry, project.as_ref());
         let (png, to_disk) = prepare_pin_save(&entry, png_base64.as_deref(), mode, project)?;
+        if matches!(mode, PinCanvasSaveMode::Editable) {
+            let project = revision_project
+                .as_ref()
+                .ok_or_else(|| "可编辑保存缺少工程文档".to_string())?;
+            let storage = storage.lock().map_err(|error| error.to_string())?;
+            register_image_revision(&storage, &entry, project, &png)?;
+        }
         let path = crate::image_io::save_png(&to_disk, "clippy-pin", &save_target)?;
         let clipboard_error = if to_clipboard {
             crate::image_io::copy_png_to_clipboard(&png).err()
@@ -599,8 +665,14 @@ pub(super) async fn copy_pin_canvas(
 ) -> Result<(), String> {
     validate_label(&label)?;
     let entry = state.pin_manager.get(&label)?;
+    let storage = state.storage.clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let revision_project = effective_project(&entry, project.as_ref());
         let png = prepare_pin_copy(&entry, png_base64.as_deref(), project)?;
+        if let Some(project) = revision_project.as_ref() {
+            let storage = storage.lock().map_err(|error| error.to_string())?;
+            register_image_revision(&storage, &entry, project, &png)?;
+        }
         crate::image_io::copy_png_to_clipboard(&png)
     })
     .await
@@ -614,10 +686,31 @@ pub(super) async fn open_pin_project_file(
     app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Option<String>, String> {
-    let prepared =
-        tauri::async_runtime::spawn_blocking(move || prepare_pin_project_file(Path::new(&path)))
-            .await
-            .map_err(|error| format!("工程读取线程异常: {error}"))??;
+    let storage = state.storage.clone();
+    let prepared = tauri::async_runtime::spawn_blocking(move || {
+        let Some(candidate) = prepare_pin_project_candidate(Path::new(&path))? else {
+            return Ok(None);
+        };
+        match candidate {
+            PreparedPinCandidate::Project(prepared) => Ok(Some(prepared)),
+            PreparedPinCandidate::Flat {
+                preview_png,
+                rendered_hash,
+            } => {
+                let revision = {
+                    let storage = storage.lock().map_err(|error| error.to_string())?;
+                    storage
+                        .get_image_revision_by_rendered_hash(&rendered_hash)
+                        .map_err(|error| error.to_string())?
+                };
+                revision
+                    .map(|revision| prepare_managed_pin_image(preview_png, revision))
+                    .transpose()
+            }
+        }
+    })
+    .await
+    .map_err(|error| format!("工程读取线程异常: {error}"))??;
     let Some(prepared) = prepared else {
         return Ok(None);
     };
@@ -1194,12 +1287,61 @@ mod tests {
         let (clipboard, editable) =
             prepare_pin_save(&entry, None, PinCanvasSaveMode::Editable, None).unwrap();
         assert_eq!(clipboard, preview);
-        assert!(super::super::project::extract(&editable).unwrap().is_some());
+        assert_eq!(editable, preview);
+        assert_eq!(super::super::project::extract(&editable).unwrap(), None);
         let (clipboard, flat) =
             prepare_pin_save(&entry, None, PinCanvasSaveMode::Flat, None).unwrap();
         assert_eq!(clipboard, preview);
         assert_eq!(flat, preview);
         assert_eq!(super::super::project::extract(&flat).unwrap(), None);
+    }
+
+    #[test]
+    fn pristine_legacy_renderer_migrates_from_its_flattened_pixels() {
+        let source = crate::screenshot::encode_png(&[255, 0, 0, 255], 1, 1).unwrap();
+        let preview = crate::screenshot::encode_png(&[0, 0, 255, 255], 1, 1).unwrap();
+        let project = super::super::project::PinProject::new(
+            &source,
+            &preview,
+            super::super::project::LEGACY_RENDERER_VERSION,
+            serde_json::json!([]),
+            adjustments(),
+        )
+        .unwrap();
+        let (source_png, project) = project.into_runtime().unwrap();
+        let entry = PinEntry {
+            label: "pin-image-legacy-migration".to_string(),
+            source: Arc::new(PinSource::Project {
+                source_png,
+                preview_png: preview.clone(),
+                project,
+            }),
+            content_width: 1.0,
+            content_height: 1.0,
+            scale: 1.0,
+            opacity: 1.0,
+            locked: false,
+            above: false,
+            position: None,
+            origin: None,
+            device_scale: 1.0,
+            buffer_scale: 1.0,
+            sharpen: Arc::new(SharpenSlot::default()),
+        };
+        let storage = crate::storage::StorageEngine::new_in_memory().unwrap();
+        let effective = super::effective_project(&entry, None).unwrap();
+        super::register_image_revision(&storage, &entry, &effective, &preview).unwrap();
+        let hash = crate::clipboard_watcher::content::compute_hash(&preview);
+        let restored = storage
+            .get_image_revision_by_rendered_hash(&hash)
+            .unwrap()
+            .unwrap();
+        assert_eq!(restored.source_png, preview);
+        assert_eq!(
+            restored.renderer_version,
+            super::super::render_v2::RENDERER_VERSION
+        );
+        assert_eq!(restored.annotations, serde_json::json!([]));
     }
 
     #[test]
@@ -1236,10 +1378,8 @@ mod tests {
             .unwrap()
             .into_rgba8();
         assert_eq!(pixels.as_raw(), &[20, 40, 60, 255]);
-        let restored = super::super::project::extract(&editable).unwrap().unwrap();
-        assert_eq!(restored.renderer_version, project.renderer_version);
-        assert_eq!(restored.document.annotations, project.annotations);
-        assert_eq!(restored.document.adjustments, project.adjustments);
+        assert_eq!(editable, clipboard);
+        assert_eq!(super::super::project::extract(&editable).unwrap(), None);
 
         let copied = prepare_pin_copy(&entry, None, Some(project.clone())).unwrap();
         assert_eq!(copied, clipboard);
@@ -1258,6 +1398,7 @@ mod tests {
     #[test]
     fn editable_project_reopens_for_second_edit_and_flat_export() {
         let original_entry = screenshot_entry("pin-image-round-trip-source");
+        let storage = crate::storage::StorageEngine::new_in_memory().unwrap();
         let first_document = PinCanvasProject {
             renderer_version: super::super::render_v2::RENDERER_VERSION,
             source_width: 1,
@@ -1275,9 +1416,11 @@ mod tests {
             &original_entry,
             None,
             PinCanvasSaveMode::Editable,
-            Some(first_document),
+            Some(first_document.clone()),
         )
         .unwrap();
+        super::register_image_revision(&storage, &original_entry, &first_document, &first_preview)
+            .unwrap();
 
         let directory = tempfile::tempdir().unwrap();
         let first_path = directory.path().join("first-editable.png");
@@ -1285,7 +1428,9 @@ mod tests {
         let PreparedPinImage {
             preview_png,
             project,
-        } = prepare_pin_project_file(&first_path).unwrap().unwrap();
+        } = super::prepare_managed_pin_project_file(&first_path, &storage)
+            .unwrap()
+            .unwrap();
         assert_eq!(
             image::load_from_memory_with_format(&preview_png, image::ImageFormat::Png)
                 .unwrap()
@@ -1336,6 +1481,13 @@ mod tests {
             Some(second_document.clone()),
         )
         .unwrap();
+        super::register_image_revision(
+            &storage,
+            &reopened_entry,
+            &second_document,
+            &second_preview,
+        )
+        .unwrap();
         assert_ne!(
             image::load_from_memory_with_format(&second_preview, image::ImageFormat::Png)
                 .unwrap()
@@ -1347,7 +1499,9 @@ mod tests {
 
         let second_path = directory.path().join("second-editable.png");
         std::fs::write(&second_path, &second_editable).unwrap();
-        let reopened_again = prepare_pin_project_file(&second_path).unwrap().unwrap();
+        let reopened_again = super::prepare_managed_pin_project_file(&second_path, &storage)
+            .unwrap()
+            .unwrap();
         let (_, reopened_project) = reopened_again.project;
         assert_eq!(
             reopened_project.initial_payload().document.adjustments,

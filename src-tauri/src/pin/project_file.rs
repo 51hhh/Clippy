@@ -1,7 +1,7 @@
-//! Bounded file-system input for editable Pin PNG projects.
+//! Bounded file-system input for legacy and internally managed Pin revisions.
 //!
-//! This module only reads and validates a candidate file. Window creation stays
-//! in the lifecycle layer, after all fallible file parsing has completed.
+//! Legacy iTXt containers are validated directly. Flat PNGs regain editing only when their
+//! canonical pixels exactly match a revision in the local database.
 
 use std::io::Read;
 use std::path::Path;
@@ -11,7 +11,17 @@ pub(super) struct PreparedPinImage {
     pub(super) project: (Vec<u8>, super::project::RuntimeProject),
 }
 
-pub(super) fn prepare_pin_project_file(path: &Path) -> Result<Option<PreparedPinImage>, String> {
+pub(super) enum PreparedPinCandidate {
+    Project(PreparedPinImage),
+    Flat {
+        preview_png: Vec<u8>,
+        rendered_hash: String,
+    },
+}
+
+pub(super) fn prepare_pin_project_candidate(
+    path: &Path,
+) -> Result<Option<PreparedPinCandidate>, String> {
     if !path
         .extension()
         .and_then(|extension| extension.to_str())
@@ -20,10 +30,70 @@ pub(super) fn prepare_pin_project_file(path: &Path) -> Result<Option<PreparedPin
         return Ok(None);
     }
     let (container, extracted) = read_png_file_with_project(path)?;
-    let Some(project) = extracted else {
+    if let Some(project) = extracted {
+        return prepare_opened_png(container, project)
+            .map(PreparedPinCandidate::Project)
+            .map(Some);
+    }
+    let preview_png = super::project::flatten_container(&container)?;
+    let rendered_hash = crate::clipboard_watcher::content::compute_hash(&preview_png);
+    Ok(Some(PreparedPinCandidate::Flat {
+        preview_png,
+        rendered_hash,
+    }))
+}
+
+#[cfg(test)]
+pub(super) fn prepare_pin_project_file(path: &Path) -> Result<Option<PreparedPinImage>, String> {
+    match prepare_pin_project_candidate(path)? {
+        Some(PreparedPinCandidate::Project(prepared)) => Ok(Some(prepared)),
+        Some(PreparedPinCandidate::Flat { .. }) | None => Ok(None),
+    }
+}
+
+/// 新版内部修订的磁盘 PNG 只含合成像素。它必须以规范 RGBA 哈希精确命中本机数据库
+/// 才恢复编辑；普通图片或被第三方改过像素的文件继续返回 None。
+#[cfg(test)]
+pub(super) fn prepare_managed_pin_project_file(
+    path: &Path,
+    storage: &crate::storage::StorageEngine,
+) -> Result<Option<PreparedPinImage>, String> {
+    let Some(candidate) = prepare_pin_project_candidate(path)? else {
         return Ok(None);
     };
-    prepare_opened_png(container, project).map(Some)
+    match candidate {
+        PreparedPinCandidate::Project(prepared) => Ok(Some(prepared)),
+        PreparedPinCandidate::Flat {
+            preview_png,
+            rendered_hash,
+        } => {
+            let revision = storage
+                .get_image_revision_by_rendered_hash(&rendered_hash)
+                .map_err(|error| error.to_string())?;
+            revision
+                .map(|revision| prepare_managed_pin_image(preview_png, revision))
+                .transpose()
+        }
+    }
+}
+
+pub(super) fn prepare_managed_pin_image(
+    preview_png: Vec<u8>,
+    revision: crate::storage::StoredImageRevision,
+) -> Result<PreparedPinImage, String> {
+    let project = super::project::RuntimeProject::from_managed(
+        &revision.source_png,
+        &preview_png,
+        revision.renderer_version,
+        revision.source_width,
+        revision.source_height,
+        revision.annotations,
+        revision.adjustments,
+    )?;
+    Ok(PreparedPinImage {
+        preview_png,
+        project: (revision.source_png, project),
+    })
 }
 
 fn prepare_opened_png(
