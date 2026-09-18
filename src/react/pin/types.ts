@@ -4,6 +4,7 @@ export type {
   PinCanvasSaveMode,
   PinCanvasSaveResult,
   PinPayload,
+  PinWorkspaceGroup,
   PinState,
   PinToolbarBounds,
   PinUpdate,

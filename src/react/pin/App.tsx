@@ -15,8 +15,9 @@ import { PinCanvasToolbar } from "./PinCanvasToolbar";
 import { PinContextMenu, type PinMenuItem } from "./PinContextMenu";
 import { PinToolbar } from "./PinToolbar";
 import { PinSaveDialog } from "./PinSaveDialog";
+import { PinWorkspacePopover } from "./PinWorkspacePopover";
 import { pinImageRendering } from "./rendering";
-import type { PinPayload, PinUpdate, PlatformCapability } from "./types";
+import type { PinPayload, PinUpdate, PinWorkspaceGroup, PlatformCapability } from "./types";
 import { mergePinState, shouldApplyPinUpdateResponse } from "./update-order";
 import { usePinCanvas } from "./usePinCanvas";
 import { usePinToolbarBounds } from "./usePinToolbarBounds";
@@ -59,6 +60,10 @@ export function App({ services = defaultServices }: { services?: PinAppServices 
   const [ready, setReady] = useState(false);
   const [copied, setCopied] = useState(false);
   const [opacityOpen, setOpacityOpen] = useState(false);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [workspaceGroups, setWorkspaceGroups] = useState<PinWorkspaceGroup[]>([]);
+  const [workspaceBusy, setWorkspaceBusy] = useState(false);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pixelSize, setPixelSize] = useState<{ width: number; height: number } | null>(null);
   const [reminding, setReminding] = useState(false);
@@ -397,26 +402,99 @@ export function App({ services = defaultServices }: { services?: PinAppServices 
     else runAction(async () => showSaved(await pinApi.save(label)));
   }, [canvas.hasDocument, label, runAction, showSaved]);
 
-  const toggleWorkspace = useCallback(() => {
+  const patchWorkspace = useCallback((workspaceId: number | null, workspaceGroupId: number | null) => {
+    setPin((value) => {
+      const next = value ? { ...value, workspaceId, workspaceGroupId } : value;
+      pinRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const loadWorkspaceGroups = useCallback(async () => {
+    setWorkspaceBusy(true);
+    setWorkspaceError(null);
+    try {
+      setWorkspaceGroups(await pinApi.groups());
+    } catch (reason) {
+      console.error(reason);
+      setWorkspaceError(t("pin.workspaceLoadFailed"));
+    } finally {
+      setWorkspaceBusy(false);
+    }
+  }, []);
+
+  const workspaceAction = useCallback(async (action: () => Promise<void>): Promise<boolean> => {
+    setWorkspaceBusy(true);
+    setWorkspaceError(null);
+    try {
+      await action();
+      return true;
+    } catch (reason) {
+      console.error(reason);
+      setWorkspaceError(t("pin.actionFailed"));
+      return false;
+    } finally {
+      setWorkspaceBusy(false);
+    }
+  }, []);
+
+  const useWorkspace = useCallback(() => {
+    const current = pinRef.current;
+    if (!current) return;
+    if (current.workspaceId != null) {
+      setOpacityOpen(false);
+      setWorkspaceOpen(true);
+      void loadWorkspaceGroups();
+      return;
+    }
     runAction(async () => {
-      const current = pinRef.current;
-      if (!current) return;
-      if (current.workspaceId != null) {
-        await pinApi.removeWorkspace(label);
-        setPin((value) => value ? { ...value, workspaceId: null, workspaceGroupId: null } : value);
-        return;
-      }
       const project = canvas.hasDocument ? canvas.projectData : null;
       if (canvas.hasDocument && !project) throw new Error("Canvas source is unavailable");
       const status = await pinApi.saveWorkspace(label, project);
-      setPin((value) => value ? {
-        ...value,
-        workspaceId: status.workspaceId,
-        workspaceGroupId: status.groupId,
-      } : value);
+      patchWorkspace(status.workspaceId, status.groupId);
       if (canvas.hasDocument) canvas.markSaved();
     });
-  }, [canvas.hasDocument, canvas.markSaved, canvas.projectData, label, runAction]);
+  }, [canvas.hasDocument, canvas.markSaved, canvas.projectData, label, loadWorkspaceGroups, patchWorkspace, runAction]);
+
+  const assignWorkspaceGroup = useCallback((groupId: number | null) => {
+    workspaceAction(async () => {
+      await pinApi.assignGroup(label, groupId);
+      patchWorkspace(pinRef.current?.workspaceId ?? null, groupId);
+    });
+  }, [label, patchWorkspace, workspaceAction]);
+
+  const createWorkspaceGroup = useCallback((name: string) =>
+    workspaceAction(async () => {
+      const group = await pinApi.createGroup(name);
+      await pinApi.assignGroup(label, group.id);
+      setWorkspaceGroups((groups) => [...groups, group].sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id));
+      patchWorkspace(pinRef.current?.workspaceId ?? null, group.id);
+    }), [label, patchWorkspace, workspaceAction]);
+
+  const renameWorkspaceGroup = useCallback((id: number, name: string) => {
+    workspaceAction(async () => {
+      if (!await pinApi.renameGroup(id, name)) throw new Error("Pin workspace group does not exist");
+      setWorkspaceGroups((groups) => groups.map((group) => group.id === id ? { ...group, name } : group));
+    });
+  }, [workspaceAction]);
+
+  const deleteWorkspaceGroup = useCallback((id: number) => {
+    workspaceAction(async () => {
+      if (!await pinApi.deleteGroup(id)) throw new Error("Pin workspace group does not exist");
+      setWorkspaceGroups((groups) => groups.filter((group) => group.id !== id));
+      if (pinRef.current?.workspaceGroupId === id) {
+        patchWorkspace(pinRef.current.workspaceId, null);
+      }
+    });
+  }, [patchWorkspace, workspaceAction]);
+
+  const removeWorkspace = useCallback(() => {
+    workspaceAction(async () => {
+      await pinApi.removeWorkspace(label);
+      patchWorkspace(null, null);
+      setWorkspaceOpen(false);
+    });
+  }, [label, patchWorkspace, workspaceAction]);
 
   const finishClose = useCallback(async (save: boolean) => {
     if (closingRef.current) return;
@@ -718,9 +796,9 @@ export function App({ services = defaultServices }: { services?: PinAppServices 
     },
     {
       id: "workspace",
-      label: t(pin.workspaceId == null ? "pin.workspaceSave" : "pin.workspaceRemove"),
+      label: t(pin.workspaceId == null ? "pin.workspaceSave" : "pin.workspaceManage"),
       checked: pin.workspaceId != null,
-      onSelect: toggleWorkspace,
+      onSelect: useWorkspace,
     },
     ...(pin.canSave
       ? [
@@ -854,9 +932,23 @@ export function App({ services = defaultServices }: { services?: PinAppServices 
         onSave={() => {
           requestSave();
         }}
-        onToggleWorkspace={toggleWorkspace}
+        onWorkspace={useWorkspace}
         onClose={requestClose}
       />
+      {workspaceOpen && pin.workspaceId != null && (
+        <PinWorkspacePopover
+          groups={workspaceGroups}
+          groupId={pin.workspaceGroupId}
+          busy={workspaceBusy}
+          error={workspaceError}
+          onAssign={assignWorkspaceGroup}
+          onCreate={createWorkspaceGroup}
+          onRename={renameWorkspaceGroup}
+          onDelete={deleteWorkspaceGroup}
+          onRemove={removeWorkspace}
+          onDismiss={() => setWorkspaceOpen(false)}
+        />
+      )}
       {canvasOpen && (
         <PinCanvasToolbar
           media={mediaBox}

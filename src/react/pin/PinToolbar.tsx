@@ -51,7 +51,7 @@ type Props = {
   onToggleCanvas: () => void;
   onCopy: () => void;
   onSave: () => void;
-  onToggleWorkspace: () => void;
+  onWorkspace: () => void;
   onClose: () => void;
 };
 
@@ -172,9 +172,9 @@ export function PinToolbar(props: Props) {
           <SlidersHorizontal size={16} />
         </ToolButton>
         <ToolButton
-          label={t(props.workspaceSaved ? "pin.workspaceRemove" : "pin.workspaceSave")}
+          label={t(props.workspaceSaved ? "pin.workspaceManage" : "pin.workspaceSave")}
           active={props.workspaceSaved}
-          onClick={props.onToggleWorkspace}
+          onClick={props.onWorkspace}
         >
           {props.workspaceSaved ? <BookmarkCheck size={16} /> : <Bookmark size={16} />}
         </ToolButton>
