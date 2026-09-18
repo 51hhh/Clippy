@@ -115,6 +115,23 @@ python3 src-tauri/ocr-sidecar/quality_metrics.py \
   --output /absolute/ppocrv6-small-report.json
 ```
 
+small/medium 模型档位只能通过研究采集器比较，不能直接生成产品配置：
+
+```sh
+/absolute/clippy-ocr/venv/bin/python src-tauri/ocr-sidecar/model_tier_ab.py \
+  --base-manifest /absolute/clippy-ocr/models/manifest.json \
+  --medium-det /absolute/research/PP-OCRv6-medium-det.onnx \
+  --medium-rec /absolute/research/PP-OCRv6-medium-rec.onnx \
+  --corpus src-tauri/ocr-sidecar/quality-fixtures/v1/corpus.json \
+  --corpus src-tauri/ocr-sidecar/quality-fixtures/ui-stress-v1/corpus.json \
+  --output-dir /new/private/model-tier-results
+```
+
+采集器只接受固定官方 revision、字节数和 SHA，并对 small/small、medium det、medium rec、medium/both
+分别采集。它的临时 manifest 带 `researchModelProfile`；Rust 产品 manifest 明确拒绝该未知字段。
+当前证据显示 medium rec 只在部分英语/日文非空白字符上改善，medium det 会把表格行拆成 cell 并
+破坏现有阅读顺序，整体延迟明显增加，因此设置页没有 medium 档位，64 MiB 产品单模型预算也不提高。
+
 增强链采集时可显式增加 `--diagnostics-dir /new/directory`。采集器只创建全新目录，并为每个 case
 保存有界诊断：det/Edge shape 与分组、逐行文字、CTC 接受字符的 class、发射时间步、前置 blank-run
 和相邻发射间距。诊断不进入产品 IPC，也不保存完整分类张量；单次请求最多记录 4096 个字符发射。

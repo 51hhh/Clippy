@@ -8,7 +8,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from edge_features import build_features, color_features
 from layout_groups import group_lines, order_groups
-from pipeline import crop_line, decode_ctc, decode_ctc_detailed, decode_png, orient_line, should_use_english_spacing, tile_origins, reconcile_overview, remove_contained_quads
+from pipeline import crop_line, decode_ctc, decode_ctc_detailed, decode_png, model_contract, orient_line, should_use_english_spacing, tile_origins, reconcile_overview, remove_contained_quads
 
 
 def quad(x, y, width=100, height=20):
@@ -172,6 +172,18 @@ class FeatureTests(unittest.TestCase):
         np.testing.assert_array_equal(result, crop)
         with self.assertRaisesRegex(ValueError, "orientation_output_schema"):
             orient_line(crop, FakeModel([[.5, .4]]), float("inf"))
+
+    def test_research_model_profiles_are_fixed_and_keep_product_default_small(self):
+        profile, expected, limits = model_contract({})
+        self.assertEqual(profile, "small-small")
+        self.assertNotIn("rec", limits)
+        self.assertEqual(expected["rec"], "5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634")
+        profile, expected, limits = model_contract({"researchModelProfile": "medium-rec"})
+        self.assertEqual(profile, "medium-rec")
+        self.assertEqual(expected["rec"], "9c09abf0957f7968c7586464b7397b84ad2387a0497a351af40e9acc71b673ba")
+        self.assertEqual(limits["rec"], 80 * 1024 * 1024)
+        with self.assertRaisesRegex(ValueError, "research_model_profile"):
+            model_contract({"researchModelProfile": "custom"})
 
     def test_tile_end_alignment_and_png_dimension_budget(self):
         self.assertEqual(tile_origins(1000), [0, 40])

@@ -1,0 +1,361 @@
+{
+  "cases": [
+    {
+      "id": "dark-settings",
+      "lines": [
+        {
+          "id": "dark-settings-1",
+          "kind": "text",
+          "quad": [
+            [
+              24.8,
+              27.2
+            ],
+            [
+              204.0,
+              27.2
+            ],
+            [
+              204.0,
+              56.0
+            ],
+            [
+              24.8,
+              56.0
+            ]
+          ],
+          "text": "设置 · OCR 模型"
+        },
+        {
+          "id": "dark-settings-2",
+          "kind": "text",
+          "quad": [
+            [
+              24.8,
+              95.2
+            ],
+            [
+              241.6,
+              95.2
+            ],
+            [
+              241.6,
+              126.4
+            ],
+            [
+              24.8,
+              126.4
+            ]
+          ],
+          "text": "中文  English  日本語"
+        },
+        {
+          "id": "dark-settings-3",
+          "kind": "text",
+          "quad": [
+            [
+              24.8,
+              163.2
+            ],
+            [
+              316.0,
+              163.2
+            ],
+            [
+              316.0,
+              194.4
+            ],
+            [
+              24.8,
+              194.4
+            ]
+          ],
+          "text": "版本 v0.1.20  ·  状态 Ready"
+        }
+      ],
+      "source": {
+        "height": 250,
+        "imagePath": "images/dark-settings.png",
+        "kind": "generated",
+        "license": "Generated Clippy fixture text CC0-1.0; Noto Sans CJK SC font OFL-1.1",
+        "sha256": "469d3645ce05cc6e4e7608760a3eba106e56b5d57d08c20a348ff5fb64cc724e",
+        "width": 900
+      },
+      "tags": [
+        "ui",
+        "dark",
+        "zh-en-ja",
+        "fractional-scale"
+      ]
+    },
+    {
+      "id": "compressed-status",
+      "lines": [
+        {
+          "id": "compressed-status-1",
+          "kind": "text",
+          "quad": [
+            [
+              21.0,
+              24.5
+            ],
+            [
+              248.0,
+              24.5
+            ],
+            [
+              248.0,
+              48.0
+            ],
+            [
+              21.0,
+              48.0
+            ]
+          ],
+          "text": "CPU 23.7%  RAM 1,024 MB"
+        },
+        {
+          "id": "compressed-status-2",
+          "kind": "text",
+          "quad": [
+            [
+              21.0,
+              85.0
+            ],
+            [
+              222.0,
+              85.0
+            ],
+            [
+              222.0,
+              110.0
+            ],
+            [
+              21.0,
+              110.0
+            ]
+          ],
+          "text": "SN: 00Il1lO0  ¥1,280.50"
+        },
+        {
+          "id": "compressed-status-3",
+          "kind": "text",
+          "quad": [
+            [
+              21.0,
+              148.5
+            ],
+            [
+              262.0,
+              148.5
+            ],
+            [
+              262.0,
+              168.0
+            ],
+            [
+              21.0,
+              168.0
+            ]
+          ],
+          "text": "2026-09-18  08:05:09 UTC+8"
+        }
+      ],
+      "source": {
+        "height": 210,
+        "imagePath": "images/compressed-status.png",
+        "kind": "generated",
+        "license": "Generated Clippy fixture text CC0-1.0; Noto Sans CJK SC font OFL-1.1",
+        "sha256": "712714fae2ebc24ff1c42103969b4e03224743bd57e6e6310f21502d178dcb6a",
+        "width": 900
+      },
+      "tags": [
+        "ui",
+        "small-text",
+        "jpeg-artifacts",
+        "numbers",
+        "currency"
+      ]
+    },
+    {
+      "id": "source-code",
+      "lines": [
+        {
+          "id": "source-code-1",
+          "kind": "text",
+          "quad": [
+            [
+              20.8,
+              20.8
+            ],
+            [
+              260.8,
+              20.8
+            ],
+            [
+              260.8,
+              48.8
+            ],
+            [
+              20.8,
+              48.8
+            ]
+          ],
+          "text": "const total = price * 0.85;"
+        },
+        {
+          "id": "source-code-2",
+          "kind": "text",
+          "quad": [
+            [
+              20.8,
+              84.8
+            ],
+            [
+              355.2,
+              84.8
+            ],
+            [
+              355.2,
+              112.8
+            ],
+            [
+              20.8,
+              112.8
+            ]
+          ],
+          "text": "if (id === \"AA11-BB22\") return null;"
+        },
+        {
+          "id": "source-code-3",
+          "kind": "text",
+          "quad": [
+            [
+              20.8,
+              148.0
+            ],
+            [
+              263.2,
+              148.0
+            ],
+            [
+              263.2,
+              176.8
+            ],
+            [
+              20.8,
+              176.8
+            ]
+          ],
+          "text": "路径 /tmp/demo  状態 OK"
+        }
+      ],
+      "source": {
+        "height": 220,
+        "imagePath": "images/source-code.png",
+        "kind": "generated",
+        "license": "Generated Clippy fixture text CC0-1.0; Noto Sans CJK SC font OFL-1.1",
+        "sha256": "1b7d6b2a58fe6cb8bf1f81944c7871aedc5283cf2a5025763e865d42fbbbc1bf",
+        "width": 1000
+      },
+      "tags": [
+        "ui",
+        "code",
+        "punctuation",
+        "identifiers",
+        "zh-ja"
+      ]
+    },
+    {
+      "id": "table-values",
+      "lines": [
+        {
+          "id": "table-values-1",
+          "kind": "text",
+          "quad": [
+            [
+              25.333333333333332,
+              25.333333333333332
+            ],
+            [
+              258.0,
+              25.333333333333332
+            ],
+            [
+              258.0,
+              50.666666666666664
+            ],
+            [
+              25.333333333333332,
+              50.666666666666664
+            ]
+          ],
+          "text": "商品    数量    单价       小计"
+        },
+        {
+          "id": "table-values-2",
+          "kind": "text",
+          "quad": [
+            [
+              25.333333333333332,
+              92.0
+            ],
+            [
+              310.6666666666667,
+              92.0
+            ],
+            [
+              310.6666666666667,
+              114.0
+            ],
+            [
+              25.333333333333332,
+              114.0
+            ]
+          ],
+          "text": "Coffee  12      ¥19.90     ¥238.80"
+        },
+        {
+          "id": "table-values-3",
+          "kind": "text",
+          "quad": [
+            [
+              25.333333333333332,
+              157.33333333333334
+            ],
+            [
+              302.6666666666667,
+              157.33333333333334
+            ],
+            [
+              302.6666666666667,
+              182.66666666666666
+            ],
+            [
+              25.333333333333332,
+              182.66666666666666
+            ]
+          ],
+          "text": "日本茶  3       ¥88.00     ¥264.00"
+        }
+      ],
+      "source": {
+        "height": 260,
+        "imagePath": "images/table-values.png",
+        "kind": "generated",
+        "license": "Generated Clippy fixture text CC0-1.0; Noto Sans CJK SC font OFL-1.1",
+        "sha256": "ba20e0a19d14d1744d3465b1bdedf9e940a7bac0b6a0f5082f644ce50d001de5",
+        "width": 1000
+      },
+      "tags": [
+        "ui",
+        "table",
+        "spaces",
+        "numbers",
+        "currency",
+        "zh-en-ja"
+      ]
+    }
+  ],
+  "schema": "clippy-ocr-quality-corpus-v1"
+}

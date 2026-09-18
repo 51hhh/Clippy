@@ -212,6 +212,27 @@ PP-FormulaNet/UniMERNet 的二维公式恢复。
 实现状态：可选方向档已接入；固定四向语料中检测 Hmean 保持 1.000，原始 CER 从 43.75% 降至 0%，
 4/4 case 完全匹配。该结果只证明合成截图合同，真实旋转 UI 和三平台 CPU 性能仍属于交付验证。
 
+### `PX-OCR-MODEL-TIER-01` 检测与识别模型档位
+
+**Goal**：分别判断 det 与 rec 升档是否改善 Clippy 的复制文本和结构化框，避免用官方总分或单一 CER
+直接替换当前 small 链。
+
+**Requirements**：small/medium det 与 rec 必须组成四组独立 A/B；每组使用相同原图、阈值、
+Edge 模型和评测器；同时报告检测 Hmean、原始/去空白 CER、空白 F1、精确 case、P50/P95、文件大小
+和峰值内存。中英日、代码、金额、易混淆编号、表格和公式必须分标签查看。研究 manifest 不得被 Rust
+产品配置接受，模型权重不得进入仓库。
+
+**Acceptance Criteria**：只有目标分层改善、关键分层无回退、表格阅读顺序正确、单模型/总 RSS 预算
+明确且三平台 CPU 可接受时，才为设置页增加产品档位。检测拆成 cell 后若当前结果合同无法表达行/表格
+关系，应先扩展结构合同，不能把更多框自动解释为更准。
+
+**Out of Scope**：本阶段不提高产品 64 MiB 单模型上限，不默认下载 medium，不把线性公式文本算作
+LaTeX/MathML，也不使用私有 PixPin 模型或指标。
+
+实现状态：固定官方四组 A/B 与 UI 压力语料已经完成。medium rec 在英语专项改善，但在混合/UI 原始
+CER 和空白上回退；medium det 将表格行拆成 cell 后破坏当前排序，且延迟约为 small 的 1.8–2.7 倍。
+因此本轮结论是保留 small 默认并拒绝直接升档；原始报告见 OCR 质量基线。
+
 官方资料还给出三个与实现直接相关的边界：
 
 - PP-OCRv6 small recognition 是单模型 50 语言路线，但官方指标来自其内部数据集，不能直接外推到
@@ -327,6 +348,7 @@ delta；父链与项目历史留给 `PX-PIN-01`。显式 resize/crop 之外不�
 |---|---|---|---|
 | P0 | `PX-OCR-QUALITY-01` | 混合文字/空白/符号/公式质量语料、指标与双引擎基线 | 当前 OCR 输出合同 |
 | P0（已完成） | `PX-OCR-ORIENTATION-01` | 可选逐框 0°/180°分类与四向固定语料 | `PX-OCR-QUALITY-01` |
+| P0（已完成调研） | `PX-OCR-MODEL-TIER-01` | small/medium det/rec 四组 A/B；当前不升档 | `PX-OCR-QUALITY-01` |
 | P0 | `PX-OCR-01` | 基于基线完成增强 OCR 安装、健康检查、许可与模型选择 | `PX-OCR-QUALITY-01` |
 | P0 | `PX-CAPTURE-TOOLS-01` | 冻结选区快捷扫码；保留现有长截图入口 | capture session 身份 |
 | P1（进行中） | `PX-LS-2D-01` | 上下左右拼接、viewport 回访与显式撤销已实现；输入透明 guide 待三平台实现 | 真实长截图 fixture |

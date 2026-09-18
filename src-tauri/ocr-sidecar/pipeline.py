@@ -16,6 +16,7 @@ from visual_paragraphs import merge_visual_paragraphs
 MAX_PIXELS = 32 * 1024 * 1024
 MAX_DIMENSION = 16384
 MAX_PNG_BYTES = 64 * 1024 * 1024
+MAX_MODEL_BYTES = 64 * 1024 * 1024
 MAX_REC_WIDTH = 4096
 MAX_REC_PIXELS = 48 * MAX_REC_WIDTH * 128
 ORIENTATION_WIDTH = 160
@@ -29,12 +30,31 @@ EXPECTED = {
     "englishDictionary": "e025a66d31f327ba0c232e03f407ae8d105e1e709e7ccb3f408aa778c24e70d6",
     "lineOrientation": "94a6a0a0425f2b5f08b5df72086f2d72abe40f1d22f6d12d2cd83674f11f2ff3",
 }
+RESEARCH_MODEL_PROFILES = {
+    "small-small": {},
+    "medium-det": {"det": "eb13b44b25bb36f89528b68720af8a61d9cf381176107f465db1757b65d086e1"},
+    "medium-rec": {"rec": "9c09abf0957f7968c7586464b7397b84ad2387a0497a351af40e9acc71b673ba"},
+    "medium-both": {
+        "det": "eb13b44b25bb36f89528b68720af8a61d9cf381176107f465db1757b65d086e1",
+        "rec": "9c09abf0957f7968c7586464b7397b84ad2387a0497a351af40e9acc71b673ba",
+    },
+}
 DEFAULTS = {"bitmapThreshold": .3, "boxThreshold": .5, "unclipRatio": 1.2, "lineThreshold": .6, "layoutThreshold": .52}
 
 
 def check_deadline(deadline):
     if time.monotonic() >= deadline:
         raise TimeoutError("ocr_deadline")
+
+
+def model_contract(manifest):
+    profile = manifest.get("researchModelProfile", "small-small")
+    if profile not in RESEARCH_MODEL_PROFILES:
+        raise ValueError("research_model_profile")
+    expected = dict(EXPECTED)
+    expected.update(RESEARCH_MODEL_PROFILES[profile])
+    limits = {"rec": 80 * 1024 * 1024} if profile in ("medium-rec", "medium-both") else {}
+    return profile, expected, limits
 
 
 def validate_manifest(manifest):
@@ -62,16 +82,17 @@ def validate_manifest(manifest):
         roles += english_roles
     if "lineOrientation" in models:
         roles.append("lineOrientation")
+    _, expected, limits = model_contract(manifest)
     for name in roles:
         record = models.get(name, {})
         path = Path(record.get("path", ""))
-        if not path.is_absolute() or not path.is_file() or not 0 < path.stat().st_size <= 64 * 1024 * 1024:
+        if not path.is_absolute() or not path.is_file() or not 0 < path.stat().st_size <= limits.get(name, MAX_MODEL_BYTES):
             raise ValueError("model_missing_or_size")
         digest = hashlib.sha256()
         with path.open("rb") as handle:
             for chunk in iter(lambda: handle.read(1024 * 1024), b""):
                 digest.update(chunk)
-        if digest.hexdigest() != record.get("sha256") or (name in EXPECTED and digest.hexdigest() != EXPECTED[name]):
+        if digest.hexdigest() != record.get("sha256") or (name in expected and digest.hexdigest() != expected[name]):
             raise ValueError("model_hash_mismatch")
     return options
 

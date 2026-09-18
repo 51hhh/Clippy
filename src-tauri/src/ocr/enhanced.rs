@@ -714,6 +714,10 @@ mod tests {
         value["options"] = serde_json::json!({"unknown":0.5});
         std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
         assert!(load(&path).is_err());
+        value["options"] = serde_json::json!({});
+        value["researchModelProfile"] = serde_json::json!("medium-rec");
+        std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+        assert!(load(&path).is_err(), "研究模型档位不能进入产品配置");
     }
 
     #[test]

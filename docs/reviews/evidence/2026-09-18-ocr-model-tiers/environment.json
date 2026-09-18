@@ -1,0 +1,33 @@
+{
+  "baseManifestSha256": "63e9867fdf586250d4d84ba5db6bfd35f1728e73129a0178104d3f42f64ed8f4",
+  "corpora": [
+    "v1",
+    "english-spacing-v1",
+    "ui-stress-v1"
+  ],
+  "medium": {
+    "det": {
+      "bytes": 62032837,
+      "pathRecorded": false,
+      "revision": "61323801669c338b7891481ec7bac61ce31b576a",
+      "sha256": "eb13b44b25bb36f89528b68720af8a61d9cf381176107f465db1757b65d086e1"
+    },
+    "rec": {
+      "bytes": 76554979,
+      "pathRecorded": false,
+      "revision": "50c7eacafc52fa7bcf4194e8cd08e46f8558504b",
+      "sha256": "9c09abf0957f7968c7586464b7397b84ad2387a0497a351af40e9acc71b673ba"
+    }
+  },
+  "numpy": "2.2.6",
+  "onnxruntime": "1.25.0",
+  "opencv": "4.12.0",
+  "profiles": [
+    "small-small",
+    "medium-det",
+    "medium-rec",
+    "medium-both"
+  ],
+  "python": "3.12.14",
+  "schema": "clippy-ocr-model-tier-ab-v1"
+}
