@@ -1,6 +1,6 @@
 # 本地增强 OCR 运行时
 
-实际流水线为 PP-OCRv6 small det → 原图文字框 → 四表特征 → EdgeGNN Run/段落 → 原像素透视 crop → PP-OCRv6 small rec → greedy CTC。没有配置时应用继续使用系统 Tesseract；不自动下载模型或安装 Python。增强失败后的结果包含 `pipeline.engine=tesseract` 和 `fallbackReason`，不能把几何排序标成一次 EdgeGNN Run。
+实际流水线为 PP-OCRv6 small det → 原图文字框 → 四表特征 → EdgeGNN Run/段落 → 保守视觉段落合并 → 原像素透视 crop → PP-OCRv6 small rec → greedy CTC。EdgeGNN 的 Edge 是文字框节点之间的图边，用于分组，不是图像边缘增强，也不直接提高字符识别率。视觉合并只连接同栏、正常行距和近似字号的相邻片段，避免模型 singleton 让复制文本每行多一个空行。没有配置时应用继续使用系统 Tesseract；不自动下载模型或安装 Python。增强失败后的结果包含 `pipeline.engine=tesseract` 和 `fallbackReason`，不能把几何排序标成一次 EdgeGNN Run。
 
 ## 显式配置
 
@@ -54,9 +54,45 @@ stdout 只返回 ≤4MiB 的 `{version,requestId,result}` JSON；stderr ≤64KiB
 
 方向/尺度采用 `clippy-edge-features-v1`；GNN 分组后的阅读顺序采用 Clippy XY-cut：先列间隙，跨栏标题先按段切，再行内左到右。大图用960/96 detail与单次1280 overview协调完整行框，按高度/方向/法向中心及源框交集去掉接缝碎片；完整性核对使用unclip前文字core行轴，避免误把短词扩框留白当成缺字，避免吞并临近小字/宽列间隙。这些明确为 Clippy 策略，不能声称与其它产品私有像素处理完全等价。
 
+Edge 原始分组和视觉合并后的分组在显式 diagnostics 中分别记录为 `modelGroups` 与 `groups`。视觉
+合并不替换 Edge 推理；大段距、跨栏回跳、并排框和明显字号变化不会被合并。
+
+## 质量评测合同
+
+`quality_metrics.py` 不加载模型，只比较人工标注语料与任一引擎的结构化输出。语料和输出分别遵循
+`quality-corpus.schema.json` 与 `quality-predictions.schema.json`。每个 case 的 `lines` 数组顺序就是
+阅读顺序；真值行必须带稳定 `id` 和四边形，公式行另带结构化 `formula`。`source` 保存相对图片路径、
+SHA-256、尺寸、来源类型与许可，用于确保重复运行读取同一原图，并阻止来源不明的图片混入可再分发
+基线。实际运行器在识别前还必须核对文件 SHA；评测器本身只消费已经生成的结构化输出。
+
+prediction 的 `text` 保存引擎实际返回的整段文本；`engine.capabilities` 明确声明是否提供行框和
+结构化公式。Tesseract fallback 没有行框时仍可比较 CER/空白和性能，检测、逐行与阅读顺序会报告
+`supported=false`，不会用虚构的整图框把“不支持”伪装成识别失败。
+
+报告同时给出：
+
+- 四边形 IoU 最大基数匹配后的 detection precision/recall/Hmean；
+- 原始 Unicode CER 与去空白 CER；
+- 经确定性字符对齐后的精确 Unicode 空白 precision/recall/F1；
+- 整行完全匹配、匹配框阅读顺序 inversion rate；
+- 结构化公式 support/exact rate；
+- 引擎提供的 duration median/P95 与 peak RSS 上限。
+
+原始 CER 会保留空格、换行、全角字符和标点；去空白 CER 只是诊断项，不能替代原始分数。普通 OCR
+字符序列不能算作结构化公式支持。当前仓库只交付评测合同和确定性单元测试；真实 Tesseract/PP-OCR
+基线必须使用有来源的固定图片另行生成，不能把合同夹具写成模型精度结果。
+
+```sh
+python3 src-tauri/ocr-sidecar/quality_metrics.py \
+  --corpus /absolute/ocr-corpus.json \
+  --predictions /absolute/ppocrv6-small.json \
+  --output /absolute/ppocrv6-small-report.json
+```
+
 ## 验证
 
 ```sh
+/usr/bin/python3 -m unittest discover -s src-tauri/ocr-sidecar -p 'test_quality*.py' -v
 /absolute/clippy-ocr/venv/bin/python -m unittest discover -s src-tauri/ocr-sidecar -p test_pipeline.py -v
 cargo test --manifest-path src-tauri/Cargo.toml --lib ocr:: -- --test-threads=2
 CLIPPY_OCR_MANIFEST=/absolute/clippy-ocr/models/manifest.json \

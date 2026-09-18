@@ -1,0 +1,43 @@
+{
+  "cases": [
+    {
+      "durationMs": 292.4825669906568,
+      "id": "mixed-script-spacing",
+      "lines": [],
+      "text": "订单 Order A 12.50%\n中 文 OCR 日 本 语 2026-09-18\nAA 11 Il 00 ¥1,234.50"
+    },
+    {
+      "durationMs": 223.01225599949248,
+      "id": "numbers-symbols",
+      "lines": [],
+      "text": "+0.02 (21.414 > Jama\nSN: AA11-BB22 / 98.6% [OK]"
+    },
+    {
+      "durationMs": 265.9960880118888,
+      "id": "two-column-order",
+      "lines": [],
+      "text": "EE 01 Alpha Alf 03 日 本 语\n\n左 栏 02 Beta Ali 04 Gamma"
+    },
+    {
+      "durationMs": 200.24072399246506,
+      "id": "formula-routing",
+      "lines": [],
+      "text": "xz+1/2=Vv 2"
+    },
+    {
+      "durationMs": 226.60516502219252,
+      "id": "low-contrast-small",
+      "lines": [],
+      "text": "Low contrast 中 文 OCR 8.5%\n\nRef 001122 value £0.08"
+    }
+  ],
+  "engine": {
+    "capabilities": {
+      "lineGeometry": false,
+      "structuredFormula": false
+    },
+    "id": "tesseract",
+    "version": "tesseract 5.5.0"
+  },
+  "schema": "clippy-ocr-quality-predictions-v1"
+}

@@ -1,0 +1,345 @@
+{
+  "aggregate": {
+    "enhanced": {
+      "nonWhitespaceCer": 0.0,
+      "rawCer": 0.0034063260340632603,
+      "secondsTotal": 8.5604,
+      "whitespaceF1": 0.99009900990099,
+      "whitespacePrecision": 1.0,
+      "whitespaceRecall": 0.9803921568627451
+    },
+    "tesseract": {
+      "nonWhitespaceCer": 0.30977620730270905,
+      "rawCer": 0.327007299270073,
+      "secondsTotal": 3.59919096698286,
+      "whitespaceF1": 0.7646219686162625,
+      "whitespacePrecision": 0.7790697674418605,
+      "whitespaceRecall": 0.7507002801120448
+    }
+  },
+  "caseCount": 14,
+  "cases": [
+    {
+      "enhanced": {
+        "nonWhitespaceCer": 0.0,
+        "rawCer": 0.0,
+        "seconds": 0.6024,
+        "text": "Morning notes by the river.\nFollow the path beyond the bridge.\nKeep the ticket for tomorrow.\nEvening plans for our return.\nMeet beside the station at seven.\nBring the map and a blue jacket.",
+        "whitespaceF1": 1.0
+      },
+      "expectedText": "Morning notes by the river.\nFollow the path beyond the bridge.\nKeep the ticket for tomorrow.\nEvening plans for our return.\nMeet beside the station at seven.\nBring the map and a blue jacket.",
+      "id": "two-paragraphs",
+      "sourceSha256": "fe04aca5a9cf463310228c23c7545cfbb852d6de7d841204b51f1a433bd39212",
+      "tesseract": {
+        "nonWhitespaceCer": 0.0,
+        "rawCer": 0.005291005291005291,
+        "seconds": 0.27753416501218453,
+        "text": "Morning notes by the river.\nFollow the path beyond the bridge.\nKeep the ticket for tomorrow.\n\nEvening plans for our return.\nMeet beside the station at seven.\nBring the map and a blue jacket.",
+        "whitespaceF1": 0.9850746268656716
+      }
+    },
+    {
+      "enhanced": {
+        "nonWhitespaceCer": 0.0,
+        "rawCer": 0.0,
+        "seconds": 0.6583,
+        "text": "Morning notes by the river.\nFollow the path beyond the bridge.\nKeep the ticket for tomorrow.\nEvening plans for our return.\nMeet beside the station at seven.\nBring the map and a blue jacket.",
+        "whitespaceF1": 1.0
+      },
+      "expectedText": "Morning notes by the river.\nFollow the path beyond the bridge.\nKeep the ticket for tomorrow.\nEvening plans for our return.\nMeet beside the station at seven.\nBring the map and a blue jacket.",
+      "id": "two-paragraphs-dark",
+      "sourceSha256": "8dbabd347e7559bbb1a293bc92ad08018e76c80008eeeb4dc3d45a96f13cac80",
+      "tesseract": {
+        "nonWhitespaceCer": 0.0,
+        "rawCer": 0.005291005291005291,
+        "seconds": 0.39608947999658994,
+        "text": "Morning notes by the river.\nFollow the path beyond the bridge.\nKeep the ticket for tomorrow.\n\nEvening plans for our return.\nMeet beside the station at seven.\nBring the map and a blue jacket.",
+        "whitespaceF1": 0.9850746268656716
+      }
+    },
+    {
+      "enhanced": {
+        "nonWhitespaceCer": 0.0,
+        "rawCer": 0.0,
+        "seconds": 0.5634,
+        "text": "LEFT COLUMN\nRead these lines first.\nThen move to the right.\nRIGHT COLUMN\nRead these lines second.\nThe final line is here.",
+        "whitespaceF1": 1.0
+      },
+      "expectedText": "LEFT COLUMN\nRead these lines first.\nThen move to the right.\nRIGHT COLUMN\nRead these lines second.\nThe final line is here.",
+      "id": "two-columns",
+      "sourceSha256": "427f84322ab865aaa40fa15ef849d74f9aa9302e8a13dc2f885422f472c60163",
+      "tesseract": {
+        "nonWhitespaceCer": 0.53,
+        "rawCer": 0.5289256198347108,
+        "seconds": 0.23308014500071295,
+        "text": "LEFT COLUMN RIGHT COLUMN\nRead these lines first. Read these lines second.\nThen move to the right. The final line is here.",
+        "whitespaceF1": 0.6666666666666666
+      }
+    },
+    {
+      "enhanced": {
+        "nonWhitespaceCer": 0.0,
+        "rawCer": 0.08045977011494253,
+        "seconds": 0.5761,
+        "text": "项目记录2026年9月\n先检测文字，再按段落顺序识别。\n保留中文、数字与空格。\n金额明细100.00元\n重复字符：AABB112233\n识别结果由用户主动复制。",
+        "whitespaceF1": 0.5882352941176471
+      },
+      "expectedText": "项目记录 2026 年 9 月\n先检测文字，再按段落顺序识别。\n保留中文、数字与空格。\n金额明细 100.00 元\n重复字符：AABB 112233\n识别结果由用户主动复制。",
+      "id": "mixed-chinese",
+      "sourceSha256": "830a2720663c713e7c3f4c130606729bfc4a384c18064478f7e36a55ec5909fb",
+      "tesseract": {
+        "nonWhitespaceCer": 0.12,
+        "rawCer": 0.5172413793103449,
+        "seconds": 0.40107165498193353,
+        "text": "项 目 记 录 2026 年 9 月\n先 检测 文字 ， 再 按 段落 顺序 识别 。\n保留 中 文 、 数 字 与 空格 。\n\n全 额 明 细 100.00 元\nBFF : AABB 112233\n识别 结果 由 用 户主 动 复制 。\n\nah\n\n由",
+        "whitespaceF1": 0.39344262295081966
+      }
+    },
+    {
+      "enhanced": {
+        "nonWhitespaceCer": 0.0,
+        "rawCer": 0.0,
+        "seconds": 0.6587,
+        "text": "Morning notes by the river.\nFollow the path beyond the bridge.\nKeep the ticket for tomorrow.\nEvening plans for our return.\nMeet beside the station at seven.\nBring the map and a blue jacket.",
+        "whitespaceF1": 1.0
+      },
+      "expectedText": "Morning notes by the river.\nFollow the path beyond the bridge.\nKeep the ticket for tomorrow.\nEvening plans for our return.\nMeet beside the station at seven.\nBring the map and a blue jacket.",
+      "id": "rotated-eight",
+      "sourceSha256": "41f3c6408693f9dd03d375005aec0ededd4fd408899588532baaaa95e9513c25",
+      "tesseract": {
+        "nonWhitespaceCer": 0.75,
+        "rawCer": 0.7407407407407407,
+        "seconds": 0.22012105598696508,
+        "text": "by the river.\nthe bridge:\n\nMeet besid\nBring the mep",
+        "whitespaceF1": 0.46511627906976744
+      }
+    },
+    {
+      "enhanced": {
+        "nonWhitespaceCer": 0.0,
+        "rawCer": 0.0,
+        "seconds": 0.3012,
+        "text": "AABB 112233 100.00",
+        "whitespaceF1": 1.0
+      },
+      "expectedText": "AABB 112233 100.00",
+      "id": "single-line",
+      "sourceSha256": "6a058dd210812df0a3b99bc5a0271410961c7b68663d49207f74d810e12e88b9",
+      "tesseract": {
+        "nonWhitespaceCer": 0.0,
+        "rawCer": 0.0,
+        "seconds": 0.14688954400480725,
+        "text": "AABB 112233 100.00",
+        "whitespaceF1": 1.0
+      }
+    },
+    {
+      "enhanced": {
+        "nonWhitespaceCer": 0.0,
+        "rawCer": 0.0,
+        "seconds": 0.3354,
+        "text": "",
+        "whitespaceF1": 1.0
+      },
+      "expectedText": "",
+      "id": "blank",
+      "sourceSha256": "7db5915a222cceeefdc4e7e8868512eb679f05111badcd32edd5b03ae5bc633a",
+      "tesseract": {
+        "nonWhitespaceCer": 0.0,
+        "rawCer": 0.0,
+        "seconds": 0.13063695101300254,
+        "text": "",
+        "whitespaceF1": 1.0
+      }
+    },
+    {
+      "enhanced": {
+        "nonWhitespaceCer": 0.0,
+        "rawCer": 0.0,
+        "seconds": 0.6242,
+        "text": "Coffee before the morning train.\nPack the red notebook and pen.\nThe station opens at eight.\nDinner near the old library.\nReserve a table for four people.\nBring a warm coat for the walk.",
+        "whitespaceF1": 1.0
+      },
+      "expectedText": "Coffee before the morning train.\nPack the red notebook and pen.\nThe station opens at eight.\nDinner near the old library.\nReserve a table for four people.\nBring a warm coat for the walk.",
+      "id": "columns-staggered",
+      "sourceSha256": "11db3500d0471a6833840f4252ff1d0a04b1013d71485a34b3edfc3099172f6c",
+      "tesseract": {
+        "nonWhitespaceCer": 0.756578947368421,
+        "rawCer": 0.7297297297297297,
+        "seconds": 0.26406983300694264,
+        "text": "Dinner near the old library.\nCoffee before the morning train. Reserve a table for four people.\nPack the red notebook and pen. Bring a warm coat for the walk.\nThe station opens at eight.",
+        "whitespaceF1": 0.5151515151515151
+      }
+    },
+    {
+      "enhanced": {
+        "nonWhitespaceCer": 0.0,
+        "rawCer": 0.0,
+        "seconds": 0.6125,
+        "text": "Plans for a day in the city\nCoffee before the morning train.\nPack the red notebook and pen.\nThe station opens at eight.\nDinner near the old library.\nReserve a table for four people.\nBring a warm coat for the walk.",
+        "whitespaceF1": 1.0
+      },
+      "expectedText": "Plans for a day in the city\nCoffee before the morning train.\nPack the red notebook and pen.\nThe station opens at eight.\nDinner near the old library.\nReserve a table for four people.\nBring a warm coat for the walk.",
+      "id": "columns-with-title",
+      "sourceSha256": "20bd78b5a405843e08c552b362e9cec3e5160a96fe2e1cffbd9805454e627df7",
+      "tesseract": {
+        "nonWhitespaceCer": 0.4624277456647399,
+        "rawCer": 0.460093896713615,
+        "seconds": 0.28952451501390897,
+        "text": "Plans for a day in the city\n\nCoffee before the morning train. Dinner near the old library.\nPack the red notebook and pen. Reserve a table for four people.\nThe station opens at eight. Bring a warm coat for the walk.",
+        "whitespaceF1": 0.7407407407407407
+      }
+    },
+    {
+      "enhanced": {
+        "nonWhitespaceCer": 0.0,
+        "rawCer": 0.0,
+        "seconds": 0.5965,
+        "text": "Coffee before the morning train.\nPack the red notebook and pen.\nThe station opens at eight.\nDinner near the old library.\nReserve a table for four people.\nBring a warm coat for the walk.",
+        "whitespaceF1": 1.0
+      },
+      "expectedText": "Coffee before the morning train.\nPack the red notebook and pen.\nThe station opens at eight.\nDinner near the old library.\nReserve a table for four people.\nBring a warm coat for the walk.",
+      "id": "single-paragraph-long",
+      "sourceSha256": "3a2fd736eb50f9b4be1e8eacd0748ad50819ae6d199cf4b12e9bec945cfa02e6",
+      "tesseract": {
+        "nonWhitespaceCer": 0.0,
+        "rawCer": 0.0,
+        "seconds": 0.2835889559937641,
+        "text": "Coffee before the morning train.\nPack the red notebook and pen.\nThe station opens at eight.\nDinner near the old library.\nReserve a table for four people.\nBring a warm coat for the walk.",
+        "whitespaceF1": 1.0
+      }
+    },
+    {
+      "enhanced": {
+        "nonWhitespaceCer": 0.0,
+        "rawCer": 0.0,
+        "seconds": 0.4856,
+        "text": "Coffee before the morning train.\nPack the red notebook and pen.\nThe station opens at eight.\nDinner near the old library.\nReserve a table for four people.\nBring a warm coat for the walk.",
+        "whitespaceF1": 1.0
+      },
+      "expectedText": "Coffee before the morning train.\nPack the red notebook and pen.\nThe station opens at eight.\nDinner near the old library.\nReserve a table for four people.\nBring a warm coat for the walk.",
+      "id": "small-font-two-paragraphs",
+      "sourceSha256": "b0a4ce8c9e94e85ec17aef8b46b3f4bc9de282d14eb64cbb0710fc945813ecb2",
+      "tesseract": {
+        "nonWhitespaceCer": 0.0,
+        "rawCer": 0.005405405405405406,
+        "seconds": 0.23596380298840813,
+        "text": "Coffee before the morning train.\nPack the red notebook and pen.\nThe station opens at eight.\n\nDinner near the old library.\nReserve a table for four people.\nBring a warm coat for the walk.",
+        "whitespaceF1": 0.9850746268656716
+      }
+    },
+    {
+      "enhanced": {
+        "nonWhitespaceCer": 0.0,
+        "rawCer": 0.0,
+        "seconds": 0.6943,
+        "text": "Coffee before the morning train.\nPack the red notebook and pen.\nThe station opens at eight.\nDinner near the old library.\nReserve a table for four people.\nBring a warm coat for the walk.",
+        "whitespaceF1": 1.0
+      },
+      "expectedText": "Coffee before the morning train.\nPack the red notebook and pen.\nThe station opens at eight.\nDinner near the old library.\nReserve a table for four people.\nBring a warm coat for the walk.",
+      "id": "low-contrast",
+      "sourceSha256": "988287086184be141d8edb26d8a94a9cdbf249524da8222d2a599add252d8980",
+      "tesseract": {
+        "nonWhitespaceCer": 0.0,
+        "rawCer": 0.005405405405405406,
+        "seconds": 0.28608559400890954,
+        "text": "Coffee before the morning train.\nPack the red notebook and pen.\nThe station opens at eight.\n\nDinner near the old library.\nReserve a table for four people.\nBring a warm coat for the walk.",
+        "whitespaceF1": 0.9850746268656716
+      }
+    },
+    {
+      "enhanced": {
+        "nonWhitespaceCer": 0.0,
+        "rawCer": 0.0,
+        "seconds": 1.2017,
+        "text": "Coffee before the morning train.\nPack the red notebook and pen.\nThe station opens at eight.\nDinner near the old library.\nReserve a table for four people.\nBring a warm coat for the walk.",
+        "whitespaceF1": 1.0
+      },
+      "expectedText": "Coffee before the morning train.\nPack the red notebook and pen.\nThe station opens at eight.\nDinner near the old library.\nReserve a table for four people.\nBring a warm coat for the walk.",
+      "id": "reverse-rotation",
+      "sourceSha256": "1cb7a031fc63b93d52a8a1cf1acbc128f8c3b6005d5714e3ecfc8170ed2f2422",
+      "tesseract": {
+        "nonWhitespaceCer": 1.0,
+        "rawCer": 1.0,
+        "seconds": 0.18497260299045593,
+        "text": "",
+        "whitespaceF1": 0.0
+      }
+    },
+    {
+      "enhanced": {
+        "nonWhitespaceCer": 0.0,
+        "rawCer": 0.0,
+        "seconds": 0.6501,
+        "text": "Invoice 2026-0912\nTotal: 100.00 USD\nReference AABB-112233\nItems: 11 pens and 22 notebooks\nPaid: 100.00 USD\nBalance: 0.00 USD",
+        "whitespaceF1": 1.0
+      },
+      "expectedText": "Invoice 2026-0912\nTotal: 100.00 USD\nReference AABB-112233\nItems: 11 pens and 22 notebooks\nPaid: 100.00 USD\nBalance: 0.00 USD",
+      "id": "numeric-lines",
+      "sourceSha256": "504b66b57f782b00ea650fb0462d71030df0ba83232d9585b7ffdb58fba97191",
+      "tesseract": {
+        "nonWhitespaceCer": 0.0,
+        "rawCer": 0.008064516129032258,
+        "seconds": 0.24956266698427498,
+        "text": "Invoice 2026-0912\nTotal: 100.00 USD\nReference AABB-112233\n\nItems: 11 pens and 22 notebooks\nPaid: 100.00 USD\nBalance: 0.00 USD",
+        "whitespaceF1": 0.972972972972973
+      }
+    }
+  ],
+  "provenance": {
+    "currentSourceComparison": {
+      "edge_features.py": {
+        "currentSha256": "8c257fb0f37f52049cf405485bcf25017a5e4748bc7c8068ba5b19f8e58d4d3c",
+        "matches": true,
+        "recordedSha256": "8c257fb0f37f52049cf405485bcf25017a5e4748bc7c8068ba5b19f8e58d4d3c"
+      },
+      "layout_groups.py": {
+        "currentSha256": "e5ab4f59d4c41ac9cbd400635e1ade32094bcc19f589f7dcf9b149c60836cdee",
+        "matches": true,
+        "recordedSha256": "e5ab4f59d4c41ac9cbd400635e1ade32094bcc19f589f7dcf9b149c60836cdee"
+      },
+      "main.py": {
+        "currentSha256": "7a33fb52fa1ea3fabc3a126a3152c78cc6821deb50cd0da645cf4c001682254b",
+        "matches": true,
+        "recordedSha256": "7a33fb52fa1ea3fabc3a126a3152c78cc6821deb50cd0da645cf4c001682254b"
+      },
+      "pipeline.py": {
+        "currentSha256": "119dcc8bee456322ceab2127a3f5ca2d79abf7143c94862624672c8efe1931c5",
+        "matches": false,
+        "recordedSha256": "174c687a32e29061ea3f38b21a4c293a3f84bfb0940945b83e6bb94d8ee919f1"
+      },
+      "setup_models.py": {
+        "currentSha256": "6693625cebdd13e0b0c5e14dd48d8a9070856d0c3e8fbc086e1766661aaf8a99",
+        "matches": true,
+        "recordedSha256": "6693625cebdd13e0b0c5e14dd48d8a9070856d0c3e8fbc086e1766661aaf8a99"
+      },
+      "test_pipeline.py": {
+        "currentSha256": "398ae67015c4eb3adf387a5736bebbed7c006da3d1ea4e3e99fa28ab2371d5ab",
+        "matches": true,
+        "recordedSha256": "398ae67015c4eb3adf387a5736bebbed7c006da3d1ea4e3e99fa28ab2371d5ab"
+      }
+    },
+    "enhancedPipeline": "ppocrv6-edgegnn-v1",
+    "enhancedRecordedDate": "2026-09-12",
+    "enhancedSourceSha256": {
+      "edge_features.py": "8c257fb0f37f52049cf405485bcf25017a5e4748bc7c8068ba5b19f8e58d4d3c",
+      "layout_groups.py": "e5ab4f59d4c41ac9cbd400635e1ade32094bcc19f589f7dcf9b149c60836cdee",
+      "main.py": "7a33fb52fa1ea3fabc3a126a3152c78cc6821deb50cd0da645cf4c001682254b",
+      "pipeline.py": "174c687a32e29061ea3f38b21a4c293a3f84bfb0940945b83e6bb94d8ee919f1",
+      "setup_models.py": "6693625cebdd13e0b0c5e14dd48d8a9070856d0c3e8fbc086e1766661aaf8a99",
+      "test_pipeline.py": "398ae67015c4eb3adf387a5736bebbed7c006da3d1ea4e3e99fa28ab2371d5ab"
+    },
+    "inputImagesRebuiltWithExactRecordedSha256": true,
+    "limitations": [
+      "Synthetic fixtures only",
+      "Enhanced timings come from the recorded 2026-09-12 run; Tesseract timings were measured on 2026-09-18",
+      "No Japanese, formula, handwriting, compression artifact, real UI or camera corpus in this comparison",
+      "Enhanced paragraph grouping is not scored here; recognized lines are compared in readingOrder"
+    ],
+    "metric": "Unicode code points; raw text joins expected/detected lines with LF",
+    "postBaselineChange": "pipeline.py now applies visual paragraph merging after EdgeGNN; detection, crop, recognition and CTC behavior used by the line-text A/B is unchanged, but the full pipeline hash intentionally differs.",
+    "tesseractVersion": "tesseract 5.5.0"
+  },
+  "recordedDate": "2026-09-18",
+  "schema": "clippy-ocr-ab-evidence-v1"
+}

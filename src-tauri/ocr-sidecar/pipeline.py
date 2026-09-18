@@ -11,6 +11,7 @@ import pyclipper
 
 from edge_features import build_features, SCHEMA, MAX_NODES
 from layout_groups import group_lines
+from visual_paragraphs import merge_visual_paragraphs
 
 MAX_PIXELS = 32 * 1024 * 1024
 MAX_DIMENSION = 16384
@@ -330,8 +331,9 @@ def recognize(png, manifest, deadline, trace=lambda _stage, _data: None):
     executed = len(inputs["edge_index"]) > 0
     if executed:
         logits = edge.run(["edge_logits"], inputs)[0]
-        groups = group_lines(inputs, logits, geometry, options["layoutThreshold"])
-        trace("edge", {"shapes": {key: list(value.shape) for key, value in inputs.items()}, "hashes": {key: hashlib.sha256(value.tobytes()).hexdigest() for key, value in inputs.items()}, "logits": np.asarray(logits).tolist(), "groups": groups})
+        model_groups = group_lines(inputs, logits, geometry, options["layoutThreshold"])
+        groups = merge_visual_paragraphs(model_groups, geometry)
+        trace("edge", {"shapes": {key: list(value.shape) for key, value in inputs.items()}, "hashes": {key: hashlib.sha256(value.tobytes()).hexdigest() for key, value in inputs.items()}, "logits": np.asarray(logits).tolist(), "modelGroups": model_groups, "groups": groups})
     else:
         groups = [[index] for index in range(len(quads))]
         trace("edge_skipped", {"nodes": len(quads), "reason": "no_edges"})

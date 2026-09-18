@@ -63,6 +63,7 @@ check_prerequisites() {
   require_cmd node "Node.js >= 22.12: https://nodejs.org"
   require_cmd npm "Node.js >= 20.19: https://nodejs.org"
   require_cmd npx "随 Node.js 一同安装"
+  require_cmd python3 "Python 3（OCR 质量合同单元测试）"
   # DOM/Canvas smoke 在无头环境下依赖 Xvfb，缺失时整条前端 smoke 都无法执行。
   require_cmd xvfb-run "sudo apt install -y xvfb"
   if [[ "$(uname -s)" == "Linux" ]]; then
@@ -92,6 +93,12 @@ printf "${YELLOW} Windows / macOS 的条件编译代码不在本机编译图内�
 echo ""
 
 check_prerequisites
+
+# --- OCR quality contract (pure stdlib; no model or third-party wheel) ---
+run_step "OCR 质量合同" \
+  python3 -m unittest discover -s src-tauri/ocr-sidecar -p 'test_quality*.py' -v
+run_step "OCR 视觉段落回退" \
+  python3 -m unittest discover -s src-tauri/ocr-sidecar -p test_visual_paragraphs.py -v
 
 # --- Rust ---
 run_step "cargo fmt --check" bash -c "cd src-tauri && cargo fmt -- --check"

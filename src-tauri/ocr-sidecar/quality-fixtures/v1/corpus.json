@@ -1,0 +1,379 @@
+{
+  "cases": [
+    {
+      "id": "mixed-script-spacing",
+      "lines": [
+        {
+          "id": "mixed-1",
+          "kind": "text",
+          "quad": [
+            [
+              28,
+              29
+            ],
+            [
+              437,
+              29
+            ],
+            [
+              437,
+              75
+            ],
+            [
+              28,
+              75
+            ]
+          ],
+          "text": "订单 Order  A  12.50%"
+        },
+        {
+          "id": "mixed-2",
+          "kind": "text",
+          "quad": [
+            [
+              28,
+              96
+            ],
+            [
+              574,
+              96
+            ],
+            [
+              574,
+              144
+            ],
+            [
+              28,
+              144
+            ]
+          ],
+          "text": "中文  OCR 日本語  2026-09-18"
+        },
+        {
+          "id": "mixed-3",
+          "kind": "text",
+          "quad": [
+            [
+              28,
+              167
+            ],
+            [
+              456,
+              167
+            ],
+            [
+              456,
+              216
+            ],
+            [
+              28,
+              216
+            ]
+          ],
+          "text": "AA  11  ll  00  ¥1,234.50"
+        }
+      ],
+      "source": {
+        "height": 230,
+        "imagePath": "images/mixed-script-spacing.png",
+        "kind": "generated",
+        "license": "Generated Clippy fixture text CC0-1.0; Noto Sans CJK SC font OFL-1.1",
+        "sha256": "8e409e88e250b49f5579a7b267c4c17ded7417f8a7efd26aae4b43a2ccd7a7b7",
+        "width": 1000
+      },
+      "tags": [
+        "zh-en-ja",
+        "spaces",
+        "numbers",
+        "currency",
+        "high-contrast"
+      ]
+    },
+    {
+      "id": "numbers-symbols",
+      "lines": [
+        {
+          "id": "symbol-1",
+          "kind": "text",
+          "quad": [
+            [
+              24,
+              26
+            ],
+            [
+              555,
+              26
+            ],
+            [
+              555,
+              72
+            ],
+            [
+              24,
+              72
+            ]
+          ],
+          "text": "±0.02  √2≈1.414  ∑  ∫  π  Δ"
+        },
+        {
+          "id": "symbol-2",
+          "kind": "text",
+          "quad": [
+            [
+              24,
+              104
+            ],
+            [
+              543,
+              104
+            ],
+            [
+              543,
+              150
+            ],
+            [
+              24,
+              150
+            ]
+          ],
+          "text": "SN: AA11-BB22 / 98.6%  [OK]"
+        }
+      ],
+      "source": {
+        "height": 170,
+        "imagePath": "images/numbers-symbols.png",
+        "kind": "generated",
+        "license": "Generated Clippy fixture text CC0-1.0; Noto Sans CJK SC font OFL-1.1",
+        "sha256": "0e94f1e2d370a1d0ff64312b01e7a433883edffac0e7319c8259a64c9fccb733",
+        "width": 1000
+      },
+      "tags": [
+        "numbers",
+        "symbols",
+        "punctuation",
+        "high-contrast"
+      ]
+    },
+    {
+      "id": "two-column-order",
+      "lines": [
+        {
+          "id": "column-left-1",
+          "kind": "text",
+          "quad": [
+            [
+              26,
+              30
+            ],
+            [
+              270,
+              30
+            ],
+            [
+              270,
+              78
+            ],
+            [
+              26,
+              78
+            ]
+          ],
+          "text": "左栏 01  Alpha"
+        },
+        {
+          "id": "column-left-2",
+          "kind": "text",
+          "quad": [
+            [
+              26,
+              124
+            ],
+            [
+              249,
+              124
+            ],
+            [
+              249,
+              168
+            ],
+            [
+              26,
+              168
+            ]
+          ],
+          "text": "左栏 02  Beta"
+        },
+        {
+          "id": "column-right-1",
+          "kind": "text",
+          "quad": [
+            [
+              536,
+              30
+            ],
+            [
+              789,
+              30
+            ],
+            [
+              789,
+              74
+            ],
+            [
+              536,
+              74
+            ]
+          ],
+          "text": "右欄 03  日本語"
+        },
+        {
+          "id": "column-right-2",
+          "kind": "text",
+          "quad": [
+            [
+              536,
+              124
+            ],
+            [
+              816,
+              124
+            ],
+            [
+              816,
+              168
+            ],
+            [
+              536,
+              168
+            ]
+          ],
+          "text": "右欄 04  Gamma"
+        }
+      ],
+      "source": {
+        "height": 220,
+        "imagePath": "images/two-column-order.png",
+        "kind": "generated",
+        "license": "Generated Clippy fixture text CC0-1.0; Noto Sans CJK SC font OFL-1.1",
+        "sha256": "030066fa303de569af359a9f12dafb66e4181220bda8e024551074ae736405e2",
+        "width": 1000
+      },
+      "tags": [
+        "zh-en-ja",
+        "columns",
+        "reading-order"
+      ]
+    },
+    {
+      "id": "formula-routing",
+      "lines": [
+        {
+          "formula": {
+            "format": "latex",
+            "value": "x^2 + \\frac{1}{2} = \\sqrt{2}"
+          },
+          "id": "formula-1",
+          "kind": "formula",
+          "quad": [
+            [
+              36,
+              43
+            ],
+            [
+              336,
+              43
+            ],
+            [
+              336,
+              103
+            ],
+            [
+              36,
+              103
+            ]
+          ],
+          "text": "x² + 1/2 = √2"
+        }
+      ],
+      "source": {
+        "height": 140,
+        "imagePath": "images/formula-routing.png",
+        "kind": "generated",
+        "license": "Generated Clippy fixture text CC0-1.0; Noto Sans CJK SC font OFL-1.1",
+        "sha256": "2179abde60cb819cf3d1ee851329f3071fab14396d79a468e7d34a2cf1d7f61e",
+        "width": 800
+      },
+      "tags": [
+        "formula",
+        "superscript",
+        "symbols"
+      ]
+    },
+    {
+      "id": "low-contrast-small",
+      "lines": [
+        {
+          "id": "low-1",
+          "kind": "text",
+          "quad": [
+            [
+              20,
+              26
+            ],
+            [
+              372,
+              26
+            ],
+            [
+              372,
+              60
+            ],
+            [
+              20,
+              60
+            ]
+          ],
+          "text": "Low contrast 中文 OCR 8.5%"
+        },
+        {
+          "id": "low-2",
+          "kind": "text",
+          "quad": [
+            [
+              20,
+              87
+            ],
+            [
+              326,
+              87
+            ],
+            [
+              326,
+              117
+            ],
+            [
+              20,
+              117
+            ]
+          ],
+          "text": "Ref 001122  value ±0.08"
+        }
+      ],
+      "source": {
+        "height": 150,
+        "imagePath": "images/low-contrast-small.png",
+        "kind": "generated",
+        "license": "Generated Clippy fixture text CC0-1.0; Noto Sans CJK SC font OFL-1.1",
+        "sha256": "f3935028d8978aba89066770d45dec257653155efdf9271f1031f9e54bd61b4f",
+        "width": 900
+      },
+      "tags": [
+        "zh-en",
+        "low-contrast",
+        "small-text",
+        "numbers"
+      ]
+    }
+  ],
+  "schema": "clippy-ocr-quality-corpus-v1"
+}
