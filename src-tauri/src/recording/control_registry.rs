@@ -35,7 +35,7 @@ pub(super) struct RecordingControlBinding {
 }
 
 #[derive(Default)]
-pub(super) struct RecordingControlRegistry {
+pub(crate) struct RecordingControlRegistry {
     slot: Mutex<ControlSlot>,
 }
 
@@ -62,7 +62,7 @@ enum ControlSlot {
 }
 
 impl RecordingControlRegistry {
-    pub(super) fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 

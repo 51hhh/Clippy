@@ -10,7 +10,7 @@ mod manager;
 /// 普通截图与长截图生命周期共享的唯一模式 gate。
 mod mode_gate;
 mod output;
-mod overlay_windows;
+pub(crate) mod overlay_windows;
 use output::{CaptureOutputError, OutputFailure};
 #[cfg(target_os = "linux")]
 mod shell_extension;

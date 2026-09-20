@@ -50,6 +50,9 @@ pub struct AppState {
     pub longshot_lifecycle: Arc<crate::capture::LongshotLifecycle>,
     /// 独立长截图控制窗口的唯一轻量单槽 registry。
     pub longshot_windows: Arc<crate::capture::LongshotControllerRegistry>,
+    /// 录屏核心与控制窗身份各自只有一个进程级 owner；产品入口尚未开放。
+    pub recording_lifecycle: Arc<crate::recording::RecordingLifecycle>,
+    pub recording_controls: Arc<crate::recording::RecordingControlRegistry>,
     pub pin_manager: Arc<crate::pin::PinManager>,
     pub pin_workspace_persistence: Arc<crate::pin::PinWorkspacePersistence>,
     /// 我们自己截下来、复制进剪贴板的图 → 它原本在屏幕上的位置。

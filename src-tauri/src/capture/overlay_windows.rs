@@ -352,7 +352,7 @@ pub(super) fn hide_sources(app: &tauri::AppHandle) -> Vec<String> {
         .collect()
 }
 
-pub(super) fn restore(app: &tauri::AppHandle, labels: &[String]) {
+pub(crate) fn restore(app: &tauri::AppHandle, labels: &[String]) {
     for label in labels {
         if let Some(window) = app.get_webview_window(label) {
             let _ = window.show();
@@ -361,7 +361,7 @@ pub(super) fn restore(app: &tauri::AppHandle, labels: &[String]) {
     }
 }
 
-pub(super) fn close(app: &tauri::AppHandle, labels: &[String]) {
+pub(crate) fn close(app: &tauri::AppHandle, labels: &[String]) {
     for label in labels {
         if let Some(window) = app.get_webview_window(label) {
             let _ = window.close();

@@ -117,7 +117,8 @@ pipeline、采集线程和编码线程接成一个生命周期：正常 Stop 只
 或 `Drop` 会 join 两条线程、删除未提交 partial 并记录 interrupted；联动产生的 `Pipeline::Aborted`
 不会遮住原始采集或编码错误。单活动注册表也已实现 `Starting → Recording → Stopping → Idle`，启动中
 和停止中都占槽，并以不可复用的 generation token 拒绝迟到的暂停、停止与取消；截图桌面资源交接
-状态机已经固定，Tauri 桌面适配器、产品 IPC 和控制窗口宿主尚未接入。
+状态机已经固定；Tauri 桌面恢复适配器、控制窗口宿主和受 caller 限制的暂停/继续/停止/取消 IPC
+现已接入，但可信开始入口仍未开放。
 
 ### 编码器 A/B 工具与当前结论
 
@@ -261,7 +262,7 @@ feature，用时 11 分 01 秒；4 个 VP9 mux/`ffprobe` 测试通过。这只�
 VP9 已完整经过 capture worker、三槽 pipeline、WebM 封尾、私有分段原子提交和 complete manifest；
 清单中的 encoder/container、分段扩展名、时长与帧数均由同一选择产生。生命周期启动合同现由后端
 传入类型化编码器策略，默认测试继续使用 MJPEG 诊断 writer，feature 回归则证明同一生命周期能够
-选择 VP9 并提交最终 WebM；该选择不从 IPC 接受前端字符串或参数。产品适配器仍未接入，因此这不
+选择 VP9 并提交最终 WebM；该选择不从 IPC 接受前端字符串或参数。产品开始适配器仍未接入，因此这不
 代表 VP9 已成为默认。编码线程现在默认每 60 秒、最多允许 120 秒一个周期分段；跨过边界即原子
 提交，最后一段则在 Stop 后由会话 owner 核对时长与背压再把清单标为 complete。MJPEG 子进程强杀 fixture 已
 证明首段提交、次段仍打开时退出，启动恢复会保留可播放首段、删除未提交尾段并写 interrupted；同一
@@ -299,7 +300,9 @@ packet 为关键帧；同一 packet 同时进入连续最终 mux。`ffprobe` 会
 
 仓库已加入物理坐标规划器：原生排除平台优先把控制窗放在选区底部；仅几何排除的平台会在所有
 显示器的上、下、左、右与角落候选中选择离选区最近且含 margin 的安全位置，支持负坐标多屏；没有
-安全矩形时明确返回 `TrayAndShortcutsOnly`。窗口句柄排除调用和控制窗宿主仍待平台实现。
+安全矩形时明确返回 `TrayAndShortcutsOnly`。控制窗 Tauri 宿主现按实际物理窗口尺寸再次规划并隐藏
+建窗，页面 ready 与 token bind 都满足后才显示。Linux Wayland、没有选区外安全位置和未来需要原生
+排除的路径会明确拒绝启动；窗口句柄排除调用与托盘/快捷键后备仍待平台实现。
 
 Linux X11 已加入持久 x11rb 连接的根窗口区域帧源：每次只请求选区物理矩形，依据服务器 visual mask
 和字节序转为紧凑 RGBA，并在进入 Clippy 边界时写入单调时间戳。硬件光标通过 XFixes
@@ -322,8 +325,8 @@ Linux X11 已加入持久 x11rb 连接的根窗口区域帧源：每次只请求
 同一时钟域的终点并封尾，暂停中停止也不会把开放暂停区间计入时长；帧源、控制时钟、pipeline、
 控制通道错误及 `Drop` 回收都会中止 pipeline。独立诊断编码线程已闭合 capture → 三槽 pipeline →
 MJPEG/AVI：它阻塞等待帧，先排空已接受前缀，再使用同一最终时长封尾；编码失败或线程回收会反向
-中止 pipeline，停止仍在运行的采集线程。桌面资源恢复领域状态机已经接入；产品 IPC、Tauri 控制窗
-宿主和 X11 真机性能证据仍未接入，因此还不能从 UI 开始录屏。
+中止 pipeline，停止仍在运行的采集线程。桌面资源恢复领域状态机、Tauri 控制窗宿主和控制 IPC 已
+接入；可信开始 IPC、X11 真机性能证据与其他平台帧源仍未接入，因此还不能从 UI 开始录屏。
 
 `ci-local.sh` 现会在隔离 Xvfb 中显式运行原生闭环：RandR 可信区域 → 持久 X11 帧源 → 采集线程 →
 三槽 pipeline → MJPEG/AVI → 私有分段与 complete manifest，并核对清单帧数和文件权限。它验证真实
@@ -336,14 +339,16 @@ Recording；随后关闭截图覆盖层、恢复贴图和来源窗口、等待�
 最后才启动采集线程。采集取得 generation token 后还必须由后端把它绑定到控制面；绑定失败会立即
 取消刚启动的会话。启动失败、正常停止、取消、迟到 token 和控制面关闭失败均会回收会话并显式
 释放 gate；桌面动作会在首个失败后继续执行剩余恢复项。当前完成的是可注入、可测试的领域状态机，
-Tauri 桌面动作适配器和产品 IPC 仍未接入。
+Tauri 桌面动作适配器现已复用截图覆盖层关闭、Pin/来源窗口恢复和 settle 合同；控制窗意外销毁、
+显示失败、正常停止与取消都会按 exact token 回收会话。可信开始入口仍未接入。
 
 控制窗 registry 已独立固定 `Preparing → Bound → Closing → Empty`：窗口只携带后端生成且不可复用的
 label，暂停/继续/停止命令从 registry 读取 exact generation token，不接收前端提交的 session ID 或
 generation。同一 session ID 再次录制也会得到新 label，旧窗口和迟到 bind 都不能命中新会话；窗口
 意外销毁只会交出一次清理 token，关闭失败进入终态并阻止创建替代控制窗。页面 ready 与 token bind
 现为顺序无关的双条件屏障：任一方可先到，只有后到的一方取得一次 reveal 责任；重复 ready、伪造
-label、旧窗口和 closing 窗口都不能再次显示或控制会话。Tauri 建窗与产品控制命令仍未接入。
+label、旧窗口和 closing 窗口都不能再次显示或控制会话。Tauri 已接入隐藏建窗、物理安全位置复核与
+受 caller 限制的控制命令；主界面与截图工具条仍没有开始入口。
 
 ## 第一阶段验收
 

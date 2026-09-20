@@ -92,6 +92,9 @@ pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
         tauri::WindowEvent::Destroyed if window.label().starts_with("longshot-controller-") => {
             capture::handle_longshot_controller_destroyed(window.app_handle(), window.label());
         }
+        tauri::WindowEvent::Destroyed if window.label().starts_with("recording-control-") => {
+            crate::recording::handle_control_destroyed(window.app_handle(), window.label());
+        }
         tauri::WindowEvent::Destroyed if window.label() == "settings" => {
             let app = window.app_handle().clone();
             tauri::async_runtime::spawn(async move {

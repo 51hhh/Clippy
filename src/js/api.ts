@@ -48,6 +48,7 @@ export type {
   PinToolbarBounds,
   PinState,
   PinUpdate,
+  RecordingStopResult,
   ServiceTranslation,
   ShortcutConflict,
   ShortcutRegisterFailure,
@@ -74,5 +75,6 @@ export type {
 export * from "./api/clipboard.ts";
 export * from "./api/capture.ts";
 export * from "./api/pin.ts";
+export * from "./api/recording.ts";
 export * from "./api/viewer.ts";
 export * from "./api/settings.ts";

@@ -108,7 +108,7 @@ pub(super) trait DesktopActions {
     fn close_control(&self, session_id: &str) -> Result<(), String>;
 }
 
-pub(super) struct RecordingLifecycle {
+pub(crate) struct RecordingLifecycle {
     manager: RecordingManager,
     slot: Mutex<LifecycleSlot>,
 }
@@ -120,7 +120,7 @@ impl Default for RecordingLifecycle {
 }
 
 impl RecordingLifecycle {
-    pub(super) fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             manager: RecordingManager::new(),
             slot: Mutex::new(LifecycleSlot::Empty),

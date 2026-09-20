@@ -1,6 +1,6 @@
 //! 录屏会话的持久化基础。
 //!
-//! 平台帧源与编码器尚未接入；这里先固定崩溃恢复合同，避免后续实现把未封尾视频当成一次性临时文件。
+//! X11 帧源、诊断编码器、VP9 原型与控制宿主已经分层接入；可信产品开始入口仍保持关闭。
 
 mod manifest;
 // 先固定截图覆盖层到平台帧源之间的可信交接；产品会话接入后移除 dead_code 例外。
@@ -34,6 +34,8 @@ mod lifecycle;
 // 控制窗只从后端 registry 取得 exact generation token；前端不提交可伪造 token。
 #[allow(dead_code)]
 mod control_registry;
+// Tauri 控制宿主只接控制面；产品开始入口仍等待编码器与平台帧源门槛。
+pub(crate) mod control_host;
 // 控制窗是否可见必须先通过平台排除能力与物理几何规划；窗口宿主接入前先固定纯函数合同。
 #[allow(dead_code)]
 mod control_window;
@@ -51,6 +53,9 @@ mod benchmark;
 pub use benchmark::X11Vp9BenchmarkReport;
 #[cfg(all(target_os = "linux", feature = "recording-vp9-prototype"))]
 pub(crate) use benchmark::{run_x11_vp9_benchmark, X11Vp9BenchmarkOptions};
+pub(crate) use control_host::handle_control_destroyed;
+pub(crate) use control_registry::RecordingControlRegistry;
+pub(crate) use lifecycle::RecordingLifecycle;
 #[cfg(feature = "recording-vp9-prototype")]
 pub(crate) use mux::vp9_webm::Vp9WebmWriter;
 

@@ -3,6 +3,7 @@ export const FRONTEND_API_MODULES = Object.freeze([
   "src/js/api/capture.ts",
   "src/js/api/clipboard.ts",
   "src/js/api/pin.ts",
+  "src/js/api/recording.ts",
   "src/js/api/settings.ts",
   "src/js/api/viewer.ts",
 ]);

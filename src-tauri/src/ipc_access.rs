@@ -107,6 +107,14 @@ const IMAGE_VIEWER_COMMANDS: &[&str] = &[
     "viewer_ready",
 ];
 
+const RECORDING_CONTROL_COMMANDS: &[&str] = &[
+    "cancel_recording",
+    "mark_recording_control_ready",
+    "pause_recording",
+    "resume_recording",
+    "stop_recording",
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CallerKind {
     Main,
@@ -115,6 +123,7 @@ enum CallerKind {
     CaptureOverlay,
     LongshotController,
     ImageViewer,
+    RecordingControl,
     Unknown,
 }
 
@@ -137,6 +146,7 @@ fn caller_kind(label: &str) -> CallerKind {
             CallerKind::LongshotController
         }
         _ if safe_dynamic_label(label, "image-viewer-", 96) => CallerKind::ImageViewer,
+        _ if safe_dynamic_label(label, "recording-control-", 128) => CallerKind::RecordingControl,
         _ => CallerKind::Unknown,
     }
 }
@@ -149,6 +159,7 @@ pub(crate) fn allowed(caller: &str, command: &str) -> bool {
         CallerKind::CaptureOverlay => CAPTURE_OVERLAY_COMMANDS,
         CallerKind::LongshotController => LONGSHOT_CONTROLLER_COMMANDS,
         CallerKind::ImageViewer => IMAGE_VIEWER_COMMANDS,
+        CallerKind::RecordingControl => RECORDING_CONTROL_COMMANDS,
         CallerKind::Unknown => return false,
     };
     commands.contains(&command)
@@ -186,6 +197,7 @@ mod tests {
             ("capture-overlay-session-1", CAPTURE_OVERLAY_COMMANDS),
             ("longshot-controller-1", LONGSHOT_CONTROLLER_COMMANDS),
             ("image-viewer-1", IMAGE_VIEWER_COMMANDS),
+            ("recording-control-1", RECORDING_CONTROL_COMMANDS),
         ] {
             let mut unique = commands.to_vec();
             unique.sort_unstable();
@@ -224,6 +236,10 @@ mod tests {
                 "image-viewer-1",
                 ["get_config", "get_pin_payload", "get_capture_overlay"],
             ),
+            (
+                "recording-control-1",
+                ["get_config", "get_pin_payload", "get_capture_overlay"],
+            ),
         ];
         for (label, commands) in cases {
             for command in commands {
@@ -257,6 +273,7 @@ mod tests {
             "capture-overlay-one?x=1",
             "longshot-controller-one/two",
             "image-viewer-一",
+            "recording-control-one/two",
             "unknown-window",
         ] {
             assert!(!allowed(label, "get_config"), "{label:?}");

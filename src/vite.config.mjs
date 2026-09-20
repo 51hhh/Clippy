@@ -21,6 +21,7 @@ export default defineConfig({
         captureOverlay: resolve(__dirname, "capture-overlay.html"),
         longshotController: resolve(__dirname, "longshot-controller.html"),
         longshotGuide: resolve(__dirname, "longshot-guide.html"),
+        recordingControl: resolve(__dirname, "recording-control.html"),
       },
     },
   },
@@ -30,7 +31,7 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
-    include: ["tests/**/*.test.js", "tests/**/*.test.ts"],
+    include: ["tests/**/*.test.js", "tests/**/*.test.ts", "tests/**/*.test.tsx"],
     globals: false,
   },
 });

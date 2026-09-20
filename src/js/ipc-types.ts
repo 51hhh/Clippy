@@ -667,3 +667,11 @@ export type InstallType =
   | "macos"
   | "development"
   | "unknown";
+
+export interface RecordingStopResult {
+  outputPath: string | null;
+  durationMs: number;
+  capturedFrames: number;
+  encodedFrames: number;
+  droppedByBackpressure: number;
+}

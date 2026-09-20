@@ -161,6 +161,8 @@ pub fn run() {
             let capture_mode_gate = Arc::new(capture::CaptureModeGate::new());
             let longshot_lifecycle = Arc::new(capture::LongshotLifecycle::default());
             let longshot_windows = Arc::new(capture::LongshotControllerRegistry::new());
+            let recording_lifecycle = Arc::new(recording::RecordingLifecycle::new());
+            let recording_controls = Arc::new(recording::RecordingControlRegistry::new());
             let translation = Arc::new(translation::TranslationService::new());
             #[cfg(target_os = "linux")]
             let portal_shortcuts = platform::uses_portal_shortcuts().then(|| {
@@ -205,6 +207,8 @@ pub fn run() {
                 capture_mode_gate,
                 longshot_lifecycle,
                 longshot_windows,
+                recording_lifecycle,
+                recording_controls,
                 pin_manager,
                 pin_workspace_persistence,
                 pin_origins: Arc::new(pin::PinOriginRegistry::default()),
@@ -404,6 +408,11 @@ pub fn run() {
             capture::finish_longshot_controller,
             capture::cancel_longshot_controller,
             capture::diagnostics::run_capture_diagnostics,
+            recording::control_host::mark_recording_control_ready,
+            recording::control_host::pause_recording,
+            recording::control_host::resume_recording,
+            recording::control_host::stop_recording,
+            recording::control_host::cancel_recording,
             commands::pick_screenshot_directory,
             pin::commands::pin_clip,
             pin::commands::get_pin_payload,
