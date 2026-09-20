@@ -43,6 +43,23 @@ pub fn choose_archive_save(
         .and_then(local_path)
 }
 
+/// 选择录屏导出位置。扩展名来自已经验证的 manifest 容器字段；实际复制仍在录屏领域内核对哈希。
+pub fn choose_recording_export(
+    app_handle: &tauri::AppHandle,
+    start: &Path,
+    file_name: &str,
+    extension: &str,
+) -> Option<PathBuf> {
+    app_handle
+        .dialog()
+        .file()
+        .set_directory(prepared_directory(start))
+        .set_file_name(file_name)
+        .add_filter("Recording", &[extension])
+        .blocking_save_file()
+        .and_then(local_path)
+}
+
 /// 选择要导入的 Clippy 归档。后续读取不信任扩展名，会完整验证 ZIP 与 manifest。
 pub fn choose_archive_open(app_handle: &tauri::AppHandle, start: &Path) -> Option<PathBuf> {
     app_handle

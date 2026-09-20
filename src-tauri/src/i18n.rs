@@ -18,6 +18,7 @@ pub struct NativeText {
     pub open_clipboard: &'static str,
     pub actions_menu: &'static str,
     pub record_area_menu: &'static str,
+    pub recordings_menu: &'static str,
     pub settings_menu: &'static str,
     pub quit_menu: &'static str,
     pub settings_title: &'static str,
@@ -32,6 +33,7 @@ pub fn native_text(locale: Locale) -> NativeText {
             open_clipboard: "Open Clipboard",
             actions_menu: "Actions",
             record_area_menu: "Record Area",
+            recordings_menu: "Recordings",
             settings_menu: "Settings",
             quit_menu: "Quit",
             settings_title: "Clippy Settings",
@@ -43,6 +45,7 @@ pub fn native_text(locale: Locale) -> NativeText {
             open_clipboard: "打开剪贴板",
             actions_menu: "动作",
             record_area_menu: "区域录屏",
+            recordings_menu: "录屏结果",
             settings_menu: "设置",
             quit_menu: "退出",
             settings_title: "Clippy 设置",
@@ -137,6 +140,7 @@ mod tests {
                 text.open_clipboard,
                 text.actions_menu,
                 text.record_area_menu,
+                text.recordings_menu,
                 text.settings_menu,
                 text.quit_menu,
                 text.settings_title,
@@ -157,6 +161,7 @@ mod tests {
         assert_eq!(chinese.open_clipboard, "打开剪贴板");
         assert_eq!(chinese.actions_menu, "动作");
         assert_eq!(chinese.record_area_menu, "区域录屏");
+        assert_eq!(chinese.recordings_menu, "录屏结果");
         assert_eq!(chinese.settings_menu, "设置");
         assert_eq!(chinese.quit_menu, "退出");
         // 品牌名保留，只翻译后半段。

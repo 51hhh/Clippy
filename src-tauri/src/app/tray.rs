@@ -9,6 +9,7 @@ use tauri::{Emitter, Listener, Manager};
 const OPEN_ID: &str = "open_clipboard";
 const ACTIONS_ID: &str = "actions";
 const RECORD_AREA_ID: &str = "record_area";
+const RECORDINGS_ID: &str = "recordings";
 const SETTINGS_ID: &str = "settings";
 const QUIT_ID: &str = "quit";
 
@@ -18,6 +19,7 @@ pub(crate) struct TrayMenuItems {
     open_clipboard: MenuItem<tauri::Wry>,
     actions: MenuItem<tauri::Wry>,
     record_area: Option<MenuItem<tauri::Wry>>,
+    recordings: MenuItem<tauri::Wry>,
     settings: MenuItem<tauri::Wry>,
     quit: MenuItem<tauri::Wry>,
 }
@@ -38,6 +40,9 @@ impl TrayMenuItems {
             if let Err(error) = item.set_text(text.record_area_menu) {
                 log::warn!("托盘菜单文案刷新失败 ({}): {error}", text.record_area_menu);
             }
+        }
+        if let Err(error) = self.recordings.set_text(text.recordings_menu) {
+            log::warn!("托盘菜单文案刷新失败 ({}): {error}", text.recordings_menu);
         }
     }
 }
@@ -66,31 +71,25 @@ pub(crate) fn build(
         open_clipboard: MenuItem::with_id(app, OPEN_ID, text.open_clipboard, true, None::<&str>)?,
         actions: MenuItem::with_id(app, ACTIONS_ID, text.actions_menu, true, None::<&str>)?,
         record_area,
+        recordings: MenuItem::with_id(
+            app,
+            RECORDINGS_ID,
+            text.recordings_menu,
+            true,
+            None::<&str>,
+        )?,
         settings: MenuItem::with_id(app, SETTINGS_ID, text.settings_menu, true, None::<&str>)?,
         quit: MenuItem::with_id(app, QUIT_ID, text.quit_menu, true, None::<&str>)?,
     };
-    let menu = if let Some(record_area) = &items.record_area {
-        Menu::with_items(
-            app,
-            &[
-                &items.open_clipboard,
-                &items.actions,
-                record_area,
-                &items.settings,
-                &items.quit,
-            ],
-        )?
-    } else {
-        Menu::with_items(
-            app,
-            &[
-                &items.open_clipboard,
-                &items.actions,
-                &items.settings,
-                &items.quit,
-            ],
-        )?
-    };
+    let mut menu_items: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> =
+        vec![&items.open_clipboard, &items.actions];
+    if let Some(record_area) = &items.record_area {
+        menu_items.push(record_area);
+    }
+    menu_items.push(&items.recordings);
+    menu_items.push(&items.settings);
+    menu_items.push(&items.quit);
+    let menu = Menu::with_items(app, &menu_items)?;
 
     let icon = tray_icon::render_themed_tray_icon(&config.theme)
         .unwrap_or_else(|| app.default_window_icon().expect("缺少默认窗口图标").clone());
@@ -125,6 +124,11 @@ pub(crate) fn build(
                         log::warn!("打开录屏选区失败: {error}");
                     }
                 });
+            }
+            RECORDINGS_ID => {
+                if let Err(error) = crate::recording::library::open(app_handle) {
+                    log::warn!("打开录屏结果库失败: {error}");
+                }
             }
             SETTINGS_ID => {
                 if let Err(error) = window_controller::open_settings_window(app_handle) {

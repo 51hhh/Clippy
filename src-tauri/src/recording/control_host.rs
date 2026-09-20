@@ -82,7 +82,7 @@ impl From<RecordingLifecycleError> for RecordingIpcError {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RecordingStopResult {
-    output_path: Option<String>,
+    output_available: bool,
     duration_ms: u64,
     captured_frames: u64,
     encoded_frames: u64,
@@ -419,10 +419,12 @@ pub(crate) async fn stop_recording(
             .try_state::<AppState>()
             .ok_or_else(|| RecordingIpcError::internal("AppState 已不可用"))?;
         let report = lifecycle.stop(&token, &TauriRecordingDesktopActions::new(&app, &state))?;
+        let output_available = report.final_output_path.is_some();
+        if let Err(error) = super::library::open(&app) {
+            log::warn!("录屏停止后打开结果库失败: {error}");
+        }
         Ok(RecordingStopResult {
-            output_path: report
-                .final_output_path
-                .map(|path| path.to_string_lossy().into_owned()),
+            output_available,
             duration_ms: report.duration_ns / 1_000_000,
             captured_frames: report.captured_frames,
             encoded_frames: report.encoded_frames,

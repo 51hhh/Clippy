@@ -37,6 +37,8 @@ mod lifecycle;
 mod control_registry;
 // Tauri 宿主接独立 Recording 覆盖层入口与控制面；产品策略仍按平台门槛关闭入口。
 pub(crate) mod control_host;
+// 完整输出与中断分段通过独立结果库导出；WebView 不接触应用数据路径。
+pub(crate) mod library;
 // 控制窗是否可见必须先通过平台排除能力与物理几何规划；窗口宿主接入前先固定纯函数合同。
 #[allow(dead_code)]
 mod control_window;

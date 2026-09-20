@@ -23,6 +23,7 @@ export default defineConfig({
         longshotController: resolve(__dirname, "longshot-controller.html"),
         longshotGuide: resolve(__dirname, "longshot-guide.html"),
         recordingControl: resolve(__dirname, "recording-control.html"),
+        recordings: resolve(__dirname, "recordings.html"),
       },
     },
   },

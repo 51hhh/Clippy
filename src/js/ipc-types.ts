@@ -671,9 +671,40 @@ export type InstallType =
   | "unknown";
 
 export interface RecordingStopResult {
-  outputPath: string | null;
+  outputAvailable: boolean;
   durationMs: number;
   capturedFrames: number;
   encodedFrames: number;
   droppedByBackpressure: number;
+}
+
+export interface RecordingLibraryArtifact {
+  artifactId: string;
+  displayName: string;
+  durationMs: number;
+  frameCount: number;
+  byteLength: number;
+}
+
+export interface RecordingLibraryItem {
+  sessionId: string;
+  state: "complete" | "interrupted";
+  createdAtUnixMs: number;
+  width: number;
+  height: number;
+  targetFpsNumerator: number;
+  targetFpsDenominator: number;
+  encoder: string;
+  container: string;
+  includeCursor: boolean;
+  droppedFrames: number;
+  durationMs: number;
+  frameCount: number;
+  byteLength: number;
+  artifacts: RecordingLibraryArtifact[];
+}
+
+export interface RecordingLibrarySettings {
+  language: string;
+  theme: string;
 }

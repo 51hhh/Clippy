@@ -4,8 +4,9 @@ use crate::private_files::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::fs::{self, File};
-use std::io::{self, BufReader, Read};
+use std::io::{self, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -102,6 +103,44 @@ struct RecordingManifest {
     final_output: Option<FinalOutputManifest>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     recovery: Option<RecoveryInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecordingLibraryArtifact {
+    pub artifact_id: String,
+    pub display_name: String,
+    pub duration_ms: u64,
+    pub frame_count: u64,
+    pub byte_length: u64,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecordingLibraryItem {
+    pub session_id: String,
+    pub state: &'static str,
+    pub created_at_unix_ms: u64,
+    pub width: u32,
+    pub height: u32,
+    pub target_fps_numerator: u32,
+    pub target_fps_denominator: u32,
+    pub encoder: String,
+    pub container: String,
+    pub include_cursor: bool,
+    pub dropped_frames: u64,
+    pub duration_ms: u64,
+    pub frame_count: u64,
+    pub byte_length: u64,
+    pub artifacts: Vec<RecordingLibraryArtifact>,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct ResolvedRecordingArtifact {
+    pub path: PathBuf,
+    pub suggested_file_name: String,
+    byte_length: u64,
+    sha256: String,
 }
 
 #[derive(Debug, Clone)]
@@ -464,6 +503,397 @@ impl RecordingJournal {
     pub fn session_directory(&self) -> &Path {
         &self.session_directory
     }
+}
+
+/// 返回可由结果库展示的稳定投影。损坏或越界的单个会话只记录警告，不阻断其余结果。
+pub(super) fn list_library(app_data_dir: &Path) -> Result<Vec<RecordingLibraryItem>, String> {
+    let root = app_data_dir.join(RECORDINGS_DIRECTORY);
+    let Some(entries) = bounded_session_entries(&root)? else {
+        return Ok(Vec::new());
+    };
+    let mut items = Vec::new();
+    for entry in entries {
+        match library_item_for_session(&entry.path(), &entry.file_name()) {
+            Ok(Some(item)) => items.push(item),
+            Ok(None) => {}
+            Err(error) => log::warn!("结果库跳过录屏会话 {}: {error}", entry.path().display()),
+        }
+    }
+    items.sort_by_key(|item| std::cmp::Reverse(item.created_at_unix_ms));
+    Ok(items)
+}
+
+pub(super) fn resolve_library_artifact(
+    app_data_dir: &Path,
+    session_id: &str,
+    artifact_id: &str,
+) -> Result<ResolvedRecordingArtifact, String> {
+    let (session_directory, manifest) = load_library_manifest(app_data_dir, session_id)?;
+    let (file_name, byte_length, sha256, suffix) = if artifact_id == "final" {
+        if manifest.state != RecordingState::Complete {
+            return Err("中断会话没有完整录屏产物".to_string());
+        }
+        let output = manifest
+            .final_output
+            .as_ref()
+            .ok_or_else(|| "完成会话缺少最终输出".to_string())?;
+        (
+            output.file_name.as_str(),
+            output.byte_length,
+            output.sha256.as_str(),
+            String::new(),
+        )
+    } else {
+        if manifest.state != RecordingState::Interrupted {
+            return Err("完成会话只允许访问最终输出".to_string());
+        }
+        let index = artifact_id
+            .strip_prefix("segment-")
+            .filter(|value| value.len() == 6 && value.bytes().all(|byte| byte.is_ascii_digit()))
+            .and_then(|value| value.parse::<u32>().ok())
+            .ok_or_else(|| "录屏产物身份无效".to_string())?;
+        let segment = manifest
+            .segments
+            .get(index as usize)
+            .filter(|segment| segment.index == index)
+            .ok_or_else(|| "录屏分段不存在".to_string())?;
+        (
+            segment.file_name.as_str(),
+            segment.byte_length,
+            segment.sha256.as_str(),
+            format!("-segment-{index:06}"),
+        )
+    };
+    let path = session_directory.join(file_name);
+    ensure_artifact_metadata(&path, byte_length)?;
+    Ok(ResolvedRecordingArtifact {
+        path,
+        suggested_file_name: format!("Clippy-{session_id}{suffix}.{}", manifest.video.container),
+        byte_length,
+        sha256: sha256.to_string(),
+    })
+}
+
+pub(super) fn verify_library_artifact(artifact: &ResolvedRecordingArtifact) -> Result<(), String> {
+    ensure_artifact_metadata(&artifact.path, artifact.byte_length)?;
+    let (byte_length, sha256) = hash_file_with_limit(&artifact.path, artifact.byte_length)?;
+    if byte_length != artifact.byte_length || sha256 != artifact.sha256 {
+        return Err("录屏产物与恢复清单不一致".to_string());
+    }
+    Ok(())
+}
+
+/// 导出时只读受清单约束的源文件，先在目标目录写完整临时文件，核对哈希后再替换目标。
+pub(super) fn export_library_artifact(
+    artifact: &ResolvedRecordingArtifact,
+    destination: &Path,
+) -> Result<(), String> {
+    if destination == artifact.path {
+        return Err("不能用导出文件覆盖内部恢复产物".to_string());
+    }
+    let parent = destination
+        .parent()
+        .ok_or_else(|| "导出位置缺少父目录".to_string())?;
+    let parent_metadata =
+        fs::metadata(parent).map_err(|error| format!("读取导出目录失败: {error}"))?;
+    if !parent_metadata.is_dir() {
+        return Err("导出位置不是目录".to_string());
+    }
+    if let Ok(metadata) = fs::symlink_metadata(destination) {
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err("导出目标不是普通文件".to_string());
+        }
+    }
+    ensure_artifact_metadata(&artifact.path, artifact.byte_length)?;
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let temporary = parent.join(format!(
+        ".clippy-recording-export-{}-{nonce}.tmp",
+        std::process::id()
+    ));
+    let result = (|| {
+        let source =
+            File::open(&artifact.path).map_err(|error| format!("打开录屏产物失败: {error}"))?;
+        let mut source = BufReader::new(source);
+        let mut output = create_private_new_file(&temporary)
+            .map_err(|error| format!("创建导出临时文件失败: {error}"))?;
+        let mut hasher = Sha256::new();
+        let mut byte_length = 0_u64;
+        let mut buffer = [0_u8; 64 * 1024];
+        loop {
+            let read = source
+                .read(&mut buffer)
+                .map_err(|error| format!("读取录屏产物失败: {error}"))?;
+            if read == 0 {
+                break;
+            }
+            byte_length = byte_length
+                .checked_add(read as u64)
+                .ok_or_else(|| "录屏产物大小溢出".to_string())?;
+            if byte_length > artifact.byte_length {
+                return Err("录屏产物大小与恢复清单不一致".to_string());
+            }
+            hasher.update(&buffer[..read]);
+            output
+                .write_all(&buffer[..read])
+                .map_err(|error| format!("写入导出临时文件失败: {error}"))?;
+        }
+        let sha256 = format!("{:x}", hasher.finalize());
+        if byte_length != artifact.byte_length || sha256 != artifact.sha256 {
+            return Err("录屏产物与恢复清单不一致".to_string());
+        }
+        output
+            .sync_all()
+            .map_err(|error| format!("同步导出临时文件失败: {error}"))?;
+        drop(output);
+        replace_private_file(&temporary, destination)
+            .map_err(|error| format!("提交录屏导出失败: {error}"))
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
+pub(super) fn delete_library_session(app_data_dir: &Path, session_id: &str) -> Result<(), String> {
+    let (session_directory, manifest) = load_library_manifest(app_data_dir, session_id)?;
+    let mut expected = HashSet::from([MANIFEST_FILE.to_string()]);
+    for segment in &manifest.segments {
+        let artifact = ResolvedRecordingArtifact {
+            path: session_directory.join(&segment.file_name),
+            suggested_file_name: segment.file_name.clone(),
+            byte_length: segment.byte_length,
+            sha256: segment.sha256.clone(),
+        };
+        verify_library_artifact(&artifact)?;
+        expected.insert(segment.file_name.clone());
+    }
+    if let Some(output) = &manifest.final_output {
+        let artifact = ResolvedRecordingArtifact {
+            path: session_directory.join(&output.file_name),
+            suggested_file_name: output.file_name.clone(),
+            byte_length: output.byte_length,
+            sha256: output.sha256.clone(),
+        };
+        verify_library_artifact(&artifact)?;
+        expected.insert(output.file_name.clone());
+    }
+
+    let mut observed = HashSet::new();
+    let mut entries = fs::read_dir(&session_directory)
+        .map_err(|error| format!("读取录屏会话目录失败: {error}"))?;
+    for _ in 0..=MAX_DIRECTORY_ENTRIES {
+        let Some(entry) = entries
+            .next()
+            .transpose()
+            .map_err(|error| format!("读取录屏会话目录项失败: {error}"))?
+        else {
+            break;
+        };
+        let name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| "录屏会话包含非 Unicode 文件名".to_string())?;
+        let metadata = fs::symlink_metadata(entry.path())
+            .map_err(|error| format!("读取录屏会话文件失败: {error}"))?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() || !expected.contains(&name) {
+            return Err("录屏会话包含未知或不安全文件，拒绝删除".to_string());
+        }
+        observed.insert(name);
+    }
+    if entries.next().is_some() || observed != expected {
+        return Err("录屏会话文件集合与恢复清单不一致".to_string());
+    }
+    for file_name in expected
+        .iter()
+        .filter(|name| name.as_str() != MANIFEST_FILE)
+    {
+        fs::remove_file(session_directory.join(file_name))
+            .map_err(|error| format!("删除录屏产物失败: {error}"))?;
+    }
+    fs::remove_file(session_directory.join(MANIFEST_FILE))
+        .map_err(|error| format!("删除录屏清单失败: {error}"))?;
+    fs::remove_dir(&session_directory).map_err(|error| format!("删除录屏会话目录失败: {error}"))?;
+    sync_directory(&app_data_dir.join(RECORDINGS_DIRECTORY))
+        .map_err(|error| format!("同步录屏结果目录失败: {error}"))
+}
+
+fn bounded_session_entries(root: &Path) -> Result<Option<Vec<fs::DirEntry>>, String> {
+    let metadata = match fs::symlink_metadata(root) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("读取录屏结果目录失败: {error}")),
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err("录屏结果路径不是普通目录".to_string());
+    }
+    restrict_directory(root).map_err(|error| format!("收紧录屏结果目录权限失败: {error}"))?;
+    let mut entries = Vec::new();
+    let mut reader = fs::read_dir(root).map_err(|error| format!("读取录屏结果失败: {error}"))?;
+    for _ in 0..=MAX_DIRECTORY_ENTRIES {
+        let Some(entry) = reader
+            .next()
+            .transpose()
+            .map_err(|error| format!("读取录屏结果项失败: {error}"))?
+        else {
+            break;
+        };
+        entries.push(entry);
+    }
+    if entries.len() > MAX_DIRECTORY_ENTRIES {
+        entries.truncate(MAX_DIRECTORY_ENTRIES);
+        log::warn!(
+            "录屏结果目录超过 {} 个条目，只扫描有界前缀",
+            MAX_DIRECTORY_ENTRIES
+        );
+    }
+    entries.sort_by_key(|entry| {
+        std::cmp::Reverse(
+            fs::symlink_metadata(entry.path())
+                .and_then(|metadata| metadata.modified())
+                .unwrap_or(UNIX_EPOCH),
+        )
+    });
+    if entries.len() > MAX_SESSIONS {
+        entries.truncate(MAX_SESSIONS);
+        log::warn!("录屏结果数量超过 {} 个，只显示最新会话", MAX_SESSIONS);
+    }
+    Ok(Some(entries))
+}
+
+fn library_item_for_session(
+    path: &Path,
+    directory_name: &std::ffi::OsStr,
+) -> Result<Option<RecordingLibraryItem>, String> {
+    let session_id = directory_name
+        .to_str()
+        .filter(|value| valid_identifier(value, 64))
+        .ok_or_else(|| "会话目录名无效".to_string())?;
+    let metadata = fs::symlink_metadata(path).map_err(|error| format!("读取会话失败: {error}"))?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err("会话路径不是普通目录".to_string());
+    }
+    let manifest = read_manifest(&path.join(MANIFEST_FILE))?;
+    validate_manifest(&manifest, session_id)?;
+    if !matches!(
+        manifest.state,
+        RecordingState::Complete | RecordingState::Interrupted
+    ) {
+        return Ok(None);
+    }
+
+    let mut artifacts = Vec::new();
+    match manifest.state {
+        RecordingState::Complete => {
+            let output = manifest
+                .final_output
+                .as_ref()
+                .ok_or_else(|| "完成会话缺少最终输出".to_string())?;
+            ensure_artifact_metadata(&path.join(&output.file_name), output.byte_length)?;
+            artifacts.push(RecordingLibraryArtifact {
+                artifact_id: "final".to_string(),
+                display_name: output.file_name.clone(),
+                duration_ms: output.duration_ns / 1_000_000,
+                frame_count: output.frame_count,
+                byte_length: output.byte_length,
+            });
+        }
+        RecordingState::Interrupted => {
+            for segment in &manifest.segments {
+                ensure_artifact_metadata(&path.join(&segment.file_name), segment.byte_length)?;
+                artifacts.push(RecordingLibraryArtifact {
+                    artifact_id: format!("segment-{:06}", segment.index),
+                    display_name: segment.file_name.clone(),
+                    duration_ms: segment.duration_ns / 1_000_000,
+                    frame_count: segment.frame_count,
+                    byte_length: segment.byte_length,
+                });
+            }
+        }
+        RecordingState::Recording | RecordingState::Finalizing => return Ok(None),
+    }
+    let duration_ms = match manifest.state {
+        RecordingState::Complete => manifest
+            .final_output
+            .as_ref()
+            .map(|output| output.duration_ns / 1_000_000)
+            .unwrap_or(0),
+        RecordingState::Interrupted => manifest
+            .segments
+            .last()
+            .and_then(|segment| segment.started_at_ns.checked_add(segment.duration_ns))
+            .map(|duration| duration / 1_000_000)
+            .unwrap_or(0),
+        RecordingState::Recording | RecordingState::Finalizing => unreachable!(),
+    };
+    let frame_count = artifacts.iter().map(|artifact| artifact.frame_count).sum();
+    let byte_length = artifacts.iter().map(|artifact| artifact.byte_length).sum();
+    Ok(Some(RecordingLibraryItem {
+        session_id: manifest.session_id,
+        state: match manifest.state {
+            RecordingState::Complete => "complete",
+            RecordingState::Interrupted => "interrupted",
+            RecordingState::Recording | RecordingState::Finalizing => unreachable!(),
+        },
+        created_at_unix_ms: manifest.created_at_unix_ms,
+        width: manifest.video.width,
+        height: manifest.video.height,
+        target_fps_numerator: manifest.video.target_fps_numerator,
+        target_fps_denominator: manifest.video.target_fps_denominator,
+        encoder: manifest.video.encoder,
+        container: manifest.video.container,
+        include_cursor: manifest.video.include_cursor,
+        dropped_frames: manifest.dropped_frames,
+        duration_ms,
+        frame_count,
+        byte_length,
+        artifacts,
+    }))
+}
+
+fn load_library_manifest(
+    app_data_dir: &Path,
+    session_id: &str,
+) -> Result<(PathBuf, RecordingManifest), String> {
+    if !valid_identifier(session_id, 64) {
+        return Err("录屏会话身份无效".to_string());
+    }
+    let root = app_data_dir.join(RECORDINGS_DIRECTORY);
+    let root_metadata =
+        fs::symlink_metadata(&root).map_err(|error| format!("读取录屏结果目录失败: {error}"))?;
+    if root_metadata.file_type().is_symlink() || !root_metadata.is_dir() {
+        return Err("录屏结果路径不是普通目录".to_string());
+    }
+    let session_directory = root.join(session_id);
+    let metadata = fs::symlink_metadata(&session_directory)
+        .map_err(|error| format!("读取录屏会话失败: {error}"))?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err("录屏会话路径不是普通目录".to_string());
+    }
+    let manifest = read_manifest(&session_directory.join(MANIFEST_FILE))?;
+    validate_manifest(&manifest, session_id)?;
+    if !matches!(
+        manifest.state,
+        RecordingState::Complete | RecordingState::Interrupted
+    ) {
+        return Err("活动录屏不能由结果库访问".to_string());
+    }
+    Ok((session_directory, manifest))
+}
+
+fn ensure_artifact_metadata(path: &Path, byte_length: u64) -> Result<(), String> {
+    let metadata =
+        fs::symlink_metadata(path).map_err(|error| format!("读取录屏产物失败: {error}"))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err("录屏产物不是普通文件".to_string());
+    }
+    if metadata.len() != byte_length {
+        return Err("录屏产物大小与恢复清单不一致".to_string());
+    }
+    restrict_file(path).map_err(|error| format!("收紧录屏产物权限失败: {error}"))
 }
 
 pub(super) fn recover_interrupted_sessions(app_data_dir: &Path) -> io::Result<RecoverySummary> {
@@ -1014,7 +1444,6 @@ fn unix_time_ms() -> u64 {
 mod tests {
     use super::*;
     use std::ffi::OsStr;
-    use std::io::Write as _;
 
     fn fixture_manifest(session_id: &str, state: RecordingState) -> RecordingManifest {
         RecordingManifest {
@@ -1078,6 +1507,23 @@ mod tests {
         session
     }
 
+    fn create_complete_session(root: &Path, session_id: &str) -> std::path::PathBuf {
+        let session = create_session(root, session_id);
+        let mut manifest = fixture_manifest(session_id, RecordingState::Complete);
+        add_segment(&session, &mut manifest, b"committed segment");
+        let final_bytes = b"complete recording";
+        fs::write(session.join("recording.webm"), final_bytes).unwrap();
+        manifest.final_output = Some(FinalOutputManifest {
+            file_name: "recording.webm".to_string(),
+            duration_ns: TIMEBASE_HZ,
+            frame_count: 30,
+            byte_length: final_bytes.len() as u64,
+            sha256: format!("{:x}", Sha256::digest(final_bytes)),
+        });
+        write_manifest_fixture(&session, &manifest);
+        session
+    }
+
     fn journal_config(session_id: &str) -> RecordingJournalConfig {
         RecordingJournalConfig {
             session_id: session_id.to_string(),
@@ -1092,6 +1538,102 @@ mod tests {
             container: "avi".to_string(),
             include_cursor: true,
         }
+    }
+
+    #[test]
+    fn library_lists_only_complete_and_interrupted_sessions_without_paths() {
+        let temporary = tempfile::tempdir().unwrap();
+        create_complete_session(temporary.path(), "complete-1");
+
+        let interrupted = create_session(temporary.path(), "interrupted-1");
+        let mut interrupted_manifest =
+            fixture_manifest("interrupted-1", RecordingState::Interrupted);
+        add_segment(
+            &interrupted,
+            &mut interrupted_manifest,
+            b"recoverable segment",
+        );
+        write_manifest_fixture(&interrupted, &interrupted_manifest);
+
+        let active = create_session(temporary.path(), "active-1");
+        write_manifest_fixture(
+            &active,
+            &fixture_manifest("active-1", RecordingState::Recording),
+        );
+
+        let items = list_library(temporary.path()).unwrap();
+        assert_eq!(items.len(), 2);
+        let complete = items
+            .iter()
+            .find(|item| item.session_id == "complete-1")
+            .unwrap();
+        assert_eq!(complete.state, "complete");
+        assert_eq!(complete.artifacts[0].artifact_id, "final");
+        assert_eq!(complete.artifacts[0].display_name, "recording.webm");
+        let interrupted = items
+            .iter()
+            .find(|item| item.session_id == "interrupted-1")
+            .unwrap();
+        assert_eq!(interrupted.state, "interrupted");
+        assert_eq!(interrupted.artifacts[0].artifact_id, "segment-000000");
+    }
+
+    #[test]
+    fn library_export_verifies_hash_before_replacing_destination() {
+        let temporary = tempfile::tempdir().unwrap();
+        let session = create_complete_session(temporary.path(), "export-1");
+        let artifact = resolve_library_artifact(temporary.path(), "export-1", "final").unwrap();
+        let destination = temporary.path().join("exported.webm");
+        export_library_artifact(&artifact, &destination).unwrap();
+        assert_eq!(fs::read(&destination).unwrap(), b"complete recording");
+
+        fs::write(session.join("recording.webm"), b"tampered recording").unwrap();
+        let protected = temporary.path().join("protected.webm");
+        fs::write(&protected, b"keep me").unwrap();
+        assert!(export_library_artifact(&artifact, &protected).is_err());
+        assert_eq!(fs::read(protected).unwrap(), b"keep me");
+    }
+
+    #[test]
+    fn library_delete_rejects_unknown_files_then_removes_valid_session() {
+        let temporary = tempfile::tempdir().unwrap();
+        let session = create_complete_session(temporary.path(), "delete-1");
+        fs::write(session.join("unexpected.txt"), b"do not delete").unwrap();
+        assert!(delete_library_session(temporary.path(), "delete-1").is_err());
+        assert!(session.exists());
+
+        fs::remove_file(session.join("unexpected.txt")).unwrap();
+        delete_library_session(temporary.path(), "delete-1").unwrap();
+        assert!(!session.exists());
+    }
+
+    #[test]
+    fn library_rejects_active_session_access() {
+        let temporary = tempfile::tempdir().unwrap();
+        let active = create_session(temporary.path(), "active-delete");
+        write_manifest_fixture(
+            &active,
+            &fixture_manifest("active-delete", RecordingState::Recording),
+        );
+        assert!(resolve_library_artifact(temporary.path(), "active-delete", "final").is_err());
+        assert!(delete_library_session(temporary.path(), "active-delete").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn library_rejects_symlinked_artifacts() {
+        use std::os::unix::fs::symlink;
+
+        let temporary = tempfile::tempdir().unwrap();
+        let session = create_complete_session(temporary.path(), "symlink-1");
+        let outside = temporary.path().join("outside.webm");
+        fs::write(&outside, b"complete recording").unwrap();
+        fs::remove_file(session.join("recording.webm")).unwrap();
+        symlink(&outside, session.join("recording.webm")).unwrap();
+
+        assert!(list_library(temporary.path()).unwrap().is_empty());
+        assert!(delete_library_session(temporary.path(), "symlink-1").is_err());
+        assert!(outside.exists());
     }
 
     #[test]

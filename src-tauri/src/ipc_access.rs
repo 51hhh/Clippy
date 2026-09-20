@@ -139,6 +139,17 @@ const RECORDING_CONTROL_COMMANDS: &[&str] = &[
     "stop_recording",
 ];
 
+const RECORDING_LIBRARY_COMMANDS: &[&str] = &[
+    "close_recording_library",
+    "delete_recording_session",
+    "export_recording_artifact",
+    "get_recording_library_settings",
+    "list_recordings",
+    "recording_library_ready",
+    "reveal_recording_artifact",
+    "start_recording_library_drag",
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CallerKind {
     Main,
@@ -150,6 +161,7 @@ pub(crate) enum CallerKind {
     LongshotController,
     ImageViewer,
     RecordingControl,
+    RecordingLibrary,
     Unknown,
 }
 
@@ -167,6 +179,7 @@ pub(crate) fn caller_kind(label: &str) -> CallerKind {
         "main" => CallerKind::Main,
         "launcher" => CallerKind::Launcher,
         "settings" => CallerKind::Settings,
+        "recordings" => CallerKind::RecordingLibrary,
         _ if safe_dynamic_label(label, "pin-", 96) => CallerKind::Pin,
         _ if safe_dynamic_label(label, "capture-overlay-", 128) => CallerKind::CaptureOverlay,
         _ if safe_dynamic_label(label, "recording-overlay-", 128) => CallerKind::RecordingOverlay,
@@ -203,6 +216,7 @@ pub(crate) fn allowed(caller: &str, command: &str) -> bool {
         CallerKind::LongshotController => LONGSHOT_CONTROLLER_COMMANDS,
         CallerKind::ImageViewer => IMAGE_VIEWER_COMMANDS,
         CallerKind::RecordingControl => RECORDING_CONTROL_COMMANDS,
+        CallerKind::RecordingLibrary => RECORDING_LIBRARY_COMMANDS,
         CallerKind::Unknown => return false,
     };
     commands.contains(&command)
@@ -243,6 +257,7 @@ mod tests {
             ("longshot-controller-1", LONGSHOT_CONTROLLER_COMMANDS),
             ("image-viewer-1", IMAGE_VIEWER_COMMANDS),
             ("recording-control-1", RECORDING_CONTROL_COMMANDS),
+            ("recordings", RECORDING_LIBRARY_COMMANDS),
         ] {
             let mut unique = commands.to_vec();
             unique.sort_unstable();
@@ -392,6 +407,23 @@ mod tests {
             "discover_actions",
         ] {
             assert!(!allowed("recording-overlay-session-1", command));
+        }
+    }
+
+    #[test]
+    fn recording_library_cannot_control_capture_or_other_windows() {
+        assert_eq!(caller_kind("recordings"), CallerKind::RecordingLibrary);
+        for command in RECORDING_LIBRARY_COMMANDS {
+            assert!(allowed("recordings", command));
+        }
+        for command in [
+            "start_capture_recording",
+            "pause_recording",
+            "commit_capture_action",
+            "get_pin_payload",
+            "update_config",
+        ] {
+            assert!(!allowed("recordings", command), "{command}");
         }
     }
 

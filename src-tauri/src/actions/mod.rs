@@ -178,6 +178,7 @@ fn action_allowed(caller: CallerKind, action_id: &str) -> bool {
         | CallerKind::RecordingOverlay
         | CallerKind::LongshotController
         | CallerKind::RecordingControl
+        | CallerKind::RecordingLibrary
         | CallerKind::Unknown => false,
     }
 }

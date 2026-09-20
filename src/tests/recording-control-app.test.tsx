@@ -22,7 +22,7 @@ describe("recording control app", () => {
       pause: vi.fn(async () => {}),
       resume: vi.fn(async () => {}),
       stop: vi.fn(async () => ({
-        outputPath: "/tmp/recording.webm",
+        outputAvailable: true,
         durationMs: 1000,
         capturedFrames: 10,
         encodedFrames: 10,
