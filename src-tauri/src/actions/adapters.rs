@@ -22,6 +22,8 @@ pub(super) enum ActionRunError {
     CodeScanFailed,
     #[error("翻译失败")]
     TranslationFailed(&'static str),
+    #[error("保存图片失败")]
+    SaveFailed,
 }
 
 impl ActionRunError {
@@ -35,6 +37,7 @@ impl ActionRunError {
             Self::CodeScanBusy => "action_code_scan_busy",
             Self::CodeScanFailed => "action_code_scan_failed",
             Self::TranslationFailed(code) => code,
+            Self::SaveFailed => "action_save_failed",
         }
     }
 }
@@ -174,6 +177,36 @@ pub(super) async fn translate_text(
     .await
 }
 
+/// Viewer 动作只保存后端签发的不可变扁平快照；带画布文档和可编辑模式的保存仍由 Viewer
+/// 专用命令处理。所有权复核与文件写入处于同一个不可取消提交阶段。
+pub(super) fn save_image(
+    runtime: &ActionRuntime,
+    caller_label: &str,
+    prepared: &PreparedAction,
+    state: &AppState,
+) -> Result<String, ActionRunError> {
+    execute_image_save(
+        runtime,
+        caller_label,
+        prepared,
+        |source_id, source_version| {
+            state
+                .viewer_manager
+                .resolve_action_snapshot(caller_label, source_id, source_version)
+                .map_err(|_| ActionRunError::ImageSourceUnavailable)
+        },
+        |png| {
+            crate::image_io::save_png(&png, "clippy-viewer", &state.save_target())
+                .map(|path| path.to_string_lossy().into_owned())
+                .map_err(|_| {
+                    // 文件系统错误可能携带用户目录；动作层只记录和返回稳定码。
+                    log::warn!("动作图片保存失败");
+                    ActionRunError::SaveFailed
+                })
+        },
+    )
+}
+
 async fn execute_image_ocr<Resolve, Recognize, RecognizeFuture>(
     runtime: &ActionRuntime,
     caller_label: &str,
@@ -298,6 +331,35 @@ where
     };
     runtime
         .publish(caller_label, prepared.handle(), || result)
+        .map_err(ActionRunError::Lifecycle)?
+}
+
+fn execute_image_save<Resolve, Save>(
+    runtime: &ActionRuntime,
+    caller_label: &str,
+    prepared: &PreparedAction,
+    resolve: Resolve,
+    save: Save,
+) -> Result<String, ActionRunError>
+where
+    Resolve: FnOnce(&str, u64) -> Result<Arc<Vec<u8>>, ActionRunError>,
+    Save: FnOnce(Arc<Vec<u8>>) -> Result<String, ActionRunError>,
+{
+    if prepared.descriptor().id != "image.save" {
+        return Err(ActionRunError::WrongAction);
+    }
+    let ActionInput::OwnedImage {
+        source_id,
+        source_version,
+    } = prepared.input()
+    else {
+        return Err(ActionRunError::WrongAction);
+    };
+    runtime
+        .commit_noncancellable(caller_label, prepared.handle(), || {
+            let png = resolve(source_id, *source_version)?;
+            save(png)
+        })
         .map_err(ActionRunError::Lifecycle)?
 }
 
@@ -912,6 +974,139 @@ mod tests {
             translation_action_error_code(&provider_error),
             "action_translation_unsupported_provider"
         );
+    }
+
+    #[test]
+    fn image_save_resolves_and_writes_the_exact_snapshot_once() {
+        let runtime = ActionRuntime::default();
+        let prepared = runtime
+            .begin(
+                "image-viewer-owner",
+                "image.save",
+                "output",
+                json!({"sourceId": "snapshot-secret", "sourceVersion": 0}),
+            )
+            .unwrap();
+        assert_eq!(
+            runtime.cancel("image-viewer-owner", prepared.handle()),
+            Err(ActionError::NotCancellable)
+        );
+        let result = execute_image_save(
+            &runtime,
+            "image-viewer-owner",
+            &prepared,
+            |source_id, source_version| {
+                assert_eq!(source_id, "snapshot-secret");
+                assert_eq!(source_version, 0);
+                Ok(Arc::new(vec![7, 8, 9]))
+            },
+            |png| {
+                assert_eq!(png.as_slice(), &[7, 8, 9]);
+                Ok("/private/output/image.png".to_string())
+            },
+        )
+        .unwrap();
+        assert_eq!(result, "/private/output/image.png");
+        assert_eq!(
+            runtime.ensure_current("image-viewer-owner", prepared.handle()),
+            Err(ActionError::Superseded)
+        );
+    }
+
+    #[test]
+    fn image_save_source_and_file_failures_are_stable_and_redacted() {
+        for (source_error, expected) in [
+            (true, ActionRunError::ImageSourceUnavailable),
+            (false, ActionRunError::SaveFailed),
+        ] {
+            let runtime = ActionRuntime::default();
+            let prepared = runtime
+                .begin(
+                    "image-viewer-owner",
+                    "image.save",
+                    "output",
+                    json!({"sourceId": "do-not-log-source", "sourceVersion": 0}),
+                )
+                .unwrap();
+            let save_called = Cell::new(false);
+            let result = execute_image_save(
+                &runtime,
+                "image-viewer-owner",
+                &prepared,
+                |_, _| {
+                    if source_error {
+                        Err(ActionRunError::ImageSourceUnavailable)
+                    } else {
+                        Ok(Arc::new(vec![1]))
+                    }
+                },
+                |_| {
+                    save_called.set(true);
+                    Err(ActionRunError::SaveFailed)
+                },
+            )
+            .unwrap_err();
+            assert_eq!(result, expected);
+            assert_eq!(save_called.get(), !source_error);
+            assert!(!format!("{result:?}").contains("do-not-log-source"));
+            assert_eq!(result.code(), expected.code());
+            assert_eq!(
+                runtime.ensure_current("image-viewer-owner", prepared.handle()),
+                Err(ActionError::Superseded)
+            );
+        }
+    }
+
+    #[test]
+    fn image_save_blocks_same_slot_replacement_during_the_file_commit() {
+        let runtime = ActionRuntime::default();
+        let prepared = runtime
+            .begin(
+                "image-viewer-owner",
+                "image.save",
+                "output",
+                json!({"sourceId": "snapshot-secret", "sourceVersion": 0}),
+            )
+            .unwrap();
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            let runtime_ref = &runtime;
+            let prepared_ref = &prepared;
+            let worker = scope.spawn(move || {
+                execute_image_save(
+                    runtime_ref,
+                    "image-viewer-owner",
+                    prepared_ref,
+                    |_, _| Ok(Arc::new(vec![1])),
+                    |_| {
+                        entered_tx.send(()).unwrap();
+                        release_rx.recv().unwrap();
+                        Ok("/private/output/image.png".to_string())
+                    },
+                )
+            });
+            entered_rx.recv().unwrap();
+            assert!(matches!(
+                runtime.begin(
+                    "image-viewer-owner",
+                    "image.save",
+                    "output",
+                    json!({"sourceId": "snapshot-new", "sourceVersion": 0}),
+                ),
+                Err(ActionError::Busy)
+            ));
+            release_tx.send(()).unwrap();
+            assert_eq!(worker.join().unwrap().unwrap(), "/private/output/image.png");
+        });
+        assert!(runtime
+            .begin(
+                "image-viewer-owner",
+                "image.save",
+                "output",
+                json!({"sourceId": "snapshot-new", "sourceVersion": 0}),
+            )
+            .is_ok());
     }
 
     #[test]
