@@ -4,7 +4,8 @@
 
 Clippy 现有截图后端不能直接循环调用成录屏。冻结截图优化的是一次性首帧延迟；录屏需要长寿命采集
 会话、单调时钟、背压、编码、容器封尾和崩溃恢复。第一阶段只交付单区域、无音频的视频，之后再
-增加单一音轨。产品入口必须等待采集、编码和恢复三条链在同一平台同时通过。
+增加单一音轨。发布默认入口必须等待采集、编码和恢复三条链在同一平台同时通过；当前只开放显式
+feature 下的原生 X11 验证入口。
 
 xcap 0.9 提供跨平台 `VideoRecorder`，但官方仍把 video recording 标为 WIP；公开 `Frame` 只有
 `width`、`height` 和 RGBA `raw`，不含采集时间戳，示例在接收端自行读取 `Instant`。本仓库
@@ -31,7 +32,7 @@ xcap 0.9 提供跨平台 `VideoRecorder`，但官方仍把 video recording 标�
 - 普通截图会话不能升级为录屏，录屏会话也不能调用复制、标注、扫码、翻译或长截图命令；
 - 前端只提交后端签发会话中的逻辑选区。30 fps、包含光标、VP9 编码器、输出目录和录制 session ID
   由后端固定或生成；
-- 默认构建、Windows、macOS 和 Wayland 不显示入口。它们仍需完成下文的原生 CI 与真机验收，不能
+- 默认构建、Windows、macOS 和 Wayland 不显示入口。它们仍需完成下文的原生运行与真机验收，不能
   因代码可编译而记为产品可用。
 
 本地开发使用 `cargo tauri dev --features recording-vp9-prototype` 启动；只有桌面会话事实源判定为
@@ -56,6 +57,15 @@ xcap 0.9 提供跨平台 `VideoRecorder`，但官方仍把 video recording 标�
 
 本阶段的验收边界是“可信入口已接线且默认关闭”。X11 真机画质、性能、控制窗排除、停止后的文件
 播放与崩溃恢复仍属于第一阶段剩余验收；通过这些门槛后才能把 feature 设为发布默认值。
+
+### 2026-09-21 同 SHA CI 证据
+
+提交 `3daa487b4435da783afdd203ff7fe0b8f18fb3dd` 的
+[CI Check 35537211962](https://github.com/51hhh/Clippy/actions/runs/35537211962) 已同时通过 Ubuntu
+主检查、Windows/macOS 原生 check、clippy 与 tests，以及 Ubuntu x64、Windows x64、macOS ARM 和
+macOS Intel 四个录屏编码原型 job。这关闭了跨平台编译、链接、mux 和强杀恢复 fixture 的远程门禁
+缺口；它不证明原生帧源、权限提示、光标、混合 DPI、控制窗排除、长时间资源预算或系统播放器兼容，
+这些仍须按下文平台矩阵做真机验收。
 
 ## PX-REC-01 结果与恢复库切片
 
@@ -203,7 +213,7 @@ pipeline、采集线程和编码线程接成一个生命周期：正常 Stop 只
 不会遮住原始采集或编码错误。单活动注册表也已实现 `Starting → Recording → Stopping → Idle`，启动中
 和停止中都占槽，并以不可复用的 generation token 拒绝迟到的暂停、停止与取消；截图桌面资源交接
 状态机已经固定；Tauri 桌面恢复适配器、控制窗口宿主和受 caller 限制的暂停/继续/停止/取消 IPC
-现已接入，但可信开始入口仍未开放。
+现已接入。可信开始入口已在显式 VP9 feature 的原生 X11 构建中开放，默认构建和其他平台继续关闭。
 
 ### 编码器 A/B 工具与当前结论
 
@@ -335,10 +345,11 @@ libwebm `File` 模式写入 seek 信息和显式分段时长；本地回归由 `
 未知 target 会立即失败。`shiguredo_libvpx`、libvpx、`webm`/`webm-sys`、libwebm 与 `yuv` 的许可证
 和 NOTICE 也已进入安装资源。CI 已配置 Ubuntu 22 x64、Windows x64、macOS arm64 的独立 feature
 Clippy 与 mux/session 测试，并为没有上游预编译归档的 macOS x86_64 增加固定 SHA-256 源码归档
-构建。当前分支尚无四目标远程同 SHA 结果；归档下载仍需网络，绑定仍是 canary，因此不能启用默认
-feature 或 UI。2026-09-20 在 Linux x86_64 以隔离 NASM 和 Rust `llvm-tools` 实际冷构建同一源码
-feature，用时 11 分 01 秒；4 个 VP9 mux/`ffprobe` 测试通过。这只验证固定源码输入、编译、符号重写、
-链接与运行链，不替代 macOS Intel runner 结果。
+构建。四目标远程同 SHA 结果已经取得；归档下载仍需网络，绑定仍是 canary，原生运行矩阵也尚未
+完成，因此不能启用默认 feature。2026-09-20 在 Linux x86_64 以隔离 NASM 和 Rust `llvm-tools`
+实际冷构建同一源码
+feature，用时 11 分 01 秒；4 个 VP9 mux/`ffprobe` 测试通过。这只验证本机的固定源码输入、编译、
+符号重写、链接与运行链；macOS Intel runner 已由上述同 SHA CI 单独覆盖。
 
 编码消费线程也已从 MJPEG 具体类型收敛为 `RecordingSegmentWriter` 合同：writer 只能接收时间线已经
 归一化的 RGBA 帧并返回同一个最终时长下的 writer 与帧数；pipeline 排空、原始错误优先级、异常中止
@@ -348,7 +359,8 @@ VP9 已完整经过 capture worker、三槽 pipeline、WebM 封尾、私有分�
 清单中的 encoder/container、分段扩展名、时长与帧数均由同一选择产生。生命周期启动合同现由后端
 传入类型化编码器策略，默认测试继续使用 MJPEG 诊断 writer，feature 回归则证明同一生命周期能够
 选择 VP9 并提交最终 WebM；该选择不从 IPC 接受前端字符串或参数。平台开始适配器已接入领域生命周期，
-但可信 Tauri 开始 IPC 和产品策略仍未开放，因此这不代表 VP9 已成为默认。编码线程现在默认每 60 秒、
+可信 Tauri 开始 IPC 也已接到显式 VP9 feature 的原生 X11 入口；默认策略仍未开放，因此这不代表
+VP9 已成为默认。编码线程现在默认每 60 秒、
 最多允许 120 秒一个周期分段；跨过边界即原子
 提交，最后一段则在 Stop 后由会话 owner 核对时长与背压再把清单标为 complete。MJPEG 子进程强杀 fixture 已
 证明首段提交、次段仍打开时退出，启动恢复会保留可播放首段、删除未提交尾段并写 interrupted；同一
@@ -356,7 +368,8 @@ VP9 已完整经过 capture worker、三槽 pipeline、WebM 封尾、私有分�
 已提交 WebM 前缀与未提交尾段的恢复合同。VP9 实现内部已经把固定帧率/RGBA→I420/libvpx 编码与
 WebM packet mux 拆开，并显式设置零 lookahead：边界先排空上一帧、提交独立可播放分段，再强制下一
 packet 为关键帧；同一 packet 同时进入连续最终 mux。`ffprobe` 会分别核对各段与 `recording.webm`
-的 VP9 codec、帧数和时长。产品入口与四平台原生验收尚未完成，不能据此勾选第一阶段整体验收。
+的 VP9 codec、帧数和时长。X11 受门控入口与四目标编码 CI 已完成；真实平台采集、资源、画质和交互
+验收尚未完成，不能据此勾选第一阶段整体验收。
 
 ## 平台顺序
 
@@ -426,8 +439,8 @@ Windows 平台已加入第一条 WGC 区域帧源骨架：冻结截图的显示�
 合同。仓库现固定 xcap 0.9.6 的完整发布源码，只把 WGC 录制会话的
 `SetIsCursorCaptureEnabled(false)` 改为 `true`；来源、原件哈希、Apache-2.0 许可证、Cargo path
 解析和唯一行为差异由脚本门禁。光标属性从 Windows 10 2004 才提供，上游保留 best-effort 语义；
-模块虽已通过隔离的 `x86_64-pc-windows-msvc` 类型检查，仍需 Windows 原生 CI 和移动光标像素真机
-测试，完成前不能把第一阶段“包含光标”记为通过。
+模块已通过同一 SHA 的 Windows 原生 check、clippy 与 tests，仍需移动光标像素真机测试；完成前
+不能把第一阶段“包含光标”记为通过。
 
 macOS 平台已加入 AVFoundation 区域帧源骨架：准备阶段以 CoreGraphics display ID 重新取得实际
 backing-pixel 尺寸并核对冻结几何，再把覆盖层的左上角物理 crop 转换为
@@ -440,8 +453,8 @@ xcap 的 macOS delegate 使用零容量同步通道。Clippy 在采集 worker �
 `AVCaptureSession`，同时用独立桥接线程持续接收回调并只保留最新一帧，避免停止会话时 delegate
 阻塞在发送上。暂停、继续和停止均调用同一 recorder hook，继续前丢弃旧缓存帧。仓库只为 xcap
 增加了受边界检查的 macOS 区域录制入口，版本、原件哈希、七个补丁文件、许可证和调用形态均由
-脚本固定。隔离的 `aarch64-apple-darwin` 类型与 lint 检查已经通过；屏幕录制权限、光标、Retina、
-旋转屏、负坐标混合 DPI 和 4K/6K 真机仍须在 macOS 原生 CI/设备验证。当前 AVFoundation 路径也
+脚本固定。同一 SHA 的 macOS 原生 check、clippy 与 tests 已通过；屏幕录制权限、光标、Retina、
+旋转屏、负坐标混合 DPI 和 4K/6K 仍须设备验证。当前 AVFoundation 路径也
 不能排除控制窗：Apple 已把
 [`NSWindow.SharingType.none`](https://developer.apple.com/documentation/appkit/nswindow/sharingtype-swift.enum)
 标为系统不再使用的旧常量，不能把 Tauri 的 content protection 当成录屏过滤证据；若控制窗必须
