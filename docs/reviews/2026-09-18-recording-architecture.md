@@ -143,6 +143,18 @@ rav1e 当前参数明显未达到实时，本机也没有 NASM，尚不能验证
 OpenH264 的源码本身可嵌入构建，但自行编译的库与 Cisco 分发的预编译二进制不具有同一分发条件；
 在许可、专利和安装包策略独立审查前，不把它作为第一阶段默认依赖。MJPEG 继续只承担诊断闭环。
 
+仓库现以非默认 `recording-vp9-prototype` feature 加入第一条嵌入式 VP9/WebM 探针。它把 RGBA 按
+BT.709 limited-range 转成 I420，以固定帧率补齐背压造成的时间空洞，每两秒强制关键帧，并用
+libwebm `File` 模式写入 seek 信息和显式分段时长；本地回归由 `ffprobe` 核对 VP9、帧数和 200 ms
+时长。纯 Rust `ebml-webm 0.2.1` 探针能解码 30 帧，但没有写 `Duration`/`DefaultDuration`，因此没有
+进入实现。
+
+该原型仍不具备默认依赖资格：`shiguredo_libvpx 2026.2.0-canary.1` 会在 build script 中从 GitHub
+下载按平台预编译的 libvpx 并另取 SHA-256 文件校验，干净构建需要网络，且绑定仍是 canary。
+Clippy 已精确固定 crate 版本，并把整个模块隔离在非默认 feature；启用默认产品构建、会话 owner 或
+UI 前，必须改成可复现的依赖获取方式，补齐 MPL/libvpx 第三方声明，并让同一 SHA 的 Ubuntu 22.04、
+Windows x64、macOS Intel/Apple Silicon 均编译和运行该 feature。当前 Linux 探针成功不替代这些门禁。
+
 ## 平台顺序
 
 1. 先实现与平台无关的 manifest、时间线、有界队列和合成帧 fixture；

@@ -773,6 +773,12 @@ generation token 绑定、停止/失败释放 gate 的严格顺序；Tauri 适�
 只说明尚不能验证源码构建优化链，不用于推断系统 FFmpeg 中 rav1e 二进制是否启用汇编。OpenH264
 须先独立审查自行编译与 Cisco 预编译二进制的分发条件，本阶段不选为默认。
 
+嵌入原型已由非默认 `recording-vp9-prototype` feature 固定：RGBA 经 BT.709 limited-range I420 转换，
+固定帧率空洞补帧，两秒关键帧间隔，libwebm `File` 模式写入 seek 与显式时长；Linux 本地测试与
+`ffprobe` 已核对 VP9、帧数和时长。纯 Rust `ebml-webm` 因当前不写容器时长被排除。原型依赖的
+`shiguredo_libvpx` 仍是 canary，且 build script 会联网下载平台预编译库，因此默认 feature、会话
+owner 和 UI 保持不接入；可复现供应链、第三方声明和三平台同 SHA feature 构建仍是启用前置条件。
+
 ### `PX-ACT-01`：类型化动作与启动器
 
 **Goal**：让截图、OCR、扫码、翻译、复制、保存和 Pin 以同一安全合同组合与调用。

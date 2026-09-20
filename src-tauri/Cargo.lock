@@ -412,6 +412,8 @@ dependencies = [
  "cexpr",
  "clang-sys",
  "itertools",
+ "log",
+ "prettyplease",
  "proc-macro2",
  "quote",
  "regex",
@@ -836,6 +838,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "shiguredo_libvpx",
  "tauri",
  "tauri-build",
  "tauri-plugin-autostart",
@@ -853,6 +856,7 @@ dependencies = [
  "urlencoding",
  "usvg",
  "webkit2gtk",
+ "webm",
  "windows-sys 0.61.2",
  "x11rb",
  "xcap 0.4.1",
@@ -5430,6 +5434,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "shiguredo_libvpx"
+version = "2026.2.0-canary.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e0bfd0a9e72b214aeeb8037bac5a7705ac584bb0edd6c8b964157ee53819b031"
+dependencies = [
+ "bindgen",
+ "shiguredo_toml",
+]
+
+[[package]]
+name = "shiguredo_toml"
+version = "2026.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b475c218cf15d056ed3e48c9e98693135b261b79530881e63b162650b236fdec"
+
+[[package]]
 name = "shlex"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7265,6 +7285,24 @@ dependencies = [
  "pkg-config",
  "soup3-sys",
  "system-deps 6.2.2",
+]
+
+[[package]]
+name = "webm"
+version = "2.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dbbd80346c5f7aa3aec84cc9e64454911f9b211a9e648d040cad432ad8d29ec6"
+dependencies = [
+ "webm-sys",
+]
+
+[[package]]
+name = "webm-sys"
+version = "2.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4573631d064f24e233a9cd6e5764eef0f364f1248444c0049d047a7784e613a2"
+dependencies = [
+ "cc",
 ]
 
 [[package]]

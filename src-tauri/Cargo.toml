@@ -21,6 +21,9 @@ default = ["linux-pipewire"]
 # 兼容已有的显式构建命令，但 PipeWire 依赖和截图后端不再受 feature 控制：即使调用
 # `--no-default-features`，正式 Linux 产物也不能把 GNOME 的低延迟主路径裁掉。
 linux-pipewire = []
+# PX-REC-01 的隔离编码原型。当前 libvpx 绑定仍是 canary，且默认在构建时下载按平台预编译库；
+# 在三平台同 SHA 构建和供应链策略完成前，不能进入默认产品构建或录屏入口。
+recording-vp9-prototype = ["dep:shiguredo_libvpx", "dep:webm"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -76,6 +79,10 @@ keyring = "4.1"
 md-5 = "0.10"
 aes = "0.8"
 cbc = "0.1"
+# 仅由 recording-vp9-prototype 启用；版本精确固定，防止 canary API 或原生构建输入静默变化。
+shiguredo_libvpx = { version = "=2026.2.0-canary.1", optional = true }
+# libwebm 源码随 crate 构建，用于写入带显式时长和 seek 元数据的 VP9/WebM 分段。
+webm = { version = "=2.2.1", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # xcap 0.9 在 Linux 强制引入需要新版 PipeWire 头文件的 pipewire-rs，stock Ubuntu 22
