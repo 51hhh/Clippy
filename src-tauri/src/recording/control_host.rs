@@ -201,15 +201,20 @@ fn control_exclusion_capability() -> WindowExclusionCapability {
     #[cfg(target_os = "windows")]
     {
         let version = windows_version::OsVersion::current();
-        if supports_windows_native_exclusion(version.major, version.build) {
-            WindowExclusionCapability::NativeExclusion
-        } else {
-            // Windows 10 2004 前会把 0x11 退化为 WDA_MONITOR；继续要求几何排除，避免留下黑块。
-            WindowExclusionCapability::GeometryOnly
-        }
+        windows_control_exclusion_capability(version.major, version.build)
     }
     #[cfg(not(target_os = "windows"))]
     {
+        WindowExclusionCapability::GeometryOnly
+    }
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn windows_control_exclusion_capability(major: u32, build: u32) -> WindowExclusionCapability {
+    if supports_windows_native_exclusion(major, build) {
+        WindowExclusionCapability::Native
+    } else {
+        // Windows 10 2004 前会把 0x11 退化为 WDA_MONITOR；继续要求几何排除，避免留下黑块。
         WindowExclusionCapability::GeometryOnly
     }
 }
@@ -468,7 +473,10 @@ pub(crate) fn handle_control_destroyed(app: &tauri::AppHandle, label: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::supports_windows_native_exclusion;
+    use super::{
+        supports_windows_native_exclusion, windows_control_exclusion_capability,
+        WindowExclusionCapability,
+    };
 
     #[test]
     fn native_window_exclusion_requires_windows_10_2004() {
@@ -477,5 +485,13 @@ mod tests {
         assert!(supports_windows_native_exclusion(10, 19_041));
         assert!(supports_windows_native_exclusion(10, 22_000));
         assert!(supports_windows_native_exclusion(11, 1));
+        assert_eq!(
+            windows_control_exclusion_capability(10, 19_040),
+            WindowExclusionCapability::GeometryOnly
+        );
+        assert_eq!(
+            windows_control_exclusion_capability(10, 19_041),
+            WindowExclusionCapability::Native
+        );
     }
 }
