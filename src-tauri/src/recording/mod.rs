@@ -44,6 +44,9 @@ mod mux;
 #[allow(dead_code)]
 mod platform;
 
+#[cfg(feature = "recording-vp9-prototype")]
+pub(crate) use mux::vp9_webm::Vp9WebmWriter;
+
 use std::fmt;
 use std::io;
 use std::path::Path;

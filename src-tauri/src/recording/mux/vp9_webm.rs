@@ -20,7 +20,7 @@ const VP9_CQ_LEVEL: usize = 30;
 const VP9_CPU_USED: usize = 6;
 
 #[derive(Debug, Error)]
-pub(in crate::recording) enum Vp9WebmError {
+pub(crate) enum Vp9WebmError {
     #[error("VP9/WebM 配置无效")]
     InvalidConfiguration,
     #[error("VP9 输入 RGBA 字节数与尺寸不一致")]
@@ -50,7 +50,7 @@ struct PendingFrame {
     image: I420Frame,
 }
 
-pub(in crate::recording) struct Vp9WebmOutput<W> {
+pub(crate) struct Vp9WebmOutput<W> {
     pub writer: W,
     pub frame_count: u64,
 }
@@ -396,7 +396,7 @@ impl<W: Write + Seek> WebmPacketMux<W> {
     }
 }
 
-pub(in crate::recording) struct Vp9WebmWriter<W: Write + Seek> {
+pub(crate) struct Vp9WebmWriter<W: Write + Seek> {
     encoder: Vp9PacketEncoder,
     mux: WebmPacketMux<W>,
 }

@@ -166,6 +166,32 @@ rav1e 当前参数明显未达到实时，本机也没有 NASM，尚不能验证
 二进制，故这些数字只作为参数与预算方向：启用产品默认前仍须用实际嵌入式 writer + 真实帧源记录
 CPU/RSS/背压丢帧、停止封尾和安装包增量，并取得四目标同 SHA CI。
 
+仓库另提供 feature-gated 的 `recording_vp9_benchmark` 工程二进制。它直接调用生产
+`Vp9WebmWriter`，生成有静态渐变、网格和移动方块的确定性 RGBA 帧，完整经过
+RGBA→I420→libvpx→WebM，不经过 FFmpeg，也不复制 writer。输出使用 `create_new`，单帧沿用产品
+64 MiB 上限，最长 18,000 帧；因此可重复测实际嵌入路径且不会覆盖已有文件。优化构建和运行方式：
+
+```bash
+cd src-tauri
+cargo build --profile bench --bin recording_vp9_benchmark \
+  --features recording-vp9-source-build
+/usr/bin/time -v target/release/recording_vp9_benchmark \
+  --duration 60 --width 1920 --height 1080 --fps 30 \
+  --output /tmp/clippy-embedded-vp9-1080p-60s.webm
+```
+
+2026-09-20 在同一 Intel Core Ultra 5 125H 上，以固定源码归档构建的实际嵌入 writer 得到：
+
+| 档位 | writer 用时 | 相对素材时长 | 吞吐 | 峰值 RSS | 文件大小 | `ffprobe` |
+|---|---:|---:|---:|---:|---:|---|
+| 1080p / 30 fps | 19.496 s | 32.5% | 92.3 fps | 214.1 MiB | 3.51 MiB | VP9，1,800 帧，60.000 s |
+| 4K / 30 fps | 74.263 s | 123.8% | 24.2 fps | 723.1 MiB | 12.70 MiB | VP9，1,800 帧，60.000 s |
+
+1080p 合成样本通过实时预算；4K 比素材时长多 14.263 秒，未达到 30 fps，所以当前参数不得开放
+4K 默认档。该基准没有桌面读取、控制窗排除和三槽队列，不能给出真实采集掉帧；下一步先以
+1080p 真实 X11 帧源测端到端背压，再用 profiler 分开测 RGBA→I420 与 libvpx 的 4K 成本。只有优化
+后 4K 合成与真实采集都在预算内，才能重新评估 4K 档位。
+
 OpenH264 的源码本身可嵌入构建，但自行编译的库与 Cisco 分发的预编译二进制不具有同一分发条件；
 在许可、专利和安装包策略独立审查前，不把它作为第一阶段默认依赖。MJPEG 继续只承担诊断闭环。
 
