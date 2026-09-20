@@ -358,7 +358,7 @@ fn build_from_source_windows_msvc(src_dir: &Path) {
         "./configure --target=x86_64-win64-vs17 \
          --disable-shared --enable-vp9-highbitdepth \
          --disable-examples --disable-tools --disable-docs --disable-unit-tests \
-         --enable-external-build --as=nasm",
+         --enable-external-build --as=nasm --prefix=\"$(pwd)\"",
         "configure (MSVC)",
     );
     run_with_shell(src_dir, "make vpx.vcxproj", "generate vpx.vcxproj");
@@ -377,6 +377,9 @@ fn build_from_source_windows_msvc(src_dir: &Path) {
     if !status.success() {
         panic!("[msbuild] failed to build {LIB_NAME} for Windows MSVC");
     }
+    // external-build 不会由 MSBuild 安装公开头文件；沿用 libvpx 自身的安装映射，
+    // 将 vpx/*.h 和已构建的 vpxmd.lib 归一到源码构建的标准 include/lib 目录。
+    run_with_shell(src_dir, "make install", "make install (MSVC)");
 
     // libvpx の VS project は動的 CRT 用 static library を vpxmd.lib として出力する。
     // Rust 側の既存 #[link(name = \"vpx\")] を保つため、隔離した出力先で vpx.lib に正規化する。

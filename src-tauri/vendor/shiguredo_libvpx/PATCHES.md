@@ -15,6 +15,8 @@ Clippy 只修改 `build.rs` 的外部输入校验来源：
   忽略这类未知 GCC flag。替换只允许命中固定源码中的唯一一行，源码结构变化时立即失败；
 - VS Release 工程关闭 LTCG，输出标准 COFF 对象，使现有的 `llvm-objcopy` 符号隔离步骤能够读取并
   重写静态库；优化级别仍为 `MaxSpeed`，只关闭全程序优化；
+- MSBuild 完成后调用 libvpx 自身的安装映射，把公开头文件和动态 CRT 静态库归一到源码构建通用的
+  `include`/`lib` 目录，供 bindgen 与 Rust 链接步骤使用；
 - 上游没有 macOS x86_64 预编译归档；该目标启用 `source-build` 时改为下载 libvpx v1.16.0
   源码归档，并用仓库固定 SHA-256 校验后再编译；
 - 移除源码构建时按可变 tag 浅克隆 Git 仓库的行为。

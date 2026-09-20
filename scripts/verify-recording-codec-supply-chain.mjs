@@ -41,6 +41,7 @@ if (
   !buildScript.includes('(\"x86_64\", \"msvc\") => build_from_source_windows_msvc(src_dir)') ||
   !buildScript.includes('x86_64-win64-vs17') ||
   !buildScript.includes('vpxmd.lib') ||
+  !buildScript.includes('make install (MSVC)') ||
   !buildScript.includes('tag_content WholeProgramOptimization false') ||
   !buildScript.includes('unexpected libvpx MSVC project generator')
 ) {
