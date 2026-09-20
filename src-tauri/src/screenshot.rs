@@ -73,6 +73,25 @@ pub(crate) struct CapturedMonitorFrame {
     pub rgba: Arc<[u8]>,
 }
 
+/// Wayland 录屏在 Portal 交互前重新取得的显示器身份与两套几何。
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WaylandRecordingMonitor {
+    pub id: u32,
+    pub logical_x: i32,
+    pub logical_y: i32,
+    pub logical_width: u32,
+    pub logical_height: u32,
+    pub pixel_width: u32,
+    pub pixel_height: u32,
+    pub monitor_count: usize,
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn wayland_recording_monitor(id: u32) -> Result<WaylandRecordingMonitor> {
+    backends::wayland_recording_monitor(id)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct DesktopBounds {
     x: i32,

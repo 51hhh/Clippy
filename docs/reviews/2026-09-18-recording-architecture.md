@@ -272,8 +272,7 @@ VP9 已完整经过 capture worker、三槽 pipeline、WebM 封尾、私有分�
 已提交 WebM 前缀与未提交尾段的恢复合同。VP9 实现内部已经把固定帧率/RGBA→I420/libvpx 编码与
 WebM packet mux 拆开，并显式设置零 lookahead：边界先排空上一帧、提交独立可播放分段，再强制下一
 packet 为关键帧；同一 packet 同时进入连续最终 mux。`ffprobe` 会分别核对各段与 `recording.webm`
-的 VP9 codec、帧数和时长。产品入口、Wayland 帧源与 Windows/macOS 原生验收尚未完成，不能据此
-勾选第一阶段整体验收。
+的 VP9 codec、帧数和时长。产品入口与四平台原生验收尚未完成，不能据此勾选第一阶段整体验收。
 
 ## 平台顺序
 
@@ -331,8 +330,8 @@ Linux X11 已加入持久 x11rb 连接的根窗口区域帧源：每次只请求
 控制通道错误及 `Drop` 回收都会中止 pipeline。独立诊断编码线程已闭合 capture → 三槽 pipeline →
 MJPEG/AVI：它阻塞等待帧，先排空已接受前缀，再使用同一最终时长封尾；编码失败或线程回收会反向
 中止 pipeline，停止仍在运行的采集线程。桌面资源恢复领域状态机、Tauri 控制窗宿主和控制 IPC 已
-接入；可信开始 IPC、X11 真机性能证据、macOS 原生验收与 Wayland 帧源仍未完成，因此还不能从 UI
-开始录屏。
+接入；可信开始 IPC、X11 真机性能证据以及 Windows/macOS/Wayland 原生验收仍未完成，因此还不能
+从 UI 开始录屏。
 
 Windows 平台已加入第一条 WGC 区域帧源骨架：冻结截图的显示器 ID 和物理像素尺寸会再次与当前
 `xcap` 显示器核对，WGC 整屏帧进入零容量通道后由 Clippy 单槽桥接只保留最新一帧，再按可信 crop
@@ -361,6 +360,25 @@ xcap 的 macOS delegate 使用零容量同步通道。Clippy 在采集 worker �
 旋转屏、负坐标混合 DPI 和 4K/6K 真机仍须在 macOS 原生 CI/设备验证。当前 AVFoundation 路径也
 不能排除控制窗；若控制窗必须位于选区内，仍须迁移 ScreenCaptureKit 过滤器。因此该骨架不开放
 产品入口，也不把 macOS 录制记为通过。
+
+Wayland 已建立 ScreenCast Portal + PipeWire 区域帧源骨架。准备阶段先按冻结帧的稳定 output ID
+重新枚举原生 Wayland 输出，并核对旋转后的物理像素尺寸；Portal 只请求单个 Monitor 源和 Embedded
+光标，禁止多流与 restore token。用户在系统选择器授权后，多屏会话必须由 Portal 返回的逻辑位置和
+尺寸精确证明是冻结选区所在显示器；只有单屏时才允许 position/size 都缺失，并继续由 PipeWire
+协商尺寸做第二次强校验。选错屏、返回多流、源类型不符、显示器热插拔或缩放变化均明确失败，不做
+静默拉伸。
+
+Portal 提供整屏 stream，Clippy 只在验证完整帧恰好等于冻结显示器后按可信 crop 裁切，因此整块
+显示器 RGBA 必须落在 64 MiB 单帧预算内。截图和录屏现共用一份 PipeWire 原始视频解析器：只接受
+八种 32-bit RGB 内存排列、正 stride、有效 offset 和共享内存/MemFd，显式拒绝 DMA-BUF；格式协商
+阶段在分配像素前先核对物理宽高。专用 PipeWire main loop 线程通过单槽桥只保留最新帧，暂停/继续
+调用 `pw_stream_set_active`，停止断开 stream、退出 loop 并关闭 Portal session。初始化与控制均有
+五秒上限；初始化卡在第三方库时调用线程按时返回，Portal 随后关闭，迟到线程不会进入产品会话。
+
+这仍不是 Wayland 产品完成：开始 Portal 请求尚未绑定可验证的 parent window，也没有“正在等待系统
+授权”的可取消 UI；控制窗又无法由 Portal 排除，而托盘/快捷键后备尚未实现。GNOME、KDE 与 wlroots
+上的授权拒绝、单/多屏元数据、分数缩放、旋转屏、静态帧、4K 带宽、光标和 Stop/Drop 回收都需要
+真机证据。完成这些以前，主界面和截图工具条继续没有录屏入口。
 
 `ci-local.sh` 现会在隔离 Xvfb 中显式运行原生闭环：RandR 可信区域 → 持久 X11 帧源 → 采集线程 →
 三槽 pipeline → MJPEG/AVI → 私有分段与 complete manifest，并核对清单帧数和文件权限。它验证真实

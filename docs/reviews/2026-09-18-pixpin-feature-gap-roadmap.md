@@ -831,7 +831,11 @@ AVFoundation 区域帧源：CoreGraphics 核对 backing-pixel 几何，把左上
 点，并由 `cropRect + scaleFactor` 直接输出选区像素，避免 6K/8K 整屏 RGBA；零容量回调由单槽最新
 帧桥持续排空，暂停、继续、停止与非 `Send` session 都留在采集 worker 内。其 aarch64 macOS
 隔离类型/lint 已通过，但权限、光标、Retina/旋转/混合 DPI、控制窗排除和 4K/6K 真机尚未验证。
-Wayland 帧源与产品入口也未接入，因此第一阶段验收保持未完成。
+Wayland 已建立 ScreenCast Portal + PipeWire 单显示器帧源：只请求 Monitor + Embedded cursor，按
+Portal 逻辑几何复核冻结显示器，协商阶段核对完整物理尺寸，共用有界的共享内存 RGBA 解码，并用
+`pw_stream_set_active` 实现暂停/继续。多屏缺少 Portal position/size、返回多流、选错显示器、整屏
+超过 64 MiB 或收到 DMA-BUF 都会明确拒绝。Portal parent window、可取消授权 UI、托盘/快捷键控制
+后备以及 GNOME/KDE/wlroots 真机矩阵尚未完成；产品入口继续关闭，因此第一阶段验收保持未完成。
 
 ### `PX-ACT-01`：类型化动作与启动器
 

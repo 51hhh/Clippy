@@ -658,6 +658,40 @@ pub(super) fn enumerate_wayland_monitors_with_connectors() -> Result<Vec<(Monito
     Ok(monitors)
 }
 
+/// 录屏 Portal 打开前按冻结帧的稳定 ID 重新取得唯一 Wayland 输出。
+#[cfg(target_os = "linux")]
+pub(super) fn wayland_recording_monitor(monitor_id: u32) -> Result<super::WaylandRecordingMonitor> {
+    let connection = wayland_connection()?;
+    let outputs = connection.get_all_outputs().to_vec();
+    let monitor_count = outputs.len();
+    let mut matches = outputs
+        .iter()
+        .enumerate()
+        .filter(|(index, output)| stable_wayland_output_id(*index, output) == monitor_id);
+    let (index, output) = matches
+        .next()
+        .with_context(|| format!("Wayland 显示器 {monitor_id} 已不存在"))?;
+    if matches.next().is_some() {
+        bail!("Wayland 显示器 {monitor_id} 映射不唯一");
+    }
+    let info = monitor_info_from_wayland_output(index, output);
+    let (pixel_width, pixel_height) = if transform_swaps_axes(output.transform) {
+        (output.physical_size.height, output.physical_size.width)
+    } else {
+        (output.physical_size.width, output.physical_size.height)
+    };
+    Ok(super::WaylandRecordingMonitor {
+        id: info.id,
+        logical_x: info.rect.x,
+        logical_y: info.rect.y,
+        logical_width: info.rect.width,
+        logical_height: info.rect.height,
+        pixel_width,
+        pixel_height,
+        monitor_count,
+    })
+}
+
 /// 非交互 Portal 截图。
 ///
 /// 已知会失败的一种情况，不要再花时间查：GNOME Wayland 上 xdg-desktop-portal 首次
