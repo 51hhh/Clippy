@@ -11,6 +11,8 @@ Clippy 只修改 `build.rs` 的外部输入校验来源：
 - 当前固定 Ubuntu 22.04/24.04/26.04 x86_64、Windows GNU x86_64 与 macOS arm64；
 - 上游 Windows 预编译归档使用 MinGW/pthread ABI，不能链接 Clippy 的 MSVC 目标；Windows MSVC
   启用 `source-build` 后从固定源码归档生成 Visual Studio 17/v143 工程，并用 MSBuild 构建；
+- libvpx 1.16.0 的 VS 工程生成器会拒绝 external-build 泄漏的 `-O3`；按 Microsoft vcpkg 同版补丁
+  忽略这类未知 GCC flag。替换只允许命中固定源码中的唯一一行，源码结构变化时立即失败；
 - 上游没有 macOS x86_64 预编译归档；该目标启用 `source-build` 时改为下载 libvpx v1.16.0
   源码归档，并用仓库固定 SHA-256 校验后再编译；
 - 移除源码构建时按可变 tag 浅克隆 Git 仓库的行为。

@@ -40,7 +40,8 @@ if (buildScript.includes('Command::new("git")') || buildScript.includes('arg("cl
 if (
   !buildScript.includes('(\"x86_64\", \"msvc\") => build_from_source_windows_msvc(src_dir)') ||
   !buildScript.includes('x86_64-win64-vs17') ||
-  !buildScript.includes('vpxmd.lib')
+  !buildScript.includes('vpxmd.lib') ||
+  !buildScript.includes('unexpected libvpx MSVC project generator')
 ) {
   throw new Error("vendored libvpx must build a native MSVC archive for Windows MSVC targets");
 }

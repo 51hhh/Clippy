@@ -352,6 +352,7 @@ fn build_from_source_windows_gnu(src_dir: &Path) {
 // Rust の Windows リリースは MSVC ABI を使う。上流の windows_x86_64 prebuilt は
 // MinGW/pthread シンボルを含むため、固定ソースから Visual Studio project を生成してビルドする。
 fn build_from_source_windows_msvc(src_dir: &Path) {
+    patch_windows_msvc_project_generator(src_dir);
     run_with_shell(
         src_dir,
         "./configure --target=x86_64-win64-vs17 \
@@ -388,6 +389,26 @@ fn build_from_source_windows_msvc(src_dir: &Path) {
             built_library.display()
         )
     });
+}
+
+// libvpx 1.16.0 は external-build 時にも GCC 用の -O3 を VS project generator に渡す。
+// Microsoft vcpkg の同版向け修正と同じ 1 行だけを書き換え、固定源码が変わった場合は即座に失敗する。
+fn patch_windows_msvc_project_generator(src_dir: &Path) {
+    const ORIGINAL: &str = "        -*) die_unknown $opt\n";
+    const PATCHED: &str =
+        "        -*) : # Ignore unknown flags (e.g. -O3 leaked from GCC CFLAGS)\n";
+
+    let script_path = src_dir.join("build/make/gen_msvs_vcxproj.sh");
+    let script = fs::read_to_string(&script_path)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", script_path.display()));
+    if script.matches(ORIGINAL).count() != 1 {
+        panic!(
+            "unexpected libvpx MSVC project generator at {}; refuse to apply an ambiguous patch",
+            script_path.display()
+        );
+    }
+    fs::write(&script_path, script.replacen(ORIGINAL, PATCHED, 1))
+        .unwrap_or_else(|error| panic!("failed to patch {}: {error}", script_path.display()));
 }
 
 // shell 経由でコマンドを実行する
