@@ -13,6 +13,14 @@ pub(crate) async fn trigger_capture_overlay(app_handle: tauri::AppHandle) -> Res
     crate::capture::show_capture_overlay_for_app(app_handle.clone(), &state).await
 }
 
+/// 类型化动作复用同一个截图入口，并保留结构化领域错误供动作层映射稳定错误码。
+pub(crate) async fn start_capture_overlay(
+    app_handle: tauri::AppHandle,
+) -> Result<String, crate::capture::CaptureError> {
+    let state = tauri::Manager::state::<AppState>(&app_handle);
+    crate::capture::start_capture_overlay_for_app(app_handle.clone(), &state).await
+}
+
 #[cfg(test)]
 mod tests {
     /// 编辑器窗口已经删掉，能力清单里不能再留 `capture`——留着就是一个

@@ -384,6 +384,8 @@ pub(super) enum ActionError {
     GenerationExhausted,
     #[error("动作状态锁已损坏")]
     Poisoned,
+    #[error("动作执行任务异常终止")]
+    WorkerFailed,
 }
 
 impl ActionError {
@@ -400,6 +402,7 @@ impl ActionError {
             Self::InvalidMode => "action_invalid_mode",
             Self::GenerationExhausted => "action_generation_exhausted",
             Self::Poisoned => "action_internal",
+            Self::WorkerFailed => "action_internal",
         }
     }
 }
@@ -429,9 +432,43 @@ struct RuntimeState {
     active: HashMap<ActionSlot, ActiveAction>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct ActionRuntime {
-    state: Mutex<RuntimeState>,
+    state: Arc<Mutex<RuntimeState>>,
+}
+
+struct NoncancellableCommitGuard {
+    runtime: ActionRuntime,
+    caller_label: String,
+    handle: ActionHandle,
+    retired: bool,
+}
+
+impl NoncancellableCommitGuard {
+    fn new(runtime: ActionRuntime, caller_label: String, handle: ActionHandle) -> Self {
+        Self {
+            runtime,
+            caller_label,
+            handle,
+            retired: false,
+        }
+    }
+
+    fn finish(mut self) -> Result<(), ActionError> {
+        self.runtime
+            .finish_noncancellable_commit(&self.caller_label, &self.handle)?;
+        self.retired = true;
+        Ok(())
+    }
+}
+
+impl Drop for NoncancellableCommitGuard {
+    fn drop(&mut self) {
+        if !self.retired {
+            self.runtime
+                .abandon_noncancellable_commit(&self.caller_label, &self.handle);
+        }
+    }
 }
 
 impl ActionRuntime {
@@ -543,23 +580,80 @@ impl ActionRuntime {
         handle: &ActionHandle,
         commit: impl FnOnce() -> Result<T, E>,
     ) -> Result<Result<T, E>, ActionError> {
-        {
-            let mut state = self.state.lock().map_err(|_| ActionError::Poisoned)?;
-            let active = current_action_mut(&mut state, caller_label, handle)?;
-            if active.cancellable {
-                return Err(ActionError::InvalidMode);
-            }
-            if active.phase == ActionPhase::Committing {
-                return Err(ActionError::Busy);
-            }
-            active.phase = ActionPhase::Committing;
-        }
-
+        self.begin_noncancellable_commit(caller_label, handle)?;
+        let guard =
+            NoncancellableCommitGuard::new(self.clone(), caller_label.to_string(), handle.clone());
         let result = commit();
-        let mut state = self.state.lock().map_err(|_| ActionError::Poisoned)?;
-        current_action(&state, caller_label, handle)?;
-        state.active.remove(&slot_for(caller_label, handle));
+        guard.finish()?;
         Ok(result)
+    }
+
+    /// 不可取消的异步副作用在独立任务中完成。调用方 future 即使因窗口关闭而被丢弃，
+    /// 截图启动仍会走到领域层成功或补偿终点，随后回收精确动作槽。
+    pub async fn commit_noncancellable_async<T, E, Start, StartFuture>(
+        &self,
+        caller_label: &str,
+        handle: &ActionHandle,
+        start: Start,
+    ) -> Result<Result<T, E>, ActionError>
+    where
+        T: Send + 'static,
+        E: Send + 'static,
+        Start: FnOnce() -> StartFuture + Send + 'static,
+        StartFuture: std::future::Future<Output = Result<T, E>> + Send + 'static,
+    {
+        self.begin_noncancellable_commit(caller_label, handle)?;
+        let guard =
+            NoncancellableCommitGuard::new(self.clone(), caller_label.to_string(), handle.clone());
+        let worker = tokio::spawn(async move {
+            let result = start().await;
+            guard.finish()?;
+            Ok::<_, ActionError>(result)
+        });
+        worker.await.map_err(|_| ActionError::WorkerFailed)?
+    }
+
+    fn begin_noncancellable_commit(
+        &self,
+        caller_label: &str,
+        handle: &ActionHandle,
+    ) -> Result<(), ActionError> {
+        let mut state = self.state.lock().map_err(|_| ActionError::Poisoned)?;
+        let active = current_action_mut(&mut state, caller_label, handle)?;
+        if active.cancellable {
+            return Err(ActionError::InvalidMode);
+        }
+        if active.phase == ActionPhase::Committing {
+            return Err(ActionError::Busy);
+        }
+        active.phase = ActionPhase::Committing;
+        Ok(())
+    }
+
+    fn finish_noncancellable_commit(
+        &self,
+        caller_label: &str,
+        handle: &ActionHandle,
+    ) -> Result<(), ActionError> {
+        let mut state = self.state.lock().map_err(|_| ActionError::Poisoned)?;
+        let active = current_action(&state, caller_label, handle)?;
+        if active.phase != ActionPhase::Committing {
+            return Err(ActionError::InvalidMode);
+        }
+        state.active.remove(&slot_for(caller_label, handle));
+        Ok(())
+    }
+
+    fn abandon_noncancellable_commit(&self, caller_label: &str, handle: &ActionHandle) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        let slot = slot_for(caller_label, handle);
+        if state.active.get(&slot).is_some_and(|active| {
+            active.generation == handle.generation && active.phase == ActionPhase::Committing
+        }) {
+            state.active.remove(&slot);
+        }
     }
 }
 
@@ -871,6 +965,100 @@ mod tests {
             .unwrap();
         assert_eq!(ActionError::NotCancellable.code(), "action_not_cancellable");
         assert_eq!(ActionError::Busy.code(), "action_busy");
+    }
+
+    #[test]
+    fn panicked_sync_commit_retires_the_exact_slot() {
+        let runtime = ActionRuntime::default();
+        let prepared = runtime
+            .begin("launcher", "text.copy", "copy", json!({"text": "private"}))
+            .unwrap();
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _: Result<Result<(), ()>, ActionError> =
+                runtime.commit_noncancellable("launcher", prepared.handle(), || {
+                    panic!("synthetic sync commit panic")
+                });
+        }));
+        assert!(panic.is_err());
+        assert!(runtime
+            .begin("launcher", "text.copy", "copy", json!({"text": "retry"}))
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn async_noncancellable_commit_survives_waiter_drop_and_retires_the_slot() {
+        let runtime = Arc::new(ActionRuntime::default());
+        let prepared = runtime
+            .begin("launcher", "capture.start", "capture", json!({}))
+            .unwrap();
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let completed = Arc::new(tokio::sync::Notify::new());
+        let waiter = {
+            let runtime = Arc::clone(&runtime);
+            let entered = Arc::clone(&entered);
+            let release = Arc::clone(&release);
+            let completed = Arc::clone(&completed);
+            tokio::spawn(async move {
+                runtime
+                    .commit_noncancellable_async(
+                        "launcher",
+                        prepared.handle(),
+                        move || async move {
+                            entered.notify_one();
+                            release.notified().await;
+                            completed.notify_one();
+                            Ok::<_, ()>("capture-session")
+                        },
+                    )
+                    .await
+            })
+        };
+        entered.notified().await;
+        assert!(matches!(
+            runtime.begin("launcher", "capture.start", "capture", json!({})),
+            Err(ActionError::Busy)
+        ));
+
+        waiter.abort();
+        assert!(waiter.await.unwrap_err().is_cancelled());
+        release.notify_one();
+        completed.notified().await;
+
+        let next = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                match runtime.begin("launcher", "capture.start", "capture", json!({})) {
+                    Ok(prepared) => break prepared,
+                    Err(ActionError::Busy) => tokio::task::yield_now().await,
+                    Err(error) => panic!("unexpected action state: {error:?}"),
+                }
+            }
+        })
+        .await
+        .expect("detached commit must retire its slot");
+        runtime.ensure_current("launcher", next.handle()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn panicked_async_commit_returns_internal_error_and_retires_the_slot() {
+        let runtime = ActionRuntime::default();
+        let prepared = runtime
+            .begin("launcher", "capture.start", "capture", json!({}))
+            .unwrap();
+        assert_eq!(
+            runtime
+                .commit_noncancellable_async::<(), (), _, _>(
+                    "launcher",
+                    prepared.handle(),
+                    || async { panic!("synthetic worker panic") },
+                )
+                .await,
+            Err(ActionError::WorkerFailed)
+        );
+        assert_eq!(ActionError::WorkerFailed.code(), "action_internal");
+        assert!(runtime
+            .begin("launcher", "capture.start", "capture", json!({}))
+            .is_ok());
     }
 
     #[test]

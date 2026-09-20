@@ -877,7 +877,9 @@ Main/Launcher；Viewer/Capture 仍通过会复核敏感状态的专用翻译命�
 来源。Viewer 的 `image.save` 已接入精确不可变扁平快照，所有权复核与原子落盘处于同一不可取消
 提交阶段。Viewer 的 `image.pin` 也已复用同一快照合同和现有建窗服务，并在会话层阻止原生建窗
 结果不确定后的自动重试；两者的可编辑工程和未提交画布仍由 Viewer 专用命令处理。
-`capture.start` 以及其他角色的权威图片引用仍未接入。
+`capture.start` 已复用现有普通截图入口，保留模式 gate、多屏冻结和完整失败补偿，并在调用方等待者
+消失后继续完成不可取消启动。Stage 2 的七个注册动作均已有领域适配器；Capture、Pin、主窗口和
+Launcher 的权威图片引用仍须在受限 IPC/组合阶段按各自来源合同接入。
 
 **Out of Scope**：第一阶段不嵌入 Lua/WASM/JavaScript，不运行任意 shell，不开放插件市场。
 

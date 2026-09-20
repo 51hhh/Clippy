@@ -28,6 +28,8 @@ pub(super) enum ActionRunError {
     PinFailed,
     #[error("贴图创建结果不确定")]
     PinUncertain,
+    #[error("截图启动失败")]
+    CaptureFailed(&'static str),
 }
 
 impl ActionRunError {
@@ -44,7 +46,23 @@ impl ActionRunError {
             Self::SaveFailed => "action_save_failed",
             Self::PinFailed => "action_pin_failed",
             Self::PinUncertain => "action_pin_uncertain",
+            Self::CaptureFailed(code) => code,
         }
+    }
+}
+
+fn capture_action_error_code(error: &crate::capture::CaptureError) -> &'static str {
+    use crate::capture::CaptureError;
+    match error {
+        CaptureError::CaptureModeBusy => "action_capture_busy",
+        CaptureError::CaptureModeGenerationExhausted => "action_capture_generation_exhausted",
+        CaptureError::SessionBusy => "action_capture_session_busy",
+        CaptureError::NoMonitorFrames => "action_capture_no_frames",
+        CaptureError::Screenshot(_) => "action_capture_screenshot_failed",
+        CaptureError::ThreadPanic(_) => "action_capture_worker_failed",
+        CaptureError::OverlayCreate(_) | CaptureError::Window(_) => "action_capture_overlay_failed",
+        CaptureError::StateLock(_) => "action_capture_internal",
+        _ => "action_capture_failed",
     }
 }
 
@@ -180,6 +198,28 @@ pub(super) async fn translate_text(
             }
         },
     )
+    .await
+}
+
+/// 复用托盘、快捷键与主窗口唯一的普通截图入口。动作等待者被丢弃时，运行时仍让
+/// 截图 future 完成成功或失败补偿，避免源窗口保持隐藏或模式 gate 永久占用。
+pub(super) async fn start_capture(
+    runtime: &ActionRuntime,
+    caller_label: &str,
+    prepared: &PreparedAction,
+    app_handle: &tauri::AppHandle,
+) -> Result<String, ActionRunError> {
+    let app_handle = app_handle.clone();
+    execute_capture_start(runtime, caller_label, prepared, move || async move {
+        crate::commands::start_capture_overlay(app_handle)
+            .await
+            .map_err(|error| {
+                let code = capture_action_error_code(&error);
+                // 平台截图错误可能携带窗口标题或后端细节；动作层只记录稳定码。
+                log::warn!("动作截图启动失败: {code}");
+                ActionRunError::CaptureFailed(code)
+            })
+    })
     .await
 }
 
@@ -374,6 +414,28 @@ where
     };
     runtime
         .publish(caller_label, prepared.handle(), || result)
+        .map_err(ActionRunError::Lifecycle)?
+}
+
+async fn execute_capture_start<Start, StartFuture>(
+    runtime: &ActionRuntime,
+    caller_label: &str,
+    prepared: &PreparedAction,
+    start: Start,
+) -> Result<String, ActionRunError>
+where
+    Start: FnOnce() -> StartFuture + Send + 'static,
+    StartFuture: Future<Output = Result<String, ActionRunError>> + Send + 'static,
+{
+    if prepared.descriptor().id != "capture.start" {
+        return Err(ActionRunError::WrongAction);
+    }
+    if !matches!(prepared.input(), ActionInput::Unit) {
+        return Err(ActionRunError::WrongAction);
+    }
+    runtime
+        .commit_noncancellable_async(caller_label, prepared.handle(), start)
+        .await
         .map_err(ActionRunError::Lifecycle)?
 }
 
@@ -1042,6 +1104,89 @@ mod tests {
         assert_eq!(
             translation_action_error_code(&provider_error),
             "action_translation_unsupported_provider"
+        );
+    }
+
+    #[tokio::test]
+    async fn capture_start_returns_the_domain_session_and_retires_the_slot() {
+        let runtime = ActionRuntime::default();
+        let prepared = runtime
+            .begin("launcher", "capture.start", "capture", json!({}))
+            .unwrap();
+        assert_eq!(
+            runtime.cancel("launcher", prepared.handle()),
+            Err(ActionError::NotCancellable)
+        );
+        let session = execute_capture_start(&runtime, "launcher", &prepared, || async {
+            Ok("capture-session-exact".to_string())
+        })
+        .await
+        .unwrap();
+        assert_eq!(session, "capture-session-exact");
+        assert_eq!(
+            runtime.ensure_current("launcher", prepared.handle()),
+            Err(ActionError::Superseded)
+        );
+    }
+
+    #[tokio::test]
+    async fn capture_start_blocks_replacement_during_domain_startup() {
+        let runtime = ActionRuntime::default();
+        let prepared = runtime
+            .begin("launcher", "capture.start", "capture", json!({}))
+            .unwrap();
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let worker = execute_capture_start(&runtime, "launcher", &prepared, {
+            let entered = Arc::clone(&entered);
+            let release = Arc::clone(&release);
+            move || async move {
+                entered.notify_one();
+                release.notified().await;
+                Ok("capture-session-exact".to_string())
+            }
+        });
+        let replace = async {
+            entered.notified().await;
+            assert!(matches!(
+                runtime.begin("launcher", "capture.start", "capture", json!({})),
+                Err(ActionError::Busy)
+            ));
+            release.notify_one();
+        };
+        let (result, ()) = tokio::join!(worker, replace);
+        assert_eq!(result.unwrap(), "capture-session-exact");
+        assert!(runtime
+            .begin("launcher", "capture.start", "capture", json!({}))
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn capture_start_failure_is_stable_and_redacts_platform_details() {
+        let runtime = ActionRuntime::default();
+        let prepared = runtime
+            .begin("launcher", "capture.start", "capture", json!({}))
+            .unwrap();
+        let expected = ActionRunError::CaptureFailed("action_capture_screenshot_failed");
+        let result = execute_capture_start(&runtime, "launcher", &prepared, move || async move {
+            Err(expected)
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(result, expected);
+        assert_eq!(result.code(), "action_capture_screenshot_failed");
+
+        let platform_error = crate::capture::CaptureError::Screenshot(
+            "do-not-log-window-or-backend-detail".to_string(),
+        );
+        assert_eq!(
+            capture_action_error_code(&platform_error),
+            "action_capture_screenshot_failed"
+        );
+        assert!(!format!("{result:?}").contains("do-not-log-window-or-backend-detail"));
+        assert_eq!(
+            runtime.ensure_current("launcher", prepared.handle()),
+            Err(ActionError::Superseded)
         );
     }
 

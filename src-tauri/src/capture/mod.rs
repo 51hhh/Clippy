@@ -263,6 +263,18 @@ pub(crate) async fn show_capture_overlay_for_app(
     app_handle: tauri::AppHandle,
     state: &AppState,
 ) -> Result<(), String> {
+    start_capture_overlay_for_app(app_handle, state)
+        .await
+        .map(|_| ())
+        .map_err(capture_failure)
+}
+
+/// 启动与传统入口完全相同的普通截图会话，但把后端签发的 session ID 返回给类型化动作。
+/// 调用方不得自行构造会话身份，也不能跳过模式 gate、多屏冻结或失败补偿。
+pub(crate) async fn start_capture_overlay_for_app(
+    app_handle: tauri::AppHandle,
+    state: &AppState,
+) -> Result<String, CaptureError> {
     claim_ordinary_then(&state.capture_mode_gate, |ownership| async move {
         let mut timings = manager::StageTimings::start();
         let restore_labels = overlay_windows::hide_sources(&app_handle);
@@ -325,10 +337,9 @@ pub(crate) async fn show_capture_overlay_for_app(
             },
             manager::CaptureSession::finalize_mode,
         )?;
-        Ok(())
+        Ok(start.session_id)
     })
     .await
-    .map_err(capture_failure)
 }
 
 #[tauri::command]
