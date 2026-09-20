@@ -129,8 +129,12 @@ pipeline、采集线程和编码线程接成一个生命周期：正常 Stop 只
 ```bash
 node scripts/benchmark-recording-encoders.mjs \
   --duration 60 --width 1920 --height 1080 --fps 30 \
+  --candidate mjpeg-avi --candidate vp9-webm \
   --output /tmp/clippy-recording-codecs-1080p
 ```
+
+`--candidate` 可重复使用；省略时仍运行全部候选。未知 ID 会在生成无损参考前拒绝，避免 60 秒/4K
+基准意外带上已经确定不实时的候选。
 
 2026-09-20 在 Intel Core Ultra 5 125H、FFmpeg 8.0.1 上先运行 1280×720、30 fps、2 秒的工具自检，
 得到以下本地证据：
@@ -142,10 +146,25 @@ node scripts/benchmark-recording-encoders.mjs \
 | rav1e AV1 / Matroska | 4.341 s | 406.0 MiB | 0.17 MiB | 0.993561 | 49.2045 dB |
 
 这次短样本只验证基准工具和候选方向。VP9 在本机样本上同时显著缩小文件并改善客观画质，作为下一
-个嵌入原型；只有 libvpx 与 WebM 封装能在同一 SHA 的 Linux、Windows、macOS CI 构建，60 秒
-1080p/4K 分层语料满足实时、内存和掉帧预算，且周期分段经过强杀恢复，才可确定为产品默认。
+个嵌入原型；只有 libvpx 与 WebM 封装能在同一 SHA 的 Linux、Windows、macOS CI 构建，实际嵌入式
+writer + 真实帧源的 60 秒 1080p/4K 分层语料满足实时、内存和掉帧预算，且周期分段经过强杀恢复，
+才可确定为产品默认。
 rav1e 当前参数明显未达到实时，本机也没有 NASM，尚不能验证仓库从源码构建时的 x86 汇编优化链，
 所以保留为后续可选项。这里不把系统 FFmpeg 已链接的 rav1e 二进制性能归因于本机是否安装 NASM。
+
+同一主机随后完成 60 秒长样本；每个输出均由 `ffprobe` 解码为 1,800 帧、30 fps、60 秒：
+
+| 档位 / 候选 | 墙钟 | 相对素材时长 | 峰值 RSS | 文件大小 | SSIM | PSNR |
+|---|---:|---:|---:|---:|---:|---:|
+| 1080p MJPEG / AVI | 3.062 s | 5.1% | 423.3 MiB | 187.02 MiB | 0.993479 | 36.3662 dB |
+| 1080p VP9 / WebM | 8.378 s | 14.0% | 543.9 MiB | 4.73 MiB | 0.994484 | 50.8951 dB |
+| 4K MJPEG / AVI | 9.844 s | 16.4% | 1,459.2 MiB | 662.51 MiB | 0.994681 | 36.6361 dB |
+| 4K VP9 / WebM | 25.705 s | 42.8% | 1,557.9 MiB | 10.75 MiB | 0.995103 | 51.7475 dB |
+
+这组数据证明系统 FFmpeg 的相同 VP9 参数在该机器上有 1080p/4K 实时吞吐余量，且没有缺帧；它也
+暴露了 4K 编码进程约 1.56 GiB 的峰值工作集。基准进程、FFmpeg 构建和嵌入式 canary 绑定不是同一
+二进制，故这些数字只作为参数与预算方向：启用产品默认前仍须用实际嵌入式 writer + 真实帧源记录
+CPU/RSS/背压丢帧、停止封尾和安装包增量，并取得四目标同 SHA CI。
 
 OpenH264 的源码本身可嵌入构建，但自行编译的库与 Cisco 分发的预编译二进制不具有同一分发条件；
 在许可、专利和安装包策略独立审查前，不把它作为第一阶段默认依赖。MJPEG 继续只承担诊断闭环。

@@ -769,8 +769,12 @@ generation token 绑定、停止/失败释放 gate 的严格顺序；Tauri 适�
 运动样本，并记录墙钟、RSS、文件大小、SSIM、PSNR 和 `ffprobe` 解码合同。Intel Core Ultra 5 125H
 上的 720p/30fps/2s 工具自检中，MJPEG/AVI 为 0.126s、3.52 MiB、SSIM 0.991269；libvpx VP9/WebM
 为 0.331s、0.14 MiB、SSIM 0.993904；rav1e AV1/Matroska 为 4.341s、0.17 MiB、SSIM 0.993561。
-因此下一原型收敛为嵌入式 VP9/WebM；该短样本不算默认编码器验收。仍须完成原型矩阵同 SHA 结果、
-60 秒 1080p/4K 分层语料和安装包增量。macOS Intel 已配置固定源码归档构建，但远程结果尚未产生。
+因此下一原型收敛为嵌入式 VP9/WebM；该短样本不算默认编码器验收。系统 FFmpeg 随后完成 60 秒
+1080p/4K 同源分层语料：VP9 分别用 8.378 秒和 25.705 秒编码 60 秒素材，输出 4.73 MiB 和
+10.75 MiB，1,800 帧均可解码，SSIM 分别为 0.994484 和 0.995103；4K 编码进程峰值 RSS 为
+1,557.9 MiB。该结果证明当前主机的参数方向和实时余量，也暴露 4K 内存预算，不能替代嵌入式 writer
+或真实采集。仍须完成原型矩阵同 SHA 结果、实际 writer/帧源长样本与安装包增量。macOS Intel 已配置
+固定源码归档构建，但远程结果尚未产生。
 rav1e 当前参数不满足实时；本机缺 NASM
 只说明尚不能验证源码构建优化链，不用于推断系统 FFmpeg 中 rav1e 二进制是否启用汇编。OpenH264
 须先独立审查自行编译与 Cisco 预编译二进制的分发条件，本阶段不选为默认。
@@ -790,7 +794,7 @@ pipeline → VP9/WebM → 私有原子分段 → complete manifest，并核对�
 生命周期仍显式选择 MJPEG。统一分段 writer 默认 60 秒封尾、上限 120 秒，跨过边界即原子提交；
 默认 MJPEG 子进程 fixture 已在首段提交、次段打开时强制退出，并由启动恢复保留可播放前缀、删除
 未提交尾段、写入 interrupted。VP9 feature 回归也已产生并提交两个独立 WebM，并把同一强杀恢复
-fixture 纳入四目标原型 job。远程同 SHA 结果和长样本质量预算尚未完成。
+fixture 纳入四目标原型 job。远程同 SHA 结果和实际嵌入式 writer + 真实帧源的长样本资源预算尚未完成。
 VP9 内部已拆开 libvpx 帧编码与 WebM packet mux，并以零 lookahead 把同一批压缩 packet 同时写入
 连续最终 mux 和恢复分段 mux，不通过二次有损编码或 WebM 字节拼接实现。边界先排空上一帧，再以
 关键帧开始下一段；`ffprobe` 分别核对各段和最终文件的 codec、帧数与时长。

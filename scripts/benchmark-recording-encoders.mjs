@@ -18,6 +18,7 @@ Options:
   --width <pixels>      Width (default: 1280)
   --height <pixels>     Height (default: 720)
   --fps <number>        Frame rate (default: 30)
+  --candidate <id>      Run one candidate; repeat to select multiple candidates
   --output <directory>  Artifact directory (default: a new /tmp directory)
   --help                Show this help
 
@@ -34,7 +35,14 @@ function parsePositiveNumber(raw, name, integer = false) {
 }
 
 function parseArgs(argv) {
-  const options = { duration: 6, width: 1280, height: 720, fps: 30, output: null };
+  const options = {
+    duration: 6,
+    width: 1280,
+    height: 720,
+    fps: 30,
+    candidateIds: [],
+    output: null,
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === "--help") {
@@ -55,6 +63,12 @@ function parseArgs(argv) {
         break;
       case "--fps":
         options.fps = parsePositiveNumber(next, argument, true);
+        break;
+      case "--candidate":
+        if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(next)) {
+          throw new Error(`${argument} must be a candidate id`);
+        }
+        if (!options.candidateIds.includes(next)) options.candidateIds.push(next);
         break;
       case "--output":
         options.output = resolve(next);
@@ -199,6 +213,14 @@ function markdown(report) {
 
 function main() {
   const options = parseArgs(process.argv.slice(2));
+  const knownCandidateIds = new Set(candidates.map((candidate) => candidate.id));
+  const unknownCandidateIds = options.candidateIds.filter((id) => !knownCandidateIds.has(id));
+  if (unknownCandidateIds.length > 0) {
+    throw new Error(`unknown candidate: ${unknownCandidateIds.join(", ")}`);
+  }
+  const selectedCandidates = options.candidateIds.length > 0
+    ? candidates.filter((candidate) => options.candidateIds.includes(candidate.id))
+    : candidates;
   requireTool("ffmpeg");
   requireTool("ffprobe");
   mkdirSync(options.output, { recursive: true });
@@ -231,7 +253,7 @@ function main() {
     },
     candidates: [],
   };
-  for (const candidate of candidates) {
+  for (const candidate of selectedCandidates) {
     if (!encoderList.includes(candidate.encoder)) {
       report.candidates.push({
         id: candidate.id,
