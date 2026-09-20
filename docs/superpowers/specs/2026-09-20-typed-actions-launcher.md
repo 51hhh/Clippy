@@ -90,3 +90,9 @@ discover descriptor
   合同，以及现有 QR/条码扫描的进程级单并发预算；Viewer、历史图片命令和动作适配器共享同一
   blocking 执行入口，扫描大图不再为 Viewer 额外复制完整 PNG。取消或同槽替换会立即释放动作
   等待者，不可中断的 rxing worker 仍持有 permit 到安全结束，迟到结果不能发布。
+- 2026-09-21：Stage 2 已接入 `text.translate`。它复用当前配置、方向解析、系统 keyring、provider
+  路由和响应限制，但为每次动作建立独立的领域 request-id 空间，避免主窗口、Viewer、Launcher
+  或不同动作槽通过全局 `latest_request_id` 互相淘汰。取消和同槽替换会立即释放动作等待者；
+  已进入同步 provider 的请求仍按既有超时结束，动作 generation 闸门拒绝其迟到结果。错误仅保留
+  稳定动作码，不记录正文、译文、provider 响应或凭据。当前直接文本动作只授权 Main/Launcher；
+  Viewer/Capture 继续使用会复核敏感状态的专用翻译命令，待组合阶段能携带可信文本来源后再开放。

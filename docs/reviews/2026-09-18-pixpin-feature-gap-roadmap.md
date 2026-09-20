@@ -870,8 +870,11 @@ Portal 逻辑几何复核冻结显示器，协商阶段核对完整物理尺寸�
 旧版本和关闭后的快照都不能发布结果。Viewer 的 `image.scan_codes` 也已使用同一快照合同接入，
 并复用现有 QR/条码全局单并发预算；Viewer、历史图片命令和动作共用零额外 PNG 克隆的 blocking
 入口。动作取消只释放等待者，不可中断的扫码 worker 会继续持有 permit 到结束，迟到结果仍由
-generation 闸门拒绝。截图、保存、Pin、翻译以及 Capture、主窗口、Launcher 等其他窗口角色的
-图片引用仍未接入。
+generation 闸门拒绝。`text.translate` 已复用现有配置、方向、keyring 和 provider 路径接入，
+并为每次动作使用独立领域 request-id，避免不同窗口和动作槽互相判旧；取消只释放动作等待者，
+已进入同步 provider 的调用仍受既有超时约束，迟到结果不能发布。直接文本动作暂只授权
+Main/Launcher；Viewer/Capture 仍通过会复核敏感状态的专用翻译命令，直到组合链能携带可信文本
+来源。`capture.start`、`image.save`、`image.pin` 以及其他角色的权威图片引用仍未接入。
 
 **Out of Scope**：第一阶段不嵌入 Lua/WASM/JavaScript，不运行任意 shell，不开放插件市场。
 

@@ -20,6 +20,8 @@ pub(super) enum ActionRunError {
     CodeScanBusy,
     #[error("扫码失败")]
     CodeScanFailed,
+    #[error("翻译失败")]
+    TranslationFailed(&'static str),
 }
 
 impl ActionRunError {
@@ -32,7 +34,40 @@ impl ActionRunError {
             Self::OcrFailed => "action_ocr_failed",
             Self::CodeScanBusy => "action_code_scan_busy",
             Self::CodeScanFailed => "action_code_scan_failed",
+            Self::TranslationFailed(code) => code,
         }
+    }
+}
+
+fn translation_action_error_code(
+    error: &crate::translation::types::TranslationError,
+) -> &'static str {
+    use crate::translation::types::TranslationError;
+    match error {
+        TranslationError::EmptyInput => "action_translation_empty_input",
+        TranslationError::InputTooLarge => "action_translation_input_too_large",
+        TranslationError::SensitiveContent => "action_translation_sensitive_content",
+        TranslationError::MissingApiKey => "action_translation_missing_api_key",
+        TranslationError::IncompleteCredentials => "action_translation_incomplete_credentials",
+        TranslationError::KeyringUnavailable => "action_translation_keyring_unavailable",
+        TranslationError::ClipUnavailable => "action_translation_clip_unavailable",
+        TranslationError::ImageUnavailable => "action_translation_image_unavailable",
+        TranslationError::CaptureUnavailable => "action_translation_capture_unavailable",
+        TranslationError::OcrFailed => "action_translation_ocr_failed",
+        TranslationError::InvalidEndpoint => "action_translation_invalid_endpoint",
+        TranslationError::UnsupportedProvider(_) => "action_translation_unsupported_provider",
+        TranslationError::NoServiceEnabled => "action_translation_no_service_enabled",
+        TranslationError::Timeout => "action_translation_timeout",
+        TranslationError::Network => "action_translation_network",
+        TranslationError::HttpStatus { .. } => "action_translation_http_status",
+        TranslationError::InvalidCredentials => "action_translation_invalid_credentials",
+        TranslationError::RateLimited => "action_translation_rate_limited",
+        TranslationError::QuotaExceeded => "action_translation_quota_exceeded",
+        TranslationError::ResponseTooLarge => "action_translation_response_too_large",
+        TranslationError::InvalidResponse => "action_translation_invalid_response",
+        TranslationError::ProviderEndpointBroken => "action_translation_provider_endpoint_broken",
+        TranslationError::StaleRequest { .. } => "action_translation_stale_request",
+        TranslationError::Internal => "action_translation_internal",
     }
 }
 
@@ -96,6 +131,44 @@ pub(super) async fn scan_image_codes(
                         ActionRunError::CodeScanFailed
                     }
                 })
+        },
+    )
+    .await
+}
+
+/// 使用独立的领域 request-id 空间翻译动作文本，避免 Launcher、Viewer 和主窗口的并发请求
+/// 通过 `TranslationService::latest_request_id` 互相淘汰；provider、配置与 keyring 路径保持唯一。
+pub(super) async fn translate_text(
+    runtime: &ActionRuntime,
+    caller_label: &str,
+    prepared: &PreparedAction,
+    state: &AppState,
+) -> Result<crate::translation::types::TranslationResult, ActionRunError> {
+    execute_text_translation(
+        runtime,
+        caller_label,
+        prepared,
+        |text, source_language, target_language| {
+            let service = Arc::new(crate::translation::TranslationService::new());
+            let request_id = service.next_request_id();
+            let config = Arc::clone(&state.config);
+            async move {
+                crate::translation::commands::translate_configured_text(
+                    service,
+                    config,
+                    text,
+                    source_language,
+                    Some(target_language),
+                    request_id,
+                )
+                .await
+                .map_err(|error| {
+                    let code = translation_action_error_code(&error);
+                    // 仅记录稳定码；正文、译文、provider 响应和凭据都不进入日志。
+                    log::warn!("动作翻译失败: {code}");
+                    ActionRunError::TranslationFailed(code)
+                })
+            }
         },
     )
     .await
@@ -192,6 +265,42 @@ where
         .map_err(ActionRunError::Lifecycle)?
 }
 
+async fn execute_text_translation<Translate, TranslateFuture>(
+    runtime: &ActionRuntime,
+    caller_label: &str,
+    prepared: &PreparedAction,
+    translate: Translate,
+) -> Result<crate::translation::types::TranslationResult, ActionRunError>
+where
+    Translate: FnOnce(String, Option<String>, String) -> TranslateFuture,
+    TranslateFuture:
+        Future<Output = Result<crate::translation::types::TranslationResult, ActionRunError>>,
+{
+    if prepared.descriptor().id != "text.translate" {
+        return Err(ActionRunError::WrongAction);
+    }
+    let ActionInput::Translation {
+        text,
+        source_language,
+        target_language,
+    } = prepared.input()
+    else {
+        return Err(ActionRunError::WrongAction);
+    };
+    runtime
+        .ensure_current(caller_label, prepared.handle())
+        .map_err(ActionRunError::Lifecycle)?;
+    let cancellation = prepared.cancellation();
+    let result = tokio::select! {
+        biased;
+        () = cancellation.cancelled() => Err(ActionRunError::Lifecycle(ActionError::Cancelled)),
+        result = translate(text.clone(), source_language.clone(), target_language.clone()) => result,
+    };
+    runtime
+        .publish(caller_label, prepared.handle(), || result)
+        .map_err(ActionRunError::Lifecycle)?
+}
+
 /// 复用产品唯一的文本剪贴板路径：同样的 watcher 抑制、平台重试和 wake 语义。
 pub(super) fn copy_text(
     runtime: &ActionRuntime,
@@ -259,6 +368,16 @@ mod tests {
                 points: Vec::new(),
             }],
             limited: false,
+        }
+    }
+
+    fn translation_result(text: &str) -> crate::translation::types::TranslationResult {
+        crate::translation::types::TranslationResult {
+            request_id: 1,
+            provider: crate::translation::types::TranslationProvider::LibreTranslate,
+            translated_text: text.to_string(),
+            detected_source_language: Some("en".to_string()),
+            target_language: "zh-CN".to_string(),
         }
     }
 
@@ -633,6 +752,165 @@ mod tests {
         assert_eq!(
             ActionRunError::CodeScanFailed.code(),
             "action_code_scan_failed"
+        );
+    }
+
+    #[tokio::test]
+    async fn text_translation_uses_exact_validated_input_and_retires_the_slot() {
+        let runtime = ActionRuntime::default();
+        let prepared = runtime
+            .begin(
+                "launcher",
+                "text.translate",
+                "translate",
+                json!({
+                    "text": "private  text\nwith spacing",
+                    "sourceLanguage": "auto",
+                    "targetLanguage": "zh-CN"
+                }),
+            )
+            .unwrap();
+        let result = execute_text_translation(
+            &runtime,
+            "launcher",
+            &prepared,
+            |text, source_language, target_language| async move {
+                assert_eq!(text, "private  text\nwith spacing");
+                assert_eq!(source_language.as_deref(), Some("auto"));
+                assert_eq!(target_language, "zh-CN");
+                Ok(translation_result("翻译结果"))
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.translated_text, "翻译结果");
+        assert_eq!(
+            runtime.ensure_current("launcher", prepared.handle()),
+            Err(ActionError::Superseded)
+        );
+    }
+
+    #[tokio::test]
+    async fn text_translation_cancellation_drops_the_domain_waiter_before_publication() {
+        let runtime = ActionRuntime::default();
+        let prepared = runtime
+            .begin(
+                "launcher",
+                "text.translate",
+                "translate",
+                json!({"text": "private", "targetLanguage": "zh-CN"}),
+            )
+            .unwrap();
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let dropped = Arc::new(AtomicBool::new(false));
+        let worker = execute_text_translation(&runtime, "launcher", &prepared, {
+            let entered = Arc::clone(&entered);
+            let dropped = Arc::clone(&dropped);
+            move |_, _, _| async move {
+                let _drop = DropSignal(dropped);
+                entered.notify_one();
+                std::future::pending::<
+                    Result<crate::translation::types::TranslationResult, ActionRunError>,
+                >()
+                .await
+            }
+        });
+        let cancel = async {
+            entered.notified().await;
+            runtime.cancel("launcher", prepared.handle()).unwrap();
+        };
+        let (result, ()) = tokio::join!(worker, cancel);
+        assert!(matches!(
+            result,
+            Err(ActionRunError::Lifecycle(ActionError::Cancelled))
+        ));
+        assert!(dropped.load(Ordering::Acquire));
+        assert_eq!(
+            runtime.ensure_current("launcher", prepared.handle()),
+            Err(ActionError::Superseded)
+        );
+    }
+
+    #[tokio::test]
+    async fn replacing_text_translation_drops_old_work_and_blocks_its_late_result() {
+        let runtime = ActionRuntime::default();
+        let old = runtime
+            .begin(
+                "launcher",
+                "text.translate",
+                "translate",
+                json!({"text": "old private", "targetLanguage": "zh-CN"}),
+            )
+            .unwrap();
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let dropped = Arc::new(AtomicBool::new(false));
+        let worker = execute_text_translation(&runtime, "launcher", &old, {
+            let entered = Arc::clone(&entered);
+            let dropped = Arc::clone(&dropped);
+            move |_, _, _| async move {
+                let _drop = DropSignal(dropped);
+                entered.notify_one();
+                std::future::pending::<
+                    Result<crate::translation::types::TranslationResult, ActionRunError>,
+                >()
+                .await
+            }
+        });
+        let replace = async {
+            entered.notified().await;
+            runtime
+                .begin(
+                    "launcher",
+                    "text.translate",
+                    "translate",
+                    json!({"text": "new private", "targetLanguage": "ja"}),
+                )
+                .unwrap()
+        };
+        let (result, current) = tokio::join!(worker, replace);
+        assert!(matches!(
+            result,
+            Err(ActionRunError::Lifecycle(ActionError::Superseded))
+        ));
+        assert!(dropped.load(Ordering::Acquire));
+        assert_eq!(runtime.ensure_current("launcher", current.handle()), Ok(()));
+    }
+
+    #[tokio::test]
+    async fn text_translation_failure_is_stable_and_redacts_input_and_provider_details() {
+        let runtime = ActionRuntime::default();
+        let prepared = runtime
+            .begin(
+                "launcher",
+                "text.translate",
+                "translate",
+                json!({"text": "do-not-log-text", "targetLanguage": "zh-CN"}),
+            )
+            .unwrap();
+        let result = execute_text_translation(&runtime, "launcher", &prepared, |_, _, _| async {
+            Err(ActionRunError::TranslationFailed(
+                "action_translation_network",
+            ))
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(
+            result,
+            ActionRunError::TranslationFailed("action_translation_network")
+        );
+        assert_eq!(result.code(), "action_translation_network");
+        assert!(!format!("{result:?}").contains("do-not-log-text"));
+        assert_eq!(
+            runtime.ensure_current("launcher", prepared.handle()),
+            Err(ActionError::Superseded)
+        );
+
+        let provider_error = crate::translation::types::TranslationError::UnsupportedProvider(
+            "do-not-log-provider".to_string(),
+        );
+        assert_eq!(
+            translation_action_error_code(&provider_error),
+            "action_translation_unsupported_provider"
         );
     }
 

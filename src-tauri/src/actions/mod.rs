@@ -159,12 +159,7 @@ fn action_allowed(caller: CallerKind, action_id: &str) -> bool {
         CallerKind::Main | CallerKind::Launcher => true,
         CallerKind::CaptureOverlay | CallerKind::ImageViewer => matches!(
             action_id,
-            "image.ocr"
-                | "image.pin"
-                | "image.save"
-                | "image.scan_codes"
-                | "text.copy"
-                | "text.translate"
+            "image.ocr" | "image.pin" | "image.save" | "image.scan_codes" | "text.copy"
         ),
         CallerKind::Pin => matches!(action_id, "image.save" | "text.copy"),
         CallerKind::Settings
@@ -312,8 +307,8 @@ impl ActionCancellation {
         self.0.cancelled.load(Ordering::Acquire)
     }
 
-    /// 让异步领域适配器立即放弃自己的等待者；底层 single-flight 在最后一个等待者消失后
-    /// 负责终止或回收真实工作，动作层不复制领域取消协议。
+    /// 让异步领域适配器立即放弃自己的等待者；底层领域服务负责终止、回收或在既有资源预算内
+    /// 完成不可中断的工作，动作 generation 闸门统一拒绝迟到结果。
     pub async fn cancelled(&self) {
         if self.is_cancelled() {
             return;
@@ -732,6 +727,11 @@ mod tests {
         assert!(!action_allowed(CallerKind::CaptureOverlay, "capture.start"));
         assert!(action_allowed(CallerKind::CaptureOverlay, "image.ocr"));
         assert!(action_allowed(CallerKind::ImageViewer, "image.ocr"));
+        assert!(!action_allowed(
+            CallerKind::CaptureOverlay,
+            "text.translate"
+        ));
+        assert!(!action_allowed(CallerKind::ImageViewer, "text.translate"));
         assert!(!action_allowed(CallerKind::Pin, "image.ocr"));
         assert!(action_allowed(CallerKind::Pin, "image.save"));
         assert!(matches!(
