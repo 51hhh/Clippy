@@ -327,7 +327,10 @@ fn open_builder_failure_uses_real_validation_and_preserves_ordinary_resources() 
             vec!["pin-a".to_string()],
             false,
             StageTimings::default(),
-            ownership,
+            crate::capture::manager::CaptureBeginAuthorization::new(
+                ownership,
+                crate::capture::CaptureIntent::Screenshot,
+            ),
         )
         .expect("ordinary begin");
     let caller = start.overlays[0].label.clone();

@@ -51,10 +51,20 @@ pub struct CaptureOverlayPayload {
     pub logical_height: u32,
     pub pixel_width: u32,
     pub pixel_height: u32,
+    /// 同一个冻结帧覆盖层只负责一种产品流程。前端据此显示截图工具或录屏开始控件，
+    /// 后端仍以会话保存的 intent 和调用窗口身份作为权威校验。
+    pub intent: CaptureIntent,
     pub windows: Vec<WindowCandidate>,
     /// 这次要不要在覆盖层里提示"窗口速选需要在设置页安装服务"。
     /// 由后端决定并且只置真一次，覆盖层照做即可，自己不判断桌面环境。
     pub probe_hint: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CaptureIntent {
+    Screenshot,
+    Recording,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]

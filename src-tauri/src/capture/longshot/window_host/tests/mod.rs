@@ -221,7 +221,10 @@ fn ordinary_fixture() -> (
             vec!["pin-a".to_string()],
             false,
             StageTimings::default(),
-            ownership,
+            crate::capture::manager::CaptureBeginAuthorization::new(
+                ownership,
+                crate::capture::CaptureIntent::Screenshot,
+            ),
         )
         .expect("ordinary begin");
     let caller = start.overlays[0].label.clone();

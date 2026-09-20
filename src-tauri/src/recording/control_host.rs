@@ -1,7 +1,7 @@
 //! 录屏控制窗的 Tauri 宿主与受 caller 约束的控制命令。
 //!
-//! 本模块没有“开始录屏”入口。它只把已经由可信截图会话建立的生命周期接到控制窗；在编码器、
-//! 平台帧源和原生 CI 门槛完成前，主界面与截图工具条不会创建录屏会话。
+//! 开始入口只接受独立 Recording 覆盖层交出的可信选区；控制命令继续只认后端绑定的 generation
+//! token。默认构建和没有完成产品验收的平台不会展示入口。
 
 use super::control_exclusion::{configure_control_exclusion, control_exclusion_capability};
 use super::control_registry::{RecordingControlClose, RecordingControlRegistryError};
@@ -9,8 +9,13 @@ use super::control_window::{
     plan_control_window, ControlSize, ControlWindowPlan, PhysicalRect, WindowExclusionCapability,
 };
 use super::lifecycle::{DesktopActions, RecordingLifecycleError};
+#[cfg(feature = "recording-vp9-prototype")]
+use super::lifecycle::{RecordingStartContext, RecordingStartRequest};
 use super::manager::RecordingToken;
 use super::platform::RecordingSourceDescriptor;
+#[cfg(feature = "recording-vp9-prototype")]
+use super::segmenting::RecordingEncoder;
+use crate::capture::CaptureSelection;
 use crate::commands::AppState;
 use serde::Serialize;
 use std::time::Duration;
@@ -40,6 +45,13 @@ impl RecordingIpcError {
 
     fn internal(message: impl Into<String>) -> Self {
         Self::new("recording_internal", message)
+    }
+
+    fn unavailable() -> Self {
+        Self::new(
+            "recording_unavailable",
+            "当前构建或桌面会话尚未开放录屏入口",
+        )
     }
 }
 
@@ -280,6 +292,60 @@ fn token_for_caller(
         .recording_controls
         .token_for_caller(caller_label)
         .map_err(RecordingIpcError::from)
+}
+
+/// 只有独立的 Recording 选区覆盖层能调用。前端只提交同一冻结会话中的逻辑选区；会话身份、物理
+/// crop、帧源、帧率、光标策略和编码器都由后端核验或固定，不能从 IPC 注入。
+#[tauri::command]
+pub(crate) async fn start_capture_recording(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    selection: CaptureSelection,
+) -> Result<(), RecordingIpcError> {
+    if !super::product_entry_available() {
+        return Err(RecordingIpcError::unavailable());
+    }
+
+    #[cfg(not(feature = "recording-vp9-prototype"))]
+    {
+        let _ = (window, app, state, selection);
+        Err(RecordingIpcError::unavailable())
+    }
+
+    #[cfg(feature = "recording-vp9-prototype")]
+    {
+        let caller = window.label().to_string();
+        let app_data_dir = app
+            .path()
+            .app_data_dir()
+            .map_err(|error| RecordingIpcError::internal(error.to_string()))?;
+        let lifecycle = state.recording_lifecycle.clone();
+        let session_id = format!("recording-{}", crate::image_io::unique_image_id());
+        tauri::async_runtime::spawn_blocking(move || {
+            let state = app
+                .try_state::<AppState>()
+                .ok_or_else(|| RecordingIpcError::internal("AppState 已不可用"))?;
+            lifecycle.start_platform(
+                RecordingStartContext {
+                    capture: &state.capture_manager,
+                    caller: &caller,
+                    selection: &selection,
+                    app_data_dir: &app_data_dir,
+                },
+                RecordingStartRequest {
+                    session_id,
+                    frames_per_second: 30,
+                    include_cursor: true,
+                    encoder: RecordingEncoder::Vp9Prototype,
+                },
+                &TauriRecordingDesktopActions::new(&app, &state),
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|error| RecordingIpcError::internal(error.to_string()))?
+    }
 }
 
 #[tauri::command]

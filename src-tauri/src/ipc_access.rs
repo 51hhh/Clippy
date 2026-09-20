@@ -93,6 +93,14 @@ const CAPTURE_OVERLAY_COMMANDS: &[&str] = &[
     "translate_capture_selection",
 ];
 
+const RECORDING_OVERLAY_COMMANDS: &[&str] = &[
+    "cancel_capture_overlay",
+    "get_capture_frame",
+    "get_capture_overlay",
+    "mark_capture_overlay_ready",
+    "start_capture_recording",
+];
+
 const LONGSHOT_CONTROLLER_COMMANDS: &[&str] = &[
     "activate_longshot_controller",
     "auto_append_longshot_controller",
@@ -138,6 +146,7 @@ pub(crate) enum CallerKind {
     Settings,
     Pin,
     CaptureOverlay,
+    RecordingOverlay,
     LongshotController,
     ImageViewer,
     RecordingControl,
@@ -160,6 +169,7 @@ pub(crate) fn caller_kind(label: &str) -> CallerKind {
         "settings" => CallerKind::Settings,
         _ if safe_dynamic_label(label, "pin-", 96) => CallerKind::Pin,
         _ if safe_dynamic_label(label, "capture-overlay-", 128) => CallerKind::CaptureOverlay,
+        _ if safe_dynamic_label(label, "recording-overlay-", 128) => CallerKind::RecordingOverlay,
         _ if safe_dynamic_label(label, "longshot-controller-", 128) => {
             CallerKind::LongshotController
         }
@@ -189,6 +199,7 @@ pub(crate) fn allowed(caller: &str, command: &str) -> bool {
         CallerKind::Settings => SETTINGS_COMMANDS,
         CallerKind::Pin => PIN_COMMANDS,
         CallerKind::CaptureOverlay => CAPTURE_OVERLAY_COMMANDS,
+        CallerKind::RecordingOverlay => RECORDING_OVERLAY_COMMANDS,
         CallerKind::LongshotController => LONGSHOT_CONTROLLER_COMMANDS,
         CallerKind::ImageViewer => IMAGE_VIEWER_COMMANDS,
         CallerKind::RecordingControl => RECORDING_CONTROL_COMMANDS,
@@ -228,6 +239,7 @@ mod tests {
             ("settings", SETTINGS_COMMANDS),
             ("pin-image-1", PIN_COMMANDS),
             ("capture-overlay-session-1", CAPTURE_OVERLAY_COMMANDS),
+            ("recording-overlay-session-1", RECORDING_OVERLAY_COMMANDS),
             ("longshot-controller-1", LONGSHOT_CONTROLLER_COMMANDS),
             ("image-viewer-1", IMAGE_VIEWER_COMMANDS),
             ("recording-control-1", RECORDING_CONTROL_COMMANDS),
@@ -257,6 +269,7 @@ mod tests {
         }
         for label in [
             "settings",
+            "recording-overlay-session-1",
             "longshot-controller-1",
             "recording-control-1",
             "unknown-window",
@@ -289,6 +302,14 @@ mod tests {
             (
                 "capture-overlay-session-1",
                 ["get_config", "get_pin_payload", "get_viewer_payload"],
+            ),
+            (
+                "recording-overlay-session-1",
+                [
+                    "commit_capture_action",
+                    "scan_capture_selection",
+                    "open_longshot_controller",
+                ],
             ),
             (
                 "longshot-controller-1",
@@ -333,6 +354,7 @@ mod tests {
             "pin-",
             "pin-../../main",
             "capture-overlay-one?x=1",
+            "recording-overlay-one/two",
             "longshot-controller-one/two",
             "image-viewer-一",
             "recording-control-one/two",
@@ -351,6 +373,26 @@ mod tests {
         assert!(allowed("launcher", "prepare_action"));
         assert!(allowed("launcher", "run_action"));
         assert!(allowed("launcher", "cancel_action"));
+    }
+
+    #[test]
+    fn recording_overlay_has_only_selection_and_start_commands() {
+        assert_eq!(
+            caller_kind("recording-overlay-session-1"),
+            CallerKind::RecordingOverlay
+        );
+        for command in RECORDING_OVERLAY_COMMANDS {
+            assert!(allowed("recording-overlay-session-1", command));
+        }
+        for command in [
+            "commit_capture_action",
+            "scan_capture_selection",
+            "translate_capture_selection",
+            "open_longshot_controller",
+            "discover_actions",
+        ] {
+            assert!(!allowed("recording-overlay-session-1", command));
+        }
     }
 
     #[test]

@@ -482,7 +482,10 @@ mod tests {
                 lowered_pins,
                 false,
                 StageTimings::default(),
-                ownership,
+                crate::capture::manager::CaptureBeginAuthorization::new(
+                    ownership,
+                    crate::capture::CaptureIntent::Screenshot,
+                ),
             )
             .expect("普通截图应启动");
         let labels = started

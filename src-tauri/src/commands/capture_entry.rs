@@ -13,6 +13,15 @@ pub(crate) async fn trigger_capture_overlay(app_handle: tauri::AppHandle) -> Res
     crate::capture::show_capture_overlay_for_app(app_handle.clone(), &state).await
 }
 
+/// 录屏从独立入口进入同一套冻结选区覆盖层；后端把会话用途固定为 Recording。
+pub(crate) async fn trigger_recording_overlay(app_handle: tauri::AppHandle) -> Result<(), String> {
+    if !crate::recording::product_entry_available() {
+        return Err("当前构建或桌面会话尚未开放录屏入口".to_string());
+    }
+    let state = tauri::Manager::state::<AppState>(&app_handle);
+    crate::capture::show_recording_overlay_for_app(app_handle.clone(), &state).await
+}
+
 /// 类型化动作复用同一个截图入口，并保留结构化领域错误供动作层映射稳定错误码。
 pub(crate) async fn start_capture_overlay(
     app_handle: tauri::AppHandle,

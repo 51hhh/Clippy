@@ -175,6 +175,7 @@ fn action_allowed(caller: CallerKind, action_id: &str) -> bool {
         ),
         CallerKind::Pin => matches!(action_id, "image.save" | "text.copy"),
         CallerKind::Settings
+        | CallerKind::RecordingOverlay
         | CallerKind::LongshotController
         | CallerKind::RecordingControl
         | CallerKind::Unknown => false,

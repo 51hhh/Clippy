@@ -37,6 +37,8 @@ pub enum CaptureError {
     CommitPayloadInvalid,
     #[error("提交的截图数据过大")]
     CommitPayloadTooLarge,
+    #[error("截图会话用途与请求不匹配")]
+    CaptureIntentMismatch,
     #[error("长截图帧为空")]
     LongshotFrameEmpty,
     #[error("长截图尚未追加任何帧")]
@@ -130,6 +132,7 @@ impl CaptureError {
             Self::CropOutOfBounds => "crop_out_of_bounds",
             Self::CommitPayloadInvalid => "commit_payload_invalid",
             Self::CommitPayloadTooLarge => "commit_payload_too_large",
+            Self::CaptureIntentMismatch => "capture_intent_mismatch",
             Self::LongshotFrameEmpty => "longshot_frame_empty",
             Self::LongshotEmpty => "longshot_empty",
             Self::LongshotFirstFrameOverlap => "longshot_first_frame_overlap",
@@ -261,6 +264,7 @@ mod tests {
             CaptureError::CropOutOfBounds,
             CaptureError::CommitPayloadInvalid,
             CaptureError::CommitPayloadTooLarge,
+            CaptureError::CaptureIntentMismatch,
             CaptureError::LongshotFrameEmpty,
             CaptureError::LongshotEmpty,
             CaptureError::LongshotFirstFrameOverlap,

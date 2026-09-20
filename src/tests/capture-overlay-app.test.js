@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
     commit: vi.fn(),
     translate: vi.fn(),
     scan: vi.fn(),
+    startRecording: vi.fn(),
     copyText: vi.fn(),
     openLongshot: vi.fn(),
     onHandoff: vi.fn(),
@@ -41,6 +42,7 @@ const basePayload = {
   logicalHeight: 150,
   pixelWidth: 200,
   pixelHeight: 150,
+  intent: "screenshot",
   windows: [{ x: 40, y: 30, width: 60, height: 50, title: "editor" }],
   probeHint: false,
 };
@@ -121,6 +123,7 @@ describe("capture overlay app", () => {
       }
     };
     for (const fn of Object.values(mocks.overlayApi)) fn.mockReset();
+    mocks.getCurrentWindowLabel.mockReturnValue("capture-overlay-session-1-0");
     mocks.overlayApi.ready.mockResolvedValue(undefined);
     mocks.overlayApi.cancel.mockResolvedValue(undefined);
     mocks.overlayApi.onHandoff.mockResolvedValue(() => {});
@@ -140,6 +143,7 @@ describe("capture overlay app", () => {
       detectedSourceLanguage: null,
     });
     mocks.overlayApi.scan.mockResolvedValue({ results: [], limited: false });
+    mocks.overlayApi.startRecording.mockResolvedValue(undefined);
     mocks.overlayApi.openLongshot.mockResolvedValue({ label: "longshot-controller-session-1" });
     root = createRoot(document.getElementById("root"));
   });
@@ -216,6 +220,49 @@ describe("capture overlay app", () => {
     expect(button("Select area")).not.toBeNull();
     expect(button("Blur")).not.toBeNull();
     expect(button("Translate selection")).not.toBeNull();
+  });
+
+  it("keeps the recording entry isolated from screenshot tools and starts the selected area", async () => {
+    mocks.getCurrentWindowLabel.mockReturnValue("recording-overlay-session-1-0");
+    await mount({ intent: "recording" });
+    await drag({ x: 10, y: 10 }, { x: 100, y: 80 });
+
+    expect(button("Start recording")).not.toBeNull();
+    expect(button("Cancel")).not.toBeNull();
+    expect(button("Copy")).toBeNull();
+    expect(button("Scan QR/barcode")).toBeNull();
+    expect(button("Long screenshot")).toBeNull();
+    expect(button("Blur")).toBeNull();
+
+    await act(async () => button("Start recording").click());
+
+    expect(mocks.overlayApi.startRecording).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      monitorId: 0,
+      x: 10,
+      y: 10,
+      width: 90,
+      height: 70,
+    });
+    expect(button("Start recording").disabled).toBe(true);
+  });
+
+  it("restores the recording selection when native startup fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.getCurrentWindowLabel.mockReturnValue("recording-overlay-session-1-0");
+    mocks.overlayApi.startRecording.mockRejectedValue(new Error("backend unavailable"));
+    await mount({ intent: "recording" });
+    await drag({ x: 10, y: 10 }, { x: 100, y: 80 });
+
+    await act(async () => button("Start recording").click());
+    await flush();
+
+    expect(document.querySelector(".overlay-error")?.textContent).toContain(
+      "Could not start recording",
+    );
+    expect(button("Start recording").disabled).toBe(false);
+    expect(selectionRect()).toEqual({ x: 10, y: 10, width: 90, height: 70 });
+    warn.mockRestore();
   });
 
   it("quick-picks the hovered window on a plain click", async () => {

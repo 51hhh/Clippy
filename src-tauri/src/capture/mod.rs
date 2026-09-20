@@ -48,7 +48,7 @@ pub(crate) use shell_extension::{
 };
 pub use shell_extension::{InstallOutcome, ShellExtensionStatus};
 pub use types::{
-    CaptureAction, CaptureActionResult, CaptureOverlayPayload, CaptureSelection,
+    CaptureAction, CaptureActionResult, CaptureIntent, CaptureOverlayPayload, CaptureSelection,
     CaptureTranslationResult,
 };
 
@@ -269,11 +269,31 @@ pub(crate) async fn show_capture_overlay_for_app(
         .map_err(capture_failure)
 }
 
+/// 独立录屏入口复用冻结帧、窗口速选和多屏覆盖层，但会话用途从创建起就固定为 Recording。
+/// 该入口只由录屏产品策略调用；普通截图覆盖层不能在前端把自身升级成录屏。
+pub(crate) async fn show_recording_overlay_for_app(
+    app_handle: tauri::AppHandle,
+    state: &AppState,
+) -> Result<(), String> {
+    start_capture_overlay_for_app_with_intent(app_handle, state, CaptureIntent::Recording)
+        .await
+        .map(|_| ())
+        .map_err(capture_failure)
+}
+
 /// 启动与传统入口完全相同的普通截图会话，但把后端签发的 session ID 返回给类型化动作。
 /// 调用方不得自行构造会话身份，也不能跳过模式 gate、多屏冻结或失败补偿。
 pub(crate) async fn start_capture_overlay_for_app(
     app_handle: tauri::AppHandle,
     state: &AppState,
+) -> Result<String, CaptureError> {
+    start_capture_overlay_for_app_with_intent(app_handle, state, CaptureIntent::Screenshot).await
+}
+
+async fn start_capture_overlay_for_app_with_intent(
+    app_handle: tauri::AppHandle,
+    state: &AppState,
+    intent: CaptureIntent,
 ) -> Result<String, CaptureError> {
     claim_ordinary_then(&state.capture_mode_gate, |ownership| async move {
         let mut timings = manager::StageTimings::start();
@@ -317,7 +337,7 @@ pub(crate) async fn start_capture_overlay_for_app(
             lowered_pins.clone(),
             probe_hint,
             timings,
-            ownership,
+            manager::CaptureBeginAuthorization::new(ownership, intent),
         ) {
             Ok(start) => start,
             Err(failure) => {
@@ -797,7 +817,7 @@ fn capture_failure(error: CaptureError) -> String {
 }
 
 fn validate_overlay_label(label: &str) -> Result<(), CaptureError> {
-    if label.starts_with("capture-overlay-")
+    if (label.starts_with("capture-overlay-") || label.starts_with("recording-overlay-"))
         && label.len() <= 128
         && label
             .chars()

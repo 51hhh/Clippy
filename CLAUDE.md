@@ -9,7 +9,8 @@ Clippy 是跨平台轻量剪贴板管理器，基于 Tauri v2 + Rust（后端）
 已完成功能：剪贴板监听、SQLite 存储（含 FTS5 全文搜索）、悬浮面板、搜索、系统托盘、
 X11/Wayland 分流自动粘贴、多显示器冻结截图、二维手动长截图、X11 受控自动滚动、Pin 工作区/内部无损图片修订、
 可校验的本地批量归档交换、无限画布图片查看器、QR Code/Code 39/Code 128/EAN-13 扫码、Tesseract OCR、
-可选结构化增强 OCR、翻译和设置面板。
+可选结构化增强 OCR、翻译和设置面板。录屏的持久化、帧源、VP9 原型和控制链已实现；产品入口仅在
+显式 VP9 构建的原生 X11 会话开放，默认构建与其他平台仍处于验收阶段。
 增强 OCR 运行时需要显式配置，未随三平台安装包默认分发；交付边界见
 `src-tauri/ocr-sidecar/README.md`。
 
@@ -85,6 +86,7 @@ cd src-tauri && cargo bench
 ├── pin.html / viewer.html             — Pin 与图片查看器功能岛入口
 ├── capture-overlay.html               — 冻结截图覆盖层入口
 ├── longshot-controller.html           — 长截图控制窗口入口
+├── recording-control.html             — 录屏暂停、继续与停止控制窗口
 ├── js/
 │   ├── api.ts / ipc-types.ts          — 类型化 IPC 边界与 serde 合同
 │   ├── app.js / clipboard-list.js     — 主窗口路由与列表状态
@@ -110,6 +112,7 @@ Rust 后端 (src-tauri/src/)
 ├── archive.rs / storage/archive.rs    — `.clippy.zip` 校验、编解码与事务合并
 ├── paste/ / window_controller.rs      — X11/Portal 粘贴与窗口几何
 ├── capture/ / screenshot.rs           — CaptureSession 与平台截图
+├── recording/                         — 录屏帧源、时间线、编码、恢复、控制窗与产品门控
 ├── pin/ / pin_window.rs               — Pin command adapter、生命周期、可信输出与窗口适配
 ├── translation/ / ocr.rs / ocr/       — 翻译服务；OCR facade、运行时、探测、进程与协议
 └── config.rs / models.rs              — 配置与共享模型
@@ -141,6 +144,7 @@ Rust 后端 (src-tauri/src/)
 | 剪贴板与持久化 | `StorageEngine`、`ClipboardWatcher`、`AppConfig` |
 | 主窗口 | `window_controller`、`app/window_events` 的转换与位置状态 |
 | 截图与长截图 | `CaptureManager`、`CaptureModeGate`、`LongshotLifecycle`、`LongshotControllerRegistry` |
+| 录屏 | `RecordingLifecycle`、`RecordingManager`、`RecordingControlRegistry` |
 | Pin 与查看器 | `PinManager`、`PinWorkspacePersistence`、`PinOriginRegistry`、`ViewerManager` |
 | 自动化与服务 | `PasteManager`、`TranslationService`、快捷键/Portal worker |
 

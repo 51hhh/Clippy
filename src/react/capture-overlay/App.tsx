@@ -15,6 +15,7 @@ import { t } from "../shared/i18n";
 import { overlayApi } from "./api";
 import { OverlayToolbar } from "./OverlayToolbar";
 import { OutputFailurePanel } from "./OutputFailurePanel";
+import { RecordingSelectionToolbar } from "./RecordingSelectionToolbar";
 import { ScanPopover, type CaptureScanState } from "./ScanPopover";
 import { captureScanErrorMessage, isCurrentCaptureScan } from "./scanState";
 import { DEFAULT_COLOR, DEFAULT_STROKE } from "./tools";
@@ -714,6 +715,26 @@ export function App({ services = defaultServices }: { services?: CaptureAppServi
     );
   }, [longshotDirty, payload, selection]);
 
+  const startRecording = useCallback(() => {
+    if (
+      payload?.intent !== "recording" || !selection || busyRef.current ||
+      outputFailureRef.current || translationBusyRef.current || scanBusyRef.current
+    ) return;
+    const candidate = longshotSelection(payload, selection);
+    if (!candidate) return;
+    busyRef.current = true;
+    setBusy(true);
+    setError(null);
+    const epoch = mountedEpoch.current;
+    void overlayApi.startRecording(candidate).catch((reason) => {
+      if (mountedEpoch.current !== epoch) return;
+      console.warn("录屏启动失败", reason);
+      busyRef.current = false;
+      setBusy(false);
+      setError(t("capture.recording.startFailed"));
+    });
+  }, [payload, selection]);
+
   const setToolIfEditable = useCallback((next: OverlayTool) => {
     if (!busyRef.current && !outputFailureRef.current && longshotLaunchRef.current !== "pending") setTool(next);
   }, []);
@@ -769,12 +790,13 @@ export function App({ services = defaultServices }: { services?: CaptureAppServi
         && selection
         && !(event.target instanceof HTMLElement && event.target.closest("button"))
       ) {
-        run("copy");
+        if (payload?.intent === "recording") startRecording();
+        else run("copy");
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [cancel, closeScan, closeTranslation, deleteObject, redoIfEditable, run, scan, selectedId, selection, translation, undoIfEditable]);
+  }, [cancel, closeScan, closeTranslation, deleteObject, payload?.intent, redoIfEditable, run, scan, selectedId, selection, startRecording, translation, undoIfEditable]);
 
   function point(event: React.PointerEvent): Point {
     return { x: event.clientX, y: event.clientY };
@@ -906,7 +928,17 @@ export function App({ services = defaultServices }: { services?: CaptureAppServi
           >
             {Math.round(selection.width)} × {Math.round(selection.height)}
           </div>
-          {selection.width >= 2 && selection.height >= 2 && (
+          {selection.width >= 2 && selection.height >= 2 && payload.intent === "recording" && (
+            <RecordingSelectionToolbar
+              selection={selection}
+              viewportWidth={layoutWidth}
+              viewportHeight={layoutHeight}
+              busy={busy}
+              onStart={startRecording}
+              onCancel={cancel}
+            />
+          )}
+          {selection.width >= 2 && selection.height >= 2 && payload.intent === "screenshot" && (
             <OverlayToolbar
               selection={selection}
               viewportWidth={layoutWidth}

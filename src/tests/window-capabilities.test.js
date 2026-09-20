@@ -35,7 +35,7 @@ it("keeps every production window class inside an explicit native capability", (
     ["launcher", ["launcher"]],
     ["settings", ["settings"]],
     ["pin", ["pin-*"]],
-    ["capture-overlay", ["capture-overlay-*"]],
+    ["capture-overlay", ["capture-overlay-*", "recording-overlay-*"]],
     ["longshot-controller", ["longshot-controller-*"]],
     ["image-viewer", ["image-viewer-*"]],
   ]);
@@ -49,6 +49,7 @@ it("keeps every production window class inside an explicit native capability", (
     "settings",
     "pin-*",
     "capture-overlay-*",
+    "recording-overlay-*",
     "longshot-controller-*",
     "image-viewer-*",
   ]));

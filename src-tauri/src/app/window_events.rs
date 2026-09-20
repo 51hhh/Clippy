@@ -94,7 +94,10 @@ pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
                 }
             }
         }
-        tauri::WindowEvent::Destroyed if window.label().starts_with("capture-overlay-") => {
+        tauri::WindowEvent::Destroyed
+            if window.label().starts_with("capture-overlay-")
+                || window.label().starts_with("recording-overlay-") =>
+        {
             if let Some(state) = window.app_handle().try_state::<AppState>() {
                 capture::handle_overlay_destroyed(window.app_handle(), &state, window.label());
             }

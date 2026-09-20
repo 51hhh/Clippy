@@ -510,7 +510,10 @@ mod tests {
                 vec!["pin-b".to_string(), "pin-a".to_string()],
                 false,
                 StageTimings::default(),
-                ownership,
+                crate::capture::manager::CaptureBeginAuthorization::new(
+                    ownership,
+                    crate::capture::CaptureIntent::Screenshot,
+                ),
             )
             .expect("普通截图会话应启动");
         let selection = CaptureSelection {

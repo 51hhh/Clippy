@@ -8,6 +8,7 @@ use tauri::{Emitter, Listener, Manager};
 /// 托盘菜单项 id。文案随语言变化，id 保持不变，事件分支才能稳定匹配。
 const OPEN_ID: &str = "open_clipboard";
 const ACTIONS_ID: &str = "actions";
+const RECORD_AREA_ID: &str = "record_area";
 const SETTINGS_ID: &str = "settings";
 const QUIT_ID: &str = "quit";
 
@@ -16,6 +17,7 @@ const QUIT_ID: &str = "quit";
 pub(crate) struct TrayMenuItems {
     open_clipboard: MenuItem<tauri::Wry>,
     actions: MenuItem<tauri::Wry>,
+    record_area: Option<MenuItem<tauri::Wry>>,
     settings: MenuItem<tauri::Wry>,
     quit: MenuItem<tauri::Wry>,
 }
@@ -32,6 +34,11 @@ impl TrayMenuItems {
                 log::warn!("托盘菜单文案刷新失败 ({label}): {error}");
             }
         }
+        if let Some(item) = &self.record_area {
+            if let Err(error) = item.set_text(text.record_area_menu) {
+                log::warn!("托盘菜单文案刷新失败 ({}): {error}", text.record_area_menu);
+            }
+        }
     }
 }
 
@@ -44,21 +51,46 @@ pub(crate) fn build(
     use tauri::tray::TrayIconBuilder;
 
     let text = i18n::text_for_language(&config.language);
+    let record_area = crate::recording::product_entry_available()
+        .then(|| {
+            MenuItem::with_id(
+                app,
+                RECORD_AREA_ID,
+                text.record_area_menu,
+                true,
+                None::<&str>,
+            )
+        })
+        .transpose()?;
     let items = TrayMenuItems {
         open_clipboard: MenuItem::with_id(app, OPEN_ID, text.open_clipboard, true, None::<&str>)?,
         actions: MenuItem::with_id(app, ACTIONS_ID, text.actions_menu, true, None::<&str>)?,
+        record_area,
         settings: MenuItem::with_id(app, SETTINGS_ID, text.settings_menu, true, None::<&str>)?,
         quit: MenuItem::with_id(app, QUIT_ID, text.quit_menu, true, None::<&str>)?,
     };
-    let menu = Menu::with_items(
-        app,
-        &[
-            &items.open_clipboard,
-            &items.actions,
-            &items.settings,
-            &items.quit,
-        ],
-    )?;
+    let menu = if let Some(record_area) = &items.record_area {
+        Menu::with_items(
+            app,
+            &[
+                &items.open_clipboard,
+                &items.actions,
+                record_area,
+                &items.settings,
+                &items.quit,
+            ],
+        )?
+    } else {
+        Menu::with_items(
+            app,
+            &[
+                &items.open_clipboard,
+                &items.actions,
+                &items.settings,
+                &items.quit,
+            ],
+        )?
+    };
 
     let icon = tray_icon::render_themed_tray_icon(&config.theme)
         .unwrap_or_else(|| app.default_window_icon().expect("缺少默认窗口图标").clone());
@@ -85,6 +117,14 @@ pub(crate) fn build(
                 if result.is_err() {
                     log::warn!("打开动作启动器失败");
                 }
+            }
+            RECORD_AREA_ID => {
+                let handle = app_handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = crate::commands::trigger_recording_overlay(handle).await {
+                        log::warn!("打开录屏选区失败: {error}");
+                    }
+                });
             }
             SETTINGS_ID => {
                 if let Err(error) = window_controller::open_settings_window(app_handle) {

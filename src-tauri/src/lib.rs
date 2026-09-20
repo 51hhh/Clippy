@@ -423,6 +423,7 @@ pub fn run() {
             capture::finish_longshot_controller,
             capture::cancel_longshot_controller,
             capture::diagnostics::run_capture_diagnostics,
+            recording::control_host::start_capture_recording,
             recording::control_host::mark_recording_control_ready,
             recording::control_host::pause_recording,
             recording::control_host::resume_recording,

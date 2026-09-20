@@ -14,6 +14,49 @@ xcap 0.9 提供跨平台 `VideoRecorder`，但官方仍把 video recording 标�
 上游仍有录制配置、Wayland 性能和停止后重新初始化等公开问题。因此 xcap 可以作为候选帧源，不能
 承担 Clippy 的时间线、内存和恢复合同，也不能为了录屏直接替换当前 Linux 截图依赖。
 
+## 当前实现状态（2026-09-21）
+
+第一条产品入口已经接到独立的 Recording 选区覆盖层，但仍属于受门控的 X11 阶段交付：
+
+### Goal
+
+在不扩大普通截图权限、也不对未验收平台作可用承诺的前提下，把既有 X11 + VP9 录屏领域链连接到
+一个用户可发现、后端可信的区域选择入口。
+
+### Requirements
+
+- 仅在显式启用 `recording-vp9-prototype` feature 且运行于原生 X11 时，托盘显示“区域录屏”；
+- 覆盖层复用多屏冻结、窗口命中和逻辑到物理 crop，窗口标签使用独立
+  `recording-overlay-*` 调用域，只允许读取冻结帧、取消和开始录屏；
+- 普通截图会话不能升级为录屏，录屏会话也不能调用复制、标注、扫码、翻译或长截图命令；
+- 前端只提交后端签发会话中的逻辑选区。30 fps、包含光标、VP9 编码器、输出目录和录制 session ID
+  由后端固定或生成；
+- 默认构建、Windows、macOS 和 Wayland 不显示入口。它们仍需完成下文的原生 CI 与真机验收，不能
+  因代码可编译而记为产品可用。
+
+本地开发使用 `cargo tauri dev --features recording-vp9-prototype` 启动；只有桌面会话事实源判定为
+原生 X11 时托盘才出现入口。
+
+### Acceptance Criteria
+
+- 策略测试证明 Wayland、Windows/macOS 原生会话和未知会话不开放入口，X11 还必须具备显式 feature；
+- 后端测试证明录屏会话签发 `recording-overlay-*` 标签及 `recording` payload，普通截图会话请求录屏
+  返回 `capture_intent_mismatch` 且不释放或转换当前 gate；
+- IPC 权限测试证明录屏覆盖层不能提交截图、扫码、翻译、长截图或动作；
+- 前端测试证明录屏选区只显示开始/取消，提交精确会话选区，启动失败后恢复可操作状态；
+- 默认与 feature 构建均通过 Rust check，feature 构建通过 `clippy --all-targets -D warnings`，仓库完整
+  本地门禁通过。
+
+### Out of Scope
+
+- 把录屏 feature 设为发布默认值；
+- Windows、macOS、Wayland 产品入口及对应真机验收；
+- 音频、摄像头、自动进入剪贴板历史、录制参数 UI；
+- 用本次代码门禁替代 X11 真机画质、性能、控制窗排除、文件播放和崩溃恢复验收。
+
+本阶段的验收边界是“可信入口已接线且默认关闭”。X11 真机画质、性能、控制窗排除、停止后的文件
+播放与崩溃恢复仍属于第一阶段剩余验收；通过这些门槛后才能把 feature 设为发布默认值。
+
 参考：
 
 - [xcap 官方录屏示例与 WIP 声明](https://docs.rs/crate/xcap/latest/source/examples/)
@@ -331,8 +374,8 @@ Linux X11 已加入持久 x11rb 连接的根窗口区域帧源：每次只请求
 控制通道错误及 `Drop` 回收都会中止 pipeline。独立诊断编码线程已闭合 capture → 三槽 pipeline →
 MJPEG/AVI：它阻塞等待帧，先排空已接受前缀，再使用同一最终时长封尾；编码失败或线程回收会反向
 中止 pipeline，停止仍在运行的采集线程。桌面资源恢复领域状态机、Tauri 控制窗宿主和控制 IPC 已
-接入；可信开始 IPC、X11 真机性能证据以及 Windows/macOS/Wayland 原生验收仍未完成，因此还不能
-从 UI 开始录屏。
+接入；可信开始 IPC 现已在显式 VP9 的原生 X11 构建接通，X11 真机性能证据以及
+Windows/macOS/Wayland 原生验收仍未完成，因此默认构建仍不能从 UI 开始录屏。
 
 Windows 平台已加入第一条 WGC 区域帧源骨架：冻结截图的显示器 ID 和物理像素尺寸会再次与当前
 `xcap` 显示器核对，WGC 整屏帧进入零容量通道后由 Clippy 单槽桥接只保留最新一帧，再按可信 crop
@@ -410,7 +453,8 @@ manager/lifecycle 关闭控制面、清理会话、释放 Recording gate。采�
 释放 gate；桌面动作会在首个失败后继续执行剩余恢复项。当前完成的是可注入、可测试的领域状态机，
 Tauri 桌面动作适配器现已复用截图覆盖层关闭、Pin/来源窗口恢复和 settle 合同；控制窗意外销毁、
 显示失败、正常停止与取消都会按 exact token 回收会话。平台计划已经接入这条生命周期；可信 Tauri
-开始命令仍未接入。
+开始命令已由独立 `recording-overlay-*` 调用域接入，并固定使用后端生成的会话身份、30 fps、光标
+和 VP9 原型；产品策略目前只对显式 VP9 构建的原生 X11 返回可用。
 
 控制窗 registry 已独立固定 `Preparing → Bound → Closing → Empty`：窗口只携带后端生成且不可复用的
 label，暂停/继续/停止命令从 registry 读取 exact generation token，不接收前端提交的 session ID 或
@@ -418,7 +462,8 @@ generation。同一 session ID 再次录制也会得到新 label，旧窗口和�
 意外销毁只会交出一次清理 token，关闭失败进入终态并阻止创建替代控制窗。页面 ready 与 token bind
 现为顺序无关的双条件屏障：任一方可先到，只有后到的一方取得一次 reveal 责任；重复 ready、伪造
 label、旧窗口和 closing 窗口都不能再次显示或控制会话。Tauri 已接入隐藏建窗、物理安全位置复核与
-受 caller 限制的控制命令；主界面与截图工具条仍没有开始入口。
+受 caller 限制的控制命令；主界面与普通截图工具条仍没有开始入口，显式 VP9/X11 构建从托盘进入
+独立录屏选区。
 
 ## 第一阶段验收
 

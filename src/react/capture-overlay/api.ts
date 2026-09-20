@@ -11,6 +11,7 @@ import {
   markCaptureOverlayReady,
   openLongshotController,
   scanCaptureSelection,
+  startCaptureRecording,
   translateCaptureSelection,
 } from "../../js/api.ts";
 import type {
@@ -60,6 +61,7 @@ export const overlayApi = {
   translate: (selection: CaptureSelection): Promise<CaptureTranslationResult> =>
     translateCaptureSelection(selection),
   scan: (selection: CaptureSelection) => scanCaptureSelection(selection),
+  startRecording: (selection: CaptureSelection): Promise<void> => startCaptureRecording(selection),
   copyText: (text: string): Promise<void> => copyText(text),
   /** 普通覆盖层只创建隐藏控制窗；实际交接由控制窗加载后自行发起。 */
   openLongshot: (selection: CaptureSelection) => openLongshotController(selection),

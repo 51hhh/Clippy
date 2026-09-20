@@ -277,6 +277,8 @@ export interface CaptureOverlayPayload {
   logicalHeight: number;
   pixelWidth: number;
   pixelHeight: number;
+  /** 冻结会话的产品用途；由后端签发，前端不能把普通截图切换成录屏。 */
+  intent: "screenshot" | "recording";
   windows: WindowCandidate[];
   /**
    * 这次要不要在覆盖层里提示"窗口速选需要在设置页安装服务"。
