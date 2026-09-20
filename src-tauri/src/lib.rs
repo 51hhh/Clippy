@@ -1,3 +1,5 @@
+#[allow(dead_code)]
+mod actions;
 mod app;
 mod app_update;
 mod archive;

@@ -116,8 +116,9 @@ const RECORDING_CONTROL_COMMANDS: &[&str] = &[
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CallerKind {
+pub(crate) enum CallerKind {
     Main,
+    Launcher,
     Settings,
     Pin,
     CaptureOverlay,
@@ -136,9 +137,10 @@ fn safe_dynamic_label(label: &str, prefix: &str, max_len: usize) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
 }
 
-fn caller_kind(label: &str) -> CallerKind {
+pub(crate) fn caller_kind(label: &str) -> CallerKind {
     match label {
         "main" => CallerKind::Main,
+        "launcher" => CallerKind::Launcher,
         "settings" => CallerKind::Settings,
         _ if safe_dynamic_label(label, "pin-", 96) => CallerKind::Pin,
         _ if safe_dynamic_label(label, "capture-overlay-", 128) => CallerKind::CaptureOverlay,
@@ -154,6 +156,7 @@ fn caller_kind(label: &str) -> CallerKind {
 pub(crate) fn allowed(caller: &str, command: &str) -> bool {
     let commands = match caller_kind(caller) {
         CallerKind::Main => return true,
+        CallerKind::Launcher => return false,
         CallerKind::Settings => SETTINGS_COMMANDS,
         CallerKind::Pin => PIN_COMMANDS,
         CallerKind::CaptureOverlay => CAPTURE_OVERLAY_COMMANDS,
@@ -279,6 +282,13 @@ mod tests {
             assert!(!allowed(label, "get_config"), "{label:?}");
             assert!(!allowed(label, "get_viewer_payload"), "{label:?}");
         }
+    }
+
+    #[test]
+    fn launcher_has_a_stable_role_but_no_business_commands_before_its_ipc_stage() {
+        assert_eq!(caller_kind("launcher"), CallerKind::Launcher);
+        assert!(!allowed("launcher", "get_config"));
+        assert!(!allowed("launcher", "run_action"));
     }
 
     #[test]
