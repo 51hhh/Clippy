@@ -423,17 +423,19 @@ mod tests {
     fn wait_for_committed_segment(
         directory: &Path,
         segment_index: usize,
-        open_tail_path: Option<&Path>,
+        container: &str,
+        required_open_paths: &[&Path],
+        timeout: std::time::Duration,
     ) {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-        let segment_path = directory.join(format!("segment-{segment_index:06}.avi"));
+        let deadline = std::time::Instant::now() + timeout;
+        let segment_path = directory.join(format!("segment-{segment_index:06}.{container}"));
         loop {
             let manifest = manifest_value(directory);
             let segment_is_declared = manifest["segments"]
                 .as_array()
                 .is_some_and(|segments| segments.len() > segment_index);
-            let open_tail_exists = open_tail_path.is_none_or(Path::exists);
-            if segment_is_declared && segment_path.exists() && open_tail_exists {
+            let required_paths_exist = required_open_paths.iter().all(|path| path.exists());
+            if segment_is_declared && segment_path.exists() && required_paths_exist {
                 return;
             }
             assert!(
@@ -534,7 +536,7 @@ mod tests {
         )
         .unwrap();
         let directory = session.session_directory().to_path_buf();
-        wait_for_committed_segment(&directory, 0, None);
+        wait_for_committed_segment(&directory, 0, "avi", &[], std::time::Duration::from_secs(2));
         assert_eq!(manifest_value(&directory)["state"], "recording");
 
         let report = session.stop().unwrap();
@@ -581,7 +583,13 @@ mod tests {
             .unwrap();
             let session_directory = session.session_directory().to_path_buf();
             let open_tail = session_directory.join(".segment-000001.avi.partial");
-            wait_for_committed_segment(&session_directory, 0, Some(&open_tail));
+            wait_for_committed_segment(
+                &session_directory,
+                0,
+                "avi",
+                &[open_tail.as_path()],
+                std::time::Duration::from_secs(2),
+            );
             std::process::exit(91);
         }
 
@@ -784,20 +792,15 @@ mod tests {
             )
             .unwrap();
             let session_directory = session.session_directory().to_path_buf();
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-            while manifest_value(&session_directory)["segments"]
-                .as_array()
-                .unwrap()
-                .is_empty()
-            {
-                assert!(std::time::Instant::now() < deadline);
-                std::thread::sleep(std::time::Duration::from_millis(5));
-            }
-            assert!(session_directory.join("segment-000000.webm").exists());
-            assert!(session_directory
-                .join(".segment-000001.webm.partial")
-                .exists());
-            assert!(session_directory.join(".recording.webm.partial").exists());
+            let open_tail = session_directory.join(".segment-000001.webm.partial");
+            let open_final = session_directory.join(".recording.webm.partial");
+            wait_for_committed_segment(
+                &session_directory,
+                0,
+                "webm",
+                &[open_tail.as_path(), open_final.as_path()],
+                std::time::Duration::from_secs(5),
+            );
             std::process::exit(91);
         }
 
