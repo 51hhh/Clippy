@@ -374,8 +374,8 @@ fn scan_prepared_luma(image: PreparedLuma) -> Result<CodeScanResponse, CodeScanE
 }
 
 /// 在 worker 中执行完整扫描。PNG 参数只在该函数内存活，不会写入日志或缓存。
-pub(crate) fn scan_png(png_bytes: Vec<u8>) -> Result<CodeScanResponse, CodeScanError> {
-    scan_prepared_luma(decode_png_to_luma(&png_bytes)?)
+pub(crate) fn scan_png(png_bytes: impl AsRef<[u8]>) -> Result<CodeScanResponse, CodeScanError> {
+    scan_prepared_luma(decode_png_to_luma(png_bytes.as_ref())?)
 }
 
 /// 扫描截图会话已经验证过的原始 RGBA 选区；像素不写入日志、缓存或数据库。

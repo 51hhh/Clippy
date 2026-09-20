@@ -308,15 +308,12 @@ pub async fn detect_viewer_codes(
 ) -> Result<ViewerReply<crate::code_detection::CodeScanResponse>, ViewerError> {
     let permit = crate::commands::acquire_scan_permit().map_err(|_| ViewerError::new("busy"))?;
     let entry = start(&window, &state, &request, Channel::Scan)?;
-    blocking(move || {
-        let _permit = permit;
-        entry.commit(Channel::Scan, &request, || Ok(()))?;
-        let result = crate::code_detection::scan_png(entry.png.as_ref().clone())
-            .map_err(|e| ViewerError::new(&e.to_string()))?;
-        entry.publish_scan(&request, result.clone())?;
-        Ok(request.reply(result))
-    })
-    .await
+    entry.commit(Channel::Scan, &request, || Ok(()))?;
+    let result = crate::commands::scan_snapshot_with_permit(Arc::clone(&entry.png), permit)
+        .await
+        .map_err(|error| ViewerError::new(&error.to_string()))?;
+    entry.publish_scan(&request, result.clone())?;
+    Ok(request.reply(result))
 }
 fn check_sensitive(entry: &ViewerSession, state: &AppState) -> Result<(), ViewerError> {
     let sensitive = state

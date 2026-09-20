@@ -16,6 +16,10 @@ pub(super) enum ActionRunError {
     ImageSourceUnavailable,
     #[error("文字识别失败")]
     OcrFailed,
+    #[error("扫码服务忙碌")]
+    CodeScanBusy,
+    #[error("扫码失败")]
+    CodeScanFailed,
 }
 
 impl ActionRunError {
@@ -26,6 +30,8 @@ impl ActionRunError {
             Self::ClipboardFailed => "action_clipboard_failed",
             Self::ImageSourceUnavailable => "action_image_source_unavailable",
             Self::OcrFailed => "action_ocr_failed",
+            Self::CodeScanBusy => "action_code_scan_busy",
+            Self::CodeScanFailed => "action_code_scan_failed",
         }
     }
 }
@@ -61,6 +67,40 @@ pub(super) async fn ocr_image(
     .await
 }
 
+/// Viewer 的扫码动作与 OCR 共享同一个权威快照合同，并复用产品唯一的本地扫码并发预算。
+pub(super) async fn scan_image_codes(
+    runtime: &ActionRuntime,
+    caller_label: &str,
+    prepared: &PreparedAction,
+    state: &AppState,
+) -> Result<crate::code_detection::CodeScanResponse, ActionRunError> {
+    execute_image_scan(
+        runtime,
+        caller_label,
+        prepared,
+        |source_id, source_version| {
+            state
+                .viewer_manager
+                .resolve_action_snapshot(caller_label, source_id, source_version)
+                .map_err(|_| ActionRunError::ImageSourceUnavailable)
+        },
+        |png| async move {
+            crate::commands::scan_snapshot_shared(png)
+                .await
+                .map_err(|error| {
+                    if error == crate::code_detection::CodeScanError::Busy {
+                        ActionRunError::CodeScanBusy
+                    } else {
+                        // 解码器内部错误和图片内容不进入动作错误或日志。
+                        log::warn!("动作二维码/条码识别失败: {error}");
+                        ActionRunError::CodeScanFailed
+                    }
+                })
+        },
+    )
+    .await
+}
+
 async fn execute_image_ocr<Resolve, Recognize, RecognizeFuture>(
     runtime: &ActionRuntime,
     caller_label: &str,
@@ -73,7 +113,54 @@ where
     Recognize: FnOnce(Arc<Vec<u8>>) -> RecognizeFuture,
     RecognizeFuture: Future<Output = Result<crate::ocr::StructuredOcr, ActionRunError>>,
 {
-    if prepared.descriptor().id != "image.ocr" {
+    execute_owned_image_action(
+        "image.ocr",
+        runtime,
+        caller_label,
+        prepared,
+        resolve,
+        recognize,
+    )
+    .await
+}
+
+async fn execute_image_scan<Resolve, Scan, ScanFuture>(
+    runtime: &ActionRuntime,
+    caller_label: &str,
+    prepared: &PreparedAction,
+    resolve: Resolve,
+    scan: Scan,
+) -> Result<crate::code_detection::CodeScanResponse, ActionRunError>
+where
+    Resolve: FnOnce(&str, u64) -> Result<Arc<Vec<u8>>, ActionRunError>,
+    Scan: FnOnce(Arc<Vec<u8>>) -> ScanFuture,
+    ScanFuture: Future<Output = Result<crate::code_detection::CodeScanResponse, ActionRunError>>,
+{
+    execute_owned_image_action(
+        "image.scan_codes",
+        runtime,
+        caller_label,
+        prepared,
+        resolve,
+        scan,
+    )
+    .await
+}
+
+async fn execute_owned_image_action<T, Resolve, Run, RunFuture>(
+    expected_action: &str,
+    runtime: &ActionRuntime,
+    caller_label: &str,
+    prepared: &PreparedAction,
+    resolve: Resolve,
+    run: Run,
+) -> Result<T, ActionRunError>
+where
+    Resolve: FnOnce(&str, u64) -> Result<Arc<Vec<u8>>, ActionRunError>,
+    Run: FnOnce(Arc<Vec<u8>>) -> RunFuture,
+    RunFuture: Future<Output = Result<T, ActionRunError>>,
+{
+    if prepared.descriptor().id != expected_action {
         return Err(ActionRunError::WrongAction);
     }
     let ActionInput::OwnedImage {
@@ -98,7 +185,7 @@ where
     let result = tokio::select! {
         biased;
         () = cancellation.cancelled() => Err(ActionRunError::Lifecycle(ActionError::Cancelled)),
-        result = recognize(png) => result,
+        result = run(png) => result,
     };
     runtime
         .publish(caller_label, prepared.handle(), || result)
@@ -162,6 +249,17 @@ mod tests {
             "fallbackReason": "fixture"
         }))
         .unwrap()
+    }
+
+    fn scan_result(text: &str) -> crate::code_detection::CodeScanResponse {
+        crate::code_detection::CodeScanResponse {
+            results: vec![crate::code_detection::CodeScanResult {
+                format: "qr_code".to_string(),
+                text: text.to_string(),
+                points: Vec::new(),
+            }],
+            limited: false,
+        }
     }
 
     struct DropSignal(Arc<AtomicBool>);
@@ -342,6 +440,200 @@ mod tests {
                 Err(ActionError::Superseded)
             );
         }
+    }
+
+    #[tokio::test]
+    async fn image_scan_resolves_the_exact_owned_snapshot_and_retires_the_slot() {
+        let runtime = ActionRuntime::default();
+        let prepared = runtime
+            .begin(
+                "image-viewer-owner",
+                "image.scan_codes",
+                "analysis",
+                json!({"sourceId": "snapshot-secret", "sourceVersion": 0}),
+            )
+            .unwrap();
+        let result = execute_image_scan(
+            &runtime,
+            "image-viewer-owner",
+            &prepared,
+            |source_id, source_version| {
+                assert_eq!(source_id, "snapshot-secret");
+                assert_eq!(source_version, 0);
+                Ok(Arc::new(vec![4, 5, 6]))
+            },
+            |png| async move {
+                assert_eq!(png.as_slice(), &[4, 5, 6]);
+                Ok(scan_result("https://example.invalid/code"))
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.results[0].text, "https://example.invalid/code");
+        assert_eq!(
+            runtime.ensure_current("image-viewer-owner", prepared.handle()),
+            Err(ActionError::Superseded)
+        );
+    }
+
+    #[tokio::test]
+    async fn image_scan_cancellation_drops_the_domain_waiter_before_publication() {
+        let runtime = ActionRuntime::default();
+        let prepared = runtime
+            .begin(
+                "image-viewer-owner",
+                "image.scan_codes",
+                "analysis",
+                json!({"sourceId": "snapshot-secret", "sourceVersion": 0}),
+            )
+            .unwrap();
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let dropped = Arc::new(AtomicBool::new(false));
+        let worker = execute_image_scan(
+            &runtime,
+            "image-viewer-owner",
+            &prepared,
+            |_, _| Ok(Arc::new(vec![1])),
+            {
+                let entered = Arc::clone(&entered);
+                let dropped = Arc::clone(&dropped);
+                move |_| async move {
+                    let _drop = DropSignal(dropped);
+                    entered.notify_one();
+                    std::future::pending::<
+                        Result<crate::code_detection::CodeScanResponse, ActionRunError>,
+                    >()
+                    .await
+                }
+            },
+        );
+        let cancel = async {
+            entered.notified().await;
+            runtime
+                .cancel("image-viewer-owner", prepared.handle())
+                .unwrap();
+        };
+        let (result, ()) = tokio::join!(worker, cancel);
+        assert!(matches!(
+            result,
+            Err(ActionRunError::Lifecycle(ActionError::Cancelled))
+        ));
+        assert!(dropped.load(Ordering::Acquire));
+        assert_eq!(
+            runtime.ensure_current("image-viewer-owner", prepared.handle()),
+            Err(ActionError::Superseded)
+        );
+    }
+
+    #[tokio::test]
+    async fn replacing_image_scan_drops_old_work_and_blocks_its_late_result() {
+        let runtime = ActionRuntime::default();
+        let old = runtime
+            .begin(
+                "image-viewer-owner",
+                "image.scan_codes",
+                "analysis",
+                json!({"sourceId": "snapshot-secret", "sourceVersion": 0}),
+            )
+            .unwrap();
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let dropped = Arc::new(AtomicBool::new(false));
+        let worker = execute_image_scan(
+            &runtime,
+            "image-viewer-owner",
+            &old,
+            |_, _| Ok(Arc::new(vec![1])),
+            {
+                let entered = Arc::clone(&entered);
+                let dropped = Arc::clone(&dropped);
+                move |_| async move {
+                    let _drop = DropSignal(dropped);
+                    entered.notify_one();
+                    std::future::pending::<
+                        Result<crate::code_detection::CodeScanResponse, ActionRunError>,
+                    >()
+                    .await
+                }
+            },
+        );
+        let replace = async {
+            entered.notified().await;
+            runtime
+                .begin(
+                    "image-viewer-owner",
+                    "image.scan_codes",
+                    "analysis",
+                    json!({"sourceId": "snapshot-new", "sourceVersion": 0}),
+                )
+                .unwrap()
+        };
+        let (result, current) = tokio::join!(worker, replace);
+        assert!(matches!(
+            result,
+            Err(ActionRunError::Lifecycle(ActionError::Superseded))
+        ));
+        assert!(dropped.load(Ordering::Acquire));
+        assert_eq!(
+            runtime.ensure_current("image-viewer-owner", current.handle()),
+            Ok(())
+        );
+    }
+
+    #[tokio::test]
+    async fn image_scan_source_and_domain_failures_are_stable_and_redacted() {
+        for (source_error, domain_error, expected) in [
+            (
+                true,
+                ActionRunError::CodeScanFailed,
+                ActionRunError::ImageSourceUnavailable,
+            ),
+            (
+                false,
+                ActionRunError::CodeScanBusy,
+                ActionRunError::CodeScanBusy,
+            ),
+            (
+                false,
+                ActionRunError::CodeScanFailed,
+                ActionRunError::CodeScanFailed,
+            ),
+        ] {
+            let runtime = ActionRuntime::default();
+            let prepared = runtime
+                .begin(
+                    "image-viewer-owner",
+                    "image.scan_codes",
+                    "analysis",
+                    json!({"sourceId": "do-not-log-source", "sourceVersion": 0}),
+                )
+                .unwrap();
+            let result = execute_image_scan(
+                &runtime,
+                "image-viewer-owner",
+                &prepared,
+                |_, _| {
+                    if source_error {
+                        Err(ActionRunError::ImageSourceUnavailable)
+                    } else {
+                        Ok(Arc::new(vec![1]))
+                    }
+                },
+                |_| async move { Err(domain_error) },
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(result, expected);
+            assert!(!format!("{result:?}").contains("do-not-log-source"));
+            assert_eq!(
+                runtime.ensure_current("image-viewer-owner", prepared.handle()),
+                Err(ActionError::Superseded)
+            );
+        }
+        assert_eq!(ActionRunError::CodeScanBusy.code(), "action_code_scan_busy");
+        assert_eq!(
+            ActionRunError::CodeScanFailed.code(),
+            "action_code_scan_failed"
+        );
     }
 
     #[test]

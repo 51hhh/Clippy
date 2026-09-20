@@ -867,8 +867,11 @@ Portal 逻辑几何复核冻结显示器，协商阶段核对完整物理尺寸�
 `text.copy` 已复用现有 watcher 抑制、平台剪贴板重试与 wake 路径。不可取消动作增加原子提交阶段，
 提交期间同一调用者/请求槽不能被新请求替换。Viewer 的 `image.ocr` 已复用现有 OCR 调度，并以
 调用窗口签发的不可变 `snapshotId + version 0` 复核图片所有权；取消会释放 OCR 等待者，跨窗口、
-旧版本和关闭后的快照都不能发布结果。截图、扫码、保存、Pin、翻译以及其他窗口角色的图片引用
-仍未接入。
+旧版本和关闭后的快照都不能发布结果。Viewer 的 `image.scan_codes` 也已使用同一快照合同接入，
+并复用现有 QR/条码全局单并发预算；Viewer、历史图片命令和动作共用零额外 PNG 克隆的 blocking
+入口。动作取消只释放等待者，不可中断的扫码 worker 会继续持有 permit 到结束，迟到结果仍由
+generation 闸门拒绝。截图、保存、Pin、翻译以及 Capture、主窗口、Launcher 等其他窗口角色的
+图片引用仍未接入。
 
 **Out of Scope**：第一阶段不嵌入 Lua/WASM/JavaScript，不运行任意 shell，不开放插件市场。
 

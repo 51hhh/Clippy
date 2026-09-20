@@ -86,3 +86,7 @@ discover descriptor
   `snapshotId + version 0`，复用现有 OCR single-flight、并发预算和进程回收；动作取消会释放自身
   等待者，迟到、跨窗口、旧版本和已关闭 Viewer 均不能发布结果。Capture、Pin、主窗口和 Launcher
   的图片引用仍须先建立各自权威 source/version 合同。
+- 2026-09-21：Stage 2 已接入 Viewer 的 `image.scan_codes`。它复用与 OCR 相同的不可变快照所有权
+  合同，以及现有 QR/条码扫描的进程级单并发预算；Viewer、历史图片命令和动作适配器共享同一
+  blocking 执行入口，扫描大图不再为 Viewer 额外复制完整 PNG。取消或同槽替换会立即释放动作
+  等待者，不可中断的 rxing worker 仍持有 permit 到安全结束，迟到结果不能发布。
