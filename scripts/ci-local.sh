@@ -106,8 +106,11 @@ run_step "cargo check" bash -c "cd src-tauri && cargo check --all-targets"
 run_step "cargo clippy" bash -c "cd src-tauri && cargo clippy --all-targets -- -D warnings"
 run_step "cargo test" bash -c "cd src-tauri && cargo test"
 if [[ "$(uname -s)" == "Linux" ]]; then
+  run_step "X11 录屏到可恢复 AVI 闭环" \
+    bash -c "cd src-tauri && xvfb-run -a cargo test recording::session::tests::x11_source_records_a_complete_private_avi_session -- --ignored --exact"
   run_step "X11 剪贴板隔离协议回归" ./scripts/test-x11-clipboard.sh
 else
+  skip_step "X11 录屏到可恢复 AVI 闭环 (仅 Linux)"
   skip_step "X11 剪贴板隔离协议回归 (仅 Linux)"
 fi
 

@@ -26,7 +26,7 @@ pub(super) struct X11PhysicalRegion {
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
-pub(super) enum X11FrameSourceError {
+pub(in crate::recording) enum X11FrameSourceError {
     #[error("X11 录屏区域无效或超出根窗口")]
     InvalidRegion,
     #[error("X11 录屏显示器不存在或映射不唯一")]
@@ -49,7 +49,7 @@ pub(super) enum X11FrameSourceError {
     Frame(#[from] FrameError),
 }
 
-pub(super) struct X11RegionFrameSource {
+pub(in crate::recording) struct X11RegionFrameSource {
     connection: RustConnection,
     root: u32,
     region: X11PhysicalRegion,

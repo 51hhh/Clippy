@@ -1,2 +1,2 @@
 #[cfg(target_os = "linux")]
-mod x11;
+pub(super) mod x11;

@@ -756,7 +756,8 @@ XWayland 注入原生窗口。
 注册表已用 Starting/Recording/Stopping 状态和 generation token 防止并发启动及迟到命令误伤新会话。
 控制窗排除能力也已按平台审查并固定物理规划合同：Windows/macOS 使用原生窗口排除；X11/Wayland
 只能放到选区外，无安全位置时退回托盘/快捷键。负坐标多屏、全屏无位置与相邻显示器候选已有单元
-测试；窗口句柄排除调用、产品 IPC/桌面资源恢复/控制窗宿主与真机性能验收仍未完成。
+测试。Linux 本地门禁还会在 Xvfb 中跑 RandR 区域 → X11 帧源 → pipeline → AVI → complete manifest
+的真实协议闭环；窗口句柄排除调用、产品 IPC/桌面资源恢复/控制窗宿主与真机/4K 性能验收仍未完成。
 
 ### `PX-ACT-01`：类型化动作与启动器
 
