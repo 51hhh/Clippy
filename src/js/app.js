@@ -119,7 +119,10 @@ whenReady(async () => {
     codec,
     pinClip,
     hidePanel: tryHidePanel,
-    openActions: showActionLauncher,
+    openActions: () => {
+      const focused = clipboardList.getFocusedClip();
+      return showActionLauncher(focused?.content_type === "image" ? focused.id : 0);
+    },
     // 翻译面板的动作以适配器注入，路由不直接依赖 React store（保持可单测）
     translation: { translate: () => translationStore.translate() },
   });

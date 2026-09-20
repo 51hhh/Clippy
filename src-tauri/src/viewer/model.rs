@@ -121,7 +121,7 @@ impl From<&str> for ViewerError {
         Self::new(code)
     }
 }
-pub(super) fn validate_dimensions(width: u32, height: u32) -> Result<(), ViewerError> {
+pub(crate) fn validate_dimensions(width: u32, height: u32) -> Result<(), ViewerError> {
     if width == 0
         || height == 0
         || width > MAX_EDGE

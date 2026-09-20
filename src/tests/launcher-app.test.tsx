@@ -52,9 +52,11 @@ function service(overrides: Partial<LauncherServices> = {}): LauncherServices {
   return {
     discover: vi.fn().mockResolvedValue(descriptors),
     prepare: vi.fn().mockResolvedValue({ requestSlot: "launcher.test", generation: 1 }),
+    prepareComposed: vi.fn().mockResolvedValue({ requestSlot: "launcher.compose", generation: 2 }),
     run: vi.fn().mockResolvedValue({ handle: { requestSlot: "launcher.test", generation: 1 }, output: { type: "unit" } }),
     cancel: vi.fn().mockResolvedValue(undefined),
     settings: vi.fn().mockResolvedValue(settings),
+    imageSource: vi.fn().mockResolvedValue(null),
     ready: vi.fn().mockResolvedValue(undefined),
     close: vi.fn().mockResolvedValue(undefined),
     startDrag: vi.fn().mockResolvedValue(undefined),
@@ -103,6 +105,76 @@ describe("action launcher", () => {
     await typeInto(search, "translate");
     expect(document.querySelectorAll(".launcher-action")).toHaveLength(1);
     expect(document.querySelector(".launcher-action")?.textContent).toContain("Translate text");
+  });
+
+  it("shows image actions only for a backend-issued source and composes OCR without resubmitting text", async () => {
+    const source = {
+      reference: { sourceId: "action-image-7", sourceVersion: 0 },
+      width: 640,
+      height: 480,
+      byteLength: 4096,
+      sensitive: false,
+    };
+    const ocrHandle = { requestSlot: "launcher.image.ocr", generation: 7 };
+    const copyHandle = { requestSlot: "launcher.compose.copy", generation: 8 };
+    services = service({
+      imageSource: vi.fn().mockResolvedValue(source),
+      prepare: vi.fn().mockResolvedValue(ocrHandle),
+      prepareComposed: vi.fn().mockResolvedValue(copyHandle),
+      run: vi.fn(async (id, handle) => id === "image.ocr" ? {
+        handle,
+        output: {
+          type: "recognized_text",
+          value: {
+            width: 640, height: 480, text: "trusted OCR text", lines: [], paragraphs: [],
+            pipeline: { id: "fixture", engine: "tesseract", featureSchema: null, layoutExecuted: false, layoutReason: "unstructured_backend" },
+            fallbackReason: "fixture",
+          },
+        },
+      } : { handle, output: { type: "unit" } }) as unknown as LauncherServices["run"],
+    });
+    await mount();
+    expect(document.querySelector(".launcher-source-context")?.textContent).toContain("640 × 480");
+    await click("Recognize image text");
+    await click("Run action"); await flush();
+    expect(services.prepare).toHaveBeenCalledWith("image.ocr", "launcher.image.ocr", source.reference);
+    expect(document.querySelector(".launcher-result pre")?.textContent).toBe("trusted OCR text");
+    expect(document.querySelectorAll(".launcher-result > pre")).toHaveLength(1);
+
+    await click("Copy result"); await flush();
+    expect(services.prepareComposed).toHaveBeenCalledWith(
+      ocrHandle,
+      "text.copy",
+      "launcher.compose.copy",
+      {},
+    );
+    expect(services.prepareComposed).not.toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.anything(), expect.objectContaining({ text: expect.anything() }));
+  });
+
+  it("keeps sensitive image results local in the launcher", async () => {
+    const handle = { requestSlot: "launcher.image.ocr", generation: 9 };
+    services = service({
+      imageSource: vi.fn().mockResolvedValue({
+        reference: { sourceId: "action-image-sensitive", sourceVersion: 0 },
+        width: 32, height: 32, byteLength: 256, sensitive: true,
+      }),
+      prepare: vi.fn().mockResolvedValue(handle),
+      run: vi.fn().mockResolvedValue({
+        handle,
+        output: {
+          type: "recognized_text",
+          value: {
+            width: 32, height: 32, text: "local only", lines: [], paragraphs: [],
+            pipeline: { id: "fixture", engine: "tesseract", featureSchema: null, layoutExecuted: false, layoutReason: "unstructured_backend" },
+            fallbackReason: "fixture",
+          },
+        },
+      }) as unknown as LauncherServices["run"],
+    });
+    await mount(); await click("Recognize image text"); await click("Run action"); await flush();
+    expect(document.body.textContent).toContain("local only");
+    expect(document.body.textContent).not.toContain("Translate result");
+    expect(button("Copy result")).toBeTruthy();
   });
 
   it("keeps a cancellable action in running state until its exact handle is cancelled", async () => {

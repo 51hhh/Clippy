@@ -77,6 +77,23 @@ discover descriptor
 4. **Launcher UI**：键盘优先的动作搜索与参数表单；不显示或执行未授权动作。
 5. **Composition**：只有类型可连接的输出才能进入下一动作，整条链保留同一根请求身份。
 
+### Stage 5 composition contract
+
+- 主窗口可以把当前历史图片的数字 clip ID 作为 Launcher 上下文；托盘入口使用最新历史图片。后端在
+  64 MiB PNG、16,384 px 单边和 32 Mpx 预算内读取并校验图片，冻结为当前 Launcher 窗口独占的
+  不可变快照，再签发 `sourceId + sourceVersion`。前端不能提交路径、URL 或图片字节，也不能把
+  普通 JSON 形状当作图片所有权。
+- 直接图片动作只接受这份签发快照。窗口销毁会同时回收快照、尚未提交的动作和已完成组合节点；
+  删除或更新原历史条目不改变已经冻结的本次动作输入。
+- 完成结果以原动作 handle 作为后端组合引用。下一动作只提交上游 handle、目标动作、请求槽和不含
+  正文的目标选项；OCR 正文和译文始终从后端保存的精确结果派生，不能由前端回传替换。
+- 第一阶段只开放 `recognized_text → text.copy`、`recognized_text → text.translate` 和
+  `translated_text → text.copy`。扫码可能包含多个结果，不隐式拼接；截图 session、保存路径和窗口
+  handle 也不作为后继输入。
+- 每个完成节点记录原根身份、调用窗口、输出类型和创建代次。跨窗口 handle、未知/已回收 handle、
+  类型不兼容、未知选项、超长派生正文和同槽提交竞态均返回稳定错误码；组合后的输出继续继承同一
+  根身份并可按上述映射连接。
+
 ## Implementation status
 
 - 2026-09-20：Stage 1 已完成后端注册表、内部类型转换、角色权限、取消与 generation 闸门。
@@ -126,3 +143,10 @@ discover descriptor
   筛选、键盘选择、空状态、运行、取消、原生关闭和错误。隔离 X11/D-Bus 原生 smoke 已确认真实
   Tauri 窗口在首帧后以 640×520 创建；当前宿主的 Wayland 合成器交互和 Windows/macOS 仍由各自
   原生 CI/QA 分层验证，不能由该 smoke 代替。
+- 2026-09-21：Stage 5 已接入可信图片与受限组合。主窗口传递当前图片 clip ID，托盘选择最新图片；
+  Rust 在字节、尺寸和像素预算内读取、完整解码并冻结 Launcher 独占 PNG，只把不透明来源引用与
+  展示尺寸交给 WebView。OCR、扫码、保存和 Pin 复用既有领域 adapter；完成的 OCR/译文由后端按
+  精确 handle 短期保存，下一动作只提交上游 handle 和语言选项，正文不会回传。当前只允许
+  OCR→复制/翻译和译文→复制，跨窗口、过期、类型不兼容和窗口关闭后的迟到结果均被拒绝。整条链
+  继承同一根安全身份：敏感图片可本地识别和复制但不能联网翻译；即使来源加载后才被标记敏感，
+  provider 调用前的内容哈希复核也会阻断。Launcher 窗口销毁会回收图片、完成节点和 pending 动作。

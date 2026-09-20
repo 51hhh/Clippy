@@ -47,7 +47,7 @@ flowchart LR
 | 截图与长截图 | `CaptureManager`、`CaptureModeGate`、`LongshotLifecycle`、`LongshotControllerRegistry` | 单一截图会话、模式互斥、像素生命周期与控制窗 registry |
 | Pin 与查看器 | `PinManager`、`PinOriginRegistry`、`ViewerManager` | 图片快照、窗口生命周期、来源位置与串行转换锁 |
 | 自动化与服务 | `PasteManager`、`TranslationService`、`app/shortcuts` | 自动粘贴、翻译、快捷键暂停/恢复/失败状态；Linux 另持 Portal worker |
-| 类型化动作 | `ActionRuntime`、`actions/adapters` | 静态目录、调用窗口权限、一次性句柄、请求槽代次与取消；领域算法仍由原 owner 持有 |
+| 类型化动作 | `ActionRuntime`、`actions/adapters` | 静态目录、调用窗口权限、一次性句柄、请求槽代次与取消；Launcher 图片快照、完成结果和根安全身份仅在后端短期持有；领域算法仍由原 owner 持有 |
 
 命令 adapter 可以借用这些 owner，但不得把领域状态机重新实现在 `commands.rs`。跨领域动作由薄组合层
 按固定顺序调用 owner，并由 characterization test 固定事件、错误码和副作用顺序。
@@ -58,7 +58,7 @@ flowchart LR
 |---|---|
 | `lib.rs` / `app/` | `lib.rs` 组装 Tauri builder、managed state 和快捷键后端；GNOME Wayland 使用 gsettings/D-Bus，非 GNOME Wayland 使用 GlobalShortcuts Portal，X11/Windows/macOS 使用 Tauri 原生插件。`app/` 管理开发自启防护、WebKit 诊断、托盘、快捷键动作和窗口事件；托盘菜单文案取自 `i18n.rs`，`config-changed` 同时刷新图标（主题）与菜单文案（语言） |
 | `commands/` | 按 clipboard/settings/tmux/capture/OCR/URL 拆分薄 IPC 命令 |
-| `actions/` | `PX-ACT-01` 静态动作合同、请求槽运行时、复用既有领域服务的适配器，以及独立 Launcher 窗口宿主。Launcher 只展示当前窗口获授权且能构造可信输入的动作；图片来源与跨动作连接由组合层建立，不接受路径、URL 或前端像素作为捷径。 |
+| `actions/` | `PX-ACT-01` 静态动作合同、请求槽运行时、复用既有领域服务的适配器，以及独立 Launcher 窗口宿主。Launcher 只展示当前窗口获授权且能构造可信输入的动作；后端冻结选中/最新历史图片并签发窗口独占引用，完成节点按精确 handle 短期保存 OCR/译文。组合只从该节点派生正文并继承根安全身份，不接受路径、URL、前端像素或回传正文作为捷径；敏感根不能进入联网翻译，provider 调用前还按内容哈希复核数据库状态。 |
 | `platform/` | 操作系统、会话、桌面环境与能力状态的单一事实源。Linux Wayland 额外记录 `DISPLAY` 是否表明 XWayland 可用，并分别从 `org.freedesktop.portal.Desktop` 读取 GlobalShortcuts、RemoteDesktop、Screenshot、ScreenCast 的 `version` 属性；服务或具体接口缺失与“接口存在但需用户授权”是不同 reason code。`get_platform_info` 与截图诊断复用同一份结构，业务和前端不得自行猜测。 |
 | `clipboard_watcher.rs` + `clipboard_watcher/*` | 主轮询与去重协调；内容分类、写入重试和 tmux/inotify 监听各自隔离。**入库只有 watcher 这一条路径**——`writer.rs` 的三个写入口只管写系统剪贴板，写完敲 `wake::nudge()` 让轮询等待当场结束（`wake.rs` 的条件变量 + 待处理标记），所以自己复制的内容也是几毫秒内进历史，而不是最多等满 500 ms。别让写入方自己 `insert_clip`：watcher 哈希的是它自己从剪贴板 RGBA 重编的 PNG，字节对不上就会在 500 ms 后被再插一条 |
 | `paste/mod.rs` | 自动粘贴协调器、后端选择、Copy-only fallback 和稳定状态契约 |

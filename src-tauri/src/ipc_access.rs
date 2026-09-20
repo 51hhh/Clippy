@@ -10,12 +10,14 @@ const ACTION_COMMANDS: &[&str] = &[
     "cancel_action",
     "discover_actions",
     "prepare_action",
+    "prepare_composed_action",
     "run_action",
 ];
 
 const LAUNCHER_COMMANDS: &[&str] = &[
     "action_launcher_ready",
     "close_action_launcher",
+    "get_action_launcher_image_source",
     "get_action_launcher_settings",
     "start_action_launcher_drag",
 ];

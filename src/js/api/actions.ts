@@ -73,6 +73,19 @@ export interface ActionReply<K extends ActionId> {
   output: ActionOutputById[K];
 }
 
+export interface LauncherImageSource {
+  reference: ActionInputById["image.ocr"];
+  width: number;
+  height: number;
+  byteLength: number;
+  sensitive: boolean;
+}
+
+export interface ComposedActionOptions {
+  "text.copy": Record<string, never>;
+  "text.translate": { sourceLanguage?: string; targetLanguage: string };
+}
+
 export interface ActionLauncherSettings {
   theme: string;
   language: string;
@@ -262,6 +275,37 @@ export async function prepareAction<K extends ActionId>(
   return checkedHandle(handle, slot);
 }
 
+export async function prepareComposedAction<K extends keyof ComposedActionOptions>(
+  upstream: ActionHandle,
+  actionId: K,
+  requestSlot: string,
+  options: ComposedActionOptions[K],
+): Promise<ActionHandle> {
+  const id = checkedActionId(actionId);
+  const slot = checkedRequestSlot(requestSlot);
+  if (!isRecord(options)) throw new Error("action.invalid_input");
+  if (id === "text.copy") {
+    if (!hasExactKeys(options, [])) throw new Error("action.invalid_input");
+  } else {
+    const keys = Object.keys(options);
+    if (!Object.hasOwn(options, "targetLanguage") || keys.length < 1 || keys.length > 2
+      || !keys.every(key => key === "sourceLanguage" || key === "targetLanguage")) {
+      throw new Error("action.invalid_input");
+    }
+    for (const [language, allowAuto] of [[options.targetLanguage, false], [options.sourceLanguage, true]] as const) {
+      if (language === undefined) continue;
+      if (typeof language !== "string" || language.length === 0 || language.length > 32
+        || (!allowAuto && language === "auto") || !/^[A-Za-z0-9_-]+$/.test(language)) {
+        throw new Error("action.invalid_input");
+      }
+    }
+  }
+  const handle = await invoke<unknown>("prepare_composed_action", {
+    upstream: checkedHandle(upstream), actionId: id, requestSlot: slot, options,
+  });
+  return checkedHandle(handle, slot);
+}
+
 export async function runAction<K extends ActionId>(actionId: K, handle: ActionHandle): Promise<ActionReply<K>> {
   const id = checkedActionId(actionId);
   const checked = checkedHandle(handle);
@@ -276,9 +320,12 @@ export function cancelAction(handle: ActionHandle): Promise<void> {
   return invoke("cancel_action", { handle: checkedHandle(handle) });
 }
 
-/** 主窗口显式打开唯一动作启动器。 */
-export function showActionLauncher(): Promise<void> {
-  return invoke("show_action_launcher");
+/** 主窗口显式打开唯一动作启动器；0 表示当前条目不是图片，省略表示托盘取最新图片。 */
+export function showActionLauncher(clipId: number | null = null): Promise<void> {
+  if (clipId !== null && (!Number.isSafeInteger(clipId) || clipId < 0)) {
+    return Promise.reject(new Error("launcher.invalid_context"));
+  }
+  return invoke("show_action_launcher", { clipId });
 }
 
 /** 启动器只读取渲染与翻译方向所需的配置子集。 */
@@ -293,6 +340,25 @@ export function getActionLauncherSettings(): Promise<ActionLauncherSettings> {
       }
     }
     return value as unknown as ActionLauncherSettings;
+  });
+}
+
+export function getActionLauncherImageSource(): Promise<LauncherImageSource | null> {
+  return invoke<unknown>("get_action_launcher_image_source").then(value => {
+    if (value === null) return null;
+    if (!isRecord(value) || !hasExactKeys(value, ["reference", "width", "height", "byteLength", "sensitive"])
+      || !isRecord(value.reference) || !hasExactKeys(value.reference, ["sourceId", "sourceVersion"])) {
+      throw new Error("launcher.invalid_image_source");
+    }
+    checkedInput("image.ocr", value.reference as ActionInputById["image.ocr"]);
+    if (!Number.isSafeInteger(value.width) || (value.width as number) < 1 || (value.width as number) > 16_384
+      || !Number.isSafeInteger(value.height) || (value.height as number) < 1 || (value.height as number) > 16_384
+      || (value.width as number) * (value.height as number) > 32 * 1024 * 1024
+      || !Number.isSafeInteger(value.byteLength) || (value.byteLength as number) < 1
+      || (value.byteLength as number) > 64 * 1024 * 1024 || typeof value.sensitive !== "boolean") {
+      throw new Error("launcher.invalid_image_source");
+    }
+    return value as unknown as LauncherImageSource;
   });
 }
 

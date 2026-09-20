@@ -4,8 +4,10 @@ import {
   closeActionLauncher,
   discoverActions,
   getActionLauncherSettings,
+  getActionLauncherImageSource,
   onCurrentWindowCloseRequested,
   prepareAction,
+  prepareComposedAction,
   runAction,
   startActionLauncherDrag,
 } from "../../js/api.ts";
@@ -14,9 +16,11 @@ import {
 export const launcherApi = {
   discover: discoverActions,
   prepare: prepareAction,
+  prepareComposed: prepareComposedAction,
   run: runAction,
   cancel: cancelAction,
   settings: getActionLauncherSettings,
+  imageSource: getActionLauncherImageSource,
   ready: actionLauncherReady,
   close: closeActionLauncher,
   startDrag: startActionLauncherDrag,

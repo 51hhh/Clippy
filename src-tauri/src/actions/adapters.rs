@@ -111,10 +111,7 @@ pub(super) async fn ocr_image(
         caller_label,
         prepared,
         |source_id, source_version| {
-            state
-                .viewer_manager
-                .resolve_action_snapshot(caller_label, source_id, source_version)
-                .map_err(|_| ActionRunError::ImageSourceUnavailable)
+            resolve_owned_image(prepared, caller_label, source_id, source_version, state)
         },
         |png| async move {
             crate::ocr::recognize_snapshot_shared(png)
@@ -141,10 +138,7 @@ pub(super) async fn scan_image_codes(
         caller_label,
         prepared,
         |source_id, source_version| {
-            state
-                .viewer_manager
-                .resolve_action_snapshot(caller_label, source_id, source_version)
-                .map_err(|_| ActionRunError::ImageSourceUnavailable)
+            resolve_owned_image(prepared, caller_label, source_id, source_version, state)
         },
         |png| async move {
             crate::commands::scan_snapshot_shared(png)
@@ -171,6 +165,7 @@ pub(super) async fn translate_text(
     prepared: &PreparedAction,
     state: &AppState,
 ) -> Result<crate::translation::types::TranslationResult, ActionRunError> {
+    ensure_translation_source_is_not_sensitive(prepared, &state.storage)?;
     execute_text_translation(
         runtime,
         caller_label,
@@ -199,6 +194,26 @@ pub(super) async fn translate_text(
         },
     )
     .await
+}
+
+fn ensure_translation_source_is_not_sensitive(
+    prepared: &PreparedAction,
+    storage: &std::sync::Mutex<crate::storage::StorageEngine>,
+) -> Result<(), ActionRunError> {
+    let Some(content_hash) = prepared.source_content_hash() else {
+        return Ok(());
+    };
+    let sensitive = storage
+        .lock()
+        .map_err(|_| ActionRunError::TranslationFailed("action_translation_internal"))?
+        .is_hash_sensitive(content_hash)
+        .map_err(|_| ActionRunError::TranslationFailed("action_translation_internal"))?;
+    if sensitive {
+        return Err(ActionRunError::TranslationFailed(
+            "action_translation_sensitive_content",
+        ));
+    }
+    Ok(())
 }
 
 /// 复用托盘、快捷键与主窗口唯一的普通截图入口。动作等待者被丢弃时，运行时仍让
@@ -236,10 +251,7 @@ pub(super) fn save_image(
         caller_label,
         prepared,
         |source_id, source_version| {
-            state
-                .viewer_manager
-                .resolve_action_snapshot(caller_label, source_id, source_version)
-                .map_err(|_| ActionRunError::ImageSourceUnavailable)
+            resolve_owned_image(prepared, caller_label, source_id, source_version, state)
         },
         |png| {
             crate::image_io::save_png(&png, "clippy-viewer", &state.save_target())
@@ -267,6 +279,13 @@ pub(super) fn pin_image(
         caller_label,
         prepared,
         |source_id, source_version| {
+            if let Some(png) = prepared.owned_image() {
+                return crate::pin::create_screenshot_pin_shared(png, None, app_handle, state)
+                    .map_err(|_| {
+                        log::warn!("动作贴图创建失败");
+                        ActionRunError::PinFailed
+                    });
+            }
             state
                 .viewer_manager
                 .pin_action_snapshot(caller_label, source_id, source_version, |png| {
@@ -288,6 +307,22 @@ pub(super) fn pin_image(
                 })
         },
     )
+}
+
+fn resolve_owned_image(
+    prepared: &PreparedAction,
+    caller_label: &str,
+    source_id: &str,
+    source_version: u64,
+    state: &AppState,
+) -> Result<Arc<Vec<u8>>, ActionRunError> {
+    if let Some(png) = prepared.owned_image() {
+        return Ok(png);
+    }
+    state
+        .viewer_manager
+        .resolve_action_snapshot(caller_label, source_id, source_version)
+        .map_err(|_| ActionRunError::ImageSourceUnavailable)
 }
 
 async fn execute_image_ocr<Resolve, Recognize, RecognizeFuture>(
@@ -572,6 +607,71 @@ mod tests {
             detected_source_language: Some("en".to_string()),
             target_language: "zh-CN".to_string(),
         }
+    }
+
+    #[test]
+    fn translation_rechecks_a_composed_image_hash_before_network_use() {
+        let runtime = ActionRuntime::default();
+        let epoch = runtime.caller_epoch("launcher").unwrap();
+        let reference = runtime
+            .register_owned_image_at_epoch(
+                "launcher",
+                epoch,
+                vec![1, 2, 3],
+                false,
+                Some("became-sensitive".to_string()),
+            )
+            .unwrap();
+        let ocr = runtime
+            .begin(
+                "launcher",
+                "image.ocr",
+                "ocr",
+                json!({
+                    "sourceId": reference.source_id,
+                    "sourceVersion": reference.source_version
+                }),
+            )
+            .unwrap();
+        runtime
+            .publish("launcher", ocr.handle(), || Ok::<_, ()>(()))
+            .unwrap()
+            .unwrap();
+        runtime
+            .record_completed(
+                "launcher",
+                &ocr,
+                &super::super::ActionOutput::RecognizedText(ocr_result("private text")),
+            )
+            .unwrap();
+        let translate = runtime
+            .compose(
+                "launcher",
+                ocr.handle(),
+                "text.translate",
+                "translate",
+                json!({"targetLanguage": "en"}),
+            )
+            .unwrap();
+        let storage = crate::storage::StorageEngine::new_in_memory().unwrap();
+        storage
+            .insert_clip(
+                &crate::models::ContentType::Image,
+                None,
+                None,
+                Some(&[1, 2, 3]),
+                "became-sensitive",
+                3,
+                true,
+            )
+            .unwrap();
+        let error =
+            ensure_translation_source_is_not_sensitive(&translate, &std::sync::Mutex::new(storage))
+                .unwrap_err();
+        assert_eq!(
+            error,
+            ActionRunError::TranslationFailed("action_translation_sensitive_content")
+        );
     }
 
     struct DropSignal(Arc<AtomicBool>);
@@ -1321,6 +1421,50 @@ mod tests {
                 json!({"sourceId": "snapshot-new", "sourceVersion": 0}),
             )
             .is_ok());
+    }
+
+    #[test]
+    fn launcher_image_commit_keeps_its_snapshot_after_window_teardown() {
+        let runtime = ActionRuntime::default();
+        let source = runtime
+            .register_owned_image("launcher", vec![7, 8, 9])
+            .unwrap();
+        let prepared = runtime
+            .begin(
+                "launcher",
+                "image.save",
+                "output",
+                json!({
+                    "sourceId": source.source_id,
+                    "sourceVersion": source.source_version
+                }),
+            )
+            .unwrap();
+        let result = execute_image_save(
+            &runtime,
+            "launcher",
+            &prepared,
+            |source_id, source_version| {
+                runtime.retire_caller_pending("launcher");
+                assert!(runtime
+                    .resolve_owned_image("launcher", source_id, source_version)
+                    .unwrap()
+                    .is_none());
+                prepared
+                    .owned_image()
+                    .ok_or(ActionRunError::ImageSourceUnavailable)
+            },
+            |png| {
+                assert_eq!(png.as_slice(), &[7, 8, 9]);
+                Ok("/private/output/image.png".to_string())
+            },
+        )
+        .unwrap();
+        assert_eq!(result, "/private/output/image.png");
+        assert_eq!(
+            runtime.ensure_current("launcher", prepared.handle()),
+            Err(ActionError::Superseded)
+        );
     }
 
     #[test]

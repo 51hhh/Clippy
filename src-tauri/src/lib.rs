@@ -343,10 +343,12 @@ pub fn run() {
         .invoke_handler(ipc_access::restrict(tauri::generate_handler![
             actions::discover_actions,
             actions::prepare_action,
+            actions::prepare_composed_action,
             actions::run_action,
             actions::cancel_action,
             actions::launcher::show_action_launcher,
             actions::launcher::get_action_launcher_settings,
+            actions::launcher::get_action_launcher_image_source,
             actions::launcher::action_launcher_ready,
             actions::launcher::start_action_launcher_drag,
             actions::launcher::close_action_launcher,

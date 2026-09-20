@@ -72,6 +72,18 @@ fn test_insert_and_query() {
 }
 
 #[test]
+fn latest_image_id_uses_use_order_and_ignores_newer_text() {
+    let engine = StorageEngine::new_in_memory().unwrap();
+    let first = insert_image(&engine, "image-first");
+    let second = insert_image(&engine, "image-second");
+    insert_text(&engine, "newer text", "text-newer");
+    assert_eq!(engine.get_latest_image_id().unwrap(), Some(second.id));
+
+    engine.touch_clip(first.id).unwrap();
+    assert_eq!(engine.get_latest_image_id().unwrap(), Some(first.id));
+}
+
+#[test]
 fn test_dedup_updates_timestamp() {
     let engine = StorageEngine::new_in_memory().unwrap();
     let clip1 = insert_text(&engine, "same content", "hash_same");

@@ -76,8 +76,14 @@ pub(crate) fn build(
                 let _ = window_controller::show_main_window(app_handle);
             }
             ACTIONS_ID => {
-                if let Err(error) = crate::actions::open(app_handle) {
-                    log::warn!("打开动作启动器失败: {error:?}");
+                let result = app_handle
+                    .try_state::<crate::commands::AppState>()
+                    .ok_or(())
+                    .and_then(|state| {
+                        crate::actions::open(app_handle, &state, None).map_err(|_| ())
+                    });
+                if result.is_err() {
+                    log::warn!("打开动作启动器失败");
                 }
             }
             SETTINGS_ID => {

@@ -8,8 +8,10 @@ import {
   actionLauncherReady,
   closeActionLauncher,
   discoverActions,
+  getActionLauncherImageSource,
   getActionLauncherSettings,
   prepareAction,
+  prepareComposedAction,
   runAction,
   showActionLauncher,
   startActionLauncherDrag,
@@ -107,8 +109,8 @@ it("cancels with the exact validated handle", async () => {
 
 it("keeps launcher lifecycle on dedicated commands and validates its settings subset", async () => {
   invoke.mockResolvedValueOnce(undefined);
-  await showActionLauncher();
-  expect(invoke).toHaveBeenLastCalledWith("show_action_launcher");
+  await showActionLauncher(7);
+  expect(invoke).toHaveBeenLastCalledWith("show_action_launcher", { clipId: 7 });
 
   invoke.mockResolvedValueOnce({
     theme: "dark",
@@ -126,6 +128,24 @@ it("keeps launcher lifecycle on dedicated commands and validates its settings su
   });
   await expect(getActionLauncherSettings()).rejects.toThrow("invalid_settings");
 
+  invoke.mockResolvedValueOnce({
+    reference: { sourceId: "action-image-9", sourceVersion: 0 },
+    width: 640,
+    height: 480,
+    byteLength: 4096,
+    sensitive: false,
+  });
+  await expect(getActionLauncherImageSource()).resolves.toMatchObject({ width: 640, height: 480 });
+  invoke.mockResolvedValueOnce({
+    reference: { sourceId: "action-image-9", sourceVersion: 0 },
+    width: 640,
+    height: 480,
+    byteLength: 4096,
+    sensitive: false,
+    contentHash: "must-not-pass",
+  });
+  await expect(getActionLauncherImageSource()).rejects.toThrow("invalid_image_source");
+
   for (const [call, command] of [
     [actionLauncherReady, "action_launcher_ready"],
     [startActionLauncherDrag, "start_action_launcher_drag"],
@@ -135,4 +155,29 @@ it("keeps launcher lifecycle on dedicated commands and validates its settings su
     await call();
     expect(invoke).toHaveBeenLastCalledWith(command);
   }
+});
+
+it("prepares composition from an exact upstream handle without accepting derived text", async () => {
+  const upstream = { requestSlot: "launcher.ocr", generation: 4 };
+  const handle = { requestSlot: "launcher.compose.translate", generation: 5 };
+  invoke.mockResolvedValueOnce(handle);
+  await expect(prepareComposedAction(
+    upstream,
+    "text.translate",
+    "launcher.compose.translate",
+    { sourceLanguage: "auto", targetLanguage: "zh-CN" },
+  )).resolves.toEqual(handle);
+  expect(invoke).toHaveBeenLastCalledWith("prepare_composed_action", {
+    upstream,
+    actionId: "text.translate",
+    requestSlot: "launcher.compose.translate",
+    options: { sourceLanguage: "auto", targetLanguage: "zh-CN" },
+  });
+
+  await expect(prepareComposedAction(
+    upstream,
+    "text.copy",
+    "launcher.compose.copy",
+    { text: "forged" } as never,
+  )).rejects.toThrow("invalid_input");
 });

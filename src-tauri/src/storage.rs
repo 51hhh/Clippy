@@ -553,6 +553,22 @@ impl StorageEngine {
         }
     }
 
+    /// 托盘打开动作启动器时使用当前使用顺序里的最新图片；只返回数字主键，图片仍由后续
+    /// 有界快照查询读取，避免列表查询或 IPC 意外物化 BLOB。
+    pub fn get_latest_image_id(&self) -> Result<Option<i64>, StorageError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT id FROM clips
+                  WHERE content_type = 'image'
+                  ORDER BY use_order DESC, id DESC
+                  LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
     /// 一次查询读取识别需要的图片状态。不能先取完整 `ClipItem`：SQLite BLOB 一旦交给
     /// rusqlite 就已经分配了 `Vec`，之后再检查上限为时已晚。
     pub fn get_bounded_image_for_code_scan(

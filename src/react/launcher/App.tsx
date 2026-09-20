@@ -4,18 +4,25 @@ import {
   Check,
   ClipboardCopy,
   Command,
+  FileDown,
   Languages,
   LoaderCircle,
+  Pin,
   Play,
+  QrCode,
   Search,
+  ScanText,
+  ShieldAlert,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   ActionDescriptor,
   ActionHandle,
+  ActionId,
   ActionLauncherSettings,
   ActionReply,
+  LauncherImageSource,
 } from "../../js/api.ts";
 import { t } from "../shared/i18n";
 import { launcherApi, type LauncherServices } from "./api";
@@ -23,10 +30,10 @@ import "../../styles/themes.css";
 import "../../styles/base.css";
 import "./launcher.css";
 
-type DirectActionId = "capture.start" | "text.copy" | "text.translate";
+type LauncherActionId = ActionId;
 type View = "list" | "form" | "running" | "result";
 
-const DIRECT_ACTIONS: Record<DirectActionId, {
+const LAUNCHER_ACTIONS: Record<LauncherActionId, {
   icon: typeof Camera;
   title: string;
   description: string;
@@ -37,6 +44,30 @@ const DIRECT_ACTIONS: Record<DirectActionId, {
     title: "launcher.action.capture",
     description: "launcher.action.captureDescription",
     keywords: "capture screenshot screen",
+  },
+  "image.ocr": {
+    icon: ScanText,
+    title: "launcher.action.ocr",
+    description: "launcher.action.ocrDescription",
+    keywords: "ocr recognize image text",
+  },
+  "image.pin": {
+    icon: Pin,
+    title: "launcher.action.pin",
+    description: "launcher.action.pinDescription",
+    keywords: "pin image window",
+  },
+  "image.save": {
+    icon: FileDown,
+    title: "launcher.action.save",
+    description: "launcher.action.saveDescription",
+    keywords: "save export image png",
+  },
+  "image.scan_codes": {
+    icon: QrCode,
+    title: "launcher.action.scan",
+    description: "launcher.action.scanDescription",
+    keywords: "scan qr barcode image",
   },
   "text.copy": {
     icon: ClipboardCopy,
@@ -63,9 +94,12 @@ const LANGUAGE_KEYS: Array<[string, string]> = [
   ["de", "settings.translation.languageGerman"],
 ];
 
-function isDirectAction(descriptor: ActionDescriptor): descriptor is ActionDescriptor & { id: DirectActionId } {
-  return Object.hasOwn(DIRECT_ACTIONS, descriptor.id)
-    && ["unit", "text", "translation_request"].includes(descriptor.input);
+function isLauncherAction(descriptor: ActionDescriptor): descriptor is ActionDescriptor & { id: LauncherActionId } {
+  return Object.hasOwn(LAUNCHER_ACTIONS, descriptor.id);
+}
+
+function canConstructInput(descriptor: ActionDescriptor, imageSource: LauncherImageSource | null): boolean {
+  return descriptor.input !== "owned_image" || imageSource !== null;
 }
 
 function normalizedLanguage(value: string, allowAuto: boolean): string {
@@ -101,19 +135,50 @@ function errorMessage(code: string): string {
     action_translation_network: "translation.error.network",
     action_translation_rate_limited: "translation.error.rateLimited",
     action_translation_quota_exceeded: "translation.error.quotaExceeded",
+    action_translation_sensitive_content: "translation.error.sensitive",
     action_clipboard_failed: "launcher.error.clipboard",
+    action_image_source_unavailable: "launcher.error.imageSource",
+    action_image_source_too_large: "launcher.error.imageTooLarge",
+    action_ocr_failed: "launcher.error.ocr",
+    action_code_scan_busy: "launcher.error.scanBusy",
+    action_code_scan_failed: "launcher.error.scan",
+    action_save_failed: "launcher.error.save",
+    action_pin_failed: "launcher.error.pin",
+    action_pin_uncertain: "launcher.error.pinUncertain",
+    action_upstream_unavailable: "launcher.error.upstream",
+    action_incompatible_output: "launcher.error.incompatible",
+    launcher_image_source_failed: "launcher.error.imageSource",
+    launcher_image_invalid: "launcher.error.imageInvalid",
+    launcher_image_too_large: "launcher.error.imageTooLarge",
     launcher_window_failed: "launcher.error.window",
   };
   return t(specific[code] ?? "launcher.error.generic");
 }
 
+function completionMessage(id: LauncherActionId): string {
+  const keys: Record<LauncherActionId, string> = {
+    "capture.start": "launcher.captureCompleted",
+    "image.ocr": "launcher.ocrCompleted",
+    "image.pin": "launcher.pinCompleted",
+    "image.save": "launcher.saveCompleted",
+    "image.scan_codes": "launcher.scanCompleted",
+    "text.copy": "launcher.copyCompleted",
+    "text.translate": "launcher.translationCompleted",
+  };
+  return t(keys[id]);
+}
+
 async function run(
   services: LauncherServices,
-  id: DirectActionId,
+  id: LauncherActionId,
   handle: ActionHandle,
-): Promise<ActionReply<DirectActionId>> {
+): Promise<ActionReply<LauncherActionId>> {
   switch (id) {
     case "capture.start": return services.run("capture.start", handle);
+    case "image.ocr": return services.run("image.ocr", handle);
+    case "image.pin": return services.run("image.pin", handle);
+    case "image.save": return services.run("image.save", handle);
+    case "image.scan_codes": return services.run("image.scan_codes", handle);
     case "text.copy": return services.run("text.copy", handle);
     case "text.translate": return services.run("text.translate", handle);
   }
@@ -128,21 +193,23 @@ export function LauncherApp({
 }) {
   const [catalog, setCatalog] = useState<ActionDescriptor[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
+  const [imageSource, setImageSource] = useState<LauncherImageSource | null>(null);
+  const [imageSourceFailed, setImageSourceFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [selected, setSelected] = useState<(ActionDescriptor & { id: DirectActionId }) | null>(null);
+  const [selected, setSelected] = useState<(ActionDescriptor & { id: LauncherActionId }) | null>(null);
   const [view, setView] = useState<View>("list");
   const [text, setText] = useState("");
   const [sourceLanguage, setSourceLanguage] = useState(() => normalizedLanguage(settings.translationSourceLanguage, true));
   const [targetLanguage, setTargetLanguage] = useState(() => normalizedLanguage(settings.translationTargetLanguage, false));
-  const [reply, setReply] = useState<ActionReply<DirectActionId> | null>(null);
+  const [reply, setReply] = useState<ActionReply<LauncherActionId> | null>(null);
   const [message, setMessage] = useState("");
   const [failure, setFailure] = useState("");
   const [cancelling, setCancelling] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
-  const active = useRef<{ descriptor: ActionDescriptor & { id: DirectActionId }; handle: ActionHandle } | null>(null);
+  const active = useRef<{ descriptor: ActionDescriptor & { id: LauncherActionId }; handle: ActionHandle } | null>(null);
   const mounted = useRef(true);
   const closing = useRef(false);
   const operation = useRef(0);
@@ -182,31 +249,43 @@ export function LauncherApp({
     let current = true;
     setLoadFailed(false);
     void services.discover().then(descriptors => {
-      if (current) setCatalog(descriptors.filter(isDirectAction));
+      if (current) setCatalog(descriptors.filter(isLauncherAction));
     }).catch(() => {
       if (current) { setCatalog([]); setLoadFailed(true); }
     });
     return () => { current = false; };
   }, [services, attempt]);
 
+  useEffect(() => {
+    let current = true;
+    setImageSourceFailed(false);
+    void Promise.resolve().then(() => services.imageSource()).then(source => {
+      if (current) setImageSource(source);
+    }).catch(() => {
+      if (current) { setImageSource(null); setImageSourceFailed(true); }
+    });
+    return () => { current = false; };
+  }, [services]);
+
   const visible = useMemo(() => {
     if (!catalog) return [];
     const needle = query.trim().toLocaleLowerCase();
-    if (!needle) return catalog.filter(isDirectAction);
-    return catalog.filter(isDirectAction).filter(descriptor => {
-      const metadata = DIRECT_ACTIONS[descriptor.id];
+    const available = catalog.filter(isLauncherAction).filter(descriptor => canConstructInput(descriptor, imageSource));
+    if (!needle) return available;
+    return available.filter(descriptor => {
+      const metadata = LAUNCHER_ACTIONS[descriptor.id];
       return [descriptor.id, t(metadata.title), t(metadata.description), metadata.keywords]
         .join(" ").toLocaleLowerCase().includes(needle);
     });
-  }, [catalog, query]);
+  }, [catalog, query, imageSource]);
 
-  useEffect(() => { setSelectedIndex(0); }, [query, catalog]);
+  useEffect(() => { setSelectedIndex(0); }, [query, catalog, imageSource]);
   useEffect(() => {
     if (view === "list") searchRef.current?.focus();
     else if (view === "form" && selected?.id !== "capture.start") textRef.current?.focus();
   }, [view, selected]);
 
-  function openAction(descriptor: ActionDescriptor & { id: DirectActionId }) {
+  function openAction(descriptor: ActionDescriptor & { id: LauncherActionId }) {
     setSelected(descriptor); setView("form"); setFailure(""); setMessage(""); setReply(null);
   }
   function backToList() {
@@ -216,7 +295,7 @@ export function LauncherApp({
 
   async function execute() {
     if (!selected || view === "running") return;
-    if (selected.id !== "capture.start" && text.trim().length === 0) {
+    if (["text", "translation_request"].includes(selected.input) && text.trim().length === 0) {
       setFailure(t("launcher.error.emptyText")); textRef.current?.focus(); return;
     }
     const ticket = ++operation.current;
@@ -225,6 +304,18 @@ export function LauncherApp({
       let handle: ActionHandle;
       if (selected.id === "capture.start") {
         handle = await services.prepare("capture.start", "launcher.capture", {});
+      } else if (selected.id === "image.ocr") {
+        if (!imageSource) throw { code: "action_image_source_unavailable" };
+        handle = await services.prepare("image.ocr", "launcher.image.ocr", imageSource.reference);
+      } else if (selected.id === "image.pin") {
+        if (!imageSource) throw { code: "action_image_source_unavailable" };
+        handle = await services.prepare("image.pin", "launcher.image.pin", imageSource.reference);
+      } else if (selected.id === "image.save") {
+        if (!imageSource) throw { code: "action_image_source_unavailable" };
+        handle = await services.prepare("image.save", "launcher.image.save", imageSource.reference);
+      } else if (selected.id === "image.scan_codes") {
+        if (!imageSource) throw { code: "action_image_source_unavailable" };
+        handle = await services.prepare("image.scan_codes", "launcher.image.scan", imageSource.reference);
       } else if (selected.id === "text.copy") {
         handle = await services.prepare("text.copy", "launcher.copy", { text });
       } else {
@@ -244,6 +335,38 @@ export function LauncherApp({
       active.current = null;
       const code = launcherErrorCode(reason);
       setView("form");
+      if (code === "action_cancelled") setMessage(t("launcher.cancelled"));
+      else setFailure(errorMessage(code));
+    } finally {
+      if (mounted.current && ticket === operation.current) setCancelling(false);
+    }
+  }
+
+  async function executeComposition(actionId: "text.copy" | "text.translate") {
+    if (!reply || !catalog || view === "running") return;
+    const descriptor = catalog.filter(isLauncherAction).find(candidate => candidate.id === actionId);
+    if (!descriptor) { setFailure(t("launcher.error.generic")); return; }
+    const upstream = reply;
+    const previousSelected = selected;
+    const ticket = ++operation.current;
+    setSelected(descriptor); setView("running"); setFailure(""); setMessage(""); setCancelling(false);
+    try {
+      const handle = actionId === "text.copy"
+        ? await services.prepareComposed(upstream.handle, "text.copy", "launcher.compose.copy", {})
+        : await services.prepareComposed(upstream.handle, "text.translate", "launcher.compose.translate", {
+          sourceLanguage, targetLanguage,
+        });
+      if (!mounted.current || ticket !== operation.current) return;
+      active.current = { descriptor, handle };
+      const result = await run(services, actionId, handle);
+      if (!mounted.current || ticket !== operation.current) return;
+      active.current = null;
+      setReply(result); setView("result");
+    } catch (reason) {
+      if (!mounted.current || ticket !== operation.current) return;
+      active.current = null;
+      setSelected(previousSelected); setReply(upstream); setView("result");
+      const code = launcherErrorCode(reason);
       if (code === "action_cancelled") setMessage(t("launcher.cancelled"));
       else setFailure(errorMessage(code));
     } finally {
@@ -282,7 +405,8 @@ export function LauncherApp({
 
   const resultText = reply?.output.type === "translated_text"
     ? reply.output.value.translated_text
-    : "";
+    : reply?.output.type === "recognized_text" ? reply.output.value.text : "";
+  const scanResults = reply?.output.type === "detected_codes" ? reply.output.value.results : [];
 
   return <main className="launcher-window" onKeyDown={onKeyDown}>
     <header className="launcher-header" onPointerDown={event => {
@@ -301,12 +425,18 @@ export function LauncherApp({
           placeholder={t("launcher.search")} aria-label={t("launcher.search")} autoComplete="off" spellCheck={false} />
         <kbd>Esc</kbd>
       </label>
+      {imageSource && <div className="launcher-source-context" aria-label={t("launcher.imageContext")}>
+        {imageSource.sensitive ? <ShieldAlert size={17} /> : <ScanText size={17} />}
+        <span><strong>{t(imageSource.sensitive ? "launcher.sensitiveImage" : "launcher.currentImage")}</strong>
+          <small>{imageSource.width} × {imageSource.height} · {(imageSource.byteLength / 1024).toFixed(1)} KB</small></span>
+      </div>}
+      {imageSourceFailed && <p className="launcher-error launcher-global-error" role="alert">{t("launcher.error.imageSource")}</p>}
       {failure && <p className="launcher-error launcher-global-error" role="alert">{failure}</p>}
       <div className="launcher-results" role="listbox" aria-label={t("launcher.availableActions")}
         aria-activedescendant={visible[selectedIndex] ? `launcher-${visible[selectedIndex].id}` : undefined}>
         {catalog === null && <div className="launcher-state" role="status"><LoaderCircle className="is-spinning" />{t("launcher.loading")}</div>}
         {catalog !== null && visible.map((descriptor, index) => {
-          const metadata = DIRECT_ACTIONS[descriptor.id];
+          const metadata = LAUNCHER_ACTIONS[descriptor.id];
           const Icon = metadata.icon;
           return <button key={descriptor.id} id={`launcher-${descriptor.id}`} type="button" role="option"
             aria-selected={index === selectedIndex} className={`launcher-action${index === selectedIndex ? " is-selected" : ""}`}
@@ -329,13 +459,17 @@ export function LauncherApp({
       <div className="launcher-detail-heading">
         <button type="button" className="launcher-back" aria-label={t("launcher.back")} disabled={view === "running"}
           onClick={backToList}><ArrowLeft size={18} /></button>
-        <span className="launcher-action-icon">{(() => { const Icon = DIRECT_ACTIONS[selected.id].icon; return <Icon size={20} />; })()}</span>
-        <div><h1>{t(DIRECT_ACTIONS[selected.id].title)}</h1><p>{t(DIRECT_ACTIONS[selected.id].description)}</p></div>
+        <span className="launcher-action-icon">{(() => { const Icon = LAUNCHER_ACTIONS[selected.id].icon; return <Icon size={20} />; })()}</span>
+        <div><h1>{t(LAUNCHER_ACTIONS[selected.id].title)}</h1><p>{t(LAUNCHER_ACTIONS[selected.id].description)}</p></div>
       </div>
 
       {view === "form" && <form className="launcher-form" onSubmit={event => { event.preventDefault(); void execute(); }}>
         {selected.id === "capture.start" && <div className="launcher-callout"><Camera size={22} /><div><strong>{t("launcher.captureReady")}</strong><p>{t("launcher.captureHint")}</p></div></div>}
-        {selected.id !== "capture.start" && <label className="launcher-field"><span>{t("launcher.text")}</span>
+        {selected.input === "owned_image" && imageSource && <div className="launcher-callout"><ScanText size={22} /><div>
+          <strong>{t(imageSource.sensitive ? "launcher.sensitiveImage" : "launcher.currentImage")}</strong>
+          <p>{imageSource.width} × {imageSource.height} · {(imageSource.byteLength / 1024).toFixed(1)} KB</p>
+        </div></div>}
+        {["text", "translation_request"].includes(selected.input) && <label className="launcher-field"><span>{t("launcher.text")}</span>
           <textarea ref={textRef} value={text} onChange={event => setText(event.target.value)} maxLength={262144}
             placeholder={t(selected.id === "text.translate" ? "launcher.translatePlaceholder" : "launcher.copyPlaceholder")} /></label>}
         {selected.id === "text.translate" && <div className="launcher-language-row">
@@ -362,9 +496,24 @@ export function LauncherApp({
 
       {view === "result" && <div className="launcher-result">
         <div className="launcher-result-title"><span><Check size={20} /></span><div><strong>{t("launcher.completed")}</strong>
-          <p>{t(selected.id === "text.copy" ? "launcher.copyCompleted" : "launcher.translationCompleted")}</p></div></div>
+          <p>{completionMessage(selected.id)}</p></div></div>
         {resultText && <pre tabIndex={0}>{resultText}</pre>}
-        <button type="button" className="launcher-primary" onClick={backToList}>{t("launcher.done")}</button>
+        {scanResults.length > 0 && <div className="launcher-code-results">{scanResults.map((code, index) =>
+          <div key={`${code.format}-${index}`}><strong>{code.format}</strong><pre tabIndex={0}>{code.text}</pre></div>)}</div>}
+        {reply?.output.type === "detected_codes" && scanResults.length === 0
+          && <p className="launcher-message" role="status">{t("launcher.noCodes")}</p>}
+        {reply?.output.type === "saved_path" && <pre tabIndex={0}>{reply.output.value}</pre>}
+        {failure && <p className="launcher-error" role="alert">{failure}</p>}
+        {message && <p className="launcher-message" role="status">{message}</p>}
+        <div className="launcher-result-actions">
+          {reply?.output.type === "recognized_text" && resultText && <>
+            {!imageSource?.sensitive && <button type="button" onClick={() => void executeComposition("text.translate")}><Languages size={16} />{t("launcher.composeTranslate")}</button>}
+            <button type="button" onClick={() => void executeComposition("text.copy")}><ClipboardCopy size={16} />{t("launcher.composeCopy")}</button>
+          </>}
+          {reply?.output.type === "translated_text" && resultText
+            && <button type="button" onClick={() => void executeComposition("text.copy")}><ClipboardCopy size={16} />{t("launcher.composeCopy")}</button>}
+          <button type="button" className="launcher-primary" onClick={backToList}>{t("launcher.done")}</button>
+        </div>
       </div>}
     </section>}
   </main>;

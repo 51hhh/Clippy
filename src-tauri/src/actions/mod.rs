@@ -23,6 +23,9 @@ const MAX_SOURCE_ID_BYTES: usize = 128;
 const MAX_REQUEST_SLOT_BYTES: usize = 96;
 const MAX_ACTIVE_SLOTS_PER_CALLER: usize = 16;
 const MAX_ACTIVE_ACTIONS: usize = 64;
+const MAX_COMPLETED_ACTIONS_PER_CALLER: usize = 16;
+const MAX_OWNED_IMAGE_SOURCES_PER_CALLER: usize = 2;
+const MAX_OWNED_IMAGE_SOURCE_BYTES: usize = 64 * 1024 * 1024;
 /// JavaScript IPC 精确整数上限；句柄不能在 JSON 桥两端悄悄改变 generation。
 const MAX_ACTION_GENERATION: u64 = 9_007_199_254_740_991;
 const ALL_PLATFORMS: &[ActionPlatform] = &[
@@ -338,6 +341,10 @@ pub(super) struct PreparedAction {
     handle: ActionHandle,
     input: ActionInput,
     cancellation: ActionCancellation,
+    root_id: u64,
+    caller_epoch: u64,
+    root_security: ActionRootSecurity,
+    owned_image: Option<Arc<Vec<u8>>>,
 }
 
 impl PreparedAction {
@@ -355,6 +362,18 @@ impl PreparedAction {
 
     pub fn cancellation(&self) -> ActionCancellation {
         self.cancellation.clone()
+    }
+
+    fn root_id(&self) -> u64 {
+        self.root_id
+    }
+
+    pub(super) fn source_content_hash(&self) -> Option<&str> {
+        self.root_security.content_hash.as_deref()
+    }
+
+    pub(super) fn owned_image(&self) -> Option<Arc<Vec<u8>>> {
+        self.owned_image.as_ref().map(Arc::clone)
     }
 }
 
@@ -391,6 +410,14 @@ pub(super) enum ActionError {
     InvalidMode,
     #[error("动作代次已经耗尽")]
     GenerationExhausted,
+    #[error("上游动作结果不可用")]
+    UpstreamUnavailable,
+    #[error("动作结果类型不能连接到目标动作")]
+    IncompatibleOutput,
+    #[error("图片来源超出动作预算")]
+    ImageSourceTooLarge,
+    #[error("敏感内容不能进入联网动作")]
+    SensitiveContent,
     #[error("动作状态锁已损坏")]
     Poisoned,
     #[error("动作执行任务异常终止")]
@@ -410,6 +437,10 @@ impl ActionError {
             Self::NotCancellable => "action_not_cancellable",
             Self::InvalidMode => "action_invalid_mode",
             Self::GenerationExhausted => "action_generation_exhausted",
+            Self::UpstreamUnavailable => "action_upstream_unavailable",
+            Self::IncompatibleOutput => "action_incompatible_output",
+            Self::ImageSourceTooLarge => "action_image_source_too_large",
+            Self::SensitiveContent => "action_translation_sensitive_content",
             Self::Poisoned => "action_internal",
             Self::WorkerFailed => "action_internal",
         }
@@ -422,8 +453,66 @@ struct ActionSlot {
     request_slot: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct CompletedActionKey {
+    caller: String,
+    request_slot: String,
+    generation: u64,
+}
+
+#[derive(Clone)]
+enum CompletedActionValue {
+    RecognizedText(String),
+    TranslatedText(String),
+}
+
+struct CompletedAction {
+    root_id: u64,
+    root_security: ActionRootSecurity,
+    completed_order: u64,
+    value: CompletedActionValue,
+}
+
+struct OwnedImageSource {
+    root_id: u64,
+    root_security: ActionRootSecurity,
+    source_version: u64,
+    png: Arc<Vec<u8>>,
+}
+
+#[derive(Clone, Default)]
+struct ActionRootSecurity {
+    sensitive: bool,
+    content_hash: Option<String>,
+}
+
+struct ActionRoot {
+    id: u64,
+    security: ActionRootSecurity,
+    owned_image: Option<Arc<Vec<u8>>>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum LauncherImageSelection {
+    #[default]
+    Latest,
+    None,
+    Clip(i64),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OwnedImageReference {
+    pub source_id: String,
+    pub source_version: u64,
+}
+
 struct ActiveAction {
     generation: u64,
+    root_id: u64,
+    caller_epoch: u64,
+    root_security: ActionRootSecurity,
+    owned_image: Option<Arc<Vec<u8>>>,
     cancellable: bool,
     phase: ActionPhase,
     cancellation: ActionCancellation,
@@ -441,7 +530,13 @@ enum ActionPhase {
 #[derive(Default)]
 struct RuntimeState {
     next_generation: u64,
+    next_identity: u64,
+    completed_order: u64,
     active: HashMap<ActionSlot, ActiveAction>,
+    completed: HashMap<CompletedActionKey, CompletedAction>,
+    owned_images: HashMap<(String, String), OwnedImageSource>,
+    caller_epochs: HashMap<String, u64>,
+    launcher_image_selection: LauncherImageSelection,
 }
 
 #[derive(Clone, Default)]
@@ -497,60 +592,296 @@ impl ActionRuntime {
             return Err(ActionError::Unauthorized);
         }
         let input = validate_input(descriptor.input, &input)?;
-
-        let slot = ActionSlot {
-            caller: caller_label.to_string(),
-            request_slot: request_slot.to_string(),
+        let mut state = self.state.lock().map_err(|_| ActionError::Poisoned)?;
+        let root = match &input {
+            ActionInput::OwnedImage {
+                source_id,
+                source_version,
+            } => match state
+                .owned_images
+                .get(&(caller_label.to_string(), source_id.clone()))
+            {
+                Some(source) if source.source_version == *source_version => ActionRoot {
+                    id: source.root_id,
+                    security: source.root_security.clone(),
+                    owned_image: Some(Arc::clone(&source.png)),
+                },
+                Some(_) => return Err(ActionError::UpstreamUnavailable),
+                None if matches!(
+                    crate::ipc_access::caller_kind(caller_label),
+                    CallerKind::Main | CallerKind::Launcher
+                ) =>
+                {
+                    return Err(ActionError::UpstreamUnavailable);
+                }
+                None => ActionRoot {
+                    id: next_identity(&mut state)?,
+                    security: ActionRootSecurity::default(),
+                    owned_image: None,
+                },
+            },
+            _ => ActionRoot {
+                id: next_identity(&mut state)?,
+                security: ActionRootSecurity::default(),
+                owned_image: None,
+            },
         };
-        let cancellation = ActionCancellation::new();
+        begin_locked(
+            &mut state,
+            caller_label,
+            descriptor,
+            request_slot,
+            input,
+            root,
+        )
+    }
+
+    /// 组合动作只引用后端保存的精确上游 handle。正文从完成结果派生，前端只能提交
+    /// 目标动作所需的非内容选项，因此不能替换 OCR 或译文。
+    pub fn compose(
+        &self,
+        caller_label: &str,
+        upstream: &ActionHandle,
+        action_id: &str,
+        request_slot: &str,
+        options: Value,
+    ) -> Result<PreparedAction, ActionError> {
+        validate_handle(upstream)?;
+        validate_request_slot(request_slot)?;
+        let descriptor = descriptor(action_id).ok_or(ActionError::UnknownAction)?;
+        if !action_allowed(crate::ipc_access::caller_kind(caller_label), action_id) {
+            return Err(ActionError::Unauthorized);
+        }
+        let mut state = self.state.lock().map_err(|_| ActionError::Poisoned)?;
+        let completed = state
+            .completed
+            .get(&completed_key(caller_label, upstream))
+            .ok_or(ActionError::UpstreamUnavailable)?;
+        let input = composed_input(&completed.value, descriptor, &options)?;
+        let root = ActionRoot {
+            id: completed.root_id,
+            security: completed.root_security.clone(),
+            owned_image: None,
+        };
+        if descriptor.id == "text.translate" && root.security.sensitive {
+            return Err(ActionError::SensitiveContent);
+        }
+        begin_locked(
+            &mut state,
+            caller_label,
+            descriptor,
+            request_slot,
+            input,
+            root,
+        )
+    }
+
+    pub(crate) fn set_launcher_image_selection(&self, selection: LauncherImageSelection) {
+        if let Ok(mut state) = self.state.lock() {
+            state.launcher_image_selection = selection;
+        }
+    }
+
+    pub(crate) fn launcher_image_selection(&self) -> Result<LauncherImageSelection, ActionError> {
+        self.state
+            .lock()
+            .map(|state| state.launcher_image_selection)
+            .map_err(|_| ActionError::Poisoned)
+    }
+
+    /// 把后端读取并校验过的不可变 PNG 绑定到真实窗口。每个窗口只保留一个当前来源和一个
+    /// 短暂旧来源，避免 UI 重载竞态；单图受 64 MiB 上限约束。
+    #[cfg(test)]
+    pub(crate) fn register_owned_image(
+        &self,
+        caller_label: &str,
+        png: Vec<u8>,
+    ) -> Result<OwnedImageReference, ActionError> {
+        let caller_epoch = self.caller_epoch(caller_label)?;
+        self.register_owned_image_at_epoch(caller_label, caller_epoch, png, false, None)
+    }
+
+    pub(crate) fn caller_epoch(&self, caller_label: &str) -> Result<u64, ActionError> {
+        self.state
+            .lock()
+            .map(|state| {
+                state
+                    .caller_epochs
+                    .get(caller_label)
+                    .copied()
+                    .unwrap_or_default()
+            })
+            .map_err(|_| ActionError::Poisoned)
+    }
+
+    pub(crate) fn register_owned_image_at_epoch(
+        &self,
+        caller_label: &str,
+        caller_epoch: u64,
+        png: Vec<u8>,
+        sensitive: bool,
+        content_hash: Option<String>,
+    ) -> Result<OwnedImageReference, ActionError> {
+        if png.is_empty() || png.len() > MAX_OWNED_IMAGE_SOURCE_BYTES {
+            return Err(ActionError::ImageSourceTooLarge);
+        }
         let mut state = self.state.lock().map_err(|_| ActionError::Poisoned)?;
         if state
-            .active
-            .get(&slot)
-            .is_some_and(|active| active.phase == ActionPhase::Committing)
+            .caller_epochs
+            .get(caller_label)
+            .copied()
+            .unwrap_or_default()
+            != caller_epoch
         {
+            return Err(ActionError::UpstreamUnavailable);
+        }
+        if state.active.iter().any(|(slot, active)| {
+            slot.caller == caller_label && matches!(active.input, ActionInput::OwnedImage { .. })
+        }) {
             return Err(ActionError::Busy);
         }
-        if !state.active.contains_key(&slot)
-            && (state.active.len() >= MAX_ACTIVE_ACTIONS
-                || state
-                    .active
-                    .keys()
-                    .filter(|active_slot| active_slot.caller == caller_label)
-                    .count()
-                    >= MAX_ACTIVE_SLOTS_PER_CALLER)
-        {
-            return Err(ActionError::Busy);
+        let root_id = next_identity(&mut state)?;
+        let source_id = format!("action-image-{root_id}");
+        let source_version = 0;
+        let mut caller_sources = state
+            .owned_images
+            .iter()
+            .filter_map(|((caller, source_id), source)| {
+                (caller == caller_label).then_some((source_id.clone(), source.root_id))
+            })
+            .collect::<Vec<_>>();
+        caller_sources.sort_unstable_by_key(|(_, root)| *root);
+        while caller_sources.len() >= MAX_OWNED_IMAGE_SOURCES_PER_CALLER {
+            let (old_id, _) = caller_sources.remove(0);
+            state
+                .owned_images
+                .remove(&(caller_label.to_string(), old_id));
         }
-        let generation = state
-            .next_generation
-            .checked_add(1)
-            .filter(|generation| *generation <= MAX_ACTION_GENERATION)
-            .ok_or(ActionError::GenerationExhausted)?;
-        state.next_generation = generation;
-        if let Some(previous) = state.active.insert(
-            slot,
-            ActiveAction {
-                generation,
-                cancellable: descriptor.cancellable,
-                phase: ActionPhase::Pending,
-                cancellation: cancellation.clone(),
-                descriptor,
-                input: input.clone(),
-                claimed: false,
+        state.owned_images.insert(
+            (caller_label.to_string(), source_id.clone()),
+            OwnedImageSource {
+                root_id,
+                root_security: ActionRootSecurity {
+                    sensitive,
+                    content_hash,
+                },
+                source_version,
+                png: Arc::new(png),
             },
-        ) {
-            previous.cancellation.cancel();
-        }
-        Ok(PreparedAction {
-            descriptor,
-            handle: ActionHandle {
-                request_slot: request_slot.to_string(),
-                generation,
-            },
-            input,
-            cancellation,
+        );
+        Ok(OwnedImageReference {
+            source_id,
+            source_version,
         })
+    }
+
+    #[cfg(test)]
+    pub(super) fn resolve_owned_image(
+        &self,
+        caller_label: &str,
+        source_id: &str,
+        source_version: u64,
+    ) -> Result<Option<Arc<Vec<u8>>>, ActionError> {
+        let state = self.state.lock().map_err(|_| ActionError::Poisoned)?;
+        Ok(state
+            .owned_images
+            .get(&(caller_label.to_string(), source_id.to_string()))
+            .filter(|source| source.source_version == source_version)
+            .map(|source| Arc::clone(&source.png)))
+    }
+
+    fn record_completed(
+        &self,
+        caller_label: &str,
+        prepared: &PreparedAction,
+        output: &ActionOutput,
+    ) -> Result<(), ActionError> {
+        let value = match output {
+            ActionOutput::RecognizedText(result) => {
+                if validate_derived_text(&result.text).is_err() {
+                    return Ok(());
+                }
+                CompletedActionValue::RecognizedText(result.text.clone())
+            }
+            ActionOutput::TranslatedText(result) => {
+                if validate_derived_text(&result.translated_text).is_err() {
+                    return Ok(());
+                }
+                CompletedActionValue::TranslatedText(result.translated_text.clone())
+            }
+            _ => return Ok(()),
+        };
+        let mut state = self.state.lock().map_err(|_| ActionError::Poisoned)?;
+        if state
+            .caller_epochs
+            .get(caller_label)
+            .copied()
+            .unwrap_or_default()
+            != prepared.caller_epoch
+        {
+            return Ok(());
+        }
+        state.completed_order = state
+            .completed_order
+            .checked_add(1)
+            .filter(|value| *value <= MAX_ACTION_GENERATION)
+            .ok_or(ActionError::GenerationExhausted)?;
+        let completed_order = state.completed_order;
+        let caller_completed = state
+            .completed
+            .iter()
+            .filter_map(|(key, value)| {
+                (key.caller == caller_label).then_some((key.clone(), value.completed_order))
+            })
+            .collect::<Vec<_>>();
+        if caller_completed.len() >= MAX_COMPLETED_ACTIONS_PER_CALLER {
+            if let Some((oldest, _)) = caller_completed.into_iter().min_by_key(|(_, order)| *order)
+            {
+                state.completed.remove(&oldest);
+            }
+        }
+        state.completed.insert(
+            completed_key(caller_label, prepared.handle()),
+            CompletedAction {
+                root_id: prepared.root_id(),
+                root_security: prepared.root_security.clone(),
+                completed_order,
+                value,
+            },
+        );
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn root_for_completed(
+        &self,
+        caller_label: &str,
+        handle: &ActionHandle,
+    ) -> Result<u64, ActionError> {
+        let state = self.state.lock().map_err(|_| ActionError::Poisoned)?;
+        state
+            .completed
+            .get(&completed_key(caller_label, handle))
+            .map(|completed| completed.root_id)
+            .ok_or(ActionError::UpstreamUnavailable)
+    }
+
+    #[cfg(test)]
+    fn completed_text(
+        &self,
+        caller_label: &str,
+        handle: &ActionHandle,
+    ) -> Result<String, ActionError> {
+        let state = self.state.lock().map_err(|_| ActionError::Poisoned)?;
+        match &state
+            .completed
+            .get(&completed_key(caller_label, handle))
+            .ok_or(ActionError::UpstreamUnavailable)?
+            .value
+        {
+            CompletedActionValue::RecognizedText(text)
+            | CompletedActionValue::TranslatedText(text) => Ok(text.clone()),
+        }
     }
 
     /// IPC 的 prepare/run 两阶段只把 handle 交给前端；执行时从当前槽取回第一次
@@ -580,6 +911,10 @@ impl ActionRuntime {
             handle: handle.clone(),
             input: active.input.clone(),
             cancellation: active.cancellation.clone(),
+            root_id: active.root_id,
+            caller_epoch: active.caller_epoch,
+            root_security: active.root_security.clone(),
+            owned_image: active.owned_image.as_ref().map(Arc::clone),
         })
     }
 
@@ -749,6 +1084,158 @@ impl ActionRuntime {
                 active.cancellation.cancel();
             }
         }
+        state.completed.retain(|key, _| key.caller != caller_label);
+        state
+            .owned_images
+            .retain(|(caller, _), _| caller != caller_label);
+        let epoch = state
+            .caller_epochs
+            .entry(caller_label.to_string())
+            .or_default();
+        *epoch = epoch.saturating_add(1);
+    }
+}
+
+fn next_identity(state: &mut RuntimeState) -> Result<u64, ActionError> {
+    let identity = state
+        .next_identity
+        .checked_add(1)
+        .filter(|value| *value <= MAX_ACTION_GENERATION)
+        .ok_or(ActionError::GenerationExhausted)?;
+    state.next_identity = identity;
+    Ok(identity)
+}
+
+fn begin_locked(
+    state: &mut RuntimeState,
+    caller_label: &str,
+    descriptor: &'static ActionDescriptor,
+    request_slot: &str,
+    input: ActionInput,
+    root: ActionRoot,
+) -> Result<PreparedAction, ActionError> {
+    let caller_epoch = state
+        .caller_epochs
+        .get(caller_label)
+        .copied()
+        .unwrap_or_default();
+    let slot = ActionSlot {
+        caller: caller_label.to_string(),
+        request_slot: request_slot.to_string(),
+    };
+    if state
+        .active
+        .get(&slot)
+        .is_some_and(|active| active.phase == ActionPhase::Committing)
+    {
+        return Err(ActionError::Busy);
+    }
+    if !state.active.contains_key(&slot)
+        && (state.active.len() >= MAX_ACTIVE_ACTIONS
+            || state
+                .active
+                .keys()
+                .filter(|active_slot| active_slot.caller == caller_label)
+                .count()
+                >= MAX_ACTIVE_SLOTS_PER_CALLER)
+    {
+        return Err(ActionError::Busy);
+    }
+    let generation = state
+        .next_generation
+        .checked_add(1)
+        .filter(|value| *value <= MAX_ACTION_GENERATION)
+        .ok_or(ActionError::GenerationExhausted)?;
+    state.next_generation = generation;
+    let cancellation = ActionCancellation::new();
+    if let Some(previous) = state.active.insert(
+        slot,
+        ActiveAction {
+            generation,
+            root_id: root.id,
+            caller_epoch,
+            root_security: root.security.clone(),
+            owned_image: root.owned_image.as_ref().map(Arc::clone),
+            cancellable: descriptor.cancellable,
+            phase: ActionPhase::Pending,
+            cancellation: cancellation.clone(),
+            descriptor,
+            input: input.clone(),
+            claimed: false,
+        },
+    ) {
+        previous.cancellation.cancel();
+    }
+    Ok(PreparedAction {
+        descriptor,
+        handle: ActionHandle {
+            request_slot: request_slot.to_string(),
+            generation,
+        },
+        input,
+        cancellation,
+        root_id: root.id,
+        caller_epoch,
+        root_security: root.security,
+        owned_image: root.owned_image,
+    })
+}
+
+fn completed_key(caller_label: &str, handle: &ActionHandle) -> CompletedActionKey {
+    CompletedActionKey {
+        caller: caller_label.to_string(),
+        request_slot: handle.request_slot.clone(),
+        generation: handle.generation,
+    }
+}
+
+fn validate_derived_text(text: &str) -> Result<(), ActionError> {
+    if text.is_empty() || text.len() > MAX_TEXT_BYTES {
+        return Err(ActionError::IncompatibleOutput);
+    }
+    Ok(())
+}
+
+fn composed_input(
+    upstream: &CompletedActionValue,
+    descriptor: &'static ActionDescriptor,
+    options: &Value,
+) -> Result<ActionInput, ActionError> {
+    let text = match upstream {
+        CompletedActionValue::RecognizedText(text) | CompletedActionValue::TranslatedText(text) => {
+            text
+        }
+    };
+    validate_derived_text(text)?;
+    match (upstream, descriptor.id) {
+        (CompletedActionValue::RecognizedText(_), "text.copy")
+        | (CompletedActionValue::TranslatedText(_), "text.copy") => {
+            exact_object(options, &[])?;
+            Ok(ActionInput::Text(text.clone()))
+        }
+        (CompletedActionValue::RecognizedText(_), "text.translate") => {
+            let object = options.as_object().ok_or(ActionError::InvalidInput)?;
+            if object.is_empty()
+                || object.len() > 2
+                || !object.contains_key("targetLanguage")
+                || object
+                    .keys()
+                    .any(|field| !matches!(field.as_str(), "sourceLanguage" | "targetLanguage"))
+            {
+                return Err(ActionError::InvalidInput);
+            }
+            let source_language = object
+                .get("sourceLanguage")
+                .map(|value| validate_language(Some(value), true))
+                .transpose()?;
+            let target_language = validate_language(object.get("targetLanguage"), false)?;
+            Ok(ActionInput::Translation {
+                text: text.clone(),
+                source_language: source_language.map(str::to_string),
+                target_language: target_language.to_string(),
+            })
+        }
+        _ => Err(ActionError::IncompatibleOutput),
     }
 }
 
@@ -893,6 +1380,26 @@ pub(crate) fn prepare_action(
     Ok(prepared.handle().clone())
 }
 
+/// 从后端保存的精确完成结果派生下一动作。`options` 只包含语言等非内容字段，正文不能回传。
+#[tauri::command]
+pub(crate) fn prepare_composed_action(
+    upstream: ActionHandle,
+    action_id: String,
+    request_slot: String,
+    options: Value,
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, crate::commands::AppState>,
+) -> Result<ActionHandle, ActionIpcError> {
+    let prepared = state.action_runtime.compose(
+        window.label(),
+        &upstream,
+        &action_id,
+        &request_slot,
+        options,
+    )?;
+    Ok(prepared.handle().clone())
+}
+
 /// 只凭后端签发的一次性句柄执行；不能在 run 阶段替换动作 ID 或输入。
 #[tauri::command]
 pub(crate) async fn run_action(
@@ -939,6 +1446,7 @@ pub(crate) async fn run_action(
         ),
         _ => return Err(ActionError::UnknownAction.into()),
     };
+    runtime.record_completed(&caller_label, &prepared, &output)?;
     Ok(ActionReply { handle, output })
 }
 
@@ -972,6 +1480,291 @@ mod tests {
             }),
             _ => unreachable!("内置动作输入不能使用输出类型"),
         }
+    }
+
+    fn ocr_output(text: &str) -> ActionOutput {
+        ActionOutput::RecognizedText(
+            serde_json::from_value(json!({
+                "width": 2,
+                "height": 1,
+                "text": text,
+                "lines": [],
+                "paragraphs": [],
+                "pipeline": {
+                    "id": "fixture",
+                    "engine": "tesseract",
+                    "featureSchema": null,
+                    "layoutExecuted": false,
+                    "layoutReason": "unstructured_backend"
+                },
+                "fallbackReason": "fixture"
+            }))
+            .unwrap(),
+        )
+    }
+
+    fn translated_output(text: &str) -> ActionOutput {
+        ActionOutput::TranslatedText(crate::translation::types::TranslationResult {
+            request_id: 1,
+            provider: crate::translation::types::TranslationProvider::LibreTranslate,
+            translated_text: text.to_string(),
+            detected_source_language: Some("en".to_string()),
+            target_language: "zh-CN".to_string(),
+        })
+    }
+
+    #[test]
+    fn launcher_owned_image_is_window_bound_and_removed_on_teardown() {
+        let runtime = ActionRuntime::default();
+        let opening_epoch = runtime.caller_epoch("launcher").unwrap();
+        assert!(matches!(
+            runtime.begin(
+                "launcher",
+                "image.ocr",
+                "ocr",
+                json!({"sourceId": "forged", "sourceVersion": 0}),
+            ),
+            Err(ActionError::UpstreamUnavailable)
+        ));
+        let reference = runtime
+            .register_owned_image("launcher", vec![1, 2, 3])
+            .unwrap();
+        assert_eq!(
+            runtime
+                .resolve_owned_image("launcher", &reference.source_id, reference.source_version)
+                .unwrap()
+                .unwrap()
+                .as_slice(),
+            &[1, 2, 3]
+        );
+        assert!(runtime
+            .begin(
+                "launcher",
+                "image.ocr",
+                "ocr",
+                json!({
+                    "sourceId": reference.source_id,
+                    "sourceVersion": reference.source_version + 1
+                }),
+            )
+            .is_err());
+        runtime.retire_caller_pending("launcher");
+        assert!(runtime
+            .resolve_owned_image("launcher", &reference.source_id, reference.source_version)
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            runtime.register_owned_image_at_epoch(
+                "launcher",
+                opening_epoch,
+                vec![4, 5, 6],
+                false,
+                None,
+            ),
+            Err(ActionError::UpstreamUnavailable)
+        );
+    }
+
+    #[test]
+    fn composition_uses_saved_output_and_preserves_the_root_identity() {
+        let runtime = ActionRuntime::default();
+        let reference = runtime
+            .register_owned_image("launcher", vec![1, 2, 3])
+            .unwrap();
+        let ocr = runtime
+            .begin(
+                "launcher",
+                "image.ocr",
+                "ocr",
+                json!({
+                    "sourceId": reference.source_id,
+                    "sourceVersion": reference.source_version
+                }),
+            )
+            .unwrap();
+        runtime
+            .publish("launcher", ocr.handle(), || Ok::<_, ()>(()))
+            .unwrap()
+            .unwrap();
+        let output = ocr_output("trusted OCR text");
+        runtime.record_completed("launcher", &ocr, &output).unwrap();
+        let root = runtime
+            .root_for_completed("launcher", ocr.handle())
+            .unwrap();
+
+        let translate = runtime
+            .compose(
+                "launcher",
+                ocr.handle(),
+                "text.translate",
+                "translate",
+                json!({"sourceLanguage": "auto", "targetLanguage": "zh-CN"}),
+            )
+            .unwrap();
+        assert_eq!(translate.root_id(), root);
+        assert!(matches!(
+            translate.input(),
+            ActionInput::Translation { text, target_language, .. }
+                if text == "trusted OCR text" && target_language == "zh-CN"
+        ));
+        runtime
+            .publish("launcher", translate.handle(), || Ok::<_, ()>(()))
+            .unwrap()
+            .unwrap();
+        let translated = translated_output("可信译文");
+        runtime
+            .record_completed("launcher", &translate, &translated)
+            .unwrap();
+        assert_eq!(
+            runtime
+                .root_for_completed("launcher", translate.handle())
+                .unwrap(),
+            root
+        );
+        assert_eq!(
+            runtime
+                .completed_text("launcher", translate.handle())
+                .unwrap(),
+            "可信译文"
+        );
+
+        let copy = runtime
+            .compose(
+                "launcher",
+                translate.handle(),
+                "text.copy",
+                "copy",
+                json!({}),
+            )
+            .unwrap();
+        assert_eq!(copy.root_id(), root);
+        assert!(matches!(copy.input(), ActionInput::Text(text) if text == "可信译文"));
+    }
+
+    #[test]
+    fn composition_rejects_forged_cross_window_and_incompatible_inputs() {
+        let runtime = ActionRuntime::default();
+        let translated = runtime
+            .begin(
+                "launcher",
+                "text.translate",
+                "translate",
+                json!({"text": "private", "targetLanguage": "zh-CN"}),
+            )
+            .unwrap();
+        runtime
+            .publish("launcher", translated.handle(), || Ok::<_, ()>(()))
+            .unwrap()
+            .unwrap();
+        runtime
+            .record_completed("launcher", &translated, &translated_output("result"))
+            .unwrap();
+        assert!(matches!(
+            runtime.compose("main", translated.handle(), "text.copy", "copy", json!({}),),
+            Err(ActionError::UpstreamUnavailable)
+        ));
+        assert!(matches!(
+            runtime.compose(
+                "launcher",
+                translated.handle(),
+                "text.translate",
+                "again",
+                json!({"targetLanguage": "ja"}),
+            ),
+            Err(ActionError::IncompatibleOutput)
+        ));
+        assert!(matches!(
+            runtime.compose(
+                "launcher",
+                translated.handle(),
+                "text.copy",
+                "copy",
+                json!({"text": "forged"}),
+            ),
+            Err(ActionError::InvalidInput)
+        ));
+        runtime.retire_caller_pending("launcher");
+        assert!(matches!(
+            runtime.compose(
+                "launcher",
+                translated.handle(),
+                "text.copy",
+                "copy",
+                json!({}),
+            ),
+            Err(ActionError::UpstreamUnavailable)
+        ));
+    }
+
+    #[test]
+    fn destroyed_window_epoch_blocks_a_late_completed_result_from_reappearing() {
+        let runtime = ActionRuntime::default();
+        let prepared = runtime
+            .begin(
+                "launcher",
+                "text.translate",
+                "translate",
+                json!({"text": "private", "targetLanguage": "zh-CN"}),
+            )
+            .unwrap();
+        runtime
+            .publish("launcher", prepared.handle(), || Ok::<_, ()>(()))
+            .unwrap()
+            .unwrap();
+        runtime.retire_caller_pending("launcher");
+        runtime
+            .record_completed("launcher", &prepared, &translated_output("late"))
+            .unwrap();
+        assert_eq!(
+            runtime.root_for_completed("launcher", prepared.handle()),
+            Err(ActionError::UpstreamUnavailable)
+        );
+    }
+
+    #[test]
+    fn sensitive_image_result_can_copy_locally_but_cannot_compose_to_network_translation() {
+        let runtime = ActionRuntime::default();
+        let epoch = runtime.caller_epoch("launcher").unwrap();
+        let reference = runtime
+            .register_owned_image_at_epoch(
+                "launcher",
+                epoch,
+                vec![1, 2, 3],
+                true,
+                Some("private-hash".to_string()),
+            )
+            .unwrap();
+        let ocr = runtime
+            .begin(
+                "launcher",
+                "image.ocr",
+                "ocr",
+                json!({
+                    "sourceId": reference.source_id,
+                    "sourceVersion": reference.source_version
+                }),
+            )
+            .unwrap();
+        runtime
+            .publish("launcher", ocr.handle(), || Ok::<_, ()>(()))
+            .unwrap()
+            .unwrap();
+        runtime
+            .record_completed("launcher", &ocr, &ocr_output("private text"))
+            .unwrap();
+        assert!(runtime
+            .compose("launcher", ocr.handle(), "text.copy", "copy", json!({}),)
+            .is_ok());
+        assert!(matches!(
+            runtime.compose(
+                "launcher",
+                ocr.handle(),
+                "text.translate",
+                "translate",
+                json!({"targetLanguage": "en"}),
+            ),
+            Err(ActionError::SensitiveContent)
+        ));
     }
 
     #[test]
@@ -1097,19 +1890,21 @@ mod tests {
     #[test]
     fn prepared_debug_redacts_text_and_owned_image_values() {
         let runtime = ActionRuntime::default();
-        for (action, input, secret) in [
+        for (caller, action, input, secret) in [
             (
+                "main",
                 "text.copy",
                 json!({"text": "do-not-log-this-text"}),
                 "do-not-log-this-text",
             ),
             (
+                "image-viewer-owner",
                 "image.ocr",
                 json!({"sourceId": "do-not-log-source-id", "sourceVersion": 4}),
                 "do-not-log-source-id",
             ),
         ] {
-            let prepared = runtime.begin("main", action, action, input).unwrap();
+            let prepared = runtime.begin(caller, action, action, input).unwrap();
             let debug = format!("{prepared:?}");
             assert!(debug.contains(action));
             assert!(!debug.contains(secret));
@@ -1545,7 +2340,7 @@ mod tests {
         let runtime = ActionRuntime::default();
         let prepared = runtime
             .begin(
-                "main",
+                "image-viewer-owner",
                 "image.ocr",
                 "analysis",
                 json!({"sourceId": "clip-9", "sourceVersion": 0}),
@@ -1553,12 +2348,14 @@ mod tests {
             .unwrap();
         assert_eq!(
             runtime
-                .publish("main", prepared.handle(), || Err::<(), _>("ocr_failed"))
+                .publish("image-viewer-owner", prepared.handle(), || {
+                    Err::<(), _>("ocr_failed")
+                })
                 .unwrap(),
             Err("ocr_failed")
         );
         assert_eq!(
-            runtime.ensure_current("main", prepared.handle()),
+            runtime.ensure_current("image-viewer-owner", prepared.handle()),
             Err(ActionError::Superseded)
         );
     }
