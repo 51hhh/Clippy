@@ -72,6 +72,11 @@ pub(in crate::recording) struct AviMjpegWriter<W: Write + Seek> {
     maximum_jpeg_bytes: u32,
 }
 
+pub(in crate::recording) struct AviMjpegOutput<W> {
+    pub writer: W,
+    pub frame_count: u64,
+}
+
 impl<W: Write + Seek> AviMjpegWriter<W> {
     pub fn new(
         mut writer: W,
@@ -178,7 +183,14 @@ impl<W: Write + Seek> AviMjpegWriter<W> {
         Ok(())
     }
 
-    pub fn finish(mut self, duration_ns: u64) -> Result<W, AviMjpegError> {
+    pub fn finish(self, duration_ns: u64) -> Result<W, AviMjpegError> {
+        Ok(self.finish_with_stats(duration_ns)?.writer)
+    }
+
+    pub fn finish_with_stats(
+        mut self,
+        duration_ns: u64,
+    ) -> Result<AviMjpegOutput<W>, AviMjpegError> {
         let last = self
             .last_presentation_ns
             .ok_or(AviMjpegError::InvalidTimestamp)?;
@@ -276,7 +288,10 @@ impl<W: Write + Seek> AviMjpegWriter<W> {
             self.maximum_jpeg_bytes,
         )?;
         self.writer.seek(SeekFrom::Start(file_end))?;
-        Ok(self.writer)
+        Ok(AviMjpegOutput {
+            writer: self.writer,
+            frame_count: u64::from(frame_count),
+        })
     }
 
     fn encode_jpeg(&self, rgba: &[u8]) -> Result<Vec<u8>, AviMjpegError> {

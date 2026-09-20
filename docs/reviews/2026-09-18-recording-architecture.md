@@ -41,6 +41,7 @@ recording/
   timeline.rs      单调时间戳、帧丢弃策略、暂停区间
   frame.rs         有界 RGBA 帧合同与固定物理 crop
   encoder_worker.rs 阻塞消费有界队列、错误联动与线程回收
+  session.rs       journal、临时分段、采集与编码的单一资源 owner
   mux/             编码帧与可恢复容器，不读取桌面
   platform/
     linux/         X11 帧源；Wayland Portal/PipeWire 帧源
@@ -104,7 +105,10 @@ MJPEG 实现简单但文件大、文字边缘有损；它可以验证 journal �
 18,000 帧和 4 GiB，并由可用时的 `ffprobe` 回归验证 codec、尺寸、帧率、帧数与时长。该实现只用于
 把 journal、暂停/丢帧时间线和独立分段播放跑通；AVI 1.0 上限与 JPEG 有损画质使它仍不能成为默认。
 journal 已能创建私有会话、创建独占 `.partial`、提交分段元数据、提升最终文件、写入累计丢帧并以
-`recording → finalizing → complete` 原子更新状态；产品会话 owner 尚未把这些步骤与编码线程接线。
+`recording → finalizing → complete` 原子更新状态。诊断会话 owner 已把 journal、临时分段、三槽
+pipeline、采集线程和编码线程接成一个生命周期：正常 Stop 只有 owner 能提交和完成，任一线程错误
+或 `Drop` 会 join 两条线程、删除未提交 partial 并记录 interrupted；联动产生的 `Pipeline::Aborted`
+不会遮住原始采集或编码错误。产品级单活动会话注册表和 IPC 尚未接入。
 
 ## 平台顺序
 

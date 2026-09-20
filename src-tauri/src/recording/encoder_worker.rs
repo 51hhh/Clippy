@@ -25,6 +25,7 @@ pub(super) enum DiagnosticEncoderError {
 pub(super) struct DiagnosticEncoderReport<W> {
     pub writer: W,
     pub input_frames: u64,
+    pub encoded_frames: u64,
     pub duration_ns: u64,
 }
 
@@ -99,11 +100,12 @@ where
                 input_frames = input_frames.saturating_add(1);
             }
             PipelineDrain::Finished { duration_ns } => {
-                let writer = writer.finish(duration_ns)?;
+                let output = writer.finish_with_stats(duration_ns)?;
                 abort_guard.disarm();
                 return Ok(DiagnosticEncoderReport {
-                    writer,
+                    writer: output.writer,
                     input_frames,
+                    encoded_frames: output.frame_count,
                     duration_ns,
                 });
             }
@@ -170,6 +172,7 @@ mod tests {
 
         let report = worker.wait().unwrap();
         assert_eq!(report.input_frames, 2);
+        assert_eq!(report.encoded_frames, 2);
         assert_eq!(report.duration_ns, 200_000_000);
         let bytes = report.writer.into_inner();
         assert_eq!(&bytes[0..4], b"RIFF");
@@ -200,6 +203,7 @@ mod tests {
         let worker = DiagnosticEncoderWorker::spawn(writer(2, 2), Arc::clone(&pipeline)).unwrap();
         let report = worker.wait().unwrap();
         assert_eq!(report.input_frames, 3);
+        assert_eq!(report.encoded_frames, 4);
         assert_eq!(pipeline.stats().unwrap().dropped_by_backpressure, 1);
         assert_eq!(report.duration_ns, 400_000_000);
     }
