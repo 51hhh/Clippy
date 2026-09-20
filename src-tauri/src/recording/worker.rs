@@ -52,6 +52,8 @@ pub(super) struct CaptureWorkerReport {
     pub queued_frames: u64,
     pub ignored_while_paused: u64,
     pub dropped_by_backpressure: u64,
+    /// 只有正常 Stop 完成 pipeline 封尾后才存在；异常退出与 Drop 回收会中止 pipeline。
+    pub duration_ns: Option<u64>,
 }
 
 enum ControlCommand {
@@ -99,7 +101,9 @@ impl CaptureWorker {
     }
 
     pub fn stop(mut self) -> Result<CaptureWorkerReport, CaptureWorkerError> {
-        self.request_stop();
+        // 正常停止必须由采集线程从帧源读取同一时钟域的终点，不能由 owner 的本地时钟代替。
+        // 通道已经断开时仍然 join，以返回采集线程的原始错误。
+        let _ = self.control.send(ControlCommand::Stop);
         self.join_inner()
     }
 
@@ -172,18 +176,44 @@ fn run_loop<S>(
 where
     S: RecordingFrameSource,
 {
+    let mut abort_guard = PipelineAbortGuard::new(pipeline);
+    let result = run_loop_inner(&mut source, pipeline, commands, stop_requested, interval);
+    if result
+        .as_ref()
+        .is_ok_and(|report| report.duration_ns.is_some())
+    {
+        abort_guard.disarm();
+    }
+    result
+}
+
+fn run_loop_inner<S>(
+    source: &mut S,
+    pipeline: &RecordingPipeline,
+    commands: Receiver<ControlCommand>,
+    stop_requested: &AtomicBool,
+    interval: Duration,
+) -> Result<CaptureWorkerReport, CaptureWorkerError>
+where
+    S: RecordingFrameSource,
+{
     let mut report = CaptureWorkerReport::default();
     let mut paused = false;
     while !stop_requested.load(Ordering::Acquire) {
         if paused {
             match commands.recv_timeout(PAUSED_STOP_POLL) {
                 Ok(command) => {
-                    if handle_command(command, &mut source, pipeline, &mut paused)? {
-                        break;
+                    if let Some(duration_ns) =
+                        handle_command(command, source, pipeline, &mut paused)?
+                    {
+                        report.duration_ns = Some(duration_ns);
+                        return Ok(report);
                     }
                 }
                 Err(RecvTimeoutError::Timeout) => continue,
-                Err(RecvTimeoutError::Disconnected) => break,
+                Err(RecvTimeoutError::Disconnected) => {
+                    return Err(CaptureWorkerError::ControlDisconnected);
+                }
             }
             continue;
         }
@@ -209,12 +239,15 @@ where
         let remaining = interval.saturating_sub(started.elapsed());
         match commands.recv_timeout(remaining) {
             Ok(command) => {
-                if handle_command(command, &mut source, pipeline, &mut paused)? {
-                    break;
+                if let Some(duration_ns) = handle_command(command, source, pipeline, &mut paused)? {
+                    report.duration_ns = Some(duration_ns);
+                    return Ok(report);
                 }
             }
             Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => break,
+            Err(RecvTimeoutError::Disconnected) => {
+                return Err(CaptureWorkerError::ControlDisconnected);
+            }
         }
     }
     Ok(report)
@@ -225,7 +258,7 @@ fn handle_command<S>(
     source: &mut S,
     pipeline: &RecordingPipeline,
     paused: &mut bool,
-) -> Result<bool, CaptureWorkerError>
+) -> Result<Option<u64>, CaptureWorkerError>
 where
     S: RecordingFrameSource,
 {
@@ -244,7 +277,7 @@ where
                 *paused = true;
             }
             let _ = reply.send(result);
-            Ok(false)
+            Ok(None)
         }
         ControlCommand::Resume(reply) => {
             let timestamp = match source.control_timestamp_ns() {
@@ -260,15 +293,47 @@ where
                 *paused = false;
             }
             let _ = reply.send(result);
-            Ok(false)
+            Ok(None)
         }
-        ControlCommand::Stop => Ok(true),
+        ControlCommand::Stop => {
+            let timestamp = source
+                .control_timestamp_ns()
+                .map_err(|error| CaptureWorkerError::Source(error.to_string()))?;
+            Ok(Some(pipeline.finish(timestamp)?))
+        }
+    }
+}
+
+struct PipelineAbortGuard<'a> {
+    pipeline: &'a RecordingPipeline,
+    armed: bool,
+}
+
+impl<'a> PipelineAbortGuard<'a> {
+    fn new(pipeline: &'a RecordingPipeline) -> Self {
+        Self {
+            pipeline,
+            armed: true,
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for PipelineAbortGuard<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = self.pipeline.abort();
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::recording::pipeline::PipelineDrain;
     use std::fmt;
 
     #[derive(Debug, Clone, Copy)]
@@ -377,12 +442,17 @@ mod tests {
                 queued_frames: 5,
                 ignored_while_paused: 0,
                 dropped_by_backpressure: 2,
+                duration_ns: None,
             }
         );
         let stats = pipeline.stats().unwrap();
         assert_eq!(stats.queued_frames, 3);
         assert_eq!(stats.queued_bytes, 48);
         assert_eq!(stats.dropped_by_backpressure, 2);
+        for _ in 0..3 {
+            assert!(matches!(pipeline.pop_wait(), Ok(PipelineDrain::Frame(_))));
+        }
+        assert!(matches!(pipeline.pop_wait(), Err(PipelineError::Aborted)));
     }
 
     #[test]
@@ -398,6 +468,9 @@ mod tests {
             ))
         );
         assert_eq!(pipeline.stats().unwrap().queued_frames, 2);
+        assert!(pipeline.pop().unwrap().is_some());
+        assert!(pipeline.pop().unwrap().is_some());
+        assert!(matches!(pipeline.pop_wait(), Err(PipelineError::Aborted)));
     }
 
     #[test]
@@ -415,6 +488,18 @@ mod tests {
         let report = worker.stop().unwrap();
         assert!(pipeline.stats().unwrap().accepted_frames > paused_at);
         assert_eq!(report.ignored_while_paused, 0);
+        let duration_ns = report.duration_ns.expect("正常停止必须返回最终时长");
+        loop {
+            match pipeline.pop_wait().unwrap() {
+                PipelineDrain::Frame(_) => {}
+                PipelineDrain::Finished {
+                    duration_ns: terminal_duration,
+                } => {
+                    assert_eq!(terminal_duration, duration_ns);
+                    break;
+                }
+            }
+        }
     }
 
     #[test]
@@ -440,7 +525,7 @@ mod tests {
         let pipeline = Arc::new(RecordingPipeline::default());
         let mut source = source();
         source.fail_control = true;
-        let worker = CaptureWorker::spawn(source, pipeline, 120).unwrap();
+        let worker = CaptureWorker::spawn(source, Arc::clone(&pipeline), 120).unwrap();
         std::thread::sleep(Duration::from_millis(15));
         assert_eq!(
             worker.pause(),
@@ -454,5 +539,48 @@ mod tests {
                 "fixture source failed".to_string()
             ))
         );
+        while pipeline.pop().unwrap().is_some() {}
+        assert!(matches!(pipeline.pop_wait(), Err(PipelineError::Aborted)));
+    }
+
+    #[test]
+    fn stopping_while_paused_finishes_without_resuming_capture() {
+        let pipeline = Arc::new(RecordingPipeline::default());
+        let worker = CaptureWorker::spawn(source(), Arc::clone(&pipeline), 120).unwrap();
+        std::thread::sleep(Duration::from_millis(15));
+        worker.pause().unwrap();
+        let accepted_at_pause = pipeline.stats().unwrap().accepted_frames;
+        std::thread::sleep(Duration::from_millis(20));
+        let report = worker.stop().unwrap();
+        assert_eq!(pipeline.stats().unwrap().accepted_frames, accepted_at_pause);
+        let duration_ns = report.duration_ns.expect("暂停中正常停止仍应封尾");
+        loop {
+            match pipeline.pop_wait().unwrap() {
+                PipelineDrain::Frame(_) => {}
+                PipelineDrain::Finished {
+                    duration_ns: terminal_duration,
+                } => {
+                    assert_eq!(terminal_duration, duration_ns);
+                    break;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn stop_clock_failure_aborts_pipeline_and_returns_source_error() {
+        let pipeline = Arc::new(RecordingPipeline::default());
+        let mut source = source();
+        source.fail_control = true;
+        let worker = CaptureWorker::spawn(source, Arc::clone(&pipeline), 120).unwrap();
+        std::thread::sleep(Duration::from_millis(15));
+        assert_eq!(
+            worker.stop(),
+            Err(CaptureWorkerError::Source(
+                "fixture source failed".to_string()
+            ))
+        );
+        while pipeline.pop().unwrap().is_some() {}
+        assert!(matches!(pipeline.pop_wait(), Err(PipelineError::Aborted)));
     }
 }
