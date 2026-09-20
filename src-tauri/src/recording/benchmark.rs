@@ -3,7 +3,7 @@
 //! 该模块只在显式 VP9 原型 feature 下编译。它复用生产帧源、采集 worker、三槽 pipeline、周期恢复
 //! 分段和连续最终 mux；不会把基准入口接进产品 IPC，也不会把 Xwayland 数据写成原生 X11 证据。
 
-use super::platform::x11::X11RegionFrameSource;
+use super::platform::x11::X11RegionFrameSourcePlan;
 use super::segmenting::{RecordingEncoder, DEFAULT_SEGMENT_DURATION_NS};
 use super::session::{DiagnosticRecordingConfig, DiagnosticRecordingSession};
 use crate::capture::RecordingCaptureSpec;
@@ -64,10 +64,13 @@ pub(crate) fn run_x11_vp9_benchmark(
     validate_options(&options)?;
     reject_xwayland_session()?;
     let (monitor_id, selection) = resolve_selection(&options)?;
-    let source = X11RegionFrameSource::connect(selection)
-        .map_err(|error| format!("连接 X11 录屏帧源失败: {error}"))?;
-    let descriptor = source.descriptor().clone();
+    let plan = X11RegionFrameSourcePlan::prepare(selection)
+        .map_err(|error| format!("准备 X11 录屏帧源失败: {error}"))?;
+    let descriptor = plan.descriptor().clone();
     reserve_output_directory(&options.output_directory)?;
+    let source = plan
+        .connect()
+        .map_err(|error| format!("连接 X11 录屏帧源失败: {error}"))?;
 
     let requested_duration_ns = u64::from(options.duration_seconds)
         .checked_mul(1_000_000_000)

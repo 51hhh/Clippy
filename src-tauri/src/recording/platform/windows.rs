@@ -44,6 +44,37 @@ pub(in crate::recording) enum WindowsFrameSourceError {
     Frame(#[from] FrameError),
 }
 
+/// WGC 对象必须在采集 worker 内创建；计划阶段只保存重新枚举后得到的可信几何。
+#[derive(Debug, Clone)]
+pub(in crate::recording) struct WindowsWgcFrameSourcePlan {
+    selection: RecordingCaptureSpec,
+    descriptor: RecordingSourceDescriptor,
+}
+
+impl WindowsWgcFrameSourcePlan {
+    pub fn prepare(selection: RecordingCaptureSpec) -> Result<Self, WindowsFrameSourceError> {
+        validate_selection(selection)?;
+        let monitor = exact_monitor(selection.monitor_id)?;
+        let descriptor = monitor_descriptor(selection, &monitor)?;
+        Ok(Self {
+            selection,
+            descriptor,
+        })
+    }
+
+    pub fn descriptor(&self) -> &RecordingSourceDescriptor {
+        &self.descriptor
+    }
+
+    pub fn connect(self) -> Result<WindowsWgcRegionFrameSource, WindowsFrameSourceError> {
+        let source = WindowsWgcRegionFrameSource::connect(self.selection)?;
+        if source.descriptor != self.descriptor {
+            return Err(RegionFrameError::MonitorGeometryChanged.into());
+        }
+        Ok(source)
+    }
+}
+
 struct StampedFrame {
     captured_at_ns: u64,
     frame: Frame,
@@ -139,40 +170,8 @@ pub(in crate::recording) struct WindowsWgcRegionFrameSource {
 impl WindowsWgcRegionFrameSource {
     pub fn connect(selection: RecordingCaptureSpec) -> Result<Self, WindowsFrameSourceError> {
         validate_selection(selection)?;
-        let mut matches = Monitor::all()
-            .map_err(|error| WindowsFrameSourceError::Initialize(error.to_string()))?
-            .into_iter()
-            .filter_map(|monitor| match monitor.id() {
-                Ok(id) if id == selection.monitor_id => Some(Ok(monitor)),
-                Ok(_) => None,
-                Err(error) => Some(Err(WindowsFrameSourceError::Initialize(error.to_string()))),
-            });
-        let monitor = matches
-            .next()
-            .transpose()?
-            .ok_or(WindowsFrameSourceError::MonitorMissing)?;
-        if matches.next().is_some() {
-            return Err(WindowsFrameSourceError::MonitorMissing);
-        }
-        let monitor_width = monitor
-            .width()
-            .map_err(|error| WindowsFrameSourceError::Initialize(error.to_string()))?;
-        let monitor_height = monitor
-            .height()
-            .map_err(|error| WindowsFrameSourceError::Initialize(error.to_string()))?;
-        if monitor_width != selection.monitor_pixel_width
-            || monitor_height != selection.monitor_pixel_height
-        {
-            return Err(RegionFrameError::MonitorGeometryChanged.into());
-        }
-        let monitor_x = monitor
-            .x()
-            .map_err(|error| WindowsFrameSourceError::Initialize(error.to_string()))?;
-        let monitor_y = monitor
-            .y()
-            .map_err(|error| WindowsFrameSourceError::Initialize(error.to_string()))?;
-        let physical_x = checked_coordinate(monitor_x, selection.crop_left)?;
-        let physical_y = checked_coordinate(monitor_y, selection.crop_top)?;
+        let monitor = exact_monitor(selection.monitor_id)?;
+        let descriptor = monitor_descriptor(selection, &monitor)?;
         let (recorder, frames) = monitor
             .video_recorder()
             .map_err(|error| WindowsFrameSourceError::Initialize(error.to_string()))?;
@@ -206,13 +205,7 @@ impl WindowsWgcRegionFrameSource {
             bridge,
             bridge_thread: Some(bridge_thread),
             selection,
-            descriptor: RecordingSourceDescriptor {
-                source_id: format!("windows-wgc-{}", selection.monitor_id),
-                physical_x,
-                physical_y,
-                width: selection.crop_width,
-                height: selection.crop_height,
-            },
+            descriptor,
             clock_origin,
             minimum_timestamp_ns: 0,
             last_timestamp_ns: None,
@@ -304,6 +297,55 @@ impl WindowsWgcRegionFrameSource {
         frame.validate()?;
         Ok(Some(frame))
     }
+}
+
+fn exact_monitor(monitor_id: u32) -> Result<Monitor, WindowsFrameSourceError> {
+    let mut matches = Monitor::all()
+        .map_err(|error| WindowsFrameSourceError::Initialize(error.to_string()))?
+        .into_iter()
+        .filter_map(|monitor| match monitor.id() {
+            Ok(id) if id == monitor_id => Some(Ok(monitor)),
+            Ok(_) => None,
+            Err(error) => Some(Err(WindowsFrameSourceError::Initialize(error.to_string()))),
+        });
+    let monitor = matches
+        .next()
+        .transpose()?
+        .ok_or(WindowsFrameSourceError::MonitorMissing)?;
+    if matches.next().is_some() {
+        return Err(WindowsFrameSourceError::MonitorMissing);
+    }
+    Ok(monitor)
+}
+
+fn monitor_descriptor(
+    selection: RecordingCaptureSpec,
+    monitor: &Monitor,
+) -> Result<RecordingSourceDescriptor, WindowsFrameSourceError> {
+    let monitor_width = monitor
+        .width()
+        .map_err(|error| WindowsFrameSourceError::Initialize(error.to_string()))?;
+    let monitor_height = monitor
+        .height()
+        .map_err(|error| WindowsFrameSourceError::Initialize(error.to_string()))?;
+    if monitor_width != selection.monitor_pixel_width
+        || monitor_height != selection.monitor_pixel_height
+    {
+        return Err(RegionFrameError::MonitorGeometryChanged.into());
+    }
+    let monitor_x = monitor
+        .x()
+        .map_err(|error| WindowsFrameSourceError::Initialize(error.to_string()))?;
+    let monitor_y = monitor
+        .y()
+        .map_err(|error| WindowsFrameSourceError::Initialize(error.to_string()))?;
+    Ok(RecordingSourceDescriptor {
+        source_id: format!("windows-wgc-{}", selection.monitor_id),
+        physical_x: checked_coordinate(monitor_x, selection.crop_left)?,
+        physical_y: checked_coordinate(monitor_y, selection.crop_top)?,
+        width: selection.crop_width,
+        height: selection.crop_height,
+    })
 }
 
 impl RecordingFrameSource for WindowsWgcRegionFrameSource {

@@ -50,6 +50,35 @@ pub(in crate::recording) enum X11FrameSourceError {
     Frame(#[from] FrameError),
 }
 
+/// 普通截图会话尚未消费时取得的 X11 可信计划。连接本身不跨线程；worker 会重新连接并复核区域。
+#[derive(Debug, Clone)]
+pub(in crate::recording) struct X11RegionFrameSourcePlan {
+    selection: RecordingCaptureSpec,
+    descriptor: RecordingSourceDescriptor,
+}
+
+impl X11RegionFrameSourcePlan {
+    pub fn prepare(selection: RecordingCaptureSpec) -> Result<Self, X11FrameSourceError> {
+        let (_, _, region) = connect_region(selection)?;
+        Ok(Self {
+            selection,
+            descriptor: descriptor(selection.monitor_id, region),
+        })
+    }
+
+    pub fn descriptor(&self) -> &RecordingSourceDescriptor {
+        &self.descriptor
+    }
+
+    pub fn connect(self) -> Result<X11RegionFrameSource, X11FrameSourceError> {
+        let source = X11RegionFrameSource::connect(self.selection)?;
+        if source.descriptor != self.descriptor {
+            return Err(X11FrameSourceError::MonitorGeometryChanged);
+        }
+        Ok(source)
+    }
+}
+
 pub(in crate::recording) struct X11RegionFrameSource {
     connection: RustConnection,
     root: u32,
@@ -62,41 +91,12 @@ pub(in crate::recording) struct X11RegionFrameSource {
 
 impl X11RegionFrameSource {
     pub fn connect(selection: RecordingCaptureSpec) -> Result<Self, X11FrameSourceError> {
-        let (connection, screen_number) = RustConnection::connect(None)
-            .map_err(|error| X11FrameSourceError::Connect(error.to_string()))?;
-        let screen = connection
-            .setup()
-            .roots
-            .get(screen_number)
-            .ok_or_else(|| X11FrameSourceError::Connect("X11 screen 索引无效".to_string()))?;
-        connection
-            .randr_query_version(1, 5)
-            .map_err(|error| X11FrameSourceError::Connect(error.to_string()))?
-            .reply()
-            .map_err(|error| X11FrameSourceError::Connect(error.to_string()))?;
-        let monitors = connection
-            .randr_get_monitors(screen.root, true)
-            .map_err(|error| X11FrameSourceError::Connect(error.to_string()))?
-            .reply()
-            .map_err(|error| X11FrameSourceError::Connect(error.to_string()))?;
-        let region = resolve_region(selection, &monitors.monitors)?;
-        validate_region(screen.width_in_pixels, screen.height_in_pixels, region)?;
-        connection
-            .xfixes_query_version(5, 0)
-            .map_err(|error| X11FrameSourceError::Connect(error.to_string()))?
-            .reply()
-            .map_err(|error| X11FrameSourceError::Connect(error.to_string()))?;
+        let (connection, root, region) = connect_region(selection)?;
         Ok(Self {
-            root: screen.root,
+            root,
             connection,
             region,
-            descriptor: RecordingSourceDescriptor {
-                source_id: format!("x11-randr-{}", selection.monitor_id),
-                physical_x: i32::from(region.x),
-                physical_y: i32::from(region.y),
-                width: u32::from(region.width),
-                height: u32::from(region.height),
-            },
+            descriptor: descriptor(selection.monitor_id, region),
             clock_origin: Instant::now(),
             last_timestamp_ns: None,
             next_sequence: 0,
@@ -161,6 +161,49 @@ impl X11RegionFrameSource {
             )),
             None => Ok(sampled_at),
         }
+    }
+}
+
+fn connect_region(
+    selection: RecordingCaptureSpec,
+) -> Result<(RustConnection, u32, X11PhysicalRegion), X11FrameSourceError> {
+    let (connection, screen_number) = RustConnection::connect(None)
+        .map_err(|error| X11FrameSourceError::Connect(error.to_string()))?;
+    let screen = connection
+        .setup()
+        .roots
+        .get(screen_number)
+        .ok_or_else(|| X11FrameSourceError::Connect("X11 screen 索引无效".to_string()))?;
+    let root = screen.root;
+    let screen_width = screen.width_in_pixels;
+    let screen_height = screen.height_in_pixels;
+    connection
+        .randr_query_version(1, 5)
+        .map_err(|error| X11FrameSourceError::Connect(error.to_string()))?
+        .reply()
+        .map_err(|error| X11FrameSourceError::Connect(error.to_string()))?;
+    let monitors = connection
+        .randr_get_monitors(root, true)
+        .map_err(|error| X11FrameSourceError::Connect(error.to_string()))?
+        .reply()
+        .map_err(|error| X11FrameSourceError::Connect(error.to_string()))?;
+    let region = resolve_region(selection, &monitors.monitors)?;
+    validate_region(screen_width, screen_height, region)?;
+    connection
+        .xfixes_query_version(5, 0)
+        .map_err(|error| X11FrameSourceError::Connect(error.to_string()))?
+        .reply()
+        .map_err(|error| X11FrameSourceError::Connect(error.to_string()))?;
+    Ok((connection, root, region))
+}
+
+fn descriptor(monitor_id: u32, region: X11PhysicalRegion) -> RecordingSourceDescriptor {
+    RecordingSourceDescriptor {
+        source_id: format!("x11-randr-{monitor_id}"),
+        physical_x: i32::from(region.x),
+        physical_y: i32::from(region.y),
+        width: u32::from(region.width),
+        height: u32::from(region.height),
     }
 }
 

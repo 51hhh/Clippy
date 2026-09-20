@@ -8,6 +8,11 @@ pub(super) mod windows;
 #[cfg(target_os = "linux")]
 pub(super) mod x11;
 
+use super::frame::CapturedFrame;
+use super::worker::RecordingFrameSource;
+use crate::capture::RecordingCaptureSpec;
+use thiserror::Error;
+
 /// 平台帧源完成原生显示器核验后生成的唯一物理来源描述。
 ///
 /// 录制清单、控制窗规划和后续编码配置必须消费这份描述，不能再用前端逻辑坐标重复推导。
@@ -18,4 +23,187 @@ pub(super) struct RecordingSourceDescriptor {
     pub physical_y: i32,
     pub width: u32,
     pub height: u32,
+}
+
+/// 平台对象创建前可跨线程移动的唯一采集计划。
+#[derive(Debug, Clone)]
+pub(super) enum PlatformFrameSourcePlan {
+    #[cfg(target_os = "linux")]
+    X11(x11::X11RegionFrameSourcePlan),
+    #[cfg(target_os = "linux")]
+    Wayland(wayland::WaylandPortalFrameSourcePlan),
+    #[cfg(target_os = "windows")]
+    Windows(windows::WindowsWgcFrameSourcePlan),
+    #[cfg(target_os = "macos")]
+    Macos(macos::MacRegionFrameSourcePlan),
+}
+
+impl PlatformFrameSourcePlan {
+    pub fn prepare(selection: RecordingCaptureSpec) -> Result<Self, PlatformFrameSourceError> {
+        #[cfg(target_os = "linux")]
+        {
+            match crate::platform::current_session() {
+                crate::platform::DesktopSession::Wayland => Ok(Self::Wayland(
+                    wayland::WaylandPortalFrameSourcePlan::prepare(selection)?,
+                )),
+                crate::platform::DesktopSession::X11 => Ok(Self::X11(
+                    x11::X11RegionFrameSourcePlan::prepare(selection)?,
+                )),
+                crate::platform::DesktopSession::Native
+                | crate::platform::DesktopSession::Unknown => {
+                    Err(PlatformFrameSourceError::UnsupportedLinuxSession)
+                }
+            }
+        }
+        #[cfg(target_os = "windows")]
+        {
+            Ok(Self::Windows(windows::WindowsWgcFrameSourcePlan::prepare(
+                selection,
+            )?))
+        }
+        #[cfg(target_os = "macos")]
+        {
+            Ok(Self::Macos(macos::MacRegionFrameSourcePlan::prepare(
+                selection,
+            )?))
+        }
+    }
+
+    pub fn descriptor(&self) -> &RecordingSourceDescriptor {
+        match self {
+            #[cfg(target_os = "linux")]
+            Self::X11(plan) => plan.descriptor(),
+            #[cfg(target_os = "linux")]
+            Self::Wayland(plan) => plan.descriptor(),
+            #[cfg(target_os = "windows")]
+            Self::Windows(plan) => plan.descriptor(),
+            #[cfg(target_os = "macos")]
+            Self::Macos(plan) => plan.descriptor(),
+        }
+    }
+
+    pub fn connect(self) -> Result<PlatformFrameSource, PlatformFrameSourceError> {
+        match self {
+            #[cfg(target_os = "linux")]
+            Self::X11(plan) => Ok(PlatformFrameSource::X11(Box::new(plan.connect()?))),
+            #[cfg(target_os = "linux")]
+            Self::Wayland(plan) => Ok(PlatformFrameSource::Wayland(Box::new(plan.connect()?))),
+            #[cfg(target_os = "windows")]
+            Self::Windows(plan) => Ok(PlatformFrameSource::Windows(Box::new(plan.connect()?))),
+            #[cfg(target_os = "macos")]
+            Self::Macos(plan) => Ok(PlatformFrameSource::Macos(Box::new(plan.connect()?))),
+        }
+    }
+}
+
+pub(super) enum PlatformFrameSource {
+    #[cfg(target_os = "linux")]
+    X11(Box<x11::X11RegionFrameSource>),
+    #[cfg(target_os = "linux")]
+    Wayland(Box<wayland::WaylandPortalRegionFrameSource>),
+    #[cfg(target_os = "windows")]
+    Windows(Box<windows::WindowsWgcRegionFrameSource>),
+    #[cfg(target_os = "macos")]
+    Macos(Box<macos::MacAvRegionFrameSource>),
+}
+
+#[derive(Debug, Error)]
+pub(super) enum PlatformFrameSourceError {
+    #[cfg(target_os = "linux")]
+    #[error("当前 Linux 桌面会话既不是原生 X11 也不是原生 Wayland")]
+    UnsupportedLinuxSession,
+    #[cfg(target_os = "linux")]
+    #[error(transparent)]
+    X11(#[from] x11::X11FrameSourceError),
+    #[cfg(target_os = "linux")]
+    #[error(transparent)]
+    Wayland(#[from] wayland::WaylandFrameSourceError),
+    #[cfg(target_os = "windows")]
+    #[error(transparent)]
+    Windows(#[from] windows::WindowsFrameSourceError),
+    #[cfg(target_os = "macos")]
+    #[error(transparent)]
+    Macos(#[from] macos::MacFrameSourceError),
+}
+
+impl RecordingFrameSource for PlatformFrameSource {
+    type Error = PlatformFrameSourceError;
+
+    fn capture_next(&mut self) -> Result<CapturedFrame, Self::Error> {
+        match self {
+            #[cfg(target_os = "linux")]
+            Self::X11(source) => Ok(source.capture_next()?),
+            #[cfg(target_os = "linux")]
+            Self::Wayland(source) => Ok(source.capture_next()?),
+            #[cfg(target_os = "windows")]
+            Self::Windows(source) => Ok(source.capture_next()?),
+            #[cfg(target_os = "macos")]
+            Self::Macos(source) => Ok(source.capture_next()?),
+        }
+    }
+
+    fn capture_next_available(&mut self) -> Result<Option<CapturedFrame>, Self::Error> {
+        match self {
+            #[cfg(target_os = "linux")]
+            Self::X11(source) => Ok(source.capture_next_available()?),
+            #[cfg(target_os = "linux")]
+            Self::Wayland(source) => Ok(source.capture_next_available()?),
+            #[cfg(target_os = "windows")]
+            Self::Windows(source) => Ok(source.capture_next_available()?),
+            #[cfg(target_os = "macos")]
+            Self::Macos(source) => Ok(source.capture_next_available()?),
+        }
+    }
+
+    fn control_timestamp_ns(&mut self) -> Result<u64, Self::Error> {
+        match self {
+            #[cfg(target_os = "linux")]
+            Self::X11(source) => Ok(source.control_timestamp_ns()?),
+            #[cfg(target_os = "linux")]
+            Self::Wayland(source) => Ok(source.control_timestamp_ns()?),
+            #[cfg(target_os = "windows")]
+            Self::Windows(source) => Ok(source.control_timestamp_ns()?),
+            #[cfg(target_os = "macos")]
+            Self::Macos(source) => Ok(source.control_timestamp_ns()?),
+        }
+    }
+
+    fn pause_capture(&mut self) -> Result<u64, Self::Error> {
+        match self {
+            #[cfg(target_os = "linux")]
+            Self::X11(source) => Ok(source.pause_capture()?),
+            #[cfg(target_os = "linux")]
+            Self::Wayland(source) => Ok(source.pause_capture()?),
+            #[cfg(target_os = "windows")]
+            Self::Windows(source) => Ok(source.pause_capture()?),
+            #[cfg(target_os = "macos")]
+            Self::Macos(source) => Ok(source.pause_capture()?),
+        }
+    }
+
+    fn resume_capture(&mut self) -> Result<u64, Self::Error> {
+        match self {
+            #[cfg(target_os = "linux")]
+            Self::X11(source) => Ok(source.resume_capture()?),
+            #[cfg(target_os = "linux")]
+            Self::Wayland(source) => Ok(source.resume_capture()?),
+            #[cfg(target_os = "windows")]
+            Self::Windows(source) => Ok(source.resume_capture()?),
+            #[cfg(target_os = "macos")]
+            Self::Macos(source) => Ok(source.resume_capture()?),
+        }
+    }
+
+    fn stop_capture(&mut self) -> Result<u64, Self::Error> {
+        match self {
+            #[cfg(target_os = "linux")]
+            Self::X11(source) => Ok(source.stop_capture()?),
+            #[cfg(target_os = "linux")]
+            Self::Wayland(source) => Ok(source.stop_capture()?),
+            #[cfg(target_os = "windows")]
+            Self::Windows(source) => Ok(source.stop_capture()?),
+            #[cfg(target_os = "macos")]
+            Self::Macos(source) => Ok(source.stop_capture()?),
+        }
+    }
 }

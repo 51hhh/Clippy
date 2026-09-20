@@ -217,6 +217,10 @@ pub(in crate::recording) struct MacAvRegionFrameSource {
 
 impl MacAvRegionFrameSource {
     fn connect(plan: MacRegionFrameSourcePlan) -> Result<Self, MacFrameSourceError> {
+        let current = MacRegionFrameSourcePlan::prepare(plan.selection)?;
+        if current.capture_region != plan.capture_region || current.descriptor != plan.descriptor {
+            return Err(RegionFrameError::MonitorGeometryChanged.into());
+        }
         let monitor = exact_monitor(plan.selection.monitor_id)?;
         let region = plan.capture_region;
         let (recorder, frames) = monitor

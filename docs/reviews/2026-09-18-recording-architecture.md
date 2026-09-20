@@ -264,8 +264,9 @@ feature，用时 11 分 01 秒；4 个 VP9 mux/`ffprobe` 测试通过。这只�
 VP9 已完整经过 capture worker、三槽 pipeline、WebM 封尾、私有分段原子提交和 complete manifest；
 清单中的 encoder/container、分段扩展名、时长与帧数均由同一选择产生。生命周期启动合同现由后端
 传入类型化编码器策略，默认测试继续使用 MJPEG 诊断 writer，feature 回归则证明同一生命周期能够
-选择 VP9 并提交最终 WebM；该选择不从 IPC 接受前端字符串或参数。产品开始适配器仍未接入，因此这不
-代表 VP9 已成为默认。编码线程现在默认每 60 秒、最多允许 120 秒一个周期分段；跨过边界即原子
+选择 VP9 并提交最终 WebM；该选择不从 IPC 接受前端字符串或参数。平台开始适配器已接入领域生命周期，
+但可信 Tauri 开始 IPC 和产品策略仍未开放，因此这不代表 VP9 已成为默认。编码线程现在默认每 60 秒、
+最多允许 120 秒一个周期分段；跨过边界即原子
 提交，最后一段则在 Stop 后由会话 owner 核对时长与背压再把清单标为 complete。MJPEG 子进程强杀 fixture 已
 证明首段提交、次段仍打开时退出，启动恢复会保留可播放首段、删除未提交尾段并写 interrupted；同一
 分段 writer 的 VP9 回归已生成两个独立 WebM；原型 CI 也会在四目标分别强制终止独立子进程，验证
@@ -380,6 +381,14 @@ Portal 提供整屏 stream，Clippy 只在验证完整帧恰好等于冻结显�
 上的授权拒绝、单/多屏元数据、分数缩放、旋转屏、静态帧、4K 带宽、光标和 Stop/Drop 回收都需要
 真机证据。完成这些以前，主界面和截图工具条继续没有录屏入口。
 
+四平台现在统一为 `PlatformFrameSourcePlan → PlatformFrameSource`：计划阶段仍在 Ordinary 截图会话
+内按平台重新枚举显示器，只保存可跨线程移动的选区、来源描述和原生参数；生命周期消费截图并恢复
+桌面后，采集 worker 才创建 X11 connection、WGC/AVFoundation recorder 或 Portal/PipeWire session。
+X11 与 Windows 在连接时再次计算来源描述，macOS 与 Wayland 再次生成计划；任何 handoff 期间的
+显示器 ID、几何、缩放或区域变化都会在首帧前失败并回滚控制面、会话和 Recording gate。Linux
+Unknown/Native 会话不会猜成 X11。X11 隔离闭环已经覆盖两阶段计划；Windows/macOS 的相同代码图
+分别通过隔离交叉 lint，真实平台结果仍由同一 SHA Native Check 和真机 QA 判定。
+
 `ci-local.sh` 现会在隔离 Xvfb 中显式运行原生闭环：RandR 可信区域 → 持久 X11 帧源 → 采集线程 →
 三槽 pipeline → MJPEG/AVI → 私有分段与 complete manifest，并核对清单帧数和文件权限。它验证真实
 X11 协议与落盘接线，不代表真实桌面合成器、4K 带宽、光标移动或控制窗排除的性能验收。
@@ -396,7 +405,8 @@ manager/lifecycle 关闭控制面、清理会话、释放 Recording gate。采�
 取消刚启动的会话。启动失败、正常停止、取消、迟到 token 和控制面关闭失败均会回收会话并显式
 释放 gate；桌面动作会在首个失败后继续执行剩余恢复项。当前完成的是可注入、可测试的领域状态机，
 Tauri 桌面动作适配器现已复用截图覆盖层关闭、Pin/来源窗口恢复和 settle 合同；控制窗意外销毁、
-显示失败、正常停止与取消都会按 exact token 回收会话。可信开始入口仍未接入。
+显示失败、正常停止与取消都会按 exact token 回收会话。平台计划已经接入这条生命周期；可信 Tauri
+开始命令仍未接入。
 
 控制窗 registry 已独立固定 `Preparing → Bound → Closing → Empty`：窗口只携带后端生成且不可复用的
 label，暂停/继续/停止命令从 registry 读取 exact generation token，不接收前端提交的 session ID 或

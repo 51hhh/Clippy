@@ -836,7 +836,7 @@ mod tests {
     #[ignore = "由 ci-local.sh 在隔离 Xvfb 中显式运行"]
     fn x11_source_records_a_complete_private_avi_session() {
         use crate::capture::RecordingCaptureSpec;
-        use crate::recording::platform::x11::X11RegionFrameSource;
+        use crate::recording::platform::x11::X11RegionFrameSourcePlan;
         use x11rb::connection::Connection;
         use x11rb::protocol::randr::ConnectionExt as _;
         use x11rb::rust_connection::RustConnection;
@@ -860,7 +860,7 @@ mod tests {
             .expect("Xvfb 至少暴露一个 RandR output");
         let width = u32::from(monitor.width).min(64);
         let height = u32::from(monitor.height).min(64);
-        let source = X11RegionFrameSource::connect(RecordingCaptureSpec {
+        let plan = X11RegionFrameSourcePlan::prepare(RecordingCaptureSpec {
             monitor_id: monitor.outputs[0],
             monitor_pixel_width: u32::from(monitor.width),
             monitor_pixel_height: u32::from(monitor.height),
@@ -869,11 +869,12 @@ mod tests {
             crop_width: width,
             crop_height: height,
         })
-        .expect("连接 X11 录屏帧源");
-        let descriptor = source.descriptor().clone();
+        .expect("准备 X11 录屏帧源");
+        let descriptor = plan.descriptor().clone();
         assert_eq!(descriptor.physical_x, i32::from(monitor.x));
         assert_eq!(descriptor.physical_y, i32::from(monitor.y));
         assert_eq!((descriptor.width, descriptor.height), (width, height));
+        let source = plan.connect().expect("在线程边界后连接 X11 录屏帧源");
         let temporary = tempfile::tempdir().unwrap();
         let session = DiagnosticRecordingSession::start(
             temporary.path(),

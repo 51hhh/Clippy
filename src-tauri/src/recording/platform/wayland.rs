@@ -658,6 +658,10 @@ pub(in crate::recording) struct WaylandPortalRegionFrameSource {
 
 impl WaylandPortalRegionFrameSource {
     fn connect(plan: WaylandPortalFrameSourcePlan) -> Result<Self, WaylandFrameSourceError> {
+        let current = WaylandPortalFrameSourcePlan::prepare(plan.selection)?;
+        if current.expected != plan.expected || current.descriptor != plan.descriptor {
+            return Err(WaylandFrameSourceError::MonitorGeometryChanged);
+        }
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()

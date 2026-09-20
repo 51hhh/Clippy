@@ -5,7 +5,7 @@
 //! Recording gate。
 
 use super::manager::{RecordingManager, RecordingManagerError, RecordingToken};
-use super::platform::RecordingSourceDescriptor;
+use super::platform::{PlatformFrameSource, PlatformFrameSourcePlan, RecordingSourceDescriptor};
 use super::segmenting::{RecordingEncoder, DEFAULT_SEGMENT_DURATION_NS};
 use super::selection::PreparedRecordingSelection;
 use super::session::{DiagnosticRecordingConfig, DiagnosticRecordingReport};
@@ -126,6 +126,29 @@ impl RecordingLifecycle {
             manager: RecordingManager::new(),
             slot: Mutex::new(LifecycleSlot::Empty),
         }
+    }
+
+    /// 生产平台适配器。仍由调用方决定何时开放入口；前端不能选择后端或提交物理来源。
+    pub(super) fn start_platform<A: DesktopActions>(
+        &self,
+        context: RecordingStartContext<'_>,
+        request: RecordingStartRequest,
+        actions: &A,
+    ) -> Result<RecordingToken, RecordingLifecycleError> {
+        self.start::<PlatformFrameSource, _, _, _>(
+            context,
+            request,
+            |selection| {
+                let plan = PlatformFrameSourcePlan::prepare(selection)
+                    .map_err(|error| error.to_string())?;
+                let descriptor = plan.descriptor().clone();
+                Ok(PreparedRecordingSource {
+                    source_factory: move || plan.connect().map_err(|error| error.to_string()),
+                    descriptor,
+                })
+            },
+            actions,
+        )
     }
 
     pub(super) fn start<S, F, C, A>(
