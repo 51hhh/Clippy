@@ -41,6 +41,7 @@ CI；只有真实安装包和桌面交互可以关闭 Native/人工 QA 项。
 | 前端类型检查 | `npx tsc --noEmit` | 检查 React/TS 功能岛 |
 | 前端构建 | `npx vite build` | 验证正式前端产物 |
 | 原生平台检查 | Rust check/clippy/test | Windows 与 macOS 原生 runner 编译、平台 API 与测试门禁 |
+| VP9 原型矩阵 | feature clippy + VP9 mux/session tests | Ubuntu 22 x64、Windows x64、macOS arm64 验证固定归档和编码闭环 |
 
 ### 环境
 - **Runner**: Linux 使用 `ubuntu-22.04` 作为最低构建基线；原生编译门禁使用 `windows-latest` 与 `macos-latest`
@@ -55,6 +56,14 @@ CI；只有真实安装包和桌面交互可以关闭 Native/人工 QA 项。
 平台无关的前端测试、类型检查和构建只在 Jammy 执行一次；Windows/macOS runner 专注 Rust 的目标条件
 编译、lint 和单元测试。安装包构建移入独立 Native QA workflow，避免每次 push 重复生成约 190 MB
 测试产物，也避免普通 CI 在界面上与正式发布混淆。
+
+`Recording Codec Prototype` 是 `recording-vp9-prototype` 的独立阻塞矩阵，使用
+`ubuntu-22.04`、`windows-latest` 和 GitHub 当前定义为 arm64 的 `macos-15` runner。它核对 vendored
+绑定、仓库固定的 libvpx 归档 SHA-256、第三方许可证，并运行 feature Clippy、VP9 mux 和会话分段
+测试。上游没有 macOS x86_64 预编译归档，因此该矩阵不能替代 Intel 目标；在 Intel 输入可复现前，
+VP9 仍不能成为四目标默认编码器。runner 架构以
+[GitHub-hosted runners reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
+为准。
 
 ## Native QA Packages（native-qa.yml）
 
@@ -92,6 +101,10 @@ node scripts/verify-native-ci.mjs \
 `Native Check (windows-latest)` 和 `Native Check (macos-latest)` 对该 SHA 都是
 `completed/success` 时返回 0。输出的 Markdown 可直接归档到任务验证记录。公开仓库无需 token；受限
 环境或私有仓库可通过 `GITHUB_TOKEN` / `GH_TOKEN` 提供只读权限，脚本不会打印 token。
+
+录屏 VP9 原型还须在同一 SHA 上额外核对三项 `Recording Codec Prototype (...)` success。当前
+`verify-native-ci.mjs` 只判定发布既有的三个必需 job，不会把原型矩阵误算成 Intel 支持或产品录屏
+验收。
 
 Native QA 之后的权限、焦点、输入注入、混合 DPI、Spaces 和 Wayland compositor 行为按
 [`native-qa.md`](native-qa.md) 生成结构化真机记录；CI 绿色不能替代这些场景。

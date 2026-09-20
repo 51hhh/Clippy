@@ -152,3 +152,51 @@ jobs:
       - name: Native Rust tests
         working-directory: src-tauri
         run: cargo test
+
+  recording-codec-prototype:
+    name: Recording Codec Prototype (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-22.04, windows-latest, macos-15]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev build-essential curl file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
+            pkg-config libgbm-dev libegl-dev libdrm-dev libwayland-dev \
+            libxcb1-dev libpipewire-0.3-dev
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-recording-codec
+          key: ${{ matrix.runner }}
+          workspaces: src-tauri
+
+      - name: Verify pinned codec supply chain
+        run: node scripts/verify-recording-codec-supply-chain.mjs
+
+      - name: Prototype Rust clippy
+        working-directory: src-tauri
+        run: cargo clippy --features recording-vp9-prototype --all-targets -- -D warnings
+
+      - name: Prototype VP9 mux tests
+        working-directory: src-tauri
+        run: cargo test --features recording-vp9-prototype recording::mux::vp9_webm::tests
+
+      - name: Prototype VP9 session test
+        working-directory: src-tauri
+        run: cargo test --features recording-vp9-prototype recording::session::tests::vp9_session_commits_webm_and_matching_manifest_descriptor

@@ -5436,8 +5436,6 @@ dependencies = [
 [[package]]
 name = "shiguredo_libvpx"
 version = "2026.2.0-canary.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0bfd0a9e72b214aeeb8037bac5a7705ac584bb0edd6c8b964157ee53819b031"
 dependencies = [
  "bindgen",
  "shiguredo_toml",

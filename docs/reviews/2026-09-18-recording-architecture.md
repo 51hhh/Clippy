@@ -149,11 +149,13 @@ libwebm `File` 模式写入 seek 信息和显式分段时长；本地回归由 `
 时长。纯 Rust `ebml-webm 0.2.1` 探针能解码 30 帧，但没有写 `Duration`/`DefaultDuration`，因此没有
 进入实现。
 
-该原型仍不具备默认依赖资格：`shiguredo_libvpx 2026.2.0-canary.1` 会在 build script 中从 GitHub
-下载按平台预编译的 libvpx 并另取 SHA-256 文件校验，干净构建需要网络，且绑定仍是 canary。
-Clippy 已精确固定 crate 版本，并把整个模块隔离在非默认 feature；启用默认产品构建或 UI 前，必须
-改成可复现的依赖获取方式，补齐 MPL/libvpx 第三方声明，并让同一 SHA 的 Ubuntu 22.04、
-Windows x64、macOS Intel/Apple Silicon 均编译和运行该 feature。当前 Linux 探针成功不替代这些门禁。
+该原型仍不具备默认依赖资格：`shiguredo_libvpx 2026.2.0-canary.1` 的上游 build script 会从 GitHub
+下载预编译 libvpx，并从同一 Release 动态取得校验文件。Clippy 已 vendor 对应上游提交，只保留归档
+下载，并把 Ubuntu 22/24/26 x64、Windows x64 与 macOS arm64 的 SHA-256 固定在仓库；内容漂移或
+未知 target 会立即失败。`shiguredo_libvpx`、libvpx、`webm`/`webm-sys` 和 libwebm 的许可证与
+NOTICE 也已进入安装资源。CI 已配置 Ubuntu 22 x64、Windows x64、macOS arm64 的独立 feature
+Clippy 与 mux/session 测试矩阵，但当前分支尚无远程同 SHA 结果。归档下载仍需网络，绑定仍是 canary，
+且上游没有 macOS x86_64 归档；Intel 输入可复现与三目标远程成功前不能启用默认 feature 或 UI。
 
 编码消费线程也已从 MJPEG 具体类型收敛为 `RecordingSegmentWriter` 合同：writer 只能接收时间线已经
 归一化的 RGBA 帧并返回同一个最终时长下的 writer 与帧数；pipeline 排空、原始错误优先级、异常中止

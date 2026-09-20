@@ -769,8 +769,8 @@ generation token 绑定、停止/失败释放 gate 的严格顺序；Tauri 适�
 运动样本，并记录墙钟、RSS、文件大小、SSIM、PSNR 和 `ffprobe` 解码合同。Intel Core Ultra 5 125H
 上的 720p/30fps/2s 工具自检中，MJPEG/AVI 为 0.126s、3.52 MiB、SSIM 0.991269；libvpx VP9/WebM
 为 0.331s、0.14 MiB、SSIM 0.993904；rav1e AV1/Matroska 为 4.341s、0.17 MiB、SSIM 0.993561。
-因此下一原型收敛为嵌入式 VP9/WebM；该短样本不算默认编码器验收。仍须完成三平台同 SHA 构建、
-60 秒 1080p/4K 分层语料、周期分段强杀恢复和安装包增量。rav1e 当前参数不满足实时；本机缺 NASM
+因此下一原型收敛为嵌入式 VP9/WebM；该短样本不算默认编码器验收。仍须完成原型矩阵同 SHA 结果、
+60 秒 1080p/4K 分层语料、macOS Intel 输入和安装包增量。rav1e 当前参数不满足实时；本机缺 NASM
 只说明尚不能验证源码构建优化链，不用于推断系统 FFmpeg 中 rav1e 二进制是否启用汇编。OpenH264
 须先独立审查自行编译与 Cisco 预编译二进制的分发条件，本阶段不选为默认。
 
@@ -778,14 +778,16 @@ generation token 绑定、停止/失败释放 gate 的严格顺序；Tauri 适�
 固定帧率空洞补帧，两秒关键帧间隔，libwebm `File` 模式写入 seek 与显式时长；Linux 本地测试与
 `ffprobe` 已核对 VP9、帧数和时长。纯 Rust `ebml-webm` 因当前不写容器时长被排除。原型依赖的
 `shiguredo_libvpx` 仍是 canary，且 build script 会联网下载平台预编译库，因此默认 feature 和 UI
-保持不接入；可复现供应链、第三方声明和三平台同 SHA feature 构建仍是启用前置条件。
+保持不接入。Clippy 已 vendor Rust 绑定，把受支持归档 SHA-256 固定在仓库并打包 Apache-2.0、
+MPL-2.0 与 BSD-3-Clause 声明；CI 已增加 Ubuntu 22 x64、Windows x64、macOS arm64 的阻塞 feature
+矩阵。本分支尚无远程同 SHA 结果，上游也没有 macOS x86_64 归档，这两项仍是启用前置条件。
 编码线程已改为统一的 `RecordingSegmentWriter` 合同，MJPEG 与 VP9 共用 pipeline 排空、错误联动和
 线程回收；会话配置现用同一编码器枚举生成 writer 与 journal 描述，feature 回归已跑通 capture →
 pipeline → VP9/WebM → 私有原子分段 → complete manifest，并核对扩展名、时长、帧数和权限。产品
 生命周期仍显式选择 MJPEG。统一分段 writer 默认 60 秒封尾、上限 120 秒，跨过边界即原子提交；
 默认 MJPEG 子进程 fixture 已在首段提交、次段打开时强制退出，并由启动恢复保留可播放前缀、删除
-未提交尾段、写入 interrupted。VP9 feature 回归也已产生并提交两个独立 WebM；三平台强杀、最终
-文件合并和可复现供应链尚未完成。
+未提交尾段、写入 interrupted。VP9 feature 回归也已产生并提交两个独立 WebM；三目标远程矩阵、
+macOS Intel 可复现输入、最终文件合并和长样本质量预算尚未完成。
 
 ### `PX-ACT-01`：类型化动作与启动器
 

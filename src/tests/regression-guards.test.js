@@ -87,11 +87,29 @@ describe("Linux CI 固守 Ubuntu 22 构建基线", () => {
     // Linux runner 只看 runner.os 会把 Jammy 与更新发行版都归到 Linux，缓存中的
     // build-script 会因较新 glibc 无法在 Ubuntu 22 启动；runner 名必须进入 key。
     const cacheBlocks = [...buildWorkflow.matchAll(/- name: Rust cache[\s\S]*?workspaces: src-tauri/g)];
-    expect(cacheBlocks).toHaveLength(2);
-    for (const [block] of cacheBlocks) {
+    expect(cacheBlocks).toHaveLength(3);
+    for (const [block] of cacheBlocks.slice(0, 2)) {
       expect(block).toContain("prefix-key: v1-rust");
       expect(block).toMatch(/key: (ubuntu-22\.04|\$\{\{ matrix\.runner \}\})/);
     }
+    expect(cacheBlocks[2][0]).toContain("prefix-key: v1-recording-codec");
+    expect(cacheBlocks[2][0]).toContain("key: ${{ matrix.runner }}");
+  });
+
+  it("VP9 原型以独立三目标矩阵验证固定供应链和编码闭环", () => {
+    expect(buildWorkflow).toMatch(
+      /recording-codec-prototype:[\s\S]*runner: \[ubuntu-22\.04, windows-latest, macos-15\]/,
+    );
+    expect(buildWorkflow).toContain("node scripts/verify-recording-codec-supply-chain.mjs");
+    expect(buildWorkflow).toContain(
+      "cargo clippy --features recording-vp9-prototype --all-targets -- -D warnings",
+    );
+    expect(buildWorkflow).toContain(
+      "cargo test --features recording-vp9-prototype recording::mux::vp9_webm::tests",
+    );
+    expect(buildWorkflow).toContain(
+      "cargo test --features recording-vp9-prototype recording::session::tests::vp9_session_commits_webm_and_matching_manifest_descriptor",
+    );
   });
 
   it("Jammy 构建的 AppImage 在 Ubuntu 24 执行强制运行 smoke", () => {

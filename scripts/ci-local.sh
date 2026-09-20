@@ -147,6 +147,7 @@ run_step "GNOME 扩展静态检查" ./scripts/check-gnome-extension.sh
 run_step "前端 HTML 与 Tauri 边界" node scripts/check-html-sinks.mjs
 run_step "IPC 合同一致性" node scripts/check-ipc-contract.mjs
 run_step "录屏编码基准脚本语法" node --check scripts/benchmark-recording-encoders.mjs
+run_step "录屏编码供应链" node scripts/verify-recording-codec-supply-chain.mjs
 
 # --- Frontend ---
 run_step "npm ci" bash -c "cd src && npm ci --prefer-offline"

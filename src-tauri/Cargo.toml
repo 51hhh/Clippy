@@ -130,6 +130,8 @@ windows-sys = { version = "0.61", features = [
 libspa = { path = "vendor/libspa" }
 # X11 写完成屏障与有界 INCR 大图传输；补丁范围见 vendor/arboard/PATCHES.md。
 arboard = { path = "vendor/arboard" }
+# VP9 原型只接受仓库固定 SHA-256 的 libvpx 预编译归档；补丁范围见 vendor/shiguredo_libvpx/PATCHES.md。
+shiguredo_libvpx = { path = "vendor/shiguredo_libvpx" }
 
 [dev-dependencies]
 tempfile = "3"
