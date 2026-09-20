@@ -863,7 +863,7 @@ Portal 逻辑几何复核冻结显示器，协商阶段核对完整物理尺寸�
 图片参数目前只完成引用形状校验；领域适配器仍须把引用绑定到 Viewer、Capture 或 Pin 的真实所有权。
 受限 IPC、启动器 UI 与动作组合尚未接入，因此上面的端到端验收项仍保持未完成。
 
-**2026-09-20 Stage 2 进行中**：动作参数已在验证后转换为内部类型，不把原始 JSON 交给领域层；
+**2026-09-20 至 2026-09-21 Stage 2 已完成**：动作参数已在验证后转换为内部类型，不把原始 JSON 交给领域层；
 `text.copy` 已复用现有 watcher 抑制、平台剪贴板重试与 wake 路径。不可取消动作增加原子提交阶段，
 提交期间同一调用者/请求槽不能被新请求替换。Viewer 的 `image.ocr` 已复用现有 OCR 调度，并以
 调用窗口签发的不可变 `snapshotId + version 0` 复核图片所有权；取消会释放 OCR 等待者，跨窗口、
@@ -879,7 +879,17 @@ Main/Launcher；Viewer/Capture 仍通过会复核敏感状态的专用翻译命�
 结果不确定后的自动重试；两者的可编辑工程和未提交画布仍由 Viewer 专用命令处理。
 `capture.start` 已复用现有普通截图入口，保留模式 gate、多屏冻结和完整失败补偿，并在调用方等待者
 消失后继续完成不可取消启动。Stage 2 的七个注册动作均已有领域适配器；Capture、Pin、主窗口和
-Launcher 的权威图片引用仍须在受限 IPC/组合阶段按各自来源合同接入。
+Launcher 的权威图片引用仍须在组合阶段按各自来源合同接入。
+
+**2026-09-21 Stage 3 已完成**：新增 `discover_actions`、`prepare_action`、`run_action`、
+`cancel_action` 四个受限命令。统一窗口权限矩阵只向 Main、精确 `launcher`、Capture、Viewer 与 Pin
+功能窗开放共享动作面；Settings、Longshot、Recording 和畸形 label 在到达动作运行时前即拒绝。
+后端从 Tauri 注入窗口身份，`prepare` 校验一次输入并把类型化值保存在动作槽，`run` 不再接受动作 ID
+或输入，只能领取一次后端句柄。跨窗口、重复、取消、过期和等待者中止均有状态测试；不可取消提交
+继续由领域 guard 完成补偿。pending 输入受每窗口 16 槽、全局 64 槽预算约束，并在窗口销毁时回收。
+响应使用有判别字段的类型化联合，错误只含稳定码；前端 facade 对静态
+目录、精确句柄、同代次回包及 OCR/扫码/翻译嵌套结果做二次运行时校验。Launcher UI、动作表单和
+组合尚未实现，Main/Launcher 的权威图片来源也仍未建立，因此三条端到端验收项继续保持未完成。
 
 **Out of Scope**：第一阶段不嵌入 Lua/WASM/JavaScript，不运行任意 shell，不开放插件市场。
 

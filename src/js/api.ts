@@ -72,6 +72,7 @@ export type {
   ImageCodeScanResponse,
 } from "./api/validators.ts";
 
+export * from "./api/actions.ts";
 export * from "./api/clipboard.ts";
 export * from "./api/capture.ts";
 export * from "./api/pin.ts";

@@ -1,4 +1,3 @@
-#[allow(dead_code)]
 mod actions;
 mod app;
 mod app_update;
@@ -193,6 +192,7 @@ pub fn run() {
 
             // ── 5. 注册全局状态 ──────────────────────────────────────────────
             app.manage(AppState {
+                action_runtime: actions::ActionRuntime::default(),
                 viewer_manager: Arc::new(viewer::ViewerManager::default()),
                 viewer_transition: Mutex::new(()),
                 storage,
@@ -341,6 +341,10 @@ pub fn run() {
         })
         .on_window_event(app::window_events::handle)
         .invoke_handler(ipc_access::restrict(tauri::generate_handler![
+            actions::discover_actions,
+            actions::prepare_action,
+            actions::run_action,
+            actions::cancel_action,
             viewer::commands::open_image_viewer,
             viewer::commands::get_viewer_payload,
             viewer::commands::get_viewer_settings,

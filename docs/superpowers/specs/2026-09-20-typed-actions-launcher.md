@@ -108,3 +108,12 @@ discover descriptor
   返回后端签发的真实 session ID，并保留模式 gate、多屏冻结、源窗口隐藏恢复和覆盖层创建补偿。
   异步启动在独立不可取消提交任务中完成；即使动作等待者随窗口关闭被丢弃，领域 future 仍会走到
   成功或补偿终点并回收精确动作槽。平台错误只映射为稳定动作码，不暴露窗口或后端细节。
+- 2026-09-21：Stage 3 已完成受限 IPC。`discover_actions`、`prepare_action`、`run_action` 和
+  `cancel_action` 全部经过统一 `ipc_access` 矩阵；调用角色只取 Tauri 注入的原生窗口 label，Settings、
+  Longshot 与 Recording 控制窗不能调用。`prepare` 是 IPC 唯一接收输入的位置，Rust 在校验并转换后
+  把类型化输入留在动作槽，`run` 只接受后端签发的 `requestSlot + generation` 句柄；句柄只能领取
+  一次，未知字段、跨窗口句柄、重复运行和过期结果均被拒绝。可取消等待者被丢弃时会取消并回收仍在
+  pending 的槽；每窗口最多 16 槽、全局最多 64 槽，窗口销毁会回收 pending 输入，已进入截图等
+  不可取消提交的任务继续完成领域补偿。前端受控 facade 再次严格校验
+  静态目录、句柄身份、输出联合和 OCR/扫码/翻译嵌套结果。错误响应只含稳定码。Launcher UI 与类型化
+  组合仍未实现；Main/Launcher 的 `owned_image` 在建立其权威图片来源前会稳定返回 source unavailable。

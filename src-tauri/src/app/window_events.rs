@@ -4,6 +4,16 @@ use crate::window_controller;
 use tauri::Manager;
 
 pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
+    if matches!(event, tauri::WindowEvent::Destroyed)
+        && window
+            .app_handle()
+            .get_webview_window(window.label())
+            .is_none()
+    {
+        if let Some(state) = window.app_handle().try_state::<AppState>() {
+            state.action_runtime.retire_caller_pending(window.label());
+        }
+    }
     match event {
         tauri::WindowEvent::Moved(position) if window.label() == "main" => {
             window_controller::remember_main_window_position(window, *position);

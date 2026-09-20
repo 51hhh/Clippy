@@ -27,6 +27,8 @@ pub use url_metadata::*;
 
 /// 全局应用状态，通过 Tauri 的 manage() 注入并在各命令中共享。
 pub struct AppState {
+    /// PX-ACT-01 动作槽、代次和取消状态的唯一进程级 owner。
+    pub(crate) action_runtime: crate::actions::ActionRuntime,
     pub viewer_manager: Arc<crate::viewer::ViewerManager>,
     pub viewer_transition: Mutex<()>,
     pub storage: Arc<Mutex<StorageEngine>>,

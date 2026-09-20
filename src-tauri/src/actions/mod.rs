@@ -1,12 +1,12 @@
 //! PX-ACT-01 类型化内置动作核心。
 //!
 //! 该模块建立静态注册表、参数边界、窗口角色权限和请求代次，并分阶段接入复用既有业务服务的
-//! 领域适配器；受限 IPC 与启动器 UI 尚未开放。动作参数不接受路径、URL、像素或可执行命令。
+//! 领域适配器和受限 IPC；启动器 UI 尚未开放。动作参数不接受路径、URL、像素或可执行命令。
 
 mod adapters;
 
 use crate::ipc_access::CallerKind;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::fmt;
@@ -17,6 +17,10 @@ use thiserror::Error;
 const MAX_TEXT_BYTES: usize = 256 * 1024;
 const MAX_SOURCE_ID_BYTES: usize = 128;
 const MAX_REQUEST_SLOT_BYTES: usize = 96;
+const MAX_ACTIVE_SLOTS_PER_CALLER: usize = 16;
+const MAX_ACTIVE_ACTIONS: usize = 64;
+/// JavaScript IPC 精确整数上限；句柄不能在 JSON 桥两端悄悄改变 generation。
+const MAX_ACTION_GENERATION: u64 = 9_007_199_254_740_991;
 const ALL_PLATFORMS: &[ActionPlatform] = &[
     ActionPlatform::Linux,
     ActionPlatform::Windows,
@@ -25,7 +29,7 @@ const ALL_PLATFORMS: &[ActionPlatform] = &[
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(super) enum ActionValueKind {
+pub(crate) enum ActionValueKind {
     Unit,
     OwnedImage,
     Text,
@@ -39,7 +43,7 @@ pub(super) enum ActionValueKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub(super) enum ActionPermission {
+pub(crate) enum ActionPermission {
     #[serde(rename = "screen.capture")]
     ScreenCapture,
     #[serde(rename = "image.local_analysis")]
@@ -56,7 +60,7 @@ pub(super) enum ActionPermission {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(super) enum ActionPlatform {
+pub(crate) enum ActionPlatform {
     Linux,
     Windows,
     Macos,
@@ -64,7 +68,7 @@ pub(super) enum ActionPlatform {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct ActionDescriptor {
+pub(crate) struct ActionDescriptor {
     pub id: &'static str,
     pub input: ActionValueKind,
     pub output: ActionValueKind,
@@ -136,6 +140,7 @@ pub(super) fn descriptors() -> &'static [ActionDescriptor] {
     ACTIONS
 }
 
+#[derive(Clone)]
 pub(super) enum ActionInput {
     Unit,
     OwnedImage {
@@ -280,9 +285,9 @@ fn validate_language(value: Option<&Value>, allow_auto: bool) -> Result<&str, Ac
     Err(ActionError::InvalidInput)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct ActionHandle {
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ActionHandle {
     request_slot: String,
     generation: u64,
 }
@@ -418,6 +423,9 @@ struct ActiveAction {
     cancellable: bool,
     phase: ActionPhase,
     cancellation: ActionCancellation,
+    descriptor: &'static ActionDescriptor,
+    input: ActionInput,
+    claimed: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -433,7 +441,7 @@ struct RuntimeState {
 }
 
 #[derive(Clone, Default)]
-pub(super) struct ActionRuntime {
+pub(crate) struct ActionRuntime {
     state: Arc<Mutex<RuntimeState>>,
 }
 
@@ -499,9 +507,21 @@ impl ActionRuntime {
         {
             return Err(ActionError::Busy);
         }
+        if !state.active.contains_key(&slot)
+            && (state.active.len() >= MAX_ACTIVE_ACTIONS
+                || state
+                    .active
+                    .keys()
+                    .filter(|active_slot| active_slot.caller == caller_label)
+                    .count()
+                    >= MAX_ACTIVE_SLOTS_PER_CALLER)
+        {
+            return Err(ActionError::Busy);
+        }
         let generation = state
             .next_generation
             .checked_add(1)
+            .filter(|generation| *generation <= MAX_ACTION_GENERATION)
             .ok_or(ActionError::GenerationExhausted)?;
         state.next_generation = generation;
         if let Some(previous) = state.active.insert(
@@ -511,6 +531,9 @@ impl ActionRuntime {
                 cancellable: descriptor.cancellable,
                 phase: ActionPhase::Pending,
                 cancellation: cancellation.clone(),
+                descriptor,
+                input: input.clone(),
+                claimed: false,
             },
         ) {
             previous.cancellation.cancel();
@@ -526,7 +549,38 @@ impl ActionRuntime {
         })
     }
 
+    /// IPC 的 prepare/run 两阶段只把 handle 交给前端；执行时从当前槽取回第一次
+    /// 验证后的类型化输入。一个 handle 只能领取一次，重复 invoke 不能重做副作用。
+    pub fn claim_prepared(
+        &self,
+        caller_label: &str,
+        handle: &ActionHandle,
+    ) -> Result<PreparedAction, ActionError> {
+        validate_handle(handle)?;
+        let mut state = self.state.lock().map_err(|_| ActionError::Poisoned)?;
+        let slot = slot_for(caller_label, handle);
+        if current_action(&state, caller_label, handle)?
+            .cancellation
+            .is_cancelled()
+        {
+            state.active.remove(&slot);
+            return Err(ActionError::Cancelled);
+        }
+        let active = current_action_mut(&mut state, caller_label, handle)?;
+        if active.claimed {
+            return Err(ActionError::Busy);
+        }
+        active.claimed = true;
+        Ok(PreparedAction {
+            descriptor: active.descriptor,
+            handle: handle.clone(),
+            input: active.input.clone(),
+            cancellation: active.cancellation.clone(),
+        })
+    }
+
     pub fn cancel(&self, caller_label: &str, handle: &ActionHandle) -> Result<(), ActionError> {
+        validate_handle(handle)?;
         let mut state = self.state.lock().map_err(|_| ActionError::Poisoned)?;
         let active = current_action_mut(&mut state, caller_label, handle)?;
         if !active.cancellable {
@@ -655,6 +709,43 @@ impl ActionRuntime {
             state.active.remove(&slot);
         }
     }
+
+    fn abandon_claimed(&self, caller_label: &str, handle: &ActionHandle) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        let slot = slot_for(caller_label, handle);
+        if state.active.get(&slot).is_some_and(|active| {
+            active.generation == handle.generation
+                && active.claimed
+                && active.phase == ActionPhase::Pending
+        }) {
+            if let Some(active) = state.active.remove(&slot) {
+                active.cancellation.cancel();
+            }
+        }
+    }
+
+    /// 窗口销毁时回收尚未提交的 prepare/run 状态；已进入不可取消提交的领域任务保留到 guard
+    /// 完成，避免源窗口恢复、文件落盘或原生建窗只执行一半。
+    pub(crate) fn retire_caller_pending(&self, caller_label: &str) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        let slots = state
+            .active
+            .iter()
+            .filter_map(|(slot, active)| {
+                (slot.caller == caller_label && active.phase == ActionPhase::Pending)
+                    .then_some(slot.clone())
+            })
+            .collect::<Vec<_>>();
+        for slot in slots {
+            if let Some(active) = state.active.remove(&slot) {
+                active.cancellation.cancel();
+            }
+        }
+    }
 }
 
 fn validate_request_slot(request_slot: &str) -> Result<(), ActionError> {
@@ -665,6 +756,14 @@ fn validate_request_slot(request_slot: &str) -> Result<(), ActionError> {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
     {
         return Err(ActionError::InvalidRequestSlot);
+    }
+    Ok(())
+}
+
+fn validate_handle(handle: &ActionHandle) -> Result<(), ActionError> {
+    validate_request_slot(&handle.request_slot)?;
+    if handle.generation == 0 || handle.generation > MAX_ACTION_GENERATION {
+        return Err(ActionError::InvalidInput);
     }
     Ok(())
 }
@@ -696,6 +795,158 @@ fn current_action_mut<'a>(
         Some(active) if active.generation == handle.generation => Ok(active),
         _ => Err(ActionError::Superseded),
     }
+}
+
+/// IPC 只暴露稳定错误码；输入正文、图片身份、路径和底层错误都不会进入响应。
+#[derive(Debug, Serialize)]
+pub(crate) struct ActionIpcError {
+    code: &'static str,
+}
+
+impl From<ActionError> for ActionIpcError {
+    fn from(error: ActionError) -> Self {
+        Self { code: error.code() }
+    }
+}
+
+impl From<adapters::ActionRunError> for ActionIpcError {
+    fn from(error: adapters::ActionRunError) -> Self {
+        Self { code: error.code() }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+pub(crate) enum ActionOutput {
+    Unit,
+    CaptureSession(String),
+    RecognizedText(crate::ocr::StructuredOcr),
+    DetectedCodes(crate::code_detection::CodeScanResponse),
+    TranslatedText(crate::translation::types::TranslationResult),
+    SavedPath(String),
+    WindowHandle(String),
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ActionReply {
+    handle: ActionHandle,
+    output: ActionOutput,
+}
+
+struct ClaimedActionGuard {
+    runtime: ActionRuntime,
+    caller_label: String,
+    handle: ActionHandle,
+}
+
+impl ClaimedActionGuard {
+    fn new(runtime: ActionRuntime, caller_label: String, handle: ActionHandle) -> Self {
+        Self {
+            runtime,
+            caller_label,
+            handle,
+        }
+    }
+}
+
+impl Drop for ClaimedActionGuard {
+    fn drop(&mut self) {
+        // 正常完成时领域适配器已经精确回收槽；调用 future 被窗口关闭中断时，这里取消并
+        // 回收尚未提交的动作。进入不可取消提交阶段后由提交 guard 负责走到补偿终点。
+        self.runtime
+            .abandon_claimed(&self.caller_label, &self.handle);
+    }
+}
+
+fn available_descriptors(caller_label: &str) -> Vec<ActionDescriptor> {
+    let caller = crate::ipc_access::caller_kind(caller_label);
+    descriptors()
+        .iter()
+        .copied()
+        .filter(|descriptor| action_allowed(caller, descriptor.id))
+        .collect()
+}
+
+/// 返回当前原生窗口可用的静态动作目录。调用者身份由 Tauri 注入，前端不能自报角色。
+#[tauri::command]
+pub(crate) fn discover_actions(window: tauri::WebviewWindow) -> Vec<ActionDescriptor> {
+    available_descriptors(window.label())
+}
+
+/// 第一次也是唯一一次接收动作输入；校验后的类型化值留在 Rust 内存，前端只拿到句柄。
+#[tauri::command]
+pub(crate) fn prepare_action(
+    action_id: String,
+    request_slot: String,
+    input: Value,
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, crate::commands::AppState>,
+) -> Result<ActionHandle, ActionIpcError> {
+    let prepared = state
+        .action_runtime
+        .begin(window.label(), &action_id, &request_slot, input)?;
+    Ok(prepared.handle().clone())
+}
+
+/// 只凭后端签发的一次性句柄执行；不能在 run 阶段替换动作 ID 或输入。
+#[tauri::command]
+pub(crate) async fn run_action(
+    handle: ActionHandle,
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, crate::commands::AppState>,
+) -> Result<ActionReply, ActionIpcError> {
+    use tauri::Manager;
+
+    let caller_label = window.label().to_string();
+    let runtime = state.action_runtime.clone();
+    let prepared = runtime.claim_prepared(&caller_label, &handle)?;
+    let _guard = ClaimedActionGuard::new(runtime.clone(), caller_label.clone(), handle.clone());
+    let output = match prepared.descriptor().id {
+        "capture.start" => ActionOutput::CaptureSession(
+            adapters::start_capture(&runtime, &caller_label, &prepared, window.app_handle())
+                .await?,
+        ),
+        "image.ocr" => ActionOutput::RecognizedText(
+            adapters::ocr_image(&runtime, &caller_label, &prepared, &state).await?,
+        ),
+        "image.pin" => ActionOutput::WindowHandle(adapters::pin_image(
+            &runtime,
+            &caller_label,
+            &prepared,
+            window.app_handle(),
+            &state,
+        )?),
+        "image.save" => ActionOutput::SavedPath(adapters::save_image(
+            &runtime,
+            &caller_label,
+            &prepared,
+            &state,
+        )?),
+        "image.scan_codes" => ActionOutput::DetectedCodes(
+            adapters::scan_image_codes(&runtime, &caller_label, &prepared, &state).await?,
+        ),
+        "text.copy" => {
+            adapters::copy_text(&runtime, &caller_label, &prepared, &state)?;
+            ActionOutput::Unit
+        }
+        "text.translate" => ActionOutput::TranslatedText(
+            adapters::translate_text(&runtime, &caller_label, &prepared, &state).await?,
+        ),
+        _ => return Err(ActionError::UnknownAction.into()),
+    };
+    Ok(ActionReply { handle, output })
+}
+
+/// 取消只能命中当前窗口、当前 request slot、当前 generation 的可取消动作。
+#[tauri::command]
+pub(crate) fn cancel_action(
+    handle: ActionHandle,
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, crate::commands::AppState>,
+) -> Result<(), ActionIpcError> {
+    state.action_runtime.cancel(window.label(), &handle)?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -859,6 +1110,230 @@ mod tests {
             assert!(debug.contains(action));
             assert!(!debug.contains(secret));
         }
+    }
+
+    #[test]
+    fn ipc_handle_claim_is_single_use_and_keeps_the_first_validated_input() {
+        let runtime = ActionRuntime::default();
+        let prepared = runtime
+            .begin(
+                "launcher",
+                "text.translate",
+                "translate.preview",
+                json!({
+                    "text": "private  text",
+                    "sourceLanguage": "auto",
+                    "targetLanguage": "ja"
+                }),
+            )
+            .unwrap();
+        let handle = prepared.handle().clone();
+        drop(prepared);
+
+        let claimed = runtime.claim_prepared("launcher", &handle).unwrap();
+        let ActionInput::Translation {
+            text,
+            source_language,
+            target_language,
+        } = claimed.input()
+        else {
+            panic!("claim must restore the typed input");
+        };
+        assert_eq!(text, "private  text");
+        assert_eq!(source_language.as_deref(), Some("auto"));
+        assert_eq!(target_language, "ja");
+        assert!(matches!(
+            runtime.claim_prepared("launcher", &handle),
+            Err(ActionError::Busy)
+        ));
+        assert!(matches!(
+            runtime.claim_prepared("main", &handle),
+            Err(ActionError::Superseded)
+        ));
+    }
+
+    #[test]
+    fn cancellation_before_run_consumes_the_handle_without_exposing_input() {
+        let runtime = ActionRuntime::default();
+        let prepared = runtime
+            .begin(
+                "launcher",
+                "text.translate",
+                "translate.preview",
+                json!({"text": "private", "targetLanguage": "ja"}),
+            )
+            .unwrap();
+        let handle = prepared.handle().clone();
+        runtime.cancel("launcher", &handle).unwrap();
+        assert!(matches!(
+            runtime.claim_prepared("launcher", &handle),
+            Err(ActionError::Cancelled)
+        ));
+        assert!(matches!(
+            runtime.claim_prepared("launcher", &handle),
+            Err(ActionError::Superseded)
+        ));
+    }
+
+    #[test]
+    fn dropped_run_waiter_cancels_and_retires_a_claimed_pending_action() {
+        let runtime = ActionRuntime::default();
+        let prepared = runtime
+            .begin(
+                "image-viewer-owner",
+                "image.ocr",
+                "analysis",
+                json!({"sourceId": "snapshot-secret", "sourceVersion": 0}),
+            )
+            .unwrap();
+        let handle = prepared.handle().clone();
+        let cancellation = runtime
+            .claim_prepared("image-viewer-owner", &handle)
+            .unwrap()
+            .cancellation();
+        drop(ClaimedActionGuard::new(
+            runtime.clone(),
+            "image-viewer-owner".to_string(),
+            handle.clone(),
+        ));
+        assert!(cancellation.is_cancelled());
+        assert_eq!(
+            runtime.ensure_current("image-viewer-owner", &handle),
+            Err(ActionError::Superseded)
+        );
+    }
+
+    #[test]
+    fn ipc_handle_and_reply_have_exact_stable_shapes() {
+        let handle: ActionHandle = serde_json::from_value(json!({
+            "requestSlot": "analysis.primary",
+            "generation": 7
+        }))
+        .unwrap();
+        assert_eq!(handle.request_slot, "analysis.primary");
+        assert!(serde_json::from_value::<ActionHandle>(json!({
+            "requestSlot": "analysis.primary",
+            "generation": 7,
+            "actionId": "image.ocr"
+        }))
+        .is_err());
+        assert!(matches!(
+            validate_handle(&ActionHandle {
+                request_slot: "analysis".to_string(),
+                generation: 0,
+            }),
+            Err(ActionError::InvalidInput)
+        ));
+        assert_eq!(
+            serde_json::to_value(ActionReply {
+                handle,
+                output: ActionOutput::Unit,
+            })
+            .unwrap(),
+            json!({
+                "handle": {"requestSlot": "analysis.primary", "generation": 7},
+                "output": {"type": "unit"}
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(ActionIpcError::from(ActionError::Poisoned)).unwrap(),
+            json!({"code": "action_internal"})
+        );
+    }
+
+    #[test]
+    fn discovery_filters_the_static_catalog_by_native_window_role() {
+        assert_eq!(available_descriptors("launcher").len(), 7);
+        assert_eq!(available_descriptors("image-viewer-one").len(), 5);
+        assert_eq!(available_descriptors("capture-overlay-one").len(), 5);
+        assert_eq!(available_descriptors("pin-image-one").len(), 2);
+        assert!(available_descriptors("settings").is_empty());
+        assert!(available_descriptors("launcher-lookalike").is_empty());
+    }
+
+    #[test]
+    fn prepared_slots_are_bounded_and_window_teardown_reclaims_pending_inputs() {
+        let runtime = ActionRuntime::default();
+        let mut cancellations = Vec::new();
+        for index in 0..MAX_ACTIVE_SLOTS_PER_CALLER {
+            let prepared = runtime
+                .begin(
+                    "launcher",
+                    "text.translate",
+                    &format!("slot.{index}"),
+                    json!({"text": "private", "targetLanguage": "ja"}),
+                )
+                .unwrap();
+            cancellations.push(prepared.cancellation());
+        }
+        assert!(matches!(
+            runtime.begin(
+                "launcher",
+                "text.translate",
+                "slot.overflow",
+                json!({"text": "private", "targetLanguage": "ja"})
+            ),
+            Err(ActionError::Busy)
+        ));
+        // 替换既有槽不增加内存预算，仍须可用。
+        runtime
+            .begin(
+                "launcher",
+                "text.translate",
+                "slot.0",
+                json!({"text": "new", "targetLanguage": "ja"}),
+            )
+            .unwrap();
+        runtime.retire_caller_pending("launcher");
+        assert!(cancellations.into_iter().all(|token| token.is_cancelled()));
+        assert!(runtime
+            .begin(
+                "launcher",
+                "text.translate",
+                "slot.after-close",
+                json!({"text": "private", "targetLanguage": "ja"})
+            )
+            .is_ok());
+        runtime.retire_caller_pending("launcher");
+
+        for caller in 0..(MAX_ACTIVE_ACTIONS / MAX_ACTIVE_SLOTS_PER_CALLER) {
+            for slot in 0..MAX_ACTIVE_SLOTS_PER_CALLER {
+                runtime
+                    .begin(
+                        &format!("image-viewer-{caller}"),
+                        "image.ocr",
+                        &format!("slot.{slot}"),
+                        json!({"sourceId": "snapshot", "sourceVersion": 0}),
+                    )
+                    .unwrap();
+            }
+        }
+        assert!(matches!(
+            runtime.begin("main", "capture.start", "global.overflow", json!({})),
+            Err(ActionError::Busy)
+        ));
+        runtime.retire_caller_pending("image-viewer-0");
+        assert!(runtime
+            .begin("main", "capture.start", "global.reclaimed", json!({}))
+            .is_ok());
+    }
+
+    #[test]
+    fn window_teardown_does_not_interrupt_an_active_noncancellable_commit() {
+        let runtime = ActionRuntime::default();
+        let prepared = runtime
+            .begin("launcher", "text.copy", "copy", json!({"text": "private"}))
+            .unwrap();
+        runtime
+            .begin_noncancellable_commit("launcher", prepared.handle())
+            .unwrap();
+        runtime.retire_caller_pending("launcher");
+        runtime
+            .ensure_current("launcher", prepared.handle())
+            .unwrap();
+        runtime
+            .finish_noncancellable_commit("launcher", prepared.handle())
+            .unwrap();
     }
 
     #[test]

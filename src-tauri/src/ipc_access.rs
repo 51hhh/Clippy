@@ -6,6 +6,13 @@
 use serde::Serialize;
 use tauri::{ipc::Invoke, Runtime};
 
+const ACTION_COMMANDS: &[&str] = &[
+    "cancel_action",
+    "discover_actions",
+    "prepare_action",
+    "run_action",
+];
+
 const SETTINGS_COMMANDS: &[&str] = &[
     "check_app_update",
     "check_shortcut_conflict",
@@ -154,7 +161,20 @@ pub(crate) fn caller_kind(label: &str) -> CallerKind {
 }
 
 pub(crate) fn allowed(caller: &str, command: &str) -> bool {
-    let commands = match caller_kind(caller) {
+    let caller = caller_kind(caller);
+    if caller == CallerKind::Main {
+        return true;
+    }
+    if ACTION_COMMANDS.contains(&command) {
+        return matches!(
+            caller,
+            CallerKind::Launcher
+                | CallerKind::Pin
+                | CallerKind::CaptureOverlay
+                | CallerKind::ImageViewer
+        );
+    }
+    let commands = match caller {
         CallerKind::Main => return true,
         CallerKind::Launcher => return false,
         CallerKind::Settings => SETTINGS_COMMANDS,
@@ -208,6 +228,31 @@ mod tests {
             assert_eq!(unique.len(), commands.len(), "{label} 的命令清单不能重复");
             for command in commands {
                 assert!(allowed(label, command), "{label} 应允许 {command}");
+            }
+        }
+    }
+
+    #[test]
+    fn shared_action_ipc_is_limited_to_declared_functional_windows() {
+        for label in [
+            "main",
+            "launcher",
+            "pin-image-1",
+            "capture-overlay-session-1",
+            "image-viewer-1",
+        ] {
+            for command in ACTION_COMMANDS {
+                assert!(allowed(label, command), "{label} 应允许 {command}");
+            }
+        }
+        for label in [
+            "settings",
+            "longshot-controller-1",
+            "recording-control-1",
+            "unknown-window",
+        ] {
+            for command in ACTION_COMMANDS {
+                assert!(!allowed(label, command), "{label} 不应允许 {command}");
             }
         }
     }
@@ -285,10 +330,13 @@ mod tests {
     }
 
     #[test]
-    fn launcher_has_a_stable_role_but_no_business_commands_before_its_ipc_stage() {
+    fn launcher_has_only_the_restricted_action_surface() {
         assert_eq!(caller_kind("launcher"), CallerKind::Launcher);
         assert!(!allowed("launcher", "get_config"));
-        assert!(!allowed("launcher", "run_action"));
+        assert!(allowed("launcher", "discover_actions"));
+        assert!(allowed("launcher", "prepare_action"));
+        assert!(allowed("launcher", "run_action"));
+        assert!(allowed("launcher", "cancel_action"));
     }
 
     #[test]
