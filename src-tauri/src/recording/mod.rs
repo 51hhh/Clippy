@@ -43,7 +43,14 @@ mod mux;
 // 平台帧源先在各自系统内验证；尚未接入录屏产品会话。
 #[allow(dead_code)]
 mod platform;
+// 工程基准直接串起真实 X11 帧源、三槽 pipeline、分段与最终 VP9；不进入产品入口。
+#[cfg(all(target_os = "linux", feature = "recording-vp9-prototype"))]
+mod benchmark;
 
+#[cfg(all(target_os = "linux", feature = "recording-vp9-prototype"))]
+pub use benchmark::X11Vp9BenchmarkReport;
+#[cfg(all(target_os = "linux", feature = "recording-vp9-prototype"))]
+pub(crate) use benchmark::{run_x11_vp9_benchmark, X11Vp9BenchmarkOptions};
 #[cfg(feature = "recording-vp9-prototype")]
 pub(crate) use mux::vp9_webm::Vp9WebmWriter;
 

@@ -186,6 +186,10 @@ impl DiagnosticRecordingSession {
         &self.session_directory
     }
 
+    pub fn is_running(&self) -> Result<bool, DiagnosticRecordingError> {
+        Ok(self.pipeline.is_open()?)
+    }
+
     fn commit_reports(
         &mut self,
         capture: CaptureWorkerReport,

@@ -46,6 +46,40 @@ pub struct RecordingVp9BenchmarkReport {
     pub sync_ns: u64,
 }
 
+/// Linux X11 真实帧源 → 生产 VP9 会话的显式工程基准参数。
+#[cfg(all(feature = "recording-vp9-prototype", target_os = "linux"))]
+#[derive(Debug, Clone)]
+pub struct RecordingX11Vp9BenchmarkOptions {
+    pub output_directory: std::path::PathBuf,
+    pub monitor_id: Option<u32>,
+    pub crop_left: u32,
+    pub crop_top: u32,
+    pub width: u32,
+    pub height: u32,
+    pub frames_per_second: u32,
+    pub duration_seconds: u32,
+}
+
+#[cfg(all(feature = "recording-vp9-prototype", target_os = "linux"))]
+pub use crate::recording::X11Vp9BenchmarkReport as RecordingX11Vp9BenchmarkReport;
+
+/// 运行真实 X11 帧源、三槽 pipeline、周期分段和连续 VP9 最终输出。
+#[cfg(all(feature = "recording-vp9-prototype", target_os = "linux"))]
+pub fn benchmark_recording_x11_vp9(
+    options: RecordingX11Vp9BenchmarkOptions,
+) -> Result<RecordingX11Vp9BenchmarkReport, String> {
+    crate::recording::run_x11_vp9_benchmark(crate::recording::X11Vp9BenchmarkOptions {
+        output_directory: options.output_directory,
+        monitor_id: options.monitor_id,
+        crop_left: options.crop_left,
+        crop_top: options.crop_top,
+        width: options.width,
+        height: options.height,
+        frames_per_second: options.frames_per_second,
+        duration_seconds: options.duration_seconds,
+    })
+}
+
 /// 用生产 RGBA → I420 → libvpx → WebM writer 生成确定性屏幕样本。
 ///
 /// 该入口只供 `src/bin/recording_vp9_benchmark.rs` 使用；它刻意不经过 FFmpeg，也不复制编码逻辑，

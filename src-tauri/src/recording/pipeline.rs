@@ -215,6 +215,11 @@ impl RecordingPipeline {
             dropped_by_backpressure: state.dropped_by_backpressure,
         })
     }
+
+    pub fn is_open(&self) -> Result<bool, PipelineError> {
+        let state = self.state.lock().map_err(|_| PipelineError::Poisoned)?;
+        Ok(state.terminal == PipelineTerminal::Open)
+    }
 }
 
 fn ensure_open(terminal: PipelineTerminal) -> Result<(), PipelineError> {

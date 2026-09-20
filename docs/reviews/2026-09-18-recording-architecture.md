@@ -212,6 +212,28 @@ RDM 分派执行 BT.709 limited-range，并复用上一帧的 I420 plane。64×4
 采集、三槽背压、控制窗排除仍未验收，所以 4K 与产品 UI 继续保持不可用；下一步转入真实 X11
 帧源端到端长样本。
 
+仓库已为这一步加入 feature-gated 的 `recording_x11_vp9_benchmark`。它要求原生 Linux X11，直接
+串起 RandR 物理裁剪、生产 `X11RegionFrameSource`、限帧采集 worker、三槽 pipeline、VP9 周期恢复
+分段和连续 `recording.webm`；Wayland/Xwayland 会被明确拒绝，避免把 Xwayland 根窗口数据登记成
+原生 X11 证据。输出目录使用 create-only 和私有权限，已存在的目录不会被覆盖。真机运行方式：
+
+```bash
+cd src-tauri
+cargo build --profile bench --bin recording_x11_vp9_benchmark \
+  --features recording-vp9-source-build
+/usr/bin/time -v target/release/recording_x11_vp9_benchmark \
+  --duration 60 --width 1920 --height 1080 --fps 30 \
+  --output-dir /tmp/clippy-x11-vp9-1080p-60s
+```
+
+可用 `--monitor-id` 选择 RandR output，并以 `--crop-left/--crop-top` 指定显示器内物理裁剪。JSON 同时
+记录请求采样数、按实际停止时钟补齐的输出帧槽、实际采集帧、采集短缺、三槽背压丢帧、编码器
+输入/输出、停止封尾耗时、进程峰值 RSS、分段数和最终文件大小。
+`capturedFrames < requestedCaptureFrames` 表示帧源或调度未跟上；
+`droppedByBackpressure > 0` 表示编码消费者未跟上，二者不能合并为一个“掉帧”数字。Linux 原型 CI
+会在隔离 Xvfb 中跑 1 秒完整链，只验证 X11 协议、队列、分段和最终提交。当前开发会话是 Wayland，
+所以尚未生成 60 秒原生 X11 真机性能结果；路线状态继续保持未验收。
+
 OpenH264 的源码本身可嵌入构建，但自行编译的库与 Cisco 分发的预编译二进制不具有同一分发条件；
 在许可、专利和安装包策略独立审查前，不把它作为第一阶段默认依赖。MJPEG 继续只承担诊断闭环。
 

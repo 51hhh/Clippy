@@ -155,6 +155,11 @@ name = "recording_vp9_benchmark"
 path = "src/bin/recording_vp9_benchmark.rs"
 required-features = ["recording-vp9-prototype"]
 
+[[bin]]
+name = "recording_x11_vp9_benchmark"
+path = "src/bin/recording_x11_vp9_benchmark.rs"
+required-features = ["recording-vp9-prototype"]
+
 [[bench]]
 name = "storage_bench"
 harness = false
