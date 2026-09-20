@@ -420,6 +420,30 @@ mod tests {
         serde_json::from_slice(&std::fs::read(directory.join("manifest.json")).unwrap()).unwrap()
     }
 
+    fn wait_for_committed_segment(
+        directory: &Path,
+        segment_index: usize,
+        open_tail_path: Option<&Path>,
+    ) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let segment_path = directory.join(format!("segment-{segment_index:06}.avi"));
+        loop {
+            let manifest = manifest_value(directory);
+            let segment_is_declared = manifest["segments"]
+                .as_array()
+                .is_some_and(|segments| segments.len() > segment_index);
+            let open_tail_exists = open_tail_path.is_none_or(Path::exists);
+            if segment_is_declared && segment_path.exists() && open_tail_exists {
+                return;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "录屏分段未在期限内完成清单提交、文件提升与下一分段创建"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
     #[cfg(feature = "recording-vp9-prototype")]
     fn assert_vp9_probe_when_available(path: &Path, frame_count: u64, duration_ns: u64) {
         let available = Command::new("ffprobe")
@@ -510,20 +534,8 @@ mod tests {
         )
         .unwrap();
         let directory = session.session_directory().to_path_buf();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-        loop {
-            let manifest = manifest_value(&directory);
-            if !manifest["segments"].as_array().unwrap().is_empty() {
-                assert_eq!(manifest["state"], "recording");
-                assert!(directory.join("segment-000000.avi").exists());
-                break;
-            }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "周期分段未在停止前提交"
-            );
-            std::thread::sleep(std::time::Duration::from_millis(5));
-        }
+        wait_for_committed_segment(&directory, 0, None);
+        assert_eq!(manifest_value(&directory)["state"], "recording");
 
         let report = session.stop().unwrap();
         let manifest = manifest_value(&directory);
@@ -568,19 +580,8 @@ mod tests {
             )
             .unwrap();
             let session_directory = session.session_directory().to_path_buf();
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-            while manifest_value(&session_directory)["segments"]
-                .as_array()
-                .unwrap()
-                .is_empty()
-            {
-                assert!(std::time::Instant::now() < deadline);
-                std::thread::sleep(std::time::Duration::from_millis(5));
-            }
-            assert!(session_directory.join("segment-000000.avi").exists());
-            assert!(session_directory
-                .join(".segment-000001.avi.partial")
-                .exists());
+            let open_tail = session_directory.join(".segment-000001.avi.partial");
+            wait_for_committed_segment(&session_directory, 0, Some(&open_tail));
             std::process::exit(91);
         }
 
