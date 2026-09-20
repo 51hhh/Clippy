@@ -1,7 +1,7 @@
 use super::frame::{CapturedFrame, FrameError, FrameSpec, MAX_FRAME_BYTES};
 use super::timeline::{RecordingTimeline, TimelineError};
 use std::collections::VecDeque;
-use std::sync::Mutex;
+use std::sync::{Condvar, Mutex};
 use thiserror::Error;
 
 pub(super) const FRAME_QUEUE_CAPACITY: usize = 3;
@@ -17,6 +17,10 @@ pub(super) enum PipelineError {
     GeometryChanged,
     #[error("录屏帧序号必须严格递增")]
     SequenceNotIncreasing,
+    #[error("录屏帧队列已经正常结束")]
+    Closed,
+    #[error("录屏帧队列已经异常中止")]
+    Aborted,
     #[error("录屏帧队列锁已损坏")]
     Poisoned,
 }
@@ -39,12 +43,28 @@ pub(super) enum PushOutcome {
     IgnoredWhilePaused,
 }
 
+#[derive(Debug)]
+pub(super) enum PipelineDrain {
+    Frame(QueuedFrame),
+    Finished { duration_ns: u64 },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct PipelineStats {
     pub queued_frames: usize,
     pub queued_bytes: usize,
     pub accepted_frames: u64,
     pub dropped_by_backpressure: u64,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum PipelineTerminal {
+    #[default]
+    Open,
+    Finished {
+        duration_ns: u64,
+    },
+    Aborted,
 }
 
 #[derive(Debug, Default)]
@@ -56,17 +76,29 @@ struct PipelineState {
     queued_bytes: usize,
     accepted_frames: u64,
     dropped_by_backpressure: u64,
+    terminal: PipelineTerminal,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(super) struct RecordingPipeline {
     state: Mutex<PipelineState>,
+    ready: Condvar,
+}
+
+impl Default for RecordingPipeline {
+    fn default() -> Self {
+        Self {
+            state: Mutex::new(PipelineState::default()),
+            ready: Condvar::new(),
+        }
+    }
 }
 
 impl RecordingPipeline {
     pub fn push(&self, frame: CapturedFrame) -> Result<PushOutcome, PipelineError> {
-        let frame_spec = frame.validate()?;
         let mut state = self.state.lock().map_err(|_| PipelineError::Poisoned)?;
+        ensure_open(state.terminal)?;
+        let frame_spec = frame.validate()?;
         if state.spec.is_some_and(|spec| spec != frame_spec) {
             return Err(PipelineError::GeometryChanged);
         }
@@ -100,39 +132,77 @@ impl RecordingPipeline {
         debug_assert!(state.frames.len() <= FRAME_QUEUE_CAPACITY);
         debug_assert!(state.queued_bytes <= MAX_QUEUED_FRAME_BYTES);
 
-        Ok(match dropped_sequence {
+        let outcome = match dropped_sequence {
             Some(dropped_sequence) => PushOutcome::QueuedAfterDropping {
                 presentation_at_ns,
                 dropped_sequence,
             },
             None => PushOutcome::Queued { presentation_at_ns },
-        })
+        };
+        drop(state);
+        self.ready.notify_one();
+        Ok(outcome)
     }
 
     pub fn pop(&self) -> Result<Option<QueuedFrame>, PipelineError> {
         let mut state = self.state.lock().map_err(|_| PipelineError::Poisoned)?;
-        let frame = state.frames.pop_front();
-        if let Some(frame) = &frame {
-            state.queued_bytes -= frame.frame.rgba.len();
+        Ok(pop_frame(&mut state))
+    }
+
+    /// 等待下一帧或会话封尾。已经入队的帧始终先于结束/中止状态交给消费者。
+    pub fn pop_wait(&self) -> Result<PipelineDrain, PipelineError> {
+        let mut state = self.state.lock().map_err(|_| PipelineError::Poisoned)?;
+        loop {
+            if let Some(frame) = pop_frame(&mut state) {
+                return Ok(PipelineDrain::Frame(frame));
+            }
+            match state.terminal {
+                PipelineTerminal::Open => {
+                    state = self
+                        .ready
+                        .wait(state)
+                        .map_err(|_| PipelineError::Poisoned)?;
+                }
+                PipelineTerminal::Finished { duration_ns } => {
+                    return Ok(PipelineDrain::Finished { duration_ns });
+                }
+                PipelineTerminal::Aborted => return Err(PipelineError::Aborted),
+            }
         }
-        Ok(frame)
     }
 
     pub fn pause(&self, captured_at_ns: u64) -> Result<(), PipelineError> {
-        self.state
-            .lock()
-            .map_err(|_| PipelineError::Poisoned)?
-            .timeline
-            .pause(captured_at_ns)?;
+        let mut state = self.state.lock().map_err(|_| PipelineError::Poisoned)?;
+        ensure_open(state.terminal)?;
+        state.timeline.pause(captured_at_ns)?;
         Ok(())
     }
 
     pub fn resume(&self, captured_at_ns: u64) -> Result<(), PipelineError> {
-        self.state
-            .lock()
-            .map_err(|_| PipelineError::Poisoned)?
-            .timeline
-            .resume(captured_at_ns)?;
+        let mut state = self.state.lock().map_err(|_| PipelineError::Poisoned)?;
+        ensure_open(state.terminal)?;
+        state.timeline.resume(captured_at_ns)?;
+        Ok(())
+    }
+
+    pub fn finish(&self, captured_at_ns: u64) -> Result<u64, PipelineError> {
+        let mut state = self.state.lock().map_err(|_| PipelineError::Poisoned)?;
+        ensure_open(state.terminal)?;
+        let duration_ns = state.timeline.finish(captured_at_ns)?;
+        state.terminal = PipelineTerminal::Finished { duration_ns };
+        drop(state);
+        self.ready.notify_all();
+        Ok(duration_ns)
+    }
+
+    /// 异常路径只改变终态并唤醒消费者；队列中的已接受帧仍可先被排空。
+    pub fn abort(&self) -> Result<(), PipelineError> {
+        let mut state = self.state.lock().map_err(|_| PipelineError::Poisoned)?;
+        if state.terminal == PipelineTerminal::Open {
+            state.terminal = PipelineTerminal::Aborted;
+            drop(state);
+            self.ready.notify_all();
+        }
         Ok(())
     }
 
@@ -145,6 +215,22 @@ impl RecordingPipeline {
             dropped_by_backpressure: state.dropped_by_backpressure,
         })
     }
+}
+
+fn ensure_open(terminal: PipelineTerminal) -> Result<(), PipelineError> {
+    match terminal {
+        PipelineTerminal::Open => Ok(()),
+        PipelineTerminal::Finished { .. } => Err(PipelineError::Closed),
+        PipelineTerminal::Aborted => Err(PipelineError::Aborted),
+    }
+}
+
+fn pop_frame(state: &mut PipelineState) -> Option<QueuedFrame> {
+    let frame = state.frames.pop_front();
+    if let Some(frame) = &frame {
+        state.queued_bytes -= frame.frame.rgba.len();
+    }
+    frame
 }
 
 #[cfg(test)]
@@ -323,5 +409,104 @@ mod tests {
                 presentation_at_ns: 20
             }
         );
+    }
+
+    #[test]
+    fn finish_drains_queued_frames_before_exposing_duration() {
+        let pipeline = RecordingPipeline::default();
+        pipeline.push(frame(0, 100, 1)).unwrap();
+        pipeline.push(frame(1, 130, 2)).unwrap();
+        assert_eq!(pipeline.finish(160).unwrap(), 60);
+
+        for expected in [0, 1] {
+            let PipelineDrain::Frame(queued) = pipeline.pop_wait().unwrap() else {
+                panic!("封尾前应先排空队列");
+            };
+            assert_eq!(queued.frame.sequence, expected);
+        }
+        assert!(matches!(
+            pipeline.pop_wait().unwrap(),
+            PipelineDrain::Finished { duration_ns: 60 }
+        ));
+        assert_eq!(pipeline.stats().unwrap().queued_bytes, 0);
+    }
+
+    #[test]
+    fn finish_while_paused_excludes_open_pause_and_closes_mutations() {
+        let pipeline = RecordingPipeline::default();
+        pipeline.push(frame(0, 100, 0)).unwrap();
+        pipeline.push(frame(1, 130, 0)).unwrap();
+        pipeline.pause(140).unwrap();
+        assert_eq!(pipeline.finish(1_140).unwrap(), 40);
+        assert_eq!(
+            pipeline.push(frame(2, 1_150, 0)),
+            Err(PipelineError::Closed)
+        );
+        assert_eq!(pipeline.pause(1_150), Err(PipelineError::Closed));
+        assert_eq!(pipeline.resume(1_150), Err(PipelineError::Closed));
+        assert_eq!(pipeline.finish(1_150), Err(PipelineError::Closed));
+    }
+
+    #[test]
+    fn failed_finish_leaves_pipeline_open_for_a_first_frame() {
+        let pipeline = RecordingPipeline::default();
+        assert_eq!(
+            pipeline.finish(100),
+            Err(PipelineError::Timeline(
+                TimelineError::FinishBeforeFirstFrame
+            ))
+        );
+        assert!(pipeline.push(frame(0, 100, 0)).is_ok());
+    }
+
+    #[test]
+    fn abort_drains_accepted_prefix_then_reports_terminal_error() {
+        let pipeline = RecordingPipeline::default();
+        pipeline.push(frame(0, 100, 0)).unwrap();
+        pipeline.abort().unwrap();
+        let PipelineDrain::Frame(queued) = pipeline.pop_wait().unwrap() else {
+            panic!("中止前已接受的帧应可排空");
+        };
+        assert_eq!(queued.frame.sequence, 0);
+        assert!(matches!(pipeline.pop_wait(), Err(PipelineError::Aborted)));
+        assert_eq!(pipeline.push(frame(1, 110, 0)), Err(PipelineError::Aborted));
+        assert_eq!(pipeline.pause(110), Err(PipelineError::Aborted));
+        assert_eq!(pipeline.resume(110), Err(PipelineError::Aborted));
+        assert_eq!(pipeline.finish(110), Err(PipelineError::Aborted));
+        pipeline.abort().unwrap();
+    }
+
+    #[test]
+    fn waiting_consumer_wakes_for_a_frame_and_for_finish() {
+        let pipeline = std::sync::Arc::new(RecordingPipeline::default());
+        let consumer = std::sync::Arc::clone(&pipeline);
+        let waiter = std::thread::spawn(move || {
+            let PipelineDrain::Frame(queued) = consumer.pop_wait().unwrap() else {
+                panic!("第一次唤醒必须返回帧");
+            };
+            let terminal = consumer.pop_wait().unwrap();
+            (queued.frame.sequence, terminal)
+        });
+
+        pipeline.push(frame(7, 700, 0)).unwrap();
+        pipeline.finish(750).unwrap();
+        let (sequence, terminal) = waiter.join().unwrap();
+        assert_eq!(sequence, 7);
+        assert!(matches!(
+            terminal,
+            PipelineDrain::Finished { duration_ns: 50 }
+        ));
+    }
+
+    #[test]
+    fn waiting_consumer_wakes_for_abort() {
+        let pipeline = std::sync::Arc::new(RecordingPipeline::default());
+        let consumer = std::sync::Arc::clone(&pipeline);
+        let waiter = std::thread::spawn(move || consumer.pop_wait());
+        pipeline.abort().unwrap();
+        assert!(matches!(
+            waiter.join().unwrap(),
+            Err(PipelineError::Aborted)
+        ));
     }
 }
