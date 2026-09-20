@@ -96,19 +96,25 @@ describe("Linux CI 固守 Ubuntu 22 构建基线", () => {
     expect(cacheBlocks[2][0]).toContain("key: ${{ matrix.runner }}");
   });
 
-  it("VP9 原型以独立三目标矩阵验证固定供应链和编码闭环", () => {
+  it("VP9 原型以独立四目标矩阵验证固定供应链和编码闭环", () => {
+    expect(buildWorkflow).toMatch(/recording-codec-prototype:[\s\S]*runner: ubuntu-22\.04/);
+    expect(buildWorkflow).toMatch(/recording-codec-prototype:[\s\S]*runner: windows-latest/);
+    expect(buildWorkflow).toMatch(/recording-codec-prototype:[\s\S]*runner: macos-15\n/);
     expect(buildWorkflow).toMatch(
-      /recording-codec-prototype:[\s\S]*runner: \[ubuntu-22\.04, windows-latest, macos-15\]/,
+      /runner: macos-15-intel\n\s+features: recording-vp9-source-build/,
     );
+    expect(buildWorkflow).toContain("components: clippy, llvm-tools-preview");
+    expect(buildWorkflow).toContain("if: matrix.runner == 'macos-15-intel'");
+    expect(buildWorkflow).toContain("run: brew install nasm");
     expect(buildWorkflow).toContain("node scripts/verify-recording-codec-supply-chain.mjs");
     expect(buildWorkflow).toContain(
-      "cargo clippy --features recording-vp9-prototype --all-targets -- -D warnings",
+      "cargo clippy --features ${{ matrix.features }} --all-targets -- -D warnings",
     );
     expect(buildWorkflow).toContain(
-      "cargo test --features recording-vp9-prototype recording::mux::vp9_webm::tests",
+      "cargo test --features ${{ matrix.features }} recording::mux::vp9_webm::tests",
     );
     expect(buildWorkflow).toContain(
-      "cargo test --features recording-vp9-prototype recording::session::tests::vp9_",
+      "cargo test --features ${{ matrix.features }} recording::session::tests::vp9_",
     );
   });
 

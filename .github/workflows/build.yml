@@ -160,7 +160,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-22.04, windows-latest, macos-15]
+        include:
+          - runner: ubuntu-22.04
+            features: recording-vp9-prototype
+          - runner: windows-latest
+            features: recording-vp9-prototype
+          - runner: macos-15
+            features: recording-vp9-prototype
+          - runner: macos-15-intel
+            features: recording-vp9-source-build
     steps:
       - uses: actions/checkout@v7
 
@@ -174,16 +182,20 @@ jobs:
             pkg-config libgbm-dev libegl-dev libdrm-dev libwayland-dev \
             libxcb1-dev libpipewire-0.3-dev
 
+      - name: Install macOS Intel source-build dependencies
+        if: matrix.runner == 'macos-15-intel'
+        run: brew install nasm
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: clippy, llvm-tools-preview
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           prefix-key: v1-recording-codec
-          key: ${{ matrix.runner }}
+          key: ${{ matrix.runner }}-${{ matrix.features }}
           workspaces: src-tauri
 
       - name: Verify pinned codec supply chain
@@ -191,12 +203,12 @@ jobs:
 
       - name: Prototype Rust clippy
         working-directory: src-tauri
-        run: cargo clippy --features recording-vp9-prototype --all-targets -- -D warnings
+        run: cargo clippy --features ${{ matrix.features }} --all-targets -- -D warnings
 
       - name: Prototype VP9 mux tests
         working-directory: src-tauri
-        run: cargo test --features recording-vp9-prototype recording::mux::vp9_webm::tests
+        run: cargo test --features ${{ matrix.features }} recording::mux::vp9_webm::tests
 
       - name: Prototype VP9 session and recovery tests
         working-directory: src-tauri
-        run: cargo test --features recording-vp9-prototype recording::session::tests::vp9_
+        run: cargo test --features ${{ matrix.features }} recording::session::tests::vp9_

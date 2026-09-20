@@ -21,9 +21,10 @@ default = ["linux-pipewire"]
 # 兼容已有的显式构建命令，但 PipeWire 依赖和截图后端不再受 feature 控制：即使调用
 # `--no-default-features`，正式 Linux 产物也不能把 GNOME 的低延迟主路径裁掉。
 linux-pipewire = []
-# PX-REC-01 的隔离编码原型。当前 libvpx 绑定仍是 canary，且默认在构建时下载按平台预编译库；
-# 在三平台同 SHA 构建和供应链策略完成前，不能进入默认产品构建或录屏入口。
+# PX-REC-01 的隔离编码原型。当前 libvpx 绑定仍是 canary；常规目标下载固定哈希预编译归档，
+# macOS Intel 从固定哈希源码归档构建。四目标同 SHA 通过前不能进入默认产品构建或录屏入口。
 recording-vp9-prototype = ["dep:shiguredo_libvpx", "dep:webm"]
+recording-vp9-source-build = ["recording-vp9-prototype", "shiguredo_libvpx/source-build"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

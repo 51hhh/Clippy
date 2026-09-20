@@ -8,6 +8,11 @@ use std::{
 // 依存ライブラリの名前
 const LIB_NAME: &str = "libvpx";
 const LINK_NAME: &str = "vpx";
+const SOURCE_ARCHIVE_URL: &str =
+    "https://github.com/webmproject/libvpx/archive/refs/tags/v1.16.0.tar.gz";
+const SOURCE_ARCHIVE_SHA256: &str =
+    "7a479a3c66b9f5d5542a4c6a1b7d3768a983b1e5c14c60a9396edc9b649e015c";
+const SOURCE_ARCHIVE_DIRECTORY: &str = "libvpx-1.16.0";
 
 // シンボル書き換え用のプレフィックス
 //
@@ -244,8 +249,8 @@ fn build_from_source(out_dir: &Path, output_bindings_path: &Path) -> PathBuf {
     let _ = fs::remove_dir_all(&out_build_dir);
     fs::create_dir(&out_build_dir).expect("failed to create build directory");
 
-    // 依存ライブラリのリポジトリを取得する
-    git_clone_external_lib(&out_build_dir);
+    // タグは変更可能なので clone せず、仓库固定 SHA-256 の源码归档だけを使用する。
+    download_source_archive(&out_build_dir);
 
     // ソースからビルドする
     build_from_source_platform(&src_dir);
@@ -720,22 +725,34 @@ fn detect_linux_distro() -> String {
     );
 }
 
-// 外部ライブラリのリポジトリを git clone する
-fn git_clone_external_lib(build_dir: &Path) {
-    let (url, version) = get_url_and_version();
-    let success = Command::new("git")
-        .arg("clone")
-        .arg("--depth")
-        .arg("1")
-        .arg("--branch")
-        .arg(version)
-        .arg(url)
-        .current_dir(build_dir)
+fn download_source_archive(build_dir: &Path) {
+    let archive_path = build_dir.join("libvpx-source.tar.gz");
+    let status = Command::new("curl")
+        .args(["-fsSL", "-o"])
+        .arg(&archive_path)
+        .arg(SOURCE_ARCHIVE_URL)
         .status()
-        .is_ok_and(|status| status.success());
-    if !success {
-        panic!("failed to clone {LIB_NAME} repository");
+        .expect("failed to execute curl. Ensure curl is installed");
+    if !status.success() {
+        panic!("failed to download libvpx source archive: {SOURCE_ARCHIVE_URL}");
     }
+    verify_sha256(&archive_path, SOURCE_ARCHIVE_SHA256);
+
+    let status = Command::new("tar")
+        .args(["xzf"])
+        .arg(&archive_path)
+        .arg("-C")
+        .arg(build_dir)
+        .status()
+        .expect("failed to execute tar. Ensure tar is installed");
+    if !status.success() {
+        panic!("failed to extract libvpx source archive");
+    }
+    fs::rename(
+        build_dir.join(SOURCE_ARCHIVE_DIRECTORY),
+        build_dir.join(LIB_NAME),
+    )
+    .expect("failed to normalize libvpx source directory");
 }
 
 // Cargo.toml から依存ライブラリの URL とバージョンタグを取得する

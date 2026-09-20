@@ -154,8 +154,11 @@ libwebm `File` 模式写入 seek 信息和显式分段时长；本地回归由 `
 下载，并把 Ubuntu 22/24/26 x64、Windows x64 与 macOS arm64 的 SHA-256 固定在仓库；内容漂移或
 未知 target 会立即失败。`shiguredo_libvpx`、libvpx、`webm`/`webm-sys` 和 libwebm 的许可证与
 NOTICE 也已进入安装资源。CI 已配置 Ubuntu 22 x64、Windows x64、macOS arm64 的独立 feature
-Clippy 与 mux/session 测试矩阵，但当前分支尚无远程同 SHA 结果。归档下载仍需网络，绑定仍是 canary，
-且上游没有 macOS x86_64 归档；Intel 输入可复现与三目标远程成功前不能启用默认 feature 或 UI。
+Clippy 与 mux/session 测试，并为没有上游预编译归档的 macOS x86_64 增加固定 SHA-256 源码归档
+构建。当前分支尚无四目标远程同 SHA 结果；归档下载仍需网络，绑定仍是 canary，因此不能启用默认
+feature 或 UI。2026-09-20 在 Linux x86_64 以隔离 NASM 和 Rust `llvm-tools` 实际冷构建同一源码
+feature，用时 11 分 01 秒；4 个 VP9 mux/`ffprobe` 测试通过。这只验证固定源码输入、编译、符号重写、
+链接与运行链，不替代 macOS Intel runner 结果。
 
 编码消费线程也已从 MJPEG 具体类型收敛为 `RecordingSegmentWriter` 合同：writer 只能接收时间线已经
 归一化的 RGBA 帧并返回同一个最终时长下的 writer 与帧数；pipeline 排空、原始错误优先级、异常中止
@@ -166,7 +169,7 @@ VP9 已完整经过 capture worker、三槽 pipeline、WebM 封尾、私有分�
 MJPEG。编码线程现在默认每 60 秒、最多允许 120 秒一个周期分段；跨过边界时立即封尾并提交，最后
 一段则在 Stop 后由会话 owner 核对时长与背压再把清单标为 complete。MJPEG 子进程强杀 fixture 已
 证明首段提交、次段仍打开时退出，启动恢复会保留可播放首段、删除未提交尾段并写 interrupted；同一
-分段 writer 的 VP9 回归已生成两个独立 WebM；原型 CI 也会在三目标分别强制终止独立子进程，验证
+分段 writer 的 VP9 回归已生成两个独立 WebM；原型 CI 也会在四目标分别强制终止独立子进程，验证
 已提交 WebM 前缀与未提交尾段的恢复合同。最终文件合并仍未完成。
 
 ## 平台顺序

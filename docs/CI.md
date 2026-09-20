@@ -57,12 +57,14 @@ CI；只有真实安装包和桌面交互可以关闭 Native/人工 QA 项。
 编译、lint 和单元测试。安装包构建移入独立 Native QA workflow，避免每次 push 重复生成约 190 MB
 测试产物，也避免普通 CI 在界面上与正式发布混淆。
 
-`Recording Codec Prototype` 是 `recording-vp9-prototype` 的独立阻塞矩阵，使用
-`ubuntu-22.04`、`windows-latest` 和 GitHub 当前定义为 arm64 的 `macos-15` runner。它核对 vendored
-绑定、仓库固定的 libvpx 归档 SHA-256、第三方许可证，并运行 feature Clippy、VP9 mux 和会话分段
-测试；会话测试还会强制终止独立子进程，验证已提交 WebM 前缀可恢复、未提交尾段被清理。上游没有
-macOS x86_64 预编译归档，因此该矩阵不能替代 Intel 目标；在 Intel 输入可复现前，
-VP9 仍不能成为四目标默认编码器。runner 架构以
+`Recording Codec Prototype` 是 VP9 原型的独立阻塞矩阵，使用 `ubuntu-22.04`、`windows-latest`、
+GitHub 当前定义为 arm64 的 `macos-15`，以及 `macos-15-intel` runner。前三个目标使用仓库固定
+SHA-256 的 libvpx 预编译归档；上游没有 macOS x86_64 归档，因此 Intel 目标启用
+`recording-vp9-source-build`，从固定 SHA-256 的 libvpx v1.16.0 源码归档编译。矩阵核对 vendored
+绑定、第三方许可证、feature Clippy、VP9 mux 和会话分段测试；会话测试还会强制终止独立子进程，
+验证已提交 WebM 前缀可恢复、未提交尾段被清理。四目标同一 SHA 成功前，VP9 仍不能成为默认编码器。
+Intel 源构建显式安装 NASM，并由 Rust `llvm-tools` 完成静态库符号重写。
+runner 架构以
 [GitHub-hosted runners reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
 为准。
 
@@ -104,8 +106,8 @@ node scripts/verify-native-ci.mjs \
 环境或私有仓库可通过 `GITHUB_TOKEN` / `GH_TOKEN` 提供只读权限，脚本不会打印 token。
 
 录屏 VP9 原型还须在同一 SHA 上额外核对三项 `Recording Codec Prototype (...)` success。当前
-`verify-native-ci.mjs` 只判定发布既有的三个必需 job，不会把原型矩阵误算成 Intel 支持或产品录屏
-验收。
+`verify-native-ci.mjs` 只判定发布既有的三个必需 job，不会把原型矩阵误算成发布原生 job 或产品
+录屏验收。
 
 Native QA 之后的权限、焦点、输入注入、混合 DPI、Spaces 和 Wayland compositor 行为按
 [`native-qa.md`](native-qa.md) 生成结构化真机记录；CI 绿色不能替代这些场景。

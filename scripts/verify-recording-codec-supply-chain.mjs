@@ -16,6 +16,10 @@ const pinnedArchives = {
   windows_x86_64: "10c060d5c6d794ee74d227e8717e9237acf799c37d4309111839c80ce5f44eb9",
   macos_arm64: "9dd747b7d734ca9a6d44c2c861e32d5d041e1babc87b58f816b2ffb0ac66b90e",
 };
+const pinnedSource = {
+  url: "https://github.com/webmproject/libvpx/archive/refs/tags/v1.16.0.tar.gz",
+  sha256: "7a479a3c66b9f5d5542a4c6a1b7d3768a983b1e5c14c60a9396edc9b649e015c",
+};
 
 for (const [target, sha256] of Object.entries(pinnedArchives)) {
   if (!buildScript.includes(`"${target}"`) || !buildScript.includes(`"${sha256}"`)) {
@@ -25,13 +29,23 @@ for (const [target, sha256] of Object.entries(pinnedArchives)) {
 if (buildScript.includes("sha256_url") || buildScript.includes("failed to download SHA256")) {
   throw new Error("vendored libvpx must not download its checksum beside the archive");
 }
-if (buildScript.includes('"macos_x86_64"')) {
-  throw new Error("macOS Intel must remain unsupported until a reviewed archive or source build is added");
+if (!buildScript.includes(`"${pinnedSource.url}"`) || !buildScript.includes(`"${pinnedSource.sha256}"`)) {
+  throw new Error("vendored libvpx build script is missing the reviewed source archive input");
+}
+if (buildScript.includes('Command::new("git")') || buildScript.includes('arg("clone")')) {
+  throw new Error("vendored libvpx source build must not clone a mutable Git tag");
 }
 
 const cargoToml = readFileSync(join(tauriRoot, "Cargo.toml"), "utf8");
 if (!cargoToml.includes('shiguredo_libvpx = { path = "vendor/shiguredo_libvpx" }')) {
   throw new Error("Cargo.toml must patch shiguredo_libvpx to the reviewed vendor directory");
+}
+if (
+  !cargoToml.includes(
+    'recording-vp9-source-build = ["recording-vp9-prototype", "shiguredo_libvpx/source-build"]',
+  )
+) {
+  throw new Error("Cargo.toml must expose the reviewed VP9 source-build feature");
 }
 const cargoLock = readFileSync(join(tauriRoot, "Cargo.lock"), "utf8");
 const lockedBinding = cargoLock.match(
@@ -57,4 +71,6 @@ for (const file of licenseFiles) {
   }
 }
 
-console.log("Recording codec supply-chain check passed: vendored binding, pinned archives, licenses");
+console.log(
+  "Recording codec supply-chain check passed: vendored binding, pinned binary/source archives, licenses",
+);
