@@ -292,16 +292,40 @@ pub(super) struct ActionHandle {
     generation: u64,
 }
 
+struct CancellationState {
+    cancelled: AtomicBool,
+    signal: tokio::sync::Notify,
+}
+
 #[derive(Clone)]
-pub(super) struct ActionCancellation(Arc<AtomicBool>);
+pub(super) struct ActionCancellation(Arc<CancellationState>);
 
 impl ActionCancellation {
+    fn new() -> Self {
+        Self(Arc::new(CancellationState {
+            cancelled: AtomicBool::new(false),
+            signal: tokio::sync::Notify::new(),
+        }))
+    }
+
     pub fn is_cancelled(&self) -> bool {
-        self.0.load(Ordering::Acquire)
+        self.0.cancelled.load(Ordering::Acquire)
+    }
+
+    /// 让异步领域适配器立即放弃自己的等待者；底层 single-flight 在最后一个等待者消失后
+    /// 负责终止或回收真实工作，动作层不复制领域取消协议。
+    pub async fn cancelled(&self) {
+        if self.is_cancelled() {
+            return;
+        }
+        self.0.signal.notified().await;
     }
 
     fn cancel(&self) {
-        self.0.store(true, Ordering::Release);
+        if !self.0.cancelled.swap(true, Ordering::AcqRel) {
+            // notify_one 会在尚无等待者时保留一个 permit，避免 begin 后、适配器 await 前取消丢信号。
+            self.0.signal.notify_one();
+        }
     }
 }
 
@@ -434,7 +458,7 @@ impl ActionRuntime {
             caller: caller_label.to_string(),
             request_slot: request_slot.to_string(),
         };
-        let cancellation = ActionCancellation(Arc::new(AtomicBool::new(false)));
+        let cancellation = ActionCancellation::new();
         let mut state = self.state.lock().map_err(|_| ActionError::Poisoned)?;
         if state
             .active
@@ -707,6 +731,7 @@ mod tests {
         }
         assert!(!action_allowed(CallerKind::CaptureOverlay, "capture.start"));
         assert!(action_allowed(CallerKind::CaptureOverlay, "image.ocr"));
+        assert!(action_allowed(CallerKind::ImageViewer, "image.ocr"));
         assert!(!action_allowed(CallerKind::Pin, "image.ocr"));
         assert!(action_allowed(CallerKind::Pin, "image.save"));
         assert!(matches!(

@@ -355,6 +355,24 @@ pub struct ViewerManager {
     sources: Mutex<Vec<(Weak<Vec<u8>>, usize)>>,
 }
 impl ViewerManager {
+    /// PX-ACT-01 的 Viewer 图片所有权边界。动作参数只能引用后端签发的不可变 snapshot ID；
+    /// 当前 Viewer 快照不会变异，因此唯一合法版本是 0。
+    pub(crate) fn resolve_action_snapshot(
+        &self,
+        caller_label: &str,
+        source_id: &str,
+        source_version: u64,
+    ) -> Result<Arc<Vec<u8>>, ViewerError> {
+        let entry = self.get(caller_label)?;
+        if !entry.is_active()
+            || source_version != 0
+            || entry.payload.handle.snapshot_id != source_id
+        {
+            return Err("not_found".into());
+        }
+        Ok(Arc::clone(&entry.png))
+    }
+
     pub(super) fn remaining_source_budget(&self) -> Result<usize, ViewerError> {
         let entries = self
             .entries

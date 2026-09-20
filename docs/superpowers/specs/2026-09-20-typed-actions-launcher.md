@@ -82,3 +82,7 @@ discover descriptor
 - 2026-09-20：Stage 1 已完成后端注册表、内部类型转换、角色权限、取消与 generation 闸门。
 - 2026-09-20：Stage 2 已接入 `text.copy`，复用产品唯一剪贴板写入路径；不可取消副作用在提交期间
   锁定同一请求槽。其余领域适配器、IPC、UI 与组合仍未完成。
+- 2026-09-21：Stage 2 已接入 Viewer 的 `image.ocr`。动作只能解析调用窗口后端签发的不可变
+  `snapshotId + version 0`，复用现有 OCR single-flight、并发预算和进程回收；动作取消会释放自身
+  等待者，迟到、跨窗口、旧版本和已关闭 Viewer 均不能发布结果。Capture、Pin、主窗口和 Launcher
+  的图片引用仍须先建立各自权威 source/version 合同。

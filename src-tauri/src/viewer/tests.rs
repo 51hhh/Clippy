@@ -206,6 +206,29 @@ fn owner_handle_and_protocol_reject_cross_window_or_old_sources() {
     a.deactivate();
     assert_eq!(a.payload().unwrap_err().code, "closed");
 }
+
+#[test]
+fn action_snapshot_resolution_requires_the_exact_viewer_owner_and_immutable_version() {
+    let manager = ViewerManager::default();
+    let owned = entry(1);
+    let other = entry(2);
+    manager.insert(owned.clone()).unwrap();
+    manager.insert(other.clone()).unwrap();
+    let resolved = manager
+        .resolve_action_snapshot(&owned.payload.label, &owned.payload.handle.snapshot_id, 0)
+        .unwrap();
+    assert!(Arc::ptr_eq(&resolved, &owned.png));
+    assert!(manager
+        .resolve_action_snapshot(&other.payload.label, &owned.payload.handle.snapshot_id, 0,)
+        .is_err());
+    assert!(manager
+        .resolve_action_snapshot(&owned.payload.label, &owned.payload.handle.snapshot_id, 1,)
+        .is_err());
+    owned.deactivate();
+    assert!(manager
+        .resolve_action_snapshot(&owned.payload.label, &owned.payload.handle.snapshot_id, 0,)
+        .is_err());
+}
 #[test]
 fn manager_deduplicates_by_clip_and_hash_and_enforces_budgets() {
     let manager = ViewerManager::default();
