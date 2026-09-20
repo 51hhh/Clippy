@@ -861,6 +861,7 @@ dependencies = [
  "x11rb",
  "xcap 0.4.1",
  "xcap 0.9.6",
+ "yuv",
  "zbus",
  "zip",
 ]
@@ -8318,6 +8319,15 @@ dependencies = [
  "quote",
  "syn 2.0.117",
  "synstructure",
+]
+
+[[package]]
+name = "yuv"
+version = "0.8.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a295923535c00a4e72a50a0a1130097f93160b39892dd4d2d006b1e2b90d6bf9"
+dependencies = [
+ "num-traits",
 ]
 
 [[package]]

@@ -54,7 +54,7 @@ fn run() -> Result<(), String> {
     let report =
         benchmark_recording_vp9(&output, width, height, frames_per_second, duration_seconds)?;
     println!(
-        "{{\"width\":{},\"height\":{},\"framesPerSecond\":{},\"durationNs\":{},\"encodedFrames\":{},\"outputBytes\":{},\"elapsedNs\":{}}}",
+        "{{\"width\":{},\"height\":{},\"framesPerSecond\":{},\"durationNs\":{},\"encodedFrames\":{},\"outputBytes\":{},\"elapsedNs\":{},\"fixturePreparationNs\":{},\"colorConversionNs\":{},\"encodeMuxNs\":{},\"syncNs\":{}}}",
         report.width,
         report.height,
         report.frames_per_second,
@@ -62,6 +62,10 @@ fn run() -> Result<(), String> {
         report.encoded_frames,
         report.output_bytes,
         report.elapsed_ns,
+        report.fixture_preparation_ns,
+        report.color_conversion_ns,
+        report.encode_mux_ns,
+        report.sync_ns,
     );
     Ok(())
 }

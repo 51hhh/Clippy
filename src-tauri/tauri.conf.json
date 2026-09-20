@@ -56,6 +56,7 @@
       "third-party-licenses/webm-2.2.1-MPL-2.0.txt": "licenses/webm-2.2.1-MPL-2.0.txt",
       "third-party-licenses/libwebm-2.2.1-BSD-3-Clause.txt": "licenses/libwebm-2.2.1-BSD-3-Clause.txt",
       "third-party-licenses/libvpx-1.16.0-BSD-3-Clause.txt": "licenses/libvpx-1.16.0-BSD-3-Clause.txt",
+      "third-party-licenses/yuv-0.8.19-BSD-3-Clause.txt": "licenses/yuv-0.8.19-BSD-3-Clause.txt",
       "third-party-licenses/recording-vp9-prototype-NOTICE.md": "licenses/recording-vp9-prototype-NOTICE.md"
     },
     "icon": [

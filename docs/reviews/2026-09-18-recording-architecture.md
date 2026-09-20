@@ -184,13 +184,33 @@ cargo build --profile bench --bin recording_vp9_benchmark \
 
 | 档位 | writer 用时 | 相对素材时长 | 吞吐 | 峰值 RSS | 文件大小 | `ffprobe` |
 |---|---:|---:|---:|---:|---:|---|
-| 1080p / 30 fps | 19.496 s | 32.5% | 92.3 fps | 214.1 MiB | 3.51 MiB | VP9，1,800 帧，60.000 s |
-| 4K / 30 fps | 74.263 s | 123.8% | 24.2 fps | 723.1 MiB | 12.70 MiB | VP9，1,800 帧，60.000 s |
+| 1080p / 30 fps（标量） | 19.496 s | 32.5% | 92.3 fps | 214.1 MiB | 3.51 MiB | VP9，1,800 帧，60.000 s |
+| 4K / 30 fps（标量） | 74.263 s | 123.8% | 24.2 fps | 723.1 MiB | 12.70 MiB | VP9，1,800 帧，60.000 s |
 
-1080p 合成样本通过实时预算；4K 比素材时长多 14.263 秒，未达到 30 fps，所以当前参数不得开放
-4K 默认档。该基准没有桌面读取、控制窗排除和三槽队列，不能给出真实采集掉帧；下一步先以
-1080p 真实 X11 帧源测端到端背压，再用 profiler 分开测 RGBA→I420 与 libvpx 的 4K 成本。只有优化
-后 4K 合成与真实采集都在预算内，才能重新评估 4K 档位。
+分项计时确认 4K 标量链的 75.695 秒中，RGBA→I420 占 46.658 秒（61.6%），libvpx+WebM 占
+28.968 秒（38.3%）。原实现逐像素跑两遍并为每帧重新分配三个 plane，因此先优化色彩转换，没有
+通过增大 `cpu-used` 降低文字质量。原型现精确固定纯 Rust
+[`yuv 0.8.19`](https://github.com/awxkee/yuvutils-rs)，用 Professional 精度、运行时 SSE4.1/AVX2/ARM
+RDM 分派执行 BT.709 limited-range，并复用上一帧的 I420 plane。64×48 全色域确定性样本的 Y/U/V
+相对旧标量实现最大偏差均不超过一个 8-bit 级别；黑、白、红、绿端点另有固定断言。
+该 crate 已单独通过 `x86_64-pc-windows-msvc`、`x86_64-apple-darwin` 和
+`aarch64-apple-darwin` 编译；完整应用的原生链接与运行仍由四目标远程 job 判定。
+
+相同优化构建和输入得到：
+
+| 档位 | writer 用时 | RGBA→I420 | libvpx+WebM | 吞吐 | 峰值 RSS | 文件大小 |
+|---|---:|---:|---:|---:|---:|---:|
+| 1080p / 30 fps（SIMD） | 10.108 s | 2.092 s | 7.994 s | 178.1 fps | 213.6 MiB | 3.51 MiB |
+| 4K / 30 fps（SIMD） | 39.023–47.637 s | 8.059–9.870 s | 30.887–37.678 s | 37.8–46.1 fps | 723.4–723.5 MiB | 12.70 MiB |
+
+最终固定 `yuv 0.8.19` 后重复跑 4K，主机负载使 libvpx 阶段出现明显调度波动，因此表中保留两次
+实测范围，并以较慢一次给出结论：相对 75.695 秒分项标量基线，总耗时至少降低 37.1%，色彩转换
+至少提速 4.73×。两档仍由 `ffprobe` 核对为 VP9、1,800 帧、30 fps、60.000 秒；两次 4K 文件大小
+相同且解码结果 SSIM 为 1.000000，说明耗时差来自调度而非编码内容；WebM 元数据不同，文件本身不
+是二进制一致。新旧转换器的 4K 解码结果 SSIM 为 0.996961，这只是防止输出发生大幅漂移的对照，
+不替代对原始 RGBA 的质量评分。合成链现在通过 4K 实时吞吐预算，但约 724 MiB 峰值和真实桌面
+采集、三槽背压、控制窗排除仍未验收，所以 4K 与产品 UI 继续保持不可用；下一步转入真实 X11
+帧源端到端长样本。
 
 OpenH264 的源码本身可嵌入构建，但自行编译的库与 Cisco 分发的预编译二进制不具有同一分发条件；
 在许可、专利和安装包策略独立审查前，不把它作为第一阶段默认依赖。MJPEG 继续只承担诊断闭环。
@@ -204,8 +224,8 @@ libwebm `File` 模式写入 seek 信息和显式分段时长；本地回归由 `
 该原型仍不具备默认依赖资格：`shiguredo_libvpx 2026.2.0-canary.1` 的上游 build script 会从 GitHub
 下载预编译 libvpx，并从同一 Release 动态取得校验文件。Clippy 已 vendor 对应上游提交，只保留归档
 下载，并把 Ubuntu 22/24/26 x64、Windows x64 与 macOS arm64 的 SHA-256 固定在仓库；内容漂移或
-未知 target 会立即失败。`shiguredo_libvpx`、libvpx、`webm`/`webm-sys` 和 libwebm 的许可证与
-NOTICE 也已进入安装资源。CI 已配置 Ubuntu 22 x64、Windows x64、macOS arm64 的独立 feature
+未知 target 会立即失败。`shiguredo_libvpx`、libvpx、`webm`/`webm-sys`、libwebm 与 `yuv` 的许可证
+和 NOTICE 也已进入安装资源。CI 已配置 Ubuntu 22 x64、Windows x64、macOS arm64 的独立 feature
 Clippy 与 mux/session 测试，并为没有上游预编译归档的 macOS x86_64 增加固定 SHA-256 源码归档
 构建。当前分支尚无四目标远程同 SHA 结果；归档下载仍需网络，绑定仍是 canary，因此不能启用默认
 feature 或 UI。2026-09-20 在 Linux x86_64 以隔离 NASM 和 Rust `llvm-tools` 实际冷构建同一源码

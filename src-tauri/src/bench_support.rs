@@ -40,6 +40,10 @@ pub struct RecordingVp9BenchmarkReport {
     pub encoded_frames: u64,
     pub output_bytes: u64,
     pub elapsed_ns: u64,
+    pub fixture_preparation_ns: u64,
+    pub color_conversion_ns: u64,
+    pub encode_mux_ns: u64,
+    pub sync_ns: u64,
 }
 
 /// 用生产 RGBA → I420 → libvpx → WebM writer 生成确定性屏幕样本。
@@ -85,7 +89,11 @@ pub fn benchmark_recording_vp9(
         let square = (width.min(height) / 14).clamp(8, 160);
         let started = Instant::now();
         let mut previous = None;
+        let mut fixture_preparation_ns = 0_u64;
+        let mut color_conversion_ns = 0_u64;
+        let mut encode_mux_ns = 0_u64;
         for index in 0..frame_count {
+            let fixture_started = Instant::now();
             if let Some((x, y)) = previous {
                 copy_recording_fixture_rect(&base, &mut frame, width, x, y, square);
             }
@@ -99,28 +107,36 @@ pub fn benchmark_recording_vp9(
             .map_err(|_| "录屏 VP9 基准纵坐标溢出".to_string())?;
             paint_recording_fixture_rect(&mut frame, width, x, y, square, index);
             previous = Some((x, y));
+            fixture_preparation_ns =
+                fixture_preparation_ns.saturating_add(elapsed_benchmark_ns(fixture_started));
             let presentation_at_ns = u128::from(index)
                 .checked_mul(1_000_000_000)
                 .and_then(|value| value.checked_div(u128::from(frames_per_second)))
                 .and_then(|value| u64::try_from(value).ok())
                 .ok_or_else(|| "录屏 VP9 基准时间戳溢出".to_string())?;
-            writer
-                .push_rgba(&frame, presentation_at_ns)
+            let (frame_color_ns, frame_encode_mux_ns) = writer
+                .push_rgba_profiled(&frame, presentation_at_ns)
                 .map_err(|error| format!("VP9 基准编码失败: {error}"))?;
+            color_conversion_ns = color_conversion_ns.saturating_add(frame_color_ns);
+            encode_mux_ns = encode_mux_ns.saturating_add(frame_encode_mux_ns);
         }
         let duration_ns = u128::from(frame_count)
             .checked_mul(1_000_000_000)
             .and_then(|value| value.checked_div(u128::from(frames_per_second)))
             .and_then(|value| u64::try_from(value).ok())
             .ok_or_else(|| "录屏 VP9 基准时长溢出".to_string())?;
+        let finalize_started = Instant::now();
         let output = writer
             .finish_with_stats(duration_ns)
             .map_err(|error| format!("VP9 基准封尾失败: {error}"))?;
+        encode_mux_ns = encode_mux_ns.saturating_add(elapsed_benchmark_ns(finalize_started));
+        let sync_started = Instant::now();
         output
             .writer
             .sync_all()
             .map_err(|error| format!("同步 VP9 基准输出失败: {error}"))?;
-        let elapsed_ns = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
+        let sync_ns = elapsed_benchmark_ns(sync_started);
+        let elapsed_ns = elapsed_benchmark_ns(started);
         let output_bytes = output
             .writer
             .metadata()
@@ -134,12 +150,21 @@ pub fn benchmark_recording_vp9(
             encoded_frames: output.frame_count,
             output_bytes,
             elapsed_ns,
+            fixture_preparation_ns,
+            color_conversion_ns,
+            encode_mux_ns,
+            sync_ns,
         })
     })();
     if result.is_err() {
         let _ = std::fs::remove_file(output_path);
     }
     result
+}
+
+#[cfg(feature = "recording-vp9-prototype")]
+fn elapsed_benchmark_ns(started: std::time::Instant) -> u64 {
+    u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX)
 }
 
 #[cfg(feature = "recording-vp9-prototype")]

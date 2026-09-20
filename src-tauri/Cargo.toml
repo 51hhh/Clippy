@@ -23,7 +23,7 @@ default = ["linux-pipewire"]
 linux-pipewire = []
 # PX-REC-01 的隔离编码原型。当前 libvpx 绑定仍是 canary；常规目标下载固定哈希预编译归档，
 # macOS Intel 从固定哈希源码归档构建。四目标同 SHA 通过前不能进入默认产品构建或录屏入口。
-recording-vp9-prototype = ["dep:shiguredo_libvpx", "dep:webm"]
+recording-vp9-prototype = ["dep:shiguredo_libvpx", "dep:webm", "dep:yuv"]
 recording-vp9-source-build = ["recording-vp9-prototype", "shiguredo_libvpx/source-build"]
 
 [build-dependencies]
@@ -84,6 +84,9 @@ cbc = "0.1"
 shiguredo_libvpx = { version = "=2026.2.0-canary.1", optional = true }
 # libwebm 源码随 crate 构建，用于写入带显式时长和 seek 元数据的 VP9/WebM 分段。
 webm = { version = "=2.2.1", optional = true }
+# VP9 原型的 RGBA→I420 热路径；纯 Rust，x86 SSE4.1/AVX2 与 ARM RDM 均在运行时探测。
+# 精确固定版本，避免 SIMD 舍入或平台分派在质量基线之外变化。
+yuv = { version = "=0.8.19", default-features = false, features = ["avx", "sse", "rdm", "professional_mode"], optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # xcap 0.9 在 Linux 强制引入需要新版 PipeWire 头文件的 pipewire-rs，stock Ubuntu 22

@@ -775,10 +775,14 @@ generation token 绑定、停止/失败释放 gate 的严格顺序；Tauri 适�
 1,557.9 MiB。该结果证明当前主机的参数方向和实时余量，也暴露 4K 内存预算，不能替代嵌入式 writer
 或真实采集。随后新增的工程二进制直接调用生产 `Vp9WebmWriter`，以固定源码归档优化构建完成相同
 60 秒长样本：1080p 用 19.496 秒、峰值 214.1 MiB、输出 3.51 MiB；4K 用 74.263 秒、峰值
-723.1 MiB、输出 12.70 MiB。两者均由 `ffprobe` 核对为 VP9、1,800 帧、60 秒。由此 1080p 进入真实
-X11 帧源端到端预算验证，4K 因只有 24.2 fps 保持默认禁用，并转入 RGBA→I420 与 libvpx 分项优化。
-仍须完成原型矩阵同 SHA 结果、真实帧源长样本与安装包增量。macOS Intel 已配置固定源码归档构建，
-但远程结果尚未产生。
+723.1 MiB、输出 12.70 MiB。分项结果表明 4K 的旧 RGBA→I420 标量转换占 46.658 秒。改为精确固定
+`yuv 0.8.19` 的 Professional BT.709 limited-range SIMD 转换并复用 I420 plane 后，1080p 降至
+10.108 秒；4K 两次复测为 39.023–47.637 秒，其中转换占 8.059–9.870 秒。按较慢一次计算，4K
+总耗时至少降低 37.1%，转换至少提速 4.73×；Y/U/V 对旧实现最大偏差不超过一个 8-bit 级别。两档
+均由 `ffprobe` 核对为 VP9、1,800 帧、60 秒。4K 合成吞吐已经达标，但约 724 MiB 峰值、真实采集
+背压和控制窗排除尚未验收，因此仍不开放默认档。下一步是 X11 真实帧源端到端长样本。仍须完成
+原型矩阵同 SHA 结果、其他平台真实帧源与安装包增量。macOS Intel 已配置固定源码归档构建，但
+远程结果尚未产生。
 rav1e 当前参数不满足实时；本机缺 NASM
 只说明尚不能验证源码构建优化链，不用于推断系统 FFmpeg 中 rav1e 二进制是否启用汇编。OpenH264
 须先独立审查自行编译与 Cisco 预编译二进制的分发条件，本阶段不选为默认。
@@ -788,7 +792,8 @@ rav1e 当前参数不满足实时；本机缺 NASM
 `ffprobe` 已核对 VP9、帧数和时长。纯 Rust `ebml-webm` 因当前不写容器时长被排除。原型依赖的
 `shiguredo_libvpx` 仍是 canary，且 build script 会联网下载平台预编译库，因此默认 feature 和 UI
 保持不接入。Clippy 已 vendor Rust 绑定，把受支持归档 SHA-256 固定在仓库并打包 Apache-2.0、
-MPL-2.0 与 BSD-3-Clause 声明；CI 已增加 Ubuntu 22 x64、Windows x64、macOS arm64 的阻塞 feature
+MPL-2.0 与 BSD-3-Clause 声明；SIMD 色彩转换 crate 也固定版本、checksum 和 BSD-3-Clause 文本。
+CI 已增加 Ubuntu 22 x64、Windows x64、macOS arm64 的阻塞 feature
 矩阵，并为上游没有预编译归档的 macOS x86_64 增加固定 SHA-256 源码归档构建。本分支尚无四目标
 远程同 SHA 结果，该结果仍是启用前置条件。Linux x86_64 已实际冷构建同一源码 feature，11 分 01 秒
 完成 libvpx 编译、符号重写、Rust 链接及 4 个 VP9 mux/`ffprobe` 测试；该证据不替代 Intel runner。

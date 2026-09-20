@@ -51,6 +51,13 @@ if (
 ) {
   throw new Error("Cargo.toml must expose the reviewed VP9 source-build feature");
 }
+if (
+  !cargoToml.includes(
+    'yuv = { version = "=0.8.19", default-features = false, features = ["avx", "sse", "rdm", "professional_mode"], optional = true }',
+  )
+) {
+  throw new Error("Cargo.toml must pin the reviewed professional-precision yuv SIMD dependency");
+}
 const cargoLock = readFileSync(join(tauriRoot, "Cargo.lock"), "utf8");
 const lockedBinding = cargoLock.match(
   /\[\[package\]\]\nname = "shiguredo_libvpx"\nversion = "2026\.2\.0-canary\.1"\n([\s\S]*?)(?=\n\[\[package\]\]|$)/,
@@ -58,12 +65,25 @@ const lockedBinding = cargoLock.match(
 if (!lockedBinding || /^(source|checksum) =/m.test(lockedBinding[1])) {
   throw new Error("Cargo.lock must resolve shiguredo_libvpx as the vendored path package");
 }
+const lockedYuv = cargoLock.match(
+  /\[\[package\]\]\nname = "yuv"\nversion = "0\.8\.19"\n([\s\S]*?)(?=\n\[\[package\]\]|$)/,
+);
+if (
+  !lockedYuv ||
+  !/^source = "registry\+https:\/\/github\.com\/rust-lang\/crates\.io-index"$/m.test(
+    lockedYuv[1],
+  ) ||
+  !/^checksum = "[0-9a-f]{64}"$/m.test(lockedYuv[1])
+) {
+  throw new Error("Cargo.lock must pin the reviewed yuv 0.8.19 registry package and checksum");
+}
 
 const licenseFiles = [
   "shiguredo_libvpx-2026.2.0-canary.1.txt",
   "webm-2.2.1-MPL-2.0.txt",
   "libwebm-2.2.1-BSD-3-Clause.txt",
   "libvpx-1.16.0-BSD-3-Clause.txt",
+  "yuv-0.8.19-BSD-3-Clause.txt",
   "recording-vp9-prototype-NOTICE.md",
 ];
 const resources = JSON.parse(readFileSync(join(tauriRoot, "tauri.conf.json"), "utf8")).bundle

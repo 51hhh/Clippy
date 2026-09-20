@@ -33,6 +33,8 @@ pub(crate) enum Vp9WebmError {
     UnexpectedPacketCount,
     #[error("VP9 编码失败: {0}")]
     Encode(#[from] shiguredo_libvpx::Error),
+    #[error("RGBA→I420 转换失败: {0}")]
+    ColorConversion(#[from] yuv::YuvError),
     #[error("WebM 封装失败: {0}")]
     Mux(#[from] webm::mux::Error),
     #[error("WebM 封尾失败")]
@@ -43,6 +45,17 @@ struct I420Frame {
     y: Vec<u8>,
     u: Vec<u8>,
     v: Vec<u8>,
+}
+
+impl I420Frame {
+    fn new(width: u32, height: u32) -> Result<Self, Vp9WebmError> {
+        let pixels = expected_rgba_bytes(width, height)? / 4;
+        Ok(Self {
+            y: vec![0; pixels],
+            u: vec![0; pixels / 4],
+            v: vec![0; pixels / 4],
+        })
+    }
 }
 
 struct PendingFrame {
@@ -159,35 +172,74 @@ impl Vp9PacketEncoder {
     where
         F: FnMut(&[u8], u64, bool) -> Result<(), Vp9WebmError>,
     {
+        let target_slot = self.validate_push(rgba, presentation_at_ns)?;
+        let reusable = self.flush_before(target_slot, emit)?;
+        let image = rgba_to_i420(rgba, self.width, self.height, reusable)?;
+        self.accept_pending(target_slot, presentation_at_ns, image);
+        Ok(())
+    }
+
+    pub(crate) fn push_rgba_profiled<F>(
+        &mut self,
+        rgba: &[u8],
+        presentation_at_ns: u64,
+        emit: &mut F,
+    ) -> Result<(u64, u64), Vp9WebmError>
+    where
+        F: FnMut(&[u8], u64, bool) -> Result<(), Vp9WebmError>,
+    {
+        let target_slot = self.validate_push(rgba, presentation_at_ns)?;
+        let encode_started = std::time::Instant::now();
+        let reusable = self.flush_before(target_slot, emit)?;
+        let encode_mux_ns = elapsed_ns(encode_started);
+        let conversion_started = std::time::Instant::now();
+        let image = rgba_to_i420(rgba, self.width, self.height, reusable)?;
+        let color_conversion_ns = elapsed_ns(conversion_started);
+        self.accept_pending(target_slot, presentation_at_ns, image);
+        Ok((color_conversion_ns, encode_mux_ns))
+    }
+
+    fn validate_push(&self, rgba: &[u8], presentation_at_ns: u64) -> Result<u64, Vp9WebmError> {
         let expected_bytes = expected_rgba_bytes(self.width, self.height)?;
-        if rgba.len() != expected_bytes
-            || self
-                .last_presentation_ns
-                .is_some_and(|last| presentation_at_ns <= last)
+        if rgba.len() != expected_bytes {
+            return Err(Vp9WebmError::InvalidFrame);
+        }
+        if self
+            .last_presentation_ns
+            .is_some_and(|last| presentation_at_ns <= last)
             || (self.last_presentation_ns.is_none() && presentation_at_ns != 0)
         {
-            return Err(if rgba.len() != expected_bytes {
-                Vp9WebmError::InvalidFrame
-            } else {
-                Vp9WebmError::InvalidTimestamp
-            });
+            return Err(Vp9WebmError::InvalidTimestamp);
         }
+        self.slot_for(presentation_at_ns)
+    }
 
-        let target_slot = self.slot_for(presentation_at_ns)?;
+    fn flush_before<F>(
+        &mut self,
+        target_slot: u64,
+        emit: &mut F,
+    ) -> Result<Option<I420Frame>, Vp9WebmError>
+    where
+        F: FnMut(&[u8], u64, bool) -> Result<(), Vp9WebmError>,
+    {
         if let Some(pending) = self.pending.as_ref() {
             if target_slot < pending.slot {
                 return Err(Vp9WebmError::InvalidTimestamp);
             }
             if target_slot > pending.slot {
-                self.flush_pending_until(target_slot, emit)?;
+                return self.flush_pending_until(target_slot, emit).map(Some);
             }
+            return Ok(self.pending.take().map(|pending| pending.image));
         }
+        Ok(None)
+    }
+
+    fn accept_pending(&mut self, target_slot: u64, presentation_at_ns: u64, image: I420Frame) {
         self.pending = Some(PendingFrame {
             slot: target_slot,
-            image: rgba_to_i420(rgba, self.width, self.height)?,
+            image,
         });
         self.last_presentation_ns = Some(presentation_at_ns);
-        Ok(())
     }
 
     pub fn flush_until<F>(
@@ -205,7 +257,7 @@ impl Vp9PacketEncoder {
             .map(|pending| pending.slot.saturating_add(1))
             .ok_or(Vp9WebmError::InvalidTimestamp)?;
         let exclusive_slot = target_slot.max(minimum_slot);
-        self.flush_pending_until(exclusive_slot, emit)
+        self.flush_pending_until(exclusive_slot, emit).map(drop)
     }
 
     pub fn force_next_keyframe(&mut self) {
@@ -246,7 +298,7 @@ impl Vp9PacketEncoder {
         &mut self,
         exclusive_slot: u64,
         emit: &mut F,
-    ) -> Result<(), Vp9WebmError>
+    ) -> Result<I420Frame, Vp9WebmError>
     where
         F: FnMut(&[u8], u64, bool) -> Result<(), Vp9WebmError>,
     {
@@ -269,7 +321,7 @@ impl Vp9PacketEncoder {
         for _ in 0..repeat {
             self.encode_i420(&pending.image, emit)?;
         }
-        Ok(())
+        Ok(pending.image)
     }
 
     fn encode_i420<F>(&mut self, image: &I420Frame, emit: &mut F) -> Result<(), Vp9WebmError>
@@ -424,6 +476,19 @@ impl<W: Write + Seek> Vp9WebmWriter<W> {
         )
     }
 
+    pub(crate) fn push_rgba_profiled(
+        &mut self,
+        rgba: &[u8],
+        presentation_at_ns: u64,
+    ) -> Result<(u64, u64), Vp9WebmError> {
+        let mux = &mut self.mux;
+        self.encoder.push_rgba_profiled(
+            rgba,
+            presentation_at_ns,
+            &mut |data, timestamp_ns, is_keyframe| mux.add_frame(data, timestamp_ns, is_keyframe),
+        )
+    }
+
     pub fn finish_with_stats(mut self, duration_ns: u64) -> Result<Vp9WebmOutput<W>, Vp9WebmError> {
         let mux = &mut self.mux;
         let encoded_frames = self
@@ -447,54 +512,47 @@ fn expected_rgba_bytes(width: u32, height: u32) -> Result<usize, Vp9WebmError> {
         .ok_or(Vp9WebmError::InvalidConfiguration)
 }
 
-fn rgba_to_i420(rgba: &[u8], width: u32, height: u32) -> Result<I420Frame, Vp9WebmError> {
+fn rgba_to_i420(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    reusable: Option<I420Frame>,
+) -> Result<I420Frame, Vp9WebmError> {
     if !width.is_multiple_of(2)
         || !height.is_multiple_of(2)
         || rgba.len() != expected_rgba_bytes(width, height)?
     {
         return Err(Vp9WebmError::InvalidFrame);
     }
-    let width = width as usize;
-    let height = height as usize;
-    let mut y = vec![0; width * height];
-    let mut u = vec![0; width * height / 4];
-    let mut v = vec![0; width * height / 4];
-
-    for row in 0..height {
-        for column in 0..width {
-            let offset = (row * width + column) * 4;
-            y[row * width + column] = limited_y(rgba[offset], rgba[offset + 1], rgba[offset + 2]);
-        }
-    }
-    for row in (0..height).step_by(2) {
-        for column in (0..width).step_by(2) {
-            let mut red = 0_u16;
-            let mut green = 0_u16;
-            let mut blue = 0_u16;
-            for dy in 0..2 {
-                for dx in 0..2 {
-                    let offset = ((row + dy) * width + column + dx) * 4;
-                    red += u16::from(rgba[offset]);
-                    green += u16::from(rgba[offset + 1]);
-                    blue += u16::from(rgba[offset + 2]);
-                }
-            }
-            let red = ((red + 2) / 4) as u8;
-            let green = ((green + 2) / 4) as u8;
-            let blue = ((blue + 2) / 4) as u8;
-            let chroma = (row / 2) * (width / 2) + column / 2;
-            u[chroma] = limited_u(red, green, blue);
-            v[chroma] = limited_v(red, green, blue);
-        }
-    }
-    Ok(I420Frame { y, u, v })
+    let mut image = reusable.unwrap_or(I420Frame::new(width, height)?);
+    let mut planar = yuv::YuvPlanarImageMut {
+        y_plane: yuv::BufferStoreMut::Borrowed(&mut image.y),
+        y_stride: width,
+        u_plane: yuv::BufferStoreMut::Borrowed(&mut image.u),
+        u_stride: width / 2,
+        v_plane: yuv::BufferStoreMut::Borrowed(&mut image.v),
+        v_stride: width / 2,
+        width,
+        height,
+    };
+    yuv::rgba_to_yuv420(
+        &mut planar,
+        rgba,
+        width.checked_mul(4).ok_or(Vp9WebmError::InvalidFrame)?,
+        yuv::YuvRange::Limited,
+        yuv::YuvStandardMatrix::Bt709,
+        yuv::YuvConversionMode::Professional,
+    )?;
+    Ok(image)
 }
 
 // BT.709 limited-range 8-bit conversion. 桌面帧源保证画面不透明，因此 alpha 不参与转换。
+#[cfg(test)]
 fn limited_y(red: u8, green: u8, blue: u8) -> u8 {
     clamp_u8(16 + (47 * i32::from(red) + 157 * i32::from(green) + 16 * i32::from(blue) + 128) / 256)
 }
 
+#[cfg(test)]
 fn limited_u(red: u8, green: u8, blue: u8) -> u8 {
     clamp_u8(
         128 + (-26 * i32::from(red) - 87 * i32::from(green) + 112 * i32::from(blue) + 128)
@@ -502,6 +560,7 @@ fn limited_u(red: u8, green: u8, blue: u8) -> u8 {
     )
 }
 
+#[cfg(test)]
 fn limited_v(red: u8, green: u8, blue: u8) -> u8 {
     clamp_u8(
         128 + (112 * i32::from(red) - 102 * i32::from(green) - 10 * i32::from(blue) + 128)
@@ -509,8 +568,13 @@ fn limited_v(red: u8, green: u8, blue: u8) -> u8 {
     )
 }
 
+#[cfg(test)]
 fn clamp_u8(value: i32) -> u8 {
     value.clamp(0, 255) as u8
+}
+
+fn elapsed_ns(started: std::time::Instant) -> u64 {
+    u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX)
 }
 
 #[cfg(test)]
@@ -523,6 +587,51 @@ mod tests {
         (0..width * height)
             .flat_map(|_| [rgb[0], rgb[1], rgb[2], 255])
             .collect()
+    }
+
+    fn legacy_scalar_i420(rgba: &[u8], width: usize, height: usize) -> I420Frame {
+        let mut image = I420Frame {
+            y: vec![0; width * height],
+            u: vec![0; width * height / 4],
+            v: vec![0; width * height / 4],
+        };
+        for row in 0..height {
+            for column in 0..width {
+                let offset = (row * width + column) * 4;
+                image.y[row * width + column] =
+                    limited_y(rgba[offset], rgba[offset + 1], rgba[offset + 2]);
+            }
+        }
+        for row in (0..height).step_by(2) {
+            for column in (0..width).step_by(2) {
+                let mut red = 0_u16;
+                let mut green = 0_u16;
+                let mut blue = 0_u16;
+                for dy in 0..2 {
+                    for dx in 0..2 {
+                        let offset = ((row + dy) * width + column + dx) * 4;
+                        red += u16::from(rgba[offset]);
+                        green += u16::from(rgba[offset + 1]);
+                        blue += u16::from(rgba[offset + 2]);
+                    }
+                }
+                let red = ((red + 2) / 4) as u8;
+                let green = ((green + 2) / 4) as u8;
+                let blue = ((blue + 2) / 4) as u8;
+                let chroma = (row / 2) * (width / 2) + column / 2;
+                image.u[chroma] = limited_u(red, green, blue);
+                image.v[chroma] = limited_v(red, green, blue);
+            }
+        }
+        image
+    }
+
+    fn maximum_plane_delta(left: &[u8], right: &[u8]) -> u8 {
+        left.iter()
+            .zip(right)
+            .map(|(left, right)| left.abs_diff(*right))
+            .max()
+            .unwrap_or(0)
     }
 
     fn encoded_fixture() -> Vp9WebmOutput<Cursor<Vec<u8>>> {
@@ -541,10 +650,69 @@ mod tests {
         let rgba = [
             0, 0, 0, 255, 255, 255, 255, 255, 255, 0, 0, 255, 0, 255, 0, 255,
         ];
-        let image = rgba_to_i420(&rgba, 2, 2).unwrap();
-        assert_eq!(image.y, [16, 235, 63, 172]);
+        let image = rgba_to_i420(&rgba, 2, 2, None).unwrap();
+        assert_eq!(image.y, [16, 235, 63, 173]);
         assert_eq!(image.u.len(), 1);
         assert_eq!(image.v.len(), 1);
+    }
+
+    #[test]
+    fn simd_converter_stays_within_one_level_of_legacy_bt709_and_reuses_planes() {
+        let width = 64_u32;
+        let height = 48_u32;
+        let rgba: Vec<u8> = (0..width * height)
+            .flat_map(|index| {
+                [
+                    index.wrapping_mul(17) as u8,
+                    index.wrapping_mul(29).wrapping_add(31) as u8,
+                    index.wrapping_mul(43).wrapping_add(7) as u8,
+                    255,
+                ]
+            })
+            .collect();
+        let legacy = legacy_scalar_i420(&rgba, width as usize, height as usize);
+        let first = rgba_to_i420(&rgba, width, height, None).unwrap();
+
+        assert!(maximum_plane_delta(&first.y, &legacy.y) <= 1);
+        assert!(maximum_plane_delta(&first.u, &legacy.u) <= 1);
+        assert!(maximum_plane_delta(&first.v, &legacy.v) <= 1);
+
+        let pointers = (first.y.as_ptr(), first.u.as_ptr(), first.v.as_ptr());
+        let second = rgba_to_i420(&rgba, width, height, Some(first)).unwrap();
+        assert_eq!(
+            pointers,
+            (second.y.as_ptr(), second.u.as_ptr(), second.v.as_ptr())
+        );
+
+        let mut encoder = Vp9PacketEncoder::new(width, height, 10, 1).unwrap();
+        let mut discard = |_: &[u8], _: u64, _: bool| Ok(());
+        encoder.push_rgba(&rgba, 0, &mut discard).unwrap();
+        let pending = encoder.pending.as_ref().unwrap();
+        let encoder_pointers = (
+            pending.image.y.as_ptr(),
+            pending.image.u.as_ptr(),
+            pending.image.v.as_ptr(),
+        );
+        encoder.push_rgba(&rgba, 50_000_000, &mut discard).unwrap();
+        let pending = encoder.pending.as_ref().unwrap();
+        assert_eq!(
+            encoder_pointers,
+            (
+                pending.image.y.as_ptr(),
+                pending.image.u.as_ptr(),
+                pending.image.v.as_ptr(),
+            )
+        );
+        encoder.push_rgba(&rgba, 100_000_000, &mut discard).unwrap();
+        let pending = encoder.pending.as_ref().unwrap();
+        assert_eq!(
+            encoder_pointers,
+            (
+                pending.image.y.as_ptr(),
+                pending.image.u.as_ptr(),
+                pending.image.v.as_ptr(),
+            )
+        );
     }
 
     #[test]
