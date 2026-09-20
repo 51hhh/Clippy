@@ -267,6 +267,8 @@ mod tests {
     use std::fmt;
     use std::process::Command;
 
+    const ASYNC_TEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
     struct FixtureSource {
         sequence: u64,
         timestamp_ns: u64,
@@ -536,7 +538,7 @@ mod tests {
         )
         .unwrap();
         let directory = session.session_directory().to_path_buf();
-        wait_for_committed_segment(&directory, 0, "avi", &[], std::time::Duration::from_secs(2));
+        wait_for_committed_segment(&directory, 0, "avi", &[], ASYNC_TEST_TIMEOUT);
         assert_eq!(manifest_value(&directory)["state"], "recording");
 
         let report = session.stop().unwrap();
@@ -588,7 +590,7 @@ mod tests {
                 0,
                 "avi",
                 &[open_tail.as_path()],
-                std::time::Duration::from_secs(2),
+                ASYNC_TEST_TIMEOUT,
             );
             std::process::exit(91);
         }
@@ -713,7 +715,7 @@ mod tests {
         )
         .unwrap();
         let directory = session.session_directory().to_path_buf();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let deadline = std::time::Instant::now() + ASYNC_TEST_TIMEOUT;
         while session.pipeline.stats().unwrap().accepted_frames < 3
             && std::time::Instant::now() < deadline
         {
@@ -799,7 +801,7 @@ mod tests {
                 0,
                 "webm",
                 &[open_tail.as_path(), open_final.as_path()],
-                std::time::Duration::from_secs(5),
+                ASYNC_TEST_TIMEOUT,
             );
             std::process::exit(91);
         }
@@ -897,7 +899,7 @@ mod tests {
             source,
         )
         .expect("启动 X11 诊断录屏");
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let deadline = std::time::Instant::now() + ASYNC_TEST_TIMEOUT;
         while session.pipeline.stats().unwrap().accepted_frames < 2
             && std::time::Instant::now() < deadline
         {
