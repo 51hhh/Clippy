@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::{self, BufReader, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const RECORDINGS_DIRECTORY: &str = "recordings";
@@ -90,6 +90,252 @@ struct RecordingManifest {
     segments: Vec<SegmentManifest>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     recovery: Option<RecoveryInfo>,
+}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)] // PX-REC-01 会话 owner 接入后由 manager 构造。
+pub(super) struct RecordingJournalConfig {
+    pub session_id: String,
+    pub source_id: String,
+    pub physical_x: i32,
+    pub physical_y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub target_fps_numerator: u32,
+    pub target_fps_denominator: u32,
+    pub encoder: String,
+    pub container: String,
+    pub include_cursor: bool,
+}
+
+#[allow(dead_code)] // PX-REC-01 会话 owner 接入后跨编码线程持有。
+pub(super) struct PendingSegment {
+    index: u32,
+    partial_path: PathBuf,
+    preserve_for_recovery: bool,
+}
+
+impl Drop for PendingSegment {
+    fn drop(&mut self) {
+        if !self.preserve_for_recovery {
+            let _ = fs::remove_file(&self.partial_path);
+        }
+    }
+}
+
+#[allow(dead_code)] // PX-REC-01 会话 owner 接入后成为运行时 journal。
+pub(super) struct RecordingJournal {
+    session_directory: PathBuf,
+    manifest: RecordingManifest,
+}
+
+#[allow(dead_code)] // 当前先固定持久化协议；下一阶段由录屏 manager 消费。
+impl RecordingJournal {
+    pub fn create(app_data_dir: &Path, config: RecordingJournalConfig) -> Result<Self, String> {
+        let root = app_data_dir.join(RECORDINGS_DIRECTORY);
+        fs::create_dir_all(&root).map_err(|error| format!("创建录屏根目录失败: {error}"))?;
+        let root_metadata =
+            fs::symlink_metadata(&root).map_err(|error| format!("读取录屏根目录失败: {error}"))?;
+        if root_metadata.file_type().is_symlink() || !root_metadata.is_dir() {
+            return Err("录屏根路径不是普通目录".to_string());
+        }
+        restrict_directory(&root).map_err(|error| format!("收紧录屏根目录权限失败: {error}"))?;
+        if directory_entry_count(&root)? >= MAX_SESSIONS {
+            return Err("录屏会话数量已达到 128 个上限".to_string());
+        }
+
+        let manifest = RecordingManifest {
+            format: FORMAT.to_string(),
+            schema_version: SCHEMA_VERSION,
+            session_id: config.session_id,
+            state: RecordingState::Recording,
+            created_at_unix_ms: unix_time_ms().max(1),
+            timebase_hz: TIMEBASE_HZ,
+            selection: RecordingSelection {
+                source_id: config.source_id,
+                physical_x: config.physical_x,
+                physical_y: config.physical_y,
+                width: config.width,
+                height: config.height,
+            },
+            video: VideoSpec {
+                width: config.width,
+                height: config.height,
+                target_fps_numerator: config.target_fps_numerator,
+                target_fps_denominator: config.target_fps_denominator,
+                encoder: config.encoder,
+                container: config.container,
+                include_cursor: config.include_cursor,
+            },
+            dropped_frames: 0,
+            segments: Vec::new(),
+            recovery: None,
+        };
+        validate_manifest(&manifest, &manifest.session_id)?;
+
+        let session_directory = root.join(&manifest.session_id);
+        fs::create_dir(&session_directory)
+            .map_err(|error| format!("创建录屏会话目录失败: {error}"))?;
+        if let Err(error) = restrict_directory(&session_directory)
+            .map_err(|error| format!("收紧录屏会话目录权限失败: {error}"))
+            .and_then(|_| write_manifest(&session_directory, &manifest))
+        {
+            let _ = fs::remove_dir(&session_directory);
+            return Err(error);
+        }
+        Ok(Self {
+            session_directory,
+            manifest,
+        })
+    }
+
+    pub fn begin_segment(&self) -> Result<(File, PendingSegment), String> {
+        if self.manifest.state != RecordingState::Recording {
+            return Err("录屏会话不接受新分段".to_string());
+        }
+        if self.manifest.segments.len() >= MAX_SEGMENTS {
+            return Err("录屏分段数量超过上限".to_string());
+        }
+        let index = u32::try_from(self.manifest.segments.len())
+            .map_err(|_| "录屏分段序号溢出".to_string())?;
+        let partial_path = self
+            .session_directory
+            .join(segment_partial_name(index, &self.manifest.video.container));
+        let file = create_private_new_file(&partial_path)
+            .map_err(|error| format!("创建录屏临时分段失败: {error}"))?;
+        Ok((
+            file,
+            PendingSegment {
+                index,
+                partial_path,
+                preserve_for_recovery: false,
+            },
+        ))
+    }
+
+    pub fn commit_segment(
+        &mut self,
+        mut pending: PendingSegment,
+        file: File,
+        duration_ns: u64,
+        frame_count: u64,
+        dropped_frames: u64,
+    ) -> Result<PathBuf, String> {
+        if self.manifest.state != RecordingState::Recording
+            || pending.index as usize != self.manifest.segments.len()
+        {
+            return Err("录屏分段与当前会话状态不一致".to_string());
+        }
+        if duration_ns == 0 || frame_count == 0 {
+            return Err("录屏分段必须包含非零时长和帧数".to_string());
+        }
+        let metadata = file
+            .metadata()
+            .map_err(|error| format!("读取录屏临时分段失败: {error}"))?;
+        if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_SEGMENT_BYTES {
+            return Err("录屏临时分段大小无效".to_string());
+        }
+        file.sync_all()
+            .map_err(|error| format!("同步录屏临时分段失败: {error}"))?;
+        drop(file);
+        let partial_metadata = fs::symlink_metadata(&pending.partial_path)
+            .map_err(|error| format!("读取录屏临时分段路径失败: {error}"))?;
+        if partial_metadata.file_type().is_symlink() || !partial_metadata.is_file() {
+            return Err("录屏临时分段不是普通文件".to_string());
+        }
+        restrict_file(&pending.partial_path)
+            .map_err(|error| format!("收紧录屏临时分段权限失败: {error}"))?;
+        let (byte_length, sha256) = hash_file(&pending.partial_path)?;
+        if dropped_frames < self.manifest.dropped_frames {
+            return Err("录屏累计丢帧数不能倒退".to_string());
+        }
+        let started_at_ns = self
+            .manifest
+            .segments
+            .last()
+            .map(|segment| {
+                segment
+                    .started_at_ns
+                    .checked_add(segment.duration_ns)
+                    .ok_or_else(|| "录屏分段起始时间溢出".to_string())
+            })
+            .transpose()?
+            .unwrap_or(0);
+        let file_name = segment_file_name(pending.index, &self.manifest.video.container);
+        let previous_dropped_frames = self.manifest.dropped_frames;
+        self.manifest.segments.push(SegmentManifest {
+            index: pending.index,
+            file_name: file_name.clone(),
+            started_at_ns,
+            duration_ns,
+            frame_count,
+            byte_length,
+            sha256,
+        });
+        self.manifest.dropped_frames = dropped_frames;
+        if let Err(error) = validate_manifest(&self.manifest, &self.manifest.session_id)
+            .and_then(|_| write_manifest(&self.session_directory, &self.manifest))
+        {
+            self.manifest.segments.pop();
+            self.manifest.dropped_frames = previous_dropped_frames;
+            return Err(error);
+        }
+        pending.preserve_for_recovery = true;
+
+        // 先原子提交清单，再提升已经 fsync 的 partial。若进程在两步之间退出，启动恢复会按清单中的
+        // 长度与 SHA-256 验证 partial 后完成提升；未进入清单的 partial 永远不会冒充已提交分段。
+        let destination = self.session_directory.join(file_name);
+        replace_private_file(&pending.partial_path, &destination)
+            .map_err(|error| format!("提交录屏分段失败: {error}"))?;
+        sync_directory(&self.session_directory)
+            .map_err(|error| format!("同步录屏会话目录失败: {error}"))?;
+        Ok(destination)
+    }
+
+    pub fn complete(&mut self) -> Result<(), String> {
+        if self.manifest.segments.is_empty()
+            || !matches!(
+                self.manifest.state,
+                RecordingState::Recording | RecordingState::Finalizing
+            )
+        {
+            return Err("没有可封尾的录屏分段".to_string());
+        }
+        if self.manifest.state == RecordingState::Recording {
+            self.manifest.state = RecordingState::Finalizing;
+            if let Err(error) = write_manifest(&self.session_directory, &self.manifest) {
+                self.manifest.state = RecordingState::Recording;
+                return Err(error);
+            }
+        }
+        self.manifest.state = RecordingState::Complete;
+        if let Err(error) = write_manifest(&self.session_directory, &self.manifest) {
+            self.manifest.state = RecordingState::Finalizing;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    pub fn interrupt(&mut self) -> Result<(), String> {
+        if self.manifest.state == RecordingState::Complete {
+            return Ok(());
+        }
+        let previous_segments = self.manifest.segments.clone();
+        let verified_prefix = verify_segment_prefix(&self.session_directory, &self.manifest)?;
+        self.manifest.segments.truncate(verified_prefix);
+        let previous_state = self.manifest.state;
+        self.manifest.state = RecordingState::Interrupted;
+        if let Err(error) = write_manifest(&self.session_directory, &self.manifest) {
+            self.manifest.state = previous_state;
+            self.manifest.segments = previous_segments;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    pub fn session_directory(&self) -> &Path {
+        &self.session_directory
+    }
 }
 
 pub(super) fn recover_interrupted_sessions(app_data_dir: &Path) -> io::Result<RecoverySummary> {
@@ -179,7 +425,7 @@ fn reconcile_session(
     }
 
     let original_segment_count = manifest.segments.len();
-    let verified_prefix = verify_segment_prefix(path, &manifest.segments)?;
+    let verified_prefix = verify_segment_prefix(path, &manifest)?;
     let first_invalid_segment = (verified_prefix < original_segment_count)
         .then(|| u32::try_from(verified_prefix).expect("分段上限保证可以转为 u32"));
     manifest.segments.truncate(verified_prefix);
@@ -300,12 +546,19 @@ fn validate_manifest(manifest: &RecordingManifest, directory_id: &str) -> Result
     Ok(())
 }
 
-fn verify_segment_prefix(path: &Path, segments: &[SegmentManifest]) -> Result<usize, String> {
-    for (position, segment) in segments.iter().enumerate() {
+fn verify_segment_prefix(path: &Path, manifest: &RecordingManifest) -> Result<usize, String> {
+    for (position, segment) in manifest.segments.iter().enumerate() {
         let segment_path = path.join(&segment.file_name);
         let metadata = match fs::symlink_metadata(&segment_path) {
             Ok(metadata) => metadata,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(position),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                if promote_committed_partial(path, manifest, segment)? {
+                    fs::symlink_metadata(&segment_path)
+                        .map_err(|error| format!("读取已提升分段失败: {error}"))?
+                } else {
+                    return Ok(position);
+                }
+            }
             Err(error) => return Err(format!("读取分段失败: {error}")),
         };
         if metadata.file_type().is_symlink() {
@@ -320,7 +573,39 @@ fn verify_segment_prefix(path: &Path, segments: &[SegmentManifest]) -> Result<us
             return Ok(position);
         }
     }
-    Ok(segments.len())
+    Ok(manifest.segments.len())
+}
+
+fn promote_committed_partial(
+    session_directory: &Path,
+    manifest: &RecordingManifest,
+    segment: &SegmentManifest,
+) -> Result<bool, String> {
+    let partial = session_directory.join(segment_partial_name(
+        segment.index,
+        &manifest.video.container,
+    ));
+    let metadata = match fs::symlink_metadata(&partial) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(format!("读取待恢复临时分段失败: {error}")),
+    };
+    if metadata.file_type().is_symlink() {
+        return Err("录屏临时分段不能是符号链接".to_string());
+    }
+    if !metadata.is_file() || metadata.len() != segment.byte_length {
+        return Ok(false);
+    }
+    restrict_file(&partial).map_err(|error| format!("收紧临时分段权限失败: {error}"))?;
+    let (byte_length, sha256) = hash_file(&partial)?;
+    if byte_length != segment.byte_length || sha256 != segment.sha256 {
+        return Ok(false);
+    }
+    let destination = session_directory.join(&segment.file_name);
+    replace_private_file(&partial, &destination)
+        .map_err(|error| format!("提升已提交临时分段失败: {error}"))?;
+    sync_directory(session_directory).map_err(|error| format!("同步恢复目录失败: {error}"))?;
+    Ok(true)
 }
 
 fn hash_file(path: &Path) -> Result<(u64, String), String> {
@@ -352,6 +637,46 @@ fn hash_file(path: &Path) -> Result<(u64, String), String> {
         hasher.update(&buffer[..read]);
     }
     Ok((byte_length, format!("{:x}", hasher.finalize())))
+}
+
+#[allow(dead_code)]
+fn directory_entry_count(path: &Path) -> Result<usize, String> {
+    let mut count = 0_usize;
+    let mut entries = fs::read_dir(path).map_err(|error| format!("读取录屏根目录失败: {error}"))?;
+    while count <= MAX_SESSIONS {
+        let Some(_) = entries
+            .next()
+            .transpose()
+            .map_err(|error| format!("读取录屏根目录项失败: {error}"))?
+        else {
+            break;
+        };
+        count += 1;
+    }
+    Ok(count)
+}
+
+#[allow(dead_code)]
+fn create_private_new_file(path: &Path) -> io::Result<File> {
+    let mut options = fs::OpenOptions::new();
+    options.create_new(true).read(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let file = options.open(path)?;
+    restrict_file(path)?;
+    Ok(file)
+}
+
+#[allow(dead_code)]
+fn segment_file_name(index: u32, container: &str) -> String {
+    format!("segment-{index:06}.{container}")
+}
+
+fn segment_partial_name(index: u32, container: &str) -> String {
+    format!(".segment-{index:06}.{container}.partial")
 }
 
 fn write_manifest(session_directory: &Path, manifest: &RecordingManifest) -> Result<(), String> {
@@ -422,6 +747,7 @@ fn unix_time_ms() -> u64 {
 mod tests {
     use super::*;
     use std::ffi::OsStr;
+    use std::io::Write as _;
 
     fn fixture_manifest(session_id: &str, state: RecordingState) -> RecordingManifest {
         RecordingManifest {
@@ -482,6 +808,130 @@ mod tests {
         let session = recordings.join(session_id);
         fs::create_dir(&session).unwrap();
         session
+    }
+
+    fn journal_config(session_id: &str) -> RecordingJournalConfig {
+        RecordingJournalConfig {
+            session_id: session_id.to_string(),
+            source_id: "monitor-7".to_string(),
+            physical_x: -1920,
+            physical_y: 0,
+            width: 640,
+            height: 480,
+            target_fps_numerator: 30,
+            target_fps_denominator: 1,
+            encoder: "mjpeg-diagnostic".to_string(),
+            container: "avi".to_string(),
+            include_cursor: true,
+        }
+    }
+
+    #[test]
+    fn journal_commits_private_segment_and_completes_manifest() {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut journal =
+            RecordingJournal::create(temporary.path(), journal_config("journal-1")).unwrap();
+        let session = journal.session_directory().to_path_buf();
+        let (mut file, pending) = journal.begin_segment().unwrap();
+        file.write_all(b"seekable avi fixture").unwrap();
+        let segment = journal
+            .commit_segment(pending, file, TIMEBASE_HZ, 30, 2)
+            .unwrap();
+        journal.complete().unwrap();
+
+        assert_eq!(fs::read(&segment).unwrap(), b"seekable avi fixture");
+        assert!(!session.join(".segment-000000.avi.partial").exists());
+        assert!(crate::private_files::is_private(&segment));
+        assert!(crate::private_files::is_private(
+            &session.join(MANIFEST_FILE)
+        ));
+        let manifest = read_manifest(&session.join(MANIFEST_FILE)).unwrap();
+        assert_eq!(manifest.state, RecordingState::Complete);
+        assert_eq!(manifest.dropped_frames, 2);
+        assert_eq!(manifest.segments.len(), 1);
+        assert_eq!(manifest.segments[0].frame_count, 30);
+        assert_eq!(manifest.segments[0].byte_length, 20);
+    }
+
+    #[test]
+    fn recovery_promotes_manifest_committed_partial_before_verifying_prefix() {
+        let temporary = tempfile::tempdir().unwrap();
+        let session = create_session(temporary.path(), "promote-partial");
+        let bytes = b"committed before rename";
+        let mut manifest = fixture_manifest("promote-partial", RecordingState::Recording);
+        manifest.video.container = "avi".to_string();
+        manifest.segments.push(SegmentManifest {
+            index: 0,
+            file_name: "segment-000000.avi".to_string(),
+            started_at_ns: 0,
+            duration_ns: TIMEBASE_HZ,
+            frame_count: 30,
+            byte_length: bytes.len() as u64,
+            sha256: format!("{:x}", Sha256::digest(bytes)),
+        });
+        fs::write(session.join(".segment-000000.avi.partial"), bytes).unwrap();
+        write_manifest_fixture(&session, &manifest);
+
+        let summary = recover_interrupted_sessions(temporary.path()).unwrap();
+        assert_eq!(summary.interrupted_sessions, 1);
+        assert_eq!(summary.recoverable_segments, 1);
+        assert_eq!(fs::read(session.join("segment-000000.avi")).unwrap(), bytes);
+        assert!(!session.join(".segment-000000.avi.partial").exists());
+        let recovered = read_manifest(&session.join(MANIFEST_FILE)).unwrap();
+        assert_eq!(recovered.state, RecordingState::Interrupted);
+        assert_eq!(recovered.segments.len(), 1);
+    }
+
+    #[test]
+    fn invalid_segment_metadata_never_enters_manifest() {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut journal =
+            RecordingJournal::create(temporary.path(), journal_config("journal-invalid")).unwrap();
+        let manifest_path = journal.session_directory().join(MANIFEST_FILE);
+        let (mut file, pending) = journal.begin_segment().unwrap();
+        file.write_all(b"bytes").unwrap();
+        assert!(journal.commit_segment(pending, file, 0, 1, 0).is_err());
+        let manifest = read_manifest(&manifest_path).unwrap();
+        assert!(manifest.segments.is_empty());
+        assert_eq!(manifest.state, RecordingState::Recording);
+        assert!(!journal
+            .session_directory()
+            .join(".segment-000000.avi.partial")
+            .exists());
+        assert!(journal.complete().is_err());
+        journal.interrupt().unwrap();
+        assert_eq!(
+            read_manifest(&manifest_path).unwrap().state,
+            RecordingState::Interrupted
+        );
+    }
+
+    #[test]
+    fn abandoned_pending_segment_removes_its_temporary_file() {
+        let temporary = tempfile::tempdir().unwrap();
+        let journal =
+            RecordingJournal::create(temporary.path(), journal_config("journal-abandoned"))
+                .unwrap();
+        let path = journal
+            .session_directory()
+            .join(".segment-000000.avi.partial");
+        let (file, pending) = journal.begin_segment().unwrap();
+        assert!(path.exists());
+        drop(file);
+        drop(pending);
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn invalid_journal_identity_is_rejected_before_session_creation() {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut config = journal_config("../escape");
+        assert!(RecordingJournal::create(temporary.path(), config.clone()).is_err());
+        config.session_id = "valid".to_string();
+        config.container = "../avi".to_string();
+        assert!(RecordingJournal::create(temporary.path(), config).is_err());
+        let root = temporary.path().join(RECORDINGS_DIRECTORY);
+        assert_eq!(fs::read_dir(root).unwrap().count(), 0);
     }
 
     #[test]

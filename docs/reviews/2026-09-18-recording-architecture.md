@@ -65,7 +65,7 @@ Clippy 边界时读取单调时钟，不能使用系统墙钟或接收端编码�
 ```text
 recordings/<session-id>/
   manifest.json
-  segment-000000.partial
+  .segment-000000.<container>.partial
   segment-000000.<container>
   segment-000001.<container>
 ```
@@ -74,10 +74,12 @@ recordings/<session-id>/
 编码器身份、容器、创建时间、状态、丢帧数和已提交 segment。每个 segment 记录序号、起始/持续
 时间、帧数、字节数与 SHA-256。
 
-提交顺序固定为：完成并 `sync_all` 临时分段 → 原子重命名最终分段 → 用私有临时文件原子替换
-manifest。manifest 只能引用已经完成的最终文件。进程中断后忽略 `.partial`，按连续序号、预算、
-文件大小和 SHA 验证已提交前缀；坏尾段只截断恢复点，不使此前分段失效。启动扫描限制会话数、
-manifest 大小、分段数和总字节，拒绝符号链接、路径分隔符与未知 schema。
+提交顺序固定为：完成并 `sync_all` 临时分段 → 计算长度与 SHA-256 → 用私有临时文件原子提交
+manifest → 原子提升为最终分段并同步目录。manifest 是提交点；进程若在提交后、提升前退出，启动
+恢复只会在 `.partial` 的长度与 SHA-256 和 manifest 完全一致时完成提升。未进入 manifest 的临时
+分段不会被当作有效数据。随后按连续序号、预算、文件大小和 SHA 验证已提交前缀；坏尾段只截断
+恢复点，不使此前分段失效。启动扫描限制会话数、manifest 大小、分段数和总字节，拒绝符号链接、
+路径分隔符与未知 schema。
 
 正常停止先完成最后分段，再生成单一最终文件。最终合并失败时保留已提交分段和 manifest，允许重试，
 不能删除唯一可恢复数据。只有最终文件通过容器探测和时长检查后，才能把会话标成 complete。
@@ -101,6 +103,8 @@ MJPEG 实现简单但文件大、文字边缘有损；它可以验证 journal �
 当前仓库已经加入流式 MJPEG/AVI 1.0 诊断分段：它按单调呈现时间补帧，写入 `idx1`，每段限制为
 18,000 帧和 4 GiB，并由可用时的 `ffprobe` 回归验证 codec、尺寸、帧率、帧数与时长。该实现只用于
 把 journal、暂停/丢帧时间线和独立分段播放跑通；AVI 1.0 上限与 JPEG 有损画质使它仍不能成为默认。
+journal 已能创建私有会话、创建独占 `.partial`、提交分段元数据、提升最终文件、写入累计丢帧并以
+`recording → finalizing → complete` 原子更新状态；产品会话 owner 尚未把这些步骤与编码线程接线。
 
 ## 平台顺序
 
