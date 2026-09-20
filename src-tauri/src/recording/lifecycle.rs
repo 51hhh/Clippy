@@ -21,7 +21,8 @@ pub(super) struct RecordingStartRequest {
     pub session_id: String,
     pub frames_per_second: u32,
     pub include_cursor: bool,
-    pub jpeg_quality: u8,
+    /// 只由后端产品策略选择，IPC 不得让前端提交任意编码器或诊断参数。
+    pub encoder: RecordingEncoder,
 }
 
 pub(super) struct RecordingStartContext<'a> {
@@ -267,9 +268,7 @@ impl RecordingLifecycle {
             height: descriptor.height,
             frames_per_second: request.frames_per_second,
             include_cursor: request.include_cursor,
-            encoder: RecordingEncoder::MjpegDiagnostic {
-                jpeg_quality: request.jpeg_quality,
-            },
+            encoder: request.encoder,
             segment_duration_ns: DEFAULT_SEGMENT_DURATION_NS,
         };
         let token = match self.manager.start(app_data_dir, config, source) {
@@ -654,7 +653,7 @@ mod tests {
             session_id: session_id.to_string(),
             frames_per_second: 10,
             include_cursor: true,
-            jpeg_quality: 85,
+            encoder: RecordingEncoder::MjpegDiagnostic { jpeg_quality: 85 },
         }
     }
 
@@ -708,6 +707,18 @@ mod tests {
         let report = lifecycle.stop(&token, &actions).unwrap();
         assert_eq!(report.segment_paths.len(), 1);
         assert!(report.segment_paths[0].exists());
+        let manifest: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(
+                report.segment_paths[0]
+                    .parent()
+                    .unwrap()
+                    .join("manifest.json"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(manifest["video"]["encoder"], "mjpeg-diagnostic");
+        assert_eq!(manifest["video"]["container"], "avi");
         assert_eq!(gate.active_mode().unwrap(), None);
         assert_eq!(
             lifecycle.manager.status().unwrap(),
@@ -745,6 +756,44 @@ mod tests {
             .unwrap();
         assert!(control_index < bind_index);
         assert!(bind_index < close_index);
+    }
+
+    #[cfg(feature = "recording-vp9-prototype")]
+    #[test]
+    fn lifecycle_uses_the_backend_selected_vp9_encoder() {
+        let temporary = tempfile::tempdir().unwrap();
+        let gate = Arc::new(CaptureModeGate::new());
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let actions = RecordingActions::new(Arc::clone(&gate), Arc::clone(&events));
+        let lifecycle = RecordingLifecycle::new();
+        let mut request = request("vp9-policy");
+        request.encoder = RecordingEncoder::Vp9Prototype;
+
+        let token = lifecycle
+            .start_with(
+                temporary.path(),
+                request,
+                || Ok(committed(&gate, Arc::clone(&events))),
+                &actions,
+            )
+            .unwrap();
+        let report = lifecycle.stop(&token, &actions).unwrap();
+
+        let output = report
+            .final_output_path
+            .as_ref()
+            .expect("VP9 生命周期必须提交单一最终文件");
+        assert_eq!(
+            output.extension().and_then(|value| value.to_str()),
+            Some("webm")
+        );
+        let manifest: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(output.parent().unwrap().join("manifest.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(manifest["video"]["encoder"], "vp9-prototype");
+        assert_eq!(manifest["video"]["container"], "webm");
+        assert_eq!(gate.active_mode().unwrap(), None);
     }
 
     #[test]

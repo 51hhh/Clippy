@@ -804,7 +804,10 @@ CI 已增加 Ubuntu 22 x64、Windows x64、macOS arm64 的阻塞 feature
 编码线程已改为统一的 `RecordingSegmentWriter` 合同，MJPEG 与 VP9 共用 pipeline 排空、错误联动和
 线程回收；会话配置现用同一编码器枚举生成 writer 与 journal 描述，feature 回归已跑通 capture →
 pipeline → VP9/WebM → 私有原子分段 → complete manifest，并核对扩展名、时长、帧数和权限。产品
-生命周期仍显式选择 MJPEG。统一分段 writer 默认 60 秒封尾、上限 120 秒，跨过边界即原子提交；
+生命周期启动合同已改由后端传入类型化编码器策略：默认测试继续选择 MJPEG 诊断 writer，feature
+回归验证同一生命周期可选择 VP9 并提交最终 WebM，且 IPC 不接收任意编码器字符串或诊断参数。
+产品适配器仍未接入，不能据此把 VP9 作为默认。统一分段 writer 默认 60 秒封尾、上限 120 秒，
+跨过边界即原子提交；
 默认 MJPEG 子进程 fixture 已在首段提交、次段打开时强制退出，并由启动恢复保留可播放前缀、删除
 未提交尾段、写入 interrupted。VP9 feature 回归也已产生并提交两个独立 WebM，并把同一强杀恢复
 fixture 纳入四目标原型 job。实际嵌入式 writer 的合成长样本预算已经记录；远程同 SHA 结果和真实

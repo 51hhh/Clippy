@@ -259,9 +259,11 @@ feature，用时 11 分 01 秒；4 个 VP9 mux/`ffprobe` 测试通过。这只�
 和 join 只实现一次。MJPEG 会话继续使用原类型别名，默认行为不变；VP9 feature 的线程回归已经证明
 同一三槽 pipeline 可封尾 200 ms WebM。会话配置现以类型化枚举选择编码器，非默认 feature 下的
 VP9 已完整经过 capture worker、三槽 pipeline、WebM 封尾、私有分段原子提交和 complete manifest；
-清单中的 encoder/container、分段扩展名、时长与帧数均由同一选择产生。产品生命周期仍显式选择
-MJPEG。编码线程现在默认每 60 秒、最多允许 120 秒一个周期分段；跨过边界时立即封尾并提交，最后
-一段则在 Stop 后由会话 owner 核对时长与背压再把清单标为 complete。MJPEG 子进程强杀 fixture 已
+清单中的 encoder/container、分段扩展名、时长与帧数均由同一选择产生。生命周期启动合同现由后端
+传入类型化编码器策略，默认测试继续使用 MJPEG 诊断 writer，feature 回归则证明同一生命周期能够
+选择 VP9 并提交最终 WebM；该选择不从 IPC 接受前端字符串或参数。产品适配器仍未接入，因此这不
+代表 VP9 已成为默认。编码线程现在默认每 60 秒、最多允许 120 秒一个周期分段；跨过边界即原子
+提交，最后一段则在 Stop 后由会话 owner 核对时长与背压再把清单标为 complete。MJPEG 子进程强杀 fixture 已
 证明首段提交、次段仍打开时退出，启动恢复会保留可播放首段、删除未提交尾段并写 interrupted；同一
 分段 writer 的 VP9 回归已生成两个独立 WebM；原型 CI 也会在四目标分别强制终止独立子进程，验证
 已提交 WebM 前缀与未提交尾段的恢复合同。VP9 实现内部已经把固定帧率/RGBA→I420/libvpx 编码与
