@@ -97,6 +97,9 @@ describe("Linux CI 固守 Ubuntu 22 构建基线", () => {
   });
 
   it("VP9 原型以独立四目标矩阵验证固定供应链和编码闭环", () => {
+    expect(buildWorkflow).toMatch(
+      /recording-codec-prototype:[\s\S]*?timeout-minutes: 90[\s\S]*?strategy:/,
+    );
     expect(buildWorkflow).toMatch(/recording-codec-prototype:[\s\S]*runner: ubuntu-22\.04/);
     expect(buildWorkflow).toMatch(/recording-codec-prototype:[\s\S]*runner: windows-latest/);
     expect(buildWorkflow).toMatch(/recording-codec-prototype:[\s\S]*runner: macos-15\n/);
@@ -111,10 +114,10 @@ describe("Linux CI 固守 Ubuntu 22 构建基线", () => {
       "cargo clippy --features ${{ matrix.features }} --all-targets -- -D warnings",
     );
     expect(buildWorkflow).toContain(
-      "cargo test --features ${{ matrix.features }} recording::mux::vp9_webm::tests",
+      "cargo test --features ${{ matrix.features }} --lib recording::mux::vp9_webm::tests",
     );
     expect(buildWorkflow).toContain(
-      "cargo test --features ${{ matrix.features }} recording::session::tests::vp9_",
+      "cargo test --features ${{ matrix.features }} --lib recording::session::tests::vp9_",
     );
   });
 

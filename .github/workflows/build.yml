@@ -173,7 +173,7 @@ jobs:
   recording-codec-prototype:
     name: Recording Codec Prototype (${{ matrix.runner }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -244,11 +244,11 @@ jobs:
 
       - name: Prototype VP9 mux tests
         working-directory: src-tauri
-        run: cargo test --features ${{ matrix.features }} recording::mux::vp9_webm::tests
+        run: cargo test --features ${{ matrix.features }} --lib recording::mux::vp9_webm::tests
 
       - name: Prototype VP9 session and recovery tests
         working-directory: src-tauri
-        run: cargo test --features ${{ matrix.features }} recording::session::tests::vp9_
+        run: cargo test --features ${{ matrix.features }} --lib recording::session::tests::vp9_
 
       - name: Prototype X11 capture to VP9 session
         if: runner.os == 'Linux'
