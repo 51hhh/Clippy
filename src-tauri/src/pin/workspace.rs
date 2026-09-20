@@ -22,15 +22,43 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 const PRESENTATION_FLUSH_DELAY: Duration = Duration::from_millis(180);
+pub(super) const PIN_WORKSPACE_CHANGED: &str = "pin-workspace-changed";
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PinWorkspaceStatus {
     pub workspace_id: i64,
     pub group_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct PinWorkspaceChange {
+    pub workspace_id: Option<i64>,
+    pub group_id: Option<i64>,
+}
+
+pub(super) fn emit_change(
+    app_handle: &tauri::AppHandle,
+    label: &str,
+    workspace_id: Option<i64>,
+    group_id: Option<i64>,
+) {
+    let Some(window) = app_handle.get_webview_window(label) else {
+        return;
+    };
+    if let Err(error) = window.emit(
+        PIN_WORKSPACE_CHANGED,
+        PinWorkspaceChange {
+            workspace_id,
+            group_id: workspace_id.and(group_id),
+        },
+    ) {
+        log::debug!("同步 Pin 工作区状态到 {label} 失败: {error}");
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -198,13 +226,18 @@ pub(crate) fn save(
         .map_err(|error| error.to_string())?;
     drop(storage);
     state.pin_manager.set_workspace(label, Some(id), group_id)?;
+    super::workspace_library::notify_changed(app_handle);
     Ok(PinWorkspaceStatus {
         workspace_id: id,
         group_id,
     })
 }
 
-pub(crate) fn remove(label: &str, state: &AppState) -> Result<(), String> {
+pub(crate) fn remove(
+    label: &str,
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+) -> Result<(), String> {
     super::model::validate_label(label)?;
     let entry = state.pin_manager.get(label)?;
     if let Some(id) = entry.workspace_id {
@@ -216,6 +249,7 @@ pub(crate) fn remove(label: &str, state: &AppState) -> Result<(), String> {
             .map_err(|error| error.to_string())?;
     }
     state.pin_manager.set_workspace(label, None, None)?;
+    super::workspace_library::notify_changed(app_handle);
     Ok(())
 }
 
@@ -228,25 +262,45 @@ pub(crate) fn list_groups(state: &AppState) -> Result<Vec<PinWorkspaceGroup>, St
         .map_err(|error| error.to_string())
 }
 
-pub(crate) fn create_group(name: &str, state: &AppState) -> Result<PinWorkspaceGroup, String> {
-    state
+pub(crate) fn create_group(
+    name: &str,
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+) -> Result<PinWorkspaceGroup, String> {
+    let group = state
         .storage
         .lock()
         .map_err(|error| error.to_string())?
         .create_pin_group(name)
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    super::workspace_library::notify_changed(app_handle);
+    Ok(group)
 }
 
-pub(crate) fn rename_group(id: i64, name: &str, state: &AppState) -> Result<bool, String> {
-    state
+pub(crate) fn rename_group(
+    id: i64,
+    name: &str,
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+) -> Result<bool, String> {
+    let renamed = state
         .storage
         .lock()
         .map_err(|error| error.to_string())?
         .rename_pin_group(id, name)
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    if renamed {
+        super::workspace_library::notify_changed(app_handle);
+    }
+    Ok(renamed)
 }
 
-pub(crate) fn delete_group(id: i64, state: &AppState) -> Result<bool, String> {
+pub(crate) fn delete_group(
+    id: i64,
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+) -> Result<bool, String> {
+    let labels = state.pin_manager.labels_in_workspace_group(id)?;
     let deleted = state
         .storage
         .lock()
@@ -255,6 +309,11 @@ pub(crate) fn delete_group(id: i64, state: &AppState) -> Result<bool, String> {
         .map_err(|error| error.to_string())?;
     if deleted {
         state.pin_manager.clear_workspace_group(id)?;
+        for label in labels {
+            let workspace_id = state.pin_manager.get(&label)?.workspace_id;
+            emit_change(app_handle, &label, workspace_id, None);
+        }
+        super::workspace_library::notify_changed(app_handle);
     }
     Ok(deleted)
 }
@@ -262,6 +321,7 @@ pub(crate) fn delete_group(id: i64, state: &AppState) -> Result<bool, String> {
 pub(crate) fn assign_group(
     label: &str,
     group_id: Option<i64>,
+    app_handle: &tauri::AppHandle,
     state: &AppState,
 ) -> Result<(), String> {
     super::model::validate_label(label)?;
@@ -279,6 +339,8 @@ pub(crate) fn assign_group(
         return Err("Pin 工作区记录不存在".to_string());
     }
     state.pin_manager.set_workspace(label, Some(id), group_id)?;
+    emit_change(app_handle, label, Some(id), group_id);
+    super::workspace_library::notify_changed(app_handle);
     Ok(())
 }
 
@@ -298,7 +360,7 @@ pub(crate) fn restore_saved(app_handle: &tauri::AppHandle, state: &AppState) -> 
     Ok(())
 }
 
-fn restore_one(
+pub(super) fn restore_one(
     app_handle: &tauri::AppHandle,
     state: &AppState,
     item: StoredPinWorkspaceItem,

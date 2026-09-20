@@ -1,6 +1,6 @@
 use super::{now_secs, StorageEngine, StorageError};
 use crate::models::ContentType;
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 
 const MAX_GROUP_NAME_CHARS: usize = 64;
 const MAX_SNAPSHOT_BYTES: usize = 16 * 1024 * 1024;
@@ -45,6 +45,7 @@ pub(crate) enum StoredPinWorkspaceContent {
 pub(crate) struct StoredPinWorkspaceItem {
     pub id: i64,
     pub group_id: Option<i64>,
+    pub content_hash: String,
     pub content: StoredPinWorkspaceContent,
     pub content_width: f64,
     pub content_height: f64,
@@ -53,6 +54,23 @@ pub(crate) struct StoredPinWorkspaceItem {
     pub locked: bool,
     pub above: bool,
     pub placement: Option<StoredPinPlacement>,
+}
+
+/// 全局工作区浏览器使用的轻量行。这里刻意没有图片 BLOB、HTML 或修订文档；
+/// 图片缩略图由单条、有界的独立请求读取。
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct StoredPinWorkspaceSummary {
+    pub id: i64,
+    pub group_id: Option<i64>,
+    pub content_type: ContentType,
+    pub preview_text: Option<String>,
+    pub content_width: f64,
+    pub content_height: f64,
+    pub scale: f64,
+    pub opacity: f64,
+    pub locked: bool,
+    pub above: bool,
+    pub updated_at: i64,
 }
 
 pub(crate) struct PinWorkspaceItemWrite<'a> {
@@ -336,8 +354,103 @@ impl StorageEngine {
     pub(crate) fn load_pin_workspace_items(
         &self,
     ) -> Result<Vec<StoredPinWorkspaceItem>, StorageError> {
+        let query = format!("{WORKSPACE_ITEM_SELECT} ORDER BY w.id ASC");
+        let mut statement = self.conn.prepare(&query)?;
+        let rows = statement.query_map([], raw_workspace_row)?;
+
+        let mut items = Vec::new();
+        for row in rows {
+            let raw = row?;
+            match raw.try_into_item() {
+                Ok(item) => items.push(item),
+                Err(reason) => log::warn!("跳过损坏的 Pin 工作区记录 {}: {reason}", raw.id),
+            }
+        }
+        Ok(items)
+    }
+
+    pub(crate) fn load_pin_workspace_item(
+        &self,
+        id: i64,
+    ) -> Result<Option<StoredPinWorkspaceItem>, StorageError> {
+        let query = format!("{WORKSPACE_ITEM_SELECT} WHERE w.id = ?1");
+        let raw = self
+            .conn
+            .query_row(&query, [id], raw_workspace_row)
+            .optional()?;
+        raw.map(|row| {
+            row.try_into_item()
+                .map_err(StorageError::PinWorkspaceInvariant)
+        })
+        .transpose()
+    }
+
+    pub(crate) fn get_pin_workspace_content_identity(
+        &self,
+        id: i64,
+    ) -> Result<Option<(ContentType, String)>, StorageError> {
+        let raw = self
+            .conn
+            .query_row(
+                "SELECT CAST(content_type AS TEXT), CAST(content_hash AS TEXT)
+                   FROM pin_workspace_items WHERE id = ?1",
+                [id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?;
+        raw.map(|(content_type, content_hash)| {
+            content_type
+                .parse::<ContentType>()
+                .map(|content_type| (content_type, content_hash))
+                .map_err(StorageError::PinWorkspaceInvariant)
+        })
+        .transpose()
+    }
+
+    pub(crate) fn list_pin_workspace_summaries(
+        &self,
+    ) -> Result<Vec<StoredPinWorkspaceSummary>, StorageError> {
+        // `substr` 的上限按 Unicode 字符计数。多取一个字符让前端判断是否需要省略号，
+        // 同时避免为了列表预览把最多 16 MiB 的文本快照复制出 SQLite。
         let mut statement = self.conn.prepare(
-            "SELECT w.id, CAST(w.group_id AS INTEGER), CAST(w.revision_id AS INTEGER),
+            "SELECT id, CAST(group_id AS INTEGER), CAST(content_type AS TEXT),
+                    CAST(substr(text_content, 1, 241) AS TEXT),
+                    CAST(content_width AS REAL), CAST(content_height AS REAL),
+                    CAST(scale AS REAL), CAST(opacity AS REAL),
+                    CAST(locked AS INTEGER), CAST(above AS INTEGER),
+                    CAST(updated_at AS INTEGER)
+               FROM pin_workspace_items
+              ORDER BY updated_at DESC, id DESC",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok(RawWorkspaceSummary {
+                id: row.get(0)?,
+                group_id: row.get(1)?,
+                content_type: row.get(2)?,
+                preview_text: row.get(3)?,
+                content_width: row.get(4)?,
+                content_height: row.get(5)?,
+                scale: row.get(6)?,
+                opacity: row.get(7)?,
+                locked: row.get(8)?,
+                above: row.get(9)?,
+                updated_at: row.get(10)?,
+            })
+        })?;
+        let mut summaries = Vec::new();
+        for row in rows {
+            let raw = row?;
+            match raw.try_into_summary() {
+                Ok(summary) => summaries.push(summary),
+                Err(reason) => log::warn!("跳过损坏的 Pin 工作区摘要 {}: {reason}", raw.id),
+            }
+        }
+        Ok(summaries)
+    }
+}
+
+const WORKSPACE_ITEM_SELECT: &str =
+    "SELECT w.id, CAST(w.group_id AS INTEGER), CAST(w.revision_id AS INTEGER),
                     CAST(w.content_type AS TEXT), CAST(w.text_content AS TEXT),
                     CAST(w.html_content AS TEXT), CAST(w.content_hash AS TEXT),
                     CAST(w.content_width AS REAL), CAST(w.content_height AS REAL),
@@ -352,51 +465,38 @@ impl StorageEngine {
                     CAST(r.adjustments_json AS TEXT)
                FROM pin_workspace_items w
                LEFT JOIN image_revisions r ON r.id = w.revision_id
-               LEFT JOIN image_assets a ON a.id = r.asset_id
-              ORDER BY w.id ASC",
-        )?;
-        let rows = statement.query_map([], |row| {
-            Ok(RawWorkspaceRow {
-                id: row.get(0)?,
-                group_id: row.get(1)?,
-                revision_id: row.get(2)?,
-                content_type: row.get(3)?,
-                text_content: row.get(4)?,
-                html_content: row.get(5)?,
-                content_hash: row.get(6)?,
-                content_width: row.get(7)?,
-                content_height: row.get(8)?,
-                scale: row.get(9)?,
-                opacity: row.get(10)?,
-                locked: row.get(11)?,
-                above: row.get(12)?,
-                position_x: row.get(13)?,
-                position_y: row.get(14)?,
-                display_name: row.get(15)?,
-                display_x: row.get(16)?,
-                display_y: row.get(17)?,
-                display_width: row.get(18)?,
-                display_height: row.get(19)?,
-                display_scale: row.get(20)?,
-                source_png: row.get(21)?,
-                source_width: row.get(22)?,
-                source_height: row.get(23)?,
-                renderer_version: row.get(24)?,
-                annotations_json: row.get(25)?,
-                adjustments_json: row.get(26)?,
-            })
-        })?;
+               LEFT JOIN image_assets a ON a.id = r.asset_id";
 
-        let mut items = Vec::new();
-        for row in rows {
-            let raw = row?;
-            match raw.try_into_item() {
-                Ok(item) => items.push(item),
-                Err(reason) => log::warn!("跳过损坏的 Pin 工作区记录 {}: {reason}", raw.id),
-            }
-        }
-        Ok(items)
-    }
+fn raw_workspace_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawWorkspaceRow> {
+    Ok(RawWorkspaceRow {
+        id: row.get(0)?,
+        group_id: row.get(1)?,
+        revision_id: row.get(2)?,
+        content_type: row.get(3)?,
+        text_content: row.get(4)?,
+        html_content: row.get(5)?,
+        content_hash: row.get(6)?,
+        content_width: row.get(7)?,
+        content_height: row.get(8)?,
+        scale: row.get(9)?,
+        opacity: row.get(10)?,
+        locked: row.get(11)?,
+        above: row.get(12)?,
+        position_x: row.get(13)?,
+        position_y: row.get(14)?,
+        display_name: row.get(15)?,
+        display_x: row.get(16)?,
+        display_y: row.get(17)?,
+        display_width: row.get(18)?,
+        display_height: row.get(19)?,
+        display_scale: row.get(20)?,
+        source_png: row.get(21)?,
+        source_width: row.get(22)?,
+        source_height: row.get(23)?,
+        renderer_version: row.get(24)?,
+        annotations_json: row.get(25)?,
+        adjustments_json: row.get(26)?,
+    })
 }
 
 type PlacementColumns<'a> = (
@@ -566,6 +666,65 @@ struct RawWorkspaceRow {
     adjustments_json: Option<String>,
 }
 
+struct RawWorkspaceSummary {
+    id: i64,
+    group_id: Option<i64>,
+    content_type: String,
+    preview_text: Option<String>,
+    content_width: f64,
+    content_height: f64,
+    scale: f64,
+    opacity: f64,
+    locked: i64,
+    above: i64,
+    updated_at: i64,
+}
+
+impl RawWorkspaceSummary {
+    fn try_into_summary(&self) -> Result<StoredPinWorkspaceSummary, String> {
+        let content_type = self.content_type.parse::<ContentType>()?;
+        if ![
+            self.content_width,
+            self.content_height,
+            self.scale,
+            self.opacity,
+        ]
+        .into_iter()
+        .all(f64::is_finite)
+            || self.content_width <= 0.0
+            || self.content_height <= 0.0
+            || !(0.25..=4.0).contains(&self.scale)
+            || !(0.15..=1.0).contains(&self.opacity)
+            || !matches!(self.locked, 0 | 1)
+            || !matches!(self.above, 0 | 1)
+        {
+            return Err("Pin 工作区摘要显示状态无效".to_string());
+        }
+        let preview_text = self.preview_text.as_ref().map(|value| {
+            let mut characters = value.chars();
+            let preview = characters.by_ref().take(240).collect::<String>();
+            if characters.next().is_some() {
+                format!("{preview}…")
+            } else {
+                preview
+            }
+        });
+        Ok(StoredPinWorkspaceSummary {
+            id: self.id,
+            group_id: self.group_id,
+            content_type,
+            preview_text,
+            content_width: self.content_width,
+            content_height: self.content_height,
+            scale: self.scale,
+            opacity: self.opacity,
+            locked: self.locked == 1,
+            above: self.above == 1,
+            updated_at: self.updated_at,
+        })
+    }
+}
+
 impl RawWorkspaceRow {
     fn try_into_item(&self) -> Result<StoredPinWorkspaceItem, String> {
         let content_type = self.content_type.parse::<ContentType>()?;
@@ -663,6 +822,7 @@ impl RawWorkspaceRow {
         Ok(StoredPinWorkspaceItem {
             id: self.id,
             group_id: self.group_id,
+            content_hash: self.content_hash.clone(),
             content,
             content_width: self.content_width,
             content_height: self.content_height,
@@ -742,6 +902,50 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].id, item_id);
         assert_eq!(items[0].group_id, None);
+    }
+
+    #[test]
+    fn workspace_library_summaries_are_bounded_and_load_single_items_by_id() {
+        let storage = StorageEngine::new_in_memory().unwrap();
+        let long_text = "界".repeat(300);
+        let id = storage
+            .upsert_pin_workspace_item(PinWorkspaceItemWrite {
+                text_content: Some(&long_text),
+                ..text_write(None, None)
+            })
+            .unwrap();
+        let image_revision = register_revision(&storage);
+        storage
+            .upsert_pin_workspace_item(PinWorkspaceItemWrite {
+                id: None,
+                group_id: None,
+                revision_id: Some(image_revision),
+                content_type: ContentType::Image,
+                text_content: None,
+                html_content: None,
+                content_hash: "image-render-hash",
+                content_width: 640.0,
+                content_height: 480.0,
+                scale: 1.0,
+                opacity: 1.0,
+                locked: false,
+                above: false,
+                placement: None,
+            })
+            .unwrap();
+
+        // 图片 fixture 的根图刻意不是合法 PNG。轻量列表不读取或解码根图，仍应成功。
+        let summaries = storage.list_pin_workspace_summaries().unwrap();
+        assert_eq!(summaries.len(), 2);
+        let text = summaries.iter().find(|item| item.id == id).unwrap();
+        assert_eq!(text.preview_text.as_ref().unwrap().chars().count(), 241);
+        assert!(text.preview_text.as_ref().unwrap().ends_with('…'));
+        assert_eq!(
+            storage.get_pin_workspace_content_identity(id).unwrap(),
+            Some((ContentType::Text, "text-hash".to_string()))
+        );
+        assert_eq!(storage.load_pin_workspace_item(id).unwrap().unwrap().id, id);
+        assert!(storage.load_pin_workspace_item(i64::MAX).unwrap().is_none());
     }
 
     #[test]

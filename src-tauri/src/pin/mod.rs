@@ -14,6 +14,7 @@ pub(crate) mod render_v2;
 mod resample;
 mod window;
 mod workspace;
+pub(crate) mod workspace_library;
 
 pub(crate) use commands::{
     create_screenshot_pin_shared, lower_pins_for_capture, raise_focused_pin,
@@ -143,6 +144,29 @@ mod tests {
         manager.remove_window("pin-image-test");
         assert_eq!(manager.len(), 0);
         assert!(manager.get("pin-image-test").is_err());
+    }
+
+    #[test]
+    fn manager_resolves_only_open_workspace_ids() {
+        let manager = PinManager::new();
+        let mut first = screenshot_entry("pin-workspace-41");
+        first.workspace_id = Some(41);
+        first.workspace_group_id = Some(9);
+        manager.insert(first).unwrap();
+        manager
+            .insert(screenshot_entry("pin-image-temporary"))
+            .unwrap();
+
+        assert_eq!(
+            manager.label_for_workspace(41).unwrap().as_deref(),
+            Some("pin-workspace-41")
+        );
+        assert_eq!(manager.label_for_workspace(42).unwrap(), None);
+        assert_eq!(manager.open_workspace_ids().unwrap(), vec![41]);
+        assert_eq!(
+            manager.labels_in_workspace_group(9).unwrap(),
+            vec!["pin-workspace-41".to_string()]
+        );
     }
 
     /// `update_pin` 每帧要克隆两份条目（回滚用的旧值 + 更新后的新值）。内容按值放在

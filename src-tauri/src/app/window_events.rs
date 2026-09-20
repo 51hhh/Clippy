@@ -90,7 +90,11 @@ pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
                     .get_webview_window(window.label())
                     .is_none()
                 {
+                    let was_saved = state.pin_manager.has_saved_workspace(window.label());
                     state.pin_manager.remove_window(window.label());
+                    if was_saved {
+                        crate::pin::workspace_library::notify_changed(window.app_handle());
+                    }
                 }
             }
         }

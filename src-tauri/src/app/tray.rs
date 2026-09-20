@@ -10,6 +10,7 @@ const OPEN_ID: &str = "open_clipboard";
 const ACTIONS_ID: &str = "actions";
 const RECORD_AREA_ID: &str = "record_area";
 const RECORDINGS_ID: &str = "recordings";
+const PIN_WORKSPACES_ID: &str = "pin_workspaces";
 const SETTINGS_ID: &str = "settings";
 const QUIT_ID: &str = "quit";
 
@@ -20,6 +21,7 @@ pub(crate) struct TrayMenuItems {
     actions: MenuItem<tauri::Wry>,
     record_area: Option<MenuItem<tauri::Wry>>,
     recordings: MenuItem<tauri::Wry>,
+    pin_workspaces: MenuItem<tauri::Wry>,
     settings: MenuItem<tauri::Wry>,
     quit: MenuItem<tauri::Wry>,
 }
@@ -43,6 +45,12 @@ impl TrayMenuItems {
         }
         if let Err(error) = self.recordings.set_text(text.recordings_menu) {
             log::warn!("托盘菜单文案刷新失败 ({}): {error}", text.recordings_menu);
+        }
+        if let Err(error) = self.pin_workspaces.set_text(text.pin_workspaces_menu) {
+            log::warn!(
+                "托盘菜单文案刷新失败 ({}): {error}",
+                text.pin_workspaces_menu
+            );
         }
     }
 }
@@ -78,6 +86,13 @@ pub(crate) fn build(
             true,
             None::<&str>,
         )?,
+        pin_workspaces: MenuItem::with_id(
+            app,
+            PIN_WORKSPACES_ID,
+            text.pin_workspaces_menu,
+            true,
+            None::<&str>,
+        )?,
         settings: MenuItem::with_id(app, SETTINGS_ID, text.settings_menu, true, None::<&str>)?,
         quit: MenuItem::with_id(app, QUIT_ID, text.quit_menu, true, None::<&str>)?,
     };
@@ -87,6 +102,7 @@ pub(crate) fn build(
         menu_items.push(record_area);
     }
     menu_items.push(&items.recordings);
+    menu_items.push(&items.pin_workspaces);
     menu_items.push(&items.settings);
     menu_items.push(&items.quit);
     let menu = Menu::with_items(app, &menu_items)?;
@@ -128,6 +144,11 @@ pub(crate) fn build(
             RECORDINGS_ID => {
                 if let Err(error) = crate::recording::library::open(app_handle) {
                     log::warn!("打开录屏结果库失败: {error}");
+                }
+            }
+            PIN_WORKSPACES_ID => {
+                if let Err(error) = crate::pin::workspace_library::open(app_handle) {
+                    log::warn!("打开 Pin 工作区浏览器失败: {error}");
                 }
             }
             SETTINGS_ID => {

@@ -379,6 +379,7 @@ delta；父链与项目历史留给 `PX-PIN-01`。显式 resize/crop 之外不�
 | P1（已完成） | `PX-ANNOTATION-QUALITY-01` | 16 工具预览/导出画质矩阵与逐项修正 | 权威 Rust 渲染器 |
 | P1（已完成） | `PX-IMAGE-REVISION-01` | 内容寻址根图、累计修订、渲染 clip 关联与安全清理 | 数据库迁移设计 |
 | P1（已完成） | `PX-PIN-01` | 基于 image project 的 Pin 工作区、历史恢复和分组 | `PX-IMAGE-REVISION-01` |
+| P1（已完成） | `PX-PIN-HISTORY-01` | 独立全局工作区历史浏览、重开、归组与移除 | `PX-PIN-01` |
 | P1（已完成） | `PX-IO-01` | 工程归档与批量导出/导入 | image project/clipboard 数据版本 |
 | P2（X11 已实现，待真机） | `PX-LS-AUTO-01` | X11 受控自动滚动；其余平台能力保持不可用 | `PX-LS-2D-01` + 平台输入能力 |
 | P2（已完成） | `PX-CODE-01` | 四种产品格式与扫码场景矩阵 | 可重复 fixture |

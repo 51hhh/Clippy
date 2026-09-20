@@ -13,7 +13,7 @@ pub(crate) use archive::{
 pub(crate) use image_revisions::{ImageRevisionWrite, StoredImageRevision};
 pub(crate) use pin_workspace::{
     PinWorkspaceGroup, PinWorkspaceItemWrite, PinWorkspacePresentation, StoredPinPlacement,
-    StoredPinWorkspaceContent, StoredPinWorkspaceItem,
+    StoredPinWorkspaceContent, StoredPinWorkspaceItem, StoredPinWorkspaceSummary,
 };
 pub use translation_history::NewTranslation;
 

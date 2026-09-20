@@ -10,6 +10,7 @@ import {
   onCurrentWindowCloseRequested,
   onPinAlreadyOpen,
   onPinImageSharpened,
+  onPinWorkspaceChanged,
   pinReady,
   savePin,
   savePinToWorkspace,
@@ -75,4 +76,6 @@ export const pinApi = {
     onPinImageSharpened(callback),
   /** 订阅"这张图已经贴出来了"，用来闪一下外围边框提醒用户。 */
   onAlreadyOpen: (callback: () => void): Promise<() => void> => onPinAlreadyOpen(callback),
+  onWorkspaceChanged: (callback: (payload: { workspaceId: number | null; groupId: number | null }) => void): Promise<() => void> =>
+    onPinWorkspaceChanged(callback),
 };

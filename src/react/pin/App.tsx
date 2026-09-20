@@ -410,6 +410,22 @@ export function App({ services = defaultServices }: { services?: PinAppServices 
     });
   }, []);
 
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    pinApi.onWorkspaceChanged((change) => {
+      patchWorkspace(change.workspaceId, change.groupId);
+      if (change.workspaceId == null) setWorkspaceOpen(false);
+    }).then((stop) => {
+      if (cancelled) stop();
+      else unlisten = stop;
+    }).catch((reason) => console.error(reason));
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [patchWorkspace]);
+
   const loadWorkspaceGroups = useCallback(async () => {
     setWorkspaceBusy(true);
     setWorkspaceError(null);

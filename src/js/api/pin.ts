@@ -11,6 +11,9 @@ import type {
   PinToolbarBounds,
   PinUpdate,
   PinWorkspaceGroup,
+  PinWorkspaceChange,
+  PinWorkspaceLibrarySettings,
+  PinWorkspaceLibrarySnapshot,
   PinWorkspaceStatus,
 } from "../ipc-types.ts";
 
@@ -99,6 +102,58 @@ export function assignPinWorkspaceGroup(label: string, groupId: number | null): 
   return invoke<void>("assign_pin_workspace_group", { label, groupId });
 }
 
+export function getPinWorkspaceLibrarySettings(): Promise<PinWorkspaceLibrarySettings> {
+  return invoke<PinWorkspaceLibrarySettings>("get_pin_workspace_library_settings");
+}
+
+export function listPinWorkspaceLibrary(): Promise<PinWorkspaceLibrarySnapshot> {
+  return invoke<PinWorkspaceLibrarySnapshot>("list_pin_workspace_library");
+}
+
+export function getPinWorkspaceThumbnail(id: number): Promise<string | null> {
+  return invoke<string | null>("get_pin_workspace_thumbnail", { id });
+}
+
+export function showPinWorkspaceItem(id: number): Promise<boolean> {
+  return invoke<boolean>("show_pin_workspace_item", { id });
+}
+
+export function assignPinWorkspaceLibraryGroup(id: number, groupId: number | null): Promise<void> {
+  return invoke<void>("assign_pin_workspace_library_group", { id, groupId });
+}
+
+export function removePinWorkspaceLibraryItem(id: number): Promise<void> {
+  return invoke<void>("remove_pin_workspace_library_item", { id });
+}
+
+export function createPinWorkspaceLibraryGroup(name: string): Promise<PinWorkspaceGroup> {
+  return invoke<PinWorkspaceGroup>("create_pin_workspace_library_group", { name });
+}
+
+export function renamePinWorkspaceLibraryGroup(id: number, name: string): Promise<boolean> {
+  return invoke<boolean>("rename_pin_workspace_library_group", { id, name });
+}
+
+export function deletePinWorkspaceLibraryGroup(id: number): Promise<boolean> {
+  return invoke<boolean>("delete_pin_workspace_library_group", { id });
+}
+
+export function pinWorkspaceLibraryReady(): Promise<void> {
+  return invoke<void>("pin_workspace_library_ready");
+}
+
+export function startPinWorkspaceLibraryDrag(): Promise<void> {
+  return invoke<void>("start_pin_workspace_library_drag");
+}
+
+export function closePinWorkspaceLibrary(): Promise<void> {
+  return invoke<void>("close_pin_workspace_library");
+}
+
+export function onPinWorkspaceLibraryChanged(callback: () => void): Promise<UnlistenFn> {
+  return listen<null>("pin-workspace-library-changed", () => callback());
+}
+
 /**
  * 贴图的**原图**（base64 PNG），画布导出的底图。
  *
@@ -159,6 +214,12 @@ export function onPinImageSharpened(
  */
 export function onPinAlreadyOpen(callback: () => void): Promise<UnlistenFn> {
   return listen<null>("pin-already-open", () => callback());
+}
+
+export function onPinWorkspaceChanged(
+  callback: (payload: PinWorkspaceChange) => void,
+): Promise<UnlistenFn> {
+  return listen<PinWorkspaceChange>("pin-workspace-changed", (event) => callback(event.payload));
 }
 
 export function onPinCurrent(callback: () => void): Promise<UnlistenFn> {

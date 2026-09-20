@@ -643,6 +643,36 @@ export interface PinWorkspaceGroup {
   sortOrder: number;
 }
 
+export interface PinWorkspaceChange {
+  workspaceId: number | null;
+  groupId: number | null;
+}
+
+export interface PinWorkspaceLibraryItem {
+  id: number;
+  groupId: number | null;
+  contentType: ContentType;
+  previewText: string | null;
+  contentWidth: number;
+  contentHeight: number;
+  scale: number;
+  opacity: number;
+  locked: boolean;
+  above: boolean;
+  updatedAt: number;
+  open: boolean;
+}
+
+export interface PinWorkspaceLibrarySnapshot {
+  groups: PinWorkspaceGroup[];
+  items: PinWorkspaceLibraryItem[];
+}
+
+export interface PinWorkspaceLibrarySettings {
+  language: string;
+  theme: string;
+}
+
 export interface ClipboardStats {
   total: number;
   favorites: number;

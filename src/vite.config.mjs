@@ -24,6 +24,7 @@ export default defineConfig({
         longshotGuide: resolve(__dirname, "longshot-guide.html"),
         recordingControl: resolve(__dirname, "recording-control.html"),
         recordings: resolve(__dirname, "recordings.html"),
+        pinWorkspaces: resolve(__dirname, "pin-workspaces.html"),
       },
     },
   },

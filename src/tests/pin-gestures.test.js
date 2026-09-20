@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
     onSharpened: vi.fn(),
     onCloseRequested: vi.fn(),
     onAlreadyOpen: vi.fn(),
+    onWorkspaceChanged: vi.fn(),
     toolbarBounds: vi.fn(),
     sourceImage: vi.fn(),
   },
@@ -239,6 +240,7 @@ describe("pin window is not zoomable and not selectable", () => {
     mocks.pinApi.onSharpened.mockResolvedValue(() => {});
     mocks.pinApi.onCloseRequested.mockResolvedValue(() => {});
     mocks.pinApi.onAlreadyOpen.mockResolvedValue(() => {});
+    mocks.pinApi.onWorkspaceChanged.mockResolvedValue(() => {});
     mocks.pinApi.toolbarBounds.mockResolvedValue({ x: 0, y: 0, width: 388, height: 252 });
     mocks.pinApi.sourceImage.mockResolvedValue(null);
     mocks.startDraggingCurrentWindow.mockReset();

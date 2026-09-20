@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
     onSharpened: vi.fn(),
     onCloseRequested: vi.fn(),
     onAlreadyOpen: vi.fn(),
+    onWorkspaceChanged: vi.fn(),
     saveCanvas: vi.fn(),
     saveWorkspace: vi.fn(),
     removeWorkspace: vi.fn(),
@@ -222,6 +223,7 @@ describe("React pin app", () => {
     mocks.pinApi.onSharpened.mockResolvedValue(() => {});
     mocks.pinApi.onCloseRequested.mockResolvedValue(() => {});
     mocks.pinApi.onAlreadyOpen.mockResolvedValue(() => {});
+    mocks.pinApi.onWorkspaceChanged.mockResolvedValue(() => {});
     mocks.pinApi.saveCanvas.mockResolvedValue({
       path: "/tmp/pin.png",
       clipboardWritten: true,
@@ -296,6 +298,21 @@ describe("React pin app", () => {
     await act(async () => document.querySelector(".pin-workspace-remove").click());
     await flush();
     expect(mocks.pinApi.removeWorkspace).toHaveBeenCalledWith("pin-image-test");
+    expect(document.querySelector('button[aria-label="Keep in Pin workspace"]')).not.toBeNull();
+  });
+
+  it("applies workspace changes made by the independent library window", async () => {
+    let notify;
+    mocks.pinApi.get.mockResolvedValue({ ...payload, workspaceId: 7, workspaceGroupId: 3 });
+    mocks.pinApi.onWorkspaceChanged.mockImplementation(async (callback) => {
+      notify = callback;
+      return () => {};
+    });
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+    expect(document.querySelector('button[aria-label="Manage Pin workspace"]')).not.toBeNull();
+
+    await act(async () => notify({ workspaceId: null, groupId: null }));
     expect(document.querySelector('button[aria-label="Keep in Pin workspace"]')).not.toBeNull();
   });
 
@@ -1286,6 +1303,7 @@ describe("color Pin payload boundary", () => {
     mocks.pinApi.onSharpened.mockResolvedValue(() => {});
     mocks.pinApi.onCloseRequested.mockResolvedValue(() => {});
     mocks.pinApi.onAlreadyOpen.mockResolvedValue(() => {});
+    mocks.pinApi.onWorkspaceChanged.mockResolvedValue(() => {});
     mocks.pinApi.copy.mockResolvedValue(undefined);
     mocks.pinApi.sourceImage.mockResolvedValue(TINY_PNG);
     mocks.startDraggingCurrentWindow.mockResolvedValue(undefined);

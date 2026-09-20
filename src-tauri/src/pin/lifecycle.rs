@@ -737,7 +737,10 @@ pub(super) async fn close_pin(label: String, app_handle: tauri::AppHandle) -> Re
             // 避免原生保护把最终关闭再送回确认框。
             window.destroy().map_err(|error| error.to_string())?;
         }
-        let _ = state.pin_manager.remove(&label)?;
+        let removed = state.pin_manager.remove(&label)?;
+        if removed.is_some_and(|entry| entry.workspace_id.is_some()) {
+            super::workspace_library::notify_changed(&app_handle);
+        }
         Ok(())
     })
     .await

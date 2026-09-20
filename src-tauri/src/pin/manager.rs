@@ -63,6 +63,42 @@ impl PinManager {
         Ok(())
     }
 
+    pub(super) fn label_for_workspace(
+        &self,
+        workspace_id: i64,
+    ) -> Result<Option<String>, PinError> {
+        let entries = self.entries.lock().map_err(PinError::state_lock)?;
+        Ok(entries
+            .values()
+            .find(|entry| entry.workspace_id == Some(workspace_id))
+            .map(|entry| entry.label.clone()))
+    }
+
+    pub(super) fn labels_in_workspace_group(&self, group_id: i64) -> Result<Vec<String>, PinError> {
+        let entries = self.entries.lock().map_err(PinError::state_lock)?;
+        Ok(entries
+            .values()
+            .filter(|entry| entry.workspace_group_id == Some(group_id))
+            .map(|entry| entry.label.clone())
+            .collect())
+    }
+
+    pub(super) fn open_workspace_ids(&self) -> Result<Vec<i64>, PinError> {
+        let entries = self.entries.lock().map_err(PinError::state_lock)?;
+        Ok(entries
+            .values()
+            .filter_map(|entry| entry.workspace_id)
+            .collect())
+    }
+
+    pub(crate) fn has_saved_workspace(&self, label: &str) -> bool {
+        self.entries
+            .lock()
+            .ok()
+            .and_then(|entries| entries.get(label).map(|entry| entry.workspace_id.is_some()))
+            .unwrap_or(false)
+    }
+
     pub(super) fn remove(&self, label: &str) -> Result<Option<PinEntry>, PinError> {
         // 窗口没了，还在后台等它出现的摆放重试也该停下来。
         super::window::forget_placement(label);

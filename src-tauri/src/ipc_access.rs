@@ -150,6 +150,21 @@ const RECORDING_LIBRARY_COMMANDS: &[&str] = &[
     "start_recording_library_drag",
 ];
 
+const PIN_WORKSPACE_LIBRARY_COMMANDS: &[&str] = &[
+    "assign_pin_workspace_library_group",
+    "close_pin_workspace_library",
+    "create_pin_workspace_library_group",
+    "delete_pin_workspace_library_group",
+    "get_pin_workspace_library_settings",
+    "get_pin_workspace_thumbnail",
+    "list_pin_workspace_library",
+    "pin_workspace_library_ready",
+    "remove_pin_workspace_library_item",
+    "rename_pin_workspace_library_group",
+    "show_pin_workspace_item",
+    "start_pin_workspace_library_drag",
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CallerKind {
     Main,
@@ -162,6 +177,7 @@ pub(crate) enum CallerKind {
     ImageViewer,
     RecordingControl,
     RecordingLibrary,
+    PinWorkspaceLibrary,
     Unknown,
 }
 
@@ -180,6 +196,7 @@ pub(crate) fn caller_kind(label: &str) -> CallerKind {
         "launcher" => CallerKind::Launcher,
         "settings" => CallerKind::Settings,
         "recordings" => CallerKind::RecordingLibrary,
+        "pin-workspaces" => CallerKind::PinWorkspaceLibrary,
         _ if safe_dynamic_label(label, "pin-", 96) => CallerKind::Pin,
         _ if safe_dynamic_label(label, "capture-overlay-", 128) => CallerKind::CaptureOverlay,
         _ if safe_dynamic_label(label, "recording-overlay-", 128) => CallerKind::RecordingOverlay,
@@ -217,6 +234,7 @@ pub(crate) fn allowed(caller: &str, command: &str) -> bool {
         CallerKind::ImageViewer => IMAGE_VIEWER_COMMANDS,
         CallerKind::RecordingControl => RECORDING_CONTROL_COMMANDS,
         CallerKind::RecordingLibrary => RECORDING_LIBRARY_COMMANDS,
+        CallerKind::PinWorkspaceLibrary => PIN_WORKSPACE_LIBRARY_COMMANDS,
         CallerKind::Unknown => return false,
     };
     commands.contains(&command)
@@ -258,6 +276,7 @@ mod tests {
             ("image-viewer-1", IMAGE_VIEWER_COMMANDS),
             ("recording-control-1", RECORDING_CONTROL_COMMANDS),
             ("recordings", RECORDING_LIBRARY_COMMANDS),
+            ("pin-workspaces", PIN_WORKSPACE_LIBRARY_COMMANDS),
         ] {
             let mut unique = commands.to_vec();
             unique.sort_unstable();
@@ -288,6 +307,7 @@ mod tests {
             "longshot-controller-1",
             "recording-control-1",
             "unknown-window",
+            "pin-workspaces",
         ] {
             for command in ACTION_COMMANDS {
                 assert!(!allowed(label, command), "{label} 不应允许 {command}");
@@ -424,6 +444,26 @@ mod tests {
             "update_config",
         ] {
             assert!(!allowed("recordings", command), "{command}");
+        }
+    }
+
+    #[test]
+    fn pin_workspace_library_has_only_opaque_workspace_operations() {
+        assert_eq!(
+            caller_kind("pin-workspaces"),
+            CallerKind::PinWorkspaceLibrary
+        );
+        for command in PIN_WORKSPACE_LIBRARY_COMMANDS {
+            assert!(allowed("pin-workspaces", command));
+        }
+        for command in [
+            "get_config",
+            "get_pin_payload",
+            "save_pin_canvas",
+            "delete_recording_session",
+            "commit_capture_action",
+        ] {
+            assert!(!allowed("pin-workspaces", command), "{command}");
         }
     }
 

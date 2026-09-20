@@ -119,7 +119,7 @@ pub async fn remove_pin_from_workspace(
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     run_workspace_work(app_handle, move |_app_handle, state| {
-        super::workspace::remove(&label, state)
+        super::workspace::remove(&label, _app_handle, state)
     })
     .await
 }
@@ -134,32 +134,39 @@ pub fn list_pin_workspace_groups(
 #[tauri::command]
 pub fn create_pin_workspace_group(
     name: String,
+    app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<crate::storage::PinWorkspaceGroup, String> {
-    super::workspace::create_group(&name, &state)
+    super::workspace::create_group(&name, &app_handle, &state)
 }
 
 #[tauri::command]
 pub fn rename_pin_workspace_group(
     id: i64,
     name: String,
+    app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<bool, String> {
-    super::workspace::rename_group(id, &name, &state)
+    super::workspace::rename_group(id, &name, &app_handle, &state)
 }
 
 #[tauri::command]
-pub fn delete_pin_workspace_group(id: i64, state: State<'_, AppState>) -> Result<bool, String> {
-    super::workspace::delete_group(id, &state)
+pub fn delete_pin_workspace_group(
+    id: i64,
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    super::workspace::delete_group(id, &app_handle, &state)
 }
 
 #[tauri::command]
 pub fn assign_pin_workspace_group(
     label: String,
     group_id: Option<i64>,
+    app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    super::workspace::assign_group(&label, group_id, &state)
+    super::workspace::assign_group(&label, group_id, &app_handle, &state)
 }
 
 async fn run_workspace_work<T: Send + 'static>(
