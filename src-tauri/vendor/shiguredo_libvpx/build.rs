@@ -392,22 +392,39 @@ fn build_from_source_windows_msvc(src_dir: &Path) {
 }
 
 // libvpx 1.16.0 は external-build 時にも GCC 用の -O3 を VS project generator に渡す。
-// Microsoft vcpkg の同版向け修正と同じ 1 行だけを書き換え、固定源码が変わった場合は即座に失敗する。
+// また Release 工程默认开启 LTCG，生成的中间对象无法由 llvm-objcopy 重写符号。
+// 只替换固定源码中的两个唯一片段，源码结构变化时立即失败。
 fn patch_windows_msvc_project_generator(src_dir: &Path) {
-    const ORIGINAL: &str = "        -*) die_unknown $opt\n";
-    const PATCHED: &str =
+    const UNKNOWN_FLAG_ORIGINAL: &str = "        -*) die_unknown $opt\n";
+    const UNKNOWN_FLAG_PATCHED: &str =
         "        -*) : # Ignore unknown flags (e.g. -O3 leaked from GCC CFLAGS)\n";
+    const WHOLE_PROGRAM_OPTIMIZATION_ORIGINAL: &str =
+        "                tag_content WholeProgramOptimization true\n";
+    const WHOLE_PROGRAM_OPTIMIZATION_PATCHED: &str =
+        "                tag_content WholeProgramOptimization false\n";
 
     let script_path = src_dir.join("build/make/gen_msvs_vcxproj.sh");
     let script = fs::read_to_string(&script_path)
         .unwrap_or_else(|error| panic!("failed to read {}: {error}", script_path.display()));
-    if script.matches(ORIGINAL).count() != 1 {
+    if script.matches(UNKNOWN_FLAG_ORIGINAL).count() != 1
+        || script
+            .matches(WHOLE_PROGRAM_OPTIMIZATION_ORIGINAL)
+            .count()
+            != 1
+    {
         panic!(
             "unexpected libvpx MSVC project generator at {}; refuse to apply an ambiguous patch",
             script_path.display()
         );
     }
-    fs::write(&script_path, script.replacen(ORIGINAL, PATCHED, 1))
+    let script = script
+        .replacen(UNKNOWN_FLAG_ORIGINAL, UNKNOWN_FLAG_PATCHED, 1)
+        .replacen(
+            WHOLE_PROGRAM_OPTIMIZATION_ORIGINAL,
+            WHOLE_PROGRAM_OPTIMIZATION_PATCHED,
+            1,
+        );
+    fs::write(&script_path, script)
         .unwrap_or_else(|error| panic!("failed to patch {}: {error}", script_path.display()));
 }
 

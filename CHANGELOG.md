@@ -85,8 +85,8 @@
 ### 🐛 修复
 
 - Windows 的 VP9 录屏原型不再把含 MinGW/pthread 符号的上游预编译库交给 MSVC 链接器；原生 CI
-  改从固定 SHA-256 的 libvpx 1.16.0 源码生成 v143 工程并用 MSBuild 构建，GNU 预编译包只允许
-  GNU 目标使用。（需求：`PX-REC-01`）
+  改从固定 SHA-256 的 libvpx 1.16.0 源码生成 v143 工程并用 MSBuild 构建，关闭不兼容符号重写的
+  LTCG 并保留 `MaxSpeed` 优化；GNU 预编译包只允许 GNU 目标使用。（需求：`PX-REC-01`）
 - 增强 OCR 对同一表格行内存在轻微纵坐标抖动的多个文字框，改为在半个中位行高内先按横坐标排序；
   金额、编号和单元格文字不再因 1–2px 的检测偏差交换顺序。新增 row/cell 双层质量合同，分别验证
   检测粒度、原始 reading order 和几何可恢复性。（需求：`PX-OCR-TABLE-01`）
