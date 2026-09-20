@@ -787,7 +787,8 @@ pipeline → VP9/WebM → 私有原子分段 → complete manifest，并核对�
 生命周期仍显式选择 MJPEG。统一分段 writer 默认 60 秒封尾、上限 120 秒，跨过边界即原子提交；
 默认 MJPEG 子进程 fixture 已在首段提交、次段打开时强制退出，并由启动恢复保留可播放前缀、删除
 未提交尾段、写入 interrupted。VP9 feature 回归也已产生并提交两个独立 WebM；三目标远程矩阵、
-macOS Intel 可复现输入、最终文件合并和长样本质量预算尚未完成。
+并把同一强杀恢复 fixture 纳入三目标原型 job。远程同 SHA 结果、macOS Intel 可复现输入、最终文件
+合并和长样本质量预算尚未完成。
 
 ### `PX-ACT-01`：类型化动作与启动器
 

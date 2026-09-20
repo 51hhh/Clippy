@@ -197,6 +197,6 @@ jobs:
         working-directory: src-tauri
         run: cargo test --features recording-vp9-prototype recording::mux::vp9_webm::tests
 
-      - name: Prototype VP9 session test
+      - name: Prototype VP9 session and recovery tests
         working-directory: src-tauri
-        run: cargo test --features recording-vp9-prototype recording::session::tests::vp9_session_commits_webm_and_matching_manifest_descriptor
+        run: cargo test --features recording-vp9-prototype recording::session::tests::vp9_

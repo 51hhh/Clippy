@@ -60,7 +60,8 @@ CI；只有真实安装包和桌面交互可以关闭 Native/人工 QA 项。
 `Recording Codec Prototype` 是 `recording-vp9-prototype` 的独立阻塞矩阵，使用
 `ubuntu-22.04`、`windows-latest` 和 GitHub 当前定义为 arm64 的 `macos-15` runner。它核对 vendored
 绑定、仓库固定的 libvpx 归档 SHA-256、第三方许可证，并运行 feature Clippy、VP9 mux 和会话分段
-测试。上游没有 macOS x86_64 预编译归档，因此该矩阵不能替代 Intel 目标；在 Intel 输入可复现前，
+测试；会话测试还会强制终止独立子进程，验证已提交 WebM 前缀可恢复、未提交尾段被清理。上游没有
+macOS x86_64 预编译归档，因此该矩阵不能替代 Intel 目标；在 Intel 输入可复现前，
 VP9 仍不能成为四目标默认编码器。runner 架构以
 [GitHub-hosted runners reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
 为准。

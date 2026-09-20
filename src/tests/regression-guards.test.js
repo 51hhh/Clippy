@@ -108,7 +108,7 @@ describe("Linux CI 固守 Ubuntu 22 构建基线", () => {
       "cargo test --features recording-vp9-prototype recording::mux::vp9_webm::tests",
     );
     expect(buildWorkflow).toContain(
-      "cargo test --features recording-vp9-prototype recording::session::tests::vp9_session_commits_webm_and_matching_manifest_descriptor",
+      "cargo test --features recording-vp9-prototype recording::session::tests::vp9_",
     );
   });
 

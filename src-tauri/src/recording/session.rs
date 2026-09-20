@@ -677,6 +677,72 @@ mod tests {
         assert!(!directory.join(".segment-000001.webm.partial").exists());
     }
 
+    #[cfg(feature = "recording-vp9-prototype")]
+    #[test]
+    fn vp9_strong_kill_recovers_committed_prefix_and_discards_open_tail() {
+        const CHILD_ENV: &str = "CLIPPY_RECORDING_VP9_CRASH_FIXTURE_CHILD";
+        const DIRECTORY_ENV: &str = "CLIPPY_RECORDING_VP9_CRASH_FIXTURE_DIRECTORY";
+        if std::env::var_os(CHILD_ENV).is_some() {
+            let directory = PathBuf::from(std::env::var_os(DIRECTORY_ENV).unwrap());
+            let mut configuration = config("session-vp9-crash");
+            configuration.width = 64;
+            configuration.height = 48;
+            configuration.encoder = RecordingEncoder::Vp9Prototype;
+            configuration.segment_duration_ns = 200_000_000;
+            let session = DiagnosticRecordingSession::start(
+                &directory,
+                configuration,
+                Vp9FixtureSource {
+                    sequence: 0,
+                    timestamp_ns: 100,
+                },
+            )
+            .unwrap();
+            let session_directory = session.session_directory().to_path_buf();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while manifest_value(&session_directory)["segments"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+            {
+                assert!(std::time::Instant::now() < deadline);
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            assert!(session_directory.join("segment-000000.webm").exists());
+            assert!(session_directory
+                .join(".segment-000001.webm.partial")
+                .exists());
+            std::process::exit(91);
+        }
+
+        let temporary = tempfile::tempdir().unwrap();
+        let status = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "recording::session::tests::vp9_strong_kill_recovers_committed_prefix_and_discards_open_tail",
+                "--nocapture",
+            ])
+            .env(CHILD_ENV, "1")
+            .env(DIRECTORY_ENV, temporary.path())
+            .status()
+            .unwrap();
+        assert_eq!(status.code(), Some(91));
+
+        let summary = crate::recording::recover_interrupted_sessions(temporary.path()).unwrap();
+        let directory = temporary.path().join("recordings/session-vp9-crash");
+        let manifest = manifest_value(&directory);
+        assert_eq!(summary.interrupted_sessions, 1);
+        assert_eq!(summary.recoverable_segments, 1);
+        assert_eq!(manifest["state"], "interrupted");
+        assert_eq!(manifest["segments"].as_array().unwrap().len(), 1);
+        assert!(directory.join("segment-000000.webm").exists());
+        assert!(!directory.join(".segment-000001.webm.partial").exists());
+        assert_eq!(
+            &std::fs::read(directory.join("segment-000000.webm")).unwrap()[0..4],
+            [0x1a, 0x45, 0xdf, 0xa3]
+        );
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     #[ignore = "由 ci-local.sh 在隔离 Xvfb 中显式运行"]
