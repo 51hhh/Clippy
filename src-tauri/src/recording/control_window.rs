@@ -1,8 +1,8 @@
 //! 录屏控制窗的物理几何与平台排除策略。
 //!
-//! Windows/macOS 的原生帧源可显式排除控制窗；X11 根窗口取帧与 Wayland Portal 没有同等的任意窗口
-//! 排除合同，只能把控制窗完整放到选区之外。若所有显示器都被选区覆盖，必须退回托盘/快捷键控制，
-//! 不能把“可能被录进去”的浮窗当作可接受结果。
+//! Windows 10 2004+ 可显式排除控制窗；旧 Windows、当前 macOS AVFoundation、X11 根窗口与
+//! Wayland Portal 没有同等的任意窗口排除合同，只能把控制窗完整放到选区之外。若所有显示器都被
+//! 选区覆盖，必须退回托盘/快捷键控制，不能把“可能被录进去”的浮窗当作可接受结果。
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct PhysicalRect {

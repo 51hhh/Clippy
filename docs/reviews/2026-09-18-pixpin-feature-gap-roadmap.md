@@ -827,7 +827,8 @@ VP9 内部已拆开 libvpx 帧编码与 WebM packet mux，并以零 lookahead �
 崩溃落在 manifest 与 rename 之间会自动完成提升，坏最终文件只回退到已验证分段。VP9 合成会话
 正常停止现会返回私有 `recording.webm`。Windows 已加入 WGC 单槽最新帧桥接、可信区域裁剪、平台
 暂停/继续/停止 hook 和控制窗 `WDA_EXCLUDEFROMCAPTURE`；Windows 10 2004 前继续使用几何排除，
-避免原生 API 退化为黑块。仓库固定的 xcap 0.9.6 小范围补丁已要求 WGC 录制包含光标，但目前
+且不会再误调用新系统排除 API，避免启动失败或退化为黑块。仓库固定的 xcap 0.9.6 小范围补丁已
+要求 WGC 录制包含光标，但目前
 只有隔离交叉类型检查，没有 Windows 原生 CI 和移动光标像素真机证据。macOS 也已建立
 AVFoundation 区域帧源：CoreGraphics 核对 backing-pixel 几何，把左上角物理选区换算为左下角屏幕
 点，并由 `cropRect + scaleFactor` 直接输出选区像素，避免 6K/8K 整屏 RGBA；零容量回调由单槽最新

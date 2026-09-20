@@ -359,8 +359,12 @@ xcap 的 macOS delegate 使用零容量同步通道。Clippy 在采集 worker �
 增加了受边界检查的 macOS 区域录制入口，版本、原件哈希、七个补丁文件、许可证和调用形态均由
 脚本固定。隔离的 `aarch64-apple-darwin` 类型与 lint 检查已经通过；屏幕录制权限、光标、Retina、
 旋转屏、负坐标混合 DPI 和 4K/6K 真机仍须在 macOS 原生 CI/设备验证。当前 AVFoundation 路径也
-不能排除控制窗；若控制窗必须位于选区内，仍须迁移 ScreenCaptureKit 过滤器。因此该骨架不开放
-产品入口，也不把 macOS 录制记为通过。
+不能排除控制窗：Apple 已把
+[`NSWindow.SharingType.none`](https://developer.apple.com/documentation/appkit/nswindow/sharingtype-swift.enum)
+标为系统不再使用的旧常量，不能把 Tauri 的 content protection 当成录屏过滤证据；若控制窗必须
+位于选区内，仍须迁移到提供
+[`init(display:excludingWindows:)`](https://developer.apple.com/documentation/screencapturekit/sccontentfilter/init%28display%3Aexcludingwindows%3A%29)
+的 ScreenCaptureKit `SCContentFilter`。因此该骨架不开放产品入口，也不把 macOS 录制记为通过。
 
 Wayland 已建立 ScreenCast Portal + PipeWire 区域帧源骨架。准备阶段先按冻结帧的稳定 output ID
 重新枚举原生 Wayland 输出，并核对旋转后的物理像素尺寸；Portal 只请求单个 Monitor 源和 Embedded

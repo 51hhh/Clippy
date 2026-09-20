@@ -3,6 +3,7 @@
 //! 本模块没有“开始录屏”入口。它只把已经由可信截图会话建立的生命周期接到控制窗；在编码器、
 //! 平台帧源和原生 CI 门槛完成前，主界面与截图工具条不会创建录屏会话。
 
+use super::control_exclusion::{configure_control_exclusion, control_exclusion_capability};
 use super::control_registry::{RecordingControlClose, RecordingControlRegistryError};
 use super::control_window::{
     plan_control_window, ControlSize, ControlWindowPlan, PhysicalRect, WindowExclusionCapability,
@@ -161,10 +162,11 @@ impl DesktopActions for TauriRecordingDesktopActions<'_> {
     }
 }
 
-fn control_placement(
+fn control_placement_with_capability(
     app: &tauri::AppHandle,
     descriptor: &RecordingSourceDescriptor,
     size: ControlSize,
+    capability: WindowExclusionCapability,
 ) -> Result<PhysicalRect, String> {
     let monitors = app
         .available_monitors()
@@ -183,45 +185,12 @@ fn control_placement(
         width: descriptor.width,
         height: descriptor.height,
     };
-    match plan_control_window(
-        selection,
-        &monitors,
-        size,
-        CONTROL_MARGIN,
-        control_exclusion_capability(),
-    ) {
+    match plan_control_window(selection, &monitors, size, CONTROL_MARGIN, capability) {
         ControlWindowPlan::Visible(rect) => Ok(rect),
         ControlWindowPlan::TrayAndShortcutsOnly => {
             Err("选区外没有安全的录屏控制窗位置，托盘控制尚未实现".to_string())
         }
     }
-}
-
-fn control_exclusion_capability() -> WindowExclusionCapability {
-    #[cfg(target_os = "windows")]
-    {
-        let version = windows_version::OsVersion::current();
-        windows_control_exclusion_capability(version.major, version.build)
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        WindowExclusionCapability::GeometryOnly
-    }
-}
-
-#[cfg(any(target_os = "windows", test))]
-fn windows_control_exclusion_capability(major: u32, build: u32) -> WindowExclusionCapability {
-    if supports_windows_native_exclusion(major, build) {
-        WindowExclusionCapability::Native
-    } else {
-        // Windows 10 2004 前会把 0x11 退化为 WDA_MONITOR；继续要求几何排除，避免留下黑块。
-        WindowExclusionCapability::GeometryOnly
-    }
-}
-
-#[cfg(any(target_os = "windows", test))]
-fn supports_windows_native_exclusion(major: u32, build: u32) -> bool {
-    major > 10 || (major == 10 && build >= 19_041)
 }
 
 fn ensure_control_positioning_supported() -> Result<(), String> {
@@ -237,6 +206,7 @@ fn build_control_window(
     label: &str,
     descriptor: &RecordingSourceDescriptor,
 ) -> Result<(), String> {
+    let exclusion = control_exclusion_capability();
     let window =
         tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::App(CONTROL_PAGE.into()))
             .title("")
@@ -254,15 +224,16 @@ fn build_control_window(
             .build()
             .map_err(|error| error.to_string())?;
     let configure = (|| {
-        exclude_control_from_capture(&window)?;
+        configure_control_exclusion(&window, exclusion)?;
         let actual = window.outer_size().map_err(|error| error.to_string())?;
-        let placement = control_placement(
+        let placement = control_placement_with_capability(
             app,
             descriptor,
             ControlSize {
                 width: actual.width,
                 height: actual.height,
             },
+            exclusion,
         )?;
         window
             .set_position(Position::Physical(tauri::PhysicalPosition::new(
@@ -275,29 +246,6 @@ fn build_control_window(
         let _ = window.destroy();
         return Err(error);
     }
-    Ok(())
-}
-
-#[cfg(target_os = "windows")]
-fn exclude_control_from_capture(window: &tauri::WebviewWindow) -> Result<(), String> {
-    use windows_sys::Win32::Foundation::GetLastError;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE,
-    };
-
-    let hwnd = window.hwnd().map_err(|error| error.to_string())?;
-    let succeeded = unsafe { SetWindowDisplayAffinity(hwnd.0, WDA_EXCLUDEFROMCAPTURE) };
-    if succeeded == 0 {
-        let error = unsafe { GetLastError() };
-        return Err(format!(
-            "Windows 无法把录屏控制窗排除出捕获，错误码 {error}"
-        ));
-    }
-    Ok(())
-}
-
-#[cfg(not(target_os = "windows"))]
-fn exclude_control_from_capture(_window: &tauri::WebviewWindow) -> Result<(), String> {
     Ok(())
 }
 
@@ -468,30 +416,5 @@ pub(crate) fn handle_control_destroyed(app: &tauri::AppHandle, label: &str) {
         Err(RecordingControlRegistryError::Poisoned) => {
             log::error!("录屏控制窗销毁时 registry 锁已损坏");
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        supports_windows_native_exclusion, windows_control_exclusion_capability,
-        WindowExclusionCapability,
-    };
-
-    #[test]
-    fn native_window_exclusion_requires_windows_10_2004() {
-        assert!(!supports_windows_native_exclusion(6, 9_600));
-        assert!(!supports_windows_native_exclusion(10, 18_363));
-        assert!(supports_windows_native_exclusion(10, 19_041));
-        assert!(supports_windows_native_exclusion(10, 22_000));
-        assert!(supports_windows_native_exclusion(11, 1));
-        assert_eq!(
-            windows_control_exclusion_capability(10, 19_040),
-            WindowExclusionCapability::GeometryOnly
-        );
-        assert_eq!(
-            windows_control_exclusion_capability(10, 19_041),
-            WindowExclusionCapability::Native
-        );
     }
 }

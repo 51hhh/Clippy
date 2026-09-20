@@ -39,6 +39,8 @@ pub(crate) mod control_host;
 // 控制窗是否可见必须先通过平台排除能力与物理几何规划；窗口宿主接入前先固定纯函数合同。
 #[allow(dead_code)]
 mod control_window;
+// 平台原生窗口排除与几何后备必须共享同一能力结论，避免旧系统误调用新 API。
+mod control_exclusion;
 // 诊断编码器先验证分段、时间线与恢复；平台默认编码器选型完成前不进入产品入口。
 #[allow(dead_code)]
 mod mux;
