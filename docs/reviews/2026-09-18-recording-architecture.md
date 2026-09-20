@@ -112,6 +112,37 @@ pipeline、采集线程和编码线程接成一个生命周期：正常 Stop 只
 和停止中都占槽，并以不可复用的 generation token 拒绝迟到的暂停、停止与取消；产品 IPC、桌面资源
 恢复和控制窗口尚未接入。
 
+### 编码器 A/B 工具与当前结论
+
+仓库提供可选工程基准 `scripts/benchmark-recording-encoders.mjs`。它用仓库内 Noto CJK 字体生成包含
+中英日、数字、货币与数学符号、小字号滚动文字、网格和运动区域的确定性样本，以 FFV1 作为无损
+参考，并对每个候选记录墙钟时间、FFmpeg CPU/RSS、文件大小、SSIM、PSNR 以及 `ffprobe` 解码结果。
+产物写入显式目录或 `/tmp`，不进入仓库，也不在日常 CI 中执行：
+
+```bash
+node scripts/benchmark-recording-encoders.mjs \
+  --duration 60 --width 1920 --height 1080 --fps 30 \
+  --output /tmp/clippy-recording-codecs-1080p
+```
+
+2026-09-20 在 Intel Core Ultra 5 125H、FFmpeg 8.0.1 上先运行 1280×720、30 fps、2 秒的工具自检，
+得到以下本地证据：
+
+| 候选 | 墙钟 | 峰值 RSS | 文件大小 | SSIM | PSNR |
+|---|---:|---:|---:|---:|---:|
+| MJPEG / AVI | 0.126 s | 230.9 MiB | 3.52 MiB | 0.991269 | 34.7485 dB |
+| libvpx VP9 / WebM | 0.331 s | 351.1 MiB | 0.14 MiB | 0.993904 | 49.7496 dB |
+| rav1e AV1 / Matroska | 4.341 s | 406.0 MiB | 0.17 MiB | 0.993561 | 49.2045 dB |
+
+这次短样本只验证基准工具和候选方向。VP9 在本机样本上同时显著缩小文件并改善客观画质，作为下一
+个嵌入原型；只有 libvpx 与 WebM 封装能在同一 SHA 的 Linux、Windows、macOS CI 构建，60 秒
+1080p/4K 分层语料满足实时、内存和掉帧预算，且周期分段经过强杀恢复，才可确定为产品默认。
+rav1e 当前参数明显未达到实时，本机也没有 NASM，尚不能验证仓库从源码构建时的 x86 汇编优化链，
+所以保留为后续可选项。这里不把系统 FFmpeg 已链接的 rav1e 二进制性能归因于本机是否安装 NASM。
+
+OpenH264 的源码本身可嵌入构建，但自行编译的库与 Cisco 分发的预编译二进制不具有同一分发条件；
+在许可、专利和安装包策略独立审查前，不把它作为第一阶段默认依赖。MJPEG 继续只承担诊断闭环。
+
 ## 平台顺序
 
 1. 先实现与平台无关的 manifest、时间线、有界队列和合成帧 fixture；
