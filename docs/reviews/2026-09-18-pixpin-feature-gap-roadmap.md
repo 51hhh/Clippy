@@ -791,6 +791,8 @@ pipeline → VP9/WebM → 私有原子分段 → complete manifest，并核对�
 默认 MJPEG 子进程 fixture 已在首段提交、次段打开时强制退出，并由启动恢复保留可播放前缀、删除
 未提交尾段、写入 interrupted。VP9 feature 回归也已产生并提交两个独立 WebM，并把同一强杀恢复
 fixture 纳入四目标原型 job。远程同 SHA 结果、最终文件合并和长样本质量预算尚未完成。
+VP9 内部已先拆开 libvpx 帧编码与 WebM packet mux，保持现有输出测试不变；最终文件将复用同一批
+压缩 packet 同时写连续 mux 和恢复分段 mux，不通过二次有损编码或 WebM 字节拼接实现。
 
 ### `PX-ACT-01`：类型化动作与启动器
 

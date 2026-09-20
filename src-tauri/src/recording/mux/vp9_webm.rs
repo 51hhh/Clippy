@@ -55,24 +55,21 @@ pub(in crate::recording) struct Vp9WebmOutput<W> {
     pub frame_count: u64,
 }
 
-pub(in crate::recording) struct Vp9WebmWriter<W: Write + Seek> {
+struct Vp9PacketEncoder {
     width: u32,
     height: u32,
     fps_numerator: u32,
     fps_denominator: u32,
     keyframe_interval: u64,
     encoder: Encoder,
-    segment: Option<Segment<W>>,
-    track: VideoTrack,
     pending: Option<PendingFrame>,
     last_presentation_ns: Option<u64>,
     submitted_frames: u64,
     encoded_frames: u64,
 }
 
-impl<W: Write + Seek> Vp9WebmWriter<W> {
-    pub fn new(
-        writer: W,
+impl Vp9PacketEncoder {
+    fn new(
         width: u32,
         height: u32,
         fps_numerator: u32,
@@ -136,13 +133,6 @@ impl<W: Write + Seek> Vp9WebmWriter<W> {
         encoder_config.frame_drop_threshold = None;
         let encoder = Encoder::new(encoder_config)?;
 
-        let webm_writer = Writer::new(writer);
-        let builder = SegmentBuilder::new(webm_writer)?
-            .set_writing_app("Clippy")?
-            .set_mode(SegmentMode::File)?;
-        let (builder, track) =
-            builder.add_video_track(width, height, VideoCodecId::VP9, Some(1))?;
-
         Ok(Self {
             width,
             height,
@@ -150,8 +140,6 @@ impl<W: Write + Seek> Vp9WebmWriter<W> {
             fps_denominator,
             keyframe_interval,
             encoder,
-            segment: Some(builder.build()),
-            track,
             pending: None,
             last_presentation_ns: None,
             submitted_frames: 0,
@@ -159,7 +147,15 @@ impl<W: Write + Seek> Vp9WebmWriter<W> {
         })
     }
 
-    pub fn push_rgba(&mut self, rgba: &[u8], presentation_at_ns: u64) -> Result<(), Vp9WebmError> {
+    fn push_rgba<F>(
+        &mut self,
+        rgba: &[u8],
+        presentation_at_ns: u64,
+        emit: &mut F,
+    ) -> Result<(), Vp9WebmError>
+    where
+        F: FnMut(&[u8], u64, bool) -> Result<(), Vp9WebmError>,
+    {
         let expected_bytes = expected_rgba_bytes(self.width, self.height)?;
         if rgba.len() != expected_bytes
             || self
@@ -180,7 +176,7 @@ impl<W: Write + Seek> Vp9WebmWriter<W> {
                 return Err(Vp9WebmError::InvalidTimestamp);
             }
             if target_slot > pending.slot {
-                self.flush_pending_until(target_slot)?;
+                self.flush_pending_until(target_slot, emit)?;
             }
         }
         self.pending = Some(PendingFrame {
@@ -191,7 +187,10 @@ impl<W: Write + Seek> Vp9WebmWriter<W> {
         Ok(())
     }
 
-    pub fn finish_with_stats(mut self, duration_ns: u64) -> Result<Vp9WebmOutput<W>, Vp9WebmError> {
+    fn finish<F>(&mut self, duration_ns: u64, emit: &mut F) -> Result<u64, Vp9WebmError>
+    where
+        F: FnMut(&[u8], u64, bool) -> Result<(), Vp9WebmError>,
+    {
         let last = self
             .last_presentation_ns
             .ok_or(Vp9WebmError::InvalidTimestamp)?;
@@ -204,28 +203,24 @@ impl<W: Write + Seek> Vp9WebmWriter<W> {
             .map(|pending| pending.slot.saturating_add(1))
             .ok_or(Vp9WebmError::InvalidTimestamp)?;
         let desired_frames = self.frames_for_duration(duration_ns)?.max(minimum_frames);
-        self.flush_pending_until(desired_frames)?;
+        self.flush_pending_until(desired_frames, emit)?;
 
         self.encoder.finish()?;
-        self.drain_encoded_packets()?;
+        self.drain_encoded_packets(emit)?;
         if self.submitted_frames != desired_frames || self.encoded_frames != desired_frames {
             return Err(Vp9WebmError::UnexpectedPacketCount);
         }
-
-        // libwebm 的 Segment::set_duration 接收 TimecodeScale tick；其默认 scale 为 1 ms。
-        let duration_ticks = duration_ns.div_ceil(WEBM_TIMECODE_SCALE_NS).max(1);
-        let segment = self.segment.take().ok_or(Vp9WebmError::Finalize)?;
-        let writer = segment
-            .finalize(Some(duration_ticks))
-            .map_err(|_| Vp9WebmError::Finalize)?
-            .into_inner();
-        Ok(Vp9WebmOutput {
-            writer,
-            frame_count: self.encoded_frames,
-        })
+        Ok(self.encoded_frames)
     }
 
-    fn flush_pending_until(&mut self, exclusive_slot: u64) -> Result<(), Vp9WebmError> {
+    fn flush_pending_until<F>(
+        &mut self,
+        exclusive_slot: u64,
+        emit: &mut F,
+    ) -> Result<(), Vp9WebmError>
+    where
+        F: FnMut(&[u8], u64, bool) -> Result<(), Vp9WebmError>,
+    {
         let pending = self.pending.take().ok_or(Vp9WebmError::InvalidTimestamp)?;
         let repeat = exclusive_slot
             .checked_sub(pending.slot)
@@ -243,12 +238,15 @@ impl<W: Write + Seek> Vp9WebmWriter<W> {
             });
         }
         for _ in 0..repeat {
-            self.encode_i420(&pending.image)?;
+            self.encode_i420(&pending.image, emit)?;
         }
         Ok(())
     }
 
-    fn encode_i420(&mut self, image: &I420Frame) -> Result<(), Vp9WebmError> {
+    fn encode_i420<F>(&mut self, image: &I420Frame, emit: &mut F) -> Result<(), Vp9WebmError>
+    where
+        F: FnMut(&[u8], u64, bool) -> Result<(), Vp9WebmError>,
+    {
         let force_keyframe = self.submitted_frames.is_multiple_of(self.keyframe_interval);
         self.encoder.encode(
             &ImageData::I420 {
@@ -259,10 +257,13 @@ impl<W: Write + Seek> Vp9WebmWriter<W> {
             &EncodeOptions { force_keyframe },
         )?;
         self.submitted_frames = self.submitted_frames.saturating_add(1);
-        self.drain_encoded_packets()
+        self.drain_encoded_packets(emit)
     }
 
-    fn drain_encoded_packets(&mut self) -> Result<(), Vp9WebmError> {
+    fn drain_encoded_packets<F>(&mut self, emit: &mut F) -> Result<(), Vp9WebmError>
+    where
+        F: FnMut(&[u8], u64, bool) -> Result<(), Vp9WebmError>,
+    {
         while let Some(frame) = self.encoder.next_frame() {
             let timestamp_ns = u128::from(self.encoded_frames)
                 .checked_mul(NANOS_PER_SECOND)
@@ -270,10 +271,7 @@ impl<W: Write + Seek> Vp9WebmWriter<W> {
                 .and_then(|value| value.checked_div(u128::from(self.fps_numerator)))
                 .and_then(|value| u64::try_from(value).ok())
                 .ok_or(Vp9WebmError::FrameLimit)?;
-            self.segment
-                .as_mut()
-                .ok_or(Vp9WebmError::Finalize)?
-                .add_frame(self.track, frame.data(), timestamp_ns, frame.is_keyframe())?;
+            emit(frame.data(), timestamp_ns, frame.is_keyframe())?;
             self.encoded_frames = self.encoded_frames.saturating_add(1);
         }
         Ok(())
@@ -298,6 +296,100 @@ impl<W: Write + Seek> Vp9WebmWriter<W> {
             .checked_mul(u128::from(self.fps_numerator))
             .ok_or(Vp9WebmError::FrameLimit)?;
         u64::try_from(numerator.div_ceil(denominator)).map_err(|_| Vp9WebmError::FrameLimit)
+    }
+}
+
+struct WebmPacketMux<W: Write + Seek> {
+    segment: Option<Segment<W>>,
+    track: VideoTrack,
+    frame_count: u64,
+}
+
+impl<W: Write + Seek> WebmPacketMux<W> {
+    fn new(writer: W, width: u32, height: u32) -> Result<Self, Vp9WebmError> {
+        let builder = SegmentBuilder::new(Writer::new(writer))?
+            .set_writing_app("Clippy")?
+            .set_mode(SegmentMode::File)?;
+        let (builder, track) =
+            builder.add_video_track(width, height, VideoCodecId::VP9, Some(1))?;
+        Ok(Self {
+            segment: Some(builder.build()),
+            track,
+            frame_count: 0,
+        })
+    }
+
+    fn add_frame(
+        &mut self,
+        data: &[u8],
+        timestamp_ns: u64,
+        is_keyframe: bool,
+    ) -> Result<(), Vp9WebmError> {
+        self.segment
+            .as_mut()
+            .ok_or(Vp9WebmError::Finalize)?
+            .add_frame(self.track, data, timestamp_ns, is_keyframe)?;
+        self.frame_count = self.frame_count.saturating_add(1);
+        Ok(())
+    }
+
+    fn finish(mut self, duration_ns: u64) -> Result<Vp9WebmOutput<W>, Vp9WebmError> {
+        // libwebm 的 Segment::set_duration 接收 TimecodeScale tick；其默认 scale 为 1 ms。
+        let duration_ticks = duration_ns.div_ceil(WEBM_TIMECODE_SCALE_NS).max(1);
+        let writer = self
+            .segment
+            .take()
+            .ok_or(Vp9WebmError::Finalize)?
+            .finalize(Some(duration_ticks))
+            .map_err(|_| Vp9WebmError::Finalize)?
+            .into_inner();
+        Ok(Vp9WebmOutput {
+            writer,
+            frame_count: self.frame_count,
+        })
+    }
+}
+
+pub(in crate::recording) struct Vp9WebmWriter<W: Write + Seek> {
+    encoder: Vp9PacketEncoder,
+    mux: WebmPacketMux<W>,
+}
+
+impl<W: Write + Seek> Vp9WebmWriter<W> {
+    pub fn new(
+        writer: W,
+        width: u32,
+        height: u32,
+        fps_numerator: u32,
+        fps_denominator: u32,
+    ) -> Result<Self, Vp9WebmError> {
+        Ok(Self {
+            encoder: Vp9PacketEncoder::new(width, height, fps_numerator, fps_denominator)?,
+            mux: WebmPacketMux::new(writer, width, height)?,
+        })
+    }
+
+    pub fn push_rgba(&mut self, rgba: &[u8], presentation_at_ns: u64) -> Result<(), Vp9WebmError> {
+        let mux = &mut self.mux;
+        self.encoder.push_rgba(
+            rgba,
+            presentation_at_ns,
+            &mut |data, timestamp_ns, is_keyframe| mux.add_frame(data, timestamp_ns, is_keyframe),
+        )
+    }
+
+    pub fn finish_with_stats(mut self, duration_ns: u64) -> Result<Vp9WebmOutput<W>, Vp9WebmError> {
+        let mux = &mut self.mux;
+        let encoded_frames = self
+            .encoder
+            .finish(duration_ns, &mut |data, timestamp_ns, is_keyframe| {
+                mux.add_frame(data, timestamp_ns, is_keyframe)
+            })?;
+        let output = self.mux.finish(duration_ns)?;
+        if output.frame_count != encoded_frames {
+            return Err(Vp9WebmError::UnexpectedPacketCount);
+        }
+        Ok(output)
     }
 }
 
