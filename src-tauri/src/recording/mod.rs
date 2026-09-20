@@ -25,6 +25,9 @@ mod session;
 // 单活动录屏注册表已固定代次与迟到命令语义；产品 IPC 接入前保持领域内可见。
 #[allow(dead_code)]
 mod manager;
+// 截图选区、桌面恢复、控制面与会话注册表必须由一个生命周期按顺序交接。
+#[allow(dead_code)]
+mod lifecycle;
 // 控制窗是否可见必须先通过平台排除能力与物理几何规划；窗口宿主接入前先固定纯函数合同。
 #[allow(dead_code)]
 mod control_window;

@@ -51,6 +51,7 @@ pub(super) enum DiagnosticRecordingError {
     AlreadySettled,
 }
 
+#[derive(Debug)]
 pub(super) struct DiagnosticRecordingReport {
     pub segment_path: PathBuf,
     pub duration_ns: u64,
