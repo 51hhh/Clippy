@@ -19,6 +19,9 @@ mod worker;
 // 诊断编码消费线程先闭合 capture → pipeline → mux；产品会话接入前保持领域内可见。
 #[allow(dead_code)]
 mod encoder_worker;
+// 编码线程按呈现时间周期封尾，已提交前缀不依赖正常 Stop 才进入恢复清单。
+#[allow(dead_code)]
+mod segmenting;
 // 会话 owner 已闭合 journal、采集与诊断编码；产品注册表和 IPC 接入前保持领域内可见。
 #[allow(dead_code)]
 mod session;

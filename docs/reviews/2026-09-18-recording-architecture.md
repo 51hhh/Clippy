@@ -78,9 +78,9 @@ recordings/<session-id>/
 提交顺序固定为：完成并 `sync_all` 临时分段 → 计算长度与 SHA-256 → 用私有临时文件原子提交
 manifest → 原子提升为最终分段并同步目录。manifest 是提交点；进程若在提交后、提升前退出，启动
 恢复只会在 `.partial` 的长度与 SHA-256 和 manifest 完全一致时完成提升。未进入 manifest 的临时
-分段不会被当作有效数据。随后按连续序号、预算、文件大小和 SHA 验证已提交前缀；坏尾段只截断
-恢复点，不使此前分段失效。启动扫描限制会话数、manifest 大小、分段数和总字节，拒绝符号链接、
-路径分隔符与未知 schema。
+分段不会被当作有效数据，并在启动恢复时删除。随后按连续序号、预算、文件大小和 SHA 验证已提交
+前缀；坏尾段只截断恢复点，不使此前分段失效。启动扫描限制会话数、manifest 大小、分段数和总
+字节，拒绝符号链接、路径分隔符与未知 schema。
 
 正常停止先完成最后分段，再生成单一最终文件。最终合并失败时保留已提交分段和 manifest，允许重试，
 不能删除唯一可恢复数据。只有最终文件通过容器探测和时长检查后，才能把会话标成 complete。
@@ -161,7 +161,10 @@ Windows x64、macOS Intel/Apple Silicon 均编译和运行该 feature。当前 L
 同一三槽 pipeline 可封尾 200 ms WebM。会话配置现以类型化枚举选择编码器，非默认 feature 下的
 VP9 已完整经过 capture worker、三槽 pipeline、WebM 封尾、私有分段原子提交和 complete manifest；
 清单中的 encoder/container、分段扩展名、时长与帧数均由同一选择产生。产品生命周期仍显式选择
-MJPEG，周期分段和 VP9 强杀恢复尚未完成。
+MJPEG。编码线程现在默认每 60 秒、最多允许 120 秒一个周期分段；跨过边界时立即封尾并提交，最后
+一段则在 Stop 后由会话 owner 核对时长与背压再把清单标为 complete。MJPEG 子进程强杀 fixture 已
+证明首段提交、次段仍打开时退出，启动恢复会保留可播放首段、删除未提交尾段并写 interrupted；同一
+分段 writer 的 VP9 回归已生成两个独立 WebM。VP9 三平台强杀和最终文件合并仍未完成。
 
 ## 平台顺序
 

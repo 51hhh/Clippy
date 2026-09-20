@@ -36,8 +36,8 @@ pub(super) struct EncoderReport<W> {
 }
 
 pub(super) struct SegmentWriterOutput<W> {
-    writer: W,
-    frame_count: u64,
+    pub writer: W,
+    pub frame_count: u64,
 }
 
 pub(super) trait RecordingSegmentWriter: Send + 'static {

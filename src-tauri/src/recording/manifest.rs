@@ -436,8 +436,28 @@ fn reconcile_session(
             .expect("分段上限保证可以转为 u32"),
         first_invalid_segment,
     });
+    discard_uncommitted_partial(path, &manifest)?;
     write_manifest(path, &manifest)?;
     Ok(Some(verified_prefix))
+}
+
+fn discard_uncommitted_partial(
+    session_directory: &Path,
+    manifest: &RecordingManifest,
+) -> Result<(), String> {
+    let index =
+        u32::try_from(manifest.segments.len()).map_err(|_| "未提交录屏分段序号溢出".to_string())?;
+    let path = session_directory.join(segment_partial_name(index, &manifest.video.container));
+    let metadata = match fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(format!("读取未提交录屏分段失败: {error}")),
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err("未提交录屏分段不是普通文件".to_string());
+    }
+    fs::remove_file(&path).map_err(|error| format!("删除未提交录屏分段失败: {error}"))?;
+    sync_directory(session_directory).map_err(|error| format!("同步录屏恢复目录失败: {error}"))
 }
 
 fn read_manifest(path: &Path) -> Result<RecordingManifest, String> {

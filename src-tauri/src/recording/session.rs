@@ -4,16 +4,13 @@
 //! 提交分段与 complete；任一错误或 `Drop` 都中止两条线程、清理未提交临时文件并把 journal 标为
 //! interrupted，避免各层分别猜测资源是否已经释放。
 
-use super::encoder_worker::{DiagnosticEncoderError, DiagnosticEncoderWorker, EncoderReport};
-#[cfg(feature = "recording-vp9-prototype")]
-use super::encoder_worker::{Vp9EncoderError, Vp9EncoderWorker};
-use super::manifest::{PendingSegment, RecordingJournal, RecordingJournalConfig};
-use super::mux::avi_mjpeg::{AviMjpegError, AviMjpegWriter};
-#[cfg(feature = "recording-vp9-prototype")]
-use super::mux::vp9_webm::{Vp9WebmError, Vp9WebmWriter};
+use super::encoder_worker::{EncoderReport, EncoderWorker, EncoderWorkerError};
+use super::manifest::{RecordingJournal, RecordingJournalConfig};
 use super::pipeline::{PipelineError, RecordingPipeline};
+use super::segmenting::{
+    PendingRecordingCompletion, RecordingEncoder, SegmentedRecordingError, SegmentedRecordingWriter,
+};
 use super::worker::{CaptureWorker, CaptureWorkerError, CaptureWorkerReport, RecordingFrameSource};
-use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use thiserror::Error;
@@ -29,33 +26,7 @@ pub(super) struct DiagnosticRecordingConfig {
     pub frames_per_second: u32,
     pub include_cursor: bool,
     pub encoder: RecordingEncoder,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum RecordingEncoder {
-    MjpegDiagnostic {
-        jpeg_quality: u8,
-    },
-    #[cfg(feature = "recording-vp9-prototype")]
-    Vp9Prototype,
-}
-
-impl RecordingEncoder {
-    fn manifest_descriptor(self) -> (&'static str, &'static str) {
-        match self {
-            Self::MjpegDiagnostic { .. } => ("mjpeg-diagnostic", "avi"),
-            #[cfg(feature = "recording-vp9-prototype")]
-            Self::Vp9Prototype => ("vp9-prototype", "webm"),
-        }
-    }
-
-    fn is_valid(self) -> bool {
-        match self {
-            Self::MjpegDiagnostic { jpeg_quality } => (1..=100).contains(&jpeg_quality),
-            #[cfg(feature = "recording-vp9-prototype")]
-            Self::Vp9Prototype => true,
-        }
-    }
+    pub segment_duration_ns: u64,
 }
 
 #[derive(Debug, Error)]
@@ -65,17 +36,11 @@ pub(super) enum DiagnosticRecordingError {
     #[error("录屏 journal 失败: {0}")]
     Journal(String),
     #[error(transparent)]
-    Avi(#[from] AviMjpegError),
-    #[cfg(feature = "recording-vp9-prototype")]
-    #[error(transparent)]
-    Vp9(#[from] Vp9WebmError),
-    #[error(transparent)]
     Capture(#[from] CaptureWorkerError),
     #[error(transparent)]
-    Encoder(#[from] DiagnosticEncoderError),
-    #[cfg(feature = "recording-vp9-prototype")]
-    #[error("VP9 录屏编码线程失败: {0}")]
-    Vp9Encoder(#[source] Vp9EncoderError),
+    Segment(#[from] SegmentedRecordingError),
+    #[error(transparent)]
+    Encoder(#[from] EncoderWorkerError<SegmentedRecordingError>),
     #[error(transparent)]
     Pipeline(#[from] PipelineError),
     #[error("采集线程与编码线程的最终时长不一致")]
@@ -88,7 +53,7 @@ pub(super) enum DiagnosticRecordingError {
 
 #[derive(Debug)]
 pub(super) struct DiagnosticRecordingReport {
-    pub segment_path: PathBuf,
+    pub segment_paths: Vec<PathBuf>,
     pub duration_ns: u64,
     pub captured_frames: u64,
     pub accepted_frames: u64,
@@ -100,61 +65,9 @@ pub(super) struct DiagnosticRecordingReport {
 pub(super) struct DiagnosticRecordingSession {
     pipeline: Arc<RecordingPipeline>,
     capture: Option<CaptureWorker>,
-    encoder: Option<SessionEncoderWorker>,
-    journal: RecordingJournal,
-    pending_segment: Option<PendingSegment>,
+    encoder: Option<EncoderWorker<SegmentedRecordingWriter>>,
+    session_directory: PathBuf,
     settled: bool,
-}
-
-enum SessionEncoderWorker {
-    Mjpeg(DiagnosticEncoderWorker<File>),
-    #[cfg(feature = "recording-vp9-prototype")]
-    Vp9(Vp9EncoderWorker<File>),
-}
-
-impl SessionEncoderWorker {
-    fn spawn(
-        file: File,
-        config: &DiagnosticRecordingConfig,
-        pipeline: Arc<RecordingPipeline>,
-    ) -> Result<Self, DiagnosticRecordingError> {
-        match config.encoder {
-            RecordingEncoder::MjpegDiagnostic { jpeg_quality } => {
-                let writer = AviMjpegWriter::new(
-                    file,
-                    config.width,
-                    config.height,
-                    config.frames_per_second,
-                    1,
-                    jpeg_quality,
-                )?;
-                Ok(Self::Mjpeg(DiagnosticEncoderWorker::spawn(
-                    writer, pipeline,
-                )?))
-            }
-            #[cfg(feature = "recording-vp9-prototype")]
-            RecordingEncoder::Vp9Prototype => {
-                let writer = Vp9WebmWriter::new(
-                    file,
-                    config.width,
-                    config.height,
-                    config.frames_per_second,
-                    1,
-                )?;
-                let worker = Vp9EncoderWorker::spawn(writer, pipeline)
-                    .map_err(DiagnosticRecordingError::Vp9Encoder)?;
-                Ok(Self::Vp9(worker))
-            }
-        }
-    }
-
-    fn wait(self) -> Result<EncoderReport<File>, DiagnosticRecordingError> {
-        match self {
-            Self::Mjpeg(worker) => worker.wait().map_err(DiagnosticRecordingError::Encoder),
-            #[cfg(feature = "recording-vp9-prototype")]
-            Self::Vp9(worker) => worker.wait().map_err(DiagnosticRecordingError::Vp9Encoder),
-        }
-    }
 }
 
 impl DiagnosticRecordingSession {
@@ -170,7 +83,7 @@ impl DiagnosticRecordingSession {
             return Err(DiagnosticRecordingError::InvalidConfiguration);
         }
         let (encoder_name, container) = config.encoder.manifest_descriptor();
-        let mut journal = RecordingJournal::create(
+        let journal = RecordingJournal::create(
             app_data_dir,
             RecordingJournalConfig {
                 session_id: config.session_id.clone(),
@@ -187,20 +100,21 @@ impl DiagnosticRecordingSession {
             },
         )
         .map_err(DiagnosticRecordingError::Journal)?;
-        let (file, pending_segment) = match journal.begin_segment() {
-            Ok(segment) => segment,
-            Err(error) => {
-                interrupt_after_start_failure(&mut journal);
-                return Err(DiagnosticRecordingError::Journal(error));
-            }
-        };
+        let session_directory = journal.session_directory().to_path_buf();
         let pipeline = Arc::new(RecordingPipeline::default());
-        let encoder = match SessionEncoderWorker::spawn(file, &config, Arc::clone(&pipeline)) {
+        let segmented = SegmentedRecordingWriter::new(
+            journal,
+            Arc::clone(&pipeline),
+            config.encoder,
+            config.width,
+            config.height,
+            config.frames_per_second,
+            config.segment_duration_ns,
+        )?;
+        let encoder = match EncoderWorker::spawn(segmented, Arc::clone(&pipeline)) {
             Ok(encoder) => encoder,
             Err(error) => {
-                drop(pending_segment);
-                interrupt_after_start_failure(&mut journal);
-                return Err(error);
+                return Err(error.into());
             }
         };
         let capture =
@@ -208,8 +122,6 @@ impl DiagnosticRecordingSession {
                 Ok(capture) => capture,
                 Err(error) => {
                     drop(encoder);
-                    drop(pending_segment);
-                    interrupt_after_start_failure(&mut journal);
                     return Err(error.into());
                 }
             };
@@ -217,8 +129,7 @@ impl DiagnosticRecordingSession {
             pipeline,
             capture: Some(capture),
             encoder: Some(encoder),
-            journal,
-            pending_segment: Some(pending_segment),
+            session_directory,
             settled: false,
         })
     }
@@ -251,7 +162,7 @@ impl DiagnosticRecordingSession {
         // 两条线程都要 join 后再选根因。编码失败会把 capture 推入 Pipeline::Aborted；采集失败则会
         // 把 encoder 推入同名终态，不能让这个联动错误遮住最先发生的具体错误。
         let capture_result = capture.stop();
-        let encoder_result = encoder.wait();
+        let encoder_result = encoder.wait().map_err(DiagnosticRecordingError::Encoder);
         let (capture_report, encoder_report) = match (capture_result, encoder_result) {
             (Ok(capture_report), Ok(encoder_report)) => (capture_report, encoder_report),
             (Err(CaptureWorkerError::Pipeline(PipelineError::Aborted)), Err(encoder_error)) => {
@@ -271,13 +182,13 @@ impl DiagnosticRecordingSession {
     }
 
     pub fn session_directory(&self) -> &Path {
-        self.journal.session_directory()
+        &self.session_directory
     }
 
     fn commit_reports(
         &mut self,
         capture: CaptureWorkerReport,
-        encoder: EncoderReport<File>,
+        encoder: EncoderReport<PendingRecordingCompletion>,
     ) -> Result<DiagnosticRecordingReport, DiagnosticRecordingError> {
         let duration_ns = capture
             .duration_ns
@@ -289,25 +200,12 @@ impl DiagnosticRecordingSession {
         if capture.dropped_by_backpressure != stats.dropped_by_backpressure {
             return Err(DiagnosticRecordingError::BackpressureMismatch);
         }
-        let pending = self
-            .pending_segment
-            .take()
-            .ok_or(DiagnosticRecordingError::AlreadySettled)?;
-        let segment_path = self
-            .journal
-            .commit_segment(
-                pending,
-                encoder.writer,
-                duration_ns,
-                encoder.encoded_frames,
-                stats.dropped_by_backpressure,
-            )
-            .map_err(DiagnosticRecordingError::Journal)?;
-        self.journal
+        let segment_paths = encoder
+            .writer
             .complete()
             .map_err(DiagnosticRecordingError::Journal)?;
         Ok(DiagnosticRecordingReport {
-            segment_path,
+            segment_paths,
             duration_ns,
             captured_frames: capture.captured_frames,
             accepted_frames: stats.accepted_frames,
@@ -321,10 +219,6 @@ impl DiagnosticRecordingSession {
         let _ = self.pipeline.abort();
         drop(self.capture.take());
         drop(self.encoder.take());
-        drop(self.pending_segment.take());
-        if let Err(cleanup_error) = self.journal.interrupt() {
-            log::warn!("录屏失败后写入 interrupted 状态失败: {cleanup_error}");
-        }
         self.settled = true;
         Err(error)
     }
@@ -338,17 +232,7 @@ impl Drop for DiagnosticRecordingSession {
         let _ = self.pipeline.abort();
         drop(self.capture.take());
         drop(self.encoder.take());
-        drop(self.pending_segment.take());
-        if let Err(error) = self.journal.interrupt() {
-            log::warn!("回收未完成录屏会话时写入 interrupted 状态失败: {error}");
-        }
         self.settled = true;
-    }
-}
-
-fn interrupt_after_start_failure(journal: &mut RecordingJournal) {
-    if let Err(error) = journal.interrupt() {
-        log::warn!("录屏启动失败后写入 interrupted 状态失败: {error}");
     }
 }
 
@@ -356,8 +240,11 @@ fn interrupt_after_start_failure(journal: &mut RecordingJournal) {
 mod tests {
     use super::*;
     use crate::recording::frame::CapturedFrame;
+    use crate::recording::mux::avi_mjpeg::AviMjpegError;
+    use crate::recording::segmenting::DEFAULT_SEGMENT_DURATION_NS;
     use std::convert::Infallible;
     use std::fmt;
+    use std::process::Command;
 
     struct FixtureSource {
         sequence: u64,
@@ -499,6 +386,7 @@ mod tests {
             frames_per_second: 10,
             include_cursor: true,
             encoder: RecordingEncoder::MjpegDiagnostic { jpeg_quality: 85 },
+            segment_duration_ns: DEFAULT_SEGMENT_DURATION_NS,
         }
     }
 
@@ -533,8 +421,129 @@ mod tests {
         assert!(report.encoder_input_frames >= 1);
         assert!(report.encoded_frames >= 1);
         assert_eq!(report.dropped_by_backpressure, 0);
-        assert_eq!(&std::fs::read(report.segment_path).unwrap()[0..4], b"RIFF");
+        assert_eq!(report.segment_paths.len(), 1);
+        assert_eq!(
+            &std::fs::read(&report.segment_paths[0]).unwrap()[0..4],
+            b"RIFF"
+        );
         assert!(!directory.join(".segment-000000.avi.partial").exists());
+    }
+
+    #[test]
+    fn periodic_segment_is_committed_before_stop_and_preserved_in_final_manifest() {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut configuration = config("session-periodic");
+        configuration.segment_duration_ns = 200_000_000;
+        let session = DiagnosticRecordingSession::start(
+            temporary.path(),
+            configuration,
+            FixtureSource {
+                sequence: 0,
+                timestamp_ns: 100,
+            },
+        )
+        .unwrap();
+        let directory = session.session_directory().to_path_buf();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            let manifest = manifest_value(&directory);
+            if !manifest["segments"].as_array().unwrap().is_empty() {
+                assert_eq!(manifest["state"], "recording");
+                assert!(directory.join("segment-000000.avi").exists());
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "周期分段未在停止前提交"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+
+        let report = session.stop().unwrap();
+        let manifest = manifest_value(&directory);
+        let segments = manifest["segments"].as_array().unwrap();
+        assert_eq!(manifest["state"], "complete");
+        assert!(report.segment_paths.len() >= 2);
+        assert_eq!(segments.len(), report.segment_paths.len());
+        assert_eq!(
+            segments
+                .iter()
+                .map(|segment| segment["durationNs"].as_u64().unwrap())
+                .sum::<u64>(),
+            report.duration_ns
+        );
+        assert_eq!(
+            segments
+                .iter()
+                .map(|segment| segment["frameCount"].as_u64().unwrap())
+                .sum::<u64>(),
+            report.encoded_frames
+        );
+        for path in report.segment_paths {
+            assert_eq!(&std::fs::read(path).unwrap()[0..4], b"RIFF");
+        }
+    }
+
+    #[test]
+    fn strong_kill_recovers_committed_prefix_and_discards_open_tail() {
+        const CHILD_ENV: &str = "CLIPPY_RECORDING_CRASH_FIXTURE_CHILD";
+        const DIRECTORY_ENV: &str = "CLIPPY_RECORDING_CRASH_FIXTURE_DIRECTORY";
+        if std::env::var_os(CHILD_ENV).is_some() {
+            let directory = PathBuf::from(std::env::var_os(DIRECTORY_ENV).unwrap());
+            let mut configuration = config("session-crash");
+            configuration.segment_duration_ns = 200_000_000;
+            let session = DiagnosticRecordingSession::start(
+                &directory,
+                configuration,
+                FixtureSource {
+                    sequence: 0,
+                    timestamp_ns: 100,
+                },
+            )
+            .unwrap();
+            let session_directory = session.session_directory().to_path_buf();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+            while manifest_value(&session_directory)["segments"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+            {
+                assert!(std::time::Instant::now() < deadline);
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            assert!(session_directory.join("segment-000000.avi").exists());
+            assert!(session_directory
+                .join(".segment-000001.avi.partial")
+                .exists());
+            std::process::exit(91);
+        }
+
+        let temporary = tempfile::tempdir().unwrap();
+        let status = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "recording::session::tests::strong_kill_recovers_committed_prefix_and_discards_open_tail",
+                "--nocapture",
+            ])
+            .env(CHILD_ENV, "1")
+            .env(DIRECTORY_ENV, temporary.path())
+            .status()
+            .unwrap();
+        assert_eq!(status.code(), Some(91));
+
+        let summary = crate::recording::recover_interrupted_sessions(temporary.path()).unwrap();
+        let directory = temporary.path().join("recordings/session-crash");
+        let manifest = manifest_value(&directory);
+        assert_eq!(summary.interrupted_sessions, 1);
+        assert_eq!(summary.recoverable_segments, 1);
+        assert_eq!(manifest["state"], "interrupted");
+        assert_eq!(manifest["segments"].as_array().unwrap().len(), 1);
+        assert!(directory.join("segment-000000.avi").exists());
+        assert!(!directory.join(".segment-000001.avi.partial").exists());
+        assert_eq!(
+            &std::fs::read(directory.join("segment-000000.avi")).unwrap()[0..4],
+            b"RIFF"
+        );
     }
 
     #[test]
@@ -590,9 +599,9 @@ mod tests {
         let directory = session.session_directory().to_path_buf();
         assert!(matches!(
             session.stop(),
-            Err(DiagnosticRecordingError::Encoder(
-                DiagnosticEncoderError::Mux(AviMjpegError::InvalidFrame)
-            ))
+            Err(DiagnosticRecordingError::Encoder(EncoderWorkerError::Mux(
+                SegmentedRecordingError::Avi(AviMjpegError::InvalidFrame)
+            )))
         ));
         assert_eq!(manifest_state(&directory), "interrupted");
         assert!(!directory.join(".segment-000000.avi.partial").exists());
@@ -618,6 +627,7 @@ mod tests {
         configuration.width = 64;
         configuration.height = 48;
         configuration.encoder = RecordingEncoder::Vp9Prototype;
+        configuration.segment_duration_ns = 200_000_000;
         let session = DiagnosticRecordingSession::start(
             temporary.path(),
             configuration,
@@ -629,26 +639,42 @@ mod tests {
         .unwrap();
         let directory = session.session_directory().to_path_buf();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-        while session.pipeline.stats().unwrap().accepted_frames < 2
+        while session.pipeline.stats().unwrap().accepted_frames < 3
             && std::time::Instant::now() < deadline
         {
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
-        assert!(session.pipeline.stats().unwrap().accepted_frames >= 2);
+        assert!(session.pipeline.stats().unwrap().accepted_frames >= 3);
 
         let report = session.stop().unwrap();
-        let bytes = std::fs::read(&report.segment_path).unwrap();
         let manifest = manifest_value(&directory);
-        assert_eq!(&bytes[0..4], [0x1a, 0x45, 0xdf, 0xa3]);
-        assert_eq!(report.segment_path.extension().unwrap(), "webm");
+        assert!(report.segment_paths.len() >= 2);
+        for path in &report.segment_paths {
+            assert_eq!(
+                &std::fs::read(path).unwrap()[0..4],
+                [0x1a, 0x45, 0xdf, 0xa3]
+            );
+            assert_eq!(path.extension().unwrap(), "webm");
+            assert!(crate::private_files::is_private(path));
+        }
         assert_eq!(manifest["state"], "complete");
         assert_eq!(manifest["video"]["encoder"], "vp9-prototype");
         assert_eq!(manifest["video"]["container"], "webm");
         assert_eq!(manifest["segments"][0]["fileName"], "segment-000000.webm");
-        assert_eq!(manifest["segments"][0]["durationNs"], report.duration_ns);
-        assert_eq!(manifest["segments"][0]["frameCount"], report.encoded_frames);
+        assert_eq!(manifest["segments"][1]["fileName"], "segment-000001.webm");
+        let segments = manifest["segments"].as_array().unwrap();
+        let manifest_duration: u64 = segments
+            .iter()
+            .map(|segment| segment["durationNs"].as_u64().unwrap())
+            .sum();
+        let manifest_frames: u64 = segments
+            .iter()
+            .map(|segment| segment["frameCount"].as_u64().unwrap())
+            .sum();
+        assert_eq!(manifest_duration, report.duration_ns);
+        assert_eq!(manifest_frames, report.encoded_frames);
         assert!(!directory.join(".segment-000000.webm.partial").exists());
-        assert!(crate::private_files::is_private(&report.segment_path));
+        assert!(!directory.join(".segment-000001.webm.partial").exists());
     }
 
     #[cfg(target_os = "linux")]
@@ -707,6 +733,7 @@ mod tests {
                 frames_per_second: 30,
                 include_cursor: true,
                 encoder: RecordingEncoder::MjpegDiagnostic { jpeg_quality: 85 },
+                segment_duration_ns: DEFAULT_SEGMENT_DURATION_NS,
             },
             source,
         )
@@ -721,13 +748,23 @@ mod tests {
         let report = session.stop().expect("停止并提交 X11 诊断录屏");
         assert!(report.captured_frames >= 2);
         assert!(report.encoded_frames >= 1);
-        assert_eq!(&std::fs::read(&report.segment_path).unwrap()[0..4], b"RIFF");
+        assert_eq!(report.segment_paths.len(), 1);
+        assert_eq!(
+            &std::fs::read(&report.segment_paths[0]).unwrap()[0..4],
+            b"RIFF"
+        );
         let manifest: serde_json::Value = serde_json::from_slice(
-            &std::fs::read(report.segment_path.parent().unwrap().join("manifest.json")).unwrap(),
+            &std::fs::read(
+                report.segment_paths[0]
+                    .parent()
+                    .unwrap()
+                    .join("manifest.json"),
+            )
+            .unwrap(),
         )
         .unwrap();
         assert_eq!(manifest["state"], "complete");
         assert_eq!(manifest["segments"][0]["frameCount"], report.encoded_frames);
-        assert!(crate::private_files::is_private(&report.segment_path));
+        assert!(crate::private_files::is_private(&report.segment_paths[0]));
     }
 }

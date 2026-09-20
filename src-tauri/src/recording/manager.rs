@@ -337,7 +337,7 @@ fn ensure_token(
 mod tests {
     use super::*;
     use crate::recording::frame::CapturedFrame;
-    use crate::recording::session::RecordingEncoder;
+    use crate::recording::segmenting::{RecordingEncoder, DEFAULT_SEGMENT_DURATION_NS};
     use std::convert::Infallible;
 
     struct FixtureSource {
@@ -388,6 +388,7 @@ mod tests {
             frames_per_second: 10,
             include_cursor: true,
             encoder: RecordingEncoder::MjpegDiagnostic { jpeg_quality: 85 },
+            segment_duration_ns: DEFAULT_SEGMENT_DURATION_NS,
         }
     }
 
@@ -405,7 +406,8 @@ mod tests {
         manager.pause(&token).unwrap();
         manager.resume(&token).unwrap();
         let report = manager.stop(&token).unwrap();
-        assert!(report.segment_path.exists());
+        assert_eq!(report.segment_paths.len(), 1);
+        assert!(report.segment_paths[0].exists());
         assert_eq!(manager.status().unwrap(), RecordingManagerStatus::Idle);
     }
 

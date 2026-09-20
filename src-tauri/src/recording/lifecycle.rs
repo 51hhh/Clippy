@@ -5,8 +5,9 @@
 
 use super::manager::{RecordingManager, RecordingManagerError, RecordingToken};
 use super::platform::RecordingSourceDescriptor;
+use super::segmenting::{RecordingEncoder, DEFAULT_SEGMENT_DURATION_NS};
 use super::selection::PreparedRecordingSelection;
-use super::session::{DiagnosticRecordingConfig, DiagnosticRecordingReport, RecordingEncoder};
+use super::session::{DiagnosticRecordingConfig, DiagnosticRecordingReport};
 use super::worker::RecordingFrameSource;
 use crate::capture::{
     CaptureError, CaptureManager, CaptureModeOwnership, CaptureSelection, RecordingCaptureSpec,
@@ -269,6 +270,7 @@ impl RecordingLifecycle {
             encoder: RecordingEncoder::MjpegDiagnostic {
                 jpeg_quality: request.jpeg_quality,
             },
+            segment_duration_ns: DEFAULT_SEGMENT_DURATION_NS,
         };
         let token = match self.manager.start(app_data_dir, config, source) {
             Ok(token) => token,
@@ -704,7 +706,8 @@ mod tests {
             )
             .unwrap();
         let report = lifecycle.stop(&token, &actions).unwrap();
-        assert!(report.segment_path.exists());
+        assert_eq!(report.segment_paths.len(), 1);
+        assert!(report.segment_paths[0].exists());
         assert_eq!(gate.active_mode().unwrap(), None);
         assert_eq!(
             lifecycle.manager.status().unwrap(),
