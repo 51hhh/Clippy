@@ -18,6 +18,7 @@ xcap 0.9 提供跨平台 `VideoRecorder`，但官方仍把 video recording 标�
 
 - [xcap 官方录屏示例与 WIP 声明](https://docs.rs/crate/xcap/latest/source/examples/)
 - [xcap 公开问题列表](https://github.com/nashaofu/xcap/issues)
+- [Microsoft `GraphicsCaptureSession.IsCursorCaptureEnabled`](https://learn.microsoft.com/en-us/uwp/api/windows.graphics.capture.graphicscapturesession.iscursorcaptureenabled)
 - [XDG Desktop Portal ScreenCast 接口](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.ScreenCast.html)
 - [X.Org XFixes 协议](https://gitlab.freedesktop.org/xorg/proto/xorgproto/-/blob/master/fixesproto.txt)
 
@@ -336,8 +337,11 @@ Windows 平台已加入第一条 WGC 区域帧源骨架：冻结截图的显示�
 关闭都会明确失败；静态桌面暂时没有新帧时每 50 ms 返回控制循环，由既有时间线补齐显示持续时间。
 暂停/继续/停止现在也经过平台 hook，暂停会关闭 WGC runtime，继续会丢弃暂停前缓存帧。选择 WGC
 而不是 xcap 默认 DXGI recorder，是因为后者的内部采集线程没有终止出口，不满足 Stop/Drop 回收
-合同。当前 xcap WGC recorder 固定关闭光标，因此这只是帧源基础，尚未满足第一阶段“包含光标”；
-模块已在隔离的 `x86_64-pc-windows-msvc` 类型检查壳中通过，仍需 Windows 原生 CI 和真机测试。
+合同。仓库现固定 xcap 0.9.6 的完整发布源码，只把 WGC 录制会话的
+`SetIsCursorCaptureEnabled(false)` 改为 `true`；来源、原件哈希、Apache-2.0 许可证、Cargo path
+解析和唯一行为差异由脚本门禁。光标属性从 Windows 10 2004 才提供，上游保留 best-effort 语义；
+模块虽已通过隔离的 `x86_64-pc-windows-msvc` 类型检查，仍需 Windows 原生 CI 和移动光标像素真机
+测试，完成前不能把第一阶段“包含光标”记为通过。
 
 `ci-local.sh` 现会在隔离 Xvfb 中显式运行原生闭环：RandR 可信区域 → 持久 X11 帧源 → 采集线程 →
 三槽 pipeline → MJPEG/AVI → 私有分段与 complete manifest，并核对清单帧数和文件权限。它验证真实

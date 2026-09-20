@@ -1,8 +1,8 @@
 //! Windows WGC 显示器区域帧源。
 //!
 //! xcap 的 WGC 回调先进入零容量通道；独立桥接线程立即接走并只保留最新一帧，避免暂停期间阻塞
-//! WGC 回调，也避免在 Clippy 侧形成无界队列。当前上游 recorder 固定不含光标，因此本源尚不满足
-//! 第一阶段“包含光标”验收，产品开始入口继续保持关闭。
+//! WGC 回调，也避免在 Clippy 侧形成无界队列。仓库固定的 xcap 补丁会要求 WGC 包含光标；原生
+//! Windows CI 与真机像素证据完成前，产品开始入口继续保持关闭。
 
 use super::region::{crop_tight_rgba, validate_selection, RegionFrameError};
 use super::RecordingSourceDescriptor;

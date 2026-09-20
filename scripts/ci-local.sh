@@ -102,6 +102,8 @@ run_step "OCR 视觉段落回退" \
 
 # --- Rust ---
 run_step "cargo fmt --check" bash -c "cd src-tauri && cargo fmt -- --check"
+run_step "vendor/xcap fmt --check" \
+  bash -c "cd src-tauri && cargo fmt --manifest-path vendor/xcap/Cargo.toml -- --check"
 run_step "cargo check" bash -c "cd src-tauri && cargo check --all-targets"
 run_step "cargo clippy" bash -c "cd src-tauri && cargo clippy --all-targets -- -D warnings"
 run_step "cargo test" bash -c "cd src-tauri && cargo test"
@@ -131,12 +133,18 @@ if [[ "${CLIPPY_CROSS_CHECK:-0}" == "1" ]]; then
   # 主 crate 的 Windows 交叉 lint 需要 MSVC 兼容工具链：依赖里的 C build script 会调用
   # lib.exe，只装 rustup target 会在 cc-rs 阶段失败，与代码无关。有 cargo-xwin 或
   # VCINSTALLDIR 时才尝试。
-  if rustup target list --installed 2>/dev/null | grep -qx 'x86_64-pc-windows-msvc' \
-    && { command -v cargo-xwin >/dev/null 2>&1 || [[ -n "${VCINSTALLDIR:-}" ]]; }; then
-    run_step "交叉 clippy: clippy-app @ x86_64-pc-windows-msvc" \
-      bash -c "cd src-tauri && cargo clippy --target x86_64-pc-windows-msvc --all-targets -- -D warnings"
+  if rustup target list --installed 2>/dev/null | grep -qx 'x86_64-pc-windows-msvc'; then
+    run_step "交叉 clippy: vendor/xcap WGC @ x86_64-pc-windows-msvc" \
+      bash -c "cd src-tauri && cargo clippy --manifest-path vendor/xcap/Cargo.toml --lib --features wgc --target x86_64-pc-windows-msvc -- -D warnings"
+    if command -v cargo-xwin >/dev/null 2>&1 || [[ -n "${VCINSTALLDIR:-}" ]]; then
+      run_step "交叉 clippy: clippy-app @ x86_64-pc-windows-msvc" \
+        bash -c "cd src-tauri && cargo clippy --target x86_64-pc-windows-msvc --all-targets -- -D warnings"
+    else
+      skip_step "交叉 clippy: clippy-app @ x86_64-pc-windows-msvc — 需 MSVC 工具链（cargo-xwin 或 VCINSTALLDIR）"
+    fi
   else
-    skip_step "交叉 clippy: clippy-app @ x86_64-pc-windows-msvc — 需 MSVC 工具链（cargo-xwin 或 VCINSTALLDIR）"
+    skip_step "交叉 clippy: vendor/xcap WGC @ x86_64-pc-windows-msvc — 先 rustup target add x86_64-pc-windows-msvc"
+    skip_step "交叉 clippy: clippy-app @ x86_64-pc-windows-msvc — 先安装 target 和 MSVC 工具链"
   fi
 else
   skip_step "非宿主平台交叉 lint (设置 CLIPPY_CROSS_CHECK=1 启用)"
@@ -148,6 +156,7 @@ run_step "前端 HTML 与 Tauri 边界" node scripts/check-html-sinks.mjs
 run_step "IPC 合同一致性" node scripts/check-ipc-contract.mjs
 run_step "录屏编码基准脚本语法" node --check scripts/benchmark-recording-encoders.mjs
 run_step "录屏编码供应链" node scripts/verify-recording-codec-supply-chain.mjs
+run_step "Windows WGC 光标补丁" node scripts/verify-xcap-patch.mjs
 
 # --- Frontend ---
 run_step "npm ci" bash -c "cd src && npm ci --prefer-offline"

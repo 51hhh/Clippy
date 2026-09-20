@@ -823,8 +823,9 @@ VP9 内部已拆开 libvpx 帧编码与 WebM packet mux，并以零 lookahead �
 崩溃落在 manifest 与 rename 之间会自动完成提升，坏最终文件只回退到已验证分段。VP9 合成会话
 正常停止现会返回私有 `recording.webm`。Windows 已加入 WGC 单槽最新帧桥接、可信区域裁剪、平台
 暂停/继续/停止 hook 和控制窗 `WDA_EXCLUDEFROMCAPTURE`；Windows 10 2004 前继续使用几何排除，
-避免原生 API 退化为黑块。该 WGC 上游路径目前固定关闭光标，且只完成隔离交叉类型检查，没有
-Windows 真机证据；macOS/Wayland 帧源与产品入口也未接入，因此第一阶段验收保持未完成。
+避免原生 API 退化为黑块。仓库固定的 xcap 0.9.6 小范围补丁已要求 WGC 录制包含光标，但目前
+只有隔离交叉类型检查，没有 Windows 原生 CI 和移动光标像素真机证据；macOS/Wayland 帧源与
+产品入口也未接入，因此第一阶段验收保持未完成。
 
 ### `PX-ACT-01`：类型化动作与启动器
 
