@@ -337,6 +337,7 @@ fn ensure_token(
 mod tests {
     use super::*;
     use crate::recording::frame::CapturedFrame;
+    use crate::recording::session::RecordingEncoder;
     use std::convert::Infallible;
 
     struct FixtureSource {
@@ -386,7 +387,7 @@ mod tests {
             height: 2,
             frames_per_second: 10,
             include_cursor: true,
-            jpeg_quality: 85,
+            encoder: RecordingEncoder::MjpegDiagnostic { jpeg_quality: 85 },
         }
     }
 

@@ -4,11 +4,13 @@
 //! 提交分段与 complete；任一错误或 `Drop` 都中止两条线程、清理未提交临时文件并把 journal 标为
 //! interrupted，避免各层分别猜测资源是否已经释放。
 
-use super::encoder_worker::{
-    DiagnosticEncoderError, DiagnosticEncoderReport, DiagnosticEncoderWorker,
-};
+use super::encoder_worker::{DiagnosticEncoderError, DiagnosticEncoderWorker, EncoderReport};
+#[cfg(feature = "recording-vp9-prototype")]
+use super::encoder_worker::{Vp9EncoderError, Vp9EncoderWorker};
 use super::manifest::{PendingSegment, RecordingJournal, RecordingJournalConfig};
 use super::mux::avi_mjpeg::{AviMjpegError, AviMjpegWriter};
+#[cfg(feature = "recording-vp9-prototype")]
+use super::mux::vp9_webm::{Vp9WebmError, Vp9WebmWriter};
 use super::pipeline::{PipelineError, RecordingPipeline};
 use super::worker::{CaptureWorker, CaptureWorkerError, CaptureWorkerReport, RecordingFrameSource};
 use std::fs::File;
@@ -26,7 +28,34 @@ pub(super) struct DiagnosticRecordingConfig {
     pub height: u32,
     pub frames_per_second: u32,
     pub include_cursor: bool,
-    pub jpeg_quality: u8,
+    pub encoder: RecordingEncoder,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RecordingEncoder {
+    MjpegDiagnostic {
+        jpeg_quality: u8,
+    },
+    #[cfg(feature = "recording-vp9-prototype")]
+    Vp9Prototype,
+}
+
+impl RecordingEncoder {
+    fn manifest_descriptor(self) -> (&'static str, &'static str) {
+        match self {
+            Self::MjpegDiagnostic { .. } => ("mjpeg-diagnostic", "avi"),
+            #[cfg(feature = "recording-vp9-prototype")]
+            Self::Vp9Prototype => ("vp9-prototype", "webm"),
+        }
+    }
+
+    fn is_valid(self) -> bool {
+        match self {
+            Self::MjpegDiagnostic { jpeg_quality } => (1..=100).contains(&jpeg_quality),
+            #[cfg(feature = "recording-vp9-prototype")]
+            Self::Vp9Prototype => true,
+        }
+    }
 }
 
 #[derive(Debug, Error)]
@@ -37,10 +66,16 @@ pub(super) enum DiagnosticRecordingError {
     Journal(String),
     #[error(transparent)]
     Avi(#[from] AviMjpegError),
+    #[cfg(feature = "recording-vp9-prototype")]
+    #[error(transparent)]
+    Vp9(#[from] Vp9WebmError),
     #[error(transparent)]
     Capture(#[from] CaptureWorkerError),
     #[error(transparent)]
     Encoder(#[from] DiagnosticEncoderError),
+    #[cfg(feature = "recording-vp9-prototype")]
+    #[error("VP9 录屏编码线程失败: {0}")]
+    Vp9Encoder(#[source] Vp9EncoderError),
     #[error(transparent)]
     Pipeline(#[from] PipelineError),
     #[error("采集线程与编码线程的最终时长不一致")]
@@ -65,10 +100,61 @@ pub(super) struct DiagnosticRecordingReport {
 pub(super) struct DiagnosticRecordingSession {
     pipeline: Arc<RecordingPipeline>,
     capture: Option<CaptureWorker>,
-    encoder: Option<DiagnosticEncoderWorker<File>>,
+    encoder: Option<SessionEncoderWorker>,
     journal: RecordingJournal,
     pending_segment: Option<PendingSegment>,
     settled: bool,
+}
+
+enum SessionEncoderWorker {
+    Mjpeg(DiagnosticEncoderWorker<File>),
+    #[cfg(feature = "recording-vp9-prototype")]
+    Vp9(Vp9EncoderWorker<File>),
+}
+
+impl SessionEncoderWorker {
+    fn spawn(
+        file: File,
+        config: &DiagnosticRecordingConfig,
+        pipeline: Arc<RecordingPipeline>,
+    ) -> Result<Self, DiagnosticRecordingError> {
+        match config.encoder {
+            RecordingEncoder::MjpegDiagnostic { jpeg_quality } => {
+                let writer = AviMjpegWriter::new(
+                    file,
+                    config.width,
+                    config.height,
+                    config.frames_per_second,
+                    1,
+                    jpeg_quality,
+                )?;
+                Ok(Self::Mjpeg(DiagnosticEncoderWorker::spawn(
+                    writer, pipeline,
+                )?))
+            }
+            #[cfg(feature = "recording-vp9-prototype")]
+            RecordingEncoder::Vp9Prototype => {
+                let writer = Vp9WebmWriter::new(
+                    file,
+                    config.width,
+                    config.height,
+                    config.frames_per_second,
+                    1,
+                )?;
+                let worker = Vp9EncoderWorker::spawn(writer, pipeline)
+                    .map_err(DiagnosticRecordingError::Vp9Encoder)?;
+                Ok(Self::Vp9(worker))
+            }
+        }
+    }
+
+    fn wait(self) -> Result<EncoderReport<File>, DiagnosticRecordingError> {
+        match self {
+            Self::Mjpeg(worker) => worker.wait().map_err(DiagnosticRecordingError::Encoder),
+            #[cfg(feature = "recording-vp9-prototype")]
+            Self::Vp9(worker) => worker.wait().map_err(DiagnosticRecordingError::Vp9Encoder),
+        }
+    }
 }
 
 impl DiagnosticRecordingSession {
@@ -80,24 +166,23 @@ impl DiagnosticRecordingSession {
     where
         S: RecordingFrameSource,
     {
-        if !(1..=120).contains(&config.frames_per_second)
-            || !(1..=100).contains(&config.jpeg_quality)
-        {
+        if !(1..=120).contains(&config.frames_per_second) || !config.encoder.is_valid() {
             return Err(DiagnosticRecordingError::InvalidConfiguration);
         }
+        let (encoder_name, container) = config.encoder.manifest_descriptor();
         let mut journal = RecordingJournal::create(
             app_data_dir,
             RecordingJournalConfig {
-                session_id: config.session_id,
-                source_id: config.source_id,
+                session_id: config.session_id.clone(),
+                source_id: config.source_id.clone(),
                 physical_x: config.physical_x,
                 physical_y: config.physical_y,
                 width: config.width,
                 height: config.height,
                 target_fps_numerator: config.frames_per_second,
                 target_fps_denominator: 1,
-                encoder: "mjpeg-diagnostic".to_string(),
-                container: "avi".to_string(),
+                encoder: encoder_name.to_string(),
+                container: container.to_string(),
                 include_cursor: config.include_cursor,
             },
         )
@@ -109,28 +194,13 @@ impl DiagnosticRecordingSession {
                 return Err(DiagnosticRecordingError::Journal(error));
             }
         };
-        let writer = match AviMjpegWriter::new(
-            file,
-            config.width,
-            config.height,
-            config.frames_per_second,
-            1,
-            config.jpeg_quality,
-        ) {
-            Ok(writer) => writer,
-            Err(error) => {
-                drop(pending_segment);
-                interrupt_after_start_failure(&mut journal);
-                return Err(error.into());
-            }
-        };
         let pipeline = Arc::new(RecordingPipeline::default());
-        let encoder = match DiagnosticEncoderWorker::spawn(writer, Arc::clone(&pipeline)) {
+        let encoder = match SessionEncoderWorker::spawn(file, &config, Arc::clone(&pipeline)) {
             Ok(encoder) => encoder,
             Err(error) => {
                 drop(pending_segment);
                 interrupt_after_start_failure(&mut journal);
-                return Err(error.into());
+                return Err(error);
             }
         };
         let capture =
@@ -185,10 +255,10 @@ impl DiagnosticRecordingSession {
         let (capture_report, encoder_report) = match (capture_result, encoder_result) {
             (Ok(capture_report), Ok(encoder_report)) => (capture_report, encoder_report),
             (Err(CaptureWorkerError::Pipeline(PipelineError::Aborted)), Err(encoder_error)) => {
-                return self.fail(encoder_error.into());
+                return self.fail(encoder_error);
             }
             (Err(capture_error), _) => return self.fail(capture_error.into()),
-            (Ok(_), Err(encoder_error)) => return self.fail(encoder_error.into()),
+            (Ok(_), Err(encoder_error)) => return self.fail(encoder_error),
         };
         let result = self.commit_reports(capture_report, encoder_report);
         match result {
@@ -207,7 +277,7 @@ impl DiagnosticRecordingSession {
     fn commit_reports(
         &mut self,
         capture: CaptureWorkerReport,
-        encoder: DiagnosticEncoderReport<File>,
+        encoder: EncoderReport<File>,
     ) -> Result<DiagnosticRecordingReport, DiagnosticRecordingError> {
         let duration_ns = capture
             .duration_ns
@@ -349,6 +419,50 @@ mod tests {
         timestamp_ns: u64,
     }
 
+    #[cfg(feature = "recording-vp9-prototype")]
+    struct Vp9FixtureSource {
+        sequence: u64,
+        timestamp_ns: u64,
+    }
+
+    #[cfg(feature = "recording-vp9-prototype")]
+    impl RecordingFrameSource for Vp9FixtureSource {
+        type Error = Infallible;
+
+        fn capture_next(&mut self) -> Result<CapturedFrame, Self::Error> {
+            let sequence = self.sequence;
+            let captured_at_ns = self.timestamp_ns;
+            self.sequence += 1;
+            self.timestamp_ns += 100_000_000;
+            let marker = sequence as u8;
+            let rgba = (0..64 * 48)
+                .flat_map(|pixel| {
+                    let value = marker.wrapping_add(pixel as u8);
+                    [
+                        value,
+                        value.wrapping_mul(3),
+                        255_u8.wrapping_sub(value),
+                        255,
+                    ]
+                })
+                .collect::<Vec<_>>();
+            Ok(CapturedFrame {
+                sequence,
+                captured_at_ns,
+                width: 64,
+                height: 48,
+                stride: 64 * 4,
+                rgba: rgba.into_boxed_slice(),
+            })
+        }
+
+        fn control_timestamp_ns(&mut self) -> Result<u64, Self::Error> {
+            let timestamp_ns = self.timestamp_ns;
+            self.timestamp_ns += 1;
+            Ok(timestamp_ns)
+        }
+    }
+
     impl RecordingFrameSource for MismatchedSource {
         type Error = Infallible;
 
@@ -384,15 +498,17 @@ mod tests {
             height: 2,
             frames_per_second: 10,
             include_cursor: true,
-            jpeg_quality: 85,
+            encoder: RecordingEncoder::MjpegDiagnostic { jpeg_quality: 85 },
         }
     }
 
     fn manifest_state(directory: &Path) -> String {
-        let value: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(directory.join("manifest.json")).unwrap())
-                .unwrap();
+        let value = manifest_value(directory);
         value["state"].as_str().unwrap().to_string()
+    }
+
+    fn manifest_value(directory: &Path) -> serde_json::Value {
+        serde_json::from_slice(&std::fs::read(directory.join("manifest.json")).unwrap()).unwrap()
     }
 
     #[test]
@@ -494,6 +610,47 @@ mod tests {
         assert!(!temporary.path().join("recordings").exists());
     }
 
+    #[cfg(feature = "recording-vp9-prototype")]
+    #[test]
+    fn vp9_session_commits_webm_and_matching_manifest_descriptor() {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut configuration = config("session-vp9");
+        configuration.width = 64;
+        configuration.height = 48;
+        configuration.encoder = RecordingEncoder::Vp9Prototype;
+        let session = DiagnosticRecordingSession::start(
+            temporary.path(),
+            configuration,
+            Vp9FixtureSource {
+                sequence: 0,
+                timestamp_ns: 100,
+            },
+        )
+        .unwrap();
+        let directory = session.session_directory().to_path_buf();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while session.pipeline.stats().unwrap().accepted_frames < 2
+            && std::time::Instant::now() < deadline
+        {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(session.pipeline.stats().unwrap().accepted_frames >= 2);
+
+        let report = session.stop().unwrap();
+        let bytes = std::fs::read(&report.segment_path).unwrap();
+        let manifest = manifest_value(&directory);
+        assert_eq!(&bytes[0..4], [0x1a, 0x45, 0xdf, 0xa3]);
+        assert_eq!(report.segment_path.extension().unwrap(), "webm");
+        assert_eq!(manifest["state"], "complete");
+        assert_eq!(manifest["video"]["encoder"], "vp9-prototype");
+        assert_eq!(manifest["video"]["container"], "webm");
+        assert_eq!(manifest["segments"][0]["fileName"], "segment-000000.webm");
+        assert_eq!(manifest["segments"][0]["durationNs"], report.duration_ns);
+        assert_eq!(manifest["segments"][0]["frameCount"], report.encoded_frames);
+        assert!(!directory.join(".segment-000000.webm.partial").exists());
+        assert!(crate::private_files::is_private(&report.segment_path));
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     #[ignore = "由 ci-local.sh 在隔离 Xvfb 中显式运行"]
@@ -549,7 +706,7 @@ mod tests {
                 height: descriptor.height,
                 frames_per_second: 30,
                 include_cursor: true,
-                jpeg_quality: 85,
+                encoder: RecordingEncoder::MjpegDiagnostic { jpeg_quality: 85 },
             },
             source,
         )

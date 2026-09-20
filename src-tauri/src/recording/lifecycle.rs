@@ -6,7 +6,7 @@
 use super::manager::{RecordingManager, RecordingManagerError, RecordingToken};
 use super::platform::RecordingSourceDescriptor;
 use super::selection::PreparedRecordingSelection;
-use super::session::{DiagnosticRecordingConfig, DiagnosticRecordingReport};
+use super::session::{DiagnosticRecordingConfig, DiagnosticRecordingReport, RecordingEncoder};
 use super::worker::RecordingFrameSource;
 use crate::capture::{
     CaptureError, CaptureManager, CaptureModeOwnership, CaptureSelection, RecordingCaptureSpec,
@@ -266,7 +266,9 @@ impl RecordingLifecycle {
             height: descriptor.height,
             frames_per_second: request.frames_per_second,
             include_cursor: request.include_cursor,
-            jpeg_quality: request.jpeg_quality,
+            encoder: RecordingEncoder::MjpegDiagnostic {
+                jpeg_quality: request.jpeg_quality,
+            },
         };
         let token = match self.manager.start(app_data_dir, config, source) {
             Ok(token) => token,

@@ -109,8 +109,8 @@ journal 已能创建私有会话、创建独占 `.partial`、提交分段元数�
 pipeline、采集线程和编码线程接成一个生命周期：正常 Stop 只有 owner 能提交和完成，任一线程错误
 或 `Drop` 会 join 两条线程、删除未提交 partial 并记录 interrupted；联动产生的 `Pipeline::Aborted`
 不会遮住原始采集或编码错误。单活动注册表也已实现 `Starting → Recording → Stopping → Idle`，启动中
-和停止中都占槽，并以不可复用的 generation token 拒绝迟到的暂停、停止与取消；产品 IPC、桌面资源
-恢复和控制窗口尚未接入。
+和停止中都占槽，并以不可复用的 generation token 拒绝迟到的暂停、停止与取消；截图桌面资源交接
+状态机已经固定，Tauri 桌面适配器、产品 IPC 和控制窗口宿主尚未接入。
 
 ### 编码器 A/B 工具与当前结论
 
@@ -151,14 +151,17 @@ libwebm `File` 模式写入 seek 信息和显式分段时长；本地回归由 `
 
 该原型仍不具备默认依赖资格：`shiguredo_libvpx 2026.2.0-canary.1` 会在 build script 中从 GitHub
 下载按平台预编译的 libvpx 并另取 SHA-256 文件校验，干净构建需要网络，且绑定仍是 canary。
-Clippy 已精确固定 crate 版本，并把整个模块隔离在非默认 feature；启用默认产品构建、会话 owner 或
-UI 前，必须改成可复现的依赖获取方式，补齐 MPL/libvpx 第三方声明，并让同一 SHA 的 Ubuntu 22.04、
+Clippy 已精确固定 crate 版本，并把整个模块隔离在非默认 feature；启用默认产品构建或 UI 前，必须
+改成可复现的依赖获取方式，补齐 MPL/libvpx 第三方声明，并让同一 SHA 的 Ubuntu 22.04、
 Windows x64、macOS Intel/Apple Silicon 均编译和运行该 feature。当前 Linux 探针成功不替代这些门禁。
 
 编码消费线程也已从 MJPEG 具体类型收敛为 `RecordingSegmentWriter` 合同：writer 只能接收时间线已经
 归一化的 RGBA 帧并返回同一个最终时长下的 writer 与帧数；pipeline 排空、原始错误优先级、异常中止
 和 join 只实现一次。MJPEG 会话继续使用原类型别名，默认行为不变；VP9 feature 的线程回归已经证明
-同一三槽 pipeline 可封尾 200 ms WebM。会话 journal 选择和周期分段仍未切换到 VP9。
+同一三槽 pipeline 可封尾 200 ms WebM。会话配置现以类型化枚举选择编码器，非默认 feature 下的
+VP9 已完整经过 capture worker、三槽 pipeline、WebM 封尾、私有分段原子提交和 complete manifest；
+清单中的 encoder/container、分段扩展名、时长与帧数均由同一选择产生。产品生命周期仍显式选择
+MJPEG，周期分段和 VP9 强杀恢复尚未完成。
 
 ## 平台顺序
 
