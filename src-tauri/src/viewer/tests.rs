@@ -1,4 +1,4 @@
-use super::manager::{check_budget, Channel, ViewerSession};
+use super::manager::{check_budget, ActionPinError, Channel, ViewerSession};
 use super::model::*;
 use super::ViewerManager;
 use crate::models::ContentType;
@@ -228,6 +228,103 @@ fn action_snapshot_resolution_requires_the_exact_viewer_owner_and_immutable_vers
     assert!(manager
         .resolve_action_snapshot(&owned.payload.label, &owned.payload.handle.snapshot_id, 0,)
         .is_err());
+}
+
+#[test]
+fn action_pin_serializes_with_viewer_and_keeps_uncertain_creation_sticky() {
+    use crate::pin::commands::ScreenshotPinCreateError;
+
+    let manager = ViewerManager::default();
+    let owned = entry(1);
+    let other = entry(2);
+    manager.insert(owned.clone()).unwrap();
+    manager.insert(other.clone()).unwrap();
+    let called = std::cell::Cell::new(false);
+    assert_eq!(
+        manager.pin_action_snapshot(
+            &other.payload.label,
+            &owned.payload.handle.snapshot_id,
+            0,
+            |_| {
+                called.set(true);
+                Ok("must-not-run")
+            },
+        ),
+        Err(ActionPinError::SourceUnavailable)
+    );
+    assert_eq!(
+        manager.pin_action_snapshot(
+            &owned.payload.label,
+            &owned.payload.handle.snapshot_id,
+            1,
+            |_| {
+                called.set(true);
+                Ok("must-not-run")
+            },
+        ),
+        Err(ActionPinError::SourceUnavailable)
+    );
+    assert!(!called.get());
+
+    assert_eq!(
+        manager.pin_action_snapshot::<()>(
+            &owned.payload.label,
+            &owned.payload.handle.snapshot_id,
+            0,
+            |png| {
+                assert!(Arc::ptr_eq(&png, &owned.png));
+                Err::<(), _>(ScreenshotPinCreateError::NotCreated {
+                    message: "pre-builder detail must remain private".into(),
+                })
+            },
+        ),
+        Err(ActionPinError::Failed)
+    );
+    assert_eq!(
+        manager.pin_action_snapshot(
+            &owned.payload.label,
+            &owned.payload.handle.snapshot_id,
+            0,
+            |_| Ok("retry-created"),
+        ),
+        Ok("retry-created")
+    );
+
+    assert_eq!(
+        manager.pin_action_snapshot(
+            &owned.payload.label,
+            &owned.payload.handle.snapshot_id,
+            0,
+            |_| {
+                Err::<(), _>(ScreenshotPinCreateError::Uncertain {
+                    attempted_label: "pin-private-attempt".into(),
+                    message: "native detail must remain private".into(),
+                })
+            },
+        ),
+        Err(ActionPinError::Uncertain)
+    );
+    assert_eq!(
+        manager.pin_action_snapshot::<()>(
+            &owned.payload.label,
+            &owned.payload.handle.snapshot_id,
+            0,
+            |_| panic!("uncertain action result must block another window attempt"),
+        ),
+        Err(ActionPinError::Uncertain)
+    );
+
+    let viewer_retry = request(&owned, 1);
+    owned.begin(Channel::Output, &viewer_retry).unwrap();
+    assert_eq!(
+        owned
+            .commit_pin::<()>(&viewer_retry, || {
+                panic!("action uncertainty must also block the dedicated Viewer command")
+            })
+            .unwrap_err()
+            .code,
+        "pin_creation_uncertain"
+    );
 }
 #[test]
 fn manager_deduplicates_by_clip_and_hash_and_enforces_budgets() {

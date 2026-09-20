@@ -875,8 +875,9 @@ generation 闸门拒绝。`text.translate` 已复用现有配置、方向、keyr
 已进入同步 provider 的调用仍受既有超时约束，迟到结果不能发布。直接文本动作暂只授权
 Main/Launcher；Viewer/Capture 仍通过会复核敏感状态的专用翻译命令，直到组合链能携带可信文本
 来源。Viewer 的 `image.save` 已接入精确不可变扁平快照，所有权复核与原子落盘处于同一不可取消
-提交阶段；可编辑工程和未提交画布仍由 Viewer 专用命令处理。`capture.start`、`image.pin` 以及
-其他角色的权威图片引用仍未接入。
+提交阶段。Viewer 的 `image.pin` 也已复用同一快照合同和现有建窗服务，并在会话层阻止原生建窗
+结果不确定后的自动重试；两者的可编辑工程和未提交画布仍由 Viewer 专用命令处理。
+`capture.start` 以及其他角色的权威图片引用仍未接入。
 
 **Out of Scope**：第一阶段不嵌入 Lua/WASM/JavaScript，不运行任意 shell，不开放插件市场。
 

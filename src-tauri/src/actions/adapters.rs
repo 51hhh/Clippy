@@ -24,6 +24,10 @@ pub(super) enum ActionRunError {
     TranslationFailed(&'static str),
     #[error("保存图片失败")]
     SaveFailed,
+    #[error("创建贴图失败")]
+    PinFailed,
+    #[error("贴图创建结果不确定")]
+    PinUncertain,
 }
 
 impl ActionRunError {
@@ -38,6 +42,8 @@ impl ActionRunError {
             Self::CodeScanFailed => "action_code_scan_failed",
             Self::TranslationFailed(code) => code,
             Self::SaveFailed => "action_save_failed",
+            Self::PinFailed => "action_pin_failed",
+            Self::PinUncertain => "action_pin_uncertain",
         }
     }
 }
@@ -207,6 +213,43 @@ pub(super) fn save_image(
     )
 }
 
+/// Viewer 动作把调用窗口持有的精确扁平快照交给既有 Pin 领域服务。可编辑工程和当前
+/// 未提交画布仍由 Viewer 专用命令处理，因为 `owned_image` 不携带可信文档或保存模式。
+pub(super) fn pin_image(
+    runtime: &ActionRuntime,
+    caller_label: &str,
+    prepared: &PreparedAction,
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+) -> Result<String, ActionRunError> {
+    execute_image_pin(
+        runtime,
+        caller_label,
+        prepared,
+        |source_id, source_version| {
+            state
+                .viewer_manager
+                .pin_action_snapshot(caller_label, source_id, source_version, |png| {
+                    crate::pin::create_screenshot_pin_shared(png, None, app_handle, state)
+                })
+                .map_err(|error| match error {
+                    crate::viewer::ActionPinError::SourceUnavailable => {
+                        ActionRunError::ImageSourceUnavailable
+                    }
+                    crate::viewer::ActionPinError::Failed => {
+                        log::warn!("动作贴图创建失败");
+                        ActionRunError::PinFailed
+                    }
+                    crate::viewer::ActionPinError::Uncertain => {
+                        // 原生 builder 可能已经创建窗口；调用方必须停止自动重试。
+                        log::warn!("动作贴图创建结果不确定，禁止自动重试");
+                        ActionRunError::PinUncertain
+                    }
+                })
+        },
+    )
+}
+
 async fn execute_image_ocr<Resolve, Recognize, RecognizeFuture>(
     runtime: &ActionRuntime,
     caller_label: &str,
@@ -359,6 +402,32 @@ where
         .commit_noncancellable(caller_label, prepared.handle(), || {
             let png = resolve(source_id, *source_version)?;
             save(png)
+        })
+        .map_err(ActionRunError::Lifecycle)?
+}
+
+fn execute_image_pin<Pin>(
+    runtime: &ActionRuntime,
+    caller_label: &str,
+    prepared: &PreparedAction,
+    pin: Pin,
+) -> Result<String, ActionRunError>
+where
+    Pin: FnOnce(&str, u64) -> Result<String, ActionRunError>,
+{
+    if prepared.descriptor().id != "image.pin" {
+        return Err(ActionRunError::WrongAction);
+    }
+    let ActionInput::OwnedImage {
+        source_id,
+        source_version,
+    } = prepared.input()
+    else {
+        return Err(ActionRunError::WrongAction);
+    };
+    runtime
+        .commit_noncancellable(caller_label, prepared.handle(), || {
+            pin(source_id, *source_version)
         })
         .map_err(ActionRunError::Lifecycle)?
 }
@@ -1103,6 +1172,115 @@ mod tests {
             .begin(
                 "image-viewer-owner",
                 "image.save",
+                "output",
+                json!({"sourceId": "snapshot-new", "sourceVersion": 0}),
+            )
+            .is_ok());
+    }
+
+    #[test]
+    fn image_pin_uses_the_exact_owned_snapshot_and_retires_the_slot() {
+        let runtime = ActionRuntime::default();
+        let prepared = runtime
+            .begin(
+                "image-viewer-owner",
+                "image.pin",
+                "output",
+                json!({"sourceId": "snapshot-secret", "sourceVersion": 0}),
+            )
+            .unwrap();
+        assert_eq!(
+            runtime.cancel("image-viewer-owner", prepared.handle()),
+            Err(ActionError::NotCancellable)
+        );
+        let label = execute_image_pin(
+            &runtime,
+            "image-viewer-owner",
+            &prepared,
+            |source_id, source_version| {
+                assert_eq!(source_id, "snapshot-secret");
+                assert_eq!(source_version, 0);
+                Ok("pin-image-created".to_string())
+            },
+        )
+        .unwrap();
+        assert_eq!(label, "pin-image-created");
+        assert_eq!(
+            runtime.ensure_current("image-viewer-owner", prepared.handle()),
+            Err(ActionError::Superseded)
+        );
+    }
+
+    #[test]
+    fn image_pin_failures_are_stable_and_redacted() {
+        for expected in [
+            ActionRunError::ImageSourceUnavailable,
+            ActionRunError::PinFailed,
+            ActionRunError::PinUncertain,
+        ] {
+            let runtime = ActionRuntime::default();
+            let prepared = runtime
+                .begin(
+                    "image-viewer-owner",
+                    "image.pin",
+                    "output",
+                    json!({"sourceId": "do-not-log-source", "sourceVersion": 0}),
+                )
+                .unwrap();
+            let result = execute_image_pin(&runtime, "image-viewer-owner", &prepared, |_, _| {
+                Err(expected)
+            })
+            .unwrap_err();
+            assert_eq!(result, expected);
+            assert_eq!(result.code(), expected.code());
+            assert!(!format!("{result:?}").contains("do-not-log-source"));
+            assert_eq!(
+                runtime.ensure_current("image-viewer-owner", prepared.handle()),
+                Err(ActionError::Superseded)
+            );
+        }
+    }
+
+    #[test]
+    fn image_pin_blocks_same_slot_replacement_during_window_creation() {
+        let runtime = ActionRuntime::default();
+        let prepared = runtime
+            .begin(
+                "image-viewer-owner",
+                "image.pin",
+                "output",
+                json!({"sourceId": "snapshot-secret", "sourceVersion": 0}),
+            )
+            .unwrap();
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            let runtime_ref = &runtime;
+            let prepared_ref = &prepared;
+            let worker = scope.spawn(move || {
+                execute_image_pin(runtime_ref, "image-viewer-owner", prepared_ref, |_, _| {
+                    entered_tx.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                    Ok("pin-image-created".to_string())
+                })
+            });
+            entered_rx.recv().unwrap();
+            assert!(matches!(
+                runtime.begin(
+                    "image-viewer-owner",
+                    "image.pin",
+                    "output",
+                    json!({"sourceId": "snapshot-new", "sourceVersion": 0}),
+                ),
+                Err(ActionError::Busy)
+            ));
+            release_tx.send(()).unwrap();
+            assert_eq!(worker.join().unwrap().unwrap(), "pin-image-created");
+        });
+        assert!(runtime
+            .begin(
+                "image-viewer-owner",
+                "image.pin",
                 "output",
                 json!({"sourceId": "snapshot-new", "sourceVersion": 0}),
             )

@@ -42,6 +42,14 @@ pub(super) struct ViewerSession {
     lifecycle: AtomicU8,
     pin_uncertain: AtomicBool,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ActionPinError {
+    SourceUnavailable,
+    Failed,
+    Uncertain,
+}
+
 impl ViewerSession {
     pub fn new(
         clip_id: i64,
@@ -347,6 +355,32 @@ impl ViewerSession {
             })
         })
     }
+
+    fn commit_action_pin<T>(
+        &self,
+        source_id: &str,
+        source_version: u64,
+        work: impl FnOnce(Arc<Vec<u8>>) -> Result<T, crate::pin::commands::ScreenshotPinCreateError>,
+    ) -> Result<T, ActionPinError> {
+        // 与 Viewer 专用输出共用会话锁。不确定的原生建窗结果必须先写入粘性状态，
+        // 另一个动作槽才能继续，避免两个并发请求都把“不确定”误判成可重试。
+        let _state = self.state.lock().map_err(|_| ActionPinError::Failed)?;
+        if !self.is_active() || source_version != 0 || self.payload.handle.snapshot_id != source_id
+        {
+            return Err(ActionPinError::SourceUnavailable);
+        }
+        if self.pin_uncertain.load(Ordering::Acquire) {
+            return Err(ActionPinError::Uncertain);
+        }
+        work(Arc::clone(&self.png)).map_err(|error| {
+            if error.is_uncertain() {
+                self.pin_uncertain.store(true, Ordering::Release);
+                ActionPinError::Uncertain
+            } else {
+                ActionPinError::Failed
+            }
+        })
+    }
 }
 #[derive(Default)]
 pub struct ViewerManager {
@@ -371,6 +405,21 @@ impl ViewerManager {
             return Err("not_found".into());
         }
         Ok(Arc::clone(&entry.png))
+    }
+
+    /// 动作贴图在 Viewer 会话内完成所有权复核、并发串行和不确定状态收敛。
+    /// 闭包只能收到后端持有的不可变快照，不能把路径或前端像素带过来。
+    pub(crate) fn pin_action_snapshot<T>(
+        &self,
+        caller_label: &str,
+        source_id: &str,
+        source_version: u64,
+        work: impl FnOnce(Arc<Vec<u8>>) -> Result<T, crate::pin::commands::ScreenshotPinCreateError>,
+    ) -> Result<T, ActionPinError> {
+        let entry = self
+            .get(caller_label)
+            .map_err(|_| ActionPinError::SourceUnavailable)?;
+        entry.commit_action_pin(source_id, source_version, work)
     }
 
     pub(super) fn remaining_source_budget(&self) -> Result<usize, ViewerError> {
