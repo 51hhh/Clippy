@@ -19,6 +19,7 @@ xcap 0.9 提供跨平台 `VideoRecorder`，但官方仍把 video recording 标�
 - [xcap 官方录屏示例与 WIP 声明](https://docs.rs/crate/xcap/latest/source/examples/)
 - [xcap 公开问题列表](https://github.com/nashaofu/xcap/issues)
 - [Microsoft `GraphicsCaptureSession.IsCursorCaptureEnabled`](https://learn.microsoft.com/en-us/uwp/api/windows.graphics.capture.graphicscapturesession.iscursorcaptureenabled)
+- [Apple `AVCaptureScreenInput`](https://developer.apple.com/documentation/avfoundation/avcapturescreeninput)
 - [XDG Desktop Portal ScreenCast 接口](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.ScreenCast.html)
 - [X.Org XFixes 协议](https://gitlab.freedesktop.org/xorg/proto/xorgproto/-/blob/master/fixesproto.txt)
 
@@ -271,7 +272,8 @@ VP9 已完整经过 capture worker、三槽 pipeline、WebM 封尾、私有分�
 已提交 WebM 前缀与未提交尾段的恢复合同。VP9 实现内部已经把固定帧率/RGBA→I420/libvpx 编码与
 WebM packet mux 拆开，并显式设置零 lookahead：边界先排空上一帧、提交独立可播放分段，再强制下一
 packet 为关键帧；同一 packet 同时进入连续最终 mux。`ffprobe` 会分别核对各段与 `recording.webm`
-的 VP9 codec、帧数和时长。产品入口与三平台真实帧源尚未接入，不能据此勾选第一阶段整体验收。
+的 VP9 codec、帧数和时长。产品入口、Wayland 帧源与 Windows/macOS 原生验收尚未完成，不能据此
+勾选第一阶段整体验收。
 
 ## 平台顺序
 
@@ -329,7 +331,8 @@ Linux X11 已加入持久 x11rb 连接的根窗口区域帧源：每次只请求
 控制通道错误及 `Drop` 回收都会中止 pipeline。独立诊断编码线程已闭合 capture → 三槽 pipeline →
 MJPEG/AVI：它阻塞等待帧，先排空已接受前缀，再使用同一最终时长封尾；编码失败或线程回收会反向
 中止 pipeline，停止仍在运行的采集线程。桌面资源恢复领域状态机、Tauri 控制窗宿主和控制 IPC 已
-接入；可信开始 IPC、X11 真机性能证据与 macOS/Wayland 帧源仍未接入，因此还不能从 UI 开始录屏。
+接入；可信开始 IPC、X11 真机性能证据、macOS 原生验收与 Wayland 帧源仍未完成，因此还不能从 UI
+开始录屏。
 
 Windows 平台已加入第一条 WGC 区域帧源骨架：冻结截图的显示器 ID 和物理像素尺寸会再次与当前
 `xcap` 显示器核对，WGC 整屏帧进入零容量通道后由 Clippy 单槽桥接只保留最新一帧，再按可信 crop
@@ -342,6 +345,22 @@ Windows 平台已加入第一条 WGC 区域帧源骨架：冻结截图的显示�
 解析和唯一行为差异由脚本门禁。光标属性从 Windows 10 2004 才提供，上游保留 best-effort 语义；
 模块虽已通过隔离的 `x86_64-pc-windows-msvc` 类型检查，仍需 Windows 原生 CI 和移动光标像素真机
 测试，完成前不能把第一阶段“包含光标”记为通过。
+
+macOS 平台已加入 AVFoundation 区域帧源骨架：准备阶段以 CoreGraphics display ID 重新取得实际
+backing-pixel 尺寸并核对冻结几何，再把覆盖层的左上角物理 crop 转换为
+`AVCaptureScreenInput.cropRect` 所需的左下角屏幕点，并用 `scaleFactor` 直接产出选区 backing
+pixels。它不会先分配 6K/8K 整屏 RGBA；因此 64 MiB 预算只约束目标区域。首帧和后续帧仍必须与
+冻结选区尺寸和紧凑 RGBA 长度完全一致，任何变化都终止会话，不做拉伸。Retina 的半点边界会原样
+传入，横纵倍率不一致会在启动前拒绝。
+
+xcap 的 macOS delegate 使用零容量同步通道。Clippy 在采集 worker 内创建非 `Send` 的
+`AVCaptureSession`，同时用独立桥接线程持续接收回调并只保留最新一帧，避免停止会话时 delegate
+阻塞在发送上。暂停、继续和停止均调用同一 recorder hook，继续前丢弃旧缓存帧。仓库只为 xcap
+增加了受边界检查的 macOS 区域录制入口，版本、原件哈希、七个补丁文件、许可证和调用形态均由
+脚本固定。隔离的 `aarch64-apple-darwin` 类型与 lint 检查已经通过；屏幕录制权限、光标、Retina、
+旋转屏、负坐标混合 DPI 和 4K/6K 真机仍须在 macOS 原生 CI/设备验证。当前 AVFoundation 路径也
+不能排除控制窗；若控制窗必须位于选区内，仍须迁移 ScreenCaptureKit 过滤器。因此该骨架不开放
+产品入口，也不把 macOS 录制记为通过。
 
 `ci-local.sh` 现会在隔离 Xvfb 中显式运行原生闭环：RandR 可信区域 → 持久 X11 帧源 → 采集线程 →
 三槽 pipeline → MJPEG/AVI → 私有分段与 complete manifest，并核对清单帧数和文件权限。它验证真实

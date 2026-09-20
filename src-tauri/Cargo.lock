@@ -829,6 +829,7 @@ dependencies = [
  "md-5",
  "nix 0.30.1",
  "objc2-app-kit",
+ "objc2-core-graphics",
  "pipewire",
  "png 0.17.16",
  "regex-lite",

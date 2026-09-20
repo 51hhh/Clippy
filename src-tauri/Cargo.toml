@@ -121,6 +121,8 @@ enigo = { version = "0.6", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.3", default-features = false, features = ["libc", "NSRunningApplication", "NSWindow", "NSWorkspace"] }
+# 录屏准备阶段读取显示器真实像素几何，避免用浮点缩放猜 Retina 或旋转屏尺寸。
+objc2-core-graphics = "=0.3.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-version = "=0.1.7"

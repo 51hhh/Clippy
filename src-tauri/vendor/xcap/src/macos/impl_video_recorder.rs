@@ -15,6 +15,7 @@ use objc2_av_foundation::{
     AVCaptureConnection, AVCaptureOutput, AVCaptureScreenInput, AVCaptureSession,
     AVCaptureVideoDataOutput, AVCaptureVideoDataOutputSampleBufferDelegate,
 };
+use objc2_core_foundation::{CGFloat, CGRect};
 use objc2_core_graphics::CGDirectDisplayID;
 use objc2_core_media::{CMSampleBuffer, CMTime};
 use objc2_core_video::{
@@ -447,6 +448,13 @@ pub struct ImplVideoRecorder {
 
 impl ImplVideoRecorder {
     pub fn new(cg_direct_display_id: CGDirectDisplayID) -> XCapResult<(Self, Receiver<Frame>)> {
+        Self::new_region(cg_direct_display_id, None)
+    }
+
+    pub fn new_region(
+        cg_direct_display_id: CGDirectDisplayID,
+        region: Option<(CGRect, CGFloat)>,
+    ) -> XCapResult<(Self, Receiver<Frame>)> {
         unsafe {
             let session = AVCaptureSession::new();
             let input = AVCaptureScreenInput::initWithDisplayID(
@@ -458,6 +466,10 @@ impl ImplVideoRecorder {
             ))?;
             input.setCapturesCursor(true);
             input.setCapturesMouseClicks(true);
+            if let Some((crop_rect, scale_factor)) = region {
+                input.setCropRect(crop_rect);
+                input.setScaleFactor(scale_factor);
+            }
             let min_frame_duration = CMTime::new(1, 60);
             let _: () = msg_send![&input, setMinFrameDuration: min_frame_duration];
 

@@ -3,7 +3,7 @@ use std::sync::mpsc::Receiver;
 use image::RgbaImage;
 use objc2::MainThreadMarker;
 use objc2_app_kit::NSScreen;
-use objc2_core_foundation::CGPoint;
+use objc2_core_foundation::{CGPoint, CGRect, CGSize};
 use objc2_core_graphics::{
     CGDirectDisplayID, CGDisplayBounds, CGDisplayCopyDisplayMode, CGDisplayIsActive,
     CGDisplayIsBuiltin, CGDisplayIsMain, CGDisplayMode, CGDisplayModelNumber, CGDisplayRotation,
@@ -243,5 +243,38 @@ impl ImplMonitor {
 
     pub fn video_recorder(&self) -> XCapResult<(ImplVideoRecorder, Receiver<Frame>)> {
         ImplVideoRecorder::new(self.cg_direct_display_id)
+    }
+
+    pub fn video_recorder_region(
+        &self,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        scale_factor: f64,
+    ) -> XCapResult<(ImplVideoRecorder, Receiver<Frame>)> {
+        let monitor_width = f64::from(self.width()?);
+        let monitor_height = f64::from(self.height()?);
+        let boundary_tolerance = monitor_width.max(monitor_height).max(1.0) * 1e-9;
+        if ![x, y, width, height, scale_factor]
+            .into_iter()
+            .all(f64::is_finite)
+            || x < 0.0
+            || y < 0.0
+            || width <= 0.0
+            || height <= 0.0
+            || scale_factor <= 0.0
+            || x + width > monitor_width + boundary_tolerance
+            || y + height > monitor_height + boundary_tolerance
+        {
+            return Err(XCapError::InvalidCaptureRegion(format!(
+                "AVFoundation region ({x}, {y}, {width}, {height}) at scale {scale_factor} is outside monitor bounds ({monitor_width}, {monitor_height})"
+            )));
+        }
+        let crop_rect = CGRect {
+            origin: CGPoint { x, y },
+            size: CGSize { width, height },
+        };
+        ImplVideoRecorder::new_region(self.cg_direct_display_id, Some((crop_rect, scale_factor)))
     }
 }

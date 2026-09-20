@@ -101,6 +101,23 @@ impl Monitor {
 
         Ok((VideoRecorder::new(impl_video_recorder), sx))
     }
+
+    /// 以屏幕点坐标捕获 macOS 显示器子区域，并按倍率输出 backing pixels。
+    #[cfg(target_os = "macos")]
+    pub fn video_recorder_region(
+        &self,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        scale_factor: f64,
+    ) -> XCapResult<(VideoRecorder, Receiver<Frame>)> {
+        let (impl_video_recorder, sx) =
+            self.impl_monitor
+                .video_recorder_region(x, y, width, height, scale_factor)?;
+
+        Ok((VideoRecorder::new(impl_video_recorder), sx))
+    }
 }
 
 #[cfg(test)]

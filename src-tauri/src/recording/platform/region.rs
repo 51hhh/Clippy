@@ -17,6 +17,20 @@ pub(in crate::recording) enum RegionFrameError {
 }
 
 pub(super) fn validate_selection(selection: RecordingCaptureSpec) -> Result<(), RegionFrameError> {
+    validate_direct_region_selection(selection)?;
+    checked_rgba_len(
+        selection.monitor_pixel_width,
+        selection.monitor_pixel_height,
+    )
+    .filter(|bytes| *bytes <= MAX_FRAME_BYTES)
+    .ok_or(RegionFrameError::SourceFrameTooLarge)?;
+    Ok(())
+}
+
+/// 平台原生只产出目标区域时，不应按整块显示器尺寸拒绝 6K/8K 屏；仍须核验边界和输出帧预算。
+pub(super) fn validate_direct_region_selection(
+    selection: RecordingCaptureSpec,
+) -> Result<(), RegionFrameError> {
     let right = selection
         .crop_left
         .checked_add(selection.crop_width)
@@ -34,16 +48,29 @@ pub(super) fn validate_selection(selection: RecordingCaptureSpec) -> Result<(), 
     {
         return Err(RegionFrameError::InvalidRegion);
     }
-    checked_rgba_len(
-        selection.monitor_pixel_width,
-        selection.monitor_pixel_height,
-    )
-    .filter(|bytes| *bytes <= MAX_FRAME_BYTES)
-    .ok_or(RegionFrameError::SourceFrameTooLarge)?;
     checked_rgba_len(selection.crop_width, selection.crop_height)
         .filter(|bytes| *bytes <= MAX_FRAME_BYTES)
         .ok_or(RegionFrameError::InvalidRegion)?;
     Ok(())
+}
+
+/// 接受平台已经按目标区域输出的紧凑 RGBA，尺寸或长度不符时不做缩放或补齐。
+pub(super) fn take_direct_region_rgba(
+    selection: RecordingCaptureSpec,
+    actual_width: u32,
+    actual_height: u32,
+    rgba: Vec<u8>,
+) -> Result<Box<[u8]>, RegionFrameError> {
+    validate_direct_region_selection(selection)?;
+    if actual_width != selection.crop_width || actual_height != selection.crop_height {
+        return Err(RegionFrameError::MonitorGeometryChanged);
+    }
+    let expected = checked_rgba_len(actual_width, actual_height)
+        .ok_or(RegionFrameError::InvalidFrameLength)?;
+    if rgba.len() != expected {
+        return Err(RegionFrameError::InvalidFrameLength);
+    }
+    Ok(rgba.into_boxed_slice())
 }
 
 pub(super) fn crop_tight_rgba(
@@ -164,6 +191,25 @@ mod tests {
         assert_eq!(
             validate_selection(oversized),
             Err(RegionFrameError::SourceFrameTooLarge)
+        );
+        assert!(validate_direct_region_selection(oversized).is_ok());
+    }
+
+    #[test]
+    fn direct_region_accepts_only_exact_tight_output() {
+        assert_eq!(
+            take_direct_region_rgba(selection(), 2, 2, vec![7; 16])
+                .unwrap()
+                .as_ref(),
+            &[7; 16]
+        );
+        assert_eq!(
+            take_direct_region_rgba(selection(), 4, 3, vec![7; 48]),
+            Err(RegionFrameError::MonitorGeometryChanged)
+        );
+        assert_eq!(
+            take_direct_region_rgba(selection(), 2, 2, vec![7; 15]),
+            Err(RegionFrameError::InvalidFrameLength)
         );
     }
 }
