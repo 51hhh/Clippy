@@ -532,16 +532,20 @@ mod tests {
             crop_height: height,
         })
         .expect("连接 X11 录屏帧源");
+        let descriptor = source.descriptor().clone();
+        assert_eq!(descriptor.physical_x, i32::from(monitor.x));
+        assert_eq!(descriptor.physical_y, i32::from(monitor.y));
+        assert_eq!((descriptor.width, descriptor.height), (width, height));
         let temporary = tempfile::tempdir().unwrap();
         let session = DiagnosticRecordingSession::start(
             temporary.path(),
             DiagnosticRecordingConfig {
                 session_id: "x11-e2e".to_string(),
-                source_id: format!("x11-randr-{}", monitor.outputs[0]),
-                physical_x: i32::from(monitor.x),
-                physical_y: i32::from(monitor.y),
-                width,
-                height,
+                source_id: descriptor.source_id,
+                physical_x: descriptor.physical_x,
+                physical_y: descriptor.physical_y,
+                width: descriptor.width,
+                height: descriptor.height,
                 frames_per_second: 30,
                 include_cursor: true,
                 jpeg_quality: 85,

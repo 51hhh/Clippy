@@ -5,6 +5,7 @@
 
 use crate::capture::RecordingCaptureSpec;
 use crate::recording::frame::{CapturedFrame, FrameError, MAX_FRAME_BYTES};
+use crate::recording::platform::RecordingSourceDescriptor;
 use crate::recording::worker::RecordingFrameSource;
 use std::time::Instant;
 use thiserror::Error;
@@ -53,6 +54,7 @@ pub(in crate::recording) struct X11RegionFrameSource {
     connection: RustConnection,
     root: u32,
     region: X11PhysicalRegion,
+    descriptor: RecordingSourceDescriptor,
     clock_origin: Instant,
     last_timestamp_ns: Option<u64>,
     next_sequence: u64,
@@ -88,10 +90,21 @@ impl X11RegionFrameSource {
             root: screen.root,
             connection,
             region,
+            descriptor: RecordingSourceDescriptor {
+                source_id: format!("x11-randr-{}", selection.monitor_id),
+                physical_x: i32::from(region.x),
+                physical_y: i32::from(region.y),
+                width: u32::from(region.width),
+                height: u32::from(region.height),
+            },
             clock_origin: Instant::now(),
             last_timestamp_ns: None,
             next_sequence: 0,
         })
+    }
+
+    pub fn descriptor(&self) -> &RecordingSourceDescriptor {
+        &self.descriptor
     }
 
     pub fn capture_next(&mut self) -> Result<CapturedFrame, X11FrameSourceError> {
