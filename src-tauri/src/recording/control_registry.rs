@@ -27,6 +27,13 @@ pub(super) struct RecordingControlClose {
     pub token: Option<RecordingToken>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RecordingControlBinding {
+    pub label: String,
+    /// 页面 ready 先于 token 到达时，由 bind 一次性认领 reveal。
+    pub reveal: bool,
+}
+
 #[derive(Default)]
 pub(super) struct RecordingControlRegistry {
     slot: Mutex<ControlSlot>,
@@ -39,10 +46,13 @@ enum ControlSlot {
     Preparing {
         label: String,
         session_id: String,
+        ready: bool,
     },
     Bound {
         label: String,
         token: RecordingToken,
+        ready: bool,
+        revealed: bool,
     },
     Closing {
         label: String,
@@ -71,6 +81,7 @@ impl RecordingControlRegistry {
         *slot = ControlSlot::Preparing {
             label: label.clone(),
             session_id: session_id.to_string(),
+            ready: false,
         };
         Ok(label)
     }
@@ -79,24 +90,72 @@ impl RecordingControlRegistry {
     pub(super) fn bind(
         &self,
         token: &RecordingToken,
-    ) -> Result<String, RecordingControlRegistryError> {
+    ) -> Result<RecordingControlBinding, RecordingControlRegistryError> {
         let mut slot = self
             .slot
             .lock()
             .map_err(|_| RecordingControlRegistryError::Poisoned)?;
         let previous = std::mem::take(&mut *slot);
         match previous {
-            ControlSlot::Preparing { label, session_id } if session_id == token.session_id => {
+            ControlSlot::Preparing {
+                label,
+                session_id,
+                ready,
+            } if session_id == token.session_id => {
                 *slot = ControlSlot::Bound {
                     label: label.clone(),
                     token: token.clone(),
+                    ready,
+                    revealed: ready,
                 };
-                Ok(label)
+                Ok(RecordingControlBinding {
+                    label,
+                    reveal: ready,
+                })
             }
             other => {
                 *slot = other;
                 Err(RecordingControlRegistryError::Superseded)
             }
+        }
+    }
+
+    /// 页面和 token 任一方都可以先到；只有第二个条件到达的调用取得一次 reveal 责任。
+    pub(super) fn mark_ready(
+        &self,
+        caller_label: &str,
+    ) -> Result<bool, RecordingControlRegistryError> {
+        if !caller_label.starts_with(CONTROL_PREFIX) {
+            return Err(RecordingControlRegistryError::Missing);
+        }
+        let mut slot = self
+            .slot
+            .lock()
+            .map_err(|_| RecordingControlRegistryError::Poisoned)?;
+        match &mut *slot {
+            ControlSlot::Preparing { label, ready, .. } if label == caller_label => {
+                *ready = true;
+                Ok(false)
+            }
+            ControlSlot::Bound {
+                label,
+                ready,
+                revealed,
+                ..
+            } if label == caller_label => {
+                *ready = true;
+                if *revealed {
+                    Ok(false)
+                } else {
+                    *revealed = true;
+                    Ok(true)
+                }
+            }
+            ControlSlot::Closing { label, .. } if label == caller_label => {
+                Err(RecordingControlRegistryError::Busy)
+            }
+            ControlSlot::Empty => Err(RecordingControlRegistryError::Missing),
+            _ => Err(RecordingControlRegistryError::Superseded),
         }
     }
 
@@ -113,7 +172,7 @@ impl RecordingControlRegistry {
             .lock()
             .map_err(|_| RecordingControlRegistryError::Poisoned)?;
         match &*slot {
-            ControlSlot::Bound { label, token } if label == caller_label => Ok(token.clone()),
+            ControlSlot::Bound { label, token, .. } if label == caller_label => Ok(token.clone()),
             ControlSlot::Preparing { label, .. } | ControlSlot::Closing { label, .. }
                 if label == caller_label =>
             {
@@ -138,8 +197,9 @@ impl RecordingControlRegistry {
             ControlSlot::Preparing {
                 label,
                 session_id: current,
+                ..
             } if current == session_id => RecordingControlClose { label, token: None },
-            ControlSlot::Bound { label, token } if token.session_id == session_id => {
+            ControlSlot::Bound { label, token, .. } if token.session_id == session_id => {
                 RecordingControlClose {
                     label,
                     token: Some(token),
@@ -171,10 +231,12 @@ impl RecordingControlRegistry {
             ControlSlot::Preparing { label, .. } if label == caller_label => {
                 RecordingControlClose { label, token: None }
             }
-            ControlSlot::Bound { label, token } if label == caller_label => RecordingControlClose {
-                label,
-                token: Some(token),
-            },
+            ControlSlot::Bound { label, token, .. } if label == caller_label => {
+                RecordingControlClose {
+                    label,
+                    token: Some(token),
+                }
+            }
             ControlSlot::Closing { label, token } if label == caller_label => {
                 *slot = ControlSlot::Closing { label, token };
                 return Err(RecordingControlRegistryError::Busy);
@@ -233,7 +295,13 @@ mod tests {
             Err(RecordingControlRegistryError::Busy)
         );
         let first = token("same-session", 7);
-        assert_eq!(registry.bind(&first).unwrap(), label);
+        assert_eq!(
+            registry.bind(&first).unwrap(),
+            RecordingControlBinding {
+                label: label.clone(),
+                reveal: false,
+            }
+        );
         assert_eq!(registry.token_for_caller(&label).unwrap(), first);
         assert_eq!(
             registry.token_for_caller("recording-control-forged"),
@@ -242,6 +310,54 @@ mod tests {
         assert_eq!(
             registry.token_for_caller("capture-overlay-foreign"),
             Err(RecordingControlRegistryError::Missing)
+        );
+    }
+
+    #[test]
+    fn ready_then_bind_and_bind_then_ready_each_reveal_exactly_once() {
+        let ready_first = RecordingControlRegistry::new();
+        let ready_label = ready_first.reserve("ready-first").unwrap();
+        assert!(!ready_first.mark_ready(&ready_label).unwrap());
+        assert!(!ready_first.mark_ready(&ready_label).unwrap());
+        assert_eq!(
+            ready_first.bind(&token("ready-first", 1)).unwrap(),
+            RecordingControlBinding {
+                label: ready_label.clone(),
+                reveal: true,
+            }
+        );
+        assert!(!ready_first.mark_ready(&ready_label).unwrap());
+
+        let bind_first = RecordingControlRegistry::new();
+        let bind_label = bind_first.reserve("bind-first").unwrap();
+        assert_eq!(
+            bind_first.bind(&token("bind-first", 2)).unwrap(),
+            RecordingControlBinding {
+                label: bind_label.clone(),
+                reveal: false,
+            }
+        );
+        assert!(bind_first.mark_ready(&bind_label).unwrap());
+        assert!(!bind_first.mark_ready(&bind_label).unwrap());
+    }
+
+    #[test]
+    fn ready_rejects_forged_old_and_closing_windows() {
+        let registry = RecordingControlRegistry::new();
+        let label = registry.reserve("ready-guard").unwrap();
+        assert_eq!(
+            registry.mark_ready("capture-overlay-foreign"),
+            Err(RecordingControlRegistryError::Missing)
+        );
+        assert_eq!(
+            registry.mark_ready("recording-control-forged"),
+            Err(RecordingControlRegistryError::Superseded)
+        );
+        registry.bind(&token("ready-guard", 1)).unwrap();
+        registry.begin_close("ready-guard").unwrap();
+        assert_eq!(
+            registry.mark_ready(&label),
+            Err(RecordingControlRegistryError::Busy)
         );
     }
 

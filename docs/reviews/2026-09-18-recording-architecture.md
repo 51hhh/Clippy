@@ -341,7 +341,9 @@ Tauri 桌面动作适配器和产品 IPC 仍未接入。
 控制窗 registry 已独立固定 `Preparing → Bound → Closing → Empty`：窗口只携带后端生成且不可复用的
 label，暂停/继续/停止命令从 registry 读取 exact generation token，不接收前端提交的 session ID 或
 generation。同一 session ID 再次录制也会得到新 label，旧窗口和迟到 bind 都不能命中新会话；窗口
-意外销毁只会交出一次清理 token，关闭失败进入终态并阻止创建替代控制窗。
+意外销毁只会交出一次清理 token，关闭失败进入终态并阻止创建替代控制窗。页面 ready 与 token bind
+现为顺序无关的双条件屏障：任一方可先到，只有后到的一方取得一次 reveal 责任；重复 ready、伪造
+label、旧窗口和 closing 窗口都不能再次显示或控制会话。Tauri 建窗与产品控制命令仍未接入。
 
 ## 第一阶段验收
 
