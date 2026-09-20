@@ -11,6 +11,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+const PROCESS_START_DEADLINE: Duration = Duration::from_secs(10);
+
 fn fake_program(body: &str) -> (tempfile::TempDir, PathBuf, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("tesseract-fake");
@@ -200,7 +202,9 @@ async fn production_structured_job_reaps_after_last_consumer_cancels_before_rele
         .await?;
         Ok(StructuredOcr::tesseract(1, 1, text, None))
     }));
-    let deadline = Instant::now() + Duration::from_secs(2);
+    // 并行原生 CI 可能延迟 Python 子进程调度；这里只验证取消前确实启动，
+    // 生产识别的 250ms 超时仍由 run_fake_with_timeout 独立约束。
+    let deadline = Instant::now() + PROCESS_START_DEADLINE;
     while !pid.exists() && Instant::now() < deadline {
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
