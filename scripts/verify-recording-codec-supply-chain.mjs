@@ -3,6 +3,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isVendoredPathPackage, lockedPackageBody } from "./recording-codec-lock.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const tauriRoot = join(root, "src-tauri");
@@ -59,21 +60,16 @@ if (
   throw new Error("Cargo.toml must pin the reviewed professional-precision yuv SIMD dependency");
 }
 const cargoLock = readFileSync(join(tauriRoot, "Cargo.lock"), "utf8");
-const lockedBinding = cargoLock.match(
-  /\[\[package\]\]\nname = "shiguredo_libvpx"\nversion = "2026\.2\.0-canary\.1"\n([\s\S]*?)(?=\n\[\[package\]\]|$)/,
-);
-if (!lockedBinding || /^(source|checksum) =/m.test(lockedBinding[1])) {
+if (!isVendoredPathPackage(cargoLock, "shiguredo_libvpx", "2026.2.0-canary.1")) {
   throw new Error("Cargo.lock must resolve shiguredo_libvpx as the vendored path package");
 }
-const lockedYuv = cargoLock.match(
-  /\[\[package\]\]\nname = "yuv"\nversion = "0\.8\.19"\n([\s\S]*?)(?=\n\[\[package\]\]|$)/,
-);
+const lockedYuv = lockedPackageBody(cargoLock, "yuv", "0.8.19");
 if (
   !lockedYuv ||
   !/^source = "registry\+https:\/\/github\.com\/rust-lang\/crates\.io-index"$/m.test(
-    lockedYuv[1],
+    lockedYuv,
   ) ||
-  !/^checksum = "[0-9a-f]{64}"$/m.test(lockedYuv[1])
+  !/^checksum = "[0-9a-f]{64}"$/m.test(lockedYuv)
 ) {
   throw new Error("Cargo.lock must pin the reviewed yuv 0.8.19 registry package and checksum");
 }
