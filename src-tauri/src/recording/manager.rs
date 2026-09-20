@@ -103,10 +103,24 @@ impl RecordingManager {
         source: S,
     ) -> Result<RecordingToken, RecordingManagerError>
     where
+        S: RecordingFrameSource + Send,
+    {
+        self.start_with_factory(app_data_dir, config, move || Ok(source))
+    }
+
+    pub fn start_with_factory<F, S>(
+        &self,
+        app_data_dir: &Path,
+        config: DiagnosticRecordingConfig,
+        source_factory: F,
+    ) -> Result<RecordingToken, RecordingManagerError>
+    where
+        F: FnOnce() -> Result<S, String> + Send + 'static,
         S: RecordingFrameSource,
     {
         let reservation = self.reserve(config.session_id.clone())?;
-        let session = DiagnosticRecordingSession::start(app_data_dir, config, source)?;
+        let session =
+            DiagnosticRecordingSession::start_with_factory(app_data_dir, config, source_factory)?;
         self.commit_start(reservation, session)
     }
 

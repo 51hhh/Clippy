@@ -19,7 +19,9 @@ const MAX_CAPTURE_FPS: u32 = 120;
 const CONTROL_QUEUE_CAPACITY: usize = 8;
 const PAUSED_STOP_POLL: Duration = Duration::from_millis(250);
 
-pub(super) trait RecordingFrameSource: Send + 'static {
+/// 帧源只在采集线程内使用。部分系统对象（例如 macOS 的 Objective-C capture session）具有线程
+/// 亲和性，因此帧源本身不要求 `Send`；跨线程移动的是可在线程内创建它的 factory。
+pub(super) trait RecordingFrameSource: 'static {
     type Error: Error + Send + Sync + 'static;
 
     fn capture_next(&mut self) -> Result<CapturedFrame, Self::Error>;
@@ -55,6 +57,10 @@ pub(super) enum CaptureWorkerError {
     InvalidFps,
     #[error("录屏采集源失败: {0}")]
     Source(String),
+    #[error("录屏采集源初始化失败: {0}")]
+    SourceInitialization(String),
+    #[error("录屏采集源初始化时发生 panic")]
+    SourceInitializationPanicked,
     #[error(transparent)]
     Pipeline(#[from] PipelineError),
     #[error("录屏采集控制通道已经关闭")]
@@ -96,21 +102,71 @@ impl CaptureWorker {
         frames_per_second: u32,
     ) -> Result<Self, CaptureWorkerError>
     where
+        S: RecordingFrameSource + Send,
+    {
+        Self::spawn_with_factory(move || Ok(source), pipeline, frames_per_second)
+    }
+
+    /// 在采集线程内创建帧源，并在初始化结果明确后才把 worker 交给会话 owner。
+    ///
+    /// factory 是唯一跨线程的原生准备结果；返回的帧源可为 `!Send`，但创建、使用与析构必须全部
+    /// 留在同一条采集线程。初始化失败和 panic 会先中止 pipeline，再同步返回给启动生命周期。
+    pub fn spawn_with_factory<F, S>(
+        factory: F,
+        pipeline: Arc<RecordingPipeline>,
+        frames_per_second: u32,
+    ) -> Result<Self, CaptureWorkerError>
+    where
+        F: FnOnce() -> Result<S, String> + Send + 'static,
         S: RecordingFrameSource,
     {
         let interval = capture_interval(frames_per_second)?;
         let (control, commands) = mpsc::sync_channel(CONTROL_QUEUE_CAPACITY);
+        let (ready, initialized) = mpsc::sync_channel(1);
         let stop_requested = Arc::new(AtomicBool::new(false));
         let worker_stop = Arc::clone(&stop_requested);
+        let worker_pipeline = Arc::clone(&pipeline);
         let join = thread::Builder::new()
             .name("clippy-recording-capture".to_string())
-            .spawn(move || run_loop(source, &pipeline, commands, &worker_stop, interval))
+            .spawn(move || {
+                let source = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(factory)) {
+                    Ok(Ok(source)) => source,
+                    Ok(Err(message)) => {
+                        let error = CaptureWorkerError::SourceInitialization(message);
+                        let _ = worker_pipeline.abort();
+                        let _ = ready.send(Err(error.clone()));
+                        return Err(error);
+                    }
+                    Err(_) => {
+                        let error = CaptureWorkerError::SourceInitializationPanicked;
+                        let _ = worker_pipeline.abort();
+                        let _ = ready.send(Err(error.clone()));
+                        return Err(error);
+                    }
+                };
+                if ready.send(Ok(())).is_err() {
+                    let _ = worker_pipeline.abort();
+                    return Err(CaptureWorkerError::ControlDisconnected);
+                }
+                run_loop(source, &worker_pipeline, commands, &worker_stop, interval)
+            })
             .map_err(|error| CaptureWorkerError::ThreadSpawn(error.to_string()))?;
-        Ok(Self {
+        let mut worker = Self {
             control,
             stop_requested,
             join: Some(join),
-        })
+        };
+        match initialized.recv() {
+            Ok(Ok(())) => Ok(worker),
+            Ok(Err(error)) => {
+                let _ = worker.join_inner();
+                Err(error)
+            }
+            Err(_) => match worker.join_inner() {
+                Err(error) => Err(error),
+                Ok(_) => Err(CaptureWorkerError::ControlDisconnected),
+            },
+        }
     }
 
     pub fn pause(&self) -> Result<(), CaptureWorkerError> {
@@ -359,6 +415,7 @@ mod tests {
     use super::*;
     use crate::recording::pipeline::PipelineDrain;
     use std::fmt;
+    use std::rc::Rc;
     use std::sync::Mutex;
 
     #[derive(Debug, Clone, Copy)]
@@ -462,6 +519,23 @@ mod tests {
         inner: FakeSource,
         emitted_first_frame: bool,
         hooks: Arc<Mutex<Vec<&'static str>>>,
+    }
+
+    struct ThreadBoundSource {
+        inner: FakeSource,
+        _thread_affinity: Rc<()>,
+    }
+
+    impl RecordingFrameSource for ThreadBoundSource {
+        type Error = FakeSourceError;
+
+        fn capture_next(&mut self) -> Result<CapturedFrame, Self::Error> {
+            self.inner.capture_next()
+        }
+
+        fn control_timestamp_ns(&mut self) -> Result<u64, Self::Error> {
+            self.inner.control_timestamp_ns()
+        }
     }
 
     impl RecordingFrameSource for IdlePushSource {
@@ -594,6 +668,64 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn factory_constructs_and_drops_non_send_source_inside_capture_thread() {
+        let pipeline = Arc::new(RecordingPipeline::default());
+        let worker = CaptureWorker::spawn_with_factory(
+            || {
+                Ok(ThreadBoundSource {
+                    inner: source(),
+                    _thread_affinity: Rc::new(()),
+                })
+            },
+            Arc::clone(&pipeline),
+            120,
+        )
+        .unwrap();
+        let report = worker.stop().unwrap();
+        assert!(report.captured_frames >= 1);
+        assert!(report.duration_ns.is_some());
+    }
+
+    #[test]
+    fn factory_failure_is_returned_synchronously_and_aborts_pipeline() {
+        let pipeline = Arc::new(RecordingPipeline::default());
+        let error = match CaptureWorker::spawn_with_factory(
+            || Err::<FakeSource, _>("native source unavailable".to_string()),
+            Arc::clone(&pipeline),
+            120,
+        ) {
+            Ok(worker) => {
+                drop(worker);
+                panic!("初始化失败不能返回活动 worker");
+            }
+            Err(error) => error,
+        };
+        assert_eq!(
+            error,
+            CaptureWorkerError::SourceInitialization("native source unavailable".to_string())
+        );
+        assert!(matches!(pipeline.pop_wait(), Err(PipelineError::Aborted)));
+    }
+
+    #[test]
+    fn factory_panic_is_returned_without_stranding_pipeline() {
+        let pipeline = Arc::new(RecordingPipeline::default());
+        let error = match CaptureWorker::spawn_with_factory(
+            || -> Result<FakeSource, String> { panic!("fixture initialization panic") },
+            Arc::clone(&pipeline),
+            120,
+        ) {
+            Ok(worker) => {
+                drop(worker);
+                panic!("初始化 panic 不能返回活动 worker");
+            }
+            Err(error) => error,
+        };
+        assert_eq!(error, CaptureWorkerError::SourceInitializationPanicked);
+        assert!(matches!(pipeline.pop_wait(), Err(PipelineError::Aborted)));
     }
 
     #[test]

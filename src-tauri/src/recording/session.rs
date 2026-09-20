@@ -78,6 +78,18 @@ impl DiagnosticRecordingSession {
         source: S,
     ) -> Result<Self, DiagnosticRecordingError>
     where
+        S: RecordingFrameSource + Send,
+    {
+        Self::start_with_factory(app_data_dir, config, move || Ok(source))
+    }
+
+    pub fn start_with_factory<F, S>(
+        app_data_dir: &Path,
+        config: DiagnosticRecordingConfig,
+        source_factory: F,
+    ) -> Result<Self, DiagnosticRecordingError>
+    where
+        F: FnOnce() -> Result<S, String> + Send + 'static,
         S: RecordingFrameSource,
     {
         if !(1..=120).contains(&config.frames_per_second) || !config.encoder.is_valid() {
@@ -118,14 +130,17 @@ impl DiagnosticRecordingSession {
                 return Err(error.into());
             }
         };
-        let capture =
-            match CaptureWorker::spawn(source, Arc::clone(&pipeline), config.frames_per_second) {
-                Ok(capture) => capture,
-                Err(error) => {
-                    drop(encoder);
-                    return Err(error.into());
-                }
-            };
+        let capture = match CaptureWorker::spawn_with_factory(
+            source_factory,
+            Arc::clone(&pipeline),
+            config.frames_per_second,
+        ) {
+            Ok(capture) => capture,
+            Err(error) => {
+                drop(encoder);
+                return Err(error.into());
+            }
+        };
         Ok(Self {
             pipeline,
             capture: Some(capture),

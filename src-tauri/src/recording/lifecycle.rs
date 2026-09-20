@@ -1,7 +1,8 @@
 //! 普通截图到持续录屏的唯一桌面资源生命周期。
 //!
-//! 平台帧源先在 Ordinary 会话仍完整时连接；成功后才消费截图会话并恢复桌面。控制面准备完成后
-//! 才允许采集线程启动。停止、取消和启动失败都会先回收会话与控制面，最后显式释放 Recording gate。
+//! 平台采集计划先在 Ordinary 会话仍完整时核验；成功后才消费截图会话并恢复桌面。控制面准备完成后，
+//! 原生帧源才在采集线程内创建。停止、取消和启动失败都会先回收会话与控制面，最后显式释放
+//! Recording gate。
 
 use super::manager::{RecordingManager, RecordingManagerError, RecordingToken};
 use super::platform::RecordingSourceDescriptor;
@@ -32,8 +33,8 @@ pub(super) struct RecordingStartContext<'a> {
     pub app_data_dir: &'a Path,
 }
 
-pub(super) struct ConnectedRecordingSource<S> {
-    pub source: S,
+pub(super) struct PreparedRecordingSource<F> {
+    pub source_factory: F,
     pub descriptor: RecordingSourceDescriptor,
 }
 
@@ -127,7 +128,7 @@ impl RecordingLifecycle {
         }
     }
 
-    pub(super) fn start<S, C, A>(
+    pub(super) fn start<S, F, C, A>(
         &self,
         context: RecordingStartContext<'_>,
         request: RecordingStartRequest,
@@ -136,7 +137,8 @@ impl RecordingLifecycle {
     ) -> Result<RecordingToken, RecordingLifecycleError>
     where
         S: RecordingFrameSource,
-        C: FnOnce(RecordingCaptureSpec) -> Result<ConnectedRecordingSource<S>, String>,
+        F: FnOnce() -> Result<S, String> + Send + 'static,
+        C: FnOnce(RecordingCaptureSpec) -> Result<PreparedRecordingSource<F>, String>,
         A: DesktopActions,
     {
         let RecordingStartContext {
@@ -150,12 +152,12 @@ impl RecordingLifecycle {
             request,
             || {
                 let prepared = PreparedRecordingSelection::prepare(capture, caller, selection)?;
-                let connected =
+                let prepared_source =
                     connect(prepared.spec()).map_err(RecordingLifecycleError::Source)?;
                 let handoff = prepared.commit(capture)?;
                 Ok(CommittedRecording {
-                    source: connected.source,
-                    descriptor: connected.descriptor,
+                    source_factory: prepared_source.source_factory,
+                    descriptor: prepared_source.descriptor,
                     ownership: handoff.ownership,
                     desktop: DesktopResources {
                         overlays: handoff.resources.overlay_labels(),
@@ -206,7 +208,7 @@ impl RecordingLifecycle {
         self.finish_termination(active, actions, primary)
     }
 
-    fn start_with<S, P, A>(
+    fn start_with<S, F, P, A>(
         &self,
         app_data_dir: &Path,
         request: RecordingStartRequest,
@@ -215,7 +217,8 @@ impl RecordingLifecycle {
     ) -> Result<RecordingToken, RecordingLifecycleError>
     where
         S: RecordingFrameSource,
-        P: FnOnce() -> Result<CommittedRecording<S>, RecordingLifecycleError>,
+        F: FnOnce() -> Result<S, String> + Send + 'static,
+        P: FnOnce() -> Result<CommittedRecording<F>, RecordingLifecycleError>,
         A: DesktopActions,
     {
         self.claim_starting()?;
@@ -227,7 +230,7 @@ impl RecordingLifecycle {
             }
         };
         let CommittedRecording {
-            source,
+            source_factory,
             descriptor,
             ownership,
             desktop,
@@ -271,7 +274,10 @@ impl RecordingLifecycle {
             encoder: request.encoder,
             segment_duration_ns: DEFAULT_SEGMENT_DURATION_NS,
         };
-        let token = match self.manager.start(app_data_dir, config, source) {
+        let token = match self
+            .manager
+            .start_with_factory(app_data_dir, config, source_factory)
+        {
             Ok(token) => token,
             Err(error) => {
                 return self.fail_publishing(
@@ -517,8 +523,8 @@ impl RecordingLifecycle {
     }
 }
 
-struct CommittedRecording<S> {
-    source: S,
+struct CommittedRecording<F> {
+    source_factory: F,
     descriptor: RecordingSourceDescriptor,
     ownership: CaptureModeOwnership,
     desktop: DesktopResources,
@@ -660,18 +666,25 @@ mod tests {
     fn committed(
         gate: &Arc<CaptureModeGate>,
         events: Arc<Mutex<Vec<String>>>,
-    ) -> CommittedRecording<FixtureSource> {
+    ) -> CommittedRecording<impl FnOnce() -> Result<FixtureSource, String> + Send + 'static> {
         let ownership = Arc::clone(gate)
             .try_claim_owned(CaptureMode::Ordinary)
             .unwrap()
             .into_recording()
             .unwrap();
-        events.lock().unwrap().push("connected".to_string());
+        events.lock().unwrap().push("prepared".to_string());
+        let source_events = Arc::clone(&events);
         CommittedRecording {
-            source: FixtureSource {
-                events,
-                sequence: 0,
-                timestamp_ns: 100,
+            source_factory: move || {
+                source_events
+                    .lock()
+                    .unwrap()
+                    .push("initialized".to_string());
+                Ok(FixtureSource {
+                    events: source_events,
+                    sequence: 0,
+                    timestamp_ns: 100,
+                })
             },
             descriptor: RecordingSourceDescriptor {
                 source_id: "fixture-monitor".to_string(),
@@ -734,16 +747,21 @@ mod tests {
             .iter()
             .position(|event| event == "capture")
             .unwrap();
+        let initialization_index = recorded
+            .iter()
+            .position(|event| event == "initialized")
+            .unwrap();
         let close_index = recorded
             .iter()
             .position(|event| event == "close_control:ordered")
             .unwrap();
-        assert!(control_index < capture_index);
+        assert!(control_index < initialization_index);
+        assert!(initialization_index < capture_index);
         assert!(capture_index < close_index);
         assert_eq!(
             &recorded[..control_index],
             &[
-                "connected",
+                "prepared",
                 "close_overlays:overlay-a,overlay-b",
                 "restore_pins:pin-a",
                 "restore_sources:main",
@@ -827,7 +845,7 @@ mod tests {
         assert_eq!(
             events.lock().unwrap().as_slice(),
             &[
-                "connected",
+                "prepared",
                 "close_overlays:overlay-a,overlay-b",
                 "restore_pins:pin-a",
                 "restore_sources:main",
@@ -865,6 +883,66 @@ mod tests {
             .iter()
             .any(|event| event == "close_control:invalid-fps"));
         assert!(!temporary.path().join("recordings").exists());
+    }
+
+    #[test]
+    fn source_initialization_failure_closes_control_and_releases_gate() {
+        let temporary = tempfile::tempdir().unwrap();
+        let gate = Arc::new(CaptureModeGate::new());
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let actions = RecordingActions::new(Arc::clone(&gate), Arc::clone(&events));
+        let lifecycle = RecordingLifecycle::new();
+        let error = lifecycle
+            .start_with(
+                temporary.path(),
+                request("source-failure"),
+                || {
+                    let ownership = Arc::clone(&gate)
+                        .try_claim_owned(CaptureMode::Ordinary)
+                        .unwrap()
+                        .into_recording()
+                        .unwrap();
+                    events.lock().unwrap().push("prepared".to_string());
+                    Ok(CommittedRecording {
+                        source_factory: || {
+                            Err::<FixtureSource, _>("fixture native source failure".to_string())
+                        },
+                        descriptor: RecordingSourceDescriptor {
+                            source_id: "fixture-monitor".to_string(),
+                            physical_x: -120,
+                            physical_y: 40,
+                            width: 2,
+                            height: 2,
+                        },
+                        ownership,
+                        desktop: DesktopResources {
+                            overlays: vec!["overlay-a".to_string()],
+                            pins: Vec::new(),
+                            sources: Vec::new(),
+                        },
+                    })
+                },
+                &actions,
+            )
+            .unwrap_err();
+        assert!(matches!(error, RecordingLifecycleError::Manager(_)));
+        assert!(error.to_string().contains("fixture native source failure"));
+        assert_eq!(gate.active_mode().unwrap(), None);
+        assert_eq!(
+            lifecycle.manager.status().unwrap(),
+            RecordingManagerStatus::Idle
+        );
+        let recorded = events.lock().unwrap();
+        let prepare = recorded
+            .iter()
+            .position(|event| event.starts_with("prepare_control:"))
+            .unwrap();
+        let close = recorded
+            .iter()
+            .position(|event| event == "close_control:source-failure")
+            .unwrap();
+        assert!(prepare < close);
+        assert!(!recorded.iter().any(|event| event == "capture"));
     }
 
     #[test]
