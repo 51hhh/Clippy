@@ -76,3 +76,9 @@ discover descriptor
 3. **Restricted IPC**：新增独立 Launcher 窗口角色；发现/运行/取消命令进入访问矩阵。
 4. **Launcher UI**：键盘优先的动作搜索与参数表单；不显示或执行未授权动作。
 5. **Composition**：只有类型可连接的输出才能进入下一动作，整条链保留同一根请求身份。
+
+## Implementation status
+
+- 2026-09-20：Stage 1 已完成后端注册表、内部类型转换、角色权限、取消与 generation 闸门。
+- 2026-09-20：Stage 2 已接入 `text.copy`，复用产品唯一剪贴板写入路径；不可取消副作用在提交期间
+  锁定同一请求槽。其余领域适配器、IPC、UI 与组合仍未完成。

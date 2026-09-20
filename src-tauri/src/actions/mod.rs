@@ -1,7 +1,9 @@
 //! PX-ACT-01 类型化内置动作核心。
 //!
-//! 该模块只建立静态注册表、参数边界、窗口角色权限和请求代次；领域适配器、受限 IPC 与启动器 UI
-//! 分阶段接入。动作参数不接受路径、URL、像素或可执行命令。
+//! 该模块建立静态注册表、参数边界、窗口角色权限和请求代次，并分阶段接入复用既有业务服务的
+//! 领域适配器；受限 IPC 与启动器 UI 尚未开放。动作参数不接受路径、URL、像素或可执行命令。
+
+mod adapters;
 
 use crate::ipc_access::CallerKind;
 use serde::Serialize;
@@ -134,6 +136,20 @@ pub(super) fn descriptors() -> &'static [ActionDescriptor] {
     ACTIONS
 }
 
+pub(super) enum ActionInput {
+    Unit,
+    OwnedImage {
+        source_id: String,
+        source_version: u64,
+    },
+    Text(String),
+    Translation {
+        text: String,
+        source_language: Option<String>,
+        target_language: String,
+    },
+}
+
 fn descriptor(id: &str) -> Option<&'static ActionDescriptor> {
     ACTIONS.iter().find(|descriptor| descriptor.id == id)
 }
@@ -158,9 +174,9 @@ fn action_allowed(caller: CallerKind, action_id: &str) -> bool {
     }
 }
 
-fn validate_input(kind: ActionValueKind, input: &Value) -> Result<(), ActionError> {
+fn validate_input(kind: ActionValueKind, input: &Value) -> Result<ActionInput, ActionError> {
     match kind {
-        ActionValueKind::Unit => exact_object(input, &[]).map(|_| ()),
+        ActionValueKind::Unit => exact_object(input, &[]).map(|_| ActionInput::Unit),
         ActionValueKind::OwnedImage => validate_owned_image(input),
         ActionValueKind::Text => validate_text(input),
         ActionValueKind::TranslationRequest => validate_translation_request(input),
@@ -184,33 +200,37 @@ fn exact_object<'a>(
     Ok(object)
 }
 
-fn validate_owned_image(input: &Value) -> Result<(), ActionError> {
+fn validate_owned_image(input: &Value) -> Result<ActionInput, ActionError> {
     let object = exact_object(input, &["sourceId", "sourceVersion"])?;
     let source_id = object
         .get("sourceId")
         .and_then(Value::as_str)
+        .ok_or(ActionError::InvalidInput)?;
+    let source_version = object
+        .get("sourceVersion")
+        .and_then(Value::as_u64)
         .ok_or(ActionError::InvalidInput)?;
     if source_id.is_empty()
         || source_id.len() > MAX_SOURCE_ID_BYTES
         || !source_id
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-        || object
-            .get("sourceVersion")
-            .and_then(Value::as_u64)
-            .is_none()
     {
         return Err(ActionError::InvalidInput);
     }
-    Ok(())
+    Ok(ActionInput::OwnedImage {
+        source_id: source_id.to_string(),
+        source_version,
+    })
 }
 
-fn validate_text(input: &Value) -> Result<(), ActionError> {
+fn validate_text(input: &Value) -> Result<ActionInput, ActionError> {
     let object = exact_object(input, &["text"])?;
-    validate_bounded_text(object.get("text"))
+    let text = validate_bounded_text(object.get("text"))?;
+    Ok(ActionInput::Text(text.to_string()))
 }
 
-fn validate_translation_request(input: &Value) -> Result<(), ActionError> {
+fn validate_translation_request(input: &Value) -> Result<ActionInput, ActionError> {
     let object = input.as_object().ok_or(ActionError::InvalidInput)?;
     if object.len() < 2
         || object.len() > 3
@@ -222,30 +242,37 @@ fn validate_translation_request(input: &Value) -> Result<(), ActionError> {
     {
         return Err(ActionError::InvalidInput);
     }
-    validate_bounded_text(object.get("text"))?;
-    validate_language(object.get("targetLanguage"), false)?;
-    if object.contains_key("sourceLanguage") {
-        validate_language(object.get("sourceLanguage"), true)?;
-    }
-    Ok(())
+    let text = validate_bounded_text(object.get("text"))?;
+    let target_language = validate_language(object.get("targetLanguage"), false)?;
+    let source_language = object
+        .get("sourceLanguage")
+        .map(|value| validate_language(Some(value), true))
+        .transpose()?;
+    Ok(ActionInput::Translation {
+        text: text.to_string(),
+        source_language: source_language.map(str::to_string),
+        target_language: target_language.to_string(),
+    })
 }
 
-fn validate_bounded_text(value: Option<&Value>) -> Result<(), ActionError> {
+fn validate_bounded_text(value: Option<&Value>) -> Result<&str, ActionError> {
     let text = value
         .and_then(Value::as_str)
         .ok_or(ActionError::InvalidInput)?;
     if text.is_empty() || text.len() > MAX_TEXT_BYTES {
         return Err(ActionError::InvalidInput);
     }
-    Ok(())
+    Ok(text)
 }
 
-fn validate_language(value: Option<&Value>, allow_auto: bool) -> Result<(), ActionError> {
+fn validate_language(value: Option<&Value>, allow_auto: bool) -> Result<&str, ActionError> {
     let language = value
         .and_then(Value::as_str)
         .ok_or(ActionError::InvalidInput)?;
     if language == "auto" {
-        return allow_auto.then_some(()).ok_or(ActionError::InvalidInput);
+        return allow_auto
+            .then_some(language)
+            .ok_or(ActionError::InvalidInput);
     }
     if !language.is_empty()
         && language.len() <= 32
@@ -253,7 +280,7 @@ fn validate_language(value: Option<&Value>, allow_auto: bool) -> Result<(), Acti
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
     {
-        return Ok(());
+        return Ok(language);
     }
     Err(ActionError::InvalidInput)
 }
@@ -281,7 +308,7 @@ impl ActionCancellation {
 pub(super) struct PreparedAction {
     descriptor: &'static ActionDescriptor,
     handle: ActionHandle,
-    input: Value,
+    input: ActionInput,
     cancellation: ActionCancellation,
 }
 
@@ -294,7 +321,7 @@ impl PreparedAction {
         &self.handle
     }
 
-    pub fn input(&self) -> &Value {
+    pub fn input(&self) -> &ActionInput {
         &self.input
     }
 
@@ -326,10 +353,14 @@ pub(super) enum ActionError {
     InvalidRequestSlot,
     #[error("动作请求已经更新")]
     Superseded,
+    #[error("动作正在提交")]
+    Busy,
     #[error("动作已经取消")]
     Cancelled,
     #[error("动作不支持取消")]
     NotCancellable,
+    #[error("动作生命周期与执行方式不匹配")]
+    InvalidMode,
     #[error("动作代次已经耗尽")]
     GenerationExhausted,
     #[error("动作状态锁已损坏")]
@@ -344,8 +375,10 @@ impl ActionError {
             Self::InvalidInput => "action_invalid_input",
             Self::InvalidRequestSlot => "action_invalid_request_slot",
             Self::Superseded => "action_superseded",
+            Self::Busy => "action_busy",
             Self::Cancelled => "action_cancelled",
             Self::NotCancellable => "action_not_cancellable",
+            Self::InvalidMode => "action_invalid_mode",
             Self::GenerationExhausted => "action_generation_exhausted",
             Self::Poisoned => "action_internal",
         }
@@ -361,7 +394,14 @@ struct ActionSlot {
 struct ActiveAction {
     generation: u64,
     cancellable: bool,
+    phase: ActionPhase,
     cancellation: ActionCancellation,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ActionPhase {
+    Pending,
+    Committing,
 }
 
 #[derive(Default)]
@@ -388,7 +428,7 @@ impl ActionRuntime {
         if !action_allowed(crate::ipc_access::caller_kind(caller_label), action_id) {
             return Err(ActionError::Unauthorized);
         }
-        validate_input(descriptor.input, &input)?;
+        let input = validate_input(descriptor.input, &input)?;
 
         let slot = ActionSlot {
             caller: caller_label.to_string(),
@@ -396,6 +436,13 @@ impl ActionRuntime {
         };
         let cancellation = ActionCancellation(Arc::new(AtomicBool::new(false)));
         let mut state = self.state.lock().map_err(|_| ActionError::Poisoned)?;
+        if state
+            .active
+            .get(&slot)
+            .is_some_and(|active| active.phase == ActionPhase::Committing)
+        {
+            return Err(ActionError::Busy);
+        }
         let generation = state
             .next_generation
             .checked_add(1)
@@ -406,6 +453,7 @@ impl ActionRuntime {
             ActiveAction {
                 generation,
                 cancellable: descriptor.cancellable,
+                phase: ActionPhase::Pending,
                 cancellation: cancellation.clone(),
             },
         ) {
@@ -454,14 +502,43 @@ impl ActionRuntime {
         publish: impl FnOnce() -> Result<T, E>,
     ) -> Result<Result<T, E>, ActionError> {
         let mut state = self.state.lock().map_err(|_| ActionError::Poisoned)?;
-        let cancelled = current_action(&state, caller_label, handle)?
-            .cancellation
-            .is_cancelled();
+        let active = current_action(&state, caller_label, handle)?;
+        if !active.cancellable {
+            return Err(ActionError::InvalidMode);
+        }
+        let cancelled = active.cancellation.is_cancelled();
         if cancelled {
             state.active.remove(&slot_for(caller_label, handle));
             return Err(ActionError::Cancelled);
         }
         let result = publish();
+        state.active.remove(&slot_for(caller_label, handle));
+        Ok(result)
+    }
+
+    /// 不可取消副作用先原子进入提交阶段，再离开状态锁执行。
+    /// 提交期间同一 caller/slot 不能被替换，避免旧复制/保存动作晚于新动作落地。
+    pub fn commit_noncancellable<T, E>(
+        &self,
+        caller_label: &str,
+        handle: &ActionHandle,
+        commit: impl FnOnce() -> Result<T, E>,
+    ) -> Result<Result<T, E>, ActionError> {
+        {
+            let mut state = self.state.lock().map_err(|_| ActionError::Poisoned)?;
+            let active = current_action_mut(&mut state, caller_label, handle)?;
+            if active.cancellable {
+                return Err(ActionError::InvalidMode);
+            }
+            if active.phase == ActionPhase::Committing {
+                return Err(ActionError::Busy);
+            }
+            active.phase = ActionPhase::Committing;
+        }
+
+        let result = commit();
+        let mut state = self.state.lock().map_err(|_| ActionError::Poisoned)?;
+        current_action(&state, caller_label, handle)?;
         state.active.remove(&slot_for(caller_label, handle));
         Ok(result)
     }
@@ -556,40 +633,67 @@ mod tests {
             validate_input(action.input, &input).unwrap();
             let mut invalid = input.as_object().unwrap().clone();
             invalid.insert("unexpected".to_string(), json!(true));
-            assert_eq!(
-                validate_input(action.input, &Value::Object(invalid)),
-                Err(ActionError::InvalidInput),
+            assert!(
+                matches!(
+                    validate_input(action.input, &Value::Object(invalid)),
+                    Err(ActionError::InvalidInput)
+                ),
                 "{}",
                 action.id
             );
         }
-        assert_eq!(
+        assert!(matches!(
             validate_owned_image(&json!({
                 "sourceId": "../../private/image.png",
                 "sourceVersion": 1
             })),
             Err(ActionError::InvalidInput)
-        );
-        validate_owned_image(&json!({"sourceId": "viewer-initial", "sourceVersion": 0})).unwrap();
-        assert_eq!(
+        ));
+        let ActionInput::OwnedImage {
+            source_id,
+            source_version,
+        } = validate_owned_image(&json!({"sourceId": "viewer-initial", "sourceVersion": 0}))
+            .unwrap()
+        else {
+            panic!("owned image input must remain typed");
+        };
+        assert_eq!(source_id, "viewer-initial");
+        assert_eq!(source_version, 0);
+        let ActionInput::Translation {
+            text,
+            source_language,
+            target_language,
+        } = validate_translation_request(&json!({
+            "text": "private",
+            "sourceLanguage": "auto",
+            "targetLanguage": "zh-CN"
+        }))
+        .unwrap()
+        else {
+            panic!("translation input must remain typed");
+        };
+        assert_eq!(text, "private");
+        assert_eq!(source_language.as_deref(), Some("auto"));
+        assert_eq!(target_language, "zh-CN");
+        assert!(matches!(
             validate_translation_request(&json!({
                 "text": "x",
                 "sourceLanguage": "auto",
                 "targetLanguage": "https://example.com"
             })),
             Err(ActionError::InvalidInput)
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             validate_translation_request(&json!({
                 "text": "x",
                 "targetLanguage": "auto"
             })),
             Err(ActionError::InvalidInput)
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             validate_text(&json!({"text": "x".repeat(MAX_TEXT_BYTES + 1)})),
             Err(ActionError::InvalidInput)
-        );
+        ));
     }
 
     #[test]
@@ -713,7 +817,7 @@ mod tests {
     }
 
     #[test]
-    fn non_cancellable_action_rejects_explicit_cancel_but_can_publish() {
+    fn non_cancellable_action_rejects_cancel_and_blocks_replacement_while_committing() {
         let runtime = ActionRuntime::default();
         let prepared = runtime
             .begin("launcher", "text.copy", "copy", json!({"text": "private"}))
@@ -727,11 +831,21 @@ mod tests {
             .unwrap();
         assert_eq!(
             runtime
-                .publish("launcher", prepared.handle(), || Ok::<_, ()>("copied"))
+                .commit_noncancellable("launcher", prepared.handle(), || {
+                    assert!(matches!(
+                        runtime.begin("launcher", "text.copy", "copy", json!({"text": "newer"})),
+                        Err(ActionError::Busy)
+                    ));
+                    Ok::<_, ()>("copied")
+                })
                 .unwrap(),
             Ok("copied")
         );
+        runtime
+            .begin("launcher", "text.copy", "copy", json!({"text": "newer"}))
+            .unwrap();
         assert_eq!(ActionError::NotCancellable.code(), "action_not_cancellable");
+        assert_eq!(ActionError::Busy.code(), "action_busy");
     }
 
     #[test]

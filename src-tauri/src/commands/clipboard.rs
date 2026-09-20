@@ -124,7 +124,7 @@ pub fn copy_text(text: String, state: State<AppState>) -> Result<(), String> {
     copy_text_suppressed(&text, state.inner())
 }
 
-fn copy_text_suppressed(text: &str, state: &AppState) -> Result<(), String> {
+pub(crate) fn copy_text_suppressed(text: &str, state: &AppState) -> Result<(), String> {
     let hash = crate::clipboard_watcher::content::compute_hash(text.as_bytes());
     state.watcher.write_suppressed(vec![hash], || {
         crate::clipboard_watcher::clipboard_set_text_with_retry(text)
