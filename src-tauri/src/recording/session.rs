@@ -267,6 +267,11 @@ mod tests {
     use std::fmt;
     use std::process::Command;
 
+    // Windows CI 的 Defender/文件索引会让“写 partial → fsync → rename → 重写 manifest”偶尔超过
+    // 10 秒。这里等待的是测试证据，不是产品超时；成功路径仍会在条件满足后立即返回。
+    #[cfg(target_os = "windows")]
+    const ASYNC_TEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+    #[cfg(not(target_os = "windows"))]
     const ASYNC_TEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
     struct FixtureSource {
