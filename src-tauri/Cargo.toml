@@ -22,7 +22,7 @@ default = ["linux-pipewire"]
 # `--no-default-features`，正式 Linux 产物也不能把 GNOME 的低延迟主路径裁掉。
 linux-pipewire = []
 # PX-REC-01 的隔离编码原型。当前 libvpx 绑定仍是 canary；常规目标下载固定哈希预编译归档，
-# macOS Intel 从固定哈希源码归档构建。四目标同 SHA 通过前不能进入默认产品构建或录屏入口。
+# Windows MSVC 与 macOS Intel 从固定哈希源码归档构建。四目标同 SHA 通过前不能进入默认产品构建或录屏入口。
 recording-vp9-prototype = ["dep:shiguredo_libvpx", "dep:webm", "dep:yuv"]
 recording-vp9-source-build = ["recording-vp9-prototype", "shiguredo_libvpx/source-build"]
 

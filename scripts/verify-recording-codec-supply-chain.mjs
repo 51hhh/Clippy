@@ -37,6 +37,16 @@ if (!buildScript.includes(`"${pinnedSource.url}"`) || !buildScript.includes(`"${
 if (buildScript.includes('Command::new("git")') || buildScript.includes('arg("clone")')) {
   throw new Error("vendored libvpx source build must not clone a mutable Git tag");
 }
+if (
+  !buildScript.includes('(\"x86_64\", \"msvc\") => build_from_source_windows_msvc(src_dir)') ||
+  !buildScript.includes('x86_64-win64-vs17') ||
+  !buildScript.includes('vpxmd.lib')
+) {
+  throw new Error("vendored libvpx must build a native MSVC archive for Windows MSVC targets");
+}
+if (!buildScript.includes('(\"windows\", \"x86_64\") if target_env == \"gnu\"')) {
+  throw new Error("the upstream Windows prebuilt must remain restricted to the GNU ABI");
+}
 if (!bindingSource.includes("pub lag_in_frames: Option<usize>")) {
   throw new Error("vendored libvpx must preserve the reviewed zero-lag recording configuration");
 }

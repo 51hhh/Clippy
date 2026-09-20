@@ -321,10 +321,20 @@ fn build_from_source_unix(src_dir: &Path) {
 // Windows + MSYS2 環境でのソースビルド
 fn build_from_source_windows(src_dir: &Path) {
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
-    let configure_target = match target_arch.as_str() {
-        "x86_64" => "x86_64-win64-gcc",
-        _ => panic!("unsupported Windows arch for source-build: {}", target_arch),
-    };
+    let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+
+    match (target_arch.as_str(), target_env.as_str()) {
+        ("x86_64", "msvc") => build_from_source_windows_msvc(src_dir),
+        ("x86_64", "gnu") => build_from_source_windows_gnu(src_dir),
+        _ => panic!(
+            "unsupported Windows target for source-build: arch={}, env={}",
+            target_arch, target_env
+        ),
+    }
+}
+
+fn build_from_source_windows_gnu(src_dir: &Path) {
+    let configure_target = "x86_64-win64-gcc";
 
     // `configure` はシェルスクリプトなので sh 経由で実行する
     run_with_shell(
@@ -337,6 +347,47 @@ fn build_from_source_windows(src_dir: &Path) {
     );
     run_with_shell(src_dir, "make", "make");
     run_with_shell(src_dir, "make install", "make install");
+}
+
+// Rust の Windows リリースは MSVC ABI を使う。上流の windows_x86_64 prebuilt は
+// MinGW/pthread シンボルを含むため、固定ソースから Visual Studio project を生成してビルドする。
+fn build_from_source_windows_msvc(src_dir: &Path) {
+    run_with_shell(
+        src_dir,
+        "./configure --target=x86_64-win64-vs17 \
+         --disable-shared --enable-vp9-highbitdepth \
+         --disable-examples --disable-tools --disable-docs --disable-unit-tests \
+         --enable-external-build --as=nasm",
+        "configure (MSVC)",
+    );
+    run_with_shell(src_dir, "make vpx.vcxproj", "generate vpx.vcxproj");
+
+    let project = src_dir.join("vpx.vcxproj");
+    let status = Command::new("msbuild")
+        .arg(&project)
+        .args([
+            "/m",
+            "/p:Configuration=Release",
+            "/p:Platform=x64",
+            "/p:PreferredToolArchitecture=x64",
+        ])
+        .status()
+        .expect("failed to execute msbuild. Ensure MSBuild is installed and on PATH");
+    if !status.success() {
+        panic!("[msbuild] failed to build {LIB_NAME} for Windows MSVC");
+    }
+
+    // libvpx の VS project は動的 CRT 用 static library を vpxmd.lib として出力する。
+    // Rust 側の既存 #[link(name = \"vpx\")] を保つため、隔離した出力先で vpx.lib に正規化する。
+    let built_library = src_dir.join("x64").join("Release").join("vpxmd.lib");
+    let output_lib_dir = src_dir.join("lib");
+    fs::create_dir_all(&output_lib_dir).expect("failed to create MSVC library output directory");
+    fs::copy(&built_library, output_lib_dir.join("vpx.lib")).unwrap_or_else(|error| {
+        panic!(
+            "failed to normalize MSVC library {}: {error}",
+            built_library.display()
+        )
+    });
 }
 
 // shell 経由でコマンドを実行する
@@ -696,12 +747,17 @@ fn get_target_platform() -> String {
 
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
 
     match (target_os.as_str(), target_arch.as_str()) {
         ("linux", "x86_64") => format!("{}_x86_64", detect_linux_distro()),
         ("linux", "aarch64") => format!("{}_arm64", detect_linux_distro()),
         ("macos", "aarch64") => "macos_arm64".to_string(),
-        ("windows", "x86_64") => "windows_x86_64".to_string(),
+        ("windows", "x86_64") if target_env == "gnu" => "windows_x86_64".to_string(),
+        ("windows", "x86_64") => panic!(
+            "the upstream windows_x86_64 prebuilt uses the GNU ABI; \
+             enable shiguredo_libvpx/source-build for Windows MSVC"
+        ),
         _ => panic!("unsupported target: os={}, arch={}", target_os, target_arch),
     }
 }

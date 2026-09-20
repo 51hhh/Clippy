@@ -181,7 +181,7 @@ jobs:
           - runner: ubuntu-22.04
             features: recording-vp9-prototype
           - runner: windows-latest
-            features: recording-vp9-prototype
+            features: recording-vp9-source-build
           - runner: macos-15
             features: recording-vp9-prototype
           - runner: macos-15-intel
@@ -202,6 +202,26 @@ jobs:
       - name: Install macOS Intel source-build dependencies
         if: matrix.runner == 'macos-15-intel'
         run: brew install nasm
+
+      - name: Install Windows source-build shell dependencies
+        if: runner.os == 'Windows'
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MSYS
+          update: false
+          install: make diffutils perl nasm
+
+      - name: Expose Windows source-build shell tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: echo '${{ steps.msys2.outputs.msys2-location }}\usr\bin' >> $env:GITHUB_PATH
+
+      - name: Install Windows MSBuild
+        if: runner.os == 'Windows'
+        uses: microsoft/setup-msbuild@v3
+        with:
+          msbuild-architecture: x64
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable

@@ -803,10 +803,12 @@ rav1e 当前参数不满足实时；本机缺 NASM
 `shiguredo_libvpx` 仍是 canary，且 build script 会联网下载平台预编译库，因此默认 feature 和 UI
 保持不接入。Clippy 已 vendor Rust 绑定，把受支持归档 SHA-256 固定在仓库并打包 Apache-2.0、
 MPL-2.0 与 BSD-3-Clause 声明；SIMD 色彩转换 crate 也固定版本、checksum 和 BSD-3-Clause 文本。
-CI 已增加 Ubuntu 22 x64、Windows x64、macOS arm64 的阻塞 feature
+CI 已增加 Ubuntu 22 x64、Windows MSVC x64、macOS arm64 的阻塞 feature
 矩阵，并为上游没有预编译归档的 macOS x86_64 增加固定 SHA-256 源码归档构建。本分支尚无四目标
 远程同 SHA 结果，该结果仍是启用前置条件。Linux x86_64 已实际冷构建同一源码 feature，11 分 01 秒
-完成 libvpx 编译、符号重写、Rust 链接及 4 个 VP9 mux/`ffprobe` 测试；该证据不替代 Intel runner。
+完成 libvpx 编译、符号重写、Rust 链接及 4 个 VP9 mux/`ffprobe` 测试；Windows MSVC 从固定源码
+归档生成 v143 工程，避免错误链接只兼容 MinGW/pthread ABI 的上游 Windows 预编译包。该证据不替代
+Intel runner。
 编码线程已改为统一的 `RecordingSegmentWriter` 合同，MJPEG 与 VP9 共用 pipeline 排空、错误联动和
 线程回收；会话配置现用同一编码器枚举生成 writer 与 journal 描述，feature 回归已跑通 capture →
 pipeline → VP9/WebM → 私有原子分段 → complete manifest，并核对扩展名、时长、帧数和权限。产品

@@ -8,7 +8,9 @@ Clippy 只修改 `build.rs` 的外部输入校验来源：
 - 移除从归档所在 GitHub Release 动态下载 `.sha256` 的行为；
 - 在仓库中固定已经审阅的归档 SHA-256；
 - 未列入哈希表的平台立即失败，禁止自动接受新归档；
-- 当前固定 Ubuntu 22.04/24.04/26.04 x86_64、Windows x86_64 与 macOS arm64；
+- 当前固定 Ubuntu 22.04/24.04/26.04 x86_64、Windows GNU x86_64 与 macOS arm64；
+- 上游 Windows 预编译归档使用 MinGW/pthread ABI，不能链接 Clippy 的 MSVC 目标；Windows MSVC
+  启用 `source-build` 后从固定源码归档生成 Visual Studio 17/v143 工程，并用 MSBuild 构建；
 - 上游没有 macOS x86_64 预编译归档；该目标启用 `source-build` 时改为下载 libvpx v1.16.0
   源码归档，并用仓库固定 SHA-256 校验后再编译；
 - 移除源码构建时按可变 tag 浅克隆 Git 仓库的行为。
