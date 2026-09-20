@@ -121,6 +121,27 @@ pipeline、采集线程和编码线程接成一个生命周期：正常 Stop 只
    不复用一次性 Screenshot Portal，也不借 XWayland 截取原生窗口；
 5. 三平台视频闭环完成后再引入单一音轨，先分别建立系统音频/麦克风能力矩阵，再做 A/V 同步。
 
+## 控制窗排除
+
+控制窗必须在开始采集前得到可验证的排除策略，不能仅设置 always-on-top 后假设不会进入视频：
+
+- Windows 对 Clippy 自有顶层窗口使用
+  [`SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)`](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowdisplayaffinity)，
+  并把 API 失败当作启动失败；该能力要求 DWM，Windows 10 2004 前只能退化为 `WDA_MONITOR`；
+- macOS 的 ScreenCaptureKit 使用
+  [`SCContentFilter(display:excludingWindows:)`](https://developer.apple.com/documentation/screencapturekit/sccontentfilter/init%28display%3Aexcludingwindows%3A%29)
+  或排除 Clippy 应用，控制窗可以位于选区内；
+- Wayland 的
+  [ScreenCast Portal](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.ScreenCast.html)
+  只定义源类型、光标模式和 restore token，没有调用方指定任意排除窗口的参数。因此这是从官方接口
+  推导出的限制：控制窗必须位于流区域外，否则只使用托盘与快捷键；
+- X11 当前通过根窗口 `GetImage` 取帧，协议请求没有排除窗口列表。控制窗必须完整位于物理选区外；
+  若选区覆盖全部显示器，隐藏控制窗并使用托盘/快捷键，不能逐帧隐藏窗口造成闪烁与采样竞态。
+
+仓库已加入物理坐标规划器：原生排除平台优先把控制窗放在选区底部；仅几何排除的平台会在所有
+显示器的上、下、左、右与角落候选中选择离选区最近且含 margin 的安全位置，支持负坐标多屏；没有
+安全矩形时明确返回 `TrayAndShortcutsOnly`。窗口句柄排除调用和控制窗宿主仍待平台实现。
+
 Linux X11 已加入持久 x11rb 连接的根窗口区域帧源：每次只请求选区物理矩形，依据服务器 visual mask
 和字节序转为紧凑 RGBA，并在进入 Clippy 边界时写入单调时间戳。硬件光标通过 XFixes
 `GetCursorImage` 取得；其预乘 ARGB 像素按 hotspot 与选区求交后合成，异常尺寸或数据长度会使当前帧
