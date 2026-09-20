@@ -758,8 +758,8 @@ XWayland 注入原生窗口。
 控制窗排除能力也已按平台审查并固定物理规划合同：Windows/macOS 使用原生窗口排除；X11/Wayland
 只能放到选区外，无安全位置时退回托盘/快捷键。负坐标多屏、全屏无位置与相邻显示器候选已有单元
 测试。Linux 本地门禁还会在 Xvfb 中跑 RandR 区域 → X11 帧源 → pipeline → AVI → complete manifest
-的真实协议闭环；窗口句柄排除调用、可信开始 IPC 与真机/4K 性能验收仍未完成。桌面资源恢复、控制
-窗宿主和暂停/继续/停止/取消控制 IPC 已接入。
+的真实协议闭环；Windows 窗口排除已接入，macOS 排除、可信开始 IPC 与真机/4K 性能验收仍未完成。
+桌面资源恢复、控制窗宿主和暂停/继续/停止/取消控制 IPC 已接入。
 X11 帧源已把原生核验后的 `source_id` 与物理区域收敛为唯一描述，清单和控制窗不再各自重复换算。
 截图 → 录屏的资源交接状态机已固定连接帧源、消费 ordinary、恢复桌面、发布控制面、启动采集和
 generation token 绑定、停止/失败释放 gate 的严格顺序；Tauri 桌面适配器与控制 IPC 已接入，可信
@@ -821,8 +821,10 @@ VP9 内部已拆开 libvpx 帧编码与 WebM packet mux，并以零 lookahead �
 关键帧开始下一段；`ffprobe` 分别核对各段和最终文件的 codec、帧数与时长。
 最终输出 journal 也已固定私有 partial、时长/帧数总和、长度/SHA-256、manifest 提交点和原子提升；
 崩溃落在 manifest 与 rename 之间会自动完成提升，坏最终文件只回退到已验证分段。VP9 合成会话
-正常停止现会返回私有 `recording.webm`；产品入口和真实平台帧源仍未接入，因此第一阶段验收保持
-未完成。
+正常停止现会返回私有 `recording.webm`。Windows 已加入 WGC 单槽最新帧桥接、可信区域裁剪、平台
+暂停/继续/停止 hook 和控制窗 `WDA_EXCLUDEFROMCAPTURE`；Windows 10 2004 前继续使用几何排除，
+避免原生 API 退化为黑块。该 WGC 上游路径目前固定关闭光标，且只完成隔离交叉类型检查，没有
+Windows 真机证据；macOS/Wayland 帧源与产品入口也未接入，因此第一阶段验收保持未完成。
 
 ### `PX-ACT-01`：类型化动作与启动器
 

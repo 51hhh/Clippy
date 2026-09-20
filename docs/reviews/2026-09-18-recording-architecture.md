@@ -301,8 +301,10 @@ packet 为关键帧；同一 packet 同时进入连续最终 mux。`ffprobe` 会
 仓库已加入物理坐标规划器：原生排除平台优先把控制窗放在选区底部；仅几何排除的平台会在所有
 显示器的上、下、左、右与角落候选中选择离选区最近且含 margin 的安全位置，支持负坐标多屏；没有
 安全矩形时明确返回 `TrayAndShortcutsOnly`。控制窗 Tauri 宿主现按实际物理窗口尺寸再次规划并隐藏
-建窗，页面 ready 与 token bind 都满足后才显示。Linux Wayland、没有选区外安全位置和未来需要原生
-排除的路径会明确拒绝启动；窗口句柄排除调用与托盘/快捷键后备仍待平台实现。
+建窗，页面 ready 与 token bind 都满足后才显示。Windows 建窗后必须成功设置
+`WDA_EXCLUDEFROMCAPTURE`；只有 Windows 10 2004（build 19041）及以上才使用原生排除布局，旧版本
+继续要求控制窗完整位于选区外，避免 `WDA_MONITOR` 退化在视频中留下黑块。Linux Wayland、没有
+选区外安全位置和未来需要原生排除的路径会明确拒绝启动；macOS 排除调用与托盘/快捷键后备仍待实现。
 
 Linux X11 已加入持久 x11rb 连接的根窗口区域帧源：每次只请求选区物理矩形，依据服务器 visual mask
 和字节序转为紧凑 RGBA，并在进入 Clippy 边界时写入单调时间戳。硬件光标通过 XFixes
@@ -326,7 +328,16 @@ Linux X11 已加入持久 x11rb 连接的根窗口区域帧源：每次只请求
 控制通道错误及 `Drop` 回收都会中止 pipeline。独立诊断编码线程已闭合 capture → 三槽 pipeline →
 MJPEG/AVI：它阻塞等待帧，先排空已接受前缀，再使用同一最终时长封尾；编码失败或线程回收会反向
 中止 pipeline，停止仍在运行的采集线程。桌面资源恢复领域状态机、Tauri 控制窗宿主和控制 IPC 已
-接入；可信开始 IPC、X11 真机性能证据与其他平台帧源仍未接入，因此还不能从 UI 开始录屏。
+接入；可信开始 IPC、X11 真机性能证据与 macOS/Wayland 帧源仍未接入，因此还不能从 UI 开始录屏。
+
+Windows 平台已加入第一条 WGC 区域帧源骨架：冻结截图的显示器 ID 和物理像素尺寸会再次与当前
+`xcap` 显示器核对，WGC 整屏帧进入零容量通道后由 Clippy 单槽桥接只保留最新一帧，再按可信 crop
+无缩放复制为紧凑 RGBA。整屏源超过 64 MiB、显示器几何变化、帧长度不符、首帧五秒未到和通道
+关闭都会明确失败；静态桌面暂时没有新帧时每 50 ms 返回控制循环，由既有时间线补齐显示持续时间。
+暂停/继续/停止现在也经过平台 hook，暂停会关闭 WGC runtime，继续会丢弃暂停前缓存帧。选择 WGC
+而不是 xcap 默认 DXGI recorder，是因为后者的内部采集线程没有终止出口，不满足 Stop/Drop 回收
+合同。当前 xcap WGC recorder 固定关闭光标，因此这只是帧源基础，尚未满足第一阶段“包含光标”；
+模块已在隔离的 `x86_64-pc-windows-msvc` 类型检查壳中通过，仍需 Windows 原生 CI 和真机测试。
 
 `ci-local.sh` 现会在隔离 Xvfb 中显式运行原生闭环：RandR 可信区域 → 持久 X11 帧源 → 采集线程 →
 三槽 pipeline → MJPEG/AVI → 私有分段与 complete manifest，并核对清单帧数和文件权限。它验证真实

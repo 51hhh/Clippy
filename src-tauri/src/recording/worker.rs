@@ -24,8 +24,29 @@ pub(super) trait RecordingFrameSource: Send + 'static {
 
     fn capture_next(&mut self) -> Result<CapturedFrame, Self::Error>;
 
+    /// 推送型源可短轮询并在暂时没有新画面时返回 `None`，让控制命令保持低延迟。
+    /// 拉取型源默认每次都产生一帧。
+    fn capture_next_available(&mut self) -> Result<Option<CapturedFrame>, Self::Error> {
+        self.capture_next().map(Some)
+    }
+
     /// 返回与 `CapturedFrame::captured_at_ns` 相同时间基的下一单调时间戳。
     fn control_timestamp_ns(&mut self) -> Result<u64, Self::Error>;
+
+    /// 推送型平台源可在暂停时真正停止原生流；拉取型源沿用同一时钟即可。
+    fn pause_capture(&mut self) -> Result<u64, Self::Error> {
+        self.control_timestamp_ns()
+    }
+
+    /// 恢复成功后的时间戳是新时间线起点；平台源不得再交付该时刻之前缓存的旧帧。
+    fn resume_capture(&mut self) -> Result<u64, Self::Error> {
+        self.control_timestamp_ns()
+    }
+
+    /// 正常停止先关闭平台流，再用同一时钟域封尾。
+    fn stop_capture(&mut self) -> Result<u64, Self::Error> {
+        self.control_timestamp_ns()
+    }
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -220,19 +241,22 @@ where
 
         let started = Instant::now();
         let frame = source
-            .capture_next()
+            .capture_next_available()
             .map_err(|error| CaptureWorkerError::Source(error.to_string()))?;
-        report.captured_frames = report.captured_frames.saturating_add(1);
-        match pipeline.push(frame)? {
-            PushOutcome::Queued { .. } => {
-                report.queued_frames = report.queued_frames.saturating_add(1);
-            }
-            PushOutcome::QueuedAfterDropping { .. } => {
-                report.queued_frames = report.queued_frames.saturating_add(1);
-                report.dropped_by_backpressure = report.dropped_by_backpressure.saturating_add(1);
-            }
-            PushOutcome::IgnoredWhilePaused => {
-                report.ignored_while_paused = report.ignored_while_paused.saturating_add(1);
+        if let Some(frame) = frame {
+            report.captured_frames = report.captured_frames.saturating_add(1);
+            match pipeline.push(frame)? {
+                PushOutcome::Queued { .. } => {
+                    report.queued_frames = report.queued_frames.saturating_add(1);
+                }
+                PushOutcome::QueuedAfterDropping { .. } => {
+                    report.queued_frames = report.queued_frames.saturating_add(1);
+                    report.dropped_by_backpressure =
+                        report.dropped_by_backpressure.saturating_add(1);
+                }
+                PushOutcome::IgnoredWhilePaused => {
+                    report.ignored_while_paused = report.ignored_while_paused.saturating_add(1);
+                }
             }
         }
 
@@ -264,7 +288,7 @@ where
 {
     match command {
         ControlCommand::Pause(reply) => {
-            let timestamp = match source.control_timestamp_ns() {
+            let timestamp = match source.pause_capture() {
                 Ok(timestamp) => timestamp,
                 Err(error) => {
                     let error = CaptureWorkerError::Source(error.to_string());
@@ -280,7 +304,7 @@ where
             Ok(None)
         }
         ControlCommand::Resume(reply) => {
-            let timestamp = match source.control_timestamp_ns() {
+            let timestamp = match source.resume_capture() {
                 Ok(timestamp) => timestamp,
                 Err(error) => {
                     let error = CaptureWorkerError::Source(error.to_string());
@@ -297,7 +321,7 @@ where
         }
         ControlCommand::Stop => {
             let timestamp = source
-                .control_timestamp_ns()
+                .stop_capture()
                 .map_err(|error| CaptureWorkerError::Source(error.to_string()))?;
             Ok(Some(pipeline.finish(timestamp)?))
         }
@@ -335,6 +359,7 @@ mod tests {
     use super::*;
     use crate::recording::pipeline::PipelineDrain;
     use std::fmt;
+    use std::sync::Mutex;
 
     #[derive(Debug, Clone, Copy)]
     struct FakeSourceError;
@@ -398,6 +423,75 @@ mod tests {
             fail_at: None,
             fail_control: false,
             stop_after: None,
+        }
+    }
+
+    struct HookSource {
+        inner: FakeSource,
+        hooks: Arc<Mutex<Vec<&'static str>>>,
+    }
+
+    impl RecordingFrameSource for HookSource {
+        type Error = FakeSourceError;
+
+        fn capture_next(&mut self) -> Result<CapturedFrame, Self::Error> {
+            self.inner.capture_next()
+        }
+
+        fn control_timestamp_ns(&mut self) -> Result<u64, Self::Error> {
+            self.inner.control_timestamp_ns()
+        }
+
+        fn pause_capture(&mut self) -> Result<u64, Self::Error> {
+            self.hooks.lock().unwrap().push("pause");
+            self.inner.control_timestamp_ns()
+        }
+
+        fn resume_capture(&mut self) -> Result<u64, Self::Error> {
+            self.hooks.lock().unwrap().push("resume");
+            self.inner.control_timestamp_ns()
+        }
+
+        fn stop_capture(&mut self) -> Result<u64, Self::Error> {
+            self.hooks.lock().unwrap().push("stop");
+            self.inner.control_timestamp_ns()
+        }
+    }
+
+    struct IdlePushSource {
+        inner: FakeSource,
+        emitted_first_frame: bool,
+        hooks: Arc<Mutex<Vec<&'static str>>>,
+    }
+
+    impl RecordingFrameSource for IdlePushSource {
+        type Error = FakeSourceError;
+
+        fn capture_next(&mut self) -> Result<CapturedFrame, Self::Error> {
+            unreachable!("推送型源必须使用可空的短轮询入口")
+        }
+
+        fn capture_next_available(&mut self) -> Result<Option<CapturedFrame>, Self::Error> {
+            if self.emitted_first_frame {
+                Ok(None)
+            } else {
+                self.emitted_first_frame = true;
+                self.inner.capture_next().map(Some)
+            }
+        }
+
+        fn control_timestamp_ns(&mut self) -> Result<u64, Self::Error> {
+            self.inner.control_timestamp_ns()
+        }
+
+        fn pause_capture(&mut self) -> Result<u64, Self::Error> {
+            self.hooks.lock().unwrap().push("pause");
+            self.control_timestamp_ns()
+        }
+
+        fn stop_capture(&mut self) -> Result<u64, Self::Error> {
+            self.hooks.lock().unwrap().push("stop");
+            self.control_timestamp_ns()
         }
     }
 
@@ -500,6 +594,41 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn worker_routes_pause_resume_and_stop_through_platform_hooks() {
+        let hooks = Arc::new(Mutex::new(Vec::new()));
+        let platform_source = HookSource {
+            inner: source(),
+            hooks: Arc::clone(&hooks),
+        };
+        let pipeline = Arc::new(RecordingPipeline::default());
+        let worker = CaptureWorker::spawn(platform_source, pipeline, 120).unwrap();
+        std::thread::sleep(Duration::from_millis(15));
+        worker.pause().unwrap();
+        worker.resume().unwrap();
+        worker.stop().unwrap();
+        assert_eq!(*hooks.lock().unwrap(), ["pause", "resume", "stop"]);
+    }
+
+    #[test]
+    fn static_push_source_stays_controllable_without_counting_missing_frames() {
+        let hooks = Arc::new(Mutex::new(Vec::new()));
+        let source = IdlePushSource {
+            inner: source(),
+            emitted_first_frame: false,
+            hooks: Arc::clone(&hooks),
+        };
+        let pipeline = Arc::new(RecordingPipeline::default());
+        let worker = CaptureWorker::spawn(source, pipeline, 120).unwrap();
+        std::thread::sleep(Duration::from_millis(15));
+        worker.pause().unwrap();
+        let report = worker.stop().unwrap();
+        assert_eq!(report.captured_frames, 1);
+        assert_eq!(report.queued_frames, 1);
+        assert!(report.duration_ns.is_some());
+        assert_eq!(*hooks.lock().unwrap(), ["pause", "stop"]);
     }
 
     #[test]
