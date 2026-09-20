@@ -99,6 +99,8 @@ run_step "OCR 质量合同" \
   python3 -m unittest discover -s src-tauri/ocr-sidecar -p 'test_quality*.py' -v
 run_step "OCR 视觉段落回退" \
   python3 -m unittest discover -s src-tauri/ocr-sidecar -p test_visual_paragraphs.py -v
+run_step "智能擦除可行性证据" \
+  python3 scripts/smart-erase/verify_evidence.py
 
 # --- Rust ---
 run_step "cargo fmt --check" bash -c "cd src-tauri && cargo fmt -- --check"

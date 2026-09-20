@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "reviewId": "PX-SMART-01-blind-v1",
+  "corpusId": "PX-SMART-01-corpus-v1",
+  "seed": 20260922,
+  "reviewMode": "single anonymous visual pass before opening blind-key.json",
+  "criteria": [
+    "structure continuity",
+    "texture plausibility",
+    "absence of seams and color halos"
+  ],
+  "limitations": [
+    "single reviewer",
+    "procedurally generated corpus",
+    "scaled contact sheets",
+    "not a Windows or macOS product UX test"
+  ],
+  "cases": [
+    {
+      "caseId": "text_ruled_paper",
+      "ranking": ["C", "A", "B"],
+      "unacceptable": [],
+      "note": "C preserves the ruled lines with the least visible rectangular wash."
+    },
+    {
+      "caseId": "regular_grid",
+      "ranking": ["B", "C", "A"],
+      "unacceptable": ["A", "C"],
+      "note": "B keeps the grid recognizable; A and C leave radial smears and broken line intersections."
+    },
+    {
+      "caseId": "natural_foliage",
+      "ranking": ["C", "A", "B"],
+      "unacceptable": ["A", "B"],
+      "note": "C produces a plausible soft texture patch; A and B retain spoke-shaped structure."
+    },
+    {
+      "caseId": "strong_edge",
+      "ranking": ["B", "A", "C"],
+      "unacceptable": ["C"],
+      "note": "B has the smallest local discontinuity; C creates a broad yellow-blue halo across the edge."
+    },
+    {
+      "caseId": "large_document",
+      "ranking": ["A", "B", "C"],
+      "unacceptable": ["B", "C"],
+      "note": "A reconstructs most document lines; B and C leave a large blank hourglass-shaped region."
+    }
+  ],
+  "revealedSummary": {
+    "winnerCounts": {
+      "lama_roi": 4,
+      "telea": 1,
+      "navier_stokes": 0
+    },
+    "candidateUnacceptableCases": ["strong_edge"]
+  }
+}

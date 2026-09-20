@@ -1,0 +1,400 @@
+{
+  "schemaVersion": 1,
+  "corpusId": "PX-SMART-01-corpus-v1",
+  "corpusManifestSha256": "2af3ba0a4e276fd5caa8addb70db4293accd240ee209c4a8359caa7b17cecd78",
+  "host": {
+    "platform": "Linux-7.0.0-31-generic-x86_64-with-glibc2.43",
+    "cpu": "Intel(R) Core(TM) Ultra 5 125H",
+    "logicalCpus": 18,
+    "python": "3.13.12",
+    "opencv": "5.0.0",
+    "onnxruntime": "1.30.0"
+  },
+  "candidate": {
+    "name": "OpenCV Zoo quantized LaMa",
+    "source": "https://huggingface.co/opencv/inpainting_lama/resolve/main/inpainting_lama_2025jan.onnx",
+    "license": "Apache-2.0",
+    "modelSha256": "7df918ac3921d3daf0aae1d219776cf0dc4e4935f035af81841b40adcf74fdf2",
+    "modelBytes": 92591623,
+    "sessionLoadMs": 2976.685
+  },
+  "processPeakRssBytes": 1038766080,
+  "repeats": 5,
+  "results": [
+    {
+      "caseId": "text_ruled_paper",
+      "category": "text",
+      "method": "telea",
+      "timingMs": {
+        "samples": [
+          17.557,
+          17.107,
+          16.756,
+          16.768,
+          16.664
+        ],
+        "p50": 16.768,
+        "p95": 17.467
+      },
+      "metrics": {
+        "maskedMae": 3.7324,
+        "maskedPsnr": 30.5815,
+        "boundaryMae": 0.3855,
+        "maskedGradientMae": 11.3838,
+        "outsideExact": true
+      },
+      "output": "evidence/outputs/text_ruled_paper--telea.png",
+      "sha256": "a48292aaa7f8d097b162fc79815ae3fa6c14ee6071d28de12f2411b0a677e3da"
+    },
+    {
+      "caseId": "text_ruled_paper",
+      "category": "text",
+      "method": "navier_stokes",
+      "timingMs": {
+        "samples": [
+          12.921,
+          12.815,
+          12.293,
+          11.651,
+          11.629
+        ],
+        "p50": 12.293,
+        "p95": 12.899
+      },
+      "metrics": {
+        "maskedMae": 1.9794,
+        "maskedPsnr": 32.1452,
+        "boundaryMae": 0.2017,
+        "maskedGradientMae": 10.2536,
+        "outsideExact": true
+      },
+      "output": "evidence/outputs/text_ruled_paper--navier_stokes.png",
+      "sha256": "f8a2beb840e914337c889ee50dc51d7c45a7bc5b7e910c9d5ccef0295c1f04ba"
+    },
+    {
+      "caseId": "text_ruled_paper",
+      "category": "text",
+      "method": "lama_roi",
+      "timingMs": {
+        "samples": [
+          2114.061,
+          2058.559,
+          2039.998,
+          2059.076,
+          2049.444
+        ],
+        "p50": 2058.559,
+        "p95": 2103.064
+      },
+      "metrics": {
+        "maskedMae": 2.0696,
+        "maskedPsnr": 34.7155,
+        "boundaryMae": 0.4342,
+        "maskedGradientMae": 10.9405,
+        "outsideExact": true
+      },
+      "output": "evidence/outputs/text_ruled_paper--lama_roi.png",
+      "sha256": "9c6d09e67aa83c2a811cce5693f025826c32a60b45d21a6ca2e8f5314d249369"
+    },
+    {
+      "caseId": "regular_grid",
+      "category": "regular-background",
+      "method": "telea",
+      "timingMs": {
+        "samples": [
+          23.172,
+          23.151,
+          22.936,
+          23.019,
+          23.329
+        ],
+        "p50": 23.151,
+        "p95": 23.298
+      },
+      "metrics": {
+        "maskedMae": 13.7793,
+        "maskedPsnr": 17.085,
+        "boundaryMae": 4.5547,
+        "maskedGradientMae": 77.4747,
+        "outsideExact": true
+      },
+      "output": "evidence/outputs/regular_grid--telea.png",
+      "sha256": "a3c96cb105c8b8bb4bd5b347865b5ddb6878c2b8519306ac4cac6db66c368798"
+    },
+    {
+      "caseId": "regular_grid",
+      "category": "regular-background",
+      "method": "navier_stokes",
+      "timingMs": {
+        "samples": [
+          19.955,
+          19.409,
+          20.1,
+          21.257,
+          20.193
+        ],
+        "p50": 20.1,
+        "p95": 21.044
+      },
+      "metrics": {
+        "maskedMae": 20.5479,
+        "maskedPsnr": 17.145,
+        "boundaryMae": 6.7605,
+        "maskedGradientMae": 80.6286,
+        "outsideExact": true
+      },
+      "output": "evidence/outputs/regular_grid--navier_stokes.png",
+      "sha256": "38020b982bf62192d5898840fc872241b7b9518fe952f4b4c44412c9fdea7dc5"
+    },
+    {
+      "caseId": "regular_grid",
+      "category": "regular-background",
+      "method": "lama_roi",
+      "timingMs": {
+        "samples": [
+          2072.816,
+          2051.939,
+          2254.264,
+          2017.838,
+          2090.542
+        ],
+        "p50": 2072.816,
+        "p95": 2221.52
+      },
+      "metrics": {
+        "maskedMae": 6.0249,
+        "maskedPsnr": 26.4979,
+        "boundaryMae": 1.8923,
+        "maskedGradientMae": 26.7957,
+        "outsideExact": true
+      },
+      "output": "evidence/outputs/regular_grid--lama_roi.png",
+      "sha256": "2eb73bc24ea4fb66e032c1951078cd0bf8b89b33581d7e8648b3bd4658a75cd8"
+    },
+    {
+      "caseId": "natural_foliage",
+      "category": "natural-image",
+      "method": "telea",
+      "timingMs": {
+        "samples": [
+          29.937,
+          29.789,
+          30.237,
+          31.037,
+          30.141
+        ],
+        "p50": 30.141,
+        "p95": 30.877
+      },
+      "metrics": {
+        "maskedMae": 13.7771,
+        "maskedPsnr": 23.1802,
+        "boundaryMae": 2.1468,
+        "maskedGradientMae": 17.6562,
+        "outsideExact": true
+      },
+      "output": "evidence/outputs/natural_foliage--telea.png",
+      "sha256": "ad7a4e58de2aa1dfcddc1dd5dc2d847363a2755c60c8103f3d9f5833fb89c72f"
+    },
+    {
+      "caseId": "natural_foliage",
+      "category": "natural-image",
+      "method": "navier_stokes",
+      "timingMs": {
+        "samples": [
+          25.557,
+          25.901,
+          25.429,
+          26.128,
+          25.453
+        ],
+        "p50": 25.557,
+        "p95": 26.082
+      },
+      "metrics": {
+        "maskedMae": 13.7995,
+        "maskedPsnr": 23.1999,
+        "boundaryMae": 1.9181,
+        "maskedGradientMae": 16.2929,
+        "outsideExact": true
+      },
+      "output": "evidence/outputs/natural_foliage--navier_stokes.png",
+      "sha256": "1e7549456b5b2ef3658d6cea4b447469d6c35f0f1a587c8c6fbf36f0a0caf0c6"
+    },
+    {
+      "caseId": "natural_foliage",
+      "category": "natural-image",
+      "method": "lama_roi",
+      "timingMs": {
+        "samples": [
+          2031.341,
+          2056.972,
+          2109.523,
+          2084.558,
+          2127.641
+        ],
+        "p50": 2084.558,
+        "p95": 2124.017
+      },
+      "metrics": {
+        "maskedMae": 14.664,
+        "maskedPsnr": 22.5156,
+        "boundaryMae": 1.8178,
+        "maskedGradientMae": 13.5902,
+        "outsideExact": true
+      },
+      "output": "evidence/outputs/natural_foliage--lama_roi.png",
+      "sha256": "a7cab9e35c862628a325d7e41ba675ee4e86da37c882a5b51dff87ac781fe31f"
+    },
+    {
+      "caseId": "strong_edge",
+      "category": "edge",
+      "method": "telea",
+      "timingMs": {
+        "samples": [
+          13.727,
+          13.316,
+          13.122,
+          13.238,
+          13.195
+        ],
+        "p50": 13.238,
+        "p95": 13.645
+      },
+      "metrics": {
+        "maskedMae": 12.2863,
+        "maskedPsnr": 18.2763,
+        "boundaryMae": 1.1691,
+        "maskedGradientMae": 20.2741,
+        "outsideExact": true
+      },
+      "output": "evidence/outputs/strong_edge--telea.png",
+      "sha256": "be168026f947d01405ab0ffbddbab056ffa1362dc64693205ca4e4d40c20d284"
+    },
+    {
+      "caseId": "strong_edge",
+      "category": "edge",
+      "method": "navier_stokes",
+      "timingMs": {
+        "samples": [
+          10.223,
+          10.84,
+          10.803,
+          10.74,
+          10.32
+        ],
+        "p50": 10.74,
+        "p95": 10.832
+      },
+      "metrics": {
+        "maskedMae": 12.9038,
+        "maskedPsnr": 17.8328,
+        "boundaryMae": 1.182,
+        "maskedGradientMae": 19.8327,
+        "outsideExact": true
+      },
+      "output": "evidence/outputs/strong_edge--navier_stokes.png",
+      "sha256": "e98cc6644f954c9b4b5a46debbbbe585c7fbb8afbfc512aa3e8dc9ca31bb6462"
+    },
+    {
+      "caseId": "strong_edge",
+      "category": "edge",
+      "method": "lama_roi",
+      "timingMs": {
+        "samples": [
+          2058.438,
+          2055.198,
+          2044.511,
+          2159.858,
+          2051.563
+        ],
+        "p50": 2055.198,
+        "p95": 2139.574
+      },
+      "metrics": {
+        "maskedMae": 8.6219,
+        "maskedPsnr": 23.6691,
+        "boundaryMae": 0.9024,
+        "maskedGradientMae": 12.8171,
+        "outsideExact": true
+      },
+      "output": "evidence/outputs/strong_edge--lama_roi.png",
+      "sha256": "69c1234e394c9ec44321bc4f9069987dc2dbab9a85ae404cbbcfdedc883ee82d"
+    },
+    {
+      "caseId": "large_document",
+      "category": "large-image",
+      "method": "telea",
+      "timingMs": {
+        "samples": [
+          138.299,
+          138.767,
+          130.674,
+          134.148,
+          132.076
+        ],
+        "p50": 134.148,
+        "p95": 138.674
+      },
+      "metrics": {
+        "maskedMae": 28.2475,
+        "maskedPsnr": 12.2563,
+        "boundaryMae": 1.3249,
+        "maskedGradientMae": 40.3451,
+        "outsideExact": true
+      },
+      "output": "evidence/outputs/large_document--telea.png",
+      "sha256": "1fce6930aaccf35dccd5d47a0b3ea85e49feb1013dbd3d3d70a2773f279bdce6"
+    },
+    {
+      "caseId": "large_document",
+      "category": "large-image",
+      "method": "navier_stokes",
+      "timingMs": {
+        "samples": [
+          95.629,
+          96.017,
+          93.914,
+          101.488,
+          114.622
+        ],
+        "p50": 96.017,
+        "p95": 111.995
+      },
+      "metrics": {
+        "maskedMae": 32.6187,
+        "maskedPsnr": 12.9851,
+        "boundaryMae": 1.0425,
+        "maskedGradientMae": 41.1653,
+        "outsideExact": true
+      },
+      "output": "evidence/outputs/large_document--navier_stokes.png",
+      "sha256": "6e04b734d7375f976c3e0a3e8e400f14d711e03bfe1d1bf40860c681d23a7d5f"
+    },
+    {
+      "caseId": "large_document",
+      "category": "large-image",
+      "method": "lama_roi",
+      "timingMs": {
+        "samples": [
+          2108.31,
+          2041.811,
+          2099.376,
+          2120.809,
+          2097.949
+        ],
+        "p50": 2099.376,
+        "p95": 2118.309
+      },
+      "metrics": {
+        "maskedMae": 8.6533,
+        "maskedPsnr": 22.8169,
+        "boundaryMae": 0.9754,
+        "maskedGradientMae": 41.4415,
+        "outsideExact": true
+      },
+      "output": "evidence/outputs/large_document--lama_roi.png",
+      "sha256": "831054f2d7185d31d5a163b1adfd29a83fc08c259e5a12f460381fb4483b8f5e"
+    }
+  ]
+}

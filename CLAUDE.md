@@ -13,6 +13,8 @@ X11/Wayland 分流自动粘贴、多显示器冻结截图、二维手动长截�
 显式 VP9 构建的原生 X11 会话开放，默认构建与其他平台仍处于验收阶段。
 增强 OCR 运行时需要显式配置，未随三平台安装包默认分发；交付边界见
 `src-tauri/ocr-sidecar/README.md`。
+智能擦除已完成 `PX-SMART-01` 可行性门控，但当前 LaMa 候选未通过强边缘质量、CPU 延迟和内存
+阈值，因此尚无产品入口或模型依赖；证据见 `docs/reviews/2026-09-21-smart-erase-feasibility.md`。
 
 ## 开发环境搭建（Ubuntu）
 
