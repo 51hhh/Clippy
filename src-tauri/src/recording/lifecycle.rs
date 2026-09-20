@@ -97,11 +97,12 @@ pub(super) trait DesktopActions {
     fn restore_pins(&self, labels: &[String]) -> Result<(), String>;
     fn restore_sources(&self, labels: &[String]) -> Result<(), String>;
     fn settle_after_restore(&self) -> Result<(), String>;
-    fn publish_control(
+    fn prepare_control(
         &self,
         session_id: &str,
         descriptor: &RecordingSourceDescriptor,
     ) -> Result<(), String>;
+    fn bind_control(&self, token: &RecordingToken) -> Result<(), String>;
     fn close_control(&self, session_id: &str) -> Result<(), String>;
 }
 
@@ -244,13 +245,13 @@ impl RecordingLifecycle {
         if let Err(error) = self.restore_desktop(actions) {
             return self.fail_publishing(&request.session_id, actions, false, error);
         }
-        if let Err(message) = actions.publish_control(&request.session_id, &descriptor) {
+        if let Err(message) = actions.prepare_control(&request.session_id, &descriptor) {
             return self.fail_publishing(
                 &request.session_id,
                 actions,
                 true,
                 RecordingLifecycleError::Desktop {
-                    operation: "publish_control",
+                    operation: "prepare_control",
                     message,
                 },
             );
@@ -278,6 +279,20 @@ impl RecordingLifecycle {
                 );
             }
         };
+        if let Err(message) = actions.bind_control(&token) {
+            if let Err(error) = self.manager.cancel(&token) {
+                log::error!("录屏控制面绑定失败后取消会话也失败: {error}");
+            }
+            return self.fail_publishing(
+                &request.session_id,
+                actions,
+                true,
+                RecordingLifecycleError::Desktop {
+                    operation: "bind_control",
+                    message,
+                },
+            );
+        }
         let publishing = match self.take_publishing(&request.session_id) {
             Ok(publishing) => publishing,
             Err(error) => {
@@ -601,13 +616,13 @@ mod tests {
             self.record("settle_after_restore", "desktop")
         }
 
-        fn publish_control(
+        fn prepare_control(
             &self,
             session_id: &str,
             descriptor: &RecordingSourceDescriptor,
         ) -> Result<(), String> {
             self.record(
-                "publish_control",
+                "prepare_control",
                 format!(
                     "{session_id}@{},{}:{}x{}",
                     descriptor.physical_x,
@@ -615,6 +630,13 @@ mod tests {
                     descriptor.width,
                     descriptor.height
                 ),
+            )
+        }
+
+        fn bind_control(&self, token: &RecordingToken) -> Result<(), String> {
+            self.record(
+                "bind_control",
+                format!("{}#{}", token.session_id, token.generation),
             )
         }
 
@@ -690,7 +712,7 @@ mod tests {
         let recorded = events.lock().unwrap().clone();
         let control_index = recorded
             .iter()
-            .position(|event| event.starts_with("publish_control:"))
+            .position(|event| event.starts_with("prepare_control:"))
             .unwrap();
         let capture_index = recorded
             .iter()
@@ -712,6 +734,12 @@ mod tests {
                 "settle_after_restore:desktop",
             ]
         );
+        let bind_index = recorded
+            .iter()
+            .position(|event| event.starts_with("bind_control:ordered#"))
+            .unwrap();
+        assert!(control_index < bind_index);
+        assert!(bind_index < close_index);
     }
 
     #[test]
@@ -786,12 +814,12 @@ mod tests {
     }
 
     #[test]
-    fn uncertain_control_publish_is_closed_before_gate_release() {
+    fn uncertain_control_prepare_is_closed_before_gate_release() {
         let temporary = tempfile::tempdir().unwrap();
         let gate = Arc::new(CaptureModeGate::new());
         let events = Arc::new(Mutex::new(Vec::new()));
         let actions = RecordingActions::new(Arc::clone(&gate), Arc::clone(&events));
-        actions.fail("publish_control");
+        actions.fail("prepare_control");
         let lifecycle = RecordingLifecycle::new();
         let error = lifecycle
             .start_with(
@@ -804,7 +832,7 @@ mod tests {
         assert!(matches!(
             error,
             RecordingLifecycleError::Desktop {
-                operation: "publish_control",
+                operation: "prepare_control",
                 ..
             }
         ));
@@ -816,13 +844,53 @@ mod tests {
         let recorded = events.lock().unwrap();
         let publish = recorded
             .iter()
-            .position(|event| event.starts_with("publish_control:"))
+            .position(|event| event.starts_with("prepare_control:"))
             .unwrap();
         let close = recorded
             .iter()
             .position(|event| event == "close_control:control-failure")
             .unwrap();
         assert!(publish < close);
+    }
+
+    #[test]
+    fn control_binding_failure_cancels_started_session_before_gate_release() {
+        let temporary = tempfile::tempdir().unwrap();
+        let gate = Arc::new(CaptureModeGate::new());
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let actions = RecordingActions::new(Arc::clone(&gate), Arc::clone(&events));
+        actions.fail("bind_control");
+        let lifecycle = RecordingLifecycle::new();
+        let error = lifecycle
+            .start_with(
+                temporary.path(),
+                request("bind-failure"),
+                || Ok(committed(&gate, Arc::clone(&events))),
+                &actions,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            RecordingLifecycleError::Desktop {
+                operation: "bind_control",
+                ..
+            }
+        ));
+        assert_eq!(gate.active_mode().unwrap(), None);
+        assert_eq!(
+            lifecycle.manager.status().unwrap(),
+            RecordingManagerStatus::Idle
+        );
+        let recorded = events.lock().unwrap();
+        let bind = recorded
+            .iter()
+            .position(|event| event.starts_with("bind_control:bind-failure#"))
+            .unwrap();
+        let close = recorded
+            .iter()
+            .position(|event| event == "close_control:bind-failure")
+            .unwrap();
+        assert!(bind < close);
     }
 
     #[test]

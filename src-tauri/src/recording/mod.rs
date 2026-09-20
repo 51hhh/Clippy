@@ -28,6 +28,9 @@ mod manager;
 // 截图选区、桌面恢复、控制面与会话注册表必须由一个生命周期按顺序交接。
 #[allow(dead_code)]
 mod lifecycle;
+// 控制窗只从后端 registry 取得 exact generation token；前端不提交可伪造 token。
+#[allow(dead_code)]
+mod control_registry;
 // 控制窗是否可见必须先通过平台排除能力与物理几何规划；窗口宿主接入前先固定纯函数合同。
 #[allow(dead_code)]
 mod control_window;
