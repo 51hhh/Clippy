@@ -1,0 +1,73 @@
+:root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+* { box-sizing: border-box; }
+html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
+button, input, textarea, select { font: inherit; }
+button { color: inherit; }
+.launcher-window { width: 100%; height: 100%; display: flex; flex-direction: column; color: var(--text-primary); background: var(--bg-primary); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 18px 48px rgb(0 0 0 / 24%); overflow: hidden; }
+.launcher-header { height: 48px; flex: 0 0 48px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px 0 16px; border-bottom: 1px solid var(--border); background: var(--bg-secondary); user-select: none; }
+.launcher-brand { display: flex; align-items: center; gap: 9px; font-size: 14px; }
+.launcher-brand svg { color: var(--accent); }
+kbd { min-width: 22px; padding: 2px 6px; border: 1px solid var(--border); border-bottom-color: color-mix(in srgb, var(--border), #000 18%); border-radius: 5px; background: var(--bg-primary); color: var(--text-secondary); font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; }
+.launcher-brand kbd { margin-left: 4px; }
+.launcher-close, .launcher-back { width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; cursor: pointer; }
+.launcher-close:hover, .launcher-back:hover { background: var(--bg-hover); }
+.launcher-close:disabled, .launcher-back:disabled { opacity: .42; cursor: default; }
+.launcher-list-view, .launcher-detail { min-height: 0; flex: 1; display: flex; flex-direction: column; }
+.launcher-search { margin: 14px 16px 10px; height: 46px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-secondary); color: var(--text-secondary); }
+.launcher-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent), transparent 84%); }
+.launcher-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: var(--text-primary); font-size: 15px; }
+.launcher-search input::placeholder { color: var(--text-muted); }
+.launcher-results { min-height: 0; flex: 1; padding: 2px 10px 8px; overflow-y: auto; }
+.launcher-action { width: 100%; display: grid; grid-template-columns: 38px 1fr auto; align-items: center; gap: 10px; padding: 11px 10px; border: 1px solid transparent; border-radius: 10px; background: transparent; text-align: left; cursor: pointer; }
+.launcher-action:hover, .launcher-action.is-selected { border-color: color-mix(in srgb, var(--accent), transparent 65%); background: color-mix(in srgb, var(--accent), transparent 91%); }
+.launcher-action:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.launcher-action-icon { width: 36px; height: 36px; display: grid; place-items: center; flex: 0 0 36px; border-radius: 9px; color: var(--accent); background: color-mix(in srgb, var(--accent), transparent 88%); }
+.launcher-action strong, .launcher-action small { display: block; }
+.launcher-action strong { font-size: 14px; font-weight: 650; }
+.launcher-action small { margin-top: 3px; color: var(--text-secondary); font-size: 12px; line-height: 1.35; }
+.launcher-hints { height: 38px; display: flex; align-items: center; gap: 18px; padding: 0 16px; border-top: 1px solid var(--border); color: var(--text-secondary); font-size: 11px; }
+.launcher-hints span { display: flex; align-items: center; gap: 5px; }
+.launcher-state { height: 100%; min-height: 180px; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--text-secondary); }
+.launcher-empty { flex-direction: column; text-align: center; }
+.launcher-empty strong { color: var(--text-primary); }
+.launcher-empty span { max-width: 340px; font-size: 12px; }
+.launcher-empty button, .launcher-running button { margin-top: 8px; padding: 7px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-secondary); cursor: pointer; }
+.is-spinning { animation: launcher-spin .9s linear infinite; }
+@keyframes launcher-spin { to { transform: rotate(360deg); } }
+.launcher-detail-heading { min-height: 76px; display: flex; align-items: center; gap: 11px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.launcher-detail-heading h1 { margin: 0; font-size: 16px; }
+.launcher-detail-heading p { margin: 4px 0 0; color: var(--text-secondary); font-size: 12px; }
+.launcher-form { min-height: 0; flex: 1; display: flex; flex-direction: column; gap: 14px; padding: 18px; overflow-y: auto; }
+.launcher-field { display: flex; flex-direction: column; gap: 7px; color: var(--text-secondary); font-size: 12px; font-weight: 600; }
+.launcher-field textarea, .launcher-field select { width: 100%; border: 1px solid var(--border); border-radius: 9px; outline: none; background: var(--bg-secondary); color: var(--text-primary); }
+.launcher-field textarea { min-height: 150px; resize: vertical; padding: 11px 12px; line-height: 1.5; font-weight: 400; }
+.launcher-field select { height: 38px; padding: 0 9px; font-weight: 400; }
+.launcher-field textarea:focus, .launcher-field select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent), transparent 85%); }
+.launcher-language-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.launcher-callout { display: flex; align-items: flex-start; gap: 12px; padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-secondary); }
+.launcher-callout svg { color: var(--accent); }
+.launcher-callout p { margin: 5px 0 0; color: var(--text-secondary); font-size: 13px; line-height: 1.45; }
+.launcher-form-actions { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--text-muted); font-size: 11px; }
+.launcher-primary { min-height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 16px; border: 0; border-radius: 9px; background: var(--accent); color: white; font-weight: 650; cursor: pointer; }
+.launcher-primary:hover { filter: brightness(1.06); }
+.launcher-error, .launcher-message { margin: 0; padding: 9px 11px; border-radius: 8px; font-size: 12px; line-height: 1.4; }
+.launcher-global-error { margin: 0 16px 8px; }
+.launcher-error { color: var(--danger, #dc3c4d); background: color-mix(in srgb, var(--danger, #dc3c4d), transparent 91%); }
+.launcher-message { color: var(--text-secondary); background: var(--bg-secondary); }
+.launcher-running { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; }
+.launcher-running svg { color: var(--accent); }
+.launcher-running strong { margin-top: 14px; }
+.launcher-running p { max-width: 360px; margin: 6px 0; color: var(--text-secondary); font-size: 13px; }
+.launcher-result { min-height: 0; flex: 1; display: flex; flex-direction: column; gap: 16px; padding: 20px; }
+.launcher-result-title { display: flex; align-items: center; gap: 12px; }
+.launcher-result-title > span { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; color: #18794e; background: rgb(24 121 78 / 12%); }
+.launcher-result-title p { margin: 4px 0 0; color: var(--text-secondary); font-size: 12px; }
+.launcher-result pre { min-height: 0; flex: 1; margin: 0; padding: 14px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-secondary); white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; user-select: text; }
+.launcher-result > .launcher-primary { align-self: flex-end; flex: 0 0 auto; }
+@media (max-width: 500px), (max-height: 420px) {
+  .launcher-window { border-radius: 0; }
+  .launcher-brand kbd, .launcher-hints { display: none; }
+  .launcher-language-row { grid-template-columns: 1fr; }
+  .launcher-form { padding: 14px; }
+  .launcher-field textarea { min-height: 100px; }
+}

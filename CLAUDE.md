@@ -81,6 +81,7 @@ cd src-tauri && cargo bench
 ```
 前端 (src/)
 ├── index.html / settings.html         — 主窗口与设置
+├── launcher.html                      — 键盘优先的受限动作启动器
 ├── pin.html / viewer.html             — Pin 与图片查看器功能岛入口
 ├── capture-overlay.html               — 冻结截图覆盖层入口
 ├── longshot-controller.html           — 长截图控制窗口入口
@@ -95,6 +96,7 @@ cd src-tauri && cargo bench
 │   ├── annotation/                    — 截图、Pin、查看器共享标注核心
 │   ├── capture-overlay/               — 冻结画面选区、标注与选区翻译
 │   ├── longshot-controller/           — 长截图控制窗口
+│   ├── launcher/                      — 动作搜索、参数、运行/取消与稳定错误状态
 │   ├── viewer/                        — 无限画布图片查看器及工具
 │   ├── pin/                           — 贴图、编辑与保存协议
 │   └── shared/                        — i18n 与工具栏共享行为
@@ -103,6 +105,7 @@ cd src-tauri && cargo bench
 Rust 后端 (src-tauri/src/)
 ├── lib.rs / main.rs                   — Tauri 初始化与入口
 ├── commands.rs / commands/            — AppState 与按功能 IPC 命令
+├── actions/                            — 类型化动作注册表、受限 Launcher 与领域适配器
 ├── clipboard_watcher.rs / storage.rs  — 剪贴板监听与 SQLite/FTS5
 ├── archive.rs / storage/archive.rs    — `.clippy.zip` 校验、编解码与事务合并
 ├── paste/ / window_controller.rs      — X11/Portal 粘贴与窗口几何

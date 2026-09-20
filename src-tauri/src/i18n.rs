@@ -16,9 +16,11 @@ pub enum Locale {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NativeText {
     pub open_clipboard: &'static str,
+    pub actions_menu: &'static str,
     pub settings_menu: &'static str,
     pub quit_menu: &'static str,
     pub settings_title: &'static str,
+    pub launcher_title: &'static str,
     pub screenshot_title: &'static str,
     pub settings_close_failed: &'static str,
 }
@@ -27,17 +29,21 @@ pub fn native_text(locale: Locale) -> NativeText {
     match locale {
         Locale::En => NativeText {
             open_clipboard: "Open Clipboard",
+            actions_menu: "Actions",
             settings_menu: "Settings",
             quit_menu: "Quit",
             settings_title: "Clippy Settings",
+            launcher_title: "Clippy Actions",
             screenshot_title: "Clippy Screenshot",
             settings_close_failed: "Settings could not be closed. Your inputs were kept. Click Close again to retry restoring shortcuts and closing the window.",
         },
         Locale::ZhCn => NativeText {
             open_clipboard: "打开剪贴板",
+            actions_menu: "动作",
             settings_menu: "设置",
             quit_menu: "退出",
             settings_title: "Clippy 设置",
+            launcher_title: "Clippy 动作",
             screenshot_title: "Clippy 截图",
             settings_close_failed: "设置窗口关闭失败，输入内容已保留。请再次点击关闭，重试恢复快捷键并关闭窗口。",
         },
@@ -126,9 +132,11 @@ mod tests {
             let text = native_text(locale);
             for value in [
                 text.open_clipboard,
+                text.actions_menu,
                 text.settings_menu,
                 text.quit_menu,
                 text.settings_title,
+                text.launcher_title,
                 text.screenshot_title,
                 text.settings_close_failed,
             ] {
@@ -143,6 +151,7 @@ mod tests {
         let chinese = native_text(Locale::ZhCn);
 
         assert_eq!(chinese.open_clipboard, "打开剪贴板");
+        assert_eq!(chinese.actions_menu, "动作");
         assert_eq!(chinese.settings_menu, "设置");
         assert_eq!(chinese.quit_menu, "退出");
         // 品牌名保留，只翻译后半段。

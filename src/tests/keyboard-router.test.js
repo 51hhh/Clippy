@@ -84,6 +84,7 @@ describe("主窗口键盘路由", () => {
   let hidePanel;
   let pinClip;
   let translation;
+  let openActions;
   function router(previewPanel = preview) {
     return createKeyboardRouter({
       clipboardList: list,
@@ -91,6 +92,7 @@ describe("主窗口键盘路由", () => {
       codec,
       pinClip,
       hidePanel,
+      openActions,
       translation,
     });
   }
@@ -116,9 +118,24 @@ describe("主窗口键盘路由", () => {
     hidePanel = vi.fn();
     pinClip = vi.fn().mockResolvedValue("pinned");
     translation = { translate: vi.fn().mockResolvedValue(undefined) };
+    openActions = vi.fn().mockResolvedValue(undefined);
   });
 
   describe("列表模式", () => {
+    it("Ctrl/Cmd+K 从列表和搜索输入打开动作启动器", () => {
+      const r = router();
+      const fromList = keyEvent("k", document.body, { ctrlKey: true });
+      r.onKeyDown(fromList);
+      const search = document.querySelector(".search-bar-input");
+      search.focus();
+      list.search.isVisible = () => true;
+      const fromSearch = keyEvent("K", search, { metaKey: true });
+      r.onKeyDown(fromSearch);
+      expect(openActions).toHaveBeenCalledTimes(2);
+      expect(fromList.preventDefault).toHaveBeenCalled();
+      expect(fromSearch.preventDefault).toHaveBeenCalled();
+    });
+
     it("Ctrl/Cmd+O 不被主窗口路由拦截", () => {
       const listEvent = keyEvent("o", document.body, { ctrlKey: true });
       router().onKeyDown(listEvent);

@@ -23,6 +23,7 @@ function sourceFiles(directory) {
 describe("built window entrypoints", () => {
   it.each([
     ["index.html", ["app", "clipboard-react-root", "translation-react-root", "preview-panel", "codec-panel"]],
+    ["launcher.html", ["root"]],
     [
       "settings.html",
       ["theme-grid", "auto-paste-toggle", "translation-group"],

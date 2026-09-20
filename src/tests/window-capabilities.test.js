@@ -32,6 +32,7 @@ it("keeps every production window class inside an explicit native capability", (
   const definitions = capabilities();
   const expected = new Map([
     ["default", ["main"]],
+    ["launcher", ["launcher"]],
     ["settings", ["settings"]],
     ["pin", ["pin-*"]],
     ["capture-overlay", ["capture-overlay-*"]],
@@ -44,6 +45,7 @@ it("keeps every production window class inside an explicit native capability", (
   }
   expect(new Set([...expected.values()].flat())).toEqual(new Set([
     "main",
+    "launcher",
     "settings",
     "pin-*",
     "capture-overlay-*",
@@ -102,6 +104,7 @@ it("routes every custom command through the unified business-command gate", () =
   expect(lib).not.toContain("viewer::access::restrict");
   for (const label of [
     '"settings"',
+    '"launcher"',
     '"pin-"',
     '"capture-overlay-"',
     '"longshot-controller-"',

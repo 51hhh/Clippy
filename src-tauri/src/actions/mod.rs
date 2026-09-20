@@ -1,9 +1,13 @@
 //! PX-ACT-01 类型化内置动作核心。
 //!
 //! 该模块建立静态注册表、参数边界、窗口角色权限和请求代次，并分阶段接入复用既有业务服务的
-//! 领域适配器和受限 IPC；启动器 UI 尚未开放。动作参数不接受路径、URL、像素或可执行命令。
+//! 领域适配器、受限 IPC 与独立启动器。启动器只展示能构造可信输入的动作；动作参数不接受
+//! 路径、URL、前端像素或可执行命令。
 
 mod adapters;
+pub(crate) mod launcher;
+
+pub(crate) use launcher::open;
 
 use crate::ipc_access::CallerKind;
 use serde::{Deserialize, Serialize};

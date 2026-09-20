@@ -338,7 +338,7 @@ pub(in crate::capture) fn configure_platform_overlay(
 }
 
 pub(super) fn hide_sources(app: &tauri::AppHandle) -> Vec<String> {
-    ["main"]
+    ["main", "launcher"]
         .into_iter()
         .filter_map(|label| {
             let window = app.get_webview_window(label)?;

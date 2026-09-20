@@ -73,6 +73,13 @@ export interface ActionReply<K extends ActionId> {
   output: ActionOutputById[K];
 }
 
+export interface ActionLauncherSettings {
+  theme: string;
+  language: string;
+  translationSourceLanguage: string;
+  translationTargetLanguage: string;
+}
+
 const PLATFORMS: ActionPlatform[] = ["linux", "windows", "macos"];
 const CATALOG: Record<ActionId, Omit<ActionDescriptor, "id" | "platforms">> = {
   "capture.start": { input: "unit", output: "capture_session", permissions: ["screen.capture"], cancellable: false },
@@ -267,4 +274,37 @@ export async function runAction<K extends ActionId>(actionId: K, handle: ActionH
 
 export function cancelAction(handle: ActionHandle): Promise<void> {
   return invoke("cancel_action", { handle: checkedHandle(handle) });
+}
+
+/** 主窗口显式打开唯一动作启动器。 */
+export function showActionLauncher(): Promise<void> {
+  return invoke("show_action_launcher");
+}
+
+/** 启动器只读取渲染与翻译方向所需的配置子集。 */
+export function getActionLauncherSettings(): Promise<ActionLauncherSettings> {
+  return invoke<unknown>("get_action_launcher_settings").then(value => {
+    if (!isRecord(value) || !hasExactKeys(value, [
+      "theme", "language", "translationSourceLanguage", "translationTargetLanguage",
+    ])) throw new Error("launcher.invalid_settings");
+    for (const key of ["theme", "language", "translationSourceLanguage", "translationTargetLanguage"] as const) {
+      if (typeof value[key] !== "string" || value[key].length === 0 || value[key].length > 32) {
+        throw new Error("launcher.invalid_settings");
+      }
+    }
+    return value as unknown as ActionLauncherSettings;
+  });
+}
+
+/** 首帧与关闭监听均就绪后再显示原生窗口，避免白屏闪烁。 */
+export function actionLauncherReady(): Promise<void> {
+  return invoke("action_launcher_ready");
+}
+
+export function startActionLauncherDrag(): Promise<void> {
+  return invoke("start_action_launcher_drag");
+}
+
+export function closeActionLauncher(): Promise<void> {
+  return invoke("close_action_launcher");
 }

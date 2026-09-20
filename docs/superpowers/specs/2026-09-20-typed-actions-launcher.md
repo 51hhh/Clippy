@@ -115,5 +115,14 @@ discover descriptor
   一次，未知字段、跨窗口句柄、重复运行和过期结果均被拒绝。可取消等待者被丢弃时会取消并回收仍在
   pending 的槽；每窗口最多 16 槽、全局最多 64 槽，窗口销毁会回收 pending 输入，已进入截图等
   不可取消提交的任务继续完成领域补偿。前端受控 facade 再次严格校验
-  静态目录、句柄身份、输出联合和 OCR/扫码/翻译嵌套结果。错误响应只含稳定码。Launcher UI 与类型化
-  组合仍未实现；Main/Launcher 的 `owned_image` 在建立其权威图片来源前会稳定返回 source unavailable。
+  静态目录、句柄身份、输出联合和 OCR/扫码/翻译嵌套结果。错误响应只含稳定码。Main/Launcher 的
+  `owned_image` 在建立其权威图片来源前会稳定返回 source unavailable。
+- 2026-09-21：Stage 4 已实现独立无边框 Launcher。托盘和主窗口 `Ctrl/Cmd+K` 共用唯一建窗入口，
+  页面首帧与原生关闭监听就绪后才显示；搜索、方向键、Enter、Escape 与 `Ctrl/Cmd+Enter` 覆盖完整
+  键盘路径。UI 只从受限目录中展示自己能构造直接输入的 `capture.start`、`text.copy` 和
+  `text.translate`；四个 `owned_image` 动作在 Stage 5 获得可信来源前保持隐藏。运行界面按 descriptor
+  决定是否允许取消，关闭可取消任务时先取消精确 handle；错误只映射稳定码，不显示后端细节。
+  Launcher 启动截图时会随主窗口一起从冻结帧隐藏，成功建出覆盖层后销毁自身。DOM 回归覆盖目录
+  筛选、键盘选择、空状态、运行、取消、原生关闭和错误。隔离 X11/D-Bus 原生 smoke 已确认真实
+  Tauri 窗口在首帧后以 640×520 创建；当前宿主的 Wayland 合成器交互和 Windows/macOS 仍由各自
+  原生 CI/QA 分层验证，不能由该 smoke 代替。

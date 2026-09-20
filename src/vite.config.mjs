@@ -15,6 +15,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, "index.html"),
+        launcher: resolve(__dirname, "launcher.html"),
         settings: resolve(__dirname, "settings.html"),
         pin: resolve(__dirname, "pin.html"),
         viewer: resolve(__dirname, "viewer.html"),

@@ -7,6 +7,7 @@ use tauri::{Emitter, Listener, Manager};
 
 /// 托盘菜单项 id。文案随语言变化，id 保持不变，事件分支才能稳定匹配。
 const OPEN_ID: &str = "open_clipboard";
+const ACTIONS_ID: &str = "actions";
 const SETTINGS_ID: &str = "settings";
 const QUIT_ID: &str = "quit";
 
@@ -14,6 +15,7 @@ const QUIT_ID: &str = "quit";
 /// 避免刷新过程中托盘短暂没有菜单。`MenuItem` 的写操作自己会切回主线程。
 pub(crate) struct TrayMenuItems {
     open_clipboard: MenuItem<tauri::Wry>,
+    actions: MenuItem<tauri::Wry>,
     settings: MenuItem<tauri::Wry>,
     quit: MenuItem<tauri::Wry>,
 }
@@ -22,6 +24,7 @@ impl TrayMenuItems {
     fn apply(&self, text: NativeText) {
         for (item, label) in [
             (&self.open_clipboard, text.open_clipboard),
+            (&self.actions, text.actions_menu),
             (&self.settings, text.settings_menu),
             (&self.quit, text.quit_menu),
         ] {
@@ -43,10 +46,19 @@ pub(crate) fn build(
     let text = i18n::text_for_language(&config.language);
     let items = TrayMenuItems {
         open_clipboard: MenuItem::with_id(app, OPEN_ID, text.open_clipboard, true, None::<&str>)?,
+        actions: MenuItem::with_id(app, ACTIONS_ID, text.actions_menu, true, None::<&str>)?,
         settings: MenuItem::with_id(app, SETTINGS_ID, text.settings_menu, true, None::<&str>)?,
         quit: MenuItem::with_id(app, QUIT_ID, text.quit_menu, true, None::<&str>)?,
     };
-    let menu = Menu::with_items(app, &[&items.open_clipboard, &items.settings, &items.quit])?;
+    let menu = Menu::with_items(
+        app,
+        &[
+            &items.open_clipboard,
+            &items.actions,
+            &items.settings,
+            &items.quit,
+        ],
+    )?;
 
     let icon = tray_icon::render_themed_tray_icon(&config.theme)
         .unwrap_or_else(|| app.default_window_icon().expect("缺少默认窗口图标").clone());
@@ -62,6 +74,11 @@ pub(crate) fn build(
                     state.paste_manager.capture_target();
                 }
                 let _ = window_controller::show_main_window(app_handle);
+            }
+            ACTIONS_ID => {
+                if let Err(error) = crate::actions::open(app_handle) {
+                    log::warn!("打开动作启动器失败: {error:?}");
+                }
             }
             SETTINGS_ID => {
                 if let Err(error) = window_controller::open_settings_window(app_handle) {

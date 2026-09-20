@@ -13,6 +13,13 @@ const ACTION_COMMANDS: &[&str] = &[
     "run_action",
 ];
 
+const LAUNCHER_COMMANDS: &[&str] = &[
+    "action_launcher_ready",
+    "close_action_launcher",
+    "get_action_launcher_settings",
+    "start_action_launcher_drag",
+];
+
 const SETTINGS_COMMANDS: &[&str] = &[
     "check_app_update",
     "check_shortcut_conflict",
@@ -176,7 +183,7 @@ pub(crate) fn allowed(caller: &str, command: &str) -> bool {
     }
     let commands = match caller {
         CallerKind::Main => return true,
-        CallerKind::Launcher => return false,
+        CallerKind::Launcher => LAUNCHER_COMMANDS,
         CallerKind::Settings => SETTINGS_COMMANDS,
         CallerKind::Pin => PIN_COMMANDS,
         CallerKind::CaptureOverlay => CAPTURE_OVERLAY_COMMANDS,
@@ -215,6 +222,7 @@ mod tests {
     #[test]
     fn every_restricted_window_accepts_its_complete_declared_domain() {
         for (label, commands) in [
+            ("launcher", LAUNCHER_COMMANDS),
             ("settings", SETTINGS_COMMANDS),
             ("pin-image-1", PIN_COMMANDS),
             ("capture-overlay-session-1", CAPTURE_OVERLAY_COMMANDS),
@@ -260,6 +268,10 @@ mod tests {
     #[test]
     fn every_restricted_window_rejects_multiple_cross_domain_commands() {
         let cases = [
+            (
+                "launcher",
+                ["get_config", "get_pin_payload", "get_viewer_payload"],
+            ),
             (
                 "settings",
                 [

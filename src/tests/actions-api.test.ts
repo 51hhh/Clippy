@@ -5,9 +5,14 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
 import {
   cancelAction,
+  actionLauncherReady,
+  closeActionLauncher,
   discoverActions,
+  getActionLauncherSettings,
   prepareAction,
   runAction,
+  showActionLauncher,
+  startActionLauncherDrag,
   type ActionDescriptor,
 } from "../js/api.ts";
 
@@ -98,4 +103,36 @@ it("cancels with the exact validated handle", async () => {
   invoke.mockResolvedValueOnce(undefined);
   await cancelAction(handle);
   expect(invoke).toHaveBeenCalledWith("cancel_action", { handle });
+});
+
+it("keeps launcher lifecycle on dedicated commands and validates its settings subset", async () => {
+  invoke.mockResolvedValueOnce(undefined);
+  await showActionLauncher();
+  expect(invoke).toHaveBeenLastCalledWith("show_action_launcher");
+
+  invoke.mockResolvedValueOnce({
+    theme: "dark",
+    language: "zh-CN",
+    translationSourceLanguage: "auto",
+    translationTargetLanguage: "en",
+  });
+  await expect(getActionLauncherSettings()).resolves.toMatchObject({ theme: "dark", language: "zh-CN" });
+  invoke.mockResolvedValueOnce({
+    theme: "dark",
+    language: "zh-CN",
+    translationSourceLanguage: "auto",
+    translationTargetLanguage: "en",
+    apiKey: "must-not-pass",
+  });
+  await expect(getActionLauncherSettings()).rejects.toThrow("invalid_settings");
+
+  for (const [call, command] of [
+    [actionLauncherReady, "action_launcher_ready"],
+    [startActionLauncherDrag, "start_action_launcher_drag"],
+    [closeActionLauncher, "close_action_launcher"],
+  ] as const) {
+    invoke.mockResolvedValueOnce(undefined);
+    await call();
+    expect(invoke).toHaveBeenLastCalledWith(command);
+  }
 });
