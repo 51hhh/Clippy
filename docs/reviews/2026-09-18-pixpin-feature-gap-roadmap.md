@@ -753,7 +753,8 @@ XWayland 注入原生窗口。
 诊断编码线程已消费三槽队列并闭合 capture → pipeline → MJPEG/AVI；它先排空已接受帧再按同一最终
 时长封尾，编码错误会反向中止采集。诊断会话 owner 也已统一持有 journal、临时分段和两条线程，
 正常 Stop 原子提交并完成清单，错误或 Drop 会 join、清理未提交文件并写 interrupted。产品级单活动
-会话注册表/控制窗接线、控制窗排除与真机性能验收仍未完成。
+注册表已用 Starting/Recording/Stopping 状态和 generation token 防止并发启动及迟到命令误伤新会话。
+产品 IPC/桌面资源恢复/控制窗接线、控制窗排除与真机性能验收仍未完成。
 
 ### `PX-ACT-01`：类型化动作与启动器
 

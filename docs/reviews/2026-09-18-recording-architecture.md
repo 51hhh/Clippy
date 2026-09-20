@@ -36,7 +36,7 @@ xcap 0.9 提供跨平台 `VideoRecorder`，但官方仍把 video recording 标�
 
 ```text
 recording/
-  manager.rs       唯一会话、状态机、取消与资源预算
+  manager.rs       单活动会话、代次 token、暂停/停止/取消状态机
   manifest.rs      原子 journal、分段哈希、启动恢复
   timeline.rs      单调时间戳、帧丢弃策略、暂停区间
   frame.rs         有界 RGBA 帧合同与固定物理 crop
@@ -108,7 +108,9 @@ journal 已能创建私有会话、创建独占 `.partial`、提交分段元数�
 `recording → finalizing → complete` 原子更新状态。诊断会话 owner 已把 journal、临时分段、三槽
 pipeline、采集线程和编码线程接成一个生命周期：正常 Stop 只有 owner 能提交和完成，任一线程错误
 或 `Drop` 会 join 两条线程、删除未提交 partial 并记录 interrupted；联动产生的 `Pipeline::Aborted`
-不会遮住原始采集或编码错误。产品级单活动会话注册表和 IPC 尚未接入。
+不会遮住原始采集或编码错误。单活动注册表也已实现 `Starting → Recording → Stopping → Idle`，启动中
+和停止中都占槽，并以不可复用的 generation token 拒绝迟到的暂停、停止与取消；产品 IPC、桌面资源
+恢复和控制窗口尚未接入。
 
 ## 平台顺序
 

@@ -22,6 +22,9 @@ mod encoder_worker;
 // 会话 owner 已闭合 journal、采集与诊断编码；产品注册表和 IPC 接入前保持领域内可见。
 #[allow(dead_code)]
 mod session;
+// 单活动录屏注册表已固定代次与迟到命令语义；产品 IPC 接入前保持领域内可见。
+#[allow(dead_code)]
+mod manager;
 // 诊断编码器先验证分段、时间线与恢复；平台默认编码器选型完成前不进入产品入口。
 #[allow(dead_code)]
 mod mux;
