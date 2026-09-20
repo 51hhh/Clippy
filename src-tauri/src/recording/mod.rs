@@ -16,6 +16,9 @@ mod timeline;
 // 持续采集 worker 尚未接入产品会话；当前用合成帧固定停止、节流与错误传播。
 #[allow(dead_code)]
 mod worker;
+// 诊断编码消费线程先闭合 capture → pipeline → mux；产品会话接入前保持领域内可见。
+#[allow(dead_code)]
+mod encoder_worker;
 // 诊断编码器先验证分段、时间线与恢复；平台默认编码器选型完成前不进入产品入口。
 #[allow(dead_code)]
 mod mux;

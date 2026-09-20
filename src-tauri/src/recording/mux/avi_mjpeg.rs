@@ -14,7 +14,7 @@ const AVIF_HAS_INDEX: u32 = 0x10;
 const MAX_AVI_FRAMES: u64 = 18_000;
 
 #[derive(Debug, Error)]
-pub(super) enum AviMjpegError {
+pub(in crate::recording) enum AviMjpegError {
     #[error("MJPEG/AVI 配置无效")]
     InvalidConfiguration,
     #[error("MJPEG 输入 RGBA 字节数与尺寸不一致")]
@@ -54,7 +54,7 @@ struct PendingFrame {
     jpeg: Vec<u8>,
 }
 
-pub(super) struct AviMjpegWriter<W: Write + Seek> {
+pub(in crate::recording) struct AviMjpegWriter<W: Write + Seek> {
     writer: W,
     width: u32,
     height: u32,

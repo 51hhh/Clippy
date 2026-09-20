@@ -1,1 +1,1 @@
-mod avi_mjpeg;
+pub(super) mod avi_mjpeg;
