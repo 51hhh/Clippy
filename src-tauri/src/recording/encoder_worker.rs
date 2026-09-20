@@ -4,54 +4,129 @@
 //! pipeline，使仍在运行的采集线程尽快停止；`Drop` 同样中止并回收线程，禁止留下永久等待者。
 
 use super::mux::avi_mjpeg::{AviMjpegError, AviMjpegWriter};
+#[cfg(feature = "recording-vp9-prototype")]
+use super::mux::vp9_webm::{Vp9WebmError, Vp9WebmWriter};
 use super::pipeline::{PipelineDrain, PipelineError, RecordingPipeline};
+use std::error::Error as StdError;
 use std::io::{Seek, Write};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub(super) enum DiagnosticEncoderError {
+pub(super) enum EncoderWorkerError<E>
+where
+    E: StdError + Send + 'static,
+{
     #[error(transparent)]
     Pipeline(#[from] PipelineError),
-    #[error(transparent)]
-    Avi(#[from] AviMjpegError),
+    #[error("录屏分段编码失败: {0}")]
+    Mux(E),
     #[error("无法启动录屏编码线程: {0}")]
     ThreadSpawn(String),
     #[error("录屏编码线程异常退出")]
     ThreadPanicked,
 }
 
-pub(super) struct DiagnosticEncoderReport<W> {
+pub(super) struct EncoderReport<W> {
     pub writer: W,
     pub input_frames: u64,
     pub encoded_frames: u64,
     pub duration_ns: u64,
 }
 
-pub(super) struct DiagnosticEncoderWorker<W>
-where
-    W: Write + Seek + Send + 'static,
-{
-    pipeline: Arc<RecordingPipeline>,
-    join: Option<JoinHandle<Result<DiagnosticEncoderReport<W>, DiagnosticEncoderError>>>,
+pub(super) struct SegmentWriterOutput<W> {
+    writer: W,
+    frame_count: u64,
 }
 
-impl<W> DiagnosticEncoderWorker<W>
+pub(super) trait RecordingSegmentWriter: Send + 'static {
+    type Writer: Send + 'static;
+    type Error: StdError + Send + 'static;
+
+    fn push_rgba(&mut self, rgba: &[u8], presentation_at_ns: u64) -> Result<(), Self::Error>;
+
+    fn finish_with_stats(
+        self,
+        duration_ns: u64,
+    ) -> Result<SegmentWriterOutput<Self::Writer>, Self::Error>;
+}
+
+type EncoderJoinResult<M> = Result<
+    EncoderReport<<M as RecordingSegmentWriter>::Writer>,
+    EncoderWorkerError<<M as RecordingSegmentWriter>::Error>,
+>;
+
+impl<W> RecordingSegmentWriter for AviMjpegWriter<W>
 where
     W: Write + Seek + Send + 'static,
 {
+    type Writer = W;
+    type Error = AviMjpegError;
+
+    fn push_rgba(&mut self, rgba: &[u8], presentation_at_ns: u64) -> Result<(), Self::Error> {
+        AviMjpegWriter::push_rgba(self, rgba, presentation_at_ns)
+    }
+
+    fn finish_with_stats(
+        self,
+        duration_ns: u64,
+    ) -> Result<SegmentWriterOutput<Self::Writer>, Self::Error> {
+        let output = AviMjpegWriter::finish_with_stats(self, duration_ns)?;
+        Ok(SegmentWriterOutput {
+            writer: output.writer,
+            frame_count: output.frame_count,
+        })
+    }
+}
+
+#[cfg(feature = "recording-vp9-prototype")]
+impl<W> RecordingSegmentWriter for Vp9WebmWriter<W>
+where
+    W: Write + Seek + Send + 'static,
+{
+    type Writer = W;
+    type Error = Vp9WebmError;
+
+    fn push_rgba(&mut self, rgba: &[u8], presentation_at_ns: u64) -> Result<(), Self::Error> {
+        Vp9WebmWriter::push_rgba(self, rgba, presentation_at_ns)
+    }
+
+    fn finish_with_stats(
+        self,
+        duration_ns: u64,
+    ) -> Result<SegmentWriterOutput<Self::Writer>, Self::Error> {
+        let output = Vp9WebmWriter::finish_with_stats(self, duration_ns)?;
+        Ok(SegmentWriterOutput {
+            writer: output.writer,
+            frame_count: output.frame_count,
+        })
+    }
+}
+
+pub(super) struct EncoderWorker<M>
+where
+    M: RecordingSegmentWriter,
+{
+    pipeline: Arc<RecordingPipeline>,
+    join: Option<JoinHandle<EncoderJoinResult<M>>>,
+}
+
+impl<M> EncoderWorker<M>
+where
+    M: RecordingSegmentWriter,
+{
     pub fn spawn(
-        writer: AviMjpegWriter<W>,
+        writer: M,
         pipeline: Arc<RecordingPipeline>,
-    ) -> Result<Self, DiagnosticEncoderError> {
+    ) -> Result<Self, EncoderWorkerError<M::Error>> {
         let worker_pipeline = Arc::clone(&pipeline);
         let join = thread::Builder::new()
             .name("clippy-recording-encoder".to_string())
             .spawn(move || encode_until_terminal(writer, &worker_pipeline))
             .map_err(|error| {
                 let _ = pipeline.abort();
-                DiagnosticEncoderError::ThreadSpawn(error.to_string())
+                EncoderWorkerError::ThreadSpawn(error.to_string())
             })?;
         Ok(Self {
             pipeline,
@@ -59,22 +134,22 @@ where
         })
     }
 
-    pub fn wait(mut self) -> Result<DiagnosticEncoderReport<W>, DiagnosticEncoderError> {
+    pub fn wait(mut self) -> Result<EncoderReport<M::Writer>, EncoderWorkerError<M::Error>> {
         self.join_inner()
     }
 
-    fn join_inner(&mut self) -> Result<DiagnosticEncoderReport<W>, DiagnosticEncoderError> {
+    fn join_inner(&mut self) -> Result<EncoderReport<M::Writer>, EncoderWorkerError<M::Error>> {
         let Some(join) = self.join.take() else {
-            return Err(DiagnosticEncoderError::ThreadPanicked);
+            return Err(EncoderWorkerError::ThreadPanicked);
         };
         join.join()
-            .map_err(|_| DiagnosticEncoderError::ThreadPanicked)?
+            .map_err(|_| EncoderWorkerError::ThreadPanicked)?
     }
 }
 
-impl<W> Drop for DiagnosticEncoderWorker<W>
+impl<M> Drop for EncoderWorker<M>
 where
-    W: Write + Seek + Send + 'static,
+    M: RecordingSegmentWriter,
 {
     fn drop(&mut self) {
         if let Some(join) = self.join.take() {
@@ -84,25 +159,29 @@ where
     }
 }
 
-fn encode_until_terminal<W>(
-    mut writer: AviMjpegWriter<W>,
+fn encode_until_terminal<M>(
+    mut writer: M,
     pipeline: &RecordingPipeline,
-) -> Result<DiagnosticEncoderReport<W>, DiagnosticEncoderError>
+) -> Result<EncoderReport<M::Writer>, EncoderWorkerError<M::Error>>
 where
-    W: Write + Seek,
+    M: RecordingSegmentWriter,
 {
     let mut abort_guard = EncoderAbortGuard::new(pipeline);
     let mut input_frames = 0_u64;
     loop {
         match pipeline.pop_wait()? {
             PipelineDrain::Frame(queued) => {
-                writer.push_rgba(&queued.frame.rgba, queued.presentation_at_ns)?;
+                writer
+                    .push_rgba(&queued.frame.rgba, queued.presentation_at_ns)
+                    .map_err(EncoderWorkerError::Mux)?;
                 input_frames = input_frames.saturating_add(1);
             }
             PipelineDrain::Finished { duration_ns } => {
-                let output = writer.finish_with_stats(duration_ns)?;
+                let output = writer
+                    .finish_with_stats(duration_ns)
+                    .map_err(EncoderWorkerError::Mux)?;
                 abort_guard.disarm();
-                return Ok(DiagnosticEncoderReport {
+                return Ok(EncoderReport {
                     writer: output.writer,
                     input_frames,
                     encoded_frames: output.frame_count,
@@ -112,6 +191,15 @@ where
         }
     }
 }
+
+pub(super) type DiagnosticEncoderError = EncoderWorkerError<AviMjpegError>;
+pub(super) type DiagnosticEncoderReport<W> = EncoderReport<W>;
+pub(super) type DiagnosticEncoderWorker<W> = EncoderWorker<AviMjpegWriter<W>>;
+
+#[cfg(feature = "recording-vp9-prototype")]
+pub(super) type Vp9EncoderError = EncoderWorkerError<Vp9WebmError>;
+#[cfg(feature = "recording-vp9-prototype")]
+pub(super) type Vp9EncoderWorker<W> = EncoderWorker<Vp9WebmWriter<W>>;
 
 struct EncoderAbortGuard<'a> {
     pipeline: &'a RecordingPipeline,
@@ -158,6 +246,22 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "recording-vp9-prototype")]
+    fn vp9_frame(sequence: u64, captured_at_ns: u64, marker: u8) -> CapturedFrame {
+        let mut rgba = vec![marker; 64 * 48 * 4];
+        for alpha in rgba.iter_mut().skip(3).step_by(4) {
+            *alpha = 255;
+        }
+        CapturedFrame {
+            sequence,
+            captured_at_ns,
+            width: 64,
+            height: 48,
+            stride: 64 * 4,
+            rgba: rgba.into_boxed_slice(),
+        }
+    }
+
     fn writer(width: u32, height: u32) -> AviMjpegWriter<Cursor<Vec<u8>>> {
         AviMjpegWriter::new(Cursor::new(Vec::new()), width, height, 10, 1, 85).unwrap()
     }
@@ -185,6 +289,23 @@ mod tests {
             u32::from_le_bytes(bytes[index + 4..index + 8].try_into().unwrap()),
             32
         );
+    }
+
+    #[cfg(feature = "recording-vp9-prototype")]
+    #[test]
+    fn generic_worker_finishes_vp9_webm_with_the_pipeline_duration() {
+        let pipeline = Arc::new(RecordingPipeline::default());
+        let writer = Vp9WebmWriter::new(Cursor::new(Vec::new()), 64, 48, 10, 1).unwrap();
+        let worker = Vp9EncoderWorker::spawn(writer, Arc::clone(&pipeline)).unwrap();
+        pipeline.push(vp9_frame(0, 100, 10)).unwrap();
+        pipeline.push(vp9_frame(1, 100_000_100, 220)).unwrap();
+        assert_eq!(pipeline.finish(200_000_100).unwrap(), 200_000_000);
+
+        let report = worker.wait().unwrap();
+        assert_eq!(report.input_frames, 2);
+        assert_eq!(report.encoded_frames, 2);
+        assert_eq!(report.duration_ns, 200_000_000);
+        assert_eq!(&report.writer.into_inner()[0..4], [0x1a, 0x45, 0xdf, 0xa3]);
     }
 
     #[test]
@@ -229,7 +350,7 @@ mod tests {
         let worker = DiagnosticEncoderWorker::spawn(writer(1, 1), Arc::clone(&pipeline)).unwrap();
         assert!(matches!(
             worker.wait(),
-            Err(DiagnosticEncoderError::Avi(AviMjpegError::InvalidFrame))
+            Err(DiagnosticEncoderError::Mux(AviMjpegError::InvalidFrame))
         ));
         while pipeline.pop().unwrap().is_some() {}
         assert!(matches!(pipeline.pop_wait(), Err(PipelineError::Aborted)));

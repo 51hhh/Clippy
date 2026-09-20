@@ -475,7 +475,7 @@ mod tests {
         assert!(matches!(
             session.stop(),
             Err(DiagnosticRecordingError::Encoder(
-                DiagnosticEncoderError::Avi(AviMjpegError::InvalidFrame)
+                DiagnosticEncoderError::Mux(AviMjpegError::InvalidFrame)
             ))
         ));
         assert_eq!(manifest_state(&directory), "interrupted");

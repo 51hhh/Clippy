@@ -155,6 +155,11 @@ Clippy 已精确固定 crate 版本，并把整个模块隔离在非默认 featu
 UI 前，必须改成可复现的依赖获取方式，补齐 MPL/libvpx 第三方声明，并让同一 SHA 的 Ubuntu 22.04、
 Windows x64、macOS Intel/Apple Silicon 均编译和运行该 feature。当前 Linux 探针成功不替代这些门禁。
 
+编码消费线程也已从 MJPEG 具体类型收敛为 `RecordingSegmentWriter` 合同：writer 只能接收时间线已经
+归一化的 RGBA 帧并返回同一个最终时长下的 writer 与帧数；pipeline 排空、原始错误优先级、异常中止
+和 join 只实现一次。MJPEG 会话继续使用原类型别名，默认行为不变；VP9 feature 的线程回归已经证明
+同一三槽 pipeline 可封尾 200 ms WebM。会话 journal 选择和周期分段仍未切换到 VP9。
+
 ## 平台顺序
 
 1. 先实现与平台无关的 manifest、时间线、有界队列和合成帧 fixture；

@@ -778,6 +778,8 @@ generation token 绑定、停止/失败释放 gate 的严格顺序；Tauri 适�
 `ffprobe` 已核对 VP9、帧数和时长。纯 Rust `ebml-webm` 因当前不写容器时长被排除。原型依赖的
 `shiguredo_libvpx` 仍是 canary，且 build script 会联网下载平台预编译库，因此默认 feature、会话
 owner 和 UI 保持不接入；可复现供应链、第三方声明和三平台同 SHA feature 构建仍是启用前置条件。
+编码线程已改为统一的 `RecordingSegmentWriter` 合同，MJPEG 与 VP9 共用 pipeline 排空、错误联动和
+线程回收；feature 回归已跑通 pipeline → VP9/WebM。journal 选择与周期分段尚未接入。
 
 ### `PX-ACT-01`：类型化动作与启动器
 
