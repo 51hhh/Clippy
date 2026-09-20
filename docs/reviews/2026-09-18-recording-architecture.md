@@ -88,8 +88,9 @@ manifest → 原子提升为最终分段并同步目录。manifest 是提交点�
 最终文件现已具备与分段相同的持久化提交合同：写入私有 `.recording.<container>.partial`，核对它的
 时长/帧数与已提交分段总和一致，`sync_all` 后记录长度和 SHA-256，再以 manifest 作为提交点原子提升
 为 `recording.<container>`。启动若遇到 manifest 已提交但 rename 未完成，会校验并完成提升后写
-complete；最终文件损坏时会删除坏输出、保留连续有效分段并写 interrupted。编码 packet 扇出尚未
-接入，因此现有诊断会话仍不生成该最终文件。
+complete；最终文件损坏时会删除坏输出、保留连续有效分段并写 interrupted。VP9 会话现用同一个
+低延迟 libvpx 编码器把每个压缩 packet 同时写入连续最终 mux 与当前恢复分段 mux；正常停止会提交
+`recording.webm`，不会解码后重编码，也不会拼接独立 WebM 字节流。
 
 ## 编码与容器门槛
 
@@ -176,10 +177,10 @@ MJPEG。编码线程现在默认每 60 秒、最多允许 120 秒一个周期分
 一段则在 Stop 后由会话 owner 核对时长与背压再把清单标为 complete。MJPEG 子进程强杀 fixture 已
 证明首段提交、次段仍打开时退出，启动恢复会保留可播放首段、删除未提交尾段并写 interrupted；同一
 分段 writer 的 VP9 回归已生成两个独立 WebM；原型 CI 也会在四目标分别强制终止独立子进程，验证
-已提交 WebM 前缀与未提交尾段的恢复合同。最终文件合并仍未完成。
-VP9 实现内部已经把固定帧率/RGBA→I420/libvpx 编码与 WebM packet mux 拆成独立对象；现有 writer
-仍只连接一个 mux，输出合同和像素转换不变。下一步会让同一压缩 packet 扇出到连续最终 mux 与当前
-恢复分段 mux，禁止把已编码分段解码后再编码，也禁止直接拼接多个独立 WebM 字节流。
+已提交 WebM 前缀与未提交尾段的恢复合同。VP9 实现内部已经把固定帧率/RGBA→I420/libvpx 编码与
+WebM packet mux 拆开，并显式设置零 lookahead：边界先排空上一帧、提交独立可播放分段，再强制下一
+packet 为关键帧；同一 packet 同时进入连续最终 mux。`ffprobe` 会分别核对各段与 `recording.webm`
+的 VP9 codec、帧数和时长。产品入口与三平台真实帧源尚未接入，不能据此勾选第一阶段整体验收。
 
 ## 平台顺序
 

@@ -12,6 +12,9 @@ Clippy 只修改 `build.rs` 的外部输入校验来源：
 - 上游没有 macOS x86_64 预编译归档；该目标启用 `source-build` 时改为下载 libvpx v1.16.0
   源码归档，并用仓库固定 SHA-256 校验后再编译；
 - 移除源码构建时按可变 tag 浅克隆 Git 仓库的行为。
+- 将 `EncoderConfig::lag_in_frames` 从 `Option<NonZeroUsize>` 放宽为 `Option<usize>`，允许录屏原型
+  显式设置 libvpx 的 `g_lag_in_frames = 0`。这使周期分段能在不结束连续编码器的情况下立即取得
+  边界前全部压缩 packet；默认值仍为 `None`，不改变其他调用方。
 
 预编译归档仍按固定 crate 版本从上游 GitHub Release 下载，源码归档来自 libvpx 官方 GitHub tag
 archive；网络不可用时 feature 构建会失败。默认产品构建不启用 `recording-vp9-prototype`，不会下载

@@ -54,6 +54,7 @@ pub(super) enum DiagnosticRecordingError {
 #[derive(Debug)]
 pub(super) struct DiagnosticRecordingReport {
     pub segment_paths: Vec<PathBuf>,
+    pub final_output_path: Option<PathBuf>,
     pub duration_ns: u64,
     pub captured_frames: u64,
     pub accepted_frames: u64,
@@ -200,12 +201,13 @@ impl DiagnosticRecordingSession {
         if capture.dropped_by_backpressure != stats.dropped_by_backpressure {
             return Err(DiagnosticRecordingError::BackpressureMismatch);
         }
-        let segment_paths = encoder
+        let outputs = encoder
             .writer
             .complete()
             .map_err(DiagnosticRecordingError::Journal)?;
         Ok(DiagnosticRecordingReport {
-            segment_paths,
+            segment_paths: outputs.segment_paths,
+            final_output_path: outputs.final_output_path,
             duration_ns,
             captured_frames: capture.captured_frames,
             accepted_frames: stats.accepted_frames,
@@ -399,6 +401,50 @@ mod tests {
         serde_json::from_slice(&std::fs::read(directory.join("manifest.json")).unwrap()).unwrap()
     }
 
+    #[cfg(feature = "recording-vp9-prototype")]
+    fn assert_vp9_probe_when_available(path: &Path, frame_count: u64, duration_ns: u64) {
+        let available = Command::new("ffprobe")
+            .arg("-version")
+            .output()
+            .is_ok_and(|output| output.status.success());
+        if !available {
+            return;
+        }
+        let output = Command::new("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-count_frames",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=codec_name,nb_read_frames:format=duration",
+                "-of",
+                "json",
+            ])
+            .arg(path)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let payload: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(payload["streams"][0]["codec_name"], "vp9");
+        assert_eq!(
+            payload["streams"][0]["nb_read_frames"],
+            frame_count.to_string()
+        );
+        let actual_duration = payload["format"]["duration"]
+            .as_str()
+            .unwrap()
+            .parse::<f64>()
+            .unwrap();
+        let expected_duration = duration_ns as f64 / 1_000_000_000.0;
+        assert!((actual_duration - expected_duration).abs() <= 0.002);
+    }
+
     #[test]
     fn normal_stop_commits_segment_and_complete_manifest() {
         let temporary = tempfile::tempdir().unwrap();
@@ -422,6 +468,7 @@ mod tests {
         assert!(report.encoded_frames >= 1);
         assert_eq!(report.dropped_by_backpressure, 0);
         assert_eq!(report.segment_paths.len(), 1);
+        assert!(report.final_output_path.is_none());
         assert_eq!(
             &std::fs::read(&report.segment_paths[0]).unwrap()[0..4],
             b"RIFF"
@@ -657,11 +704,21 @@ mod tests {
             assert_eq!(path.extension().unwrap(), "webm");
             assert!(crate::private_files::is_private(path));
         }
+        let final_output = report.final_output_path.as_ref().unwrap();
+        assert_eq!(final_output.file_name().unwrap(), "recording.webm");
+        assert_eq!(
+            &std::fs::read(final_output).unwrap()[0..4],
+            [0x1a, 0x45, 0xdf, 0xa3]
+        );
+        assert!(crate::private_files::is_private(final_output));
         assert_eq!(manifest["state"], "complete");
         assert_eq!(manifest["video"]["encoder"], "vp9-prototype");
         assert_eq!(manifest["video"]["container"], "webm");
         assert_eq!(manifest["segments"][0]["fileName"], "segment-000000.webm");
         assert_eq!(manifest["segments"][1]["fileName"], "segment-000001.webm");
+        assert_eq!(manifest["finalOutput"]["fileName"], "recording.webm");
+        assert_eq!(manifest["finalOutput"]["durationNs"], report.duration_ns);
+        assert_eq!(manifest["finalOutput"]["frameCount"], report.encoded_frames);
         let segments = manifest["segments"].as_array().unwrap();
         let manifest_duration: u64 = segments
             .iter()
@@ -673,6 +730,14 @@ mod tests {
             .sum();
         assert_eq!(manifest_duration, report.duration_ns);
         assert_eq!(manifest_frames, report.encoded_frames);
+        for (path, segment) in report.segment_paths.iter().zip(segments) {
+            assert_vp9_probe_when_available(
+                path,
+                segment["frameCount"].as_u64().unwrap(),
+                segment["durationNs"].as_u64().unwrap(),
+            );
+        }
+        assert_vp9_probe_when_available(final_output, report.encoded_frames, report.duration_ns);
         assert!(!directory.join(".segment-000000.webm.partial").exists());
         assert!(!directory.join(".segment-000001.webm.partial").exists());
     }
@@ -712,6 +777,7 @@ mod tests {
             assert!(session_directory
                 .join(".segment-000001.webm.partial")
                 .exists());
+            assert!(session_directory.join(".recording.webm.partial").exists());
             std::process::exit(91);
         }
 
@@ -737,6 +803,9 @@ mod tests {
         assert_eq!(manifest["segments"].as_array().unwrap().len(), 1);
         assert!(directory.join("segment-000000.webm").exists());
         assert!(!directory.join(".segment-000001.webm.partial").exists());
+        assert!(!directory.join(".recording.webm.partial").exists());
+        assert!(!directory.join("recording.webm").exists());
+        assert!(manifest["finalOutput"].is_null());
         assert_eq!(
             &std::fs::read(directory.join("segment-000000.webm")).unwrap()[0..4],
             [0x1a, 0x45, 0xdf, 0xa3]

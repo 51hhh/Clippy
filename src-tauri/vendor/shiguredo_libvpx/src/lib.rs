@@ -519,7 +519,7 @@ pub struct EncoderConfig {
     pub rate_control: RateControlMode,
 
     /// 先読みフレーム数 (None で無効、品質 vs 速度のトレードオフ)
-    pub lag_in_frames: Option<NonZeroUsize>,
+    pub lag_in_frames: Option<usize>,
 
     /// スレッド数 (None で自動設定)
     pub threads: Option<NonZeroUsize>,
@@ -971,7 +971,7 @@ impl Encoder {
         let cq_level = encoder_config.cq_level as c_uint;
 
         if let Some(lag) = encoder_config.lag_in_frames {
-            vpx_config.g_lag_in_frames = c_uint::try_from(lag.get())
+            vpx_config.g_lag_in_frames = c_uint::try_from(lag)
                 .map_err(|_| invalid_param(FUNCTION, "lag_in_frames is out of range"))?;
         }
 

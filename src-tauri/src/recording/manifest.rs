@@ -320,9 +320,7 @@ impl RecordingJournal {
     }
 
     pub fn begin_final_output(&self) -> Result<(File, PendingFinalOutput), String> {
-        if self.manifest.state != RecordingState::Recording
-            || self.manifest.segments.is_empty()
-            || self.manifest.final_output.is_some()
+        if self.manifest.state != RecordingState::Recording || self.manifest.final_output.is_some()
         {
             return Err("录屏会话不接受最终输出".to_string());
         }
@@ -449,18 +447,6 @@ impl RecordingJournal {
         }
         let previous_segments = self.manifest.segments.clone();
         let verified_prefix = verify_segment_prefix(&self.session_directory, &self.manifest)?;
-        if verified_prefix == self.manifest.segments.len()
-            && self.manifest.final_output.is_some()
-            && verify_or_promote_final_output(&self.session_directory, &self.manifest)?
-        {
-            let previous_state = self.manifest.state;
-            self.manifest.state = RecordingState::Complete;
-            if let Err(error) = write_manifest(&self.session_directory, &self.manifest) {
-                self.manifest.state = previous_state;
-                return Err(error);
-            }
-            return Ok(());
-        }
         self.manifest.segments.truncate(verified_prefix);
         let previous_final_output = self.manifest.final_output.take();
         let previous_state = self.manifest.state;

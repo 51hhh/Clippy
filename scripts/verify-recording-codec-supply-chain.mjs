@@ -8,6 +8,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const tauriRoot = join(root, "src-tauri");
 const vendorRoot = join(tauriRoot, "vendor", "shiguredo_libvpx");
 const buildScript = readFileSync(join(vendorRoot, "build.rs"), "utf8");
+const bindingSource = readFileSync(join(vendorRoot, "src", "lib.rs"), "utf8");
 
 const pinnedArchives = {
   "ubuntu-22.04_x86_64": "4c7a10b8d6f6e3331d55d8d4aaf2f6b942f6da52c0ecc1a8b946251536879c70",
@@ -34,6 +35,9 @@ if (!buildScript.includes(`"${pinnedSource.url}"`) || !buildScript.includes(`"${
 }
 if (buildScript.includes('Command::new("git")') || buildScript.includes('arg("clone")')) {
   throw new Error("vendored libvpx source build must not clone a mutable Git tag");
+}
+if (!bindingSource.includes("pub lag_in_frames: Option<usize>")) {
+  throw new Error("vendored libvpx must preserve the reviewed zero-lag recording configuration");
 }
 
 const cargoToml = readFileSync(join(tauriRoot, "Cargo.toml"), "utf8");

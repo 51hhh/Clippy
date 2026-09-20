@@ -15,7 +15,7 @@ use webm::mux::{Segment, SegmentBuilder, SegmentMode, VideoCodecId, VideoTrack, 
 
 const NANOS_PER_SECOND: u128 = 1_000_000_000;
 const WEBM_TIMECODE_SCALE_NS: u64 = 1_000_000;
-const MAX_WEBM_FRAMES: u64 = 18_000;
+const MAX_RECORDING_FRAMES: u64 = 24 * 60 * 60 * 120;
 const VP9_CQ_LEVEL: usize = 30;
 const VP9_CPU_USED: usize = 6;
 
@@ -27,7 +27,7 @@ pub(in crate::recording) enum Vp9WebmError {
     InvalidFrame,
     #[error("VP9 输入时间戳必须严格递增并从零开始")]
     InvalidTimestamp,
-    #[error("VP9/WebM 单分段超过 18,000 帧上限")]
+    #[error("VP9/WebM 超过 24 小时、120 fps 帧预算")]
     FrameLimit,
     #[error("VP9 编码器没有为每个固定帧率输入产生一个输出帧")]
     UnexpectedPacketCount,
@@ -55,7 +55,7 @@ pub(in crate::recording) struct Vp9WebmOutput<W> {
     pub frame_count: u64,
 }
 
-struct Vp9PacketEncoder {
+pub(in crate::recording) struct Vp9PacketEncoder {
     width: u32,
     height: u32,
     fps_numerator: u32,
@@ -66,10 +66,11 @@ struct Vp9PacketEncoder {
     last_presentation_ns: Option<u64>,
     submitted_frames: u64,
     encoded_frames: u64,
+    force_next_keyframe: bool,
 }
 
 impl Vp9PacketEncoder {
-    fn new(
+    pub fn new(
         width: u32,
         height: u32,
         fps_numerator: u32,
@@ -124,7 +125,8 @@ impl Vp9PacketEncoder {
         encoder_config.cpu_used = Some(VP9_CPU_USED);
         encoder_config.deadline = EncodingDeadline::Realtime;
         encoder_config.rate_control = RateControlMode::Cq;
-        encoder_config.lag_in_frames = None;
+        // 周期恢复分段必须在边界立即取得完整 packet，不能把帧滞留到整个编码器 finish。
+        encoder_config.lag_in_frames = Some(0);
         encoder_config.threads = threads;
         encoder_config.error_resilient = true;
         encoder_config.keyframe_interval = NonZeroUsize::new(
@@ -144,10 +146,11 @@ impl Vp9PacketEncoder {
             last_presentation_ns: None,
             submitted_frames: 0,
             encoded_frames: 0,
+            force_next_keyframe: false,
         })
     }
 
-    fn push_rgba<F>(
+    pub fn push_rgba<F>(
         &mut self,
         rgba: &[u8],
         presentation_at_ns: u64,
@@ -187,7 +190,33 @@ impl Vp9PacketEncoder {
         Ok(())
     }
 
-    fn finish<F>(&mut self, duration_ns: u64, emit: &mut F) -> Result<u64, Vp9WebmError>
+    pub fn flush_until<F>(
+        &mut self,
+        presentation_at_ns: u64,
+        emit: &mut F,
+    ) -> Result<(), Vp9WebmError>
+    where
+        F: FnMut(&[u8], u64, bool) -> Result<(), Vp9WebmError>,
+    {
+        let target_slot = self.slot_for(presentation_at_ns)?;
+        let minimum_slot = self
+            .pending
+            .as_ref()
+            .map(|pending| pending.slot.saturating_add(1))
+            .ok_or(Vp9WebmError::InvalidTimestamp)?;
+        let exclusive_slot = target_slot.max(minimum_slot);
+        self.flush_pending_until(exclusive_slot, emit)
+    }
+
+    pub fn force_next_keyframe(&mut self) {
+        self.force_next_keyframe = true;
+    }
+
+    pub fn next_timestamp_ns(&self) -> Result<u64, Vp9WebmError> {
+        self.timestamp_for_frame(self.encoded_frames)
+    }
+
+    pub fn finish<F>(&mut self, duration_ns: u64, emit: &mut F) -> Result<u64, Vp9WebmError>
     where
         F: FnMut(&[u8], u64, bool) -> Result<(), Vp9WebmError>,
     {
@@ -229,7 +258,7 @@ impl Vp9PacketEncoder {
             .submitted_frames
             .checked_add(repeat)
             .ok_or(Vp9WebmError::FrameLimit)?;
-        if repeat == 0 || future_count > MAX_WEBM_FRAMES {
+        if repeat == 0 || future_count > MAX_RECORDING_FRAMES {
             self.pending = Some(pending);
             return Err(if repeat == 0 {
                 Vp9WebmError::InvalidTimestamp
@@ -247,7 +276,8 @@ impl Vp9PacketEncoder {
     where
         F: FnMut(&[u8], u64, bool) -> Result<(), Vp9WebmError>,
     {
-        let force_keyframe = self.submitted_frames.is_multiple_of(self.keyframe_interval);
+        let force_keyframe = self.force_next_keyframe
+            || self.submitted_frames.is_multiple_of(self.keyframe_interval);
         self.encoder.encode(
             &ImageData::I420 {
                 y: &image.y,
@@ -256,6 +286,7 @@ impl Vp9PacketEncoder {
             },
             &EncodeOptions { force_keyframe },
         )?;
+        self.force_next_keyframe = false;
         self.submitted_frames = self.submitted_frames.saturating_add(1);
         self.drain_encoded_packets(emit)
     }
@@ -264,13 +295,11 @@ impl Vp9PacketEncoder {
     where
         F: FnMut(&[u8], u64, bool) -> Result<(), Vp9WebmError>,
     {
+        let fps_numerator = self.fps_numerator;
+        let fps_denominator = self.fps_denominator;
         while let Some(frame) = self.encoder.next_frame() {
-            let timestamp_ns = u128::from(self.encoded_frames)
-                .checked_mul(NANOS_PER_SECOND)
-                .and_then(|value| value.checked_mul(u128::from(self.fps_denominator)))
-                .and_then(|value| value.checked_div(u128::from(self.fps_numerator)))
-                .and_then(|value| u64::try_from(value).ok())
-                .ok_or(Vp9WebmError::FrameLimit)?;
+            let timestamp_ns =
+                frame_timestamp_ns(self.encoded_frames, fps_numerator, fps_denominator)?;
             emit(frame.data(), timestamp_ns, frame.is_keyframe())?;
             self.encoded_frames = self.encoded_frames.saturating_add(1);
         }
@@ -297,16 +326,33 @@ impl Vp9PacketEncoder {
             .ok_or(Vp9WebmError::FrameLimit)?;
         u64::try_from(numerator.div_ceil(denominator)).map_err(|_| Vp9WebmError::FrameLimit)
     }
+
+    fn timestamp_for_frame(&self, frame: u64) -> Result<u64, Vp9WebmError> {
+        frame_timestamp_ns(frame, self.fps_numerator, self.fps_denominator)
+    }
 }
 
-struct WebmPacketMux<W: Write + Seek> {
+fn frame_timestamp_ns(
+    frame: u64,
+    fps_numerator: u32,
+    fps_denominator: u32,
+) -> Result<u64, Vp9WebmError> {
+    u128::from(frame)
+        .checked_mul(NANOS_PER_SECOND)
+        .and_then(|value| value.checked_mul(u128::from(fps_denominator)))
+        .and_then(|value| value.checked_div(u128::from(fps_numerator)))
+        .and_then(|value| u64::try_from(value).ok())
+        .ok_or(Vp9WebmError::FrameLimit)
+}
+
+pub(in crate::recording) struct WebmPacketMux<W: Write + Seek> {
     segment: Option<Segment<W>>,
     track: VideoTrack,
     frame_count: u64,
 }
 
 impl<W: Write + Seek> WebmPacketMux<W> {
-    fn new(writer: W, width: u32, height: u32) -> Result<Self, Vp9WebmError> {
+    pub fn new(writer: W, width: u32, height: u32) -> Result<Self, Vp9WebmError> {
         let builder = SegmentBuilder::new(Writer::new(writer))?
             .set_writing_app("Clippy")?
             .set_mode(SegmentMode::File)?;
@@ -319,7 +365,7 @@ impl<W: Write + Seek> WebmPacketMux<W> {
         })
     }
 
-    fn add_frame(
+    pub fn add_frame(
         &mut self,
         data: &[u8],
         timestamp_ns: u64,
@@ -333,7 +379,7 @@ impl<W: Write + Seek> WebmPacketMux<W> {
         Ok(())
     }
 
-    fn finish(mut self, duration_ns: u64) -> Result<Vp9WebmOutput<W>, Vp9WebmError> {
+    pub fn finish(mut self, duration_ns: u64) -> Result<Vp9WebmOutput<W>, Vp9WebmError> {
         // libwebm 的 Segment::set_duration 接收 TimecodeScale tick；其默认 scale 为 1 ms。
         let duration_ticks = duration_ns.div_ceil(WEBM_TIMECODE_SCALE_NS).max(1);
         let writer = self
@@ -509,6 +555,32 @@ mod tests {
         assert_eq!(&bytes[0..4], [0x1a, 0x45, 0xdf, 0xa3]);
         assert!(bytes.windows(4).any(|window| window == b"webm"));
         assert!(bytes.windows(5).any(|window| window == b"V_VP9"));
+    }
+
+    #[test]
+    fn continuous_encoder_can_finalize_independent_packet_segment() {
+        let mut encoder = Vp9PacketEncoder::new(64, 48, 10, 1).unwrap();
+        let mut final_mux = WebmPacketMux::new(Cursor::new(Vec::new()), 64, 48).unwrap();
+        let mut segment_mux = WebmPacketMux::new(Cursor::new(Vec::new()), 64, 48).unwrap();
+        encoder
+            .push_rgba(
+                &solid_rgba(64, 48, [16, 32, 64]),
+                0,
+                &mut |data, timestamp, keyframe| {
+                    final_mux.add_frame(data, timestamp, keyframe)?;
+                    segment_mux.add_frame(data, timestamp, keyframe)
+                },
+            )
+            .unwrap();
+        encoder
+            .flush_until(200_000_000, &mut |data, timestamp, keyframe| {
+                final_mux.add_frame(data, timestamp, keyframe)?;
+                segment_mux.add_frame(data, timestamp, keyframe)
+            })
+            .unwrap();
+        let segment = segment_mux.finish(200_000_000).unwrap();
+        assert_eq!(segment.frame_count, 2);
+        assert_eq!(&segment.writer.into_inner()[0..4], [0x1a, 0x45, 0xdf, 0xa3]);
     }
 
     #[test]

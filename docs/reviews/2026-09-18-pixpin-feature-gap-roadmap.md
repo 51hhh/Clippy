@@ -790,12 +790,14 @@ pipeline → VP9/WebM → 私有原子分段 → complete manifest，并核对�
 生命周期仍显式选择 MJPEG。统一分段 writer 默认 60 秒封尾、上限 120 秒，跨过边界即原子提交；
 默认 MJPEG 子进程 fixture 已在首段提交、次段打开时强制退出，并由启动恢复保留可播放前缀、删除
 未提交尾段、写入 interrupted。VP9 feature 回归也已产生并提交两个独立 WebM，并把同一强杀恢复
-fixture 纳入四目标原型 job。远程同 SHA 结果、最终文件合并和长样本质量预算尚未完成。
-VP9 内部已先拆开 libvpx 帧编码与 WebM packet mux，保持现有输出测试不变；最终文件将复用同一批
-压缩 packet 同时写连续 mux 和恢复分段 mux，不通过二次有损编码或 WebM 字节拼接实现。
+fixture 纳入四目标原型 job。远程同 SHA 结果和长样本质量预算尚未完成。
+VP9 内部已拆开 libvpx 帧编码与 WebM packet mux，并以零 lookahead 把同一批压缩 packet 同时写入
+连续最终 mux 和恢复分段 mux，不通过二次有损编码或 WebM 字节拼接实现。边界先排空上一帧，再以
+关键帧开始下一段；`ffprobe` 分别核对各段和最终文件的 codec、帧数与时长。
 最终输出 journal 也已固定私有 partial、时长/帧数总和、长度/SHA-256、manifest 提交点和原子提升；
-崩溃落在 manifest 与 rename 之间会自动完成提升，坏最终文件只回退到已验证分段。packet 双路写入
-尚未接入会话，因此第一阶段“正常停止单文件”仍保持未完成。
+崩溃落在 manifest 与 rename 之间会自动完成提升，坏最终文件只回退到已验证分段。VP9 合成会话
+正常停止现会返回私有 `recording.webm`；产品入口和真实平台帧源仍未接入，因此第一阶段验收保持
+未完成。
 
 ### `PX-ACT-01`：类型化动作与启动器
 
