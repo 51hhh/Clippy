@@ -793,6 +793,9 @@ pipeline → VP9/WebM → 私有原子分段 → complete manifest，并核对�
 fixture 纳入四目标原型 job。远程同 SHA 结果、最终文件合并和长样本质量预算尚未完成。
 VP9 内部已先拆开 libvpx 帧编码与 WebM packet mux，保持现有输出测试不变；最终文件将复用同一批
 压缩 packet 同时写连续 mux 和恢复分段 mux，不通过二次有损编码或 WebM 字节拼接实现。
+最终输出 journal 也已固定私有 partial、时长/帧数总和、长度/SHA-256、manifest 提交点和原子提升；
+崩溃落在 manifest 与 rename 之间会自动完成提升，坏最终文件只回退到已验证分段。packet 双路写入
+尚未接入会话，因此第一阶段“正常停止单文件”仍保持未完成。
 
 ### `PX-ACT-01`：类型化动作与启动器
 
