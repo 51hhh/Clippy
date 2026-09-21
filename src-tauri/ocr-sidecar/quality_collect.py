@@ -129,7 +129,7 @@ def peak_memory_metric() -> str | None:
 
 
 def run_measured(
-    command: list[str], payload: bytes, timeout: float
+    command: list[str], payload: bytes, timeout: float, env: dict[str, str] | None = None
 ) -> tuple[subprocess.CompletedProcess[bytes], int | None]:
     """运行一次独立 OCR 进程，并采样该进程自己的峰值 RSS。"""
     process = subprocess.Popen(
@@ -137,6 +137,7 @@ def run_measured(
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        env=env,
     )
     stopped = threading.Event()
     peak_memory: list[int] = []

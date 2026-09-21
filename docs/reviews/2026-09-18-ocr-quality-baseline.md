@@ -270,6 +270,14 @@ LaTeX/MathML；当前通用模型一律报告 `structuredFormula=false`。官方
 官方 CPU 参考耗时约 254 ms，明显超出当前 OCR 资产预算，第一阶段只能作为显式可选组件并单独设计
 下载、许可、内存和失败回退。
 
+2026-09-21 已完成独立门禁。Firefox MathML 的 6 个固定 crop 上，PP-FormulaNet-S 与 plus-S 均有
+5/6 输出可被独立解析；S 的矩阵语法失败且积分输出包含异常 token，plus-S 的希腊下标语法失败，
+分段函数还丢失一个 `<`。两者权重分别为 231.7/256.8 MB，Linux CPU 峰值约 899/920 MiB，加载约
+3.5 秒。PP-DocLayout-S 在同一批孤立
+公式 crop 上未检出 formula 框；该正样本不属于整页文档域，因此只支持“当前不能自动路由”的
+no-go 结论。完整证据见
+[`2026-09-21-ocr-formula-feasibility.md`](2026-09-21-ocr-formula-feasibility.md)。
+
 ### 5. EdgeGNN 与阅读顺序
 
 保留 EdgeGNN 的模型输出和视觉合并前后分组，分别评测 paragraph membership 与最终阅读顺序。

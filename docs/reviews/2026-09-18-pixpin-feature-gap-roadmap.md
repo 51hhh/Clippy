@@ -372,11 +372,12 @@ delta；父链与项目历史留给 `PX-PIN-01`。显式 resize/crop 之外不�
 
 | 阶段 | 路线 ID | 内容 | 依赖 |
 |---|---|---|---|
-| P0 | `PX-OCR-QUALITY-01` | 混合文字/空白/符号/公式质量语料、指标与双引擎基线 | 当前 OCR 输出合同 |
+| P0（已完成） | `PX-OCR-QUALITY-01` | 混合文字/空白/符号/公式质量语料、指标与双引擎基线 | 当前 OCR 输出合同 |
 | P0（已完成） | `PX-OCR-ORIENTATION-01` | 可选逐框 0°/180°分类与四向固定语料 | `PX-OCR-QUALITY-01` |
 | P0（已完成调研） | `PX-OCR-MODEL-TIER-01` | small/medium det/rec 四组 A/B；当前不升档 | `PX-OCR-QUALITY-01` |
 | P0（已完成） | `PX-OCR-TABLE-01` | row/cell 双层真值、错列检测与稳定同基线排序 | `PX-OCR-MODEL-TIER-01` |
 | P0（已完成） | `PX-OCR-01` | 基于基线完成增强 OCR 安装、健康检查、许可与模型选择 | `PX-OCR-QUALITY-01` |
+| P0（已完成门控，产品 no-go） | `PX-OCR-FORMULA-01` | 独立公式 crop、PP-FormulaNet A/B 与自动路由探针 | `PX-OCR-QUALITY-01` |
 | P0（已完成） | `PX-CAPTURE-TOOLS-01` | 冻结选区快捷扫码；保留现有长截图入口 | capture session 身份 |
 | P1（待原生 QA） | `PX-LS-2D-01` | 上下左右拼接、viewport 回访、显式撤销与输入透明 guide 已实现 | 真实长截图 fixture |
 | P1（已完成） | `PX-ANNOTATION-QUALITY-01` | 16 工具预览/导出画质矩阵与逐项修正 | 权威 Rust 渲染器 |
@@ -414,11 +415,29 @@ delta；父链与项目历史留给 `PX-PIN-01`。显式 resize/crop 之外不�
 开销。英语专用 rec、文字行方向和 small/medium det/rec 四组 A/B 已分别记录质量与耗时；模型档位
 报告另补 Linux 独立进程峰值 RSS。Firefox 栅格化的暗色 UI、代码/斜体、票据表格与长图语料已按
 同一资产身份运行 Tesseract 与增强链；规则表格从列优先改为行优先后，目标层、暗色/代码回退和资源
-变化均保存前后证据。medium 的分层回退与工作集增长仍不满足默认升档条件。下一步是独立公式模型
-可行性、真实拍照/压缩来源以及 Windows/macOS 同源资源复测；仍不支持仅凭 blank-run 阈值改写
+变化均保存前后证据。medium 的分层回退与工作集增长仍不满足默认升档条件。独立公式门禁也已完成：
+PP-FormulaNet-S/plus-S 各有 1/6 不可解析结果、权重约 232–257 MB、Linux 峰值约 0.9 GiB，
+PP-DocLayout-S 在当前 crop 正样本召回为 0，因此产品和自动路由均保持 no-go。下一步是真实拍照/
+压缩来源、整页公式路由语料以及 Windows/macOS 同源资源复测；仍不支持仅凭 blank-run 阈值改写
 复制文本。
 
 **Out of Scope**：用单张 PixPin 样本宣称总体精度、静默改写用户文本、把普通 OCR 当公式识别。
+
+### `PX-OCR-FORMULA-01`：独立公式识别与自动路由门禁
+
+**Goal**：验证明确公式区域能否输出真正 LaTeX，并把公式识别质量与公式区域检测、普通 OCR 和资源
+预算分开决策。
+
+**Acceptance Criteria**：
+
+- [x] Firefox MathML 固定 crop 覆盖分数、根式、上下标、积分/求和、希腊字母、矩阵和分段函数；
+- [x] PP-FormulaNet-S 与 plus-S 使用固定官方 revision/SHA 实跑并报告严格 token、可解析率、延迟和 RSS；
+- [x] PP-DocLayout-S 自动路由探针分开报告正样本召回和无公式 UI 误报；
+- [x] 权重、研究 venv 和本机路径不入库，普通 OCR 继续明确 `structuredFormula=false`；
+- [x] 产品结论为 no-go：不提高 64 MiB 默认预算，不添加未达门禁的显式或自动入口。
+
+详细逐 case 结果和下一门禁见
+[`2026-09-21-ocr-formula-feasibility.md`](2026-09-21-ocr-formula-feasibility.md)。
 
 ### `PX-CAPTURE-TOOLS-01`：冻结选区快捷长截图与扫码
 

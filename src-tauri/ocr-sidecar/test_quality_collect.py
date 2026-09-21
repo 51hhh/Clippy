@@ -65,15 +65,18 @@ class QualityCollectTests(unittest.TestCase):
             for case in corpus["cases"]:
                 self.assertTrue(collect.read_case_png(corpus_path, case))
 
-        browser_capture = fixtures / "browser-ui-v1" / "capture.py"
-        result = subprocess.run(
-            [sys.executable, str(browser_capture), "--verify"],
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            timeout=10,
-        )
-        self.assertEqual(result.returncode, 0, result.stdout.decode("utf-8", errors="replace"))
+        for capture in (
+            fixtures / "browser-ui-v1" / "capture.py",
+            fixtures / "formula-browser-v1" / "capture.py",
+        ):
+            result = subprocess.run(
+                [sys.executable, str(capture), "--verify"],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=10,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout.decode("utf-8", errors="replace"))
 
     def test_case_image_must_match_relative_path_hash_and_dimensions(self):
         with tempfile.TemporaryDirectory() as directory:

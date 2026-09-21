@@ -1,0 +1,56 @@
+{
+  "cases": [
+    {
+      "durationMs": 478.62516599707305,
+      "id": "fraction-radical",
+      "latex": "x^{2}+\\frac{1}{2}=\\sqrt{2}",
+      "latexParseable": true,
+      "peakMemoryBytes": 964960256
+    },
+    {
+      "durationMs": 354.1922229924239,
+      "id": "integral-limit",
+      "latex": "\\int_{0}^{\\infty}e^{-x^{2}}d x=\\frac{\\sqrt{\\pi}}{2}",
+      "latexParseable": true,
+      "peakMemoryBytes": 964960256
+    },
+    {
+      "durationMs": 340.99658200284466,
+      "id": "summation",
+      "latex": "\\sum_{k\\:=\\:1}^{n}k=\\frac{n\\big(n+1\\big)}{2}",
+      "latexParseable": true,
+      "peakMemoryBytes": 964960256
+    },
+    {
+      "durationMs": 322.3211669974262,
+      "id": "matrix",
+      "latex": "A=\\left[\\begin{matrix}{a}&{b}\\\\ {c}&{d}\\\\ \\end{matrix}\\right]",
+      "latexParseable": true,
+      "peakMemoryBytes": 964960256
+    },
+    {
+      "durationMs": 451.54331500816625,
+      "id": "piecewise",
+      "latex": "f(x)=\\left\\{\\begin{aligned}{}&{{}x^{2},}&{x\\geq0,}\\\\ {}&{{}-x,}&{x\\ 0.}}\\\\{aligned}\\end{aligned}\\right.",
+      "latexParseable": true,
+      "peakMemoryBytes": 964960256
+    },
+    {
+      "durationMs": 366.18589000136126,
+      "id": "greek-subscript",
+      "latex": "\\boldsymbol{\\alpha}_{t}=\\boldsymbol{\\beta}_{0}+\\boldsymbol{\\gamma}_{1}\\varDelta x\\boldsymbol{_",
+      "latexParseable": false,
+      "peakMemoryBytes": 964960256
+    }
+  ],
+  "engine": {
+    "id": "PP-FormulaNet_plus-S",
+    "license": "Apache-2.0",
+    "modelBytes": 256845006,
+    "modelLoadMs": 3504.2868859891314,
+    "modelSha256": "e464f94412feaa98f8791eacc84684f887b3569e30e80c52b8112e9cf7d4069b",
+    "runtime": "paddleocr 3.7.0/paddlepaddle 3.3.1/paddlex 3.7.2/Python 3.12.14",
+    "version": "3d46f557e3a1752f4bf81202395af3b5ecfadfd2"
+  },
+  "schema": "clippy-ocr-formula-predictions-v1"
+}

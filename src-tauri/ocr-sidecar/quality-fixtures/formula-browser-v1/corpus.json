@@ -1,0 +1,276 @@
+{
+  "cases": [
+    {
+      "id": "fraction-radical",
+      "lines": [
+        {
+          "formula": {
+            "format": "latex",
+            "value": "x^{2} + \\frac{1}{2} = \\sqrt{2}"
+          },
+          "id": "fraction-radical-formula",
+          "kind": "formula",
+          "quad": [
+            [
+              28,
+              28
+            ],
+            [
+              292,
+              28
+            ],
+            [
+              292,
+              200
+            ],
+            [
+              28,
+              200
+            ]
+          ],
+          "text": "x² + 1/2 = √2"
+        }
+      ],
+      "source": {
+        "height": 228,
+        "imagePath": "images/fraction-radical.png",
+        "kind": "browser-mathml-crop",
+        "license": "Clippy MathML fixture formulas CC0-1.0; Noto Sans CJK SC and Noto Sans Math fonts OFL-1.1",
+        "sha256": "1abe9263ca2fa0f23a8a423503e0378a2c76debe98870b9f258f8e5f0fc29518",
+        "width": 320
+      },
+      "tags": [
+        "fraction",
+        "radical",
+        "superscript"
+      ]
+    },
+    {
+      "id": "integral-limit",
+      "lines": [
+        {
+          "formula": {
+            "format": "latex",
+            "value": "\\int_{0}^{\\infty} e^{-x^{2}}\\,dx = \\frac{\\sqrt{\\pi}}{2}"
+          },
+          "id": "integral-limit-formula",
+          "kind": "formula",
+          "quad": [
+            [
+              28,
+              28
+            ],
+            [
+              372,
+              28
+            ],
+            [
+              372,
+              204
+            ],
+            [
+              28,
+              204
+            ]
+          ],
+          "text": "∫₀∞ e⁻ˣ² dx = √π/2"
+        }
+      ],
+      "source": {
+        "height": 232,
+        "imagePath": "images/integral-limit.png",
+        "kind": "browser-mathml-crop",
+        "license": "Clippy MathML fixture formulas CC0-1.0; Noto Sans CJK SC and Noto Sans Math fonts OFL-1.1",
+        "sha256": "334d127a9ecf0f0897ae569767b4370be83d0d26991b486dd0f3a0b4499f6708",
+        "width": 400
+      },
+      "tags": [
+        "integral",
+        "limits",
+        "fraction",
+        "greek"
+      ]
+    },
+    {
+      "id": "summation",
+      "lines": [
+        {
+          "formula": {
+            "format": "latex",
+            "value": "\\sum_{k=1}^{n} k = \\frac{n(n+1)}{2}"
+          },
+          "id": "summation-formula",
+          "kind": "formula",
+          "quad": [
+            [
+              28,
+              28
+            ],
+            [
+              408,
+              28
+            ],
+            [
+              408,
+              210
+            ],
+            [
+              28,
+              210
+            ]
+          ],
+          "text": "Σₖ₌₁ⁿ k = n(n+1)/2"
+        }
+      ],
+      "source": {
+        "height": 238,
+        "imagePath": "images/summation.png",
+        "kind": "browser-mathml-crop",
+        "license": "Clippy MathML fixture formulas CC0-1.0; Noto Sans CJK SC and Noto Sans Math fonts OFL-1.1",
+        "sha256": "8a8d0dec546de8dd5c5dc6cb841d55fdcb0c40180c9943c8295b0e70996c22f9",
+        "width": 436
+      },
+      "tags": [
+        "summation",
+        "limits",
+        "fraction"
+      ]
+    },
+    {
+      "id": "matrix",
+      "lines": [
+        {
+          "formula": {
+            "format": "latex",
+            "value": "A = \\begin{bmatrix} a & b \\\\ c & d \\end{bmatrix}"
+          },
+          "id": "matrix-formula",
+          "kind": "formula",
+          "quad": [
+            [
+              28,
+              28
+            ],
+            [
+              246,
+              28
+            ],
+            [
+              246,
+              190
+            ],
+            [
+              28,
+              190
+            ]
+          ],
+          "text": "A = [a b; c d]"
+        }
+      ],
+      "source": {
+        "height": 218,
+        "imagePath": "images/matrix.png",
+        "kind": "browser-mathml-crop",
+        "license": "Clippy MathML fixture formulas CC0-1.0; Noto Sans CJK SC and Noto Sans Math fonts OFL-1.1",
+        "sha256": "42a9b979a11a3db53e9345b0ac9c6fc3631b132d60a933c916b1930e87362784",
+        "width": 274
+      },
+      "tags": [
+        "matrix",
+        "rows",
+        "columns"
+      ]
+    },
+    {
+      "id": "piecewise",
+      "lines": [
+        {
+          "formula": {
+            "format": "latex",
+            "value": "f(x) = \\begin{cases} x^{2}, & x \\geq 0 \\\\ -x, & x < 0 \\end{cases}"
+          },
+          "id": "piecewise-formula",
+          "kind": "formula",
+          "quad": [
+            [
+              28,
+              28
+            ],
+            [
+              414,
+              28
+            ],
+            [
+              414,
+              198
+            ],
+            [
+              28,
+              198
+            ]
+          ],
+          "text": "f(x) = { x², x≥0; −x, x<0"
+        }
+      ],
+      "source": {
+        "height": 226,
+        "imagePath": "images/piecewise.png",
+        "kind": "browser-mathml-crop",
+        "license": "Clippy MathML fixture formulas CC0-1.0; Noto Sans CJK SC and Noto Sans Math fonts OFL-1.1",
+        "sha256": "4f76acb4f07727d72ab7d5079ec28dc5c868ec1ae440653fc89d9e70547246bc",
+        "width": 442
+      },
+      "tags": [
+        "piecewise",
+        "rows",
+        "relations"
+      ]
+    },
+    {
+      "id": "greek-subscript",
+      "lines": [
+        {
+          "formula": {
+            "format": "latex",
+            "value": "\\alpha_{t} = \\beta_{0} + \\gamma_{1}\\Delta x_{t}"
+          },
+          "id": "greek-subscript-formula",
+          "kind": "formula",
+          "quad": [
+            [
+              28,
+              28
+            ],
+            [
+              410,
+              28
+            ],
+            [
+              410,
+              118
+            ],
+            [
+              28,
+              118
+            ]
+          ],
+          "text": "αₜ = β₀ + γ₁ Δxₜ"
+        }
+      ],
+      "source": {
+        "height": 146,
+        "imagePath": "images/greek-subscript.png",
+        "kind": "browser-mathml-crop",
+        "license": "Clippy MathML fixture formulas CC0-1.0; Noto Sans CJK SC and Noto Sans Math fonts OFL-1.1",
+        "sha256": "04ac27883dcee30bc3369bc5413fc75d310dc0d9ccee115596f7bc902901c6b4",
+        "width": 438
+      },
+      "tags": [
+        "greek",
+        "subscript",
+        "symbols"
+      ]
+    }
+  ],
+  "schema": "clippy-ocr-quality-corpus-v1"
+}

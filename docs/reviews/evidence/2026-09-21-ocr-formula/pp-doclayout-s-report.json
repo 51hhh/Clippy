@@ -1,0 +1,108 @@
+{
+  "cases": [
+    {
+      "bestFormulaIou": 0.0,
+      "durationMs": 209.26393401168752,
+      "expectedFormula": true,
+      "formulaBoxes": [],
+      "id": "positive/fraction-radical",
+      "matched": false
+    },
+    {
+      "bestFormulaIou": 0.0,
+      "durationMs": 188.01653299306054,
+      "expectedFormula": true,
+      "formulaBoxes": [],
+      "id": "positive/integral-limit",
+      "matched": false
+    },
+    {
+      "bestFormulaIou": 0.0,
+      "durationMs": 206.72176500374917,
+      "expectedFormula": true,
+      "formulaBoxes": [],
+      "id": "positive/summation",
+      "matched": false
+    },
+    {
+      "bestFormulaIou": 0.0,
+      "durationMs": 197.41288499790244,
+      "expectedFormula": true,
+      "formulaBoxes": [],
+      "id": "positive/matrix",
+      "matched": false
+    },
+    {
+      "bestFormulaIou": 0.0,
+      "durationMs": 198.07073401170783,
+      "expectedFormula": true,
+      "formulaBoxes": [],
+      "id": "positive/piecewise",
+      "matched": false
+    },
+    {
+      "bestFormulaIou": 0.0,
+      "durationMs": 202.23025599261746,
+      "expectedFormula": true,
+      "formulaBoxes": [],
+      "id": "positive/greek-subscript",
+      "matched": false
+    },
+    {
+      "bestFormulaIou": null,
+      "durationMs": 212.6963510090718,
+      "expectedFormula": false,
+      "formulaBoxes": [],
+      "id": "negative/settings-dark",
+      "matched": false
+    },
+    {
+      "bestFormulaIou": null,
+      "durationMs": 188.79066700174008,
+      "expectedFormula": false,
+      "formulaBoxes": [],
+      "id": "negative/code-review",
+      "matched": false
+    },
+    {
+      "bestFormulaIou": null,
+      "durationMs": 186.03951700788457,
+      "expectedFormula": false,
+      "formulaBoxes": [],
+      "id": "negative/invoice-table",
+      "matched": false
+    },
+    {
+      "bestFormulaIou": null,
+      "durationMs": 196.90841900592204,
+      "expectedFormula": false,
+      "formulaBoxes": [],
+      "id": "negative/long-document",
+      "matched": false
+    }
+  ],
+  "engine": {
+    "enableMkldnn": false,
+    "id": "PP-DocLayout-S",
+    "license": "Apache-2.0",
+    "modelBytes": 4804904,
+    "modelLoadMs": 602.532215998508,
+    "modelSha256": "491c3382d84ca04d2033afbee0c105942ed82fea392bb4a19170646adebe088a",
+    "peakMemoryBytes": 640012288,
+    "runtime": "paddleocr 3.7.0/paddlepaddle 3.3.1/paddlex 3.7.2/Python 3.12.14",
+    "version": "8ac289e66575bb9bba6e15c53719d8b15cc9b3b2"
+  },
+  "schema": "clippy-ocr-formula-layout-probe-v1",
+  "summary": {
+    "durationMsP50": 197.74180950480513,
+    "durationMsP95": 211.15176336024888,
+    "falsePositiveBoxes": 0,
+    "falsePositiveCases": 0,
+    "iouThreshold": 0.5,
+    "negativeCases": 4,
+    "positiveCases": 6,
+    "positiveDetected": 0,
+    "positiveRecall": 0.0,
+    "scoreThreshold": 0.5
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "schema": "clippy-ocr-formula-environment-v1",
+  "host": {
+    "system": "Linux",
+    "machine": "x86_64",
+    "kernel": "7.0.0-31-generic",
+    "cpu": "Intel(R) Core(TM) Ultra 5 125H",
+    "peakMemoryMetric": "linux-proc-vmhwm"
+  },
+  "runtime": {
+    "python": "3.12.14",
+    "paddleocr": "3.7.0",
+    "paddlepaddle": "3.3.1",
+    "paddlex": "3.7.2",
+    "latex2mathml": "3.81.1",
+    "installedPackageCount": 93,
+    "pipFreezeSha256": "bf8afdb09a43a36ea33a5fe1547d65de6841cc0ffd73cecb4b5323880dd3589a",
+    "directoryBytes": 1552477194,
+    "pathRecorded": false
+  },
+  "models": {
+    "PP-FormulaNet-S": {
+      "revision": "0572450e501be9eb1b1cdb7e00fccf4b22fab4df",
+      "weightsBytes": 231675001,
+      "weightsSha256": "b6392296d16e2a9f414c0a751d7ccbd1bd9d8272b68aab72df1d3875f35a7489",
+      "directoryBytes": 238399244,
+      "pathRecorded": false
+    },
+    "PP-FormulaNet_plus-S": {
+      "revision": "3d46f557e3a1752f4bf81202395af3b5ecfadfd2",
+      "weightsBytes": 256845006,
+      "weightsSha256": "e464f94412feaa98f8791eacc84684f887b3569e30e80c52b8112e9cf7d4069b",
+      "directoryBytes": 263572002,
+      "pathRecorded": false
+    },
+    "PP-DocLayout-S": {
+      "revision": "8ac289e66575bb9bba6e15c53719d8b15cc9b3b2",
+      "weightsBytes": 4804904,
+      "weightsSha256": "491c3382d84ca04d2033afbee0c105942ed82fea392bb4a19170646adebe088a",
+      "pathRecorded": false
+    }
+  },
+  "corpora": {
+    "formula": "ea41940608310558896219e8c3e54e463a2824b860e37d4fc6a270522223a133",
+    "capture": "0de0300ea735986f5ec20f1ffb54ed256b871ecd77b5d4d213b2c344a73dcfa0",
+    "sourceHtml": "60cb0e0a9dcbe40a4683e7eb290d855c3d099553d6857103ad71b7b02631475b",
+    "captureScript": "9d9e2ba25c880d9fb7d0d68b4463a2bb333a2e80e98ba4b5c48823b14fe22412",
+    "textFont": "ca094f6b0001fb048ca39ddd797a0cdb0179e1e55c6561e111c49c3e6a61d7b7",
+    "mathFont": "8242bd1e55368b27e32455260754cf9aa58f3ad7ea80664b66c21f1b09910d6c"
+  },
+  "runtimeFiles": {
+    "formula_collect.py": "5d6a2dfb31331b4c7d0d8e532288ee51885b7ef28fa6d6fa0317a53b79035971",
+    "formula_runner.py": "33f7f1181019b25bcd02d5260ba57401512e3c98b166a7426dfe8781d775ebf3",
+    "formula_quality.py": "4e8e67c969611e2f4802208c3e77420f6200e270a7ce220debec50d74546876c",
+    "formula_layout_probe.py": "040c2ec26c8ecf6571a61f6bac0742eebc47ec305628a1b3c6283be0f368da9a",
+    "quality_collect.py": "9444dd0b9e3ef9a803b99fbb1f1ce2d5c8c5bbb5dd9dc6bdd575ffa35793b93d"
+  }
+}

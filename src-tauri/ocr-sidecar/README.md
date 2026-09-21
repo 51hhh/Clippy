@@ -154,6 +154,21 @@ small/medium 模型档位只能通过研究采集器比较，不能直接生成�
 当前证据显示 medium rec 只在部分英语/日文非空白字符上改善，medium det 会把表格行拆成 cell 并
 破坏现有阅读顺序，整体延迟明显增加，因此设置页没有 medium 档位，64 MiB 产品单模型预算也不提高。
 
+独立公式模型使用另一套严格合同，不复用普通 OCR 的线性文字结果。`formula-browser-v1` 由 Firefox
+MathML 栅格化 6 个二维公式 crop；普通测试只验证已提交图像和捕获记录：
+
+```sh
+python3 src-tauri/ocr-sidecar/quality-fixtures/formula-browser-v1/capture.py --verify
+```
+
+`formula_collect.py` 只接受固定官方 PP-FormulaNet-S/plus-S revision、字节数和 SHA；研究 venv、权重
+和本机路径不进入仓库。`formula_quality.py` 分开报告原始/保守 token 严格匹配、token 编辑距离与
+独立 LaTeX 可解析率。当前两个模型各有 1/6 阻塞语法失败，权重、约 1.45 GiB 研究运行时和约
+0.9 GiB 峰值 RSS 均不满足产品门禁，因此没有新增默认或隐藏的公式入口。自动路由的
+`formula_layout_probe.py` 也保持研究用途；PP-DocLayout-S 在当前孤立 crop 正样本上召回为 0，必须
+先补整页公式真值语料。详见
+[`docs/reviews/2026-09-21-ocr-formula-feasibility.md`](../../docs/reviews/2026-09-21-ocr-formula-feasibility.md)。
+
 表格样本使用独立 row/cell 合同复核，避免把整行框和 cell 框直接当成互斥答案：
 
 ```sh
