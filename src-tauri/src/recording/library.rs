@@ -5,6 +5,8 @@
 
 use super::manifest::{self, RecordingLibraryItem};
 use crate::commands::AppState;
+#[cfg(feature = "recording-vp9-prototype")]
+use base64::Engine;
 use serde::Serialize;
 use std::sync::Arc;
 use tauri::{Manager, WebviewWindow};
@@ -141,6 +143,47 @@ pub(crate) async fn list_recordings(
 }
 
 #[tauri::command]
+pub(crate) async fn get_recording_thumbnail(
+    window: WebviewWindow,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    session_id: String,
+) -> Result<Option<String>, RecordingLibraryError> {
+    ensure_library(&window)?;
+
+    #[cfg(not(feature = "recording-vp9-prototype"))]
+    {
+        let _ = (app, state, session_id);
+        Ok(None)
+    }
+
+    #[cfg(feature = "recording-vp9-prototype")]
+    {
+        let thumbnails = Arc::clone(&state.recording_thumbnails);
+        tauri::async_runtime::spawn_blocking(move || {
+            let app_data_dir = app
+                .path()
+                .app_data_dir()
+                .map_err(|error| RecordingLibraryError::storage(error.to_string()))?;
+            let Some(source) =
+                manifest::resolve_library_thumbnail_source(&app_data_dir, &session_id)
+                    .map_err(RecordingLibraryError::storage)?
+            else {
+                return Ok(None);
+            };
+            let bytes = thumbnails
+                .load_or_generate(&app_data_dir, &session_id, &source)
+                .map_err(RecordingLibraryError::storage)?;
+            Ok(Some(
+                base64::engine::general_purpose::STANDARD.encode(bytes),
+            ))
+        })
+        .await
+        .map_err(|error| RecordingLibraryError::storage(error.to_string()))?
+    }
+}
+
+#[tauri::command]
 pub(crate) fn recording_library_ready(window: WebviewWindow) -> Result<(), RecordingLibraryError> {
     ensure_library(&window)?;
     window
@@ -231,6 +274,7 @@ pub(crate) async fn merge_recording_session(
             RecordingLibraryError::new("recording_library_merge_busy", message)
         })?;
         let media = Arc::clone(&state.recording_media);
+        let thumbnails = Arc::clone(&state.recording_thumbnails);
         tauri::async_runtime::spawn_blocking(move || {
             let _guard = guard;
             let app_data_dir = app
@@ -239,6 +283,9 @@ pub(crate) async fn merge_recording_session(
                 .map_err(|error| RecordingLibraryError::storage(error.to_string()))?;
             manifest::merge_interrupted_vp9_session(&app_data_dir, &session_id)
                 .map_err(RecordingLibraryError::storage)?;
+            if let Err(error) = thumbnails.clear_session(&app_data_dir, &session_id) {
+                log::warn!("录屏恢复成功后清理旧缩略图失败: {error}");
+            }
             if let Err(error) = media.revoke_session(&session_id) {
                 log::warn!("录屏恢复成功后撤销旧播放租约失败: {error}");
             }
@@ -334,6 +381,7 @@ pub(crate) async fn delete_recording_session(
 ) -> Result<(), RecordingLibraryError> {
     ensure_library(&window)?;
     let media = Arc::clone(&state.recording_media);
+    let thumbnails = Arc::clone(&state.recording_thumbnails);
     tauri::async_runtime::spawn_blocking(move || {
         let app_data_dir = app
             .path()
@@ -342,6 +390,9 @@ pub(crate) async fn delete_recording_session(
         media
             .revoke_session(&session_id)
             .map_err(RecordingLibraryError::storage)?;
+        if let Err(error) = thumbnails.clear_session(&app_data_dir, &session_id) {
+            log::warn!("删除录屏前清理缩略图失败: {error}");
+        }
         manifest::delete_library_session(&app_data_dir, &session_id)
             .map_err(RecordingLibraryError::storage)
     })

@@ -8,6 +8,7 @@ const { invoke, convertFileSrc } = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/core", () => ({ invoke, convertFileSrc }));
 
 import {
+  getRecordingThumbnail,
   getRecordingMediaUrl,
   mergeRecordingSession,
   prepareRecordingPlayback,
@@ -56,5 +57,16 @@ describe("recording playback API", () => {
     expect(invoke).toHaveBeenCalledWith("merge_recording_session", {
       sessionId: "session-a",
     });
+  });
+
+  it("accepts a bounded base64 thumbnail and rejects malformed payloads", async () => {
+    invoke.mockResolvedValueOnce("cG5n");
+    await expect(getRecordingThumbnail("session-a")).resolves.toBe("cG5n");
+    expect(invoke).toHaveBeenCalledWith("get_recording_thumbnail", {
+      sessionId: "session-a",
+    });
+
+    invoke.mockResolvedValueOnce("not base64!");
+    await expect(getRecordingThumbnail("session-a")).rejects.toThrow("invalid_thumbnail");
   });
 });

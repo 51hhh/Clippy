@@ -135,6 +135,22 @@ seek 和 duration，因此不会解码/重编码，也不会拼接独立 WebM �
 导出、定位和删除能力；AVI 诊断会话保持逐段导出。完整合同见
 [`2026-09-21-recording-recovery-merge.md`](../superpowers/specs/2026-09-21-recording-recovery-merge.md)。
 
+### `PX-REC-THUMBNAIL-01` 持久首帧缩略图（2026-09-21）
+
+结果库现为 `vp9-prototype + webm` 会话提供持久首帧：完整会话解析最终产物，中断会话解析第一个
+已提交分段；默认构建与 AVI 只显示占位。前端只提交会话 ID，并由 `IntersectionObserver` 在卡片
+接近视口时请求；离开视口会释放 data URL，失败不会覆盖播放、导出、恢复和删除状态。
+
+后端先重新解析 manifest 并核对普通文件、长度与 SHA-256，再复用恢复 remux 的受限 EBML 解析器
+验证单 VP9 轨、尺寸、时间基、无 lacing 与首关键帧。libvpx 只解一个 8-bit I420 帧，拒绝额外帧、
+尺寸或 stride 越界，并以录制端相同的 BT.709 limited 矩阵转回 RGBA；缩略图最长边 320 px、PNG
+上限 512 KiB、解码上限 16777216 像素。冷生成由进程级单槽串行化。
+
+缓存位于应用数据目录的独立私有 `recording-thumbnails/<session-id>/<artifact-sha256>.png`，不修改
+恢复 manifest，也不放宽录屏会话目录的删除白名单。缓存命中仍检查普通文件、PNG 和尺寸；产物 SHA
+变化只保留新键，恢复合并和删除会话会清理对应缓存。完整合同见
+[`2026-09-21-recording-persistent-thumbnails.md`](../superpowers/specs/2026-09-21-recording-persistent-thumbnails.md)。
+
 参考：
 
 - [xcap 官方录屏示例与 WIP 声明](https://docs.rs/crate/xcap/latest/source/examples/)
@@ -165,6 +181,7 @@ recording/
   frame.rs         有界 RGBA 帧合同与固定物理 crop
   encoder_worker.rs 阻塞消费有界队列、错误联动与线程回收
   session.rs       journal、临时分段、采集与编码的单一资源 owner
+  thumbnail.rs     首关键帧单帧解码、私有持久缓存与删除失效
   mux/             编码帧与可恢复容器，不读取桌面
   platform/
     linux/         X11 帧源；Wayland Portal/PipeWire 帧源

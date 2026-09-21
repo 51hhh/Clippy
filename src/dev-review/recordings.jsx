@@ -8,6 +8,23 @@ import "./recordings-review.css";
 
 if (!import.meta.env.DEV) throw new Error("Development review is unavailable in production");
 const initialLanguage = new URLSearchParams(location.search).get("lang") === "en" ? "en" : "zh-CN";
+let thumbnailFixture;
+
+async function loadThumbnailFixture() {
+  if (!thumbnailFixture) {
+    thumbnailFixture = fetch(new URL("./recording-thumbnail-sample.png", import.meta.url))
+      .then(response => response.arrayBuffer())
+      .then(buffer => {
+        const bytes = new Uint8Array(buffer);
+        let binary = "";
+        for (let offset = 0; offset < bytes.length; offset += 8192) {
+          binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
+        }
+        return btoa(binary);
+      });
+  }
+  return thumbnailFixture;
+}
 
 const complete = {
   sessionId: "review-complete",
@@ -17,7 +34,7 @@ const complete = {
   height: 1080,
   targetFpsNumerator: 30,
   targetFpsDenominator: 1,
-  encoder: "vp9",
+  encoder: "vp9-prototype",
   container: "webm",
   includeCursor: true,
   droppedFrames: 3,
@@ -25,6 +42,7 @@ const complete = {
   frameCount: 2472,
   byteLength: 7_482_112,
   canMerge: false,
+  canThumbnail: true,
   artifacts: [{
     artifactId: "final",
     displayName: "recording.webm",
@@ -45,6 +63,7 @@ const interrupted = {
   frameCount: 3630,
   byteLength: 10_821_632,
   canMerge: true,
+  canThumbnail: true,
   artifacts: [0, 1].map(index => ({
     artifactId: `segment-${String(index).padStart(6, "0")}`,
     displayName: `segment-${String(index).padStart(6, "0")}.webm`,
@@ -65,6 +84,7 @@ const diagnostic = {
   frameCount: 594,
   byteLength: 42_381_312,
   canMerge: false,
+  canThumbnail: false,
   artifacts: [{
     artifactId: "segment-000000",
     displayName: "segment-000000.avi",
@@ -86,6 +106,9 @@ function RecordingReview() {
   const services = useMemo(() => ({
     ready: async () => {},
     list: async () => sessions,
+    thumbnail: async sessionId => sessionId === "review-diagnostic"
+      ? null
+      : loadThumbnailFixture(),
     exportArtifact: async (sessionId, artifactId) => {
       setStatus(`DEMO export ${sessionId}/${artifactId} · no file write`);
       return true;

@@ -41,6 +41,20 @@ export function listRecordings(): Promise<RecordingLibraryItem[]> {
   return invoke<RecordingLibraryItem[]>("list_recordings");
 }
 
+export async function getRecordingThumbnail(sessionId: string): Promise<string | null> {
+  const thumbnail = await invoke<string | null>("get_recording_thumbnail", { sessionId });
+  if (thumbnail === null) return null;
+  if (
+    typeof thumbnail !== "string"
+    || thumbnail.length === 0
+    || thumbnail.length > 700_000
+    || !/^[A-Za-z0-9+/]+={0,2}$/.test(thumbnail)
+  ) {
+    throw new Error("recordings.invalid_thumbnail");
+  }
+  return thumbnail;
+}
+
 export function recordingLibraryReady(): Promise<void> {
   return invoke<void>("recording_library_ready");
 }

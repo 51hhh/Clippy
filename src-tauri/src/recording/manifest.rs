@@ -133,6 +133,7 @@ pub(crate) struct RecordingLibraryItem {
     pub frame_count: u64,
     pub byte_length: u64,
     pub can_merge: bool,
+    pub can_thumbnail: bool,
     pub artifacts: Vec<RecordingLibraryArtifact>,
 }
 
@@ -142,6 +143,18 @@ pub(super) struct ResolvedRecordingArtifact {
     pub suggested_file_name: String,
     pub byte_length: u64,
     pub sha256: String,
+}
+
+#[cfg(feature = "recording-vp9-prototype")]
+#[derive(Debug, Clone)]
+pub(super) struct RecordingThumbnailSource {
+    pub artifact: ResolvedRecordingArtifact,
+    pub width: u32,
+    pub height: u32,
+    pub target_fps_numerator: u32,
+    pub target_fps_denominator: u32,
+    pub duration_ns: u64,
+    pub frame_count: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -575,6 +588,61 @@ pub(super) fn resolve_library_artifact(
     })
 }
 
+#[cfg(feature = "recording-vp9-prototype")]
+pub(super) fn resolve_library_thumbnail_source(
+    app_data_dir: &Path,
+    session_id: &str,
+) -> Result<Option<RecordingThumbnailSource>, String> {
+    let (session_directory, manifest) = load_library_manifest(app_data_dir, session_id)?;
+    if manifest.video.encoder != "vp9-prototype" || manifest.video.container != "webm" {
+        return Ok(None);
+    }
+    let (file_name, byte_length, sha256, duration_ns, frame_count) = match manifest.state {
+        RecordingState::Complete => {
+            let output = manifest
+                .final_output
+                .as_ref()
+                .ok_or_else(|| "完成会话缺少最终输出".to_string())?;
+            (
+                output.file_name.as_str(),
+                output.byte_length,
+                output.sha256.as_str(),
+                output.duration_ns,
+                output.frame_count,
+            )
+        }
+        RecordingState::Interrupted => {
+            let Some(segment) = manifest.segments.first() else {
+                return Ok(None);
+            };
+            (
+                segment.file_name.as_str(),
+                segment.byte_length,
+                segment.sha256.as_str(),
+                segment.duration_ns,
+                segment.frame_count,
+            )
+        }
+        RecordingState::Recording | RecordingState::Finalizing => return Ok(None),
+    };
+    let path = session_directory.join(file_name);
+    ensure_artifact_metadata(&path, byte_length)?;
+    Ok(Some(RecordingThumbnailSource {
+        artifact: ResolvedRecordingArtifact {
+            path,
+            suggested_file_name: file_name.to_string(),
+            byte_length,
+            sha256: sha256.to_string(),
+        },
+        width: manifest.video.width,
+        height: manifest.video.height,
+        target_fps_numerator: manifest.video.target_fps_numerator,
+        target_fps_denominator: manifest.video.target_fps_denominator,
+        duration_ns,
+        frame_count,
+    }))
+}
+
 pub(super) fn verify_library_artifact(artifact: &ResolvedRecordingArtifact) -> Result<(), String> {
     verify_library_artifact_with_checkpoint(artifact, || Ok(()))
 }
@@ -955,6 +1023,10 @@ fn library_item_for_session(
         && manifest.video.encoder == "vp9-prototype"
         && manifest.video.container == "webm"
         && !manifest.segments.is_empty();
+    let can_thumbnail = cfg!(feature = "recording-vp9-prototype")
+        && manifest.video.encoder == "vp9-prototype"
+        && manifest.video.container == "webm"
+        && !artifacts.is_empty();
     Ok(Some(RecordingLibraryItem {
         session_id: manifest.session_id,
         state: match manifest.state {
@@ -975,6 +1047,7 @@ fn library_item_for_session(
         frame_count,
         byte_length,
         can_merge,
+        can_thumbnail,
         artifacts,
     }))
 }
@@ -1746,6 +1819,7 @@ mod tests {
             .unwrap();
         assert_eq!(complete.state, "complete");
         assert!(!complete.can_merge);
+        assert!(!complete.can_thumbnail);
         assert_eq!(complete.artifacts[0].artifact_id, "final");
         assert_eq!(complete.artifacts[0].display_name, "recording.webm");
         let interrupted = items
@@ -1754,6 +1828,7 @@ mod tests {
             .unwrap();
         assert_eq!(interrupted.state, "interrupted");
         assert!(!interrupted.can_merge);
+        assert!(!interrupted.can_thumbnail);
         assert_eq!(interrupted.artifacts[0].artifact_id, "segment-000000");
     }
 
@@ -2180,7 +2255,13 @@ mod tests {
         commit_vp9_segment(&mut journal, [16, 32, 64]);
         commit_vp9_segment(&mut journal, [200, 180, 160]);
         journal.interrupt().unwrap();
-        assert!(list_library(temporary.path()).unwrap()[0].can_merge);
+        let interrupted = list_library(temporary.path()).unwrap().pop().unwrap();
+        assert!(interrupted.can_merge);
+        assert!(interrupted.can_thumbnail);
+        let thumbnail = resolve_library_thumbnail_source(temporary.path(), "merge-two")
+            .unwrap()
+            .unwrap();
+        assert!(thumbnail.artifact.path.ends_with("segment-000000.webm"));
 
         merge_interrupted_vp9_session(temporary.path(), "merge-two").unwrap();
 
@@ -2199,7 +2280,12 @@ mod tests {
         assert!(!session.join(".recording.webm.partial").exists());
         let item = list_library(temporary.path()).unwrap().pop().unwrap();
         assert_eq!(item.state, "complete");
+        assert!(item.can_thumbnail);
         assert_eq!(item.artifacts[0].artifact_id, "final");
+        let thumbnail = resolve_library_thumbnail_source(temporary.path(), "merge-two")
+            .unwrap()
+            .unwrap();
+        assert!(thumbnail.artifact.path.ends_with("recording.webm"));
     }
 
     #[cfg(feature = "recording-vp9-prototype")]

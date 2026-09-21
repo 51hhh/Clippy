@@ -732,6 +732,7 @@ export interface RecordingLibraryItem {
   frameCount: number;
   byteLength: number;
   canMerge: boolean;
+  canThumbnail: boolean;
   artifacts: RecordingLibraryArtifact[];
 }
 

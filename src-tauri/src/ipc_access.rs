@@ -144,6 +144,7 @@ const RECORDING_LIBRARY_COMMANDS: &[&str] = &[
     "delete_recording_session",
     "export_recording_artifact",
     "get_recording_library_settings",
+    "get_recording_thumbnail",
     "list_recordings",
     "merge_recording_session",
     "prepare_recording_playback",

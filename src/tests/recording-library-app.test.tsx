@@ -17,7 +17,7 @@ const complete: RecordingLibraryItem = {
   height: 1080,
   targetFpsNumerator: 30,
   targetFpsDenominator: 1,
-  encoder: "vp9",
+  encoder: "vp9-prototype",
   container: "webm",
   includeCursor: true,
   droppedFrames: 0,
@@ -25,6 +25,7 @@ const complete: RecordingLibraryItem = {
   frameCount: 1950,
   byteLength: 2048,
   canMerge: false,
+  canThumbnail: true,
   artifacts: [{
     artifactId: "final",
     displayName: "recording.webm",
@@ -47,6 +48,7 @@ describe("recording library app", () => {
     services = {
       ready: vi.fn(async () => {}),
       list: vi.fn(async () => [complete]),
+      thumbnail: vi.fn(async () => "cG5n"),
       exportArtifact: vi.fn(async () => true),
       revealArtifact: vi.fn(async () => {}),
       deleteSession: vi.fn(async () => {}),
@@ -65,6 +67,7 @@ describe("recording library app", () => {
 
   afterEach(async () => {
     await act(async () => root.unmount());
+    vi.unstubAllGlobals();
     delete reactEnvironment.IS_REACT_ACT_ENVIRONMENT;
   });
 
@@ -90,6 +93,60 @@ describe("recording library app", () => {
     expect(services.exportArtifact).toHaveBeenCalledWith("recording-1", "final");
     await act(async () => buttons.find((button) => button.textContent === "Show in folder")!.click());
     expect(services.revealArtifact).toHaveBeenCalledWith("recording-1", "final");
+  });
+
+  it("loads a card thumbnail through the opaque session id", async () => {
+    await render();
+    expect(services.thumbnail).toHaveBeenCalledWith("recording-1");
+    expect(document.querySelector<HTMLImageElement>(".recording-thumbnail img")?.src)
+      .toBe("data:image/png;base64,cG5n");
+  });
+
+  it("keeps thumbnail failures local to the neutral placeholder", async () => {
+    vi.mocked(services.thumbnail).mockRejectedValueOnce(new Error("decode failed"));
+    await render();
+    expect(document.querySelector(".recording-thumbnail img")).toBeNull();
+    expect(document.querySelector(".recording-thumbnail span")).not.toBeNull();
+    expect(document.querySelector(".action-error")).toBeNull();
+  });
+
+  it("requests thumbnails near the viewport and releases their data URLs offscreen", async () => {
+    let notify: ((entries: Array<{ isIntersecting: boolean }>) => void) | undefined;
+    const observe = vi.fn();
+    const disconnect = vi.fn();
+    vi.stubGlobal("IntersectionObserver", class {
+      constructor(callback: typeof notify) { notify = callback; }
+      observe = observe;
+      disconnect = disconnect;
+    });
+
+    await render();
+    expect(observe).toHaveBeenCalledOnce();
+    expect(services.thumbnail).not.toHaveBeenCalled();
+    await act(async () => notify!([{ isIntersecting: true }]));
+    expect(services.thumbnail).toHaveBeenCalledWith("recording-1");
+    expect(document.querySelector(".recording-thumbnail img")).not.toBeNull();
+    await act(async () => notify!([{ isIntersecting: false }]));
+    expect(document.querySelector(".recording-thumbnail img")).toBeNull();
+  });
+
+  it("ignores a late thumbnail after the card leaves the viewport", async () => {
+    let notify: ((entries: Array<{ isIntersecting: boolean }>) => void) | undefined;
+    let finish: ((value: string) => void) | undefined;
+    vi.stubGlobal("IntersectionObserver", class {
+      constructor(callback: typeof notify) { notify = callback; }
+      observe() {}
+      disconnect() {}
+    });
+    vi.mocked(services.thumbnail).mockImplementationOnce(() => new Promise((resolve) => {
+      finish = resolve;
+    }));
+
+    await render();
+    await act(async () => notify!([{ isIntersecting: true }]));
+    await act(async () => notify!([{ isIntersecting: false }]));
+    await act(async () => finish!("cG5n"));
+    expect(document.querySelector(".recording-thumbnail img")).toBeNull();
   });
 
   it("uses an inline confirmation before deleting and reloads after success", async () => {
@@ -147,11 +204,13 @@ describe("recording library app", () => {
       state: "interrupted",
       container: "avi",
       canMerge: false,
+      canThumbnail: false,
     }]);
     await render();
     expect([...document.querySelectorAll("button")].some((button) => button.textContent === "Play")).toBe(false);
     expect([...document.querySelectorAll("button")].some((button) => button.textContent === "Recover recording")).toBe(false);
     expect(document.body.textContent).toContain("Export");
+    expect(services.thumbnail).not.toHaveBeenCalled();
   });
 
   it("shows a recoverable inline error when WebView decoding fails", async () => {

@@ -144,6 +144,25 @@ pub(in crate::recording) fn remux_vp9_segments<W: Write + Seek>(
     })
 }
 
+/// 校验源产物并只取第一个 VP9 关键帧 packet，供结果库生成持久缩略图。
+///
+/// 文件长度与 SHA-256 仍完整校验；容器只解析到第一帧，避免为了一个缩略图遍历数小时的 block。
+pub(in crate::recording) fn first_vp9_keyframe(
+    source: &WebmRemuxSource,
+    spec: WebmRemuxSpec,
+) -> Result<Vec<u8>, String> {
+    if source.duration_ns == 0
+        || source.frame_count == 0
+        || spec.width == 0
+        || spec.height == 0
+        || spec.fps_numerator == 0
+        || spec.fps_denominator == 0
+    {
+        return Err("录屏缩略图源参数无效".to_string());
+    }
+    StrictWebmReader::open_verified(source)?.read_first_keyframe(spec, source)
+}
+
 fn remux_mux_error(error: Vp9WebmError) -> String {
     format!("录屏恢复 WebM 封装失败: {error}")
 }
@@ -280,6 +299,117 @@ impl StrictWebmReader {
             return Err("录屏恢复分段帧数与清单不一致".to_string());
         }
         Ok(frame_index)
+    }
+
+    fn read_first_keyframe(
+        &mut self,
+        spec: WebmRemuxSpec,
+        source: &WebmRemuxSource,
+    ) -> Result<Vec<u8>, String> {
+        let ebml = self.read_header(self.file_len, false)?;
+        if ebml.id != EBML {
+            return Err("录屏缩略图源缺少 EBML 头".to_string());
+        }
+        self.seek_to(ebml.data_end)?;
+        let segment = loop {
+            if self.position()? >= self.file_len {
+                return Err("录屏缩略图源缺少 Segment".to_string());
+            }
+            let header = self.read_header(self.file_len, true)?;
+            if header.id == SEGMENT {
+                break header;
+            }
+            if header.id != VOID {
+                return Err("录屏缩略图源根元素无效".to_string());
+            }
+            self.seek_to(header.data_end)?;
+        };
+        if segment.data_end != self.file_len {
+            return Err("录屏缩略图源包含 Segment 外数据".to_string());
+        }
+
+        let mut info_seen = false;
+        let mut timecode_scale = WEBM_TIMECODE_SCALE_NS;
+        let mut track: Option<ParsedTrack> = None;
+        while self.position()? < segment.data_end {
+            let header = self.read_header(segment.data_end, false)?;
+            match header.id {
+                INFO => {
+                    if info_seen {
+                        return Err("录屏缩略图源包含重复 Info".to_string());
+                    }
+                    timecode_scale = self.read_info(header.data_end)?;
+                    info_seen = true;
+                }
+                TRACKS => {
+                    if track.is_some() {
+                        return Err("录屏缩略图源包含重复 Tracks".to_string());
+                    }
+                    track = Some(self.read_tracks(header.data_end)?);
+                }
+                CLUSTER => {
+                    if !info_seen || timecode_scale != WEBM_TIMECODE_SCALE_NS {
+                        return Err("录屏缩略图源时间基不受支持".to_string());
+                    }
+                    let track = track
+                        .as_ref()
+                        .ok_or_else(|| "录屏缩略图源在轨道之前出现画面".to_string())?;
+                    self.validate_track(track, spec)?;
+                    if let Some(packet) = self.read_first_keyframe_in_cluster(
+                        header.data_end,
+                        timecode_scale,
+                        track.number.expect("轨道已校验"),
+                        spec,
+                        source,
+                    )? {
+                        return Ok(packet);
+                    }
+                }
+                SEEK_HEAD | CUES | VOID => self.seek_to(header.data_end)?,
+                _ => return Err("录屏缩略图源包含非生产顶层元素".to_string()),
+            }
+        }
+        Err("录屏缩略图源没有画面".to_string())
+    }
+
+    fn read_first_keyframe_in_cluster(
+        &mut self,
+        end: u64,
+        timecode_scale: u64,
+        track_number: u64,
+        spec: WebmRemuxSpec,
+        source: &WebmRemuxSource,
+    ) -> Result<Option<Vec<u8>>, String> {
+        let mut cluster_timecode = None;
+        while self.position()? < end {
+            let header = self.read_header(end, false)?;
+            match header.id {
+                CLUSTER_TIMECODE => {
+                    if cluster_timecode.is_some() {
+                        return Err("录屏缩略图 cluster 包含重复时间戳".to_string());
+                    }
+                    cluster_timecode = Some(self.read_uint(header)?);
+                }
+                SIMPLE_BLOCK => {
+                    let cluster_timecode = cluster_timecode
+                        .ok_or_else(|| "录屏缩略图 block 缺少 cluster 时间戳".to_string())?;
+                    let body = self.read_bounded_body(header, MAX_PACKET_BYTES + 16)?;
+                    let parsed = parse_simple_block(&body, cluster_timecode, timecode_scale)?;
+                    if parsed.track_number != track_number {
+                        return Err("录屏缩略图 block 引用了未知轨道".to_string());
+                    }
+                    if !parsed.keyframe {
+                        return Err("录屏缩略图源没有从关键帧开始".to_string());
+                    }
+                    validate_frame_timestamp(parsed.timestamp_ns, 0, spec, source)?;
+                    return Ok(Some(body[parsed.payload_offset..].to_vec()));
+                }
+                BLOCK_GROUP => return Err("录屏缩略图源包含不受支持的 BlockGroup".to_string()),
+                CLUSTER_POSITION | PREVIOUS_CLUSTER_SIZE | VOID => self.seek_to(header.data_end)?,
+                _ => return Err("录屏缩略图 cluster 包含非生产元素".to_string()),
+            }
+        }
+        Ok(None)
     }
 
     fn read_info(&mut self, end: u64) -> Result<u64, String> {
@@ -682,17 +812,19 @@ mod tests {
         let first_path = directory.path().join("first.webm");
         let second_path = directory.path().join("second.webm");
         let first = write_segment(&first_path, [16, 32, 64]);
-        let single = remux_vp9_segments(
-            std::slice::from_ref(&first),
-            Cursor::new(Vec::new()),
-            WebmRemuxSpec {
-                width: 64,
-                height: 48,
-                fps_numerator: 10,
-                fps_denominator: 1,
-            },
-        )
-        .unwrap();
+        let spec = WebmRemuxSpec {
+            width: 64,
+            height: 48,
+            fps_numerator: 10,
+            fps_denominator: 1,
+        };
+        assert_eq!(
+            first_vp9_keyframe(&first, spec).unwrap(),
+            packets(&first)[0]
+        );
+        let single =
+            remux_vp9_segments(std::slice::from_ref(&first), Cursor::new(Vec::new()), spec)
+                .unwrap();
         assert_eq!(single.frame_count, 2);
         assert_eq!(single.duration_ns, 200_000_000);
 
@@ -703,17 +835,7 @@ mod tests {
             .chain(packets(&second))
             .collect::<Vec<_>>();
         let sources = vec![first, second];
-        let output = remux_vp9_segments(
-            &sources,
-            Cursor::new(Vec::new()),
-            WebmRemuxSpec {
-                width: 64,
-                height: 48,
-                fps_numerator: 10,
-                fps_denominator: 1,
-            },
-        )
-        .unwrap();
+        let output = remux_vp9_segments(&sources, Cursor::new(Vec::new()), spec).unwrap();
         assert_eq!(output.frame_count, 4);
         assert_eq!(output.duration_ns, 400_000_000);
 

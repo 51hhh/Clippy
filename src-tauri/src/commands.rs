@@ -57,6 +57,8 @@ pub struct AppState {
     pub recording_controls: Arc<crate::recording::RecordingControlRegistry>,
     /// 录屏结果窗播放租约与真实文件路径的唯一进程级 owner。
     pub recording_media: Arc<crate::recording::RecordingMediaManager>,
+    /// 录屏首帧缩略图冷生成单槽与私有缓存清理的唯一进程级 owner。
+    pub recording_thumbnails: Arc<crate::recording::RecordingThumbnailManager>,
     /// 异常录屏恢复 remux 的唯一进程级大文件 I/O 槽。
     #[cfg(feature = "recording-vp9-prototype")]
     pub recording_merges: Arc<crate::recording::RecordingMergeRegistry>,

@@ -32,6 +32,8 @@ mod manager;
 // 恢复 remux 占用单一大文件 I/O 槽，避免多个会话同时挤压磁盘和内存。
 #[cfg(feature = "recording-vp9-prototype")]
 mod merge_registry;
+// 首帧缩略图使用独立私有缓存；默认构建仍编译清理路径，VP9 解码只在显式 feature 下进入图。
+mod thumbnail;
 // 截图选区、桌面恢复、控制面与会话注册表必须由一个生命周期按顺序交接。
 #[allow(dead_code)]
 mod lifecycle;
@@ -71,6 +73,7 @@ pub(crate) use media_protocol::RecordingMediaManager;
 pub(crate) use merge_registry::RecordingMergeRegistry;
 #[cfg(feature = "recording-vp9-prototype")]
 pub(crate) use mux::vp9_webm::Vp9WebmWriter;
+pub(crate) use thumbnail::RecordingThumbnailManager;
 
 use std::fmt;
 use std::io;

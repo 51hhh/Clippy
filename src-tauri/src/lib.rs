@@ -215,6 +215,7 @@ pub fn run() {
                 recording_lifecycle,
                 recording_controls,
                 recording_media: Arc::new(recording::RecordingMediaManager::default()),
+                recording_thumbnails: Arc::new(recording::RecordingThumbnailManager::default()),
                 #[cfg(feature = "recording-vp9-prototype")]
                 recording_merges: Arc::new(recording::RecordingMergeRegistry::default()),
                 pin_manager,
@@ -440,6 +441,7 @@ pub fn run() {
             recording::library::start_recording_library_drag,
             recording::library::close_recording_library,
             recording::library::prepare_recording_playback,
+            recording::library::get_recording_thumbnail,
             recording::library::release_recording_playback,
             recording::library::merge_recording_session,
             recording::library::export_recording_artifact,

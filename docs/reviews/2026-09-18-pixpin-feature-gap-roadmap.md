@@ -132,8 +132,9 @@ Micro QR、UPC-A 等未验收格式仍不暴露，不能把 rxing 依赖支持�
 
 录屏已建立单调时间线、三槽背压、恢复 journal、VP9/WebM 原型、X11/Windows/macOS/Wayland 帧源、
 控制窗和结果/恢复库。结果窗可在完整校验后用不透明租约按需播放 WebM；异常 VP9/WebM 分段还能
-逐 packet 无损 remux 为一个完整结果，全程不把真实路径交给前端。产品入口仍只在显式 feature 的
-原生 X11 开放，系统音频、麦克风、持久缩略图和各平台真机矩阵尚未完成。
+逐 packet 无损 remux 为一个完整结果，全程不把真实路径交给前端。VP9 结果卡在接近视口时可从
+私有持久缓存加载首帧缩略图，冷缓存由同一受限 WebM 合同校验并单帧解码。产品入口仍只在显式
+feature 的原生 X11 开放，系统音频、麦克风和各平台真机矩阵尚未完成。
 
 类型化动作目录、权限声明、一次性句柄、键盘启动器和安全组合已经交付；任意脚本宿主与插件市场仍不在
 首阶段范围。
@@ -739,6 +740,14 @@ libwebm muxer 重建 seek、cluster 与 duration；测试逐帧核对输入/输�
 atomic promote → `complete`，失败和进程中断都保留已提交分段。结果库只对可恢复会话显示入口，
 成功后复用普通播放、导出、定位与删除；AVI 仍逐段处理。持久缩略图、音频、未提交尾段修复、剪辑
 与跨会话合并不在该切片。
+
+**2026-09-21 持久缩略图进度**：`PX-REC-THUMBNAIL-01` 已为显式 VP9 构建补齐结果卡首帧。
+完整会话选择最终 WebM，中断会话选择首个已提交分段；前端只提交会话 ID，并在卡片接近视口时
+请求。后端按 manifest 复核普通文件、长度与 SHA-256，复用恢复 remux 的单轨 VP9、尺寸、时间基、
+无 lacing 和关键帧合同，只把首个 packet 交给 libvpx；解码帧按 BT.709 limited 转 RGBA，缩成最长
+边 320 px、最大 512 KiB 的 PNG。缓存位于独立私有目录并以产物 SHA 命名，源变化、恢复合并或删除
+会话都会失效；默认构建和 AVI 继续显示中性占位。验收规格见
+[`2026-09-21-recording-persistent-thumbnails.md`](../superpowers/specs/2026-09-21-recording-persistent-thumbnails.md)。
 
 **2026-09-18 技术审查**：详细设计见 `docs/reviews/2026-09-18-recording-architecture.md`。现有 xcap
 0.9 录屏 API 只提供无时间戳 RGBA 帧，官方仍标为 WIP；其 Linux X11 帧源使用无界队列，不能直接

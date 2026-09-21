@@ -3,6 +3,7 @@ import {
   closeRecordingLibrary,
   deleteRecordingSession,
   exportRecordingArtifact,
+  getRecordingThumbnail,
   getRecordingMediaUrl,
   listRecordings,
   mergeRecordingSession,
@@ -18,6 +19,7 @@ import { t } from "../../i18n/i18n.js";
 export type RecordingLibraryServices = {
   ready: typeof recordingLibraryReady;
   list: typeof listRecordings;
+  thumbnail: typeof getRecordingThumbnail;
   exportArtifact: typeof exportRecordingArtifact;
   revealArtifact: typeof revealRecordingArtifact;
   deleteSession: typeof deleteRecordingSession;
@@ -32,6 +34,7 @@ export type RecordingLibraryServices = {
 const defaultServices: RecordingLibraryServices = {
   ready: recordingLibraryReady,
   list: listRecordings,
+  thumbnail: getRecordingThumbnail,
   exportArtifact: exportRecordingArtifact,
   revealArtifact: revealRecordingArtifact,
   deleteSession: deleteRecordingSession,
@@ -62,6 +65,67 @@ export function formatRecordingBytes(bytes: number): string {
 
 function artifactBusyKey(sessionId: string, artifactId: string, action = "artifact"): string {
   return `${action}:${sessionId}:${artifactId}`;
+}
+
+function RecordingThumbnail({
+  session,
+  loadThumbnail,
+}: {
+  session: RecordingLibraryItem;
+  loadThumbnail: RecordingLibraryServices["thumbnail"];
+}) {
+  const element = useRef<HTMLDivElement>(null);
+  const generation = useRef(0);
+  const [thumbnail, setThumbnail] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!session.canThumbnail) {
+      setThumbnail(null);
+      return undefined;
+    }
+    let requested = false;
+    const load = () => {
+      if (requested) return;
+      requested = true;
+      const current = ++generation.current;
+      void loadThumbnail(session.sessionId)
+        .then((bytes) => {
+          if (current === generation.current) {
+            setThumbnail(bytes ? `data:image/png;base64,${bytes}` : null);
+          }
+        })
+        .catch(() => {
+          if (current === generation.current) setThumbnail(null);
+        });
+    };
+    const release = (clear = true) => {
+      generation.current += 1;
+      requested = false;
+      if (clear) setThumbnail(null);
+    };
+    const node = element.current;
+    if (!node || typeof IntersectionObserver === "undefined") {
+      load();
+      return () => release(false);
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) load();
+      else release();
+    }, { rootMargin: "160px 0px" });
+    observer.observe(node);
+    return () => {
+      observer.disconnect();
+      release(false);
+    };
+  }, [loadThumbnail, session.canThumbnail, session.sessionId]);
+
+  return (
+    <div className="recording-thumbnail" ref={element} aria-hidden="true">
+      {thumbnail
+        ? <img src={thumbnail} alt="" />
+        : <span>▶</span>}
+    </div>
+  );
 }
 
 function ArtifactRow({
@@ -281,39 +345,44 @@ export function App({ services = defaultServices }: { services?: RecordingLibrar
         )}
         {!loading && items.map((item) => (
           <article className="recording-card" key={item.sessionId}>
-            <div className="recording-summary">
-              <div>
-                <div className="recording-heading">
-                  <h2>{new Date(item.createdAtUnixMs).toLocaleString()}</h2>
-                  <span className={`status-badge ${item.state}`}>
-                    {t(`recordings.state.${item.state}`)}
-                  </span>
-                </div>
-                <p>
-                  {item.width} × {item.height} · {(item.targetFpsNumerator / item.targetFpsDenominator).toFixed(0)} fps · {formatRecordingDuration(item.durationMs)} · {formatRecordingBytes(item.byteLength)}
-                </p>
-              </div>
-              <button className="danger-link" type="button" disabled={busyKey !== null} onClick={() => setConfirmDelete(item.sessionId)}>
-                {t("recordings.delete")}
-              </button>
-            </div>
-            {item.state === "interrupted" && (
-              <div className="recovery-note">
-                <p>{t("recordings.recoveryNote")}</p>
-                {item.canMerge && (
-                  <button
-                    className="primary"
-                    type="button"
-                    disabled={busyKey !== null}
-                    onClick={() => void recover(item.sessionId)}
-                  >
-                    {busyKey === `merge:${item.sessionId}`
-                      ? t("recordings.recovering")
-                      : t("recordings.recover")}
+            <div className="recording-overview">
+              <RecordingThumbnail session={item} loadThumbnail={services.thumbnail} />
+              <div className="recording-overview-copy">
+                <div className="recording-summary">
+                  <div>
+                    <div className="recording-heading">
+                      <h2>{new Date(item.createdAtUnixMs).toLocaleString()}</h2>
+                      <span className={`status-badge ${item.state}`}>
+                        {t(`recordings.state.${item.state}`)}
+                      </span>
+                    </div>
+                    <p>
+                      {item.width} × {item.height} · {(item.targetFpsNumerator / item.targetFpsDenominator).toFixed(0)} fps · {formatRecordingDuration(item.durationMs)} · {formatRecordingBytes(item.byteLength)}
+                    </p>
+                  </div>
+                  <button className="danger-link" type="button" disabled={busyKey !== null} onClick={() => setConfirmDelete(item.sessionId)}>
+                    {t("recordings.delete")}
                   </button>
+                </div>
+                {item.state === "interrupted" && (
+                  <div className="recovery-note">
+                    <p>{t("recordings.recoveryNote")}</p>
+                    {item.canMerge && (
+                      <button
+                        className="primary"
+                        type="button"
+                        disabled={busyKey !== null}
+                        onClick={() => void recover(item.sessionId)}
+                      >
+                        {busyKey === `merge:${item.sessionId}`
+                          ? t("recordings.recovering")
+                          : t("recordings.recover")}
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
-            )}
+            </div>
             {item.artifacts.length > 0 ? (
               <ul className="artifact-list">
                 {item.artifacts.map((artifact) => (
