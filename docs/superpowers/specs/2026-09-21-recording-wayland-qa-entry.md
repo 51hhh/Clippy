@@ -86,5 +86,13 @@ ScreenCast Portal + PipeWire 区域录屏链路。系统选源对话框必须绑
   `wl_output`、逻辑坐标与 2x 缩放，证明应用使用原生 Wayland，而非仅依据环境变量判断。
 - 下载同一 SHA 的 Linux QA AppDir 后用当前 `finalize-appimage.sh` 重封装；最终 AppImage 的隔离
   X11 首帧/几何/单实例 smoke 通过，包内 hook 与 GLib/GIO 均经 SquashFS 复核。
-- GNOME、KDE、wlroots 真机上的 Portal 授权、选区像素、光标、托盘控制与强杀恢复 profile 仍为
-  `not_run`。安装包生成不能替代真机录制，本能力保持非默认 QA 原型。
+- 2026-09-21：在同一 Ubuntu 26.04 / GNOME 50.1 / Wayland 双屏会话中启动重封装 QA AppImage，
+  托盘“区域录屏”通过真实 DBusMenu 入口创建两块 Recording 覆盖层。后端记录主屏
+  `2560×1440@1.5 → 3840×2160`、副屏 `1920×1200@1.3333 → 2560×1600`，两个覆盖层分别绑定
+  对应 output ID 并完成首帧交付；运行日志未再出现宿主 GIO 模块缺失符号。该 profile 的
+  `package start`、原生 Wayland、混合缩放双屏冻结和双覆盖层创建记为 `pass`。
+- 当前桌面自动化可读取覆盖层边界，但 AT-SPI 合成指针没有进入 WebKit 的 React 指针路由；release
+  WebKit 检查端口也只暴露主窗口，不能替代用户框选。因此 GNOME profile 的选区像素、Portal
+  允许/取消、光标、托盘暂停/继续/停止、最终 WebM 播放与强杀恢复继续为 `not_run`，不记成产品
+  失败或通过。KDE、wlroots 的全部真机项也仍为 `not_run`。安装包生成和覆盖层启动不能替代真实
+  录制，本能力保持非默认 QA 原型。
