@@ -46,7 +46,9 @@ button { font: inherit; }
 .status-badge.interrupted { color: #9a5a08; background: #fff0cf; }
 .danger-link { border: 0; background: transparent; color: #bd3f4b; cursor: pointer; }
 
-.recovery-note { margin: 13px 0 8px; padding: 9px 11px; border-radius: 9px; background: #fff7e6; color: #825217; font-size: 12px; }
+.recovery-note { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 13px 0 8px; padding: 9px 11px; border-radius: 9px; background: #fff7e6; color: #825217; font-size: 12px; }
+.recovery-note p { margin: 0; line-height: 1.45; }
+.recovery-note .primary { flex: none; border-color: #5b6ef5; background: #5b6ef5; color: #fff; }
 :root[data-theme="dark"] .recovery-note { background: #352b1b; color: #f1c77e; }
 .artifact-list { list-style: none; margin: 12px 0 0; padding: 0; border-top: 1px solid #e7eaf1; }
 :root[data-theme="dark"] .artifact-list { border-color: #30384a; }
@@ -56,8 +58,9 @@ button { font: inherit; }
 .artifact-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .artifact-copy span { color: #81899b; font-size: 11px; }
 .artifact-actions { display: flex; gap: 7px; flex: none; }
-.artifact-actions button, .library-state button, .delete-confirm button { min-height: 34px; padding: 0 12px; border: 1px solid #d5dae5; border-radius: 8px; background: #fff; color: inherit; cursor: pointer; }
-:root[data-theme="dark"] .artifact-actions button, :root[data-theme="dark"] .library-state button, :root[data-theme="dark"] .delete-confirm button { background: #22293a; border-color: #3a4357; }
+.artifact-actions button, .library-state button, .delete-confirm button, .recovery-note button { min-height: 34px; padding: 0 12px; border: 1px solid #d5dae5; border-radius: 8px; background: #fff; color: inherit; cursor: pointer; }
+:root[data-theme="dark"] .artifact-actions button, :root[data-theme="dark"] .library-state button, :root[data-theme="dark"] .delete-confirm button, :root[data-theme="dark"] .recovery-note button { background: #22293a; border-color: #3a4357; }
+:root[data-theme="dark"] .recovery-note .primary { border-color: #7182ff; background: #5b6ef5; color: #fff; }
 .artifact-actions .primary { border-color: #5b6ef5; background: #5b6ef5; color: #fff; }
 .artifact-actions .active { border-color: #5b6ef5; color: #4456d8; background: #eef0ff; }
 button:disabled { cursor: default; opacity: .55; }
@@ -83,9 +86,10 @@ button:disabled { cursor: default; opacity: .55; }
   .recordings-titlebar { min-height: 72px; padding: 14px 16px; }
   .recordings-titlebar p { display: none; }
   .recordings-content { padding: 12px; }
-  .recording-summary, .recording-artifact, .delete-confirm { align-items: stretch; flex-direction: column; }
+  .recording-summary, .recording-artifact, .delete-confirm, .recovery-note { align-items: stretch; flex-direction: column; }
   .artifact-actions { width: 100%; }
   .artifact-actions button { flex: 1; }
+  .recovery-note button { width: 100%; }
   .delete-confirm > div { justify-content: flex-end; }
   .recording-player video { max-height: 280px; }
 }

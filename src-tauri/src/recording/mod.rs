@@ -29,6 +29,9 @@ mod session;
 // 单活动录屏注册表固定代次与迟到命令语义。
 #[allow(dead_code)]
 mod manager;
+// 恢复 remux 占用单一大文件 I/O 槽，避免多个会话同时挤压磁盘和内存。
+#[cfg(feature = "recording-vp9-prototype")]
+mod merge_registry;
 // 截图选区、桌面恢复、控制面与会话注册表必须由一个生命周期按顺序交接。
 #[allow(dead_code)]
 mod lifecycle;
@@ -64,6 +67,8 @@ pub(crate) use control_host::handle_control_destroyed;
 pub(crate) use control_registry::RecordingControlRegistry;
 pub(crate) use lifecycle::RecordingLifecycle;
 pub(crate) use media_protocol::RecordingMediaManager;
+#[cfg(feature = "recording-vp9-prototype")]
+pub(crate) use merge_registry::RecordingMergeRegistry;
 #[cfg(feature = "recording-vp9-prototype")]
 pub(crate) use mux::vp9_webm::Vp9WebmWriter;
 

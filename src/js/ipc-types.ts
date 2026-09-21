@@ -731,6 +731,7 @@ export interface RecordingLibraryItem {
   durationMs: number;
   frameCount: number;
   byteLength: number;
+  canMerge: boolean;
   artifacts: RecordingLibraryArtifact[];
 }
 

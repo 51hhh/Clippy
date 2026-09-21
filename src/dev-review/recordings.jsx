@@ -24,6 +24,7 @@ const complete = {
   durationMs: 82_400,
   frameCount: 2472,
   byteLength: 7_482_112,
+  canMerge: false,
   artifacts: [{
     artifactId: "final",
     displayName: "recording.webm",
@@ -43,6 +44,7 @@ const interrupted = {
   durationMs: 121_000,
   frameCount: 3630,
   byteLength: 10_821_632,
+  canMerge: true,
   artifacts: [0, 1].map(index => ({
     artifactId: `segment-${String(index).padStart(6, "0")}`,
     displayName: `segment-${String(index).padStart(6, "0")}.webm`,
@@ -62,6 +64,7 @@ const diagnostic = {
   durationMs: 19_800,
   frameCount: 594,
   byteLength: 42_381_312,
+  canMerge: false,
   artifacts: [{
     artifactId: "segment-000000",
     displayName: "segment-000000.avi",
@@ -93,6 +96,21 @@ function RecordingReview() {
     deleteSession: async sessionId => {
       setSessions(value => value.filter(item => item.sessionId !== sessionId));
       setStatus(`DEMO delete ${sessionId} · synthetic list only`);
+    },
+    mergeSession: async sessionId => {
+      setSessions(value => value.map(item => item.sessionId === sessionId ? {
+        ...item,
+        state: "complete",
+        canMerge: false,
+        artifacts: [{
+          artifactId: "final",
+          displayName: "recording.webm",
+          durationMs: item.durationMs,
+          frameCount: item.frameCount,
+          byteLength: Math.max(1, Math.floor(item.byteLength * 0.98)),
+        }],
+      } : item));
+      setStatus(`DEMO recover ${sessionId} · encoded packets remuxed without re-encoding`);
     },
     preparePlayback: async (sessionId, artifactId) => ({
       token: `media-${(sessionId + artifactId).length.toString(16).padStart(16, "0")}`,

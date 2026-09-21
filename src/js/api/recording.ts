@@ -71,6 +71,10 @@ export function releaseRecordingPlayback(token: string): Promise<void> {
   return invoke<void>("release_recording_playback", { token });
 }
 
+export function mergeRecordingSession(sessionId: string): Promise<void> {
+  return invoke<void>("merge_recording_session", { sessionId });
+}
+
 export function getRecordingMediaUrl(token: string): string {
   if (!/^media-[a-f0-9]{16}$/.test(token)) throw new Error("recordings.invalid_playback_lease");
   return convertFileSrc(token, "recording-media");

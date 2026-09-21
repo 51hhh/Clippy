@@ -24,6 +24,7 @@ const complete: RecordingLibraryItem = {
   durationMs: 65_000,
   frameCount: 1950,
   byteLength: 2048,
+  canMerge: false,
   artifacts: [{
     artifactId: "final",
     displayName: "recording.webm",
@@ -49,6 +50,7 @@ describe("recording library app", () => {
       exportArtifact: vi.fn(async () => true),
       revealArtifact: vi.fn(async () => {}),
       deleteSession: vi.fn(async () => {}),
+      mergeSession: vi.fn(async () => {}),
       preparePlayback: vi.fn(async () => ({
         token: "media-0000000000000001",
         mimeType: "video/webm" as const,
@@ -140,9 +142,15 @@ describe("recording library app", () => {
   });
 
   it("keeps AVI diagnostic artifacts export-only", async () => {
-    vi.mocked(services.list).mockResolvedValueOnce([{ ...complete, container: "avi" }]);
+    vi.mocked(services.list).mockResolvedValueOnce([{
+      ...complete,
+      state: "interrupted",
+      container: "avi",
+      canMerge: false,
+    }]);
     await render();
     expect([...document.querySelectorAll("button")].some((button) => button.textContent === "Play")).toBe(false);
+    expect([...document.querySelectorAll("button")].some((button) => button.textContent === "Recover recording")).toBe(false);
     expect(document.body.textContent).toContain("Export");
   });
 
@@ -179,6 +187,84 @@ describe("recording library app", () => {
     expect(services.releasePlayback).toHaveBeenCalledWith("media-0000000000000001");
     expect(document.querySelector("video source")?.getAttribute("src"))
       .toContain("media-0000000000000002");
+  });
+
+  it("recovers an interrupted VP9 session and reloads it as one recording", async () => {
+    const interrupted: RecordingLibraryItem = {
+      ...complete,
+      state: "interrupted",
+      canMerge: true,
+      artifacts: [
+        { ...complete.artifacts[0], artifactId: "segment-000000", displayName: "segment-000000.webm" },
+        { ...complete.artifacts[0], artifactId: "segment-000001", displayName: "segment-000001.webm" },
+      ],
+    };
+    vi.mocked(services.list)
+      .mockResolvedValueOnce([interrupted])
+      .mockResolvedValueOnce([complete]);
+    await render();
+
+    const recover = [...document.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "Recover recording")!;
+    await act(async () => recover.click());
+
+    expect(services.mergeSession).toHaveBeenCalledWith("recording-1");
+    expect(services.list).toHaveBeenCalledTimes(2);
+    expect(document.body.textContent).toContain("recording.webm");
+    expect(document.body.textContent).not.toContain("segment-000000.webm");
+  });
+
+  it("keeps recoverable segments and offers retry when remux fails", async () => {
+    vi.mocked(services.list).mockResolvedValueOnce([{
+      ...complete,
+      state: "interrupted",
+      canMerge: true,
+      artifacts: [{
+        ...complete.artifacts[0],
+        artifactId: "segment-000000",
+        displayName: "segment-000000.webm",
+      }],
+    }]);
+    vi.mocked(services.mergeSession).mockRejectedValueOnce(new Error("invalid segment"));
+    await render();
+
+    const recover = [...document.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "Recover recording")!;
+    await act(async () => recover.click());
+
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("action failed");
+    expect(document.body.textContent).toContain("segment-000000.webm");
+    expect(document.body.textContent).toContain("Recover recording");
+    expect(services.list).toHaveBeenCalledOnce();
+  });
+
+  it("lets an in-flight recovery finish after the results window closes", async () => {
+    const interrupted: RecordingLibraryItem = {
+      ...complete,
+      state: "interrupted",
+      canMerge: true,
+      artifacts: [{
+        ...complete.artifacts[0],
+        artifactId: "segment-000000",
+        displayName: "segment-000000.webm",
+      }],
+    };
+    let finishMerge: (() => void) | undefined;
+    vi.mocked(services.list).mockResolvedValueOnce([interrupted]);
+    vi.mocked(services.mergeSession).mockImplementationOnce(() => new Promise<void>((resolve) => {
+      finishMerge = resolve;
+    }));
+    await render();
+
+    const recover = [...document.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "Recover recording")!;
+    await act(async () => recover.click());
+    await act(async () => root.render(<></>));
+    finishMerge!();
+    await Promise.resolve();
+
+    expect(services.mergeSession).toHaveBeenCalledWith("recording-1");
+    expect(services.list).toHaveBeenCalledOnce();
   });
 
   it("shows an empty state and offers retry after a loading error", async () => {

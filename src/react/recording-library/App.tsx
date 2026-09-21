@@ -5,6 +5,7 @@ import {
   exportRecordingArtifact,
   getRecordingMediaUrl,
   listRecordings,
+  mergeRecordingSession,
   prepareRecordingPlayback,
   recordingLibraryReady,
   releaseRecordingPlayback,
@@ -20,6 +21,7 @@ export type RecordingLibraryServices = {
   exportArtifact: typeof exportRecordingArtifact;
   revealArtifact: typeof revealRecordingArtifact;
   deleteSession: typeof deleteRecordingSession;
+  mergeSession: typeof mergeRecordingSession;
   preparePlayback: typeof prepareRecordingPlayback;
   releasePlayback: typeof releaseRecordingPlayback;
   mediaUrl: typeof getRecordingMediaUrl;
@@ -33,6 +35,7 @@ const defaultServices: RecordingLibraryServices = {
   exportArtifact: exportRecordingArtifact,
   revealArtifact: revealRecordingArtifact,
   deleteSession: deleteRecordingSession,
+  mergeSession: mergeRecordingSession,
   preparePlayback: prepareRecordingPlayback,
   releasePlayback: releaseRecordingPlayback,
   mediaUrl: getRecordingMediaUrl,
@@ -121,6 +124,7 @@ type RecordingPlayback = {
 
 export function App({ services = defaultServices }: { services?: RecordingLibraryServices } = {}) {
   const generation = useRef(0);
+  const mounted = useRef(false);
   const [items, setItems] = useState<RecordingLibraryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -145,8 +149,10 @@ export function App({ services = defaultServices }: { services?: RecordingLibrar
   }, [services]);
 
   useEffect(() => {
+    mounted.current = true;
     void load().finally(() => services.ready().catch(() => undefined));
     return () => {
+      mounted.current = false;
       generation.current += 1;
       const current = playbackRef.current;
       playbackRef.current = null;
@@ -225,6 +231,22 @@ export function App({ services = defaultServices }: { services?: RecordingLibrar
     }
   };
 
+  const recover = async (sessionId: string) => {
+    if (busyKey) return;
+    setBusyKey(`merge:${sessionId}`);
+    setActionError(false);
+    try {
+      if (playbackRef.current?.sessionId === sessionId) await closePlayback();
+      await services.mergeSession(sessionId);
+      if (!mounted.current) return;
+      await load();
+    } catch {
+      if (mounted.current) setActionError(true);
+    } finally {
+      if (mounted.current) setBusyKey(null);
+    }
+  };
+
   return (
     <main className="recordings-shell">
       <header className="recordings-titlebar" onMouseDown={(event) => {
@@ -276,7 +298,21 @@ export function App({ services = defaultServices }: { services?: RecordingLibrar
               </button>
             </div>
             {item.state === "interrupted" && (
-              <p className="recovery-note">{t("recordings.recoveryNote")}</p>
+              <div className="recovery-note">
+                <p>{t("recordings.recoveryNote")}</p>
+                {item.canMerge && (
+                  <button
+                    className="primary"
+                    type="button"
+                    disabled={busyKey !== null}
+                    onClick={() => void recover(item.sessionId)}
+                  >
+                    {busyKey === `merge:${item.sessionId}`
+                      ? t("recordings.recovering")
+                      : t("recordings.recover")}
+                  </button>
+                )}
+              </div>
             )}
             {item.artifacts.length > 0 ? (
               <ul className="artifact-list">

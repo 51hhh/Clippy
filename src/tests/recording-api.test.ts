@@ -9,6 +9,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke, convertFileSrc }));
 
 import {
   getRecordingMediaUrl,
+  mergeRecordingSession,
   prepareRecordingPlayback,
   releaseRecordingPlayback,
 } from "../js/api/recording.ts";
@@ -46,6 +47,14 @@ describe("recording playback API", () => {
     await releaseRecordingPlayback("media-0000000000000001");
     expect(invoke).toHaveBeenCalledWith("release_recording_playback", {
       token: "media-0000000000000001",
+    });
+  });
+
+  it("submits only the opaque session id for recovery merge", async () => {
+    invoke.mockResolvedValueOnce(undefined);
+    await mergeRecordingSession("session-a");
+    expect(invoke).toHaveBeenCalledWith("merge_recording_session", {
+      sessionId: "session-a",
     });
   });
 });

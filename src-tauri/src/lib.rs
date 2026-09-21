@@ -215,6 +215,8 @@ pub fn run() {
                 recording_lifecycle,
                 recording_controls,
                 recording_media: Arc::new(recording::RecordingMediaManager::default()),
+                #[cfg(feature = "recording-vp9-prototype")]
+                recording_merges: Arc::new(recording::RecordingMergeRegistry::default()),
                 pin_manager,
                 pin_workspace_persistence,
                 pin_origins: Arc::new(pin::PinOriginRegistry::default()),
@@ -439,6 +441,7 @@ pub fn run() {
             recording::library::close_recording_library,
             recording::library::prepare_recording_playback,
             recording::library::release_recording_playback,
+            recording::library::merge_recording_session,
             recording::library::export_recording_artifact,
             recording::library::reveal_recording_artifact,
             recording::library::delete_recording_session,

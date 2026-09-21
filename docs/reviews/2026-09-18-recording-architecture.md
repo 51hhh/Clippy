@@ -101,8 +101,8 @@ macOS Intel 四个录屏编码原型 job。这关闭了跨平台编译、链接�
 
 ### Out of Scope
 
-- 把多个独立 WebM 分段按字节拼接成一个文件；后续需要经过验证的 remux 实现，不能假装普通拼接
-  能生成可靠容器；
+- 把多个独立 WebM 分段按字节拼接成一个文件；异常恢复由独立切片使用经过验证的 packet remux，
+  普通字节拼接始终不是有效实现；
 - 持久缩略图、剪辑、重编码、云同步与自动加入剪贴板；
 - 音频轨、摄像头、Windows/macOS/Wayland 产品入口；
 - 用结果库的存在替代 X11 真机播放、性能、强杀恢复和文件管理器集成验收。
@@ -116,9 +116,24 @@ macOS Intel 四个录屏编码原型 job。这关闭了跨平台编译、链接�
 删除会话和关闭窗口都会撤销；关闭发生在大文件校验期间时，窗口代次会拒绝迟到签发。
 
 前端同一时间只保留一个带原生 controls 的播放器，首个解码帧承担按需缩略预览，不自动播放；WebView
-不支持解码时仍保留导出与在文件夹中显示。AVI 诊断产物不显示播放入口。该切片没有合并独立恢复分段、
-建立持久缩略图缓存、加入音频或扩大其他平台的产品入口；验收规格见
+不支持解码时仍保留导出与在文件夹中显示。AVI 诊断产物不显示播放入口。持久缩略图缓存、音频与
+其他平台的产品入口仍不在该切片；验收规格见
 [`2026-09-21-recording-library-playback.md`](../superpowers/specs/2026-09-21-recording-library-playback.md)。
+
+### `PX-REC-MERGE-01` 异常分段无损恢复（2026-09-21）
+
+结果库现可把 `interrupted + vp9-prototype + webm` 会话恢复成单个完整录屏。前端只提交会话 ID；
+Rust 按 manifest 顺序打开已提交分段并重新核对普通文件、长度和 SHA-256，再用受限流式 EBML 读取器
+验证单 VP9 轨、尺寸、1 ms 时间基、无 lacing `SimpleBlock`、关键帧起点、固定帧率时间戳和帧数。
+每个 VP9 packet 保持原字节，时间戳按分段 `startedAtNs` 平移后交给现有 libwebm muxer 重建 cluster、
+seek 和 duration，因此不会解码/重编码，也不会拼接独立 WebM 容器。
+
+恢复输出写入私有 `.recording.webm.partial`，封尾、fsync、长度与 SHA-256 完成后先把 manifest 提交为
+`finalizing`，再原子提升文件并写 `complete`。提交前失败会删除临时输出；进程若在提交点附近退出，
+启动恢复会清理未提交 partial，或沿用最终输出恢复协议完成提升。一个进程同一时间只允许一个 remux，
+失败始终保留原分段和 `interrupted` manifest。成功后结果库刷新为普通最终 WebM，继续复用既有播放、
+导出、定位和删除能力；AVI 诊断会话保持逐段导出。完整合同见
+[`2026-09-21-recording-recovery-merge.md`](../superpowers/specs/2026-09-21-recording-recovery-merge.md)。
 
 参考：
 
@@ -191,7 +206,8 @@ manifest → 原子提升为最终分段并同步目录。manifest 是提交点�
 字节，拒绝符号链接、路径分隔符与未知 schema。
 
 正常停止先完成最后分段，再生成单一最终文件。最终合并失败时保留已提交分段和 manifest，允许重试，
-不能删除唯一可恢复数据。只有最终文件通过容器探测和时长检查后，才能把会话标成 complete。
+不能删除唯一可恢复数据。异常中断的 VP9/WebM 会话也可在结果库显式发起同一提交协议的 packet
+remux；只有最终文件通过结构、时长、帧数、长度与哈希检查后，才能把会话标成 complete。
 
 最终文件现已具备与分段相同的持久化提交合同：写入私有 `.recording.<container>.partial`，核对它的
 时长/帧数与已提交分段总和一致，`sync_all` 后记录长度和 SHA-256，再以 manifest 作为提交点原子提升

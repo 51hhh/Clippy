@@ -207,6 +207,49 @@ pub(crate) async fn prepare_recording_playback(
 }
 
 #[tauri::command]
+pub(crate) async fn merge_recording_session(
+    window: WebviewWindow,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    session_id: String,
+) -> Result<(), RecordingLibraryError> {
+    ensure_library(&window)?;
+
+    #[cfg(not(feature = "recording-vp9-prototype"))]
+    {
+        let _ = (app, state, session_id);
+        Err(RecordingLibraryError::new(
+            "recording_library_merge_unavailable",
+            "当前构建没有启用录屏恢复合并",
+        ))
+    }
+
+    #[cfg(feature = "recording-vp9-prototype")]
+    {
+        let registry = Arc::clone(&state.recording_merges);
+        let guard = registry.begin(&session_id).map_err(|message| {
+            RecordingLibraryError::new("recording_library_merge_busy", message)
+        })?;
+        let media = Arc::clone(&state.recording_media);
+        tauri::async_runtime::spawn_blocking(move || {
+            let _guard = guard;
+            let app_data_dir = app
+                .path()
+                .app_data_dir()
+                .map_err(|error| RecordingLibraryError::storage(error.to_string()))?;
+            manifest::merge_interrupted_vp9_session(&app_data_dir, &session_id)
+                .map_err(RecordingLibraryError::storage)?;
+            if let Err(error) = media.revoke_session(&session_id) {
+                log::warn!("录屏恢复成功后撤销旧播放租约失败: {error}");
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|error| RecordingLibraryError::storage(error.to_string()))?
+    }
+}
+
+#[tauri::command]
 pub(crate) fn release_recording_playback(
     window: WebviewWindow,
     state: tauri::State<'_, AppState>,

@@ -132,6 +132,7 @@ pub(crate) struct RecordingLibraryItem {
     pub duration_ms: u64,
     pub frame_count: u64,
     pub byte_length: u64,
+    pub can_merge: bool,
     pub artifacts: Vec<RecordingLibraryArtifact>,
 }
 
@@ -578,6 +579,113 @@ pub(super) fn verify_library_artifact(artifact: &ResolvedRecordingArtifact) -> R
     verify_library_artifact_with_checkpoint(artifact, || Ok(()))
 }
 
+/// 把异常会话中已经提交的 VP9/WebM 分段无损 remux 为正常最终输出。
+///
+/// 分段始终保留；只有完整输出封尾、fsync 和哈希完成后才把清单提交为 `finalizing`。这样进程若在
+/// 清单与文件提升之间退出，启动恢复可以沿用正常录屏的同一提交协议。
+#[cfg(feature = "recording-vp9-prototype")]
+pub(super) fn merge_interrupted_vp9_session(
+    app_data_dir: &Path,
+    session_id: &str,
+) -> Result<(), String> {
+    use super::mux::webm_remux::{remux_vp9_segments, WebmRemuxSource, WebmRemuxSpec};
+
+    let (session_directory, mut manifest) = load_library_manifest(app_data_dir, session_id)?;
+    if manifest.state != RecordingState::Interrupted
+        || manifest.video.encoder != "vp9-prototype"
+        || manifest.video.container != "webm"
+        || manifest.segments.is_empty()
+    {
+        return Err("这次录屏不支持恢复合并".to_string());
+    }
+
+    let sources = manifest
+        .segments
+        .iter()
+        .map(|segment| WebmRemuxSource {
+            path: session_directory.join(&segment.file_name),
+            byte_length: segment.byte_length,
+            sha256: segment.sha256.clone(),
+            started_at_ns: segment.started_at_ns,
+            duration_ns: segment.duration_ns,
+            frame_count: segment.frame_count,
+        })
+        .collect::<Vec<_>>();
+
+    // 上次若在写清单以前失败，只可能留下这个固定名称的普通 partial。先清理再 create-new，不能让
+    // 任意目录项或用户提供的路径参与合并。
+    discard_final_output_files(&session_directory, &manifest.video.container)?;
+    let partial_path = session_directory.join(final_output_partial_name("webm"));
+    let output_file = create_private_new_file(&partial_path)
+        .map_err(|error| format!("创建录屏恢复输出失败: {error}"))?;
+    let mut manifest_committed = false;
+    let result = (|| {
+        let output = remux_vp9_segments(
+            &sources,
+            output_file,
+            WebmRemuxSpec {
+                width: manifest.video.width,
+                height: manifest.video.height,
+                fps_numerator: manifest.video.target_fps_numerator,
+                fps_denominator: manifest.video.target_fps_denominator,
+            },
+        )?;
+        let expected_duration = manifest
+            .segments
+            .last()
+            .and_then(|segment| segment.started_at_ns.checked_add(segment.duration_ns))
+            .ok_or_else(|| "录屏恢复总时长溢出".to_string())?;
+        let expected_frames = manifest.segments.iter().try_fold(0_u64, |total, segment| {
+            total
+                .checked_add(segment.frame_count)
+                .ok_or_else(|| "录屏恢复总帧数溢出".to_string())
+        })?;
+        if output.duration_ns != expected_duration || output.frame_count != expected_frames {
+            return Err("录屏恢复输出与清单汇总不一致".to_string());
+        }
+
+        let file = output.writer;
+        let metadata = file
+            .metadata()
+            .map_err(|error| format!("读取录屏恢复输出失败: {error}"))?;
+        if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_SESSION_BYTES {
+            return Err("录屏恢复输出大小无效".to_string());
+        }
+        file.sync_all()
+            .map_err(|error| format!("同步录屏恢复输出失败: {error}"))?;
+        drop(file);
+        restrict_file(&partial_path)
+            .map_err(|error| format!("收紧录屏恢复输出权限失败: {error}"))?;
+        let (byte_length, sha256) = hash_file_with_limit(&partial_path, MAX_SESSION_BYTES)?;
+
+        let file_name = final_output_file_name("webm");
+        manifest.final_output = Some(FinalOutputManifest {
+            file_name: file_name.clone(),
+            duration_ns: output.duration_ns,
+            frame_count: output.frame_count,
+            byte_length,
+            sha256,
+        });
+        manifest.recovery = None;
+        manifest.state = RecordingState::Finalizing;
+        validate_manifest(&manifest, session_id)?;
+        write_manifest(&session_directory, &manifest)?;
+        manifest_committed = true;
+
+        let destination = session_directory.join(file_name);
+        replace_private_file(&partial_path, &destination)
+            .map_err(|error| format!("提交录屏恢复输出失败: {error}"))?;
+        sync_directory(&session_directory)
+            .map_err(|error| format!("同步录屏恢复目录失败: {error}"))?;
+        manifest.state = RecordingState::Complete;
+        write_manifest(&session_directory, &manifest)
+    })();
+    if result.is_err() && !manifest_committed {
+        let _ = fs::remove_file(&partial_path);
+    }
+    result
+}
+
 pub(super) fn verify_library_artifact_with_checkpoint<F>(
     artifact: &ResolvedRecordingArtifact,
     checkpoint: F,
@@ -842,6 +950,11 @@ fn library_item_for_session(
     };
     let frame_count = artifacts.iter().map(|artifact| artifact.frame_count).sum();
     let byte_length = artifacts.iter().map(|artifact| artifact.byte_length).sum();
+    let can_merge = cfg!(feature = "recording-vp9-prototype")
+        && manifest.state == RecordingState::Interrupted
+        && manifest.video.encoder == "vp9-prototype"
+        && manifest.video.container == "webm"
+        && !manifest.segments.is_empty();
     Ok(Some(RecordingLibraryItem {
         session_id: manifest.session_id,
         state: match manifest.state {
@@ -861,6 +974,7 @@ fn library_item_for_session(
         duration_ms,
         frame_count,
         byte_length,
+        can_merge,
         artifacts,
     }))
 }
@@ -986,10 +1100,13 @@ fn reconcile_session(
     let manifest_path = path.join(MANIFEST_FILE);
     let mut manifest = read_manifest(&manifest_path)?;
     validate_manifest(&manifest, session_id)?;
-    if matches!(
-        manifest.state,
-        RecordingState::Interrupted | RecordingState::Complete
-    ) {
+    if manifest.state == RecordingState::Interrupted {
+        // 恢复 remux 若在提交清单以前被进程终止，只会留下固定名称的 final partial。Interrupted
+        // 清单仍是事实源；启动时清掉该临时文件，避免结果库删除永远被未知目录项阻塞。
+        discard_final_output_files(path, &manifest.video.container)?;
+        return Ok(None);
+    }
+    if manifest.state == RecordingState::Complete {
         return Ok(None);
     }
 
@@ -1467,6 +1584,8 @@ fn unix_time_ms() -> u64 {
 mod tests {
     use super::*;
     use std::ffi::OsStr;
+    #[cfg(feature = "recording-vp9-prototype")]
+    use std::io::Seek;
 
     fn fixture_manifest(session_id: &str, state: RecordingState) -> RecordingManifest {
         RecordingManifest {
@@ -1505,6 +1624,41 @@ mod tests {
             serde_json::to_vec_pretty(manifest).unwrap(),
         )
         .unwrap();
+    }
+
+    #[cfg(feature = "recording-vp9-prototype")]
+    fn vp9_journal_config(session_id: &str) -> RecordingJournalConfig {
+        RecordingJournalConfig {
+            session_id: session_id.to_string(),
+            source_id: "display-vp9".to_string(),
+            physical_x: 0,
+            physical_y: 0,
+            width: 64,
+            height: 48,
+            target_fps_numerator: 10,
+            target_fps_denominator: 1,
+            encoder: "vp9-prototype".to_string(),
+            container: "webm".to_string(),
+            include_cursor: true,
+        }
+    }
+
+    #[cfg(feature = "recording-vp9-prototype")]
+    fn commit_vp9_segment(journal: &mut RecordingJournal, color: [u8; 3]) {
+        use crate::recording::mux::vp9_webm::Vp9WebmWriter;
+
+        let rgba = (0..64 * 48)
+            .flat_map(|_| [color[0], color[1], color[2], 255])
+            .collect::<Vec<_>>();
+        let (file, pending) = journal.begin_segment().unwrap();
+        let mut writer = Vp9WebmWriter::new(file, 64, 48, 10, 1).unwrap();
+        writer.push_rgba(&rgba, 0).unwrap();
+        writer.push_rgba(&rgba, 100_000_000).unwrap();
+        let mut output = writer.finish_with_stats(200_000_000).unwrap();
+        output.writer.rewind().unwrap();
+        journal
+            .commit_segment(pending, output.writer, 200_000_000, output.frame_count, 0)
+            .unwrap();
     }
 
     fn add_segment(directory: &Path, manifest: &mut RecordingManifest, bytes: &[u8]) {
@@ -1591,6 +1745,7 @@ mod tests {
             .find(|item| item.session_id == "complete-1")
             .unwrap();
         assert_eq!(complete.state, "complete");
+        assert!(!complete.can_merge);
         assert_eq!(complete.artifacts[0].artifact_id, "final");
         assert_eq!(complete.artifacts[0].display_name, "recording.webm");
         let interrupted = items
@@ -1598,6 +1753,7 @@ mod tests {
             .find(|item| item.session_id == "interrupted-1")
             .unwrap();
         assert_eq!(interrupted.state, "interrupted");
+        assert!(!interrupted.can_merge);
         assert_eq!(interrupted.artifacts[0].artifact_id, "segment-000000");
     }
 
@@ -1885,6 +2041,24 @@ mod tests {
     }
 
     #[test]
+    fn startup_removes_uncommitted_recovery_merge_output() {
+        let temporary = tempfile::tempdir().unwrap();
+        let session = create_session(temporary.path(), "merge-abandoned");
+        let mut manifest = fixture_manifest("merge-abandoned", RecordingState::Interrupted);
+        add_segment(&session, &mut manifest, b"verified segment");
+        write_manifest_fixture(&session, &manifest);
+        fs::write(session.join(".recording.webm.partial"), b"unfinished remux").unwrap();
+
+        recover_interrupted_sessions(temporary.path()).unwrap();
+
+        assert!(!session.join(".recording.webm.partial").exists());
+        let recovered = read_manifest(&session.join(MANIFEST_FILE)).unwrap();
+        assert_eq!(recovered.state, RecordingState::Interrupted);
+        assert!(recovered.final_output.is_none());
+        assert!(session.join("segment-000000.webm").exists());
+    }
+
+    #[test]
     fn damaged_tail_is_truncated_without_discarding_the_prefix() {
         let temporary = tempfile::tempdir().unwrap();
         let session = create_session(temporary.path(), "session-2");
@@ -1995,5 +2169,61 @@ mod tests {
         let summary = recover_interrupted_sessions(temporary.path()).unwrap();
         assert_eq!(summary.rejected_sessions, 1);
         assert!(reconcile_session(temporary.path(), OsStr::new("../escape")).is_err());
+    }
+
+    #[cfg(feature = "recording-vp9-prototype")]
+    #[test]
+    fn interrupted_vp9_segments_merge_into_a_complete_recording() {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut journal =
+            RecordingJournal::create(temporary.path(), vp9_journal_config("merge-two")).unwrap();
+        commit_vp9_segment(&mut journal, [16, 32, 64]);
+        commit_vp9_segment(&mut journal, [200, 180, 160]);
+        journal.interrupt().unwrap();
+        assert!(list_library(temporary.path()).unwrap()[0].can_merge);
+
+        merge_interrupted_vp9_session(temporary.path(), "merge-two").unwrap();
+
+        let session = temporary
+            .path()
+            .join(RECORDINGS_DIRECTORY)
+            .join("merge-two");
+        let manifest = read_manifest(&session.join(MANIFEST_FILE)).unwrap();
+        assert_eq!(manifest.state, RecordingState::Complete);
+        assert!(manifest.recovery.is_none());
+        assert_eq!(manifest.segments.len(), 2);
+        let final_output = manifest.final_output.unwrap();
+        assert_eq!(final_output.duration_ns, 400_000_000);
+        assert_eq!(final_output.frame_count, 4);
+        assert!(session.join("recording.webm").is_file());
+        assert!(!session.join(".recording.webm.partial").exists());
+        let item = list_library(temporary.path()).unwrap().pop().unwrap();
+        assert_eq!(item.state, "complete");
+        assert_eq!(item.artifacts[0].artifact_id, "final");
+    }
+
+    #[cfg(feature = "recording-vp9-prototype")]
+    #[test]
+    fn failed_recovery_merge_preserves_interrupted_manifest_and_segments() {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut journal =
+            RecordingJournal::create(temporary.path(), vp9_journal_config("merge-tampered"))
+                .unwrap();
+        commit_vp9_segment(&mut journal, [16, 32, 64]);
+        journal.interrupt().unwrap();
+        let session = temporary
+            .path()
+            .join(RECORDINGS_DIRECTORY)
+            .join("merge-tampered");
+        fs::write(session.join("segment-000000.webm"), b"tampered").unwrap();
+
+        assert!(merge_interrupted_vp9_session(temporary.path(), "merge-tampered").is_err());
+
+        let manifest = read_manifest(&session.join(MANIFEST_FILE)).unwrap();
+        assert_eq!(manifest.state, RecordingState::Interrupted);
+        assert!(manifest.final_output.is_none());
+        assert!(session.join("segment-000000.webm").exists());
+        assert!(!session.join("recording.webm").exists());
+        assert!(!session.join(".recording.webm.partial").exists());
     }
 }

@@ -57,6 +57,9 @@ pub struct AppState {
     pub recording_controls: Arc<crate::recording::RecordingControlRegistry>,
     /// 录屏结果窗播放租约与真实文件路径的唯一进程级 owner。
     pub recording_media: Arc<crate::recording::RecordingMediaManager>,
+    /// 异常录屏恢复 remux 的唯一进程级大文件 I/O 槽。
+    #[cfg(feature = "recording-vp9-prototype")]
+    pub recording_merges: Arc<crate::recording::RecordingMergeRegistry>,
     pub pin_manager: Arc<crate::pin::PinManager>,
     pub pin_workspace_persistence: Arc<crate::pin::PinWorkspacePersistence>,
     /// 我们自己截下来、复制进剪贴板的图 → 它原本在屏幕上的位置。
