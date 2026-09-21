@@ -88,6 +88,11 @@ impl PartialEq for RecordingControlTarget {
                 all(target_os = "macos", feature = "recording-macos-screencapturekit")
             ))]
             (Self::NativeWindow(left), Self::NativeWindow(right)) => left == right,
+            #[cfg(any(
+                test,
+                target_os = "linux",
+                all(target_os = "macos", feature = "recording-macos-screencapturekit")
+            ))]
             _ => false,
         }
     }

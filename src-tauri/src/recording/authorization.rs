@@ -23,10 +23,12 @@ impl RecordingAuthorizationCancellation {
         first
     }
 
+    #[cfg(any(test, target_os = "linux"))]
     pub(super) fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Acquire)
     }
 
+    #[cfg(any(test, target_os = "linux"))]
     pub(super) async fn cancelled(&self) {
         loop {
             let changed = self.changed.notified();
