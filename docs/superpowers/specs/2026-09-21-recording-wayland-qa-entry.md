@@ -44,8 +44,9 @@ ScreenCast Portal + PipeWire 区域录屏链路。系统选源对话框必须绑
 - [x] 托盘控制只操作后端当前活动 token，并覆盖空闲、录制、暂停、停止和迟到事件状态。
 - [x] Wayland 四个结构化 QA profile 使用可执行录屏合同，X11/Windows/macOS 合同不回退。
 - [x] `cargo fmt`、Rust check/clippy/test、前端测试/类型检查/构建和仓库静态门禁通过。
-- [ ] 同一 SHA 的 Ubuntu/Windows/macOS 原生 CI 与 Linux QA 包成功；原生 Wayland 真机记录完成前不
-  把该入口记为默认或发布可用。
+- [x] 同一 SHA 的 Ubuntu/Windows/macOS 原生 CI、Linux QA 包与 Ubuntu 24 AppImage runtime smoke
+  成功。
+- [ ] GNOME、KDE、wlroots 原生 Wayland 真机记录完成前，不把该入口记为默认或发布可用。
 
 ## Out of Scope
 
@@ -65,5 +66,13 @@ ScreenCast Portal + PipeWire 区域录屏链路。系统选源对话框必须绑
   私有 Xvfb 的集成测试保持忽略，并已由默认完整门禁的隔离 X11 步骤执行通过。
 - 授权取消、错误 target、授权页迟到 ready、空启动会话回滚和迟到原生菜单 generation 均有回归
   测试；专用 feature 的 Portal parent 依赖不进入 default/release feature。
-- 同一 SHA 的 Ubuntu/Windows/macOS 原生 CI、Linux QA 包与 GNOME/KDE/wlroots 真机 profile：
-  `not_run`。这些证据完成前，本能力保持非默认 QA 原型。
+- 2026-09-21：同一 SHA `7b8f1b9a8480fc651faae1af2b6e84c41c51fd34` 的
+  [CI Check 35574613771](https://github.com/51hhh/Clippy/actions/runs/35574613771) 七个 job 全部通过，
+  覆盖 Ubuntu 主检查、Windows/macOS 原生 check/clippy/test，以及 Ubuntu、Windows、macOS ARM64
+  和 macOS Intel 的录屏编码原型。
+- 2026-09-21：同一 SHA 的
+  [Native QA 35577757619](https://github.com/51hhh/Clippy/actions/runs/35577757619) 五个 job 全部通过，
+  生成 Linux Wayland、Windows x64、macOS Intel/Apple Silicon QA 包，并通过 Ubuntu 24 AppImage
+  runtime smoke。
+- GNOME、KDE、wlroots 真机上的 Portal 授权、选区像素、光标、托盘控制与强杀恢复 profile 仍为
+  `not_run`。安装包生成不能替代真机录制，本能力保持非默认 QA 原型。
