@@ -88,6 +88,36 @@ describe("真机 QA 合同", () => {
     }
   });
 
+  it.each(["linux-gnome-x11", "windows-10-x64", "windows-11-x64"])(
+    "%s 使用可执行的录屏原型合同",
+    (profileId) => {
+      const ids = casesForProfile(profileId).map((testCase) => testCase.id);
+
+      expect(ids).toEqual(
+        expect.arrayContaining([
+          "recording_region_roundtrip",
+          "recording_control_exclusion",
+          "recording_recovery_roundtrip",
+        ]),
+      );
+      expect(ids).not.toContain("recording_entry_gated");
+    },
+  );
+
+  it.each([
+    "linux-gnome-wayland",
+    "linux-gnome-wayland-ubuntu24",
+    "linux-kde-wayland",
+    "linux-wlroots-wayland",
+    "macos-intel",
+    "macos-apple-silicon",
+  ])("%s 保持录屏入口关闭合同", (profileId) => {
+    const ids = casesForProfile(profileId).map((testCase) => testCase.id);
+
+    expect(ids).toContain("recording_entry_gated");
+    expect(ids).not.toContain("recording_region_roundtrip");
+  });
+
   it.each(Object.keys(QA_PROFILES))("%s 的完整证据可以通过", (profileId) => {
     const verification = verifyQaRecord(completedRecord(profileId));
     expect(verification.errors).toEqual([]);

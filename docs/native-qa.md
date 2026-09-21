@@ -32,6 +32,11 @@ CI 通过后，在 GitHub Actions 中对同一 ref 手动运行 `Native QA Packa
 macOS QA 包仅做 Ad-Hoc 签名；updater 安装必须改用同 SHA 的正式 release 产物。当前正式 macOS release 也
 采用 Ad-Hoc 签名，因此只能验证功能和更新链，不能作为 Developer ID、公证或 Gatekeeper 信任证据。
 
+Linux x64 QA 包显式启用 `recording-vp9-prototype`，Windows x64 QA 包显式启用
+`recording-vp9-source-build`；这两套包用于取得录屏原型证据，不代表正式 release 已启用录屏。macOS
+QA 包保持默认 feature。安装前必须核对 `QA-BUILD.txt` 的 `recording_feature` 分别为对应 feature 或
+`disabled`，否则不能执行下文录屏场景。
+
 ## 2. 生成绑定版本的记录
 
 选择目标环境并生成模板：
@@ -184,7 +189,26 @@ node scripts/manual-qa.mjs verify \
 - 对最终 `.app`/DMG 验证严格代码签名、`Signature=adhoc`、目标架构、首次打开提示和 updater；明确记录
   它没有 Developer ID authority、公证或 stapled ticket，不能把手动允许误记成 Gatekeeper 公共信任。
 
-## 9. 结论规则
+## 9. 受门控录屏原型
+
+录屏原型当前只在同一 SHA 的 Linux X11 与 Windows 10/11 QA 包开放；没有音频。每次先保存安装包
+SHA-256、`QA-BUILD.txt` 和完整 commit，再执行对应模板中的三个录屏场景：
+
+1. 选取一个已知尺寸（建议 640×360 或 1280×720）的区域，录制至少 10 秒并移动光标；暂停至少 3 秒后
+   继续并停止。核对输出尺寸、光标、有效时长不含暂停段、结果库播放、首帧缩略图、导出和文件定位。
+2. Linux X11 把控制窗放在选区外；Windows 10 22H2/11 可把控制窗移入选区，输出仍不得出现控制窗，
+   以验证 `WDA_EXCLUDEFROMCAPTURE`。控制窗排除失败时开始操作必须回滚，不能生成静默污染的录屏。
+3. 在 100%/125%/150% 混合 DPI、负坐标和多显示器布局下重复区域录制，逐帧抽查边界与光标像素；记录
+   CPU、峰值内存、丢帧/重复帧和播放器兼容结果，不能只记录“文件能打开”。
+4. 连续录制超过 65 秒，确认至少一个周期分段已提交后强制终止进程。重启后中断会话必须列出可播放
+   分段和首帧缩略图，并能无损合并、播放及导出；未提交尾段不得冒充已恢复数据。
+5. Wayland 四个 profile 与 macOS 两个 profile 执行 `recording_entry_gated`：入口不得显示，直接请求开始
+   仍须拒绝。不要通过开发者控制台或修改 feature 绕过门控。
+
+Linux X11 与 Windows 的三项录屏记录全部完成前，`PX-REC-WINDOWS-QA-01` 保持待验收；编译、Xvfb、
+GitHub runner 或合成帧不能替代原生桌面证据。
+
+## 10. 结论规则
 
 - 原生 CI 与对应 profile 的结构化记录必须绑定同一 commit SHA。
 - `pass` 表示功能按步骤实际成功；`expected_degraded` 表示操作系统明确限制且产品按合同安全降级。

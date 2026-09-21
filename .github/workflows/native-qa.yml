@@ -40,7 +40,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           prefix-key: v1-rust
-          key: qa-linux-x64
+          key: qa-linux-x64-recording
           workspaces: src-tauri
 
       - name: Setup Node.js
@@ -53,6 +53,9 @@ jobs:
       - name: Install frontend dependencies
         working-directory: src
         run: npm ci
+
+      - name: Verify pinned recording codec supply chain
+        run: node scripts/verify-recording-codec-supply-chain.mjs
 
       - name: Verify PipeWire fast-path baseline
         run: |
@@ -69,6 +72,7 @@ jobs:
       - name: Build Linux QA bundles
         run: >-
           npx --prefix src tauri build --ci --no-sign
+          --features recording-vp9-prototype
           --config src-tauri/tauri.linux.conf.json
           --config src-tauri/tauri.ci.conf.json
 
@@ -83,7 +87,7 @@ jobs:
           mkdir -p qa-stage qa-artifacts
           cp src-tauri/target/release/bundle/deb/*.deb qa-stage/
           cp src-tauri/target/release/bundle/appimage/*.AppImage qa-stage/
-          printf 'commit=%s\nversion=%s\nplatform=linux-x64\nsigning=unsigned-qa-only\n' \
+          printf 'commit=%s\nversion=%s\nplatform=linux-x64\nsigning=unsigned-qa-only\nrecording_feature=recording-vp9-prototype\n' \
             "$GITHUB_SHA" "$(jq -r '.version' src-tauri/tauri.conf.json)" \
             > qa-stage/QA-BUILD.txt
           (cd qa-stage && sha256sum ./*.deb ./*.AppImage > SHA256SUMS.txt)
@@ -179,18 +183,20 @@ jobs:
   build-windows:
     name: QA Bundle (Windows x64)
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           prefix-key: v1-rust
-          key: qa-windows-x64
+          key: qa-windows-x64-recording-source
           workspaces: src-tauri
 
       - name: Setup Node.js
@@ -204,6 +210,26 @@ jobs:
         working-directory: src
         run: npm ci
 
+      - name: Install Windows recording source-build shell dependencies
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MSYS
+          update: false
+          install: make diffutils perl nasm
+
+      - name: Expose Windows recording source-build shell tools
+        shell: pwsh
+        run: echo '${{ steps.msys2.outputs.msys2-location }}\usr\bin' >> $env:GITHUB_PATH
+
+      - name: Install Windows MSBuild
+        uses: microsoft/setup-msbuild@v3
+        with:
+          msbuild-architecture: x64
+
+      - name: Verify pinned recording codec supply chain
+        run: node scripts/verify-recording-codec-supply-chain.mjs
+
       - name: Prepare self-signed Windows code-signing certificate
         shell: pwsh
         run: ./scripts/prepare-windows-signing.ps1
@@ -211,6 +237,7 @@ jobs:
       - name: Build Windows QA bundles
         run: >-
           npx --prefix src tauri build --ci
+          --features recording-vp9-source-build
           --config src-tauri/tauri.windows.conf.json
           --config src-tauri/tauri.ci.conf.json
           --config src-tauri/tauri.windows.signing.conf.json
@@ -241,6 +268,7 @@ jobs:
             "version=$version"
             "platform=windows-x64"
             "signing=self-signed-qa-only"
+            "recording_feature=recording-vp9-source-build"
           ) | Set-Content qa-artifacts/QA-BUILD.txt -Encoding utf8
           Get-ChildItem qa-artifacts -File | Where-Object Name -ne "SHA256SUMS.txt" |
             ForEach-Object {
@@ -343,7 +371,7 @@ jobs:
           DMG=$(find "$BUNDLE_DIR/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)
           [ -n "$DMG" ] || { echo '::error::macOS DMG was not generated'; exit 1; }
           cp "$DMG" qa-artifacts/
-          printf 'commit=%s\nversion=%s\nplatform=macos-%s\nsigning=ad-hoc-qa-only\n' \
+          printf 'commit=%s\nversion=%s\nplatform=macos-%s\nsigning=ad-hoc-qa-only\nrecording_feature=disabled\n' \
             "$GITHUB_SHA" "$(jq -r '.version' src-tauri/tauri.conf.json)" "$ASSET_ARCH" \
             > qa-artifacts/QA-BUILD.txt
           (cd qa-artifacts && shasum -a 256 ./*.dmg > SHA256SUMS.txt)

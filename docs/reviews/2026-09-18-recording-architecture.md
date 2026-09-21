@@ -5,7 +5,7 @@
 Clippy 现有截图后端不能直接循环调用成录屏。冻结截图优化的是一次性首帧延迟；录屏需要长寿命采集
 会话、单调时钟、背压、编码、容器封尾和崩溃恢复。第一阶段只交付单区域、无音频的视频，之后再
 增加单一音轨。发布默认入口必须等待采集、编码和恢复三条链在同一平台同时通过；当前只开放显式
-feature 下的原生 X11 验证入口。
+feature 下的原生 X11 与 Windows QA 验证入口。
 
 xcap 0.9 提供跨平台 `VideoRecorder`，但官方仍把 video recording 标为 WIP；公开 `Frame` 只有
 `width`、`height` 和 RGBA `raw`，不含采集时间戳，示例在接收端自行读取 `Instant`。本仓库
@@ -17,30 +17,34 @@ xcap 0.9 提供跨平台 `VideoRecorder`，但官方仍把 video recording 标�
 
 ## 当前实现状态（2026-09-21）
 
-第一条产品入口已经接到独立的 Recording 选区覆盖层，但仍属于受门控的 X11 阶段交付：
+第一条产品入口已经接到独立的 Recording 选区覆盖层。Linux X11 与 Windows 现进入受门控的真机
+QA 阶段，默认发布能力仍保持关闭：
 
 ### Goal
 
-在不扩大普通截图权限、也不对未验收平台作可用承诺的前提下，把既有 X11 + VP9 录屏领域链连接到
-一个用户可发现、后端可信的区域选择入口。
+在不扩大普通截图权限、也不对未验收平台作发布可用承诺的前提下，把既有 X11/Windows + VP9 录屏
+领域链连接到用户可发现、后端可信的区域选择入口与可安装 QA 包。
 
 ### Requirements
 
-- 仅在显式启用 `recording-vp9-prototype` feature 且运行于原生 X11 时，托盘显示“区域录屏”；
+- 仅在显式启用 `recording-vp9-prototype` feature 时开放入口：Linux 必须是原生 X11，Windows 必须是
+  Native 会话；默认构建、Linux Wayland、macOS 和未知会话继续隐藏入口；
 - 覆盖层复用多屏冻结、窗口命中和逻辑到物理 crop，窗口标签使用独立
   `recording-overlay-*` 调用域，只允许读取冻结帧、取消和开始录屏；
 - 普通截图会话不能升级为录屏，录屏会话也不能调用复制、标注、扫码、翻译或长截图命令；
 - 前端只提交后端签发会话中的逻辑选区。30 fps、包含光标、VP9 编码器、输出目录和录制 session ID
   由后端固定或生成；
-- 默认构建、Windows、macOS 和 Wayland 不显示入口。它们仍需完成下文的原生运行与真机验收，不能
-  因代码可编译而记为产品可用。
+- Windows 开始录制前必须应用现有 `WDA_EXCLUDEFROMCAPTURE` 控制窗排除；失败时回滚，不得录入控制窗；
+- Linux/Windows 原型仍需完成下文的原生运行与真机验收，不能因代码可编译而记为发布可用。
 
-本地开发使用 `cargo tauri dev --features recording-vp9-prototype` 启动；只有桌面会话事实源判定为
-原生 X11 时托盘才出现入口。
+本地 Linux 开发使用 `cargo tauri dev --features recording-vp9-prototype` 启动；Windows Native QA
+使用 `recording-vp9-source-build`。手动 QA workflow 只为 Linux X11 与 Windows 生成带入口的原型包，
+并在 `QA-BUILD.txt` 记录 feature；正式 release workflow 不启用它们。
 
 ### Acceptance Criteria
 
-- 策略测试证明 Wayland、Windows/macOS 原生会话和未知会话不开放入口，X11 还必须具备显式 feature；
+- 策略测试证明 Linux X11 与 Windows Native 只在显式 feature 下开放，Wayland、macOS 和未知会话
+  保持关闭；
 - 后端测试证明录屏会话签发 `recording-overlay-*` 标签及 `recording` payload，普通截图会话请求录屏
   返回 `capture_intent_mismatch` 且不释放或转换当前 gate；
 - IPC 权限测试证明录屏覆盖层不能提交截图、扫码、翻译、长截图或动作；
@@ -51,12 +55,14 @@ xcap 0.9 提供跨平台 `VideoRecorder`，但官方仍把 video recording 标�
 ### Out of Scope
 
 - 把录屏 feature 设为发布默认值；
-- Windows、macOS、Wayland 产品入口及对应真机验收；
+- macOS、Wayland 产品入口，以及把 Windows 原型升级为默认发布能力；
 - 音频、摄像头、自动进入剪贴板历史、录制参数 UI；
-- 用本次代码门禁替代 X11 真机画质、性能、控制窗排除、文件播放和崩溃恢复验收。
+- 用本次代码门禁替代 X11/Windows 真机画质、性能、控制窗排除、文件播放和崩溃恢复验收。
 
-本阶段的验收边界是“可信入口已接线且默认关闭”。X11 真机画质、性能、控制窗排除、停止后的文件
-播放与崩溃恢复仍属于第一阶段剩余验收；通过这些门槛后才能把 feature 设为发布默认值。
+本阶段的验收边界是“X11/Windows 可信 QA 入口已接线且默认关闭”。两平台的画质、性能、控制窗
+排除、停止后的文件播放与崩溃恢复仍属于第一阶段剩余验收；通过这些门槛后才能评估把 feature 设为
+发布默认值。完整合同见
+[`2026-09-21-recording-windows-qa-entry.md`](../superpowers/specs/2026-09-21-recording-windows-qa-entry.md)。
 
 ### 2026-09-21 同 SHA CI 证据
 
@@ -104,7 +110,7 @@ macOS Intel 四个录屏编码原型 job。这关闭了跨平台编译、链接�
 - 把多个独立 WebM 分段按字节拼接成一个文件；异常恢复由独立切片使用经过验证的 packet remux，
   普通字节拼接始终不是有效实现；
 - 持久缩略图、剪辑、重编码、云同步与自动加入剪贴板；
-- 音频轨、摄像头、Windows/macOS/Wayland 产品入口；
+- 音频轨、摄像头、Windows 默认发布入口及 macOS/Wayland 产品入口；
 - 用结果库的存在替代 X11 真机播放、性能、强杀恢复和文件管理器集成验收。
 
 ### `PX-REC-PLAYBACK-01` 后续切片（2026-09-21）
@@ -259,7 +265,8 @@ pipeline、采集线程和编码线程接成一个生命周期：正常 Stop 只
 不会遮住原始采集或编码错误。单活动注册表也已实现 `Starting → Recording → Stopping → Idle`，启动中
 和停止中都占槽，并以不可复用的 generation token 拒绝迟到的暂停、停止与取消；截图桌面资源交接
 状态机已经固定；Tauri 桌面恢复适配器、控制窗口宿主和受 caller 限制的暂停/继续/停止/取消 IPC
-现已接入。可信开始入口已在显式 VP9 feature 的原生 X11 构建中开放，默认构建和其他平台继续关闭。
+现已接入。可信开始入口已在显式 VP9 feature 的原生 X11 与 Windows QA 构建中开放；默认构建、
+macOS 和 Wayland 继续关闭。
 
 ### 编码器 A/B 工具与当前结论
 
@@ -405,8 +412,8 @@ VP9 已完整经过 capture worker、三槽 pipeline、WebM 封尾、私有分�
 清单中的 encoder/container、分段扩展名、时长与帧数均由同一选择产生。生命周期启动合同现由后端
 传入类型化编码器策略，默认测试继续使用 MJPEG 诊断 writer，feature 回归则证明同一生命周期能够
 选择 VP9 并提交最终 WebM；该选择不从 IPC 接受前端字符串或参数。平台开始适配器已接入领域生命周期，
-可信 Tauri 开始 IPC 也已接到显式 VP9 feature 的原生 X11 入口；默认策略仍未开放，因此这不代表
-VP9 已成为默认。编码线程现在默认每 60 秒、
+可信 Tauri 开始 IPC 也已接到显式 VP9 feature 的原生 X11 与 Windows QA 入口；默认策略仍未开放，
+因此这不代表 VP9 已成为默认。编码线程现在默认每 60 秒、
 最多允许 120 秒一个周期分段；跨过边界即原子
 提交，最后一段则在 Stop 后由会话 owner 核对时长与背压再把清单标为 complete。MJPEG 子进程强杀 fixture 已
 证明首段提交、次段仍打开时退出，启动恢复会保留可播放首段、删除未提交尾段并写 interrupted；同一
@@ -473,8 +480,8 @@ Linux X11 已加入持久 x11rb 连接的根窗口区域帧源：每次只请求
 控制通道错误及 `Drop` 回收都会中止 pipeline。独立诊断编码线程已闭合 capture → 三槽 pipeline →
 MJPEG/AVI：它阻塞等待帧，先排空已接受前缀，再使用同一最终时长封尾；编码失败或线程回收会反向
 中止 pipeline，停止仍在运行的采集线程。桌面资源恢复领域状态机、Tauri 控制窗宿主和控制 IPC 已
-接入；可信开始 IPC 现已在显式 VP9 的原生 X11 构建接通，X11 真机性能证据以及
-Windows/macOS/Wayland 原生验收仍未完成，因此默认构建仍不能从 UI 开始录屏。
+接入；可信开始 IPC 现已在显式 VP9 的原生 X11 与 Windows QA 构建接通，两平台真机性能证据以及
+macOS/Wayland 原生验收仍未完成，因此默认构建仍不能从 UI 开始录屏。
 
 Windows 平台已加入第一条 WGC 区域帧源骨架：冻结截图的显示器 ID 和物理像素尺寸会再次与当前
 `xcap` 显示器核对，WGC 整屏帧进入零容量通道后由 Clippy 单槽桥接只保留最新一帧，再按可信 crop
@@ -553,7 +560,7 @@ manager/lifecycle 关闭控制面、清理会话、释放 Recording gate。采�
 Tauri 桌面动作适配器现已复用截图覆盖层关闭、Pin/来源窗口恢复和 settle 合同；控制窗意外销毁、
 显示失败、正常停止与取消都会按 exact token 回收会话。平台计划已经接入这条生命周期；可信 Tauri
 开始命令已由独立 `recording-overlay-*` 调用域接入，并固定使用后端生成的会话身份、30 fps、光标
-和 VP9 原型；产品策略目前只对显式 VP9 构建的原生 X11 返回可用。
+和 VP9 原型；产品策略目前只对显式 VP9 构建的原生 X11 与 Windows Native 返回可用。
 
 控制窗 registry 已独立固定 `Preparing → Bound → Closing → Empty`：窗口只携带后端生成且不可复用的
 label，暂停/继续/停止命令从 registry 读取 exact generation token，不接收前端提交的 session ID 或

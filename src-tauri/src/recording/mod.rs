@@ -1,7 +1,7 @@
 //! 录屏会话的持久化基础。
 //!
-//! X11 帧源、诊断编码器、VP9 原型与控制宿主已经分层接入。可信开始入口只在显式 VP9 构建的
-//! 原生 X11 会话开放；默认构建与未完成原生验收的平台继续保持关闭。
+//! X11/Windows 帧源、诊断编码器、VP9 原型与控制宿主已经分层接入。可信开始入口只在显式 VP9
+//! 构建的原生 X11 或 Windows 会话开放；默认构建与未完成原生验收的平台继续保持关闭。
 
 mod manifest;
 // 独立 Recording 覆盖层通过这里完成可信选区交接；跨平台门控仍让部分构建不引用全部类型。
@@ -79,17 +79,23 @@ use std::fmt;
 use std::io;
 use std::path::Path;
 
-/// 当前阶段只允许显式启用 VP9 原型的原生 X11 构建进入产品选区。
-/// Windows、macOS 与 Wayland 的帧源骨架继续由 CI 编译，但在完成真机与控制面验收前不展示入口。
+/// 当前阶段只允许显式启用 VP9 原型的原生 X11 与 Windows 构建进入产品选区。
+/// 这是 QA 入口，不改变默认发布 feature；macOS 与 Wayland 在控制面闭环完成前继续保持关闭。
 pub(crate) fn product_entry_available() -> bool {
     product_entry_available_for(crate::platform::current_session())
 }
 
 fn product_entry_available_for(session: crate::platform::DesktopSession) -> bool {
-    cfg!(all(
-        feature = "recording-vp9-prototype",
-        target_os = "linux"
-    )) && session == crate::platform::DesktopSession::X11
+    if !cfg!(feature = "recording-vp9-prototype") {
+        return false;
+    }
+    match session {
+        crate::platform::DesktopSession::X11 => cfg!(target_os = "linux"),
+        crate::platform::DesktopSession::Native => cfg!(target_os = "windows"),
+        crate::platform::DesktopSession::Wayland | crate::platform::DesktopSession::Unknown => {
+            false
+        }
+    }
 }
 
 #[cfg(test)]
@@ -99,22 +105,25 @@ mod product_entry_tests {
 
     #[test]
     fn product_entry_policy_rejects_unapproved_sessions() {
-        for session in [
-            DesktopSession::Wayland,
-            DesktopSession::Native,
-            DesktopSession::Unknown,
-        ] {
+        for session in [DesktopSession::Wayland, DesktopSession::Unknown] {
             assert!(!product_entry_available_for(session));
         }
     }
 
     #[test]
-    fn x11_requires_the_explicit_vp9_linux_build() {
+    fn x11_and_windows_native_require_their_explicit_vp9_builds() {
         assert_eq!(
             product_entry_available_for(DesktopSession::X11),
             cfg!(all(
                 feature = "recording-vp9-prototype",
                 target_os = "linux"
+            ))
+        );
+        assert_eq!(
+            product_entry_available_for(DesktopSession::Native),
+            cfg!(all(
+                feature = "recording-vp9-prototype",
+                target_os = "windows"
             ))
         );
     }

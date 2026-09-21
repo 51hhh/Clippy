@@ -164,6 +164,7 @@ describe("原生平台由真实 runner 编译", () => {
 
   it("手动 QA workflow 为同一 SHA 生成四架构包、Ubuntu 24 证据与九环境记录", () => {
     const qaWorkflow = read(".github/workflows/native-qa.yml");
+    const releaseWorkflow = read(".github/workflows/release.yml");
     expect(buildWorkflow).not.toContain("QA artifact");
     expect(qaWorkflow).toMatch(/on:\s*\n\s+workflow_dispatch:/);
     for (const artifact of [
@@ -193,6 +194,21 @@ describe("原生平台由真实 runner 编译", () => {
     expect(qaWorkflow).toContain("plutil -extract CFBundleExecutable raw");
     expect(qaWorkflow).toContain('lipo -archs "$EXECUTABLE"');
     expect(qaWorkflow).not.toContain('Contents/MacOS/Clippy"');
+    expect(qaWorkflow).toContain(
+      "npx --prefix src tauri build --ci --no-sign\n          " +
+        "--features recording-vp9-prototype",
+    );
+    expect(qaWorkflow).toContain(
+      "npx --prefix src tauri build --ci\n          " +
+        "--features recording-vp9-source-build",
+    );
+    expect(qaWorkflow).toContain("msys2/setup-msys2@v2");
+    expect(qaWorkflow).toContain("microsoft/setup-msbuild@v3");
+    expect(qaWorkflow).toContain("components: llvm-tools-preview");
+    expect(qaWorkflow).toContain("recording_feature=recording-vp9-prototype");
+    expect(qaWorkflow).toContain("recording_feature=recording-vp9-source-build");
+    expect(qaWorkflow).toContain("recording_feature=disabled");
+    expect(releaseWorkflow).not.toContain("recording-vp9");
   });
 });
 

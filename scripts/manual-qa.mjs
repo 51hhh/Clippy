@@ -52,6 +52,26 @@ const COMMON_CASES = Object.freeze([
   pass("updater_roundtrip", "安装类型识别、检查更新、下载安装与重启"),
 ]);
 
+const RECORDING_AVAILABLE_CASES = Object.freeze([
+  pass(
+    "recording_region_roundtrip",
+    "受门控区域录屏、光标、暂停/继续/停止与结果库播放导出",
+  ),
+  pass(
+    "recording_control_exclusion",
+    "录屏控制窗按平台合同排除且不进入输出画面",
+  ),
+  pass(
+    "recording_recovery_roundtrip",
+    "周期分段强杀恢复、首帧缩略图与无损合并",
+  ),
+]);
+
+const RECORDING_GATED_CASE = pass(
+  "recording_entry_gated",
+  "未开放平台不显示区域录屏入口且开始命令保持拒绝",
+);
+
 const PROFILES = {
   "linux-gnome-x11": {
     label: "Ubuntu 22.04 GNOME 42 X11",
@@ -63,6 +83,7 @@ const PROFILES = {
       pass("mixed_dpi", "多显示器、负坐标与混合缩放"),
       pass("pin_topmost", "Pin 窗口持续置顶"),
       pass("capture_diagnostics", "截图诊断 I1–I5 与 fixture 输出"),
+      ...RECORDING_AVAILABLE_CASES,
     ],
   },
   "linux-gnome-wayland": {
@@ -78,6 +99,7 @@ const PROFILES = {
       degraded("pin_topmost_limit", "永久置顶限制与 UI 如实降级", "wayland_protocol_limited"),
       pass("mixed_dpi", "多显示器、负坐标与混合缩放"),
       pass("capture_diagnostics", "截图诊断 I1–I5 与 fixture 输出"),
+      RECORDING_GATED_CASE,
     ],
   },
   "linux-gnome-wayland-ubuntu24": {
@@ -95,6 +117,7 @@ const PROFILES = {
       degraded("pin_topmost_limit", "永久置顶限制与 UI 如实降级", "wayland_protocol_limited"),
       pass("mixed_dpi", "多显示器、负坐标与混合缩放"),
       pass("capture_diagnostics", "截图诊断 I1–I5 与 fixture 输出"),
+      RECORDING_GATED_CASE,
     ],
   },
   "linux-kde-wayland": {
@@ -110,6 +133,7 @@ const PROFILES = {
       degraded("window_pick_limit", "缺少全局窗口几何时不声称窗口命中", "wayland_protocol_limited"),
       degraded("absolute_position_limit", "绝对定位限制与 UI 如实降级", "wayland_protocol_limited"),
       degraded("pin_topmost_limit", "永久置顶限制与 UI 如实降级", "wayland_protocol_limited"),
+      RECORDING_GATED_CASE,
     ],
   },
   "linux-wlroots-wayland": {
@@ -123,6 +147,7 @@ const PROFILES = {
       degraded("absolute_position_limit", "绝对定位限制与 UI 如实降级", "wayland_protocol_limited"),
       degraded("pin_topmost_limit", "永久置顶限制与 UI 如实降级", "wayland_protocol_limited"),
       degraded("portal_unavailable", "缺失 Portal 接口时给出稳定原因", "wayland_portal_unavailable"),
+      RECORDING_GATED_CASE,
     ],
   },
   "windows-10-x64": {
@@ -138,6 +163,7 @@ const PROFILES = {
       pass("pin_topmost", "原生 topmost 与焦点行为"),
       pass("installer_nsis_msi", "NSIS/MSI 安装、卸载和升级"),
       pass("private_file_acl", "私有目录、旧文件修复与原子替换 ACL"),
+      ...RECORDING_AVAILABLE_CASES,
     ],
   },
   "windows-11-x64": {
@@ -153,6 +179,7 @@ const PROFILES = {
       pass("pin_topmost", "原生 topmost 与焦点行为"),
       pass("installer_nsis_msi", "NSIS/MSI 安装、卸载和升级"),
       pass("private_file_acl", "私有目录、旧文件修复与原子替换 ACL"),
+      ...RECORDING_AVAILABLE_CASES,
     ],
   },
   "macos-intel": {
@@ -182,6 +209,7 @@ const PROFILES = {
         "adhoc_bundle_boundary",
         "Ad-Hoc 签名、目标架构、未公证边界与首次打开恢复",
       ),
+      RECORDING_GATED_CASE,
     ],
   },
   "macos-apple-silicon": {
@@ -211,6 +239,7 @@ const PROFILES = {
         "adhoc_bundle_boundary",
         "Ad-Hoc 签名、目标架构、未公证边界与首次打开恢复",
       ),
+      RECORDING_GATED_CASE,
     ],
   },
 };
