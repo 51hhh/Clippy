@@ -133,6 +133,11 @@
 
 ### 🐛 修复
 
+- Linux AppImage 不再让 Ubuntu 22 的 GLib/GIO 扫描 Ubuntu 26 宿主的 dconf/GVFS 模块；封装时
+  在 GTK hook 首次调用桌面工具前把 GIO 模块目录隔离到 AppDir，同时保留随包分发的 GTK/WebKit
+  与 GLib/GIO。Ubuntu 26 原生 Wayland 启动不再出现缺失符号，双屏协议连接与混合缩放保持正常。
+  （需求：`PX-REC-WAYLAND-QA-01`）
+
 - Windows 的 VP9 录屏原型不再把含 MinGW/pthread 符号的上游预编译库交给 MSVC 链接器；原生 CI
   改从固定 SHA-256 的 libvpx 1.16.0 源码生成 v143 工程并用 MSBuild 构建，关闭不兼容符号重写的
   LTCG、保留 `MaxSpeed` 优化并安装公开头文件；GNU 预编译包只允许 GNU 目标使用。

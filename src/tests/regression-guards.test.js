@@ -341,6 +341,15 @@ describe("release 下载链接与构建矩阵同步", () => {
     expect(script).toContain("Final AppImage still bundles host PipeWire ABI libraries");
   });
 
+  it("AppImage 的 GIO 模块与随包 GLib 使用同一 ABI", () => {
+    const script = read("scripts/finalize-appimage.sh");
+    expect(script).toContain("GIO_MODULE_DIRS");
+    expect(script).toContain("linuxdeploy-plugin-gtk.sh");
+    expect(script).toContain("isolate bundled GIO modules from the host ABI");
+    expect(script).toContain('export GIO_MODULE_DIR="$APPDIR/');
+    expect(script).toContain("Final AppImage does not isolate bundled GIO modules");
+  });
+
   it("updater 用的无后缀 Linux 产物只从单一 Jammy label 进入汇总", () => {
     // 无后缀名是更新器按固定 URL 找的那份；Linux matrix 若扩成多个 runner，必须先
     // 重新设计 artifact 名，不能让多个生产者写入同一个 release-linux-x64。

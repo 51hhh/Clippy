@@ -35,6 +35,10 @@ ScreenCast Portal + PipeWire 区域录屏链路。系统选源对话框必须绑
    强杀恢复；X11 profile 仍执行现有控制窗在选区外合同。
 8. 架构文档、Native QA 文档、结构化模板和 CHANGELOG 同步记录该能力仍为无音频、非默认原型。
    GitHub runner 编译和安装包生成不能替代 GNOME、KDE、wlroots 真机 Portal/PipeWire 验收。
+9. Linux AppImage 继续携带 GTK/WebKit 与同一构建集的 GLib/GIO，并在启动 hook 第一次调用
+   `dbus-send`/`gsettings` 前把 GIO 模块目录隔离到 AppDir；不得让旧 libgio 扫描目标系统更新的
+   dconf/GVFS 模块。原生 Wayland 连接必须由运行时协议证据确认，不能只从
+   `XDG_SESSION_TYPE` 推断。
 
 ## Acceptance Criteria
 
@@ -46,6 +50,8 @@ ScreenCast Portal + PipeWire 区域录屏链路。系统选源对话框必须绑
 - [x] `cargo fmt`、Rust check/clippy/test、前端测试/类型检查/构建和仓库静态门禁通过。
 - [x] 同一 SHA 的 Ubuntu/Windows/macOS 原生 CI、Linux QA 包与 Ubuntu 24 AppImage runtime smoke
   成功。
+- [x] Ubuntu 26 AppImage 以原生 Wayland 连接两块混合缩放输出，且构建机 GLib/GIO 不再扫描宿主
+  dconf/GVFS 模块。
 - [ ] GNOME、KDE、wlroots 原生 Wayland 真机记录完成前，不把该入口记为默认或发布可用。
 
 ## Out of Scope
@@ -60,7 +66,7 @@ ScreenCast Portal + PipeWire 区域录屏链路。系统选源对话框必须绑
 
 - `./scripts/ci-local.sh`：25 项通过、0 失败；非宿主交叉 lint 与 AppImage smoke 2 项按脚本配置
   跳过。默认 Rust 主测试 1048 项通过、14 项忽略；X11 私有剪贴板协议与大图传输通过；前端 73 个
-  文件、1246 项测试以及 DOM、Canvas、布局 smoke 和 Vite 构建通过。
+  文件、1250 项测试以及 DOM、Canvas、布局 smoke 和 Vite 构建通过。
 - `cargo clippy --all-targets --features recording-wayland-qa -- -D warnings`：通过。
 - `cargo test --features recording-wayland-qa`：Rust 主测试 1074 项通过、0 失败、15 项忽略；4 项需
   私有 Xvfb 的集成测试保持忽略，并已由默认完整门禁的隔离 X11 步骤执行通过。
@@ -74,5 +80,11 @@ ScreenCast Portal + PipeWire 区域录屏链路。系统选源对话框必须绑
   [Native QA 35577757619](https://github.com/51hhh/Clippy/actions/runs/35577757619) 五个 job 全部通过，
   生成 Linux Wayland、Windows x64、macOS Intel/Apple Silicon QA 包，并通过 Ubuntu 24 AppImage
   runtime smoke。
+- 2026-09-21：在 Ubuntu 26.04 / GNOME 50.1 / Wayland 上复现 Jammy GLib/GIO 加载宿主 dconf/GVFS
+  模块的缺失符号；在 GTK hook 首次调用宿主工具前把 `GIO_MODULE_DIR` 固定到 AppDir 后，启动日志
+  无模块加载错误，同时保留 AppImage 自带运行库。`WAYLAND_DEBUG=1` 记录 `wl_display`、两块
+  `wl_output`、逻辑坐标与 2x 缩放，证明应用使用原生 Wayland，而非仅依据环境变量判断。
+- 下载同一 SHA 的 Linux QA AppDir 后用当前 `finalize-appimage.sh` 重封装；最终 AppImage 的隔离
+  X11 首帧/几何/单实例 smoke 通过，包内 hook 与 GLib/GIO 均经 SquashFS 复核。
 - GNOME、KDE、wlroots 真机上的 Portal 授权、选区像素、光标、托盘控制与强杀恢复 profile 仍为
   `not_run`。安装包生成不能替代真机录制，本能力保持非默认 QA 原型。
