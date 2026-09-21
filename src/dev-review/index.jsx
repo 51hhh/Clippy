@@ -105,7 +105,7 @@ function Review() {
   }, [clip, config, image, imageView, scenario, store, text, zh]);
   return <main className="dev-review">
     <header className="review-header"><div><strong>Clippy</strong><span>{zh ? "开发审阅 · 合成数据" : "Development review · synthetic data"}</span></div>
-      <nav><a href={`./index.html?lang=${language}`}>{zh ? "图片侧栏" : "Image sidebar"}</a><a href={`./pin.html?lang=${language}&mode=close`}>{zh ? "Pin 关闭" : "Pin close"}</a><a href={`./pin.html?lang=${language}&mode=save`}>{zh ? "Pin 保存" : "Pin save"}</a><a href={`./capture.html?lang=${language}`}>{zh ? "截图" : "Capture"}</a><a href={`./states.html?lang=${language}`}>{zh ? "更新与反馈" : "Updates & feedback"}</a></nav>
+      <nav><a href={`./index.html?lang=${language}`}>{zh ? "图片侧栏" : "Image sidebar"}</a><a href={`./pin.html?lang=${language}&mode=close`}>{zh ? "Pin 关闭" : "Pin close"}</a><a href={`./pin.html?lang=${language}&mode=save`}>{zh ? "Pin 保存" : "Pin save"}</a><a href={`./capture.html?lang=${language}`}>{zh ? "截图" : "Capture"}</a><a href={`./recordings.html?lang=${language}`}>{zh ? "录屏结果" : "Recordings"}</a><a href={`./states.html?lang=${language}`}>{zh ? "更新与反馈" : "Updates & feedback"}</a></nav>
     </header>
     <p className="review-note">{zh ? "使用真实产品组件与主题。复制、识别、翻译和贴图为可控演示，不访问个人剪贴板、外部服务或系统窗口。" : "Actual product components and themes. Copy, recognition, translation and Pin are controlled demonstrations with no personal clipboard, external service or system window access."}</p>
     <div className="review-controls">

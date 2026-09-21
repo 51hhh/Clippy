@@ -145,7 +145,9 @@ const RECORDING_LIBRARY_COMMANDS: &[&str] = &[
     "export_recording_artifact",
     "get_recording_library_settings",
     "list_recordings",
+    "prepare_recording_playback",
     "recording_library_ready",
+    "release_recording_playback",
     "reveal_recording_artifact",
     "start_recording_library_drag",
 ];

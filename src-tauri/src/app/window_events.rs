@@ -112,6 +112,21 @@ pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
         tauri::WindowEvent::Destroyed if window.label().starts_with("recording-control-") => {
             crate::recording::handle_control_destroyed(window.app_handle(), window.label());
         }
+        tauri::WindowEvent::Destroyed if window.label() == "recordings" => {
+            // Alt+F4、窗口管理器退出和 WebView 崩溃不会经过前端 close 命令。只有确认同名窗口
+            // 尚未重建时才退休全部媒体租约，避免旧 Destroyed 清掉新结果窗刚签发的租约。
+            if window
+                .app_handle()
+                .get_webview_window(window.label())
+                .is_none()
+            {
+                if let Some(state) = window.app_handle().try_state::<AppState>() {
+                    if let Err(error) = state.recording_media.clear() {
+                        log::warn!("录屏结果窗销毁后清理播放租约失败: {error}");
+                    }
+                }
+            }
+        }
         tauri::WindowEvent::Destroyed if window.label() == "settings" => {
             let app = window.app_handle().clone();
             tauri::async_runtime::spawn(async move {

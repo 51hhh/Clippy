@@ -56,6 +56,7 @@ export type {
   RecordingLibraryArtifact,
   RecordingLibraryItem,
   RecordingLibrarySettings,
+  RecordingPlaybackLease,
   ServiceTranslation,
   ShortcutConflict,
   ShortcutRegisterFailure,

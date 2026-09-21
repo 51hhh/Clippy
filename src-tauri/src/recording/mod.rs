@@ -39,6 +39,8 @@ mod control_registry;
 pub(crate) mod control_host;
 // 完整输出与中断分段通过独立结果库导出；WebView 不接触应用数据路径。
 pub(crate) mod library;
+// 录屏结果只通过结果窗专属的有界 Range 协议读取；WebView 不接触真实路径。
+pub(crate) mod media_protocol;
 // 控制窗是否可见必须先通过平台排除能力与物理几何规划；窗口宿主接入前先固定纯函数合同。
 #[allow(dead_code)]
 mod control_window;
@@ -61,6 +63,7 @@ pub(crate) use benchmark::{run_x11_vp9_benchmark, X11Vp9BenchmarkOptions};
 pub(crate) use control_host::handle_control_destroyed;
 pub(crate) use control_registry::RecordingControlRegistry;
 pub(crate) use lifecycle::RecordingLifecycle;
+pub(crate) use media_protocol::RecordingMediaManager;
 #[cfg(feature = "recording-vp9-prototype")]
 pub(crate) use mux::vp9_webm::Vp9WebmWriter;
 

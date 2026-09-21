@@ -1,8 +1,9 @@
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import type {
   CaptureSelection,
   RecordingLibraryItem,
   RecordingLibrarySettings,
+  RecordingPlaybackLease,
   RecordingStopResult,
 } from "../ipc-types.ts";
 
@@ -50,6 +51,29 @@ export function startRecordingLibraryDrag(): Promise<void> {
 
 export function closeRecordingLibrary(): Promise<void> {
   return invoke<void>("close_recording_library");
+}
+
+export async function prepareRecordingPlayback(
+  sessionId: string,
+  artifactId: string,
+): Promise<RecordingPlaybackLease> {
+  const lease = await invoke<RecordingPlaybackLease>("prepare_recording_playback", {
+    sessionId,
+    artifactId,
+  });
+  if (!/^media-[a-f0-9]{16}$/.test(lease?.token) || lease.mimeType !== "video/webm") {
+    throw new Error("recordings.invalid_playback_lease");
+  }
+  return lease;
+}
+
+export function releaseRecordingPlayback(token: string): Promise<void> {
+  return invoke<void>("release_recording_playback", { token });
+}
+
+export function getRecordingMediaUrl(token: string): string {
+  if (!/^media-[a-f0-9]{16}$/.test(token)) throw new Error("recordings.invalid_playback_lease");
+  return convertFileSrc(token, "recording-media");
 }
 
 export function exportRecordingArtifact(sessionId: string, artifactId: string): Promise<boolean> {

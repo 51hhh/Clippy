@@ -66,6 +66,7 @@ flowchart LR
 | `window_controller.rs` | 主窗口 work area、logical/physical 尺寸与位置约束；设置窗口的开窗入口（托盘与 IPC 共用一份几何与标题） |
 | `i18n.rs` | 托盘菜单与 Rust 侧窗口标题的静态文案；语言解析与前端 `i18n.js` 同规则（显式值优先，`auto` 看 `LC_ALL`/`LC_MESSAGES`/`LANG`，其余回退英文） |
 | `capture/` | 单一 CaptureSession、冻结帧、多显示器覆盖层、裁剪与动作；`window_probe.rs` 按堆叠顺序（扩展 `sort_windows_by_stacking` / X11 `_NET_CLIENT_LIST_STACKING`）下发速选候选。冻结帧像素由 `get_capture_frame` 以二进制 IPC 直传原始 RGBA（payload 只带几何），`StageTimings` 每次会话记一条分段耗时日志 |
+| `recording/` | `RecordingLifecycle` 串起可信选区、平台帧源、三槽背压、单调时间线、VP9/WebM writer、恢复分段、控制窗和结果库；默认产品入口仍只在显式 feature 的原生 X11 开放。`manifest.rs` 拥有原子 journal、长度/SHA-256 与删除/导出安全合同；`media_protocol.rs` 在完整校验后签发结果窗专属租约，以最大 2 MiB 的单 Range 响应支持 WebM 库内播放，WebView 不接触真实路径。 |
 | `capture/shell_extension.rs` | 自带 GNOME Shell 扩展的安装/卸载/状态、令牌校验与截图调用（逐屏原始 RGBA `CaptureArea`、逐屏 PNG `ScreenshotArea`、整屏 `Screenshot`，`include_str!` 内嵌 `gnome-extension/`）。GNOME Wayland 下既没有面向普通应用的窗口几何接口，Portal 截图也要求"聚焦的应用"才能弹授权对话框（快捷键触发时必然失败），两件事都只能以扩展身份进 gnome-shell 做；装了要注销一次生效，升级同样要（`ReloadExtension` 已废弃，故有 `stale` 状态），卸载即时。安装只由设置页显式触发，启动时只做 `reconcile_on_startup`，绝不擅自安装。`place_window` 是贴图缩放的每帧热路径，它的前置检查（是不是 GNOME Wayland、装没装、协议版本够不够、令牌文件内容）缓存在 `placement_token()` 里：成功的结果一直有效，失败的结果 30 秒后重试，安装/卸载会立刻作废缓存。详见 [docs/capture-linux.md](capture-linux.md) |
 | `portal_shortcuts.rs` | 非 GNOME Wayland 的 XDG GlobalShortcuts Portal worker。完整配置一次性绑定到长生命周期 session；Portal 返回子集时逐动作记账。配置变化或录制快捷键会以代次取消正在等待用户确认的旧 Bind、关闭旧 session，再按完整配置建立新 session，避免旧会话与新会话同时响应。Tauri accelerator 会转换为 XDG `CTRL/ALT/SHIFT/LOGO + xkb keysym` 格式。 |
 | `screenshot.rs` + `screenshot/*` | 原始截图帧契约、PNG 编解码与平台后端选择。Wayland 按 Mutter PipeWire → Shell 扩展逐屏 → Shell 整屏 → wlroots → Portal（非交互）→ GNOME → xcap 回退；临时文件由 `TemporaryScreenshotFile` 兜底删除。`desktop_scale_at` 是图片像素到 CSS 像素的唯一真实缩放查询。Linux 后端依据、限制和测量记录见 [capture-linux.md](capture-linux.md)，基准方法见 [bench-baseline.md](bench-baseline.md) |
@@ -97,10 +98,14 @@ flowchart LR
 | `longshot-controller.html` + `react/longshot-controller/` | React/TS 功能岛 | 长截图追加、预览、完成与取消控制 |
 | `viewer.html` + `react/viewer/` | React/TS 功能岛 | 无限画布、OCR、扫码、取色、绘制与输出 |
 | `pin.html` + `react/pin/` | React/TS 功能岛 | 贴图显示、缩放、编辑、保存与关闭协议 |
+| `recording-control.html` + `react/recording-control/` | React/TS 功能岛 | 录屏暂停、继续、停止与取消 |
+| `recordings.html` + `react/recording-library/` | React/TS 功能岛 | 完整结果、恢复分段、按需播放、导出、定位与删除 |
+| `pin-workspaces.html` + `react/pin-workspace-library/` | React/TS 功能岛 | 已保存 Pin 的全局浏览、分组、重开与移除 |
+| `launcher.html` + `react/action-launcher/` | React/TS 功能岛 | 类型化动作搜索、参数、运行与组合 |
 | `react/annotation/` | 无独立入口的共享核心 | 截图、Pin 与查看器共用的操作文档和 Canvas 交互预览 |
 | `react/shared/` | 无独立入口的共享核心 | i18n、工具栏放置与拖动行为 |
 
-六个 HTML 入口由 `vite.config.mjs` 显式登记。功能岛之间不直接导入页面级状态；共享内容必须下沉到
+HTML 入口由 `vite.config.mjs` 显式登记。功能岛之间不直接导入页面级状态；共享内容必须下沉到
 `annotation/`、`shared/` 或后端稳定协议。
 
 | 模块 | 职责 |

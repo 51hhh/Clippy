@@ -738,3 +738,8 @@ export interface RecordingLibrarySettings {
   language: string;
   theme: string;
 }
+
+export interface RecordingPlaybackLease {
+  token: string;
+  mimeType: "video/webm";
+}

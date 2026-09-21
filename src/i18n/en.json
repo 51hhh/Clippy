@@ -911,5 +911,12 @@
   "recordings.working": "Working…",
   "recordings.delete": "Delete",
   "recordings.deleteConfirm": "Delete this recording and its recovery data?",
-  "recordings.cancel": "Cancel"
+  "recordings.cancel": "Cancel",
+  "recordings.play": "Play",
+  "recordings.playing": "Playing",
+  "recordings.loadingPreview": "Checking…",
+  "recordings.previewTitle": "Preview",
+  "recordings.closePreview": "Close preview",
+  "recordings.playbackUnsupported": "This system WebView cannot play the recording. Export it to use a system player.",
+  "recordings.actionError": "That recording action failed. You can retry or export the file."
 }

@@ -139,8 +139,8 @@ pub(crate) struct RecordingLibraryItem {
 pub(super) struct ResolvedRecordingArtifact {
     pub path: PathBuf,
     pub suggested_file_name: String,
-    byte_length: u64,
-    sha256: String,
+    pub byte_length: u64,
+    pub sha256: String,
 }
 
 #[derive(Debug, Clone)]
@@ -575,8 +575,19 @@ pub(super) fn resolve_library_artifact(
 }
 
 pub(super) fn verify_library_artifact(artifact: &ResolvedRecordingArtifact) -> Result<(), String> {
+    verify_library_artifact_with_checkpoint(artifact, || Ok(()))
+}
+
+pub(super) fn verify_library_artifact_with_checkpoint<F>(
+    artifact: &ResolvedRecordingArtifact,
+    checkpoint: F,
+) -> Result<(), String>
+where
+    F: FnMut() -> Result<(), String>,
+{
     ensure_artifact_metadata(&artifact.path, artifact.byte_length)?;
-    let (byte_length, sha256) = hash_file_with_limit(&artifact.path, artifact.byte_length)?;
+    let (byte_length, sha256) =
+        hash_file_with_limit_and_checkpoint(&artifact.path, artifact.byte_length, checkpoint)?;
     if byte_length != artifact.byte_length || sha256 != artifact.sha256 {
         return Err("录屏产物与恢复清单不一致".to_string());
     }
@@ -1298,6 +1309,17 @@ fn hash_file(path: &Path) -> Result<(u64, String), String> {
 }
 
 fn hash_file_with_limit(path: &Path, byte_limit: u64) -> Result<(u64, String), String> {
+    hash_file_with_limit_and_checkpoint(path, byte_limit, || Ok(()))
+}
+
+fn hash_file_with_limit_and_checkpoint<F>(
+    path: &Path,
+    byte_limit: u64,
+    mut checkpoint: F,
+) -> Result<(u64, String), String>
+where
+    F: FnMut() -> Result<(), String>,
+{
     let file = File::open(path).map_err(|error| format!("打开分段失败: {error}"))?;
     if !file
         .metadata()
@@ -1311,6 +1333,7 @@ fn hash_file_with_limit(path: &Path, byte_limit: u64) -> Result<(u64, String), S
     let mut buffer = [0_u8; 64 * 1024];
     let mut byte_length = 0_u64;
     loop {
+        checkpoint()?;
         let read = reader
             .read(&mut buffer)
             .map_err(|error| format!("读取分段失败: {error}"))?;

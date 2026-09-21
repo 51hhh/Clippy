@@ -911,5 +911,12 @@
   "recordings.working": "处理中…",
   "recordings.delete": "删除",
   "recordings.deleteConfirm": "删除这次录屏及其恢复数据？",
-  "recordings.cancel": "取消"
+  "recordings.cancel": "取消",
+  "recordings.play": "播放",
+  "recordings.playing": "播放中",
+  "recordings.loadingPreview": "校验中…",
+  "recordings.previewTitle": "录屏预览",
+  "recordings.closePreview": "关闭预览",
+  "recordings.playbackUnsupported": "当前系统 WebView 无法播放该录屏，请导出后使用系统播放器。",
+  "recordings.actionError": "这项录屏操作失败，可以重试或导出文件。"
 }

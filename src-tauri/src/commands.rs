@@ -55,6 +55,8 @@ pub struct AppState {
     /// 录屏核心与控制窗身份各自只有一个进程级 owner；产品入口尚未开放。
     pub recording_lifecycle: Arc<crate::recording::RecordingLifecycle>,
     pub recording_controls: Arc<crate::recording::RecordingControlRegistry>,
+    /// 录屏结果窗播放租约与真实文件路径的唯一进程级 owner。
+    pub recording_media: Arc<crate::recording::RecordingMediaManager>,
     pub pin_manager: Arc<crate::pin::PinManager>,
     pub pin_workspace_persistence: Arc<crate::pin::PinWorkspacePersistence>,
     /// 我们自己截下来、复制进剪贴板的图 → 它原本在屏幕上的位置。

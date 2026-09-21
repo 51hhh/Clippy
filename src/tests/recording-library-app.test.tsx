@@ -49,6 +49,12 @@ describe("recording library app", () => {
       exportArtifact: vi.fn(async () => true),
       revealArtifact: vi.fn(async () => {}),
       deleteSession: vi.fn(async () => {}),
+      preparePlayback: vi.fn(async () => ({
+        token: "media-0000000000000001",
+        mimeType: "video/webm" as const,
+      })),
+      releasePlayback: vi.fn(async () => {}),
+      mediaUrl: vi.fn((token: string) => `recording-media://localhost/${token}`),
       startDrag: vi.fn(async () => {}),
       close: vi.fn(async () => {}),
     };
@@ -97,6 +103,82 @@ describe("recording library app", () => {
     await act(async () => confirm.click());
     expect(services.deleteSession).toHaveBeenCalledWith("recording-1");
     expect(services.list).toHaveBeenCalledTimes(2);
+  });
+
+  it("prepares one opaque WebM lease and releases it when the preview closes", async () => {
+    await render();
+    const play = [...document.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "Play")!;
+    await act(async () => play.click());
+    expect(services.preparePlayback).toHaveBeenCalledWith("recording-1", "final");
+    expect(services.mediaUrl).toHaveBeenCalledWith("media-0000000000000001");
+    expect(document.querySelector("video source")?.getAttribute("src"))
+      .toBe("recording-media://localhost/media-0000000000000001");
+
+    const close = [...document.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "Close preview")!;
+    await act(async () => close.click());
+    expect(services.releasePlayback).toHaveBeenCalledWith("media-0000000000000001");
+    expect(document.querySelector("video")).toBeNull();
+  });
+
+  it("releases the current playback before deleting its session", async () => {
+    await render();
+    const play = [...document.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "Play")!;
+    await act(async () => play.click());
+
+    const deleteButton = [...document.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "Delete")!;
+    await act(async () => deleteButton.click());
+    const confirm = [...document.querySelectorAll<HTMLButtonElement>("button")]
+      .filter((button) => button.textContent === "Delete").at(-1)!;
+    await act(async () => confirm.click());
+
+    expect(services.releasePlayback).toHaveBeenCalledWith("media-0000000000000001");
+    expect(services.deleteSession).toHaveBeenCalledWith("recording-1");
+  });
+
+  it("keeps AVI diagnostic artifacts export-only", async () => {
+    vi.mocked(services.list).mockResolvedValueOnce([{ ...complete, container: "avi" }]);
+    await render();
+    expect([...document.querySelectorAll("button")].some((button) => button.textContent === "Play")).toBe(false);
+    expect(document.body.textContent).toContain("Export");
+  });
+
+  it("shows a recoverable inline error when WebView decoding fails", async () => {
+    await render();
+    const play = [...document.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "Play")!;
+    await act(async () => play.click());
+    await act(async () => document.querySelector("video")!.dispatchEvent(new Event("error")));
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("action failed");
+    expect(document.body.textContent).toContain("Export");
+  });
+
+  it("releases the previous lease when switching recoverable segments", async () => {
+    vi.mocked(services.list).mockResolvedValueOnce([{
+      ...complete,
+      state: "interrupted",
+      artifacts: [
+        { ...complete.artifacts[0], artifactId: "segment-000000", displayName: "segment-000000.webm" },
+        { ...complete.artifacts[0], artifactId: "segment-000001", displayName: "segment-000001.webm" },
+      ],
+    }]);
+    vi.mocked(services.preparePlayback)
+      .mockResolvedValueOnce({ token: "media-0000000000000001", mimeType: "video/webm" })
+      .mockResolvedValueOnce({ token: "media-0000000000000002", mimeType: "video/webm" });
+    await render();
+    let play = [...document.querySelectorAll<HTMLButtonElement>("button")]
+      .filter((button) => button.textContent === "Play");
+    await act(async () => play[0].click());
+    play = [...document.querySelectorAll<HTMLButtonElement>("button")]
+      .filter((button) => button.textContent === "Play");
+    await act(async () => play[0].click());
+    expect(services.preparePlayback).toHaveBeenLastCalledWith("recording-1", "segment-000001");
+    expect(services.releasePlayback).toHaveBeenCalledWith("media-0000000000000001");
+    expect(document.querySelector("video source")?.getAttribute("src"))
+      .toContain("media-0000000000000002");
   });
 
   it("shows an empty state and offers retry after a loading error", async () => {

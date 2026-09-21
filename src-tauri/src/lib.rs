@@ -88,6 +88,7 @@ pub fn run() {
         // 多份瞬时副本。协议按 WebView label 隔离，补偿图用版本化 URL 二次换入。
         .register_uri_scheme_protocol("pin-frame", pin::frame_protocol::handle)
         .register_uri_scheme_protocol("viewer-frame", viewer::frame_protocol::handle)
+        .register_uri_scheme_protocol("recording-media", recording::media_protocol::handle)
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             app::shortcuts::on_second_instance(app, args, cwd);
         }))
@@ -213,6 +214,7 @@ pub fn run() {
                 longshot_windows,
                 recording_lifecycle,
                 recording_controls,
+                recording_media: Arc::new(recording::RecordingMediaManager::default()),
                 pin_manager,
                 pin_workspace_persistence,
                 pin_origins: Arc::new(pin::PinOriginRegistry::default()),
@@ -435,6 +437,8 @@ pub fn run() {
             recording::library::recording_library_ready,
             recording::library::start_recording_library_drag,
             recording::library::close_recording_library,
+            recording::library::prepare_recording_playback,
+            recording::library::release_recording_playback,
             recording::library::export_recording_artifact,
             recording::library::reveal_recording_artifact,
             recording::library::delete_recording_session,

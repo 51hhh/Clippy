@@ -6,6 +6,7 @@
 use super::manifest::{self, RecordingLibraryItem};
 use crate::commands::AppState;
 use serde::Serialize;
+use std::sync::Arc;
 use tauri::{Manager, WebviewWindow};
 use tauri_plugin_opener::OpenerExt;
 
@@ -47,6 +48,13 @@ impl RecordingLibraryError {
 pub(crate) struct RecordingLibrarySettings {
     language: String,
     theme: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecordingPlaybackLease {
+    token: String,
+    mime_type: &'static str,
 }
 
 fn ensure_library(window: &WebviewWindow) -> Result<(), RecordingLibraryError> {
@@ -154,11 +162,61 @@ pub(crate) fn start_recording_library_drag(
 }
 
 #[tauri::command]
-pub(crate) fn close_recording_library(window: WebviewWindow) -> Result<(), RecordingLibraryError> {
+pub(crate) fn close_recording_library(
+    window: WebviewWindow,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), RecordingLibraryError> {
     ensure_library(&window)?;
+    state
+        .recording_media
+        .clear()
+        .map_err(RecordingLibraryError::storage)?;
     window.destroy().map_err(|error| {
         RecordingLibraryError::new("recording_library_window_failed", error.to_string())
     })
+}
+
+#[tauri::command]
+pub(crate) async fn prepare_recording_playback(
+    window: WebviewWindow,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    session_id: String,
+    artifact_id: String,
+) -> Result<RecordingPlaybackLease, RecordingLibraryError> {
+    ensure_library(&window)?;
+    let media = Arc::clone(&state.recording_media);
+    let generation = media.generation().map_err(RecordingLibraryError::storage)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let app_data_dir = app
+            .path()
+            .app_data_dir()
+            .map_err(|error| RecordingLibraryError::storage(error.to_string()))?;
+        let artifact = manifest::resolve_library_artifact(&app_data_dir, &session_id, &artifact_id)
+            .map_err(RecordingLibraryError::storage)?;
+        let lease = media
+            .issue(generation, &session_id, &artifact)
+            .map_err(RecordingLibraryError::storage)?;
+        Ok(RecordingPlaybackLease {
+            token: lease.token,
+            mime_type: lease.mime_type,
+        })
+    })
+    .await
+    .map_err(|error| RecordingLibraryError::storage(error.to_string()))?
+}
+
+#[tauri::command]
+pub(crate) fn release_recording_playback(
+    window: WebviewWindow,
+    state: tauri::State<'_, AppState>,
+    token: String,
+) -> Result<(), RecordingLibraryError> {
+    ensure_library(&window)?;
+    state
+        .recording_media
+        .revoke(&token)
+        .map_err(RecordingLibraryError::storage)
 }
 
 #[tauri::command]
@@ -228,14 +286,19 @@ pub(crate) async fn reveal_recording_artifact(
 pub(crate) async fn delete_recording_session(
     window: WebviewWindow,
     app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
     session_id: String,
 ) -> Result<(), RecordingLibraryError> {
     ensure_library(&window)?;
+    let media = Arc::clone(&state.recording_media);
     tauri::async_runtime::spawn_blocking(move || {
         let app_data_dir = app
             .path()
             .app_data_dir()
             .map_err(|error| RecordingLibraryError::storage(error.to_string()))?;
+        media
+            .revoke_session(&session_id)
+            .map_err(RecordingLibraryError::storage)?;
         manifest::delete_library_session(&app_data_dir, &session_id)
             .map_err(RecordingLibraryError::storage)
     })
