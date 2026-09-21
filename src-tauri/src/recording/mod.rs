@@ -29,6 +29,8 @@ mod session;
 // 单活动录屏注册表固定代次与迟到命令语义。
 #[allow(dead_code)]
 mod manager;
+// Portal 等系统授权等待由后端令牌取消；WebView 只凭受限 caller label 触发。
+mod authorization;
 // 恢复 remux 占用单一大文件 I/O 槽，避免多个会话同时挤压磁盘和内存。
 #[cfg(feature = "recording-vp9-prototype")]
 mod merge_registry;
@@ -79,10 +81,15 @@ use std::fmt;
 use std::io;
 use std::path::Path;
 
-/// 当前阶段只允许显式 QA feature 的原生 X11、Windows 与 macOS 12.3+ 构建进入产品选区。
-/// 这是 QA 入口，不改变默认发布 feature；Wayland 继续保持关闭。
+/// 当前阶段只允许显式 QA feature 的原生 X11、Wayland、Windows 与 macOS 12.3+ 构建进入产品选区。
+/// 这是 QA 入口，不改变默认发布 feature；Wayland 还额外要求专用 feature。
 pub(crate) fn product_entry_available() -> bool {
     product_entry_available_for(crate::platform::current_session())
+}
+
+pub(crate) fn wayland_tray_controls_available() -> bool {
+    cfg!(all(target_os = "linux", feature = "recording-wayland-qa"))
+        && crate::platform::current_session() == crate::platform::DesktopSession::Wayland
 }
 
 fn product_entry_available_for(session: crate::platform::DesktopSession) -> bool {
@@ -91,12 +98,13 @@ fn product_entry_available_for(session: crate::platform::DesktopSession) -> bool
     }
     match session {
         crate::platform::DesktopSession::X11 => cfg!(target_os = "linux"),
+        crate::platform::DesktopSession::Wayland => {
+            cfg!(all(target_os = "linux", feature = "recording-wayland-qa"))
+        }
         crate::platform::DesktopSession::Native => {
             cfg!(target_os = "windows") || macos_screencapturekit_runtime_available()
         }
-        crate::platform::DesktopSession::Wayland | crate::platform::DesktopSession::Unknown => {
-            false
-        }
+        crate::platform::DesktopSession::Unknown => false,
     }
 }
 
@@ -125,10 +133,8 @@ mod product_entry_tests {
     use crate::platform::DesktopSession;
 
     #[test]
-    fn product_entry_policy_rejects_unapproved_sessions() {
-        for session in [DesktopSession::Wayland, DesktopSession::Unknown] {
-            assert!(!product_entry_available_for(session));
-        }
+    fn product_entry_policy_rejects_unknown_sessions() {
+        assert!(!product_entry_available_for(DesktopSession::Unknown));
     }
 
     #[test]
@@ -139,6 +145,10 @@ mod product_entry_tests {
                 feature = "recording-vp9-prototype",
                 target_os = "linux"
             ))
+        );
+        assert_eq!(
+            product_entry_available_for(DesktopSession::Wayland),
+            cfg!(all(feature = "recording-wayland-qa", target_os = "linux"))
         );
         assert_eq!(
             product_entry_available_for(DesktopSession::Native),

@@ -26,6 +26,13 @@ linux-pipewire = []
 # Windows MSVC 与 macOS Intel 从固定哈希源码归档构建。四目标同 SHA 与真机 QA 通过前不能进入默认产品构建。
 recording-vp9-prototype = ["dep:shiguredo_libvpx", "dep:webm", "dep:yuv"]
 recording-vp9-source-build = ["recording-vp9-prototype", "shiguredo_libvpx/source-build"]
+# Linux Wayland 专用 QA 入口；默认/release 构建保持关闭。
+recording-wayland-qa = [
+    "recording-vp9-prototype",
+    "ashpd/raw_handle",
+    "ashpd/wayland",
+    "dep:raw-window-handle",
+]
 # macOS 12.3+ 专用 QA 帧源；保持与默认 macOS 11 发布包隔离。
 recording-macos-screencapturekit = [
     "recording-vp9-prototype",
@@ -116,6 +123,7 @@ gtk = { version = "0.18", features = ["v3_24"] }
 gdk = { version = "0.18", features = ["v3_24"] }
 inotify = "0.11"
 ashpd = { version = "0.13", features = ["screenshot", "documents", "remote_desktop", "screencast", "global_shortcuts"] }
+raw-window-handle = { version = "0.6", optional = true }
 libwayshot-xcap = "0.3"
 # Mutter 的 org.gnome.Mutter.ScreenCast 把画面走 PipeWire 送出来（不编 PNG，快一个数量级，
 # 见 docs/capture-linux.md §3.4）。所有 Linux 产物都必须包含这条主路径；仓库内的 libspa

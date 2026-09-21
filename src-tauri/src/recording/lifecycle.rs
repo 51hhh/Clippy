@@ -210,6 +210,24 @@ impl RecordingLifecycle {
         Ok(())
     }
 
+    /// 原生托盘没有 WebView caller，可只从当前 Active slot 取得 exact generation。
+    pub(super) fn pause_active(&self) -> Result<(), RecordingLifecycleError> {
+        let token = self.active_token()?;
+        self.pause(&token)
+    }
+
+    pub(super) fn resume_active(&self) -> Result<(), RecordingLifecycleError> {
+        let token = self.active_token()?;
+        self.resume(&token)
+    }
+
+    /// 原生菜单需要在事件回调当下固定代次，再把可能阻塞的停止工作交给后台线程。
+    pub(super) fn active_token_for_native(
+        &self,
+    ) -> Result<RecordingToken, RecordingLifecycleError> {
+        self.active_token()
+    }
+
     pub(super) fn stop<A: DesktopActions>(
         &self,
         token: &RecordingToken,
@@ -474,6 +492,19 @@ impl RecordingLifecycle {
         }
     }
 
+    fn active_token(&self) -> Result<RecordingToken, RecordingLifecycleError> {
+        let slot = self.lock_slot()?;
+        match &*slot {
+            LifecycleSlot::Active(active) => Ok(active.token.clone()),
+            LifecycleSlot::Empty => Err(RecordingLifecycleError::Missing),
+            LifecycleSlot::Starting
+            | LifecycleSlot::Publishing(_)
+            | LifecycleSlot::Terminating(_)
+            | LifecycleSlot::Releasing(_) => Err(RecordingLifecycleError::Busy),
+            LifecycleSlot::TerminalFailed => Err(RecordingLifecycleError::Superseded),
+        }
+    }
+
     fn claim_starting(&self) -> Result<(), RecordingLifecycleError> {
         let mut slot = self.lock_slot()?;
         if !matches!(*slot, LifecycleSlot::Empty) {
@@ -678,7 +709,7 @@ mod tests {
                     descriptor.height
                 ),
             )?;
-            Ok(self.control_target)
+            Ok(self.control_target.clone())
         }
 
         fn bind_control(&self, token: &RecordingToken) -> Result<(), String> {
@@ -825,7 +856,7 @@ mod tests {
         let events = Arc::new(Mutex::new(Vec::new()));
         let target = RecordingControlTarget::native_window(418);
         let actions = RecordingActions::new(Arc::clone(&gate), Arc::clone(&events))
-            .with_control_target(target);
+            .with_control_target(target.clone());
         let lifecycle = RecordingLifecycle::new();
         let ownership = Arc::clone(&gate)
             .try_claim_owned(CaptureMode::Ordinary)
@@ -1147,6 +1178,8 @@ mod tests {
                 &actions,
             )
             .unwrap();
+        let deferred_native_action = lifecycle.active_token_for_native().unwrap();
+        assert_eq!(deferred_native_action, first);
         lifecycle.cancel(&first, &actions).unwrap();
         let second = lifecycle
             .start_with(
@@ -1157,7 +1190,7 @@ mod tests {
             )
             .unwrap();
         assert!(matches!(
-            lifecycle.stop(&first, &actions),
+            lifecycle.stop(&deferred_native_action, &actions),
             Err(RecordingLifecycleError::Superseded)
         ));
         assert_eq!(

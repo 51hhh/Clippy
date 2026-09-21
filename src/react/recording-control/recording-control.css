@@ -31,6 +31,61 @@ body,
   box-shadow: 0 8px 28px rgba(2, 6, 23, 0.34);
 }
 
+.recording-control.authorization {
+  height: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-content: center;
+  gap: 12px;
+  padding: 18px;
+}
+
+.authorization-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(148, 163, 184, 0.35);
+  border-top-color: #818cf8;
+  border-radius: 50%;
+  animation: authorization-spin 0.9s linear infinite;
+}
+
+.authorization-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.authorization-copy strong {
+  font-size: 14px;
+}
+
+.authorization-copy span {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.authorization-cancel {
+  min-width: 76px;
+  padding: 8px 12px;
+  color: #e2e8f0;
+  background: #1e293b;
+  border: 1px solid #475569;
+  border-radius: 9px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.authorization-cancel:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+@keyframes authorization-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .recording-dot {
   width: 9px;
   height: 9px;

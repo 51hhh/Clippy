@@ -67,10 +67,24 @@ const RECORDING_AVAILABLE_CASES = Object.freeze([
   ),
 ]);
 
-const RECORDING_GATED_CASE = pass(
-  "recording_entry_gated",
-  "未开放平台不显示区域录屏入口且开始命令保持拒绝",
-);
+const WAYLAND_RECORDING_AVAILABLE_CASES = Object.freeze([
+  pass(
+    "recording_wayland_authorization",
+    "ScreenCast Portal 可信父窗口、允许/拒绝/取消与错误显示器回滚",
+  ),
+  pass(
+    "recording_region_roundtrip",
+    "Wayland 区域录屏、嵌入光标、托盘暂停/继续/停止与结果库播放导出",
+  ),
+  pass(
+    "recording_wayland_tray_controls",
+    "录制阶段授权窗隐藏且原生托盘控制不会进入输出画面",
+  ),
+  pass(
+    "recording_recovery_roundtrip",
+    "周期分段强杀恢复、首帧缩略图与无损合并",
+  ),
+]);
 
 const PROFILES = {
   "linux-gnome-x11": {
@@ -99,7 +113,7 @@ const PROFILES = {
       degraded("pin_topmost_limit", "永久置顶限制与 UI 如实降级", "wayland_protocol_limited"),
       pass("mixed_dpi", "多显示器、负坐标与混合缩放"),
       pass("capture_diagnostics", "截图诊断 I1–I5 与 fixture 输出"),
-      RECORDING_GATED_CASE,
+      ...WAYLAND_RECORDING_AVAILABLE_CASES,
     ],
   },
   "linux-gnome-wayland-ubuntu24": {
@@ -117,7 +131,7 @@ const PROFILES = {
       degraded("pin_topmost_limit", "永久置顶限制与 UI 如实降级", "wayland_protocol_limited"),
       pass("mixed_dpi", "多显示器、负坐标与混合缩放"),
       pass("capture_diagnostics", "截图诊断 I1–I5 与 fixture 输出"),
-      RECORDING_GATED_CASE,
+      ...WAYLAND_RECORDING_AVAILABLE_CASES,
     ],
   },
   "linux-kde-wayland": {
@@ -133,7 +147,7 @@ const PROFILES = {
       degraded("window_pick_limit", "缺少全局窗口几何时不声称窗口命中", "wayland_protocol_limited"),
       degraded("absolute_position_limit", "绝对定位限制与 UI 如实降级", "wayland_protocol_limited"),
       degraded("pin_topmost_limit", "永久置顶限制与 UI 如实降级", "wayland_protocol_limited"),
-      RECORDING_GATED_CASE,
+      ...WAYLAND_RECORDING_AVAILABLE_CASES,
     ],
   },
   "linux-wlroots-wayland": {
@@ -147,7 +161,7 @@ const PROFILES = {
       degraded("absolute_position_limit", "绝对定位限制与 UI 如实降级", "wayland_protocol_limited"),
       degraded("pin_topmost_limit", "永久置顶限制与 UI 如实降级", "wayland_protocol_limited"),
       degraded("portal_unavailable", "缺失 Portal 接口时给出稳定原因", "wayland_portal_unavailable"),
-      RECORDING_GATED_CASE,
+      ...WAYLAND_RECORDING_AVAILABLE_CASES,
     ],
   },
   "windows-10-x64": {

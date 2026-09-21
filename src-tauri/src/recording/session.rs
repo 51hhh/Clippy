@@ -5,7 +5,7 @@
 //! interrupted，避免各层分别猜测资源是否已经释放。
 
 use super::encoder_worker::{EncoderReport, EncoderWorker, EncoderWorkerError};
-use super::manifest::{RecordingJournal, RecordingJournalConfig};
+use super::manifest::{discard_unstarted_session, RecordingJournal, RecordingJournalConfig};
 use super::pipeline::{PipelineError, RecordingPipeline};
 use super::segmenting::{
     PendingRecordingCompletion, RecordingEncoder, SegmentedRecordingError, SegmentedRecordingWriter,
@@ -95,6 +95,7 @@ impl DiagnosticRecordingSession {
         if !(1..=120).contains(&config.frames_per_second) || !config.encoder.is_valid() {
             return Err(DiagnosticRecordingError::InvalidConfiguration);
         }
+        let session_id = config.session_id.clone();
         let (encoder_name, container) = config.encoder.manifest_descriptor();
         let journal = RecordingJournal::create(
             app_data_dir,
@@ -115,7 +116,7 @@ impl DiagnosticRecordingSession {
         .map_err(DiagnosticRecordingError::Journal)?;
         let session_directory = journal.session_directory().to_path_buf();
         let pipeline = Arc::new(RecordingPipeline::default());
-        let segmented = SegmentedRecordingWriter::new(
+        let segmented = match SegmentedRecordingWriter::new(
             journal,
             Arc::clone(&pipeline),
             config.encoder,
@@ -123,10 +124,17 @@ impl DiagnosticRecordingSession {
             config.height,
             config.frames_per_second,
             config.segment_duration_ns,
-        )?;
+        ) {
+            Ok(segmented) => segmented,
+            Err(error) => {
+                discard_failed_start(app_data_dir, &session_id);
+                return Err(error.into());
+            }
+        };
         let encoder = match EncoderWorker::spawn(segmented, Arc::clone(&pipeline)) {
             Ok(encoder) => encoder,
             Err(error) => {
+                discard_failed_start(app_data_dir, &session_id);
                 return Err(error.into());
             }
         };
@@ -138,6 +146,7 @@ impl DiagnosticRecordingSession {
             Ok(capture) => capture,
             Err(error) => {
                 drop(encoder);
+                discard_failed_start(app_data_dir, &session_id);
                 return Err(error.into());
             }
         };
@@ -242,6 +251,12 @@ impl DiagnosticRecordingSession {
         drop(self.encoder.take());
         self.settled = true;
         Err(error)
+    }
+}
+
+fn discard_failed_start(app_data_dir: &Path, session_id: &str) {
+    if let Err(error) = discard_unstarted_session(app_data_dir, session_id) {
+        log::error!("录屏启动失败后无法删除空会话 {session_id}: {error}");
     }
 }
 
@@ -699,6 +714,30 @@ mod tests {
             Err(DiagnosticRecordingError::InvalidConfiguration)
         ));
         assert!(!temporary.path().join("recordings").exists());
+    }
+
+    #[test]
+    fn source_initialization_failure_discards_unstarted_session() {
+        let temporary = tempfile::tempdir().unwrap();
+        let result = DiagnosticRecordingSession::start_with_factory(
+            temporary.path(),
+            config("source-start-failed"),
+            || Err::<FixtureSource, _>("portal authorization cancelled".to_string()),
+        );
+
+        assert!(matches!(
+            result,
+            Err(DiagnosticRecordingError::Capture(
+                CaptureWorkerError::SourceInitialization(message)
+            )) if message == "portal authorization cancelled"
+        ));
+        assert!(!temporary
+            .path()
+            .join("recordings/source-start-failed")
+            .exists());
+        assert!(crate::recording::manifest::list_library(temporary.path())
+            .unwrap()
+            .is_empty());
     }
 
     #[cfg(feature = "recording-vp9-prototype")]

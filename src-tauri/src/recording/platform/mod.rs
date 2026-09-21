@@ -28,9 +28,11 @@ pub(super) struct RecordingSourceDescriptor {
 /// 控制窗创建完成后由 Rust 桌面层交给帧源的一次性可信目标。
 ///
 /// 原生窗口 ID 只能来自本次创建的 Tauri 控制窗，不能从 WebView 或 IPC 请求进入录屏链路。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone)]
 pub(super) enum RecordingControlTarget {
     NoNativeWindow,
+    #[cfg(target_os = "linux")]
+    WaylandPortal(wayland::WaylandPortalControlTarget),
     #[cfg(any(
         test,
         all(target_os = "macos", feature = "recording-macos-screencapturekit")
@@ -50,7 +52,48 @@ impl RecordingControlTarget {
     pub const fn native_window(window_id: u64) -> Self {
         Self::NativeWindow(window_id)
     }
+
+    #[cfg(target_os = "linux")]
+    pub fn wayland_portal(target: wayland::WaylandPortalControlTarget) -> Self {
+        Self::WaylandPortal(target)
+    }
 }
+
+impl std::fmt::Debug for RecordingControlTarget {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoNativeWindow => formatter.write_str("NoNativeWindow"),
+            #[cfg(target_os = "linux")]
+            Self::WaylandPortal(_) => formatter.write_str("WaylandPortal"),
+            #[cfg(any(
+                test,
+                all(target_os = "macos", feature = "recording-macos-screencapturekit")
+            ))]
+            Self::NativeWindow(window_id) => formatter
+                .debug_tuple("NativeWindow")
+                .field(window_id)
+                .finish(),
+        }
+    }
+}
+
+impl PartialEq for RecordingControlTarget {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::NoNativeWindow, Self::NoNativeWindow) => true,
+            #[cfg(target_os = "linux")]
+            (Self::WaylandPortal(left), Self::WaylandPortal(right)) => left.same_instance(right),
+            #[cfg(any(
+                test,
+                all(target_os = "macos", feature = "recording-macos-screencapturekit")
+            ))]
+            (Self::NativeWindow(left), Self::NativeWindow(right)) => left == right,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for RecordingControlTarget {}
 
 /// 平台对象创建前可跨线程移动的唯一采集计划。
 #[derive(Debug, Clone)]
@@ -116,23 +159,38 @@ impl PlatformFrameSourcePlan {
         match self {
             #[cfg(target_os = "linux")]
             Self::X11(plan) => {
-                debug_assert_eq!(control_target, RecordingControlTarget::NoNativeWindow);
+                debug_assert_eq!(&control_target, &RecordingControlTarget::NoNativeWindow);
                 Ok(PlatformFrameSource::X11(Box::new(plan.connect()?)))
             }
             #[cfg(target_os = "linux")]
-            Self::Wayland(plan) => {
-                debug_assert_eq!(control_target, RecordingControlTarget::NoNativeWindow);
-                Ok(PlatformFrameSource::Wayland(Box::new(plan.connect()?)))
-            }
+            Self::Wayland(plan) => Ok(PlatformFrameSource::Wayland(Box::new(
+                plan.connect(require_wayland_portal_target(control_target)?)?,
+            ))),
             #[cfg(target_os = "windows")]
             Self::Windows(plan) => {
-                debug_assert_eq!(control_target, RecordingControlTarget::NoNativeWindow);
+                debug_assert_eq!(&control_target, &RecordingControlTarget::NoNativeWindow);
                 Ok(PlatformFrameSource::Windows(Box::new(plan.connect()?)))
             }
             #[cfg(target_os = "macos")]
             Self::Macos(plan) => Ok(PlatformFrameSource::Macos(Box::new(
                 plan.connect(control_target)?,
             ))),
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn require_wayland_portal_target(
+    control_target: RecordingControlTarget,
+) -> Result<wayland::WaylandPortalControlTarget, PlatformFrameSourceError> {
+    match control_target {
+        RecordingControlTarget::WaylandPortal(target) => Ok(target),
+        RecordingControlTarget::NoNativeWindow => {
+            Err(wayland::WaylandFrameSourceError::MissingAuthorizationTarget.into())
+        }
+        #[cfg(test)]
+        RecordingControlTarget::NativeWindow(_) => {
+            Err(wayland::WaylandFrameSourceError::MissingAuthorizationTarget.into())
         }
     }
 }
@@ -245,6 +303,26 @@ impl RecordingFrameSource for PlatformFrameSource {
             Self::Windows(source) => Ok(source.stop_capture()?),
             #[cfg(target_os = "macos")]
             Self::Macos(source) => Ok(source.stop_capture()?),
+        }
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wayland_rejects_missing_or_foreign_native_control_target() {
+        for target in [
+            RecordingControlTarget::NoNativeWindow,
+            RecordingControlTarget::NativeWindow(42),
+        ] {
+            assert!(matches!(
+                require_wayland_portal_target(target),
+                Err(PlatformFrameSourceError::Wayland(
+                    wayland::WaylandFrameSourceError::MissingAuthorizationTarget
+                ))
+            ));
         }
     }
 }

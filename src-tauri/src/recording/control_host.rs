@@ -3,6 +3,8 @@
 //! 开始入口只接受独立 Recording 覆盖层交出的可信选区；控制命令继续只认后端绑定的 generation
 //! token。默认构建和没有完成产品验收的平台不会展示入口。
 
+#[cfg(all(target_os = "linux", feature = "recording-wayland-qa"))]
+use super::authorization::RecordingAuthorizationCancellation;
 use super::control_exclusion::{configure_control_exclusion, control_exclusion_capability};
 use super::control_registry::{RecordingControlClose, RecordingControlRegistryError};
 use super::control_window::{
@@ -18,8 +20,10 @@ use super::segmenting::RecordingEncoder;
 use crate::capture::CaptureSelection;
 use crate::commands::AppState;
 use serde::Serialize;
+#[cfg(all(target_os = "linux", feature = "recording-wayland-qa"))]
+use std::sync::Arc;
 use std::time::Duration;
-use tauri::{Manager, Position};
+use tauri::{Emitter, Manager, Position};
 
 const CONTROL_PAGE: &str = "recording-control.html";
 const CONTROL_SIZE: ControlSize = ControlSize {
@@ -139,6 +143,20 @@ impl DesktopActions for TauriRecordingDesktopActions<'_> {
         session_id: &str,
         descriptor: &RecordingSourceDescriptor,
     ) -> Result<RecordingControlTarget, String> {
+        #[cfg(all(target_os = "linux", feature = "recording-wayland-qa"))]
+        if crate::platform::is_wayland() {
+            let authorization = Arc::new(RecordingAuthorizationCancellation::default());
+            let label = self
+                .state
+                .recording_controls
+                .reserve_authorization(session_id, Arc::clone(&authorization))
+                .map_err(|error| error.to_string())?;
+            let result = build_wayland_authorization_window(self.app, &label, authorization);
+            if result.is_err() {
+                self.rollback_prepared_control(session_id);
+            }
+            return result;
+        }
         ensure_control_positioning_supported()?;
         let label = self
             .state
@@ -158,7 +176,11 @@ impl DesktopActions for TauriRecordingDesktopActions<'_> {
             .recording_controls
             .bind(token)
             .map_err(|error| error.to_string())?;
-        if binding.reveal {
+        if wayland_qa_session() {
+            self.app
+                .emit("recording-tray-state", "recording")
+                .map_err(|error| error.to_string())?;
+        } else if binding.reveal {
             show_control_window(self.app, &binding.label)?;
         }
         Ok(())
@@ -170,8 +192,88 @@ impl DesktopActions for TauriRecordingDesktopActions<'_> {
             .recording_controls
             .begin_close(session_id)
             .map_err(|error| error.to_string())?;
-        close_control_window(self.app, &self.state.recording_controls, close)
+        let result = close_control_window(self.app, &self.state.recording_controls, close);
+        if wayland_qa_session() {
+            if let Err(error) = self.app.emit("recording-tray-state", "idle") {
+                log::warn!("刷新 Wayland 录屏托盘状态失败: {error}");
+            }
+        }
+        result
     }
+}
+
+fn wayland_qa_session() -> bool {
+    cfg!(all(target_os = "linux", feature = "recording-wayland-qa"))
+        && crate::platform::is_wayland()
+}
+
+#[cfg(all(target_os = "linux", feature = "recording-wayland-qa"))]
+fn build_wayland_authorization_window(
+    app: &tauri::AppHandle,
+    label: &str,
+    authorization: Arc<RecordingAuthorizationCancellation>,
+) -> Result<RecordingControlTarget, String> {
+    use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
+
+    let window = tauri::WebviewWindowBuilder::new(
+        app,
+        label,
+        tauri::WebviewUrl::App("recording-control.html?mode=authorization".into()),
+    )
+    .title("Clippy Recording")
+    .inner_size(360.0, 148.0)
+    .decorations(false)
+    .resizable(false)
+    .shadow(true)
+    .skip_taskbar(true)
+    .always_on_top(true)
+    .focused(true)
+    // Wayland 只有已映射 surface 才能可靠导出 xdg-foreign parent；页面首帧随后用 ready 再确认显示。
+    .visible(true)
+    .build()
+    .map_err(|error| error.to_string())?;
+
+    let build_target = (|| {
+        let window_handle = window.window_handle().map_err(|error| error.to_string())?;
+        let display_handle = window.display_handle().map_err(|error| error.to_string())?;
+        let raw_window = window_handle.as_raw();
+        let raw_display = display_handle.as_raw();
+        if !matches!(
+            (&raw_window, &raw_display),
+            (
+                raw_window_handle::RawWindowHandle::Wayland(_),
+                raw_window_handle::RawDisplayHandle::Wayland(_)
+            )
+        ) {
+            return Err("录屏授权窗没有运行在原生 Wayland surface 上".to_string());
+        }
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|error| error.to_string())?;
+        let parent = runtime
+            .block_on(ashpd::WindowIdentifier::from_raw_handle(
+                &raw_window,
+                Some(&raw_display),
+            ))
+            .ok_or_else(|| "Wayland 合成器无法为录屏授权窗导出 xdg-foreign 标识".to_string())?;
+        let authorization_window = window.clone();
+        Ok(RecordingControlTarget::wayland_portal(
+            super::platform::wayland::WaylandPortalControlTarget::new(
+                parent,
+                authorization,
+                move || {
+                    authorization_window
+                        .hide()
+                        .map_err(|error| error.to_string())
+                },
+            ),
+        ))
+    })();
+    if build_target.is_err() {
+        let _ = window.destroy();
+    }
+    build_target
 }
 
 fn control_placement_with_capability(
@@ -469,7 +571,16 @@ pub(crate) async fn cancel_recording(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), RecordingIpcError> {
-    let token = token_for_caller(&state, window.label())?;
+    let token = match state.recording_controls.token_for_caller(window.label()) {
+        Ok(token) => token,
+        Err(RecordingControlRegistryError::Busy) => {
+            state
+                .recording_controls
+                .cancel_authorization_for_caller(window.label())?;
+            return Ok(());
+        }
+        Err(error) => return Err(error.into()),
+    };
     let lifecycle = state.recording_lifecycle.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let state = app
@@ -483,10 +594,78 @@ pub(crate) async fn cancel_recording(
     .map_err(|error| RecordingIpcError::internal(error.to_string()))?
 }
 
+pub(crate) fn pause_recording_from_tray(app: &tauri::AppHandle) -> Result<(), String> {
+    let state = app
+        .try_state::<AppState>()
+        .ok_or_else(|| "AppState 已不可用".to_string())?;
+    state
+        .recording_lifecycle
+        .pause_active()
+        .map_err(|error| error.to_string())?;
+    if let Err(error) = app.emit("recording-tray-state", "paused") {
+        log::warn!("刷新 Wayland 录屏暂停托盘状态失败: {error}");
+    }
+    Ok(())
+}
+
+pub(crate) fn resume_recording_from_tray(app: &tauri::AppHandle) -> Result<(), String> {
+    let state = app
+        .try_state::<AppState>()
+        .ok_or_else(|| "AppState 已不可用".to_string())?;
+    state
+        .recording_lifecycle
+        .resume_active()
+        .map_err(|error| error.to_string())?;
+    if let Err(error) = app.emit("recording-tray-state", "recording") {
+        log::warn!("刷新 Wayland 录屏继续托盘状态失败: {error}");
+    }
+    Ok(())
+}
+
+pub(crate) fn stop_recording_from_tray(app: &tauri::AppHandle) -> Result<(), String> {
+    let state = app
+        .try_state::<AppState>()
+        .ok_or_else(|| "AppState 已不可用".to_string())?;
+    let lifecycle = state.recording_lifecycle.clone();
+    // 菜单回调在主线程到达时立即固定 exact generation；后台任务即使迟到，也只能操作这次会话。
+    let token = lifecycle
+        .active_token_for_native()
+        .map_err(|error| error.to_string())?;
+    let stop_app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let worker_app = stop_app.clone();
+        let result = tauri::async_runtime::spawn_blocking(move || {
+            let state = worker_app
+                .try_state::<AppState>()
+                .ok_or_else(|| "AppState 已不可用".to_string())?;
+            lifecycle
+                .stop(
+                    &token,
+                    &TauriRecordingDesktopActions::new(&worker_app, &state),
+                )
+                .map_err(|error| error.to_string())?;
+            if let Err(error) = super::library::open(&worker_app) {
+                log::warn!("Wayland 托盘停止录屏后打开结果库失败: {error}");
+            }
+            Ok::<_, String>(())
+        })
+        .await;
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => log::warn!("从托盘停止录屏失败: {error}"),
+            Err(error) => log::warn!("从托盘停止录屏后台任务失败: {error}"),
+        }
+    });
+    Ok(())
+}
+
 pub(crate) fn handle_control_destroyed(app: &tauri::AppHandle, label: &str) {
     let Some(state) = app.try_state::<AppState>() else {
         return;
     };
+    let _ = state
+        .recording_controls
+        .cancel_authorization_for_caller(label);
     match state.recording_controls.token_for_caller(label) {
         Ok(token) => {
             let lifecycle = state.recording_lifecycle.clone();

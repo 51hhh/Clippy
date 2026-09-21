@@ -3,8 +3,9 @@
 //! 控制窗只携带后端生成的窗口标签；暂停、继续、停止和销毁处理都从这里取得 exact token。前端不
 //! 能提交 session ID 或 generation，从而避免迟到窗口控制随后建立的新录屏。
 
+use super::authorization::RecordingAuthorizationCancellation;
 use super::manager::RecordingToken;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
 const CONTROL_PREFIX: &str = "recording-control-";
@@ -47,6 +48,7 @@ enum ControlSlot {
         label: String,
         session_id: String,
         ready: bool,
+        authorization: Option<Arc<RecordingAuthorizationCancellation>>,
     },
     Bound {
         label: String,
@@ -70,6 +72,22 @@ impl RecordingControlRegistry {
         &self,
         session_id: &str,
     ) -> Result<String, RecordingControlRegistryError> {
+        self.reserve_with_authorization(session_id, None)
+    }
+
+    pub(super) fn reserve_authorization(
+        &self,
+        session_id: &str,
+        authorization: Arc<RecordingAuthorizationCancellation>,
+    ) -> Result<String, RecordingControlRegistryError> {
+        self.reserve_with_authorization(session_id, Some(authorization))
+    }
+
+    fn reserve_with_authorization(
+        &self,
+        session_id: &str,
+        authorization: Option<Arc<RecordingAuthorizationCancellation>>,
+    ) -> Result<String, RecordingControlRegistryError> {
         let mut slot = self
             .slot
             .lock()
@@ -82,8 +100,35 @@ impl RecordingControlRegistry {
             label: label.clone(),
             session_id: session_id.to_string(),
             ready: false,
+            authorization,
         };
         Ok(label)
+    }
+
+    /// 授权窗只能取消与自身精确标签绑定、且尚未进入活动录制的等待。
+    pub(super) fn cancel_authorization_for_caller(
+        &self,
+        caller_label: &str,
+    ) -> Result<bool, RecordingControlRegistryError> {
+        if !caller_label.starts_with(CONTROL_PREFIX) {
+            return Err(RecordingControlRegistryError::Missing);
+        }
+        let slot = self
+            .slot
+            .lock()
+            .map_err(|_| RecordingControlRegistryError::Poisoned)?;
+        match &*slot {
+            ControlSlot::Preparing {
+                label,
+                authorization: Some(authorization),
+                ..
+            } if label == caller_label => Ok(authorization.cancel()),
+            ControlSlot::Preparing { label, .. } if label == caller_label => {
+                Err(RecordingControlRegistryError::Busy)
+            }
+            ControlSlot::Empty => Err(RecordingControlRegistryError::Missing),
+            _ => Err(RecordingControlRegistryError::Superseded),
+        }
     }
 
     /// 控制窗已安全创建后，把 manager 返回的不可复用 token 原子绑定到该窗。
@@ -101,16 +146,20 @@ impl RecordingControlRegistry {
                 label,
                 session_id,
                 ready,
+                authorization,
             } if session_id == token.session_id => {
+                let authorization_window = authorization.is_some();
                 *slot = ControlSlot::Bound {
                     label: label.clone(),
                     token: token.clone(),
                     ready,
-                    revealed: ready,
+                    // Wayland 授权窗在 Portal 交互前已经映射，并在采集启动前由后端隐藏。即使页面
+                    // ready 迟到绑定之后，也绝不能把它当成普通录屏控制窗重新显示。
+                    revealed: ready || authorization_window,
                 };
                 Ok(RecordingControlBinding {
                     label,
-                    reveal: ready,
+                    reveal: ready && !authorization_window,
                 })
             }
             other => {
@@ -133,9 +182,15 @@ impl RecordingControlRegistry {
             .lock()
             .map_err(|_| RecordingControlRegistryError::Poisoned)?;
         match &mut *slot {
-            ControlSlot::Preparing { label, ready, .. } if label == caller_label => {
+            ControlSlot::Preparing {
+                label,
+                ready,
+                authorization,
+                ..
+            } if label == caller_label => {
+                let reveal = authorization.is_some() && !*ready;
                 *ready = true;
-                Ok(false)
+                Ok(reveal)
             }
             ControlSlot::Bound {
                 label,
@@ -342,6 +397,25 @@ mod tests {
     }
 
     #[test]
+    fn late_authorization_ready_never_reveals_after_binding() {
+        let registry = RecordingControlRegistry::new();
+        let cancellation = Arc::new(RecordingAuthorizationCancellation::default());
+        let label = registry
+            .reserve_authorization("wayland-authorized", cancellation)
+            .unwrap();
+
+        assert_eq!(
+            registry.bind(&token("wayland-authorized", 3)).unwrap(),
+            RecordingControlBinding {
+                label: label.clone(),
+                reveal: false,
+            }
+        );
+        assert!(!registry.mark_ready(&label).unwrap());
+        assert!(!registry.mark_ready(&label).unwrap());
+    }
+
+    #[test]
     fn ready_rejects_forged_old_and_closing_windows() {
         let registry = RecordingControlRegistry::new();
         let label = registry.reserve("ready-guard").unwrap();
@@ -428,6 +502,40 @@ mod tests {
         registry.settle_close(&label, false).unwrap();
         assert_eq!(
             registry.reserve("replacement"),
+            Err(RecordingControlRegistryError::Busy)
+        );
+    }
+
+    #[test]
+    fn only_exact_preparing_authorization_window_can_cancel() {
+        let registry = RecordingControlRegistry::new();
+        let cancellation = Arc::new(RecordingAuthorizationCancellation::default());
+        let label = registry
+            .reserve_authorization("portal", Arc::clone(&cancellation))
+            .unwrap();
+
+        assert!(registry.mark_ready(&label).unwrap());
+        assert!(!registry.mark_ready(&label).unwrap());
+
+        assert_eq!(
+            registry.cancel_authorization_for_caller("capture-overlay-foreign"),
+            Err(RecordingControlRegistryError::Missing)
+        );
+        assert_eq!(
+            registry.cancel_authorization_for_caller("recording-control-forged"),
+            Err(RecordingControlRegistryError::Superseded)
+        );
+        assert!(registry.cancel_authorization_for_caller(&label).unwrap());
+        assert!(!registry.cancel_authorization_for_caller(&label).unwrap());
+        assert!(cancellation.is_cancelled());
+    }
+
+    #[test]
+    fn regular_preparing_control_has_no_authorization_cancel_surface() {
+        let registry = RecordingControlRegistry::new();
+        let label = registry.reserve("regular").unwrap();
+        assert_eq!(
+            registry.cancel_authorization_for_caller(&label),
             Err(RecordingControlRegistryError::Busy)
         );
     }

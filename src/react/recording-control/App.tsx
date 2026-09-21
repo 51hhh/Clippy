@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  cancelRecording,
   markRecordingControlReady,
   pauseRecording,
   resumeRecording,
@@ -21,6 +22,7 @@ export type RecordingControlServices = {
   pause: typeof pauseRecording;
   resume: typeof resumeRecording;
   stop: typeof stopRecording;
+  cancel: typeof cancelRecording;
 };
 
 const defaultServices: RecordingControlServices = {
@@ -28,9 +30,24 @@ const defaultServices: RecordingControlServices = {
   pause: pauseRecording,
   resume: resumeRecording,
   stop: stopRecording,
+  cancel: cancelRecording,
 };
 
-export function App({ services = defaultServices }: { services?: RecordingControlServices } = {}) {
+export type RecordingControlMode = "controls" | "authorization";
+
+function modeFromLocation(): RecordingControlMode {
+  return new URLSearchParams(window.location.search).get("mode") === "authorization"
+    ? "authorization"
+    : "controls";
+}
+
+export function App({
+  services = defaultServices,
+  mode = modeFromLocation(),
+}: {
+  services?: RecordingControlServices;
+  mode?: RecordingControlMode;
+} = {}) {
   const startedAt = useRef(performance.now());
   const pausedAt = useRef<number | null>(null);
   const pausedTotal = useRef(0);
@@ -42,19 +59,30 @@ export function App({ services = defaultServices }: { services?: RecordingContro
   useEffect(() => {
     let active = true;
     const update = () => {
-      if (!active || pausedAt.current !== null) return;
+      if (!active || mode === "authorization" || pausedAt.current !== null) return;
       setElapsed(performance.now() - startedAt.current - pausedTotal.current);
     };
     update();
-    const timer = window.setInterval(update, 250);
+    const timer = mode === "controls" ? window.setInterval(update, 250) : null;
     void services.ready().catch(() => {
       if (active) setFailed(true);
     });
     return () => {
       active = false;
-      window.clearInterval(timer);
+      if (timer !== null) window.clearInterval(timer);
     };
-  }, [services]);
+  }, [mode, services]);
+
+  const cancelAuthorization = async () => {
+    if (busy || failed) return;
+    setBusy(true);
+    try {
+      await services.cancel();
+    } catch {
+      setFailed(true);
+      setBusy(false);
+    }
+  };
 
   const togglePause = async () => {
     if (busy || failed) return;
@@ -88,6 +116,27 @@ export function App({ services = defaultServices }: { services?: RecordingContro
       setBusy(false);
     }
   };
+
+  if (mode === "authorization") {
+    return (
+      <main className="recording-control authorization" aria-label="Recording authorization">
+        <span className="authorization-spinner" aria-hidden="true" />
+        <div className="authorization-copy">
+          <strong>Choose a screen to record</strong>
+          <span>Clippy will record only the selected region.</span>
+        </div>
+        <button
+          type="button"
+          className="authorization-cancel"
+          disabled={busy || failed}
+          onClick={() => void cancelAuthorization()}
+        >
+          {busy ? "Cancelling…" : "Cancel"}
+        </button>
+        {failed && <span className="recording-error" role="status">Cancel failed</span>}
+      </main>
+    );
+  }
 
   return (
     <main className="recording-control" aria-label="Recording controls">

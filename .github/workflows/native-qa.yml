@@ -72,7 +72,7 @@ jobs:
       - name: Build Linux QA bundles
         run: >-
           npx --prefix src tauri build --ci --no-sign
-          --features recording-vp9-prototype
+          --features recording-wayland-qa
           --config src-tauri/tauri.linux.conf.json
           --config src-tauri/tauri.ci.conf.json
 
@@ -87,7 +87,7 @@ jobs:
           mkdir -p qa-stage qa-artifacts
           cp src-tauri/target/release/bundle/deb/*.deb qa-stage/
           cp src-tauri/target/release/bundle/appimage/*.AppImage qa-stage/
-          printf 'commit=%s\nversion=%s\nplatform=linux-x64\nsigning=unsigned-qa-only\nrecording_feature=recording-vp9-prototype\n' \
+          printf 'commit=%s\nversion=%s\nplatform=linux-x64\nsigning=unsigned-qa-only\nrecording_feature=recording-wayland-qa\n' \
             "$GITHUB_SHA" "$(jq -r '.version' src-tauri/tauri.conf.json)" \
             > qa-stage/QA-BUILD.txt
           (cd qa-stage && sha256sum ./*.deb ./*.AppImage > SHA256SUMS.txt)

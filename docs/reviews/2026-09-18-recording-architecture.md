@@ -27,8 +27,8 @@ QA 阶段，默认发布能力仍保持关闭：
 
 ### Requirements
 
-- 仅在显式启用 `recording-vp9-prototype` feature 时开放入口：Linux 必须是原生 X11，Windows 必须是
-  Native 会话；默认构建、Linux Wayland、macOS 和未知会话继续隐藏入口；
+- 仅在显式录屏 QA feature 中开放入口：Linux X11 与 Windows 使用 VP9 原型，Linux Wayland 还要求
+  `recording-wayland-qa`，macOS 12.3+ 要求 ScreenCaptureKit feature；默认构建和未知会话继续隐藏；
 - 覆盖层复用多屏冻结、窗口命中和逻辑到物理 crop，窗口标签使用独立
   `recording-overlay-*` 调用域，只允许读取冻结帧、取消和开始录屏；
 - 普通截图会话不能升级为录屏，录屏会话也不能调用复制、标注、扫码、翻译或长截图命令；
@@ -37,13 +37,14 @@ QA 阶段，默认发布能力仍保持关闭：
 - Windows 开始录制前必须应用现有 `WDA_EXCLUDEFROMCAPTURE` 控制窗排除；失败时回滚，不得录入控制窗；
 - Linux/Windows 原型仍需完成下文的原生运行与真机验收，不能因代码可编译而记为发布可用。
 
-本地 Linux 开发使用 `cargo tauri dev --features recording-vp9-prototype` 启动；Windows Native QA
+本地 Linux X11 开发使用 `cargo tauri dev --features recording-vp9-prototype`，Wayland 使用
+`cargo tauri dev --features recording-wayland-qa`；Windows Native QA
 使用 `recording-vp9-source-build`。手动 QA workflow 只为 Linux X11 与 Windows 生成带入口的原型包，
 并在 `QA-BUILD.txt` 记录 feature；正式 release workflow 不启用它们。
 
 ### Acceptance Criteria
 
-- 策略测试证明 Linux X11 与 Windows Native 只在显式 feature 下开放，Wayland、macOS 和未知会话
+- 策略测试证明 X11、Wayland、Windows Native 与 macOS 只在各自显式 QA feature 下开放，未知会话
   保持关闭；
 - 后端测试证明录屏会话签发 `recording-overlay-*` 标签及 `recording` payload，普通截图会话请求录屏
   返回 `capture_intent_mismatch` 且不释放或转换当前 gate；
@@ -55,7 +56,7 @@ QA 阶段，默认发布能力仍保持关闭：
 ### Out of Scope
 
 - 把录屏 feature 设为发布默认值；
-- macOS、Wayland 产品入口，以及把 Windows 原型升级为默认发布能力；
+- 把 macOS、Wayland 或 Windows 原型升级为默认发布能力；
 - 音频、摄像头、自动进入剪贴板历史、录制参数 UI；
 - 用本次代码门禁替代 X11/Windows 真机画质、性能、控制窗排除、文件播放和崩溃恢复验收。
 
@@ -102,7 +103,7 @@ macOS Intel 四个录屏编码原型 job。这关闭了跨平台编译、链接�
 - 删除测试证明有效会话可清理，活动会话、未知文件和符号链接均被拒绝；
 - IPC 测试证明结果库只能加载、导出、定位、删除和关闭，不能调用截图、录屏控制、Pin 或设置命令；
 - 前端测试覆盖加载、空态、完整结果、中断分段、错误重试与删除确认；
-- 默认构建和 `recording-vp9-prototype` 构建均通过仓库门禁，同一 SHA 的三平台原生 CI 继续作为
+- 默认构建和各平台录屏 QA feature 构建均通过仓库门禁，同一 SHA 的三平台原生 CI 继续作为
   发布门槛。
 
 ### Out of Scope
@@ -110,7 +111,7 @@ macOS Intel 四个录屏编码原型 job。这关闭了跨平台编译、链接�
 - 把多个独立 WebM 分段按字节拼接成一个文件；异常恢复由独立切片使用经过验证的 packet remux，
   普通字节拼接始终不是有效实现；
 - 持久缩略图、剪辑、重编码、云同步与自动加入剪贴板；
-- 音频轨、摄像头、Windows 默认发布入口及 macOS/Wayland 产品入口；
+- 音频轨、摄像头，以及把任一平台 QA 入口升级为默认发布能力；
 - 用结果库的存在替代 X11 真机播放、性能、强杀恢复和文件管理器集成验收。
 
 ### `PX-REC-PLAYBACK-01` 后续切片（2026-09-21）
@@ -265,8 +266,8 @@ pipeline、采集线程和编码线程接成一个生命周期：正常 Stop 只
 不会遮住原始采集或编码错误。单活动注册表也已实现 `Starting → Recording → Stopping → Idle`，启动中
 和停止中都占槽，并以不可复用的 generation token 拒绝迟到的暂停、停止与取消；截图桌面资源交接
 状态机已经固定；Tauri 桌面恢复适配器、控制窗口宿主和受 caller 限制的暂停/继续/停止/取消 IPC
-现已接入。可信开始入口已在显式 VP9 feature 的原生 X11 与 Windows QA 构建中开放；默认构建、
-macOS 和 Wayland 继续关闭。
+现已接入。可信开始入口已在原生 X11/Windows、macOS ScreenCaptureKit 与 Wayland Portal 的各自显式
+QA feature 中开放；默认构建继续关闭。
 
 ### 编码器 A/B 工具与当前结论
 
@@ -480,8 +481,8 @@ Linux X11 已加入持久 x11rb 连接的根窗口区域帧源：每次只请求
 控制通道错误及 `Drop` 回收都会中止 pipeline。独立诊断编码线程已闭合 capture → 三槽 pipeline →
 MJPEG/AVI：它阻塞等待帧，先排空已接受前缀，再使用同一最终时长封尾；编码失败或线程回收会反向
 中止 pipeline，停止仍在运行的采集线程。桌面资源恢复领域状态机、Tauri 控制窗宿主和控制 IPC 已
-接入；可信开始 IPC 现已在显式 VP9 的原生 X11 与 Windows QA 构建接通，两平台真机性能证据以及
-macOS/Wayland 原生验收仍未完成，因此默认构建仍不能从 UI 开始录屏。
+接入；可信开始 IPC 现已在 X11/Windows、macOS 12.3+ 与 Wayland 的显式 QA 构建接通。各平台真机
+性能、权限和回收证据仍未闭合，因此默认构建仍不能从 UI 开始录屏。
 
 Windows 平台已加入第一条 WGC 区域帧源骨架：冻结截图的显示器 ID 和物理像素尺寸会再次与当前
 `xcap` 显示器核对，WGC 整屏帧进入零容量通道后由 Clippy 单槽桥接只保留最新一帧，再按可信 crop
@@ -529,10 +530,17 @@ Portal 提供整屏 stream，Clippy 只在验证完整帧恰好等于冻结显�
 调用 `pw_stream_set_active`，停止断开 stream、退出 loop 并关闭 Portal session。初始化与控制均有
 五秒上限；初始化卡在第三方库时调用线程按时返回，Portal 随后关闭，迟到线程不会进入产品会话。
 
-这仍不是 Wayland 产品完成：开始 Portal 请求尚未绑定可验证的 parent window，也没有“正在等待系统
-授权”的可取消 UI；控制窗又无法由 Portal 排除，而托盘/快捷键后备尚未实现。GNOME、KDE 与 wlroots
-上的授权拒绝、单/多屏元数据、分数缩放、旋转屏、静态帧、4K 带宽、光标和 Stop/Drop 回收都需要
-真机证据。完成这些以前，主界面和截图工具条继续没有录屏入口。
+`PX-REC-WAYLAND-QA-01` 在此基础上加入非默认 QA 入口。Rust 创建短生命周期授权窗，并从该窗口的
+Wayland surface/display 导出 xdg-foreign parent；WebView 不接触 parent、Portal token 或 node。授权
+等待由 registry 内的取消令牌控制，Cancel 或窗口销毁会让等待中的 Portal session 关闭。系统返回
+唯一显示器流并通过身份复核后，采集线程先隐藏授权窗，再打开 PipeWire remote，因此首帧不依赖
+合成器排除 Clippy 窗口。
+
+录制阶段没有可见浮动控制窗，原生托盘从 lifecycle 当前 Active slot 取得 exact generation，提供
+Pause、Resume 与 Stop；全屏选区也不要求找到选区外的窗口位置。GNOME、KDE 与 wlroots 上的授权
+允许/拒绝/取消、单/多屏元数据、分数缩放、旋转屏、静态帧、4K 带宽、光标、托盘控制和 Stop/Drop
+回收仍需要真机证据。完成这些以前，该入口只存在于 `recording-wayland-qa` 包，默认/release 构建
+继续关闭。
 
 四平台现在统一为 `PlatformFrameSourcePlan → PlatformFrameSource`：计划阶段仍在 Ordinary 截图会话
 内按平台重新枚举显示器，只保存可跨线程移动的选区、来源描述和原生参数；生命周期消费截图并恢复

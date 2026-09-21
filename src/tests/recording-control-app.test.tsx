@@ -28,6 +28,7 @@ describe("recording control app", () => {
         encodedFrames: 10,
         droppedByBackpressure: 0,
       })),
+      cancel: vi.fn(async () => {}),
     };
     root = createRoot(document.getElementById("root")!);
     await act(async () => root.render(<App services={services} />));
@@ -66,5 +67,20 @@ describe("recording control app", () => {
     await act(async () => pause.click());
     expect(document.querySelector('[role="status"]')?.textContent).toBe("Control failed");
     expect(document.querySelectorAll<HTMLButtonElement>("button:disabled")).toHaveLength(2);
+  });
+
+  it("shows a cancellable system authorization state without recording controls", async () => {
+    await act(async () => root.unmount());
+    root = createRoot(document.getElementById("root")!);
+    await act(async () => root.render(<App services={services} mode="authorization" />));
+
+    expect(document.querySelector('[aria-label="Recording authorization"]')).not.toBeNull();
+    expect(document.querySelector('[aria-label="Pause recording"]')).toBeNull();
+    const cancel = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent === "Cancel",
+    )!;
+    await act(async () => cancel.click());
+    expect(services.cancel).toHaveBeenCalledOnce();
+    expect(cancel.textContent).toBe("Cancelling…");
   });
 });

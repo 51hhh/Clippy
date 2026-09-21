@@ -66,6 +66,13 @@ if (
   throw new Error("Cargo.toml must expose the reviewed VP9 source-build feature");
 }
 if (
+  !cargoToml.includes('"recording-vp9-prototype",\n    "ashpd/raw_handle",\n    "ashpd/wayland",\n    "dep:raw-window-handle",')
+) {
+  throw new Error(
+    "Cargo.toml must keep the Wayland QA entry and native parent-handle dependencies feature-gated",
+  );
+}
+if (
   !cargoToml.includes(
     'yuv = { version = "=0.8.19", default-features = false, features = ["avx", "sse", "rdm", "professional_mode"], optional = true }',
   )

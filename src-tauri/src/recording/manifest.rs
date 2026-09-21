@@ -908,6 +908,68 @@ pub(super) fn delete_library_session(app_data_dir: &Path, session_id: &str) -> R
         .map_err(|error| format!("同步录屏结果目录失败: {error}"))
 }
 
+/// 删除尚未成功启动的空会话。
+///
+/// 这个入口只供录屏启动事务回滚使用：原生帧源（例如 Wayland Portal）尚未建立时，编码器可能
+/// 已经创建清单和临时文件。调用方必须先回收编码 worker；这里随后只接受没有任何已提交帧、
+/// 最终输出或恢复信息，且目录中仅剩清单的会话，避免把启动回滚扩大成任意结果删除。
+pub(super) fn discard_unstarted_session(
+    app_data_dir: &Path,
+    session_id: &str,
+) -> Result<(), String> {
+    if !valid_identifier(session_id, 64) {
+        return Err("录屏会话身份无效".to_string());
+    }
+    let root = app_data_dir.join(RECORDINGS_DIRECTORY);
+    let root_metadata =
+        fs::symlink_metadata(&root).map_err(|error| format!("读取录屏结果目录失败: {error}"))?;
+    if root_metadata.file_type().is_symlink() || !root_metadata.is_dir() {
+        return Err("录屏结果路径不是普通目录".to_string());
+    }
+    let session_directory = root.join(session_id);
+    let metadata = fs::symlink_metadata(&session_directory)
+        .map_err(|error| format!("读取录屏会话失败: {error}"))?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err("录屏会话路径不是普通目录".to_string());
+    }
+    let manifest_path = session_directory.join(MANIFEST_FILE);
+    let manifest = read_manifest(&manifest_path)?;
+    validate_manifest(&manifest, session_id)?;
+    if !matches!(
+        manifest.state,
+        RecordingState::Recording | RecordingState::Interrupted
+    ) || !manifest.segments.is_empty()
+        || manifest.final_output.is_some()
+        || manifest.recovery.is_some()
+        || manifest.dropped_frames != 0
+    {
+        return Err("录屏会话已经包含可恢复内容，拒绝按启动失败删除".to_string());
+    }
+
+    let mut entries = fs::read_dir(&session_directory)
+        .map_err(|error| format!("读取录屏会话目录失败: {error}"))?;
+    let Some(entry) = entries
+        .next()
+        .transpose()
+        .map_err(|error| format!("读取录屏会话目录项失败: {error}"))?
+    else {
+        return Err("录屏启动会话缺少清单".to_string());
+    };
+    let entry_metadata = fs::symlink_metadata(entry.path())
+        .map_err(|error| format!("读取录屏启动文件失败: {error}"))?;
+    if entry.file_name() != std::ffi::OsStr::new(MANIFEST_FILE)
+        || entry_metadata.file_type().is_symlink()
+        || !entry_metadata.is_file()
+        || entries.next().is_some()
+    {
+        return Err("录屏启动会话包含未知或不安全文件，拒绝删除".to_string());
+    }
+
+    fs::remove_file(&manifest_path).map_err(|error| format!("删除录屏启动清单失败: {error}"))?;
+    fs::remove_dir(&session_directory).map_err(|error| format!("删除录屏启动会话失败: {error}"))?;
+    sync_directory(&root).map_err(|error| format!("同步录屏结果目录失败: {error}"))
+}
+
 fn bounded_session_entries(root: &Path) -> Result<Option<Vec<fs::DirEntry>>, String> {
     let metadata = match fs::symlink_metadata(root) {
         Ok(metadata) => metadata,
@@ -1871,6 +1933,32 @@ mod tests {
         );
         assert!(resolve_library_artifact(temporary.path(), "active-delete", "final").is_err());
         assert!(delete_library_session(temporary.path(), "active-delete").is_err());
+    }
+
+    #[test]
+    fn startup_rollback_deletes_only_empty_session() {
+        let temporary = tempfile::tempdir().unwrap();
+        let journal =
+            RecordingJournal::create(temporary.path(), journal_config("startup-empty")).unwrap();
+        let session = journal.session_directory().to_path_buf();
+        drop(journal);
+
+        discard_unstarted_session(temporary.path(), "startup-empty").unwrap();
+        assert!(!session.exists());
+
+        let protected =
+            RecordingJournal::create(temporary.path(), journal_config("startup-protected"))
+                .unwrap();
+        let protected_session = protected.session_directory().to_path_buf();
+        drop(protected);
+        fs::write(protected_session.join("unexpected.txt"), b"keep").unwrap();
+
+        assert!(discard_unstarted_session(temporary.path(), "startup-protected").is_err());
+        assert!(protected_session.exists());
+        assert_eq!(
+            fs::read(protected_session.join("unexpected.txt")).unwrap(),
+            b"keep"
+        );
     }
 
     #[cfg(unix)]

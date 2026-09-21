@@ -83,7 +83,7 @@ run 还会上传 `qa-record-templates-<SHA>`，其中是绑定该 SHA、应用�
 Linux 包由 Ubuntu 22.04 构建后，独立的 Ubuntu 24.04 runner 下载同一 tar、校验 SHA-256，并强制执行
 AppImage X11 窗口几何、首帧和单实例 smoke；smoke 缺依赖或缺产物会失败，不会静默跳过。
 
-Linux x64 QA 包使用 `recording-vp9-prototype`，Windows x64 QA 包使用
+Linux x64 QA 包使用 `recording-wayland-qa`（包含既有 X11 VP9 原型），Windows x64 QA 包使用
 `recording-vp9-source-build`。Windows job 安装固定源码构建所需的 MSYS2、make、diffutils、Perl、
 NASM、MSBuild 和 Rust `llvm-tools-preview`；macOS QA job 同样安装 `llvm-tools-preview`，Intel runner
 再安装 NASM，供源码构建的 libvpx 完成静态库符号重写。Windows 与 Linux 一起运行录屏编码供应链

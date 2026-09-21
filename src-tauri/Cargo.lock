@@ -204,11 +204,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "281e6645758940dee594495e28807a7672ce40f11ebf4df6c22c4fcd59e2689f"
 dependencies = [
  "enumflags2",
+ "futures-channel",
  "futures-util",
  "getrandom 0.4.2",
+ "raw-window-handle",
  "serde",
  "serde_repr",
  "tokio",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-protocols 0.32.13",
  "zbus",
 ]
 
@@ -840,6 +845,7 @@ dependencies = [
  "objc2-screen-capture-kit",
  "pipewire",
  "png 0.17.16",
+ "raw-window-handle",
  "regex-lite",
  "resvg",
  "rusqlite",

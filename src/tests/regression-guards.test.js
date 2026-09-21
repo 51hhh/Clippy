@@ -202,7 +202,7 @@ describe("原生平台由真实 runner 编译", () => {
     expect(qaWorkflow).not.toContain('Contents/MacOS/Clippy"');
     expect(qaWorkflow).toContain(
       "npx --prefix src tauri build --ci --no-sign\n          " +
-        "--features recording-vp9-prototype",
+        "--features recording-wayland-qa",
     );
     expect(qaWorkflow).toContain(
       "npx --prefix src tauri build --ci\n          " +
@@ -214,13 +214,15 @@ describe("原生平台由真实 runner 编译", () => {
     expect(macQaJob).toMatch(
       /Setup Rust[\s\S]*targets: \$\{\{ matrix\.rust_target \}\}[\s\S]*components: llvm-tools-preview/,
     );
-    expect(qaWorkflow).toContain("recording_feature=recording-vp9-prototype");
+    expect(qaWorkflow).toContain("recording_feature=recording-wayland-qa");
     expect(qaWorkflow).toContain("recording_feature=recording-vp9-source-build");
     expect(qaWorkflow).toContain("recording_feature=%s");
     expect(qaWorkflow).toContain('"${{ matrix.recording_feature }}"');
     expect(qaWorkflow).toContain("minimum_system_version=12.3");
     expect(releaseWorkflow).not.toContain("recording-vp9");
     expect(releaseWorkflow).not.toContain("recording-macos-screencapturekit");
+    expect(releaseWorkflow).not.toContain("recording-wayland-qa");
+    expect(buildWorkflow).toContain("features: recording-wayland-qa");
     // 录屏 feature 会同时开放两个 benchmark bin。没有 default-run 时，cargo check
     // 仍然通过，但真正执行 tauri build 会因无法判断主程序而失败。
     expect(cargo).toMatch(/^default-run\s*=\s*"clippy-app"$/m);

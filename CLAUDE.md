@@ -11,8 +11,9 @@ X11/Wayland 分流自动粘贴、多显示器冻结截图、二维手动长截�
 可校验的本地批量归档交换、无限画布图片查看器、QR Code/Code 39/Code 128/EAN-13 扫码、Tesseract OCR、
 可选结构化增强 OCR、翻译和设置面板。录屏的持久化、帧源、VP9 原型、控制链、结果/恢复库、异常
 分段无损 remux、持久首帧缩略图及按需 WebM 库内播放已实现；产品入口仅在
-显式 QA 构建的原生 X11、Windows 与 macOS 12.3+ 会话开放，默认构建与 Wayland 仍保持关闭。
-macOS Intel/Apple Silicon QA 包已生成，但原生真机录制仍待验收，不能记为发布可用。
+显式 QA 构建的原生 X11、Wayland、Windows 与 macOS 12.3+ 会话开放，默认构建仍保持关闭。
+macOS Intel/Apple Silicon QA 包已生成；Wayland 使用可信 Portal 父窗口和托盘控制，但两者的原生
+真机录制仍待验收，不能记为发布可用。
 增强 OCR 运行时需要显式配置，未随三平台安装包默认分发；交付边界见
 `src-tauri/ocr-sidecar/README.md`。
 智能擦除已完成 `PX-SMART-01` 可行性门控，但当前 LaMa 候选未通过强边缘质量、CPU 延迟和内存

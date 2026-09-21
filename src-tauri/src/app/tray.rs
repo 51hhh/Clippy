@@ -9,6 +9,9 @@ use tauri::{Emitter, Listener, Manager};
 const OPEN_ID: &str = "open_clipboard";
 const ACTIONS_ID: &str = "actions";
 const RECORD_AREA_ID: &str = "record_area";
+const PAUSE_RECORDING_ID: &str = "pause_recording";
+const RESUME_RECORDING_ID: &str = "resume_recording";
+const STOP_RECORDING_ID: &str = "stop_recording";
 const RECORDINGS_ID: &str = "recordings";
 const PIN_WORKSPACES_ID: &str = "pin_workspaces";
 const SETTINGS_ID: &str = "settings";
@@ -20,10 +23,53 @@ pub(crate) struct TrayMenuItems {
     open_clipboard: MenuItem<tauri::Wry>,
     actions: MenuItem<tauri::Wry>,
     record_area: Option<MenuItem<tauri::Wry>>,
+    recording_controls: Option<RecordingTrayMenuItems>,
     recordings: MenuItem<tauri::Wry>,
     pin_workspaces: MenuItem<tauri::Wry>,
     settings: MenuItem<tauri::Wry>,
     quit: MenuItem<tauri::Wry>,
+}
+
+#[derive(Clone)]
+struct RecordingTrayMenuItems {
+    pause: MenuItem<tauri::Wry>,
+    resume: MenuItem<tauri::Wry>,
+    stop: MenuItem<tauri::Wry>,
+}
+
+impl RecordingTrayMenuItems {
+    fn apply_text(&self, text: NativeText) {
+        for (item, label) in [
+            (&self.pause, text.pause_recording_menu),
+            (&self.resume, text.resume_recording_menu),
+            (&self.stop, text.stop_recording_menu),
+        ] {
+            if let Err(error) = item.set_text(label) {
+                log::warn!("托盘菜单文案刷新失败 ({label}): {error}");
+            }
+        }
+    }
+
+    fn apply_state(&self, state: &str) {
+        let (pause, resume, stop) = recording_tray_enabled_state(state);
+        for (item, enabled) in [
+            (&self.pause, pause),
+            (&self.resume, resume),
+            (&self.stop, stop),
+        ] {
+            if let Err(error) = item.set_enabled(enabled) {
+                log::warn!("刷新录屏托盘菜单状态失败: {error}");
+            }
+        }
+    }
+}
+
+fn recording_tray_enabled_state(state: &str) -> (bool, bool, bool) {
+    match state {
+        "recording" => (true, false, true),
+        "paused" => (false, true, true),
+        _ => (false, false, false),
+    }
 }
 
 impl TrayMenuItems {
@@ -42,6 +88,9 @@ impl TrayMenuItems {
             if let Err(error) = item.set_text(text.record_area_menu) {
                 log::warn!("托盘菜单文案刷新失败 ({}): {error}", text.record_area_menu);
             }
+        }
+        if let Some(items) = &self.recording_controls {
+            items.apply_text(text);
         }
         if let Err(error) = self.recordings.set_text(text.recordings_menu) {
             log::warn!("托盘菜单文案刷新失败 ({}): {error}", text.recordings_menu);
@@ -75,10 +124,38 @@ pub(crate) fn build(
             )
         })
         .transpose()?;
+    let recording_controls = crate::recording::wayland_tray_controls_available()
+        .then(|| {
+            Ok::<_, tauri::Error>(RecordingTrayMenuItems {
+                pause: MenuItem::with_id(
+                    app,
+                    PAUSE_RECORDING_ID,
+                    text.pause_recording_menu,
+                    false,
+                    None::<&str>,
+                )?,
+                resume: MenuItem::with_id(
+                    app,
+                    RESUME_RECORDING_ID,
+                    text.resume_recording_menu,
+                    false,
+                    None::<&str>,
+                )?,
+                stop: MenuItem::with_id(
+                    app,
+                    STOP_RECORDING_ID,
+                    text.stop_recording_menu,
+                    false,
+                    None::<&str>,
+                )?,
+            })
+        })
+        .transpose()?;
     let items = TrayMenuItems {
         open_clipboard: MenuItem::with_id(app, OPEN_ID, text.open_clipboard, true, None::<&str>)?,
         actions: MenuItem::with_id(app, ACTIONS_ID, text.actions_menu, true, None::<&str>)?,
         record_area,
+        recording_controls,
         recordings: MenuItem::with_id(
             app,
             RECORDINGS_ID,
@@ -100,6 +177,11 @@ pub(crate) fn build(
         vec![&items.open_clipboard, &items.actions];
     if let Some(record_area) = &items.record_area {
         menu_items.push(record_area);
+    }
+    if let Some(controls) = &items.recording_controls {
+        menu_items.push(&controls.pause);
+        menu_items.push(&controls.resume);
+        menu_items.push(&controls.stop);
     }
     menu_items.push(&items.recordings);
     menu_items.push(&items.pin_workspaces);
@@ -141,6 +223,27 @@ pub(crate) fn build(
                     }
                 });
             }
+            PAUSE_RECORDING_ID => {
+                if let Err(error) =
+                    crate::recording::control_host::pause_recording_from_tray(app_handle)
+                {
+                    log::warn!("从托盘暂停录屏失败: {error}");
+                }
+            }
+            RESUME_RECORDING_ID => {
+                if let Err(error) =
+                    crate::recording::control_host::resume_recording_from_tray(app_handle)
+                {
+                    log::warn!("从托盘继续录屏失败: {error}");
+                }
+            }
+            STOP_RECORDING_ID => {
+                if let Err(error) =
+                    crate::recording::control_host::stop_recording_from_tray(app_handle)
+                {
+                    log::warn!("从托盘安排停止录屏失败: {error}");
+                }
+            }
             RECORDINGS_ID => {
                 if let Err(error) = crate::recording::library::open(app_handle) {
                     log::warn!("打开录屏结果库失败: {error}");
@@ -167,6 +270,13 @@ pub(crate) fn build(
 /// 托盘随配置变化刷新：菜单文案跟语言，图标跟主题。
 pub(crate) fn listen_for_config_changes(app: &tauri::App, items: TrayMenuItems) {
     let handle = app.handle().clone();
+    if let Some(recording_controls) = items.recording_controls.clone() {
+        app.listen("recording-tray-state", move |event| {
+            let state = serde_json::from_str::<String>(event.payload())
+                .unwrap_or_else(|_| "idle".to_string());
+            recording_controls.apply_state(&state);
+        });
+    }
     app.listen("config-changed", move |event| {
         #[derive(serde::Deserialize)]
         struct Payload {
@@ -201,4 +311,27 @@ pub(crate) fn listen_for_config_changes(app: &tauri::App, items: TrayMenuItems) 
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::recording_tray_enabled_state;
+
+    #[test]
+    fn recording_tray_state_exposes_only_valid_transitions() {
+        assert_eq!(recording_tray_enabled_state("idle"), (false, false, false));
+        assert_eq!(
+            recording_tray_enabled_state("starting"),
+            (false, false, false)
+        );
+        assert_eq!(
+            recording_tray_enabled_state("recording"),
+            (true, false, true)
+        );
+        assert_eq!(recording_tray_enabled_state("paused"), (false, true, true));
+        assert_eq!(
+            recording_tray_enabled_state("unknown"),
+            (false, false, false)
+        );
+    }
 }

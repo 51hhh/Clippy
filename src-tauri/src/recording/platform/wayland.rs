@@ -10,6 +10,7 @@ use crate::capture::RecordingCaptureSpec;
 use crate::pipewire_frame::{
     enum_format_pod, frame_from_buffer, init_pipewire, parse_video_format, PipeWireRgbaFrame,
 };
+use crate::recording::authorization::RecordingAuthorizationCancellation;
 use crate::recording::frame::{CapturedFrame, FrameError};
 use crate::recording::worker::RecordingFrameSource;
 use anyhow::Context;
@@ -17,6 +18,7 @@ use ashpd::desktop::screencast::{
     CursorMode, Screencast, SelectSourcesOptions, SourceType, Stream as PortalStream,
 };
 use ashpd::desktop::{PersistMode, Session};
+use ashpd::WindowIdentifier;
 use pipewire as pw;
 use pw::spa;
 use spa::param::video::VideoInfoRaw;
@@ -48,6 +50,12 @@ pub(in crate::recording) enum WaylandFrameSourceError {
     EmbeddedCursorUnavailable,
     #[error("ScreenCast Portal 初始化失败: {0}")]
     Portal(String),
+    #[error("Wayland ScreenCast Portal 缺少本次授权窗的可信父窗口")]
+    MissingAuthorizationTarget,
+    #[error("Wayland ScreenCast Portal 授权已取消")]
+    AuthorizationCancelled,
+    #[error("隐藏 Wayland 录屏授权窗失败: {0}")]
+    HideAuthorizationWindow(String),
     #[error("ScreenCast Portal 返回的不是冻结选区所在显示器")]
     PortalSourceMismatch,
     #[error("ScreenCast Portal 必须返回且只能返回一条显示器流")]
@@ -76,6 +84,45 @@ pub(in crate::recording) enum WaylandFrameSourceError {
     Region(#[from] RegionFrameError),
     #[error(transparent)]
     Frame(#[from] FrameError),
+}
+
+struct WaylandPortalAuthorization {
+    parent: WindowIdentifier,
+    cancellation: Arc<RecordingAuthorizationCancellation>,
+    hide_window: Option<Box<dyn FnOnce() -> Result<(), String> + Send + 'static>>,
+}
+
+#[derive(Clone)]
+pub(in crate::recording) struct WaylandPortalControlTarget {
+    authorization: Arc<Mutex<Option<WaylandPortalAuthorization>>>,
+}
+
+impl WaylandPortalControlTarget {
+    pub(in crate::recording) fn new(
+        parent: WindowIdentifier,
+        cancellation: Arc<RecordingAuthorizationCancellation>,
+        hide_window: impl FnOnce() -> Result<(), String> + Send + 'static,
+    ) -> Self {
+        Self {
+            authorization: Arc::new(Mutex::new(Some(WaylandPortalAuthorization {
+                parent,
+                cancellation,
+                hide_window: Some(Box::new(hide_window)),
+            }))),
+        }
+    }
+
+    pub(in crate::recording) fn same_instance(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.authorization, &other.authorization)
+    }
+
+    fn take(self) -> Result<WaylandPortalAuthorization, WaylandFrameSourceError> {
+        self.authorization
+            .lock()
+            .map_err(|_| WaylandFrameSourceError::MissingAuthorizationTarget)?
+            .take()
+            .ok_or(WaylandFrameSourceError::MissingAuthorizationTarget)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -144,8 +191,11 @@ impl WaylandPortalFrameSourcePlan {
         &self.descriptor
     }
 
-    pub fn connect(self) -> Result<WaylandPortalRegionFrameSource, WaylandFrameSourceError> {
-        WaylandPortalRegionFrameSource::connect(self)
+    pub fn connect(
+        self,
+        target: WaylandPortalControlTarget,
+    ) -> Result<WaylandPortalRegionFrameSource, WaylandFrameSourceError> {
+        WaylandPortalRegionFrameSource::connect(self, target)
     }
 }
 
@@ -172,7 +222,11 @@ impl Drop for PortalSession {
 
 async fn open_portal(
     expected: &ExpectedPortalMonitor,
+    mut authorization: WaylandPortalAuthorization,
 ) -> Result<(Session<Screencast>, u32, OwnedFd), WaylandFrameSourceError> {
+    if authorization.cancellation.is_cancelled() {
+        return Err(WaylandFrameSourceError::AuthorizationCancelled);
+    }
     let proxy = Screencast::new()
         .await
         .map_err(|error| WaylandFrameSourceError::Portal(error.to_string()))?;
@@ -194,8 +248,11 @@ async fn open_portal(
         .create_session(Default::default())
         .await
         .map_err(|error| WaylandFrameSourceError::Portal(error.to_string()))?;
-    let opened = async {
-        proxy
+    let opened = tokio::select! {
+        biased;
+        _ = authorization.cancellation.cancelled() => Err(WaylandFrameSourceError::AuthorizationCancelled),
+        result = async {
+            proxy
             .select_sources(
                 &session,
                 SelectSourcesOptions::default()
@@ -209,7 +266,7 @@ async fn open_portal(
             .and_then(|request| request.response())
             .map_err(|error| WaylandFrameSourceError::Portal(error.to_string()))?;
         let response = proxy
-            .start(&session, None, Default::default())
+            .start(&session, Some(&authorization.parent), Default::default())
             .await
             .and_then(|request| request.response())
             .map_err(|error| WaylandFrameSourceError::Portal(error.to_string()))?;
@@ -218,14 +275,25 @@ async fn open_portal(
             return Err(WaylandFrameSourceError::PortalStreamCount);
         }
         validate_portal_stream(&streams[0], expected)?;
+        if authorization.cancellation.is_cancelled() {
+            return Err(WaylandFrameSourceError::AuthorizationCancelled);
+        }
+        authorization
+            .hide_window
+            .take()
+            .ok_or(WaylandFrameSourceError::MissingAuthorizationTarget)?()
+            .map_err(WaylandFrameSourceError::HideAuthorizationWindow)?;
+        if authorization.cancellation.is_cancelled() {
+            return Err(WaylandFrameSourceError::AuthorizationCancelled);
+        }
         let node_id = streams[0].pipe_wire_node_id();
         let remote = proxy
             .open_pipe_wire_remote(&session, Default::default())
             .await
             .map_err(|error| WaylandFrameSourceError::Portal(error.to_string()))?;
         Ok((node_id, remote))
-    }
-    .await;
+        } => result,
+    };
     match opened {
         Ok((node_id, remote)) => Ok((session, node_id, remote)),
         Err(error) => {
@@ -657,7 +725,10 @@ pub(in crate::recording) struct WaylandPortalRegionFrameSource {
 }
 
 impl WaylandPortalRegionFrameSource {
-    fn connect(plan: WaylandPortalFrameSourcePlan) -> Result<Self, WaylandFrameSourceError> {
+    fn connect(
+        plan: WaylandPortalFrameSourcePlan,
+        target: WaylandPortalControlTarget,
+    ) -> Result<Self, WaylandFrameSourceError> {
         let current = WaylandPortalFrameSourcePlan::prepare(plan.selection)?;
         if current.expected != plan.expected || current.descriptor != plan.descriptor {
             return Err(WaylandFrameSourceError::MonitorGeometryChanged);
@@ -666,7 +737,9 @@ impl WaylandPortalRegionFrameSource {
             .enable_all()
             .build()
             .map_err(|error| WaylandFrameSourceError::Portal(error.to_string()))?;
-        let (session, node_id, remote) = runtime.block_on(open_portal(&plan.expected))?;
+        let authorization = target.take()?;
+        let (session, node_id, remote) =
+            runtime.block_on(open_portal(&plan.expected, authorization))?;
         let portal = PortalSession {
             runtime,
             session: Some(session),

@@ -115,11 +115,19 @@ describe("真机 QA 合同", () => {
     "linux-gnome-wayland-ubuntu24",
     "linux-kde-wayland",
     "linux-wlroots-wayland",
-  ])("%s 保持录屏入口关闭合同", (profileId) => {
+  ])("%s 使用 Wayland Portal 与托盘录屏合同", (profileId) => {
     const ids = casesForProfile(profileId).map((testCase) => testCase.id);
 
-    expect(ids).toContain("recording_entry_gated");
-    expect(ids).not.toContain("recording_region_roundtrip");
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        "recording_wayland_authorization",
+        "recording_region_roundtrip",
+        "recording_wayland_tray_controls",
+        "recording_recovery_roundtrip",
+      ]),
+    );
+    expect(ids).not.toContain("recording_entry_gated");
+    expect(ids).not.toContain("recording_control_exclusion");
   });
 
   it.each(Object.keys(QA_PROFILES))("%s 的完整证据可以通过", (profileId) => {

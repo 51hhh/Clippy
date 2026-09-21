@@ -182,7 +182,7 @@ jobs:
       matrix:
         include:
           - runner: ubuntu-22.04
-            features: recording-vp9-prototype
+            features: recording-wayland-qa
           - runner: windows-latest
             features: recording-vp9-source-build
           - runner: macos-15
