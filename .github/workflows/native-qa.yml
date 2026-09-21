@@ -321,6 +321,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.rust_target }}
+          components: llvm-tools-preview
 
       - name: Install macOS Intel recording source-build dependencies
         if: matrix.asset_arch == 'x64'

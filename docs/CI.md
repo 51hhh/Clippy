@@ -85,9 +85,11 @@ AppImage X11 窗口几何、首帧和单实例 smoke；smoke 缺依赖或缺产�
 
 Linux x64 QA 包使用 `recording-vp9-prototype`，Windows x64 QA 包使用
 `recording-vp9-source-build`。Windows job 安装固定源码构建所需的 MSYS2、make、diffutils、Perl、
-NASM、MSBuild 和 Rust `llvm-tools-preview`，并与 Linux 一起运行录屏编码供应链校验。三类平台产物都在
-`QA-BUILD.txt` 写入 `recording_feature`：Linux/Windows 写实际 feature，macOS 写 `disabled`。这些设置
-只存在于手动 Native QA workflow；普通 CI、默认 Cargo feature 和正式 release workflow 均不启用录屏。
+NASM、MSBuild 和 Rust `llvm-tools-preview`；macOS QA job 同样安装 `llvm-tools-preview`，Intel runner
+再安装 NASM，供源码构建的 libvpx 完成静态库符号重写。Windows 与 Linux 一起运行录屏编码供应链
+校验。三类平台产物都在 `QA-BUILD.txt` 写入实际 `recording_feature`；macOS 还记录 12.3 最低系统
+版本。这些设置只存在于手动 Native QA workflow；普通 CI、默认 Cargo feature 和正式 release workflow
+均不启用录屏。
 
 这些安装包明确是 `unsigned-qa-only`、`self-signed-qa-only` 或 `ad-hoc-qa-only`，只用于功能测试。
 Windows QA 包可验证 Authenticode 摘要与 signer 一致，但不具备公共 CA 信任，也不能用于 Tauri updater

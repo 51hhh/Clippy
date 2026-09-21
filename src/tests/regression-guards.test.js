@@ -167,6 +167,7 @@ describe("原生平台由真实 runner 编译", () => {
 
   it("手动 QA workflow 为同一 SHA 生成四架构包、Ubuntu 24 证据与九环境记录", () => {
     const qaWorkflow = read(".github/workflows/native-qa.yml");
+    const macQaJob = qaWorkflow.slice(qaWorkflow.indexOf("  build-macos:"));
     const releaseWorkflow = read(".github/workflows/release.yml");
     const cargo = read("src-tauri/Cargo.toml");
     expect(buildWorkflow).not.toContain("QA artifact");
@@ -210,6 +211,9 @@ describe("原生平台由真实 runner 编译", () => {
     expect(qaWorkflow).toContain("msys2/setup-msys2@v2");
     expect(qaWorkflow).toContain("microsoft/setup-msbuild@v3");
     expect(qaWorkflow).toContain("components: llvm-tools-preview");
+    expect(macQaJob).toMatch(
+      /Setup Rust[\s\S]*targets: \$\{\{ matrix\.rust_target \}\}[\s\S]*components: llvm-tools-preview/,
+    );
     expect(qaWorkflow).toContain("recording_feature=recording-vp9-prototype");
     expect(qaWorkflow).toContain("recording_feature=recording-vp9-source-build");
     expect(qaWorkflow).toContain("recording_feature=%s");
