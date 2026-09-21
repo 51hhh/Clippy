@@ -26,11 +26,12 @@ function completedRecord(profileId) {
 }
 
 describe("真机 QA 合同", () => {
-  it("覆盖 PRD 的九个目标环境", () => {
+  it("覆盖 PRD 的十个目标环境", () => {
     expect(Object.keys(QA_PROFILES)).toEqual([
       "linux-gnome-x11",
       "linux-gnome-wayland",
       "linux-gnome-wayland-ubuntu24",
+      "linux-gnome-wayland-ubuntu26",
       "linux-kde-wayland",
       "linux-wlroots-wayland",
       "windows-10-x64",
@@ -40,12 +41,15 @@ describe("真机 QA 合同", () => {
     ]);
   });
 
-  it("Ubuntu 24 单独验证 Portal 版本与截图 fallback", () => {
-    const ids = casesForProfile("linux-gnome-wayland-ubuntu24").map((testCase) => testCase.id);
+  it.each(["linux-gnome-wayland-ubuntu24", "linux-gnome-wayland-ubuntu26"])(
+    "%s 单独验证 Portal 版本与截图 fallback",
+    (profileId) => {
+      const ids = casesForProfile(profileId).map((testCase) => testCase.id);
 
-    expect(ids).toContain("portal_capability_versions");
-    expect(ids).toContain("wayland_capture_fallbacks");
-  });
+      expect(ids).toContain("portal_capability_versions");
+      expect(ids).toContain("wayland_capture_fallbacks");
+    },
+  );
 
   it.each(["macos-intel", "macos-apple-silicon"])(
     "%s 的签名合同与当前 Ad-Hoc 发布策略一致",
@@ -113,6 +117,7 @@ describe("真机 QA 合同", () => {
   it.each([
     "linux-gnome-wayland",
     "linux-gnome-wayland-ubuntu24",
+    "linux-gnome-wayland-ubuntu26",
     "linux-kde-wayland",
     "linux-wlroots-wayland",
   ])("%s 使用 Wayland Portal 与托盘录屏合同", (profileId) => {

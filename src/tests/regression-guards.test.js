@@ -165,7 +165,7 @@ describe("原生平台由真实 runner 编译", () => {
     );
   });
 
-  it("手动 QA workflow 为同一 SHA 生成四架构包、Ubuntu 24 证据与九环境记录", () => {
+  it("手动 QA workflow 为同一 SHA 生成四架构包、Ubuntu 24 证据与十环境记录", () => {
     const qaWorkflow = read(".github/workflows/native-qa.yml");
     const macQaJob = qaWorkflow.slice(qaWorkflow.indexOf("  build-macos:"));
     const releaseWorkflow = read(".github/workflows/release.yml");
@@ -190,6 +190,7 @@ describe("原生平台由真实 runner 编译", () => {
     expect(qaWorkflow).toContain("rust_target: x86_64-apple-darwin");
     expect(qaWorkflow).toContain("rust_target: aarch64-apple-darwin");
     expect(qaWorkflow).toContain("linux-gnome-wayland-ubuntu24");
+    expect(qaWorkflow).toContain("linux-gnome-wayland-ubuntu26");
     expect(qaWorkflow).toContain("--config src-tauri/tauri.linux.conf.json");
     expect(qaWorkflow).toContain("--config src-tauri/tauri.windows.conf.json");
     expect(qaWorkflow).toContain("--config src-tauri/tauri.windows.signing.conf.json");

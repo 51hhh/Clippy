@@ -99,6 +99,7 @@ jobs:
           VERSION=$(jq -r '.version' src-tauri/tauri.conf.json)
           for PROFILE in \
             linux-gnome-x11 linux-gnome-wayland linux-gnome-wayland-ubuntu24 \
+            linux-gnome-wayland-ubuntu26 \
             linux-kde-wayland linux-wlroots-wayland windows-10-x64 windows-11-x64 \
             macos-intel macos-apple-silicon; do
             node scripts/manual-qa.mjs template \

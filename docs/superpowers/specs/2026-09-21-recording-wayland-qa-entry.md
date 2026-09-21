@@ -30,7 +30,7 @@ ScreenCast Portal + PipeWire 区域录屏链路。系统选源对话框必须绑
 6. 专用 QA 构建在原生托盘提供 Pause、Resume、Stop。菜单事件直接从后端当前活动 lifecycle 取得
    exact generation token；前端不能提交 token。空闲、启动、录制、暂停和结束状态必须限制菜单
    可用性，迟到事件不得控制随后建立的会话。
-7. Linux Native QA 包使用 `recording-wayland-qa`，`QA-BUILD.txt` 记录实际 feature。Wayland 四个
+7. Linux Native QA 包使用 `recording-wayland-qa`，`QA-BUILD.txt` 记录实际 feature。Wayland 五个
    profile 覆盖授权/取消、单/多显示器、混合缩放、区域像素、光标、托盘暂停/继续/停止、结果库与
    强杀恢复；X11 profile 仍执行现有控制窗在选区外合同。
 8. 架构文档、Native QA 文档、结构化模板和 CHANGELOG 同步记录该能力仍为无音频、非默认原型。
@@ -42,7 +42,7 @@ ScreenCast Portal + PipeWire 区域录屏链路。系统选源对话框必须绑
 - [x] 父窗口和授权取消合同有单元测试；缺失/错误 target、取消竞态和迟到响应均安全失败。
 - [x] 授权窗口在 PipeWire 启动前隐藏，录制期间只保留托盘控制；全屏选区不依赖窗口可放置空间。
 - [x] 托盘控制只操作后端当前活动 token，并覆盖空闲、录制、暂停、停止和迟到事件状态。
-- [x] Wayland 四个结构化 QA profile 使用可执行录屏合同，X11/Windows/macOS 合同不回退。
+- [x] Wayland 五个结构化 QA profile 使用可执行录屏合同，X11/Windows/macOS 合同不回退。
 - [x] `cargo fmt`、Rust check/clippy/test、前端测试/类型检查/构建和仓库静态门禁通过。
 - [x] 同一 SHA 的 Ubuntu/Windows/macOS 原生 CI、Linux QA 包与 Ubuntu 24 AppImage runtime smoke
   成功。

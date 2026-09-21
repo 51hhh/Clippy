@@ -57,6 +57,7 @@ node scripts/manual-qa.mjs template \
 | `linux-gnome-x11` | Ubuntu 22.04 GNOME 42 X11 |
 | `linux-gnome-wayland` | Ubuntu 22.04 GNOME 42 Wayland |
 | `linux-gnome-wayland-ubuntu24` | Ubuntu 24.04 GNOME Wayland |
+| `linux-gnome-wayland-ubuntu26` | Ubuntu 26.04 GNOME Wayland |
 | `linux-kde-wayland` | KDE Wayland |
 | `linux-wlroots-wayland` | 一个 wlroots compositor |
 | `windows-10-x64` | Windows 10 22H2 x64 |
@@ -149,9 +150,9 @@ node scripts/manual-qa.mjs verify \
 - 绝对定位和永久置顶受 compositor 限制时，能力面板与 Pin UI 必须显示
   `wayland_protocol_limited`，不得循环调用无效定位。
 - 使用混合缩放多屏完成截图诊断并保存 I1–I5；I4/I5 未观测不能写成 PASS。
-- Ubuntu 24.04 还必须记录 GNOME、xdg-desktop-portal 与 desktop portal backend 版本，分别触发
+- Ubuntu 24.04/26.04 还必须记录 GNOME、xdg-desktop-portal 与 desktop portal backend 版本，分别触发
   Mutter、Shell helper、Portal 和后续 fallback 中环境实际支持的路径；诊断记录的 selected backend
-  必须与观测一致，不能沿用 Ubuntu 22 的结论。
+  必须与观测一致，不能沿用其它 Ubuntu 版本的结论。
 - 长截图控制窗不得显示自动滚动入口；当前实现没有建立 RemoteDesktop/libei 指针会话，不能因
   `DISPLAY` 存在或 XWayland 可用而把原生 Wayland 窗口误报为可自动滚动。
 
@@ -205,7 +206,7 @@ SHA-256、`QA-BUILD.txt` 和完整 commit，再执行对应模板中的三个录
    CPU、峰值内存、丢帧/重复帧和播放器兼容结果，不能只记录“文件能打开”。
 4. 连续录制超过 65 秒，确认至少一个周期分段已提交后强制终止进程。重启后中断会话必须列出可播放
    分段和首帧缩略图，并能无损合并、播放及导出；未提交尾段不得冒充已恢复数据。
-5. Wayland 四个 profile 先验证授权窗与 ScreenCast Portal 系统选择器绑定；分别记录允许、拒绝、
+5. Wayland 五个 profile 先验证授权窗与 ScreenCast Portal 系统选择器绑定；分别记录允许、拒绝、
    Cancel、关闭授权窗、选错显示器和多屏元数据结果。失败后入口可再次打开，且不得留下文件、Portal
    session、PipeWire stream 或 Recording gate。
 6. Wayland 授权成功后，授权窗必须在首帧前隐藏；录制阶段只用托盘 Pause/Resume/Stop。全屏选区也须
