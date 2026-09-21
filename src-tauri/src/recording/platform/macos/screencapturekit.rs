@@ -27,7 +27,7 @@ use objc2_screen_capture_kit::{
 };
 use std::slice;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TryRecvError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -266,12 +266,7 @@ impl MacScreenCaptureKitRegionFrameSource {
     }
 
     fn discard_frames(&self) {
-        loop {
-            match self.frames.try_recv() {
-                Ok(_) => {}
-                Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
-            }
-        }
+        while self.frames.try_recv().is_ok() {}
     }
 
     fn set_running(&mut self, running: bool) -> Result<u64, MacFrameSourceError> {
@@ -537,14 +532,12 @@ unsafe fn copy_bgra_frame(
             let output_start = row * row_bytes;
             let source_row = &source[source_start..source_start + row_bytes];
             let output_row = &mut rgba[output_start..output_start + row_bytes];
-            for (bgra, rgba) in source_row
-                .chunks_exact(4)
-                .zip(output_row.chunks_exact_mut(4))
-            {
-                rgba[0] = bgra[2];
-                rgba[1] = bgra[1];
-                rgba[2] = bgra[0];
-                rgba[3] = bgra[3];
+            for column in 0..width {
+                let pixel = column * 4;
+                output_row[pixel] = source_row[pixel + 2];
+                output_row[pixel + 1] = source_row[pixel + 1];
+                output_row[pixel + 2] = source_row[pixel];
+                output_row[pixel + 3] = source_row[pixel + 3];
             }
         }
         Ok(NativeFrame {
