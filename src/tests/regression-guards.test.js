@@ -165,6 +165,7 @@ describe("原生平台由真实 runner 编译", () => {
   it("手动 QA workflow 为同一 SHA 生成四架构包、Ubuntu 24 证据与九环境记录", () => {
     const qaWorkflow = read(".github/workflows/native-qa.yml");
     const releaseWorkflow = read(".github/workflows/release.yml");
+    const cargo = read("src-tauri/Cargo.toml");
     expect(buildWorkflow).not.toContain("QA artifact");
     expect(qaWorkflow).toMatch(/on:\s*\n\s+workflow_dispatch:/);
     for (const artifact of [
@@ -209,6 +210,9 @@ describe("原生平台由真实 runner 编译", () => {
     expect(qaWorkflow).toContain("recording_feature=recording-vp9-source-build");
     expect(qaWorkflow).toContain("recording_feature=disabled");
     expect(releaseWorkflow).not.toContain("recording-vp9");
+    // 录屏 feature 会同时开放两个 benchmark bin。没有 default-run 时，cargo check
+    // 仍然通过，但真正执行 tauri build 会因无法判断主程序而失败。
+    expect(cargo).toMatch(/^default-run\s*=\s*"clippy-app"$/m);
   });
 });
 

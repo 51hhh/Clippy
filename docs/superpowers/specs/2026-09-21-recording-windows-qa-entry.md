@@ -32,6 +32,7 @@
 
 - [x] Rust 门控测试证明 Linux X11 和 Windows Native 只在对应 feature/target 开放，其他会话保持关闭。
 - [x] Linux 与 Windows QA 构建命令使用正确 feature，Windows source build 工具链与锁定供应链门禁一致。
+- [x] 启用录屏 feature 后，即使 benchmark 二进制同时可见，Tauri 仍明确选择 `clippy-app` 作为安装包主程序。
 - [x] X11、Windows 和未开放平台的 QA 模板包含各自准确且不可伪造通过的录屏场景。
 - [x] 默认构建及 macOS/Wayland 入口没有被扩大，正式 release workflow 没有启用录屏 feature。
 - [x] 默认与 VP9 feature 的 check/clippy/test、前端测试、workflow 合同与完整本地门禁通过。
@@ -56,5 +57,12 @@
   arboard 交叉 lint 已通过；
 - PyYAML 可解析 `native-qa.yml`，Tauri CLI 帮助确认 `build --features` 是有效参数。
 
-Windows/macOS 原生 runner、Windows 10/11 与 X11 真机结果必须绑定推送后的完整 SHA；当前尚未执行，
-最后一项继续保持待验收。
+Windows 10/11 与 X11 真机结果必须绑定通过原生 runner 和安装包构建的完整 SHA；当前尚未执行，最后
+一项继续保持待验收。
+
+远程验证：
+
+- 提交 `89b68e428588c6a6c988da1ba61c3516a8118de9` 的常规 CI 七个 job 全部通过；
+- 同提交首次执行 Native QA 时，Linux 在真正打包阶段暴露多个可用 bin 未声明默认主程序的问题；普通
+  `cargo check/clippy/test` 不覆盖该决策。现已在 Cargo package 明确 `default-run = "clippy-app"` 并加入
+  静态回归合同，修复后的安装包结果须绑定新的完整 SHA，不能沿用首次失败记录。
