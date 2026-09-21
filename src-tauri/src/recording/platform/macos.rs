@@ -12,7 +12,8 @@ use super::region::{validate_direct_region_selection, RegionFrameError};
 use super::{RecordingControlTarget, RecordingSourceDescriptor};
 use crate::capture::RecordingCaptureSpec;
 #[cfg(not(feature = "recording-macos-screencapturekit"))]
-use crate::recording::frame::{CapturedFrame, FrameError};
+use crate::recording::frame::CapturedFrame;
+use crate::recording::frame::FrameError;
 #[cfg(not(feature = "recording-macos-screencapturekit"))]
 use crate::recording::worker::RecordingFrameSource;
 use objc2_core_graphics::{CGDisplayPixelsHigh, CGDisplayPixelsWide};
