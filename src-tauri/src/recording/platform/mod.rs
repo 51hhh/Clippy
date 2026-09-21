@@ -25,6 +25,33 @@ pub(super) struct RecordingSourceDescriptor {
     pub height: u32,
 }
 
+/// 控制窗创建完成后由 Rust 桌面层交给帧源的一次性可信目标。
+///
+/// 原生窗口 ID 只能来自本次创建的 Tauri 控制窗，不能从 WebView 或 IPC 请求进入录屏链路。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RecordingControlTarget {
+    NoNativeWindow,
+    #[cfg(any(
+        test,
+        all(target_os = "macos", feature = "recording-macos-screencapturekit")
+    ))]
+    NativeWindow(u64),
+}
+
+impl RecordingControlTarget {
+    pub const fn no_native_window() -> Self {
+        Self::NoNativeWindow
+    }
+
+    #[cfg(any(
+        test,
+        all(target_os = "macos", feature = "recording-macos-screencapturekit")
+    ))]
+    pub const fn native_window(window_id: u64) -> Self {
+        Self::NativeWindow(window_id)
+    }
+}
+
 /// 平台对象创建前可跨线程移动的唯一采集计划。
 #[derive(Debug, Clone)]
 pub(super) enum PlatformFrameSourcePlan {
@@ -82,16 +109,30 @@ impl PlatformFrameSourcePlan {
         }
     }
 
-    pub fn connect(self) -> Result<PlatformFrameSource, PlatformFrameSourceError> {
+    pub fn connect(
+        self,
+        control_target: RecordingControlTarget,
+    ) -> Result<PlatformFrameSource, PlatformFrameSourceError> {
         match self {
             #[cfg(target_os = "linux")]
-            Self::X11(plan) => Ok(PlatformFrameSource::X11(Box::new(plan.connect()?))),
+            Self::X11(plan) => {
+                debug_assert_eq!(control_target, RecordingControlTarget::NoNativeWindow);
+                Ok(PlatformFrameSource::X11(Box::new(plan.connect()?)))
+            }
             #[cfg(target_os = "linux")]
-            Self::Wayland(plan) => Ok(PlatformFrameSource::Wayland(Box::new(plan.connect()?))),
+            Self::Wayland(plan) => {
+                debug_assert_eq!(control_target, RecordingControlTarget::NoNativeWindow);
+                Ok(PlatformFrameSource::Wayland(Box::new(plan.connect()?)))
+            }
             #[cfg(target_os = "windows")]
-            Self::Windows(plan) => Ok(PlatformFrameSource::Windows(Box::new(plan.connect()?))),
+            Self::Windows(plan) => {
+                debug_assert_eq!(control_target, RecordingControlTarget::NoNativeWindow);
+                Ok(PlatformFrameSource::Windows(Box::new(plan.connect()?)))
+            }
             #[cfg(target_os = "macos")]
-            Self::Macos(plan) => Ok(PlatformFrameSource::Macos(Box::new(plan.connect()?))),
+            Self::Macos(plan) => Ok(PlatformFrameSource::Macos(Box::new(
+                plan.connect(control_target)?,
+            ))),
         }
     }
 }
@@ -104,7 +145,7 @@ pub(super) enum PlatformFrameSource {
     #[cfg(target_os = "windows")]
     Windows(Box<windows::WindowsWgcRegionFrameSource>),
     #[cfg(target_os = "macos")]
-    Macos(Box<macos::MacAvRegionFrameSource>),
+    Macos(Box<macos::MacRegionFrameSource>),
 }
 
 #[derive(Debug, Error)]

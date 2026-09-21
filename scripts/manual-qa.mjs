@@ -183,7 +183,7 @@ const PROFILES = {
     ],
   },
   "macos-intel": {
-    label: "macOS 11+ Intel",
+    label: "macOS 12.3+ Intel",
     operatingSystem: "macos",
     session: "native",
     architecture: "x86_64",
@@ -209,11 +209,11 @@ const PROFILES = {
         "adhoc_bundle_boundary",
         "Ad-Hoc 签名、目标架构、未公证边界与首次打开恢复",
       ),
-      RECORDING_GATED_CASE,
+      ...RECORDING_AVAILABLE_CASES,
     ],
   },
   "macos-apple-silicon": {
-    label: "macOS 11+ Apple Silicon",
+    label: "macOS 12.3+ Apple Silicon",
     operatingSystem: "macos",
     session: "native",
     architecture: "aarch64",
@@ -239,7 +239,7 @@ const PROFILES = {
         "adhoc_bundle_boundary",
         "Ad-Hoc 签名、目标架构、未公证边界与首次打开恢复",
       ),
-      RECORDING_GATED_CASE,
+      ...RECORDING_AVAILABLE_CASES,
     ],
   },
 };

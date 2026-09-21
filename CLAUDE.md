@@ -117,7 +117,7 @@ Rust 后端 (src-tauri/src/)
 ├── archive.rs / storage/archive.rs    — `.clippy.zip` 校验、编解码与事务合并
 ├── paste/ / window_controller.rs      — X11/Portal 粘贴与窗口几何
 ├── capture/ / screenshot.rs           — CaptureSession 与平台截图
-├── recording/                         — 录屏帧源、时间线、编码/remux、缩略图、恢复、结果库、控制窗与产品门控
+├── recording/                         — X11/WGC/ScreenCaptureKit 帧源、时间线、编码/remux、缩略图、恢复、结果库与控制窗门控
 ├── pin/ / pin_window.rs               — Pin command adapter、生命周期、可信输出与窗口适配
 ├── translation/ / ocr.rs / ocr/       — 翻译服务；OCR facade、运行时、探测、进程与协议
 └── config.rs / models.rs              — 配置与共享模型

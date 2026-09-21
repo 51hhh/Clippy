@@ -298,18 +298,22 @@ jobs:
 
   build-macos:
     name: QA Bundle (macOS ${{ matrix.label }})
-    runs-on: macos-latest
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         include:
           - label: Apple-Silicon
+            runner: macos-15
             rust_target: aarch64-apple-darwin
             asset_arch: aarch64
+            recording_feature: recording-macos-screencapturekit
           - label: Intel
+            runner: macos-15-intel
             rust_target: x86_64-apple-darwin
             asset_arch: x64
+            recording_feature: recording-macos-screencapturekit,recording-vp9-source-build
     steps:
       - uses: actions/checkout@v7
 
@@ -317,6 +321,10 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.rust_target }}
+
+      - name: Install macOS Intel recording source-build dependencies
+        if: matrix.asset_arch == 'x64'
+        run: brew install nasm
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
@@ -336,10 +344,15 @@ jobs:
         working-directory: src
         run: npm ci
 
+      - name: Verify pinned recording codec supply chain
+        run: node scripts/verify-recording-codec-supply-chain.mjs
+
       - name: Build ad-hoc signed macOS QA bundle
         run: >-
           npx --prefix src tauri build --ci --target ${{ matrix.rust_target }}
+          --features ${{ matrix.recording_feature }}
           --config src-tauri/tauri.macos.conf.json
+          --config src-tauri/tauri.macos.recording.conf.json
           --config src-tauri/tauri.ci.conf.json
           --config src-tauri/tauri.macos.qa.conf.json
 
@@ -361,6 +374,12 @@ jobs:
           [ -n "$EXECUTABLE_NAME" ] || { echo '::error::CFBundleExecutable is missing'; exit 1; }
           EXECUTABLE="$APP/Contents/MacOS/$EXECUTABLE_NAME"
           [ -x "$EXECUTABLE" ] || { echo '::error::macOS executable is missing'; exit 1; }
+          [ "$(plutil -extract LSMinimumSystemVersion raw -o - "$INFO_PLIST")" = "12.3" ] || {
+            echo '::error::macOS recording QA bundle must require macOS 12.3'; exit 1;
+          }
+          [ -n "$(plutil -extract NSScreenCaptureUsageDescription raw -o - "$INFO_PLIST")" ] || {
+            echo '::error::macOS recording QA bundle is missing NSScreenCaptureUsageDescription'; exit 1;
+          }
           if [ "$ASSET_ARCH" = "aarch64" ]; then
             EXPECTED_ARCH="arm64"
           else
@@ -371,8 +390,9 @@ jobs:
           DMG=$(find "$BUNDLE_DIR/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)
           [ -n "$DMG" ] || { echo '::error::macOS DMG was not generated'; exit 1; }
           cp "$DMG" qa-artifacts/
-          printf 'commit=%s\nversion=%s\nplatform=macos-%s\nsigning=ad-hoc-qa-only\nrecording_feature=disabled\n' \
+          printf 'commit=%s\nversion=%s\nplatform=macos-%s\nsigning=ad-hoc-qa-only\nrecording_feature=%s\nminimum_system_version=12.3\n' \
             "$GITHUB_SHA" "$(jq -r '.version' src-tauri/tauri.conf.json)" "$ASSET_ARCH" \
+            "${{ matrix.recording_feature }}" \
             > qa-artifacts/QA-BUILD.txt
           (cd qa-artifacts && shasum -a 256 ./*.dmg > SHA256SUMS.txt)
 

@@ -1,7 +1,7 @@
 //! 录屏会话的持久化基础。
 //!
-//! X11/Windows 帧源、诊断编码器、VP9 原型与控制宿主已经分层接入。可信开始入口只在显式 VP9
-//! 构建的原生 X11 或 Windows 会话开放；默认构建与未完成原生验收的平台继续保持关闭。
+//! X11、Windows 与 macOS 专用 QA 帧源、VP9 原型和控制宿主已经分层接入。可信开始入口只在
+//! 对应显式 feature 与受支持的原生会话开放；默认构建继续保持关闭。
 
 mod manifest;
 // 独立 Recording 覆盖层通过这里完成可信选区交接；跨平台门控仍让部分构建不引用全部类型。
@@ -79,8 +79,8 @@ use std::fmt;
 use std::io;
 use std::path::Path;
 
-/// 当前阶段只允许显式启用 VP9 原型的原生 X11 与 Windows 构建进入产品选区。
-/// 这是 QA 入口，不改变默认发布 feature；macOS 与 Wayland 在控制面闭环完成前继续保持关闭。
+/// 当前阶段只允许显式 QA feature 的原生 X11、Windows 与 macOS 12.3+ 构建进入产品选区。
+/// 这是 QA 入口，不改变默认发布 feature；Wayland 继续保持关闭。
 pub(crate) fn product_entry_available() -> bool {
     product_entry_available_for(crate::platform::current_session())
 }
@@ -91,16 +91,37 @@ fn product_entry_available_for(session: crate::platform::DesktopSession) -> bool
     }
     match session {
         crate::platform::DesktopSession::X11 => cfg!(target_os = "linux"),
-        crate::platform::DesktopSession::Native => cfg!(target_os = "windows"),
+        crate::platform::DesktopSession::Native => {
+            cfg!(target_os = "windows") || macos_screencapturekit_runtime_available()
+        }
         crate::platform::DesktopSession::Wayland | crate::platform::DesktopSession::Unknown => {
             false
         }
     }
 }
 
+#[cfg(all(target_os = "macos", feature = "recording-macos-screencapturekit"))]
+fn macos_screencapturekit_runtime_available() -> bool {
+    let version = objc2_foundation::NSProcessInfo::processInfo().operatingSystemVersion();
+    macos_version_supports_screencapturekit(version.majorVersion, version.minorVersion)
+}
+
+#[cfg(not(all(target_os = "macos", feature = "recording-macos-screencapturekit")))]
+const fn macos_screencapturekit_runtime_available() -> bool {
+    false
+}
+
+#[cfg(any(
+    test,
+    all(target_os = "macos", feature = "recording-macos-screencapturekit")
+))]
+const fn macos_version_supports_screencapturekit(major: isize, minor: isize) -> bool {
+    major > 12 || (major == 12 && minor >= 3)
+}
+
 #[cfg(test)]
 mod product_entry_tests {
-    use super::product_entry_available_for;
+    use super::{macos_version_supports_screencapturekit, product_entry_available_for};
     use crate::platform::DesktopSession;
 
     #[test]
@@ -111,7 +132,7 @@ mod product_entry_tests {
     }
 
     #[test]
-    fn x11_and_windows_native_require_their_explicit_vp9_builds() {
+    fn x11_and_native_sessions_require_their_explicit_platform_builds() {
         assert_eq!(
             product_entry_available_for(DesktopSession::X11),
             cfg!(all(
@@ -124,8 +145,19 @@ mod product_entry_tests {
             cfg!(all(
                 feature = "recording-vp9-prototype",
                 target_os = "windows"
+            )) || cfg!(all(
+                target_os = "macos",
+                feature = "recording-macos-screencapturekit"
             ))
         );
+    }
+
+    #[test]
+    fn macos_runtime_policy_starts_at_12_3() {
+        assert!(!macos_version_supports_screencapturekit(11, 7));
+        assert!(!macos_version_supports_screencapturekit(12, 2));
+        assert!(macos_version_supports_screencapturekit(12, 3));
+        assert!(macos_version_supports_screencapturekit(13, 0));
     }
 }
 

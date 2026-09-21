@@ -186,9 +186,9 @@ jobs:
           - runner: windows-latest
             features: recording-vp9-source-build
           - runner: macos-15
-            features: recording-vp9-prototype
+            features: recording-macos-screencapturekit
           - runner: macos-15-intel
-            features: recording-vp9-source-build
+            features: recording-macos-screencapturekit,recording-vp9-source-build
     steps:
       - uses: actions/checkout@v7
 

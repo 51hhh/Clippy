@@ -104,7 +104,10 @@ describe("Linux CI 固守 Ubuntu 22 构建基线", () => {
     expect(buildWorkflow).toMatch(/recording-codec-prototype:[\s\S]*runner: windows-latest/);
     expect(buildWorkflow).toMatch(/recording-codec-prototype:[\s\S]*runner: macos-15\n/);
     expect(buildWorkflow).toMatch(
-      /runner: macos-15-intel\n\s+features: recording-vp9-source-build/,
+      /runner: macos-15-intel\n\s+features: recording-macos-screencapturekit,recording-vp9-source-build/,
+    );
+    expect(buildWorkflow).toMatch(
+      /runner: macos-15\n\s+features: recording-macos-screencapturekit/,
     );
     expect(buildWorkflow).toContain("components: clippy, llvm-tools-preview");
     expect(buildWorkflow).toContain("if: matrix.runner == 'macos-15-intel'");
@@ -190,6 +193,7 @@ describe("原生平台由真实 runner 编译", () => {
     expect(qaWorkflow).toContain("--config src-tauri/tauri.windows.conf.json");
     expect(qaWorkflow).toContain("--config src-tauri/tauri.windows.signing.conf.json");
     expect(qaWorkflow).toContain("--config src-tauri/tauri.macos.conf.json");
+    expect(qaWorkflow).toContain("--config src-tauri/tauri.macos.recording.conf.json");
     expect(qaWorkflow).toContain("--config src-tauri/tauri.macos.qa.conf.json");
     expect(qaWorkflow).not.toMatch(/macOS QA[\s\S]*--no-sign/);
     expect(qaWorkflow).toContain("plutil -extract CFBundleExecutable raw");
@@ -208,8 +212,11 @@ describe("原生平台由真实 runner 编译", () => {
     expect(qaWorkflow).toContain("components: llvm-tools-preview");
     expect(qaWorkflow).toContain("recording_feature=recording-vp9-prototype");
     expect(qaWorkflow).toContain("recording_feature=recording-vp9-source-build");
-    expect(qaWorkflow).toContain("recording_feature=disabled");
+    expect(qaWorkflow).toContain("recording_feature=%s");
+    expect(qaWorkflow).toContain('"${{ matrix.recording_feature }}"');
+    expect(qaWorkflow).toContain("minimum_system_version=12.3");
     expect(releaseWorkflow).not.toContain("recording-vp9");
+    expect(releaseWorkflow).not.toContain("recording-macos-screencapturekit");
     // 录屏 feature 会同时开放两个 benchmark bin。没有 default-run 时，cargo check
     // 仍然通过，但真正执行 tauri build 会因无法判断主程序而失败。
     expect(cargo).toMatch(/^default-run\s*=\s*"clippy-app"$/m);
@@ -693,5 +700,45 @@ describe("截图诊断不泄露窗口身份", () => {
     expect(diagnostic).toContain("window.is_minimized()");
     expect(diagnostic).not.toContain("window.title()");
     expect(diagnostic).not.toContain("window.pid()");
+  });
+});
+
+describe("macOS ScreenCaptureKit QA 边界", () => {
+  it("默认 macOS 11 构建与 12.3 录屏 QA 配置保持隔离", () => {
+    const normal = JSON.parse(read("src-tauri/tauri.macos.conf.json"));
+    const recording = JSON.parse(read("src-tauri/tauri.macos.recording.conf.json"));
+    expect(normal.bundle.macOS.minimumSystemVersion).toBe("11.0");
+    expect(normal.bundle.macOS.infoPlist).toBeUndefined();
+    expect(recording.bundle.macOS.minimumSystemVersion).toBe("12.3");
+    expect(recording.bundle.macOS.infoPlist).toBe("Info.recording.plist");
+    expect(read("src-tauri/Info.recording.plist")).toContain(
+      "NSScreenCaptureUsageDescription",
+    );
+    expect(read(".github/workflows/release.yml")).not.toContain(
+      "recording-macos-screencapturekit",
+    );
+  });
+
+  it("控制窗原生目标只在 Rust 创建后进入帧源", () => {
+    const lifecycle = read("src-tauri/src/recording/lifecycle.rs");
+    const prepare = lifecycle.indexOf("actions.prepare_control");
+    const start = lifecycle.indexOf("source_factory(control_target)");
+    expect(prepare).toBeGreaterThan(0);
+    expect(start).toBeGreaterThan(prepare);
+    expect(read("src-tauri/src/recording/control_host.rs")).toContain(
+      "native.windowNumber()",
+    );
+  });
+
+  it("ScreenCaptureKit 精确排除单窗且回调不阻塞", () => {
+    const source = read(
+      "src-tauri/src/recording/platform/macos/screencapturekit.rs",
+    );
+    expect(source).toContain("initWithDisplay_excludingWindows");
+    expect(source).toContain("configuration.setSourceRect");
+    expect(source).toContain("configuration.setQueueDepth(SCREEN_CAPTURE_KIT_QUEUE_DEPTH)");
+    expect(source).toMatch(/SCREEN_CAPTURE_KIT_QUEUE_DEPTH:\s*isize\s*=\s*3/);
+    expect(source).toContain("self.frames.try_send(frame)");
+    expect(source).not.toContain("excludingApplications");
   });
 });

@@ -5,7 +5,9 @@
 //! Recording gate。
 
 use super::manager::{RecordingManager, RecordingManagerError, RecordingToken};
-use super::platform::{PlatformFrameSource, PlatformFrameSourcePlan, RecordingSourceDescriptor};
+use super::platform::{
+    PlatformFrameSource, PlatformFrameSourcePlan, RecordingControlTarget, RecordingSourceDescriptor,
+};
 use super::segmenting::{RecordingEncoder, DEFAULT_SEGMENT_DURATION_NS};
 use super::selection::PreparedRecordingSelection;
 use super::session::{DiagnosticRecordingConfig, DiagnosticRecordingReport};
@@ -104,7 +106,7 @@ pub(super) trait DesktopActions {
         &self,
         session_id: &str,
         descriptor: &RecordingSourceDescriptor,
-    ) -> Result<(), String>;
+    ) -> Result<RecordingControlTarget, String>;
     fn bind_control(&self, token: &RecordingToken) -> Result<(), String>;
     fn close_control(&self, session_id: &str) -> Result<(), String>;
 }
@@ -143,7 +145,10 @@ impl RecordingLifecycle {
                     .map_err(|error| error.to_string())?;
                 let descriptor = plan.descriptor().clone();
                 Ok(PreparedRecordingSource {
-                    source_factory: move || plan.connect().map_err(|error| error.to_string()),
+                    source_factory: move |control_target| {
+                        plan.connect(control_target)
+                            .map_err(|error| error.to_string())
+                    },
                     descriptor,
                 })
             },
@@ -160,7 +165,7 @@ impl RecordingLifecycle {
     ) -> Result<RecordingToken, RecordingLifecycleError>
     where
         S: RecordingFrameSource,
-        F: FnOnce() -> Result<S, String> + Send + 'static,
+        F: FnOnce(RecordingControlTarget) -> Result<S, String> + Send + 'static,
         C: FnOnce(RecordingCaptureSpec) -> Result<PreparedRecordingSource<F>, String>,
         A: DesktopActions,
     {
@@ -240,7 +245,7 @@ impl RecordingLifecycle {
     ) -> Result<RecordingToken, RecordingLifecycleError>
     where
         S: RecordingFrameSource,
-        F: FnOnce() -> Result<S, String> + Send + 'static,
+        F: FnOnce(RecordingControlTarget) -> Result<S, String> + Send + 'static,
         P: FnOnce() -> Result<CommittedRecording<F>, RecordingLifecycleError>,
         A: DesktopActions,
     {
@@ -273,17 +278,20 @@ impl RecordingLifecycle {
         if let Err(error) = self.restore_desktop(actions) {
             return self.fail_publishing(&request.session_id, actions, false, error);
         }
-        if let Err(message) = actions.prepare_control(&request.session_id, &descriptor) {
-            return self.fail_publishing(
-                &request.session_id,
-                actions,
-                true,
-                RecordingLifecycleError::Desktop {
-                    operation: "prepare_control",
-                    message,
-                },
-            );
-        }
+        let control_target = match actions.prepare_control(&request.session_id, &descriptor) {
+            Ok(control_target) => control_target,
+            Err(message) => {
+                return self.fail_publishing(
+                    &request.session_id,
+                    actions,
+                    true,
+                    RecordingLifecycleError::Desktop {
+                        operation: "prepare_control",
+                        message,
+                    },
+                );
+            }
+        };
 
         let config = DiagnosticRecordingConfig {
             session_id: request.session_id.clone(),
@@ -299,7 +307,7 @@ impl RecordingLifecycle {
         };
         let token = match self
             .manager
-            .start_with_factory(app_data_dir, config, source_factory)
+            .start_with_factory(app_data_dir, config, move || source_factory(control_target))
         {
             Ok(token) => token,
             Err(error) => {
@@ -598,6 +606,7 @@ mod tests {
         gate: Arc<CaptureModeGate>,
         events: Arc<Mutex<Vec<String>>>,
         fail_operation: Mutex<Option<&'static str>>,
+        control_target: RecordingControlTarget,
     }
 
     impl RecordingActions {
@@ -606,7 +615,13 @@ mod tests {
                 gate,
                 events,
                 fail_operation: Mutex::new(None),
+                control_target: RecordingControlTarget::NoNativeWindow,
             }
+        }
+
+        fn with_control_target(mut self, control_target: RecordingControlTarget) -> Self {
+            self.control_target = control_target;
+            self
         }
 
         fn fail(&self, operation: &'static str) {
@@ -652,7 +667,7 @@ mod tests {
             &self,
             session_id: &str,
             descriptor: &RecordingSourceDescriptor,
-        ) -> Result<(), String> {
+        ) -> Result<RecordingControlTarget, String> {
             self.record(
                 "prepare_control",
                 format!(
@@ -662,7 +677,8 @@ mod tests {
                     descriptor.width,
                     descriptor.height
                 ),
-            )
+            )?;
+            Ok(self.control_target)
         }
 
         fn bind_control(&self, token: &RecordingToken) -> Result<(), String> {
@@ -689,7 +705,9 @@ mod tests {
     fn committed(
         gate: &Arc<CaptureModeGate>,
         events: Arc<Mutex<Vec<String>>>,
-    ) -> CommittedRecording<impl FnOnce() -> Result<FixtureSource, String> + Send + 'static> {
+    ) -> CommittedRecording<
+        impl FnOnce(RecordingControlTarget) -> Result<FixtureSource, String> + Send + 'static,
+    > {
         let ownership = Arc::clone(gate)
             .try_claim_owned(CaptureMode::Ordinary)
             .unwrap()
@@ -698,7 +716,8 @@ mod tests {
         events.lock().unwrap().push("prepared".to_string());
         let source_events = Arc::clone(&events);
         CommittedRecording {
-            source_factory: move || {
+            source_factory: move |control_target| {
+                assert_eq!(control_target, RecordingControlTarget::NoNativeWindow);
                 source_events
                     .lock()
                     .unwrap()
@@ -797,6 +816,71 @@ mod tests {
             .unwrap();
         assert!(control_index < bind_index);
         assert!(bind_index < close_index);
+    }
+
+    #[test]
+    fn native_control_target_is_created_before_source_connection() {
+        let temporary = tempfile::tempdir().unwrap();
+        let gate = Arc::new(CaptureModeGate::new());
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let target = RecordingControlTarget::native_window(418);
+        let actions = RecordingActions::new(Arc::clone(&gate), Arc::clone(&events))
+            .with_control_target(target);
+        let lifecycle = RecordingLifecycle::new();
+        let ownership = Arc::clone(&gate)
+            .try_claim_owned(CaptureMode::Ordinary)
+            .unwrap()
+            .into_recording()
+            .unwrap();
+        events.lock().unwrap().push("prepared".to_string());
+        let source_events = Arc::clone(&events);
+        let committed = CommittedRecording {
+            source_factory: move |received| {
+                assert_eq!(received, target);
+                source_events
+                    .lock()
+                    .unwrap()
+                    .push("initialized-with-control-target".to_string());
+                Ok(FixtureSource {
+                    events: source_events,
+                    sequence: 0,
+                    timestamp_ns: 100,
+                })
+            },
+            descriptor: RecordingSourceDescriptor {
+                source_id: "fixture-monitor".to_string(),
+                physical_x: -120,
+                physical_y: 40,
+                width: 2,
+                height: 2,
+            },
+            ownership,
+            desktop: DesktopResources {
+                overlays: vec!["overlay-a".to_string()],
+                pins: Vec::new(),
+                sources: Vec::new(),
+            },
+        };
+        let token = lifecycle
+            .start_with(
+                temporary.path(),
+                request("native-target"),
+                || Ok(committed),
+                &actions,
+            )
+            .unwrap();
+        lifecycle.cancel(&token, &actions).unwrap();
+
+        let recorded = events.lock().unwrap();
+        let prepare = recorded
+            .iter()
+            .position(|event| event.starts_with("prepare_control:"))
+            .unwrap();
+        let connect = recorded
+            .iter()
+            .position(|event| event == "initialized-with-control-target")
+            .unwrap();
+        assert!(prepare < connect);
     }
 
     #[cfg(feature = "recording-vp9-prototype")]
@@ -927,7 +1011,7 @@ mod tests {
                         .unwrap();
                     events.lock().unwrap().push("prepared".to_string());
                     Ok(CommittedRecording {
-                        source_factory: || {
+                        source_factory: |_| {
                             Err::<FixtureSource, _>("fixture native source failure".to_string())
                         },
                         descriptor: RecordingSourceDescriptor {

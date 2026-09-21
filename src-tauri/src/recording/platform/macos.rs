@@ -1,20 +1,32 @@
-//! macOS AVFoundation 显示器区域帧源。
+//! macOS 显示器区域帧源。
 //!
-//! xcap 的回调使用零容量通道发送区域 RGBA；独立桥接线程持续接走回调并只保留最新一帧，避免
-//! `AVCaptureSession::stopRunning` 等待一个正阻塞发送的 delegate。准备阶段只保留可跨线程移动的
-//! 显示器 ID、可信裁剪和物理描述；AVFoundation 对象在采集 worker 内创建、使用并析构。
+//! 默认 macOS 11 构建继续使用 AVFoundation。显式 ScreenCaptureKit QA feature 在 12.3+ 使用
+//! 精确窗口排除；两条路径都只在采集 worker 内创建、使用并析构原生对象。
 
-use super::region::{take_direct_region_rgba, validate_direct_region_selection, RegionFrameError};
-use super::RecordingSourceDescriptor;
+#[cfg(feature = "recording-macos-screencapturekit")]
+mod screencapturekit;
+
+#[cfg(not(feature = "recording-macos-screencapturekit"))]
+use super::region::take_direct_region_rgba;
+use super::region::{validate_direct_region_selection, RegionFrameError};
+use super::{RecordingControlTarget, RecordingSourceDescriptor};
 use crate::capture::RecordingCaptureSpec;
+#[cfg(not(feature = "recording-macos-screencapturekit"))]
 use crate::recording::frame::{CapturedFrame, FrameError};
+#[cfg(not(feature = "recording-macos-screencapturekit"))]
 use crate::recording::worker::RecordingFrameSource;
 use objc2_core_graphics::{CGDisplayPixelsHigh, CGDisplayPixelsWide};
+#[cfg(not(feature = "recording-macos-screencapturekit"))]
 use std::sync::{Arc, Condvar, Mutex};
+#[cfg(not(feature = "recording-macos-screencapturekit"))]
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(not(feature = "recording-macos-screencapturekit"))]
+use std::time::Instant;
 use thiserror::Error;
-use xcap::{Frame, Monitor, VideoRecorder};
+use xcap::Monitor;
+#[cfg(not(feature = "recording-macos-screencapturekit"))]
+use xcap::{Frame, VideoRecorder};
 
 const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(5);
 const FRAME_POLL_TIMEOUT: Duration = Duration::from_millis(50);
@@ -23,13 +35,13 @@ const FRAME_POLL_TIMEOUT: Duration = Duration::from_millis(50);
 pub(in crate::recording) enum MacFrameSourceError {
     #[error("macOS 录屏显示器不存在或映射不唯一")]
     MonitorMissing,
-    #[error("macOS AVFoundation 初始化失败: {0}")]
+    #[error("macOS 录屏初始化失败: {0}")]
     Initialize(String),
-    #[error("macOS AVFoundation 控制失败: {0}")]
+    #[error("macOS 录屏控制失败: {0}")]
     Control(String),
-    #[error("macOS AVFoundation 等待首帧超时")]
+    #[error("macOS 录屏等待首帧超时")]
     FirstFrameTimeout,
-    #[error("macOS AVFoundation 帧流已经关闭")]
+    #[error("macOS 录屏帧流已经关闭")]
     StreamClosed,
     #[error("macOS 录屏帧桥接锁已损坏")]
     BridgePoisoned,
@@ -41,6 +53,10 @@ pub(in crate::recording) enum MacFrameSourceError {
     CoordinateOverflow,
     #[error("macOS 显示器缩放无效")]
     InvalidScale,
+    #[error("macOS ScreenCaptureKit 缺少本次控制窗的原生排除目标")]
+    ControlTargetMissing,
+    #[error("macOS ScreenCaptureKit 控制窗 ID 超出 CGWindowID 范围")]
+    ControlTargetOverflow,
     #[error(transparent)]
     Region(#[from] RegionFrameError),
     #[error(transparent)]
@@ -57,6 +73,7 @@ pub(in crate::recording) struct MacRegionFrameSourcePlan {
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct MacCaptureRegion {
     x_points: f64,
+    y_points_from_top: f64,
     y_points: f64,
     width_points: f64,
     height_points: f64,
@@ -105,7 +122,15 @@ impl MacRegionFrameSourcePlan {
             selection,
             capture_region,
             descriptor: RecordingSourceDescriptor {
-                source_id: format!("macos-avfoundation-{}", selection.monitor_id),
+                source_id: format!(
+                    "macos-{}-{}",
+                    if cfg!(feature = "recording-macos-screencapturekit") {
+                        "screencapturekit"
+                    } else {
+                        "avfoundation"
+                    },
+                    selection.monitor_id
+                ),
                 physical_x,
                 physical_y,
                 width: selection.crop_width,
@@ -118,28 +143,49 @@ impl MacRegionFrameSourcePlan {
         &self.descriptor
     }
 
-    pub fn connect(self) -> Result<MacAvRegionFrameSource, MacFrameSourceError> {
-        MacAvRegionFrameSource::connect(self)
+    pub fn connect(
+        self,
+        control_target: RecordingControlTarget,
+    ) -> Result<MacRegionFrameSource, MacFrameSourceError> {
+        #[cfg(not(feature = "recording-macos-screencapturekit"))]
+        {
+            debug_assert_eq!(control_target, RecordingControlTarget::NoNativeWindow);
+            MacAvRegionFrameSource::connect(self)
+        }
+        #[cfg(feature = "recording-macos-screencapturekit")]
+        {
+            screencapturekit::MacScreenCaptureKitRegionFrameSource::connect(self, control_target)
+        }
     }
 }
 
+#[cfg(not(feature = "recording-macos-screencapturekit"))]
+pub(in crate::recording) type MacRegionFrameSource = MacAvRegionFrameSource;
+#[cfg(feature = "recording-macos-screencapturekit")]
+pub(in crate::recording) type MacRegionFrameSource =
+    screencapturekit::MacScreenCaptureKitRegionFrameSource;
+
+#[cfg(not(feature = "recording-macos-screencapturekit"))]
 struct StampedFrame {
     captured_at_ns: u64,
     frame: Frame,
 }
 
 #[derive(Default)]
+#[cfg(not(feature = "recording-macos-screencapturekit"))]
 struct LatestFrame {
     frame: Option<StampedFrame>,
     closed: bool,
 }
 
 #[derive(Default)]
+#[cfg(not(feature = "recording-macos-screencapturekit"))]
 struct FrameBridge {
     latest: Mutex<LatestFrame>,
     changed: Condvar,
 }
 
+#[cfg(not(feature = "recording-macos-screencapturekit"))]
 impl FrameBridge {
     fn replace(&self, frame: StampedFrame) {
         let Ok(mut latest) = self.latest.lock() else {
@@ -201,6 +247,7 @@ impl FrameBridge {
     }
 }
 
+#[cfg(not(feature = "recording-macos-screencapturekit"))]
 pub(in crate::recording) struct MacAvRegionFrameSource {
     recorder: Option<VideoRecorder>,
     bridge: Arc<FrameBridge>,
@@ -215,6 +262,7 @@ pub(in crate::recording) struct MacAvRegionFrameSource {
     running: bool,
 }
 
+#[cfg(not(feature = "recording-macos-screencapturekit"))]
 impl MacAvRegionFrameSource {
     fn connect(plan: MacRegionFrameSourcePlan) -> Result<Self, MacFrameSourceError> {
         let current = MacRegionFrameSourcePlan::prepare(plan.selection)?;
@@ -358,6 +406,7 @@ impl MacAvRegionFrameSource {
     }
 }
 
+#[cfg(not(feature = "recording-macos-screencapturekit"))]
 impl RecordingFrameSource for MacAvRegionFrameSource {
     type Error = MacFrameSourceError;
 
@@ -389,6 +438,7 @@ impl RecordingFrameSource for MacAvRegionFrameSource {
     }
 }
 
+#[cfg(not(feature = "recording-macos-screencapturekit"))]
 impl Drop for MacAvRegionFrameSource {
     fn drop(&mut self) {
         if let Some(recorder) = self.recorder.take() {
@@ -469,6 +519,7 @@ fn checked_capture_region(
         .ok_or(RegionFrameError::InvalidRegion)?;
     let region = MacCaptureRegion {
         x_points: f64::from(selection.crop_left) / scale_x,
+        y_points_from_top: f64::from(selection.crop_top) / scale_y,
         y_points: f64::from(crop_bottom) / scale_y,
         width_points: f64::from(selection.crop_width) / scale_x,
         height_points: f64::from(selection.crop_height) / scale_y,
@@ -476,6 +527,7 @@ fn checked_capture_region(
     };
     if [
         region.x_points,
+        region.y_points_from_top,
         region.y_points,
         region.width_points,
         region.height_points,
@@ -520,7 +572,7 @@ mod tests {
     }
 
     #[test]
-    fn converts_top_left_backing_pixels_to_bottom_left_screen_points() {
+    fn converts_backing_pixels_to_both_macos_capture_coordinate_systems() {
         let selection = RecordingCaptureSpec {
             monitor_id: 7,
             monitor_pixel_width: 2_880,
@@ -534,6 +586,7 @@ mod tests {
             checked_capture_region(selection, 1_440, 900).unwrap(),
             MacCaptureRegion {
                 x_points: 10.0,
+                y_points_from_top: 50.0,
                 y_points: 700.0,
                 width_points: 200.0,
                 height_points: 150.0,

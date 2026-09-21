@@ -12,7 +12,7 @@ use super::lifecycle::{DesktopActions, RecordingLifecycleError};
 #[cfg(feature = "recording-vp9-prototype")]
 use super::lifecycle::{RecordingStartContext, RecordingStartRequest};
 use super::manager::RecordingToken;
-use super::platform::RecordingSourceDescriptor;
+use super::platform::{RecordingControlTarget, RecordingSourceDescriptor};
 #[cfg(feature = "recording-vp9-prototype")]
 use super::segmenting::RecordingEncoder;
 use crate::capture::CaptureSelection;
@@ -138,7 +138,7 @@ impl DesktopActions for TauriRecordingDesktopActions<'_> {
         &self,
         session_id: &str,
         descriptor: &RecordingSourceDescriptor,
-    ) -> Result<(), String> {
+    ) -> Result<RecordingControlTarget, String> {
         ensure_control_positioning_supported()?;
         let label = self
             .state
@@ -217,7 +217,7 @@ fn build_control_window(
     app: &tauri::AppHandle,
     label: &str,
     descriptor: &RecordingSourceDescriptor,
-) -> Result<(), String> {
+) -> Result<RecordingControlTarget, String> {
     let exclusion = control_exclusion_capability();
     let window =
         tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::App(CONTROL_PAGE.into()))
@@ -258,7 +258,35 @@ fn build_control_window(
         let _ = window.destroy();
         return Err(error);
     }
-    Ok(())
+    control_target_for_window(&window)
+}
+
+#[cfg(all(target_os = "macos", feature = "recording-macos-screencapturekit"))]
+fn control_target_for_window(
+    window: &tauri::WebviewWindow,
+) -> Result<RecordingControlTarget, String> {
+    use objc2_app_kit::NSWindow;
+
+    let pointer = window.ns_window().map_err(|error| error.to_string())?;
+    let native = unsafe {
+        pointer
+            .cast::<NSWindow>()
+            .as_ref()
+            .ok_or_else(|| "macOS 录屏控制窗没有原生 NSWindow".to_string())?
+    };
+    let window_number = native.windowNumber();
+    let window_id = u64::try_from(window_number)
+        .ok()
+        .filter(|window_id| *window_id != 0)
+        .ok_or_else(|| "macOS 录屏控制窗返回了无效 windowNumber".to_string())?;
+    Ok(RecordingControlTarget::native_window(window_id))
+}
+
+#[cfg(not(all(target_os = "macos", feature = "recording-macos-screencapturekit")))]
+fn control_target_for_window(
+    _window: &tauri::WebviewWindow,
+) -> Result<RecordingControlTarget, String> {
+    Ok(RecordingControlTarget::no_native_window())
 }
 
 fn show_control_window(app: &tauri::AppHandle, label: &str) -> Result<(), String> {

@@ -26,6 +26,18 @@ linux-pipewire = []
 # Windows MSVC 与 macOS Intel 从固定哈希源码归档构建。四目标同 SHA 与真机 QA 通过前不能进入默认产品构建。
 recording-vp9-prototype = ["dep:shiguredo_libvpx", "dep:webm", "dep:yuv"]
 recording-vp9-source-build = ["recording-vp9-prototype", "shiguredo_libvpx/source-build"]
+# macOS 12.3+ 专用 QA 帧源；保持与默认 macOS 11 发布包隔离。
+recording-macos-screencapturekit = [
+    "recording-vp9-prototype",
+    "dep:block2",
+    "dep:dispatch2",
+    "dep:objc2",
+    "dep:objc2-core-foundation",
+    "dep:objc2-core-media",
+    "dep:objc2-core-video",
+    "dep:objc2-foundation",
+    "dep:objc2-screen-capture-kit",
+]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -124,6 +136,15 @@ enigo = { version = "0.6", default-features = false }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["libc", "NSRunningApplication", "NSWindow", "NSWorkspace"] }
 # 录屏准备阶段读取显示器真实像素几何，避免用浮点缩放猜 Retina 或旋转屏尺寸。
 objc2-core-graphics = "=0.3.2"
+# ScreenCaptureKit 只进入 macOS 12.3+ 专用 QA feature；默认 macOS 11 构建不会强链接框架。
+block2 = { version = "=0.6.2", optional = true }
+dispatch2 = { version = "=0.3.1", optional = true }
+objc2 = { version = "=0.6.4", optional = true }
+objc2-core-foundation = { version = "=0.3.2", optional = true }
+objc2-core-media = { version = "=0.3.2", optional = true }
+objc2-core-video = { version = "=0.3.2", optional = true }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["NSArray", "NSError", "NSProcessInfo", "NSString"], optional = true }
+objc2-screen-capture-kit = { version = "=0.3.2", default-features = false, features = ["SCShareableContent", "SCStream", "block2", "dispatch2", "objc2-core-foundation", "objc2-core-graphics", "objc2-core-media"], optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-version = "=0.1.7"

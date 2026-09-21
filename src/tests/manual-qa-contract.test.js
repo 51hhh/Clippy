@@ -88,7 +88,13 @@ describe("真机 QA 合同", () => {
     }
   });
 
-  it.each(["linux-gnome-x11", "windows-10-x64", "windows-11-x64"])(
+  it.each([
+    "linux-gnome-x11",
+    "windows-10-x64",
+    "windows-11-x64",
+    "macos-intel",
+    "macos-apple-silicon",
+  ])(
     "%s 使用可执行的录屏原型合同",
     (profileId) => {
       const ids = casesForProfile(profileId).map((testCase) => testCase.id);
@@ -109,8 +115,6 @@ describe("真机 QA 合同", () => {
     "linux-gnome-wayland-ubuntu24",
     "linux-kde-wayland",
     "linux-wlroots-wayland",
-    "macos-intel",
-    "macos-apple-silicon",
   ])("%s 保持录屏入口关闭合同", (profileId) => {
     const ids = casesForProfile(profileId).map((testCase) => testCase.id);
 
