@@ -54,7 +54,9 @@ if (!bindingSource.includes("pub lag_in_frames: Option<usize>")) {
   throw new Error("vendored libvpx must preserve the reviewed zero-lag recording configuration");
 }
 
-const cargoToml = readFileSync(join(tauriRoot, "Cargo.toml"), "utf8");
+// actions/checkout 在 Windows 上可能把文本检出为 CRLF；先统一换行符，确保
+// 多行 feature 边界在各平台执行同一份已审查合同。
+const cargoToml = readFileSync(join(tauriRoot, "Cargo.toml"), "utf8").replace(/\r\n?/g, "\n");
 if (!cargoToml.includes('shiguredo_libvpx = { path = "vendor/shiguredo_libvpx" }')) {
   throw new Error("Cargo.toml must patch shiguredo_libvpx to the reviewed vendor directory");
 }
