@@ -41,16 +41,16 @@ ScreenCaptureKit 区域帧源，并用 `SCContentFilter(display:excludingWindows
 
 ## Acceptance Criteria
 
-- [ ] 策略测试证明 macOS 入口只在专用 feature、Native 会话和受支持版本组合下开放。
-- [ ] 生命周期测试证明源连接只能消费本次 Rust 创建控制窗返回的原生排除目标；缺失和迟到目标不会
+- [x] 策略测试证明 macOS 入口只在专用 feature、Native 会话和受支持版本组合下开放。
+- [x] 生命周期测试证明源连接只能消费本次 Rust 创建控制窗返回的原生排除目标；缺失和迟到目标不会
   开始捕获，并完整回滚会话。
-- [ ] ScreenCaptureKit 适配器唯一匹配 display/window，固定选区像素合同，并在 callback、权限、
+- [x] ScreenCaptureKit 适配器唯一匹配 display/window，固定选区像素合同，并在 callback、权限、
   start/stop、几何和流终止错误上有可回归的失败路径。
-- [ ] 默认 macOS 11 构建不链接专用 feature，正式 release workflow 不启用它；专用 QA 包明确使用
+- [x] 默认 macOS 11 构建不链接专用 feature，正式 release workflow 不启用它；专用 QA 包明确使用
   macOS 12.3+ 与屏幕录制用途说明。
-- [ ] Linux/Windows 行为和门控保持不变，完整本地门禁及同一 SHA 的 Ubuntu、Windows、macOS 原生
+- [x] Linux/Windows 行为和门控保持不变，完整本地门禁及同一 SHA 的 Ubuntu、Windows、macOS 原生
   check/clippy/test 通过。
-- [ ] 同一 SHA 的 macOS Intel/Apple Silicon QA 包成功生成；真机记录完成前不把 macOS 录屏记为
+- [x] 同一 SHA 的 macOS Intel/Apple Silicon QA 包成功生成；真机记录完成前不把 macOS 录屏记为
   发布可用。
 
 ## Out of Scope
@@ -76,6 +76,14 @@ ScreenCaptureKit 区域帧源，并用 `SCContentFilter(display:excludingWindows
   Canvas、布局 smoke 与 Vite 生产构建通过。
 - 2026-09-21：用最小 macOS 编译夹具和仓库锁定的 objc2 依赖对
   `platform/macos/screencapturekit.rs` 执行 `aarch64-apple-darwin`、`-D warnings` 离线检查并通过。
-  Linux 无 Apple SDK，整个 Tauri crate 的目标平台编译仍必须由远程 macOS runner 判定。
-- 同一 SHA 的 Ubuntu / Windows / macOS 原生 CI、Intel / Apple Silicon Native QA 安装包和 macOS
-  12.3+ 真机录制尚未执行，不记为通过。
+  Linux 无 Apple SDK；整个 Tauri crate 已由下述远程 macOS runner 判定。
+- 2026-09-21：同一 SHA `66a5d1d88b828fa821b2074f5055b43203ad1a41` 的
+  [CI Check 35564816736](https://github.com/51hhh/Clippy/actions/runs/35564816736) 七个 job 全部通过，
+  覆盖 Ubuntu、Windows 与 macOS 的 check/clippy/test；`verify-native-ci.mjs` 对该 40 位 SHA 判定
+  `PASS`。
+- 2026-09-21：同一 SHA 的
+  [Native QA 35567132842](https://github.com/51hhh/Clippy/actions/runs/35567132842) 五个 job 全部通过，
+  并生成 macOS Intel 与 Apple Silicon QA 包；同时生成 Linux x64、Windows x64、录屏模板与
+  Ubuntu 24 AppImage runtime smoke 证据。
+- macOS 12.3+ Intel/Apple Silicon 真机上的 TCC、Retina/旋转屏、控制窗排除、暂停恢复、长时间资源
+  和系统播放器记录仍为 `not_run`。安装包生成不能替代真机录制，本能力仍不记为发布可用。
