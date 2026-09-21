@@ -1,0 +1,63 @@
+{
+  "schema": "clippy-ocr-real-ui-environment-v1",
+  "host": {
+    "system": "Linux",
+    "machine": "x86_64",
+    "peakMemoryMetric": "linux-proc-vmhwm"
+  },
+  "python": "3.14.4",
+  "numpy": "2.2.6",
+  "onnxruntime": "1.25.0",
+  "opencv": "4.12.0",
+  "tesseract": "tesseract 5.5.0",
+  "enhanced": {
+    "pipelineId": "ppocrv6-edgegnn-v1",
+    "manifestSha256": "5cfe30ada0c2a11125caae830934d53ce7a97cc275c5d10f45f77b3632d4e1b7",
+    "manifestPathRecorded": false,
+    "models": {
+      "det": {
+        "bytes": 9880512,
+        "pathRecorded": false,
+        "sha256": "d73e0058b7a8086bbd57f3d10b8bcd4ff95363f67e06e2762b5e814fe9c9410e"
+      },
+      "rec": {
+        "bytes": 21159378,
+        "pathRecorded": false,
+        "sha256": "5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634"
+      },
+      "dictionary": {
+        "bytes": 74947,
+        "pathRecorded": false,
+        "sha256": "b5f2bfe2bdd9448429e3e82b51c789775d9b42f2403d082b00662eb77e401c5d"
+      },
+      "edge": {
+        "bytes": 3198623,
+        "pathRecorded": false,
+        "sha256": "8f1a6c5c78d013142f761a62e7a03cd9392a791d5751952e4a6abb24ff9ff3af"
+      }
+    }
+  },
+  "corpora": {
+    "browserUi": "ce64e640b243bc15e463ac9abde8c48900f40ed353bd73e8600df5fff4c1bb38",
+    "table": "bd2ab6b1ccdd14c8df5d76800e99e969063cde2a776ad16d3a69d3ef4e251df5",
+    "capture": "a776db080987d55a66cc2ace18c6c7e587e3d7b0ec5c15c5c3066fc9c8f605a1"
+  },
+  "comparisonSources": {
+    "beforeTableOrder": {
+      "layoutGroupsSha256": "038e97fd06796fe9013a11f1d252f6e7a815d89bc1351ff1de6ae7789c4b4fd2"
+    },
+    "current": {
+      "layoutGroupsSha256": "284400b8473eb5e47d424b98197fefc63fea3a1b380093cff1df66867fde0f37"
+    }
+  },
+  "runtimeFiles": {
+    "edge_features.py": "8c257fb0f37f52049cf405485bcf25017a5e4748bc7c8068ba5b19f8e58d4d3c",
+    "layout_groups.py": "284400b8473eb5e47d424b98197fefc63fea3a1b380093cff1df66867fde0f37",
+    "main.py": "56c8bb3f81491b249fb6db26cdb836964330c311435e766ded1c1b28fecc9bf0",
+    "pipeline.py": "4df5d6cca6389876418b146e756e02811bd41717d5edbfd44add410cbedab93f",
+    "quality_collect.py": "5d8d87b06c5d731864ea4f353523b43400b75c136f3e1f1a5a1cfc8987b9cdd4",
+    "quality_metrics.py": "19f8ceedb531ac9092d1a37047eb6b661d2136f92678747b8feb740e57ad50b8",
+    "quality_table.py": "9a4c30ddaa772ac067dd231913ea553956bb5202e0152b053ed3b587dcc33248",
+    "visual_paragraphs.py": "574a526edc2c83e1be496e3e0c30515abf7d7d48ffbf4fcf50aeb542379ccd2b"
+  }
+}

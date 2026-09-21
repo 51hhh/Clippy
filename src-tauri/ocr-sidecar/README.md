@@ -86,7 +86,8 @@ Edge 原始分组和视觉合并后的分组在显式 diagnostics 中分别记�
 `quality-corpus.schema.json` 与 `quality-predictions.schema.json`。每个 case 的 `lines` 数组顺序就是
 阅读顺序；真值行必须带稳定 `id` 和四边形，公式行另带结构化 `formula`。`source` 保存相对图片路径、
 SHA-256、尺寸、来源类型与许可，用于确保重复运行读取同一原图，并阻止来源不明的图片混入可再分发
-基线。实际运行器在识别前还必须核对文件 SHA；评测器本身只消费已经生成的结构化输出。
+基线。采集器和评测 CLI 都会在工作开始前核对路径边界、普通文件、符号链接、PNG chunk/CRC、尺寸
+与 SHA；图片身份不符时不生成预测或报告。
 
 prediction 的 `text` 保存引擎实际返回的整段文本；`engine.capabilities` 明确声明是否提供行框和
 结构化公式。Tesseract fallback 没有行框时仍可比较 CER/空白和性能，检测、逐行与阅读顺序会报告
@@ -107,6 +108,25 @@ prediction 的 `text` 保存引擎实际返回的整段文本；`engine.capabili
 [`docs/reviews/2026-09-18-ocr-quality-baseline.md`](../../docs/reviews/2026-09-18-ocr-quality-baseline.md)。
 这些结果验证当前管线和评测器，不代表真实截图、全部语言或公式精度；真实扩展语料仍必须保留来源、
 固定图片 SHA 并重新采集，不能把合同夹具写成模型精度结果。
+
+`quality-fixtures/browser-ui-v1/` 是 Firefox 实际栅格化的自有 UI 扩展语料，覆盖暗色设置页、代码与
+斜体注释、中英日混排、表格和 2400 px 长文档。普通测试只验证已提交基线，不启动浏览器或重写
+图片：
+
+```sh
+python3 src-tauri/ocr-sidecar/quality-fixtures/browser-ui-v1/capture.py --verify
+```
+
+需要有意更新基线时，先审阅 `source.html`，再在固定 Firefox 环境显式执行捕获；已有基线只有同时
+传入 `--replace` 才会替换。捕获记录固定浏览器/宿主、视口、DPR、HTML/字体/脚本 SHA 和逐图 SHA。
+
+```sh
+python3 src-tauri/ocr-sidecar/quality-fixtures/browser-ui-v1/capture.py --capture --replace
+```
+
+Tesseract、增强链预测以及整体/表格分层报告保存在
+`docs/reviews/evidence/2026-09-21-ocr-real-ui/`；运行环境文件只记录版本、哈希和资源指标，不记录本机
+模型路径。当前结果及表格行优先修复的前后对照见 OCR 质量基线文档。
 
 ```sh
 python3 src-tauri/ocr-sidecar/quality_metrics.py \

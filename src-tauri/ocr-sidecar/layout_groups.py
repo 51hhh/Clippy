@@ -3,10 +3,10 @@ import math
 import numpy as np
 
 
-def baseline_order(indices, bounds, height):
-    """同一基线容忍少量 det 抖动，再按 x 排序；不同行仍按 y。"""
+def baseline_rows(indices, bounds, height):
+    """把同一视觉基线聚成行；只使用框几何，不读取识别文字。"""
     pending = sorted(indices, key=lambda index: (float(bounds[index][0][1]), index))
-    result = []
+    rows = []
     while pending:
         top = float(bounds[pending[0]][0][1])
         row = [
@@ -15,10 +15,23 @@ def baseline_order(indices, bounds, height):
             if float(bounds[index][0][1]) - top <= height * .5
         ]
         row.sort(key=lambda index: (float(bounds[index][0][0]), float(bounds[index][0][1]), index))
-        result.extend(row)
+        rows.append(row)
         selected = set(row)
         pending = [index for index in pending if index not in selected]
-    return result
+    return rows
+
+
+def baseline_order(indices, bounds, height):
+    """同一基线容忍少量 det 抖动，再按 x 排序；不同行仍按 y。"""
+    return [index for row in baseline_rows(indices, bounds, height) for index in row]
+
+
+def table_like_rows(indices, bounds, height):
+    """重复三列以上的密集基线按行读取，避免规则表格被 XY-cut 拆成列。"""
+    rows = baseline_rows(indices, bounds, height)
+    dense = [row for row in rows if len(row) >= 3]
+    dense_items = sum(len(row) for row in dense)
+    return len(dense) >= 3 and dense_items >= max(9, math.ceil(len(indices) * .5))
 
 
 def order_groups(groups, geometry):
@@ -32,6 +45,9 @@ def order_groups(groups, geometry):
     def ordered(indices):
         if len(indices) < 2:
             return indices
+        # 表格/卡片网格的重复行比贯通列 gutter 更强；普通双栏仍走下面的 XY-cut。
+        if table_like_rows(indices, bounds, height):
+            return baseline_order(indices, bounds, height)
         for axis, required_gap in [(0, height * 1.5), (1, height * .8)]:
             sequence = sorted(indices, key=lambda index: float(bounds[index][0][axis]))
             frontier = float(bounds[sequence[0]][1][axis]); cuts = []

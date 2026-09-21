@@ -1,0 +1,54 @@
+{
+  "captureScriptSha256": "ead0d4261cd34a31db4926c0e11911e3cefe26ab46ad994aa61335bd3c6d316b",
+  "firefox": "Mozilla Firefox 155.0.1",
+  "fontSha256": "ca094f6b0001fb048ca39ddd797a0cdb0179e1e55c6561e111c49c3e6a61d7b7",
+  "host": {
+    "machine": "x86_64",
+    "release": "7.0.0-31-generic",
+    "system": "Linux"
+  },
+  "scenes": {
+    "code-review": {
+      "imageSha256": "b2e7ff768d03161dc858c93fa28ba64fbca59ecc2590b3c34977865c4feef981",
+      "lineCount": 13,
+      "tableCount": 0,
+      "viewport": {
+        "devicePixelRatio": 1,
+        "height": 720,
+        "width": 1280
+      }
+    },
+    "invoice-table": {
+      "imageSha256": "480e943b3de6dcd47b897cfd5fe32ca8d3702110cb01dfa1d9db200152681b03",
+      "lineCount": 27,
+      "tableCount": 1,
+      "viewport": {
+        "devicePixelRatio": 1,
+        "height": 760,
+        "width": 1280
+      }
+    },
+    "long-document": {
+      "imageSha256": "f4e3c752cffbc9c57f5008736fa1694d57f5d830d8df00c5c325fc3acba3d1a9",
+      "lineCount": 30,
+      "tableCount": 0,
+      "viewport": {
+        "devicePixelRatio": 1,
+        "height": 2400,
+        "width": 1000
+      }
+    },
+    "settings-dark": {
+      "imageSha256": "28d0117cdc1ef54a863803415f0587aa9e0820fd8f7a77684e128a267b1cb8b7",
+      "lineCount": 18,
+      "tableCount": 0,
+      "viewport": {
+        "devicePixelRatio": 1,
+        "height": 720,
+        "width": 1280
+      }
+    }
+  },
+  "schema": "clippy-ocr-browser-capture-v1",
+  "sourceHtmlSha256": "73415a6beda3a637c96182c80f3dfd339d95b9e461f9680fbc25ad09a55acb54"
+}

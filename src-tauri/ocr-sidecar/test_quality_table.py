@@ -1,7 +1,10 @@
+import hashlib
 import json
 from pathlib import Path
+import struct
 import tempfile
 import unittest
+import zlib
 
 import quality_metrics as quality
 import quality_table as table_quality
@@ -9,6 +12,18 @@ import quality_table as table_quality
 
 def quad(left, top, right, bottom):
     return [[left, top], [right, top], [right, bottom], [left, bottom]]
+
+
+def minimal_png(width, height):
+    def chunk(kind, data):
+        checksum = zlib.crc32(kind + data) & 0xFFFFFFFF
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", checksum)
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    rows = b"".join(b"\x00" + b"\xff\xff\xff" * width for _ in range(height))
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(
+        b"IDAT", zlib.compress(rows)
+    ) + chunk(b"IEND", b"")
 
 
 def cell(identifier, text, column, bounds):
@@ -150,7 +165,12 @@ class TableQualityTests(unittest.TestCase):
             corpus_path = root / "corpus.json"
             predictions_path = root / "predictions.json"
             output_path = root / "report.json"
-            corpus_path.write_text(json.dumps(corpus()), encoding="utf-8")
+            image = minimal_png(100, 40)
+            (root / "images").mkdir()
+            (root / "images" / "table.png").write_bytes(image)
+            fixture_corpus = corpus()
+            fixture_corpus["cases"][0]["source"]["sha256"] = hashlib.sha256(image).hexdigest()
+            corpus_path.write_text(json.dumps(fixture_corpus), encoding="utf-8")
             predictions_path.write_text(json.dumps(value), encoding="utf-8")
             self.assertEqual(
                 table_quality.main(
@@ -175,6 +195,18 @@ class TableQualityTests(unittest.TestCase):
                         str(predictions_path),
                         "--output",
                         str(output_path),
+                    ]
+                )
+            (root / "images" / "table.png").write_bytes(minimal_png(101, 40))
+            with self.assertRaisesRegex(quality.ContractError, "SHA-256"):
+                table_quality.main(
+                    [
+                        "--corpus",
+                        str(corpus_path),
+                        "--predictions",
+                        str(predictions_path),
+                        "--output",
+                        str(root / "stale.json"),
                     ]
                 )
 

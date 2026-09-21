@@ -1,10 +1,13 @@
 import copy
+import hashlib
 import itertools
 import json
 from pathlib import Path
 import random
+import struct
 import tempfile
 import unittest
+import zlib
 
 import quality_metrics as quality
 
@@ -25,6 +28,18 @@ def predicted(text, bounds, *, kind="text", formula=None):
     if formula is not None:
         value["formula"] = formula
     return value
+
+
+def minimal_png(width, height):
+    def chunk(kind, data):
+        checksum = zlib.crc32(kind + data) & 0xFFFFFFFF
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", checksum)
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    rows = b"".join(b"\x00" + b"\xff\xff\xff" * width for _ in range(height))
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(
+        b"IDAT", zlib.compress(rows)
+    ) + chunk(b"IEND", b"")
 
 
 def corpus():
@@ -240,8 +255,15 @@ class QualityMetricsTests(unittest.TestCase):
             corpus_path = root / "corpus.json"
             predictions_path = root / "predictions.json"
             output_path = root / "report.json"
+            image = minimal_png(300, 72)
+            (root / "fixture.png").write_bytes(image)
+            fixture_corpus = corpus()
+            fixture_corpus["cases"][0]["source"].update(
+                imagePath="fixture.png",
+                sha256=hashlib.sha256(image).hexdigest(),
+            )
             corpus_path.write_text(
-                json.dumps(corpus(), ensure_ascii=False), encoding="utf-8"
+                json.dumps(fixture_corpus, ensure_ascii=False), encoding="utf-8"
             )
             predictions_path.write_text(
                 json.dumps(predictions(), ensure_ascii=False), encoding="utf-8"
@@ -262,6 +284,23 @@ class QualityMetricsTests(unittest.TestCase):
             rendered = output_path.read_text(encoding="utf-8")
             self.assertIn("中英日", rendered)
             self.assertEqual(json.loads(rendered)["schema"], quality.REPORT_SCHEMA)
+
+            (root / "fixture.png").write_bytes(minimal_png(301, 72))
+            stale_output = root / "stale-report.json"
+            self.assertEqual(
+                quality.main(
+                    [
+                        "--corpus",
+                        str(corpus_path),
+                        "--predictions",
+                        str(predictions_path),
+                        "--output",
+                        str(stale_output),
+                    ]
+                ),
+                2,
+            )
+            self.assertFalse(stale_output.exists())
 
 
 if __name__ == "__main__":

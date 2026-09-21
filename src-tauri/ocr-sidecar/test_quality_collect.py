@@ -1,8 +1,11 @@
 import hashlib
 from pathlib import Path
+import struct
+import subprocess
 import sys
 import tempfile
 import unittest
+import zlib
 
 import quality_collect as collect
 import quality_metrics as quality
@@ -10,16 +13,15 @@ import quality_table
 
 
 def minimal_png(width, height):
-    # 采集器只读签名/IHDR 身份；像素解码由实际 OCR 引擎负责。
-    return (
-        b"\x89PNG\r\n\x1a\n"
-        + (13).to_bytes(4, "big")
-        + b"IHDR"
-        + width.to_bytes(4, "big")
-        + height.to_bytes(4, "big")
-        + b"\x08\x02\x00\x00\x00"
-        + b"\x00\x00\x00\x00"
-    )
+    def chunk(kind, data):
+        checksum = zlib.crc32(kind + data) & 0xFFFFFFFF
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", checksum)
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    rows = b"".join(b"\x00" + b"\xff\xff\xff" * width for _ in range(height))
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(
+        b"IDAT", zlib.compress(rows)
+    ) + chunk(b"IEND", b"")
 
 
 class QualityCollectTests(unittest.TestCase):
@@ -63,6 +65,16 @@ class QualityCollectTests(unittest.TestCase):
             for case in corpus["cases"]:
                 self.assertTrue(collect.read_case_png(corpus_path, case))
 
+        browser_capture = fixtures / "browser-ui-v1" / "capture.py"
+        result = subprocess.run(
+            [sys.executable, str(browser_capture), "--verify"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout.decode("utf-8", errors="replace"))
+
     def test_case_image_must_match_relative_path_hash_and_dimensions(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -82,6 +94,71 @@ class QualityCollectTests(unittest.TestCase):
             case["source"]["sha256"] = "0" * 64
             with self.assertRaisesRegex(quality.ContractError, "SHA-256"):
                 collect.read_case_png(root / "corpus.json", case)
+
+    def test_case_image_rejects_symlink_missing_non_png_and_wrong_dimensions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            payload = minimal_png(20, 10)
+            target = root / "target.png"
+            target.write_bytes(payload)
+            case = {
+                "id": "case",
+                "source": {
+                    "imagePath": "target.png",
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                    "width": 20,
+                    "height": 10,
+                },
+            }
+
+            case["source"]["width"] = 21
+            with self.assertRaisesRegex(quality.ContractError, "尺寸"):
+                collect.read_case_png(root / "corpus.json", case)
+            case["source"]["width"] = 20
+
+            link = root / "link.png"
+            link.symlink_to(target.name)
+            case["source"]["imagePath"] = link.name
+            with self.assertRaisesRegex(quality.ContractError, "符号链接"):
+                collect.read_case_png(root / "corpus.json", case)
+
+            case["source"]["imagePath"] = "missing.png"
+            with self.assertRaisesRegex(quality.ContractError, "不存在"):
+                collect.read_case_png(root / "corpus.json", case)
+
+            invalid = b"not-a-png"
+            (root / "invalid.png").write_bytes(invalid)
+            case["source"].update(
+                imagePath="invalid.png", sha256=hashlib.sha256(invalid).hexdigest()
+            )
+            with self.assertRaisesRegex(quality.ContractError, "PNG 预算"):
+                collect.read_case_png(root / "corpus.json", case)
+
+            corrupt = bytearray(payload)
+            corrupt[24] ^= 1
+            corrupt_payload = bytes(corrupt)
+            (root / "corrupt.png").write_bytes(corrupt_payload)
+            case["source"].update(
+                imagePath="corrupt.png",
+                sha256=hashlib.sha256(corrupt_payload).hexdigest(),
+            )
+            with self.assertRaisesRegex(quality.ContractError, "CRC"):
+                collect.read_case_png(root / "corpus.json", case)
+
+            (root / "directory").mkdir()
+            case["source"]["imagePath"] = "directory"
+            with self.assertRaisesRegex(quality.ContractError, "普通文件"):
+                collect.read_case_png(root / "corpus.json", case)
+
+            nested = root / "nested"
+            nested.mkdir()
+            (root / "outside.png").write_bytes(payload)
+            case["source"].update(
+                imagePath="../outside.png",
+                sha256=hashlib.sha256(payload).hexdigest(),
+            )
+            with self.assertRaisesRegex(quality.ContractError, "逃逸"):
+                collect.read_case_png(nested / "corpus.json", case)
 
     def test_enhanced_adapter_uses_explicit_reading_order_and_keeps_plain_formula(self):
         text, lines = collect.enhanced_prediction(

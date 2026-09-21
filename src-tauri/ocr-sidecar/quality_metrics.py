@@ -10,19 +10,23 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from difflib import SequenceMatcher
+import hashlib
 import json
 import math
+import stat
 from pathlib import Path
 import re
 import statistics
 import sys
 from typing import Any, Iterable
+import zlib
 
 
 CORPUS_SCHEMA = "clippy-ocr-quality-corpus-v1"
 PREDICTION_SCHEMA = "clippy-ocr-quality-predictions-v1"
 REPORT_SCHEMA = "clippy-ocr-quality-report-v1"
 MAX_INPUT_BYTES = 16 * 1024 * 1024
+MAX_PNG_BYTES = 64 * 1024 * 1024
 MAX_CASES = 2_000
 MAX_LINES_PER_CASE = 512
 MAX_TEXT_CODEPOINTS = 2_000_000
@@ -300,6 +304,91 @@ def load_json(path: Path) -> Any:
         raise ContractError(f"{path} 超出 {MAX_INPUT_BYTES} 字节预算")
     with path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def file_sha256(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
+
+
+def png_dimensions(payload: bytes) -> tuple[int, int]:
+    """校验有界 PNG chunk/CRC，并返回 IHDR 尺寸；不解压像素。"""
+    if len(payload) < 57 or len(payload) > MAX_PNG_BYTES or payload[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ContractError("语料图片必须是预算内 PNG")
+    offset = 8
+    width = height = 0
+    saw_header = saw_data = saw_end = False
+    while offset < len(payload):
+        if offset + 12 > len(payload):
+            raise ContractError("语料 PNG chunk 被截断")
+        length = int.from_bytes(payload[offset : offset + 4], "big")
+        chunk_type = payload[offset + 4 : offset + 8]
+        data_start = offset + 8
+        data_end = data_start + length
+        crc_end = data_end + 4
+        if crc_end > len(payload):
+            raise ContractError("语料 PNG chunk 超出文件")
+        expected_crc = int.from_bytes(payload[data_end:crc_end], "big")
+        actual_crc = zlib.crc32(chunk_type + payload[data_start:data_end]) & 0xFFFFFFFF
+        if actual_crc != expected_crc:
+            raise ContractError("语料 PNG chunk CRC 不符")
+        if not saw_header:
+            if chunk_type != b"IHDR" or length != 13:
+                raise ContractError("语料 PNG 首个 chunk 必须是 IHDR")
+            width = int.from_bytes(payload[data_start : data_start + 4], "big")
+            height = int.from_bytes(payload[data_start + 4 : data_start + 8], "big")
+            if width == 0 or height == 0:
+                raise ContractError("语料 PNG 尺寸必须大于零")
+            saw_header = True
+        elif chunk_type == b"IHDR":
+            raise ContractError("语料 PNG 不能重复 IHDR")
+        if chunk_type == b"IDAT":
+            saw_data = True
+        if chunk_type == b"IEND":
+            if length != 0 or crc_end != len(payload):
+                raise ContractError("语料 PNG IEND 必须终止文件")
+            saw_end = True
+        offset = crc_end
+    if not (saw_header and saw_data and saw_end):
+        raise ContractError("语料 PNG 缺少 IHDR、IDAT 或 IEND")
+    return width, height
+
+
+def read_case_png(corpus_path: Path, case: dict[str, Any]) -> bytes:
+    """按已校验 corpus 身份读取图片；拒绝逃逸、符号链接和非普通文件。"""
+    source = case["source"]
+    root = corpus_path.resolve().parent
+    candidate = root / source["imagePath"]
+    current = root
+    try:
+        for part in Path(source["imagePath"]).parts:
+            current = current / part
+            if current.is_symlink():
+                raise ContractError(f"{case['id']} 图片路径不能包含符号链接")
+        image_path = candidate.resolve(strict=True)
+        image_path.relative_to(root)
+        metadata = image_path.stat()
+    except ContractError:
+        raise
+    except (OSError, ValueError) as error:
+        raise ContractError(f"{case['id']} 图片不存在或逃逸语料目录") from error
+    if not stat.S_ISREG(metadata.st_mode):
+        raise ContractError(f"{case['id']} 图片必须是普通文件")
+    if metadata.st_size < 57 or metadata.st_size > MAX_PNG_BYTES:
+        raise ContractError(f"{case['id']} 图片大小超出 PNG 预算")
+    try:
+        payload = image_path.read_bytes()
+    except OSError as error:
+        raise ContractError(f"{case['id']} 图片读取失败") from error
+    if file_sha256(payload) != source["sha256"]:
+        raise ContractError(f"{case['id']} 图片 SHA-256 不符")
+    if png_dimensions(payload) != (source["width"], source["height"]):
+        raise ContractError(f"{case['id']} 图片尺寸不符")
+    return payload
+
+
+def validate_corpus_assets(corpus_path: Path, corpus: dict[str, Any]) -> None:
+    for case in corpus["cases"]:
+        read_case_png(corpus_path, case)
 
 
 def levenshtein_distance(left: str, right: str) -> int:
@@ -787,8 +876,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--iou-threshold", type=float, default=DEFAULT_IOU_THRESHOLD)
     arguments = parser.parse_args(argv)
     try:
+        raw_corpus = load_json(arguments.corpus)
+        clean_corpus = validate_corpus(raw_corpus)
+        validate_corpus_assets(arguments.corpus, clean_corpus)
         report = evaluate(
-            load_json(arguments.corpus),
+            clean_corpus,
             load_json(arguments.predictions),
             iou_threshold=arguments.iou_threshold,
         )

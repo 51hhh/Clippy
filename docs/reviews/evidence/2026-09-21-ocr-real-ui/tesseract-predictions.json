@@ -1,0 +1,41 @@
+{
+  "cases": [
+    {
+      "durationMs": 891.215686002397,
+      "id": "settings-dark",
+      "lines": [],
+      "peakMemoryBytes": 95170560,
+      "text": "Clippy\n\n通用 General\n\n文字 识别 OCR\n\n快捷 键 Shortcuts\n\n存储 Storage\n\nv0.1.20 + Local only\n\n本 地 OCR SAR +: english 日 本 证 。 无 网 络 上 伟\n\n增强 模型\n\nPP-OCRv6 small + EdgeGNN\n\nEnglish spacing\nKeep AA 11 Il 00 unchanged\n\n资源 预算\n\nDeadline 60,000 ms + Peak256 MiB\n\n符号 检查 : 土 0.02 (21414 5 A\n\nReady\n\nEnabled\n\nWithin limit"
+    },
+    {
+      "durationMs": 1174.2446029966231,
+      "id": "code-review",
+      "lines": [],
+      "peakMemoryBytes": 99143680,
+      "text": "OCR pipeline review\n\nsrc-tauri/ocr-sidecar\nquality_metrics.py\npipeline.py\n\ntest_quality_metrics.py\n\n41 def verify_text(value: str) -> bool:\n\n42 #Preserve two spaces, HAs#, and symbols.\n43 sample=\"{J& AA 11/¥1,234.50\"\n\n44 ratio= 98.6 / 100.0\n\n45 return value == sample and ratio >= 0.98\n\n46 #TODO: route x?+1/2=,/ 2 toa formula model.\n\nWarning £042 Unicode sequence = # 5; do not normalize silently.\n\ncodex/ocr-real-ui-corpus"
+    },
+    {
+      "durationMs": 451.90834200184327,
+      "id": "invoice-table",
+      "lines": [],
+      "peakMemoryBytes": 93040640,
+      "text": "Clippy 本 地 票据 预览\n\nInvoice 请 求 书 发 票 \\oAAllzoz6oo21\n\nim Item\n\nCoffee 豆\n\n日 本 茶 Green tea\n\nOCR Pro 30 days\n\n单 佰 Price\n\n¥19.90\n\n¥88.00\n\n¥128.00\n\nSubtotal\n\nTax 8.5%\n\nTotal\n\nOCR complete\n\nDate 2026-09-21\n\nait Amount\n\n¥238.80\n\n¥264.00\n\n¥128.00\n\n¥630.80\n\n¥53.62\n\n¥684.42"
+    },
+    {
+      "durationMs": 1199.4703050004318,
+      "id": "long-document",
+      "lines": [],
+      "peakMemoryBytes": 115433472,
+      "text": "Release notes 。 2026-09-21\n\nAlong local document for OCR reading-order evaluation.\n\n1.492 Summary\nClippy 在 本 地 处 理 戴 图 、 剪 贴 板 图 片 和 文字 识别 。\n\nEnglish 中 文 日 本 语 remain in one ordered document.\n\n原始 空白 AA 11 Il 00 不 应 被 静默 合并 。\n\nQuality gate: raw CER, compact CER, whitespace Fl.\nsymbols: +0.02 (2*1.414 Ef mA.\n\n2. Metrics\n\nDetection Latency Memory\nHmean 0.982 P95 742 ms Peak 271 MiB\n3. 详细 Details\n\n第 一 段 记 录 检 测 框 、 文 字 、 段 落 和 阅读 顺序 。\n\nThe second line keeps identifiers SN: AA11-BB22 / 98.6%.\nEHTHsARBOMFHW CMF 001122 CBHET.\n\nColumns are evaluated separately from Unicode edit distance.\nEdgeGNN groups text boxes; it does not sharpen image edges.\n\nCTC decoding must preserve repeated letters and explicit spaces.\n\n4. 验收 Checklist\n\n01 Verify the source PNG SHA-256 before scoring.\n\n02 Reject symlinks, path escape, size drift, and stale truth.\n03 Compare UI, code, italic, table, and long-image tags.\n\n04 Keep unsupported structured formulas visible in reports.\n\n05 Record Windows, macOS, and Linux resources separately.\n\nNo model replacement is accepted from one aggregate score.\n\n目标 分 层 改善 、 关 键 分 层 回 退 和 资源 变化 必须 同时 记录 。"
+    }
+  ],
+  "engine": {
+    "capabilities": {
+      "lineGeometry": false,
+      "structuredFormula": false
+    },
+    "id": "tesseract",
+    "version": "tesseract 5.5.0"
+  },
+  "schema": "clippy-ocr-quality-predictions-v1"
+}

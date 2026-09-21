@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import ctypes
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -19,13 +18,14 @@ from typing import Any
 from quality_metrics import (
     PREDICTION_SCHEMA,
     ContractError,
+    file_sha256,
     load_json,
+    read_case_png,
     validate_corpus,
     validate_predictions,
 )
 
 
-MAX_PNG_BYTES = 64 * 1024 * 1024
 MAX_OUTPUT_BYTES = 4 * 1024 * 1024
 MAX_STDERR_BYTES = 64 * 1024
 TIMEOUT_SECONDS = 65
@@ -163,37 +163,6 @@ def run_measured(
         subprocess.CompletedProcess(command, process.returncode, stdout, stderr),
         max(peak_memory) if peak_memory else None,
     )
-
-
-def file_sha256(payload: bytes) -> str:
-    return hashlib.sha256(payload).hexdigest()
-
-
-def png_dimensions(payload: bytes) -> tuple[int, int]:
-    if (
-        len(payload) < 33
-        or len(payload) > MAX_PNG_BYTES
-        or payload[:8] != b"\x89PNG\r\n\x1a\n"
-        or payload[12:16] != b"IHDR"
-    ):
-        raise ContractError("语料图片必须是预算内 PNG")
-    return int.from_bytes(payload[16:20], "big"), int.from_bytes(payload[20:24], "big")
-
-
-def read_case_png(corpus_path: Path, case: dict[str, Any]) -> bytes:
-    source = case["source"]
-    root = corpus_path.resolve().parent
-    image_path = (root / source["imagePath"]).resolve()
-    try:
-        image_path.relative_to(root)
-    except ValueError as error:
-        raise ContractError(f"{case['id']} 图片逃逸语料目录") from error
-    payload = image_path.read_bytes()
-    if file_sha256(payload) != source["sha256"]:
-        raise ContractError(f"{case['id']} 图片 SHA-256 不符")
-    if png_dimensions(payload) != (source["width"], source["height"]):
-        raise ContractError(f"{case['id']} 图片尺寸不符")
-    return payload
 
 
 def command_version(executable: Path) -> str:

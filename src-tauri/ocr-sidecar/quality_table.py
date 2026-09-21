@@ -424,8 +424,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--iou-threshold", type=float, default=0.5)
     arguments = parser.parse_args(argv)
+    raw_corpus = quality.load_json(arguments.corpus)
+    clean_corpus = validate_table_corpus(raw_corpus)
+    for case in clean_corpus["cases"]:
+        quality.read_case_png(arguments.corpus, case)
     report = evaluate(
-        quality.load_json(arguments.corpus),
+        clean_corpus,
         quality.load_json(arguments.predictions),
         iou_threshold=arguments.iou_threshold,
     )

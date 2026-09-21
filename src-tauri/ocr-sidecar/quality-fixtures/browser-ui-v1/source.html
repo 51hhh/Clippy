@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="color-scheme" content="light dark">
+  <title>Clippy OCR browser UI corpus</title>
+  <style>
+    @font-face {
+      font-family: "Clippy Corpus";
+      src: url("/font.otf") format("opentype");
+      font-weight: 500;
+      font-style: normal;
+      font-display: block;
+    }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; min-height: 100%; margin: 0; }
+    body { overflow: hidden; font-family: "Clippy Corpus", sans-serif; }
+    .scene { display: none; width: 100vw; height: 100vh; overflow: hidden; }
+    .scene.is-active { display: block; }
+    [data-ocr-line] { display: inline-block; width: fit-content; white-space: pre; }
+    #ready-sentinel { position: fixed; z-index: 999; inset: 0 auto auto 0; width: 4px; height: 4px; background: #808080; }
+    html[data-capture-ready="true"] #ready-sentinel { background: #00c800; }
+
+    .app-shell { height: 100%; padding: 34px; }
+    .app-window { height: 100%; overflow: hidden; border-radius: 18px; box-shadow: 0 22px 70px rgba(0,0,0,.32); }
+    .titlebar { display: flex; align-items: center; gap: 20px; height: 68px; padding: 0 24px; }
+    .titlebar .grow { flex: 1; }
+    .pill { padding: 7px 13px; border-radius: 999px; }
+
+    #settings-dark { background: #0c1018; color: #eef2ff; }
+    #settings-dark .app-window { border: 1px solid #31394c; background: #151b27; }
+    #settings-dark .titlebar { border-bottom: 1px solid #30384b; background: #111722; }
+    #settings-dark .pill { background: #28324a; color: #bfcaff; }
+    .settings-body { display: grid; grid-template-columns: 250px 1fr; height: calc(100% - 68px); }
+    .settings-nav { padding: 25px 18px; border-right: 1px solid #30384b; background: #121823; }
+    .settings-nav div { margin: 8px 0; padding: 12px 14px; border-radius: 9px; color: #9ba6bd; }
+    .settings-nav .active { background: #293454; color: #f2f5ff; }
+    .settings-panel { padding: 30px 38px; }
+    .settings-panel h2 { margin: 0 0 10px; font-size: 28px; }
+    .settings-panel .lead { margin-bottom: 28px; color: #aab5ca; font-size: 16px; }
+    .setting-card { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 30px; margin: 16px 0; padding: 20px 22px; border: 1px solid #353e52; border-radius: 13px; background: #1b2230; }
+    .setting-card strong { display: block; margin-bottom: 7px; font-size: 18px; }
+    .setting-card small { color: #9da9bf; font-size: 14px; }
+    .setting-card .value { color: #8fe0b1; }
+    .settings-foot { margin-top: 30px; color: #7e8aa2; }
+
+    #code-review { background: #111318; color: #d8dee9; }
+    #code-review .app-window { border: 1px solid #313640; background: #171a21; }
+    #code-review .titlebar { border-bottom: 1px solid #30353f; background: #20242c; }
+    #code-review .pill { background: #2a3040; color: #b8c4df; }
+    .editor-grid { display: grid; grid-template-columns: 220px 1fr; height: calc(100% - 68px); }
+    .file-tree { padding: 22px 18px; border-right: 1px solid #30353f; color: #9aa4b5; }
+    .file-tree div { margin: 10px 0; }
+    .file-tree .selected { color: #f4f7fb; }
+    .editor { padding: 28px 34px; font-family: "Clippy Corpus", monospace; font-size: 19px; line-height: 1.75; }
+    .code-row { display: grid; grid-template-columns: 48px 1fr; }
+    .line-no { color: #586174; text-align: right; padding-right: 18px; }
+    .kw { color: #c792ea; }
+    .str { color: #addb67; }
+    .num { color: #f78c6c; }
+    .comment { color: #7f8c98; font-style: oblique 16deg; }
+    .diagnostic { margin-top: 25px; padding: 16px 18px; border-left: 3px solid #e6b450; background: #242834; color: #f5d38b; }
+
+    #invoice-table { background: #e9edf5; color: #1c2433; }
+    #invoice-table .app-window { border: 1px solid #cfd6e3; background: #fff; }
+    #invoice-table .titlebar { border-bottom: 1px solid #dfe4ec; background: #f8fafc; }
+    #invoice-table .pill { background: #e8edff; color: #4b5fc7; }
+    .invoice { padding: 32px 42px; }
+    .invoice-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 26px; }
+    .invoice h2 { margin: 0 0 7px; font-size: 28px; }
+    .invoice .muted { color: #728097; }
+    .invoice table { width: 100%; border-collapse: collapse; font-size: 18px; }
+    .invoice th, .invoice td { padding: 17px 14px; border-bottom: 1px solid #dfe4ec; text-align: left; }
+    .invoice th { background: #f3f6fb; color: #536078; }
+    .invoice th:nth-child(n+2), .invoice td:nth-child(n+2) { text-align: right; }
+    .invoice-total { display: grid; grid-template-columns: 1fr auto; gap: 18px 60px; margin: 28px 10px 0 auto; width: 390px; font-size: 18px; }
+    .invoice-total .grand { padding-top: 12px; border-top: 2px solid #8792a7; font-size: 22px; }
+
+    #long-document { min-height: 2400px; background: #f2f0eb; color: #20242b; }
+    .document-paper { width: 860px; min-height: 2320px; margin: 40px auto; padding: 58px 68px; background: #fff; box-shadow: 0 10px 36px rgba(46,40,28,.18); }
+    .document-paper h1 { margin: 0 0 12px; font-size: 38px; }
+    .document-paper .subtitle { margin-bottom: 38px; color: #6d7480; font-style: oblique 14deg; }
+    .document-paper h2 { margin: 32px 0 15px; font-size: 25px; }
+    .document-paper p { margin: 0 0 15px; line-height: 1.7; }
+    .document-paper .note { margin: 24px 0; padding: 16px 18px; border-left: 4px solid #6377d7; background: #f2f5ff; }
+    .document-paper .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 22px 0; }
+    .document-paper .metric { padding: 15px; border: 1px solid #d9dee8; border-radius: 10px; background: #fafbfc; }
+    .document-paper .metric strong { display: block; margin-top: 6px; font-size: 22px; }
+  </style>
+</head>
+<body>
+  <div id="ready-sentinel"></div>
+
+  <main id="settings-dark" class="scene" data-tags="ui,dark,zh-en-ja,spaces,numbers,symbols">
+    <div class="app-shell"><section class="app-window">
+      <header class="titlebar">
+        <strong data-ocr-line id="settings-title">Clippy 设置</strong><span class="grow"></span>
+        <span class="pill" data-ocr-line id="settings-version">v0.1.20  ·  Local only</span>
+      </header>
+      <div class="settings-body">
+        <nav class="settings-nav" data-paragraph-id="settings-nav">
+          <div data-ocr-line id="nav-general">通用 General</div>
+          <div class="active" data-ocr-line id="nav-ocr">文字识别 OCR</div>
+          <div data-ocr-line id="nav-shortcuts">快捷键 Shortcuts</div>
+          <div data-ocr-line id="nav-storage">存储 Storage</div>
+        </nav>
+        <section class="settings-panel" data-paragraph-id="settings-content">
+          <h2 data-ocr-line id="ocr-heading">本地 OCR 与版面</h2>
+          <div class="lead" data-ocr-line id="ocr-lead">中文  English  日本語  ·  无网络上传</div>
+          <div class="setting-card"><div><strong data-ocr-line id="model-label">增强模型</strong><small data-ocr-line id="model-detail">PP-OCRv6 small + EdgeGNN</small></div><span class="value" data-ocr-line id="model-state">Ready</span></div>
+          <div class="setting-card"><div><strong data-ocr-line id="spacing-label">English spacing</strong><small data-ocr-line id="spacing-detail">Keep AA  11  ll  00 unchanged</small></div><span class="value" data-ocr-line id="spacing-state">Enabled</span></div>
+          <div class="setting-card"><div><strong data-ocr-line id="budget-label">资源预算</strong><small data-ocr-line id="budget-detail">Deadline 60,000 ms  ·  Peak 256 MiB</small></div><span class="value" data-ocr-line id="budget-state">Within limit</span></div>
+          <div class="settings-foot" data-ocr-line id="settings-foot">符号检查：±0.02  √2≈1.414  ∑  Δ</div>
+        </section>
+      </div>
+    </section></div>
+  </main>
+
+  <main id="code-review" class="scene" data-tags="ui,code,italic,zh-en-ja,spaces,numbers,symbols">
+    <div class="app-shell"><section class="app-window">
+      <header class="titlebar"><strong data-ocr-line id="code-title">OCR pipeline review</strong><span class="grow"></span><span class="pill" data-ocr-line id="code-branch">codex/ocr-real-ui-corpus</span></header>
+      <div class="editor-grid">
+        <aside class="file-tree" data-paragraph-id="code-files">
+          <div data-ocr-line id="file-one">src-tauri/ocr-sidecar</div>
+          <div class="selected" data-ocr-line id="file-two">quality_metrics.py</div>
+          <div data-ocr-line id="file-three">pipeline.py</div>
+          <div data-ocr-line id="file-four">test_quality_metrics.py</div>
+        </aside>
+        <section class="editor" data-paragraph-id="code-body">
+          <div class="code-row"><span class="line-no">41</span><span data-ocr-line id="code-41"><span class="kw">def</span> verify_text(value: <span class="kw">str</span>) -&gt; <span class="kw">bool</span>:</span></div>
+          <div class="code-row"><span class="line-no">42</span><span class="comment" data-ocr-line id="code-42"># Preserve  two spaces, 日本語, and symbols.</span></div>
+          <div class="code-row"><span class="line-no">43</span><span data-ocr-line id="code-43">    sample = <span class="str">"订单 AA  11 / ¥1,234.50"</span></span></div>
+          <div class="code-row"><span class="line-no">44</span><span data-ocr-line id="code-44">    ratio = <span class="num">98.6</span> / <span class="num">100.0</span></span></div>
+          <div class="code-row"><span class="line-no">45</span><span data-ocr-line id="code-45">    <span class="kw">return</span> value == sample <span class="kw">and</span> ratio &gt;= <span class="num">0.98</span></span></div>
+          <div class="code-row"><span class="line-no">46</span><span class="comment" data-ocr-line id="code-46"># TODO: route x² + 1/2 = √2 to a formula model.</span></div>
+          <div class="diagnostic" data-ocr-line id="code-warning">Warning  E042  Unicode sequence ∑ ≠ Σ; do not normalize silently.</div>
+        </section>
+      </div>
+    </section></div>
+  </main>
+
+  <main id="invoice-table" class="scene" data-tags="ui,table,zh-en-ja,spaces,numbers,currency,symbols">
+    <div class="app-shell"><section class="app-window">
+      <header class="titlebar"><strong data-ocr-line id="invoice-app-title">Clippy 本地票据预览</strong><span class="grow"></span><span class="pill" data-ocr-line id="invoice-state">OCR complete</span></header>
+      <section class="invoice">
+        <div class="invoice-head"><div><h2 data-ocr-line id="invoice-title">Invoice  請求書  发票</h2><div class="muted" data-ocr-line id="invoice-number">No. AA11-2026-09-21</div></div><div class="muted" data-ocr-line id="invoice-date">Date  2026-09-21</div></div>
+        <table data-table-id="invoice-main">
+          <thead><tr data-row-id="invoice-r1"><th><span data-ocr-line data-column-index="0" id="invoice-r1c1">商品 Item</span></th><th><span data-ocr-line data-column-index="1" id="invoice-r1c2">数量 Qty</span></th><th><span data-ocr-line data-column-index="2" id="invoice-r1c3">単価 Price</span></th><th><span data-ocr-line data-column-index="3" id="invoice-r1c4">小计 Amount</span></th></tr></thead>
+          <tbody>
+            <tr data-row-id="invoice-r2"><td><span data-ocr-line data-column-index="0" id="invoice-r2c1">Coffee 豆</span></td><td><span data-ocr-line data-column-index="1" id="invoice-r2c2">12</span></td><td><span data-ocr-line data-column-index="2" id="invoice-r2c3">¥19.90</span></td><td><span data-ocr-line data-column-index="3" id="invoice-r2c4">¥238.80</span></td></tr>
+            <tr data-row-id="invoice-r3"><td><span data-ocr-line data-column-index="0" id="invoice-r3c1">日本茶  Green tea</span></td><td><span data-ocr-line data-column-index="1" id="invoice-r3c2">3</span></td><td><span data-ocr-line data-column-index="2" id="invoice-r3c3">¥88.00</span></td><td><span data-ocr-line data-column-index="3" id="invoice-r3c4">¥264.00</span></td></tr>
+            <tr data-row-id="invoice-r4"><td><span data-ocr-line data-column-index="0" id="invoice-r4c1">OCR Pro  30 days</span></td><td><span data-ocr-line data-column-index="1" id="invoice-r4c2">1</span></td><td><span data-ocr-line data-column-index="2" id="invoice-r4c3">¥128.00</span></td><td><span data-ocr-line data-column-index="3" id="invoice-r4c4">¥128.00</span></td></tr>
+          </tbody>
+        </table>
+        <div class="invoice-total" data-paragraph-id="invoice-total">
+          <span data-ocr-line id="subtotal-label">Subtotal</span><span data-ocr-line id="subtotal-value">¥630.80</span>
+          <span data-ocr-line id="tax-label">Tax  8.5%</span><span data-ocr-line id="tax-value">¥53.62</span>
+          <strong class="grand" data-ocr-line id="grand-label">Total</strong><strong class="grand" data-ocr-line id="grand-value">¥684.42</strong>
+        </div>
+      </section>
+    </section></div>
+  </main>
+
+  <main id="long-document" class="scene" data-tags="ui,long-image,zh-en-ja,italic,spaces,numbers,symbols">
+    <article class="document-paper">
+      <h1 data-ocr-line id="long-title">Release notes  ·  2026-09-21</h1>
+      <div class="subtitle" data-ocr-line id="long-subtitle">A long local document for OCR reading-order evaluation.</div>
+      <section data-paragraph-id="long-summary">
+        <h2 data-ocr-line id="long-h1">1. 摘要 Summary</h2>
+        <p><span data-ocr-line id="long-p1">Clippy 在本地处理截图、剪贴板图片和文字识别。</span></p>
+        <p><span data-ocr-line id="long-p2">English  中文  日本語  remain in one ordered document.</span></p>
+        <p><span data-ocr-line id="long-p3">原始空白 AA  11  ll  00 不应被静默合并。</span></p>
+      </section>
+      <div class="note" data-paragraph-id="long-note">
+        <span data-ocr-line id="long-note-1">Quality gate: raw CER, compact CER, whitespace F1.</span><br>
+        <span data-ocr-line id="long-note-2">Symbols: ±0.02  √2≈1.414  ∑  ∫  π  Δ.</span>
+      </div>
+      <section data-paragraph-id="long-metrics">
+        <h2 data-ocr-line id="long-h2">2. Metrics</h2>
+        <div class="metrics">
+          <div class="metric"><span data-ocr-line id="metric-1-label">Detection</span><strong data-ocr-line id="metric-1-value">Hmean 0.982</strong></div>
+          <div class="metric"><span data-ocr-line id="metric-2-label">Latency</span><strong data-ocr-line id="metric-2-value">P95 742 ms</strong></div>
+          <div class="metric"><span data-ocr-line id="metric-3-label">Memory</span><strong data-ocr-line id="metric-3-value">Peak 271 MiB</strong></div>
+        </div>
+      </section>
+      <section data-paragraph-id="long-details">
+        <h2 data-ocr-line id="long-h3">3. 詳細 Details</h2>
+        <p><span data-ocr-line id="long-d1">第一段记录检测框、文字、段落和阅读顺序。</span></p>
+        <p><span data-ocr-line id="long-d2">The second line keeps identifiers SN: AA11-BB22 / 98.6%.</span></p>
+        <p><span data-ocr-line id="long-d3">三行目は日本語の文字列と数字 001122 を含みます。</span></p>
+        <p><span data-ocr-line id="long-d4">Columns are evaluated separately from Unicode edit distance.</span></p>
+        <p><span data-ocr-line id="long-d5">EdgeGNN groups text boxes; it does not sharpen image edges.</span></p>
+        <p><span data-ocr-line id="long-d6">CTC decoding must preserve repeated letters and explicit spaces.</span></p>
+      </section>
+      <section data-paragraph-id="long-checklist">
+        <h2 data-ocr-line id="long-h4">4. 验收 Checklist</h2>
+        <p><span data-ocr-line id="long-c1">01  Verify the source PNG SHA-256 before scoring.</span></p>
+        <p><span data-ocr-line id="long-c2">02  Reject symlinks, path escape, size drift, and stale truth.</span></p>
+        <p><span data-ocr-line id="long-c3">03  Compare UI, code, italic, table, and long-image tags.</span></p>
+        <p><span data-ocr-line id="long-c4">04  Keep unsupported structured formulas visible in reports.</span></p>
+        <p><span data-ocr-line id="long-c5">05  Record Windows, macOS, and Linux resources separately.</span></p>
+      </section>
+      <div class="note" data-paragraph-id="long-final">
+        <span data-ocr-line id="long-final-1">No model replacement is accepted from one aggregate score.</span><br>
+        <span data-ocr-line id="long-final-2">目标分层改善、关键分层回退和资源变化必须同时记录。</span>
+      </div>
+    </article>
+  </main>
+
+  <script>
+    const sceneId = new URLSearchParams(location.search).get("scene");
+    const scene = document.getElementById(sceneId || "");
+    if (!scene || !scene.classList.contains("scene")) throw new Error("unknown scene");
+    scene.classList.add("is-active");
+
+    const rounded = value => Math.round(value * 1000) / 1000;
+    const quad = rect => {
+      const left = Math.max(0, rect.left - 2);
+      const top = Math.max(0, rect.top - 2);
+      const right = Math.min(innerWidth, rect.right + 2);
+      const bottom = Math.min(innerHeight, rect.bottom + 2);
+      return [[left, top], [right, top], [right, bottom], [left, bottom]]
+        .map(point => point.map(rounded));
+    };
+
+    function buildContract() {
+      const lineNodes = [...scene.querySelectorAll("[data-ocr-line]")];
+      const lines = lineNodes.map(node => ({
+        id: node.id,
+        text: node.textContent,
+        quad: quad(node.getBoundingClientRect()),
+        kind: "text",
+        ...(node.closest("[data-paragraph-id]")
+          ? { paragraphId: node.closest("[data-paragraph-id]").dataset.paragraphId }
+          : {}),
+      }));
+      const tables = [...scene.querySelectorAll("[data-table-id]")].map(table => ({
+        id: table.dataset.tableId,
+        rows: [...table.querySelectorAll("[data-row-id]")].map(row => ({
+          id: row.dataset.rowId,
+          cells: [...row.querySelectorAll("[data-column-index]")].map(cell => ({
+            id: cell.id,
+            text: cell.textContent,
+            quad: quad(cell.getBoundingClientRect()),
+            columnIndex: Number(cell.dataset.columnIndex),
+          })),
+        })),
+      }));
+      return {
+        scene: sceneId,
+        tags: scene.dataset.tags.split(","),
+        viewport: { width: innerWidth, height: innerHeight, devicePixelRatio },
+        fontReady: document.fonts.check('16px "Clippy Corpus"'),
+        lines,
+        tables,
+      };
+    }
+
+    addEventListener("load", () => {
+      document.fonts.ready.then(() => {
+        const payload = JSON.stringify(buildContract());
+        // Firefox headless 可能在同步 XHR 等待期间落截图；先切换就绪像素，捕获端仍同时要求
+        // 服务端已收到同一 scene 的合同，因此不会把请求失败的页面误收为基线。
+        document.documentElement.dataset.captureReady = "true";
+        const request = new XMLHttpRequest();
+        request.open("POST", "/contract", false);
+        request.setRequestHeader("Content-Type", "application/json");
+        request.send(payload);
+        if (request.status !== 204) throw new Error("contract rejected");
+      });
+    });
+  </script>
+</body>
+</html>

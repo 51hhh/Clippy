@@ -7,7 +7,7 @@ import unittest
 import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from edge_features import build_features, color_features
-from layout_groups import baseline_order, group_lines, order_groups
+from layout_groups import baseline_order, group_lines, order_groups, table_like_rows
 from pipeline import crop_line, decode_ctc, decode_ctc_detailed, decode_png, model_contract, orient_line, should_use_english_spacing, tile_origins, reconcile_overview, remove_contained_quads
 
 
@@ -75,6 +75,37 @@ class FeatureTests(unittest.TestCase):
         )
         logits = np.full((len(inputs["edge_index"]),), 10, np.float32)
         self.assertEqual(group_lines(inputs, logits, built_geometry), [[1, 0, 2, 3]])
+
+    def test_repeated_table_rows_override_column_gutters_without_changing_two_columns(self):
+        table_quads = [
+            quad(column * 140, row * 36, 90, 22)
+            for row in range(4)
+            for column in range(4)
+        ]
+        geometry = [
+            {"min": value.min(0), "max": value.max(0), "center": value.mean(0)}
+            for value in table_quads
+        ]
+        bounds = [(item["min"], item["max"]) for item in geometry]
+        self.assertTrue(table_like_rows(list(range(16)), bounds, 22))
+        self.assertEqual(
+            order_groups([[index] for index in reversed(range(16))], geometry),
+            [[index] for index in range(16)],
+        )
+
+        columns = [quad(0, row * 36) for row in range(4)] + [
+            quad(300, row * 36) for row in range(4)
+        ]
+        geometry = [
+            {"min": value.min(0), "max": value.max(0), "center": value.mean(0)}
+            for value in columns
+        ]
+        bounds = [(item["min"], item["max"]) for item in geometry]
+        self.assertFalse(table_like_rows(list(range(8)), bounds, 22))
+        self.assertEqual(
+            order_groups([[index] for index in range(8)], geometry),
+            [[0], [1], [2], [3], [4], [5], [6], [7]],
+        )
 
     def test_overview_replaces_seam_fragments_without_swallowing_other_rows(self):
         parts = [quad(0, 0, 80), quad(75, 0, 200), quad(0, 40, 60), quad(350, 0, 60)]
