@@ -1,0 +1,41 @@
+[package]
+authors = [
+    "Kornel Lesiński <kornel@geekhood.net>",
+    "Richard Diamond <wichard@vitalitystudios.com>",
+    "Sean Oxley <sean.oxley@bibo.com.ph>",
+]
+build = "build.rs"
+description = "Rust FFI bindings and wrapper for libwebm"
+documentation = "https://docs.rs/webm"
+homepage = "https://lib.rs/crates/webm-sys"
+license = "MPL-2.0"
+name = "webm-sys"
+links = "webm"
+readme = "README.md"
+repository = "https://github.com/DiamondLovesYou/rust-webm.git"
+include = [
+    "lib.rs", "build.rs", "Cargo.toml",
+    "ffi.cpp",
+    "libwebm/*.hpp",
+    "libwebm/common/*.h",
+    "libwebm/mkvmuxer/*.cc",
+    "libwebm/mkvmuxer/*.h",
+    "libwebm/mkvparser/*.cc",
+    "libwebm/mkvparser/*.h",
+    "LICENSE.TXT",
+    "PATENTS.TXT",
+]
+keywords = ["webm", "mkv", "matroska", "vp9"]
+categories = [ "external-ffi-bindings", "multimedia::encoding", "multimedia::video"]
+version = "2.2.1"
+edition = "2024"
+
+[build-dependencies]
+cc = "1.2"
+
+[lib]
+name = "webm_sys"
+path = "lib.rs"
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]

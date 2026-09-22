@@ -57,7 +57,10 @@
       "third-party-licenses/libwebm-2.2.1-BSD-3-Clause.txt": "licenses/libwebm-2.2.1-BSD-3-Clause.txt",
       "third-party-licenses/libvpx-1.16.0-BSD-3-Clause.txt": "licenses/libvpx-1.16.0-BSD-3-Clause.txt",
       "third-party-licenses/yuv-0.8.19-BSD-3-Clause.txt": "licenses/yuv-0.8.19-BSD-3-Clause.txt",
-      "third-party-licenses/recording-vp9-prototype-NOTICE.md": "licenses/recording-vp9-prototype-NOTICE.md"
+      "third-party-licenses/recording-vp9-prototype-NOTICE.md": "licenses/recording-vp9-prototype-NOTICE.md",
+      "third-party-licenses/opusic-c-1.6.1-BSD-3-Clause.txt": "licenses/opusic-c-1.6.1-BSD-3-Clause.txt",
+      "third-party-licenses/opusic-sys-0.7.5-libopus-1.6.1-BSD-3-Clause.txt": "licenses/opusic-sys-0.7.5-libopus-1.6.1-BSD-3-Clause.txt",
+      "third-party-licenses/recording-opus-webm-NOTICE.md": "licenses/recording-opus-webm-NOTICE.md"
     },
     "icon": [
       "icons/32x32.png",

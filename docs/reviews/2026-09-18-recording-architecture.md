@@ -15,7 +15,7 @@ xcap 0.9 提供跨平台 `VideoRecorder`，但官方仍把 video recording 标�
 上游仍有录制配置、Wayland 性能和停止后重新初始化等公开问题。因此 xcap 可以作为候选帧源，不能
 承担 Clippy 的时间线、内存和恢复合同，也不能为了录屏直接替换当前 Linux 截图依赖。
 
-## 当前实现状态（2026-09-21）
+## 当前实现状态（2026-09-22）
 
 第一条产品入口已经接到独立的 Recording 选区覆盖层。Linux X11 与 Windows 现进入受门控的真机
 QA 阶段，默认发布能力仍保持关闭：
@@ -80,8 +80,17 @@ ScreenCaptureKit 各自创建的时间原点收回 `DiagnosticRecordingSession`�
 显式接收同一个 `RecordingSessionClock`，帧、暂停、继续和停止都在该会话时间域内加戳；首帧等待
 另用连接后的局部计时。现有视频 presentation timeline 仍以首帧归零，避免破坏 VP9 writer；原生
 Windows QPC 音频 PTS 校准和双轨共同 epoch 合同已经补齐；macOS/Linux 原生 PTS、session 接线与
-实际双轨 mux 仍待后续完成。共享时钟合同见
+实际双轨 session 接线仍待后续完成。共享时钟合同见
 [`2026-09-22-recording-shared-clock.md`](../superpowers/specs/2026-09-22-recording-shared-clock.md)。
+
+`PX-REC-OPUS-WEBM-01` 已补齐平台无关的编码与容器边界。参考 libopus 把 48 kHz mono/stereo PCM
+重组为 20 ms packet，`OpusHead` pre-skip 取实际 encoder lookahead；结束时追加 lookahead 和对齐
+补零，并只把对齐补零写入最后一个块的 `DiscardPadding`。双轨 WebM 同时写 `A_OPUS`、
+`CodecDelay` 和 80 ms `SeekPreRoll`，并要求调用方按全局 timestamp 顺序交错提交 VP9/Opus packet。
+四平台原型矩阵负责真实编译和合同测试；默认构建、现有单轨恢复 schema、缩略图与产品 session
+保持不变。下一切片要把 coordinator、音频 worker 与双轨 writer 接入同一个 session，并同步升级
+manifest 和恢复协议。完整合同见
+[`2026-09-22-recording-opus-webm.md`](../superpowers/specs/2026-09-22-recording-opus-webm.md)。
 
 ### 2026-09-21 同 SHA CI 证据
 

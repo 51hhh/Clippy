@@ -26,6 +26,8 @@ linux-pipewire = []
 # Windows MSVC 与 macOS Intel 从固定哈希源码归档构建。四目标同 SHA 与真机 QA 通过前不能进入默认产品构建。
 recording-vp9-prototype = ["dep:shiguredo_libvpx", "dep:webm", "dep:yuv"]
 recording-vp9-source-build = ["recording-vp9-prototype", "shiguredo_libvpx/source-build"]
+# 参考 libopus 编码与 VP9/Opus WebM 双轨封装；默认产品 session 尚不启用。
+recording-opus-webm = ["recording-vp9-prototype", "dep:opusic-c", "dep:opusic-sys"]
 # Windows WASAPI 系统声/默认麦克风 source；只进入原生 QA 编译图，尚未接产品 UI 或 mux。
 recording-windows-audio = ["dep:windows"]
 # Linux Wayland 专用 QA 入口；默认/release 构建保持关闭。
@@ -109,6 +111,10 @@ webm = { version = "=2.2.1", optional = true }
 # VP9 原型的 RGBA→I420 热路径；纯 Rust，x86 SSE4.1/AVX2 与 ARM RDM 均在运行时探测。
 # 精确固定版本，避免 SIMD 舍入或平台分派在质量基线之外变化。
 yuv = { version = "=0.8.19", default-features = false, features = ["avx", "sse", "rdm", "professional_mode"], optional = true }
+# Opus 高层 API 与底层 bundled feature 分开精确固定，避免高层 crate 的 0.x 范围静默更换
+# libopus 源码。opusic-sys 0.7.5 随包携带 libopus 1.6.1 并在本机静态构建。
+opusic-c = { version = "=1.6.1", default-features = false, optional = true }
+opusic-sys = { version = "=0.7.5", default-features = false, features = ["bundled"], optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # xcap 0.9 在 Linux 强制引入需要新版 PipeWire 头文件的 pipewire-rs，stock Ubuntu 22
@@ -187,6 +193,9 @@ arboard = { path = "vendor/arboard" }
 xcap = { path = "vendor/xcap" }
 # VP9 原型只接受仓库固定 SHA-256 的 libvpx 预编译归档；补丁范围见 vendor/shiguredo_libvpx/PATCHES.md。
 shiguredo_libvpx = { path = "vendor/shiguredo_libvpx" }
+# libwebm 已有 Opus delay/pre-roll/尾裁切能力；补丁只把这些能力暴露给 Rust。
+webm = { path = "vendor/webm" }
+webm-sys = { path = "vendor/webm-sys" }
 
 [dev-dependencies]
 tempfile = "3"

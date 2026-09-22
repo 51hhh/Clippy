@@ -1,0 +1,214 @@
+pub mod mux {
+    use core::ffi::{c_char, c_void};
+    use core::ptr::NonNull;
+
+    #[repr(C)]
+    pub struct IWriter {
+        _opaque_c_aligned: *mut c_void,
+    }
+    pub type WriterMutPtr = *mut IWriter;
+    pub type WriterNonNullPtr = NonNull<IWriter>;
+
+    pub type WriterWriteFn = extern "C" fn(*mut c_void, *const c_void, usize) -> bool;
+    pub type WriterGetPosFn = extern "C" fn(*mut c_void) -> u64;
+    pub type WriterSetPosFn = extern "C" fn(*mut c_void, u64) -> bool;
+    pub type WriterElementStartNotifyFn = extern "C" fn(*mut c_void, u64, i64);
+
+    /// An opaque number used to identify an added track.
+    pub type TrackNum = u64;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[repr(i32)]
+    pub enum ResultCode {
+        /// The function completed without error
+        Ok = 0,
+
+        /// An invalid parameter was passed (e.g. a null pointer or an invalid track number)
+        BadParam = -1,
+
+        /// `libwebm` returned an error, and no more specific error info is known. No assumptions
+        /// should be made about whether this is an issue with the caller, or something internal
+        /// to `libwebm`.
+        UnknownLibwebmError = -2,
+    }
+
+    // audio
+    pub const OPUS_CODEC_ID: u32 = 0;
+    pub const VORBIS_CODEC_ID: u32 = 1;
+
+    // video
+    pub const VP8_CODEC_ID: u32 = 0;
+    pub const VP9_CODEC_ID: u32 = 1;
+    pub const AV1_CODEC_ID: u32 = 2;
+
+    // segment modes
+    pub const SEGMENT_MODE_LIVE: u32 = 0x1;
+    pub const SEGMENT_MODE_FILE: u32 = 0x2;
+
+    #[repr(C)]
+    pub struct Segment {
+        _opaque_c_aligned: *mut c_void,
+    }
+    pub type SegmentMutPtr = *mut Segment;
+    pub type SegmentNonNullPtr = NonNull<Segment>;
+
+    #[link(name = "webmadapter", kind = "static")]
+    unsafe extern "C" {
+        #[link_name = "mux_new_writer"]
+        pub fn new_writer(
+            write: Option<WriterWriteFn>,
+            get_pos: Option<WriterGetPosFn>,
+            set_pos: Option<WriterSetPosFn>,
+            element_start_notify: Option<WriterElementStartNotifyFn>,
+            user_data: *mut c_void,
+        ) -> WriterMutPtr;
+        #[link_name = "mux_delete_writer"]
+        pub fn delete_writer(writer: WriterMutPtr);
+
+        #[link_name = "mux_new_segment"]
+        pub fn new_segment() -> SegmentMutPtr;
+        #[link_name = "mux_initialize_segment"]
+        pub fn initialize_segment(segment: SegmentMutPtr, writer: WriterMutPtr) -> ResultCode;
+        #[link_name = "mux_set_color"]
+        pub fn mux_set_color(
+            segment: SegmentMutPtr,
+            video_track_num: TrackNum,
+            bits_per_channel: u8,
+            sampling_horiz: u8,
+            sampling_vert: u8,
+            color_range: u8,
+        ) -> ResultCode;
+
+        // HDR10 metadata functions
+        #[link_name = "mux_set_transfer_characteristics"]
+        pub fn mux_set_transfer_characteristics(
+            segment: SegmentMutPtr,
+            video_track_num: TrackNum,
+            transfer_characteristics: u64,
+        ) -> ResultCode;
+
+        #[link_name = "mux_set_primaries"]
+        pub fn mux_set_primaries(
+            segment: SegmentMutPtr,
+            video_track_num: TrackNum,
+            primaries: u64,
+        ) -> ResultCode;
+
+        #[link_name = "mux_set_matrix_coefficients"]
+        pub fn mux_set_matrix_coefficients(
+            segment: SegmentMutPtr,
+            video_track_num: TrackNum,
+            matrix_coefficients: u64,
+        ) -> ResultCode;
+
+        #[link_name = "mux_set_max_cll"]
+        pub fn mux_set_max_cll(
+            segment: SegmentMutPtr,
+            video_track_num: TrackNum,
+            max_cll: u64,
+        ) -> ResultCode;
+
+        #[link_name = "mux_set_max_fall"]
+        pub fn mux_set_max_fall(
+            segment: SegmentMutPtr,
+            video_track_num: TrackNum,
+            max_fall: u64,
+        ) -> ResultCode;
+
+        #[link_name = "mux_set_mastering_metadata"]
+        pub fn mux_set_mastering_metadata(
+            segment: SegmentMutPtr,
+            video_track_num: TrackNum,
+            luminance_max: f32,
+            luminance_min: f32,
+            red_x: f32,
+            red_y: f32,
+            green_x: f32,
+            green_y: f32,
+            blue_x: f32,
+            blue_y: f32,
+            white_x: f32,
+            white_y: f32,
+        ) -> ResultCode;
+
+        #[link_name = "mux_set_writing_app"]
+        pub fn mux_set_writing_app(segment: SegmentMutPtr, name: *const c_char);
+        #[link_name = "mux_finalize_segment"]
+        pub fn finalize_segment(segment: SegmentMutPtr, duration: u64) -> ResultCode;
+        #[link_name = "mux_delete_segment"]
+        pub fn delete_segment(segment: SegmentMutPtr);
+        #[link_name = "mux_segment_set_mode"]
+        pub fn segment_set_mode(segment: SegmentMutPtr, mode: u32) -> ResultCode;
+        #[link_name = "mux_segment_set_timecode_scale"]
+        pub fn segment_set_timecode_scale(
+            segment: SegmentMutPtr,
+            timecode_scale_ns: u64,
+        ) -> ResultCode;
+
+        #[link_name = "mux_segment_add_video_track"]
+        pub fn segment_add_video_track(
+            segment: SegmentMutPtr,
+            width: i32,
+            height: i32,
+            number: i32,
+            codec_id: u32,
+            track_num_out: *mut TrackNum,
+        ) -> ResultCode;
+        #[link_name = "mux_segment_add_audio_track"]
+        pub fn segment_add_audio_track(
+            segment: SegmentMutPtr,
+            sample_rate: i32,
+            channels: i32,
+            number: i32,
+            codec_id: u32,
+            track_num_out: *mut TrackNum,
+        ) -> ResultCode;
+        #[link_name = "mux_segment_add_frame"]
+        pub fn segment_add_frame(
+            segment: SegmentMutPtr,
+            track_num: TrackNum,
+            frame: *const u8,
+            length: usize,
+            timestamp_ns: u64,
+            keyframe: bool,
+        ) -> ResultCode;
+        #[link_name = "mux_segment_add_frame_with_discard_padding"]
+        pub fn segment_add_frame_with_discard_padding(
+            segment: SegmentMutPtr,
+            track_num: TrackNum,
+            frame: *const u8,
+            length: usize,
+            discard_padding_ns: i64,
+            timestamp_ns: u64,
+            keyframe: bool,
+        ) -> ResultCode;
+        #[link_name = "mux_segment_set_codec_private"]
+        pub fn segment_set_codec_private(
+            segment: SegmentMutPtr,
+            track_num: TrackNum,
+            data: *const u8,
+            len: i32,
+        ) -> ResultCode;
+        #[link_name = "mux_segment_set_audio_codec_delay"]
+        pub fn segment_set_audio_codec_delay(
+            segment: SegmentMutPtr,
+            track_num: TrackNum,
+            codec_delay_ns: u64,
+        ) -> ResultCode;
+        #[link_name = "mux_segment_set_audio_seek_pre_roll"]
+        pub fn segment_set_audio_seek_pre_roll(
+            segment: SegmentMutPtr,
+            track_num: TrackNum,
+            seek_pre_roll_ns: u64,
+        ) -> ResultCode;
+    }
+}
+
+#[test]
+fn smoke_test() {
+    unsafe {
+        let segment = mux::new_segment();
+        assert!(!segment.is_null());
+        mux::delete_segment(segment);
+    }
+}

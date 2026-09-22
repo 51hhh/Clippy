@@ -182,13 +182,13 @@ jobs:
       matrix:
         include:
           - runner: ubuntu-22.04
-            features: recording-wayland-qa
+            features: recording-wayland-qa,recording-opus-webm
           - runner: windows-latest
-            features: recording-vp9-source-build,recording-windows-audio
+            features: recording-vp9-source-build,recording-windows-audio,recording-opus-webm
           - runner: macos-15
-            features: recording-macos-screencapturekit
+            features: recording-macos-screencapturekit,recording-opus-webm
           - runner: macos-15-intel
-            features: recording-macos-screencapturekit,recording-vp9-source-build
+            features: recording-macos-screencapturekit,recording-vp9-source-build,recording-opus-webm
     steps:
       - uses: actions/checkout@v7
 
@@ -248,6 +248,10 @@ jobs:
       - name: Prototype VP9 mux tests
         working-directory: src-tauri
         run: cargo test --features ${{ matrix.features }} --lib recording::mux::vp9_webm::tests
+
+      - name: Prototype Opus WebM contract tests
+        working-directory: src-tauri
+        run: cargo test --features ${{ matrix.features }} --lib recording::mux::opus_webm::tests
 
       - name: Prototype VP9 session and recovery tests
         working-directory: src-tauri

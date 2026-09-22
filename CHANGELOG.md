@@ -73,6 +73,11 @@
   保持相同 presentation 坐标；结束报告保留两轨实际时长、领先轨道和偏差，容器时长取较长轨道，
   不静默截断或掩盖漂移。Opus、WebM 双轨、session 接线和真机 A/V QA 仍待后续实现。
   （需求：`PX-REC-AV-EPOCH-01`）
+- 录屏音频增加非默认 Opus/WebM 双轨原型：48 kHz mono/stereo PCM 以固定 20 ms 帧编码，
+  `OpusHead` 的 pre-skip 直接取自 libopus lookahead；WebM 写入 `CodecDelay`、80 ms
+  `SeekPreRoll` 和尾块 `DiscardPadding`，避免截断真实尾音或把补零计入时长。双轨 mux 拒绝跨轨
+  时间倒退，四平台原型 CI 会编译并运行真实编码、解码和容器结构合同。平台音源、录屏 session、
+  manifest 和 UI 尚未接入，当前产品入口仍只录视频。（需求：`PX-REC-OPUS-WEBM-01`）
 - 截图尺寸提示和工具栏保留前端事件边界，Pin 与长截图控制窗保留拖动权限。撤回导致 GTK 线程崩溃的原生防拖动改动，恢复原截图逐屏全屏定位和双屏建窗流程。
 - Pin 保存确认隔离背景键盘与焦点，窄窗采用纵向动作，短窗正文和错误可滚动；取消和保存重试保留标注。
 - 图片侧栏精简为缩略图与 OCR，翻译在 OCR 内切换，移除重复翻译卡和侧栏扫码。点击图片打开独立普通查看器；底部 Pin 式工具栏集中缩放、绘制、OCR、扫码、取色和输出。翻译仍处理识别文字，暂不替换原图排版。

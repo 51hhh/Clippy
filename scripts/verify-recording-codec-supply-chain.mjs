@@ -81,6 +81,25 @@ if (
 ) {
   throw new Error("Cargo.toml must pin the reviewed professional-precision yuv SIMD dependency");
 }
+if (
+  !cargoToml.includes(
+    'recording-opus-webm = ["recording-vp9-prototype", "dep:opusic-c", "dep:opusic-sys"]',
+  ) ||
+  !cargoToml.includes(
+    'opusic-c = { version = "=1.6.1", default-features = false, optional = true }',
+  ) ||
+  !cargoToml.includes(
+    'opusic-sys = { version = "=0.7.5", default-features = false, features = ["bundled"], optional = true }',
+  )
+) {
+  throw new Error("Cargo.toml must pin the reviewed bundled libopus dependency graph");
+}
+if (
+  !cargoToml.includes('webm = { path = "vendor/webm" }') ||
+  !cargoToml.includes('webm-sys = { path = "vendor/webm-sys" }')
+) {
+  throw new Error("Cargo.toml must patch webm and webm-sys to the reviewed vendor directories");
+}
 const cargoLock = readFileSync(join(tauriRoot, "Cargo.lock"), "utf8");
 if (!isVendoredPathPackage(cargoLock, "shiguredo_libvpx", "2026.2.0-canary.1")) {
   throw new Error("Cargo.lock must resolve shiguredo_libvpx as the vendored path package");
@@ -95,6 +114,58 @@ if (
 ) {
   throw new Error("Cargo.lock must pin the reviewed yuv 0.8.19 registry package and checksum");
 }
+const registryPackages = [
+  ["opusic-c", "1.6.1", "89f8e9c909466f15e60277212cc4fec082c68a5e1c9f6e373eee716fec2fed47"],
+  ["opusic-sys", "0.7.5", "c9d1ecdf206421bc74343ab3bb2f30ad2abbfee41fa341f7181fecbaf957769a"],
+];
+for (const [name, version, checksum] of registryPackages) {
+  const packageBody = lockedPackageBody(cargoLock, name, version);
+  if (
+    !packageBody ||
+    !/^source = "registry\+https:\/\/github\.com\/rust-lang\/crates\.io-index"$/m.test(
+      packageBody,
+    ) ||
+    !packageBody.includes(`checksum = "${checksum}"`)
+  ) {
+    throw new Error(`Cargo.lock must pin the reviewed ${name} ${version} registry checksum`);
+  }
+}
+for (const name of ["webm", "webm-sys"]) {
+  if (!isVendoredPathPackage(cargoLock, name, "2.2.1")) {
+    throw new Error(`Cargo.lock must resolve ${name} 2.2.1 as the vendored path package`);
+  }
+}
+
+const webmPatch = readFileSync(join(tauriRoot, "vendor", "webm", "PATCHES.md"), "utf8");
+const webmSysPatch = readFileSync(join(tauriRoot, "vendor", "webm-sys", "PATCHES.md"), "utf8");
+const webmSegment = readFileSync(
+  join(tauriRoot, "vendor", "webm", "src", "lib", "mux", "segment.rs"),
+  "utf8",
+);
+const webmFfi = readFileSync(join(tauriRoot, "vendor", "webm-sys", "ffi.cpp"), "utf8");
+for (const marker of [
+  "set_audio_codec_delay",
+  "set_audio_seek_pre_roll",
+  "set_timecode_scale",
+  "add_frame_with_discard_padding",
+]) {
+  if (!webmSegment.includes(marker)) {
+    throw new Error(`vendored webm is missing reviewed Opus API: ${marker}`);
+  }
+}
+for (const marker of [
+  "mux_segment_set_audio_codec_delay",
+  "mux_segment_set_audio_seek_pre_roll",
+  "mux_segment_set_timecode_scale",
+  "mux_segment_add_frame_with_discard_padding",
+]) {
+  if (!webmFfi.includes(marker)) {
+    throw new Error(`vendored webm-sys is missing reviewed Opus FFI: ${marker}`);
+  }
+}
+if (!webmPatch.includes("standards-compliant Opus-in-WebM") || !webmSysPatch.includes("No bundled")) {
+  throw new Error("vendored WebM patch manifests must describe the reviewed Opus surface");
+}
 
 const licenseFiles = [
   "shiguredo_libvpx-2026.2.0-canary.1.txt",
@@ -103,6 +174,9 @@ const licenseFiles = [
   "libvpx-1.16.0-BSD-3-Clause.txt",
   "yuv-0.8.19-BSD-3-Clause.txt",
   "recording-vp9-prototype-NOTICE.md",
+  "opusic-c-1.6.1-BSD-3-Clause.txt",
+  "opusic-sys-0.7.5-libopus-1.6.1-BSD-3-Clause.txt",
+  "recording-opus-webm-NOTICE.md",
 ];
 const resources = JSON.parse(readFileSync(join(tauriRoot, "tauri.conf.json"), "utf8")).bundle
   .resources;
@@ -114,5 +188,5 @@ for (const file of licenseFiles) {
 }
 
 console.log(
-  "Recording codec supply-chain check passed: vendored binding, pinned binary/source archives, licenses",
+  "Recording codec supply-chain check passed: vendored bindings, pinned codec inputs, licenses",
 );
