@@ -58,8 +58,6 @@ pub(in crate::recording) enum MacScreenCaptureKitAudioSourceError {
     SequenceExhausted,
     #[error("macOS 系统音频单调时间戳耗尽")]
     TimestampExhausted,
-    #[error(transparent)]
-    Contract(#[from] MacAudioContractError),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,6 +90,13 @@ struct NativeAudioChunk {
     samples: Box<[f32]>,
 }
 
+struct NativeAudioPacket {
+    pts_value: i64,
+    pts_timescale: i32,
+    frame_count: u32,
+    samples: Box<[f32]>,
+}
+
 #[derive(Debug, Clone)]
 struct AudioOutputVars {
     chunks: SyncSender<NativeAudioChunk>,
@@ -117,7 +122,12 @@ impl AudioOutputVars {
             return;
         }
         let native = unsafe { copy_audio_packet(sample_buffer) };
-        let (pts_value, pts_timescale, frame_count, samples) = match native {
+        let NativeAudioPacket {
+            pts_value,
+            pts_timescale,
+            frame_count,
+            samples,
+        } = match native {
             Ok(native) => native,
             Err(error) => {
                 self.fail(error);
@@ -475,9 +485,7 @@ struct StereoAudioBufferList {
 }
 
 /// 在 ScreenCaptureKit 回调返回前复制 PCM；`CFRetained<CMBlockBuffer>` 保证 ABL 数据在复制期间有效。
-unsafe fn copy_audio_packet(
-    sample_buffer: &CMSampleBuffer,
-) -> Result<(i64, i32, u32, Box<[f32]>), String> {
+unsafe fn copy_audio_packet(sample_buffer: &CMSampleBuffer) -> Result<NativeAudioPacket, String> {
     if !unsafe { sample_buffer.is_valid() } {
         return Err("ScreenCaptureKit 返回无效音频 sample buffer".to_string());
     }
@@ -547,7 +555,12 @@ unsafe fn copy_audio_packet(
         .map_err(|_| "ScreenCaptureKit 音频声道数超出 u16".to_string())?;
     let samples = copy_and_normalize_buffers(buffers, channels, frame_count, non_interleaved)
         .map_err(|error| error.to_string())?;
-    Ok((pts.value, pts.timescale, frame_count, samples))
+    Ok(NativeAudioPacket {
+        pts_value: pts.value,
+        pts_timescale: pts.timescale,
+        frame_count,
+        samples,
+    })
 }
 
 fn validate_audio_format(asbd: &AudioStreamBasicDescription) -> Result<(), String> {
@@ -622,16 +635,16 @@ fn copy_and_normalize_buffers(
     }
 }
 
-unsafe fn audio_buffer_samples<'a>(
-    buffer: &'a AudioBuffer,
+unsafe fn audio_buffer_samples(
+    buffer: &AudioBuffer,
     expected_samples: usize,
-) -> Result<&'a [f32], MacAudioContractError> {
+) -> Result<&[f32], MacAudioContractError> {
     let expected_bytes = expected_samples
         .checked_mul(BYTES_PER_FLOAT_SAMPLE)
         .ok_or(MacAudioContractError::SampleLengthOverflow)?;
     if usize::try_from(buffer.mDataByteSize).ok() != Some(expected_bytes)
         || buffer.mData.is_null()
-        || (buffer.mData as usize) % align_of::<f32>() != 0
+        || !(buffer.mData as usize).is_multiple_of(align_of::<f32>())
     {
         return Err(MacAudioContractError::SampleLengthMismatch);
     }
