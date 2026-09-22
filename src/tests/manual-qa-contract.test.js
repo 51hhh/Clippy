@@ -120,12 +120,24 @@ describe("真机 QA 合同", () => {
       const cases = casesForProfile(profileId);
       const systemAudio = cases.find((testCase) => testCase.id === "recording_system_audio");
       const microphone = cases.find((testCase) => testCase.id === "recording_microphone");
+      const nativeRates = cases.find(
+        (testCase) => testCase.id === "recording_mic_native_rates",
+      );
+      const stopTail = cases.find((testCase) => testCase.id === "recording_mic_stop_tail");
 
       expect(systemAudio).toMatchObject({
         acceptedStatuses: ["pass", "expected_degraded"],
         acceptedReasonCodes: ["macos_system_audio_requires_13"],
       });
       expect(microphone).toMatchObject({
+        acceptedStatuses: ["pass", "expected_degraded"],
+        acceptedReasonCodes: ["macos_microphone_requires_15"],
+      });
+      expect(nativeRates).toMatchObject({
+        acceptedStatuses: ["pass", "expected_degraded"],
+        acceptedReasonCodes: ["macos_microphone_requires_15"],
+      });
+      expect(stopTail).toMatchObject({
         acceptedStatuses: ["pass", "expected_degraded"],
         acceptedReasonCodes: ["macos_microphone_requires_15"],
       });

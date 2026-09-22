@@ -116,14 +116,17 @@ if (
 }
 if (
   !cargoToml.includes(
-    'recording-macos-av-qa = [\n    "recording-macos-screencapturekit",\n    "recording-opus-webm",\n    "dep:objc2-core-audio-types",\n    "objc2-core-media/objc2-core-audio-types",\n]',
+    'recording-macos-av-qa = [\n    "recording-macos-screencapturekit",\n    "recording-opus-webm",\n    "dep:rubato",\n    "dep:objc2-core-audio-types",\n    "objc2-core-media/objc2-core-audio-types",\n]',
   ) ||
   !cargoToml.includes(
     'objc2-core-audio-types = { version = "=0.3.2", optional = true }',
+  ) ||
+  !cargoToml.includes(
+    'rubato = { version = "=5.0.0", default-features = false, optional = true }',
   )
 ) {
   throw new Error(
-    "Cargo.toml must keep macOS A/V QA and CoreAudioTypes behind the reviewed feature set",
+    "Cargo.toml must keep macOS A/V QA, Rubato and CoreAudioTypes behind the reviewed feature set",
   );
 }
 const recordingInfoPlist = readFileSync(join(tauriRoot, "Info.recording.plist"), "utf8");
@@ -156,6 +159,13 @@ if (
 const registryPackages = [
   ["opusic-c", "1.6.1", "89f8e9c909466f15e60277212cc4fec082c68a5e1c9f6e373eee716fec2fed47"],
   ["opusic-sys", "0.7.5", "c9d1ecdf206421bc74343ab3bb2f30ad2abbfee41fa341f7181fecbaf957769a"],
+  ["rubato", "5.0.0", "a7cb1ffaf8738df50aab642a7f6465df81c6ba9e2818268053487165298114be"],
+  ["audioadapter", "5.0.0", "d1292ef9edf681b7426ed089004b021a42896492f58bd0c909ad44e5faec9ac4"],
+  ["audioadapter-buffers", "5.2.0", "46289a81a3bfa26d0f8b2415f8ca9decde9a66308a150568af5c102381b3c8ce"],
+  ["audioadapter-sample", "5.2.0", "5258faecf4edbe35ec483bda9b1f7438e6b391891819269c6b5461aeaa0e8d7d"],
+  ["audio-codec-algorithms", "0.8.1", "1254ebf6529f3763c491acfb5ab6e960809e3c75a38584cc664f8c5667fb7107"],
+  ["visibility", "0.1.1", "d674d135b4a8c1d7e813e2f8d1c9a58308aee4a680323066025e53132218bd91"],
+  ["windowfunctions", "0.1.1", "90628d739333b7c5d2ee0b70210b97b8cddc38440c682c96fd9e2c24c2db5f3a"],
 ];
 for (const [name, version, checksum] of registryPackages) {
   const packageBody = lockedPackageBody(cargoLock, name, version);
@@ -216,6 +226,12 @@ const licenseFiles = [
   "opusic-c-1.6.1-BSD-3-Clause.txt",
   "opusic-sys-0.7.5-libopus-1.6.1-BSD-3-Clause.txt",
   "recording-opus-webm-NOTICE.md",
+  "rubato-5.0.0-LICENSE-MIT.txt",
+  "rubato-5.0.0-LICENSE-APACHE.txt",
+  "audioadapter-family-5.0.0-5.2.0-LICENSE-MIT.txt",
+  "audio-codec-algorithms-0.8.1-LICENSE-0BSD.txt",
+  "visibility-0.1.1-LICENSE-MIT.txt",
+  "windowfunctions-0.1.1-LICENSE-MIT.txt",
 ];
 const resources = JSON.parse(readFileSync(join(tauriRoot, "tauri.conf.json"), "utf8")).bundle
   .resources;

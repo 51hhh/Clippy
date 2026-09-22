@@ -112,6 +112,12 @@
   stereo PCM、VP9 + Opus 双轨、暂停/恢复和异常恢复链；非 48 kHz 或异常设备格式会明确中止，
   不按错误速率写入。macOS 13–14 保持只有系统声，12.3–12.x 保持无音频，默认/release 不变；
   权限、外接设备和长时漂移仍待真机验收。（需求：`PX-REC-MACOS-MIC-01`）
+- macOS 15+ 麦克风 QA 链现在支持 44.1/48/88.2/96 kHz 等 8–192 kHz 整数原生采样率：48 kHz
+  保持 sample 直通，其它采样率在采集 worker 中用固定 Rubato sinc 转成 48 kHz stereo。回调只写
+  有界原生 PCM 队列；连续 packet 共用滤波状态，PTS 空洞显式切段，正常 Stop 提交精确尾帧，暂停
+  和失败则丢弃旧滤波状态。Rubato 版本、checksum 与双许可证资源均由供应链门禁固定。默认/release
+  仍不启用录屏，macOS Intel/Apple Silicon 真机采样率与长时漂移仍待验收。
+  （需求：`PX-REC-MACOS-RESAMPLE-01`）
 - Linux X11 与 Wayland 录屏 QA 包现在可通过 PipeWire 选择默认系统声或默认麦克风，并接入现有
   共享时钟、VP9 + Opus 双轨、暂停/继续、schema v2、异常恢复和结果库。原生 source 只接受
   48 kHz stereo F32LE FL/FR，以 `SPA_META_Header` PTS 映射时间线；gap 转为等长静音，packet 拆成

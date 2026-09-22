@@ -7,6 +7,10 @@ mod region;
 pub(super) mod linux_audio;
 #[allow(dead_code)]
 mod macos_audio_contract;
+// macOS 麦克风的纯 Rust 流式重采样合同可在 Linux feature 测试中执行；原生对象仍只进入 macOS。
+#[cfg(feature = "recording-macos-av-qa")]
+#[allow(dead_code)]
+mod macos_audio_resampler;
 #[cfg(target_os = "linux")]
 pub(super) mod wayland;
 // PipeWire PTS、PCM 与拆块合同在所有宿主运行测试，原生对象只进入 Linux AV feature。

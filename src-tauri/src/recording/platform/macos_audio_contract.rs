@@ -46,6 +46,12 @@ pub(super) struct MappedPcmChunk {
     pub samples: Box<[f32]>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct MappedPacketTiming {
+    pub captured_at_ns: u64,
+    pub starts_new_segment: bool,
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(super) struct MacAudioPtsMapper {
     anchor: Option<NativePtsAnchor>,
@@ -65,9 +71,13 @@ impl MacAudioPtsMapper {
         pts_timescale: i32,
         session_now_ns: u64,
         frame_count: u32,
-    ) -> Result<u64, MacAudioContractError> {
+        sample_rate_hz: u32,
+    ) -> Result<MappedPacketTiming, MacAudioContractError> {
         if frame_count == 0 {
             return Err(MacAudioContractError::EmptyPacket);
+        }
+        if sample_rate_hz == 0 {
+            return Err(MacAudioContractError::InvalidTimestamp);
         }
         let native_ns = timestamp_to_ns(pts_value, pts_timescale)?;
         let anchor = match self.anchor {
@@ -88,6 +98,9 @@ impl MacAudioPtsMapper {
             .session_ns
             .checked_add(native_delta)
             .ok_or(MacAudioContractError::TimestampOutOfRange)?;
+        let starts_new_segment = self
+            .last_end_ns
+            .is_some_and(|last_end| mapped_start > last_end);
         if self
             .last_end_ns
             .is_some_and(|last_end| mapped_start < last_end)
@@ -95,10 +108,13 @@ impl MacAudioPtsMapper {
             return Err(MacAudioContractError::TimestampOverlap);
         }
         let mapped_end = mapped_start
-            .checked_add(frames_to_ns(frame_count)?)
+            .checked_add(frames_to_ns_at_rate(frame_count, sample_rate_hz)?)
             .ok_or(MacAudioContractError::TimestampOutOfRange)?;
         self.last_end_ns = Some(mapped_end);
-        Ok(mapped_start)
+        Ok(MappedPacketTiming {
+            captured_at_ns: mapped_start,
+            starts_new_segment,
+        })
     }
 
     pub fn control_timestamp_ns(self, session_now_ns: u64) -> u64 {
@@ -232,9 +248,19 @@ fn timestamp_to_ns(value: i64, timescale: i32) -> Result<u64, MacAudioContractEr
 }
 
 fn frames_to_ns(frame_count: u32) -> Result<u64, MacAudioContractError> {
+    frames_to_ns_at_rate(frame_count, AUDIO_SAMPLE_RATE_HZ)
+}
+
+fn frames_to_ns_at_rate(
+    frame_count: u32,
+    sample_rate_hz: u32,
+) -> Result<u64, MacAudioContractError> {
+    if sample_rate_hz == 0 {
+        return Err(MacAudioContractError::InvalidTimestamp);
+    }
     u64::from(frame_count)
         .checked_mul(1_000_000_000)
-        .map(|value| value / u64::from(AUDIO_SAMPLE_RATE_HZ))
+        .map(|value| value / u64::from(sample_rate_hz))
         .ok_or(MacAudioContractError::TimestampOutOfRange)
 }
 
@@ -245,10 +271,19 @@ mod tests {
     #[test]
     fn maps_native_pts_from_one_session_anchor_and_preserves_gaps() {
         let mut mapper = MacAudioPtsMapper::default();
-        assert_eq!(mapper.map_packet(48_000, 48_000, 7_000, 960), Ok(7_000));
         assert_eq!(
-            mapper.map_packet(50_400, 48_000, 999_999, 960),
-            Ok(50_007_000)
+            mapper.map_packet(48_000, 48_000, 7_000, 960, 48_000),
+            Ok(MappedPacketTiming {
+                captured_at_ns: 7_000,
+                starts_new_segment: false,
+            })
+        );
+        assert_eq!(
+            mapper.map_packet(50_400, 48_000, 999_999, 882, 44_100),
+            Ok(MappedPacketTiming {
+                captured_at_ns: 50_007_000,
+                starts_new_segment: true,
+            })
         );
         assert_eq!(mapper.control_timestamp_ns(1), 70_007_000);
     }
@@ -257,20 +292,26 @@ mod tests {
     fn rejects_invalid_regressing_and_overlapping_pts() {
         let mut mapper = MacAudioPtsMapper::default();
         assert_eq!(
-            mapper.map_packet(-1, 48_000, 0, 960),
+            mapper.map_packet(-1, 48_000, 0, 960, 48_000),
             Err(MacAudioContractError::InvalidTimestamp)
         );
         assert_eq!(
-            mapper.map_packet(0, 0, 0, 960),
+            mapper.map_packet(0, 0, 0, 960, 48_000),
             Err(MacAudioContractError::InvalidTimestamp)
         );
-        assert_eq!(mapper.map_packet(10_000, 48_000, 20, 960), Ok(20));
         assert_eq!(
-            mapper.map_packet(9_999, 48_000, 30, 960),
+            mapper.map_packet(10_000, 48_000, 20, 960, 48_000),
+            Ok(MappedPacketTiming {
+                captured_at_ns: 20,
+                starts_new_segment: false,
+            })
+        );
+        assert_eq!(
+            mapper.map_packet(9_999, 48_000, 30, 960, 48_000),
             Err(MacAudioContractError::TimestampRegression)
         );
         assert_eq!(
-            mapper.map_packet(10_100, 48_000, 30, 960),
+            mapper.map_packet(10_100, 48_000, 30, 960, 48_000),
             Err(MacAudioContractError::TimestampOverlap)
         );
     }

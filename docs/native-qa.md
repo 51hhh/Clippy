@@ -219,8 +219,10 @@ node scripts/manual-qa.mjs verify \
   增加默认麦克风。伪造不可用模式必须在消费冻结会话前失败。
 - macOS 15+ 分别拒绝与允许麦克风权限；拒绝后两轨共同中止、控制窗关闭、已提交分段保留且下一次
   可以重试，允许后结果库显示 Opus 音轨摘要。静音、暂停/继续与强杀恢复不能混入系统声。
-- 使用内建与外接麦克风核对原生格式。当前 QA 切片只接受 48 kHz、mono/stereo packed Float32；
-  其它格式必须明确中止，不能误标为 48 kHz。记录设备消失/切换与至少 30 分钟 A/V 漂移。
+- 使用内建与外接麦克风分别核对 44.1、48、88.2、96 kHz 原生格式。mono/stereo packed Float32
+  必须统一生成 48 kHz stereo Opus 音轨；短录音和正常 Stop 保留首尾声音，暂停恢复不能泄漏暂停前
+  的滤波尾部。整数 PCM、其它布局或超出 8–192 kHz 必须明确中止。记录设备消失/切换与至少
+  30 分钟 A/V 漂移。
 
 ## 9. 受门控录屏原型
 
@@ -248,13 +250,15 @@ SHA-256、`QA-BUILD.txt` 和完整 commit，再执行对应模板中的录屏场
 7. Linux X11/Wayland 与 Windows 分别录制系统声和默认麦克风；Linux 额外记录 PipeWire 与 session
    manager 版本，并确认系统声来自默认 sink monitor、麦克风来自默认 capture source，二者不会
    静默互换。macOS 13+ 录制系统声；macOS 15+ 另录制默认麦克风并分别验证权限拒绝/允许，确认
-   麦克风回调不会接收系统声。macOS 12.x 工具条只显示无音频，13/14 不得显示麦克风。
+   麦克风回调不会接收系统声；分别用 44.1/48/88.2/96 kHz 设备验证输出固定为 48 kHz，短录音与
+   正常 Stop 没有首尾截断。macOS 12.x 工具条只显示无音频，13/14 不得显示麦克风。
 8. 对有声模式核对静音片段、暂停/继续、设备消失或默认设备切换后的完整回收，以及至少 30 分钟的
    音视频漂移；记录输出 Opus 参数、首尾可听内容、schema v2 统计、CPU 和峰值内存。Linux 还要在
    PipeWire 服务重启后确认两轨共同中止、已提交恢复分段仍可见，下一次录制可以重新建立 stream。
 
 Linux X11/Wayland、Windows 与 macOS 的录屏记录全部完成前，对应 `PX-REC-WINDOWS-QA-01`、
-`PX-REC-MACOS-SCK-01`、`PX-REC-MACOS-AUDIO-01`、`PX-REC-MACOS-MIC-01` 与
+`PX-REC-MACOS-SCK-01`、`PX-REC-MACOS-AUDIO-01`、`PX-REC-MACOS-MIC-01`、
+`PX-REC-MACOS-RESAMPLE-01` 与
 `PX-REC-WAYLAND-QA-01` 保持待验收；编译、
 Xvfb、GitHub runner 或合成帧不能替代原生桌面证据。Linux 音频矩阵全部完成前，
 `PX-REC-LINUX-AUDIO-01` 同样保持待验收。

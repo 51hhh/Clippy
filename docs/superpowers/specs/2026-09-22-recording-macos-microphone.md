@@ -60,3 +60,10 @@
 - 非 48 kHz 麦克风的高质量重采样；遇到此格式必须显式失败，不能线性插值或伪造 48 kHz。
 - macOS 14 及更早版本的 AVFoundation 麦克风后备。
 - 默认/release 启用录屏，或改变 macOS 12.3 QA 包的最低系统版本。
+
+## 后续状态
+
+2026-09-23 的 `PX-REC-MACOS-RESAMPLE-01` 已接续本规格：macOS 15+ QA 构建的 packed Float32
+mono/stereo 麦克风不再局限于 48 kHz，8–192 kHz 整数原生率会用固定 Rubato sinc 链转换为
+48 kHz。本文的非 48 kHz Out of Scope 只描述本切片交付时的历史边界；新的实现与未完成真机验收
+以 [`2026-09-23-recording-macos-resampler.md`](2026-09-23-recording-macos-resampler.md) 为准。

@@ -9,8 +9,10 @@ use crate::recording::audio::{AudioFormat, CapturedAudioChunk, AUDIO_SAMPLE_RATE
 use crate::recording::audio_worker::RecordingAudioSource;
 use crate::recording::clock::RecordingSessionClock;
 use crate::recording::platform::macos_audio_contract::{
-    normalize_float_pcm, split_stereo_packet, MacAudioContractError, MacAudioPtsMapper,
-    MappedPcmChunk, NativeFloatPcm,
+    normalize_float_pcm, MacAudioContractError, MacAudioPtsMapper, MappedPcmChunk, NativeFloatPcm,
+};
+use crate::recording::platform::macos_audio_resampler::{
+    validate_native_frame_count, validate_native_sample_rate, MacAudioStreamResampler,
 };
 use block2::RcBlock;
 use dispatch2::{DispatchQueue, DispatchQueueAttr, DispatchRetained};
@@ -30,6 +32,7 @@ use objc2_screen_capture_kit::{
     SCContentFilter, SCStream, SCStreamConfiguration, SCStreamDelegate, SCStreamOutput,
     SCStreamOutputType, SCWindow,
 };
+use std::collections::VecDeque;
 use std::mem::{align_of, size_of};
 use std::ptr::{self, NonNull};
 use std::slice;
@@ -126,24 +129,19 @@ impl MacScreenCaptureKitAudioSourcePlan {
     }
 }
 
-struct NativeAudioChunk {
-    captured_at_ns: u64,
-    frame_count: u32,
-    samples: Box<[f32]>,
-}
-
 struct NativeAudioPacket {
     pts_value: i64,
     pts_timescale: i32,
+    callback_session_ns: u64,
+    sample_rate_hz: u32,
     frame_count: u32,
     samples: Box<[f32]>,
 }
 
 #[derive(Debug, Clone)]
 struct AudioOutputVars {
-    chunks: SyncSender<NativeAudioChunk>,
+    packets: SyncSender<NativeAudioPacket>,
     failure: Arc<Mutex<Option<String>>>,
-    timeline: Arc<Mutex<MacAudioPtsMapper>>,
     running: Arc<AtomicBool>,
     clock: RecordingSessionClock,
     expected_output_type: SCStreamOutputType,
@@ -164,63 +162,27 @@ impl AudioOutputVars {
         if output_type != self.expected_output_type || !self.running.load(Ordering::Acquire) {
             return;
         }
-        let native = unsafe { copy_audio_packet(sample_buffer) };
-        let NativeAudioPacket {
-            pts_value,
-            pts_timescale,
-            frame_count,
-            samples,
-        } = match native {
+        let mut native = match unsafe { copy_audio_packet(sample_buffer) } {
             Ok(native) => native,
             Err(error) => {
                 self.fail(error);
                 return;
             }
         };
-        let captured_at_ns = {
-            let Ok(mut timeline) = self.timeline.lock() else {
-                self.fail("ScreenCaptureKit 音频时间线锁已损坏");
-                return;
-            };
-            match timeline.map_packet(pts_value, pts_timescale, self.clock.now_ns(), frame_count) {
-                Ok(timestamp) => timestamp,
-                Err(error) => {
-                    drop(timeline);
-                    self.fail(error.to_string());
-                    return;
-                }
-            }
-        };
-        let chunks = match split_stereo_packet(captured_at_ns, frame_count, &samples) {
-            Ok(chunks) => chunks,
-            Err(error) => {
-                self.fail(error.to_string());
-                return;
-            }
-        };
-        for MappedPcmChunk {
-            captured_at_ns,
-            frame_count,
-            samples,
-        } in chunks
+        if self.expected_output_type == SCStreamOutputType::Audio
+            && native.sample_rate_hz != AUDIO_SAMPLE_RATE_HZ
         {
-            if !self.running.load(Ordering::Acquire) {
-                return;
+            self.fail("ScreenCaptureKit 系统音频没有遵守 48 kHz 配置");
+            return;
+        }
+        native.callback_session_ns = self.clock.now_ns();
+        match self.packets.try_send(native) {
+            Ok(()) => {}
+            Err(TrySendError::Full(_)) => {
+                self.fail("ScreenCaptureKit 音频有界队列已满");
             }
-            match self.chunks.try_send(NativeAudioChunk {
-                captured_at_ns,
-                frame_count,
-                samples,
-            }) {
-                Ok(()) => {}
-                Err(TrySendError::Full(_)) => {
-                    self.fail("ScreenCaptureKit 音频有界队列已满");
-                    return;
-                }
-                Err(TrySendError::Disconnected(_)) => {
-                    self.running.store(false, Ordering::Release);
-                    return;
-                }
+            Err(TrySendError::Disconnected(_)) => {
+                self.running.store(false, Ordering::Release);
             }
         }
     }
@@ -271,12 +233,15 @@ pub(in crate::recording) struct MacScreenCaptureKitAudioSource {
     stream: Retained<SCStream>,
     _output: Retained<AudioOutput>,
     _queue: DispatchRetained<DispatchQueue>,
-    chunks: Receiver<NativeAudioChunk>,
+    packets: Receiver<NativeAudioPacket>,
     failure: Arc<Mutex<Option<String>>>,
-    timeline: Arc<Mutex<MacAudioPtsMapper>>,
+    timeline: MacAudioPtsMapper,
+    resampler: MacAudioStreamResampler,
+    ready_chunks: VecDeque<CapturedAudioChunk>,
+    stopped_chunks: Vec<CapturedAudioChunk>,
     running_flag: Arc<AtomicBool>,
     clock: RecordingSessionClock,
-    minimum_timestamp_ns: u64,
+    last_output_end_ns: Option<u64>,
     last_control_timestamp_ns: Option<u64>,
     next_sequence: u64,
     running: bool,
@@ -338,14 +303,12 @@ impl MacScreenCaptureKitAudioSource {
             }
         }
 
-        let (chunk_tx, chunks) = mpsc::sync_channel(NATIVE_AUDIO_QUEUE_CAPACITY);
+        let (packet_tx, packets) = mpsc::sync_channel(NATIVE_AUDIO_QUEUE_CAPACITY);
         let failure = Arc::new(Mutex::new(None));
-        let timeline = Arc::new(Mutex::new(MacAudioPtsMapper::default()));
         let running_flag = Arc::new(AtomicBool::new(true));
         let output = AudioOutput::new(AudioOutputVars {
-            chunks: chunk_tx,
+            packets: packet_tx,
             failure: Arc::clone(&failure),
-            timeline: Arc::clone(&timeline),
             running: Arc::clone(&running_flag),
             clock: clock.clone(),
             expected_output_type: native_configuration.output_type,
@@ -384,12 +347,15 @@ impl MacScreenCaptureKitAudioSource {
             stream,
             _output: output,
             _queue: queue,
-            chunks,
+            packets,
             failure,
-            timeline,
+            timeline: MacAudioPtsMapper::default(),
+            resampler: MacAudioStreamResampler::default(),
+            ready_chunks: VecDeque::new(),
+            stopped_chunks: Vec::new(),
             running_flag,
             clock,
-            minimum_timestamp_ns: 0,
+            last_output_end_ns: None,
             last_control_timestamp_ns: None,
             next_sequence: 0,
             running: true,
@@ -406,9 +372,8 @@ impl MacScreenCaptureKitAudioSource {
     fn next_control_timestamp_ns(&mut self) -> Result<u64, MacScreenCaptureKitAudioSourceError> {
         let sampled = self
             .timeline
-            .lock()
-            .map_err(|_| MacScreenCaptureKitAudioSourceError::BridgePoisoned)?
-            .control_timestamp_ns(self.clock.now_ns());
+            .control_timestamp_ns(self.clock.now_ns())
+            .max(self.last_output_end_ns.unwrap_or(0));
         let timestamp = match self.last_control_timestamp_ns {
             Some(last) => sampled.max(
                 last.checked_add(1)
@@ -420,14 +385,84 @@ impl MacScreenCaptureKitAudioSource {
         Ok(timestamp)
     }
 
-    fn discard_chunks(&self) {
-        while self.chunks.try_recv().is_ok() {}
+    fn queue_mapped_chunks(
+        &mut self,
+        chunks: Vec<MappedPcmChunk>,
+    ) -> Result<(), MacScreenCaptureKitAudioSourceError> {
+        for chunk in chunks {
+            let sequence = self.next_sequence;
+            self.next_sequence = self
+                .next_sequence
+                .checked_add(1)
+                .ok_or(MacScreenCaptureKitAudioSourceError::SequenceExhausted)?;
+            let duration_ns = u64::from(chunk.frame_count)
+                .checked_mul(1_000_000_000)
+                .map(|value| value / u64::from(AUDIO_SAMPLE_RATE_HZ))
+                .ok_or(MacScreenCaptureKitAudioSourceError::TimestampExhausted)?;
+            self.last_output_end_ns = Some(
+                chunk
+                    .captured_at_ns
+                    .checked_add(duration_ns)
+                    .ok_or(MacScreenCaptureKitAudioSourceError::TimestampExhausted)?,
+            );
+            self.ready_chunks.push_back(CapturedAudioChunk {
+                sequence,
+                captured_at_ns: chunk.captured_at_ns,
+                format: AudioFormat::normalized(OUTPUT_CHANNELS),
+                frame_count: chunk.frame_count,
+                samples: chunk.samples,
+            });
+        }
+        Ok(())
+    }
+
+    fn process_native_packet(
+        &mut self,
+        native: NativeAudioPacket,
+    ) -> Result<(), MacScreenCaptureKitAudioSourceError> {
+        let timing = self
+            .timeline
+            .map_packet(
+                native.pts_value,
+                native.pts_timescale,
+                native.callback_session_ns,
+                native.frame_count,
+                native.sample_rate_hz,
+            )
+            .map_err(|error| MacScreenCaptureKitAudioSourceError::Control(error.to_string()))?;
+        // ceil 重采样可能把旧段末端向上取整到一个 48 kHz sample；极短原生 PTS 空洞不能因此
+        // 生成重叠块。新段最多向后对齐到已经提交的输出末端。
+        let segment_start_ns = if timing.starts_new_segment {
+            timing
+                .captured_at_ns
+                .max(self.last_output_end_ns.unwrap_or(0))
+        } else {
+            timing.captured_at_ns
+        };
+        let chunks = self
+            .resampler
+            .push_packet(
+                segment_start_ns,
+                native.sample_rate_hz,
+                native.frame_count,
+                &native.samples,
+                timing.starts_new_segment,
+            )
+            .map_err(|error| MacScreenCaptureKitAudioSourceError::Control(error.to_string()))?;
+        self.queue_mapped_chunks(chunks)
+    }
+
+    fn discard_pending(&mut self) {
+        while self.packets.try_recv().is_ok() {}
+        self.ready_chunks.clear();
+        self.stopped_chunks.clear();
+        self.resampler.discard();
     }
 
     fn set_running(&mut self, running: bool) -> Result<u64, MacScreenCaptureKitAudioSourceError> {
         if self.running != running {
             if running {
-                self.discard_chunks();
+                self.discard_pending();
                 self.running_flag.store(true, Ordering::Release);
                 if let Err(error) = set_stream_running(&self.stream, true) {
                     self.running_flag.store(false, Ordering::Release);
@@ -440,9 +475,29 @@ impl MacScreenCaptureKitAudioSource {
             self.running = running;
         }
         let timestamp = self.next_control_timestamp_ns()?;
-        self.minimum_timestamp_ns = timestamp;
-        self.discard_chunks();
+        self.discard_pending();
         Ok(timestamp)
+    }
+
+    fn stop_and_flush(&mut self) -> Result<u64, MacScreenCaptureKitAudioSourceError> {
+        if self.running {
+            self.running_flag.store(false, Ordering::Release);
+            set_stream_running(&self.stream, false)?;
+            self.running = false;
+        }
+        if let Some(message) = self.take_failure()? {
+            return Err(MacScreenCaptureKitAudioSourceError::Control(message));
+        }
+        while let Ok(packet) = self.packets.try_recv() {
+            self.process_native_packet(packet)?;
+        }
+        let tail = self
+            .resampler
+            .finish()
+            .map_err(|error| MacScreenCaptureKitAudioSourceError::Control(error.to_string()))?;
+        self.queue_mapped_chunks(tail)?;
+        self.stopped_chunks.extend(self.ready_chunks.drain(..));
+        self.next_control_timestamp_ns()
     }
 }
 
@@ -457,8 +512,11 @@ impl RecordingAudioSource for MacScreenCaptureKitAudioSource {
             return Err(MacScreenCaptureKitAudioSourceError::Control(message));
         }
         loop {
-            let native = match self.chunks.recv_timeout(timeout) {
-                Ok(chunk) => chunk,
+            if let Some(chunk) = self.ready_chunks.pop_front() {
+                return Ok(Some(chunk));
+            }
+            let native = match self.packets.recv_timeout(timeout) {
+                Ok(packet) => packet,
                 Err(RecvTimeoutError::Timeout) => {
                     if let Some(message) = self.take_failure()? {
                         return Err(MacScreenCaptureKitAudioSourceError::Control(message));
@@ -472,21 +530,7 @@ impl RecordingAudioSource for MacScreenCaptureKitAudioSource {
                     return Err(MacScreenCaptureKitAudioSourceError::StreamClosed);
                 }
             };
-            if native.captured_at_ns < self.minimum_timestamp_ns {
-                continue;
-            }
-            let sequence = self.next_sequence;
-            self.next_sequence = self
-                .next_sequence
-                .checked_add(1)
-                .ok_or(MacScreenCaptureKitAudioSourceError::SequenceExhausted)?;
-            return Ok(Some(CapturedAudioChunk {
-                sequence,
-                captured_at_ns: native.captured_at_ns,
-                format: AudioFormat::normalized(OUTPUT_CHANNELS),
-                frame_count: native.frame_count,
-                samples: native.samples,
-            }));
+            self.process_native_packet(native)?;
         }
     }
 
@@ -503,13 +547,18 @@ impl RecordingAudioSource for MacScreenCaptureKitAudioSource {
     }
 
     fn stop_capture(&mut self) -> Result<u64, Self::Error> {
-        self.set_running(false)
+        self.stop_and_flush()
+    }
+
+    fn take_stopped_chunks(&mut self) -> Result<Vec<CapturedAudioChunk>, Self::Error> {
+        Ok(std::mem::take(&mut self.stopped_chunks))
     }
 }
 
 impl Drop for MacScreenCaptureKitAudioSource {
     fn drop(&mut self) {
         self.running_flag.store(false, Ordering::Release);
+        self.discard_pending();
         if self.running {
             let _ = set_stream_running(&self.stream, false);
             self.running = false;
@@ -569,7 +618,8 @@ unsafe fn copy_audio_packet(sample_buffer: &CMSampleBuffer) -> Result<NativeAudi
     let asbd = unsafe { CMAudioFormatDescriptionGetStreamBasicDescription(&format) };
     let asbd =
         unsafe { asbd.as_ref() }.ok_or_else(|| "ScreenCaptureKit 音频缺少 ASBD".to_string())?;
-    validate_audio_format(asbd)?;
+    let sample_rate_hz = validate_audio_format(asbd)?;
+    validate_native_frame_count(sample_rate_hz, frame_count).map_err(|error| error.to_string())?;
 
     let mut list = StereoAudioBufferList {
         number_buffers: 0,
@@ -625,13 +675,25 @@ unsafe fn copy_audio_packet(sample_buffer: &CMSampleBuffer) -> Result<NativeAudi
     Ok(NativeAudioPacket {
         pts_value: pts.value,
         pts_timescale: pts.timescale,
+        callback_session_ns: 0,
+        sample_rate_hz,
         frame_count,
         samples,
     })
 }
 
-fn validate_audio_format(asbd: &AudioStreamBasicDescription) -> Result<(), String> {
-    if asbd.mSampleRate != f64::from(AUDIO_SAMPLE_RATE_HZ)
+fn validate_audio_format(asbd: &AudioStreamBasicDescription) -> Result<u32, String> {
+    let rounded_rate = asbd.mSampleRate.round();
+    let sample_rate_hz = if asbd.mSampleRate.is_finite()
+        && rounded_rate == asbd.mSampleRate
+        && rounded_rate >= 0.0
+        && rounded_rate <= f64::from(u32::MAX)
+    {
+        rounded_rate as u32
+    } else {
+        0
+    };
+    if validate_native_sample_rate(sample_rate_hz).is_err()
         || asbd.mFormatID != kAudioFormatLinearPCM
         || !(1..=2).contains(&asbd.mChannelsPerFrame)
         || asbd.mBitsPerChannel != 32
@@ -663,7 +725,7 @@ fn validate_audio_format(asbd: &AudioStreamBasicDescription) -> Result<(), Strin
     {
         return Err("ScreenCaptureKit 返回不支持的 PCM frame/packet 布局".to_string());
     }
-    Ok(())
+    Ok(sample_rate_hz)
 }
 
 fn copy_and_normalize_buffers(

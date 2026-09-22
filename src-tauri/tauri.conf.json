@@ -60,7 +60,13 @@
       "third-party-licenses/recording-vp9-prototype-NOTICE.md": "licenses/recording-vp9-prototype-NOTICE.md",
       "third-party-licenses/opusic-c-1.6.1-BSD-3-Clause.txt": "licenses/opusic-c-1.6.1-BSD-3-Clause.txt",
       "third-party-licenses/opusic-sys-0.7.5-libopus-1.6.1-BSD-3-Clause.txt": "licenses/opusic-sys-0.7.5-libopus-1.6.1-BSD-3-Clause.txt",
-      "third-party-licenses/recording-opus-webm-NOTICE.md": "licenses/recording-opus-webm-NOTICE.md"
+      "third-party-licenses/recording-opus-webm-NOTICE.md": "licenses/recording-opus-webm-NOTICE.md",
+      "third-party-licenses/rubato-5.0.0-LICENSE-MIT.txt": "licenses/rubato-5.0.0-LICENSE-MIT.txt",
+      "third-party-licenses/rubato-5.0.0-LICENSE-APACHE.txt": "licenses/rubato-5.0.0-LICENSE-APACHE.txt",
+      "third-party-licenses/audioadapter-family-5.0.0-5.2.0-LICENSE-MIT.txt": "licenses/audioadapter-family-5.0.0-5.2.0-LICENSE-MIT.txt",
+      "third-party-licenses/audio-codec-algorithms-0.8.1-LICENSE-0BSD.txt": "licenses/audio-codec-algorithms-0.8.1-LICENSE-0BSD.txt",
+      "third-party-licenses/visibility-0.1.1-LICENSE-MIT.txt": "licenses/visibility-0.1.1-LICENSE-MIT.txt",
+      "third-party-licenses/windowfunctions-0.1.1-LICENSE-MIT.txt": "licenses/windowfunctions-0.1.1-LICENSE-MIT.txt"
     },
     "icon": [
       "icons/32x32.png",

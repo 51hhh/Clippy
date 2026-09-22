@@ -46,6 +46,11 @@ pub(super) trait RecordingAudioSource: 'static {
     fn stop_capture(&mut self) -> Result<u64, Self::Error> {
         self.control_timestamp_ns()
     }
+
+    /// 平台流停止并确认不再产生回调后，返回必须在 `pipeline.finish` 前提交的有限尾部 PCM。
+    fn take_stopped_chunks(&mut self) -> Result<Vec<CapturedAudioChunk>, Self::Error> {
+        Ok(Vec::new())
+    }
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -254,7 +259,7 @@ where
             match commands.recv_timeout(PAUSED_STOP_POLL) {
                 Ok(command) => {
                     if let Some(duration_ns) =
-                        handle_command(command, source, pipeline, &mut paused)?
+                        handle_command(command, source, pipeline, &mut paused, &mut report)?
                     {
                         report.duration_ns = Some(duration_ns);
                         return Ok(report);
@@ -268,7 +273,9 @@ where
             continue;
         }
 
-        if let Some(duration_ns) = try_handle_command(&commands, source, pipeline, &mut paused)? {
+        if let Some(duration_ns) =
+            try_handle_command(&commands, source, pipeline, &mut paused, &mut report)?
+        {
             report.duration_ns = Some(duration_ns);
             return Ok(report);
         }
@@ -280,23 +287,12 @@ where
             .capture_next_available(SOURCE_POLL_TIMEOUT)
             .map_err(|error| AudioCaptureWorkerError::Source(error.to_string()))?;
         if let Some(chunk) = chunk {
-            report.captured_chunks = report.captured_chunks.saturating_add(1);
-            report.captured_frames = report
-                .captured_frames
-                .saturating_add(u64::from(chunk.frame_count));
-            match pipeline.push(chunk)? {
-                AudioPushOutcome::Queued { .. } => {
-                    report.queued_chunks = report.queued_chunks.saturating_add(1);
-                }
-                AudioPushOutcome::IgnoredWhilePaused => {
-                    return Err(AudioCaptureWorkerError::Pipeline(
-                        AudioPipelineError::AlreadyPaused,
-                    ));
-                }
-            }
+            push_captured_chunk(chunk, pipeline, &mut report)?;
         }
 
-        if let Some(duration_ns) = try_handle_command(&commands, source, pipeline, &mut paused)? {
+        if let Some(duration_ns) =
+            try_handle_command(&commands, source, pipeline, &mut paused, &mut report)?
+        {
             report.duration_ns = Some(duration_ns);
             return Ok(report);
         }
@@ -309,12 +305,13 @@ fn try_handle_command<S>(
     source: &mut S,
     pipeline: &AudioPipeline,
     paused: &mut bool,
+    report: &mut AudioCaptureWorkerReport,
 ) -> Result<Option<u64>, AudioCaptureWorkerError>
 where
     S: RecordingAudioSource,
 {
     match commands.try_recv() {
-        Ok(command) => handle_command(command, source, pipeline, paused),
+        Ok(command) => handle_command(command, source, pipeline, paused, report),
         Err(TryRecvError::Empty) => Ok(None),
         Err(TryRecvError::Disconnected) => Err(AudioCaptureWorkerError::ControlDisconnected),
     }
@@ -325,6 +322,7 @@ fn handle_command<S>(
     source: &mut S,
     pipeline: &AudioPipeline,
     paused: &mut bool,
+    report: &mut AudioCaptureWorkerReport,
 ) -> Result<Option<u64>, AudioCaptureWorkerError>
 where
     S: RecordingAudioSource,
@@ -382,8 +380,34 @@ where
             let timestamp = source
                 .stop_capture()
                 .map_err(|error| AudioCaptureWorkerError::Source(error.to_string()))?;
+            for chunk in source
+                .take_stopped_chunks()
+                .map_err(|error| AudioCaptureWorkerError::Source(error.to_string()))?
+            {
+                push_captured_chunk(chunk, pipeline, report)?;
+            }
             Ok(Some(pipeline.finish(timestamp)?))
         }
+    }
+}
+
+fn push_captured_chunk(
+    chunk: CapturedAudioChunk,
+    pipeline: &AudioPipeline,
+    report: &mut AudioCaptureWorkerReport,
+) -> Result<(), AudioCaptureWorkerError> {
+    report.captured_chunks = report.captured_chunks.saturating_add(1);
+    report.captured_frames = report
+        .captured_frames
+        .saturating_add(u64::from(chunk.frame_count));
+    match pipeline.push(chunk)? {
+        AudioPushOutcome::Queued { .. } => {
+            report.queued_chunks = report.queued_chunks.saturating_add(1);
+            Ok(())
+        }
+        AudioPushOutcome::IgnoredWhilePaused => Err(AudioCaptureWorkerError::Pipeline(
+            AudioPipelineError::AlreadyPaused,
+        )),
     }
 }
 
@@ -538,6 +562,57 @@ mod tests {
         assert_eq!(report.duration_ns, Some(1_140_000_000));
         assert_eq!(pipeline.pop().unwrap().unwrap().chunk.sequence, 0);
         assert_eq!(pipeline.pop().unwrap().unwrap().chunk.sequence, 1);
+        assert!(pipeline.pop().unwrap().is_none());
+    }
+
+    #[test]
+    fn submits_source_tail_before_finishing_the_pipeline() {
+        struct TailSource {
+            tail: Vec<CapturedAudioChunk>,
+        }
+
+        impl RecordingAudioSource for TailSource {
+            type Error = FixtureError;
+
+            fn capture_next_available(
+                &mut self,
+                timeout: Duration,
+            ) -> Result<Option<CapturedAudioChunk>, Self::Error> {
+                thread::sleep(timeout);
+                Ok(None)
+            }
+
+            fn control_timestamp_ns(&mut self) -> Result<u64, Self::Error> {
+                Ok(CHUNK_NS)
+            }
+
+            fn stop_capture(&mut self) -> Result<u64, Self::Error> {
+                Ok(CHUNK_NS)
+            }
+
+            fn take_stopped_chunks(&mut self) -> Result<Vec<CapturedAudioChunk>, Self::Error> {
+                Ok(std::mem::take(&mut self.tail))
+            }
+        }
+
+        let pipeline = Arc::new(AudioPipeline::new(0));
+        let worker = AudioCaptureWorker::spawn_with_factory(
+            |_| {
+                Ok(TailSource {
+                    tail: vec![chunk(0, 0, CHUNK_FRAMES)],
+                })
+            },
+            RecordingSessionClock::new(),
+            Arc::clone(&pipeline),
+        )
+        .unwrap();
+
+        let report = worker.stop().unwrap();
+        assert_eq!(report.captured_chunks, 1);
+        assert_eq!(report.captured_frames, u64::from(CHUNK_FRAMES));
+        assert_eq!(report.queued_chunks, 1);
+        assert_eq!(report.duration_ns, Some(CHUNK_NS));
+        assert_eq!(pipeline.pop().unwrap().unwrap().chunk.sequence, 0);
         assert!(pipeline.pop().unwrap().is_none());
     }
 

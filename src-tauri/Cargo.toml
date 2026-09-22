@@ -65,6 +65,7 @@ recording-macos-screencapturekit = [
 recording-macos-av-qa = [
     "recording-macos-screencapturekit",
     "recording-opus-webm",
+    "dep:rubato",
     "dep:objc2-core-audio-types",
     "objc2-core-media/objc2-core-audio-types",
 ]
@@ -134,6 +135,8 @@ yuv = { version = "=0.8.19", default-features = false, features = ["avx", "sse",
 # libopus 源码。opusic-sys 0.7.5 随包携带 libopus 1.6.1 并在本机静态构建。
 opusic-c = { version = "=1.6.1", default-features = false, optional = true }
 opusic-sys = { version = "=0.7.5", default-features = false, features = ["bundled"], optional = true }
+# macOS 麦克风原生采样率到 48 kHz 的流式带限 sinc；关闭 FFT/log，避免把未使用路径带入 QA 包。
+rubato = { version = "=5.0.0", default-features = false, optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # xcap 0.9 在 Linux 强制引入需要新版 PipeWire 头文件的 pipewire-rs，stock Ubuntu 22

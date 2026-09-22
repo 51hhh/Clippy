@@ -105,6 +105,16 @@ const MACOS_AV_RECORDING_CASES = Object.freeze([
     "macos_microphone_requires_15",
   ),
   versionGated(
+    "recording_mic_native_rates",
+    "macOS 15+ 内建/外接麦克风 44.1/48/88.2/96 kHz 原生格式均输出 48 kHz 音轨",
+    "macos_microphone_requires_15",
+  ),
+  versionGated(
+    "recording_mic_stop_tail",
+    "macOS 15+ 短录音与正常停止保留首尾声音且暂停前滤波尾部不泄漏",
+    "macos_microphone_requires_15",
+  ),
+  versionGated(
     "recording_audio_device_failure",
     "音频设备消失时两轨中止、资源回收与已提交分段保留",
     "macos_system_audio_requires_13",

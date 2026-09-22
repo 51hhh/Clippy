@@ -37,7 +37,7 @@
 | 标注与图像效果 | 23 | 🟡 | 🟡 | 16 种工具及模糊、马赛克、聚光灯、放大镜、调色和圆角已接入；无语义智能擦除 |
 | 贴图 / 历史 / 分组 | 29 | ✅ | ✅ | 临时 Pin 与用户保存的工作区已分离，支持布局恢复、分组、窄窗管理和独立全局历史浏览 |
 | 本地导出与交换 | 12 | ✅ | ✅ | 单图扁平输出、旧 iTXt 兼容及带完整性校验的 `.clippy.zip` 历史/工作区批量交换已接入设置页 |
-| 录屏 / 音频 / 编码 | 20 | 🟡 | ❌ | 可恢复 VP9/Opus 双轨 session 与异常恢复已完成；Windows QA 已接 WGC + WASAPI，Linux QA 已接 X11/Wayland + PipeWire 系统声/麦克风，macOS QA 已接 13+ ScreenCaptureKit 系统声与 15+ 默认麦克风；非 48 kHz 麦克风重采样和四平台真机验收仍待闭环 |
+| 录屏 / 音频 / 编码 | 20 | 🟡 | ❌ | 可恢复 VP9/Opus 双轨 session 与异常恢复已完成；Windows QA 已接 WGC + WASAPI，Linux QA 已接 X11/Wayland + PipeWire 系统声/麦克风，macOS QA 已接 13+ ScreenCaptureKit 系统声、15+ 默认麦克风及 8–192 kHz→48 kHz sinc 重采样；四平台真机验收仍待闭环 |
 | 动作 / 脚本 / 启动器 | 12 | 🟡 | 🟡 | 七个类型化动作、权限模型、键盘启动器与安全组合已交付；任意脚本运行时明确不在首阶段范围 |
 
 原表的整体方向成立。当前校正重点包括：增强 OCR 是“实现完成、交付未完成”；扫码已完成四种
@@ -143,8 +143,8 @@ schema v2 已能原子记录 Opus 格式与每个产物的 packet/真实 PCM fra
 构建也已接入 13+ ScreenCaptureKit 系统声与 15+ 系统默认麦克风；选区工具条默认无音频并只展示
 后端允许的模式。双轨首帧
 缩略图会严格校验 schema v2 与 Opus 轨参数后只解码 VP9 关键帧。异常双轨分段恢复会无损复用
-VP9 packet，并按每段 Opus pre-skip/尾 padding 还原真实 PCM 后连续重编码音轨。macOS 非 48 kHz
-麦克风重采样、设备选择/混音和各平台真机矩阵尚未完成。
+VP9 packet，并按每段 Opus pre-skip/尾 padding 还原真实 PCM 后连续重编码音轨。macOS QA 的
+非 48 kHz 麦克风已由固定 sinc 链归一化为 48 kHz；设备选择/混音和各平台真机矩阵尚未完成。
 
 类型化动作目录、权限声明、一次性句柄、键盘启动器和安全组合已经交付；任意脚本宿主与插件市场仍不在
 首阶段范围。
@@ -397,7 +397,7 @@ delta；父链与项目历史留给 `PX-PIN-01`。显式 resize/crop 之外不�
 | P2（四平台已实现，待原生 QA） | `PX-LS-AUTO-01` / `PX-LS-NATIVE-AUTO-01` / `PX-LS-WAYLAND-AUTO-01` | X11/Windows/macOS 原生受控输入与 Wayland Portal 授权自动滚动 | `PX-LS-2D-01` + 平台输入能力 |
 | P2（已完成） | `PX-CODE-01` | 四种产品格式与扫码场景矩阵 | 可重复 fixture |
 | P2（X11/Windows/macOS/Wayland QA 入口、结果库、播放与恢复 remux 已完成，待真机/默认发布） | `PX-REC-01` / `PX-REC-PLAYBACK-01` / `PX-REC-MERGE-01` / `PX-REC-WINDOWS-QA-01` / `PX-REC-MACOS-SCK-01` / `PX-REC-WAYLAND-QA-01` | 可恢复录屏最小闭环 | 平台采集/编码实测 |
-| P2（Windows/Linux/macOS QA 接线、双轨缩略图与异常恢复已完成，待原生真机） | `PX-REC-CLOCK-01` / `PX-REC-AUDIO-01` / `PX-REC-AUDIO-WORKER-01` / `PX-REC-WINDOWS-AUDIO-01` / `PX-REC-AV-EPOCH-01` / `PX-REC-OPUS-WEBM-01` / `PX-REC-AV-MANIFEST-01` / `PX-REC-AV-SESSION-01` / `PX-REC-WINDOWS-AV-QA-01` / `PX-REC-MACOS-AUDIO-01` / `PX-REC-MACOS-MIC-01` / `PX-REC-LINUX-AUDIO-01` / `PX-REC-AV-THUMBNAIL-01` / `PX-REC-AV-MERGE-01` | 单一会话时钟、48 kHz PCM、显式 A/V 起点、有界双轨排序、参考 Opus、周期可恢复双轨容器、严格双轨首帧缩略图、异常双轨恢复，以及 Windows WGC + WASAPI、Linux X11/Wayland + PipeWire 与 macOS ScreenCaptureKit 系统声/默认麦克风的受门控产品接线 | `PX-REC-01` 视频时间线 |
+| P2（Windows/Linux/macOS QA 接线、双轨缩略图与异常恢复已完成，待原生真机） | `PX-REC-CLOCK-01` / `PX-REC-AUDIO-01` / `PX-REC-AUDIO-WORKER-01` / `PX-REC-WINDOWS-AUDIO-01` / `PX-REC-AV-EPOCH-01` / `PX-REC-OPUS-WEBM-01` / `PX-REC-AV-MANIFEST-01` / `PX-REC-AV-SESSION-01` / `PX-REC-WINDOWS-AV-QA-01` / `PX-REC-MACOS-AUDIO-01` / `PX-REC-MACOS-MIC-01` / `PX-REC-MACOS-RESAMPLE-01` / `PX-REC-LINUX-AUDIO-01` / `PX-REC-AV-THUMBNAIL-01` / `PX-REC-AV-MERGE-01` | 单一会话时钟、48 kHz PCM、显式 A/V 起点、有界双轨排序、参考 Opus、周期可恢复双轨容器、严格双轨首帧缩略图、异常双轨恢复，以及 Windows WGC + WASAPI、Linux X11/Wayland + PipeWire 与 macOS ScreenCaptureKit 系统声/默认麦克风及高质量固定重采样的受门控产品接线 | `PX-REC-01` 视频时间线 |
 | P3（已完成） | `PX-ACT-01` | 类型化动作注册表与启动器 | 稳定业务命令合同 |
 | P3（已完成门控，当前 no-go） | `PX-SMART-01` | 智能擦除可行性与质量基线 | 模型许可、包体和性能预算 |
 
@@ -890,6 +890,14 @@ macOS 15 Intel/Apple Silicon 的权限拒绝/允许、外接设备、设备消�
 真机记录；非 48 kHz 高质量重采样、设备选择和系统声/麦克风混音不在本阶段。完整合同见
 [`2026-09-22-recording-macos-microphone.md`](../superpowers/specs/2026-09-22-recording-macos-microphone.md)。
 
+**2026-09-23 macOS 麦克风重采样进度**：`PX-REC-MACOS-RESAMPLE-01` 让 ScreenCaptureKit 回调
+保留设备 8–192 kHz 整数原生率，只在音频 worker 内用固定 Rubato asynchronous sinc 转成 48 kHz
+stereo；48 kHz 输入逐 sample 直通。原生 PTS 按输入速率计算，连续 packet 共用滤波状态，空洞切段，
+正常 Stop 提交精确尾帧，Pause/Drop 丢弃旧状态。依赖版本、Cargo checksum 与 MIT/Apache-2.0
+许可证资源已进入供应链门禁；44.1/48/88.2/96 kHz 内建/外接设备、短录音首尾和 30 分钟漂移仍须
+macOS Intel/Apple Silicon 同一 SHA 真机记录。完整合同见
+[`2026-09-23-recording-macos-resampler.md`](../superpowers/specs/2026-09-23-recording-macos-resampler.md)。
+
 **2026-09-22 Linux PipeWire 音频 QA 进度**：`PX-REC-LINUX-AUDIO-01` 新增非默认
 `recording-linux-av-qa` 组合 feature，让 X11 与 Wayland 的冻结选区视频源共用同一 PipeWire
 系统声/默认麦克风适配器。stream 只协商 48 kHz stereo F32LE FL/FR，并在格式确认后请求
@@ -914,8 +922,8 @@ X11、Windows 10/11 执行录制、排除、恢复场景，Wayland/macOS 继续�
 满足内存与时间线合同。实施顺序确定为 manifest/journal、单调时间线与有界队列 → 编码/容器 A/B →
 平台长寿命帧源 → 区域选择和控制窗 → 单一音轨。该技术审查时尚无产品入口；随后已完成显式 VP9
 feature + 原生 X11 的受门控区域选择入口与结果/恢复库，Windows/Linux QA 音源和 macOS 系统声/
-15+ 默认麦克风也已接通。默认构建、设备选择/混音、非 48 kHz macOS 麦克风重采样与真机验收仍
-未完成。
+15+ 默认麦克风也已接通；macOS 麦克风固定 sinc 重采样已完成代码与合同测试。默认构建、设备
+选择/混音与真机验收仍未完成。
 
 **2026-09-18 实施进度**：启动恢复已接入后台阻塞任务；schema、清单/会话预算、私有权限、连续分段、
 大小与 SHA-256 校验、符号链接拒绝、原子状态回写和损坏尾段截断均有单元测试。journal 现可创建
