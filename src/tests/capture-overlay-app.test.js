@@ -255,7 +255,7 @@ describe("capture overlay app", () => {
   it("uses only backend-advertised recording audio modes", async () => {
     mocks.getCurrentWindowLabel.mockReturnValue("recording-overlay-session-1-0");
     mocks.overlayApi.recordingCapabilities.mockResolvedValue({
-      audioModes: ["none", "systemAudio", "microphone"],
+      audioModes: ["none", "systemAudio", "microphone", "systemAndMicrophone"],
     });
     await mount({ intent: "recording" });
     await drag({ x: 10, y: 10 }, { x: 100, y: 80 });
@@ -265,11 +265,13 @@ describe("capture overlay app", () => {
     expect(button("Recording audio: System audio")).not.toBeNull();
     await act(async () => button("Recording audio: System audio").click());
     expect(button("Recording audio: Microphone")).not.toBeNull();
+    await act(async () => button("Recording audio: Microphone").click());
+    expect(button("Recording audio: System audio + microphone")).not.toBeNull();
 
     await act(async () => button("Start recording").click());
     expect(mocks.overlayApi.startRecording).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: "session-1", width: 90, height: 70 }),
-      "microphone",
+      "systemAndMicrophone",
     );
   });
 

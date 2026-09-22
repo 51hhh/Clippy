@@ -139,6 +139,7 @@ pub(super) enum PlatformFrameSourcePlan {
 pub(super) enum PlatformAudioSourceKind {
     SystemAudio,
     Microphone,
+    SystemAndMicrophone,
 }
 
 #[derive(Debug, Clone)]
@@ -151,6 +152,10 @@ pub(super) enum PlatformAudioSourcePlan {
     Macos(macos::MacScreenCaptureKitAudioSourcePlan),
     #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
     Linux(linux_audio::LinuxPipeWireAudioSourcePlan),
+    Mixed {
+        system: Box<PlatformAudioSourcePlan>,
+        microphone: Box<PlatformAudioSourcePlan>,
+    },
 }
 
 impl PlatformAudioSourcePlan {
@@ -163,6 +168,7 @@ impl PlatformAudioSourcePlan {
             Self::Macos(plan) => plan.channels(),
             #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
             Self::Linux(plan) => plan.channels(),
+            Self::Mixed { .. } => 2,
         }
     }
 
@@ -180,6 +186,13 @@ impl PlatformAudioSourcePlan {
             Self::Macos(plan) => Ok(PlatformAudioSource::Macos(Box::new(plan.connect(_clock)?))),
             #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
             Self::Linux(plan) => Ok(PlatformAudioSource::Linux(Box::new(plan.connect(_clock)?))),
+            Self::Mixed { system, microphone } => {
+                let system = system.connect(_clock.clone())?;
+                let microphone = microphone.connect(_clock)?;
+                Ok(PlatformAudioSource::Mixed(Box::new(
+                    super::audio_mixer::MixedAudioSource::new(system, microphone),
+                )))
+            }
         }
     }
 }
@@ -232,6 +245,17 @@ impl PlatformFrameSourcePlan {
         &self,
         _kind: PlatformAudioSourceKind,
     ) -> Result<PlatformAudioSourcePlan, PlatformAudioSourceError> {
+        if _kind == PlatformAudioSourceKind::SystemAndMicrophone {
+            let system = self.audio_plan(PlatformAudioSourceKind::SystemAudio)?;
+            let microphone = self.audio_plan(PlatformAudioSourceKind::Microphone)?;
+            if system.channels() != 2 || microphone.channels() != 2 {
+                return Err(PlatformAudioSourceError::Unsupported);
+            }
+            return Ok(PlatformAudioSourcePlan::Mixed {
+                system: Box::new(system),
+                microphone: Box::new(microphone),
+            });
+        }
         match self {
             #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
             Self::X11(_) | Self::Wayland(_) => Ok(PlatformAudioSourcePlan::Linux(match _kind {
@@ -241,6 +265,7 @@ impl PlatformFrameSourcePlan {
                 PlatformAudioSourceKind::Microphone => {
                     linux_audio::LinuxPipeWireAudioSourcePlan::default_microphone()
                 }
+                PlatformAudioSourceKind::SystemAndMicrophone => unreachable!("已在上方处理"),
             })),
             #[cfg(all(target_os = "windows", feature = "recording-windows-av-qa"))]
             Self::Windows(_) => Ok(PlatformAudioSourcePlan::Windows(match _kind {
@@ -250,6 +275,7 @@ impl PlatformFrameSourcePlan {
                 PlatformAudioSourceKind::Microphone => {
                     windows_audio::WindowsWasapiAudioSourcePlan::default_microphone()
                 }
+                PlatformAudioSourceKind::SystemAndMicrophone => unreachable!("已在上方处理"),
             })),
             #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
             Self::Macos(plan) => match _kind {
@@ -259,6 +285,7 @@ impl PlatformFrameSourcePlan {
                 PlatformAudioSourceKind::Microphone => Ok(PlatformAudioSourcePlan::Macos(
                     macos::MacScreenCaptureKitAudioSourcePlan::default_microphone(plan),
                 )),
+                PlatformAudioSourceKind::SystemAndMicrophone => unreachable!("已在上方处理"),
             },
             #[allow(unreachable_patterns)]
             _ => Err(PlatformAudioSourceError::Unsupported),
@@ -328,6 +355,7 @@ pub(super) enum PlatformAudioSource {
     Macos(Box<macos::MacScreenCaptureKitAudioSource>),
     #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
     Linux(Box<linux_audio::LinuxPipeWireAudioSource>),
+    Mixed(Box<super::audio_mixer::MixedAudioSource<PlatformAudioSource, PlatformAudioSource>>),
 }
 
 #[derive(Debug, Error)]
@@ -362,6 +390,8 @@ pub(super) enum PlatformAudioSourceError {
     #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
     #[error(transparent)]
     Linux(#[from] linux_audio::LinuxPipeWireAudioSourceError),
+    #[error(transparent)]
+    Mixed(#[from] super::audio_mixer::MixedAudioSourceError),
 }
 
 impl RecordingFrameSource for PlatformFrameSource {
@@ -461,6 +491,7 @@ impl RecordingAudioSource for PlatformAudioSource {
             Self::Macos(source) => Ok(source.capture_next_available(_timeout)?),
             #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
             Self::Linux(source) => Ok(source.capture_next_available(_timeout)?),
+            Self::Mixed(source) => Ok(source.capture_next_available(_timeout)?),
         }
     }
 
@@ -473,6 +504,7 @@ impl RecordingAudioSource for PlatformAudioSource {
             Self::Macos(source) => Ok(source.control_timestamp_ns()?),
             #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
             Self::Linux(source) => Ok(source.control_timestamp_ns()?),
+            Self::Mixed(source) => Ok(source.control_timestamp_ns()?),
         }
     }
 
@@ -485,6 +517,7 @@ impl RecordingAudioSource for PlatformAudioSource {
             Self::Macos(source) => Ok(source.pause_capture()?),
             #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
             Self::Linux(source) => Ok(source.pause_capture()?),
+            Self::Mixed(source) => Ok(source.pause_capture()?),
         }
     }
 
@@ -497,6 +530,7 @@ impl RecordingAudioSource for PlatformAudioSource {
             Self::Macos(source) => Ok(source.resume_capture()?),
             #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
             Self::Linux(source) => Ok(source.resume_capture()?),
+            Self::Mixed(source) => Ok(source.resume_capture()?),
         }
     }
 
@@ -509,6 +543,20 @@ impl RecordingAudioSource for PlatformAudioSource {
             Self::Macos(source) => Ok(source.stop_capture()?),
             #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
             Self::Linux(source) => Ok(source.stop_capture()?),
+            Self::Mixed(source) => Ok(source.stop_capture()?),
+        }
+    }
+
+    fn take_stopped_chunks(&mut self) -> Result<Vec<CapturedAudioChunk>, Self::Error> {
+        match self {
+            Self::Unsupported => Err(PlatformAudioSourceError::Unsupported),
+            #[cfg(all(target_os = "windows", feature = "recording-windows-av-qa"))]
+            Self::Windows(source) => Ok(source.take_stopped_chunks()?),
+            #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
+            Self::Macos(source) => Ok(source.take_stopped_chunks()?),
+            #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
+            Self::Linux(source) => Ok(source.take_stopped_chunks()?),
+            Self::Mixed(source) => Ok(source.take_stopped_chunks()?),
         }
     }
 }

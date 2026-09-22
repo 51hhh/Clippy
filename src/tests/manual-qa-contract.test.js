@@ -120,6 +120,9 @@ describe("真机 QA 合同", () => {
       const cases = casesForProfile(profileId);
       const systemAudio = cases.find((testCase) => testCase.id === "recording_system_audio");
       const microphone = cases.find((testCase) => testCase.id === "recording_microphone");
+      const mixed = cases.find(
+        (testCase) => testCase.id === "recording_system_and_microphone",
+      );
       const nativeRates = cases.find(
         (testCase) => testCase.id === "recording_mic_native_rates",
       );
@@ -130,6 +133,10 @@ describe("真机 QA 合同", () => {
         acceptedReasonCodes: ["macos_system_audio_requires_13"],
       });
       expect(microphone).toMatchObject({
+        acceptedStatuses: ["pass", "expected_degraded"],
+        acceptedReasonCodes: ["macos_microphone_requires_15"],
+      });
+      expect(mixed).toMatchObject({
         acceptedStatuses: ["pass", "expected_degraded"],
         acceptedReasonCodes: ["macos_microphone_requires_15"],
       });
@@ -161,6 +168,7 @@ describe("真机 QA 合同", () => {
         expect.arrayContaining([
           "recording_system_audio",
           "recording_microphone",
+          "recording_system_and_microphone",
           "recording_audio_device_failure",
           "recording_av_long_drift",
         ]),

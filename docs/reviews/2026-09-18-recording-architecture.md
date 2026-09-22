@@ -65,26 +65,28 @@ QA 阶段，默认发布能力仍保持关闭：
 发布默认值。完整合同见
 [`2026-09-21-recording-windows-qa-entry.md`](../superpowers/specs/2026-09-21-recording-windows-qa-entry.md)。
 
-音频第二阶段已完成 48 kHz mono/stereo PCM 时间线、一秒有界队列和线程内采集 worker；Windows
-另有显式 QA feature 下的默认扬声器 WASAPI loopback 与默认麦克风 source。双轨协调以首个有效
+音频第二阶段已完成 48 kHz mono/stereo PCM 时间线、一秒有界队列和线程内采集 worker；Windows、
+Linux 与 macOS 显式 QA feature 均已接系统声与默认麦克风 source。双轨协调以首个有效
 视频帧为容器零点，在 sample 边界裁切更早的 PCM，并在共同暂停区间后保持固定平移；feature 门控
 的 session 已把共享时钟、双采集 worker、VP9、Opus、有界 packet 重排、周期双轨恢复分段与 schema
-v2 清单闭合。`PX-REC-WINDOWS-AV-QA-01` 已把 Windows source 通过后端能力列表接到同一产品
-session，并让选区工具条选择无音频、系统声或麦克风。ScreenCaptureKit audio、Linux PipeWire
-音频节点、混音/设备选择和真机 A/V 验收尚未完成；正式 release 仍未启用录屏。详细合同见
+v2 清单闭合。各平台 source 已通过后端能力列表接到同一产品 session，并让选区工具条选择无音频、
+系统声、麦克风或固定增益双源混音；混音使用同一时钟、100 ms 有界迟到窗口、−6 dB/路和 20 ms
+输出块，仍复用现有单一 Opus 音轨。非默认设备选择、热切换和真机 A/V 验收尚未完成；正式 release
+仍未启用录屏。详细合同见
 [`2026-09-21-recording-audio-contract.md`](../superpowers/specs/2026-09-21-recording-audio-contract.md)、
 [`2026-09-22-recording-audio-worker.md`](../superpowers/specs/2026-09-22-recording-audio-worker.md)、
 [`2026-09-22-recording-windows-audio.md`](../superpowers/specs/2026-09-22-recording-windows-audio.md) 与
 [`2026-09-22-recording-av-epoch.md`](../superpowers/specs/2026-09-22-recording-av-epoch.md)、
 [`2026-09-22-recording-av-session.md`](../superpowers/specs/2026-09-22-recording-av-session.md)、
-[`2026-09-22-recording-windows-av-qa.md`](../superpowers/specs/2026-09-22-recording-windows-av-qa.md)。
+[`2026-09-22-recording-windows-av-qa.md`](../superpowers/specs/2026-09-22-recording-windows-av-qa.md) 与
+[`2026-09-23-recording-audio-mix.md`](../superpowers/specs/2026-09-23-recording-audio-mix.md)。
 
 `PX-REC-CLOCK-01` 进一步把 X11、Wayland/PipeWire、Windows WGC、macOS AVFoundation 与
 ScreenCaptureKit 各自创建的时间原点收回 `DiagnosticRecordingSession`。平台 factory 现在必须
 显式接收同一个 `RecordingSessionClock`，帧、暂停、继续和停止都在该会话时间域内加戳；首帧等待
 另用连接后的局部计时。现有视频 presentation timeline 仍以首帧归零，避免破坏 VP9 writer；原生
-Windows QPC 音频 PTS 校准、双轨共同 epoch 与受门控产品接线已补齐；macOS/Linux 原生 PTS 与
-平台音频选择仍待后续完成。共享时钟合同见
+Windows QPC、macOS CMSampleBuffer 与 Linux PipeWire PTS 校准、双轨共同 epoch、受门控产品接线
+及默认系统声/麦克风双源混音已补齐；非默认设备选择仍待后续完成。共享时钟合同见
 [`2026-09-22-recording-shared-clock.md`](../superpowers/specs/2026-09-22-recording-shared-clock.md)。
 
 `PX-REC-OPUS-WEBM-01` 已补齐平台无关的编码与容器边界。参考 libopus 把 48 kHz mono/stereo PCM

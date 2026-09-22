@@ -639,6 +639,7 @@
   "capture.recording.audio.none": "无音频",
   "capture.recording.audio.systemAudio": "系统声音",
   "capture.recording.audio.microphone": "麦克风",
+  "capture.recording.audio.systemAndMicrophone": "系统声音 + 麦克风",
   "capture.windowPickingUnavailable": "当前会话无法获取窗口列表 — 请拖动选择区域",
   "capture.translateSelection": "翻译选区",
   "capture.image": "图像",

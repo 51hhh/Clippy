@@ -124,6 +124,11 @@
   20 ms 块，格式、时间戳、缓冲区或有界队列异常会中止两轨。新的 `recording-linux-av-qa` 只进入
   Ubuntu 原型 CI 与 Native QA 包，默认/release 仍保持无音频；GNOME、KDE、wlroots 的设备消失、
   强杀恢复和 30 分钟漂移仍待同一 SHA 真机验收。（需求：`PX-REC-LINUX-AUDIO-01`）
+- Windows、Linux 与 macOS 15+ 录屏 QA 包新增“系统声音 + 麦克风”模式：两个现有 source 在同一
+  音频 worker 和共享时钟内按 48 kHz sample grid 对齐，以 100 ms 水位吸收 packet 抖动，并按
+  每路固定 −6 dB 混为现有单条 stereo Opus 音轨。暂停会丢弃两路未提交样本；正常停止会混入
+  两路有限尾块，平台包装层也会继续上交重采样尾帧。默认/release、schema v2 与单音源行为不变，
+  三平台权限、设备消失、听感及 30 分钟漂移仍待同一 SHA 真机验收。（需求：`PX-REC-AUDIO-MIX-01`）
 - 录屏结果库现在支持 VP9 + Opus 双轨首帧缩略图：完整会话读取最终 WebM，中断会话读取首个已
   提交分段；后端先核对 schema v2、轨道编号、OpusHead、48 kHz 声道、CodecDelay 与 SeekPreRoll，
   再只解码首个 VP9 关键帧，不解码音频或遍历完整文件。单轨行为、私有 PNG 缓存和前端懒加载保持

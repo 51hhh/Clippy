@@ -22,9 +22,11 @@ describe("recording playback API", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("validates start capabilities and submits only an allowed audio mode", async () => {
-    invoke.mockResolvedValueOnce({ audioModes: ["none", "systemAudio", "microphone"] });
+    invoke.mockResolvedValueOnce({
+      audioModes: ["none", "systemAudio", "microphone", "systemAndMicrophone"],
+    });
     await expect(getRecordingStartCapabilities()).resolves.toEqual({
-      audioModes: ["none", "systemAudio", "microphone"],
+      audioModes: ["none", "systemAudio", "microphone", "systemAndMicrophone"],
     });
     expect(invoke).toHaveBeenCalledWith("get_recording_start_capabilities");
 
@@ -41,6 +43,13 @@ describe("recording playback API", () => {
     expect(invoke).toHaveBeenCalledWith("start_capture_recording", {
       selection,
       audioMode: "systemAudio",
+    });
+
+    invoke.mockResolvedValueOnce(undefined);
+    await startCaptureRecording(selection, "systemAndMicrophone");
+    expect(invoke).toHaveBeenCalledWith("start_capture_recording", {
+      selection,
+      audioMode: "systemAndMicrophone",
     });
   });
 

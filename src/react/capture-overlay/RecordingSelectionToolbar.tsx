@@ -1,4 +1,4 @@
-import { Mic, Video, Volume2, VolumeX, X } from "lucide-react";
+import { AudioLines, Mic, Video, Volume2, VolumeX, X } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { t } from "../shared/i18n";
 import { toolbarPlacement } from "./geometry";
@@ -51,7 +51,9 @@ export function RecordingSelectionToolbar(props: Props) {
     ? Volume2
     : props.audioMode === "microphone"
       ? Mic
-      : VolumeX;
+      : props.audioMode === "systemAndMicrophone"
+        ? AudioLines
+        : VolumeX;
 
   return (
     <div

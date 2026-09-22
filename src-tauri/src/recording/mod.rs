@@ -23,6 +23,9 @@ mod audio;
 // 平台音频对象在线程内创建并以显式背压、暂停和停止合同驱动 PCM pipeline。
 #[allow(dead_code)]
 mod audio_worker;
+// 双源 QA 模式在同一音频 worker 内按共享时钟混合系统声和麦克风，再复用既有单音轨编码链。
+#[allow(dead_code)]
+mod audio_mixer;
 // 双轨 mux 前先以首视频帧固定公共 epoch，并在 PCM sample 边界裁切更早的音频前缀。
 #[allow(dead_code)]
 mod av_timeline;

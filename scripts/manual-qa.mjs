@@ -84,6 +84,10 @@ const LINUX_WINDOWS_AV_RECORDING_CASES = Object.freeze([
     "默认麦克风双轨录制、暂停/继续、结果库播放与音轨摘要",
   ),
   pass(
+    "recording_system_and_microphone",
+    "系统声与默认麦克风同时录制、固定混音增益、单路静音和暂停/继续",
+  ),
+  pass(
     "recording_audio_device_failure",
     "音频设备拔出或禁用时两轨中止、资源回收与已提交分段保留",
   ),
@@ -102,6 +106,11 @@ const MACOS_AV_RECORDING_CASES = Object.freeze([
   versionGated(
     "recording_microphone",
     "macOS 15+ 默认麦克风双轨录制、权限、暂停/继续与音轨摘要",
+    "macos_microphone_requires_15",
+  ),
+  versionGated(
+    "recording_system_and_microphone",
+    "macOS 15+ 系统声与默认麦克风同时录制、固定混音增益、单路静音和暂停/继续",
     "macos_microphone_requires_15",
   ),
   versionGated(

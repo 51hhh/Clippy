@@ -639,6 +639,7 @@
   "capture.recording.audio.none": "None",
   "capture.recording.audio.systemAudio": "System audio",
   "capture.recording.audio.microphone": "Microphone",
+  "capture.recording.audio.systemAndMicrophone": "System audio + microphone",
   "capture.windowPickingUnavailable": "Window picking unavailable in this session — drag to select an area",
   "capture.translateSelection": "Translate selection",
   "capture.image": "Image",

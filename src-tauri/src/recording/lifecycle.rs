@@ -32,6 +32,7 @@ pub(crate) enum RecordingAudioMode {
     None,
     SystemAudio,
     Microphone,
+    SystemAndMicrophone,
 }
 
 pub(super) fn available_recording_audio_modes() -> &'static [RecordingAudioMode] {
@@ -41,6 +42,7 @@ pub(super) fn available_recording_audio_modes() -> &'static [RecordingAudioMode]
             RecordingAudioMode::None,
             RecordingAudioMode::SystemAudio,
             RecordingAudioMode::Microphone,
+            RecordingAudioMode::SystemAndMicrophone,
         ]
     }
     #[cfg(all(target_os = "windows", feature = "recording-windows-av-qa"))]
@@ -49,6 +51,7 @@ pub(super) fn available_recording_audio_modes() -> &'static [RecordingAudioMode]
             RecordingAudioMode::None,
             RecordingAudioMode::SystemAudio,
             RecordingAudioMode::Microphone,
+            RecordingAudioMode::SystemAndMicrophone,
         ]
     }
     #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
@@ -78,6 +81,7 @@ fn macos_recording_audio_modes(
             RecordingAudioMode::None,
             RecordingAudioMode::SystemAudio,
             RecordingAudioMode::Microphone,
+            RecordingAudioMode::SystemAndMicrophone,
         ]
     } else if system_audio_available {
         &[RecordingAudioMode::None, RecordingAudioMode::SystemAudio]
@@ -231,6 +235,10 @@ impl RecordingLifecycle {
                     ),
                     RecordingAudioMode::Microphone => Some(
                         plan.audio_plan(PlatformAudioSourceKind::Microphone)
+                            .map_err(|error| error.to_string())?,
+                    ),
+                    RecordingAudioMode::SystemAndMicrophone => Some(
+                        plan.audio_plan(PlatformAudioSourceKind::SystemAndMicrophone)
                             .map_err(|error| error.to_string())?,
                     ),
                 };
@@ -438,7 +446,9 @@ impl RecordingLifecycle {
                         source_factory(control_target, clock)
                     })
             }
-            RecordingAudioMode::SystemAudio | RecordingAudioMode::Microphone => {
+            RecordingAudioMode::SystemAudio
+            | RecordingAudioMode::Microphone
+            | RecordingAudioMode::SystemAndMicrophone => {
                 let audio_plan = match audio_plan {
                     Some(plan) => plan,
                     None => {
@@ -789,6 +799,7 @@ mod tests {
                     RecordingAudioMode::None,
                     RecordingAudioMode::SystemAudio,
                     RecordingAudioMode::Microphone,
+                    RecordingAudioMode::SystemAndMicrophone,
                 ]
             );
         } else if cfg!(all(target_os = "macos", feature = "recording-macos-av-qa"))
@@ -800,6 +811,7 @@ mod tests {
                         RecordingAudioMode::None,
                         RecordingAudioMode::SystemAudio,
                         RecordingAudioMode::Microphone,
+                        RecordingAudioMode::SystemAndMicrophone,
                     ][..]
                 } else {
                     &[RecordingAudioMode::None, RecordingAudioMode::SystemAudio][..]
@@ -812,6 +824,10 @@ mod tests {
                 recording_audio_mode_available(RecordingAudioMode::Microphone),
                 crate::recording::macos_screencapturekit_microphone_runtime_available()
             );
+            assert_eq!(
+                recording_audio_mode_available(RecordingAudioMode::SystemAndMicrophone),
+                crate::recording::macos_screencapturekit_microphone_runtime_available()
+            );
         } else {
             assert_eq!(modes, &[RecordingAudioMode::None]);
             assert!(!recording_audio_mode_available(
@@ -819,6 +835,9 @@ mod tests {
             ));
             assert!(!recording_audio_mode_available(
                 RecordingAudioMode::Microphone
+            ));
+            assert!(!recording_audio_mode_available(
+                RecordingAudioMode::SystemAndMicrophone
             ));
         }
     }
@@ -832,6 +851,10 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&RecordingAudioMode::Microphone).unwrap(),
             "\"microphone\""
+        );
+        assert_eq!(
+            serde_json::to_string(&RecordingAudioMode::SystemAndMicrophone).unwrap(),
+            "\"systemAndMicrophone\""
         );
         assert!(serde_json::from_str::<RecordingAudioMode>("\"camera\"").is_err());
     }
@@ -852,6 +875,7 @@ mod tests {
                 RecordingAudioMode::None,
                 RecordingAudioMode::SystemAudio,
                 RecordingAudioMode::Microphone,
+                RecordingAudioMode::SystemAndMicrophone,
             ]
         );
         assert_eq!(
@@ -859,6 +883,8 @@ mod tests {
             &[RecordingAudioMode::None]
         );
         assert!(!macos_recording_audio_modes(true, false).contains(&RecordingAudioMode::Microphone));
+        assert!(!macos_recording_audio_modes(true, false)
+            .contains(&RecordingAudioMode::SystemAndMicrophone));
     }
 
     struct FixtureSource {

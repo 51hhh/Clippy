@@ -13,6 +13,7 @@ const RECORDING_AUDIO_MODES = new Set<RecordingAudioMode>([
   "none",
   "systemAudio",
   "microphone",
+  "systemAndMicrophone",
 ]);
 
 export async function getRecordingStartCapabilities(): Promise<RecordingStartCapabilities> {

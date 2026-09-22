@@ -35,8 +35,8 @@ macOS QA 包仅做 Ad-Hoc 签名；updater 安装必须改用同 SHA 的正式 r
 Linux x64 QA 包显式启用 `recording-wayland-qa,recording-linux-av-qa`（同时覆盖 X11 与 Wayland
 视频源、PipeWire 默认系统声和默认麦克风），Windows x64 QA 包显式启用
 `recording-windows-av-qa`；macOS 12.3+ QA 包显式启用 `recording-macos-av-qa`，Intel 另叠加
-`recording-vp9-source-build`。Linux 与 Windows 工具条增加受门控的系统声和麦克风；macOS 13+
-增加系统声，15+ 再增加系统默认麦克风。这些包只用于取得录屏原型证据，不代表正式 release
+`recording-vp9-source-build`。Linux 与 Windows 工具条增加受门控的系统声、麦克风和两者混音；
+macOS 13+ 增加系统声，15+ 再增加系统默认麦克风与两者混音。这些包只用于取得录屏原型证据，不代表正式 release
 已启用录屏。
 安装前必须核对 `QA-BUILD.txt` 的 `recording_feature` 与实际平台一致；macOS 还必须核对
 `minimum_system_version=12.3`，否则不能执行下文录屏场景。
@@ -192,8 +192,10 @@ node scripts/manual-qa.mjs verify \
   Authenticode 状态与 signer thumbprint。
 - 检查应用私有目录 DACL：当前用户可访问，普通其他用户不可访问；旧宽松配置文件启动后被修复，
   连续配置更新可原子覆盖。`windows_integrity_query_failed` 的安全 copy-only 分支由自动化测试守卫。
-- 在录屏选区工具条依次选择无音频、系统声音和麦克风；后两种模式的结果库必须显示 Opus 音轨摘要，
+- 在录屏选区工具条依次选择无音频、系统声音、麦克风和系统声+麦克风；后三种模式的结果库必须显示 Opus 音轨摘要，
   系统声不得混入麦克风，麦克风模式不得静默切到 loopback。暂停/继续后听感和时间线都应连续。
+- 双源模式分别播放系统声、只对麦克风讲话、两者同时满幅和两者静音；确认单路始终保持固定 −6 dB，
+  双路相加不削波，静音 source 无 packet 时另一条在有限延迟后继续，暂停前样本不会在恢复后泄漏。
 - 录制中禁用或拔出当前音频设备，确认视频与音频一起中止、控制窗关闭、Recording gate 可再次使用，
   结果库自动打开且已原子提交的双轨分段仍可列出；不得留下继续占用设备的 WASAPI client。
 - 使用稳定节拍声与可见计时器连续录制至少 30 分钟，记录开头/中段/结尾 A/V 偏差、CPU、峰值内存、
@@ -216,19 +218,21 @@ node scripts/manual-qa.mjs verify \
 - 对最终 `.app`/DMG 验证严格代码签名、`Signature=adhoc`、目标架构、首次打开提示和 updater；明确记录
   它没有 Developer ID authority、公证或 stapled ticket，不能把手动允许误记成 Gatekeeper 公共信任。
 - 在 macOS 12.x、13/14 与 15+ 分别核对录屏工具条：12.x 只有无音频，13/14 增加系统声，15+ 再
-  增加默认麦克风。伪造不可用模式必须在消费冻结会话前失败。
+  增加默认麦克风与系统声+麦克风。伪造不可用模式必须在消费冻结会话前失败。
 - macOS 15+ 分别拒绝与允许麦克风权限；拒绝后两轨共同中止、控制窗关闭、已提交分段保留且下一次
   可以重试，允许后结果库显示 Opus 音轨摘要。静音、暂停/继续与强杀恢复不能混入系统声。
 - 使用内建与外接麦克风分别核对 44.1、48、88.2、96 kHz 原生格式。mono/stereo packed Float32
   必须统一生成 48 kHz stereo Opus 音轨；短录音和正常 Stop 保留首尾声音，暂停恢复不能泄漏暂停前
   的滤波尾部。整数 PCM、其它布局或超出 8–192 kHz 必须明确中止。记录设备消失/切换与至少
   30 分钟 A/V 漂移。
+- macOS 15+ 双源模式同时使用 ScreenCaptureKit `.audio` 与 `.microphone` output；分别制造系统声
+  静音、麦克风静音、两者同时有声和权限撤销，确认固定增益、无迟到串音、控制一致回收和恢复分段。
 
 ## 9. 受门控录屏原型
 
 录屏原型当前只在同一 SHA 的 Linux X11/Wayland、Windows 10/11 与 macOS 12.3+ QA 包开放；Linux
-与 Windows AV QA 包可显式选择系统声或默认麦克风，macOS 13+ AV QA 包可显式选择系统声，15+
-再可选择系统默认麦克风，macOS 12.3–12.x 仍为无音频。每次先保存安装包
+与 Windows AV QA 包可显式选择系统声、默认麦克风或两者混音，macOS 13+ AV QA 包可显式选择系统声，15+
+再可选择系统默认麦克风或两者混音，macOS 12.3–12.x 仍为无音频。每次先保存安装包
 SHA-256、`QA-BUILD.txt` 和完整 commit，再执行对应模板中的录屏场景：
 
 1. 选取一个已知尺寸（建议 640×360 或 1280×720）的区域，录制至少 10 秒并移动光标；暂停至少 3 秒后
@@ -252,14 +256,16 @@ SHA-256、`QA-BUILD.txt` 和完整 commit，再执行对应模板中的录屏场
    静默互换。macOS 13+ 录制系统声；macOS 15+ 另录制默认麦克风并分别验证权限拒绝/允许，确认
    麦克风回调不会接收系统声；分别用 44.1/48/88.2/96 kHz 设备验证输出固定为 48 kHz，短录音与
    正常 Stop 没有首尾截断。macOS 12.x 工具条只显示无音频，13/14 不得显示麦克风。
-8. 对有声模式核对静音片段、暂停/继续、设备消失或默认设备切换后的完整回收，以及至少 30 分钟的
+8. 在支持平台增加系统声+麦克风模式：分别让单路有声、两路有声和两路静音，核对固定 −6 dB/路、
+   双路不削波、100 ms 有界等待、暂停恢复与正常 Stop 尾部；任一路设备失败必须让整个会话中止。
+9. 对有声模式核对静音片段、暂停/继续、设备消失或默认设备切换后的完整回收，以及至少 30 分钟的
    音视频漂移；记录输出 Opus 参数、首尾可听内容、schema v2 统计、CPU 和峰值内存。Linux 还要在
    PipeWire 服务重启后确认两轨共同中止、已提交恢复分段仍可见，下一次录制可以重新建立 stream。
 
 Linux X11/Wayland、Windows 与 macOS 的录屏记录全部完成前，对应 `PX-REC-WINDOWS-QA-01`、
 `PX-REC-MACOS-SCK-01`、`PX-REC-MACOS-AUDIO-01`、`PX-REC-MACOS-MIC-01`、
 `PX-REC-MACOS-RESAMPLE-01` 与
-`PX-REC-WAYLAND-QA-01` 保持待验收；编译、
+`PX-REC-AUDIO-MIX-01`、`PX-REC-WAYLAND-QA-01` 保持待验收；编译、
 Xvfb、GitHub runner 或合成帧不能替代原生桌面证据。Linux 音频矩阵全部完成前，
 `PX-REC-LINUX-AUDIO-01` 同样保持待验收。
 

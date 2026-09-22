@@ -296,7 +296,11 @@ export interface CaptureSelection {
   height: number;
 }
 
-export type RecordingAudioMode = "none" | "systemAudio" | "microphone";
+export type RecordingAudioMode =
+  | "none"
+  | "systemAudio"
+  | "microphone"
+  | "systemAndMicrophone";
 
 export interface RecordingStartCapabilities {
   audioModes: RecordingAudioMode[];
