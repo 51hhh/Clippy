@@ -53,7 +53,6 @@ recording-macos-screencapturekit = [
     "dep:block2",
     "dep:dispatch2",
     "dep:objc2",
-    "dep:objc2-core-foundation",
     "dep:objc2-core-media",
     "dep:objc2-core-video",
     "dep:objc2-foundation",
@@ -173,7 +172,8 @@ objc2-core-graphics = "=0.3.2"
 block2 = { version = "=0.6.2", optional = true }
 dispatch2 = { version = "=0.3.1", optional = true }
 objc2 = { version = "=0.6.4", optional = true }
-objc2-core-foundation = { version = "=0.3.2", optional = true }
+# 长截图窗口身份需要在默认 macOS 构建中读取一次 Quartz 窗口列表；录屏 feature 复用同一版本。
+objc2-core-foundation = "=0.3.2"
 objc2-core-audio-types = { version = "=0.3.2", optional = true }
 objc2-core-media = { version = "=0.3.2", optional = true }
 objc2-core-video = { version = "=0.3.2", optional = true }

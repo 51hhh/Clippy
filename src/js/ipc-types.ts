@@ -335,6 +335,10 @@ export type LongshotAutoCapability = {
   reason: null;
   directions: LongshotAutoDirection[];
 } | {
+  state: "permission_required";
+  reason: "macos_accessibility_permission";
+  directions: [];
+} | {
   state: "unsupported";
   reason: "wayland_remote_desktop_required" | "no_display_server" | "platform_not_implemented";
   directions: [];

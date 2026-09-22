@@ -138,6 +138,24 @@ describe("longshot controller app", () => {
     expect(mocks.controllerApi.autoAppend).not.toHaveBeenCalled();
   });
 
+  it("explains a missing macOS permission without exposing an executable action", async () => {
+    mocks.controllerApi.activate.mockResolvedValue({
+      ...activation,
+      autoScroll: {
+        state: "permission_required",
+        reason: "macos_accessibility_permission",
+        directions: [],
+      },
+    });
+    await mount();
+
+    expect(document.querySelector('[data-testid="longshot-auto-permission"]')?.textContent)
+      .toContain("Accessibility permission");
+    expect(document.querySelector('[data-testid="longshot-auto-start"]')).toBeNull();
+    expect(document.querySelector('[data-testid="longshot-auto-direction"]')).toBeNull();
+    expect(mocks.controllerApi.autoAppend).not.toHaveBeenCalled();
+  });
+
   it("runs one controlled automatic step and Stop cancels the queued next step", async () => {
     const automatic = {
       ...activation,

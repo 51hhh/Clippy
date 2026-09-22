@@ -174,6 +174,11 @@ node scripts/manual-qa.mjs verify \
 - 保持 Clippy 为普通权限，以管理员身份启动记事本；再次选择条目，确认剪贴板更新但不抢焦点、不注入，
   UI 显示 `windows_integrity_boundary`。
 - 在 100%/125%/150% 混合 DPI、多屏和负坐标排布下验证区域/窗口截图、窗口命中、Pin 初始位置和拖动。
+- 从同一选区进入长截图，依次验证上下左右自动滚动与 Stop/Esc；在主屏、负坐标副屏和混合 DPI
+  副屏分别确认指针命中选区中心、滚动目标不串窗、每个方向至少提交两帧。移动鼠标时必须暂停并
+  保留用户的新位置；目标移动/关闭、页面到底和动态内容失败后旧画布仍可手动追加或输出。
+- 保持 Clippy 普通权限并把滚动目标提升为管理员权限，确认自动滚动在注入前以稳定错误暂停，目标
+  页面不滚动，已提交画布不变；不能只依赖 `SendInput` 返回值判断 UIPI。
 - 验证 Pin 原生 topmost、最小化/恢复、全屏应用切换和目标窗口销毁后的行为。
 - 分别安装 NSIS 和 MSI，验证升级、卸载、WebView2 bootstrapper、自动启动和 updater；记录安装包
   Authenticode 状态与 signer thumbprint。
@@ -195,6 +200,9 @@ node scripts/manual-qa.mjs verify \
   `macos_accessibility_permission_required`；设置页能力原因是 `macos_accessibility_permission`。
   允许后恢复目标应用并只注入一次粘贴。
 - 在多个 Spaces、全屏应用、不同缩放显示器和外接屏上验证截图覆盖层、Pin、工具条和窗口层级。
+- 辅助功能拒绝或撤销时，长截图控制窗只显示权限说明且没有方向/启动控件；允许后重新进入长截图，
+  在 Retina 主屏和外接屏分别验证上下左右、Stop/Esc、目标切换、页面到底和动态内容。每步须命中
+  同一 Quartz 窗口 ID/PID；移动鼠标时保留用户的新位置，其它结束路径恢复步骤开始前的位置。
 - Intel 与 Apple Silicon 分别导入同一旧版工程，并在各自数据库中保存内部修订；重开扁平结果继续
   编辑，比较 renderer v2 RGBA 摘要，确认输出 PNG 不含原图或操作层。
 - 对最终 `.app`/DMG 验证严格代码签名、`Signature=adhoc`、目标架构、首次打开提示和 updater；明确记录

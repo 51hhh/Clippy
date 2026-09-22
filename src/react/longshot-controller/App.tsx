@@ -90,6 +90,8 @@ function errorText(error: DisplayError | null, context: ErrorContext): string {
       return t("longshot.autoTargetLost");
     case "longshot_auto_user_interrupted":
       return t("longshot.autoUserInterrupted");
+    case "longshot_auto_permission_required":
+      return t("longshot.autoPermissionRequired");
     case "longshot_auto_input":
       return t("longshot.autoInputFailed");
     case "longshot_auto_unsupported":
@@ -766,6 +768,16 @@ export function App() {
                 {autoRunning ? t("longshot.autoStop") : t("longshot.autoStart")}
               </button>
               <p>{autoRunning ? t("longshot.autoStopHint") : t("longshot.autoHint")}</p>
+            </section>
+          )}
+          {activation.autoScroll?.state === "permission_required"
+            && (phase === "ready" || phase === "appending") && (
+            <section
+              className="longshot-auto longshot-auto--unavailable"
+              aria-label={t("longshot.autoRegion")}
+              data-testid="longshot-auto-permission"
+            >
+              <p>{t("longshot.autoPermissionRequired")}</p>
             </section>
           )}
           {phase !== "finished" && (

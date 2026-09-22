@@ -97,7 +97,7 @@ export function appendLongshotController(handle: LongshotHandle): Promise<Longsh
   return invoke<LongshotSnapshot>("append_longshot_controller", { handle });
 }
 
-/** X11 自动滚动一步并通过同一质量门追加；坐标和目标窗口始终由后端会话持有。 */
+/** 原生后端自动滚动一步并通过同一质量门追加；坐标和目标窗口始终由后端会话持有。 */
 export function autoAppendLongshotController(
   handle: LongshotHandle,
   direction: LongshotAutoDirection,

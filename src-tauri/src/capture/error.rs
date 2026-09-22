@@ -89,6 +89,8 @@ pub enum CaptureError {
     LongshotAutoTargetLost,
     #[error("检测到用户移动鼠标，已暂停自动滚动")]
     LongshotAutoUserInterrupted,
+    #[error("自动滚动需要系统输入辅助权限")]
+    LongshotAutoPermissionRequired,
     #[error("自动滚动输入失败: {0}")]
     LongshotAutoInput(String),
     #[error("已有截图模式正在进行")]
@@ -160,6 +162,7 @@ impl CaptureError {
             Self::LongshotAutoUnsupported => "longshot_auto_unsupported",
             Self::LongshotAutoTargetLost => "longshot_auto_target_lost",
             Self::LongshotAutoUserInterrupted => "longshot_auto_user_interrupted",
+            Self::LongshotAutoPermissionRequired => "longshot_auto_permission_required",
             Self::LongshotAutoInput(_) => "longshot_auto_input",
             Self::CaptureModeBusy => "capture_mode_busy",
             Self::CaptureModeSuperseded => "capture_mode_superseded",

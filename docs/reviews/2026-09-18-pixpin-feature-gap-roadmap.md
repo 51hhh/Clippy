@@ -392,7 +392,7 @@ delta；父链与项目历史留给 `PX-PIN-01`。显式 resize/crop 之外不�
 | P1（已完成） | `PX-PIN-01` | 基于 image project 的 Pin 工作区、历史恢复和分组 | `PX-IMAGE-REVISION-01` |
 | P1（已完成） | `PX-PIN-HISTORY-01` | 独立全局工作区历史浏览、重开、归组与移除 | `PX-PIN-01` |
 | P1（已完成） | `PX-IO-01` | 工程归档与批量导出/导入 | image project/clipboard 数据版本 |
-| P2（X11 已实现，待真机） | `PX-LS-AUTO-01` | X11 受控自动滚动；其余平台能力保持不可用 | `PX-LS-2D-01` + 平台输入能力 |
+| P2（X11/Windows/macOS 已实现，待原生 QA） | `PX-LS-AUTO-01` / `PX-LS-NATIVE-AUTO-01` | 三套原生受控自动滚动；Wayland 保持不可用 | `PX-LS-2D-01` + 平台输入能力 |
 | P2（已完成） | `PX-CODE-01` | 四种产品格式与扫码场景矩阵 | 可重复 fixture |
 | P2（X11/Windows/macOS/Wayland QA 入口、结果库、播放与恢复 remux 已完成，待真机/默认发布） | `PX-REC-01` / `PX-REC-PLAYBACK-01` / `PX-REC-MERGE-01` / `PX-REC-WINDOWS-QA-01` / `PX-REC-MACOS-SCK-01` / `PX-REC-WAYLAND-QA-01` | 可恢复录屏最小闭环 | 平台采集/编码实测 |
 | P2（Windows/Linux/macOS QA 接线、双轨缩略图与异常恢复已完成，待原生真机） | `PX-REC-CLOCK-01` / `PX-REC-AUDIO-01` / `PX-REC-AUDIO-WORKER-01` / `PX-REC-WINDOWS-AUDIO-01` / `PX-REC-AV-EPOCH-01` / `PX-REC-OPUS-WEBM-01` / `PX-REC-AV-MANIFEST-01` / `PX-REC-AV-SESSION-01` / `PX-REC-WINDOWS-AV-QA-01` / `PX-REC-MACOS-AUDIO-01` / `PX-REC-MACOS-MIC-01` / `PX-REC-LINUX-AUDIO-01` / `PX-REC-AV-THUMBNAIL-01` / `PX-REC-AV-MERGE-01` | 单一会话时钟、48 kHz PCM、显式 A/V 起点、有界双轨排序、参考 Opus、周期可恢复双轨容器、严格双轨首帧缩略图、异常双轨恢复，以及 Windows WGC + WASAPI、Linux X11/Wayland + PipeWire 与 macOS ScreenCaptureKit 系统声/默认麦克风的受门控产品接线 | `PX-REC-01` 视频时间线 |
@@ -711,15 +711,21 @@ SHA 原生 CI 和真机 QA。
 
 **Out of Scope**：后台控制浏览器 DOM、绕过系统权限、第一阶段二维手动拼接和录制视频。
 
-**2026-09-18 实施状态**：第一阶段只在运行时确认的 Linux X11 会话提供入口，方向覆盖上下左右。
-后端从首帧可信裁剪区反算滚动点，首次自动步锁定 X11 根窗口下的目标顶层窗口；每一步隐藏控制窗后
-暂移鼠标、注入固定滚轮刻度、等待内容稳定，并在重捕获前后复核鼠标与目标身份，最后恢复原位置。
+**2026-09-22 实施状态**：运行时确认的 Linux X11、Windows 与已获辅助功能权限的 macOS 会话提供
+上下左右入口。后端从首帧可信裁剪区反算滚动点，首次自动步在控制窗隐藏后锁定该点下的目标顶层
+窗口；每一步暂移鼠标、注入固定滚轮刻度、等待内容稳定，并在重捕获前后复核鼠标、原生窗口 ID 与
+进程 ID。正常完成和非用户失败恢复原位置；检测到用户移动时保留用户的新位置，避免与用户争抢。
+Windows 将冻结帧的逻辑原点按每屏缩放恢复为物理虚拟桌面坐标，使用 `WindowFromPhysicalPoint` /
+`GA_ROOT` 命中窗口，并在滚动前复用自动粘贴的进程完整性检查，防止 UIPI 静默拒绝；macOS 使用
+Core Graphics 全局坐标与一次 Quartz 窗口列表快照，不依赖
+AppKit 主线程，权限缺失时返回 `permission_required` 和明确说明而不展示可执行按钮。
 新帧仍通过原二维会话的重叠、相似度、歧义、位移和资源门禁，任何错误回滚旧快照并停止自动循环；
 Stop/Esc 在当前原子步骤后生效，预览尚未解除互斥时停止不会产生迟到滚轮。Wayland 明确返回
-`wayland_remote_desktop_required`，Windows/macOS 返回 `platform_not_implemented`，前端不展示启动
-控件。首项仍等待 `docs/native-qa.md` 的 X11 真实窗口、四方向、中断、到底与输出闭环证据，不能用
-jsdom 或拼接 fixture 代替。Wayland 后续必须持有用户授权的 RemoteDesktop/libei 会话，不能借
-XWayland 注入原生窗口。
+`wayland_remote_desktop_required`。X11、Windows 与 macOS 的真实窗口、四方向、中断、到底、
+多屏/混合 DPI 与输出闭环仍等待 `docs/native-qa.md` 证据，不能用 jsdom、交叉编译或拼接 fixture
+代替。Wayland 后续必须持有用户授权的 RemoteDesktop/libei 会话，不能借 XWayland 注入原生窗口。
+完整合同见
+[`2026-09-22-longshot-native-auto-scroll.md`](../superpowers/specs/2026-09-22-longshot-native-auto-scroll.md)。
 
 ### `PX-CODE-01`：扫码场景与格式扩展
 

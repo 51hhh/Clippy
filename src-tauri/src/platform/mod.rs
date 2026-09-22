@@ -9,6 +9,8 @@ use serde::Serialize;
 
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(target_os = "windows")]
+mod windows;
 #[cfg(target_os = "macos")]
 pub(crate) use macos::{
     accessibility_trusted as macos_accessibility_trusted,
@@ -16,6 +18,11 @@ pub(crate) use macos::{
     request_accessibility_permission as request_macos_accessibility_permission,
     request_screen_capture_permission as request_macos_screen_capture_permission,
     screen_capture_trusted as macos_screen_capture_trusted,
+};
+#[cfg(target_os = "windows")]
+pub(crate) use windows::{
+    ensure_input_target_integrity as ensure_windows_input_target_integrity,
+    WindowsInputSecurityError,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

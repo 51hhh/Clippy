@@ -102,10 +102,30 @@ impl LongshotFrameAdapter {
 
     /// 自动滚动只使用首帧确认过的裁剪区中心，避免前端提交任意桌面坐标。
     pub(in crate::capture) fn scroll_target(&self) -> Result<(i32, i32), CaptureError> {
+        self.scroll_target_for_coordinate_space(cfg!(target_os = "windows"))
+    }
+
+    /// Windows 的原生指针/命中 API 使用物理虚拟桌面坐标；其它已实现后端使用逻辑桌面坐标。
+    /// `signature.x/y` 已被截图层归一为逻辑坐标，而 `crop` 始终是物理像素，所以两条换算不能混用。
+    fn scroll_target_for_coordinate_space(
+        &self,
+        windows_physical: bool,
+    ) -> Result<(i32, i32), CaptureError> {
         let center_x = (f64::from(self.crop.left) + f64::from(self.crop.right)) / 2.0;
         let center_y = (f64::from(self.crop.top) + f64::from(self.crop.bottom)) / 2.0;
-        let x = f64::from(self.signature.x) + center_x / f64::from(self.signature.scale_x);
-        let y = f64::from(self.signature.y) + center_y / f64::from(self.signature.scale_y);
+        let scale_x = f64::from(self.signature.scale_x);
+        let scale_y = f64::from(self.signature.scale_y);
+        let (x, y) = if windows_physical {
+            (
+                f64::from(self.signature.x) * scale_x + center_x,
+                f64::from(self.signature.y) * scale_y + center_y,
+            )
+        } else {
+            (
+                f64::from(self.signature.x) + center_x / scale_x,
+                f64::from(self.signature.y) + center_y / scale_y,
+            )
+        };
         if !x.is_finite()
             || !y.is_finite()
             || x < f64::from(i32::MIN)
@@ -433,9 +453,23 @@ mod tests {
         assert!((origin.width - 4.8).abs() < f64::EPSILON);
         assert!((origin.height - 10.0).abs() < f64::EPSILON);
         assert_eq!(
-            adapter.scroll_target().expect("滚动点应使用同一冻结几何"),
+            adapter
+                .scroll_target_for_coordinate_space(false)
+                .expect("逻辑滚动点应使用同一冻结几何"),
             (-1917, -116)
         );
+        assert_eq!(
+            adapter
+                .scroll_target_for_coordinate_space(true)
+                .expect("Windows 滚动点应恢复到物理虚拟桌面"),
+            (-2396, -174)
+        );
+        let platform_expected = if cfg!(target_os = "windows") {
+            (-2396, -174)
+        } else {
+            (-1917, -116)
+        };
+        assert_eq!(adapter.scroll_target().unwrap(), platform_expected);
     }
 
     #[test]
