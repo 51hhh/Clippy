@@ -4,6 +4,7 @@
 //! 提交分段与 complete；任一错误或 `Drop` 都中止两条线程、清理未提交临时文件并把 journal 标为
 //! interrupted，避免各层分别猜测资源是否已经释放。
 
+use super::clock::RecordingSessionClock;
 use super::encoder_worker::{EncoderReport, EncoderWorker, EncoderWorkerError};
 use super::manifest::{discard_unstarted_session, RecordingJournal, RecordingJournalConfig};
 use super::pipeline::{PipelineError, RecordingPipeline};
@@ -80,7 +81,7 @@ impl DiagnosticRecordingSession {
     where
         S: RecordingFrameSource + Send,
     {
-        Self::start_with_factory(app_data_dir, config, move || Ok(source))
+        Self::start_with_factory(app_data_dir, config, move |_| Ok(source))
     }
 
     pub fn start_with_factory<F, S>(
@@ -89,13 +90,14 @@ impl DiagnosticRecordingSession {
         source_factory: F,
     ) -> Result<Self, DiagnosticRecordingError>
     where
-        F: FnOnce() -> Result<S, String> + Send + 'static,
+        F: FnOnce(RecordingSessionClock) -> Result<S, String> + Send + 'static,
         S: RecordingFrameSource,
     {
         if !(1..=120).contains(&config.frames_per_second) || !config.encoder.is_valid() {
             return Err(DiagnosticRecordingError::InvalidConfiguration);
         }
         let session_id = config.session_id.clone();
+        let session_clock = RecordingSessionClock::new();
         let (encoder_name, container) = config.encoder.manifest_descriptor();
         let journal = RecordingJournal::create(
             app_data_dir,
@@ -139,7 +141,7 @@ impl DiagnosticRecordingSession {
             }
         };
         let capture = match CaptureWorker::spawn_with_factory(
-            source_factory,
+            move || source_factory(session_clock),
             Arc::clone(&pipeline),
             config.frames_per_second,
         ) {
@@ -722,7 +724,7 @@ mod tests {
         let result = DiagnosticRecordingSession::start_with_factory(
             temporary.path(),
             config("source-start-failed"),
-            || Err::<FixtureSource, _>("portal authorization cancelled".to_string()),
+            |_| Err::<FixtureSource, _>("portal authorization cancelled".to_string()),
         );
 
         assert!(matches!(
@@ -738,6 +740,28 @@ mod tests {
         assert!(crate::recording::manifest::list_library(temporary.path())
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn session_owner_creates_clock_before_source_factory_runs() {
+        let temporary = tempfile::tempdir().unwrap();
+        let factory_called = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let observed = Arc::clone(&factory_called);
+        let session = DiagnosticRecordingSession::start_with_factory(
+            temporary.path(),
+            config("session-shared-clock"),
+            move |clock| {
+                observed.store(true, std::sync::atomic::Ordering::Release);
+                Ok(FixtureSource {
+                    sequence: 0,
+                    timestamp_ns: clock.now_ns(),
+                })
+            },
+        )
+        .unwrap();
+
+        assert!(factory_called.load(std::sync::atomic::Ordering::Acquire));
+        session.stop().unwrap();
     }
 
     #[cfg(feature = "recording-vp9-prototype")]
@@ -924,7 +948,9 @@ mod tests {
         assert_eq!(descriptor.physical_x, i32::from(monitor.x));
         assert_eq!(descriptor.physical_y, i32::from(monitor.y));
         assert_eq!((descriptor.width, descriptor.height), (width, height));
-        let source = plan.connect().expect("在线程边界后连接 X11 录屏帧源");
+        let source = plan
+            .connect(RecordingSessionClock::new())
+            .expect("在线程边界后连接 X11 录屏帧源");
         let temporary = tempfile::tempdir().unwrap();
         let session = DiagnosticRecordingSession::start(
             temporary.path(),

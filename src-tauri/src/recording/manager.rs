@@ -3,6 +3,7 @@
 //! Starting、Recording 与 Stopping 都占用唯一槽位；所有控制命令必须携带精确代次 token。这样一次
 //! 录屏的迟到暂停、停止或取消不能操作随后创建的新会话，构建失败也会由 reservation 的 Drop 清槽。
 
+use super::clock::RecordingSessionClock;
 use super::session::{
     DiagnosticRecordingConfig, DiagnosticRecordingError, DiagnosticRecordingReport,
     DiagnosticRecordingSession,
@@ -105,7 +106,7 @@ impl RecordingManager {
     where
         S: RecordingFrameSource + Send,
     {
-        self.start_with_factory(app_data_dir, config, move || Ok(source))
+        self.start_with_factory(app_data_dir, config, move |_| Ok(source))
     }
 
     pub fn start_with_factory<F, S>(
@@ -115,7 +116,7 @@ impl RecordingManager {
         source_factory: F,
     ) -> Result<RecordingToken, RecordingManagerError>
     where
-        F: FnOnce() -> Result<S, String> + Send + 'static,
+        F: FnOnce(RecordingSessionClock) -> Result<S, String> + Send + 'static,
         S: RecordingFrameSource,
     {
         let reservation = self.reserve(config.session_id.clone())?;

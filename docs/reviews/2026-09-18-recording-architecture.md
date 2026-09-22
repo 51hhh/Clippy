@@ -71,6 +71,13 @@ PCM、原生 PTS 到显式会话起点的映射、暂停扣时、空洞/重叠�
 PipeWire 音频节点、重采样、Opus 和 WebM 音轨均未接入，产品入口仍只录视频。详细边界见
 [`2026-09-21-recording-audio-contract.md`](../superpowers/specs/2026-09-21-recording-audio-contract.md)。
 
+`PX-REC-CLOCK-01` 进一步把 X11、Wayland/PipeWire、Windows WGC、macOS AVFoundation 与
+ScreenCaptureKit 各自创建的时间原点收回 `DiagnosticRecordingSession`。平台 factory 现在必须
+显式接收同一个 `RecordingSessionClock`，帧、暂停、继续和停止都在该会话时间域内加戳；首帧等待
+另用连接后的局部计时。现有视频 presentation timeline 仍以首帧归零，避免破坏 VP9 writer；原生
+音频 PTS 校准和双轨 mux epoch 仍由后续 A/V coordinator 完成。合同见
+[`2026-09-22-recording-shared-clock.md`](../superpowers/specs/2026-09-22-recording-shared-clock.md)。
+
 ### 2026-09-21 同 SHA CI 证据
 
 提交 `3daa487b4435da783afdd203ff7fe0b8f18fb3dd` 的

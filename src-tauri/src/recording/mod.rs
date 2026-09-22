@@ -4,6 +4,9 @@
 //! 对应显式 feature 与受支持的原生会话开放；默认构建继续保持关闭。
 
 mod manifest;
+// 视频平台源与后续音频适配器共享由 session owner 创建的唯一单调时间原点。
+#[allow(dead_code)]
+mod clock;
 // 独立 Recording 覆盖层通过这里完成可信选区交接；跨平台门控仍让部分构建不引用全部类型。
 #[allow(dead_code)]
 mod selection;

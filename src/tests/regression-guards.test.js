@@ -738,12 +738,31 @@ describe("macOS ScreenCaptureKit QA 边界", () => {
   it("控制窗原生目标只在 Rust 创建后进入帧源", () => {
     const lifecycle = read("src-tauri/src/recording/lifecycle.rs");
     const prepare = lifecycle.indexOf("actions.prepare_control");
-    const start = lifecycle.indexOf("source_factory(control_target)");
+    const start = lifecycle.indexOf("source_factory(control_target, clock)");
     expect(prepare).toBeGreaterThan(0);
     expect(start).toBeGreaterThan(prepare);
     expect(read("src-tauri/src/recording/control_host.rs")).toContain(
       "native.windowNumber()",
     );
+  });
+
+  it("平台视频源只消费 session owner 创建的共享单调时钟", () => {
+    const session = read("src-tauri/src/recording/session.rs");
+    const lifecycle = read("src-tauri/src/recording/lifecycle.rs");
+    expect(session).toContain("let session_clock = RecordingSessionClock::new()");
+    expect(lifecycle).toContain("source_factory(control_target, clock)");
+
+    for (const path of [
+      "src-tauri/src/recording/platform/x11.rs",
+      "src-tauri/src/recording/platform/wayland.rs",
+      "src-tauri/src/recording/platform/windows.rs",
+      "src-tauri/src/recording/platform/macos.rs",
+      "src-tauri/src/recording/platform/macos/screencapturekit.rs",
+    ]) {
+      const source = read(path);
+      expect(source).toContain("RecordingSessionClock");
+      expect(source).not.toContain("clock_origin");
+    }
   });
 
   it("ScreenCaptureKit 精确排除单窗且回调不阻塞", () => {

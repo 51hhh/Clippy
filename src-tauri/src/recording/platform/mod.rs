@@ -8,6 +8,7 @@ pub(super) mod windows;
 #[cfg(target_os = "linux")]
 pub(super) mod x11;
 
+use super::clock::RecordingSessionClock;
 use super::frame::CapturedFrame;
 use super::worker::RecordingFrameSource;
 use crate::capture::RecordingCaptureSpec;
@@ -160,25 +161,26 @@ impl PlatformFrameSourcePlan {
     pub fn connect(
         self,
         control_target: RecordingControlTarget,
+        clock: RecordingSessionClock,
     ) -> Result<PlatformFrameSource, PlatformFrameSourceError> {
         match self {
             #[cfg(target_os = "linux")]
             Self::X11(plan) => {
                 debug_assert_eq!(&control_target, &RecordingControlTarget::NoNativeWindow);
-                Ok(PlatformFrameSource::X11(Box::new(plan.connect()?)))
+                Ok(PlatformFrameSource::X11(Box::new(plan.connect(clock)?)))
             }
             #[cfg(target_os = "linux")]
             Self::Wayland(plan) => Ok(PlatformFrameSource::Wayland(Box::new(
-                plan.connect(require_wayland_portal_target(control_target)?)?,
+                plan.connect(require_wayland_portal_target(control_target)?, clock)?,
             ))),
             #[cfg(target_os = "windows")]
             Self::Windows(plan) => {
                 debug_assert_eq!(&control_target, &RecordingControlTarget::NoNativeWindow);
-                Ok(PlatformFrameSource::Windows(Box::new(plan.connect()?)))
+                Ok(PlatformFrameSource::Windows(Box::new(plan.connect(clock)?)))
             }
             #[cfg(target_os = "macos")]
             Self::Macos(plan) => Ok(PlatformFrameSource::Macos(Box::new(
-                plan.connect(control_target)?,
+                plan.connect(control_target, clock)?,
             ))),
         }
     }

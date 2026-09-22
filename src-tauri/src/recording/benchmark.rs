@@ -68,15 +68,11 @@ pub(crate) fn run_x11_vp9_benchmark(
         .map_err(|error| format!("准备 X11 录屏帧源失败: {error}"))?;
     let descriptor = plan.descriptor().clone();
     reserve_output_directory(&options.output_directory)?;
-    let source = plan
-        .connect()
-        .map_err(|error| format!("连接 X11 录屏帧源失败: {error}"))?;
-
     let requested_duration_ns = u64::from(options.duration_seconds)
         .checked_mul(1_000_000_000)
         .ok_or_else(|| "X11 VP9 基准时长溢出".to_string())?;
     let started = Instant::now();
-    let session = DiagnosticRecordingSession::start(
+    let session = DiagnosticRecordingSession::start_with_factory(
         &options.output_directory,
         DiagnosticRecordingConfig {
             session_id: "x11-vp9-benchmark".to_string(),
@@ -90,7 +86,10 @@ pub(crate) fn run_x11_vp9_benchmark(
             encoder: RecordingEncoder::Vp9Prototype,
             segment_duration_ns: DEFAULT_SEGMENT_DURATION_NS,
         },
-        source,
+        move |clock| {
+            plan.connect(clock)
+                .map_err(|error| format!("连接 X11 录屏帧源失败: {error}"))
+        },
     )
     .map_err(|error| format!("启动 X11 VP9 基准失败: {error}"))?;
     let session_directory = session.session_directory().to_path_buf();

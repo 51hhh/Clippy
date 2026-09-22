@@ -4,10 +4,10 @@
 //! 冻结截图会话核验后的 RandR 物理区域，不能把前端提交的逻辑坐标直接传进来。
 
 use crate::capture::RecordingCaptureSpec;
+use crate::recording::clock::RecordingSessionClock;
 use crate::recording::frame::{CapturedFrame, FrameError, MAX_FRAME_BYTES};
 use crate::recording::platform::RecordingSourceDescriptor;
 use crate::recording::worker::RecordingFrameSource;
-use std::time::Instant;
 use thiserror::Error;
 use x11rb::connection::Connection;
 use x11rb::image::{Image, PixelLayout};
@@ -70,8 +70,11 @@ impl X11RegionFrameSourcePlan {
         &self.descriptor
     }
 
-    pub fn connect(self) -> Result<X11RegionFrameSource, X11FrameSourceError> {
-        let source = X11RegionFrameSource::connect(self.selection)?;
+    pub fn connect(
+        self,
+        clock: RecordingSessionClock,
+    ) -> Result<X11RegionFrameSource, X11FrameSourceError> {
+        let source = X11RegionFrameSource::connect(self.selection, clock)?;
         if source.descriptor != self.descriptor {
             return Err(X11FrameSourceError::MonitorGeometryChanged);
         }
@@ -84,20 +87,23 @@ pub(in crate::recording) struct X11RegionFrameSource {
     root: u32,
     region: X11PhysicalRegion,
     descriptor: RecordingSourceDescriptor,
-    clock_origin: Instant,
+    clock: RecordingSessionClock,
     last_timestamp_ns: Option<u64>,
     next_sequence: u64,
 }
 
 impl X11RegionFrameSource {
-    pub fn connect(selection: RecordingCaptureSpec) -> Result<Self, X11FrameSourceError> {
+    pub fn connect(
+        selection: RecordingCaptureSpec,
+        clock: RecordingSessionClock,
+    ) -> Result<Self, X11FrameSourceError> {
         let (connection, root, region) = connect_region(selection)?;
         Ok(Self {
             root,
             connection,
             region,
             descriptor: descriptor(selection.monitor_id, region),
-            clock_origin: Instant::now(),
+            clock,
             last_timestamp_ns: None,
             next_sequence: 0,
         })
@@ -149,11 +155,7 @@ impl X11RegionFrameSource {
     }
 
     fn next_timestamp_ns(&self) -> Result<u64, X11FrameSourceError> {
-        let sampled_at = self
-            .clock_origin
-            .elapsed()
-            .as_nanos()
-            .min(u128::from(u64::MAX)) as u64;
+        let sampled_at = self.clock.now_ns();
         match self.last_timestamp_ns {
             Some(last) => Ok(sampled_at.max(
                 last.checked_add(1)
@@ -604,15 +606,18 @@ mod tests {
             .iter()
             .find(|monitor| !monitor.outputs.is_empty())
             .expect("X11 测试环境至少有一个输出");
-        let mut source = X11RegionFrameSource::connect(RecordingCaptureSpec {
-            monitor_id: monitor.outputs[0],
-            monitor_pixel_width: u32::from(monitor.width),
-            monitor_pixel_height: u32::from(monitor.height),
-            crop_left: 0,
-            crop_top: 0,
-            crop_width: 32,
-            crop_height: 32,
-        })
+        let mut source = X11RegionFrameSource::connect(
+            RecordingCaptureSpec {
+                monitor_id: monitor.outputs[0],
+                monitor_pixel_width: u32::from(monitor.width),
+                monitor_pixel_height: u32::from(monitor.height),
+                crop_left: 0,
+                crop_top: 0,
+                crop_width: 32,
+                crop_height: 32,
+            },
+            RecordingSessionClock::new(),
+        )
         .expect("连接 X11 根窗口失败");
         let first = source.capture_next().expect("首帧捕获失败");
         let control_timestamp =

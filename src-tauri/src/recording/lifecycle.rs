@@ -4,6 +4,7 @@
 //! 原生帧源才在采集线程内创建。停止、取消和启动失败都会先回收会话与控制面，最后显式释放
 //! Recording gate。
 
+use super::clock::RecordingSessionClock;
 use super::manager::{RecordingManager, RecordingManagerError, RecordingToken};
 use super::platform::{
     PlatformFrameSource, PlatformFrameSourcePlan, RecordingControlTarget, RecordingSourceDescriptor,
@@ -145,8 +146,8 @@ impl RecordingLifecycle {
                     .map_err(|error| error.to_string())?;
                 let descriptor = plan.descriptor().clone();
                 Ok(PreparedRecordingSource {
-                    source_factory: move |control_target| {
-                        plan.connect(control_target)
+                    source_factory: move |control_target, clock| {
+                        plan.connect(control_target, clock)
                             .map_err(|error| error.to_string())
                     },
                     descriptor,
@@ -165,7 +166,9 @@ impl RecordingLifecycle {
     ) -> Result<RecordingToken, RecordingLifecycleError>
     where
         S: RecordingFrameSource,
-        F: FnOnce(RecordingControlTarget) -> Result<S, String> + Send + 'static,
+        F: FnOnce(RecordingControlTarget, RecordingSessionClock) -> Result<S, String>
+            + Send
+            + 'static,
         C: FnOnce(RecordingCaptureSpec) -> Result<PreparedRecordingSource<F>, String>,
         A: DesktopActions,
     {
@@ -263,7 +266,9 @@ impl RecordingLifecycle {
     ) -> Result<RecordingToken, RecordingLifecycleError>
     where
         S: RecordingFrameSource,
-        F: FnOnce(RecordingControlTarget) -> Result<S, String> + Send + 'static,
+        F: FnOnce(RecordingControlTarget, RecordingSessionClock) -> Result<S, String>
+            + Send
+            + 'static,
         P: FnOnce() -> Result<CommittedRecording<F>, RecordingLifecycleError>,
         A: DesktopActions,
     {
@@ -325,8 +330,9 @@ impl RecordingLifecycle {
         };
         let token = match self
             .manager
-            .start_with_factory(app_data_dir, config, move || source_factory(control_target))
-        {
+            .start_with_factory(app_data_dir, config, move |clock| {
+                source_factory(control_target, clock)
+            }) {
             Ok(token) => token,
             Err(error) => {
                 return self.fail_publishing(
@@ -737,7 +743,9 @@ mod tests {
         gate: &Arc<CaptureModeGate>,
         events: Arc<Mutex<Vec<String>>>,
     ) -> CommittedRecording<
-        impl FnOnce(RecordingControlTarget) -> Result<FixtureSource, String> + Send + 'static,
+        impl FnOnce(RecordingControlTarget, RecordingSessionClock) -> Result<FixtureSource, String>
+            + Send
+            + 'static,
     > {
         let ownership = Arc::clone(gate)
             .try_claim_owned(CaptureMode::Ordinary)
@@ -747,7 +755,7 @@ mod tests {
         events.lock().unwrap().push("prepared".to_string());
         let source_events = Arc::clone(&events);
         CommittedRecording {
-            source_factory: move |control_target| {
+            source_factory: move |control_target, _clock| {
                 assert_eq!(control_target, RecordingControlTarget::NoNativeWindow);
                 source_events
                     .lock()
@@ -866,7 +874,7 @@ mod tests {
         events.lock().unwrap().push("prepared".to_string());
         let source_events = Arc::clone(&events);
         let committed = CommittedRecording {
-            source_factory: move |received| {
+            source_factory: move |received, _clock| {
                 assert_eq!(received, target);
                 source_events
                     .lock()
@@ -1042,7 +1050,7 @@ mod tests {
                         .unwrap();
                     events.lock().unwrap().push("prepared".to_string());
                     Ok(CommittedRecording {
-                        source_factory: |_| {
+                        source_factory: |_, _clock| {
                             Err::<FixtureSource, _>("fixture native source failure".to_string())
                         },
                         descriptor: RecordingSourceDescriptor {

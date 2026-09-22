@@ -11,6 +11,7 @@ use super::region::take_direct_region_rgba;
 use super::region::{validate_direct_region_selection, RegionFrameError};
 use super::{RecordingControlTarget, RecordingSourceDescriptor};
 use crate::capture::RecordingCaptureSpec;
+use crate::recording::clock::RecordingSessionClock;
 #[cfg(not(feature = "recording-macos-screencapturekit"))]
 use crate::recording::frame::CapturedFrame;
 use crate::recording::frame::FrameError;
@@ -147,15 +148,20 @@ impl MacRegionFrameSourcePlan {
     pub fn connect(
         self,
         control_target: RecordingControlTarget,
+        clock: RecordingSessionClock,
     ) -> Result<MacRegionFrameSource, MacFrameSourceError> {
         #[cfg(not(feature = "recording-macos-screencapturekit"))]
         {
             debug_assert_eq!(control_target, RecordingControlTarget::NoNativeWindow);
-            MacAvRegionFrameSource::connect(self)
+            MacAvRegionFrameSource::connect(self, clock)
         }
         #[cfg(feature = "recording-macos-screencapturekit")]
         {
-            screencapturekit::MacScreenCaptureKitRegionFrameSource::connect(self, control_target)
+            screencapturekit::MacScreenCaptureKitRegionFrameSource::connect(
+                self,
+                control_target,
+                clock,
+            )
         }
     }
 }
@@ -255,7 +261,8 @@ pub(in crate::recording) struct MacAvRegionFrameSource {
     bridge_thread: Option<JoinHandle<()>>,
     selection: RecordingCaptureSpec,
     descriptor: RecordingSourceDescriptor,
-    clock_origin: Instant,
+    clock: RecordingSessionClock,
+    first_frame_started_at: Instant,
     minimum_timestamp_ns: u64,
     last_timestamp_ns: Option<u64>,
     next_sequence: u64,
@@ -265,7 +272,10 @@ pub(in crate::recording) struct MacAvRegionFrameSource {
 
 #[cfg(not(feature = "recording-macos-screencapturekit"))]
 impl MacAvRegionFrameSource {
-    fn connect(plan: MacRegionFrameSourcePlan) -> Result<Self, MacFrameSourceError> {
+    fn connect(
+        plan: MacRegionFrameSourcePlan,
+        clock: RecordingSessionClock,
+    ) -> Result<Self, MacFrameSourceError> {
         let current = MacRegionFrameSourcePlan::prepare(plan.selection)?;
         if current.capture_region != plan.capture_region || current.descriptor != plan.descriptor {
             return Err(RegionFrameError::MonitorGeometryChanged.into());
@@ -283,14 +293,13 @@ impl MacAvRegionFrameSource {
             .map_err(|error| MacFrameSourceError::Initialize(error.to_string()))?;
         let bridge = Arc::new(FrameBridge::default());
         let thread_bridge = Arc::clone(&bridge);
-        let clock_origin = Instant::now();
+        let callback_clock = clock.clone();
         let bridge_thread = thread::Builder::new()
             .name("clippy-recording-macos-bridge".to_string())
             .spawn(move || {
                 let mut last_timestamp_ns = None;
                 while let Ok(frame) = frames.recv() {
-                    let sampled =
-                        clock_origin.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64;
+                    let sampled = callback_clock.now_ns();
                     let captured_at_ns = last_timestamp_ns
                         .and_then(|last: u64| last.checked_add(1))
                         .map_or(sampled, |next| sampled.max(next));
@@ -314,7 +323,8 @@ impl MacAvRegionFrameSource {
             bridge_thread: Some(bridge_thread),
             selection: plan.selection,
             descriptor: plan.descriptor,
-            clock_origin,
+            clock,
+            first_frame_started_at: Instant::now(),
             minimum_timestamp_ns: 0,
             last_timestamp_ns: None,
             next_sequence: 0,
@@ -334,11 +344,7 @@ impl MacAvRegionFrameSource {
     }
 
     fn next_timestamp_ns(&self) -> Result<u64, MacFrameSourceError> {
-        let sampled = self
-            .clock_origin
-            .elapsed()
-            .as_nanos()
-            .min(u128::from(u64::MAX)) as u64;
+        let sampled = self.clock.now_ns();
         match self.last_timestamp_ns {
             Some(last) => Ok(sampled.max(
                 last.checked_add(1)
@@ -377,7 +383,7 @@ impl MacAvRegionFrameSource {
         timeout: Duration,
     ) -> Result<Option<CapturedFrame>, MacFrameSourceError> {
         let Some(stamped) = self.bridge.take_after(self.minimum_timestamp_ns, timeout)? else {
-            if self.first_frame && self.clock_origin.elapsed() >= FIRST_FRAME_TIMEOUT {
+            if self.first_frame && self.first_frame_started_at.elapsed() >= FIRST_FRAME_TIMEOUT {
                 return Err(MacFrameSourceError::FirstFrameTimeout);
             }
             return Ok(None);

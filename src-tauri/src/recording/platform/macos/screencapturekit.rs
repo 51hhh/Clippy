@@ -6,6 +6,7 @@
 use super::{
     MacFrameSourceError, MacRegionFrameSourcePlan, FIRST_FRAME_TIMEOUT, FRAME_POLL_TIMEOUT,
 };
+use crate::recording::clock::RecordingSessionClock;
 use crate::recording::frame::CapturedFrame;
 use crate::recording::platform::{RecordingControlTarget, RecordingSourceDescriptor};
 use crate::recording::worker::RecordingFrameSource;
@@ -48,7 +49,7 @@ struct StreamOutputVars {
     frames: SyncSender<NativeFrame>,
     failure: Arc<Mutex<Option<String>>>,
     running: Arc<AtomicBool>,
-    clock_origin: Instant,
+    clock: RecordingSessionClock,
 }
 
 impl StreamOutputVars {
@@ -65,7 +66,7 @@ impl StreamOutputVars {
         if output_type != SCStreamOutputType::Screen || !self.running.load(Ordering::Acquire) {
             return;
         }
-        let frame = unsafe { copy_bgra_frame(sample_buffer, self.clock_origin) };
+        let frame = unsafe { copy_bgra_frame(sample_buffer, &self.clock) };
         match frame {
             Ok(frame) => {
                 if self.running.load(Ordering::Acquire) {
@@ -127,7 +128,7 @@ pub(in crate::recording) struct MacScreenCaptureKitRegionFrameSource {
     failure: Arc<Mutex<Option<String>>>,
     running_flag: Arc<AtomicBool>,
     descriptor: RecordingSourceDescriptor,
-    clock_origin: Instant,
+    clock: RecordingSessionClock,
     minimum_timestamp_ns: u64,
     last_timestamp_ns: Option<u64>,
     next_sequence: u64,
@@ -140,6 +141,7 @@ impl MacScreenCaptureKitRegionFrameSource {
     pub(super) fn connect(
         plan: MacRegionFrameSourcePlan,
         control_target: RecordingControlTarget,
+        clock: RecordingSessionClock,
     ) -> Result<Self, MacFrameSourceError> {
         let window_id = match control_target {
             RecordingControlTarget::NativeWindow(window_id) => {
@@ -183,12 +185,11 @@ impl MacScreenCaptureKitRegionFrameSource {
         let (frame_tx, frames) = mpsc::sync_channel(NATIVE_FRAME_QUEUE_CAPACITY);
         let failure = Arc::new(Mutex::new(None));
         let running_flag = Arc::new(AtomicBool::new(true));
-        let clock_origin = Instant::now();
         let output = StreamOutput::new(StreamOutputVars {
             frames: frame_tx,
             failure: Arc::clone(&failure),
             running: Arc::clone(&running_flag),
-            clock_origin,
+            clock: clock.clone(),
         });
         let delegate: &ProtocolObject<dyn SCStreamDelegate> = ProtocolObject::from_ref(&*output);
         let stream = unsafe {
@@ -229,7 +230,7 @@ impl MacScreenCaptureKitRegionFrameSource {
             failure,
             running_flag,
             descriptor: plan.descriptor,
-            clock_origin,
+            clock,
             minimum_timestamp_ns: 0,
             last_timestamp_ns: None,
             next_sequence: 0,
@@ -251,11 +252,7 @@ impl MacScreenCaptureKitRegionFrameSource {
     }
 
     fn next_timestamp_ns(&self) -> Result<u64, MacFrameSourceError> {
-        let sampled = self
-            .clock_origin
-            .elapsed()
-            .as_nanos()
-            .min(u128::from(u64::MAX)) as u64;
+        let sampled = self.clock.now_ns();
         match self.last_timestamp_ns {
             Some(last) => Ok(sampled.max(
                 last.checked_add(1)
@@ -494,7 +491,7 @@ fn set_stream_running(stream: &SCStream, running: bool) -> Result<(), MacFrameSo
 /// 回调期间锁定 IOSurface 并立即复制 BGRA；返回前总会解锁，Objective-C 对象不会离开系统队列。
 unsafe fn copy_bgra_frame(
     sample_buffer: &CMSampleBuffer,
-    clock_origin: Instant,
+    clock: &RecordingSessionClock,
 ) -> Result<NativeFrame, String> {
     let pixel_buffer = CMSampleBuffer::image_buffer(sample_buffer)
         .ok_or_else(|| "ScreenCaptureKit 帧缺少 CVPixelBuffer".to_string())?;
@@ -541,7 +538,7 @@ unsafe fn copy_bgra_frame(
             }
         }
         Ok(NativeFrame {
-            captured_at_ns: clock_origin.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64,
+            captured_at_ns: clock.now_ns(),
             width: u32::try_from(width)
                 .map_err(|_| "ScreenCaptureKit 帧宽度超出 u32".to_string())?,
             height: u32::try_from(height)

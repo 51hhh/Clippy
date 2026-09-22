@@ -7,6 +7,7 @@
 use super::region::{crop_tight_rgba, validate_selection, RegionFrameError};
 use super::RecordingSourceDescriptor;
 use crate::capture::RecordingCaptureSpec;
+use crate::recording::clock::RecordingSessionClock;
 use crate::recording::frame::{CapturedFrame, FrameError};
 use crate::recording::worker::RecordingFrameSource;
 use std::sync::{Arc, Condvar, Mutex};
@@ -66,8 +67,11 @@ impl WindowsWgcFrameSourcePlan {
         &self.descriptor
     }
 
-    pub fn connect(self) -> Result<WindowsWgcRegionFrameSource, WindowsFrameSourceError> {
-        let source = WindowsWgcRegionFrameSource::connect(self.selection)?;
+    pub fn connect(
+        self,
+        clock: RecordingSessionClock,
+    ) -> Result<WindowsWgcRegionFrameSource, WindowsFrameSourceError> {
+        let source = WindowsWgcRegionFrameSource::connect(self.selection, clock)?;
         if source.descriptor != self.descriptor {
             return Err(RegionFrameError::MonitorGeometryChanged.into());
         }
@@ -159,7 +163,8 @@ pub(in crate::recording) struct WindowsWgcRegionFrameSource {
     bridge_thread: Option<JoinHandle<()>>,
     selection: RecordingCaptureSpec,
     descriptor: RecordingSourceDescriptor,
-    clock_origin: Instant,
+    clock: RecordingSessionClock,
+    first_frame_started_at: Instant,
     minimum_timestamp_ns: u64,
     last_timestamp_ns: Option<u64>,
     next_sequence: u64,
@@ -168,7 +173,10 @@ pub(in crate::recording) struct WindowsWgcRegionFrameSource {
 }
 
 impl WindowsWgcRegionFrameSource {
-    pub fn connect(selection: RecordingCaptureSpec) -> Result<Self, WindowsFrameSourceError> {
+    pub fn connect(
+        selection: RecordingCaptureSpec,
+        clock: RecordingSessionClock,
+    ) -> Result<Self, WindowsFrameSourceError> {
         validate_selection(selection)?;
         let monitor = exact_monitor(selection.monitor_id)?;
         let descriptor = monitor_descriptor(selection, &monitor)?;
@@ -177,14 +185,13 @@ impl WindowsWgcRegionFrameSource {
             .map_err(|error| WindowsFrameSourceError::Initialize(error.to_string()))?;
         let bridge = Arc::new(FrameBridge::default());
         let thread_bridge = Arc::clone(&bridge);
-        let clock_origin = Instant::now();
+        let callback_clock = clock.clone();
         let bridge_thread = thread::Builder::new()
             .name("clippy-recording-wgc-bridge".to_string())
             .spawn(move || {
                 let mut last_timestamp_ns = None;
                 while let Ok(frame) = frames.recv() {
-                    let sampled =
-                        clock_origin.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64;
+                    let sampled = callback_clock.now_ns();
                     let captured_at_ns = last_timestamp_ns
                         .and_then(|last: u64| last.checked_add(1))
                         .map_or(sampled, |next| sampled.max(next));
@@ -206,7 +213,8 @@ impl WindowsWgcRegionFrameSource {
             bridge_thread: Some(bridge_thread),
             selection,
             descriptor,
-            clock_origin,
+            clock,
+            first_frame_started_at: Instant::now(),
             minimum_timestamp_ns: 0,
             last_timestamp_ns: None,
             next_sequence: 0,
@@ -226,11 +234,7 @@ impl WindowsWgcRegionFrameSource {
     }
 
     fn next_timestamp_ns(&self) -> Result<u64, WindowsFrameSourceError> {
-        let sampled = self
-            .clock_origin
-            .elapsed()
-            .as_nanos()
-            .min(u128::from(u64::MAX)) as u64;
+        let sampled = self.clock.now_ns();
         match self.last_timestamp_ns {
             Some(last) => Ok(sampled.max(
                 last.checked_add(1)
@@ -269,7 +273,7 @@ impl WindowsWgcRegionFrameSource {
         timeout: Duration,
     ) -> Result<Option<CapturedFrame>, WindowsFrameSourceError> {
         let Some(stamped) = self.bridge.take_after(self.minimum_timestamp_ns, timeout)? else {
-            if self.first_frame && self.clock_origin.elapsed() >= FIRST_FRAME_TIMEOUT {
+            if self.first_frame && self.first_frame_started_at.elapsed() >= FIRST_FRAME_TIMEOUT {
                 return Err(WindowsFrameSourceError::FirstFrameTimeout);
             }
             return Ok(None);

@@ -11,6 +11,7 @@ use crate::pipewire_frame::{
     enum_format_pod, frame_from_buffer, init_pipewire, parse_video_format, PipeWireRgbaFrame,
 };
 use crate::recording::authorization::RecordingAuthorizationCancellation;
+use crate::recording::clock::RecordingSessionClock;
 use crate::recording::frame::{CapturedFrame, FrameError};
 use crate::recording::worker::RecordingFrameSource;
 use anyhow::Context;
@@ -194,8 +195,9 @@ impl WaylandPortalFrameSourcePlan {
     pub fn connect(
         self,
         target: WaylandPortalControlTarget,
+        clock: RecordingSessionClock,
     ) -> Result<WaylandPortalRegionFrameSource, WaylandFrameSourceError> {
-        WaylandPortalRegionFrameSource::connect(self, target)
+        WaylandPortalRegionFrameSource::connect(self, target, clock)
     }
 }
 
@@ -461,7 +463,7 @@ impl PipeWireThread {
         node_id: u32,
         remote: OwnedFd,
         bridge: Arc<FrameBridge>,
-        clock_origin: Instant,
+        clock: RecordingSessionClock,
         expected_size: (u32, u32),
     ) -> Result<Self, WaylandFrameSourceError> {
         let (commands, receiver) = pw::channel::channel();
@@ -475,7 +477,7 @@ impl PipeWireThread {
                     remote,
                     receiver,
                     Arc::clone(&thread_bridge),
-                    clock_origin,
+                    clock,
                     expected_size,
                     initialized_tx,
                 ) {
@@ -561,7 +563,7 @@ fn run_pipewire(
     remote: OwnedFd,
     commands: pw::channel::Receiver<PipeWireCommand>,
     bridge: Arc<FrameBridge>,
-    clock_origin: Instant,
+    clock: RecordingSessionClock,
     expected_size: (u32, u32),
     initialized: SyncSender<Result<(), String>>,
 ) -> Result<(), String> {
@@ -584,7 +586,7 @@ fn run_pipewire(
                 format: None,
                 bridge: Arc::clone(&bridge),
                 mainloop: mainloop.clone(),
-                clock_origin,
+                clock,
                 last_timestamp_ns: None,
                 expected_width: expected_size.0,
                 expected_height: expected_size.1,
@@ -671,7 +673,7 @@ struct PipeWireUserData {
     format: Option<VideoInfoRaw>,
     bridge: Arc<FrameBridge>,
     mainloop: pw::main_loop::MainLoopRc,
-    clock_origin: Instant,
+    clock: RecordingSessionClock,
     last_timestamp_ns: Option<u64>,
     expected_width: u32,
     expected_height: u32,
@@ -687,11 +689,7 @@ impl PipeWireUserData {
         };
         match frame_from_buffer(&mut buffer, info) {
             Ok(frame) => {
-                let sampled = self
-                    .clock_origin
-                    .elapsed()
-                    .as_nanos()
-                    .min(u128::from(u64::MAX)) as u64;
+                let sampled = self.clock.now_ns();
                 let captured_at_ns = self
                     .last_timestamp_ns
                     .and_then(|last| last.checked_add(1))
@@ -716,7 +714,8 @@ pub(in crate::recording) struct WaylandPortalRegionFrameSource {
     bridge: Arc<FrameBridge>,
     selection: RecordingCaptureSpec,
     descriptor: RecordingSourceDescriptor,
-    clock_origin: Instant,
+    clock: RecordingSessionClock,
+    first_frame_started_at: Instant,
     minimum_timestamp_ns: u64,
     last_timestamp_ns: Option<u64>,
     next_sequence: u64,
@@ -728,6 +727,7 @@ impl WaylandPortalRegionFrameSource {
     fn connect(
         plan: WaylandPortalFrameSourcePlan,
         target: WaylandPortalControlTarget,
+        clock: RecordingSessionClock,
     ) -> Result<Self, WaylandFrameSourceError> {
         let current = WaylandPortalFrameSourcePlan::prepare(plan.selection)?;
         if current.expected != plan.expected || current.descriptor != plan.descriptor {
@@ -745,12 +745,11 @@ impl WaylandPortalRegionFrameSource {
             session: Some(session),
         };
         let bridge = Arc::new(FrameBridge::default());
-        let clock_origin = Instant::now();
         let pipewire = PipeWireThread::spawn(
             node_id,
             remote,
             Arc::clone(&bridge),
-            clock_origin,
+            clock.clone(),
             (
                 plan.selection.monitor_pixel_width,
                 plan.selection.monitor_pixel_height,
@@ -762,7 +761,8 @@ impl WaylandPortalRegionFrameSource {
             bridge,
             selection: plan.selection,
             descriptor: plan.descriptor,
-            clock_origin,
+            clock,
+            first_frame_started_at: Instant::now(),
             minimum_timestamp_ns: 0,
             last_timestamp_ns: None,
             next_sequence: 0,
@@ -776,11 +776,7 @@ impl WaylandPortalRegionFrameSource {
     }
 
     fn next_timestamp_ns(&self) -> Result<u64, WaylandFrameSourceError> {
-        let sampled = self
-            .clock_origin
-            .elapsed()
-            .as_nanos()
-            .min(u128::from(u64::MAX)) as u64;
+        let sampled = self.clock.now_ns();
         match self.last_timestamp_ns {
             Some(last) => Ok(sampled.max(
                 last.checked_add(1)
@@ -812,7 +808,7 @@ impl WaylandPortalRegionFrameSource {
         timeout: Duration,
     ) -> Result<Option<CapturedFrame>, WaylandFrameSourceError> {
         let Some(stamped) = self.bridge.take_after(self.minimum_timestamp_ns, timeout)? else {
-            if self.first_frame && self.clock_origin.elapsed() >= FIRST_FRAME_TIMEOUT {
+            if self.first_frame && self.first_frame_started_at.elapsed() >= FIRST_FRAME_TIMEOUT {
                 return Err(WaylandFrameSourceError::FirstFrameTimeout);
             }
             return Ok(None);
