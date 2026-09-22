@@ -505,6 +505,7 @@ mod tests {
         std::collections::VecDeque,
         std::error::Error,
         std::fmt,
+        std::sync::mpsc,
         std::thread,
         std::time::Duration,
     };
@@ -688,6 +689,7 @@ mod tests {
     #[cfg(feature = "recording-opus-webm")]
     struct AvVideoSource {
         frames: VecDeque<CapturedFrame>,
+        progress: Option<mpsc::Sender<()>>,
     }
 
     #[cfg(feature = "recording-opus-webm")]
@@ -699,7 +701,13 @@ mod tests {
         }
 
         fn capture_next_available(&mut self) -> Result<Option<CapturedFrame>, Self::Error> {
-            Ok(self.frames.pop_front())
+            let frame = self.frames.pop_front();
+            if frame.is_some() {
+                if let Some(progress) = &self.progress {
+                    let _ = progress.send(());
+                }
+            }
+            Ok(frame)
         }
 
         fn control_timestamp_ns(&mut self) -> Result<u64, Self::Error> {
@@ -710,6 +718,7 @@ mod tests {
     #[cfg(feature = "recording-opus-webm")]
     struct AvAudioSource {
         chunks: VecDeque<CapturedAudioChunk>,
+        progress: Option<mpsc::Sender<()>>,
     }
 
     #[cfg(feature = "recording-opus-webm")]
@@ -721,6 +730,11 @@ mod tests {
             timeout: Duration,
         ) -> Result<Option<CapturedAudioChunk>, Self::Error> {
             let chunk = self.chunks.pop_front();
+            if chunk.is_some() {
+                if let Some(progress) = &self.progress {
+                    let _ = progress.send(());
+                }
+            }
             if chunk.is_none() {
                 thread::sleep(timeout);
             }
@@ -756,6 +770,8 @@ mod tests {
     fn manager_owns_and_stops_the_av_session_in_the_same_generation_slot() {
         let temporary = tempfile::tempdir().unwrap();
         let manager = RecordingManager::new();
+        let (video_progress, video_events) = mpsc::channel();
+        let (audio_progress, audio_events) = mpsc::channel();
         let config = AvRecordingConfig {
             session_id: "manager-av".to_string(),
             source_id: "fixture-av".to_string(),
@@ -772,9 +788,9 @@ mod tests {
             .start_av_with_factories(
                 temporary.path(),
                 config,
-                |_| {
+                move |_| {
                     Ok(AvVideoSource {
-                        frames: (0..4)
+                        frames: (0..3)
                             .map(|sequence| CapturedFrame {
                                 sequence,
                                 captured_at_ns: sequence * 100_000_000,
@@ -784,9 +800,10 @@ mod tests {
                                 rgba: vec![sequence as u8; 16].into_boxed_slice(),
                             })
                             .collect(),
+                        progress: Some(video_progress),
                     })
                 },
-                |_| {
+                move |_| {
                     Ok(AvAudioSource {
                         chunks: (0..4)
                             .map(|sequence| CapturedAudioChunk {
@@ -797,6 +814,7 @@ mod tests {
                                 samples: vec![0.1; 9_600].into_boxed_slice(),
                             })
                             .collect(),
+                        progress: Some(audio_progress),
                     })
                 },
             )
@@ -805,7 +823,16 @@ mod tests {
             manager.status().unwrap(),
             RecordingManagerStatus::Recording(token.clone())
         );
-        thread::sleep(Duration::from_millis(360));
+        for _ in 0..3 {
+            video_events
+                .recv_timeout(Duration::from_secs(5))
+                .expect("视频 fixture 应在预算内交付全部帧");
+        }
+        for _ in 0..4 {
+            audio_events
+                .recv_timeout(Duration::from_secs(5))
+                .expect("音频 fixture 应在预算内交付全部块");
+        }
 
         let report = manager.stop(&token).unwrap();
         assert_eq!(report.segment_paths.len(), 2);
@@ -849,6 +876,7 @@ mod tests {
                                 rgba: vec![sequence as u8; 16].into_boxed_slice(),
                             })
                             .collect(),
+                        progress: None,
                     })
                 },
                 |_| Ok(FailedAvAudioSource),

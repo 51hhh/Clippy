@@ -425,7 +425,7 @@ mod tests {
     use std::error::Error;
     use std::fmt;
     use std::fs;
-    use std::sync::Mutex;
+    use std::sync::{mpsc, Mutex};
     use std::thread;
     use std::time::Duration;
 
@@ -444,6 +444,7 @@ mod tests {
         frames: VecDeque<CapturedFrame>,
         stop_at_ns: u64,
         hooks: Option<Arc<Mutex<Vec<&'static str>>>>,
+        progress: Option<mpsc::Sender<()>>,
     }
 
     impl RecordingFrameSource for SessionVideoSource {
@@ -456,7 +457,13 @@ mod tests {
         }
 
         fn capture_next_available(&mut self) -> Result<Option<CapturedFrame>, Self::Error> {
-            Ok(self.frames.pop_front())
+            let frame = self.frames.pop_front();
+            if frame.is_some() {
+                if let Some(progress) = &self.progress {
+                    let _ = progress.send(());
+                }
+            }
+            Ok(frame)
         }
 
         fn control_timestamp_ns(&mut self) -> Result<u64, Self::Error> {
@@ -489,6 +496,7 @@ mod tests {
         chunks: VecDeque<CapturedAudioChunk>,
         stop_at_ns: u64,
         hooks: Option<Arc<Mutex<Vec<&'static str>>>>,
+        progress: Option<mpsc::Sender<()>>,
     }
 
     impl RecordingAudioSource for SessionAudioSource {
@@ -499,6 +507,11 @@ mod tests {
             timeout: Duration,
         ) -> Result<Option<CapturedAudioChunk>, Self::Error> {
             let chunk = self.chunks.pop_front();
+            if chunk.is_some() {
+                if let Some(progress) = &self.progress {
+                    let _ = progress.send(());
+                }
+            }
             if chunk.is_none() {
                 thread::sleep(timeout);
             }
@@ -552,21 +565,22 @@ mod tests {
         }
     }
 
-    fn video_source(hooks: Option<Arc<Mutex<Vec<&'static str>>>>) -> SessionVideoSource {
+    fn video_source(
+        hooks: Option<Arc<Mutex<Vec<&'static str>>>>,
+        progress: Option<mpsc::Sender<()>>,
+    ) -> SessionVideoSource {
         SessionVideoSource {
-            frames: [
-                frame(0, 0),
-                frame(1, 100_000_000),
-                frame(2, 200_000_000),
-                frame(3, 300_000_000),
-            ]
-            .into(),
+            frames: [frame(0, 0), frame(1, 100_000_000), frame(2, 200_000_000)].into(),
             stop_at_ns: 400_000_000,
             hooks,
+            progress,
         }
     }
 
-    fn audio_source(hooks: Option<Arc<Mutex<Vec<&'static str>>>>) -> SessionAudioSource {
+    fn audio_source(
+        hooks: Option<Arc<Mutex<Vec<&'static str>>>>,
+        progress: Option<mpsc::Sender<()>>,
+    ) -> SessionAudioSource {
         SessionAudioSource {
             chunks: [
                 chunk(0, 0),
@@ -577,6 +591,7 @@ mod tests {
             .into(),
             stop_at_ns: 400_000_000,
             hooks,
+            progress,
         }
     }
 
@@ -585,6 +600,7 @@ mod tests {
             frames: [frame(0, 0)].into(),
             stop_at_ns: 700_000_000,
             hooks: Some(hooks),
+            progress: None,
         }
     }
 
@@ -593,6 +609,7 @@ mod tests {
             chunks: [chunk(0, 0)].into(),
             stop_at_ns: 700_000_000,
             hooks: Some(hooks),
+            progress: None,
         }
     }
 
@@ -614,23 +631,34 @@ mod tests {
     #[test]
     fn owns_both_capture_tracks_and_commits_only_after_report_validation() {
         let temporary = tempfile::tempdir().unwrap();
+        let (video_progress, video_events) = mpsc::channel();
+        let (audio_progress, audio_events) = mpsc::channel();
         let session = AvRecordingSession::start_with_factories(
             temporary.path(),
             config("av-session-complete"),
-            |_| Ok(video_source(None)),
-            |_| Ok(audio_source(None)),
+            move |_| Ok(video_source(None, Some(video_progress))),
+            move |_| Ok(audio_source(None, Some(audio_progress))),
         )
         .unwrap();
         let session_directory = session.session_directory().to_path_buf();
-        thread::sleep(Duration::from_millis(360));
+        for _ in 0..3 {
+            video_events
+                .recv_timeout(Duration::from_secs(5))
+                .expect("视频 fixture 应在预算内交付全部帧");
+        }
+        for _ in 0..4 {
+            audio_events
+                .recv_timeout(Duration::from_secs(5))
+                .expect("音频 fixture 应在预算内交付全部块");
+        }
 
         let report = session.stop().unwrap();
         assert_eq!(report.segment_paths.len(), 2);
         assert!(report.final_output_path.is_some());
         assert_eq!(report.duration_ns, 400_000_000);
-        assert_eq!(report.video_captured_frames, 4);
-        assert_eq!(report.video_accepted_frames, 4);
-        assert_eq!(report.video_encoder_input_frames, 4);
+        assert_eq!(report.video_captured_frames, 3);
+        assert_eq!(report.video_accepted_frames, 3);
+        assert_eq!(report.video_encoder_input_frames, 3);
         assert_eq!(report.video_encoded_frames, 4);
         assert_eq!(report.video_dropped_by_backpressure, 0);
         assert_eq!(report.audio_captured_chunks, 4);
@@ -690,7 +718,7 @@ mod tests {
         let result = AvRecordingSession::start_with_factories(
             temporary.path(),
             config("av-session-start-failure"),
-            |_| Ok(video_source(None)),
+            |_| Ok(video_source(None, None)),
             |_| Err::<SessionAudioSource, _>("audio fixture unavailable".to_string()),
         );
         assert!(matches!(
