@@ -28,6 +28,8 @@ mod windows_audio_contract;
 pub(super) mod x11;
 
 use super::audio::CapturedAudioChunk;
+use super::audio_devices::NativeRecordingAudioDevice;
+use super::audio_devices::ResolvedRecordingAudioDevices;
 use super::audio_worker::RecordingAudioSource;
 use super::clock::RecordingSessionClock;
 use super::frame::CapturedFrame;
@@ -142,6 +144,30 @@ pub(super) enum PlatformAudioSourceKind {
     SystemAndMicrophone,
 }
 
+pub(super) fn enumerate_recording_audio_devices() -> Result<Vec<NativeRecordingAudioDevice>, String>
+{
+    #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
+    {
+        linux_audio::enumerate_recording_audio_devices().map_err(|error| error.to_string())
+    }
+    #[cfg(all(target_os = "windows", feature = "recording-windows-av-qa"))]
+    {
+        windows_audio::enumerate_recording_audio_devices().map_err(|error| error.to_string())
+    }
+    #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
+    {
+        macos::enumerate_recording_audio_devices().map_err(|error| error.to_string())
+    }
+    #[cfg(not(any(
+        all(target_os = "linux", feature = "recording-linux-av-qa"),
+        all(target_os = "windows", feature = "recording-windows-av-qa"),
+        all(target_os = "macos", feature = "recording-macos-av-qa")
+    )))]
+    {
+        Ok(Vec::new())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(super) enum PlatformAudioSourcePlan {
     /// 只为让默认/无音频编译图保持封闭；可信入口不会构造这个分支。
@@ -244,10 +270,11 @@ impl PlatformFrameSourcePlan {
     pub fn audio_plan(
         &self,
         _kind: PlatformAudioSourceKind,
+        _devices: &ResolvedRecordingAudioDevices,
     ) -> Result<PlatformAudioSourcePlan, PlatformAudioSourceError> {
         if _kind == PlatformAudioSourceKind::SystemAndMicrophone {
-            let system = self.audio_plan(PlatformAudioSourceKind::SystemAudio)?;
-            let microphone = self.audio_plan(PlatformAudioSourceKind::Microphone)?;
+            let system = self.audio_plan(PlatformAudioSourceKind::SystemAudio, _devices)?;
+            let microphone = self.audio_plan(PlatformAudioSourceKind::Microphone, _devices)?;
             if system.channels() != 2 || microphone.channels() != 2 {
                 return Err(PlatformAudioSourceError::Unsupported);
             }
@@ -260,20 +287,28 @@ impl PlatformFrameSourcePlan {
             #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
             Self::X11(_) | Self::Wayland(_) => Ok(PlatformAudioSourcePlan::Linux(match _kind {
                 PlatformAudioSourceKind::SystemAudio => {
-                    linux_audio::LinuxPipeWireAudioSourcePlan::system_audio()
+                    linux_audio::LinuxPipeWireAudioSourcePlan::system_audio(
+                        _devices.system_native_id.clone(),
+                    )
                 }
                 PlatformAudioSourceKind::Microphone => {
-                    linux_audio::LinuxPipeWireAudioSourcePlan::default_microphone()
+                    linux_audio::LinuxPipeWireAudioSourcePlan::microphone(
+                        _devices.microphone_native_id.clone(),
+                    )
                 }
                 PlatformAudioSourceKind::SystemAndMicrophone => unreachable!("已在上方处理"),
             })),
             #[cfg(all(target_os = "windows", feature = "recording-windows-av-qa"))]
             Self::Windows(_) => Ok(PlatformAudioSourcePlan::Windows(match _kind {
                 PlatformAudioSourceKind::SystemAudio => {
-                    windows_audio::WindowsWasapiAudioSourcePlan::system_loopback()
+                    windows_audio::WindowsWasapiAudioSourcePlan::system_loopback(
+                        _devices.system_native_id.clone(),
+                    )
                 }
                 PlatformAudioSourceKind::Microphone => {
-                    windows_audio::WindowsWasapiAudioSourcePlan::default_microphone()
+                    windows_audio::WindowsWasapiAudioSourcePlan::microphone(
+                        _devices.microphone_native_id.clone(),
+                    )
                 }
                 PlatformAudioSourceKind::SystemAndMicrophone => unreachable!("已在上方处理"),
             })),
@@ -283,7 +318,10 @@ impl PlatformFrameSourcePlan {
                     macos::MacScreenCaptureKitAudioSourcePlan::system_audio(plan),
                 )),
                 PlatformAudioSourceKind::Microphone => Ok(PlatformAudioSourcePlan::Macos(
-                    macos::MacScreenCaptureKitAudioSourcePlan::default_microphone(plan),
+                    macos::MacScreenCaptureKitAudioSourcePlan::microphone(
+                        plan,
+                        _devices.microphone_native_id.clone(),
+                    ),
                 )),
                 PlatformAudioSourceKind::SystemAndMicrophone => unreachable!("已在上方处理"),
             },

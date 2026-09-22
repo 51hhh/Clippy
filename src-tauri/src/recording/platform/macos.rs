@@ -176,8 +176,8 @@ pub(in crate::recording) type MacRegionFrameSource =
 
 #[cfg(feature = "recording-macos-av-qa")]
 pub(in crate::recording) use screencapturekit_audio::{
-    MacScreenCaptureKitAudioSource, MacScreenCaptureKitAudioSourceError,
-    MacScreenCaptureKitAudioSourcePlan,
+    enumerate_recording_audio_devices, MacScreenCaptureKitAudioSource,
+    MacScreenCaptureKitAudioSourceError, MacScreenCaptureKitAudioSourcePlan,
 };
 
 #[cfg(not(feature = "recording-macos-screencapturekit"))]

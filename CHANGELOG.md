@@ -129,6 +129,12 @@
   每路固定 −6 dB 混为现有单条 stereo Opus 音轨。暂停会丢弃两路未提交样本；正常停止会混入
   两路有限尾块，平台包装层也会继续上交重采样尾帧。默认/release、schema v2 与单音源行为不变，
   三平台权限、设备消失、听感及 30 分钟漂移仍待同一 SHA 真机验收。（需求：`PX-REC-AUDIO-MIX-01`）
+- 录屏音频 QA 包现在可在开始前选择非默认设备：Windows 枚举活动输出与输入 endpoint，Linux
+  枚举 PipeWire sink/source，macOS 15+ 枚举麦克风；macOS 系统声继续遵循系统默认。原生设备
+  身份只保留在 caller 绑定、一次消费且全局有界的 Rust 目录中，WebView 只取得短期不透明 token。
+  显式设备会固定进本次 source plan，开始前消失时明确失败而不回退；目录枚举失败仍可选择跟随
+  系统默认。默认/release 仍不启用录屏，三平台非默认设备、同名设备、拔出与长时漂移待真机验收。
+  （需求：`PX-REC-AUDIO-DEVICE-01`）
 - 录屏结果库现在支持 VP9 + Opus 双轨首帧缩略图：完整会话读取最终 WebM，中断会话读取首个已
   提交分段；后端先核对 schema v2、轨道编号、OpusHead、48 kHz 声道、CodecDelay 与 SeekPreRoll，
   再只解码首个 VP9 关键帧，不解码音频或遍历完整文件。单轨行为、私有 PNG 缓存和前端懒加载保持

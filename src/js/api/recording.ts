@@ -5,6 +5,7 @@ import type {
   RecordingLibrarySettings,
   RecordingPlaybackLease,
   RecordingAudioMode,
+  RecordingAudioSelection,
   RecordingStartCapabilities,
   RecordingStopResult,
 } from "../ipc-types.ts";
@@ -15,10 +16,35 @@ const RECORDING_AUDIO_MODES = new Set<RecordingAudioMode>([
   "microphone",
   "systemAndMicrophone",
 ]);
+const AUDIO_CATALOG_ID = /^audio-catalog-[a-f0-9]{16}$/;
+const AUDIO_DEVICE_ID = /^audio-device-[a-f0-9]{16}-[a-f0-9]{2}$/;
+
+function validDeviceSummary(value: unknown): value is {
+  id: string;
+  label: string;
+  isDefault: boolean;
+} {
+  if (!value || typeof value !== "object") return false;
+  const device = value as { id?: unknown; label?: unknown; isDefault?: unknown };
+  return typeof device.id === "string"
+    && AUDIO_DEVICE_ID.test(device.id)
+    && typeof device.label === "string"
+    && device.label.length > 0
+    && Array.from(device.label).length <= 160
+    && !/[\u0000-\u001f\u007f]/u.test(device.label)
+    && typeof device.isDefault === "boolean";
+}
 
 export async function getRecordingStartCapabilities(): Promise<RecordingStartCapabilities> {
   const capabilities = await invoke<RecordingStartCapabilities>("get_recording_start_capabilities");
   const audioModes = capabilities?.audioModes;
+  const catalog = capabilities?.deviceCatalog;
+  const systemAudioDevices = catalog?.systemAudioDevices;
+  const microphoneDevices = catalog?.microphoneDevices;
+  const deviceIds = [
+    ...(Array.isArray(systemAudioDevices) ? systemAudioDevices : []),
+    ...(Array.isArray(microphoneDevices) ? microphoneDevices : []),
+  ].map((device) => device?.id);
   if (
     !Array.isArray(audioModes)
     || audioModes.length < 1
@@ -26,21 +52,60 @@ export async function getRecordingStartCapabilities(): Promise<RecordingStartCap
     || audioModes[0] !== "none"
     || new Set(audioModes).size !== audioModes.length
     || audioModes.some((mode) => !RECORDING_AUDIO_MODES.has(mode))
+    || !catalog
+    || typeof catalog.catalogId !== "string"
+    || !AUDIO_CATALOG_ID.test(catalog.catalogId)
+    || !Array.isArray(systemAudioDevices)
+    || systemAudioDevices.length > 64
+    || systemAudioDevices.some((device) => !validDeviceSummary(device))
+    || !Array.isArray(microphoneDevices)
+    || microphoneDevices.length > 64
+    || microphoneDevices.some((device) => !validDeviceSummary(device))
+    || new Set(deviceIds).size !== deviceIds.length
+    || typeof capabilities.deviceEnumerationFailed !== "boolean"
   ) {
     throw new Error("recording.invalid_start_capabilities");
   }
-  return { audioModes: [...audioModes] };
+  return {
+    audioModes: [...audioModes],
+    deviceCatalog: {
+      catalogId: catalog.catalogId,
+      systemAudioDevices: systemAudioDevices.map((device) => ({ ...device })),
+      microphoneDevices: microphoneDevices.map((device) => ({ ...device })),
+    },
+    deviceEnumerationFailed: capabilities.deviceEnumerationFailed,
+  };
 }
 
 /** 从后端签发的 Recording 覆盖层提交逻辑选区；物理 crop 与编码策略仍由后端决定。 */
 export function startCaptureRecording(
   selection: CaptureSelection,
-  audioMode: RecordingAudioMode,
+  audioSelection: RecordingAudioSelection,
 ): Promise<void> {
-  if (!RECORDING_AUDIO_MODES.has(audioMode)) {
+  const mode = audioSelection?.mode;
+  const catalogId = audioSelection?.catalogId;
+  const systemDeviceId = audioSelection?.systemDeviceId;
+  const microphoneDeviceId = audioSelection?.microphoneDeviceId;
+  const tokenShapeValid = (value: unknown) => value === null
+    || (typeof value === "string" && AUDIO_DEVICE_ID.test(value));
+  const modeShapeValid = mode === "none"
+    ? systemDeviceId === null && microphoneDeviceId === null
+    : mode === "systemAudio"
+      ? microphoneDeviceId === null
+      : mode === "microphone"
+        ? systemDeviceId === null
+        : mode === "systemAndMicrophone";
+  if (
+    !RECORDING_AUDIO_MODES.has(mode)
+    || !modeShapeValid
+    || !(catalogId === null || (typeof catalogId === "string" && AUDIO_CATALOG_ID.test(catalogId)))
+    || !tokenShapeValid(systemDeviceId)
+    || !tokenShapeValid(microphoneDeviceId)
+    || ((systemDeviceId !== null || microphoneDeviceId !== null) && catalogId === null)
+  ) {
     return Promise.reject(new Error("recording.invalid_audio_mode"));
   }
-  return invoke<void>("start_capture_recording", { selection, audioMode });
+  return invoke<void>("start_capture_recording", { selection, audioSelection });
 }
 
 /** 录屏控制页已完成首帧布局；caller label 由 Tauri 注入。 */

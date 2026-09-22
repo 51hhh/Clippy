@@ -18,10 +18,12 @@ VP9 + Opus 可恢复双轨 session；它能生成 schema v2 的最终 WebM 和�
 视频源与 PipeWire 默认系统声/麦克风接入；macOS AV QA 已接入 13+ ScreenCaptureKit 系统声与
 15+ 系统默认麦克风，并把 8–192 kHz 整数原生率以固定 sinc 链归一化为 48 kHz。三个 QA 平台
 均可把系统声与麦克风按公共 48 kHz sample grid、100 ms 水位和每路固定 −6 dB 混入同一音轨。
-录屏选区工具条只显示后端下发的可用模式，默认仍为无音频。结果库可
+录屏选区工具条只显示后端下发的可用模式，默认仍为无音频；显式 QA 构建还会用 caller 绑定的
+不透明目录选择 Windows 输出/输入、Linux PipeWire sink/source 或 macOS 15+ 麦克风，原生设备
+身份不会进入 WebView。结果库可
 严格校验这类双轨 WebM，并只解码 VP9 首关键帧生成持久缩略图；异常双轨分段可保留 VP9 packet、
 逐段还原真实 PCM 后连续重编码 Opus，恢复为一个完整 WebM。
-非默认设备选择和默认发布仍未接入，Linux/Windows/macOS 真机设备、权限与长时漂移仍待验收。
+录制中设备热切换和默认发布仍未接入，Linux/Windows/macOS 真机设备、权限与长时漂移仍待验收。
 macOS Intel/Apple Silicon QA 包已生成；Wayland 使用可信 Portal 父窗口和托盘控制，但两者的原生
 真机录制仍待验收，不能记为发布可用。
 增强 OCR 运行时需要显式配置，未随三平台安装包默认分发；交付边界见

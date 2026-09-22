@@ -6,6 +6,7 @@
 use super::screencapturekit::{request_shareable_content, unique_display};
 use super::MacRegionFrameSourcePlan;
 use crate::recording::audio::{AudioFormat, CapturedAudioChunk, AUDIO_SAMPLE_RATE_HZ};
+use crate::recording::audio_devices::{NativeRecordingAudioDevice, RecordingAudioDeviceKind};
 use crate::recording::audio_worker::RecordingAudioSource;
 use crate::recording::clock::RecordingSessionClock;
 use crate::recording::platform::macos_audio_contract::{
@@ -17,6 +18,10 @@ use crate::recording::platform::macos_audio_resampler::{
 use block2::RcBlock;
 use dispatch2::{DispatchQueue, DispatchQueueAttr, DispatchRetained};
 use objc2::{define_class, rc::Retained, runtime::ProtocolObject, AllocAnyThread, DefinedClass};
+use objc2_av_foundation::{
+    AVCaptureDevice, AVCaptureDeviceDiscoverySession, AVCaptureDevicePosition,
+    AVCaptureDeviceTypeMicrophone, AVMediaTypeAudio,
+};
 use objc2_core_audio_types::{
     kAudioFormatFlagIsBigEndian, kAudioFormatFlagIsFloat, kAudioFormatFlagIsNonInterleaved,
     kAudioFormatFlagIsPacked, kAudioFormatLinearPCM, AudioBuffer, AudioBufferList,
@@ -96,10 +101,11 @@ impl MacAudioSourceKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::recording) struct MacScreenCaptureKitAudioSourcePlan {
     monitor_id: u32,
     kind: MacAudioSourceKind,
+    microphone_device_id: Option<String>,
 }
 
 impl MacScreenCaptureKitAudioSourcePlan {
@@ -107,13 +113,15 @@ impl MacScreenCaptureKitAudioSourcePlan {
         Self {
             monitor_id: plan.selection.monitor_id,
             kind: MacAudioSourceKind::SystemAudio,
+            microphone_device_id: None,
         }
     }
 
-    pub fn default_microphone(plan: &MacRegionFrameSourcePlan) -> Self {
+    pub fn microphone(plan: &MacRegionFrameSourcePlan, device_id: Option<String>) -> Self {
         Self {
             monitor_id: plan.selection.monitor_id,
             kind: MacAudioSourceKind::DefaultMicrophone,
+            microphone_device_id: device_id,
         }
     }
 
@@ -127,6 +135,41 @@ impl MacScreenCaptureKitAudioSourcePlan {
     ) -> Result<MacScreenCaptureKitAudioSource, MacScreenCaptureKitAudioSourceError> {
         MacScreenCaptureKitAudioSource::connect(self, clock)
     }
+}
+
+pub(in crate::recording) fn enumerate_recording_audio_devices(
+) -> Result<Vec<NativeRecordingAudioDevice>, MacScreenCaptureKitAudioSourceError> {
+    if !crate::recording::macos_screencapturekit_microphone_runtime_available() {
+        return Ok(Vec::new());
+    }
+    let media_type = unsafe { AVMediaTypeAudio }.ok_or_else(|| {
+        MacScreenCaptureKitAudioSourceError::Initialize(
+            "AVFoundation 没有提供 AVMediaTypeAudio".to_string(),
+        )
+    })?;
+    let default_id = unsafe { AVCaptureDevice::defaultDeviceWithMediaType(media_type) }
+        .map(|device| unsafe { device.uniqueID() }.to_string());
+    let device_types = NSArray::from_slice(&[unsafe { AVCaptureDeviceTypeMicrophone }]);
+    let discovery = unsafe {
+        AVCaptureDeviceDiscoverySession::discoverySessionWithDeviceTypes_mediaType_position(
+            &device_types,
+            Some(media_type),
+            AVCaptureDevicePosition::Unspecified,
+        )
+    };
+    let devices = unsafe { discovery.devices() };
+    let mut result = Vec::with_capacity(devices.count());
+    for index in 0..devices.count() {
+        let device = devices.objectAtIndex(index);
+        let native_id = unsafe { device.uniqueID() }.to_string();
+        result.push(NativeRecordingAudioDevice {
+            kind: RecordingAudioDeviceKind::Microphone,
+            label: unsafe { device.localizedName() }.to_string(),
+            is_default: default_id.as_deref() == Some(native_id.as_str()),
+            native_id,
+        });
+    }
+    Ok(result)
 }
 
 struct NativeAudioPacket {
@@ -299,6 +342,10 @@ impl MacScreenCaptureKitAudioSource {
                 unsafe {
                     configuration.setCapturesAudio(native_configuration.captures_system_audio);
                     configuration.setCaptureMicrophone(native_configuration.captures_microphone);
+                    if let Some(device_id) = &plan.microphone_device_id {
+                        let device_id = objc2_foundation::NSString::from_str(device_id);
+                        configuration.setMicrophoneCaptureDeviceID(Some(&device_id));
+                    }
                 }
             }
         }
@@ -789,10 +836,12 @@ mod tests {
         let system = MacScreenCaptureKitAudioSourcePlan {
             monitor_id: 7,
             kind: MacAudioSourceKind::SystemAudio,
+            microphone_device_id: None,
         };
         let microphone = MacScreenCaptureKitAudioSourcePlan {
             monitor_id: 7,
             kind: MacAudioSourceKind::DefaultMicrophone,
+            microphone_device_id: Some("external-mic".to_string()),
         };
 
         assert_eq!(system.monitor_id, microphone.monitor_id);
@@ -809,6 +858,10 @@ mod tests {
         );
         assert!(!microphone.kind.native_configuration().captures_system_audio);
         assert!(microphone.kind.native_configuration().captures_microphone);
+        assert_eq!(
+            microphone.microphone_device_id.as_deref(),
+            Some("external-mic")
+        );
         assert_eq!(system.channels(), OUTPUT_CHANNELS);
         assert_eq!(microphone.channels(), OUTPUT_CHANNELS);
     }

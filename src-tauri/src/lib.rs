@@ -167,6 +167,8 @@ pub fn run() {
             let longshot_windows = Arc::new(capture::LongshotControllerRegistry::new());
             let recording_lifecycle = Arc::new(recording::RecordingLifecycle::new());
             let recording_controls = Arc::new(recording::RecordingControlRegistry::new());
+            let recording_audio_devices =
+                Arc::new(recording::RecordingAudioDeviceCatalog::new());
             let translation = Arc::new(translation::TranslationService::new());
             #[cfg(target_os = "linux")]
             let portal_shortcuts = platform::uses_portal_shortcuts().then(|| {
@@ -214,6 +216,7 @@ pub fn run() {
                 longshot_windows,
                 recording_lifecycle,
                 recording_controls,
+                recording_audio_devices,
                 recording_media: Arc::new(recording::RecordingMediaManager::default()),
                 recording_thumbnails: Arc::new(recording::RecordingThumbnailManager::default()),
                 #[cfg(feature = "recording-vp9-prototype")]

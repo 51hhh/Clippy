@@ -34,6 +34,8 @@ import type {
   OverlayTool,
   Point,
   RecordingAudioMode,
+  RecordingAudioDeviceCatalog,
+  RecordingStartCapabilities,
   Rect,
   ResizeHandle,
 } from "./types";
@@ -146,6 +148,11 @@ export function App({ services = defaultServices }: { services?: CaptureAppServi
   const [recordingAudioModes, setRecordingAudioModes] =
     useState<RecordingAudioMode[]>(NO_RECORDING_AUDIO);
   const [recordingAudioMode, setRecordingAudioMode] = useState<RecordingAudioMode>("none");
+  const [recordingAudioDevices, setRecordingAudioDevices] =
+    useState<RecordingAudioDeviceCatalog | null>(null);
+  const [recordingSystemDeviceId, setRecordingSystemDeviceId] = useState<string | null>(null);
+  const [recordingMicrophoneDeviceId, setRecordingMicrophoneDeviceId] = useState<string | null>(null);
+  const recordingCapabilitiesGeneration = useRef(0);
   const mountedEpoch = useRef(0);
   const translateButtonRef = useRef<HTMLButtonElement>(null);
   const scanButtonRef = useRef<HTMLButtonElement>(null);
@@ -175,32 +182,47 @@ export function App({ services = defaultServices }: { services?: CaptureAppServi
     overlayApi.ready(label).catch((reason) => console.warn("覆盖层显示失败", reason));
   }, [label]);
 
+  const applyRecordingCapabilities = useCallback((capabilities: RecordingStartCapabilities) => {
+    setRecordingAudioModes(capabilities.audioModes);
+    setRecordingAudioDevices(capabilities.deviceCatalog);
+    setRecordingSystemDeviceId(null);
+    setRecordingMicrophoneDeviceId(null);
+    setRecordingAudioMode((current) =>
+      capabilities.audioModes.includes(current) ? current : "none",
+    );
+  }, []);
+
+  const resetRecordingCapabilities = useCallback(() => {
+    setRecordingAudioModes(NO_RECORDING_AUDIO);
+    setRecordingAudioMode("none");
+    setRecordingAudioDevices(null);
+    setRecordingSystemDeviceId(null);
+    setRecordingMicrophoneDeviceId(null);
+  }, []);
+
   useEffect(() => {
+    const generation = recordingCapabilitiesGeneration.current + 1;
+    recordingCapabilitiesGeneration.current = generation;
     if (payload?.intent !== "recording") {
-      setRecordingAudioModes(NO_RECORDING_AUDIO);
-      setRecordingAudioMode("none");
+      resetRecordingCapabilities();
       return;
     }
     let cancelled = false;
     overlayApi.recordingCapabilities().then(
       (capabilities) => {
-        if (cancelled) return;
-        setRecordingAudioModes(capabilities.audioModes);
-        setRecordingAudioMode((current) =>
-          capabilities.audioModes.includes(current) ? current : "none",
-        );
+        if (cancelled || recordingCapabilitiesGeneration.current !== generation) return;
+        applyRecordingCapabilities(capabilities);
       },
       (reason) => {
-        if (cancelled) return;
+        if (cancelled || recordingCapabilitiesGeneration.current !== generation) return;
         console.warn("读取录屏音频能力失败", reason);
-        setRecordingAudioModes(NO_RECORDING_AUDIO);
-        setRecordingAudioMode("none");
+        resetRecordingCapabilities();
       },
     );
     return () => {
       cancelled = true;
     };
-  }, [overlayApi, payload?.intent]);
+  }, [applyRecordingCapabilities, overlayApi, payload?.intent, resetRecordingCapabilities]);
 
   const logicalWidth = payload?.logicalWidth || 1;
   const logicalHeight = payload?.logicalHeight || 1;
@@ -758,14 +780,57 @@ export function App({ services = defaultServices }: { services?: CaptureAppServi
     setBusy(true);
     setError(null);
     const epoch = mountedEpoch.current;
-    void overlayApi.startRecording(candidate, recordingAudioMode).catch((reason) => {
+    void overlayApi.startRecording(candidate, {
+      mode: recordingAudioMode,
+      catalogId: recordingAudioDevices?.catalogId ?? null,
+      systemDeviceId: recordingAudioMode === "systemAudio"
+        || recordingAudioMode === "systemAndMicrophone"
+        ? recordingSystemDeviceId
+        : null,
+      microphoneDeviceId: recordingAudioMode === "microphone"
+        || recordingAudioMode === "systemAndMicrophone"
+        ? recordingMicrophoneDeviceId
+        : null,
+    }).catch(async (reason) => {
       if (mountedEpoch.current !== epoch) return;
       console.warn("录屏启动失败", reason);
+      setError(t("capture.recording.startFailed"));
+      // 设备目录是一次性的；任何已到达后端的启动失败都必须换一份目录，避免重试永远提交旧 token。
+      resetRecordingCapabilities();
+      const capabilitiesGeneration = recordingCapabilitiesGeneration.current + 1;
+      recordingCapabilitiesGeneration.current = capabilitiesGeneration;
+      try {
+        const capabilities = await overlayApi.recordingCapabilities();
+        if (
+          mountedEpoch.current !== epoch
+          || recordingCapabilitiesGeneration.current !== capabilitiesGeneration
+        ) return;
+        applyRecordingCapabilities(capabilities);
+      } catch (refreshReason) {
+        if (
+          mountedEpoch.current !== epoch
+          || recordingCapabilitiesGeneration.current !== capabilitiesGeneration
+        ) return;
+        console.warn("录屏启动失败后刷新音频能力失败", refreshReason);
+      }
+      if (
+        mountedEpoch.current !== epoch
+        || recordingCapabilitiesGeneration.current !== capabilitiesGeneration
+      ) return;
       busyRef.current = false;
       setBusy(false);
-      setError(t("capture.recording.startFailed"));
     });
-  }, [payload, recordingAudioMode, selection]);
+  }, [
+    applyRecordingCapabilities,
+    overlayApi,
+    payload,
+    recordingAudioDevices,
+    recordingAudioMode,
+    recordingMicrophoneDeviceId,
+    recordingSystemDeviceId,
+    resetRecordingCapabilities,
+    selection,
+  ]);
 
   const setToolIfEditable = useCallback((next: OverlayTool) => {
     if (!busyRef.current && !outputFailureRef.current && longshotLaunchRef.current !== "pending") setTool(next);
@@ -968,7 +1033,13 @@ export function App({ services = defaultServices }: { services?: CaptureAppServi
               busy={busy}
               audioModes={recordingAudioModes}
               audioMode={recordingAudioMode}
+              systemAudioDevices={recordingAudioDevices?.systemAudioDevices ?? []}
+              microphoneDevices={recordingAudioDevices?.microphoneDevices ?? []}
+              systemDeviceId={recordingSystemDeviceId}
+              microphoneDeviceId={recordingMicrophoneDeviceId}
               onAudioModeChange={setRecordingAudioMode}
+              onSystemDeviceChange={setRecordingSystemDeviceId}
+              onMicrophoneDeviceChange={setRecordingMicrophoneDeviceId}
               onStart={startRecording}
               onCancel={cancel}
             />

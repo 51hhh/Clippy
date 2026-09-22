@@ -116,7 +116,10 @@ if (
 }
 if (
   !cargoToml.includes(
-    'recording-macos-av-qa = [\n    "recording-macos-screencapturekit",\n    "recording-opus-webm",\n    "dep:rubato",\n    "dep:objc2-core-audio-types",\n    "objc2-core-media/objc2-core-audio-types",\n]',
+    'recording-macos-av-qa = [\n    "recording-macos-screencapturekit",\n    "recording-opus-webm",\n    "dep:rubato",\n    "dep:objc2-core-audio-types",\n    "dep:objc2-av-foundation",\n    "objc2-core-media/objc2-core-audio-types",\n]',
+  ) ||
+  !cargoToml.includes(
+    'objc2-av-foundation = { version = "=0.3.2", default-features = false, features = ["AVCaptureDevice", "AVMediaFormat"], optional = true }',
   ) ||
   !cargoToml.includes(
     'objc2-core-audio-types = { version = "=0.3.2", optional = true }',
@@ -126,7 +129,7 @@ if (
   )
 ) {
   throw new Error(
-    "Cargo.toml must keep macOS A/V QA, Rubato and CoreAudioTypes behind the reviewed feature set",
+    "Cargo.toml must keep macOS A/V QA, AVFoundation, Rubato and CoreAudioTypes behind the reviewed feature set",
   );
 }
 const recordingInfoPlist = readFileSync(join(tauriRoot, "Info.recording.plist"), "utf8");

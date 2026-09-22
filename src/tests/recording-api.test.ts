@@ -21,13 +21,28 @@ import {
 describe("recording playback API", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("validates start capabilities and submits only an allowed audio mode", async () => {
-    invoke.mockResolvedValueOnce({
+  const catalog = {
+    catalogId: "audio-catalog-0000000000000001",
+    systemAudioDevices: [{
+      id: "audio-device-0000000000000001-00",
+      label: "Speakers",
+      isDefault: true,
+    }],
+    microphoneDevices: [{
+      id: "audio-device-0000000000000001-01",
+      label: "USB microphone",
+      isDefault: false,
+    }],
+  };
+
+  it("validates start capabilities and submits only opaque device tokens", async () => {
+    const capabilities = {
       audioModes: ["none", "systemAudio", "microphone", "systemAndMicrophone"],
-    });
-    await expect(getRecordingStartCapabilities()).resolves.toEqual({
-      audioModes: ["none", "systemAudio", "microphone", "systemAndMicrophone"],
-    });
+      deviceCatalog: catalog,
+      deviceEnumerationFailed: false,
+    };
+    invoke.mockResolvedValueOnce(capabilities);
+    await expect(getRecordingStartCapabilities()).resolves.toEqual(capabilities);
     expect(invoke).toHaveBeenCalledWith("get_recording_start_capabilities");
 
     const selection = {
@@ -39,17 +54,29 @@ describe("recording playback API", () => {
       height: 40,
     };
     invoke.mockResolvedValueOnce(undefined);
-    await startCaptureRecording(selection, "systemAudio");
+    const systemAudio = {
+      mode: "systemAudio" as const,
+      catalogId: catalog.catalogId,
+      systemDeviceId: catalog.systemAudioDevices[0].id,
+      microphoneDeviceId: null,
+    };
+    await startCaptureRecording(selection, systemAudio);
     expect(invoke).toHaveBeenCalledWith("start_capture_recording", {
       selection,
-      audioMode: "systemAudio",
+      audioSelection: systemAudio,
     });
 
     invoke.mockResolvedValueOnce(undefined);
-    await startCaptureRecording(selection, "systemAndMicrophone");
+    const mixed = {
+      mode: "systemAndMicrophone" as const,
+      catalogId: catalog.catalogId,
+      systemDeviceId: catalog.systemAudioDevices[0].id,
+      microphoneDeviceId: catalog.microphoneDevices[0].id,
+    };
+    await startCaptureRecording(selection, mixed);
     expect(invoke).toHaveBeenCalledWith("start_capture_recording", {
       selection,
-      audioMode: "systemAndMicrophone",
+      audioSelection: mixed,
     });
   });
 
@@ -61,6 +88,28 @@ describe("recording playback API", () => {
       { audioModes: ["systemAudio", "none"] },
       { audioModes: ["none", "none"] },
       { audioModes: ["none", "camera"] },
+      { audioModes: ["none"], deviceCatalog: catalog },
+      {
+        audioModes: ["none"],
+        deviceCatalog: { ...catalog, catalogId: "native-id" },
+        deviceEnumerationFailed: false,
+      },
+      {
+        audioModes: ["none"],
+        deviceCatalog: {
+          ...catalog,
+          microphoneDevices: [{ ...catalog.microphoneDevices[0], label: "bad\nlabel" }],
+        },
+        deviceEnumerationFailed: false,
+      },
+      {
+        audioModes: ["none"],
+        deviceCatalog: {
+          ...catalog,
+          microphoneDevices: [{ ...catalog.microphoneDevices[0], id: catalog.systemAudioDevices[0].id }],
+        },
+        deviceEnumerationFailed: false,
+      },
     ]) {
       invoke.mockResolvedValueOnce(invalid);
       await expect(getRecordingStartCapabilities()).rejects.toThrow(
@@ -68,8 +117,19 @@ describe("recording playback API", () => {
       );
     }
 
-    await expect(startCaptureRecording({} as never, "camera" as never))
+    await expect(startCaptureRecording({} as never, {
+      mode: "camera",
+      catalogId: null,
+      systemDeviceId: null,
+      microphoneDeviceId: null,
+    } as never))
       .rejects.toThrow("invalid_audio_mode");
+    await expect(startCaptureRecording({} as never, {
+      mode: "microphone",
+      catalogId: null,
+      systemDeviceId: catalog.systemAudioDevices[0].id,
+      microphoneDeviceId: null,
+    })).rejects.toThrow("invalid_audio_mode");
   });
 
   it("polls recording worker health through the restricted control command", async () => {

@@ -26,6 +26,9 @@ mod audio_worker;
 // 双源 QA 模式在同一音频 worker 内按共享时钟混合系统声和麦克风，再复用既有单音轨编码链。
 #[allow(dead_code)]
 mod audio_mixer;
+// 原生设备身份由短期 caller 绑定目录封装，WebView 只接触不透明 token 与显示名。
+#[allow(dead_code)]
+mod audio_devices;
 // 双轨 mux 前先以首视频帧固定公共 epoch，并在 PCM sample 边界裁切更早的音频前缀。
 #[allow(dead_code)]
 mod av_timeline;
@@ -93,6 +96,7 @@ mod platform;
 #[cfg(all(target_os = "linux", feature = "recording-vp9-prototype"))]
 mod benchmark;
 
+pub(crate) use audio_devices::RecordingAudioDeviceCatalog;
 #[cfg(all(target_os = "linux", feature = "recording-vp9-prototype"))]
 pub use benchmark::X11Vp9BenchmarkReport;
 #[cfg(all(target_os = "linux", feature = "recording-vp9-prototype"))]

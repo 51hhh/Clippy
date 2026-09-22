@@ -3,6 +3,9 @@
 //! 开始入口只接受独立 Recording 覆盖层交出的可信选区；控制命令继续只认后端绑定的 generation
 //! token。默认构建和没有完成产品验收的平台不会展示入口。
 
+use super::audio_devices::{
+    RecordingAudioDeviceCatalogError, RecordingAudioDeviceCatalogView, RecordingAudioSelection,
+};
 #[cfg(all(target_os = "linux", feature = "recording-wayland-qa"))]
 use super::authorization::RecordingAuthorizationCancellation;
 use super::control_exclusion::{configure_control_exclusion, control_exclusion_capability};
@@ -59,6 +62,19 @@ impl RecordingIpcError {
             "当前构建或桌面会话尚未开放录屏入口",
         )
     }
+
+    fn forbidden() -> Self {
+        Self::new(
+            "recording_start_forbidden",
+            "录屏开始能力只允许当前 Recording 覆盖层访问",
+        )
+    }
+}
+
+fn require_recording_overlay(caller: &str) -> Result<(), RecordingIpcError> {
+    (crate::ipc_access::caller_kind(caller) == crate::ipc_access::CallerKind::RecordingOverlay)
+        .then_some(())
+        .ok_or_else(RecordingIpcError::forbidden)
 }
 
 impl From<RecordingControlRegistryError> for RecordingIpcError {
@@ -86,10 +102,18 @@ impl From<RecordingLifecycleError> for RecordingIpcError {
     }
 }
 
+impl From<RecordingAudioDeviceCatalogError> for RecordingIpcError {
+    fn from(error: RecordingAudioDeviceCatalogError) -> Self {
+        Self::new("recording_audio_device_invalid", error.to_string())
+    }
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RecordingStartCapabilities {
     audio_modes: &'static [RecordingAudioMode],
+    device_catalog: RecordingAudioDeviceCatalogView,
+    device_enumeration_failed: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -436,10 +460,32 @@ fn token_for_caller(
 /// 只有独立的 Recording 选区覆盖层能调用。前端只提交同一冻结会话中的逻辑选区；会话身份、物理
 /// crop、帧源、帧率、光标策略和编码器都由后端核验或固定，不能从 IPC 注入。
 #[tauri::command]
-pub(crate) fn get_recording_start_capabilities() -> RecordingStartCapabilities {
-    RecordingStartCapabilities {
+pub(crate) async fn get_recording_start_capabilities(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+) -> Result<RecordingStartCapabilities, RecordingIpcError> {
+    let caller = window.label().to_string();
+    require_recording_overlay(&caller)?;
+    let enumeration =
+        tauri::async_runtime::spawn_blocking(super::platform::enumerate_recording_audio_devices)
+            .await
+            .map_err(|error| RecordingIpcError::internal(error.to_string()))?;
+    let (devices, device_enumeration_failed) = match enumeration {
+        Ok(devices) => (devices, false),
+        Err(error) => {
+            log::warn!("枚举录屏音频设备失败，将继续使用系统默认设备: {error}");
+            (Vec::new(), true)
+        }
+    };
+    let device_catalog = state
+        .recording_audio_devices
+        .refresh(&caller, devices)
+        .map_err(RecordingIpcError::from)?;
+    Ok(RecordingStartCapabilities {
         audio_modes: available_recording_audio_modes(),
-    }
+        device_catalog,
+        device_enumeration_failed,
+    })
 }
 
 #[tauri::command]
@@ -448,21 +494,27 @@ pub(crate) async fn start_capture_recording(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     selection: CaptureSelection,
-    audio_mode: RecordingAudioMode,
+    audio_selection: RecordingAudioSelection,
 ) -> Result<(), RecordingIpcError> {
     if !super::product_entry_available() {
         return Err(RecordingIpcError::unavailable());
     }
+    require_recording_overlay(window.label())?;
 
     #[cfg(not(feature = "recording-vp9-prototype"))]
     {
-        let _ = (window, app, state, selection, audio_mode);
+        let _ = (window, app, state, selection, audio_selection);
         Err(RecordingIpcError::unavailable())
     }
 
     #[cfg(feature = "recording-vp9-prototype")]
     {
         let caller = window.label().to_string();
+        let audio_mode = audio_selection.mode;
+        let audio_devices = state
+            .recording_audio_devices
+            .resolve(&caller, &audio_selection)
+            .map_err(RecordingIpcError::from)?;
         let app_data_dir = app
             .path()
             .app_data_dir()
@@ -485,6 +537,7 @@ pub(crate) async fn start_capture_recording(
                     frames_per_second: 30,
                     include_cursor: true,
                     audio_mode,
+                    audio_devices,
                     encoder: RecordingEncoder::Vp9Prototype,
                 },
                 &TauriRecordingDesktopActions::new(&app, &state),

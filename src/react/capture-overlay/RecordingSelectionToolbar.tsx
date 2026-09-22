@@ -1,8 +1,8 @@
-import { AudioLines, Mic, Video, Volume2, VolumeX, X } from "lucide-react";
+import { AudioLines, Mic, Settings2, Video, Volume2, VolumeX, X } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { t } from "../shared/i18n";
 import { toolbarPlacement } from "./geometry";
-import type { RecordingAudioMode, Rect } from "./types";
+import type { RecordingAudioDeviceSummary, RecordingAudioMode, Rect } from "./types";
 
 const FALLBACK_SIZE = { width: 76, height: 40 };
 
@@ -13,7 +13,13 @@ type Props = {
   busy: boolean;
   audioModes: RecordingAudioMode[];
   audioMode: RecordingAudioMode;
+  systemAudioDevices: RecordingAudioDeviceSummary[];
+  microphoneDevices: RecordingAudioDeviceSummary[];
+  systemDeviceId: string | null;
+  microphoneDeviceId: string | null;
   onAudioModeChange: (mode: RecordingAudioMode) => void;
+  onSystemDeviceChange: (id: string | null) => void;
+  onMicrophoneDeviceChange: (id: string | null) => void;
   onStart: () => void;
   onCancel: () => void;
 };
@@ -22,6 +28,7 @@ type Props = {
 export function RecordingSelectionToolbar(props: Props) {
   const panel = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState(FALLBACK_SIZE);
+  const [devicesOpen, setDevicesOpen] = useState(false);
 
   useLayoutEffect(() => {
     const rect = panel.current?.getBoundingClientRect();
@@ -54,6 +61,18 @@ export function RecordingSelectionToolbar(props: Props) {
       : props.audioMode === "systemAndMicrophone"
         ? AudioLines
         : VolumeX;
+  const usesSystemAudio = props.audioMode === "systemAudio"
+    || props.audioMode === "systemAndMicrophone";
+  const usesMicrophone = props.audioMode === "microphone"
+    || props.audioMode === "systemAndMicrophone";
+  const hasRelevantDevices = (usesSystemAudio && props.systemAudioDevices.length > 0)
+    || (usesMicrophone && props.microphoneDevices.length > 0);
+
+  function deviceOptionLabel(device: RecordingAudioDeviceSummary) {
+    return device.isDefault
+      ? `${device.label} · ${t("capture.recording.device.currentDefault")}`
+      : device.label;
+  }
 
   return (
     <div
@@ -80,6 +99,19 @@ export function RecordingSelectionToolbar(props: Props) {
             <AudioIcon size={16} />
           </button>
         )}
+        {hasRelevantDevices && (
+          <button
+            type="button"
+            className={devicesOpen ? "recording-audio-devices active" : "recording-audio-devices"}
+            title={t("capture.recording.device.configure")}
+            aria-label={t("capture.recording.device.configure")}
+            aria-expanded={devicesOpen}
+            disabled={props.busy}
+            onClick={() => setDevicesOpen((open) => !open)}
+          >
+            <Settings2 size={16} />
+          </button>
+        )}
         <button
           type="button"
           className="overlay-confirm"
@@ -100,6 +132,42 @@ export function RecordingSelectionToolbar(props: Props) {
           <X size={15} />
         </button>
       </div>
+      {devicesOpen && hasRelevantDevices && (
+        <div className="recording-device-panel" role="group" aria-label={t("capture.recording.device.configure")}>
+          {usesSystemAudio && props.systemAudioDevices.length > 0 && (
+            <label>
+              <span>{t("capture.recording.device.systemAudio")}</span>
+              <select
+                aria-label={t("capture.recording.device.systemAudio")}
+                disabled={props.busy}
+                value={props.systemDeviceId ?? ""}
+                onChange={(event) => props.onSystemDeviceChange(event.target.value || null)}
+              >
+                <option value="">{t("capture.recording.device.followDefault")}</option>
+                {props.systemAudioDevices.map((device) => (
+                  <option key={device.id} value={device.id}>{deviceOptionLabel(device)}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          {usesMicrophone && props.microphoneDevices.length > 0 && (
+            <label>
+              <span>{t("capture.recording.device.microphone")}</span>
+              <select
+                aria-label={t("capture.recording.device.microphone")}
+                disabled={props.busy}
+                value={props.microphoneDeviceId ?? ""}
+                onChange={(event) => props.onMicrophoneDeviceChange(event.target.value || null)}
+              >
+                <option value="">{t("capture.recording.device.followDefault")}</option>
+                {props.microphoneDevices.map((device) => (
+                  <option key={device.id} value={device.id}>{deviceOptionLabel(device)}</option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
+      )}
     </div>
   );
 }

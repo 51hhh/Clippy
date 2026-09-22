@@ -67,6 +67,7 @@ recording-macos-av-qa = [
     "recording-opus-webm",
     "dep:rubato",
     "dep:objc2-core-audio-types",
+    "dep:objc2-av-foundation",
     "objc2-core-media/objc2-core-audio-types",
 ]
 
@@ -172,6 +173,7 @@ enigo = { version = "0.6", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.3", default-features = false, features = ["libc", "NSRunningApplication", "NSWindow", "NSWorkspace"] }
+objc2-av-foundation = { version = "=0.3.2", default-features = false, features = ["AVCaptureDevice", "AVMediaFormat"], optional = true }
 # 录屏准备阶段读取显示器真实像素几何，避免用浮点缩放猜 Retina 或旋转屏尺寸。
 objc2-core-graphics = "=0.3.2"
 # ScreenCaptureKit 只进入 macOS 12.3+ 专用 QA feature；默认 macOS 11 构建不会强链接框架。
@@ -190,6 +192,7 @@ objc2-screen-capture-kit = { version = "=0.3.2", default-features = false, featu
 windows-version = "=0.1.7"
 windows = { version = "=0.62.2", optional = true, features = [
     "Win32_Foundation",
+    "Win32_Devices_FunctionDiscovery",
     "Win32_Media_Audio",
     "Win32_Media_Multimedia",
     "Win32_Security",
@@ -198,6 +201,7 @@ windows = { version = "=0.62.2", optional = true, features = [
     "Win32_System_Performance",
     "Win32_System_Threading",
     "Win32_System_Variant",
+    "Win32_UI_Shell_PropertiesSystem",
 ] }
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",

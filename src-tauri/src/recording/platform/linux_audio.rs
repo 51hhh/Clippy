@@ -6,6 +6,7 @@
 
 use crate::pipewire_frame::init_pipewire;
 use crate::recording::audio::{CapturedAudioChunk, AUDIO_SAMPLE_RATE_HZ};
+use crate::recording::audio_devices::{NativeRecordingAudioDevice, RecordingAudioDeviceKind};
 use crate::recording::audio_worker::RecordingAudioSource;
 use crate::recording::clock::RecordingSessionClock;
 use crate::recording::platform::linux_audio_contract::{
@@ -20,9 +21,11 @@ use spa::param::audio::{AudioFormat as SpaAudioFormat, AudioInfoRaw};
 use spa::param::format::{MediaSubtype, MediaType};
 use spa::param::format_utils;
 use spa::pod::{Pod, Property, Value};
+use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::mem::size_of;
 use std::ptr::NonNull;
+use std::rc::Rc;
 use std::sync::mpsc::{self, SyncSender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
@@ -34,6 +37,7 @@ const PIPEWIRE_CONTROL_TIMEOUT: Duration = Duration::from_secs(5);
 const AUDIO_BRIDGE_CAPACITY: usize = 8;
 const MAX_BUFFER_MEMBERS: u32 = 8;
 const MAX_BUFFER_METADATA: u32 = 32;
+const PIPEWIRE_TARGET_OBJECT: &str = "target.object";
 
 #[derive(Debug, Error)]
 pub(in crate::recording) enum LinuxPipeWireAudioSourceError {
@@ -65,21 +69,24 @@ enum LinuxAudioSourceKind {
     DefaultMicrophone,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::recording) struct LinuxPipeWireAudioSourcePlan {
     kind: LinuxAudioSourceKind,
+    target: Option<String>,
 }
 
 impl LinuxPipeWireAudioSourcePlan {
-    pub const fn system_audio() -> Self {
+    pub fn system_audio(target: Option<String>) -> Self {
         Self {
             kind: LinuxAudioSourceKind::SystemAudio,
+            target,
         }
     }
 
-    pub const fn default_microphone() -> Self {
+    pub fn microphone(target: Option<String>) -> Self {
         Self {
             kind: LinuxAudioSourceKind::DefaultMicrophone,
+            target,
         }
     }
 
@@ -92,6 +99,180 @@ impl LinuxPipeWireAudioSourcePlan {
         clock: RecordingSessionClock,
     ) -> Result<LinuxPipeWireAudioSource, LinuxPipeWireAudioSourceError> {
         LinuxPipeWireAudioSource::connect(self, clock)
+    }
+}
+
+pub(in crate::recording) fn enumerate_recording_audio_devices(
+) -> Result<Vec<NativeRecordingAudioDevice>, LinuxPipeWireAudioSourceError> {
+    init_pipewire();
+    let mainloop = pw::main_loop::MainLoopRc::new(None)
+        .map_err(|error| LinuxPipeWireAudioSourceError::Initialize(error.to_string()))?;
+    let context = pw::context::ContextRc::new(&mainloop, None)
+        .map_err(|error| LinuxPipeWireAudioSourceError::Initialize(error.to_string()))?;
+    let core = context
+        .connect_rc(None)
+        .map_err(|error| LinuxPipeWireAudioSourceError::Initialize(error.to_string()))?;
+    let registry = core
+        .get_registry_rc()
+        .map_err(|error| LinuxPipeWireAudioSourceError::Initialize(error.to_string()))?;
+    let devices = Rc::new(RefCell::new(Vec::new()));
+    let defaults = Rc::new(RefCell::new(PipeWireDefaultDevices::default()));
+    let metadata_watches = Rc::new(RefCell::new(Vec::new()));
+    let callback_devices = Rc::clone(&devices);
+    let callback_defaults = Rc::clone(&defaults);
+    let callback_watches = Rc::clone(&metadata_watches);
+    let callback_registry = registry.clone();
+    let _registry_listener = registry
+        .add_listener_local()
+        .global(move |global| match global.type_ {
+            pw::types::ObjectType::Node => {
+                let Some(properties) = global.props else {
+                    return;
+                };
+                let Some(kind) = pipewire_device_kind(properties) else {
+                    return;
+                };
+                let Some(native_id) = properties.get(*pw::keys::NODE_NAME) else {
+                    return;
+                };
+                let label = properties
+                    .get(*pw::keys::NODE_DESCRIPTION)
+                    .or_else(|| properties.get(*pw::keys::NODE_NICK))
+                    .unwrap_or(native_id);
+                callback_devices
+                    .borrow_mut()
+                    .push(NativeRecordingAudioDevice {
+                        kind,
+                        native_id: native_id.to_string(),
+                        label: label.to_string(),
+                        is_default: false,
+                    });
+            }
+            pw::types::ObjectType::Metadata => {
+                let Some(properties) = global.props else {
+                    return;
+                };
+                if properties.get("metadata.name") != Some("default") {
+                    return;
+                }
+                let Ok(metadata) = callback_registry.bind::<pw::metadata::Metadata, _>(global)
+                else {
+                    return;
+                };
+                let metadata_defaults = Rc::clone(&callback_defaults);
+                let listener = metadata
+                    .add_listener_local()
+                    .property(move |_subject, key, _type, value| {
+                        let Some(key) = key else {
+                            return 0;
+                        };
+                        let parsed = value.and_then(pipewire_default_node_name);
+                        match key {
+                            "default.audio.sink" => {
+                                metadata_defaults.borrow_mut().system_audio = parsed;
+                            }
+                            "default.audio.source" => {
+                                metadata_defaults.borrow_mut().microphone = parsed;
+                            }
+                            _ => {}
+                        }
+                        0
+                    })
+                    .register();
+                callback_watches.borrow_mut().push((metadata, listener));
+            }
+            _ => {}
+        })
+        .register();
+    // 第一轮取得 globals 并绑定 default metadata；第二轮等 metadata 初始属性抵达。
+    pipewire_roundtrip(&core, &mainloop)?;
+    pipewire_roundtrip(&core, &mainloop)?;
+    let defaults = defaults.borrow();
+    for device in devices.borrow_mut().iter_mut() {
+        device.is_default = match device.kind {
+            RecordingAudioDeviceKind::SystemAudio => {
+                defaults.system_audio.as_deref() == Some(device.native_id.as_str())
+            }
+            RecordingAudioDeviceKind::Microphone => {
+                defaults.microphone.as_deref() == Some(device.native_id.as_str())
+            }
+        };
+    }
+    let result = devices.borrow().clone();
+    Ok(result)
+}
+
+#[derive(Default)]
+struct PipeWireDefaultDevices {
+    system_audio: Option<String>,
+    microphone: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct PipeWireDefaultNode<'a> {
+    name: &'a str,
+}
+
+fn pipewire_default_node_name(value: &str) -> Option<String> {
+    serde_json::from_str::<PipeWireDefaultNode<'_>>(value)
+        .ok()
+        .map(|node| node.name.to_string())
+        .filter(|name| !name.is_empty())
+}
+
+fn pipewire_roundtrip(
+    core: &pw::core::CoreRc,
+    mainloop: &pw::main_loop::MainLoopRc,
+) -> Result<(), LinuxPipeWireAudioSourceError> {
+    let done = Rc::new(Cell::new(false));
+    let timed_out = Rc::new(Cell::new(false));
+    let callback_done = Rc::clone(&done);
+    let callback_loop = mainloop.clone();
+    let pending = core
+        .sync(0)
+        .map_err(|error| LinuxPipeWireAudioSourceError::Initialize(error.to_string()))?;
+    let _core_listener = core
+        .add_listener_local()
+        .done(move |id, sequence| {
+            if id == pw::core::PW_ID_CORE && sequence == pending {
+                callback_done.set(true);
+                callback_loop.quit();
+            }
+        })
+        .register();
+    let callback_timed_out = Rc::clone(&timed_out);
+    let timeout_loop = mainloop.clone();
+    let timer = mainloop.loop_().add_timer(move |_| {
+        callback_timed_out.set(true);
+        timeout_loop.quit();
+    });
+    timer
+        .update_timer(Some(PIPEWIRE_INIT_TIMEOUT), None)
+        .into_result()
+        .map_err(|error| LinuxPipeWireAudioSourceError::Initialize(error.to_string()))?;
+    while !done.get() {
+        mainloop.run();
+        if timed_out.get() {
+            return Err(LinuxPipeWireAudioSourceError::InitializeTimeout);
+        }
+    }
+    Ok(())
+}
+
+fn pipewire_device_kind(
+    properties: &spa::utils::dict::DictRef,
+) -> Option<RecordingAudioDeviceKind> {
+    let media_class = properties.get(*pw::keys::MEDIA_CLASS)?;
+    let node_name = properties.get(*pw::keys::NODE_NAME).unwrap_or_default();
+    match media_class {
+        "Audio/Sink" => Some(RecordingAudioDeviceKind::SystemAudio),
+        "Audio/Source"
+            if !node_name.ends_with(".monitor")
+                && properties.get(*pw::keys::STREAM_MONITOR) != Some("true") =>
+        {
+            Some(RecordingAudioDeviceKind::Microphone)
+        }
+        _ => None,
     }
 }
 
@@ -210,6 +391,7 @@ struct PipeWireAudioThread {
 impl PipeWireAudioThread {
     fn spawn(
         kind: LinuxAudioSourceKind,
+        target: Option<String>,
         bridge: Arc<AudioBridge>,
         clock: RecordingSessionClock,
     ) -> Result<Self, LinuxPipeWireAudioSourceError> {
@@ -223,6 +405,7 @@ impl PipeWireAudioThread {
             .spawn(move || {
                 if let Err(error) = run_pipewire_audio(
                     kind,
+                    target,
                     receiver,
                     Arc::clone(&thread_bridge),
                     clock,
@@ -347,6 +530,7 @@ impl Initialization {
 
 fn run_pipewire_audio(
     kind: LinuxAudioSourceKind,
+    target: Option<String>,
     commands: pw::channel::Receiver<PipeWireCommand>,
     bridge: Arc<AudioBridge>,
     clock: RecordingSessionClock,
@@ -357,15 +541,7 @@ fn run_pipewire_audio(
         let mainloop = pw::main_loop::MainLoopRc::new(None)?;
         let context = pw::context::ContextRc::new(&mainloop, None)?;
         let core = context.connect_rc(None)?;
-        let mut properties = pw::properties::properties! {
-            *pw::keys::MEDIA_TYPE => "Audio",
-            *pw::keys::MEDIA_CATEGORY => "Capture",
-            *pw::keys::MEDIA_ROLE => "Production",
-            *pw::keys::NODE_LATENCY => "960/48000",
-        };
-        if kind == LinuxAudioSourceKind::SystemAudio {
-            properties.insert(*pw::keys::STREAM_CAPTURE_SINK, "true");
-        }
+        let properties = audio_stream_properties(kind, target.as_deref());
         let stream = pw::stream::StreamRc::new(
             core,
             match kind {
@@ -425,6 +601,25 @@ fn run_pipewire_audio(
         Ok(())
     };
     setup().map_err(|error| format!("{error:#}"))
+}
+
+fn audio_stream_properties(
+    kind: LinuxAudioSourceKind,
+    target: Option<&str>,
+) -> pw::properties::PropertiesBox {
+    let mut properties = pw::properties::properties! {
+        *pw::keys::MEDIA_TYPE => "Audio",
+        *pw::keys::MEDIA_CATEGORY => "Capture",
+        *pw::keys::MEDIA_ROLE => "Production",
+        *pw::keys::NODE_LATENCY => "960/48000",
+    };
+    if kind == LinuxAudioSourceKind::SystemAudio {
+        properties.insert(*pw::keys::STREAM_CAPTURE_SINK, "true");
+    }
+    if let Some(target) = target {
+        properties.insert(PIPEWIRE_TARGET_OBJECT, target);
+    }
+    properties
 }
 
 struct PipeWireAudioUserData {
@@ -764,7 +959,8 @@ impl LinuxPipeWireAudioSource {
         clock: RecordingSessionClock,
     ) -> Result<Self, LinuxPipeWireAudioSourceError> {
         let bridge = Arc::new(AudioBridge::default());
-        let pipewire = PipeWireAudioThread::spawn(plan.kind, Arc::clone(&bridge), clock.clone())?;
+        let pipewire =
+            PipeWireAudioThread::spawn(plan.kind, plan.target, Arc::clone(&bridge), clock.clone())?;
         Ok(Self {
             pipewire,
             bridge,
@@ -878,17 +1074,50 @@ mod tests {
     #[test]
     fn source_plans_keep_system_and_microphone_distinct() {
         assert_eq!(
-            LinuxPipeWireAudioSourcePlan::system_audio().kind,
+            LinuxPipeWireAudioSourcePlan::system_audio(None).kind,
             LinuxAudioSourceKind::SystemAudio
         );
         assert_eq!(
-            LinuxPipeWireAudioSourcePlan::default_microphone().kind,
+            LinuxPipeWireAudioSourcePlan::microphone(None).kind,
             LinuxAudioSourceKind::DefaultMicrophone
         );
         assert_eq!(
-            LinuxPipeWireAudioSourcePlan::system_audio().channels(),
+            LinuxPipeWireAudioSourcePlan::system_audio(None).channels(),
             PIPEWIRE_CHANNELS
         );
+        assert_eq!(
+            LinuxPipeWireAudioSourcePlan::microphone(Some("alsa_input.usb".to_string()))
+                .target
+                .as_deref(),
+            Some("alsa_input.usb")
+        );
+    }
+
+    #[test]
+    fn explicit_device_is_written_to_target_object() {
+        let properties = audio_stream_properties(
+            LinuxAudioSourceKind::DefaultMicrophone,
+            Some("alsa_input.usb"),
+        );
+        assert_eq!(
+            properties.get(PIPEWIRE_TARGET_OBJECT),
+            Some("alsa_input.usb")
+        );
+        assert_eq!(
+            audio_stream_properties(LinuxAudioSourceKind::SystemAudio, None)
+                .get(PIPEWIRE_TARGET_OBJECT),
+            None
+        );
+    }
+
+    #[test]
+    fn default_metadata_extracts_only_non_empty_node_names() {
+        assert_eq!(
+            pipewire_default_node_name(r#"{"name":"alsa_output.pci"}"#).as_deref(),
+            Some("alsa_output.pci")
+        );
+        assert_eq!(pipewire_default_node_name(r#"{"name":""}"#), None);
+        assert_eq!(pipewire_default_node_name("not-json"), None);
     }
 
     #[test]
@@ -990,12 +1219,12 @@ mod tests {
     #[test]
     #[ignore = "需要真实 PipeWire 默认 sink/source，且显式允许采集本机音频"]
     fn native_default_system_audio_smoke() {
-        exercise_native_source(LinuxPipeWireAudioSourcePlan::system_audio());
+        exercise_native_source(LinuxPipeWireAudioSourcePlan::system_audio(None));
     }
 
     #[test]
     #[ignore = "需要真实 PipeWire 默认 sink/source，且显式允许采集本机音频"]
     fn native_default_microphone_smoke() {
-        exercise_native_source(LinuxPipeWireAudioSourcePlan::default_microphone());
+        exercise_native_source(LinuxPipeWireAudioSourcePlan::microphone(None));
     }
 }

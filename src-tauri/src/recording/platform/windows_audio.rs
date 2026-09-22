@@ -4,6 +4,7 @@
 //! worker 线程内创建和销毁；只有 `recording-windows-av-qa` 组合 feature 才会把它接入双轨会话。
 
 use super::super::audio::CapturedAudioChunk;
+use super::super::audio_devices::{NativeRecordingAudioDevice, RecordingAudioDeviceKind};
 use super::super::audio_worker::RecordingAudioSource;
 use super::super::clock::RecordingSessionClock;
 use super::windows_audio_contract::{
@@ -14,18 +15,21 @@ use std::collections::VecDeque;
 use std::ptr;
 use std::time::Duration;
 use thiserror::Error;
-use windows::core::{Error as WindowsError, PCWSTR};
+use windows::core::{Error as WindowsError, HSTRING, PCWSTR};
+use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
 use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT};
 use windows::Win32::Media::Audio::{
     eCapture, eConsole, eRender, IAudioCaptureClient, IAudioClient, IMMDeviceEnumerator,
     MMDeviceEnumerator, AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR,
     AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
     AUDCLNT_STREAMFLAGS_EVENTCALLBACK, AUDCLNT_STREAMFLAGS_LOOPBACK, AUDCLNT_STREAMFLAGS_NOPERSIST,
-    AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, WAVEFORMATEX,
+    AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, DEVICE_STATE_ACTIVE, WAVEFORMATEX,
 };
 use windows::Win32::Media::Multimedia::WAVE_FORMAT_IEEE_FLOAT;
+use windows::Win32::System::Com::StructuredStorage::{PropVariantClear, PropVariantToStringAlloc};
 use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_MULTITHREADED,
+    CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_ALL,
+    COINIT_MULTITHREADED, STGM_READ,
 };
 use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
 use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
@@ -50,25 +54,28 @@ pub(in crate::recording) enum WindowsWasapiAudioSourceError {
     Contract(#[from] WindowsAudioContractError),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::recording) struct WindowsWasapiAudioSourcePlan {
     kind: WindowsAudioSourceKind,
+    device_id: Option<String>,
 }
 
 impl WindowsWasapiAudioSourcePlan {
-    pub const fn system_loopback() -> Self {
+    pub fn system_loopback(device_id: Option<String>) -> Self {
         Self {
             kind: WindowsAudioSourceKind::SystemLoopback,
+            device_id,
         }
     }
 
-    pub const fn default_microphone() -> Self {
+    pub fn microphone(device_id: Option<String>) -> Self {
         Self {
             kind: WindowsAudioSourceKind::DefaultMicrophone,
+            device_id,
         }
     }
 
-    pub const fn channels(self) -> u16 {
+    pub const fn channels(&self) -> u16 {
         WASAPI_CHANNELS
     }
 
@@ -76,8 +83,108 @@ impl WindowsWasapiAudioSourcePlan {
         self,
         clock: RecordingSessionClock,
     ) -> Result<WindowsWasapiAudioSource, WindowsWasapiAudioSourceError> {
-        WindowsWasapiAudioSource::connect(self.kind, clock)
+        WindowsWasapiAudioSource::connect(self.kind, self.device_id, clock)
     }
+}
+
+pub(in crate::recording) fn enumerate_recording_audio_devices(
+) -> Result<Vec<NativeRecordingAudioDevice>, WindowsWasapiAudioSourceError> {
+    let _com = ComApartment::initialize()?;
+    let enumerator: IMMDeviceEnumerator = unsafe {
+        CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)
+            .map_err(|error| windows_api_error("创建 endpoint enumerator", error))?
+    };
+    let default_render = default_endpoint_id(&enumerator, eRender);
+    let default_capture = default_endpoint_id(&enumerator, eCapture);
+    let mut devices = Vec::new();
+    enumerate_endpoint_flow(
+        &enumerator,
+        eRender,
+        RecordingAudioDeviceKind::SystemAudio,
+        default_render.as_deref(),
+        &mut devices,
+    )?;
+    enumerate_endpoint_flow(
+        &enumerator,
+        eCapture,
+        RecordingAudioDeviceKind::Microphone,
+        default_capture.as_deref(),
+        &mut devices,
+    )?;
+    Ok(devices)
+}
+
+fn default_endpoint_id(
+    enumerator: &IMMDeviceEnumerator,
+    flow: windows::Win32::Media::Audio::EDataFlow,
+) -> Option<String> {
+    let device = unsafe { enumerator.GetDefaultAudioEndpoint(flow, eConsole) }.ok()?;
+    endpoint_id(&device).ok()
+}
+
+fn enumerate_endpoint_flow(
+    enumerator: &IMMDeviceEnumerator,
+    flow: windows::Win32::Media::Audio::EDataFlow,
+    kind: RecordingAudioDeviceKind,
+    default_id: Option<&str>,
+    output: &mut Vec<NativeRecordingAudioDevice>,
+) -> Result<(), WindowsWasapiAudioSourceError> {
+    let collection = unsafe { enumerator.EnumAudioEndpoints(flow, DEVICE_STATE_ACTIVE) }
+        .map_err(|error| windows_api_error("枚举活动 endpoint", error))?;
+    let count = unsafe { collection.GetCount() }
+        .map_err(|error| windows_api_error("读取 endpoint 数量", error))?;
+    for index in 0..count {
+        let device = unsafe { collection.Item(index) }
+            .map_err(|error| windows_api_error("读取 endpoint", error))?;
+        let native_id = endpoint_id(&device)?;
+        let label = endpoint_label(&device).unwrap_or_else(|_| match kind {
+            RecordingAudioDeviceKind::SystemAudio => "Audio output".to_string(),
+            RecordingAudioDeviceKind::Microphone => "Microphone".to_string(),
+        });
+        output.push(NativeRecordingAudioDevice {
+            kind,
+            is_default: default_id == Some(native_id.as_str()),
+            native_id,
+            label,
+        });
+    }
+    Ok(())
+}
+
+fn endpoint_id(
+    device: &windows::Win32::Media::Audio::IMMDevice,
+) -> Result<String, WindowsWasapiAudioSourceError> {
+    let value =
+        unsafe { device.GetId() }.map_err(|error| windows_api_error("读取 endpoint ID", error))?;
+    let result =
+        unsafe { value.to_string() }.map_err(|error| windows_api_error("转换 endpoint ID", error));
+    unsafe { CoTaskMemFree(Some(value.0.cast())) };
+    result
+}
+
+fn endpoint_label(
+    device: &windows::Win32::Media::Audio::IMMDevice,
+) -> Result<String, WindowsWasapiAudioSourceError> {
+    let store = unsafe { device.OpenPropertyStore(STGM_READ) }
+        .map_err(|error| windows_api_error("打开 endpoint 属性", error))?;
+    let mut value = unsafe { store.GetValue(&PKEY_Device_FriendlyName) }
+        .map_err(|error| windows_api_error("读取 endpoint 名称", error))?;
+    let text = match unsafe { PropVariantToStringAlloc(&value) } {
+        Ok(text) => text,
+        Err(error) => {
+            unsafe {
+                let _ = PropVariantClear(&mut value);
+            }
+            return Err(windows_api_error("转换 endpoint 名称", error));
+        }
+    };
+    let result =
+        unsafe { text.to_string() }.map_err(|error| windows_api_error("解码 endpoint 名称", error));
+    unsafe {
+        CoTaskMemFree(Some(text.0.cast()));
+        let _ = PropVariantClear(&mut value);
+    }
+    result
 }
 
 pub(in crate::recording) struct WindowsWasapiAudioSource {
@@ -98,6 +205,7 @@ pub(in crate::recording) struct WindowsWasapiAudioSource {
 impl WindowsWasapiAudioSource {
     fn connect(
         kind: WindowsAudioSourceKind,
+        device_id: Option<String>,
         clock: RecordingSessionClock,
     ) -> Result<Self, WindowsWasapiAudioSourceError> {
         let com = ComApartment::initialize()?;
@@ -109,10 +217,17 @@ impl WindowsWasapiAudioSource {
             WindowsAudioEndpointFlow::Render => eRender,
             WindowsAudioEndpointFlow::Capture => eCapture,
         };
-        let device = unsafe {
-            enumerator
-                .GetDefaultAudioEndpoint(data_flow, eConsole)
-                .map_err(|error| windows_api_error("取得默认 endpoint", error))?
+        let device = match device_id {
+            Some(device_id) => unsafe {
+                enumerator
+                    .GetDevice(&HSTRING::from(device_id))
+                    .map_err(|error| windows_api_error("取得指定 endpoint", error))?
+            },
+            None => unsafe {
+                enumerator
+                    .GetDefaultAudioEndpoint(data_flow, eConsole)
+                    .map_err(|error| windows_api_error("取得默认 endpoint", error))?
+            },
         };
         let audio_client: IAudioClient = unsafe {
             device
@@ -436,6 +551,22 @@ fn windows_api_error(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explicit_endpoint_is_retained_by_the_source_plan() {
+        assert_eq!(
+            WindowsWasapiAudioSourcePlan::system_loopback(Some("render-endpoint".to_string()))
+                .device_id
+                .as_deref(),
+            Some("render-endpoint")
+        );
+        assert_eq!(
+            WindowsWasapiAudioSourcePlan::microphone(Some("capture-endpoint".to_string()))
+                .device_id
+                .as_deref(),
+            Some("capture-endpoint")
+        );
+    }
 
     #[test]
     fn requested_format_is_normalized_stereo_float() {

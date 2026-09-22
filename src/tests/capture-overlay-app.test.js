@@ -144,7 +144,15 @@ describe("capture overlay app", () => {
       detectedSourceLanguage: null,
     });
     mocks.overlayApi.scan.mockResolvedValue({ results: [], limited: false });
-    mocks.overlayApi.recordingCapabilities.mockResolvedValue({ audioModes: ["none"] });
+    mocks.overlayApi.recordingCapabilities.mockResolvedValue({
+      audioModes: ["none"],
+      deviceCatalog: {
+        catalogId: "audio-catalog-0000000000000001",
+        systemAudioDevices: [],
+        microphoneDevices: [],
+      },
+      deviceEnumerationFailed: false,
+    });
     mocks.overlayApi.startRecording.mockResolvedValue(undefined);
     mocks.overlayApi.openLongshot.mockResolvedValue({ label: "longshot-controller-session-1" });
     root = createRoot(document.getElementById("root"));
@@ -247,7 +255,12 @@ describe("capture overlay app", () => {
         width: 90,
         height: 70,
       },
-      "none",
+      {
+        mode: "none",
+        catalogId: "audio-catalog-0000000000000001",
+        systemDeviceId: null,
+        microphoneDeviceId: null,
+      },
     );
     expect(button("Start recording").disabled).toBe(true);
   });
@@ -256,6 +269,12 @@ describe("capture overlay app", () => {
     mocks.getCurrentWindowLabel.mockReturnValue("recording-overlay-session-1-0");
     mocks.overlayApi.recordingCapabilities.mockResolvedValue({
       audioModes: ["none", "systemAudio", "microphone", "systemAndMicrophone"],
+      deviceCatalog: {
+        catalogId: "audio-catalog-0000000000000002",
+        systemAudioDevices: [],
+        microphoneDevices: [],
+      },
+      deviceEnumerationFailed: false,
     });
     await mount({ intent: "recording" });
     await drag({ x: 10, y: 10 }, { x: 100, y: 80 });
@@ -271,7 +290,12 @@ describe("capture overlay app", () => {
     await act(async () => button("Start recording").click());
     expect(mocks.overlayApi.startRecording).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: "session-1", width: 90, height: 70 }),
-      "systemAndMicrophone",
+      {
+        mode: "systemAndMicrophone",
+        catalogId: "audio-catalog-0000000000000002",
+        systemDeviceId: null,
+        microphoneDeviceId: null,
+      },
     );
   });
 
@@ -286,14 +310,78 @@ describe("capture overlay app", () => {
     await act(async () => button("Start recording").click());
     expect(mocks.overlayApi.startRecording).toHaveBeenCalledWith(
       expect.any(Object),
-      "none",
+      { mode: "none", catalogId: null, systemDeviceId: null, microphoneDeviceId: null },
     );
     warn.mockRestore();
+  });
+
+  it("selects independent system and microphone devices from opaque catalogs", async () => {
+    mocks.getCurrentWindowLabel.mockReturnValue("recording-overlay-session-1-0");
+    mocks.overlayApi.recordingCapabilities.mockResolvedValue({
+      audioModes: ["none", "systemAndMicrophone"],
+      deviceCatalog: {
+        catalogId: "audio-catalog-0000000000000003",
+        systemAudioDevices: [{
+          id: "audio-device-0000000000000003-00",
+          label: "Speakers",
+          isDefault: true,
+        }],
+        microphoneDevices: [{
+          id: "audio-device-0000000000000003-01",
+          label: "USB microphone",
+          isDefault: false,
+        }],
+      },
+      deviceEnumerationFailed: false,
+    });
+    await mount({ intent: "recording" });
+    await drag({ x: 10, y: 10 }, { x: 100, y: 80 });
+
+    await act(async () => button("Recording audio: None").click());
+    await act(async () => button("Choose audio devices").click());
+    const system = document.querySelector('select[aria-label="System audio device"]');
+    const microphone = document.querySelector('select[aria-label="Microphone device"]');
+    await act(async () => {
+      system.value = "audio-device-0000000000000003-00";
+      system.dispatchEvent(new Event("change", { bubbles: true }));
+      microphone.value = "audio-device-0000000000000003-01";
+      microphone.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => button("Start recording").click());
+
+    expect(mocks.overlayApi.startRecording).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "session-1" }),
+      {
+        mode: "systemAndMicrophone",
+        catalogId: "audio-catalog-0000000000000003",
+        systemDeviceId: "audio-device-0000000000000003-00",
+        microphoneDeviceId: "audio-device-0000000000000003-01",
+      },
+    );
   });
 
   it("restores the recording selection when native startup fails", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     mocks.getCurrentWindowLabel.mockReturnValue("recording-overlay-session-1-0");
+    mocks.overlayApi.recordingCapabilities
+      .mockResolvedValueOnce({
+        audioModes: ["none"],
+        deviceCatalog: {
+          catalogId: "audio-catalog-0000000000000004",
+          systemAudioDevices: [],
+          microphoneDevices: [],
+        },
+        deviceEnumerationFailed: false,
+      })
+      .mockResolvedValueOnce({
+        audioModes: ["none"],
+        deviceCatalog: {
+          catalogId: "audio-catalog-0000000000000005",
+          systemAudioDevices: [],
+          microphoneDevices: [],
+        },
+        deviceEnumerationFailed: false,
+      });
     mocks.overlayApi.startRecording.mockRejectedValue(new Error("backend unavailable"));
     await mount({ intent: "recording" });
     await drag({ x: 10, y: 10 }, { x: 100, y: 80 });
@@ -306,6 +394,7 @@ describe("capture overlay app", () => {
     );
     expect(button("Start recording").disabled).toBe(false);
     expect(selectionRect()).toEqual({ x: 10, y: 10, width: 90, height: 70 });
+    expect(mocks.overlayApi.recordingCapabilities).toHaveBeenCalledTimes(2);
     warn.mockRestore();
   });
 

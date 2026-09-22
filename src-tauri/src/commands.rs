@@ -55,6 +55,8 @@ pub struct AppState {
     /// 录屏核心与控制窗身份各自只有一个进程级 owner；产品入口尚未开放。
     pub recording_lifecycle: Arc<crate::recording::RecordingLifecycle>,
     pub recording_controls: Arc<crate::recording::RecordingControlRegistry>,
+    /// 录屏覆盖层的短期音频设备目录；原生 endpoint 身份不进入 WebView。
+    pub recording_audio_devices: Arc<crate::recording::RecordingAudioDeviceCatalog>,
     /// 录屏结果窗播放租约与真实文件路径的唯一进程级 owner。
     pub recording_media: Arc<crate::recording::RecordingMediaManager>,
     /// 录屏首帧缩略图冷生成单槽与私有缓存清理的唯一进程级 owner。

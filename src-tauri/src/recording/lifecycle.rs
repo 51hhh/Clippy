@@ -4,6 +4,7 @@
 //! 原生帧源才在采集线程内创建。停止、取消和启动失败都会先回收会话与控制面，最后显式释放
 //! Recording gate。
 
+use super::audio_devices::ResolvedRecordingAudioDevices;
 #[cfg(feature = "recording-opus-webm")]
 use super::av_session::AvRecordingConfig;
 use super::clock::RecordingSessionClock;
@@ -100,6 +101,7 @@ pub(super) struct RecordingStartRequest {
     pub frames_per_second: u32,
     pub include_cursor: bool,
     pub audio_mode: RecordingAudioMode,
+    pub audio_devices: ResolvedRecordingAudioDevices,
     /// 只由后端产品策略选择，IPC 不得让前端提交任意编码器或诊断参数。
     pub encoder: RecordingEncoder,
 }
@@ -220,6 +222,7 @@ impl RecordingLifecycle {
             return Err(RecordingLifecycleError::AudioUnavailable);
         }
         let audio_mode = request.audio_mode;
+        let audio_devices = request.audio_devices.clone();
         self.start::<PlatformFrameSource, _, _, _>(
             context,
             request,
@@ -230,16 +233,19 @@ impl RecordingLifecycle {
                 let audio_plan = match audio_mode {
                     RecordingAudioMode::None => None,
                     RecordingAudioMode::SystemAudio => Some(
-                        plan.audio_plan(PlatformAudioSourceKind::SystemAudio)
+                        plan.audio_plan(PlatformAudioSourceKind::SystemAudio, &audio_devices)
                             .map_err(|error| error.to_string())?,
                     ),
                     RecordingAudioMode::Microphone => Some(
-                        plan.audio_plan(PlatformAudioSourceKind::Microphone)
+                        plan.audio_plan(PlatformAudioSourceKind::Microphone, &audio_devices)
                             .map_err(|error| error.to_string())?,
                     ),
                     RecordingAudioMode::SystemAndMicrophone => Some(
-                        plan.audio_plan(PlatformAudioSourceKind::SystemAndMicrophone)
-                            .map_err(|error| error.to_string())?,
+                        plan.audio_plan(
+                            PlatformAudioSourceKind::SystemAndMicrophone,
+                            &audio_devices,
+                        )
+                        .map_err(|error| error.to_string())?,
                     ),
                 };
                 Ok(PreparedRecordingSource {
@@ -1016,6 +1022,7 @@ mod tests {
             frames_per_second: 10,
             include_cursor: true,
             audio_mode: RecordingAudioMode::None,
+            audio_devices: ResolvedRecordingAudioDevices::default(),
             encoder: RecordingEncoder::MjpegDiagnostic { jpeg_quality: 85 },
         }
     }

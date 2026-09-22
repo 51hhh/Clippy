@@ -302,8 +302,29 @@ export type RecordingAudioMode =
   | "microphone"
   | "systemAndMicrophone";
 
+export interface RecordingAudioDeviceSummary {
+  id: string;
+  label: string;
+  isDefault: boolean;
+}
+
+export interface RecordingAudioDeviceCatalog {
+  catalogId: string;
+  systemAudioDevices: RecordingAudioDeviceSummary[];
+  microphoneDevices: RecordingAudioDeviceSummary[];
+}
+
+export interface RecordingAudioSelection {
+  mode: RecordingAudioMode;
+  catalogId: string | null;
+  systemDeviceId: string | null;
+  microphoneDeviceId: string | null;
+}
+
 export interface RecordingStartCapabilities {
   audioModes: RecordingAudioMode[];
+  deviceCatalog: RecordingAudioDeviceCatalog;
+  deviceEnumerationFailed: boolean;
 }
 
 /**
