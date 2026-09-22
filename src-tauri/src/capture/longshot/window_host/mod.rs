@@ -391,7 +391,7 @@ pub(crate) async fn authorize_auto(
     #[cfg(not(all(target_os = "linux", feature = "longshot-wayland-auto")))]
     {
         let _ = (state, window, handle);
-        return Err(CaptureError::LongshotAutoUnsupported.into());
+        Err(CaptureError::LongshotAutoUnsupported.into())
     }
     #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
     {
