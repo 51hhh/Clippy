@@ -192,6 +192,19 @@ pub(super) struct RecordingThumbnailSource {
     pub target_fps_denominator: u32,
     pub duration_ns: u64,
     pub frame_count: u64,
+    pub audio: Option<RecordingThumbnailAudioSource>,
+}
+
+#[cfg(feature = "recording-vp9-prototype")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RecordingThumbnailAudioSource {
+    pub sample_rate_hz: u32,
+    pub channels: u16,
+    pub pre_skip_frames: u16,
+    pub codec_delay_ns: u64,
+    pub seek_pre_roll_ns: u64,
+    pub packet_count: u64,
+    pub pcm_frame_count: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -758,39 +771,55 @@ pub(super) fn resolve_library_thumbnail_source(
     session_id: &str,
 ) -> Result<Option<RecordingThumbnailSource>, String> {
     let (session_directory, manifest) = load_library_manifest(app_data_dir, session_id)?;
-    if manifest.video.encoder != "vp9-prototype"
-        || manifest.video.container != "webm"
-        || manifest.audio.is_some()
-    {
+    if manifest.video.encoder != "vp9-prototype" || manifest.video.container != "webm" {
         return Ok(None);
     }
-    let (file_name, byte_length, sha256, duration_ns, frame_count) = match manifest.state {
-        RecordingState::Complete => {
-            let output = manifest
-                .final_output
-                .as_ref()
-                .ok_or_else(|| "完成会话缺少最终输出".to_string())?;
-            (
-                output.file_name.as_str(),
-                output.byte_length,
-                output.sha256.as_str(),
-                output.duration_ns,
-                output.frame_count,
-            )
-        }
-        RecordingState::Interrupted => {
-            let Some(segment) = manifest.segments.first() else {
-                return Ok(None);
-            };
-            (
-                segment.file_name.as_str(),
-                segment.byte_length,
-                segment.sha256.as_str(),
-                segment.duration_ns,
-                segment.frame_count,
-            )
-        }
-        RecordingState::Recording | RecordingState::Finalizing => return Ok(None),
+    if manifest.audio.is_some() && !cfg!(feature = "recording-opus-webm") {
+        return Ok(None);
+    }
+    let (file_name, byte_length, sha256, duration_ns, frame_count, artifact_audio) =
+        match manifest.state {
+            RecordingState::Complete => {
+                let output = manifest
+                    .final_output
+                    .as_ref()
+                    .ok_or_else(|| "完成会话缺少最终输出".to_string())?;
+                (
+                    output.file_name.as_str(),
+                    output.byte_length,
+                    output.sha256.as_str(),
+                    output.duration_ns,
+                    output.frame_count,
+                    output.audio.as_ref(),
+                )
+            }
+            RecordingState::Interrupted => {
+                let Some(segment) = manifest.segments.first() else {
+                    return Ok(None);
+                };
+                (
+                    segment.file_name.as_str(),
+                    segment.byte_length,
+                    segment.sha256.as_str(),
+                    segment.duration_ns,
+                    segment.frame_count,
+                    segment.audio.as_ref(),
+                )
+            }
+            RecordingState::Recording | RecordingState::Finalizing => return Ok(None),
+        };
+    let audio = match (manifest.audio.as_ref(), artifact_audio) {
+        (None, None) => None,
+        (Some(spec), Some(stats)) => Some(RecordingThumbnailAudioSource {
+            sample_rate_hz: spec.sample_rate_hz,
+            channels: spec.channels,
+            pre_skip_frames: spec.pre_skip_frames,
+            codec_delay_ns: spec.codec_delay_ns,
+            seek_pre_roll_ns: spec.seek_pre_roll_ns,
+            packet_count: stats.packet_count,
+            pcm_frame_count: stats.pcm_frame_count,
+        }),
+        _ => return Err("录屏缩略图音轨元数据不完整".to_string()),
     };
     let path = session_directory.join(file_name);
     ensure_artifact_metadata(&path, byte_length)?;
@@ -807,6 +836,7 @@ pub(super) fn resolve_library_thumbnail_source(
         target_fps_denominator: manifest.video.target_fps_denominator,
         duration_ns,
         frame_count,
+        audio,
     }))
 }
 
@@ -1258,7 +1288,7 @@ fn library_item_for_session(
     let can_thumbnail = cfg!(feature = "recording-vp9-prototype")
         && manifest.video.encoder == "vp9-prototype"
         && manifest.video.container == "webm"
-        && manifest.audio.is_none()
+        && (manifest.audio.is_none() || cfg!(feature = "recording-opus-webm"))
         && !artifacts.is_empty();
     let audio = manifest.audio.map(|audio| RecordingLibraryAudio {
         sample_rate_hz: audio.sample_rate_hz,
@@ -2206,11 +2236,19 @@ mod tests {
             })
         );
         assert!(!item.can_merge);
-        assert!(!item.can_thumbnail);
+        assert_eq!(item.can_thumbnail, cfg!(feature = "recording-opus-webm"));
         #[cfg(feature = "recording-vp9-prototype")]
-        assert!(resolve_library_thumbnail_source(temporary.path(), "av-v2")
-            .unwrap()
-            .is_none());
+        {
+            let source = resolve_library_thumbnail_source(temporary.path(), "av-v2").unwrap();
+            if cfg!(feature = "recording-opus-webm") {
+                let audio = source.unwrap().audio.unwrap();
+                assert_eq!(audio.channels, 2);
+                assert_eq!(audio.packet_count, 51);
+                assert_eq!(audio.pcm_frame_count, 48_000);
+            } else {
+                assert!(source.is_none());
+            }
+        }
     }
 
     #[test]
@@ -2280,9 +2318,19 @@ mod tests {
         let item = list_library(temporary.path()).unwrap().remove(0);
         assert!(item.audio.is_some());
         assert!(!item.can_merge);
-        assert!(!item.can_thumbnail);
+        assert_eq!(item.can_thumbnail, cfg!(feature = "recording-opus-webm"));
         #[cfg(feature = "recording-vp9-prototype")]
-        assert!(merge_interrupted_vp9_session(temporary.path(), "av-recovery").is_err());
+        {
+            assert!(merge_interrupted_vp9_session(temporary.path(), "av-recovery").is_err());
+            let source = resolve_library_thumbnail_source(temporary.path(), "av-recovery").unwrap();
+            if cfg!(feature = "recording-opus-webm") {
+                let source = source.unwrap();
+                assert!(source.artifact.path.ends_with("segment-000000.webm"));
+                assert_eq!(source.audio.unwrap().packet_count, 50);
+            } else {
+                assert!(source.is_none());
+            }
+        }
     }
 
     #[test]

@@ -53,7 +53,8 @@ panic 或 owner `Drop` 必须停止两条采集链并保留已经原子提交的
 - 把双轨开关暴露到录屏 UI，或在默认发布中启用音频；
 - macOS ScreenCaptureKit 音频、Linux PipeWire 音频 source、系统声与麦克风混音或设备选择；
 - 时钟漂移重采样、自动增益、降噪、回声消除和丢包隐藏；
-- 双轨异常分段 remux、双轨缩略图/波形，以及真机播放器和长时漂移 QA。
+- 双轨异常分段 remux、波形，以及真机播放器和长时漂移 QA；双轨首帧缩略图由后续
+  `PX-REC-AV-THUMBNAIL-01` 单独交付。
 
 ## Design Decisions
 

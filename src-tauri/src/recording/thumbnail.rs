@@ -264,7 +264,9 @@ fn valid_identifier(value: &str) -> bool {
 
 #[cfg(feature = "recording-vp9-prototype")]
 fn generate_thumbnail(source: &RecordingThumbnailSource) -> Result<Vec<u8>, String> {
-    use super::mux::webm_remux::{first_vp9_keyframe, WebmRemuxSource, WebmRemuxSpec};
+    use super::mux::webm_remux::{
+        first_vp9_keyframe, WebmRemuxSource, WebmRemuxSpec, WebmThumbnailAudioSpec,
+    };
     use image::ImageEncoder;
     use shiguredo_libvpx::{Decoder, DecoderCodec, DecoderConfig};
 
@@ -287,6 +289,15 @@ fn generate_thumbnail(source: &RecordingThumbnailSource) -> Result<Vec<u8>, Stri
             fps_numerator: source.target_fps_numerator,
             fps_denominator: source.target_fps_denominator,
         },
+        source.audio.map(|audio| WebmThumbnailAudioSpec {
+            sample_rate_hz: audio.sample_rate_hz,
+            channels: audio.channels,
+            pre_skip_frames: audio.pre_skip_frames,
+            codec_delay_ns: audio.codec_delay_ns,
+            seek_pre_roll_ns: audio.seek_pre_roll_ns,
+            packet_count: audio.packet_count,
+            pcm_frame_count: audio.pcm_frame_count,
+        }),
     )?;
     let mut decoder = Decoder::new(DecoderConfig::new(DecoderCodec::Vp9))
         .map_err(|error| format!("创建 VP9 缩略图解码器失败: {error}"))?;
@@ -434,9 +445,20 @@ mod tests {
     use super::*;
 
     #[cfg(feature = "recording-vp9-prototype")]
-    use crate::recording::manifest::{RecordingThumbnailSource, ResolvedRecordingArtifact};
+    use crate::recording::audio::{AudioFormat, CapturedAudioChunk, QueuedAudioChunk};
+    #[cfg(feature = "recording-vp9-prototype")]
+    use crate::recording::av_segmenting::SegmentedAvRecordingWriter;
+    #[cfg(feature = "recording-vp9-prototype")]
+    use crate::recording::manifest::{
+        RecordingJournal, RecordingJournalAudioConfig, RecordingJournalConfig,
+        RecordingThumbnailAudioSource, RecordingThumbnailSource, ResolvedRecordingArtifact,
+    };
+    #[cfg(feature = "recording-vp9-prototype")]
+    use crate::recording::mux::opus_webm::OpusPacketEncoder;
     #[cfg(feature = "recording-vp9-prototype")]
     use crate::recording::mux::vp9_webm::Vp9WebmWriter;
+    #[cfg(feature = "recording-vp9-prototype")]
+    use crate::recording::pipeline::RecordingPipeline;
     #[cfg(feature = "recording-vp9-prototype")]
     use sha2::{Digest, Sha256};
     #[cfg(feature = "recording-vp9-prototype")]
@@ -480,7 +502,112 @@ mod tests {
             target_fps_denominator: 1,
             duration_ns: 100_000_000,
             frame_count: 1,
+            audio: None,
         }
+    }
+
+    #[cfg(feature = "recording-opus-webm")]
+    fn av_fixture_sources(
+        directory: &Path,
+        color: [u8; 3],
+    ) -> (RecordingThumbnailSource, RecordingThumbnailSource) {
+        let width = 64;
+        let height = 48;
+        let audio_encoder = OpusPacketEncoder::new(2).unwrap();
+        let audio_track = audio_encoder.track_config().clone();
+        let journal = RecordingJournal::create(
+            directory,
+            RecordingJournalConfig {
+                session_id: "thumbnail-av".to_string(),
+                source_id: "thumbnail-fixture".to_string(),
+                physical_x: 0,
+                physical_y: 0,
+                width,
+                height,
+                target_fps_numerator: 10,
+                target_fps_denominator: 1,
+                encoder: "vp9-prototype".to_string(),
+                container: "webm".to_string(),
+                include_cursor: false,
+                audio: Some(RecordingJournalAudioConfig {
+                    sample_rate_hz: 48_000,
+                    channels: audio_track.channels,
+                    encoder: "opus".to_string(),
+                    pre_skip_frames: audio_track.pre_skip_frames,
+                    codec_delay_ns: audio_track.codec_delay_ns,
+                    seek_pre_roll_ns: audio_track.seek_pre_roll_ns,
+                }),
+            },
+        )
+        .unwrap();
+        let mut writer = SegmentedAvRecordingWriter::new(
+            journal,
+            Arc::new(RecordingPipeline::default()),
+            width,
+            height,
+            10,
+            2,
+            1_000_000_000,
+            audio_encoder,
+        )
+        .unwrap();
+        let rgba = (0..width * height)
+            .flat_map(|_| [color[0], color[1], color[2], 255])
+            .collect::<Vec<_>>();
+        writer.push_video(&rgba, 0).unwrap();
+        writer
+            .push_audio(QueuedAudioChunk {
+                chunk: CapturedAudioChunk {
+                    sequence: 0,
+                    captured_at_ns: 0,
+                    format: AudioFormat::normalized(2),
+                    frame_count: 4_800,
+                    samples: vec![0.05; 9_600].into_boxed_slice(),
+                },
+                presentation_at_ns: 0,
+                duration_ns: 100_000_000,
+                gap_before_ns: 0,
+            })
+            .unwrap();
+        let output = writer.finish(100_000_000).unwrap();
+        let video_frame_count = output.video_frame_count;
+        let audio_packet_count = output.audio_packet_count;
+        let audio_pcm_frame_count = output.audio_pcm_frame_count;
+        let duration_ns = output.duration_ns;
+        let committed = output.completion.complete().unwrap();
+        let source = |path: PathBuf, suggested_file_name: &str| {
+            let bytes = fs::read(&path).unwrap();
+            RecordingThumbnailSource {
+                artifact: ResolvedRecordingArtifact {
+                    path,
+                    suggested_file_name: suggested_file_name.to_string(),
+                    byte_length: bytes.len() as u64,
+                    sha256: format!("{:x}", Sha256::digest(&bytes)),
+                },
+                width,
+                height,
+                target_fps_numerator: 10,
+                target_fps_denominator: 1,
+                duration_ns,
+                frame_count: video_frame_count,
+                audio: Some(RecordingThumbnailAudioSource {
+                    sample_rate_hz: 48_000,
+                    channels: audio_track.channels,
+                    pre_skip_frames: audio_track.pre_skip_frames,
+                    codec_delay_ns: audio_track.codec_delay_ns,
+                    seek_pre_roll_ns: audio_track.seek_pre_roll_ns,
+                    packet_count: audio_packet_count,
+                    pcm_frame_count: audio_pcm_frame_count,
+                }),
+            }
+        };
+        (
+            source(committed.final_output_path.unwrap(), "recording.webm"),
+            source(
+                committed.segment_paths.into_iter().next().unwrap(),
+                "segment-000000.webm",
+            ),
+        )
     }
 
     #[test]
@@ -569,6 +696,60 @@ mod tests {
             .load_or_generate(temporary.path(), "session-vp9", &source)
             .unwrap();
         assert_eq!(cached, first);
+    }
+
+    #[cfg(feature = "recording-opus-webm")]
+    #[test]
+    fn decodes_vp9_keyframe_from_a_production_dual_track_webm() {
+        let temporary = tempfile::tempdir().unwrap();
+        let (complete, interrupted) = av_fixture_sources(temporary.path(), [40, 120, 210]);
+        let manager = RecordingThumbnailManager::default();
+        for (session_id, source) in [
+            ("session-av-complete", complete),
+            ("session-av-interrupted", interrupted),
+        ] {
+            let bytes = manager
+                .load_or_generate(temporary.path(), session_id, &source)
+                .unwrap();
+            let image = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png)
+                .unwrap()
+                .to_rgba8();
+            assert_eq!(image.dimensions(), (320, 240));
+            let pixel = image.get_pixel(160, 120).0;
+            assert!(pixel[0].abs_diff(40) <= 8, "red={}", pixel[0]);
+            assert!(pixel[1].abs_diff(120) <= 8, "green={}", pixel[1]);
+            assert!(pixel[2].abs_diff(210) <= 8, "blue={}", pixel[2]);
+        }
+    }
+
+    #[cfg(feature = "recording-opus-webm")]
+    #[test]
+    fn rejects_dual_track_thumbnail_when_manifest_audio_contract_is_forged() {
+        let temporary = tempfile::tempdir().unwrap();
+        let (source, _) = av_fixture_sources(temporary.path(), [40, 120, 210]);
+        let manager = RecordingThumbnailManager::default();
+        for (index, mutate) in [
+            |audio: &mut RecordingThumbnailAudioSource| audio.channels = 1,
+            |audio: &mut RecordingThumbnailAudioSource| audio.sample_rate_hz = 44_100,
+            |audio: &mut RecordingThumbnailAudioSource| audio.codec_delay_ns += 1_000_000,
+            |audio: &mut RecordingThumbnailAudioSource| audio.seek_pre_roll_ns += 1_000_000,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut forged = source.clone();
+            mutate(forged.audio.as_mut().unwrap());
+            let session_id = format!("forged-av-{index}");
+            assert!(manager
+                .load_or_generate(temporary.path(), &session_id, &forged)
+                .is_err());
+            let cache = temporary
+                .path()
+                .join(CACHE_DIRECTORY)
+                .join(session_id)
+                .join(format!("{}.png", forged.artifact.sha256));
+            assert!(!cache.exists());
+        }
     }
 
     #[cfg(feature = "recording-vp9-prototype")]

@@ -44,7 +44,8 @@
 
 - 同时混合系统声与麦克风、设备枚举/指定设备、音量控制、自动增益、降噪、回声消除；
 - macOS ScreenCaptureKit 音频和 Linux PipeWire 音频；
-- 双轨异常分段 remux、双轨缩略图/波形、剪辑与跨会话合并；
+- 双轨异常分段 remux、波形、剪辑与跨会话合并；双轨首帧缩略图由后续
+  `PX-REC-AV-THUMBNAIL-01` 单独交付；
 - 在默认 Cargo feature、正式安装包或更新通道中启用录屏或音频。
 
 ## Verification

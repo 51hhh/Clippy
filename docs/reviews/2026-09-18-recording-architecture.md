@@ -94,12 +94,15 @@ Windows QPC 音频 PTS 校准、双轨共同 epoch 与受门控产品接线已�
 四平台原型矩阵负责真实编译和合同测试；后续 Windows QA 组合 feature 已把本链接入受门控产品
 session，默认构建与正式 release 保持不变。
 `PX-REC-AV-MANIFEST-01` 已先完成恢复协议升级：旧纯视频继续使用 schema v1，VP9 + Opus 使用
-schema v2，并在原子提交点记录音轨格式与分段/最终产物统计；结果库会隔离尚不支持双轨的单轨
-remux 与缩略图入口。`PX-REC-AV-SESSION-01` 现已让 coordinator、音频 worker 与双轨 writer 在
-同一个 feature 门控 session 产出这套 v2 数据，并在两轨报告核对成功后才提交 complete。清单合同见
+schema v2，并在原子提交点记录音轨格式与分段/最终产物统计；结果库继续隔离尚不支持双轨的单轨
+remux。`PX-REC-AV-SESSION-01` 现已让 coordinator、音频 worker 与双轨 writer 在同一个 feature
+门控 session 产出这套 v2 数据，并在两轨报告核对成功后才提交 complete。
+`PX-REC-AV-THUMBNAIL-01` 进一步让完整结果和首个恢复分段通过严格双轨元数据校验后，只解码首个
+VP9 关键帧生成持久缩略图；Opus 不参与解码，双轨异常合并仍关闭。清单合同见
 [`2026-09-22-recording-av-manifest.md`](../superpowers/specs/2026-09-22-recording-av-manifest.md)，编码合同见
 [`2026-09-22-recording-opus-webm.md`](../superpowers/specs/2026-09-22-recording-opus-webm.md)，会话合同见
-[`2026-09-22-recording-av-session.md`](../superpowers/specs/2026-09-22-recording-av-session.md)。
+[`2026-09-22-recording-av-session.md`](../superpowers/specs/2026-09-22-recording-av-session.md)，缩略图合同见
+[`2026-09-22-recording-av-thumbnail.md`](../superpowers/specs/2026-09-22-recording-av-thumbnail.md)。
 
 ### 2026-09-21 同 SHA CI 证据
 

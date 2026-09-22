@@ -86,7 +86,7 @@ describe("recording library app", () => {
       .toBe("Opus · 48 kHz stereo");
   });
 
-  it("shows the verified audio track summary without enabling single-track recovery actions", async () => {
+  it("shows the verified audio track with a thumbnail but no unsafe recovery action", async () => {
     vi.mocked(services.list).mockResolvedValueOnce([{
       ...complete,
       state: "interrupted",
@@ -97,13 +97,15 @@ describe("recording library app", () => {
       }],
       audio: { sampleRateHz: 48_000, channels: 2, encoder: "opus" },
       canMerge: false,
-      canThumbnail: false,
+      canThumbnail: true,
     }]);
     await render();
 
     expect(document.querySelector(".recording-audio-summary")?.textContent)
       .toBe("Opus · 48 kHz stereo");
-    expect(services.thumbnail).not.toHaveBeenCalled();
+    expect(services.thumbnail).toHaveBeenCalledWith("recording-1");
+    expect(document.querySelector<HTMLImageElement>(".recording-thumbnail img")?.src)
+      .toBe("data:image/png;base64,cG5n");
     expect([...document.querySelectorAll("button")]
       .some((button) => button.textContent === "Recover")).toBe(false);
   });

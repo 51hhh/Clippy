@@ -1,8 +1,9 @@
 //! Clippy 生产 WebM 分段的受限无损 remux。
 //!
 //! 这里不是通用 Matroska 导入器。输入已经由恢复清单约束，并且必须恰好是 Clippy writer 生成的
-//! 单 VP9 视频轨、无 lacing `SimpleBlock` 子集。读取器逐 packet 工作，避免把最长 16 GiB 分段载入
-//! 内存；输出复用同一 libwebm muxer 重建 cluster、seek 与 duration 元数据。
+//! 单 VP9 视频轨、无 lacing `SimpleBlock` 子集。缩略图读取另可接受 Clippy schema v2 固定的
+//! VP9 + Opus 双轨形状，但只提取首个 VP9 关键帧，不解码音频。读取器逐 packet 工作，避免把最长
+//! 16 GiB 分段载入内存；输出复用同一 libwebm muxer 重建 cluster、seek 与 duration 元数据。
 
 use super::vp9_webm::{Vp9WebmError, Vp9WebmOutput, WebmPacketMux};
 use sha2::{Digest, Sha256};
@@ -20,9 +21,15 @@ const TRACK_ENTRY: u32 = 0x0000_00AE;
 const TRACK_NUMBER: u32 = 0x0000_00D7;
 const TRACK_TYPE: u32 = 0x0000_0083;
 const CODEC_ID: u32 = 0x0000_0086;
+const CODEC_PRIVATE: u32 = 0x0000_63A2;
+const CODEC_DELAY: u32 = 0x0000_56AA;
+const SEEK_PRE_ROLL: u32 = 0x0000_56BB;
 const VIDEO: u32 = 0x0000_00E0;
 const PIXEL_WIDTH: u32 = 0x0000_00B0;
 const PIXEL_HEIGHT: u32 = 0x0000_00BA;
+const AUDIO: u32 = 0x0000_00E1;
+const SAMPLING_FREQUENCY: u32 = 0x0000_00B5;
+const CHANNELS: u32 = 0x0000_009F;
 const CLUSTER: u32 = 0x1F43_B675;
 const CLUSTER_TIMECODE: u32 = 0x0000_00E7;
 const SIMPLE_BLOCK: u32 = 0x0000_00A3;
@@ -33,6 +40,7 @@ const CUES: u32 = 0x1C53_BB6B;
 const VOID: u32 = 0x0000_00EC;
 
 const WEBM_TIMECODE_SCALE_NS: u64 = 1_000_000;
+const AV_WEBM_TIMECODE_SCALE_NS: u64 = 500_000;
 const MAX_PACKET_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_TRACK_METADATA_BYTES: u64 = 1024;
 const HASH_BUFFER_BYTES: usize = 64 * 1024;
@@ -55,6 +63,17 @@ pub(in crate::recording) struct WebmRemuxSpec {
     pub fps_denominator: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::recording) struct WebmThumbnailAudioSpec {
+    pub sample_rate_hz: u32,
+    pub channels: u16,
+    pub pre_skip_frames: u16,
+    pub codec_delay_ns: u64,
+    pub seek_pre_roll_ns: u64,
+    pub packet_count: u64,
+    pub pcm_frame_count: u64,
+}
+
 #[derive(Debug)]
 pub(in crate::recording) struct WebmRemuxOutput<W> {
     pub writer: W,
@@ -69,13 +88,18 @@ struct ElementHeader {
     data_end: u64,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 struct ParsedTrack {
     number: Option<u64>,
     track_type: Option<u64>,
     codec_id: Option<String>,
     width: Option<u32>,
     height: Option<u32>,
+    codec_private: Option<Vec<u8>>,
+    codec_delay_ns: Option<u64>,
+    seek_pre_roll_ns: Option<u64>,
+    sample_rate_hz: Option<f64>,
+    channels: Option<u16>,
 }
 
 struct StrictWebmReader {
@@ -150,6 +174,7 @@ pub(in crate::recording) fn remux_vp9_segments<W: Write + Seek>(
 pub(in crate::recording) fn first_vp9_keyframe(
     source: &WebmRemuxSource,
     spec: WebmRemuxSpec,
+    audio: Option<WebmThumbnailAudioSpec>,
 ) -> Result<Vec<u8>, String> {
     if source.duration_ns == 0
         || source.frame_count == 0
@@ -160,7 +185,16 @@ pub(in crate::recording) fn first_vp9_keyframe(
     {
         return Err("录屏缩略图源参数无效".to_string());
     }
-    StrictWebmReader::open_verified(source)?.read_first_keyframe(spec, source)
+    if audio.is_some_and(|audio| {
+        audio.sample_rate_hz != 48_000
+            || !matches!(audio.channels, 1 | 2)
+            || audio.pre_skip_frames == 0
+            || audio.packet_count == 0
+            || audio.pcm_frame_count == 0
+    }) {
+        return Err("录屏缩略图音轨参数无效".to_string());
+    }
+    StrictWebmReader::open_verified(source)?.read_first_keyframe(spec, source, audio)
 }
 
 fn remux_mux_error(error: Vp9WebmError) -> String {
@@ -248,7 +282,7 @@ impl StrictWebmReader {
 
         let mut timecode_scale = WEBM_TIMECODE_SCALE_NS;
         let mut info_seen = false;
-        let mut track: Option<ParsedTrack> = None;
+        let mut tracks: Option<Vec<ParsedTrack>> = None;
         let mut frame_index = 0_u64;
         let mut cluster_seen = false;
         while self.position()? < segment.data_end {
@@ -262,17 +296,17 @@ impl StrictWebmReader {
                     info_seen = true;
                 }
                 TRACKS => {
-                    if track.is_some() || cluster_seen {
+                    if tracks.is_some() || cluster_seen {
                         return Err("录屏恢复分段包含重复 Tracks".to_string());
                     }
-                    track = Some(self.read_tracks(header.data_end)?);
+                    tracks = Some(self.read_tracks(header.data_end)?);
                 }
                 CLUSTER => {
                     cluster_seen = true;
-                    let track = track
+                    let tracks = tracks
                         .as_ref()
                         .ok_or_else(|| "录屏恢复分段在轨道之前出现画面".to_string())?;
-                    self.validate_track(track, spec)?;
+                    let track = validate_video_only_tracks(tracks, spec)?;
                     frame_index = self.read_cluster(
                         header.data_end,
                         timecode_scale,
@@ -287,8 +321,8 @@ impl StrictWebmReader {
                 _ => return Err("录屏恢复分段包含非生产顶层元素".to_string()),
             }
         }
-        let track = track.ok_or_else(|| "录屏恢复分段缺少视频轨".to_string())?;
-        self.validate_track(&track, spec)?;
+        let tracks = tracks.ok_or_else(|| "录屏恢复分段缺少视频轨".to_string())?;
+        validate_video_only_tracks(&tracks, spec)?;
         if !info_seen || !cluster_seen {
             return Err("录屏恢复分段缺少生产容器元数据或画面".to_string());
         }
@@ -305,6 +339,7 @@ impl StrictWebmReader {
         &mut self,
         spec: WebmRemuxSpec,
         source: &WebmRemuxSource,
+        audio: Option<WebmThumbnailAudioSpec>,
     ) -> Result<Vec<u8>, String> {
         let ebml = self.read_header(self.file_len, false)?;
         if ebml.id != EBML {
@@ -330,7 +365,12 @@ impl StrictWebmReader {
 
         let mut info_seen = false;
         let mut timecode_scale = WEBM_TIMECODE_SCALE_NS;
-        let mut track: Option<ParsedTrack> = None;
+        let mut tracks: Option<Vec<ParsedTrack>> = None;
+        let expected_timecode_scale = if audio.is_some() {
+            AV_WEBM_TIMECODE_SCALE_NS
+        } else {
+            WEBM_TIMECODE_SCALE_NS
+        };
         while self.position()? < segment.data_end {
             let header = self.read_header(segment.data_end, false)?;
             match header.id {
@@ -342,23 +382,27 @@ impl StrictWebmReader {
                     info_seen = true;
                 }
                 TRACKS => {
-                    if track.is_some() {
+                    if tracks.is_some() {
                         return Err("录屏缩略图源包含重复 Tracks".to_string());
                     }
-                    track = Some(self.read_tracks(header.data_end)?);
+                    tracks = Some(self.read_tracks(header.data_end)?);
                 }
                 CLUSTER => {
-                    if !info_seen || timecode_scale != WEBM_TIMECODE_SCALE_NS {
-                        return Err("录屏缩略图源时间基不受支持".to_string());
+                    if !info_seen || timecode_scale != expected_timecode_scale {
+                        return Err(format!(
+                            "录屏缩略图源时间基不受支持: scale={timecode_scale}"
+                        ));
                     }
-                    let track = track
+                    let tracks = tracks
                         .as_ref()
                         .ok_or_else(|| "录屏缩略图源在轨道之前出现画面".to_string())?;
-                    self.validate_track(track, spec)?;
+                    let (video_track_number, audio_track_number) =
+                        validate_thumbnail_tracks(tracks, spec, audio)?;
                     if let Some(packet) = self.read_first_keyframe_in_cluster(
                         header.data_end,
                         timecode_scale,
-                        track.number.expect("轨道已校验"),
+                        video_track_number,
+                        audio_track_number,
                         spec,
                         source,
                     )? {
@@ -369,6 +413,8 @@ impl StrictWebmReader {
                 _ => return Err("录屏缩略图源包含非生产顶层元素".to_string()),
             }
         }
+        let tracks = tracks.ok_or_else(|| "录屏缩略图源缺少轨道".to_string())?;
+        validate_thumbnail_tracks(&tracks, spec, audio)?;
         Err("录屏缩略图源没有画面".to_string())
     }
 
@@ -376,7 +422,8 @@ impl StrictWebmReader {
         &mut self,
         end: u64,
         timecode_scale: u64,
-        track_number: u64,
+        video_track_number: u64,
+        audio_track_number: Option<u64>,
         spec: WebmRemuxSpec,
         source: &WebmRemuxSource,
     ) -> Result<Option<Vec<u8>>, String> {
@@ -395,11 +442,14 @@ impl StrictWebmReader {
                         .ok_or_else(|| "录屏缩略图 block 缺少 cluster 时间戳".to_string())?;
                     let body = self.read_bounded_body(header, MAX_PACKET_BYTES + 16)?;
                     let parsed = parse_simple_block(&body, cluster_timecode, timecode_scale)?;
-                    if parsed.track_number != track_number {
-                        return Err("录屏缩略图 block 引用了未知轨道".to_string());
-                    }
-                    if !parsed.keyframe {
-                        return Err("录屏缩略图源没有从关键帧开始".to_string());
+                    match validate_thumbnail_block(
+                        parsed.track_number,
+                        parsed.keyframe,
+                        video_track_number,
+                        audio_track_number,
+                    )? {
+                        ThumbnailTrackKind::Audio => continue,
+                        ThumbnailTrackKind::Video => {}
                     }
                     validate_frame_timestamp(parsed.timestamp_ns, 0, spec, source)?;
                     return Ok(Some(body[parsed.payload_offset..].to_vec()));
@@ -430,20 +480,23 @@ impl StrictWebmReader {
         Ok(scale)
     }
 
-    fn read_tracks(&mut self, end: u64) -> Result<ParsedTrack, String> {
-        let mut track = None;
+    fn read_tracks(&mut self, end: u64) -> Result<Vec<ParsedTrack>, String> {
+        let mut tracks = Vec::with_capacity(2);
         while self.position()? < end {
             let header = self.read_header(end, false)?;
             if header.id == TRACK_ENTRY {
-                if track.is_some() {
-                    return Err("录屏恢复分段不是单轨视频".to_string());
+                if tracks.len() >= 2 {
+                    return Err("录屏恢复分段包含额外轨道".to_string());
                 }
-                track = Some(self.read_track_entry(header.data_end)?);
+                tracks.push(self.read_track_entry(header.data_end)?);
             } else {
                 self.seek_to(header.data_end)?;
             }
         }
-        track.ok_or_else(|| "录屏恢复分段缺少 TrackEntry".to_string())
+        if tracks.is_empty() {
+            return Err("录屏恢复分段缺少 TrackEntry".to_string());
+        }
+        Ok(tracks)
     }
 
     fn read_track_entry(&mut self, end: u64) -> Result<ParsedTrack, String> {
@@ -451,10 +504,17 @@ impl StrictWebmReader {
         while self.position()? < end {
             let header = self.read_header(end, false)?;
             match header.id {
-                TRACK_NUMBER => track.number = Some(self.read_uint(header)?),
-                TRACK_TYPE => track.track_type = Some(self.read_uint(header)?),
-                CODEC_ID => track.codec_id = Some(self.read_string(header)?),
+                TRACK_NUMBER => set_once(&mut track.number, self.read_uint(header)?)?,
+                TRACK_TYPE => set_once(&mut track.track_type, self.read_uint(header)?)?,
+                CODEC_ID => set_once(&mut track.codec_id, self.read_string(header)?)?,
+                CODEC_PRIVATE => set_once(
+                    &mut track.codec_private,
+                    self.read_bounded_body(header, MAX_TRACK_METADATA_BYTES)?,
+                )?,
+                CODEC_DELAY => set_once(&mut track.codec_delay_ns, self.read_uint(header)?)?,
+                SEEK_PRE_ROLL => set_once(&mut track.seek_pre_roll_ns, self.read_uint(header)?)?,
                 VIDEO => self.read_video(header.data_end, &mut track)?,
+                AUDIO => self.read_audio(header.data_end, &mut track)?,
                 _ => self.seek_to(header.data_end)?,
             }
         }
@@ -466,16 +526,18 @@ impl StrictWebmReader {
             let header = self.read_header(end, false)?;
             match header.id {
                 PIXEL_WIDTH => {
-                    track.width = Some(
+                    set_once(
+                        &mut track.width,
                         u32::try_from(self.read_uint(header)?)
                             .map_err(|_| "录屏恢复视频宽度溢出".to_string())?,
-                    );
+                    )?;
                 }
                 PIXEL_HEIGHT => {
-                    track.height = Some(
+                    set_once(
+                        &mut track.height,
                         u32::try_from(self.read_uint(header)?)
                             .map_err(|_| "录屏恢复视频高度溢出".to_string())?,
-                    );
+                    )?;
                 }
                 _ => self.seek_to(header.data_end)?,
             }
@@ -483,14 +545,24 @@ impl StrictWebmReader {
         Ok(())
     }
 
-    fn validate_track(&self, track: &ParsedTrack, spec: WebmRemuxSpec) -> Result<(), String> {
-        if track.number != Some(1)
-            || track.track_type != Some(1)
-            || track.codec_id.as_deref() != Some("V_VP9")
-            || track.width != Some(spec.width)
-            || track.height != Some(spec.height)
-        {
-            return Err("录屏恢复视频轨与清单不一致".to_string());
+    fn read_audio(&mut self, end: u64, track: &mut ParsedTrack) -> Result<(), String> {
+        while self.position()? < end {
+            let header = self.read_header(end, false)?;
+            match header.id {
+                SAMPLING_FREQUENCY => {
+                    let sample_rate = self.read_float(header)?;
+                    if !sample_rate.is_finite() {
+                        return Err("录屏恢复音频采样率无效".to_string());
+                    }
+                    set_once(&mut track.sample_rate_hz, sample_rate)?;
+                }
+                CHANNELS => {
+                    let channels = u16::try_from(self.read_uint(header)?)
+                        .map_err(|_| "录屏恢复音频声道数溢出".to_string())?;
+                    set_once(&mut track.channels, channels)?;
+                }
+                _ => self.seek_to(header.data_end)?,
+            }
         }
         Ok(())
     }
@@ -627,6 +699,27 @@ impl StrictWebmReader {
         Ok(u64::from_be_bytes(bytes))
     }
 
+    fn read_float(&mut self, header: ElementHeader) -> Result<f64, String> {
+        let length = header.data_end - header.data_start;
+        match length {
+            4 => {
+                let mut bytes = [0_u8; 4];
+                self.reader
+                    .read_exact(&mut bytes)
+                    .map_err(|error| format!("读取录屏恢复 EBML 浮点数失败: {error}"))?;
+                Ok(f64::from(f32::from_be_bytes(bytes)))
+            }
+            8 => {
+                let mut bytes = [0_u8; 8];
+                self.reader
+                    .read_exact(&mut bytes)
+                    .map_err(|error| format!("读取录屏恢复 EBML 浮点数失败: {error}"))?;
+                Ok(f64::from_be_bytes(bytes))
+            }
+            _ => Err("录屏恢复 EBML 浮点数长度无效".to_string()),
+        }
+    }
+
     fn read_string(&mut self, header: ElementHeader) -> Result<String, String> {
         let body = self.read_bounded_body(header, MAX_TRACK_METADATA_BYTES)?;
         String::from_utf8(body).map_err(|_| "录屏恢复轨道字符串不是 UTF-8".to_string())
@@ -661,6 +754,144 @@ impl StrictWebmReader {
             .map_err(|error| format!("跳过录屏恢复元数据失败: {error}"))?;
         Ok(())
     }
+}
+
+fn validate_video_track(track: &ParsedTrack, spec: WebmRemuxSpec) -> Result<(), String> {
+    if track.number != Some(1)
+        || track.track_type != Some(1)
+        || track.codec_id.as_deref() != Some("V_VP9")
+        || track.width != Some(spec.width)
+        || track.height != Some(spec.height)
+        || track.codec_private.is_some()
+        || track.codec_delay_ns.is_some()
+        || track.seek_pre_roll_ns.is_some()
+        || track.sample_rate_hz.is_some()
+        || track.channels.is_some()
+    {
+        return Err("录屏恢复视频轨与清单不一致".to_string());
+    }
+    Ok(())
+}
+
+fn validate_video_only_tracks(
+    tracks: &[ParsedTrack],
+    spec: WebmRemuxSpec,
+) -> Result<&ParsedTrack, String> {
+    if tracks.len() != 1 {
+        return Err("录屏恢复分段不是单轨视频".to_string());
+    }
+    let track = &tracks[0];
+    validate_video_track(track, spec)?;
+    Ok(track)
+}
+
+fn validate_thumbnail_tracks(
+    tracks: &[ParsedTrack],
+    spec: WebmRemuxSpec,
+    audio: Option<WebmThumbnailAudioSpec>,
+) -> Result<(u64, Option<u64>), String> {
+    let video = tracks
+        .iter()
+        .find(|track| track.number == Some(1))
+        .ok_or_else(|| "录屏缩略图源缺少视频轨".to_string())?;
+    validate_video_track(video, spec)?;
+    let Some(audio) = audio else {
+        if tracks.len() != 1 {
+            return Err("录屏缩略图单轨清单与容器不一致".to_string());
+        }
+        return Ok((1, None));
+    };
+    if tracks.len() != 2 {
+        return Err("录屏缩略图双轨容器形状无效".to_string());
+    }
+    let audio_track = tracks
+        .iter()
+        .find(|track| track.number == Some(2))
+        .ok_or_else(|| "录屏缩略图源缺少 Opus 轨".to_string())?;
+    validate_opus_track(audio_track, audio)?;
+    Ok((1, Some(2)))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ThumbnailTrackKind {
+    Video,
+    Audio,
+}
+
+fn thumbnail_track_kind(
+    track_number: u64,
+    video_track_number: u64,
+    audio_track_number: Option<u64>,
+) -> Result<ThumbnailTrackKind, String> {
+    if track_number == video_track_number {
+        Ok(ThumbnailTrackKind::Video)
+    } else if Some(track_number) == audio_track_number {
+        Ok(ThumbnailTrackKind::Audio)
+    } else {
+        Err("录屏缩略图 block 引用了未知轨道".to_string())
+    }
+}
+
+fn validate_thumbnail_block(
+    track_number: u64,
+    keyframe: bool,
+    video_track_number: u64,
+    audio_track_number: Option<u64>,
+) -> Result<ThumbnailTrackKind, String> {
+    let kind = thumbnail_track_kind(track_number, video_track_number, audio_track_number)?;
+    match (kind, keyframe) {
+        (ThumbnailTrackKind::Audio, true) => Ok(kind),
+        (ThumbnailTrackKind::Audio, false) => Err("录屏缩略图 Opus block 标志无效".to_string()),
+        (ThumbnailTrackKind::Video, true) => Ok(kind),
+        (ThumbnailTrackKind::Video, false) => Err("录屏缩略图源没有从关键帧开始".to_string()),
+    }
+}
+
+fn set_once<T>(slot: &mut Option<T>, value: T) -> Result<(), String> {
+    if slot.is_some() {
+        return Err("录屏恢复轨道元数据重复".to_string());
+    }
+    *slot = Some(value);
+    Ok(())
+}
+
+fn validate_opus_track(track: &ParsedTrack, audio: WebmThumbnailAudioSpec) -> Result<(), String> {
+    let expected_delay_ns = u64::from(audio.pre_skip_frames)
+        .checked_mul(1_000_000_000)
+        .and_then(|value| value.checked_div(u64::from(audio.sample_rate_hz)))
+        .ok_or_else(|| "录屏缩略图 Opus 延迟溢出".to_string())?;
+    let expected_head = opus_head(audio.channels, audio.pre_skip_frames, audio.sample_rate_hz)?;
+    if audio.codec_delay_ns != expected_delay_ns
+        || track.number != Some(2)
+        || track.track_type != Some(2)
+        || track.codec_id.as_deref() != Some("A_OPUS")
+        || track.codec_private.as_deref() != Some(expected_head.as_slice())
+        || track.codec_delay_ns != Some(audio.codec_delay_ns)
+        || track.seek_pre_roll_ns != Some(audio.seek_pre_roll_ns)
+        || track.sample_rate_hz != Some(f64::from(audio.sample_rate_hz))
+        || track.channels != Some(audio.channels)
+        || track.width.is_some()
+        || track.height.is_some()
+    {
+        return Err("录屏缩略图 Opus 轨与清单不一致".to_string());
+    }
+    Ok(())
+}
+
+fn opus_head(channels: u16, pre_skip_frames: u16, sample_rate_hz: u32) -> Result<[u8; 19], String> {
+    let channels = u8::try_from(channels).map_err(|_| "录屏缩略图 Opus 声道数无效".to_string())?;
+    if !matches!(channels, 1 | 2) || pre_skip_frames == 0 || sample_rate_hz != 48_000 {
+        return Err("录屏缩略图 Opus 参数无效".to_string());
+    }
+    let mut head = [0_u8; 19];
+    head[0..8].copy_from_slice(b"OpusHead");
+    head[8] = 1;
+    head[9] = channels;
+    head[10..12].copy_from_slice(&pre_skip_frames.to_le_bytes());
+    head[12..16].copy_from_slice(&sample_rate_hz.to_le_bytes());
+    head[16..18].copy_from_slice(&0_i16.to_le_bytes());
+    head[18] = 0;
+    Ok(head)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -819,7 +1050,7 @@ mod tests {
             fps_denominator: 1,
         };
         assert_eq!(
-            first_vp9_keyframe(&first, spec).unwrap(),
+            first_vp9_keyframe(&first, spec, None).unwrap(),
             packets(&first)[0]
         );
         let single =
@@ -917,5 +1148,68 @@ mod tests {
         assert!(
             parse_simple_block(&[0x81, 0xff, 0xff, 0x80, 1], 0, WEBM_TIMECODE_SCALE_NS,).is_err()
         );
+    }
+
+    #[test]
+    fn dual_track_thumbnail_contract_rejects_extra_tracks_and_unknown_blocks() {
+        let spec = WebmRemuxSpec {
+            width: 64,
+            height: 48,
+            fps_numerator: 10,
+            fps_denominator: 1,
+        };
+        let audio = WebmThumbnailAudioSpec {
+            sample_rate_hz: 48_000,
+            channels: 2,
+            pre_skip_frames: 312,
+            codec_delay_ns: 6_500_000,
+            seek_pre_roll_ns: 80_000_000,
+            packet_count: 6,
+            pcm_frame_count: 4_800,
+        };
+        let video = ParsedTrack {
+            number: Some(1),
+            track_type: Some(1),
+            codec_id: Some("V_VP9".to_string()),
+            width: Some(64),
+            height: Some(48),
+            ..ParsedTrack::default()
+        };
+        let opus = ParsedTrack {
+            number: Some(2),
+            track_type: Some(2),
+            codec_id: Some("A_OPUS".to_string()),
+            codec_private: Some(opus_head(2, 312, 48_000).unwrap().to_vec()),
+            codec_delay_ns: Some(6_500_000),
+            seek_pre_roll_ns: Some(80_000_000),
+            sample_rate_hz: Some(48_000.0),
+            channels: Some(2),
+            ..ParsedTrack::default()
+        };
+        assert_eq!(
+            validate_thumbnail_tracks(&[video.clone(), opus.clone()], spec, Some(audio)).unwrap(),
+            (1, Some(2))
+        );
+        assert!(validate_thumbnail_tracks(
+            &[video.clone(), opus.clone(), ParsedTrack::default()],
+            spec,
+            Some(audio),
+        )
+        .is_err());
+        let mut wrong_head = opus;
+        wrong_head.codec_private.as_mut().unwrap()[9] = 1;
+        assert!(validate_thumbnail_tracks(&[video, wrong_head], spec, Some(audio)).is_err());
+        assert_eq!(
+            thumbnail_track_kind(1, 1, Some(2)).unwrap(),
+            ThumbnailTrackKind::Video
+        );
+        assert_eq!(
+            thumbnail_track_kind(2, 1, Some(2)).unwrap(),
+            ThumbnailTrackKind::Audio
+        );
+        assert!(thumbnail_track_kind(3, 1, Some(2)).is_err());
+        assert!(validate_thumbnail_block(3, true, 1, Some(2)).is_err());
+        assert!(validate_thumbnail_block(1, false, 1, Some(2)).is_err());
+        assert!(validate_thumbnail_block(2, false, 1, Some(2)).is_err());
     }
 }
