@@ -390,7 +390,7 @@ delta；父链与项目历史留给 `PX-PIN-01`。显式 resize/crop 之外不�
 | P2（X11 已实现，待真机） | `PX-LS-AUTO-01` | X11 受控自动滚动；其余平台能力保持不可用 | `PX-LS-2D-01` + 平台输入能力 |
 | P2（已完成） | `PX-CODE-01` | 四种产品格式与扫码场景矩阵 | 可重复 fixture |
 | P2（X11/Windows/macOS/Wayland QA 入口、结果库、播放与恢复 remux 已完成，待真机/音频） | `PX-REC-01` / `PX-REC-PLAYBACK-01` / `PX-REC-MERGE-01` / `PX-REC-WINDOWS-QA-01` / `PX-REC-MACOS-SCK-01` / `PX-REC-WAYLAND-QA-01` | 可恢复录屏最小闭环 | 平台采集/编码实测 |
-| P2（共享时钟、音频 worker、Windows 音源、Opus/WebM 与双轨恢复 schema 已完成，待 session/其余平台接线） | `PX-REC-CLOCK-01` / `PX-REC-AUDIO-01` / `PX-REC-AUDIO-WORKER-01` / `PX-REC-WINDOWS-AUDIO-01` / `PX-REC-AV-EPOCH-01` / `PX-REC-OPUS-WEBM-01` / `PX-REC-AV-MANIFEST-01` | 单一会话时钟、48 kHz PCM、显式 A/V 起点、严格背压、参考 Opus、合规双轨容器与版本化恢复统计 | `PX-REC-01` 视频时间线 |
+| P2（内部可恢复双轨 session 已完成，待平台音源产品接线/其余平台） | `PX-REC-CLOCK-01` / `PX-REC-AUDIO-01` / `PX-REC-AUDIO-WORKER-01` / `PX-REC-WINDOWS-AUDIO-01` / `PX-REC-AV-EPOCH-01` / `PX-REC-OPUS-WEBM-01` / `PX-REC-AV-MANIFEST-01` / `PX-REC-AV-SESSION-01` | 单一会话时钟、48 kHz PCM、显式 A/V 起点、有界双轨排序、参考 Opus、周期可恢复双轨容器与版本化统计 | `PX-REC-01` 视频时间线 |
 | P3（已完成） | `PX-ACT-01` | 类型化动作注册表与启动器 | 稳定业务命令合同 |
 | P3（已完成门控，当前 no-go） | `PX-SMART-01` | 智能擦除可行性与质量基线 | 模型许可、包体和性能预算 |
 
@@ -792,26 +792,35 @@ owner。X11、Wayland/PipeWire、Windows WGC、macOS AVFoundation 与 ScreenCapt
 线程边界。线程内 factory 接收 session owner 的共享时钟，允许 Windows/macOS 原生对象保持
 `!Send`；50 ms 有界取块保证暂停、停止和回收可响应。worker 将 48 kHz PCM 送入现有一秒有界
 pipeline，队列满、平台取块/控制失败、初始化失败或 panic 都中止本次生产链并保留已入队前缀；
-暂停期间不再读取平台源，显式 Stop 才产生正常时长，Drop 会 join 并标记异常终态。当前仍没有
-WASAPI、ScreenCaptureKit audio 或 PipeWire 音频适配器，也未接 session、Opus、manifest 或 WebM
-双轨。完整合同见
+暂停期间不再读取平台源，显式 Stop 才产生正常时长，Drop 会 join 并标记异常终态。该 worker
+现已接入内部双轨 session；Windows 另有尚未接产品会话的 WASAPI source，ScreenCaptureKit audio
+与 PipeWire 音频适配器仍未实现。完整合同见
 [`2026-09-22-recording-audio-worker.md`](../superpowers/specs/2026-09-22-recording-audio-worker.md)。
 
 **2026-09-22 Opus/WebM 双轨进度**：`PX-REC-OPUS-WEBM-01` 已在非默认 feature 下把规范化 PCM
 接到参考 libopus 1.6.1。编码器以 20 ms 帧重组任意 chunk，pre-skip 来自实际 encoder lookahead，
 结束时保留精确真实 sample 数并以最后一个 WebM `BlockGroup/DiscardPadding` 表达补零。vendored
 `webm`/`webm-sys` 只暴露 libwebm 原有的 `CodecDelay`、`SeekPreRoll` 与尾裁切 API；真实 VP9 +
-Opus 文件结构测试核对两条轨道和全局 packet 顺序。该原型尚未接录屏 session、恢复 manifest 或
-UI，默认产品仍只录视频；完整合同见
+Opus 文件结构测试核对两条轨道和全局 packet 顺序。该原型现已接入内部可恢复 session 与 schema
+v2 清单，但尚未接平台音源选择或 UI，默认产品仍只录视频；完整合同见
 [`2026-09-22-recording-opus-webm.md`](../superpowers/specs/2026-09-22-recording-opus-webm.md)。
 
 **2026-09-22 双轨清单进度**：`PX-REC-AV-MANIFEST-01` 已让旧纯视频 schema v1 与 VP9 + Opus
 schema v2 并存。v2 在同一原子提交点记录 48 kHz mono/stereo、pre-skip、codec delay、seek pre-roll，以及
 每个分段和最终输出的 Opus packet/真实 PCM frame 数；恢复扫描继续按连续序号、普通文件、长度和
 SHA-256 截断坏尾。结果库可显示音轨摘要和播放/导出经过验证的双轨文件，但会关闭尚不支持双轨的
-异常 remux 与持久缩略图入口。下一提交把音频 worker、A/V coordinator 和双轨 writer 接入同一个
-session；完整合同见
+异常 remux 与持久缩略图入口。后续 `PX-REC-AV-SESSION-01` 已把音频 worker、A/V coordinator 和
+双轨 writer 接入同一个内部 session；完整合同见
 [`2026-09-22-recording-av-manifest.md`](../superpowers/specs/2026-09-22-recording-av-manifest.md)。
+
+**2026-09-22 双轨会话进度**：`PX-REC-AV-SESSION-01` 使用同一个 session clock 创建视频/音频
+source，以两个容量为一的桥接通道和有界 packet interleaver 连接唯一编码 owner。首视频帧以前的
+PCM 按 48 kHz sample 裁切，空洞显式补零；最终文件贯穿一个 VP9 与 Opus encoder，各恢复分段则
+使用独立 Opus encoder、本地零点和边界关键帧。正常停止核对采集、pipeline、编码和 manifest 统计
+后才提交 complete；启动失败、控制分歧、任一轨错误与 owner Drop 会中止两轨、join 全部线程并保留
+已提交前缀。当前仍为非默认内部原型；Windows WASAPI、macOS/Linux 音源、产品 UI、双轨恢复 remux/
+缩略图和真机长时漂移 QA 属于后续工作。完整合同见
+[`2026-09-22-recording-av-session.md`](../superpowers/specs/2026-09-22-recording-av-session.md)。
 
 **2026-09-21 Windows QA 入口进度**：`PX-REC-WINDOWS-QA-01` 已把既有 WGC 帧源、原生控制窗排除、
 VP9 会话与结果/恢复库接到显式 Windows 原型构建；Linux/Windows Native QA 包分别启用

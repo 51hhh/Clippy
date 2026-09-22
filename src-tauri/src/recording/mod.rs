@@ -26,6 +26,18 @@ mod audio_worker;
 // 双轨 mux 前先以首视频帧固定公共 epoch，并在 PCM sample 边界裁切更早的音频前缀。
 #[allow(dead_code)]
 mod av_timeline;
+// 双轨最终文件与周期恢复分段共享 VP9 packet；每段独立编码 Opus，避免跨段 decoder state。
+#[cfg(feature = "recording-opus-webm")]
+#[allow(dead_code)]
+mod av_segmenting;
+// 两个容量一桥接通道把视频/音频 pipeline 合并到唯一编码 owner，保证资源回收与媒体顺序一致。
+#[cfg(feature = "recording-opus-webm")]
+#[allow(dead_code)]
+mod av_encoder_worker;
+// 双轨会话 owner 在显式 Opus/WebM feature 下闭合两条采集链、编码线程与 schema v2 journal。
+#[cfg(feature = "recording-opus-webm")]
+#[allow(dead_code)]
+mod av_session;
 // 持续采集 worker 已接入受门控产品会话；合成帧继续固定停止、节流与错误传播。
 #[allow(dead_code)]
 mod worker;

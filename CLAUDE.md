@@ -12,8 +12,10 @@ X11/Wayland 分流自动粘贴、多显示器冻结截图、二维手动长截�
 可选结构化增强 OCR、翻译和设置面板。录屏的持久化、帧源、VP9 原型、控制链、结果/恢复库、异常
 分段无损 remux、持久首帧缩略图及按需 WebM 库内播放已实现；产品入口仅在
 显式 QA 构建的原生 X11、Wayland、Windows 与 macOS 12.3+ 会话开放，默认构建仍保持关闭。
-内部录屏音频已建立 48 kHz 单音轨领域合同、共享时钟和线程内采集 worker；平台音源、Opus、
-WebM 音轨与产品设置仍未接入，当前输出仍只有视频。
+内部录屏音频已建立 48 kHz 单音轨合同、共享时钟、线程内采集 worker，以及 feature 门控的
+VP9 + Opus 可恢复双轨 session；它能生成 schema v2 的最终 WebM 和独立周期分段。Windows
+WASAPI source 已单独实现但尚未接产品 session，macOS/Linux 音源、产品设置和默认发布仍未接入，
+当前用户入口仍只录视频。
 macOS Intel/Apple Silicon QA 包已生成；Wayland 使用可信 Portal 父窗口和托盘控制，但两者的原生
 真机录制仍待验收，不能记为发布可用。
 增强 OCR 运行时需要显式配置，未随三平台安装包默认分发；交付边界见

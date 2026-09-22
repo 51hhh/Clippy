@@ -67,20 +67,22 @@ QA 阶段，默认发布能力仍保持关闭：
 
 音频第二阶段已完成 48 kHz mono/stereo PCM 时间线、一秒有界队列和线程内采集 worker；Windows
 另有显式 QA feature 下的默认扬声器 WASAPI loopback 与默认麦克风 source。双轨协调以首个有效
-视频帧为容器零点，在 sample 边界裁切更早的 PCM，并在共同暂停区间后保持固定平移；结束报告保留
-真实轨道偏差。ScreenCaptureKit audio、Linux PipeWire 音频节点、Opus、WebM 音轨与产品 session
-接线尚未完成，当前入口仍只录视频。详细合同见
+视频帧为容器零点，在 sample 边界裁切更早的 PCM，并在共同暂停区间后保持固定平移；feature 门控
+的 session 已把共享时钟、双采集 worker、VP9、Opus、有界 packet 重排、周期双轨恢复分段与 schema
+v2 清单闭合。ScreenCaptureKit audio、Linux PipeWire 音频节点、Windows source 到产品 session 的
+选择、UI 和真机 A/V 验收尚未完成，当前用户入口仍只录视频。详细合同见
 [`2026-09-21-recording-audio-contract.md`](../superpowers/specs/2026-09-21-recording-audio-contract.md)、
 [`2026-09-22-recording-audio-worker.md`](../superpowers/specs/2026-09-22-recording-audio-worker.md)、
 [`2026-09-22-recording-windows-audio.md`](../superpowers/specs/2026-09-22-recording-windows-audio.md) 与
-[`2026-09-22-recording-av-epoch.md`](../superpowers/specs/2026-09-22-recording-av-epoch.md)。
+[`2026-09-22-recording-av-epoch.md`](../superpowers/specs/2026-09-22-recording-av-epoch.md)、
+[`2026-09-22-recording-av-session.md`](../superpowers/specs/2026-09-22-recording-av-session.md)。
 
 `PX-REC-CLOCK-01` 进一步把 X11、Wayland/PipeWire、Windows WGC、macOS AVFoundation 与
 ScreenCaptureKit 各自创建的时间原点收回 `DiagnosticRecordingSession`。平台 factory 现在必须
 显式接收同一个 `RecordingSessionClock`，帧、暂停、继续和停止都在该会话时间域内加戳；首帧等待
 另用连接后的局部计时。现有视频 presentation timeline 仍以首帧归零，避免破坏 VP9 writer；原生
-Windows QPC 音频 PTS 校准和双轨共同 epoch 合同已经补齐；macOS/Linux 原生 PTS、session 接线与
-实际双轨 session 接线仍待后续完成。共享时钟合同见
+Windows QPC 音频 PTS 校准、双轨共同 epoch 与内部双轨 session 已补齐；macOS/Linux 原生 PTS、
+平台音频选择与产品入口接线仍待后续完成。共享时钟合同见
 [`2026-09-22-recording-shared-clock.md`](../superpowers/specs/2026-09-22-recording-shared-clock.md)。
 
 `PX-REC-OPUS-WEBM-01` 已补齐平台无关的编码与容器边界。参考 libopus 把 48 kHz mono/stereo PCM
@@ -90,10 +92,11 @@ Windows QPC 音频 PTS 校准和双轨共同 epoch 合同已经补齐；macOS/Li
 四平台原型矩阵负责真实编译和合同测试；默认构建与产品 session 保持不变。
 `PX-REC-AV-MANIFEST-01` 已先完成恢复协议升级：旧纯视频继续使用 schema v1，VP9 + Opus 使用
 schema v2，并在原子提交点记录音轨格式与分段/最终产物统计；结果库会隔离尚不支持双轨的单轨
-remux 与缩略图入口。下一切片只需让 coordinator、音频 worker 与双轨 writer 在同一个 session
-产出这套 v2 数据。清单合同见
+remux 与缩略图入口。`PX-REC-AV-SESSION-01` 现已让 coordinator、音频 worker 与双轨 writer 在
+同一个 feature 门控 session 产出这套 v2 数据，并在两轨报告核对成功后才提交 complete。清单合同见
 [`2026-09-22-recording-av-manifest.md`](../superpowers/specs/2026-09-22-recording-av-manifest.md)，编码合同见
-[`2026-09-22-recording-opus-webm.md`](../superpowers/specs/2026-09-22-recording-opus-webm.md)。
+[`2026-09-22-recording-opus-webm.md`](../superpowers/specs/2026-09-22-recording-opus-webm.md)，会话合同见
+[`2026-09-22-recording-av-session.md`](../superpowers/specs/2026-09-22-recording-av-session.md)。
 
 ### 2026-09-21 同 SHA CI 证据
 

@@ -47,6 +47,8 @@ pub(in crate::recording) enum OpusWebmError {
     InvalidMuxConfiguration,
     #[error("WebM packet 时间戳跨轨倒退或同轨重复")]
     InvalidMuxTimestamp,
+    #[error("双轨 packet 重排队列超过固定上限")]
+    InterleaveQueueFull,
     #[error("WebM 封装失败: {0}")]
     Mux(String),
     #[error("WebM 封尾失败")]
@@ -149,6 +151,19 @@ impl OpusPacketEncoder {
 
     pub fn track_config(&self) -> &OpusTrackConfig {
         &self.track
+    }
+
+    /// 返回下一枚 Opus packet 的最早 timestamp。双轨 interleaver 用它证明另一轨已经越过
+    /// 待写 packet；首块尚未抵达时，调用方必须传入确定的媒体起点（产品 session 固定为 0）。
+    pub fn next_packet_timestamp_ns(
+        &self,
+        fallback_media_start_ns: u64,
+    ) -> Result<u64, OpusWebmError> {
+        self.media_start_ns
+            .unwrap_or(fallback_media_start_ns)
+            .checked_add(self.track.codec_delay_ns)
+            .and_then(|value| value.checked_add(frames_to_ns_u64(self.encoded_frames).ok()?))
+            .ok_or(OpusWebmError::TimelineOverflow)
     }
 
     pub fn push(

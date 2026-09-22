@@ -4,7 +4,7 @@
 //! 编码器或 WebM；只固定块校验、显式会话起点、暂停扣除和有界背压语义。
 
 use std::collections::VecDeque;
-use std::sync::Mutex;
+use std::sync::{Condvar, Mutex};
 use thiserror::Error;
 
 pub(super) const AUDIO_SAMPLE_RATE_HZ: u32 = 48_000;
@@ -115,6 +115,12 @@ pub(super) struct AudioPipelineStats {
     pub queued_bytes: usize,
     pub accepted_chunks: u64,
     pub ignored_while_paused: u64,
+}
+
+#[derive(Debug)]
+pub(super) enum AudioPipelineDrain {
+    Chunk(QueuedAudioChunk),
+    Finished { duration_ns: u64 },
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -334,6 +340,7 @@ struct AudioPipelineState {
 #[derive(Debug)]
 pub(super) struct AudioPipeline {
     state: Mutex<AudioPipelineState>,
+    ready: Condvar,
 }
 
 impl AudioPipeline {
@@ -349,6 +356,7 @@ impl AudioPipeline {
                 ignored_while_paused: 0,
                 terminal: AudioTerminal::Open,
             }),
+            ready: Condvar::new(),
         }
     }
 
@@ -393,6 +401,8 @@ impl AudioPipeline {
                 state.queued_bytes = next_bytes;
                 state.accepted_chunks = state.accepted_chunks.saturating_add(1);
                 state.chunks.push_back(queued);
+                drop(state);
+                self.ready.notify_one();
                 Ok(outcome)
             }
         }
@@ -403,12 +413,32 @@ impl AudioPipeline {
             .state
             .lock()
             .map_err(|_| AudioPipelineError::Poisoned)?;
-        let chunk = state.chunks.pop_front();
-        if let Some(chunk) = &chunk {
-            state.queued_frames -= u64::from(chunk.chunk.frame_count);
-            state.queued_bytes -= chunk.chunk.samples.len() * std::mem::size_of::<f32>();
+        Ok(pop_chunk(&mut state))
+    }
+
+    /// 等待下一块 PCM 或会话封尾。已经入队的块始终先于结束/中止状态交给消费者。
+    pub fn pop_wait(&self) -> Result<AudioPipelineDrain, AudioPipelineError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| AudioPipelineError::Poisoned)?;
+        loop {
+            if let Some(chunk) = pop_chunk(&mut state) {
+                return Ok(AudioPipelineDrain::Chunk(chunk));
+            }
+            match state.terminal {
+                AudioTerminal::Open => {
+                    state = self
+                        .ready
+                        .wait(state)
+                        .map_err(|_| AudioPipelineError::Poisoned)?;
+                }
+                AudioTerminal::Finished { duration_ns } => {
+                    return Ok(AudioPipelineDrain::Finished { duration_ns });
+                }
+                AudioTerminal::Aborted => return Err(AudioPipelineError::Aborted),
+            }
         }
-        Ok(chunk)
     }
 
     pub fn pause(&self, captured_at_ns: u64) -> Result<(), AudioPipelineError> {
@@ -437,6 +467,8 @@ impl AudioPipeline {
         ensure_open(state.terminal)?;
         let duration_ns = state.timeline.finish(captured_at_ns)?;
         state.terminal = AudioTerminal::Finished { duration_ns };
+        drop(state);
+        self.ready.notify_all();
         Ok(duration_ns)
     }
 
@@ -447,6 +479,8 @@ impl AudioPipeline {
             .map_err(|_| AudioPipelineError::Poisoned)?;
         if state.terminal == AudioTerminal::Open {
             state.terminal = AudioTerminal::Aborted;
+            drop(state);
+            self.ready.notify_all();
         }
         Ok(())
     }
@@ -464,6 +498,15 @@ impl AudioPipeline {
             ignored_while_paused: state.ignored_while_paused,
         })
     }
+}
+
+fn pop_chunk(state: &mut AudioPipelineState) -> Option<QueuedAudioChunk> {
+    let chunk = state.chunks.pop_front();
+    if let Some(chunk) = &chunk {
+        state.queued_frames -= u64::from(chunk.chunk.frame_count);
+        state.queued_bytes -= chunk.chunk.samples.len() * std::mem::size_of::<f32>();
+    }
+    chunk
 }
 
 fn ensure_open(terminal: AudioTerminal) -> Result<(), AudioPipelineError> {
@@ -685,5 +728,38 @@ mod tests {
             Err(AudioPipelineError::Aborted)
         );
         assert!(pipeline.pop().unwrap().is_some());
+    }
+
+    #[test]
+    fn waiting_consumer_drains_prefix_then_observes_finish_or_abort() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let finished = Arc::new(AudioPipeline::new(0));
+        let waiter_pipeline = Arc::clone(&finished);
+        let waiter = thread::spawn(move || {
+            let AudioPipelineDrain::Chunk(first) = waiter_pipeline.pop_wait().unwrap() else {
+                panic!("结束前必须先排空 PCM");
+            };
+            assert_eq!(first.chunk.sequence, 0);
+            waiter_pipeline.pop_wait()
+        });
+        finished.push(chunk(0, 0, 960)).unwrap();
+        finished.finish(20_000_000).unwrap();
+        assert!(matches!(
+            waiter.join().unwrap().unwrap(),
+            AudioPipelineDrain::Finished {
+                duration_ns: 20_000_000
+            }
+        ));
+
+        let aborted = Arc::new(AudioPipeline::new(0));
+        let waiter_pipeline = Arc::clone(&aborted);
+        let waiter = thread::spawn(move || waiter_pipeline.pop_wait());
+        aborted.abort().unwrap();
+        assert!(matches!(
+            waiter.join().unwrap(),
+            Err(AudioPipelineError::Aborted)
+        ));
     }
 }

@@ -61,4 +61,7 @@ schema 版本描述的是清单语义，不直接跟随应用版本。v1 只表�
 - 前端 `tsc --noEmit` 通过；录屏结果库与 API 定向测试 21 项通过。
 - `./scripts/ci-local.sh`：25 项通过、0 失败、2 项按环境跳过；其中 Vitest 73 个文件、1252 项
   测试通过，DOM smoke 14 项通过，X11 剪贴板隔离和录屏闭环通过。
-- Windows / macOS / Linux 同一提交的远程 CI：推送后填写，不能由本地门禁替代。
+- 提交 `8ca013a67b59cf0f3331a33df00353f5b5f9eefd` 的
+  [CI Check 35695334719](https://github.com/51hhh/Clippy/actions/runs/35695334719) 已在同一 SHA 通过
+  Ubuntu 主检查、Windows/macOS 原生检查，以及 Ubuntu、Windows、macOS ARM/Intel 四个录制
+  codec 原型 job。该证据关闭 schema v2 的跨平台编译和合同门禁，不替代平台音源与真机 A/V QA。
