@@ -9,6 +9,11 @@ use super::session::{
     DiagnosticRecordingSession,
 };
 use super::worker::RecordingFrameSource;
+#[cfg(feature = "recording-opus-webm")]
+use super::{
+    audio_worker::RecordingAudioSource,
+    av_session::{AvRecordingConfig, AvRecordingSession, AvRecordingSessionError},
+};
 use std::path::Path;
 use std::sync::{Arc, Mutex, Weak};
 use thiserror::Error;
@@ -27,6 +32,21 @@ pub(super) enum RecordingManagerStatus {
     Stopping(RecordingToken),
 }
 
+/// 控制窗只消费两种 session 共有的停止摘要；双轨的完整音频统计仍保存在 schema v2 manifest。
+#[derive(Debug)]
+pub(super) struct RecordingSessionReport {
+    pub segment_paths: Vec<std::path::PathBuf>,
+    pub final_output_path: Option<std::path::PathBuf>,
+    pub duration_ns: u64,
+    pub captured_frames: u64,
+    pub accepted_frames: u64,
+    pub encoder_input_frames: u64,
+    pub encoded_frames: u64,
+    pub dropped_by_backpressure: u64,
+    pub audio_packet_count: Option<u64>,
+    pub audio_pcm_frame_count: Option<u64>,
+}
+
 #[derive(Debug, Error)]
 pub(super) enum RecordingManagerError {
     #[error("已有录屏会话正在启动、录制或停止")]
@@ -39,6 +59,9 @@ pub(super) enum RecordingManagerError {
     Poisoned,
     #[error(transparent)]
     Session(#[from] DiagnosticRecordingError),
+    #[cfg(feature = "recording-opus-webm")]
+    #[error(transparent)]
+    AvSession(#[from] AvRecordingSessionError),
 }
 
 #[derive(Clone)]
@@ -64,12 +87,87 @@ enum ManagerSlot {
     Recording {
         token: RecordingToken,
         identity: Arc<()>,
-        session: Box<DiagnosticRecordingSession>,
+        session: Box<ManagedRecordingSession>,
     },
     Stopping {
         token: RecordingToken,
         identity: Arc<()>,
     },
+}
+
+enum ManagedRecordingSession {
+    Video(DiagnosticRecordingSession),
+    #[cfg(feature = "recording-opus-webm")]
+    AudioVideo(AvRecordingSession),
+}
+
+impl ManagedRecordingSession {
+    fn pause(&self) -> Result<(), RecordingManagerError> {
+        match self {
+            Self::Video(session) => session.pause().map_err(Into::into),
+            #[cfg(feature = "recording-opus-webm")]
+            Self::AudioVideo(session) => session.pause().map_err(Into::into),
+        }
+    }
+
+    fn resume(&self) -> Result<(), RecordingManagerError> {
+        match self {
+            Self::Video(session) => session.resume().map_err(Into::into),
+            #[cfg(feature = "recording-opus-webm")]
+            Self::AudioVideo(session) => session.resume().map_err(Into::into),
+        }
+    }
+
+    fn stop(self) -> Result<RecordingSessionReport, RecordingManagerError> {
+        match self {
+            Self::Video(session) => session.stop().map(Into::into).map_err(Into::into),
+            #[cfg(feature = "recording-opus-webm")]
+            Self::AudioVideo(session) => session.stop().map(Into::into).map_err(Into::into),
+        }
+    }
+
+    fn has_terminated_worker(&self) -> bool {
+        match self {
+            Self::Video(session) => session.has_terminated_worker(),
+            #[cfg(feature = "recording-opus-webm")]
+            Self::AudioVideo(session) => session.has_terminated_worker(),
+        }
+    }
+}
+
+impl From<DiagnosticRecordingReport> for RecordingSessionReport {
+    fn from(report: DiagnosticRecordingReport) -> Self {
+        Self {
+            segment_paths: report.segment_paths,
+            final_output_path: report.final_output_path,
+            duration_ns: report.duration_ns,
+            captured_frames: report.captured_frames,
+            accepted_frames: report.accepted_frames,
+            encoder_input_frames: report.encoder_input_frames,
+            encoded_frames: report.encoded_frames,
+            dropped_by_backpressure: report.dropped_by_backpressure,
+            audio_packet_count: None,
+            audio_pcm_frame_count: None,
+        }
+    }
+}
+
+#[cfg(feature = "recording-opus-webm")]
+impl From<super::av_session::AvRecordingReport> for RecordingSessionReport {
+    fn from(report: super::av_session::AvRecordingReport) -> Self {
+        Self {
+            segment_paths: report.segment_paths,
+            final_output_path: report.final_output_path,
+            duration_ns: report.duration_ns,
+            captured_frames: report.video_captured_frames,
+            accepted_frames: report.video_accepted_frames,
+            encoder_input_frames: report.video_encoder_input_frames,
+            encoded_frames: report.video_encoded_frames,
+            dropped_by_backpressure: report.video_dropped_by_backpressure,
+            audio_packet_count: Some(report.audio_encoded_packets),
+            audio_pcm_frame_count: Some(report.audio_pcm_frames),
+        }
+    }
 }
 
 struct StartReservation {
@@ -122,7 +220,31 @@ impl RecordingManager {
         let reservation = self.reserve(config.session_id.clone())?;
         let session =
             DiagnosticRecordingSession::start_with_factory(app_data_dir, config, source_factory)?;
-        self.commit_start(reservation, session)
+        self.commit_start(reservation, ManagedRecordingSession::Video(session))
+    }
+
+    #[cfg(feature = "recording-opus-webm")]
+    pub fn start_av_with_factories<VF, VS, AF, AS>(
+        &self,
+        app_data_dir: &Path,
+        config: AvRecordingConfig,
+        video_factory: VF,
+        audio_factory: AF,
+    ) -> Result<RecordingToken, RecordingManagerError>
+    where
+        VF: FnOnce(RecordingSessionClock) -> Result<VS, String> + Send + 'static,
+        VS: RecordingFrameSource,
+        AF: FnOnce(RecordingSessionClock) -> Result<AS, String> + Send + 'static,
+        AS: RecordingAudioSource,
+    {
+        let reservation = self.reserve(config.session_id.clone())?;
+        let session = AvRecordingSession::start_with_factories(
+            app_data_dir,
+            config,
+            video_factory,
+            audio_factory,
+        )?;
+        self.commit_start(reservation, ManagedRecordingSession::AudioVideo(session))
     }
 
     pub fn pause(&self, token: &RecordingToken) -> Result<(), RecordingManagerError> {
@@ -166,9 +288,9 @@ impl RecordingManager {
     pub fn stop(
         &self,
         token: &RecordingToken,
-    ) -> Result<DiagnosticRecordingReport, RecordingManagerError> {
+    ) -> Result<RecordingSessionReport, RecordingManagerError> {
         let (session, identity) = self.take_for_stopping(token)?;
-        let result = (*session).stop().map_err(RecordingManagerError::from);
+        let result = (*session).stop();
         self.settle_stopping(token, &identity)?;
         result
     }
@@ -193,6 +315,27 @@ impl RecordingManager {
             }
             ManagerSlot::Stopping { token, .. } => RecordingManagerStatus::Stopping(token.clone()),
         })
+    }
+
+    pub fn has_terminated_worker(
+        &self,
+        token: &RecordingToken,
+    ) -> Result<bool, RecordingManagerError> {
+        let state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| RecordingManagerError::Poisoned)?;
+        let ManagerSlot::Recording {
+            token: active,
+            session,
+            ..
+        } = &state.slot
+        else {
+            return Err(RecordingManagerError::StaleToken);
+        };
+        ensure_token(active, token)?;
+        Ok(session.has_terminated_worker())
     }
 
     fn reserve(&self, session_id: String) -> Result<StartReservation, RecordingManagerError> {
@@ -229,7 +372,7 @@ impl RecordingManager {
     fn commit_start(
         &self,
         mut reservation: StartReservation,
-        session: DiagnosticRecordingSession,
+        session: ManagedRecordingSession,
     ) -> Result<RecordingToken, RecordingManagerError> {
         let mut state = self
             .inner
@@ -257,7 +400,7 @@ impl RecordingManager {
     fn take_for_stopping(
         &self,
         token: &RecordingToken,
-    ) -> Result<(Box<DiagnosticRecordingSession>, Arc<()>), RecordingManagerError> {
+    ) -> Result<(Box<ManagedRecordingSession>, Arc<()>), RecordingManagerError> {
         let mut state = self
             .inner
             .state
@@ -354,6 +497,17 @@ mod tests {
     use crate::recording::frame::CapturedFrame;
     use crate::recording::segmenting::{RecordingEncoder, DEFAULT_SEGMENT_DURATION_NS};
     use std::convert::Infallible;
+    #[cfg(feature = "recording-opus-webm")]
+    use {
+        crate::recording::audio::{AudioFormat, CapturedAudioChunk},
+        crate::recording::audio_worker::RecordingAudioSource,
+        crate::recording::av_session::AvRecordingConfig,
+        std::collections::VecDeque,
+        std::error::Error,
+        std::fmt,
+        std::thread,
+        std::time::Duration,
+    };
 
     struct FixtureSource {
         sequence: u64,
@@ -480,5 +634,237 @@ mod tests {
         assert_eq!(manager.status().unwrap(), RecordingManagerStatus::Idle);
         let next = manager.reserve("second".to_string()).unwrap();
         assert_eq!(next.token.generation, 2);
+    }
+
+    struct FailedSource;
+
+    impl RecordingFrameSource for FailedSource {
+        type Error = std::io::Error;
+
+        fn capture_next(&mut self) -> Result<CapturedFrame, Self::Error> {
+            Err(std::io::Error::other("fixture source failed"))
+        }
+
+        fn control_timestamp_ns(&mut self) -> Result<u64, Self::Error> {
+            Ok(0)
+        }
+    }
+
+    #[test]
+    fn detects_an_unexpected_worker_exit_before_stop_and_releases_the_slot() {
+        let temporary = tempfile::tempdir().unwrap();
+        let manager = RecordingManager::new();
+        let token = manager
+            .start(temporary.path(), config("worker-failed"), FailedSource)
+            .unwrap();
+
+        let mut terminated = false;
+        for _ in 0..100 {
+            if manager.has_terminated_worker(&token).unwrap() {
+                terminated = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(terminated, "失败的采集 worker 应在健康检查预算内结束");
+        assert!(manager.stop(&token).is_err());
+        assert_eq!(manager.status().unwrap(), RecordingManagerStatus::Idle);
+    }
+
+    #[cfg(feature = "recording-opus-webm")]
+    #[derive(Debug)]
+    struct AvFixtureError;
+
+    #[cfg(feature = "recording-opus-webm")]
+    impl fmt::Display for AvFixtureError {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("双轨 manager fixture 已耗尽")
+        }
+    }
+
+    #[cfg(feature = "recording-opus-webm")]
+    impl Error for AvFixtureError {}
+
+    #[cfg(feature = "recording-opus-webm")]
+    struct AvVideoSource {
+        frames: VecDeque<CapturedFrame>,
+    }
+
+    #[cfg(feature = "recording-opus-webm")]
+    impl RecordingFrameSource for AvVideoSource {
+        type Error = AvFixtureError;
+
+        fn capture_next(&mut self) -> Result<CapturedFrame, Self::Error> {
+            self.frames.pop_front().ok_or(AvFixtureError)
+        }
+
+        fn capture_next_available(&mut self) -> Result<Option<CapturedFrame>, Self::Error> {
+            Ok(self.frames.pop_front())
+        }
+
+        fn control_timestamp_ns(&mut self) -> Result<u64, Self::Error> {
+            Ok(400_000_000)
+        }
+    }
+
+    #[cfg(feature = "recording-opus-webm")]
+    struct AvAudioSource {
+        chunks: VecDeque<CapturedAudioChunk>,
+    }
+
+    #[cfg(feature = "recording-opus-webm")]
+    impl RecordingAudioSource for AvAudioSource {
+        type Error = AvFixtureError;
+
+        fn capture_next_available(
+            &mut self,
+            timeout: Duration,
+        ) -> Result<Option<CapturedAudioChunk>, Self::Error> {
+            let chunk = self.chunks.pop_front();
+            if chunk.is_none() {
+                thread::sleep(timeout);
+            }
+            Ok(chunk)
+        }
+
+        fn control_timestamp_ns(&mut self) -> Result<u64, Self::Error> {
+            Ok(400_000_000)
+        }
+    }
+
+    #[cfg(feature = "recording-opus-webm")]
+    struct FailedAvAudioSource;
+
+    #[cfg(feature = "recording-opus-webm")]
+    impl RecordingAudioSource for FailedAvAudioSource {
+        type Error = AvFixtureError;
+
+        fn capture_next_available(
+            &mut self,
+            _timeout: Duration,
+        ) -> Result<Option<CapturedAudioChunk>, Self::Error> {
+            Err(AvFixtureError)
+        }
+
+        fn control_timestamp_ns(&mut self) -> Result<u64, Self::Error> {
+            Ok(0)
+        }
+    }
+
+    #[cfg(feature = "recording-opus-webm")]
+    #[test]
+    fn manager_owns_and_stops_the_av_session_in_the_same_generation_slot() {
+        let temporary = tempfile::tempdir().unwrap();
+        let manager = RecordingManager::new();
+        let config = AvRecordingConfig {
+            session_id: "manager-av".to_string(),
+            source_id: "fixture-av".to_string(),
+            physical_x: 0,
+            physical_y: 0,
+            width: 2,
+            height: 2,
+            frames_per_second: 10,
+            include_cursor: false,
+            audio_channels: 2,
+            segment_duration_ns: 200_000_000,
+        };
+        let token = manager
+            .start_av_with_factories(
+                temporary.path(),
+                config,
+                |_| {
+                    Ok(AvVideoSource {
+                        frames: (0..4)
+                            .map(|sequence| CapturedFrame {
+                                sequence,
+                                captured_at_ns: sequence * 100_000_000,
+                                width: 2,
+                                height: 2,
+                                stride: 8,
+                                rgba: vec![sequence as u8; 16].into_boxed_slice(),
+                            })
+                            .collect(),
+                    })
+                },
+                |_| {
+                    Ok(AvAudioSource {
+                        chunks: (0..4)
+                            .map(|sequence| CapturedAudioChunk {
+                                sequence,
+                                captured_at_ns: sequence * 100_000_000,
+                                format: AudioFormat::normalized(2),
+                                frame_count: 4_800,
+                                samples: vec![0.1; 9_600].into_boxed_slice(),
+                            })
+                            .collect(),
+                    })
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            manager.status().unwrap(),
+            RecordingManagerStatus::Recording(token.clone())
+        );
+        thread::sleep(Duration::from_millis(360));
+
+        let report = manager.stop(&token).unwrap();
+        assert_eq!(report.segment_paths.len(), 2);
+        assert!(report.final_output_path.is_some());
+        assert_eq!(report.encoded_frames, 4);
+        assert!(report.audio_packet_count.unwrap() > 0);
+        assert_eq!(report.audio_pcm_frame_count, Some(19_200));
+        assert_eq!(manager.status().unwrap(), RecordingManagerStatus::Idle);
+    }
+
+    #[cfg(feature = "recording-opus-webm")]
+    #[test]
+    fn audio_failure_is_observable_and_releases_the_shared_av_slot() {
+        let temporary = tempfile::tempdir().unwrap();
+        let manager = RecordingManager::new();
+        let config = AvRecordingConfig {
+            session_id: "manager-av-audio-failed".to_string(),
+            source_id: "fixture-av".to_string(),
+            physical_x: 0,
+            physical_y: 0,
+            width: 2,
+            height: 2,
+            frames_per_second: 10,
+            include_cursor: false,
+            audio_channels: 2,
+            segment_duration_ns: 200_000_000,
+        };
+        let token = manager
+            .start_av_with_factories(
+                temporary.path(),
+                config,
+                |_| {
+                    Ok(AvVideoSource {
+                        frames: (0..4)
+                            .map(|sequence| CapturedFrame {
+                                sequence,
+                                captured_at_ns: sequence * 100_000_000,
+                                width: 2,
+                                height: 2,
+                                stride: 8,
+                                rgba: vec![sequence as u8; 16].into_boxed_slice(),
+                            })
+                            .collect(),
+                    })
+                },
+                |_| Ok(FailedAvAudioSource),
+            )
+            .unwrap();
+
+        let mut terminated = false;
+        for _ in 0..100 {
+            if manager.has_terminated_worker(&token).unwrap() {
+                terminated = true;
+                break;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(terminated, "音频失败应终止共享双轨 pipeline");
+        assert!(manager.stop(&token).is_err());
+        assert_eq!(manager.status().unwrap(), RecordingManagerStatus::Idle);
     }
 }

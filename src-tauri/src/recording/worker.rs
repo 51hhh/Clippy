@@ -184,6 +184,11 @@ impl CaptureWorker {
         self.join_inner()
     }
 
+    /// 未收到 Stop 时线程结束只能表示平台源或 pipeline 已失败；供控制面及时触发统一清理。
+    pub fn is_finished(&self) -> bool {
+        self.join.as_ref().is_some_and(|join| join.is_finished())
+    }
+
     pub fn wait(mut self) -> Result<CaptureWorkerReport, CaptureWorkerError> {
         self.join_inner()
     }

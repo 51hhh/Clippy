@@ -1,8 +1,8 @@
-import { Video, X } from "lucide-react";
+import { Mic, Video, Volume2, VolumeX, X } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { t } from "../shared/i18n";
 import { toolbarPlacement } from "./geometry";
-import type { Rect } from "./types";
+import type { RecordingAudioMode, Rect } from "./types";
 
 const FALLBACK_SIZE = { width: 76, height: 40 };
 
@@ -11,6 +11,9 @@ type Props = {
   viewportWidth: number;
   viewportHeight: number;
   busy: boolean;
+  audioModes: RecordingAudioMode[];
+  audioMode: RecordingAudioMode;
+  onAudioModeChange: (mode: RecordingAudioMode) => void;
   onStart: () => void;
   onCancel: () => void;
 };
@@ -36,6 +39,19 @@ export function RecordingSelectionToolbar(props: Props) {
     width: props.viewportWidth,
     height: props.viewportHeight,
   });
+  const audioLabel = t(`capture.recording.audio.${props.audioMode}`);
+
+  function cycleAudioMode() {
+    if (props.audioModes.length < 2) return;
+    const current = props.audioModes.indexOf(props.audioMode);
+    props.onAudioModeChange(props.audioModes[(current + 1) % props.audioModes.length]);
+  }
+
+  const AudioIcon = props.audioMode === "systemAudio"
+    ? Volume2
+    : props.audioMode === "microphone"
+      ? Mic
+      : VolumeX;
 
   return (
     <div
@@ -50,6 +66,18 @@ export function RecordingSelectionToolbar(props: Props) {
       onPointerCancel={(event) => event.stopPropagation()}
     >
       <div className="overlay-toolbar-row">
+        {props.audioModes.length > 1 && (
+          <button
+            type="button"
+            className="recording-audio-mode"
+            title={`${t("capture.recording.audio.label")}: ${audioLabel}`}
+            aria-label={`${t("capture.recording.audio.label")}: ${audioLabel}`}
+            disabled={props.busy}
+            onClick={cycleAudioMode}
+          >
+            <AudioIcon size={16} />
+          </button>
+        )}
         <button
           type="button"
           className="overlay-confirm"

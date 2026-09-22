@@ -89,8 +89,14 @@
   交给唯一编码 owner；首视频帧以前的 PCM 会按 sample 裁切，真实空洞补静音，VP9/Opus packet
   通过有界水位重排后同时写入最终 WebM 与周期恢复分段。每段拥有独立 Opus encoder、本地零点和
   边界关键帧；正常停止核对两轨报告后才提交 complete，暂停回滚、启动失败、任一轨异常和 owner
-  丢弃都会同步回收线程并留下 interrupted。该链仍只在非默认 feature 下供原型验证，尚未接产品
-  UI、Windows WASAPI 或 macOS/Linux 音频 source。（需求：`PX-REC-AV-SESSION-01`）
+  丢弃都会同步回收线程并留下 interrupted。该交付时仍只在非默认 feature 下供内部原型验证；后续
+  Windows QA 接线见下一条，macOS/Linux 音频 source 仍未接入。（需求：`PX-REC-AV-SESSION-01`）
+- Windows 录屏 QA 包现在把 WGC、WASAPI 与可恢复 VP9 + Opus session 接入同一录屏生命周期。
+  选区工具条只显示后端声明的无音频、系统声和麦克风模式，默认保持无音频；有声模式共用会话时钟、
+  暂停/继续/停止和 generation token。控制窗会探测 worker 提前退出，任一轨失败时同步中止、关闭
+  控制窗、释放 Recording gate 并在结果库保留已提交恢复前缀。新的组合 feature
+  `recording-windows-av-qa` 仍不进入默认构建或正式 release；双轨异常合并/缩略图、设备选择、混音、
+  真机设备拔出和 30 分钟漂移仍待后续验收。（需求：`PX-REC-WINDOWS-AV-QA-01`）
 - 截图尺寸提示和工具栏保留前端事件边界，Pin 与长截图控制窗保留拖动权限。撤回导致 GTK 线程崩溃的原生防拖动改动，恢复原截图逐屏全屏定位和双屏建窗流程。
 - Pin 保存确认隔离背景键盘与焦点，窄窗采用纵向动作，短窗正文和错误可滚动；取消和保存重试保留标注。
 - 图片侧栏精简为缩略图与 OCR，翻译在 OCR 内切换，移除重复翻译卡和侧栏扫码。点击图片打开独立普通查看器；底部 Pin 式工具栏集中缩放、绘制、OCR、扫码、取色和输出。翻译仍处理识别文字，暂不替换原图排版。

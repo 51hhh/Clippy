@@ -97,6 +97,7 @@ const RECORDING_OVERLAY_COMMANDS: &[&str] = &[
     "cancel_capture_overlay",
     "get_capture_frame",
     "get_capture_overlay",
+    "get_recording_start_capabilities",
     "mark_capture_overlay_ready",
     "start_capture_recording",
 ];
@@ -135,6 +136,7 @@ const RECORDING_CONTROL_COMMANDS: &[&str] = &[
     "cancel_recording",
     "mark_recording_control_ready",
     "pause_recording",
+    "poll_recording_health",
     "resume_recording",
     "stop_recording",
 ];

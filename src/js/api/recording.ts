@@ -4,12 +4,42 @@ import type {
   RecordingLibraryItem,
   RecordingLibrarySettings,
   RecordingPlaybackLease,
+  RecordingAudioMode,
+  RecordingStartCapabilities,
   RecordingStopResult,
 } from "../ipc-types.ts";
 
+const RECORDING_AUDIO_MODES = new Set<RecordingAudioMode>([
+  "none",
+  "systemAudio",
+  "microphone",
+]);
+
+export async function getRecordingStartCapabilities(): Promise<RecordingStartCapabilities> {
+  const capabilities = await invoke<RecordingStartCapabilities>("get_recording_start_capabilities");
+  const audioModes = capabilities?.audioModes;
+  if (
+    !Array.isArray(audioModes)
+    || audioModes.length < 1
+    || audioModes.length > RECORDING_AUDIO_MODES.size
+    || audioModes[0] !== "none"
+    || new Set(audioModes).size !== audioModes.length
+    || audioModes.some((mode) => !RECORDING_AUDIO_MODES.has(mode))
+  ) {
+    throw new Error("recording.invalid_start_capabilities");
+  }
+  return { audioModes: [...audioModes] };
+}
+
 /** 从后端签发的 Recording 覆盖层提交逻辑选区；物理 crop 与编码策略仍由后端决定。 */
-export function startCaptureRecording(selection: CaptureSelection): Promise<void> {
-  return invoke<void>("start_capture_recording", { selection });
+export function startCaptureRecording(
+  selection: CaptureSelection,
+  audioMode: RecordingAudioMode,
+): Promise<void> {
+  if (!RECORDING_AUDIO_MODES.has(audioMode)) {
+    return Promise.reject(new Error("recording.invalid_audio_mode"));
+  }
+  return invoke<void>("start_capture_recording", { selection, audioMode });
 }
 
 /** 录屏控制页已完成首帧布局；caller label 由 Tauri 注入。 */
@@ -23,6 +53,10 @@ export function pauseRecording(): Promise<void> {
 
 export function resumeRecording(): Promise<void> {
   return invoke<void>("resume_recording");
+}
+
+export function pollRecordingHealth(): Promise<void> {
+  return invoke<void>("poll_recording_health");
 }
 
 export function stopRecording(): Promise<RecordingStopResult> {

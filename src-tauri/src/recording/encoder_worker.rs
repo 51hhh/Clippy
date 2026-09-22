@@ -138,6 +138,10 @@ where
         self.join_inner()
     }
 
+    pub fn is_finished(&self) -> bool {
+        self.join.as_ref().is_some_and(|join| join.is_finished())
+    }
+
     fn join_inner(&mut self) -> Result<EncoderReport<M::Writer>, EncoderWorkerError<M::Error>> {
         let Some(join) = self.join.take() else {
             return Err(EncoderWorkerError::ThreadPanicked);

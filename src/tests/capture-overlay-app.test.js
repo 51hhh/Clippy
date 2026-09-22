@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
     commit: vi.fn(),
     translate: vi.fn(),
     scan: vi.fn(),
+    recordingCapabilities: vi.fn(),
     startRecording: vi.fn(),
     copyText: vi.fn(),
     openLongshot: vi.fn(),
@@ -143,6 +144,7 @@ describe("capture overlay app", () => {
       detectedSourceLanguage: null,
     });
     mocks.overlayApi.scan.mockResolvedValue({ results: [], limited: false });
+    mocks.overlayApi.recordingCapabilities.mockResolvedValue({ audioModes: ["none"] });
     mocks.overlayApi.startRecording.mockResolvedValue(undefined);
     mocks.overlayApi.openLongshot.mockResolvedValue({ label: "longshot-controller-session-1" });
     root = createRoot(document.getElementById("root"));
@@ -236,15 +238,55 @@ describe("capture overlay app", () => {
 
     await act(async () => button("Start recording").click());
 
-    expect(mocks.overlayApi.startRecording).toHaveBeenCalledWith({
-      sessionId: "session-1",
-      monitorId: 0,
-      x: 10,
-      y: 10,
-      width: 90,
-      height: 70,
-    });
+    expect(mocks.overlayApi.startRecording).toHaveBeenCalledWith(
+      {
+        sessionId: "session-1",
+        monitorId: 0,
+        x: 10,
+        y: 10,
+        width: 90,
+        height: 70,
+      },
+      "none",
+    );
     expect(button("Start recording").disabled).toBe(true);
+  });
+
+  it("uses only backend-advertised recording audio modes", async () => {
+    mocks.getCurrentWindowLabel.mockReturnValue("recording-overlay-session-1-0");
+    mocks.overlayApi.recordingCapabilities.mockResolvedValue({
+      audioModes: ["none", "systemAudio", "microphone"],
+    });
+    await mount({ intent: "recording" });
+    await drag({ x: 10, y: 10 }, { x: 100, y: 80 });
+
+    expect(button("Recording audio: None")).not.toBeNull();
+    await act(async () => button("Recording audio: None").click());
+    expect(button("Recording audio: System audio")).not.toBeNull();
+    await act(async () => button("Recording audio: System audio").click());
+    expect(button("Recording audio: Microphone")).not.toBeNull();
+
+    await act(async () => button("Start recording").click());
+    expect(mocks.overlayApi.startRecording).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "session-1", width: 90, height: 70 }),
+      "microphone",
+    );
+  });
+
+  it("falls back to silent recording when capability loading fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.getCurrentWindowLabel.mockReturnValue("recording-overlay-session-1-0");
+    mocks.overlayApi.recordingCapabilities.mockRejectedValue(new Error("unavailable"));
+    await mount({ intent: "recording" });
+    await drag({ x: 10, y: 10 }, { x: 100, y: 80 });
+
+    expect(document.querySelector(".recording-audio-mode")).toBeNull();
+    await act(async () => button("Start recording").click());
+    expect(mocks.overlayApi.startRecording).toHaveBeenCalledWith(
+      expect.any(Object),
+      "none",
+    );
+    warn.mockRestore();
   });
 
   it("restores the recording selection when native startup fails", async () => {

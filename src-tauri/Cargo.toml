@@ -28,8 +28,15 @@ recording-vp9-prototype = ["dep:shiguredo_libvpx", "dep:webm", "dep:yuv"]
 recording-vp9-source-build = ["recording-vp9-prototype", "shiguredo_libvpx/source-build"]
 # 参考 libopus 编码与 VP9/Opus WebM 双轨封装；默认产品 session 尚不启用。
 recording-opus-webm = ["recording-vp9-prototype", "dep:opusic-c", "dep:opusic-sys"]
-# Windows WASAPI 系统声/默认麦克风 source；只进入原生 QA 编译图，尚未接产品 UI 或 mux。
+# Windows WASAPI 系统声/默认麦克风底层 source；单独启用不开放 UI，产品接线只认下方组合 feature。
 recording-windows-audio = ["dep:windows"]
+# Windows 双轨端到端 QA：WGC 与 WASAPI 共用 session 时钟并写入 VP9 + Opus WebM。
+# 组合 feature 只服务原生验证，不进入默认 feature 或正式 release。
+recording-windows-av-qa = [
+    "recording-vp9-source-build",
+    "recording-windows-audio",
+    "recording-opus-webm",
+]
 # Linux Wayland 专用 QA 入口；默认/release 构建保持关闭。
 recording-wayland-qa = [
     "recording-vp9-prototype",

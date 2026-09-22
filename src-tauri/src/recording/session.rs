@@ -217,6 +217,18 @@ impl DiagnosticRecordingSession {
         Ok(self.pipeline.is_open()?)
     }
 
+    /// 正常运行的 worker 只会在 owner 发出 Stop 后退出；仍处于 manager Recording slot 时提前退出
+    /// 表示平台源、pipeline 或编码器已经失败。
+    pub fn has_terminated_worker(&self) -> bool {
+        self.capture
+            .as_ref()
+            .is_some_and(CaptureWorker::is_finished)
+            || self
+                .encoder
+                .as_ref()
+                .is_some_and(EncoderWorker::is_finished)
+    }
+
     fn commit_reports(
         &mut self,
         capture: CaptureWorkerReport,

@@ -66,3 +66,10 @@ Windows 10/11 与 X11 真机结果必须绑定通过原生 runner 和安装包�
 - 同提交首次执行 Native QA 时，Linux 在真正打包阶段暴露多个可用 bin 未声明默认主程序的问题；普通
   `cargo check/clippy/test` 不覆盖该决策。现已在 Cargo package 明确 `default-run = "clippy-app"` 并加入
   静态回归合同，修复后的安装包结果须绑定新的完整 SHA，不能沿用首次失败记录。
+
+## Follow-up
+
+本需求完成的是无音频 Windows QA 入口。后续 `PX-REC-WINDOWS-AV-QA-01` 已将 Windows QA 包从
+`recording-vp9-source-build` 升级为非默认组合 feature `recording-windows-av-qa`，在同一入口接入
+WASAPI 系统声/默认麦克风与可恢复双轨 session；正式 release 仍未启用录屏。当前构建和验收合同见
+[`2026-09-22-recording-windows-av-qa.md`](2026-09-22-recording-windows-av-qa.md)。

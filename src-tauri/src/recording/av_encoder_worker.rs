@@ -90,6 +90,10 @@ impl AvEncoderWorker {
         self.join_inner()
     }
 
+    pub fn is_finished(&self) -> bool {
+        self.join.as_ref().is_some_and(|join| join.is_finished())
+    }
+
     fn join_inner(&mut self) -> Result<AvEncoderReport, AvEncoderWorkerError> {
         let Some(join) = self.join.take() else {
             return Err(AvEncoderWorkerError::ThreadPanicked);

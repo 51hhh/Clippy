@@ -33,6 +33,7 @@ import type {
   CaptureTranslationState,
   OverlayTool,
   Point,
+  RecordingAudioMode,
   Rect,
   ResizeHandle,
 } from "./types";
@@ -41,6 +42,7 @@ import { toPixelRect } from "./geometry";
 
 const HANDLES: ResizeHandle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 type LongshotLaunchState = "idle" | "pending" | "accepted";
+const NO_RECORDING_AUDIO: RecordingAudioMode[] = ["none"];
 
 /** 普通覆盖层只做一次轻量预检，实际会话/模式权威仍在后端。 */
 function longshotSelection(
@@ -141,6 +143,9 @@ export function App({ services = defaultServices }: { services?: CaptureAppServi
   const scanSelectionKeyRef = useRef("");
   const [longshotLaunch, setLongshotLaunch] = useState<LongshotLaunchState>("idle");
   const longshotLaunchRef = useRef<LongshotLaunchState>("idle");
+  const [recordingAudioModes, setRecordingAudioModes] =
+    useState<RecordingAudioMode[]>(NO_RECORDING_AUDIO);
+  const [recordingAudioMode, setRecordingAudioMode] = useState<RecordingAudioMode>("none");
   const mountedEpoch = useRef(0);
   const translateButtonRef = useRef<HTMLButtonElement>(null);
   const scanButtonRef = useRef<HTMLButtonElement>(null);
@@ -169,6 +174,33 @@ export function App({ services = defaultServices }: { services?: CaptureAppServi
     // 显示失败不该拖住截图：后端还有超时兜底会把窗口显示出来。
     overlayApi.ready(label).catch((reason) => console.warn("覆盖层显示失败", reason));
   }, [label]);
+
+  useEffect(() => {
+    if (payload?.intent !== "recording") {
+      setRecordingAudioModes(NO_RECORDING_AUDIO);
+      setRecordingAudioMode("none");
+      return;
+    }
+    let cancelled = false;
+    overlayApi.recordingCapabilities().then(
+      (capabilities) => {
+        if (cancelled) return;
+        setRecordingAudioModes(capabilities.audioModes);
+        setRecordingAudioMode((current) =>
+          capabilities.audioModes.includes(current) ? current : "none",
+        );
+      },
+      (reason) => {
+        if (cancelled) return;
+        console.warn("读取录屏音频能力失败", reason);
+        setRecordingAudioModes(NO_RECORDING_AUDIO);
+        setRecordingAudioMode("none");
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [overlayApi, payload?.intent]);
 
   const logicalWidth = payload?.logicalWidth || 1;
   const logicalHeight = payload?.logicalHeight || 1;
@@ -726,14 +758,14 @@ export function App({ services = defaultServices }: { services?: CaptureAppServi
     setBusy(true);
     setError(null);
     const epoch = mountedEpoch.current;
-    void overlayApi.startRecording(candidate).catch((reason) => {
+    void overlayApi.startRecording(candidate, recordingAudioMode).catch((reason) => {
       if (mountedEpoch.current !== epoch) return;
       console.warn("录屏启动失败", reason);
       busyRef.current = false;
       setBusy(false);
       setError(t("capture.recording.startFailed"));
     });
-  }, [payload, selection]);
+  }, [payload, recordingAudioMode, selection]);
 
   const setToolIfEditable = useCallback((next: OverlayTool) => {
     if (!busyRef.current && !outputFailureRef.current && longshotLaunchRef.current !== "pending") setTool(next);
@@ -934,6 +966,9 @@ export function App({ services = defaultServices }: { services?: CaptureAppServi
               viewportWidth={layoutWidth}
               viewportHeight={layoutHeight}
               busy={busy}
+              audioModes={recordingAudioModes}
+              audioMode={recordingAudioMode}
+              onAudioModeChange={setRecordingAudioMode}
               onStart={startRecording}
               onCancel={cancel}
             />

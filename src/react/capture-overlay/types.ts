@@ -7,6 +7,8 @@ export type {
   CaptureOverlayPayload,
   CaptureSelection,
   CaptureTranslationResult,
+  RecordingAudioMode,
+  RecordingStartCapabilities,
   TranslationProvider,
   WindowCandidate,
 } from "../../js/ipc-types.ts";

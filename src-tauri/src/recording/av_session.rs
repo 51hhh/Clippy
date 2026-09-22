@@ -298,6 +298,22 @@ impl AvRecordingSession {
         &self.session_directory
     }
 
+    /// 任一 worker 在 owner 发出 Stop 前退出都表示双轨会话已经失败。其余 worker 会由 pipeline
+    /// 联动中止；控制面用这个只读信号进入唯一的生命周期清理路径。
+    pub fn has_terminated_worker(&self) -> bool {
+        self.video_capture
+            .as_ref()
+            .is_some_and(CaptureWorker::is_finished)
+            || self
+                .audio_capture
+                .as_ref()
+                .is_some_and(AudioCaptureWorker::is_finished)
+            || self
+                .encoder
+                .as_ref()
+                .is_some_and(AvEncoderWorker::is_finished)
+    }
+
     fn commit_reports(
         &mut self,
         video: CaptureWorkerReport,

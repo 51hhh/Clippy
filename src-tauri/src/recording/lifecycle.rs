@@ -5,26 +5,59 @@
 //! Recording gate。
 
 use super::clock::RecordingSessionClock;
-use super::manager::{RecordingManager, RecordingManagerError, RecordingToken};
+use super::manager::{
+    RecordingManager, RecordingManagerError, RecordingSessionReport, RecordingToken,
+};
 use super::platform::{
     PlatformFrameSource, PlatformFrameSourcePlan, RecordingControlTarget, RecordingSourceDescriptor,
 };
 use super::segmenting::{RecordingEncoder, DEFAULT_SEGMENT_DURATION_NS};
 use super::selection::PreparedRecordingSelection;
-use super::session::{DiagnosticRecordingConfig, DiagnosticRecordingReport};
+use super::session::DiagnosticRecordingConfig;
 use super::worker::RecordingFrameSource;
+#[cfg(all(target_os = "windows", feature = "recording-windows-av-qa"))]
+use super::{av_session::AvRecordingConfig, platform::windows_audio::WindowsWasapiAudioSourcePlan};
 use crate::capture::{
     CaptureError, CaptureManager, CaptureModeOwnership, CaptureSelection, RecordingCaptureSpec,
 };
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 use thiserror::Error;
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum RecordingAudioMode {
+    None,
+    SystemAudio,
+    Microphone,
+}
+
+pub(super) fn available_recording_audio_modes() -> &'static [RecordingAudioMode] {
+    #[cfg(all(target_os = "windows", feature = "recording-windows-av-qa"))]
+    {
+        &[
+            RecordingAudioMode::None,
+            RecordingAudioMode::SystemAudio,
+            RecordingAudioMode::Microphone,
+        ]
+    }
+    #[cfg(not(all(target_os = "windows", feature = "recording-windows-av-qa")))]
+    {
+        &[RecordingAudioMode::None]
+    }
+}
+
+fn recording_audio_mode_available(mode: RecordingAudioMode) -> bool {
+    available_recording_audio_modes().contains(&mode)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RecordingStartRequest {
     pub session_id: String,
     pub frames_per_second: u32,
     pub include_cursor: bool,
+    pub audio_mode: RecordingAudioMode,
     /// 只由后端产品策略选择，IPC 不得让前端提交任意编码器或诊断参数。
     pub encoder: RecordingEncoder,
 }
@@ -55,6 +88,8 @@ pub(super) enum RecordingLifecycleError {
     Capture(#[from] CaptureError),
     #[error("录屏帧源准备失败: {0}")]
     Source(String),
+    #[error("当前构建不支持请求的录屏音频模式")]
+    AudioUnavailable,
     #[error("录屏桌面动作 {operation} 失败: {message}")]
     Desktop {
         operation: &'static str,
@@ -138,6 +173,9 @@ impl RecordingLifecycle {
         request: RecordingStartRequest,
         actions: &A,
     ) -> Result<RecordingToken, RecordingLifecycleError> {
+        if !recording_audio_mode_available(request.audio_mode) {
+            return Err(RecordingLifecycleError::AudioUnavailable);
+        }
         self.start::<PlatformFrameSource, _, _, _>(
             context,
             request,
@@ -213,6 +251,14 @@ impl RecordingLifecycle {
         Ok(())
     }
 
+    pub(super) fn has_terminated_worker(
+        &self,
+        token: &RecordingToken,
+    ) -> Result<bool, RecordingLifecycleError> {
+        self.require_active(token)?;
+        Ok(self.manager.has_terminated_worker(token)?)
+    }
+
     /// 原生托盘没有 WebView caller，可只从当前 Active slot 取得 exact generation。
     pub(super) fn pause_active(&self) -> Result<(), RecordingLifecycleError> {
         let token = self.active_token()?;
@@ -235,7 +281,7 @@ impl RecordingLifecycle {
         &self,
         token: &RecordingToken,
         actions: &A,
-    ) -> Result<DiagnosticRecordingReport, RecordingLifecycleError> {
+    ) -> Result<RecordingSessionReport, RecordingLifecycleError> {
         let active = self.claim_terminating(token)?;
         let primary = self
             .manager
@@ -316,23 +362,77 @@ impl RecordingLifecycle {
             }
         };
 
-        let config = DiagnosticRecordingConfig {
-            session_id: request.session_id.clone(),
-            source_id: descriptor.source_id,
-            physical_x: descriptor.physical_x,
-            physical_y: descriptor.physical_y,
-            width: descriptor.width,
-            height: descriptor.height,
-            frames_per_second: request.frames_per_second,
-            include_cursor: request.include_cursor,
-            encoder: request.encoder,
-            segment_duration_ns: DEFAULT_SEGMENT_DURATION_NS,
+        #[cfg(all(target_os = "windows", feature = "recording-windows-av-qa"))]
+        let started = match request.audio_mode {
+            RecordingAudioMode::None => {
+                let config = DiagnosticRecordingConfig {
+                    session_id: request.session_id.clone(),
+                    source_id: descriptor.source_id,
+                    physical_x: descriptor.physical_x,
+                    physical_y: descriptor.physical_y,
+                    width: descriptor.width,
+                    height: descriptor.height,
+                    frames_per_second: request.frames_per_second,
+                    include_cursor: request.include_cursor,
+                    encoder: request.encoder,
+                    segment_duration_ns: DEFAULT_SEGMENT_DURATION_NS,
+                };
+                self.manager
+                    .start_with_factory(app_data_dir, config, move |clock| {
+                        source_factory(control_target, clock)
+                    })
+            }
+            audio_mode @ (RecordingAudioMode::SystemAudio | RecordingAudioMode::Microphone) => {
+                let audio_plan = match audio_mode {
+                    RecordingAudioMode::SystemAudio => {
+                        WindowsWasapiAudioSourcePlan::system_loopback()
+                    }
+                    RecordingAudioMode::Microphone => {
+                        WindowsWasapiAudioSourcePlan::default_microphone()
+                    }
+                    RecordingAudioMode::None => unreachable!("已由外层 match 排除无音频"),
+                };
+                let config = AvRecordingConfig {
+                    session_id: request.session_id.clone(),
+                    source_id: descriptor.source_id,
+                    physical_x: descriptor.physical_x,
+                    physical_y: descriptor.physical_y,
+                    width: descriptor.width,
+                    height: descriptor.height,
+                    frames_per_second: request.frames_per_second,
+                    include_cursor: request.include_cursor,
+                    audio_channels: audio_plan.channels(),
+                    segment_duration_ns: DEFAULT_SEGMENT_DURATION_NS,
+                };
+                self.manager.start_av_with_factories(
+                    app_data_dir,
+                    config,
+                    move |clock| source_factory(control_target, clock),
+                    move |clock| audio_plan.connect(clock).map_err(|error| error.to_string()),
+                )
+            }
         };
-        let token = match self
-            .manager
-            .start_with_factory(app_data_dir, config, move |clock| {
-                source_factory(control_target, clock)
-            }) {
+        #[cfg(not(all(target_os = "windows", feature = "recording-windows-av-qa")))]
+        let started = {
+            debug_assert_eq!(request.audio_mode, RecordingAudioMode::None);
+            let config = DiagnosticRecordingConfig {
+                session_id: request.session_id.clone(),
+                source_id: descriptor.source_id,
+                physical_x: descriptor.physical_x,
+                physical_y: descriptor.physical_y,
+                width: descriptor.width,
+                height: descriptor.height,
+                frames_per_second: request.frames_per_second,
+                include_cursor: request.include_cursor,
+                encoder: request.encoder,
+                segment_duration_ns: DEFAULT_SEGMENT_DURATION_NS,
+            };
+            self.manager
+                .start_with_factory(app_data_dir, config, move |clock| {
+                    source_factory(control_target, clock)
+                })
+        };
+        let token = match started {
             Ok(token) => token,
             Err(error) => {
                 return self.fail_publishing(
@@ -607,6 +707,53 @@ mod tests {
     use std::convert::Infallible;
     use std::sync::{Arc, Mutex};
 
+    #[test]
+    fn audio_modes_follow_the_backend_build_gate() {
+        let modes = available_recording_audio_modes();
+        assert_eq!(modes.first(), Some(&RecordingAudioMode::None));
+        assert_eq!(
+            modes
+                .iter()
+                .filter(|mode| **mode == RecordingAudioMode::None)
+                .count(),
+            1
+        );
+        if cfg!(all(
+            target_os = "windows",
+            feature = "recording-windows-av-qa"
+        )) {
+            assert_eq!(
+                modes,
+                &[
+                    RecordingAudioMode::None,
+                    RecordingAudioMode::SystemAudio,
+                    RecordingAudioMode::Microphone,
+                ]
+            );
+        } else {
+            assert_eq!(modes, &[RecordingAudioMode::None]);
+            assert!(!recording_audio_mode_available(
+                RecordingAudioMode::SystemAudio
+            ));
+            assert!(!recording_audio_mode_available(
+                RecordingAudioMode::Microphone
+            ));
+        }
+    }
+
+    #[test]
+    fn audio_mode_wire_values_are_stable_and_unknown_values_fail_closed() {
+        assert_eq!(
+            serde_json::to_string(&RecordingAudioMode::SystemAudio).unwrap(),
+            "\"systemAudio\""
+        );
+        assert_eq!(
+            serde_json::to_string(&RecordingAudioMode::Microphone).unwrap(),
+            "\"microphone\""
+        );
+        assert!(serde_json::from_str::<RecordingAudioMode>("\"camera\"").is_err());
+    }
+
     struct FixtureSource {
         events: Arc<Mutex<Vec<String>>>,
         sequence: u64,
@@ -735,6 +882,7 @@ mod tests {
             session_id: session_id.to_string(),
             frames_per_second: 10,
             include_cursor: true,
+            audio_mode: RecordingAudioMode::None,
             encoder: RecordingEncoder::MjpegDiagnostic { jpeg_quality: 85 },
         }
     }

@@ -1,7 +1,7 @@
 //! Windows WASAPI 系统声与默认麦克风音频源。
 //!
 //! 本模块只进入 `recording-windows-audio` QA feature。COM 与全部 WASAPI 对象都在音频
-//! worker 线程内创建和销毁；产品会话、Opus 与 WebM 接线留给后续切片。
+//! worker 线程内创建和销毁；只有 `recording-windows-av-qa` 组合 feature 才会把它接入双轨会话。
 
 use super::super::audio::CapturedAudioChunk;
 use super::super::audio_worker::RecordingAudioSource;
@@ -66,6 +66,10 @@ impl WindowsWasapiAudioSourcePlan {
         Self {
             kind: WindowsAudioSourceKind::DefaultMicrophone,
         }
+    }
+
+    pub const fn channels(self) -> u16 {
+        WASAPI_CHANNELS
     }
 
     pub fn connect(

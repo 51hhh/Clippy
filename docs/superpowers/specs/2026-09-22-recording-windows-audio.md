@@ -66,3 +66,11 @@
   前端 73 个文件 1251 项通过，真实 X11 录屏、私有剪贴板、DOM、Canvas、布局与生产构建通过。
 - Windows/macOS 条件编译和原生 API 最终结论等待本分支同一 SHA 的远程 CI；Windows 真机采集
   仍属于后续 Native QA。
+
+## Follow-up
+
+`PX-REC-WINDOWS-AV-QA-01` 已在后续非默认组合 feature `recording-windows-av-qa` 中把本音源接入
+可恢复 VP9 + Opus session，并由后端能力列表向录屏选区工具条开放无音频、系统声和麦克风模式。
+本页的 Out of Scope 描述的是 `PX-REC-WINDOWS-AUDIO-01` 交付时的阶段边界；当前接线合同与仍待完成
+的真机设备/长时漂移验收见
+[`2026-09-22-recording-windows-av-qa.md`](2026-09-22-recording-windows-av-qa.md)。

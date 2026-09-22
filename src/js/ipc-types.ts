@@ -296,6 +296,12 @@ export interface CaptureSelection {
   height: number;
 }
 
+export type RecordingAudioMode = "none" | "systemAudio" | "microphone";
+
+export interface RecordingStartCapabilities {
+  audioModes: RecordingAudioMode[];
+}
+
 /**
  * 长截图会话的不可变身份。`generation` 必须始终作为十进制字符串保留，
  * 因为 Rust 的 u64 不能安全地经由 JavaScript number 往返。

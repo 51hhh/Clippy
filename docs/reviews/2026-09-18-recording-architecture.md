@@ -32,14 +32,14 @@ QA 阶段，默认发布能力仍保持关闭：
 - 覆盖层复用多屏冻结、窗口命中和逻辑到物理 crop，窗口标签使用独立
   `recording-overlay-*` 调用域，只允许读取冻结帧、取消和开始录屏；
 - 普通截图会话不能升级为录屏，录屏会话也不能调用复制、标注、扫码、翻译或长截图命令；
-- 前端只提交后端签发会话中的逻辑选区。30 fps、包含光标、VP9 编码器、输出目录和录制 session ID
-  由后端固定或生成；
+- 前端只提交后端签发会话中的逻辑选区及后端能力列表内的音频模式。30 fps、包含光标、VP9
+  编码器、输出目录和录制 session ID 由后端固定或生成；默认模式仍为无音频；
 - Windows 开始录制前必须应用现有 `WDA_EXCLUDEFROMCAPTURE` 控制窗排除；失败时回滚，不得录入控制窗；
 - Linux/Windows 原型仍需完成下文的原生运行与真机验收，不能因代码可编译而记为发布可用。
 
 本地 Linux X11 开发使用 `cargo tauri dev --features recording-vp9-prototype`，Wayland 使用
 `cargo tauri dev --features recording-wayland-qa`；Windows Native QA
-使用 `recording-vp9-source-build`。手动 QA workflow 只为 Linux X11 与 Windows 生成带入口的原型包，
+使用 `recording-windows-av-qa`。手动 QA workflow 只为 Linux X11 与 Windows 生成带入口的原型包，
 并在 `QA-BUILD.txt` 记录 feature；正式 release workflow 不启用它们。
 
 ### Acceptance Criteria
@@ -57,7 +57,7 @@ QA 阶段，默认发布能力仍保持关闭：
 
 - 把录屏 feature 设为发布默认值；
 - 把 macOS、Wayland 或 Windows 原型升级为默认发布能力；
-- 音频、摄像头、自动进入剪贴板历史、录制参数 UI；
+- macOS/Linux 音频、摄像头、自动进入剪贴板历史及编码参数 UI；
 - 用本次代码门禁替代 X11/Windows 真机画质、性能、控制窗排除、文件播放和崩溃恢复验收。
 
 本阶段的验收边界是“X11/Windows 可信 QA 入口已接线且默认关闭”。两平台的画质、性能、控制窗
@@ -69,27 +69,30 @@ QA 阶段，默认发布能力仍保持关闭：
 另有显式 QA feature 下的默认扬声器 WASAPI loopback 与默认麦克风 source。双轨协调以首个有效
 视频帧为容器零点，在 sample 边界裁切更早的 PCM，并在共同暂停区间后保持固定平移；feature 门控
 的 session 已把共享时钟、双采集 worker、VP9、Opus、有界 packet 重排、周期双轨恢复分段与 schema
-v2 清单闭合。ScreenCaptureKit audio、Linux PipeWire 音频节点、Windows source 到产品 session 的
-选择、UI 和真机 A/V 验收尚未完成，当前用户入口仍只录视频。详细合同见
+v2 清单闭合。`PX-REC-WINDOWS-AV-QA-01` 已把 Windows source 通过后端能力列表接到同一产品
+session，并让选区工具条选择无音频、系统声或麦克风。ScreenCaptureKit audio、Linux PipeWire
+音频节点、混音/设备选择和真机 A/V 验收尚未完成；正式 release 仍未启用录屏。详细合同见
 [`2026-09-21-recording-audio-contract.md`](../superpowers/specs/2026-09-21-recording-audio-contract.md)、
 [`2026-09-22-recording-audio-worker.md`](../superpowers/specs/2026-09-22-recording-audio-worker.md)、
 [`2026-09-22-recording-windows-audio.md`](../superpowers/specs/2026-09-22-recording-windows-audio.md) 与
 [`2026-09-22-recording-av-epoch.md`](../superpowers/specs/2026-09-22-recording-av-epoch.md)、
-[`2026-09-22-recording-av-session.md`](../superpowers/specs/2026-09-22-recording-av-session.md)。
+[`2026-09-22-recording-av-session.md`](../superpowers/specs/2026-09-22-recording-av-session.md)、
+[`2026-09-22-recording-windows-av-qa.md`](../superpowers/specs/2026-09-22-recording-windows-av-qa.md)。
 
 `PX-REC-CLOCK-01` 进一步把 X11、Wayland/PipeWire、Windows WGC、macOS AVFoundation 与
 ScreenCaptureKit 各自创建的时间原点收回 `DiagnosticRecordingSession`。平台 factory 现在必须
 显式接收同一个 `RecordingSessionClock`，帧、暂停、继续和停止都在该会话时间域内加戳；首帧等待
 另用连接后的局部计时。现有视频 presentation timeline 仍以首帧归零，避免破坏 VP9 writer；原生
-Windows QPC 音频 PTS 校准、双轨共同 epoch 与内部双轨 session 已补齐；macOS/Linux 原生 PTS、
-平台音频选择与产品入口接线仍待后续完成。共享时钟合同见
+Windows QPC 音频 PTS 校准、双轨共同 epoch 与受门控产品接线已补齐；macOS/Linux 原生 PTS 与
+平台音频选择仍待后续完成。共享时钟合同见
 [`2026-09-22-recording-shared-clock.md`](../superpowers/specs/2026-09-22-recording-shared-clock.md)。
 
 `PX-REC-OPUS-WEBM-01` 已补齐平台无关的编码与容器边界。参考 libopus 把 48 kHz mono/stereo PCM
 重组为 20 ms packet，`OpusHead` pre-skip 取实际 encoder lookahead；结束时追加 lookahead 和对齐
 补零，并只把对齐补零写入最后一个块的 `DiscardPadding`。双轨 WebM 同时写 `A_OPUS`、
 `CodecDelay` 和 80 ms `SeekPreRoll`，并要求调用方按全局 timestamp 顺序交错提交 VP9/Opus packet。
-四平台原型矩阵负责真实编译和合同测试；默认构建与产品 session 保持不变。
+四平台原型矩阵负责真实编译和合同测试；后续 Windows QA 组合 feature 已把本链接入受门控产品
+session，默认构建与正式 release 保持不变。
 `PX-REC-AV-MANIFEST-01` 已先完成恢复协议升级：旧纯视频继续使用 schema v1，VP9 + Opus 使用
 schema v2，并在原子提交点记录音轨格式与分段/最终产物统计；结果库会隔离尚不支持双轨的单轨
 remux 与缩略图入口。`PX-REC-AV-SESSION-01` 现已让 coordinator、音频 worker 与双轨 writer 在

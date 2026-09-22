@@ -8,15 +8,66 @@ const { invoke, convertFileSrc } = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/core", () => ({ invoke, convertFileSrc }));
 
 import {
+  getRecordingStartCapabilities,
   getRecordingThumbnail,
   getRecordingMediaUrl,
   mergeRecordingSession,
+  pollRecordingHealth,
   prepareRecordingPlayback,
   releaseRecordingPlayback,
+  startCaptureRecording,
 } from "../js/api/recording.ts";
 
 describe("recording playback API", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it("validates start capabilities and submits only an allowed audio mode", async () => {
+    invoke.mockResolvedValueOnce({ audioModes: ["none", "systemAudio", "microphone"] });
+    await expect(getRecordingStartCapabilities()).resolves.toEqual({
+      audioModes: ["none", "systemAudio", "microphone"],
+    });
+    expect(invoke).toHaveBeenCalledWith("get_recording_start_capabilities");
+
+    const selection = {
+      sessionId: "session-a",
+      monitorId: 0,
+      x: 1,
+      y: 2,
+      width: 30,
+      height: 40,
+    };
+    invoke.mockResolvedValueOnce(undefined);
+    await startCaptureRecording(selection, "systemAudio");
+    expect(invoke).toHaveBeenCalledWith("start_capture_recording", {
+      selection,
+      audioMode: "systemAudio",
+    });
+  });
+
+  it("rejects malformed start capabilities and client-side audio mode injection", async () => {
+    for (const invalid of [
+      null,
+      {},
+      { audioModes: [] },
+      { audioModes: ["systemAudio", "none"] },
+      { audioModes: ["none", "none"] },
+      { audioModes: ["none", "camera"] },
+    ]) {
+      invoke.mockResolvedValueOnce(invalid);
+      await expect(getRecordingStartCapabilities()).rejects.toThrow(
+        "invalid_start_capabilities",
+      );
+    }
+
+    await expect(startCaptureRecording({} as never, "camera" as never))
+      .rejects.toThrow("invalid_audio_mode");
+  });
+
+  it("polls recording worker health through the restricted control command", async () => {
+    invoke.mockResolvedValueOnce(undefined);
+    await pollRecordingHealth();
+    expect(invoke).toHaveBeenCalledWith("poll_recording_health");
+  });
 
   it("accepts only the exact opaque playback lease contract", async () => {
     const lease = { token: "media-0000000000000001", mimeType: "video/webm" as const };

@@ -3,6 +3,7 @@ import {
   cancelRecording,
   markRecordingControlReady,
   pauseRecording,
+  pollRecordingHealth,
   resumeRecording,
   stopRecording,
 } from "../../js/api.ts";
@@ -20,6 +21,7 @@ function formatElapsed(milliseconds: number): string {
 export type RecordingControlServices = {
   ready: typeof markRecordingControlReady;
   pause: typeof pauseRecording;
+  health: typeof pollRecordingHealth;
   resume: typeof resumeRecording;
   stop: typeof stopRecording;
   cancel: typeof cancelRecording;
@@ -28,6 +30,7 @@ export type RecordingControlServices = {
 const defaultServices: RecordingControlServices = {
   ready: markRecordingControlReady,
   pause: pauseRecording,
+  health: pollRecordingHealth,
   resume: resumeRecording,
   stop: stopRecording,
   cancel: cancelRecording,
@@ -58,18 +61,30 @@ export function App({
 
   useEffect(() => {
     let active = true;
+    let healthPending = false;
     const update = () => {
       if (!active || mode === "authorization" || pausedAt.current !== null) return;
       setElapsed(performance.now() - startedAt.current - pausedTotal.current);
     };
     update();
     const timer = mode === "controls" ? window.setInterval(update, 250) : null;
+    const checkHealth = () => {
+      if (!active || mode !== "controls" || healthPending) return;
+      healthPending = true;
+      void services.health().catch(() => {
+        if (active) setFailed(true);
+      }).finally(() => {
+        healthPending = false;
+      });
+    };
+    const healthTimer = mode === "controls" ? window.setInterval(checkHealth, 500) : null;
     void services.ready().catch(() => {
       if (active) setFailed(true);
     });
     return () => {
       active = false;
       if (timer !== null) window.clearInterval(timer);
+      if (healthTimer !== null) window.clearInterval(healthTimer);
     };
   }, [mode, services]);
 

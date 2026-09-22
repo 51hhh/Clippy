@@ -20,6 +20,7 @@ describe("recording control app", () => {
     services = {
       ready: vi.fn(async () => {}),
       pause: vi.fn(async () => {}),
+      health: vi.fn(async () => {}),
       resume: vi.fn(async () => {}),
       stop: vi.fn(async () => ({
         outputAvailable: true,
@@ -36,6 +37,7 @@ describe("recording control app", () => {
 
   afterEach(async () => {
     await act(async () => root.unmount());
+    vi.useRealTimers();
     delete reactEnvironment.IS_REACT_ACT_ENVIRONMENT;
   });
 
@@ -65,6 +67,22 @@ describe("recording control app", () => {
     vi.mocked(services.pause).mockRejectedValueOnce(new Error("failed"));
     const pause = document.querySelector<HTMLButtonElement>('[aria-label="Pause recording"]')!;
     await act(async () => pause.click());
+    expect(document.querySelector('[role="status"]')?.textContent).toBe("Control failed");
+    expect(document.querySelectorAll<HTMLButtonElement>("button:disabled")).toHaveLength(2);
+  });
+
+  it("polls backend health and freezes controls after an asynchronous worker failure", async () => {
+    await act(async () => root.unmount());
+    vi.useFakeTimers();
+    vi.mocked(services.health).mockRejectedValueOnce(new Error("worker failed"));
+    root = createRoot(document.getElementById("root")!);
+    await act(async () => root.render(<App services={services} />));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    expect(services.health).toHaveBeenCalledOnce();
     expect(document.querySelector('[role="status"]')?.textContent).toBe("Control failed");
     expect(document.querySelectorAll<HTMLButtonElement>("button:disabled")).toHaveLength(2);
   });

@@ -10,7 +10,9 @@ use super::control_registry::{RecordingControlClose, RecordingControlRegistryErr
 use super::control_window::{
     plan_control_window, ControlSize, ControlWindowPlan, PhysicalRect, WindowExclusionCapability,
 };
-use super::lifecycle::{DesktopActions, RecordingLifecycleError};
+use super::lifecycle::{
+    available_recording_audio_modes, DesktopActions, RecordingAudioMode, RecordingLifecycleError,
+};
 #[cfg(feature = "recording-vp9-prototype")]
 use super::lifecycle::{RecordingStartContext, RecordingStartRequest};
 use super::manager::RecordingToken;
@@ -77,10 +79,17 @@ impl From<RecordingLifecycleError> for RecordingIpcError {
             RecordingLifecycleError::Busy => "recording_busy",
             RecordingLifecycleError::Missing => "recording_missing",
             RecordingLifecycleError::Superseded => "recording_superseded",
+            RecordingLifecycleError::AudioUnavailable => "recording_audio_unavailable",
             _ => "recording_failed",
         };
         Self::new(code, error.to_string())
     }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecordingStartCapabilities {
+    audio_modes: &'static [RecordingAudioMode],
 }
 
 #[derive(Debug, Serialize)]
@@ -427,11 +436,19 @@ fn token_for_caller(
 /// 只有独立的 Recording 选区覆盖层能调用。前端只提交同一冻结会话中的逻辑选区；会话身份、物理
 /// crop、帧源、帧率、光标策略和编码器都由后端核验或固定，不能从 IPC 注入。
 #[tauri::command]
+pub(crate) fn get_recording_start_capabilities() -> RecordingStartCapabilities {
+    RecordingStartCapabilities {
+        audio_modes: available_recording_audio_modes(),
+    }
+}
+
+#[tauri::command]
 pub(crate) async fn start_capture_recording(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     selection: CaptureSelection,
+    audio_mode: RecordingAudioMode,
 ) -> Result<(), RecordingIpcError> {
     if !super::product_entry_available() {
         return Err(RecordingIpcError::unavailable());
@@ -439,7 +456,7 @@ pub(crate) async fn start_capture_recording(
 
     #[cfg(not(feature = "recording-vp9-prototype"))]
     {
-        let _ = (window, app, state, selection);
+        let _ = (window, app, state, selection, audio_mode);
         Err(RecordingIpcError::unavailable())
     }
 
@@ -467,6 +484,7 @@ pub(crate) async fn start_capture_recording(
                     session_id,
                     frames_per_second: 30,
                     include_cursor: true,
+                    audio_mode,
                     encoder: RecordingEncoder::Vp9Prototype,
                 },
                 &TauriRecordingDesktopActions::new(&app, &state),
@@ -534,6 +552,38 @@ pub(crate) fn resume_recording(
     let token = token_for_caller(&state, window.label())?;
     state.recording_lifecycle.resume(&token)?;
     Ok(())
+}
+
+/// 控制窗定期读取 worker 存活状态。这里只在 worker 已经自行退出时消费 session；实际 join、控制窗
+/// 关闭和 Recording gate 释放仍复用唯一的 lifecycle stop 路径。
+#[tauri::command]
+pub(crate) async fn poll_recording_health(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), RecordingIpcError> {
+    let token = token_for_caller(&state, window.label())?;
+    if !state.recording_lifecycle.has_terminated_worker(&token)? {
+        return Ok(());
+    }
+    let lifecycle = state.recording_lifecycle.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app
+            .try_state::<AppState>()
+            .ok_or_else(|| RecordingIpcError::internal("AppState 已不可用"))?;
+        let result = lifecycle.stop(&token, &TauriRecordingDesktopActions::new(&app, &state));
+        if let Err(error) = super::library::open(&app) {
+            log::warn!("录屏异常结束后打开结果库失败: {error}");
+        }
+        match result {
+            Ok(_) => Err(RecordingIpcError::internal(
+                "录屏 worker 在未收到停止命令时提前结束",
+            )),
+            Err(error) => Err(error.into()),
+        }
+    })
+    .await
+    .map_err(|error| RecordingIpcError::internal(error.to_string()))?
 }
 
 #[tauri::command]
