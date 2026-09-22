@@ -38,7 +38,7 @@ impl WindowsAudioSourceKind {
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
-pub(super) enum WindowsAudioContractError {
+pub(in crate::recording) enum WindowsAudioContractError {
     #[error("WASAPI QPC 频率无效")]
     InvalidQpcFrequency,
     #[error("WASAPI QPC 计数器无效")]
