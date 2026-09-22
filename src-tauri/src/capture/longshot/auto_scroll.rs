@@ -338,11 +338,12 @@ fn pointer_window() -> Result<WindowIdentity, CaptureError> {
     )
     .ok_or_else(|| CaptureError::LongshotAutoInput("无法读取 macOS 窗口列表".to_string()))?;
     for index in 0..windows.count() {
-        let dictionary = windows.value_at_index(index).cast::<CFDictionary>();
+        // SAFETY: index 来自同一个 CFArray 的 0..count()，返回元素在 windows 生命周期内有效。
+        let dictionary = unsafe { windows.value_at_index(index) }.cast::<CFDictionary>();
         if dictionary.is_null() {
             continue;
         }
-        // SAFETY: CGWindowListCopyWindowInfo 返回的数组元素在 windows 生命周期内是 CFDictionary。
+        // SAFETY: CGWindowListCopyWindowInfo 的数组元素类型是 CFDictionary。
         let dictionary = unsafe { &*dictionary };
         if macos_number(dictionary, "kCGWindowLayer") != Some(0) {
             continue;
