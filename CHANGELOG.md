@@ -107,6 +107,11 @@
   non-interleaved 缓冲、mono 上混、100 ms 拆块和原生 PTS 映射；有界队列满或时间线异常会中止
   两轨，避免静默丢音。新的 `recording-macos-av-qa` 仍不进入默认/release 构建；麦克风、混音、
   12.3–12.x 仍只开放无音频；真机权限与 30 分钟漂移仍待验收。（需求：`PX-REC-MACOS-AUDIO-01`）
+- macOS 15+ 录屏 QA 包现在可选择 ScreenCaptureKit 系统默认麦克风；后端按系统版本声明能力，
+  使用独立 microphone 输出，并在 QA app 中提供麦克风用途说明。麦克风仍复用共享 PTS、48 kHz
+  stereo PCM、VP9 + Opus 双轨、暂停/恢复和异常恢复链；非 48 kHz 或异常设备格式会明确中止，
+  不按错误速率写入。macOS 13–14 保持只有系统声，12.3–12.x 保持无音频，默认/release 不变；
+  权限、外接设备和长时漂移仍待真机验收。（需求：`PX-REC-MACOS-MIC-01`）
 - Linux X11 与 Wayland 录屏 QA 包现在可通过 PipeWire 选择默认系统声或默认麦克风，并接入现有
   共享时钟、VP9 + Opus 双轨、暂停/继续、schema v2、异常恢复和结果库。原生 source 只接受
   48 kHz stereo F32LE FL/FR，以 `SPA_META_Header` PTS 映射时间线；gap 转为等长静音，packet 拆成

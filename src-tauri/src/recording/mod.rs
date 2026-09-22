@@ -147,8 +147,19 @@ pub(in crate::recording) fn macos_screencapturekit_audio_runtime_available() -> 
     macos_version_supports_screencapturekit_audio(version.majorVersion, version.minorVersion)
 }
 
+#[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
+pub(in crate::recording) fn macos_screencapturekit_microphone_runtime_available() -> bool {
+    let version = objc2_foundation::NSProcessInfo::processInfo().operatingSystemVersion();
+    macos_version_supports_screencapturekit_microphone(version.majorVersion, version.minorVersion)
+}
+
 #[cfg(all(test, not(all(target_os = "macos", feature = "recording-macos-av-qa"))))]
 pub(in crate::recording) const fn macos_screencapturekit_audio_runtime_available() -> bool {
+    false
+}
+
+#[cfg(all(test, not(all(target_os = "macos", feature = "recording-macos-av-qa"))))]
+pub(in crate::recording) const fn macos_screencapturekit_microphone_runtime_available() -> bool {
     false
 }
 
@@ -170,11 +181,16 @@ const fn macos_version_supports_screencapturekit_audio(major: isize, _minor: isi
     major >= 13
 }
 
+#[cfg(any(test, all(target_os = "macos", feature = "recording-macos-av-qa")))]
+const fn macos_version_supports_screencapturekit_microphone(major: isize, _minor: isize) -> bool {
+    major >= 15
+}
+
 #[cfg(test)]
 mod product_entry_tests {
     use super::{
         macos_version_supports_screencapturekit, macos_version_supports_screencapturekit_audio,
-        product_entry_available_for,
+        macos_version_supports_screencapturekit_microphone, product_entry_available_for,
     };
     use crate::platform::DesktopSession;
 
@@ -221,6 +237,15 @@ mod product_entry_tests {
         assert!(!macos_version_supports_screencapturekit_audio(12, 6));
         assert!(macos_version_supports_screencapturekit_audio(13, 0));
         assert!(macos_version_supports_screencapturekit_audio(15, 4));
+    }
+
+    #[test]
+    fn macos_microphone_runtime_policy_starts_at_15() {
+        assert!(!macos_version_supports_screencapturekit_microphone(12, 6));
+        assert!(!macos_version_supports_screencapturekit_microphone(13, 0));
+        assert!(!macos_version_supports_screencapturekit_microphone(14, 7));
+        assert!(macos_version_supports_screencapturekit_microphone(15, 0));
+        assert!(macos_version_supports_screencapturekit_microphone(16, 0));
     }
 }
 

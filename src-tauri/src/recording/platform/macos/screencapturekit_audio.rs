@@ -1,4 +1,4 @@
-//! ScreenCaptureKit 系统音频 source。
+//! ScreenCaptureKit 系统声与默认麦克风 source。
 //!
 //! 原生回调只复制、校验并向有界队列 `try_send`。worker 线程拥有 stream、输出对象和接收端，
 //! 因而 Objective-C 对象不会跨线程移动，队列拥塞也不会阻塞 ScreenCaptureKit 串行队列。
@@ -46,29 +46,71 @@ const BYTES_PER_FLOAT_SAMPLE: usize = size_of::<f32>();
 
 #[derive(Debug, Error)]
 pub(in crate::recording) enum MacScreenCaptureKitAudioSourceError {
-    #[error("macOS 系统音频初始化失败: {0}")]
+    #[error("macOS 录屏音频初始化失败: {0}")]
     Initialize(String),
-    #[error("macOS 系统音频控制失败: {0}")]
+    #[error("macOS 录屏音频控制失败: {0}")]
     Control(String),
-    #[error("macOS 系统音频流已经关闭")]
+    #[error("macOS 录屏音频流已经关闭")]
     StreamClosed,
-    #[error("macOS 系统音频桥接锁已损坏")]
+    #[error("macOS 录屏音频桥接锁已损坏")]
     BridgePoisoned,
-    #[error("macOS 系统音频块序号耗尽")]
+    #[error("macOS 录屏音频块序号耗尽")]
     SequenceExhausted,
-    #[error("macOS 系统音频单调时间戳耗尽")]
+    #[error("macOS 录屏音频单调时间戳耗尽")]
     TimestampExhausted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MacAudioSourceKind {
+    SystemAudio,
+    DefaultMicrophone,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct MacNativeAudioConfiguration {
+    captures_system_audio: bool,
+    captures_microphone: bool,
+    output_type: SCStreamOutputType,
+    queue_label: &'static str,
+}
+
+impl MacAudioSourceKind {
+    const fn native_configuration(self) -> MacNativeAudioConfiguration {
+        match self {
+            Self::SystemAudio => MacNativeAudioConfiguration {
+                captures_system_audio: true,
+                captures_microphone: false,
+                output_type: SCStreamOutputType::Audio,
+                queue_label: "com.clippy.recording.screencapturekit.system-audio",
+            },
+            Self::DefaultMicrophone => MacNativeAudioConfiguration {
+                captures_system_audio: false,
+                captures_microphone: true,
+                output_type: SCStreamOutputType::Microphone,
+                queue_label: "com.clippy.recording.screencapturekit.microphone",
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::recording) struct MacScreenCaptureKitAudioSourcePlan {
     monitor_id: u32,
+    kind: MacAudioSourceKind,
 }
 
 impl MacScreenCaptureKitAudioSourcePlan {
-    pub fn from_frame_plan(plan: &MacRegionFrameSourcePlan) -> Self {
+    pub fn system_audio(plan: &MacRegionFrameSourcePlan) -> Self {
         Self {
             monitor_id: plan.selection.monitor_id,
+            kind: MacAudioSourceKind::SystemAudio,
+        }
+    }
+
+    pub fn default_microphone(plan: &MacRegionFrameSourcePlan) -> Self {
+        Self {
+            monitor_id: plan.selection.monitor_id,
+            kind: MacAudioSourceKind::DefaultMicrophone,
         }
     }
 
@@ -104,6 +146,7 @@ struct AudioOutputVars {
     timeline: Arc<Mutex<MacAudioPtsMapper>>,
     running: Arc<AtomicBool>,
     clock: RecordingSessionClock,
+    expected_output_type: SCStreamOutputType,
 }
 
 impl AudioOutputVars {
@@ -118,7 +161,7 @@ impl AudioOutputVars {
     }
 
     fn capture(&self, sample_buffer: &CMSampleBuffer, output_type: SCStreamOutputType) {
-        if output_type != SCStreamOutputType::Audio || !self.running.load(Ordering::Acquire) {
+        if output_type != self.expected_output_type || !self.running.load(Ordering::Acquire) {
             return;
         }
         let native = unsafe { copy_audio_packet(sample_buffer) };
@@ -244,10 +287,22 @@ impl MacScreenCaptureKitAudioSource {
         plan: MacScreenCaptureKitAudioSourcePlan,
         clock: RecordingSessionClock,
     ) -> Result<Self, MacScreenCaptureKitAudioSourceError> {
-        if !crate::recording::macos_screencapturekit_audio_runtime_available() {
-            return Err(MacScreenCaptureKitAudioSourceError::Initialize(
-                "ScreenCaptureKit 系统音频要求 macOS 13.0 或更高版本".to_string(),
-            ));
+        match plan.kind {
+            MacAudioSourceKind::SystemAudio
+                if !crate::recording::macos_screencapturekit_audio_runtime_available() =>
+            {
+                return Err(MacScreenCaptureKitAudioSourceError::Initialize(
+                    "ScreenCaptureKit 系统音频要求 macOS 13.0 或更高版本".to_string(),
+                ));
+            }
+            MacAudioSourceKind::DefaultMicrophone
+                if !crate::recording::macos_screencapturekit_microphone_runtime_available() =>
+            {
+                return Err(MacScreenCaptureKitAudioSourceError::Initialize(
+                    "ScreenCaptureKit 麦克风要求 macOS 15.0 或更高版本".to_string(),
+                ));
+            }
+            _ => {}
         }
         let content = request_shareable_content()
             .map_err(|error| MacScreenCaptureKitAudioSourceError::Initialize(error.to_string()))?;
@@ -262,11 +317,25 @@ impl MacScreenCaptureKitAudioSource {
             )
         };
         let configuration = unsafe { SCStreamConfiguration::new() };
-        unsafe {
-            configuration.setCapturesAudio(true);
-            configuration.setSampleRate(AUDIO_SAMPLE_RATE_HZ as isize);
-            configuration.setChannelCount(OUTPUT_CHANNELS as isize);
-            configuration.setExcludesCurrentProcessAudio(true);
+        let native_configuration = plan.kind.native_configuration();
+        match plan.kind {
+            MacAudioSourceKind::SystemAudio => unsafe {
+                configuration.setCapturesAudio(native_configuration.captures_system_audio);
+                configuration.setSampleRate(AUDIO_SAMPLE_RATE_HZ as isize);
+                configuration.setChannelCount(OUTPUT_CHANNELS as isize);
+                configuration.setExcludesCurrentProcessAudio(true);
+            },
+            MacAudioSourceKind::DefaultMicrophone => {
+                if !configuration.respondsToSelector(objc2::sel!(setCaptureMicrophone:)) {
+                    return Err(MacScreenCaptureKitAudioSourceError::Initialize(
+                        "当前 ScreenCaptureKit 不支持麦克风 selector".to_string(),
+                    ));
+                }
+                unsafe {
+                    configuration.setCapturesAudio(native_configuration.captures_system_audio);
+                    configuration.setCaptureMicrophone(native_configuration.captures_microphone);
+                }
+            }
         }
 
         let (chunk_tx, chunks) = mpsc::sync_channel(NATIVE_AUDIO_QUEUE_CAPACITY);
@@ -279,6 +348,7 @@ impl MacScreenCaptureKitAudioSource {
             timeline: Arc::clone(&timeline),
             running: Arc::clone(&running_flag),
             clock: clock.clone(),
+            expected_output_type: native_configuration.output_type,
         });
         let delegate: &ProtocolObject<dyn SCStreamDelegate> = ProtocolObject::from_ref(&*output);
         let stream = unsafe {
@@ -289,17 +359,14 @@ impl MacScreenCaptureKitAudioSource {
                 Some(delegate),
             )
         };
-        let queue = DispatchQueue::new(
-            "com.clippy.recording.screencapturekit.audio",
-            DispatchQueueAttr::SERIAL,
-        );
+        let queue = DispatchQueue::new(native_configuration.queue_label, DispatchQueueAttr::SERIAL);
         let output_protocol: &ProtocolObject<dyn SCStreamOutput> =
             ProtocolObject::from_ref(&*output);
         unsafe {
             stream
                 .addStreamOutput_type_sampleHandlerQueue_error(
                     output_protocol,
-                    SCStreamOutputType::Audio,
+                    native_configuration.output_type,
                     Some(&queue),
                 )
                 .map_err(|error| {
@@ -649,4 +716,38 @@ unsafe fn audio_buffer_samples(
         return Err(MacAudioContractError::SampleLengthMismatch);
     }
     Ok(unsafe { slice::from_raw_parts(buffer.mData.cast::<f32>(), expected_samples) })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_plans_keep_system_audio_and_default_microphone_distinct() {
+        let system = MacScreenCaptureKitAudioSourcePlan {
+            monitor_id: 7,
+            kind: MacAudioSourceKind::SystemAudio,
+        };
+        let microphone = MacScreenCaptureKitAudioSourcePlan {
+            monitor_id: 7,
+            kind: MacAudioSourceKind::DefaultMicrophone,
+        };
+
+        assert_eq!(system.monitor_id, microphone.monitor_id);
+        assert_ne!(system.kind, microphone.kind);
+        assert_eq!(
+            system.kind.native_configuration().output_type,
+            SCStreamOutputType::Audio
+        );
+        assert!(system.kind.native_configuration().captures_system_audio);
+        assert!(!system.kind.native_configuration().captures_microphone);
+        assert_eq!(
+            microphone.kind.native_configuration().output_type,
+            SCStreamOutputType::Microphone
+        );
+        assert!(!microphone.kind.native_configuration().captures_system_audio);
+        assert!(microphone.kind.native_configuration().captures_microphone);
+        assert_eq!(system.channels(), OUTPUT_CHANNELS);
+        assert_eq!(microphone.channels(), OUTPUT_CHANNELS);
+    }
 }

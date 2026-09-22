@@ -116,6 +116,13 @@ if (
     "Cargo.toml must keep macOS A/V QA and CoreAudioTypes behind the reviewed feature set",
   );
 }
+const recordingInfoPlist = readFileSync(join(tauriRoot, "Info.recording.plist"), "utf8");
+if (
+  !recordingInfoPlist.includes("<key>NSScreenCaptureUsageDescription</key>") ||
+  !recordingInfoPlist.includes("<key>NSMicrophoneUsageDescription</key>")
+) {
+  throw new Error("macOS recording QA plist must declare screen capture and microphone usage");
+}
 if (
   !cargoToml.includes('webm = { path = "vendor/webm" }') ||
   !cargoToml.includes('webm-sys = { path = "vendor/webm-sys" }')

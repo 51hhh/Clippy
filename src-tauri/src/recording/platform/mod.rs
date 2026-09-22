@@ -250,9 +250,11 @@ impl PlatformFrameSourcePlan {
             #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
             Self::Macos(plan) => match _kind {
                 PlatformAudioSourceKind::SystemAudio => Ok(PlatformAudioSourcePlan::Macos(
-                    macos::MacScreenCaptureKitAudioSourcePlan::from_frame_plan(plan),
+                    macos::MacScreenCaptureKitAudioSourcePlan::system_audio(plan),
                 )),
-                PlatformAudioSourceKind::Microphone => Err(PlatformAudioSourceError::Unsupported),
+                PlatformAudioSourceKind::Microphone => Ok(PlatformAudioSourcePlan::Macos(
+                    macos::MacScreenCaptureKitAudioSourcePlan::default_microphone(plan),
+                )),
             },
             #[allow(unreachable_patterns)]
             _ => Err(PlatformAudioSourceError::Unsupported),

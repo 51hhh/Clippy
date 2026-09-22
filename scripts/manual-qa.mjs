@@ -14,6 +14,13 @@ const degraded = (id, title, acceptedReasonCodes) =>
       ? Object.freeze([...acceptedReasonCodes])
       : Object.freeze([acceptedReasonCodes]),
   });
+const versionGated = (id, title, acceptedReasonCode) =>
+  Object.freeze({
+    id,
+    title,
+    acceptedStatuses: ["pass", "expected_degraded"],
+    acceptedReasonCodes: Object.freeze([acceptedReasonCode]),
+  });
 
 const PORTAL_AUTHORIZATION_OUTCOMES = Object.freeze([
   "portal_select_devices_rejected",
@@ -83,6 +90,29 @@ const LINUX_WINDOWS_AV_RECORDING_CASES = Object.freeze([
   pass(
     "recording_av_long_drift",
     "至少 30 分钟系统声与画面同步、内存、CPU 和 A/V 漂移",
+  ),
+]);
+
+const MACOS_AV_RECORDING_CASES = Object.freeze([
+  versionGated(
+    "recording_system_audio",
+    "macOS 13+ 系统声双轨录制、暂停/继续、播放与音轨摘要",
+    "macos_system_audio_requires_13",
+  ),
+  versionGated(
+    "recording_microphone",
+    "macOS 15+ 默认麦克风双轨录制、权限、暂停/继续与音轨摘要",
+    "macos_microphone_requires_15",
+  ),
+  versionGated(
+    "recording_audio_device_failure",
+    "音频设备消失时两轨中止、资源回收与已提交分段保留",
+    "macos_system_audio_requires_13",
+  ),
+  versionGated(
+    "recording_av_long_drift",
+    "至少 30 分钟系统声/麦克风与画面同步、内存、CPU 和 A/V 漂移",
+    "macos_system_audio_requires_13",
   ),
 ]);
 
@@ -269,6 +299,7 @@ const PROFILES = {
         "Ad-Hoc 签名、目标架构、未公证边界与首次打开恢复",
       ),
       ...RECORDING_AVAILABLE_CASES,
+      ...MACOS_AV_RECORDING_CASES,
     ],
   },
   "macos-apple-silicon": {
@@ -299,6 +330,7 @@ const PROFILES = {
         "Ad-Hoc 签名、目标架构、未公证边界与首次打开恢复",
       ),
       ...RECORDING_AVAILABLE_CASES,
+      ...MACOS_AV_RECORDING_CASES,
     ],
   },
 };
@@ -396,6 +428,7 @@ export function verifyQaRecord(record) {
     let passed = testCase.acceptedStatuses.includes(result.status);
     if (!passed) errors.push(`${testCase.id} 状态 ${result.status} 不满足 ${testCase.acceptedStatuses.join("/")}`);
     if (
+      result.status === "expected_degraded" &&
       testCase.acceptedReasonCodes?.length &&
       !testCase.acceptedReasonCodes.includes(result.observedReasonCode)
     ) {

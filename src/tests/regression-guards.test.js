@@ -747,6 +747,15 @@ describe("macOS ScreenCaptureKit QA 边界", () => {
     expect(read("src-tauri/Info.recording.plist")).toContain(
       "NSScreenCaptureUsageDescription",
     );
+    expect(read("src-tauri/Info.recording.plist")).toContain(
+      "NSMicrophoneUsageDescription",
+    );
+    expect(read(".github/workflows/native-qa.yml")).toContain(
+      "macOS recording QA bundle is missing NSMicrophoneUsageDescription",
+    );
+    expect(read("scripts/verify-recording-codec-supply-chain.mjs")).toContain(
+      "macOS recording QA plist must declare screen capture and microphone usage",
+    );
     expect(read(".github/workflows/release.yml")).not.toContain(
       "recording-macos-screencapturekit",
     );

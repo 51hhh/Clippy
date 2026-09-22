@@ -59,7 +59,7 @@ recording-macos-screencapturekit = [
     "dep:objc2-foundation",
     "dep:objc2-screen-capture-kit",
 ]
-# macOS ScreenCaptureKit 系统声与 VP9/Opus 双轨 QA；默认 macOS 11 release 保持关闭。
+# macOS ScreenCaptureKit 系统声、15+ 默认麦克风与 VP9/Opus 双轨 QA；默认 macOS 11 release 保持关闭。
 recording-macos-av-qa = [
     "recording-macos-screencapturekit",
     "recording-opus-webm",

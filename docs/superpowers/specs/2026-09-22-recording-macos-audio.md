@@ -1,5 +1,8 @@
 # PX-REC-MACOS-AUDIO-01 — macOS ScreenCaptureKit 系统音频 QA
 
+> 本文记录系统声切片的原始边界。后续 `PX-REC-MACOS-MIC-01` 已在 macOS 15+ QA 运行时增加
+> ScreenCaptureKit 默认麦克风；系统声合同与 macOS 12.3–14 的能力矩阵保持不变。
+
 ## Goal
 
 在不改变默认发布能力的前提下，把 macOS ScreenCaptureKit 的系统音频输出接入现有共享时钟、

@@ -53,11 +53,10 @@ pub(super) fn available_recording_audio_modes() -> &'static [RecordingAudioMode]
     }
     #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
     {
-        if super::macos_screencapturekit_audio_runtime_available() {
-            &[RecordingAudioMode::None, RecordingAudioMode::SystemAudio]
-        } else {
-            &[RecordingAudioMode::None]
-        }
+        macos_recording_audio_modes(
+            super::macos_screencapturekit_audio_runtime_available(),
+            super::macos_screencapturekit_microphone_runtime_available(),
+        )
     }
     #[cfg(not(any(
         all(target_os = "linux", feature = "recording-linux-av-qa"),
@@ -65,6 +64,24 @@ pub(super) fn available_recording_audio_modes() -> &'static [RecordingAudioMode]
         all(target_os = "macos", feature = "recording-macos-av-qa")
     )))]
     {
+        &[RecordingAudioMode::None]
+    }
+}
+
+#[cfg(any(test, all(target_os = "macos", feature = "recording-macos-av-qa")))]
+fn macos_recording_audio_modes(
+    system_audio_available: bool,
+    microphone_available: bool,
+) -> &'static [RecordingAudioMode] {
+    if system_audio_available && microphone_available {
+        &[
+            RecordingAudioMode::None,
+            RecordingAudioMode::SystemAudio,
+            RecordingAudioMode::Microphone,
+        ]
+    } else if system_audio_available {
+        &[RecordingAudioMode::None, RecordingAudioMode::SystemAudio]
+    } else {
         &[RecordingAudioMode::None]
     }
 }
@@ -777,16 +794,24 @@ mod tests {
         } else if cfg!(all(target_os = "macos", feature = "recording-macos-av-qa"))
             && crate::recording::macos_screencapturekit_audio_runtime_available()
         {
-            assert_eq!(
-                modes,
-                &[RecordingAudioMode::None, RecordingAudioMode::SystemAudio]
-            );
+            let expected =
+                if crate::recording::macos_screencapturekit_microphone_runtime_available() {
+                    &[
+                        RecordingAudioMode::None,
+                        RecordingAudioMode::SystemAudio,
+                        RecordingAudioMode::Microphone,
+                    ][..]
+                } else {
+                    &[RecordingAudioMode::None, RecordingAudioMode::SystemAudio][..]
+                };
+            assert_eq!(modes, expected);
             assert!(recording_audio_mode_available(
                 RecordingAudioMode::SystemAudio
             ));
-            assert!(!recording_audio_mode_available(
-                RecordingAudioMode::Microphone
-            ));
+            assert_eq!(
+                recording_audio_mode_available(RecordingAudioMode::Microphone),
+                crate::recording::macos_screencapturekit_microphone_runtime_available()
+            );
         } else {
             assert_eq!(modes, &[RecordingAudioMode::None]);
             assert!(!recording_audio_mode_available(
@@ -809,6 +834,31 @@ mod tests {
             "\"microphone\""
         );
         assert!(serde_json::from_str::<RecordingAudioMode>("\"camera\"").is_err());
+    }
+
+    #[test]
+    fn macos_audio_mode_policy_keeps_12_13_and_15_distinct() {
+        assert_eq!(
+            macos_recording_audio_modes(false, false),
+            &[RecordingAudioMode::None]
+        );
+        assert_eq!(
+            macos_recording_audio_modes(true, false),
+            &[RecordingAudioMode::None, RecordingAudioMode::SystemAudio]
+        );
+        assert_eq!(
+            macos_recording_audio_modes(true, true),
+            &[
+                RecordingAudioMode::None,
+                RecordingAudioMode::SystemAudio,
+                RecordingAudioMode::Microphone,
+            ]
+        );
+        assert_eq!(
+            macos_recording_audio_modes(false, true),
+            &[RecordingAudioMode::None]
+        );
+        assert!(!macos_recording_audio_modes(true, false).contains(&RecordingAudioMode::Microphone));
     }
 
     struct FixtureSource {

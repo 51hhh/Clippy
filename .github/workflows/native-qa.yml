@@ -382,6 +382,9 @@ jobs:
           [ -n "$(plutil -extract NSScreenCaptureUsageDescription raw -o - "$INFO_PLIST")" ] || {
             echo '::error::macOS recording QA bundle is missing NSScreenCaptureUsageDescription'; exit 1;
           }
+          [ -n "$(plutil -extract NSMicrophoneUsageDescription raw -o - "$INFO_PLIST")" ] || {
+            echo '::error::macOS recording QA bundle is missing NSMicrophoneUsageDescription'; exit 1;
+          }
           if [ "$ASSET_ARCH" = "aarch64" ]; then
             EXPECTED_ARCH="arm64"
           else

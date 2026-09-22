@@ -114,6 +114,24 @@ describe("真机 QA 合同", () => {
     },
   );
 
+  it.each(["macos-intel", "macos-apple-silicon"])(
+    "%s 按运行时版本验证系统声和麦克风",
+    (profileId) => {
+      const cases = casesForProfile(profileId);
+      const systemAudio = cases.find((testCase) => testCase.id === "recording_system_audio");
+      const microphone = cases.find((testCase) => testCase.id === "recording_microphone");
+
+      expect(systemAudio).toMatchObject({
+        acceptedStatuses: ["pass", "expected_degraded"],
+        acceptedReasonCodes: ["macos_system_audio_requires_13"],
+      });
+      expect(microphone).toMatchObject({
+        acceptedStatuses: ["pass", "expected_degraded"],
+        acceptedReasonCodes: ["macos_microphone_requires_15"],
+      });
+    },
+  );
+
   it.each([
     "linux-gnome-x11",
     "linux-gnome-wayland",
@@ -223,6 +241,20 @@ describe("真机 QA 合同", () => {
     expect(verifyQaRecord(record).passed).toBe(true);
     denied.observedReasonCode = "wayland_portal_permission";
     expect(verifyQaRecord(record).passed).toBe(false);
+  });
+
+  it("macOS 版本门控只在降级状态要求对应 reason code", () => {
+    const record = completedRecord("macos-apple-silicon");
+    const microphone = record.results.find((result) => result.id === "recording_microphone");
+
+    microphone.status = "pass";
+    microphone.observedReasonCode = null;
+    expect(verifyQaRecord(record).passed).toBe(true);
+
+    microphone.status = "expected_degraded";
+    expect(verifyQaRecord(record).passed).toBe(false);
+    microphone.observedReasonCode = "macos_microphone_requires_15";
+    expect(verifyQaRecord(record).passed).toBe(true);
   });
 
   it("每项必须同时有文字观测和证据引用", () => {

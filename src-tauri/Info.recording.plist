@@ -4,5 +4,7 @@
 <dict>
   <key>NSScreenCaptureUsageDescription</key>
   <string>Clippy uses screen capture only for screenshots and recordings you start.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Clippy uses the microphone only for recordings you start with microphone audio.</string>
 </dict>
 </plist>
