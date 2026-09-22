@@ -156,8 +156,8 @@ fn endpoint_id(
 ) -> Result<String, WindowsWasapiAudioSourceError> {
     let value =
         unsafe { device.GetId() }.map_err(|error| windows_api_error("读取 endpoint ID", error))?;
-    let result =
-        unsafe { value.to_string() }.map_err(|error| windows_api_error("转换 endpoint ID", error));
+    let result = unsafe { value.to_string() }
+        .map_err(|error| windows_api_error("转换 endpoint ID", error.into()));
     unsafe { CoTaskMemFree(Some(value.0.cast())) };
     result
 }
@@ -178,8 +178,8 @@ fn endpoint_label(
             return Err(windows_api_error("转换 endpoint 名称", error));
         }
     };
-    let result =
-        unsafe { text.to_string() }.map_err(|error| windows_api_error("解码 endpoint 名称", error));
+    let result = unsafe { text.to_string() }
+        .map_err(|error| windows_api_error("解码 endpoint 名称", error.into()));
     unsafe {
         CoTaskMemFree(Some(text.0.cast()));
         let _ = PropVariantClear(&mut value);
