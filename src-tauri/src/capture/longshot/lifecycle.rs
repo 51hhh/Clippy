@@ -110,6 +110,27 @@ impl LongshotLifecycle {
         self.append_with(token, || self.controller.auto_append(token, direction))
     }
 
+    #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+    pub(in crate::capture) fn authorize_wayland_auto(
+        &self,
+        token: &LongshotSessionToken,
+        parent: ashpd::WindowIdentifier,
+    ) -> Result<(), CaptureError> {
+        self.require_active(token)?;
+        let result = self.controller.authorize_wayland_auto(token, parent);
+        self.require_still_active(token)?;
+        result.map_err(normalize_controller_race)
+    }
+
+    #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+    pub(in crate::capture) fn wayland_auto_authorized(
+        &self,
+        token: &LongshotSessionToken,
+    ) -> Result<bool, CaptureError> {
+        self.require_active(token)?;
+        self.controller.wayland_auto_authorized(token)
+    }
+
     pub(in crate::capture) fn undo(
         &self,
         token: &LongshotSessionToken,

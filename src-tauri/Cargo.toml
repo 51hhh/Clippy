@@ -18,10 +18,13 @@ name = "clippy_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
-default = ["linux-pipewire"]
+default = ["linux-pipewire", "longshot-wayland-auto"]
 # 兼容已有的显式构建命令，但 PipeWire 依赖和截图后端不再受 feature 控制：即使调用
 # `--no-default-features`，正式 Linux 产物也不能把 GNOME 的低延迟主路径裁掉。
 linux-pipewire = []
+# 原生 Wayland 长截图自动滚动的 Portal 父窗口边界；默认产品启用，但保持为显式 feature，
+# 让 `--no-default-features` 仍能验证不含 Wayland raw handle 的最小编译图。
+longshot-wayland-auto = ["ashpd/raw_handle", "ashpd/wayland", "dep:raw-window-handle"]
 # PX-REC-01 的隔离编码原型。当前 libvpx 绑定仍是 canary；常规目标下载固定哈希预编译归档，
 # Windows MSVC 与 macOS Intel 从固定哈希源码归档构建。四目标同 SHA 与真机 QA 通过前不能进入默认产品构建。
 recording-vp9-prototype = ["dep:shiguredo_libvpx", "dep:webm", "dep:yuv"]

@@ -303,7 +303,7 @@ fn portal_info_from(
 }
 
 #[cfg(target_os = "linux")]
-fn current_portal_info() -> PortalInfo {
+pub(crate) fn current_portal_info() -> PortalInfo {
     const DESTINATION: &str = "org.freedesktop.portal.Desktop";
     const PATH: &str = "/org/freedesktop/portal/desktop";
     let service_available = crate::dbus::call::<_, bool>(
@@ -325,7 +325,7 @@ fn current_portal_info() -> PortalInfo {
 }
 
 #[cfg(not(target_os = "linux"))]
-fn current_portal_info() -> PortalInfo {
+pub(crate) fn current_portal_info() -> PortalInfo {
     PortalInfo::default()
 }
 

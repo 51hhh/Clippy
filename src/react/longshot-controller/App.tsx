@@ -13,6 +13,7 @@ import { longshotControllerApi } from "./api";
 type ControllerPhase =
   | "preparing"
   | "ready"
+  | "authorizing"
   | "appending"
   | "undoing"
   | "finishing"
@@ -92,6 +93,8 @@ function errorText(error: DisplayError | null, context: ErrorContext): string {
       return t("longshot.autoUserInterrupted");
     case "longshot_auto_permission_required":
       return t("longshot.autoPermissionRequired");
+    case "longshot_auto_wayland_permission_required":
+      return t("longshot.autoWaylandAuthorizationRejected");
     case "longshot_auto_input":
       return t("longshot.autoInputFailed");
     case "longshot_auto_unsupported":
@@ -485,6 +488,52 @@ export function App() {
     autoStepRef.current(autoDirection);
   }, [autoDirection]);
 
+  const authorizeAuto = useCallback(() => {
+    const current = activationRef.current;
+    if (
+      !current
+      || current.autoScroll.state !== "permission_required"
+      || current.autoScroll.reason !== "wayland_remote_desktop_required"
+      || phaseRef.current !== "ready"
+      || appendInFlight.current
+      || cancelling.current
+    ) return;
+    appendInFlight.current = true;
+    const attempt = ++appendEpoch.current;
+    setError(null);
+    setErrorContext("auto");
+    transition("authorizing");
+    void longshotControllerApi.authorizeAuto(current.handle)
+      .then((capability) => {
+        if (
+          !mounted.current
+          || attempt !== appendEpoch.current
+          || cancelling.current
+          || phaseRef.current !== "authorizing"
+        ) return;
+        appendInFlight.current = false;
+        const next = { ...current, autoScroll: capability };
+        activationRef.current = next;
+        setActivation(next);
+        transition("ready");
+      })
+      .catch((reason) => {
+        if (
+          !mounted.current
+          || attempt !== appendEpoch.current
+          || cancelling.current
+          || phaseRef.current !== "authorizing"
+        ) return;
+        appendInFlight.current = false;
+        const parsed = parseControllerError(reason);
+        console.warn("Wayland 长截图自动滚动授权失败", parsed.message);
+        setError(parsed);
+        setErrorContext("auto");
+        transition(parsed.code === "longshot_controller_cleanup_failed" ? "cleanupError" : "ready");
+        if (parsed.code === "longshot_controller_cleanup_failed") releasePreviewUrl();
+      });
+  }, []);
+
   const undoCurrent = useCallback(() => {
     const currentActivation = activationRef.current;
     if (
@@ -677,6 +726,7 @@ export function App() {
   }, [cancelCurrent]);
 
   const isBusy = phase === "appending"
+    || phase === "authorizing"
     || phase === "undoing"
     || phase === "finishing"
     || phase === "cancelling";
@@ -690,6 +740,7 @@ export function App() {
 
       {(
         phase === "ready"
+        || phase === "authorizing"
         || phase === "appending"
         || phase === "undoing"
         || phase === "finishing"
@@ -701,6 +752,7 @@ export function App() {
             {phase === "appending" && (autoRunning
               ? t("longshot.autoAppending")
               : t("longshot.appending"))}
+            {phase === "authorizing" && t("longshot.autoAuthorizing")}
             {phase === "undoing" && t("longshot.undoing")}
             {phase === "finishing" && finishingAction === "copy" && t("longshot.finishingCopy")}
             {phase === "finishing" && finishingAction === "save" && t("longshot.finishingSave")}
@@ -771,18 +823,32 @@ export function App() {
             </section>
           )}
           {activation.autoScroll?.state === "permission_required"
-            && (phase === "ready" || phase === "appending") && (
+            && (phase === "ready" || phase === "appending" || phase === "authorizing") && (
             <section
               className="longshot-auto longshot-auto--unavailable"
               aria-label={t("longshot.autoRegion")}
               data-testid="longshot-auto-permission"
             >
-              <p>{t("longshot.autoPermissionRequired")}</p>
+              <p>{activation.autoScroll.reason === "wayland_remote_desktop_required"
+                ? t("longshot.autoWaylandPermissionRequired")
+                : t("longshot.autoPermissionRequired")}</p>
+              {activation.autoScroll.reason === "wayland_remote_desktop_required" && (
+                <button
+                  type="button"
+                  data-testid="longshot-auto-authorize"
+                  onClick={authorizeAuto}
+                  disabled={phase !== "ready"}
+                >
+                  {phase === "authorizing"
+                    ? t("longshot.autoAuthorizing")
+                    : t("longshot.autoAuthorize")}
+                </button>
+              )}
             </section>
           )}
           {phase !== "finished" && (
             <div className="longshot-actions">
-              {(phase === "ready" || phase === "appending" || phase === "undoing" || phase === "finishing") && (
+              {(phase === "ready" || phase === "authorizing" || phase === "appending" || phase === "undoing" || phase === "finishing") && (
                 <>
                   <button
                     type="button"

@@ -68,6 +68,16 @@ if (
   throw new Error("Cargo.toml must expose the reviewed VP9 source-build feature");
 }
 if (
+  !cargoToml.includes('default = ["linux-pipewire", "longshot-wayland-auto"]') ||
+  !cargoToml.includes(
+    'longshot-wayland-auto = ["ashpd/raw_handle", "ashpd/wayland", "dep:raw-window-handle"]',
+  )
+) {
+  throw new Error(
+    "Cargo.toml must keep the product Wayland longshot parent-handle dependencies explicit and enabled",
+  );
+}
+if (
   !cargoToml.includes('"recording-vp9-prototype",\n    "ashpd/raw_handle",\n    "ashpd/wayland",\n    "dep:raw-window-handle",')
 ) {
   throw new Error(

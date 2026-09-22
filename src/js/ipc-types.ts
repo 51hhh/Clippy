@@ -336,11 +336,11 @@ export type LongshotAutoCapability = {
   directions: LongshotAutoDirection[];
 } | {
   state: "permission_required";
-  reason: "macos_accessibility_permission";
+  reason: "macos_accessibility_permission" | "wayland_remote_desktop_required";
   directions: [];
 } | {
   state: "unsupported";
-  reason: "wayland_remote_desktop_required" | "no_display_server" | "platform_not_implemented";
+  reason: "wayland_portal_unavailable" | "no_display_server" | "platform_not_implemented";
   directions: [];
 };
 

@@ -112,10 +112,48 @@ mod model;
 use model::{CancelAction, DeadlineAction, ReadyAction, Slot, TerminationOrigin};
 use model::{EmergencyDecision, LongshotOutputArtifact};
 pub(crate) use model::{
-    LongshotActivation, LongshotControllerHandle, LongshotControllerLaunch,
+    LongshotActivation, LongshotAutoCapability, LongshotControllerHandle, LongshotControllerLaunch,
     LongshotControllerRegistry, LongshotIpcError, LongshotOutputAction, LongshotOutputResult,
     LongshotSnapshotDto,
 };
+
+#[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+fn wayland_parent_identifier(
+    window: &tauri::WebviewWindow,
+) -> Result<ashpd::WindowIdentifier, LongshotIpcError> {
+    use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
+
+    if !crate::platform::is_wayland() {
+        return Err(CaptureError::LongshotAutoUnsupported.into());
+    }
+    let window_handle = window
+        .window_handle()
+        .map_err(|error| LongshotIpcError::internal(error.to_string()))?;
+    let display_handle = window
+        .display_handle()
+        .map_err(|error| LongshotIpcError::internal(error.to_string()))?;
+    let raw_window = window_handle.as_raw();
+    let raw_display = display_handle.as_raw();
+    if !matches!(
+        (&raw_window, &raw_display),
+        (
+            raw_window_handle::RawWindowHandle::Wayland(_),
+            raw_window_handle::RawDisplayHandle::Wayland(_)
+        )
+    ) {
+        return Err(CaptureError::LongshotAutoUnsupported.into());
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| LongshotIpcError::internal(error.to_string()))?;
+    runtime
+        .block_on(ashpd::WindowIdentifier::from_raw_handle(
+            &raw_window,
+            Some(&raw_display),
+        ))
+        .ok_or_else(|| LongshotIpcError::internal("Wayland 合成器无法导出长截图授权窗标识"))
+}
 
 pub(crate) fn open(
     app: &tauri::AppHandle,
@@ -343,6 +381,72 @@ pub(crate) async fn auto_append(
         |_| {},
     )
     .await
+}
+
+pub(crate) async fn authorize_auto(
+    state: &AppState,
+    window: &tauri::WebviewWindow,
+    handle: LongshotControllerHandle,
+) -> Result<LongshotAutoCapability, LongshotIpcError> {
+    #[cfg(not(all(target_os = "linux", feature = "longshot-wayland-auto")))]
+    {
+        let _ = (state, window, handle);
+        return Err(CaptureError::LongshotAutoUnsupported.into());
+    }
+    #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+    {
+        let parent_window = window.clone();
+        let parent =
+            tauri::async_runtime::spawn_blocking(move || wayland_parent_identifier(&parent_window))
+                .await
+                .map_err(|error| {
+                    LongshotIpcError::internal(format!("Wayland 父窗口线程异常: {error}"))
+                })??;
+        let claim = state
+            .longshot_windows
+            .claim_append(window.label(), &handle)?;
+        if !state
+            .longshot_windows
+            .owns_append(window.label(), &claim.token)
+        {
+            return Err(LongshotIpcError::superseded());
+        }
+        let lifecycle = state.longshot_lifecycle.clone();
+        let token = claim.token.clone();
+        let result = match tauri::async_runtime::spawn_blocking(move || {
+            lifecycle.authorize_wayland_auto(&token, parent)
+        })
+        .await
+        {
+            Ok(Err(CaptureError::LongshotAutoPermissionRequired)) => Err(LongshotIpcError::new(
+                "longshot_auto_wayland_permission_required",
+                "Wayland Portal 未授予本次长截图的指针控制权限",
+            )),
+            Ok(result) => result.map_err(LongshotIpcError::from),
+            Err(error) => Err(LongshotIpcError::internal(format!(
+                "Wayland 授权线程异常: {error}"
+            ))),
+        };
+        if !state
+            .longshot_windows
+            .owns_append(window.label(), &claim.token)
+        {
+            return Err(LongshotIpcError::superseded());
+        }
+        state.longshot_windows.complete_append_visible(
+            window.label(),
+            &claim.token,
+            claim.old_snapshot,
+        )?;
+        result?;
+        let authorized = state
+            .longshot_lifecycle
+            .wayland_auto_authorized(&claim.token)
+            .map_err(LongshotIpcError::from)?;
+        Ok(LongshotAutoCapability::current_with_wayland_authorized(
+            authorized,
+        ))
+    }
 }
 
 pub(crate) async fn undo(

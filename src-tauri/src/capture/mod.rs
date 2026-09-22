@@ -130,6 +130,15 @@ pub async fn auto_append_longshot_controller(
 }
 
 #[tauri::command]
+pub async fn authorize_longshot_auto_scroll_controller(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+    handle: longshot::LongshotControllerHandle,
+) -> Result<longshot::LongshotAutoCapability, longshot::LongshotIpcError> {
+    longshot::window_host::authorize_auto(&state, &window, handle).await
+}
+
+#[tauri::command]
 pub async fn cancel_longshot_controller(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,

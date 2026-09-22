@@ -33,7 +33,7 @@
 | 本地 OCR 与版面 | 20 | ✅ | 🟡 | PP-OCRv6 det/rec、EdgeGNN、逐框识别、CTC、结构化结果与 XY-cut 已实现；增强运行时和 Edge 模型未随安装包分发 |
 | QR 与条码 | 8 | ✅ | ✅ | QR Code、Code 39、Code 128 与 EAN-13 的多结果、反色、旋转、坐标和资源合同已实现；未验收格式保持关闭 |
 | 配置与本地操作 | 13 | ✅ | ✅ | 设置、版本迁移、自启动、快捷键、保存目标和更新器均有产品入口 |
-| 长截图 | 15 | 🟡 | 🟡 | 固定选区、输入透明 guide、上下左右手动追加、回访保护、前接、撤销及 X11 自动滚动已实现；无 Wayland/Windows/macOS 自动输入 |
+| 长截图 | 15 | 🟡 | 🟡 | 固定选区、输入透明 guide、二维手动追加、回访保护、前接、撤销及四平台自动滚动代码已实现；原生矩阵仍待验收 |
 | 标注与图像效果 | 23 | 🟡 | 🟡 | 16 种工具及模糊、马赛克、聚光灯、放大镜、调色和圆角已接入；无语义智能擦除 |
 | 贴图 / 历史 / 分组 | 29 | ✅ | ✅ | 临时 Pin 与用户保存的工作区已分离，支持布局恢复、分组、窄窗管理和独立全局历史浏览 |
 | 本地导出与交换 | 12 | ✅ | ✅ | 单图扁平输出、旧 iTXt 兼容及带完整性校验的 `.clippy.zip` 历史/工作区批量交换已接入设置页 |
@@ -54,18 +54,20 @@
 
 长截图不是连续录屏。`capture/longshot/session.rs` 接收已裁好的相邻 RGBA 帧，
 `estimate_translation` 估计四向位移，再由带有符号位置的 `LongshotCanvas` 合并新增区域。
-当前控制器提供手动追加、X11 自动滚动、撤销与输出，所以它的准确描述是：
+当前控制器提供手动追加、受控自动滚动、撤销与输出，所以它的准确描述是：
 
 - 固定选区；
 - 用户自行上下或左右滚动；
 - 每次点击手动重采并追加；
-- X11 可选择上下左右自动滚动，Stop/Esc 在当前步骤后暂停；
+- X11、Windows 与 macOS 使用原生目标复核和输入；Wayland 通过本次会话显式授权的
+  RemoteDesktop + ScreenCast Portal 提供上下左右自动滚动；
+- Stop/Esc 在当前步骤后暂停；
 - 低纹理、低相似、歧义、无新增、过大位移和资源超限时保持原会话可重试；
 - 最多 64 帧，并受像素和内存预算约束。
 
-Wayland 尚未建立 RemoteDesktop/libei 指针会话，Windows/macOS 也未接自动输入，因此这些平台不会
-展示自动入口。输入透明 guide 已纳入控制窗的隐藏/恢复/销毁生命周期；X11 自动链真机证据和四平台
-真实透传验收仍未完成。
+Wayland 只在 RemoteDesktop 与 ScreenCast Portal 同时存在时展示授权入口；授权只绑定当前长截图，
+并在每次输入前用已提交裁剪帧复核视觉身份。输入透明 guide 已纳入控制窗的隐藏/恢复/销毁生命周期；
+GNOME/KDE/wlroots、X11、Windows 与 macOS 的真实透传、混合 DPI 和失败恢复证据仍未完成。
 
 ### 本地 OCR 与版面
 
@@ -392,7 +394,7 @@ delta；父链与项目历史留给 `PX-PIN-01`。显式 resize/crop 之外不�
 | P1（已完成） | `PX-PIN-01` | 基于 image project 的 Pin 工作区、历史恢复和分组 | `PX-IMAGE-REVISION-01` |
 | P1（已完成） | `PX-PIN-HISTORY-01` | 独立全局工作区历史浏览、重开、归组与移除 | `PX-PIN-01` |
 | P1（已完成） | `PX-IO-01` | 工程归档与批量导出/导入 | image project/clipboard 数据版本 |
-| P2（X11/Windows/macOS 已实现，待原生 QA） | `PX-LS-AUTO-01` / `PX-LS-NATIVE-AUTO-01` | 三套原生受控自动滚动；Wayland 保持不可用 | `PX-LS-2D-01` + 平台输入能力 |
+| P2（四平台已实现，待原生 QA） | `PX-LS-AUTO-01` / `PX-LS-NATIVE-AUTO-01` / `PX-LS-WAYLAND-AUTO-01` | X11/Windows/macOS 原生受控输入与 Wayland Portal 授权自动滚动 | `PX-LS-2D-01` + 平台输入能力 |
 | P2（已完成） | `PX-CODE-01` | 四种产品格式与扫码场景矩阵 | 可重复 fixture |
 | P2（X11/Windows/macOS/Wayland QA 入口、结果库、播放与恢复 remux 已完成，待真机/默认发布） | `PX-REC-01` / `PX-REC-PLAYBACK-01` / `PX-REC-MERGE-01` / `PX-REC-WINDOWS-QA-01` / `PX-REC-MACOS-SCK-01` / `PX-REC-WAYLAND-QA-01` | 可恢复录屏最小闭环 | 平台采集/编码实测 |
 | P2（Windows/Linux/macOS QA 接线、双轨缩略图与异常恢复已完成，待原生真机） | `PX-REC-CLOCK-01` / `PX-REC-AUDIO-01` / `PX-REC-AUDIO-WORKER-01` / `PX-REC-WINDOWS-AUDIO-01` / `PX-REC-AV-EPOCH-01` / `PX-REC-OPUS-WEBM-01` / `PX-REC-AV-MANIFEST-01` / `PX-REC-AV-SESSION-01` / `PX-REC-WINDOWS-AV-QA-01` / `PX-REC-MACOS-AUDIO-01` / `PX-REC-MACOS-MIC-01` / `PX-REC-LINUX-AUDIO-01` / `PX-REC-AV-THUMBNAIL-01` / `PX-REC-AV-MERGE-01` | 单一会话时钟、48 kHz PCM、显式 A/V 起点、有界双轨排序、参考 Opus、周期可恢复双轨容器、严格双轨首帧缩略图、异常双轨恢复，以及 Windows WGC + WASAPI、Linux X11/Wayland + PipeWire 与 macOS ScreenCaptureKit 系统声/默认麦克风的受门控产品接线 | `PX-REC-01` 视频时间线 |
@@ -720,12 +722,18 @@ Windows 将冻结帧的逻辑原点按每屏缩放恢复为物理虚拟桌面坐
 Core Graphics 全局坐标与一次 Quartz 窗口列表快照，不依赖
 AppKit 主线程，权限缺失时返回 `permission_required` 和明确说明而不展示可执行按钮。
 新帧仍通过原二维会话的重叠、相似度、歧义、位移和资源门禁，任何错误回滚旧快照并停止自动循环；
-Stop/Esc 在当前原子步骤后生效，预览尚未解除互斥时停止不会产生迟到滚轮。Wayland 明确返回
-`wayland_remote_desktop_required`。X11、Windows 与 macOS 的真实窗口、四方向、中断、到底、
-多屏/混合 DPI 与输出闭环仍等待 `docs/native-qa.md` 证据，不能用 jsdom、交叉编译或拼接 fixture
-代替。Wayland 后续必须持有用户授权的 RemoteDesktop/libei 会话，不能借 XWayland 注入原生窗口。
-完整合同见
-[`2026-09-22-longshot-native-auto-scroll.md`](../superpowers/specs/2026-09-22-longshot-native-auto-scroll.md)。
+Stop/Esc 在当前原子步骤后生效，预览尚未解除互斥时停止不会产生迟到滚轮。
+
+**2026-09-23 Wayland 实施状态**：原生 Wayland 在 RemoteDesktop 与 ScreenCast Portal 都可用时显示
+显式授权按钮，组合请求单一 Monitor stream 与 Pointer 权限，并核对 Portal 返回的显示器逻辑几何。
+后端从冻结选区中心生成 stream 内绝对坐标和固定离散滚轮步数；前端不能提交坐标、stream 或幅度。
+每一步输入前先把固定裁剪区与最近一次会话帧做 SHA-256 像素身份复核，手动追加、回访与撤销同步
+更新基线；不匹配时在发送输入前暂停。Portal session 随 exact 长截图 owner 销毁，不保存跨会话
+权限，也不借 XWayland。X11、Windows、macOS、GNOME、KDE 与 wlroots 的真实窗口、四方向、中断、
+到底、多屏/混合 DPI 与输出闭环仍等待 `docs/native-qa.md` 证据，不能用 jsdom、交叉编译或 fixture
+代替。完整合同见
+[`2026-09-22-longshot-native-auto-scroll.md`](../superpowers/specs/2026-09-22-longshot-native-auto-scroll.md)
+与 [`2026-09-23-longshot-wayland-auto-scroll.md`](../superpowers/specs/2026-09-23-longshot-wayland-auto-scroll.md)。
 
 ### `PX-CODE-01`：扫码场景与格式扩展
 

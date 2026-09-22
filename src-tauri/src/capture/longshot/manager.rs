@@ -228,12 +228,16 @@ impl LongshotManager {
         self.complete_append(lease, result)
     }
 
-    pub(super) fn undo(
+    pub(super) fn undo_with<T, F>(
         &self,
         token: &LongshotSessionToken,
-    ) -> Result<LongshotSnapshot, CaptureError> {
+        operation: F,
+    ) -> Result<T, CaptureError>
+    where
+        F: FnOnce(&mut LongshotSession) -> Result<T, CaptureError>,
+    {
         let mut lease = self.claim(token, Operation::Append)?;
-        let result = lease.session.undo();
+        let result = operation(&mut lease.session);
         self.complete_mutation(lease, result)
     }
 

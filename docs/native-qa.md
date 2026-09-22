@@ -156,8 +156,14 @@ node scripts/manual-qa.mjs verify \
 - Ubuntu 24.04/26.04 还必须记录 GNOME、xdg-desktop-portal 与 desktop portal backend 版本，分别触发
   Mutter、Shell helper、Portal 和后续 fallback 中环境实际支持的路径；诊断记录的 selected backend
   必须与观测一致，不能沿用其它 Ubuntu 版本的结论。
-- 长截图控制窗不得显示自动滚动入口；当前实现没有建立 RemoteDesktop/libei 指针会话，不能因
-  `DISPLAY` 存在或 XWayland 可用而把原生 Wayland 窗口误报为可自动滚动。
+- 长截图控制窗只有在 RemoteDesktop 与 ScreenCast Portal 同时可用时才显示“授权自动滚动”；
+  `DISPLAY` 或 XWayland 存在不能让它提前进入可用状态。分别记录拒绝、关闭选择器、允许以及选错
+  显示器；前三种不得发送滚轮，允许后才显示上下左右控制。
+- 授权成功后在主屏、负坐标副屏和混合 DPI 副屏各执行四个方向。每方向至少提交两帧，并验证
+  Stop/Esc、页面到底、动态内容、手动改变页面、撤销后继续、Copy/Save/Pin；视觉身份变化必须在
+  输入前以 `longshot_auto_target_lost` 暂停，旧画布仍可手动追加或输出。
+- 完成、取消、关闭控制窗和授权过程中按 Esc 后检查 Portal 会话已关闭；重新进入长截图必须重新
+  授权，不能复用前一代次的 stream 或指针权限。
 
 ## 6. KDE 与 wlroots Wayland
 
@@ -167,6 +173,8 @@ node scripts/manual-qa.mjs verify \
 - 当全局窗口枚举、绝对定位或永久置顶不可用时，区域截图仍须成功，相应按钮不得承诺不可兑现能力。
 - 暂停/移除 Portal backend 后重新打开设置页，typed capability 必须实时反映
   `wayland_portal_unavailable`，恢复 backend 后无需清理用户数据。
+- KDE 与 wlroots 分别执行 GNOME 小节中的长截图允许、拒绝、选错显示器、四方向和取消矩阵；
+  compositor 不返回 stream position/size 时，多屏必须保守拒绝，单屏可按冻结显示器尺寸继续。
 
 ## 7. Windows 10/11
 

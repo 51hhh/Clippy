@@ -4,6 +4,9 @@
 
 关联需求：`PX-LS-2D-01`、`PX-LS-AUTO-01`
 
+后续 `PX-LS-WAYLAND-AUTO-01` 已实现 Wayland Portal 授权链，并取代本文中“Wayland 保持关闭”的
+阶段性描述；本文其余 Windows/macOS 合同与未完成验收项继续有效。
+
 ## Goal
 
 在已经稳定的二维长截图会话上，为 Windows 与 macOS 增加受控的上下左右自动滚动。每一步都必须

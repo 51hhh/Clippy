@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getConfig: vi.fn(async () => ({ language: "en" })),
   controllerApi: {
     activate: vi.fn(),
+    authorizeAuto: vi.fn(),
     append: vi.fn(),
     autoAppend: vi.fn(),
     undo: vi.fn(),
@@ -68,6 +69,11 @@ describe("longshot controller app", () => {
     for (const fn of Object.values(mocks.controllerApi)) fn.mockReset();
     mocks.controllerApi.activate.mockResolvedValue(activation);
     mocks.controllerApi.append.mockResolvedValue(activation.snapshot);
+    mocks.controllerApi.authorizeAuto.mockResolvedValue({
+      state: "available",
+      reason: null,
+      directions: ["down", "up", "right", "left"],
+    });
     mocks.controllerApi.autoAppend.mockResolvedValue(activation.snapshot);
     mocks.controllerApi.undo.mockResolvedValue({
       ...activation.snapshot,
@@ -154,6 +160,83 @@ describe("longshot controller app", () => {
     expect(document.querySelector('[data-testid="longshot-auto-start"]')).toBeNull();
     expect(document.querySelector('[data-testid="longshot-auto-direction"]')).toBeNull();
     expect(mocks.controllerApi.autoAppend).not.toHaveBeenCalled();
+  });
+
+  it("turns an explicit Wayland portal grant into the four automatic directions", async () => {
+    mocks.controllerApi.activate.mockResolvedValue({
+      ...activation,
+      autoScroll: {
+        state: "permission_required",
+        reason: "wayland_remote_desktop_required",
+        directions: [],
+      },
+    });
+    await mount();
+
+    expect(document.body.textContent).toContain("Allow pointer control");
+    await act(async () => document.querySelector('[data-testid="longshot-auto-authorize"]').click());
+    await flush();
+
+    expect(mocks.controllerApi.authorizeAuto).toHaveBeenCalledWith(activation.handle);
+    expect(document.querySelector('[data-testid="longshot-auto-direction"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="longshot-auto-start"]')).not.toBeNull();
+  });
+
+  it("disables capture and output actions while Wayland authorization is pending", async () => {
+    const authorization = deferred();
+    mocks.controllerApi.activate.mockResolvedValue({
+      ...activation,
+      autoScroll: {
+        state: "permission_required",
+        reason: "wayland_remote_desktop_required",
+        directions: [],
+      },
+    });
+    mocks.controllerApi.authorizeAuto.mockReturnValue(authorization.promise);
+    await mount();
+
+    await act(async () => document.querySelector('[data-testid="longshot-auto-authorize"]').click());
+    await flush();
+
+    expect(document.querySelector('[data-testid="longshot-auto-authorize"]').disabled).toBe(true);
+    expect(document.querySelector('[data-testid="longshot-append"]').disabled).toBe(true);
+    expect(document.querySelector('[data-testid="longshot-copy"]').disabled).toBe(true);
+    expect(document.querySelector('[data-testid="longshot-save"]').disabled).toBe(true);
+    expect(document.querySelector('[data-testid="longshot-pin"]').disabled).toBe(true);
+
+    await act(async () => authorization.resolve({
+      state: "available",
+      reason: null,
+      directions: ["down", "up", "right", "left"],
+    }));
+    await flush();
+
+    expect(document.querySelector('[data-testid="longshot-auto-start"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="longshot-append"]').disabled).toBe(false);
+  });
+
+  it("keeps manual capture available when Wayland portal authorization is rejected", async () => {
+    mocks.controllerApi.activate.mockResolvedValue({
+      ...activation,
+      autoScroll: {
+        state: "permission_required",
+        reason: "wayland_remote_desktop_required",
+        directions: [],
+      },
+    });
+    mocks.controllerApi.authorizeAuto.mockRejectedValue({
+      code: "longshot_auto_wayland_permission_required",
+      message: "untrusted portal detail",
+    });
+    await mount();
+
+    await act(async () => document.querySelector('[data-testid="longshot-auto-authorize"]').click());
+    await flush();
+
+    expect(document.body.textContent).toContain("Pointer authorization was not granted");
+    expect(document.body.textContent).not.toContain("untrusted portal detail");
+    expect(document.querySelector('[data-testid="longshot-append"]').disabled).toBe(false);
+    expect(document.querySelector('[data-testid="longshot-auto-authorize"]')).not.toBeNull();
   });
 
   it("runs one controlled automatic step and Stop cancels the queued next step", async () => {

@@ -11,6 +11,7 @@ import type {
   CaptureSelection,
   CaptureTranslationResult,
   LongshotActivation,
+  LongshotAutoCapability,
   LongshotAutoDirection,
   LongshotControllerOpenResult,
   LongshotHandle,
@@ -82,6 +83,13 @@ export function openLongshotController(
 /** 由存活的独立控制窗口发起 ordinary → longshot 交接。 */
 export function activateLongshotController(): Promise<LongshotActivation> {
   return invoke<LongshotActivation>("activate_longshot_controller");
+}
+
+/** 显式请求 Wayland Portal 指针授权；父窗口和显示器身份全部由后端取得。 */
+export function authorizeLongshotAutoScrollController(
+  handle: LongshotHandle,
+): Promise<LongshotAutoCapability> {
+  return invoke<LongshotAutoCapability>("authorize_longshot_auto_scroll_controller", { handle });
 }
 
 /** 控制页已经渲染 activation 结果，可以由后端显示并聚焦窗口。 */

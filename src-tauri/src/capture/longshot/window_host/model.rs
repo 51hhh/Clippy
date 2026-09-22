@@ -159,6 +159,7 @@ pub(crate) enum LongshotAutoCapabilityState {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum LongshotAutoCapabilityReason {
     WaylandRemoteDesktopRequired,
+    WaylandPortalUnavailable,
     NoDisplayServer,
     MacosAccessibilityPermission,
     PlatformNotImplemented,
@@ -175,14 +176,23 @@ pub(crate) struct LongshotAutoCapability {
 
 impl LongshotAutoCapability {
     pub(super) fn current() -> Self {
+        Self::current_with_wayland_authorized(false)
+    }
+
+    pub(super) fn current_with_wayland_authorized(wayland_authorized: bool) -> Self {
         #[cfg(target_os = "macos")]
         let macos_accessibility = crate::platform::macos_accessibility_trusted();
         #[cfg(not(target_os = "macos"))]
         let macos_accessibility = false;
+        let portal = crate::platform::current_portal_info();
         Self::for_platform(
             crate::platform::current_operating_system(),
             crate::platform::current_session(),
             macos_accessibility,
+            portal.remote_desktop.available,
+            portal.screen_cast.available,
+            wayland_authorized,
+            cfg!(all(target_os = "linux", feature = "longshot-wayland-auto")),
         )
     }
 
@@ -190,13 +200,23 @@ impl LongshotAutoCapability {
         operating_system: crate::platform::OperatingSystem,
         session: crate::platform::DesktopSession,
         macos_accessibility: bool,
+        remote_desktop_available: bool,
+        screen_cast_available: bool,
+        wayland_authorized: bool,
+        wayland_auto_compiled: bool,
     ) -> Self {
         use crate::platform::{DesktopSession, OperatingSystem};
 
         let available = (operating_system == OperatingSystem::Linux
             && session == DesktopSession::X11)
             || operating_system == OperatingSystem::Windows
-            || (operating_system == OperatingSystem::Macos && macos_accessibility);
+            || (operating_system == OperatingSystem::Macos && macos_accessibility)
+            || (operating_system == OperatingSystem::Linux
+                && session == DesktopSession::Wayland
+                && wayland_auto_compiled
+                && remote_desktop_available
+                && screen_cast_available
+                && wayland_authorized);
         if available {
             return Self {
                 state: LongshotAutoCapabilityState::Available,
@@ -216,10 +236,29 @@ impl LongshotAutoCapability {
                 directions: Vec::new(),
             };
         }
-        let reason = match (operating_system, session) {
-            (OperatingSystem::Linux, DesktopSession::Wayland) => {
-                LongshotAutoCapabilityReason::WaylandRemoteDesktopRequired
+        if operating_system == OperatingSystem::Linux && session == DesktopSession::Wayland {
+            if !wayland_auto_compiled {
+                return Self {
+                    state: LongshotAutoCapabilityState::Unsupported,
+                    reason: Some(LongshotAutoCapabilityReason::PlatformNotImplemented),
+                    directions: Vec::new(),
+                };
             }
+            return if remote_desktop_available && screen_cast_available {
+                Self {
+                    state: LongshotAutoCapabilityState::PermissionRequired,
+                    reason: Some(LongshotAutoCapabilityReason::WaylandRemoteDesktopRequired),
+                    directions: Vec::new(),
+                }
+            } else {
+                Self {
+                    state: LongshotAutoCapabilityState::Unsupported,
+                    reason: Some(LongshotAutoCapabilityReason::WaylandPortalUnavailable),
+                    directions: Vec::new(),
+                }
+            };
+        }
+        let reason = match (operating_system, session) {
             (OperatingSystem::Linux, DesktopSession::Unknown | DesktopSession::Native) => {
                 LongshotAutoCapabilityReason::NoDisplayServer
             }
@@ -244,6 +283,10 @@ mod auto_capability_tests {
             OperatingSystem::Linux,
             DesktopSession::X11,
             false,
+            false,
+            false,
+            false,
+            true,
         );
         assert_eq!(x11.state, LongshotAutoCapabilityState::Available);
         assert_eq!(x11.directions.len(), 4);
@@ -252,18 +295,80 @@ mod auto_capability_tests {
             OperatingSystem::Linux,
             DesktopSession::Wayland,
             false,
+            true,
+            true,
+            false,
+            true,
         );
-        assert_eq!(wayland.state, LongshotAutoCapabilityState::Unsupported);
+        assert_eq!(
+            wayland.state,
+            LongshotAutoCapabilityState::PermissionRequired
+        );
         assert_eq!(
             wayland.reason,
             Some(LongshotAutoCapabilityReason::WaylandRemoteDesktopRequired)
         );
         assert!(wayland.directions.is_empty());
 
+        let allowed_wayland = LongshotAutoCapability::for_platform(
+            OperatingSystem::Linux,
+            DesktopSession::Wayland,
+            false,
+            true,
+            true,
+            true,
+            true,
+        );
+        assert_eq!(
+            allowed_wayland.state,
+            LongshotAutoCapabilityState::Available
+        );
+        assert_eq!(allowed_wayland.directions.len(), 4);
+
+        let unavailable_wayland = LongshotAutoCapability::for_platform(
+            OperatingSystem::Linux,
+            DesktopSession::Wayland,
+            false,
+            true,
+            false,
+            false,
+            true,
+        );
+        assert_eq!(
+            unavailable_wayland.state,
+            LongshotAutoCapabilityState::Unsupported
+        );
+        assert_eq!(
+            unavailable_wayland.reason,
+            Some(LongshotAutoCapabilityReason::WaylandPortalUnavailable)
+        );
+
+        let feature_disabled_wayland = LongshotAutoCapability::for_platform(
+            OperatingSystem::Linux,
+            DesktopSession::Wayland,
+            false,
+            true,
+            true,
+            false,
+            false,
+        );
+        assert_eq!(
+            feature_disabled_wayland.state,
+            LongshotAutoCapabilityState::Unsupported
+        );
+        assert_eq!(
+            feature_disabled_wayland.reason,
+            Some(LongshotAutoCapabilityReason::PlatformNotImplemented)
+        );
+
         let windows = LongshotAutoCapability::for_platform(
             OperatingSystem::Windows,
             DesktopSession::Native,
             false,
+            false,
+            false,
+            false,
+            true,
         );
         assert_eq!(windows.state, LongshotAutoCapabilityState::Available);
         assert_eq!(windows.directions.len(), 4);
@@ -272,6 +377,10 @@ mod auto_capability_tests {
             OperatingSystem::Macos,
             DesktopSession::Native,
             false,
+            false,
+            false,
+            false,
+            true,
         );
         assert_eq!(
             denied_macos.state,
@@ -287,6 +396,10 @@ mod auto_capability_tests {
             OperatingSystem::Macos,
             DesktopSession::Native,
             true,
+            false,
+            false,
+            false,
+            true,
         );
         assert_eq!(allowed_macos.state, LongshotAutoCapabilityState::Available);
         assert_eq!(allowed_macos.directions.len(), 4);
@@ -295,6 +408,10 @@ mod auto_capability_tests {
             OperatingSystem::Other,
             DesktopSession::Unknown,
             false,
+            false,
+            false,
+            false,
+            true,
         );
         assert_eq!(other.state, LongshotAutoCapabilityState::Unsupported);
         assert_eq!(

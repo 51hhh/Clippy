@@ -104,6 +104,7 @@ const RECORDING_OVERLAY_COMMANDS: &[&str] = &[
 
 const LONGSHOT_CONTROLLER_COMMANDS: &[&str] = &[
     "activate_longshot_controller",
+    "authorize_longshot_auto_scroll_controller",
     "auto_append_longshot_controller",
     "append_longshot_controller",
     "cancel_longshot_controller",

@@ -2,7 +2,7 @@
 //!
 //! X11、Windows 与 macOS 都沿用同一逐步事务：移动到后端冻结的选区中心、锁定该点下的
 //! 原生窗口、注入一格滚动、重新捕获，并在提交前后复核指针和目标。Wayland 必须建立用户
-//! 授权的 RemoteDesktop/libei 会话，不能借 XWayland 假装控制原生窗口。
+//! 授权的 RemoteDesktop + ScreenCast Portal 会话，不能借 XWayland 假装控制原生窗口。
 
 use super::CaptureError;
 use serde::{Deserialize, Serialize};
@@ -54,6 +54,8 @@ pub(in crate::capture) struct LongshotAutoTarget {
     point: (i32, i32),
     /// 首次真实输入前锁定，后续每一步逐次复核。
     window: Arc<Mutex<Option<WindowIdentity>>>,
+    #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+    wayland: Option<Arc<super::auto_scroll_wayland::WaylandAutoTarget>>,
 }
 
 impl LongshotAutoTarget {
@@ -61,6 +63,88 @@ impl LongshotAutoTarget {
         Self {
             point,
             window: Arc::new(Mutex::new(None)),
+            #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+            wayland: None,
+        }
+    }
+
+    #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+    pub(super) fn new_wayland(
+        point: (i32, i32),
+        monitor: super::auto_scroll_wayland::WaylandMonitorIdentity,
+        first_frame: &image::RgbaImage,
+    ) -> Result<Self, CaptureError> {
+        Ok(Self {
+            point,
+            window: Arc::new(Mutex::new(None)),
+            wayland: Some(Arc::new(
+                super::auto_scroll_wayland::WaylandAutoTarget::new(monitor, point, first_frame)?,
+            )),
+        })
+    }
+
+    #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+    pub(super) fn authorize_wayland(
+        &self,
+        parent: ashpd::WindowIdentifier,
+    ) -> Result<(), CaptureError> {
+        self.wayland
+            .as_ref()
+            .ok_or(CaptureError::LongshotAutoUnsupported)?
+            .authorize(parent)
+    }
+
+    #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+    pub(super) fn wayland_authorized(&self) -> bool {
+        self.wayland
+            .as_ref()
+            .is_some_and(|target| target.is_authorized())
+    }
+
+    pub(super) fn is_wayland_target(&self) -> bool {
+        #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+        {
+            self.wayland.is_some()
+        }
+        #[cfg(not(all(target_os = "linux", feature = "longshot-wayland-auto")))]
+        false
+    }
+
+    pub(super) fn verify_wayland_preflight(
+        &self,
+        frame: &image::RgbaImage,
+    ) -> Result<(), CaptureError> {
+        #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+        if let Some(target) = &self.wayland {
+            return target.verify_preflight(frame);
+        }
+        #[cfg(not(all(target_os = "linux", feature = "longshot-wayland-auto")))]
+        let _ = frame;
+        Ok(())
+    }
+
+    pub(super) fn commit_wayland_frame(&self, frame: &image::RgbaImage, committed: bool) {
+        #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+        if let Some(target) = &self.wayland {
+            target.commit_frame(frame, committed);
+        }
+        #[cfg(not(all(target_os = "linux", feature = "longshot-wayland-auto")))]
+        let _ = (frame, committed);
+    }
+
+    pub(super) fn undo_wayland_frame(&self, previous_count: usize, next_count: usize) {
+        #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+        if let Some(target) = &self.wayland {
+            target.undo_frame(previous_count, next_count);
+        }
+        #[cfg(not(all(target_os = "linux", feature = "longshot-wayland-auto")))]
+        let _ = (previous_count, next_count);
+    }
+
+    pub(super) fn cancel_wayland(&self) {
+        #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+        if let Some(target) = &self.wayland {
+            target.cancel();
         }
     }
 }
@@ -490,6 +574,13 @@ pub(super) fn with_scroll<T>(
     capture: impl FnOnce() -> Result<T, CaptureError>,
 ) -> Result<T, CaptureError> {
     use enigo::Mouse;
+
+    #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+    if let Some(wayland) = &target.wayland {
+        wayland.scroll(direction)?;
+        std::thread::sleep(std::time::Duration::from_millis(CONTENT_SETTLE_MS));
+        return capture();
+    }
 
     ensure_backend_available()?;
     let settings = enigo::Settings {

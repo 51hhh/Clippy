@@ -10,6 +10,8 @@ use crate::pin::PinOrigin;
 use image::{ImageBuffer, Rgba, RgbaImage};
 
 mod auto_scroll;
+#[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+mod auto_scroll_wayland;
 mod canvas;
 mod controller;
 mod frame_adapter;
@@ -29,9 +31,9 @@ pub(super) use manager::{LongshotManager, LongshotSessionToken, LongshotStart};
 pub(super) use recapture::capture_monitor_frame;
 pub(super) use session::{LongshotAppendOutcome, LongshotSession, LongshotSnapshot};
 pub(crate) use window_host::{
-    handle_controller_destroyed, LongshotActivation, LongshotControllerHandle,
-    LongshotControllerLaunch, LongshotControllerRegistry, LongshotIpcError, LongshotOutputAction,
-    LongshotOutputResult, LongshotSnapshotDto,
+    handle_controller_destroyed, LongshotActivation, LongshotAutoCapability,
+    LongshotControllerHandle, LongshotControllerLaunch, LongshotControllerRegistry,
+    LongshotIpcError, LongshotOutputAction, LongshotOutputResult, LongshotSnapshotDto,
 };
 
 /// 长截图完成后的可信像素及其桌面全局逻辑来源矩形。

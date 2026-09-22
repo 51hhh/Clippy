@@ -420,6 +420,7 @@ pub fn run() {
             capture::uninstall_window_probe_extension,
             capture::open_longshot_controller,
             capture::activate_longshot_controller,
+            capture::authorize_longshot_auto_scroll_controller,
             capture::auto_append_longshot_controller,
             capture::mark_longshot_controller_ready,
             capture::append_longshot_controller,

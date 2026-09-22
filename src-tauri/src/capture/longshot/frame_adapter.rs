@@ -105,6 +105,32 @@ impl LongshotFrameAdapter {
         self.scroll_target_for_coordinate_space(cfg!(target_os = "windows"))
     }
 
+    /// Portal 授权必须和首帧冻结的显示器保持同一份逻辑、物理几何事实。
+    #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+    pub(super) fn wayland_monitor_identity(
+        &self,
+    ) -> Result<super::auto_scroll_wayland::WaylandMonitorIdentity, CaptureError> {
+        let monitor = crate::screenshot::wayland_recording_monitor(self.signature.monitor_id)
+            .map_err(|error| CaptureError::LongshotAutoInput(error.to_string()))?;
+        if monitor.id != self.signature.monitor_id
+            || monitor.logical_x != self.signature.x
+            || monitor.logical_y != self.signature.y
+            || monitor.logical_width != self.signature.logical_width
+            || monitor.logical_height != self.signature.logical_height
+            || monitor.pixel_width != self.signature.pixel_width
+            || monitor.pixel_height != self.signature.pixel_height
+        {
+            return Err(CaptureError::LongshotFrameGeometryChanged);
+        }
+        Ok(super::auto_scroll_wayland::WaylandMonitorIdentity {
+            logical_x: monitor.logical_x,
+            logical_y: monitor.logical_y,
+            logical_width: monitor.logical_width,
+            logical_height: monitor.logical_height,
+            monitor_count: monitor.monitor_count,
+        })
+    }
+
     /// Windows 的原生指针/命中 API 使用物理虚拟桌面坐标；其它已实现后端使用逻辑桌面坐标。
     /// `signature.x/y` 已被截图层归一为逻辑坐标，而 `crop` 始终是物理像素，所以两条换算不能混用。
     fn scroll_target_for_coordinate_space(

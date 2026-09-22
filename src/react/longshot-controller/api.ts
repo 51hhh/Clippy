@@ -1,5 +1,6 @@
 import {
   activateLongshotController,
+  authorizeLongshotAutoScrollController,
   autoAppendLongshotController,
   appendLongshotController,
   cancelLongshotController,
@@ -11,6 +12,7 @@ import {
 } from "../../js/api.ts";
 import type {
   LongshotActivation,
+  LongshotAutoCapability,
   LongshotAutoDirection,
   LongshotHandle,
   LongshotOutputAction,
@@ -21,6 +23,8 @@ import type {
 /** 控制页只通过共享 IPC 边界与原生窗口交互。 */
 export const longshotControllerApi = {
   activate: (): Promise<LongshotActivation> => activateLongshotController(),
+  authorizeAuto: (handle: LongshotHandle): Promise<LongshotAutoCapability> =>
+    authorizeLongshotAutoScrollController(handle),
   append: (handle: LongshotHandle): Promise<LongshotSnapshot> => appendLongshotController(handle),
   autoAppend: (
     handle: LongshotHandle,

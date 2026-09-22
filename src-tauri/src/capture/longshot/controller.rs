@@ -102,7 +102,19 @@ impl LongshotController {
             let selection = candidate.selection();
             let monitor_id = frame.monitor_id;
             let (adapter, first_crop) = LongshotFrameAdapter::from_first(frame, selection)?;
-            let auto_target = LongshotAutoTarget::new(adapter.scroll_target()?);
+            let scroll_target = adapter.scroll_target()?;
+            #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+            let auto_target = if crate::platform::is_wayland() {
+                LongshotAutoTarget::new_wayland(
+                    scroll_target,
+                    adapter.wayland_monitor_identity()?,
+                    &first_crop,
+                )?
+            } else {
+                LongshotAutoTarget::new(scroll_target)
+            };
+            #[cfg(not(all(target_os = "linux", feature = "longshot-wayland-auto")))]
+            let auto_target = LongshotAutoTarget::new(scroll_target);
             let started = self.manager.begin(first_crop)?;
             Ok((candidate, started, monitor_id, adapter, auto_target))
         })();
@@ -186,11 +198,22 @@ impl LongshotController {
         let lease = self.owner_lease(token)?;
         self.manager
             .append_with(token, move |session| {
+                if lease.auto_target.is_wayland_target() {
+                    let before = capture_monitor_frame(lease.monitor_id)?;
+                    let before = lease.adapter.crop_next(&before)?;
+                    lease.auto_target.verify_wayland_preflight(&before)?;
+                }
                 super::auto_scroll::with_scroll(&lease.auto_target, direction, || {
                     let frame = capture_monitor_frame(lease.monitor_id)?;
                     lease.adapter.crop_next(&frame)
                 })
-                .and_then(|cropped| session.append(cropped))
+                .and_then(|cropped| {
+                    let outcome = session.append(cropped.clone())?;
+                    lease
+                        .auto_target
+                        .commit_wayland_frame(&cropped, outcome.committed);
+                    Ok(outcome)
+                })
             })
             .map_err(normalize_claim_race)
     }
@@ -208,7 +231,11 @@ impl LongshotController {
             .append_with(token, move |session| {
                 let frame = capture(lease.monitor_id)?;
                 let cropped = lease.adapter.crop_next(&frame)?;
-                session.append(cropped)
+                let outcome = session.append(cropped.clone())?;
+                lease
+                    .auto_target
+                    .commit_wayland_frame(&cropped, outcome.committed);
+                Ok(outcome)
             })
             .map_err(normalize_claim_race)
     }
@@ -218,8 +245,36 @@ impl LongshotController {
         &self,
         token: &LongshotSessionToken,
     ) -> Result<LongshotSnapshot, CaptureError> {
-        self.owner_lease(token)?;
-        self.manager.undo(token).map_err(normalize_claim_race)
+        let lease = self.owner_lease(token)?;
+        self.manager
+            .undo_with(token, move |session| {
+                let previous_count = session.snapshot().frame_count;
+                let snapshot = session.undo()?;
+                lease
+                    .auto_target
+                    .undo_wayland_frame(previous_count, snapshot.frame_count);
+                Ok(snapshot)
+            })
+            .map_err(normalize_claim_race)
+    }
+
+    #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+    pub(in crate::capture) fn authorize_wayland_auto(
+        &self,
+        token: &LongshotSessionToken,
+        parent: ashpd::WindowIdentifier,
+    ) -> Result<(), CaptureError> {
+        self.owner_lease(token)?
+            .auto_target
+            .authorize_wayland(parent)
+    }
+
+    #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+    pub(in crate::capture) fn wayland_auto_authorized(
+        &self,
+        token: &LongshotSessionToken,
+    ) -> Result<bool, CaptureError> {
+        Ok(self.owner_lease(token)?.auto_target.wayland_authorized())
     }
 
     /// 读取最后一次已提交的几何快照。
@@ -283,7 +338,7 @@ impl LongshotController {
         &self,
         token: &LongshotSessionToken,
     ) -> Result<CaptureModeOwnership, CaptureError> {
-        {
+        let auto_target = {
             let slot = self.slot.lock().map_err(CaptureError::state_lock)?;
             match &*slot {
                 ControllerSlot::Empty => return Err(CaptureError::LongshotSessionMissing),
@@ -291,9 +346,10 @@ impl LongshotController {
                 ControllerSlot::Active(owner) if owner.token != *token => {
                     return Err(CaptureError::LongshotSessionSuperseded);
                 }
-                ControllerSlot::Active(_) => {}
+                ControllerSlot::Active(owner) => owner.auto_target.clone(),
             }
-        }
+        };
+        auto_target.cancel_wayland();
         let cancelled = self.manager.cancel(token)?;
         if !cancelled {
             return Err(CaptureError::LongshotSessionSuperseded);
