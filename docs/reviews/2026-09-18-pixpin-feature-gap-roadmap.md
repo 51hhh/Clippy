@@ -37,7 +37,7 @@
 | 标注与图像效果 | 23 | 🟡 | 🟡 | 16 种工具及模糊、马赛克、聚光灯、放大镜、调色和圆角已接入；无语义智能擦除 |
 | 贴图 / 历史 / 分组 | 29 | ✅ | ✅ | 临时 Pin 与用户保存的工作区已分离，支持布局恢复、分组、窄窗管理和独立全局历史浏览 |
 | 本地导出与交换 | 12 | ✅ | ✅ | 单图扁平输出、旧 iTXt 兼容及带完整性校验的 `.clippy.zip` 历史/工作区批量交换已接入设置页 |
-| 录屏 / 音频 / 编码 | 20 | 🟡 | ❌ | 无音频；原生 X11/Windows 有受门控 QA 入口，恢复库、按需 WebM 播放、异常分段无损 remux、三平台帧源与 VP9 原型已建立，仍待真机验收 |
+| 录屏 / 音频 / 编码 | 20 | 🟡 | ❌ | 尚无平台音源和 WebM 音轨；原生 X11/Windows 有受门控 QA 入口，恢复库、按需 WebM 播放、异常分段无损 remux、三平台帧源、VP9 原型及内部音频采集 worker 已建立，仍待真机验收 |
 | 动作 / 脚本 / 启动器 | 12 | 🟡 | 🟡 | 七个类型化动作、权限模型、键盘启动器与安全组合已交付；任意脚本运行时明确不在首阶段范围 |
 
 原表的整体方向成立。当前校正重点包括：增强 OCR 是“实现完成、交付未完成”；扫码已完成四种
@@ -388,7 +388,7 @@ delta；父链与项目历史留给 `PX-PIN-01`。显式 resize/crop 之外不�
 | P2（X11 已实现，待真机） | `PX-LS-AUTO-01` | X11 受控自动滚动；其余平台能力保持不可用 | `PX-LS-2D-01` + 平台输入能力 |
 | P2（已完成） | `PX-CODE-01` | 四种产品格式与扫码场景矩阵 | 可重复 fixture |
 | P2（X11/Windows/macOS/Wayland QA 入口、结果库、播放与恢复 remux 已完成，待真机/音频） | `PX-REC-01` / `PX-REC-PLAYBACK-01` / `PX-REC-MERGE-01` / `PX-REC-WINDOWS-QA-01` / `PX-REC-MACOS-SCK-01` / `PX-REC-WAYLAND-QA-01` | 可恢复录屏最小闭环 | 平台采集/编码实测 |
-| P2（共享时钟与音频领域合同已完成，平台采集/Opus/mux 待实现） | `PX-REC-CLOCK-01` / `PX-REC-AUDIO-01` | 单一会话单调时钟、48 kHz 单音轨、显式 A/V 起点、暂停与背压合同 | `PX-REC-01` 视频时间线 |
+| P2（共享时钟、音频领域合同与采集 worker 已完成，平台采集/Opus/mux 待实现） | `PX-REC-CLOCK-01` / `PX-REC-AUDIO-01` / `PX-REC-AUDIO-WORKER-01` | 单一会话单调时钟、48 kHz 单音轨、显式 A/V 起点、暂停/停止、线程回收与严格背压合同 | `PX-REC-01` 视频时间线 |
 | P3（已完成） | `PX-ACT-01` | 类型化动作注册表与启动器 | 稳定业务命令合同 |
 | P3（已完成门控，当前 no-go） | `PX-SMART-01` | 智能擦除可行性与质量基线 | 模型许可、包体和性能预算 |
 
@@ -785,6 +785,15 @@ owner。X11、Wayland/PipeWire、Windows WGC、macOS AVFoundation 与 ScreenCapt
 授权或原生初始化耗时算进五秒预算。视频 pipeline 仍以首个已接受帧归零，保持当前 VP9 合同；平台
 音频接入后还需用这个时钟校准原生 PTS，并由 A/V coordinator 决定双轨 mux epoch。完整合同见
 [`2026-09-22-recording-shared-clock.md`](../superpowers/specs/2026-09-22-recording-shared-clock.md)。
+
+**2026-09-22 音频采集线程进度**：`PX-REC-AUDIO-WORKER-01` 已在平台 API 前固定音频 source 的
+线程边界。线程内 factory 接收 session owner 的共享时钟，允许 Windows/macOS 原生对象保持
+`!Send`；50 ms 有界取块保证暂停、停止和回收可响应。worker 将 48 kHz PCM 送入现有一秒有界
+pipeline，队列满、平台取块/控制失败、初始化失败或 panic 都中止本次生产链并保留已入队前缀；
+暂停期间不再读取平台源，显式 Stop 才产生正常时长，Drop 会 join 并标记异常终态。当前仍没有
+WASAPI、ScreenCaptureKit audio 或 PipeWire 音频适配器，也未接 session、Opus、manifest 或 WebM
+双轨。完整合同见
+[`2026-09-22-recording-audio-worker.md`](../superpowers/specs/2026-09-22-recording-audio-worker.md)。
 
 **2026-09-21 Windows QA 入口进度**：`PX-REC-WINDOWS-QA-01` 已把既有 WGC 帧源、原生控制窗排除、
 VP9 会话与结果/恢复库接到显式 Windows 原型构建；Linux/Windows Native QA 包分别启用
