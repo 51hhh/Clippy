@@ -474,7 +474,7 @@ fn ensure_open(terminal: AudioTerminal) -> Result<(), AudioPipelineError> {
     }
 }
 
-fn frames_to_ns(frames: u32) -> Result<u64, AudioPipelineError> {
+pub(super) fn frames_to_ns(frames: u32) -> Result<u64, AudioPipelineError> {
     u64::from(frames)
         .checked_mul(NANOS_PER_SECOND)
         .and_then(|value| value.checked_div(u64::from(AUDIO_SAMPLE_RATE_HZ)))

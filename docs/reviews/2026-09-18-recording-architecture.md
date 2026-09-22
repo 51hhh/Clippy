@@ -65,17 +65,22 @@ QA 阶段，默认发布能力仍保持关闭：
 发布默认值。完整合同见
 [`2026-09-21-recording-windows-qa-entry.md`](../superpowers/specs/2026-09-21-recording-windows-qa-entry.md)。
 
-音频第二阶段已经开始，但当前只完成 `PX-REC-AUDIO-01` 领域合同：48 kHz mono/stereo 交错 `f32`
-PCM、原生 PTS 到显式会话起点的映射、暂停扣时、空洞/重叠判断和一秒有界队列。队列满时终止当前
-音频生产路径，不静默丢块；背压失败不改变已提交时间线。WASAPI、ScreenCaptureKit audio、Linux
-PipeWire 音频节点、重采样、Opus 和 WebM 音轨均未接入，产品入口仍只录视频。详细边界见
-[`2026-09-21-recording-audio-contract.md`](../superpowers/specs/2026-09-21-recording-audio-contract.md)。
+音频第二阶段已完成 48 kHz mono/stereo PCM 时间线、一秒有界队列和线程内采集 worker；Windows
+另有显式 QA feature 下的默认扬声器 WASAPI loopback 与默认麦克风 source。双轨协调以首个有效
+视频帧为容器零点，在 sample 边界裁切更早的 PCM，并在共同暂停区间后保持固定平移；结束报告保留
+真实轨道偏差。ScreenCaptureKit audio、Linux PipeWire 音频节点、Opus、WebM 音轨与产品 session
+接线尚未完成，当前入口仍只录视频。详细合同见
+[`2026-09-21-recording-audio-contract.md`](../superpowers/specs/2026-09-21-recording-audio-contract.md)、
+[`2026-09-22-recording-audio-worker.md`](../superpowers/specs/2026-09-22-recording-audio-worker.md)、
+[`2026-09-22-recording-windows-audio.md`](../superpowers/specs/2026-09-22-recording-windows-audio.md) 与
+[`2026-09-22-recording-av-epoch.md`](../superpowers/specs/2026-09-22-recording-av-epoch.md)。
 
 `PX-REC-CLOCK-01` 进一步把 X11、Wayland/PipeWire、Windows WGC、macOS AVFoundation 与
 ScreenCaptureKit 各自创建的时间原点收回 `DiagnosticRecordingSession`。平台 factory 现在必须
 显式接收同一个 `RecordingSessionClock`，帧、暂停、继续和停止都在该会话时间域内加戳；首帧等待
 另用连接后的局部计时。现有视频 presentation timeline 仍以首帧归零，避免破坏 VP9 writer；原生
-音频 PTS 校准和双轨 mux epoch 仍由后续 A/V coordinator 完成。合同见
+Windows QPC 音频 PTS 校准和双轨共同 epoch 合同已经补齐；macOS/Linux 原生 PTS、session 接线与
+实际双轨 mux 仍待后续完成。共享时钟合同见
 [`2026-09-22-recording-shared-clock.md`](../superpowers/specs/2026-09-22-recording-shared-clock.md)。
 
 ### 2026-09-21 同 SHA CI 证据

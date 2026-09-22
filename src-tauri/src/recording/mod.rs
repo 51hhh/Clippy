@@ -23,6 +23,9 @@ mod audio;
 // 平台音频对象在线程内创建并以显式背压、暂停和停止合同驱动 PCM pipeline。
 #[allow(dead_code)]
 mod audio_worker;
+// 双轨 mux 前先以首视频帧固定公共 epoch，并在 PCM sample 边界裁切更早的音频前缀。
+#[allow(dead_code)]
+mod av_timeline;
 // 持续采集 worker 已接入受门控产品会话；合成帧继续固定停止、节流与错误传播。
 #[allow(dead_code)]
 mod worker;
