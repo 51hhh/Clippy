@@ -67,7 +67,7 @@ const RECORDING_AVAILABLE_CASES = Object.freeze([
   ),
 ]);
 
-const WINDOWS_AV_RECORDING_CASES = Object.freeze([
+const LINUX_WINDOWS_AV_RECORDING_CASES = Object.freeze([
   pass(
     "recording_system_audio",
     "系统声双轨录制、暂停/继续、结果库播放与音轨摘要",
@@ -117,6 +117,7 @@ const PROFILES = {
       pass("pin_topmost", "Pin 窗口持续置顶"),
       pass("capture_diagnostics", "截图诊断 I1–I5 与 fixture 输出"),
       ...RECORDING_AVAILABLE_CASES,
+      ...LINUX_WINDOWS_AV_RECORDING_CASES,
     ],
   },
   "linux-gnome-wayland": {
@@ -133,6 +134,7 @@ const PROFILES = {
       pass("mixed_dpi", "多显示器、负坐标与混合缩放"),
       pass("capture_diagnostics", "截图诊断 I1–I5 与 fixture 输出"),
       ...WAYLAND_RECORDING_AVAILABLE_CASES,
+      ...LINUX_WINDOWS_AV_RECORDING_CASES,
     ],
   },
   "linux-gnome-wayland-ubuntu24": {
@@ -151,6 +153,7 @@ const PROFILES = {
       pass("mixed_dpi", "多显示器、负坐标与混合缩放"),
       pass("capture_diagnostics", "截图诊断 I1–I5 与 fixture 输出"),
       ...WAYLAND_RECORDING_AVAILABLE_CASES,
+      ...LINUX_WINDOWS_AV_RECORDING_CASES,
     ],
   },
   "linux-gnome-wayland-ubuntu26": {
@@ -169,6 +172,7 @@ const PROFILES = {
       pass("mixed_dpi", "多显示器、负坐标与混合缩放"),
       pass("capture_diagnostics", "截图诊断 I1–I5 与 fixture 输出"),
       ...WAYLAND_RECORDING_AVAILABLE_CASES,
+      ...LINUX_WINDOWS_AV_RECORDING_CASES,
     ],
   },
   "linux-kde-wayland": {
@@ -185,6 +189,7 @@ const PROFILES = {
       degraded("absolute_position_limit", "绝对定位限制与 UI 如实降级", "wayland_protocol_limited"),
       degraded("pin_topmost_limit", "永久置顶限制与 UI 如实降级", "wayland_protocol_limited"),
       ...WAYLAND_RECORDING_AVAILABLE_CASES,
+      ...LINUX_WINDOWS_AV_RECORDING_CASES,
     ],
   },
   "linux-wlroots-wayland": {
@@ -199,6 +204,7 @@ const PROFILES = {
       degraded("pin_topmost_limit", "永久置顶限制与 UI 如实降级", "wayland_protocol_limited"),
       degraded("portal_unavailable", "缺失 Portal 接口时给出稳定原因", "wayland_portal_unavailable"),
       ...WAYLAND_RECORDING_AVAILABLE_CASES,
+      ...LINUX_WINDOWS_AV_RECORDING_CASES,
     ],
   },
   "windows-10-x64": {
@@ -215,7 +221,7 @@ const PROFILES = {
       pass("installer_nsis_msi", "NSIS/MSI 安装、卸载和升级"),
       pass("private_file_acl", "私有目录、旧文件修复与原子替换 ACL"),
       ...RECORDING_AVAILABLE_CASES,
-      ...WINDOWS_AV_RECORDING_CASES,
+      ...LINUX_WINDOWS_AV_RECORDING_CASES,
     ],
   },
   "windows-11-x64": {
@@ -232,7 +238,7 @@ const PROFILES = {
       pass("installer_nsis_msi", "NSIS/MSI 安装、卸载和升级"),
       pass("private_file_acl", "私有目录、旧文件修复与原子替换 ACL"),
       ...RECORDING_AVAILABLE_CASES,
-      ...WINDOWS_AV_RECORDING_CASES,
+      ...LINUX_WINDOWS_AV_RECORDING_CASES,
     ],
   },
   "macos-intel": {

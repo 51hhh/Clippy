@@ -44,6 +44,9 @@ recording-wayland-qa = [
     "ashpd/wayland",
     "dep:raw-window-handle",
 ]
+# Linux PipeWire 默认系统声/麦克风与 VP9 + Opus 双轨 QA；可与 X11 直接组合，Wayland QA 包同时
+# 启用 `recording-wayland-qa`。默认产品与正式 release 保持关闭。
+recording-linux-av-qa = ["recording-opus-webm"]
 # macOS 12.3+ 专用 QA 帧源；保持与默认 macOS 11 发布包隔离。
 recording-macos-screencapturekit = [
     "recording-vp9-prototype",
@@ -154,7 +157,7 @@ pipewire = { version = "0.9", features = ["v0_3_34"] }
 # 只为在 zbus 的信号流上调一次 `.next()`（等 PipeWireStreamAdded）。zbus 自己就依赖它。
 futures-util = { version = "0.3", default-features = false }
 x11rb = { version = "0.13", features = ["image", "randr", "xfixes"] }
-nix = { version = "0.30", features = ["poll"] }
+nix = { version = "0.30", features = ["poll", "time"] }
 
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
 # Windows 录屏必须走可关闭的 WGC runtime；xcap 的默认 DXGI recorder 会常驻工作线程，

@@ -35,6 +35,14 @@ pub(crate) enum RecordingAudioMode {
 }
 
 pub(super) fn available_recording_audio_modes() -> &'static [RecordingAudioMode] {
+    #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
+    {
+        &[
+            RecordingAudioMode::None,
+            RecordingAudioMode::SystemAudio,
+            RecordingAudioMode::Microphone,
+        ]
+    }
     #[cfg(all(target_os = "windows", feature = "recording-windows-av-qa"))]
     {
         &[
@@ -52,6 +60,7 @@ pub(super) fn available_recording_audio_modes() -> &'static [RecordingAudioMode]
         }
     }
     #[cfg(not(any(
+        all(target_os = "linux", feature = "recording-linux-av-qa"),
         all(target_os = "windows", feature = "recording-windows-av-qa"),
         all(target_os = "macos", feature = "recording-macos-av-qa")
     )))]
@@ -751,10 +760,12 @@ mod tests {
                 .count(),
             1
         );
-        if cfg!(all(
-            target_os = "windows",
-            feature = "recording-windows-av-qa"
-        )) {
+        if cfg!(all(target_os = "linux", feature = "recording-linux-av-qa"))
+            || cfg!(all(
+                target_os = "windows",
+                feature = "recording-windows-av-qa"
+            ))
+        {
             assert_eq!(
                 modes,
                 &[

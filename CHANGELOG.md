@@ -107,6 +107,12 @@
   non-interleaved 缓冲、mono 上混、100 ms 拆块和原生 PTS 映射；有界队列满或时间线异常会中止
   两轨，避免静默丢音。新的 `recording-macos-av-qa` 仍不进入默认/release 构建；麦克风、混音、
   12.3–12.x 仍只开放无音频；真机权限与 30 分钟漂移仍待验收。（需求：`PX-REC-MACOS-AUDIO-01`）
+- Linux X11 与 Wayland 录屏 QA 包现在可通过 PipeWire 选择默认系统声或默认麦克风，并接入现有
+  共享时钟、VP9 + Opus 双轨、暂停/继续、schema v2、异常恢复和结果库。原生 source 只接受
+  48 kHz stereo F32LE FL/FR，以 `SPA_META_Header` PTS 映射时间线；gap 转为等长静音，packet 拆成
+  20 ms 块，格式、时间戳、缓冲区或有界队列异常会中止两轨。新的 `recording-linux-av-qa` 只进入
+  Ubuntu 原型 CI 与 Native QA 包，默认/release 仍保持无音频；GNOME、KDE、wlroots 的设备消失、
+  强杀恢复和 30 分钟漂移仍待同一 SHA 真机验收。（需求：`PX-REC-LINUX-AUDIO-01`）
 - 录屏结果库现在支持 VP9 + Opus 双轨首帧缩略图：完整会话读取最终 WebM，中断会话读取首个已
   提交分段；后端先核对 schema v2、轨道编号、OpusHead、48 kHz 声道、CodecDelay 与 SeekPreRoll，
   再只解码首个 VP9 关键帧，不解码音频或遍历完整文件。单轨行为、私有 PNG 缓存和前端懒加载保持

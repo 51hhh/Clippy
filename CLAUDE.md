@@ -14,11 +14,12 @@ X11/Wayland 分流自动粘贴、多显示器冻结截图、二维手动长截�
 显式 QA 构建的原生 X11、Wayland、Windows 与 macOS 12.3+ 会话开放，默认构建仍保持关闭。
 内部录屏音频已建立 48 kHz 单音轨合同、共享时钟、线程内采集 worker，以及 feature 门控的
 VP9 + Opus 可恢复双轨 session；它能生成 schema v2 的最终 WebM 和独立周期分段。Windows QA
-组合 feature 已把 WGC 与 WASAPI 系统声/默认麦克风接入该 session，macOS 13+ AV QA 也已接入
-ScreenCaptureKit 系统声。录屏选区工具条只显示后端下发的可用模式，默认仍为无音频。结果库可
+组合 feature 已把 WGC 与 WASAPI 系统声/默认麦克风接入该 session，Linux QA 已把 X11/Wayland
+视频源与 PipeWire 默认系统声/麦克风接入，macOS 13+ AV QA 也已接入 ScreenCaptureKit 系统声。
+录屏选区工具条只显示后端下发的可用模式，默认仍为无音频。结果库可
 严格校验这类双轨 WebM，并只解码 VP9 首关键帧生成持久缩略图；异常双轨分段可保留 VP9 packet、
 逐段还原真实 PCM 后连续重编码 Opus，恢复为一个完整 WebM。
-macOS 麦克风、Linux 音源、设备选择/混音和默认发布仍未接入，Windows/macOS 真机设备与长时漂移
+macOS 麦克风、设备选择/混音和默认发布仍未接入，Linux/Windows/macOS 真机设备、权限与长时漂移
 仍待验收。
 macOS Intel/Apple Silicon QA 包已生成；Wayland 使用可信 Portal 父窗口和托盘控制，但两者的原生
 真机录制仍待验收，不能记为发布可用。

@@ -114,8 +114,17 @@ describe("真机 QA 合同", () => {
     },
   );
 
-  it.each(["windows-10-x64", "windows-11-x64"])(
-    "%s 要求双轨音频与长时漂移证据",
+  it.each([
+    "linux-gnome-x11",
+    "linux-gnome-wayland",
+    "linux-gnome-wayland-ubuntu24",
+    "linux-gnome-wayland-ubuntu26",
+    "linux-kde-wayland",
+    "linux-wlroots-wayland",
+    "windows-10-x64",
+    "windows-11-x64",
+  ])(
+    "%s 要求系统声、麦克风与长时漂移证据",
     (profileId) => {
       const ids = casesForProfile(profileId).map((testCase) => testCase.id);
       expect(ids).toEqual(

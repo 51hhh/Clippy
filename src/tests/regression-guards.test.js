@@ -212,7 +212,7 @@ describe("原生平台由真实 runner 编译", () => {
     expect(qaWorkflow).not.toContain('Contents/MacOS/Clippy"');
     expect(qaWorkflow).toContain(
       "npx --prefix src tauri build --ci --no-sign\n          " +
-        "--features recording-wayland-qa",
+        "--features recording-wayland-qa,recording-linux-av-qa",
     );
     expect(qaWorkflow).toContain(
       "npx --prefix src tauri build --ci\n          " +
@@ -224,7 +224,9 @@ describe("原生平台由真实 runner 编译", () => {
     expect(macQaJob).toMatch(
       /Setup Rust[\s\S]*targets: \$\{\{ matrix\.rust_target \}\}[\s\S]*components: llvm-tools-preview/,
     );
-    expect(qaWorkflow).toContain("recording_feature=recording-wayland-qa");
+    expect(qaWorkflow).toContain(
+      "recording_feature=recording-wayland-qa,recording-linux-av-qa",
+    );
     expect(qaWorkflow).toContain("recording_feature=recording-windows-av-qa");
     expect(qaWorkflow).toContain("recording_feature: recording-macos-av-qa");
     expect(qaWorkflow).toContain("recording_feature=%s");
@@ -234,7 +236,11 @@ describe("原生平台由真实 runner 编译", () => {
     expect(releaseWorkflow).not.toContain("recording-macos-screencapturekit");
     expect(releaseWorkflow).not.toContain("recording-macos-av-qa");
     expect(releaseWorkflow).not.toContain("recording-wayland-qa");
-    expect(buildWorkflow).toContain("features: recording-wayland-qa");
+    expect(releaseWorkflow).not.toContain("recording-linux-av-qa");
+    expect(buildWorkflow).toContain(
+      "features: recording-wayland-qa,recording-linux-av-qa",
+    );
+    expect(cargo).toContain('recording-linux-av-qa = ["recording-opus-webm"]');
     // 录屏 feature 会同时开放两个 benchmark bin。没有 default-run 时，cargo check
     // 仍然通过，但真正执行 tauri build 会因无法判断主程序而失败。
     expect(cargo).toMatch(/^default-run\s*=\s*"clippy-app"$/m);

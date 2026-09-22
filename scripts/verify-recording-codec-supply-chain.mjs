@@ -94,6 +94,9 @@ if (
 ) {
   throw new Error("Cargo.toml must pin the reviewed bundled libopus dependency graph");
 }
+if (!cargoToml.includes('recording-linux-av-qa = ["recording-opus-webm"]')) {
+  throw new Error("Cargo.toml must keep Linux PipeWire A/V QA behind the reviewed codec feature");
+}
 if (
   !cargoToml.includes(
     'recording-windows-av-qa = [\n    "recording-vp9-source-build",\n    "recording-windows-audio",\n    "recording-opus-webm",\n]',

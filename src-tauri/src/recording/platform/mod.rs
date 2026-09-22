@@ -2,10 +2,16 @@
 pub(super) mod macos;
 mod region;
 // ScreenCaptureKit 的 PTS、PCM 布局与拆块合同在所有宿主运行测试，原生对象只进入 macOS AV feature。
+#[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
+#[allow(dead_code)]
+pub(super) mod linux_audio;
 #[allow(dead_code)]
 mod macos_audio_contract;
 #[cfg(target_os = "linux")]
 pub(super) mod wayland;
+// PipeWire PTS、PCM 与拆块合同在所有宿主运行测试，原生对象只进入 Linux AV feature。
+#[allow(dead_code)]
+mod linux_audio_contract;
 #[cfg(target_os = "windows")]
 pub(super) mod windows;
 // WASAPI 的纯时间/拆块合同在所有宿主运行测试，原生对象只进入显式 Windows audio feature。
@@ -139,6 +145,8 @@ pub(super) enum PlatformAudioSourcePlan {
     Windows(windows_audio::WindowsWasapiAudioSourcePlan),
     #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
     Macos(macos::MacScreenCaptureKitAudioSourcePlan),
+    #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
+    Linux(linux_audio::LinuxPipeWireAudioSourcePlan),
 }
 
 impl PlatformAudioSourcePlan {
@@ -149,6 +157,8 @@ impl PlatformAudioSourcePlan {
             Self::Windows(plan) => plan.channels(),
             #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
             Self::Macos(plan) => plan.channels(),
+            #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
+            Self::Linux(plan) => plan.channels(),
         }
     }
 
@@ -164,6 +174,8 @@ impl PlatformAudioSourcePlan {
             ))),
             #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
             Self::Macos(plan) => Ok(PlatformAudioSource::Macos(Box::new(plan.connect(_clock)?))),
+            #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
+            Self::Linux(plan) => Ok(PlatformAudioSource::Linux(Box::new(plan.connect(_clock)?))),
         }
     }
 }
@@ -217,6 +229,15 @@ impl PlatformFrameSourcePlan {
         _kind: PlatformAudioSourceKind,
     ) -> Result<PlatformAudioSourcePlan, PlatformAudioSourceError> {
         match self {
+            #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
+            Self::X11(_) | Self::Wayland(_) => Ok(PlatformAudioSourcePlan::Linux(match _kind {
+                PlatformAudioSourceKind::SystemAudio => {
+                    linux_audio::LinuxPipeWireAudioSourcePlan::system_audio()
+                }
+                PlatformAudioSourceKind::Microphone => {
+                    linux_audio::LinuxPipeWireAudioSourcePlan::default_microphone()
+                }
+            })),
             #[cfg(all(target_os = "windows", feature = "recording-windows-av-qa"))]
             Self::Windows(_) => Ok(PlatformAudioSourcePlan::Windows(match _kind {
                 PlatformAudioSourceKind::SystemAudio => {
@@ -299,6 +320,8 @@ pub(super) enum PlatformAudioSource {
     Windows(Box<windows_audio::WindowsWasapiAudioSource>),
     #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
     Macos(Box<macos::MacScreenCaptureKitAudioSource>),
+    #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
+    Linux(Box<linux_audio::LinuxPipeWireAudioSource>),
 }
 
 #[derive(Debug, Error)]
@@ -330,6 +353,9 @@ pub(super) enum PlatformAudioSourceError {
     #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
     #[error(transparent)]
     Macos(#[from] macos::MacScreenCaptureKitAudioSourceError),
+    #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
+    #[error(transparent)]
+    Linux(#[from] linux_audio::LinuxPipeWireAudioSourceError),
 }
 
 impl RecordingFrameSource for PlatformFrameSource {
@@ -427,6 +453,8 @@ impl RecordingAudioSource for PlatformAudioSource {
             Self::Windows(source) => Ok(source.capture_next_available(_timeout)?),
             #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
             Self::Macos(source) => Ok(source.capture_next_available(_timeout)?),
+            #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
+            Self::Linux(source) => Ok(source.capture_next_available(_timeout)?),
         }
     }
 
@@ -437,6 +465,8 @@ impl RecordingAudioSource for PlatformAudioSource {
             Self::Windows(source) => Ok(source.control_timestamp_ns()?),
             #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
             Self::Macos(source) => Ok(source.control_timestamp_ns()?),
+            #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
+            Self::Linux(source) => Ok(source.control_timestamp_ns()?),
         }
     }
 
@@ -447,6 +477,8 @@ impl RecordingAudioSource for PlatformAudioSource {
             Self::Windows(source) => Ok(source.pause_capture()?),
             #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
             Self::Macos(source) => Ok(source.pause_capture()?),
+            #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
+            Self::Linux(source) => Ok(source.pause_capture()?),
         }
     }
 
@@ -457,6 +489,8 @@ impl RecordingAudioSource for PlatformAudioSource {
             Self::Windows(source) => Ok(source.resume_capture()?),
             #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
             Self::Macos(source) => Ok(source.resume_capture()?),
+            #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
+            Self::Linux(source) => Ok(source.resume_capture()?),
         }
     }
 
@@ -467,6 +501,8 @@ impl RecordingAudioSource for PlatformAudioSource {
             Self::Windows(source) => Ok(source.stop_capture()?),
             #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
             Self::Macos(source) => Ok(source.stop_capture()?),
+            #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
+            Self::Linux(source) => Ok(source.stop_capture()?),
         }
     }
 }

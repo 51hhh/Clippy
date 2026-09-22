@@ -182,8 +182,8 @@ jobs:
       matrix:
         include:
           - runner: ubuntu-22.04
-            features: recording-wayland-qa,recording-opus-webm
-            cache_key: wayland-opus
+            features: recording-wayland-qa,recording-linux-av-qa
+            cache_key: wayland-linux-av
           - runner: windows-latest
             features: recording-windows-av-qa
             cache_key: windows-av
