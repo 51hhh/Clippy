@@ -55,5 +55,5 @@
   X11 隔离回归、像素 smoke 与生产构建通过。
 - `cargo test --features recording-opus-webm --lib`：1144 项通过、15 项按真实桌面条件忽略；包含
   macOS PTS/PCM 纯 Rust 合同以及共享双轨 session 回归。
-- Linux 无法编译 Apple framework；macOS ARM/Intel 原生 CI 和真机 QA 仍待同一提交验证，当前能力
-  继续保持 QA feature，未进入默认发布包。
+- Linux 无法编译 Apple framework，macOS ARM/Intel 原生 CI 是该层的权威编译证据；真机 QA 尚未
+  执行，当前能力继续保持 QA feature，未进入默认发布包。

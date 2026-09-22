@@ -255,7 +255,7 @@ impl MacScreenCaptureKitAudioSource {
         unsafe {
             configuration.setCapturesAudio(true);
             configuration.setSampleRate(AUDIO_SAMPLE_RATE_HZ as isize);
-            configuration.setChannelCount(isize::from(OUTPUT_CHANNELS));
+            configuration.setChannelCount(OUTPUT_CHANNELS as isize);
             configuration.setExcludesCurrentProcessAudio(true);
         }
 
