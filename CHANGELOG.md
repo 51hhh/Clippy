@@ -165,8 +165,9 @@
 - 原生 Wayland 长截图在 RemoteDesktop 与 ScreenCast Portal 都可用时提供一次性授权入口。授权只
   请求单显示器与指针，严格核对冻结显示器几何；每一步输入前用最近一次会话裁剪帧复核视觉身份，
   再把后端冻结的选区中心和固定步数发送给 Portal。拒绝、选错显示器、目标变化、取消或窗口销毁
-  都会关闭本次 session 并保留旧画布，XWayland 不参与输入。GNOME、KDE 与 wlroots 真机矩阵仍待
-  执行。（需求：`PX-LS-WAYLAND-AUTO-01`）
+  都会关闭本次 session 并保留旧画布；授权先绑定当前 exact handle，迟到结果不会复活已取消或销毁
+  的旧代次，XWayland 不参与输入。GNOME、KDE 与 wlroots 真机矩阵仍待执行。
+  （需求：`PX-LS-WAYLAND-AUTO-01`）
 - 标注模糊、马赛克和放大镜采样改用预乘 alpha，透明 PNG 边缘不再混入不可见 RGB 形成暗边
   或彩边；对象移动与选中框计入真实笔宽、箭头、测量装饰和 CJK 文字范围，贴边移动不会裁掉
   可见内容。13 种像素工具已在真实 Canvas 覆盖普通、边界及 1×/2× DPR；权威 Rust 组合金图

@@ -317,18 +317,41 @@ fn run_portal_worker(
         }
     };
 
+    let scroll_cancellation = Arc::clone(&cancellation);
+    drive_portal_session(
+        session,
+        cancellation,
+        commands,
+        |active, direction| {
+            runtime.block_on(send_scroll(
+                active,
+                pointer,
+                direction,
+                Arc::clone(&scroll_cancellation),
+            ))
+        },
+        |active| runtime.block_on(close_portal(active)),
+    );
+    Ok(())
+}
+
+fn drive_portal_session<T, S, C>(
+    session: T,
+    cancellation: Arc<AtomicBool>,
+    commands: Receiver<PortalCommand>,
+    mut scroll: S,
+    close: C,
+) where
+    S: FnMut(&T, LongshotAutoDirection) -> Result<(), CaptureError>,
+    C: FnOnce(T),
+{
     while !cancellation.load(Ordering::SeqCst) {
         match commands.recv_timeout(Duration::from_millis(50)) {
             Ok(PortalCommand::Scroll {
                 direction,
                 response,
             }) => {
-                let result = runtime.block_on(send_scroll(
-                    &session,
-                    pointer,
-                    direction,
-                    Arc::clone(&cancellation),
-                ));
+                let result = scroll(&session, direction);
                 let failed = result.is_err();
                 let _ = response.send(result);
                 if failed {
@@ -340,15 +363,42 @@ fn run_portal_worker(
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
-
-    runtime.block_on(close_portal(session));
-    Ok(())
+    close(session);
 }
 
 struct ActivePortalSession {
     proxy: RemoteDesktop,
     session: Session<RemoteDesktop>,
     stream_id: u32,
+}
+
+trait PortalSessionClose {
+    async fn close_session(&self) -> Result<(), String>;
+}
+
+impl PortalSessionClose for Session<RemoteDesktop> {
+    async fn close_session(&self) -> Result<(), String> {
+        self.close().await.map_err(|error| error.to_string())
+    }
+}
+
+async fn finish_portal_authorization<S: PortalSessionClose>(
+    session: S,
+    result: Result<u32, CaptureError>,
+) -> Result<(S, u32), CaptureError> {
+    match result {
+        Ok(stream_id) => Ok((session, stream_id)),
+        Err(error) => {
+            match tokio::time::timeout(PORTAL_CLOSE_TIMEOUT, session.close_session()).await {
+                Ok(Ok(())) => {}
+                Ok(Err(close_error)) => {
+                    log::warn!("Wayland 长截图授权失败后关闭 Portal session 也失败: {close_error}");
+                }
+                Err(_) => log::warn!("Wayland 长截图授权失败后关闭 Portal session 超时"),
+            }
+            Err(error)
+        }
+    }
 }
 
 async fn open_portal(
@@ -442,23 +492,12 @@ async fn open_portal(
             Ok(streams[0].pipe_wire_node_id())
         } => result,
     };
-    match result {
-        Ok(stream_id) => Ok(ActivePortalSession {
-            proxy,
-            session,
-            stream_id,
-        }),
-        Err(error) => {
-            match tokio::time::timeout(PORTAL_CLOSE_TIMEOUT, session.close()).await {
-                Ok(Ok(())) => {}
-                Ok(Err(close_error)) => {
-                    log::warn!("Wayland 长截图授权失败后关闭 Portal session 也失败: {close_error}");
-                }
-                Err(_) => log::warn!("Wayland 长截图授权失败后关闭 Portal session 超时"),
-            }
-            Err(error)
-        }
-    }
+    let (session, stream_id) = finish_portal_authorization(session, result).await?;
+    Ok(ActivePortalSession {
+        proxy,
+        session,
+        stream_id,
+    })
 }
 
 async fn portal_setup_call<T, E, F>(
@@ -604,6 +643,20 @@ fn pixel_identity(frame: &RgbaImage) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicUsize;
+
+    #[derive(Debug)]
+    struct TestPortalSession {
+        closes: Arc<std::sync::atomic::AtomicUsize>,
+        close_result: Result<(), String>,
+    }
+
+    impl PortalSessionClose for TestPortalSession {
+        async fn close_session(&self) -> Result<(), String> {
+            self.closes.fetch_add(1, Ordering::SeqCst);
+            self.close_result.clone()
+        }
+    }
 
     fn monitor(count: usize) -> WaylandMonitorIdentity {
         WaylandMonitorIdentity {
@@ -626,6 +679,100 @@ mod tests {
                 persistent: false,
             }
         );
+    }
+
+    #[tokio::test]
+    async fn rejected_or_cancelled_portal_authorization_closes_the_temporary_session() {
+        for error in [
+            CaptureError::LongshotAutoPermissionRequired,
+            CaptureError::LongshotAutoUserInterrupted,
+            CaptureError::LongshotAutoTargetLost,
+        ] {
+            let closes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let session = TestPortalSession {
+                closes: Arc::clone(&closes),
+                close_result: Ok(()),
+            };
+            let returned = finish_portal_authorization(session, Err(error)).await;
+            assert!(returned.is_err());
+            assert_eq!(closes.load(Ordering::SeqCst), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn successful_portal_authorization_keeps_session_open_until_driver_owns_it() {
+        let closes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let session = TestPortalSession {
+            closes: Arc::clone(&closes),
+            close_result: Ok(()),
+        };
+        let (_, stream_id) = finish_portal_authorization(session, Ok(27))
+            .await
+            .expect("successful authorization");
+        assert_eq!(stream_id, 27);
+        assert_eq!(closes.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn authorized_portal_loop_closes_on_stop_cancel_disconnect_and_input_failure() {
+        for mode in 0..4 {
+            let cancellation = Arc::new(AtomicBool::new(false));
+            let (commands, receiver) = mpsc::sync_channel(1);
+            let mut response = None;
+            match mode {
+                0 => commands
+                    .send(PortalCommand::Close)
+                    .expect("queue explicit stop"),
+                1 => cancellation.store(true, Ordering::SeqCst),
+                2 => drop(commands),
+                _ => {
+                    let (response_tx, response_rx) = mpsc::sync_channel(1);
+                    commands
+                        .send(PortalCommand::Scroll {
+                            direction: LongshotAutoDirection::Down,
+                            response: response_tx,
+                        })
+                        .expect("queue failing input");
+                    response = Some(response_rx);
+                }
+            }
+            let closes = AtomicUsize::new(0);
+            let scrolls = AtomicUsize::new(0);
+            drive_portal_session(
+                (),
+                cancellation,
+                receiver,
+                |_, _| {
+                    scrolls.fetch_add(1, Ordering::SeqCst);
+                    Err(CaptureError::LongshotAutoInput(
+                        "injected input failure".to_string(),
+                    ))
+                },
+                |_| {
+                    closes.fetch_add(1, Ordering::SeqCst);
+                },
+            );
+            assert_eq!(closes.load(Ordering::SeqCst), 1);
+            assert_eq!(scrolls.load(Ordering::SeqCst), usize::from(mode == 3));
+            if let Some(response) = response {
+                assert!(response.recv().expect("input response").is_err());
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn close_failure_does_not_replace_the_authorization_error() {
+        let closes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let session = TestPortalSession {
+            closes: Arc::clone(&closes),
+            close_result: Err("injected close failure".to_string()),
+        };
+        let error =
+            finish_portal_authorization(session, Err(CaptureError::LongshotAutoPermissionRequired))
+                .await
+                .expect_err("authorization remains rejected");
+        assert_eq!(error.code(), "longshot_auto_permission_required");
+        assert_eq!(closes.load(Ordering::SeqCst), 1);
     }
 
     #[test]

@@ -28,12 +28,12 @@
 ## Acceptance Criteria
 
 - [x] 能力测试覆盖 Wayland Portal 可用、接口缺失、未授权与授权后四向可用状态。
-- [ ] Portal 合同测试覆盖 Pointer/Monitor 请求、单 stream、显示器匹配、错误 stream、拒绝与关闭。
-- [ ] 状态测试证明授权绑定 exact handle，重复/并发/取消/窗口销毁不会泄漏 session 或开放旧代次。
+- [x] Portal 合同测试覆盖 Pointer/Monitor 请求、单 stream、显示器匹配、错误 stream、拒绝与关闭。
+- [x] 状态测试证明授权绑定 exact handle，重复/并发/取消/窗口销毁不会泄漏 session 或开放旧代次。
 - [x] 自动步骤测试证明坐标、方向与离散步数由后端生成，视觉身份不符时不会发送滚轮事件。
 - [x] 前端测试覆盖授权按钮、授权中禁用、成功后出现四向控制、拒绝后保留手动追加与安全错误文案。
-- [ ] Rust check/clippy/test、前端测试、TypeScript 和完整 `./scripts/ci-local.sh` 通过；同一 SHA 的
-  Ubuntu/Windows/macOS CI 证明非 Wayland 平台没有条件编译回退。
+- [x] Rust check/clippy/test、前端测试、TypeScript 和完整 `./scripts/ci-local.sh` 通过。
+- [ ] 同一 SHA 的 Ubuntu/Windows/macOS CI 证明非 Wayland 平台没有条件编译回退。
 - [ ] GNOME、KDE 与 wlroots 真机分别记录允许、拒绝、选错显示器、Stop/Esc、目标变化、四方向、
   页面到底与输出闭环；自动化不能替代该矩阵。
 

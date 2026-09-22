@@ -393,6 +393,136 @@ async fn append_destroyed_wins_at_every_boundary_without_second_cleanup() {
     }
 }
 
+#[tokio::test]
+async fn visible_operation_requires_exact_handle_and_serializes_authorization() {
+    let (registry, label, token) = revealed_active_registry();
+    let exact = LongshotControllerHandle::from_token(&token);
+    let stale = LongshotControllerHandle {
+        session_id: token.wire_parts().0.to_string(),
+        generation: "8".to_string(),
+    };
+    let worker_calls = AtomicUsize::new(0);
+    let error = execute_visible_operation_with_ops(
+        &registry,
+        &label,
+        &stale,
+        |_| {
+            worker_calls.fetch_add(1, Ordering::SeqCst);
+            std::future::ready(Ok(true))
+        },
+        |_| {},
+    )
+    .await
+    .expect_err("stale handle must be rejected before the worker");
+    assert_eq!(error.code, "longshot_controller_superseded");
+    assert_eq!(worker_calls.load(Ordering::SeqCst), 0);
+
+    let result = execute_visible_operation_with_ops(
+        &registry,
+        &label,
+        &exact,
+        |_| {
+            worker_calls.fetch_add(1, Ordering::SeqCst);
+            std::future::ready(Ok(true))
+        },
+        |boundary| {
+            if boundary == VisibleOperationBoundary::AfterClaim {
+                assert_eq!(
+                    registry
+                        .claim_append(&label, &exact)
+                        .expect_err("duplicate authorization remains serialized")
+                        .code,
+                    "longshot_controller_busy"
+                );
+            }
+        },
+    )
+    .await
+    .expect("exact authorization");
+    assert!(result);
+    assert_eq!(worker_calls.load(Ordering::SeqCst), 1);
+    registry
+        .claim_append(&label, &exact)
+        .expect("successful authorization restores the visible snapshot");
+}
+
+#[tokio::test]
+async fn visible_operation_rejection_restores_manual_append() {
+    let (registry, label, token) = revealed_active_registry();
+    let handle = LongshotControllerHandle::from_token(&token);
+    let error = execute_visible_operation_with_ops(
+        &registry,
+        &label,
+        &handle,
+        |_| async {
+            Err::<bool, _>(LongshotIpcError::new(
+                "longshot_auto_wayland_permission_required",
+                "rejected",
+            ))
+        },
+        |_| {},
+    )
+    .await
+    .expect_err("Portal rejection");
+    assert_eq!(error.code, "longshot_auto_wayland_permission_required");
+    registry
+        .claim_append(&label, &handle)
+        .expect("rejection keeps manual append retryable");
+}
+
+#[tokio::test]
+async fn visible_operation_cancel_and_destroy_win_without_old_generation_resurrection() {
+    for destroy in [false, true] {
+        for target in [
+            VisibleOperationBoundary::AfterClaim,
+            VisibleOperationBoundary::AfterWorker,
+            VisibleOperationBoundary::BeforeCommit,
+        ] {
+            let (registry, label, token) = revealed_active_registry();
+            let handle = LongshotControllerHandle::from_token(&token);
+            let worker_calls = AtomicUsize::new(0);
+            let result = execute_visible_operation_with_ops(
+                &registry,
+                &label,
+                &handle,
+                |_| {
+                    worker_calls.fetch_add(1, Ordering::SeqCst);
+                    std::future::ready(Ok(true))
+                },
+                |boundary| {
+                    if boundary != target {
+                        return;
+                    }
+                    let claimed = if destroy {
+                        registry
+                            .claim_destroyed(&label)
+                            .expect("window destruction wins")
+                    } else {
+                        let action = registry
+                            .claim_cancel(&label, Some(&handle))
+                            .expect("cancellation wins");
+                        let CancelAction::Terminate(claimed) = action else {
+                            panic!("visible operation cancellation must terminate")
+                        };
+                        claimed
+                    };
+                    registry.complete_cancel_success(&label, &claimed);
+                },
+            )
+            .await;
+            assert_eq!(
+                result.expect_err("old authorization result is stale").code,
+                "longshot_controller_superseded"
+            );
+            let expected_workers = usize::from(target != VisibleOperationBoundary::AfterClaim);
+            assert_eq!(worker_calls.load(Ordering::SeqCst), expected_workers);
+            assert!(registry
+                .reserve("capture-overlay-next-7".to_string(), selection())
+                .is_ok());
+        }
+    }
+}
+
 #[test]
 fn appending_cancel_failure_reveals_before_retry_or_enters_cleanup_failed() {
     let (registry, label, token) = revealed_active_registry();

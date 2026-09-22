@@ -17,6 +17,14 @@ pub(super) enum AppendBoundary {
     BeforeCommit,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(any(test, all(target_os = "linux", feature = "longshot-wayland-auto")))]
+pub(super) enum VisibleOperationBoundary {
+    AfterClaim,
+    AfterWorker,
+    BeforeCommit,
+}
+
 pub(super) async fn terminate_hidden_append<A, C, F>(
     registry: &LongshotControllerRegistry,
     label: &str,
@@ -192,6 +200,43 @@ where
             Err(error)
         }
     }
+}
+
+/// 对可见控制窗执行不改变画布的异步操作，例如 Wayland Portal 授权。
+///
+/// registry 仍使用 append claim 串行化操作；无论业务成功或失败，都只允许 exact owner
+/// 恢复旧快照。取消、销毁或新代次若在任一 await 边界胜出，迟到结果不得复活旧会话。
+#[cfg(any(test, all(target_os = "linux", feature = "longshot-wayland-auto")))]
+pub(super) async fn execute_visible_operation_with_ops<R, W, WFut, H>(
+    registry: &LongshotControllerRegistry,
+    label: &str,
+    handle: &LongshotControllerHandle,
+    worker: W,
+    mut boundary: H,
+) -> Result<R, LongshotIpcError>
+where
+    W: FnOnce(LongshotSessionToken) -> WFut,
+    WFut: std::future::Future<Output = Result<R, LongshotIpcError>>,
+    H: FnMut(VisibleOperationBoundary),
+{
+    let claim = registry.claim_append(label, handle)?;
+    boundary(VisibleOperationBoundary::AfterClaim);
+    if !registry.owns_append(label, &claim.token) {
+        return Err(LongshotIpcError::superseded());
+    }
+
+    let result = worker(claim.token.clone()).await;
+    boundary(VisibleOperationBoundary::AfterWorker);
+    if !registry.owns_append(label, &claim.token) {
+        return Err(LongshotIpcError::superseded());
+    }
+    boundary(VisibleOperationBoundary::BeforeCommit);
+    if !registry.owns_append(label, &claim.token) {
+        return Err(LongshotIpcError::superseded());
+    }
+
+    registry.complete_append_visible(label, &claim.token, claim.old_snapshot)?;
+    result
 }
 
 pub(super) async fn run_preview_worker<F>(work: F) -> Result<Vec<u8>, LongshotIpcError>

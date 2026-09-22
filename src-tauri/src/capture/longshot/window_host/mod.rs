@@ -28,12 +28,14 @@ use output::{copy_longshot_artifact, pin_longshot_artifact};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::Manager;
-#[cfg(test)]
-use workers::AppendBoundary;
+#[cfg(any(test, all(target_os = "linux", feature = "longshot-wayland-auto")))]
+use workers::execute_visible_operation_with_ops;
 use workers::{
     execute_append_with_ops, execute_preview_with_ops, execute_visible_mutation,
     run_activation_worker, run_append_worker, run_preview_worker,
 };
+#[cfg(test)]
+use workers::{AppendBoundary, VisibleOperationBoundary};
 
 const CONTROLLER_PREFIX: &str = "longshot-controller-";
 const CONTROLLER_PAGE: &str = "/longshot-controller.html";
@@ -395,54 +397,41 @@ pub(crate) async fn authorize_auto(
     }
     #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
     {
+        let lifecycle = state.longshot_lifecycle.clone();
         let parent_window = window.clone();
-        let parent =
-            tauri::async_runtime::spawn_blocking(move || wayland_parent_identifier(&parent_window))
+        let authorized = execute_visible_operation_with_ops(
+            &state.longshot_windows,
+            window.label(),
+            &handle,
+            move |token| async move {
+                let parent = tauri::async_runtime::spawn_blocking(move || {
+                    wayland_parent_identifier(&parent_window)
+                })
                 .await
                 .map_err(|error| {
                     LongshotIpcError::internal(format!("Wayland 父窗口线程异常: {error}"))
                 })??;
-        let claim = state
-            .longshot_windows
-            .claim_append(window.label(), &handle)?;
-        if !state
-            .longshot_windows
-            .owns_append(window.label(), &claim.token)
-        {
-            return Err(LongshotIpcError::superseded());
-        }
-        let lifecycle = state.longshot_lifecycle.clone();
-        let token = claim.token.clone();
-        let result = match tauri::async_runtime::spawn_blocking(move || {
-            lifecycle.authorize_wayland_auto(&token, parent)
-        })
-        .await
-        {
-            Ok(Err(CaptureError::LongshotAutoPermissionRequired)) => Err(LongshotIpcError::new(
-                "longshot_auto_wayland_permission_required",
-                "Wayland Portal 未授予本次长截图的指针控制权限",
-            )),
-            Ok(result) => result.map_err(LongshotIpcError::from),
-            Err(error) => Err(LongshotIpcError::internal(format!(
-                "Wayland 授权线程异常: {error}"
-            ))),
-        };
-        if !state
-            .longshot_windows
-            .owns_append(window.label(), &claim.token)
-        {
-            return Err(LongshotIpcError::superseded());
-        }
-        state.longshot_windows.complete_append_visible(
-            window.label(),
-            &claim.token,
-            claim.old_snapshot,
-        )?;
-        result?;
-        let authorized = state
-            .longshot_lifecycle
-            .wayland_auto_authorized(&claim.token)
-            .map_err(LongshotIpcError::from)?;
+                match tauri::async_runtime::spawn_blocking(move || {
+                    lifecycle.authorize_wayland_auto(&token, parent)?;
+                    lifecycle.wayland_auto_authorized(&token)
+                })
+                .await
+                {
+                    Ok(Err(CaptureError::LongshotAutoPermissionRequired)) => {
+                        Err(LongshotIpcError::new(
+                            "longshot_auto_wayland_permission_required",
+                            "Wayland Portal 未授予本次长截图的指针控制权限",
+                        ))
+                    }
+                    Ok(result) => result.map_err(LongshotIpcError::from),
+                    Err(error) => Err(LongshotIpcError::internal(format!(
+                        "Wayland 授权线程异常: {error}"
+                    ))),
+                }
+            },
+            |_| {},
+        )
+        .await?;
         Ok(LongshotAutoCapability::current_with_wayland_authorized(
             authorized,
         ))
