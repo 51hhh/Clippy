@@ -65,6 +65,12 @@ QA 阶段，默认发布能力仍保持关闭：
 发布默认值。完整合同见
 [`2026-09-21-recording-windows-qa-entry.md`](../superpowers/specs/2026-09-21-recording-windows-qa-entry.md)。
 
+音频第二阶段已经开始，但当前只完成 `PX-REC-AUDIO-01` 领域合同：48 kHz mono/stereo 交错 `f32`
+PCM、原生 PTS 到显式会话起点的映射、暂停扣时、空洞/重叠判断和一秒有界队列。队列满时终止当前
+音频生产路径，不静默丢块；背压失败不改变已提交时间线。WASAPI、ScreenCaptureKit audio、Linux
+PipeWire 音频节点、重采样、Opus 和 WebM 音轨均未接入，产品入口仍只录视频。详细边界见
+[`2026-09-21-recording-audio-contract.md`](../superpowers/specs/2026-09-21-recording-audio-contract.md)。
+
 ### 2026-09-21 同 SHA CI 证据
 
 提交 `3daa487b4435da783afdd203ff7fe0b8f18fb3dd` 的

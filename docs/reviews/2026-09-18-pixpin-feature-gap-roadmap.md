@@ -388,6 +388,7 @@ delta；父链与项目历史留给 `PX-PIN-01`。显式 resize/crop 之外不�
 | P2（X11 已实现，待真机） | `PX-LS-AUTO-01` | X11 受控自动滚动；其余平台能力保持不可用 | `PX-LS-2D-01` + 平台输入能力 |
 | P2（已完成） | `PX-CODE-01` | 四种产品格式与扫码场景矩阵 | 可重复 fixture |
 | P2（X11/Windows/macOS/Wayland QA 入口、结果库、播放与恢复 remux 已完成，待真机/音频） | `PX-REC-01` / `PX-REC-PLAYBACK-01` / `PX-REC-MERGE-01` / `PX-REC-WINDOWS-QA-01` / `PX-REC-MACOS-SCK-01` / `PX-REC-WAYLAND-QA-01` | 可恢复录屏最小闭环 | 平台采集/编码实测 |
+| P2（音频领域合同已完成，平台采集/Opus/mux 待实现） | `PX-REC-AUDIO-01` | 48 kHz 单音轨、显式 A/V 起点、暂停与背压合同 | `PX-REC-01` 视频时间线 |
 | P3（已完成） | `PX-ACT-01` | 类型化动作注册表与启动器 | 稳定业务命令合同 |
 | P3（已完成门控，当前 no-go） | `PX-SMART-01` | 智能擦除可行性与质量基线 | 模型许可、包体和性能预算 |
 
@@ -770,6 +771,13 @@ atomic promote → `complete`，失败和进程中断都保留已提交分段。
 边 320 px、最大 512 KiB 的 PNG。缓存位于独立私有目录并以产物 SHA 命名，源变化、恢复合并或删除
 会话都会失效；默认构建和 AVI 继续显示中性占位。验收规格见
 [`2026-09-21-recording-persistent-thumbnails.md`](../superpowers/specs/2026-09-21-recording-persistent-thumbnails.md)。
+
+**2026-09-21 单音轨基础进度**：`PX-REC-AUDIO-01` 已固定 48 kHz mono/stereo 交错 `f32` PCM、
+100 ms 单块上限、显式会话起点、暂停扣时、空洞保留和一秒有界队列。音频队列满时明确失败，且失败
+不会推进序号或时间线，避免静默丢块造成听感断裂和 A/V 漂移。平台层必须把原生 PTS 映射到会话
+单调时间基，不能使用回调到达时间。当前没有设备采集、重采样、Opus、WebM 音轨、manifest 轨道
+字段或 UI，因此录屏仍是无音频 QA 原型；完整合同见
+[`2026-09-21-recording-audio-contract.md`](../superpowers/specs/2026-09-21-recording-audio-contract.md)。
 
 **2026-09-21 Windows QA 入口进度**：`PX-REC-WINDOWS-QA-01` 已把既有 WGC 帧源、原生控制窗排除、
 VP9 会话与结果/恢复库接到显式 Windows 原型构建；Linux/Windows Native QA 包分别启用

@@ -14,6 +14,9 @@ mod frame;
 mod pipeline;
 #[allow(dead_code)]
 mod timeline;
+// 音频先固定 48 kHz 单音轨、显式会话起点和有界背压合同；平台采集与 Opus 留给后续切片。
+#[allow(dead_code)]
+mod audio;
 // 持续采集 worker 已接入受门控产品会话；合成帧继续固定停止、节流与错误传播。
 #[allow(dead_code)]
 mod worker;
