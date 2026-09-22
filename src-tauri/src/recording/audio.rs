@@ -10,7 +10,7 @@ use thiserror::Error;
 pub(super) const AUDIO_SAMPLE_RATE_HZ: u32 = 48_000;
 pub(super) const DEFAULT_OPUS_FRAME_MS: u32 = 20;
 const MAX_AUDIO_CHANNELS: u16 = 2;
-const MAX_AUDIO_CHUNK_FRAMES: u32 = AUDIO_SAMPLE_RATE_HZ / 10;
+pub(super) const MAX_AUDIO_CHUNK_FRAMES: u32 = AUDIO_SAMPLE_RATE_HZ / 10;
 const MAX_QUEUED_AUDIO_FRAMES: u64 = AUDIO_SAMPLE_RATE_HZ as u64;
 const MAX_QUEUED_AUDIO_BYTES: usize =
     AUDIO_SAMPLE_RATE_HZ as usize * MAX_AUDIO_CHANNELS as usize * std::mem::size_of::<f32>();

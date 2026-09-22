@@ -1,6 +1,9 @@
 #[cfg(target_os = "macos")]
 pub(super) mod macos;
 mod region;
+// ScreenCaptureKit 的 PTS、PCM 布局与拆块合同在所有宿主运行测试，原生对象只进入 macOS AV feature。
+#[allow(dead_code)]
+mod macos_audio_contract;
 #[cfg(target_os = "linux")]
 pub(super) mod wayland;
 #[cfg(target_os = "windows")]
@@ -14,6 +17,8 @@ mod windows_audio_contract;
 #[cfg(target_os = "linux")]
 pub(super) mod x11;
 
+use super::audio::CapturedAudioChunk;
+use super::audio_worker::RecordingAudioSource;
 use super::clock::RecordingSessionClock;
 use super::frame::CapturedFrame;
 use super::worker::RecordingFrameSource;
@@ -120,6 +125,49 @@ pub(super) enum PlatformFrameSourcePlan {
     Macos(macos::MacRegionFrameSourcePlan),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PlatformAudioSourceKind {
+    SystemAudio,
+    Microphone,
+}
+
+#[derive(Debug, Clone)]
+pub(super) enum PlatformAudioSourcePlan {
+    /// 只为让默认/无音频编译图保持封闭；可信入口不会构造这个分支。
+    Unsupported,
+    #[cfg(all(target_os = "windows", feature = "recording-windows-av-qa"))]
+    Windows(windows_audio::WindowsWasapiAudioSourcePlan),
+    #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
+    Macos(macos::MacScreenCaptureKitAudioSourcePlan),
+}
+
+impl PlatformAudioSourcePlan {
+    pub const fn channels(&self) -> u16 {
+        match self {
+            Self::Unsupported => 0,
+            #[cfg(all(target_os = "windows", feature = "recording-windows-av-qa"))]
+            Self::Windows(plan) => plan.channels(),
+            #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
+            Self::Macos(plan) => plan.channels(),
+        }
+    }
+
+    pub fn connect(
+        self,
+        _clock: RecordingSessionClock,
+    ) -> Result<PlatformAudioSource, PlatformAudioSourceError> {
+        match self {
+            Self::Unsupported => Err(PlatformAudioSourceError::Unsupported),
+            #[cfg(all(target_os = "windows", feature = "recording-windows-av-qa"))]
+            Self::Windows(plan) => Ok(PlatformAudioSource::Windows(Box::new(
+                plan.connect(_clock)?,
+            ))),
+            #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
+            Self::Macos(plan) => Ok(PlatformAudioSource::Macos(Box::new(plan.connect(_clock)?))),
+        }
+    }
+}
+
 impl PlatformFrameSourcePlan {
     pub fn prepare(selection: RecordingCaptureSpec) -> Result<Self, PlatformFrameSourceError> {
         #[cfg(target_os = "linux")]
@@ -161,6 +209,32 @@ impl PlatformFrameSourcePlan {
             Self::Windows(plan) => plan.descriptor(),
             #[cfg(target_os = "macos")]
             Self::Macos(plan) => plan.descriptor(),
+        }
+    }
+
+    pub fn audio_plan(
+        &self,
+        _kind: PlatformAudioSourceKind,
+    ) -> Result<PlatformAudioSourcePlan, PlatformAudioSourceError> {
+        match self {
+            #[cfg(all(target_os = "windows", feature = "recording-windows-av-qa"))]
+            Self::Windows(_) => Ok(PlatformAudioSourcePlan::Windows(match _kind {
+                PlatformAudioSourceKind::SystemAudio => {
+                    windows_audio::WindowsWasapiAudioSourcePlan::system_loopback()
+                }
+                PlatformAudioSourceKind::Microphone => {
+                    windows_audio::WindowsWasapiAudioSourcePlan::default_microphone()
+                }
+            })),
+            #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
+            Self::Macos(plan) => match _kind {
+                PlatformAudioSourceKind::SystemAudio => Ok(PlatformAudioSourcePlan::Macos(
+                    macos::MacScreenCaptureKitAudioSourcePlan::from_frame_plan(plan),
+                )),
+                PlatformAudioSourceKind::Microphone => Err(PlatformAudioSourceError::Unsupported),
+            },
+            #[allow(unreachable_patterns)]
+            _ => Err(PlatformAudioSourceError::Unsupported),
         }
     }
 
@@ -219,6 +293,14 @@ pub(super) enum PlatformFrameSource {
     Macos(Box<macos::MacRegionFrameSource>),
 }
 
+pub(super) enum PlatformAudioSource {
+    Unsupported,
+    #[cfg(all(target_os = "windows", feature = "recording-windows-av-qa"))]
+    Windows(Box<windows_audio::WindowsWasapiAudioSource>),
+    #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
+    Macos(Box<macos::MacScreenCaptureKitAudioSource>),
+}
+
 #[derive(Debug, Error)]
 pub(super) enum PlatformFrameSourceError {
     #[cfg(target_os = "linux")]
@@ -236,6 +318,18 @@ pub(super) enum PlatformFrameSourceError {
     #[cfg(target_os = "macos")]
     #[error(transparent)]
     Macos(#[from] macos::MacFrameSourceError),
+}
+
+#[derive(Debug, Error)]
+pub(super) enum PlatformAudioSourceError {
+    #[error("当前平台构建不支持请求的录屏音频源")]
+    Unsupported,
+    #[cfg(all(target_os = "windows", feature = "recording-windows-av-qa"))]
+    #[error(transparent)]
+    Windows(#[from] windows_audio::WindowsWasapiAudioSourceError),
+    #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
+    #[error(transparent)]
+    Macos(#[from] macos::MacScreenCaptureKitAudioSourceError),
 }
 
 impl RecordingFrameSource for PlatformFrameSource {
@@ -315,6 +409,63 @@ impl RecordingFrameSource for PlatformFrameSource {
             #[cfg(target_os = "windows")]
             Self::Windows(source) => Ok(source.stop_capture()?),
             #[cfg(target_os = "macos")]
+            Self::Macos(source) => Ok(source.stop_capture()?),
+        }
+    }
+}
+
+impl RecordingAudioSource for PlatformAudioSource {
+    type Error = PlatformAudioSourceError;
+
+    fn capture_next_available(
+        &mut self,
+        _timeout: std::time::Duration,
+    ) -> Result<Option<CapturedAudioChunk>, Self::Error> {
+        match self {
+            Self::Unsupported => Err(PlatformAudioSourceError::Unsupported),
+            #[cfg(all(target_os = "windows", feature = "recording-windows-av-qa"))]
+            Self::Windows(source) => Ok(source.capture_next_available(_timeout)?),
+            #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
+            Self::Macos(source) => Ok(source.capture_next_available(_timeout)?),
+        }
+    }
+
+    fn control_timestamp_ns(&mut self) -> Result<u64, Self::Error> {
+        match self {
+            Self::Unsupported => Err(PlatformAudioSourceError::Unsupported),
+            #[cfg(all(target_os = "windows", feature = "recording-windows-av-qa"))]
+            Self::Windows(source) => Ok(source.control_timestamp_ns()?),
+            #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
+            Self::Macos(source) => Ok(source.control_timestamp_ns()?),
+        }
+    }
+
+    fn pause_capture(&mut self) -> Result<u64, Self::Error> {
+        match self {
+            Self::Unsupported => Err(PlatformAudioSourceError::Unsupported),
+            #[cfg(all(target_os = "windows", feature = "recording-windows-av-qa"))]
+            Self::Windows(source) => Ok(source.pause_capture()?),
+            #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
+            Self::Macos(source) => Ok(source.pause_capture()?),
+        }
+    }
+
+    fn resume_capture(&mut self) -> Result<u64, Self::Error> {
+        match self {
+            Self::Unsupported => Err(PlatformAudioSourceError::Unsupported),
+            #[cfg(all(target_os = "windows", feature = "recording-windows-av-qa"))]
+            Self::Windows(source) => Ok(source.resume_capture()?),
+            #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
+            Self::Macos(source) => Ok(source.resume_capture()?),
+        }
+    }
+
+    fn stop_capture(&mut self) -> Result<u64, Self::Error> {
+        match self {
+            Self::Unsupported => Err(PlatformAudioSourceError::Unsupported),
+            #[cfg(all(target_os = "windows", feature = "recording-windows-av-qa"))]
+            Self::Windows(source) => Ok(source.stop_capture()?),
+            #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
             Self::Macos(source) => Ok(source.stop_capture()?),
         }
     }

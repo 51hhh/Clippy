@@ -5,6 +5,8 @@
 
 #[cfg(feature = "recording-macos-screencapturekit")]
 mod screencapturekit;
+#[cfg(feature = "recording-macos-av-qa")]
+mod screencapturekit_audio;
 
 #[cfg(not(feature = "recording-macos-screencapturekit"))]
 use super::region::take_direct_region_rgba;
@@ -171,6 +173,12 @@ pub(in crate::recording) type MacRegionFrameSource = MacAvRegionFrameSource;
 #[cfg(feature = "recording-macos-screencapturekit")]
 pub(in crate::recording) type MacRegionFrameSource =
     screencapturekit::MacScreenCaptureKitRegionFrameSource;
+
+#[cfg(feature = "recording-macos-av-qa")]
+pub(in crate::recording) use screencapturekit_audio::{
+    MacScreenCaptureKitAudioSource, MacScreenCaptureKitAudioSourceError,
+    MacScreenCaptureKitAudioSourcePlan,
+};
 
 #[cfg(not(feature = "recording-macos-screencapturekit"))]
 struct StampedFrame {

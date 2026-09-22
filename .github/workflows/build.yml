@@ -188,11 +188,11 @@ jobs:
             features: recording-windows-av-qa
             cache_key: windows-av
           - runner: macos-15
-            features: recording-macos-screencapturekit,recording-opus-webm
-            cache_key: macos-arm-opus
+            features: recording-macos-av-qa
+            cache_key: macos-arm-av
           - runner: macos-15-intel
-            features: recording-macos-screencapturekit,recording-vp9-source-build,recording-opus-webm
-            cache_key: macos-intel-opus
+            features: recording-macos-av-qa,recording-vp9-source-build
+            cache_key: macos-intel-av
     steps:
       - uses: actions/checkout@v7
 

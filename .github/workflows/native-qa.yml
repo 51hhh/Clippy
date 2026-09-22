@@ -309,12 +309,12 @@ jobs:
             runner: macos-15
             rust_target: aarch64-apple-darwin
             asset_arch: aarch64
-            recording_feature: recording-macos-screencapturekit
+            recording_feature: recording-macos-av-qa
           - label: Intel
             runner: macos-15-intel
             rust_target: x86_64-apple-darwin
             asset_arch: x64
-            recording_feature: recording-macos-screencapturekit,recording-vp9-source-build
+            recording_feature: recording-macos-av-qa,recording-vp9-source-build
     steps:
       - uses: actions/checkout@v7
 

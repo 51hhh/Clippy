@@ -60,8 +60,8 @@
   平台音频与真机 A/V 漂移验证继续留在后续切片。（需求：`PX-REC-CLOCK-01`）
 - 录屏音频增加线程内采集 worker：平台对象由音频线程创建和销毁，可直接使用 session 共享时钟；
   暂停期间停止取块，显式停止才正常封尾，初始化、平台控制、取块、背压和 Drop 异常会中止
-  pipeline 并保留已入队 PCM 前缀。默认、VP9 与 Wayland QA 编译图已有自动化保护；WASAPI、
-  ScreenCaptureKit audio、PipeWire 音源、Opus 与 WebM 音轨尚未接入，当前产品仍只录视频。
+  pipeline 并保留已入队 PCM 前缀。默认、VP9 与 Wayland QA 编译图已有自动化保护；后续 Windows
+  和 macOS QA 接线见下文，PipeWire 音源仍未接入默认产品。
   （需求：`PX-REC-AUDIO-WORKER-01`）
 - Windows 录屏音频增加独立 WASAPI QA source：可选择默认扬声器 loopback 或默认麦克风，并由
   Windows Audio Engine 统一为 48 kHz stereo float；事件驱动 packet 的 QPC 时间戳映射到视频
@@ -90,13 +90,18 @@
   通过有界水位重排后同时写入最终 WebM 与周期恢复分段。每段拥有独立 Opus encoder、本地零点和
   边界关键帧；正常停止核对两轨报告后才提交 complete，暂停回滚、启动失败、任一轨异常和 owner
   丢弃都会同步回收线程并留下 interrupted。该交付时仍只在非默认 feature 下供内部原型验证；后续
-  Windows QA 接线见下一条，macOS/Linux 音频 source 仍未接入。（需求：`PX-REC-AV-SESSION-01`）
+  Windows 与 macOS QA 接线见下文，Linux 音频 source 仍未接入。（需求：`PX-REC-AV-SESSION-01`）
 - Windows 录屏 QA 包现在把 WGC、WASAPI 与可恢复 VP9 + Opus session 接入同一录屏生命周期。
   选区工具条只显示后端声明的无音频、系统声和麦克风模式，默认保持无音频；有声模式共用会话时钟、
   暂停/继续/停止和 generation token。控制窗会探测 worker 提前退出，任一轨失败时同步中止、关闭
   控制窗、释放 Recording gate 并在结果库保留已提交恢复前缀。新的组合 feature
   `recording-windows-av-qa` 仍不进入默认构建或正式 release；双轨异常合并、设备选择、混音、真机
   设备拔出和 30 分钟漂移仍待后续验收。（需求：`PX-REC-WINDOWS-AV-QA-01`）
+- macOS 13+ 录屏 QA 包现在可选择 ScreenCaptureKit 系统声，并与选区视频共用现有双轨生命周期、
+  Opus/WebM、schema v2 和结果库。原生回调严格核验 48 kHz Float32 PCM，支持 interleaved 与
+  non-interleaved 缓冲、mono 上混、100 ms 拆块和原生 PTS 映射；有界队列满或时间线异常会中止
+  两轨，避免静默丢音。新的 `recording-macos-av-qa` 仍不进入默认/release 构建；麦克风、混音、
+  12.3–12.x 仍只开放无音频；真机权限与 30 分钟漂移仍待验收。（需求：`PX-REC-MACOS-AUDIO-01`）
 - 录屏结果库现在支持 VP9 + Opus 双轨首帧缩略图：完整会话读取最终 WebM，中断会话读取首个已
   提交分段；后端先核对 schema v2、轨道编号、OpusHead、48 kHz 声道、CodecDelay 与 SeekPreRoll，
   再只解码首个 VP9 关键帧，不解码音频或遍历完整文件。单轨行为、私有 PNG 缓存和前端懒加载保持

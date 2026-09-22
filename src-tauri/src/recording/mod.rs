@@ -138,6 +138,17 @@ fn macos_screencapturekit_runtime_available() -> bool {
     macos_version_supports_screencapturekit(version.majorVersion, version.minorVersion)
 }
 
+#[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
+pub(in crate::recording) fn macos_screencapturekit_audio_runtime_available() -> bool {
+    let version = objc2_foundation::NSProcessInfo::processInfo().operatingSystemVersion();
+    macos_version_supports_screencapturekit_audio(version.majorVersion, version.minorVersion)
+}
+
+#[cfg(all(test, not(all(target_os = "macos", feature = "recording-macos-av-qa"))))]
+pub(in crate::recording) const fn macos_screencapturekit_audio_runtime_available() -> bool {
+    false
+}
+
 #[cfg(not(all(target_os = "macos", feature = "recording-macos-screencapturekit")))]
 const fn macos_screencapturekit_runtime_available() -> bool {
     false
@@ -151,9 +162,17 @@ const fn macos_version_supports_screencapturekit(major: isize, minor: isize) -> 
     major > 12 || (major == 12 && minor >= 3)
 }
 
+#[cfg(any(test, all(target_os = "macos", feature = "recording-macos-av-qa")))]
+const fn macos_version_supports_screencapturekit_audio(major: isize, _minor: isize) -> bool {
+    major >= 13
+}
+
 #[cfg(test)]
 mod product_entry_tests {
-    use super::{macos_version_supports_screencapturekit, product_entry_available_for};
+    use super::{
+        macos_version_supports_screencapturekit, macos_version_supports_screencapturekit_audio,
+        product_entry_available_for,
+    };
     use crate::platform::DesktopSession;
 
     #[test]
@@ -192,6 +211,13 @@ mod product_entry_tests {
         assert!(!macos_version_supports_screencapturekit(12, 2));
         assert!(macos_version_supports_screencapturekit(12, 3));
         assert!(macos_version_supports_screencapturekit(13, 0));
+    }
+
+    #[test]
+    fn macos_audio_runtime_policy_starts_at_13() {
+        assert!(!macos_version_supports_screencapturekit_audio(12, 6));
+        assert!(macos_version_supports_screencapturekit_audio(13, 0));
+        assert!(macos_version_supports_screencapturekit_audio(15, 4));
     }
 }
 

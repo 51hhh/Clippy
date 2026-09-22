@@ -4,19 +4,20 @@
 //! 原生帧源才在采集线程内创建。停止、取消和启动失败都会先回收会话与控制面，最后显式释放
 //! Recording gate。
 
+#[cfg(feature = "recording-opus-webm")]
+use super::av_session::AvRecordingConfig;
 use super::clock::RecordingSessionClock;
 use super::manager::{
     RecordingManager, RecordingManagerError, RecordingSessionReport, RecordingToken,
 };
 use super::platform::{
-    PlatformFrameSource, PlatformFrameSourcePlan, RecordingControlTarget, RecordingSourceDescriptor,
+    PlatformAudioSourceKind, PlatformAudioSourcePlan, PlatformFrameSource, PlatformFrameSourcePlan,
+    RecordingControlTarget, RecordingSourceDescriptor,
 };
 use super::segmenting::{RecordingEncoder, DEFAULT_SEGMENT_DURATION_NS};
 use super::selection::PreparedRecordingSelection;
 use super::session::DiagnosticRecordingConfig;
 use super::worker::RecordingFrameSource;
-#[cfg(all(target_os = "windows", feature = "recording-windows-av-qa"))]
-use super::{av_session::AvRecordingConfig, platform::windows_audio::WindowsWasapiAudioSourcePlan};
 use crate::capture::{
     CaptureError, CaptureManager, CaptureModeOwnership, CaptureSelection, RecordingCaptureSpec,
 };
@@ -42,7 +43,18 @@ pub(super) fn available_recording_audio_modes() -> &'static [RecordingAudioMode]
             RecordingAudioMode::Microphone,
         ]
     }
-    #[cfg(not(all(target_os = "windows", feature = "recording-windows-av-qa")))]
+    #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
+    {
+        if super::macos_screencapturekit_audio_runtime_available() {
+            &[RecordingAudioMode::None, RecordingAudioMode::SystemAudio]
+        } else {
+            &[RecordingAudioMode::None]
+        }
+    }
+    #[cfg(not(any(
+        all(target_os = "windows", feature = "recording-windows-av-qa"),
+        all(target_os = "macos", feature = "recording-macos-av-qa")
+    )))]
     {
         &[RecordingAudioMode::None]
     }
@@ -72,6 +84,7 @@ pub(super) struct RecordingStartContext<'a> {
 pub(super) struct PreparedRecordingSource<F> {
     pub source_factory: F,
     pub descriptor: RecordingSourceDescriptor,
+    pub audio_plan: Option<PlatformAudioSourcePlan>,
 }
 
 #[derive(Debug, Error)]
@@ -176,6 +189,7 @@ impl RecordingLifecycle {
         if !recording_audio_mode_available(request.audio_mode) {
             return Err(RecordingLifecycleError::AudioUnavailable);
         }
+        let audio_mode = request.audio_mode;
         self.start::<PlatformFrameSource, _, _, _>(
             context,
             request,
@@ -183,12 +197,24 @@ impl RecordingLifecycle {
                 let plan = PlatformFrameSourcePlan::prepare(selection)
                     .map_err(|error| error.to_string())?;
                 let descriptor = plan.descriptor().clone();
+                let audio_plan = match audio_mode {
+                    RecordingAudioMode::None => None,
+                    RecordingAudioMode::SystemAudio => Some(
+                        plan.audio_plan(PlatformAudioSourceKind::SystemAudio)
+                            .map_err(|error| error.to_string())?,
+                    ),
+                    RecordingAudioMode::Microphone => Some(
+                        plan.audio_plan(PlatformAudioSourceKind::Microphone)
+                            .map_err(|error| error.to_string())?,
+                    ),
+                };
                 Ok(PreparedRecordingSource {
                     source_factory: move |control_target, clock| {
                         plan.connect(control_target, clock)
                             .map_err(|error| error.to_string())
                     },
                     descriptor,
+                    audio_plan,
                 })
             },
             actions,
@@ -227,6 +253,7 @@ impl RecordingLifecycle {
                 Ok(CommittedRecording {
                     source_factory: prepared_source.source_factory,
                     descriptor: prepared_source.descriptor,
+                    audio_plan: prepared_source.audio_plan,
                     ownership: handoff.ownership,
                     desktop: DesktopResources {
                         overlays: handoff.resources.overlay_labels(),
@@ -329,9 +356,12 @@ impl RecordingLifecycle {
         let CommittedRecording {
             source_factory,
             descriptor,
+            audio_plan,
             ownership,
             desktop,
         } = committed;
+        #[cfg(not(feature = "recording-opus-webm"))]
+        let _ = audio_plan;
         {
             let mut slot = self.lock_slot()?;
             if !matches!(*slot, LifecycleSlot::Starting) {
@@ -362,7 +392,7 @@ impl RecordingLifecycle {
             }
         };
 
-        #[cfg(all(target_os = "windows", feature = "recording-windows-av-qa"))]
+        #[cfg(feature = "recording-opus-webm")]
         let started = match request.audio_mode {
             RecordingAudioMode::None => {
                 let config = DiagnosticRecordingConfig {
@@ -382,15 +412,17 @@ impl RecordingLifecycle {
                         source_factory(control_target, clock)
                     })
             }
-            audio_mode @ (RecordingAudioMode::SystemAudio | RecordingAudioMode::Microphone) => {
-                let audio_plan = match audio_mode {
-                    RecordingAudioMode::SystemAudio => {
-                        WindowsWasapiAudioSourcePlan::system_loopback()
+            RecordingAudioMode::SystemAudio | RecordingAudioMode::Microphone => {
+                let audio_plan = match audio_plan {
+                    Some(plan) => plan,
+                    None => {
+                        return self.fail_publishing(
+                            &request.session_id,
+                            actions,
+                            true,
+                            RecordingLifecycleError::AudioUnavailable,
+                        );
                     }
-                    RecordingAudioMode::Microphone => {
-                        WindowsWasapiAudioSourcePlan::default_microphone()
-                    }
-                    RecordingAudioMode::None => unreachable!("已由外层 match 排除无音频"),
                 };
                 let config = AvRecordingConfig {
                     session_id: request.session_id.clone(),
@@ -412,7 +444,7 @@ impl RecordingLifecycle {
                 )
             }
         };
-        #[cfg(not(all(target_os = "windows", feature = "recording-windows-av-qa")))]
+        #[cfg(not(feature = "recording-opus-webm"))]
         let started = {
             debug_assert_eq!(request.audio_mode, RecordingAudioMode::None);
             let config = DiagnosticRecordingConfig {
@@ -694,6 +726,7 @@ impl RecordingLifecycle {
 struct CommittedRecording<F> {
     source_factory: F,
     descriptor: RecordingSourceDescriptor,
+    audio_plan: Option<PlatformAudioSourcePlan>,
     ownership: CaptureModeOwnership,
     desktop: DesktopResources,
 }
@@ -730,6 +763,19 @@ mod tests {
                     RecordingAudioMode::Microphone,
                 ]
             );
+        } else if cfg!(all(target_os = "macos", feature = "recording-macos-av-qa"))
+            && crate::recording::macos_screencapturekit_audio_runtime_available()
+        {
+            assert_eq!(
+                modes,
+                &[RecordingAudioMode::None, RecordingAudioMode::SystemAudio]
+            );
+            assert!(recording_audio_mode_available(
+                RecordingAudioMode::SystemAudio
+            ));
+            assert!(!recording_audio_mode_available(
+                RecordingAudioMode::Microphone
+            ));
         } else {
             assert_eq!(modes, &[RecordingAudioMode::None]);
             assert!(!recording_audio_mode_available(
@@ -922,6 +968,7 @@ mod tests {
                 width: 2,
                 height: 2,
             },
+            audio_plan: None,
             ownership,
             desktop: DesktopResources {
                 overlays: vec!["overlay-a".to_string(), "overlay-b".to_string()],
@@ -1041,6 +1088,7 @@ mod tests {
                 width: 2,
                 height: 2,
             },
+            audio_plan: None,
             ownership,
             desktop: DesktopResources {
                 overlays: vec!["overlay-a".to_string()],
@@ -1208,6 +1256,7 @@ mod tests {
                             width: 2,
                             height: 2,
                         },
+                        audio_plan: None,
                         ownership,
                         desktop: DesktopResources {
                             overlays: vec!["overlay-a".to_string()],

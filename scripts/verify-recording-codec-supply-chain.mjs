@@ -102,6 +102,18 @@ if (
   throw new Error("Cargo.toml must keep Windows A/V QA behind the reviewed codec feature set");
 }
 if (
+  !cargoToml.includes(
+    'recording-macos-av-qa = [\n    "recording-macos-screencapturekit",\n    "recording-opus-webm",\n    "dep:objc2-core-audio-types",\n    "objc2-core-media/objc2-core-audio-types",\n]',
+  ) ||
+  !cargoToml.includes(
+    'objc2-core-audio-types = { version = "=0.3.2", optional = true }',
+  )
+) {
+  throw new Error(
+    "Cargo.toml must keep macOS A/V QA and CoreAudioTypes behind the reviewed feature set",
+  );
+}
+if (
   !cargoToml.includes('webm = { path = "vendor/webm" }') ||
   !cargoToml.includes('webm-sys = { path = "vendor/webm-sys" }')
 ) {

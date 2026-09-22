@@ -56,6 +56,13 @@ recording-macos-screencapturekit = [
     "dep:objc2-foundation",
     "dep:objc2-screen-capture-kit",
 ]
+# macOS ScreenCaptureKit 系统声与 VP9/Opus 双轨 QA；默认 macOS 11 release 保持关闭。
+recording-macos-av-qa = [
+    "recording-macos-screencapturekit",
+    "recording-opus-webm",
+    "dep:objc2-core-audio-types",
+    "objc2-core-media/objc2-core-audio-types",
+]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -164,6 +171,7 @@ block2 = { version = "=0.6.2", optional = true }
 dispatch2 = { version = "=0.3.1", optional = true }
 objc2 = { version = "=0.6.4", optional = true }
 objc2-core-foundation = { version = "=0.3.2", optional = true }
+objc2-core-audio-types = { version = "=0.3.2", optional = true }
 objc2-core-media = { version = "=0.3.2", optional = true }
 objc2-core-video = { version = "=0.3.2", optional = true }
 objc2-foundation = { version = "=0.3.2", default-features = false, features = ["NSArray", "NSError", "NSProcessInfo", "NSString"], optional = true }

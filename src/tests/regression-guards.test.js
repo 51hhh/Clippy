@@ -107,10 +107,10 @@ describe("Linux CI 固守 Ubuntu 22 构建基线", () => {
     );
     expect(buildWorkflow).toMatch(/recording-codec-prototype:[\s\S]*runner: macos-15\n/);
     expect(buildWorkflow).toMatch(
-      /runner: macos-15-intel\n\s+features: recording-macos-screencapturekit,recording-vp9-source-build/,
+      /runner: macos-15-intel\n\s+features: recording-macos-av-qa,recording-vp9-source-build/,
     );
     expect(buildWorkflow).toMatch(
-      /runner: macos-15\n\s+features: recording-macos-screencapturekit/,
+      /runner: macos-15\n\s+features: recording-macos-av-qa/,
     );
     expect(buildWorkflow).toContain("components: clippy, llvm-tools-preview");
     expect(buildWorkflow).toContain("if: matrix.runner == 'macos-15-intel'");
@@ -226,11 +226,13 @@ describe("原生平台由真实 runner 编译", () => {
     );
     expect(qaWorkflow).toContain("recording_feature=recording-wayland-qa");
     expect(qaWorkflow).toContain("recording_feature=recording-windows-av-qa");
+    expect(qaWorkflow).toContain("recording_feature: recording-macos-av-qa");
     expect(qaWorkflow).toContain("recording_feature=%s");
     expect(qaWorkflow).toContain('"${{ matrix.recording_feature }}"');
     expect(qaWorkflow).toContain("minimum_system_version=12.3");
     expect(releaseWorkflow).not.toContain("recording-vp9");
     expect(releaseWorkflow).not.toContain("recording-macos-screencapturekit");
+    expect(releaseWorkflow).not.toContain("recording-macos-av-qa");
     expect(releaseWorkflow).not.toContain("recording-wayland-qa");
     expect(buildWorkflow).toContain("features: recording-wayland-qa");
     // 录屏 feature 会同时开放两个 benchmark bin。没有 default-run 时，cargo check
@@ -741,6 +743,9 @@ describe("macOS ScreenCaptureKit QA 边界", () => {
     );
     expect(read(".github/workflows/release.yml")).not.toContain(
       "recording-macos-screencapturekit",
+    );
+    expect(read(".github/workflows/release.yml")).not.toContain(
+      "recording-macos-av-qa",
     );
   });
 

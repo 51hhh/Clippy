@@ -387,7 +387,8 @@ impl Drop for MacScreenCaptureKitRegionFrameSource {
     }
 }
 
-fn request_shareable_content() -> Result<Retained<SCShareableContent>, MacFrameSourceError> {
+pub(super) fn request_shareable_content(
+) -> Result<Retained<SCShareableContent>, MacFrameSourceError> {
     let (sender, receiver) = mpsc::sync_channel(1);
     let completion = RcBlock::new(
         move |content: *mut SCShareableContent, error: *mut NSError| {
@@ -425,7 +426,7 @@ fn request_shareable_content() -> Result<Retained<SCShareableContent>, MacFrameS
     })
 }
 
-fn unique_display(
+pub(super) fn unique_display(
     content: &SCShareableContent,
     display_id: u32,
 ) -> Result<Retained<SCDisplay>, MacFrameSourceError> {
