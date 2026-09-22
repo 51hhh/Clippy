@@ -134,8 +134,10 @@ Micro QR、UPC-A 等未验收格式仍不暴露，不能把 rxing 依赖支持�
 控制窗和结果/恢复库。结果窗可在完整校验后用不透明租约按需播放 WebM；异常 VP9/WebM 分段还能
 逐 packet 无损 remux 为一个完整结果，全程不把真实路径交给前端。VP9 结果卡在接近视口时可从
 私有持久缓存加载首帧缩略图，冷缓存由同一受限 WebM 合同校验并单帧解码。产品入口只在显式
-feature 的原生 X11 与 Windows QA 构建开放，默认 release、Wayland 与 macOS 保持关闭；系统音频、
-麦克风和各平台真机矩阵尚未完成。
+feature 的原生 X11 与 Windows QA 构建开放，默认 release、Wayland 与 macOS 保持关闭。双轨
+schema v2 已能原子记录 Opus 格式与每个产物的 packet/真实 PCM frame 统计，并让结果库安全展示
+完整或中断的双轨产物；系统音频、麦克风、双轨 session writer、双轨异常 remux 和各平台真机矩阵
+尚未完成。
 
 类型化动作目录、权限声明、一次性句柄、键盘启动器和安全组合已经交付；任意脚本宿主与插件市场仍不在
 首阶段范围。
@@ -388,7 +390,7 @@ delta；父链与项目历史留给 `PX-PIN-01`。显式 resize/crop 之外不�
 | P2（X11 已实现，待真机） | `PX-LS-AUTO-01` | X11 受控自动滚动；其余平台能力保持不可用 | `PX-LS-2D-01` + 平台输入能力 |
 | P2（已完成） | `PX-CODE-01` | 四种产品格式与扫码场景矩阵 | 可重复 fixture |
 | P2（X11/Windows/macOS/Wayland QA 入口、结果库、播放与恢复 remux 已完成，待真机/音频） | `PX-REC-01` / `PX-REC-PLAYBACK-01` / `PX-REC-MERGE-01` / `PX-REC-WINDOWS-QA-01` / `PX-REC-MACOS-SCK-01` / `PX-REC-WAYLAND-QA-01` | 可恢复录屏最小闭环 | 平台采集/编码实测 |
-| P2（共享时钟、音频 worker、Windows 音源与 Opus/WebM 双轨原型已完成，待 session/其余平台接线） | `PX-REC-CLOCK-01` / `PX-REC-AUDIO-01` / `PX-REC-AUDIO-WORKER-01` / `PX-REC-WINDOWS-AUDIO-01` / `PX-REC-AV-EPOCH-01` / `PX-REC-OPUS-WEBM-01` | 单一会话时钟、48 kHz PCM、显式 A/V 起点、严格背压、参考 Opus 与合规双轨容器 | `PX-REC-01` 视频时间线 |
+| P2（共享时钟、音频 worker、Windows 音源、Opus/WebM 与双轨恢复 schema 已完成，待 session/其余平台接线） | `PX-REC-CLOCK-01` / `PX-REC-AUDIO-01` / `PX-REC-AUDIO-WORKER-01` / `PX-REC-WINDOWS-AUDIO-01` / `PX-REC-AV-EPOCH-01` / `PX-REC-OPUS-WEBM-01` / `PX-REC-AV-MANIFEST-01` | 单一会话时钟、48 kHz PCM、显式 A/V 起点、严格背压、参考 Opus、合规双轨容器与版本化恢复统计 | `PX-REC-01` 视频时间线 |
 | P3（已完成） | `PX-ACT-01` | 类型化动作注册表与启动器 | 稳定业务命令合同 |
 | P3（已完成门控，当前 no-go） | `PX-SMART-01` | 智能擦除可行性与质量基线 | 模型许可、包体和性能预算 |
 
@@ -802,6 +804,14 @@ WASAPI、ScreenCaptureKit audio 或 PipeWire 音频适配器，也未接 session
 Opus 文件结构测试核对两条轨道和全局 packet 顺序。该原型尚未接录屏 session、恢复 manifest 或
 UI，默认产品仍只录视频；完整合同见
 [`2026-09-22-recording-opus-webm.md`](../superpowers/specs/2026-09-22-recording-opus-webm.md)。
+
+**2026-09-22 双轨清单进度**：`PX-REC-AV-MANIFEST-01` 已让旧纯视频 schema v1 与 VP9 + Opus
+schema v2 并存。v2 在同一原子提交点记录 48 kHz mono/stereo、pre-skip、codec delay、seek pre-roll，以及
+每个分段和最终输出的 Opus packet/真实 PCM frame 数；恢复扫描继续按连续序号、普通文件、长度和
+SHA-256 截断坏尾。结果库可显示音轨摘要和播放/导出经过验证的双轨文件，但会关闭尚不支持双轨的
+异常 remux 与持久缩略图入口。下一提交把音频 worker、A/V coordinator 和双轨 writer 接入同一个
+session；完整合同见
+[`2026-09-22-recording-av-manifest.md`](../superpowers/specs/2026-09-22-recording-av-manifest.md)。
 
 **2026-09-21 Windows QA 入口进度**：`PX-REC-WINDOWS-QA-01` 已把既有 WGC 帧源、原生控制窗排除、
 VP9 会话与结果/恢复库接到显式 Windows 原型构建；Linux/Windows Native QA 包分别启用

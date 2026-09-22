@@ -63,6 +63,15 @@ export function formatRecordingBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
+export function formatRecordingAudio(audio: NonNullable<RecordingLibraryItem["audio"]>): string {
+  const channelLabel = audio.channels === 1 ? "mono" : "stereo";
+  const sampleRate = Number.isInteger(audio.sampleRateHz / 1000)
+    ? `${audio.sampleRateHz / 1000} kHz`
+    : `${audio.sampleRateHz} Hz`;
+  const encoder = audio.encoder.toLowerCase() === "opus" ? "Opus" : audio.encoder;
+  return `${encoder} · ${sampleRate} ${channelLabel}`;
+}
+
 function artifactBusyKey(sessionId: string, artifactId: string, action = "artifact"): string {
   return `${action}:${sessionId}:${artifactId}`;
 }
@@ -359,6 +368,7 @@ export function App({ services = defaultServices }: { services?: RecordingLibrar
                     <p>
                       {item.width} × {item.height} · {(item.targetFpsNumerator / item.targetFpsDenominator).toFixed(0)} fps · {formatRecordingDuration(item.durationMs)} · {formatRecordingBytes(item.byteLength)}
                     </p>
+                    {item.audio && <p className="recording-audio-summary">{formatRecordingAudio(item.audio)}</p>}
                   </div>
                   <button className="danger-link" type="button" disabled={busyKey !== null} onClick={() => setConfirmDelete(item.sessionId)}>
                     {t("recordings.delete")}

@@ -113,6 +113,7 @@ impl DiagnosticRecordingSession {
                 encoder: encoder_name.to_string(),
                 container: container.to_string(),
                 include_cursor: config.include_cursor,
+                audio: None,
             },
         )
         .map_err(DiagnosticRecordingError::Journal)?;

@@ -716,6 +716,12 @@ export interface RecordingLibraryArtifact {
   byteLength: number;
 }
 
+export interface RecordingLibraryAudio {
+  sampleRateHz: number;
+  channels: 1 | 2;
+  encoder: string;
+}
+
 export interface RecordingLibraryItem {
   sessionId: string;
   state: "complete" | "interrupted";
@@ -727,6 +733,7 @@ export interface RecordingLibraryItem {
   encoder: string;
   container: string;
   includeCursor: boolean;
+  audio?: RecordingLibraryAudio;
   droppedFrames: number;
   durationMs: number;
   frameCount: number;

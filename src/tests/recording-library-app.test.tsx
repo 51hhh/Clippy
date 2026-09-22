@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   App,
+  formatRecordingAudio,
   formatRecordingBytes,
   formatRecordingDuration,
   type RecordingLibraryServices,
@@ -81,6 +82,30 @@ describe("recording library app", () => {
     expect(formatRecordingDuration(3_661_000)).toBe("1:01:01");
     expect(formatRecordingBytes(512)).toBe("512 B");
     expect(formatRecordingBytes(2048)).toBe("2.0 KB");
+    expect(formatRecordingAudio({ sampleRateHz: 48_000, channels: 2, encoder: "opus" }))
+      .toBe("Opus · 48 kHz stereo");
+  });
+
+  it("shows the verified audio track summary without enabling single-track recovery actions", async () => {
+    vi.mocked(services.list).mockResolvedValueOnce([{
+      ...complete,
+      state: "interrupted",
+      artifacts: [{
+        ...complete.artifacts[0],
+        artifactId: "segment-000000",
+        displayName: "segment-000000.webm",
+      }],
+      audio: { sampleRateHz: 48_000, channels: 2, encoder: "opus" },
+      canMerge: false,
+      canThumbnail: false,
+    }]);
+    await render();
+
+    expect(document.querySelector(".recording-audio-summary")?.textContent)
+      .toBe("Opus · 48 kHz stereo");
+    expect(services.thumbnail).not.toHaveBeenCalled();
+    expect([...document.querySelectorAll("button")]
+      .some((button) => button.textContent === "Recover")).toBe(false);
   });
 
   it("shows complete artifacts and routes export and reveal through opaque ids", async () => {

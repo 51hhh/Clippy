@@ -14,7 +14,10 @@ const RECORDINGS_DIRECTORY: &str = "recordings";
 const MANIFEST_FILE: &str = "manifest.json";
 const FORMAT: &str = "clippy-recording";
 const SCHEMA_VERSION: u32 = 1;
+const AV_SCHEMA_VERSION: u32 = 2;
 const TIMEBASE_HZ: u64 = 1_000_000_000;
+const OPUS_SAMPLE_RATE_HZ: u32 = 48_000;
+const OPUS_SEEK_PRE_ROLL_NS: u64 = 80_000_000;
 const MAX_SESSIONS: usize = 128;
 const MAX_DIRECTORY_ENTRIES: usize = 1_024;
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
@@ -55,6 +58,24 @@ struct VideoSpec {
     include_cursor: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AudioSpec {
+    sample_rate_hz: u32,
+    channels: u16,
+    encoder: String,
+    pre_skip_frames: u16,
+    codec_delay_ns: u64,
+    seek_pre_roll_ns: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AudioArtifactStats {
+    packet_count: u64,
+    pcm_frame_count: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SegmentManifest {
@@ -63,6 +84,8 @@ struct SegmentManifest {
     started_at_ns: u64,
     duration_ns: u64,
     frame_count: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    audio: Option<AudioArtifactStats>,
     byte_length: u64,
     sha256: String,
 }
@@ -73,6 +96,8 @@ struct FinalOutputManifest {
     file_name: String,
     duration_ns: u64,
     frame_count: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    audio: Option<AudioArtifactStats>,
     byte_length: u64,
     sha256: String,
 }
@@ -97,6 +122,8 @@ struct RecordingManifest {
     timebase_hz: u64,
     selection: RecordingSelection,
     video: VideoSpec,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    audio: Option<AudioSpec>,
     dropped_frames: u64,
     segments: Vec<SegmentManifest>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -128,6 +155,8 @@ pub(crate) struct RecordingLibraryItem {
     pub encoder: String,
     pub container: String,
     pub include_cursor: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audio: Option<RecordingLibraryAudio>,
     pub dropped_frames: u64,
     pub duration_ms: u64,
     pub frame_count: u64,
@@ -135,6 +164,14 @@ pub(crate) struct RecordingLibraryItem {
     pub can_merge: bool,
     pub can_thumbnail: bool,
     pub artifacts: Vec<RecordingLibraryArtifact>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecordingLibraryAudio {
+    pub sample_rate_hz: u32,
+    pub channels: u16,
+    pub encoder: String,
 }
 
 #[derive(Debug, Clone)]
@@ -171,6 +208,62 @@ pub(super) struct RecordingJournalConfig {
     pub encoder: String,
     pub container: String,
     pub include_cursor: bool,
+    pub audio: Option<RecordingJournalAudioConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RecordingJournalAudioConfig {
+    pub sample_rate_hz: u32,
+    pub channels: u16,
+    pub encoder: String,
+    pub pre_skip_frames: u16,
+    pub codec_delay_ns: u64,
+    pub seek_pre_roll_ns: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RecordingTrackStats {
+    pub video_frame_count: u64,
+    pub audio_packet_count: Option<u64>,
+    pub audio_pcm_frame_count: Option<u64>,
+}
+
+impl RecordingTrackStats {
+    pub const fn video_only(video_frame_count: u64) -> Self {
+        Self {
+            video_frame_count,
+            audio_packet_count: None,
+            audio_pcm_frame_count: None,
+        }
+    }
+
+    #[allow(dead_code)] // 下一提交由双轨 session writer 使用；本切片先固定持久化 API。
+    pub const fn with_audio(
+        video_frame_count: u64,
+        audio_packet_count: u64,
+        audio_pcm_frame_count: u64,
+    ) -> Self {
+        Self {
+            video_frame_count,
+            audio_packet_count: Some(audio_packet_count),
+            audio_pcm_frame_count: Some(audio_pcm_frame_count),
+        }
+    }
+
+    fn audio(self) -> Result<Option<AudioArtifactStats>, String> {
+        match (self.audio_packet_count, self.audio_pcm_frame_count) {
+            (None, None) => Ok(None),
+            (Some(packet_count), Some(pcm_frame_count))
+                if packet_count > 0 && pcm_frame_count > 0 =>
+            {
+                Ok(Some(AudioArtifactStats {
+                    packet_count,
+                    pcm_frame_count,
+                }))
+            }
+            _ => Err("录屏音轨统计无效".to_string()),
+        }
+    }
 }
 
 #[allow(dead_code)] // PX-REC-01 会话 owner 接入后跨编码线程持有。
@@ -223,9 +316,21 @@ impl RecordingJournal {
             return Err("录屏会话数量已达到 128 个上限".to_string());
         }
 
+        let audio = config.audio.map(|audio| AudioSpec {
+            sample_rate_hz: audio.sample_rate_hz,
+            channels: audio.channels,
+            encoder: audio.encoder,
+            pre_skip_frames: audio.pre_skip_frames,
+            codec_delay_ns: audio.codec_delay_ns,
+            seek_pre_roll_ns: audio.seek_pre_roll_ns,
+        });
         let manifest = RecordingManifest {
             format: FORMAT.to_string(),
-            schema_version: SCHEMA_VERSION,
+            schema_version: if audio.is_some() {
+                AV_SCHEMA_VERSION
+            } else {
+                SCHEMA_VERSION
+            },
             session_id: config.session_id,
             state: RecordingState::Recording,
             created_at_unix_ms: unix_time_ms().max(1),
@@ -246,6 +351,7 @@ impl RecordingJournal {
                 container: config.container,
                 include_cursor: config.include_cursor,
             },
+            audio,
             dropped_frames: 0,
             segments: Vec::new(),
             final_output: None,
@@ -295,10 +401,27 @@ impl RecordingJournal {
 
     pub fn commit_segment(
         &mut self,
-        mut pending: PendingSegment,
+        pending: PendingSegment,
         file: File,
         duration_ns: u64,
         frame_count: u64,
+        dropped_frames: u64,
+    ) -> Result<PathBuf, String> {
+        self.commit_segment_with_tracks(
+            pending,
+            file,
+            duration_ns,
+            RecordingTrackStats::video_only(frame_count),
+            dropped_frames,
+        )
+    }
+
+    pub fn commit_segment_with_tracks(
+        &mut self,
+        mut pending: PendingSegment,
+        file: File,
+        duration_ns: u64,
+        tracks: RecordingTrackStats,
         dropped_frames: u64,
     ) -> Result<PathBuf, String> {
         if self.manifest.state != RecordingState::Recording
@@ -306,7 +429,11 @@ impl RecordingJournal {
         {
             return Err("录屏分段与当前会话状态不一致".to_string());
         }
-        if duration_ns == 0 || frame_count == 0 {
+        let audio = tracks.audio()?;
+        if duration_ns == 0
+            || tracks.video_frame_count == 0
+            || audio.is_some() != self.manifest.audio.is_some()
+        {
             return Err("录屏分段必须包含非零时长和帧数".to_string());
         }
         let metadata = file
@@ -348,7 +475,8 @@ impl RecordingJournal {
             file_name: file_name.clone(),
             started_at_ns,
             duration_ns,
-            frame_count,
+            frame_count: tracks.video_frame_count,
+            audio,
             byte_length,
             sha256,
         });
@@ -393,10 +521,25 @@ impl RecordingJournal {
 
     pub fn commit_final_output(
         &mut self,
-        mut pending: PendingFinalOutput,
+        pending: PendingFinalOutput,
         file: File,
         duration_ns: u64,
         frame_count: u64,
+    ) -> Result<PathBuf, String> {
+        self.commit_final_output_with_tracks(
+            pending,
+            file,
+            duration_ns,
+            RecordingTrackStats::video_only(frame_count),
+        )
+    }
+
+    pub fn commit_final_output_with_tracks(
+        &mut self,
+        mut pending: PendingFinalOutput,
+        file: File,
+        duration_ns: u64,
+        tracks: RecordingTrackStats,
     ) -> Result<PathBuf, String> {
         if self.manifest.state != RecordingState::Recording
             || self.manifest.segments.is_empty()
@@ -419,7 +562,27 @@ impl RecordingJournal {
                     .checked_add(segment.frame_count)
                     .ok_or_else(|| "录屏最终输出帧数溢出".to_string())
             })?;
-        if duration_ns != expected_duration || frame_count != expected_frames {
+        let audio = tracks.audio()?;
+        let expected_audio_frames =
+            self.manifest
+                .segments
+                .iter()
+                .try_fold(0_u64, |total, segment| {
+                    let frames = segment
+                        .audio
+                        .as_ref()
+                        .map_or(0, |audio| audio.pcm_frame_count);
+                    total
+                        .checked_add(frames)
+                        .ok_or_else(|| "录屏最终音频帧数溢出".to_string())
+                })?;
+        if duration_ns != expected_duration
+            || tracks.video_frame_count != expected_frames
+            || audio.is_some() != self.manifest.audio.is_some()
+            || audio
+                .as_ref()
+                .is_some_and(|audio| audio.pcm_frame_count != expected_audio_frames)
+        {
             return Err("录屏最终输出与已提交分段不一致".to_string());
         }
         let metadata = file
@@ -443,7 +606,8 @@ impl RecordingJournal {
         self.manifest.final_output = Some(FinalOutputManifest {
             file_name: file_name.clone(),
             duration_ns,
-            frame_count,
+            frame_count: tracks.video_frame_count,
+            audio,
             byte_length,
             sha256,
         });
@@ -594,7 +758,10 @@ pub(super) fn resolve_library_thumbnail_source(
     session_id: &str,
 ) -> Result<Option<RecordingThumbnailSource>, String> {
     let (session_directory, manifest) = load_library_manifest(app_data_dir, session_id)?;
-    if manifest.video.encoder != "vp9-prototype" || manifest.video.container != "webm" {
+    if manifest.video.encoder != "vp9-prototype"
+        || manifest.video.container != "webm"
+        || manifest.audio.is_some()
+    {
         return Ok(None);
     }
     let (file_name, byte_length, sha256, duration_ns, frame_count) = match manifest.state {
@@ -662,6 +829,7 @@ pub(super) fn merge_interrupted_vp9_session(
     if manifest.state != RecordingState::Interrupted
         || manifest.video.encoder != "vp9-prototype"
         || manifest.video.container != "webm"
+        || manifest.audio.is_some()
         || manifest.segments.is_empty()
     {
         return Err("这次录屏不支持恢复合并".to_string());
@@ -731,6 +899,7 @@ pub(super) fn merge_interrupted_vp9_session(
             file_name: file_name.clone(),
             duration_ns: output.duration_ns,
             frame_count: output.frame_count,
+            audio: None,
             byte_length,
             sha256,
         });
@@ -1084,11 +1253,18 @@ fn library_item_for_session(
         && manifest.state == RecordingState::Interrupted
         && manifest.video.encoder == "vp9-prototype"
         && manifest.video.container == "webm"
+        && manifest.audio.is_none()
         && !manifest.segments.is_empty();
     let can_thumbnail = cfg!(feature = "recording-vp9-prototype")
         && manifest.video.encoder == "vp9-prototype"
         && manifest.video.container == "webm"
+        && manifest.audio.is_none()
         && !artifacts.is_empty();
+    let audio = manifest.audio.map(|audio| RecordingLibraryAudio {
+        sample_rate_hz: audio.sample_rate_hz,
+        channels: audio.channels,
+        encoder: audio.encoder,
+    });
     Ok(Some(RecordingLibraryItem {
         session_id: manifest.session_id,
         state: match manifest.state {
@@ -1104,6 +1280,7 @@ fn library_item_for_session(
         encoder: manifest.video.encoder,
         container: manifest.video.container,
         include_cursor: manifest.video.include_cursor,
+        audio,
         dropped_frames: manifest.dropped_frames,
         duration_ms,
         frame_count,
@@ -1313,8 +1490,15 @@ fn read_manifest(path: &Path) -> Result<RecordingManifest, String> {
 }
 
 fn validate_manifest(manifest: &RecordingManifest, directory_id: &str) -> Result<(), String> {
-    if manifest.format != FORMAT || manifest.schema_version != SCHEMA_VERSION {
+    if manifest.format != FORMAT
+        || !matches!(manifest.schema_version, SCHEMA_VERSION | AV_SCHEMA_VERSION)
+    {
         return Err("清单格式或 schema 版本不受支持".to_string());
+    }
+    match (manifest.schema_version, manifest.audio.as_ref()) {
+        (SCHEMA_VERSION, None) => {}
+        (AV_SCHEMA_VERSION, Some(audio)) if valid_audio_spec(audio, &manifest.video) => {}
+        _ => return Err("清单 schema 与音轨描述不一致".to_string()),
     }
     if manifest.session_id != directory_id || !valid_identifier(&manifest.session_id, 64) {
         return Err("清单会话身份与目录不一致".to_string());
@@ -1365,6 +1549,7 @@ fn validate_manifest(manifest: &RecordingManifest, directory_id: &str) -> Result
     let mut previous_end = 0_u64;
     let mut total_bytes = 0_u64;
     let mut total_frames = 0_u64;
+    let mut total_audio_frames = 0_u64;
     for (position, segment) in manifest.segments.iter().enumerate() {
         let expected_index = u32::try_from(position).expect("分段上限保证可以转为 u32");
         let expected_name = format!("segment-{expected_index:06}.{}", manifest.video.container);
@@ -1379,6 +1564,9 @@ fn validate_manifest(manifest: &RecordingManifest, directory_id: &str) -> Result
             || !valid_sha256(&segment.sha256)
         {
             return Err("清单分段元数据无效".to_string());
+        }
+        if !valid_audio_artifact_stats(segment.audio.as_ref(), manifest.audio.is_some()) {
+            return Err("清单分段音轨统计无效".to_string());
         }
         if position > 0 && segment.started_at_ns < previous_end {
             return Err("清单分段时间线重叠".to_string());
@@ -1396,6 +1584,14 @@ fn validate_manifest(manifest: &RecordingManifest, directory_id: &str) -> Result
         total_frames = total_frames
             .checked_add(segment.frame_count)
             .ok_or_else(|| "清单分段帧数溢出".to_string())?;
+        total_audio_frames = total_audio_frames
+            .checked_add(
+                segment
+                    .audio
+                    .as_ref()
+                    .map_or(0, |audio| audio.pcm_frame_count),
+            )
+            .ok_or_else(|| "清单分段音频帧数溢出".to_string())?;
         if total_bytes > MAX_SESSION_BYTES {
             return Err("清单会话大小超过恢复上限".to_string());
         }
@@ -1406,6 +1602,11 @@ fn validate_manifest(manifest: &RecordingManifest, directory_id: &str) -> Result
             || output.duration_ns != previous_end
             || output.frame_count == 0
             || output.frame_count != total_frames
+            || !valid_audio_artifact_stats(output.audio.as_ref(), manifest.audio.is_some())
+            || output
+                .audio
+                .as_ref()
+                .is_some_and(|audio| audio.pcm_frame_count != total_audio_frames)
             || output.byte_length == 0
             || output.byte_length > MAX_SESSION_BYTES
             || !valid_sha256(&output.sha256)
@@ -1418,6 +1619,26 @@ fn validate_manifest(manifest: &RecordingManifest, directory_id: &str) -> Result
         }
     }
     Ok(())
+}
+
+fn valid_audio_spec(audio: &AudioSpec, video: &VideoSpec) -> bool {
+    audio.sample_rate_hz == OPUS_SAMPLE_RATE_HZ
+        && matches!(audio.channels, 1 | 2)
+        && audio.encoder == "opus"
+        && audio.pre_skip_frames > 0
+        && audio.codec_delay_ns
+            == u64::from(audio.pre_skip_frames) * TIMEBASE_HZ / u64::from(OPUS_SAMPLE_RATE_HZ)
+        && audio.seek_pre_roll_ns == OPUS_SEEK_PRE_ROLL_NS
+        && video.encoder == "vp9-prototype"
+        && video.container == "webm"
+}
+
+fn valid_audio_artifact_stats(stats: Option<&AudioArtifactStats>, audio_expected: bool) -> bool {
+    match (stats, audio_expected) {
+        (None, false) => true,
+        (Some(stats), true) => stats.packet_count > 0 && stats.pcm_frame_count > 0,
+        _ => false,
+    }
 }
 
 fn verify_segment_prefix(path: &Path, manifest: &RecordingManifest) -> Result<usize, String> {
@@ -1746,10 +1967,46 @@ mod tests {
                 container: "webm".to_string(),
                 include_cursor: true,
             },
+            audio: None,
             dropped_frames: 0,
             segments: Vec::new(),
             final_output: None,
             recovery: None,
+        }
+    }
+
+    fn av_audio_spec() -> AudioSpec {
+        AudioSpec {
+            sample_rate_hz: OPUS_SAMPLE_RATE_HZ,
+            channels: 2,
+            encoder: "opus".to_string(),
+            pre_skip_frames: 312,
+            codec_delay_ns: 6_500_000,
+            seek_pre_roll_ns: OPUS_SEEK_PRE_ROLL_NS,
+        }
+    }
+
+    fn av_journal_config(session_id: &str) -> RecordingJournalConfig {
+        RecordingJournalConfig {
+            session_id: session_id.to_string(),
+            source_id: "display-av".to_string(),
+            physical_x: 0,
+            physical_y: 0,
+            width: 640,
+            height: 480,
+            target_fps_numerator: 30,
+            target_fps_denominator: 1,
+            encoder: "vp9-prototype".to_string(),
+            container: "webm".to_string(),
+            include_cursor: true,
+            audio: Some(RecordingJournalAudioConfig {
+                sample_rate_hz: OPUS_SAMPLE_RATE_HZ,
+                channels: 2,
+                encoder: "opus".to_string(),
+                pre_skip_frames: 312,
+                codec_delay_ns: 6_500_000,
+                seek_pre_roll_ns: OPUS_SEEK_PRE_ROLL_NS,
+            }),
         }
     }
 
@@ -1775,6 +2032,7 @@ mod tests {
             encoder: "vp9-prototype".to_string(),
             container: "webm".to_string(),
             include_cursor: true,
+            audio: None,
         }
     }
 
@@ -1806,6 +2064,26 @@ mod tests {
             started_at_ns: u64::from(index) * TIMEBASE_HZ,
             duration_ns: TIMEBASE_HZ,
             frame_count: 30,
+            audio: None,
+            byte_length: bytes.len() as u64,
+            sha256: format!("{:x}", Sha256::digest(bytes)),
+        });
+    }
+
+    fn add_av_segment(directory: &Path, manifest: &mut RecordingManifest, bytes: &[u8]) {
+        let index = manifest.segments.len() as u32;
+        let file_name = format!("segment-{index:06}.{}", manifest.video.container);
+        fs::write(directory.join(&file_name), bytes).unwrap();
+        manifest.segments.push(SegmentManifest {
+            index,
+            file_name,
+            started_at_ns: u64::from(index) * TIMEBASE_HZ,
+            duration_ns: TIMEBASE_HZ,
+            frame_count: 30,
+            audio: Some(AudioArtifactStats {
+                packet_count: 50,
+                pcm_frame_count: 48_000,
+            }),
             byte_length: bytes.len() as u64,
             sha256: format!("{:x}", Sha256::digest(bytes)),
         });
@@ -1829,6 +2107,7 @@ mod tests {
             file_name: "recording.webm".to_string(),
             duration_ns: TIMEBASE_HZ,
             frame_count: 30,
+            audio: None,
             byte_length: final_bytes.len() as u64,
             sha256: format!("{:x}", Sha256::digest(final_bytes)),
         });
@@ -1849,7 +2128,161 @@ mod tests {
             encoder: "mjpeg-diagnostic".to_string(),
             container: "avi".to_string(),
             include_cursor: true,
+            audio: None,
         }
+    }
+
+    #[test]
+    fn video_only_journal_keeps_schema_v1_and_omits_audio_shape() {
+        let temporary = tempfile::tempdir().unwrap();
+        let journal = RecordingJournal::create(temporary.path(), journal_config("video-v1"))
+            .expect("纯视频 journal 应保持兼容");
+        let value: serde_json::Value = serde_json::from_slice(
+            &fs::read(journal.session_directory().join(MANIFEST_FILE)).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(value["schemaVersion"], SCHEMA_VERSION);
+        assert!(value.get("audio").is_none());
+        assert!(value["segments"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn av_journal_commits_schema_v2_with_atomic_track_statistics() {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut journal = RecordingJournal::create(temporary.path(), av_journal_config("av-v2"))
+            .expect("双轨 journal 应创建");
+        let session = journal.session_directory().to_path_buf();
+
+        let (mut segment_file, pending_segment) = journal.begin_segment().unwrap();
+        segment_file.write_all(b"dual-track-segment").unwrap();
+        journal
+            .commit_segment_with_tracks(
+                pending_segment,
+                segment_file,
+                TIMEBASE_HZ,
+                RecordingTrackStats::with_audio(30, 50, 48_000),
+                3,
+            )
+            .unwrap();
+
+        let (mut final_file, pending_final) = journal.begin_final_output().unwrap();
+        final_file.write_all(b"dual-track-final").unwrap();
+        journal
+            .commit_final_output_with_tracks(
+                pending_final,
+                final_file,
+                TIMEBASE_HZ,
+                RecordingTrackStats::with_audio(30, 51, 48_000),
+            )
+            .unwrap();
+        journal.complete().unwrap();
+
+        let manifest = read_manifest(&session.join(MANIFEST_FILE)).unwrap();
+        assert_eq!(manifest.schema_version, AV_SCHEMA_VERSION);
+        assert_eq!(manifest.audio, Some(av_audio_spec()));
+        assert_eq!(
+            manifest.segments[0].audio,
+            Some(AudioArtifactStats {
+                packet_count: 50,
+                pcm_frame_count: 48_000,
+            })
+        );
+        assert_eq!(
+            manifest.final_output.unwrap().audio,
+            Some(AudioArtifactStats {
+                packet_count: 51,
+                pcm_frame_count: 48_000,
+            })
+        );
+
+        let item = list_library(temporary.path()).unwrap().remove(0);
+        assert_eq!(
+            item.audio,
+            Some(RecordingLibraryAudio {
+                sample_rate_hz: OPUS_SAMPLE_RATE_HZ,
+                channels: 2,
+                encoder: "opus".to_string(),
+            })
+        );
+        assert!(!item.can_merge);
+        assert!(!item.can_thumbnail);
+        #[cfg(feature = "recording-vp9-prototype")]
+        assert!(resolve_library_thumbnail_source(temporary.path(), "av-v2")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn manifest_rejects_mixed_v1_v2_shapes_and_incomplete_audio_statistics() {
+        let mut legacy = fixture_manifest("legacy-mixed", RecordingState::Recording);
+        legacy.audio = Some(av_audio_spec());
+        assert!(validate_manifest(&legacy, "legacy-mixed").is_err());
+
+        let mut missing_track = fixture_manifest("v2-missing", RecordingState::Recording);
+        missing_track.schema_version = AV_SCHEMA_VERSION;
+        assert!(validate_manifest(&missing_track, "v2-missing").is_err());
+
+        let mut invalid_audio = fixture_manifest("v2-invalid", RecordingState::Recording);
+        invalid_audio.schema_version = AV_SCHEMA_VERSION;
+        invalid_audio.audio = Some(av_audio_spec());
+        invalid_audio.audio.as_mut().unwrap().sample_rate_hz = 44_100;
+        assert!(validate_manifest(&invalid_audio, "v2-invalid").is_err());
+        invalid_audio.audio = Some(av_audio_spec());
+        invalid_audio.audio.as_mut().unwrap().codec_delay_ns = 6_000_000;
+        assert!(validate_manifest(&invalid_audio, "v2-invalid").is_err());
+
+        let temporary = tempfile::tempdir().unwrap();
+        let session = create_session(temporary.path(), "v2-stats");
+        let mut missing_stats = fixture_manifest("v2-stats", RecordingState::Interrupted);
+        missing_stats.schema_version = AV_SCHEMA_VERSION;
+        missing_stats.audio = Some(av_audio_spec());
+        add_segment(&session, &mut missing_stats, b"video-shaped segment");
+        assert!(validate_manifest(&missing_stats, "v2-stats").is_err());
+
+        missing_stats.segments[0].audio = Some(AudioArtifactStats {
+            packet_count: 0,
+            pcm_frame_count: 48_000,
+        });
+        assert!(validate_manifest(&missing_stats, "v2-stats").is_err());
+    }
+
+    #[test]
+    fn recovery_keeps_verified_av_prefix_and_truncates_tampered_tail() {
+        let temporary = tempfile::tempdir().unwrap();
+        let session = create_session(temporary.path(), "av-recovery");
+        let mut manifest = fixture_manifest("av-recovery", RecordingState::Recording);
+        manifest.schema_version = AV_SCHEMA_VERSION;
+        manifest.video.encoder = "vp9-prototype".to_string();
+        manifest.audio = Some(av_audio_spec());
+        add_av_segment(&session, &mut manifest, b"valid dual-track prefix");
+        add_av_segment(&session, &mut manifest, b"expected dual-track tail");
+        fs::write(
+            session.join("segment-000001.webm"),
+            b"tampered dual-track tail",
+        )
+        .unwrap();
+        write_manifest_fixture(&session, &manifest);
+
+        let summary = recover_interrupted_sessions(temporary.path()).unwrap();
+        assert_eq!(summary.interrupted_sessions, 1);
+        assert_eq!(summary.recoverable_segments, 1);
+        let recovered = read_manifest(&session.join(MANIFEST_FILE)).unwrap();
+        assert_eq!(recovered.state, RecordingState::Interrupted);
+        assert_eq!(recovered.schema_version, AV_SCHEMA_VERSION);
+        assert_eq!(recovered.segments.len(), 1);
+        assert_eq!(
+            recovered.segments[0].audio.as_ref().unwrap().packet_count,
+            50
+        );
+        assert_eq!(recovered.recovery.unwrap().first_invalid_segment, Some(1));
+
+        let item = list_library(temporary.path()).unwrap().remove(0);
+        assert!(item.audio.is_some());
+        assert!(!item.can_merge);
+        assert!(!item.can_thumbnail);
+        #[cfg(feature = "recording-vp9-prototype")]
+        assert!(merge_interrupted_vp9_session(temporary.path(), "av-recovery").is_err());
     }
 
     #[test]
@@ -2016,6 +2449,8 @@ mod tests {
         assert_eq!(output.duration_ns, TIMEBASE_HZ);
         assert_eq!(output.frame_count, 30);
         assert_eq!(output.byte_length, 19);
+        let serialized = String::from_utf8(fs::read(session.join(MANIFEST_FILE)).unwrap()).unwrap();
+        assert!(!serialized.contains("\"audio\""));
     }
 
     #[test]
@@ -2030,6 +2465,7 @@ mod tests {
             file_name: "recording.webm".to_string(),
             duration_ns: TIMEBASE_HZ,
             frame_count: 30,
+            audio: None,
             byte_length: final_bytes.len() as u64,
             sha256: format!("{:x}", Sha256::digest(final_bytes)),
         });
@@ -2061,6 +2497,7 @@ mod tests {
             file_name: "recording.webm".to_string(),
             duration_ns: TIMEBASE_HZ,
             frame_count: 30,
+            audio: None,
             byte_length: expected_final.len() as u64,
             sha256: format!("{:x}", Sha256::digest(expected_final)),
         });
@@ -2112,6 +2549,7 @@ mod tests {
             started_at_ns: 0,
             duration_ns: TIMEBASE_HZ,
             frame_count: 30,
+            audio: None,
             byte_length: bytes.len() as u64,
             sha256: format!("{:x}", Sha256::digest(bytes)),
         });

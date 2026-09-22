@@ -87,9 +87,12 @@ Windows QPC 音频 PTS 校准和双轨共同 epoch 合同已经补齐；macOS/Li
 重组为 20 ms packet，`OpusHead` pre-skip 取实际 encoder lookahead；结束时追加 lookahead 和对齐
 补零，并只把对齐补零写入最后一个块的 `DiscardPadding`。双轨 WebM 同时写 `A_OPUS`、
 `CodecDelay` 和 80 ms `SeekPreRoll`，并要求调用方按全局 timestamp 顺序交错提交 VP9/Opus packet。
-四平台原型矩阵负责真实编译和合同测试；默认构建、现有单轨恢复 schema、缩略图与产品 session
-保持不变。下一切片要把 coordinator、音频 worker 与双轨 writer 接入同一个 session，并同步升级
-manifest 和恢复协议。完整合同见
+四平台原型矩阵负责真实编译和合同测试；默认构建与产品 session 保持不变。
+`PX-REC-AV-MANIFEST-01` 已先完成恢复协议升级：旧纯视频继续使用 schema v1，VP9 + Opus 使用
+schema v2，并在原子提交点记录音轨格式与分段/最终产物统计；结果库会隔离尚不支持双轨的单轨
+remux 与缩略图入口。下一切片只需让 coordinator、音频 worker 与双轨 writer 在同一个 session
+产出这套 v2 数据。清单合同见
+[`2026-09-22-recording-av-manifest.md`](../superpowers/specs/2026-09-22-recording-av-manifest.md)，编码合同见
 [`2026-09-22-recording-opus-webm.md`](../superpowers/specs/2026-09-22-recording-opus-webm.md)。
 
 ### 2026-09-21 同 SHA CI 证据

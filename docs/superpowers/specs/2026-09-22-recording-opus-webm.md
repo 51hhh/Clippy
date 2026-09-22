@@ -79,5 +79,7 @@ VP9 packet 写入同一个合规 WebM。该切片固定编码延迟、首尾裁�
   `node scripts/verify-recording-codec-supply-chain.mjs` 与格式检查通过。
 - `./scripts/ci-local.sh`：25 项通过、0 失败、2 项按环境配置跳过；其中默认 Rust 1082 项通过、
   14 项真实桌面测试忽略，前端 73 个文件 / 1251 项测试通过，X11 隔离协议与生产构建通过。
-- Windows、macOS ARM/Intel 与 Ubuntu 的同一 SHA 原型 CI 尚待本分支推送后确认；远程结果不能由
-  上述 Linux 本地门禁替代。
+- 提交 `dfbc8a45090b2238a61ac97f946a26d793b8c1a1` 的
+  [CI Check 35690688905](https://github.com/51hhh/Clippy/actions/runs/35690688905) 已在同一 SHA 通过
+  Ubuntu 主检查、Windows/macOS 原生检查，以及 Ubuntu、Windows、macOS ARM/Intel 四个录制原型
+  job；这关闭了该原型的跨平台编译、链接和合同测试门禁，仍不替代平台音源与真机 A/V 验收。
