@@ -33,7 +33,7 @@ use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
 const WASAPI_BUFFER_DURATION_100NS: i64 = 200_000;
 
 #[derive(Debug, Error)]
-pub(super) enum WindowsWasapiAudioSourceError {
+pub(in crate::recording) enum WindowsWasapiAudioSourceError {
     #[error("WASAPI {operation} 失败（HRESULT {code:#010x}）")]
     WindowsApi { operation: &'static str, code: i32 },
     #[error("WASAPI 音频事件等待失败（HRESULT {0:#010x}）")]
@@ -51,7 +51,7 @@ pub(super) enum WindowsWasapiAudioSourceError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct WindowsWasapiAudioSourcePlan {
+pub(in crate::recording) struct WindowsWasapiAudioSourcePlan {
     kind: WindowsAudioSourceKind,
 }
 
@@ -80,7 +80,7 @@ impl WindowsWasapiAudioSourcePlan {
     }
 }
 
-pub(super) struct WindowsWasapiAudioSource {
+pub(in crate::recording) struct WindowsWasapiAudioSource {
     capture_client: IAudioCaptureClient,
     audio_client: IAudioClient,
     event: OwnedEvent,
