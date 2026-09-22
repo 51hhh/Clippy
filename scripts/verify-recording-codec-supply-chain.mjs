@@ -95,6 +95,13 @@ if (
   throw new Error("Cargo.toml must pin the reviewed bundled libopus dependency graph");
 }
 if (
+  !cargoToml.includes(
+    'recording-windows-av-qa = [\n    "recording-vp9-source-build",\n    "recording-windows-audio",\n    "recording-opus-webm",\n]',
+  )
+) {
+  throw new Error("Cargo.toml must keep Windows A/V QA behind the reviewed codec feature set");
+}
+if (
   !cargoToml.includes('webm = { path = "vendor/webm" }') ||
   !cargoToml.includes('webm-sys = { path = "vendor/webm-sys" }')
 ) {

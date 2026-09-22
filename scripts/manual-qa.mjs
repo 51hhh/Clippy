@@ -67,6 +67,25 @@ const RECORDING_AVAILABLE_CASES = Object.freeze([
   ),
 ]);
 
+const WINDOWS_AV_RECORDING_CASES = Object.freeze([
+  pass(
+    "recording_system_audio",
+    "系统声双轨录制、暂停/继续、结果库播放与音轨摘要",
+  ),
+  pass(
+    "recording_microphone",
+    "默认麦克风双轨录制、暂停/继续、结果库播放与音轨摘要",
+  ),
+  pass(
+    "recording_audio_device_failure",
+    "音频设备拔出或禁用时两轨中止、资源回收与已提交分段保留",
+  ),
+  pass(
+    "recording_av_long_drift",
+    "至少 30 分钟系统声与画面同步、内存、CPU 和 A/V 漂移",
+  ),
+]);
+
 const WAYLAND_RECORDING_AVAILABLE_CASES = Object.freeze([
   pass(
     "recording_wayland_authorization",
@@ -196,6 +215,7 @@ const PROFILES = {
       pass("installer_nsis_msi", "NSIS/MSI 安装、卸载和升级"),
       pass("private_file_acl", "私有目录、旧文件修复与原子替换 ACL"),
       ...RECORDING_AVAILABLE_CASES,
+      ...WINDOWS_AV_RECORDING_CASES,
     ],
   },
   "windows-11-x64": {
@@ -212,6 +232,7 @@ const PROFILES = {
       pass("installer_nsis_msi", "NSIS/MSI 安装、卸载和升级"),
       pass("private_file_acl", "私有目录、旧文件修复与原子替换 ACL"),
       ...RECORDING_AVAILABLE_CASES,
+      ...WINDOWS_AV_RECORDING_CASES,
     ],
   },
   "macos-intel": {

@@ -61,8 +61,10 @@ CI；只有真实安装包和桌面交互可以关闭 Native/人工 QA 项。
 GitHub 当前定义为 arm64 的 `macos-15`，以及 `macos-15-intel` runner。前三个目标使用仓库固定
 SHA-256 的 libvpx 预编译归档；上游没有 macOS x86_64 归档，因此 Intel 目标启用
 `recording-vp9-source-build`，从固定 SHA-256 的 libvpx v1.16.0 源码归档编译。矩阵核对 vendored
-绑定、第三方许可证、feature Clippy、VP9 mux 和会话分段测试；会话测试还会强制终止独立子进程，
-验证已提交 WebM 前缀可恢复、未提交尾段被清理。四目标同一 SHA 成功前，VP9 仍不能成为默认编码器。
+绑定、第三方许可证、feature Clippy、VP9/Opus mux、单轨分段和可恢复双轨 session 测试；Windows
+目标使用 `recording-windows-av-qa`，同时编译 WGC/WASAPI 产品接线。会话测试还会强制终止独立
+子进程，验证已提交 WebM 前缀可恢复、未提交尾段被清理。四目标同一 SHA 成功前，VP9 仍不能成为
+默认编码器。
 Intel 源构建显式安装 NASM，并由 Rust `llvm-tools` 完成静态库符号重写。
 runner 架构以
 [GitHub-hosted runners reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
@@ -84,7 +86,7 @@ Linux 包由 Ubuntu 22.04 构建后，独立的 Ubuntu 24.04 runner 下载同一
 AppImage X11 窗口几何、首帧和单实例 smoke；smoke 缺依赖或缺产物会失败，不会静默跳过。
 
 Linux x64 QA 包使用 `recording-wayland-qa`（包含既有 X11 VP9 原型），Windows x64 QA 包使用
-`recording-vp9-source-build`。Windows job 安装固定源码构建所需的 MSYS2、make、diffutils、Perl、
+`recording-windows-av-qa`（组合 VP9 源构建、WASAPI 与 Opus/WebM）。Windows job 安装固定源码构建所需的 MSYS2、make、diffutils、Perl、
 NASM、MSBuild 和 Rust `llvm-tools-preview`；macOS QA job 同样安装 `llvm-tools-preview`，Intel runner
 再安装 NASM，供源码构建的 libvpx 完成静态库符号重写。Windows 与 Linux 一起运行录屏编码供应链
 校验。三类平台产物都在 `QA-BUILD.txt` 写入实际 `recording_feature`；macOS 还记录 12.3 最低系统

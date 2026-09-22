@@ -93,7 +93,7 @@ describe("Linux CI 固守 Ubuntu 22 构建基线", () => {
       expect(block).toMatch(/key: (ubuntu-22\.04|\$\{\{ matrix\.runner \}\})/);
     }
     expect(cacheBlocks[2][0]).toContain("prefix-key: v1-recording-codec");
-    expect(cacheBlocks[2][0]).toContain("key: ${{ matrix.runner }}");
+    expect(cacheBlocks[2][0]).toContain("key: ${{ matrix.runner }}-${{ matrix.cache_key }}");
   });
 
   it("VP9 原型以独立四目标矩阵验证固定供应链和编码闭环", () => {
@@ -102,6 +102,9 @@ describe("Linux CI 固守 Ubuntu 22 构建基线", () => {
     );
     expect(buildWorkflow).toMatch(/recording-codec-prototype:[\s\S]*runner: ubuntu-22\.04/);
     expect(buildWorkflow).toMatch(/recording-codec-prototype:[\s\S]*runner: windows-latest/);
+    expect(buildWorkflow).toMatch(
+      /runner: windows-latest\n\s+features: recording-windows-av-qa\n\s+cache_key: windows-av/,
+    );
     expect(buildWorkflow).toMatch(/recording-codec-prototype:[\s\S]*runner: macos-15\n/);
     expect(buildWorkflow).toMatch(
       /runner: macos-15-intel\n\s+features: recording-macos-screencapturekit,recording-vp9-source-build/,
@@ -121,6 +124,12 @@ describe("Linux CI 固守 Ubuntu 22 构建基线", () => {
     );
     expect(buildWorkflow).toContain(
       "cargo test --features ${{ matrix.features }} --lib recording::session::tests::vp9_",
+    );
+    expect(buildWorkflow).toContain(
+      "cargo test --features ${{ matrix.features }} --lib recording::av",
+    );
+    expect(buildWorkflow).toContain(
+      "cargo test --features ${{ matrix.features }} --lib recording::manager::tests",
     );
   });
 
@@ -207,7 +216,7 @@ describe("原生平台由真实 runner 编译", () => {
     );
     expect(qaWorkflow).toContain(
       "npx --prefix src tauri build --ci\n          " +
-        "--features recording-vp9-source-build",
+        "--features recording-windows-av-qa",
     );
     expect(qaWorkflow).toContain("msys2/setup-msys2@v2");
     expect(qaWorkflow).toContain("microsoft/setup-msbuild@v3");
@@ -216,7 +225,7 @@ describe("原生平台由真实 runner 编译", () => {
       /Setup Rust[\s\S]*targets: \$\{\{ matrix\.rust_target \}\}[\s\S]*components: llvm-tools-preview/,
     );
     expect(qaWorkflow).toContain("recording_feature=recording-wayland-qa");
-    expect(qaWorkflow).toContain("recording_feature=recording-vp9-source-build");
+    expect(qaWorkflow).toContain("recording_feature=recording-windows-av-qa");
     expect(qaWorkflow).toContain("recording_feature=%s");
     expect(qaWorkflow).toContain('"${{ matrix.recording_feature }}"');
     expect(qaWorkflow).toContain("minimum_system_version=12.3");

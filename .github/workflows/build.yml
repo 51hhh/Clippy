@@ -183,12 +183,16 @@ jobs:
         include:
           - runner: ubuntu-22.04
             features: recording-wayland-qa,recording-opus-webm
+            cache_key: wayland-opus
           - runner: windows-latest
-            features: recording-vp9-source-build,recording-windows-audio,recording-opus-webm
+            features: recording-windows-av-qa
+            cache_key: windows-av
           - runner: macos-15
             features: recording-macos-screencapturekit,recording-opus-webm
+            cache_key: macos-arm-opus
           - runner: macos-15-intel
             features: recording-macos-screencapturekit,recording-vp9-source-build,recording-opus-webm
+            cache_key: macos-intel-opus
     steps:
       - uses: actions/checkout@v7
 
@@ -235,7 +239,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           prefix-key: v1-recording-codec
-          key: ${{ matrix.runner }}-${{ matrix.features }}
+          # Cargo feature lists contain commas, which are forbidden in cache keys.
+          key: ${{ matrix.runner }}-${{ matrix.cache_key }}
           workspaces: src-tauri
 
       - name: Verify pinned codec supply chain
@@ -252,6 +257,12 @@ jobs:
       - name: Prototype Opus WebM contract tests
         working-directory: src-tauri
         run: cargo test --features ${{ matrix.features }} --lib recording::mux::opus_webm::tests
+
+      - name: Prototype recoverable A/V session tests
+        working-directory: src-tauri
+        run: |
+          cargo test --features ${{ matrix.features }} --lib recording::av
+          cargo test --features ${{ matrix.features }} --lib recording::manager::tests
 
       - name: Prototype VP9 session and recovery tests
         working-directory: src-tauri

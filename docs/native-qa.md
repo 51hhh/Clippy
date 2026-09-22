@@ -33,7 +33,7 @@ macOS QA 包仅做 Ad-Hoc 签名；updater 安装必须改用同 SHA 的正式 r
 采用 Ad-Hoc 签名，因此只能验证功能和更新链，不能作为 Developer ID、公证或 Gatekeeper 信任证据。
 
 Linux x64 QA 包显式启用 `recording-wayland-qa`（同时包含既有 X11 VP9 原型），Windows x64 QA 包显式启用
-`recording-vp9-source-build`；macOS 12.3+ QA 包显式启用 `recording-macos-screencapturekit`，Intel
+`recording-windows-av-qa`；macOS 12.3+ QA 包显式启用 `recording-macos-screencapturekit`，Intel
 另叠加 `recording-vp9-source-build`。这些包只用于取得录屏原型证据，不代表正式 release 已启用录屏。
 安装前必须核对 `QA-BUILD.txt` 的 `recording_feature` 与实际平台一致；macOS 还必须核对
 `minimum_system_version=12.3`，否则不能执行下文录屏场景。
@@ -176,6 +176,12 @@ node scripts/manual-qa.mjs verify \
   Authenticode 状态与 signer thumbprint。
 - 检查应用私有目录 DACL：当前用户可访问，普通其他用户不可访问；旧宽松配置文件启动后被修复，
   连续配置更新可原子覆盖。`windows_integrity_query_failed` 的安全 copy-only 分支由自动化测试守卫。
+- 在录屏选区工具条依次选择无音频、系统声音和麦克风；后两种模式的结果库必须显示 Opus 音轨摘要，
+  系统声不得混入麦克风，麦克风模式不得静默切到 loopback。暂停/继续后听感和时间线都应连续。
+- 录制中禁用或拔出当前音频设备，确认视频与音频一起中止、控制窗关闭、Recording gate 可再次使用，
+  结果库自动打开且已原子提交的双轨分段仍可列出；不得留下继续占用设备的 WASAPI client。
+- 使用稳定节拍声与可见计时器连续录制至少 30 分钟，记录开头/中段/结尾 A/V 偏差、CPU、峰值内存、
+  丢帧和音频缺口。未记录数值不能把 `PX-REC-WINDOWS-AV-QA-01` 标为真机通过。
 
 ## 8. macOS Intel/Apple Silicon
 
@@ -193,8 +199,9 @@ node scripts/manual-qa.mjs verify \
 
 ## 9. 受门控录屏原型
 
-录屏原型当前只在同一 SHA 的 Linux X11/Wayland、Windows 10/11 与 macOS 12.3+ QA 包开放；没有音频。每次先保存安装包
-SHA-256、`QA-BUILD.txt` 和完整 commit，再执行对应模板中的三个录屏场景：
+录屏原型当前只在同一 SHA 的 Linux X11/Wayland、Windows 10/11 与 macOS 12.3+ QA 包开放；Windows
+AV QA 包可显式选择系统声或默认麦克风，其余平台仍为无音频。每次先保存安装包
+SHA-256、`QA-BUILD.txt` 和完整 commit，再执行对应模板中的录屏场景：
 
 1. 选取一个已知尺寸（建议 640×360 或 1280×720）的区域，录制至少 10 秒并移动光标；暂停至少 3 秒后
    继续并停止。核对输出尺寸、光标、有效时长不含暂停段、结果库播放、首帧缩略图、导出和文件定位。

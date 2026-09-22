@@ -114,6 +114,21 @@ describe("真机 QA 合同", () => {
     },
   );
 
+  it.each(["windows-10-x64", "windows-11-x64"])(
+    "%s 要求双轨音频与长时漂移证据",
+    (profileId) => {
+      const ids = casesForProfile(profileId).map((testCase) => testCase.id);
+      expect(ids).toEqual(
+        expect.arrayContaining([
+          "recording_system_audio",
+          "recording_microphone",
+          "recording_audio_device_failure",
+          "recording_av_long_drift",
+        ]),
+      );
+    },
+  );
+
   it.each([
     "linux-gnome-wayland",
     "linux-gnome-wayland-ubuntu24",

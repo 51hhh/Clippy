@@ -238,7 +238,7 @@ jobs:
       - name: Build Windows QA bundles
         run: >-
           npx --prefix src tauri build --ci
-          --features recording-vp9-source-build
+          --features recording-windows-av-qa
           --config src-tauri/tauri.windows.conf.json
           --config src-tauri/tauri.ci.conf.json
           --config src-tauri/tauri.windows.signing.conf.json
@@ -269,7 +269,7 @@ jobs:
             "version=$version"
             "platform=windows-x64"
             "signing=self-signed-qa-only"
-            "recording_feature=recording-vp9-source-build"
+            "recording_feature=recording-windows-av-qa"
           ) | Set-Content qa-artifacts/QA-BUILD.txt -Encoding utf8
           Get-ChildItem qa-artifacts -File | Where-Object Name -ne "SHA256SUMS.txt" |
             ForEach-Object {
