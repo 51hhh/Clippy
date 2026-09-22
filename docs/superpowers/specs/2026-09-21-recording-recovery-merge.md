@@ -1,5 +1,8 @@
 # PX-REC-MERGE-01 — 异常录屏分段无损恢复
 
+> 本文只描述 schema v1 纯视频恢复。后续 `PX-REC-AV-MERGE-01` 已在同一提交协议上增加 schema v2
+> 双轨恢复：VP9 仍无损复用，分段 Opus 则按独立 decoder 边界恢复 PCM 后连续重编码。
+
 日期：2026-09-21
 
 关联路线：`PX-REC-01`

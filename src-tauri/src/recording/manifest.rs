@@ -844,10 +844,11 @@ pub(super) fn verify_library_artifact(artifact: &ResolvedRecordingArtifact) -> R
     verify_library_artifact_with_checkpoint(artifact, || Ok(()))
 }
 
-/// 把异常会话中已经提交的 VP9/WebM 分段无损 remux 为正常最终输出。
+/// 把异常会话中已经提交的 VP9/WebM 分段恢复为正常最终输出。
 ///
-/// 分段始终保留；只有完整输出封尾、fsync 和哈希完成后才把清单提交为 `finalizing`。这样进程若在
-/// 清单与文件提升之间退出，启动恢复可以沿用正常录屏的同一提交协议。
+/// schema v1 视频 packet 无损 remux；schema v2 仍无损复用 VP9，但每段独立 Opus 必须解码裁掉
+/// pre-skip/尾 padding 后连续重编码。分段始终保留；只有完整输出封尾、fsync 和哈希完成后才把
+/// 清单提交为 `finalizing`，使进程退出仍可沿用正常录屏的提交恢复协议。
 #[cfg(feature = "recording-vp9-prototype")]
 pub(super) fn merge_interrupted_vp9_session(
     app_data_dir: &Path,
@@ -859,8 +860,8 @@ pub(super) fn merge_interrupted_vp9_session(
     if manifest.state != RecordingState::Interrupted
         || manifest.video.encoder != "vp9-prototype"
         || manifest.video.container != "webm"
-        || manifest.audio.is_some()
         || manifest.segments.is_empty()
+        || (manifest.audio.is_some() && !cfg!(feature = "recording-opus-webm"))
     {
         return Err("这次录屏不支持恢复合并".to_string());
     }
@@ -886,16 +887,12 @@ pub(super) fn merge_interrupted_vp9_session(
         .map_err(|error| format!("创建录屏恢复输出失败: {error}"))?;
     let mut manifest_committed = false;
     let result = (|| {
-        let output = remux_vp9_segments(
-            &sources,
-            output_file,
-            WebmRemuxSpec {
-                width: manifest.video.width,
-                height: manifest.video.height,
-                fps_numerator: manifest.video.target_fps_numerator,
-                fps_denominator: manifest.video.target_fps_denominator,
-            },
-        )?;
+        let spec = WebmRemuxSpec {
+            width: manifest.video.width,
+            height: manifest.video.height,
+            fps_numerator: manifest.video.target_fps_numerator,
+            fps_denominator: manifest.video.target_fps_denominator,
+        };
         let expected_duration = manifest
             .segments
             .last()
@@ -906,11 +903,61 @@ pub(super) fn merge_interrupted_vp9_session(
                 .checked_add(segment.frame_count)
                 .ok_or_else(|| "录屏恢复总帧数溢出".to_string())
         })?;
-        if output.duration_ns != expected_duration || output.frame_count != expected_frames {
+        let (file, duration_ns, frame_count, output_audio) = match manifest.audio.as_ref() {
+            None => {
+                let output = remux_vp9_segments(&sources, output_file, spec)?;
+                (output.writer, output.duration_ns, output.frame_count, None)
+            }
+            Some(audio) => {
+                #[cfg(feature = "recording-opus-webm")]
+                {
+                    use super::av_recovery::remux_vp9_opus_segments;
+                    use super::mux::webm_remux::{WebmAvRemuxSource, WebmThumbnailAudioSpec};
+                    let av_sources = manifest
+                        .segments
+                        .iter()
+                        .zip(sources.iter().cloned())
+                        .map(|(segment, source)| {
+                            let stats = segment
+                                .audio
+                                .as_ref()
+                                .ok_or_else(|| "录屏恢复分段缺少音轨统计".to_string())?;
+                            Ok(WebmAvRemuxSource {
+                                source,
+                                audio: WebmThumbnailAudioSpec {
+                                    sample_rate_hz: audio.sample_rate_hz,
+                                    channels: audio.channels,
+                                    pre_skip_frames: audio.pre_skip_frames,
+                                    codec_delay_ns: audio.codec_delay_ns,
+                                    seek_pre_roll_ns: audio.seek_pre_roll_ns,
+                                    packet_count: stats.packet_count,
+                                    pcm_frame_count: stats.pcm_frame_count,
+                                },
+                            })
+                        })
+                        .collect::<Result<Vec<_>, String>>()?;
+                    let output = remux_vp9_opus_segments(&av_sources, output_file, spec)?;
+                    (
+                        output.writer,
+                        output.duration_ns,
+                        output.video_frame_count,
+                        Some(AudioArtifactStats {
+                            packet_count: output.audio_packet_count,
+                            pcm_frame_count: output.audio_pcm_frame_count,
+                        }),
+                    )
+                }
+                #[cfg(not(feature = "recording-opus-webm"))]
+                {
+                    let _ = audio;
+                    return Err("当前构建不支持双轨录屏恢复".to_string());
+                }
+            }
+        };
+        if duration_ns != expected_duration || frame_count != expected_frames {
             return Err("录屏恢复输出与清单汇总不一致".to_string());
         }
 
-        let file = output.writer;
         let metadata = file
             .metadata()
             .map_err(|error| format!("读取录屏恢复输出失败: {error}"))?;
@@ -927,9 +974,9 @@ pub(super) fn merge_interrupted_vp9_session(
         let file_name = final_output_file_name("webm");
         manifest.final_output = Some(FinalOutputManifest {
             file_name: file_name.clone(),
-            duration_ns: output.duration_ns,
-            frame_count: output.frame_count,
-            audio: None,
+            duration_ns,
+            frame_count,
+            audio: output_audio,
             byte_length,
             sha256,
         });
@@ -1283,7 +1330,7 @@ fn library_item_for_session(
         && manifest.state == RecordingState::Interrupted
         && manifest.video.encoder == "vp9-prototype"
         && manifest.video.container == "webm"
-        && manifest.audio.is_none()
+        && (manifest.audio.is_none() || cfg!(feature = "recording-opus-webm"))
         && !manifest.segments.is_empty();
     let can_thumbnail = cfg!(feature = "recording-vp9-prototype")
         && manifest.video.encoder == "vp9-prototype"
@@ -1969,9 +2016,18 @@ fn unix_time_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "recording-opus-webm")]
+    use crate::recording::{
+        audio::{frames_to_ns, AudioFormat, CapturedAudioChunk, QueuedAudioChunk},
+        av_segmenting::SegmentedAvRecordingWriter,
+        mux::opus_webm::{OpusPacketEncoder, OpusTrackConfig},
+        pipeline::RecordingPipeline,
+    };
     use std::ffi::OsStr;
     #[cfg(feature = "recording-vp9-prototype")]
     use std::io::Seek;
+    #[cfg(feature = "recording-opus-webm")]
+    use std::sync::Arc;
 
     fn fixture_manifest(session_id: &str, state: RecordingState) -> RecordingManifest {
         RecordingManifest {
@@ -2037,6 +2093,52 @@ mod tests {
                 codec_delay_ns: 6_500_000,
                 seek_pre_roll_ns: OPUS_SEEK_PRE_ROLL_NS,
             }),
+        }
+    }
+
+    #[cfg(feature = "recording-opus-webm")]
+    fn av_recovery_journal_config(
+        session_id: &str,
+        track: &OpusTrackConfig,
+    ) -> RecordingJournalConfig {
+        RecordingJournalConfig {
+            session_id: session_id.to_string(),
+            source_id: "display-av-recovery".to_string(),
+            physical_x: 0,
+            physical_y: 0,
+            width: 2,
+            height: 2,
+            target_fps_numerator: 10,
+            target_fps_denominator: 1,
+            encoder: "vp9-prototype".to_string(),
+            container: "webm".to_string(),
+            include_cursor: false,
+            audio: Some(RecordingJournalAudioConfig {
+                sample_rate_hz: OPUS_SAMPLE_RATE_HZ,
+                channels: track.channels,
+                encoder: "opus".to_string(),
+                pre_skip_frames: track.pre_skip_frames,
+                codec_delay_ns: track.codec_delay_ns,
+                seek_pre_roll_ns: track.seek_pre_roll_ns,
+            }),
+        }
+    }
+
+    #[cfg(feature = "recording-opus-webm")]
+    fn av_recovery_pcm(start_frame: u32) -> QueuedAudioChunk {
+        let presentation_at_ns = frames_to_ns(start_frame).unwrap();
+        let frame_count = 4_800_u32;
+        QueuedAudioChunk {
+            chunk: CapturedAudioChunk {
+                sequence: u64::from(start_frame),
+                captured_at_ns: presentation_at_ns,
+                format: AudioFormat::normalized(2),
+                frame_count,
+                samples: vec![0.1_f32; frame_count as usize * 2].into_boxed_slice(),
+            },
+            presentation_at_ns,
+            duration_ns: frames_to_ns(frame_count).unwrap(),
+            gap_before_ns: 0,
         }
     }
 
@@ -2317,7 +2419,7 @@ mod tests {
 
         let item = list_library(temporary.path()).unwrap().remove(0);
         assert!(item.audio.is_some());
-        assert!(!item.can_merge);
+        assert_eq!(item.can_merge, cfg!(feature = "recording-opus-webm"));
         assert_eq!(item.can_thumbnail, cfg!(feature = "recording-opus-webm"));
         #[cfg(feature = "recording-vp9-prototype")]
         {
@@ -2860,6 +2962,128 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(thumbnail.artifact.path.ends_with("recording.webm"));
+    }
+
+    #[cfg(feature = "recording-opus-webm")]
+    #[test]
+    fn interrupted_av_segments_recover_into_a_complete_dual_track_recording() {
+        let temporary = tempfile::tempdir().unwrap();
+        let audio = OpusPacketEncoder::new(2).unwrap();
+        let journal = RecordingJournal::create(
+            temporary.path(),
+            av_recovery_journal_config("merge-av-two", audio.track_config()),
+        )
+        .unwrap();
+        let mut writer = SegmentedAvRecordingWriter::new(
+            journal,
+            Arc::new(RecordingPipeline::default()),
+            2,
+            2,
+            10,
+            2,
+            200_000_000,
+            audio,
+        )
+        .unwrap();
+        let rgba = [32_u8; 16];
+        writer.push_video(&rgba, 0).unwrap();
+        writer.push_audio(av_recovery_pcm(0)).unwrap();
+        writer.push_video(&rgba, 100_000_000).unwrap();
+        writer.push_audio(av_recovery_pcm(4_800)).unwrap();
+        writer.push_video(&rgba, 200_000_000).unwrap();
+        writer.push_audio(av_recovery_pcm(9_600)).unwrap();
+        writer.push_video(&rgba, 300_000_000).unwrap();
+        writer.push_audio(av_recovery_pcm(14_400)).unwrap();
+        writer.push_video(&rgba, 400_000_000).unwrap();
+        drop(writer);
+
+        let interrupted = list_library(temporary.path()).unwrap().pop().unwrap();
+        assert_eq!(interrupted.state, "interrupted");
+        assert_eq!(interrupted.artifacts.len(), 2);
+        assert!(interrupted.can_merge);
+        merge_interrupted_vp9_session(temporary.path(), "merge-av-two").unwrap();
+
+        let session = temporary
+            .path()
+            .join(RECORDINGS_DIRECTORY)
+            .join("merge-av-two");
+        let manifest = read_manifest(&session.join(MANIFEST_FILE)).unwrap();
+        assert_eq!(manifest.state, RecordingState::Complete);
+        assert_eq!(manifest.schema_version, AV_SCHEMA_VERSION);
+        assert_eq!(manifest.segments.len(), 2);
+        let final_output = manifest.final_output.unwrap();
+        assert_eq!(final_output.duration_ns, 400_000_000);
+        assert_eq!(final_output.frame_count, 4);
+        let audio = final_output.audio.unwrap();
+        assert_eq!(audio.pcm_frame_count, 19_200);
+        assert!(audio.packet_count > 0);
+        assert!(session.join("recording.webm").is_file());
+        assert!(!session.join(".recording.webm.partial").exists());
+
+        let item = list_library(temporary.path()).unwrap().pop().unwrap();
+        assert_eq!(item.state, "complete");
+        assert!(!item.can_merge);
+        assert!(item.can_thumbnail);
+        let thumbnail = resolve_library_thumbnail_source(temporary.path(), "merge-av-two")
+            .unwrap()
+            .unwrap();
+        assert!(thumbnail.artifact.path.ends_with("recording.webm"));
+        assert_eq!(thumbnail.audio.unwrap().pcm_frame_count, 19_200);
+    }
+
+    #[cfg(feature = "recording-opus-webm")]
+    #[test]
+    fn failed_av_recovery_preserves_interrupted_manifest_and_segments() {
+        let temporary = tempfile::tempdir().unwrap();
+        let audio = OpusPacketEncoder::new(2).unwrap();
+        let journal = RecordingJournal::create(
+            temporary.path(),
+            av_recovery_journal_config("merge-av-tampered", audio.track_config()),
+        )
+        .unwrap();
+        let mut writer = SegmentedAvRecordingWriter::new(
+            journal,
+            Arc::new(RecordingPipeline::default()),
+            2,
+            2,
+            10,
+            2,
+            200_000_000,
+            audio,
+        )
+        .unwrap();
+        let rgba = [48_u8; 16];
+        writer.push_video(&rgba, 0).unwrap();
+        writer.push_audio(av_recovery_pcm(0)).unwrap();
+        writer.push_video(&rgba, 100_000_000).unwrap();
+        writer.push_audio(av_recovery_pcm(4_800)).unwrap();
+        writer.push_video(&rgba, 200_000_000).unwrap();
+        drop(writer);
+
+        let session = temporary
+            .path()
+            .join(RECORDINGS_DIRECTORY)
+            .join("merge-av-tampered");
+        let manifest_path = session.join(MANIFEST_FILE);
+        let mut manifest = read_manifest(&manifest_path).unwrap();
+        let segment = manifest.segments.first_mut().unwrap();
+        segment.audio.as_mut().unwrap().packet_count += 1;
+        write_manifest(&session, &manifest).unwrap();
+        let manifest_before = fs::read(&manifest_path).unwrap();
+        let segment_names = manifest
+            .segments
+            .iter()
+            .map(|segment| segment.file_name.clone())
+            .collect::<Vec<_>>();
+
+        assert!(merge_interrupted_vp9_session(temporary.path(), "merge-av-tampered").is_err());
+
+        assert_eq!(fs::read(&manifest_path).unwrap(), manifest_before);
+        assert!(segment_names
+            .iter()
+            .all(|file_name| session.join(file_name).is_file()));
+        assert!(!session.join("recording.webm").exists());
+        assert!(!session.join(".recording.webm.partial").exists());
     }
 
     #[cfg(feature = "recording-vp9-prototype")]

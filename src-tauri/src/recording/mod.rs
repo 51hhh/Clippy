@@ -38,6 +38,9 @@ mod av_encoder_worker;
 #[cfg(feature = "recording-opus-webm")]
 #[allow(dead_code)]
 mod av_session;
+// 异常双轨分段逐段解码 Opus 并连续重编码；严格 EBML 读取仍由 mux::webm_remux 负责。
+#[cfg(feature = "recording-opus-webm")]
+mod av_recovery;
 // 持续采集 worker 已接入受门控产品会话；合成帧继续固定停止、节流与错误传播。
 #[allow(dead_code)]
 mod worker;

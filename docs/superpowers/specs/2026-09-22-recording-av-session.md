@@ -1,5 +1,8 @@
 # PX-REC-AV-SESSION-01 — 可恢复双轨录屏会话
 
+> 后续 `PX-REC-AV-MERGE-01` 已补齐本文最初列为 Out of Scope 的双轨异常分段恢复；本文其余会话
+> 边界保持不变。
+
 ## Goal
 
 把已经独立验证的共享时钟、视频/音频采集 worker、A/V epoch、VP9、Opus、双轨 WebM 和 schema v2

@@ -6,6 +6,10 @@
 旧的纯视频录像继续按 schema v1 读取；带音轨的录像只能写 schema v2，并在启动恢复、结果库和产物
 解析入口中保留清楚的能力边界，避免双轨 WebM 被现有单轨 remux 或缩略图解析器误处理。
 
+> 本文记录 schema v2 首次交付时的能力边界。后续 `PX-REC-AV-THUMBNAIL-01` 与
+> `PX-REC-AV-MERGE-01` 已分别补齐双轨缩略图和异常恢复，因此下文 Requirement 6、对应验收项及
+> Out of Scope 保留的是当时阶段结论，不代表当前产品能力。
+
 ## Requirements
 
 1. `clippy-recording` schema v1 保持可读且序列化形状不变。只有 journal 配置了音轨时才写 schema

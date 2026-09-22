@@ -37,7 +37,7 @@
 | 标注与图像效果 | 23 | 🟡 | 🟡 | 16 种工具及模糊、马赛克、聚光灯、放大镜、调色和圆角已接入；无语义智能擦除 |
 | 贴图 / 历史 / 分组 | 29 | ✅ | ✅ | 临时 Pin 与用户保存的工作区已分离，支持布局恢复、分组、窄窗管理和独立全局历史浏览 |
 | 本地导出与交换 | 12 | ✅ | ✅ | 单图扁平输出、旧 iTXt 兼容及带完整性校验的 `.clippy.zip` 历史/工作区批量交换已接入设置页 |
-| 录屏 / 音频 / 编码 | 20 | 🟡 | ❌ | 可恢复 VP9/Opus 双轨 session 已完成，Windows QA 已接 WGC + WASAPI，macOS 13+ QA 已接 ScreenCaptureKit 系统声；macOS 麦克风、Linux 音源、双轨恢复工具和四平台真机验收仍待闭环 |
+| 录屏 / 音频 / 编码 | 20 | 🟡 | ❌ | 可恢复 VP9/Opus 双轨 session 与异常恢复已完成，Windows QA 已接 WGC + WASAPI，macOS 13+ QA 已接 ScreenCaptureKit 系统声；macOS 麦克风、Linux 音源和四平台真机验收仍待闭环 |
 | 动作 / 脚本 / 启动器 | 12 | 🟡 | 🟡 | 七个类型化动作、权限模型、键盘启动器与安全组合已交付；任意脚本运行时明确不在首阶段范围 |
 
 原表的整体方向成立。当前校正重点包括：增强 OCR 是“实现完成、交付未完成”；扫码已完成四种
@@ -138,8 +138,9 @@ feature 的原生 X11 与 Windows/macOS/Wayland QA 构建开放，默认 release
 schema v2 已能原子记录 Opus 格式与每个产物的 packet/真实 PCM frame 统计，并让结果库安全展示
 完整或中断的双轨产物。Windows AV QA 构建已在同一生命周期接入 WGC 与 WASAPI 系统声/默认
 麦克风，macOS 13+ AV QA 构建也已接入 ScreenCaptureKit 系统声；选区工具条默认无音频并只展示后端
-允许的模式。双轨首帧缩略图会严格校验 schema v2 与 Opus 轨参数后只解码 VP9 关键帧。macOS
-麦克风、Linux 音源、双轨异常 remux 和各平台真机矩阵尚未完成。
+允许的模式。双轨首帧缩略图会严格校验 schema v2 与 Opus 轨参数后只解码 VP9 关键帧。异常双轨
+分段恢复会无损复用 VP9 packet，并按每段 Opus pre-skip/尾 padding 还原真实 PCM 后连续重编码
+音轨。macOS 麦克风、Linux 音源和各平台真机矩阵尚未完成。
 
 类型化动作目录、权限声明、一次性句柄、键盘启动器和安全组合已经交付；任意脚本宿主与插件市场仍不在
 首阶段范围。
@@ -392,7 +393,7 @@ delta；父链与项目历史留给 `PX-PIN-01`。显式 resize/crop 之外不�
 | P2（X11 已实现，待真机） | `PX-LS-AUTO-01` | X11 受控自动滚动；其余平台能力保持不可用 | `PX-LS-2D-01` + 平台输入能力 |
 | P2（已完成） | `PX-CODE-01` | 四种产品格式与扫码场景矩阵 | 可重复 fixture |
 | P2（X11/Windows/macOS/Wayland QA 入口、结果库、播放与恢复 remux 已完成，待真机/音频） | `PX-REC-01` / `PX-REC-PLAYBACK-01` / `PX-REC-MERGE-01` / `PX-REC-WINDOWS-QA-01` / `PX-REC-MACOS-SCK-01` / `PX-REC-WAYLAND-QA-01` | 可恢复录屏最小闭环 | 平台采集/编码实测 |
-| P2（Windows/macOS QA 接线与双轨缩略图已完成，待真机/Linux） | `PX-REC-CLOCK-01` / `PX-REC-AUDIO-01` / `PX-REC-AUDIO-WORKER-01` / `PX-REC-WINDOWS-AUDIO-01` / `PX-REC-AV-EPOCH-01` / `PX-REC-OPUS-WEBM-01` / `PX-REC-AV-MANIFEST-01` / `PX-REC-AV-SESSION-01` / `PX-REC-WINDOWS-AV-QA-01` / `PX-REC-MACOS-AUDIO-01` / `PX-REC-AV-THUMBNAIL-01` | 单一会话时钟、48 kHz PCM、显式 A/V 起点、有界双轨排序、参考 Opus、周期可恢复双轨容器、严格双轨首帧缩略图，以及 Windows WGC + WASAPI 与 macOS ScreenCaptureKit 系统声的受门控产品接线 | `PX-REC-01` 视频时间线 |
+| P2（Windows/macOS QA 接线、双轨缩略图与异常恢复已完成，待真机/Linux） | `PX-REC-CLOCK-01` / `PX-REC-AUDIO-01` / `PX-REC-AUDIO-WORKER-01` / `PX-REC-WINDOWS-AUDIO-01` / `PX-REC-AV-EPOCH-01` / `PX-REC-OPUS-WEBM-01` / `PX-REC-AV-MANIFEST-01` / `PX-REC-AV-SESSION-01` / `PX-REC-WINDOWS-AV-QA-01` / `PX-REC-MACOS-AUDIO-01` / `PX-REC-AV-THUMBNAIL-01` / `PX-REC-AV-MERGE-01` | 单一会话时钟、48 kHz PCM、显式 A/V 起点、有界双轨排序、参考 Opus、周期可恢复双轨容器、严格双轨首帧缩略图、异常双轨恢复，以及 Windows WGC + WASAPI 与 macOS ScreenCaptureKit 系统声的受门控产品接线 | `PX-REC-01` 视频时间线 |
 | P3（已完成） | `PX-ACT-01` | 类型化动作注册表与启动器 | 稳定业务命令合同 |
 | P3（已完成门控，当前 no-go） | `PX-SMART-01` | 智能擦除可行性与质量基线 | 模型许可、包体和性能预算 |
 
@@ -824,15 +825,23 @@ PCM 按 48 kHz sample 裁切，空洞显式补零；最终文件贯穿一个 VP9
 后才提交 complete；启动失败、控制分歧、任一轨错误与 owner Drop 会中止两轨、join 全部线程并保留
 已提交前缀。后续 `PX-REC-WINDOWS-AV-QA-01` 已把 Windows WASAPI 和后端能力约束的音频模式 UI
 接入该 session；macOS ScreenCaptureKit 系统声已由后续 `PX-REC-MACOS-AUDIO-01` 接入，macOS
-麦克风、Linux 音源、双轨恢复 remux 和真机长时漂移 QA 属于后续工作。完整合同见
+麦克风、Linux 音源和真机长时漂移 QA 属于后续工作；异常双轨恢复已由后续
+`PX-REC-AV-MERGE-01` 交付。完整合同见
 [`2026-09-22-recording-av-session.md`](../superpowers/specs/2026-09-22-recording-av-session.md)。
 
 **2026-09-22 双轨缩略图进度**：`PX-REC-AV-THUMBNAIL-01` 复用现有结果库懒加载和私有 PNG
 缓存。完整 schema v2 会话读取最终 WebM，中断会话读取首个已提交分段；后端在解码前核对固定的
 1 号 VP9、2 号 Opus 轨、48 kHz 声道、OpusHead、CodecDelay、SeekPreRoll 与清单统计，只把首个
 VP9 关键帧交给 libvpx。未知/额外轨道、首视频帧非关键帧或伪造音轨合同会失败且不写缓存；单轨
-行为不变，双轨异常分段仍不显示合并入口。完整合同见
+行为不变；异常双轨分段的合并入口已由后续 `PX-REC-AV-MERGE-01` 交付。完整合同见
 [`2026-09-22-recording-av-thumbnail.md`](../superpowers/specs/2026-09-22-recording-av-thumbnail.md)。
+
+**2026-09-22 双轨异常恢复进度**：`PX-REC-AV-MERGE-01` 为 schema v2 增加严格双轨恢复。
+VP9 packet 不经解码直接复用；每个独立 Opus 分段使用新的 decoder，按 manifest 精确去掉
+pre-skip 与尾部 DiscardPadding，再由一个连续 Opus encoder 重建音轨。输出沿用 `.partial`、fsync、
+`finalizing` 和原子提升协议，失败保留 interrupted manifest 与全部已提交分段。默认构建仍不链接
+该能力；macOS 麦克风、Linux 音源及四平台强杀/长时漂移真机证据仍待完成。完整合同见
+[`2026-09-22-recording-av-recovery.md`](../superpowers/specs/2026-09-22-recording-av-recovery.md)。
 
 **2026-09-22 Windows 双轨 QA 接线进度**：`PX-REC-WINDOWS-AV-QA-01` 新增非默认组合 feature，
 让现有 WGC 视频和 WASAPI 系统声/默认麦克风经同一个 generation、session clock 与生命周期进入
