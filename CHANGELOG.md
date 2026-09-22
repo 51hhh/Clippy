@@ -63,6 +63,11 @@
   pipeline 并保留已入队 PCM 前缀。默认、VP9 与 Wayland QA 编译图已有自动化保护；WASAPI、
   ScreenCaptureKit audio、PipeWire 音源、Opus 与 WebM 音轨尚未接入，当前产品仍只录视频。
   （需求：`PX-REC-AUDIO-WORKER-01`）
+- Windows 录屏音频增加独立 WASAPI QA source：可选择默认扬声器 loopback 或默认麦克风，并由
+  Windows Audio Engine 统一为 48 kHz stereo float；事件驱动 packet 的 QPC 时间戳映射到视频
+  共用会话时钟，静音、20 ms 拆块、暂停重置、恢复丢弃旧缓存和停止下界都有明确合同。该 source
+  只进入显式 `recording-windows-audio` feature，尚未接录屏 UI、Opus 或 WebM；Windows 真机的
+  系统声、麦克风、设备拔出和长时 A/V 漂移仍待 QA。（需求：`PX-REC-WINDOWS-AUDIO-01`）
 - 截图尺寸提示和工具栏保留前端事件边界，Pin 与长截图控制窗保留拖动权限。撤回导致 GTK 线程崩溃的原生防拖动改动，恢复原截图逐屏全屏定位和双屏建窗流程。
 - Pin 保存确认隔离背景键盘与焦点，窄窗采用纵向动作，短窗正文和错误可滚动；取消和保存重试保留标注。
 - 图片侧栏精简为缩略图与 OCR，翻译在 OCR 内切换，移除重复翻译卡和侧栏扫码。点击图片打开独立普通查看器；底部 Pin 式工具栏集中缩放、绘制、OCR、扫码、取色和输出。翻译仍处理识别文字，暂不替换原图排版。

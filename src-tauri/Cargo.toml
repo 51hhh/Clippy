@@ -26,6 +26,8 @@ linux-pipewire = []
 # Windows MSVC 与 macOS Intel 从固定哈希源码归档构建。四目标同 SHA 与真机 QA 通过前不能进入默认产品构建。
 recording-vp9-prototype = ["dep:shiguredo_libvpx", "dep:webm", "dep:yuv"]
 recording-vp9-source-build = ["recording-vp9-prototype", "shiguredo_libvpx/source-build"]
+# Windows WASAPI 系统声/默认麦克风 source；只进入原生 QA 编译图，尚未接产品 UI 或 mux。
+recording-windows-audio = ["dep:windows"]
 # Linux Wayland 专用 QA 入口；默认/release 构建保持关闭。
 recording-wayland-qa = [
     "recording-vp9-prototype",
@@ -156,6 +158,17 @@ objc2-screen-capture-kit = { version = "=0.3.2", default-features = false, featu
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-version = "=0.1.7"
+windows = { version = "=0.62.2", optional = true, features = [
+    "Win32_Foundation",
+    "Win32_Media_Audio",
+    "Win32_Media_Multimedia",
+    "Win32_Security",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Performance",
+    "Win32_System_Threading",
+    "Win32_System_Variant",
+] }
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Security",

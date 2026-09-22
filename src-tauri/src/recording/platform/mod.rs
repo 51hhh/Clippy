@@ -5,6 +5,12 @@ mod region;
 pub(super) mod wayland;
 #[cfg(target_os = "windows")]
 pub(super) mod windows;
+// WASAPI 的纯时间/拆块合同在所有宿主运行测试，原生对象只进入显式 Windows audio feature。
+#[cfg(all(target_os = "windows", feature = "recording-windows-audio"))]
+#[allow(dead_code)]
+pub(super) mod windows_audio;
+#[allow(dead_code)]
+mod windows_audio_contract;
 #[cfg(target_os = "linux")]
 pub(super) mod x11;
 

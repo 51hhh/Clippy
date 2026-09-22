@@ -872,6 +872,7 @@ dependencies = [
  "usvg",
  "webkit2gtk",
  "webm",
+ "windows 0.62.2",
  "windows-sys 0.61.2",
  "windows-version",
  "x11rb",

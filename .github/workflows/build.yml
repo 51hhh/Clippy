@@ -184,7 +184,7 @@ jobs:
           - runner: ubuntu-22.04
             features: recording-wayland-qa
           - runner: windows-latest
-            features: recording-vp9-source-build
+            features: recording-vp9-source-build,recording-windows-audio
           - runner: macos-15
             features: recording-macos-screencapturekit
           - runner: macos-15-intel
@@ -252,6 +252,11 @@ jobs:
       - name: Prototype VP9 session and recovery tests
         working-directory: src-tauri
         run: cargo test --features ${{ matrix.features }} --lib recording::session::tests::vp9_
+
+      - name: Windows WASAPI audio contract tests
+        if: runner.os == 'Windows'
+        working-directory: src-tauri
+        run: cargo test --features ${{ matrix.features }} --lib recording::platform::windows_audio
 
       - name: Prototype X11 capture to VP9 session
         if: runner.os == 'Linux'
