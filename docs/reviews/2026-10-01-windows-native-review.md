@@ -6,16 +6,24 @@
 ## 当前续审结果
 
 当前 W37 / WIN-CONTROL-ROLLBACK-01：普通关闭使用 destroyed.is_ok() 结算控制窗 registry，
-启动准备失败回滚却忽略销毁错误并总是 settle(true)，绕过既有失败后阻止替换的合同。
-现改用普通关闭的真实结果结算；销毁失败保持 TerminalFailed，重复回滚不解除隔离，成功可
+启动准备失败回滚却忽略销毁请求错误并总是 settle(true)，绕过既有失败后阻止替换的合同。
+现改用普通关闭的请求返回结果结算；请求失败保持 TerminalFailed，重复回滚不解除隔离，成功可
 重新 reserve，错 session 不操作旧 owner。原启动错误保持，次要清理错误记录日志。提取旧
 回滚协议 MSVC 红基线 22 passed / 2 failed，旧十七项全绿、新七项为 5 passed / 2 failed；
 同组二十四项修复后全绿，新测试原始字节不变。正常关闭和原生 destroy adapter 逻辑保持，
-DesktopActions 正文、其它三十七段宿主函数与十七份文件核对。完整默认/QA 门禁待执行。
+DesktopActions 正文、三十七段既有宿主函数与十七份文件核对。干净源码
+a52ecaa8caa7c44208c96b7c15dfe07794c897fe 完整默认/QA 门禁确认原生子进程及终端工具 exit 0：
+30 passed / 0 failed / 1 Linux smoke skipped。默认 Rust 1150、QA Rust 1207（各 5 ignored，重叠
+不累加），新增七项、旧十七项及准备错误/停止释放合同每图通过；前端 77 文件 / 1307 passed，
+Python 33 + 3，独立 vendor 十八项及剪贴板二十四项通过。check、严格 lint、供应链、构建/
+入口通过；源码/原始日志、checked helper 哈希和干净检出核对。固定 Tauri/Wry 源码确认
+destroy() 的 Ok 只表示 Destroy 请求发送成功，不是原生窗口销毁完成的确认；普通关闭协议保持。
 原生排除在隐藏态检查并在 ready/bind 后 reveal；Windows 2004 门槛和旧版几何后备路径保持，
 不声称已观察到控制窗未被 WGC 捕获。停止流程先 claim/stop/join 再关闭控制面和释放所有权，
-持久化恢复入口仍待续审；真实 destroy/像素/设备/强杀/DPI、多屏、当前 SHA CI 与其它宿主未验。
-证据 windows-control-rollback-contract；桌面操作保持停止。
+持久化恢复、merge/delete 所有权及 Windows 导出路径身份待续审，尚未复现新缺陷；真实销毁
+请求失败/窗口寿命/像素/设备/强杀/DPI、多屏、当前 SHA CI 与其它宿主未验。累计二十一项
+本机产品修复未装包。合同证据 windows-control-rollback-contract，完整门禁
+windows-control-rollback-native-qa-a52ecaa；桌面操作保持停止。
 
 此前 W36 / WIN-MAIN-TARGET-01：主窗口保存和恢复使用物理坐标，目前未确认 Pin 式全局逻辑
 猜屏缺陷。但 show_main_window 用 Option::or 提前求值后备，即使已有保存目标，也会因后备
@@ -31,7 +39,7 @@ c9d55127dc522415faee90c1c2d00327edc0ede9 完整默认/QA 门禁确认原生子�
 vendor 十八项及剪贴板二十四项通过。check、严格 lint、供应链、构建/入口通过；源码/日志和
 checked helper 哈希、干净检出核对完成。合同证据 windows-main-window-target-contract，完整
 门禁 windows-main-window-target-native-qa-c9d5512。物理 min/max 约束单位保持，但原生 DPI 消息
-和约束实际时序不能由源码确认；没有追加该疑点的生产改动。累计二十项本机产品修复未装包。
+和约束实际时序不能由源码确认；没有追加该疑点的生产改动。截至 W36 二十项本机产品修复未装包。
 真实原生错误/显示/DPI/多屏、当前 SHA CI 和其它宿主未验，桌面操作保持停止。
 
 此前 W35 / WIN-WGC-BRIDGE-ROLLBACK-01：connect 在创建桥接线程后执行 recorder.start()?，
