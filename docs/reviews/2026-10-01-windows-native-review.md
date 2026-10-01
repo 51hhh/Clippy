@@ -5,7 +5,18 @@
 
 ## 当前续审结果
 
-当前 W37 / WIN-CONTROL-ROLLBACK-01：普通关闭使用 destroyed.is_ok() 结算控制窗 registry，
+当前 W38 / REC-DELETE-OWNER-01：恢复合并持有进程 guard，删除 worker 却没有参与所有权。
+结果页 busyKey 属于当前挂载，关闭仍可执行，不能代替后端会话保护。提取原删除 worker
+无所有权协议的 MSVC 红基线 3 passed / 3 failed；一个失败实际删除了合并 owner 持有期间
+真实 journal/VP9 writer 生成并已提交的两段 WebM 与清单。不是未经改动的 Tauri IPC 或桌面
+重开复现。同组新六项修复后通过，既有全局合并单槽一项红/绿都通过。registry 现在原子协调
+同会话合并/删除与重复删除，guard 覆盖整个 worker，错误/panic 释放且不覆盖原错误；其它
+会话操作保持，全局同时一个合并保持。新测试只进入 VP9/QA 图，默认删除仍执行原 callback。
+十八段既有结果库函数、原删除 worker 正文、旧单槽测试模块与十一份文件保持；完整 Windows
+默认/QA 门禁待执行。真实关闭/重开窗口、强杀/设备/播放、其它宿主和当前 SHA CI 未验，
+Windows 导出路径身份仍待续审。证据 recording-delete-owner-contract；桌面操作保持停止。
+
+此前 W37 / WIN-CONTROL-ROLLBACK-01：普通关闭使用 destroyed.is_ok() 结算控制窗 registry，
 启动准备失败回滚却忽略销毁请求错误并总是 settle(true)，绕过既有失败后阻止替换的合同。
 现改用普通关闭的请求返回结果结算；请求失败保持 TerminalFailed，重复回滚不解除隔离，成功可
 重新 reserve，错 session 不操作旧 owner。原启动错误保持，次要清理错误记录日志。提取旧
@@ -21,7 +32,7 @@ destroy() 的 Ok 只表示 Destroy 请求发送成功，不是原生窗口销毁
 原生排除在隐藏态检查并在 ready/bind 后 reveal；Windows 2004 门槛和旧版几何后备路径保持，
 不声称已观察到控制窗未被 WGC 捕获。停止流程先 claim/stop/join 再关闭控制面和释放所有权，
 持久化恢复、merge/delete 所有权及 Windows 导出路径身份待续审，尚未复现新缺陷；真实销毁
-请求失败/窗口寿命/像素/设备/强杀/DPI、多屏、当前 SHA CI 与其它宿主未验。累计二十一项
+请求失败/窗口寿命/像素/设备/强杀/DPI、多屏、当前 SHA CI 与其它宿主未验。截至 W37 二十一项
 本机产品修复未装包。合同证据 windows-control-rollback-contract，完整门禁
 windows-control-rollback-native-qa-a52ecaa；桌面操作保持停止。
 

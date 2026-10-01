@@ -4,6 +4,8 @@
 //! Rust 边界内，避免结果页变成任意文件读写入口。
 
 use super::manifest::{self, RecordingLibraryItem};
+#[cfg(feature = "recording-vp9-prototype")]
+use super::merge_registry::RecordingMergeRegistry;
 use crate::commands::AppState;
 #[cfg(feature = "recording-vp9-prototype")]
 use base64::Engine;
@@ -14,6 +16,9 @@ use tauri_plugin_opener::OpenerExt;
 
 const LIBRARY_LABEL: &str = "recordings";
 const LIBRARY_PAGE: &str = "recordings.html";
+
+#[cfg(all(test, feature = "recording-vp9-prototype"))]
+mod delete_tests;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -380,22 +385,47 @@ pub(crate) async fn delete_recording_session(
     session_id: String,
 ) -> Result<(), RecordingLibraryError> {
     ensure_library(&window)?;
+    #[cfg(feature = "recording-vp9-prototype")]
+    let registry = Arc::clone(&state.recording_merges);
     let media = Arc::clone(&state.recording_media);
     let thumbnails = Arc::clone(&state.recording_thumbnails);
     tauri::async_runtime::spawn_blocking(move || {
-        let app_data_dir = app
-            .path()
-            .app_data_dir()
-            .map_err(|error| RecordingLibraryError::storage(error.to_string()))?;
-        media
-            .revoke_session(&session_id)
-            .map_err(RecordingLibraryError::storage)?;
-        if let Err(error) = thumbnails.clear_session(&app_data_dir, &session_id) {
-            log::warn!("删除录屏前清理缩略图失败: {error}");
+        let delete = || {
+            let app_data_dir = app
+                .path()
+                .app_data_dir()
+                .map_err(|error| RecordingLibraryError::storage(error.to_string()))?;
+            media
+                .revoke_session(&session_id)
+                .map_err(RecordingLibraryError::storage)?;
+            if let Err(error) = thumbnails.clear_session(&app_data_dir, &session_id) {
+                log::warn!("删除录屏前清理缩略图失败: {error}");
+            }
+            manifest::delete_library_session(&app_data_dir, &session_id)
+                .map_err(RecordingLibraryError::storage)
+        };
+        #[cfg(feature = "recording-vp9-prototype")]
+        {
+            delete_session_with(&registry, &session_id, delete)
         }
-        manifest::delete_library_session(&app_data_dir, &session_id)
-            .map_err(RecordingLibraryError::storage)
+        #[cfg(not(feature = "recording-vp9-prototype"))]
+        {
+            delete()
+        }
     })
     .await
     .map_err(|error| RecordingLibraryError::storage(error.to_string()))?
+}
+
+#[cfg(feature = "recording-vp9-prototype")]
+fn delete_session_with(
+    registry: &Arc<RecordingMergeRegistry>,
+    session_id: &str,
+    delete: impl FnOnce() -> Result<(), RecordingLibraryError>,
+) -> Result<(), RecordingLibraryError> {
+    // guard 覆盖原 worker 的播放/缓存清理与文件删除，错误和 unwind 也释放会话。
+    let _guard = registry
+        .begin_delete(session_id)
+        .map_err(|message| RecordingLibraryError::new("recording_library_delete_busy", message))?;
+    delete()
 }
