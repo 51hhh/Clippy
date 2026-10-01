@@ -12,7 +12,7 @@
    不声称已在无运行库机器上观察到启动失败。
 2. 从当前 Visual Studio 安装的 `VC/Redist/MSVC/<version>/x64/Microsoft.VC143.CRT`
    取允许再分发的 release DLL，拒绝 onecore、debug、其它架构与未知文件。每份文件必须
-   为 AMD64、Microsoft 有效 Authenticode 签名，版本与所选 MSVC toolset 相容；复制前后
+   为 AMD64、Microsoft 有效 Authenticode 签名，完整文件版本不得早于所选 MSVC toolset；复制前后
    SHA-256 相同。记录源码 SHA、工具链、文件版本、签名与哈希，不下载或安装全局运行库。
 3. 生成仅供显式 Windows QA 使用的 Tauri resources 覆盖配置，将 CRT 放在 EXE 同目录；
    原许可证资源保持。QA 使用显式 x64 target 子目录，避免 MSI 扫描共享默认 release
@@ -47,6 +47,9 @@ loader、WinRT/设备、安装器或旧系统兼容性证明，不改变 Rust �
 
 ## Primary references
 
+- [Microsoft C++ 二进制兼容限制](https://learn.microsoft.com/en-us/cpp/porting/binary-compat-2015-2017?view=msvc-170)：
+  运行库不得早于组件使用的最新 toolset；校验完整文件版本，不能只比较主、次版本。
+
 - [Microsoft DLL 部署](https://learn.microsoft.com/en-us/cpp/windows/deployment-in-visual-cpp?view=msvc-170)：
   应用本地 DLL 须与 EXE 同目录，更新由应用部署负责。
 - [可再分发 DLL 与版本](https://learn.microsoft.com/en-us/cpp/windows/determining-which-dlls-to-redistribute?view=msvc-170)：
@@ -70,3 +73,13 @@ AMD64、原字节哈希及递归闭包。该 SHA 首次完整门禁为 32 passed
 Rust 默认 1193/QA 1256（各 5 ignored），前端 80 文件中 79 passed / 1 failed，1365 passed /
 1 failed。失败是原 `regression-guards` 对连续 feature 参数的字符串合同；只调整新 target
 参数顺序，原测试正文不改，定向回归通过。首次门禁不计整轮通过，新 SHA 完整重跑待核对。
+
+`3ad9df9` 完整 Windows 门禁 33/0/1、前端 80/1366、默认 Rust 1193/QA 1256（各
+5 ignored）通过。隔离 target 的 unsigned/unbundled QA build native/wrapper/terminal 0；
+十份真实 SDK DLL 与十七份基础许可证、递归闭包、主 rustc 参数、默认 EXE 保持均核对。
+这些文件实际版本 14.44.35211.0 新于 toolset 14.44.35207；产物未启动/安装。
+复核发现旧检查谓词只比较主、次版本，受控 14.44.10000.0 元数据被接受。
+新增同补丁拒绝/同版本及新 minor 接受合同：原检查器 47 passed / 3 failed，分别为 Node、
+PowerShell 5/7 旧补丁被接受；修正完整版本比较后，同五十项通过。受控 publisher 元数据
+不代表实际旧 DLL 已部署或签名造假；当前真实 SDK 未修改。最终源码完整门禁/编译待核对，
+前一阶段的成功和失败记录都保留各自 SHA，不互相替代。

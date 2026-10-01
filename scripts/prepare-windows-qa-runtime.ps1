@@ -57,6 +57,7 @@ function New-WindowsQaRuntime {
     $toolsetText = (Get-Content -LiteralPath (Join-Path $VisualStudioRoot 'VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt') -Raw).Trim()
     if ($toolsetText -notmatch '^14\.\d+\.\d+$') { throw 'Expected an MSVC v14 toolset.' }
     $toolset = [version]$toolsetText
+    $minimumRuntimeVersion = [version]($toolsetText + '.0')
     $redistBase = Join-Path $VisualStudioRoot 'VC\Redist\MSVC'
     $choices = @(Get-ChildItem -LiteralPath $redistBase -Directory | Where-Object {
         $_.Name -match '^14\.\d+\.\d+$' -and [version]$_.Name -ge [version]('14.' + $toolset.Minor + '.0') -and
@@ -82,7 +83,7 @@ function New-WindowsQaRuntime {
             throw "Microsoft signature rejected: $name"
         }
         $fileVersion = [version]$identity.Version
-        if ($identity.IsDebug -or $fileVersion.Major -ne $toolset.Major -or $fileVersion.Minor -lt $toolset.Minor) {
+        if ($identity.IsDebug -or $fileVersion.Major -ne $toolset.Major -or $fileVersion -lt $minimumRuntimeVersion) {
             throw "CRT version/debug build rejected: $name"
         }
         $bytes = [System.IO.File]::ReadAllBytes($file.FullName)

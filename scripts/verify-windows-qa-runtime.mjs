@@ -111,7 +111,16 @@ function normalizedPath(value) {
 }
 function version(value) {
   requireValue(typeof value === "string" && /^\d+\.\d+(?:\.\d+){1,2}$/.test(value), "Invalid toolset or file version");
-  return value.split(".").map(Number);
+  const parts = value.split(".").map(Number);
+  requireValue(parts.every(Number.isSafeInteger), "Invalid toolset or file version");
+  return parts;
+}
+function atLeastVersion(actual, minimum) {
+  for (let i = 0; i < 4; i++) {
+    const current = actual[i] ?? 0, required = minimum[i] ?? 0;
+    if (current !== required) return current > required;
+  }
+  return true;
 }
 
 export function verifyRuntime({ manifestBytes, configuration, expectedManifestSha256, expectedSource, readFile, executableBytes = null, payloadRoot = null }) {
@@ -144,7 +153,7 @@ export function verifyRuntime({ manifestBytes, configuration, expectedManifestSh
     requireValue(file.signature?.status === "Valid" && /(?:^|,\s*)O=Microsoft Corporation(?:,|$)/.test(file.signature.subject)
       && /^[a-f0-9]{40}$/i.test(file.signature.thumbprint), "CRT publisher/signature rejected");
     const actualVersion = version(file.version);
-    requireValue(actualVersion[0] === toolset[0] && actualVersion[1] >= toolset[1] && file.isDebug === false, "CRT version/debug build rejected");
+    requireValue(actualVersion[0] === toolset[0] && atLeastVersion(actualVersion, toolset) && file.isDebug === false, "CRT version/debug build rejected");
     const bytes = readFile(file.stagedPath);
     requireValue(bytes.length === file.bytes && /^[a-f0-9]{64}$/.test(file.sha256) && sha256(bytes) === file.sha256, `CRT file hash mismatch: ${name}`);
     libraries.set(name, inspectPe(bytes));

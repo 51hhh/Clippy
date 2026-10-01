@@ -114,13 +114,18 @@ describe("Windows QA app-local CRT deployment", () => {
   it("rejects provenance generated from dirty source", () => {
     const f = runtime(); f.manifest.sourceGitStatus = [" M src-tauri/Cargo.toml"]; expect(() => verify(f)).toThrow("requires clean source");
   });
-  it.each(["publisher", "signature", "version", "debug"])("rejects invalid CRT %s metadata", (kind) => {
+  it.each(["publisher", "signature", "version", "older-patch", "debug"])("rejects invalid CRT %s metadata", (kind) => {
     const f = runtime(), file = f.manifest.files[0];
     if (kind === "publisher") file.signature.subject = "CN=other, O=Contoso, C=US";
     if (kind === "signature") file.signature.status = "HashMismatch";
     if (kind === "version") file.version = "14.43.10000.0";
+    if (kind === "older-patch") file.version = "14.44.10000.0";
     if (kind === "debug") file.isDebug = true;
     expect(() => verify(f)).toThrow(/publisher\/signature rejected|version\/debug build rejected/);
+  });
+  it.each(["14.44.35207.0", "14.45.1.0"])("accepts a runtime at least as new as the compiler: %s", (value) => {
+    const f = runtime(); f.manifest.files[0].version = value;
+    expect(verify(f).runtimeFiles).toBe(3);
   });
   it("rejects a correctly hashed x86 DLL in an x64 deployment", () => {
     const f = runtime(), file = f.manifest.files[0], bytes = pe([], [], { machine: 0x14c });
@@ -163,7 +168,7 @@ describe("Windows QA app-local CRT deployment", () => {
 });
 
 describe.skipIf(process.platform !== "win32")("actual PowerShell CRT preparation with controlled publisher metadata", { timeout: 30_000 }, () => {
-  it.each(shells.flatMap((shell) => ["valid", "valid-inherited-modules", "publisher", "version", "missing-core", "x86"].map((kind) => [shell, kind])))("%s checks %s before publishing a configuration", (shell, kind) => {
+  it.each(shells.flatMap((shell) => ["valid", "valid-inherited-modules", "valid-exact-version", "publisher", "version", "older-patch", "missing-core", "x86"].map((kind) => [shell, kind])))("%s checks %s before publishing a configuration", (shell, kind) => {
     const temp = temporary();
     try {
       const vs = join(temp.path, "VS"), output = join(temp.path, "output"), auxiliary = join(vs, "VC/Auxiliary/Build"); mkdirSync(auxiliary, { recursive: true });
@@ -193,7 +198,8 @@ describe.skipIf(process.platform !== "win32")("actual PowerShell CRT preparation
         : Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toLowerCase() !== "psmodulepath"));
       const result = spawnSync(shell, ["-NoProfile", "-NonInteractive", "-Command", command], { encoding: "utf8", timeout: 20_000,
         env: { ...shellEnvironment, CLIPPY_QA_RUNTIME_SCRIPT: join(root, "scripts/prepare-windows-qa-runtime.ps1"), CLIPPY_QA_FAKE_VS: vs,
-          CLIPPY_QA_FAKE_OUTPUT: output, CLIPPY_QA_FAKE_VERSION: kind === "version" ? "14.43.10000.0" : "14.44.35211.0",
+          CLIPPY_QA_FAKE_OUTPUT: output, CLIPPY_QA_FAKE_VERSION: kind === "version" ? "14.43.10000.0"
+            : kind === "older-patch" ? "14.44.10000.0" : kind === "valid-exact-version" ? "14.44.35207.0" : "14.44.35211.0",
           CLIPPY_QA_FAKE_PUBLISHER: kind === "publisher" ? "CN=Other, O=Contoso, C=US" : publisher.subject } });
       const valid = kind.startsWith("valid");
       expect(result.error).toBeUndefined(); expect(result.status, result.stderr).toBe(valid ? 0 : 1);
