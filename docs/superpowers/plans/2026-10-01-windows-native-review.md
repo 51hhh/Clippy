@@ -9,6 +9,12 @@
 
 ## 当前续审状态
 
+- `WIN-WGC-BRIDGE-ROLLBACK-01` / W35：独立 `codex/windows-wgc-bridge-rollback`，基于 `f8409b7`。
+  应用帧桥在 start 错误和正常销毁时取消并 join，接收循环不依赖全部 sender 被释放；成功转移、
+  原错误、帧/时钟与暂停恢复语义保持。提取旧协议 MSVC 红基线 3 passed / 4 failed，同组七项
+  真实线程合同全绿；完整 Windows 默认/QA 门禁待执行。真实 WGC/Close 时限、系统释放、
+  设备/硬件矩阵、当前 SHA CI 与其它宿主未验；vendor、默认 feature 和桌面停止边界保持。
+
 - `WIN-PIN-LIVE-DPI-01` / W34：独立 `codex/windows-pin-live-dpi`，基于 `c6075e2`。
   Windows 渲染由当前窗口原生 DPI 驱动，首读使用 caller-bound 只读业务命令，既有 core 权限
   与来源/展示元数据保持；先订阅事件，旧查询或 payload 不覆盖实时比例，未知回退 auto。
@@ -232,6 +238,7 @@
 | W32 | P1 | 冻结物理来源贯穿截图/长截图及历史图片 Pin，单次原生规划与两阶段物理请求 | 独立 WIN-PIN-ORIGIN-01；旧生产输出及提取布局/请求协议红基线 3 passed / 15 failed，同组十八项 MSVC 离线回归和 888127a 完整默认/QA 门禁通过、原生子进程 exit 0；30 passed / 0 failed / 1 Linux smoke skipped。真实窗口/DPI、工作区/工具条/WGC、新 SHA CI 与其它宿主未验 |
 | W33 | P1 | 原生 owner/工作区贯通 Pin 保存、恢复及客户区工具条边界 | 独立 WIN-PIN-WORKAREA-01；提取旧生产协议红基线 1 passed / 15 failed，同组十六项 MSVC 回归和 4a58101 完整默认/QA 门禁通过，原生子进程 exit 0；30 passed / 0 failed / 1 Linux smoke skipped。真实 OS owner/窗口/DPI/热插拔、多屏/Windows 10、WGC 与当前 SHA CI 未验 |
 | W34 | P2 | Windows Pin 实时 DPI 渲染判据、首读/事件竞争与 caller-bound 只读查询 | 独立 WIN-PIN-LIVE-DPI-01；原 App 十二项红基线 2 passed / 10 failed，同组全绿、三项 API 与六项 MSVC 纯数据读取合同通过；e339042 完整 Windows 默认/QA 门禁确认原生子进程 exit 0，30 passed / 0 failed / 1 Linux smoke skipped。真实事件/成像、多屏/Windows 10 与新 SHA CI 未验 |
+| W35 | P2 | WGC 应用帧桥启动回滚与销毁拥有取消/join，不依赖外部 sender 释放 | 独立 WIN-WGC-BRIDGE-ROLLBACK-01；提取旧协议红基线 3 passed / 4 failed，同组七项真实线程合同全绿；完整默认/QA 门禁待执行，实际 WGC/Close/系统释放、硬件与新 SHA CI 未验 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。

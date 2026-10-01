@@ -6,12 +6,13 @@
 
 use super::region::{crop_tight_rgba, validate_selection, RegionFrameError};
 use super::RecordingSourceDescriptor;
+mod bridge_lifecycle;
 use crate::capture::RecordingCaptureSpec;
 use crate::recording::clock::RecordingSessionClock;
 use crate::recording::frame::{CapturedFrame, FrameError};
 use crate::recording::worker::RecordingFrameSource;
+use bridge_lifecycle::{shutdown_bridge, start_recorder, FrameBridgeThread};
 use std::sync::{Arc, Condvar, Mutex};
-use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use xcap::{Frame, Monitor, VideoRecorder};
@@ -160,7 +161,7 @@ impl FrameBridge {
 pub(in crate::recording) struct WindowsWgcRegionFrameSource {
     recorder: Option<VideoRecorder>,
     bridge: Arc<FrameBridge>,
-    bridge_thread: Option<JoinHandle<()>>,
+    bridge_thread: Option<FrameBridgeThread>,
     selection: RecordingCaptureSpec,
     descriptor: RecordingSourceDescriptor,
     clock: RecordingSessionClock,
@@ -184,29 +185,12 @@ impl WindowsWgcRegionFrameSource {
             .video_recorder()
             .map_err(|error| WindowsFrameSourceError::Initialize(error.to_string()))?;
         let bridge = Arc::new(FrameBridge::default());
-        let thread_bridge = Arc::clone(&bridge);
-        let callback_clock = clock.clone();
-        let bridge_thread = thread::Builder::new()
-            .name("clippy-recording-wgc-bridge".to_string())
-            .spawn(move || {
-                let mut last_timestamp_ns = None;
-                while let Ok(frame) = frames.recv() {
-                    let sampled = callback_clock.now_ns();
-                    let captured_at_ns = last_timestamp_ns
-                        .and_then(|last: u64| last.checked_add(1))
-                        .map_or(sampled, |next| sampled.max(next));
-                    last_timestamp_ns = Some(captured_at_ns);
-                    thread_bridge.replace(StampedFrame {
-                        captured_at_ns,
-                        frame,
-                    });
-                }
-                thread_bridge.close();
-            })
-            .map_err(|error| WindowsFrameSourceError::Initialize(error.to_string()))?;
-        recorder
-            .start()
-            .map_err(|error| WindowsFrameSourceError::Initialize(error.to_string()))?;
+        let bridge_thread = FrameBridgeThread::spawn(frames, Arc::clone(&bridge), clock.clone())?;
+        let (recorder, bridge_thread) = start_recorder(recorder, bridge_thread, |recorder| {
+            recorder
+                .start()
+                .map_err(|error| WindowsFrameSourceError::Initialize(error.to_string()))
+        })?;
         Ok(Self {
             recorder: Some(recorder),
             bridge,
@@ -385,12 +369,12 @@ impl RecordingFrameSource for WindowsWgcRegionFrameSource {
 
 impl Drop for WindowsWgcRegionFrameSource {
     fn drop(&mut self) {
-        if let Some(recorder) = self.recorder.take() {
-            let _ = recorder.stop();
-            drop(recorder);
-        }
         if let Some(thread) = self.bridge_thread.take() {
-            let _ = thread.join();
+            shutdown_bridge(self.recorder.take(), thread, |recorder| {
+                let _ = recorder.stop();
+            });
+        } else if let Some(recorder) = self.recorder.take() {
+            let _ = recorder.stop();
         }
     }
 }

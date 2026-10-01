@@ -2,6 +2,16 @@
 
 ## 未发布
 
+### 2026-10-02 Windows WGC 帧桥启动回滚
+
+- 修复 WGC 启动失败在完整帧源建立前丢弃桥接线程句柄的问题。线程 owner 在错误和销毁时
+  取消并 join；真实帧循环以有界接收观察取消，不依赖外部 sender 全部释放，正常销毁先取消
+  再执行原生 stop/drop。原启动错误、成功转移、帧/单调时间戳和暂停恢复合同保持。
+  提取旧生产所有权/接收协议红基线 3 passed / 4 failed，同一七项 MSVC 真实线程合同全绿。
+  完整 Windows 默认/QA 门禁待执行；真实 WGC/原生 Close 时限与系统释放、设备/硬件矩阵、
+  当前 SHA CI 及其它宿主未验。vendor 和 feature 默认值未改，桌面操作保持停止。
+  （需求：`WIN-WGC-BRIDGE-ROLLBACK-01`；见 `docs/superpowers/specs/2026-10-02-windows-wgc-bridge-rollback.md`）
+
 ### 2026-10-02 Windows Pin 实时渲染 DPI
 
 - 修复 Windows 图片 Pin 跨屏或 DPI 改变后仍按创建时比例选择最近邻滤镜的问题。首读绑定

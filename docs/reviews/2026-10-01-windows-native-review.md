@@ -5,7 +5,18 @@
 
 ## 当前续审结果
 
-当前 W34 / WIN-PIN-LIVE-DPI-01：App 用创建时 pin.deviceScale 判断最近邻，未追踪当前窗口
+当前 W35 / WIN-WGC-BRIDGE-ROLLBACK-01：connect 在创建桥接线程后执行 recorder.start()?，
+完整帧源未构造时错误会丢弃 JoinHandle；原 recv() 也只有所有 sender 释放才退出。旧正常
+Drop 有 join，启动回滚没有。提取实际旧所有权和接收协议的 MSVC 红基线 3 passed / 4 failed，
+真实接收循环正文与基线逐 token 一致（归一化空白），不是未经改动的原 connect 或桌面复现。
+同一七项真实线程/FrameBridge/xcap Frame/clock 合同修复后全绿。新 owner 在 start 错误和销毁
+时取消并 join，成功一起转移 recorder/owner；原错误不会被 join panic 替代。真实帧循环有界
+观察取消，退出关闭桥并释放 receiver；正常销毁先取消再 native stop/drop，暂停/继续不取消。
+七段旧生产帧/裁剪/时钟/暂停恢复正文、十份关联源码和新测试原始字节保持；vendor/feature 未改。
+完整 Windows 默认/QA 门禁待执行。实际 WGC/WinRT Close 时限、系统最终释放、Windows 10/多屏/
+设备/长期漂移、当前 SHA CI 和其它宿主未验。回归未构造真实 WGC/窗口对象或读取显示器/输入。
+
+此前 W34 / WIN-PIN-LIVE-DPI-01：App 用创建时 pin.deviceScale 判断最近邻，未追踪当前窗口
 DPI。800×600 CSS / 1200×900 像素的 150% Pin 切到 100% 后仍返回 pixelated。Windows 现在
 先订阅当前窗口原生 scale 事件，再以无目标参数的业务命令查询调用者自己的窗口；安全 Pin
 caller 分类与仍存在的 PinEntry 是查询前提，未知/失败/无效时 auto。实时比例独立于初始
