@@ -7,7 +7,9 @@
 - Windows 富文本读取先取得实际字节，再安全校验 CF_HTML 片段偏移，关闭锁定依赖中可能越界读取
   的调用路径；畸形偏移、字段缺失、数字溢出和 UTF-8 字符切断返回格式错误，既有回退保留。
   合法 Unicode 片段、零填充和三种头行换行有离线回归；旧校验 2 passed / 7 failed，修复后九项通过。
-  Windows 门禁和 Native CI 显式运行依赖库定向合同；完整门禁、新 SHA CI 和真实富文本互操作待验。
+  50b7778 完整 Windows 默认/录屏 QA 门禁 exit 0，24 passed / 0 failed / 1 skipped（Linux smoke），
+  包含实际执行的九项依赖库回归。Windows Native CI 已添加同一定向入口，远程新 SHA CI 尚未运行，
+  真实富文本互操作待验。
   未执行越界复制或写系统剪贴板，不声称已观察到可利用泄漏；其他平台回归及分配预算另验。
   （需求：`WIN-CF-HTML-01`；见 `docs/superpowers/specs/2026-10-01-windows-cf-html-bounds.md`）
 

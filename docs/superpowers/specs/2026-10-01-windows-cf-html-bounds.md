@@ -22,8 +22,8 @@
 
 - [x] 旧偏移校验的越界输入回归失败，新解析器拒绝同一输入；生产路径接线合同通过。
 - [x] Unicode 实际 wrap_html 往返、合法换行/零填充及畸形偏移/UTF-8 合同通过。
-- [ ] Windows 默认和录屏 QA 完整本机门禁通过，绑定源码 SHA；Windows CI 定向入口已添加。
-- [ ] 补丁记录、CHANGELOG 和总计划同步，未验证边界保留。
+- [x] Windows 默认和录屏 QA 完整本机门禁通过，绑定源码 SHA；Windows CI 定向入口已添加。
+- [x] 补丁记录、CHANGELOG 和总计划同步，未验证边界保留。
 
 ## Out of Scope
 
@@ -47,4 +47,22 @@ Windows MSVC 离线红基线提取锁定依赖的旧范围校验，不调用其�
 九项合同为 2 passed / 7 failed，exit 101；两项越界输入仍返回成功范围，生产接线仍使用旧函数。
 修复后九项定向合同通过，exit 0；实际 arboard wrap_html 的中文/emoji/重音字符片段原样返回。
 保留旧校验与结果的源码、日志及哈希在主检出的 `src-tauri/target/windows-cf-html-red/`。
-Windows 本机完整门禁、新 SHA 原生 CI、真实富文本互操作及其他平台回归仍待验证。
+
+修复源码 `50b7778ec9e4bd52fa31aa657be607877c4990ef`，Windows 11 x64、Windows PowerShell 5.1、
+Rust 1.98.1 MSVC、Node 24.21.0；完整 `scripts/ci-windows.ps1 -RecordingQa` exit 0，
+24 passed / 0 failed / 1 skipped（Linux smoke），包含实际执行的 CF_HTML 九项解析回归。
+验证前后 Git 检出干净，stdout/stderr 哈希已核对。
+
+| 层级 | 结果 |
+|---|---|
+| 本机默认 Rust | 1046 passed / 5 ignored；check、严格 clippy、fmt 通过。 |
+| 本机录屏 QA Rust | 1099 passed / 5 ignored；check、严格 clippy 通过。与默认图重叠，不累加。 |
+| Windows arboard 解析 | 9 passed；仅离线字节及生产接线，不执行系统剪贴板 API。 |
+| 本机前端 | 75 文件 / 1292 passed；类型、静态合同、供应链、生产构建及产物入口通过。 |
+| Windows CI 配置 | Native Check 的 Windows job 已加入定向组；YAML 解析和 job 条件已核对，尚未远程执行。 |
+| 同 SHA 原生 CI / 桌面 | 未运行；当前安装包仍为旧源码 45769c9。 |
+
+独立证据位于主检出的 `src-tauri/target/windows-cf-html-native-qa-50b7778/RESULT.json`。
+本规格、CHANGELOG、总计划与审查记录为后继文档更新；测试绑定源码 50b7778。
+真实富文本提供者互操作、Windows 10、其他平台原生图、总分配预算和新 SHA CI 保留未验证。
+未执行原生畸形复制，不声称已观察到崩溃或可利用的内存泄漏。

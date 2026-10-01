@@ -7,9 +7,16 @@
 
 用户要求停止桌面操控，当前继续代码 review 与 Windows 本机自动验证。已安装的 QA 源码仍为
 `45769c9`：真实记录是文本/图片 2 pass、Pin 工具栏裁切 1 fail、36 not_run；原始 39 项模板保留不变。
-新 Pin、私有文件和长截图光标修复未安装，桌面复测、录屏/音频、管理员目标、多屏和 Windows 10 均保持未验证。
+新 Pin、私有文件、长截图光标和 CF_HTML 修复未安装，桌面复测、录屏/音频、管理员目标、多屏和 Windows 10 均保持未验证。
 
-最新独立长截图光标修复源码 `d8dff808e320fd840376e2acec396887e6bbc3ce` 的 Windows 本机完整门禁
+最新独立 CF_HTML 修复源码 `50b7778ec9e4bd52fa31aa657be607877c4990ef` 的 Windows 本机完整门禁
+exit 0，24 passed / 0 failed / 1 skipped（Linux smoke）。默认 Rust 1046 / 5 ignored、QA Rust
+1099 / 5 ignored、前端 75 文件 / 1292 passed，另外实际执行九项 Windows arboard 离线解析合同。
+重叠 Rust 图不累加，验证前后检出干净、stdout/stderr 哈希已核对。证据位于主检出的
+`src-tauri/target/windows-cf-html-native-qa-50b7778/RESULT.json`。Windows Native CI 定向入口已接线，
+YAML job/条件已核对；新 SHA CI 与真实富文本互操作尚未执行，未运行原生畸形复制。
+
+此前独立长截图光标修复源码 `d8dff808e320fd840376e2acec396887e6bbc3ce` 的 Windows 本机完整门禁
 exit 0，23 passed / 0 failed / 1 skipped（Linux smoke）。默认 Rust 1046 / 5 ignored、QA Rust
 1099 / 5 ignored、前端 75 文件 / 1292 passed；重叠 Rust 图不累加，验证前后检出干净、日志哈希已核对。
 证据位于主检出的 `src-tauri/target/windows-longshot-cursor-native-qa-d8dff80/RESULT.json`。
@@ -61,6 +68,7 @@ Windows 10、多屏、真实音频与完整安装升级仍未完成。以下失�
 | `7aa6cf6` | 小图 Pin 原生窗口高度与前端工具栏兜底同步 | 实际旧包缺陷和 CSS/原生窗口回归对应；修复后桌面未验 |
 | `f788b1f` | 私有文件先准备权限，再截断与写入 | 权限失败时不先落内容，独立失败注入和实际 Windows DACL 合同验证 |
 | `d8dff80` | 自动长截图 guard 清理时重新查询指针位置 | 提前失败时保留用户新位置或查询未知状态；同一生产 guard 的确定性回归 |
+| `50b7778` | Windows HTML 读取实际字节，再安全校验片段偏移 | 关闭锁定依赖中的越界风险调用；本机/CI 显式执行依赖库解析合同 |
 
 以上是本机 Git 实际可达节点；录屏、动作和长截图后续分支已包含在最新基线的祖先链中。
 
@@ -78,6 +86,21 @@ Run：<https://github.com/51hhh/Clippy/actions/runs/35792281966>。
 本轮修改已推送到草稿 PR；首次修改后 CI 和后续修复证据见下方记录，不能沿用基线结果。
 
 ## Findings
+
+### W20 / P1 — Windows 富文本读取片段缺少完整边界校验（源码风险确认，离线回归修复）
+
+锁定 clipboard-win 5.4.1 的 `raw::get_html` 只检查 `end-start <= GlobalSize`，未检查
+`end <= GlobalSize`，随后以 `data+start` 进行裸指针复制；短片段可完全落在缓冲区外仍通过。
+此前 vendored arboard::Get::html 直接调用它，Clippy watcher 的 HTML 读取实际可达此路径。
+离线提取旧范围校验的红基线 2 passed / 7 failed，越界片段仍获成功范围；未实际执行越界复制。
+这确认代码风险与校验缺口，不声称已经观察到桌面崩溃或可利用的内存泄漏。
+
+独立 `WIN-CF-HTML-01` / `codex/windows-cf-html-bounds` 改用实际字节与安全切片；十进制偏移
+必须齐全、在界且不切断 UTF-8，支持零填充、CRLF/LF/CR 与原样 Unicode wrap_html 片段。
+畸形输入返回 ConversionFailure，既有 watcher 回退保留，不打印剪贴板内容。
+九项定向合同与 50b7778 完整 Windows 门禁通过；Windows 本机与 Native CI 显式执行该组，
+避免默认 Cargo 成员漏跑依赖测试。版本/锁文件/其它平台实现未改，补丁来源与许可证保留。
+新 SHA CI、真实富文本提供者互操作及其他平台原生图仍未验，总分配预算不由此修复证明。
 
 ### W19 / P2 — 自动长截图提前失败时清理可能抢回用户光标（代码回归复现并修复）
 
