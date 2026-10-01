@@ -8,7 +8,12 @@
 当前 W30 / WIN-OVERLAY-FOCUS-01：Tauri 的物理光标原样交给 reveal，却直接与逻辑矩形求
 归属；150% 等缩放双屏也会选错键盘焦点。实际生产 reveal 红基线 2 passed / 6 failed；
 Windows 按各冻结帧比例独立换算，frames/specs 同序配对，拒绝无效元数据后保留既有焦点兜底。
-八项绿回归通过，完整默认/QA 门禁待记录，证据 windows-overlay-focus-contract/RESULT.json。
+八项绿回归通过；干净源码 f5779966f2adaca65d75dd0a0f6affece6e4fc6c 完整默认/QA 门禁确认
+子进程 exit 0，30 passed / 0 failed / 1 skipped（Linux smoke）；默认 Rust 1074、QA Rust 1131
+（各 5 ignored，重叠不累加），前端 75 文件 / 1292 passed，Python 33 + 3。八项新回归及既有
+八项窗口投影分别在两个 Rust 图通过，已包含在总数；独立 vendor 十八项、剪贴板二十四项通过。
+严格 lint、供应链、测试后干净检出和 stdout/stderr 哈希已核对。红绿及原断言审计证据
+windows-overlay-focus-contract/RESULT.json，完整门禁 windows-overlay-focus-native-qa-f577996/RESULT.json。
 锁定 Tauri/Tao 源码另显示原生覆盖层/guide 建窗的逻辑位置可在混合 DPI 多屏产生歧义；
 原始物理原点在归一化后未保留，仍须独立合同处理。该风险及真实系统焦点/多屏不由本修复证明。
 
@@ -202,7 +207,10 @@ Windows 正常归属现在把物理点按每帧 scale_x/scale_y 转换后比较�
 无效比例/空帧/spec 几何不符/配对不完整不猜归属，保留第一个就绪覆盖层的兜底及会话错误。
 其它宿主原分支不改。既有双屏 focus 夹具从一块不相符小帧改为与两个 spec 相符的两块几何帧，
 原断言保留；新八项包含就绪顺序、等/混合 DPI、负/上下原点、各轴比例、边界、无效值、兜底、
-截图/录屏意图及 label 错误。八项绿回归通过，完整门禁待记录；当前 SHA CI、真实 set_focus/桌面未验。
+截图/录屏意图及 label 错误。新测试红绿原始字节一致；原生产 reveal 与基线正文相同，既有整个
+测试模块除两帧夹具修正外原文不变。f577996 完整默认/QA 门禁子进程 exit 0，30 passed /
+0 failed / 1 skipped；默认 Rust 1074、QA Rust 1131（各 5 ignored），前端 1292 passed。
+八项新回归均已包含总数；日志/源码/原断言核对通过，当前 SHA CI、真实 set_focus/桌面未验。
 需求：WIN-OVERLAY-FOCUS-01，见 `2026-10-01-windows-overlay-focus.md`。
 
 ### W29 / P1 — 单一窗口比例丢失/错置跨屏候选（离线复现并修复）
@@ -439,6 +447,9 @@ W30 另修正物理光标/逻辑 spec 的焦点归属，正常路径与建窗位
 Windows 建窗把逻辑位置按每个显示器的 DPI 转换并取首个命中；两屏逻辑空间重叠时可能选错屏，
 set_outer_position 又依赖窗口当前 DPI。后续需保留冻结帧对应的原始物理原点，独立验证覆盖层/
 guide 的物理位置请求及原点舍入，不能只从归一化整数原点乘回去或用当前窗口比例猜测。
+源码算例：原物理原点 2560、1920 宽、150%，逻辑宽 1280，原点被取整成 1707，乘回得到
+2560.5，再取整会请求 2561。该例不是生产函数测试或实际显示器观察，不能计测试通过；后续
+权威物理原点合同必须覆盖。数值/源码哈希记录 windows-overlay-focus-contract/W04-REMAINING-GEOMETRY.json。
 W29/W30 的确定性合同不能代表这些路径或实际多屏通过。W04 仍需实际布局、候选与覆盖层位置，
 完成 100/125/150%、左右/上下/负坐标的真机矩阵，再处理有证据的其它问题。
 

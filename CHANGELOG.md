@@ -7,7 +7,9 @@
 - 修复截图/录屏覆盖层把物理光标直接与逻辑显示器矩形比较，导致缩放双屏选错键盘焦点的问题。
   Windows 按冻结帧各轴比例独立判断归属；正常路径由光标所在屏接键盘，无效/缺失元数据沿用
   第一个就绪覆盖层兜底。旧生产 reveal 的 MSVC 离线红基线 2 passed / 6 failed，八项修复后
-  回归通过，完整默认/录屏 QA 门禁待记录。既有双屏夹具补齐两帧几何，保留所有原断言。
+  回归通过。干净源码 f577996 完整 Windows 默认/录屏 QA 门禁确认子进程 exit 0：30 passed /
+  0 failed / 1 skipped（Linux smoke）；默认 Rust 1074、QA Rust 1131（各 5 ignored，重叠不累加），
+  前端 1292 passed；八项新回归包含在两个 Rust 总数。既有双屏夹具补齐两帧几何，保留所有原断言。
   真实 set_focus、建窗位置/原点舍入、多屏、Windows 10、新 SHA CI 与其它宿主仍未验。
   （需求：`WIN-OVERLAY-FOCUS-01`；见 `docs/superpowers/specs/2026-10-01-windows-overlay-focus.md`）
 

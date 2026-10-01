@@ -25,8 +25,8 @@
 
 - [x] 原 reveal 在等/混合缩放双屏里把物理光标误分给另一块覆盖层。
 - [x] 修复后生产 reveal 合同通过；新测试原始字节/断言保持，既有断言与兜底/会话错误保留。
-- [ ] 干净源码完整 Windows 默认/QA check、严格 lint、测试、供应链和前端构建通过。
-- [ ] 原始红绿与门禁证据分层记录，真实桌面、多屏、其它宿主与当前 SHA CI 保留未验。
+- [x] 干净源码完整 Windows 默认/QA check、严格 lint、测试、供应链和前端构建通过。
+- [x] 原始红绿与门禁证据分层记录，真实桌面、多屏、其它宿主与当前 SHA CI 保留未验。
 
 ## Out of Scope
 
@@ -52,4 +52,20 @@ DPI 变更事件/热插拔竞争、实际系统 set_focus 结果、桌面操作�
 调用原生产 CaptureManager::reveal，无算法辅助模型/类型桩；两块几何帧与 spec 同序对应。
 原始源码快照、日志、锁定 Tauri/Tao 源码及调用点哈希位于 windows-overlay-focus-contract/RESULT.json。
 同一八项测试文件原始字节不变，修复后 MSVC 绿回归 exit 0：8 passed / 0 failed / 0 ignored，
-1071 项过滤。完整默认/QA 门禁待记录；上一轮 78bd83f/6a9a84e 的验证不能替代本次改动。
+1071 项过滤。原 reveal 正文与基线一致；既有整个测试模块除双屏夹具替换外原文不变，
+新八项测试文件红绿 SHA-256 相同，未弱化断言。
+
+干净被测源码 f5779966f2adaca65d75dd0a0f6affece6e4fc6c 完整 Windows 默认/QA 门禁确认
+子进程 exit 0：30 passed / 0 failed / 1 skipped（Linux smoke）。默认 Rust 1074 / 5 ignored，
+QA Rust 1131 / 5 ignored（重叠不累加）；两个图分别执行新增八项焦点及既有八项窗口投影回归，
+已包含在各自总数。前端 75 文件 / 1292 passed、Python 33 + 3；独立 vendor 十八项及
+剪贴板二十四项不包含在应用 Rust 总数。check/严格 lint/供应链/构建/入口、日志原始哈希、
+验证后干净检出通过。最终证据 windows-overlay-focus-native-qa-f577996/RESULT.json。
+沿用已验证退出 0/17 的无界面 Process 包装器，原始哈希保持，未用缺失退出码推断通过。
+后继文档仅四份 Markdown，生产/CI/门禁未变。
+
+W04 剩余源码算例（非测试通过）：2560 / 1.5 取整成 1707，乘回 2560.5，再取整会偏一像素；
+Tao 多屏逻辑建窗点的首个命中也有歧义。原始物理原点、原生建窗/guide 与真实 DPI 事件仍待
+独立合同和桌面验收；记录 windows-overlay-focus-contract/W04-REMAINING-GEOMETRY.json。
+真实系统 set_focus、Windows 10/双屏/负坐标、新 SHA CI、其它宿主与桌面仍未验。
+上一轮验证不能替代本次；未运行 Linux/WSL、安装新包、合入 dev 或发布。

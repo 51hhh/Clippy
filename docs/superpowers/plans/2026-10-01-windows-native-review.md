@@ -93,7 +93,10 @@
   修正捕获并验证退出 0/17 后，同 SHA 完整重跑通过。W04 真机、新 SHA CI 与其它宿主仍未验。
 - `WIN-OVERLAY-FOCUS-01`：独立 `codex/windows-overlay-focus`，基于 `6a9a84e`。原 reveal 把
   物理光标与逻辑矩形比较，实际生产入口红基线 2 passed / 6 failed；按各冻结帧比例判定，
-  保留会话/焦点兜底，既有双屏夹具补齐一致两帧并保留原断言。八项绿回归通过，完整默认/QA 门禁待记录。
+  保留会话/焦点兜底，既有双屏夹具补齐一致两帧并保留原断言。八项绿回归及干净源码
+  f5779966f2adaca65d75dd0a0f6affece6e4fc6c 完整默认/QA 门禁确认子进程 exit 0，30 passed /
+  0 failed / 1 skipped（Linux smoke）；默认 Rust 1074、QA Rust 1131（各 5 ignored，重叠不累加），
+  前端 1292 passed；八项新回归在两个 Rust 图执行，日志哈希、检出干净和原断言审计通过。
   原生覆盖层/guide 建窗的逻辑位置歧义及原始物理原点舍入仍单列 W04，未用本修复关闭。
 - 已安装包仍为旧源码 `45769c9`。实际 Windows 11 桌面记录为 2 pass / 1 fail（旧 Pin 工具栏裁切）/
   36 not_run；原始 39 项 not_run 模板保持原字节，模板不能替代实际记录。
@@ -166,7 +169,7 @@
 | W05 | P1 | 同权限自动粘贴一次、高完整性目标 copy-only、目标销毁/复用、用户接管；DACL 与配置连续覆盖 | 45769c9 普通权限文本/图片完整用例实际通过；管理员、销毁复用与用户接管桌面待验证。私有文件准备失败时序见 W18，富文本片段边界见 W20，首次按键前目标复核见 W23 |
 | W06 | P1 | QA 包设备默认/非默认/同名/拔出、双源混音、暂停恢复、控制窗排除、强杀恢复、30 分钟 A/V 漂移 | WASAPI 正常停止尾部见 W24，WGC 关闭/初始化清理见 W25/W27，双轨桥接线程回收见 W26；真实设备、混音及其余场景仍待真机验收 |
 | W07 | P2 | NSIS/MSI 安装升级卸载、WebView2、自启动、托盘/快捷键、系统凭据与更新 | 官方 QA 包身份已核对，MSI 只读检查通过；NSIS 安装落盘/启动子步骤已核对，完整 MSI/升级/卸载/updater 未验收；本机自签名链不受信任，未更改信任 |
-| W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 42e52c0、45769c9 与 WinPS 的 b2fd247 各自七项 CI 通过；后续十三项产品修复本机通过，新 SHA CI、Linux 本地完整门禁及 Wayland 回归保留未完成 |
+| W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 42e52c0、45769c9 与 WinPS 的 b2fd247 各自七项 CI 通过；后续十四项产品修复本机通过，新 SHA CI、Linux 本地完整门禁及 Wayland 回归保留未完成 |
 | W09 | P1 | OCR 质量工具 Windows 私有诊断目录与符号链接拒绝合同；失败关闭，检查子文件继承 | 实际 DACL/等价 SDDL 及 10 类失败关闭负例通过；本机 33 项质量合同与 42e52c0 跨平台 CI 通过 |
 | W10 | P2 | 审查 webm-sys 的 C++ 编译参数在 MSVC 上产生 D9002；按真实编译器族选择 flag，保留固定来源与许可证 | 独立 WIN-WEBM-MSVC-01 / PR #14；本机完整 QA 绑定 e4ccc46，45769c9 七项 CI 与完整 QA workflow 全成功，新 Windows 包来源/哈希/签名身份已核对；真实桌面未验证 |
 | W11 | P1 | 新 Windows runner 使用 CRLF 检出时的 IPC 负例与结构回归；保留两种换行的正/负合同 | 独立 CRLF checkout 1284 项通过，fe37aec Windows 前端 CI 已通过 |
@@ -188,7 +191,7 @@
 | W27 | P2 | pool 创建后、完整 WgcRuntime 前的两处失败先 Close，成功转移所有权 | 独立 WIN-WGC-INIT-ROLLBACK-01；红基线 1 passed / 3 failed，四项 vendor Cargo 合同与 61d6823 完整 Windows 默认/QA 门禁通过；真实 API 失败、系统最终释放与新 SHA CI 未验 |
 | W28 | P1 | Windows 构建号仅解析成功返回的有界字节范围，缓冲区完全初始化 | 独立 WIN-REGISTRY-BUFFER-01；安全旧单位模型 4 passed / 4 failed，八项真实 vendor 合同与三项篡改负例通过；8c6fbfe 首次严格 lint 失败已修复并保留，bb38cc6 完整门禁 30 passed / 0 failed；新 SHA CI、实际注册表与桌面待验 |
 | W29 | P1 | Windows 跨屏物理窗口按每帧比例转换/裁剪，保留分数边界与 Z 顺序 | 独立 WIN-WINDOW-SCALE-01；旧函数抽取协议 2 passed / 6 failed，八项 MSVC 回归与 78bd83f 完整默认/QA 门禁通过，30 passed / 0 failed / 1 Linux smoke skipped；首次包装器退出码缺失不计通过、原记录保留，修正后同 SHA 重跑退出 0；真实多屏与新 SHA CI 未验 |
-| W30 | P1 | Windows 物理光标按各帧比例选择覆盖层键盘归属，保留未知光标/无效元数据兜底 | 独立 WIN-OVERLAY-FOCUS-01；旧生产 reveal 红基线 2 passed / 6 failed，八项绿回归通过，完整默认/QA 门禁待记录；真实 set_focus、原生建窗、多屏与当前 SHA CI 未验 |
+| W30 | P1 | Windows 物理光标按各帧比例选择覆盖层键盘归属，保留未知光标/无效元数据兜底 | 独立 WIN-OVERLAY-FOCUS-01；旧生产 reveal 红基线 2 passed / 6 failed，八项绿回归与 f577996 完整默认/QA 门禁通过、子进程 exit 0，30 passed / 0 failed / 1 Linux smoke skipped；原断言审计通过，真实 set_focus、原生建窗、多屏与当前 SHA CI 未验 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。
