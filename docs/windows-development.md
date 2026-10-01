@@ -45,6 +45,10 @@ Windows 入口负责 Windows 的本机检查；Linux 的 GNOME/X11/WebKit DOM、
 仍由 `./scripts/ci-local.sh` 执行，跳过项不计为通过。合入前仍须保留完整 Linux 门禁证据及修改后同
 SHA 的三项原生 CI，录屏改动另需四项 Recording Codec Prototype；不可用旧 SHA 的结果代替。
 
+Windows 入口还显式运行 `cargo test --locked -p arboard --lib platform::windows::html::tests`。
+该组只验证离线 CF_HTML 字节与生产安全解析接线，不读写系统剪贴板。默认 Cargo 成员不运行
+依赖库单元测试，普通 `cargo test` 不能替代这组合同；Windows Native CI 同样显式执行。
+
 ## 录屏源码构建附加依赖
 
 `recording-windows-av-qa` 包含固定版本 VP9 源码构建、WGC、WASAPI 与 Opus/WebM。

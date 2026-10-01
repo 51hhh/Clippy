@@ -11,6 +11,7 @@ and conditions of the chosen license apply to this file.
 #[cfg(feature = "image-data")]
 use crate::common::ImageData;
 use crate::common::{private, Error};
+mod html;
 use std::{
 	borrow::Cow,
 	io,
@@ -615,10 +616,11 @@ impl<'clipboard> Get<'clipboard> {
 			.ok_or_else(|| Error::unknown("unable to register HTML format"))?;
 
 		let mut out: Vec<u8> = Vec::new();
-		clipboard_win::raw::get_html(format.get(), &mut out)
+		// 先读取实际字节，再安全校验 CF_HTML 偏移；不使用依赖中的未受边界约束复制。
+		clipboard_win::raw::get_vec(format.get(), &mut out)
 			.map_err(|_| Error::unknown("failed to read clipboard string"))?;
 
-		String::from_utf8(out).map_err(|_| Error::ConversionFailure)
+		html::fragment(&out).map(str::to_owned)
 	}
 
 	#[cfg(feature = "image-data")]

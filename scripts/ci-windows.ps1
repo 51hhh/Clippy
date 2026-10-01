@@ -113,6 +113,9 @@ if (-not $FrontendOnly) {
         & cargo.exe clippy --manifest-path vendor/xcap/Cargo.toml --lib --features wgc -- -D warnings
     }
     Invoke-Check 'Native Rust tests' $backend { & cargo.exe test --locked }
+    Invoke-Check 'Windows CF_HTML parser tests' $backend {
+        & cargo.exe test --locked -p arboard --lib platform::windows::html::tests
+    }
     if ($RecordingQa) {
         Invoke-Check 'Windows A/V QA check' $backend {
             & cargo.exe check --locked --features recording-windows-av-qa --all-targets

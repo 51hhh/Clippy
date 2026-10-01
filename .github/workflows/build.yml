@@ -219,6 +219,11 @@ jobs:
         working-directory: src-tauri
         run: cargo test
 
+      - name: Windows CF_HTML parser tests
+        if: runner.os == 'Windows'
+        working-directory: src-tauri
+        run: cargo test --locked -p arboard --lib platform::windows::html::tests
+
   recording-codec-prototype:
     name: Recording Codec Prototype (${{ matrix.runner }})
     runs-on: ${{ matrix.runner }}

@@ -1,6 +1,6 @@
 # Clippy 本地补丁
 
-基于 crates.io **arboard 3.6.1**。保留原 MIT / Apache-2.0 许可证、版本、所有平台及示例源码；行为补丁只涉及 X11，macOS 与 Wayland 只有不改变行为的弃用 API 对齐（见「跨平台弃用 API 对齐」）。`Cargo.toml.orig` 保留发布包原件，当前 normalized `Cargo.toml` 的测试适配在下文说明。
+基于 crates.io **arboard 3.6.1**。保留原 MIT / Apache-2.0 许可证、版本、所有平台及示例源码；行为补丁涉及 X11 与下述 Windows CF_HTML 读取边界，macOS 与 Wayland 只有不改变行为的弃用 API 对齐（见「跨平台弃用 API 对齐」）。`Cargo.toml.orig` 保留发布包原件，当前 normalized `Cargo.toml` 的测试适配在下文说明。
 
 - 原始 `.crate` SHA-256：`0348a1c054491f4bfe6ab86a7b6ab1e44e45d899005de92f58b3df180b36ddaf`
 - 原始 `src/platform/linux/x11.rs` SHA-256：`57058170d748f75df9081dc2d886e8a2fa4fa9ca46af09c37bc5eda36309c053`
@@ -21,7 +21,28 @@
 - 接收端先读取零长度属性 metadata，在分配 body 之前检查预算；INCR header 只允许一个 u32，数据按剩余 256MiB 预算读取并拒绝 `bytes_after`。原 10ms 分块截止改为 4s 空闲 / 30s 总截止，兼容合法慢接收链路。
 - `x11.rs` 的 `image::io::Reader` 改为等价 `image::ImageReader`，仅消除已锁定 image 0.25 的弃用警告。
 
-没有改变 Windows / macOS / Wayland 实现、PNG 编码参数或像素。256MiB 是压缩传输及保留快照预算，不是 PNG 解码像素预算。超时约束针对正常运行 X server 上停滞的 requestor，不提供挂死 X server 的系统 I/O 超时保证。
+上述 X11 补丁没有改变 Windows / macOS / Wayland 实现、PNG 编码参数或像素。256MiB 是压缩传输及保留快照预算，不是 PNG 解码像素预算。超时约束针对正常运行 X server 上停滞的 requestor，不提供挂死 X server 的系统 I/O 超时保证。
+
+## Windows CF_HTML 片段边界
+
+`WIN-CF-HTML-01`：锁定 clipboard-win 5.4.1 的 `raw::get_html` 只校验片段长度，不校验结束偏移
+是否落在实际 GlobalSize 内，随后以裸指针复制。Windows `Get::html` 改用 `raw::get_vec` 获取
+实际字节，再交给 `src/platform/windows/html.rs` 的安全切片解析，不再调用该不安全的片段路径。
+必须同时提供十进制 StartFragment/EndFragment；越界、倒序、缺字段、负数、非数字、溢出和
+切断 UTF-8 字符均返回 ConversionFailure。合法 UTF-8 字节偏移、零填充、CRLF/LF/CR、
+可选上下文及实际 wrap_html 的原样 Unicode 片段有离线回归。HTML 写入与 public API 不变。
+
+未修改 registry 包、Cargo.lock、原始 `.crate` 来源或许可证；原始 windows.rs 仍可从上述
+arboard 3.6.1 发布包复核。本补丁仅关闭 arboard 的调用路径，不声明 clipboard-win 其它调用安全。
+不处理总分配预算，也不替代实际 Windows 富文本互操作、X11/macOS 原生检查或同 SHA CI。
+
+```sh
+# 全部为离线字节与生产接线合同，不读写系统剪贴板。
+cargo test --locked --manifest-path src-tauri/Cargo.toml -p arboard --lib platform::windows::html::tests
+```
+
+默认 Cargo 成员不运行依赖的单元测试，因此 Windows PowerShell 门禁和 Windows Native CI
+显式运行上述定向组，不执行上游桌面测试。升级 arboard/clipboard-win 时须复核并决定移除或重放。
 
 ## 跨平台弃用 API 对齐
 
