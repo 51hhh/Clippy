@@ -164,20 +164,47 @@ fn checked_identity(
 }
 
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
-struct CursorRestore {
+trait PointerControl {
+    fn location(&self) -> Result<(i32, i32), CaptureError>;
+    fn move_to(&self, point: (i32, i32)) -> Result<(), CaptureError>;
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+struct NativePointerControl;
+
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+impl PointerControl for NativePointerControl {
+    fn location(&self) -> Result<(i32, i32), CaptureError> {
+        pointer_location()
+    }
+
+    fn move_to(&self, point: (i32, i32)) -> Result<(), CaptureError> {
+        move_pointer(point)
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+struct CursorRestore<P: PointerControl = NativePointerControl> {
     original: (i32, i32),
+    automatic_point: (i32, i32),
     armed: bool,
+    pointer: P,
 }
 
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 impl CursorRestore {
-    fn new(original: (i32, i32)) -> Self {
+    fn new(original: (i32, i32), automatic_point: (i32, i32)) -> Self {
         Self {
             original,
+            automatic_point,
             armed: true,
+            pointer: NativePointerControl,
         }
     }
+}
 
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+impl<P: PointerControl> CursorRestore<P> {
     /// 用户主动移动鼠标后不能再把光标抢回步骤开始位置。
     fn disarm(&mut self) {
         self.armed = false;
@@ -185,10 +212,19 @@ impl CursorRestore {
 }
 
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
-impl Drop for CursorRestore {
+impl<P: PointerControl> Drop for CursorRestore<P> {
     fn drop(&mut self) {
         if self.armed {
-            if let Err(error) = move_pointer(self.original) {
+            // 抓帧/窗口检查可能用 ? 提前返回；清理时仍须复核，不能抢回用户的新位置。
+            match self.pointer.location() {
+                Ok(current) if pointer_near(current, self.automatic_point) => {}
+                Ok(_) => return,
+                Err(error) => {
+                    log::warn!("恢复自动长截图前查询鼠标位置失败，保留当前位置: {error}");
+                    return;
+                }
+            }
+            if let Err(error) = self.pointer.move_to(self.original) {
                 log::warn!("恢复自动长截图鼠标位置失败: {error}");
             }
         }
@@ -591,7 +627,7 @@ pub(super) fn with_scroll<T>(
     let mut enigo = enigo::Enigo::new(&settings)
         .map_err(|error| CaptureError::LongshotAutoInput(error.to_string()))?;
     let original = pointer_location()?;
-    let mut restore = CursorRestore::new(original);
+    let mut restore = CursorRestore::new(original, target.point);
     move_pointer(target.point)?;
     std::thread::sleep(std::time::Duration::from_millis(POINTER_SETTLE_MS));
     let actual = pointer_location()?;
@@ -645,6 +681,128 @@ pub(super) fn with_scroll<T>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+    mod cursor_restore {
+        use super::*;
+        use std::cell::{Cell, RefCell};
+        use std::rc::Rc;
+
+        #[derive(Clone)]
+        struct TestPointer {
+            position: Rc<Cell<(i32, i32)>>,
+            query_fails: Rc<Cell<bool>>,
+            queries: Rc<Cell<usize>>,
+            moves: Rc<RefCell<Vec<(i32, i32)>>>,
+        }
+
+        impl TestPointer {
+            fn new(position: (i32, i32)) -> Self {
+                Self {
+                    position: Rc::new(Cell::new(position)),
+                    query_fails: Rc::new(Cell::new(false)),
+                    queries: Rc::new(Cell::new(0)),
+                    moves: Rc::new(RefCell::new(Vec::new())),
+                }
+            }
+
+            fn guard(&self) -> CursorRestore<Self> {
+                CursorRestore {
+                    original: (20, 30),
+                    automatic_point: (100, 100),
+                    armed: true,
+                    pointer: self.clone(),
+                }
+            }
+        }
+
+        impl PointerControl for TestPointer {
+            fn location(&self) -> Result<(i32, i32), CaptureError> {
+                self.queries.set(self.queries.get() + 1);
+                if self.query_fails.get() {
+                    Err(CaptureError::LongshotAutoInput("模拟指针查询失败".into()))
+                } else {
+                    Ok(self.position.get())
+                }
+            }
+
+            fn move_to(&self, point: (i32, i32)) -> Result<(), CaptureError> {
+                self.moves.borrow_mut().push(point);
+                self.position.set(point);
+                Ok(())
+            }
+        }
+
+        /// 抓帧的 ? 提前返回时仍执行同一生产 guard，测试不调用任何原生输入 API。
+        fn simulated_capture_failure(
+            pointer: &TestPointer,
+            user_point: (i32, i32),
+        ) -> Result<(), CaptureError> {
+            let _restore = pointer.guard();
+            pointer.position.set(user_point);
+            Err::<(), _>(CaptureError::Screenshot("模拟抓帧失败".into()))?;
+            Ok(())
+        }
+
+        #[test]
+        fn cursor_restore_preserves_user_position_on_early_capture_failure() {
+            let pointer = TestPointer::new((100, 100));
+            let error = simulated_capture_failure(&pointer, (300, 400)).unwrap_err();
+            assert_eq!(error.code(), "screenshot");
+            assert!(pointer.moves.borrow().is_empty());
+            assert_eq!(pointer.position.get(), (300, 400));
+        }
+
+        #[test]
+        fn cursor_restore_skips_movement_when_current_position_is_unknown() {
+            let pointer = TestPointer::new((100, 100));
+            pointer.query_fails.set(true);
+            drop(pointer.guard());
+            assert!(pointer.moves.borrow().is_empty());
+        }
+
+        #[test]
+        fn cursor_restore_obeys_tolerance_on_early_failure() {
+            for (point, restore_expected) in [
+                ((100, 100), true),
+                ((103, 97), true),
+                ((104, 100), false),
+                ((100, 104), false),
+            ] {
+                let pointer = TestPointer::new((100, 100));
+                assert_eq!(
+                    simulated_capture_failure(&pointer, point)
+                        .unwrap_err()
+                        .code(),
+                    "screenshot"
+                );
+                let expected = if restore_expected {
+                    vec![(20, 30)]
+                } else {
+                    vec![]
+                };
+                assert_eq!(*pointer.moves.borrow(), expected);
+                assert_eq!(
+                    pointer.position.get(),
+                    if restore_expected { (20, 30) } else { point }
+                );
+            }
+        }
+
+        #[test]
+        fn cursor_restore_normal_completion_restores_and_disarm_skips_queries() {
+            let pointer = TestPointer::new((100, 100));
+            drop(pointer.guard());
+            assert_eq!(*pointer.moves.borrow(), vec![(20, 30)]);
+
+            let pointer = TestPointer::new((100, 100));
+            let mut restore = pointer.guard();
+            restore.disarm();
+            drop(restore);
+            assert!(pointer.moves.borrow().is_empty());
+            assert_eq!(pointer.queries.get(), 0);
+        }
+    }
 
     #[test]
     fn pointer_tolerance_has_a_hard_boundary() {
