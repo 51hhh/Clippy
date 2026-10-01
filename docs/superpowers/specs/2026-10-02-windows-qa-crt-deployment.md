@@ -64,3 +64,9 @@ loader、WinRT/设备、安装器或旧系统兼容性证明，不改变 Rust �
 `windows-qa-crt-contract/ORIGINAL-DEPLOYMENT-AUDIT.json`。默认/QA direct/delay 表均解析，
 QA 缺 MSVCP140，默认 OS-only 闭包通过，旧 MSI 表无 CRT。没有 DLL 加载或真实启动。
 完整 Windows 门禁、真实 SDK 与隔离 target 的实际构建进行中；W47 与 29 项历史身份保留。
+
+真实 SDK 十份 DLL 已在 `a6bd01d` 通过标准目录、Microsoft 有效签名、14.44.35211.0、
+AMD64、原字节哈希及递归闭包。该 SHA 首次完整门禁为 32 passed / 1 failed / 1 skipped；
+Rust 默认 1193/QA 1256（各 5 ignored），前端 80 文件中 79 passed / 1 failed，1365 passed /
+1 failed。失败是原 `regression-guards` 对连续 feature 参数的字符串合同；只调整新 target
+参数顺序，原测试正文不改，定向回归通过。首次门禁不计整轮通过，新 SHA 完整重跑待核对。

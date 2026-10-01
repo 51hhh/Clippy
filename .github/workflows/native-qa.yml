@@ -243,8 +243,8 @@ jobs:
       - name: Build Windows QA bundles
         run: >-
           npx --prefix src tauri build --ci
-          --target x86_64-pc-windows-msvc
           --features recording-windows-av-qa
+          --target x86_64-pc-windows-msvc
           --config src-tauri/tauri.windows.conf.json
           --config src-tauri/tauri.ci.conf.json
           --config src-tauri/tauri.windows.signing.conf.json
