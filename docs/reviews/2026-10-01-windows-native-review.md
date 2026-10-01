@@ -14,6 +14,13 @@
 启动器，以及非默认 WGC/WASAPI 录屏 QA。Windows 待做工作的重点是本机回归、混合 DPI 与真实桌面
 证据，不能因为 dev 没有这些实现再开发一套，也不能把 QA feature 算作正式发布功能。
 
+本轮工具修复在 SHA `42e52c064aba36bb7e93a5e68a0cfb54f65c5b7b` 的七项原生/录屏原型
+CI 全部通过，官方同 SHA Windows QA MSI/NSIS 的来源、哈希与签名身份已核对。
+独立 WebM 参数修复的 SHA `437949b` 四项 codec 原型均通过，但 macOS 原生的既有进程测试失败，
+由独立 `OCR-PROC-CANCEL-01` / [PR #15](https://github.com/51hhh/Clippy/pull/15) 处理。
+用户暂不能手动验收，39 项 Windows 11
+桌面记录保持 not_run；Windows 10、多屏、真实音频与安装升级也未完成。以下失败 run 保留为历史证据。
+
 ## 关键 Git 节点
 
 | 节点 | 实际变化 | 对本轮的意义 |
@@ -55,7 +62,7 @@ Linux 前端 CI 成功不能发现该宿主问题。修复改用 Node 的 `fileU
 
 定向红绿验证：两组 9 项从失败转为成功；新增 Windows 门禁退出码测试 3 项也通过。
 
-### W02 / P1 — 本机 Windows 门禁缺口和 CI 前端宿主盲区（实现已补，远程待验证）
+### W02 / P1 — 本机 Windows 门禁缺口和 CI 前端宿主盲区（本机与 42e52c0 CI 通过）
 
 `ci-local.sh` 无条件要求 Xvfb，调用 Bash/GNOME/WebKit smoke，无法直接作为原生 PowerShell 入口。
 `build.yml` 原先仅在 Ubuntu 执行前端，Windows runner 只执行 Rust，因此 W01 带着 CI success 留在分支。
@@ -122,7 +129,7 @@ POSIX 分支继续使用 `0700`，本轮 Windows 证据不能代替 Linux 回归
 实现依据：[CreateDirectoryW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createdirectoryw)、
 [安全描述符字符串](https://learn.microsoft.com/en-us/windows/win32/secauthz/security-descriptor-string-format)。
 
-### W10 / P2 — 第三方 C++ flag 在 MSVC 上被忽略（独立修复已提交，CI 待验证）
+### W10 / P2 — 第三方 C++ flag 在 MSVC 上被忽略（本机与四项 codec CI 通过，完整门禁待补）
 
 `webm-sys 2.2.1` 构建时传入 `-fno-rtti`、`-std=gnu++11`、`-fno-exceptions`，MSVC 输出 D9002 并忽略。
 本轮 QA check 和 Rust `-D warnings` clippy 仍成功；这不代表 C++ 构建无告警，也不是桌面录制通过。
@@ -130,7 +137,29 @@ POSIX 分支继续使用 `0700`，本轮 Windows 证据不能代替 Linux 回归
 按真实编译器族修复，需求 `WIN-WEBM-MSVC-01`。实际 MSVC/clang-cl 六个 C++ 源文件重新编译
 通过，既有有效模式保持；来源与构建脚本原始哈希、29 个上游 C/C++ 文件和许可证已核对。
 完整本机录屏 QA 门禁 23 passed / 0 failed / 1 skipped；
-[同 SHA CI](https://github.com/51hhh/Clippy/actions/runs/36815516209) 尚未完成，真实桌面/安装保留未完成。
+[初次 e4ccc46 CI](https://github.com/51hhh/Clippy/actions/runs/36815516209) 的四项 codec 原型及
+Ubuntu/macOS 原生均成功，Windows 原生仍因旧父分支 OCR 失败而 failure，不能计为七项通过。
+同步父修复后，SHA `437949bd74a7d4b852581500834f8cb646cf1895` 的
+[新 CI](https://github.com/51hhh/Clippy/actions/runs/36819267902) 最终为六项 success / 一项 failure：
+四项 codec 及 Ubuntu/Windows 原生成功，macOS 原生 OCR 取消/回收合同失败，见 W15；
+不能计为七项通过。真实桌面/安装保留未完成。
+
+### W15 / P1 — 原生子进程取消夹具的启动预算竞态（独立合同修复待 Unix CI）
+
+437949b 的 macOS job 110231086906 在 `process_tests.rs:211` 失败，1054 passed / 1 failed /
+5 ignored。失败断言为“假进程必须实际启动”；该模块与父分支相同，C++ 补丁没有修改它。
+夹具先启动 Python，再受 250 ms 执行预算约束，却最多等 10 s 观察 PID；启动迟于预算时可能
+先被回收，之后不再产生标记。CI 未输出实际解释器启动时长，不能断言本次具体延迟。
+
+Windows 探针直接编译原始生产监督器，稳定复现 750 ms 慢启动在 250 ms 原预算下超时且无标记；
+阶段控制下实际就绪，输出上限触发 kill/wait，PID 查询确认子进程已消失。这证明竞态前提和
+真实监督器清理路径，不能替代 Unix 的 Tauri runtime/消费者合同。
+
+独立 [PR #15](https://github.com/51hhh/Clippy/pull/15) / `OCR-PROC-CANCEL-01` 修复测试同步：
+无延迟/750 ms 慢启动、原子 PID 标记、取消前仍运行、取消后许可仍占用、后继实际排队、
+夹具释放后必须因输出上限清理并回收、回收后才进入后继工作。Linux 保留 /proc 存活/僵尸检查，
+macOS 新增对已知夹具 PID 的 signal 0 检查；阶段等待和进程兜底仍有硬截止时间。
+原有 250 ms 超时合同与生产 OCR 代码不改。格式通过，Unix 原生与新 SHA CI 待执行。
 
 ## 本机验证记录
 
@@ -158,7 +187,7 @@ W09 后续修复：查询实际二进制 ACE 并与 CreateDirectoryW 所用的�
 [DACL 查询](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-getsecuritydescriptordacl)
 处理 NULL 与缺失 DACL。新增正例覆盖 SID 等价表示与 AI，10 个负例通过实际创建流程证明
 未保护、错误用户、少权限、缺继承、继承 ACE、额外 ACE、deny、空/NULL/缺失 DACL 均失败关闭。
-本机 33 项质量合同、3 项视觉段落通过；远程复验仍待完成。
+本机 33 项质量合同、3 项视觉段落通过；当时远程复验仍待完成，42e52c0 的结果见后文。
 
 W14：浏览器 UI 与 MathML 语料 `source.html`、`capture.py` 的原始字节哈希登记在捕获记录。
 Windows 默认 CRLF 检出改变来源，新增四个具体路径的 `eol=lf` 属性；PNG/字体/哈希、来源记录与
@@ -172,7 +201,7 @@ Windows 原生 locale 合同也采用 30 秒有界预算，Linux/macOS 保持 5 
 Node 24.21.0 在 workspace 内隔离使用，下载包与官方 SHA-256 核对一致；本机首次 locale
 调用约 15.9 ms，未复现 runner 的 11.7 秒，不能把 CI 初始化现象写成 WebView2 产品延迟。
 补丁下 Node 22 定向 212 项通过，Node 24.21.0 + CRLF 全前端范围 11 项通过、0 失败、
-3 组显式跳过，74 文件 / 1284 项通过；远程补丁结果仍待复验。
+3 组显式跳过，74 文件 / 1284 项通过；当时远程补丁结果仍待复验，42e52c0 已通过。
 
 W11：Windows runner 的 CRLF checkout 使两个 IPC 负例的 LF 字符串替换没有生效，另有三个结构
 断言依赖 LF。用 `core.autocrlf=true` 的独立 checkout 重现同样五项失败。修复保留校验器本身，
@@ -185,7 +214,7 @@ W12：vendored xcap 原始 SHA-256 绑定 LF 字节，默认 Windows checkout �
 独立 CRLF checkout 的主 Rust 源码仍为 CRLF，按新属性重新检出的 vendor 与锁文件为 LF，
 完整前端范围最终为 11 项检查通过、0 失败、3 组显式跳过，74 文件 / 1284 项通过。
 在固定 WGC 文件追加一个 LF 时，校验仍以 exit 1 拒绝；复原后成功。验证器和登记哈希未修改，
-没有归一化哈希输入或跳过检查。修改后同 SHA CI 尚待执行。
+没有归一化哈希输入或跳过检查。当时修改后同 SHA CI 尚待执行，42e52c0 已通过。
 
 全新 CRLF clone 在 `47f1ee7dcd5f234d3bc5756cebe6202de2f5fc47` 首次检出即通过原始哈希校验，
 工作树无修改，无需手工归一化文件。主 Rust 源码为 CRLF，vendor 和锁文件为 LF。
@@ -214,7 +243,7 @@ Windows SDK 10.0.26100.0、MSBuild 17.14.60.43110、MSYS2 make 4.4.1/NASM 3.02/d
 Rust LLVM tools、LLVM 23.1.2/libclang 已安装；VS 附 CMake 3.31.6-msvc6 已补入会话 PATH。
 WebView2 Runtime 154.0.4258.37 已存在。
 修复未涉及应用 Rust 或前端界面行为。
-本机结果针对基线 `8b99b88` 加本分支修改；修复拆分为独立提交，修改后同 SHA CI 待运行，
+以下早期本机结果针对基线 `8b99b88` 加本分支修改；当时修改后同 SHA CI 待运行，
 本机结果不能替代远程 CI 证据。
 
 - 红基线：最新分支完整 Vitest 1265 passed、9 failed。
@@ -224,7 +253,7 @@ WebView2 Runtime 154.0.4258.37 已存在。
   类型、JS lint、IPC/HTML、供应链、lockfile 安装、生产构建与真实入口均通过。
 - Python 质量合同：31 项通过；视觉段落 3 项通过；智能擦除证据校验通过。
 - 缺 cargo 时入口在 prerequisites 阶段失败，不进入检查，也未报告完整成功。
-- 工作流 YAML 使用 UTF-8 解析成功；修改后远程执行仍待验证。
+- 工作流 YAML 使用 UTF-8 解析成功；当时修改后远程执行仍待验证，42e52c0 已通过。
 - Windows 默认完整范围：`ci-windows.ps1` 20 项通过、0 失败、2 组显式跳过（录屏 QA 图及 Linux smoke）。
   Rust check、严格 clippy、vendored WGC 严格 clippy 通过；Rust 1040 passed、0 failed、5 ignored。
   当次前端 74 个文件、1278 项通过，包含追加的缺依赖退出码合同。忽略项未计作通过。
@@ -237,7 +266,7 @@ WebView2 Runtime 154.0.4258.37 已存在。
   QA check、严格 Rust clippy、全量 QA Rust tests 通过，VP9/Opus 原生库及绑定已生成。
   QA Rust：1093 passed、0 failed、5 ignored；前端最终：74 文件、1280 passed。
   默认与 QA Rust 图大量重叠，不相加为独立测试数；所有忽略/跳过项不计作通过。
-- Linux 本地完整门禁、修改后远程 CI、官方 QA 包、安装升级和人工 QA 尚未执行。
+- 当时 Linux 本地完整门禁、修改后远程 CI、官方 QA 包、安装升级和人工 QA 尚未执行；后续证据见下文。
 
 本分支是开发工具/测试修复；OCR 质量工具行为与 Windows 验证入口已写入 CHANGELOG，引用 `WIN-NATIVE-01`。
 后续 W04–W07 若产生产品修复，使用对应独立分支、需求 ID 和 CHANGELOG，不能混入本工具分支。
@@ -252,3 +281,70 @@ WebView2 Runtime 154.0.4258.37 已存在。
 桌面运行时再次经受支持的 `node_repl + @oai/sky` 初始化，仍返回
 `trusted Node process exited unexpectedly; kernel reset, rerun your request`；没有实际 UI 操作。
 不得绕过 Computer Use skill 的专用 API 协议，Windows 11 单屏人工 QA、Windows 10 与多屏均未完成。
+
+## 修改后同 SHA CI 与官方 Windows QA 包
+
+### 42e52c0 原生与录屏原型 CI
+
+[Run 36816386762](https://github.com/51hhh/Clippy/actions/runs/36816386762) 绑定完整 SHA
+`42e52c064aba36bb7e93a5e68a0cfb54f65c5b7b`，整体 completed/success：
+
+| 检查 | 状态 |
+|---|---|
+| Check (ubuntu-22.04) | completed/success |
+| Native Check (windows-latest) | completed/success |
+| Native Check (macos-latest) | completed/success |
+| Recording Codec Prototype (ubuntu-22.04) | completed/success |
+| Recording Codec Prototype (windows-latest) | completed/success |
+| Recording Codec Prototype (macos-15) | completed/success |
+| Recording Codec Prototype (macos-15-intel) | completed/success |
+
+三项规定的原生检查经 authenticated check-runs 和仓库 `evaluateNativeChecks` 核对；
+Windows job 110222252345 的日志为前端 74 文件 / 1284 passed，Python 33 项质量 + 3 项视觉段落，
+Rust 1040 passed / 0 failed / 5 ignored。忽略项不计作通过，四项 codec job 不累加进单元测试数。
+证据位于 ignored target 的 `native-ci-42e52c0-{check-runs.ndjson,evidence.md}` 与
+`windows-ci-42e52c0.log`。这些结果不能套用于后续证据文档提交、W10 新 SHA 或真实桌面场景。
+
+### Windows 官方 QA 安装包身份
+
+同 SHA 的 [Native QA Packages run 36817675012](https://github.com/51hhh/Clippy/actions/runs/36817675012)
+仅在三项原生 CI success 后启动；Windows job 110226195519 completed/success。
+产物 `qa-windows-x64-42e52c064aba36bb7e93a5e68a0cfb54f65c5b7b`（artifact 11142234087）
+已通过已登录 gh 下载，QA-BUILD 的 commit、version=0.1.20、platform=windows-x64、
+recording_feature=recording-windows-av-qa、signing=self-signed-qa-only 均核对一致。
+
+| 官方 QA 文件 | 字节数 | SHA-256 |
+|---|---:|---|
+| `Clippy_0.1.20_x64_en-US.msi` | 21155840 | `d25afe50e0e569cffd64548a5f3f979fca4ca8e2d2fb09babc97189d43b5e912` |
+| `Clippy_0.1.20_x64-setup.exe` | 16814408 | `29d7fbb982a9f74cdb10f94e68026665093904ecb254910a0dc0c5a90ce53a21` |
+| `QA-BUILD.txt` | 159 | `bda69a22f4e9732ff12863cb9bb153c1aff7f08da4e6c40fbf3ea4a6524b409e` |
+
+三个文件均匹配官方 SHA256SUMS。CI 上传前检查两包 Authenticode 为 Valid 且签名者 thumbprint
+为其临时证书 `1C03A60538874852C87573766DCBFF21EC1420B1`，该步骤成功。只读本机查询两包均为
+UnknownError，消息为证书链终止于不受信任根；签名主体 CN=Clippy Self-Signed Release，thumbprint
+与 CI 预期相同，存在 DigiCert 时间戳。未导入证书或修改本机信任；不能写成本机签名链 Valid。
+QA 自签名和包校验不证明 SmartScreen、安装、发行信任或 updater 工作。
+
+官方 MSI 另经 Windows Installer `OpenDatabase(path, 0)` 只读检查，读取前后 SHA-256 相同。
+[Microsoft 文档](https://learn.microsoft.com/en-us/windows/win32/msi/installer-opendatabase)明确该模式不持久化修改。
+ProductName=Clippy、ProductVersion=0.1.20、INSTALLDIR 位于 ProgramFiles64Folder；ALLUSERS=1，
+对应 [per-machine 安装范围](https://learn.microsoft.com/en-us/windows/win32/msi/allusers)。
+升级表使用 UpgradeCode `{FD731BCF-0B99-5F17-9EEE-900E4DF2CB97}`，VersionMin=0、无 VersionMax、
+Attributes=257、ActionProperty=WIX_UPGRADE_DETECTED；RemoveExistingProducts 序号 1501。
+包内有启动菜单、桌面及 msiexec 卸载快捷方式；WebView2 缺失条件触发 DownloadAndInvokeBootstrapper，
+与仓库 downloadBootstrapper 配置一致。这里只证明表项存在，未证明升级/卸载、下载失败处理或跨账户行为。
+本机已具备 WebView2，缺运行时/离线安装场景仍需独立环境。完整表项记录在
+`MSI-READONLY-INSPECTION.json`，只读检查不加入测试通过数。
+
+材料位于 `src-tauri/target/windows-native-qa/42e52c064aba36bb7e93a5e68a0cfb54f65c5b7b/`：
+`PACKAGE-VERIFICATION.json`、`LOCAL-SIGNATURE-OBSERVATION.json`、`CI-SIGNATURE-EVIDENCE.json`、
+`MSI-READONLY-INSPECTION.json`、`HANDOFF.md`、安装包与官方记录模板。
+官方 Windows 11 模板与同 SHA 本地生成模板字节相同，39 项均 not_run；testedAt 未填写。
+离线 Unicode/富文本/透明 RGBA PNG 夹具的字节哈希与像素已核对，仅证明测试材料可用。
+
+用户表示暂不能手动执行 Windows 11 单屏验收。W04–W07、Windows 10、真实音频、长时漂移、
+安装升级/updater 继续未完成；Linux 本地完整门禁和修改后的 Wayland 回归也未执行。
+全平台 QA workflow 最终 completed/success，四个平台 bundle 与 Ubuntu 24 X11 smoke 均成功；
+六份产物 manifest 的完整 SHA、run、未过期状态和 digest 均核对一致。Windows 包已下载并核对
+实际文件哈希；其它平台包未在本机执行，X11 smoke 不替代 Wayland 回归。
+没有合入 dev、发布或开启默认录屏。
