@@ -54,7 +54,8 @@ README 式验证报告与分阶段工具输出记录上述边界。后续只更�
 的三项原生检查均 completed/success；Windows 原生 job 110269660965 的完整下载日志记录
 前端 1291 passed、Rust 1040 passed / 5 ignored、Python 33 + 3 passed。Windows 录屏
 job 110269661020 的 clippy、VP9、Opus/WebM、会话恢复和 WASAPI 合同均 success。
-四项录屏原型中三项 success，macOS Intel 当时仍在运行；完整七项尚不计为通过。
+后续复核该 run 已 completed/success：同一 SHA 三项原生与四项录屏原型共七项全部 success。
+验证器逐项核对 run、job 和 GitHub Actions check-run 的身份、SHA 与结论；不继承旧提交结果。
 完整 Windows job 日志在调用项目 ignored `src-tauri/target/windowsps-ci-b2fd247-win-*.log`。
 本次只更新文档，后继文档 SHA 不冒称已执行门禁或远程 CI。
 
@@ -63,6 +64,10 @@ job 110269661020 的 clippy、VP9、Opus/WebM、会话恢复和 WASAPI 合同均
 不计为测试通过，也不据此认定产品缺陷。自己的 Vite 进程已收回，没有观察到匹配专用
 profile 的 Edge 残留进程。两次 RESULT.json 保存于调用项目 ignored target。
 
-旧 45769c9 的 CI/QA 包单独记录。39 项 Windows 11 桌面 QA、Windows 10、多屏、
-真实有声录屏、安装和 updater 保持未验证；没有安装 Clippy 或改变证书信任。
+45769c9 的 CI/QA 包单独记录，版本为 0.1.20；相对当前分支仅文档、门禁脚本与合同变化，生产代码一致。
+用户授权安装后，通过桌面工具启动 NSIS；用户报告安装完成，只读核对安装目录、程序版本与签名者一致。
+桌面运行时已恢复；用户明确授权恢复后，已启动安装版 Clippy 与普通权限记事本。
+两者进程均实际运行，但工具未取得可操作窗口；后续枚举被用户再次按 Esc 中止，桌面操作保持停止。
+39 项 Windows 11 桌面 QA 均未完成；Windows 10、多屏、真实有声录屏、MSI、升级卸载和 updater
+保持未验证；证书信任未变。
 Linux 门禁未启动，按用户要求停止该路线。CHANGELOG 与后续草稿 PR 使用 `WIN-PS-GATE-01`。

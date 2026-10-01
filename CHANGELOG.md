@@ -8,8 +8,9 @@
   版本改由 Node 输出、PowerShell 比较，保留最低版本门槛和命令失败检查；增加真实原生命令
   传输与版本边界合同。旧入口已在 Windows 11 复现；ef78a1f 的完整 Windows 原生及录屏 QA
   门禁 23 passed / 0 failed / 1 skipped（Linux smoke），前端 1291 项通过。文档后继 b2fd247
-  同 SHA 三项原生 CI 与 Windows 录屏原型 CI 已通过；完整七项仍待 macOS Intel 录屏任务。
-  Windows 浏览器渲染补测未产生截图，不计为通过；39 项桌面与安装尚未验证。
+  同 SHA 三项原生与四项录屏原型 CI 全部通过。
+  Windows 浏览器渲染补测未产生截图，不计为通过；39 项桌面验收尚未完成。
+  NSIS 安装落盘已核对，MSI、升级与卸载尚未验收。
   用户要求本阶段只测试 Windows，Linux/WSL 门禁未启动；后继文档提交不冒称已验证 SHA。
   （需求：`WIN-PS-GATE-01`）
 
