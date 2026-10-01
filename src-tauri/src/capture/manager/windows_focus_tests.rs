@@ -3,7 +3,7 @@
 use super::*;
 use crate::capture::{CaptureMode, CaptureModeGate};
 
-fn frame(
+pub(super) fn frame(
     id: u32,
     x: i32,
     y: i32,
@@ -22,11 +22,20 @@ fn frame(
         pixel_height: (height as f32 * sy).round() as u32,
         scale_x: sx,
         scale_y: sy,
+        physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+            x: (f64::from(x) * f64::from(sx)).round() as i32,
+            y: (f64::from(y) * f64::from(sy)).round() as i32,
+            width: (width as f32 * sx).round() as u32,
+            height: (height as f32 * sy).round() as u32,
+        }),
         rgba: Arc::from(Vec::new()),
     }
 }
 
-fn manager_with_frames(frames: Vec<CapturedMonitorFrame>, intent: CaptureIntent) -> CaptureManager {
+pub(super) fn manager_with_frames(
+    frames: Vec<CapturedMonitorFrame>,
+    intent: CaptureIntent,
+) -> CaptureManager {
     let manager = CaptureManager::new();
     let prefix = match intent {
         CaptureIntent::Screenshot => "capture-overlay",
@@ -39,6 +48,8 @@ fn manager_with_frames(frames: Vec<CapturedMonitorFrame>, intent: CaptureIntent)
             x: frame.x,
             y: frame.y,
             width: frame.logical_width,
+            #[cfg(target_os = "windows")]
+            physical_bounds: frame.physical_bounds,
             height: frame.logical_height,
         })
         .collect();
@@ -62,7 +73,12 @@ fn manager_with_frames(frames: Vec<CapturedMonitorFrame>, intent: CaptureIntent)
     manager
 }
 
-fn reveal_pair(manager: &CaptureManager, cursor: Option<(f64, f64)>, first: usize, owner: usize) {
+pub(super) fn reveal_pair(
+    manager: &CaptureManager,
+    cursor: Option<(f64, f64)>,
+    first: usize,
+    owner: usize,
+) {
     let labels: Vec<_> = manager
         .session
         .lock()

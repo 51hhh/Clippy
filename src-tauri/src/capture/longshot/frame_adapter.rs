@@ -13,6 +13,9 @@ use image::RgbaImage;
 
 const SCALE_TOLERANCE: f32 = 1e-4;
 
+#[cfg(all(test, target_os = "windows"))]
+mod windows_physical_tests;
+
 /// 首帧成功后冻结的连续帧几何事实。
 #[derive(Debug, Clone, Copy)]
 struct FrameSignature {
@@ -25,6 +28,7 @@ struct FrameSignature {
     pixel_height: u32,
     scale_x: f32,
     scale_y: f32,
+    physical_bounds: Option<crate::screenshot::PhysicalMonitorBounds>,
 }
 
 impl FrameSignature {
@@ -39,6 +43,7 @@ impl FrameSignature {
             pixel_height: frame.pixel_height,
             scale_x: frame.scale_x,
             scale_y: frame.scale_y,
+            physical_bounds: frame.physical_bounds,
         }
     }
 
@@ -50,6 +55,7 @@ impl FrameSignature {
             && self.logical_height == frame.logical_height
             && self.pixel_width == frame.pixel_width
             && self.pixel_height == frame.pixel_height
+            && self.physical_bounds == frame.physical_bounds
             && scales_close(self.scale_x, frame.scale_x)
             && scales_close(self.scale_y, frame.scale_y)
     }
@@ -72,6 +78,10 @@ impl LongshotFrameAdapter {
             return Err(CaptureError::SelectionMonitorMismatch);
         }
         validate_frame_metadata(frame)?;
+        #[cfg(target_os = "windows")]
+        if frame.validated_physical_bounds().is_none() {
+            return Err(CaptureError::LongshotFrameInvalid);
+        }
         validate_exact_rgba(frame)?;
         let crop = selection_pixel_rect(frame, selection)?;
         let image = crop_frame(frame, crop)?;
@@ -132,7 +142,7 @@ impl LongshotFrameAdapter {
     }
 
     /// Windows 的原生指针/命中 API 使用物理虚拟桌面坐标；其它已实现后端使用逻辑桌面坐标。
-    /// `signature.x/y` 已被截图层归一为逻辑坐标，而 `crop` 始终是物理像素，所以两条换算不能混用。
+    /// 物理原点必须来自首帧原生边界；已取整的逻辑原点不能乘 DPI 恢复。
     fn scroll_target_for_coordinate_space(
         &self,
         windows_physical: bool,
@@ -142,9 +152,18 @@ impl LongshotFrameAdapter {
         let scale_x = f64::from(self.signature.scale_x);
         let scale_y = f64::from(self.signature.scale_y);
         let (x, y) = if windows_physical {
+            let bounds = self
+                .signature
+                .physical_bounds
+                .filter(|bounds| {
+                    bounds.is_valid()
+                        && bounds.width == self.signature.pixel_width
+                        && bounds.height == self.signature.pixel_height
+                })
+                .ok_or(CaptureError::LongshotFrameInvalid)?;
             (
-                f64::from(self.signature.x) * scale_x + center_x,
-                f64::from(self.signature.y) * scale_y + center_y,
+                f64::from(bounds.x) + center_x,
+                f64::from(bounds.y) + center_y,
             )
         } else {
             (
@@ -347,7 +366,7 @@ mod tests {
     use image::imageops;
     use std::sync::Arc;
 
-    fn selection(x: f64, y: f64, width: f64, height: f64) -> CaptureSelection {
+    pub(super) fn selection(x: f64, y: f64, width: f64, height: f64) -> CaptureSelection {
         CaptureSelection {
             session_id: "adapter-test".to_string(),
             monitor_id: 7,
@@ -359,7 +378,7 @@ mod tests {
     }
 
     #[allow(clippy::too_many_arguments)] // 测试需逐项表达帧几何、缩放与种子，避免为此新增生产抽象。
-    fn encoded_frame(
+    pub(super) fn encoded_frame(
         x: i32,
         y: i32,
         logical_width: u32,
@@ -392,6 +411,12 @@ mod tests {
             pixel_height,
             scale_x,
             scale_y,
+            physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                x: (f64::from(x) * f64::from(scale_x)).round() as i32,
+                y: (f64::from(y) * f64::from(scale_y)).round() as i32,
+                width: pixel_width,
+                height: pixel_height,
+            }),
             rgba: Arc::from(rgba),
         }
     }
@@ -696,6 +721,12 @@ mod tests {
                 pixel_height: u32::MAX,
                 scale_x: 1.0,
                 scale_y: 1.0,
+                physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                    x: 0,
+                    y: 0,
+                    width: u32::MAX,
+                    height: u32::MAX,
+                }),
                 rgba: Arc::from(Vec::<u8>::new()),
             },
         ] {
@@ -849,6 +880,12 @@ mod tests {
             pixel_height: 100,
             scale_x: 1.0,
             scale_y: 1.0,
+            physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                x: 0,
+                y: 0,
+                width: 80,
+                height: 100,
+            }),
             rgba: Arc::from(bytes),
         }
     }

@@ -14,6 +14,9 @@ use std::sync::Arc;
 mod backends;
 mod geometry_check;
 
+#[cfg(all(test, target_os = "windows"))]
+mod windows_physical_tests;
+
 /// GNOME Wayland 的首选取像素路径：Mutter 的 PipeWire 屏幕流，不经过 PNG。
 #[cfg(target_os = "linux")]
 mod screencast;
@@ -57,6 +60,33 @@ struct FrozenFrame {
     width: u32,
     height: u32,
     scale_factor: f32,
+    physical_bounds: Option<PhysicalMonitorBounds>,
+}
+
+/// Windows xcap 的原始物理虚拟桌面边界；其它平台不提供此坐标空间。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PhysicalMonitorBounds {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl PhysicalMonitorBounds {
+    pub(crate) fn is_valid(self) -> bool {
+        self.width > 0
+            && self.height > 0
+            && self.x.checked_add_unsigned(self.width).is_some()
+            && self.y.checked_add_unsigned(self.height).is_some()
+    }
+
+    #[cfg(target_os = "windows")]
+    pub(crate) fn contains(self, x: f64, y: f64) -> bool {
+        x >= f64::from(self.x)
+            && x < f64::from(self.x) + f64::from(self.width)
+            && y >= f64::from(self.y)
+            && y < f64::from(self.y) + f64::from(self.height)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -70,7 +100,26 @@ pub(crate) struct CapturedMonitorFrame {
     pub pixel_height: u32,
     pub scale_x: f32,
     pub scale_y: f32,
+    pub physical_bounds: Option<PhysicalMonitorBounds>,
     pub rgba: Arc<[u8]>,
+}
+
+impl CapturedMonitorFrame {
+    /// 缺失或与冻结帧不符的原生几何不能由逻辑原点反推补齐。
+    #[cfg(target_os = "windows")]
+    pub(crate) fn validated_physical_bounds(&self) -> Option<PhysicalMonitorBounds> {
+        self.physical_bounds.filter(|bounds| {
+            bounds.is_valid()
+                && bounds.width == self.pixel_width
+                && bounds.height == self.pixel_height
+                && self.logical_width > 0
+                && self.logical_height > 0
+                && self.scale_x.is_finite()
+                && self.scale_y.is_finite()
+                && self.scale_x > 0.0
+                && self.scale_y > 0.0
+        })
+    }
 }
 
 /// Wayland 录屏在 Portal 交互前重新取得的显示器身份与两套几何。
@@ -112,6 +161,13 @@ struct ImageRect {
 /// 捕获冻结帧。
 pub(crate) fn capture_monitor_frames() -> Result<Vec<CapturedMonitorFrame>> {
     let (monitors, frames) = capture_all_monitors()?;
+    captured_frames_from(monitors, frames)
+}
+
+fn captured_frames_from(
+    monitors: Vec<MonitorInfo>,
+    frames: Vec<FrozenFrame>,
+) -> Result<Vec<CapturedMonitorFrame>> {
     frames
         .into_iter()
         .map(|frame| {
@@ -129,7 +185,7 @@ pub(crate) fn capture_monitor_frames() -> Result<Vec<CapturedMonitorFrame>> {
             } else {
                 frame.scale_factor
             };
-            Ok(CapturedMonitorFrame {
+            let captured = CapturedMonitorFrame {
                 monitor_id: frame.monitor_id,
                 x: monitor.rect.x,
                 y: monitor.rect.y,
@@ -139,8 +195,16 @@ pub(crate) fn capture_monitor_frames() -> Result<Vec<CapturedMonitorFrame>> {
                 pixel_height: frame.height,
                 scale_x,
                 scale_y,
+                physical_bounds: frame.physical_bounds,
                 rgba: frame.rgba,
-            })
+            };
+            #[cfg(target_os = "windows")]
+            anyhow::ensure!(
+                captured.validated_physical_bounds().is_some(),
+                "显示器 {} 的原始物理边界与冻结帧不一致",
+                captured.monitor_id
+            );
+            Ok(captured)
         })
         .collect()
 }

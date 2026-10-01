@@ -1,11 +1,12 @@
 //! 截图覆盖层窗口的创建与生命周期。
 //!
-//! **不要用 Tauri 的 `position()` / `set_position()` / `set_size()` 来摆覆盖层。**
+//! **Wayland 不用 Tauri 的 `position()` / `set_position()` / `set_size()` 摆覆盖层。**
 //! Wayland 协议不允许客户端决定自己的位置，GNOME 会直接忽略这些调用，窗口既不在正确的
 //! 显示器上、也不是显示器尺寸，webview 背景透出来就是用户看到的"截图全黑"。
 //! 参考 flashot（MIT）的做法：拿到底层 GTK 窗口，用 `fullscreen_on_monitor` 让**合成器**
 //! 把窗口铺满目标显示器；目标显示器按"与冻结帧矩形重叠面积最大"从 GDK 显示器里挑，
 //! 而不是相信我们自己传进去的坐标。
+//! Windows 隐藏建窗后使用冻结帧的原始物理边界，避免逐屏逻辑原点取整和当前 DPI 歧义。
 
 use super::error::CaptureError;
 use super::manager::{CaptureManager, CaptureStart};
@@ -78,13 +79,14 @@ where
 }
 
 fn build_overlay(app: &tauri::AppHandle, spec: &OverlaySpec) -> Result<(), CaptureError> {
+    #[cfg(target_os = "windows")]
+    let _ = overlay_geometry(spec)?;
     let builder = tauri::WebviewWindowBuilder::new(
         app,
         &spec.label,
         tauri::WebviewUrl::App(format!("capture-overlay.html?label={}", spec.label).into()),
     )
     .title("")
-    .position(spec.x as f64, spec.y as f64)
     .inner_size(spec.width as f64, spec.height as f64)
     .decorations(false)
     .skip_taskbar(true)
@@ -96,6 +98,9 @@ fn build_overlay(app: &tauri::AppHandle, spec: &OverlaySpec) -> Result<(), Captu
     .background_color(tauri::window::Color(0, 0, 0, 255))
     // 隐藏建窗，等前端把冻结帧画完再显示（见 `READY_FALLBACK_MS`）。
     .visible(false);
+    // Windows 的逻辑提示会按各屏 DPI 产生多个候选；等隐藏窗口存在后再提交物理位置。
+    #[cfg(not(target_os = "windows"))]
+    let builder = builder.position(spec.x as f64, spec.y as f64);
     #[cfg(target_os = "linux")]
     let builder = if crate::platform::is_wayland() {
         builder
@@ -326,16 +331,39 @@ pub(in crate::capture) fn configure_platform_overlay(
     window: &tauri::WebviewWindow,
     spec: &OverlaySpec,
 ) -> Result<(), CaptureError> {
+    let (position, size) = overlay_geometry(spec)?;
     window
-        .set_position(tauri::LogicalPosition::new(spec.x as f64, spec.y as f64))
+        .set_position(position)
         .map_err(CaptureError::window)?;
-    window
-        .set_size(tauri::LogicalSize::new(
-            spec.width as f64,
-            spec.height as f64,
-        ))
-        .map_err(CaptureError::window)
+    window.set_size(size).map_err(CaptureError::window)
 }
+
+#[cfg(not(target_os = "linux"))]
+pub(in crate::capture) fn overlay_geometry(
+    spec: &OverlaySpec,
+) -> Result<(tauri::Position, tauri::Size), CaptureError> {
+    #[cfg(target_os = "windows")]
+    {
+        let bounds = spec
+            .physical_bounds
+            .filter(|bounds| bounds.is_valid())
+            .ok_or_else(|| {
+                CaptureError::OverlayCreate("缺少有效的冻结物理显示器边界".to_string())
+            })?;
+        Ok((
+            tauri::PhysicalPosition::new(bounds.x, bounds.y).into(),
+            tauri::PhysicalSize::new(bounds.width, bounds.height).into(),
+        ))
+    }
+    #[cfg(not(target_os = "windows"))]
+    Ok((
+        tauri::LogicalPosition::new(spec.x as f64, spec.y as f64).into(),
+        tauri::LogicalSize::new(spec.width as f64, spec.height as f64).into(),
+    ))
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod windows_physical_tests;
 
 pub(super) fn hide_sources(app: &tauri::AppHandle) -> Vec<String> {
     ["main", "launcher"]
@@ -382,6 +410,13 @@ mod tests {
             x: 0,
             y: 0,
             width: 100,
+            #[cfg(target_os = "windows")]
+            physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                x: 0,
+                y: 0,
+                width: 100,
+                height: 100,
+            }),
             height: 100,
         }
     }

@@ -483,6 +483,7 @@ fn solid_frame(
 ) -> FrozenFrame {
     FrozenFrame {
         monitor_id,
+        physical_bounds: None,
         rgba: Arc::from(solid_rgba(width, height, color)),
         width,
         height,

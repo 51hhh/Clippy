@@ -22,6 +22,9 @@
 use super::shell_extension::ShellWindow;
 use super::types::WindowCandidate;
 use crate::screenshot::CapturedMonitorFrame;
+
+#[cfg(all(test, target_os = "windows"))]
+mod windows_physical_tests;
 use std::collections::HashMap;
 
 /// 窗口矩形，单位随上下文（先是 X 像素，折算后是逻辑像素）。
@@ -376,7 +379,7 @@ fn append_window_intersections(
     }
 }
 
-/// DWM 矩形是物理桌面坐标；每块帧有自己的逻辑原点和像素比例，不能共用窗口所在屏的除数。
+/// DWM 与冻结边界都在物理桌面空间；先求局部交集，再按每帧各轴比例换算。
 #[cfg(target_os = "windows")]
 fn append_windows_window_intersections(
     result: &mut HashMap<u32, Vec<WindowCandidate>>,
@@ -385,27 +388,21 @@ fn append_windows_window_intersections(
     title: &str,
 ) {
     for frame in frames {
+        let Some(bounds) = frame.validated_physical_bounds() else {
+            continue;
+        };
         let scale_x = f64::from(frame.scale_x);
         let scale_y = f64::from(frame.scale_y);
-        if !scale_x.is_finite()
-            || !scale_y.is_finite()
-            || scale_x <= 0.0
-            || scale_y <= 0.0
-            || frame.logical_width == 0
-            || frame.logical_height == 0
-            || frame.pixel_width == 0
-            || frame.pixel_height == 0
-        {
-            continue;
-        }
-        let origin_x = f64::from(frame.x);
-        let origin_y = f64::from(frame.y);
-        let left = (f64::from(physical.x) / scale_x - origin_x).max(0.0);
-        let top = (f64::from(physical.y) / scale_y - origin_y).max(0.0);
-        let right = ((f64::from(physical.x) + f64::from(physical.width)) / scale_x - origin_x)
-            .min(f64::from(frame.logical_width));
-        let bottom = ((f64::from(physical.y) + f64::from(physical.height)) / scale_y - origin_y)
-            .min(f64::from(frame.logical_height));
+        let origin_x = f64::from(bounds.x);
+        let origin_y = f64::from(bounds.y);
+        let left = (f64::from(physical.x) - origin_x).max(0.0) / scale_x;
+        let top = (f64::from(physical.y) - origin_y).max(0.0) / scale_y;
+        let right = (f64::from(physical.x) + f64::from(physical.width) - origin_x)
+            .min(f64::from(bounds.width))
+            / scale_x;
+        let bottom = (f64::from(physical.y) + f64::from(physical.height) - origin_y)
+            .min(f64::from(bounds.height))
+            / scale_y;
         let width = right - left;
         let height = bottom - top;
         if width < f64::from(MIN_CANDIDATE_SIZE) || height < f64::from(MIN_CANDIDATE_SIZE) {
@@ -730,6 +727,12 @@ mod tests {
             pixel_height: 1080,
             scale_x: 1.0,
             scale_y: 1.0,
+            physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                x: 1920,
+                y: 0,
+                width: 1920,
+                height: 1080,
+            }),
             rgba: std::sync::Arc::from(Vec::new()),
         }];
         // 窗口跨过两个显示器，只有右半边落在这个帧上。
@@ -758,6 +761,12 @@ mod tests {
             pixel_height: 1600,
             scale_x: 4.0 / 3.0,
             scale_y: 4.0 / 3.0,
+            physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                x: (f64::from(0) * f64::from(4.0 / 3.0)).round() as i32,
+                y: (f64::from(0) * f64::from(4.0 / 3.0)).round() as i32,
+                width: 2560,
+                height: 1600,
+            }),
             rgba: std::sync::Arc::from(Vec::new()),
         }
     }
@@ -922,6 +931,12 @@ mod tests {
             pixel_height: 1080,
             scale_x: 1.0,
             scale_y: 1.0,
+            physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                x: 0,
+                y: 0,
+                width: 1920,
+                height: 1080,
+            }),
             rgba: std::sync::Arc::from(Vec::new()),
         }];
         append_window_intersections(&mut result, &frames, rect(1915, 100, 400, 300), "sliver");

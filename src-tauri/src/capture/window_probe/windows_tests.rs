@@ -2,7 +2,14 @@
 
 use super::*;
 
-fn frame(id: u32, x: i32, y: i32, width: u32, height: u32, scale: f32) -> CapturedMonitorFrame {
+pub(super) fn frame(
+    id: u32,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    scale: f32,
+) -> CapturedMonitorFrame {
     CapturedMonitorFrame {
         monitor_id: id,
         x,
@@ -13,11 +20,17 @@ fn frame(id: u32, x: i32, y: i32, width: u32, height: u32, scale: f32) -> Captur
         pixel_height: (height as f32 * scale).round() as u32,
         scale_x: scale,
         scale_y: scale,
+        physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+            x: (f64::from(x) * f64::from(scale)).round() as i32,
+            y: (f64::from(y) * f64::from(scale)).round() as i32,
+            width: (width as f32 * scale).round() as u32,
+            height: (height as f32 * scale).round() as u32,
+        }),
         rgba: std::sync::Arc::from(Vec::new()),
     }
 }
 
-fn candidates(
+pub(super) fn candidates(
     frames: &[CapturedMonitorFrame],
     raw: ProbeRect,
 ) -> HashMap<u32, Vec<WindowCandidate>> {
@@ -26,7 +39,11 @@ fn candidates(
     result
 }
 
-fn assert_candidate(result: &HashMap<u32, Vec<WindowCandidate>>, id: u32, expected: [f64; 4]) {
+pub(super) fn assert_candidate(
+    result: &HashMap<u32, Vec<WindowCandidate>>,
+    id: u32,
+    expected: [f64; 4],
+) {
     let candidates = result.get(&id).expect("该显示器上必须保留窗口的可见部分");
     assert_eq!(candidates.len(), 1);
     let candidate = &candidates[0];

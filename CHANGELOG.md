@@ -2,6 +2,16 @@
 
 ## 未发布
 
+### 2026-10-01 Windows 冻结显示器物理边界
+
+- 修复截图逻辑原点取整后反算物理坐标的一像素误差，以及覆盖层/长截图 guide 使用逻辑
+  位置提示造成的多屏歧义。原始 Windows xcap 物理边界随冻结帧保留；窗口请求直接使用
+  PhysicalPosition/PhysicalSize，光标归属、窗口速选和长截图滚动点使用同一边界，重捕获
+  拒绝物理位置漂移。缺失/不匹配/空/溢出边界不猜测；其它平台定位和 Pin 来源 IPC 保持。
+  MSVC 实际旧算法红基线 1 passed / 15 failed，同一十六项离线回归修复后通过；完整门禁待记录。
+  真实窗口/DPI 事件、Windows 10/多屏、Pin/WGC 原点身份、新 SHA CI 和其它宿主仍未验。
+  （需求：`WIN-NATIVE-MONITOR-01`；见 `docs/superpowers/specs/2026-10-01-windows-physical-monitor-bounds.md`）
+
 ### 2026-10-01 Windows 覆盖层键盘焦点归属
 
 - 修复截图/录屏覆盖层把物理光标直接与逻辑显示器矩形比较，导致缩放双屏选错键盘焦点的问题。

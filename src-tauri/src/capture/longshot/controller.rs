@@ -497,6 +497,12 @@ mod tests {
             pixel_height,
             scale_x: 1.0,
             scale_y: 1.0,
+            physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                x: -20,
+                y: 30,
+                width: pixel_width,
+                height: pixel_height,
+            }),
             rgba: Arc::from(image.into_raw()),
         }
     }
@@ -1033,6 +1039,12 @@ mod tests {
             pixel_height: 108,
             scale_x: 1.25,
             scale_y: 1.5,
+            physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                x: -2400,
+                y: -180,
+                width: 80,
+                height: 108,
+            }),
             rgba: Arc::from(panorama(80, 108, 28).into_raw()),
         };
         let (capture, mut selection, _) =

@@ -318,6 +318,12 @@ fn open_builder_failure_uses_real_validation_and_preserves_ordinary_resources() 
         pixel_height: 80,
         scale_x: 1.0,
         scale_y: 1.0,
+        physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 80,
+        }),
         rgba: Arc::from(vec![255; 100 * 80 * 4]),
     };
     let start = manager

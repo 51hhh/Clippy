@@ -8,6 +8,9 @@ use super::types::{
 use super::window_probe::probe_windows;
 use super::{CaptureAction, CommitImage};
 use crate::screenshot::CapturedMonitorFrame;
+
+#[cfg(all(test, target_os = "windows"))]
+mod windows_physical_tests;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -206,6 +209,8 @@ pub(super) struct LongshotGuideSpec {
     pub(super) monitor_y: i32,
     pub(super) monitor_width: u32,
     pub(super) monitor_height: u32,
+    #[cfg(target_os = "windows")]
+    pub(super) physical_bounds: Option<crate::screenshot::PhysicalMonitorBounds>,
     pub(super) selection_x: f64,
     pub(super) selection_y: f64,
     pub(super) selection_width: f64,
@@ -308,7 +313,7 @@ pub(super) struct RevealPlan {
     pub take_focus: bool,
 }
 
-/// Windows 光标是物理虚拟桌面点；按这块冻结帧的比例比较，不能直接放进逻辑矩形。
+/// Windows 光标直接命中冻结时的物理边界，不从已取整的逻辑原点反算。
 #[cfg(target_os = "windows")]
 fn physical_cursor_hits_overlay(
     spec: &OverlaySpec,
@@ -316,25 +321,18 @@ fn physical_cursor_hits_overlay(
     x: f64,
     y: f64,
 ) -> bool {
-    let sx = f64::from(frame.scale_x);
-    let sy = f64::from(frame.scale_y);
+    let Some(bounds) = frame.validated_physical_bounds() else {
+        return false;
+    };
     if !x.is_finite()
         || !y.is_finite()
-        || !sx.is_finite()
-        || !sy.is_finite()
-        || sx <= 0.0
-        || sy <= 0.0
-        || frame.logical_width == 0
-        || frame.logical_height == 0
-        || frame.pixel_width == 0
-        || frame.pixel_height == 0
+        || spec.physical_bounds != Some(bounds)
         || (spec.x, spec.y, spec.width, spec.height)
             != (frame.x, frame.y, frame.logical_width, frame.logical_height)
     {
         return false;
     }
-    // 等价于先减该帧逻辑原点再与局部边界比较；原点舍入沿用冻结帧事实。
-    spec.contains(x / sx, y / sy)
+    bounds.contains(x, y)
 }
 
 impl CaptureManager {
@@ -374,6 +372,8 @@ impl CaptureManager {
                 y: frame.y,
                 width: frame.logical_width,
                 height: frame.logical_height,
+                #[cfg(target_os = "windows")]
+                physical_bounds: frame.physical_bounds,
             })
             .collect();
         let mut current = match self.session.lock() {
@@ -745,6 +745,10 @@ impl CaptureManager {
         if session.output.is_some() {
             return Err(CaptureError::SessionBusy);
         }
+        #[cfg(target_os = "windows")]
+        if caller_frame.validated_physical_bounds().is_none() {
+            return Err(CaptureError::LongshotFrameInvalid);
+        }
         let crop = selection_pixel_rect(caller_frame, selection)?;
         if crop.width() < 8 || crop.height() < 24 {
             return Err(CaptureError::LongshotEstimateTooSmall);
@@ -754,6 +758,8 @@ impl CaptureManager {
             monitor_y: caller_frame.y,
             monitor_width: caller_frame.logical_width,
             monitor_height: caller_frame.logical_height,
+            #[cfg(target_os = "windows")]
+            physical_bounds: caller_frame.physical_bounds,
             selection_x: f64::from(crop.left) / f64::from(caller_frame.scale_x),
             selection_y: f64::from(crop.top) / f64::from(caller_frame.scale_y),
             selection_width: f64::from(crop.width()) / f64::from(caller_frame.scale_x),
@@ -1183,6 +1189,13 @@ mod tests {
             x: 0,
             y: 0,
             width: 100,
+            #[cfg(target_os = "windows")]
+            physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                x: 0,
+                y: 0,
+                width: 100,
+                height: 50,
+            }),
             height: 50,
         }
     }
@@ -1201,6 +1214,12 @@ mod tests {
             pixel_height,
             scale_x: scale,
             scale_y: scale,
+            physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                x: (f64::from(0) * f64::from(scale)).round() as i32,
+                y: (f64::from(0) * f64::from(scale)).round() as i32,
+                width: pixel_width,
+                height: pixel_height,
+            }),
             rgba: Arc::from(vec![255; pixel_width as usize * pixel_height as usize * 4]),
         }
     }
@@ -1705,6 +1724,13 @@ mod tests {
                     x: 0,
                     y: 0,
                     width: 1920,
+                    #[cfg(target_os = "windows")]
+                    physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                        x: 0,
+                        y: 0,
+                        width: 1920,
+                        height: 1200,
+                    }),
                     height: 1200,
                 },
                 OverlaySpec {
@@ -1712,6 +1738,13 @@ mod tests {
                     x: 1920,
                     y: 0,
                     width: 1920,
+                    #[cfg(target_os = "windows")]
+                    physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                        x: 1920,
+                        y: 0,
+                        width: 1920,
+                        height: 1200,
+                    }),
                     height: 1200,
                 },
             ],
@@ -1734,6 +1767,12 @@ mod tests {
                     pixel_height: 1200,
                     scale_x: 1.0,
                     scale_y: 1.0,
+                    physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                        x: x,
+                        y: 0,
+                        width: 1920,
+                        height: 1200,
+                    }),
                     rgba: Arc::from(Vec::new()),
                 })
                 .collect(),
@@ -1969,6 +2008,12 @@ mod tests {
         let mut source = frame(2.0);
         source.x = -100;
         source.y = 30;
+        source.physical_bounds = Some(crate::screenshot::PhysicalMonitorBounds {
+            x: -200,
+            y: 60,
+            width: 200,
+            height: 100,
+        });
         let start = manager
             .begin(
                 vec![source],
@@ -1993,6 +2038,13 @@ mod tests {
                 monitor_y: 30,
                 monitor_width: 100,
                 monitor_height: 50,
+                #[cfg(target_os = "windows")]
+                physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                    x: -200,
+                    y: 60,
+                    width: 200,
+                    height: 100,
+                }),
                 selection_x: 1.0,
                 selection_y: 2.0,
                 selection_width: 30.5,

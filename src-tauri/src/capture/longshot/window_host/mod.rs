@@ -60,13 +60,16 @@ fn build_guide_window(
     guide: LongshotGuideSpec,
 ) -> Result<(), String> {
     let label = guide_label(controller_label).ok_or_else(|| "长截图控制窗标签无效".to_string())?;
+    let overlay = guide_overlay_spec(label.clone(), guide);
+    #[cfg(target_os = "windows")]
+    let _ = crate::capture::overlay_windows::overlay_geometry(&overlay)
+        .map_err(|error| error.to_string())?;
     let url = format!(
         "longshot-guide.html?x={}&y={}&width={}&height={}",
         guide.selection_x, guide.selection_y, guide.selection_width, guide.selection_height
     );
     let builder = tauri::WebviewWindowBuilder::new(app, &label, tauri::WebviewUrl::App(url.into()))
         .title("")
-        .position(guide.monitor_x as f64, guide.monitor_y as f64)
         .inner_size(guide.monitor_width as f64, guide.monitor_height as f64)
         .decorations(false)
         .transparent(true)
@@ -77,6 +80,8 @@ fn build_guide_window(
         .focusable(false)
         .focused(false)
         .visible(false);
+    #[cfg(not(target_os = "windows"))]
+    let builder = builder.position(guide.monitor_x as f64, guide.monitor_y as f64);
     // 与截图覆盖层保持同一平台策略：Wayland 不支持客户端声明全局置顶，
     // 目标显示器全屏已足以避免依赖全局坐标；X11/Windows/macOS 仍请求置顶。
     #[cfg(target_os = "linux")]
@@ -92,13 +97,6 @@ fn build_guide_window(
         let _ = window.destroy();
         return Err(error.to_string());
     }
-    let overlay = OverlaySpec {
-        label,
-        x: guide.monitor_x,
-        y: guide.monitor_y,
-        width: guide.monitor_width,
-        height: guide.monitor_height,
-    };
     if let Err(error) =
         crate::capture::overlay_windows::configure_platform_overlay(&window, &overlay)
     {
@@ -106,6 +104,21 @@ fn build_guide_window(
         return Err(error.to_string());
     }
     Ok(())
+}
+
+pub(in crate::capture) fn guide_overlay_spec(
+    label: String,
+    guide: LongshotGuideSpec,
+) -> OverlaySpec {
+    OverlaySpec {
+        label,
+        x: guide.monitor_x,
+        y: guide.monitor_y,
+        width: guide.monitor_width,
+        height: guide.monitor_height,
+        #[cfg(target_os = "windows")]
+        physical_bounds: guide.physical_bounds,
+    }
 }
 
 mod model;
