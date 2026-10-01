@@ -9,6 +9,12 @@
 
 ## 当前续审状态
 
+- W50 / `REC-AV-STARTUP-GATE-01`：独立 `codex/recording-av-startup-gate`，基于 `cc5f7af`。
+  原生产入口在视频 factory 等待时已轮询音频五次；新三项红、原三项 AV 绿，修复后同六项绿。
+  两个 factory 都完成后才释放 pipeline 采集，等待取消/同线程回收回归与新干净 SHA 的
+  完整 Windows 门禁及隔离 QA release 待核对；不扩大队列、不改原生 constructor。
+  真实 native 缓冲/设备/当前 CI/其它宿主与桌面仍未验，原 W49 历史证据保持。
+
 - W49 / `WIN-QA-CRT-DISCOVERY-01`：独立 `codex/windows-qa-crt-discovery`，基于 `263a2e7`。
   QA 从仅 VC143 改为已发布 v14 desktop x64 家族发现，按数字版本选最新，歧义/不可信
   新版失败关闭，原文件级校验保留。原新增 24 项红 12/12，旧五十项通过；同组绿后增加

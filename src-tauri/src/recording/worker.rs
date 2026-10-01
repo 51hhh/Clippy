@@ -92,6 +92,7 @@ enum ControlCommand {
 pub(super) struct CaptureWorker {
     control: SyncSender<ControlCommand>,
     stop_requested: Arc<AtomicBool>,
+    startup_pending: Arc<AtomicBool>,
     join: Option<JoinHandle<Result<CaptureWorkerReport, CaptureWorkerError>>>,
 }
 
@@ -120,10 +121,39 @@ impl CaptureWorker {
         F: FnOnce() -> Result<S, String> + Send + 'static,
         S: RecordingFrameSource,
     {
+        Self::spawn_with_start(factory, pipeline, frames_per_second, None)
+    }
+
+    /// 双轨 owner 在两个 factory 都就绪后释放；source 仍在本 worker 线程创建和销毁。
+    pub fn spawn_with_factory_gated<F, S>(
+        factory: F,
+        pipeline: Arc<RecordingPipeline>,
+        frames_per_second: u32,
+        start: Receiver<()>,
+    ) -> Result<Self, CaptureWorkerError>
+    where
+        F: FnOnce() -> Result<S, String> + Send + 'static,
+        S: RecordingFrameSource,
+    {
+        Self::spawn_with_start(factory, pipeline, frames_per_second, Some(start))
+    }
+
+    fn spawn_with_start<F, S>(
+        factory: F,
+        pipeline: Arc<RecordingPipeline>,
+        frames_per_second: u32,
+        start: Option<Receiver<()>>,
+    ) -> Result<Self, CaptureWorkerError>
+    where
+        F: FnOnce() -> Result<S, String> + Send + 'static,
+        S: RecordingFrameSource,
+    {
         let interval = capture_interval(frames_per_second)?;
         let (control, commands) = mpsc::sync_channel(CONTROL_QUEUE_CAPACITY);
         let (ready, initialized) = mpsc::sync_channel(1);
         let stop_requested = Arc::new(AtomicBool::new(false));
+        let startup_pending = Arc::new(AtomicBool::new(start.is_some()));
+        let worker_pending = Arc::clone(&startup_pending);
         let worker_stop = Arc::clone(&stop_requested);
         let worker_pipeline = Arc::clone(&pipeline);
         let join = thread::Builder::new()
@@ -148,12 +178,19 @@ impl CaptureWorker {
                     let _ = worker_pipeline.abort();
                     return Err(CaptureWorkerError::ControlDisconnected);
                 }
+                let released = super::worker_start::wait_for_start(start, &worker_stop);
+                worker_pending.store(false, Ordering::Release);
+                if !released {
+                    let _ = worker_pipeline.abort();
+                    return Err(CaptureWorkerError::ControlDisconnected);
+                }
                 run_loop(source, &worker_pipeline, commands, &worker_stop, interval)
             })
             .map_err(|error| CaptureWorkerError::ThreadSpawn(error.to_string()))?;
         let mut worker = Self {
             control,
             stop_requested,
+            startup_pending,
             join: Some(join),
         };
         match initialized.recv() {
@@ -180,7 +217,12 @@ impl CaptureWorker {
     pub fn stop(mut self) -> Result<CaptureWorkerReport, CaptureWorkerError> {
         // 正常停止必须由采集线程从帧源读取同一时钟域的终点，不能由 owner 的本地时钟代替。
         // 通道已经断开时仍然 join，以返回采集线程的原始错误。
-        let _ = self.control.send(ControlCommand::Stop);
+        if self.startup_pending.load(Ordering::Acquire) {
+            // 尚未释放时没有采集循环消费 Stop；直接取消等待，不能在 join 中等 owner 发信号。
+            self.stop_requested.store(true, Ordering::Release);
+        } else {
+            let _ = self.control.send(ControlCommand::Stop);
+        }
         self.join_inner()
     }
 
@@ -848,5 +890,10 @@ mod tests {
         );
         while pipeline.pop().unwrap().is_some() {}
         assert!(matches!(pipeline.pop_wait(), Err(PipelineError::Aborted)));
+    }
+
+    mod startup_tests {
+        use super::*;
+        include!("worker/startup_tests.rs");
     }
 }

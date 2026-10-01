@@ -18,7 +18,7 @@ use super::mux::opus_webm::{OpusPacketEncoder, OpusWebmError};
 use super::pipeline::{PipelineError, RecordingPipeline};
 use super::worker::{CaptureWorker, CaptureWorkerError, CaptureWorkerReport, RecordingFrameSource};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
 use thiserror::Error;
 
 #[derive(Debug, Clone)]
@@ -61,6 +61,8 @@ pub(super) enum AvRecordingSessionError {
     ReportMismatch,
     #[error("双轨录屏会话资源已经被消费")]
     AlreadySettled,
+    #[error("双轨录屏采集在启动释放前已取消")]
+    StartupCancelled,
 }
 
 #[derive(Debug)]
@@ -175,10 +177,13 @@ impl AvRecordingSession {
                 return Err(error.into());
             }
         };
-        let audio_capture = match AudioCaptureWorker::spawn_with_factory(
+        let (audio_start, audio_release) = mpsc::sync_channel(1);
+        let (video_start, video_release) = mpsc::sync_channel(1);
+        let audio_capture = match AudioCaptureWorker::spawn_with_factory_gated(
             audio_factory,
             clock.clone(),
             Arc::clone(&audio_pipeline),
+            audio_release,
         ) {
             Ok(capture) => capture,
             Err(error) => {
@@ -188,19 +193,34 @@ impl AvRecordingSession {
             }
         };
         let video_clock = clock;
-        let video_capture = match CaptureWorker::spawn_with_factory(
+        let video_capture = match CaptureWorker::spawn_with_factory_gated(
             move || video_factory(video_clock),
             Arc::clone(&video_pipeline),
             config.frames_per_second,
+            video_release,
         ) {
             Ok(capture) => capture,
             Err(error) => {
+                drop(audio_start);
+                drop(video_start);
                 drop(audio_capture);
                 drop(encoder);
                 discard_failed_start(app_data_dir, &session_id);
                 return Err(error.into());
             }
         };
+        // 两个 factory 都完成后才进入采集循环；失败时先关释放通道，再回收 worker。
+        if video_start.send(()).is_err() || audio_start.send(()).is_err() {
+            drop(audio_start);
+            drop(video_start);
+            let _ = video_pipeline.abort();
+            let _ = audio_pipeline.abort();
+            drop(video_capture);
+            drop(audio_capture);
+            drop(encoder);
+            discard_failed_start(app_data_dir, &session_id);
+            return Err(AvRecordingSessionError::StartupCancelled);
+        }
         Ok(Self {
             video_pipeline,
             audio_pipeline,
@@ -732,5 +752,10 @@ mod tests {
             .join("recordings")
             .join("av-session-start-failure")
             .exists());
+    }
+
+    mod startup_tests {
+        use super::*;
+        include!("av_session/startup_tests.rs");
     }
 }

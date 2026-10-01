@@ -91,6 +91,7 @@ enum ControlCommand {
 pub(super) struct AudioCaptureWorker {
     control: SyncSender<ControlCommand>,
     stop_requested: Arc<AtomicBool>,
+    startup_pending: Arc<AtomicBool>,
     join: Option<JoinHandle<Result<AudioCaptureWorkerReport, AudioCaptureWorkerError>>>,
 }
 
@@ -105,9 +106,38 @@ impl AudioCaptureWorker {
         F: FnOnce(RecordingSessionClock) -> Result<S, String> + Send + 'static,
         S: RecordingAudioSource,
     {
+        Self::spawn_with_start(factory, clock, pipeline, None)
+    }
+
+    /// 就绪握手只确认 source 已创建；双轨 owner 随后单独释放实际 PCM 轮询。
+    pub fn spawn_with_factory_gated<F, S>(
+        factory: F,
+        clock: RecordingSessionClock,
+        pipeline: Arc<AudioPipeline>,
+        start: Receiver<()>,
+    ) -> Result<Self, AudioCaptureWorkerError>
+    where
+        F: FnOnce(RecordingSessionClock) -> Result<S, String> + Send + 'static,
+        S: RecordingAudioSource,
+    {
+        Self::spawn_with_start(factory, clock, pipeline, Some(start))
+    }
+
+    fn spawn_with_start<F, S>(
+        factory: F,
+        clock: RecordingSessionClock,
+        pipeline: Arc<AudioPipeline>,
+        start: Option<Receiver<()>>,
+    ) -> Result<Self, AudioCaptureWorkerError>
+    where
+        F: FnOnce(RecordingSessionClock) -> Result<S, String> + Send + 'static,
+        S: RecordingAudioSource,
+    {
         let (control, commands) = mpsc::sync_channel(CONTROL_QUEUE_CAPACITY);
         let (ready, initialized) = mpsc::sync_channel(1);
         let stop_requested = Arc::new(AtomicBool::new(false));
+        let startup_pending = Arc::new(AtomicBool::new(start.is_some()));
+        let worker_pending = Arc::clone(&startup_pending);
         let worker_stop = Arc::clone(&stop_requested);
         let worker_pipeline = Arc::clone(&pipeline);
         let join = thread::Builder::new()
@@ -134,6 +164,12 @@ impl AudioCaptureWorker {
                     let _ = worker_pipeline.abort();
                     return Err(AudioCaptureWorkerError::ControlDisconnected);
                 }
+                let released = super::worker_start::wait_for_start(start, &worker_stop);
+                worker_pending.store(false, Ordering::Release);
+                if !released {
+                    let _ = worker_pipeline.abort();
+                    return Err(AudioCaptureWorkerError::ControlDisconnected);
+                }
                 run_loop(source, &worker_pipeline, commands, &worker_stop)
             })
             .map_err(|error| {
@@ -143,6 +179,7 @@ impl AudioCaptureWorker {
         let mut worker = Self {
             control,
             stop_requested,
+            startup_pending,
             join: Some(join),
         };
         match initialized.recv() {
@@ -167,7 +204,11 @@ impl AudioCaptureWorker {
     }
 
     pub fn stop(mut self) -> Result<AudioCaptureWorkerReport, AudioCaptureWorkerError> {
-        let _ = self.control.send(ControlCommand::Stop);
+        if self.startup_pending.load(Ordering::Acquire) {
+            self.stop_requested.store(true, Ordering::Release);
+        } else {
+            let _ = self.control.send(ControlCommand::Stop);
+        }
         self.join_inner()
     }
 
@@ -963,5 +1004,10 @@ mod tests {
             pipeline.push(chunk(0, 0, CHUNK_FRAMES)),
             Err(AudioPipelineError::Aborted)
         );
+    }
+
+    mod startup_tests {
+        use super::*;
+        include!("audio_worker/startup_tests.rs");
     }
 }

@@ -2,6 +2,17 @@
 
 ## 未发布
 
+### 2026-10-02 双轨录屏在初始化完成后释放采集
+
+- 修复音频 worker 在视频 factory 仍初始化时已轮询并向有界 PCM 队列提交数据的问题。
+  两个 source 都在各自采集线程准备好后才释放采集；等待期间通道断开或 Drop/Stop 可取消，
+  运行期 PCM 上限、共享时钟、平台 constructor 和原单轨行为保持。
+  原三项 AV 通过、新三项红后同六项绿；补充八项 worker 释放/取消合同，录屏领域 301 passed。
+  新 SHA 完整 Windows 门禁/隔离 QA release 核对进行中；panic 回归只覆盖 unwind 配置。
+  受控延迟不等于真实设备失败，原生缓存/首包、其它宿主/当前 CI、
+  安装与设备/多屏仍未验，桌面保持停止。
+  （需求：`REC-AV-STARTUP-GATE-01`；见 `docs/superpowers/specs/2026-10-02-recording-av-startup-gate.md`）
+
 ### 2026-10-02 Windows QA 发现已发布运行库家族
 
 - 修复 QA 准备脚本只查 VC143 而拒绝受控 VC145 SDK 布局的问题；按数字版本选择已发布

@@ -5,6 +5,13 @@
 
 ## 当前续审结果
 
+W50 / `REC-AV-STARTUP-GATE-01`：原 AV 启动会先运行音频、再初始化视频；新增三项
+观察到视频 factory 等待时音频已轮询五次，原 AV 三项保持通过。修复后同组六项绿，
+两个 factory 完成后才释放采集，等待中通道关闭或 Drop/Stop 可取消；原队列/时钟与
+native constructor 保持。八项取消/释放回归、完整新 SHA Windows 门禁及隔离 QA release
+待核对；真实设备/原生缓存/当前 CI/其它宿主继续未验，桌面保持停止。规格见
+`docs/superpowers/specs/2026-10-02-recording-av-startup-gate.md`。
+
 W49 / `WIN-QA-CRT-DISCOVERY-01`：发现 QA 脚本只查 VC143，不识别受控 VC145 布局，
 也会忽略跨家族最新、歧义或不可信新版。原新 24 项红 12/12，原五十项通过；生产发现
 修正后同组绿，补充目录标签用例后新三十/旧五十项通过。已发布家族白名单、数字排序、

@@ -53,6 +53,8 @@ mod av_recovery;
 // 持续采集 worker 已接入受门控产品会话；合成帧继续固定停止、节流与错误传播。
 #[allow(dead_code)]
 mod worker;
+// 双轨先完成两个线程亲和 factory，再释放 pipeline 采集；等待期间 Drop/Stop 仍能取消。
+mod worker_start;
 // 诊断编码消费线程先闭合 capture → pipeline → mux；产品会话接入前保持领域内可见。
 #[allow(dead_code)]
 mod encoder_worker;
