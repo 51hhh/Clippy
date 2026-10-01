@@ -68,6 +68,7 @@
 | W10 | P2 | 审查 webm-sys 的 C++ 编译参数在 MSVC 上产生 D9002；按宿主选择 flag，保留固定来源与许可证 | 本机已观测，独立维护任务 |
 | W11 | P1 | 新 Windows runner 使用 CRLF 检出时的 IPC 负例与结构回归；保留两种换行的正/负合同 | 独立 CRLF checkout 修复后 1284 项通过，修改后 CI 待执行 |
 | W12 | P1 | vendored xcap 保持固定 LF 字节并运行原始 SHA-256 校验；不能归一化哈希输入或跳过检查 | 独立 CRLF checkout 前端门禁 11 项通过、0 失败；字节篡改仍被拒绝，修改后 CI 待执行 |
+| W13 | P1 | Windows 原生进程/locale 测试预算覆盖实测初始化；保留子进程硬超时、全部断言与普通单元测试默认预算 | CI 暴露两项 5 秒超时；限定测试组补齐预算后，Node 24.21.0 + CRLF 全前端门禁通过，远程待复验 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。
@@ -95,6 +96,10 @@ QA Rust 1093 项通过、5 项忽略；前端最终为 74 文件、1280 项通�
 两包成功且为 NotSigned；绑定 SHA 的 LOCAL-BUILD.json 和 SHA256SUMS.txt 保存在 ignored target 目录。
 这些仅属诊断构建证据，不计入测试通过数，也不替代官方 Native QA 包、签名或安装验收。
 用户确认目前仅有当前 Windows 11 单屏，暂无多屏或 Windows 10 验收环境。
+CI SHA `c9e504c` 原五项 CRLF 合同已通过，但 PowerShell/首次 locale 两项触发默认 5 秒超时。
+W13 补丁仅给 Windows 原生测试组有界预算，PowerShell 子进程仍在 20 秒硬超时后失败；无重试/删断言。
+与 CI 同版本的 Node 24.21.0 在 workspace 内隔离下载并验证官方 SHA-256，CRLF 前端门禁为
+11 项通过、0 失败、3 组显式跳过；74 文件 / 1284 项通过。系统 Node 版本未替换。
 Linux 本地完整门禁、修改后 CI、官方 QA 安装包、Windows 10 和桌面交互尚未执行。
 
 详细审查证据见 `docs/reviews/2026-10-01-windows-native-review.md`。所有新结果按层级追加，

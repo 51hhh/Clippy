@@ -8,6 +8,9 @@
   命令注册与窗口权限校验；补充 PowerShell 原生门禁及 Windows CI 前端与
   Windows/Ubuntu OCR 质量检查。默认和录屏 QA 本机门禁已通过；修改后同 SHA CI、Linux 完整
   门禁、Windows 10/11 桌面和安装包验收仍未完成。（需求：`WIN-NATIVE-01`）
+- Windows 原生进程与 locale 合同测试使用与实际操作相符的有界超时；保留子进程硬超时及全部
+  输出/失败断言。Node 24.21.0 + CRLF 检出的全前端门禁通过，远程 runner 仍待复验。
+  （需求：`WIN-NATIVE-01`）
 - OCR 质量工具的 Windows 诊断目录改为创建时应用当前用户私有 DACL，权限核对失败立即停止；
   已有目录不覆盖。Windows 本机质量合同 31 项通过，POSIX 权限回归与修改后同 SHA CI 仍待执行。
   （需求：`WIN-NATIVE-01`）

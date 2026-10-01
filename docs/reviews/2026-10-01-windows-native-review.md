@@ -136,6 +136,19 @@ POSIX 分支继续使用 `0700`，本轮 Windows 证据不能代替 Linux 回归
 首次修改后 CI：<https://github.com/51hhh/Clippy/actions/runs/36809445003>，SHA `85907d0e96dcf9dc598f5d9abb653cae42f45835`。
 Windows 前端 1275 passed、5 failed，尚不能作为同 SHA 三平台通过证据。
 
+第二次 CI：<https://github.com/51hhh/Clippy/actions/runs/36811830617>，SHA
+`c9e504c6be9298366c6320f10288b5e52b343aee`。Windows 原五项 CRLF 合同已通过；新增现象为
+1282 passed / 2 failed，两项均为默认 5000 ms 超时：首次 PowerShell 合同 9884 ms，首次
+`Date.toLocaleString()` 的时间戳合同 11720 ms。该 CI 的 Windows Python/Rust 步骤被跳过，不能计作通过。
+
+W13：PowerShell 子进程原本设置 20 秒硬超时，外层测试仅 5 秒，预算不一致。该组改为 30 秒，
+保留子进程 20 秒硬超时、错误对象和全部退出码/失败计数断言；普通测试默认预算不变。
+Windows 原生 locale 合同也采用 30 秒有界预算，Linux/macOS 保持 5 秒；无重试或虚构成功。
+Node 24.21.0 在 workspace 内隔离使用，下载包与官方 SHA-256 核对一致；本机首次 locale
+调用约 15.9 ms，未复现 runner 的 11.7 秒，不能把 CI 初始化现象写成 WebView2 产品延迟。
+补丁下 Node 22 定向 212 项通过，Node 24.21.0 + CRLF 全前端范围 11 项通过、0 失败、
+3 组显式跳过，74 文件 / 1284 项通过；远程补丁结果仍待复验。
+
 W11：Windows runner 的 CRLF checkout 使两个 IPC 负例的 LF 字符串替换没有生效，另有三个结构
 断言依赖 LF。用 `core.autocrlf=true` 的独立 checkout 重现同样五项失败。修复保留校验器本身，
 IPC 夹具在每种宿主都执行 LF/CRLF 两组正负合同；删除注册/权限项还断言修改实际生效。

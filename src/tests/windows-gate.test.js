@@ -31,7 +31,8 @@ function runGate(failTests, switches = "-FrontendOnly -Quick", prelude = "") {
   });
 }
 
-describe.skipIf(process.platform !== "win32")("native Windows gate failure accounting", () => {
+// 子进程硬超时为 20 秒，外层合同预算须覆盖 Windows 冷启动；退出码/失败断言保持不变。
+describe.skipIf(process.platform !== "win32")("native Windows gate failure accounting", { timeout: 30_000 }, () => {
   it("returns failure when npm test exits nonzero even when later checks succeed", () => {
     const result = runGate(true);
     expect(result.error).toBeUndefined();
