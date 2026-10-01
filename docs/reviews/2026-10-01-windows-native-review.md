@@ -13,8 +13,14 @@ Drop 有 join，启动回滚没有。提取实际旧所有权和接收协议的 
 时取消并 join，成功一起转移 recorder/owner；原错误不会被 join panic 替代。真实帧循环有界
 观察取消，退出关闭桥并释放 receiver；正常销毁先取消再 native stop/drop，暂停/继续不取消。
 七段旧生产帧/裁剪/时钟/暂停恢复正文、十份关联源码和新测试原始字节保持；vendor/feature 未改。
-完整 Windows 默认/QA 门禁待执行。实际 WGC/WinRT Close 时限、系统最终释放、Windows 10/多屏/
-设备/长期漂移、当前 SHA CI 和其它宿主未验。回归未构造真实 WGC/窗口对象或读取显示器/输入。
+干净源码 7922457651cbffc97ddc646bd08a40332ea2fbef 完整 Windows 默认/QA 门禁确认原生子进程
+及终端工具 exit 0：30 passed / 0 failed / 1 Linux smoke skipped。默认 Rust 1137、QA Rust 1194
+（各 5 ignored，重叠不累加），新增七项每图在总数内；前端 77 文件 / 1307 passed，Python
+33 + 3，独立 vendor 十八项和剪贴板二十四项通过。check、严格 lint、供应链、构建/入口通过，
+源码、红绿测试字节、原始日志与 checked helper 哈希、干净检出核对完成。合同证据
+windows-wgc-bridge-rollback-contract，完整门禁 windows-wgc-bridge-rollback-native-qa-7922457。
+累计十九项本机产品修复未进入已安装旧包。实际 WGC/WinRT Close 时限、系统最终释放、Windows
+10/多屏/设备/长期漂移、当前 SHA CI 和其它宿主未验。回归未构造真实 WGC/窗口对象或读取显示器/输入。
 
 此前 W34 / WIN-PIN-LIVE-DPI-01：App 用创建时 pin.deviceScale 判断最近邻，未追踪当前窗口
 DPI。800×600 CSS / 1200×900 像素的 150% Pin 切到 100% 后仍返回 pixelated。Windows 现在

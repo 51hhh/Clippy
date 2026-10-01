@@ -28,8 +28,8 @@
 - [x] start 失败取消并 join 已启动的桥接线程，原错误保持。
 - [x] sender 被额外持有时取消仍使真实帧循环退出；退出关闭 FrameBridge。
 - [x] 成功转移与正常销毁拥有同一线程 owner，暂停/恢复/stop_capture 语义保持。
-- [ ] 提取旧协议红基线、同组新回归和干净 SHA Windows 默认/QA 门禁核对完成。
-- [ ] 同 ID 文档同步，实际 WGC/系统释放/硬件与当前 SHA CI 仍保留未验证。
+- [x] 提取旧协议红基线、同组新回归和干净 SHA Windows 默认/QA 门禁核对完成。
+- [x] 同 ID 文档同步，实际 WGC/系统释放/硬件与当前 SHA CI 仍保留未验证。
 
 ## Out of Scope
 
@@ -52,6 +52,11 @@ Windows MSVC 提取旧生产所有权/接收协议红基线 exit 101：3 passed 
 同一七项回归原始字节不变，修复后 exit 0，7 passed / 0 failed / 0 ignored / 1135 filtered。
 使用真实 std 线程/通道和生产 start/transfer/shutdown/forward 入口，原生错误由 callback 注入，
 没有创建 WGC/窗口、枚举显示器或发送输入。七段既有帧/裁剪/暂停恢复等正文与十份关联文件保持；
-vendor 和默认 feature 未改。完整干净 SHA Windows 默认/QA 门禁待执行；真实 Close 时限与系统
-释放、实际 WGC/设备/硬件矩阵及新 SHA CI 保留未验。
-证据目录 C:\win\Clippy\src-tauri\target\windows-wgc-bridge-rollback-contract。
+vendor 和默认 feature 未改。干净源码 7922457651cbffc97ddc646bd08a40332ea2fbef 完整 Windows
+默认/QA 门禁确认原生子进程及终端工具 exit 0：30 passed / 0 failed / 1 Linux smoke skipped。
+默认 Rust 1137、QA Rust 1194（各 5 ignored，图谱重叠不累加）；新增七项在每图总数内。
+前端 77 文件 / 1307 passed，Python 33 + 3，独立 vendor 十八项和剪贴板二十四项通过。
+源码、红绿测试字节、原始 stdout/stderr 与 checked helper 哈希核对；检出干净。
+真实 Close 时限与系统释放、实际 WGC/设备/硬件矩阵及当前 SHA CI 和其它宿主保留未验。
+合同证据 C:\win\Clippy\src-tauri\target\windows-wgc-bridge-rollback-contract；完整门禁证据
+C:\win\Clippy\src-tauri\target\windows-wgc-bridge-rollback-native-qa-7922457。
