@@ -64,6 +64,11 @@ Windows 入口还显式运行 `cargo test --locked -p arboard --lib platform::wi
 WGC clippy 包含 lib tests；主应用 cargo test 不运行依赖库单元测试，不能替代此组。
 Windows Native CI 同样显式执行；上游显示器测试保留过滤，不执行完整 vendor test。
 
+`WIN-WGC-INIT-ROLLBACK-01` 另显式执行
+`cargo test --locked --manifest-path vendor/xcap/Cargo.toml --lib --features wgc platform::wgc_init::tests`。
+四项使用真实 scopeguard 和受控泛型资源，验证注册/session 错误前 Close、原错误及成功转移；
+不创建 WinRT 对象。关闭六项与初始化四项独立于应用 Rust 总数，全部由含测试的 vendor clippy 检查。
+
 ## 录屏源码构建附加依赖
 
 `recording-windows-av-qa` 包含固定版本 VP9 源码构建、WGC、WASAPI 与 Opus/WebM。

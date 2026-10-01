@@ -215,6 +215,11 @@ jobs:
         working-directory: src-tauri
         run: cargo test --locked --manifest-path vendor/xcap/Cargo.toml --lib --features wgc platform::wgc_runtime::tests
 
+      - name: Windows WGC initialization rollback tests
+        if: runner.os == 'Windows'
+        working-directory: src-tauri
+        run: cargo test --locked --manifest-path vendor/xcap/Cargo.toml --lib --features wgc platform::wgc_init::tests
+
       - name: Vendored xcap macOS clippy
         if: runner.os == 'macOS'
         working-directory: src-tauri
