@@ -27,7 +27,7 @@ pipeline。对应 WIN-NATIVE-01 / W50，独立分支 `codex/recording-av-startup
 - [x] 用原生产入口复现视频初始化未结束时提前音频轮询；原三项 AV 合同保持通过。
 - [x] 双 factory 就绪前没有 pipeline 采集，成功后释放两轨，错误/panic 不提前轮询音频。
 - [x] 等待期间释放、通道关闭、Drop/Stop 取消和 source 同线程回收有对应回归。
-- [ ] 原用例保留，新 SHA 完整 Windows 默认/QA 门禁、隔离 QA release 与源码/日志核对通过。
+- [x] 原用例保留，新 SHA 完整 Windows 默认/QA 门禁、隔离 QA release 与源码/日志核对通过。
 - [ ] 当前 SHA 其它宿主/原生 CI 与 Windows 真机延迟初始化、设备/录屏通过。
 
 ## Out of Scope
@@ -44,5 +44,16 @@ worker 循环，生产修复后同六项通过，新三项正文未改。这个�
 耗尽风险由一秒 PCM 容量/首视频等待推导，不声称已经在设备上复现溢出。
 
 两个实际 worker 的释放、断开、Drop/Stop、非 Send source 同线程回收八项补充回归通过；
-录屏领域 301 passed，新十一项在内。完整新 SHA 门禁/release 编译待核对。原生 source
-constructor、实际首包/缓存、设备启动与阻塞中的 factory 中断能力不在本轮验证范围。
+录屏领域 301 passed，新十一项在内。原三个测试模块只新增 include，原二十七项正文保持；
+新三项红/绿源码字节相同。干净源码 `1c661123c875e0a19d9df9e706fbe79d90b3ff54` 完整
+Windows 默认/QA 门禁 child/terminal exit 0：33 passed / 0 failed / 1 Linux smoke skipped。
+Rust 默认 1201、QA 1267，各 5 ignored；两图不累加，八项 worker 在两图内，三项 AV 只在
+QA 内，领域 301 不额外累加。前端 81 文件/1403 passed，原八十一份测试 Git blob 未改。
+
+隔离显式 x64 target、unsigned/unbundled QA release native/wrapper/terminal exit 0；实际
+EXE/同目录十份 CRT 与清单、十七份基础许可证哈希核对，默认 release EXE 保持。
+构建/文件/比较数不算测试通过。后续仅五份 Markdown；真实设备/当前 SHA CI/其它宿主/
+安装仍未验。原生 source constructor、实际首包/缓存、设备启动及阻塞 factory 中断能力
+不在本轮验证范围。WGC 在 factory 返回后还允许五秒首帧等待，而 PCM 仍限一秒；该暖机
+阶段需要独立受控回归，不能宣称本轮已解决所有启动背压。详见
+[`2026-10-02-recording-av-startup-gate-review.md`](../../reviews/2026-10-02-recording-av-startup-gate-review.md)。

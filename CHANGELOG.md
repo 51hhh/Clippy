@@ -8,7 +8,9 @@
   两个 source 都在各自采集线程准备好后才释放采集；等待期间通道断开或 Drop/Stop 可取消，
   运行期 PCM 上限、共享时钟、平台 constructor 和原单轨行为保持。
   原三项 AV 通过、新三项红后同六项绿；补充八项 worker 释放/取消合同，录屏领域 301 passed。
-  新 SHA 完整 Windows 门禁/隔离 QA release 核对进行中；panic 回归只覆盖 unwind 配置。
+  干净 `1c66112` 完整 Windows 门禁 33/0/1，默认 Rust 1201、QA 1267，各 5 ignored，
+  前端 81/1403；隔离 unsigned/unbundled QA release 编译及实际 payload 核对通过。
+  panic 回归只覆盖 unwind 配置；首视频帧暖机仍需独立审查，不计为本轮解决。
   受控延迟不等于真实设备失败，原生缓存/首包、其它宿主/当前 CI、
   安装与设备/多屏仍未验，桌面保持停止。
   （需求：`REC-AV-STARTUP-GATE-01`；见 `docs/superpowers/specs/2026-10-02-recording-av-startup-gate.md`）

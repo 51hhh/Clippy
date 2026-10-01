@@ -11,8 +11,11 @@
 
 - W50 / `REC-AV-STARTUP-GATE-01`：独立 `codex/recording-av-startup-gate`，基于 `cc5f7af`。
   原生产入口在视频 factory 等待时已轮询音频五次；新三项红、原三项 AV 绿，修复后同六项绿。
-  两个 factory 都完成后才释放 pipeline 采集，等待取消/同线程回收回归与新干净 SHA 的
-  完整 Windows 门禁及隔离 QA release 待核对；不扩大队列、不改原生 constructor。
+  两个 factory 都完成后才释放 pipeline 采集，新十一项/原相关二十七项及录屏领域 301 通过。
+  干净 `1c66112` 完整 Windows 门禁 33/0/1，Rust 默认 1201/QA 1267 各 5 ignored，
+  前端 81/1403；隔离 unsigned/unbundled QA release、实际 payload/许可证哈希通过。
+  原测试正文与默认产物保持；不扩大队列、不改原生 constructor，首视频暖机仍需独立审查。
+  详见 `docs/reviews/2026-10-02-recording-av-startup-gate-review.md`，文件/构建不算测试通过。
   真实 native 缓冲/设备/当前 CI/其它宿主与桌面仍未验，原 W49 历史证据保持。
 
 - W49 / `WIN-QA-CRT-DISCOVERY-01`：独立 `codex/windows-qa-crt-discovery`，基于 `263a2e7`。
