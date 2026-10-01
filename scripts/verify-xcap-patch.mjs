@@ -28,7 +28,7 @@ const patchedFiles = {
     "7a9d853b5c534c334e74b93eedffc80be23f7f463d995bfadb5515c9733083cb",
   "src/windows/wgc_runtime.rs":
     "be621c84cfa8991bb35be1fcc0aa30bb6442bdbe15b3062eb6d1bebb2445e33a",
-  "src/windows/utils.rs": "11e9f06dd833667257f16e3d4359b0fa68a3f476e81d0d12e8ad480a1ad93040",
+  "src/windows/utils.rs": "e38d2cc89813d51480ab9b0288068e7926b39c488ff316cd7e06f88f9564a585",
   "src/macos/capture.rs": "14ba152c8a2a9d967d1d9a82eac197a86d5a89995842c8ea4ec13cd117c3e48e",
   "src/macos/impl_window.rs":
     "65a6c9fe1334cbfde0f370ca30df6b64d225a431247a9e604766d8a7388a38e0",

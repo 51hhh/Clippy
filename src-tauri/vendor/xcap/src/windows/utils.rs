@@ -1,7 +1,6 @@
 use std::{ffi::c_void, mem};
 
 use scopeguard::{ScopeGuard, guard};
-use widestring::U16CString;
 use windows::{
     Win32::{
         Devices::Display::{
