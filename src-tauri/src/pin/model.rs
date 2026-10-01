@@ -52,6 +52,9 @@ pub(super) struct PinEntry {
     /// 这张图原本在屏幕上的位置与大小（逻辑像素）。截图选区带着它过来，
     /// 于是贴图能贴回原处、原尺寸；从别处来的图片没有它，落回光标/居中。
     pub origin: Option<PinOrigin>,
+    /// Windows 新建图片窗口的单次原生几何规划；文字与存量工作区仍用原路径。
+    #[cfg(target_os = "windows")]
+    pub native_layout: Option<super::windows_geometry::PinNativeLayout>,
     /// 内容所在那块屏上，一个逻辑像素等于几个设备像素（真实缩放，不是 GTK 报的
     /// 整数缓冲区缩放）。内容尺寸就是按它把图片像素折算成 CSS 像素的。
     ///
@@ -267,14 +270,42 @@ pub struct PinOrigin {
     pub y: f64,
     pub width: f64,
     pub height: f64,
+    /// 只由后端冻结帧生成，IPC 既不输出也不接收此字段。
+    #[cfg(target_os = "windows")]
+    #[serde(skip)]
+    pub(crate) physical: Option<PinPhysicalOrigin>,
+}
+
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct PinPhysicalOrigin {
+    pub(crate) monitor: crate::screenshot::PhysicalMonitorBounds,
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+}
+
+#[cfg(target_os = "windows")]
+impl PinPhysicalOrigin {
+    pub(crate) fn is_valid(self) -> bool {
+        self.monitor.is_valid()
+            && [self.x, self.y].into_iter().all(|value| {
+                value.is_finite() && value >= f64::from(i32::MIN) && value <= f64::from(i32::MAX)
+            })
+    }
 }
 
 impl PinOrigin {
-    /// 只接受有限、且大到看得见的矩形。选区来自前端，NaN 或 0 尺寸会一路污染窗口几何。
+    /// 公共逻辑矩形至少 2 px；可信原生 crop 已经过选区验证，可以在屏边不足 2 CSS px。
+    /// 两条路都拒绝 NaN、空尺寸与无效物理来源，避免污染窗口几何。
     pub(crate) fn sanitized(self) -> Option<Self> {
         let finite = [self.x, self.y, self.width, self.height]
             .into_iter()
             .all(f64::is_finite);
+        #[cfg(target_os = "windows")]
+        if let Some(physical) = self.physical {
+            return (finite && physical.is_valid() && self.width > 0.0 && self.height > 0.0)
+                .then_some(self);
+        }
         (finite && self.width >= 2.0 && self.height >= 2.0).then_some(self)
     }
 }

@@ -420,6 +420,8 @@ pub(super) fn restore_one(
         restore_workspace_position(app_handle, placement, width, height)
     });
     let scale_origin = restore_position.map(|position| super::model::PinOrigin {
+        #[cfg(target_os = "windows")]
+        physical: None,
         x: position.x + 12.0,
         y: position.y + 12.0,
         width: item.content_width,
@@ -441,6 +443,8 @@ pub(super) fn restore_one(
         origin: None,
         device_scale: content_device_scale(app_handle, scale_origin),
         buffer_scale: content_buffer_scale(app_handle, scale_origin),
+        #[cfg(target_os = "windows")]
+        native_layout: None,
         sharpen: Arc::new(SharpenSlot::default()),
     };
     state.pin_manager.insert(entry.clone())?;

@@ -15,6 +15,8 @@ const SCALE_TOLERANCE: f32 = 1e-4;
 
 #[cfg(all(test, target_os = "windows"))]
 mod windows_physical_tests;
+#[cfg(all(test, target_os = "windows"))]
+mod windows_pin_origin_tests;
 
 /// 首帧成功后冻结的连续帧几何事实。
 #[derive(Debug, Clone, Copy)]
@@ -241,6 +243,19 @@ impl LongshotFrameAdapter {
         let scale_x = f64::from(self.signature.scale_x);
         let scale_y = f64::from(self.signature.scale_y);
         let origin = PinOrigin {
+            #[cfg(target_os = "windows")]
+            physical: Some({
+                let monitor = self
+                    .signature
+                    .physical_bounds
+                    .filter(|bounds| bounds.is_valid())
+                    .ok_or(CaptureError::LongshotFrameInvalid)?;
+                crate::pin::PinPhysicalOrigin {
+                    monitor,
+                    x: f64::from(monitor.x) + f64::from(self.crop.left) + offset_x as f64,
+                    y: f64::from(monitor.y) + f64::from(self.crop.top) + offset_y as f64,
+                }
+            }),
             x: f64::from(self.signature.x)
                 + (f64::from(self.crop.left) + offset_x as f64) / scale_x,
             y: f64::from(self.signature.y) + (f64::from(self.crop.top) + offset_y as f64) / scale_y,

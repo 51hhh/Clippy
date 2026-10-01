@@ -42,14 +42,33 @@ pub(super) fn create_pin_window(app: &tauri::AppHandle, entry: &PinEntry) -> Res
     .shadow(false)
     .skip_taskbar(true)
     .resizable(false)
-    .visible(false)
-    .center();
+    .visible(false);
+    #[cfg(target_os = "windows")]
+    let builder = if entry.native_layout.is_some() {
+        builder
+    } else {
+        builder.center()
+    };
+    #[cfg(not(target_os = "windows"))]
+    let builder = builder.center();
     let window = build_and_prepare_pin_window(
         label,
         || builder.build().map_err(PinError::window),
         |label| app.get_webview_window(label),
         |window| {
             configure_native_pin_window(window);
+            #[cfg(target_os = "windows")]
+            if let Some(layout) = entry.native_layout {
+                let (position, size) = layout.requests(
+                    entry.content_width,
+                    entry.content_height,
+                    entry.scale,
+                    super::windows_geometry::PlacementStage::Create,
+                );
+                window.set_position(position).map_err(PinError::window)?;
+                window.set_size(size).map_err(PinError::window)?;
+                return Ok(());
+            }
             position_new_pin_window(
                 app,
                 window,
@@ -141,6 +160,19 @@ pub(super) fn reveal_pin_window(
 ) -> Result<(), PinError> {
     window.show().map_err(PinError::window)?;
     window.set_focus().map_err(PinError::window)?;
+    #[cfg(target_os = "windows")]
+    if let Some(layout) = entry.native_layout {
+        let (position, size) = layout.requests(
+            entry.content_width,
+            entry.content_height,
+            entry.scale,
+            super::windows_geometry::PlacementStage::Reveal,
+        );
+        keep_pin_above(window, None, entry.above);
+        window.set_position(position).map_err(PinError::window)?;
+        window.set_size(size).map_err(PinError::window)?;
+        return Ok(());
+    }
     let logical = pin_target_position(app, entry);
     if let Placement::NotMappedYet { generation } = keep_pin_above(window, logical, entry.above) {
         retry_placement(
@@ -317,16 +349,26 @@ fn pin_target_position(app: &tauri::AppHandle, entry: &PinEntry) -> Option<Logic
             outer_size(entry.content_width, entry.content_height, entry.scale).1,
         ));
     }
-    let origin = entry.origin?;
-    let (outer_width, outer_height) =
-        outer_size(entry.content_width, entry.content_height, entry.scale);
-    let target = LogicalPosition::new(origin.x - SHADOW_GUTTER, origin.y - SHADOW_GUTTER);
-    Some(clamp_logical_position(
-        app,
-        target,
-        outer_width,
-        outer_height,
-    ))
+    // Windows 图片来源必须由缓存的原生规划处理；没有规划时回到光标/主屏，
+    // 不能从遗失物理身份的公共逻辑字段猜位置。存量工作区恢复仍走上面的专用路径。
+    #[cfg(target_os = "windows")]
+    {
+        let _ = entry.origin;
+        None
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let origin = entry.origin?;
+        let (outer_width, outer_height) =
+            outer_size(entry.content_width, entry.content_height, entry.scale);
+        let target = LogicalPosition::new(origin.x - SHADOW_GUTTER, origin.y - SHADOW_GUTTER);
+        Some(clamp_logical_position(
+            app,
+            target,
+            outer_width,
+            outer_height,
+        ))
+    }
 }
 
 /// 把逻辑坐标钳进"包含它的那块显示器"的逻辑工作区。找不到显示器就原样返回——
@@ -706,15 +748,24 @@ pub(super) fn resize_pin_window(app: &tauri::AppHandle, entry: &PinEntry) -> Res
     // 破坏掉了，而且用户没有任何办法让它退回去。
     keep_pin_above(
         &window,
-        position.map(|position| {
-            LogicalPosition::new(
-                position.x as f64 / scale_factor,
-                position.y as f64 / scale_factor,
-            )
-        }),
+        resize_layer_position(position, scale_factor),
         entry.above,
     );
     Ok(())
+}
+
+fn resize_layer_position(
+    position: Option<PhysicalPosition<i32>>,
+    scale_factor: f64,
+) -> Option<LogicalPosition<f64>> {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = (position, scale_factor);
+        None
+    }
+    #[cfg(not(target_os = "windows"))]
+    position
+        .map(|p| LogicalPosition::new(f64::from(p.x) / scale_factor, f64::from(p.y) / scale_factor))
 }
 
 /// 缩放时能不能相信"窗口现在在哪"这个数。
@@ -813,6 +864,7 @@ pub(super) fn clamp_pin_position(
 /// "贴回原尺寸"意味着一个 60×30 的小选区就该显示成 60×30；`fit_dimensions` 会把它撑到
 /// 至少 180×120 以保证界面可用，那正好破坏了原尺寸。只在窗口连工作区都装不下时
 /// 才按比例缩小——否则贴图会有一部分永远在屏幕外。
+#[cfg(not(target_os = "windows"))]
 pub(super) fn origin_content_size(app: &tauri::AppHandle, origin: PinOrigin) -> (f64, f64) {
     let Some(area) = logical_work_area(app, LogicalPosition::new(origin.x, origin.y)) else {
         return (origin.width, origin.height);
@@ -824,6 +876,34 @@ pub(super) fn origin_content_size(app: &tauri::AppHandle, origin: PinOrigin) -> 
         .min(max_height / origin.height)
         .clamp(0.01, 1.0);
     (origin.width * shrink, origin.height * shrink)
+}
+
+#[cfg(target_os = "windows")]
+pub(super) fn native_image_layout(
+    app: &tauri::AppHandle,
+    pixels: (f64, f64),
+    origin: Option<PinOrigin>,
+) -> super::windows_geometry::ImageLayout {
+    use super::windows_geometry::{plan_image, NativeMonitor};
+    let monitors = app.available_monitors().unwrap_or_default();
+    let primary = app.primary_monitor().ok().flatten();
+    let snapshots: Vec<_> = monitors
+        .iter()
+        .map(|monitor| NativeMonitor {
+            bounds: crate::screenshot::PhysicalMonitorBounds {
+                x: monitor.position().x,
+                y: monitor.position().y,
+                width: monitor.size().width,
+                height: monitor.size().height,
+            },
+            work: *monitor.work_area(),
+            scale: monitor.scale_factor(),
+            primary: primary
+                .as_ref()
+                .is_some_and(|p| p.position() == monitor.position() && p.size() == monitor.size()),
+        })
+        .collect();
+    plan_image(&snapshots, app.cursor_position().ok(), pixels, origin)
 }
 
 /// 没有原始矩形时的内容区尺寸。入参是**图片像素**，出参是 CSS 像素。
@@ -955,6 +1035,13 @@ pub(super) fn outer_size(content_width: f64, content_height: f64, scale: f64) ->
 mod tests {
     use super::*;
     use std::cell::Cell;
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_pin_origin_resize_does_not_resubmit_a_logical_position() {
+        assert!(resize_layer_position(Some(PhysicalPosition::new(-2560, 1250)), 1.5).is_none());
+        assert!(resize_layer_position(None, 1.5).is_none());
+    }
 
     #[test]
     fn build_failure_without_registered_window_never_destroys() {

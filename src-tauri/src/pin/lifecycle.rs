@@ -15,9 +15,11 @@ use super::project_file::{
 use super::project_file::{
     prepare_managed_pin_project_file, prepare_pin_project_file, read_png_file, PreparedPinImage,
 };
+#[cfg(not(target_os = "windows"))]
+use super::window::origin_content_size;
 use super::window::{
     content_buffer_scale, content_device_scale, create_pin_window, fit_content_size,
-    keep_pin_above, origin_content_size, resize_pin_window, reveal_pin_window,
+    keep_pin_above, resize_pin_window, reveal_pin_window,
 };
 use crate::commands::AppState;
 use crate::models::ContentType;
@@ -151,10 +153,19 @@ pub(super) async fn pin_clip(id: i64, app_handle: tauri::AppHandle) -> Result<St
         let origin = image
             .as_deref()
             .and_then(|png| state.pin_origins.lookup(png));
+        #[cfg(not(target_os = "windows"))]
         let (content_width, content_height) = match origin {
             Some(origin) => origin_content_size(&app_handle, origin),
             None => fit_content_size(&app_handle, width, height),
         };
+        #[cfg(target_os = "windows")]
+        let image_layout = image
+            .as_ref()
+            .map(|_| super::window::native_image_layout(&app_handle, (width, height), origin));
+        #[cfg(target_os = "windows")]
+        let (content_width, content_height) = image_layout
+            .map(|layout| (layout.width, layout.height))
+            .unwrap_or_else(|| fit_content_size(&app_handle, width, height));
         let source = match (stored_revision, image.as_ref()) {
             (Some(revision), Some(preview_png)) => {
                 match super::project::RuntimeProject::from_managed(
@@ -193,8 +204,28 @@ pub(super) async fn pin_clip(id: i64, app_handle: tauri::AppHandle) -> Result<St
             position: None,
             restore_position: None,
             origin,
-            device_scale: content_device_scale(&app_handle, origin),
-            buffer_scale: content_buffer_scale(&app_handle, origin),
+            device_scale: {
+                #[cfg(target_os = "windows")]
+                if let Some(layout) = image_layout {
+                    layout.scale
+                } else {
+                    content_device_scale(&app_handle, origin)
+                }
+                #[cfg(not(target_os = "windows"))]
+                content_device_scale(&app_handle, origin)
+            },
+            buffer_scale: {
+                #[cfg(target_os = "windows")]
+                if let Some(layout) = image_layout {
+                    layout.scale
+                } else {
+                    content_buffer_scale(&app_handle, origin)
+                }
+                #[cfg(not(target_os = "windows"))]
+                content_buffer_scale(&app_handle, origin)
+            },
+            #[cfg(target_os = "windows")]
+            native_layout: image_layout.and_then(|layout| layout.native),
             sharpen: Arc::new(SharpenSlot::default()),
         })?;
         // 建窗之前就把清晰度补偿放出去跑，好和 WebKit 起步那几百毫秒重叠。
@@ -234,6 +265,8 @@ fn screenshot_entry(
         origin,
         device_scale,
         buffer_scale,
+        #[cfg(target_os = "windows")]
+        native_layout: None,
         sharpen: Arc::new(SharpenSlot::default()),
     }
 }
@@ -269,19 +302,40 @@ pub(crate) fn create_screenshot_pin_shared(
         // 而 UI 上已有 Pin 的同步 ready/update 命令也要该锁，持有会形成 ABBA。
         let label = format!("pin-image-{}", crate::image_io::unique_image_id());
         let origin = origin.and_then(PinOrigin::sanitized);
+        #[cfg(not(target_os = "windows"))]
         let (content_width, content_height) = match origin {
             Some(origin) => origin_content_size(app_handle, origin),
             None => fit_content_size(app_handle, width as f64, height as f64),
         };
+        #[cfg(target_os = "windows")]
+        let layout = super::window::native_image_layout(
+            app_handle,
+            (f64::from(width), f64::from(height)),
+            origin,
+        );
+        #[cfg(target_os = "windows")]
+        let (content_width, content_height, device_scale, buffer_scale) =
+            (layout.width, layout.height, layout.scale, layout.scale);
+        #[cfg(not(target_os = "windows"))]
+        let (device_scale, buffer_scale) = (
+            content_device_scale(app_handle, origin),
+            content_buffer_scale(app_handle, origin),
+        );
         let entry = screenshot_entry(
             label.clone(),
             png,
             content_width,
             content_height,
             origin,
-            content_device_scale(app_handle, origin),
-            content_buffer_scale(app_handle, origin),
+            device_scale,
+            buffer_scale,
         );
+        #[cfg(target_os = "windows")]
+        let entry = {
+            let mut entry = entry;
+            entry.native_layout = layout.native;
+            entry
+        };
         state
             .pin_manager
             .insert(entry)
@@ -343,8 +397,20 @@ fn create_opened_project_pin(
     let (width, height) = crate::screenshot::png_dimensions(&preview_png)
         .map_err(|_| "所选文件不是合法 PNG".to_string())?;
     let label = format!("pin-image-{}", crate::image_io::unique_image_id());
+    #[cfg(not(target_os = "windows"))]
     let (content_width, content_height) =
         fit_content_size(app_handle, f64::from(width), f64::from(height));
+    #[cfg(target_os = "windows")]
+    let layout =
+        super::window::native_image_layout(app_handle, (f64::from(width), f64::from(height)), None);
+    #[cfg(target_os = "windows")]
+    let (content_width, content_height, device_scale, buffer_scale) =
+        (layout.width, layout.height, layout.scale, layout.scale);
+    #[cfg(not(target_os = "windows"))]
+    let (device_scale, buffer_scale) = (
+        content_device_scale(app_handle, None),
+        content_buffer_scale(app_handle, None),
+    );
     let (source_png, project) = project;
     let source = PinSource::Project {
         source_png,
@@ -365,8 +431,10 @@ fn create_opened_project_pin(
         position: None,
         restore_position: None,
         origin: None,
-        device_scale: content_device_scale(app_handle, None),
-        buffer_scale: content_buffer_scale(app_handle, None),
+        device_scale,
+        buffer_scale,
+        #[cfg(target_os = "windows")]
+        native_layout: layout.native,
         sharpen: Arc::new(SharpenSlot::default()),
     };
     insert_pin_with_rollback(&state.pin_manager, entry, |inserted| {
@@ -936,6 +1004,8 @@ mod tests {
             origin: None,
             device_scale: 1.0,
             buffer_scale: 1.0,
+            #[cfg(target_os = "windows")]
+            native_layout: None,
             sharpen: Arc::new(SharpenSlot::default()),
         }
     }
@@ -1273,6 +1343,8 @@ mod tests {
             origin: None,
             device_scale: 1.0,
             buffer_scale: 1.0,
+            #[cfg(target_os = "windows")]
+            native_layout: None,
             sharpen: Arc::new(SharpenSlot::default()),
         };
 
@@ -1317,6 +1389,8 @@ mod tests {
             origin: None,
             device_scale: 1.0,
             buffer_scale: 1.0,
+            #[cfg(target_os = "windows")]
+            native_layout: None,
             sharpen: Arc::new(SharpenSlot::default()),
         };
 
@@ -1365,6 +1439,8 @@ mod tests {
             origin: None,
             device_scale: 1.0,
             buffer_scale: 1.0,
+            #[cfg(target_os = "windows")]
+            native_layout: None,
             sharpen: Arc::new(SharpenSlot::default()),
         };
         let storage = crate::storage::StorageEngine::new_in_memory().unwrap();
@@ -1591,6 +1667,8 @@ mod tests {
                 origin: None,
                 device_scale: 1.0,
                 buffer_scale: 1.0,
+                #[cfg(target_os = "windows")]
+                native_layout: None,
                 sharpen: Arc::new(SharpenSlot::default()),
             };
         }

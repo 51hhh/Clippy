@@ -18,6 +18,8 @@ use std::time::Instant;
 #[cfg(all(test, target_os = "windows"))]
 #[path = "manager/windows_focus_tests.rs"]
 mod windows_focus_tests;
+#[cfg(all(test, target_os = "windows"))]
+mod windows_pin_origin_tests;
 
 /// 一次截图从按下快捷键到覆盖层显示的分段耗时。
 ///
@@ -974,7 +976,9 @@ impl CaptureManager {
         let mut current = self.session.lock().map_err(CaptureError::state_lock)?;
         let session = current.as_mut().ok_or(CaptureError::SessionMissing)?;
         let frame = selected_frame_in_session(session, selection)?;
-        selection_pixel_rect(frame, selection)?;
+        let crop = selection_pixel_rect(frame, selection)?;
+        #[cfg(not(target_os = "windows"))]
+        let _ = crop;
         let index = session
             .overlays
             .iter()
@@ -983,6 +987,31 @@ impl CaptureManager {
         if session.frames.get(index).map(|frame| frame.monitor_id) != Some(selection.monitor_id) {
             return Err(CaptureError::SelectionMonitorMismatch);
         }
+        // Windows 来源只能来自 caller 绑定的冻结帧及渲染实际使用的 crop。
+        // 前端是否省略/伪造公共逻辑矩形都不能改变这个原生事实。
+        #[cfg(target_os = "windows")]
+        let origin = {
+            let _ = origin;
+            let bounds = frame
+                .validated_physical_bounds()
+                .ok_or_else(|| CaptureError::Screenshot("冻结截图缺少有效物理显示器边界".into()))?;
+            let source = crate::pin::PinOrigin {
+                x: f64::from(frame.x) + f64::from(crop.left) / f64::from(frame.scale_x),
+                y: f64::from(frame.y) + f64::from(crop.top) / f64::from(frame.scale_y),
+                width: f64::from(crop.width()) / f64::from(frame.scale_x),
+                height: f64::from(crop.height()) / f64::from(frame.scale_y),
+                physical: Some(crate::pin::PinPhysicalOrigin {
+                    monitor: bounds,
+                    x: f64::from(bounds.x) + f64::from(crop.left),
+                    y: f64::from(bounds.y) + f64::from(crop.top),
+                }),
+            };
+            Some(
+                source
+                    .sanitized()
+                    .ok_or_else(|| CaptureError::Screenshot("冻结截图来源坐标无效".into()))?,
+            )
+        };
         if session.output.is_some() {
             return Err(CaptureError::SessionBusy);
         }

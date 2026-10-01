@@ -13,6 +13,8 @@ mod project_file;
 pub(crate) mod render_v2;
 mod resample;
 mod window;
+#[cfg(target_os = "windows")]
+mod windows_geometry;
 mod workspace;
 pub(crate) mod workspace_library;
 
@@ -23,6 +25,8 @@ pub(crate) use commands::{
 pub use error::PinError;
 pub(crate) use manager::remember_pin_window_position;
 pub use manager::PinManager;
+#[cfg(target_os = "windows")]
+pub(crate) use model::PinPhysicalOrigin;
 pub(crate) use model::{label_from_window_marker, PinOrigin};
 pub(crate) use origins::{PinFingerprint, PinOriginRegistry};
 pub(crate) use workspace::{queue_open_pin, restore_saved, PinWorkspacePersistence};
@@ -58,6 +62,8 @@ mod tests {
             origin: None,
             device_scale: 1.0,
             buffer_scale: 1.0,
+            #[cfg(target_os = "windows")]
+            native_layout: None,
             sharpen: Arc::new(SharpenSlot::default()),
         }
     }
@@ -249,6 +255,8 @@ mod tests {
     #[test]
     fn window_origin_offsets_the_content_area_by_the_shadow_gutter() {
         let origin = PinOrigin {
+            #[cfg(target_os = "windows")]
+            physical: None,
             x: 400.0,
             y: 300.0,
             width: 640.0,
@@ -264,6 +272,8 @@ mod tests {
     #[test]
     fn origin_rects_must_be_finite_and_visible() {
         let good = PinOrigin {
+            #[cfg(target_os = "windows")]
+            physical: None,
             x: -1920.0,
             y: 0.0,
             width: 2.0,
@@ -272,12 +282,16 @@ mod tests {
         assert_eq!(good.sanitized(), Some(good));
         for bad in [
             PinOrigin {
+                #[cfg(target_os = "windows")]
+                physical: None,
                 x: f64::NAN,
                 y: 0.0,
                 width: 10.0,
                 height: 10.0,
             },
             PinOrigin {
+                #[cfg(target_os = "windows")]
+                physical: None,
                 x: 0.0,
                 y: f64::INFINITY,
                 width: 10.0,
@@ -285,12 +299,16 @@ mod tests {
             },
             // 1 像素高的选区做不成窗口，只会把几何算成负数
             PinOrigin {
+                #[cfg(target_os = "windows")]
+                physical: None,
                 x: 0.0,
                 y: 0.0,
                 width: 10.0,
                 height: 1.0,
             },
             PinOrigin {
+                #[cfg(target_os = "windows")]
+                physical: None,
                 x: 0.0,
                 y: 0.0,
                 width: 0.0,
