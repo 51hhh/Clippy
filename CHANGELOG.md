@@ -7,7 +7,10 @@
 - Windows WGC 分别记录 session / frame pool 的成功关闭；session 失败也尝试 pool，后续
   Close / Drop 只重试失败资源，不把提前置位当成清理完成。保留首次 session 错误和成功幂等。
   原控制协议离线红基线 1 passed / 5 failed，修复后六项通过；vendor 原始字节正校验和三个
-  文件篡改负例通过，完整原生门禁待验。捕获光标、回调和其它平台路径未改。
+  文件篡改负例通过。03b4cb8 完整 Windows 默认/录屏 QA 门禁 exit 0，28 passed / 0 failed /
+  1 skipped（Linux smoke）；默认 Rust 1058、QA Rust 1111（各 5 ignored，重叠不累加），
+  前端 1292 passed；六项 WGC 在独立 vendor Cargo 图通过，不计入应用 Rust 总数。
+  含测试的 vendor 严格 clippy 通过；捕获光标、回调和其它平台路径未改。
   未执行真实 Close 或观察系统泄漏；持续原生失败、桌面录屏、Windows 10 和新 SHA CI 未验。
   （需求：`WIN-WGC-CLOSE-01`；见 `docs/superpowers/specs/2026-10-01-windows-wgc-close-retry.md`）
 

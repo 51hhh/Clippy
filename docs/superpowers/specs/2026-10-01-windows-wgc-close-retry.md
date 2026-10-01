@@ -23,8 +23,8 @@
 
 - [x] 原提前 closed / 短路行为离线红基线暴露 pool 未尝试和错误被后续关闭吞掉。
 - [x] 修复后六项合同验证部分失败、重试、错误优先级、成功幂等与 Drop 清理。
-- [ ] vendor 原始字节正校验与篡改负例通过；Windows lib check/clippy/test 与完整门禁通过。
-- [ ] 规格、补丁来源、CHANGELOG、计划和报告同步，桌面/新 SHA CI 保留未验。
+- [x] vendor 原始字节正校验与篡改负例通过；Windows lib check/clippy/test 与完整门禁通过。
+- [x] 规格、补丁来源、CHANGELOG、计划和报告同步，桌面/新 SHA CI 保留未验。
 
 ## Out of Scope
 
@@ -52,4 +52,13 @@ MSVC 辅助 harness include 完整 wgc_runtime.rs，没有类型 stub 或外部�
 一个 LF 后均 exit 1，实际字节 drift 被拒绝，每例恢复后再进行下一例。生产文件未篡改，不归一化
 哈希输入；证据 src-tauri/target/windows-wgc-close-supply-chain/RESULT.json。
 Windows 本机与 Native CI 的 vendor lib tests/lint 入口在独立 ci 提交接线，源修复与 CI 分开提交。
-干净源码完整门禁与真实 Cargo vendor 图待验；已安装源码仍为 45769c9，桌面未操作。
+产品修复提交 869a13f，独立 CI 接线提交及被测 SHA 为
+03b4cb8535d1fd3ebd95d511ab83f29491bb0805。干净检出完整 Windows 默认/录屏 QA 门禁
+exit 0：28 passed / 0 failed / 1 skipped（Linux smoke）；默认 Rust 1058 / 5 ignored，
+QA Rust 1111 / 5 ignored（两图重叠不累加），前端 75 文件 / 1292 passed，Python 33 + 3 passed。
+真实 xcap Windows Cargo 图中的六项关闭合同通过，0 ignored / 1 filtered（上游显示器测试未执行）；
+这六项是独立 vendor 组，不包含在主应用 Rust 总数。包含测试的 vendor 严格 clippy、默认/QA
+check/clippy、供应链校验与构建通过，日志哈希及验证后干净检出已核对。
+完整证据 src-tauri/target/windows-wgc-close-native-qa-03b4cb8/RESULT.json，辅助红绿不能替代它。
+已安装源码仍为 45769c9，未安装新包或操作桌面；实际系统 Close 失败后的最终释放、
+Windows 10/多屏、录屏和新 SHA 远程 CI 仍未验，未合入 dev 或发布。

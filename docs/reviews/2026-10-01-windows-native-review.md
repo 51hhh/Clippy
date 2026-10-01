@@ -7,7 +7,13 @@
 
 当前 W25 / WIN-WGC-CLOSE-01：WgcRuntime 提前置 closed，session.Close 失败跳过 pool，
 Drop 又不重试。分别记录成功关闭、每轮尝试两个资源；红基线 1 passed / 5 failed，六项绿合同
-及 vendor 原始字节正例/三项篡改负例通过。Windows vendor/full gate 待验，未运行实际 WGC。
+及 vendor 原始字节正例/三项篡改负例通过。产品修复 869a13f 与独立 CI 接线分开提交，被测干净 SHA
+03b4cb8535d1fd3ebd95d511ab83f29491bb0805 完整 Windows 默认/录屏 QA 门禁 exit 0：
+28 passed / 0 failed / 1 skipped（Linux smoke）；默认 Rust 1058 / 5 ignored、QA Rust 1111 /
+5 ignored（重叠不累加），前端 75 文件 / 1292 passed；Python 33 + 3，剪贴板依赖四组共 24 passed。
+六项关闭合同在独立真实 vendor Cargo 图通过，不计入应用 Rust 总数；上游显示器测试明确过滤。
+包含测试的 vendor 严格 clippy、默认/QA API 图通过；日志哈希和验证后干净检出已核对，证据
+windows-wgc-close-native-qa-03b4cb8/RESULT.json。未运行真实 WGC，系统最终释放、桌面与新 SHA CI 未验。
 
 此前 W24 / WIN-WASAPI-STOP-TAIL-01：Windows WASAPI 正常停止与暂停共用 Reset/清空路径，
 导致已复制 PCM 和 endpoint 尾包不交付。正常 Stop 现在有限排空并通过既有尾块接口提交；
@@ -30,7 +36,7 @@ windows-paste-recheck-native-qa-14bf616/RESULT.json，红绿辅助证据另行�
 
 用户要求停止桌面操控，当前继续代码 review 与 Windows 本机自动验证。已安装的 QA 源码仍为
 `45769c9`：真实记录是文本/图片 2 pass、Pin 工具栏裁切 1 fail、36 not_run；原始 39 项模板保留不变。
-新 Pin、私有文件、长截图光标、CF_HTML、图片预算、DIB 偏移、粘贴目标复核和 WASAPI 尾部修复未安装，桌面复测、录屏/音频、
+新 Pin、私有文件、长截图光标、CF_HTML、图片预算、DIB 偏移、粘贴目标复核、WASAPI 尾部和 WGC 关闭修复未安装，桌面复测、录屏/音频、
 管理员目标、多屏和 Windows 10 均保持未验证。
 
 此前独立 WIN-DIBV5-PIXEL-01 修复 W22 的显式像素偏移，原 Chrome/Firefox 断言及新增
@@ -111,6 +117,7 @@ Windows 10、多屏、真实音频与完整安装升级仍未完成。以下失�
 | `25fb5d7` | 借用 DIB 文件视图提供显式像素偏移 | 原 Chrome/Firefox 与尾部/方向/颜色表像素断言通过；27 项完整 Windows 本机门禁通过 |
 | `14bf616` | 激活/等待与输入后端初始化以后复核 Windows 粘贴目标 | 六项状态变化/顺序合同与完整默认/QA 本机门禁通过；实际桌面接管未验 |
 | `a463c3b` | WASAPI 正常停止有限排空并保留 PCM 尾部 | 13 项音频合同、真实 API 图及完整 Windows 默认/QA 门禁通过；实际听音未验 |
+| `869a13f` / `03b4cb8` | WGC 分别记录成功关闭、错误不短路；独立接线 vendor 测试门禁 | 六项关闭合同和含测试的严格 clippy 通过；03b4cb8 的 28 项完整 Windows 本机门禁通过；真实释放未验 |
 
 以上是本机 Git 实际可达节点；录屏、动作和长截图后续分支已包含在最新基线的祖先链中。
 
@@ -138,7 +145,9 @@ Run：<https://github.com/51hhh/Clippy/actions/runs/35792281966>。
 MSVC 无依赖 harness 包含完整状态文件，红协议 1 passed / 5 failed，绿状态六项通过；
 Drop fixture 也调用同一入口，未创建或关闭真实 WGC 对象。原始字节新增模块和接线均登记，
 生产验证器在隔离夹具的正例及三个单 LF 篡改负例通过，来源和许可证保留。
-vendor native lib tests/lint 与完整 Windows 门禁待验，系统 Close 失败后的最终释放、桌面与新 SHA CI 未验。
+03b4cb8 的真实 vendor native lib 六项测试与含测试的严格 lint 通过，独立计数，不计入应用 Rust 总数。
+完整 Windows 默认/QA 门禁 exit 0，28 passed / 0 failed / 1 skipped；应用两图 1058 / 1111 passed，
+各 5 ignored、重叠不累加；前端 1292 passed。系统 Close 失败后的最终释放、桌面与新 SHA CI 未验。
 
 ### W24 / P1 — WASAPI Stop 丢弃已采集音频尾部（离线复现并修复，本机门禁通过）
 
