@@ -114,19 +114,23 @@ Windows 10/11 非默认设备、录制中拔出、默认设备变化、控制窗
 
 诊断目录使用 Win32 `CreateDirectoryW` 的 security attributes 在创建时应用
 `D:P(A;OICI;FA;;;当前用户SID)`，查询实际 DACL 后才返回；不接受宽松继承或权限失败的回退。
-创建后核对失败只尝试移除本次新建的空目录；已有目录和内容不改。NUL 路径在原生调用前拒绝，
+创建后按保护位、DACL 存在/默认状态和 ACE 原始字节核对，SID、掩码、类型与继承标志均必须一致；
+不依赖 SDDL 别名或 AI 状态的字符串形式。核对失败只尝试移除本次新建的空目录；已有目录和内容不改。NUL 路径在原生调用前拒绝，
 避免宽字符串截断创建另一目录。原生测试核对中文路径、目录/子文件 ACL 和失败关闭。
 POSIX 分支继续使用 `0700`，本轮 Windows 证据不能代替 Linux 回归。
 
 实现依据：[CreateDirectoryW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createdirectoryw)、
 [安全描述符字符串](https://learn.microsoft.com/en-us/windows/win32/secauthz/security-descriptor-string-format)。
 
-### W10 / P2 — 第三方 C++ flag 在 MSVC 上被忽略（已观测，待独立维护）
+### W10 / P2 — 第三方 C++ flag 在 MSVC 上被忽略（独立修复已提交，CI 待验证）
 
 `webm-sys 2.2.1` 构建时传入 `-fno-rtti`、`-std=gnu++11`、`-fno-exceptions`，MSVC 输出 D9002 并忽略。
 本轮 QA check 和 Rust `-D warnings` clippy 仍成功；这不代表 C++ 构建无告警，也不是桌面录制通过。
-该问题应在单独依赖维护分支复核 MSVC 对应参数、固定来源/许可证和跨平台 codec 回归，不在本工具
-分支临时改 cargo registry 或压掉日志。
+独立分支 `codex/windows-webm-msvc-flags` 的 [PR #14](https://github.com/51hhh/Clippy/pull/14)
+按真实编译器族修复，需求 `WIN-WEBM-MSVC-01`。实际 MSVC/clang-cl 六个 C++ 源文件重新编译
+通过，既有有效模式保持；来源与构建脚本原始哈希、29 个上游 C/C++ 文件和许可证已核对。
+完整本机录屏 QA 门禁 23 passed / 0 failed / 1 skipped；
+[同 SHA CI](https://github.com/51hhh/Clippy/actions/runs/36815516209) 尚未完成，真实桌面/安装保留未完成。
 
 ## 本机验证记录
 
@@ -140,6 +144,21 @@ Windows 前端 1275 passed、5 failed，尚不能作为同 SHA 三平台通过�
 `c9e504c6be9298366c6320f10288b5e52b343aee`。Windows 原五项 CRLF 合同已通过；新增现象为
 1282 passed / 2 failed，两项均为默认 5000 ms 超时：首次 PowerShell 合同 9884 ms，首次
 `Date.toLocaleString()` 的时间戳合同 11720 ms。该 CI 的 Windows Python/Rust 步骤被跳过，不能计作通过。
+
+第三次 CI：[run 36814547166](https://github.com/51hhh/Clippy/actions/runs/36814547166)，
+SHA `fe37aec2e6776814248ce935d917aa46181dd410`。Windows 前端、1284 项测试与原始 xcap 哈希
+校验通过；随后 Python 31 项质量测试有 1 failure / 2 errors，Rust 被跳过，整体不能计为通过。
+语料 failure 为 `source.html` 原始哈希被 CRLF 检出改变；两个 errors 为实际 DACL 与手写 SDDL
+字符串不同。runner 的具体 SDDL 形式未输出，不能断言是特定 SID 别名或 AI 标记。
+
+W09 后续修复：查询实际二进制 ACE 并与 CreateDirectoryW 所用的期望 descriptor 比较，严格
+保留 P 保护位、DACL 存在/默认状态、全部 ACE 类型/继承标志/掩码/SID。Win32 原生探针复现
+`S-1-5-18` 回写为 `SY`，说明字符串身份并不稳定；按 Microsoft 的
+[SID 格式](https://learn.microsoft.com/en-us/windows/win32/secauthz/sid-strings)与
+[DACL 查询](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-getsecuritydescriptordacl)
+处理 NULL 与缺失 DACL。新增正例覆盖 SID 等价表示与 AI，10 个负例通过实际创建流程证明
+未保护、错误用户、少权限、缺继承、继承 ACE、额外 ACE、deny、空/NULL/缺失 DACL 均失败关闭。
+本机 33 项质量合同、3 项视觉段落通过；远程复验仍待完成。
 
 W13：PowerShell 子进程原本设置 20 秒硬超时，外层测试仅 5 秒，预算不一致。该组改为 30 秒，
 保留子进程 20 秒硬超时、错误对象和全部退出码/失败计数断言；普通测试默认预算不变。

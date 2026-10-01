@@ -38,13 +38,47 @@ class PrivateDiagnosticsTests(unittest.TestCase):
             self.assertEqual(private.create_private_directory(path), path.resolve())
             api = private._windows_api()
             sid = private._current_user_sid(api)
-            self.assertEqual(private._read_windows_dacl(path, api), f"D:P(A;OICI;FA;;;{sid})")
+            self.assertEqual(
+                private._read_windows_dacl(path, api),
+                private._expected_windows_dacl(f"D:P(A;OICI;FA;;;{sid})", api),
+            )
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows SDDL 别名与继承状态")
+    def test_equivalent_sddl_preserves_exact_private_permissions(self):
+        expected = private._expected_windows_dacl("D:P(A;OICI;FA;;;S-1-5-18)")
+        self.assertEqual(expected, private._expected_windows_dacl("D:P(A;OICI;FA;;;SY)"))
+        self.assertEqual(expected, private._expected_windows_dacl("D:PAI(A;OICI;FA;;;SY)"))
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows DACL 权限变化拒绝")
+    def test_different_or_missing_private_permissions_are_rejected(self):
+        api = private._windows_api()
+        sid = private._current_user_sid(api)
+        for sddl in (
+            f"D:(A;OICI;FA;;;{sid})",
+            "D:P(A;OICI;FA;;;WD)",
+            f"D:P(A;OICI;FR;;;{sid})",
+            f"D:P(A;;FA;;;{sid})",
+            f"D:P(A;OICIID;FA;;;{sid})",
+            f"D:P(A;OICI;FA;;;{sid})(A;OICI;FA;;;WD)",
+            f"D:P(D;OICI;FA;;;{sid})",
+            "D:P",
+            "D:NO_ACCESS_CONTROL",
+            "O:SY",
+        ):
+            with self.subTest(sddl=sddl), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "diagnostics"
+                actual = private._expected_windows_dacl(sddl, api)
+                with patch.object(private, "_read_windows_dacl", return_value=actual):
+                    with self.assertRaisesRegex(OSError, "DACL"):
+                        private.create_private_directory(path)
+                self.assertFalse(path.exists())
 
     @unittest.skipUnless(sys.platform == "win32", "Windows DACL 失败关闭检查")
     def test_unexpected_dacl_removes_new_empty_directory_and_fails_closed(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "diagnostics"
-            with patch.object(private, "_read_windows_dacl", return_value="D:(A;;FA;;;WD)"):
+            actual = private._expected_windows_dacl("D:(A;;FA;;;WD)")
+            with patch.object(private, "_read_windows_dacl", return_value=actual):
                 with self.assertRaisesRegex(OSError, "DACL"):
                     private.create_private_directory(path)
             self.assertFalse(path.exists())
