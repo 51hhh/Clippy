@@ -62,15 +62,15 @@
 | W04 | P1 | 100%/125%/150% 多屏与负坐标：冻结帧、跨屏窗口候选、覆盖层、Pin、guide、长截图自动滚动、WGC 选区 | 静态疑点；本机单屏，待多屏真机复现 |
 | W05 | P1 | 同权限自动粘贴一次、高完整性目标 copy-only、目标销毁/复用、用户接管；DACL 与配置连续覆盖 | 待 Windows 复测 |
 | W06 | P1 | QA 包设备默认/非默认/同名/拔出、双源混音、暂停恢复、控制窗排除、强杀恢复、30 分钟 A/V 漂移 | 代码存在，待真机验收 |
-| W07 | P2 | NSIS/MSI 安装升级卸载、WebView2、自启动、托盘/快捷键、系统凭据与更新 | 42e52c0 官方 Windows QA MSI/NSIS 已下载并核对来源、哈希和签名身份；本机证书链不受信任，安装/桌面/updater 未执行 |
-| W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 42e52c0 七项 CI 通过；W10 新 SHA CI、Linux 本地完整门禁及 Wayland 回归保留未完成 |
+| W07 | P2 | NSIS/MSI 安装升级卸载、WebView2、自启动、托盘/快捷键、系统凭据与更新 | 42e52c0 与 W10/45769c9 官方 Windows QA MSI/NSIS 各自核对来源、哈希和签名身份；新包 MSI 只读检查通过，本机证书链不受信任，安装/桌面/updater 未执行 |
+| W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 42e52c0 与 W10 的 45769c9 各自七项 CI 通过；Linux 本地完整门禁及 Wayland 回归保留未完成 |
 | W09 | P1 | OCR 质量工具 Windows 私有诊断目录与符号链接拒绝合同；失败关闭，检查子文件继承 | 实际 DACL/等价 SDDL 及 10 类失败关闭负例通过；本机 33 项质量合同与 42e52c0 跨平台 CI 通过 |
-| W10 | P2 | 审查 webm-sys 的 C++ 编译参数在 MSVC 上产生 D9002；按真实编译器族选择 flag，保留固定来源与许可证 | 独立 WIN-WEBM-MSVC-01 / PR #14；本机完整 QA 与 437949b 四原型 CI 通过，三项原生中 macOS 的既有进程合同失败，由独立 W15 处理 |
+| W10 | P2 | 审查 webm-sys 的 C++ 编译参数在 MSVC 上产生 D9002；按真实编译器族选择 flag，保留固定来源与许可证 | 独立 WIN-WEBM-MSVC-01 / PR #14；本机完整 QA 绑定 e4ccc46，45769c9 七项 CI 与完整 QA workflow 全成功，新 Windows 包来源/哈希/签名身份已核对；真实桌面未验证 |
 | W11 | P1 | 新 Windows runner 使用 CRLF 检出时的 IPC 负例与结构回归；保留两种换行的正/负合同 | 独立 CRLF checkout 1284 项通过，fe37aec Windows 前端 CI 已通过 |
 | W12 | P1 | vendored xcap 保持固定 LF 字节并运行原始 SHA-256 校验；不能归一化哈希输入或跳过检查 | 独立 CRLF checkout 前端门禁 11 项通过、0 失败；字节篡改仍被拒绝，fe37aec Windows 前端 CI 已通过 |
 | W13 | P1 | Windows 原生进程/locale 测试预算覆盖实测初始化；保留子进程硬超时、全部断言与普通单元测试默认预算 | CI 暴露两项 5 秒超时；限定测试组补齐预算后，Node 24.21.0 + CRLF 全前端门禁通过，fe37aec Windows 前端 CI 已通过 |
 | W14 | P1 | 浏览器 OCR 捕获来源 HTML/脚本固定 LF，保留原始字节哈希和来源记录；新 CRLF clone 与篡改负例验证 | fe37aec CI 复现来源哈希失配；28186af 全新 CRLF clone 来源哈希通过，额外 LF 负例被拒绝；42e52c0 CI 通过 |
-| W15 | P1 | OCR 取消/回收夹具区分启动与执行预算；慢启动、取消、后继排队、kill/wait 与许可顺序，macOS 实际 PID 回收 | 独立 OCR-PROC-CANCEL-01 / PR #15；Windows 监督器红/绿探针与格式检查通过，Unix 原生与同 SHA CI 待执行 |
+| W15 | P1 | OCR 取消/回收夹具区分启动与执行预算；慢启动、取消、后继排队、kill/wait 与许可顺序，macOS 实际 PID 回收 | 独立 OCR-PROC-CANCEL-01 / PR #15；Windows 探针与 7982866 完整七项 CI 通过，Unix 用例实际成功；继承修复的 #14 七项另作证据，桌面未验证 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。
@@ -136,7 +136,11 @@ CI 临时信任环境的 Authenticode Valid/预期签名者检查通过；本机
 W10 的 437949b CI 最终为六项 success / 一项 failure，失败是 macOS 原生 OCR 取消/回收测试
 未观察到 PID 标记（1054 passed / 1 failed / 5 ignored）。该模块未由 C++ 补丁修改；原夹具
 执行预算 250 ms、启动观察 10 s 存在竞态。W15 使用阶段标记、慢启动和真实回收探针单独修复，
-不改生产 OCR 预算或取消语义；Windows 探针不替代未执行的 Unix 原生合同。
+不改生产 OCR 预算或取消语义；Windows 探针与 Unix 原生合同分别记录。
+7982866 的 Ubuntu/macOS 已实际执行并通过该合同，独立 #15 的 run 36821712880 完整七项 success。
+经用户授权同步 #15 后，#14 / 45769c9 的七项全部 success，范围仍六个 WebM 文件；新 SHA 官方
+QA run 36823747034 全部 success，Windows 包来源/哈希/签名身份与 MSI 只读元数据已核对，
+39 项模板均 not_run。不将旧包/本机门禁替代新包或桌面验收，也不将文档提交 SHA 写成源码 CI 已验证。
 
 官方 Windows 11 模板与本地生成模板字节相同，39 项均 not_run。合成 Unicode、富文本和透明 PNG
 夹具已准备且哈希核对完成；用户表示暂不能手动执行，安装、桌面与录屏真机验收继续未完成。

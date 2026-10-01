@@ -21,10 +21,10 @@
 ## Acceptance Criteria
 
 - [x] 原 macOS CI failure 的 SHA/job/断言已记录，Windows 实际生产监督器探针复现 750 ms 慢启动被 250 ms 预算提前终止；不声称复现 CI 的具体调度耗时。
-- [ ] 无延迟与 750 ms 慢启动两组均实际启动，取消/占用/排队/回收/恢复断言成立。
-- [ ] macOS 回收断言实际执行；原超时/非读输入/输出上限合同保持通过。
-- [ ] 格式、受影响平台原生测试与同 SHA 三平台/四原型 CI 通过；未执行项保留。
-- [ ] PR、CHANGELOG 与本 spec 引用相同需求 ID，桌面未验证项不改成通过。
+- [x] 无延迟与 750 ms 慢启动两组均实际启动，取消/占用/排队/回收/恢复断言成立。
+- [x] macOS 回收断言实际执行；原超时/非读输入/输出上限合同保持通过。
+- [x] 格式、受影响平台原生测试与同 SHA 三平台/四原型 CI 通过；未执行项保留。
+- [x] PR、CHANGELOG 与本 spec 引用相同需求 ID，桌面未验证项不改成通过。
 
 ## Out of Scope
 
@@ -50,3 +50,14 @@ Windows 11 单屏桌面、Windows 10、多屏、音频与安装升级仍未执�
 子进程不再存在。该探针只验证竞态前提与监督器清理路径，不含 Tauri runtime/消费者合同，
 不计为 Unix 原生测试或桌面 QA。日志/记录位于父 checkout 的 ignored target：
 `ocr-process-budget-probe.log`、`ocr-process-budget-probe.json`。Rust fmt 与 whitespace 检查通过。
+
+原生证据：[run 36821712880](https://github.com/51hhh/Clippy/actions/runs/36821712880)，SHA
+`79828665a2d77308b0973b19d993ae745590d521`。Ubuntu/Windows/macOS 三项原生均 success；
+Ubuntu 与 macOS 日志明确显示取消/回收、挂起/非读输入超时、stdout/stderr 上限用例实际通过。
+慢启动和无延迟两组由同一个生产合同用例循环执行，全部阶段断言保留。
+macOS 默认 Rust 1055 passed / 5 ignored，Ubuntu 默认 Rust 1139 passed / 14 ignored，
+Windows 默认 Rust 1040 passed / 5 ignored；忽略/跳过不计为通过，不累加重叠图。
+独立 #15 的 run 36821712880 已 completed/success，三项原生与四项录屏原型全部成功，
+authenticated run/job/check-run 的 SHA、身份和结论一致。继承修复的 #14 / SHA 45769c9 的
+[run 36821989611](https://github.com/51hhh/Clippy/actions/runs/36821989611) 七项已全部 success，
+该结果与 #15 独立 SHA 分开记录，不改写原 failure 或桌面未验证状态。
