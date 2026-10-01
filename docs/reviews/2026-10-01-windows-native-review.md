@@ -5,7 +5,11 @@
 
 ## 当前续审结果
 
-当前 W24 / WIN-WASAPI-STOP-TAIL-01：Windows WASAPI 正常停止与暂停共用 Reset/清空路径，
+当前 W25 / WIN-WGC-CLOSE-01：WgcRuntime 提前置 closed，session.Close 失败跳过 pool，
+Drop 又不重试。分别记录成功关闭、每轮尝试两个资源；红基线 1 passed / 5 failed，六项绿合同
+及 vendor 原始字节正例/三项篡改负例通过。Windows vendor/full gate 待验，未运行实际 WGC。
+
+此前 W24 / WIN-WASAPI-STOP-TAIL-01：Windows WASAPI 正常停止与暂停共用 Reset/清空路径，
 导致已复制 PCM 和 endpoint 尾包不交付。正常 Stop 现在有限排空并通过既有尾块接口提交；
 旧控制协议辅助红基线 9 passed / 4 failed，修复后 13 项音频合同在两个真实 Cargo 图通过。
 干净源码 `a463c3ba9be876dbfe1a45893dcca28e013cadb6` 完整 Windows 默认/录屏 QA 门禁
@@ -124,6 +128,17 @@ Run：<https://github.com/51hhh/Clippy/actions/runs/35792281966>。
 本轮修改已推送到草稿 PR；首次修改后 CI 和后续修复证据见下方记录，不能沿用基线结果。
 
 ## Findings
+
+### W25 / P1 — WGC 关闭错误跳过另一个资源并阻断 Drop 重试（离线复现并修复）
+
+旧 WgcRuntime 在 Close 前标记 closed，session 的 ? 阻断 pool；错误后 Drop 返回 Ok 不再尝试。
+独立 WIN-WGC-CLOSE-01 的 RuntimeCloseState 分别保存成功，每轮先 session 后 pool、无短路，
+返回 session 错误优先；后续只重试失败者，持续失败仍 Err，Drop 不循环。真实 WinRT 适配器
+共用此入口，公开 API、回调/通道、光标和其它平台不改。
+MSVC 无依赖 harness 包含完整状态文件，红协议 1 passed / 5 failed，绿状态六项通过；
+Drop fixture 也调用同一入口，未创建或关闭真实 WGC 对象。原始字节新增模块和接线均登记，
+生产验证器在隔离夹具的正例及三个单 LF 篡改负例通过，来源和许可证保留。
+vendor native lib tests/lint 与完整 Windows 门禁待验，系统 Close 失败后的最终释放、桌面与新 SHA CI 未验。
 
 ### W24 / P1 — WASAPI Stop 丢弃已采集音频尾部（离线复现并修复，本机门禁通过）
 

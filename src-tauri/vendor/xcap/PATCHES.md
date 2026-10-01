@@ -34,6 +34,21 @@
 因此代码合同已经要求包含光标，但仍必须在 Windows 10 2004+ 原生 CI/真机上用移动光标像素场景
 确认，不能用 Linux 交叉编译代替。
 
+## Windows WGC 部分关闭失败清理 — WIN-WGC-CLOSE-01
+
+此前 WgcRuntime 在尝试 session.Close 前将整个 runtime 标记已关闭，session 错误跳过 pool，
+而 Drop 又因标记返回成功；pool 失败也不会重试。补丁让 session 与 pool 独立记录成功，每轮先
+session 后 pool，无论 session 是否失败都尝试 pool；只对失败资源重试，保留 session 错误优先级。
+正常成功仍幂等，持续错误仍返回失败，Drop 单次 best-effort，不保证 OS Close 必然成功。
+光标、帧格式、回调/通道、公开 API、开始策略与其它平台未改。
+
+新增 `src/windows/wgc_runtime.rs` 为生产共用状态入口和六项离线合同；`src/windows/mod.rs`
+只在 wgc feature 登记该模块。本修复前 mod.rs 实际 SHA-256 为
+`784b5ca43e355490ca5f3dea7fb019cb626f2362b0de2bd670b6b45db1102dd5`；上文上游原始来源仍保留。
+修复后三个文件的原始字节均由 verify-xcap-patch.mjs 固定，不归一化换行。
+Windows 独立 vendor 测试需显式过滤 platform::wgc_runtime::tests，不能运行上游真实显示器测试。
+完整本机/CI 记录见 `docs/superpowers/specs/2026-10-01-windows-wgc-close-retry.md`。
+
 ## 当前工具链 lint 对齐
 
 `src/windows/utils.rs` 将固定四字节 BGRA 像素循环从 `chunks_exact_mut(4)` 改为等价的
@@ -62,7 +77,7 @@ ScreenCaptureKit 并完成原生权限、Retina、旋转屏和混合 DPI 真机�
 仓库 `.gitattributes` 限定本目录的文本保持 LF 检出，使 Windows 的 `core.autocrlf=true` 也保留
 登记的原始字节。验证器仍对实际文件计算完整 SHA-256，不归一化哈希输入或忽略本地修改。
 
-`scripts/verify-xcap-patch.mjs` 固定版本、来源哈希说明、七个实际修改文件的完整 SHA-256、Cargo path
+`scripts/verify-xcap-patch.mjs` 固定版本、来源哈希说明、九个修改/新增文件的完整 SHA-256、Cargo path
 override、独立 vendor 包归属、锁文件 path 解析和许可证。Windows/macOS 原生 CI 会分别用独立
 manifest lint WGC feature 与 macOS 库，避免把上游示例开发依赖并入主锁文件。
 vendor 自带 `Cargo.lock` 仅供独立 lint 重现上游依赖，不参与 Clippy 主工程解析。

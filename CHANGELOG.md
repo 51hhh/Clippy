@@ -2,6 +2,15 @@
 
 ## 未发布
 
+### 2026-10-01 Windows WGC 部分关闭失败清理
+
+- Windows WGC 分别记录 session / frame pool 的成功关闭；session 失败也尝试 pool，后续
+  Close / Drop 只重试失败资源，不把提前置位当成清理完成。保留首次 session 错误和成功幂等。
+  原控制协议离线红基线 1 passed / 5 failed，修复后六项通过；vendor 原始字节正校验和三个
+  文件篡改负例通过，完整原生门禁待验。捕获光标、回调和其它平台路径未改。
+  未执行真实 Close 或观察系统泄漏；持续原生失败、桌面录屏、Windows 10 和新 SHA CI 未验。
+  （需求：`WIN-WGC-CLOSE-01`；见 `docs/superpowers/specs/2026-10-01-windows-wgc-close-retry.md`）
+
 ### 2026-10-01 Windows 录屏音频停止尾部保留
 
 - 非默认 Windows 录屏 QA 正常 Stop 先停止 WASAPI，按 endpoint 实际容量排空尾包，再重置；

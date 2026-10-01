@@ -22,23 +22,21 @@ use windows::{
 use crate::{XCapResult, video_recorder::Frame};
 
 use super::wgc::{IDXGIDEVICE, get_next_frame};
+use super::wgc_runtime::RuntimeCloseState;
 
 #[derive(Debug)]
 struct WgcRuntime {
     frame_pool: Direct3D11CaptureFramePool,
     session: GraphicsCaptureSession,
-    closed: bool,
+    close_state: RuntimeCloseState,
 }
 
 impl WgcRuntime {
     fn close(&mut self) -> XCapResult<()> {
-        if self.closed {
-            return Ok(());
-        }
-        self.closed = true;
-        self.session.Close()?;
-        self.frame_pool.Close()?;
-
+        let session = &self.session;
+        let frame_pool = &self.frame_pool;
+        self.close_state
+            .close(|| session.Close(), || frame_pool.Close())?;
         Ok(())
     }
 }
@@ -113,7 +111,7 @@ impl ImplVideoRecorder {
         Ok(WgcRuntime {
             frame_pool,
             session,
-            closed: false,
+            close_state: RuntimeCloseState::default(),
         })
     }
 
