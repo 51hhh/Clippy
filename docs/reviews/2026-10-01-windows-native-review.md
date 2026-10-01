@@ -7,8 +7,13 @@
 
 当前 W26 / REC-AV-BRIDGE-JOIN-01：视频桥接 join 返回 panic 时，布尔短路跳过音频 join，
 owner 返回但音频线程仍可存活。两条均 join 再判断错误；MSVC 真实受控线程红基线
-2 passed / 2 failed，修复后四项通过。完整 Windows 原生门禁待验；共享其它宿主图、新 SHA CI
-和真实设备 panic/桌面录屏仍未验。此前整屏预算续审确认 WGC 初始化前已有 64 MiB 检查，无新增缺陷。
+2 passed / 2 failed，修复后四项通过。干净源码 091b5cb7663055a3b1a44e2958255bf3717bef79 完整
+Windows 默认/录屏 QA 门禁 exit 0：28 passed / 0 failed / 1 skipped（Linux smoke）；默认 Rust
+1058 / 5 ignored、QA Rust 1115 / 5 ignored（重叠不累加），前端 75 文件 / 1292 passed，Python 33 + 3。
+四项新回归计入 QA 总数，默认图不编译该模块；既有 worker 合并/失败中止两项集成测试通过。
+严格 check/clippy、供应链、独立 WGC 六项与剪贴板 24 项通过；日志哈希和验证后干净检出已核对。
+证据 windows-av-bridge-join-native-qa-091b5cb/RESULT.json；共享其它宿主图、新 SHA CI 和真实设备
+panic/桌面录屏仍未验。此前整屏预算续审确认 WGC 初始化前已有 64 MiB 检查，无新增缺陷。
 
 此前 W25 / WIN-WGC-CLOSE-01：WgcRuntime 提前置 closed，session.Close 失败跳过 pool，
 Drop 又不重试。分别记录成功关闭、每轮尝试两个资源；红基线 1 passed / 5 failed，六项绿合同
@@ -41,7 +46,7 @@ windows-paste-recheck-native-qa-14bf616/RESULT.json，红绿辅助证据另行�
 
 用户要求停止桌面操控，当前继续代码 review 与 Windows 本机自动验证。已安装的 QA 源码仍为
 `45769c9`：真实记录是文本/图片 2 pass、Pin 工具栏裁切 1 fail、36 not_run；原始 39 项模板保留不变。
-新 Pin、私有文件、长截图光标、CF_HTML、图片预算、DIB 偏移、粘贴目标复核、WASAPI 尾部和 WGC 关闭修复未安装，桌面复测、录屏/音频、
+新 Pin、私有文件、长截图光标、CF_HTML、图片预算、DIB 偏移、粘贴目标复核、WASAPI 尾部、WGC 关闭和双轨桥接修复未安装，桌面复测、录屏/音频、
 管理员目标、多屏和 Windows 10 均保持未验证。
 
 此前独立 WIN-DIBV5-PIXEL-01 修复 W22 的显式像素偏移，原 Chrome/Firefox 断言及新增
@@ -123,6 +128,7 @@ Windows 10、多屏、真实音频与完整安装升级仍未完成。以下失�
 | `14bf616` | 激活/等待与输入后端初始化以后复核 Windows 粘贴目标 | 六项状态变化/顺序合同与完整默认/QA 本机门禁通过；实际桌面接管未验 |
 | `a463c3b` | WASAPI 正常停止有限排空并保留 PCM 尾部 | 13 项音频合同、真实 API 图及完整 Windows 默认/QA 门禁通过；实际听音未验 |
 | `869a13f` / `03b4cb8` | WGC 分别记录成功关闭、错误不短路；独立接线 vendor 测试门禁 | 六项关闭合同和含测试的严格 clippy 通过；03b4cb8 的 28 项完整 Windows 本机门禁通过；真实释放未验 |
+| `091b5cb` | 视频桥接 panic 后仍 join 音频，完整回收后返回既有错误 | 四项真实线程 QA 合同和既有 worker 集成测试通过；完整 Windows 默认/QA 门禁通过；其它宿主与设备 panic 未验 |
 
 以上是本机 Git 实际可达节点；录屏、动作和长截图后续分支已包含在最新基线的祖先链中。
 
@@ -148,8 +154,11 @@ Run：<https://github.com/51hhh/Clippy/actions/runs/35792281966>。
 的生产纯模块让两个 join 分别执行，之后报告是否 panic；run 继续返回既有 BridgePanicked，正常
 保留 run_inner 结果，abort/drop 顺序、通道、媒体及 journal 不改。
 四项真实线程覆盖正常、视频/音频单侧和双侧 panic，音频门控未释放时禁止 owner 返回；旧协议
-两项视频 panic 失败，修复后四项通过。测试先释放门控/等待资源 Drop 通知再断言，等待有硬上限；
-没有类型 stub、平台 API 或实际设备。原始失败日志保留，完整 Windows 门禁待验。
+两项视频 panic 失败，修复后四项通过。测试先释放门控/等待资源 Drop 通知再断言，通道等待有上限，
+收到结果后再 join owner；没有类型 stub、平台 API 或实际设备。原始失败日志保留。
+091b5cb 完整 Windows 门禁 exit 0，28 passed / 0 failed / 1 skipped；默认/QA Rust 为 1058 / 1115
+passed、各 5 ignored、重叠不累加。四项新回归只计入 QA 总数，既有 worker 合并/中止集成测试通过；
+前端 1292 passed，严格 check/clippy 及日志/检出审计通过。
 既有四平台原型 CI 的 recording::av 前缀覆盖此模块；新 SHA CI、共享其它宿主图和实际设备 panic 未验。
 
 ### W25 / P1 — WGC 关闭错误跳过另一个资源并阻断 Drop 重试（离线复现并修复）

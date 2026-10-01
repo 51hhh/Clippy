@@ -22,8 +22,8 @@
 
 - [x] 原短路协议在真实受控线程的红基线暴露 owner 返回时音频还未释放。
 - [x] 四项生产入口回归验证正常、视频/音频单侧和双侧 panic；门控释放后全部清理。
-- [ ] Windows QA Cargo 图及完整默认/录屏 QA 门禁通过；现有原型 CI 前缀覆盖新合同。
-- [ ] 规格、CHANGELOG、计划和报告同步，桌面、新 SHA CI 和其它宿主图保留未验。
+- [x] Windows QA Cargo 图及完整默认/录屏 QA 门禁通过；现有原型 CI 前缀覆盖新合同。
+- [x] 规格、CHANGELOG、计划和报告同步，桌面、新 SHA CI 和其它宿主图保留未验。
 
 ## Out of Scope
 
@@ -45,8 +45,16 @@ MSVC 无依赖 harness include 完整 av_bridge_join.rs；旧控制协议保留�
 join().is_err() 表达式，四项红基线 2 passed / 2 failed（exit 101），两项视频 panic 场景的
 owner 在音频门控未释放时返回。修复后同样四项通过（exit 0），真实 JoinHandle 和资源 Drop
 通知完成，无类型 stub、COM、WinRT、音频设备或桌面操作。500 ms 观察窗口内不准提前返回；
-夹具等待均有 5 秒上限，断言失败前先释放音频并观察清理。这个等待上限只用于测试。
+夹具通道等待有 5 秒上限，断言失败前先释放音频并观察清理，收到 owner 结果后 join owner。
+这些通道预算只用于测试，生产 join 未新增超时。
 原始失败和绿日志、源码及二进制保留于 src-tauri/target/windows-av-bridge-join-red。
-真实 Cargo QA 图与完整 Windows 门禁待验；现有四平台原型 CI 的 recording::av 前缀覆盖
-av_bridge_join 与 av_encoder_worker，新 SHA CI 未执行。共享其它平台图/真实 panic 未验，
-不得把受控线程故障注入称为真实设备 panic 或整段录屏验收。
+干净源码 091b5cb7663055a3b1a44e2958255bf3717bef79 的完整 Windows 默认/录屏 QA 门禁 exit 0：
+28 passed / 0 failed / 1 skipped（Linux smoke）；默认 Rust 1058 / 5 ignored，QA Rust 1115 /
+5 ignored（两图重叠不累加），前端 75 文件 / 1292 passed，Python 33 + 3 passed。
+四项新回归在真实 QA Cargo 图通过，已包含在 1115 内，默认图不编译这个非默认模块。
+既有 worker 音视频合并/失败中止两项集成测试通过，默认/QA 严格 check/clippy、独立 WGC 六项、
+剪贴板四组 24 项、供应链及前端构建通过；日志哈希和验证后干净检出已核对。
+完整证据 src-tauri/target/windows-av-bridge-join-native-qa-091b5cb/RESULT.json；不由辅助 harness 替代。
+现有四平台原型 CI 的 recording::av 前缀覆盖 av_bridge_join 与 av_encoder_worker，YAML 与 Windows
+feature 条目已核对；新 SHA CI 未执行。共享其它平台图/真实 panic 未验，已安装旧包 45769c9
+不含本修复，桌面未操作，未安装新包、合入 dev、发布或启动 Linux/WSL。

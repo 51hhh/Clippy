@@ -64,7 +64,10 @@
   干净检出与日志哈希已核对。系统 Close 最终释放、真实 WGC 与新 SHA CI 未验。
 - `REC-AV-BRIDGE-JOIN-01`：独立 `codex/windows-av-bridge-join`，基于 `99f83f8`。
   视频 join 出错后布尔短路遗漏音频 join；两条线程均 join 后再报告既有 panic 错误。
-  完整纯模块和真实受控线程红基线 2 passed / 2 failed，修复后四项通过；完整本机门禁待验。
+  完整纯模块和真实受控线程红基线 2 passed / 2 failed，修复后四项通过。干净源码
+  091b5cb7663055a3b1a44e2958255bf3717bef79 完整 Windows 默认/QA 门禁 exit 0，28 passed /
+  0 failed / 1 skipped；默认 Rust 1058、QA Rust 1115（各 5 ignored，重叠不累加），前端 1292 passed。
+  四项回归仅在 QA 图、已计入总数；既有 worker 合并/失败中止测试通过，检出和日志哈希已核对。
   共享 Linux/macOS 图、新 SHA CI 和真实 panic/桌面仍未验，既有原型 CI 前缀覆盖新模块。
 - 已安装包仍为旧源码 `45769c9`。实际 Windows 11 桌面记录为 2 pass / 1 fail（旧 Pin 工具栏裁切）/
   36 not_run；原始 39 项 not_run 模板保持原字节，模板不能替代实际记录。
@@ -135,7 +138,7 @@
 | W05 | P1 | 同权限自动粘贴一次、高完整性目标 copy-only、目标销毁/复用、用户接管；DACL 与配置连续覆盖 | 45769c9 普通权限文本/图片完整用例实际通过；管理员、销毁复用与用户接管桌面待验证。私有文件准备失败时序见 W18，富文本片段边界见 W20，首次按键前目标复核见 W23 |
 | W06 | P1 | QA 包设备默认/非默认/同名/拔出、双源混音、暂停恢复、控制窗排除、强杀恢复、30 分钟 A/V 漂移 | WASAPI 正常停止尾部见 W24，WGC 关闭失败清理见 W25，双轨桥接线程回收见 W26；真实设备、混音及其余场景仍待真机验收 |
 | W07 | P2 | NSIS/MSI 安装升级卸载、WebView2、自启动、托盘/快捷键、系统凭据与更新 | 官方 QA 包身份已核对，MSI 只读检查通过；NSIS 安装落盘/启动子步骤已核对，完整 MSI/升级/卸载/updater 未验收；本机自签名链不受信任，未更改信任 |
-| W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 42e52c0、45769c9 与 WinPS 的 b2fd247 各自七项 CI 通过；后续九项产品修复本机通过，新 SHA CI、Linux 本地完整门禁及 Wayland 回归保留未完成 |
+| W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 42e52c0、45769c9 与 WinPS 的 b2fd247 各自七项 CI 通过；后续十项产品修复本机通过，新 SHA CI、Linux 本地完整门禁及 Wayland 回归保留未完成 |
 | W09 | P1 | OCR 质量工具 Windows 私有诊断目录与符号链接拒绝合同；失败关闭，检查子文件继承 | 实际 DACL/等价 SDDL 及 10 类失败关闭负例通过；本机 33 项质量合同与 42e52c0 跨平台 CI 通过 |
 | W10 | P2 | 审查 webm-sys 的 C++ 编译参数在 MSVC 上产生 D9002；按真实编译器族选择 flag，保留固定来源与许可证 | 独立 WIN-WEBM-MSVC-01 / PR #14；本机完整 QA 绑定 e4ccc46，45769c9 七项 CI 与完整 QA workflow 全成功，新 Windows 包来源/哈希/签名身份已核对；真实桌面未验证 |
 | W11 | P1 | 新 Windows runner 使用 CRLF 检出时的 IPC 负例与结构回归；保留两种换行的正/负合同 | 独立 CRLF checkout 1284 项通过，fe37aec Windows 前端 CI 已通过 |
@@ -153,7 +156,7 @@
 | W23 | P1 | Windows 首次按键前复核当前目标，不能沿用激活/后端初始化前的窗口身份与焦点 | 独立 WIN-PASTE-RECHECK-01；同一生产入口红基线 2 passed / 4 failed，六项离线合同及 14bf616 完整 Windows 本机默认/QA 门禁通过；真实接管、系统竞争、macOS 原生图和新 SHA CI 未验 |
 | W24 | P1 | 正常 WASAPI Stop 保留已复制 PCM 和有限 endpoint 尾包，Pause 清空，故障关闭 | 独立 WIN-WASAPI-STOP-TAIL-01；旧控制协议红基线 9 passed / 4 failed，13 项真实 Cargo 合同与 a463c3b 完整 Windows 默认/QA 门禁通过；真实设备/混音与新 SHA CI 未验 |
 | W25 | P1 | WGC Close 每轮均尝试两个资源，按成功状态幂等，失败允许 Drop 重试 | 独立 WIN-WGC-CLOSE-01；红基线 1 passed / 5 failed，六项 vendor Cargo 合同与三个原始字节篡改负例通过；03b4cb8 完整 Windows 默认/QA 门禁通过；系统最终释放、真实 WGC 与新 SHA CI 未验 |
-| W26 | P2 | 双轨编码退出不因视频桥接 panic 遗漏音频 join，两条回收后保留既有错误 | 独立 REC-AV-BRIDGE-JOIN-01；真实受控线程红基线 2 passed / 2 failed，绿状态四项通过；完整 Windows 门禁及共享其它宿主图、新 SHA CI、实际设备 panic 未验 |
+| W26 | P2 | 双轨编码退出不因视频桥接 panic 遗漏音频 join，两条回收后保留既有错误 | 独立 REC-AV-BRIDGE-JOIN-01；真实受控线程红基线 2 passed / 2 failed，四项 QA Cargo 回归与 091b5cb 完整 Windows 默认/QA 门禁通过；共享其它宿主图、新 SHA CI、实际设备 panic 未验 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。

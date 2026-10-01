@@ -7,7 +7,10 @@
 - 视频桥接线程 panic 后仍等待音频桥接线程退出，再返回既有 BridgePanicked；两条线程正常
   时保留原编码结果。避免 join 的布尔短路使音频 handle 被丢弃、owner 提前结束。
   MSVC 真实受控线程红基线 2 passed / 2 failed，修复后四项正常/单侧/双侧 panic 回归通过；
-  完整 Windows 默认/录屏 QA 门禁待验。录屏仍为非默认 feature，媒体与 journal 行为未改。
+  091b5cb 完整 Windows 默认/录屏 QA 门禁 exit 0，28 passed / 0 failed / 1 skipped（Linux smoke）。
+  默认 Rust 1058、QA Rust 1115（各 5 ignored，重叠不累加），前端 1292 passed；四项新回归
+  包含在 QA 总数，默认图不编译该模块。既有 worker 合并/中止集成测试及严格 clippy 通过。
+  录屏仍为非默认 feature，媒体与 journal 行为未改。
   未观察真实设备 panic；共享 Linux/macOS 原生图、新 SHA CI 和桌面录屏仍未验。
   （需求：`REC-AV-BRIDGE-JOIN-01`；见 `docs/superpowers/specs/2026-10-01-windows-av-bridge-join.md`）
 
