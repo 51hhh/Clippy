@@ -56,15 +56,24 @@ pub fn ensure_private_file(path: &Path) -> io::Result<()> {
     restrict_file(path)
 }
 
-/// 以私有权限创建或覆盖文件，并在写入后再次校正权限。
+/// 写入或截断前准备私有权限，成功写入后再次校正权限。
 pub fn write_private(path: &Path, contents: &[u8]) -> io::Result<()> {
+    write_private_with_permissions(path, contents, restrict_file)
+}
+
+/// 权限副作用作为参数传入，确保失败合同与生产写入路径执行同一组文件操作。
+fn write_private_with_permissions(
+    path: &Path,
+    contents: &[u8],
+    mut prepare_permissions: impl FnMut(&Path) -> io::Result<()>,
+) -> io::Result<()> {
     use std::io::Write;
 
     if path.exists() {
-        restrict_file(path)?;
+        prepare_permissions(path)?;
     }
     let mut options = fs::OpenOptions::new();
-    options.create(true).truncate(true).write(true);
+    options.create(true).write(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
@@ -72,9 +81,12 @@ pub fn write_private(path: &Path, contents: &[u8]) -> io::Result<()> {
     }
 
     let mut file = options.open(path)?;
+    // 新文件不能先落内容再收紧权限；已有文件也要等本次准备成功后才能截断。
+    prepare_permissions(path)?;
+    file.set_len(0)?;
     file.write_all(contents)?;
     file.sync_all()?;
-    restrict_file(path)
+    prepare_permissions(path)
 }
 
 /// 用已经完整写入的私有临时文件原子替换目标，并再次校正最终路径权限。
@@ -120,6 +132,8 @@ mod tests {
         let path = directory.path().join("private");
         write_private(&path, b"secret").expect("写入私有文件失败");
         assert_eq!(fs::read(&path).expect("读取私有文件失败"), b"secret");
+        write_private(&path, b"new").expect("覆盖私有文件失败");
+        assert_eq!(fs::read(&path).expect("读取覆盖后的文件失败"), b"new");
 
         #[cfg(unix)]
         {
@@ -132,6 +146,51 @@ mod tests {
 
         #[cfg(target_os = "windows")]
         assert!(is_private(&path));
+    }
+
+    #[test]
+    fn failed_permission_preparation_never_writes_new_private_content() {
+        let directory = tempfile::tempdir().expect("创建临时目录失败");
+        let path = directory.path().join("new-private-file");
+        let error = write_private_with_permissions(&path, b"must-not-be-written", |_| {
+            Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "模拟私有权限准备失败",
+            ))
+        })
+        .unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert!(fs::read(&path).unwrap().is_empty());
+    }
+
+    #[test]
+    fn failed_permission_preparation_preserves_existing_content() {
+        let directory = tempfile::tempdir().expect("创建临时目录失败");
+        // 打开前旧 ACL 修复失败，以及打开后本次权限准备失败，都不能损坏原文。
+        for failure_on in [1, 2] {
+            let path = directory
+                .path()
+                .join(format!("existing-private-{failure_on}"));
+            fs::write(&path, b"original-content").unwrap();
+            let mut attempts = 0;
+            let error = write_private_with_permissions(&path, b"replacement", |_| {
+                attempts += 1;
+                if attempts == failure_on {
+                    Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        "模拟私有权限准备失败",
+                    ))
+                } else {
+                    Ok(())
+                }
+            })
+            .unwrap_err();
+
+            assert_eq!(attempts, failure_on);
+            assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+            assert_eq!(fs::read(&path).unwrap(), b"original-content");
+        }
     }
 
     #[test]
