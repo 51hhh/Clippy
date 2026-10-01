@@ -6,8 +6,10 @@
 
 - 为小图及缩小后的贴图窗口预留完整工具栏高度，同步前端首帧尺寸兜底，避免保存、复制与关闭
   按钮被窗口底部裁切；内容尺寸和原始贴图偏移保持既有规则。Windows 11 单屏 125% DPI 的
-  旧 QA 包已复现，真实 CSS 与原生窗口高度合同在修复前失败。Windows 本机验证进行中；
-  用户要求停止桌面操作，修复后桌面复测、新 SHA 原生 CI、Windows 10 与双屏仍未验证。
+  旧 QA 包已复现，真实 CSS 与原生窗口高度合同先失败后通过。7aa6cf6 的 Windows 本机完整
+  默认及录屏 QA 门禁 exit 0，23 passed / 0 failed / 1 skipped（Linux smoke），前端 1292 项通过。
+  用户要求停止桌面操作，修复后桌面复测、新 SHA 原生 CI、Windows 10 与双屏仍未验证；
+  当前安装包仍为旧源码，后继文档提交不冒称已验证 SHA。
   （需求：`WIN-PIN-TOOLBAR-01`；见 `docs/superpowers/specs/2026-10-01-windows-pin-toolbar-height.md`）
 
 ### 2026-10-01 Windows PowerShell 门禁兼容修复
