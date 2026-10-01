@@ -2,3 +2,8 @@
 /src-tauri/vendor/xcap/** text=auto eol=lf
 # Cargo 生成的锁文件保留 LF，与 vendor 路径解析合同一致。
 /src-tauri/Cargo.lock text eol=lf
+# 浏览器 OCR 语料的捕获来源按原始字节记录哈希，跨平台检出保持 LF。
+/src-tauri/ocr-sidecar/quality-fixtures/browser-ui-v1/source.html text eol=lf
+/src-tauri/ocr-sidecar/quality-fixtures/browser-ui-v1/capture.py text eol=lf
+/src-tauri/ocr-sidecar/quality-fixtures/formula-browser-v1/source.html text eol=lf
+/src-tauri/ocr-sidecar/quality-fixtures/formula-browser-v1/capture.py text eol=lf
