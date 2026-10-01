@@ -2,3 +2,5 @@
 /src-tauri/vendor/xcap/** text=auto eol=lf
 # Cargo 生成的锁文件保留 LF，与 vendor 路径解析合同一致。
 /src-tauri/Cargo.lock text eol=lf
+# WebM 原生构建脚本同样按原始字节固定供应链哈希。
+/src-tauri/vendor/webm-sys/build.rs text eol=lf

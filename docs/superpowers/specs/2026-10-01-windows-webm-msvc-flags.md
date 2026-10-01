@@ -1,0 +1,61 @@
+# Windows WebM 编译参数修复
+
+需求 ID：`WIN-WEBM-MSVC-01`。
+父任务：`WIN-NATIVE-01 / W10`。基线：`fe37aec2e6776814248ce935d917aa46181dd410`。
+
+## Goal
+
+消除 vendored `webm-sys 2.2.1` 向 MSVC 传入 GCC 参数产生的 D9002，保留现有编码器、
+WebM C ABI 和各编译器的有效行为。
+
+## Requirements
+
+1. 按 `cc::Tool` 的真实编译器族选择参数；MSVC 和 clang-cl 不接收 `-fno-rtti`、
+   `-std=gnu++11`、`-fno-exceptions`。GCC/Clang（包括 Windows GNU）保留现有三个参数。
+2. MSVC 沿用之前忽略无效参数后的默认 C++ 模式；不另改 RTTI、异常或 CRT 策略。
+3. 仅调整 `build.rs`；保持 libwebm C/C++ 源码、现有 Opus FFI、2.2.1 版本、Cargo path 和许可证。
+4. 来源记录保留 crates.io 2.2.1 archive SHA-256 与上游 Git ID，补丁构建脚本按原始字节固定哈希；
+   Windows Git 检出保持该文件 LF。不能用归一化输入掩盖源码漂移。
+5. 证据区分实际 MSVC 编译命令、Windows 全量 QA 回归、三平台/四原型 CI、桌面/安装 QA；
+   后两者未执行时不计作通过。
+
+## Acceptance Criteria
+
+- [x] 原构建脚本在 MSVC 原生重新编译中复现三种 D9002，保存原始命令与返回码。
+- [x] 修复后实际 MSVC 命令不含三个 GCC 参数，相关 D9002 消失；没有新增全局告警屏蔽。
+- [x] 原始构建脚本哈希漂移的负例被供应链校验拒绝，复原后成功。
+- [x] Windows `recording-windows-av-qa` check/clippy/test 与现有 VP9/Opus/WebM 回归通过。
+- [ ] 同 SHA Ubuntu/Windows/macOS 原生与四项 codec 原型检查通过，GNU/Clang 参数经原生编译覆盖。
+- [ ] CHANGELOG、patch 来源、PR 引用同一 ID，未完成的桌面/安装验收保持未完成。
+
+## Out of Scope
+
+- 升级 codec、改变容器/音频轨道行为、默认开放录屏、发布或合入 dev。
+- 新增 MSVC RTTI/异常/CRT 策略；压掉 D9002 或降低 Rust clippy 严格度。
+- 把编译/合成源回归当作 Windows 真实桌面、有声录屏或安装验收。
+
+## Verification
+
+Windows 11 x64；Rust 1.98.1、`cc 1.2.61`、MSVC 14.44.35207、clang-cl 23.1.2。
+
+- 来源 archive 按 crates.io 的 SHA-256 `4573631d064f24e233a9cd6e5764eef0f364f1248444c0049d047a7784e613a2`
+  校验成功；29 个 libwebm C/C++ 文件与原 archive 字节相同。既有许可证只少一个末尾空行，正文一致。
+- 在独立临时 Cargo driver（同版本 `cc`、实际 vendored path）开启 `CC_ENABLE_DEBUG_OUTPUT=1`：
+  原始 MSVC 六个源文件编译均收到三个 GNU 参数并产生 D9002，check exit 0；补丁六个命令不再
+  含这些参数/相关 D9002，check exit 0。保留 `-MD`、`-Z7`、`-Brepro`、`-W0` 等原有有效参数。
+- clang-cl 原参数被明确报告为 ignored；前后预处理均为 C++14、RTTI=1、exceptions=0。
+  补丁六个真实编译命令通过，check exit 0，无三个 GNU 参数/相关告警。
+- 原始 `build.rs` SHA-256 为 `eda0ed58d90a1a492291df6755c91d8f40faa489409f185e6e0db5e27251af6b`；
+  补丁为 `c7e90a7f5cd1e24d0cbe355442c21cfaf15d27d13ea0bf64f1d86e37f6b1b833`。
+  追加一个 LF 被原始字节校验以 exit 1 拒绝；复原后通过。构建脚本 rustfmt 与 diff whitespace 检查通过。
+- 首次全门禁的 checkout 位于另一个 Rust workspace 的 `target` 下，独立 xcap fmt/clippy
+  向上找到父 workspace 而失败；默认 Rust 1040 passed、5 ignored，QA 尚未完成时主动终止。
+  此次运行不计作完整门禁通过。移到仓库根 `.worktrees` 后独立 vendor fmt 已通过，Node 24.21.0 完整门禁最终为 23 passed、0 failed、1 skipped（Linux smoke）。
+  默认 Rust 1040 passed / 5 ignored，QA Rust 1093 passed / 5 ignored；两者不累加。
+  前端 74 文件 / 1284 passed；Python 31 项质量与 3 项视觉段落通过。
+- 诊断日志在调用项目的 ignored `src-tauri/target/`：`webm-msvc-driver-red.log`、
+  `webm-msvc-driver-green.log`、`webm-clang-cl-green.log`、`windows-webm-full-qa*.log`。
+
+本机完整 QA 门禁通过；GNU/Clang 原生 CI、修改后同 SHA CI、桌面/安装验收仍待执行。
+父分支 fe37aec 的 Windows 前端 CI 已通过，但 Python 新暴露的问题仍由 WIN-NATIVE-01 修复，
+本分支不将该父分支 CI 写为整体通过。

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isVendoredPathPackage, lockedPackageBody } from "./recording-codec-lock.mjs";
@@ -195,6 +196,22 @@ const webmSegment = readFileSync(
   "utf8",
 );
 const webmFfi = readFileSync(join(tauriRoot, "vendor", "webm-sys", "ffi.cpp"), "utf8");
+const webmSysBuild = readFileSync(join(tauriRoot, "vendor", "webm-sys", "build.rs"));
+const pinnedWebmSysBuild = "c7e90a7f5cd1e24d0cbe355442c21cfaf15d27d13ea0bf64f1d86e37f6b1b833";
+// 校验实际字节；Windows 检出由 .gitattributes 保持 LF，不对哈希输入做归一化。
+if (createHash("sha256").update(webmSysBuild).digest("hex") !== pinnedWebmSysBuild) {
+  throw new Error("vendored webm-sys compiler-family build script drifted");
+}
+for (const source of [
+  "WIN-WEBM-MSVC-01",
+  "4573631d064f24e233a9cd6e5764eef0f364f1248444c0049d047a7784e613a2",
+  "dc9c7caf9a3f29239d47b8b6dcb41a049caf2572",
+  pinnedWebmSysBuild,
+]) {
+  if (!webmSysPatch.includes(source)) {
+    throw new Error("vendored webm-sys compiler patch provenance is incomplete");
+  }
+}
 for (const marker of [
   "set_audio_codec_delay",
   "set_audio_seek_pre_roll",

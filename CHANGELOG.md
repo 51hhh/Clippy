@@ -2,6 +2,14 @@
 
 ## 未发布
 
+### 2026-10-01 Windows WebM 构建修复
+
+- 修复 vendored WebM 构建脚本向 MSVC/clang-cl 传入三个被忽略的 GCC 参数产生的告警；
+  按实际编译器族保留有效模式，GNU/Clang 参数、libwebm 源码、Opus FFI 和许可证保持既有内容。
+  增加来源与原始构建脚本哈希校验。本机 MSVC/clang-cl 六个 C++ 文件重新编译通过；
+  Windows 完整录屏 QA 门禁 23 passed、0 failed、1 skipped（Linux smoke）。
+  修改后同 SHA CI、GNU/Clang 原生回归、真实桌面与安装验收仍待执行。（需求：`WIN-WEBM-MSVC-01`）
+
 ### 2026-10-01 Windows 原生验证修复
 
 - 修复 Windows 合同测试的文件 URL 路径转换与 CRLF 负例夹具，保留 LF/CRLF 两种格式的
