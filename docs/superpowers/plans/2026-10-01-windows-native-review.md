@@ -40,7 +40,7 @@
 - [x] 两组合同测试与完整前端测试在 Windows 通过，类型、JS lint、IPC/HTML、供应链和生产入口通过。
 - [x] PowerShell 门禁的缺依赖、非零退出码和部分检查不能虚报完整成功；入口文档与脚本一致。
 - [x] Windows OCR 诊断目录及新建子文件的 DACL 原生检查通过；质量测试不依赖 POSIX mode 或符号链接特权。
-- [ ] 新增 Windows CI 前端步骤在修改后的同一 SHA 上通过；完整原生/原型 CI 重新核验。
+- [ ] Windows 前端 CI 在 fe37aec 已通过；OCR 阶段新失败已修复待复验，完整原生/原型 CI 仍需同 SHA 成功。
 - [x] 默认及 `recording-windows-av-qa` 在 Windows 本机完成 Rust check/clippy/test。
 - [ ] Windows 10/11 混合 DPI、多屏、权限、安装更新及有声录屏桌面 QA 绑定相同包/SHA。
 - [ ] 已确认的产品缺陷修复后复测；尚未执行、外部工具缺失和静态疑点保留未完成状态。
@@ -57,18 +57,19 @@
 | ID | 优先级 | 工作与验收 | 状态 |
 |---|---|---|---|
 | W01 | P1 | 修复文件 URL 路径；保留 9 项合同负例/正例并完成 Windows 前端门禁 | 本机已通过 |
-| W02 | P1 | PowerShell 门禁与 Windows CI 前端检查；缺工具/失败/部分运行严格区分 | 本机入口已验证，修改后 CI 待执行 |
+| W02 | P1 | PowerShell 门禁与 Windows CI 前端检查；缺工具/失败/部分运行严格区分 | 本机入口与 fe37aec Windows 前端 CI 已通过；OCR/Rust 完整 CI 待复验 |
 | W03 | P1 | Rust MSVC、C++ SDK、WebView2；录屏另需 MSYS2 make/diffutils/perl/nasm、MSBuild、CMake、LLVM tools/libclang；默认与 QA 图分别验证 | 工具已安装，默认与录屏 QA 本机门禁通过 |
 | W04 | P1 | 100%/125%/150% 多屏与负坐标：冻结帧、跨屏窗口候选、覆盖层、Pin、guide、长截图自动滚动、WGC 选区 | 静态疑点；本机单屏，待多屏真机复现 |
 | W05 | P1 | 同权限自动粘贴一次、高完整性目标 copy-only、目标销毁/复用、用户接管；DACL 与配置连续覆盖 | 待 Windows 复测 |
 | W06 | P1 | QA 包设备默认/非默认/同名/拔出、双源混音、暂停恢复、控制窗排除、强杀恢复、30 分钟 A/V 漂移 | 代码存在，待真机验收 |
 | W07 | P2 | NSIS/MSI 安装升级卸载、WebView2、自启动、托盘/快捷键、系统凭据与更新 | 本机未签名 debug 包构建成功；正式 QA 包、安装与桌面验收待执行 |
 | W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 后续改动后执行 |
-| W09 | P1 | OCR 质量工具 Windows 私有诊断目录与符号链接拒绝合同；失败关闭，检查子文件继承 | 本机 31 项质量合同通过，跨平台 CI 待执行 |
-| W10 | P2 | 审查 webm-sys 的 C++ 编译参数在 MSVC 上产生 D9002；按宿主选择 flag，保留固定来源与许可证 | 本机已观测，独立维护任务 |
-| W11 | P1 | 新 Windows runner 使用 CRLF 检出时的 IPC 负例与结构回归；保留两种换行的正/负合同 | 独立 CRLF checkout 修复后 1284 项通过，修改后 CI 待执行 |
-| W12 | P1 | vendored xcap 保持固定 LF 字节并运行原始 SHA-256 校验；不能归一化哈希输入或跳过检查 | 独立 CRLF checkout 前端门禁 11 项通过、0 失败；字节篡改仍被拒绝，修改后 CI 待执行 |
-| W13 | P1 | Windows 原生进程/locale 测试预算覆盖实测初始化；保留子进程硬超时、全部断言与普通单元测试默认预算 | CI 暴露两项 5 秒超时；限定测试组补齐预算后，Node 24.21.0 + CRLF 全前端门禁通过，远程待复验 |
+| W09 | P1 | OCR 质量工具 Windows 私有诊断目录与符号链接拒绝合同；失败关闭，检查子文件继承 | 实际 DACL/等价 SDDL 及 10 类失败关闭负例通过；本机 33 项质量合同通过，跨平台 CI 待复验 |
+| W10 | P2 | 审查 webm-sys 的 C++ 编译参数在 MSVC 上产生 D9002；按宿主选择 flag，保留固定来源与许可证 | 独立 WIN-WEBM-MSVC-01 / PR #14 已提交；本机完整 QA 门禁通过，CI 待执行 |
+| W11 | P1 | 新 Windows runner 使用 CRLF 检出时的 IPC 负例与结构回归；保留两种换行的正/负合同 | 独立 CRLF checkout 1284 项通过，fe37aec Windows 前端 CI 已通过 |
+| W12 | P1 | vendored xcap 保持固定 LF 字节并运行原始 SHA-256 校验；不能归一化哈希输入或跳过检查 | 独立 CRLF checkout 前端门禁 11 项通过、0 失败；字节篡改仍被拒绝，fe37aec Windows 前端 CI 已通过 |
+| W13 | P1 | Windows 原生进程/locale 测试预算覆盖实测初始化；保留子进程硬超时、全部断言与普通单元测试默认预算 | CI 暴露两项 5 秒超时；限定测试组补齐预算后，Node 24.21.0 + CRLF 全前端门禁通过，fe37aec Windows 前端 CI 已通过 |
+| W14 | P1 | 浏览器 OCR 捕获来源 HTML/脚本固定 LF，保留原始字节哈希和来源记录；新 CRLF clone 与篡改负例验证 | fe37aec CI 复现来源哈希失配；28186af 全新 CRLF clone 来源哈希通过，额外 LF 负例被拒绝；CI 待复验 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。
@@ -104,3 +105,12 @@ Linux 本地完整门禁、修改后 CI、官方 QA 安装包、Windows 10 和�
 
 详细审查证据见 `docs/reviews/2026-10-01-windows-native-review.md`。所有新结果按层级追加，
 没有实际执行的项不勾选。
+
+W09 后续：fe37aec 的 Windows 前端 CI 通过，OCR 实际 DACL 与手写 SDDL 比较失配，Rust 未执行。
+改为二进制 ACE/保护位严格核对，本机 33 项质量 + 3 项视觉段落通过；等价 SID/AI 正例和
+10 类真实创建失败关闭负例均保留。修改后同 SHA CI 与完整 Windows 门禁仍待复验。
+
+W09/W14 最新源码 28186af 的完整 Windows 默认门禁：20 passed / 0 failed / 2 skipped，
+Rust 1040 / 5 ignored、前端 74 文件 / 1284 passed、Python 33 + 3 passed。
+全新 CRLF clone 状态干净；两个浏览器语料的额外 LF 负例均 exit 2，验证器与来源登记未改。
+桌面自动化运行时再次初始化失败，没有 UI 观测；Windows 11 单屏人工 QA、Windows 10、多屏保持未完成。

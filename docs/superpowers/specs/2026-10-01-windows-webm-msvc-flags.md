@@ -26,7 +26,7 @@ WebM C ABI 和各编译器的有效行为。
 - [x] 原始构建脚本哈希漂移的负例被供应链校验拒绝，复原后成功。
 - [x] Windows `recording-windows-av-qa` check/clippy/test 与现有 VP9/Opus/WebM 回归通过。
 - [ ] 同 SHA Ubuntu/Windows/macOS 原生与四项 codec 原型检查通过，GNU/Clang 参数经原生编译覆盖。
-- [ ] CHANGELOG、patch 来源、PR 引用同一 ID，未完成的桌面/安装验收保持未完成。
+- [x] CHANGELOG、patch 来源、PR 引用同一 ID，未完成的桌面/安装验收保持未完成。
 
 ## Out of Scope
 
@@ -59,3 +59,13 @@ Windows 11 x64；Rust 1.98.1、`cc 1.2.61`、MSVC 14.44.35207、clang-cl 23.1.2�
 本机完整 QA 门禁通过；GNU/Clang 原生 CI、修改后同 SHA CI、桌面/安装验收仍待执行。
 父分支 fe37aec 的 Windows 前端 CI 已通过，但 Python 新暴露的问题仍由 WIN-NATIVE-01 修复，
 本分支不将该父分支 CI 写为整体通过。
+
+后续父分支更新：同步 `42e52c064aba36bb7e93a5e68a0cfb54f65c5b7b` 的 Windows OCR DACL
+语义校验与浏览器语料 LF 属性，避免在最新 CI 继续携带父分支已知失败。冲突仅为
+`.gitattributes` 末尾，保留 WebM 与四个 OCR 来源属性；C++ 源码和补丁哈希不变。
+本机完整录屏 QA 证据绑定 `e4ccc46c3ca22b894ceb18b6c799eedd69358a6c`；同步后的 Python
+33 + 3 项另作验证，不能将旧 SHA 的完整门禁写成新 SHA 通过。两套原生 CI 仍待终态。
+
+全新 `core.autocrlf=true` clone 在 e4ccc46 首次检出即通过 codec 供应链校验，原始
+build.rs 哈希为 c7e90a7f5cd1e24d0cbe355442c21cfaf15d27d13ea0bf64f1d86e37f6b1b833，Git 状态干净。
+PR：[14](https://github.com/51hhh/Clippy/pull/14)。

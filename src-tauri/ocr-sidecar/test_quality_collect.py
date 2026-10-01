@@ -210,16 +210,21 @@ class QualityCollectTests(unittest.TestCase):
             self.assertEqual(collect.create_diagnostics_directory(path), path.resolve())
             self.assertTrue(path.is_dir())
             if sys.platform == "win32":
-                from private_diagnostics import _current_user_sid, _read_windows_dacl, _windows_api
+                from private_diagnostics import _current_user_sid, _expected_windows_dacl, _read_windows_dacl, _windows_api
 
                 api = _windows_api()
                 sid = _current_user_sid(api)
-                self.assertEqual(_read_windows_dacl(path, api), f"D:P(A;OICI;FA;;;{sid})")
+                self.assertEqual(
+                    _read_windows_dacl(path, api),
+                    _expected_windows_dacl(f"D:P(A;OICI;FA;;;{sid})", api),
+                )
                 child = path / "diagnostic.json"
                 child.write_text("{}", encoding="utf-8")
                 self.assertIn(
                     _read_windows_dacl(child, api),
-                    (f"D:(A;ID;FA;;;{sid})", f"D:AI(A;ID;FA;;;{sid})"),
+                    tuple(_expected_windows_dacl(sddl, api) for sddl in (
+                        f"D:(A;ID;FA;;;{sid})", f"D:AI(A;ID;FA;;;{sid})",
+                    )),
                 )
             else:
                 self.assertEqual(path.stat().st_mode & 0o777, 0o700)

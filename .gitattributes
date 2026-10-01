@@ -4,3 +4,8 @@
 /src-tauri/Cargo.lock text eol=lf
 # WebM 原生构建脚本同样按原始字节固定供应链哈希。
 /src-tauri/vendor/webm-sys/build.rs text eol=lf
+# 浏览器 OCR 语料的捕获来源按原始字节记录哈希，跨平台检出保持 LF。
+/src-tauri/ocr-sidecar/quality-fixtures/browser-ui-v1/source.html text eol=lf
+/src-tauri/ocr-sidecar/quality-fixtures/browser-ui-v1/capture.py text eol=lf
+/src-tauri/ocr-sidecar/quality-fixtures/formula-browser-v1/source.html text eol=lf
+/src-tauri/ocr-sidecar/quality-fixtures/formula-browser-v1/capture.py text eol=lf
