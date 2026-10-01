@@ -24,8 +24,8 @@ import {
 } from "../shared/toolbarPlacement";
 import { useToolbarDrag } from "../shared/useToolbarDrag";
 
-/** jsdom 与首帧量不到尺寸时的兜底，数量级取自实际布局（38 宽 + 工作区按钮）。 */
-const FALLBACK_SIZE = { width: 38, height: 277 };
+/** 首帧量不到尺寸时按最长图片工具条兜底：十个按钮、把手、比例、分隔线和间距。 */
+const FALLBACK_SIZE = { width: 38, height: 351 };
 
 type Props = {
   /** 贴图内容区在窗口里的矩形。工具条优先贴在它外面，放不下才压上去。 */
@@ -86,7 +86,7 @@ export function PinToolbar(props: Props) {
   const [size, setSize] = useState(FALLBACK_SIZE);
   const { position, startDrag } = useToolbarDrag(size, props.bounds);
 
-  // 工具条的高度随按钮增减变化（保存按钮只在可保存时出现，画布开着时多一行），
+  // 工具条的高度随按钮增减变化（图片有画布与保存按钮，支持置顶的平台多一个按钮），
   // 量出来比写死常量可靠。没有依赖数组是有意的，靠等值判断避免自激——
   // 与 `OverlayToolbar` 同一套写法。
   useLayoutEffect(() => {
