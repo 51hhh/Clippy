@@ -14,6 +14,9 @@ pub(crate) const MAIN_WINDOW_HEIGHT: f64 = 500.0;
 const POSITION_SAVE_DEBOUNCE_MS: u64 = 300;
 type MonitorTarget = Option<(Monitor, Option<PhysicalPosition<f64>>)>;
 
+#[cfg(test)]
+mod target_tests;
+
 pub fn show_main_window(app: &tauri::AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window("main")
@@ -29,21 +32,24 @@ pub fn show_main_window(app: &tauri::AppHandle) -> Result<(), String> {
         .try_state::<AppState>()
         .and_then(|state| state.config.lock().ok()?.main_window_position);
 
-    if let Some((monitor, raw)) = remembered_target(&window, remembered, layout)?.or(
-        target_monitor(app, &window)?.map(|(monitor, cursor)| {
-            let work = WorkArea::from_monitor(&monitor);
-            let size = work.clamp_size(layout.physical_size(monitor.scale_factor()), EDGE_MARGIN);
-            let raw = cursor
-                .map(|position| {
-                    PhysicalPosition::new(
-                        position.x.round() as i32 + EDGE_MARGIN,
-                        position.y.round() as i32 + EDGE_MARGIN,
-                    )
-                })
-                .unwrap_or_else(|| work.top_right(size, EDGE_MARGIN));
-            (monitor, raw)
-        }),
-    ) {
+    if let Some((monitor, raw)) =
+        select_main_window_target(remembered_target(&window, remembered, layout), || {
+            Ok(target_monitor(app, &window)?.map(|(monitor, cursor)| {
+                let work = WorkArea::from_monitor(&monitor);
+                let size =
+                    work.clamp_size(layout.physical_size(monitor.scale_factor()), EDGE_MARGIN);
+                let raw = cursor
+                    .map(|position| {
+                        PhysicalPosition::new(
+                            position.x.round() as i32 + EDGE_MARGIN,
+                            position.y.round() as i32 + EDGE_MARGIN,
+                        )
+                    })
+                    .unwrap_or_else(|| work.top_right(size, EDGE_MARGIN));
+                (monitor, raw)
+            }))
+        })?
+    {
         let work = WorkArea::from_monitor(&monitor);
         let size = layout.physical_size(monitor.scale_factor());
         let size = work.clamp_size(size, EDGE_MARGIN);
@@ -59,6 +65,17 @@ pub fn show_main_window(app: &tauri::AppHandle) -> Result<(), String> {
 
     window.show().map_err(|error| error.to_string())?;
     window.set_focus().map_err(|error| error.to_string())
+}
+
+fn select_main_window_target<T, E>(
+    remembered: Result<Option<T>, E>,
+    fallback: impl FnOnce() -> Result<Option<T>, E>,
+) -> Result<Option<T>, E> {
+    // 已有保存目标时不访问后备原生查询，避免无关的后备错误阻止显示。
+    match remembered? {
+        Some(target) => Ok(Some(target)),
+        None => fallback(),
+    }
 }
 
 /// 显式隐藏主窗口前先通知 WebView 释放长列表、预览和翻译快照。

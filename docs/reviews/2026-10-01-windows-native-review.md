@@ -5,7 +5,17 @@
 
 ## 当前续审结果
 
-当前 W35 / WIN-WGC-BRIDGE-ROLLBACK-01：connect 在创建桥接线程后执行 recorder.start()?，
+当前 W36 / WIN-MAIN-TARGET-01：主窗口保存和恢复使用物理坐标，目前未确认 Pin 式全局逻辑
+猜屏缺陷。但 show_main_window 用 Option::or 提前求值后备，即使已有保存目标，也会因后备
+错误在 show/focus 前返回。改为只有保存目标为空时才执行后备，查询自身错误与必要后备的
+目标/None/原错误保持；几何、配置字段、尺寸、显隐/焦点和 debounce 未改。固定 AppHandle
+monitor_from_point 本身包 Ok，真正可传递的后备错误来自 current/primary 窗口消息接收；
+不能把回归注入的错误当作真实原生失败。提取原求值协议 MSVC 红基线 11 passed / 2 failed，
+其中既有七项全绿、新增六项为 4 passed / 2 failed；同组十三项修复后全绿，新测试字节不变。
+十八段旧正文、十一份关联文件和五份固定原生库源码核对。完整默认/QA 门禁待执行；真实
+原生错误/显示/DPI/多屏、当前 SHA CI 和其它宿主未验。合同证据 windows-main-window-target-contract。
+
+此前 W35 / WIN-WGC-BRIDGE-ROLLBACK-01：connect 在创建桥接线程后执行 recorder.start()?，
 完整帧源未构造时错误会丢弃 JoinHandle；原 recv() 也只有所有 sender 释放才退出。旧正常
 Drop 有 join，启动回滚没有。提取实际旧所有权和接收协议的 MSVC 红基线 3 passed / 4 failed，
 真实接收循环正文与基线逐 token 一致（归一化空白），不是未经改动的原 connect 或桌面复现。
