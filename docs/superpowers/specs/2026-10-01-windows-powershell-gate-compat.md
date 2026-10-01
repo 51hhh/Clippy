@@ -20,7 +20,7 @@ Windows 自带 PowerShell 5.1 与 PowerShell 7 均可进入原生门禁；支持
 - [x] 修复后真实 PowerShell 5.1 与 PowerShell 7 + Node 可通过前置版本检查。
 - [x] Node 22.11/旧主版本仍被拒绝，最低支持版本与后续主版本被接受。
 - [x] 修复 SHA 的完整 `ci-windows.ps1 -RecordingQa` 通过；跳过项不计通过。
-- [ ] 本修复同 SHA 远程原生 CI 成功；当前尚未运行，不能继承旧 CI 结果。
+- [x] 修复的文档后继 b2fd247 在同 SHA 的三项远程原生 CI 成功；Windows 录屏原型 CI 另行通过。
 
 ## Out of Scope
 
@@ -49,6 +49,20 @@ Windows PowerShell 父 transcript 未捕获子 stdout，不当作完整测试日
 逐测试名输出被 token 预算截断，最终 1040/0/5 汇总保留，QA/前端最终 chunk 完整。
 README 式验证报告与分阶段工具输出记录上述边界。后续只更新文档，不将文档 HEAD 写成已运行的 SHA。
 
-修改后同 SHA 远程 CI 尚未运行；旧 45769c9 的 CI/QA 包单独记录。39 项 Windows 11 桌面
-QA、Windows 10、多屏、安装和 updater 保持未验证；没有安装 Clippy 或改变证书信任。
+远程 CI 证据绑定 `b2fd247c81c8833c5e7e15ddb39642d47fa8780c`，相对本机验证的 ef78a1f
+仅两份 Markdown 文档变化。[run 36831731858](https://github.com/51hhh/Clippy/actions/runs/36831731858)
+的三项原生检查均 completed/success；Windows 原生 job 110269660965 的完整下载日志记录
+前端 1291 passed、Rust 1040 passed / 5 ignored、Python 33 + 3 passed。Windows 录屏
+job 110269661020 的 clippy、VP9、Opus/WebM、会话恢复和 WASAPI 合同均 success。
+四项录屏原型中三项 success，macOS Intel 当时仍在运行；完整七项尚不计为通过。
+完整 Windows job 日志在调用项目 ignored `src-tauri/target/windowsps-ci-b2fd247-win-*.log`。
+本次只更新文档，后继文档 SHA 不冒称已执行门禁或远程 CI。
+
+补充 Windows Edge 154.0.4258.48 无界面渲染夹具检查未完成：两次有界启动均 exit 0，
+没有 stdout、stderr 或截图，未取得夹具断言结果；布局夹具未开始。这属于验证工具限制，
+不计为测试通过，也不据此认定产品缺陷。自己的 Vite 进程已收回，没有观察到匹配专用
+profile 的 Edge 残留进程。两次 RESULT.json 保存于调用项目 ignored target。
+
+旧 45769c9 的 CI/QA 包单独记录。39 项 Windows 11 桌面 QA、Windows 10、多屏、
+真实有声录屏、安装和 updater 保持未验证；没有安装 Clippy 或改变证书信任。
 Linux 门禁未启动，按用户要求停止该路线。CHANGELOG 与后续草稿 PR 使用 `WIN-PS-GATE-01`。
