@@ -53,8 +53,8 @@ sudo apt install -y \
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source "$HOME/.cargo/env"
 
-# 4. Node.js（最低 20.19，推荐当前 LTS）
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+# 4. Node.js（最低 22.12，与 src/package.json 一致，CI 使用 24）
+curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
 sudo apt install -y nodejs
 
 # 5. Tauri CLI（cargo 侧；npm 侧的同版本 CLI 已作为 src/ 的 devDependency 锁进 lockfile，
@@ -63,6 +63,8 @@ cargo install tauri-cli --version "^2" --locked
 ```
 
 ## 常用命令
+
+原生 Windows 环境与本机门禁见 `docs/windows-development.md`；录屏 QA 需要单独的源码构建工具链。
 
 ```bash
 # 启动开发服务器（热重载前端 + Rust 后端）

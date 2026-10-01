@@ -102,6 +102,11 @@ jobs:
       - name: Smart erase feasibility evidence
         run: python3 scripts/smart-erase/verify_evidence.py
 
+      - name: OCR quality contracts
+        run: |
+          python3 -m unittest discover -s src-tauri/ocr-sidecar -p 'test_quality*.py' -v
+          python3 -m unittest discover -s src-tauri/ocr-sidecar -p test_visual_paragraphs.py -v
+
       - name: Frontend HTML and Tauri boundaries
         run: node scripts/check-html-sinks.mjs
 
@@ -150,7 +155,46 @@ jobs:
           key: ${{ matrix.runner }}
           workspaces: src-tauri
 
-      # 前端门禁只需在 Jammy 执行一次；原生 runner 专注验证 cfg 分支、平台 API 与测试。
+      # Windows 也执行前端门禁，避免文件 URL、盘符与路径分隔符问题只在用户本机暴露。
+      - name: Setup Node.js for Windows frontend
+        if: runner.os == 'Windows'
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: src/package-lock.json
+
+      - name: Windows frontend checks
+        if: runner.os == 'Windows'
+        working-directory: src
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Invoke-CheckedNpm {
+            & npm.cmd @args
+            if ($LASTEXITCODE -ne 0) { throw "npm exited with $LASTEXITCODE" }
+          }
+          Invoke-CheckedNpm ci --no-audit --no-fund
+          Invoke-CheckedNpm run check:html
+          Invoke-CheckedNpm run check:ipc
+          Invoke-CheckedNpm run lint:js
+          Invoke-CheckedNpm run typecheck
+          Invoke-CheckedNpm test
+          Invoke-CheckedNpm run build
+          node ../scripts/check-built-main.mjs
+          if ($LASTEXITCODE -ne 0) { throw "built entry check exited with $LASTEXITCODE" }
+
+      # Windows runner 的真实 DACL 与普通用户符号链接权限不能由 Linux mode 测试替代。
+      - name: Windows OCR quality contracts
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m unittest discover -s src-tauri/ocr-sidecar -p 'test_quality*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw "OCR quality tests exited with $LASTEXITCODE" }
+          python -m unittest discover -s src-tauri/ocr-sidecar -p test_visual_paragraphs.py -v
+          if ($LASTEXITCODE -ne 0) { throw "OCR paragraph tests exited with $LASTEXITCODE" }
+
       - name: Native Rust check
         working-directory: src-tauri
         run: cargo check --all-targets

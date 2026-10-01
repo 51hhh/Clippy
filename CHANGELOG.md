@@ -4,6 +4,9 @@
 
 ### 2026-10-01 Windows 原生验证修复
 
+- 修复 Windows 合同测试的文件 URL 路径转换，补充 PowerShell 原生门禁及 Windows CI 前端与
+  Windows/Ubuntu OCR 质量检查。默认和录屏 QA 本机门禁已通过；修改后同 SHA CI、Linux 完整
+  门禁、Windows 10/11 桌面和安装包验收仍未完成。（需求：`WIN-NATIVE-01`）
 - OCR 质量工具的 Windows 诊断目录改为创建时应用当前用户私有 DACL，权限核对失败立即停止；
   已有目录不覆盖。Windows 本机质量合同 31 项通过，POSIX 权限回归与修改后同 SHA CI 仍待执行。
   （需求：`WIN-NATIVE-01`）
