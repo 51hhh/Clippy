@@ -110,7 +110,10 @@ if (-not $FrontendOnly) {
     Invoke-Check 'Native Rust check' $backend { & cargo.exe check --locked --all-targets }
     Invoke-Check 'Native Rust clippy' $backend { & cargo.exe clippy --locked --all-targets -- -D warnings }
     Invoke-Check 'Vendored WGC clippy' $backend {
-        & cargo.exe clippy --manifest-path vendor/xcap/Cargo.toml --lib --features wgc -- -D warnings
+        & cargo.exe clippy --locked --manifest-path vendor/xcap/Cargo.toml --lib --tests --features wgc -- -D warnings
+    }
+    Invoke-Check 'Windows WGC close state tests' $backend {
+        & cargo.exe test --locked --manifest-path vendor/xcap/Cargo.toml --lib --features wgc platform::wgc_runtime::tests
     }
     Invoke-Check 'Native Rust tests' $backend { & cargo.exe test --locked }
     Invoke-Check 'Windows CF_HTML parser tests' $backend {

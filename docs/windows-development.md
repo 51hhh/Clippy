@@ -56,6 +56,14 @@ Windows 入口还显式运行 `cargo test --locked -p arboard --lib platform::wi
 门禁还显式运行 `platform::windows::image_data::` 五项及 `platform::windows::dib::tests`
 三项文件视图合同，全部离线；原失败记录保留，真实提供者互操作仍需单独验收。
 
+## WGC 关闭合同
+
+默认 Windows 门禁还显式执行独立 xcap 包的
+`cargo test --locked --manifest-path vendor/xcap/Cargo.toml --lib --features wgc platform::wgc_runtime::tests`。
+六项仅用关闭回调验证 WGC 部分失败、成功状态、重试和 Drop 清理，不创建捕获对象或显示器。
+WGC clippy 包含 lib tests；主应用 cargo test 不运行依赖库单元测试，不能替代此组。
+Windows Native CI 同样显式执行；上游显示器测试保留过滤，不执行完整 vendor test。
+
 ## 录屏源码构建附加依赖
 
 `recording-windows-av-qa` 包含固定版本 VP9 源码构建、WGC、WASAPI 与 Opus/WebM。

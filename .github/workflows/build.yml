@@ -208,7 +208,12 @@ jobs:
       - name: Vendored xcap WGC clippy
         if: runner.os == 'Windows'
         working-directory: src-tauri
-        run: cargo clippy --manifest-path vendor/xcap/Cargo.toml --lib --features wgc -- -D warnings
+        run: cargo clippy --locked --manifest-path vendor/xcap/Cargo.toml --lib --tests --features wgc -- -D warnings
+
+      - name: Windows WGC close state tests
+        if: runner.os == 'Windows'
+        working-directory: src-tauri
+        run: cargo test --locked --manifest-path vendor/xcap/Cargo.toml --lib --features wgc platform::wgc_runtime::tests
 
       - name: Vendored xcap macOS clippy
         if: runner.os == 'macOS'
