@@ -76,6 +76,10 @@
   默认/QA 门禁 exit 0：29 passed / 0 failed / 1 skipped（Linux smoke）；默认 Rust 1058、QA Rust
   1115（各 5 ignored，重叠不累加），前端 75 文件 / 1292 passed。独立 vendor 四项初始化及六项
   关闭合同通过，不计入应用 Rust 总数；严格 clippy、检出与日志哈希已核对。真实最终释放、桌面与新 SHA CI 未验。
+- `WIN-REGISTRY-BUFFER-01`：独立 `codex/windows-registry-buffer`，基于 `f84e6be`。
+  RegGetValueW 字节数误作 u16 长度的初始化合同缺陷已修复；八项生产入口离线回归通过，
+  安全旧单位协议辅助模型 4 passed / 4 failed。原未定义行为不执行；本机完整门禁、字节负例、
+  新 SHA CI、实际注册表与桌面未验。其它 Windows 持久化/自启动路径未确认新增缺陷。
 - 已安装包仍为旧源码 `45769c9`。实际 Windows 11 桌面记录为 2 pass / 1 fail（旧 Pin 工具栏裁切）/
   36 not_run；原始 39 项 not_run 模板保持原字节，模板不能替代实际记录。
 - NSIS 落盘及启动已有子步骤证据；完整安装升级、MSI、卸载、录屏/音频、管理员目标、
@@ -166,6 +170,7 @@
 | W25 | P1 | WGC Close 每轮均尝试两个资源，按成功状态幂等，失败允许 Drop 重试 | 独立 WIN-WGC-CLOSE-01；红基线 1 passed / 5 failed，六项 vendor Cargo 合同与三个原始字节篡改负例通过；03b4cb8 完整 Windows 默认/QA 门禁通过；系统最终释放、真实 WGC 与新 SHA CI 未验 |
 | W26 | P2 | 双轨编码退出不因视频桥接 panic 遗漏音频 join，两条回收后保留既有错误 | 独立 REC-AV-BRIDGE-JOIN-01；真实受控线程红基线 2 passed / 2 failed，四项 QA Cargo 回归与 091b5cb 完整 Windows 默认/QA 门禁通过；共享其它宿主图、新 SHA CI、实际设备 panic 未验 |
 | W27 | P2 | pool 创建后、完整 WgcRuntime 前的两处失败先 Close，成功转移所有权 | 独立 WIN-WGC-INIT-ROLLBACK-01；红基线 1 passed / 3 failed，四项 vendor Cargo 合同与 61d6823 完整 Windows 默认/QA 门禁通过；真实 API 失败、系统最终释放与新 SHA CI 未验 |
+| W28 | P1 | Windows 构建号仅解析成功返回的有界字节范围，缓冲区完全初始化 | 独立 WIN-REGISTRY-BUFFER-01；八项生产共用合同通过，安全旧单位协议模型 4 passed / 4 failed；完整原生门禁、供应链负例、新 SHA CI 和桌面待验 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。

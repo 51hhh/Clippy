@@ -60,6 +60,20 @@ FrameArrived 注册或 CreateCaptureSession 失败时，完整 WgcRuntime 尚未
 Windows vendor 测试显式过滤 platform::wgc_init::tests，四项纯合同不执行上游显示器测试。
 完整证据和验收边界见 docs/superpowers/specs/2026-10-01-windows-wgc-init-rollback.md。
 
+## Windows 构建号缓冲区 — WIN-REGISTRY-BUFFER-01
+
+utils.rs 原先让 RegGetValueW 写入未初始化 Vec<u16>，再以返回字节数调用 set_len，违反元素
+初始化合同。现在使用完全初始化的 2048 字节 u16 缓冲区，只解析成功返回的偶数字节范围；
+超出容量、范围内无 NUL、无效 UTF-16 或 u32 均沿用返回 0。原生键/值/类型限制、版本阈值和
+BGRA 行为不改；未重现实际崩溃，也不运行旧未初始化路径。
+
+新增 registry_build.rs 是生产/离线共用入口，八项合同不访问注册表或捕获对象。安全的旧长度
+协议模型使用初始化与 truncate 避免未定义行为，红基线 4 passed / 4 failed，绿色八项通过。
+Windows Native CI/本机门禁需显式过滤 platform::registry_build::tests；模块不依赖 wgc feature。
+本修复前 utils.rs 实际 LF SHA-256 为 3a951bdc9860c72536c3f05f1eb769ca6a8ab2e2b7085d9370e70f44b31bd930，
+mod.rs 为 9795c4df049ede1551ccf400a18b9d48ab89927955b2fc3413becacaefd7bffc；原始发布包来源保留。
+三个修改/新增文件仍按实际字节固定。证据见 docs/superpowers/specs/2026-10-01-windows-registry-buffer.md。
+
 ## 当前工具链 lint 对齐
 
 `src/windows/utils.rs` 将固定四字节 BGRA 像素循环从 `chunks_exact_mut(4)` 改为等价的
@@ -88,7 +102,7 @@ ScreenCaptureKit 并完成原生权限、Retina、旋转屏和混合 DPI 真机�
 仓库 `.gitattributes` 限定本目录的文本保持 LF 检出，使 Windows 的 `core.autocrlf=true` 也保留
 登记的原始字节。验证器仍对实际文件计算完整 SHA-256，不归一化哈希输入或忽略本地修改。
 
-`scripts/verify-xcap-patch.mjs` 固定版本、来源哈希说明、十个修改/新增文件的完整 SHA-256、Cargo path
+`scripts/verify-xcap-patch.mjs` 固定版本、来源哈希说明、十一个修改/新增文件的完整 SHA-256、Cargo path
 override、独立 vendor 包归属、锁文件 path 解析和许可证。Windows/macOS 原生 CI 会分别用独立
 manifest lint WGC feature 与 macOS 库，避免把上游示例开发依赖并入主锁文件。
 vendor 自带 `Cargo.lock` 仅供独立 lint 重现上游依赖，不参与 Clippy 主工程解析。

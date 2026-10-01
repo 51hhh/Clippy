@@ -2,6 +2,14 @@
 
 ## 未发布
 
+### 2026-10-01 Windows 构建号读取内存边界
+
+- 修复截图依赖读取 Windows 构建号时把返回字节数用作 u16 向量长度的问题，改用已初始化的
+  有界缓冲区；仅解析成功返回范围，保留查询/文本错误返回 0 的行为与版本阈值。
+  八项生产入口离线回归通过；安全旧单位协议辅助模型 4 passed / 4 failed，未运行旧未定义行为。
+  完整 Windows 默认/QA 门禁、供应链负例和新 SHA CI 待验证；真实注册表、截图/录屏与桌面未验。
+  （需求：`WIN-REGISTRY-BUFFER-01`；见 `docs/superpowers/specs/2026-10-01-windows-registry-buffer.md`）
+
 ### 2026-10-01 Windows WGC 初始化失败回滚
 
 - WGC frame pool 创建后即由临时 guard 持有，注册回调或创建 session 失败时先尝试 Close；

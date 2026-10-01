@@ -21,12 +21,14 @@ const patchedFiles = {
   "src/windows/wgc_video_recorder.rs":
     "ff49aeec1d69bd2e99850057f88a6bc4aebd3f0026f4fb71b5e1249dea2e978b",
   "src/windows/mod.rs":
-    "9795c4df049ede1551ccf400a18b9d48ab89927955b2fc3413becacaefd7bffc",
+    "c78ac8dbff486955f45b42c9675f27edb8993360ddfe04047db8fe5968966e72",
+  "src/windows/registry_build.rs":
+    "ca8d56329161c39d46c7a0756f7ce060f999a4d95e5ce436012afdd8b2b7bc6f",
   "src/windows/wgc_init.rs":
     "7a9d853b5c534c334e74b93eedffc80be23f7f463d995bfadb5515c9733083cb",
   "src/windows/wgc_runtime.rs":
     "be621c84cfa8991bb35be1fcc0aa30bb6442bdbe15b3062eb6d1bebb2445e33a",
-  "src/windows/utils.rs": "3a951bdc9860c72536c3f05f1eb769ca6a8ab2e2b7085d9370e70f44b31bd930",
+  "src/windows/utils.rs": "11e9f06dd833667257f16e3d4359b0fa68a3f476e81d0d12e8ad480a1ad93040",
   "src/macos/capture.rs": "14ba152c8a2a9d967d1d9a82eac197a86d5a89995842c8ea4ec13cd117c3e48e",
   "src/macos/impl_window.rs":
     "65a6c9fe1334cbfde0f370ca30df6b64d225a431247a9e604766d8a7388a38e0",

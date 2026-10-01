@@ -3,6 +3,7 @@ mod capture;
 mod dxgi_video_recorder;
 #[cfg(not(feature = "wgc"))]
 mod gdi;
+mod registry_build;
 mod utils;
 #[cfg(feature = "wgc")]
 mod wgc;

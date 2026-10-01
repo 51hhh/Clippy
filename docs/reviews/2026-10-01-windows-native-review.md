@@ -5,7 +5,12 @@
 
 ## 当前续审结果
 
-当前 W27 / WIN-WGC-INIT-ROLLBACK-01：pool 创建后注册/session 创建失败会直接退出，
+当前 W28 / WIN-REGISTRY-BUFFER-01：Windows 构建号查询把 RegGetValueW 返回字节数直接作为
+Vec<u16> 的 set_len，违反初始化前提。改用初始化的 2048 字节缓冲区，按返回范围校验后解析。
+八项生产入口辅助合同通过；安全旧单位模型 4 passed / 4 failed，未运行旧未定义行为。
+本机完整门禁、供应链负例、新 SHA CI 和实际注册表/桌面仍待验证，既有源码证据保留。
+
+此前 W27 / WIN-WGC-INIT-ROLLBACK-01：pool 创建后注册/session 创建失败会直接退出，
 完整 WgcRuntime 尚未建立，遗漏显式 Close。复用锁定 scopeguard，错误时先尝试 Close，成功
 移交所有权；旧协议 1 passed / 3 failed，四项绿合同通过。产品修复 db05650、独立 CI 接线及
 干净被测 SHA 61d68232173de29349627c14e2eb5be984172eb1 完整 Windows 默认/录屏 QA 门禁 exit 0：
@@ -158,6 +163,17 @@ Run：<https://github.com/51hhh/Clippy/actions/runs/35792281966>。
 本轮修改已推送到草稿 PR；首次修改后 CI 和后续修复证据见下方记录，不能沿用基线结果。
 
 ## Findings
+
+### W28 / P1 — 构建号读取违反 Vec 初始化合同（源码证明并修复）
+
+RegGetValueW 的 pcbData 是字节数，原实现写入未初始化 u16 缓冲区后直接 set_len(byte_count)。
+普通 `26100\0` 只初始化六个 u16，却声明十二个元素有效；这是源码/API 合同缺陷，实际崩溃未观测。
+WIN-REGISTRY-BUFFER-01 改用已清零的 2048 字节数组，仅对成功返回的偶数且有界范围解析；
+范围内必须存在 NUL，文本/查询错误仍返回 0。原生键/值/类型限制、版本阈值与 BGRA 转换不改。
+八项生产共用入口合同涵盖容量初始化、Win10/11 样本、短返回、奇数/超长、部分写入失败、
+无效文本和完整容量。安全旧长度模型初始化存储并使用 truncate，4 passed / 4 failed；
+绿色八项通过，不运行原未定义行为、不使用 API 类型 stub、不访问注册表或截图对象。
+独立 vendor 原生图、完整门禁、字节正/负校验待运行；实际系统、桌面、新 SHA CI 仍未验。
 
 ### W27 / P2 — WGC 初始化失败未显式关闭已创建 pool（离线复现并修复）
 

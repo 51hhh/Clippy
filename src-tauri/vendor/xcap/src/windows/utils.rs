@@ -32,35 +32,25 @@ use windows::{
     core::{HRESULT, Interface, PCWSTR, s, w},
 };
 
+use super::registry_build::query_build_number;
 use crate::{Frame, XCapError, error::XCapResult};
 
 pub(super) fn get_build_number() -> u32 {
-    unsafe {
-        let mut buf_len: u32 = 2048;
-        let mut buf: Vec<u16> = Vec::with_capacity(buf_len as usize);
-
-        let err = RegGetValueW(
-            HKEY_LOCAL_MACHINE,
-            w!(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion"),
-            w!("CurrentBuildNumber"),
-            RRF_RT_REG_SZ,
-            None,
-            Some(buf.as_mut_ptr().cast()),
-            Some(&mut buf_len),
-        );
-
-        if err.is_err() {
-            return 0;
+    query_build_number(|buffer, byte_count| {
+        // SAFETY: buffer 是已初始化且对齐的 u16 切片；byte_count 初始值恰好是其字节容量。
+        unsafe {
+            RegGetValueW(
+                HKEY_LOCAL_MACHINE,
+                w!(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion"),
+                w!("CurrentBuildNumber"),
+                RRF_RT_REG_SZ,
+                None,
+                Some(buffer.as_mut_ptr().cast()),
+                Some(byte_count),
+            )
         }
-
-        buf.set_len(buf_len as usize);
-
-        let build_version = U16CString::from_vec_truncate(buf)
-            .to_string()
-            .unwrap_or_default();
-
-        build_version.parse().unwrap_or(0)
-    }
+        .is_ok()
+    })
 }
 
 pub(super) fn get_os_major_version() -> u8 {
