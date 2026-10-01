@@ -16,8 +16,13 @@
 
 本轮工具修复在 SHA `42e52c064aba36bb7e93a5e68a0cfb54f65c5b7b` 的七项原生/录屏原型
 CI 全部通过，官方同 SHA Windows QA MSI/NSIS 的来源、哈希与签名身份已核对。
-独立 WebM 参数修复的 SHA `437949b` 四项 codec 原型均通过，但 macOS 原生的既有进程测试失败，
-由独立 `OCR-PROC-CANCEL-01` / [PR #15](https://github.com/51hhh/Clippy/pull/15) 处理。
+独立 WebM 参数修复的 SHA `437949b` 曾在 macOS 原生的既有进程测试失败，
+由独立 `OCR-PROC-CANCEL-01` / [PR #15](https://github.com/51hhh/Clippy/pull/15) 修复。
+经用户授权调整依赖基线后，WebM [PR #14](https://github.com/51hhh/Clippy/pull/14) 的
+`45769c958e9d4311a7d61ee53ed6707cc9a11ac4` 七项 CI 全部成功；相对 #15 仍仅六个 WebM 文件。
+该 SHA 的官方 QA 包 [run 36823747034](https://github.com/51hhh/Clippy/actions/runs/36823747034)
+已 completed/success，四平台 bundle 与 Ubuntu 24 X11 smoke 全部成功，六份产物 manifest
+绑定完整 SHA；新 Windows MSI/NSIS 已下载并核对来源、哈希和签名身份。
 用户暂不能手动验收，39 项 Windows 11
 桌面记录保持 not_run；Windows 10、多屏、真实音频与安装升级也未完成。以下失败 run 保留为历史证据。
 
@@ -144,7 +149,28 @@ Ubuntu/macOS 原生均成功，Windows 原生仍因旧父分支 OCR 失败而 fa
 四项 codec 及 Ubuntu/Windows 原生成功，macOS 原生 OCR 取消/回收合同失败，见 W15；
 不能计为七项通过。真实桌面/安装保留未完成。
 
-### W15 / P1 — 原生子进程取消夹具的启动预算竞态（独立合同修复待 Unix CI）
+后续用户明确授权将 #14 基线调整到独立 #15（7982866）并同步依赖，六个 WebM 文件范围已由
+Git 与 GitHub PR metadata 核对。新 SHA `45769c958e9d4311a7d61ee53ed6707cc9a11ac4` 的
+[run 36821989611](https://github.com/51hhh/Clippy/actions/runs/36821989611) completed/success：
+三项原生与四项 codec 原型全部成功，authenticated run/job/check-run 的身份和结论一致。
+四平台 VP9/WebM、Opus、恢复合同均通过，Windows WASAPI 合同 11 项通过；新 Windows codec
+日志不再出现相关 D9002。旧失败记录保留，不以基线调整改写历史。
+本机完整录屏 QA 门禁仍绑定 e4ccc46，不能改写为本次 SHA 本机门禁。
+同 SHA [Native QA run 36823747034](https://github.com/51hhh/Clippy/actions/runs/36823747034)
+completed/success：Windows/Linux/macOS Intel/Apple Silicon bundle 与 Ubuntu 24 X11 smoke 均成功。
+六份未过期产物 manifest 的完整 SHA、run ID、名称和 API digest 字段已核对；没有把未在本机
+计算的 artifact ZIP 哈希写成已验证。官方 Windows artifact 11144906775 的三项登记文件哈希均匹配：
+MSI `d94536813cfaa6922cc6356c536ec1bc796a40213ec9fbde5a7085b26307a0b4`（21159936 字节），
+NSIS `ee4c13c1d17279b341bee6cdb2b751184c5ca13a69405b8b5f905afde64bca51`（16809880 字节）。
+QA-BUILD 的完整 SHA、0.1.20、windows-x64、recording-windows-av-qa 与自签名 QA 用途一致。
+CI 的 Authenticode Valid/预期 signer 检查成功；本机两包 UnknownError（不受信任根），
+thumbprint `27486ABF27DA89E9563B0CCE371C5F1DF749E628` 与 CI 相同，未改本机信任或安装。
+MSI 数据库 openMode=0 查询确认 ALLUSERS=1、64 位 Program Files、既有 UpgradeCode 和 WebView2
+bootstrapper 条件，前后字节哈希相同；这不证明升级、卸载、缺失 runtime 或安装成功。
+新 Windows 11 官方/本地模板字节相同，39 项仍 not_run；交接材料保存于 ignored
+`src-tauri/target/windows-native-qa/45769c958e9d4311a7d61ee53ed6707cc9a11ac4/HANDOFF.md`。
+
+### W15 / P1 — 原生子进程取消夹具的启动预算竞态（Unix 原生合同已通过）
 
 437949b 的 macOS job 110231086906 在 `process_tests.rs:211` 失败，1054 passed / 1 failed /
 5 ignored。失败断言为“假进程必须实际启动”；该模块与父分支相同，C++ 补丁没有修改它。
@@ -159,7 +185,15 @@ Windows 探针直接编译原始生产监督器，稳定复现 750 ms 慢启动�
 无延迟/750 ms 慢启动、原子 PID 标记、取消前仍运行、取消后许可仍占用、后继实际排队、
 夹具释放后必须因输出上限清理并回收、回收后才进入后继工作。Linux 保留 /proc 存活/僵尸检查，
 macOS 新增对已知夹具 PID 的 signal 0 检查；阶段等待和进程兜底仍有硬截止时间。
-原有 250 ms 超时合同与生产 OCR 代码不改。格式通过，Unix 原生与新 SHA CI 待执行。
+原有 250 ms 超时合同与生产 OCR 代码不改。格式通过，SHA
+`79828665a2d77308b0973b19d993ae745590d521` 的
+[run 36821712880](https://github.com/51hhh/Clippy/actions/runs/36821712880) 三项原生检查均成功；
+Ubuntu/macOS 日志实际执行并通过取消/回收、250 ms 超时与输出上限用例。
+macOS Rust 1055 passed / 5 ignored，Ubuntu 默认 Rust 1139 passed / 14 ignored，
+Windows 默认 Rust 1040 passed / 5 ignored；Windows 编译图不含 Unix 专用进程测试。
+独立 #15 的 run 36821712880 已 completed/success，三项原生与四项 codec 原型全部成功，
+authenticated run/job/check-run 的身份、SHA 和结论一致。
+继承该修复的 #14 / 45769c9 七项已全部通过，两个 SHA 的证据单独记录。
 
 ## 本机验证记录
 
