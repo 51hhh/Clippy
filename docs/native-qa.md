@@ -21,8 +21,9 @@ node scripts/verify-native-ci.mjs \
 - `Native Check (windows-latest)`
 - `Native Check (macos-latest)`
 
-Jammy job 执行完整 Rust 与前端门禁；Windows/macOS 原生 job 执行 Rust check/clippy/test，证明平台
-条件编译、原生 API 与单元测试成立。安装包由下一步的 Native QA workflow 构建；CI 仍不能证明桌面权限、
+Jammy job 执行完整 Rust 与前端门禁；Windows/macOS 原生 job 执行 Rust check/clippy/test，Windows
+另执行前端与 OCR 质量合同，证明平台条件编译、原生 API、宿主路径和 DACL 的单元测试成立。
+安装包由下一步的 Native QA workflow 构建；CI 仍不能证明桌面权限、
 焦点恢复、输入注入、混合 DPI 或签名证书链在真实用户环境中工作。
 
 CI 通过后，在 GitHub Actions 中对同一 ref 手动运行 `Native QA Packages`。该 run 的 Artifacts 区会提供

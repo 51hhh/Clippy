@@ -29,7 +29,8 @@ const frontendRoot = resolve(process.cwd());
 const repoRoot = resolve(frontendRoot, "..");
 
 function read(relativeToRepo) {
-  return readFileSync(resolve(repoRoot, relativeToRepo), "utf8");
+  // 结构合同与检出的行尾格式无关，统一行尾后仍保留全部原有内容断言。
+  return readFileSync(resolve(repoRoot, relativeToRepo), "utf8").replace(/\r\n/g, "\n");
 }
 
 describe("tauri 构建钩子不依赖 cwd", () => {

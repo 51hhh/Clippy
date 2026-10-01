@@ -59,6 +59,9 @@ ScreenCaptureKit 并完成原生权限、Retina、旋转屏和混合 DPI 真机�
 
 ## 维护门禁
 
+仓库 `.gitattributes` 限定本目录的文本保持 LF 检出，使 Windows 的 `core.autocrlf=true` 也保留
+登记的原始字节。验证器仍对实际文件计算完整 SHA-256，不归一化哈希输入或忽略本地修改。
+
 `scripts/verify-xcap-patch.mjs` 固定版本、来源哈希说明、七个实际修改文件的完整 SHA-256、Cargo path
 override、独立 vendor 包归属、锁文件 path 解析和许可证。Windows/macOS 原生 CI 会分别用独立
 manifest lint WGC feature 与 macOS 库，避免把上游示例开发依赖并入主锁文件。

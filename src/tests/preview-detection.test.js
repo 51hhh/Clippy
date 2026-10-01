@@ -355,7 +355,8 @@ describe("isTimestamp", () => {
   });
 });
 
-describe("formatTimestamp", () => {
+// Windows runner 首次加载系统 locale 的实测耗时可超过 5 秒；此组验证输出，不是延迟基准。
+describe("formatTimestamp", { timeout: process.platform === "win32" ? 30_000 : 5_000 }, () => {
   it("formats 10-digit timestamp", () => {
     const info = T.formatTimestamp("1700000000");
     expect(info.utc).toBe("2023-11-14T22:13:20.000Z");
