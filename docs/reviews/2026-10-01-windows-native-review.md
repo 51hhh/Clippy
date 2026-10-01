@@ -8,9 +8,13 @@
 W49 / `WIN-QA-CRT-DISCOVERY-01`：发现 QA 脚本只查 VC143，不识别受控 VC145 布局，
 也会忽略跨家族最新、歧义或不可信新版。原新 24 项红 12/12，原五十项通过；生产发现
 修正后同组绿，补充目录标签用例后新三十/旧五十项通过。已发布家族白名单、数字排序、
-歧义拒绝和原签名/完整版本/文件/闭包校验保持。完整 Windows 门禁、现有真实 SDK 与
-隔离 unbundled QA 构建待新 SHA 核对；真实 VS 2026/当前 CI/安装/无 CRT 启动仍未验。
-见 `docs/superpowers/specs/2026-10-02-windows-qa-crt-discovery.md`；桌面保持停止。
+歧义拒绝和原签名/完整版本/文件/闭包校验保持。干净 `ae2fdb6` 完整 Windows 门禁
+33/0/1，前端 81 文件/1403 passed；原八十份测试 Git blob 未改。现有真实 VC143 十份
+有效签名 DLL、隔离 unsigned/unbundled QA release 编译及实际 payload/十七份基础
+许可证哈希通过，native/wrapper/terminal exit 0，默认产物保持；文件/构建不是运行验收。
+真实 VS 2026/当前 CI/安装/无 CRT 启动仍未验；见
+[`2026-10-02-windows-qa-crt-discovery-review.md`](2026-10-02-windows-qa-crt-discovery-review.md)
+及 `docs/superpowers/specs/2026-10-02-windows-qa-crt-discovery.md`；桌面保持停止。
 
 W48 / `WIN-QA-CRT-01`：W47 保存录屏 QA PE 导入 MSVCP140，旧 MSI 表及资源配置未部署
 CRT，默认 PE 的 OS-only 闭包通过。增加已有 SDK 的 Microsoft 签名 x64 release CRT 暂存、

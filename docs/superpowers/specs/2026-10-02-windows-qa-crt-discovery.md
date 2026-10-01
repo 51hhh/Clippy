@@ -24,8 +24,8 @@
 
 - [x] 旧入口的 VC145/跨家族最新版本发现缺口已复现，原五十项保持通过。
 - [x] 支持已发布家族、数字版本选择、歧义拒绝与不可信最新目录失败关闭，受控合同通过。
-- [ ] 真实现有 VC143 SDK 的签名/版本/字节/闭包和实际 QA payload 通过，默认产物保持。
-- [ ] 干净源码完整 Windows 门禁、实际子进程退出和源码/日志/文档核对通过。
+- [x] 真实现有 VC143 SDK 的签名/版本/字节/闭包和实际 QA payload 通过，默认产物保持。
+- [x] 干净源码完整 Windows 门禁、实际子进程退出和源码/日志/文档核对通过。
 - [ ] 当前 SHA 远程 CI 与真实 VS 2026 SDK/安装器/无 CRT 系统启动通过。
 
 ## Out of Scope
@@ -48,5 +48,17 @@
 分别涉及 VC145、新旧并存、跨家族最新/数字排序、歧义与不可信最新目录被跳过；PowerShell
 5/7 各六项。修改生产发现流程后，同七十四项全部通过；再增加其余三个已发布目录标签
 六项，共 80 passed（新增三十项，原五十项正文未改）。目录标签/版本/publisher 元数据
-受控，不能写成真实 VS 2026 SDK 或旧 SDK 编译通过。真实现有 SDK、完整门禁和隔离
-unbundled 编译待新 SHA 核对；W48 与保存实际 QA 仍保持各自历史身份。
+受控，不能写成真实 VS 2026 SDK 或旧 SDK 编译通过。
+
+干净源码 `ae2fdb6d20f54d8577eceeca82bcd502db00676c` 完整 Windows 默认/QA 门禁
+child/terminal exit 0，33 passed / 0 failed / 1 Linux smoke skipped。Rust 默认 1193、
+QA 1256，各 5 ignored，两图不累加；前端 81 文件/1403 passed，新三十项在内。
+原八十份前端测试 Git blob 与产品/Rust/vendor/原配置/workflow/独立运行库验证器保持。
+
+本机 VS 2022/VC143 的十份真实 Microsoft 签名 DLL 均为 14.44.35211.0，toolset 为
+14.44.35207。隔离显式 x64 target 的 unsigned/unbundled QA release native/wrapper/
+terminal exit 0，实际 EXE 与同目录 DLL/清单及十七份基础许可证哈希通过；默认 release
+EXE 未改。构建、文件或比较数不计为测试通过。后续仅五份 Markdown 证据同步。
+真实 VS 2026/当前 SHA CI/安装器/无 CRT 启动及其它宿主、实际设备仍未验；W48 与保存
+实际 QA 保持各自历史身份。完整证据见
+[`2026-10-02-windows-qa-crt-discovery-review.md`](../../reviews/2026-10-02-windows-qa-crt-discovery-review.md)。

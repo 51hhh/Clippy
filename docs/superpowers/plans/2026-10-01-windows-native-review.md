@@ -13,8 +13,11 @@
   QA 从仅 VC143 改为已发布 v14 desktop x64 家族发现，按数字版本选最新，歧义/不可信
   新版失败关闭，原文件级校验保留。原新增 24 项红 12/12，旧五十项通过；同组绿后增加
   六个目录标签用例，共新三十/旧五十项通过。受控目录/元数据不证明实际新/旧 SDK 编译。
-  新 SHA 完整 Windows 门禁、现有真实 SDK 与隔离 unbundled QA 构建待核对；原 W48
-  证据保留，真实 VS 2026/当前 CI/安装与设备/其它平台仍未验，桌面停止。
+  干净 `ae2fdb6` 完整 Windows 门禁 33/0/1，前端 81/1403；原八十份测试 Git blob 未改。
+  现有真实 VC143 十份有效签名 DLL 与隔离 unsigned/unbundled QA release 编译/payload
+  核对通过，native/wrapper/terminal exit 0；默认产物、十七份基础许可证和原 W48 证据保持。
+  详见 `docs/reviews/2026-10-02-windows-qa-crt-discovery-review.md`；真实 VS 2026/当前 CI/
+  安装与设备/其它平台仍未验，桌面停止，文件/构建数量不算测试通过。
 
 - W48 / `WIN-QA-CRT-01`：发现真实录屏 QA PE 导入 MSVCP140 而旧 MSI/resources 没有
   部署 CRT；默认 PE 不依赖该运行库。独立 `codex/windows-qa-runtime` 增加受验证的 SDK
