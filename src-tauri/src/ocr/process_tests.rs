@@ -14,10 +14,31 @@ use std::time::{Duration, Instant};
 const PROCESS_START_DEADLINE: Duration = Duration::from_secs(10);
 
 fn fake_program(body: &str) -> (tempfile::TempDir, PathBuf, PathBuf) {
+    fake_program_with_start_delay(body, Duration::ZERO)
+}
+
+fn fake_program_with_start_delay(
+    body: &str,
+    delay: Duration,
+) -> (tempfile::TempDir, PathBuf, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("tesseract-fake");
     let pid = dir.path().join("pid");
-    std::fs::write(&path, format!("#!/usr/bin/env python3\nimport os, sys, time\nopen({:?}, 'w').write(str(os.getpid()))\n{body}\n", pid)).unwrap();
+    let temporary_pid = dir.path().join("pid.tmp");
+    let delay = if delay.is_zero() {
+        String::new()
+    } else {
+        format!("time.sleep({})\n", delay.as_secs_f64())
+    };
+    std::fs::write(
+        &path,
+        format!(
+            "#!/usr/bin/env python3\nimport os, sys, time\n{delay}\
+             with open({temporary_pid:?}, 'w') as marker:\n    marker.write(str(os.getpid()))\n\
+             os.replace({temporary_pid:?}, {pid:?})\n{body}\n"
+        ),
+    )
+    .unwrap();
     (dir, path, pid)
 }
 
@@ -43,7 +64,28 @@ fn assert_reaped(pid: &Path) {
             "超时后不能遗留存活/僵尸子进程"
         );
     }
+    #[cfg(target_os = "macos")]
+    if pid.exists() {
+        assert!(
+            !macos_process_is_running(pid),
+            "回收后 signal 0 不能再找到子进程"
+        );
+    }
     let _ = pid;
+}
+
+#[cfg(target_os = "macos")]
+fn macos_process_is_running(pid: &Path) -> bool {
+    let id = std::fs::read_to_string(pid).unwrap();
+    let id: i32 = id.trim().parse().unwrap();
+    assert!(id > 0, "探针只允许夹具记录的正 PID");
+    Command::new("/bin/kill")
+        .arg("-0")
+        .arg(id.to_string())
+        .output()
+        .expect("macOS signal 0 探针必须可执行")
+        .status
+        .success()
 }
 
 #[tokio::test]
@@ -189,37 +231,72 @@ async fn queue_has_a_hard_admission_limit() {
 
 #[tokio::test]
 async fn production_structured_job_reaps_after_last_consumer_cancels_before_releasing_permit() {
-    let runtime: &'static OcrRuntime = Box::leak(Box::new(OcrRuntime::new(1)));
-    let (_directory, executable, pid) = fake_program("sys.stdin.buffer.read(); time.sleep(60)");
-    let active = tokio::spawn(runtime.run_structured("active".into(), move || async move {
-        let text = run_fake_with_timeout(
-            &executable,
-            b"input",
-            Duration::from_millis(250),
-            4096,
-            4096,
-        )
-        .await?;
-        Ok(StructuredOcr::tesseract(1, 1, text, None))
-    }));
-    // 并行原生 CI 可能延迟 Python 子进程调度；这里只验证取消前确实启动，
-    // 生产识别的 250ms 超时仍由 run_fake_with_timeout 独立约束。
-    let deadline = Instant::now() + PROCESS_START_DEADLINE;
-    while !pid.exists() && Instant::now() < deadline {
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
-    assert!(pid.exists(), "假进程必须实际启动");
-    active.abort();
-    let _ = active.await;
-    let final_pid = pid.clone();
-    let result = runtime
-        .run_structured("next".into(), move || async move {
+    for delay in [Duration::ZERO, Duration::from_millis(750)] {
+        let runtime: &'static OcrRuntime = Box::leak(Box::new(OcrRuntime::new(1)));
+        let (directory, executable, pid) = fake_program_with_start_delay(
+            "sys.stdin.buffer.read()\n\
+             while not os.path.exists(os.path.join(os.path.dirname(__file__), 'release')):\n    time.sleep(0.005)\n\
+             sys.stdout.buffer.write(b'x' * 1000000); sys.stdout.flush(); time.sleep(60)",
+            delay,
+        );
+        let (completed, completion) = tokio::sync::oneshot::channel();
+        let active = tokio::spawn(runtime.run_structured("active".into(), move || async move {
+            // 这是取消/回收夹具的兜底，不是生产超时合同；250ms 超时由独立测试保留。
+            let outcome = run_fake_with_timeout(
+                &executable,
+                b"input",
+                PROCESS_START_DEADLINE * 2,
+                4096,
+                4096,
+            )
+            .await;
+            let _ = completed.send(outcome.clone());
+            Ok(StructuredOcr::tesseract(1, 1, outcome?, None))
+        }));
+        let deadline = Instant::now() + PROCESS_START_DEADLINE;
+        while !pid.exists() && !active.is_finished() && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(pid.exists(), "假进程必须实际启动，delay={delay:?}");
+        assert!(!active.is_finished(), "取消前不能已经因超时结束");
+        #[cfg(target_os = "macos")]
+        assert!(macos_process_is_running(&pid), "取消前子进程必须存活");
+        active.abort();
+        let _ = active.await;
+        assert!(!runtime.has_consumers("active"));
+        assert_eq!(runtime.permits.available_permits(), 0);
+
+        let final_pid = pid.clone();
+        let (entered, mut entry) = tokio::sync::oneshot::channel();
+        let next = tokio::spawn(runtime.run_structured("next".into(), move || async move {
             assert_reaped(&final_pid);
+            let _ = entered.send(());
             Ok(StructuredOcr::tesseract(1, 1, "recovered".into(), None))
-        })
-        .await
-        .unwrap();
-    assert_eq!(result.text, "recovered");
-    assert_reaped(&pid);
-    assert!(runtime.snapshots.lock().unwrap().is_empty());
+        }));
+        let deadline = Instant::now() + PROCESS_START_DEADLINE;
+        while !runtime.has_consumers("next") && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(runtime.has_consumers("next"), "后继请求必须实际入队");
+        assert_eq!(runtime.permits.available_permits(), 0);
+        assert!(
+            matches!(
+                entry.try_recv(),
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+            ),
+            "旧子进程未回收时不能进入后继工作"
+        );
+        // 消费者离开后才触发输出上限，让真实监督器执行 kill/wait。
+        std::fs::write(directory.path().join("release"), b"release").unwrap();
+        let result = tokio::time::timeout(PROCESS_START_DEADLINE, next)
+            .await
+            .expect("回收与许可恢复必须有界")
+            .unwrap()
+            .unwrap();
+        assert!(completion.await.unwrap().unwrap_err().contains("上限"));
+        assert_eq!(entry.try_recv(), Ok(()));
+        assert_eq!(result.text, "recovered");
+        assert_reaped(&pid);
+        assert!(runtime.snapshots.lock().unwrap().is_empty());
+    }
 }
