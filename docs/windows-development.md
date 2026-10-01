@@ -69,6 +69,15 @@ Windows Native CI 同样显式执行；上游显示器测试保留过滤，不�
 四项使用真实 scopeguard 和受控泛型资源，验证注册/session 错误前 Close、原错误及成功转移；
 不创建 WinRT 对象。关闭六项与初始化四项独立于应用 Rust 总数，全部由含测试的 vendor clippy 检查。
 
+## 构建号读取边界
+
+`WIN-REGISTRY-BUFFER-01` 在本机/Windows Native CI 显式执行独立 vendor 组：
+`cargo test --locked --manifest-path vendor/xcap/Cargo.toml --lib --features wgc platform::registry_build::tests`。
+八项使用与原生读取共用的初始化缓冲区/解析入口，验证字节单位、返回范围和错误回退，不访问
+注册表、屏幕或捕获对象。该模块不受 wgc feature 门控；使用既有 vendor 测试图减少重复构建。
+主应用 cargo test 不运行依赖单元测试，这八项不计入应用总数。上游显示器测试仍过滤；
+含测试的 vendor clippy 编译此组。八项构建号与十项 WGC 合同是十八项独立离线 vendor 测试。
+
 ## 录屏源码构建附加依赖
 
 `recording-windows-av-qa` 包含固定版本 VP9 源码构建、WGC、WASAPI 与 Opus/WebM。

@@ -220,6 +220,11 @@ jobs:
         working-directory: src-tauri
         run: cargo test --locked --manifest-path vendor/xcap/Cargo.toml --lib --features wgc platform::wgc_init::tests
 
+      - name: Windows registry build buffer tests
+        if: runner.os == 'Windows'
+        working-directory: src-tauri
+        run: cargo test --locked --manifest-path vendor/xcap/Cargo.toml --lib --features wgc platform::registry_build::tests
+
       - name: Vendored xcap macOS clippy
         if: runner.os == 'macOS'
         working-directory: src-tauri

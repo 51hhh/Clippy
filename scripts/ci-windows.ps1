@@ -118,6 +118,9 @@ if (-not $FrontendOnly) {
     Invoke-Check 'Windows WGC initialization rollback tests' $backend {
         & cargo.exe test --locked --manifest-path vendor/xcap/Cargo.toml --lib --features wgc platform::wgc_init::tests
     }
+    Invoke-Check 'Windows registry build buffer tests' $backend {
+        & cargo.exe test --locked --manifest-path vendor/xcap/Cargo.toml --lib --features wgc platform::registry_build::tests
+    }
     Invoke-Check 'Native Rust tests' $backend { & cargo.exe test --locked }
     Invoke-Check 'Windows CF_HTML parser tests' $backend {
         & cargo.exe test --locked -p arboard --lib platform::windows::html::tests
