@@ -1,11 +1,12 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
+import { fileURLToPath } from "node:url";
 import {
   loadContractSources,
   validateContract,
 } from "../../scripts/check-ipc-contract.mjs";
 
-const repositoryRoot = new URL("../..", import.meta.url).pathname;
+const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 
 function sources() {
   return loadContractSources(repositoryRoot);
