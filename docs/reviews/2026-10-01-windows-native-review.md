@@ -5,7 +5,21 @@
 
 ## 当前续审结果
 
-当前 W44 / WIN-CLIP-SNAPSHOT-01：独立 codex/windows-clipboard-snapshot，基于 43b400c。
+当前 W45 / WIN-PASTE-CLEANUP-01：独立 codex/windows-paste-key-cleanup，基于 10fd2ea。
+Windows V Click 错误后先尝试 V Release，仍释放 Control；首次 V 清理失败或 Click
+展开时 RAII guard 再尝试一次。成功路径仍 Control Press/V Click/Control Release，
+不拆分正常 Click。原主要 action/detail 和错误分类保持，清理失败追加 detail，持续
+阻塞不报成功；原 Enigo held modifier Drop 重试保持。仅 Windows 新协议，macOS
+原正文、输入初始化/目标复核、完整性边界、copy-only 与其它平台分流不变。
+提取原注入决策只替换 Keyboard adapter，MSVC 红 10 passed / 6 failed，旧六项全绿；
+四项模型 V-down 残留、两项释放尝试缺失实际复现（首个断言范围保留）。同十项测试/
+Keyboard fixture 原字节绿 16 passed。模型按锁定 Enigo 0.6.1 的 Click/held/默认 Drop
+合同构造，展开 panic 被捕获；不是实际 SendInput 部分发送、物理卡键或桌面证据。
+原 Windows/macOS 实现和旧六项正文、十二份关联文件、两份锁定 SDK 原字节核对。
+没有新依赖、SDK feature 或系统键状态调用。
+同组定向回归通过；干净源码完整 Windows 门禁待运行。实际按键/桌面、其它宿主/新 SHA CI、安装和 Wayland 留未验。
+
+此前 W44 / WIN-CLIP-SNAPSHOT-01：独立 codex/windows-clipboard-snapshot，基于 43b400c。
 Windows HTML/text 共用一个 OpenClipboard guard，原单格式解码与接口保持；guard 覆盖双读取，
 错误/展开由原 RAII Drop 释放。不依赖 sequence 零值或延迟增长；缺失/空 HTML 回退文本/图片，
 替代文本失败派生本次 HTML、成功空值保持。其它平台默认顺序协议、Watcher 代次/抑制/

@@ -26,6 +26,7 @@ fn inject_paste(
     modifier_name: &str,
     validate: impl FnOnce() -> Result<(), PasteError>,
 ) -> Result<(), PasteError> {
+    #[cfg(target_os = "macos")]
     let injection = |action: &str| {
         let action = action.to_string();
         move |error: enigo::InputError| PasteError::KeyInjection {
@@ -40,17 +41,105 @@ fn inject_paste(
         },
         validate,
         |mut enigo| {
-            enigo
-                .key(modifier, Press)
-                .map_err(injection(&format!("按下 {modifier_name}")))?;
-            let click = enigo.key(Key::Unicode('v'), Click);
-            let release = enigo.key(modifier, Release);
-            click.map_err(injection("按下 V"))?;
-            release.map_err(injection(&format!("释放 {modifier_name}")))?;
-            Ok(())
+            #[cfg(target_os = "windows")]
+            {
+                inject_with_keyboard(&mut enigo, modifier, modifier_name)
+            }
+            #[cfg(target_os = "macos")]
+            {
+                enigo
+                    .key(modifier, Press)
+                    .map_err(injection(&format!("按下 {modifier_name}")))?;
+                let click = enigo.key(Key::Unicode('v'), Click);
+                let release = enigo.key(modifier, Release);
+                click.map_err(injection("按下 V"))?;
+                release.map_err(injection(&format!("释放 {modifier_name}")))?;
+                Ok(())
+            }
         },
     )
 }
+
+#[cfg(target_os = "windows")]
+fn inject_with_keyboard(
+    keyboard: &mut impl Keyboard,
+    modifier: Key,
+    modifier_name: &str,
+) -> Result<(), PasteError> {
+    let injection = |action: &str| {
+        let action = action.to_string();
+        move |error: enigo::InputError| PasteError::KeyInjection {
+            action,
+            detail: error.to_string(),
+        }
+    };
+    keyboard
+        .key(modifier, Press)
+        .map_err(injection(&format!("按下 {modifier_name}")))?;
+    // Click 未全部发送时，Enigo 不会把已插入的 V-down 记入 held；必须自行清理。
+    let mut guard = PartialClickGuard {
+        keyboard,
+        pending: true,
+    };
+    let click = guard.keyboard.key(Key::Unicode('v'), Click);
+    let cleanup = if click.is_err() {
+        guard.release_v().err()
+    } else {
+        guard.pending = false;
+        None
+    };
+    // 即使 V 的清理失败，也继续释放 modifier；其默认 Enigo Drop 重试保持。
+    let release = guard.keyboard.key(modifier, Release);
+    if let Err(error) = click {
+        let mut detail = error.to_string();
+        if let Some(error) = cleanup {
+            detail.push_str(&format!("; V release cleanup failed: {error}"));
+        }
+        if let Err(error) = release {
+            detail.push_str(&format!(
+                "; {modifier_name} release cleanup failed: {error}"
+            ));
+        }
+        return Err(PasteError::KeyInjection {
+            action: "按下 V".to_string(),
+            detail,
+        });
+    }
+    release.map_err(injection(&format!("释放 {modifier_name}")))?;
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+struct PartialClickGuard<'a, K: Keyboard> {
+    keyboard: &'a mut K,
+    pending: bool,
+}
+
+#[cfg(target_os = "windows")]
+impl<K: Keyboard> PartialClickGuard<'_, K> {
+    fn release_v(&mut self) -> enigo::InputResult<()> {
+        let result = self.keyboard.key(Key::Unicode('v'), Release);
+        if result.is_ok() {
+            self.pending = false;
+        }
+        result
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl<K: Keyboard> Drop for PartialClickGuard<'_, K> {
+    fn drop(&mut self) {
+        // 首次释放失败或 Click 展开时再尝试一次，不循环，不声称持续阻塞已解除。
+        if self.pending {
+            if let Err(error) = self.release_v() {
+                log::warn!("粘贴 V 清理重试失败: {error}");
+            }
+        }
+    }
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod injection_tests;
 
 #[cfg(target_os = "windows")]
 mod implementation {

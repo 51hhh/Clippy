@@ -9,6 +9,12 @@
 
 ## 当前续审状态
 
+- `WIN-PASTE-CLEANUP-01` / W45：独立 `codex/windows-paste-key-cleanup`，基于 `10fd2ea`。
+  V Click 错误/展开显式清理 V，首次失败 RAII 再试一次，modifier 及其 Drop 重试保持。
+  正常 Click 三步与主要错误保持，持续阻塞不报成功；原协议提取红 10/6，旧六项全绿，
+  同十项原字节绿 16。原实现/十二关联文件/锁定 SDK 核对；受控模型不代替真实按键。
+  完整门禁待运行；实际系统/其它宿主/CI/安装与 Wayland 未验。
+
 - `WIN-CLIP-SNAPSHOT-01` / W44：独立 `codex/windows-clipboard-snapshot`，基于 `43b400c`。
   Windows HTML/text 共用一个 guard；原解码/回退、其它平台/抑制保持。原协议提取红 27/4，
   旧 23 通过；借用修正后原协议重放 27/4，同修正八项原字节绿 31，guard/旧 parser 共 16。
@@ -339,6 +345,7 @@
 | W42 | P1 | 结果库 ready 绑定当前 effect，退休后不再请求显示/聚焦，保留正常/错误页就绪 | 独立 REC-LIBRARY-READY-01；原 App 字节红基线 35/5（旧 32 全绿），四项旧 ready 与一次 StrictMode dev/test 两次调用复现，同八项原字节修复后通过，定向 40 passed；原合同/十三份关联文件保持。干净 1907809 完整默认/QA Windows 门禁 child/终端 exit 0，30/0/1（Linux skip），默认 Rust 1165、QA Rust 1228（各 5 ignored，重叠不累加，无新 Rust 用例），前端 79/1323 含新八项；源码/日志/发现清单与干净检出核对，实际窗口/focus/发布重放、其它宿主与新 SHA CI 未验 |
 | W43 | P1 | 共用键按 Shortcut ID 继承首次注册结果，全失败返回错误，保留部分成功与旧配置容错 | WIN-SHORTCUT-SHARED-01；提取原执行协议 MSVC 红 9/6（旧五项通过），同十项原字节绿 15/0；原合同/十九份文件保持。 干净 0f793c9 完整默认/QA 门禁 30/0/1（Linux skip），默认 Rust 1175/QA Rust 1238，各 5 ignored 不累加，新十项/旧五项各图通过；前端 79/1323，实际系统/UI/其它宿主/新 SHA CI 未验 |
 | W44 | P1 | Windows 富文本与替代文本共享 OpenClipboard guard，拒绝跨复制配对 | WIN-CLIP-SNAPSHOT-01；原决策红 27/4，旧 23 保持，同修正八项绿 31，guard 七项/旧 parser 九项共 16 与 vendor lint 通过。 干净 b541e87 完整 30/0/1（Linux skip），默认 Rust 1183/QA Rust 1246，各 5 ignored 不累加，新八项各图通过；独立剪贴板 31、前端 79/1323。实际系统/其它宿主/新 SHA CI 未验 |
+| W45 | P1 | Windows V Click 部分失败/展开时清理 V，保留正常顺序和主要错误 | WIN-PASTE-CLEANUP-01；原注入协议红 10/6，旧六项保持，同十项原字节绿 16；原实现/十二文件/锁定 SDK 保持。 完整门禁待运行，实际系统/其它宿主/新 SHA CI 未验 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。

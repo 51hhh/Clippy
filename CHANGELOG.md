@@ -2,6 +2,15 @@
 
 ## 未发布
 
+### 2026-10-02 Windows 自动粘贴部分按键失败清理
+
+- 修复 V Click 部分失败后未显式释放 V 的缺口。Windows 失败/展开补充有界清理，
+  正常 Click 顺序保持；主要错误及 copy-only 保留，清理失败追加 detail，不保证持续
+  系统阻塞已解除。原协议提取红 10/6（旧六项通过），模型残留/释放尝试缺口复现，
+  同十项原字节绿 16；原实现与关联文件保持，受控模型不代替实际按键/系统验收。
+  完整 Windows 门禁待运行，实际系统/其它宿主/当前 SHA CI 未验，安装包未更新。
+  （需求：`WIN-PASTE-CLEANUP-01`；见 `docs/superpowers/specs/2026-10-02-windows-paste-key-cleanup.md`）
+
 ### 2026-10-02 Windows 富文本与替代文本共用一次剪贴板打开
 
 - 修复两次读取之间外部复制使 HTML/text 混配的问题。Windows 配对读取共用原 guard，
