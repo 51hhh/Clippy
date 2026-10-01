@@ -5,7 +5,17 @@
 
 ## 当前续审结果
 
-当前 W32 / WIN-PIN-ORIGIN-01：混合 DPI 下公共全局逻辑来源点可以同时落入两屏工作区；
+当前 W33 / WIN-PIN-WORKAREA-01：保存工作区和工具条仍把物理窗口点按窗口 DPI 转为全局逻辑，
+再按枚举顺序选工作区；恢复映射虽选中了目标屏，后续逻辑定位/比例查询却丢掉该身份。
+Windows 保存现在使用可靠原生 owner 与同一工作区比例；未知 owner 只按物理矩形最大交集择屏。
+既有存储格式保留；正常旧记录按名称/物理 reference/主屏与相对位置映射，恢复将原生工作区、DPI
+及物理 anchor 缓存在 PinEntry，创建/reveal 不再重猜屏。工具条使用 ClientToScreen/client_rect
+对应的真实客户区，先物理求交再按窗口 DPI 输出局部 CSS；缺失元数据保留 whole/UNKNOWN 回退。
+提取旧生产协议红基线 1 passed / 15 failed，同组十六项 MSVC 回归通过；完整默认/QA 门禁待补。
+SQLite 往返与生产几何应用、存量正常记录和展示状态回归保留；旧错误来源不能可靠反推或伪称迁移。
+真实原生 API/窗口/DPI/热插拔、多屏/Windows 10、WGC、新 SHA CI 与其它宿主仍未验，W04 未关闭。
+
+此前 W32 / WIN-PIN-ORIGIN-01：混合 DPI 下公共全局逻辑来源点可以同时落入两屏工作区；
 旧 Pin 按枚举顺序选比例，隐藏创建与 reveal 又使用不同单位。后端现在从 caller 绑定冻结帧的
 实际 crop 生成私有物理来源，长截图加 signed union offset；输出重试和像素登记保持此来源。
 公开 JSON 仍仅四字段，serde 不接受伪造的物理元数据。新建图片 Pin 用一次原生快照选源屏、

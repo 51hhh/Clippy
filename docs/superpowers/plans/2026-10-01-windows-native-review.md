@@ -9,6 +9,11 @@
 
 ## 当前续审状态
 
+- `WIN-PIN-WORKAREA-01` / W33：独立 `codex/windows-pin-workarea`，基于 `7017562`。
+  原生 owner/物理交集驱动保存、保留原生目标的恢复和客户区工具条边界；旧存储格式与正常旧记录
+  相对位置/展示参数保留。提取旧生产协议红基线 1 passed / 15 failed，同组十六项 MSVC 回归通过；
+  完整默认/QA 门禁待补。旧错误来源不能反推；真实 API/窗口/DPI/热插拔、WGC 与新 SHA CI 未验。
+
 - `WIN-PIN-ORIGIN-01` / W32：独立 `codex/windows-pin-physical-origin`，基于 `e1c7191`。
   冻结物理来源贯穿普通/长截图、输出重试和像素登记；新建图片 Pin 按一次原生快照和 PNG 像素
   规划，创建/reveal 保留物理请求，Windows resize 不重复逻辑定位，来源失效按光标/主屏回退。
@@ -183,7 +188,7 @@
 | W01 | P1 | 修复文件 URL 路径；保留 9 项合同负例/正例并完成 Windows 前端门禁 | 本机已通过 |
 | W02 | P1 | PowerShell 门禁与 Windows CI 前端检查；缺工具/失败/部分运行严格区分 | 本机入口与 42e52c0 Windows 前端/OCR/Rust CI 已通过 |
 | W03 | P1 | Rust MSVC、C++ SDK、WebView2；录屏另需 MSYS2 make/diffutils/perl/nasm、MSBuild、CMake、LLVM tools/libclang；默认与 QA 图分别验证 | 工具已安装，默认与录屏 QA 本机门禁通过 |
-| W04 | P1 | 100%/125%/150% 多屏与负坐标：冻结帧、跨屏窗口候选、覆盖层、Pin、guide、长截图自动滚动、WGC 选区 | 候选/焦点见 W29/W30，原始物理边界和建窗请求见 W31；图片 Pin 来源/请求见 W32；实际 DPI/热插拔、存量工作区/工具条/WGC 与真机矩阵仍未验，本机单屏。长截图失败清理指针合同见 W19，真实接管待验 |
+| W04 | P1 | 100%/125%/150% 多屏与负坐标：冻结帧、跨屏窗口候选、覆盖层、Pin、guide、长截图自动滚动、WGC 选区 | 候选/焦点见 W29/W30，原始物理边界和建窗请求见 W31；图片 Pin 来源/请求见 W32；实际 DPI/热插拔、工作区保存/恢复与工具条合同见 W33；WGC 与真机矩阵仍未验，本机单屏。长截图失败清理指针合同见 W19，真实接管待验 |
 | W05 | P1 | 同权限自动粘贴一次、高完整性目标 copy-only、目标销毁/复用、用户接管；DACL 与配置连续覆盖 | 45769c9 普通权限文本/图片完整用例实际通过；管理员、销毁复用与用户接管桌面待验证。私有文件准备失败时序见 W18，富文本片段边界见 W20，首次按键前目标复核见 W23 |
 | W06 | P1 | QA 包设备默认/非默认/同名/拔出、双源混音、暂停恢复、控制窗排除、强杀恢复、30 分钟 A/V 漂移 | WASAPI 正常停止尾部见 W24，WGC 关闭/初始化清理见 W25/W27，双轨桥接线程回收见 W26；真实设备、混音及其余场景仍待真机验收 |
 | W07 | P2 | NSIS/MSI 安装升级卸载、WebView2、自启动、托盘/快捷键、系统凭据与更新 | 官方 QA 包身份已核对，MSI 只读检查通过；NSIS 安装落盘/启动子步骤已核对，完整 MSI/升级/卸载/updater 未验收；本机自签名链不受信任，未更改信任 |
@@ -212,6 +217,7 @@
 | W30 | P1 | Windows 物理光标按各帧比例选择覆盖层键盘归属，保留未知光标/无效元数据兜底 | 独立 WIN-OVERLAY-FOCUS-01；旧生产 reveal 红基线 2 passed / 6 failed，八项绿回归与 f577996 完整默认/QA 门禁通过、子进程 exit 0，30 passed / 0 failed / 1 Linux smoke skipped；原断言审计通过，真实 set_focus、原生建窗、多屏与当前 SHA CI 未验 |
 | W31 | P1 | 冻结原始物理边界贯穿 Windows 覆盖层/guide、光标、窗口候选、长截图指针与重捕获身份 | 独立 WIN-NATIVE-MONITOR-01；MSVC 实际旧算法红基线 1 passed / 15 failed、十六项绿回归；首次完整门禁 28 passed / 2 lint failed 保留，修正后的 2f0e225 完整默认/QA 门禁 exit 0，30 passed / 0 failed / 1 Linux smoke skipped。实际窗口/DPI、多屏、Pin/WGC 原点身份与当前 SHA CI 未验 |
 | W32 | P1 | 冻结物理来源贯穿截图/长截图及历史图片 Pin，单次原生规划与两阶段物理请求 | 独立 WIN-PIN-ORIGIN-01；旧生产输出及提取布局/请求协议红基线 3 passed / 15 failed，同组十八项 MSVC 离线回归和 888127a 完整默认/QA 门禁通过、原生子进程 exit 0；30 passed / 0 failed / 1 Linux smoke skipped。真实窗口/DPI、工作区/工具条/WGC、新 SHA CI 与其它宿主未验 |
+| W33 | P1 | 原生 owner/工作区贯通 Pin 保存、恢复及客户区工具条边界 | 独立 WIN-PIN-WORKAREA-01；提取旧生产协议红基线 1 passed / 15 failed，同组十六项 MSVC 回归通过，完整门禁待补；真实 OS owner/窗口/DPI/热插拔、多屏/Windows 10、WGC 与当前 SHA CI 未验 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。

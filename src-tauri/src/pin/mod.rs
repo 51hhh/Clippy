@@ -15,6 +15,8 @@ mod resample;
 mod window;
 #[cfg(target_os = "windows")]
 mod windows_geometry;
+#[cfg(target_os = "windows")]
+mod windows_workarea;
 mod workspace;
 pub(crate) mod workspace_library;
 

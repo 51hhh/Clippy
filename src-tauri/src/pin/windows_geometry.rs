@@ -16,7 +16,7 @@ pub(super) struct NativeMonitor {
 }
 
 impl NativeMonitor {
-    fn valid(self) -> bool {
+    pub(super) fn valid(self) -> bool {
         self.bounds.is_valid()
             && self.scale.is_finite()
             && self.scale > 0.0
@@ -112,6 +112,14 @@ pub(super) fn plan_image(
 }
 
 impl PinNativeLayout {
+    pub(super) fn at(
+        monitor: NativeMonitor,
+        anchor: Option<PhysicalPosition<f64>>,
+    ) -> Option<Self> {
+        (monitor.valid() && anchor.is_none_or(|p| p.x.is_finite() && p.y.is_finite()))
+            .then_some(Self { monitor, anchor })
+    }
+
     /// 创建/reveal 使用同一原生规划，不能交给窗口当前 DPI 再解释一遍。
     pub(super) fn requests(
         self,

@@ -35,6 +35,7 @@ pub(crate) use mode_gate::{CaptureMode, CaptureModeGate, CaptureModeOwnership};
 pub(crate) use shell_extension::place_window as shell_extension_place_window;
 /// 窗口几何查询。`pin/` 借它问"我这个贴图窗口现在在屏幕的哪儿"——Wayland 下
 /// `outer_position()` 是假的（见 `pin::window::known_pin_position`），只有扩展知道真值。
+#[cfg(not(target_os = "windows"))]
 pub(crate) use shell_extension::probe as shell_extension_windows;
 /// 截图后端要用扩展这条路取冻结帧。扩展的全部 IPC 都留在 `shell_extension` 里，
 /// 这里只把入口露出去，免得契约散成两份。

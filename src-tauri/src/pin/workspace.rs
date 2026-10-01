@@ -7,9 +7,10 @@ use super::model::{PinEntry, PinSource, SharpenSlot};
 use super::output::{
     effective_project, identity_project, register_image_revision, render_document,
 };
+use super::window::{capture_workspace_placement, create_pin_window};
+#[cfg(not(target_os = "windows"))]
 use super::window::{
-    capture_workspace_placement, content_buffer_scale, content_device_scale, create_pin_window,
-    outer_size, restore_workspace_position,
+    content_buffer_scale, content_device_scale, outer_size, restore_workspace_position,
 };
 use crate::commands::AppState;
 use crate::models::{ClipItem, ContentType};
@@ -415,13 +416,21 @@ pub(super) fn restore_one(
             image: None,
         },
     };
+    #[cfg(target_os = "windows")]
+    let layout = super::window::native_workspace_layout(
+        app_handle,
+        item.placement.as_ref(),
+        item.content_width,
+        item.content_height,
+        item.scale,
+    );
+    #[cfg(not(target_os = "windows"))]
     let restore_position = item.placement.as_ref().map(|placement| {
         let (width, height) = outer_size(item.content_width, item.content_height, item.scale);
         restore_workspace_position(app_handle, placement, width, height)
     });
+    #[cfg(not(target_os = "windows"))]
     let scale_origin = restore_position.map(|position| super::model::PinOrigin {
-        #[cfg(target_os = "windows")]
-        physical: None,
         x: position.x + 12.0,
         y: position.y + 12.0,
         width: item.content_width,
@@ -439,13 +448,40 @@ pub(super) fn restore_one(
         workspace_id: Some(item.id),
         workspace_group_id: item.group_id,
         position: None,
+        #[cfg(not(target_os = "windows"))]
         restore_position,
+        #[cfg(target_os = "windows")]
+        restore_position: None,
         origin: None,
-        device_scale: content_device_scale(app_handle, scale_origin),
-        buffer_scale: content_buffer_scale(app_handle, scale_origin),
+        device_scale: {
+            #[cfg(target_os = "windows")]
+            {
+                1.0
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                content_device_scale(app_handle, scale_origin)
+            }
+        },
+        buffer_scale: {
+            #[cfg(target_os = "windows")]
+            {
+                1.0
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                content_buffer_scale(app_handle, scale_origin)
+            }
+        },
         #[cfg(target_os = "windows")]
         native_layout: None,
         sharpen: Arc::new(SharpenSlot::default()),
+    };
+    #[cfg(target_os = "windows")]
+    let entry = {
+        let mut entry = entry;
+        layout.apply(&mut entry);
+        entry
     };
     state.pin_manager.insert(entry.clone())?;
     super::lifecycle::spawn_sharpen(app_handle, &entry);
