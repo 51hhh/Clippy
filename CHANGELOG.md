@@ -8,7 +8,10 @@
   会话身份，哈希取消检查与最终签发核对该身份；同会话撤销后旧准备失效，新准备可用，
   其它会话保持。跟踪条目在最后一个准备释放时回收，无历史会话墓碑。原生产管理器 MSVC
   红基线 7 passed / 4 failed，四项实际返回 Ok 租约；六项同组用例与两项生命周期/所有权
-  新测试修复后通过，旧五项协议断言保持，共 13 passed。完整 Windows 门禁待执行。
+  新测试修复后通过，旧五项协议断言保持，共 13 passed。干净 6944b68 完整 Windows
+  默认/QA 门禁确认原生子进程 exit 0：30 passed / 0 failed / 1 Linux smoke skipped；
+  默认 Rust 1165、QA Rust 1228（各 5 ignored，两图重叠不累加），新增八项与旧媒体
+  五项在各图总数内；前端 77 文件 / 1307 passed。源码/原始日志与干净检出核对。
   文件/线程夹具不是实际 WebM 播放、删除/合并或 Tauri IPC 证据；哈希中间撤销时序、真实
   桌面/设备、其它宿主与当前 SHA CI 未验，安装包未更新，桌面操作停止。
   （需求：`REC-MEDIA-REVOKE-01`，补齐 `PX-REC-PLAYBACK-01` / 4；见 `docs/superpowers/specs/2026-10-02-recording-media-revoke.md`）

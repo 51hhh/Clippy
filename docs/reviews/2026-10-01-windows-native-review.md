@@ -14,9 +14,17 @@ prepare_session 在后台任务前绑定会话 Arc 身份，state 保留 Weak；
 同组测试六个正文原始字节保持，类型/API adapter 迁移；追加生命周期/跨 manager 两项，
 定向 13 passed，包含旧五项断言。十二段原媒体函数、十九段原库函数、原 issue 校验/租约
 余部、revoke/clear 旧租约操作与十份关联文件核对；未改变协议/IPC/默认门控/删除 owner。
-完整干净 SHA Windows 门禁待执行。没有真实删除/合并、Tauri invoke、WebView 解码或
-哈希扫描中间撤销时序观察；其它宿主、当前 SHA CI 与桌面留未验。合同
-recording-media-revoke-contract；桌面操作保持停止。
+干净源码 6944b6865b5a72282b5f990f9a6ec5fc8ed14a17 完整 Windows 默认/QA 门禁确认原生
+child 与终端 exit 0，30 passed / 0 failed / 1 Linux smoke skipped。默认 Rust 1165、QA Rust
+1228（各 5 ignored，重叠不累加），新八项、旧媒体五项及前轮导出身份七项各图通过；
+既有九条 manifest/导出/合并按原图通过。前端 77 文件 / 1307 passed，Python 33 + 3，
+独立 vendor 十八项和剪贴板二十四项通过；check、严格 lint、供应链、构建/入口通过。
+原始日志/源码/checked helper/门禁脚本哈希和干净检出核对，门禁后只改四份 Markdown。
+累计二十四项本机产品修复未装包，保存实际 QA/全未运行模板原始字节保持。没有真实删除/
+合并、Tauri invoke、WebView 解码或哈希扫描中间撤销时序观察；其它宿主、当前 SHA CI 与
+桌面留未验。前端 openPlayback 未检查卸载后的迟到 Promise，既有用例只覆盖已经返回的
+租约；下一步先用生产 React 组件/jsdom 复现，候选未分类为缺陷。合同
+recording-media-revoke-contract，完整门禁 recording-media-revoke-native-qa-6944b68；桌面停止。
 
 此前 W39 / WIN-EXPORT-IDENTITY-01：原生产导出仅比较路径文本。直接在未经改动的导出函数
 运行六项真实 Windows 文件/句柄夹具，红基线 2 passed / 4 failed：大小写、父目录、扩展路径

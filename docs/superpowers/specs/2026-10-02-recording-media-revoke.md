@@ -27,7 +27,7 @@
 - [x] 无已有租约、已有租约、同会话重新准备和后台排队四种旧准备均被拒绝。
 - [x] 其它会话不受影响，撤销后新准备可用，窗口 clear 使所有旧准备失效。
 - [x] 准备跟踪可回收、旧凭据不能复活或跨 manager；既有媒体五项合同保持。
-- [ ] 干净源码完整 Windows 默认/QA 门禁与证据/记录同步，未验证项保留。
+- [x] 干净源码完整 Windows 默认/QA 门禁与证据/记录同步，未验证项保留。
 
 ## Out of Scope
 
@@ -49,5 +49,14 @@ prepare_session 在 spawn_blocking 前捕获会话 Arc 身份，state 只持 Wea
 十二段原媒体函数、十九段原结果库函数正文保持；原 issue 校验/响应租约余部及 revoke/clear
 原租约操作核对，两项旧测试仅迁移准备 API，旧五项断言保持，十份关联文件保持。
 
-完整干净 SHA Windows 门禁待执行。证据 C:\win\Clippy\src-tauri\target\recording-media-revoke-contract。
+干净源码 6944b6865b5a72282b5f990f9a6ec5fc8ed14a17 完整 Windows 默认/QA 门禁确认原生
+child 与终端 exit 0：30 passed / 0 failed / 1 Linux smoke skipped。默认 Rust 1165、QA Rust
+1228（各 5 ignored，两图重叠不累加）；新八项、旧媒体五项和前轮导出身份七项各图通过。
+既有九条 manifest/导出/合并按原图通过；前端 77 文件 / 1307 passed，Python 33 + 3，
+独立 vendor 十八项、剪贴板二十四项通过；check、严格 lint、供应链、构建/入口通过。
+原始日志/三份源码快照/checked helper/门禁脚本哈希与门禁前后干净检出核对，门禁后只改
+四份 Markdown，不重复计为测试。旧实际 QA 与全未运行模板哈希保持，未装更新包。
+完整证据 C:\win\Clippy\src-tauri\target\recording-media-revoke-native-qa-6944b68；
+红基线/原合同/后续源码证据 C:\win\Clippy\src-tauri\target\recording-media-revoke-contract。
 在哈希扫描中间撤销的精确时序、真实窗口/删除/合并/播放、其它宿主与当前 SHA CI 未验。
+前端迟到播放 Promise/卸载释放合同留为下一步生产组件/jsdom 候选，尚未复现新缺陷。
