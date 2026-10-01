@@ -8,7 +8,8 @@
   多跳 12 字节造成小图读取失败，或把尾部数据误解为像素。原 Chrome/Firefox 夹具与完整像素
   断言保留；新顶/底向、尾部和颜色表夹具红基线 2 passed / 2 failed，修复后五项 DIB 与三项
   文件视图合同通过，连同图片预算和富文本共 24 项 Windows 离线合同通过。
-  完整本机默认/录屏 QA 门禁待验；新 SHA CI、真实 Chrome/Firefox/Office 互操作未验。
+  25fb5d7 完整 Windows 默认/录屏 QA 门禁 exit 0，27 passed / 0 failed / 1 skipped（Linux smoke）；
+  新 SHA CI、真实 Chrome/Firefox/Office 互操作未验。
   未访问系统剪贴板或改变依赖版本，不将历史失败改写成通过。
   （需求：`WIN-DIBV5-PIXEL-01`；见 `docs/superpowers/specs/2026-10-01-windows-dibv5-pixel-offset.md`）
 

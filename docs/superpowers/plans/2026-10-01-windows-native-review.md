@@ -33,18 +33,21 @@
   将 watcher 的尺寸预算前移到 Windows PNG / DIB 像素解码前；四字节故障注入红基线
   3 passed / 2 failed，修复后七项预算合同通过。531d791 本机完整默认/QA 门禁 exit 0，
   25 passed / 0 failed / 1 skipped；CI 定向入口已接线但远程未运行。
-  扩展图片组 9 passed / 1 failed，Chrome DIB 在原 cf59157 源码也失败；保留为 W22，尚未修复。
+  当时扩展图片组 9 passed / 1 failed，Chrome DIB 在原 cf59157 源码也失败；后来由下项 W22 独立修复。
 - `WIN-DIBV5-PIXEL-01`：独立 `codex/windows-dibv5-pixel-offset`，基于 `6069cce`。
   W22 红基线 2 passed / 2 failed：原 Chrome 读取失败及带尾部数据的成功错图；改用借用原数据的
   BMP 文件视图提供显式像素偏移。原 Chrome/Firefox 逐像素断言保留，五项 DIB 和三项文件视图
-  合同通过；连同预算和富文本 24 项 Windows 离线合同通过。完整本机门禁待验，CI 已接线未远程运行。
+  合同通过；连同预算和富文本 24 项 Windows 离线合同通过。源码 25fb5d7159af66a88d829eda199efa649698633d
+  完整本机默认/QA 门禁 exit 0，27 passed / 0 failed / 1 skipped；默认 Rust 1046、QA Rust 1099，
+  两图重叠且各有 5 ignored，不累加；前端 75 文件 / 1292 passed，CI 已接线未远程运行，桌面未验。
 - 已安装包仍为旧源码 `45769c9`。实际 Windows 11 桌面记录为 2 pass / 1 fail（旧 Pin 工具栏裁切）/
   36 not_run；原始 39 项 not_run 模板保持原字节，模板不能替代实际记录。
 - NSIS 落盘及启动已有子步骤证据；完整安装升级、MSI、卸载、录屏/音频、管理员目标、
   Windows 10、双屏/混合 DPI/负坐标仍未验收。暂停中的桌面项不能用代码合同或旧 CI 勾选。
 
 对应修复规格见 `2026-10-01-windows-pin-toolbar-height.md`、`2026-10-01-windows-private-write-order.md`、
-`2026-10-01-windows-longshot-cursor-restore.md`、`2026-10-01-windows-cf-html-bounds.md`。
+`2026-10-01-windows-longshot-cursor-restore.md`、`2026-10-01-windows-cf-html-bounds.md`、
+`2026-10-01-windows-image-decode-budget.md`、`2026-10-01-windows-dibv5-pixel-offset.md`。
 以下基线与早期门禁记录保留各自来源 SHA；本状态更新为后继文档，不冒称文档 SHA 已执行门禁。
 
 ## Baseline
@@ -104,7 +107,7 @@
 | W05 | P1 | 同权限自动粘贴一次、高完整性目标 copy-only、目标销毁/复用、用户接管；DACL 与配置连续覆盖 | 45769c9 普通权限文本/图片完整用例实际通过；管理员、销毁复用与用户接管桌面待验证。私有文件准备失败时序见 W18，富文本片段边界见 W20 |
 | W06 | P1 | QA 包设备默认/非默认/同名/拔出、双源混音、暂停恢复、控制窗排除、强杀恢复、30 分钟 A/V 漂移 | 代码存在，待真机验收 |
 | W07 | P2 | NSIS/MSI 安装升级卸载、WebView2、自启动、托盘/快捷键、系统凭据与更新 | 官方 QA 包身份已核对，MSI 只读检查通过；NSIS 安装落盘/启动子步骤已核对，完整 MSI/升级/卸载/updater 未验收；本机自签名链不受信任，未更改信任 |
-| W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 42e52c0、45769c9 与 WinPS 的 b2fd247 各自七项 CI 通过；后续 Pin/私有写入/长截图光标/CF_HTML 产品修复本机通过，新 SHA CI、Linux 本地完整门禁及 Wayland 回归保留未完成 |
+| W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 42e52c0、45769c9 与 WinPS 的 b2fd247 各自七项 CI 通过；后续六项产品修复本机通过，新 SHA CI、Linux 本地完整门禁及 Wayland 回归保留未完成 |
 | W09 | P1 | OCR 质量工具 Windows 私有诊断目录与符号链接拒绝合同；失败关闭，检查子文件继承 | 实际 DACL/等价 SDDL 及 10 类失败关闭负例通过；本机 33 项质量合同与 42e52c0 跨平台 CI 通过 |
 | W10 | P2 | 审查 webm-sys 的 C++ 编译参数在 MSVC 上产生 D9002；按真实编译器族选择 flag，保留固定来源与许可证 | 独立 WIN-WEBM-MSVC-01 / PR #14；本机完整 QA 绑定 e4ccc46，45769c9 七项 CI 与完整 QA workflow 全成功，新 Windows 包来源/哈希/签名身份已核对；真实桌面未验证 |
 | W11 | P1 | 新 Windows runner 使用 CRLF 检出时的 IPC 负例与结构回归；保留两种换行的正/负合同 | 独立 CRLF checkout 1284 项通过，fe37aec Windows 前端 CI 已通过 |
@@ -118,7 +121,7 @@
 | W19 | P2 | 自动长截图提前失败的光标恢复不能抢回用户已移动位置，查询失败关闭恢复 | 独立 WIN-LONGSHOT-CURSOR-01；同一生产 guard 红绿及八项定向合同通过，d8dff80 本机完整默认/QA 门禁通过；真实接管、X11/macOS 原生图及新 SHA CI 未验 |
 | W20 | P1 | Windows CF_HTML 片段范围受实际字节与 UTF-8 边界约束，默认门禁不能遗漏依赖库合同 | 独立 WIN-CF-HTML-01；旧校验离线红基线、安全解析九项合同及 50b7778 完整本机默认/QA 门禁通过；CI 入口已接线，远程新 SHA、真实互操作和其它原生图未验 |
 | W21 | P1 | Windows PNG / DIB 在整图像素分配前执行已有预算，保留合法 4K/8K 与小图像素 | 独立 WIN-CLIP-IMAGE-BUDGET-01；红基线 3 passed / 2 failed，预算七项及 531d791 完整 Windows 默认/QA 门禁通过，新 SHA CI 与桌面未验 |
-| W22 | P2 | Windows DIBV5 显式像素偏移，防止小图读取失败与尾部掩盖错图 | 独立 WIN-DIBV5-PIXEL-01；红基线 2 passed / 2 failed，原 Chrome/Firefox 及新增像素/文件视图合同通过，完整本机门禁待验；真实提供者和新 SHA CI 未验 |
+| W22 | P2 | Windows DIBV5 显式像素偏移，防止小图读取失败与尾部掩盖错图 | 独立 WIN-DIBV5-PIXEL-01；红基线 2 passed / 2 failed，原 Chrome/Firefox 及新增像素/文件视图合同、25fb5d7 完整 Windows 本机默认/QA 门禁通过；真实提供者和新 SHA CI 未验 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。

@@ -7,10 +7,15 @@
 
 用户要求停止桌面操控，当前继续代码 review 与 Windows 本机自动验证。已安装的 QA 源码仍为
 `45769c9`：真实记录是文本/图片 2 pass、Pin 工具栏裁切 1 fail、36 not_run；原始 39 项模板保留不变。
-新 Pin、私有文件、长截图光标和 CF_HTML 修复未安装，桌面复测、录屏/音频、管理员目标、多屏和 Windows 10 均保持未验证。
+新 Pin、私有文件、长截图光标、CF_HTML、图片预算和 DIB 偏移修复未安装，桌面复测、录屏/音频、
+管理员目标、多屏和 Windows 10 均保持未验证。
 
 当前独立 WIN-DIBV5-PIXEL-01 修复 W22 的显式像素偏移，原 Chrome/Firefox 断言及新增
-顶/底向、尾部、颜色表和文件视图合同通过，共 24 项 Windows 离线回归通过；完整本机门禁待验。
+顶/底向、尾部、颜色表和文件视图合同通过，共 24 项 Windows 离线回归通过。源码
+25fb5d7159af66a88d829eda199efa649698633d 完整 Windows 默认/录屏 QA 门禁 exit 0：
+27 passed / 0 failed / 1 skipped（Linux smoke）。默认 Rust 1046 / 5 ignored、QA Rust 1099 / 5 ignored，
+两图重叠不累加；前端 75 文件 / 1292 passed。源码检出干净和日志哈希已核对，证据在
+windows-dibv5-native-qa-25fb5d7/RESULT.json；Windows CI 入口已接线但新 SHA 远程 CI 未运行。
 历史红基线和预算源码上的 Chrome 失败保留，未把原夹具改为 ignored。
 
 此前预算修复源码 `531d79129128725471288b45a8d0e7a76696b6d4` 的完整 Windows 默认/录屏 QA 门禁
@@ -79,6 +84,8 @@ Windows 10、多屏、真实音频与完整安装升级仍未完成。以下失�
 | `f788b1f` | 私有文件先准备权限，再截断与写入 | 权限失败时不先落内容，独立失败注入和实际 Windows DACL 合同验证 |
 | `d8dff80` | 自动长截图 guard 清理时重新查询指针位置 | 提前失败时保留用户新位置或查询未知状态；同一生产 guard 的确定性回归 |
 | `50b7778` | Windows HTML 读取实际字节，再安全校验片段偏移 | 关闭锁定依赖中的越界风险调用；本机/CI 显式执行依赖库解析合同 |
+| `531d791` | Windows PNG / DIB 解码前执行已有尺寸预算 | 四字节故障注入阻止先分配后拒绝；25 项完整 Windows 本机门禁通过 |
+| `25fb5d7` | 借用 DIB 文件视图提供显式像素偏移 | 原 Chrome/Firefox 与尾部/方向/颜色表像素断言通过；27 项完整 Windows 本机门禁通过 |
 
 以上是本机 Git 实际可达节点；录屏、动作和长截图后续分支已包含在最新基线的祖先链中。
 
@@ -122,7 +129,8 @@ PNG 构造也限制单边尺寸；合法图的转换逻辑保留。
 错误像素；四项红基线为 2 passed / 2 failed。修复用只补 14 字节文件头的借用 DIB 视图，
 为同一 BmpDecoder::new 提供显式 bfOffBits，保留所有原像素断言和 Chrome alpha 处理。
 五项 DIB / 三项视图 / 七项预算 / 九项富文本合同共 24 passed，严格 arboard clippy 通过；
-完整本机门禁待验，Windows CI 显式入口已接线。未修改 registry image、版本或锁文件，
+25fb5d7 完整 Windows 默认/QA 门禁 exit 0，27 passed / 0 failed / 1 skipped；
+Windows CI 显式入口已接线，YAML job/条件经本机解析核对。未修改 registry image、版本或锁文件，
 也未证实所有真实提供者受影响；Chrome/Firefox/Office 桌面互操作与新 SHA 原生 CI 仍未验。
 
 ### W20 / P1 — Windows 富文本读取片段缺少完整边界校验（源码风险确认，离线回归修复）

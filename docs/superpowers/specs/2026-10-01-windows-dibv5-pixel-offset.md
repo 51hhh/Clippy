@@ -22,8 +22,8 @@
 
 - [x] 原 Chrome 与额外 bitfields 用例在旧路径失败，原逐像素断言未经削弱地在修复后通过。
 - [x] Firefox、透明度、顶/底向、颜色表及文件视图 Read/Seek 合同通过，超限图片仍前置拒绝。
-- [ ] 干净源码 SHA 的完整 Windows 默认/录屏 QA 本机门禁通过，CI 定向入口已接线。
-- [ ] 文档与补丁来源记录同步，真实互操作、新 SHA CI 等未验证边界明确。
+- [x] 干净源码 SHA 的完整 Windows 默认/录屏 QA 本机门禁通过，CI 定向入口已接线。
+- [x] 文档与补丁来源记录同步，真实互操作、新 SHA CI 等未验证边界明确。
 
 ## Out of Scope
 
@@ -39,8 +39,8 @@ new_without_file_header 将该位置用于像素读取，因此 5×5×4 字节�
 微软文档有关 V5 头内掩码和颜色表的描述，以及 arboard 原夹具均保留供复核；
 文档对掩码外置的表述存在上下文差异，修复以 packed CF_DIBV5 与逐像素合同为边界。
 
-- https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-bitmapv5header
-- https://learn.microsoft.com/en-us/windows/win32/gdi/bitmap-header-types
+- [BITMAPV5HEADER](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-bitmapv5header)
+- [Bitmap header types](https://learn.microsoft.com/en-us/windows/win32/gdi/bitmap-header-types)
 
 ## Verification
 
@@ -50,4 +50,16 @@ Windows MSVC 离线红基线 2 passed / 2 failed，exit 101：原 Chrome Unexpec
 arboard --lib --tests 严格 clippy 通过。红源码和红绿日志在主检出的 windows-dibv5-red。
 Read/BufRead 视图只借用 DIB，头为内联 14 字节数组；不复制整图，Seek 允许超 EOF 但拒绝负位置。
 
-待记录完整本机门禁与源码 SHA。已安装 QA 包仍为 45769c9，不含本修复；桌面操作保持停止。
+源码 25fb5d7159af66a88d829eda199efa649698633d 在 Windows 11 x64 / PowerShell 5.1 /
+Rust 1.98.1 MSVC / Node 24.21.0 的完整 scripts/ci-windows.ps1 -RecordingQa exit 0：
+27 passed / 0 failed / 1 skipped（Linux smoke）。默认 Rust 1046 passed / 5 ignored，
+QA Rust 1099 passed / 5 ignored；两图重叠不累加。前端 75 文件 / 1292 passed；Python 质量 33 /
+视觉纯合同 3、check、严格 clippy、fmt、类型/静态检查、生产构建与构建入口通过。
+四项 Windows 依赖测试入口分别实际执行 9/7/5/3 个合同，共 24 passed，未执行上游桌面测试。
+
+验证前后源码检出干净，stdout/stderr 哈希已核对；证据位于主检出的
+src-tauri/target/windows-dibv5-native-qa-25fb5d7/RESULT.json。
+Windows Native CI 两个新入口的 job/条件和命令经 YAML 解析核对，但远程新 SHA CI 尚未运行。
+jsdom Canvas 实现缺失的既有提示不计为真实像素渲染证据，未增加新依赖来掩盖该边界。
+已安装 QA 包仍为 45769c9，不含本修复；桌面操作保持停止，真实提供者、Office、Windows 10、
+多屏以及其它平台原生图仍未验。既有红/失败证据保留，不用本次通过改写旧 SHA 的结果。

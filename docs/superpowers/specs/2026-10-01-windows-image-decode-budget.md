@@ -23,12 +23,12 @@
 
 - [x] 无保护的旧生产解码路径在离线调用顺序合同中失败；修复后超限/零尺寸均在像素解码前拒绝。
 - [x] 4K、8K、精确尺寸/像素边界元数据允许；小 PNG 8/16-bit 像素和透明度保持。
-- [ ] 既有 Chrome/Firefox DIB 扩展回归全部通过：Firefox 通过，Chrome 基线失败另列 W22，尚未修复。
-
-该项为预算源码 531d791 的未完成记录。W22 后续由独立 WIN-DIBV5-PIXEL-01 修复，原逐像素
-断言通过，见 2026-10-01-windows-dibv5-pixel-offset.md；不冒称预算源码本身曾通过 Chrome。
+- [x] 既有 Chrome/Firefox DIB 扩展回归在后继独立修复 25fb5d7 通过；预算源码 531d791 的 Chrome 失败不改写。
 - [x] 完整 Windows 默认/录屏 QA 本机门禁通过，绑定干净源码 SHA；Windows CI 定向入口接线。
 - [x] 补丁记录、CHANGELOG 与审查计划同步，未验证边界保留。
+
+W22 后续由独立 WIN-DIBV5-PIXEL-01 修复，原逐像素断言通过，完整 Windows 门禁 27 passed /
+0 failed / 1 skipped；见 2026-10-01-windows-dibv5-pixel-offset.md。以下预算源码及其当时失败证据仍保留。
 
 ## Out of Scope
 
