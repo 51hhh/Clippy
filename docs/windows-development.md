@@ -110,6 +110,27 @@ $env:LIBCLANG_PATH = Join-Path $env:ProgramFiles 'LLVM\bin'
 
 ## 桌面与安装包验收
 
+`WIN-QA-CRT-01`：录屏 QA 的 C++ 依赖需要应用本地运行库。干净检出后先从已有
+Visual Studio 的标准 desktop x64 release redist 准备资源；脚本检查 Microsoft 签名、版本、
+架构、哈希及 direct/delay import 递归依赖，不安装系统运行库：
+
+```powershell
+$runtime = ./scripts/prepare-windows-qa-runtime.ps1 | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0) { throw 'QA runtime preparation failed' }
+npx --prefix src tauri build --ci --target x86_64-pc-windows-msvc --features recording-windows-av-qa `
+  --config src-tauri/tauri.windows.conf.json --config src-tauri/tauri.ci.conf.json --config $runtime.configPath
+if ($LASTEXITCODE -ne 0) { throw 'QA build failed' }
+node scripts/verify-windows-qa-runtime.mjs --manifest $runtime.manifestPath --config $runtime.configPath `
+  --manifest-sha256 $runtime.manifestSha256 --expected-source $runtime.sourceSha `
+  --executable src-tauri/target/x86_64-pc-windows-msvc/release/clippy-app.exe `
+  --payload-root src-tauri/target/x86_64-pc-windows-msvc/release
+```
+
+本地仅编译时在 build 命令增加 `--no-bundle --no-sign`。显式 target 隔离默认 release 目录，
+基础许可证资源继续合并；运行库和证明放在 QA EXE 的同目录。完整 `-RecordingQa` 门禁检查
+暂存文件合同；构建后还须检查真实 payload。每次 QA 重建更新运行库，正式产品中央部署策略
+保持；文件检查不证明安装或无运行库的 Windows 10/11 实际启动。
+
 流程见 [`native-qa.md`](native-qa.md)。Windows 10/11 记录分别生成，不把模板记作通过：
 
 ```powershell

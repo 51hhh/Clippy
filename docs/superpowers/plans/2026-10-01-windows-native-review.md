@@ -9,6 +9,13 @@
 
 ## 当前续审状态
 
+- W48 / `WIN-QA-CRT-01`：发现真实录屏 QA PE 导入 MSVCP140 而旧 MSI/resources 没有
+  部署 CRT；默认 PE 不依赖该运行库。独立 `codex/windows-qa-runtime` 增加受验证的 SDK
+  app-local CRT、direct/delay 递归闭包及构建后 payload 检查，QA 显式 target 隔离默认
+  目录；默认 feature/Windows 配置/正式 release 保持。新合同 43、旧门禁 13 共 56 passed。
+  当前真实 SDK、完整 Windows 门禁与 unbundled 编译核对进行中；安装/无 CRT 系统启动、
+  新 SHA CI、Windows 10/多屏/其它平台仍未验，桌面停止。
+
 - W47 / `WIN-NATIVE-01`：[Windows release 编译审查](../../reviews/2026-10-02-windows-release-build-review.md)。
   冻结 `f5ad5da` 默认与录屏 QA release 均 native/wrapper/terminal 0；x64 GUI 未签名 PE、
   产物哈希、锁定输入、feature 指纹与实际 fat LTO/单 codegen 参数核对。panic=abort

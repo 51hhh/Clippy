@@ -231,6 +231,11 @@ jobs:
       - name: Verify pinned recording codec supply chain
         run: node scripts/verify-recording-codec-supply-chain.mjs
 
+      - name: Prepare Windows QA app-local runtime
+        id: runtime
+        shell: pwsh
+        run: ./scripts/prepare-windows-qa-runtime.ps1
+
       - name: Prepare self-signed Windows code-signing certificate
         shell: pwsh
         run: ./scripts/prepare-windows-signing.ps1
@@ -238,17 +243,30 @@ jobs:
       - name: Build Windows QA bundles
         run: >-
           npx --prefix src tauri build --ci
+          --target x86_64-pc-windows-msvc
           --features recording-windows-av-qa
           --config src-tauri/tauri.windows.conf.json
           --config src-tauri/tauri.ci.conf.json
           --config src-tauri/tauri.windows.signing.conf.json
+          --config "${{ steps.runtime.outputs.runtime_config }}"
+
+      - name: Verify Windows QA app-local runtime payload
+        shell: pwsh
+        run: >-
+          node scripts/verify-windows-qa-runtime.mjs
+          --manifest "${{ steps.runtime.outputs.runtime_manifest }}"
+          --config "${{ steps.runtime.outputs.runtime_config }}"
+          --manifest-sha256 "${{ steps.runtime.outputs.runtime_manifest_sha256 }}"
+          --expected-source "${{ github.sha }}"
+          --executable src-tauri/target/x86_64-pc-windows-msvc/release/clippy-app.exe
+          --payload-root src-tauri/target/x86_64-pc-windows-msvc/release
 
       - name: Prepare Windows QA artifact
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path qa-artifacts | Out-Null
-          $nsis = Get-ChildItem src-tauri/target/release/bundle/nsis -File -Filter "*-setup.exe"
-          $msi = Get-ChildItem src-tauri/target/release/bundle/msi -File -Filter "*.msi"
+          $nsis = Get-ChildItem src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis -File -Filter "*-setup.exe"
+          $msi = Get-ChildItem src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi -File -Filter "*.msi"
           if (-not $nsis -or -not $msi) { throw "Windows QA installers are incomplete" }
           foreach ($artifact in @($nsis, $msi)) {
             $signature = Get-AuthenticodeSignature $artifact.FullName
@@ -263,6 +281,7 @@ jobs:
           }
           Copy-Item $nsis.FullName qa-artifacts/
           Copy-Item $msi.FullName qa-artifacts/
+          Copy-Item -LiteralPath '${{ steps.runtime.outputs.runtime_manifest }}' -Destination qa-artifacts/QA-WINDOWS-RUNTIME.json
           $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
           @(
             "commit=$env:GITHUB_SHA"
@@ -270,6 +289,8 @@ jobs:
             "platform=windows-x64"
             "signing=self-signed-qa-only"
             "recording_feature=recording-windows-av-qa"
+            "target=x86_64-pc-windows-msvc"
+            "runtime_provenance_sha256=${{ steps.runtime.outputs.runtime_manifest_sha256 }}"
           ) | Set-Content qa-artifacts/QA-BUILD.txt -Encoding utf8
           Get-ChildItem qa-artifacts -File | Where-Object Name -ne "SHA256SUMS.txt" |
             ForEach-Object {

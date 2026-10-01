@@ -43,6 +43,13 @@ macOS 系统声仍跟随系统默认。这些包只用于取得录屏原型证�
 安装前必须核对 `QA-BUILD.txt` 的 `recording_feature` 与实际平台一致；macOS 还必须核对
 `minimum_system_version=12.3`，否则不能执行下文录屏场景。
 
+`WIN-QA-CRT-01`：Windows QA 包还必须核对 `QA-WINDOWS-RUNTIME.json` 的源码 SHA、
+Microsoft 签名信息与 `QA-BUILD.txt` 中单独登记的 provenance SHA-256。显式
+`x86_64-pc-windows-msvc` 构建将 x64 release CRT 部署到 EXE 同目录，保留基础许可证；
+workflow 在上传前验证实际文件与 direct/delay import 递归依赖。应用本地 CRT 随每次 QA
+重建更新。仍须在没有预装 VC++ Redistributable 的 Windows 10 22H2/11 上安装并实际启动，
+这一验收不能由开发机已有运行库或静态 PE 检查代替；当前保留未验证。
+
 ## 2. 生成绑定版本的记录
 
 选择目标环境并生成模板：

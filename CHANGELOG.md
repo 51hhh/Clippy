@@ -2,6 +2,15 @@
 
 ## 未发布
 
+### 2026-10-02 Windows 录屏 QA 携带应用本地运行库
+
+- 修复 Windows 录屏 QA 导入 MSVCP140.dll 而原包未部署 CRT 的缺口。准备已有 SDK 的
+  Microsoft 签名 x64 release 运行库，显式 QA resources 与 target 目录隔离默认构建；
+  上传前检查真实 EXE/同目录文件、哈希和 direct/delay import 递归闭包。
+  受控文件/原生 PowerShell 合同已准备，完整 Windows 门禁与 unbundled 构建核对进行中。
+  当前 SHA CI、安装器、无 CRT Windows 10/11 实际启动及多屏仍未验证，桌面停止。
+  （需求：`WIN-QA-CRT-01`；见 `docs/superpowers/specs/2026-10-02-windows-qa-crt-deployment.md`）
+
 ### 2026-10-02 Windows 自动粘贴部分按键失败清理
 
 - 修复 V Click 部分失败后未显式释放 V 的缺口。Windows 失败/展开补充有界清理，

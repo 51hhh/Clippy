@@ -5,6 +5,13 @@
 
 ## 当前续审结果
 
+W48 / `WIN-QA-CRT-01`：W47 保存录屏 QA PE 导入 MSVCP140，旧 MSI 表及资源配置未部署
+CRT，默认 PE 的 OS-only 闭包通过。增加已有 SDK 的 Microsoft 签名 x64 release CRT 暂存、
+源码/文件/清单哈希、direct/delay 递归依赖与实际 payload 检查；QA 显式 x64 target 隔离
+默认目录，基础许可证仍合并。新合同 43、原门禁 13 共 56 passed；实际 SDK、完整门禁及
+unbundled 编译核对进行中。未安装/启动，当前 CI、无 CRT 系统、Windows 10/多屏及完整
+Native/其它平台仍未验。见 `docs/superpowers/specs/2026-10-02-windows-qa-crt-deployment.md`。
+
 W47 [Windows release 编译审查](2026-10-02-windows-release-build-review.md)完成：冻结 `f5ad5da`
 默认/录屏 QA release 两图 native/wrapper/terminal 0；两份未签名 AMD64 GUI 产物、
 feature/输入哈希/实际 fat LTO 参数已核对。测试计数保持；测试 unwind 清理不延伸为

@@ -144,6 +144,19 @@ if (-not $FrontendOnly) {
         Invoke-Check 'Windows A/V QA tests' $backend {
             & cargo.exe test --locked --features recording-windows-av-qa
         }
+        Invoke-Check 'Windows QA runtime preparation' $repository {
+            $script:runtimePrepared = $null
+            $preparedJson = & (Join-Path $repository 'scripts/prepare-windows-qa-runtime.ps1')
+            if ($LASTEXITCODE -ne 0) { throw 'Windows QA runtime preparation failed.' }
+            $script:runtimePrepared = ($preparedJson -join "`n") | ConvertFrom-Json
+            Write-Host ($script:runtimePrepared | ConvertTo-Json -Compress)
+        }
+        Invoke-Check 'Windows QA runtime deployment contract' $repository {
+            if (-not $script:runtimePrepared) { throw 'Verified runtime provenance unavailable.' }
+            & node.exe scripts/verify-windows-qa-runtime.mjs `
+                --manifest $script:runtimePrepared.manifestPath --config $script:runtimePrepared.configPath `
+                --manifest-sha256 $script:runtimePrepared.manifestSha256 --expected-source $script:runtimePrepared.sourceSha
+        }
     } else {
         Skip-Check 'Recording QA feature (request -RecordingQa to include it)'
     }
@@ -153,6 +166,7 @@ if (-not $FrontendOnly) {
 }
 
 Invoke-Check 'Recording encoder benchmark syntax' $repository { & node.exe --check scripts/benchmark-recording-encoders.mjs }
+Invoke-Check 'Windows QA runtime verifier syntax' $repository { & node.exe --check scripts/verify-windows-qa-runtime.mjs }
 Invoke-Check 'Recording codec supply chain' $repository { & node.exe scripts/verify-recording-codec-supply-chain.mjs }
 Invoke-Check 'Vendored xcap patch' $repository { & node.exe scripts/verify-xcap-patch.mjs }
 Invoke-Check 'Locked frontend install' $frontend { & npm.cmd ci --prefer-offline --no-audit --no-fund }
