@@ -32,8 +32,8 @@
 - [x] 保存位置与参考工作区从同一可靠原生 owner 产生，旧存储合同保留。
 - [x] 工作区恢复保留目标屏，物理创建/reveal 和 payload DPI 一致，旧正常记录可映射。
 - [x] 工具条求交使用真实客户区和物理工作区，局部 CSS 与窗口 DPI 一致，未知安全回退。
-- [ ] 旧协议红基线、同组回归、原断言与完整 Windows 默认/QA 门禁及哈希核对完成。
-- [ ] 文档同步；真实窗口/DPI/热插拔、多屏/Windows 10、当前 SHA CI 与其它宿主仍保留未验。
+- [x] 旧协议红基线、同组回归、原断言与完整 Windows 默认/QA 门禁及哈希核对完成。
+- [x] 文档同步；真实窗口/DPI/热插拔、多屏/Windows 10、当前 SHA CI 与其它宿主仍保留未验。
 
 ## Out of Scope
 
@@ -56,6 +56,14 @@ Windows MSVC 提取的旧生产保存/恢复/工具条协议红基线 exit 101�
 未经改动的原窗口函数或真实桌面结果。修复后同一份新回归文件十六项通过，包含真实内存 SQLite
 保存/加载与生产几何应用，用户内容与展示参数保留。新回归不调用窗口、显示器、光标或输入 API。
 
-初绿记录保留；Windows 不再使用的扩展导出清理后，干净 SHA 完整默认/QA 门禁及最终哈希待补。
+初绿记录保留；Windows 不再使用的扩展导出清理后，干净源码
+`4a5810117722c35f48382da31617b595769bbcda` 完整默认/录屏 QA 门禁确认原生子进程 exit 0，
+30 passed / 0 failed / 1 skipped（Linux smoke）。默认 Rust 1124 / 5 ignored，QA Rust 1181 / 5 ignored；
+重叠不累加，每图本次十六项及此前 Pin 来源十八项包含在各自总数。前端 75 文件 / 1292 passed，
+Python 33 + 3；独立 vendor 十八项及剪贴板二十四项通过。check、严格 clippy、供应链、构建/入口
+通过，日志原始哈希和门禁前后干净检出已核对；后继仅四份 Markdown。
+5 个既有修改文件 96 个 assert 宏 token 保留（只归一化空白），新回归原始字节不变；
+SQLite/备份生产文件和此前 Pin 回归源码保持，锁定原生库四份源码哈希一致。
+完整结果与审计目录 `C:\win\Clippy\src-tauri\target\windows-pin-workarea-native-qa-4a58101`。
 证据目录 `C:\win\Clippy\src-tauri\target\windows-pin-workarea-contract`。
 真实原生 owner/DPI/窗口事件和热插拔、多屏/Windows 10、新 SHA CI 与其它宿主仍未验。

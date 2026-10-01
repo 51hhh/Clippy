@@ -8,7 +8,9 @@
   保存位置/参考工作区采用同一原生 owner，恢复将目标工作区/DPI/物理 anchor 保留到创建与
   reveal；工具条按真实客户区和物理工作区求交，最后按窗口 DPI 输出局部 CSS。未知安全回退，
   保持旧存储字段、正常旧记录相对位置和展示状态，不重写旧数据。提取旧生产协议红基线
-  1 passed / 15 failed，同组十六项 MSVC 离线回归通过；完整默认/QA 门禁待补。旧错误来源
+  1 passed / 15 failed，同组十六项 MSVC 离线回归通过。干净源码 4a58101 完整默认/录屏 QA 门禁
+  确认原生子进程 exit 0：30 passed / 0 failed / 1 Linux smoke skipped；默认 Rust 1124、QA Rust 1181
+  （各 5 ignored，重叠不累加），前端 75 文件 / 1292 passed，十六项包含在各 Rust 总数。旧错误来源
   无法可靠反推；真实窗口/DPI/热插拔、多屏/Windows 10、WGC、新 SHA CI 与其它宿主仍未验。
   （需求：`WIN-PIN-WORKAREA-01`；见 `docs/superpowers/specs/2026-10-02-windows-pin-workarea.md`）
 

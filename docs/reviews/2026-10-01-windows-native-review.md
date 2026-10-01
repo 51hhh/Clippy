@@ -11,7 +11,14 @@ Windows 保存现在使用可靠原生 owner 与同一工作区比例；未知 o
 既有存储格式保留；正常旧记录按名称/物理 reference/主屏与相对位置映射，恢复将原生工作区、DPI
 及物理 anchor 缓存在 PinEntry，创建/reveal 不再重猜屏。工具条使用 ClientToScreen/client_rect
 对应的真实客户区，先物理求交再按窗口 DPI 输出局部 CSS；缺失元数据保留 whole/UNKNOWN 回退。
-提取旧生产协议红基线 1 passed / 15 failed，同组十六项 MSVC 回归通过；完整默认/QA 门禁待补。
+提取旧生产协议红基线 1 passed / 15 failed，同组十六项 MSVC 回归通过。干净源码
+4a5810117722c35f48382da31617b595769bbcda 完整默认/QA 门禁确认原生子进程 exit 0，
+30 passed / 0 failed / 1 Linux smoke skipped。默认 Rust 1124、QA Rust 1181（各 5 ignored，重叠
+不累加）；每图本次十六项及此前 Pin 来源十八项包含在总数。前端 75 文件 / 1292 passed，
+Python 33 + 3；独立 vendor 十八项及剪贴板二十四项通过。严格 lint、供应链、构建/入口、原始日志
+哈希、干净检出与四份锁定原生库源码哈希核对。既有 96 个 assert 宏 token 和新回归原始字节保留，
+存储/备份生产文件未改；后继仅四份 Markdown。完整结果 windows-pin-workarea-native-qa-4a58101，
+红绿/源码/断言 windows-pin-workarea-contract。
 SQLite 往返与生产几何应用、存量正常记录和展示状态回归保留；旧错误来源不能可靠反推或伪称迁移。
 真实原生 API/窗口/DPI/热插拔、多屏/Windows 10、WGC、新 SHA CI 与其它宿主仍未验，W04 未关闭。
 
