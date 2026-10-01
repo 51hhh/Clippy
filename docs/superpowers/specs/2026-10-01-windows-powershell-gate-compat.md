@@ -19,8 +19,8 @@ Windows 自带 PowerShell 5.1 与 PowerShell 7 均可进入原生门禁；支持
 - [x] Windows PowerShell 5.1 + Node 24.21.0 复现原入口引号解析失败，保存非零退出码。
 - [x] 修复后真实 PowerShell 5.1 与 PowerShell 7 + Node 可通过前置版本检查。
 - [x] Node 22.11/旧主版本仍被拒绝，最低支持版本与后续主版本被接受。
-- [ ] 最新修复 SHA 的完整 `ci-windows.ps1 -RecordingQa` 通过；跳过项不计通过。
-- [ ] CHANGELOG 与 PR 引用同一需求 ID；远程 CI、Windows 桌面与安装未执行时保留未完成。
+- [x] 修复 SHA 的完整 `ci-windows.ps1 -RecordingQa` 通过；跳过项不计通过。
+- [ ] 本修复同 SHA 远程原生 CI 成功；当前尚未运行，不能继承旧 CI 结果。
 
 ## Out of Scope
 
@@ -37,5 +37,18 @@ Windows 自带 PowerShell 5.1 与 PowerShell 7 均可进入原生门禁；支持
 修复后 `windows-gate.test.js` 13 项合同通过：真实 Windows PowerShell 5.1 与 PowerShell 7
 均执行外部 Node；22.11.0/20.19.0 拒绝，22.12.0/23.0.0 接受，版本输出有效但 exit 17 仍拒绝。
 既有六项失败计数、缺依赖与部分检查合同保持通过。修复前真实 5.1 合同失败、7 合同通过。
-完整 Windows 原生/录屏门禁和修改后同 SHA CI 尚未执行；桌面与安装保持未验证。
-Linux 门禁未启动，按用户要求停止该路线。
+完整 Windows 门禁已在 `ef78a1fbbaa5803356956c8d740dd4ec8572a1ab` 实际运行：
+Windows PowerShell 5.1.22000.2538 / Node 24.21.0 / Rust MSVC 1.98.1，exit 0，
+23 passed / 0 failed / 1 skipped（Linux smoke）。运行前后 Git 均干净。
+默认 Rust 1040 passed / 5 ignored；录屏 QA Rust 1093 passed / 5 ignored，两组不累加。
+前端 74 文件 / 1291 passed；Python 33 项质量 + 3 项视觉段落；严格 clippy、WGC lint、
+供应链、JS/TS、IPC/HTML、生产构建与真实 built main entry 合同均通过。
+
+结果、环境与返回码在调用项目 ignored `src-tauri/target/windows-latest-native-qa-ef78a1f/`。
+Windows PowerShell 父 transcript 未捕获子 stdout，不当作完整测试日志；默认 Rust 的工具
+逐测试名输出被 token 预算截断，最终 1040/0/5 汇总保留，QA/前端最终 chunk 完整。
+README 式验证报告与分阶段工具输出记录上述边界。后续只更新文档，不将文档 HEAD 写成已运行的 SHA。
+
+修改后同 SHA 远程 CI 尚未运行；旧 45769c9 的 CI/QA 包单独记录。39 项 Windows 11 桌面
+QA、Windows 10、多屏、安装和 updater 保持未验证；没有安装 Clippy 或改变证书信任。
+Linux 门禁未启动，按用户要求停止该路线。CHANGELOG 与后续草稿 PR 使用 `WIN-PS-GATE-01`。

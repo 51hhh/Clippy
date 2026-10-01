@@ -6,8 +6,9 @@
 
 - 修复 Windows PowerShell 5.1 改写 Node 命令内嵌引号，误报版本不足并阻止原生门禁的问题。
   版本改由 Node 输出、PowerShell 比较，保留最低版本门槛和命令失败检查；增加真实原生命令
-  传输与版本边界合同。旧入口已在 Windows 11 复现；修复后的完整 Windows 门禁、同 SHA CI、
-  桌面与安装尚未验证。用户要求本阶段只测试 Windows，Linux/WSL 门禁未启动。
+  传输与版本边界合同。旧入口已在 Windows 11 复现；ef78a1f 的完整 Windows 原生及录屏 QA
+  门禁 23 passed / 0 failed / 1 skipped（Linux smoke），前端 1291 项通过。修改后同 SHA
+  远程 CI、39 项桌面与安装尚未验证。用户要求本阶段只测试 Windows，Linux/WSL 门禁未启动。
   （需求：`WIN-PS-GATE-01`）
 
 ### 2026-10-01 Windows WebM 构建修复
