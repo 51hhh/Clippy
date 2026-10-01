@@ -23,8 +23,8 @@
 - [x] 有保存目标时，成功和失败后备均不执行，保存位置不变。
 - [x] 无保存目标时，后备仅执行一次，目标/None/原错误保持。
 - [x] 保存查询自身错误不执行后备，旧断言与配置字段保持。
-- [ ] 提取旧求值协议红基线、同组回归和干净 SHA Windows 默认/QA 门禁已核对。
-- [ ] 同 ID 文档同步，桌面及跨平台缺少的证据保留未验证。
+- [x] 提取旧求值协议红基线、同组回归和干净 SHA Windows 默认/QA 门禁已核对。
+- [x] 同 ID 文档同步，桌面及跨平台缺少的证据保留未验证。
 
 ## Out of Scope
 
@@ -51,5 +51,12 @@ Windows MSVC 提取原 eager 选择协议红基线 exit 101：13 项中 11 passe
 同组新测试原始字节不变，修复后 exit 0：13 passed / 0 failed / 0 ignored / 1135 filtered。
 生产选择函数接收真实 Result/Option/PhysicalPosition 数据与可控 closure；没有创建窗口/显示器
 或查询光标。既有七项测试模块、十八段生产/测试/后备布局正文与十一份关联文件保持，五份
-固定原生库源码哈希核对。完整干净 SHA Windows 默认/QA 门禁待执行，其它宿主/桌面/新 SHA CI 未验。
-证据：C:\win\Clippy\src-tauri\target\windows-main-window-target-contract。
+固定原生库源码哈希核对。干净 c9d55127dc522415faee90c1c2d00327edc0ede9 完整 Windows 默认/QA
+门禁确认原生子进程及终端工具 exit 0：30 passed / 0 failed / 1 Linux smoke skipped。
+默认 Rust 1143、QA Rust 1200（各 5 ignored，图谱重叠不累加），新增六项与旧七项每图在总数内。
+前端 77 文件 / 1307 passed、Python 33 + 3，独立 vendor 十八项和剪贴板二十四项通过。
+源码与原始 stdout/stderr、checked helper 哈希及干净检出已核对。Tao 原生物理 min/max 单位
+保持，WM_DPICHANGED 的 Windows 10/11 分支不同；源码审查不证明实际消息/约束时序或最终像素。
+真实原生错误/窗口/多屏/DPI、其它宿主与当前 SHA CI 未验，桌面操作保持停止。
+合同证据 C:\win\Clippy\src-tauri\target\windows-main-window-target-contract；完整门禁
+C:\win\Clippy\src-tauri\target\windows-main-window-target-native-qa-c9d5512。

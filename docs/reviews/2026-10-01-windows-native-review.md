@@ -12,8 +12,15 @@
 monitor_from_point 本身包 Ok，真正可传递的后备错误来自 current/primary 窗口消息接收；
 不能把回归注入的错误当作真实原生失败。提取原求值协议 MSVC 红基线 11 passed / 2 failed，
 其中既有七项全绿、新增六项为 4 passed / 2 failed；同组十三项修复后全绿，新测试字节不变。
-十八段旧正文、十一份关联文件和五份固定原生库源码核对。完整默认/QA 门禁待执行；真实
-原生错误/显示/DPI/多屏、当前 SHA CI 和其它宿主未验。合同证据 windows-main-window-target-contract。
+十八段旧正文、十一份关联文件和五份固定原生库源码核对。干净源码
+c9d55127dc522415faee90c1c2d00327edc0ede9 完整默认/QA 门禁确认原生子进程及终端工具 exit 0：
+30 passed / 0 failed / 1 Linux smoke skipped。默认 Rust 1143、QA Rust 1200（各 5 ignored，重叠
+不累加），新增六项和旧七项每图在总数内；前端 77 文件 / 1307 passed，Python 33 + 3，独立
+vendor 十八项及剪贴板二十四项通过。check、严格 lint、供应链、构建/入口通过；源码/日志和
+checked helper 哈希、干净检出核对完成。合同证据 windows-main-window-target-contract，完整
+门禁 windows-main-window-target-native-qa-c9d5512。物理 min/max 约束单位保持，但原生 DPI 消息
+和约束实际时序不能由源码确认；没有追加该疑点的生产改动。累计二十项本机产品修复未装包。
+真实原生错误/显示/DPI/多屏、当前 SHA CI 和其它宿主未验，桌面操作保持停止。
 
 此前 W35 / WIN-WGC-BRIDGE-ROLLBACK-01：connect 在创建桥接线程后执行 recorder.start()?，
 完整帧源未构造时错误会丢弃 JoinHandle；原 recv() 也只有所有 sender 释放才退出。旧正常
@@ -29,7 +36,7 @@ Drop 有 join，启动回滚没有。提取实际旧所有权和接收协议的 
 33 + 3，独立 vendor 十八项和剪贴板二十四项通过。check、严格 lint、供应链、构建/入口通过，
 源码、红绿测试字节、原始日志与 checked helper 哈希、干净检出核对完成。合同证据
 windows-wgc-bridge-rollback-contract，完整门禁 windows-wgc-bridge-rollback-native-qa-7922457。
-累计十九项本机产品修复未进入已安装旧包。实际 WGC/WinRT Close 时限、系统最终释放、Windows
+截至 W35 累计十九项本机产品修复未进入已安装旧包。实际 WGC/WinRT Close 时限、系统最终释放、Windows
 10/多屏/设备/长期漂移、当前 SHA CI 和其它宿主未验。回归未构造真实 WGC/窗口对象或读取显示器/输入。
 
 此前 W34 / WIN-PIN-LIVE-DPI-01：App 用创建时 pin.deviceScale 判断最近邻，未追踪当前窗口

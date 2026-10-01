@@ -7,8 +7,10 @@
 - 修复已有有效保存位置时仍执行后备显示器查询、后备错误阻止显示的问题。只在没有保存目标
   时查询后备；保存查询与必要后备的原错误、物理位置、尺寸/工作区钳位、显示和焦点路径保持。
   提取旧生产求值协议的 MSVC 红基线 11 passed / 2 failed，其中既有七项通过、新增六项为
-  4 passed / 2 failed；同组十三项修复后通过，新测试原始字节保持。完整 Windows 默认/QA 门禁
-  待执行；真实窗口/原生查询错误、多屏/DPI、其它宿主和当前 SHA CI 未验，桌面操作停止。
+  4 passed / 2 failed；同组十三项修复后通过，新测试原始字节保持。干净 c9d5512 完整 Windows
+  默认/QA 门禁确认原生子进程 exit 0：30 passed / 0 failed / 1 Linux smoke skipped。默认 Rust
+  1143、QA Rust 1200（各 5 ignored，重叠不累加），新增六项每图在总数内；前端 77 文件 /
+  1307 passed。真实窗口/原生查询错误、多屏/DPI、其它宿主和当前 SHA CI 未验，桌面操作停止。
   （需求：`WIN-MAIN-TARGET-01`；见 `docs/superpowers/specs/2026-10-02-windows-main-window-target.md`）
 
 ### 2026-10-02 Windows WGC 帧桥启动回滚
