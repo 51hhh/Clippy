@@ -15,6 +15,7 @@ import threading
 import time
 from typing import Any
 
+from private_diagnostics import create_private_directory
 from quality_metrics import (
     PREDICTION_SCHEMA,
     ContractError,
@@ -352,8 +353,7 @@ def write_new(path: Path, value: dict[str, Any]) -> None:
 
 
 def create_diagnostics_directory(path: Path) -> Path:
-    path.mkdir(mode=0o700, parents=False, exist_ok=False)
-    return path.resolve()
+    return create_private_directory(path)
 
 
 def main(argv: list[str] | None = None) -> int:

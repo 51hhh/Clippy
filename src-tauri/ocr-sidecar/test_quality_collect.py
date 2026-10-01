@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 import zlib
 
 import quality_collect as collect
@@ -120,10 +121,19 @@ class QualityCollectTests(unittest.TestCase):
             case["source"]["width"] = 20
 
             link = root / "link.png"
-            link.symlink_to(target.name)
             case["source"]["imagePath"] = link.name
-            with self.assertRaisesRegex(quality.ContractError, "符号链接"):
-                collect.read_case_png(root / "corpus.json", case)
+            try:
+                link.symlink_to(target.name)
+            except OSError as error:
+                if sys.platform != "win32" or error.winerror != 1314:
+                    raise
+                # 普通 Windows 用户可能没有建链接特权；仍验证拒绝分支，不删除负例。
+                with patch.object(Path, "is_symlink", return_value=True):
+                    with self.assertRaisesRegex(quality.ContractError, "符号链接"):
+                        collect.read_case_png(root / "corpus.json", case)
+            else:
+                with self.assertRaisesRegex(quality.ContractError, "符号链接"):
+                    collect.read_case_png(root / "corpus.json", case)
 
             case["source"]["imagePath"] = "missing.png"
             with self.assertRaisesRegex(quality.ContractError, "不存在"):
@@ -199,7 +209,20 @@ class QualityCollectTests(unittest.TestCase):
             path = Path(directory) / "diagnostics"
             self.assertEqual(collect.create_diagnostics_directory(path), path.resolve())
             self.assertTrue(path.is_dir())
-            self.assertEqual(path.stat().st_mode & 0o777, 0o700)
+            if sys.platform == "win32":
+                from private_diagnostics import _current_user_sid, _read_windows_dacl, _windows_api
+
+                api = _windows_api()
+                sid = _current_user_sid(api)
+                self.assertEqual(_read_windows_dacl(path, api), f"D:P(A;OICI;FA;;;{sid})")
+                child = path / "diagnostic.json"
+                child.write_text("{}", encoding="utf-8")
+                self.assertIn(
+                    _read_windows_dacl(child, api),
+                    (f"D:(A;ID;FA;;;{sid})", f"D:AI(A;ID;FA;;;{sid})"),
+                )
+            else:
+                self.assertEqual(path.stat().st_mode & 0o777, 0o700)
             with self.assertRaises(FileExistsError):
                 collect.create_diagnostics_directory(path)
 
