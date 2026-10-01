@@ -7,7 +7,10 @@
 - 非默认 Windows 录屏 QA 正常 Stop 先停止 WASAPI，按 endpoint 实际容量排空尾包，再重置；
   保留已复制 PCM，通过现有 worker/mixer 在时间线封尾前提交，避免尾音被清空替成静音。
   Pause / Drop 继续清空旧样本，排空超限或设备/读取/释放错误继续中止会话。
-  旧控制协议离线红基线 9 passed / 4 failed，修复后 13 项音频合同通过，完整本机门禁待验。
+  旧控制协议离线红基线 9 passed / 4 failed，修复后 13 项音频合同在两个真实 Cargo 图通过。
+  源码 a463c3b 的完整 Windows 默认/录屏 QA 本机门禁 exit 0，27 passed / 0 failed /
+  1 skipped（Linux smoke）；默认 Rust 1058、QA Rust 1111（各 5 ignored，重叠不累加），
+  前端 1292 passed。WASAPI API 图 check/clippy 通过，音频合同计入 Rust 总数。
   没有创建真实音频设备或录屏；系统声、麦克风、混音、设备拔出、Windows 10 与新 SHA CI 未验。
   （需求：`WIN-WASAPI-STOP-TAIL-01`；见 `docs/superpowers/specs/2026-10-01-windows-wasapi-stop-tail.md`）
 

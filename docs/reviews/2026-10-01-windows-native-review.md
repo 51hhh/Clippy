@@ -7,7 +7,12 @@
 
 当前 W24 / WIN-WASAPI-STOP-TAIL-01：Windows WASAPI 正常停止与暂停共用 Reset/清空路径，
 导致已复制 PCM 和 endpoint 尾包不交付。正常 Stop 现在有限排空并通过既有尾块接口提交；
-旧控制协议辅助红基线 9 passed / 4 failed，修复后 13 项纯音频合同通过。完整 Cargo 本机门禁待验，
+旧控制协议辅助红基线 9 passed / 4 failed，修复后 13 项音频合同在两个真实 Cargo 图通过。
+干净源码 `a463c3ba9be876dbfe1a45893dcca28e013cadb6` 完整 Windows 默认/录屏 QA 门禁
+exit 0：27 passed / 0 failed / 1 skipped（Linux smoke）；默认 Rust 1058 / 5 ignored，
+QA Rust 1111 / 5 ignored（重叠不累加），前端 75 文件 / 1292 passed；13 项已包含在 Rust 总数。
+WASAPI API 图 check/clippy、既有 worker/mixer 尾部测试均通过。检出干净和日志哈希已核对，
+原始证据 windows-wasapi-stop-tail-native-qa-a463c3b/RESULT.json；新 SHA 远程 CI 未运行。
 未创建 COM、endpoint、系统声、麦克风或录屏；真实设备/混音、Windows 10 和新 SHA CI 未验。
 
 此前 W23 / WIN-PASTE-RECHECK-01：恢复目标与首次按键之间再查窗口/PID/前台，
@@ -101,6 +106,7 @@ Windows 10、多屏、真实音频与完整安装升级仍未完成。以下失�
 | `531d791` | Windows PNG / DIB 解码前执行已有尺寸预算 | 四字节故障注入阻止先分配后拒绝；25 项完整 Windows 本机门禁通过 |
 | `25fb5d7` | 借用 DIB 文件视图提供显式像素偏移 | 原 Chrome/Firefox 与尾部/方向/颜色表像素断言通过；27 项完整 Windows 本机门禁通过 |
 | `14bf616` | 激活/等待与输入后端初始化以后复核 Windows 粘贴目标 | 六项状态变化/顺序合同与完整默认/QA 本机门禁通过；实际桌面接管未验 |
+| `a463c3b` | WASAPI 正常停止有限排空并保留 PCM 尾部 | 13 项音频合同、真实 API 图及完整 Windows 默认/QA 门禁通过；实际听音未验 |
 
 以上是本机 Git 实际可达节点；录屏、动作和长截图后续分支已包含在最新基线的祖先链中。
 
@@ -119,7 +125,7 @@ Run：<https://github.com/51hhh/Clippy/actions/runs/35792281966>。
 
 ## Findings
 
-### W24 / P1 — WASAPI Stop 丢弃已采集音频尾部（离线复现并修复）
+### W24 / P1 — WASAPI Stop 丢弃已采集音频尾部（离线复现并修复，本机门禁通过）
 
 stop_capture 原先调用 stop_and_reset，Reset 清空 endpoint，pending.clear 丢弃已复制拆块，
 source 使用默认空 take_stopped_chunks。worker 和 mixer 的尾部提交入口已存在；Windows 源未交付。
@@ -131,7 +137,9 @@ source 使用默认空 take_stopped_chunks。worker 和 mixer 的尾部提交入
 辅助 harness 包含完整纯合同模块，外围 PCM 类型 stub、endpoint fake；旧控制协议提取红基线
 9 passed / 4 failed，原七项合同不变，新增六项中四项失败；绿状态 13 passed。验证字面样本、
 零尾包、暂停清空、有限容量/持续非空源、控制/查询/读取/Reset 失败，未调用 COM 或音频 API。
-该协议证据不替代实际 WASAPI 图，完整 Windows 门禁待验。没有声称实际设备尾音缺失已经复现，
+该协议证据不替代实际 WASAPI 图；a463c3b 的完整 Windows 门禁 exit 0，真实 WASAPI 图编译/lint
+通过，默认/QA Rust 1058 / 1111 passed，13 项音频合同及既有 worker/mixer 尾部测试两图均通过。
+没有声称实际设备尾音缺失已经复现，
 系统声/麦克风/混音、设备拔出、Windows 10、桌面与新 SHA CI 仍未验。
 
 ### W23 / P1 — Windows 输入后端初始化后未再复核粘贴目标（离线复现并修复，本机门禁通过）
