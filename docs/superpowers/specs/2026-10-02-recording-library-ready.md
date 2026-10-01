@@ -28,7 +28,7 @@
 - [x] 卸载后的成功/失败、服务取代后的成功/失败与 StrictMode 旧 effect 不再 ready。
 - [x] 活动成功、活动加载失败和当前 ready 拒绝三项原显示/错误行为保持。
 - [x] 同组八项与旧 32 项/三文件原字节、生产限定改动和关联文件核对。
-- [ ] 干净源码完整 Windows 门禁与文档/证据同步，真机与其它平台保留未验。
+- [x] 干净源码完整 Windows 门禁与文档/证据同步，真机与其它平台保留未验。
 
 ## Out of Scope
 
@@ -49,5 +49,16 @@ dev/test 重放实际调用两次；不是原生 focus 或发布 effect 重放�
 无未处理错误。旧三文件原字节、十三份关联文件保持；去除限定 guard 后 App 全部原正文
 保持，无其它状态/播放/IPC/后台/StrictMode 入口/依赖/文案修改。
 
-完整干净 SHA Windows 门禁待执行；证据 C:\win\Clippy\src-tauri\target\recording-library-ready-contract。
-真实窗口/focus、其它宿主/当前 SHA CI 未验，安装包未更新，桌面操控停止。
+干净源码 19078092d739781dc14713f35dfa3da02ab980ac 完整 Windows 默认/QA 门禁确认原生
+child/终端 exit 0，30 passed / 0 failed / 1 Linux smoke skipped。默认 Rust 1165、QA Rust
+1228（各 5 ignored，重叠不累加），无新增 Rust 用例；旧媒体十三项/导出身份七项各图及
+九条 manifest/导出/合并按原图通过。前端 79 文件 / 1323 passed，新八项在前端总数内。
+简略全量汇总与同一默认配置发现清单 79/1323（含新八项/旧 32）、定向绿日志和测试/源码
+哈希核对；发现 exit 0，不重复执行测试主体。Python 33 + 3、独立 vendor 十八项和
+剪贴板二十四项、check、严格 lint、供应链、构建/入口通过。两份源码/原始日志/checked
+helper/门禁脚本哈希与门禁前后干净检出核对，门禁后只改四份 Markdown，生产/测试保持。
+保存实际 QA/全未运行模板原字节保持，未装更新包。完整证据
+C:\win\Clippy\src-tauri\target\recording-library-ready-native-qa-1907809；红基线/原合同/
+发现清单/后续快捷键源码证据 C:\win\Clippy\src-tauri\target\recording-library-ready-contract。
+真实窗口/focus、其它宿主/当前 SHA CI 未验，桌面操控停止。Tauri Shared 注册结果记账
+留为下一步受控回调候选，尚未复现；不调用真实 register/unregister 或系统输入。

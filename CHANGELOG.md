@@ -8,7 +8,10 @@
   使用独立退休标记，cleanup 后不再 ready；当前正常加载/失败重试页仍通知一次，ready
   拒绝处理保持。原组件 jsdom 红基线 35 passed / 5 failed（旧 32 全绿），四次旧 ready
   调用与一次 StrictMode 两次 ready 已复现；同八项原字节修复后通过，共 40 passed。
-  完整 Windows 门禁待执行；调用是服务替身，未观察真实 show/focus 或发布包 effect 重放。
+  干净 1907809 完整 Windows 默认/QA 门禁确认原生子进程 exit 0，30 passed / 0 failed /
+  1 Linux smoke skipped。默认 Rust 1165、QA Rust 1228（各 5 ignored，重叠不累加，无新
+  Rust 用例）；前端 79 文件 / 1323 passed，新八项在总数内；源码/原始日志/发现清单和
+  干净检出核对。调用是服务替身，未观察真实 show/focus 或发布包 effect 重放。
   真实窗口/其它宿主/当前 SHA CI 未验，安装包未更新，桌面操控停止。
   （需求：`REC-LIBRARY-READY-01`；见 `docs/superpowers/specs/2026-10-02-recording-library-ready.md`）
 

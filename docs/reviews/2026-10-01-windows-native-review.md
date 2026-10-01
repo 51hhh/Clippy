@@ -12,8 +12,17 @@ show/set_focus 只读核对，不声称真实窗口或发布 effect 重放。现
 标记，cleanup 后旧 finally 不再调用，后继 mounted 重置不能使它复活；活动正常/错误页
 仍通知一次，ready 拒绝处理保持。限定 guard 外 App 全部原正文、旧三测试文件原字节与
 十三份关联文件保持，新八项原字节共 40 定向通过，无其它播放/状态/IPC/后台/依赖修改。
-完整干净 SHA Windows 门禁待执行，真实窗口/focus、其它宿主与当前 SHA CI 留未验；
-桌面操控停止。合同 recording-library-ready-contract。
+干净源码 19078092d739781dc14713f35dfa3da02ab980ac 完整默认/QA Windows 门禁确认原生
+child/终端 exit 0，30 passed / 0 failed / 1 Linux smoke skipped。默认 Rust 1165、QA Rust
+1228（各 5 ignored，重叠不累加），无新增 Rust 用例，旧媒体十三项/导出身份七项各图及
+九条 manifest/导出/合并按原图通过。前端 79 文件 / 1323 passed，新八项在前端总数内；
+简略汇总与同一默认发现清单 79/1323（含新八项/旧 32）、定向日志/测试源码哈希核对，
+发现 exit 0，不重跑测试主体。Python 33 + 3、独立 vendor 十八项/剪贴板二十四项与
+check、严格 lint、供应链、构建/入口通过。两份源码/原始日志/checked helper/门禁脚本
+哈希、干净检出和四份 Markdown 后继核对；累计二十六项本机产品修复未装包，保存实际
+QA/模板原字节保持。真实窗口/focus、其它宿主与当前 SHA CI 留未验。下一步用实际 Tauri
+注册计划和受控回调检查 Shared 是否掩盖首次注册失败，源码候选尚未复现，不运行系统热键。
+桌面操控停止；合同 recording-library-ready-contract，完整门禁 recording-library-ready-native-qa-1907809。
 
 此前 W41 / REC-PLAYBACK-LIFECYCLE-01：原 App 不检查 prepare 响应的组件/请求身份。
 保持原 App 字节的生产 React/jsdom 红基线 27 passed / 5 failed，旧组件 17/API 7 全绿，
