@@ -5,6 +5,12 @@
 
 ## 当前续审结果
 
+W46 累计 [代码证据核对](2026-10-02-windows-code-review-evidence.md)完成，产品源码仍为 W45 的
+`f5ad5da`。29 项历史 SHA/日志和原阶段用例保持，测试正文比较中的五处物理夹具字段新增
+已逐项核对；不存在未解释删改。比较数不计新通过数，当前 SHA GitHub 查询无 run。
+全局真机/安装/当前 CI/其它平台与 Wayland 仍未完成。下一步仅 CLI release QA 可执行
+文件构建与来源/PE/哈希核对，不生成安装器/证书或启动应用，桌面停止保持。
+
 当前 W45 / WIN-PASTE-CLEANUP-01：独立 codex/windows-paste-key-cleanup，基于 10fd2ea。
 Windows V Click 错误后先尝试 V Release，仍释放 Control；首次 V 清理失败或 Click
 展开时 RAII guard 再尝试一次。成功路径仍 Control Press/V Click/Control Release，

@@ -9,6 +9,12 @@
 
 ## 当前续审状态
 
+- W46 / `WIN-NATIVE-01`：累计 [代码证据核对](../../reviews/2026-10-02-windows-code-review-evidence.md)。
+  29 个原被测提交/日志 SHA 与原阶段用例保留；616 次 Rust 正文比较为 611 原样/五个精确
+  物理夹具新增字段，31 个前端测试调用保持；均不计新通过数。当前 `f5ad5da` CI 查询无 run。
+  全局验收未完成，下一步仅构建/只读核对当前源码 Windows release QA 可执行文件，
+  `--no-bundle --no-sign`，不启动/安装/生成证书或修改系统工具；仍不恢复桌面。
+
 - `WIN-PASTE-CLEANUP-01` / W45：独立 `codex/windows-paste-key-cleanup`，基于 `10fd2ea`。
   V Click 错误/展开显式清理 V，首次失败 RAII 再试一次，modifier 及其 Drop 重试保持。
   正常 Click 三步与主要错误保持，持续阻塞不报成功；原协议提取红 10/6，旧六项全绿，
@@ -348,6 +354,7 @@
 | W43 | P1 | 共用键按 Shortcut ID 继承首次注册结果，全失败返回错误，保留部分成功与旧配置容错 | WIN-SHORTCUT-SHARED-01；提取原执行协议 MSVC 红 9/6（旧五项通过），同十项原字节绿 15/0；原合同/十九份文件保持。 干净 0f793c9 完整默认/QA 门禁 30/0/1（Linux skip），默认 Rust 1175/QA Rust 1238，各 5 ignored 不累加，新十项/旧五项各图通过；前端 79/1323，实际系统/UI/其它宿主/新 SHA CI 未验 |
 | W44 | P1 | Windows 富文本与替代文本共享 OpenClipboard guard，拒绝跨复制配对 | WIN-CLIP-SNAPSHOT-01；原决策红 27/4，旧 23 保持，同修正八项绿 31，guard 七项/旧 parser 九项共 16 与 vendor lint 通过。 干净 b541e87 完整 30/0/1（Linux skip），默认 Rust 1183/QA Rust 1246，各 5 ignored 不累加，新八项各图通过；独立剪贴板 31、前端 79/1323。实际系统/其它宿主/新 SHA CI 未验 |
 | W45 | P1 | Windows V Click 部分失败/展开时清理 V，保留正常顺序和主要错误 | WIN-PASTE-CLEANUP-01；原注入协议红 10/6，旧六项保持，同十项原字节绿 16；原实现/十二文件/锁定 SDK 保持。 干净 f5ad5da 完整 30/0/1（Linux skip），默认 Rust 1193/QA Rust 1256，各 5 ignored 不累加，新十项各图通过；前端 79/1323。实际系统/其它宿主/新 SHA CI 未验 |
+| W46 | P2 | 原需求/验收逐项 inventory 与 29 项修复的 Git/日志/原阶段/测试正文保留审计 | WIN-NATIVE-01；代码/日志/原阶段无遗漏，616 比较的五处夹具新增字段单列，31 个前端调用保持；不计新测试。当前 CI 无 run，全局仍未完成；下一步 Windows release QA 可执行文件构建，不安装/启动 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。
