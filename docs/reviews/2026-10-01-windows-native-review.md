@@ -5,7 +5,21 @@
 
 ## 当前续审结果
 
-当前 W33 / WIN-PIN-WORKAREA-01：保存工作区和工具条仍把物理窗口点按窗口 DPI 转为全局逻辑，
+当前 W34 / WIN-PIN-LIVE-DPI-01：App 用创建时 pin.deviceScale 判断最近邻，未追踪当前窗口
+DPI。800×600 CSS / 1200×900 像素的 150% Pin 切到 100% 后仍返回 pixelated。Windows 现在
+先订阅当前窗口原生 scale 事件，再以无目标参数的业务命令查询调用者自己的窗口；安全 Pin
+caller 分类与仍存在的 PinEntry 是查询前提，未知/失败/无效时 auto。实时比例独立于初始
+payload 和乐观展示状态，迟到首读不覆盖新事件，晚完成订阅在卸载后清理。非 Windows 继续
+使用原 payload 比例；源像素、CSS/zoom、工作区、GTK 补偿及 capability 原字节保持。
+实际旧 App 的十二项 React/DOM 回归红基线 2 passed / 10 failed，同一测试文件全部通过；
+三项 facade/API 适配器、六项 MSVC 调用者/数值/保留来源合同、既有 Pin/权限回归和 TS 通过。
+定向前端共 74 项；完整 Windows 默认/QA 门禁待执行，真实 WebView2 成像/事件、Windows 10/
+多屏、当前 SHA CI 与其它宿主未验。Mock 服务和纯读取 closure 不计为原生桌面结果。
+录屏续审确认 RecordingCaptureSpec 的显示器 ID + 屏内像素语义，prepare/connect 复核原生
+descriptor，每帧 crop 校验冻结尺寸/实际 RGBA 长度。冻结到 prepare 的原点变化本身不足以
+证明错误，不改现有合同；运行中热插拔、HMONITOR 身份重用和真实 WGC 仍未验。
+
+此前 W33 / WIN-PIN-WORKAREA-01：保存工作区和工具条仍把物理窗口点按窗口 DPI 转为全局逻辑，
 再按枚举顺序选工作区；恢复映射虽选中了目标屏，后续逻辑定位/比例查询却丢掉该身份。
 Windows 保存现在使用可靠原生 owner 与同一工作区比例；未知 owner 只按物理矩形最大交集择屏。
 既有存储格式保留；正常旧记录按名称/物理 reference/主屏与相对位置映射，恢复将原生工作区、DPI

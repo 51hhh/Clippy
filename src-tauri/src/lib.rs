@@ -456,6 +456,7 @@ pub fn run() {
             commands::pick_screenshot_directory,
             pin::commands::pin_clip,
             pin::commands::get_pin_payload,
+            pin::commands::get_pin_display_scale,
             pin::commands::get_pin_toolbar_bounds,
             pin::commands::get_pin_source_image,
             pin::commands::pin_ready,

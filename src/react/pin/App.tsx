@@ -21,6 +21,7 @@ import type { PinPayload, PinUpdate, PinWorkspaceGroup, PlatformCapability } fro
 import { mergePinState, shouldApplyPinUpdateResponse } from "./update-order";
 import { usePinCanvas } from "./usePinCanvas";
 import { usePinToolbarBounds } from "./usePinToolbarBounds";
+import { usePinDisplayScale } from "./usePinDisplayScale";
 import { isToolbarDragging } from "../shared/useToolbarDrag";
 import { t } from "../shared/i18n";
 import { isColorPinPayload } from "./colorPayload";
@@ -56,6 +57,7 @@ export function App({ services = defaultServices }: { services?: PinAppServices 
   const confirmedGeneration = useRef(0);
   const [pin, setPin] = useState<PinPayload | null>(null);
   const [alwaysOnTop, setAlwaysOnTop] = useState<PlatformCapability | null>(null);
+  const [windowsDisplay, setWindowsDisplay] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -66,6 +68,7 @@ export function App({ services = defaultServices }: { services?: PinAppServices 
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pixelSize, setPixelSize] = useState<{ width: number; height: number } | null>(null);
+  const displayScale = usePinDisplayScale(windowsDisplay, pinApi, pin?.deviceScale ?? Number.NaN);
   const [reminding, setReminding] = useState(false);
   const remindTimer = useRef<number | null>(null);
   const [canvasOpen, setCanvasOpen] = useState(false);
@@ -155,7 +158,10 @@ export function App({ services = defaultServices }: { services?: PinAppServices 
     pinApi
       .platform()
       .then((platform) => {
-        if (!cancelled) setAlwaysOnTop(platform.capabilities.always_on_top);
+        if (!cancelled) {
+          setAlwaysOnTop(platform.capabilities.always_on_top);
+          setWindowsDisplay(platform.operating_system === "windows");
+        }
       })
       .catch((reason) => console.error(reason));
     return () => {
@@ -790,7 +796,7 @@ export function App({ services = defaultServices }: { services?: PinAppServices 
       cssHeight: mediaHeight,
       pixelWidth: pixelSize.width,
       pixelHeight: pixelSize.height,
-      deviceScale: pin.deviceScale,
+      deviceScale: displayScale,
       bufferScale: pin.bufferScale,
     })
     : "auto";

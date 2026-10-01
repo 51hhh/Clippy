@@ -9,6 +9,15 @@
 
 ## 当前续审状态
 
+- `WIN-PIN-LIVE-DPI-01` / W34：独立 `codex/windows-pin-live-dpi`，基于 `c6075e2`。
+  Windows 渲染由当前窗口原生 DPI 驱动，首读使用 caller-bound 只读业务命令，既有 core 权限
+  与来源/展示元数据保持；先订阅事件，旧查询或 payload 不覆盖实时比例，未知回退 auto。
+  原 App 十二项红基线 2 passed / 10 failed，同组全绿；三项 API 适配器、六项 MSVC 纯读取
+  合同、既有 Pin/权限回归与 TS 检查通过。完整干净 SHA 默认/QA 门禁待执行，真实 DPI 与
+  WebView2 像素、Windows 10/多屏、当前 SHA CI 和其它宿主未验。
+  WGC 续审确认现有 monitor-local crop 合同和 prepare/connect 的原生 descriptor 复核；
+  未把冻结到 prepare 的原点变化定为缺陷或修改它。运行中热插拔/身份重用仍未验。
+
 - `WIN-PIN-WORKAREA-01` / W33：独立 `codex/windows-pin-workarea`，基于 `7017562`。
   原生 owner/物理交集驱动保存、保留原生目标的恢复和客户区工具条边界；旧存储格式与正常旧记录
   相对位置/展示参数保留。提取旧生产协议红基线 1 passed / 15 failed，同组十六项 MSVC 回归通过；
@@ -220,6 +229,7 @@
 | W31 | P1 | 冻结原始物理边界贯穿 Windows 覆盖层/guide、光标、窗口候选、长截图指针与重捕获身份 | 独立 WIN-NATIVE-MONITOR-01；MSVC 实际旧算法红基线 1 passed / 15 failed、十六项绿回归；首次完整门禁 28 passed / 2 lint failed 保留，修正后的 2f0e225 完整默认/QA 门禁 exit 0，30 passed / 0 failed / 1 Linux smoke skipped。实际窗口/DPI、多屏、Pin/WGC 原点身份与当前 SHA CI 未验 |
 | W32 | P1 | 冻结物理来源贯穿截图/长截图及历史图片 Pin，单次原生规划与两阶段物理请求 | 独立 WIN-PIN-ORIGIN-01；旧生产输出及提取布局/请求协议红基线 3 passed / 15 failed，同组十八项 MSVC 离线回归和 888127a 完整默认/QA 门禁通过、原生子进程 exit 0；30 passed / 0 failed / 1 Linux smoke skipped。真实窗口/DPI、工作区/工具条/WGC、新 SHA CI 与其它宿主未验 |
 | W33 | P1 | 原生 owner/工作区贯通 Pin 保存、恢复及客户区工具条边界 | 独立 WIN-PIN-WORKAREA-01；提取旧生产协议红基线 1 passed / 15 failed，同组十六项 MSVC 回归和 4a58101 完整默认/QA 门禁通过，原生子进程 exit 0；30 passed / 0 failed / 1 Linux smoke skipped。真实 OS owner/窗口/DPI/热插拔、多屏/Windows 10、WGC 与当前 SHA CI 未验 |
+| W34 | P2 | Windows Pin 实时 DPI 渲染判据、首读/事件竞争与 caller-bound 只读查询 | 独立 WIN-PIN-LIVE-DPI-01；原 App 十二项红基线 2 passed / 10 failed，同组全绿、三项 API 与六项 MSVC 纯数据读取合同通过，定向前端 74 与 TS 通过。完整 Windows 门禁待执行，真实事件/成像、多屏/Windows 10 与新 SHA CI 未验 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。

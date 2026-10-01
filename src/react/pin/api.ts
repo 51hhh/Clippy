@@ -4,12 +4,14 @@ import {
   copyPinCanvas,
   getPinImageUrl,
   getPinPayload,
+  getPinDisplayScale,
   getPinSourceImage,
   getPinToolbarBounds,
   getPlatformInfo,
   onCurrentWindowCloseRequested,
   onPinAlreadyOpen,
   onPinImageSharpened,
+  onPinDisplayScaleChanged,
   onPinWorkspaceChanged,
   pinReady,
   savePin,
@@ -40,6 +42,9 @@ export const pinApi = {
   imageUrl: (label: string, revision: number): string => getPinImageUrl(label, revision),
   /** Pin 的层级动作也必须服从后端能力判断，不能在 Wayland 上自行猜测。 */
   platform: (): Promise<PlatformInfo> => getPlatformInfo(),
+  displayScale: (): Promise<number> => getPinDisplayScale(),
+  onDisplayScaleChanged: (callback: (scale: number) => void): Promise<() => void> =>
+    onPinDisplayScaleChanged(callback),
   ready: (label: string): Promise<void> => pinReady(label),
   /** 工具条能待的范围（窗口局部逻辑坐标）。见 `usePinToolbarBounds`。 */
   toolbarBounds: (label: string): Promise<PinToolbarBounds> => getPinToolbarBounds(label),

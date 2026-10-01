@@ -1,5 +1,6 @@
 mod color;
 pub(crate) mod commands;
+mod display_scale;
 mod error;
 pub(crate) mod frame_protocol;
 mod image_validation;

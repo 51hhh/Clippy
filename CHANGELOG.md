@@ -2,6 +2,17 @@
 
 ## 未发布
 
+### 2026-10-02 Windows Pin 实时渲染 DPI
+
+- 修复 Windows 图片 Pin 跨屏或 DPI 改变后仍按创建时比例选择最近邻滤镜的问题。首读绑定
+  调用者自己的原生 Pin 窗口，先订阅 scale 事件，迟到查询不覆盖新事件；未知/无效/失败时
+  使用 auto。实时比例独立于 payload 与用户状态，源像素、CSS 尺寸、zoom 和 GTK 补偿保持。
+  原 App 的十二项回归红基线 2 passed / 10 failed，修复后同组十二项、三项 facade 适配器、
+  六项 MSVC 调用者/数值读取合同通过；定向前端共 74 项及 TypeScript 检查通过。
+  完整 Windows 默认/QA 门禁待执行，真实 WebView2 成像/DPI 事件、多屏/Windows 10、新 SHA CI
+  和其它宿主未验。未新增 core 窗口权限。
+  （需求：`WIN-PIN-LIVE-DPI-01`；见 `docs/superpowers/specs/2026-10-02-windows-pin-live-dpi.md`）
+
 ### 2026-10-02 Windows Pin 工作区与工具条几何
 
 - 修复混合 DPI 保存工作区用全局逻辑点选错屏、恢复后丢失目标屏和工具条可见区域计算偏移。

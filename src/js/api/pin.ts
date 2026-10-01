@@ -1,6 +1,7 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
   PinCanvasProject,
   PinCanvasSaveMode,
@@ -29,6 +30,16 @@ export function closePin(label: string): Promise<void> {
 /** 获取统一贴图渲染与交互状态 */
 export function getPinPayload(label: string): Promise<PinPayload> {
   return invoke<PinPayload>("get_pin_payload", { label });
+}
+
+/** Windows 渲染判据读取当前窗口 DPI，不沿用创建时 payload 的显示器比例。 */
+export function getPinDisplayScale(): Promise<number> {
+  return invoke<number>("get_pin_display_scale");
+}
+
+/** 仅订阅当前窗口的原生 DPI；调用方在首读之前注册并负责卸载。 */
+export function onPinDisplayScaleChanged(callback: (scale: number) => void): Promise<UnlistenFn> {
+  return getCurrentWindow().onScaleChanged(event => callback(event.payload.scaleFactor));
 }
 
 /**

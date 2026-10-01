@@ -64,6 +64,7 @@ const PIN_COMMANDS: &[&str] = &[
     "copy_pin",
     "copy_pin_canvas",
     "get_pin_payload",
+    "get_pin_display_scale",
     "get_pin_source_image",
     "get_pin_toolbar_bounds",
     "get_platform_info",

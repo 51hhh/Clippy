@@ -32,6 +32,19 @@ pub fn get_pin_payload(label: String, state: State<'_, AppState>) -> Result<PinP
     super::lifecycle::get_pin_payload(label, state)
 }
 
+/// 只读调用窗口自身的 DPI，不接收可伪造的目标 label，也不授予通用 core 窗口权限。
+#[tauri::command]
+pub fn get_pin_display_scale(
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<f64, String> {
+    Ok(super::display_scale::read_for_pin(
+        &state.pin_manager,
+        window.label(),
+        || window.scale_factor().map_err(super::PinError::window),
+    )?)
+}
+
 #[tauri::command]
 pub async fn pin_ready(label: String, app_handle: tauri::AppHandle) -> Result<(), String> {
     super::lifecycle::pin_ready(label, app_handle).await
