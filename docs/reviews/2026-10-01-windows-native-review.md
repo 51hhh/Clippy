@@ -130,6 +130,25 @@ POSIX 分支继续使用 `0700`，本轮 Windows 证据不能代替 Linux 回归
 
 ## 本机验证记录
 
+### 后续新 checkout 审查
+
+草稿 PR：<https://github.com/51hhh/Clippy/pull/13>，基于最新设备选择分支，仅提交本轮 Windows 验证修复。
+首次修改后 CI：<https://github.com/51hhh/Clippy/actions/runs/36809445003>，SHA `85907d0e96dcf9dc598f5d9abb653cae42f45835`。
+Windows 前端 1275 passed、5 failed，尚不能作为同 SHA 三平台通过证据。
+
+W11：Windows runner 的 CRLF checkout 使两个 IPC 负例的 LF 字符串替换没有生效，另有三个结构
+断言依赖 LF。用 `core.autocrlf=true` 的独立 checkout 重现同样五项失败。修复保留校验器本身，
+IPC 夹具在每种宿主都执行 LF/CRLF 两组正负合同；删除注册/权限项还断言修改实际生效。
+修复后 CRLF checkout：74 文件 / 1284 项通过；该 checkout 的完整前端门禁另暴露 W12，
+结果为 10 项通过、1 失败、3 组显式跳过，不报告整体成功。
+
+W12：vendored xcap 原始 SHA-256 绑定 LF 字节，默认 Windows checkout 的 CRLF 转换导致失配。
+应限定 vendor 检出规则保存原始 LF，同时保留逐字节哈希校验；不通过归一化哈希输入放宽供应链。
+
+Windows 桌面自动验收通道：computer-use 的 node_repl 在初始化时发生 Windows sandbox
+`helper_unknown_error: setup refresh had errors`，重置后重试仍报 trusted Node process exited。
+仅完成技能初始化/恢复检查，未执行 UI 输入或取得桌面验收证据。继续保留 W04–W07 的人工项。
+
 环境：Windows 11 Pro for Workstations x64 / 10.0.22000；Node 22.22.0；Python 3.12.7。
 用户已授权安装 Rust/MSVC/Windows SDK/MSYS2。Rust 1.98.1（MSVC host）、VS 2022 C++ Build Tools、
 Windows SDK 10.0.26100.0、MSBuild 17.14.60.43110、MSYS2 make 4.4.1/NASM 3.02/diffutils/perl 与

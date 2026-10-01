@@ -21,7 +21,7 @@
 
 1. 区分 dev、发布 tag 和最新功能分支，记录关键提交带来的实际能力及 feature 门控。
 2. 在 Windows 本机运行完整前端测试、类型检查、静态合同和生产构建；文件 URL 使用系统路径转换，
-   保留现有安全合同的全部负例，不能删除失败测试或弱化校验。
+   源码合同兼容 LF/CRLF；负例修改必须实际生效。保留现有安全合同的全部负例，不能删除失败测试或弱化校验。
 3. 提供原生 PowerShell 门禁，覆盖 Python 纯合同、默认 Rust、vendor WGC、前端和可选 Windows
    双轨 QA 检查。缺工具、外部命令非零、显式部分检查和跳过项不得被报告为完整通过。
 4. Windows 原生 CI 增加前端检查，补上只有 Ubuntu 执行前端导致的宿主路径盲区。
@@ -65,6 +65,8 @@
 | W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 后续改动后执行 |
 | W09 | P1 | OCR 质量工具 Windows 私有诊断目录与符号链接拒绝合同；失败关闭，检查子文件继承 | 本机 31 项质量合同通过，跨平台 CI 待执行 |
 | W10 | P2 | 审查 webm-sys 的 C++ 编译参数在 MSVC 上产生 D9002；按宿主选择 flag，保留固定来源与许可证 | 本机已观测，独立维护任务 |
+| W11 | P1 | 新 Windows runner 使用 CRLF 检出时的 IPC 负例与结构回归；保留两种换行的正/负合同 | 独立 CRLF checkout 修复后 1284 项通过，修改后 CI 待执行 |
+| W12 | P1 | vendored xcap 保持固定 LF 字节并运行原始 SHA-256 校验；不能归一化哈希输入或跳过检查 | CRLF checkout 完整前端门禁因七文件原始哈希失配失败，待修复 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。
