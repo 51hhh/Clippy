@@ -9,6 +9,13 @@
 
 ## 当前续审状态
 
+- `WIN-EXPORT-IDENTITY-01` / W39：独立 `codex/windows-export-identity`，基于 `935766b`。
+  Windows 在临时复制前按卷号/128 位 FileId 拒绝同文件别名；原新建、不同目标和哈希协议保持。
+  原生产导出直接红基线 2 passed / 4 failed（三者迟至替换 error 5、硬链接返回 Ok），同组六项
+  修复后通过，新测试字节保持；既有导出合同与一项原生无效句柄错误通过。完整默认/QA 门禁
+  待执行。正常文件的身份/权限错误、其它文件系统/网络盘、外部竞态和实际对话框未验，
+  不将夹具当作真实录屏/播放；当前 SHA CI/其它宿主仍未验，桌面操作停止。
+
 - `REC-DELETE-OWNER-01` / W38：独立 `codex/recording-delete-owner`，基于 `ab13a3a`。
   VP9/QA 图内在同一 registry 原子取得合并/删除所有权，删除 guard 覆盖原 worker，冲突前不
   撤销播放/缓存或删除文件；同会话互斥，其它会话操作及全局单合并保持，默认删除路径不变。
@@ -273,6 +280,7 @@
 | W36 | P2 | 主窗口有保存目标时不执行后备原生查询，必要后备和保存查询错误保持 | 独立 WIN-MAIN-TARGET-01；提取旧求值协议红基线 11 passed / 2 failed，旧七项全绿、新六项红 4/2，修复后十三项通过；c9d5512 完整默认/QA 门禁 exit 0，30 pass / 0 fail / 1 Linux skip；真实显示/原生错误/DPI、多屏、其它宿主与新 SHA CI 未验 |
 | W37 | P1 | 录屏控制窗准备失败回滚按销毁请求返回结果结算，请求失败仍阻止替换 | 独立 WIN-CONTROL-ROLLBACK-01；提取原回滚协议红基线 22 passed / 2 failed，旧十七项全绿、新七项红 5/2，修复后二十四项通过；干净 a52ecaa 完整默认/QA 门禁原生子进程 exit 0，30/0/1（Linux skip），默认 Rust 1150、QA Rust 1207（各 5 ignored，重叠不累加），新增七项在总数内，前端 1307 passed；请求成功不是原生销毁完成，真实请求失败/捕获像素/设备/强杀、其它宿主和新 SHA CI 未验 |
 | W38 | P1 | 录屏恢复合并与删除原子取得同会话所有权，删除 guard 覆盖完整 worker | 独立 REC-DELETE-OWNER-01；提取原删除协议红基线 3 passed / 3 failed，生产已提交 VP9 分段/清单删除缺口复现；同组六项通过，既有单槽/关键 manifest 合同通过；干净 0321355 完整默认/QA 门禁原生子进程 exit 0，30/0/1（Linux skip），默认 Rust 1150、QA Rust 1213（各 5 ignored，重叠不累加），新增六项仅在 QA 总数内，前端 1307 passed；默认删除不变；真实重开窗口/强杀/播放、其它宿主和新 SHA CI 未验 |
+| W39 | P1 | Windows 导出用完整句柄身份提前拒绝同文件别名，保留普通导出 | 独立 WIN-EXPORT-IDENTITY-01；原生产导出直接红基线 2 passed / 4 failed（三者替换 error 5、硬链接 Ok），同组六项修复后通过，新字节保持，旧导出/原生错误各一项通过，完整默认/QA 门禁待执行；真实对话框/媒体、文件系统/网络盘/权限与外部竞态、其它宿主和新 SHA CI 未验 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。

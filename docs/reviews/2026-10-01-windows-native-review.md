@@ -5,7 +5,19 @@
 
 ## 当前续审结果
 
-当前 W38 / REC-DELETE-OWNER-01：恢复合并持有进程 guard，删除 worker 却没有参与所有权。
+当前 W39 / WIN-EXPORT-IDENTITY-01：原生产导出仅比较路径文本。直接在未经改动的导出函数
+运行六项真实 Windows 文件/句柄夹具，红基线 2 passed / 4 failed：大小写、父目录、扩展路径
+三者漏过提前保护并迟至替换时报 OS error 5，硬链接别名返回 Ok；不声称三者成功覆盖源文件。
+现用 FileIdInfo 的卷号与完整 128 位 ID，在原 source File 打开后、私有临时文件创建前检查。
+查询目标仅请求元数据，原生错误返回且不降为 64 位 ID；目标不存在与不同已有目标仍导出。
+同组六项修复后通过，新测试字节保持，旧哈希/替换一项红/绿通过；生产查询一项真实无效句柄
+保留 OS error 6。正常文件的身份查询/权限错误、文件系统/网络盘和跨进程竞态仍未观察。
+除两处 Windows 模块声明与一处新 guard 调用外原 manifest tokens 保持，原九十六段函数/
+测试正文、导出哈希/同步/替换/清理余部及十份文件核对。新六项与错误一项在默认/QA 两图，
+完整门禁待执行。夹具是既有 manifest 数据文件，未生成或播放真实录屏；实际导出对话框、
+媒体/文件系统矩阵、其它宿主与当前 SHA CI 未验。证据 windows-export-identity-contract；桌面停止。
+
+此前 W38 / REC-DELETE-OWNER-01：恢复合并持有进程 guard，删除 worker 却没有参与所有权。
 结果页 busyKey 属于当前挂载，关闭仍可执行，不能代替后端会话保护。提取原删除 worker
 无所有权协议的 MSVC 红基线 3 passed / 3 failed；一个失败实际删除了合并 owner 持有期间
 真实 journal/VP9 writer 生成并已提交的两段 WebM 与清单。不是未经改动的 Tauri IPC 或桌面
@@ -18,7 +30,7 @@
 不累加），新增六项仅在 QA 总数内，旧单槽及关键 manifest/合并共九条合同核对；前端 77 文件 /
 1307 passed，Python 33 + 3，独立 vendor 十八项及剪贴板二十四项通过。check、严格 lint、
 供应链、构建/入口通过，源码/原始日志、checked helper/门禁脚本哈希与干净检出核对。
-累计二十二项本机产品修复未装包。真实关闭/重开窗口、强杀/设备/播放、其它宿主和当前 SHA CI
+截至 W38 二十二项本机产品修复未装包。真实关闭/重开窗口、强杀/设备/播放、其它宿主和当前 SHA CI
 未验，Windows 导出路径身份仍待生产入口复现，尚未追加缺陷结论。合同证据
 recording-delete-owner-contract，完整门禁 recording-delete-owner-native-qa-0321355；桌面操作保持停止。
 

@@ -10,6 +10,9 @@ use std::io::{self, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(target_os = "windows")]
+mod export_identity;
+
 const RECORDINGS_DIRECTORY: &str = "recordings";
 const MANIFEST_FILE: &str = "manifest.json";
 const FORMAT: &str = "clippy-recording";
@@ -1050,6 +1053,8 @@ pub(super) fn export_library_artifact(
     let result = (|| {
         let source =
             File::open(&artifact.path).map_err(|error| format!("打开录屏产物失败: {error}"))?;
+        #[cfg(target_os = "windows")]
+        export_identity::ensure_different_file(&source, destination)?;
         let mut source = BufReader::new(source);
         let mut output = create_private_new_file(&temporary)
             .map_err(|error| format!("创建导出临时文件失败: {error}"))?;
@@ -2016,6 +2021,9 @@ fn unix_time_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "windows")]
+    mod export_identity_tests;
     #[cfg(feature = "recording-opus-webm")]
     use crate::recording::{
         audio::{frames_to_ns, AudioFormat, CapturedAudioChunk, QueuedAudioChunk},
