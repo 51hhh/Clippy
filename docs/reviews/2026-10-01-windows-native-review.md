@@ -5,7 +5,17 @@
 
 ## 当前续审结果
 
-当前 W41 / REC-PLAYBACK-LIFECYCLE-01：原 App 不检查 prepare 响应的组件/请求身份。
+当前 W42 / REC-LIBRARY-READY-01：load 的数据/loading 检查代次，但其 finally 无条件
+ready。原 App 字节生产组件/jsdom 红基线 35 passed / 5 failed，旧 32 全绿，新八项 3/5；
+四项退休加载调用旧 ready 一次，StrictMode dev/test 用例调用两次。原隐藏创建和 ready
+show/set_focus 只读核对，不声称真实窗口或发布 effect 重放。现在 effect 独立 retired
+标记，cleanup 后旧 finally 不再调用，后继 mounted 重置不能使它复活；活动正常/错误页
+仍通知一次，ready 拒绝处理保持。限定 guard 外 App 全部原正文、旧三测试文件原字节与
+十三份关联文件保持，新八项原字节共 40 定向通过，无其它播放/状态/IPC/后台/依赖修改。
+完整干净 SHA Windows 门禁待执行，真实窗口/focus、其它宿主与当前 SHA CI 留未验；
+桌面操控停止。合同 recording-library-ready-contract。
+
+此前 W41 / REC-PLAYBACK-LIFECYCLE-01：原 App 不检查 prepare 响应的组件/请求身份。
 保持原 App 字节的生产 React/jsdom 红基线 27 passed / 5 failed，旧组件 17/API 7 全绿，
 新八项 3/5；三项未调用迟到释放，一项关闭预览后实际重开 video，一项旧 busy 阻止新请求，
 第五项未执行到旧拒绝，不能描述成已观察到旧错误覆盖。现在请求身份在卸载/服务清理/
@@ -21,7 +31,7 @@ exit 0，30 passed / 0 failed / 1 Linux smoke skipped。默认 Rust 1165、QA Ru
 日志与测试源码哈希核对，不重复执行测试主体。初次文件名解析假设失败单独保留并更正，
 不计产品/门禁失败。Python 33 + 3，独立 vendor 十八项与剪贴板二十四项、check、严格 lint、
 供应链、构建/入口通过。原始日志/两份源码/checked helper/门禁脚本哈希和干净检出核对，
-门禁后只改四份 Markdown；累计二十五项本机产品修复未装包，保存实际 QA/模板字节保持。
+门禁后只改四份 Markdown；截至 W41 二十五项本机产品修复未装包，保存实际 QA/模板字节保持。
 真实 backend 租约撤销、窗口重建/WebView/其它宿主和当前 SHA CI 未验；服务更换与释放
 是组件注入合同和替身调用，桌面操作停止。load 的 finally/ready 缺少生命周期检查，main
 使用 StrictMode；下一步先在组件/jsdom 复现，开发 effect 退休与发布行为分开，尚未追加

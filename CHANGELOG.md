@@ -2,6 +2,16 @@
 
 ## 未发布
 
+### 2026-10-02 结果库退休加载不再通知窗口就绪
+
+- 修复结果库卸载或 effect 被取代后，迟到的列表完成仍调用窗口就绪的问题。每次 effect
+  使用独立退休标记，cleanup 后不再 ready；当前正常加载/失败重试页仍通知一次，ready
+  拒绝处理保持。原组件 jsdom 红基线 35 passed / 5 failed（旧 32 全绿），四次旧 ready
+  调用与一次 StrictMode 两次 ready 已复现；同八项原字节修复后通过，共 40 passed。
+  完整 Windows 门禁待执行；调用是服务替身，未观察真实 show/focus 或发布包 effect 重放。
+  真实窗口/其它宿主/当前 SHA CI 未验，安装包未更新，桌面操控停止。
+  （需求：`REC-LIBRARY-READY-01`；见 `docs/superpowers/specs/2026-10-02-recording-library-ready.md`）
+
 ### 2026-10-02 录屏播放准备响应的组件生命周期
 
 - 修复播放准备响应在卸载后不释放租约、关闭预览后重开播放器的问题。准备绑定独立请求身份，

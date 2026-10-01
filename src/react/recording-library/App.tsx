@@ -223,12 +223,17 @@ export function App({ services = defaultServices }: { services?: RecordingLibrar
   }, [services]);
 
   useEffect(() => {
+    let retired = false;
     mounted.current = true;
     setPlayback(null);
     setBusyKey(null);
     setActionError(false);
-    void load().finally(() => services.ready().catch(() => undefined));
+    void load().finally(() => {
+      // 标记属于本次 effect；后继挂载不能重新激活旧加载的显示/聚焦请求。
+      if (!retired) return services.ready().catch(() => undefined);
+    });
     return () => {
+      retired = true;
       mounted.current = false;
       pendingPlayback.current = null;
       generation.current += 1;

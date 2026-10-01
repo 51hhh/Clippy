@@ -9,6 +9,13 @@
 
 ## 当前续审状态
 
+- `REC-LIBRARY-READY-01` / W42：独立 `codex/recording-library-ready`，基于 `a2c31d2`。
+  ready 绑定本次 effect 退休标记，cleanup 后迟到加载不再显示/聚焦请求；当前正常/失败
+  重试页通知一次保持。原 App 字节 jsdom 红基线 35/5（旧 32 全绿），四项旧 ready 调用
+  与 StrictMode dev/test 两次调用复现；同八项原字节修复后通过，共 40 定向测试。
+  旧三文件/十三份关联文件与限定 guard 外原 App 保持，完整 Windows 门禁待执行；
+  mock ready 不等于实际窗口/focus 或发布 effect 重放，桌面/其它宿主/当前 SHA CI 留未验。
+
 - `REC-PLAYBACK-LIFECYCLE-01` / W41：独立 `codex/recording-playback-lifecycle`，基于 `092c413`。
   播放请求身份在卸载/服务清理/预览关闭时退休，迟到租约由旧服务释放；旧失败不改新请求。
   关闭只清理该播放 busy，其它导出保持。原 App 字节红基线 27/5（旧 24 全绿），观察到
