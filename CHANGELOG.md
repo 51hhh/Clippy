@@ -9,8 +9,10 @@
   增加来源与原始构建脚本哈希校验。本机 MSVC/clang-cl 六个 C++ 文件重新编译通过；
   Windows 完整录屏 QA 门禁 23 passed、0 failed、1 skipped（Linux smoke）。
   437949b 四项 codec 与 Ubuntu/Windows 原生 CI 通过，macOS 原生的既有 OCR 进程合同失败；
-  经用户授权改以独立 OCR 合同修复分支为基线，同步后的新 SHA 完整 CI、真实桌面与安装
-  验收仍待执行。（需求：`WIN-WEBM-MSVC-01`）
+  经用户授权改以独立 OCR 合同修复分支为基线，45769c9 的三项原生与四项录屏原型全部通过，
+  相对新基线仍仅六个 WebM 文件；新 SHA 完整 QA workflow 成功，Windows 包来源、哈希与签名
+  身份已核对，真实桌面与安装验收仍待执行。
+  （需求：`WIN-WEBM-MSVC-01`）
 
 ### 2026-10-01 OCR 原生进程合同同步
 

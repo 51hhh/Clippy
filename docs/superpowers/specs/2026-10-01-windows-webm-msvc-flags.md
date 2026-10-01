@@ -25,7 +25,7 @@ WebM C ABI 和各编译器的有效行为。
 - [x] 修复后实际 MSVC 命令不含三个 GCC 参数，相关 D9002 消失；没有新增全局告警屏蔽。
 - [x] 原始构建脚本哈希漂移的负例被供应链校验拒绝，复原后成功。
 - [x] Windows `recording-windows-av-qa` check/clippy/test 与现有 VP9/Opus/WebM 回归通过。
-- [ ] 同 SHA Ubuntu/Windows/macOS 原生与四项 codec 原型检查通过，GNU/Clang 参数经原生编译覆盖。
+- [x] 同 SHA Ubuntu/Windows/macOS 原生与四项 codec 原型检查通过，GNU/Clang 参数经原生编译覆盖。
 - [x] CHANGELOG、patch 来源、PR 引用同一 ID，未完成的桌面/安装验收保持未完成。
 
 ## Out of Scope
@@ -83,4 +83,16 @@ PR：[14](https://github.com/51hhh/Clippy/pull/14)。
   并同步依赖。新基线为 `79828665a2d77308b0973b19d993ae745590d521`，#14 相对于它仍限定
   六个原有 WebM 文件；OCR 测试属于继承的基线，不计入 WebM 改动范围。
 - CHANGELOG 冲突仅为两个独立条目的插入位置，保留 WebM/OCR 需求段落与最新 Windows 验证记录。
-  编码器源码、构建脚本原始哈希和编译策略不变；同步后新 SHA 完整七项 CI 待执行。
+  编码器源码、构建脚本原始哈希和编译策略不变。
+- 新 SHA `45769c958e9d4311a7d61ee53ed6707cc9a11ac4` 的
+  [run 36821989611](https://github.com/51hhh/Clippy/actions/runs/36821989611) completed/success，
+  三项规定原生与四项 codec 原型全部成功；authenticated run/job/check-run 的 SHA、身份和
+  结论一致。四平台 VP9/WebM、Opus、恢复合同通过，Windows WASAPI 合同 11 项通过，
+  Windows codec 日志未再出现相关 D9002。Ubuntu/macOS 实际执行继承的 OCR 取消/回收合同。
+- 本机完整录屏门禁仍绑定 e4ccc46；没有把旧本机验证写成 45769c9 本机完整门禁。
+  [新 SHA 官方 QA workflow](https://github.com/51hhh/Clippy/actions/runs/36823747034) 已
+  completed/success，四平台 bundle 与 Ubuntu 24 X11 smoke 全成功；六份产物 manifest 绑定
+  完整 SHA，API archive digest 与本机包文件哈希分开记录。Windows MSI/NSIS 已下载，完整
+  SHA、QA feature、三个登记文件哈希和签名者身份一致；CI 的 Valid 检查成功，本机仍为
+  UnknownError（不受信任根），未改变本机信任或安装。本次 Windows 11 官方/本地模板
+  原始字节相同，39 项全部 not_run；MSI 只读查询前后哈希不变，桌面/安装不计为通过。
