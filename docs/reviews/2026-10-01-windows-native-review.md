@@ -149,6 +149,23 @@ W12：vendored xcap 原始 SHA-256 绑定 LF 字节，默认 Windows checkout �
 在固定 WGC 文件追加一个 LF 时，校验仍以 exit 1 拒绝；复原后成功。验证器和登记哈希未修改，
 没有归一化哈希输入或跳过检查。修改后同 SHA CI 尚待执行。
 
+全新 CRLF clone 在 `47f1ee7dcd5f234d3bc5756cebe6202de2f5fc47` 首次检出即通过原始哈希校验，
+工作树无修改，无需手工归一化文件。主 Rust 源码为 CRLF，vendor 和锁文件为 LF。
+
+同 SHA 本机诊断打包命令：`npm exec --prefix src -- tauri build --debug --ci --no-sign
+--features recording-windows-av-qa --config src-tauri/tauri.ci.conf.json`，退出 0。
+MSI/NSIS 均构建成功且 Authenticode 为 NotSigned。包与元数据保存在
+`src-tauri/target/windows-local-diagnostic-47f1ee7dcd5f234d3bc5756cebe6202de2f5fc47/`。
+
+| 诊断包 | 字节数 | SHA-256 |
+|---|---:|---|
+| `Clippy_0.1.20_x64-setup.exe` | 19709991 | `31d5dee6986948dbd42f01aed6c4c8792ce9673a31fb03394f3bc97146e0c667` |
+| `Clippy_0.1.20_x64_en-US.msi` | 25591808 | `0a6b08372441d2e9f77277989e913b96631d15fe92d41dd02a9ad1c62c25d1ad` |
+
+LOCAL-BUILD.json 明确记录 debug、非默认录屏 feature、未签名、本地诊断用途，以及桌面/安装 QA
+为 `not_run`。构建数量不加入测试通过数，不替代同 SHA 官方 Native QA 包或正式 updater 产物。
+用户确认仅有当前 Windows 11 单屏，混合 DPI/多屏与 Windows 10 场景缺少环境，继续保留未完成。
+
 Windows 桌面自动验收通道：computer-use 的 node_repl 在初始化时发生 Windows sandbox
 `helper_unknown_error: setup refresh had errors`，重置后重试仍报 trusted Node process exited。
 仅完成技能初始化/恢复检查，未执行 UI 输入或取得桌面验收证据。继续保留 W04–W07 的人工项。
@@ -182,7 +199,7 @@ WebView2 Runtime 154.0.4258.37 已存在。
   QA check、严格 Rust clippy、全量 QA Rust tests 通过，VP9/Opus 原生库及绑定已生成。
   QA Rust：1093 passed、0 failed、5 ignored；前端最终：74 文件、1280 passed。
   默认与 QA Rust 图大量重叠，不相加为独立测试数；所有忽略/跳过项不计作通过。
-- Linux 本地完整门禁、修改后远程 CI、安装包和人工 QA 尚未执行。
+- Linux 本地完整门禁、修改后远程 CI、官方 QA 包、安装升级和人工 QA 尚未执行。
 
 本分支是开发工具/测试修复；OCR 质量工具行为与 Windows 验证入口已写入 CHANGELOG，引用 `WIN-NATIVE-01`。
 后续 W04–W07 若产生产品修复，使用对应独立分支、需求 ID 和 CHANGELOG，不能混入本工具分支。

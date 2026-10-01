@@ -62,7 +62,7 @@
 | W04 | P1 | 100%/125%/150% 多屏与负坐标：冻结帧、跨屏窗口候选、覆盖层、Pin、guide、长截图自动滚动、WGC 选区 | 静态疑点；本机单屏，待多屏真机复现 |
 | W05 | P1 | 同权限自动粘贴一次、高完整性目标 copy-only、目标销毁/复用、用户接管；DACL 与配置连续覆盖 | 待 Windows 复测 |
 | W06 | P1 | QA 包设备默认/非默认/同名/拔出、双源混音、暂停恢复、控制窗排除、强杀恢复、30 分钟 A/V 漂移 | 代码存在，待真机验收 |
-| W07 | P2 | NSIS/MSI 安装升级卸载、WebView2、自启动、托盘/快捷键、系统凭据与更新 | 待安装包验收 |
+| W07 | P2 | NSIS/MSI 安装升级卸载、WebView2、自启动、托盘/快捷键、系统凭据与更新 | 本机未签名 debug 包构建成功；正式 QA 包、安装与桌面验收待执行 |
 | W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 后续改动后执行 |
 | W09 | P1 | OCR 质量工具 Windows 私有诊断目录与符号链接拒绝合同；失败关闭，检查子文件继承 | 本机 31 项质量合同通过，跨平台 CI 待执行 |
 | W10 | P2 | 审查 webm-sys 的 C++ 编译参数在 MSVC 上产生 D9002；按宿主选择 flag，保留固定来源与许可证 | 本机已观测，独立维护任务 |
@@ -90,7 +90,12 @@ QA Rust 1093 项通过、5 项忽略；前端最终为 74 文件、1280 项通�
 独立 `core.autocrlf=true` checkout 修复 W11/W12 后：完整前端范围 11 项检查通过、0 失败、
 3 组显式跳过，74 文件 / 1284 项通过。主 Rust 源码保持 CRLF，xcap 和 Cargo 锁文件按属性检出 LF；
 刻意在固定文件追加一个 LF 被原始 SHA-256 校验拒绝，复原后校验成功。
-Linux 本地完整门禁、修改后 CI、QA 安装包、Windows 10 和桌面交互尚未执行。
+全新 CRLF clone 在 `47f1ee7dcd5f234d3bc5756cebe6202de2f5fc47` 首次检出即保持 vendor/锁文件 LF，
+原始哈希校验成功。本机同 SHA 使用 `recording-windows-av-qa`、debug、`--no-sign` 构建 MSI/NSIS，
+两包成功且为 NotSigned；绑定 SHA 的 LOCAL-BUILD.json 和 SHA256SUMS.txt 保存在 ignored target 目录。
+这些仅属诊断构建证据，不计入测试通过数，也不替代官方 Native QA 包、签名或安装验收。
+用户确认目前仅有当前 Windows 11 单屏，暂无多屏或 Windows 10 验收环境。
+Linux 本地完整门禁、修改后 CI、官方 QA 安装包、Windows 10 和桌面交互尚未执行。
 
 详细审查证据见 `docs/reviews/2026-10-01-windows-native-review.md`。所有新结果按层级追加，
 没有实际执行的项不勾选。
