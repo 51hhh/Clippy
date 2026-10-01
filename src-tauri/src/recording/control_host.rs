@@ -9,7 +9,9 @@ use super::audio_devices::{
 #[cfg(all(target_os = "linux", feature = "recording-wayland-qa"))]
 use super::authorization::RecordingAuthorizationCancellation;
 use super::control_exclusion::{configure_control_exclusion, control_exclusion_capability};
-use super::control_registry::{RecordingControlClose, RecordingControlRegistryError};
+use super::control_registry::{
+    RecordingControlClose, RecordingControlRegistry, RecordingControlRegistryError,
+};
 use super::control_window::{
     plan_control_window, ControlSize, ControlWindowPlan, PhysicalRect, WindowExclusionCapability,
 };
@@ -36,6 +38,9 @@ const CONTROL_SIZE: ControlSize = ControlSize {
     height: 56,
 };
 const CONTROL_MARGIN: u32 = 12;
+
+#[cfg(test)]
+mod rollback_tests;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -137,17 +142,27 @@ impl<'a> TauriRecordingDesktopActions<'a> {
     }
 
     fn rollback_prepared_control(&self, session_id: &str) {
-        let Ok(close) = self.state.recording_controls.begin_close(session_id) else {
-            return;
-        };
-        if let Some(window) = self.app.get_webview_window(&close.label) {
-            let _ = window.destroy();
+        if let Err(error) =
+            rollback_prepared_control_with(&self.state.recording_controls, session_id, |label| {
+                destroy_control_window(self.app, label)
+            })
+        {
+            log::error!("录屏控制窗准备失败后的回滚清理失败: {error}");
         }
-        let _ = self
-            .state
-            .recording_controls
-            .settle_close(&close.label, true);
     }
+}
+
+fn rollback_prepared_control_with(
+    registry: &RecordingControlRegistry,
+    session_id: &str,
+    destroy: impl FnOnce(&str) -> Result<(), String>,
+) -> Result<(), String> {
+    let Ok(close) = registry.begin_close(session_id) else {
+        return Ok(());
+    };
+    // 启动回滚与正常关闭共用真实结果结算，失败时不能重新开放控制窗槽。
+    let destroyed = destroy(&close.label);
+    finish_control_close(registry, close, destroyed)
 }
 
 impl DesktopActions for TauriRecordingDesktopActions<'_> {
@@ -436,11 +451,21 @@ fn close_control_window(
     registry: &super::control_registry::RecordingControlRegistry,
     close: RecordingControlClose,
 ) -> Result<(), String> {
-    let destroyed = app
-        .get_webview_window(&close.label)
-        .map_or(Ok(()), |window| {
-            window.destroy().map_err(|error| error.to_string())
-        });
+    let destroyed = destroy_control_window(app, &close.label);
+    finish_control_close(registry, close, destroyed)
+}
+
+fn destroy_control_window(app: &tauri::AppHandle, label: &str) -> Result<(), String> {
+    app.get_webview_window(label).map_or(Ok(()), |window| {
+        window.destroy().map_err(|error| error.to_string())
+    })
+}
+
+fn finish_control_close(
+    registry: &RecordingControlRegistry,
+    close: RecordingControlClose,
+    destroyed: Result<(), String>,
+) -> Result<(), String> {
     registry
         .settle_close(&close.label, destroyed.is_ok())
         .map_err(|error| error.to_string())?;

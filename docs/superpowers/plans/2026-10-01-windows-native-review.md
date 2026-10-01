@@ -9,6 +9,12 @@
 
 ## 当前续审状态
 
+- `WIN-CONTROL-ROLLBACK-01` / W37：独立 `codex/windows-control-rollback`，基于 `7ca01a0`。
+  准备失败回滚按真实销毁结果结算，与普通关闭共用路径；失败阻止替换，原启动错误和旧
+  session/caller/正常关闭保持。提取原协议 MSVC 红基线 22 passed / 2 failed（旧十七项全绿，
+  新七项红 5/2），同组二十四项修复后通过；完整默认/QA 门禁待执行。真实窗口/捕获像素、
+  设备/停止/恢复、其它宿主与当前 SHA CI 未验，桌面和录屏默认门控保持。
+
 - `WIN-MAIN-TARGET-01` / W36：独立 `codex/windows-main-window-target`，基于 `301c782`。
   主窗口已有保存目标时不执行后备原生查询；必要后备及保存查询的原错误保持，几何/配置/焦点
   和 debounce 不变。提取原 eager 协议 MSVC 红基线 11 passed / 2 failed（旧七项全绿，新六项
@@ -251,6 +257,7 @@
 | W34 | P2 | Windows Pin 实时 DPI 渲染判据、首读/事件竞争与 caller-bound 只读查询 | 独立 WIN-PIN-LIVE-DPI-01；原 App 十二项红基线 2 passed / 10 failed，同组全绿、三项 API 与六项 MSVC 纯数据读取合同通过；e339042 完整 Windows 默认/QA 门禁确认原生子进程 exit 0，30 passed / 0 failed / 1 Linux smoke skipped。真实事件/成像、多屏/Windows 10 与新 SHA CI 未验 |
 | W35 | P2 | WGC 应用帧桥启动回滚与销毁拥有取消/join，不依赖外部 sender 释放 | 独立 WIN-WGC-BRIDGE-ROLLBACK-01；提取旧协议红基线 3 passed / 4 failed，同组七项真实线程合同全绿；7922457 完整默认/QA 门禁 exit 0，30 pass / 0 fail / 1 Linux skip；实际 WGC/Close/系统释放、硬件与新 SHA CI 未验 |
 | W36 | P2 | 主窗口有保存目标时不执行后备原生查询，必要后备和保存查询错误保持 | 独立 WIN-MAIN-TARGET-01；提取旧求值协议红基线 11 passed / 2 failed，旧七项全绿、新六项红 4/2，修复后十三项通过；c9d5512 完整默认/QA 门禁 exit 0，30 pass / 0 fail / 1 Linux skip；真实显示/原生错误/DPI、多屏、其它宿主与新 SHA CI 未验 |
+| W37 | P1 | 录屏控制窗准备失败回滚按真实销毁结果结算，失败仍阻止替换 | 独立 WIN-CONTROL-ROLLBACK-01；提取原回滚协议红基线 22 passed / 2 failed，旧十七项全绿、新七项红 5/2，修复后二十四项通过；完整默认/QA 门禁待执行，真实 destroy/捕获像素/设备/强杀、其它宿主和新 SHA CI 未验 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。

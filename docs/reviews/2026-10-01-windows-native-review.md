@@ -5,7 +5,19 @@
 
 ## 当前续审结果
 
-当前 W36 / WIN-MAIN-TARGET-01：主窗口保存和恢复使用物理坐标，目前未确认 Pin 式全局逻辑
+当前 W37 / WIN-CONTROL-ROLLBACK-01：普通关闭使用 destroyed.is_ok() 结算控制窗 registry，
+启动准备失败回滚却忽略销毁错误并总是 settle(true)，绕过既有失败后阻止替换的合同。
+现改用普通关闭的真实结果结算；销毁失败保持 TerminalFailed，重复回滚不解除隔离，成功可
+重新 reserve，错 session 不操作旧 owner。原启动错误保持，次要清理错误记录日志。提取旧
+回滚协议 MSVC 红基线 22 passed / 2 failed，旧十七项全绿、新七项为 5 passed / 2 failed；
+同组二十四项修复后全绿，新测试原始字节不变。正常关闭和原生 destroy adapter 逻辑保持，
+DesktopActions 正文、其它三十七段宿主函数与十七份文件核对。完整默认/QA 门禁待执行。
+原生排除在隐藏态检查并在 ready/bind 后 reveal；Windows 2004 门槛和旧版几何后备路径保持，
+不声称已观察到控制窗未被 WGC 捕获。停止流程先 claim/stop/join 再关闭控制面和释放所有权，
+持久化恢复入口仍待续审；真实 destroy/像素/设备/强杀/DPI、多屏、当前 SHA CI 与其它宿主未验。
+证据 windows-control-rollback-contract；桌面操作保持停止。
+
+此前 W36 / WIN-MAIN-TARGET-01：主窗口保存和恢复使用物理坐标，目前未确认 Pin 式全局逻辑
 猜屏缺陷。但 show_main_window 用 Option::or 提前求值后备，即使已有保存目标，也会因后备
 错误在 show/focus 前返回。改为只有保存目标为空时才执行后备，查询自身错误与必要后备的
 目标/None/原错误保持；几何、配置字段、尺寸、显隐/焦点和 debounce 未改。固定 AppHandle
