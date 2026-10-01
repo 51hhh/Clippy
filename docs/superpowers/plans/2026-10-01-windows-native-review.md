@@ -9,6 +9,12 @@
 
 ## 当前续审状态
 
+- W47 / `WIN-NATIVE-01`：[Windows release 编译审查](../../reviews/2026-10-02-windows-release-build-review.md)。
+  冻结 `f5ad5da` 默认与录屏 QA release 均 native/wrapper/terminal 0；x64 GUI 未签名 PE、
+  产物哈希、锁定输入、feature 指纹与实际 fat LTO/单 codegen 参数核对。panic=abort
+  与测试 unwind 清理范围明确；不增加测试数。产物未启动/安装，全局 Native/CI/其它
+  宿主仍未完成；下一步仅导入表与 Windows 基线/API 门控代码核对。
+
 - W46 / `WIN-NATIVE-01`：累计 [代码证据核对](../../reviews/2026-10-02-windows-code-review-evidence.md)。
   29 个原被测提交/日志 SHA 与原阶段用例保留；616 次 Rust 正文比较为 611 原样/五个精确
   物理夹具新增字段，31 个前端测试调用保持；均不计新通过数。当前 `f5ad5da` CI 查询无 run。
@@ -355,6 +361,7 @@
 | W44 | P1 | Windows 富文本与替代文本共享 OpenClipboard guard，拒绝跨复制配对 | WIN-CLIP-SNAPSHOT-01；原决策红 27/4，旧 23 保持，同修正八项绿 31，guard 七项/旧 parser 九项共 16 与 vendor lint 通过。 干净 b541e87 完整 30/0/1（Linux skip），默认 Rust 1183/QA Rust 1246，各 5 ignored 不累加，新八项各图通过；独立剪贴板 31、前端 79/1323。实际系统/其它宿主/新 SHA CI 未验 |
 | W45 | P1 | Windows V Click 部分失败/展开时清理 V，保留正常顺序和主要错误 | WIN-PASTE-CLEANUP-01；原注入协议红 10/6，旧六项保持，同十项原字节绿 16；原实现/十二文件/锁定 SDK 保持。 干净 f5ad5da 完整 30/0/1（Linux skip），默认 Rust 1193/QA Rust 1256，各 5 ignored 不累加，新十项各图通过；前端 79/1323。实际系统/其它宿主/新 SHA CI 未验 |
 | W46 | P2 | 原需求/验收逐项 inventory 与 29 项修复的 Git/日志/原阶段/测试正文保留审计 | WIN-NATIVE-01；代码/日志/原阶段无遗漏，616 比较的五处夹具新增字段单列，31 个前端调用保持；不计新测试。当前 CI 无 run，全局仍未完成；下一步 Windows release QA 可执行文件构建，不安装/启动 |
+| W47 | P2 | 默认/录屏 QA Windows release 编译与冻结源码/产物/feature/profile 来源核对 | WIN-NATIVE-01；两图 native/wrapper/terminal 0、PE AMD64 GUI/无内嵌签名、原输入哈希和干净源码保持；release panic=abort 不借用测试 unwind 保证。不增加测试数、不启动/安装，全局剩余验收保留 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。

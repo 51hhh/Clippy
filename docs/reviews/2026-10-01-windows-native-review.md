@@ -5,6 +5,11 @@
 
 ## 当前续审结果
 
+W47 [Windows release 编译审查](2026-10-02-windows-release-build-review.md)完成：冻结 `f5ad5da`
+默认/录屏 QA release 两图 native/wrapper/terminal 0；两份未签名 AMD64 GUI 产物、
+feature/输入哈希/实际 fat LTO 参数已核对。测试计数保持；测试 unwind 清理不延伸为
+release panic=abort 终止清理。未安装/运行，当前 CI 与完整 Native/其它平台仍未验。
+
 W46 累计 [代码证据核对](2026-10-02-windows-code-review-evidence.md)完成，产品源码仍为 W45 的
 `f5ad5da`。29 项历史 SHA/日志和原阶段用例保持，测试正文比较中的五处物理夹具字段新增
 已逐项核对；不存在未解释删改。比较数不计新通过数，当前 SHA GitHub 查询无 run。
