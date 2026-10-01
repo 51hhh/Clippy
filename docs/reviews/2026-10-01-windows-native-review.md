@@ -8,8 +8,14 @@
 当前 W29 / WIN-WINDOW-SCALE-01：Windows 窗口候选原先用主导显示器的一个比例，与所有帧
 求交；混合 DPI 时尺度不一致，确定性旧转换协议红基线 2 passed / 6 failed。现在保留 DWM
 物理矩形，按每块冻结帧比例转换到局部逻辑坐标并裁剪，保留分数边界、标题及 Z 顺序。
-八项 Windows MSVC 回归通过，含空像素帧边界；完整默认/QA 门禁待记录。
-证据 windows-window-candidate-red/RESULT.json。不调用窗口/屏幕 API；真实多屏、原点舍入与
+八项 Windows MSVC 回归通过，含空像素帧边界；干净源码 78bd83fc3547459c523a150faa8a999248c16267
+完整默认/QA 门禁 exit 0，30 passed / 0 failed / 1 skipped（Linux smoke）。默认 Rust 1066、QA Rust
+1123（各 5 ignored，重叠不累加），前端 75 文件 / 1292 passed，Python 33 + 3；八项回归
+包含在两个 Rust 总数，独立 vendor 十八项及剪贴板二十四项通过。日志哈希与干净检出已核对。
+首次包装器子进程退出码为空，不计整轮通过；原记录保留，手动 Process 捕获的退出 0/17 探针
+通过后，同 SHA 完整重跑 exit 0。最终证据 windows-window-candidate-native-qa-78bd83f-exitcode-checked/RESULT.json；
+红绿与包装器证据分别 windows-window-candidate-red/RESULT.json、windows-window-candidate-exit-code/RESULT.json。
+定向回归不调用窗口/屏幕 API；真实多屏、原点舍入与
 覆盖层定位未由本合同证明，W04 保留实际硬件验收，新 SHA CI 和其它宿主仍未运行。
 
 此前 W28 / WIN-REGISTRY-BUFFER-01：Windows 构建号查询把 RegGetValueW 返回字节数直接作为
@@ -189,7 +195,10 @@ Windows 路径现在把原物理矩形保留到逐帧投影，使用 f64 边界�
 拒绝非正/非有限比例与空帧，标题、窗口过滤和原生 Z 顺序保持。Linux/macOS 原转换与排序
 仅作源码核对，未运行其它宿主。八项 MSVC 回归通过；旧生产函数抽取协议 2 passed /
 6 failed，不使用类型桩或窗口/截图 API，字面几何覆盖两种混合 DPI、负原点、上下排布、
-单屏/等缩放、分数与阈值、无效/空帧元数据及顺序。完整默认/QA 门禁待记录。
+单屏/等缩放、分数与阈值、无效/空帧元数据及顺序。78bd83f 完整默认/QA 门禁 exit 0，
+30 passed / 0 failed / 1 skipped；默认 Rust 1066、QA Rust 1123（各 5 ignored），前端 1292 passed。
+八项回归已包含两个 Rust 图；严格 lint、供应链及日志哈希通过。首次包装器退出码缺失原证据
+保留、不计通过；退出 0/17 捕获探针通过后，同 SHA 完整重跑确认退出 0。
 既有 Windows Native `cargo test` 和本地默认/QA 入口自动包含模块，无额外 CI 配置修改。
 真实桌面、新 SHA CI、Windows 10/多屏及其它 W04 几何仍未验。
 需求/验收：`WIN-WINDOW-SCALE-01`，见 `2026-10-01-windows-window-candidate-scaling.md`。

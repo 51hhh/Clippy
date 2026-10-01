@@ -7,7 +7,10 @@
 - 修复混合 DPI 跨屏窗口用一个显示器比例转换全部候选，造成另一屏可见部分丢失或错位的问题。
   DWM 物理矩形按每块冻结帧的比例转换到局部坐标，再裁剪；保留分数坐标与原 Z 顺序，
   拒绝无效/空帧元数据。实际旧转换协议的 MSVC 离线红基线 2 passed / 6 failed；八项生产入口
-  回归通过，包含补充的空像素帧断言；完整 Windows 默认/QA 门禁待记录。
+  回归通过，包含补充的空像素帧断言。干净源码 78bd83f 完整 Windows 默认/QA 门禁 exit 0：
+  30 passed / 0 failed / 1 skipped（Linux smoke）；默认 Rust 1066、QA Rust 1123（各 5 ignored，
+  重叠不累加），前端 1292 passed；八项回归均计入两个 Rust 图。首次包装器未取到子进程
+  退出码，原记录保留且不计通过；修正捕获并验证退出 0/17 后，同 SHA 完整重跑通过。
   真实双屏/混合 DPI/负坐标、覆盖层定位、新 SHA CI、其它宿主与桌面仍未验；不代表 W04 完成。
   （需求：`WIN-WINDOW-SCALE-01`；见 `docs/superpowers/specs/2026-10-01-windows-window-candidate-scaling.md`）
 

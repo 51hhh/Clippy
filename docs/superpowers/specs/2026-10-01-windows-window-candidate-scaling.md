@@ -23,8 +23,8 @@
 
 - [x] 原单一窗口比例在确定性混合 DPI 场景产生丢失/错位的候选。
 - [x] 八项生产共用投影回归通过；逐帧边界、阈值与顺序通过，其它平台路径按源码保持。
-- [ ] 干净源码的完整 Windows 默认/QA 编译、严格 lint、测试与供应链通过。
-- [ ] 证据分层同步，桌面、Windows 10/多屏、其它宿主和当前 SHA CI 保留未验。
+- [x] 干净源码的完整 Windows 默认/QA 编译、严格 lint、测试与供应链通过。
+- [x] 证据分层同步，桌面、Windows 10/多屏、其它宿主和当前 SHA CI 保留未验。
 
 ## Out of Scope
 
@@ -52,8 +52,25 @@ scale_factor 转换整块矩形，然后与所有帧求交；跨屏缩放不同�
 实际应用 Cargo 图的 MSVC 红基线：2 passed / 6 failed / 0 ignored，退出码 101；调用实际旧
 to_logical/append_window_intersections，用字面帧的物理交集面积抽取主导比例，不调用系统 API。
 初版及补齐空像素帧断言后的最终绿回归均为 8 passed / 0 failed / 0 ignored，退出码 0，
-1063 项过滤；最终日志 native-green-final.log。完整 Windows 默认/QA 门禁待记录。
+1063 项过滤；最终日志 native-green-final.log。
 红/绿原始日志、源码快照与哈希位于 windows-window-candidate-red/RESULT.json。
 开发中曾因 X11Probe 不可变借用编译失败，已修正并保留日志；不计为测试运行。
 一次复跑启动命令缺 PATH 未执行 Cargo，终端返回码不能作为通过证据；最终使用已安装工具的
-绝对路径与独立日志检查。上一轮 bb38cc6 门禁不替代当前改动，桌面和新 SHA CI 未运行。
+绝对路径与独立日志检查。
+
+干净被测源码 78bd83fc3547459c523a150faa8a999248c16267 的完整 Windows 默认/QA 门禁 exit 0：
+30 passed / 0 failed / 1 skipped（Linux smoke）；默认 Rust 1066 / 5 ignored、QA Rust 1123 /
+5 ignored（重叠不累加），两个图分别执行全部八项新回归，已包含在各自 Rust 总数。
+前端 75 文件 / 1292 passed，Python 33 + 3；独立 vendor 十八项、剪贴板二十四项通过，
+不计入应用 Rust 总数。源码/门禁/CI 后继变化仅四份 Markdown；日志哈希与干净检出已核对。
+最终证据 windows-window-candidate-native-qa-78bd83f-exitcode-checked/RESULT.json。
+
+首次完整门禁日志也是 30 passed / 0 failed，但包装器 Start-Process 没有取得子进程退出码；
+RESULT exitCode 为 null、status failed，不能计整轮通过。windows-window-candidate-native-qa-78bd83f
+原日志与记录保留。新的未纳入 Git 的包装器直接持有 Process，异步排空两输出流，WaitForExit
+后要求 HasExited 和非空退出码；无界面退出 0/17、双流探针通过，再对同一 SHA 完整重跑确认 0。
+包装器原始字节/探针与前次日志哈希在 windows-window-candidate-exit-code/RESULT.json。
+
+Linux/macOS 转换和排序按源码核对保持，未执行其它宿主；Windows Native 既有 cargo test
+自动包含八项模块，无 CI 配置改动。真实桌面、Windows 10/双屏/负坐标、新 SHA CI 和其它
+W04 几何仍未验，上一轮门禁和当前离线合同不能替代。未安装新包、合入 dev 或发布。
