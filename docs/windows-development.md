@@ -21,7 +21,7 @@
 
 ## 本机入口
 
-在仓库根目录的 PowerShell 中运行：
+在仓库根目录的 Windows PowerShell 5.1 或 PowerShell 7 中运行：
 
 ```powershell
 # 默认构建：Python 合同、Rust、vendor WGC、前端与生产入口

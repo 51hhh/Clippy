@@ -1,9 +1,13 @@
 // @vitest-environment node
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const gate = fileURLToPath(new URL("../../scripts/ci-windows.ps1", import.meta.url));
+const pwsh = join(process.env.ProgramFiles || "C:\\Program Files", "PowerShell", "7", "pwsh.exe");
+const realShells = ["powershell.exe", ...(existsSync(pwsh) ? [pwsh] : [])];
 const nativePrelude = `
   function global:python.exe { $global:LASTEXITCODE = 0 }
   function global:rustc.exe {
@@ -12,11 +16,16 @@ const nativePrelude = `
   }
 `;
 
-function runGate(failTests, switches = "-FrontendOnly -Quick", prelude = "") {
+function runGate(failTests, switches = "-FrontendOnly -Quick", prelude = "", {
+  realNode = false, nodeVersion = "24.21.0", nodeExitCode = 0, shell = "powershell.exe",
+} = {}) {
   // 替代外部命令，验证真实 PowerShell 入口的退出码；不安装依赖、不运行 Rust 或写入产物。
   const command = `
     ${prelude}
-    function global:node.exe { $global:LASTEXITCODE = 0 }
+    ${realNode ? "" : `function global:node.exe {
+      $global:LASTEXITCODE = ${nodeExitCode}
+      if ($args[0] -eq '-p') { '${nodeVersion}' }
+    }`}
     function global:npm.cmd {
       if (${failTests ? "$true" : "$false"} -and $args[0] -eq 'test') {
         $global:LASTEXITCODE = 23
@@ -24,7 +33,7 @@ function runGate(failTests, switches = "-FrontendOnly -Quick", prelude = "") {
     }
     & $env:CLIPPY_GATE_SCRIPT ${switches}
   `;
-  return spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], {
+  return spawnSync(shell, ["-NoProfile", "-NonInteractive", "-Command", command], {
     encoding: "utf8",
     env: { ...process.env, CLIPPY_GATE_SCRIPT: gate },
     timeout: 20_000,
@@ -33,6 +42,38 @@ function runGate(failTests, switches = "-FrontendOnly -Quick", prelude = "") {
 
 // 子进程硬超时为 20 秒，外层合同预算须覆盖 Windows 冷启动；退出码/失败断言保持不变。
 describe.skipIf(process.platform !== "win32")("native Windows gate failure accounting", { timeout: 30_000 }, () => {
+  it.each(realShells)("accepts actual Node through %s native argument transport", (shell) => {
+    const result = runGate(false, "-FrontendOnly -Quick", "", { realNode: true, shell });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("frontend only (partial)");
+    expect(result.stdout).toContain("0 failed, 4 skipped");
+    expect(result.stderr).not.toContain("SyntaxError");
+  });
+
+  it.each(["22.11.0", "20.19.0"])("rejects unsupported Node %s before executing checks", (nodeVersion) => {
+    const result = runGate(false, "-FrontendOnly -Quick", "", { nodeVersion });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain("[FAIL] Prerequisites: Node.js >= 22.12 is required.");
+    expect(result.stdout).not.toContain("[RUN]");
+  });
+
+  it.each(["22.12.0", "23.0.0"])("accepts supported Node %s", (nodeVersion) => {
+    const result = runGate(false, "-FrontendOnly -Quick", "", { nodeVersion });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("0 failed, 4 skipped");
+  });
+
+  it("rejects a failed Node version query even when it emits a supported version", () => {
+    const result = runGate(false, "-FrontendOnly -Quick", "", { nodeExitCode: 17 });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain("[FAIL] Prerequisites: Node.js >= 22.12 is required.");
+    expect(result.stdout).not.toContain("[RUN]");
+  });
+
   it("returns failure when npm test exits nonzero even when later checks succeed", () => {
     const result = runGate(true);
     expect(result.error).toBeUndefined();

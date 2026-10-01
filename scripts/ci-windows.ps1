@@ -47,8 +47,10 @@ try {
     if ($FrontendOnly -and $RecordingQa) { throw 'FrontendOnly cannot include RecordingQa.' }
     Require-Command node.exe 'Install Node.js >= 22.12.'
     Require-Command npm.cmd 'Install Node.js >= 22.12.'
-    & node.exe -e 'const [a,b]=process.versions.node.split(".").map(Number); if(a<22 || (a===22 && b<12)) process.exit(1);'
-    if ($LASTEXITCODE -ne 0) { throw 'Node.js >= 22.12 is required.' }
+    $nodeVersion = & node.exe -p 'process.versions.node'
+    if ($LASTEXITCODE -ne 0 -or [version]$nodeVersion -lt [version]'22.12.0') {
+        throw 'Node.js >= 22.12 is required.'
+    }
     if (-not $FrontendOnly) {
         Require-Command python.exe 'Install Python 3; WindowsApps aliases are insufficient.'
         & python.exe -c 'import sys; assert sys.version_info.major == 3'
