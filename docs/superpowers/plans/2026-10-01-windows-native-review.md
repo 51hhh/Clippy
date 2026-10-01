@@ -13,8 +13,10 @@
   Windows 渲染由当前窗口原生 DPI 驱动，首读使用 caller-bound 只读业务命令，既有 core 权限
   与来源/展示元数据保持；先订阅事件，旧查询或 payload 不覆盖实时比例，未知回退 auto。
   原 App 十二项红基线 2 passed / 10 failed，同组全绿；三项 API 适配器、六项 MSVC 纯读取
-  合同、既有 Pin/权限回归与 TS 检查通过。完整干净 SHA 默认/QA 门禁待执行，真实 DPI 与
-  WebView2 像素、Windows 10/多屏、当前 SHA CI 和其它宿主未验。
+  合同、既有 Pin/权限回归与 TS 检查通过。干净 e339042 完整默认/QA 门禁确认原生子进程 exit 0，
+  30 passed / 0 failed / 1 Linux smoke skipped；默认 Rust 1130、QA Rust 1187（各 5 ignored，
+  重叠不累加），新增六项每图在总数内，前端 77 文件 / 1307 passed。真实 DPI 与 WebView2 像素、
+  Windows 10/多屏、当前 SHA CI 和其它宿主未验；源码/日志哈希与干净检出已核对。
   WGC 续审确认现有 monitor-local crop 合同和 prepare/connect 的原生 descriptor 复核；
   未把冻结到 prepare 的原点变化定为缺陷或修改它。运行中热插拔/身份重用仍未验。
 
@@ -203,7 +205,7 @@
 | W05 | P1 | 同权限自动粘贴一次、高完整性目标 copy-only、目标销毁/复用、用户接管；DACL 与配置连续覆盖 | 45769c9 普通权限文本/图片完整用例实际通过；管理员、销毁复用与用户接管桌面待验证。私有文件准备失败时序见 W18，富文本片段边界见 W20，首次按键前目标复核见 W23 |
 | W06 | P1 | QA 包设备默认/非默认/同名/拔出、双源混音、暂停恢复、控制窗排除、强杀恢复、30 分钟 A/V 漂移 | WASAPI 正常停止尾部见 W24，WGC 关闭/初始化清理见 W25/W27，双轨桥接线程回收见 W26；真实设备、混音及其余场景仍待真机验收 |
 | W07 | P2 | NSIS/MSI 安装升级卸载、WebView2、自启动、托盘/快捷键、系统凭据与更新 | 官方 QA 包身份已核对，MSI 只读检查通过；NSIS 安装落盘/启动子步骤已核对，完整 MSI/升级/卸载/updater 未验收；本机自签名链不受信任，未更改信任 |
-| W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 42e52c0、45769c9 与 WinPS 的 b2fd247 各自七项 CI 通过；后续十七项产品修复本机通过，新 SHA CI、Linux 本地完整门禁及 Wayland 回归保留未完成 |
+| W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 42e52c0、45769c9 与 WinPS 的 b2fd247 各自七项 CI 通过；后续十八项产品修复本机通过，新 SHA CI、Linux 本地完整门禁及 Wayland 回归保留未完成 |
 | W09 | P1 | OCR 质量工具 Windows 私有诊断目录与符号链接拒绝合同；失败关闭，检查子文件继承 | 实际 DACL/等价 SDDL 及 10 类失败关闭负例通过；本机 33 项质量合同与 42e52c0 跨平台 CI 通过 |
 | W10 | P2 | 审查 webm-sys 的 C++ 编译参数在 MSVC 上产生 D9002；按真实编译器族选择 flag，保留固定来源与许可证 | 独立 WIN-WEBM-MSVC-01 / PR #14；本机完整 QA 绑定 e4ccc46，45769c9 七项 CI 与完整 QA workflow 全成功，新 Windows 包来源/哈希/签名身份已核对；真实桌面未验证 |
 | W11 | P1 | 新 Windows runner 使用 CRLF 检出时的 IPC 负例与结构回归；保留两种换行的正/负合同 | 独立 CRLF checkout 1284 项通过，fe37aec Windows 前端 CI 已通过 |
@@ -229,7 +231,7 @@
 | W31 | P1 | 冻结原始物理边界贯穿 Windows 覆盖层/guide、光标、窗口候选、长截图指针与重捕获身份 | 独立 WIN-NATIVE-MONITOR-01；MSVC 实际旧算法红基线 1 passed / 15 failed、十六项绿回归；首次完整门禁 28 passed / 2 lint failed 保留，修正后的 2f0e225 完整默认/QA 门禁 exit 0，30 passed / 0 failed / 1 Linux smoke skipped。实际窗口/DPI、多屏、Pin/WGC 原点身份与当前 SHA CI 未验 |
 | W32 | P1 | 冻结物理来源贯穿截图/长截图及历史图片 Pin，单次原生规划与两阶段物理请求 | 独立 WIN-PIN-ORIGIN-01；旧生产输出及提取布局/请求协议红基线 3 passed / 15 failed，同组十八项 MSVC 离线回归和 888127a 完整默认/QA 门禁通过、原生子进程 exit 0；30 passed / 0 failed / 1 Linux smoke skipped。真实窗口/DPI、工作区/工具条/WGC、新 SHA CI 与其它宿主未验 |
 | W33 | P1 | 原生 owner/工作区贯通 Pin 保存、恢复及客户区工具条边界 | 独立 WIN-PIN-WORKAREA-01；提取旧生产协议红基线 1 passed / 15 failed，同组十六项 MSVC 回归和 4a58101 完整默认/QA 门禁通过，原生子进程 exit 0；30 passed / 0 failed / 1 Linux smoke skipped。真实 OS owner/窗口/DPI/热插拔、多屏/Windows 10、WGC 与当前 SHA CI 未验 |
-| W34 | P2 | Windows Pin 实时 DPI 渲染判据、首读/事件竞争与 caller-bound 只读查询 | 独立 WIN-PIN-LIVE-DPI-01；原 App 十二项红基线 2 passed / 10 failed，同组全绿、三项 API 与六项 MSVC 纯数据读取合同通过，定向前端 74 与 TS 通过。完整 Windows 门禁待执行，真实事件/成像、多屏/Windows 10 与新 SHA CI 未验 |
+| W34 | P2 | Windows Pin 实时 DPI 渲染判据、首读/事件竞争与 caller-bound 只读查询 | 独立 WIN-PIN-LIVE-DPI-01；原 App 十二项红基线 2 passed / 10 failed，同组全绿、三项 API 与六项 MSVC 纯数据读取合同通过；e339042 完整 Windows 默认/QA 门禁确认原生子进程 exit 0，30 passed / 0 failed / 1 Linux smoke skipped。真实事件/成像、多屏/Windows 10 与新 SHA CI 未验 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。

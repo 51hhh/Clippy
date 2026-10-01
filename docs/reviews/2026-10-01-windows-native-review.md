@@ -13,8 +13,15 @@ payload 和乐观展示状态，迟到首读不覆盖新事件，晚完成订阅
 使用原 payload 比例；源像素、CSS/zoom、工作区、GTK 补偿及 capability 原字节保持。
 实际旧 App 的十二项 React/DOM 回归红基线 2 passed / 10 failed，同一测试文件全部通过；
 三项 facade/API 适配器、六项 MSVC 调用者/数值/保留来源合同、既有 Pin/权限回归和 TS 通过。
-定向前端共 74 项；完整 Windows 默认/QA 门禁待执行，真实 WebView2 成像/事件、Windows 10/
-多屏、当前 SHA CI 与其它宿主未验。Mock 服务和纯读取 closure 不计为原生桌面结果。
+定向前端共 74 项；干净源码 e33904210281fd214431a14407ea2bdcc45d8eb1 的完整 Windows
+默认/QA 门禁确认原生子进程 exit 0，30 passed / 0 failed / 1 Linux smoke skipped。默认 Rust
+1130、QA Rust 1187（各 5 ignored，重叠不累加），新增六项每图包含在总数。前端 77 文件 /
+1307 passed，Python 33 + 3，独立 vendor 十八项和剪贴板二十四项通过。check、严格 lint、
+供应链、构建/入口、源码和原始日志哈希与干净检出已核对；两份原 Rust 测试模块及十三份既有
+生产/回归文件保持，capability 原始字节和新十二项红绿测试字节不变，四份锁定原生源码哈希一致。
+结果 windows-pin-live-dpi-native-qa-e339042，合同/来源/WGC 续审 windows-pin-live-dpi-contract。
+真实 WebView2 成像/事件、Windows 10/多屏、当前 SHA CI 与其它宿主未验。
+Mock 服务和纯读取 closure 不计为原生桌面结果；累计十八项本机修复均未进入已安装旧包。
 录屏续审确认 RecordingCaptureSpec 的显示器 ID + 屏内像素语义，prepare/connect 复核原生
 descriptor，每帧 crop 校验冻结尺寸/实际 RGBA 长度。冻结到 prepare 的原点变化本身不足以
 证明错误，不改现有合同；运行中热插拔、HMONITOR 身份重用和真实 WGC 仍未验。

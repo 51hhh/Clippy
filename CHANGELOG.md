@@ -9,8 +9,10 @@
   使用 auto。实时比例独立于 payload 与用户状态，源像素、CSS 尺寸、zoom 和 GTK 补偿保持。
   原 App 的十二项回归红基线 2 passed / 10 failed，修复后同组十二项、三项 facade 适配器、
   六项 MSVC 调用者/数值读取合同通过；定向前端共 74 项及 TypeScript 检查通过。
-  完整 Windows 默认/QA 门禁待执行，真实 WebView2 成像/DPI 事件、多屏/Windows 10、新 SHA CI
-  和其它宿主未验。未新增 core 窗口权限。
+  干净源码 e339042 完整 Windows 默认/QA 门禁确认原生子进程 exit 0：30 passed / 0 failed /
+  1 Linux smoke skipped；默认 Rust 1130、QA Rust 1187（各 5 ignored，重叠不累加），新增六项
+  各自在总数内。前端 77 文件 / 1307 passed。真实 WebView2 成像/DPI 事件、多屏/Windows 10、
+  当前 SHA CI 和其它宿主未验。未新增 core 窗口权限。
   （需求：`WIN-PIN-LIVE-DPI-01`；见 `docs/superpowers/specs/2026-10-02-windows-pin-live-dpi.md`）
 
 ### 2026-10-02 Windows Pin 工作区与工具条几何

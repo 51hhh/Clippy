@@ -27,8 +27,8 @@
 - [x] Windows 使用实时原生 DPI 选择滤镜，迟到首读/旧 payload 不回退比例。
 - [x] 未知/无效/失败回退 auto，有效事件恢复，异步卸载无监听泄漏。
 - [x] 非 Windows 既有行为、来源/内容/展示/持久化合同保持；首读绑定原生 Pin 调用者。
-- [ ] 旧 App 红基线、同组绿色回归、适配器和干净 SHA Windows 默认/QA 门禁核对完成。
-- [ ] 文档同 ID 同步，真机与当前 SHA CI 未验证边界保留。
+- [x] 旧 App 红基线、同组绿色回归、适配器和干净 SHA Windows 默认/QA 门禁核对完成。
+- [x] 文档同 ID 同步，真机与当前 SHA CI 未验证边界保留。
 
 ## Out of Scope
 
@@ -46,7 +46,7 @@ ScaleFactorChanged；Tauri 2.10.3 将 scaleFactor 和 size 发送给当前窗口
 scaleFactor 调用 plugin:window|scale_factor，onScaleChanged 订阅当前窗口 scale 事件。
 项目既有权限合同禁止通用 scale-factor grant，最终首读改用注入原生 WebviewWindow 的业务
 命令；锁定 Tauri 的 CommandArg 实现直接从 command.message.webview() 取得该窗口。
- capability 原始字节保持，前端只有现有事件监听权限。
+capability 原始字节保持，前端只有现有事件监听权限。
 这是源码与数值合同证据，尚未观测真实 WebView2 成像或原生事件到达。
 
 录屏续审：RecordingCaptureSpec 明确只接受显示器 ID 与屏内像素 crop，平台复核冻结尺寸；
@@ -60,5 +60,12 @@ Windows prepare/connect 重新查询，并比较实际 descriptor 的物理 crop
 权限和 Pin 回归共五文件 74 passed，TS 检查 exit 0。首次 jsx 扩展名不在 Vitest include 的
 发现失败保留为单独日志，不计为产品红基线。MSVC 六项生产 pure-data read_for_pin 合同 exit 0，
 0 failed / 0 ignored / 1129 filtered；回归不调用原生窗口/显示器/光标/输入 API。
-完整干净 SHA 默认/QA 门禁待执行；真实成像、事件、硬件矩阵和当前 SHA CI 未验证。
+干净源码 e33904210281fd214431a14407ea2bdcc45d8eb1 完整默认/QA 门禁确认原生子进程 exit 0：
+30 passed / 0 failed / 1 Linux smoke skipped。默认 Rust 1130、QA Rust 1187（各 5 ignored，
+重叠不累加），新增六项分别在每图总数内；前端 77 文件 / 1307 passed，Python 33 + 3，独立
+vendor 十八项和剪贴板二十四项通过。check、严格 clippy、供应链、构建/入口通过；原始日志/源码
+哈希、门禁前后干净检出、四份锁定原生源码和已核对退出码的 helper 哈希一致。十三份既有生产/
+回归文件及两份原 Rust 测试模块正文保留，capability 原字节与新十二项红绿测试文件字节不变。
+完整结果目录 C:\win\Clippy\src-tauri\target\windows-pin-live-dpi-native-qa-e339042。
+后继只同步四份 Markdown；真实成像、事件、硬件矩阵和当前 SHA CI 未验证。
 红绿/源码目录 C:\win\Clippy\src-tauri\target\windows-pin-live-dpi-contract。
