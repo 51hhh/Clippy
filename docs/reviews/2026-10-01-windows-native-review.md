@@ -14,7 +14,20 @@
 回滚红用例停在返回值首次断言，后续恢复断言未执行；不是实际系统键位冲突或设置 UI。
 同十项原字节修复后通过，共 15 passed；生产配置 commit 协议的持久化/应用回滚回调
 也通过。原文件在提取外、执行协议在结果继承外、旧五项正文与十九份关联文件保持。
-完整 Windows 默认/QA 门禁尚未运行，当前只完成定向验证；安装包未更新，桌面操控停止。
+干净源码 0f793c9b43d78e82759406e9e517a256af1eb41f 完整 Windows 默认/QA 门禁原生 child/终端 exit 0：
+30 passed / 0 failed / 1 Linux smoke skipped。默认 Rust 1175、QA Rust 1238（各 5 ignored，
+重叠不累加），新十项/旧五项各图明确通过；旧媒体/导出/合并合同保持，前端 79 文件 /
+1323 passed。Python 33 + 3、独立 vendor 十八项/剪贴板二十四项、check、严格 lint、
+供应链与构建/入口通过。源码/原始日志/退出码及干净检出核对，门禁后只改四份 Markdown。
+累计二十七项本机产品修复未装包；保存实际 QA/全未运行模板原字节保持。
+真实系统注册/占用与窗口/UI、其它宿主/当前 SHA CI、安装与 Wayland 回归保留未验，桌面
+操控停止。证据 windows-shortcut-shared-contract / windows-shortcut-shared-native-qa-0f793c9。
+下一步源码候选：ClipboardSnapshot 分两次读取 HTML/text，Windows arboard 每次分别
+持有 OpenClipboard guard；WriteEpoch 只校验本程序写入，Windows ChangeMonitor 为回退
+轮询。外部变更可能造成格式混配尚未复现。[Microsoft OpenClipboard 合同](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-openclipboard)
+说明打开期间禁止其它应用修改；[sequence 合同](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getclipboardsequencenumber)
+说明无权限返回零且延迟渲染影响增长时点。权威合同已读；下一步受控夹具须覆盖这些边界，
+不读取真实剪贴板、不将源码推断记成缺陷通过。五文件哈希与引用保存在 CLIPBOARD-FOLLOWUP-SOURCE-AUDIT.json。
 
 此前 W42 / REC-LIBRARY-READY-01：load 的数据/loading 检查代次，但其 finally 无条件
 ready。原 App 字节生产组件/jsdom 红基线 35 passed / 5 failed，旧 32 全绿，新八项 3/5；

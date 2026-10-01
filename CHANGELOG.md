@@ -8,7 +8,10 @@
   全失败返回错误，部分成功/优先级和用户保存判重保持。提取原执行协议红基线 9/6，
   旧五项全绿，五次返回成功及一次动作成功的错误归因复现；同十项原字节修复后通过，
   含旧五项共 15 passed。受控回调不证明真实系统冲突或 UI；原合同/关联文件核对。
-  完整 Windows 门禁尚未运行；其它宿主/当前 SHA CI/真机留未验，安装包未更新。
+  干净 0f793c9 完整 Windows 默认/QA 门禁 child/终端 exit 0，30 passed / 0 failed /
+  1 Linux smoke skipped。默认 Rust 1175、QA Rust 1238（各 5 ignored，重叠不累加），
+  新十项/旧五项各图通过；前端 79/1323。真实系统/其它宿主/当前 SHA CI 留未验，
+  安装包未更新，桌面操控停止。
   （需求：`WIN-SHORTCUT-SHARED-01`；见 `docs/superpowers/specs/2026-10-02-windows-shortcut-shared.md`）
 
 ### 2026-10-02 结果库退休加载不再通知窗口就绪
