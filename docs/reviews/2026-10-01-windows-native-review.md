@@ -40,7 +40,7 @@
 Run：<https://github.com/51hhh/Clippy/actions/runs/35792281966>。
 匿名验证脚本请求曾遇 GitHub 403 限流；随后读取 authenticated check-runs，未把失败请求计为通过。
 该证据覆盖编译、lint 和对应测试，不覆盖 Windows 10/11 桌面、音频听感、DPI 或安装更新。
-本轮修改尚未推送，修改后 SHA 的 CI 仍待执行。
+本轮修改已推送到草稿 PR；首次修改后 CI 和后续修复证据见下方记录，不能沿用基线结果。
 
 ## Findings
 

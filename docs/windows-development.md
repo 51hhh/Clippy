@@ -14,6 +14,11 @@
 系统前置依赖以 [Tauri 官方 Windows 说明](https://v2.tauri.app/start/prerequisites/#windows) 为准。
 本仓库不会通过验证脚本安装系统工具、修改执行策略或启用录屏发布功能。
 
+`.gitattributes` 将 xcap vendor 文本和 Cargo 锁文件固定为 LF，保障原始字节供应链校验。
+全新检出可使用 `core.autocrlf=true`；已有检出在拉取属性规则后可能仍保留旧 CRLF 文件。
+此时使用全新 checkout 核验，或确认文件无本地修改后按新属性重新检出。校验器始终检查实际字节，
+哈希失配需要核对来源，不能通过关闭校验或修改登记哈希来消除错误。
+
 ## 本机入口
 
 在仓库根目录的 PowerShell 中运行：
