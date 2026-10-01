@@ -9,6 +9,13 @@
 
 ## 当前续审状态
 
+- `REC-PLAYBACK-LIFECYCLE-01` / W41：独立 `codex/recording-playback-lifecycle`，基于 `092c413`。
+  播放请求身份在卸载/服务清理/预览关闭时退休，迟到租约由旧服务释放；旧失败不改新请求。
+  关闭只清理该播放 busy，其它导出保持。原 App 字节红基线 27/5（旧 24 全绿），观察到
+  释放缺口、播放器重开和旧 busy 阻塞；第五项未执行到旧拒绝。新八项原字节修复后通过，
+  定向 3 文件 / 32 passed，旧两测试文件和十一份关联文件保持。完整 Windows 门禁待执行；
+  替身释放/服务更换不是实际 backend 撤销/窗口重建，桌面/其它宿主/新 SHA CI 留未验。
+
 - `REC-MEDIA-REVOKE-01` / W40：独立 `codex/recording-media-revoke`，基于 `116f1d3`。
   准备进入后台前捕获会话身份；撤销同时失效已签发与待签发租约，首块/约 16 MiB 哈希检查
   及最终同锁签发检查同一凭据。其它会话、新准备保持，最后持有者 Drop 回收弱条目。
@@ -300,6 +307,8 @@
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。
+
+| W41 | P1 | 播放准备响应绑定组件/请求身份，退休后释放迟到租约，保留后继与其它动作状态 | 独立 REC-PLAYBACK-LIFECYCLE-01；原 App 字节 jsdom 红基线 27/5（旧 24 全绿），同八项原字节修复后通过，定向 32 passed；原合同与十一份关联文件核对。完整 Windows 门禁待执行；实际 backend/窗口/WebView/其它宿主与新 SHA CI 未验 |
 
 ## Verification
 

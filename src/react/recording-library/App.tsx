@@ -206,6 +206,7 @@ export function App({ services = defaultServices }: { services?: RecordingLibrar
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [playback, setPlayback] = useState<RecordingPlayback | null>(null);
   const playbackRef = useRef<RecordingPlayback | null>(null);
+  const pendingPlayback = useRef<{ key: string } | null>(null);
 
   const load = useCallback(async () => {
     const current = ++generation.current;
@@ -223,9 +224,13 @@ export function App({ services = defaultServices }: { services?: RecordingLibrar
 
   useEffect(() => {
     mounted.current = true;
+    setPlayback(null);
+    setBusyKey(null);
+    setActionError(false);
     void load().finally(() => services.ready().catch(() => undefined));
     return () => {
       mounted.current = false;
+      pendingPlayback.current = null;
       generation.current += 1;
       const current = playbackRef.current;
       playbackRef.current = null;
@@ -234,6 +239,10 @@ export function App({ services = defaultServices }: { services?: RecordingLibrar
   }, [load, services]);
 
   const closePlayback = useCallback(async () => {
+    const pending = pendingPlayback.current;
+    pendingPlayback.current = null;
+    // 只退休正在切换的播放准备，不能解除其它导出/恢复动作的忙碌状态。
+    if (pending) setBusyKey((current) => current === pending.key ? null : current);
     const current = playbackRef.current;
     playbackRef.current = null;
     setPlayback(null);
@@ -243,12 +252,21 @@ export function App({ services = defaultServices }: { services?: RecordingLibrar
   const openPlayback = async (session: RecordingLibraryItem, artifact: RecordingLibraryArtifact) => {
     if (busyKey) return;
     const key = artifactBusyKey(session.sessionId, artifact.artifactId, "playback");
+    const request = { key };
+    pendingPlayback.current = request;
+    const isCurrent = () => mounted.current && pendingPlayback.current === request;
     let preparedToken: string | null = null;
     setBusyKey(key);
     setActionError(false);
     try {
       const lease = await services.preparePlayback(session.sessionId, artifact.artifactId);
       preparedToken = lease.token;
+      // 租约可能已在后端签发；即使组件退休，也通过发起请求的服务释放迟到结果。
+      if (!isCurrent()) {
+        await services.releasePlayback(lease.token).catch(() => undefined);
+        preparedToken = null;
+        return;
+      }
       const next: RecordingPlayback = {
         sessionId: session.sessionId,
         artifactId: artifact.artifactId,
@@ -264,9 +282,12 @@ export function App({ services = defaultServices }: { services?: RecordingLibrar
       if (previous) void services.releasePlayback(previous.token).catch(() => undefined);
     } catch {
       if (preparedToken) void services.releasePlayback(preparedToken).catch(() => undefined);
-      setActionError(true);
+      if (isCurrent()) setActionError(true);
     } finally {
-      setBusyKey(null);
+      if (isCurrent()) {
+        pendingPlayback.current = null;
+        setBusyKey(null);
+      }
     }
   };
 

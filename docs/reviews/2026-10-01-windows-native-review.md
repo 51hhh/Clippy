@@ -5,7 +5,18 @@
 
 ## 当前续审结果
 
-当前 W40 / REC-MEDIA-REVOKE-01：原 revoke_session 仅移除已签发租约，generation 只检查
+当前 W41 / REC-PLAYBACK-LIFECYCLE-01：原 App 不检查 prepare 响应的组件/请求身份。
+保持原 App 字节的生产 React/jsdom 红基线 27 passed / 5 failed，旧组件 17/API 7 全绿，
+新八项 3/5；三项未调用迟到释放，一项关闭预览后实际重开 video，一项旧 busy 阻止新请求，
+第五项未执行到旧拒绝，不能描述成已观察到旧错误覆盖。现在请求身份在卸载/服务清理/
+预览关闭时退休；成功迟到通过旧服务释放并处理拒绝，只有当前请求 catch/finally 修改
+错误与 busy。服务新生命周期重置播放状态；关闭只解除该播放 busy，其它导出忙碌保持。
+同八项原测试字节与旧两文件保持，定向共 32 passed；App 限定修改以外全原正文和十一份
+关联文件保持，无 API/IPC/Rust/依赖/文案变更。完整干净 SHA Windows 门禁待执行。
+真实 backend 租约撤销、窗口重建/WebView/其它宿主和当前 SHA CI 未验；服务更换与释放
+是组件注入合同和替身调用，桌面操作停止。合同 recording-playback-lifecycle-contract。
+
+此前 W40 / REC-MEDIA-REVOKE-01：原 revoke_session 仅移除已签发租约，generation 只检查
 结果窗关闭。原生产 manager 仅追加测试模块，真实文件/通道控制的排队 worker 红基线
 7 passed / 4 failed；旧五项全绿，新六项 2 passed / 4 failed，四项实际重新签发 Ok 租约。
 prepare_session 在后台任务前绑定会话 Arc 身份，state 保留 Weak；撤销移除身份，首块/约
@@ -20,7 +31,7 @@ child 与终端 exit 0，30 passed / 0 failed / 1 Linux smoke skipped。默认 R
 既有九条 manifest/导出/合并按原图通过。前端 77 文件 / 1307 passed，Python 33 + 3，
 独立 vendor 十八项和剪贴板二十四项通过；check、严格 lint、供应链、构建/入口通过。
 原始日志/源码/checked helper/门禁脚本哈希和干净检出核对，门禁后只改四份 Markdown。
-累计二十四项本机产品修复未装包，保存实际 QA/全未运行模板原始字节保持。没有真实删除/
+截至 W40 二十四项本机产品修复未装包，保存实际 QA/全未运行模板原始字节保持。没有真实删除/
 合并、Tauri invoke、WebView 解码或哈希扫描中间撤销时序观察；其它宿主、当前 SHA CI 与
 桌面留未验。前端 openPlayback 未检查卸载后的迟到 Promise，既有用例只覆盖已经返回的
 租约；下一步先用生产 React 组件/jsdom 复现，候选未分类为缺陷。合同
