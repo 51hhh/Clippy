@@ -6,12 +6,17 @@
 ## 当前续审结果
 
 当前继续 W23 / WIN-PASTE-RECHECK-01：恢复目标与首次按键之间再查窗口/PID/前台，
-同一生产初始化入口的离线红基线 2 passed / 4 failed，修复后六项通过；完整本机门禁待验。
+同一生产初始化入口的离线红基线 2 passed / 4 failed，修复后六项在真实 Cargo 两图均通过。
+源码 `14bf61630efab7b62905bbc5b976fbed8e62166c` 的完整 Windows 默认/录屏 QA 本机门禁
+exit 0：27 passed / 0 failed / 1 skipped（Linux smoke）；默认 Rust 1052 / 5 ignored，
+QA Rust 1105 / 5 ignored（重叠不累加），前端 75 文件 / 1292 passed。六项粘贴合同已计入 Rust 图。
+Windows 剪贴板四组 9 / 7 / 5 / 3 共 24 passed；检出干净与日志哈希已核对，原始证据在
+windows-paste-recheck-native-qa-14bf616/RESULT.json，红绿辅助证据另行保留。
 未执行真实窗口或按键调用，最后复核后的系统竞争、macOS 原生图、新 SHA CI 与桌面仍未验。
 
 用户要求停止桌面操控，当前继续代码 review 与 Windows 本机自动验证。已安装的 QA 源码仍为
 `45769c9`：真实记录是文本/图片 2 pass、Pin 工具栏裁切 1 fail、36 not_run；原始 39 项模板保留不变。
-新 Pin、私有文件、长截图光标、CF_HTML、图片预算和 DIB 偏移修复未安装，桌面复测、录屏/音频、
+新 Pin、私有文件、长截图光标、CF_HTML、图片预算、DIB 偏移和粘贴目标复核修复未安装，桌面复测、录屏/音频、
 管理员目标、多屏和 Windows 10 均保持未验证。
 
 此前独立 WIN-DIBV5-PIXEL-01 修复 W22 的显式像素偏移，原 Chrome/Firefox 断言及新增
@@ -90,6 +95,7 @@ Windows 10、多屏、真实音频与完整安装升级仍未完成。以下失�
 | `50b7778` | Windows HTML 读取实际字节，再安全校验片段偏移 | 关闭锁定依赖中的越界风险调用；本机/CI 显式执行依赖库解析合同 |
 | `531d791` | Windows PNG / DIB 解码前执行已有尺寸预算 | 四字节故障注入阻止先分配后拒绝；25 项完整 Windows 本机门禁通过 |
 | `25fb5d7` | 借用 DIB 文件视图提供显式像素偏移 | 原 Chrome/Firefox 与尾部/方向/颜色表像素断言通过；27 项完整 Windows 本机门禁通过 |
+| `14bf616` | 激活/等待与输入后端初始化以后复核 Windows 粘贴目标 | 六项状态变化/顺序合同与完整默认/QA 本机门禁通过；实际桌面接管未验 |
 
 以上是本机 Git 实际可达节点；录屏、动作和长截图后续分支已包含在最新基线的祖先链中。
 
@@ -108,7 +114,7 @@ Run：<https://github.com/51hhh/Clippy/actions/runs/35792281966>。
 
 ## Findings
 
-### W23 / P1 — Windows 输入后端初始化后未再复核粘贴目标（离线复现并修复）
+### W23 / P1 — Windows 输入后端初始化后未再复核粘贴目标（离线复现并修复，本机门禁通过）
 
 Windows paste 在激活前检查 HWND/PID/完整性，恢复焦点轮询成功后进入 inject_paste；
 后者先 Enigo::new 再按键，没有复核激活/等待或初始化期间改变的窗口身份和前台。
@@ -119,7 +125,8 @@ macOS 使用空复核回调，原按键、释放与错误语句保持；X11/Wayl
 MSVC harness include 完整 native.rs，fake 初始化改变快照，fake 注入只记次数；红基线
 2 passed / 4 failed，窗口失效、未知 PID 或焦点变化仍注入，正常顺序缺复核；修复后六项通过。
 该辅助验证 stub 外围类型和平台 facade，调用原生权限入口即 panic，未执行 Enigo 或 Win32 窗口/输入；
-完整 Cargo 本机门禁待验，不能据此宣称真实错误粘贴、最终输入竞争或 macOS 原生图已验证。
+完整 Cargo 本机门禁绑定干净源码 14bf616，exit 0，默认/QA 两图分别 1052 / 1105 passed，
+各 5 ignored；六项在实际图内均通过。不能据此宣称真实错误粘贴、最终输入竞争或 macOS 原生图已验证。
 
 本轮路径疑点复核：Rust 1.98.1 MSVC 在真实 Windows junction 上返回 is_symlink=true、is_dir=false，
 与当前录屏普通目录 guard 相符；只完成元数据/表达式 probe，不计为完整录屏恢复 QA，未新增产品补丁。

@@ -6,7 +6,9 @@
 
 - Windows 在激活/等待和输入后端初始化后、首次粘贴按键前再次核对窗口、PID 和前台目标；
   目标销毁/所有者变化或焦点切换时保持复制状态并返回既有结构化降级，不再次抢焦点。
-  同一生产入口的离线故障注入先 2 passed / 4 failed，修复后六项通过；完整本机门禁待验。
+  同一生产入口的离线故障注入先 2 passed / 4 failed，修复后六项通过；源码 14bf616 的完整
+  Windows 默认/录屏 QA 本机门禁 exit 0，27 passed / 0 failed / 1 skipped（Linux smoke）。
+  默认 Rust 1052、QA Rust 1105（各 5 ignored，重叠不累加）、前端 1292 passed。
   没有实际系统按键或错误粘贴复现；最后复核与 SendInput 间的系统竞争、真实用户接管、
   新 SHA CI 和共享初始化入口的 macOS 原生图仍未验。
   （需求：`WIN-PASTE-RECHECK-01`；见 `docs/superpowers/specs/2026-10-01-windows-paste-input-recheck.md`）

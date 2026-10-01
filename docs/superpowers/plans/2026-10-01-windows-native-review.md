@@ -42,7 +42,10 @@
   两图重叠且各有 5 ignored，不累加；前端 75 文件 / 1292 passed，CI 已接线未远程运行，桌面未验。
 - `WIN-PASTE-RECHECK-01`：独立 `codex/windows-paste-input-recheck`，基于 `949a2d9`。
   Windows 输入后端初始化后、首次按键前再查窗口/PID/前台；初始化期间目标变化的离线红基线
-  2 passed / 4 failed，修复后六项通过，未调用 Enigo 或窗口/输入 API。完整本机门禁待验；
+  2 passed / 4 failed，修复后六项通过，未调用 Enigo 或窗口/输入 API。干净源码
+  `14bf61630efab7b62905bbc5b976fbed8e62166c` 完整 Windows 默认/QA 门禁 exit 0，
+  27 passed / 0 failed / 1 skipped；默认 Rust 1052、QA Rust 1105（各 5 ignored，重叠不累加），
+  前端 75 文件 / 1292 passed。六项粘贴合同已包含在两个 Rust 图，日志哈希已核对；
   最后复核后的系统竞争、真实用户接管、新 SHA CI 与 macOS 原生图仍未验。
 - 已安装包仍为旧源码 `45769c9`。实际 Windows 11 桌面记录为 2 pass / 1 fail（旧 Pin 工具栏裁切）/
   36 not_run；原始 39 项 not_run 模板保持原字节，模板不能替代实际记录。
@@ -51,7 +54,8 @@
 
 对应修复规格见 `2026-10-01-windows-pin-toolbar-height.md`、`2026-10-01-windows-private-write-order.md`、
 `2026-10-01-windows-longshot-cursor-restore.md`、`2026-10-01-windows-cf-html-bounds.md`、
-`2026-10-01-windows-image-decode-budget.md`、`2026-10-01-windows-dibv5-pixel-offset.md`。
+`2026-10-01-windows-image-decode-budget.md`、`2026-10-01-windows-dibv5-pixel-offset.md`、
+`2026-10-01-windows-paste-input-recheck.md`。
 以下基线与早期门禁记录保留各自来源 SHA；本状态更新为后继文档，不冒称文档 SHA 已执行门禁。
 
 ## Baseline
@@ -108,10 +112,10 @@
 | W02 | P1 | PowerShell 门禁与 Windows CI 前端检查；缺工具/失败/部分运行严格区分 | 本机入口与 42e52c0 Windows 前端/OCR/Rust CI 已通过 |
 | W03 | P1 | Rust MSVC、C++ SDK、WebView2；录屏另需 MSYS2 make/diffutils/perl/nasm、MSBuild、CMake、LLVM tools/libclang；默认与 QA 图分别验证 | 工具已安装，默认与录屏 QA 本机门禁通过 |
 | W04 | P1 | 100%/125%/150% 多屏与负坐标：冻结帧、跨屏窗口候选、覆盖层、Pin、guide、长截图自动滚动、WGC 选区 | 几何静态疑点；本机单屏，待多屏真机复现。长截图失败清理的指针合同修复见 W19，真实接管待验 |
-| W05 | P1 | 同权限自动粘贴一次、高完整性目标 copy-only、目标销毁/复用、用户接管；DACL 与配置连续覆盖 | 45769c9 普通权限文本/图片完整用例实际通过；管理员、销毁复用与用户接管桌面待验证。私有文件准备失败时序见 W18，富文本片段边界见 W20 |
+| W05 | P1 | 同权限自动粘贴一次、高完整性目标 copy-only、目标销毁/复用、用户接管；DACL 与配置连续覆盖 | 45769c9 普通权限文本/图片完整用例实际通过；管理员、销毁复用与用户接管桌面待验证。私有文件准备失败时序见 W18，富文本片段边界见 W20，首次按键前目标复核见 W23 |
 | W06 | P1 | QA 包设备默认/非默认/同名/拔出、双源混音、暂停恢复、控制窗排除、强杀恢复、30 分钟 A/V 漂移 | 代码存在，待真机验收 |
 | W07 | P2 | NSIS/MSI 安装升级卸载、WebView2、自启动、托盘/快捷键、系统凭据与更新 | 官方 QA 包身份已核对，MSI 只读检查通过；NSIS 安装落盘/启动子步骤已核对，完整 MSI/升级/卸载/updater 未验收；本机自签名链不受信任，未更改信任 |
-| W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 42e52c0、45769c9 与 WinPS 的 b2fd247 各自七项 CI 通过；后续六项产品修复本机通过，新 SHA CI、Linux 本地完整门禁及 Wayland 回归保留未完成 |
+| W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 42e52c0、45769c9 与 WinPS 的 b2fd247 各自七项 CI 通过；后续七项产品修复本机通过，新 SHA CI、Linux 本地完整门禁及 Wayland 回归保留未完成 |
 | W09 | P1 | OCR 质量工具 Windows 私有诊断目录与符号链接拒绝合同；失败关闭，检查子文件继承 | 实际 DACL/等价 SDDL 及 10 类失败关闭负例通过；本机 33 项质量合同与 42e52c0 跨平台 CI 通过 |
 | W10 | P2 | 审查 webm-sys 的 C++ 编译参数在 MSVC 上产生 D9002；按真实编译器族选择 flag，保留固定来源与许可证 | 独立 WIN-WEBM-MSVC-01 / PR #14；本机完整 QA 绑定 e4ccc46，45769c9 七项 CI 与完整 QA workflow 全成功，新 Windows 包来源/哈希/签名身份已核对；真实桌面未验证 |
 | W11 | P1 | 新 Windows runner 使用 CRLF 检出时的 IPC 负例与结构回归；保留两种换行的正/负合同 | 独立 CRLF checkout 1284 项通过，fe37aec Windows 前端 CI 已通过 |
@@ -126,7 +130,7 @@
 | W20 | P1 | Windows CF_HTML 片段范围受实际字节与 UTF-8 边界约束，默认门禁不能遗漏依赖库合同 | 独立 WIN-CF-HTML-01；旧校验离线红基线、安全解析九项合同及 50b7778 完整本机默认/QA 门禁通过；CI 入口已接线，远程新 SHA、真实互操作和其它原生图未验 |
 | W21 | P1 | Windows PNG / DIB 在整图像素分配前执行已有预算，保留合法 4K/8K 与小图像素 | 独立 WIN-CLIP-IMAGE-BUDGET-01；红基线 3 passed / 2 failed，预算七项及 531d791 完整 Windows 默认/QA 门禁通过，新 SHA CI 与桌面未验 |
 | W22 | P2 | Windows DIBV5 显式像素偏移，防止小图读取失败与尾部掩盖错图 | 独立 WIN-DIBV5-PIXEL-01；红基线 2 passed / 2 failed，原 Chrome/Firefox 及新增像素/文件视图合同、25fb5d7 完整 Windows 本机默认/QA 门禁通过；真实提供者和新 SHA CI 未验 |
-| W23 | P1 | Windows 首次按键前复核当前目标，不能沿用激活/后端初始化前的窗口身份与焦点 | 独立 WIN-PASTE-RECHECK-01；同一生产入口红基线 2 passed / 4 failed，六项离线合同通过；完整本机门禁待验，真实接管、系统竞争和新 SHA CI 未验 |
+| W23 | P1 | Windows 首次按键前复核当前目标，不能沿用激活/后端初始化前的窗口身份与焦点 | 独立 WIN-PASTE-RECHECK-01；同一生产入口红基线 2 passed / 4 failed，六项离线合同及 14bf616 完整 Windows 本机默认/QA 门禁通过；真实接管、系统竞争、macOS 原生图和新 SHA CI 未验 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。

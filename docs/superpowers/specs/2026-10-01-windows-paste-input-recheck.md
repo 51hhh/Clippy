@@ -23,8 +23,8 @@ HWND 所有者变化或用户切换焦点后仍发送 Ctrl+V。作为 WIN-NATIVE
 
 - [x] 保持旧初始化/注入行为的离线红基线在窗口销毁、PID 变化或焦点变化情况下失败。
 - [x] 修复后同一生产入口拒绝这些状态，不触发注入；正常顺序与初始化失败合同通过。
-- [ ] 干净源码 SHA 的完整 Windows 默认/录屏 QA 本机门禁通过，两个 Rust 图分别记录。
-- [ ] 文档和 CHANGELOG 同步，桌面接管、新 SHA CI 与 macOS 原生图保留未验证。
+- [x] 干净源码 SHA 的完整 Windows 默认/录屏 QA 本机门禁通过，两个 Rust 图分别记录。
+- [x] 文档和 CHANGELOG 同步，桌面接管、新 SHA CI 与 macOS 原生图保留未验证。
 
 ## Out of Scope
 
@@ -49,7 +49,16 @@ Windows MSVC 离线 harness include 完整生产 native.rs 的行为保留提取
 仅外围错误类型/平台 facade 为测试 stub，原生权限入口调用即 panic。测试使用 fake 初始化/注入
 回调和窗口快照，不执行 Enigo、窗口 API 或 SendInput；旧入口六项为 2 passed / 4 failed，exit 101。
 销毁、未知 PID、焦点变化仍进入注入回调，成功顺序缺复核。修复后同一六项 6 passed，exit 0。
-原有修饰键清理语句与错误分类保留；真实 Cargo 全图尚待验证，harness 不替代该门禁。
+原有修饰键清理语句与错误分类保留；harness 不替代下列真实 Cargo 全图门禁。
 循环负例在红状态的首个断言即停止，不能声称每个循环输入各自已红复现；绿状态执行全部输入。
 
-待记录完整本机门禁与源码 SHA。桌面停止，旧安装包保持不变。
+干净源码 `14bf61630efab7b62905bbc5b976fbed8e62166c` 的完整 Windows 默认/录屏 QA 门禁
+exit 0：27 passed / 0 failed / 1 skipped（Linux smoke）。默认 Rust 1052 passed / 5 ignored，
+录屏 QA Rust 1105 passed / 5 ignored；两图重叠不累加，以上六项在两图均实际执行通过。
+前端 75 文件 / 1292 passed，Windows arboard 四组 9 / 7 / 5 / 3 共 24 passed；六项粘贴合同
+已包含在 Rust 图内，不再作为额外通过数。验证后检出干净，stdout/stderr 哈希已核对。
+
+原始证据在主检出的 `src-tauri/target/windows-paste-recheck-native-qa-14bf616/RESULT.json`，
+红绿辅助证据在 `src-tauri/target/windows-paste-recheck-red/RESULT.json`。后继文档提交仅同步
+四份 Markdown，不冒称该文档 SHA 运行过门禁。新 SHA 原生 CI、macOS 原生图、实际目标接管
+与最终查询后输入竞争仍未验证；桌面停止，旧安装包 45769c9 未包含本修复。
