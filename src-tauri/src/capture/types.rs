@@ -12,7 +12,8 @@ pub(super) struct OverlaySpec {
 }
 
 impl OverlaySpec {
-    /// 光标是否落在这块覆盖层上。用来决定哪个覆盖层拿键盘焦点，
+    /// 该覆盖层坐标空间里的逻辑光标是否落在矩形内。Windows 的物理光标须先按冻结帧比例转换。
+    /// 用来决定哪个覆盖层拿键盘焦点，
     /// 不能用窗口自身的 `outer_position()`：Wayland 下那是我们请求的位置，不是合成器的实际摆放。
     pub fn contains(&self, x: f64, y: f64) -> bool {
         x >= self.x as f64

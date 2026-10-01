@@ -12,6 +12,10 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+#[cfg(all(test, target_os = "windows"))]
+#[path = "manager/windows_focus_tests.rs"]
+mod windows_focus_tests;
+
 /// 一次截图从按下快捷键到覆盖层显示的分段耗时。
 ///
 /// "截图要三五秒"这类报障只能靠分段定位：链路每一环都成功，问题在于加起来太久，
@@ -304,6 +308,35 @@ pub(super) struct RevealPlan {
     pub take_focus: bool,
 }
 
+/// Windows 光标是物理虚拟桌面点；按这块冻结帧的比例比较，不能直接放进逻辑矩形。
+#[cfg(target_os = "windows")]
+fn physical_cursor_hits_overlay(
+    spec: &OverlaySpec,
+    frame: &CapturedMonitorFrame,
+    x: f64,
+    y: f64,
+) -> bool {
+    let sx = f64::from(frame.scale_x);
+    let sy = f64::from(frame.scale_y);
+    if !x.is_finite()
+        || !y.is_finite()
+        || !sx.is_finite()
+        || !sy.is_finite()
+        || sx <= 0.0
+        || sy <= 0.0
+        || frame.logical_width == 0
+        || frame.logical_height == 0
+        || frame.pixel_width == 0
+        || frame.pixel_height == 0
+        || (spec.x, spec.y, spec.width, spec.height)
+            != (frame.x, frame.y, frame.logical_width, frame.logical_height)
+    {
+        return false;
+    }
+    // 等价于先减该帧逻辑原点再与局部边界比较；原点舍入沿用冻结帧事实。
+    spec.contains(x / sx, y / sy)
+}
+
 impl CaptureManager {
     pub fn new() -> Self {
         Self::default()
@@ -434,6 +467,20 @@ impl CaptureManager {
         }
         // 光标所在的那块覆盖层独占焦点：合成器可能拒绝第二次 set_focus，
         // 所以不能让先画完的那块先抢一次再让给它。
+        #[cfg(target_os = "windows")]
+        let cursor_owner = cursor.and_then(|(x, y)| {
+            // begin 由 frames 同序产生一帧一个 spec；不完整的元数据走已有焦点兜底。
+            if session.frames.len() != session.overlays.len() {
+                return None;
+            }
+            session
+                .overlays
+                .iter()
+                .zip(&session.frames)
+                .find(|(spec, frame)| physical_cursor_hits_overlay(spec, frame, x, y))
+                .map(|(spec, _)| spec.label.as_str())
+        });
+        #[cfg(not(target_os = "windows"))]
         let cursor_owner = cursor.and_then(|(x, y)| {
             session
                 .overlays
@@ -1673,7 +1720,23 @@ mod tests {
             probe_hint: false,
             restore_labels: Vec::new(),
             lowered_pins: Vec::new(),
-            frames: vec![frame(1.0)],
+            // 此夹具只测 reveal，但帧几何仍须与上面的两个覆盖层逐一对应。
+            frames: [0, 1920]
+                .into_iter()
+                .enumerate()
+                .map(|(index, x)| CapturedMonitorFrame {
+                    monitor_id: index as u32 + 1,
+                    x,
+                    y: 0,
+                    logical_width: 1920,
+                    logical_height: 1200,
+                    pixel_width: 1920,
+                    pixel_height: 1200,
+                    scale_x: 1.0,
+                    scale_y: 1.0,
+                    rgba: Arc::from(Vec::new()),
+                })
+                .collect(),
             windows: HashMap::new(),
             output: None,
             mode_ownership: ownership(),
