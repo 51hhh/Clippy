@@ -11,10 +11,17 @@
 冻结帧、覆盖层、guide、光标归属、窗口候选和长截图签名/滚动点；Windows 直接提交物理类型，
 隐藏建窗没有逻辑位置提示，缺失/不匹配/空/溢出边界拒绝猜测。其它平台位置及 Pin 来源 IPC 保留。
 实际旧算法的 MSVC 红基线 1 passed / 15 failed；五份新回归原始字节不变，十六项绿回归通过。
-原 focus/probe/scroll/signature 正文已与基线核对；完整默认/QA 门禁待记录。当前 SHA CI、
+原 focus/probe/scroll/signature 正文已与基线核对；完整默认/QA 门禁已复验。当前 SHA CI、
 实际窗口/DPI 事件、Windows 10/多屏、Pin 和 WGC 原点身份仍未验，不关闭 W04 真机矩阵。
 首次 b3e8f7a 完整门禁为 28 passed / 2 failed / 1 skipped，退出 1；新增夹具的三处严格 lint
-分别使默认/QA lint 失败，功能测试通过。原始记录保留，夹具写法修正后的新 SHA 仍待完整复验。
+分别使默认/QA lint 失败，功能测试通过。原始记录保留；两份夹具写法修正后的干净源码
+2f0e225494dcf850bacac21c59566b781a3b6767 完整门禁确认子进程 exit 0：30 passed / 0 failed /
+1 skipped（Linux smoke）。默认 Rust 1090 / 5 ignored、QA Rust 1147 / 5 ignored（重叠不累加）；
+每图本次十六项、既有焦点/候选各八项已计入各 Rust 总数。前端 75 文件 / 1292 passed、
+Python 33 + 3；独立 vendor 十八项及剪贴板二十四项通过。check、严格 lint、供应链、构建、
+原始日志哈希、干净检出与新断言原始字节均核对；后继仅四份 Markdown。
+最终 windows-physical-monitor-native-qa-2f0e225/RESULT.json；红绿 windows-physical-monitor-contract/RESULT.json。
+锁定 Tao 的位置设置是异步 API，物理请求正确不等于 WM_DPICHANGED 后的最终窗口结果已观察。
 
 此前 W30 / WIN-OVERLAY-FOCUS-01：Tauri 的物理光标原样交给 reveal，却直接与逻辑矩形求
 归属；150% 等缩放双屏也会选错键盘焦点。实际生产 reveal 红基线 2 passed / 6 failed；

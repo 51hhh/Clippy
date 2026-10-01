@@ -28,8 +28,8 @@
 - [x] 原始物理边界从逐屏冻结到消费者完整保留；不匹配/缺失边界失败关闭。
 - [x] 覆盖层与 guide 的请求为物理类型，不受假定的当前/目标 DPI 影响；Windows 无逻辑位置提示。
 - [x] 光标、窗口候选、长截图滚动点及重捕获身份使用同一权威物理边界。
-- [ ] 实际旧算法红基线与修复后绿回归保留，既有回归和 Windows 完整门禁通过。
-- [ ] 文档按代码和证据同步；未完成的实际桌面与跨平台验收仍保留。
+- [x] 实际旧算法红基线与修复后绿回归保留，既有回归和 Windows 完整门禁通过。
+- [x] 文档按代码和证据同步；未完成的实际桌面与跨平台验收仍保留。
 
 ## Out of Scope
 
@@ -51,12 +51,23 @@ set_size 接受锁定 dpi 的 Physical 变体，因此保留原始物理边界�
 先补内部元数据并抽取原有纯数据入口；原 focus/probe/scroll/signature 正文与基线字节一致，
 没有算法模型或类型桩。新增五份回归文件原始字节保持，修复后 exit 0，16 passed / 0 failed /
 0 ignored，1079 filtered。回归没有调用显示器/窗口枚举、截图、窗口建造、光标或输入 API。
-初次绿色编译报告 Windows 不再使用逻辑 contains 方法；该方法仅保留其它平台，严格门禁待验。
+初次绿色编译报告 Windows 不再使用逻辑 contains 方法；该方法仅保留其它平台，最终严格门禁通过。
 红源码/日志和 SHA-256 保存在 src-tauri/target/windows-physical-monitor-contract/RESULT.json。
 现有测试仅补内部物理元数据、辅助构造可见性，保留原断言；guide 夹具同时补齐移动后的物理事实。
-Windows 默认/录屏 QA 完整门禁、当前 SHA CI、其它宿主与实际桌面待记录或待验，不能计为已通过。
+当前 SHA CI、其它宿主与实际桌面仍未验，不能由下面的本机门禁替代。
 
 首次干净源码 b3e8f7a 的完整门禁 exit 1：28 passed / 2 failed / 1 skipped（Linux smoke）。
 失败均为我补的既有夹具触发严格 lint：x: x 简写及两处零原点的无意义 f64 转换；功能测试通过。
 保留原始 windows-physical-monitor-native-qa-b3e8f7a/RESULT.json，不把这轮记成完整通过。
-只修正两份既有夹具写法，不改生产算法、新测试文件或断言；新 SHA 完整复验待记录。
+只修正两份既有夹具写法，不改生产算法、新测试文件或断言；新 SHA 完整复验如下。
+
+干净被测源码 2f0e225494dcf850bacac21c59566b781a3b6767，完整 Windows 默认/录屏 QA 门禁确认
+native child exit 0：30 passed / 0 failed / 1 skipped（Linux smoke）。默认 Rust 1090 / 5 ignored、
+QA Rust 1147 / 5 ignored（重叠不累加）；每个图分别包含本次十六项、既有焦点八项和候选八项。
+前端 75 文件 / 1292 passed，Python 33 + 3。独立 vendor 十八项和剪贴板二十四项通过，不计入
+应用 Rust 总数。Native check、严格 lint、供应链、前端构建/入口、原始 stdout/stderr 哈希与
+验证后干净检出通过；已验证退出 0/17 的 Process 包装器原始哈希保持。
+最终完整证据 src-tauri/target/windows-physical-monitor-native-qa-2f0e225/RESULT.json；红绿与
+源码审计 windows-physical-monitor-contract/RESULT.json。后继只同步四份 Markdown，生产/CI/门禁不变。
+Windows 的实际位置请求是异步 API，WM_DPICHANGED 后的最终窗口位置和尺寸尚未观测；
+Windows 10/多屏、Pin 来源、WGC 原点身份、当前 SHA CI 和其它宿主仍未验。

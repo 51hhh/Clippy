@@ -101,8 +101,12 @@
 - `WIN-NATIVE-MONITOR-01`：独立 `codex/windows-physical-monitor-bounds`，基于 `4630b38`。
   原始物理边界在逻辑归一化前保留，覆盖层/guide 请求为物理类型；光标、窗口候选、长截图
   滚动点和重捕获身份直接使用原始边界，拒绝缺失/不匹配/空/溢出元数据。实际旧算法红基线
-  1 passed / 15 failed，五份回归原始字节不变，十六项 MSVC 离线回归通过；完整门禁待记录。
-  首次 b3e8f7a 门禁 28 passed / 2 failed / 1 skipped，夹具严格 lint 失败；保留原日志，修正后复验待记录。
+  1 passed / 15 failed，五份回归原始字节不变，十六项 MSVC 离线回归通过。首次 b3e8f7a 门禁
+  28 passed / 2 failed / 1 skipped，夹具严格 lint 失败；原日志保留，修正后的干净源码
+  2f0e225494dcf850bacac21c59566b781a3b6767 完整默认/QA 门禁确认子进程 exit 0，30 passed /
+  0 failed / 1 skipped（Linux smoke）；默认 Rust 1090、QA Rust 1147（各 5 ignored，重叠不累加），
+  前端 75 文件 / 1292 passed、Python 33 + 3。每图新十六项及既有焦点/候选各八项包含在总数；
+  原始日志哈希、干净检出、严格 lint、供应链和构建通过，后继仅四份 Markdown。
   当前 SHA CI、实际窗口/DPI 事件、Pin/WGC 原点身份、Windows 10/多屏仍未验，不关闭 W04。
 - 已安装包仍为旧源码 `45769c9`。实际 Windows 11 桌面记录为 2 pass / 1 fail（旧 Pin 工具栏裁切）/
   36 not_run；原始 39 项 not_run 模板保持原字节，模板不能替代实际记录。
@@ -198,7 +202,7 @@
 | W28 | P1 | Windows 构建号仅解析成功返回的有界字节范围，缓冲区完全初始化 | 独立 WIN-REGISTRY-BUFFER-01；安全旧单位模型 4 passed / 4 failed，八项真实 vendor 合同与三项篡改负例通过；8c6fbfe 首次严格 lint 失败已修复并保留，bb38cc6 完整门禁 30 passed / 0 failed；新 SHA CI、实际注册表与桌面待验 |
 | W29 | P1 | Windows 跨屏物理窗口按每帧比例转换/裁剪，保留分数边界与 Z 顺序 | 独立 WIN-WINDOW-SCALE-01；旧函数抽取协议 2 passed / 6 failed，八项 MSVC 回归与 78bd83f 完整默认/QA 门禁通过，30 passed / 0 failed / 1 Linux smoke skipped；首次包装器退出码缺失不计通过、原记录保留，修正后同 SHA 重跑退出 0；真实多屏与新 SHA CI 未验 |
 | W30 | P1 | Windows 物理光标按各帧比例选择覆盖层键盘归属，保留未知光标/无效元数据兜底 | 独立 WIN-OVERLAY-FOCUS-01；旧生产 reveal 红基线 2 passed / 6 failed，八项绿回归与 f577996 完整默认/QA 门禁通过、子进程 exit 0，30 passed / 0 failed / 1 Linux smoke skipped；原断言审计通过，真实 set_focus、原生建窗、多屏与当前 SHA CI 未验 |
-| W31 | P1 | 冻结原始物理边界贯穿 Windows 覆盖层/guide、光标、窗口候选、长截图指针与重捕获身份 | 独立 WIN-NATIVE-MONITOR-01；MSVC 实际旧算法红基线 1 passed / 15 failed，十六项绿回归通过；完整默认/QA 门禁待记录。实际窗口/DPI、多屏、Pin/WGC 原点身份与当前 SHA CI 未验 |
+| W31 | P1 | 冻结原始物理边界贯穿 Windows 覆盖层/guide、光标、窗口候选、长截图指针与重捕获身份 | 独立 WIN-NATIVE-MONITOR-01；MSVC 实际旧算法红基线 1 passed / 15 failed、十六项绿回归；首次完整门禁 28 passed / 2 lint failed 保留，修正后的 2f0e225 完整默认/QA 门禁 exit 0，30 passed / 0 failed / 1 Linux smoke skipped。实际窗口/DPI、多屏、Pin/WGC 原点身份与当前 SHA CI 未验 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。
