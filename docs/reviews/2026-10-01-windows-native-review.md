@@ -14,8 +14,17 @@
 保留 OS error 6。正常文件的身份查询/权限错误、文件系统/网络盘和跨进程竞态仍未观察。
 除两处 Windows 模块声明与一处新 guard 调用外原 manifest tokens 保持，原九十六段函数/
 测试正文、导出哈希/同步/替换/清理余部及十份文件核对。新六项与错误一项在默认/QA 两图，
-完整门禁待执行。夹具是既有 manifest 数据文件，未生成或播放真实录屏；实际导出对话框、
-媒体/文件系统矩阵、其它宿主与当前 SHA CI 未验。证据 windows-export-identity-contract；桌面停止。
+干净源码 69cf0b498a9964789bbce673a0d023aebfd5b0ad 完整 Windows 默认/QA 门禁确认原生 child
+与终端工具 exit 0：30 passed / 0 failed / 1 Linux smoke skipped。默认 Rust 1157、QA Rust
+1220（各 5 ignored，重叠不累加），新增六项与错误一项在各图总数内，关键旧导出/manifest/
+合并九条及前轮删除所有权六项按各自图通过；前端 77 文件 / 1307 passed，Python 33 + 3，
+独立 vendor 十八项与剪贴板二十四项通过。check、严格 lint、供应链、构建/入口通过；源码/
+原始日志、checked helper/门禁脚本/固定声明哈希与干净检出核对。累计二十三项产品修复未装包。
+夹具是既有 manifest 数据文件，未生成或播放真实录屏；实际导出对话框、媒体/文件系统矩阵、
+其它宿主与当前 SHA CI 未验。媒体 clear 递增全局代次，revoke_session 仅移除已有租约；
+待用生产夹具续审 pending issue 跨会话撤销，尚未复现新缺陷。缩略图 load/clear 共用互斥锁，
+不忽略该序列化而直接断言竞态。合同 windows-export-identity-contract，完整门禁
+windows-export-identity-native-qa-69cf0b4；桌面操作停止。
 
 此前 W38 / REC-DELETE-OWNER-01：恢复合并持有进程 guard，删除 worker 却没有参与所有权。
 结果页 busyKey 属于当前挂载，关闭仍可执行，不能代替后端会话保护。提取原删除 worker

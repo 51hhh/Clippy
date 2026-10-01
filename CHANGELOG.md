@@ -8,7 +8,10 @@
   128 位 FileId，在临时复制前拒绝同文件别名；新目标和不同已有目标保持原导出协议。
   原生产函数 MSVC 红基线 2 passed / 4 failed：三类别名迟至替换时报 OS error 5，硬链接
   返回成功，不能声称三者已成功覆盖源文件。同组六项修复后通过，新测试字节保持；既有
-  哈希/替换测试和一项真实无效句柄错误测试通过。完整 Windows 默认/QA 门禁待执行。
+  哈希/替换测试和一项真实无效句柄错误测试通过。干净 69cf0b4 完整 Windows 默认/QA 门禁
+  确认原生子进程 exit 0：30 passed / 0 failed / 1 Linux smoke skipped。默认 Rust 1157、
+  QA Rust 1220（各 5 ignored，重叠不累加），新增六项与错误一项在各图总数内；前端
+  77 文件 / 1307 passed。源码/原始日志与干净检出核对。
   本机文件夹具不证明媒体可播放；桌面对话框、其它文件系统/网络盘/权限与外部进程竞态、
   当前 SHA CI/其它宿主未验，桌面操作停止，录屏默认门控不变。
   （需求：`WIN-EXPORT-IDENTITY-01`；见 `docs/superpowers/specs/2026-10-02-windows-export-identity.md`）

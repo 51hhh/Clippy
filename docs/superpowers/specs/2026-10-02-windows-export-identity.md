@@ -26,8 +26,8 @@ Windows 导出不能通过大小写、相对父目录、扩展路径或硬链接
 - [x] 原生产导出函数在同文件 Windows 别名下确有可复现缺口，红基线及同组修复回归核对。
 - [x] 大小写、父目录、扩展路径和硬链接别名拒绝，源内容/身份与目录文件集合保持。
 - [x] 新建、不同已有目标（包括相同内容）及原哈希失败行为保持，身份错误不执行替换。
-- [ ] 原合同/固定 API 源码与干净 SHA Windows 默认/QA 门禁核对，新用例包含在各图总数内。
-- [ ] 同 ID 文档同步，桌面/文件系统矩阵/其它宿主与当前 SHA CI 保留未验。
+- [x] 原合同/固定 API 源码与干净 SHA Windows 默认/QA 门禁核对，新用例包含在各图总数内。
+- [x] 同 ID 文档同步，桌面/文件系统矩阵/其它宿主与当前 SHA CI 保留未验。
 
 ## Out of Scope
 
@@ -58,6 +58,13 @@ export_library_artifact 目前只以 destination == artifact.path 拒绝同文�
 夹具使用原 manifest 数据测试 helper 和真实文件，内容不是可播放 VP9，不计媒体验收。
 除 Windows 两处模块声明/一处 guard 调用外，原 manifest tokens 保持；九十六段原函数/
 测试正文、原导出哈希/同步/替换/清理和十份关联文件核对；windows-sys 锁定源码与现有依赖
-feature 保持。完整 Windows 默认/QA 门禁待执行，两图新增六项与原生错误一项重叠不累加。
+feature 保持。干净源码 69cf0b498a9964789bbce673a0d023aebfd5b0ad 完整 Windows 默认/QA 门禁
+确认原生 child/终端 exit 0：30 passed / 0 failed / 1 Linux smoke skipped。默认 Rust
+1157 / 5 ignored，QA Rust 1220 / 5 ignored，图谱重叠不累加；新增六项与原生错误一项各图
+在总数内。九条关键旧导出/manifest/合并与前轮删除所有权六项按各自图核对；前端 77 文件 /
+1307 passed，Python 33 + 3，独立 vendor 十八项和剪贴板二十四项通过；check、严格 lint、
+供应链、构建/入口通过。源码/原文件/新测试字节/原始日志、checked helper/门禁脚本/固定
+声明哈希及门禁前后干净检出核对；完整门禁证据
+C:\win\Clippy\src-tauri\target\windows-export-identity-native-qa-69cf0b4。
 其它文件系统/网络盘/权限、外部进程竞态、实际对话框/录屏/播放、其它宿主与当前 SHA CI 留未验。
 证据目录 C:\win\Clippy\src-tauri\target\windows-export-identity-contract。
