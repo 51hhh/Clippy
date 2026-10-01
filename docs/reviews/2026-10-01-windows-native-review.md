@@ -5,7 +5,12 @@
 
 ## 当前续审结果
 
-当前 W25 / WIN-WGC-CLOSE-01：WgcRuntime 提前置 closed，session.Close 失败跳过 pool，
+当前 W26 / REC-AV-BRIDGE-JOIN-01：视频桥接 join 返回 panic 时，布尔短路跳过音频 join，
+owner 返回但音频线程仍可存活。两条均 join 再判断错误；MSVC 真实受控线程红基线
+2 passed / 2 failed，修复后四项通过。完整 Windows 原生门禁待验；共享其它宿主图、新 SHA CI
+和真实设备 panic/桌面录屏仍未验。此前整屏预算续审确认 WGC 初始化前已有 64 MiB 检查，无新增缺陷。
+
+此前 W25 / WIN-WGC-CLOSE-01：WgcRuntime 提前置 closed，session.Close 失败跳过 pool，
 Drop 又不重试。分别记录成功关闭、每轮尝试两个资源；红基线 1 passed / 5 failed，六项绿合同
 及 vendor 原始字节正例/三项篡改负例通过。产品修复 869a13f 与独立 CI 接线分开提交，被测干净 SHA
 03b4cb8535d1fd3ebd95d511ab83f29491bb0805 完整 Windows 默认/录屏 QA 门禁 exit 0：
@@ -135,6 +140,17 @@ Run：<https://github.com/51hhh/Clippy/actions/runs/35792281966>。
 本轮修改已推送到草稿 PR；首次修改后 CI 和后续修复证据见下方记录，不能沿用基线结果。
 
 ## Findings
+
+### W26 / P2 — 视频桥接 panic 后音频线程被 detach（真实受控线程复现并修复）
+
+共享 A/V run 在 abort/drop 通道之后执行 video_bridge.join().is_err() || audio_bridge.join().is_err()，
+视频 panic 的 Err 导致第二项短路，丢弃音频 JoinHandle 不能等待线程退出。REC-AV-BRIDGE-JOIN-01
+的生产纯模块让两个 join 分别执行，之后报告是否 panic；run 继续返回既有 BridgePanicked，正常
+保留 run_inner 结果，abort/drop 顺序、通道、媒体及 journal 不改。
+四项真实线程覆盖正常、视频/音频单侧和双侧 panic，音频门控未释放时禁止 owner 返回；旧协议
+两项视频 panic 失败，修复后四项通过。测试先释放门控/等待资源 Drop 通知再断言，等待有硬上限；
+没有类型 stub、平台 API 或实际设备。原始失败日志保留，完整 Windows 门禁待验。
+既有四平台原型 CI 的 recording::av 前缀覆盖此模块；新 SHA CI、共享其它宿主图和实际设备 panic 未验。
 
 ### W25 / P1 — WGC 关闭错误跳过另一个资源并阻断 Drop 重试（离线复现并修复）
 

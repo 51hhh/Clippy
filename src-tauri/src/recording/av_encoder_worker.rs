@@ -4,6 +4,7 @@
 //! 在视频事件处拆分跨界 PCM，再由 writer 完成 packet 级有界重排和周期提交。
 
 use super::audio::{AudioPipeline, AudioPipelineDrain, AudioPipelineError, QueuedAudioChunk};
+use super::av_bridge_join::join_bridges_panicked;
 use super::av_segmenting::{
     SegmentedAvRecordingError, SegmentedAvRecordingOutput, SegmentedAvRecordingWriter,
 };
@@ -147,7 +148,7 @@ fn run(
     }
     drop(video_events);
     drop(audio_events);
-    if video_bridge.join().is_err() || audio_bridge.join().is_err() {
+    if join_bridges_panicked(video_bridge, audio_bridge) {
         return Err(AvEncoderWorkerError::BridgePanicked);
     }
     result

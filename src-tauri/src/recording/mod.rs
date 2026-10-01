@@ -36,6 +36,9 @@ mod av_timeline;
 #[cfg(feature = "recording-opus-webm")]
 #[allow(dead_code)]
 mod av_segmenting;
+// 两条桥接线程均须回收，第一条 panic 不得短路另一条 join。
+#[cfg(feature = "recording-opus-webm")]
+mod av_bridge_join;
 // 两个容量一桥接通道把视频/音频 pipeline 合并到唯一编码 owner，保证资源回收与媒体顺序一致。
 #[cfg(feature = "recording-opus-webm")]
 #[allow(dead_code)]
