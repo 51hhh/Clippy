@@ -56,7 +56,7 @@ Windows 11 x64；Rust 1.98.1、`cc 1.2.61`、MSVC 14.44.35207、clang-cl 23.1.2�
 - 诊断日志在调用项目的 ignored `src-tauri/target/`：`webm-msvc-driver-red.log`、
   `webm-msvc-driver-green.log`、`webm-clang-cl-green.log`、`windows-webm-full-qa*.log`。
 
-本机完整 QA 门禁通过；GNU/Clang 原生 CI、修改后同 SHA CI、桌面/安装验收仍待执行。
+本机完整 QA 门禁通过；当时 GNU/Clang 原生 CI、修改后同 SHA CI、桌面/安装验收仍待执行。
 父分支 fe37aec 的 Windows 前端 CI 已通过，但 Python 新暴露的问题仍由 WIN-NATIVE-01 修复，
 本分支不将该父分支 CI 写为整体通过。
 
@@ -64,8 +64,23 @@ Windows 11 x64；Rust 1.98.1、`cc 1.2.61`、MSVC 14.44.35207、clang-cl 23.1.2�
 语义校验与浏览器语料 LF 属性，避免在最新 CI 继续携带父分支已知失败。冲突仅为
 `.gitattributes` 末尾，保留 WebM 与四个 OCR 来源属性；C++ 源码和补丁哈希不变。
 本机完整录屏 QA 证据绑定 `e4ccc46c3ca22b894ceb18b6c799eedd69358a6c`；同步后的 Python
-33 + 3 项另作验证，不能将旧 SHA 的完整门禁写成新 SHA 通过。两套原生 CI 仍待终态。
+33 + 3 项另作验证，不能将旧 SHA 的完整门禁写成新 SHA 通过。当时两套原生 CI 仍待终态。
 
 全新 `core.autocrlf=true` clone 在 e4ccc46 首次检出即通过 codec 供应链校验，原始
 build.rs 哈希为 c7e90a7f5cd1e24d0cbe355442c21cfaf15d27d13ea0bf64f1d86e37f6b1b833，Git 状态干净。
 PR：[14](https://github.com/51hhh/Clippy/pull/14)。
+
+### 原生 CI 与后续依赖基线
+
+- [e4ccc46 run 36815516209](https://github.com/51hhh/Clippy/actions/runs/36815516209) 最终为六项
+  success、一项 Windows failure；失败为旧父分支 OCR DACL/来源问题，不能计作全部通过。
+- [437949b run 36819267902](https://github.com/51hhh/Clippy/actions/runs/36819267902) 的四项 codec
+  原型以及 Ubuntu/Windows 原生成功；macOS 原生在未修改的 OCR 子进程取消夹具失败，
+  1054 passed / 1 failed / 5 ignored。这些结果证明 MSVC/GNU/Clang codec 编译回归，
+  不证明完整七项成功，也不声称该失败由 C++ 补丁引起。
+- 依赖由独立 `OCR-PROC-CANCEL-01` / [PR #15](https://github.com/51hhh/Clippy/pull/15) 修复。
+  自动审批最初拒绝跨分支同步，理由为关注点混合；用户随后明确授权调整 #14 的基线到 #15
+  并同步依赖。新基线为 `79828665a2d77308b0973b19d993ae745590d521`，#14 相对于它仍限定
+  六个原有 WebM 文件；OCR 测试属于继承的基线，不计入 WebM 改动范围。
+- CHANGELOG 冲突仅为两个独立条目的插入位置，保留 WebM/OCR 需求段落与最新 Windows 验证记录。
+  编码器源码、构建脚本原始哈希和编译策略不变；同步后新 SHA 完整七项 CI 待执行。
