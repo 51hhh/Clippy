@@ -4,7 +4,7 @@
 
 - 原始 `.crate` SHA-256：`0348a1c054491f4bfe6ab86a7b6ab1e44e45d899005de92f58b3df180b36ddaf`
 - 原始 `src/platform/linux/x11.rs` SHA-256：`57058170d748f75df9081dc2d886e8a2fa4fa9ca46af09c37bc5eda36309c053`
-- 原件来自 Cargo registry 的同版本包；未引入外部 fork 或改变 public API。
+- 原件来自 Cargo registry 的同版本包；未引入外部 fork。上游单格式 public API 保持，新增的 Windows 专用配对方法见下文。
 
 ## 写完成屏障
 
@@ -22,6 +22,19 @@
 - `x11.rs` 的 `image::io::Reader` 改为等价 `image::ImageReader`，仅消除已锁定 image 0.25 的弃用警告。
 
 上述 X11 补丁没有改变 Windows / macOS / Wayland 实现、PNG 编码参数或像素。256MiB 是压缩传输及保留快照预算，不是 PNG 解码像素预算。超时约束针对正常运行 X server 上停滞的 requestor，不提供挂死 X server 的系统 I/O 超时保证。
+
+## Windows HTML 与替代文本共用一次打开
+
+`WIN-CLIP-SNAPSHOT-01`：Clippy 的 watcher 用限 Windows 的隐藏扩展 `Get::html_with_text`
+读取 HTML 和可选替代文本。平台 adapter 把原 OpenClipboard guard 交给 `html::read_with_text_guard`，
+同一 guard 覆盖原 HTML/文本解码，成功、错误和展开时由原 RAII 释放；不再次打开剪贴板，
+不依赖 sequence 是否可用或何时增长。无效/空 HTML 的普通文本/图片回退仍由 watcher 处理；
+有效 HTML 的替代文本失败返回 None，空文本返回 Some("")。旧单格式 API、CF_HTML parser、
+文本转换与其它平台源码/协议保持，没有新增依赖或 SDK feature。
+
+七项 guard 生命周期/返回值回归加入已有 `platform::windows::html::tests` 过滤入口；
+受控 guard /回调不访问系统剪贴板，不能代替真实并发复制、延迟渲染提供者或其它平台验收。
+需求与分层证据见 `docs/superpowers/specs/2026-10-02-windows-clipboard-snapshot.md`。
 
 ## Windows CF_HTML 片段边界
 
@@ -79,7 +92,7 @@ cargo test --locked --manifest-path src-tauri/Cargo.toml -p arboard --lib platfo
 ```
 
 Windows 门禁和 Native CI 显式执行五项 DIB 像素合同及三项文件视图合同；另有预算七项与
-CF_HTML 九项，共 24 项 Windows 纯单元测试。Read/BufRead 跨头、Seek EOF/负位置、调色板、
+CF_HTML 原九项及新增 guard 七项，共 31 项 Windows 纯单元测试。Read/BufRead 跨头、Seek EOF/负位置、调色板、
 顶/底向、尾部及透明度均离线验证；没有系统剪贴板或桌面调用。
 升级 image 时须复核额外跳转是否已修复，并复跑这些合同决定移除文件视图；不能改夹具掩盖偏移。
 真实提供者、Office 消费、颜色管理、Windows 10/多屏及新 SHA 跨平台 CI 不由这些合同证明。

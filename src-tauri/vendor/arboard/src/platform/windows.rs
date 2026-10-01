@@ -618,43 +618,17 @@ impl<'clipboard> Get<'clipboard> {
 	}
 
 	pub(crate) fn text(self) -> Result<String, Error> {
-		const FORMAT: u32 = clipboard_win::formats::CF_UNICODETEXT;
-
 		let _clipboard_assertion = self.clipboard?;
-
-		// XXX: ToC/ToU race conditions are not possible because we are the sole owners of the clipboard currently.
-		if !clipboard_win::is_format_avail(FORMAT) {
-			return Err(Error::ContentNotAvailable);
-		}
-
-		// NB: Its important that whatever functionality decodes the text buffer from the clipboard
-		// uses `WideCharToMultiByte` with `CP_UTF8` (or an equivalent) in order to handle when both "text"
-		// and a locale identifier were placed on the clipboard. It is probable this occurs when an application
-		// is running with a codepage that isn't the current system's, such as under a locale emulator.
-		//
-		// In these cases, Windows decodes the text buffer with whatever codepage that identifier is for
-		// when creating the `CF_UNICODETEXT` buffer. Therefore, the buffer could then be in any format,
-		// not nessecarily wide UTF-16. We need to then undo that, taking the wide data and mapping it into
-		// the UTF-8 space as best as possible.
-		//
-		// (locale-specific text data, locale id) -> app -> system -> arboard (locale-specific text data) -> UTF-8
-		let mut out = Vec::new();
-		clipboard_win::raw::get_string(&mut out).map_err(|_| Error::ContentNotAvailable)?;
-		String::from_utf8(out).map_err(|_| Error::ConversionFailure)
+		read_text_locked()
 	}
 
 	pub(crate) fn html(self) -> Result<String, Error> {
 		let _clipboard_assertion = self.clipboard?;
+		read_html_locked()
+	}
 
-		let format = clipboard_win::register_format("HTML Format")
-			.ok_or_else(|| Error::unknown("unable to register HTML format"))?;
-
-		let mut out: Vec<u8> = Vec::new();
-		// 先读取实际字节，再安全校验 CF_HTML 偏移；不使用依赖中的未受边界约束复制。
-		clipboard_win::raw::get_vec(format.get(), &mut out)
-			.map_err(|_| Error::unknown("failed to read clipboard string"))?;
-
-		html::fragment(&out).map(str::to_owned)
+	pub(crate) fn html_with_text(self) -> Result<(String, Option<String>), Error> {
+		html::read_with_text_guard(self.clipboard, read_html_locked, read_text_locked)
 	}
 
 	#[cfg(feature = "image-data")]
@@ -688,6 +662,42 @@ impl<'clipboard> Get<'clipboard> {
 
 		Ok(file_list)
 	}
+}
+
+fn read_text_locked() -> Result<String, Error> {
+	const FORMAT: u32 = clipboard_win::formats::CF_UNICODETEXT;
+
+	// XXX: ToC/ToU race conditions are not possible because we are the sole owners of the clipboard currently.
+	if !clipboard_win::is_format_avail(FORMAT) {
+		return Err(Error::ContentNotAvailable);
+	}
+
+	// NB: Its important that whatever functionality decodes the text buffer from the clipboard
+	// uses `WideCharToMultiByte` with `CP_UTF8` (or an equivalent) in order to handle when both "text"
+	// and a locale identifier were placed on the clipboard. It is probable this occurs when an application
+	// is running with a codepage that isn't the current system's, such as under a locale emulator.
+	//
+	// In these cases, Windows decodes the text buffer with whatever codepage that identifier is for
+	// when creating the `CF_UNICODETEXT` buffer. Therefore, the buffer could then be in any format,
+	// not nessecarily wide UTF-16. We need to then undo that, taking the wide data and mapping it into
+	// the UTF-8 space as best as possible.
+	//
+	// (locale-specific text data, locale id) -> app -> system -> arboard (locale-specific text data) -> UTF-8
+	let mut out = Vec::new();
+	clipboard_win::raw::get_string(&mut out).map_err(|_| Error::ContentNotAvailable)?;
+	String::from_utf8(out).map_err(|_| Error::ConversionFailure)
+}
+
+fn read_html_locked() -> Result<String, Error> {
+	let format = clipboard_win::register_format("HTML Format")
+		.ok_or_else(|| Error::unknown("unable to register HTML format"))?;
+
+	let mut out: Vec<u8> = Vec::new();
+	// 先读取实际字节，再安全校验 CF_HTML 偏移；不使用依赖中的未受边界约束复制。
+	clipboard_win::raw::get_vec(format.get(), &mut out)
+		.map_err(|_| Error::unknown("failed to read clipboard string"))?;
+
+	html::fragment(&out).map(str::to_owned)
 }
 
 pub(crate) struct Set<'clipboard> {

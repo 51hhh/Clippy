@@ -5,7 +5,21 @@
 
 ## 当前续审结果
 
-当前 W43 / WIN-SHORTCUT-SHARED-01：独立 codex/windows-shortcut-shared，基于 62d5103。
+当前 W44 / WIN-CLIP-SNAPSHOT-01：独立 codex/windows-clipboard-snapshot，基于 43b400c。
+Windows HTML/text 共用一个 OpenClipboard guard，原单格式解码与接口保持；guard 覆盖双读取，
+错误/展开由原 RAII Drop 释放。不依赖 sequence 零值或延迟增长；缺失/空 HTML 回退文本/图片，
+替代文本失败派生本次 HTML、成功空值保持。其它平台默认顺序协议、Watcher 代次/抑制/
+去重/重试及 CF_HTML 边界不变。提取原决策仅替换 reader adapter，初次 MSVC 红 27/4，
+旧 23 项通过；两个混配、一次误用剥离文本与临时 SQLite 保存新文本/旧 HTML 实际复现。
+新增抑制夹具的 clone 被严格 lint 拒绝，改引用切片，原断言/reader fixture 不变；初稿证据
+保留。原提取 watcher 字节和原 native 单格式合同重放修正夹具仍 27/4；同修正八项原字节
+修复后通过，共 31 passed。生产 guard helper 七项加旧 parser 九项共 16 passed，vendor
+严格 lint 通过。guard/sequence 为受控模型，不是实际 OpenClipboard 或系统并发复制证据。
+原 watcher 提取外、配对派发外、原解码/解析与九项正文、十六份关联文件核对；隐藏扩展
+API 仅 Windows，原其它接口保持；未增加依赖/SDK feature。
+当前定向回归与 vendor lint 通过；完整 Windows 门禁待运行。桌面/其它宿主/当前 SHA CI/安装与 Wayland 留未验。
+
+此前 W43 / WIN-SHORTCUT-SHARED-01：独立 codex/windows-shortcut-shared，基于 62d5103。
 注册计划仍按解析 ID 去重；执行协议保存每个唯一键位首次注册结果，共用动作继承成功或
 同一错误。所有非空动作失败返回首错，独立键部分成功仍 Ok 并记录失败，空键成功保持。
 用户保存禁止重复键、旧配置容错、原生前置解绑/事件 adapter 与动作派发优先级保持。

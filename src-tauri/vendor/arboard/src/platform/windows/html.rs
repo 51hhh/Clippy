@@ -41,9 +41,177 @@ pub(super) fn fragment(data: &[u8]) -> Result<&str, Error> {
 	std::str::from_utf8(bytes).map_err(|_| Error::ConversionFailure)
 }
 
+/// 已打开的同一个 guard 覆盖 HTML 和替代文本；失败/展开由 Drop 释放。
+pub(super) fn read_with_text_guard<G>(
+	open: Result<G, Error>,
+	read_html: impl FnOnce() -> Result<String, Error>,
+	read_text: impl FnOnce() -> Result<String, Error>,
+) -> Result<(String, Option<String>), Error> {
+	let _guard = open?;
+	let html = read_html()?;
+	let text = if html.is_empty() { None } else { read_text().ok() };
+	Ok((html, text))
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use std::{cell::RefCell, rc::Rc};
+
+	#[derive(Default)]
+	struct GuardState {
+		locked: bool,
+		pending_copy: bool,
+		current: &'static str,
+		sequence: u32,
+		drops: usize,
+	}
+
+	struct Guard(Rc<RefCell<GuardState>>);
+
+	impl Guard {
+		fn open(state: &Rc<RefCell<GuardState>>) -> Self {
+			assert!(!state.borrow().locked);
+			state.borrow_mut().locked = true;
+			Self(state.clone())
+		}
+	}
+
+	impl Drop for Guard {
+		fn drop(&mut self) {
+			let mut state = self.0.borrow_mut();
+			state.locked = false;
+			state.drops += 1;
+			if state.pending_copy {
+				state.pending_copy = false;
+				state.current = "B";
+			}
+		}
+	}
+
+	#[test]
+	fn paired_guard_blocks_copy_switch_even_with_zero_or_delayed_sequence() {
+		for sequence in [0, 17] {
+			let state = Rc::new(RefCell::new(GuardState {
+				current: "A",
+				sequence,
+				..GuardState::default()
+			}));
+			let result = read_with_text_guard(
+				Ok(Guard::open(&state)),
+				|| {
+					let mut source = state.borrow_mut();
+					assert!(source.locked);
+					source.pending_copy = true;
+					if source.sequence != 0 {
+						source.sequence += 1;
+					}
+					Ok(format!("<b>{}</b>", source.current))
+				},
+				|| {
+					assert!(state.borrow().locked);
+					Ok(state.borrow().current.into())
+				},
+			)
+			.unwrap();
+			assert_eq!(result, ("<b>A</b>".into(), Some("A".into())));
+			assert!(!state.borrow().locked);
+			assert_eq!(state.borrow().current, "B");
+			assert_eq!(state.borrow().drops, 1);
+		}
+	}
+
+	#[test]
+	fn paired_open_failure_reads_neither_format() {
+		assert!(matches!(
+			read_with_text_guard::<Guard>(
+				Err(Error::ClipboardOccupied),
+				|| panic!("打开失败不得读取 HTML"),
+				|| panic!("打开失败不得读取文本"),
+			),
+			Err(Error::ClipboardOccupied)
+		));
+	}
+
+	#[test]
+	fn paired_html_failure_releases_guard_without_reading_text() {
+		let state = Rc::new(RefCell::new(GuardState::default()));
+		assert!(matches!(
+			read_with_text_guard(
+				Ok(Guard::open(&state)),
+				|| Err(Error::ConversionFailure),
+				|| panic!("HTML 失败后交由 watcher 回退"),
+			),
+			Err(Error::ConversionFailure)
+		));
+		assert!(!state.borrow().locked);
+		assert_eq!(state.borrow().drops, 1);
+	}
+
+	#[test]
+	fn paired_empty_html_skips_alternative_and_releases_guard() {
+		let state = Rc::new(RefCell::new(GuardState::default()));
+		let result = read_with_text_guard(
+			Ok(Guard::open(&state)),
+			|| Ok(String::new()),
+			|| panic!("空 HTML 不重复读取替代文本"),
+		)
+		.unwrap();
+		assert_eq!(result, (String::new(), None));
+		assert!(!state.borrow().locked);
+		assert_eq!(state.borrow().drops, 1);
+	}
+
+	#[test]
+	fn paired_alternative_failure_preserves_html_and_releases_guard() {
+		let state = Rc::new(RefCell::new(GuardState::default()));
+		let result = read_with_text_guard(
+			Ok(Guard::open(&state)),
+			|| Ok("<b>A</b>".into()),
+			|| {
+				assert!(state.borrow().locked);
+				Err(Error::ContentNotAvailable)
+			},
+		)
+		.unwrap();
+		assert_eq!(result, ("<b>A</b>".into(), None));
+		assert!(!state.borrow().locked);
+		assert_eq!(state.borrow().drops, 1);
+	}
+
+	#[test]
+	fn paired_empty_alternative_is_success_and_releases_guard() {
+		let state = Rc::new(RefCell::new(GuardState::default()));
+		let result = read_with_text_guard(
+			Ok(Guard::open(&state)),
+			|| Ok("<b>A</b>".into()),
+			|| {
+				assert!(state.borrow().locked);
+				Ok(String::new())
+			},
+		)
+		.unwrap();
+		assert_eq!(result, ("<b>A</b>".into(), Some(String::new())));
+		assert!(!state.borrow().locked);
+		assert_eq!(state.borrow().drops, 1);
+	}
+
+	#[test]
+	fn paired_read_unwind_releases_guard_for_the_next_reader() {
+		let state = Rc::new(RefCell::new(GuardState::default()));
+		let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+			read_with_text_guard(
+				Ok(Guard::open(&state)),
+				|| panic!("受控读取展开"),
+				|| panic!("不得继续"),
+			)
+		}));
+		assert!(result.is_err());
+		assert!(!state.borrow().locked);
+		assert_eq!(state.borrow().drops, 1);
+		drop(Guard::open(&state));
+		assert_eq!(state.borrow().drops, 2);
+	}
 
 	fn fixture(fragment: &str, newline: &str) -> (Vec<u8>, Range<usize>) {
 		let header = format!("Version:1.0{newline}StartHTML:-1{newline}EndHTML:-1{newline}SourceURL:https://example.invalid/test{newline}StartFragment:{:010}{newline}EndFragment:{:010}{newline}", 0, 0);
