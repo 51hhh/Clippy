@@ -5,7 +5,12 @@
 
 ## 当前续审结果
 
-当前继续 W23 / WIN-PASTE-RECHECK-01：恢复目标与首次按键之间再查窗口/PID/前台，
+当前 W24 / WIN-WASAPI-STOP-TAIL-01：Windows WASAPI 正常停止与暂停共用 Reset/清空路径，
+导致已复制 PCM 和 endpoint 尾包不交付。正常 Stop 现在有限排空并通过既有尾块接口提交；
+旧控制协议辅助红基线 9 passed / 4 failed，修复后 13 项纯音频合同通过。完整 Cargo 本机门禁待验，
+未创建 COM、endpoint、系统声、麦克风或录屏；真实设备/混音、Windows 10 和新 SHA CI 未验。
+
+此前 W23 / WIN-PASTE-RECHECK-01：恢复目标与首次按键之间再查窗口/PID/前台，
 同一生产初始化入口的离线红基线 2 passed / 4 failed，修复后六项在真实 Cargo 两图均通过。
 源码 `14bf61630efab7b62905bbc5b976fbed8e62166c` 的完整 Windows 默认/录屏 QA 本机门禁
 exit 0：27 passed / 0 failed / 1 skipped（Linux smoke）；默认 Rust 1052 / 5 ignored，
@@ -16,7 +21,7 @@ windows-paste-recheck-native-qa-14bf616/RESULT.json，红绿辅助证据另行�
 
 用户要求停止桌面操控，当前继续代码 review 与 Windows 本机自动验证。已安装的 QA 源码仍为
 `45769c9`：真实记录是文本/图片 2 pass、Pin 工具栏裁切 1 fail、36 not_run；原始 39 项模板保留不变。
-新 Pin、私有文件、长截图光标、CF_HTML、图片预算、DIB 偏移和粘贴目标复核修复未安装，桌面复测、录屏/音频、
+新 Pin、私有文件、长截图光标、CF_HTML、图片预算、DIB 偏移、粘贴目标复核和 WASAPI 尾部修复未安装，桌面复测、录屏/音频、
 管理员目标、多屏和 Windows 10 均保持未验证。
 
 此前独立 WIN-DIBV5-PIXEL-01 修复 W22 的显式像素偏移，原 Chrome/Firefox 断言及新增
@@ -113,6 +118,21 @@ Run：<https://github.com/51hhh/Clippy/actions/runs/35792281966>。
 本轮修改已推送到草稿 PR；首次修改后 CI 和后续修复证据见下方记录，不能沿用基线结果。
 
 ## Findings
+
+### W24 / P1 — WASAPI Stop 丢弃已采集音频尾部（离线复现并修复）
+
+stop_capture 原先调用 stop_and_reset，Reset 清空 endpoint，pending.clear 丢弃已复制拆块，
+source 使用默认空 take_stopped_chunks。worker 和 mixer 的尾部提交入口已存在；Windows 源未交付。
+独立 WIN-WASAPI-STOP-TAIL-01 将正常停止改为 Stop、按 Initialize 后实际 GetBufferSize 容量
+检查并排空 packet、Reset、保留 PCM；暂停/Drop 使用清空策略。尾包使用原 read_packet，
+复制/QPC/静音/序号/重叠/恢复过滤与 ReleaseBuffer 逻辑保持；最终时间下界包含新末帧。
+正常 source 的一次性 take_stopped_chunks 接入既有 pipeline.finish 前的提交路径。
+
+辅助 harness 包含完整纯合同模块，外围 PCM 类型 stub、endpoint fake；旧控制协议提取红基线
+9 passed / 4 failed，原七项合同不变，新增六项中四项失败；绿状态 13 passed。验证字面样本、
+零尾包、暂停清空、有限容量/持续非空源、控制/查询/读取/Reset 失败，未调用 COM 或音频 API。
+该协议证据不替代实际 WASAPI 图，完整 Windows 门禁待验。没有声称实际设备尾音缺失已经复现，
+系统声/麦克风/混音、设备拔出、Windows 10、桌面与新 SHA CI 仍未验。
 
 ### W23 / P1 — Windows 输入后端初始化后未再复核粘贴目标（离线复现并修复，本机门禁通过）
 

@@ -2,6 +2,15 @@
 
 ## 未发布
 
+### 2026-10-01 Windows 录屏音频停止尾部保留
+
+- 非默认 Windows 录屏 QA 正常 Stop 先停止 WASAPI，按 endpoint 实际容量排空尾包，再重置；
+  保留已复制 PCM，通过现有 worker/mixer 在时间线封尾前提交，避免尾音被清空替成静音。
+  Pause / Drop 继续清空旧样本，排空超限或设备/读取/释放错误继续中止会话。
+  旧控制协议离线红基线 9 passed / 4 failed，修复后 13 项音频合同通过，完整本机门禁待验。
+  没有创建真实音频设备或录屏；系统声、麦克风、混音、设备拔出、Windows 10 与新 SHA CI 未验。
+  （需求：`WIN-WASAPI-STOP-TAIL-01`；见 `docs/superpowers/specs/2026-10-01-windows-wasapi-stop-tail.md`）
+
 ### 2026-10-01 Windows 自动粘贴输入前目标复核
 
 - Windows 在激活/等待和输入后端初始化后、首次粘贴按键前再次核对窗口、PID 和前台目标；

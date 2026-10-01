@@ -8,8 +8,9 @@ use super::super::audio_devices::{NativeRecordingAudioDevice, RecordingAudioDevi
 use super::super::audio_worker::RecordingAudioSource;
 use super::super::clock::RecordingSessionClock;
 use super::windows_audio_contract::{
-    packet_to_chunks, safe_control_timestamp, QpcClockMapper, WindowsAudioContractError,
-    WindowsAudioEndpointFlow, WindowsAudioSourceKind, WASAPI_CHANNELS,
+    packet_to_chunks, safe_control_timestamp, stop_endpoint, QpcClockMapper, StopTailMode,
+    WasapiStopEndpoint, WindowsAudioContractError, WindowsAudioEndpointFlow,
+    WindowsAudioSourceKind, WASAPI_CHANNELS,
 };
 use std::collections::VecDeque;
 use std::ptr;
@@ -194,6 +195,7 @@ pub(in crate::recording) struct WindowsWasapiAudioSource {
     clock: RecordingSessionClock,
     mapper: QpcClockMapper,
     pending: VecDeque<CapturedAudioChunk>,
+    buffer_frames: u32,
     next_sequence: u64,
     last_packet_end_ns: Option<u64>,
     not_before_ns: u64,
@@ -248,6 +250,9 @@ impl WindowsWasapiAudioSource {
                 )
                 .map_err(|error| windows_api_error("初始化 shared stream", error))?;
         }
+        // 请求时长不等于实际容量；正常停止时用实际帧数限制剩余 packet 排空。
+        let buffer_frames = unsafe { audio_client.GetBufferSize() }
+            .map_err(|error| windows_api_error("读取 endpoint 帧容量", error))?;
         let event = OwnedEvent::create()?;
         unsafe {
             audio_client
@@ -273,6 +278,7 @@ impl WindowsWasapiAudioSource {
             clock,
             mapper,
             pending: VecDeque::new(),
+            buffer_frames,
             next_sequence: 0,
             last_packet_end_ns: None,
             not_before_ns: 0,
@@ -350,33 +356,61 @@ impl WindowsWasapiAudioSource {
         Ok(())
     }
 
-    fn next_packet_available(&self) -> Result<bool, WindowsWasapiAudioSourceError> {
-        let frames = unsafe {
+    fn next_packet_size(&self) -> Result<u32, WindowsWasapiAudioSourceError> {
+        unsafe {
             self.capture_client
                 .GetNextPacketSize()
-                .map_err(|error| windows_api_error("查询 capture packet", error))?
-        };
-        Ok(frames > 0)
+                .map_err(|error| windows_api_error("查询 capture packet", error))
+        }
+    }
+
+    fn next_packet_available(&self) -> Result<bool, WindowsWasapiAudioSourceError> {
+        Ok(self.next_packet_size()? > 0)
     }
 
     fn stop_and_reset(&mut self) -> Result<(), WindowsWasapiAudioSourceError> {
+        let buffer_frames = self.buffer_frames;
+        stop_endpoint(self, StopTailMode::Discard, buffer_frames)
+    }
+
+    fn safe_control_timestamp(&self) -> u64 {
+        safe_control_timestamp(self.clock.now_ns(), self.last_packet_end_ns)
+    }
+}
+
+impl WasapiStopEndpoint for WindowsWasapiAudioSource {
+    type Error = WindowsWasapiAudioSourceError;
+
+    fn stop_stream(&mut self) -> Result<(), Self::Error> {
         if self.running {
             unsafe {
                 self.audio_client
                     .Stop()
                     .map_err(|error| windows_api_error("停止 capture stream", error))?;
-                self.audio_client
-                    .Reset()
-                    .map_err(|error| windows_api_error("重置 capture stream", error))?;
             }
             self.running = false;
         }
-        self.pending.clear();
         Ok(())
     }
 
-    fn safe_control_timestamp(&self) -> u64 {
-        safe_control_timestamp(self.clock.now_ns(), self.last_packet_end_ns)
+    fn next_packet_frames(&mut self) -> Result<u32, Self::Error> {
+        self.next_packet_size()
+    }
+
+    fn read_packet(&mut self) -> Result<(), Self::Error> {
+        WindowsWasapiAudioSource::read_packet(self)
+    }
+
+    fn reset_stream(&mut self) -> Result<(), Self::Error> {
+        unsafe {
+            self.audio_client
+                .Reset()
+                .map_err(|error| windows_api_error("重置 capture stream", error))
+        }
+    }
+
+    fn discard_pending(&mut self) {
+        self.pending.clear();
     }
 }
 
@@ -438,8 +472,13 @@ impl RecordingAudioSource for WindowsWasapiAudioSource {
     }
 
     fn stop_capture(&mut self) -> Result<u64, Self::Error> {
-        self.stop_and_reset()?;
+        let buffer_frames = self.buffer_frames;
+        stop_endpoint(self, StopTailMode::Preserve, buffer_frames)?;
         Ok(self.safe_control_timestamp())
+    }
+
+    fn take_stopped_chunks(&mut self) -> Result<Vec<CapturedAudioChunk>, Self::Error> {
+        Ok(self.pending.drain(..).collect())
     }
 }
 

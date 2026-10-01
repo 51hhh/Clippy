@@ -53,6 +53,52 @@ pub(in crate::recording) enum WindowsAudioContractError {
     SampleLengthMismatch,
     #[error("WASAPI packet 序号耗尽")]
     SequenceExhausted,
+    #[error("WASAPI 停止尾包超过 endpoint 实际帧容量")]
+    StopDrainBudgetExceeded,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum StopTailMode {
+    Discard,
+    Preserve,
+}
+
+/// 原生对象留在音频线程；这个入口允许离线测试控制、排空和清理顺序。
+pub(super) trait WasapiStopEndpoint {
+    type Error: From<WindowsAudioContractError>;
+
+    fn stop_stream(&mut self) -> Result<(), Self::Error>;
+    fn next_packet_frames(&mut self) -> Result<u32, Self::Error>;
+    fn read_packet(&mut self) -> Result<(), Self::Error>;
+    fn reset_stream(&mut self) -> Result<(), Self::Error>;
+    fn discard_pending(&mut self);
+}
+
+pub(super) fn stop_endpoint<S: WasapiStopEndpoint>(
+    source: &mut S,
+    mode: StopTailMode,
+    buffer_frames: u32,
+) -> Result<(), S::Error> {
+    source.stop_stream()?;
+    if mode == StopTailMode::Preserve {
+        // Stop 后不再产生新包；以实际 endpoint 容量约束排空，不能无界轮询。
+        let mut remaining_frames = buffer_frames;
+        loop {
+            let frames = source.next_packet_frames()?;
+            if frames == 0 {
+                break;
+            }
+            remaining_frames = remaining_frames
+                .checked_sub(frames)
+                .ok_or(WindowsAudioContractError::StopDrainBudgetExceeded)?;
+            source.read_packet()?;
+        }
+    }
+    source.reset_stream()?;
+    if mode == StopTailMode::Discard {
+        source.discard_pending();
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -197,6 +243,202 @@ pub(super) fn safe_control_timestamp(current_ns: u64, last_packet_end_ns: Option
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Debug, PartialEq, Eq)]
+    enum StopTestError {
+        Api(&'static str),
+        Contract(WindowsAudioContractError),
+    }
+
+    impl From<WindowsAudioContractError> for StopTestError {
+        fn from(error: WindowsAudioContractError) -> Self {
+            Self::Contract(error)
+        }
+    }
+
+    struct StopFixture {
+        running: bool,
+        native: VecDeque<(u32, u64, Option<f32>)>,
+        pending: VecDeque<CapturedAudioChunk>,
+        next_sequence: u64,
+        last_end_ns: u64,
+        events: Vec<&'static str>,
+        fail_at: Option<&'static str>,
+        repeat_packet: bool,
+    }
+
+    impl StopFixture {
+        fn with_tail() -> Self {
+            let samples = vec![0.25; 1920 * 2];
+            let mut copied = packet_to_chunks(7, 0, 1920, Some(&samples)).unwrap();
+            copied.chunks.pop_front();
+            Self {
+                running: true,
+                native: VecDeque::from([(17, 40_000_000, Some(0.75)), (480, 40_354_167, None)]),
+                pending: copied.chunks,
+                next_sequence: copied.next_sequence,
+                last_end_ns: copied.end_ns,
+                events: Vec::new(),
+                fail_at: None,
+                repeat_packet: false,
+            }
+        }
+
+        fn operation(&mut self, name: &'static str) -> Result<(), StopTestError> {
+            self.events.push(name);
+            if self.fail_at == Some(name) {
+                Err(StopTestError::Api(name))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    impl WasapiStopEndpoint for StopFixture {
+        type Error = StopTestError;
+
+        fn stop_stream(&mut self) -> Result<(), Self::Error> {
+            self.operation("stop")?;
+            self.running = false;
+            Ok(())
+        }
+
+        fn next_packet_frames(&mut self) -> Result<u32, Self::Error> {
+            self.operation("query")?;
+            assert!(!self.running);
+            Ok(if self.repeat_packet {
+                1
+            } else {
+                self.native.front().map_or(0, |packet| packet.0)
+            })
+        }
+
+        fn read_packet(&mut self) -> Result<(), Self::Error> {
+            self.operation("read")?;
+            assert!(!self.running);
+            let (frames, timestamp, value) = if self.repeat_packet {
+                (1, self.last_end_ns, Some(0.5))
+            } else {
+                self.native.pop_front().unwrap()
+            };
+            let samples = value.map(|value| vec![value; frames as usize * 2]);
+            let packet =
+                packet_to_chunks(self.next_sequence, timestamp, frames, samples.as_deref())?;
+            self.pending.extend(packet.chunks);
+            self.next_sequence = packet.next_sequence;
+            self.last_end_ns = packet.end_ns;
+            Ok(())
+        }
+
+        fn reset_stream(&mut self) -> Result<(), Self::Error> {
+            self.operation("reset")?;
+            self.native.clear();
+            Ok(())
+        }
+
+        fn discard_pending(&mut self) {
+            self.events.push("discard");
+            self.pending.clear();
+        }
+    }
+
+    #[test]
+    fn normal_stop_retains_split_pending_and_endpoint_tail() {
+        let mut source = StopFixture::with_tail();
+        stop_endpoint(&mut source, StopTailMode::Preserve, 497).unwrap();
+        assert_eq!(source.pending.len(), 3);
+        assert_eq!(
+            source
+                .pending
+                .iter()
+                .map(|chunk| chunk.sequence)
+                .collect::<Vec<_>>(),
+            [8, 9, 10]
+        );
+        assert_eq!(source.pending[0].captured_at_ns, 20_000_000);
+        assert_eq!(source.pending[0].frame_count, 960);
+        assert_eq!(source.pending[0].samples.as_ref(), vec![0.25; 1920]);
+        assert_eq!(source.pending[1].captured_at_ns, 40_000_000);
+        assert_eq!(source.pending[1].samples.as_ref(), vec![0.75; 34]);
+        assert_eq!(source.pending[2].captured_at_ns, 40_354_167);
+        assert_eq!(source.pending[2].samples.as_ref(), vec![0.0; 960]);
+        assert_eq!(source.last_end_ns, 50_354_167);
+        assert_eq!(source.next_sequence, 11);
+        assert_eq!(
+            source.events,
+            ["stop", "query", "read", "query", "read", "query", "reset"]
+        );
+    }
+
+    #[test]
+    fn pause_discards_pending_without_reading_native_tail() {
+        let mut source = StopFixture::with_tail();
+        stop_endpoint(&mut source, StopTailMode::Discard, 0).unwrap();
+        assert!(source.pending.is_empty());
+        assert!(source.native.is_empty());
+        assert!(!source.running);
+        assert_eq!(source.events, ["stop", "reset", "discard"]);
+    }
+
+    #[test]
+    fn stop_drain_never_exceeds_actual_endpoint_capacity() {
+        for (capacity, repeated, expected_reads) in [(0, false, 0), (17, false, 1), (2, true, 2)] {
+            let mut source = StopFixture::with_tail();
+            source.repeat_packet = repeated;
+            assert_eq!(
+                stop_endpoint(&mut source, StopTailMode::Preserve, capacity),
+                Err(StopTestError::Contract(
+                    WindowsAudioContractError::StopDrainBudgetExceeded
+                ))
+            );
+            assert_eq!(
+                source
+                    .events
+                    .iter()
+                    .filter(|event| **event == "read")
+                    .count(),
+                expected_reads
+            );
+            assert!(!source.events.contains(&"reset"));
+            assert!(!source.events.contains(&"discard"));
+        }
+    }
+
+    #[test]
+    fn normal_stop_with_no_endpoint_packets_keeps_copied_pcm() {
+        let mut source = StopFixture::with_tail();
+        source.native.clear();
+        stop_endpoint(&mut source, StopTailMode::Preserve, 0).unwrap();
+        assert_eq!(source.pending.len(), 1);
+        assert_eq!(source.pending[0].samples.as_ref(), vec![0.25; 1920]);
+        assert_eq!(source.last_end_ns, 40_000_000);
+        assert_eq!(source.events, ["stop", "query", "reset"]);
+    }
+
+    #[test]
+    fn stop_drain_errors_never_report_success_or_discard_pcm() {
+        for operation in ["stop", "query", "read", "reset"] {
+            let mut source = StopFixture::with_tail();
+            source.fail_at = Some(operation);
+            assert_eq!(
+                stop_endpoint(&mut source, StopTailMode::Preserve, 497),
+                Err(StopTestError::Api(operation))
+            );
+            assert_eq!(source.events.last(), Some(&operation));
+            assert!(!source.events.contains(&"discard"));
+            assert!(!source.pending.is_empty());
+        }
+    }
+
+    #[test]
+    fn paused_stop_with_no_tail_succeeds_with_zero_capacity() {
+        let mut source = StopFixture::with_tail();
+        stop_endpoint(&mut source, StopTailMode::Discard, 0).unwrap();
+        stop_endpoint(&mut source, StopTailMode::Preserve, 0).unwrap();
+        assert!(!source.running);
+        assert!(source.pending.is_empty());
+        assert!(source.native.is_empty());
+    }
 
     #[test]
     fn source_kind_only_enables_loopback_for_system_sound() {
