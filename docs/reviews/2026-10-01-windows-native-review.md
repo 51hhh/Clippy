@@ -5,7 +5,20 @@
 
 ## 当前续审结果
 
-当前 W39 / WIN-EXPORT-IDENTITY-01：原生产导出仅比较路径文本。直接在未经改动的导出函数
+当前 W40 / REC-MEDIA-REVOKE-01：原 revoke_session 仅移除已签发租约，generation 只检查
+结果窗关闭。原生产 manager 仅追加测试模块，真实文件/通道控制的排队 worker 红基线
+7 passed / 4 failed；旧五项全绿，新六项 2 passed / 4 failed，四项实际重新签发 Ok 租约。
+prepare_session 在后台任务前绑定会话 Arc 身份，state 保留 Weak；撤销移除身份，首块/约
+16 MiB 哈希取消检查与最终签发核对窗口代次/会话身份，最终检查与插入同锁。Drop 回收
+最后持有者，不累积墓碑；旧身份释放不能移除同名新准备，其它会话及撤销后的新准备保持。
+同组测试六个正文原始字节保持，类型/API adapter 迁移；追加生命周期/跨 manager 两项，
+定向 13 passed，包含旧五项断言。十二段原媒体函数、十九段原库函数、原 issue 校验/租约
+余部、revoke/clear 旧租约操作与十份关联文件核对；未改变协议/IPC/默认门控/删除 owner。
+完整干净 SHA Windows 门禁待执行。没有真实删除/合并、Tauri invoke、WebView 解码或
+哈希扫描中间撤销时序观察；其它宿主、当前 SHA CI 与桌面留未验。合同
+recording-media-revoke-contract；桌面操作保持停止。
+
+此前 W39 / WIN-EXPORT-IDENTITY-01：原生产导出仅比较路径文本。直接在未经改动的导出函数
 运行六项真实 Windows 文件/句柄夹具，红基线 2 passed / 4 failed：大小写、父目录、扩展路径
 三者漏过提前保护并迟至替换时报 OS error 5，硬链接别名返回 Ok；不声称三者成功覆盖源文件。
 现用 FileIdInfo 的卷号与完整 128 位 ID，在原 source File 打开后、私有临时文件创建前检查。
@@ -19,7 +32,7 @@
 1220（各 5 ignored，重叠不累加），新增六项与错误一项在各图总数内，关键旧导出/manifest/
 合并九条及前轮删除所有权六项按各自图通过；前端 77 文件 / 1307 passed，Python 33 + 3，
 独立 vendor 十八项与剪贴板二十四项通过。check、严格 lint、供应链、构建/入口通过；源码/
-原始日志、checked helper/门禁脚本/固定声明哈希与干净检出核对。累计二十三项产品修复未装包。
+原始日志、checked helper/门禁脚本/固定声明哈希与干净检出核对。截至 W39 二十三项产品修复未装包。
 夹具是既有 manifest 数据文件，未生成或播放真实录屏；实际导出对话框、媒体/文件系统矩阵、
 其它宿主与当前 SHA CI 未验。媒体 clear 递增全局代次，revoke_session 仅移除已有租约；
 待用生产夹具续审 pending issue 跨会话撤销，尚未复现新缺陷。缩略图 load/clear 共用互斥锁，

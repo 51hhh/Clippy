@@ -9,6 +9,14 @@
 
 ## 当前续审状态
 
+- `REC-MEDIA-REVOKE-01` / W40：独立 `codex/recording-media-revoke`，基于 `116f1d3`。
+  准备进入后台前捕获会话身份；撤销同时失效已签发与待签发租约，首块/约 16 MiB 哈希检查
+  及最终同锁签发检查同一凭据。其它会话、新准备保持，最后持有者 Drop 回收弱条目。
+  原生产 manager 红基线 7 passed / 4 failed，四项实际重新签发 Ok 租约；同组六正文保持，
+  类型/API adapter 迁移，追加两项生命周期/跨 manager 测试，含旧五项共 13 passed。
+  原读取/校验/响应/租约断言与十份关联文件核对，完整 Windows 门禁待执行；真实 IPC/
+  删除/合并/播放、哈希中间撤销、其它宿主和当前 SHA CI 未验，桌面操作停止。
+
 - `WIN-EXPORT-IDENTITY-01` / W39：独立 `codex/windows-export-identity`，基于 `935766b`。
   Windows 在临时复制前按卷号/128 位 FileId 拒绝同文件别名；原新建、不同目标和哈希协议保持。
   原生产导出直接红基线 2 passed / 4 failed（三者迟至替换 error 5、硬链接返回 Ok），同组六项
@@ -284,6 +292,7 @@
 | W37 | P1 | 录屏控制窗准备失败回滚按销毁请求返回结果结算，请求失败仍阻止替换 | 独立 WIN-CONTROL-ROLLBACK-01；提取原回滚协议红基线 22 passed / 2 failed，旧十七项全绿、新七项红 5/2，修复后二十四项通过；干净 a52ecaa 完整默认/QA 门禁原生子进程 exit 0，30/0/1（Linux skip），默认 Rust 1150、QA Rust 1207（各 5 ignored，重叠不累加），新增七项在总数内，前端 1307 passed；请求成功不是原生销毁完成，真实请求失败/捕获像素/设备/强杀、其它宿主和新 SHA CI 未验 |
 | W38 | P1 | 录屏恢复合并与删除原子取得同会话所有权，删除 guard 覆盖完整 worker | 独立 REC-DELETE-OWNER-01；提取原删除协议红基线 3 passed / 3 failed，生产已提交 VP9 分段/清单删除缺口复现；同组六项通过，既有单槽/关键 manifest 合同通过；干净 0321355 完整默认/QA 门禁原生子进程 exit 0，30/0/1（Linux skip），默认 Rust 1150、QA Rust 1213（各 5 ignored，重叠不累加），新增六项仅在 QA 总数内，前端 1307 passed；默认删除不变；真实重开窗口/强杀/播放、其它宿主和新 SHA CI 未验 |
 | W39 | P1 | Windows 导出用完整句柄身份提前拒绝同文件别名，保留普通导出 | 独立 WIN-EXPORT-IDENTITY-01；原生产导出直接红基线 2 passed / 4 failed（三者替换 error 5、硬链接 Ok），同组六项修复后通过，旧导出/原生错误各一项通过；干净 69cf0b4 完整默认/QA 门禁原生子进程 exit 0，30/0/1（Linux skip），默认 Rust 1157、QA Rust 1220（各 5 ignored，重叠不累加），新增六项与错误一项在各图总数内，前端 1307 passed；真实对话框/媒体、文件系统/网络盘/权限与外部竞态、其它宿主和新 SHA CI 未验 |
+| W40 | P1 | 会话撤销同时失效尚在准备中的播放租约，保留其它会话与新准备 | 独立 REC-MEDIA-REVOKE-01，补齐 PX-REC-PLAYBACK-01 / 4；原 manager 红基线 7/4，四项实际返回 Ok 租约；同组六项与新增两项、旧五项共 13 passed；原合同核对，完整干净 SHA Windows 门禁待执行。真实删除/合并/播放、哈希中间撤销时序、其它宿主与新 SHA CI 未验 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。

@@ -234,7 +234,9 @@ pub(crate) async fn prepare_recording_playback(
 ) -> Result<RecordingPlaybackLease, RecordingLibraryError> {
     ensure_library(&window)?;
     let media = Arc::clone(&state.recording_media);
-    let generation = media.generation().map_err(RecordingLibraryError::storage)?;
+    let preparation = media
+        .prepare_session(&session_id)
+        .map_err(RecordingLibraryError::storage)?;
     tauri::async_runtime::spawn_blocking(move || {
         let app_data_dir = app
             .path()
@@ -243,7 +245,7 @@ pub(crate) async fn prepare_recording_playback(
         let artifact = manifest::resolve_library_artifact(&app_data_dir, &session_id, &artifact_id)
             .map_err(RecordingLibraryError::storage)?;
         let lease = media
-            .issue(generation, &session_id, &artifact)
+            .issue(&preparation, &artifact)
             .map_err(RecordingLibraryError::storage)?;
         Ok(RecordingPlaybackLease {
             token: lease.token,

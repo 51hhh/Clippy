@@ -10,7 +10,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, Weak};
 use std::time::SystemTime;
 use tauri::{http, Manager, Runtime, UriSchemeContext};
 
@@ -39,25 +39,108 @@ struct RecordingMediaState {
     next_token: u64,
     order: VecDeque<String>,
     leases: HashMap<String, RecordingMediaLease>,
+    preparations: HashMap<String, Weak<RecordingMediaSession>>,
+}
+
+#[derive(Debug)]
+struct RecordingMediaSession {
+    session_id: String,
+    owner: Weak<Mutex<RecordingMediaState>>,
+}
+
+impl Drop for RecordingMediaSession {
+    fn drop(&mut self) {
+        let Some(owner) = self.owner.upgrade() else {
+            return;
+        };
+        let Ok(mut state) = owner.lock() else {
+            return;
+        };
+        // 最后一个准备释放时移除弱条目；旧身份的迟到释放不能移除同名新准备。
+        if state
+            .preparations
+            .get(&self.session_id)
+            .is_some_and(|current| std::ptr::eq(current.as_ptr(), self))
+        {
+            state.preparations.remove(&self.session_id);
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct RecordingMediaPreparation {
+    generation: u64,
+    session: Arc<RecordingMediaSession>,
+}
+
+impl RecordingMediaState {
+    fn ensure_preparation_current(
+        &self,
+        preparation: &RecordingMediaPreparation,
+    ) -> Result<(), String> {
+        if self.generation != preparation.generation {
+            return Err("录屏结果窗已经关闭".to_string());
+        }
+        if !self
+            .preparations
+            .get(&preparation.session.session_id)
+            .is_some_and(|current| {
+                std::ptr::eq(current.as_ptr(), Arc::as_ptr(&preparation.session))
+            })
+        {
+            return Err("录屏会话的播放准备已撤销".to_string());
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct RecordingMediaManager {
-    inner: Mutex<RecordingMediaState>,
+    inner: Arc<Mutex<RecordingMediaState>>,
 }
 
 impl RecordingMediaManager {
-    pub(super) fn generation(&self) -> Result<u64, String> {
+    pub(super) fn prepare_session(
+        &self,
+        session_id: &str,
+    ) -> Result<RecordingMediaPreparation, String> {
+        let mut state = self
+            .inner
+            .lock()
+            .map_err(|error| format!("录屏播放租约锁损坏: {error}"))?;
+        let session = state
+            .preparations
+            .get(session_id)
+            .and_then(Weak::upgrade)
+            .unwrap_or_else(|| {
+                let session = Arc::new(RecordingMediaSession {
+                    session_id: session_id.to_string(),
+                    owner: Arc::downgrade(&self.inner),
+                });
+                state
+                    .preparations
+                    .insert(session_id.to_string(), Arc::downgrade(&session));
+                session
+            });
+        Ok(RecordingMediaPreparation {
+            generation: state.generation,
+            session,
+        })
+    }
+
+    fn ensure_preparation_current(
+        &self,
+        preparation: &RecordingMediaPreparation,
+    ) -> Result<(), String> {
         self.inner
             .lock()
-            .map(|state| state.generation)
-            .map_err(|error| format!("录屏播放租约锁损坏: {error}"))
+            .map_err(|error| format!("录屏播放租约锁损坏: {error}"))?
+            .ensure_preparation_current(preparation)
     }
 
     pub(super) fn issue(
         &self,
-        generation: u64,
-        session_id: &str,
+        preparation: &RecordingMediaPreparation,
         artifact: &ResolvedRecordingArtifact,
     ) -> Result<RecordingMediaLeaseInfo, String> {
         if artifact
@@ -81,14 +164,13 @@ impl RecordingMediaManager {
         let modified = metadata_before
             .modified()
             .map_err(|error| format!("读取录屏产物修改时间失败: {error}"))?;
-        // 清单哈希按 64 KiB 读取；每约 16 MiB 回看一次窗口代次，避免用户关闭结果窗后仍把
-        // 数 GiB 文件完整扫完。首块也检查，已关闭的窗口不会重新开始 I/O。
+        // 清单哈希按 64 KiB 读取；每约 16 MiB 回看窗口/会话准备身份，避免关闭或撤销后仍把
+        // 数 GiB 文件完整扫完。首块也检查，已失效准备不会继续读取文件内容。
         let mut checkpoint_index = 0_u8;
         super::manifest::verify_library_artifact_with_checkpoint(artifact, || {
             checkpoint_index = checkpoint_index.wrapping_add(1);
-            if (checkpoint_index == 1 || checkpoint_index == 0) && self.generation()? != generation
-            {
-                return Err("录屏结果窗已经关闭".to_string());
+            if checkpoint_index == 1 || checkpoint_index == 0 {
+                self.ensure_preparation_current(preparation)?;
             }
             Ok(())
         })?;
@@ -102,7 +184,7 @@ impl RecordingMediaManager {
             return Err("录屏产物在校验期间发生变化".to_string());
         }
         let lease = RecordingMediaLease {
-            session_id: session_id.to_string(),
+            session_id: preparation.session.session_id.clone(),
             path: artifact.path.clone(),
             byte_length: artifact.byte_length,
             modified,
@@ -112,9 +194,7 @@ impl RecordingMediaManager {
             .inner
             .lock()
             .map_err(|error| format!("录屏播放租约锁损坏: {error}"))?;
-        if state.generation != generation {
-            return Err("录屏结果窗已经关闭".to_string());
-        }
+        state.ensure_preparation_current(preparation)?;
         state.next_token = state.next_token.wrapping_add(1).max(1);
         let token = format!("media-{:016x}", state.next_token);
         state.order.push_back(token.clone());
@@ -145,6 +225,8 @@ impl RecordingMediaManager {
             .inner
             .lock()
             .map_err(|error| format!("录屏播放租约锁损坏: {error}"))?;
+        // 与最终签发共用同一锁：撤销前已经排队的 worker 也不能重新建立租约。
+        state.preparations.remove(session_id);
         let expired: Vec<_> = state
             .leases
             .iter()
@@ -163,6 +245,7 @@ impl RecordingMediaManager {
             .lock()
             .map_err(|error| format!("录屏播放租约锁损坏: {error}"))?;
         state.generation = state.generation.wrapping_add(1);
+        state.preparations.clear();
         state.order.clear();
         state.leases.clear();
         Ok(())
@@ -423,6 +506,8 @@ mod tests {
     use sha2::Digest;
     use std::io::Write;
 
+    mod revoke_tests;
+
     fn lease(path: PathBuf) -> RecordingMediaLease {
         let metadata = fs::symlink_metadata(&path).unwrap();
         RecordingMediaLease {
@@ -516,14 +601,14 @@ mod tests {
         let path = temporary.path().join("recording.webm");
         fs::write(&path, b"changed").unwrap();
         let manager = RecordingMediaManager::default();
-        let generation = manager.generation().unwrap();
+        let preparation = manager.prepare_session("session-a").unwrap();
         let artifact = ResolvedRecordingArtifact {
             path: path.clone(),
             suggested_file_name: "Clippy-session.webm".to_string(),
             byte_length: 7,
             sha256: format!("{:x}", sha2::Sha256::digest(b"planned")),
         };
-        assert!(manager.issue(generation, "session-a", &artifact).is_err());
+        assert!(manager.issue(&preparation, &artifact).is_err());
 
         let unsupported = ResolvedRecordingArtifact {
             path: temporary.path().join("recording.avi"),
@@ -532,9 +617,7 @@ mod tests {
             sha256: artifact.sha256.clone(),
         };
         fs::write(&unsupported.path, b"planned").unwrap();
-        assert!(manager
-            .issue(generation, "session-a", &unsupported)
-            .is_err());
+        assert!(manager.issue(&preparation, &unsupported).is_err());
     }
 
     #[test]
@@ -568,19 +651,20 @@ mod tests {
             sha256: format!("{:x}", sha2::Sha256::digest(b"webm")),
         };
         let manager = RecordingMediaManager::default();
-        let generation = manager.generation().unwrap();
-        let first = manager.issue(generation, "session-a", &artifact).unwrap();
+        let preparation = manager.prepare_session("session-a").unwrap();
+        let first = manager.issue(&preparation, &artifact).unwrap();
         for index in 0..MAX_LEASES {
-            manager
-                .issue(generation, &format!("session-{index}"), &artifact)
+            let pending = manager
+                .prepare_session(&format!("session-{index}"))
                 .unwrap();
+            manager.issue(&pending, &artifact).unwrap();
         }
         assert!(manager.get(&first.token).unwrap().is_none());
-        let current = manager.issue(generation, "session-a", &artifact).unwrap();
+        let current = manager.issue(&preparation, &artifact).unwrap();
         manager.revoke_session("session-a").unwrap();
         assert!(manager.get(&current.token).unwrap().is_none());
 
         manager.clear().unwrap();
-        assert!(manager.issue(generation, "session-a", &artifact).is_err());
+        assert!(manager.issue(&preparation, &artifact).is_err());
     }
 }
