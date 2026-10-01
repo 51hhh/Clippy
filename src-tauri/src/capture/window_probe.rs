@@ -16,8 +16,8 @@
 //! 取第一个命中的候选，所以这个顺序就是遮挡关系的答案：点落在两个窗口重叠处时选上面
 //! 那个，落在下层窗口露出来的部分时选下层，被完全盖住的窗口自然选不到。拿不到堆叠顺序
 //! 时才退化成"面积小的优先"这种猜测。Windows/macOS 的 xcap 枚举本身已经按 Z 序
-//! 从上到下返回，必须保留原顺序；Windows 的窗口矩形还是物理像素，需要按窗口所在屏的
-//! DPI 换成与覆盖层一致的逻辑像素。
+//! 从上到下返回，必须保留原顺序；Windows 的窗口矩形是物理像素，跨屏时需要按每块
+//! 冻结帧的缩放分别换成覆盖层局部逻辑像素，不能只用窗口主导显示器的 DPI。
 
 use super::shell_extension::ShellWindow;
 use super::types::WindowCandidate;
@@ -35,6 +35,7 @@ pub(super) struct ProbeRect {
 
 /// `_GTK_FRAME_EXTENTS` / `_NET_FRAME_EXTENTS` 的四个边距，单位是 X 像素。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[cfg(any(test, not(target_os = "windows")))]
 pub(super) struct FrameExtents {
     pub left: u32,
     pub right: u32,
@@ -44,6 +45,10 @@ pub(super) struct FrameExtents {
 
 /// 速选候选区小于这个尺寸就没有点击价值，也挡不住误命中。
 const MIN_CANDIDATE_SIZE: i32 = 20;
+
+#[cfg(all(test, target_os = "windows"))]
+#[path = "window_probe/windows_tests.rs"]
+mod windows_tests;
 
 /// 这个窗口是"Clippy 自己的、但不是贴图"吗？是的话不该成为速选目标。
 ///
@@ -112,11 +117,13 @@ fn candidates_from_x11(frames: &[CapturedMonitorFrame]) -> HashMap<u32, Vec<Wind
     }
 
     let mut x11 = X11Probe::open();
+    #[cfg(not(target_os = "windows"))]
     let desktop_ratio = x11_pixel_ratio(frames, &x11);
     // **这条路的已知天花板，日志里要说清楚。** X screen 只有一个全局比例，各屏缩放不同时
     // 压根不存在这样一个数：按它折算，缩放不等于该比例的那些屏上速选框必然偏。没法在这里
     // 修——XWayland 不提供逐屏的缩放，能彻底避开这条路的办法是装扩展（GNOME Wayland）
     // 或者关掉分数缩放。不吭声的话，症状表现为"某块屏上的速选框莫名偏移"。
+    #[cfg(target_os = "linux")]
     if !frame_scales_are_uniform(frames) {
         log::warn!(
             "窗口速选走 X11 枚举，但各屏缩放不一致：只能按全局比例 {desktop_ratio:.4} 折算，\
@@ -156,17 +163,27 @@ fn candidates_from_x11(frames: &[CapturedMonitorFrame]) -> HashMap<u32, Vec<Wind
             width,
             height,
         };
-        let extents = id.and_then(|id| x11.extents(id)).unwrap_or_default();
-        let ratio = window_coordinate_ratio(&window, desktop_ratio);
-        let rect = to_logical(trim_frame_extents(raw, extents), ratio);
-        if (rect.width as i32) < MIN_CANDIDATE_SIZE || (rect.height as i32) < MIN_CANDIDATE_SIZE {
-            continue;
-        }
+        #[cfg(target_os = "windows")]
+        let rect = raw;
+        #[cfg(not(target_os = "windows"))]
+        let rect = {
+            let extents = id.and_then(|id| x11.extents(id)).unwrap_or_default();
+            let ratio = window_coordinate_ratio(&window, desktop_ratio);
+            let rect = to_logical(trim_frame_extents(raw, extents), ratio);
+            if (rect.width as i32) < MIN_CANDIDATE_SIZE || (rect.height as i32) < MIN_CANDIDATE_SIZE
+            {
+                continue;
+            }
+            rect
+        };
         collected.push((id, rect, window.title().unwrap_or_default()));
     }
 
     order_platform_candidates(&mut collected, &x11);
     for (_, rect, title) in &collected {
+        #[cfg(target_os = "windows")]
+        append_windows_window_intersections(&mut result, frames, *rect, title);
+        #[cfg(not(target_os = "windows"))]
         append_window_intersections(&mut result, frames, *rect, title);
     }
     result
@@ -181,16 +198,6 @@ fn window_is_minimized(window: &xcap::Window, x11: &mut X11Probe, id: Option<u32
 #[cfg(not(target_os = "linux"))]
 fn window_is_minimized(window: &xcap::Window, _x11: &mut X11Probe, _id: Option<u32>) -> bool {
     window.is_minimized().unwrap_or(false)
-}
-
-#[cfg(target_os = "windows")]
-fn window_coordinate_ratio(window: &xcap::Window, _desktop_ratio: f32) -> f32 {
-    window
-        .current_monitor()
-        .and_then(|monitor| monitor.scale_factor())
-        .ok()
-        .filter(|scale| scale.is_finite() && *scale > 0.0)
-        .unwrap_or(1.0)
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -242,6 +249,7 @@ pub(super) fn order_x11_candidates(
 /// X11 那条路只有一个全局的"X screen 像素 ÷ 逻辑像素"比例（见 [`x11_pixel_ratio`]），
 /// 这个前提只在各屏同缩放时成立。混合缩放时它必然对一部分屏不成立——这不是能修的
 /// 计算错误，而是这条路能拿到的信息不够，所以只能识别出来并说出来。
+#[cfg(any(test, target_os = "linux"))]
 pub(super) fn frame_scales_are_uniform(frames: &[CapturedMonitorFrame]) -> bool {
     let mut scales = frames.iter().map(|frame| frame.scale_x);
     let Some(first) = scales.next() else {
@@ -252,6 +260,7 @@ pub(super) fn frame_scales_are_uniform(frames: &[CapturedMonitorFrame]) -> bool 
 
 /// 逻辑桌面并集的宽度。X screen 横跨整个桌面，所以要和它比的分母也必须是**并集**，
 /// 不是某一块屏——侧排双屏下 `max(logical_width)` 只有半个桌面宽，比例会算成两倍。
+#[cfg(any(test, not(target_os = "windows")))]
 pub(super) fn logical_union_width(frames: &[CapturedMonitorFrame]) -> u32 {
     let min_x = frames.iter().map(|frame| frame.x).min();
     let max_x = frames
@@ -277,6 +286,7 @@ pub(super) fn logical_union_width(frames: &[CapturedMonitorFrame]) -> u32 {
 /// `capture/diagnostics.rs`）：走到这条路上的场景恰恰是 GNOME Wayland 且没装扩展，
 /// 而 Clippy 自己的窗口是原生 Wayland 窗口，压根不在 X11 枚举里。唯一能跨两个空间
 /// 对齐的参照物在这里不存在，所以只能从 X server 直接问那个数。
+#[cfg(not(target_os = "windows"))]
 fn x11_pixel_ratio(frames: &[CapturedMonitorFrame], x11: &X11Probe) -> f32 {
     let logical_width = logical_union_width(frames);
     if let Some(screen_width) = x11.screen_width() {
@@ -288,6 +298,7 @@ fn x11_pixel_ratio(frames: &[CapturedMonitorFrame], x11: &X11Probe) -> f32 {
     1.0
 }
 
+#[cfg(any(test, not(target_os = "windows")))]
 pub(super) fn ratio_from_widths(randr_width: u32, logical_width: u32) -> f32 {
     if randr_width == 0 || logical_width == 0 {
         return 1.0;
@@ -304,6 +315,7 @@ pub(super) fn ratio_from_widths(randr_width: u32, logical_width: u32) -> f32 {
 
 /// 去掉 GTK 客户端装饰的不可见阴影边距。GNOME 下 CSD 窗口的客户端矩形比肉眼看到的
 /// 窗口大一圈（左右各约 26px、下方更多），不减掉的话速选框会明显包住一块空白。
+#[cfg(any(test, not(target_os = "windows")))]
 pub(super) fn trim_frame_extents(rect: ProbeRect, extents: FrameExtents) -> ProbeRect {
     let horizontal = extents.left.saturating_add(extents.right);
     let vertical = extents.top.saturating_add(extents.bottom);
@@ -318,6 +330,7 @@ pub(super) fn trim_frame_extents(rect: ProbeRect, extents: FrameExtents) -> Prob
     }
 }
 
+#[cfg(any(test, not(target_os = "windows")))]
 pub(super) fn to_logical(rect: ProbeRect, ratio: f32) -> ProbeRect {
     if !ratio.is_finite() || ratio <= 0.0 || (ratio - 1.0).abs() < f32::EPSILON {
         return rect;
@@ -358,6 +371,54 @@ fn append_window_intersections(
                 y: (top - frame.y) as f64,
                 width: (right - left) as f64,
                 height: (bottom - top) as f64,
+                title: title.to_string(),
+            });
+    }
+}
+
+/// DWM 矩形是物理桌面坐标；每块帧有自己的逻辑原点和像素比例，不能共用窗口所在屏的除数。
+#[cfg(target_os = "windows")]
+fn append_windows_window_intersections(
+    result: &mut HashMap<u32, Vec<WindowCandidate>>,
+    frames: &[CapturedMonitorFrame],
+    physical: ProbeRect,
+    title: &str,
+) {
+    for frame in frames {
+        let scale_x = f64::from(frame.scale_x);
+        let scale_y = f64::from(frame.scale_y);
+        if !scale_x.is_finite()
+            || !scale_y.is_finite()
+            || scale_x <= 0.0
+            || scale_y <= 0.0
+            || frame.logical_width == 0
+            || frame.logical_height == 0
+            || frame.pixel_width == 0
+            || frame.pixel_height == 0
+        {
+            continue;
+        }
+        let origin_x = f64::from(frame.x);
+        let origin_y = f64::from(frame.y);
+        let left = (f64::from(physical.x) / scale_x - origin_x).max(0.0);
+        let top = (f64::from(physical.y) / scale_y - origin_y).max(0.0);
+        let right = ((f64::from(physical.x) + f64::from(physical.width)) / scale_x - origin_x)
+            .min(f64::from(frame.logical_width));
+        let bottom = ((f64::from(physical.y) + f64::from(physical.height)) / scale_y - origin_y)
+            .min(f64::from(frame.logical_height));
+        let width = right - left;
+        let height = bottom - top;
+        if width < f64::from(MIN_CANDIDATE_SIZE) || height < f64::from(MIN_CANDIDATE_SIZE) {
+            continue;
+        }
+        result
+            .entry(frame.monitor_id)
+            .or_default()
+            .push(WindowCandidate {
+                x: left,
+                y: top,
+                width,
+                height,
                 title: title.to_string(),
             });
     }
@@ -513,6 +574,7 @@ mod x11_probe {
 
 #[cfg(not(target_os = "linux"))]
 mod x11_probe {
+    #[cfg(not(target_os = "windows"))]
     use super::FrameExtents;
 
     pub(super) struct X11Probe;
@@ -522,10 +584,12 @@ mod x11_probe {
             Self
         }
 
+        #[cfg(not(target_os = "windows"))]
         pub(super) fn screen_width(&self) -> Option<u32> {
             None
         }
 
+        #[cfg(not(target_os = "windows"))]
         pub(super) fn extents(&mut self, _window: u32) -> Option<FrameExtents> {
             None
         }

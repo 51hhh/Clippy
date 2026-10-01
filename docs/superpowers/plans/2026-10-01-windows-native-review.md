@@ -83,7 +83,11 @@
   门禁 exit 0，30 passed / 0 failed / 1 skipped（Linux smoke）；默认 Rust 1058、QA Rust 1115，
   各 5 ignored、重叠不累加，前端 1292 passed。八项真实 vendor Cargo 回归、严格 clippy、
   三个字节篡改负例、检出干净和日志哈希已核对；新 SHA CI、实际注册表与桌面未验。
-  其它 Windows 持久化/自启动路径未确认新增缺陷；混合 DPI 仍保留 W04。
+  其它 Windows 持久化/自启动路径未确认新增缺陷；混合 DPI 的实际硬件验收保留 W04。
+- `WIN-WINDOW-SCALE-01`：独立 `codex/windows-window-candidate-scaling`，基于 `2bb755a`。
+  单一窗口比例跨屏求交的实际旧函数抽取协议红基线 2 passed / 6 failed；Windows 物理矩形
+  逐帧转换、裁剪并保留分数坐标，八项 MSVC 离线回归通过，含空像素帧边界。完整默认/QA
+  门禁待记录；不改原点模型和建窗定位，W04 真机、新 SHA CI 与其它宿主仍未验。
 - 已安装包仍为旧源码 `45769c9`。实际 Windows 11 桌面记录为 2 pass / 1 fail（旧 Pin 工具栏裁切）/
   36 not_run；原始 39 项 not_run 模板保持原字节，模板不能替代实际记录。
 - NSIS 落盘及启动已有子步骤证据；完整安装升级、MSI、卸载、录屏/音频、管理员目标、
@@ -94,7 +98,8 @@
 `2026-10-01-windows-image-decode-budget.md`、`2026-10-01-windows-dibv5-pixel-offset.md`、
 `2026-10-01-windows-paste-input-recheck.md`、`2026-10-01-windows-wasapi-stop-tail.md`、
 `2026-10-01-windows-wgc-close-retry.md`、`2026-10-01-windows-av-bridge-join.md`、
-`2026-10-01-windows-wgc-init-rollback.md`。
+`2026-10-01-windows-wgc-init-rollback.md`、`2026-10-01-windows-registry-buffer.md`、
+`2026-10-01-windows-window-candidate-scaling.md`。
 以下基线与早期门禁记录保留各自来源 SHA；本状态更新为后继文档，不冒称文档 SHA 已执行门禁。
 
 ## Baseline
@@ -150,7 +155,7 @@
 | W01 | P1 | 修复文件 URL 路径；保留 9 项合同负例/正例并完成 Windows 前端门禁 | 本机已通过 |
 | W02 | P1 | PowerShell 门禁与 Windows CI 前端检查；缺工具/失败/部分运行严格区分 | 本机入口与 42e52c0 Windows 前端/OCR/Rust CI 已通过 |
 | W03 | P1 | Rust MSVC、C++ SDK、WebView2；录屏另需 MSYS2 make/diffutils/perl/nasm、MSBuild、CMake、LLVM tools/libclang；默认与 QA 图分别验证 | 工具已安装，默认与录屏 QA 本机门禁通过 |
-| W04 | P1 | 100%/125%/150% 多屏与负坐标：冻结帧、跨屏窗口候选、覆盖层、Pin、guide、长截图自动滚动、WGC 选区 | 几何静态疑点；本机单屏，待多屏真机复现。长截图失败清理的指针合同修复见 W19，真实接管待验 |
+| W04 | P1 | 100%/125%/150% 多屏与负坐标：冻结帧、跨屏窗口候选、覆盖层、Pin、guide、长截图自动滚动、WGC 选区 | 跨屏候选计算离线复现并修复见 W29；其余原点/建窗等路径及真机矩阵仍未验，本机单屏。长截图失败清理指针合同见 W19，真实接管待验 |
 | W05 | P1 | 同权限自动粘贴一次、高完整性目标 copy-only、目标销毁/复用、用户接管；DACL 与配置连续覆盖 | 45769c9 普通权限文本/图片完整用例实际通过；管理员、销毁复用与用户接管桌面待验证。私有文件准备失败时序见 W18，富文本片段边界见 W20，首次按键前目标复核见 W23 |
 | W06 | P1 | QA 包设备默认/非默认/同名/拔出、双源混音、暂停恢复、控制窗排除、强杀恢复、30 分钟 A/V 漂移 | WASAPI 正常停止尾部见 W24，WGC 关闭/初始化清理见 W25/W27，双轨桥接线程回收见 W26；真实设备、混音及其余场景仍待真机验收 |
 | W07 | P2 | NSIS/MSI 安装升级卸载、WebView2、自启动、托盘/快捷键、系统凭据与更新 | 官方 QA 包身份已核对，MSI 只读检查通过；NSIS 安装落盘/启动子步骤已核对，完整 MSI/升级/卸载/updater 未验收；本机自签名链不受信任，未更改信任 |
@@ -175,6 +180,7 @@
 | W26 | P2 | 双轨编码退出不因视频桥接 panic 遗漏音频 join，两条回收后保留既有错误 | 独立 REC-AV-BRIDGE-JOIN-01；真实受控线程红基线 2 passed / 2 failed，四项 QA Cargo 回归与 091b5cb 完整 Windows 默认/QA 门禁通过；共享其它宿主图、新 SHA CI、实际设备 panic 未验 |
 | W27 | P2 | pool 创建后、完整 WgcRuntime 前的两处失败先 Close，成功转移所有权 | 独立 WIN-WGC-INIT-ROLLBACK-01；红基线 1 passed / 3 failed，四项 vendor Cargo 合同与 61d6823 完整 Windows 默认/QA 门禁通过；真实 API 失败、系统最终释放与新 SHA CI 未验 |
 | W28 | P1 | Windows 构建号仅解析成功返回的有界字节范围，缓冲区完全初始化 | 独立 WIN-REGISTRY-BUFFER-01；安全旧单位模型 4 passed / 4 failed，八项真实 vendor 合同与三项篡改负例通过；8c6fbfe 首次严格 lint 失败已修复并保留，bb38cc6 完整门禁 30 passed / 0 failed；新 SHA CI、实际注册表与桌面待验 |
+| W29 | P1 | Windows 跨屏物理窗口按每帧比例转换/裁剪，保留分数边界与 Z 顺序 | 独立 WIN-WINDOW-SCALE-01；旧函数抽取协议 2 passed / 6 failed，八项 MSVC 回归通过；完整默认/QA 门禁待记录，真实多屏与新 SHA CI 未验 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。

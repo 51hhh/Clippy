@@ -5,7 +5,14 @@
 
 ## 当前续审结果
 
-当前 W28 / WIN-REGISTRY-BUFFER-01：Windows 构建号查询把 RegGetValueW 返回字节数直接作为
+当前 W29 / WIN-WINDOW-SCALE-01：Windows 窗口候选原先用主导显示器的一个比例，与所有帧
+求交；混合 DPI 时尺度不一致，确定性旧转换协议红基线 2 passed / 6 failed。现在保留 DWM
+物理矩形，按每块冻结帧比例转换到局部逻辑坐标并裁剪，保留分数边界、标题及 Z 顺序。
+八项 Windows MSVC 回归通过，含空像素帧边界；完整默认/QA 门禁待记录。
+证据 windows-window-candidate-red/RESULT.json。不调用窗口/屏幕 API；真实多屏、原点舍入与
+覆盖层定位未由本合同证明，W04 保留实际硬件验收，新 SHA CI 和其它宿主仍未运行。
+
+此前 W28 / WIN-REGISTRY-BUFFER-01：Windows 构建号查询把 RegGetValueW 返回字节数直接作为
 Vec<u16> 的 set_len，违反初始化前提。改用初始化的 2048 字节缓冲区，按返回范围校验后解析。
 八项生产入口合同通过；安全旧单位模型 4 passed / 4 failed，未运行旧未定义行为。
 产品修复 326af9e、独立 CI 接线 8c6fbfe，首次完整门禁因遗留导入的 vendor 严格 lint 失败：
@@ -68,7 +75,7 @@ windows-paste-recheck-native-qa-14bf616/RESULT.json，红绿辅助证据另行�
 用户要求停止桌面操控，当前继续代码 review 与 Windows 本机自动验证。已安装的 QA 源码仍为
 `45769c9`：真实记录是文本/图片 2 pass、Pin 工具栏裁切 1 fail、36 not_run；原始 39 项模板保留不变。
 新 Pin、私有文件、长截图光标、CF_HTML、图片预算、DIB 偏移、粘贴目标复核、WASAPI 尾部、
-WGC 关闭、双轨桥接和 WGC 初始化回滚修复未安装，桌面复测、录屏/音频、
+WGC 关闭、双轨桥接、WGC 初始化回滚、构建号读取及跨屏候选修复未安装，桌面复测、录屏/音频、
 管理员目标、多屏和 Windows 10 均保持未验证。
 
 此前独立 WIN-DIBV5-PIXEL-01 修复 W22 的显式像素偏移，原 Chrome/Firefox 断言及新增
@@ -169,6 +176,23 @@ Run：<https://github.com/51hhh/Clippy/actions/runs/35792281966>。
 本轮修改已推送到草稿 PR；首次修改后 CI 和后续修复证据见下方记录，不能沿用基线结果。
 
 ## Findings
+
+### W29 / P1 — 单一窗口比例丢失/错置跨屏候选（离线复现并修复）
+
+原 `candidates_from_x11` 在 Windows 使用 `window.current_monitor().scale_factor()`，
+经 `to_logical` 将整个物理矩形取整，再与所有显示器的归一化逻辑帧求交。DWM 扩展边界是
+物理坐标，而每帧有独立像素/逻辑比例；主导显示器的比例不能用于其它 DPI 的帧。
+左屏物理 1920 宽、150%，右屏原点 1920、100% 的夹具中，物理 x=1800、宽 400 的窗口
+按右屏比例转换后会丢掉左屏 120 物理像素；正确候选在左帧 x=1200、宽 80，右帧 x=0、宽 280。
+
+Windows 路径现在把原物理矩形保留到逐帧投影，使用 f64 边界裁剪后再应用 20 CSS px 阈值；
+拒绝非正/非有限比例与空帧，标题、窗口过滤和原生 Z 顺序保持。Linux/macOS 原转换与排序
+仅作源码核对，未运行其它宿主。八项 MSVC 回归通过；旧生产函数抽取协议 2 passed /
+6 failed，不使用类型桩或窗口/截图 API，字面几何覆盖两种混合 DPI、负原点、上下排布、
+单屏/等缩放、分数与阈值、无效/空帧元数据及顺序。完整默认/QA 门禁待记录。
+既有 Windows Native `cargo test` 和本地默认/QA 入口自动包含模块，无额外 CI 配置修改。
+真实桌面、新 SHA CI、Windows 10/多屏及其它 W04 几何仍未验。
+需求/验收：`WIN-WINDOW-SCALE-01`，见 `2026-10-01-windows-window-candidate-scaling.md`。
 
 ### W28 / P1 — 构建号读取违反 Vec 初始化合同（源码证明并修复）
 
@@ -365,7 +389,7 @@ Windows Native Check 增加 Node/IPC/HTML/lint/typecheck/Vitest/build/生产入�
 
 Linux 的完整 `ci-local.sh` 和像素 smoke 仍是独立证据；本轮未执行，不能以 Windows 部分门禁代替。
 
-### W04 / P1 — 混合 DPI 跨屏候选坐标疑点（静态证据，未标记复现）
+### W04 / P1 — 混合 DPI 几何整体仍待真机验证（候选计算单列 W29）
 
 调用链：`vendor/xcap/src/windows/impl_monitor.rs` → `screenshot/backends.rs` 的
 `normalize_monitor_geometry` → `capture/window_probe.rs` 的 `window_coordinate_ratio/to_logical`
@@ -378,9 +402,10 @@ Windows xcap 返回物理显示器原点和尺寸，当前归一化分别按每�
 本机枚举只发现一块显示器；WinForms 会话报告 bounds `0,0,2048,1152`（不作为物理像素或 DPI 证据），
 因此无法在当前硬件上完成跨屏、负坐标和混合 DPI 的复现矩阵。
 
-不能只修一个除法：长截图指针、Pin origin、录屏物理 crop 和 guide 都依赖这份合同。
-本轮在缺混合 DPI 真机证据时不做跨域转换重构。W04 应先保存实际显示布局、
-候选矩形和覆盖层位置，构建 100/125/150%、左右/上下/负坐标和跨屏窗口回归，然后单独修复。
+上述是初审的静态路径记录；后续 W29 以实际旧函数和冻结几何离线复现了候选计算缺陷，
+独立修正逐帧投影，不改显示器原点模型、原生建窗、长截图指针、Pin、录屏 crop 或 guide。
+W29 的确定性合同不能代表这些路径或实际多屏通过。W04 仍需实际布局、候选与覆盖层位置，
+完成 100/125/150%、左右/上下/负坐标的真机矩阵，再处理有证据的其它问题。
 
 ### W05 — Windows 权限与私有文件已有实现，需实际复测
 
