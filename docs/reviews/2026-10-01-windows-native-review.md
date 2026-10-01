@@ -9,7 +9,11 @@
 `45769c9`：真实记录是文本/图片 2 pass、Pin 工具栏裁切 1 fail、36 not_run；原始 39 项模板保留不变。
 新 Pin、私有文件、长截图光标和 CF_HTML 修复未安装，桌面复测、录屏/音频、管理员目标、多屏和 Windows 10 均保持未验证。
 
-最新预算修复源码 `531d79129128725471288b45a8d0e7a76696b6d4` 的完整 Windows 默认/录屏 QA 门禁
+当前独立 WIN-DIBV5-PIXEL-01 修复 W22 的显式像素偏移，原 Chrome/Firefox 断言及新增
+顶/底向、尾部、颜色表和文件视图合同通过，共 24 项 Windows 离线回归通过；完整本机门禁待验。
+历史红基线和预算源码上的 Chrome 失败保留，未把原夹具改为 ignored。
+
+此前预算修复源码 `531d79129128725471288b45a8d0e7a76696b6d4` 的完整 Windows 默认/录屏 QA 门禁
 exit 0，25 passed / 0 failed / 1 skipped；默认 Rust 1046 / 5 ignored、QA Rust 1099 / 5 ignored，
 前端 75 文件 / 1292 passed，另有九项 CF_HTML 和七项预算组通过。检出干净与日志哈希已核对，
 证据在 windows-image-budget-native-qa-531d791/RESULT.json。扩展 Chrome DIB 失败仍为 W22，
@@ -107,13 +111,19 @@ PNG 构造也限制单边尺寸；合法图的转换逻辑保留。
 1 skipped；Windows CI 已添加定向入口但远程未运行。
 未观察桌面 OOM，不声明编码数据、PNG 元数据、16-bit 中间像素或整个进程的内存上限。
 
-### W22 / P2 — 既有 Chrome DIB 夹具读取失败（基线复现，待独立修复）
+### W22 / P2 — Windows DIBV5 错误像素偏移（基线复现并独立修复）
 
 扩展运行 arboard 的 Windows 图片测试得到 9 passed / 1 failed，原 chrome_dibv5 5×5 夹具
 失败于像素读取 UnexpectedEof。临时恢复 cf59157 原 windows.rs 后同一测试仍失败，exit 101；
 恢复工作源码后未改变任何原夹具或断言。Firefox 与颜色转换通过，不能因此写成全图片组通过。
 锁定 BmpDecoder 的无文件头 V5 bitfields 路径在 header 后额外跳过 12 字节是后续定位线索；
-当前未修复依赖，也未证实所有真实提供者受影响。失败日志保留在 windows-image-budget-red。
+上述历史定位与失败日志保留在 windows-image-budget-red。独立 WIN-DIBV5-PIXEL-01 基于
+6069cce 继续用原夹具，并增加带尾部数据的 bitfields 回归：旧路径虽返回成功，却读出全 200 的
+错误像素；四项红基线为 2 passed / 2 failed。修复用只补 14 字节文件头的借用 DIB 视图，
+为同一 BmpDecoder::new 提供显式 bfOffBits，保留所有原像素断言和 Chrome alpha 处理。
+五项 DIB / 三项视图 / 七项预算 / 九项富文本合同共 24 passed，严格 arboard clippy 通过；
+完整本机门禁待验，Windows CI 显式入口已接线。未修改 registry image、版本或锁文件，
+也未证实所有真实提供者受影响；Chrome/Firefox/Office 桌面互操作与新 SHA 原生 CI 仍未验。
 
 ### W20 / P1 — Windows 富文本读取片段缺少完整边界校验（源码风险确认，离线回归修复）
 

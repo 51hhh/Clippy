@@ -2,6 +2,16 @@
 
 ## 未发布
 
+### 2026-10-01 Windows DIBV5 像素偏移修复
+
+- Windows DIBV5 读取借用原字节，只补 14 字节 BMP 文件头和显式像素偏移，避免锁定解码器
+  多跳 12 字节造成小图读取失败，或把尾部数据误解为像素。原 Chrome/Firefox 夹具与完整像素
+  断言保留；新顶/底向、尾部和颜色表夹具红基线 2 passed / 2 failed，修复后五项 DIB 与三项
+  文件视图合同通过，连同图片预算和富文本共 24 项 Windows 离线合同通过。
+  完整本机默认/录屏 QA 门禁待验；新 SHA CI、真实 Chrome/Firefox/Office 互操作未验。
+  未访问系统剪贴板或改变依赖版本，不将历史失败改写成通过。
+  （需求：`WIN-DIBV5-PIXEL-01`；见 `docs/superpowers/specs/2026-10-01-windows-dibv5-pixel-offset.md`）
+
 ### 2026-10-01 Windows 剪贴板图片解码前预算修复
 
 - Windows PNG / CF_DIBV5 在整图像素分配前执行已有的单边 16,384 / 40,000,000 像素限制，
@@ -9,7 +19,7 @@
   有元数据合同，小 8/16-bit PNG 保持像素与透明度。四字节故障注入旧路径 3 passed / 2 failed，
   修复后七项预算合同通过；531d791 完整 Windows 默认/录屏 QA 门禁 exit 0，25 passed /
   0 failed / 1 skipped（Linux smoke）。新 SHA CI 和真实图片互操作未验。
-  扩展组 9 passed / 1 failed；上游 Chrome DIB 夹具在修复前后均失败，保留 W22 待修，
+  当时扩展组 9 passed / 1 failed；上游 Chrome DIB 夹具在该修复前后均失败，W22 后由上节独立修复，
   未改原测试或将它计为通过。该修复不是整个进程或编码剪贴板数据的内存上限。
   （需求：`WIN-CLIP-IMAGE-BUDGET-01`；见 `docs/superpowers/specs/2026-10-01-windows-image-decode-budget.md`）
 

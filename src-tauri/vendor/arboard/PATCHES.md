@@ -61,7 +61,28 @@ Windows 本机门禁与 Native CI 显式执行这七项；Cargo 版本、锁文�
 该预算只约束整图像素尺寸，不是编码数据、PNG 元数据、16-bit 中间缓冲区或进程峰值内存上限。
 扩展运行上游 image_data 三项时，Firefox 和颜色转换通过，Chrome DIB 夹具失败；同一夹具在
 cf59157 原源码也失败（UnexpectedEof）。这是另行保留的 W22，未隐藏、标记 ignored 或计入通过；
-现有 Chrome 头部修正逻辑未改。本节不声称 Windows 图片全链路或 Chrome 互操作已经通过。
+现有 Chrome 头部修正逻辑未改。该历史失败由下节 WIN-DIBV5-PIXEL-01 独立修复，
+不改写预算源码 531d791 的扩展失败证据，真实 Chrome 桌面互操作仍未验。
+
+## Windows DIBV5 显式像素偏移
+
+`WIN-DIBV5-PIXEL-01` / W22：锁定 image 0.25.10 的无文件头 V5 bitfields 读取在头末尾
+额外跳过 12 字节。Chrome 小图因此 UnexpectedEof；足够长的尾部则可掩盖成成功错图。
+`src/platform/windows/dib.rs` 借用原 DIB 构造 Read/BufRead/Seek 文件视图，只补 14 字节
+BMP 文件头并显式写入头/颜色表后的 bfOffBits，再使用同一 BmpDecoder::new。
+不复制整份 DIB，不改变像素转换、Chrome alpha 修正或其它平台，不修改依赖版本与锁文件。
+严格要求完整 V5 头并拒绝颜色表越界；原 Chrome/Firefox 夹具与断言保持原样。
+
+```sh
+cargo test --locked --manifest-path src-tauri/Cargo.toml -p arboard --lib platform::windows::image_data::
+cargo test --locked --manifest-path src-tauri/Cargo.toml -p arboard --lib platform::windows::dib::tests
+```
+
+Windows 门禁和 Native CI 显式执行五项 DIB 像素合同及三项文件视图合同；另有预算七项与
+CF_HTML 九项，共 24 项 Windows 纯单元测试。Read/BufRead 跨头、Seek EOF/负位置、调色板、
+顶/底向、尾部及透明度均离线验证；没有系统剪贴板或桌面调用。
+升级 image 时须复核额外跳转是否已修复，并复跑这些合同决定移除文件视图；不能改夹具掩盖偏移。
+真实提供者、Office 消费、颜色管理、Windows 10/多屏及新 SHA 跨平台 CI 不由这些合同证明。
 
 ## 跨平台弃用 API 对齐
 

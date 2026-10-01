@@ -11,6 +11,8 @@ and conditions of the chosen license apply to this file.
 #[cfg(feature = "image-data")]
 use crate::common::ImageData;
 use crate::common::{private, Error};
+#[cfg(feature = "image-data")]
+mod dib;
 mod html;
 #[cfg(feature = "image-data")]
 mod image_limits;
@@ -38,7 +40,6 @@ use windows_sys::Win32::{
 mod image_data {
 	use super::*;
 	use crate::common::ScopeGuard;
-	use image::codecs::bmp::BmpDecoder;
 	use image::codecs::png::PngEncoder;
 	use image::ExtendedColorType;
 	use image::ImageEncoder;
@@ -205,8 +206,7 @@ mod image_data {
 		}
 		maybe_tweak_header(dibv5);
 
-		let decoder = BmpDecoder::new_without_file_header(std::io::Cursor::new(&*dibv5))
-			.map_err(|_| Error::ConversionFailure)?;
+		let decoder = super::dib::decoder(dibv5)?;
 		super::image_limits::decode(decoder)
 	}
 
@@ -333,6 +333,54 @@ mod image_data {
 				.collect();
 			ImageDataCow::Owned(u32pixels_buffer)
 		}
+	}
+
+	#[test]
+	fn bitfields_pixel_offset_preserves_orientation_alpha_and_tail() {
+		for height in [2i32, -2] {
+			let mut raw = vec![0u8; size_of::<BITMAPV5HEADER>()];
+			raw[0..4].copy_from_slice(&124u32.to_le_bytes());
+			raw[4..8].copy_from_slice(&1i32.to_le_bytes());
+			raw[8..12].copy_from_slice(&height.to_le_bytes());
+			raw[12..14].copy_from_slice(&1u16.to_le_bytes());
+			raw[14..16].copy_from_slice(&32u16.to_le_bytes());
+			raw[16..20].copy_from_slice(&BI_BITFIELDS.to_le_bytes());
+			for (offset, mask) in [(40, 0xff0000u32), (44, 0xff00), (48, 0xff), (52, 0xff000000)] {
+				raw[offset..offset + 4].copy_from_slice(&mask.to_le_bytes());
+			}
+			// 非零 colors_used 的优化颜色表不属于像素。
+			raw[32..36].copy_from_slice(&1u32.to_le_bytes());
+			raw.extend_from_slice(&[7, 8, 9, 0]);
+			raw.extend_from_slice(&[33, 22, 11, 128, 66, 55, 44, 255]);
+			// 尾部足够长，错误偏移也可解码；必须检查完整像素，不能只断言 Ok。
+			raw.extend_from_slice(&[200; 32]);
+			let before = raw.clone();
+			let image = read_cf_dibv5(&mut raw).unwrap();
+			let expected = if height > 0 {
+				[44, 55, 66, 255, 11, 22, 33, 128]
+			} else {
+				[11, 22, 33, 128, 44, 55, 66, 255]
+			};
+			assert_eq!((image.width, image.height), (1, 2));
+			assert_eq!(&*image.bytes, &expected);
+			assert_eq!(raw, before);
+		}
+	}
+
+	#[test]
+	fn indexed_dibv5_palette_preserves_pixel_offset() {
+		let mut raw = vec![0u8; size_of::<BITMAPV5HEADER>()];
+		raw[..4].copy_from_slice(&124u32.to_le_bytes());
+		raw[4..8].copy_from_slice(&2i32.to_le_bytes());
+		raw[8..12].copy_from_slice(&1i32.to_le_bytes());
+		raw[12..14].copy_from_slice(&1u16.to_le_bytes());
+		raw[14..16].copy_from_slice(&8u16.to_le_bytes());
+		raw[32..36].copy_from_slice(&2u32.to_le_bytes());
+		raw.extend_from_slice(&[0, 0, 255, 0, 255, 0, 0, 0]);
+		raw.extend_from_slice(&[1, 0, 0, 0]);
+		let image = read_cf_dibv5(&mut raw).unwrap();
+		assert_eq!((image.width, image.height), (2, 1));
+		assert_eq!(&*image.bytes, &[0, 0, 255, 255, 255, 0, 0, 255]);
 	}
 
 	#[test]

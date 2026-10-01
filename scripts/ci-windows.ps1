@@ -119,6 +119,12 @@ if (-not $FrontendOnly) {
     Invoke-Check 'Windows image decode budget tests' $backend {
         & cargo.exe test --locked -p arboard --lib platform::windows::image_limits::tests
     }
+    Invoke-Check 'Windows DIBV5 decode tests' $backend {
+        & cargo.exe test --locked -p arboard --lib platform::windows::image_data::
+    }
+    Invoke-Check 'Windows DIB file view tests' $backend {
+        & cargo.exe test --locked -p arboard --lib platform::windows::dib::tests
+    }
     if ($RecordingQa) {
         Invoke-Check 'Windows A/V QA check' $backend {
             & cargo.exe check --locked --features recording-windows-av-qa --all-targets

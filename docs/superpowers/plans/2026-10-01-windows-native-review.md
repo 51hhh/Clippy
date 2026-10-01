@@ -34,6 +34,10 @@
   3 passed / 2 failed，修复后七项预算合同通过。531d791 本机完整默认/QA 门禁 exit 0，
   25 passed / 0 failed / 1 skipped；CI 定向入口已接线但远程未运行。
   扩展图片组 9 passed / 1 failed，Chrome DIB 在原 cf59157 源码也失败；保留为 W22，尚未修复。
+- `WIN-DIBV5-PIXEL-01`：独立 `codex/windows-dibv5-pixel-offset`，基于 `6069cce`。
+  W22 红基线 2 passed / 2 failed：原 Chrome 读取失败及带尾部数据的成功错图；改用借用原数据的
+  BMP 文件视图提供显式像素偏移。原 Chrome/Firefox 逐像素断言保留，五项 DIB 和三项文件视图
+  合同通过；连同预算和富文本 24 项 Windows 离线合同通过。完整本机门禁待验，CI 已接线未远程运行。
 - 已安装包仍为旧源码 `45769c9`。实际 Windows 11 桌面记录为 2 pass / 1 fail（旧 Pin 工具栏裁切）/
   36 not_run；原始 39 项 not_run 模板保持原字节，模板不能替代实际记录。
 - NSIS 落盘及启动已有子步骤证据；完整安装升级、MSI、卸载、录屏/音频、管理员目标、
@@ -114,7 +118,7 @@
 | W19 | P2 | 自动长截图提前失败的光标恢复不能抢回用户已移动位置，查询失败关闭恢复 | 独立 WIN-LONGSHOT-CURSOR-01；同一生产 guard 红绿及八项定向合同通过，d8dff80 本机完整默认/QA 门禁通过；真实接管、X11/macOS 原生图及新 SHA CI 未验 |
 | W20 | P1 | Windows CF_HTML 片段范围受实际字节与 UTF-8 边界约束，默认门禁不能遗漏依赖库合同 | 独立 WIN-CF-HTML-01；旧校验离线红基线、安全解析九项合同及 50b7778 完整本机默认/QA 门禁通过；CI 入口已接线，远程新 SHA、真实互操作和其它原生图未验 |
 | W21 | P1 | Windows PNG / DIB 在整图像素分配前执行已有预算，保留合法 4K/8K 与小图像素 | 独立 WIN-CLIP-IMAGE-BUDGET-01；红基线 3 passed / 2 failed，预算七项及 531d791 完整 Windows 默认/QA 门禁通过，新 SHA CI 与桌面未验 |
-| W22 | P2 | 上游 Chrome DIB 夹具在基线读取 UnexpectedEof，核查无文件头 V5 bitfields 偏移 | cf59157 原源码复现失败；原夹具、断言与失败日志保留，不修改为 ignored 或计入通过；后续独立修复待做 |
+| W22 | P2 | Windows DIBV5 显式像素偏移，防止小图读取失败与尾部掩盖错图 | 独立 WIN-DIBV5-PIXEL-01；红基线 2 passed / 2 failed，原 Chrome/Firefox 及新增像素/文件视图合同通过，完整本机门禁待验；真实提供者和新 SHA CI 未验 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。

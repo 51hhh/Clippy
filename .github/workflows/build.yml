@@ -229,6 +229,16 @@ jobs:
         working-directory: src-tauri
         run: cargo test --locked -p arboard --lib platform::windows::image_limits::tests
 
+      - name: Windows DIBV5 decode tests
+        if: runner.os == 'Windows'
+        working-directory: src-tauri
+        run: 'cargo test --locked -p arboard --lib platform::windows::image_data::'
+
+      - name: Windows DIB file view tests
+        if: runner.os == 'Windows'
+        working-directory: src-tauri
+        run: cargo test --locked -p arboard --lib platform::windows::dib::tests
+
   recording-codec-prototype:
     name: Recording Codec Prototype (${{ matrix.runner }})
     runs-on: ${{ matrix.runner }}

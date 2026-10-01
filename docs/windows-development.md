@@ -52,7 +52,9 @@ Windows 入口还显式运行 `cargo test --locked -p arboard --lib platform::wi
 同一入口显式运行 `cargo test --locked -p arboard --lib platform::windows::image_limits::tests`，
 验证 PNG / DIB 共用入口的解码前尺寸预算、PNG 构造限制及小 8/16-bit PNG 像素。
 七项均为离线夹具；4K/8K 只验证元数据，不产生大分配。上游 `image_data::chrome_dibv5`
-在本轮基线已有失败，扩展检查按 W22 保留，未加入 ignored 或冒称本组涵盖所有 DIB 互操作。
+曾在 cf59157 / 531d791 失败，W22 的独立显式偏移修复保留原夹具和逐像素断言。
+门禁还显式运行 `platform::windows::image_data::` 五项及 `platform::windows::dib::tests`
+三项文件视图合同，全部离线；原失败记录保留，真实提供者互操作仍需单独验收。
 
 ## 录屏源码构建附加依赖
 
