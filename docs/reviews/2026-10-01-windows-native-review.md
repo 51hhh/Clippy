@@ -5,12 +5,16 @@
 
 ## 当前续审结果
 
+当前继续 W23 / WIN-PASTE-RECHECK-01：恢复目标与首次按键之间再查窗口/PID/前台，
+同一生产初始化入口的离线红基线 2 passed / 4 failed，修复后六项通过；完整本机门禁待验。
+未执行真实窗口或按键调用，最后复核后的系统竞争、macOS 原生图、新 SHA CI 与桌面仍未验。
+
 用户要求停止桌面操控，当前继续代码 review 与 Windows 本机自动验证。已安装的 QA 源码仍为
 `45769c9`：真实记录是文本/图片 2 pass、Pin 工具栏裁切 1 fail、36 not_run；原始 39 项模板保留不变。
 新 Pin、私有文件、长截图光标、CF_HTML、图片预算和 DIB 偏移修复未安装，桌面复测、录屏/音频、
 管理员目标、多屏和 Windows 10 均保持未验证。
 
-当前独立 WIN-DIBV5-PIXEL-01 修复 W22 的显式像素偏移，原 Chrome/Firefox 断言及新增
+此前独立 WIN-DIBV5-PIXEL-01 修复 W22 的显式像素偏移，原 Chrome/Firefox 断言及新增
 顶/底向、尾部、颜色表和文件视图合同通过，共 24 项 Windows 离线回归通过。源码
 25fb5d7159af66a88d829eda199efa649698633d 完整 Windows 默认/录屏 QA 门禁 exit 0：
 27 passed / 0 failed / 1 skipped（Linux smoke）。默认 Rust 1046 / 5 ignored、QA Rust 1099 / 5 ignored，
@@ -103,6 +107,23 @@ Run：<https://github.com/51hhh/Clippy/actions/runs/35792281966>。
 本轮修改已推送到草稿 PR；首次修改后 CI 和后续修复证据见下方记录，不能沿用基线结果。
 
 ## Findings
+
+### W23 / P1 — Windows 输入后端初始化后未再复核粘贴目标（离线复现并修复）
+
+Windows paste 在激活前检查 HWND/PID/完整性，恢复焦点轮询成功后进入 inject_paste；
+后者先 Enigo::new 再按键，没有复核激活/等待或初始化期间改变的窗口身份和前台。
+独立 WIN-PASTE-RECHECK-01 的共用入口按初始化、复核、注入执行；Windows 复核无效窗口、
+未知/改变的 PID 和不同前台后返回现有错误，command 层仍 copy-only，不再次激活目标。
+macOS 使用空复核回调，原按键、释放与错误语句保持；X11/Wayland 未改。
+
+MSVC harness include 完整 native.rs，fake 初始化改变快照，fake 注入只记次数；红基线
+2 passed / 4 failed，窗口失效、未知 PID 或焦点变化仍注入，正常顺序缺复核；修复后六项通过。
+该辅助验证 stub 外围类型和平台 facade，调用原生权限入口即 panic，未执行 Enigo 或 Win32 窗口/输入；
+完整 Cargo 本机门禁待验，不能据此宣称真实错误粘贴、最终输入竞争或 macOS 原生图已验证。
+
+本轮路径疑点复核：Rust 1.98.1 MSVC 在真实 Windows junction 上返回 is_symlink=true、is_dir=false，
+与当前录屏普通目录 guard 相符；只完成元数据/表达式 probe，不计为完整录屏恢复 QA，未新增产品补丁。
+arboard file_list 未进入 Clippy 业务调用链，本轮未改它。探测源码与日志在 windows-path-native-probe-949a2d9。
 
 ### W21 / P1 — Windows 图片预算发生在整图解码之后（源码确认并修复，本机门禁通过）
 

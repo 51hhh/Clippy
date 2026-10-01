@@ -40,6 +40,10 @@
   合同通过；连同预算和富文本 24 项 Windows 离线合同通过。源码 25fb5d7159af66a88d829eda199efa649698633d
   完整本机默认/QA 门禁 exit 0，27 passed / 0 failed / 1 skipped；默认 Rust 1046、QA Rust 1099，
   两图重叠且各有 5 ignored，不累加；前端 75 文件 / 1292 passed，CI 已接线未远程运行，桌面未验。
+- `WIN-PASTE-RECHECK-01`：独立 `codex/windows-paste-input-recheck`，基于 `949a2d9`。
+  Windows 输入后端初始化后、首次按键前再查窗口/PID/前台；初始化期间目标变化的离线红基线
+  2 passed / 4 failed，修复后六项通过，未调用 Enigo 或窗口/输入 API。完整本机门禁待验；
+  最后复核后的系统竞争、真实用户接管、新 SHA CI 与 macOS 原生图仍未验。
 - 已安装包仍为旧源码 `45769c9`。实际 Windows 11 桌面记录为 2 pass / 1 fail（旧 Pin 工具栏裁切）/
   36 not_run；原始 39 项 not_run 模板保持原字节，模板不能替代实际记录。
 - NSIS 落盘及启动已有子步骤证据；完整安装升级、MSI、卸载、录屏/音频、管理员目标、
@@ -122,6 +126,7 @@
 | W20 | P1 | Windows CF_HTML 片段范围受实际字节与 UTF-8 边界约束，默认门禁不能遗漏依赖库合同 | 独立 WIN-CF-HTML-01；旧校验离线红基线、安全解析九项合同及 50b7778 完整本机默认/QA 门禁通过；CI 入口已接线，远程新 SHA、真实互操作和其它原生图未验 |
 | W21 | P1 | Windows PNG / DIB 在整图像素分配前执行已有预算，保留合法 4K/8K 与小图像素 | 独立 WIN-CLIP-IMAGE-BUDGET-01；红基线 3 passed / 2 failed，预算七项及 531d791 完整 Windows 默认/QA 门禁通过，新 SHA CI 与桌面未验 |
 | W22 | P2 | Windows DIBV5 显式像素偏移，防止小图读取失败与尾部掩盖错图 | 独立 WIN-DIBV5-PIXEL-01；红基线 2 passed / 2 failed，原 Chrome/Firefox 及新增像素/文件视图合同、25fb5d7 完整 Windows 本机默认/QA 门禁通过；真实提供者和新 SHA CI 未验 |
+| W23 | P1 | Windows 首次按键前复核当前目标，不能沿用激活/后端初始化前的窗口身份与焦点 | 独立 WIN-PASTE-RECHECK-01；同一生产入口红基线 2 passed / 4 failed，六项离线合同通过；完整本机门禁待验，真实接管、系统竞争和新 SHA CI 未验 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。

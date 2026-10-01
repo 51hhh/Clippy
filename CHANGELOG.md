@@ -2,6 +2,15 @@
 
 ## 未发布
 
+### 2026-10-01 Windows 自动粘贴输入前目标复核
+
+- Windows 在激活/等待和输入后端初始化后、首次粘贴按键前再次核对窗口、PID 和前台目标；
+  目标销毁/所有者变化或焦点切换时保持复制状态并返回既有结构化降级，不再次抢焦点。
+  同一生产入口的离线故障注入先 2 passed / 4 failed，修复后六项通过；完整本机门禁待验。
+  没有实际系统按键或错误粘贴复现；最后复核与 SendInput 间的系统竞争、真实用户接管、
+  新 SHA CI 和共享初始化入口的 macOS 原生图仍未验。
+  （需求：`WIN-PASTE-RECHECK-01`；见 `docs/superpowers/specs/2026-10-01-windows-paste-input-recheck.md`）
+
 ### 2026-10-01 Windows DIBV5 像素偏移修复
 
 - Windows DIBV5 读取借用原字节，只补 14 字节 BMP 文件头和显式像素偏移，避免锁定解码器
