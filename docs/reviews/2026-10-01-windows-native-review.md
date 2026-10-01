@@ -5,7 +5,18 @@
 
 ## 当前续审结果
 
-当前 W42 / REC-LIBRARY-READY-01：load 的数据/loading 检查代次，但其 finally 无条件
+当前 W43 / WIN-SHORTCUT-SHARED-01：独立 codex/windows-shortcut-shared，基于 62d5103。
+注册计划仍按解析 ID 去重；执行协议保存每个唯一键位首次注册结果，共用动作继承成功或
+同一错误。所有非空动作失败返回首错，独立键部分成功仍 Ok 并记录失败，空键成功保持。
+用户保存禁止重复键、旧配置容错、原生前置解绑/事件 adapter 与动作派发优先级保持。
+提取原计划执行循环，仅替换注册和记录 adapter 的 MSVC 红基线 9 passed / 6 failed，旧
+五项全绿，新十项 4/6；五次 aggregate 错误 Ok、一项共享动作错误 Ok 实际复现。
+回滚红用例停在返回值首次断言，后续恢复断言未执行；不是实际系统键位冲突或设置 UI。
+同十项原字节修复后通过，共 15 passed；生产配置 commit 协议的持久化/应用回滚回调
+也通过。原文件在提取外、执行协议在结果继承外、旧五项正文与十九份关联文件保持。
+完整 Windows 默认/QA 门禁尚未运行，当前只完成定向验证；安装包未更新，桌面操控停止。
+
+此前 W42 / REC-LIBRARY-READY-01：load 的数据/loading 检查代次，但其 finally 无条件
 ready。原 App 字节生产组件/jsdom 红基线 35 passed / 5 failed，旧 32 全绿，新八项 3/5；
 四项退休加载调用旧 ready 一次，StrictMode dev/test 用例调用两次。原隐藏创建和 ready
 show/set_focus 只读核对，不声称真实窗口或发布 effect 重放。现在 effect 独立 retired

@@ -2,7 +2,7 @@ use crate::commands::{self, AppState};
 use crate::models::AppConfig;
 use crate::platform::DesktopSession;
 use crate::window_controller;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
@@ -146,16 +146,49 @@ pub(crate) fn register_tauri_shortcuts(
         .unregister_all()
         .map_err(|e| e.to_string())?;
 
+    execute_tauri_registration(
+        config,
+        |shortcut| {
+            global_shortcuts
+                .register(shortcut)
+                .map_err(|e| e.to_string())
+        },
+        |action, raw, result| {
+            record_register_result(
+                handle,
+                &[action],
+                raw,
+                crate::platform::current_session(),
+                result,
+            );
+        },
+    )
+}
+
+/// 计划执行与按动作记账共用一条协议，原生调用由 adapter 提供。
+fn execute_tauri_registration(
+    config: &AppConfig,
+    mut register: impl FnMut(Shortcut) -> Result<(), String>,
+    mut record: impl FnMut(&str, &str, Result<(), String>),
+) -> Result<(), String> {
     let mut attempted = 0usize;
     let mut failed = 0usize;
     let mut first_error: Option<String> = None;
+    let mut outcomes = HashMap::new();
     for (action, raw, plan) in plan_tauri_registration(config) {
         let result = match plan {
-            TauriRegistration::Unset | TauriRegistration::Shared => Ok(()),
+            TauriRegistration::Unset => Ok(()),
+            TauriRegistration::Shared(id) => outcomes
+                .get(&id)
+                .cloned()
+                .unwrap_or_else(|| Err(format!("共用快捷键 `{raw}` 缺少首次注册结果"))),
             TauriRegistration::Invalid(reason) => Err(reason),
-            TauriRegistration::Register(shortcut) => global_shortcuts
-                .register(shortcut)
-                .map_err(|e| e.to_string()),
+            TauriRegistration::Register(shortcut) => {
+                let id = shortcut.id();
+                let result = register(shortcut);
+                outcomes.insert(id, result.clone());
+                result
+            }
         };
         if !raw.is_empty() {
             attempted += 1;
@@ -164,13 +197,7 @@ pub(crate) fn register_tauri_shortcuts(
                 first_error.get_or_insert_with(|| reason.clone());
             }
         }
-        record_register_result(
-            handle,
-            &[action],
-            &raw,
-            crate::platform::current_session(),
-            result,
-        );
+        record(action, &raw, result);
     }
 
     match first_error {
@@ -193,7 +220,7 @@ enum TauriRegistration {
     /// 未配置键位
     Unset,
     /// 与前一个动作共用同一键位，插件侧只需注册一次
-    Shared,
+    Shared(u32),
     /// 需要向插件注册
     Register(Shortcut),
     /// 键位字符串无法解析
@@ -226,7 +253,7 @@ fn plan_tauri_registration(config: &AppConfig) -> Vec<(&'static str, String, Tau
                         if ids.insert(shortcut.id()) {
                             TauriRegistration::Register(shortcut)
                         } else {
-                            TauriRegistration::Shared
+                            TauriRegistration::Shared(shortcut.id())
                         }
                     }
                 }
@@ -299,6 +326,10 @@ fn shortcut_action(config: &AppConfig, pressed: &Shortcut) -> Option<ShortcutAct
 }
 
 #[cfg(test)]
+#[path = "shortcut_registration_tests.rs"]
+mod registration_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -308,7 +339,7 @@ mod tests {
             .map(|(action, _, plan)| {
                 let kind = match plan {
                     TauriRegistration::Unset => "unset".to_string(),
-                    TauriRegistration::Shared => "shared".to_string(),
+                    TauriRegistration::Shared(_) => "shared".to_string(),
                     TauriRegistration::Register(_) => "register".to_string(),
                     TauriRegistration::Invalid(reason) => format!("invalid: {reason}"),
                 };

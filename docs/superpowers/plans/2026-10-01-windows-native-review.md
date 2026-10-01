@@ -9,6 +9,12 @@
 
 ## 当前续审状态
 
+- `WIN-SHORTCUT-SHARED-01` / W43：独立 `codex/windows-shortcut-shared`，基于 `62d5103`。
+  共用动作按 ID 继承唯一键位首次结果，不能以 Shared 掩盖全失败；部分成功与判重/优先级保持。
+  提取原协议红基线 9/6（旧五项全绿），五次 aggregate、一项动作错误 Ok 复现，
+  同十项原字节修复后通过，共 15 passed；原合同与十九份关联文件保持。
+  完整 Windows 门禁尚未运行；替身不是实际系统注册/冲突，安装包未更新，桌面停止。
+
 - `REC-LIBRARY-READY-01` / W42：独立 `codex/recording-library-ready`，基于 `a2c31d2`。
   ready 绑定本次 effect 退休标记，cleanup 后迟到加载不再显示/聚焦请求；当前正常/失败
   重试页通知一次保持。原 App 字节 jsdom 红基线 35/5（旧 32 全绿），四项旧 ready 调用
@@ -321,6 +327,7 @@
 | W40 | P1 | 会话撤销同时失效尚在准备中的播放租约，保留其它会话与新准备 | 独立 REC-MEDIA-REVOKE-01，补齐 PX-REC-PLAYBACK-01 / 4；原 manager 红基线 7/4，四项实际返回 Ok 租约；同组六项与新增两项、旧五项共 13 passed；原合同核对，干净 6944b68 完整默认/QA Windows 门禁 child/终端 exit 0，30/0/1（Linux skip），默认 Rust 1165、QA Rust 1228（各 5 ignored，重叠不累加），新八项与旧媒体五项各图通过；前端 1307 passed。真实删除/合并/播放、哈希中间撤销时序、其它宿主与新 SHA CI 未验 |
 | W41 | P1 | 播放准备响应绑定组件/请求身份，退休后释放迟到租约，保留后继与其它动作状态 | 独立 REC-PLAYBACK-LIFECYCLE-01；原 App 字节 jsdom 红基线 27/5（旧 24 全绿），同八项原字节修复后通过，定向 32 passed；原合同/十一份关联文件核对。干净 ba26a83 完整默认/QA 门禁 child/终端 exit 0，30/0/1（Linux skip），默认 Rust 1165、QA Rust 1228（各 5 ignored，重叠不累加，无新增 Rust 用例），前端 78/1315 含新八项；发现清单/源码/日志与干净检出核对，实际 backend/窗口/WebView/其它宿主与新 SHA CI 未验 |
 | W42 | P1 | 结果库 ready 绑定当前 effect，退休后不再请求显示/聚焦，保留正常/错误页就绪 | 独立 REC-LIBRARY-READY-01；原 App 字节红基线 35/5（旧 32 全绿），四项旧 ready 与一次 StrictMode dev/test 两次调用复现，同八项原字节修复后通过，定向 40 passed；原合同/十三份关联文件保持。干净 1907809 完整默认/QA Windows 门禁 child/终端 exit 0，30/0/1（Linux skip），默认 Rust 1165、QA Rust 1228（各 5 ignored，重叠不累加，无新 Rust 用例），前端 79/1323 含新八项；源码/日志/发现清单与干净检出核对，实际窗口/focus/发布重放、其它宿主与新 SHA CI 未验 |
+| W43 | P1 | 共用键按 Shortcut ID 继承首次注册结果，全失败返回错误，保留部分成功与旧配置容错 | WIN-SHORTCUT-SHARED-01；提取原执行协议 MSVC 红 9/6（旧五项通过），同十项原字节绿 15/0；原合同/十九份文件保持。 完整门禁待运行，真实系统与其它平台/新 SHA CI 未验 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。
