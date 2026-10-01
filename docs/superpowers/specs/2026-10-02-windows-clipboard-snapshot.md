@@ -27,7 +27,7 @@ Windows 剪贴板 HTML 和替代文本来自同一次受保护读取，避免两
 - [x] Windows paired 读取 adapter 保持同一份内容，受控临时 SQLite 未存入混配结果。
 - [x] HTML/文本错误、空值、图片回退与原抑制/重试/去重合同保持。
 - [x] 生产 guard 协议在双读取中持有、错误/空 HTML/展开时释放，替代文本失败与空值保持。
-- [ ] 旧解析/ watcher 正文与其它平台原协议核对，干净源码完整 Windows 门禁及文档同步。
+- [x] 旧解析/ watcher 正文与其它平台原协议核对，干净源码完整 Windows 门禁及文档同步。
 
 ## Out of Scope
 
@@ -55,4 +55,11 @@ Windows HTML/text 共用一个 OpenClipboard guard，原单格式解码与接口
 严格 lint 通过。guard/sequence 为受控模型，不是实际 OpenClipboard 或系统并发复制证据。
 原 watcher 提取外、配对派发外、原解码/解析与九项正文、十六份关联文件核对；隐藏扩展
 API 仅 Windows，原其它接口保持；未增加依赖/SDK feature。
-当前定向回归与 vendor lint 通过；完整 Windows 门禁待运行。桌面/其它宿主/当前 SHA CI/安装与 Wayland 留未验。
+干净源码 b541e87dd0125307abe38d50b33cf0940d596427 完整 Windows 默认/QA 门禁 child/终端 exit 0，30 passed /
+0 failed / 1 Linux smoke skipped。默认 Rust 1183、QA Rust 1246（各 5 ignored，重叠不累加），
+新八项/旧 23 项各图通过；独立 guard 七项在原 CF_HTML 入口，CF_HTML 共 16/剪贴板共
+31 项，vendor WGC 十八项另列。前端 79 文件/1323 passed，Python 33 + 3、check/严格 lint/
+供应链/构建入口通过。五份源码/日志/checked helper/干净检出核对，门禁后仅四份 Markdown。
+累计二十八项本机产品修复未装包；保存实际 QA/模板保持。实际系统/延迟渲染提供者、
+其它宿主/当前 SHA CI、安装/Wayland 回归留未验，桌面操控停止。
+证据 windows-clipboard-snapshot-contract / windows-clipboard-snapshot-native-qa-b541e87。

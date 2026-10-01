@@ -17,7 +17,14 @@ Windows HTML/text 共用一个 OpenClipboard guard，原单格式解码与接口
 严格 lint 通过。guard/sequence 为受控模型，不是实际 OpenClipboard 或系统并发复制证据。
 原 watcher 提取外、配对派发外、原解码/解析与九项正文、十六份关联文件核对；隐藏扩展
 API 仅 Windows，原其它接口保持；未增加依赖/SDK feature。
-当前定向回归与 vendor lint 通过；完整 Windows 门禁待运行。桌面/其它宿主/当前 SHA CI/安装与 Wayland 留未验。
+干净源码 b541e87dd0125307abe38d50b33cf0940d596427 完整 Windows 默认/QA 门禁 child/终端 exit 0，30 passed /
+0 failed / 1 Linux smoke skipped。默认 Rust 1183、QA Rust 1246（各 5 ignored，重叠不累加），
+新八项/旧 23 项各图通过；独立 guard 七项在原 CF_HTML 入口，CF_HTML 共 16/剪贴板共
+31 项，vendor WGC 十八项另列。前端 79 文件/1323 passed，Python 33 + 3、check/严格 lint/
+供应链/构建入口通过。五份源码/日志/checked helper/干净检出核对，门禁后仅四份 Markdown。
+累计二十八项本机产品修复未装包；保存实际 QA/模板保持。实际系统/延迟渲染提供者、
+其它宿主/当前 SHA CI、安装/Wayland 回归留未验，桌面操控停止。
+证据 windows-clipboard-snapshot-contract / windows-clipboard-snapshot-native-qa-b541e87。
 
 此前 W43 / WIN-SHORTCUT-SHARED-01：独立 codex/windows-shortcut-shared，基于 62d5103。
 注册计划仍按解析 ID 去重；执行协议保存每个唯一键位首次注册结果，共用动作继承成功或

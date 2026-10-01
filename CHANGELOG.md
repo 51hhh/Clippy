@@ -8,7 +8,9 @@
   原单格式解码、失败回退、其它平台及抑制/重试保持。原协议提取红基线 27/4（旧 23
   通过），混配及临时 SQLite 缺口复现；修正夹具借用后同组原协议仍 27/4、修复绿 31。
   guard 七项/原 parser 九项共 16 及 vendor lint 通过；受控模型不证明实际系统锁/并发复制。
-  完整 Windows 门禁待运行，真实系统/其它宿主/当前 SHA CI 未验，安装包未更新。
+  干净 b541e87 完整 Windows 默认/QA 门禁 exit 0，30/0/1（Linux skip），默认 Rust
+  1183/QA Rust 1246（各 5 ignored，不累加），新八项在各图内；独立剪贴板 31 项，
+  前端 79/1323。实际系统/其它宿主/当前 SHA CI 未验，安装包未更新，桌面停止。
   （需求：`WIN-CLIP-SNAPSHOT-01`；见 `docs/superpowers/specs/2026-10-02-windows-clipboard-snapshot.md`）
 
 ### 2026-10-02 共用快捷键继承实际注册结果
