@@ -2,6 +2,16 @@
 
 ## 未发布
 
+### 2026-10-01 Windows WGC 初始化失败回滚
+
+- WGC frame pool 创建后即由临时 guard 持有，注册回调或创建 session 失败时先尝试 Close；
+  成功才移交完整 runtime，关闭错误仅记录且保留原初始化错误。复用锁定 scopeguard，
+  不改回调、光标、通道及正常 Stop/Drop；其它平台不变。
+  离线原协议 1 passed / 3 failed，修复后四项通过；原始字节正例与三个文件篡改负例通过，
+  完整 Windows 默认/QA 门禁待验。
+  未调用真实 WinRT Close 或复现系统泄漏；真实 API 失败、最终释放、新 SHA CI 与桌面未验。
+  （需求：`WIN-WGC-INIT-ROLLBACK-01`；见 `docs/superpowers/specs/2026-10-01-windows-wgc-init-rollback.md`）
+
 ### 2026-10-01 双轨录屏桥接线程异常回收
 
 - 视频桥接线程 panic 后仍等待音频桥接线程退出，再返回既有 BridgePanicked；两条线程正常

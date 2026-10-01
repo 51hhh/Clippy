@@ -19,9 +19,11 @@ const patches = readFileSync(join(vendorRoot, "PATCHES.md"), "utf8");
 
 const patchedFiles = {
   "src/windows/wgc_video_recorder.rs":
-    "ca28a3bb533661304ee6e002002b0953c0fdcad232e2f3bb9bfa1d6817822e22",
+    "ff49aeec1d69bd2e99850057f88a6bc4aebd3f0026f4fb71b5e1249dea2e978b",
   "src/windows/mod.rs":
-    "921ecb3ee2cb04a07606b4dd0b68f23d5500f56074227888187268752406a345",
+    "9795c4df049ede1551ccf400a18b9d48ab89927955b2fc3413becacaefd7bffc",
+  "src/windows/wgc_init.rs":
+    "7a9d853b5c534c334e74b93eedffc80be23f7f463d995bfadb5515c9733083cb",
   "src/windows/wgc_runtime.rs":
     "be621c84cfa8991bb35be1fcc0aa30bb6442bdbe15b3062eb6d1bebb2445e33a",
   "src/windows/utils.rs": "3a951bdc9860c72536c3f05f1eb769ca6a8ab2e2b7085d9370e70f44b31bd930",

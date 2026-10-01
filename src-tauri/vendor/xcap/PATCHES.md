@@ -49,6 +49,17 @@ session 后 pool，无论 session 是否失败都尝试 pool；只对失败资�
 Windows 独立 vendor 测试需显式过滤 platform::wgc_runtime::tests，不能运行上游真实显示器测试。
 完整本机/CI 记录见 `docs/superpowers/specs/2026-10-01-windows-wgc-close-retry.md`。
 
+## Windows WGC 初始化失败回滚 — WIN-WGC-INIT-ROLLBACK-01
+
+FrameArrived 注册或 CreateCaptureSession 失败时，完整 WgcRuntime 尚未构造，之前只会释放
+局部 pool 引用，不尝试显式 Close。新增 wgc_init.rs 的生产共用入口：立即以锁定 scopeguard
+1.2.0 保护已创建 pool，两处错误退出时先调用回滚 Close；成功才解除 guard 并移交 pool/session。
+关闭失败仅记录日志，保持原初始化错误；不保证 OS 最终释放，也未观察真实系统泄漏。
+完整 runtime 的 WGC-CLOSE 状态、光标、回调体、零容量通道、StartCapture 与其它平台未改。
+新增模块、recorder 和 mod.rs 均登记实际 LF 字节；既有原始来源与许可证、Cargo 锁文件保持。
+Windows vendor 测试显式过滤 platform::wgc_init::tests，四项纯合同不执行上游显示器测试。
+完整证据和验收边界见 docs/superpowers/specs/2026-10-01-windows-wgc-init-rollback.md。
+
 ## 当前工具链 lint 对齐
 
 `src/windows/utils.rs` 将固定四字节 BGRA 像素循环从 `chunks_exact_mut(4)` 改为等价的
@@ -77,7 +88,7 @@ ScreenCaptureKit 并完成原生权限、Retina、旋转屏和混合 DPI 真机�
 仓库 `.gitattributes` 限定本目录的文本保持 LF 检出，使 Windows 的 `core.autocrlf=true` 也保留
 登记的原始字节。验证器仍对实际文件计算完整 SHA-256，不归一化哈希输入或忽略本地修改。
 
-`scripts/verify-xcap-patch.mjs` 固定版本、来源哈希说明、九个修改/新增文件的完整 SHA-256、Cargo path
+`scripts/verify-xcap-patch.mjs` 固定版本、来源哈希说明、十个修改/新增文件的完整 SHA-256、Cargo path
 override、独立 vendor 包归属、锁文件 path 解析和许可证。Windows/macOS 原生 CI 会分别用独立
 manifest lint WGC feature 与 macOS 库，避免把上游示例开发依赖并入主锁文件。
 vendor 自带 `Cargo.lock` 仅供独立 lint 重现上游依赖，不参与 Clippy 主工程解析。

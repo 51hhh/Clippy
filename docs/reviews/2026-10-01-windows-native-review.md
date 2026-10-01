@@ -5,7 +5,12 @@
 
 ## 当前续审结果
 
-当前 W26 / REC-AV-BRIDGE-JOIN-01：视频桥接 join 返回 panic 时，布尔短路跳过音频 join，
+当前 W27 / WIN-WGC-INIT-ROLLBACK-01：pool 创建后注册/session 创建失败会直接退出，
+完整 WgcRuntime 尚未建立，遗漏显式 Close。复用锁定 scopeguard，错误时先尝试 Close，成功
+移交所有权；旧协议 1 passed / 3 failed，四项绿合同通过。原生 vendor/full gate 待验；
+真实 API 失败、最终系统资源释放、桌面与新 SHA CI 未验。
+
+此前 W26 / REC-AV-BRIDGE-JOIN-01：视频桥接 join 返回 panic 时，布尔短路跳过音频 join，
 owner 返回但音频线程仍可存活。两条均 join 再判断错误；MSVC 真实受控线程红基线
 2 passed / 2 failed，修复后四项通过。干净源码 091b5cb7663055a3b1a44e2958255bf3717bef79 完整
 Windows 默认/录屏 QA 门禁 exit 0：28 passed / 0 failed / 1 skipped（Linux smoke）；默认 Rust
@@ -146,6 +151,17 @@ Run：<https://github.com/51hhh/Clippy/actions/runs/35792281966>。
 本轮修改已推送到草稿 PR；首次修改后 CI 和后续修复证据见下方记录，不能沿用基线结果。
 
 ## Findings
+
+### W27 / P2 — WGC 初始化失败未显式关闭已创建 pool（离线复现并修复）
+
+create_runtime 的 FrameArrived / CreateCaptureSession 错误发生在 WgcRuntime 构造之前；
+已有 Close/Drop 状态仅处理完整 runtime。WIN-WGC-INIT-ROLLBACK-01 的共用 initialize_pool
+以真实锁定 scopeguard 临时拥有 pool，错误返回前 Close，成功解除 guard、移交 pool/session；
+回滚关闭错误仅记录，不覆盖原初始化错误。光标、回调体、通道及既有正常 Stop/Drop 保持。
+完整纯模块 MSVC harness 红协议 1 passed / 3 failed，绿色四项使用真实 scopeguard 通过；
+受控泛型资源验证关闭先于 Drop、失败不继续 session 及成功不提前关闭。没有类型 stub 或 WinRT。
+原始字节正例及三个文件篡改负例通过，依赖/来源和 LF 十项 pins 保留；独立 vendor 原生 Cargo 图
+与完整本机门禁待验。不声称实际系统泄漏或必然释放。
 
 ### W26 / P2 — 视频桥接 panic 后音频线程被 detach（真实受控线程复现并修复）
 

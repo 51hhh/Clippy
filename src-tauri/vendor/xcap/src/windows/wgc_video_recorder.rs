@@ -22,6 +22,7 @@ use windows::{
 use crate::{XCapResult, video_recorder::Frame};
 
 use super::wgc::{IDXGIDEVICE, get_next_frame};
+use super::wgc_init::initialize_pool;
 use super::wgc_runtime::RuntimeCloseState;
 
 #[derive(Debug)]
@@ -74,29 +75,40 @@ impl ImplVideoRecorder {
 
         let tx = self.tx.clone();
 
-        frame_pool.FrameArrived(
-            &TypedEventHandler::<Direct3D11CaptureFramePool, IInspectable>::new(
-                move |frame_pool, _| {
-                    let frame = get_next_frame(
-                        frame_pool,
-                        0,
-                        0,
-                        item_size.Width as u32,
-                        item_size.Height as u32,
-                    )
-                    .map_err(|error| {
-                        log::error!("wgc get_next_frame failed: {error}");
-                        WindowsError::empty()
-                    })?;
+        let (frame_pool, session) = initialize_pool(
+            frame_pool,
+            |pool| {
+                pool.FrameArrived(
+                    &TypedEventHandler::<Direct3D11CaptureFramePool, IInspectable>::new(
+                        move |frame_pool, _| {
+                            let frame = get_next_frame(
+                                frame_pool,
+                                0,
+                                0,
+                                item_size.Width as u32,
+                                item_size.Height as u32,
+                            )
+                            .map_err(|error| {
+                                log::error!("wgc get_next_frame failed: {error}");
+                                WindowsError::empty()
+                            })?;
 
-                    let _ = tx.send(frame);
+                            let _ = tx.send(frame);
 
-                    Ok(())
-                },
-            ),
+                            Ok(())
+                        },
+                    ),
+                )
+                .map(|_| ())
+            },
+            |pool| pool.CreateCaptureSession(&self.item),
+            |pool| {
+                // 完整 runtime 建立前出错也须尝试 Close；不覆盖原初始化错误。
+                if let Err(error) = pool.Close() {
+                    log::error!("WGC frame pool initialization rollback failed: {error}");
+                }
+            },
         )?;
-
-        let session = frame_pool.CreateCaptureSession(&self.item)?;
         // Best-effort: these may fail on older Windows builds or without capabilities
         if let Err(e) = session.SetIsBorderRequired(false) {
             log::debug!("SetIsBorderRequired(false) failed (non-fatal): {:?}", e);

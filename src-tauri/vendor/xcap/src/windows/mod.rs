@@ -7,6 +7,8 @@ mod utils;
 #[cfg(feature = "wgc")]
 mod wgc;
 #[cfg(feature = "wgc")]
+mod wgc_init;
+#[cfg(feature = "wgc")]
 mod wgc_runtime;
 #[cfg(feature = "wgc")]
 mod wgc_video_recorder;
