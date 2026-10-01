@@ -12,9 +12,15 @@
 重开复现。同组新六项修复后通过，既有全局合并单槽一项红/绿都通过。registry 现在原子协调
 同会话合并/删除与重复删除，guard 覆盖整个 worker，错误/panic 释放且不覆盖原错误；其它
 会话操作保持，全局同时一个合并保持。新测试只进入 VP9/QA 图，默认删除仍执行原 callback。
-十八段既有结果库函数、原删除 worker 正文、旧单槽测试模块与十一份文件保持；完整 Windows
-默认/QA 门禁待执行。真实关闭/重开窗口、强杀/设备/播放、其它宿主和当前 SHA CI 未验，
-Windows 导出路径身份仍待续审。证据 recording-delete-owner-contract；桌面操作保持停止。
+十八段既有结果库函数、原删除 worker 正文、旧单槽测试模块与十一份文件保持。干净源码
+0321355ac182ea7b979fb23b2073488eb1af3308 完整默认/QA 门禁确认原生子进程及终端工具 exit 0：
+30 passed / 0 failed / 1 Linux smoke skipped。默认 Rust 1150、QA Rust 1213（各 5 ignored，重叠
+不累加），新增六项仅在 QA 总数内，旧单槽及关键 manifest/合并共九条合同核对；前端 77 文件 /
+1307 passed，Python 33 + 3，独立 vendor 十八项及剪贴板二十四项通过。check、严格 lint、
+供应链、构建/入口通过，源码/原始日志、checked helper/门禁脚本哈希与干净检出核对。
+累计二十二项本机产品修复未装包。真实关闭/重开窗口、强杀/设备/播放、其它宿主和当前 SHA CI
+未验，Windows 导出路径身份仍待生产入口复现，尚未追加缺陷结论。合同证据
+recording-delete-owner-contract，完整门禁 recording-delete-owner-native-qa-0321355；桌面操作保持停止。
 
 此前 W37 / WIN-CONTROL-ROLLBACK-01：普通关闭使用 destroyed.is_ok() 结算控制窗 registry，
 启动准备失败回滚却忽略销毁请求错误并总是 settle(true)，绕过既有失败后阻止替换的合同。

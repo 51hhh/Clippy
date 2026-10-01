@@ -9,8 +9,10 @@
   和 panic 都释放所有权，其它会话删除与既有全局单合并限制保持。默认构建删除路径不变。
   提取原删除 worker 协议的 MSVC 红基线 3 passed / 3 failed，其中实际删除了合并 owner
   持有期间的生产 VP9 分段/清单；同组六项修复后通过，新测试字节保持，既有单槽测试通过。
-  完整 Windows 默认/QA 门禁待执行；真实窗口重开/录屏/强杀/播放、其它宿主和当前 SHA CI
-  未验，桌面操作停止，录屏默认门控不变。
+  干净 0321355 完整 Windows 默认/QA 门禁确认原生子进程 exit 0：30 passed / 0 failed /
+  1 Linux smoke skipped。默认 Rust 1150、QA Rust 1213（各 5 ignored，重叠不累加），新增六项
+  只包含在 QA 总数内；前端 77 文件 / 1307 passed。真实窗口重开/录屏/强杀/播放、其它宿主
+  和当前 SHA CI 未验，桌面操作停止，录屏默认门控不变。
   （需求：`REC-DELETE-OWNER-01`；见 `docs/superpowers/specs/2026-10-02-recording-delete-owner.md`）
 
 ### 2026-10-02 录屏控制窗启动回滚结算

@@ -25,8 +25,8 @@
 - [x] 已持有合并所有权时删除不执行任何 worker 操作，已提交文件和 manifest 原始字节保持。
 - [x] 删除持有期间同会话合并/重复删除失败，其它会话操作保持可用；真实线程顺序可验证。
 - [x] 删除成功/错误/panic 后可重新取得所有权，原错误保持；真实恢复后可正常删除。
-- [ ] 旧协议红基线与同组回归、旧单槽/manifest/前端合同及干净 SHA Windows 门禁核对。
-- [ ] 同 ID 文档同步，真实重开窗口/录屏/强杀/其它宿主与当前 SHA CI 保留未验。
+- [x] 旧协议红基线与同组回归、旧单槽/manifest/前端合同及干净 SHA Windows 门禁核对。
+- [x] 同 ID 文档同步，真实重开窗口/录屏/强杀/其它宿主与当前 SHA CI 保留未验。
 
 ## Out of Scope
 
@@ -54,5 +54,14 @@ exit 1，3 passed / 3 failed / 0 ignored / 1212 filtered。一个失败实际删
 十八段原结果库函数、原 worker 正文（归一化空白）、旧单槽测试模块原字节和十一份关联文件
 核对；默认分支仍直接执行原 worker callback，新所有权和六项测试仅进入 VP9/QA feature。
 首次启动因子进程目录未找到 Cargo.toml，未执行任何测试，错误日志独立保留，不计红基线。
-完整 Windows 默认/QA 门禁待执行，真实重开窗口/系统强杀/设备/最终播放、其它宿主与当前
-SHA CI 留未验。证据目录 C:\win\Clippy\src-tauri\target\recording-delete-owner-contract。
+干净源码 0321355ac182ea7b979fb23b2073488eb1af3308 完整 Windows 默认/QA 门禁确认原生 child
+及终端 exit 0：30 passed / 0 failed / 1 Linux smoke skipped。默认 Rust 1150 / 5 ignored，
+QA Rust 1213 / 5 ignored，图谱重叠不累加；新增六项仅在 QA 总数内，默认图无这些测试。
+九条关键旧单槽/manifest/提交恢复/合并合同按各自编译图逐项核对。前端 77 文件 / 1307 passed，
+Python 33 + 3，独立 vendor 十八项和剪贴板二十四项通过；check、严格 lint、供应链、构建/
+入口通过。源码快照、原文件/断言、新测试字节、原始日志和 checked helper/门禁脚本哈希、
+门禁前后干净检出核对；完整门禁证据
+C:\win\Clippy\src-tauri\target\recording-delete-owner-native-qa-0321355。
+真实重开窗口/系统强杀/设备/最终播放、其它宿主与当前 SHA CI 留未验。Windows 导出路径
+别名仅为后续审查候选，尚未在生产入口复现。合同与源码审查证据目录
+C:\win\Clippy\src-tauri\target\recording-delete-owner-contract。

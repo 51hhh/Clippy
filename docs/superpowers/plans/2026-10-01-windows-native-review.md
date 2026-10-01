@@ -13,8 +13,11 @@
   VP9/QA 图内在同一 registry 原子取得合并/删除所有权，删除 guard 覆盖原 worker，冲突前不
   撤销播放/缓存或删除文件；同会话互斥，其它会话操作及全局单合并保持，默认删除路径不变。
   提取原无所有权删除协议 MSVC 红基线 3 passed / 3 failed，生产 VP9 已提交文件删除缺口
-  复现；同组六项修复后通过，新测试字节保持，既有单槽测试红/绿通过。完整默认/QA 门禁
-  待执行；真实窗口重开/强杀/录屏/播放、其它宿主和当前 SHA CI 未验，桌面操作停止。
+  复现；同组六项修复后通过，新测试字节保持，既有单槽测试红/绿通过。干净 0321355 完整
+  默认/QA 门禁确认原生子进程 exit 0，30 passed / 0 failed / 1 Linux smoke skipped。默认 Rust
+  1150、QA Rust 1213（各 5 ignored，重叠不累加），新增六项仅在 QA 总数内；前端 77 文件 /
+  1307 passed。源码/日志与干净检出核对；真实窗口重开/强杀/录屏/播放、其它宿主和当前 SHA CI
+  未验，桌面操作停止。Windows 导出路径别名仍待生产入口复现。
 
 - `WIN-CONTROL-ROLLBACK-01` / W37：独立 `codex/windows-control-rollback`，基于 `7ca01a0`。
   准备失败回滚按销毁请求返回结果结算，与普通关闭共用路径；请求失败阻止替换，原启动错误和旧
@@ -239,7 +242,7 @@
 | W05 | P1 | 同权限自动粘贴一次、高完整性目标 copy-only、目标销毁/复用、用户接管；DACL 与配置连续覆盖 | 45769c9 普通权限文本/图片完整用例实际通过；管理员、销毁复用与用户接管桌面待验证。私有文件准备失败时序见 W18，富文本片段边界见 W20，首次按键前目标复核见 W23 |
 | W06 | P1 | QA 包设备默认/非默认/同名/拔出、双源混音、暂停恢复、控制窗排除、强杀恢复、30 分钟 A/V 漂移 | WASAPI 正常停止尾部见 W24，WGC 关闭/初始化清理见 W25/W27，双轨桥接线程回收见 W26，WGC 应用帧桥启动回滚见 W35；真实设备、混音及其余场景仍待真机验收 |
 | W07 | P2 | NSIS/MSI 安装升级卸载、WebView2、自启动、托盘/快捷键、系统凭据与更新 | 官方 QA 包身份已核对，MSI 只读检查通过；NSIS 安装落盘/启动子步骤已核对，完整 MSI/升级/卸载/updater 未验收；本机自签名链不受信任，未更改信任 |
-| W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 42e52c0、45769c9 与 WinPS 的 b2fd247 各自七项 CI 通过；后续二十一项产品修复本机通过，新 SHA CI、Linux 本地完整门禁及 Wayland 回归保留未完成 |
+| W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 42e52c0、45769c9 与 WinPS 的 b2fd247 各自七项 CI 通过；后续二十二项产品修复本机通过，新 SHA CI、Linux 本地完整门禁及 Wayland 回归保留未完成 |
 | W09 | P1 | OCR 质量工具 Windows 私有诊断目录与符号链接拒绝合同；失败关闭，检查子文件继承 | 实际 DACL/等价 SDDL 及 10 类失败关闭负例通过；本机 33 项质量合同与 42e52c0 跨平台 CI 通过 |
 | W10 | P2 | 审查 webm-sys 的 C++ 编译参数在 MSVC 上产生 D9002；按真实编译器族选择 flag，保留固定来源与许可证 | 独立 WIN-WEBM-MSVC-01 / PR #14；本机完整 QA 绑定 e4ccc46，45769c9 七项 CI 与完整 QA workflow 全成功，新 Windows 包来源/哈希/签名身份已核对；真实桌面未验证 |
 | W11 | P1 | 新 Windows runner 使用 CRLF 检出时的 IPC 负例与结构回归；保留两种换行的正/负合同 | 独立 CRLF checkout 1284 项通过，fe37aec Windows 前端 CI 已通过 |
@@ -269,7 +272,7 @@
 | W35 | P2 | WGC 应用帧桥启动回滚与销毁拥有取消/join，不依赖外部 sender 释放 | 独立 WIN-WGC-BRIDGE-ROLLBACK-01；提取旧协议红基线 3 passed / 4 failed，同组七项真实线程合同全绿；7922457 完整默认/QA 门禁 exit 0，30 pass / 0 fail / 1 Linux skip；实际 WGC/Close/系统释放、硬件与新 SHA CI 未验 |
 | W36 | P2 | 主窗口有保存目标时不执行后备原生查询，必要后备和保存查询错误保持 | 独立 WIN-MAIN-TARGET-01；提取旧求值协议红基线 11 passed / 2 failed，旧七项全绿、新六项红 4/2，修复后十三项通过；c9d5512 完整默认/QA 门禁 exit 0，30 pass / 0 fail / 1 Linux skip；真实显示/原生错误/DPI、多屏、其它宿主与新 SHA CI 未验 |
 | W37 | P1 | 录屏控制窗准备失败回滚按销毁请求返回结果结算，请求失败仍阻止替换 | 独立 WIN-CONTROL-ROLLBACK-01；提取原回滚协议红基线 22 passed / 2 failed，旧十七项全绿、新七项红 5/2，修复后二十四项通过；干净 a52ecaa 完整默认/QA 门禁原生子进程 exit 0，30/0/1（Linux skip），默认 Rust 1150、QA Rust 1207（各 5 ignored，重叠不累加），新增七项在总数内，前端 1307 passed；请求成功不是原生销毁完成，真实请求失败/捕获像素/设备/强杀、其它宿主和新 SHA CI 未验 |
-| W38 | P1 | 录屏恢复合并与删除原子取得同会话所有权，删除 guard 覆盖完整 worker | 独立 REC-DELETE-OWNER-01；提取原删除协议红基线 3 passed / 3 failed，生产已提交 VP9 分段/清单删除缺口复现；同组六项通过，新测试字节保持，既有单槽测试通过，完整默认/QA 门禁待执行；默认删除不变，新测试只在 VP9/QA 图；真实重开窗口/强杀/播放、其它宿主和新 SHA CI 未验 |
+| W38 | P1 | 录屏恢复合并与删除原子取得同会话所有权，删除 guard 覆盖完整 worker | 独立 REC-DELETE-OWNER-01；提取原删除协议红基线 3 passed / 3 failed，生产已提交 VP9 分段/清单删除缺口复现；同组六项通过，既有单槽/关键 manifest 合同通过；干净 0321355 完整默认/QA 门禁原生子进程 exit 0，30/0/1（Linux skip），默认 Rust 1150、QA Rust 1213（各 5 ignored，重叠不累加），新增六项仅在 QA 总数内，前端 1307 passed；默认删除不变；真实重开窗口/强杀/播放、其它宿主和新 SHA CI 未验 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。
