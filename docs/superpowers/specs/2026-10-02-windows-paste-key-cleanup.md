@@ -28,7 +28,7 @@ Windows 自动粘贴的 V Click 未全部发送或展开时，显式尝试释放
 - [x] 新协议成功清理部分 Click；V Release 首次失败与展开退出时有界重试，modifier 清理保持。
 - [x] 永久清理失败不报成功，主要错误保持并包含清理失败；正常成功和早期失败顺序保持。
 - [x] 原六项目标复核、错误/command 与 macOS/其它平台正文核对，同组原字节红绿回归。
-- [ ] 干净源码完整 Windows 门禁及同 ID 文档同步；系统/其它宿主/当前 SHA CI 未验项保留。
+- [x] 干净源码完整 Windows 门禁及同 ID 文档同步；系统/其它宿主/当前 SHA CI 未验项保留。
 
 ## Out of Scope
 
@@ -56,4 +56,11 @@ Keyboard fixture 原字节绿 16 passed。模型按锁定 Enigo 0.6.1 的 Click/
 合同构造，展开 panic 被捕获；不是实际 SendInput 部分发送、物理卡键或桌面证据。
 原 Windows/macOS 实现和旧六项正文、十二份关联文件、两份锁定 SDK 原字节核对。
 没有新依赖、SDK feature 或系统键状态调用。
-同组定向回归通过；干净源码完整 Windows 门禁待运行。实际按键/桌面、其它宿主/新 SHA CI、安装和 Wayland 留未验。
+干净源码 f5ad5da5bfb9cacb92c4cf0f0932f89a31345415 完整 Windows 默认/QA 门禁 child/终端 exit 0，30 passed /
+0 failed / 1 Linux smoke skipped。默认 Rust 1193、QA Rust 1256（各 5 ignored，两图重叠
+不累加），新十项/旧六项在各图总数内通过。前端 79 文件/1323 passed；独立剪贴板 31、
+WGC 十八、Python 33 + 3、check/严格 lint/供应链/构建与入口通过。两份源码、同十项原字节、
+日志/checked helper/门禁脚本及干净检出核对；门禁后仅四份 Markdown。累计二十九项产品
+修复未装包；保存实际 QA/模板保持。实际系统按键/UIPI/接管与物理释放、其它宿主/当前
+SHA CI、安装与 Wayland 回归留未验，桌面停止。
+证据 windows-paste-key-cleanup-contract / windows-paste-key-cleanup-native-qa-f5ad5da。

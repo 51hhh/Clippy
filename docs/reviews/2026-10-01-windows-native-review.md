@@ -17,7 +17,14 @@ Keyboard fixture 原字节绿 16 passed。模型按锁定 Enigo 0.6.1 的 Click/
 合同构造，展开 panic 被捕获；不是实际 SendInput 部分发送、物理卡键或桌面证据。
 原 Windows/macOS 实现和旧六项正文、十二份关联文件、两份锁定 SDK 原字节核对。
 没有新依赖、SDK feature 或系统键状态调用。
-同组定向回归通过；干净源码完整 Windows 门禁待运行。实际按键/桌面、其它宿主/新 SHA CI、安装和 Wayland 留未验。
+干净源码 f5ad5da5bfb9cacb92c4cf0f0932f89a31345415 完整 Windows 默认/QA 门禁 child/终端 exit 0，30 passed /
+0 failed / 1 Linux smoke skipped。默认 Rust 1193、QA Rust 1256（各 5 ignored，两图重叠
+不累加），新十项/旧六项在各图总数内通过。前端 79 文件/1323 passed；独立剪贴板 31、
+WGC 十八、Python 33 + 3、check/严格 lint/供应链/构建与入口通过。两份源码、同十项原字节、
+日志/checked helper/门禁脚本及干净检出核对；门禁后仅四份 Markdown。累计二十九项产品
+修复未装包；保存实际 QA/模板保持。实际系统按键/UIPI/接管与物理释放、其它宿主/当前
+SHA CI、安装与 Wayland 回归留未验，桌面停止。
+证据 windows-paste-key-cleanup-contract / windows-paste-key-cleanup-native-qa-f5ad5da。
 
 此前 W44 / WIN-CLIP-SNAPSHOT-01：独立 codex/windows-clipboard-snapshot，基于 43b400c。
 Windows HTML/text 共用一个 OpenClipboard guard，原单格式解码与接口保持；guard 覆盖双读取，
