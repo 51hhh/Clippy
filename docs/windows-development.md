@@ -49,6 +49,11 @@ Windows 入口还显式运行 `cargo test --locked -p arboard --lib platform::wi
 该组只验证离线 CF_HTML 字节与生产安全解析接线，不读写系统剪贴板。默认 Cargo 成员不运行
 依赖库单元测试，普通 `cargo test` 不能替代这组合同；Windows Native CI 同样显式执行。
 
+同一入口显式运行 `cargo test --locked -p arboard --lib platform::windows::image_limits::tests`，
+验证 PNG / DIB 共用入口的解码前尺寸预算、PNG 构造限制及小 8/16-bit PNG 像素。
+七项均为离线夹具；4K/8K 只验证元数据，不产生大分配。上游 `image_data::chrome_dibv5`
+在本轮基线已有失败，扩展检查按 W22 保留，未加入 ignored 或冒称本组涵盖所有 DIB 互操作。
+
 ## 录屏源码构建附加依赖
 
 `recording-windows-av-qa` 包含固定版本 VP9 源码构建、WGC、WASAPI 与 Opus/WebM。

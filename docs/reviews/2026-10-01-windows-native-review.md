@@ -87,6 +87,27 @@ Run：<https://github.com/51hhh/Clippy/actions/runs/35792281966>。
 
 ## Findings
 
+### W21 / P1 — Windows 图片预算发生在整图解码之后（源码确认并修复，完整门禁待验）
+
+watcher 的 validate_image_layout 在 arboard::get_image 返回后才约束单边 16,384 / 40,000,000
+像素。锁定 image 0.25.10 的 PngDecoder::new 使用无上限构造；DynamicImage 的 decoder_to_vec
+只检查 usize/isize 可表示范围，随后直接按 total_bytes 创建像素 Vec。PNG / DIB 原读取路径均
+在 watcher 校验前执行此分配。独立 WIN-CLIP-IMAGE-BUDGET-01 将同一预算前移到共用解码入口，
+PNG 构造也限制单边尺寸；合法图的转换逻辑保留。
+
+保持旧解码语句行为的五项故障注入为 3 passed / 2 failed，超限像素仍进入 read_image；
+修复后七项预算合同通过。测试只允许四字节缓冲区，4K / 8K / 精确边界只查元数据；
+小 8/16-bit PNG 透明度与像素通过。完整本机门禁待验，Windows CI 已添加定向入口但远程未运行。
+未观察桌面 OOM，不声明编码数据、PNG 元数据、16-bit 中间像素或整个进程的内存上限。
+
+### W22 / P2 — 既有 Chrome DIB 夹具读取失败（基线复现，待独立修复）
+
+扩展运行 arboard 的 Windows 图片测试得到 9 passed / 1 failed，原 chrome_dibv5 5×5 夹具
+失败于像素读取 UnexpectedEof。临时恢复 cf59157 原 windows.rs 后同一测试仍失败，exit 101；
+恢复工作源码后未改变任何原夹具或断言。Firefox 与颜色转换通过，不能因此写成全图片组通过。
+锁定 BmpDecoder 的无文件头 V5 bitfields 路径在 header 后额外跳过 12 字节是后续定位线索；
+当前未修复依赖，也未证实所有真实提供者受影响。失败日志保留在 windows-image-budget-red。
+
 ### W20 / P1 — Windows 富文本读取片段缺少完整边界校验（源码风险确认，离线回归修复）
 
 锁定 clipboard-win 5.4.1 的 `raw::get_html` 只检查 `end-start <= GlobalSize`，未检查

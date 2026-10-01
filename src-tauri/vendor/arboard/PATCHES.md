@@ -1,6 +1,6 @@
 # Clippy 本地补丁
 
-基于 crates.io **arboard 3.6.1**。保留原 MIT / Apache-2.0 许可证、版本、所有平台及示例源码；行为补丁涉及 X11 与下述 Windows CF_HTML 读取边界，macOS 与 Wayland 只有不改变行为的弃用 API 对齐（见「跨平台弃用 API 对齐」）。`Cargo.toml.orig` 保留发布包原件，当前 normalized `Cargo.toml` 的测试适配在下文说明。
+基于 crates.io **arboard 3.6.1**。保留原 MIT / Apache-2.0 许可证、版本、所有平台及示例源码；行为补丁涉及 X11 与下述 Windows CF_HTML / 图片读取边界，macOS 与 Wayland 只有不改变行为的弃用 API 对齐（见「跨平台弃用 API 对齐」）。`Cargo.toml.orig` 保留发布包原件，当前 normalized `Cargo.toml` 的测试适配在下文说明。
 
 - 原始 `.crate` SHA-256：`0348a1c054491f4bfe6ab86a7b6ab1e44e45d899005de92f58b3df180b36ddaf`
 - 原始 `src/platform/linux/x11.rs` SHA-256：`57058170d748f75df9081dc2d886e8a2fa4fa9ca46af09c37bc5eda36309c053`
@@ -43,6 +43,25 @@ cargo test --locked --manifest-path src-tauri/Cargo.toml -p arboard --lib platfo
 
 默认 Cargo 成员不运行依赖的单元测试，因此 Windows PowerShell 门禁和 Windows Native CI
 显式运行上述定向组，不执行上游桌面测试。升级 arboard/clipboard-win 时须复核并决定移除或重放。
+
+## Windows 图片解码前尺寸预算
+
+`WIN-CLIP-IMAGE-BUDGET-01`：`src/platform/windows/image_limits.rs` 在 PNG / CF_DIBV5
+共用的整图解码入口先拒绝零尺寸、单边超过 16,384 或超过 40,000,000 像素的图片，
+再进入 DynamicImage::from_decoder。与 Clippy watcher 的后置检查保持相同阈值；原检查
+发生在 arboard 已分配像素之后。PNG 构造阶段也通过 with_limits 在 read_info 前限制单边尺寸。
+合法 4K、8K、精确预算边界只做元数据合同；小 8/16-bit PNG 保留 RGBA8 像素和透明度。
+故障注入跟踪同一入口的 read_image 调用，测试缓冲区固定四字节，无真实超大分配或桌面调用。
+
+```sh
+cargo test --locked --manifest-path src-tauri/Cargo.toml -p arboard --lib platform::windows::image_limits::tests
+```
+
+Windows 本机门禁与 Native CI 显式执行这七项；Cargo 版本、锁文件、写入与其它平台路径不变。
+该预算只约束整图像素尺寸，不是编码数据、PNG 元数据、16-bit 中间缓冲区或进程峰值内存上限。
+扩展运行上游 image_data 三项时，Firefox 和颜色转换通过，Chrome DIB 夹具失败；同一夹具在
+cf59157 原源码也失败（UnexpectedEof）。这是另行保留的 W22，未隐藏、标记 ignored 或计入通过；
+现有 Chrome 头部修正逻辑未改。本节不声称 Windows 图片全链路或 Chrome 互操作已经通过。
 
 ## 跨平台弃用 API 对齐
 

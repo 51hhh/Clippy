@@ -12,6 +12,8 @@ and conditions of the chosen license apply to this file.
 use crate::common::ImageData;
 use crate::common::{private, Error};
 mod html;
+#[cfg(feature = "image-data")]
+mod image_limits;
 use std::{
 	borrow::Cow,
 	io,
@@ -37,11 +39,8 @@ mod image_data {
 	use super::*;
 	use crate::common::ScopeGuard;
 	use image::codecs::bmp::BmpDecoder;
-	use image::codecs::png::PngDecoder;
 	use image::codecs::png::PngEncoder;
-	use image::DynamicImage;
 	use image::ExtendedColorType;
-	use image::ImageDecoder;
 	use image::ImageEncoder;
 	use std::{convert::TryInto, mem::size_of, ptr::copy_nonoverlapping};
 	use windows_sys::Win32::{
@@ -208,26 +207,13 @@ mod image_data {
 
 		let decoder = BmpDecoder::new_without_file_header(std::io::Cursor::new(&*dibv5))
 			.map_err(|_| Error::ConversionFailure)?;
-		let (width, height) = decoder.dimensions();
-		let bytes = DynamicImage::from_decoder(decoder)
-			.map_err(|_| Error::ConversionFailure)?
-			.into_rgba8()
-			.into_raw();
-
-		Ok(ImageData { width: width as usize, height: height as usize, bytes: bytes.into() })
+		super::image_limits::decode(decoder)
 	}
 
 	pub(super) fn read_png(data: &[u8]) -> Result<ImageData<'static>, Error> {
 		let decoder =
-			PngDecoder::new(std::io::Cursor::new(data)).map_err(|_| Error::ConversionFailure)?;
-		let (width, height) = decoder.dimensions();
-
-		let bytes = DynamicImage::from_decoder(decoder)
-			.map_err(|_| Error::ConversionFailure)?
-			.into_rgba8()
-			.into_raw();
-
-		Ok(ImageData { width: width as usize, height: height as usize, bytes: bytes.into() })
+			super::image_limits::png_decoder(data).map_err(|_| Error::ConversionFailure)?;
+		super::image_limits::decode(decoder)
 	}
 
 	/// Converts the RGBA (u8) pixel data into the bitmap-native ARGB (u32)

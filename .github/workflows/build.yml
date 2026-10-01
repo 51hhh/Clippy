@@ -224,6 +224,11 @@ jobs:
         working-directory: src-tauri
         run: cargo test --locked -p arboard --lib platform::windows::html::tests
 
+      - name: Windows image decode budget tests
+        if: runner.os == 'Windows'
+        working-directory: src-tauri
+        run: cargo test --locked -p arboard --lib platform::windows::image_limits::tests
+
   recording-codec-prototype:
     name: Recording Codec Prototype (${{ matrix.runner }})
     runs-on: ${{ matrix.runner }}

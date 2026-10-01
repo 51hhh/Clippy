@@ -116,6 +116,9 @@ if (-not $FrontendOnly) {
     Invoke-Check 'Windows CF_HTML parser tests' $backend {
         & cargo.exe test --locked -p arboard --lib platform::windows::html::tests
     }
+    Invoke-Check 'Windows image decode budget tests' $backend {
+        & cargo.exe test --locked -p arboard --lib platform::windows::image_limits::tests
+    }
     if ($RecordingQa) {
         Invoke-Check 'Windows A/V QA check' $backend {
             & cargo.exe check --locked --features recording-windows-av-qa --all-targets
