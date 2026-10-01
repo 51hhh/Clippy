@@ -3,12 +3,24 @@
 日期：2026-10-01；需求：`WIN-NATIVE-01`。
 计划：[`2026-10-01-windows-native-review.md`](../superpowers/plans/2026-10-01-windows-native-review.md)。
 
+## 当前续审结果
+
+用户要求停止桌面操控，当前继续代码 review 与 Windows 本机自动验证。已安装的 QA 源码仍为
+`45769c9`：真实记录是文本/图片 2 pass、Pin 工具栏裁切 1 fail、36 not_run；原始 39 项模板保留不变。
+新 Pin 和私有文件修复未安装，桌面复测、录屏/音频、管理员目标、多屏和 Windows 10 均保持未验证。
+
+独立私有写入修复源码 `f788b1f57d852b7df87e334b579c3224c7fd2543` 的 Windows 本机完整门禁
+exit 0，23 passed / 0 failed / 1 skipped（Linux smoke）。默认 Rust 1042 / 5 ignored、QA Rust
+1095 / 5 ignored、前端 75 文件 / 1292 passed；两组 Rust 重叠不累加，日志哈希及验证后干净检出已核对。
+证据位于主检出的 `src-tauri/target/windows-private-write-native-qa-f788b1f/RESULT.json`。
+新 SHA 原生 CI 未执行，后继证据文档不冒称已验证 SHA；其他阶段记录保留各自来源。
+
 ## 基线与结论
 
 本轮按用户指定审查最新分支。刷新 origin 后，最新分支是
 `origin/codex/recording-audio-device-selection`，完整 SHA
 `8b99b884f660f37c9d81ba0dc8947d13c3d3a08a`。原检出的 dev 是 `2383cc0`，两者不能混用验证结果。
-当前修复分支是 `codex/windows-native-review`，应用版本仍为 `0.1.20`。
+最初工具修复分支是 `codex/windows-native-review`，应用版本仍为 `0.1.20`；后续产品修复独立分支见上文和总计划。
 
 最新分支已经具备 Windows 原生粘贴/权限边界、二维长截图自动滚动、Pin 工作区历史、类型化动作
 启动器，以及非默认 WGC/WASAPI 录屏 QA。Windows 待做工作的重点是本机回归、混合 DPI 与真实桌面
@@ -23,8 +35,8 @@ CI 全部通过，官方同 SHA Windows QA MSI/NSIS 的来源、哈希与签名�
 该 SHA 的官方 QA 包 [run 36823747034](https://github.com/51hhh/Clippy/actions/runs/36823747034)
 已 completed/success，四平台 bundle 与 Ubuntu 24 X11 smoke 全部成功，六份产物 manifest
 绑定完整 SHA；新 Windows MSI/NSIS 已下载并核对来源、哈希和签名身份。
-用户暂不能手动验收，39 项 Windows 11
-桌面记录保持 not_run；Windows 10、多屏、真实音频与安装升级也未完成。以下失败 run 保留为历史证据。
+该阶段用户暂不能手动验收，39 项 Windows 11 模板保持 not_run；后续实际记录见“当前续审结果”。
+Windows 10、多屏、真实音频与完整安装升级仍未完成。以下失败 run 保留为历史证据。
 
 ## 关键 Git 节点
 
@@ -38,6 +50,9 @@ CI 全部通过，官方同 SHA Windows QA MSI/NSIS 的来源、哈希与签名�
 | `0c00719`、`ea41d28` | Windows/macOS 原生四向自动滚动及平台编译修复 | Windows 使用物理鼠标点和完整性检查；应实测目标复核与用户接管 |
 | `c798c34` | 系统声与麦克风固定增益混音 | 双源并发、时钟和拔出恢复增加真机测试维度 |
 | `bfae832`、`8b99b88` | 设备枚举/一次性 token 选择及 Windows 字符串转换修复 | 非默认设备、同名设备、目录失效和指定设备丢失必须有独立证据 |
+| `ef78a1f` | Windows PowerShell 5.1 版本比较的原生命令引号兼容修复 | 本机 gate 与文档后继 b2fd247 的同 SHA CI 分开记录 |
+| `7aa6cf6` | 小图 Pin 原生窗口高度与前端工具栏兜底同步 | 实际旧包缺陷和 CSS/原生窗口回归对应；修复后桌面未验 |
+| `f788b1f` | 私有文件先准备权限，再截断与写入 | 权限失败时不先落内容，独立失败注入和实际 Windows DACL 合同验证 |
 
 以上是本机 Git 实际可达节点；录屏、动作和长截图后续分支已包含在最新基线的祖先链中。
 
@@ -55,6 +70,30 @@ Run：<https://github.com/51hhh/Clippy/actions/runs/35792281966>。
 本轮修改已推送到草稿 PR；首次修改后 CI 和后续修复证据见下方记录，不能沿用基线结果。
 
 ## Findings
+
+### W18 / P2 — 新私有文件权限准备晚于内容写入（故障注入复现并修复）
+
+`private_files.rs::write_private` 原先对新文件执行打开、截断、write 和 sync，再调用 `restrict_file`。
+因此首次权限准备失败时，函数虽然返回错误，待写入内容却已经落盘。Windows MSVC 的共享生产
+写入流程故障注入回归 exit 101（1 passed / 1 failed），实际文件非空，确认该失败时序。
+配置、录屏 manifest/thumbnail 等调用通常已保护父目录；不声称已观察到跨账户内容泄漏。
+
+独立 `WIN-PRIVATE-WRITE-01` / `codex/windows-private-write-order` 将打开后的权限准备放在
+`set_len(0)`、write 之前，保留打开前的旧 ACL 修复、Unix 0600 与写后校正。新文件准备失败仅留空文件，
+打开前/后准备失败都保留原文字节，较短内容成功覆盖没有旧尾部。
+六项私有文件定向合同和 f788b1f 完整 Windows 默认/QA 门禁通过；规格、CHANGELOG 引用同一需求 ID。
+创建瞬间空文件 ACL、路径竞争、真实 ACL 拒绝及跨账户桌面未验，新 SHA CI 未运行。
+
+### W17 / P2 — 小图 Pin 工具栏被底部裁切（真机复现、代码修复通过）
+
+45769c9 Windows 11 单屏 125% DPI：256×128 RGBA 图片的 Pin 视口为 308×280 逻辑像素，
+保存、复制、关闭按钮不可访问。打开/关闭画布未消除裁切，完整 Pin 用例记为 fail。
+后端下限仍为 280，前端无测量兜底仍为 277；最长工具栏含新增置顶和画布按钮，需要约 351 px。
+定位函数钳制落点不能缩小 CSS 内容。
+
+独立 `WIN-PIN-TOOLBAR-01` / `codex/windows-pin-toolbar-height` 将窗口下限调为 368、兜底调为 351，
+保留内容尺寸及原始偏移。创建、缩放、工作区恢复的共用窗口尺寸路径已核对；真实 CSS 与 Rust 窗口
+下限的回归先失败后通过，7aa6cf6 完整 Windows 本机门禁 exit 0。修复后桌面和新 SHA CI 尚未验证。
 
 ### W01 / P1 — Windows 文件 URL 路径导致合同测试失效（已复现并修复）
 

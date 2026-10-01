@@ -16,10 +16,10 @@
 
 ## Acceptance Criteria
 
-- [ ] 新文件权限准备失败的回归先失败后通过，证明待写入内容未落盘。
-- [ ] 已有文件权限准备失败后字节不变，成功写入仍覆盖旧内容且最终 ACL 私有。
-- [ ] Windows 完整原生默认及录屏 QA 门禁通过，来源 SHA 与日志独立记录。
-- [ ] CHANGELOG 与审查计划记录代码修复和未验证边界。
+- [x] 新文件权限准备失败的回归先失败后通过，证明待写入内容未落盘。
+- [x] 已有文件权限准备失败后字节不变，成功写入仍覆盖旧内容且最终 ACL 私有。
+- [x] Windows 完整原生默认及录屏 QA 门禁通过，来源 SHA 与日志独立记录。
+- [x] CHANGELOG 与审查计划记录代码修复和未验证边界。
 
 ## Out of Scope
 
@@ -38,4 +38,23 @@ Windows MSVC 红基线：`aefc413` 加行为不变的权限副作用入口和两
 修复后私有文件六项定向合同全部通过，包含新文件失败关闭、打开前/后的已有文件保护、
 实际 Windows 文件/目录 DACL、较短内容覆盖与原子替换。格式检查通过。
 红绿日志位于主检出的 `src-tauri/target/windows-private-write-red/`。
-完整门禁与新 SHA CI 尚未执行；故障注入不代表跨账户泄漏或原生 ACL 拒绝场景的桌面复现。
+故障注入不代表跨账户泄漏或原生 ACL 拒绝场景的桌面复现。
+
+## Verification
+
+修复源码 `f788b1f57d852b7df87e334b579c3224c7fd2543`，Windows 11 x64、Windows PowerShell 5.1、
+Rust 1.98.1 MSVC、Node 24.21.0；完整 `scripts/ci-windows.ps1 -RecordingQa` exit 0，
+23 passed / 0 failed / 1 skipped（Linux smoke）。验证后 Git 检出仍干净，stdout/stderr 哈希已核对。
+
+| 层级 | 结果 |
+|---|---|
+| 本机默认 Rust | 1042 passed / 5 ignored；check、严格 clippy、fmt 通过。 |
+| 本机录屏 QA Rust | 1095 passed / 5 ignored；check、严格 clippy 通过。与默认图重叠，不累加。 |
+| 本机前端 | 75 文件 / 1292 passed；类型/静态检查、IPC、供应链、生产构建和产物入口通过。 |
+| 同 SHA 原生 CI | 未运行；本机 Windows 门禁不能证明其他宿主的条件编译图。 |
+| 桌面/跨账户 QA | 用户要求停止桌面操作，本轮未运行；当前安装包仍为旧源码 45769c9。 |
+
+独立证据位于主检出的 `src-tauri/target/windows-private-write-native-qa-f788b1f/RESULT.json`。
+本规格、CHANGELOG、总计划和审查记录为后继文档更新；门禁证据绑定 f788b1f，
+不冒称后继文档 SHA 已运行完整测试。Unix 0600 路径保留，但其新 SHA 原生 CI 尚未执行。
+Windows 10、真实 ACL 拒绝及跨账户场景、创建瞬间空文件 ACL 和路径竞争继续保留未验证。

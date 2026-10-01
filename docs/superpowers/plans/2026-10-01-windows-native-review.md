@@ -7,11 +7,31 @@
 以最新功能分支为基线，在 Windows 复核现有核心功能及非默认录屏 QA 能力，修复可复现问题，
 补齐本机验证入口，并建立可追踪的原生编译、安装包和桌面验收任务。
 
+## 当前续审状态
+
+用户最新要求停止桌面操控，先进行代码 review 与修复。桌面操作保持停止；本机仅执行原生
+编译、自动合同和文件证据核对，Linux/WSL 未启动。
+
+- `WIN-PIN-TOOLBAR-01`：独立 `codex/windows-pin-toolbar-height`，修复源码 `7aa6cf6` 的完整
+  Windows 默认/录屏 QA 门禁 exit 0，23 passed / 0 failed / 1 skipped；修复后桌面复测未运行。
+- `WIN-PRIVATE-WRITE-01`：独立 `codex/windows-private-write-order`，基于 Pin 修复后的 `aefc413`。
+  修复源码 `f788b1f57d852b7df87e334b579c3224c7fd2543` 的完整 Windows 默认/录屏 QA 门禁 exit 0，
+  23 passed / 0 failed / 1 skipped（Linux smoke）；默认 Rust 1042、QA Rust 1095、前端 1292 passed。
+  两组 Rust 重叠且各有 5 ignored，不累加；新 SHA 原生 CI 尚未执行。
+- 已安装包仍为旧源码 `45769c9`。实际 Windows 11 桌面记录为 2 pass / 1 fail（旧 Pin 工具栏裁切）/
+  36 not_run；原始 39 项 not_run 模板保持原字节，模板不能替代实际记录。
+- NSIS 落盘及启动已有子步骤证据；完整安装升级、MSI、卸载、录屏/音频、管理员目标、
+  Windows 10、双屏/混合 DPI/负坐标仍未验收。暂停中的桌面项不能用代码合同或旧 CI 勾选。
+
+对应修复规格见 `2026-10-01-windows-pin-toolbar-height.md`、`2026-10-01-windows-private-write-order.md`。
+以下基线与早期门禁记录保留各自来源 SHA；本状态更新为后继文档，不冒称文档 SHA 已执行门禁。
+
 ## Baseline
 
 - 已刷新 origin；最新分支为 `origin/codex/recording-audio-device-selection`。
 - 基线 SHA：`8b99b884f660f37c9d81ba0dc8947d13c3d3a08a`，应用版本 `0.1.20`。
-- 工作分支：`codex/windows-native-review`；只承载 Windows 验证入口和合同测试修复。
+- 最初工具修复分支：`codex/windows-native-review`；只承载 Windows 验证入口和合同测试修复。
+  后续产品问题使用上文列出的独立分支。
 - 用户确认 Ubuntu Wayland 已调试正常；本轮未重跑该环境，不扩展为 Linux 全矩阵验收。
 - 基线 GitHub CI：<https://github.com/51hhh/Clippy/actions/runs/35792281966>，
   三项默认原生检查及 Ubuntu、Windows、macOS ARM/Intel 四项录屏原型检查均为 success。
@@ -60,10 +80,10 @@
 | W02 | P1 | PowerShell 门禁与 Windows CI 前端检查；缺工具/失败/部分运行严格区分 | 本机入口与 42e52c0 Windows 前端/OCR/Rust CI 已通过 |
 | W03 | P1 | Rust MSVC、C++ SDK、WebView2；录屏另需 MSYS2 make/diffutils/perl/nasm、MSBuild、CMake、LLVM tools/libclang；默认与 QA 图分别验证 | 工具已安装，默认与录屏 QA 本机门禁通过 |
 | W04 | P1 | 100%/125%/150% 多屏与负坐标：冻结帧、跨屏窗口候选、覆盖层、Pin、guide、长截图自动滚动、WGC 选区 | 静态疑点；本机单屏，待多屏真机复现 |
-| W05 | P1 | 同权限自动粘贴一次、高完整性目标 copy-only、目标销毁/复用、用户接管；DACL 与配置连续覆盖 | 待 Windows 复测 |
+| W05 | P1 | 同权限自动粘贴一次、高完整性目标 copy-only、目标销毁/复用、用户接管；DACL 与配置连续覆盖 | 45769c9 普通权限文本/图片完整用例实际通过；管理员、销毁复用与用户接管桌面待验证。私有文件准备失败时序见独立 W18 |
 | W06 | P1 | QA 包设备默认/非默认/同名/拔出、双源混音、暂停恢复、控制窗排除、强杀恢复、30 分钟 A/V 漂移 | 代码存在，待真机验收 |
-| W07 | P2 | NSIS/MSI 安装升级卸载、WebView2、自启动、托盘/快捷键、系统凭据与更新 | 42e52c0 与 W10/45769c9 官方 Windows QA MSI/NSIS 各自核对来源、哈希和签名身份；新包 MSI 只读检查通过，本机证书链不受信任，安装/桌面/updater 未执行 |
-| W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 42e52c0 与 W10 的 45769c9 各自七项 CI 通过；Linux 本地完整门禁及 Wayland 回归保留未完成 |
+| W07 | P2 | NSIS/MSI 安装升级卸载、WebView2、自启动、托盘/快捷键、系统凭据与更新 | 官方 QA 包身份已核对，MSI 只读检查通过；NSIS 安装落盘/启动子步骤已核对，完整 MSI/升级/卸载/updater 未验收；本机自签名链不受信任，未更改信任 |
+| W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 42e52c0、45769c9 与 WinPS 的 b2fd247 各自七项 CI 通过；Pin/私有写入修复本机通过，新 SHA CI、Linux 本地完整门禁及 Wayland 回归保留未完成 |
 | W09 | P1 | OCR 质量工具 Windows 私有诊断目录与符号链接拒绝合同；失败关闭，检查子文件继承 | 实际 DACL/等价 SDDL 及 10 类失败关闭负例通过；本机 33 项质量合同与 42e52c0 跨平台 CI 通过 |
 | W10 | P2 | 审查 webm-sys 的 C++ 编译参数在 MSVC 上产生 D9002；按真实编译器族选择 flag，保留固定来源与许可证 | 独立 WIN-WEBM-MSVC-01 / PR #14；本机完整 QA 绑定 e4ccc46，45769c9 七项 CI 与完整 QA workflow 全成功，新 Windows 包来源/哈希/签名身份已核对；真实桌面未验证 |
 | W11 | P1 | 新 Windows runner 使用 CRLF 检出时的 IPC 负例与结构回归；保留两种换行的正/负合同 | 独立 CRLF checkout 1284 项通过，fe37aec Windows 前端 CI 已通过 |
@@ -71,6 +91,9 @@
 | W13 | P1 | Windows 原生进程/locale 测试预算覆盖实测初始化；保留子进程硬超时、全部断言与普通单元测试默认预算 | CI 暴露两项 5 秒超时；限定测试组补齐预算后，Node 24.21.0 + CRLF 全前端门禁通过，fe37aec Windows 前端 CI 已通过 |
 | W14 | P1 | 浏览器 OCR 捕获来源 HTML/脚本固定 LF，保留原始字节哈希和来源记录；新 CRLF clone 与篡改负例验证 | fe37aec CI 复现来源哈希失配；28186af 全新 CRLF clone 来源哈希通过，额外 LF 负例被拒绝；42e52c0 CI 通过 |
 | W15 | P1 | OCR 取消/回收夹具区分启动与执行预算；慢启动、取消、后继排队、kill/wait 与许可顺序，macOS 实际 PID 回收 | 独立 OCR-PROC-CANCEL-01 / PR #15；Windows 探针与 7982866 完整七项 CI 通过，Unix 用例实际成功；继承修复的 #14 七项另作证据，桌面未验证 |
+| W16 | P1 | Windows PowerShell 5.1 版本检查的引号传输；保留失败和版本边界合同 | 独立 WIN-PS-GATE-01；ef78a1f 本机完整门禁通过，文档后继 b2fd247 七项 CI 通过；新 SHA 与桌面另验 |
+| W17 | P2 | 小图 Pin 完整工具栏及上下间隙；创建、缩小与恢复位置共用高度合同 | 独立 WIN-PIN-TOOLBAR-01；旧包实际失败、前端回归先失败后通过，7aa6cf6 本机完整门禁通过；修复后桌面和新 SHA CI 未验 |
+| W18 | P2 | 私有文件权限准备失败不得先写内容或截断原文；真实文件故障注入与 Windows DACL | 独立 WIN-PRIVATE-WRITE-01；Windows 红绿及六项定向合同通过，f788b1f 本机完整默认/QA 门禁通过；跨账户、路径竞争及新 SHA CI 未验 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。
