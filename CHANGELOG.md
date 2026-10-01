@@ -7,7 +7,10 @@
 - 修复 Windows 录屏 QA 导入 MSVCP140.dll 而原包未部署 CRT 的缺口。准备已有 SDK 的
   Microsoft 签名 x64 release 运行库，显式 QA resources 与 target 目录隔离默认构建；
   上传前检查真实 EXE/同目录文件、哈希和 direct/delay import 递归闭包。
-  受控文件/原生 PowerShell 合同已准备，完整 Windows 门禁与 unbundled 构建核对进行中。
+  完整版本不早于所选 toolset；受控版本红 47/3、修复绿 50，原测试未改。
+  干净 5d900ca 完整 Windows 门禁 exit 0，33/0/1（Linux skip），默认 Rust 1193/QA 1256
+  各 5 ignored、不累加，前端 80/1373；新五十项在内。unsigned/unbundled QA 编译与
+  十份实际 DLL、十七份基础许可证和默认产物保持核对，文件/构建数量不计测试通过。
   当前 SHA CI、安装器、无 CRT Windows 10/11 实际启动及多屏仍未验证，桌面停止。
   （需求：`WIN-QA-CRT-01`；见 `docs/superpowers/specs/2026-10-02-windows-qa-crt-deployment.md`）
 

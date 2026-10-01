@@ -12,8 +12,10 @@
 - W48 / `WIN-QA-CRT-01`：发现真实录屏 QA PE 导入 MSVCP140 而旧 MSI/resources 没有
   部署 CRT；默认 PE 不依赖该运行库。独立 `codex/windows-qa-runtime` 增加受验证的 SDK
   app-local CRT、direct/delay 递归闭包及构建后 payload 检查，QA 显式 target 隔离默认
-  目录；默认 feature/Windows 配置/正式 release 保持。新合同 43、旧门禁 13 共 56 passed。
-  当前真实 SDK、完整 Windows 门禁与 unbundled 编译核对进行中；安装/无 CRT 系统启动、
+  目录；默认 feature/Windows 配置/正式 release 保持。完整版本红 47/3、同五十项绿。
+  干净 5d900ca 完整门禁 33/0/1，默认 Rust 1193/QA 1256（各 5 ignored），前端 80/1373；
+  unsigned/unbundled QA 编译 native/wrapper/terminal 0，十份 DLL、十七份许可证及默认
+  产物保持核对，原七十九份测试文件字节相同。见 [W48 审查](../../reviews/2026-10-02-windows-qa-runtime-review.md)。安装/无 CRT 系统启动、
   新 SHA CI、Windows 10/多屏/其它平台仍未验，桌面停止。
 
 - W47 / `WIN-NATIVE-01`：[Windows release 编译审查](../../reviews/2026-10-02-windows-release-build-review.md)。

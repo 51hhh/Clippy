@@ -33,10 +33,10 @@
 ## Acceptance Criteria
 
 - [x] 原 QA PE 与原资源清单的缺失对照已记录，默认图不引入 CRT。
-- [ ] 同目录资源、x64/版本/有效 Microsoft 签名、原始 DLL 字节及完整闭包验证通过。
+- [x] 同目录资源、x64/版本/有效 Microsoft 签名、原始 DLL 字节及完整闭包验证通过。
 - [x] 受控拒绝/PE 合同、真实 PowerShell 入口、原用例保留核对通过。
-- [ ] 干净源码完整 Windows 默认/QA 门禁，源码/日志/文档与同 ID CHANGELOG 同步。
-- [ ] 显式 target 的 unbundled QA 构建与实际产物/同目录 DLL 核对通过；原默认产物保持。
+- [x] 干净源码完整 Windows 默认/QA 门禁，源码/日志/文档与同 ID CHANGELOG 同步。
+- [x] 显式 target 的 unbundled QA 构建与实际产物/同目录 DLL 核对通过；原默认产物保持。
 - [ ] 同 SHA 远程 CI、NSIS/MSI 安装和无 CRT 的 Windows 10/11 真实启动通过。
 
 ## Out of Scope
@@ -83,3 +83,16 @@ Rust 默认 1193/QA 1256（各 5 ignored），前端 80 文件中 79 passed / 1 
 PowerShell 5/7 旧补丁被接受；修正完整版本比较后，同五十项通过。受控 publisher 元数据
 不代表实际旧 DLL 已部署或签名造假；当前真实 SDK 未修改。最终源码完整门禁/编译待核对，
 前一阶段的成功和失败记录都保留各自 SHA，不互相替代。
+
+最终干净 `5d900cadc0f3c1509e680b9fcf5c5f850b76a364` 完整门禁 native child/terminal 0，
+33 passed / 0 failed / 1 Linux smoke skipped；默认 Rust 1193/QA 1256，各 5 ignored、
+不累加，前端 80 文件 / 1373 passed，新五十项在内。最终隔离 x64 target 的
+unsigned/unbundled QA 编译 native/wrapper/terminal 0，3m45s；十份实际 CRT、十七份
+基础许可证、direct/delay/递归依赖与清单、默认 EXE 保持核对。原七十九份前端测试
+文件原字节相同，原产品/Rust/vendor/锁文件/基础配置保持，比较和文件数不算测试通过。
+源码/日志/工具输入与主 rustc profile/feature 参数、退出码和干净状态已审计。
+最终 EXE SHA-256：`9e397a731466e33c86a0a713605e9537504327fed72ef07c4ceea1f6598e2109`。
+当前 SDK 14.44/v143 文件部署已验；其它 SDK 布局、当前 SHA CI、安装器/无 CRT 系统启动、
+Windows 10/多屏/录屏设备/其它宿主/Wayland 保持未验证；未启动/安装/推送/合入/发布。
+详情见 `docs/reviews/2026-10-02-windows-qa-runtime-review.md`。原 29 项修复与旧真实 QA
+身份保留；本需求的代码/文件/构建阶段完成，最后一项原生交付验收未完成。
