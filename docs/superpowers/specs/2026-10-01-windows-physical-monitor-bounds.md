@@ -55,3 +55,8 @@ set_size 接受锁定 dpi 的 Physical 变体，因此保留原始物理边界�
 红源码/日志和 SHA-256 保存在 src-tauri/target/windows-physical-monitor-contract/RESULT.json。
 现有测试仅补内部物理元数据、辅助构造可见性，保留原断言；guide 夹具同时补齐移动后的物理事实。
 Windows 默认/录屏 QA 完整门禁、当前 SHA CI、其它宿主与实际桌面待记录或待验，不能计为已通过。
+
+首次干净源码 b3e8f7a 的完整门禁 exit 1：28 passed / 2 failed / 1 skipped（Linux smoke）。
+失败均为我补的既有夹具触发严格 lint：x: x 简写及两处零原点的无意义 f64 转换；功能测试通过。
+保留原始 windows-physical-monitor-native-qa-b3e8f7a/RESULT.json，不把这轮记成完整通过。
+只修正两份既有夹具写法，不改生产算法、新测试文件或断言；新 SHA 完整复验待记录。

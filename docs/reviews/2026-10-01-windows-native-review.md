@@ -13,6 +13,8 @@
 实际旧算法的 MSVC 红基线 1 passed / 15 failed；五份新回归原始字节不变，十六项绿回归通过。
 原 focus/probe/scroll/signature 正文已与基线核对；完整默认/QA 门禁待记录。当前 SHA CI、
 实际窗口/DPI 事件、Windows 10/多屏、Pin 和 WGC 原点身份仍未验，不关闭 W04 真机矩阵。
+首次 b3e8f7a 完整门禁为 28 passed / 2 failed / 1 skipped，退出 1；新增夹具的三处严格 lint
+分别使默认/QA lint 失败，功能测试通过。原始记录保留，夹具写法修正后的新 SHA 仍待完整复验。
 
 此前 W30 / WIN-OVERLAY-FOCUS-01：Tauri 的物理光标原样交给 reveal，却直接与逻辑矩形求
 归属；150% 等缩放双屏也会选错键盘焦点。实际生产 reveal 红基线 2 passed / 6 failed；

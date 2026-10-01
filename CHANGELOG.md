@@ -9,6 +9,7 @@
   PhysicalPosition/PhysicalSize，光标归属、窗口速选和长截图滚动点使用同一边界，重捕获
   拒绝物理位置漂移。缺失/不匹配/空/溢出边界不猜测；其它平台定位和 Pin 来源 IPC 保持。
   MSVC 实际旧算法红基线 1 passed / 15 failed，同一十六项离线回归修复后通过；完整门禁待记录。
+  首次完整门禁 28 passed / 2 failed，失败为新增夹具的严格 lint；保留日志，修正后复验待记录。
   真实窗口/DPI 事件、Windows 10/多屏、Pin/WGC 原点身份、新 SHA CI 和其它宿主仍未验。
   （需求：`WIN-NATIVE-MONITOR-01`；见 `docs/superpowers/specs/2026-10-01-windows-physical-monitor-bounds.md`）
 

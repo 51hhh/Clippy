@@ -1768,7 +1768,7 @@ mod tests {
                     scale_x: 1.0,
                     scale_y: 1.0,
                     physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
-                        x: x,
+                        x,
                         y: 0,
                         width: 1920,
                         height: 1200,

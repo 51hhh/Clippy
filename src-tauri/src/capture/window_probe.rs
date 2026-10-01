@@ -762,8 +762,8 @@ mod tests {
             scale_x: 4.0 / 3.0,
             scale_y: 4.0 / 3.0,
             physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
-                x: (f64::from(0) * f64::from(4.0 / 3.0)).round() as i32,
-                y: (f64::from(0) * f64::from(4.0 / 3.0)).round() as i32,
+                x: 0,
+                y: 0,
                 width: 2560,
                 height: 1600,
             }),
