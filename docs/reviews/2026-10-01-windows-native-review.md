@@ -7,7 +7,14 @@
 
 用户要求停止桌面操控，当前继续代码 review 与 Windows 本机自动验证。已安装的 QA 源码仍为
 `45769c9`：真实记录是文本/图片 2 pass、Pin 工具栏裁切 1 fail、36 not_run；原始 39 项模板保留不变。
-新 Pin 和私有文件修复未安装，桌面复测、录屏/音频、管理员目标、多屏和 Windows 10 均保持未验证。
+新 Pin、私有文件和长截图光标修复未安装，桌面复测、录屏/音频、管理员目标、多屏和 Windows 10 均保持未验证。
+
+最新独立长截图光标修复源码 `d8dff808e320fd840376e2acec396887e6bbc3ce` 的 Windows 本机完整门禁
+exit 0，23 passed / 0 failed / 1 skipped（Linux smoke）。默认 Rust 1046 / 5 ignored、QA Rust
+1099 / 5 ignored、前端 75 文件 / 1292 passed；重叠 Rust 图不累加，验证前后检出干净、日志哈希已核对。
+证据位于主检出的 `src-tauri/target/windows-longshot-cursor-native-qa-d8dff80/RESULT.json`。
+失败路径使用同一生产 guard 的注入指针接口复现，不代表实际系统鼠标接管已经验收。
+新 SHA CI、共享 X11/macOS 原生图和修复后桌面仍未验证。
 
 独立私有写入修复源码 `f788b1f57d852b7df87e334b579c3224c7fd2543` 的 Windows 本机完整门禁
 exit 0，23 passed / 0 failed / 1 skipped（Linux smoke）。默认 Rust 1042 / 5 ignored、QA Rust
@@ -53,6 +60,7 @@ Windows 10、多屏、真实音频与完整安装升级仍未完成。以下失�
 | `ef78a1f` | Windows PowerShell 5.1 版本比较的原生命令引号兼容修复 | 本机 gate 与文档后继 b2fd247 的同 SHA CI 分开记录 |
 | `7aa6cf6` | 小图 Pin 原生窗口高度与前端工具栏兜底同步 | 实际旧包缺陷和 CSS/原生窗口回归对应；修复后桌面未验 |
 | `f788b1f` | 私有文件先准备权限，再截断与写入 | 权限失败时不先落内容，独立失败注入和实际 Windows DACL 合同验证 |
+| `d8dff80` | 自动长截图 guard 清理时重新查询指针位置 | 提前失败时保留用户新位置或查询未知状态；同一生产 guard 的确定性回归 |
 
 以上是本机 Git 实际可达节点；录屏、动作和长截图后续分支已包含在最新基线的祖先链中。
 
@@ -70,6 +78,19 @@ Run：<https://github.com/51hhh/Clippy/actions/runs/35792281966>。
 本轮修改已推送到草稿 PR；首次修改后 CI 和后续修复证据见下方记录，不能沿用基线结果。
 
 ## Findings
+
+### W19 / P2 — 自动长截图提前失败时清理可能抢回用户光标（代码回归复现并修复）
+
+`with_scroll` 的 `capture()?` 和原生窗口/指针检查可能提前返回，尚未进入显式 `user_interrupted`。
+旧 `CursorRestore::drop` 只检查 armed，直接恢复开始位置；因此用户在失败发生前移动鼠标，
+清理仍可发出恢复移动。保持旧生产行为、仅提取指针接口的 Windows 红基线为 1 passed / 3 failed，
+exit 101；用户已移动、查询失败及容差外位置均错误恢复。测试不调用系统鼠标输入 API。
+
+独立 `WIN-LONGSHOT-CURSOR-01` / `codex/windows-longshot-cursor-restore` 让同一 guard 销毁路径
+复核当前位置，仅在既有 3 像素容差内恢复；查询失败记日志并保留位置，原业务错误继续返回。
+正常完成、无人接管的失败及显式 disarm 路径保留；八项定向合同和 d8dff80 完整 Windows 门禁通过。
+原需求 `PX-LS-NATIVE-AUTO-01` 的用户接管约束保留，Wayland Portal 路径未改。
+这证明代码清理合同，不证明实际桌面接管、查询/移动间原生输入竞争、X11/macOS 编译或新 SHA CI。
 
 ### W18 / P2 — 新私有文件权限准备晚于内容写入（故障注入复现并修复）
 

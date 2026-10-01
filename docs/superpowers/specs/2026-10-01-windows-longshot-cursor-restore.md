@@ -17,8 +17,8 @@
 
 - [x] 提前抓帧失败且用户已经移动的回归先失败后通过，销毁 guard 时不产生恢复移动。
 - [x] 查询失败、容差边界、无人接管失败和显式 disarm 的合同通过。
-- [ ] Windows 默认与录屏 QA 完整原生门禁通过，日志绑定修复源码 SHA。
-- [ ] CHANGELOG、总计划与审查记录同步，真实桌面及其它平台边界保留未验证。
+- [x] Windows 默认与录屏 QA 完整原生门禁通过，日志绑定修复源码 SHA。
+- [x] CHANGELOG、总计划与审查记录同步，真实桌面及其它平台边界保留未验证。
 
 ## Out of Scope
 
@@ -41,4 +41,19 @@ Windows MSVC 红基线保留原有 armed 时无条件恢复行为，仅提取指
 这是代码失败路径的确定性复现，不声称实际 Windows 鼠标接管场景已通过。
 
 红绿源码/差异、日志和哈希位于主检出的 `src-tauri/target/windows-longshot-cursor-red/`。
-完整 Windows 默认/录屏 QA 门禁及新 SHA 原生 CI 待运行；桌面操作未执行。
+
+修复源码 `d8dff808e320fd840376e2acec396887e6bbc3ce`，Windows 11 x64、Windows PowerShell 5.1、
+Rust 1.98.1 MSVC、Node 24.21.0。完整 `scripts/ci-windows.ps1 -RecordingQa` exit 0，
+23 passed / 0 failed / 1 skipped（Linux smoke）；验证前后检出干净，stdout/stderr 哈希已核对。
+
+| 层级 | 结果 |
+|---|---|
+| 本机默认 Rust | 1046 passed / 5 ignored；check、严格 clippy、fmt 通过。 |
+| 本机录屏 QA Rust | 1099 passed / 5 ignored；check、严格 clippy 通过。与默认图重叠，不累加。 |
+| 本机前端 | 75 文件 / 1292 passed；类型、静态合同、供应链、生产构建与产物入口通过。 |
+| 同 SHA 原生 CI | 未运行；共享 X11/macOS 路径尚未在其原生编译图验证。 |
+| 桌面 QA | 用户要求停止桌面操作，本轮未执行；安装包仍是旧源码 45769c9。 |
+
+独立证据位于主检出的 `src-tauri/target/windows-longshot-cursor-native-qa-d8dff80/RESULT.json`。
+本规格、CHANGELOG、总计划及审查记录为后继文档更新，不冒称文档 SHA 已执行完整门禁。
+真实鼠标接管、最后查询与移动间的原生输入竞争、Windows 10、多屏及 X11/macOS 真机回归仍未验证。

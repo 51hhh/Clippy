@@ -18,12 +18,18 @@
   修复源码 `f788b1f57d852b7df87e334b579c3224c7fd2543` 的完整 Windows 默认/录屏 QA 门禁 exit 0，
   23 passed / 0 failed / 1 skipped（Linux smoke）；默认 Rust 1042、QA Rust 1095、前端 1292 passed。
   两组 Rust 重叠且各有 5 ignored，不累加；新 SHA 原生 CI 尚未执行。
+- `WIN-LONGSHOT-CURSOR-01`：独立 `codex/windows-longshot-cursor-restore`，基于 `1cd09c8`。
+  提前失败的生产恢复 guard 红基线 1 passed / 3 failed，修复后八项定向合同通过；源码
+  `d8dff808e320fd840376e2acec396887e6bbc3ce` 的完整 Windows 默认/录屏 QA 门禁 exit 0，
+  23 passed / 0 failed / 1 skipped；默认 Rust 1046、QA Rust 1099、前端 1292 passed。
+  两组 Rust 重叠且各有 5 ignored，不累加。新增回归使用注入指针接口；真实桌面接管及新 SHA CI 未验。
 - 已安装包仍为旧源码 `45769c9`。实际 Windows 11 桌面记录为 2 pass / 1 fail（旧 Pin 工具栏裁切）/
   36 not_run；原始 39 项 not_run 模板保持原字节，模板不能替代实际记录。
 - NSIS 落盘及启动已有子步骤证据；完整安装升级、MSI、卸载、录屏/音频、管理员目标、
   Windows 10、双屏/混合 DPI/负坐标仍未验收。暂停中的桌面项不能用代码合同或旧 CI 勾选。
 
-对应修复规格见 `2026-10-01-windows-pin-toolbar-height.md`、`2026-10-01-windows-private-write-order.md`。
+对应修复规格见 `2026-10-01-windows-pin-toolbar-height.md`、`2026-10-01-windows-private-write-order.md`、
+`2026-10-01-windows-longshot-cursor-restore.md`。
 以下基线与早期门禁记录保留各自来源 SHA；本状态更新为后继文档，不冒称文档 SHA 已执行门禁。
 
 ## Baseline
@@ -79,7 +85,7 @@
 | W01 | P1 | 修复文件 URL 路径；保留 9 项合同负例/正例并完成 Windows 前端门禁 | 本机已通过 |
 | W02 | P1 | PowerShell 门禁与 Windows CI 前端检查；缺工具/失败/部分运行严格区分 | 本机入口与 42e52c0 Windows 前端/OCR/Rust CI 已通过 |
 | W03 | P1 | Rust MSVC、C++ SDK、WebView2；录屏另需 MSYS2 make/diffutils/perl/nasm、MSBuild、CMake、LLVM tools/libclang；默认与 QA 图分别验证 | 工具已安装，默认与录屏 QA 本机门禁通过 |
-| W04 | P1 | 100%/125%/150% 多屏与负坐标：冻结帧、跨屏窗口候选、覆盖层、Pin、guide、长截图自动滚动、WGC 选区 | 静态疑点；本机单屏，待多屏真机复现 |
+| W04 | P1 | 100%/125%/150% 多屏与负坐标：冻结帧、跨屏窗口候选、覆盖层、Pin、guide、长截图自动滚动、WGC 选区 | 几何静态疑点；本机单屏，待多屏真机复现。长截图失败清理的指针合同修复见 W19，真实接管待验 |
 | W05 | P1 | 同权限自动粘贴一次、高完整性目标 copy-only、目标销毁/复用、用户接管；DACL 与配置连续覆盖 | 45769c9 普通权限文本/图片完整用例实际通过；管理员、销毁复用与用户接管桌面待验证。私有文件准备失败时序见独立 W18 |
 | W06 | P1 | QA 包设备默认/非默认/同名/拔出、双源混音、暂停恢复、控制窗排除、强杀恢复、30 分钟 A/V 漂移 | 代码存在，待真机验收 |
 | W07 | P2 | NSIS/MSI 安装升级卸载、WebView2、自启动、托盘/快捷键、系统凭据与更新 | 官方 QA 包身份已核对，MSI 只读检查通过；NSIS 安装落盘/启动子步骤已核对，完整 MSI/升级/卸载/updater 未验收；本机自签名链不受信任，未更改信任 |
@@ -94,6 +100,7 @@
 | W16 | P1 | Windows PowerShell 5.1 版本检查的引号传输；保留失败和版本边界合同 | 独立 WIN-PS-GATE-01；ef78a1f 本机完整门禁通过，文档后继 b2fd247 七项 CI 通过；新 SHA 与桌面另验 |
 | W17 | P2 | 小图 Pin 完整工具栏及上下间隙；创建、缩小与恢复位置共用高度合同 | 独立 WIN-PIN-TOOLBAR-01；旧包实际失败、前端回归先失败后通过，7aa6cf6 本机完整门禁通过；修复后桌面和新 SHA CI 未验 |
 | W18 | P2 | 私有文件权限准备失败不得先写内容或截断原文；真实文件故障注入与 Windows DACL | 独立 WIN-PRIVATE-WRITE-01；Windows 红绿及六项定向合同通过，f788b1f 本机完整默认/QA 门禁通过；跨账户、路径竞争及新 SHA CI 未验 |
+| W19 | P2 | 自动长截图提前失败的光标恢复不能抢回用户已移动位置，查询失败关闭恢复 | 独立 WIN-LONGSHOT-CURSOR-01；同一生产 guard 红绿及八项定向合同通过，d8dff80 本机完整默认/QA 门禁通过；真实接管、X11/macOS 原生图及新 SHA CI 未验 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。

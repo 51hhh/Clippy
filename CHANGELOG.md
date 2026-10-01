@@ -6,7 +6,8 @@
 
 - 自动长截图提前失败后的清理再次查询指针，仅当仍在自动目标点的既有容差内才恢复原位置；
   用户已移动或当前位置查询失败时不再盲目拉回光标。Windows 同一生产 guard 的故障注入先失败
-  后通过，八项定向合同通过；完整门禁与新 SHA 原生 CI 待运行，真实桌面接管尚未验证。
+  后通过，八项定向合同通过；d8dff80 完整 Windows 默认/录屏 QA 门禁 exit 0，23 passed / 0 failed /
+  1 skipped（Linux smoke）。新 SHA 原生 CI、真实桌面接管与最后查询/移动间的输入竞争尚未验证。
   共享原生路径涉及 X11/macOS，其原生编译和真机回归保留未完成；Wayland Portal 路径未修改。
   （需求：`WIN-LONGSHOT-CURSOR-01`；见 `docs/superpowers/specs/2026-10-01-windows-longshot-cursor-restore.md`）
 
