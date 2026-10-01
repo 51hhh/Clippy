@@ -9,7 +9,13 @@
 `45769c9`：真实记录是文本/图片 2 pass、Pin 工具栏裁切 1 fail、36 not_run；原始 39 项模板保留不变。
 新 Pin、私有文件、长截图光标和 CF_HTML 修复未安装，桌面复测、录屏/音频、管理员目标、多屏和 Windows 10 均保持未验证。
 
-最新独立 CF_HTML 修复源码 `50b7778ec9e4bd52fa31aa657be607877c4990ef` 的 Windows 本机完整门禁
+最新预算修复源码 `531d79129128725471288b45a8d0e7a76696b6d4` 的完整 Windows 默认/录屏 QA 门禁
+exit 0，25 passed / 0 failed / 1 skipped；默认 Rust 1046 / 5 ignored、QA Rust 1099 / 5 ignored，
+前端 75 文件 / 1292 passed，另有九项 CF_HTML 和七项预算组通过。检出干净与日志哈希已核对，
+证据在 windows-image-budget-native-qa-531d791/RESULT.json。扩展 Chrome DIB 失败仍为 W22，
+不计入通过；远程新 SHA CI 和真实图片互操作未验。
+
+此前独立 CF_HTML 修复源码 `50b7778ec9e4bd52fa31aa657be607877c4990ef` 的 Windows 本机完整门禁
 exit 0，24 passed / 0 failed / 1 skipped（Linux smoke）。默认 Rust 1046 / 5 ignored、QA Rust
 1099 / 5 ignored、前端 75 文件 / 1292 passed，另外实际执行九项 Windows arboard 离线解析合同。
 重叠 Rust 图不累加，验证前后检出干净、stdout/stderr 哈希已核对。证据位于主检出的
@@ -87,7 +93,7 @@ Run：<https://github.com/51hhh/Clippy/actions/runs/35792281966>。
 
 ## Findings
 
-### W21 / P1 — Windows 图片预算发生在整图解码之后（源码确认并修复，完整门禁待验）
+### W21 / P1 — Windows 图片预算发生在整图解码之后（源码确认并修复，本机门禁通过）
 
 watcher 的 validate_image_layout 在 arboard::get_image 返回后才约束单边 16,384 / 40,000,000
 像素。锁定 image 0.25.10 的 PngDecoder::new 使用无上限构造；DynamicImage 的 decoder_to_vec
@@ -97,7 +103,8 @@ PNG 构造也限制单边尺寸；合法图的转换逻辑保留。
 
 保持旧解码语句行为的五项故障注入为 3 passed / 2 failed，超限像素仍进入 read_image；
 修复后七项预算合同通过。测试只允许四字节缓冲区，4K / 8K / 精确边界只查元数据；
-小 8/16-bit PNG 透明度与像素通过。完整本机门禁待验，Windows CI 已添加定向入口但远程未运行。
+小 8/16-bit PNG 透明度与像素通过。531d791 完整本机门禁 exit 0，25 passed / 0 failed /
+1 skipped；Windows CI 已添加定向入口但远程未运行。
 未观察桌面 OOM，不声明编码数据、PNG 元数据、16-bit 中间像素或整个进程的内存上限。
 
 ### W22 / P2 — 既有 Chrome DIB 夹具读取失败（基线复现，待独立修复）

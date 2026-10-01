@@ -24,8 +24,8 @@
 - [x] 无保护的旧生产解码路径在离线调用顺序合同中失败；修复后超限/零尺寸均在像素解码前拒绝。
 - [x] 4K、8K、精确尺寸/像素边界元数据允许；小 PNG 8/16-bit 像素和透明度保持。
 - [ ] 既有 Chrome/Firefox DIB 扩展回归全部通过：Firefox 通过，Chrome 基线失败另列 W22，尚未修复。
-- [ ] 完整 Windows 默认/录屏 QA 本机门禁通过，绑定干净源码 SHA；Windows CI 定向入口接线。
-- [ ] 补丁记录、CHANGELOG 与审查计划同步，未验证边界保留。
+- [x] 完整 Windows 默认/录屏 QA 本机门禁通过，绑定干净源码 SHA；Windows CI 定向入口接线。
+- [x] 补丁记录、CHANGELOG 与审查计划同步，未验证边界保留。
 
 ## Out of Scope
 
@@ -52,5 +52,12 @@ exit 101；超限像素仍调用 read_image，零尺寸也未拒绝。测试只�
 原测试实际接入依赖的 BmpDecoder；其无文件头 V5 bitfields 读取跳过额外 12 字节值得继续核查，
 当前只记录定位线索，尚未修补依赖或证明所有 DIB 提供者受影响。
 
-待记录完整本机门禁以及源码 SHA。桌面操作按用户要求停止；
+源码 531d79129128725471288b45a8d0e7a76696b6d4 的完整 Windows 默认/录屏 QA 门禁 exit 0：
+25 passed / 0 failed / 1 skipped（Linux smoke），包括九项 CF_HTML 和七项预算定向合同。
+默认 Rust 1046 passed / 5 ignored，QA Rust 1099 passed / 5 ignored，前端 75 文件 / 1292 passed；
+Rust 两图重叠不累加。源码验证前后检出干净，stdout/stderr 哈希已核对；证据在主检出的
+src-tauri/target/windows-image-budget-native-qa-531d791/RESULT.json。
+另行 arboard --lib --tests 严格 clippy 通过；CI YAML 的 Windows job/条件及命令已本机解析核对。
+门禁只包含七项预算组，不把已知失败的 Chrome 扩展组纳入通过结论，W22 保留未完成。
+桌面操作按用户要求停止；
 新 SHA 原生 CI、Windows 10、双屏和真实图片互操作保持未验证。

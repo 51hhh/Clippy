@@ -31,7 +31,8 @@
   Windows Native CI 已添加入口，但远程新 SHA CI、真实富文本互操作未验，未执行原生畸形复制。
 - `WIN-CLIP-IMAGE-BUDGET-01`：独立 `codex/windows-image-decode-budget`，基于 `cf59157`。
   将 watcher 的尺寸预算前移到 Windows PNG / DIB 像素解码前；四字节故障注入红基线
-  3 passed / 2 failed，修复后七项预算合同通过。本机完整门禁待验，CI 定向入口已接线但未运行。
+  3 passed / 2 failed，修复后七项预算合同通过。531d791 本机完整默认/QA 门禁 exit 0，
+  25 passed / 0 failed / 1 skipped；CI 定向入口已接线但远程未运行。
   扩展图片组 9 passed / 1 failed，Chrome DIB 在原 cf59157 源码也失败；保留为 W22，尚未修复。
 - 已安装包仍为旧源码 `45769c9`。实际 Windows 11 桌面记录为 2 pass / 1 fail（旧 Pin 工具栏裁切）/
   36 not_run；原始 39 项 not_run 模板保持原字节，模板不能替代实际记录。
@@ -112,7 +113,7 @@
 | W18 | P2 | 私有文件权限准备失败不得先写内容或截断原文；真实文件故障注入与 Windows DACL | 独立 WIN-PRIVATE-WRITE-01；Windows 红绿及六项定向合同通过，f788b1f 本机完整默认/QA 门禁通过；跨账户、路径竞争及新 SHA CI 未验 |
 | W19 | P2 | 自动长截图提前失败的光标恢复不能抢回用户已移动位置，查询失败关闭恢复 | 独立 WIN-LONGSHOT-CURSOR-01；同一生产 guard 红绿及八项定向合同通过，d8dff80 本机完整默认/QA 门禁通过；真实接管、X11/macOS 原生图及新 SHA CI 未验 |
 | W20 | P1 | Windows CF_HTML 片段范围受实际字节与 UTF-8 边界约束，默认门禁不能遗漏依赖库合同 | 独立 WIN-CF-HTML-01；旧校验离线红基线、安全解析九项合同及 50b7778 完整本机默认/QA 门禁通过；CI 入口已接线，远程新 SHA、真实互操作和其它原生图未验 |
-| W21 | P1 | Windows PNG / DIB 在整图像素分配前执行已有预算，保留合法 4K/8K 与小图像素 | 独立 WIN-CLIP-IMAGE-BUDGET-01；红基线 3 passed / 2 failed，预算七项通过；完整本机门禁待验，新 SHA CI 与桌面未验 |
+| W21 | P1 | Windows PNG / DIB 在整图像素分配前执行已有预算，保留合法 4K/8K 与小图像素 | 独立 WIN-CLIP-IMAGE-BUDGET-01；红基线 3 passed / 2 failed，预算七项及 531d791 完整 Windows 默认/QA 门禁通过，新 SHA CI 与桌面未验 |
 | W22 | P2 | 上游 Chrome DIB 夹具在基线读取 UnexpectedEof，核查无文件头 V5 bitfields 偏移 | cf59157 原源码复现失败；原夹具、断言与失败日志保留，不修改为 ignored 或计入通过；后续独立修复待做 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。

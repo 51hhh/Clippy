@@ -7,7 +7,8 @@
 - Windows PNG / CF_DIBV5 在整图像素分配前执行已有的单边 16,384 / 40,000,000 像素限制，
   超限和零尺寸返回格式错误；PNG 构造阶段也限制单边尺寸。合法 4K / 8K 和精确预算边界
   有元数据合同，小 8/16-bit PNG 保持像素与透明度。四字节故障注入旧路径 3 passed / 2 failed，
-  修复后七项预算合同通过；完整本机门禁待验，新 SHA CI 和真实图片互操作未验。
+  修复后七项预算合同通过；531d791 完整 Windows 默认/录屏 QA 门禁 exit 0，25 passed /
+  0 failed / 1 skipped（Linux smoke）。新 SHA CI 和真实图片互操作未验。
   扩展组 9 passed / 1 failed；上游 Chrome DIB 夹具在修复前后均失败，保留 W22 待修，
   未改原测试或将它计为通过。该修复不是整个进程或编码剪贴板数据的内存上限。
   （需求：`WIN-CLIP-IMAGE-BUDGET-01`；见 `docs/superpowers/specs/2026-10-01-windows-image-decode-budget.md`）
