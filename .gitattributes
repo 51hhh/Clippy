@@ -1,0 +1,4 @@
+# xcap 的供应链校验绑定原始 LF 字节，Windows 检出不能改写这些已登记的文本文件。
+/src-tauri/vendor/xcap/** text=auto eol=lf
+# Cargo 生成的锁文件保留 LF，与 vendor 路径解析合同一致。
+/src-tauri/Cargo.lock text eol=lf

@@ -143,7 +143,11 @@ IPC 夹具在每种宿主都执行 LF/CRLF 两组正负合同；删除注册/权
 结果为 10 项通过、1 失败、3 组显式跳过，不报告整体成功。
 
 W12：vendored xcap 原始 SHA-256 绑定 LF 字节，默认 Windows checkout 的 CRLF 转换导致失配。
-应限定 vendor 检出规则保存原始 LF，同时保留逐字节哈希校验；不通过归一化哈希输入放宽供应链。
+新增 `.gitattributes` 限定 vendor 文本和 Cargo 锁文件保留 LF；Windows CI 也执行该供应链校验。
+独立 CRLF checkout 的主 Rust 源码仍为 CRLF，按新属性重新检出的 vendor 与锁文件为 LF，
+完整前端范围最终为 11 项检查通过、0 失败、3 组显式跳过，74 文件 / 1284 项通过。
+在固定 WGC 文件追加一个 LF 时，校验仍以 exit 1 拒绝；复原后成功。验证器和登记哈希未修改，
+没有归一化哈希输入或跳过检查。修改后同 SHA CI 尚待执行。
 
 Windows 桌面自动验收通道：computer-use 的 node_repl 在初始化时发生 Windows sandbox
 `helper_unknown_error: setup refresh had errors`，重置后重试仍报 trusted Node process exited。

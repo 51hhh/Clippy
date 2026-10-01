@@ -11,6 +11,9 @@
 - OCR 质量工具的 Windows 诊断目录改为创建时应用当前用户私有 DACL，权限核对失败立即停止；
   已有目录不覆盖。Windows 本机质量合同 31 项通过，POSIX 权限回归与修改后同 SHA CI 仍待执行。
   （需求：`WIN-NATIVE-01`）
+- 修复 Windows 默认 CRLF 检出导致的 xcap 供应链校验失败：vendor 文本和 Cargo 锁文件固定 LF，
+  原始 SHA-256 校验保持不变，并加入 Windows CI。独立 CRLF checkout 的完整前端范围通过，
+  字节篡改仍被拒绝；修改后同 SHA CI、原生桌面和安装包验收仍待执行。（需求：`WIN-NATIVE-01`）
 
 ### 2026-09-12 全应用审查修复
 

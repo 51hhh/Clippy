@@ -183,6 +183,8 @@ jobs:
           Invoke-CheckedNpm run build
           node ../scripts/check-built-main.mjs
           if ($LASTEXITCODE -ne 0) { throw "built entry check exited with $LASTEXITCODE" }
+          node ../scripts/verify-xcap-patch.mjs
+          if ($LASTEXITCODE -ne 0) { throw "vendored xcap check exited with $LASTEXITCODE" }
 
       # Windows runner 的真实 DACL 与普通用户符号链接权限不能由 Linux mode 测试替代。
       - name: Windows OCR quality contracts

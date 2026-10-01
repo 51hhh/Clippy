@@ -21,7 +21,8 @@
 
 1. 区分 dev、发布 tag 和最新功能分支，记录关键提交带来的实际能力及 feature 门控。
 2. 在 Windows 本机运行完整前端测试、类型检查、静态合同和生产构建；文件 URL 使用系统路径转换，
-   源码合同兼容 LF/CRLF；负例修改必须实际生效。保留现有安全合同的全部负例，不能删除失败测试或弱化校验。
+   源码合同兼容 LF/CRLF；负例修改必须实际生效。vendor 和 Cargo 锁文件按仓库规则保留 LF，
+   原始 SHA-256 校验不得归一化输入。保留现有安全合同的全部负例，不能删除失败测试或弱化校验。
 3. 提供原生 PowerShell 门禁，覆盖 Python 纯合同、默认 Rust、vendor WGC、前端和可选 Windows
    双轨 QA 检查。缺工具、外部命令非零、显式部分检查和跳过项不得被报告为完整通过。
 4. Windows 原生 CI 增加前端检查，补上只有 Ubuntu 执行前端导致的宿主路径盲区。
@@ -66,7 +67,7 @@
 | W09 | P1 | OCR 质量工具 Windows 私有诊断目录与符号链接拒绝合同；失败关闭，检查子文件继承 | 本机 31 项质量合同通过，跨平台 CI 待执行 |
 | W10 | P2 | 审查 webm-sys 的 C++ 编译参数在 MSVC 上产生 D9002；按宿主选择 flag，保留固定来源与许可证 | 本机已观测，独立维护任务 |
 | W11 | P1 | 新 Windows runner 使用 CRLF 检出时的 IPC 负例与结构回归；保留两种换行的正/负合同 | 独立 CRLF checkout 修复后 1284 项通过，修改后 CI 待执行 |
-| W12 | P1 | vendored xcap 保持固定 LF 字节并运行原始 SHA-256 校验；不能归一化哈希输入或跳过检查 | CRLF checkout 完整前端门禁因七文件原始哈希失配失败，待修复 |
+| W12 | P1 | vendored xcap 保持固定 LF 字节并运行原始 SHA-256 校验；不能归一化哈希输入或跳过检查 | 独立 CRLF checkout 前端门禁 11 项通过、0 失败；字节篡改仍被拒绝，修改后 CI 待执行 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。
@@ -86,6 +87,9 @@ check、严格 clippy、vendor WGC 严格 clippy 通过。前端追加缺依赖�
 录屏 `-RecordingQa` 最终完整 Windows 范围：23 项检查通过、0 失败、1 组 Linux smoke 显式跳过。
 QA Rust 1093 项通过、5 项忽略；前端最终为 74 文件、1280 项通过，含 6 项门禁退出码/前置依赖合同。
 默认与 QA 测试大量重叠，不累加为独立覆盖数。Python 质量 31 项、视觉段落 3 项通过。
+独立 `core.autocrlf=true` checkout 修复 W11/W12 后：完整前端范围 11 项检查通过、0 失败、
+3 组显式跳过，74 文件 / 1284 项通过。主 Rust 源码保持 CRLF，xcap 和 Cargo 锁文件按属性检出 LF；
+刻意在固定文件追加一个 LF 被原始 SHA-256 校验拒绝，复原后校验成功。
 Linux 本地完整门禁、修改后 CI、QA 安装包、Windows 10 和桌面交互尚未执行。
 
 详细审查证据见 `docs/reviews/2026-10-01-windows-native-review.md`。所有新结果按层级追加，
