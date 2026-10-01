@@ -2,6 +2,18 @@
 
 ## 未发布
 
+### 2026-10-01 Windows WebM 构建修复
+
+- 修复 vendored WebM 构建脚本向 MSVC/clang-cl 传入三个被忽略的 GCC 参数产生的告警；
+  按实际编译器族保留有效模式，GNU/Clang 参数、libwebm 源码、Opus FFI 和许可证保持既有内容。
+  增加来源与原始构建脚本哈希校验。本机 MSVC/clang-cl 六个 C++ 文件重新编译通过；
+  Windows 完整录屏 QA 门禁 23 passed、0 failed、1 skipped（Linux smoke）。
+  437949b 四项 codec 与 Ubuntu/Windows 原生 CI 通过，macOS 原生的既有 OCR 进程合同失败；
+  经用户授权改以独立 OCR 合同修复分支为基线，45769c9 的三项原生与四项录屏原型全部通过，
+  相对新基线仍仅六个 WebM 文件；新 SHA 完整 QA workflow 成功，Windows 包来源、哈希与签名
+  身份已核对，真实桌面与安装验收仍待执行。
+  （需求：`WIN-WEBM-MSVC-01`）
+
 ### 2026-10-01 OCR 原生进程合同同步
 
 - 修复取消/回收测试的启动预算竞态：先确认子进程就绪与消费者取消，再由夹具触发输出上限，
