@@ -57,7 +57,7 @@
 | ID | 优先级 | 工作与验收 | 状态 |
 |---|---|---|---|
 | W01 | P1 | 修复文件 URL 路径；保留 9 项合同负例/正例并完成 Windows 前端门禁 | 本机已通过 |
-| W02 | P1 | PowerShell 门禁与 Windows CI 前端检查；缺工具/失败/部分运行严格区分 | 本机入口已验证，修改后 CI 待执行 |
+| W02 | P1 | PowerShell 门禁与 Windows CI 前端检查；缺工具/失败/部分运行严格区分 | 本机入口与 fe37aec Windows 前端 CI 已通过；OCR/Rust 完整 CI 待复验 |
 | W03 | P1 | Rust MSVC、C++ SDK、WebView2；录屏另需 MSYS2 make/diffutils/perl/nasm、MSBuild、CMake、LLVM tools/libclang；默认与 QA 图分别验证 | 工具已安装，默认与录屏 QA 本机门禁通过 |
 | W04 | P1 | 100%/125%/150% 多屏与负坐标：冻结帧、跨屏窗口候选、覆盖层、Pin、guide、长截图自动滚动、WGC 选区 | 静态疑点；本机单屏，待多屏真机复现 |
 | W05 | P1 | 同权限自动粘贴一次、高完整性目标 copy-only、目标销毁/复用、用户接管；DACL 与配置连续覆盖 | 待 Windows 复测 |
@@ -66,10 +66,10 @@
 | W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 后续改动后执行 |
 | W09 | P1 | OCR 质量工具 Windows 私有诊断目录与符号链接拒绝合同；失败关闭，检查子文件继承 | 实际 DACL/等价 SDDL 及 10 类失败关闭负例通过；本机 33 项质量合同通过，跨平台 CI 待复验 |
 | W10 | P2 | 审查 webm-sys 的 C++ 编译参数在 MSVC 上产生 D9002；按宿主选择 flag，保留固定来源与许可证 | 独立 WIN-WEBM-MSVC-01 / PR #14 已提交；本机完整 QA 门禁通过，CI 待执行 |
-| W11 | P1 | 新 Windows runner 使用 CRLF 检出时的 IPC 负例与结构回归；保留两种换行的正/负合同 | 独立 CRLF checkout 修复后 1284 项通过，修改后 CI 待执行 |
-| W12 | P1 | vendored xcap 保持固定 LF 字节并运行原始 SHA-256 校验；不能归一化哈希输入或跳过检查 | 独立 CRLF checkout 前端门禁 11 项通过、0 失败；字节篡改仍被拒绝，修改后 CI 待执行 |
-| W13 | P1 | Windows 原生进程/locale 测试预算覆盖实测初始化；保留子进程硬超时、全部断言与普通单元测试默认预算 | CI 暴露两项 5 秒超时；限定测试组补齐预算后，Node 24.21.0 + CRLF 全前端门禁通过，远程待复验 |
-| W14 | P1 | 浏览器 OCR 捕获来源 HTML/脚本固定 LF，保留原始字节哈希和来源记录；新 CRLF clone 与篡改负例验证 | fe37aec CI 复现来源哈希失配；属性修复后待新检出/CI 复验 |
+| W11 | P1 | 新 Windows runner 使用 CRLF 检出时的 IPC 负例与结构回归；保留两种换行的正/负合同 | 独立 CRLF checkout 1284 项通过，fe37aec Windows 前端 CI 已通过 |
+| W12 | P1 | vendored xcap 保持固定 LF 字节并运行原始 SHA-256 校验；不能归一化哈希输入或跳过检查 | 独立 CRLF checkout 前端门禁 11 项通过、0 失败；字节篡改仍被拒绝，fe37aec Windows 前端 CI 已通过 |
+| W13 | P1 | Windows 原生进程/locale 测试预算覆盖实测初始化；保留子进程硬超时、全部断言与普通单元测试默认预算 | CI 暴露两项 5 秒超时；限定测试组补齐预算后，Node 24.21.0 + CRLF 全前端门禁通过，fe37aec Windows 前端 CI 已通过 |
+| W14 | P1 | 浏览器 OCR 捕获来源 HTML/脚本固定 LF，保留原始字节哈希和来源记录；新 CRLF clone 与篡改负例验证 | fe37aec CI 复现来源哈希失配；28186af 全新 CRLF clone 来源哈希通过，额外 LF 负例被拒绝；CI 待复验 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。
@@ -109,3 +109,8 @@ Linux 本地完整门禁、修改后 CI、官方 QA 安装包、Windows 10 和�
 W09 后续：fe37aec 的 Windows 前端 CI 通过，OCR 实际 DACL 与手写 SDDL 比较失配，Rust 未执行。
 改为二进制 ACE/保护位严格核对，本机 33 项质量 + 3 项视觉段落通过；等价 SID/AI 正例和
 10 类真实创建失败关闭负例均保留。修改后同 SHA CI 与完整 Windows 门禁仍待复验。
+
+W09/W14 最新源码 28186af 的完整 Windows 默认门禁：20 passed / 0 failed / 2 skipped，
+Rust 1040 / 5 ignored、前端 74 文件 / 1284 passed、Python 33 + 3 passed。
+全新 CRLF clone 状态干净；两个浏览器语料的额外 LF 负例均 exit 2，验证器与来源登记未改。
+桌面自动化运行时再次初始化失败，没有 UI 观测；Windows 11 单屏人工 QA、Windows 10、多屏保持未完成。

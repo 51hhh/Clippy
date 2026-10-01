@@ -162,7 +162,9 @@ W09 后续修复：查询实际二进制 ACE 并与 CreateDirectoryW 所用的�
 
 W14：浏览器 UI 与 MathML 语料 `source.html`、`capture.py` 的原始字节哈希登记在捕获记录。
 Windows 默认 CRLF 检出改变来源，新增四个具体路径的 `eol=lf` 属性；PNG/字体/哈希、来源记录与
-验证器均不修改，不按换行归一化输入。修改后全新 CRLF clone 和字节篡改负例仍需复验。
+验证器均不修改，不按换行归一化输入。在 SHA `28186af7470de96eace2e627bbf134b06034a8ab` 的全新 `core.autocrlf=true` clone，
+四个来源文本首次检出即为 LF，记录的原始 SHA-256 通过；普通 Rust 源码仍为 CRLF，Git 状态干净。
+两套语料各在 HTML 追加一个 LF 均被 exit 2 拒绝，复原后通过。该 clone 的 33 项质量测试通过。
 
 W13：PowerShell 子进程原本设置 20 秒硬超时，外层测试仅 5 秒，预算不一致。该组改为 30 秒，
 保留子进程 20 秒硬超时、错误对象和全部退出码/失败计数断言；普通测试默认预算不变。
@@ -239,3 +241,14 @@ WebView2 Runtime 154.0.4258.37 已存在。
 
 本分支是开发工具/测试修复；OCR 质量工具行为与 Windows 验证入口已写入 CHANGELOG，引用 `WIN-NATIVE-01`。
 后续 W04–W07 若产生产品修复，使用对应独立分支、需求 ID 和 CHANGELOG，不能混入本工具分支。
+
+### W09/W14 后续本机完整门禁
+
+源码 SHA `28186af7470de96eace2e627bbf134b06034a8ab`，Node 24.21.0：默认 Windows 门禁
+20 passed / 0 failed / 2 skipped（录屏 QA、Linux smoke）。Rust 1040 passed / 5 ignored；
+前端 74 文件 / 1284 passed；Python 33 项质量和 3 项视觉段落通过。W10 的独立分支录屏 QA
+结果绑定其 e4ccc46，不将两次门禁或重叠 Rust 图相加，也不将编译当作桌面验收。
+
+桌面运行时再次经受支持的 `node_repl + @oai/sky` 初始化，仍返回
+`trusted Node process exited unexpectedly; kernel reset, rerun your request`；没有实际 UI 操作。
+不得绕过 Computer Use skill 的专用 API 协议，Windows 11 单屏人工 QA、Windows 10 与多屏均未完成。

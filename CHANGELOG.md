@@ -22,7 +22,7 @@
 
 - 固定浏览器 OCR 语料的 `source.html` 与 `capture.py` 为 LF 检出，避免 Windows 改写
   捕获来源的原始 SHA-256；不重写来源哈希、PNG、字体或捕获记录。质量校验本机通过，
-  全新 CRLF 检出与修改后同 SHA CI 仍待复验。（需求：`WIN-NATIVE-01`）
+  全新 CRLF clone 的来源哈希通过，追加 LF 仍被拒绝；修改后同 SHA CI 仍待复验。（需求：`WIN-NATIVE-01`）
 
 ### 2026-09-12 全应用审查修复
 
