@@ -13,23 +13,24 @@
 
 - 修复 Windows 合同测试的文件 URL 路径转换与 CRLF 负例夹具，保留 LF/CRLF 两种格式的
   命令注册与窗口权限校验；补充 PowerShell 原生门禁及 Windows CI 前端与
-  Windows/Ubuntu OCR 质量检查。默认和录屏 QA 本机门禁已通过；修改后同 SHA CI、Linux 完整
-  门禁、Windows 10/11 桌面和安装包验收仍未完成。（需求：`WIN-NATIVE-01`）
+  Windows/Ubuntu OCR 质量检查。默认和录屏 QA 本机门禁已通过；42e52c0 的三项原生与四项录屏
+  原型 CI 均通过，官方 Windows QA 包来源与哈希已核对。Linux 本地完整门禁、Windows 10/11
+  桌面、安装升级与更新验收仍未完成；自签名 QA 包不等于发行信任。（需求：`WIN-NATIVE-01`）
 - Windows 原生进程与 locale 合同测试使用与实际操作相符的有界超时；保留子进程硬超时及全部
-  输出/失败断言。Node 24.21.0 + CRLF 检出的全前端门禁通过，远程 runner 仍待复验。
+  输出/失败断言。Node 24.21.0 + CRLF 检出的全前端门禁与 42e52c0 Windows CI 通过。
   （需求：`WIN-NATIVE-01`）
 - OCR 质量工具的 Windows 诊断目录改为创建时应用当前用户私有 DACL，权限核对失败立即停止；
   已有目录不覆盖。按实际 DACL 的保护位和二进制 ACE 核对权限，兼容 Windows 的等价 SDDL 表示，
-  严格拒绝 NULL/缺失 DACL 与额外或不同权限。本机质量合同 33 项通过，POSIX 权限回归与
-  修改后同 SHA CI 仍待执行。
+  严格拒绝 NULL/缺失 DACL 与额外或不同权限。本机质量合同 33 项通过，42e52c0 Windows DACL
+  与 Ubuntu POSIX 权限 CI 回归通过；原生桌面权限验收仍未执行。
   （需求：`WIN-NATIVE-01`）
 - 修复 Windows 默认 CRLF 检出导致的 xcap 供应链校验失败：vendor 文本和 Cargo 锁文件固定 LF，
   原始 SHA-256 校验保持不变，并加入 Windows CI。独立 CRLF checkout 的完整前端范围通过，
-  字节篡改仍被拒绝；修改后同 SHA CI、原生桌面和安装包验收仍待执行。（需求：`WIN-NATIVE-01`）
+  字节篡改仍被拒绝，42e52c0 同 SHA CI 通过；原生桌面和安装验收仍未执行。（需求：`WIN-NATIVE-01`）
 
 - 固定浏览器 OCR 语料的 `source.html` 与 `capture.py` 为 LF 检出，避免 Windows 改写
   捕获来源的原始 SHA-256；不重写来源哈希、PNG、字体或捕获记录。质量校验本机通过，
-  全新 CRLF clone 的来源哈希通过，追加 LF 仍被拒绝；修改后同 SHA CI 仍待复验。（需求：`WIN-NATIVE-01`）
+  全新 CRLF clone 的来源哈希通过，追加 LF 仍被拒绝，42e52c0 同 SHA CI 通过。（需求：`WIN-NATIVE-01`）
 
 ### 2026-09-12 全应用审查修复
 
