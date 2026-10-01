@@ -7,8 +7,14 @@
 
 当前 W28 / WIN-REGISTRY-BUFFER-01：Windows 构建号查询把 RegGetValueW 返回字节数直接作为
 Vec<u16> 的 set_len，违反初始化前提。改用初始化的 2048 字节缓冲区，按返回范围校验后解析。
-八项生产入口辅助合同通过；安全旧单位模型 4 passed / 4 failed，未运行旧未定义行为。
-本机完整门禁、供应链负例、新 SHA CI 和实际注册表/桌面仍待验证，既有源码证据保留。
+八项生产入口合同通过；安全旧单位模型 4 passed / 4 failed，未运行旧未定义行为。
+产品修复 326af9e、独立 CI 接线 8c6fbfe，首次完整门禁因遗留导入的 vendor 严格 lint 失败：
+29 passed / 1 failed / 1 skipped，原日志保留。后续移除导入后的干净源码
+bb38cc6c98a141d95f67834f4aeb8f98f2318881 完整 Windows 默认/录屏 QA 门禁 exit 0：30 passed /
+0 failed / 1 skipped（Linux smoke）；默认 Rust 1058、QA Rust 1115（各 5 ignored，重叠不累加），
+前端 75 文件 / 1292 passed，Python 33 + 3。独立 vendor 八项构建号及十项既有 WGC 合同通过，
+不计入应用 Rust 总数；含测试的 vendor 严格 clippy、原始字节正/三个负例、检出干净与日志哈希
+已核对。证据 windows-registry-buffer-native-qa-bb38cc6/RESULT.json；实际注册表/桌面、新 SHA CI 未验。
 
 此前 W27 / WIN-WGC-INIT-ROLLBACK-01：pool 创建后注册/session 创建失败会直接退出，
 完整 WgcRuntime 尚未建立，遗漏显式 Close。复用锁定 scopeguard，错误时先尝试 Close，成功
@@ -173,7 +179,12 @@ WIN-REGISTRY-BUFFER-01 改用已清零的 2048 字节数组，仅对成功返回
 八项生产共用入口合同涵盖容量初始化、Win10/11 样本、短返回、奇数/超长、部分写入失败、
 无效文本和完整容量。安全旧长度模型初始化存储并使用 truncate，4 passed / 4 failed；
 绿色八项通过，不运行原未定义行为、不使用 API 类型 stub、不访问注册表或截图对象。
-独立 vendor 原生图、完整门禁、字节正/负校验待运行；实际系统、桌面、新 SHA CI 仍未验。
+三个文件实际 LF 正例/独立篡改负例通过，十一项 pins 保留；8c6fbfe 首次 vendor 严格 lint
+因遗留 U16CString 导入失败（29 passed / 1 failed），原始证据保留。移除导入后 bb38cc6 的完整
+Windows 默认/QA 门禁 exit 0，30 passed / 0 failed / 1 skipped（Linux smoke）；应用默认/QA 为
+1058 / 1115 passed，各 5 ignored，重叠不累加，前端 1292 passed。八项构建号回归在真实独立
+vendor Cargo 图通过，过滤十一项（十项 WGC 和显示器一项），不计入应用总数；vendor 严格
+clippy 包含 lib tests。字节/日志哈希与干净检出已核对，实际系统、桌面、新 SHA CI 仍未验。
 
 ### W27 / P2 — WGC 初始化失败未显式关闭已创建 pool（离线复现并修复）
 

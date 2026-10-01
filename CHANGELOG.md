@@ -7,7 +7,11 @@
 - 修复截图依赖读取 Windows 构建号时把返回字节数用作 u16 向量长度的问题，改用已初始化的
   有界缓冲区；仅解析成功返回范围，保留查询/文本错误返回 0 的行为与版本阈值。
   八项生产入口离线回归通过；安全旧单位协议辅助模型 4 passed / 4 failed，未运行旧未定义行为。
-  完整 Windows 默认/QA 门禁、供应链负例和新 SHA CI 待验证；真实注册表、截图/录屏与桌面未验。
+  原始字节正例与三个独立篡改负例通过。bb38cc6 完整 Windows 默认/QA 门禁 exit 0：30 passed /
+  0 failed / 1 skipped（Linux smoke）；默认 Rust 1058、QA Rust 1115（各 5 ignored，重叠不累加），
+  前端 1292 passed。八项在独立 vendor Cargo 图通过，不计入应用 Rust 总数；严格 clippy 通过。
+  首次 8c6fbfe 因遗留导入严格 lint 失败，29 passed / 1 failed，原日志保留，修正后重跑通过。
+  真实注册表、截图/录屏、桌面、新 SHA CI 和其它宿主仍未验。
   （需求：`WIN-REGISTRY-BUFFER-01`；见 `docs/superpowers/specs/2026-10-01-windows-registry-buffer.md`）
 
 ### 2026-10-01 Windows WGC 初始化失败回滚

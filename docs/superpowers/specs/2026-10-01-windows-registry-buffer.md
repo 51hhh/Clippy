@@ -23,8 +23,8 @@
 
 - [x] 源码/API 合同证明原 set_len 将字节误作 u16 数量；不运行原未初始化内存路径。
 - [x] 安全的旧单位协议辅助红基线失败，修复后生产共用入口的边界回归通过。
-- [ ] vendor 字节正例/独立篡改负例、严格原生编译与完整 Windows 默认/QA 门禁通过。
-- [ ] 本机/CI 入口、补丁说明与证据同步，桌面、新 SHA CI 和其它宿主保留未验。
+- [x] vendor 字节正例/独立篡改负例、严格原生编译与完整 Windows 默认/QA 门禁通过。
+- [x] 本机/CI 入口、补丁说明与证据同步，桌面、新 SHA CI 和其它宿主保留未验。
 
 ## Out of Scope
 
@@ -47,5 +47,27 @@ set_len(12) 却声明 12 个元素有效，违反 Rust 的初始化前提；实�
 完整生产纯模块的 MSVC Rust 1.98 harness：八项绿合同通过；安全旧单位模型 4 passed / 4 failed，
 退出 101。红模型将内存初始化并以 truncate 代替 set_len，保留错误单位，故不声称执行或复现 UB。
 无类型 stub，不访问实际注册表/捕获对象。日志和原始哈希见 ignored target 的
-windows-registry-buffer-contract/RESULT.json；真实 vendor Cargo、供应链与完整门禁待记录。
-此前 61d6823 的门禁不替代本修复，新 SHA 远程 CI、真实注册表与桌面测试未运行。
+windows-registry-buffer-contract/RESULT.json。
+
+产品修复提交 326af9e5afbc3d099d886003a78ec05a7ae053ea，独立 CI 接线
+8c6fbfe4f111db6562ce38cf740342afd7ee8f5d。该 SHA 首次完整门禁 29 passed / 1 failed /
+1 skipped、exit 1，失败为遗留 U16CString 导入触发 vendor 严格 lint；八项回归实际通过，
+整轮不计为通过。windows-registry-buffer-native-qa-8c6fbfe/RESULT.json 与原日志保留。
+
+移除导入并同步原始哈希后的干净被测源码 bb38cc6c98a141d95f67834f4aeb8f98f2318881：
+完整 ./scripts/ci-windows.ps1 -RecordingQa exit 0，30 passed / 0 failed / 1 skipped（Linux smoke）。
+默认 Rust 1058 / 5 ignored、QA Rust 1115 / 5 ignored，两个图重叠不相加；前端 75 文件 /
+1292 passed，Python 33 + 3。vendor 八项构建号、六项关闭、四项初始化合同均通过，十八项
+独立于应用 Rust 总数；构建号组过滤十一项，关闭组十三项，初始化组十五项，其中仅一项上游
+显示器测试，其余为其它离线组，filtered 不计为通过。默认/QA API 图、vendor 严格 lib/tests
+clippy、原始字节校验、生产构建通过，验证后检出干净，stdout/stderr 原始哈希已核对。
+证据 windows-registry-buffer-native-qa-bb38cc6/RESULT.json。
+
+最终供应链隔离夹具复制实际 verifier 与十一项 pins：正例 exit 0，在 registry_build/utils/mod
+各追加一个 LF 的独立负例均 exit 1 且指明文件，恢复后 exit 0，生产文件未篡改。
+来源记录、锁文件和许可证保留，不归一化原始字节；证据 windows-registry-buffer-supply-chain-final/RESULT.json。
+Windows Native CI 的条件、命令与工作目录经 YAML 解析核对，Windows PowerShell 5.1 解析零错误；
+远程当前 SHA CI、真实注册表/截图/录屏、桌面、其它宿主仍未验。未安装新包、合入 dev 或发布。
+
+本轮亦静态检查 Windows 持久化调用锁、自启动开发版保护和 UIPI 边界，未确认新增产品缺陷。
+跨屏混合缩放坐标仍保留 WIN-NATIVE-01 / W04，不能由本轮离线边界合同替代真机验收。
