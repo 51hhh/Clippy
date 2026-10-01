@@ -7,7 +7,12 @@
 
 当前 W27 / WIN-WGC-INIT-ROLLBACK-01：pool 创建后注册/session 创建失败会直接退出，
 完整 WgcRuntime 尚未建立，遗漏显式 Close。复用锁定 scopeguard，错误时先尝试 Close，成功
-移交所有权；旧协议 1 passed / 3 failed，四项绿合同通过。原生 vendor/full gate 待验；
+移交所有权；旧协议 1 passed / 3 failed，四项绿合同通过。产品修复 db05650、独立 CI 接线及
+干净被测 SHA 61d68232173de29349627c14e2eb5be984172eb1 完整 Windows 默认/录屏 QA 门禁 exit 0：
+29 passed / 0 failed / 1 skipped（Linux smoke）；默认 Rust 1058 / 5 ignored、QA Rust 1115 /
+5 ignored（重叠不累加），前端 75 文件 / 1292 passed，Python 33 + 3 passed。四项初始化及六项关闭
+在独立真实 vendor Cargo 图通过，不计入应用 Rust 总数；上游显示器测试过滤。严格 clippy、
+日志哈希和验证后干净检出已核对，证据 windows-wgc-init-rollback-native-qa-61d6823/RESULT.json。
 真实 API 失败、最终系统资源释放、桌面与新 SHA CI 未验。
 
 此前 W26 / REC-AV-BRIDGE-JOIN-01：视频桥接 join 返回 panic 时，布尔短路跳过音频 join，
@@ -51,7 +56,8 @@ windows-paste-recheck-native-qa-14bf616/RESULT.json，红绿辅助证据另行�
 
 用户要求停止桌面操控，当前继续代码 review 与 Windows 本机自动验证。已安装的 QA 源码仍为
 `45769c9`：真实记录是文本/图片 2 pass、Pin 工具栏裁切 1 fail、36 not_run；原始 39 项模板保留不变。
-新 Pin、私有文件、长截图光标、CF_HTML、图片预算、DIB 偏移、粘贴目标复核、WASAPI 尾部、WGC 关闭和双轨桥接修复未安装，桌面复测、录屏/音频、
+新 Pin、私有文件、长截图光标、CF_HTML、图片预算、DIB 偏移、粘贴目标复核、WASAPI 尾部、
+WGC 关闭、双轨桥接和 WGC 初始化回滚修复未安装，桌面复测、录屏/音频、
 管理员目标、多屏和 Windows 10 均保持未验证。
 
 此前独立 WIN-DIBV5-PIXEL-01 修复 W22 的显式像素偏移，原 Chrome/Firefox 断言及新增
@@ -134,6 +140,7 @@ Windows 10、多屏、真实音频与完整安装升级仍未完成。以下失�
 | `a463c3b` | WASAPI 正常停止有限排空并保留 PCM 尾部 | 13 项音频合同、真实 API 图及完整 Windows 默认/QA 门禁通过；实际听音未验 |
 | `869a13f` / `03b4cb8` | WGC 分别记录成功关闭、错误不短路；独立接线 vendor 测试门禁 | 六项关闭合同和含测试的严格 clippy 通过；03b4cb8 的 28 项完整 Windows 本机门禁通过；真实释放未验 |
 | `091b5cb` | 视频桥接 panic 后仍 join 音频，完整回收后返回既有错误 | 四项真实线程 QA 合同和既有 worker 集成测试通过；完整 Windows 默认/QA 门禁通过；其它宿主与设备 panic 未验 |
+| `db05650` / `61d6823` | pool 初始化错误由临时 guard 回滚，成功移交完整 runtime；独立接线 vendor 测试 | 四项真实依赖回滚合同及原始字节正/负例通过；61d6823 完整 Windows 本机门禁 29 项通过；真实资源释放未验 |
 
 以上是本机 Git 实际可达节点；录屏、动作和长截图后续分支已包含在最新基线的祖先链中。
 
@@ -161,7 +168,9 @@ create_runtime 的 FrameArrived / CreateCaptureSession 错误发生在 WgcRuntim
 完整纯模块 MSVC harness 红协议 1 passed / 3 failed，绿色四项使用真实 scopeguard 通过；
 受控泛型资源验证关闭先于 Drop、失败不继续 session 及成功不提前关闭。没有类型 stub 或 WinRT。
 原始字节正例及三个文件篡改负例通过，依赖/来源和 LF 十项 pins 保留；独立 vendor 原生 Cargo 图
-与完整本机门禁待验。不声称实际系统泄漏或必然释放。
+通过；61d6823 完整本机门禁 exit 0，29 passed / 0 failed / 1 skipped。应用默认/QA 为 1058 /
+1115 passed、各 5 ignored、重叠不累加；四项初始化及六项关闭独立于应用图，含测试的 vendor
+严格 clippy 通过。前端 1292 passed，检出与日志哈希已核对。不声称实际系统泄漏或必然释放。
 
 ### W26 / P2 — 视频桥接 panic 后音频线程被 detach（真实受控线程复现并修复）
 

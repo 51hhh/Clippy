@@ -23,8 +23,8 @@
 
 - [x] 原初始化错误短路在离线红基线遗漏 Close，资源先 Drop。
 - [x] 四项生产入口合同覆盖注册失败、session 创建失败、回滚关闭失败及成功转移。
-- [ ] 原始字节正/负校验、vendor check/clippy/test 和完整 Windows 默认/QA 门禁通过。
-- [ ] 本机/CI 测试入口与文档接线，真实 WGC、其它平台和新 SHA CI 保留未验。
+- [x] 原始字节正/负校验、vendor check/clippy/test 和完整 Windows 默认/QA 门禁通过。
+- [x] 本机/CI 测试入口与文档接线，真实 WGC、其它平台和新 SHA CI 保留未验。
 
 ## Out of Scope
 
@@ -48,5 +48,14 @@ MSVC 辅助 harness include 完整生产纯模块。原两处 ? 退出协议四�
 生产字节验证器原样复制到隔离最小仓库，正例 exit 0；init/mod/recorder 分别追加一个 LF
 均 exit 1，逐例恢复，生产文件未篡改。十个 pinned 文件不归一化；Node 24.21.0，证据在
 src-tauri/target/windows-wgc-init-rollback-supply-chain/RESULT.json。
-独立 vendor Windows Cargo 图与完整本机门禁待验。
+产品修复 db05650，独立 CI 接线及完整被测 SHA 为
+61d68232173de29349627c14e2eb5be984172eb1。干净检出完整 Windows 默认/录屏 QA 门禁 exit 0：
+29 passed / 0 failed / 1 skipped（Linux smoke）；默认 Rust 1058 / 5 ignored、QA Rust 1115 /
+5 ignored（重叠不累加），前端 75 文件 / 1292 passed，Python 33 + 3 passed。
+真实 vendor Cargo 图四项初始化及六项关闭合同通过，独立于应用 Rust 总数；初始化组过滤七项
+（六项其它合同和一项上游显示器测试），没有运行真实显示器用例。含测试的 vendor 严格 clippy、
+默认/QA check/clippy、剪贴板四组 24 项、供应链及前端构建通过，日志哈希和验证后干净检出已核对。
+完整证据 src-tauri/target/windows-wgc-init-rollback-native-qa-61d6823/RESULT.json；辅助 harness 不替代它。
+本机/Windows Native CI 各新增显式 vendor 测试入口，YAML 条件已核对；新 SHA CI 未运行。
+已安装旧包 45769c9 不含本修复，未安装新包或操作桌面，未合入 dev/发布或启动 Linux/WSL。
 离线资源和关闭回调不创建 WinRT 对象，不能替代真实 API 错误或设备验收。

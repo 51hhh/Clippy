@@ -8,7 +8,9 @@
   成功才移交完整 runtime，关闭错误仅记录且保留原初始化错误。复用锁定 scopeguard，
   不改回调、光标、通道及正常 Stop/Drop；其它平台不变。
   离线原协议 1 passed / 3 failed，修复后四项通过；原始字节正例与三个文件篡改负例通过，
-  完整 Windows 默认/QA 门禁待验。
+  61d6823 完整 Windows 默认/QA 门禁 exit 0，29 passed / 0 failed / 1 skipped（Linux smoke）。
+  默认 Rust 1058、QA Rust 1115（各 5 ignored，重叠不累加），前端 1292 passed；四项初始化
+  与既有六项关闭合同在独立 vendor Cargo 图通过，不计入应用 Rust 总数，严格 clippy 通过。
   未调用真实 WinRT Close 或复现系统泄漏；真实 API 失败、最终释放、新 SHA CI 与桌面未验。
   （需求：`WIN-WGC-INIT-ROLLBACK-01`；见 `docs/superpowers/specs/2026-10-01-windows-wgc-init-rollback.md`）
 
