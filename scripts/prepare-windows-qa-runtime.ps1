@@ -12,6 +12,10 @@ $taskAllowedRuntime = @(
     'msvcp140_atomic_wait.dll', 'msvcp140_codecvt_ids.dll', 'vccorlib140.dll',
     'vcruntime140.dll', 'vcruntime140_1.dll', 'vcruntime140_threads.dll'
 )
+$taskAllowedCrtFamilies = @(
+    'Microsoft.VC140.CRT', 'Microsoft.VC141.CRT', 'Microsoft.VC142.CRT',
+    'Microsoft.VC143.CRT', 'Microsoft.VC145.CRT'
+)
 $taskUtf8 = New-Object System.Text.UTF8Encoding($false)
 
 function Get-WindowsQaRuntimeIdentity([string]$Path) {
@@ -59,12 +63,25 @@ function New-WindowsQaRuntime {
     $toolset = [version]$toolsetText
     $minimumRuntimeVersion = [version]($toolsetText + '.0')
     $redistBase = Join-Path $VisualStudioRoot 'VC\Redist\MSVC'
-    $choices = @(Get-ChildItem -LiteralPath $redistBase -Directory | Where-Object {
-        $_.Name -match '^14\.\d+\.\d+$' -and [version]$_.Name -ge [version]('14.' + $toolset.Minor + '.0') -and
-        (Test-Path -LiteralPath (Join-Path $_.FullName 'x64\Microsoft.VC143.CRT') -PathType Container)
-    } | Sort-Object { [version]$_.Name } -Descending)
+    # 家族标签不是 ABI/签名证明；仅查找已发布 desktop x64 家族，再执行原文件级校验。
+    $choices = @(foreach ($directory in Get-ChildItem -LiteralPath $redistBase -Directory) {
+        if ($directory.Name -notmatch '^14\.\d+\.\d+$' -or
+            [version]$directory.Name -lt [version]('14.' + $toolset.Minor + '.0')) { continue }
+        $desktop = Join-Path $directory.FullName 'x64'
+        if (-not (Test-Path -LiteralPath $desktop -PathType Container)) { continue }
+        foreach ($family in Get-ChildItem -LiteralPath $desktop -Directory) {
+            if ($taskAllowedCrtFamilies -notcontains $family.Name) { continue }
+            if ($family.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+                throw 'Linked CRT family directory rejected.'
+            }
+            [pscustomobject]@{ Path = $family.FullName; Version = [version]$directory.Name; Family = $family.Name }
+        }
+    }) | Sort-Object Version -Descending
+    $choices = @($choices)
     if ($choices.Count -eq 0) { throw 'Matching x64 release CRT redist directory is missing.' }
-    $redist = Join-Path $choices[0].FullName 'x64\Microsoft.VC143.CRT'
+    $latest = @($choices | Where-Object { $_.Version -eq $choices[0].Version })
+    if ($latest.Count -ne 1) { throw 'Ambiguous latest x64 release CRT directories.' }
+    $redist = $latest[0].Path
     $files = @(Get-ChildItem -LiteralPath $redist -File -Filter '*.dll' | Sort-Object Name)
     $names = @($files | ForEach-Object { $_.Name.ToLowerInvariant() })
     foreach ($core in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
@@ -109,7 +126,7 @@ function New-WindowsQaRuntime {
     }
     $manifestPath = Join-Path $stage 'PROVENANCE.json'
     $manifest = [ordered]@{ schema = 1; requirement = 'WIN-QA-CRT-01'; sourceSha = $SourceSha
-        sourceGitStatus = @(); toolsetVersion = $toolsetText; redistDirectory = $redist
+        sourceGitStatus = @(); toolsetVersion = $toolsetText; redistDirectory = $redist; redistFamily = $latest[0].Family
         stagingDirectory = $stage; manifestPath = $manifestPath; files = @($records)
         scope = 'QA app-local release CRT; file inspection only; no system installation or DLL load' }
     [System.IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 8), $taskUtf8)

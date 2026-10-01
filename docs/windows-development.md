@@ -114,6 +114,11 @@ $env:LIBCLANG_PATH = Join-Path $env:ProgramFiles 'LLVM\bin'
 Visual Studio 的标准 desktop x64 release redist 准备资源；脚本检查 Microsoft 签名、版本、
 架构、哈希及 direct/delay import 递归依赖，不安装系统运行库：
 
+`WIN-QA-CRT-DISCOVERY-01`：在版本化 redist 下只查直接 desktop x64 的已发布 v14 CRT
+家族，包含 VS 2026 的 VC145。按数字版本选择最新兼容候选；最新版本歧义或文件不可信即
+失败，不跳过后悄悄使用较旧目录。目录标签不会代替完整版本、签名和文件校验。当前真实
+SDK 验证范围仍须单独记录；受控目录合同不证明 VS 2026 的实际编译或安装。
+
 ```powershell
 $runtime = ./scripts/prepare-windows-qa-runtime.ps1 | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0) { throw 'QA runtime preparation failed' }

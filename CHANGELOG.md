@@ -2,6 +2,16 @@
 
 ## 未发布
 
+### 2026-10-02 Windows QA 发现已发布运行库家族
+
+- 修复 QA 准备脚本只查 VC143 而拒绝受控 VC145 SDK 布局的问题；按数字版本选择已发布
+  v14 的最新兼容 desktop x64 CRT，拒绝最新版本歧义与不可信文件，不安静回退。
+  原完整版本/签名/架构/哈希/依赖校验保留，清单记录实际家族；原五十项未改。
+  原入口新 24 项为 12/12，修复同组通过；补齐目录标签后新增三十项/原五十项共 80 passed。
+  完整 Windows 门禁、现有真实 SDK 与 unbundled 编译核对进行中。真实 VS 2026、当前 SHA
+  CI、安装器/无 CRT 启动、Windows 10/多屏仍未验证，桌面保持停止。
+  （需求：`WIN-QA-CRT-DISCOVERY-01`；见 `docs/superpowers/specs/2026-10-02-windows-qa-crt-discovery.md`）
+
 ### 2026-10-02 Windows 录屏 QA 携带应用本地运行库
 
 - 修复 Windows 录屏 QA 导入 MSVCP140.dll 而原包未部署 CRT 的缺口。准备已有 SDK 的
