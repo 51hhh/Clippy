@@ -30,8 +30,8 @@
 - [x] 冻结物理来源贯穿普通/长截图、输出重试、像素登记与图片 Pin；IPC 私有字段不可伪造。
 - [x] 原始目标屏和 PNG 像素尺寸决定图片 Pin 规划，逻辑重叠/枚举顺序不影响结果。
 - [x] 创建/reveal 物理请求一致，resize 不再回到逻辑位置；未知/失去来源仍可正常 Pin。
-- [ ] 旧协议红基线、修复回归、既有测试和 Windows 完整默认/QA 门禁通过，证据完整。
-- [ ] 文档同步，实际多屏/Windows 10/DPI/跨平台原生图及当前 SHA CI 保留未验。
+- [x] 已保存旧协议红基线；修复回归、既有测试和 Windows 完整默认/QA 门禁通过，证据完整。
+- [x] 文档同步，实际多屏/Windows 10/DPI/跨平台原生图及当前 SHA CI 保留未验。
 
 ## Out of Scope
 
@@ -55,7 +55,15 @@ resize 已提交 PhysicalPosition 后又经 keep_pin_above 提交逻辑位置，
 断言保持红绿一致。初次脚手架 PhysicalRect PartialEq 编译错误及首次 PNG Fast/NoFilter
 重编码字节相同的夹具失败分别保留；改用 Best 压缩后重新取得红基线，未删减断言。
 
-完整默认/QA 门禁、最终干净 SHA 和日志/源码审计待补。证据目录：
+干净源码 `888127a226dab8737b219b879b7ca1add0875358` 完整默认/录屏 QA 门禁确认原生子进程
+exit 0，30 passed / 0 failed / 1 skipped（Linux smoke）。默认 Rust 1108 / 5 ignored，QA Rust
+1165 / 5 ignored；重叠不累加，每图十八项及此前物理边界十六项、焦点/候选各八项包含在总数。
+前端 75 文件 / 1292 passed，Python 33 + 3，独立 vendor 十八项及剪贴板二十四项通过。
+check、严格 clippy、供应链、构建、入口和日志哈希均通过。10 个既有文件 465 个 assert 宏 token
+保留（仅归一化空白及新增 cfg 私有默认字段），新回归原始字节红绿一致；四份锁定原生库源码哈希核对。
+同 SHA 门禁前后检出干净，后继仅四份 Markdown。完整结果及审计：
+`C:\win\Clippy\src-tauri\target\windows-pin-origin-native-qa-888127a\RESULT.json`。
+红绿/源码/断言证据目录：
 `C:\win\Clippy\src-tauri\target\windows-pin-physical-origin-contract`。
-不创建窗口、调用显示器/光标 API 或输入；使用实际 Tauri/dpi 类型和原生 MSVC 图。
+本次新增回归不创建窗口、调用显示器/光标 API 或输入；使用实际 Tauri/dpi 类型和原生 MSVC 图。
 实际窗口/DPI、Windows 10/多屏、工作区迁移、工具条交集、WGC、新 SHA CI 与其它宿主仍未验。

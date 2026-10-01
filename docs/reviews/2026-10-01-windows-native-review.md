@@ -12,7 +12,13 @@
 按实际 PNG 像素计算尺寸，缓存物理 anchor/工作区/DPI；隐藏创建与 reveal 都提交物理位置/尺寸，
 Windows resize 只重新表态 entry.above，不重复逻辑定位。来源失效按光标/主屏正常创建。
 旧生产输出与提取的旧生产布局/请求协议红基线 3 passed / 15 failed；同组十八项 MSVC 回归通过，
-完整默认/QA 门禁待补。脚手架类型编译错误和 PNG 夹具首次失败保留，不计产品回归失败或通过。
+干净源码 888127a226dab8737b219b879b7ca1add0875358 完整默认/QA 门禁确认原生子进程 exit 0，
+30 passed / 0 failed / 1 Linux smoke skipped。默认 Rust 1108、QA Rust 1165（各 5 ignored，重叠
+不累加）；每图十八项新回归及既有物理边界十六项、焦点/候选各八项均在总数内。前端 75 文件 /
+1292 passed，Python 33 + 3；独立 vendor 十八项、剪贴板二十四项通过。严格 lint、供应链、构建、
+日志哈希、干净检出及四份锁定 Tauri/Tao/dpi 源码哈希核对，既有 465 个 assert 宏 token 保留。
+完整结果 windows-pin-origin-native-qa-888127a/RESULT.json，红绿/源码/断言 windows-pin-physical-origin-contract。
+脚手架类型编译错误和 PNG 夹具首次失败保留，不计产品回归失败或通过。
 三份新回归及 resize 断言保持红绿一致；均使用真实领域和 Tauri 类型，未创建窗口或发送输入。
 存量 workspace 坐标迁移、工具条交集、WGC、真实多屏/DPI、新 SHA CI 与其它宿主仍待验；W04 未关闭。
 

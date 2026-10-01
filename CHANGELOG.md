@@ -8,7 +8,9 @@
   后端按绑定冻结帧的实际 crop 与 signed union offset 保留私有物理来源，前端不能伪造；按源屏
   和实际 PNG 像素规划尺寸，创建/reveal 使用同一物理请求，Windows resize 不重复提交逻辑点。
   原屏失去或来源未知时按光标/主屏创建。旧生产输出及提取的旧布局/请求协议红基线 3 passed /
-  15 failed，同组十八项 MSVC 离线回归通过；完整默认/QA 门禁待补。真实窗口/DPI 热插拔、
+  15 failed，同组十八项 MSVC 离线回归通过。干净源码 888127a 完整默认/录屏 QA 门禁确认子进程
+  exit 0：30 passed / 0 failed / 1 Linux smoke skipped；默认 Rust 1108、QA Rust 1165（各 5 ignored，
+  重叠不累加），前端 75 文件 / 1292 passed；十八项包含在各 Rust 总数。真实窗口/DPI 热插拔、
   Windows 10/多屏、存量工作区迁移、工具条交集、WGC、新 SHA CI 和其它宿主仍未验。
   （需求：`WIN-PIN-ORIGIN-01`；见 `docs/superpowers/specs/2026-10-01-windows-pin-physical-origin.md`）
 
