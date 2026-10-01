@@ -12,9 +12,21 @@
 预览关闭时退休；成功迟到通过旧服务释放并处理拒绝，只有当前请求 catch/finally 修改
 错误与 busy。服务新生命周期重置播放状态；关闭只解除该播放 busy，其它导出忙碌保持。
 同八项原测试字节与旧两文件保持，定向共 32 passed；App 限定修改以外全原正文和十一份
-关联文件保持，无 API/IPC/Rust/依赖/文案变更。完整干净 SHA Windows 门禁待执行。
+关联文件保持，无 API/IPC/Rust/依赖/文案变更。干净源码
+ba26a83ffc8b1db2519f76bae2d5aa1a6387c8af 完整默认/QA Windows 门禁确认原生 child/终端
+exit 0，30 passed / 0 failed / 1 Linux smoke skipped。默认 Rust 1165、QA Rust 1228（各
+5 ignored，重叠不累加），没有新增 Rust 用例，旧媒体十三项与导出身份七项各图通过，九条
+既有 manifest/导出/合并按原图通过；前端 78 文件 / 1315 passed，新八项包含在前端总数内。
+全量 reporter 只汇总，另以同一默认发现清单 78/1315（含新八项/旧 24）退出 0、定向绿
+日志与测试源码哈希核对，不重复执行测试主体。初次文件名解析假设失败单独保留并更正，
+不计产品/门禁失败。Python 33 + 3，独立 vendor 十八项与剪贴板二十四项、check、严格 lint、
+供应链、构建/入口通过。原始日志/两份源码/checked helper/门禁脚本哈希和干净检出核对，
+门禁后只改四份 Markdown；累计二十五项本机产品修复未装包，保存实际 QA/模板字节保持。
 真实 backend 租约撤销、窗口重建/WebView/其它宿主和当前 SHA CI 未验；服务更换与释放
-是组件注入合同和替身调用，桌面操作停止。合同 recording-playback-lifecycle-contract。
+是组件注入合同和替身调用，桌面操作停止。load 的 finally/ready 缺少生命周期检查，main
+使用 StrictMode；下一步先在组件/jsdom 复现，开发 effect 退休与发布行为分开，尚未追加
+缺陷/真实 focus 结论。合同 recording-playback-lifecycle-contract，完整门禁
+recording-playback-lifecycle-native-qa-ba26a83。
 
 此前 W40 / REC-MEDIA-REVOKE-01：原 revoke_session 仅移除已签发租约，generation 只检查
 结果窗关闭。原生产 manager 仅追加测试模块，真实文件/通道控制的排队 worker 红基线

@@ -9,7 +9,10 @@
   服务重置允许新请求，关闭预览保留其它导出的 busy；普通失败、URL 错误和已显示租约释放
   保持。原组件 jsdom 红基线 27 passed / 5 failed：三项释放调用为零、一次播放器重开、
   一次旧 busy 阻塞新请求（未执行到旧拒绝）。同八项原字节修复后通过，含旧 24 项共 32 passed。
-  完整 Windows 门禁待执行；jsdom/API 替身不证明真实后端撤销、窗口重建或 WebView 解码。
+  干净 ba26a83 完整 Windows 默认/QA 门禁确认原生子进程 exit 0：30 passed / 0 failed /
+  1 Linux smoke skipped，默认 Rust 1165/QA Rust 1228（各 5 ignored，重叠不累加），没有
+  新增 Rust 用例；前端 78 文件 / 1315 passed，新八项在前端总数内，测试发现/源码/原始
+  日志与干净检出核对。jsdom/API 替身不证明真实后端撤销、窗口重建或 WebView 解码。
   真实桌面/其它宿主/当前 SHA CI 未验，安装包未更新，桌面操控停止。
   （需求：`REC-PLAYBACK-LIFECYCLE-01`；补齐 `PX-REC-PLAYBACK-01` / 4–5；见 `docs/superpowers/specs/2026-10-02-recording-playback-lifecycle.md`）
 

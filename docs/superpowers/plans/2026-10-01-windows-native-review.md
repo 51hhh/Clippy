@@ -13,8 +13,12 @@
   播放请求身份在卸载/服务清理/预览关闭时退休，迟到租约由旧服务释放；旧失败不改新请求。
   关闭只清理该播放 busy，其它导出保持。原 App 字节红基线 27/5（旧 24 全绿），观察到
   释放缺口、播放器重开和旧 busy 阻塞；第五项未执行到旧拒绝。新八项原字节修复后通过，
-  定向 3 文件 / 32 passed，旧两测试文件和十一份关联文件保持。完整 Windows 门禁待执行；
-  替身释放/服务更换不是实际 backend 撤销/窗口重建，桌面/其它宿主/新 SHA CI 留未验。
+  定向 3 文件 / 32 passed，旧两测试文件和十一份关联文件保持。干净 ba26a83 完整 Windows
+  默认/QA 门禁 child/终端 exit 0，30 passed / 0 failed / 1 Linux smoke skipped；默认
+  Rust 1165、QA Rust 1228（各 5 ignored，重叠不累加），没有新增 Rust 用例，前端
+  78 文件 / 1315 passed，新增八项在前端总数内；发现清单/源码/原始日志与干净检出核对。
+  替身释放/服务更换不是实际 backend 撤销/窗口重建；加载 ready 回调退休为下一步候选，
+  尚未复现；桌面/其它宿主/新 SHA CI 留未验，安装包未更新。
 
 - `REC-MEDIA-REVOKE-01` / W40：独立 `codex/recording-media-revoke`，基于 `116f1d3`。
   准备进入后台前捕获会话身份；撤销同时失效已签发与待签发租约，首块/约 16 MiB 哈希检查
@@ -271,7 +275,7 @@
 | W05 | P1 | 同权限自动粘贴一次、高完整性目标 copy-only、目标销毁/复用、用户接管；DACL 与配置连续覆盖 | 45769c9 普通权限文本/图片完整用例实际通过；管理员、销毁复用与用户接管桌面待验证。私有文件准备失败时序见 W18，富文本片段边界见 W20，首次按键前目标复核见 W23 |
 | W06 | P1 | QA 包设备默认/非默认/同名/拔出、双源混音、暂停恢复、控制窗排除、强杀恢复、30 分钟 A/V 漂移 | WASAPI 正常停止尾部见 W24，WGC 关闭/初始化清理见 W25/W27，双轨桥接线程回收见 W26，WGC 应用帧桥启动回滚见 W35；真实设备、混音及其余场景仍待真机验收 |
 | W07 | P2 | NSIS/MSI 安装升级卸载、WebView2、自启动、托盘/快捷键、系统凭据与更新 | 官方 QA 包身份已核对，MSI 只读检查通过；NSIS 安装落盘/启动子步骤已核对，完整 MSI/升级/卸载/updater 未验收；本机自签名链不受信任，未更改信任 |
-| W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 42e52c0、45769c9 与 WinPS 的 b2fd247 各自七项 CI 通过；后续二十四项产品修复本机通过，新 SHA CI、Linux 本地完整门禁及 Wayland 回归保留未完成 |
+| W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 42e52c0、45769c9 与 WinPS 的 b2fd247 各自七项 CI 通过；后续二十五项产品修复本机通过，新 SHA CI、Linux 本地完整门禁及 Wayland 回归保留未完成 |
 | W09 | P1 | OCR 质量工具 Windows 私有诊断目录与符号链接拒绝合同；失败关闭，检查子文件继承 | 实际 DACL/等价 SDDL 及 10 类失败关闭负例通过；本机 33 项质量合同与 42e52c0 跨平台 CI 通过 |
 | W10 | P2 | 审查 webm-sys 的 C++ 编译参数在 MSVC 上产生 D9002；按真实编译器族选择 flag，保留固定来源与许可证 | 独立 WIN-WEBM-MSVC-01 / PR #14；本机完整 QA 绑定 e4ccc46，45769c9 七项 CI 与完整 QA workflow 全成功，新 Windows 包来源/哈希/签名身份已核对；真实桌面未验证 |
 | W11 | P1 | 新 Windows runner 使用 CRLF 检出时的 IPC 负例与结构回归；保留两种换行的正/负合同 | 独立 CRLF checkout 1284 项通过，fe37aec Windows 前端 CI 已通过 |
@@ -304,11 +308,10 @@
 | W38 | P1 | 录屏恢复合并与删除原子取得同会话所有权，删除 guard 覆盖完整 worker | 独立 REC-DELETE-OWNER-01；提取原删除协议红基线 3 passed / 3 failed，生产已提交 VP9 分段/清单删除缺口复现；同组六项通过，既有单槽/关键 manifest 合同通过；干净 0321355 完整默认/QA 门禁原生子进程 exit 0，30/0/1（Linux skip），默认 Rust 1150、QA Rust 1213（各 5 ignored，重叠不累加），新增六项仅在 QA 总数内，前端 1307 passed；默认删除不变；真实重开窗口/强杀/播放、其它宿主和新 SHA CI 未验 |
 | W39 | P1 | Windows 导出用完整句柄身份提前拒绝同文件别名，保留普通导出 | 独立 WIN-EXPORT-IDENTITY-01；原生产导出直接红基线 2 passed / 4 failed（三者替换 error 5、硬链接 Ok），同组六项修复后通过，旧导出/原生错误各一项通过；干净 69cf0b4 完整默认/QA 门禁原生子进程 exit 0，30/0/1（Linux skip），默认 Rust 1157、QA Rust 1220（各 5 ignored，重叠不累加），新增六项与错误一项在各图总数内，前端 1307 passed；真实对话框/媒体、文件系统/网络盘/权限与外部竞态、其它宿主和新 SHA CI 未验 |
 | W40 | P1 | 会话撤销同时失效尚在准备中的播放租约，保留其它会话与新准备 | 独立 REC-MEDIA-REVOKE-01，补齐 PX-REC-PLAYBACK-01 / 4；原 manager 红基线 7/4，四项实际返回 Ok 租约；同组六项与新增两项、旧五项共 13 passed；原合同核对，干净 6944b68 完整默认/QA Windows 门禁 child/终端 exit 0，30/0/1（Linux skip），默认 Rust 1165、QA Rust 1228（各 5 ignored，重叠不累加），新八项与旧媒体五项各图通过；前端 1307 passed。真实删除/合并/播放、哈希中间撤销时序、其它宿主与新 SHA CI 未验 |
+| W41 | P1 | 播放准备响应绑定组件/请求身份，退休后释放迟到租约，保留后继与其它动作状态 | 独立 REC-PLAYBACK-LIFECYCLE-01；原 App 字节 jsdom 红基线 27/5（旧 24 全绿），同八项原字节修复后通过，定向 32 passed；原合同/十一份关联文件核对。干净 ba26a83 完整默认/QA 门禁 child/终端 exit 0，30/0/1（Linux skip），默认 Rust 1165、QA Rust 1228（各 5 ignored，重叠不累加，无新增 Rust 用例），前端 78/1315 含新八项；发现清单/源码/日志与干净检出核对，实际 backend/窗口/WebView/其它宿主与新 SHA CI 未验 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。
-
-| W41 | P1 | 播放准备响应绑定组件/请求身份，退休后释放迟到租约，保留后继与其它动作状态 | 独立 REC-PLAYBACK-LIFECYCLE-01；原 App 字节 jsdom 红基线 27/5（旧 24 全绿），同八项原字节修复后通过，定向 32 passed；原合同与十一份关联文件核对。完整 Windows 门禁待执行；实际 backend/窗口/WebView/其它宿主与新 SHA CI 未验 |
 
 ## Verification
 

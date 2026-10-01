@@ -27,7 +27,7 @@
 - [x] 卸载成功/释放拒绝、服务更换旧成功/旧失败、关闭中的切换响应正确结算。
 - [x] 当前失败与 URL 转换错误保持可重试，关闭预览不会解除导出 busy。
 - [x] 同组新测试与旧组件/API 原字节核对，源码/依赖/后台协议边界保持。
-- [ ] 干净源码完整 Windows 门禁与同 ID 文档/证据同步，真实桌面与其它平台留未验。
+- [x] 干净源码完整 Windows 门禁与同 ID 文档/证据同步，真实桌面与其它平台留未验。
 
 ## Out of Scope
 
@@ -50,5 +50,17 @@ pendingPlayback 身份绑定当前请求；卸载/服务清理或 closePlayback 
 后 App 全部原正文保持，未更改 UI 文案、API/IPC、Rust 媒体/窗口协议或依赖。
 服务更换用例是注入组件合同，不等于真实窗口重建；释放 API 调用不证明后端实际撤销。
 
-完整干净 SHA Windows 门禁待执行。证据 C:\win\Clippy\src-tauri\target\recording-playback-lifecycle-contract。
-真实窗口/播放/释放、其它宿主和当前 SHA CI 留未验，安装包未更新，桌面操控停止。
+干净源码 ba26a83ffc8b1db2519f76bae2d5aa1a6387c8af 完整 Windows 默认/QA 门禁确认原生
+child 与终端 exit 0：30 passed / 0 failed / 1 Linux smoke skipped。默认 Rust 1165、QA Rust
+1228（各 5 ignored，重叠不累加），无新增 Rust 用例；旧媒体十三项、导出身份七项各图和
+既有九条 manifest/导出/合并按原图通过。前端 78 文件 / 1315 passed，新八项在前端总数内；
+Python 33 + 3，独立 vendor 十八项/剪贴板二十四项通过，check、严格 lint、供应链、构建/
+入口通过。全量 Vitest 只打印简略汇总；同一默认配置发现清单 78 文件 / 1315 项含新八项
+与旧 24 项，退出 0，结合原始测试/源码哈希及定向 32 全绿核对，未重跑测试主体。初次解析
+器错误期望文件名的失败保留为证据解析记录，不计作门禁/产品测试失败，当前状态更新前已更正。
+两份源码与门禁/checked helper/原始日志哈希、门禁前后干净检出核对；门禁后只改四份
+Markdown，生产/测试字节保持；保存实际 QA/全未运行模板原字节保持，未安装更新包。
+完整证据 C:\win\Clippy\src-tauri\target\recording-playback-lifecycle-native-qa-ba26a83；
+原 App 红基线/原合同/测试发现/后续 ready 源码 C:\win\Clippy\src-tauri\target\recording-playback-lifecycle-contract。
+真实窗口/播放/释放、其它宿主和当前 SHA CI 留未验，桌面操控停止。加载后 ready 的迟到
+回调/StrictMode effect 退休留为下一步生产组件候选，尚未复现，不声称实际焦点发生变化。
