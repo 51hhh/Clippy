@@ -8,7 +8,12 @@
   用原三十二包容量接收未封闭 slot 的部分音频，不提前固化可替换图像；全局/分段
   两条容量取最小值，先按 sample/CFR 边界切分，Stop 排空包队列后补齐尾部。
   源时钟、帧率、原生计数和三帧/包/PCM 预算保持；无源下界来源仍沿用旧等待。
-  <!-- W55_GATE_PENDING -->
+  同字节运行期夹具旧实现0/1（实际Backpressure）、修复领域377/0=原364+新13。
+  干净 `120b3add51e0d569cdc5e4442f0a4577c12f7b88` 完整 Windows 门禁33 passed / 0 failed / 1 Linux smoke skipped；
+  默认Rust1227/QA1343各5ignored，两图不累加；前端81文件/1403passed。
+  新13仅QA，已含在Rust总数内；原五个完整测试模块、Windows生产/原测试与严格reader保持。
+  红绿运行期/bridge/helper字节相同，无接口stub；十八份Rust输入绑定干净SHA。
+  最终旧实现重放与finally恢复、最终领域及完整门禁的实际日志/输入哈希已保留。
   实际设备/桌面/安装器/当前 CI/其它宿主/多屏未验，桌面保持停止；本 SHA release
   未构建，W53 原 AVI 用例一次超时原因仍保留。
   （需求：`REC-PENDING-FRAME-PCM-01`；见 `docs/superpowers/specs/2026-10-02-recording-pending-frame-budget.md`）

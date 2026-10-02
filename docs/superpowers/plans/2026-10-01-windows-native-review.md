@@ -12,7 +12,12 @@
 - W55 / `REC-PENDING-FRAME-PCM-01`：独立 `codex/recording-pending-frame-budget`，基于
   `bdffab3`。原 bridge/1 FPS/同一时钟实时 PCM 已复现实际 Backpressure；保留缓存
   下界与真实帧替换，按全局/分段剩余包槽消费未封闭 slot 的 PCM，先对齐分段切点。
-  <!-- W55_GATE_PENDING -->
+  同字节运行期夹具旧实现0/1（实际Backpressure）、修复领域377/0=原364+新13。
+  干净 `120b3add51e0d569cdc5e4442f0a4577c12f7b88` 完整 Windows 门禁33 passed / 0 failed / 1 Linux smoke skipped；
+  默认Rust1227/QA1343各5ignored，两图不累加；前端81文件/1403passed。
+  新13仅QA，已含在Rust总数内；原五个完整测试模块、Windows生产/原测试与严格reader保持。
+  红绿运行期/bridge/helper字节相同，无接口stub；十八份Rust输入绑定干净SHA。
+  最终旧实现重放与finally恢复、最终领域及完整门禁的实际日志/输入哈希已保留。
   当前 SHA CI/其它宿主/设备/安装器/多屏未验，桌面停止；W53 AVI 超时原因仍保留。
 
 - W54 / `REC-WINDOWS-IDLE-AV-01`：独立 `codex/recording-av-idle-frontier`，基于 `e59430f`。

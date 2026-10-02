@@ -30,7 +30,7 @@ slot 的 PCM；保留占位图像和首 keyframe。恰在边界 Stop 不创建�
 
 首轮新增九项通过，含实际 bridge/worker/实时 PCM、包槽耗尽仍失败关闭、部分 Opus
 PCM 容量、真实同 slot 替换、精确/边界 Stop、15/30 FPS 分段严格 reader。
-暂停/恢复、Error/Drop、确认空洞与旧领域测试继续核对。原完整测试模块正文与既有
+新增十三项最终覆盖暂停/恢复、Error/Drop、确认空洞；旧领域全部通过。原完整测试模块正文与既有
 严格 reader 不改；新 API 合同与旧实现可执行的相同运行期夹具分开记录。
 
 第二轮领域 376/1；唯一失败是新暂停夹具把恢复后帧 PTS 写成与 resume 控制时间
@@ -39,7 +39,12 @@ PCM 容量、真实同 slot 替换、精确/边界 Stop、15/30 FPS 分段严格
 边界还停留在旧值，触发原 FinishBeforeBufferedAudioEnd；Stop 和期望总时长同步
 延后一纳秒，不改原生产容差或期限。两轮原阶段日志保留，实时背压用例均通过。
 
-<!-- W55_GATE_PENDING -->
+同字节运行期夹具旧实现0/1（实际Backpressure）、修复领域377/0=原364+新13。
+干净 `120b3add51e0d569cdc5e4442f0a4577c12f7b88` 完整 Windows 门禁33 passed / 0 failed / 1 Linux smoke skipped；
+默认Rust1227/QA1343各5ignored，两图不累加；前端81文件/1403passed。
+新13仅QA，已含在Rust总数内；原五个完整测试模块、Windows生产/原测试与严格reader保持。
+红绿运行期/bridge/helper字节相同，无接口stub；十八份Rust输入绑定干净SHA。
+最终旧实现重放与finally恢复、最终领域及完整门禁的实际日志/输入哈希已保留。
 
 证据目录 `src-tauri/target/recording-pending-frame-budget-contract/` 保留原 W54 状态、
 初始红、阶段绿、最终旧实现重放及恢复、最终领域、日志/输入哈希与冻结 SHA 门禁。
