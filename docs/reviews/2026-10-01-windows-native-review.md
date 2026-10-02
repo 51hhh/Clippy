@@ -5,6 +5,15 @@
 
 ## 当前续审结果
 
+W72 / `REC-MIXED-PAUSED-STOP-01`：原Pause→Stop制造暂停静音，worker/完整owner报AlreadyPaused，
+原十二项同字节API基线6/6。修复暂停状态只封闭停止控制时间线，真实尾块/源失败/倒退/格式错误仍拒绝，
+原worker保护、W69/W70活跃路径和119份旧文件完整测试/期限保持。领域491/0，同十二项通过。
+原完整owner正常complete20ms/2视频帧/960输入及有效PCM，文件解码保留已接受信号，不计设备验收。
+干净02005c9完整Windows门禁33/0/1 Linux smoke skipped；默认1308/QA1457各5ignored，前端81/1403。
+新12项已含总数（10两图/2仅QA），累计47项本地修复。当前release/CI/其它宿主/设备/桌面/安装器/长时同步未验；
+W71 B0 release与安装包/39项桌面记录保留为历史，历史失败根因仍未明；桌面停止，无推送/PR/合入/发布。
+见 [W72审查](2026-10-02-mixed-paused-stop-review.md)。
+
 W71 / `WIN-NATIVE-01`：冻结 `b0b51f1196124383b9fc77cfc4ad22c21e8c3d84`，默认/录屏QA在独立target完成release编译，
 实际编译参数、两图feature、AMD64 GUI PE和QA10份CRT来源/部署/导入文件核对，native/包装器/终端退出0。
 包含W69/W70混音修复；生产/测试/期限、46项本地修复、原门禁/测试计数保持，构建/文件检查不计通过。

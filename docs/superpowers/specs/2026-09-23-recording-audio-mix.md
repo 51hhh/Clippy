@@ -77,3 +77,13 @@
 源码 `b0b51f1196124383b9fc77cfc4ad22c21e8c3d84` Windows完整门禁33/0/1，默认1298/QA1445各5ignored，前端81/1403。
 这些代码/合成源/codec文件证据不替代最后两项同SHA跨平台CI和原生权限/设备/听感/30分钟漂移验收，
 它们继续未完成，默认录屏入口关闭。见 [W70审查](../../reviews/2026-10-02-mixed-control-skew-review.md)。
+
+## W72 暂停后的正常 Stop 覆盖
+
+原第7/8项和已勾选Pause/Resume/有限尾块早期覆盖未证明Pause→Stop正常完成。
+[REC-MIXED-PAUSED-STOP-01](2026-10-02-mixed-paused-stop.md) 冻结十二项原API6/6诊断，
+修复暂停状态不再制造静音，真实尾块/源错误继续拒绝；原worker和完整owner
+正常保留20ms/960输入及有效PCM，实际文件解码通过。源码 `02005c98ee6ac52fd46e20c878a717f314fd90cc`
+完整Windows门禁33/0/1，默认1308/QA1457各5ignored，前端81/1403。
+同SHA跨平台CI、原生权限/设备/听感/30分钟漂移等最后复合验收继续未完成，默认录屏入口关闭。
+见 [W72审查](../../reviews/2026-10-02-mixed-paused-stop-review.md)。

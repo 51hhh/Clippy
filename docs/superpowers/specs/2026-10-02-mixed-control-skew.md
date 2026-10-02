@@ -67,3 +67,11 @@ worker恢复返回Source(LateInput)并保留960帧前缀；停止正常返回但
 
 W71后续：同源码默认/QA release编译和PE/CRT文件验证完成，实际启动、设备、CI和桌面等仍未验。
 见 [release验证](../../reviews/2026-10-02-windows-mixed-control-release-review.md)；最后复合验收继续未完成。
+
+## W72 暂停后直接停止补充
+
+本规格的非对称恢复/活跃停止尾部验证不覆盖暂停后直接停止。
+[REC-MIXED-PAUSED-STOP-01](2026-10-02-mixed-paused-stop.md) 补充原十二项同字节API6/6诊断，
+修复暂停状态不生成静音；保留本规格活跃路径、真正早停和其它严格错误保护。
+干净 `02005c98ee6ac52fd46e20c878a717f314fd90cc` 领域491/0及完整Windows默认/QA门禁通过。
+这些合成证据不替代同SHA CI、原生设备/桌面和长时同步等复合验收。

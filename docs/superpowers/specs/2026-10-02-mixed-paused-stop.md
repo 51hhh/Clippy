@@ -25,7 +25,7 @@
 - [x] 两路停止顺序和无首包情况下暂停后 Stop 不产生 PCM，返回实际控制下界。
 - [x] 原 worker 正常封尾并保留完整已接受 PCM/两源 Drop，真正的暂停中入队继续拒绝。
 - [x] 源停止失败、控制倒退、异常格式/真实尾块仍失败；正常/错误完整 A/V owner 的原文件保存。
-- [ ] 同字节原实现对照、旧模块/期限、完整领域及干净源码 Windows 默认/QA 门禁通过，记录同步。
+- [x] 同字节原实现对照、旧模块/期限、完整领域及干净源码 Windows 默认/QA 门禁通过，记录同步。
 - [ ] 当前源码 release/同 SHA 跨平台 CI、原生设备/长时同步和桌面验收完成。
 
 ## Out of Scope
@@ -56,4 +56,10 @@ Stop返回Pipeline(AlreadyPaused)。原完整owner同根AudioCapture(Pipeline(Al
 真正麦克风停止失败仍为同源AudioCapture(Source(...))、interrupted，两路Stop均已尝试。
 原119份文件的旧完整模块/期限保持，原worker单源暂停中PCM仍报Pipeline(AlreadyPaused)。
 独立ffprobe/ffmpeg仅检查合成文件：2 VP9/2 Opus包、pre-skip312/discard648、960有效PCM、20ms，
-解码信号RMS约0.353；不播放、不开设备。完整门禁待干净源码提交，最后复合验收保留未完成。
+解码信号RMS约0.353；不播放、不开设备。完整门禁结果见下，最后复合验收保留未完成。
+
+## 冻结源码完整门禁
+
+`02005c98ee6ac52fd46e20c878a717f314fd90cc` 完整Windows门禁33/0/1；默认1308/QA1457各5ignored，前端81/1403。
+新12项与领域491已含总数、两图重叠不累加；见 [W72审查](../../reviews/2026-10-02-mixed-paused-stop-review.md)。
+当前源码release/CI、其它宿主和设备/桌面等最后复合验收仍未完成。
