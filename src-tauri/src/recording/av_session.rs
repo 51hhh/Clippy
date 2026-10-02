@@ -475,6 +475,11 @@ fn discard_failed_start(app_data_dir: &Path, session_id: &str) {
 
 #[cfg(test)]
 mod tests {
+    mod activation_boundary_tests {
+        use super::*;
+        include!("av_session/activation_boundary_tests.rs");
+    }
+
     mod control_timeline_tests {
         use super::*;
         include!("av_session/control_timeline_tests.rs");

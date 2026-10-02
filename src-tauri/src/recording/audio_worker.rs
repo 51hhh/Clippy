@@ -535,6 +535,11 @@ impl Drop for AudioPipelineAbortGuard<'_> {
 
 #[cfg(test)]
 mod tests {
+    mod activation_boundary_tests {
+        use super::*;
+        include!("audio_worker/activation_boundary_tests.rs");
+    }
+
     use super::*;
     use crate::recording::audio::{AudioFormat, AudioPipelineStats};
     use std::collections::VecDeque;

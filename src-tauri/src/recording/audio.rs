@@ -176,6 +176,7 @@ struct AudioTimeline {
     origin_ns: u64,
     last_sequence: Option<u64>,
     last_source_ns: Option<u64>,
+    resumed_at_ns: Option<u64>,
     last_presentation_end_ns: Option<u64>,
     paused_at_ns: Option<u64>,
     #[cfg(feature = "recording-opus-webm")]
@@ -189,6 +190,7 @@ impl AudioTimeline {
             origin_ns,
             last_sequence: None,
             last_source_ns: None,
+            resumed_at_ns: None,
             last_presentation_end_ns: None,
             paused_at_ns: None,
             #[cfg(feature = "recording-opus-webm")]
@@ -214,10 +216,10 @@ impl AudioTimeline {
         if chunk.captured_at_ns < self.origin_ns {
             return Err(AudioPipelineError::SourceBeforeOrigin);
         }
-        if self
-            .last_source_ns
-            .is_some_and(|timestamp| chunk.captured_at_ns <= timestamp)
-        {
+        if self.last_source_ns.is_some_and(|timestamp| {
+            chunk.captured_at_ns < timestamp
+                || (chunk.captured_at_ns == timestamp && self.resumed_at_ns != Some(timestamp))
+        }) {
             return Err(AudioPipelineError::SourceTimestampNotIncreasing);
         }
         let presentation_at_ns = chunk
@@ -235,6 +237,8 @@ impl AudioTimeline {
         let gap_before_ns = presentation_at_ns - previous_end;
         self.last_sequence = Some(chunk.sequence);
         self.last_source_ns = Some(chunk.captured_at_ns);
+        // 恢复时刻是包含下界；首块成功后，后续真实 PCM 仍必须严格递增。
+        self.resumed_at_ns = None;
         self.last_presentation_end_ns = Some(presentation_end_ns);
         Ok(MappedAudioChunk::Queued(QueuedAudioChunk {
             chunk,
@@ -267,6 +271,7 @@ impl AudioTimeline {
         }
         self.last_source_ns = Some(captured_at_ns);
         self.paused_at_ns = Some(captured_at_ns);
+        self.resumed_at_ns = None;
         Ok(())
     }
 
@@ -295,6 +300,7 @@ impl AudioTimeline {
             .ok_or(AudioPipelineError::TimelineOverflow)?;
         self.last_source_ns = Some(captured_at_ns);
         self.paused_at_ns = None;
+        self.resumed_at_ns = Some(captured_at_ns);
         #[cfg(feature = "recording-opus-webm")]
         {
             self.media_paused_at_ns = None;
@@ -344,6 +350,7 @@ impl AudioTimeline {
             self.media_paused_at_ns = None;
         }
         self.last_source_ns = Some(captured_at_ns);
+        self.resumed_at_ns = None;
         Ok(duration_ns)
     }
 }

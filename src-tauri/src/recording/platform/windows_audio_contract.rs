@@ -55,6 +55,8 @@ pub(in crate::recording) enum WindowsAudioContractError {
     SequenceExhausted,
     #[error("WASAPI 停止尾包超过 endpoint 实际帧容量")]
     StopDrainBudgetExceeded,
+    #[error("WASAPI 控制时间戳已经耗尽")]
+    ControlTimestampExhausted,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -240,8 +242,42 @@ pub(super) fn safe_control_timestamp(current_ns: u64, last_packet_end_ns: Option
     current_ns.max(last_packet_end_ns.unwrap_or_default())
 }
 
+/// packet 末尾可能抬高控制下界；控制操作按 1 ns 排序，不修改任何原生 PCM PTS。
+#[derive(Debug, Default)]
+pub(super) struct WasapiControlTimeline {
+    last_control_ns: Option<u64>,
+}
+
+impl WasapiControlTimeline {
+    pub fn next_timestamp(
+        &mut self,
+        current_ns: u64,
+        last_packet_end_ns: Option<u64>,
+    ) -> Result<u64, WindowsAudioContractError> {
+        let mut timestamp = safe_control_timestamp(current_ns, last_packet_end_ns);
+        if let Some(last) = self.last_control_ns {
+            timestamp = timestamp.max(
+                last.checked_add(1)
+                    .ok_or(WindowsAudioContractError::ControlTimestampExhausted)?,
+            );
+        }
+        self.last_control_ns = Some(timestamp);
+        Ok(timestamp)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    mod control_clock_tests {
+        use super::*;
+        include!("windows_audio_contract/control_clock_tests.rs");
+    }
+
+    mod activation_boundary_tests {
+        use super::*;
+        include!("windows_audio_contract/activation_boundary_tests.rs");
+    }
+
     use super::*;
 
     #[derive(Debug, PartialEq, Eq)]
