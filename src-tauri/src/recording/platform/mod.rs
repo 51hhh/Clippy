@@ -517,6 +517,19 @@ impl RecordingFrameSource for PlatformFrameSource {
 impl RecordingAudioSource for PlatformAudioSource {
     type Error = PlatformAudioSourceError;
 
+    fn start_capture(&mut self) -> Result<Option<u64>, Self::Error> {
+        match self {
+            Self::Unsupported => Err(PlatformAudioSourceError::Unsupported),
+            #[cfg(all(target_os = "windows", feature = "recording-windows-av-qa"))]
+            Self::Windows(source) => Ok(source.start_capture()?),
+            #[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
+            Self::Macos(source) => Ok(source.start_capture()?),
+            #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
+            Self::Linux(source) => Ok(source.start_capture()?),
+            Self::Mixed(source) => Ok(source.start_capture()?),
+        }
+    }
+
     fn capture_next_available(
         &mut self,
         _timeout: std::time::Duration,

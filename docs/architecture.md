@@ -82,6 +82,14 @@ flowchart LR
 | `dbus.rs` | **全部阻塞式 D-Bus 调用的唯一入口。** ashpd 打开了 zbus 的 `tokio` feature，于是 `zbus::blocking` 内部用一个静态多线程 runtime 做 `block_on`，在 tokio async worker 线程上调必然 panic（`Cannot start a runtime from within a runtime`）。这里先跳到一条干净的 OS 线程再开连接，调用方不必关心自己跑在什么线程上；别处不要直接用 `zbus::blocking`。**session 连接是复用的**：`Connection::session()` 每次都要重做 SASL 握手 + `Hello`（1~2 ms），而贴图缩放每一帧都要发一次 `PlaceWindow`，所以连接缓存在一个 `OnceLock<Mutex<Option<Connection>>>` 里。失效判据是 `worth_reconnecting`——`Error::MethodError` 说明对端应答了（连接是好的，绝不能重连重试），其余错误才丢缓存重连一次。**存入缓存的判据（`worth_caching`）必须是同一个的反面**：只按"调用成功"判会把一条被业务错误拒绝、但本身完好的连接扔掉，于是每次失败的探测都要重新握手一遍 |
 | `image_io.rs` / `dialogs.rs` | PNG 与剪贴板互转；按配置的目录与文件名模板落盘（`SaveTarget`），同目录临时文件完整写入并 `sync_all` 后再原子、不覆盖地提交；`thumbnail_png` 给列表行缩图（`image` crate 的 `thumbnail()` 快路径，不是 Lanczos）；截图目录选择集中在 `dialogs.rs` 调用插件，可编辑 PNG 重开走原生拖放事件而不是文件对话框 |
 
+双轨采集按三个独立阶段启动：各自线程内准备两个 factory、启动视频并完成首轮轮询握手、
+首个有效视频帧已被 pipeline 接受后释放音频。首轮 None 允许 owner 返回准备中的会话；
+暂停/恢复先检查有效首帧发布，不能给仍在等待释放的音频发同步控制。首轮有效帧保持立即
+暂停合同。Windows WASAPI 准备阶段不 Start；worker 激活后返回 PCM 时间下界，平台和
+混音封装必须转发。两个混音输入都有下界时从较早起点初始化 sample cursor，其它源的
+默认激活返回 None，沿用原 constructor 行为。等待失败或取消由原线程回收 source，
+预算、共享时钟与 epoch 裁切保持。见 `REC-FIRST-FRAME-AUDIO-01` 规格。
+
 ## 前端模块
 
 `js/settings/platform-capabilities.js` 只消费后端 typed `PlatformInfo`：设置页“关于”展示系统、会话、

@@ -93,6 +93,7 @@ pub(super) struct CaptureWorker {
     control: SyncSender<ControlCommand>,
     stop_requested: Arc<AtomicBool>,
     startup_pending: Arc<AtomicBool>,
+    first_frame_ready: Arc<AtomicBool>,
     join: Option<JoinHandle<Result<CaptureWorkerReport, CaptureWorkerError>>>,
 }
 
@@ -121,7 +122,7 @@ impl CaptureWorker {
         F: FnOnce() -> Result<S, String> + Send + 'static,
         S: RecordingFrameSource,
     {
-        Self::spawn_with_start(factory, pipeline, frames_per_second, None)
+        Self::spawn_with_start(factory, pipeline, frames_per_second, None, None)
     }
 
     /// 双轨 owner 在两个 factory 都就绪后释放；source 仍在本 worker 线程创建和销毁。
@@ -135,7 +136,29 @@ impl CaptureWorker {
         F: FnOnce() -> Result<S, String> + Send + 'static,
         S: RecordingFrameSource,
     {
-        Self::spawn_with_start(factory, pipeline, frames_per_second, Some(start))
+        Self::spawn_with_start(factory, pipeline, frames_per_second, Some(start), None)
+    }
+
+    /// 双轨音频只在首个有效视频帧已入队后释放；错误或退出会关闭信号并取消音频等待。
+    pub fn spawn_with_first_frame_release<F, S>(
+        factory: F,
+        pipeline: Arc<RecordingPipeline>,
+        frames_per_second: u32,
+        start: Receiver<()>,
+        first_frame: SyncSender<()>,
+        first_poll: SyncSender<()>,
+    ) -> Result<Self, CaptureWorkerError>
+    where
+        F: FnOnce() -> Result<S, String> + Send + 'static,
+        S: RecordingFrameSource,
+    {
+        Self::spawn_with_start(
+            factory,
+            pipeline,
+            frames_per_second,
+            Some(start),
+            Some((first_frame, first_poll)),
+        )
     }
 
     fn spawn_with_start<F, S>(
@@ -143,6 +166,7 @@ impl CaptureWorker {
         pipeline: Arc<RecordingPipeline>,
         frames_per_second: u32,
         start: Option<Receiver<()>>,
+        first_frame: Option<(SyncSender<()>, SyncSender<()>)>,
     ) -> Result<Self, CaptureWorkerError>
     where
         F: FnOnce() -> Result<S, String> + Send + 'static,
@@ -154,6 +178,12 @@ impl CaptureWorker {
         let stop_requested = Arc::new(AtomicBool::new(false));
         let startup_pending = Arc::new(AtomicBool::new(start.is_some()));
         let worker_pending = Arc::clone(&startup_pending);
+        let first_frame_ready = Arc::new(AtomicBool::new(false));
+        let capture_startup = CaptureStartup {
+            first_frame_ready: Arc::clone(&first_frame_ready),
+            release: first_frame.as_ref().map(|(release, _)| release.clone()),
+            first_poll: first_frame.map(|(_, first_poll)| first_poll),
+        };
         let worker_stop = Arc::clone(&stop_requested);
         let worker_pipeline = Arc::clone(&pipeline);
         let join = thread::Builder::new()
@@ -184,13 +214,21 @@ impl CaptureWorker {
                     let _ = worker_pipeline.abort();
                     return Err(CaptureWorkerError::ControlDisconnected);
                 }
-                run_loop(source, &worker_pipeline, commands, &worker_stop, interval)
+                run_loop_with_first_frame(
+                    source,
+                    &worker_pipeline,
+                    commands,
+                    &worker_stop,
+                    interval,
+                    capture_startup,
+                )
             })
             .map_err(|error| CaptureWorkerError::ThreadSpawn(error.to_string()))?;
         let mut worker = Self {
             control,
             stop_requested,
             startup_pending,
+            first_frame_ready,
             join: Some(join),
         };
         match initialized.recv() {
@@ -229,6 +267,10 @@ impl CaptureWorker {
     /// 未收到 Stop 时线程结束只能表示平台源或 pipeline 已失败；供控制面及时触发统一清理。
     pub fn is_finished(&self) -> bool {
         self.join.as_ref().is_some_and(|join| join.is_finished())
+    }
+
+    pub fn is_first_frame_ready(&self) -> bool {
+        self.first_frame_ready.load(Ordering::Acquire)
     }
 
     pub fn wait(mut self) -> Result<CaptureWorkerReport, CaptureWorkerError> {
@@ -290,8 +332,15 @@ fn capture_interval(frames_per_second: u32) -> Result<Duration, CaptureWorkerErr
     ))
 }
 
+#[derive(Default)]
+struct CaptureStartup {
+    first_frame_ready: Arc<AtomicBool>,
+    release: Option<SyncSender<()>>,
+    first_poll: Option<SyncSender<()>>,
+}
+
 fn run_loop<S>(
-    mut source: S,
+    source: S,
     pipeline: &RecordingPipeline,
     commands: Receiver<ControlCommand>,
     stop_requested: &AtomicBool,
@@ -300,8 +349,36 @@ fn run_loop<S>(
 where
     S: RecordingFrameSource,
 {
+    run_loop_with_first_frame(
+        source,
+        pipeline,
+        commands,
+        stop_requested,
+        interval,
+        CaptureStartup::default(),
+    )
+}
+
+fn run_loop_with_first_frame<S>(
+    mut source: S,
+    pipeline: &RecordingPipeline,
+    commands: Receiver<ControlCommand>,
+    stop_requested: &AtomicBool,
+    interval: Duration,
+    startup: CaptureStartup,
+) -> Result<CaptureWorkerReport, CaptureWorkerError>
+where
+    S: RecordingFrameSource,
+{
     let mut abort_guard = PipelineAbortGuard::new(pipeline);
-    let result = run_loop_inner(&mut source, pipeline, commands, stop_requested, interval);
+    let result = run_loop_inner(
+        &mut source,
+        pipeline,
+        commands,
+        stop_requested,
+        interval,
+        startup,
+    );
     if result
         .as_ref()
         .is_ok_and(|report| report.duration_ns.is_some())
@@ -317,6 +394,7 @@ fn run_loop_inner<S>(
     commands: Receiver<ControlCommand>,
     stop_requested: &AtomicBool,
     interval: Duration,
+    mut startup: CaptureStartup,
 ) -> Result<CaptureWorkerReport, CaptureWorkerError>
 where
     S: RecordingFrameSource,
@@ -348,7 +426,8 @@ where
             .map_err(|error| CaptureWorkerError::Source(error.to_string()))?;
         if let Some(frame) = frame {
             report.captured_frames = report.captured_frames.saturating_add(1);
-            match pipeline.push(frame)? {
+            let outcome = pipeline.push(frame)?;
+            match outcome {
                 PushOutcome::Queued { .. } => {
                     report.queued_frames = report.queued_frames.saturating_add(1);
                 }
@@ -361,6 +440,20 @@ where
                     report.ignored_while_paused = report.ignored_while_paused.saturating_add(1);
                 }
             }
+            if !matches!(outcome, PushOutcome::IgnoredWhilePaused) {
+                if let Some(release) = startup.release.take() {
+                    release
+                        .send(())
+                        .map_err(|_| CaptureWorkerError::ControlDisconnected)?;
+                }
+                startup.first_frame_ready.store(true, Ordering::Release);
+            }
+        }
+        // 首轮 None 也回复 owner；有效帧已入队时，返回 start 后原有同步控制可立即使用。
+        if let Some(first_poll) = startup.first_poll.take() {
+            first_poll
+                .send(())
+                .map_err(|_| CaptureWorkerError::ControlDisconnected)?;
         }
 
         let remaining = interval.saturating_sub(started.elapsed());
@@ -895,5 +988,10 @@ mod tests {
     mod startup_tests {
         use super::*;
         include!("worker/startup_tests.rs");
+    }
+
+    mod first_frame_tests {
+        use super::*;
+        include!("worker/first_frame_tests.rs");
     }
 }

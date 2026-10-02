@@ -5,6 +5,14 @@
 
 ## 当前续审结果
 
+W51 / `REC-FIRST-FRAME-AUDIO-01`：基于 `d9264cd` 独立审查 factory 之后的首视频帧等待。
+固定三个 AV 回归在原生产代码全部失败，真实音频 worker 错误为 `Pipeline(Backpressure)`，
+首帧前轮询十四次；不是实际设备故障。修改有效首帧释放、首轮握手与 Windows/混音音源
+激活下界。最终同字节三项原实现仍 0/3；修复新十八项和原三百零一项，共 319 passed，
+四个原测试模块正文保持；冻结 source 完整门禁仍待验。首帧后无新视频帧的消费阻塞与
+提前 Stop 的三十二包尾部阻塞保留为后续独立项，
+未修改原预算/时钟/encoder，桌面仍停止。见 `2026-10-02-recording-first-frame-audio-review.md`。
+
 W50 / `REC-AV-STARTUP-GATE-01`：原 AV 启动会先运行音频、再初始化视频；新增三项
 观察到视频 factory 等待时音频已轮询五次，原 AV 三项保持通过。修复后同组六项绿，
 两个 factory 完成后才释放采集，等待中通道关闭或 Drop/Stop 可取消；原队列/时钟与

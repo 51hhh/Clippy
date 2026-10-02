@@ -469,6 +469,31 @@ where
 {
     type Error = MixedAudioSourceError;
 
+    fn start_capture(&mut self) -> Result<Option<u64>, Self::Error> {
+        let system_origin = self
+            .system
+            .start_capture()
+            .map_err(|error| MixedAudioSourceError::System(error.to_string()))?;
+        let microphone_origin = match self.microphone.start_capture() {
+            Ok(origin) => origin,
+            Err(error) => {
+                if let Err(rollback) = self.system.stop_capture() {
+                    return Err(MixedAudioSourceError::ControlDiverged(format!(
+                        "麦克风启动失败: {error}; 系统声停止失败: {rollback}"
+                    )));
+                }
+                return Err(MixedAudioSourceError::Microphone(error.to_string()));
+            }
+        };
+        // 只有两个源都给出有效 PCM 下界才能跳过旧时间；取较早起点保留两源启动差。
+        if let (Some(system), Some(microphone)) = (system_origin, microphone_origin) {
+            let origin = system.min(microphone);
+            self.mixer.restart_at(origin)?;
+            return Ok(Some(origin));
+        }
+        Ok(None)
+    }
+
     fn capture_next_available(
         &mut self,
         timeout: Duration,
@@ -942,5 +967,10 @@ mod tests {
             source.capture_next_available(Duration::ZERO),
             Err(MixedAudioSourceError::Microphone(_))
         ));
+    }
+
+    mod activation_tests {
+        use super::*;
+        include!("audio_mixer/activation_tests.rs");
     }
 }

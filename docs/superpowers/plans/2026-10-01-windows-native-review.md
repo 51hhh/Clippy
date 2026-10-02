@@ -9,6 +9,14 @@
 
 ## 当前续审状态
 
+- W51 / `REC-FIRST-FRAME-AUDIO-01`：独立 `codex/recording-first-frame-audio-gate`，基于 `d9264cd`。
+  原生产源码固定三个首帧 AV 回归全部失败，音频 worker 实际返回 Backpressure；首帧前
+  十四次轮询。实现有效首帧入队后的音频释放与首轮视频握手，Windows 延迟 stream 激活，
+  混音从有效 PCM 下界开始，原预算/时钟/encoder 保留。最终同字节三项原实现 0/3，
+  新十八项及原领域三百零一项，共 319 passed，四个旧测试模块正文保持；冻结 source
+  门禁待验。首帧后无新视频帧与提前 Stop 的三十二包尾部阻塞为独立未完成项，
+  设备/其它宿主/当前 CI/安装器/多屏和桌面保持未验。
+
 - W50 / `REC-AV-STARTUP-GATE-01`：独立 `codex/recording-av-startup-gate`，基于 `cc5f7af`。
   原生产入口在视频 factory 等待时已轮询音频五次；新三项红、原三项 AV 绿，修复后同六项绿。
   两个 factory 都完成后才释放 pipeline 采集，新十一项/原相关二十七项及录屏领域 301 通过。

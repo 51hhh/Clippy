@@ -24,6 +24,13 @@ const PAUSED_STOP_POLL: Duration = Duration::from_millis(250);
 pub(super) trait RecordingAudioSource: 'static {
     type Error: Error + Send + Sync + 'static;
 
+    /// 延迟原生 stream 激活，避免 factory 就绪但首视频帧未到时积累无用 PCM。
+    /// 返回 Some 时保证后续 PCM 不早于该会话时间；混音器据此跳过准备期间的历史静音。
+    /// 已在 constructor 激活的平台源沿用 None；Windows 源在此真正启动。
+    fn start_capture(&mut self) -> Result<Option<u64>, Self::Error> {
+        Ok(None)
+    }
+
     fn capture_next_available(
         &mut self,
         timeout: Duration,
@@ -217,6 +224,11 @@ impl AudioCaptureWorker {
         self.join.as_ref().is_some_and(|join| join.is_finished())
     }
 
+    /// 首视频帧尚未释放时，双轨 owner 不得进入暂停/恢复的同步控制握手。
+    pub fn is_start_pending(&self) -> bool {
+        self.startup_pending.load(Ordering::Acquire)
+    }
+
     pub fn wait(mut self) -> Result<AudioCaptureWorkerReport, AudioCaptureWorkerError> {
         self.join_inner()
     }
@@ -274,6 +286,9 @@ where
     S: RecordingAudioSource,
 {
     let mut abort_guard = AudioPipelineAbortGuard::new(pipeline);
+    source
+        .start_capture()
+        .map_err(|error| AudioCaptureWorkerError::Source(error.to_string()))?;
     let result = run_loop_inner(&mut source, pipeline, commands, stop_requested);
     if result
         .as_ref()
@@ -1009,5 +1024,10 @@ mod tests {
     mod startup_tests {
         use super::*;
         include!("audio_worker/startup_tests.rs");
+    }
+
+    mod activation_tests {
+        use super::*;
+        include!("audio_worker/activation_tests.rs");
     }
 }

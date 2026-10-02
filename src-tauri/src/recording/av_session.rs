@@ -63,6 +63,8 @@ pub(super) enum AvRecordingSessionError {
     AlreadySettled,
     #[error("双轨录屏采集在启动释放前已取消")]
     StartupCancelled,
+    #[error("双轨录屏仍在等待首视频帧，暂不能暂停或恢复")]
+    StartupPending,
 }
 
 #[derive(Debug)]
@@ -179,6 +181,7 @@ impl AvRecordingSession {
         };
         let (audio_start, audio_release) = mpsc::sync_channel(1);
         let (video_start, video_release) = mpsc::sync_channel(1);
+        let (video_polled, first_video_poll) = mpsc::sync_channel(1);
         let audio_capture = match AudioCaptureWorker::spawn_with_factory_gated(
             audio_factory,
             clock.clone(),
@@ -193,15 +196,16 @@ impl AvRecordingSession {
             }
         };
         let video_clock = clock;
-        let video_capture = match CaptureWorker::spawn_with_factory_gated(
+        let video_capture = match CaptureWorker::spawn_with_first_frame_release(
             move || video_factory(video_clock),
             Arc::clone(&video_pipeline),
             config.frames_per_second,
             video_release,
+            audio_start,
+            video_polled,
         ) {
             Ok(capture) => capture,
             Err(error) => {
-                drop(audio_start);
                 drop(video_start);
                 drop(audio_capture);
                 drop(encoder);
@@ -209,9 +213,8 @@ impl AvRecordingSession {
                 return Err(error.into());
             }
         };
-        // 两个 factory 都完成后才进入采集循环；失败时先关释放通道，再回收 worker。
-        if video_start.send(()).is_err() || audio_start.send(()).is_err() {
-            drop(audio_start);
+        // 两个 factory 都完成后先运行视频；首个有效帧入队才由视频 worker 释放音频。
+        if video_start.send(()).is_err() {
             drop(video_start);
             let _ = video_pipeline.abort();
             let _ = audio_pipeline.abort();
@@ -220,6 +223,16 @@ impl AvRecordingSession {
             drop(encoder);
             discard_failed_start(app_data_dir, &session_id);
             return Err(AvRecordingSessionError::StartupCancelled);
+        }
+        if first_video_poll.recv().is_err() {
+            let error = video_capture
+                .stop()
+                .err()
+                .unwrap_or(CaptureWorkerError::ControlDisconnected);
+            drop(audio_capture);
+            drop(encoder);
+            discard_failed_start(app_data_dir, &session_id);
+            return Err(error.into());
         }
         Ok(Self {
             video_pipeline,
@@ -241,6 +254,9 @@ impl AvRecordingSession {
             .audio_capture
             .as_ref()
             .ok_or(AvRecordingSessionError::AlreadySettled)?;
+        if !video.is_first_frame_ready() {
+            return Err(AvRecordingSessionError::StartupPending);
+        }
         video.pause()?;
         if let Err(error) = audio.pause() {
             if let Err(rollback) = video.resume() {
@@ -263,6 +279,9 @@ impl AvRecordingSession {
             .audio_capture
             .as_ref()
             .ok_or(AvRecordingSessionError::AlreadySettled)?;
+        if !video.is_first_frame_ready() {
+            return Err(AvRecordingSessionError::StartupPending);
+        }
         video.resume()?;
         if let Err(error) = audio.resume() {
             if let Err(rollback) = video.pause() {
@@ -757,5 +776,15 @@ mod tests {
     mod startup_tests {
         use super::*;
         include!("av_session/startup_tests.rs");
+    }
+
+    mod first_frame_tests {
+        use super::*;
+        include!("av_session/first_frame_tests.rs");
+
+        mod extra_tests {
+            use super::*;
+            include!("av_session/first_frame_extra_tests.rs");
+        }
     }
 }

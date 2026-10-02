@@ -265,11 +265,6 @@ impl WindowsWasapiAudioSource {
                 .map_err(|error| windows_api_error("取得 IAudioCaptureClient", error))?
         };
         let mapper = calibrate_qpc(&clock)?;
-        unsafe {
-            audio_client
-                .Start()
-                .map_err(|error| windows_api_error("启动 capture stream", error))?;
-        }
 
         Ok(Self {
             capture_client,
@@ -282,7 +277,8 @@ impl WindowsWasapiAudioSource {
             next_sequence: 0,
             last_packet_end_ns: None,
             not_before_ns: 0,
-            running: true,
+            // 音频 worker 取得首视频帧释放信号后再激活，不在准备阶段积累原生 packet。
+            running: false,
             _com: com,
         })
     }
@@ -417,6 +413,19 @@ impl WasapiStopEndpoint for WindowsWasapiAudioSource {
 impl RecordingAudioSource for WindowsWasapiAudioSource {
     type Error = WindowsWasapiAudioSourceError;
 
+    fn start_capture(&mut self) -> Result<Option<u64>, Self::Error> {
+        if !self.running {
+            unsafe {
+                self.audio_client
+                    .Start()
+                    .map_err(|error| windows_api_error("启动 capture stream", error))?;
+            }
+            self.running = true;
+            self.not_before_ns = self.safe_control_timestamp();
+        }
+        Ok(Some(self.not_before_ns))
+    }
+
     fn capture_next_available(
         &mut self,
         timeout: Duration,
@@ -458,14 +467,7 @@ impl RecordingAudioSource for WindowsWasapiAudioSource {
     }
 
     fn resume_capture(&mut self) -> Result<u64, Self::Error> {
-        if !self.running {
-            unsafe {
-                self.audio_client
-                    .Start()
-                    .map_err(|error| windows_api_error("恢复 capture stream", error))?;
-            }
-            self.running = true;
-        }
+        self.start_capture()?;
         let resumed_at_ns = self.safe_control_timestamp();
         self.not_before_ns = resumed_at_ns;
         Ok(resumed_at_ns)
