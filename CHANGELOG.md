@@ -11,7 +11,9 @@
   原完整合成 owner 停止40ms/1920输入PCM、恢复60ms/2880输入PCM；真实VP9/Opus文件解码
   确认有效首包和尾部保留，文件不计设备验收。干净 `b0b51f1196124383b9fc77cfc4ad22c21e8c3d84` 完整Windows门禁33/0/1 Linux smoke skipped；
   默认1298/QA1445各5ignored，前端81文件/1403passed；新9项已含总数、两图重叠不累加。
-  当前 release/同SHA CI、其它宿主、设备/桌面、安装器、多屏和长时同步未验，默认录屏仍关闭。
+  W71补充同SHA默认/QA release与PE/CRT文件验证，实际启动未验；
+  见 `docs/reviews/2026-10-02-windows-mixed-control-release-review.md`（`WIN-NATIVE-01`）。
+  当前同SHA CI、其它宿主、设备/桌面、安装器、多屏和长时同步未验，默认录屏仍关闭。
   历史失败根因保持未明。（需求：`REC-MIXED-CONTROL-SKEW-01`；
   见 `docs/superpowers/specs/2026-10-02-mixed-control-skew.md`）
 

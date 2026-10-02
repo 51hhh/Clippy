@@ -64,3 +64,6 @@ worker恢复返回Source(LateInput)并保留960帧前缀；停止正常返回但
 `b0b51f1196124383b9fc77cfc4ad22c21e8c3d84` 完整Windows门禁33/0/1；默认1298/QA1445各5ignored，前端81/1403。
 新9项与领域479已含总数、两图重叠不累加；见 [W70审查](../../reviews/2026-10-02-mixed-control-skew-review.md)。
 当前源码release/CI和设备/桌面等最后复合验收仍未完成。
+
+W71后续：同源码默认/QA release编译和PE/CRT文件验证完成，实际启动、设备、CI和桌面等仍未验。
+见 [release验证](../../reviews/2026-10-02-windows-mixed-control-release-review.md)；最后复合验收继续未完成。
