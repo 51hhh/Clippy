@@ -577,6 +577,10 @@ fn mux_error(error: webm::mux::Error) -> OpusWebmError {
 
 #[cfg(test)]
 mod tests {
+    mod ebml_boundary_tests {
+        include!("opus_webm/ebml_boundary_tests.rs");
+    }
+
     mod pending_frame_tests {
         include!("opus_webm/pending_frame_tests.rs");
     }
@@ -921,11 +925,7 @@ mod tests {
     }
 
     fn read_unsigned_element(bytes: &[u8], id: &[u8]) -> Option<u64> {
-        let start = find_subslice(bytes, id)?.checked_add(id.len())?;
-        let (size, size_len) = read_vint(&bytes[start..])?;
-        let data_start = start.checked_add(size_len)?;
-        let data_end = data_start.checked_add(size)?;
-        let data = bytes.get(data_start..data_end)?;
+        let data = find_element_payload(bytes, id)?;
         if data.is_empty() || data.len() > 8 {
             return None;
         }
@@ -936,11 +936,7 @@ mod tests {
     }
 
     fn read_signed_element(bytes: &[u8], id: &[u8]) -> Option<i64> {
-        let start = find_subslice(bytes, id)?.checked_add(id.len())?;
-        let (size, size_len) = read_vint(&bytes[start..])?;
-        let data_start = start.checked_add(size_len)?;
-        let data_end = data_start.checked_add(size)?;
-        let data = bytes.get(data_start..data_end)?;
+        let data = find_element_payload(bytes, id)?;
         if data.is_empty() || data.len() > 8 {
             return None;
         }
@@ -951,23 +947,70 @@ mod tests {
         Some(((unsigned << shift) as i64) >> shift)
     }
 
-    fn find_subslice(bytes: &[u8], needle: &[u8]) -> Option<usize> {
-        bytes
-            .windows(needle.len())
-            .position(|window| window == needle)
+    // 只验证现有 writer 的四个字段；UID、Void 和编码块的载荷不是 EBML 子元素。
+    fn find_element_payload<'a>(bytes: &'a [u8], id: &[u8]) -> Option<&'a [u8]> {
+        let path: &[u32] = match id {
+            [0x56, 0xAA] => &[0x1853_8067, 0x1654_AE6B, 0xAE, 0x56AA],
+            [0x56, 0xBB] => &[0x1853_8067, 0x1654_AE6B, 0xAE, 0x56BB],
+            [0x2A, 0xD7, 0xB1] => &[0x1853_8067, 0x1549_A966, 0x002A_D7B1],
+            [0x75, 0xA2] => &[0x1853_8067, 0x1F43_B675, 0xA0, 0x75A2],
+            _ => return None,
+        };
+        read_element_path(bytes, path, true).ok().flatten()
     }
 
-    fn read_vint(bytes: &[u8]) -> Option<(usize, usize)> {
+    fn read_element_path<'a>(
+        bytes: &'a [u8],
+        path: &[u32],
+        allow_unknown_segment: bool,
+    ) -> Result<Option<&'a [u8]>, ()> {
+        let mut offset = 0_usize;
+        let mut found = None;
+        while offset < bytes.len() {
+            let (id, id_len, _) = read_vint(&bytes[offset..], true, 4).ok_or(())?;
+            offset = offset.checked_add(id_len).ok_or(())?;
+            let (size, size_len, unknown) = read_vint(&bytes[offset..], false, 8).ok_or(())?;
+            let data_start = offset.checked_add(size_len).ok_or(())?;
+            let data_end = if unknown {
+                if !allow_unknown_segment || id != 0x1853_8067 {
+                    return Err(());
+                }
+                bytes.len()
+            } else {
+                data_start
+                    .checked_add(usize::try_from(size).map_err(|_| ())?)
+                    .ok_or(())?
+            };
+            let data = bytes.get(data_start..data_end).ok_or(())?;
+            if id == u64::from(path[0]) {
+                let candidate = if path.len() == 1 {
+                    Some(data)
+                } else {
+                    read_element_path(data, &path[1..], false)?
+                };
+                if let Some(candidate) = candidate {
+                    if found.replace(candidate).is_some() {
+                        return Err(());
+                    }
+                }
+            }
+            offset = data_end;
+        }
+        Ok(found)
+    }
+
+    fn read_vint(bytes: &[u8], keep_marker: bool, max_length: usize) -> Option<(u64, usize, bool)> {
         let first = *bytes.first()?;
         let length = first.leading_zeros() as usize + 1;
-        if length > 8 || bytes.len() < length {
+        if first == 0 || length > max_length || bytes.len() < length {
             return None;
         }
         let marker = 1_u8 << (8 - length);
-        let mut value = usize::from(first & (marker - 1));
+        let mut value = u64::from(if keep_marker { first } else { first & !marker });
         for byte in &bytes[1..length] {
-            value = value.checked_shl(8)?.checked_add(usize::from(*byte))?;
+            value = value.checked_shl(8)?.checked_add(u64::from(*byte))?;
         }
-        Some((value, length))
+        let unknown = !keep_marker && value == (1_u64 << (7 * length)) - 1;
+        Some((value, length, unknown))
     }
 }
