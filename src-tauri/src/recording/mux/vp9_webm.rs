@@ -251,6 +251,18 @@ impl Vp9PacketEncoder {
         F: FnMut(&[u8], u64, bool) -> Result<(), Vp9WebmError>,
     {
         let target_slot = self.slot_for(presentation_at_ns)?;
+        // 增量排空可能已经编码到边界，只留下下一 slot 的占位图像。分段在这里
+        // 交给边界真实帧，不能再把占位图像编码成额外一帧。
+        if self.pending.as_ref().is_some_and(|pending| {
+            pending.slot == target_slot
+                && self.last_presentation_ns.is_some_and(|last| {
+                    self.slot_for(last)
+                        .is_ok_and(|last_slot| last_slot < pending.slot)
+                })
+        }) {
+            self.pending.take();
+            return Ok(());
+        }
         let minimum_slot = self
             .pending
             .as_ref()
@@ -258,6 +270,35 @@ impl Vp9PacketEncoder {
             .ok_or(Vp9WebmError::InvalidTimestamp)?;
         let exclusive_slot = target_slot.max(minimum_slot);
         self.flush_pending_until(exclusive_slot, emit).map(drop)
+    }
+
+    /// 音频推进所需的 CFR slot 只在真实视频下界已证明安全时编码，保留下一 slot 图像。
+    pub fn advance_for_audio<F>(
+        &mut self,
+        audio_timestamp_ns: u64,
+        future_video_timestamp_ns: u64,
+        emit: &mut F,
+    ) -> Result<(), Vp9WebmError>
+    where
+        F: FnMut(&[u8], u64, bool) -> Result<(), Vp9WebmError>,
+    {
+        let target_slot = self
+            .frames_for_duration(audio_timestamp_ns)?
+            .min(self.slot_for(future_video_timestamp_ns)?);
+        let pending_slot = self
+            .pending
+            .as_ref()
+            .ok_or(Vp9WebmError::InvalidTimestamp)?
+            .slot;
+        if target_slot <= pending_slot {
+            return Ok(());
+        }
+        let image = self.flush_pending_until(target_slot, emit)?;
+        self.pending = Some(PendingFrame {
+            slot: target_slot,
+            image,
+        });
+        Ok(())
     }
 
     pub fn force_next_keyframe(&mut self) {
@@ -278,13 +319,16 @@ impl Vp9PacketEncoder {
         if duration_ns < last {
             return Err(Vp9WebmError::InvalidTimestamp);
         }
-        let minimum_frames = self
-            .pending
-            .as_ref()
-            .map(|pending| pending.slot.saturating_add(1))
-            .ok_or(Vp9WebmError::InvalidTimestamp)?;
+        // 真实最后帧至少出现一次；增量排空留下的下一 slot 占位图像不增加文件时长。
+        let minimum_frames = self.slot_for(last)?.saturating_add(1);
         let desired_frames = self.frames_for_duration(duration_ns)?.max(minimum_frames);
-        self.flush_pending_until(desired_frames, emit)?;
+        if self.submitted_frames < desired_frames {
+            self.flush_pending_until(desired_frames, emit)?;
+        } else if self.submitted_frames != desired_frames {
+            return Err(Vp9WebmError::InvalidTimestamp);
+        } else {
+            self.pending.take();
+        }
 
         self.encoder.finish()?;
         self.drain_encoded_packets(emit)?;
@@ -580,6 +624,10 @@ fn elapsed_ns(started: std::time::Instant) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod audio_advance_tests {
+        include!("vp9_webm/audio_advance_tests.rs");
+    }
     use std::io::Cursor;
     use std::process::Command;
 

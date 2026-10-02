@@ -2,6 +2,17 @@
 
 ## 未发布
 
+### 2026-10-02 双轨录屏空洞与停止尾段增量排空
+
+- 修复已知下一视频帧/EOS 后，长空洞、停止尾段或恢复分段边界一次性编码单轨，耗尽
+  三十二包重排队列而失败的问题。按 PCM 块交替推进两轨，保留真实视频 PTS、同 slot
+  替换、CFR 最近帧填补、音频静音/padding 与 journal 统计；不扩大预算。
+  同字节六项旧实现均 `InterleaveQueueFull`，修复新增十项/原 319，共领域 329 passed；
+  三个原测试模块正文保持，冻结完整 Windows 门禁待验。下一视频 head 尚未来时的
+  消费等待和不对齐 CFR slot 的分段映射仍需独立回归；设备/其它宿主/当前 CI/安装器/
+  多屏未验，桌面继续停止，本 SHA release 未构建。
+  （需求：`REC-AV-GAP-DRAIN-01`；见 `docs/superpowers/specs/2026-10-02-recording-av-gap-drain.md`）
+
 ### 2026-10-02 首视频帧就绪后启动 Windows 音频
 
 - 修复视频已初始化但尚无有效首帧时，双轨录屏因提前采集音频而耗尽一秒 PCM 队列的问题。
@@ -12,7 +23,8 @@
   干净 `2dccc43` 完整 Windows 门禁 33 passed / 0 failed / 1 Linux smoke skipped；
   Rust 默认 1214/录屏 QA 1285 各 5 ignored，两图重叠，前端 81 文件/1403 passed。
   本 SHA 未构建 release/安装器。首帧之后长期无新视频帧的消费阻塞，
-  以及提前 Stop 时音频包等待视频尾段而达到三十二包上限，均为独立未完成项；
+  提前 Stop 的受控 writer 尾段三十二包问题已由后续 `REC-AV-GAP-DRAIN-01` 修复；
+  下一视频 head 尚未来时的消费等待仍未完成。
   当前 SHA CI、其它宿主/真实设备/安装器/多屏未验，桌面保持停止。
   （需求：`REC-FIRST-FRAME-AUDIO-01`；见 `docs/superpowers/specs/2026-10-02-recording-first-frame-audio.md`）
 

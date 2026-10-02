@@ -5,6 +5,14 @@
 
 ## 当前续审结果
 
+W52 / `REC-AV-GAP-DRAIN-01`：基于 `e4a4a3c`，已知下一视频 head/EOS 后的长空洞、Stop
+尾段与分段边界会单轨突发耗尽三十二包。原实现四项 0/4，含 1 FPS 的最终六项同字节
+重放 0/6，全为实际 `InterleaveQueueFull`；修复按 PCM 块交替推进、保留 CFR 下一 slot
+与原生 PTS，下界/同 slot/停止/边界合同通过。新十项与原 319，共领域 329；三个旧测试
+模块正文保持，冻结完整 Windows 门禁待验。下一 head 未来时消费等待、不对齐 slot 分段
+时间映射与设备/其它宿主/当前 CI/安装器仍未验，桌面停止。见
+[`2026-10-02-recording-av-gap-drain-review.md`](2026-10-02-recording-av-gap-drain-review.md)。
+
 W51 / `REC-FIRST-FRAME-AUDIO-01`：基于 `d9264cd` 独立审查 factory 之后的首视频帧等待。
 固定三个 AV 回归在原生产代码全部失败，真实音频 worker 错误为 `Pipeline(Backpressure)`，
 首帧前轮询十四次；不是实际设备故障。修改有效首帧释放、首轮握手与 Windows/混音音源

@@ -90,6 +90,12 @@ flowchart LR
 默认激活返回 None，沿用原 constructor 行为。等待失败或取消由原线程回收 source，
 预算、共享时钟与 epoch 裁切保持。见 `REC-FIRST-FRAME-AUDIO-01` 规格。
 
+双轨编码 owner 在 PCM 视频边界拆分时转交下一真实视频 head 下界，视频 EOS 后声明
+没有后续真实帧。writer 按 PCM 块交替推进两轨，而不一次性补齐长空洞/停止尾段。
+VP9 只提前编码已知视频下界之前确定的 CFR slot，保留下一 slot 图像与真实 native PTS；
+同 slot 新帧仍可替换，占位图像不增加停止帧数或抢占分段边界。三十二包、一秒 PCM
+和原视频预算保持。下一视频 head 缺失时的消费等待仍是独立边界；见 `REC-AV-GAP-DRAIN-01`。
+
 ## 前端模块
 
 `js/settings/platform-capabilities.js` 只消费后端 typed `PlatformInfo`：设置页“关于”展示系统、会话、

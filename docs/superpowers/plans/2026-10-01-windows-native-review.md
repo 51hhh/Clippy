@@ -9,6 +9,13 @@
 
 ## 当前续审状态
 
+- W52 / `REC-AV-GAP-DRAIN-01`：独立 `codex/recording-av-gap-drain`，基于 `e4a4a3c`。
+  最终同字节六项旧 writer/编码 worker 回归均失败，真实 `InterleaveQueueFull`；包含 1 FPS。
+  原 PCM 块增量交替排空两轨，传已知下一视频下界/EOS，CFR 保留下一 slot 与真实 PTS；
+  同 slot、精确停止/边界合同通过，新增十项/原 319，共领域 329，旧三个模块正文保持。
+  冻结完整 Windows 门禁待验。下一 head 未来时的消费等待、不对齐 slot 的分段映射及
+  设备/其它宿主/当前 CI/安装器/多屏保持未验，桌面停止。
+
 - W51 / `REC-FIRST-FRAME-AUDIO-01`：独立 `codex/recording-first-frame-audio-gate`，基于 `d9264cd`。
   原生产源码固定三个首帧 AV 回归全部失败，音频 worker 实际返回 Backpressure；首帧前
   十四次轮询。实现有效首帧入队后的音频释放与首轮视频握手，Windows 延迟 stream 激活，

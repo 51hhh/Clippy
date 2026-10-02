@@ -235,7 +235,7 @@ fn run_inner(
                 let video_timestamp = video.presentation_at_ns;
                 let queued = aligned_audio.take().expect("匹配分支保证存在对齐音频");
                 let (before, after) = split_audio_at(queued, video_timestamp)?;
-                writer.push_audio(before)?;
+                writer.push_audio_before(before, video_timestamp)?;
                 aligned_audio = after;
             }
             (Some(_), Some(_)) => {
@@ -250,7 +250,7 @@ fn run_inner(
             }
             (None, Some(_)) if video_duration_ns.is_some() => {
                 let audio = aligned_audio.take().expect("匹配分支保证存在音频");
-                writer.push_audio(audio)?;
+                writer.push_audio_before(audio, u64::MAX)?;
             }
             (None, None)
                 if epoch_established
@@ -467,6 +467,10 @@ mod tests {
     use crate::recording::mux::opus_webm::OpusPacketEncoder;
     use serde_json::Value;
     use std::fs;
+
+    mod gap_drain_tests {
+        include!("av_encoder_worker/gap_drain_tests.rs");
+    }
 
     fn frame(sequence: u64, captured_at_ns: u64, marker: u8) -> CapturedFrame {
         CapturedFrame {

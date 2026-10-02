@@ -205,6 +205,9 @@ impl SegmentedAvRecordingWriter {
             .ok_or(SegmentedAvRecordingError::InvalidTimeline)?;
         if self.segment_has_video && elapsed >= self.segment_duration_ns {
             self.rotate_at(presentation_at_ns)?;
+        } else if timestamp_to_audio_frame(presentation_at_ns)? > self.audio_frame_cursor {
+            // 下一真实帧给出了视频下界，先逐块填补音频空洞并交替推进视频，避免单轨突发。
+            self.pad_audio_until(presentation_at_ns)?;
         }
         self.push_video_into_encoder(rgba, presentation_at_ns)?;
         self.segment_has_video = true;
@@ -216,6 +219,16 @@ impl SegmentedAvRecordingWriter {
         &mut self,
         queued: QueuedAudioChunk,
     ) -> Result<(), SegmentedAvRecordingError> {
+        let future_video_timestamp_ns = queued.presentation_at_ns;
+        self.push_audio_before(queued, future_video_timestamp_ns)
+    }
+
+    /// 编码 owner 给出下一真实视频帧的下界；视频 EOS 后用 MAX 表示不会再有真实帧。
+    pub fn push_audio_before(
+        &mut self,
+        queued: QueuedAudioChunk,
+        future_video_timestamp_ns: u64,
+    ) -> Result<(), SegmentedAvRecordingError> {
         if queued.chunk.format != AudioFormat::normalized(self.channels) {
             return Err(SegmentedAvRecordingError::InvalidConfiguration);
         }
@@ -223,8 +236,12 @@ impl SegmentedAvRecordingWriter {
         if start_frame < self.audio_frame_cursor {
             return Err(SegmentedAvRecordingError::InvalidTimeline);
         }
-        self.pad_audio_to_frame(start_frame)?;
-        self.feed_audio_samples(&queued.chunk.samples, u64::from(queued.chunk.frame_count))?;
+        self.pad_audio_to_frame(start_frame, future_video_timestamp_ns)?;
+        self.feed_audio_samples(
+            &queued.chunk.samples,
+            u64::from(queued.chunk.frame_count),
+            future_video_timestamp_ns,
+        )?;
         self.flush_ready()?;
         Ok(())
     }
@@ -406,10 +423,14 @@ impl SegmentedAvRecordingWriter {
     }
 
     fn pad_audio_until(&mut self, timestamp_ns: u64) -> Result<(), SegmentedAvRecordingError> {
-        self.pad_audio_to_frame(timestamp_to_audio_frame(timestamp_ns)?)
+        self.pad_audio_to_frame(timestamp_to_audio_frame(timestamp_ns)?, timestamp_ns)
     }
 
-    fn pad_audio_to_frame(&mut self, target_frame: u64) -> Result<(), SegmentedAvRecordingError> {
+    fn pad_audio_to_frame(
+        &mut self,
+        target_frame: u64,
+        future_video_timestamp_ns: u64,
+    ) -> Result<(), SegmentedAvRecordingError> {
         if target_frame < self.audio_frame_cursor {
             return Err(SegmentedAvRecordingError::InvalidTimeline);
         }
@@ -420,7 +441,7 @@ impl SegmentedAvRecordingWriter {
                 .ok()
                 .and_then(|frames| frames.checked_mul(usize::from(self.channels)))
                 .ok_or(SegmentedAvRecordingError::StatisticsMismatch)?;
-            self.feed_audio_samples(&vec![0.0; sample_count], frames)?;
+            self.feed_audio_samples(&vec![0.0; sample_count], frames, future_video_timestamp_ns)?;
             remaining -= frames;
         }
         Ok(())
@@ -430,6 +451,7 @@ impl SegmentedAvRecordingWriter {
         &mut self,
         samples: &[f32],
         frame_count: u64,
+        future_video_timestamp_ns: u64,
     ) -> Result<(), SegmentedAvRecordingError> {
         if frame_count == 0 || frame_count > AUDIO_BLOCK_FRAMES {
             return Err(SegmentedAvRecordingError::InvalidConfiguration);
@@ -444,6 +466,12 @@ impl SegmentedAvRecordingWriter {
             return Err(SegmentedAvRecordingError::InvalidConfiguration);
         }
         let global_start_frame = self.audio_frame_cursor;
+        if self.segment_has_video {
+            self.advance_video_for_audio(
+                audio_frame_to_ns(global_start_frame)?,
+                future_video_timestamp_ns,
+            )?;
+        }
         let local_start_frame = global_start_frame
             .checked_sub(self.segment_started_at_audio_frame)
             .ok_or(SegmentedAvRecordingError::InvalidTimeline)?;
@@ -526,6 +554,50 @@ impl SegmentedAvRecordingWriter {
         }
         result?;
         Ok(())
+    }
+
+    fn advance_video_for_audio(
+        &mut self,
+        audio_timestamp_ns: u64,
+        future_video_timestamp_ns: u64,
+    ) -> Result<(), SegmentedAvRecordingError> {
+        let segment_base = self.segment_started_at_ns;
+        let global_audio_frontier = self.global_audio_frontier()?;
+        let segment_audio_frontier = self.segment_audio_frontier()?;
+        let (video_encoder, final_mux, segment_mux) = (
+            &mut self.video_encoder,
+            self.final_mux
+                .as_mut()
+                .ok_or(SegmentedAvRecordingError::InvalidTimeline)?,
+            self.segment_mux
+                .as_mut()
+                .ok_or(SegmentedAvRecordingError::InvalidTimeline)?,
+        );
+        let mut interleave_error = None;
+        let result = video_encoder.advance_for_audio(
+            audio_timestamp_ns,
+            future_video_timestamp_ns,
+            &mut |data, timestamp_ns, keyframe| {
+                let local_timestamp = timestamp_ns
+                    .checked_sub(segment_base)
+                    .ok_or(Vp9WebmError::InvalidTimestamp)?;
+                if let Err(error) = final_mux
+                    .enqueue_video(data, timestamp_ns, keyframe)
+                    .and_then(|_| final_mux.flush_ready(timestamp_ns, global_audio_frontier))
+                    .and_then(|_| segment_mux.enqueue_video(data, local_timestamp, keyframe))
+                    .and_then(|_| segment_mux.flush_ready(local_timestamp, segment_audio_frontier))
+                {
+                    interleave_error = Some(error);
+                    return Err(Vp9WebmError::Finalize);
+                }
+                Ok(())
+            },
+        );
+        if let Some(error) = interleave_error {
+            return Err(error.into());
+        }
+        result?;
+        self.flush_ready()
     }
 
     fn flush_video_until(
@@ -716,6 +788,10 @@ mod tests {
     use serde_json::Value;
     use std::fs;
     use std::process::Command;
+
+    mod gap_drain_tests {
+        include!("av_segmenting/gap_drain_tests.rs");
+    }
 
     fn journal_config(session_id: &str, audio: &OpusTrackConfig) -> RecordingJournalConfig {
         RecordingJournalConfig {
