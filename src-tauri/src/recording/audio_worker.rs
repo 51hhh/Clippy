@@ -3,7 +3,10 @@
 //! 原生对象在本线程内创建、控制并销毁。source 负责把原生 PTS 映射到共享会话时钟并按有界等待
 //! 返回归一化 PCM；worker 负责暂停、停止、背压失败和线程回收。
 
-use super::audio::{AudioPipeline, AudioPipelineError, AudioPushOutcome, CapturedAudioChunk};
+use super::audio::{
+    AudioPipeline, AudioPipelineError, AudioPushOutcome, AudioTimestampPrecision,
+    CapturedAudioChunk,
+};
 use super::clock::RecordingSessionClock;
 use std::error::Error;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -23,6 +26,11 @@ const PAUSED_STOP_POLL: Duration = Duration::from_millis(250);
 /// 必须来自原生 PTS 到传入 `RecordingSessionClock` 的映射，不能使用回调抵达时刻。
 pub(super) trait RecordingAudioSource: 'static {
     type Error: Error + Send + Sync + 'static;
+
+    /// 构造后固定的原生时间戳精度；帧网格归一化的混音输出沿用 Exact。
+    fn timestamp_precision(&self) -> AudioTimestampPrecision {
+        AudioTimestampPrecision::Exact
+    }
 
     /// 延迟原生 stream 激活，避免 factory 就绪但首视频帧未到时积累无用 PCM。
     /// 返回 Some 时保证后续 PCM 不早于该会话时间；混音器据此跳过准备期间的历史静音。
@@ -306,6 +314,7 @@ where
     S: RecordingAudioSource,
 {
     let mut abort_guard = AudioPipelineAbortGuard::new(pipeline);
+    pipeline.configure_timestamp_precision(source.timestamp_precision())?;
     source
         .start_capture()
         .map_err(|error| AudioCaptureWorkerError::Source(error.to_string()))?;

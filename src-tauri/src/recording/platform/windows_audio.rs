@@ -3,14 +3,14 @@
 //! 本模块只进入 `recording-windows-audio` QA feature。COM 与全部 WASAPI 对象都在音频
 //! worker 线程内创建和销毁；只有 `recording-windows-av-qa` 组合 feature 才会把它接入双轨会话。
 
-use super::super::audio::CapturedAudioChunk;
+use super::super::audio::{AudioTimestampPrecision, CapturedAudioChunk};
 use super::super::audio_devices::{NativeRecordingAudioDevice, RecordingAudioDeviceKind};
 use super::super::audio_worker::RecordingAudioSource;
 use super::super::clock::RecordingSessionClock;
 use super::windows_audio_contract::{
-    packet_to_chunks, stop_endpoint, QpcClockMapper, StopTailMode, WasapiControlTimeline,
-    WasapiStopEndpoint, WindowsAudioContractError, WindowsAudioEndpointFlow,
-    WindowsAudioSourceKind, WASAPI_CHANNELS,
+    packet_timestamp_is_valid, packet_to_chunks, stop_endpoint, QpcClockMapper, StopTailMode,
+    WasapiControlTimeline, WasapiStopEndpoint, WindowsAudioContractError, WindowsAudioEndpointFlow,
+    WindowsAudioSourceKind, WASAPI_CHANNELS, WASAPI_TIMESTAMP_PRECISION,
 };
 use std::collections::VecDeque;
 use std::ptr;
@@ -340,10 +340,7 @@ impl WindowsWasapiAudioSource {
             Some(unsafe { std::slice::from_raw_parts(data.cast::<f32>(), sample_count) })
         };
         let packet = packet_to_chunks(self.next_sequence, captured_at_ns, frame_count, samples)?;
-        if self
-            .last_packet_end_ns
-            .is_some_and(|last_end_ns| captured_at_ns < last_end_ns)
-        {
+        if !packet_timestamp_is_valid(captured_at_ns, self.last_packet_end_ns) {
             return Err(WindowsWasapiAudioSourceError::PacketTimelineOverlap);
         }
         self.next_sequence = packet.next_sequence;
@@ -429,6 +426,10 @@ impl WasapiStopEndpoint for WindowsWasapiAudioSource {
 
 impl RecordingAudioSource for WindowsWasapiAudioSource {
     type Error = WindowsWasapiAudioSourceError;
+
+    fn timestamp_precision(&self) -> AudioTimestampPrecision {
+        WASAPI_TIMESTAMP_PRECISION
+    }
 
     fn start_capture(&mut self) -> Result<Option<u64>, Self::Error> {
         if self.start_stream()? {

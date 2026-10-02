@@ -16,6 +16,28 @@ const MAX_QUEUED_AUDIO_BYTES: usize =
     AUDIO_SAMPLE_RATE_HZ as usize * MAX_AUDIO_CHANNELS as usize * std::mem::size_of::<f32>();
 const NANOS_PER_SECOND: u64 = 1_000_000_000;
 
+/// 只描述源 PTS 的量化精度；不允许用它修复设备漂移或真实 PCM 重叠。
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(super) enum AudioTimestampPrecision {
+    #[default]
+    Exact,
+    HundredNanoseconds,
+}
+
+impl AudioTimestampPrecision {
+    pub const fn overlap_allowance_ns(self) -> u64 {
+        match self {
+            Self::Exact => 0,
+            Self::HundredNanoseconds => 100,
+        }
+    }
+
+    fn align_media_time(self, timestamp_ns: u64, minimum_ns: u64) -> Option<u64> {
+        (minimum_ns.saturating_sub(timestamp_ns) <= self.overlap_allowance_ns())
+            .then_some(timestamp_ns.max(minimum_ns))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct AudioFormat {
     pub sample_rate_hz: u32,
@@ -149,6 +171,8 @@ pub(super) enum AudioPipelineError {
     SourceTimestampNotIncreasing,
     #[error("录屏音频呈现区间不能重叠")]
     PresentationOverlap,
+    #[error("录屏音频开始后不能改变时间戳精度")]
+    TimestampPrecisionAlreadyStarted,
     #[error("录屏音频时间线计算溢出")]
     TimelineOverflow,
     #[error("录屏音频暂停时间戳无效")]
@@ -174,6 +198,7 @@ pub(super) enum AudioPipelineError {
 #[derive(Debug, Clone)]
 struct AudioTimeline {
     origin_ns: u64,
+    timestamp_precision: AudioTimestampPrecision,
     last_sequence: Option<u64>,
     last_source_ns: Option<u64>,
     resumed_at_ns: Option<u64>,
@@ -188,6 +213,7 @@ impl AudioTimeline {
     const fn new(origin_ns: u64) -> Self {
         Self {
             origin_ns,
+            timestamp_precision: AudioTimestampPrecision::Exact,
             last_sequence: None,
             last_source_ns: None,
             resumed_at_ns: None,
@@ -228,9 +254,11 @@ impl AudioTimeline {
             .and_then(|elapsed| elapsed.checked_sub(self.accumulated_pause_ns))
             .ok_or(AudioPipelineError::TimelineOverflow)?;
         let previous_end = self.last_presentation_end_ns.unwrap_or(0);
-        if presentation_at_ns < previous_end {
-            return Err(AudioPipelineError::PresentationOverlap);
-        }
+        // 仅对齐媒体区间；原 chunk PTS 和样本所有权原样交给编码链。
+        let presentation_at_ns = self
+            .timestamp_precision
+            .align_media_time(presentation_at_ns, previous_end)
+            .ok_or(AudioPipelineError::PresentationOverlap)?;
         let presentation_end_ns = presentation_at_ns
             .checked_add(spec.duration_ns)
             .ok_or(AudioPipelineError::TimelineOverflow)?;
@@ -263,10 +291,11 @@ impl AudioTimeline {
             .checked_sub(self.origin_ns)
             .and_then(|elapsed| elapsed.checked_sub(self.accumulated_pause_ns))
             .ok_or(AudioPipelineError::TimelineOverflow)?;
-        if self
-            .last_presentation_end_ns
-            .is_some_and(|end| presentation_at_ns < end)
-        {
+        if self.last_presentation_end_ns.is_some_and(|end| {
+            self.timestamp_precision
+                .align_media_time(presentation_at_ns, end)
+                .is_none()
+        }) {
             return Err(AudioPipelineError::InvalidPauseTimestamp);
         }
         self.last_source_ns = Some(captured_at_ns);
@@ -337,12 +366,10 @@ impl AudioTimeline {
             .checked_sub(self.origin_ns)
             .and_then(|elapsed| elapsed.checked_sub(accumulated_pause_ns))
             .ok_or(AudioPipelineError::TimelineOverflow)?;
-        if self
-            .last_presentation_end_ns
-            .is_some_and(|end| duration_ns < end)
-        {
-            return Err(AudioPipelineError::FinishBeforeBufferedAudioEnd);
-        }
+        let duration_ns = self
+            .timestamp_precision
+            .align_media_time(duration_ns, self.last_presentation_end_ns.unwrap_or(0))
+            .ok_or(AudioPipelineError::FinishBeforeBufferedAudioEnd)?;
         self.accumulated_pause_ns = accumulated_pause_ns;
         self.paused_at_ns = None;
         #[cfg(feature = "recording-opus-webm")]
@@ -400,6 +427,26 @@ impl AudioPipeline {
             }),
             ready: Condvar::new(),
         }
+    }
+
+    /// worker 在源激活前设置；相同精度重复配置是无副作用的。
+    pub fn configure_timestamp_precision(
+        &self,
+        precision: AudioTimestampPrecision,
+    ) -> Result<(), AudioPipelineError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| AudioPipelineError::Poisoned)?;
+        ensure_open(state.terminal)?;
+        if state.timeline.timestamp_precision == precision {
+            return Ok(());
+        }
+        if state.timeline.last_source_ns.is_some() {
+            return Err(AudioPipelineError::TimestampPrecisionAlreadyStarted);
+        }
+        state.timeline.timestamp_precision = precision;
+        Ok(())
     }
 
     pub fn push(&self, chunk: CapturedAudioChunk) -> Result<AudioPushOutcome, AudioPipelineError> {
@@ -592,6 +639,11 @@ pub(super) fn frames_to_ns(frames: u32) -> Result<u64, AudioPipelineError> {
 
 #[cfg(test)]
 mod tests {
+    mod qpc_precision_tests {
+        use super::*;
+        include!("audio/qpc_precision_tests.rs");
+    }
+
     use super::*;
 
     fn chunk(sequence: u64, captured_at_ns: u64, frame_count: u32) -> CapturedAudioChunk {

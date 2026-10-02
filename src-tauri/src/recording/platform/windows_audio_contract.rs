@@ -2,7 +2,9 @@
 //!
 //! 这里不引用 Windows API，因此 Linux 本地门禁也能验证 QPC 映射、静音和拆块边界。
 
-use super::super::audio::{AudioFormat, CapturedAudioChunk, AUDIO_SAMPLE_RATE_HZ};
+use super::super::audio::{
+    AudioFormat, AudioTimestampPrecision, CapturedAudioChunk, AUDIO_SAMPLE_RATE_HZ,
+};
 use std::collections::VecDeque;
 use thiserror::Error;
 
@@ -11,6 +13,15 @@ pub(super) const WASAPI_CHUNK_FRAMES: u32 = AUDIO_SAMPLE_RATE_HZ / 50;
 const HUNDRED_NS_PER_SECOND: u128 = 10_000_000;
 const NANOS_PER_HUNDRED_NS: u64 = 100;
 const NANOS_PER_SECOND: u64 = 1_000_000_000;
+
+pub(super) const WASAPI_TIMESTAMP_PRECISION: AudioTimestampPrecision =
+    AudioTimestampPrecision::HundredNanoseconds;
+
+pub(super) fn packet_timestamp_is_valid(start_ns: u64, previous_end_ns: Option<u64>) -> bool {
+    previous_end_ns.is_none_or(|end| {
+        end.saturating_sub(start_ns) <= WASAPI_TIMESTAMP_PRECISION.overlap_allowance_ns()
+    })
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum WindowsAudioSourceKind {
@@ -268,6 +279,16 @@ impl WasapiControlTimeline {
 
 #[cfg(test)]
 mod tests {
+    mod qpc_precision_tests {
+        use super::*;
+        include!("windows_audio_contract/qpc_precision_tests.rs");
+    }
+
+    mod qpc_precision_diagnostic_tests {
+        use super::*;
+        include!("windows_audio_contract/qpc_precision_diagnostic_tests.rs");
+    }
+
     mod control_clock_tests {
         use super::*;
         include!("windows_audio_contract/control_clock_tests.rs");

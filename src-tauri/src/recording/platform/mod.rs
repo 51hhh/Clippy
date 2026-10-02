@@ -27,7 +27,7 @@ mod windows_audio_contract;
 #[cfg(target_os = "linux")]
 pub(super) mod x11;
 
-use super::audio::CapturedAudioChunk;
+use super::audio::{AudioTimestampPrecision, CapturedAudioChunk};
 use super::audio_devices::NativeRecordingAudioDevice;
 use super::audio_devices::ResolvedRecordingAudioDevices;
 use super::audio_worker::RecordingAudioSource;
@@ -517,6 +517,15 @@ impl RecordingFrameSource for PlatformFrameSource {
 impl RecordingAudioSource for PlatformAudioSource {
     type Error = PlatformAudioSourceError;
 
+    fn timestamp_precision(&self) -> AudioTimestampPrecision {
+        match self {
+            #[cfg(all(target_os = "windows", feature = "recording-windows-av-qa"))]
+            Self::Windows(source) => source.timestamp_precision(),
+            // 混音器已把输入 PTS 投影到音频帧网格，不能继承 WASAPI 量化容差。
+            _ => AudioTimestampPrecision::Exact,
+        }
+    }
+
     fn start_capture(&mut self) -> Result<Option<u64>, Self::Error> {
         match self {
             Self::Unsupported => Err(PlatformAudioSourceError::Unsupported),
@@ -609,6 +618,25 @@ impl RecordingAudioSource for PlatformAudioSource {
             Self::Linux(source) => Ok(source.take_stopped_chunks()?),
             Self::Mixed(source) => Ok(source.take_stopped_chunks()?),
         }
+    }
+}
+
+#[cfg(test)]
+mod qpc_precision_tests {
+    use super::*;
+
+    #[test]
+    fn wasapi_qpc_platform_mixed_and_unsupported_remain_exact() {
+        assert_eq!(
+            PlatformAudioSource::Unsupported.timestamp_precision(),
+            AudioTimestampPrecision::Exact
+        );
+        let source =
+            PlatformAudioSource::Mixed(Box::new(super::super::audio_mixer::MixedAudioSource::new(
+                PlatformAudioSource::Unsupported,
+                PlatformAudioSource::Unsupported,
+            )));
+        assert_eq!(source.timestamp_precision(), AudioTimestampPrecision::Exact);
     }
 }
 

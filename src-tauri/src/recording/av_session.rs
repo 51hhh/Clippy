@@ -475,6 +475,16 @@ fn discard_failed_start(app_data_dir: &Path, session_id: &str) {
 
 #[cfg(test)]
 mod tests {
+    mod qpc_precision_tests {
+        use super::*;
+        include!("av_session/qpc_precision_tests.rs");
+    }
+
+    mod qpc_precision_diagnostic_tests {
+        use super::*;
+        include!("av_session/qpc_precision_diagnostic_tests.rs");
+    }
+
     mod activation_boundary_tests {
         use super::*;
         include!("av_session/activation_boundary_tests.rs");

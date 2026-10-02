@@ -603,6 +603,11 @@ fn frame_to_ns(frame: u64) -> Result<u64, AudioMixerError> {
 
 #[cfg(test)]
 mod tests {
+    mod qpc_precision_diagnostic_tests {
+        use super::*;
+        include!("audio_mixer/qpc_precision_diagnostic_tests.rs");
+    }
+
     use super::*;
     use std::sync::{Arc, Mutex};
 
