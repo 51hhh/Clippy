@@ -8,7 +8,12 @@
   编码 session 提前退出的问题。只对 32/33，或原生删除访问探针确认共享冲突的
   错误 5，做最多 21 次/500 ms 的有界重试；权限拒绝、其它错误和已提升源不重试。
   私有文件/ACL/提交恢复顺序与帧率、队列预算保持，其它保存路径及其它平台不改。
-  <!-- W56_GATE_PENDING -->
+  同字节运行期旧实现0/1（实际错误5）、修复领域385/0=原377+新8。
+  干净 `d7c66bba93e3a439a72a23039267a85a190f5ce1` 完整 Windows 门禁33 passed / 0 failed / 1 Linux smoke skipped；
+  默认Rust1235/QA1351各5ignored，两图重叠不累加；前端81文件/1403passed。
+  新8在默认/QA两图内，已含在Rust总数；两个旧完整测试模块与原权限/恢复保护保持。
+  运行期夹具字节相同，无接口stub；新七项API合同仅在绿色图，十一份Rust输入绑定干净SHA。
+  旧实现重放及finally恢复、最终领域与完整门禁的实际日志/输入哈希保留。
   实际设备/桌面/安装器/当前 CI/其它宿主/多屏未验，桌面保持停止；本 SHA release
   未构建，W53 原 AVI 一次超时原因仍未知，不能归因于新的受控共享冲突。
   （需求：`REC-MANIFEST-SHARING-01`；见 `docs/superpowers/specs/2026-10-02-recording-manifest-sharing.md`）

@@ -26,10 +26,10 @@
 
 ## Acceptance Criteria
 
-- [ ] 真实 Windows 临时共享冲突取得原 session/encoder 错误或否定证据。
-- [ ] 如复现，Windows 清单有界恢复且其它错误/永久锁/已提升情形保持失败关闭。
-- [ ] 同字节运行期旧实现红、新实现绿；原测试/预算/权限与恢复保护保持。
-- [ ] 干净 source SHA 完整 Windows 默认/录屏 QA 门禁通过，重叠/ignored/skip 单列。
+- [x] 真实 Windows 临时共享冲突取得原 session/encoder 错误或否定证据。
+- [x] 如复现，Windows 清单有界恢复且其它错误/永久锁/已提升情形保持失败关闭。
+- [x] 同字节运行期旧实现红、新实现绿；原测试/预算/权限与恢复保护保持。
+- [x] 干净 source SHA 完整 Windows 默认/录屏 QA 门禁通过，重叠/ignored/skip 单列。
 - [ ] 当前 SHA 三宿主/codec CI、真实设备/安装器/多屏与历史 AVI 超时原因核实。
 
 ## Out of Scope
@@ -37,3 +37,15 @@
 历史 W53 根因仍未证明，不增加原测试超时或用重跑通过冒称解决。其它文件/权限路径、
 Linux/macOS 行为不改；桌面、设备、工具安装、证书、推送/PR/合入/发布继续停止。
 本 SHA release 与实际 WGC/WASAPI 长时同步、Windows 10/混合 DPI/多屏仍未验。
+
+## Verified source
+
+同字节运行期旧实现0/1（实际错误5）、修复领域385/0=原377+新8。
+干净 `d7c66bba93e3a439a72a23039267a85a190f5ce1` 完整 Windows 门禁33 passed / 0 failed / 1 Linux smoke skipped；
+默认Rust1235/QA1351各5ignored，两图重叠不累加；前端81文件/1403passed。
+新8在默认/QA两图内，已含在Rust总数；两个旧完整测试模块与原权限/恢复保护保持。
+运行期夹具字节相同，无接口stub；新七项API合同仅在绿色图，十一份Rust输入绑定干净SHA。
+旧实现重放及finally恢复、最终领域与完整门禁的实际日志/输入哈希保留。
+证据：`recording-manifest-sharing-native-qa-d7c66bb/RESULT.json`、
+`recording-manifest-sharing-contract/COMMITTED-CONTRACT-AUDIT.json`、`REVIEW-CLOSURE.json`。
+设备/跨宿主/当前CI/安装器/多屏/发布及W53 AVI旧超时根因仍未验。

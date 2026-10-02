@@ -13,7 +13,12 @@
   `9a7a6e2`。原生文件句柄短暂阻止删除共享，原 session/encoder 取得实际错误 5。
   Windows 清单对 32/33 或经删除探针确认共享拒绝的 5 有界重试；最多 21 次/500 ms。
   私有文件/ACL、提交与恢复顺序、原测试/期限/预算保持，其它保存/平台不改。
-  <!-- W56_GATE_PENDING -->
+  同字节运行期旧实现0/1（实际错误5）、修复领域385/0=原377+新8。
+  干净 `d7c66bba93e3a439a72a23039267a85a190f5ce1` 完整 Windows 门禁33 passed / 0 failed / 1 Linux smoke skipped；
+  默认Rust1235/QA1351各5ignored，两图重叠不累加；前端81文件/1403passed。
+  新8在默认/QA两图内，已含在Rust总数；两个旧完整测试模块与原权限/恢复保护保持。
+  运行期夹具字节相同，无接口stub；新七项API合同仅在绿色图，十一份Rust输入绑定干净SHA。
+  旧实现重放及finally恢复、最终领域与完整门禁的实际日志/输入哈希保留。
   当前 SHA CI/其它宿主/设备/安装器/多屏未验，桌面停止；W53 AVI 超时原因未知。
 
 - W55 / `REC-PENDING-FRAME-PCM-01`：独立 `codex/recording-pending-frame-budget`，基于
