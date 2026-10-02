@@ -93,7 +93,20 @@ struct CatalogEntry {
 struct Catalog {
     id: String,
     created_at: Instant,
-    entries: HashMap<String, CatalogEntry>,
+    entries: Option<HashMap<String, CatalogEntry>>,
+}
+
+/// 只由后端在枚举前签发；异步完成时不能借 caller 字符串重建已失效的查询。
+#[derive(Debug)]
+pub(super) struct RecordingAudioDeviceRefresh {
+    caller: String,
+    generation: u64,
+}
+
+impl RecordingAudioDeviceRefresh {
+    fn catalog_id(&self) -> String {
+        format!("audio-catalog-{:016x}", self.generation)
+    }
 }
 
 #[derive(Default)]
@@ -107,13 +120,48 @@ impl RecordingAudioDeviceCatalog {
         Self::default()
     }
 
-    pub(super) fn refresh(
+    pub(super) fn begin_refresh(
         &self,
         caller: &str,
+    ) -> Result<RecordingAudioDeviceRefresh, RecordingAudioDeviceCatalogError> {
+        let mut catalogs = self
+            .by_caller
+            .lock()
+            .map_err(|_| RecordingAudioDeviceCatalogError::Poisoned)?;
+        // 查询身份与替换在同一把锁内完成，顺序取决于请求进入，而不是原生枚举返回。
+        let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
+        let refresh = RecordingAudioDeviceRefresh {
+            caller: caller.to_string(),
+            generation,
+        };
+        catalogs.retain(|_, existing| existing.created_at.elapsed() <= CATALOG_TTL);
+        catalogs.remove(caller);
+        if catalogs.len() >= MAX_LIVE_CATALOGS {
+            let oldest = catalogs
+                .iter()
+                .min_by_key(|(_, existing)| existing.created_at)
+                .map(|(caller, _)| caller.clone());
+            if let Some(oldest) = oldest {
+                catalogs.remove(&oldest);
+            }
+        }
+        catalogs.insert(
+            caller.to_string(),
+            Catalog {
+                id: refresh.catalog_id(),
+                created_at: Instant::now(),
+                entries: None,
+            },
+        );
+        Ok(refresh)
+    }
+
+    pub(super) fn complete_refresh(
+        &self,
+        refresh: RecordingAudioDeviceRefresh,
         devices: Vec<NativeRecordingAudioDevice>,
     ) -> Result<RecordingAudioDeviceCatalogView, RecordingAudioDeviceCatalogError> {
-        let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
-        let catalog_id = format!("audio-catalog-{generation:016x}");
+        let catalog_id = refresh.catalog_id();
         let mut normalized = normalize_devices(devices);
         normalized.sort_by(|left, right| {
             left.kind
@@ -128,7 +176,7 @@ impl RecordingAudioDeviceCatalog {
         let mut system_audio_devices = Vec::new();
         let mut microphone_devices = Vec::new();
         for (index, device) in normalized.into_iter().enumerate() {
-            let token = format!("audio-device-{generation:016x}-{index:02x}");
+            let token = format!("audio-device-{:016x}-{index:02x}", refresh.generation);
             let summary = RecordingAudioDeviceSummary {
                 id: token.clone(),
                 label: device.label,
@@ -147,32 +195,37 @@ impl RecordingAudioDeviceCatalog {
             );
         }
 
-        let catalog = Catalog {
-            id: catalog_id.clone(),
-            created_at: Instant::now(),
-            entries,
-        };
         let mut catalogs = self
             .by_caller
             .lock()
             .map_err(|_| RecordingAudioDeviceCatalogError::Poisoned)?;
-        catalogs.retain(|_, existing| existing.created_at.elapsed() <= CATALOG_TTL);
-        catalogs.remove(caller);
-        if catalogs.len() >= MAX_LIVE_CATALOGS {
-            let oldest = catalogs
-                .iter()
-                .min_by_key(|(_, existing)| existing.created_at)
-                .map(|(caller, _)| caller.clone());
-            if let Some(oldest) = oldest {
-                catalogs.remove(&oldest);
-            }
+        let catalog = catalogs
+            .get_mut(&refresh.caller)
+            .ok_or(RecordingAudioDeviceCatalogError::StaleCatalog)?;
+        if catalog.id != catalog_id || catalog.entries.is_some() {
+            return Err(RecordingAudioDeviceCatalogError::StaleCatalog);
         }
-        catalogs.insert(caller.to_string(), catalog);
+        if catalog.created_at.elapsed() > CATALOG_TTL {
+            catalogs.remove(&refresh.caller);
+            return Err(RecordingAudioDeviceCatalogError::StaleCatalog);
+        }
+        // 只发布一次且从快照发布起计算 TTL；旧完成不能插入、刷新或复活目录。
+        catalog.entries = Some(entries);
+        catalog.created_at = Instant::now();
         Ok(RecordingAudioDeviceCatalogView {
             catalog_id,
             system_audio_devices,
             microphone_devices,
         })
+    }
+
+    #[cfg(test)]
+    pub(super) fn refresh(
+        &self,
+        caller: &str,
+        devices: Vec<NativeRecordingAudioDevice>,
+    ) -> Result<RecordingAudioDeviceCatalogView, RecordingAudioDeviceCatalogError> {
+        self.complete_refresh(self.begin_refresh(caller)?, devices)
     }
 
     pub(super) fn resolve(
@@ -221,6 +274,9 @@ impl RecordingAudioDeviceCatalog {
             .get(caller)
             .ok_or(RecordingAudioDeviceCatalogError::StaleCatalog)?;
         if expected_id.is_some_and(|expected| expected != catalog.id) {
+            return Err(RecordingAudioDeviceCatalogError::StaleCatalog);
+        }
+        if catalog.entries.is_none() {
             return Err(RecordingAudioDeviceCatalogError::StaleCatalog);
         }
         if catalog.created_at.elapsed() > CATALOG_TTL {
@@ -324,7 +380,8 @@ fn resolve_token(
     };
     let entry = catalog
         .entries
-        .get(token)
+        .as_ref()
+        .and_then(|entries| entries.get(token))
         .filter(|entry| entry.kind == expected_kind)
         .ok_or(RecordingAudioDeviceCatalogError::InvalidDevice)?;
     Ok(Some(entry.native_id.clone()))
@@ -617,3 +674,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod refresh_order_tests;

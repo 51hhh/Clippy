@@ -491,6 +491,11 @@ pub(crate) async fn get_recording_start_capabilities(
 ) -> Result<RecordingStartCapabilities, RecordingIpcError> {
     let caller = window.label().to_string();
     require_recording_overlay(&caller)?;
+    // 必须在 await 之前占位，防止晚完成的旧枚举作废启动重试的新设备选择。
+    let refresh = state
+        .recording_audio_devices
+        .begin_refresh(&caller)
+        .map_err(RecordingIpcError::from)?;
     let enumeration =
         tauri::async_runtime::spawn_blocking(super::platform::enumerate_recording_audio_devices)
             .await
@@ -504,7 +509,7 @@ pub(crate) async fn get_recording_start_capabilities(
     };
     let device_catalog = state
         .recording_audio_devices
-        .refresh(&caller, devices)
+        .complete_refresh(refresh, devices)
         .map_err(RecordingIpcError::from)?;
     Ok(RecordingStartCapabilities {
         audio_modes: available_recording_audio_modes(),

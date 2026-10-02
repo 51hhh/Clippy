@@ -1093,4 +1093,75 @@ describe("capture overlay app", () => {
     expect(button("Long screenshot").disabled).toBe(false);
   });
 
+
+  it.each(["success", "failure"])("keeps retry devices when the initial capability query completes late: %s", async (completion) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.getCurrentWindowLabel.mockReturnValue("recording-overlay-session-1-0");
+    let initialResolve;
+    let initialReject;
+    const initialQuery = new Promise((resolve, reject) => {
+      initialResolve = resolve;
+      initialReject = reject;
+    });
+    const currentCatalog = {
+      catalogId: "audio-catalog-0000000000000012",
+      systemAudioDevices: [],
+      microphoneDevices: [{
+        id: "audio-device-0000000000000012-00",
+        label: "Retry microphone",
+        isDefault: false,
+      }],
+    };
+    mocks.overlayApi.recordingCapabilities
+      .mockReturnValueOnce(initialQuery)
+      .mockResolvedValueOnce({
+        audioModes: ["none", "microphone"],
+        deviceCatalog: currentCatalog,
+        deviceEnumerationFailed: false,
+      });
+    mocks.overlayApi.startRecording
+      .mockRejectedValueOnce(new Error("startup failed"))
+      .mockResolvedValueOnce(undefined);
+    await mount({ intent: "recording" });
+    await drag({ x: 10, y: 10 }, { x: 100, y: 80 });
+    await act(async () => button("Start recording").click());
+    await flush();
+    expect(button("Start recording").disabled).toBe(false);
+    await act(async () => {
+      if (completion === "failure") {
+        initialReject(new Error("late enumeration failure"));
+      } else {
+        initialResolve({
+          audioModes: ["none"],
+          deviceCatalog: {
+            catalogId: "audio-catalog-0000000000000011",
+            systemAudioDevices: [],
+            microphoneDevices: [],
+          },
+          deviceEnumerationFailed: false,
+        });
+      }
+    });
+    await flush();
+    await act(async () => button("Recording audio: None").click());
+    await act(async () => button("Choose audio devices").click());
+    const microphone = document.querySelector('select[aria-label="Microphone device"]');
+    expect(microphone.textContent).toContain("Retry microphone");
+    await act(async () => {
+      microphone.value = currentCatalog.microphoneDevices[0].id;
+      microphone.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => button("Start recording").click());
+    expect(mocks.overlayApi.startRecording).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sessionId: "session-1" }),
+      {
+        mode: "microphone",
+        catalogId: currentCatalog.catalogId,
+        systemDeviceId: null,
+        microphoneDeviceId: currentCatalog.microphoneDevices[0].id,
+      },
+    );
+    expect(mocks.overlayApi.recordingCapabilities).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+  });
 });
