@@ -5,6 +5,8 @@
 
 ## 当前续审结果
 
+W78 / WIN-NATIVE-01：同源码d05cd3e默认/QA release编译、743编译输入与1064门禁输入、实际优化参数/feature、PE/CRT文件核对通过。新源码/测试/修复0，49修复/48历史和原门禁计数保持；构建/文件不计测试。当前同SHA CI、原生设备/桌面/其它宿主/安装器仍未验。见 [W78 release](2026-10-02-windows-audio-catalog-order-release-review.md)。
+
 W77 / `REC-AUDIO-CATALOG-ORDER-01`：修复迟到的旧设备枚举覆盖启动重试目录。源码 `d05cd3e478934722273a33fb88c841648aeb1ef5` 在枚举前预留身份，仅当前查询可发布一次。原API诊断0/1，新API合同16/0、前端定向63/0；原完整模块/期限保持。干净Windows完整门禁33/0/1，默认1324/QA1475各5ignored、前端81/1405，新10项已含总数。累计49修复/48历史；当前release/同SHA CI、设备/桌面/其它宿主等仍未验。见 [W77审查](2026-10-02-audio-catalog-refresh-order-review.md)。
 
 W76 / WIN-NATIVE-01：同源码默认/QA release编译及742输入、真实优化参数、两图feature、PE/CRT文件验证完成；未启动应用/设备。生产/测试/期限、48项修复和原门禁计数保持，构建/文件不计测试。当前SHA CI/其它宿主/真机/安装器等仍未验。见 [W76 release](2026-10-02-windows-mixed-stop-ready-bound-release-review.md)。

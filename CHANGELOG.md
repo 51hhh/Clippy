@@ -11,7 +11,9 @@
   新增8项 Rust 和2项前端保护，不把新接口测试冒称同字节原 API 对照。
   干净 `d05cd3e478934722273a33fb88c841648aeb1ef5` Windows 默认/QA完整门禁33/0/1 Linux smoke skipped；
   默认1324/QA1475各5ignored、前端81/1405，新用例已含总数、两图重叠不累加。
-  同SHA CI/release、其它宿主、原生设备/桌面未验。
+  W78补充同SHA默认/QA release编译和PE/CRT文件核对，实际启动未验；见
+  `docs/reviews/2026-10-02-windows-audio-catalog-order-release-review.md`（WIN-NATIVE-01）。
+  同SHA CI、其它宿主、原生设备/桌面仍未验。
   默认录屏仍关闭，旧失败根因保留未明。
   （需求：`REC-AUDIO-CATALOG-ORDER-01`；见 `docs/superpowers/specs/2026-10-02-audio-catalog-refresh-order.md`）
 

@@ -41,3 +41,6 @@ W53/W59/W63/W67旧失败根因未明，不以绿门禁覆盖。累计49项本机
 
 机器证据：`C:\win\Clippy\src-tauri\target\audio-catalog-refresh-order-contract` 的 BASELINE、baseline/green-RESULT、CONTRACT-AUDIT、NATIVE-GATE-INPUT-AUDIT、CURRENT-SHA-REMOTE-EVIDENCE，
 `C:\win\Clippy\src-tauri\target\audio-catalog-refresh-order-native-qa-d05cd3e` 的 RESULT/GATE-AUDIT；原失败诊断和旧release材料均保留。
+
+W78后续：同源码默认/QA release编译及PE/CRT文件验证完成；实际启动/设备、CI/其它宿主和桌面等仍未验。
+见 [release验证](2026-10-02-windows-audio-catalog-order-release-review.md)；最后复合验收继续未完成。

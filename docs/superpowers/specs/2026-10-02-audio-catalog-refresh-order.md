@@ -48,3 +48,6 @@
 完整门禁已在 `d05cd3e478934722273a33fb88c841648aeb1ef5` 通过33/0/1；默认1324/QA1475各5ignored，前端81/1405。
 QA recording509已含QA总数；原API失败、新API16/0和前端63/0分层。最后复合验收仍未完成。
 见 [W77审查](../../reviews/2026-10-02-audio-catalog-refresh-order-review.md)。
+
+W78后续：同源码默认/QA release编译及PE/CRT文件验证完成；实际启动/设备、CI/其它宿主和桌面等仍未验。
+见 [release验证](../../reviews/2026-10-02-windows-audio-catalog-order-release-review.md)；最后复合验收继续未完成。
