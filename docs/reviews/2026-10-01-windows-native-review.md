@@ -9,7 +9,9 @@ W51 / `REC-FIRST-FRAME-AUDIO-01`：基于 `d9264cd` 独立审查 factory 之后�
 固定三个 AV 回归在原生产代码全部失败，真实音频 worker 错误为 `Pipeline(Backpressure)`，
 首帧前轮询十四次；不是实际设备故障。修改有效首帧释放、首轮握手与 Windows/混音音源
 激活下界。最终同字节三项原实现仍 0/3；修复新十八项和原三百零一项，共 319 passed，
-四个原测试模块正文保持；冻结 source 完整门禁仍待验。首帧后无新视频帧的消费阻塞与
+四个原测试模块正文保持；干净 `2dccc43` 完整 Windows 门禁 33/0/1，Rust 默认 1214/QA 1285
+各 5 ignored，前端 81/1403，两图不累加，领域 319 包含在 QA 内；本 SHA release 未构建。
+首帧后无新视频帧的消费阻塞与
 提前 Stop 的三十二包尾部阻塞保留为后续独立项，
 未修改原预算/时钟/encoder，桌面仍停止。见 `2026-10-02-recording-first-frame-audio-review.md`。
 

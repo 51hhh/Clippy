@@ -13,8 +13,9 @@
   原生产源码固定三个首帧 AV 回归全部失败，音频 worker 实际返回 Backpressure；首帧前
   十四次轮询。实现有效首帧入队后的音频释放与首轮视频握手，Windows 延迟 stream 激活，
   混音从有效 PCM 下界开始，原预算/时钟/encoder 保留。最终同字节三项原实现 0/3，
-  新十八项及原领域三百零一项，共 319 passed，四个旧测试模块正文保持；冻结 source
-  门禁待验。首帧后无新视频帧与提前 Stop 的三十二包尾部阻塞为独立未完成项，
+  新十八项及原领域三百零一项，共 319 passed，四个旧测试模块正文保持。干净 `2dccc43`
+  完整 Windows 门禁 33/0/1，默认 Rust 1214/QA 1285 各 5 ignored，前端 81/1403；
+  两图与领域不累加，本 SHA release 未构建。首帧后无新视频帧与提前 Stop 的三十二包尾部阻塞为独立未完成项，
   设备/其它宿主/当前 CI/安装器/多屏和桌面保持未验。
 
 - W50 / `REC-AV-STARTUP-GATE-01`：独立 `codex/recording-av-startup-gate`，基于 `cc5f7af`。

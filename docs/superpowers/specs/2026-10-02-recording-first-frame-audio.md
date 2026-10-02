@@ -26,7 +26,7 @@
 - [x] 同一受控 AV 测试在旧实现出现首帧前采集/背压，修复后无提前采集并正常提交双轨输出。
 - [x] 首帧前错误、无效帧、Drop/Stop、准备中控制与首帧后既有控制有对应线程回收证据。
 - [x] 音频激活与平台/混音转发、部分失败有离线合同；Windows 原生编译检查实际 API 接入。
-- [ ] 干净 source SHA 的完整 Windows 门禁通过；跳过项、ignore 与重叠测试分开记录。
+- [x] 干净 source SHA 的完整 Windows 门禁通过；跳过项、ignore 与重叠测试分开记录。
 - [ ] 当前 SHA 三宿主/codec CI、真实设备首帧/首包与两种音源、安装器/多屏验收通过。
 
 ## Out of Scope
@@ -40,3 +40,10 @@
 基线 `d9264cd85acd88123620236c8292a280de96c6f2`，源码 `1c66112`；此前 factory 初始化修复
 不覆盖本项。证据保存于 `src-tauri/target/recording-first-frame-audio-contract/`；先红后绿
 固定同一 AV 夹具，补充激活/取消合同单列。最终门禁在冻结提交上运行，桌面历史记录保留。
+
+干净源码 `2dccc43feac1bb9949a359259aec33124fa0818e` 完整 Windows 默认/录屏 QA 门禁
+child/terminal exit 0：33 passed / 0 failed / 1 Linux smoke skipped。默认 Rust 1214/QA 1285
+各 5 ignored，两图重叠；前端 81 文件/1403 passed。十八项新增合同在上述总数内，领域
+319 不累加。证据 `src-tauri/target/recording-first-frame-audio-native-qa-2dccc43/RESULT.json`，
+源合同绑定 `recording-first-frame-audio-contract/COMMITTED-CONTRACT-AUDIT.json`；后继证据提交
+只更新五份 Markdown。本 SHA 未构建 release/安装器；设备/其它宿主/当前 CI 继续未验。

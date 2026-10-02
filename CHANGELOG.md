@@ -9,7 +9,9 @@
   准备中控制不会阻塞等待，立即首帧保留原暂停合同。预算与时钟不扩大或替换。
   合成源已观察实际 `Pipeline(Backpressure)`，最终同字节三项原实现全部失败，修复后通过；
   新十八项和原录屏领域三百零一项，共 319 passed，原四个测试模块正文保持。
-  冻结 source 的完整 Windows 门禁待验。首帧之后长期无新视频帧的消费阻塞，
+  干净 `2dccc43` 完整 Windows 门禁 33 passed / 0 failed / 1 Linux smoke skipped；
+  Rust 默认 1214/录屏 QA 1285 各 5 ignored，两图重叠，前端 81 文件/1403 passed。
+  本 SHA 未构建 release/安装器。首帧之后长期无新视频帧的消费阻塞，
   以及提前 Stop 时音频包等待视频尾段而达到三十二包上限，均为独立未完成项；
   当前 SHA CI、其它宿主/真实设备/安装器/多屏未验，桌面保持停止。
   （需求：`REC-FIRST-FRAME-AUDIO-01`；见 `docs/superpowers/specs/2026-10-02-recording-first-frame-audio.md`）

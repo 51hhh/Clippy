@@ -22,7 +22,11 @@ PCM 时间下界，经平台与混音封装转发；两个下界均有效时，�
 
 ## 验证状态
 
-目标合同已通过，尚未声明完整门禁或冻结 source SHA 通过。
+目标合同及干净源码 `2dccc43feac1bb9949a359259aec33124fa0818e` 的完整 Windows 门禁通过。
+门禁 child/terminal exit 0，33 passed / 0 failed / 1 Linux smoke skipped，结束时 checkout
+仍干净。默认 Rust 1214/录屏 QA 1285 各 5 ignored；两图重叠，前端 81 文件/1403 passed。
+新增十八项为十三项两图都有、五项仅 QA；领域 319 包含在 QA 总数，不重复累加。
+`recording-first-frame-audio-native-qa-2dccc43/RESULT.json` 与实际 stdout/stderr 哈希绑定。
 
 原三项新 AV 回归两次均为 0/3；初始诊断补充直接读取 audio worker 原错误，确认背压。
 第一版修复领域 311 passed / 3 failed，其中原立即暂停合同失败，另两项在正常输出
@@ -50,7 +54,14 @@ worker/会话或纯合同；Windows 原生编译解析真实 WASAPI/平台转发
 失败、冻结红、源文件恢复摘要及原 W50 状态/报告；源文件仅在受控红重放期间换为
 原 Git blob，命令 finally 完整恢复六个修复文件。`final-contract/` 保存最终原实现红；
 `CONTRACT-AUDIT.json` 绑定最终同字节夹具、原领域/四模块和未修改 scope。目标合同
-使用 working source，不能冒充干净 SHA 门禁；冻结 SHA 门禁另证。
+使用 working source；`COMMITTED-CONTRACT-AUDIT.json` 随后将十一份 Rust 输入绑定到干净
+`2dccc43`，最终红绿夹具原始字节相同。完整门禁另运行并通过于该冻结 SHA；后继仅五份
+Markdown 证据文件，生产/测试源码不变。
+
+本 SHA 未构建 release/安装器；此前 `1c66112` unsigned/unbundled QA EXE 和 VC143 部署
+仅为 W50 历史证据，不能替代当前源码产物或运行验收。根当前状态/报告与
+`recording-first-frame-audio-contract/REVIEW-CLOSURE.json` 记录源码、文档后继、门禁与
+历史桌面记录哈希；构建和文件核对不计测试通过。
 
 ## 未完成项
 
