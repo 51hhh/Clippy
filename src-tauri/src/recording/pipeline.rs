@@ -259,6 +259,15 @@ impl RecordingPipeline {
         Ok(())
     }
 
+    #[cfg(feature = "recording-opus-webm")]
+    pub fn extend_pause(&self, captured_at_ns: u64) -> Result<(), PipelineError> {
+        let mut state = self.state.lock().map_err(|_| PipelineError::Poisoned)?;
+        ensure_open(state.terminal)?;
+        ensure_not_before_lower_bound(&state, captured_at_ns)?;
+        state.timeline.extend_pause(captured_at_ns)?;
+        Ok(())
+    }
+
     pub fn finish(&self, captured_at_ns: u64) -> Result<u64, PipelineError> {
         let mut state = self.state.lock().map_err(|_| PipelineError::Poisoned)?;
         ensure_open(state.terminal)?;

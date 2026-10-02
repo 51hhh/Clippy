@@ -91,8 +91,10 @@ pub(super) struct CaptureWorkerReport {
 }
 
 enum ControlCommand {
-    Pause(SyncSender<Result<(), CaptureWorkerError>>),
-    Resume(SyncSender<Result<(), CaptureWorkerError>>),
+    Pause(SyncSender<Result<u64, CaptureWorkerError>>),
+    Resume(SyncSender<Result<u64, CaptureWorkerError>>),
+    #[cfg(feature = "recording-opus-webm")]
+    ExtendPause(u64, SyncSender<Result<u64, CaptureWorkerError>>),
     Stop,
 }
 
@@ -252,11 +254,28 @@ impl CaptureWorker {
     }
 
     pub fn pause(&self) -> Result<(), CaptureWorkerError> {
-        self.send_control(ControlCommand::Pause)
+        self.send_control(ControlCommand::Pause).map(|_| ())
     }
 
     pub fn resume(&self) -> Result<(), CaptureWorkerError> {
+        self.send_control(ControlCommand::Resume).map(|_| ())
+    }
+
+    #[cfg(feature = "recording-opus-webm")]
+    pub fn pause_timestamp(&self) -> Result<u64, CaptureWorkerError> {
+        self.send_control(ControlCommand::Pause)
+    }
+
+    #[cfg(feature = "recording-opus-webm")]
+    pub fn resume_timestamp(&self) -> Result<u64, CaptureWorkerError> {
         self.send_control(ControlCommand::Resume)
+    }
+
+    /// 只在采集线程协调媒体时间线，不再次调用原生 source。
+    #[cfg(feature = "recording-opus-webm")]
+    pub fn extend_pause(&self, timestamp: u64) -> Result<(), CaptureWorkerError> {
+        self.send_control(|reply| ControlCommand::ExtendPause(timestamp, reply))
+            .map(|_| ())
     }
 
     pub fn stop(mut self) -> Result<CaptureWorkerReport, CaptureWorkerError> {
@@ -286,16 +305,15 @@ impl CaptureWorker {
 
     fn send_control(
         &self,
-        build: fn(SyncSender<Result<(), CaptureWorkerError>>) -> ControlCommand,
-    ) -> Result<(), CaptureWorkerError> {
+        build: impl FnOnce(SyncSender<Result<u64, CaptureWorkerError>>) -> ControlCommand,
+    ) -> Result<u64, CaptureWorkerError> {
         let (reply, result) = mpsc::sync_channel(1);
         self.control
             .try_send(build(reply))
             .map_err(map_control_send_error)?;
         result
             .recv()
-            .map_err(|_| CaptureWorkerError::ControlDisconnected)??;
-        Ok(())
+            .map_err(|_| CaptureWorkerError::ControlDisconnected)?
     }
 
     fn request_stop(&self) {
@@ -551,7 +569,7 @@ where
             if result.is_ok() {
                 *paused = true;
             }
-            let _ = reply.send(result.clone());
+            let _ = reply.send(result.clone().map(|()| timestamp));
             result?;
             Ok(None)
         }
@@ -574,7 +592,16 @@ where
             if result.is_ok() {
                 *paused = false;
             }
-            let _ = reply.send(result.clone());
+            let _ = reply.send(result.clone().map(|()| timestamp));
+            result?;
+            Ok(None)
+        }
+        #[cfg(feature = "recording-opus-webm")]
+        ControlCommand::ExtendPause(timestamp, reply) => {
+            let result = pipeline
+                .extend_pause(timestamp)
+                .map_err(CaptureWorkerError::from);
+            let _ = reply.send(result.clone().map(|()| timestamp));
             result?;
             Ok(None)
         }

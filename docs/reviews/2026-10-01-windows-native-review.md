@@ -5,6 +5,14 @@
 
 ## 当前续审结果
 
+W63 / `REC-AV-CONTROL-TIMELINE-01`：原双轨各自扣时导致不同控制耗时错位；统一
+扣两源共同暂停区间，保留源恢复下界与真实音频空洞。相同八项原API夹具原2/6，
+修复录屏领域427/0=原415+新12（八原API/四新API保护，全部仅QA）。原完整会话
+实际WebM从560 ms/56帧变为580 ms/58帧，独立ffprobe/PCM核对，源是合成。
+六个原完整测试模块/期限保持；完整门禁待执行。源码改动后7579222的release属历史。
+当前CI/其它宿主/release/设备/桌面/安装器/多屏/长时同步及两个历史失败原因保留未验。
+见 [W63审查](2026-10-02-recording-av-control-timeline-review.md)。
+
 W62 / `WIN-NATIVE-01`：冻结 `75792220cea374dd2f1e6526122be30dad328e6a`，默认与录屏 QA 在新独立 target
 完成 release 编译；两次 native child/包装器/终端退出码均为 0。实际 release 参数、两图
 feature、AMD64 GUI PE、QA 10 份 CRT 的来源/部署/导入文件闭包核对。包含 W59/W61 修复，

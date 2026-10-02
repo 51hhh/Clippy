@@ -90,8 +90,12 @@ pub(super) struct AudioCaptureWorkerReport {
 }
 
 enum ControlCommand {
-    Pause(SyncSender<Result<(), AudioCaptureWorkerError>>),
-    Resume(SyncSender<Result<(), AudioCaptureWorkerError>>),
+    Pause(SyncSender<Result<u64, AudioCaptureWorkerError>>),
+    Resume(SyncSender<Result<u64, AudioCaptureWorkerError>>),
+    #[cfg(feature = "recording-opus-webm")]
+    ExtendPause(u64, SyncSender<Result<u64, AudioCaptureWorkerError>>),
+    #[cfg(feature = "recording-opus-webm")]
+    ResumeAt(u64, SyncSender<Result<u64, AudioCaptureWorkerError>>),
     Stop,
 }
 
@@ -203,11 +207,28 @@ impl AudioCaptureWorker {
     }
 
     pub fn pause(&self) -> Result<(), AudioCaptureWorkerError> {
-        self.send_control(ControlCommand::Pause)
+        self.send_control(ControlCommand::Pause).map(|_| ())
     }
 
     pub fn resume(&self) -> Result<(), AudioCaptureWorkerError> {
-        self.send_control(ControlCommand::Resume)
+        self.send_control(ControlCommand::Resume).map(|_| ())
+    }
+
+    #[cfg(feature = "recording-opus-webm")]
+    pub fn pause_timestamp(&self) -> Result<u64, AudioCaptureWorkerError> {
+        self.send_control(ControlCommand::Pause)
+    }
+
+    #[cfg(feature = "recording-opus-webm")]
+    pub fn extend_pause(&self, timestamp: u64) -> Result<(), AudioCaptureWorkerError> {
+        self.send_control(|reply| ControlCommand::ExtendPause(timestamp, reply))
+            .map(|_| ())
+    }
+
+    #[cfg(feature = "recording-opus-webm")]
+    pub fn resume_at(&self, timestamp: u64) -> Result<(), AudioCaptureWorkerError> {
+        self.send_control(|reply| ControlCommand::ResumeAt(timestamp, reply))
+            .map(|_| ())
     }
 
     pub fn stop(mut self) -> Result<AudioCaptureWorkerReport, AudioCaptureWorkerError> {
@@ -235,16 +256,15 @@ impl AudioCaptureWorker {
 
     fn send_control(
         &self,
-        build: fn(SyncSender<Result<(), AudioCaptureWorkerError>>) -> ControlCommand,
-    ) -> Result<(), AudioCaptureWorkerError> {
+        build: impl FnOnce(SyncSender<Result<u64, AudioCaptureWorkerError>>) -> ControlCommand,
+    ) -> Result<u64, AudioCaptureWorkerError> {
         let (reply, result) = mpsc::sync_channel(1);
         self.control
             .try_send(build(reply))
             .map_err(map_control_send_error)?;
         result
             .recv()
-            .map_err(|_| AudioCaptureWorkerError::ControlDisconnected)??;
-        Ok(())
+            .map_err(|_| AudioCaptureWorkerError::ControlDisconnected)?
     }
 
     fn request_abort(&self) {
@@ -399,7 +419,7 @@ where
             {
                 Ok(()) => {
                     *paused = true;
-                    let _ = reply.send(Ok(()));
+                    let _ = reply.send(Ok(timestamp));
                     Ok(None)
                 }
                 Err(error) => {
@@ -408,29 +428,23 @@ where
                 }
             }
         }
-        ControlCommand::Resume(reply) => {
-            let timestamp = match source.resume_capture() {
-                Ok(timestamp) => timestamp,
-                Err(error) => {
-                    let error = AudioCaptureWorkerError::Source(error.to_string());
-                    let _ = reply.send(Err(error.clone()));
-                    return Err(error);
-                }
-            };
-            match pipeline
-                .resume(timestamp)
-                .map_err(AudioCaptureWorkerError::from)
-            {
-                Ok(()) => {
-                    *paused = false;
-                    let _ = reply.send(Ok(()));
-                    Ok(None)
-                }
-                Err(error) => {
-                    let _ = reply.send(Err(error.clone()));
-                    Err(error)
-                }
-            }
+        ControlCommand::Resume(reply) => resume_source(source, paused, reply, |timestamp| {
+            pipeline.resume(timestamp)
+        }),
+        #[cfg(feature = "recording-opus-webm")]
+        ControlCommand::ResumeAt(boundary, reply) => {
+            resume_source(source, paused, reply, |timestamp| {
+                pipeline.resume_at(timestamp, boundary)
+            })
+        }
+        #[cfg(feature = "recording-opus-webm")]
+        ControlCommand::ExtendPause(timestamp, reply) => {
+            let result = pipeline
+                .extend_pause(timestamp)
+                .map_err(AudioCaptureWorkerError::from);
+            let _ = reply.send(result.clone().map(|()| timestamp));
+            result?;
+            Ok(None)
         }
         ControlCommand::Stop => {
             let timestamp = source
@@ -445,6 +459,32 @@ where
             Ok(Some(pipeline.finish(timestamp)?))
         }
     }
+}
+
+fn resume_source<S>(
+    source: &mut S,
+    paused: &mut bool,
+    reply: SyncSender<Result<u64, AudioCaptureWorkerError>>,
+    resume: impl FnOnce(u64) -> Result<(), AudioPipelineError>,
+) -> Result<Option<u64>, AudioCaptureWorkerError>
+where
+    S: RecordingAudioSource,
+{
+    let timestamp = match source.resume_capture() {
+        Ok(timestamp) => timestamp,
+        Err(error) => {
+            let error = AudioCaptureWorkerError::Source(error.to_string());
+            let _ = reply.send(Err(error.clone()));
+            return Err(error);
+        }
+    };
+    let result = resume(timestamp).map_err(AudioCaptureWorkerError::from);
+    if result.is_ok() {
+        *paused = false;
+    }
+    let _ = reply.send(result.clone().map(|()| timestamp));
+    result?;
+    Ok(None)
 }
 
 fn push_captured_chunk(

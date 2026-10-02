@@ -257,17 +257,36 @@ impl AvRecordingSession {
         if !video.is_first_frame_ready() {
             return Err(AvRecordingSessionError::StartupPending);
         }
-        video.pause()?;
-        if let Err(error) = audio.pause() {
-            if let Err(rollback) = video.resume() {
-                self.abort_pipelines();
-                return Err(AvRecordingSessionError::ControlDiverged(format!(
-                    "音频暂停失败: {error}; 视频恢复失败: {rollback}"
-                )));
+        let video_paused_at = video.pause_timestamp()?;
+        let audio_paused_at = match audio.pause_timestamp() {
+            Ok(timestamp) => timestamp,
+            Err(error) => {
+                if let Err(rollback) = video.resume() {
+                    self.abort_pipelines();
+                    return Err(AvRecordingSessionError::ControlDiverged(format!(
+                        "音频暂停失败: {error}; 视频恢复失败: {rollback}"
+                    )));
+                }
+                return Err(error.into());
             }
-            return Err(error.into());
+        };
+        // 只扣除两源均已停止的区间；较早停止的画面/PCM 空洞仍留给原编码器补齐。
+        let common_pause = video_paused_at.max(audio_paused_at);
+        let coordination = if video_paused_at < common_pause {
+            video
+                .extend_pause(common_pause)
+                .map_err(AvRecordingSessionError::from)
+        } else if audio_paused_at < common_pause {
+            audio
+                .extend_pause(common_pause)
+                .map_err(AvRecordingSessionError::from)
+        } else {
+            Ok(())
+        };
+        if coordination.is_err() {
+            self.abort_pipelines();
         }
-        Ok(())
+        coordination
     }
 
     pub fn resume(&self) -> Result<(), AvRecordingSessionError> {
@@ -282,8 +301,8 @@ impl AvRecordingSession {
         if !video.is_first_frame_ready() {
             return Err(AvRecordingSessionError::StartupPending);
         }
-        video.resume()?;
-        if let Err(error) = audio.resume() {
+        let common_resume = video.resume_timestamp()?;
+        if let Err(error) = audio.resume_at(common_resume) {
             if let Err(rollback) = video.pause() {
                 self.abort_pipelines();
                 return Err(AvRecordingSessionError::ControlDiverged(format!(
@@ -456,6 +475,16 @@ fn discard_failed_start(app_data_dir: &Path, session_id: &str) {
 
 #[cfg(test)]
 mod tests {
+    mod control_timeline_tests {
+        use super::*;
+        include!("av_session/control_timeline_tests.rs");
+
+        mod guard_tests {
+            use super::*;
+            include!("av_session/control_timeline_guard_tests.rs");
+        }
+    }
+
     #[cfg(target_os = "windows")]
     mod pending_frame_tests {
         include!("av_session/pending_frame_tests.rs");

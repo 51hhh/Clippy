@@ -267,16 +267,39 @@ impl AudioTimeline {
     }
 
     fn resume(&mut self, captured_at_ns: u64) -> Result<(), AudioPipelineError> {
+        self.resume_at(captured_at_ns, captured_at_ns)
+    }
+
+    // 源恢复时间仍决定迟到 PCM 的拒绝下界；媒体扣时只使用公共恢复边界。
+    fn resume_at(
+        &mut self,
+        captured_at_ns: u64,
+        media_resume_at_ns: u64,
+    ) -> Result<(), AudioPipelineError> {
         let paused_at_ns = self.paused_at_ns.ok_or(AudioPipelineError::NotPaused)?;
-        if captured_at_ns <= paused_at_ns {
+        if captured_at_ns <= paused_at_ns
+            || media_resume_at_ns <= paused_at_ns
+            || media_resume_at_ns > captured_at_ns
+        {
             return Err(AudioPipelineError::InvalidResumeTimestamp);
         }
         self.accumulated_pause_ns = self
             .accumulated_pause_ns
-            .checked_add(captured_at_ns - paused_at_ns)
+            .checked_add(media_resume_at_ns - paused_at_ns)
             .ok_or(AudioPipelineError::TimelineOverflow)?;
         self.last_source_ns = Some(captured_at_ns);
         self.paused_at_ns = None;
+        Ok(())
+    }
+
+    #[cfg(feature = "recording-opus-webm")]
+    fn extend_pause(&mut self, captured_at_ns: u64) -> Result<(), AudioPipelineError> {
+        let paused_at_ns = self.paused_at_ns.ok_or(AudioPipelineError::NotPaused)?;
+        if captured_at_ns < paused_at_ns {
+            return Err(AudioPipelineError::InvalidPauseTimestamp);
+        }
+        self.last_source_ns = Some(captured_at_ns);
+        self.paused_at_ns = Some(captured_at_ns);
         Ok(())
     }
 
@@ -457,6 +480,30 @@ impl AudioPipeline {
             .map_err(|_| AudioPipelineError::Poisoned)?;
         ensure_open(state.terminal)?;
         state.timeline.resume(captured_at_ns)
+    }
+
+    #[cfg(feature = "recording-opus-webm")]
+    pub fn resume_at(
+        &self,
+        captured_at_ns: u64,
+        media_resume_at_ns: u64,
+    ) -> Result<(), AudioPipelineError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| AudioPipelineError::Poisoned)?;
+        ensure_open(state.terminal)?;
+        state.timeline.resume_at(captured_at_ns, media_resume_at_ns)
+    }
+
+    #[cfg(feature = "recording-opus-webm")]
+    pub fn extend_pause(&self, captured_at_ns: u64) -> Result<(), AudioPipelineError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| AudioPipelineError::Poisoned)?;
+        ensure_open(state.terminal)?;
+        state.timeline.extend_pause(captured_at_ns)
     }
 
     pub fn finish(&self, captured_at_ns: u64) -> Result<u64, AudioPipelineError> {

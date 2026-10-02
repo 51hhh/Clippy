@@ -120,6 +120,18 @@ impl RecordingTimeline {
         Ok(())
     }
 
+    /// 两源均已暂停后，将较早停止的轨道延长到公共暂停起点；缺失画面由原 CFR 补齐。
+    #[cfg(feature = "recording-opus-webm")]
+    pub fn extend_pause(&mut self, captured_at_ns: u64) -> Result<(), TimelineError> {
+        let paused_at_ns = self.paused_at_ns.ok_or(TimelineError::NotPaused)?;
+        if captured_at_ns < paused_at_ns {
+            return Err(TimelineError::SourceTimestampNotIncreasing);
+        }
+        self.last_source_ns = Some(captured_at_ns);
+        self.paused_at_ns = Some(captured_at_ns);
+        Ok(())
+    }
+
     /// 计算停止时的最终呈现时长。暂停期间停止时，当前暂停区间不会进入输出。
     pub fn finish(&mut self, captured_at_ns: u64) -> Result<u64, TimelineError> {
         let origin_ns = self
