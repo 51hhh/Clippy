@@ -11,7 +11,9 @@
   修复后领域 459/0，含新增17项（15两图/2仅QA），原完整模块/期限保持。
   完整合成双轨会话 complete 40ms/4视频帧/1920PCM；真实codec/文件不计设备验收。
   干净 `aac5e0a728d46adc7bd7603188f41b9380138650` 完整Windows门禁33/0/1 Linux smoke skipped；默认1281/QA1425各5ignored，
-  前端81文件/1403passed，两图重叠，新项已含总数。当前SHA release/CI、其它宿主、设备/桌面、安装器、
+  前端81文件/1403passed，两图重叠，新项已含总数。W68已补充同SHA默认/QA release与PE/CRT文件验证，实际启动未验；
+  见 `docs/reviews/2026-10-02-windows-qpc-precision-release-review.md`（`WIN-NATIVE-01`）。
+  当前SHA CI、其它宿主、设备/桌面、安装器、
   设备时钟漂移/长时同步、多屏/混合DPI仍未验，历史失败根因保持未明；默认录屏入口仍关闭。
   初版门禁一项旧分段测试清单写入os error 5；同SHA隔离及完整复查通过，首次根因仍未明，原日志保留。
   （需求：`REC-WASAPI-QPC-PRECISION-01`；见 `docs/superpowers/specs/2026-10-02-wasapi-qpc-precision.md`）

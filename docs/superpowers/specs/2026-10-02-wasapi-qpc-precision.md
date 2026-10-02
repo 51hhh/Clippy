@@ -47,3 +47,6 @@ W53/W59/W63 历史失败根因继续未明。本次证据不替代真实 WGC/WAS
 冻结源码 `aac5e0a728d46adc7bd7603188f41b9380138650`：完整Windows门禁33/0/1，默认1281/QA1425各5ignored，前端81/1403。
 领域459/0与新17项已含总数；实际文件核对40ms/1920有效PCM，八个旧模块/期限保持。
 审查见 [W67记录](../../reviews/2026-10-02-wasapi-qpc-precision-review.md)；最后复合验收保留未完成。
+
+W68后续：同源码默认/QA release编译及PE/CRT文件验证完成；实际启动、设备/CI、其它宿主与桌面仍未验。
+见 [release验证](../../reviews/2026-10-02-windows-qpc-precision-release-review.md)；最后复合验收保持未完成。

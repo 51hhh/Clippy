@@ -43,6 +43,9 @@ packet guard容忍一个刻度；队列只把媒体区间起点对齐到上一�
 ## 保留边界
 
 Windows原生源与平台路由有编译/lint证据；合成source/真实codec/文件不能证明WGC/WASAPI真机采集或同步。
-当前SHA release/跨平台CI、其它宿主、设备切换/漂移/长时同步、桌面、安装器/updater/无CRT启动、
+W67时当前SHA release/跨平台CI、其它宿主、设备切换/漂移/长时同步、桌面、安装器/updater/无CRT启动、
 Win10/多屏/负坐标/混合DPI仍未验。默认录屏入口关闭。W53/W59/W63历史失败根因保持未明。
 未启动应用/设备/桌面、未安装/推送/PR/合入/发布；整体任务与最后复合验收仍未完成。
+
+W68后续：同源码默认/QA release编译及PE/CRT文件验证完成；实际启动、设备/CI、其它宿主与桌面仍未验。
+见 [release验证](2026-10-02-windows-qpc-precision-release-review.md)；最后复合验收保持未完成。
