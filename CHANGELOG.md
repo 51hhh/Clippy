@@ -11,7 +11,9 @@
   默认Rust1254/QA1381各5ignored，两图重叠不累加；前端81文件/1403passed。
   八项新合同实际次数为7两图/1仅QA，已含Rust总数；原完整worker与前置状态合同保持。
   合成源故障/真实文件codec不能代替WGC/WASAPI、桌面或长时同步。
-  当前CI/其它宿主/设备/安装器/多屏/release与两个历史失败原因保留未验。
+  W62 已补充同 SHA 默认/QA release 编译、PE 与 CRT 文件核对，实际运行仍未验；
+  见 `docs/reviews/2026-10-02-windows-control-release-review.md`（`WIN-NATIVE-01`）。
+  当前CI/其它宿主/设备/安装器/多屏与两个历史失败原因保留未验。
   （需求：`REC-VIDEO-CONTROL-FAILURE-01`；见 `docs/superpowers/specs/2026-10-02-recording-video-control-failure.md`）
 
 ### 2026-10-02 视频录屏控制先核对状态

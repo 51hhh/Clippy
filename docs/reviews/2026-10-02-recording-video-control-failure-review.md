@@ -36,5 +36,8 @@ WebM分段/最终文件，控制根因被覆盖。清单/媒体/长度/SHA与调
 测试帧源/音源模拟原控制语义并注入故障，codec和文件是真I/O；不证明实际WGC/WASAPI故障
 或实际UI自动清理。普通WGC时间戳是否倒退也未宣称。双轨顺序控制与长时同步仍需独立验证。
 W53历史AVI30秒超时、W59历史Opus失败根因未证明。桌面停止；当前SHA CI、其它宿主门禁、
-真实设备/长时同步、安装器/无CRT启动、Win10/多屏、当前release未验；旧830b12b产物保留。
+真实设备/长时同步、安装器/无CRT启动、Win10/多屏未验；W61 时当前 release 尚未构建，旧830b12b产物保留。
 证据在 `src-tauri/target/video-control-failure-contract/`。
+
+W62 后续：同源码默认/QA release 编译及 PE/CRT 文件核对已完成；实际启动、设备、CI、
+其它宿主与桌面验收仍未完成，见 [release 验证](2026-10-02-windows-control-release-review.md)。

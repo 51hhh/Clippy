@@ -29,3 +29,6 @@
 不启动桌面/设备、安装或发布，不修改平台 control、pipeline/timeline 的拒绝规则、
 双轨顺序控制协议或时钟/FPS/容量。此处证明故障路径，不宣称普通 WGC 时间戳会倒退。
 W53 AVI 超时和 W59 原 Opus 失败原因继续未证明，不将这次独立复现作为其根因。
+
+W62 后续：同源码默认/QA release 编译及 PE/CRT 文件核对已完成；实际启动、设备、CI、
+其它宿主与桌面验收仍未完成，见 [release 验证](../../reviews/2026-10-02-windows-control-release-review.md)。

@@ -9,6 +9,13 @@
 
 ## 当前续审状态
 
+W62 / `WIN-NATIVE-01`：冻结 `75792220cea374dd2f1e6526122be30dad328e6a`，默认与录屏 QA 在新独立 target
+完成 release 编译；两次 native child/包装器/终端退出码均为 0。实际 release 参数、两图
+feature、AMD64 GUI PE、QA 10 份 CRT 的来源/部署/导入文件闭包核对。包含 W59/W61 修复，
+生产/测试未改；41 项修复和 W61 门禁/测试计数保持。本轮编译与文件核对不计测试通过。
+旧 release/安装/桌面字节保持；当前 CI、其它宿主、设备/桌面/安装器/Win10/多屏、长时同步
+仍未验，两个历史失败根因仍未知。见 [W62审查](../../reviews/2026-10-02-windows-control-release-review.md)。
+
 W61 / `REC-VIDEO-CONTROL-FAILURE-01`：源已pause/resume后，pipeline拒绝必须让worker
 保留原错并退出；不改变source前的非致命状态拒绝。原实现八条运行期合同0/8，两个原owner
 Stop成功的实际complete清单/媒体保留；同字节修复领域415/0=原407+新8（7两图/1仅QA）。
