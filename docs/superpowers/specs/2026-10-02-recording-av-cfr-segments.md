@@ -28,7 +28,7 @@
 - [x] 固定非对齐 writer/编码 worker 回归在旧实现失败、修复后通过，原测试保持。
 - [x] 真实生成的恢复分段通过严格 packet reader；总帧数/PCM/时长和首关键帧为零通过。
 - [x] 精确一纳秒量化例外有正/负合同；全局起点/终点核对，错误时长/帧数继续被拒绝。
-- [ ] 干净 source SHA 完整 Windows 默认/录屏 QA 门禁通过，重叠/ignore/跳过单列。
+- [x] 干净 `66ceffd` 完整 Windows 默认/录屏 QA 门禁通过，重叠/ignore/跳过单列。
 - [ ] 当前 SHA 三宿主/codec CI、设备录屏与恢复/同步、安装器/多屏验收通过。
 
 ## Out of Scope
@@ -49,4 +49,9 @@
 恢复修复源码；同文件最终全录屏领域 341 passed / 0 failed，原 329 和新十二项均包含在内。
 六个原完整测试模块正文保持。两份失败 WebM 的实际 timecode scale 为 0.5 ms，均复现
 66.5 ms 音频后接同时间视频，文件与解析证据保留。新 worker 夹具只等待原容量队列被消费，
-断言无 backpressure 丢帧，不增大三帧容量。完整 Windows source SHA 门禁待运行。
+断言无 backpressure 丢帧，不增大三帧容量。干净源码 `66ceffdfea061d7fde9085a7a2f6ba25d1c30d29`
+完整 Windows 门禁 child/terminal exit 0，33 passed / 0 failed / 1 Linux smoke skipped；默认 Rust
+1214/QA 1307 各 5 ignored，两图/领域不累加，前端 81 文件/1403 passed。十份 Rust 输入
+绑定同 SHA；后继仅五份 Markdown 证据变更，源码/测试保持。当前 SHA CI 和实际设备仍未验。
+首次完整门禁 32/1/1，未修改 AVI 分段提交测试 30 秒超时；单独 0.23 秒通过后，
+同干净 SHA 完整重跑通过。原失败证据保留，原因未定位，不增大超时或改旧测试。

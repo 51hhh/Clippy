@@ -37,11 +37,23 @@ worker 夹具四帧直接推入原三帧队列导致丢帧。夹具改为根据�
 所有这些新增项只在非默认 codec QA 图。每段/全局真实文件通过原严格 reader，
 首视频 packet 为零时间关键帧、PCM/帧数/时长/journal 核对和伪造计数拒绝通过。
 
-冻结干净 source SHA 的完整 Windows 默认/录屏 QA 门禁尚待运行，领域结果不能替代它。
+干净源码 `66ceffdfea061d7fde9085a7a2f6ba25d1c30d29` 完整 Windows 默认/录屏 QA 门禁
+child/terminal exit 0，33 passed / 0 failed / 1 Linux smoke skipped，结束 checkout 干净。默认
+Rust 1214/QA 1307 各 5 ignored，两图不累加；前端 81 文件/1403 passed。领域 341 和新十二项
+包含在 QA 内，不重复累加。`COMMITTED-CONTRACT-AUDIT.json` 将十份 Rust 输入绑定干净 SHA，
+冻结 SHA 完整门禁另运行；后继仅五份 Markdown，生产/测试源码保持。
+`recording-av-cfr-segment-native-qa-66ceffd-retry1/RESULT.json` 绑定实际原 stdout/stderr 哈希；根当前
+状态/报告与 `recording-av-cfr-segment-contract/REVIEW-CLOSURE.json` 保留原 W52/旧桌面身份。
 证据在 `src-tauri/target/recording-av-cfr-segment-contract/`：原 W52 状态/报告，初始红、
 阶段失败/绿、失败 WebM 与 `QUANTIZED-PACKET-DIAGNOSIS.json`、最终 frozen-red、恢复记录、
 final-green 和 `CONTRACT-AUDIT.json`。真实 codec/writer/worker 合成测试不代表设备测量，
 文件/Git 核对不计测试通过。
+
+首次完整门禁 `recording-av-cfr-segment-native-qa-66ceffd/RESULT.json` 为 32 passed / 1 failed /
+1 skipped，child/terminal exit 1。QA Rust 1306/1/5 ignored，默认与其它检查通过；失败为未修改
+`periodic_segment_is_committed_before_stop_and_preserved_in_final_manifest` 等待 AVI 清单提交
+30 秒超时。该测试单独 0.23 秒通过；保持原测试与期限、同一干净 SHA 完整重跑通过。
+首次失败日志和 `GATE-RETRY-REASON.json` 保留，原因未定位，不能称为稳定性问题已解决。
 
 ## 未完成项
 
