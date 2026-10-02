@@ -87,3 +87,7 @@
 完整Windows门禁33/0/1，默认1308/QA1457各5ignored，前端81/1403。
 同SHA跨平台CI、原生权限/设备/听感/30分钟漂移等最后复合验收继续未完成，默认录屏入口关闭。
 见 [W72审查](../../reviews/2026-10-02-mixed-paused-stop-review.md)。
+
+W75补充：原第5/8项与ready固定上限的短尾块覆盖不足；活跃Stop两秒间隔原源一次返回96960/97920帧。
+[REC-MIXED-STOP-READY-BOUND-01](2026-10-02-mixed-stop-ready-bound.md)改为最多一秒分批并同步worker完整排空，保留全部合法PCM和背压。
+原API2/7，完整领域501/0、干净Windows默认/QA完整门禁通过，原模块/期限保持；设备/同SHA CI等复合验收仍未完成。

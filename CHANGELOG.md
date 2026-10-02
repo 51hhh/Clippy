@@ -8,7 +8,10 @@
   批次排出、单块仍最多20ms；保留完整合法PCM、缺包静音、固定增益和最终控制下界。
   音频worker同步循环排空后才封尾，后续批错误与原pipeline背压继续失败关闭。
   原API适度有限间隔的合成对照2 passed / 7 failed；worker/完整owner的分批夹具证明新增
-  读取合同需要同步，不冒称原生单批尾部已漏包。当前领域/完整门禁等待执行；同SHA release、
+  读取合同需要同步，不冒称原生单批尾部已漏包。录屏领域501/0，干净 `2bb12f9eeb04f98217189c197ecafef83b326604` Windows完整门禁33/0/1；
+  默认1316/QA1467各5ignored，前端81/1403，新10项已含总数、两图重叠不累加。
+  完整合成owner保留60ms/2880有效PCM；后续批错误为interrupted，真实codec文件核对通过，不计设备验收。
+  旧完整测试模块/期限保持；同SHA release、
   CI、其它宿主、设备/桌面和长时同步未验，默认录屏仍关闭。
   （需求：`REC-MIXED-STOP-READY-BOUND-01`；见 `docs/superpowers/specs/2026-10-02-mixed-stop-ready-bound.md`）
 
