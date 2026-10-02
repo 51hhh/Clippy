@@ -9,6 +9,12 @@
 
 ## 当前续审状态
 
+- W55 / `REC-PENDING-FRAME-PCM-01`：独立 `codex/recording-pending-frame-budget`，基于
+  `bdffab3`。原 bridge/1 FPS/同一时钟实时 PCM 已复现实际 Backpressure；保留缓存
+  下界与真实帧替换，按全局/分段剩余包槽消费未封闭 slot 的 PCM，先对齐分段切点。
+  <!-- W55_GATE_PENDING -->
+  当前 SHA CI/其它宿主/设备/安装器/多屏未验，桌面停止；W53 AVI 超时原因仍保留。
+
 - W54 / `REC-WINDOWS-IDLE-AV-01`：独立 `codex/recording-av-idle-frontier`，基于 `e59430f`。
   原两个首帧后空闲 AV worker 用例均 Backpressure；按 Windows 源保证的未来帧下界
   生成已封闭 CFR slot、sample 域消费 PCM 与周期提交。缓存旧帧限制下界，pipeline

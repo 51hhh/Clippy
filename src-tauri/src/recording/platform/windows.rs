@@ -90,6 +90,11 @@ mod idle_frontier_tests {
     include!("windows/idle_frontier_tests.rs");
 }
 
+#[cfg(all(test, feature = "recording-opus-webm"))]
+pub(in crate::recording) mod pending_frame_fixture {
+    include!("windows/pending_frame_fixture.rs");
+}
+
 #[derive(Default)]
 struct LatestFrame {
     frame: Option<StampedFrame>,

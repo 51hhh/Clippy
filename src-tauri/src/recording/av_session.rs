@@ -456,6 +456,11 @@ fn discard_failed_start(app_data_dir: &Path, session_id: &str) {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "windows")]
+    mod pending_frame_tests {
+        include!("av_session/pending_frame_tests.rs");
+    }
+
     mod idle_frontier_tests {
         include!("av_session/idle_frontier_tests.rs");
     }

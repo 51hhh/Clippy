@@ -5,6 +5,13 @@
 
 ## 当前续审结果
 
+W55 / `REC-PENDING-FRAME-PCM-01`：独立 `codex/recording-pending-frame-budget`，基于
+`bdffab3`。原 WGC bridge/1 FPS worker 与同一时钟实时 PCM 的缓存组合已复现实际
+Backpressure；以既有 Opus 包槽消费未封闭 slot 的 PCM，保留图像替换、源下界、
+FPS/计数/预算和分段 sample 边界。<!-- W55_GATE_PENDING -->
+设备/其它宿主/当前 CI/安装器/多屏未验，桌面停止；W53 AVI 超时原因保留。
+见 [W55 审查](2026-10-02-recording-pending-frame-budget-review.md)。
+
 W54 / `REC-WINDOWS-IDLE-AV-01`：独立 `codex/recording-av-idle-frontier`，基于 `e59430f`。
 原首帧后无新视频的两个实际采集 worker 用例均 Backpressure；WGC 顺序桥提供保守
 源下界，pipeline 标量合并，AV 只生成已封闭 CFR slot 并排空 PCM/周期提交。1 FPS

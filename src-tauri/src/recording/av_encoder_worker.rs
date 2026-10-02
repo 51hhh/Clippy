@@ -267,6 +267,18 @@ fn run_inner(
             })
             .transpose()?
             .unwrap_or(false);
+        let pending_audio_window = if epoch_established
+            && video_head.is_none()
+            && video_duration_ns.is_none()
+            && video_lower_bound_ns.is_some()
+            && idle_video_step.is_none()
+            && !audio_before_idle_boundary
+            && aligned_audio.is_some()
+        {
+            writer.pending_audio_window()?
+        } else {
+            None
+        };
         match (video_head.as_ref(), aligned_audio.as_ref()) {
             (Some(_), Some(audio))
                 if timestamp_to_audio_frame(audio.presentation_at_ns)?
@@ -306,6 +318,20 @@ fn run_inner(
                     && (aligned_audio.is_some() || audio_duration_ns.is_some()) =>
             {
                 writer.push_idle_video(video_lower_bound_ns.expect("已检查下界"))?;
+            }
+            (None, Some(audio)) if pending_audio_window.is_some() => {
+                let (end_ns, slot_start) = pending_audio_window.expect("已检查容量");
+                if timestamp_to_audio_frame(audio.presentation_at_ns)?
+                    >= timestamp_to_audio_frame(end_ns)?
+                {
+                    // head 证明之前没有真实 PCM；只填本次可容纳的空洞，保留该 head。
+                    writer.pad_pending_audio_until(end_ns, slot_start)?;
+                } else {
+                    let queued = aligned_audio.take().expect("匹配分支保证存在音频");
+                    let (before, after) = split_audio_at(queued, end_ns)?;
+                    writer.push_audio_before(before, slot_start)?;
+                    aligned_audio = after;
+                }
             }
             (None, None)
                 if epoch_established
@@ -529,6 +555,10 @@ fn audio_frames_to_ns(frames: u32) -> Result<u64, AvTimelineError> {
 
 #[cfg(test)]
 mod tests {
+    mod pending_frame_tests {
+        include!("av_encoder_worker/pending_frame_tests.rs");
+    }
+
     mod idle_frontier_tests {
         include!("av_encoder_worker/idle_frontier_tests.rs");
     }

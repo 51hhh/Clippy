@@ -81,6 +81,11 @@ impl<W: Write + Seek> AvPacketInterleaver<W> {
         Ok(())
     }
 
+    /// 仅观察原有预算；enqueue 的三十二包失败关闭检查仍为最终约束。
+    pub fn available_audio_packets(&self) -> usize {
+        MAX_PENDING_PACKETS_PER_TRACK - self.audio.len()
+    }
+
     pub fn flush_ready(
         &mut self,
         next_video_timestamp_ns: u64,
@@ -164,6 +169,10 @@ impl<W: Write + Seek> AvPacketInterleaver<W> {
 
 #[cfg(test)]
 mod tests {
+    mod pending_frame_tests {
+        include!("av_interleaver/pending_frame_tests.rs");
+    }
+
     mod cfr_segment_tests {
         include!("av_interleaver/cfr_segment_tests.rs");
     }

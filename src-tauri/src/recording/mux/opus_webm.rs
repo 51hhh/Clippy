@@ -166,6 +166,15 @@ impl OpusPacketEncoder {
             .ok_or(OpusWebmError::TimelineOverflow)
     }
 
+    /// 部分 PCM 也会参与下一包；按剩余包槽保守预留，不借未满的一包扩大预算。
+    pub fn frame_capacity_for_packets(&self, available: usize) -> Result<u64, OpusWebmError> {
+        let frames = available
+            .checked_mul(OPUS_FRAME_FRAMES)
+            .ok_or(OpusWebmError::TimelineOverflow)?
+            .saturating_sub(self.pending_frames()?);
+        u64::try_from(frames).map_err(|_| OpusWebmError::TimelineOverflow)
+    }
+
     pub fn push(
         &mut self,
         queued: QueuedAudioChunk,
@@ -568,6 +577,10 @@ fn mux_error(error: webm::mux::Error) -> OpusWebmError {
 
 #[cfg(test)]
 mod tests {
+    mod pending_frame_tests {
+        include!("opus_webm/pending_frame_tests.rs");
+    }
+
     use super::*;
     use crate::recording::audio::{AudioFormat, CapturedAudioChunk};
     use crate::recording::mux::vp9_webm::Vp9PacketEncoder;

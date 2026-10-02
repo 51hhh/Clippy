@@ -269,6 +269,64 @@ impl SegmentedAvRecordingWriter {
         Ok(())
     }
 
+    /// 利用既有包槽消费未封闭 slot 的 PCM，不编码或提交仍可被真实帧替换的 slot。
+    pub fn pending_audio_window(
+        &mut self,
+    ) -> Result<Option<(u64, u64)>, SegmentedAvRecordingError> {
+        let slot_start = self.video_encoder.next_timestamp_ns()?;
+        let slot_end_frame = timestamp_to_audio_frame(self.video_encoder.next_frame_end_ns()?)?;
+        let slot_start_frame = timestamp_to_audio_frame(slot_start)?;
+        if self.audio_frame_cursor < slot_start_frame {
+            return Err(SegmentedAvRecordingError::InvalidTimeline);
+        }
+        if self.segment_has_video
+            && slot_start > self.segment_started_at_ns
+            && slot_start - self.segment_started_at_ns >= self.segment_duration_ns
+        {
+            if self.audio_frame_cursor != slot_start_frame {
+                return Err(SegmentedAvRecordingError::InvalidTimeline);
+            }
+            // 调用方已有真实音频 head；在消费该 slot 的 PCM 前切分，保留占位图像。
+            self.complete_rotation(slot_start)?;
+        }
+        let global_capacity = self
+            .global_audio_encoder
+            .as_ref()
+            .ok_or(SegmentedAvRecordingError::InvalidTimeline)?
+            .frame_capacity_for_packets(
+                self.final_mux
+                    .as_ref()
+                    .ok_or(SegmentedAvRecordingError::InvalidTimeline)?
+                    .available_audio_packets(),
+            )?;
+        let segment_capacity = self
+            .segment_audio_encoder
+            .as_ref()
+            .ok_or(SegmentedAvRecordingError::InvalidTimeline)?
+            .frame_capacity_for_packets(
+                self.segment_mux
+                    .as_ref()
+                    .ok_or(SegmentedAvRecordingError::InvalidTimeline)?
+                    .available_audio_packets(),
+            )?;
+        let end = self
+            .audio_frame_cursor
+            .checked_add(global_capacity.min(segment_capacity))
+            .ok_or(SegmentedAvRecordingError::StatisticsMismatch)?
+            .min(slot_end_frame);
+        (end > self.audio_frame_cursor)
+            .then(|| audio_frame_to_ns(end).map(|end_ns| (end_ns, slot_start)))
+            .transpose()
+    }
+
+    pub fn pad_pending_audio_until(
+        &mut self,
+        end_ns: u64,
+        slot_start_ns: u64,
+    ) -> Result<(), SegmentedAvRecordingError> {
+        self.pad_audio_to_frame(timestamp_to_audio_frame(end_ns)?, slot_start_ns)
+    }
+
     fn next_segment_boundary(
         &self,
         presentation_at_ns: u64,
@@ -321,6 +379,10 @@ impl SegmentedAvRecordingWriter {
         mut self,
         duration_ns: u64,
     ) -> Result<SegmentedAvRecordingOutput, SegmentedAvRecordingError> {
+        // EOS 已封闭当前图像；先写消费过 PCM 的 slot，排空包槽后再补齐尾部。
+        if self.audio_frame_cursor > self.segment_started_at_audio_frame {
+            self.advance_video_for_audio(audio_frame_to_ns(self.audio_frame_cursor)?, u64::MAX)?;
+        }
         if !self.segment_has_video || duration_ns <= self.segment_started_at_ns {
             return Err(SegmentedAvRecordingError::InvalidTimeline);
         }
@@ -541,7 +603,7 @@ impl SegmentedAvRecordingWriter {
             return Err(SegmentedAvRecordingError::InvalidConfiguration);
         }
         let global_start_frame = self.audio_frame_cursor;
-        if self.segment_has_video {
+        if self.segment_has_video || self.committed_video_frames != 0 {
             self.advance_video_for_audio(
                 audio_frame_to_ns(global_start_frame)?,
                 future_video_timestamp_ns,
@@ -649,6 +711,7 @@ impl SegmentedAvRecordingWriter {
                 .ok_or(SegmentedAvRecordingError::InvalidTimeline)?,
         );
         let mut interleave_error = None;
+        let mut emitted_video = false;
         let result = video_encoder.advance_for_audio(
             audio_timestamp_ns,
             future_video_timestamp_ns,
@@ -665,6 +728,7 @@ impl SegmentedAvRecordingWriter {
                     interleave_error = Some(error);
                     return Err(Vp9WebmError::Finalize);
                 }
+                emitted_video = true;
                 Ok(())
             },
         );
@@ -672,6 +736,7 @@ impl SegmentedAvRecordingWriter {
             return Err(error.into());
         }
         result?;
+        self.segment_has_video |= emitted_video;
         self.flush_ready()
     }
 
@@ -858,6 +923,10 @@ fn audio_frame_to_ns(frame: u64) -> Result<u64, SegmentedAvRecordingError> {
 
 #[cfg(test)]
 mod tests {
+    mod pending_frame_tests {
+        include!("av_segmenting/pending_frame_tests.rs");
+    }
+
     mod idle_frontier_tests {
         include!("av_segmenting/idle_frontier_tests.rs");
     }
