@@ -26,7 +26,7 @@
 - [x] 启动/恢复首块下界、派生 PCM 控制/封尾、立即恢复及严格错误/溢出合同通过。
 - [x] 原 worker 接受全部混音 PCM、正常 Stop 并回收两源；原完整 A/V owner 提交 complete 文件。
 - [x] 同组原实现结果、修复后结果、PCM/文件证据及旧模块/期限保留并核对。
-- [ ] 干净源码 Windows 默认/录屏 QA 完整门禁通过，更新 CHANGELOG 和 review。
+- [x] 干净源码 Windows 默认/录屏 QA 完整门禁通过，更新 CHANGELOG 和 review。
 - [ ] 当前源码 release/同 SHA 跨平台 CI、原生设备/长时同步及桌面验收完成。
 
 ## Out of Scope
@@ -52,3 +52,9 @@ FinishBeforeBufferedAudioEnd、worker PCM 前缀及原双轨 interrupted 文件�
 未声称它已在原实现上运行红基线。原十项夹具字节保持，最终领域 470/0（原459 + 新11）。
 原 worker 接收641帧（一个起始静音帧与640输入帧），两源 Drop 各一次。
 原双轨 owner complete 20ms/2视频帧/960有效PCM，641帧输入、无启动裁剪；设备验收仍未运行。
+
+## 冻结源码验证
+
+`4bc197767dfb04c7d067ee55c7744ea668dcde76` 完整Windows门禁33/0/1；默认1291/QA1436各5ignored，前端81/1403。
+领域470和新11项已含总数，两图重叠不累加；详见 [W69审查](../../reviews/2026-10-02-mixed-audio-frame-boundary-review.md)。
+最后复合验收保留未完成。

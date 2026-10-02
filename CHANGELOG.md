@@ -8,7 +8,8 @@
   派生控制覆盖完整 PCM 尾部；两路原生 PTS/样本、输入网格与 Exact pipeline 保持。
   同字节原 API 十项基线 2 passed / 8 failed，修复后通过；额外一项恢复取整中点保护，领域 470/0。
   合成原双轨 owner 生成 complete 20ms/2视频帧/960有效PCM（输入641帧），文件不计设备验收。
-  完整 Windows 默认/QA 门禁尚待当前干净提交运行；当前 release/CI、其它宿主、设备/桌面、
+  干净 `4bc197767dfb04c7d067ee55c7744ea668dcde76` 完整Windows门禁33/0/1 Linux smoke skipped；默认1291/QA1436各5ignored，
+  前端81文件/1403passed，新11项含总数、两图重叠不累加；当前 release/CI、其它宿主、设备/桌面、
   安装器和长时同步未验，默认录屏仍关闭，历史失败根因保持未明。
   （需求：`REC-MIXED-FRAME-BOUNDARY-01`；见 `docs/superpowers/specs/2026-10-02-mixed-audio-frame-boundary.md`）
 

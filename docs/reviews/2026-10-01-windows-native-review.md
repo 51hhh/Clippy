@@ -5,6 +5,15 @@
 
 ## 当前续审结果
 
+W69 / `REC-MIXED-FRAME-BOUNDARY-01`：原混音适配器十项同字节API基线2/8，恢复首块/尾部控制失败及interrupted文件保存。
+保留原生PTS/PCM与输入网格，派生输出/控制边界一致，原生控制倒退先拒绝，Exact/公共暂停/预算保持。
+同十项通过，加一项取整中点保护；领域470/0（原459+新11），原完整模块/期限保持。
+原worker641帧全接收、两源Drop；原双轨complete20ms/2视频帧/960有效PCM，独立文件核对不计设备验收。
+干净4bc1977完整Windows门禁33/0/1 Linux smoke skipped；默认1291/QA1436各5ignored，前端81/1403。
+新11项已含总数，10两图/1仅QA；累计45项本地修复，历史失败根因保持未明。
+当前release/CI/其它宿主/设备/桌面/安装器/长时同步未验；W68 release属前置源码，安装包/桌面字节保持。
+桌面停止，无推送/PR/合入/发布；见 [W69审查](2026-10-02-mixed-audio-frame-boundary-review.md)。
+
 W68 / `WIN-NATIVE-01`：冻结 `aac5e0a728d46adc7bd7603188f41b9380138650`，两个新独立target完成默认/录屏QA release编译，
 实际编译参数、两图feature、AMD64 GUI PE与QA10份CRT来源/部署/导入文件核对，native/包装器/终端退出0。
 包含W67 QPC精度修复；生产/测试/期限保持，44项本地修复和原门禁/测试计数不增。
