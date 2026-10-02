@@ -251,6 +251,10 @@ impl AudioMixer {
     ) -> Result<(), AudioMixerError> {
         self.system.finish(system_timestamp_ns)?;
         self.microphone.finish(microphone_timestamp_ns)?;
+        // 两源都已停止；先分别验证早停，再把缺失一侧确认静音到全部合法 PCM 的共同末尾。
+        let common_end = self.system.watermark().max(self.microphone.watermark());
+        self.system.silence_watermark_frame = common_end;
+        self.microphone.silence_watermark_frame = common_end;
         Ok(())
     }
 
@@ -480,7 +484,9 @@ where
         match self.microphone.resume_capture() {
             Ok(microphone) => {
                 self.validate_native_controls(system, microphone)?;
-                let mut resumed_at = self.derived_control_ns(system.max(microphone));
+                // 较早恢复一侧的首包仍有效；较晚一侧之前按原网格保留静音和真实时间差。
+                let native_resumed_at = system.min(microphone);
+                let mut resumed_at = self.derived_control_ns(native_resumed_at);
                 if let Some(paused_at) = self.paused_at_ns {
                     resumed_at = resumed_at.max(
                         paused_at
@@ -490,7 +496,7 @@ where
                 }
                 // 派生控制可能向后覆盖半帧差；输入游标仍取原生恢复网格，保留全部首包。
                 self.mixer
-                    .restart_with_origin(system.max(microphone), resumed_at)?;
+                    .restart_with_origin(native_resumed_at, resumed_at)?;
                 self.control_lower_bound_ns = resumed_at;
                 self.paused_at_ns = None;
                 Ok(resumed_at)
@@ -686,6 +692,12 @@ fn frame_to_ns(frame: u64) -> Result<u64, AudioMixerError> {
 
 #[cfg(test)]
 mod tests {
+    mod mixed_control_skew_tests {
+        use super::*;
+        include!("audio_mixer/control_skew_fixture.rs");
+        include!("audio_mixer/control_skew_tests.rs");
+    }
+
     mod mixed_frame_boundary_tests {
         use super::*;
         include!("audio_mixer/frame_boundary_fixture.rs");
