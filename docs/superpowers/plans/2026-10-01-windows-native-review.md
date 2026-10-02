@@ -13,7 +13,12 @@
   `b2f6e95`。原五个已提交产物提升点及周期session取得实际错误32；原生首轮2/6。
   复用原W56有界重试，永久锁保留已提交partial，损坏文件先验证拒绝。原权限/
   提交恢复顺序/导出/FPS/时钟/队列/旧测试与期限保持。
-  <!-- W57_GATE_PENDING -->
+  同字节八项旧API夹具原实现2/6（六条实际错误32）、修复领域393/0=原385+新8。
+  干净 `830b12b43051efa7eebad36a3d1a4434975785b2` 完整 Windows 门禁33 passed / 0 failed / 1 Linux smoke skipped；
+  默认Rust1240/QA1359各5ignored，两图重叠不累加；前端81文件/1403passed。
+  新5在默认/QA两图、新3仅QA，已含在Rust总数；两个旧完整测试模块与原权限/恢复保护保持。
+  三份运行期夹具字节相同，全部使用原API，无接口stub；原retry/probe算法与导出保持，十四份Rust输入绑定干净SHA。
+  旧实现重放及finally恢复、最终领域与完整门禁的实际日志/输入哈希保留。
   当前SHA CI/其它宿主/设备/安装器/多屏仍未验，桌面停止，W53 AVI历史根因未知。
 
 - W56 / `REC-MANIFEST-SHARING-01`：独立 `codex/recording-manifest-sharing`，基于

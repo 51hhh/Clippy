@@ -41,7 +41,12 @@ remux reader 遍历 packet，核对全帧数和总时长。原阶段结果及输
 remux 用例消费。增加相同 VP9 feature 条件，保持所有旧测试与生产代码，不允许
 警告豁免。旧阶段红绿/原重放及 lint 失败保留，最终相同字节对照使用修正后的夹具。
 
-<!-- W57_GATE_PENDING -->
+同字节八项旧API夹具原实现2/6（六条实际错误32）、修复领域393/0=原385+新8。
+干净 `830b12b43051efa7eebad36a3d1a4434975785b2` 完整 Windows 门禁33 passed / 0 failed / 1 Linux smoke skipped；
+默认Rust1240/QA1359各5ignored，两图重叠不累加；前端81文件/1403passed。
+新5在默认/QA两图、新3仅QA，已含在Rust总数；两个旧完整测试模块与原权限/恢复保护保持。
+三份运行期夹具字节相同，全部使用原API，无接口stub；原retry/probe算法与导出保持，十四份Rust输入绑定干净SHA。
+旧实现重放及finally恢复、最终领域与完整门禁的实际日志/输入哈希保留。
 
 证据目录 `src-tauri/target/recording-artifact-sharing-contract/` 保存 W56 原状态、
 初始红、阶段绿、原 Git 源码重放/finally 恢复、最终领域和冻结 source SHA 门禁。

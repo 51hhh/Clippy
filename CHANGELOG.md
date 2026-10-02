@@ -7,7 +7,12 @@
 - 修复合法清单已提交后，分段/最终输出的短暂删除共享冲突导致录屏中止或恢复
   失败的问题。五个提交/恢复/remux 提升点复用原有有界重试；权限与永久冲突仍
   失败且保留已提交 partial，损坏文件仍按原哈希/长度拒绝，不更改提交顺序和预算。
-  <!-- W57_GATE_PENDING -->
+  同字节八项旧API夹具原实现2/6（六条实际错误32）、修复领域393/0=原385+新8。
+  干净 `830b12b43051efa7eebad36a3d1a4434975785b2` 完整 Windows 门禁33 passed / 0 failed / 1 Linux smoke skipped；
+  默认Rust1240/QA1359各5ignored，两图重叠不累加；前端81文件/1403passed。
+  新5在默认/QA两图、新3仅QA，已含在Rust总数；两个旧完整测试模块与原权限/恢复保护保持。
+  三份运行期夹具字节相同，全部使用原API，无接口stub；原retry/probe算法与导出保持，十四份Rust输入绑定干净SHA。
+  旧实现重放及finally恢复、最终领域与完整门禁的实际日志/输入哈希保留。
   桌面保持停止；设备/其它宿主/当前 CI/安装器/多屏/发布与本 SHA release 未验。
   W53 历史 AVI 超时根因仍未知，不能用本次受控共享错误归因。
   （需求：`REC-ARTIFACT-SHARING-01`；见 `docs/superpowers/specs/2026-10-02-recording-artifact-sharing.md`）

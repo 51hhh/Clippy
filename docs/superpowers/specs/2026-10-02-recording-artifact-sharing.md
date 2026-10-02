@@ -26,10 +26,10 @@ W53 历史 AVI 超时缺少 worker 原错，本轮独立复现不能作为其根
 
 ## Acceptance Criteria
 
-- [ ] 原 session/journal/恢复路径在真实句柄下取得错误或否定证据。
-- [ ] 如复现，五个已提交产物提升路径有界恢复，原权限与提交/恢复保护保持。
-- [ ] 同字节旧实现与新实现对照、原完整测试模块与预算/期限保持。
-- [ ] 干净 source SHA 完整 Windows 默认/录屏 QA 门禁，重叠/ignored/skip 单列。
+- [x] 原 session/journal/恢复路径在真实句柄下取得错误或否定证据。
+- [x] 如复现，五个已提交产物提升路径有界恢复，原权限与提交/恢复保护保持。
+- [x] 同字节旧实现与新实现对照、原完整测试模块与预算/期限保持。
+- [x] 干净 source SHA 完整 Windows 默认/录屏 QA 门禁，重叠/ignored/skip 单列。
 - [ ] 当前 SHA 三宿主/codec CI、真实设备/安装器/多屏和历史 AVI 根因核实。
 
 ## Out of Scope
@@ -37,3 +37,15 @@ W53 历史 AVI 超时缺少 worker 原错，本轮独立复现不能作为其根
 桌面、设备、工具安装、证书、推送/PR/合入/发布继续停止。其它保存/导出、Linux/
 macOS 行为不变。本 SHA release 未构建，Win10/混合 DPI/负坐标/多屏未验。
 历史 W53 根因未证明；永久错误不能以忽略异常、增加旧超时或扩大队列预算通过。
+
+## Verified source
+
+同字节八项旧API夹具原实现2/6（六条实际错误32）、修复领域393/0=原385+新8。
+干净 `830b12b43051efa7eebad36a3d1a4434975785b2` 完整 Windows 门禁33 passed / 0 failed / 1 Linux smoke skipped；
+默认Rust1240/QA1359各5ignored，两图重叠不累加；前端81文件/1403passed。
+新5在默认/QA两图、新3仅QA，已含在Rust总数；两个旧完整测试模块与原权限/恢复保护保持。
+三份运行期夹具字节相同，全部使用原API，无接口stub；原retry/probe算法与导出保持，十四份Rust输入绑定干净SHA。
+旧实现重放及finally恢复、最终领域与完整门禁的实际日志/输入哈希保留。
+证据：`recording-artifact-sharing-native-qa-830b12b/RESULT.json`、
+`recording-artifact-sharing-contract/COMMITTED-CONTRACT-AUDIT.json`、`REVIEW-CLOSURE.json`。
+设备/跨宿主/当前CI/安装器/多屏/发布及W53 AVI旧超时根因仍未验。

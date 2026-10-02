@@ -9,7 +9,12 @@ W57 / `REC-ARTIFACT-SHARING-01`：独立 `codex/recording-artifact-sharing`，�
 `b2f6e95`。原五个已提交产物提升点及周期 session 全部复现真实共享错误32；
 首轮2/6，永久冲突保留前缀与损坏partial拒绝两项通过。提交/恢复/remux复用W56
 有界策略，原权限、提交/恢复保护、导出与采集合同保持；W53历史原因未知。
-<!-- W57_GATE_PENDING -->
+同字节八项旧API夹具原实现2/6（六条实际错误32）、修复领域393/0=原385+新8。
+干净 `830b12b43051efa7eebad36a3d1a4434975785b2` 完整 Windows 门禁33 passed / 0 failed / 1 Linux smoke skipped；
+默认Rust1240/QA1359各5ignored，两图重叠不累加；前端81文件/1403passed。
+新5在默认/QA两图、新3仅QA，已含在Rust总数；两个旧完整测试模块与原权限/恢复保护保持。
+三份运行期夹具字节相同，全部使用原API，无接口stub；原retry/probe算法与导出保持，十四份Rust输入绑定干净SHA。
+旧实现重放及finally恢复、最终领域与完整门禁的实际日志/输入哈希保留。
 设备/其它宿主/当前CI/安装器/多屏仍未验，桌面停止。
 见 [W57 审查](2026-10-02-recording-artifact-sharing-review.md)。
 
