@@ -5,6 +5,13 @@
 
 ## 当前续审结果
 
+W59 / `REC-VIDEO-CONTROL-PREFLIGHT-01`：首帧前/重复暂停和未暂停恢复在调用平台源前拒绝，
+防止失败命令停止推送流或清除缓存；无音频MJPEG/VP9首帧与文件提交恢复。
+同字节旧API对照2/6、修复领域401/0，新增8（七两图/一仅QA）；旧测试/期限保持。
+<!-- W59_GATE_PENDING -->
+桌面停止，本SHA release/当前CI/其它宿主/设备/安装器/多屏未验；W53 AVI与旧Opus
+一次元数据查找失败根因均保留。见 [W59审查](2026-10-02-recording-video-control-preflight-review.md)。
+
 W58 / `WIN-NATIVE-01`：固定生产 `830b12b43051efa7eebad36a3d1a4434975785b2`，默认与录屏 QA 在独立目录
 完成原生 release 编译，实际 child/terminal exit0，源码/测试保持。核对实际主程序
 release 参数、两图 feature、AMD64 GUI PE 与 QA 10份 CRT 的部署/导入闭包。

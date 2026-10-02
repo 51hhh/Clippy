@@ -6,6 +6,7 @@
 
 use super::frame::CapturedFrame;
 use super::pipeline::{PipelineError, PushOutcome, RecordingPipeline};
+use super::timeline::TimelineError;
 use std::error::Error;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
@@ -524,6 +525,20 @@ where
 {
     match command {
         ControlCommand::Pause(reply) => {
+            // 先拒绝不适用的状态；推送源的 pause 会真正停止流，不能等 timeline 失败后才发现。
+            let state_error = if *paused {
+                Some(TimelineError::AlreadyPaused)
+            } else if pipeline.stats()?.accepted_frames == 0 {
+                Some(TimelineError::PauseBeforeFirstFrame)
+            } else {
+                None
+            };
+            if let Some(error) = state_error {
+                let _ = reply.send(Err(CaptureWorkerError::Pipeline(PipelineError::Timeline(
+                    error,
+                ))));
+                return Ok(None);
+            }
             let timestamp = match source.pause_capture() {
                 Ok(timestamp) => timestamp,
                 Err(error) => {
@@ -540,6 +555,12 @@ where
             Ok(None)
         }
         ControlCommand::Resume(reply) => {
+            if !*paused {
+                let _ = reply.send(Err(CaptureWorkerError::Pipeline(PipelineError::Timeline(
+                    TimelineError::NotPaused,
+                ))));
+                return Ok(None);
+            }
             let timestamp = match source.resume_capture() {
                 Ok(timestamp) => timestamp,
                 Err(error) => {
@@ -592,6 +613,11 @@ impl Drop for PipelineAbortGuard<'_> {
 
 #[cfg(test)]
 mod tests {
+    mod control_preflight_tests {
+        use super::*;
+        include!("worker/control_preflight_tests.rs");
+    }
+
     mod idle_frontier_tests {
         include!("worker/idle_frontier_tests.rs");
     }
