@@ -47,6 +47,8 @@ pub(super) enum AudioMixerError {
     ControlTimestampRegressed,
     #[error("混音停止时间戳早于已经接收的样本末尾")]
     StopBeforeLastSample,
+    #[error("暂停期间混音源返回了音频尾块")]
+    InputWhilePaused,
     #[error("混音 staging 已达到固定上限")]
     StagingBudgetExceeded,
     #[error("混音时间线计算溢出")]
@@ -537,8 +539,16 @@ where
             self.mixer.push(MixerInput::Microphone, chunk)?;
         }
         self.mixer.finish(system_stop, microphone_stop)?;
-        while let Some(chunk) = self.mixer.pop_ready()? {
-            self.stopped_chunks.push(chunk);
+        if self.paused_at_ns.is_some() {
+            // 暂停已清除未提交输入；Stop只封闭控制时间线，不能把暂停区间生成PCM。
+            // 真实尾块仍须显式失败，不能通过静默丢弃绕过原worker的暂停保护。
+            if !self.mixer.system.chunks.is_empty() || !self.mixer.microphone.chunks.is_empty() {
+                return Err(AudioMixerError::InputWhilePaused.into());
+            }
+        } else {
+            while let Some(chunk) = self.mixer.pop_ready()? {
+                self.stopped_chunks.push(chunk);
+            }
         }
         let stopped_at = self.derived_control_ns(system_stop.max(microphone_stop));
         self.control_lower_bound_ns = stopped_at;
@@ -692,6 +702,12 @@ fn frame_to_ns(frame: u64) -> Result<u64, AudioMixerError> {
 
 #[cfg(test)]
 mod tests {
+    mod mixed_paused_stop_tests {
+        use super::*;
+        include!("audio_mixer/paused_stop_fixture.rs");
+        include!("audio_mixer/paused_stop_tests.rs");
+    }
+
     mod mixed_control_skew_tests {
         use super::*;
         include!("audio_mixer/control_skew_fixture.rs");
