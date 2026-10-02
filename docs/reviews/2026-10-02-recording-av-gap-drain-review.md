@@ -23,11 +23,18 @@ PTS/epoch、音频 padding、帧/包/PCM/时长与 journal 核对保持。
 
 ## 验证状态
 
-目标领域 329 passed / 0 failed，原 319 在内；新增十项在内，不累加。
+干净源码 `80e084cdba265d95e259bee8f0c13db32052f928` 完整 Windows 默认/录屏 QA 门禁
+child/terminal exit 0，33 passed / 0 failed / 1 Linux smoke skipped，结束时 checkout 干净。
+默认 Rust 1214/QA 1295 各 5 ignored，两图不累加；前端 81 文件/1403 passed。
+新增十项仅在 QA，目标领域 329 passed / 0 failed，原 319 在内；新增/领域均不累加。
 第一次四项修复领域 323/0，补充 CFR 和 1 FPS 后 329/0。六项旧源码重放在实际
 三个 Git blob 上完成，finally 逐字节恢复当前文件；四个夹具文件哈希绑定红绿，
 其中四项新 API 合同只在绿色执行。三个原完整测试模块只加 include，旧正文保留。
-完整 Windows 门禁尚待冻结 SHA；目标领域使用 working source，不能代替干净门禁。
+目标领域使用 working source；`COMMITTED-CONTRACT-AUDIT.json` 将七份 Rust 输入
+另绑定到干净 `80e084c`。冻结 SHA 的完整门禁另运行并通过；后继仅五份 Markdown，
+生产/测试源码不变。`recording-av-gap-drain-native-qa-80e084c/RESULT.json` 与原 stdout/stderr
+哈希绑定；当前根状态/报告和 `recording-av-gap-drain-contract/REVIEW-CLOSURE.json`
+记录源码、文档后继、原 W51 状态、门禁与旧桌面哈希。
 
 证据 `src-tauri/target/recording-av-gap-drain-contract/`：原 W51 状态/报告，原四项红，
 阶段绿、六项 frozen-red 与 `FROZEN-RED-RESTORE.json`；最终绿和 `CONTRACT-AUDIT.json`

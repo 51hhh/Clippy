@@ -13,7 +13,9 @@
   最终同字节六项旧 writer/编码 worker 回归均失败，真实 `InterleaveQueueFull`；包含 1 FPS。
   原 PCM 块增量交替排空两轨，传已知下一视频下界/EOS，CFR 保留下一 slot 与真实 PTS；
   同 slot、精确停止/边界合同通过，新增十项/原 319，共领域 329，旧三个模块正文保持。
-  冻结完整 Windows 门禁待验。下一 head 未来时的消费等待、不对齐 slot 的分段映射及
+  干净 `80e084c` 完整 Windows 门禁 33/0/1（Linux smoke 跳过），默认 Rust 1214/QA 1295
+  各 5 ignored，两图/领域不累加，前端 81/1403，本 SHA release 未构建。
+  下一 head 未来时的消费等待、不对齐 slot 的分段映射及
   设备/其它宿主/当前 CI/安装器/多屏保持未验，桌面停止。
 
 - W51 / `REC-FIRST-FRAME-AUDIO-01`：独立 `codex/recording-first-frame-audio-gate`，基于 `d9264cd`。

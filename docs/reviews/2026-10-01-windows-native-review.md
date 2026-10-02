@@ -9,7 +9,9 @@ W52 / `REC-AV-GAP-DRAIN-01`：基于 `e4a4a3c`，已知下一视频 head/EOS 后
 尾段与分段边界会单轨突发耗尽三十二包。原实现四项 0/4，含 1 FPS 的最终六项同字节
 重放 0/6，全为实际 `InterleaveQueueFull`；修复按 PCM 块交替推进、保留 CFR 下一 slot
 与原生 PTS，下界/同 slot/停止/边界合同通过。新十项与原 319，共领域 329；三个旧测试
-模块正文保持，冻结完整 Windows 门禁待验。下一 head 未来时消费等待、不对齐 slot 分段
+模块正文保持；干净 `80e084c` 完整 Windows 门禁 33/0/1（Linux smoke 跳过），默认 Rust
+1214/QA 1295 各 5 ignored，两图/领域不累加，前端 81/1403，本 SHA release 未构建。
+下一 head 未来时消费等待、不对齐 slot 分段
 时间映射与设备/其它宿主/当前 CI/安装器仍未验，桌面停止。见
 [`2026-10-02-recording-av-gap-drain-review.md`](2026-10-02-recording-av-gap-drain-review.md)。
 

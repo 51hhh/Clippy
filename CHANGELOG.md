@@ -8,7 +8,9 @@
   三十二包重排队列而失败的问题。按 PCM 块交替推进两轨，保留真实视频 PTS、同 slot
   替换、CFR 最近帧填补、音频静音/padding 与 journal 统计；不扩大预算。
   同字节六项旧实现均 `InterleaveQueueFull`，修复新增十项/原 319，共领域 329 passed；
-  三个原测试模块正文保持，冻结完整 Windows 门禁待验。下一视频 head 尚未来时的
+  三个原测试模块正文保持；干净 `80e084c` 完整 Windows 门禁 33/0/1（Linux smoke 跳过），
+  默认 Rust 1214/QA 1295 各 5 ignored，两图不累加，前端 81 文件/1403 passed。
+  领域/新增合同在 QA 总数内。下一视频 head 尚未来时的
   消费等待和不对齐 CFR slot 的分段映射仍需独立回归；设备/其它宿主/当前 CI/安装器/
   多屏未验，桌面继续停止，本 SHA release 未构建。
   （需求：`REC-AV-GAP-DRAIN-01`；见 `docs/superpowers/specs/2026-10-02-recording-av-gap-drain.md`）

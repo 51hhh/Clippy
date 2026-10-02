@@ -23,7 +23,7 @@
 
 - [x] 同字节长尾、长视频空洞、分段空洞与实际编码 worker 回归在旧源码失败、修复后通过。
 - [x] CFR 同 slot 替换、推进时间边界、完整 manifest 与旧领域回归通过，预算不变。
-- [ ] 干净 source SHA 完整 Windows 默认/录屏 QA 门禁通过，重叠/ignore/跳过单列。
+- [x] 干净 source SHA 完整 Windows 默认/录屏 QA 门禁通过，重叠/ignore/跳过单列。
 - [ ] 当前 SHA 三宿主/codec CI、设备录屏/长时同步/Stop 与安装器/多屏验收通过。
 
 ## Out of Scope
@@ -39,5 +39,12 @@
 
 原四项 0/4；最终补充 1 FPS 两项，同字节六项旧源码 0/6，真实错误均为
 `InterleaveQueueFull`，finally 恢复三个生产文件。四项 CFR 下界/同 slot/停止与分段
-边界合同单列；共十项新增，原三百一十九项保持，领域 329 passed，完整冻结门禁待验。
+边界合同单列；共十项新增，原三百一十九项保持，最终领域 329 passed。
 视频下一 head 尚未到来时的消费等待，以及不对齐 CFR slot 的分段时间映射尚未单独回归。
+
+干净源码 `80e084cdba265d95e259bee8f0c13db32052f928` 完整 Windows 默认/录屏 QA 门禁
+child/terminal exit 0：33 passed / 0 failed / 1 Linux smoke skipped；默认 Rust 1214/QA 1295
+各 5 ignored，两图重叠，前端 81 文件/1403 passed。新增十项仅 QA，领域 329 包含在 QA
+内；门禁结束 checkout 干净。`recording-av-gap-drain-native-qa-80e084c/RESULT.json`、
+`recording-av-gap-drain-contract/COMMITTED-CONTRACT-AUDIT.json` 与最终 closure 分层绑定。
+后继只改五份 Markdown；本 SHA release/安装器未构建，设备/其它宿主/当前 CI 仍未验。
