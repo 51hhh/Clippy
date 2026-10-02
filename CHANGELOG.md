@@ -11,7 +11,9 @@
   干净 `56d750c8b482108b15ebb5dd2787e418bdceecb6` 完整Windows门禁33 passed / 0 failed / 1 Linux smoke skipped；
   默认Rust1266/QA1408各5ignored，两图重叠不累加；前端81文件/1403passed。
   新增13项实际运行次数为12两图/1仅QA，录屏领域/新项已含总数。旧完整模块/期限保持，默认录屏仍关闭。
-  当前release/CI/其它宿主/设备/桌面/安装器/多屏/长时同步与历史失败根因保留未验。
+  W66已补充同SHA默认/QA release编译、PE和CRT文件核对，实际启动未验；
+  见 `docs/reviews/2026-10-02-windows-audio-activation-release-review.md`（`WIN-NATIVE-01`）。
+  当前SHA CI/其它宿主/设备/桌面/安装器/多屏/长时同步与历史失败根因保留未验。
   （需求：`REC-AUDIO-ACTIVATION-BOUNDARY-01`；见 `docs/superpowers/specs/2026-10-02-recording-audio-activation-boundary.md`）
 
 ### 2026-10-02 双轨暂停和恢复共用媒体扣时

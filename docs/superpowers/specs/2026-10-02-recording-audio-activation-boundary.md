@@ -38,3 +38,6 @@ W53/W59/W63 历史失败原因继续未明，不由本次独立合同归因。
 
 冻结源码 `56d750c8b482108b15ebb5dd2787e418bdceecb6`：完整Windows门禁33/0/1 Linux smoke skipped；默认1266/QA1408
 各5ignored，前端81文件/1403；领域/新项已含总数，跨图重叠不累加。
+
+W66后续：同源码默认/QA release编译及PE/CRT文件核对完成；实际启动、设备、CI、
+其它宿主与桌面仍未验，见 [release验证](../../reviews/2026-10-02-windows-audio-activation-release-review.md)。最后复合验收保持未完成。

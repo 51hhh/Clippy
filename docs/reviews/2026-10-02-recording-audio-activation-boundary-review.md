@@ -39,8 +39,11 @@ Windows stateless helper 对暂停 clock20ms/恢复30ms和包末尾40ms均返回
 
 ## 保留边界
 
-真实 WASAPI 原生接线在 QA 图编译/lint 通过；合同使用合成源。当前SHA CI、其它宿主、
+真实 WASAPI 原生接线在 QA 图编译/lint 通过；合同使用合成源。W65时当前SHA CI、其它宿主、
 release、真实WGC/WASAPI、设备/桌面、安装器/无CRT启动、Win10/多屏/长时同步未验。
 历史003fe2d release与45769c9已安装包不含本修复，旧产物和39项桌面记录原字节保持。
 W53/W59/W63历史失败根因仍未明。桌面停止，无应用/设备启动、安装、推送、合入或发布。
 证据：`src-tauri/target/audio-activation-boundary-contract/`。
+
+W66后续：同源码默认/QA release编译及PE/CRT文件核对完成；实际启动、设备、CI、
+其它宿主与桌面仍未验，见 [release验证](2026-10-02-windows-audio-activation-release-review.md)。最后复合验收保持未完成。

@@ -9,6 +9,13 @@
 
 ## 当前续审状态
 
+W66 / `WIN-NATIVE-01`：冻结 `56d750c8b482108b15ebb5dd2787e418bdceecb6`，两个新独立target完成默认/录屏QA
+release编译；实际主程序参数、两图feature、AMD64 GUI PE与QA10份CRT来源/部署/导入
+文件闭包核对，native child/包装器/终端均退出0。包含W65音频激活边界与控制时钟修复；
+生产/测试/期限未改，43项修复及原门禁/测试计数不增。旧release/安装/桌面字节保持。
+编译/文件检查不计测试通过；当前SHA CI/其它宿主/设备/桌面/安装器/多屏/长时同步未验。
+历史W53/W59/W63运行期失败根因保持未明。见 [W66审查](../../reviews/2026-10-02-windows-audio-activation-release-review.md)。
+
 W65 / `REC-AUDIO-ACTIVATION-BOUNDARY-01`：恢复时刻是首PCM的包含下界，成功入队后恢复严格重复拒绝；
 Windows控制时刻增加状态和checked 1ns排序，原生PCM PTS不改。原七夹具2/5，修复录屏
 领域442/0=429+新13（12两图/1仅QA，含6新API绿色保护）；原完整会话从边界错误/
@@ -16,7 +23,7 @@ interrupted变为complete 280ms/28帧/13440PCM，独立ffprobe文件核对，源
 五个旧完整测试模块/期限保持；新增夹具重复定义曾编译失败，已修正并保留日志。
 干净 `56d750c8b482108b15ebb5dd2787e418bdceecb6` 完整Windows门禁33 passed / 0 failed / 1 Linux smoke skipped；
 默认Rust1266/QA1408各5ignored，两图重叠不累加；前端81文件/1403passed。
-新增13项实际运行次数为12两图/1仅QA，录屏领域/新项已含总数。当前release/CI/其它宿主/设备/桌面及历史失败根因保留未验。
+新增13项实际运行次数为12两图/1仅QA，录屏领域/新项已含总数。W65时当前release/CI/其它宿主/设备/桌面及历史失败根因保留未验。
 见 [W65审查](../../reviews/2026-10-02-recording-audio-activation-boundary-review.md)。
 
 W64 / `WIN-NATIVE-01`：冻结 `003fe2dc642627b9c6a071bf629be89342973941`，默认/录屏QA的新独立target
