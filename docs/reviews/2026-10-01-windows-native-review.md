@@ -5,6 +5,14 @@
 
 ## 当前续审结果
 
+W53 / `REC-AV-CFR-SEGMENT-01`：基于 `3385507`，非 slot 对齐输入的 writer 分段和 PCM
+拆分共享编码 CFR 边界，同 slot 延后分段；WebM packet 比较/frontier/mux 输入使用实际
+0.5 ms 量化时间，严格顺序保护保持。合法相邻全局 CFR 纳秒端点允许，主输出缺帧/
+非 CFR 起点与伪造计数继续拒绝。最终同字节旧实现 3/9，修复新十二项/原 329，共领域
+341/0；六个原测试模块正文保持。干净 source SHA 完整门禁待运行，下一 head 缺失时
+的消费等待、当前 CI/其它宿主/设备/安装器未验，桌面停止。见
+[`2026-10-02-recording-av-cfr-segments-review.md`](2026-10-02-recording-av-cfr-segments-review.md)。
+
 W52 / `REC-AV-GAP-DRAIN-01`：基于 `e4a4a3c`，已知下一视频 head/EOS 后的长空洞、Stop
 尾段与分段边界会单轨突发耗尽三十二包。原实现四项 0/4，含 1 FPS 的最终六项同字节
 重放 0/6，全为实际 `InterleaveQueueFull`；修复按 PCM 块交替推进、保留 CFR 下一 slot

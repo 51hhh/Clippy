@@ -4,7 +4,8 @@
 //! 待写 timestamp 后提交；因此不依赖采集线程调度顺序，也不需要缓存完整分段。
 
 use super::opus_webm::{
-    AvWebmOutput, AvWebmPacketMux, EncodedOpusPacket, OpusTrackConfig, OpusWebmError,
+    av_webm_timestamp_ns, AvWebmOutput, AvWebmPacketMux, EncodedOpusPacket, OpusTrackConfig,
+    OpusWebmError,
 };
 use std::collections::VecDeque;
 use std::io::{Seek, Write};
@@ -108,32 +109,49 @@ impl<W: Write + Seek> AvPacketInterleaver<W> {
     }
 
     fn front_is_ready(&self, next_video_timestamp_ns: u64, next_audio_timestamp_ns: u64) -> bool {
+        let next_video_timestamp_ns = av_webm_timestamp_ns(next_video_timestamp_ns);
+        let next_audio_timestamp_ns = av_webm_timestamp_ns(next_audio_timestamp_ns);
         match (self.video.front(), self.audio.front()) {
             // 同时间戳固定视频在前，因此视频只需确认未来音频不会更早；音频则必须等待
             // 未来视频严格越过自己，不能在相等 frontier 时抢先提交。
-            (Some(video), Some(audio)) if video.timestamp_ns <= audio.timestamp_ns => {
-                video.timestamp_ns <= next_audio_timestamp_ns
+            (Some(video), Some(audio))
+                if av_webm_timestamp_ns(video.timestamp_ns)
+                    <= av_webm_timestamp_ns(audio.timestamp_ns) =>
+            {
+                av_webm_timestamp_ns(video.timestamp_ns) <= next_audio_timestamp_ns
             }
-            (Some(_), Some(audio)) => audio.timestamp_ns < next_video_timestamp_ns,
-            (Some(video), None) => video.timestamp_ns <= next_audio_timestamp_ns,
-            (None, Some(audio)) => audio.timestamp_ns < next_video_timestamp_ns,
+            (Some(_), Some(audio)) => {
+                av_webm_timestamp_ns(audio.timestamp_ns) < next_video_timestamp_ns
+            }
+            (Some(video), None) => {
+                av_webm_timestamp_ns(video.timestamp_ns) <= next_audio_timestamp_ns
+            }
+            (None, Some(audio)) => {
+                av_webm_timestamp_ns(audio.timestamp_ns) < next_video_timestamp_ns
+            }
             (None, None) => false,
         }
     }
 
     fn flush_one(&mut self) -> Result<(), OpusWebmError> {
         let video_first = match (self.video.front(), self.audio.front()) {
-            (Some(video), Some(audio)) => video.timestamp_ns <= audio.timestamp_ns,
+            (Some(video), Some(audio)) => {
+                av_webm_timestamp_ns(video.timestamp_ns) <= av_webm_timestamp_ns(audio.timestamp_ns)
+            }
             (Some(_), None) => true,
             (None, Some(_)) => false,
             (None, None) => return Ok(()),
         };
         if video_first {
             let packet = self.video.pop_front().expect("已检查视频队首");
-            self.mux
-                .add_video_packet(&packet.data, packet.timestamp_ns, packet.keyframe)
+            self.mux.add_video_packet(
+                &packet.data,
+                av_webm_timestamp_ns(packet.timestamp_ns),
+                packet.keyframe,
+            )
         } else {
-            let packet = self.audio.pop_front().expect("已检查音频队首");
+            let mut packet = self.audio.pop_front().expect("已检查音频队首");
+            packet.timestamp_ns = av_webm_timestamp_ns(packet.timestamp_ns);
             self.mux.add_audio_packet(&packet)
         }
     }
@@ -146,6 +164,10 @@ impl<W: Write + Seek> AvPacketInterleaver<W> {
 
 #[cfg(test)]
 mod tests {
+    mod cfr_segment_tests {
+        include!("av_interleaver/cfr_segment_tests.rs");
+    }
+
     use super::*;
     use crate::recording::mux::opus_webm::OpusPacketEncoder;
     use std::io::Cursor;

@@ -309,6 +309,11 @@ impl Vp9PacketEncoder {
         self.timestamp_for_frame(self.encoded_frames)
     }
 
+    /// 返回原生输入所处 CFR slot 的输出时间，不修改输入 PTS 或编码状态。
+    pub fn cfr_timestamp_at(&self, presentation_at_ns: u64) -> Result<u64, Vp9WebmError> {
+        self.timestamp_for_frame(self.slot_for(presentation_at_ns)?)
+    }
+
     pub fn finish<F>(&mut self, duration_ns: u64, emit: &mut F) -> Result<u64, Vp9WebmError>
     where
         F: FnMut(&[u8], u64, bool) -> Result<(), Vp9WebmError>,

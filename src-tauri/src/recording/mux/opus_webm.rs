@@ -556,6 +556,12 @@ impl<W: Write + Seek> AvWebmPacketMux<W> {
     }
 }
 
+/// libwebm 将纳秒时间向下取整为 timecode。交错器须在这个域内比较 packet 与 frontier，
+/// 避免原始时间有先后、落盘却相等时出现音频先于视频的逆序。
+pub(in crate::recording) fn av_webm_timestamp_ns(timestamp_ns: u64) -> u64 {
+    timestamp_ns - timestamp_ns % WEBM_TIMECODE_SCALE_NS
+}
+
 fn mux_error(error: webm::mux::Error) -> OpusWebmError {
     OpusWebmError::Mux(format!("{error:?}"))
 }

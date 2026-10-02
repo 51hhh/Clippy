@@ -2,6 +2,19 @@
 
 ## 未发布
 
+### 2026-10-02 双轨录屏按 CFR 提交分段与量化排序
+
+- 修复非 slot 对齐采集帧使恢复分段起点早于编码视频、PCM 跨入旧段而提交失败的问题。
+  分段与 PCM 拆分共享原 CFR slot 边界，同 slot 后到帧延后分段；原生 PTS 与预算保持。
+  同时修复 15/30 FPS WebM 的 0.5 ms 量化使音频先于同时间视频、严格 reader 拒绝输出的问题；
+  packet 比较、frontier 和 mux 输入统一量化。合法相邻全局 CFR 纳秒端点允许，主输出缺帧、
+  非 CFR 起点与伪造 PCM/帧数仍拒绝。最终同字节原实现 3 passed / 9 failed，修复新十二项/
+  原 329，共领域 341 passed；六个原测试模块与严格 packet 顺序/mux 保护保持。
+  干净 source SHA 的完整 Windows 门禁待运行；领域结果不替代完整门禁或实际设备验收。
+  下一视频 head 缺失时的消费等待仍未完成；当前 CI/其它宿主/设备/安装器/多屏未验，
+  桌面继续停止，本 SHA release 未构建。
+  （需求：`REC-AV-CFR-SEGMENT-01`；见 `docs/superpowers/specs/2026-10-02-recording-av-cfr-segments.md`）
+
 ### 2026-10-02 双轨录屏空洞与停止尾段增量排空
 
 - 修复已知下一视频帧/EOS 后，长空洞、停止尾段或恢复分段边界一次性编码单轨，耗尽

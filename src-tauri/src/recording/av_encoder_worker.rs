@@ -230,9 +230,18 @@ fn run_inner(
             }
         }
 
+        let video_audio_boundary = video_head
+            .as_ref()
+            .map(|video| writer.video_audio_boundary(video.presentation_at_ns))
+            .transpose()?;
         match (video_head.as_ref(), aligned_audio.as_ref()) {
-            (Some(video), Some(audio)) if audio.presentation_at_ns < video.presentation_at_ns => {
-                let video_timestamp = video.presentation_at_ns;
+            (Some(_), Some(audio))
+                if timestamp_to_audio_frame(audio.presentation_at_ns)?
+                    < timestamp_to_audio_frame(
+                        video_audio_boundary.expect("视频 head 保证存在边界"),
+                    )? =>
+            {
+                let video_timestamp = video_audio_boundary.expect("视频 head 保证存在边界");
                 let queued = aligned_audio.take().expect("匹配分支保证存在对齐音频");
                 let (before, after) = split_audio_at(queued, video_timestamp)?;
                 writer.push_audio_before(before, video_timestamp)?;
@@ -470,6 +479,10 @@ mod tests {
 
     mod gap_drain_tests {
         include!("av_encoder_worker/gap_drain_tests.rs");
+    }
+
+    mod cfr_segment_tests {
+        include!("av_encoder_worker/cfr_segment_tests.rs");
     }
 
     fn frame(sequence: u64, captured_at_ns: u64, marker: u8) -> CapturedFrame {

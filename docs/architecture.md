@@ -96,6 +96,12 @@ VP9 只提前编码已知视频下界之前确定的 CFR slot，保留下一 slo
 同 slot 新帧仍可替换，占位图像不增加停止帧数或抢占分段边界。三十二包、一秒 PCM
 和原视频预算保持。下一视频 head 缺失时的消费等待仍是独立边界；见 `REC-AV-GAP-DRAIN-01`。
 
+双轨周期分段与编码线程 PCM 拆分共享原 CFR slot 边界；同 slot 后到帧等编码时间推进再
+分段，原生 PTS 保持。局部纳秒时长的量化例外必须核对全局 CFR 起点及相邻 slot 终点。
+VP9/Opus 交错器在实际 WebM 0.5 ms timecode 域内比较 packet 和未来 frontier，并以该
+量化时间交给 mux，同时间视频在前；原单轨入队严格性、预算和 reader 顺序校验保持。
+见 `REC-AV-CFR-SEGMENT-01`，只完成合成 codec/writer/worker 合同，实际设备与其它宿主未验。
+
 ## 前端模块
 
 `js/settings/platform-capabilities.js` 只消费后端 typed `PlatformInfo`：设置页“关于”展示系统、会话、

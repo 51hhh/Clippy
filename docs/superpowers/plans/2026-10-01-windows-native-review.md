@@ -9,6 +9,13 @@
 
 ## 当前续审状态
 
+- W53 / `REC-AV-CFR-SEGMENT-01`：独立 `codex/recording-av-cfr-segments`，基于 `3385507`。
+  writer 分段与 PCM 拆分使用原 CFR slot 边界，同 slot 延后；timecode 量化域内排序和
+  frontier 保证同时间视频在前。相邻全局 CFR 精确端点有例外，缺帧/非 CFR 起点继续拒绝。
+  最终同字节旧实现 3/9、修复新十二项/原 329，共领域 341/0，六个旧模块正文保持。
+  干净 source SHA 完整 Windows 门禁待运行；下一 head 未来时的消费等待与
+  当前 CI/其它宿主/设备/安装器/多屏仍未验，桌面停止。
+
 - W52 / `REC-AV-GAP-DRAIN-01`：独立 `codex/recording-av-gap-drain`，基于 `e4a4a3c`。
   最终同字节六项旧 writer/编码 worker 回归均失败，真实 `InterleaveQueueFull`；包含 1 FPS。
   原 PCM 块增量交替排空两轨，传已知下一视频下界/EOS，CFR 保留下一 slot 与真实 PTS；

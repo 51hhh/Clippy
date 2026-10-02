@@ -1323,7 +1323,33 @@ fn validate_frame_timestamp(
         })
         .and_then(|value| u64::try_from(value).ok())
         .ok_or_else(|| "录屏恢复预期帧数溢出".to_string())?;
-    if expected_frames != source.frame_count || timestamp_ns >= source.duration_ns {
+    // 相邻全局 CFR 时间各向下取整为纳秒，局部差可能等于帧周期的向上取整。
+    // 只接受相邻全局 slot 的精确差；主输出少一帧、非 CFR 起点及真实 packet 缺失仍拒绝。
+    let frame_period_numerator = 1_000_000_000_u128 * u128::from(spec.fps_denominator);
+    let fps = u128::from(spec.fps_numerator);
+    let source_start = u128::from(source.started_at_ns);
+    let start_frame = source_start
+        .checked_mul(fps)
+        .and_then(|value| value.checked_add(frame_period_numerator.checked_sub(1)?))
+        .and_then(|value| value.checked_div(frame_period_numerator));
+    let quantized_endpoint = expected_frames.checked_sub(1) == Some(source.frame_count)
+        && source.frame_count > 0
+        && start_frame.and_then(|frame| {
+            let start_ns = frame
+                .checked_mul(frame_period_numerator)?
+                .checked_div(fps)?;
+            let end_ns = frame
+                .checked_add(u128::from(source.frame_count))?
+                .checked_mul(frame_period_numerator)?
+                .checked_div(fps)?;
+            Some(
+                start_ns == source_start
+                    && end_ns.checked_sub(start_ns)? == u128::from(source.duration_ns),
+            )
+        }) == Some(true);
+    if (expected_frames != source.frame_count && !quantized_endpoint)
+        || timestamp_ns >= source.duration_ns
+    {
         return Err("录屏恢复分段时长或帧数与固定帧率不一致".to_string());
     }
     let expected_timestamp = u128::from(frame_index)
@@ -1378,6 +1404,10 @@ fn validate_av_packet_order(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod cfr_segment_tests {
+        include!("webm_remux/cfr_segment_tests.rs");
+    }
     #[cfg(feature = "recording-opus-webm")]
     use crate::recording::audio::{
         frames_to_ns, AudioFormat, CapturedAudioChunk, QueuedAudioChunk,

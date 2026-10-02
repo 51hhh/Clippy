@@ -200,11 +200,8 @@ impl SegmentedAvRecordingWriter {
         rgba: &[u8],
         presentation_at_ns: u64,
     ) -> Result<(), SegmentedAvRecordingError> {
-        let elapsed = presentation_at_ns
-            .checked_sub(self.segment_started_at_ns)
-            .ok_or(SegmentedAvRecordingError::InvalidTimeline)?;
-        if self.segment_has_video && elapsed >= self.segment_duration_ns {
-            self.rotate_at(presentation_at_ns)?;
+        if let Some(boundary_ns) = self.next_segment_boundary(presentation_at_ns)? {
+            self.rotate_at(boundary_ns)?;
         } else if timestamp_to_audio_frame(presentation_at_ns)? > self.audio_frame_cursor {
             // 下一真实帧给出了视频下界，先逐块填补音频空洞并交替推进视频，避免单轨突发。
             self.pad_audio_until(presentation_at_ns)?;
@@ -213,6 +210,33 @@ impl SegmentedAvRecordingWriter {
         self.segment_has_video = true;
         self.flush_ready()?;
         Ok(())
+    }
+
+    /// PCM 先到这个共享边界，再交付真实视频帧；避免跨界 PCM 提前进入旧分段。
+    pub fn video_audio_boundary(
+        &self,
+        presentation_at_ns: u64,
+    ) -> Result<u64, SegmentedAvRecordingError> {
+        Ok(self
+            .next_segment_boundary(presentation_at_ns)?
+            .unwrap_or(presentation_at_ns))
+    }
+
+    fn next_segment_boundary(
+        &self,
+        presentation_at_ns: u64,
+    ) -> Result<Option<u64>, SegmentedAvRecordingError> {
+        let elapsed = presentation_at_ns
+            .checked_sub(self.segment_started_at_ns)
+            .ok_or(SegmentedAvRecordingError::InvalidTimeline)?;
+        if self.segment_has_video && elapsed >= self.segment_duration_ns {
+            let boundary_ns = self.video_encoder.cfr_timestamp_at(presentation_at_ns)?;
+            // 同一 slot 的后到帧仍可替换，不能创建没有编码进展的空分段。
+            if boundary_ns > self.segment_started_at_ns {
+                return Ok(Some(boundary_ns));
+            }
+        }
+        Ok(None)
     }
 
     pub fn push_audio(
@@ -791,6 +815,10 @@ mod tests {
 
     mod gap_drain_tests {
         include!("av_segmenting/gap_drain_tests.rs");
+    }
+
+    mod cfr_segment_tests {
+        include!("av_segmenting/cfr_segment_tests.rs");
     }
 
     fn journal_config(session_id: &str, audio: &OpusTrackConfig) -> RecordingJournalConfig {
