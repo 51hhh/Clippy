@@ -33,7 +33,9 @@ dual_track_webm_contains_opus_timing_metadata_and_tail_padding 在 SeekPreRoll
 查找ID，可能误命中载荷，但未保留该次失败的媒体，原因尚未证明。不得将后续成功
 写成该失败根因已解决；本分支不修改该模块、断言或期限。
 
-<!-- W59_GATE_PENDING -->
+干净 `4eb65d8218c22e9909ab7dd9d5d16c59c548a4a4` 完整Windows门禁33 passed / 0 failed / 1 Linux smoke skipped；
+默认Rust1247/QA1367各5ignored，两图重叠不累加；前端81文件/1403passed。
+新7两图/新1仅QA的实际运行次数核对，已含在Rust总数；原source错误与旧控制合同保持。
 
 ## 保留边界
 

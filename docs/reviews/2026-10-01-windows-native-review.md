@@ -8,7 +8,9 @@
 W59 / `REC-VIDEO-CONTROL-PREFLIGHT-01`：首帧前/重复暂停和未暂停恢复在调用平台源前拒绝，
 防止失败命令停止推送流或清除缓存；无音频MJPEG/VP9首帧与文件提交恢复。
 同字节旧API对照2/6、修复领域401/0，新增8（七两图/一仅QA）；旧测试/期限保持。
-<!-- W59_GATE_PENDING -->
+干净 `4eb65d8218c22e9909ab7dd9d5d16c59c548a4a4` 完整Windows门禁33 passed / 0 failed / 1 Linux smoke skipped；
+默认Rust1247/QA1367各5ignored，两图重叠不累加；前端81文件/1403passed。
+新7两图/新1仅QA的实际运行次数核对，已含在Rust总数；原source错误与旧控制合同保持。
 桌面停止，本SHA release/当前CI/其它宿主/设备/安装器/多屏未验；W53 AVI与旧Opus
 一次元数据查找失败根因均保留。见 [W59审查](2026-10-02-recording-video-control-preflight-review.md)。
 

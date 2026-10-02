@@ -6,7 +6,9 @@
 
 - 修复无音频录屏在首帧前暂停失败后，平台流已被停止、后续首帧无法接收的问题。
   同时拒绝重复暂停与未暂停恢复的源副作用；正常控制、源错误、Stop、时钟/FPS与预算保持。
-  <!-- W59_GATE_PENDING -->
+  干净 `4eb65d8218c22e9909ab7dd9d5d16c59c548a4a4` 完整Windows门禁33 passed / 0 failed / 1 Linux smoke skipped；
+默认Rust1247/QA1367各5ignored，两图重叠不累加；前端81文件/1403passed。
+新7两图/新1仅QA的实际运行次数核对，已含在Rust总数；原source错误与旧控制合同保持。
   桌面停止；当前CI/其它宿主/设备/安装器/多屏/本SHA release未验。W53 AVI与旧Opus
   元数据查找的一次失败均保留，不能以本修复归因。
   （需求：`REC-VIDEO-CONTROL-PREFLIGHT-01`；见 `docs/superpowers/specs/2026-10-02-recording-video-control-preflight.md`）
