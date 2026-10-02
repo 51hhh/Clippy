@@ -9,6 +9,8 @@
 
 ## 当前续审状态
 
+W77 / `REC-AUDIO-CATALOG-ORDER-01`：修复迟到的旧设备枚举覆盖启动重试目录。源码 `d05cd3e478934722273a33fb88c841648aeb1ef5` 在枚举前预留身份，仅当前查询可发布一次。原API诊断0/1，新API合同16/0、前端定向63/0；原完整模块/期限保持。干净Windows完整门禁33/0/1，默认1324/QA1475各5ignored、前端81/1405，新10项已含总数。累计49修复/48历史；当前release/同SHA CI、设备/桌面/其它宿主等仍未验。见 [W77审查](../../reviews/2026-10-02-audio-catalog-refresh-order-review.md)。
+
 W76 / WIN-NATIVE-01：同源码默认/QA release编译及742输入、真实优化参数、两图feature、PE/CRT文件验证完成；未启动应用/设备。生产/测试/期限、48项修复和原门禁计数保持，构建/文件不计测试。当前SHA CI/其它宿主/真机/安装器等仍未验。见 [W76 release](../../reviews/2026-10-02-windows-mixed-stop-ready-bound-release-review.md)。
 
 W75 / `REC-MIXED-STOP-READY-BOUND-01`：源码 `2bb12f9eeb04f98217189c197ecafef83b326604` 有界分批排出混音停止尾部，worker排空后封尾、后续批错误继续拒绝。原API2/7、完整领域501/0；原122份录屏文件旧模块/期限保持。干净Windows完整门禁33/0/1，默认1316/QA1467各5ignored、前端81/1403；合成codec文件保持60ms/2880有效PCM。累计48项本机修复；当前源码release/同SHA CI及设备/桌面/其它宿主仍未验。见 [W75审查](../../reviews/2026-10-02-mixed-stop-ready-bound-review.md)。
@@ -564,7 +566,7 @@ release 参数、两图 feature、AMD64 GUI PE 与 QA 10份 CRT 的部署/导入
 | W05 | P1 | 同权限自动粘贴一次、高完整性目标 copy-only、目标销毁/复用、用户接管；DACL 与配置连续覆盖 | 45769c9 普通权限文本/图片完整用例实际通过；管理员、销毁复用与用户接管桌面待验证。私有文件准备失败时序见 W18，富文本片段边界见 W20，首次按键前目标复核见 W23，部分 Click 失败清理见 W45 |
 | W06 | P1 | QA 包设备默认/非默认/同名/拔出、双源混音、暂停恢复、控制窗排除、强杀恢复、30 分钟 A/V 漂移 | WASAPI 正常停止尾部见 W24，WGC 关闭/初始化清理见 W25/W27，双轨桥接线程回收见 W26，WGC 应用帧桥启动回滚见 W35；真实设备、混音及其余场景仍待真机验收 |
 | W07 | P2 | NSIS/MSI 安装升级卸载、WebView2、自启动、托盘/快捷键、系统凭据与更新 | 官方 QA 包身份已核对，MSI 只读检查通过；NSIS 安装落盘/启动子步骤已核对，完整 MSI/升级/卸载/updater 未验收；本机自签名链不受信任，未更改信任 |
-| W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 42e52c0、45769c9 与 WinPS 的 b2fd247 各自七项 CI 通过；后续48项产品修复本机通过，新 SHA CI、Linux 本地完整门禁及 Wayland 回归保留未完成 |
+| W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 42e52c0、45769c9 与 WinPS 的 b2fd247 各自七项 CI 通过；后续49项产品修复本机通过，新 SHA CI、Linux 本地完整门禁及 Wayland 回归保留未完成 |
 | W09 | P1 | OCR 质量工具 Windows 私有诊断目录与符号链接拒绝合同；失败关闭，检查子文件继承 | 实际 DACL/等价 SDDL 及 10 类失败关闭负例通过；本机 33 项质量合同与 42e52c0 跨平台 CI 通过 |
 | W10 | P2 | 审查 webm-sys 的 C++ 编译参数在 MSVC 上产生 D9002；按真实编译器族选择 flag，保留固定来源与许可证 | 独立 WIN-WEBM-MSVC-01 / PR #14；本机完整 QA 绑定 e4ccc46，45769c9 七项 CI 与完整 QA workflow 全成功，新 Windows 包来源/哈希/签名身份已核对；真实桌面未验证 |
 | W11 | P1 | 新 Windows runner 使用 CRLF 检出时的 IPC 负例与结构回归；保留两种换行的正/负合同 | 独立 CRLF checkout 1284 项通过，fe37aec Windows 前端 CI 已通过 |

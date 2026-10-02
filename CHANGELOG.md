@@ -9,7 +9,9 @@
   caller 绑定、10分钟有效期、32目录与设备/标签预算、一次消费及系统默认选择保持。
   原 API 受控完成顺序诊断复现 `StaleCatalog`；新接口目录合同16/0、前端定向63/0，
   新增8项 Rust 和2项前端保护，不把新接口测试冒称同字节原 API 对照。
-  完整 Windows 默认/QA 门禁等待执行；同SHA CI/release、其它宿主、原生设备/桌面未验。
+  干净 `d05cd3e478934722273a33fb88c841648aeb1ef5` Windows 默认/QA完整门禁33/0/1 Linux smoke skipped；
+  默认1324/QA1475各5ignored、前端81/1405，新用例已含总数、两图重叠不累加。
+  同SHA CI/release、其它宿主、原生设备/桌面未验。
   默认录屏仍关闭，旧失败根因保留未明。
   （需求：`REC-AUDIO-CATALOG-ORDER-01`；见 `docs/superpowers/specs/2026-10-02-audio-catalog-refresh-order.md`）
 
