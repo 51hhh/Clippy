@@ -35,7 +35,7 @@ fn av_control_timeline_invalid_common_resume_preserves_paused_state() {
     audio.pause(200_000_000).unwrap();
     for (source, media) in [
         (560_000_000, 600_000_000),
-        (560_000_000, 200_000_000),
+        (560_000_000, 50_000_000),
         (200_000_000, 520_000_000),
     ] {
         assert_eq!(
@@ -45,6 +45,36 @@ fn av_control_timeline_invalid_common_resume_preserves_paused_state() {
     }
     audio.resume_at(560_000_000, 520_000_000).unwrap();
     assert_eq!(audio.finish(1_000_000_000).unwrap(), 580_000_000);
+}
+
+#[test]
+fn av_control_timeline_future_pcm_pause_keeps_valid_fast_resume() {
+    // 对应 WASAPI safe_control_timestamp 取包末尾，视频恢复早于该公共起点的零交集。
+    let observed = owner_mapping(
+        "future-pcm-pause",
+        [180_000_000, 600_000_000],
+        [520_000_000, 640_000_000],
+        700_000_000,
+        1,
+    );
+    assert_eq!(observed[0], (600_000_000, 600_000_000, 580_000_000));
+}
+
+#[test]
+fn av_control_timeline_media_pause_does_not_replace_raw_video_guard() {
+    let mut video = RecordingTimeline::default();
+    video.map_frame(100).unwrap();
+    video.pause(180).unwrap();
+    video.extend_pause(600).unwrap();
+    video.resume(520).unwrap();
+    assert_eq!(video.map_frame(540).unwrap(), Some(440));
+    assert_eq!(video.finish(580).unwrap(), 480);
+
+    let mut stopped = RecordingTimeline::default();
+    stopped.map_frame(100).unwrap();
+    stopped.pause(180).unwrap();
+    stopped.extend_pause(600).unwrap();
+    assert_eq!(stopped.finish(580).unwrap(), 480);
 }
 
 #[test]

@@ -178,6 +178,8 @@ struct AudioTimeline {
     last_source_ns: Option<u64>,
     last_presentation_end_ns: Option<u64>,
     paused_at_ns: Option<u64>,
+    #[cfg(feature = "recording-opus-webm")]
+    media_paused_at_ns: Option<u64>,
     accumulated_pause_ns: u64,
 }
 
@@ -189,6 +191,8 @@ impl AudioTimeline {
             last_source_ns: None,
             last_presentation_end_ns: None,
             paused_at_ns: None,
+            #[cfg(feature = "recording-opus-webm")]
+            media_paused_at_ns: None,
             accumulated_pause_ns: 0,
         }
     }
@@ -278,28 +282,33 @@ impl AudioTimeline {
     ) -> Result<(), AudioPipelineError> {
         let paused_at_ns = self.paused_at_ns.ok_or(AudioPipelineError::NotPaused)?;
         if captured_at_ns <= paused_at_ns
-            || media_resume_at_ns <= paused_at_ns
+            || media_resume_at_ns < self.origin_ns
             || media_resume_at_ns > captured_at_ns
         {
             return Err(AudioPipelineError::InvalidResumeTimestamp);
         }
+        #[cfg(feature = "recording-opus-webm")]
+        let paused_at_ns = self.media_paused_at_ns.unwrap_or(paused_at_ns);
         self.accumulated_pause_ns = self
             .accumulated_pause_ns
-            .checked_add(media_resume_at_ns - paused_at_ns)
+            .checked_add(media_resume_at_ns.saturating_sub(paused_at_ns))
             .ok_or(AudioPipelineError::TimelineOverflow)?;
         self.last_source_ns = Some(captured_at_ns);
         self.paused_at_ns = None;
+        #[cfg(feature = "recording-opus-webm")]
+        {
+            self.media_paused_at_ns = None;
+        }
         Ok(())
     }
 
     #[cfg(feature = "recording-opus-webm")]
     fn extend_pause(&mut self, captured_at_ns: u64) -> Result<(), AudioPipelineError> {
         let paused_at_ns = self.paused_at_ns.ok_or(AudioPipelineError::NotPaused)?;
-        if captured_at_ns < paused_at_ns {
+        if captured_at_ns < self.media_paused_at_ns.unwrap_or(paused_at_ns) {
             return Err(AudioPipelineError::InvalidPauseTimestamp);
         }
-        self.last_source_ns = Some(captured_at_ns);
-        self.paused_at_ns = Some(captured_at_ns);
+        self.media_paused_at_ns = Some(captured_at_ns);
         Ok(())
     }
 
@@ -309,14 +318,13 @@ impl AudioTimeline {
             return Err(AudioPipelineError::SourceTimestampNotIncreasing);
         }
         let accumulated_pause_ns = match self.paused_at_ns {
-            Some(paused_at_ns) => self
-                .accumulated_pause_ns
-                .checked_add(
-                    captured_at_ns
-                        .checked_sub(paused_at_ns)
-                        .ok_or(AudioPipelineError::SourceTimestampNotIncreasing)?,
-                )
-                .ok_or(AudioPipelineError::TimelineOverflow)?,
+            Some(paused_at_ns) => {
+                #[cfg(feature = "recording-opus-webm")]
+                let paused_at_ns = self.media_paused_at_ns.unwrap_or(paused_at_ns);
+                self.accumulated_pause_ns
+                    .checked_add(captured_at_ns.saturating_sub(paused_at_ns))
+                    .ok_or(AudioPipelineError::TimelineOverflow)?
+            }
             None => self.accumulated_pause_ns,
         };
         let duration_ns = captured_at_ns
@@ -331,6 +339,10 @@ impl AudioTimeline {
         }
         self.accumulated_pause_ns = accumulated_pause_ns;
         self.paused_at_ns = None;
+        #[cfg(feature = "recording-opus-webm")]
+        {
+            self.media_paused_at_ns = None;
+        }
         self.last_source_ns = Some(captured_at_ns);
         Ok(duration_ns)
     }

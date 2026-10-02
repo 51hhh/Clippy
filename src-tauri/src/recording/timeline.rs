@@ -24,6 +24,8 @@ pub(super) struct RecordingTimeline {
     last_source_ns: Option<u64>,
     last_presentation_ns: Option<u64>,
     paused_at_ns: Option<u64>,
+    #[cfg(feature = "recording-opus-webm")]
+    media_paused_at_ns: Option<u64>,
     accumulated_pause_ns: u64,
 }
 
@@ -108,15 +110,20 @@ impl RecordingTimeline {
         if captured_at_ns <= paused_at_ns {
             return Err(TimelineError::SourceTimestampNotIncreasing);
         }
-        let pause_duration = captured_at_ns
-            .checked_sub(paused_at_ns)
-            .ok_or(TimelineError::Overflow)?;
+        #[cfg(feature = "recording-opus-webm")]
+        let paused_at_ns = self.media_paused_at_ns.unwrap_or(paused_at_ns);
+        // 公共起点可能取 PCM 包末尾，晚于视频快速恢复；两源暂停区间此时没有交集。
+        let pause_duration = captured_at_ns.saturating_sub(paused_at_ns);
         self.accumulated_pause_ns = self
             .accumulated_pause_ns
             .checked_add(pause_duration)
             .ok_or(TimelineError::Overflow)?;
         self.last_source_ns = Some(captured_at_ns);
         self.paused_at_ns = None;
+        #[cfg(feature = "recording-opus-webm")]
+        {
+            self.media_paused_at_ns = None;
+        }
         Ok(())
     }
 
@@ -124,11 +131,10 @@ impl RecordingTimeline {
     #[cfg(feature = "recording-opus-webm")]
     pub fn extend_pause(&mut self, captured_at_ns: u64) -> Result<(), TimelineError> {
         let paused_at_ns = self.paused_at_ns.ok_or(TimelineError::NotPaused)?;
-        if captured_at_ns < paused_at_ns {
+        if captured_at_ns < self.media_paused_at_ns.unwrap_or(paused_at_ns) {
             return Err(TimelineError::SourceTimestampNotIncreasing);
         }
-        self.last_source_ns = Some(captured_at_ns);
-        self.paused_at_ns = Some(captured_at_ns);
+        self.media_paused_at_ns = Some(captured_at_ns);
         Ok(())
     }
 
@@ -145,9 +151,9 @@ impl RecordingTimeline {
         }
         let accumulated_pause_ns = match self.paused_at_ns {
             Some(paused_at_ns) => {
-                let pause_duration = captured_at_ns
-                    .checked_sub(paused_at_ns)
-                    .ok_or(TimelineError::Overflow)?;
+                #[cfg(feature = "recording-opus-webm")]
+                let paused_at_ns = self.media_paused_at_ns.unwrap_or(paused_at_ns);
+                let pause_duration = captured_at_ns.saturating_sub(paused_at_ns);
                 self.accumulated_pause_ns
                     .checked_add(pause_duration)
                     .ok_or(TimelineError::Overflow)?
@@ -166,6 +172,10 @@ impl RecordingTimeline {
         }
         self.accumulated_pause_ns = accumulated_pause_ns;
         self.paused_at_ns = None;
+        #[cfg(feature = "recording-opus-webm")]
+        {
+            self.media_paused_at_ns = None;
+        }
         self.last_source_ns = Some(captured_at_ns);
         Ok(duration_ns)
     }
