@@ -13,7 +13,9 @@
   新5在默认/QA两图、新3仅QA，已含在Rust总数；两个旧完整测试模块与原权限/恢复保护保持。
   三份运行期夹具字节相同，全部使用原API，无接口stub；原retry/probe算法与导出保持，十四份Rust输入绑定干净SHA。
   旧实现重放及finally恢复、最终领域与完整门禁的实际日志/输入哈希保留。
-  桌面保持停止；设备/其它宿主/当前 CI/安装器/多屏/发布与本 SHA release 未验。
+  W58 已补充本 SHA 默认/录屏 QA 原生 release 编译和 PE/CRT 文件核对，未启动或打包；
+  见 `docs/reviews/2026-10-02-current-windows-release-review.md`（`WIN-NATIVE-01`）。
+  桌面保持停止；设备/其它宿主/当前 CI/安装器/多屏/发布仍未验。
   W53 历史 AVI 超时根因仍未知，不能用本次受控共享错误归因。
   （需求：`REC-ARTIFACT-SHARING-01`；见 `docs/superpowers/specs/2026-10-02-recording-artifact-sharing.md`）
 

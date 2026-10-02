@@ -5,6 +5,13 @@
 
 ## 当前续审结果
 
+W58 / `WIN-NATIVE-01`：固定生产 `830b12b43051efa7eebad36a3d1a4434975785b2`，默认与录屏 QA 在独立目录
+完成原生 release 编译，实际 child/terminal exit0，源码/测试保持。核对实际主程序
+release 参数、两图 feature、AMD64 GUI PE 与 QA 10份 CRT 的部署/导入闭包。
+旧 EXE/安装/桌面记录保持；未启动/安装/打包/发布，累计39修复及旧门禁计数不增。
+当前SHA CI/其它宿主/设备/安装器/无CRT启动/多屏仍未验，桌面停止，W53历史根因未知。
+见 [W58审查](2026-10-02-current-windows-release-review.md)。
+
 W57 / `REC-ARTIFACT-SHARING-01`：独立 `codex/recording-artifact-sharing`，基于
 `b2f6e95`。原五个已提交产物提升点及周期 session 全部复现真实共享错误32；
 首轮2/6，永久冲突保留前缀与损坏partial拒绝两项通过。提交/恢复/remux复用W56

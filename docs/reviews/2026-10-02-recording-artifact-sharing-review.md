@@ -56,6 +56,7 @@ remux 用例消费。增加相同 VP9 feature 条件，保持所有旧测试与�
 
 桌面继续停止。实际 WGC/WASAPI/长时录屏、安装器/无 CRT 启动、当前 SHA 三宿主/
 codec CI、其它宿主本地门禁、Windows 10/混合 DPI/负坐标/多屏与发布未验。
-本 SHA release 未构建；旧安装 `45769c9` 与旧 QA EXE `1c66112` 不含本修复。
+W57 当时本 SHA release 未构建；W58 已补充默认/QA 编译与文件核对，见
+[后续验证](2026-10-02-current-windows-release-review.md)。旧安装 `45769c9` 与旧 QA EXE `1c66112` 不含本修复。
 W53 历史 AVI 一次 30 秒超时没有 worker 原错，本轮独立共享冲突不能作为其根因。
 旧桌面仍为 2 pass / 1 fail / 36 not_run，整体目标未完成。
