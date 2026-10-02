@@ -58,3 +58,11 @@ FinishBeforeBufferedAudioEnd、worker PCM 前缀及原双轨 interrupted 文件�
 `4bc197767dfb04c7d067ee55c7744ea668dcde76` 完整Windows门禁33/0/1；默认1291/QA1436各5ignored，前端81/1403。
 领域470和新11项已含总数，两图重叠不累加；详见 [W69审查](../../reviews/2026-10-02-mixed-audio-frame-boundary-review.md)。
 最后复合验收保留未完成。
+
+## W70 非对称两源控制补充
+
+本规格原验证针对纳秒取整，恢复取两路较晚原生时刻的旧策略不能证明非对称首包完整。
+[REC-MIXED-CONTROL-SKEW-01](2026-10-02-mixed-control-skew.md) 补充同字节原API1/8基线，修复恢复改用较早原生下界，
+沿用本规格输入网格/派生输出分离与取整保护；停止分别验证后排出两路共同最大末尾。
+干净 `b0b51f1196124383b9fc77cfc4ad22c21e8c3d84` 领域479/0与完整Windows默认/QA门禁通过；历史W69结果保留为其源码证据。
+其它宿主/CI/设备/桌面等复合验收继续未完成。

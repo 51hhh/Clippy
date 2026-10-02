@@ -67,3 +67,13 @@
 - 摄像头、直播推流、H.264/AAC，以及把录屏或双源混音加入默认/release feature；
 - 修改 schema v2 的 Opus 音轨格式。混音仍产出一条现有 48 kHz stereo 音轨；来源元数据在未来
   显式 manifest 版本升级时再加入，不能静默改变当前严格 schema。
+
+## W70 完整尾部与非对称恢复覆盖
+
+原第7/8项和已勾选Pause/Resume/有限尾块验收的早期合成覆盖，未证明两路恢复/Stop时刻不同的情况。
+[REC-MIXED-CONTROL-SKEW-01](2026-10-02-mixed-control-skew.md) 冻结原API九项1/8诊断：较早恢复首包被拒绝，
+较晚停止尾部被静音替代，原complete时长不能证明全部PCM已接受。修复后同九项通过，
+原worker逐样本与原完整owner40ms/1920、60ms/2880输入及有效PCM和文件解码均核对。
+源码 `b0b51f1196124383b9fc77cfc4ad22c21e8c3d84` Windows完整门禁33/0/1，默认1298/QA1445各5ignored，前端81/1403。
+这些代码/合成源/codec文件证据不替代最后两项同SHA跨平台CI和原生权限/设备/听感/30分钟漂移验收，
+它们继续未完成，默认录屏入口关闭。见 [W70审查](../../reviews/2026-10-02-mixed-control-skew-review.md)。
