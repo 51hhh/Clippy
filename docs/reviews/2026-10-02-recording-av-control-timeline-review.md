@@ -51,7 +51,10 @@ complete、580 ms/58帧/27840 PCM帧，清单、分段、最终文件、长度�
 ## 保留边界
 
 帧/音源为可控合成 source，真实 codec/文件不替代 WGC/WASAPI、设备漂移或长时同步。
-当前SHA的CI、其它宿主、release、安装器、桌面/设备、Win10/混合DPI/多屏未验。
+W63时当前SHA的CI、其它宿主、release、安装器、桌面/设备、Win10/混合DPI/多屏未验。
 旧7579222默认/QA release与45769c9已安装包原字节保留，均不含本次修复。
 W53历史AVI超时、W59历史Opus失败根因仍未证明。桌面停止，无安装、推送或合入。
 证据：`src-tauri/target/av-control-timeline-contract/`。
+
+W64后续：同源码默认/QA release编译及PE/CRT文件核对已完成；实际启动、设备、CI、
+其它宿主和桌面仍未验，见 [release验证](2026-10-02-windows-av-timeline-release-review.md)。最后复合验收仍保留未完成。
