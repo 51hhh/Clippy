@@ -46,7 +46,7 @@ WebM SHA-256 `bfae4cb2bc51344b8228e519e503874b9a3cb3dd8a567db62874f8ab1d7ef3b3`�
 新12项已含总数，实际22次执行（10两图/2仅QA）；领域/两图重叠不累加，ignored/skipped/构建/文件不计通过数。
 本轮一个生产修复，累计47项本地修复；门禁后只改七份Markdown，无生产/测试变化。
 
-当前源码release/同SHA跨平台及codec CI、其它宿主、真实WGC/WASAPI、设备切换/漂移/长时同步、
+W72时当前源码release/同SHA跨平台及codec CI、其它宿主、真实WGC/WASAPI、设备切换/漂移/长时同步、
 桌面/安装器/updater/无CRT启动、Win10/多屏/混合DPI仍未验。W71 B0默认/QA release文件保留为前置源码证据，
 不含本次修复，已安装457包也不含本次修复；39项桌面记录保持。
 W53/W59/W63/W67历史失败根因仍未明，旧日志/失败材料保持；默认录屏入口仍关闭。
@@ -55,3 +55,6 @@ W53/W59/W63/W67历史失败根因仍未明，旧日志/失败材料保持；默�
 
 证据：`src-tauri/target/mixed-paused-stop-contract/`、`mixed-paused-stop-native-qa-02005c9/`，
 包含原始日志/退出码、冻结输入/同字节夹具、原API诊断、前缀/原journal/媒体、文件解码与合同/门禁审计。
+
+W73后续：同源码默认/QA release编译及PE/CRT文件验证完成；实际启动、设备、CI和桌面等仍未验。
+见 [release验证](2026-10-02-windows-mixed-paused-stop-release-review.md)；最后复合验收继续未完成。

@@ -9,6 +9,12 @@
 
 ## 当前续审状态
 
+W73 / `WIN-NATIVE-01`：冻结 `02005c98ee6ac52fd46e20c878a717f314fd90cc`，默认/录屏QA在独立target完成release编译，
+实际编译参数、两图feature、AMD64 GUI PE和QA10份CRT来源/部署/导入核对，native/包装器/终端exit0。
+五个核心文件只读续审未确认新缺陷；生产/测试/期限、47项本地修复和原门禁计数保持，构建/文件不计测试。
+当前SHA CI/其它宿主/设备/桌面/安装器/无CRT/长时同步仍未验；历史失败根因仍未明。
+旧release/安装包/39项桌面记录保持；桌面停止，无推送/PR/合入/发布。见 [W73审查](../../reviews/2026-10-02-windows-mixed-paused-stop-release-review.md)。
+
 W72 / `REC-MIXED-PAUSED-STOP-01`：原Pause→Stop制造暂停静音，worker/完整owner报AlreadyPaused，
 原十二项同字节API基线6/6。修复暂停状态只封闭停止控制时间线，真实尾块/源失败/倒退/格式错误仍拒绝，
 原worker保护、W69/W70活跃路径和119份旧文件完整测试/期限保持。领域491/0，同十二项通过。

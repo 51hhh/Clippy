@@ -11,7 +11,9 @@
   原完整合成会话由 AlreadyPaused/interrupted 变为 complete 20ms/2视频帧/960输入及有效PCM；
   VP9/Opus 文件解码确认保留已接受信号，不计设备验收。干净 `02005c98ee6ac52fd46e20c878a717f314fd90cc` 完整Windows门禁33/0/1 Linux smoke skipped；
   默认1308/QA1457各5ignored，前端81文件/1403passed，新12项已含总数、两图重叠不累加。
-  新12项（10两图/2仅QA）已含领域总数；当前源码 release/同SHA CI、其它宿主、设备/桌面、
+  W73补充同SHA默认/QA release与PE/CRT文件验证，实际启动未验；
+  见 `docs/reviews/2026-10-02-windows-mixed-paused-stop-release-review.md`（`WIN-NATIVE-01`）。
+  新12项（10两图/2仅QA）已含领域总数；当前同SHA CI、其它宿主、设备/桌面、
   安装器、多屏和长时同步未验；历史失败根因保留未明，默认录屏仍关闭。
   （需求：`REC-MIXED-PAUSED-STOP-01`；见 `docs/superpowers/specs/2026-10-02-mixed-paused-stop.md`）
 

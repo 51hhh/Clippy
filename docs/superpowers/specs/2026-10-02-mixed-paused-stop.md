@@ -63,3 +63,6 @@ Stop返回Pipeline(AlreadyPaused)。原完整owner同根AudioCapture(Pipeline(Al
 `02005c98ee6ac52fd46e20c878a717f314fd90cc` 完整Windows门禁33/0/1；默认1308/QA1457各5ignored，前端81/1403。
 新12项与领域491已含总数、两图重叠不累加；见 [W72审查](../../reviews/2026-10-02-mixed-paused-stop-review.md)。
 当前源码release/CI、其它宿主和设备/桌面等最后复合验收仍未完成。
+
+W73后续：同源码默认/QA release编译及PE/CRT文件验证完成；实际启动、设备、CI和桌面等仍未验。
+见 [release验证](../../reviews/2026-10-02-windows-mixed-paused-stop-release-review.md)；最后复合验收继续未完成。
