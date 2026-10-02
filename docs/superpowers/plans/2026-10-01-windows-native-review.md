@@ -9,6 +9,8 @@
 
 ## 当前续审状态
 
+W74：47项修复和原八条需求/九条AC更新inventory；源码02005c9已有本机完整门禁和默认/QA release文件验证。当前GitHub提交不可取得，同SHA CI/真机/其它宿主仍未验。活跃混音Stop ready积累为待原API复现的静态疑点。见 [W74 inventory](../../reviews/2026-10-02-windows-readiness-inventory.md)。本轮无源码/测试改动、新通过数0。
+
 W73 / `WIN-NATIVE-01`：冻结 `02005c98ee6ac52fd46e20c878a717f314fd90cc`，默认/录屏QA在独立target完成release编译，
 实际编译参数、两图feature、AMD64 GUI PE和QA10份CRT来源/部署/导入核对，native/包装器/终端exit0。
 五个核心文件只读续审未确认新缺陷；生产/测试/期限、47项本地修复和原门禁计数保持，构建/文件不计测试。
@@ -558,7 +560,7 @@ release 参数、两图 feature、AMD64 GUI PE 与 QA 10份 CRT 的部署/导入
 | W05 | P1 | 同权限自动粘贴一次、高完整性目标 copy-only、目标销毁/复用、用户接管；DACL 与配置连续覆盖 | 45769c9 普通权限文本/图片完整用例实际通过；管理员、销毁复用与用户接管桌面待验证。私有文件准备失败时序见 W18，富文本片段边界见 W20，首次按键前目标复核见 W23，部分 Click 失败清理见 W45 |
 | W06 | P1 | QA 包设备默认/非默认/同名/拔出、双源混音、暂停恢复、控制窗排除、强杀恢复、30 分钟 A/V 漂移 | WASAPI 正常停止尾部见 W24，WGC 关闭/初始化清理见 W25/W27，双轨桥接线程回收见 W26，WGC 应用帧桥启动回滚见 W35；真实设备、混音及其余场景仍待真机验收 |
 | W07 | P2 | NSIS/MSI 安装升级卸载、WebView2、自启动、托盘/快捷键、系统凭据与更新 | 官方 QA 包身份已核对，MSI 只读检查通过；NSIS 安装落盘/启动子步骤已核对，完整 MSI/升级/卸载/updater 未验收；本机自签名链不受信任，未更改信任 |
-| W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 42e52c0、45769c9 与 WinPS 的 b2fd247 各自七项 CI 通过；后续二十九项产品修复本机通过，新 SHA CI、Linux 本地完整门禁及 Wayland 回归保留未完成 |
+| W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 42e52c0、45769c9 与 WinPS 的 b2fd247 各自七项 CI 通过；后续47项产品修复本机通过，新 SHA CI、Linux 本地完整门禁及 Wayland 回归保留未完成 |
 | W09 | P1 | OCR 质量工具 Windows 私有诊断目录与符号链接拒绝合同；失败关闭，检查子文件继承 | 实际 DACL/等价 SDDL 及 10 类失败关闭负例通过；本机 33 项质量合同与 42e52c0 跨平台 CI 通过 |
 | W10 | P2 | 审查 webm-sys 的 C++ 编译参数在 MSVC 上产生 D9002；按真实编译器族选择 flag，保留固定来源与许可证 | 独立 WIN-WEBM-MSVC-01 / PR #14；本机完整 QA 绑定 e4ccc46，45769c9 七项 CI 与完整 QA workflow 全成功，新 Windows 包来源/哈希/签名身份已核对；真实桌面未验证 |
 | W11 | P1 | 新 Windows runner 使用 CRLF 检出时的 IPC 负例与结构回归；保留两种换行的正/负合同 | 独立 CRLF checkout 1284 项通过，fe37aec Windows 前端 CI 已通过 |
@@ -596,7 +598,7 @@ release 参数、两图 feature、AMD64 GUI PE 与 QA 10份 CRT 的部署/导入
 | W43 | P1 | 共用键按 Shortcut ID 继承首次注册结果，全失败返回错误，保留部分成功与旧配置容错 | WIN-SHORTCUT-SHARED-01；提取原执行协议 MSVC 红 9/6（旧五项通过），同十项原字节绿 15/0；原合同/十九份文件保持。 干净 0f793c9 完整默认/QA 门禁 30/0/1（Linux skip），默认 Rust 1175/QA Rust 1238，各 5 ignored 不累加，新十项/旧五项各图通过；前端 79/1323，实际系统/UI/其它宿主/新 SHA CI 未验 |
 | W44 | P1 | Windows 富文本与替代文本共享 OpenClipboard guard，拒绝跨复制配对 | WIN-CLIP-SNAPSHOT-01；原决策红 27/4，旧 23 保持，同修正八项绿 31，guard 七项/旧 parser 九项共 16 与 vendor lint 通过。 干净 b541e87 完整 30/0/1（Linux skip），默认 Rust 1183/QA Rust 1246，各 5 ignored 不累加，新八项各图通过；独立剪贴板 31、前端 79/1323。实际系统/其它宿主/新 SHA CI 未验 |
 | W45 | P1 | Windows V Click 部分失败/展开时清理 V，保留正常顺序和主要错误 | WIN-PASTE-CLEANUP-01；原注入协议红 10/6，旧六项保持，同十项原字节绿 16；原实现/十二文件/锁定 SDK 保持。 干净 f5ad5da 完整 30/0/1（Linux skip），默认 Rust 1193/QA Rust 1256，各 5 ignored 不累加，新十项各图通过；前端 79/1323。实际系统/其它宿主/新 SHA CI 未验 |
-| W46 | P2 | 原需求/验收逐项 inventory 与 29 项修复的 Git/日志/原阶段/测试正文保留审计 | WIN-NATIVE-01；代码/日志/原阶段无遗漏，616 比较的五处夹具新增字段单列，31 个前端调用保持；不计新测试。当前 CI 无 run，全局仍未完成；下一步 Windows release QA 可执行文件构建，不安装/启动 |
+| W46 | P2 | 原需求/验收逐项 inventory 与 29 项修复的 Git/日志/原阶段/测试正文保留审计；W74追加47项当前inventory | WIN-NATIVE-01；代码/日志/原阶段无遗漏，616 比较的五处夹具新增字段单列，31 个前端调用保持；不计新测试。当前 CI 无 run，全局仍未完成；下一步 Windows release QA 可执行文件构建，不安装/启动 |
 | W47 | P2 | 默认/录屏 QA Windows release 编译与冻结源码/产物/feature/profile 来源核对 | WIN-NATIVE-01；两图 native/wrapper/terminal 0、PE AMD64 GUI/无内嵌签名、原输入哈希和干净源码保持；release panic=abort 不借用测试 unwind 保证。不增加测试数、不启动/安装，全局剩余验收保留 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。

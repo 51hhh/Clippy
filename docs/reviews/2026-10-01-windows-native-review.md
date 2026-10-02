@@ -5,6 +5,8 @@
 
 ## 当前续审结果
 
+W74：47项修复和原八条需求/九条AC更新inventory；源码02005c9已有本机完整门禁和默认/QA release文件验证。当前GitHub提交不可取得，同SHA CI/真机/其它宿主仍未验。活跃混音Stop ready积累为待原API复现的静态疑点。见 [W74 inventory](2026-10-02-windows-readiness-inventory.md)。本轮无源码/测试改动、新通过数0。
+
 W73 / `WIN-NATIVE-01`：冻结 `02005c98ee6ac52fd46e20c878a717f314fd90cc`，默认/录屏QA在独立target完成release编译，
 实际编译参数、两图feature、AMD64 GUI PE和QA10份CRT来源/部署/导入核对，native/包装器/终端exit0。
 五个核心文件只读续审未确认新缺陷；生产/测试/期限、47项本地修复和原门禁计数保持，构建/文件不计测试。
