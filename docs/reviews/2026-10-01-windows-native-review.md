@@ -5,6 +5,15 @@
 
 ## 当前续审结果
 
+W56 / `REC-MANIFEST-SHARING-01`：独立 `codex/recording-manifest-sharing`，基于
+`9a7a6e2`。真实 Windows 句柄不共享删除，使原 MJPEG/session 清单替换约 0.30 秒
+返回实际错误 5；只有原生探针确认共享拒绝 32 才重试错误 5，原始 32/33 同样有界。
+最多 21 次/500 ms，权限拒绝、其它错误与已提升源保持原错。私有文件、ACL、提交/
+恢复顺序和原测试/预算不改；W53 历史超时原因未证明。
+<!-- W56_GATE_PENDING -->
+设备/其它宿主/当前 CI/安装器/多屏未验，桌面停止。
+见 [W56 审查](2026-10-02-recording-manifest-sharing-review.md)。
+
 W55 / `REC-PENDING-FRAME-PCM-01`：独立 `codex/recording-pending-frame-budget`，基于
 `bdffab3`。原 WGC bridge/1 FPS worker 与同一时钟实时 PCM 的缓存组合已复现实际
 Backpressure；以既有 Opus 包槽消费未封闭 slot 的 PCM，保留图像替换、源下界、

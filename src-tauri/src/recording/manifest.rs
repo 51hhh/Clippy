@@ -1954,6 +1954,21 @@ fn final_output_partial_name(container: &str) -> String {
     format!(".recording.{container}.partial")
 }
 
+#[cfg(target_os = "windows")]
+#[path = "manifest/windows_sharing.rs"]
+mod windows_sharing;
+
+fn replace_manifest_file(source: &Path, destination: &Path) -> io::Result<()> {
+    #[cfg(target_os = "windows")]
+    {
+        windows_sharing::replace(source, destination)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        replace_private_file(source, destination)
+    }
+}
+
 fn write_manifest(session_directory: &Path, manifest: &RecordingManifest) -> Result<(), String> {
     let bytes = serde_json::to_vec_pretty(manifest)
         .map_err(|error| format!("序列化恢复清单失败: {error}"))?;
@@ -1970,7 +1985,7 @@ fn write_manifest(session_directory: &Path, manifest: &RecordingManifest) -> Res
     ));
     let destination = session_directory.join(MANIFEST_FILE);
     let result = write_private(&temporary, &bytes)
-        .and_then(|_| replace_private_file(&temporary, &destination))
+        .and_then(|_| replace_manifest_file(&temporary, &destination))
         .and_then(|_| sync_directory(session_directory));
     if result.is_err() {
         let _ = fs::remove_file(&temporary);
@@ -2020,6 +2035,11 @@ fn unix_time_ms() -> u64 {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "windows")]
+    mod manifest_sharing_retry_tests {
+        include!("manifest/sharing_retry_tests.rs");
+    }
+
     use super::*;
 
     #[cfg(target_os = "windows")]

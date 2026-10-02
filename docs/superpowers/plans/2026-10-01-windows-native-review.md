@@ -9,6 +9,13 @@
 
 ## 当前续审状态
 
+- W56 / `REC-MANIFEST-SHARING-01`：独立 `codex/recording-manifest-sharing`，基于
+  `9a7a6e2`。原生文件句柄短暂阻止删除共享，原 session/encoder 取得实际错误 5。
+  Windows 清单对 32/33 或经删除探针确认共享拒绝的 5 有界重试；最多 21 次/500 ms。
+  私有文件/ACL、提交与恢复顺序、原测试/期限/预算保持，其它保存/平台不改。
+  <!-- W56_GATE_PENDING -->
+  当前 SHA CI/其它宿主/设备/安装器/多屏未验，桌面停止；W53 AVI 超时原因未知。
+
 - W55 / `REC-PENDING-FRAME-PCM-01`：独立 `codex/recording-pending-frame-budget`，基于
   `bdffab3`。原 bridge/1 FPS/同一时钟实时 PCM 已复现实际 Backpressure；保留缓存
   下界与真实帧替换，按全局/分段剩余包槽消费未封闭 slot 的 PCM，先对齐分段切点。

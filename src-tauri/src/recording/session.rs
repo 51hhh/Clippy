@@ -289,6 +289,11 @@ impl Drop for DiagnosticRecordingSession {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "windows")]
+    mod manifest_sharing_tests {
+        include!("session/manifest_sharing_tests.rs");
+    }
+
     use super::*;
     use crate::recording::frame::CapturedFrame;
     use crate::recording::mux::avi_mjpeg::AviMjpegError;
