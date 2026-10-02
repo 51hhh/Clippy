@@ -5,6 +5,14 @@
 
 ## 当前续审结果
 
+W57 / `REC-ARTIFACT-SHARING-01`：独立 `codex/recording-artifact-sharing`，基于
+`b2f6e95`。原五个已提交产物提升点及周期 session 全部复现真实共享错误32；
+首轮2/6，永久冲突保留前缀与损坏partial拒绝两项通过。提交/恢复/remux复用W56
+有界策略，原权限、提交/恢复保护、导出与采集合同保持；W53历史原因未知。
+<!-- W57_GATE_PENDING -->
+设备/其它宿主/当前CI/安装器/多屏仍未验，桌面停止。
+见 [W57 审查](2026-10-02-recording-artifact-sharing-review.md)。
+
 W56 / `REC-MANIFEST-SHARING-01`：独立 `codex/recording-manifest-sharing`，基于
 `9a7a6e2`。真实 Windows 句柄不共享删除，使原 MJPEG/session 清单替换约 0.30 秒
 返回实际错误 5；只有原生探针确认共享拒绝 32 才重试错误 5，原始 32/33 同样有界。

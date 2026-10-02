@@ -290,6 +290,11 @@ impl Drop for DiagnosticRecordingSession {
 #[cfg(test)]
 mod tests {
     #[cfg(target_os = "windows")]
+    mod artifact_sharing_tests {
+        include!("session/artifact_sharing_tests.rs");
+    }
+
+    #[cfg(target_os = "windows")]
     mod manifest_sharing_tests {
         include!("session/manifest_sharing_tests.rs");
     }

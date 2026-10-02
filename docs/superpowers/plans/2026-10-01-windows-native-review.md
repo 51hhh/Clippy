@@ -9,6 +9,13 @@
 
 ## 当前续审状态
 
+- W57 / `REC-ARTIFACT-SHARING-01`：独立 `codex/recording-artifact-sharing`，基于
+  `b2f6e95`。原五个已提交产物提升点及周期session取得实际错误32；原生首轮2/6。
+  复用原W56有界重试，永久锁保留已提交partial，损坏文件先验证拒绝。原权限/
+  提交恢复顺序/导出/FPS/时钟/队列/旧测试与期限保持。
+  <!-- W57_GATE_PENDING -->
+  当前SHA CI/其它宿主/设备/安装器/多屏仍未验，桌面停止，W53 AVI历史根因未知。
+
 - W56 / `REC-MANIFEST-SHARING-01`：独立 `codex/recording-manifest-sharing`，基于
   `9a7a6e2`。原生文件句柄短暂阻止删除共享，原 session/encoder 取得实际错误 5。
   Windows 清单对 32/33 或经删除探针确认共享拒绝的 5 有界重试；最多 21 次/500 ms。

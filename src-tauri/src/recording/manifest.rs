@@ -509,7 +509,7 @@ impl RecordingJournal {
         // 先原子提交清单，再提升已经 fsync 的 partial。若进程在两步之间退出，启动恢复会按清单中的
         // 长度与 SHA-256 验证 partial 后完成提升；未进入清单的 partial 永远不会冒充已提交分段。
         let destination = self.session_directory.join(file_name);
-        replace_private_file(&pending.partial_path, &destination)
+        replace_recording_file(&pending.partial_path, &destination)
             .map_err(|error| format!("提交录屏分段失败: {error}"))?;
         sync_directory(&self.session_directory)
             .map_err(|error| format!("同步录屏会话目录失败: {error}"))?;
@@ -638,7 +638,7 @@ impl RecordingJournal {
         pending.preserve_for_recovery = true;
 
         let destination = self.session_directory.join(file_name);
-        replace_private_file(&pending.partial_path, &destination)
+        replace_recording_file(&pending.partial_path, &destination)
             .map_err(|error| format!("提交录屏最终输出失败: {error}"))?;
         sync_directory(&self.session_directory)
             .map_err(|error| format!("同步录屏会话目录失败: {error}"))?;
@@ -990,7 +990,7 @@ pub(super) fn merge_interrupted_vp9_session(
         manifest_committed = true;
 
         let destination = session_directory.join(file_name);
-        replace_private_file(&partial_path, &destination)
+        replace_recording_file(&partial_path, &destination)
             .map_err(|error| format!("提交录屏恢复输出失败: {error}"))?;
         sync_directory(&session_directory)
             .map_err(|error| format!("同步录屏恢复目录失败: {error}"))?;
@@ -1782,7 +1782,7 @@ fn verify_or_promote_final_output(
             if byte_length != output.byte_length || sha256 != output.sha256 {
                 return Ok(false);
             }
-            replace_private_file(&partial, &destination)
+            replace_recording_file(&partial, &destination)
                 .map_err(|error| format!("提升已提交最终输出失败: {error}"))?;
             sync_directory(session_directory)
                 .map_err(|error| format!("同步最终输出恢复目录失败: {error}"))?;
@@ -1853,7 +1853,7 @@ fn promote_committed_partial(
         return Ok(false);
     }
     let destination = session_directory.join(&segment.file_name);
-    replace_private_file(&partial, &destination)
+    replace_recording_file(&partial, &destination)
         .map_err(|error| format!("提升已提交临时分段失败: {error}"))?;
     sync_directory(session_directory).map_err(|error| format!("同步恢复目录失败: {error}"))?;
     Ok(true)
@@ -1958,7 +1958,7 @@ fn final_output_partial_name(container: &str) -> String {
 #[path = "manifest/windows_sharing.rs"]
 mod windows_sharing;
 
-fn replace_manifest_file(source: &Path, destination: &Path) -> io::Result<()> {
+fn replace_recording_file(source: &Path, destination: &Path) -> io::Result<()> {
     #[cfg(target_os = "windows")]
     {
         windows_sharing::replace(source, destination)
@@ -1985,7 +1985,7 @@ fn write_manifest(session_directory: &Path, manifest: &RecordingManifest) -> Res
     ));
     let destination = session_directory.join(MANIFEST_FILE);
     let result = write_private(&temporary, &bytes)
-        .and_then(|_| replace_manifest_file(&temporary, &destination))
+        .and_then(|_| replace_recording_file(&temporary, &destination))
         .and_then(|_| sync_directory(session_directory));
     if result.is_err() {
         let _ = fs::remove_file(&temporary);
@@ -2034,7 +2034,17 @@ fn unix_time_ms() -> u64 {
 }
 
 #[cfg(test)]
+#[cfg(target_os = "windows")]
+#[path = "manifest/artifact_sharing_fixture.rs"]
+pub(super) mod artifact_sharing_fixture;
+
+#[cfg(test)]
 mod tests {
+    #[cfg(target_os = "windows")]
+    mod artifact_sharing_tests {
+        include!("manifest/artifact_sharing_tests.rs");
+    }
+
     #[cfg(target_os = "windows")]
     mod manifest_sharing_retry_tests {
         include!("manifest/sharing_retry_tests.rs");
