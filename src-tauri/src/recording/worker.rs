@@ -551,7 +551,8 @@ where
             if result.is_ok() {
                 *paused = true;
             }
-            let _ = reply.send(result);
+            let _ = reply.send(result.clone());
+            result?;
             Ok(None)
         }
         ControlCommand::Resume(reply) => {
@@ -573,7 +574,8 @@ where
             if result.is_ok() {
                 *paused = false;
             }
-            let _ = reply.send(result);
+            let _ = reply.send(result.clone());
+            result?;
             Ok(None)
         }
         ControlCommand::Stop => {
@@ -613,6 +615,11 @@ impl Drop for PipelineAbortGuard<'_> {
 
 #[cfg(test)]
 mod tests {
+    mod control_failure_tests {
+        use super::*;
+        include!("worker/control_failure_tests.rs");
+    }
+
     mod control_preflight_tests {
         use super::*;
         include!("worker/control_preflight_tests.rs");

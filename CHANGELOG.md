@@ -2,6 +2,15 @@
 
 ## 未发布
 
+### 2026-10-02 视频源控制后的时间线错误终止录制
+
+- 修复源已暂停/恢复后，pipeline拒绝操作但采集线程继续、后续Stop覆盖控制错误并提交complete的问题。
+  原错误同时交给请求者与线程join，原owner回收资源并保留interrupted；前置状态拒绝仍可继续。
+  同字节八项旧API故障合同原0/8、修复领域415/0=原407+新8（7两图/1仅QA）；实际清单/媒体保留。
+  完整Windows门禁待执行。合成源故障/真实文件codec不能代替WGC/WASAPI、桌面或长时同步。
+  当前CI/其它宿主/设备/安装器/多屏/release与两个历史失败原因保留未验。
+  （需求：`REC-VIDEO-CONTROL-FAILURE-01`；见 `docs/superpowers/specs/2026-10-02-recording-video-control-failure.md`）
+
 ### 2026-10-02 视频录屏控制先核对状态
 
 - 修复无音频录屏在首帧前暂停失败后，平台流已被停止、后续首帧无法接收的问题。
