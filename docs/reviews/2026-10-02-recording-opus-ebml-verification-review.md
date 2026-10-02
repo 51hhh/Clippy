@@ -25,7 +25,9 @@ SeekPreRoll=None/1、DiscardPadding=None，而实际字段仍为6500000/80000000
 再重放原读取器。没有把该夹具失败冒充媒体缺陷。后续对照显式重放已保存的真实媒体；
 普通门禁仍由原mux现场生成媒体，不修改随机UID生成器。
 
-完整 Windows 门禁待冻结测试提交后执行。
+干净 `a5e03f8d075cd09023a824e26d51ff80f9466014` 完整Windows门禁33 passed / 0 failed / 1 Linux smoke skipped；
+默认Rust1247/QA1373各5ignored，两图重叠不累加；前端81文件/1403passed。
+新六项各在QA图实际运行一次，已含在总数；原双轨合同、生产代码与旧期限保持。
 
 ## 保留边界
 
