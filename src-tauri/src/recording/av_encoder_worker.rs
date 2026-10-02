@@ -11,7 +11,7 @@ use super::av_segmenting::{
 use super::av_timeline::{
     AudioEpochOutcome, AvFinishReport, AvTimelineCoordinator, AvTimelineError,
 };
-use super::pipeline::{PipelineDrain, PipelineError, QueuedFrame, RecordingPipeline};
+use super::pipeline::{AvPipelineDrain, PipelineError, QueuedFrame, RecordingPipeline};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TryRecvError};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -54,7 +54,7 @@ pub(super) struct AvEncoderReport {
     pub finish: AvFinishReport,
 }
 
-type VideoBridgeEvent = Result<PipelineDrain, PipelineError>;
+type VideoBridgeEvent = Result<AvPipelineDrain, PipelineError>;
 type AudioBridgeEvent = Result<AudioPipelineDrain, AudioPipelineError>;
 
 pub(super) struct AvEncoderWorker {
@@ -156,8 +156,8 @@ fn run(
 
 fn bridge_video(pipeline: Arc<RecordingPipeline>, events: SyncSender<VideoBridgeEvent>) {
     loop {
-        let event = pipeline.pop_wait();
-        let terminal = !matches!(event, Ok(PipelineDrain::Frame(_)));
+        let event = pipeline.pop_wait_av();
+        let terminal = matches!(event, Err(_) | Ok(AvPipelineDrain::Finished { .. }));
         if events.send(event).is_err() || terminal {
             return;
         }
@@ -186,6 +186,7 @@ fn run_inner(
     let mut audio_head: Option<QueuedAudioChunk> = None;
     let mut aligned_audio: Option<QueuedAudioChunk> = None;
     let mut video_duration_ns = None;
+    let mut video_lower_bound_ns = None;
     let mut audio_duration_ns = None;
     let mut video_input_frames = 0_u64;
     let mut audio_input_chunks = 0_u64;
@@ -194,7 +195,12 @@ fn run_inner(
     let mut audio_trimmed_before_video_frames = 0_u64;
 
     loop {
-        fill_video_head(video_events, &mut video_head, &mut video_duration_ns)?;
+        fill_video_head(
+            video_events,
+            &mut video_head,
+            &mut video_duration_ns,
+            &mut video_lower_bound_ns,
+        )?;
         fill_audio_head(audio_events, &mut audio_head, &mut audio_duration_ns)?;
 
         if !epoch_established {
@@ -234,6 +240,33 @@ fn run_inner(
             .as_ref()
             .map(|video| writer.video_audio_boundary(video.presentation_at_ns))
             .transpose()?;
+        let idle_video_step =
+            if epoch_established && video_head.is_none() && video_duration_ns.is_none() {
+                video_lower_bound_ns
+                    .map(|bound| writer.idle_video_step(bound))
+                    .transpose()?
+                    .flatten()
+            } else {
+                None
+            };
+        let idle_audio_boundary = if video_head.is_none() && video_duration_ns.is_none() {
+            video_lower_bound_ns
+                .map(|bound| writer.idle_audio_boundary(bound))
+                .transpose()?
+                .map(|boundary| idle_video_step.unwrap_or(boundary))
+        } else {
+            None
+        };
+        let audio_before_idle_boundary = idle_audio_boundary
+            .zip(aligned_audio.as_ref())
+            .map(|(boundary, audio)| {
+                Ok::<_, AvTimelineError>(
+                    timestamp_to_audio_frame(audio.presentation_at_ns)?
+                        < timestamp_to_audio_frame(boundary)?,
+                )
+            })
+            .transpose()?
+            .unwrap_or(false);
         match (video_head.as_ref(), aligned_audio.as_ref()) {
             (Some(_), Some(audio))
                 if timestamp_to_audio_frame(audio.presentation_at_ns)?
@@ -260,6 +293,19 @@ fn run_inner(
             (None, Some(_)) if video_duration_ns.is_some() => {
                 let audio = aligned_audio.take().expect("匹配分支保证存在音频");
                 writer.push_audio_before(audio, u64::MAX)?;
+            }
+            (None, Some(_)) if audio_before_idle_boundary => {
+                let queued = aligned_audio.take().expect("匹配分支保证存在音频");
+                let (before, after) =
+                    split_audio_at(queued, idle_audio_boundary.expect("已检查边界"))?;
+                writer.push_audio_before(before, video_lower_bound_ns.expect("已检查下界"))?;
+                aligned_audio = after;
+            }
+            (None, _)
+                if idle_video_step.is_some()
+                    && (aligned_audio.is_some() || audio_duration_ns.is_some()) =>
+            {
+                writer.push_idle_video(video_lower_bound_ns.expect("已检查下界"))?;
             }
             (None, None)
                 if epoch_established
@@ -289,6 +335,7 @@ fn run_inner(
                 &mut audio_head,
                 &mut video_duration_ns,
                 &mut audio_duration_ns,
+                &mut video_lower_bound_ns,
             )?,
         }
     }
@@ -298,15 +345,21 @@ fn fill_video_head(
     events: &Receiver<VideoBridgeEvent>,
     head: &mut Option<QueuedFrame>,
     duration_ns: &mut Option<u64>,
+    lower_bound_ns: &mut Option<u64>,
 ) -> Result<(), AvEncoderWorkerError> {
     if head.is_some() || duration_ns.is_some() {
         return Ok(());
     }
-    match events.try_recv() {
-        Ok(event) => apply_video_event(event, head, duration_ns),
-        Err(TryRecvError::Empty) => Ok(()),
-        Err(TryRecvError::Disconnected) => Err(AvEncoderWorkerError::BridgeDisconnected),
+    while head.is_none() && duration_ns.is_none() {
+        match events.try_recv() {
+            Ok(event) => apply_video_event(event, head, duration_ns, lower_bound_ns)?,
+            Err(TryRecvError::Empty) => break,
+            Err(TryRecvError::Disconnected) => {
+                return Err(AvEncoderWorkerError::BridgeDisconnected)
+            }
+        }
     }
+    Ok(())
 }
 
 fn fill_audio_head(
@@ -332,10 +385,13 @@ fn wait_for_missing_head(
     audio_head: &mut Option<QueuedAudioChunk>,
     video_duration_ns: &mut Option<u64>,
     audio_duration_ns: &mut Option<u64>,
+    video_lower_bound_ns: &mut Option<u64>,
 ) -> Result<(), AvEncoderWorkerError> {
     if video_head.is_none() && video_duration_ns.is_none() {
         match video_events.recv_timeout(BRIDGE_WAIT_SLICE) {
-            Ok(event) => apply_video_event(event, video_head, video_duration_ns)?,
+            Ok(event) => {
+                apply_video_event(event, video_head, video_duration_ns, video_lower_bound_ns)?
+            }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => {
                 return Err(AvEncoderWorkerError::BridgeDisconnected);
@@ -358,10 +414,17 @@ fn apply_video_event(
     event: VideoBridgeEvent,
     head: &mut Option<QueuedFrame>,
     duration_ns: &mut Option<u64>,
+    lower_bound_ns: &mut Option<u64>,
 ) -> Result<(), AvEncoderWorkerError> {
     match event? {
-        PipelineDrain::Frame(frame) => *head = Some(frame),
-        PipelineDrain::Finished {
+        AvPipelineDrain::Frame(frame) => *head = Some(frame),
+        AvPipelineDrain::CaptureLowerBound { presentation_at_ns } => {
+            if lower_bound_ns.is_some_and(|last| presentation_at_ns < last) {
+                return Err(PipelineError::FrameBeforeLowerBound.into());
+            }
+            *lower_bound_ns = Some(presentation_at_ns);
+        }
+        AvPipelineDrain::Finished {
             duration_ns: finished,
         } => *duration_ns = Some(finished),
     }
@@ -466,6 +529,10 @@ fn audio_frames_to_ns(frames: u32) -> Result<u64, AvTimelineError> {
 
 #[cfg(test)]
 mod tests {
+    mod idle_frontier_tests {
+        include!("av_encoder_worker/idle_frontier_tests.rs");
+    }
+
     use super::*;
     use crate::recording::audio::{AudioFormat, CapturedAudioChunk};
     use crate::recording::av_segmenting::SegmentedAvRecordingWriter;

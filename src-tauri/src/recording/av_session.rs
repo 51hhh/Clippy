@@ -456,6 +456,10 @@ fn discard_failed_start(app_data_dir: &Path, session_id: &str) {
 
 #[cfg(test)]
 mod tests {
+    mod idle_frontier_tests {
+        include!("av_session/idle_frontier_tests.rs");
+    }
+
     use super::*;
     use crate::recording::audio::{AudioFormat, CapturedAudioChunk};
     use crate::recording::frame::CapturedFrame;

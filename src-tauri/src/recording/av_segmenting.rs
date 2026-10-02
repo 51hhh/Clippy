@@ -222,6 +222,53 @@ impl SegmentedAvRecordingWriter {
             .unwrap_or(presentation_at_ns))
     }
 
+    pub fn idle_audio_boundary(
+        &self,
+        lower_bound_ns: u64,
+    ) -> Result<u64, SegmentedAvRecordingError> {
+        Ok(self.video_encoder.cfr_timestamp_at(lower_bound_ns)?)
+    }
+
+    pub fn idle_video_step(
+        &self,
+        lower_bound_ns: u64,
+    ) -> Result<Option<u64>, SegmentedAvRecordingError> {
+        if !self.segment_has_video && self.committed_video_frames == 0 {
+            return Ok(None);
+        }
+        let next = self.video_encoder.next_timestamp_ns()?;
+        Ok((next < self.idle_audio_boundary(lower_bound_ns)?).then_some(next))
+    }
+
+    /// 每次只交付一个已由源下界封闭的 slot；不会提交或改写一枚真实输入帧。
+    pub fn push_idle_video(
+        &mut self,
+        lower_bound_ns: u64,
+    ) -> Result<(), SegmentedAvRecordingError> {
+        let timestamp_ns = self
+            .idle_video_step(lower_bound_ns)?
+            .ok_or(SegmentedAvRecordingError::InvalidTimeline)?;
+        let elapsed = timestamp_ns
+            .checked_sub(self.segment_started_at_ns)
+            .ok_or(SegmentedAvRecordingError::InvalidTimeline)?;
+        let boundary_frame = timestamp_to_audio_frame(timestamp_ns)?;
+        // 同 slot 的真实输入可能已交付部分 PCM；补帧不能使音频游标倒退。
+        if boundary_frame > self.audio_frame_cursor {
+            self.pad_audio_until(timestamp_ns)?;
+        }
+        if self.segment_has_video && elapsed >= self.segment_duration_ns {
+            if boundary_frame != self.audio_frame_cursor {
+                return Err(SegmentedAvRecordingError::InvalidTimeline);
+            }
+            // 保留下一 slot 的图像；原真实帧分段路径仍由边界真实输入替换占位图像。
+            self.advance_video_for_audio(timestamp_ns, lower_bound_ns)?;
+            self.complete_rotation(timestamp_ns)?;
+        }
+        self.advance_video_for_audio(self.video_encoder.next_frame_end_ns()?, lower_bound_ns)?;
+        self.segment_has_video = true;
+        Ok(())
+    }
+
     fn next_segment_boundary(
         &self,
         presentation_at_ns: u64,
@@ -355,6 +402,10 @@ impl SegmentedAvRecordingWriter {
     fn rotate_at(&mut self, boundary_ns: u64) -> Result<(), SegmentedAvRecordingError> {
         self.pad_audio_until(boundary_ns)?;
         self.flush_video_until(boundary_ns)?;
+        self.complete_rotation(boundary_ns)
+    }
+
+    fn complete_rotation(&mut self, boundary_ns: u64) -> Result<(), SegmentedAvRecordingError> {
         let segment_audio = self
             .segment_audio_encoder
             .take()
@@ -807,6 +858,10 @@ fn audio_frame_to_ns(frame: u64) -> Result<u64, SegmentedAvRecordingError> {
 
 #[cfg(test)]
 mod tests {
+    mod idle_frontier_tests {
+        include!("av_segmenting/idle_frontier_tests.rs");
+    }
+
     use super::*;
     use crate::recording::manifest::{RecordingJournalAudioConfig, RecordingJournalConfig};
     use serde_json::Value;

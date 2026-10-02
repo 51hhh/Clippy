@@ -18,6 +18,7 @@ const MIN_CAPTURE_FPS: u32 = 1;
 const MAX_CAPTURE_FPS: u32 = 120;
 const CONTROL_QUEUE_CAPACITY: usize = 8;
 const PAUSED_STOP_POLL: Duration = Duration::from_millis(250);
+const IDLE_PROGRESS_POLL: Duration = Duration::from_millis(50);
 
 /// 帧源只在采集线程内使用。部分系统对象（例如 macOS 的 Objective-C capture session）具有线程
 /// 亲和性，因此帧源本身不要求 `Send`；跨线程移动的是可在线程内创建它的 factory。
@@ -34,6 +35,11 @@ pub(super) trait RecordingFrameSource: 'static {
 
     /// 返回与 `CapturedFrame::captured_at_ns` 相同时间基的下一单调时间戳。
     fn control_timestamp_ns(&mut self) -> Result<u64, Self::Error>;
+
+    /// 返回源保证后续帧不会早于的时间下界；没有此合同的源保持默认等待。
+    fn capture_lower_bound_ns(&mut self) -> Result<Option<u64>, Self::Error> {
+        Ok(None)
+    }
 
     /// 推送型平台源可在暂停时真正停止原生流；拉取型源沿用同一时钟即可。
     fn pause_capture(&mut self) -> Result<u64, Self::Error> {
@@ -424,6 +430,7 @@ where
         let frame = source
             .capture_next_available()
             .map_err(|error| CaptureWorkerError::Source(error.to_string()))?;
+        let idle = frame.is_none();
         if let Some(frame) = frame {
             report.captured_frames = report.captured_frames.saturating_add(1);
             let outcome = pipeline.push(frame)?;
@@ -449,6 +456,12 @@ where
                 startup.first_frame_ready.store(true, Ordering::Release);
             }
         }
+        let lower_bound = source
+            .capture_lower_bound_ns()
+            .map_err(|error| CaptureWorkerError::Source(error.to_string()))?;
+        if let Some(captured_at_ns) = lower_bound {
+            pipeline.publish_capture_lower_bound(captured_at_ns)?;
+        }
         // 首轮 None 也回复 owner；有效帧已入队时，返回 start 后原有同步控制可立即使用。
         if let Some(first_poll) = startup.first_poll.take() {
             first_poll
@@ -456,17 +469,44 @@ where
                 .map_err(|_| CaptureWorkerError::ControlDisconnected)?;
         }
 
-        let remaining = interval.saturating_sub(started.elapsed());
-        match commands.recv_timeout(remaining) {
-            Ok(command) => {
-                if let Some(duration_ns) = handle_command(command, source, pipeline, &mut paused)? {
-                    report.duration_ns = Some(duration_ns);
-                    return Ok(report);
+        // 空闲时及时探测；真实帧之后只轮询元数据，仍等待原帧率间隔才再次采集。
+        let poll_interval = if idle && lower_bound.is_some() {
+            interval.min(IDLE_PROGRESS_POLL)
+        } else {
+            interval
+        };
+        loop {
+            let remaining = poll_interval.saturating_sub(started.elapsed());
+            let wait = if lower_bound.is_some() {
+                remaining.min(IDLE_PROGRESS_POLL)
+            } else {
+                remaining
+            };
+            match commands.recv_timeout(wait) {
+                Ok(command) => {
+                    if let Some(duration_ns) =
+                        handle_command(command, source, pipeline, &mut paused)?
+                    {
+                        report.duration_ns = Some(duration_ns);
+                        return Ok(report);
+                    }
+                    break;
                 }
-            }
-            Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => {
-                return Err(CaptureWorkerError::ControlDisconnected);
+                Err(RecvTimeoutError::Timeout) => {
+                    if started.elapsed() >= poll_interval || stop_requested.load(Ordering::Acquire)
+                    {
+                        break;
+                    }
+                    if let Some(timestamp) = source
+                        .capture_lower_bound_ns()
+                        .map_err(|error| CaptureWorkerError::Source(error.to_string()))?
+                    {
+                        pipeline.publish_capture_lower_bound(timestamp)?;
+                    }
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    return Err(CaptureWorkerError::ControlDisconnected);
+                }
             }
         }
     }
@@ -552,6 +592,10 @@ impl Drop for PipelineAbortGuard<'_> {
 
 #[cfg(test)]
 mod tests {
+    mod idle_frontier_tests {
+        include!("worker/idle_frontier_tests.rs");
+    }
+
     use super::*;
     use crate::recording::pipeline::PipelineDrain;
     use std::fmt;

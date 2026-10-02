@@ -28,6 +28,34 @@ pub(super) struct RecordingTimeline {
 }
 
 impl RecordingTimeline {
+    pub fn is_paused(&self) -> bool {
+        self.paused_at_ns.is_some()
+    }
+
+    /// 下界只映射时间，不充当真实帧，也不改变最后原生帧/控制时间。
+    pub fn map_capture_lower_bound(
+        &self,
+        captured_at_ns: u64,
+    ) -> Result<Option<u64>, TimelineError> {
+        let Some(origin_ns) = self.origin_ns else {
+            return Ok(None);
+        };
+        if self.paused_at_ns.is_some() {
+            return Ok(None);
+        }
+        if self
+            .last_source_ns
+            .is_some_and(|last| captured_at_ns < last)
+        {
+            return Err(TimelineError::SourceTimestampNotIncreasing);
+        }
+        captured_at_ns
+            .checked_sub(origin_ns)
+            .and_then(|value| value.checked_sub(self.accumulated_pause_ns))
+            .map(Some)
+            .ok_or(TimelineError::Overflow)
+    }
+
     /// 返回 `None` 表示暂停期间收到的帧；这类帧不属于背压丢帧，也不推进任何时钟。
     pub fn map_frame(&mut self, captured_at_ns: u64) -> Result<Option<u64>, TimelineError> {
         if self.paused_at_ns.is_some() {
@@ -133,6 +161,10 @@ impl RecordingTimeline {
 
 #[cfg(test)]
 mod tests {
+    mod idle_frontier_tests {
+        include!("timeline/idle_frontier_tests.rs");
+    }
+
     use super::*;
 
     #[test]

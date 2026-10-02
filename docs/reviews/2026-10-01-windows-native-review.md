@@ -5,6 +5,14 @@
 
 ## 当前续审结果
 
+W54 / `REC-WINDOWS-IDLE-AV-01`：独立 `codex/recording-av-idle-frontier`，基于 `e59430f`。
+原首帧后无新视频的两个实际采集 worker 用例均 Backpressure；WGC 顺序桥提供保守
+源下界，pipeline 标量合并，AV 只生成已封闭 CFR slot 并排空 PCM/周期提交。1 FPS
+等待只轮询元数据，帧率与原计数不提高，暂停停止轮询；无下界的其它源仍等待。
+首轮领域 343/0，扩大后 361/3，修复实际同 slot 音频游标倒退与两个新夹具预期；
+最终回归/冻结门禁验证中。桌面停止；设备/其它宿主/当前 CI/安装器未验，AVI 一次
+超时原因保留。见 [W54 审查](2026-10-02-recording-av-idle-frontier-review.md)。
+
 W53 / `REC-AV-CFR-SEGMENT-01`：基于 `3385507`，非 slot 对齐输入的 writer 分段和 PCM
 拆分共享编码 CFR 边界，同 slot 延后分段；WebM packet 比较/frontier/mux 输入使用实际
 0.5 ms 量化时间，严格顺序保护保持。合法相邻全局 CFR 纳秒端点允许，主输出缺帧/

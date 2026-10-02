@@ -309,6 +309,15 @@ impl Vp9PacketEncoder {
         self.timestamp_for_frame(self.encoded_frames)
     }
 
+    #[cfg(feature = "recording-opus-webm")]
+    pub fn next_frame_end_ns(&self) -> Result<u64, Vp9WebmError> {
+        self.timestamp_for_frame(
+            self.encoded_frames
+                .checked_add(1)
+                .ok_or(Vp9WebmError::FrameLimit)?,
+        )
+    }
+
     /// 返回原生输入所处 CFR slot 的输出时间，不修改输入 PTS 或编码状态。
     pub fn cfr_timestamp_at(&self, presentation_at_ns: u64) -> Result<u64, Vp9WebmError> {
         self.timestamp_for_frame(self.slot_for(presentation_at_ns)?)

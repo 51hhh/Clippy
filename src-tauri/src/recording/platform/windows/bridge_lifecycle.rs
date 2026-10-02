@@ -66,7 +66,11 @@ fn forward_frames(
     while !cancelled.load(Ordering::Acquire) {
         let frame = match frames.recv_timeout(FRAME_POLL_TIMEOUT) {
             Ok(frame) => frame,
-            Err(RecvTimeoutError::Timeout) => continue,
+            Err(RecvTimeoutError::Timeout) => {
+                // 本线程顺序完成 receive、采样和 replace；超时后的下一帧使用之后的同一时钟。
+                thread_bridge.publish_idle_lower_bound(callback_clock.now_ns());
+                continue;
+            }
             Err(RecvTimeoutError::Disconnected) => break,
         };
         if cancelled.load(Ordering::Acquire) {

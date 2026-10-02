@@ -9,6 +9,14 @@
 
 ## 当前续审状态
 
+- W54 / `REC-WINDOWS-IDLE-AV-01`：独立 `codex/recording-av-idle-frontier`，基于 `e59430f`。
+  原两个首帧后空闲 AV worker 用例均 Backpressure；按 Windows 源保证的未来帧下界
+  生成已封闭 CFR slot、sample 域消费 PCM 与周期提交。缓存旧帧限制下界，pipeline
+  标量合并、真实帧/终态优先；暂停停止查询，1 FPS 等待只轮询元数据，计数与预算保持。
+  首轮领域 343/0，扩大后 361/3；实际同 slot 游标倒退已修复，另两处新夹具预期修正。
+  最终同夹具旧实现与冻结门禁验证中。其它宿主无下界仍等待，设备/当前 CI/安装器/
+  多屏未验，桌面停止；W53 AVI 一次超时原因仍保留。
+
 - W53 / `REC-AV-CFR-SEGMENT-01`：独立 `codex/recording-av-cfr-segments`，基于 `3385507`。
   writer 分段与 PCM 拆分使用原 CFR slot 边界，同 slot 延后；timecode 量化域内排序和
   frontier 保证同时间视频在前。相邻全局 CFR 精确端点有例外，缺帧/非 CFR 起点继续拒绝。

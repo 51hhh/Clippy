@@ -85,10 +85,16 @@ struct StampedFrame {
     frame: Frame,
 }
 
+#[cfg(test)]
+mod idle_frontier_tests {
+    include!("windows/idle_frontier_tests.rs");
+}
+
 #[derive(Default)]
 struct LatestFrame {
     frame: Option<StampedFrame>,
     closed: bool,
+    lower_bound_ns: Option<u64>,
 }
 
 #[derive(Default)]
@@ -98,6 +104,35 @@ struct FrameBridge {
 }
 
 impl FrameBridge {
+    fn publish_idle_lower_bound(&self, timestamp_ns: u64) {
+        let Ok(mut latest) = self.latest.lock() else {
+            return;
+        };
+        latest.lower_bound_ns = Some(latest.lower_bound_ns.unwrap_or(0).max(timestamp_ns));
+    }
+
+    fn capture_lower_bound_ns(
+        &self,
+        minimum_timestamp_ns: u64,
+    ) -> Result<Option<u64>, WindowsFrameSourceError> {
+        let latest = self
+            .latest
+            .lock()
+            .map_err(|_| WindowsFrameSourceError::BridgePoisoned)?;
+        if latest.closed {
+            return Err(WindowsFrameSourceError::StreamClosed);
+        }
+        let mut lower_bound = latest.lower_bound_ns.unwrap_or(minimum_timestamp_ns);
+        if let Some(frame) = latest
+            .frame
+            .as_ref()
+            .filter(|frame| frame.captured_at_ns >= minimum_timestamp_ns)
+        {
+            lower_bound = lower_bound.min(frame.captured_at_ns);
+        }
+        Ok(Some(lower_bound.max(minimum_timestamp_ns)))
+    }
+
     fn replace(&self, frame: StampedFrame) {
         let Ok(mut latest) = self.latest.lock() else {
             return;
@@ -346,6 +381,15 @@ impl RecordingFrameSource for WindowsWgcRegionFrameSource {
 
     fn capture_next_available(&mut self) -> Result<Option<CapturedFrame>, Self::Error> {
         self.take_frame(FRAME_POLL_TIMEOUT)
+    }
+
+    fn capture_lower_bound_ns(&mut self) -> Result<Option<u64>, Self::Error> {
+        if self.first_frame || !self.running {
+            return Ok(None);
+        }
+        self.bridge
+            .capture_lower_bound_ns(self.minimum_timestamp_ns)
+            .map(|bound| bound.map(|value| value.max(self.last_timestamp_ns.unwrap_or(0))))
     }
 
     fn control_timestamp_ns(&mut self) -> Result<u64, Self::Error> {

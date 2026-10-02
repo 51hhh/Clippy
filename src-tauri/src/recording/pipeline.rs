@@ -17,6 +17,8 @@ pub(super) enum PipelineError {
     GeometryChanged,
     #[error("录屏帧序号必须严格递增")]
     SequenceNotIncreasing,
+    #[error("录屏帧早于采集源声明的未来时间下界")]
+    FrameBeforeLowerBound,
     #[error("录屏帧队列已经正常结束")]
     Closed,
     #[error("录屏帧队列已经异常中止")]
@@ -49,6 +51,14 @@ pub(super) enum PipelineDrain {
     Finished { duration_ns: u64 },
 }
 
+#[cfg(feature = "recording-opus-webm")]
+#[derive(Debug)]
+pub(super) enum AvPipelineDrain {
+    Frame(QueuedFrame),
+    CaptureLowerBound { presentation_at_ns: u64 },
+    Finished { duration_ns: u64 },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct PipelineStats {
     pub queued_frames: usize,
@@ -77,6 +87,9 @@ struct PipelineState {
     accepted_frames: u64,
     dropped_by_backpressure: u64,
     terminal: PipelineTerminal,
+    capture_lower_bound: Option<(u64, u64)>,
+    #[cfg(feature = "recording-opus-webm")]
+    delivered_lower_bound_ns: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -98,6 +111,13 @@ impl RecordingPipeline {
     pub fn push(&self, frame: CapturedFrame) -> Result<PushOutcome, PipelineError> {
         let mut state = self.state.lock().map_err(|_| PipelineError::Poisoned)?;
         ensure_open(state.terminal)?;
+        if !state.timeline.is_paused()
+            && state
+                .capture_lower_bound
+                .is_some_and(|(lower_bound, _)| frame.captured_at_ns < lower_bound)
+        {
+            return Err(PipelineError::FrameBeforeLowerBound);
+        }
         let frame_spec = frame.validate()?;
         if state.spec.is_some_and(|spec| spec != frame_spec) {
             return Err(PipelineError::GeometryChanged);
@@ -149,6 +169,58 @@ impl RecordingPipeline {
         Ok(pop_frame(&mut state))
     }
 
+    /// 同一标量合并进展；不会创建首帧零点或增加帧/字节队列。
+    pub fn publish_capture_lower_bound(&self, captured_at_ns: u64) -> Result<(), PipelineError> {
+        let mut state = self.state.lock().map_err(|_| PipelineError::Poisoned)?;
+        ensure_open(state.terminal)?;
+        let Some(presentation_at_ns) = state.timeline.map_capture_lower_bound(captured_at_ns)?
+        else {
+            return Ok(());
+        };
+        if let Some((last, _)) = state.capture_lower_bound {
+            if captured_at_ns < last {
+                return Err(PipelineError::FrameBeforeLowerBound);
+            }
+            if captured_at_ns == last {
+                return Ok(());
+            }
+        }
+        state.capture_lower_bound = Some((captured_at_ns, presentation_at_ns));
+        drop(state);
+        self.ready.notify_all();
+        Ok(())
+    }
+
+    #[cfg(feature = "recording-opus-webm")]
+    pub fn pop_wait_av(&self) -> Result<AvPipelineDrain, PipelineError> {
+        let mut state = self.state.lock().map_err(|_| PipelineError::Poisoned)?;
+        loop {
+            if let Some(frame) = pop_frame(&mut state) {
+                return Ok(AvPipelineDrain::Frame(frame));
+            }
+            match state.terminal {
+                PipelineTerminal::Finished { duration_ns } => {
+                    return Ok(AvPipelineDrain::Finished { duration_ns });
+                }
+                PipelineTerminal::Aborted => return Err(PipelineError::Aborted),
+                PipelineTerminal::Open => {}
+            }
+            if let Some((_, presentation_at_ns)) = state.capture_lower_bound {
+                if state
+                    .delivered_lower_bound_ns
+                    .is_none_or(|last| presentation_at_ns > last)
+                {
+                    state.delivered_lower_bound_ns = Some(presentation_at_ns);
+                    return Ok(AvPipelineDrain::CaptureLowerBound { presentation_at_ns });
+                }
+            }
+            state = self
+                .ready
+                .wait(state)
+                .map_err(|_| PipelineError::Poisoned)?;
+        }
+    }
+
     /// 等待下一帧或会话封尾。已经入队的帧始终先于结束/中止状态交给消费者。
     pub fn pop_wait(&self) -> Result<PipelineDrain, PipelineError> {
         let mut state = self.state.lock().map_err(|_| PipelineError::Poisoned)?;
@@ -174,6 +246,7 @@ impl RecordingPipeline {
     pub fn pause(&self, captured_at_ns: u64) -> Result<(), PipelineError> {
         let mut state = self.state.lock().map_err(|_| PipelineError::Poisoned)?;
         ensure_open(state.terminal)?;
+        ensure_not_before_lower_bound(&state, captured_at_ns)?;
         state.timeline.pause(captured_at_ns)?;
         Ok(())
     }
@@ -181,6 +254,7 @@ impl RecordingPipeline {
     pub fn resume(&self, captured_at_ns: u64) -> Result<(), PipelineError> {
         let mut state = self.state.lock().map_err(|_| PipelineError::Poisoned)?;
         ensure_open(state.terminal)?;
+        ensure_not_before_lower_bound(&state, captured_at_ns)?;
         state.timeline.resume(captured_at_ns)?;
         Ok(())
     }
@@ -188,6 +262,7 @@ impl RecordingPipeline {
     pub fn finish(&self, captured_at_ns: u64) -> Result<u64, PipelineError> {
         let mut state = self.state.lock().map_err(|_| PipelineError::Poisoned)?;
         ensure_open(state.terminal)?;
+        ensure_not_before_lower_bound(&state, captured_at_ns)?;
         let duration_ns = state.timeline.finish(captured_at_ns)?;
         state.terminal = PipelineTerminal::Finished { duration_ns };
         drop(state);
@@ -222,6 +297,19 @@ impl RecordingPipeline {
     }
 }
 
+fn ensure_not_before_lower_bound(
+    state: &PipelineState,
+    timestamp_ns: u64,
+) -> Result<(), PipelineError> {
+    if state
+        .capture_lower_bound
+        .is_some_and(|(lower_bound, _)| timestamp_ns < lower_bound)
+    {
+        return Err(PipelineError::FrameBeforeLowerBound);
+    }
+    Ok(())
+}
+
 fn ensure_open(terminal: PipelineTerminal) -> Result<(), PipelineError> {
     match terminal {
         PipelineTerminal::Open => Ok(()),
@@ -240,6 +328,10 @@ fn pop_frame(state: &mut PipelineState) -> Option<QueuedFrame> {
 
 #[cfg(test)]
 mod tests {
+    mod idle_frontier_tests {
+        include!("pipeline/idle_frontier_tests.rs");
+    }
+
     use super::*;
 
     fn frame(sequence: u64, captured_at_ns: u64, marker: u8) -> CapturedFrame {
