@@ -42,3 +42,6 @@ W53/W59/W63/W67旧失败根因继续未明，不用本轮绿结果覆盖。累�
 
 机器证据：`C:\win\Clippy\src-tauri\target\mixed-stop-ready-bound-contract` 的BASELINE-API-AUDIT/CONTRACT-AUDIT/MEDIA-INSPECTION，
 `C:\win\Clippy\src-tauri\target\mixed-stop-ready-bound-native-qa-2bb12f9` 的RESULT/GATE-AUDIT。
+
+W76后续：同源码默认/QA release编译及PE/CRT文件验证完成；实际启动/设备、CI/其它宿主和桌面等仍未验。
+见 [release验证](2026-10-02-windows-mixed-stop-ready-bound-release-review.md)；最后复合验收继续未完成。

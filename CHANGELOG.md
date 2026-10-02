@@ -11,7 +11,9 @@
   读取合同需要同步，不冒称原生单批尾部已漏包。录屏领域501/0，干净 `2bb12f9eeb04f98217189c197ecafef83b326604` Windows完整门禁33/0/1；
   默认1316/QA1467各5ignored，前端81/1403，新10项已含总数、两图重叠不累加。
   完整合成owner保留60ms/2880有效PCM；后续批错误为interrupted，真实codec文件核对通过，不计设备验收。
-  旧完整测试模块/期限保持；同SHA release、
+  W76补充同SHA默认/QA release编译和PE/CRT文件核对，实际启动/设备未验；见
+  `docs/reviews/2026-10-02-windows-mixed-stop-ready-bound-release-review.md`（WIN-NATIVE-01）。
+  旧完整测试模块/期限保持；当前同SHA
   CI、其它宿主、设备/桌面和长时同步未验，默认录屏仍关闭。
   （需求：`REC-MIXED-STOP-READY-BOUND-01`；见 `docs/superpowers/specs/2026-10-02-mixed-stop-ready-bound.md`）
 

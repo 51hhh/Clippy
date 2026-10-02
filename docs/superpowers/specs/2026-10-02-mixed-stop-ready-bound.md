@@ -55,3 +55,6 @@ Win10/多屏与W53/W59/W63/W67原失败根因继续未验证。
 完整领域501/0，原九项同字节夹具与旧模块/期限保持；新一天间隔用例仅绿运行。
 干净 `2bb12f9eeb04f98217189c197ecafef83b326604` Windows完整门禁33/0/1，默认1316/QA1467各5ignored、前端81/1403。
 原API与真实codec文件见 [W75审查](../../reviews/2026-10-02-mixed-stop-ready-bound-review.md)。最后复合验收仍未完成。
+
+W76后续：同源码默认/QA release编译及PE/CRT文件验证完成；实际启动/设备、CI/其它宿主和桌面等仍未验。
+见 [release验证](../../reviews/2026-10-02-windows-mixed-stop-ready-bound-release-review.md)；最后复合验收继续未完成。
