@@ -211,6 +211,9 @@ struct AudioMixer {
     system: InputTimeline,
     microphone: InputTimeline,
     output_cursor_frame: u64,
+    output_origin_frame: u64,
+    output_origin_ns: u64,
+    last_output_end_ns: Option<u64>,
     next_sequence: u64,
 }
 
@@ -263,6 +266,26 @@ impl AudioMixer {
             .ok()
             .and_then(|frames| frames.checked_mul(usize::from(OUTPUT_CHANNELS)))
             .ok_or(AudioMixerError::TimelineOverflow)?;
+        // 输入仍在公共绝对帧网格上；输出按本段源边界计时，不能取整到恢复下界之前。
+        let elapsed_frames = self
+            .output_cursor_frame
+            .checked_sub(self.output_origin_frame)
+            .ok_or(AudioMixerError::TimelineOverflow)?;
+        let captured_at_ns = self
+            .output_origin_ns
+            .checked_add(frame_to_ns(elapsed_frames)?)
+            .ok_or(AudioMixerError::TimelineOverflow)?;
+        let output_end_ns = captured_at_ns
+            .checked_add(frame_to_ns(u64::from(frame_count))?)
+            .ok_or(AudioMixerError::TimelineOverflow)?;
+        let next_cursor = self
+            .output_cursor_frame
+            .checked_add(u64::from(frame_count))
+            .ok_or(AudioMixerError::TimelineOverflow)?;
+        let next_sequence = self
+            .next_sequence
+            .checked_add(1)
+            .ok_or(AudioMixerError::TimelineOverflow)?;
         let mut samples = Vec::with_capacity(sample_count);
         for offset in 0..u64::from(frame_count) {
             let frame = self
@@ -275,18 +298,12 @@ impl AudioMixer {
                 samples.push(mixed.clamp(-1.0, 1.0));
             }
         }
-        let captured_at_ns = frame_to_ns(self.output_cursor_frame)?;
-        self.output_cursor_frame = self
-            .output_cursor_frame
-            .checked_add(u64::from(frame_count))
-            .ok_or(AudioMixerError::TimelineOverflow)?;
+        self.output_cursor_frame = next_cursor;
+        self.last_output_end_ns = Some(output_end_ns);
         self.system.discard_before(self.output_cursor_frame);
         self.microphone.discard_before(self.output_cursor_frame);
         let sequence = self.next_sequence;
-        self.next_sequence = self
-            .next_sequence
-            .checked_add(1)
-            .ok_or(AudioMixerError::TimelineOverflow)?;
+        self.next_sequence = next_sequence;
         Ok(Some(CapturedAudioChunk {
             sequence,
             captured_at_ns,
@@ -297,9 +314,20 @@ impl AudioMixer {
     }
 
     fn restart_at(&mut self, timestamp_ns: u64) -> Result<(), AudioMixerError> {
+        self.restart_with_origin(timestamp_ns, timestamp_ns)
+    }
+
+    fn restart_with_origin(
+        &mut self,
+        input_timestamp_ns: u64,
+        output_timestamp_ns: u64,
+    ) -> Result<(), AudioMixerError> {
+        let frame = ns_to_frame_nearest(input_timestamp_ns)?;
         self.system.clear();
         self.microphone.clear();
-        self.output_cursor_frame = ns_to_frame_nearest(timestamp_ns)?;
+        self.output_cursor_frame = frame;
+        self.output_origin_frame = frame;
+        self.output_origin_ns = output_timestamp_ns;
         Ok(())
     }
 
@@ -316,6 +344,9 @@ pub(super) struct MixedAudioSource<S, M> {
     mixer: AudioMixer,
     stopped_chunks: Vec<CapturedAudioChunk>,
     poll_system_first: bool,
+    native_control_ns: [Option<u64>; 2],
+    control_lower_bound_ns: u64,
+    paused_at_ns: Option<u64>,
 }
 
 impl<S, M> MixedAudioSource<S, M> {
@@ -326,6 +357,9 @@ impl<S, M> MixedAudioSource<S, M> {
             mixer: AudioMixer::default(),
             stopped_chunks: Vec::new(),
             poll_system_first: true,
+            native_control_ns: [None, None],
+            control_lower_bound_ns: 0,
+            paused_at_ns: None,
         }
     }
 }
@@ -335,6 +369,30 @@ where
     S: RecordingAudioSource,
     M: RecordingAudioSource,
 {
+    fn validate_native_controls(
+        &mut self,
+        system: u64,
+        microphone: u64,
+    ) -> Result<(), AudioMixerError> {
+        // 派生边界只覆盖帧取整差，不能用较晚的 PCM 末尾掩盖任一路原生时刻倒退。
+        if self
+            .native_control_ns
+            .iter()
+            .zip([system, microphone])
+            .any(|(previous, current)| previous.is_some_and(|previous| current < previous))
+        {
+            return Err(AudioMixerError::ControlTimestampRegressed);
+        }
+        self.native_control_ns = [Some(system), Some(microphone)];
+        Ok(())
+    }
+
+    fn derived_control_ns(&self, native_ns: u64) -> u64 {
+        native_ns
+            .max(self.mixer.last_output_end_ns.unwrap_or_default())
+            .max(self.control_lower_bound_ns)
+    }
+
     fn poll_system(&mut self, timeout: Duration) -> Result<bool, MixedAudioSourceError> {
         match self
             .system
@@ -383,6 +441,7 @@ where
             .microphone
             .control_timestamp_ns()
             .map_err(|error| MixedAudioSourceError::Microphone(error.to_string()))?;
+        self.validate_native_controls(system, microphone)?;
         self.mixer.advance_control(system, microphone)?;
         Ok(())
     }
@@ -394,8 +453,12 @@ where
             .map_err(|error| MixedAudioSourceError::System(error.to_string()))?;
         match self.microphone.pause_capture() {
             Ok(microphone) => {
+                self.validate_native_controls(system, microphone)?;
                 self.mixer.discard();
-                Ok(system.max(microphone))
+                let paused_at = self.derived_control_ns(system.max(microphone));
+                self.control_lower_bound_ns = paused_at;
+                self.paused_at_ns = Some(paused_at);
+                Ok(paused_at)
             }
             Err(error) => {
                 let rollback = self.system.resume_capture();
@@ -416,8 +479,20 @@ where
             .map_err(|error| MixedAudioSourceError::System(error.to_string()))?;
         match self.microphone.resume_capture() {
             Ok(microphone) => {
-                let resumed_at = system.max(microphone);
-                self.mixer.restart_at(resumed_at)?;
+                self.validate_native_controls(system, microphone)?;
+                let mut resumed_at = self.derived_control_ns(system.max(microphone));
+                if let Some(paused_at) = self.paused_at_ns {
+                    resumed_at = resumed_at.max(
+                        paused_at
+                            .checked_add(1)
+                            .ok_or(AudioMixerError::TimelineOverflow)?,
+                    );
+                }
+                // 派生控制可能向后覆盖半帧差；输入游标仍取原生恢复网格，保留全部首包。
+                self.mixer
+                    .restart_with_origin(system.max(microphone), resumed_at)?;
+                self.control_lower_bound_ns = resumed_at;
+                self.paused_at_ns = None;
                 Ok(resumed_at)
             }
             Err(error) => {
@@ -439,6 +514,7 @@ where
             system_stop.map_err(|error| MixedAudioSourceError::System(error.to_string()))?;
         let microphone_stop = microphone_stop
             .map_err(|error| MixedAudioSourceError::Microphone(error.to_string()))?;
+        self.validate_native_controls(system_stop, microphone_stop)?;
 
         for chunk in self
             .system
@@ -458,7 +534,9 @@ where
         while let Some(chunk) = self.mixer.pop_ready()? {
             self.stopped_chunks.push(chunk);
         }
-        Ok(system_stop.max(microphone_stop))
+        let stopped_at = self.derived_control_ns(system_stop.max(microphone_stop));
+        self.control_lower_bound_ns = stopped_at;
+        Ok(stopped_at)
     }
 }
 
@@ -485,10 +563,12 @@ where
                 return Err(MixedAudioSourceError::Microphone(error.to_string()));
             }
         };
+        self.native_control_ns = [system_origin, microphone_origin];
         // 只有两个源都给出有效 PCM 下界才能跳过旧时间；取较早起点保留两源启动差。
         if let (Some(system), Some(microphone)) = (system_origin, microphone_origin) {
             let origin = system.min(microphone);
             self.mixer.restart_at(origin)?;
+            self.control_lower_bound_ns = origin;
             return Ok(Some(origin));
         }
         Ok(None)
@@ -528,7 +608,10 @@ where
             .microphone
             .control_timestamp_ns()
             .map_err(|error| MixedAudioSourceError::Microphone(error.to_string()))?;
-        Ok(system.max(microphone))
+        self.validate_native_controls(system, microphone)?;
+        let timestamp = self.derived_control_ns(system.max(microphone));
+        self.control_lower_bound_ns = timestamp;
+        Ok(timestamp)
     }
 
     fn pause_capture(&mut self) -> Result<u64, Self::Error> {
@@ -603,6 +686,13 @@ fn frame_to_ns(frame: u64) -> Result<u64, AudioMixerError> {
 
 #[cfg(test)]
 mod tests {
+    mod mixed_frame_boundary_tests {
+        use super::*;
+        include!("audio_mixer/frame_boundary_fixture.rs");
+        include!("audio_mixer/frame_boundary_tests.rs");
+        include!("audio_mixer/frame_boundary_rounding_tests.rs");
+    }
+
     mod qpc_precision_diagnostic_tests {
         use super::*;
         include!("audio_mixer/qpc_precision_diagnostic_tests.rs");

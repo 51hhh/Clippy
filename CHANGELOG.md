@@ -2,6 +2,16 @@
 
 ## 未发布
 
+### 2026-10-02 混音输出帧与源控制边界一致
+
+- 修复非默认录屏 QA 混音源的纳秒控制边界与 48 kHz 输出取整不一致：首块保持启动/恢复下界，
+  派生控制覆盖完整 PCM 尾部；两路原生 PTS/样本、输入网格与 Exact pipeline 保持。
+  同字节原 API 十项基线 2 passed / 8 failed，修复后通过；额外一项恢复取整中点保护，领域 470/0。
+  合成原双轨 owner 生成 complete 20ms/2视频帧/960有效PCM（输入641帧），文件不计设备验收。
+  完整 Windows 默认/QA 门禁尚待当前干净提交运行；当前 release/CI、其它宿主、设备/桌面、
+  安装器和长时同步未验，默认录屏仍关闭，历史失败根因保持未明。
+  （需求：`REC-MIXED-FRAME-BOUNDARY-01`；见 `docs/superpowers/specs/2026-10-02-mixed-audio-frame-boundary.md`）
+
 ### 2026-10-02 WASAPI 时间戳量化不再误拒连续 PCM
 
 - 修复 100 ns QPC 精度与 48 kHz 块时长相差几十纳秒时录音被中断的问题。

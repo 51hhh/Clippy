@@ -475,6 +475,12 @@ fn discard_failed_start(app_data_dir: &Path, session_id: &str) {
 
 #[cfg(test)]
 mod tests {
+    mod mixed_frame_boundary_tests {
+        use super::*;
+        include!("audio_mixer/frame_boundary_fixture.rs");
+        include!("av_session/frame_boundary_tests.rs");
+    }
+
     mod qpc_precision_tests {
         use super::*;
         include!("av_session/qpc_precision_tests.rs");
