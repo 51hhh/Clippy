@@ -37,12 +37,23 @@ sample 切点。另两处是新夹具的错误预期：journal 原合同先提�
 新夹具在 sender 随源析构断开时 join worker，避免 is_finished 发布竞态；该阶段原日志
 与恢复记录保留。最终再次重放 0/2，两项都取得实际 Pipeline(Backpressure)，源码恢复。
 
-第三轮领域 364/0：原 341 与新二十三项在同一图中，不重复累加。新十三项在默认和 QA，
-十项只在 QA；其中两个运行期用例用实际采集/编码 worker 观察原背压，其余二十一项
-覆盖新 API 和行为边界。七个原完整测试模块、原 WGC 桥线程测试保留核对正在进行。
-最终同夹具旧实现重放、恢复后的最终领域与冻结 SHA 完整门禁正在验证，未计为完成。
-证据在 `src-tauri/target/recording-av-idle-frontier-contract/`；最终 audit 将单列原 merge
-可编译的两个运行期回归和新下界 API 合同，不把 API 用例伪称为旧实现执行过。
+第三轮领域 364/0；最终恢复后领域同样 364/0，原 341 和新二十三项不重复累加。
+最终同字节两个运行期夹具与严格读取 helper 在九个原 Git blob 的 merge 上重放为
+0 passed / 2 failed，native exit 101，均实际 Backpressure。为编译相同 trait override
+只加未被调用、返回 None 的默认 API 声明；其余二十一项新合同只在绿色图执行，
+不伪称为旧实现回归。finally 逐字节恢复，红绿输入与 stdout/stderr 哈希保留。
+七个原完整测试模块与原 WGC 桥线程测试正文保持；严格 packet reader、mux、其它
+平台源、共享时钟、音频预算/worker、三帧与三十二包预算未修改。
+
+干净源码 `6518661490519739a472ef9659fbfb966f4340ae` 完整 Windows 门禁 child/terminal exit 0，
+33 passed / 0 failed / 1 Linux smoke skipped，结束 checkout 干净。默认 Rust 1227 /
+QA 1330 各 5 ignored，两图重叠；新十三项在两图，十项仅 QA，领域 364 已在 QA 内。
+前端 81 文件/1403 passed；file/Git 核对不计测试通过。`COMMITTED-CONTRACT-AUDIT.json`
+将十七份 Rust 输入绑定干净 SHA，后继仅五份 Markdown，生产/测试保持。
+证据在 `src-tauri/target/recording-av-idle-frontier-contract/`：原 W53 状态/报告，
+初始红、阶段失败/绿、最终 frozen-red 与逐字节恢复、final-green、合同/源码绑定。
+完整门禁 `recording-av-idle-frontier-native-qa-6518661/RESULT.json` 保存原日志哈希；
+根状态/报告与 `REVIEW-CLOSURE.json` 保留旧桌面/安装/产物身份。
 
 ## 未完成项
 
@@ -51,5 +62,7 @@ sample 切点。另两处是新夹具的错误预期：journal 原合同先提�
 尚不声明空闲源下界，不能因共享图通过称为这些宿主的静态双轨录屏已验。
 本 SHA release 未构建，安装的旧 `45769c9` 和历史 QA `1c66112` 不含本修复。
 W53 原 AVI 周期提交用例的一次 30 秒超时原因仍未定位，重跑通过不代表已解决。
+低 FPS 下尚有未交付 WGC 帧时，缓存下界、采集节流和 PCM 预算的组合仍需独立回归；
+本轮缓存顺序与空闲 session 合同分别覆盖，不冒称该组合的长期运行已验。
 panic 只覆盖 unwind，release panic=abort 不承诺 Drop 回收。旧桌面记录保持
 2 pass / 1 fail / 36 not_run，整体目标未完成。

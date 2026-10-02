@@ -24,10 +24,10 @@ Windows WGC 首帧后没有新画面时，音频继续在原一秒 PCM 预算内
 
 ## Acceptance Criteria
 
-- [ ] 固定首帧后空闲的实际 AV worker 回归在旧 merge 失败、修复后通过。
+- [x] 固定首帧后空闲的实际 AV worker 回归在旧 merge 失败、修复后通过。
 - [x] 长空闲/1 FPS、后续真实帧、源下界/缓存顺序、无下界等待、暂停/恢复/Stop/Error/Drop 有合同。
 - [x] 真实恢复分段和最终文件通过严格 reader；周期提交、零起点关键帧与帧/PCM/时长统计一致。
-- [ ] 干净 source SHA 完整 Windows 默认/录屏 QA 门禁通过；重叠、ignore、跳过与失败重跑单列。
+- [x] 干净 source SHA 完整 Windows 默认/录屏 QA 门禁通过；重叠、ignore、跳过与阶段失败单列。
 - [ ] 同 SHA 三宿主/codec CI、其它宿主原生门禁与实际 Windows 设备/安装器/多屏验收通过。
 
 ## Out of Scope
@@ -42,3 +42,14 @@ W53 未修改 AVI 周期提交测试的一次 30 秒超时原因仍未定位；�
 最终同夹具旧 merge 重放、绿色领域、源输入与旧测试正文核对、冻结 SHA 完整门禁。
 源下界 API 的测试只在新实现可执行，单列于旧 merge 运行期红绿；合成 native codec
 测试不代表实际 WGC/WASAPI 设备测量，文件/构建/矩阵不计测试通过。
+
+## Verified source
+
+干净 `6518661490519739a472ef9659fbfb966f4340ae` 完整 Windows 门禁 child/terminal exit 0，33 passed / 0 failed /
+1 Linux smoke skipped。默认 Rust 1227 / QA 1330，各 5 ignored，两图重叠；前端 81/1403。
+领域 364=原341+新23，已在 QA 内；新13默认/QA、新10仅QA。最终同字节旧 merge
+0/2，实际 Backpressure，finally 逐字节恢复；修复领域364/0，七个旧完整测试模块与
+原桥线程测试保持。17份 Rust 输入绑定本干净 SHA，后继仅五份 Markdown。
+阶段失败保留；当前 CI/其它宿主/设备/安装器/多屏/发布和 AVI 旧超时原因仍未完成。
+证据：`recording-av-idle-frontier-native-qa-6518661/RESULT.json`、
+`recording-av-idle-frontier-contract/COMMITTED-CONTRACT-AUDIT.json` 与 `REVIEW-CLOSURE.json`。

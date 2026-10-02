@@ -10,7 +10,9 @@ W54 / `REC-WINDOWS-IDLE-AV-01`：独立 `codex/recording-av-idle-frontier`，基
 源下界，pipeline 标量合并，AV 只生成已封闭 CFR slot 并排空 PCM/周期提交。1 FPS
 等待只轮询元数据，帧率与原计数不提高，暂停停止轮询；无下界的其它源仍等待。
 首轮领域 343/0，扩大后 361/3，修复实际同 slot 音频游标倒退与两个新夹具预期；
-最终回归/冻结门禁验证中。桌面停止；设备/其它宿主/当前 CI/安装器未验，AVI 一次
+最终同字节旧 merge 0/2、领域364/0，新23与原341在内，七个旧模块/桥测试保持。
+干净 `6518661` 完整 Windows 门禁33/0/1（Linux skip），默认Rust1227/QA1330各5ignored，
+两图/领域不累加，前端81/1403。桌面停止；设备/其它宿主/当前 CI/安装器未验，AVI 一次
 超时原因保留。见 [W54 审查](2026-10-02-recording-av-idle-frontier-review.md)。
 
 W53 / `REC-AV-CFR-SEGMENT-01`：基于 `3385507`，非 slot 对齐输入的 writer 分段和 PCM
