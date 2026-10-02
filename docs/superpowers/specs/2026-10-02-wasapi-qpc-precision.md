@@ -32,10 +32,10 @@ pipeline/worker 返回 PresentationOverlap，完整 VP9/Opus 会话保留 interr
 ## Acceptance Criteria
 
 - [x] 原 API 的量化重叠、worker 根错误/PCM 前缀、完整会话 interrupted 与混音帧网格诊断保存。
-- [ ] 精度声明、平台路由、混音 Exact 与 packet 边界合同通过。
-- [ ] PCM/原始时间戳保持；100 ns 边界、真实重叠/空洞、无效源、背压、控制与溢出保护通过。
-- [ ] 精度源经原 worker 与完整双轨 owner 输出 complete，实际文件独立核对有效 PCM 和时长。
-- [ ] 原完整模块/期限保持；干净源码 Windows 默认/QA 完整门禁通过。
+- [x] 精度声明、平台路由、混音 Exact 与 packet 边界合同通过。
+- [x] PCM/原始时间戳保持；100 ns 边界、真实重叠/空洞、无效源、背压、控制与溢出保护通过。
+- [x] 精度源经原 worker 与完整双轨 owner 输出 complete，实际文件独立核对有效 PCM 和时长。
+- [x] 原完整模块/期限保持；干净源码 Windows 默认/QA 完整门禁通过。
 - [ ] 同 SHA CI、其它宿主、release、真实设备/桌面、设备时钟漂移与长时同步另验。
 
 ## Out of Scope
@@ -43,3 +43,7 @@ pipeline/worker 返回 PresentationOverlap，完整 VP9/Opus 会话保留 interr
 桌面保持暂停；不启动应用/设备，不安装、推送、合入或发布。硬件时钟漂移、设备切换、
 重采样、数据 discontinuity、混音器启动帧取整边界属于后续独立范围。
 W53/W59/W63 历史失败根因继续未明。本次证据不替代真实 WGC/WASAPI、安装器或跨平台验收。
+
+冻结源码 `aac5e0a728d46adc7bd7603188f41b9380138650`：完整Windows门禁33/0/1，默认1281/QA1425各5ignored，前端81/1403。
+领域459/0与新17项已含总数；实际文件核对40ms/1920有效PCM，八个旧模块/期限保持。
+审查见 [W67记录](../../reviews/2026-10-02-wasapi-qpc-precision-review.md)；最后复合验收保留未完成。

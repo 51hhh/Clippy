@@ -5,6 +5,16 @@
 
 ## 当前续审结果
 
+W67 / `REC-WASAPI-QPC-PRECISION-01`：原API合成诊断4/0确认100ns量化与PCM时长的33ns表观重叠会中止worker/会话。
+Windows源声明精度，经平台包装与worker配置到队列，只对齐最多100ns的媒体差；原PTS/PCM/公共暂停保持。
+Exact与混音输出仍严格；新API绿色保护独立记录，原诊断继续拒绝，不能声称原API接受路径红绿证明。
+领域459/0=442+新17（15两图/2仅QA）；完整合成双轨complete 40ms/4帧/1920有效PCM，实际文件独立核对。
+八个旧完整模块/期限保持。干净 `aac5e0a728d46adc7bd7603188f41b9380138650` 完整Windows门禁33 passed / 0 failed / 1 Linux smoke skipped；
+默认Rust1281/QA1425各5ignored，前端81文件/1403passed；两图重叠，新项已含总数。累计44项本地修复。
+当前SHA release/CI/其它宿主/设备/桌面/安装器/时钟漂移/长时同步未验，历史失败根因保持未明。
+初版门禁32/1/1，旧分段测试清单写入os error 5；同SHA隔离1/0与完整复查33/0/1不证明首次根因，原日志保持。
+桌面停止，默认录屏仍关闭，无推送/PR/合入/发布。见 [W67审查](2026-10-02-wasapi-qpc-precision-review.md)。
+
 W66 / `WIN-NATIVE-01`：冻结 `56d750c8b482108b15ebb5dd2787e418bdceecb6`，两个新独立target完成默认/录屏QA
 release编译；实际主程序参数、两图feature、AMD64 GUI PE与QA10份CRT来源/部署/导入
 文件闭包核对，native child/包装器/终端均退出0。包含W65音频激活边界与控制时钟修复；
