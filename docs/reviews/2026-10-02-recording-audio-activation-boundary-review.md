@@ -33,11 +33,13 @@ Windows stateless helper 对暂停 clock20ms/恢复30ms和包末尾40ms均返回
 实际文件/长度/SHA、清单/分段与source单次析构保存。独立ffprobe exit0读取28 VP9包、
 15 Opus包、流initial_padding312和尾discard_padding648，得到13440有效帧；不播放媒体。
 
-完整 Windows 门禁待冻结源码后执行。
+干净 `56d750c8b482108b15ebb5dd2787e418bdceecb6` 完整Windows门禁33 passed / 0 failed / 1 Linux smoke skipped；
+默认Rust1266/QA1408各5ignored，两图重叠不累加；前端81文件/1403passed。
+新增13项实际运行次数为12两图/1仅QA，录屏领域/新项已含总数。
 
 ## 保留边界
 
-真实 WASAPI 原生接线已在 QA 图编译，lint 随完整门禁另验；合同使用合成源。当前SHA CI、其它宿主、
+真实 WASAPI 原生接线在 QA 图编译/lint 通过；合同使用合成源。当前SHA CI、其它宿主、
 release、真实WGC/WASAPI、设备/桌面、安装器/无CRT启动、Win10/多屏/长时同步未验。
 历史003fe2d release与45769c9已安装包不含本修复，旧产物和39项桌面记录原字节保持。
 W53/W59/W63历史失败根因仍未明。桌面停止，无应用/设备启动、安装、推送、合入或发布。
