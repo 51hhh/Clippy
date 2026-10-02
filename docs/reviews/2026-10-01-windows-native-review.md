@@ -8,7 +8,9 @@
 W61 / `REC-VIDEO-CONTROL-FAILURE-01`：源已pause/resume后，pipeline拒绝必须让worker
 保留原错并退出；不改变source前的非致命状态拒绝。原实现八条运行期合同0/8，两个原owner
 Stop成功的实际complete清单/媒体保留；同字节修复领域415/0=原407+新8（7两图/1仅QA）。
-单轨/双轨实际interrupted清单、源析构/前缀/原错误与原完整测试模块核对；门禁待执行。
+单轨/双轨实际interrupted清单、源析构/前缀/原错误与原完整测试模块核对；干净 `75792220cea374dd2f1e6526122be30dad328e6a` 完整Windows门禁33 passed / 0 failed / 1 Linux smoke skipped；
+默认Rust1254/QA1381各5ignored，两图重叠不累加；前端81文件/1403passed。
+八项新合同实际次数为7两图/1仅QA，已含Rust总数；原完整worker与前置状态合同保持。
 设备/桌面、当前CI、其它宿主、长时同步/安装器/多屏/release及两个历史失败根因保留未验。
 见 [W61审查](2026-10-02-recording-video-control-failure-review.md)。
 

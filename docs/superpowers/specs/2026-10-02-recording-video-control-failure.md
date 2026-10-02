@@ -21,7 +21,7 @@
 - [x] 原实现中故障控制后线程不退出或 Stop 覆盖根因，有保存的旧 API 对照证据。
 - [x] 同字节夹具修复后根错误相同、线程终止/析构，开放 pipeline 中止、原终态及前缀保留。
 - [x] 单轨与双轨故障会话在原 owner 中停止，清单 interrupted、无 complete/未提交产物。
-- [ ] 原控制/状态预检合同保持，干净源码 SHA 的 Windows 默认/QA 完整门禁通过。
+- [x] 原控制/状态预检合同保持，干净源码 SHA 的 Windows 默认/QA 完整门禁通过。
 - [ ] 当前 SHA CI、其它宿主、真实设备/桌面、Win10/多屏及 release 另验。
 
 ## Out of Scope

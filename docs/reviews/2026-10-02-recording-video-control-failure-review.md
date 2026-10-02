@@ -27,7 +27,9 @@ WebM分段/最终文件，控制根因被覆盖。清单/媒体/长度/SHA与调
 首次新夹具漏掉MJPEG quality字段造成编译失败；日志保留，不算旧功能的失败用例。
 修正夹具后才取得八条运行期失败。原完整worker测试模块逐字保持，仅增加新模块登记。
 
-完整Windows门禁待冻结源码后执行。
+干净 `75792220cea374dd2f1e6526122be30dad328e6a` 完整Windows门禁33 passed / 0 failed / 1 Linux smoke skipped；
+默认Rust1254/QA1381各5ignored，两图重叠不累加；前端81文件/1403passed。
+八项新合同实际次数为7两图/1仅QA，已含Rust总数；原完整worker与前置状态合同保持。
 
 ## 保留边界
 
