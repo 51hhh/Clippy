@@ -475,6 +475,12 @@ fn discard_failed_start(app_data_dir: &Path, session_id: &str) {
 
 #[cfg(test)]
 mod tests {
+    mod mixed_stop_ready_bound_tests {
+        use super::*;
+        include!("audio_mixer/stop_ready_bound_fixture.rs");
+        include!("av_session/stop_ready_bound_tests.rs");
+    }
+
     mod mixed_paused_stop_tests {
         use super::*;
         include!("audio_mixer/paused_stop_fixture.rs");

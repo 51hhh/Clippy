@@ -62,7 +62,8 @@ pub(super) trait RecordingAudioSource: 'static {
         self.control_timestamp_ns()
     }
 
-    /// 平台流停止并确认不再产生回调后，返回必须在 `pipeline.finish` 前提交的有限尾部 PCM。
+    /// 平台流停止并确认不再产生回调后，按有限批返回必须在 `pipeline.finish` 前提交的尾部PCM。
+    /// 调用者必须重复读取直到空批；混音输出每批最多一秒。已有平台源可一次返回全部有界尾部。
     fn take_stopped_chunks(&mut self) -> Result<Vec<CapturedAudioChunk>, Self::Error> {
         Ok(Vec::new())
     }
@@ -459,11 +460,16 @@ where
             let timestamp = source
                 .stop_capture()
                 .map_err(|error| AudioCaptureWorkerError::Source(error.to_string()))?;
-            for chunk in source
-                .take_stopped_chunks()
-                .map_err(|error| AudioCaptureWorkerError::Source(error.to_string()))?
-            {
-                push_captured_chunk(chunk, pipeline, report)?;
+            loop {
+                let chunks = source
+                    .take_stopped_chunks()
+                    .map_err(|error| AudioCaptureWorkerError::Source(error.to_string()))?;
+                if chunks.is_empty() {
+                    break;
+                }
+                for chunk in chunks {
+                    push_captured_chunk(chunk, pipeline, report)?;
+                }
             }
             Ok(Some(pipeline.finish(timestamp)?))
         }

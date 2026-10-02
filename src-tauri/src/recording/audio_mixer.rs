@@ -20,6 +20,7 @@ const MAX_STAGING_FRAMES: u64 = AUDIO_SAMPLE_RATE_HZ as u64;
 const MAX_STAGING_CHUNKS: usize = 128;
 const MAX_NONBLOCKING_DRAIN: usize = 8;
 const OUTPUT_CHUNK_FRAMES: u32 = AUDIO_SAMPLE_RATE_HZ * DEFAULT_OPUS_FRAME_MS / 1_000;
+const MAX_STOP_OUTPUT_CHUNKS: usize = (AUDIO_SAMPLE_RATE_HZ / OUTPUT_CHUNK_FRAMES) as usize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MixerInput {
@@ -260,6 +261,20 @@ impl AudioMixer {
         Ok(())
     }
 
+    fn ready_output_end_ns(&self) -> Result<Option<u64>, AudioMixerError> {
+        let ready_until = self.system.watermark().min(self.microphone.watermark());
+        if ready_until <= self.output_cursor_frame {
+            return Ok(None);
+        }
+        let elapsed_frames = ready_until
+            .checked_sub(self.output_origin_frame)
+            .ok_or(AudioMixerError::TimelineOverflow)?;
+        self.output_origin_ns
+            .checked_add(frame_to_ns(elapsed_frames)?)
+            .map(Some)
+            .ok_or(AudioMixerError::TimelineOverflow)
+    }
+
     fn pop_ready(&mut self) -> Result<Option<CapturedAudioChunk>, AudioMixerError> {
         let ready_until = self.system.watermark().min(self.microphone.watermark());
         if ready_until <= self.output_cursor_frame {
@@ -348,7 +363,7 @@ pub(super) struct MixedAudioSource<S, M> {
     system: S,
     microphone: M,
     mixer: AudioMixer,
-    stopped_chunks: Vec<CapturedAudioChunk>,
+    stopped_output_ready: bool,
     poll_system_first: bool,
     native_control_ns: [Option<u64>; 2],
     control_lower_bound_ns: u64,
@@ -361,7 +376,7 @@ impl<S, M> MixedAudioSource<S, M> {
             system,
             microphone,
             mixer: AudioMixer::default(),
-            stopped_chunks: Vec::new(),
+            stopped_output_ready: false,
             poll_system_first: true,
             native_control_ns: [None, None],
             control_lower_bound_ns: 0,
@@ -516,6 +531,7 @@ where
     }
 
     fn stop_both(&mut self) -> Result<u64, MixedAudioSourceError> {
+        self.stopped_output_ready = false;
         let system_stop = self.system.stop_capture();
         let microphone_stop = self.microphone.stop_capture();
         let system_stop =
@@ -524,33 +540,48 @@ where
             .map_err(|error| MixedAudioSourceError::Microphone(error.to_string()))?;
         self.validate_native_controls(system_stop, microphone_stop)?;
 
-        for chunk in self
-            .system
-            .take_stopped_chunks()
-            .map_err(|error| MixedAudioSourceError::System(error.to_string()))?
-        {
-            self.mixer.push(MixerInput::System, chunk)?;
+        loop {
+            let chunks = self
+                .system
+                .take_stopped_chunks()
+                .map_err(|error| MixedAudioSourceError::System(error.to_string()))?;
+            if chunks.is_empty() {
+                break;
+            }
+            for chunk in chunks {
+                self.mixer.push(MixerInput::System, chunk)?;
+            }
         }
-        for chunk in self
-            .microphone
-            .take_stopped_chunks()
-            .map_err(|error| MixedAudioSourceError::Microphone(error.to_string()))?
-        {
-            self.mixer.push(MixerInput::Microphone, chunk)?;
+        loop {
+            let chunks = self
+                .microphone
+                .take_stopped_chunks()
+                .map_err(|error| MixedAudioSourceError::Microphone(error.to_string()))?;
+            if chunks.is_empty() {
+                break;
+            }
+            for chunk in chunks {
+                self.mixer.push(MixerInput::Microphone, chunk)?;
+            }
         }
         self.mixer.finish(system_stop, microphone_stop)?;
-        if self.paused_at_ns.is_some() {
+        if self.paused_at_ns.is_some()
+            && (!self.mixer.system.chunks.is_empty() || !self.mixer.microphone.chunks.is_empty())
+        {
             // 暂停已清除未提交输入；Stop只封闭控制时间线，不能把暂停区间生成PCM。
             // 真实尾块仍须显式失败，不能通过静默丢弃绕过原worker的暂停保护。
-            if !self.mixer.system.chunks.is_empty() || !self.mixer.microphone.chunks.is_empty() {
-                return Err(AudioMixerError::InputWhilePaused.into());
-            }
-        } else {
-            while let Some(chunk) = self.mixer.pop_ready()? {
-                self.stopped_chunks.push(chunk);
-            }
+            return Err(AudioMixerError::InputWhilePaused.into());
         }
-        let stopped_at = self.derived_control_ns(system_stop.max(microphone_stop));
+        // 先覆盖最终帧取整末尾；剩余PCM由worker分批排出，不能随控制间隔一次性分配。
+        let output_end = if self.paused_at_ns.is_none() {
+            self.mixer.ready_output_end_ns()?
+        } else {
+            None
+        };
+        let stopped_at = self
+            .derived_control_ns(system_stop.max(microphone_stop))
+            .max(output_end.unwrap_or_default());
+        self.stopped_output_ready = self.paused_at_ns.is_none();
         self.control_lower_bound_ns = stopped_at;
         Ok(stopped_at)
     }
@@ -643,7 +674,19 @@ where
     }
 
     fn take_stopped_chunks(&mut self) -> Result<Vec<CapturedAudioChunk>, Self::Error> {
-        Ok(std::mem::take(&mut self.stopped_chunks))
+        let mut chunks = Vec::new();
+        if self.stopped_output_ready {
+            for _ in 0..MAX_STOP_OUTPUT_CHUNKS {
+                match self.mixer.pop_ready()? {
+                    Some(chunk) => chunks.push(chunk),
+                    None => {
+                        self.stopped_output_ready = false;
+                        break;
+                    }
+                }
+            }
+        }
+        Ok(chunks)
     }
 }
 
@@ -702,6 +745,13 @@ fn frame_to_ns(frame: u64) -> Result<u64, AudioMixerError> {
 
 #[cfg(test)]
 mod tests {
+    mod mixed_stop_ready_bound_tests {
+        use super::*;
+        include!("audio_mixer/stop_ready_bound_fixture.rs");
+        include!("audio_mixer/stop_ready_bound_tests.rs");
+        include!("audio_mixer/stop_ready_bound_large_gap_tests.rs");
+    }
+
     mod mixed_paused_stop_tests {
         use super::*;
         include!("audio_mixer/paused_stop_fixture.rs");
