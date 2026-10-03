@@ -54,3 +54,8 @@ Win10/多屏混合DPI/负坐标、无CRT系统启动、安装升级卸载/update
 旧457包桌面39项2passed/1failed/36not_run不含后续52修复，保持停止；历史失败根因仍未明。
 原8R/9AC/47Tasks与末两条全局AC、QA CRT及canonical规范末项复合AC继续未完成。
 无应用/设备/DLL加载、桌面、安装/信任/系统变更、PR/合入/发布；全局WIN-NATIVE-01未完成。
+
+W87补充：当前编译/资源同为228cc93的默认/QA四个NSIS/MSI文件核对完成，QA两包
+canonical清单/十份CRT生产文件验证均0；原EXE仅包格式三字节变化，W85旧包来源不改。
+实际四包NotSigned，未运行/安装/签名/增计测试；同SHA CI、跨宿主与Native QA仍未验。
+原未完成AC保持；见 [W87包文件](2026-10-04-windows-current-package-file-review.md)。

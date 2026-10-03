@@ -9,6 +9,8 @@
 
 ## 当前续审状态
 
+W87 / WIN-NATIVE-01/W07、WIN-QA-MSI-PROVENANCE-01：当前228cc93编译及资源的默认/QA四个NSIS/MSI生成、只读解包与EXE完整字节/资源来源核对完成；QA canonical清单/十份CRT生产文件验证均0。四包实读NotSigned，662缓存和1073/752原输入保持，本轮修复/测试/通过数0。52修复/51历史及原门禁不变；真实安装/设备/桌面、同SHA CI及其它宿主未验，原AC保留。见 [W87包文件](../../reviews/2026-10-04-windows-current-package-file-review.md)。
+
 W86 / WIN-NATIVE-01、WIN-QA-MSI-PROVENANCE-01：同源码228cc93默认/QA release编译和752编译输入/1073门禁输入、实际优化参数/feature、AMD64 GUI PE及QA十份CRT/canonical部署核对完成。只计编译/文件证据，本轮新增修复/测试/通过数0；52修复/51历史和原完整Windows门禁保持。W85包的8889192 EXE身份不重写；当前新EXE包文件、同SHA CI、其它宿主、设备/桌面/安装交付未验。见 [W86 release](../../reviews/2026-10-04-windows-qa-msi-provenance-release-review.md)。
 
 W85 / `WIN-QA-MSI-PROVENANCE-01`：修复QA MSI来源清单basename与部署合同不一致，源码228cc93。真实旧MSI文件校验exit1、同源码NSIS exit0；新4项80/4→84/0，原正文/期限保持。当前完整Windows33/0/1、默认1341/QA1493各5ignored、前端81/1409；四项已含总数，累计52修复/51历史。新QA包两文件校验均0，但复用8889192 EXE，不计当前SHA release编译；当前CI/其它宿主/安装设备/桌面保持未验。见 [W85来源清单](../../reviews/2026-10-04-windows-qa-msi-provenance-review.md)。

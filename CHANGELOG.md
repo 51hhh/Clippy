@@ -15,7 +15,9 @@
   详见 `docs/reviews/2026-10-04-windows-qa-msi-provenance-review.md`。
   W86补充同源码228cc93默认/显式QA release编译及PE/CRT/canonical部署文件验证，见
   `docs/reviews/2026-10-04-windows-qa-msi-provenance-release-review.md`（WIN-NATIVE-01）。
-  当前新EXE的包文件、同 SHA CI、安装升级卸载、无 CRT 系统启动和其它平台仍未验。
+  W87补充当前编译/资源同源码228cc93的默认/QA NSIS/MSI文件核对，QA清单/十份CRT
+  验证均通过；四包实际NotSigned，详见 `docs/reviews/2026-10-04-windows-current-package-file-review.md`。
+  同 SHA CI、安装升级卸载、无 CRT 系统启动、设备/桌面和其它平台仍未验。
   （需求：`WIN-QA-MSI-PROVENANCE-01`；见 `docs/superpowers/specs/2026-10-04-windows-qa-msi-provenance.md`）
 
 ### 2026-10-03 WASAPI激活边界包尾

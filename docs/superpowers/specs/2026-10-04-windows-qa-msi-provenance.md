@@ -56,3 +56,8 @@ AMD64 GUI PE、十份CRT与canonical实际部署文件验证完成。未运行/�
 W85两个修复包仍保留原8889192 EXE编译身份，当前新EXE的包文件与真实交付验收另记。
 同SHA CI/其它宿主/原生设备和安装仍未验，原未完成AC保持。
 见 [W86 release](../../reviews/2026-10-04-windows-qa-msi-provenance-release-review.md)。
+
+W87补充：当前编译/资源同为228cc93的默认/QA四个NSIS/MSI文件核对完成，QA两包
+canonical清单/十份CRT生产文件验证均0；原EXE仅包格式三字节变化，W85旧包来源不改。
+实际四包NotSigned，未运行/安装/签名/增计测试；同SHA CI、跨宿主与Native QA仍未验。
+原未完成AC保持；见 [W87包文件](../../reviews/2026-10-04-windows-current-package-file-review.md)。
