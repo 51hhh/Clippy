@@ -7,6 +7,7 @@ use super::super::audio::{AudioTimestampPrecision, CapturedAudioChunk};
 use super::super::audio_devices::{NativeRecordingAudioDevice, RecordingAudioDeviceKind};
 use super::super::audio_worker::RecordingAudioSource;
 use super::super::clock::RecordingSessionClock;
+use super::windows_audio_contract::packet_after_activation;
 use super::windows_audio_contract::{
     packet_timestamp_is_valid, packet_to_chunks, stop_endpoint, QpcClockMapper, StopTailMode,
     WasapiControlTimeline, WasapiStopEndpoint, WindowsAudioContractError, WindowsAudioEndpointFlow,
@@ -343,11 +344,10 @@ impl WindowsWasapiAudioSource {
         if !packet_timestamp_is_valid(captured_at_ns, self.last_packet_end_ns) {
             return Err(WindowsWasapiAudioSourceError::PacketTimelineOverlap);
         }
+        let packet = packet_after_activation(packet, self.not_before_ns)?;
         self.next_sequence = packet.next_sequence;
         self.last_packet_end_ns = Some(packet.end_ns);
-        if captured_at_ns >= self.not_before_ns {
-            self.pending.extend(packet.chunks);
-        }
+        self.pending.extend(packet.chunks);
         Ok(())
     }
 

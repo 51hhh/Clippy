@@ -242,6 +242,45 @@ pub(super) fn packet_to_chunks(
     })
 }
 
+/// 只裁切已复制 PCM 的前缀；原 QPC、之后完整块与 packet 序号/末尾保持。
+pub(super) fn packet_after_activation(
+    mut packet: PacketChunks,
+    not_before_ns: u64,
+) -> Result<PacketChunks, WindowsAudioContractError> {
+    while let Some(chunk) = packet.chunks.front_mut() {
+        if chunk.captured_at_ns >= not_before_ns {
+            break;
+        }
+        // 首个合法样本必须不早于下界；u128 避免大时间差乘采样率溢出。
+        let delta_ns = not_before_ns - chunk.captured_at_ns;
+        let leading_frames = (u128::from(delta_ns) * u128::from(AUDIO_SAMPLE_RATE_HZ))
+            .div_ceil(u128::from(NANOS_PER_SECOND));
+        if leading_frames >= u128::from(chunk.frame_count) {
+            packet.chunks.pop_front();
+            continue;
+        }
+        // 上面的帧数比较保证转换有界；格式与样本形状已由 packet_to_chunks 固定。
+        let leading_frames = leading_frames as u32;
+        let leading_samples = usize::try_from(leading_frames)
+            .ok()
+            .and_then(|frames| frames.checked_mul(usize::from(chunk.format.channels)))
+            .ok_or(WindowsAudioContractError::SampleLengthOverflow)?;
+        let samples = chunk
+            .samples
+            .get(leading_samples..)
+            .ok_or(WindowsAudioContractError::SampleLengthMismatch)?;
+        let retained_start = chunk
+            .captured_at_ns
+            .checked_add(frames_to_ns(leading_frames)?)
+            .ok_or(WindowsAudioContractError::TimestampOutOfRange)?;
+        chunk.samples = samples.to_vec().into_boxed_slice();
+        chunk.frame_count -= leading_frames;
+        chunk.captured_at_ns = retained_start;
+        break;
+    }
+    Ok(packet)
+}
+
 fn frames_to_ns(frame_count: u32) -> Result<u64, WindowsAudioContractError> {
     u64::from(frame_count)
         .checked_mul(NANOS_PER_SECOND)
@@ -279,6 +318,11 @@ impl WasapiControlTimeline {
 
 #[cfg(test)]
 mod tests {
+    mod activation_tail_tests {
+        use super::*;
+        include!("windows_audio_contract/activation_tail_tests.rs");
+    }
+
     mod qpc_precision_tests {
         use super::*;
         include!("windows_audio_contract/qpc_precision_tests.rs");
