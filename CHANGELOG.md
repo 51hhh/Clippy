@@ -11,7 +11,9 @@
   原整包谓词提取对照2 passed / 5 failed，修复后同回归原字节7/0；不计真实设备复现。
   干净`88891927654717a3d7524c6d94648daca4ad102a` Windows完整默认/QA门禁33/0/1 Linux smoke skipped，
   默认1341/QA1493各5ignored、前端81/1405；七项两图14次执行已含总数，重叠图不累加。
-  当前SHA release/CI、其它宿主与真实首包/暂停恢复/设备/交付未验，旧00f release不包含本修复。
+  W84补充同SHA默认/显式QA release编译和PE/CRT文件验证，真实启动未验；见
+  `docs/reviews/2026-10-04-windows-wasapi-activation-tail-release-review.md`（WIN-NATIVE-01）。
+  同SHA CI、其它宿主与真实首包/暂停恢复/设备/交付仍未验；旧00f release保留实际来源。
   旧失败根因保持未明；见 `docs/reviews/2026-10-03-wasapi-activation-tail-review.md`。
   （需求：`WIN-WASAPI-ACTIVATION-TAIL-01`；见 `docs/superpowers/specs/2026-10-03-wasapi-activation-tail.md`）
 

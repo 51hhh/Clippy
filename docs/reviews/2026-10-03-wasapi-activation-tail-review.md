@@ -61,3 +61,8 @@ W53/W59/W63/W67原媒体丢失和失败根因仍未明，新裁切及W80诊断�
 
 证据：`C:\win\Clippy\src-tauri\target\wasapi-activation-tail-contract`；完整门禁：
 `C:\win\Clippy\src-tauri\target\wasapi-activation-tail-native-qa-8889192`。全局任务未完成。
+
+## Release Verification（W84）
+
+同一8889192源码默认/显式QA release编译及PE/CRT文件核对完成，752编译输入/1073门禁输入绑定；只验证文件，不计测试或真实启动。原门禁保持；末项复合AC、同SHA CI/其它宿主/真实桌面与完整交付仍未完成。
+见 [当前release文件验证](2026-10-04-windows-wasapi-activation-tail-release-review.md)。

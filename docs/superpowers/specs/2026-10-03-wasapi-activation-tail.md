@@ -63,3 +63,8 @@ ReleaseBuffer；本修复只裁切已归一化并取得所有权的 PCM，不改
 仍not_run。当前release未编译；旧00f默认/QA文件保留实际SHA，不包含本项。其它宿主、真实
 首包/暂停恢复/设备/声音/长时同步/交付未验；最后复合AC保持空。原失败根因保持未明，
 新边界修复不解释旧缺失媒体。见 [审查记录](../../reviews/2026-10-03-wasapi-activation-tail-review.md)。
+
+## Release Verification（W84）
+
+同一8889192源码默认/显式QA release编译及PE/CRT文件核对完成，752编译输入/1073门禁输入绑定；只验证文件，不计测试或真实启动。原门禁保持；末项复合AC、同SHA CI/其它宿主/真实桌面与完整交付仍未完成。
+见 [当前release文件验证](../../reviews/2026-10-04-windows-wasapi-activation-tail-release-review.md)。
