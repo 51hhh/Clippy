@@ -11,7 +11,9 @@
   同三份回归文件原字节修复后4/0；干净 `00f40cc5cf8b3cf3c332dc7cce6be47cd07aefcc`
   Windows默认/QA完整门禁33/0/1 Linux smoke skipped，默认1334/QA1486各5ignored、前端81/1405，
   新4项已含总数、两图重叠不累加。共享原生路径影响Windows/X11/macOS，Wayland原Portal取消保持；
-  当前源码release/同SHA CI、其它宿主和真实取消/输入/DPI/权限未验。已进入的输入调用先结算，
+  W82补充同SHA默认/显式QA release编译和PE/CRT文件验证，真实启动未验；见
+  `docs/reviews/2026-10-03-windows-longshot-input-cancel-release-review.md`（WIN-NATIVE-01）。
+  同SHA CI、其它宿主和真实取消/输入/DPI/权限仍未验。已进入的输入调用先结算，
   不撤回OS队列事件或保证API不阻塞；见 `docs/reviews/2026-10-03-longshot-input-cancel-review.md`。
   （需求：`WIN-LONGSHOT-INPUT-CANCEL-01`；见 `docs/superpowers/specs/2026-10-03-longshot-input-cancel.md`）
 

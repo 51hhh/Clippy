@@ -64,3 +64,6 @@ QA release编译与来源，仅作文件验证，不把构建计为测试或启�
 
 证据：`C:\win\Clippy\src-tauri\target\longshot-input-cancel-contract`；完整门禁：
 `C:\win\Clippy\src-tauri\target\longshot-input-cancel-native-qa-00f40cc`。全局任务仍未完成。
+
+W82后续验证：同一00f40cc源码默认/显式QA release编译及PE/CRT文件核对完成，751编译输入/1072门禁输入绑定；只验证文件，不计测试或真实启动。原门禁保持，末项复合AC、同SHA CI/其它宿主/真实桌面与完整交付仍未完成。
+见 [当前release文件验证](2026-10-03-windows-longshot-input-cancel-release-review.md)。

@@ -63,3 +63,6 @@ QA1486各5ignored、前端81文件/1405，QA录屏516包含于1486。新4项两�
 当前SHA release/七项CI、其它宿主与真实取消/输入/DPI/权限仍未验；产品修复累计50，测试诊断另列。
 已进入的输入临界区须先完成；不能撤回OS队列事件或保证原生API不会阻塞。末项全局AC未勾选。
 见 [审查记录](../../reviews/2026-10-03-longshot-input-cancel-review.md)。
+
+W82后续验证：同一00f40cc源码默认/显式QA release编译及PE/CRT文件核对完成，751编译输入/1072门禁输入绑定；只验证文件，不计测试或真实启动。原门禁保持，末项复合AC、同SHA CI/其它宿主/真实桌面与完整交付仍未完成。
+见 [当前release文件验证](../../reviews/2026-10-03-windows-longshot-input-cancel-release-review.md)。

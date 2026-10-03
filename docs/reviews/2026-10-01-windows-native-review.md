@@ -5,6 +5,8 @@
 
 ## 当前续审结果
 
+W82 / WIN-NATIVE-01、WIN-LONGSHOT-INPUT-CANCEL-01：同源码00f40cc默认/显式QA release编译完成，751份编译输入/1072份门禁输入、实际优化参数/feature、AMD64 GUI PE和QA10份CRT文件核对。只做编译/文件验证，新修复/测试/通过数0，50修复/49历史及原门禁保持。同SHA CI、真实桌面/设备、其它宿主和完整交付未验；见 [W82 release](2026-10-03-windows-longshot-input-cancel-release-review.md)。
+
 W81 / `WIN-LONGSHOT-INPUT-CANCEL-01`：取消长截图撤销克隆输入许可，结算已进入调用后交还owner；源码`00f40cc5cf8b3cf3c332dc7cce6be47cd07aefcc`。提取原无撤销协议0/4、同回归原字节绿色4/0，不作真实输入复现；23旧父正文/1066其它完整输入与期限保持。完整Windows33/0/1，默认1334/QA1486各5ignored、前端81/1405，新4项已含总数，累计50产品修复，测试诊断另列。当前release/同SHA CI/其它宿主/真实QA未验；见 [W81取消输入审查](2026-10-03-longshot-input-cancel-review.md)。
 
 W80 / `WIN-RECORDING-TEST-ARTIFACTS-01`：源码`e50192f3a51070b12b00d5b9e01087f1ffc5fb27`仅测试图保留session/AV unwind后的原诊断目录，正常仍清理。原API同正文目录对照0/1、绿色1/0，不解释历史失败；217份原输入/19项父正文及旧期限保持。完整Windows33/0/1，默认1330/QA1482各5ignored、前端81/1405，新增7项已含总数。产品修复仍49；当前release/同SHA CI/设备/桌面/其它宿主未验，原d05 release保留实际来源。见 [W80诊断审查](2026-10-03-recording-test-artifacts-review.md)。
