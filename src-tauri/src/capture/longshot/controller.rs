@@ -333,7 +333,8 @@ impl LongshotController {
         })
     }
 
-    /// 立即使 matching owner 及其 manager lease 失效，不等待锁外工作结束。
+    /// 先撤销 matching 输入许可及 manager lease，只等待已进入的原生输入调用结算。
+    /// settle、抓帧与锁外像素工作不阻塞取消，owner 在输入结算后交还。
     pub(in crate::capture) fn cancel(
         &self,
         token: &LongshotSessionToken,
@@ -349,11 +350,12 @@ impl LongshotController {
                 ControllerSlot::Active(owner) => owner.auto_target.clone(),
             }
         };
-        auto_target.cancel_wayland();
+        auto_target.revoke_input();
         let cancelled = self.manager.cancel(token)?;
         if !cancelled {
             return Err(CaptureError::LongshotSessionSuperseded);
         }
+        auto_target.wait_input_idle()?;
         Ok(self.take_owner(token)?.mode_ownership)
     }
 
@@ -458,6 +460,10 @@ impl LongshotController {
 
 #[cfg(test)]
 mod tests {
+    mod input_cancellation {
+        include!("controller/input_cancellation_tests.rs");
+    }
+
     use super::*;
     use crate::capture::manager::StageTimings;
     use crate::capture::{CaptureMode, CaptureModeGate};

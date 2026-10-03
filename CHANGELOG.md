@@ -2,6 +2,15 @@
 
 ## 未发布
 
+### 2026-10-03 长截图取消输入
+
+- 修复 Windows 原生长截图取消后，旧后台线程仍能发起滚动、聚焦或恢复光标的问题。
+  输入许可按会话共享并不可逆撤销；取消先使 manager lease 失效，再等待已进入的输入调用结算，
+  不等待 settle、抓帧或像素处理。保留目标/权限复核、原物理坐标、等待期限和图像质量门。
+  提取原无撤销调用边界的受控原生对照0 passed / 4 failed，非真实OS输入复现。
+  共享原生路径影响 Windows/X11/macOS，Wayland原Portal取消保持；完整门禁及未验边界待记录。
+  （需求：`WIN-LONGSHOT-INPUT-CANCEL-01`；见 `docs/superpowers/specs/2026-10-03-longshot-input-cancel.md`）
+
 ### 2026-10-03 录屏测试诊断
 
 - session/AV encoder 合成测试在测试线程 unwind 时保留原目录，并尽力将 JSON 绝对路径写入

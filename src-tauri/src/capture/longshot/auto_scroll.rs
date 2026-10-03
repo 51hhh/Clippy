@@ -8,6 +8,9 @@ use super::CaptureError;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
+mod input_permission;
+use input_permission::NativeInputPermission;
+
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 const SCROLL_TICKS: i32 = 5;
 #[cfg(any(test, target_os = "linux", target_os = "windows", target_os = "macos"))]
@@ -54,6 +57,7 @@ pub(in crate::capture) struct LongshotAutoTarget {
     point: (i32, i32),
     /// 首次真实输入前锁定，后续每一步逐次复核。
     window: Arc<Mutex<Option<WindowIdentity>>>,
+    input_permission: NativeInputPermission,
     #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
     wayland: Option<Arc<super::auto_scroll_wayland::WaylandAutoTarget>>,
 }
@@ -63,6 +67,7 @@ impl LongshotAutoTarget {
         Self {
             point,
             window: Arc::new(Mutex::new(None)),
+            input_permission: NativeInputPermission::new(),
             #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
             wayland: None,
         }
@@ -77,6 +82,7 @@ impl LongshotAutoTarget {
         Ok(Self {
             point,
             window: Arc::new(Mutex::new(None)),
+            input_permission: NativeInputPermission::new(),
             wayland: Some(Arc::new(
                 super::auto_scroll_wayland::WaylandAutoTarget::new(monitor, point, first_frame)?,
             )),
@@ -141,7 +147,24 @@ impl LongshotAutoTarget {
         let _ = (previous_count, next_count);
     }
 
-    pub(super) fn cancel_wayland(&self) {
+    pub(super) fn revoke_input(&self) {
+        self.input_permission.revoke();
+        self.cancel_wayland();
+    }
+
+    pub(super) fn wait_input_idle(&self) -> Result<(), CaptureError> {
+        self.input_permission.wait_idle()
+    }
+
+    #[cfg(any(test, target_os = "linux", target_os = "windows", target_os = "macos"))]
+    pub(super) fn run_input<T>(
+        &self,
+        operation: impl FnOnce() -> Result<T, CaptureError>,
+    ) -> Result<T, CaptureError> {
+        self.input_permission.execute(operation)
+    }
+
+    fn cancel_wayland(&self) {
         #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
         if let Some(target) = &self.wayland {
             target.cancel();
@@ -167,6 +190,9 @@ fn checked_identity(
 trait PointerControl {
     fn location(&self) -> Result<(i32, i32), CaptureError>;
     fn move_to(&self, point: (i32, i32)) -> Result<(), CaptureError>;
+    fn restore_allowed(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
@@ -184,6 +210,27 @@ impl PointerControl for NativePointerControl {
 }
 
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+struct PermittedPointer<P: PointerControl> {
+    permission: NativeInputPermission,
+    pointer: P,
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+impl<P: PointerControl> PointerControl for PermittedPointer<P> {
+    fn location(&self) -> Result<(i32, i32), CaptureError> {
+        self.pointer.location()
+    }
+
+    fn move_to(&self, point: (i32, i32)) -> Result<(), CaptureError> {
+        self.permission.execute(|| self.pointer.move_to(point))
+    }
+
+    fn restore_allowed(&self) -> bool {
+        self.permission.check().is_ok()
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 struct CursorRestore<P: PointerControl = NativePointerControl> {
     original: (i32, i32),
     automatic_point: (i32, i32),
@@ -192,13 +239,20 @@ struct CursorRestore<P: PointerControl = NativePointerControl> {
 }
 
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
-impl CursorRestore {
-    fn new(original: (i32, i32), automatic_point: (i32, i32)) -> Self {
+impl CursorRestore<PermittedPointer<NativePointerControl>> {
+    fn new(
+        original: (i32, i32),
+        automatic_point: (i32, i32),
+        permission: NativeInputPermission,
+    ) -> Self {
         Self {
             original,
             automatic_point,
             armed: true,
-            pointer: NativePointerControl,
+            pointer: PermittedPointer {
+                permission,
+                pointer: NativePointerControl,
+            },
         }
     }
 }
@@ -214,7 +268,7 @@ impl<P: PointerControl> CursorRestore<P> {
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 impl<P: PointerControl> Drop for CursorRestore<P> {
     fn drop(&mut self) {
-        if self.armed {
+        if self.armed && self.pointer.restore_allowed() {
             // 抓帧/窗口检查可能用 ? 提前返回；清理时仍须复核，不能抢回用户的新位置。
             match self.pointer.location() {
                 Ok(current) if pointer_near(current, self.automatic_point) => {}
@@ -527,12 +581,18 @@ fn ensure_backend_available() -> Result<(), CaptureError> {
 }
 
 #[cfg(target_os = "linux")]
-fn ensure_target_can_receive_input(_target: WindowIdentity) -> Result<(), CaptureError> {
-    Ok(())
+fn ensure_target_can_receive_input(
+    _target: WindowIdentity,
+    permission: &NativeInputPermission,
+) -> Result<(), CaptureError> {
+    permission.check()
 }
 
 #[cfg(target_os = "windows")]
-fn ensure_target_can_receive_input(target: WindowIdentity) -> Result<(), CaptureError> {
+fn ensure_target_can_receive_input(
+    target: WindowIdentity,
+    permission: &NativeInputPermission,
+) -> Result<(), CaptureError> {
     use std::ffi::c_void;
     use std::time::{Duration, Instant};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -548,11 +608,19 @@ fn ensure_target_can_receive_input(target: WindowIdentity) -> Result<(), Capture
     }
     let mut process_id = 0u32;
     unsafe { GetWindowThreadProcessId(window, &mut process_id) };
-    if process_id != target.process_id || unsafe { SetForegroundWindow(window) } == 0 {
+    if process_id != target.process_id {
         return Err(CaptureError::LongshotAutoTargetLost);
     }
+    permission.execute(|| {
+        if unsafe { SetForegroundWindow(window) } == 0 {
+            Err(CaptureError::LongshotAutoTargetLost)
+        } else {
+            Ok(())
+        }
+    })?;
     let deadline = Instant::now() + Duration::from_millis(500);
     while Instant::now() < deadline {
+        permission.check()?;
         let foreground = unsafe { GetForegroundWindow() };
         let root = if foreground.is_null() {
             foreground
@@ -573,7 +641,10 @@ fn ensure_target_can_receive_input(target: WindowIdentity) -> Result<(), Capture
 }
 
 #[cfg(target_os = "macos")]
-fn ensure_target_can_receive_input(target: WindowIdentity) -> Result<(), CaptureError> {
+fn ensure_target_can_receive_input(
+    target: WindowIdentity,
+    permission: &NativeInputPermission,
+) -> Result<(), CaptureError> {
     use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication};
     use std::time::{Duration, Instant};
 
@@ -584,11 +655,16 @@ fn ensure_target_can_receive_input(target: WindowIdentity) -> Result<(), Capture
         i32::try_from(target.process_id).map_err(|_| CaptureError::LongshotAutoTargetLost)?;
     let application = NSRunningApplication::runningApplicationWithProcessIdentifier(process_id)
         .ok_or(CaptureError::LongshotAutoTargetLost)?;
-    if !application.activateWithOptions(NSApplicationActivationOptions::ActivateAllWindows) {
-        return Err(CaptureError::LongshotAutoTargetLost);
-    }
+    permission.execute(|| {
+        if !application.activateWithOptions(NSApplicationActivationOptions::ActivateAllWindows) {
+            Err(CaptureError::LongshotAutoTargetLost)
+        } else {
+            Ok(())
+        }
+    })?;
     let deadline = Instant::now() + Duration::from_millis(500);
     while Instant::now() < deadline {
+        permission.check()?;
         if application.isActive() {
             return Ok(());
         }
@@ -598,7 +674,7 @@ fn ensure_target_can_receive_input(target: WindowIdentity) -> Result<(), Capture
 }
 
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
-fn user_interrupted(restore: &mut CursorRestore) -> CaptureError {
+fn user_interrupted<P: PointerControl>(restore: &mut CursorRestore<P>) -> CaptureError {
     restore.disarm();
     CaptureError::LongshotAutoUserInterrupted
 }
@@ -618,6 +694,7 @@ pub(super) fn with_scroll<T>(
         return capture();
     }
 
+    target.input_permission.check()?;
     ensure_backend_available()?;
     let settings = enigo::Settings {
         linux_delay: 0,
@@ -626,10 +703,12 @@ pub(super) fn with_scroll<T>(
     };
     let mut enigo = enigo::Enigo::new(&settings)
         .map_err(|error| CaptureError::LongshotAutoInput(error.to_string()))?;
+    target.input_permission.check()?;
     let original = pointer_location()?;
-    let mut restore = CursorRestore::new(original, target.point);
-    move_pointer(target.point)?;
+    let mut restore = CursorRestore::new(original, target.point, target.input_permission.clone());
+    restore.pointer.move_to(target.point)?;
     std::thread::sleep(std::time::Duration::from_millis(POINTER_SETTLE_MS));
+    target.input_permission.check()?;
     let actual = pointer_location()?;
     if !pointer_near(actual, target.point) {
         return Err(user_interrupted(&mut restore));
@@ -637,7 +716,7 @@ pub(super) fn with_scroll<T>(
 
     let current_window = pointer_window()?;
     lock_target_window(&target.window, current_window)?;
-    ensure_target_can_receive_input(current_window)?;
+    ensure_target_can_receive_input(current_window, &target.input_permission)?;
     if !pointer_near(pointer_location()?, target.point) {
         return Err(user_interrupted(&mut restore));
     }
@@ -646,10 +725,13 @@ pub(super) fn with_scroll<T>(
     }
 
     let (axis, length) = direction.input();
-    enigo
-        .scroll(length, axis)
-        .map_err(|error| CaptureError::LongshotAutoInput(error.to_string()))?;
+    target.run_input(|| {
+        enigo
+            .scroll(length, axis)
+            .map_err(|error| CaptureError::LongshotAutoInput(error.to_string()))
+    })?;
     std::thread::sleep(std::time::Duration::from_millis(CONTENT_SETTLE_MS));
+    target.input_permission.check()?;
     let after_scroll = pointer_location()?;
     if !pointer_near(after_scroll, target.point) {
         return Err(user_interrupted(&mut restore));
@@ -658,7 +740,9 @@ pub(super) fn with_scroll<T>(
         return Err(CaptureError::LongshotAutoTargetLost);
     }
 
+    target.input_permission.check()?;
     let result = capture()?;
+    target.input_permission.check()?;
     let after_capture = pointer_location()?;
     if !pointer_near(after_capture, target.point) {
         return Err(user_interrupted(&mut restore));
@@ -681,6 +765,11 @@ pub(super) fn with_scroll<T>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+    mod input_cancellation_restore {
+        include!("auto_scroll/input_cancel_restore_tests.rs");
+    }
 
     #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     mod cursor_restore {
