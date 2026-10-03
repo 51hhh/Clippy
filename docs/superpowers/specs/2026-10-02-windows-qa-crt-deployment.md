@@ -96,3 +96,8 @@ unsigned/unbundled QA 编译 native/wrapper/terminal 0，3m45s；十份实际 CR
 Windows 10/多屏/录屏设备/其它宿主/Wayland 保持未验证；未启动/安装/推送/合入/发布。
 详情见 `docs/reviews/2026-10-02-windows-qa-runtime-review.md`。原 29 项修复与旧真实 QA
 身份保留；本需求的代码/文件/构建阶段完成，最后一项原生交付验收未完成。
+
+W85补充：真实QA MSI清单basename与部署路径不一致，修复见WIN-QA-MSI-PROVENANCE-01。
+当前228cc93完整Windows门禁33/0/1、前端81/1409；新QA MSI/NSIS canonical清单与十份CRT
+文件验证通过，EXE编译身份仍为8889192。原最后安装/无CRT启动/同SHA CI复合AC未完成。
+详见 [W85审查](../../reviews/2026-10-04-windows-qa-msi-provenance-review.md)。

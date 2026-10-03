@@ -26,9 +26,9 @@ QA MSI 实际 File 表和 cabinet 为 `licenses/PROVENANCE.json`；同源码 NSI
 
 ## Acceptance Criteria
 
-- [ ] 同一新增合同在旧实现失败、修复后通过；原用例及拒绝条件保留。
-- [ ] PowerShell 5/7 准备器及文件验证器对 canonical 文件名通过，旧名映射拒绝。
-- [ ] 实际 NSIS/MSI 解包后的十份 CRT、canonical 清单及包内 EXE 来源分别核对。
+- [x] 同一新增合同在旧实现失败、修复后通过；原用例及拒绝条件保留。
+- [x] PowerShell 5/7 准备器及文件验证器对 canonical 文件名通过，旧名映射拒绝。
+- [x] 实际 NSIS/MSI 解包后的十份 CRT、canonical 清单及包内 EXE 来源分别核对。
 - [ ] 当前源码完整 Windows 门禁、同 SHA CI 和安装/无 CRT 系统启动完成。
 
 ## Out of Scope
@@ -43,3 +43,10 @@ QA MSI 实际 File 表和 cabinet 为 `licenses/PROVENANCE.json`；同源码 NSI
 使用资源目标目录，但生成 File 时只有 Source，文件名取源 basename。使用 canonical 源文件名
 避免依赖 MSI 的重命名行为；[同版本 NSIS](https://github.com/tauri-apps/tauri/blob/tauri-cli-v2.11.4/crates/tauri-bundler/src/bundle/windows/nsis/mod.rs)
 保留原配置目标名称。以上代码推理与 W85 实际 File 表/解包结果互相核对。
+
+## Verification
+
+W85干净228cc93定向80/4→84/0，完整Windows33/0/1、前端81/1409、默认1341/QA1493各5ignored。
+实际QA MSI/NSIS canonical清单和十份CRT文件校验均exit0；EXE复用8889192，未计新SHA release编译。
+最后复合AC已有完整本机门禁证据，但同SHA CI和真实安装/启动未验，保持未完成。
+详见 [W85审查](../../reviews/2026-10-04-windows-qa-msi-provenance-review.md)。
