@@ -5,6 +5,8 @@
 
 ## 当前续审结果
 
+W81 / `WIN-LONGSHOT-INPUT-CANCEL-01`：取消长截图撤销克隆输入许可，结算已进入调用后交还owner；源码`00f40cc5cf8b3cf3c332dc7cce6be47cd07aefcc`。提取原无撤销协议0/4、同回归原字节绿色4/0，不作真实输入复现；23旧父正文/1066其它完整输入与期限保持。完整Windows33/0/1，默认1334/QA1486各5ignored、前端81/1405，新4项已含总数，累计50产品修复，测试诊断另列。当前release/同SHA CI/其它宿主/真实QA未验；见 [W81取消输入审查](2026-10-03-longshot-input-cancel-review.md)。
+
 W80 / `WIN-RECORDING-TEST-ARTIFACTS-01`：源码`e50192f3a51070b12b00d5b9e01087f1ffc5fb27`仅测试图保留session/AV unwind后的原诊断目录，正常仍清理。原API同正文目录对照0/1、绿色1/0，不解释历史失败；217份原输入/19项父正文及旧期限保持。完整Windows33/0/1，默认1330/QA1482各5ignored、前端81/1405，新增7项已含总数。产品修复仍49；当前release/同SHA CI/设备/桌面/其它宿主未验，原d05 release保留实际来源。见 [W80诊断审查](2026-10-03-recording-test-artifacts-review.md)。
 
 W79：按原W77日志修正当前门禁汇总的旧02005c9源码/日志关联，规范绑定d05cd3e；49项原成功日志及同阶段用例、1428份Rust正文/111个前端调用保留性核对完成，比较不算测试。原8R/9AC/47任务和49子规范全部保留；源码/测试未改。见 [W79当前审查](2026-10-03-windows-current-review-inventory.md)。当前同SHA CI/真实QA/其它宿主仍未验，下一步审查未来失败的诊断文件保留。

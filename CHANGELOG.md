@@ -8,7 +8,11 @@
   输入许可按会话共享并不可逆撤销；取消先使 manager lease 失效，再等待已进入的输入调用结算，
   不等待 settle、抓帧或像素处理。保留目标/权限复核、原物理坐标、等待期限和图像质量门。
   提取原无撤销调用边界的受控原生对照0 passed / 4 failed，非真实OS输入复现。
-  共享原生路径影响 Windows/X11/macOS，Wayland原Portal取消保持；完整门禁及未验边界待记录。
+  同三份回归文件原字节修复后4/0；干净 `00f40cc5cf8b3cf3c332dc7cce6be47cd07aefcc`
+  Windows默认/QA完整门禁33/0/1 Linux smoke skipped，默认1334/QA1486各5ignored、前端81/1405，
+  新4项已含总数、两图重叠不累加。共享原生路径影响Windows/X11/macOS，Wayland原Portal取消保持；
+  当前源码release/同SHA CI、其它宿主和真实取消/输入/DPI/权限未验。已进入的输入调用先结算，
+  不撤回OS队列事件或保证API不阻塞；见 `docs/reviews/2026-10-03-longshot-input-cancel-review.md`。
   （需求：`WIN-LONGSHOT-INPUT-CANCEL-01`；见 `docs/superpowers/specs/2026-10-03-longshot-input-cancel.md`）
 
 ### 2026-10-03 录屏测试诊断

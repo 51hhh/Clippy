@@ -49,6 +49,11 @@ flowchart LR
 | 自动化与服务 | `PasteManager`、`TranslationService`、`app/shortcuts` | 自动粘贴、翻译、快捷键暂停/恢复/失败状态；Linux 另持 Portal worker |
 | 类型化动作 | `ActionRuntime`、`actions/adapters` | 静态目录、调用窗口权限、一次性句柄、请求槽代次与取消；Launcher 图片快照、完成结果和根安全身份仅在后端短期持有；领域算法仍由原 owner 持有 |
 
+原生自动长截图的owner与锁外lease共享可撤销输入许可（`WIN-LONGSHOT-INPUT-CANCEL-01`）。
+取消先撤销许可并使manager lease失效，再结算已进入的同步输入调用；抓帧、settle及图像处理在输入锁外。
+指针移动、窗口激活、滚轮与RAII恢复共用许可；新会话独立，Wayland保留原Portal取消。
+该协议不撤回OS队列事件，真实系统行为仍需单独验收。
+
 命令 adapter 可以借用这些 owner，但不得把领域状态机重新实现在 `commands.rs`。跨领域动作由薄组合层
 按固定顺序调用 owner，并由 characterization test 固定事件、错误码和副作用顺序。
 

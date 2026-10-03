@@ -26,10 +26,10 @@
 
 ## Acceptance Criteria
 
-- [ ] 提取的旧无撤销协议在原生受控回归失败，源码、差异、输入、日志与非零退出保存。
-- [ ] 同正文证明真实 owner 取消使克隆许可失效，旧 token 不能撤销后继会话。
-- [ ] 已进入输入调用先结算，取消返回后不再执行旧输入；恢复 guard 不移动，正常旧合同保持。
-- [ ] 旧正文/期限与固定来源保留，干净 Windows 默认/QA 完整门禁通过，记录同步。
+- [x] 提取的旧无撤销协议在原生受控回归失败，源码、差异、输入、日志与非零退出保存。
+- [x] 同正文证明真实 owner 取消使克隆许可失效，旧 token 不能撤销后继会话。
+- [x] 已进入输入调用先结算，取消返回后不再执行旧输入；恢复 guard 不移动，正常旧合同保持。
+- [x] 旧正文/期限与固定来源保留，干净 Windows 默认/QA 完整门禁通过，记录同步。
 - [ ] 当前源码同 SHA 七项 CI、其它宿主、真实取消/输入/DPI/权限及完整交付验收完成。
 
 ## Out of Scope
@@ -45,3 +45,21 @@
 cancel_wayland，然后使 manager lease 失效；该方法在 Windows 为空。原 with_scroll 没有会话
 取消检查，旧 lease 的输入与 CursorRestore 仍可继续，最终 manager 拒绝结果不能撤回这些调用。
 这是源码/受控副作用协议缺口，真实 OS 用户场景仍须单独验收。
+
+## Verification（W81）
+
+先定义合同`6d49204`，修复源码`00f40cc5cf8b3cf3c332dc7cce6be47cd07aefcc`。
+原无撤销 mutation 边界提取为不检查/不撤销的转发协议，使用真实controller、克隆、线程和RAII：
+0 passed / 4 failed，Cargo101 / 包装器终端1；修复后同三份回归文件原字节4/0、全部exit0。
+这是提取协议、受控副作用的红绿，不是未修改原应用或真实OS输入场景复现。
+
+许可先以原子标记撤销，manager立即失效，再等待已有输入临界区；后继许可独立。Mutex只围住
+指针移动、窗口激活、滚轮和恢复的同步mutation，不包含聚焦poll/settle/抓帧/像素处理。
+23项原父测试正文和其它1066份完整输入保持，原常量/权限/质量门保持；原Wayland分支及Portal cancel保持。
+
+干净源码完整Windows PowerShell5.1门禁33 passed / 0 failed / 1 Linux smoke skipped；默认Rust1334、
+QA1486各5ignored、前端81文件/1405，QA录屏516包含于1486。新4项两图共8次执行已含总数，
+旧W80通过全名仍在相同阶段通过；1072份冻结输入、Git tree和原日志/实际退出绑定。
+当前SHA release/七项CI、其它宿主与真实取消/输入/DPI/权限仍未验；产品修复累计50，测试诊断另列。
+已进入的输入临界区须先完成；不能撤回OS队列事件或保证原生API不会阻塞。末项全局AC未勾选。
+见 [审查记录](../../reviews/2026-10-03-longshot-input-cancel-review.md)。
