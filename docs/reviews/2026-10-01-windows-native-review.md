@@ -5,6 +5,8 @@
 
 ## 当前续审结果
 
+W86 / WIN-NATIVE-01、WIN-QA-MSI-PROVENANCE-01：同源码228cc93默认/QA release编译和752编译输入/1073门禁输入、实际优化参数/feature、AMD64 GUI PE及QA十份CRT/canonical部署核对完成。只计编译/文件证据，本轮新增修复/测试/通过数0；52修复/51历史和原完整Windows门禁保持。W85包的8889192 EXE身份不重写；当前新EXE包文件、同SHA CI、其它宿主、设备/桌面/安装交付未验。见 [W86 release](2026-10-04-windows-qa-msi-provenance-release-review.md)。
+
 W85 / `WIN-QA-MSI-PROVENANCE-01`：修复QA MSI来源清单basename与部署合同不一致，源码228cc93。真实旧MSI文件校验exit1、同源码NSIS exit0；新4项80/4→84/0，原正文/期限保持。当前完整Windows33/0/1、默认1341/QA1493各5ignored、前端81/1409；四项已含总数，累计52修复/51历史。新QA包两文件校验均0，但复用8889192 EXE，不计当前SHA release编译；当前CI/其它宿主/安装设备/桌面保持未验。见 [W85来源清单](2026-10-04-windows-qa-msi-provenance-review.md)。
 
 W84 / WIN-NATIVE-01、WIN-WASAPI-ACTIVATION-TAIL-01：同源码8889192默认/显式QA release编译和752份编译输入/1073门禁输入、实际优化参数/feature、AMD64 GUI PE及QA10份CRT文件核对完成。仅编译/文件验证，本轮新增修复/测试/通过数0；51修复/50历史及原门禁保持。同SHA CI、其它宿主、真实首包/暂停恢复/设备/桌面及完整交付未验；见 [W84 release](2026-10-04-windows-wasapi-activation-tail-release-review.md)。

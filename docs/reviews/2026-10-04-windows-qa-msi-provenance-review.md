@@ -67,3 +67,8 @@ W83实际8889192远程查询证据保留旧身份，本轮无当前228cc93网络
 W53/W59/W63/W67历史失败根因仍未明；W80测试unwind保留不能解释旧失败或证明release强杀恢复。
 原8R/9AC/47Tasks与末两条全局AC、原CRT规范末条AC、此规范末项复合AC均保持未完成。
 本轮代码和文件阶段完成，WIN-NATIVE-01全局仍未完成。
+
+W86补充：同源码228cc93默认与显式QA release编译及PE/CRT/canonical部署文件核对完成，
+不再使用W85的旧EXE复用作为当前release编译证明；W85原包及其8889192 EXE身份不改。
+没有打包/签名/安装或设备/桌面运行，原全局未验边界保持。
+见 [W86 release](2026-10-04-windows-qa-msi-provenance-release-review.md)。

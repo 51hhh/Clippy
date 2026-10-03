@@ -13,7 +13,9 @@
   Windows门禁33/0/1、前端81/1409、默认1341/QA1493各5ignored，新增四项已含总数。
   新QA MSI/NSIS均通过canonical清单/十份CRT文件验证；EXE复用8889192，未计当前SHA release编译。
   详见 `docs/reviews/2026-10-04-windows-qa-msi-provenance-review.md`。
-  当前SHA release编译、同 SHA CI、安装升级卸载、无 CRT 系统启动和其它平台仍未验。
+  W86补充同源码228cc93默认/显式QA release编译及PE/CRT/canonical部署文件验证，见
+  `docs/reviews/2026-10-04-windows-qa-msi-provenance-release-review.md`（WIN-NATIVE-01）。
+  当前新EXE的包文件、同 SHA CI、安装升级卸载、无 CRT 系统启动和其它平台仍未验。
   （需求：`WIN-QA-MSI-PROVENANCE-01`；见 `docs/superpowers/specs/2026-10-04-windows-qa-msi-provenance.md`）
 
 ### 2026-10-03 WASAPI激活边界包尾

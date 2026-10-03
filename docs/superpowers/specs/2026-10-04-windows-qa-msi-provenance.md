@@ -50,3 +50,9 @@ W85干净228cc93定向80/4→84/0，完整Windows33/0/1、前端81/1409、默认
 实际QA MSI/NSIS canonical清单和十份CRT文件校验均exit0；EXE复用8889192，未计新SHA release编译。
 最后复合AC已有完整本机门禁证据，但同SHA CI和真实安装/启动未验，保持未完成。
 详见 [W85审查](../../reviews/2026-10-04-windows-qa-msi-provenance-review.md)。
+
+W86补充：同源码228cc93默认/显式QA release原生编译及752/1073原输入、实际优化参数/feature、
+AMD64 GUI PE、十份CRT与canonical实际部署文件验证完成。未运行/打包/安装/计新增测试数；
+W85两个修复包仍保留原8889192 EXE编译身份，当前新EXE的包文件与真实交付验收另记。
+同SHA CI/其它宿主/原生设备和安装仍未验，原未完成AC保持。
+见 [W86 release](../../reviews/2026-10-04-windows-qa-msi-provenance-release-review.md)。
