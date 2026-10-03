@@ -4,6 +4,8 @@
 //! 对应显式 feature 与受支持的原生会话开放；默认构建继续保持关闭。
 
 mod manifest;
+#[cfg(test)]
+mod test_artifacts;
 // 视频平台源与后续音频适配器共享由 session owner 创建的唯一单调时间原点。
 #[allow(dead_code)]
 mod clock;

@@ -21,6 +21,13 @@
 
 ## 本机入口
 
+录屏合成测试诊断（`WIN-RECORDING-TEST-ARTIFACTS-01`）：session/AV encoder 的测试线程
+unwind 时保留自己的临时目录，测试输出中的 `CLIPPY_RECORDING_TEST_ARTIFACTS=` 后是 JSON
+绝对路径。检查清单、已提交分段和 partial 前先与失败命令的来源 SHA/日志对应；它们是合成
+输入，不能算真实设备证据。成功退出仍清理，原失败码和等待期限保持，没有自动重试。
+保留只针对 unwind，不保证 abort/OOM、强杀或系统临时目录回收；检查后仅清理已确认属于本次
+失败的目录。已丢失的历史文件不能重建为当时证据。同 SHA CI/Native QA 仍须分别完成。
+
 在仓库根目录的 Windows PowerShell 5.1 或 PowerShell 7 中运行：
 
 ```powershell

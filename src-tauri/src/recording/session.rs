@@ -289,6 +289,12 @@ impl Drop for DiagnosticRecordingSession {
 
 #[cfg(test)]
 mod tests {
+    use crate::recording::test_artifacts as tempfile;
+
+    mod failure_artifact_tests {
+        include!("session/failure_artifact_tests.rs");
+    }
+
     #[cfg(target_os = "windows")]
     mod artifact_sharing_tests {
         include!("session/artifact_sharing_tests.rs");

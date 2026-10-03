@@ -555,6 +555,12 @@ fn audio_frames_to_ns(frames: u32) -> Result<u64, AvTimelineError> {
 
 #[cfg(test)]
 mod tests {
+    use crate::recording::test_artifacts as tempfile;
+
+    mod failure_artifact_tests {
+        include!("av_encoder_worker/failure_artifact_tests.rs");
+    }
+
     mod pending_frame_tests {
         include!("av_encoder_worker/pending_frame_tests.rs");
     }
