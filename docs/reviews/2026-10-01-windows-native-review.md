@@ -5,6 +5,8 @@
 
 ## 当前续审结果
 
+W83 / `WIN-WASAPI-ACTIVATION-TAIL-01`：保留启动/恢复下界后的真实PCM包尾及后续完整块；源码`88891927654717a3d7524c6d94648daca4ad102a`。原整包谓词提取2/5、同回归原字节绿色7/0，不作设备复现；17旧父正文/1070其它完整输入及期限保持。完整Windows33/0/1，默认1341/QA1493各5ignored、前端81/1405，七项两图14次执行已含总数；累计51产品修复，测试诊断另列。当前release/CI/其它宿主/真实QA未验，旧00f文件保持实际来源；见 [W83包尾审查](2026-10-03-wasapi-activation-tail-review.md)。
+
 W82 / WIN-NATIVE-01、WIN-LONGSHOT-INPUT-CANCEL-01：同源码00f40cc默认/显式QA release编译完成，751份编译输入/1072份门禁输入、实际优化参数/feature、AMD64 GUI PE和QA10份CRT文件核对。只做编译/文件验证，新修复/测试/通过数0，50修复/49历史及原门禁保持。同SHA CI、真实桌面/设备、其它宿主和完整交付未验；见 [W82 release](2026-10-03-windows-longshot-input-cancel-release-review.md)。
 
 W81 / `WIN-LONGSHOT-INPUT-CANCEL-01`：取消长截图撤销克隆输入许可，结算已进入调用后交还owner；源码`00f40cc5cf8b3cf3c332dc7cce6be47cd07aefcc`。提取原无撤销协议0/4、同回归原字节绿色4/0，不作真实输入复现；23旧父正文/1066其它完整输入与期限保持。完整Windows33/0/1，默认1334/QA1486各5ignored、前端81/1405，新4项已含总数，累计50产品修复，测试诊断另列。当前release/同SHA CI/其它宿主/真实QA未验；见 [W81取消输入审查](2026-10-03-longshot-input-cancel-review.md)。

@@ -99,6 +99,11 @@ flowchart LR
 默认激活返回 None，沿用原 constructor 行为。等待失败或取消由原线程回收 source，
 预算、共享时钟与 epoch 裁切保持。见 `REC-FIRST-FRAME-AUDIO-01` 规格。
 
+Windows WASAPI的包起点是原QPC对应的第一帧；包跨越启动/恢复下界时，只在已复制的
+48kHz PCM上移除旧前缀，保留首个合法样本及之后完整块、原序号和原包末尾。原生缓冲仍按
+完整帧数复制/释放，非整样本下界向上选择，QPC校准和公共暂停时钟保持。
+见 `WIN-WASAPI-ACTIVATION-TAIL-01`；真实设备首包/声音与暂停恢复仍须单独验收。
+
 双轨编码 owner 在 PCM 视频边界拆分时转交下一真实视频 head 下界，视频 EOS 后声明
 没有后续真实帧。writer 按 PCM 块交替推进两轨，而不一次性补齐长空洞/停止尾段。
 VP9 只提前编码已知视频下界之前确定的 CFR slot，保留下一 slot 图像与真实 native PTS；
