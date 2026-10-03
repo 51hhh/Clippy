@@ -7,7 +7,12 @@
 - session/AV encoder 合成测试在测试线程 unwind 时保留原目录，并尽力将 JSON 绝对路径写入
   测试输出；成功测试仍清理，原断言、等待期限和失败退出码保持。仅测试图生效，不改变产品
   录屏、worker、媒体或权限行为。旧失败的临时文件已丢失，不能用此项解释历史根因；强杀、
-  abort/OOM 和系统临时目录清理不保证保留。验证及当前 SHA CI/真机边界待记录。
+  abort/OOM 和系统临时目录清理不保证保留。
+  同正文受控目录诊断原API0/1、修复后1/0，原文件及日志保存；该固定字节诊断不含有效媒体。
+  干净 `e50192f3a51070b12b00d5b9e01087f1ffc5fb27` Windows 默认/QA完整门禁33/0/1 Linux smoke skipped；
+  默认1330/QA1482各5ignored，前端81/1405，新7项已含总数、两图重叠不累加。
+  此项只修复测试诊断，产品修复仍49。当前源码release/同SHA CI、设备/桌面及其它宿主未验，
+  旧d05 release仅保留原SHA编译/文件证据；见 `docs/reviews/2026-10-03-recording-test-artifacts-review.md`。
   （需求：`WIN-RECORDING-TEST-ARTIFACTS-01`；见 `docs/superpowers/specs/2026-10-03-recording-test-artifacts.md`）
 
 ### 2026-10-02 音频设备目录并发刷新

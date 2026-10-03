@@ -9,6 +9,8 @@
 
 ## 当前续审状态
 
+W80 / `WIN-RECORDING-TEST-ARTIFACTS-01`：源码`e50192f3a51070b12b00d5b9e01087f1ffc5fb27`仅测试图保留session/AV unwind后的原诊断目录，正常仍清理。原API同正文目录对照0/1、绿色1/0，不解释历史失败；217份原输入/19项父正文及旧期限保持。完整Windows33/0/1，默认1330/QA1482各5ignored、前端81/1405，新增7项已含总数。产品修复仍49；当前release/同SHA CI/设备/桌面/其它宿主未验，原d05 release保留实际来源。见 [W80诊断审查](../../reviews/2026-10-03-recording-test-artifacts-review.md)。
+
 W79：按原W77日志修正当前门禁汇总的旧02005c9源码/日志关联，规范绑定d05cd3e；49项原成功日志及同阶段用例、1428份Rust正文/111个前端调用保留性核对完成，比较不算测试。原8R/9AC/47任务和49子规范全部保留；源码/测试未改。见 [W79当前审查](../../reviews/2026-10-03-windows-current-review-inventory.md)。当前同SHA CI/真实QA/其它宿主仍未验，下一步审查未来失败的诊断文件保留。
 
 W78 / WIN-NATIVE-01：同源码d05cd3e默认/QA release编译、743编译输入与1064门禁输入、实际优化参数/feature、PE/CRT文件核对通过。新源码/测试/修复0，49修复/48历史和原门禁计数保持；构建/文件不计测试。当前同SHA CI、原生设备/桌面/其它宿主/安装器仍未验。见 [W78 release](../../reviews/2026-10-02-windows-audio-catalog-order-release-review.md)。
