@@ -9,6 +9,8 @@
 
 ## 当前续审状态
 
+W79：按原W77日志修正当前门禁汇总的旧02005c9源码/日志关联，规范绑定d05cd3e；49项原成功日志及同阶段用例、1428份Rust正文/111个前端调用保留性核对完成，比较不算测试。原8R/9AC/47任务和49子规范全部保留；源码/测试未改。见 [W79当前审查](../../reviews/2026-10-03-windows-current-review-inventory.md)。当前同SHA CI/真实QA/其它宿主仍未验，下一步审查未来失败的诊断文件保留。
+
 W78 / WIN-NATIVE-01：同源码d05cd3e默认/QA release编译、743编译输入与1064门禁输入、实际优化参数/feature、PE/CRT文件核对通过。新源码/测试/修复0，49修复/48历史和原门禁计数保持；构建/文件不计测试。当前同SHA CI、原生设备/桌面/其它宿主/安装器仍未验。见 [W78 release](../../reviews/2026-10-02-windows-audio-catalog-order-release-review.md)。
 
 W77 / `REC-AUDIO-CATALOG-ORDER-01`：修复迟到的旧设备枚举覆盖启动重试目录。源码 `d05cd3e478934722273a33fb88c841648aeb1ef5` 在枚举前预留身份，仅当前查询可发布一次。原API诊断0/1，新API合同16/0、前端定向63/0；原完整模块/期限保持。干净Windows完整门禁33/0/1，默认1324/QA1475各5ignored、前端81/1405，新10项已含总数。累计49修复/48历史；当前release/同SHA CI、设备/桌面/其它宿主等仍未验。见 [W77审查](../../reviews/2026-10-02-audio-catalog-refresh-order-review.md)。
@@ -606,7 +608,7 @@ release 参数、两图 feature、AMD64 GUI PE 与 QA 10份 CRT 的部署/导入
 | W43 | P1 | 共用键按 Shortcut ID 继承首次注册结果，全失败返回错误，保留部分成功与旧配置容错 | WIN-SHORTCUT-SHARED-01；提取原执行协议 MSVC 红 9/6（旧五项通过），同十项原字节绿 15/0；原合同/十九份文件保持。 干净 0f793c9 完整默认/QA 门禁 30/0/1（Linux skip），默认 Rust 1175/QA Rust 1238，各 5 ignored 不累加，新十项/旧五项各图通过；前端 79/1323，实际系统/UI/其它宿主/新 SHA CI 未验 |
 | W44 | P1 | Windows 富文本与替代文本共享 OpenClipboard guard，拒绝跨复制配对 | WIN-CLIP-SNAPSHOT-01；原决策红 27/4，旧 23 保持，同修正八项绿 31，guard 七项/旧 parser 九项共 16 与 vendor lint 通过。 干净 b541e87 完整 30/0/1（Linux skip），默认 Rust 1183/QA Rust 1246，各 5 ignored 不累加，新八项各图通过；独立剪贴板 31、前端 79/1323。实际系统/其它宿主/新 SHA CI 未验 |
 | W45 | P1 | Windows V Click 部分失败/展开时清理 V，保留正常顺序和主要错误 | WIN-PASTE-CLEANUP-01；原注入协议红 10/6，旧六项保持，同十项原字节绿 16；原实现/十二文件/锁定 SDK 保持。 干净 f5ad5da 完整 30/0/1（Linux skip），默认 Rust 1193/QA Rust 1256，各 5 ignored 不累加，新十项各图通过；前端 79/1323。实际系统/其它宿主/新 SHA CI 未验 |
-| W46 | P2 | 原需求/验收逐项 inventory 与 29 项修复的 Git/日志/原阶段/测试正文保留审计；W74追加47项当前inventory | WIN-NATIVE-01；代码/日志/原阶段无遗漏，616 比较的五处夹具新增字段单列，31 个前端调用保持；不计新测试。当前 CI 无 run，全局仍未完成；下一步 Windows release QA 可执行文件构建，不安装/启动 |
+| W46 | P2 | 原需求/验收与修复Git/日志/测试保留审计，W79绑定当前49项 | WIN-NATIVE-01；W79核对49项原日志与当前同阶段用例、1428 Rust正文/111前端调用，修正汇总旧SHA关联，不计新测试；原8R/9AC/47任务保留。W78当前release文件核对通过，同SHA CI/原生QA未完成，下一步审查未来失败诊断保留 |
 | W47 | P2 | 默认/录屏 QA Windows release 编译与冻结源码/产物/feature/profile 来源核对 | WIN-NATIVE-01；两图 native/wrapper/terminal 0、PE AMD64 GUI/无内嵌签名、原输入哈希和干净源码保持；release panic=abort 不借用测试 unwind 保证。不增加测试数、不启动/安装，全局剩余验收保留 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
