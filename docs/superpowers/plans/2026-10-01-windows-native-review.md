@@ -9,6 +9,8 @@
 
 ## 当前续审状态
 
+W88 / WIN-NATIVE-01：52修复/51历史、282子R/247子AC（24未勾选），测试基础设施另列；1479 Rust正文对照=1474一致+5既有适配，9源/138前端AST调用保留。当前228cc93完整Windows门禁、release及四包文件证据绑定，全部原47任务范围和末两条AC保持。当前GitHub提交实查不可用（422+457正对照），安装EXE实读仍匹配旧457记录，设备/桌面/安装/跨平台与同SHA CI未验；无新增源码/修复/测试通过数。见 [完整状态清单](../../reviews/2026-10-04-windows-completion-inventory.md)。
+
 W87 / WIN-NATIVE-01/W07、WIN-QA-MSI-PROVENANCE-01：当前228cc93编译及资源的默认/QA四个NSIS/MSI生成、只读解包与EXE完整字节/资源来源核对完成；QA canonical清单/十份CRT生产文件验证均0。四包实读NotSigned，662缓存和1073/752原输入保持，本轮修复/测试/通过数0。52修复/51历史及原门禁不变；真实安装/设备/桌面、同SHA CI及其它宿主未验，原AC保留。见 [W87包文件](../../reviews/2026-10-04-windows-current-package-file-review.md)。
 
 W86 / WIN-NATIVE-01、WIN-QA-MSI-PROVENANCE-01：同源码228cc93默认/QA release编译和752编译输入/1073门禁输入、实际优化参数/feature、AMD64 GUI PE及QA十份CRT/canonical部署核对完成。只计编译/文件证据，本轮新增修复/测试/通过数0；52修复/51历史和原完整Windows门禁保持。W85包的8889192 EXE身份不重写；当前新EXE包文件、同SHA CI、其它宿主、设备/桌面/安装交付未验。见 [W86 release](../../reviews/2026-10-04-windows-qa-msi-provenance-release-review.md)。
@@ -585,8 +587,8 @@ release 参数、两图 feature、AMD64 GUI PE 与 QA 10份 CRT 的部署/导入
 | W04 | P1 | 100%/125%/150% 多屏与负坐标：冻结帧、跨屏窗口候选、覆盖层、Pin、guide、长截图自动滚动、WGC 选区 | 候选/焦点见 W29/W30，原始物理边界和建窗请求见 W31；图片 Pin 来源/请求见 W32；实际 DPI/热插拔、工作区保存/恢复与工具条合同见 W33；WGC 与真机矩阵仍未验，本机单屏。长截图失败清理指针合同见 W19，真实接管待验 |
 | W05 | P1 | 同权限自动粘贴一次、高完整性目标 copy-only、目标销毁/复用、用户接管；DACL 与配置连续覆盖 | 45769c9 普通权限文本/图片完整用例实际通过；管理员、销毁复用与用户接管桌面待验证。私有文件准备失败时序见 W18，富文本片段边界见 W20，首次按键前目标复核见 W23，部分 Click 失败清理见 W45 |
 | W06 | P1 | QA 包设备默认/非默认/同名/拔出、双源混音、暂停恢复、控制窗排除、强杀恢复、30 分钟 A/V 漂移 | WASAPI 正常停止尾部见 W24，WGC 关闭/初始化清理见 W25/W27，双轨桥接线程回收见 W26，WGC 应用帧桥启动回滚见 W35；真实设备、混音及其余场景仍待真机验收 |
-| W07 | P2 | NSIS/MSI 安装升级卸载、WebView2、自启动、托盘/快捷键、系统凭据与更新 | 官方 QA 包身份已核对，MSI 只读检查通过；NSIS 安装落盘/启动子步骤已核对，完整 MSI/升级/卸载/updater 未验收；本机自签名链不受信任，未更改信任 |
-| W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 42e52c0、45769c9 与 WinPS 的 b2fd247 各自七项 CI 通过；后续49项产品修复本机通过，新 SHA CI、Linux 本地完整门禁及 Wayland 回归保留未完成 |
+| W07 | P2 | NSIS/MSI 安装升级卸载、WebView2、自启动、托盘/快捷键、系统凭据与更新 | 旧457 NSIS安装落盘/启动子步骤保留原证据；当前228cc93默认/QA四包只读文件核对完成、均NotSigned；当前MSI/NSIS实际安装升级卸载、无CRT启动、WebView2/updater仍未验，未修改信任。 |
+| W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 52项产品/部署修复分支/规范/CHANGELOG与原日志已索引；42/457/b2fd各七项CI为旧SHA，当前228cc93实查远程不可用；当前同SHA CI、Linux完整门禁/Wayland回归及其它宿主仍未完成。 |
 | W09 | P1 | OCR 质量工具 Windows 私有诊断目录与符号链接拒绝合同；失败关闭，检查子文件继承 | 实际 DACL/等价 SDDL 及 10 类失败关闭负例通过；本机 33 项质量合同与 42e52c0 跨平台 CI 通过 |
 | W10 | P2 | 审查 webm-sys 的 C++ 编译参数在 MSVC 上产生 D9002；按真实编译器族选择 flag，保留固定来源与许可证 | 独立 WIN-WEBM-MSVC-01 / PR #14；本机完整 QA 绑定 e4ccc46，45769c9 七项 CI 与完整 QA workflow 全成功，新 Windows 包来源/哈希/签名身份已核对；真实桌面未验证 |
 | W11 | P1 | 新 Windows runner 使用 CRLF 检出时的 IPC 负例与结构回归；保留两种换行的正/负合同 | 独立 CRLF checkout 1284 项通过，fe37aec Windows 前端 CI 已通过 |
@@ -625,7 +627,7 @@ release 参数、两图 feature、AMD64 GUI PE 与 QA 10份 CRT 的部署/导入
 | W44 | P1 | Windows 富文本与替代文本共享 OpenClipboard guard，拒绝跨复制配对 | WIN-CLIP-SNAPSHOT-01；原决策红 27/4，旧 23 保持，同修正八项绿 31，guard 七项/旧 parser 九项共 16 与 vendor lint 通过。 干净 b541e87 完整 30/0/1（Linux skip），默认 Rust 1183/QA Rust 1246，各 5 ignored 不累加，新八项各图通过；独立剪贴板 31、前端 79/1323。实际系统/其它宿主/新 SHA CI 未验 |
 | W45 | P1 | Windows V Click 部分失败/展开时清理 V，保留正常顺序和主要错误 | WIN-PASTE-CLEANUP-01；原注入协议红 10/6，旧六项保持，同十项原字节绿 16；原实现/十二文件/锁定 SDK 保持。 干净 f5ad5da 完整 30/0/1（Linux skip），默认 Rust 1193/QA Rust 1256，各 5 ignored 不累加，新十项各图通过；前端 79/1323。实际系统/其它宿主/新 SHA CI 未验 |
 | W46 | P2 | 原需求/验收与修复Git/日志/测试保留审计，W79绑定当前49项 | WIN-NATIVE-01；W79核对49项原日志与当前同阶段用例、1428 Rust正文/111前端调用，修正汇总旧SHA关联，不计新测试；原8R/9AC/47任务保留。W78当前release文件核对通过，同SHA CI/原生QA未完成，下一步审查未来失败诊断保留 |
-| W47 | P2 | 默认/录屏 QA Windows release 编译与冻结源码/产物/feature/profile 来源核对 | WIN-NATIVE-01；两图 native/wrapper/terminal 0、PE AMD64 GUI/无内嵌签名、原输入哈希和干净源码保持；release panic=abort 不借用测试 unwind 保证。不增加测试数、不启动/安装，全局剩余验收保留 |
+| W47 | P2 | 默认/录屏 QA Windows release 编译与冻结源码/产物/feature/profile 来源核对 | 当前228cc93默认/显式录屏QA native release及source/profile/feature/PE/CRT文件来源核对完成，实际终端均0；新四包文件另核对。panic=abort不借用测试unwind保证；不增测试数，设备/桌面/安装/跨平台CI未验。 |
 
 W04–W07 使用 `docs/native-qa.md` 和 `scripts/manual-qa.mjs` 的 Windows profile。
 安装包证据与本地源码构建分开，模板初始 `not_run` 不能计作通过。

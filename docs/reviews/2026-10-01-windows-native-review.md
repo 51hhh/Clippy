@@ -5,6 +5,8 @@
 
 ## 当前续审结果
 
+W88 / WIN-NATIVE-01：52修复/51历史、282子R/247子AC（24未勾选），测试基础设施另列；1479 Rust正文对照=1474一致+5既有适配，9源/138前端AST调用保留。当前228cc93完整Windows门禁、release及四包文件证据绑定，全部原47任务范围和末两条AC保持。当前GitHub提交实查不可用（422+457正对照），安装EXE实读仍匹配旧457记录，设备/桌面/安装/跨平台与同SHA CI未验；无新增源码/修复/测试通过数。见 [完整状态清单](2026-10-04-windows-completion-inventory.md)。
+
 W87 / WIN-NATIVE-01/W07、WIN-QA-MSI-PROVENANCE-01：当前228cc93编译及资源的默认/QA四个NSIS/MSI生成、只读解包与EXE完整字节/资源来源核对完成；QA canonical清单/十份CRT生产文件验证均0。四包实读NotSigned，662缓存和1073/752原输入保持，本轮修复/测试/通过数0。52修复/51历史及原门禁不变；真实安装/设备/桌面、同SHA CI及其它宿主未验，原AC保留。见 [W87包文件](2026-10-04-windows-current-package-file-review.md)。
 
 W86 / WIN-NATIVE-01、WIN-QA-MSI-PROVENANCE-01：同源码228cc93默认/QA release编译和752编译输入/1073门禁输入、实际优化参数/feature、AMD64 GUI PE及QA十份CRT/canonical部署核对完成。只计编译/文件证据，本轮新增修复/测试/通过数0；52修复/51历史和原完整Windows门禁保持。W85包的8889192 EXE身份不重写；当前新EXE包文件、同SHA CI、其它宿主、设备/桌面/安装交付未验。见 [W86 release](2026-10-04-windows-qa-msi-provenance-release-review.md)。
