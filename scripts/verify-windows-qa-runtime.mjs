@@ -134,7 +134,7 @@ export function verifyRuntime({ manifestBytes, configuration, expectedManifestSh
   requireValue(toolset[0] === 14, "Expected MSVC v14 toolset");
   const resources = configuration?.bundle?.resources;
   requireValue(resources && !Array.isArray(resources) && typeof resources === "object", "Runtime resources must be an object");
-  requireValue(normalizedPath(manifest.manifestPath) === normalizedPath(join(manifest.stagingDirectory, "PROVENANCE.json"))
+  requireValue(normalizedPath(manifest.manifestPath) === normalizedPath(join(manifest.stagingDirectory, "windows-qa-vc-runtime.json"))
     && resources[manifest.manifestPath] === "licenses/windows-qa-vc-runtime.json", "Runtime provenance resource is incomplete");
   const mappings = new Map();
   for (const [sourcePath, destination] of Object.entries(resources)) {

@@ -2,6 +2,17 @@
 
 ## 未发布
 
+### 2026-10-04 QA MSI运行库来源清单
+
+- 修复 QA MSI 的 CRT 来源清单落盘名称与部署验证器不一致的问题。staging 源文件采用
+  `windows-qa-vc-runtime.json`，与 `licenses/` 下最终名称一致；生产验证器拒绝旧名映射，
+  保留原签名、完整版本、源码、清单/DLL 字节、架构和递归依赖校验。
+  原源码真实 QA MSI 解包为 `licenses/PROVENANCE.json`，部署验证器 exit 1 / ENOENT；
+  同源码 NSIS exit 0，两个包的十份 CRT 原字节保持，不计真实启动失败。
+  新增文件名回归在旧实现为 80 passed / 4 failed；修复后回归及新包核对进行中。
+  当前修复完整门禁、同 SHA CI、安装升级卸载、无 CRT 系统启动和其它平台仍未验。
+  （需求：`WIN-QA-MSI-PROVENANCE-01`；见 `docs/superpowers/specs/2026-10-04-windows-qa-msi-provenance.md`）
+
 ### 2026-10-03 WASAPI激活边界包尾
 
 - 修复 Windows 录屏音频包跨越启动/恢复下界时，有效后半段及后续拆块被整包丢弃的问题。

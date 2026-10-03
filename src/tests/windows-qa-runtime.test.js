@@ -43,7 +43,7 @@ function runtime() {
     "vcruntime140_1.dll": pe(["vcruntime140.dll"]),
   };
   const manifest = { schema: 1, requirement: "WIN-QA-CRT-01", sourceSha: source, sourceGitStatus: [], toolsetVersion: "14.44.35207",
-    stagingDirectory: staging, manifestPath: join(staging, "PROVENANCE.json"), files: [] };
+    stagingDirectory: staging, manifestPath: join(staging, "windows-qa-vc-runtime.json"), files: [] };
   const configuration = { bundle: { resources: { [manifest.manifestPath]: "licenses/windows-qa-vc-runtime.json" } } };
   for (const [name, bytes] of Object.entries(inputs)) {
     const path = join(staging, name); files.set(path, bytes); configuration.bundle.resources[path] = name;
@@ -212,6 +212,61 @@ describe.skipIf(process.platform !== "win32")("actual PowerShell CRT preparation
         expect(Object.values(config.bundle.resources)).toContain("msvcp140.dll");
         expect(Object.values(config.bundle.resources)).not.toContain("../msvcp140.dll");
       }
+    } finally { temp.cleanup(); }
+  });
+});
+
+describe("WIN-QA-MSI-PROVENANCE-01 canonical deployment basename", () => {
+  it("accepts a canonical staging manifest without requiring installer resource renaming", () => {
+    const f = runtime(), previous = f.manifest.manifestPath;
+    f.manifest.manifestPath = join(f.manifest.stagingDirectory, "windows-qa-vc-runtime.json");
+    delete f.configuration.bundle.resources[previous];
+    f.configuration.bundle.resources[f.manifest.manifestPath] = "licenses/windows-qa-vc-runtime.json";
+    expect(verify(f).runtimeFiles).toBe(3);
+  });
+  it("rejects a source basename that MSI would deploy under the legacy name", () => {
+    const f = runtime(), previous = f.manifest.manifestPath;
+    f.manifest.manifestPath = join(f.manifest.stagingDirectory, "PROVENANCE.json");
+    delete f.configuration.bundle.resources[previous];
+    f.configuration.bundle.resources[f.manifest.manifestPath] = "licenses/windows-qa-vc-runtime.json";
+    expect(() => verify(f)).toThrow("Runtime provenance resource is incomplete");
+  });
+});
+
+describe.skipIf(process.platform !== "win32")("WIN-QA-MSI-PROVENANCE-01 actual staging filename", { timeout: 30_000 }, () => {
+  it.each(shells)("%s stages the same basename that both installers deploy", (shell) => {
+    const temp = temporary();
+    try {
+      const vs = join(temp.path, "VS"), output = join(temp.path, "output"), auxiliary = join(vs, "VC/Auxiliary/Build");
+      mkdirSync(auxiliary, { recursive: true });
+      writeFileSync(join(auxiliary, "Microsoft.VCToolsVersion.default.txt"), "14.44.35207");
+      const redist = join(vs, "VC/Redist/MSVC/14.44.35112/x64/Microsoft.VC143.CRT");
+      mkdirSync(redist, { recursive: true });
+      for (const name of ["msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll"]) {
+        writeFileSync(join(redist, name), pe(name === "msvcp140.dll" ? ["vcruntime140.dll"] : ["kernel32.dll"]));
+      }
+      // 仅模拟签名/版本元数据，其余调用实际准备器和生产PE验证器，不加载夹具DLL。
+      const command = `
+        $ErrorActionPreference = 'Stop'
+        . $env:CLIPPY_QA_RUNTIME_SCRIPT
+        function Get-WindowsQaRuntimeIdentity {
+          param([string]$Path)
+          [pscustomobject]@{Version='14.44.35211.0'; IsDebug=$false;
+            Signature=[ordered]@{status='Valid'; subject='CN=Microsoft publisher, O=Microsoft Corporation, C=US'; thumbprint=('b'*40)}}
+        }
+        New-WindowsQaRuntime -VisualStudioRoot $env:CLIPPY_QA_FAKE_VS -Output $env:CLIPPY_QA_FAKE_OUTPUT -SourceSha ('a'*40) | ConvertTo-Json -Depth 4
+      `;
+      const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toLowerCase() !== "psmodulepath"));
+      const result = spawnSync(shell, ["-NoProfile", "-NonInteractive", "-Command", command], { encoding: "utf8", timeout: 20_000,
+        env: { ...environment, CLIPPY_QA_RUNTIME_SCRIPT: join(root, "scripts/prepare-windows-qa-runtime.ps1"),
+          CLIPPY_QA_FAKE_VS: vs, CLIPPY_QA_FAKE_OUTPUT: output } });
+      expect(result.error).toBeUndefined();
+      expect(result.status, result.stderr).toBe(0);
+      const prepared = JSON.parse(result.stdout), config = JSON.parse(readFileSync(prepared.configPath, "utf8"));
+      expect(prepared.manifestPath).toBe(join(prepared.stagingDirectory ?? JSON.parse(readFileSync(prepared.manifestPath, "utf8")).stagingDirectory, "windows-qa-vc-runtime.json"));
+      expect(config.bundle.resources[prepared.manifestPath]).toBe("licenses/windows-qa-vc-runtime.json");
+      expect(sha256(readFileSync(prepared.manifestPath))).toBe(prepared.manifestSha256);
+      expect(existsSync(join(resolve(prepared.manifestPath, ".."), "PROVENANCE.json"))).toBe(false);
     } finally { temp.cleanup(); }
   });
 });

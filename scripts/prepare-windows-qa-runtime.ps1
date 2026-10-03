@@ -124,7 +124,8 @@ function New-WindowsQaRuntime {
         $record['stagedPath'] = $destination
         $resources[$destination] = $record.name
     }
-    $manifestPath = Join-Path $stage 'PROVENANCE.json'
+    # MSI资源文件名取源basename；与最终部署清单名称一致。
+    $manifestPath = Join-Path $stage 'windows-qa-vc-runtime.json'
     $manifest = [ordered]@{ schema = 1; requirement = 'WIN-QA-CRT-01'; sourceSha = $SourceSha
         sourceGitStatus = @(); toolsetVersion = $toolsetText; redistDirectory = $redist; redistFamily = $latest[0].Family
         stagingDirectory = $stage; manifestPath = $manifestPath; files = @($records)
