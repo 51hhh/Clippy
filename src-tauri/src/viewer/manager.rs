@@ -133,7 +133,7 @@ impl ViewerSession {
     }
     pub fn mark_ready(&self) -> Result<(), ViewerError> {
         self.lifecycle
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |state| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |state| {
                 (state & ACTIVE != 0).then_some(state | READY)
             })
             .map(|_| ())
@@ -312,7 +312,7 @@ impl ViewerSession {
     /// 原生销毁只撤销身份；不等待正在调用原生 API 的输出工作线程。
     pub fn invalidate(&self) {
         self.lifecycle
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |state| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |state| {
                 Some((state & !ACTIVE) | DESTROYED)
             })
             .ok();
@@ -326,7 +326,7 @@ impl ViewerSession {
     }
     pub fn restore_after_close_failure(&self) {
         self.lifecycle
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |state| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |state| {
                 (state & DESTROYED == 0).then_some(state | ACTIVE)
             })
             .ok();

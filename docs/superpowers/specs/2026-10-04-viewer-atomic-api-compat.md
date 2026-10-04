@@ -21,8 +21,8 @@ fetch_update 弃用错误并 exit 101；本机现有工具链为 Rust 1.98.1。�
 
 ## Acceptance Criteria
 
-- [ ] 生产源码只替换三处 API 名称，所有闭包、顺序及返回值处理原字节保持。
-- [ ] 现有 Rust 1.98.1 查看器合同通过，原 viewer/tests.rs 字节及超时未变。
+- [x] 生产源码只替换三处 API 名称，所有闭包、顺序及返回值处理原字节保持。
+- [x] 现有 Rust 1.98.1 查看器合同通过，原 viewer/tests.rs 字节及超时未变。
 - [ ] 修复源码的完整 Windows 默认/QA 门禁通过，跳过/ignored 如实记录。
 - [ ] 新 SHA 上原七项 CI 在 Rust stable 下成功，原失败证据不被覆盖。
 
@@ -37,3 +37,10 @@ fetch_update 弃用错误并 exit 101；本机现有工具链为 Rust 1.98.1。�
 Rust 官方 [Atomic 文档](https://doc.rust-lang.org/beta/core/sync/atomic/struct.Atomic.html)
 记录 fetch_update 是 try_update 的别名、1.99 弃用，try_update 自 1.95 可用。
 三处仅更换入口名称；现有 1.98.1 本机编译与当前 stable CI 分别验证版本兼容。
+
+## Verification
+
+原查看器合同在现有 Rust 1.98.1 下 23 passed / 0 failed / 0 ignored，实际 terminal
+41931 exit 0。三处 API 名称反向替换与原 manager 原始字节相同；viewer/tests.rs
+原始字节未变。这 23 项包含于全量原用例，不计新增或重复通过数。完整门禁与新 SHA
+CI 未运行完成，后两项 AC 保持未完成；原 Rust1.99 失败 run/log 不覆盖。

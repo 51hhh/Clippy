@@ -2,6 +2,16 @@
 
 ## 未发布
 
+### 2026-10-04 查看器原子更新API兼容
+
+- 修复 Rust stable 1.99 下查看器三处 `fetch_update` 弃用警告导致严格 Clippy 门禁失败。
+  使用自 1.95 可用的标准库 `try_update`，保持原闭包、AcqRel/Acquire 顺序、状态转换和
+  返回值处理；原测试正文和超时未改，不降低警告门禁或固定旧 CI 工具链。
+  关联 VIEWER-ATOMIC-API-01 / WIN-NATIVE-01，规格见
+  `docs/superpowers/specs/2026-10-04-viewer-atomic-api-compat.md`。
+  原 228cc935 CI run 37166791297 及失败日志保留；修复的本机/新 SHA CI 正在验证，
+  当前未计通过。原 228cc935 release/安装包来源不改；真实安装、桌面与设备验收仍未执行。
+
 ### 2026-10-04 QA MSI运行库来源清单
 
 - 修复 QA MSI 的 CRT 来源清单落盘名称与部署验证器不一致的问题。staging 源文件采用
