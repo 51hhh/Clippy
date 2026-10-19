@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { X } from "lucide-react";
 import {
   closeRecordingLibrary,
   deleteRecordingSession,
@@ -347,15 +348,17 @@ export function App({ services = defaultServices }: { services?: RecordingLibrar
   };
 
   return (
-    <main className="recordings-shell">
-      <header className="recordings-titlebar" onMouseDown={(event) => {
-        if (event.button === 0 && event.target === event.currentTarget) void services.startDrag();
+    <main className="window-shell recordings-shell">
+      <header className="window-titlebar recordings-titlebar" onMouseDown={(event) => {
+        if (event.button !== 0 || (event.target as Element).closest("button,input,select,textarea,a")) return;
+        event.preventDefault();
+        void services.startDrag();
       }}>
-        <div>
+        <div className="window-titlebar__copy">
           <h1>{t("recordings.title")}</h1>
           <p>{t("recordings.subtitle")}</p>
         </div>
-        <button className="window-close" type="button" aria-label={t("recordings.close")} onClick={() => void services.close()}>×</button>
+        <button className="window-titlebar__button window-titlebar__button--close window-close" type="button" aria-label={t("recordings.close")} onClick={() => void services.close()}><X size={20} /></button>
       </header>
 
       <section className="recordings-content" aria-live="polite">

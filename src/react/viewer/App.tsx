@@ -14,6 +14,7 @@ import { useViewerTools, viewerError } from "./useViewerTools";
 import { useViewerWindow } from "./useViewerWindow";
 import "../../styles/themes.css";
 import "../../styles/base.css";
+import "../../styles/window-shell.css";
 import "../pin/pin.css";
 import "./viewer.css";
 
@@ -144,7 +145,7 @@ export function ViewerDocument({ payload, config, services }: { payload: ViewerP
     if (promptRef.current || busyRef.current || closing.current) return;
     if (panel) closePanel(); else requestClose();
   };
-  return <main className="viewer-window" data-snapshot-id={payload.handle.snapshotId}
+  return <main className="window-shell viewer-window" data-snapshot-id={payload.handle.snapshotId}
     onKeyDownCapture={event => {
       if (event.key !== "F11") return;
       event.preventDefault(); event.stopPropagation();
@@ -158,14 +159,14 @@ export function ViewerDocument({ payload, config, services }: { payload: ViewerP
       else if (event.key === "Escape") { event.preventDefault(); canvas.cancel(); windowControls.escape(() => escapeFallback.current()); }
     }}>
     <div className="viewer-workspace" ref={workspace}>
-      <header className="viewer-header" onPointerDown={event => {
+      <header className="window-titlebar viewer-header" onPointerDown={event => {
         if (event.defaultPrevented || event.button !== 0 || (event.target as Element).closest("button,input,select,textarea,a,[role=button]")) return;
         event.preventDefault(); canvas.cancel(); windowControls.startDrag();
-      }}><ImageIcon size={20} /><div className="viewer-title"><h1>{t("viewer.title")}{documentState.dirty && <span aria-label={t("viewer.unsaved")}> ●</span>}</h1><p>{payload.source.width} × {payload.source.height} · PNG</p></div>
-        <div className="viewer-window-controls">
-          <button type="button" aria-label={t("viewer.minimize")} title={t("viewer.minimize")} disabled={busy || !!prompt || !!windowControls.pending} onClick={() => { canvas.cancel(); windowControls.minimize(); }}><Minus size={17} /></button>
-          <button type="button" aria-label={t(windowControls.fullscreen ? "viewer.exitFullscreen" : "viewer.enterFullscreen")} title={t(windowControls.fullscreen ? "viewer.exitFullscreen" : "viewer.enterFullscreen")} aria-pressed={windowControls.fullscreen === true} disabled={busy || !!prompt || !!windowControls.pending} onClick={() => { canvas.cancel(); windowControls.toggleFullscreen(); }}>{windowControls.fullscreen ? <Minimize size={16} /> : <Maximize size={16} />}</button>
-          <button type="button" className="viewer-close" aria-label={t("viewer.close")} title={t("viewer.close")} disabled={busy || !!prompt} onClick={requestClose}><X size={18} /></button>
+      }}><span className="window-titlebar__icon"><ImageIcon size={20} /></span><div className="window-titlebar__copy viewer-title"><h1>{t("viewer.title")}{documentState.dirty && <span aria-label={t("viewer.unsaved")}> ●</span>}</h1><p>{payload.source.width} × {payload.source.height} · PNG</p></div>
+        <div className="window-titlebar__controls viewer-window-controls">
+          <button type="button" className="window-titlebar__button" aria-label={t("viewer.minimize")} title={t("viewer.minimize")} disabled={busy || !!prompt || !!windowControls.pending} onClick={() => { canvas.cancel(); windowControls.minimize(); }}><Minus size={17} /></button>
+          <button type="button" className="window-titlebar__button" aria-label={t(windowControls.fullscreen ? "viewer.exitFullscreen" : "viewer.enterFullscreen")} title={t(windowControls.fullscreen ? "viewer.exitFullscreen" : "viewer.enterFullscreen")} aria-pressed={windowControls.fullscreen === true} disabled={busy || !!prompt || !!windowControls.pending} onClick={() => { canvas.cancel(); windowControls.toggleFullscreen(); }}>{windowControls.fullscreen ? <Minimize size={16} /> : <Maximize size={16} />}</button>
+          <button type="button" className="window-titlebar__button window-titlebar__button--close viewer-close" aria-label={t("viewer.close")} title={t("viewer.close")} disabled={busy || !!prompt} onClick={requestClose}><X size={18} /></button>
         </div></header>
       <div className={`viewer-body${panel ? " has-panel" : ""}`}>
         <div ref={canvas.stageRef} className="viewer-canvas-stage">

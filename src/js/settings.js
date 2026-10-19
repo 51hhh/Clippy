@@ -19,6 +19,7 @@ import {
   importClippyArchive,
   isAutostartEnabled,
   isDevBinary,
+  minimizeCurrentWindow,
   ocrInstall,
   onShortcutRegisterFailed,
   openExternalUrl,
@@ -28,12 +29,15 @@ import {
   requestPastePermission,
   resumeShortcuts,
   runCaptureDiagnostics,
+  startDraggingCurrentWindow,
   tmuxAvailable,
   toggleTmuxCapture,
+  toggleMaximizeCurrentWindow,
   uninstallWindowProbeExtension,
   updateConfig,
 } from "./api.ts";
 import { initCustomSelect } from "./custom-select.js";
+import { bindWindowChrome } from "./window-chrome.js";
 import { createAutostartSettings } from "./settings/autostart-settings.js";
 import { createArchiveTransfer } from "./settings/archive-transfer.js";
 import { createCaptureDiagnosticsCard } from "./settings/capture-diagnostics.js";
@@ -58,6 +62,7 @@ import { checkForUpdate, initUpdateModal } from "./update-modal.js";
 import * as i18n from "../i18n/i18n.js";
 import "../styles/themes.css";
 import "../styles/base.css";
+import "../styles/window-shell.css";
 import "../styles/settings.css";
 
 function element(id) {
@@ -416,6 +421,16 @@ async function requestSettingsClose() {
     closingSettings = false;
   }
 }
+bindWindowChrome({
+  titlebar: element("settings-titlebar"),
+  minimizeButton: element("settings-minimize-btn"),
+  maximizeButton: element("settings-maximize-btn"),
+  closeButton: element("settings-close-btn"),
+  startDragging: startDraggingCurrentWindow,
+  minimize: minimizeCurrentWindow,
+  toggleMaximize: toggleMaximizeCurrentWindow,
+  requestClose: requestSettingsClose,
+});
 element("cancel-btn").addEventListener("click", () => { void requestSettingsClose(); });
 
 tmuxToggle.addEventListener("change", async () => {

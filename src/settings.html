@@ -6,12 +6,43 @@
   <title>Clippy Settings</title>
   <link rel="stylesheet" href="styles/themes.css">
   <link rel="stylesheet" href="styles/base.css">
+  <link rel="stylesheet" href="styles/window-shell.css">
   <link rel="stylesheet" href="styles/components.css">
   <link rel="stylesheet" href="styles/settings.css">
 </head>
 <body>
-  <div class="settings-container">
-    <h1 class="settings-title" data-i18n="settings.title">Settings</h1>
+  <main class="window-shell settings-shell">
+    <header class="window-titlebar settings-titlebar" id="settings-titlebar">
+      <div class="window-titlebar__identity">
+        <span class="window-titlebar__icon" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <path d="M4 21v-7m0-4V3m8 18v-9m0-4V3m8 18v-5m0-4V3M1 14h6M9 8h6m2 8h6"/>
+          </svg>
+        </span>
+        <div class="window-titlebar__copy">
+          <h1 data-i18n="settings.title">Settings</h1>
+        </div>
+      </div>
+      <div class="window-titlebar__controls">
+        <button class="window-titlebar__button" id="settings-minimize-btn" type="button"
+                aria-label="Minimize settings" title="Minimize settings"
+                data-i18n="settings.window.minimize" data-i18n-attr="aria-label,title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 12h14"/></svg>
+        </button>
+        <button class="window-titlebar__button" id="settings-maximize-btn" type="button"
+                aria-label="Maximize or restore settings" title="Maximize or restore settings"
+                data-i18n="settings.window.maximize" data-i18n-attr="aria-label,title">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="1"/></svg>
+        </button>
+        <button class="window-titlebar__button window-titlebar__button--close" id="settings-close-btn" type="button"
+                aria-label="Close settings" title="Close settings"
+                data-i18n="settings.window.close" data-i18n-attr="aria-label,title">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="settings-container">
 
     <!-- 注册失败提示横跨三个动作，也可能在任意分页下产生，因此留在分页之外 -->
     <div class="setting-warning hidden" id="shortcut-register-warning"></div>
@@ -541,7 +572,8 @@
     </div>
 
     <div class="toast hidden" id="toast"></div>
-  </div>
+    </div>
+  </main>
 
   <!-- 更新弹窗（与主窗口共用 update-modal 结构） -->
   <div id="update-modal" class="update-modal hidden">

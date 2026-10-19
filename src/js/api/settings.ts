@@ -102,6 +102,16 @@ export function startDraggingCurrentWindow(): Promise<void> {
   return getCurrentWindow().startDragging();
 }
 
+/** 最小化当前 Webview 窗口。 */
+export function minimizeCurrentWindow(): Promise<void> {
+  return getCurrentWindow().minimize();
+}
+
+/** 在最大化与还原之间切换当前 Webview 窗口。 */
+export function toggleMaximizeCurrentWindow(): Promise<void> {
+  return getCurrentWindow().toggleMaximize();
+}
+
 /** 关闭当前 Webview 窗口。 */
 export function closeCurrentWindow(): Promise<void> {
   return getCurrentWindow().close();

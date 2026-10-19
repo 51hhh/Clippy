@@ -3,6 +3,9 @@ import { createRoot } from "react-dom/client";
 import { getRecordingLibrarySettings } from "../../js/api.ts";
 import { init } from "../../i18n/i18n.js";
 import { App } from "./App.tsx";
+import "../../styles/themes.css";
+import "../../styles/base.css";
+import "../../styles/window-shell.css";
 import "./recording-library.css";
 
 void getRecordingLibrarySettings()

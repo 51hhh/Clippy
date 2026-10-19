@@ -2,6 +2,20 @@
 
 ## 未发布
 
+### 2026-10-19 UI 窗口壳层与六主题一致性
+
+- 设置窗口改用与 Viewer、Launcher、录屏库和 Pin 工作区一致的自绘窗口壳层，提供拖动、
+  双击最大化、最小化、最大化/还原和关闭控件；关闭继续先恢复快捷键再销毁窗口，失败时保留输入。
+  录屏库与 Pin 工作区移除硬编码 light/dark 配色，改为完整消费 light、dark、nord、
+  solarized-light、rose、midnight 六套主题 token。公共标题栏、控制按钮与状态色集中维护，
+  各窗口仍保留自己的尺寸和内容布局。
+  Linux 隔离 Tauri/X11 smoke 已确认设置页为无重复系统标题栏的 720×560 窗口，逐项切换六主题
+  并确认持久化与真实 WebView 渲染，关闭后对应 WebKit 子进程退出；该环境没有窗口管理器，不能
+  替代真实桌面的拖动、缩放、最小化和最大化验收。Linux 真实桌面及 Windows/macOS QA 尚未执行，
+  不计为通过；完整 Linux 本地门禁 25/0/2，非宿主交叉 lint 与 AppImage 可视 smoke 未启用。
+  本项不宣称降低运行内存。
+  （需求：`docs/superpowers/specs/2026-10-19-ui-shell-theme-unification.md`）
+
 ### 2026-10-04 查看器原子更新API兼容
 
 - 修复 Rust stable 1.99 下查看器三处 `fetch_update` 弃用警告导致严格 Clippy 门禁失败。

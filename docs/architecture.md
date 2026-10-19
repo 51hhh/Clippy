@@ -68,7 +68,7 @@ flowchart LR
 | `clipboard_watcher.rs` + `clipboard_watcher/*` | 主轮询与去重协调；内容分类、写入重试和 tmux/inotify 监听各自隔离。**入库只有 watcher 这一条路径**——`writer.rs` 的三个写入口只管写系统剪贴板，写完敲 `wake::nudge()` 让轮询等待当场结束（`wake.rs` 的条件变量 + 待处理标记），所以自己复制的内容也是几毫秒内进历史，而不是最多等满 500 ms。别让写入方自己 `insert_clip`：watcher 哈希的是它自己从剪贴板 RGBA 重编的 PNG，字节对不上就会在 500 ms 后被再插一条 |
 | `paste/mod.rs` | 自动粘贴协调器、后端选择、Copy-only fallback 和稳定状态契约 |
 | `paste/portal.rs` / `x11.rs` / `token_store.rs` | Portal 会话与授权状态机、X11 窗口恢复与输入、私有 restore token 持久化 |
-| `window_controller.rs` | 主窗口 work area、logical/physical 尺寸与位置约束；设置窗口的开窗入口（托盘与 IPC 共用一份几何与标题） |
+| `window_controller.rs` | 主窗口 work area、logical/physical 尺寸与位置约束；设置窗口的开窗入口（托盘与 IPC 共用一份几何与标题）。设置页使用无原生装饰的可调整大小窗口，关闭仍由 settings command 先恢复快捷键再销毁，不能直接调用原生 `close()` 绕过该协议 |
 | `i18n.rs` | 托盘菜单与 Rust 侧窗口标题的静态文案；语言解析与前端 `i18n.js` 同规则（显式值优先，`auto` 看 `LC_ALL`/`LC_MESSAGES`/`LANG`，其余回退英文） |
 | `capture/` | 单一 CaptureSession、冻结帧、多显示器覆盖层、裁剪与动作；`window_probe.rs` 按堆叠顺序（扩展 `sort_windows_by_stacking` / X11 `_NET_CLIENT_LIST_STACKING`）下发速选候选。冻结帧像素由 `get_capture_frame` 以二进制 IPC 直传原始 RGBA（payload 只带几何），`StageTimings` 每次会话记一条分段耗时日志 |
 | `recording/` | `RecordingLifecycle` 串起可信选区、平台帧源、有界背压、共享单调时钟、VP9/WebM writer、恢复分段、控制窗和结果库；`RecordingManager` 在同一 generation 槽拥有纯视频或 VP9 + Opus 双轨 session。内部音频固定为 48 kHz mono/stereo，Windows AV QA 已把 WGC 与 WASAPI 系统声/默认麦克风接线，macOS 13+ AV QA 已把 ScreenCaptureKit 系统声接线；模式由后端能力下发且默认无音频，macOS 麦克风、Linux 音源与正式发布仍未接入。`manifest.rs` 拥有原子 journal、长度/SHA-256 与删除/导出安全合同；缩略图读取器对 schema v2 严格核对 VP9/Opus 双轨元数据，只解码首个视频关键帧，异常双轨 remux 仍保持关闭；`media_protocol.rs` 在完整校验后签发结果窗专属租约，以最大 2 MiB 的单 Range 响应支持 WebM 库内播放，WebView 不接触真实路径。 |
@@ -122,6 +122,15 @@ VP9/Opus 交错器在实际 WebM 0.5 ms timecode 域内比较 packet 和未来 f
 桌面环境、架构、XWayland、Portal 接口版本，以及九项能力的状态和本地化 reason。它不读 user-agent、
 不重复推断平台，所有后端文本通过文本节点写入 DOM。
 
+主要文档窗口共用 `styles/window-shell.css` 的 Window Shell、Titlebar、标题副本和窗口控制按钮原语。
+设置页由 `js/window-chrome.js` 绑定拖动、双击最大化和窗口按钮，原生动作仍从 `api.ts` facade
+注入；Launcher、Viewer、录屏库与 Pin 工作区只复用 CSS 类名，并继续使用各自已有的 service adapter。
+截图覆盖层、长截图控制、Pin 画布与录屏控制浮层保留面向画面的高对比工具风格，不套用文档窗口壳层。
+
+`styles/themes.css` 是六套主题 token 的唯一来源。录屏库与 Pin 工作区不得维护仅覆盖 light/dark 的
+页面级配色分支；状态色和媒体表面通过语义 token 派生。窗口自己的 CSS 只负责尺寸、布局和业务状态，
+不得重新定义标题栏基础交互样式。
+
 ### 页面入口与功能岛
 
 | 入口 / 目录 | 运行形态 | 所有权 |
@@ -149,6 +158,8 @@ HTML 入口由 `vite.config.mjs` 显式登记。功能岛之间不直接导入�
 | `js/preview/classify.js` | **内容类型的唯一判定处**：有序规则表（guard 预筛 → detect → 渲染器），先匹配先赢 |
 | `js/preview-panel.js` | 预览状态、异步判定尾段（Markdown/代码/富文本/纯文本）、延迟库与缓存 |
 | `js/preview/*-renderers.js` | 代码、元数据、格式、加密、内容/OCR 渲染；badge 文案由命中的渲染器自己写 |
+| `styles/themes.css` / `styles/window-shell.css` | 六主题语义 token，以及 Vanilla/React 共用的文档窗口壳层与标题栏基础样式 |
+| `js/window-chrome.js` | Vanilla 自绘标题栏的 DOM 事件控制器；窗口动作由调用方注入，不直接访问 Tauri |
 | `react/main/translationStore.ts` | 主预览翻译状态、多服务结果卡、单服务重试与陈旧响应保护 |
 | `styles/components.css::.translation-host` | React 翻译面板的挂载壳：`.preview-panel` 的 flex 子项必须自己有 `min-height: 0` 与 `max-height`，否则 `.translation-panel` 的百分比 `max-height` 相对 auto 高度失效，翻译区会把预览内容挤没、自己被窗口裁掉。主窗口高度对所有面板组合恒定（`MAIN_WINDOW_HEIGHT`），翻译区靠这个上限和自身滚动落位——高度随预览变化会连带改变列表可见行数，列表跟着重排比翻译区挤一点更难用 |
 | `js/translation-providers.ts` | 服务显示名、默认端点与能力标记（设置页/主面板/选区翻译共用） |

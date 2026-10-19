@@ -111,6 +111,7 @@ pub(crate) fn open_settings_window(app: &tauri::AppHandle) -> Result<(), String>
     .min_inner_size(480.0, 400.0)
     .center()
     .resizable(true)
+    .decorations(false)
     .build()
     .map_err(|error| error.to_string())?;
     Ok(())

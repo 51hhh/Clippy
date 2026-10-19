@@ -28,6 +28,7 @@ import { t } from "../shared/i18n";
 import { launcherApi, type LauncherServices } from "./api";
 import "../../styles/themes.css";
 import "../../styles/base.css";
+import "../../styles/window-shell.css";
 import "./launcher.css";
 
 type LauncherActionId = ActionId;
@@ -408,13 +409,13 @@ export function LauncherApp({
     : reply?.output.type === "recognized_text" ? reply.output.value.text : "";
   const scanResults = reply?.output.type === "detected_codes" ? reply.output.value.results : [];
 
-  return <main className="launcher-window" onKeyDown={onKeyDown}>
-    <header className="launcher-header" onPointerDown={event => {
+  return <main className="window-shell launcher-window" onKeyDown={onKeyDown}>
+    <header className="window-titlebar launcher-header" onPointerDown={event => {
       if (event.button !== 0 || (event.target as Element).closest("button,input,textarea,select,a")) return;
       event.preventDefault(); void services.startDrag();
     }}>
       <div className="launcher-brand"><Command size={18} /><strong>{t("launcher.title")}</strong><kbd>Ctrl K</kbd></div>
-      <button type="button" className="launcher-close" aria-label={t("launcher.close")} title={t("launcher.close")}
+      <button type="button" className="window-titlebar__button window-titlebar__button--close launcher-close" aria-label={t("launcher.close")} title={t("launcher.close")}
         disabled={view === "running" && !selected?.cancellable} onClick={() => void close()}><X size={18} /></button>
     </header>
 

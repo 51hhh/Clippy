@@ -1,17 +1,13 @@
-:root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-* { box-sizing: border-box; }
 html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
-button, input, textarea, select { font: inherit; }
-button { color: inherit; }
-.launcher-window { width: 100%; height: 100%; display: flex; flex-direction: column; color: var(--text-primary); background: var(--bg-primary); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 18px 48px rgb(0 0 0 / 24%); overflow: hidden; }
-.launcher-header { height: 48px; flex: 0 0 48px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px 0 16px; border-bottom: 1px solid var(--border); background: var(--bg-secondary); user-select: none; }
+.launcher-window { --window-titlebar-height: 48px; --window-titlebar-padding-inline: 10px; border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 18px 48px rgb(0 0 0 / 24%); }
+.launcher-header { padding-left: 16px; background: var(--bg-secondary); }
 .launcher-brand { display: flex; align-items: center; gap: 9px; font-size: 14px; }
 .launcher-brand svg { color: var(--accent); }
 kbd { min-width: 22px; padding: 2px 6px; border: 1px solid var(--border); border-bottom-color: color-mix(in srgb, var(--border), #000 18%); border-radius: 5px; background: var(--bg-primary); color: var(--text-secondary); font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; }
 .launcher-brand kbd { margin-left: 4px; }
-.launcher-close, .launcher-back { width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; cursor: pointer; }
-.launcher-close:hover, .launcher-back:hover { background: var(--bg-hover); }
-.launcher-close:disabled, .launcher-back:disabled { opacity: .42; cursor: default; }
+.launcher-back { width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; cursor: pointer; }
+.launcher-back:hover { background: var(--bg-hover); }
+.launcher-back:disabled { opacity: .42; cursor: default; }
 .launcher-list-view, .launcher-detail { min-height: 0; flex: 1; display: flex; flex-direction: column; }
 .launcher-search { margin: 14px 16px 10px; height: 46px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-secondary); color: var(--text-secondary); }
 .launcher-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent), transparent 84%); }

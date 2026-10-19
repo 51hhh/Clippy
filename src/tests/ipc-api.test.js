@@ -14,7 +14,9 @@ const {
     label: "settings",
     close: vi.fn(),
     hide: vi.fn(),
+    minimize: vi.fn(),
     startDragging: vi.fn(),
+    toggleMaximize: vi.fn(),
     onDragDropEvent: vi.fn(),
   },
   enableAutostartPlugin: vi.fn(),
@@ -55,6 +57,7 @@ import {
   getOcrHealthStatus,
   hideCurrentWindow,
   isAutostartEnabled,
+  minimizeCurrentWindow,
   importClippyArchive,
   onArchiveImported,
   onClipAdded,
@@ -67,6 +70,7 @@ import {
   retryCaptureAction,
   onCaptureLongshotHandoff,
   startDraggingCurrentWindow,
+  toggleMaximizeCurrentWindow,
   updateConfig,
   closeSettings,
   restartApp,
@@ -88,7 +92,9 @@ describe("typed IPC wrappers", () => {
     listen.mockReset();
     currentWindow.close.mockReset();
     currentWindow.hide.mockReset();
+    currentWindow.minimize.mockReset();
     currentWindow.startDragging.mockReset();
+    currentWindow.toggleMaximize.mockReset();
     currentWindow.onDragDropEvent.mockReset();
     enableAutostartPlugin.mockReset();
     disableAutostartPlugin.mockReset();
@@ -540,11 +546,15 @@ describe("typed IPC wrappers", () => {
 
     closeCurrentWindow();
     hideCurrentWindow();
+    minimizeCurrentWindow();
     startDraggingCurrentWindow();
+    toggleMaximizeCurrentWindow();
 
     expect(currentWindow.close).toHaveBeenCalledOnce();
     expect(currentWindow.hide).toHaveBeenCalledOnce();
+    expect(currentWindow.minimize).toHaveBeenCalledOnce();
     expect(currentWindow.startDragging).toHaveBeenCalledOnce();
+    expect(currentWindow.toggleMaximize).toHaveBeenCalledOnce();
   });
 
   it("keeps native project drop and project-open IPC behind the typed boundary", async () => {

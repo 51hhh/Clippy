@@ -7,6 +7,16 @@
      - accent / accent-hover 与 bg-primary 至少 3:1，正按钮文字用 #fff/#0a0a0a
    ============================================================ */
 
+/* 跨主题的语义状态色。柔和底色在使用时与当前主题表面混合，避免维护六份重复值。 */
+:root {
+  --success:              #096b4a;
+  --warning:              #7d4d00;
+  --success-soft:         color-mix(in srgb, var(--success) 15%, var(--bg-secondary));
+  --warning-soft:         color-mix(in srgb, var(--warning) 16%, var(--bg-secondary));
+  --danger-soft:          color-mix(in srgb, var(--danger) 13%, var(--bg-secondary));
+  --media-surface:        #090b10;
+}
+
 /* ---------- light（默认 · Linen） ---------- */
 [data-theme="light"] {
   --bg-primary:           #fbfbfd;
@@ -32,6 +42,8 @@
 
   --danger:               #d44a4a;
   --danger-hover:         #b83b3b;
+  --success:              #096b4a;
+  --warning:              #7d4d00;
 
   --favorite:             #f1a73a;
 
@@ -67,6 +79,8 @@
 
   --danger:               #f06464;
   --danger-hover:         #d44d4d;
+  --success:              #6fd3a9;
+  --warning:              #f1b45b;
 
   --favorite:             #f4c145;
 
@@ -114,6 +128,8 @@
 
   --danger:               #bf616a;
   --danger-hover:         #a85056;
+  --success:              #b8d9a4;
+  --warning:              #f2d49a;
 
   --favorite:             #ebcb8b;
 
@@ -161,6 +177,8 @@
 
   --danger:               #cb4b16;
   --danger-hover:         #a83a10;
+  --success:              #146149;
+  --warning:              #754800;
 
   --favorite:             #b58900;
 
@@ -208,6 +226,8 @@
 
   --danger:               #c1392b;
   --danger-hover:         #9d2a1f;
+  --success:              #146b4a;
+  --warning:              #7d4900;
 
   --favorite:             #f59e0b;
 
@@ -243,6 +263,8 @@
 
   --danger:               #f47272;
   --danger-hover:         #d65656;
+  --success:              #79d7b0;
+  --warning:              #f1bd6b;
 
   --favorite:             #facc15;
 

@@ -273,17 +273,17 @@ export function App({ services = defaultServices }: { services?: PinWorkspaceLib
   );
 
   return (
-    <main className="pin-library-shell">
-      <header className="pin-library-titlebar" onMouseDown={(event) => {
+    <main className="window-shell pin-library-shell">
+      <header className="window-titlebar pin-library-titlebar" onMouseDown={(event) => {
         if (event.button !== 0 || (event.target as Element).closest("button,input,select,textarea,a")) return;
         event.preventDefault();
         void services.startDrag();
       }}>
-        <div>
+        <div className="window-titlebar__copy">
           <h1>{t("pinLibrary.title")}</h1>
           <p>{t("pinLibrary.subtitle")}</p>
         </div>
-        <button className="window-close" type="button" aria-label={t("pinLibrary.close")} onClick={() => void services.close()}><X size={20} /></button>
+        <button className="window-titlebar__button window-titlebar__button--close window-close" type="button" aria-label={t("pinLibrary.close")} onClick={() => void services.close()}><X size={20} /></button>
       </header>
 
       <div className="pin-library-body">

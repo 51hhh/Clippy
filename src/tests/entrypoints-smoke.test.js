@@ -54,6 +54,19 @@ describe("built window entrypoints", () => {
     expect(document.getElementById("translation-panel")).toBeNull();
   });
 
+  it("uses one accessible custom titlebar for the settings window", () => {
+    const document = loadEntrypoint("settings.html");
+    const titlebar = document.getElementById("settings-titlebar");
+    expect(titlebar?.classList.contains("window-titlebar")).toBe(true);
+    expect(titlebar?.querySelectorAll("h1")).toHaveLength(1);
+    expect(document.querySelectorAll(".settings-container > h1")).toHaveLength(0);
+    for (const id of ["settings-minimize-btn", "settings-maximize-btn", "settings-close-btn"]) {
+      const button = document.getElementById(id);
+      expect(button?.getAttribute("type"), id).toBe("button");
+      expect(button?.getAttribute("aria-label"), id).toBeTruthy();
+    }
+  });
+
   // 主窗口是无边框悬浮窗，失焦会自动隐藏；原生 <select> 的弹窗在 WebKitGTK 上是
   // 独立 GTK 窗口，一打开就抢走焦点，主窗口随即消失。设置窗口是普通窗口，不受此限。
   it("keeps native <select> out of the auto-hiding main window", () => {
