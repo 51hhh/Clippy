@@ -359,7 +359,7 @@ jobs:
       - name: Prototype recoverable A/V session tests
         working-directory: src-tauri
         run: |
-          cargo test --features ${{ matrix.features }} --lib recording::av
+          cargo test --features ${{ matrix.features }} --lib recording::av -- --test-threads=1
           cargo test --features ${{ matrix.features }} --lib recording::manager::tests
 
       - name: Prototype VP9 session and recovery tests
