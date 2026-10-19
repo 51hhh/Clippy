@@ -47,7 +47,7 @@ Clippy 安静地驻留在系统托盘，后台监听剪贴板变化，让你通�
 ## 功能特性
 
 - **多类型剪贴板** — 自动捕获文本、HTML 和图片，SHA-256 哈希去重
-- **tmux 集成** — 通过 `copy-pipe-and-cancel` 捕获 tmux copy-mode 复制内容，inotify 事件驱动即时检测，自动绑定验证
+- **tmux 集成** — 通过 `copy-pipe-and-cancel` 捕获 tmux copy-mode 复制内容，inotify 事件驱动即时检测，禁用时恢复用户原按键
 - **富文本预览** — 按 `Tab` 键展开预览面板：
   - 代码高亮 — 自动检测 21 种编程语言，highlight.js 渲染
   - Markdown 渲染 — 多特征评分检测，支持 GFM 语法
@@ -60,7 +60,7 @@ Clippy 安静地驻留在系统托盘，后台监听剪贴板变化，让你通�
 - **全局快捷键** — 同时支持 X11（`tauri-plugin-global-shortcut`）和 Wayland（XDG Portal / gsettings）
 - **自动粘贴** — X11 恢复原目标窗口；Wayland 复用 RemoteDesktop Portal 持久会话，不可用时安全回退为仅复制
 - **截图工作流** — 多显示器冻结选区、窗口命中、移动/缩放，可直接复制/保存/Pin/编辑；本地 OCR 后仅发送文字翻译
-- **Pin 与图片编辑** — 文本、图片、截图统一贴图控件，支持对象标注、模糊/马赛克、撤销重做和图像调整；可保存“合成预览 + 原图/操作”的单文件可编辑 PNG，也可导出不含原图的安全扁平 PNG；把可编辑 PNG 拖入主窗口即可继续编辑，普通图片仍通过剪贴板自动进入队列
+- **Pin 与图片编辑** — 文本、图片、截图统一贴图控件，支持对象标注、模糊/马赛克、撤销重做和图像调整；根图与累计操作由本机数据库管理，文件和剪贴板只输出当前扁平 PNG。同一像素再次进入 Clippy 可恢复对应版本，旧版自包含工程 PNG 仍可导入
 - **翻译集成** — LibreTranslate-compatible/OpenAI-compatible 服务、Secret Service 密钥、超时重试和敏感内容保护
 - **6 款主题** — 亚麻、石墨、极地、晒纸、玫瑰、深夜
 - **收藏夹** — 置顶重要条目，不受历史清理影响
@@ -130,6 +130,9 @@ cargo tauri build
 [结构与平台边界审阅](reviews/2026-09-17-architecture-platform-review.md)，对应的分阶段整改任务见
 [架构与平台约束整改计划](superpowers/plans/2026-09-17-architecture-hardening-plan.md)。
 
+PixPin 168 项能力与当前实现的代码、默认交付和验证差距见
+[PixPin 功能差距与后续路线](reviews/2026-09-18-pixpin-feature-gap-roadmap.md)。
+
 参考项目（Flashot/Translator）的截图、翻译和授权设计取舍见 [reference-project-guidance.md](reference-project-guidance.md)。
 
 ```mermaid
@@ -161,11 +164,12 @@ src/                          # 前端
 │   ├── api/                  # clipboard/capture/pin/viewer/settings 受控 IPC 边界
 │   ├── ipc-types.ts          # Rust serde 数据合同
 │   ├── app.js                # 入口 + 键盘路由
-│   ├── clipboard-list.js     # 列表状态机 + 差量渲染
+│   ├── clipboard-react-facade.js # React 列表的稳定 facade
 │   ├── preview-panel.js      # 预览状态与检测调度
 │   ├── preview/              # 代码、元数据、格式、内容和加密渲染器
 │   ├── search-bar.js         # 搜索 UI
 │   └── settings.js           # 设置逻辑
+├── react/main/               # 列表状态、虚拟化与行渲染
 ├── styles/                   # CSS
 └── i18n/                     # 中文、英文
 

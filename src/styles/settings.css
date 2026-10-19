@@ -3,7 +3,7 @@
    ============================================================ */
 
 html, body {
-  overflow: auto !important;
+  overflow: hidden !important;
 }
 
 /* 状态色三档：可用 / 待处理 / 不可用。集中定义，避免各处硬编码同一组绿橙红。
@@ -14,17 +14,25 @@ html, body {
   --status-bad: #dc2626;
 }
 
-.settings-container {
-  max-width: 680px;
-  margin: 0 auto;
-  padding: 36px 32px;
+.settings-shell {
+  --window-titlebar-height: 52px;
 }
 
-.settings-title {
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--text-primary);
-  margin-bottom: 36px;
+.settings-titlebar {
+  position: relative;
+  z-index: 2;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--border), transparent 35%);
+}
+
+.settings-container {
+  width: 100%;
+  max-width: 680px;
+  min-height: 0;
+  flex: 1;
+  margin: 0 auto;
+  padding: 36px 32px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* ── 分页 ── */
@@ -158,6 +166,33 @@ html, body {
   margin-bottom: 28px;
   padding-bottom: 24px;
   border-bottom: 1px solid var(--border);
+}
+
+.archive-transfer-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.archive-sensitive-option {
+  width: fit-content;
+}
+
+.archive-transfer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.archive-transfer-status {
+  margin: 10px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.archive-transfer-status.error {
+  color: var(--status-bad);
 }
 .setting-group:last-of-type {
   border-bottom: none;
@@ -407,26 +442,39 @@ html, body {
   box-shadow: 0 0 0 3px var(--accent-soft, color-mix(in srgb, var(--accent) 22%, transparent));
 }
 
-/* ── OCR 状态行 ── */
+/* ── OCR 运行时 ── */
 
-.ocr-status-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
+#ocr-status-card { margin-top: 10px; }
+.ocr-runtime-meta {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0 14px;
 }
-.ocr-status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: var(--text-muted);
+.ocr-runtime-meta > div {
+  display: grid;
+  grid-template-columns: minmax(88px, auto) minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
 }
-.ocr-status-dot.ocr-ok { background: #22c55e; }
-.ocr-status-dot.ocr-missing { background: #ef4444; }
-.ocr-status-text {
-  font-size: 13px;
+.ocr-runtime-meta dt {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.ocr-runtime-meta dd {
+  min-width: 0;
+  margin: 0;
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
   color: var(--text-secondary);
+}
+.ocr-manifest-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+@media (max-width: 520px) {
+  .ocr-manifest-row { grid-template-columns: minmax(0, 1fr); }
+  .ocr-manifest-row .btn { width: 100%; }
 }
 .permission-status-row {
   display: flex;

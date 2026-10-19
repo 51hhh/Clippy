@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Clippy",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "identifier": "com.clippy.app",
   "build": {
     "beforeDevCommand": {
@@ -33,7 +33,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: blob: capture-frame: http://capture-frame.localhost pin-frame: http://pin-frame.localhost viewer-frame: http://viewer-frame.localhost; media-src 'self' data: blob:"
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: blob: capture-frame: http://capture-frame.localhost pin-frame: http://pin-frame.localhost viewer-frame: http://viewer-frame.localhost; media-src 'self' data: blob: recording-media: http://recording-media.localhost"
     }
   },
   "plugins": {
@@ -51,7 +51,22 @@
     "license": "MIT",
     "resources": {
       "../LICENSE": "licenses/Clippy-MIT.txt",
-      "third-party-licenses/rxing-0.9.2.txt": "licenses/THIRD-PARTY-LICENSES-rxing-0.9.2.txt"
+      "third-party-licenses/rxing-0.9.2.txt": "licenses/THIRD-PARTY-LICENSES-rxing-0.9.2.txt",
+      "third-party-licenses/shiguredo_libvpx-2026.2.0-canary.1.txt": "licenses/shiguredo_libvpx-2026.2.0-canary.1-Apache-2.0.txt",
+      "third-party-licenses/webm-2.2.1-MPL-2.0.txt": "licenses/webm-2.2.1-MPL-2.0.txt",
+      "third-party-licenses/libwebm-2.2.1-BSD-3-Clause.txt": "licenses/libwebm-2.2.1-BSD-3-Clause.txt",
+      "third-party-licenses/libvpx-1.16.0-BSD-3-Clause.txt": "licenses/libvpx-1.16.0-BSD-3-Clause.txt",
+      "third-party-licenses/yuv-0.8.19-BSD-3-Clause.txt": "licenses/yuv-0.8.19-BSD-3-Clause.txt",
+      "third-party-licenses/recording-vp9-prototype-NOTICE.md": "licenses/recording-vp9-prototype-NOTICE.md",
+      "third-party-licenses/opusic-c-1.6.1-BSD-3-Clause.txt": "licenses/opusic-c-1.6.1-BSD-3-Clause.txt",
+      "third-party-licenses/opusic-sys-0.7.5-libopus-1.6.1-BSD-3-Clause.txt": "licenses/opusic-sys-0.7.5-libopus-1.6.1-BSD-3-Clause.txt",
+      "third-party-licenses/recording-opus-webm-NOTICE.md": "licenses/recording-opus-webm-NOTICE.md",
+      "third-party-licenses/rubato-5.0.0-LICENSE-MIT.txt": "licenses/rubato-5.0.0-LICENSE-MIT.txt",
+      "third-party-licenses/rubato-5.0.0-LICENSE-APACHE.txt": "licenses/rubato-5.0.0-LICENSE-APACHE.txt",
+      "third-party-licenses/audioadapter-family-5.0.0-5.2.0-LICENSE-MIT.txt": "licenses/audioadapter-family-5.0.0-5.2.0-LICENSE-MIT.txt",
+      "third-party-licenses/audio-codec-algorithms-0.8.1-LICENSE-0BSD.txt": "licenses/audio-codec-algorithms-0.8.1-LICENSE-0BSD.txt",
+      "third-party-licenses/visibility-0.1.1-LICENSE-MIT.txt": "licenses/visibility-0.1.1-LICENSE-MIT.txt",
+      "third-party-licenses/windowfunctions-0.1.1-LICENSE-MIT.txt": "licenses/windowfunctions-0.1.1-LICENSE-MIT.txt"
     },
     "icon": [
       "icons/32x32.png",

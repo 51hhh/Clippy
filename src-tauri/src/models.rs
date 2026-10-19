@@ -51,17 +51,17 @@ pub struct ClipItem {
 }
 
 impl ClipItem {
-    /// 去掉图片二进制，用于所有**发给前端**的条目。
-    ///
-    /// 这不是省几个字节的事。IPC 与事件都走 JSON，`Vec<u8>` 会序列化成一串十进制数字，
-    /// 一张 3 MB 的截图能膨胀到十几 MB 文本，再由 webview 那一个线程解析。而前端从来
-    /// 不读这个字段：列表行走 `get_clip_thumbnail`（128 px、带缓存），预览与贴图走
-    /// `get_clip_image`（按需取原图）。
-    ///
-    /// 每个发送点各写一遍 `clip.image_data = None` 就总会漏掉一个（`select_clip` 就漏了），
-    /// 所以收成一个方法，测试盯着它。
-    pub fn without_image_data(mut self) -> Self {
+    pub const LIST_TEXT_MAX_CHARS: usize = 2_048;
+
+    /// 列表与实时事件只携带有界摘要；完整正文由详情命令按当前焦点读取。
+    pub fn for_list(mut self) -> Self {
         self.image_data = None;
+        self.html_content = None;
+        if let Some(text) = self.text_content.as_mut() {
+            if let Some((byte_index, _)) = text.char_indices().nth(Self::LIST_TEXT_MAX_CHARS) {
+                text.truncate(byte_index);
+            }
+        }
         self
     }
 }
@@ -133,6 +133,9 @@ pub struct AppConfig {
     pub ocr_result_mode: String,
     #[serde(default = "default_ocr_enabled")]
     pub ocr_enabled: bool,
+    /// 本地增强 OCR manifest 的绝对路径。空值保留开发环境变量兜底；应用不会自动下载模型。
+    #[serde(default)]
+    pub enhanced_ocr_manifest_path: String,
     #[serde(default)]
     pub tmux_capture: bool,
     #[serde(default = "default_auto_paste")]
@@ -257,6 +260,7 @@ impl Default for AppConfig {
             delete_confirm_ms: 1200,
             ocr_result_mode: "preview".to_string(),
             ocr_enabled: true,
+            enhanced_ocr_manifest_path: String::new(),
             tmux_capture: false,
             auto_paste: true,
             translation_services: default_translation_services(),
@@ -386,34 +390,29 @@ mod tests {
         );
     }
 
-    /// 发给前端的条目必须不带图片二进制：JSON 序列化会把 `Vec<u8>` 摊成一串十进制数字，
-    /// 几 MB 的截图能膨胀到十几 MB 文本，而前端根本不读这个字段。其余字段一个都不能动——
-    /// 列表要靠 `created_at` 排序、靠 `is_favorite` 显示星标。
     #[test]
-    fn the_payload_sent_to_the_frontend_drops_the_image_but_keeps_everything_else() {
+    fn list_payload_drops_large_fields_and_truncates_on_a_unicode_boundary() {
+        let text = format!("{}尾", "界".repeat(ClipItem::LIST_TEXT_MAX_CHARS));
         let clip = ClipItem {
-            id: 7,
-            content_type: ContentType::Image,
-            text_content: None,
-            html_content: None,
-            image_data: Some(vec![0x89, b'P', b'N', b'G']),
-            content_hash: "abc".to_string(),
-            is_favorite: true,
-            is_sensitive: false,
-            created_at: 1_700_000_000,
-            byte_size: 4,
+            id: 9,
+            content_type: ContentType::Html,
+            text_content: Some(text),
+            html_content: Some("<p>full</p>".to_string()),
+            image_data: Some(vec![1, 2, 3]),
+            content_hash: "hash".to_string(),
+            is_favorite: false,
+            is_sensitive: true,
+            created_at: 2,
+            byte_size: 99,
         };
 
-        let sent = clip.clone().without_image_data();
-
-        assert!(sent.image_data.is_none(), "图片二进制不能进 IPC");
-        assert_eq!(sent.id, clip.id);
-        assert_eq!(sent.content_hash, clip.content_hash);
-        assert!(sent.is_favorite);
-        assert_eq!(sent.created_at, clip.created_at);
+        let sent = clip.for_list();
         assert_eq!(
-            sent.byte_size, clip.byte_size,
-            "字节数要留着，前端要显示大小"
+            sent.text_content.unwrap().chars().count(),
+            ClipItem::LIST_TEXT_MAX_CHARS
         );
+        assert!(sent.html_content.is_none());
+        assert!(sent.image_data.is_none());
+        assert!(sent.is_sensitive);
     }
 }

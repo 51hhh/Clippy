@@ -5,6 +5,8 @@ use tauri::{Emitter, Manager, Monitor, PhysicalPosition, PhysicalSize, Position,
 
 const EDGE_MARGIN: i32 = 12;
 const MAIN_WINDOW_WILL_HIDE: &str = "main-window-will-hide";
+#[cfg(target_os = "linux")]
+const SETTINGS_WINDOW_BUILD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 pub(crate) const MAIN_WINDOW_BASE_WIDTH: f64 = 380.0;
 pub(crate) const MAIN_WINDOW_PANEL_WIDTH: f64 = 400.0;
 /// 高度对所有面板组合恒定：开关预览会连带改变列表能显示的行数，
@@ -13,6 +15,9 @@ pub(crate) const MAIN_WINDOW_PANEL_WIDTH: f64 = 400.0;
 pub(crate) const MAIN_WINDOW_HEIGHT: f64 = 500.0;
 const POSITION_SAVE_DEBOUNCE_MS: u64 = 300;
 type MonitorTarget = Option<(Monitor, Option<PhysicalPosition<f64>>)>;
+
+#[cfg(test)]
+mod target_tests;
 
 pub fn show_main_window(app: &tauri::AppHandle) -> Result<(), String> {
     let window = app
@@ -29,21 +34,24 @@ pub fn show_main_window(app: &tauri::AppHandle) -> Result<(), String> {
         .try_state::<AppState>()
         .and_then(|state| state.config.lock().ok()?.main_window_position);
 
-    if let Some((monitor, raw)) = remembered_target(&window, remembered, layout)?.or(
-        target_monitor(app, &window)?.map(|(monitor, cursor)| {
-            let work = WorkArea::from_monitor(&monitor);
-            let size = work.clamp_size(layout.physical_size(monitor.scale_factor()), EDGE_MARGIN);
-            let raw = cursor
-                .map(|position| {
-                    PhysicalPosition::new(
-                        position.x.round() as i32 + EDGE_MARGIN,
-                        position.y.round() as i32 + EDGE_MARGIN,
-                    )
-                })
-                .unwrap_or_else(|| work.top_right(size, EDGE_MARGIN));
-            (monitor, raw)
-        }),
-    ) {
+    if let Some((monitor, raw)) =
+        select_main_window_target(remembered_target(&window, remembered, layout), || {
+            Ok(target_monitor(app, &window)?.map(|(monitor, cursor)| {
+                let work = WorkArea::from_monitor(&monitor);
+                let size =
+                    work.clamp_size(layout.physical_size(monitor.scale_factor()), EDGE_MARGIN);
+                let raw = cursor
+                    .map(|position| {
+                        PhysicalPosition::new(
+                            position.x.round() as i32 + EDGE_MARGIN,
+                            position.y.round() as i32 + EDGE_MARGIN,
+                        )
+                    })
+                    .unwrap_or_else(|| work.top_right(size, EDGE_MARGIN));
+                (monitor, raw)
+            }))
+        })?
+    {
         let work = WorkArea::from_monitor(&monitor);
         let size = layout.physical_size(monitor.scale_factor());
         let size = work.clamp_size(size, EDGE_MARGIN);
@@ -59,6 +67,17 @@ pub fn show_main_window(app: &tauri::AppHandle) -> Result<(), String> {
 
     window.show().map_err(|error| error.to_string())?;
     window.set_focus().map_err(|error| error.to_string())
+}
+
+fn select_main_window_target<T, E>(
+    remembered: Result<Option<T>, E>,
+    fallback: impl FnOnce() -> Result<Option<T>, E>,
+) -> Result<Option<T>, E> {
+    // 已有保存目标时不访问后备原生查询，避免无关的后备错误阻止显示。
+    match remembered? {
+        Some(target) => Ok(Some(target)),
+        None => fallback(),
+    }
 }
 
 /// 显式隐藏主窗口前先通知 WebView 释放长列表、预览和翻译快照。
@@ -84,19 +103,113 @@ pub(crate) fn open_settings_window(app: &tauri::AppHandle) -> Result<(), String>
         window.show().map_err(|error| error.to_string())?;
         return window.set_focus().map_err(|error| error.to_string());
     }
-    tauri::WebviewWindowBuilder::new(
-        app,
-        "settings",
-        tauri::WebviewUrl::App("settings.html".into()),
+
+    #[cfg(target_os = "linux")]
+    {
+        build_settings_with_optional_related(
+            app.get_webview_window("main"),
+            |main| build_related_settings_window(app, main),
+            || build_independent_settings_window(app),
+        )
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    build_independent_settings_window(app)
+}
+
+fn build_independent_settings_window(app: &tauri::AppHandle) -> Result<(), String> {
+    build_settings_window(
+        tauri::WebviewWindowBuilder::new(
+            app,
+            "settings",
+            tauri::WebviewUrl::App("settings.html".into()),
+        ),
+        native_text(app).settings_title,
     )
-    .title(native_text(app).settings_title)
-    .inner_size(720.0, 560.0)
-    .min_inner_size(480.0, 400.0)
-    .center()
-    .resizable(true)
-    .build()
-    .map_err(|error| error.to_string())?;
-    Ok(())
+}
+
+fn build_settings_window<'a, R, M>(
+    builder: tauri::WebviewWindowBuilder<'a, R, M>,
+    title: &'static str,
+) -> Result<(), String>
+where
+    R: tauri::Runtime,
+    M: tauri::Manager<R>,
+{
+    builder
+        .title(title)
+        .inner_size(720.0, 560.0)
+        .min_inner_size(480.0, 400.0)
+        .center()
+        .resizable(true)
+        .decorations(false)
+        .build()
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn build_related_settings_window(
+    app: &tauri::AppHandle,
+    main: tauri::WebviewWindow,
+) -> Result<(), String> {
+    let app_handle = app.clone();
+    let title = native_text(app).settings_title;
+
+    dispatch_settings_window_build(
+        SETTINGS_WINDOW_BUILD_TIMEOUT,
+        move |callback| {
+            main.with_webview(callback)
+                .map_err(|error| error.to_string())
+        },
+        move |webview| {
+            build_settings_window(
+                tauri::WebviewWindowBuilder::new(
+                    &app_handle,
+                    "settings",
+                    tauri::WebviewUrl::App("settings.html".into()),
+                )
+                .with_related_view(webview.inner()),
+                title,
+            )
+        },
+    )
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn build_settings_with_optional_related<T>(
+    related: Option<T>,
+    build_related: impl FnOnce(T) -> Result<(), String>,
+    build_independent: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    match related {
+        Some(related) => build_related(related),
+        None => build_independent(),
+    }
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn dispatch_settings_window_build<T: 'static>(
+    timeout: std::time::Duration,
+    dispatch: impl FnOnce(Box<dyn FnOnce(T) + Send + 'static>) -> Result<(), String>,
+    build: impl FnOnce(T) -> Result<(), String> + Send + 'static,
+) -> Result<(), String> {
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    dispatch(Box::new(move |context| {
+        // 调用方可能已经因超时离开；迟到结果只应被丢弃，不能触发独立窗口回退。
+        let _ = sender.send(build(context));
+    }))
+    .map_err(|error| format!("安排设置窗口关联创建失败: {error}"))?;
+
+    match receiver.recv_timeout(timeout) {
+        Ok(result) => result,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            Err("等待设置窗口关联创建超时".to_string())
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            Err("设置窗口关联创建结果通道已断开".to_string())
+        }
+    }
 }
 
 /// managed state 尚未注入时（例如 setup 早期失败路径）退回英文文案。
@@ -453,6 +566,119 @@ fn clamp_axis(value: i32, min: i32, max: i32, window_size: i32) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn settings_window_uses_independent_builder_when_main_is_missing() {
+        let mut used_independent = false;
+        build_settings_with_optional_related(
+            None::<()>,
+            |_| panic!("主窗口缺失时不应调用关联 builder"),
+            || {
+                used_independent = true;
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(used_independent);
+    }
+
+    #[test]
+    fn settings_window_prefers_related_builder_when_main_exists() {
+        let mut used_related = false;
+        let mut used_independent = false;
+        build_settings_with_optional_related(
+            Some(()),
+            |_| {
+                used_related = true;
+                Ok(())
+            },
+            || {
+                used_independent = true;
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(used_related);
+        assert!(!used_independent);
+    }
+
+    #[test]
+    fn settings_window_build_accepts_synchronous_dispatch() {
+        let result = dispatch_settings_window_build(
+            std::time::Duration::from_millis(50),
+            |callback| {
+                callback(41_u8);
+                Ok(())
+            },
+            |value| {
+                assert_eq!(value, 41);
+                Ok(())
+            },
+        );
+        assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    fn settings_window_build_waits_for_asynchronous_dispatch() {
+        let mut worker = None;
+        let result = dispatch_settings_window_build(
+            std::time::Duration::from_secs(1),
+            |callback| {
+                worker = Some(std::thread::spawn(move || callback(42_u8)));
+                Ok(())
+            },
+            |value| {
+                assert_eq!(value, 42);
+                Ok(())
+            },
+        );
+        worker.unwrap().join().unwrap();
+        assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    fn settings_window_build_reports_dispatch_failure() {
+        let result = dispatch_settings_window_build(
+            std::time::Duration::from_millis(50),
+            |_callback: Box<dyn FnOnce(()) + Send>| Err("队列已关闭".to_string()),
+            |_| Ok(()),
+        );
+        assert_eq!(
+            result,
+            Err("安排设置窗口关联创建失败: 队列已关闭".to_string())
+        );
+    }
+
+    #[test]
+    fn settings_window_build_reports_builder_failure() {
+        let result = dispatch_settings_window_build(
+            std::time::Duration::from_millis(50),
+            |callback| {
+                callback(());
+                Ok(())
+            },
+            |_| Err("WebView 创建失败".to_string()),
+        );
+        assert_eq!(result, Err("WebView 创建失败".to_string()));
+    }
+
+    #[test]
+    fn settings_window_build_times_out_without_fallback() {
+        let mut worker = None;
+        let result = dispatch_settings_window_build(
+            std::time::Duration::from_millis(5),
+            |callback| {
+                worker = Some(std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(30));
+                    callback(())
+                }));
+                Ok(())
+            },
+            |_| Ok(()),
+        );
+        worker.unwrap().join().unwrap();
+        assert_eq!(result, Err("等待设置窗口关联创建超时".to_string()));
+    }
 
     #[test]
     fn moved_event_burst_claims_only_one_position_save_worker() {

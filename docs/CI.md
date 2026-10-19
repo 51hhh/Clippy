@@ -41,6 +41,7 @@ CI；只有真实安装包和桌面交互可以关闭 Native/人工 QA 项。
 | 前端类型检查 | `npx tsc --noEmit` | 检查 React/TS 功能岛 |
 | 前端构建 | `npx vite build` | 验证正式前端产物 |
 | 原生平台检查 | Rust check/clippy/test | Windows 与 macOS 原生 runner 编译、平台 API 与测试门禁 |
+| VP9 原型矩阵 | feature clippy + VP9 mux/session tests | Ubuntu 22 x64、Windows x64、macOS arm64 验证固定归档和编码闭环 |
 
 ### 环境
 - **Runner**: Linux 使用 `ubuntu-22.04` 作为最低构建基线；原生编译门禁使用 `windows-latest` 与 `macos-latest`
@@ -52,9 +53,25 @@ CI；只有真实安装包和桌面交互可以关闭 Native/人工 QA 项。
 - **Node.js**: 24
 - **缓存**: `Swatinem/rust-cache@v2`（加速 Rust 编译）
 
-平台无关的前端测试、类型检查和构建只在 Jammy 执行一次；Windows/macOS runner 专注 Rust 的目标条件
-编译、lint 和单元测试。安装包构建移入独立 Native QA workflow，避免每次 push 重复生成约 190 MB
+前端测试、类型检查和构建在 Jammy 与 Windows 执行，Windows 另核对 IPC/HTML 边界和实际生产入口。
+两者均运行 OCR 质量与视觉段落合同，分别覆盖 POSIX mode 和原生 DACL。避免盘符、文件 URL、权限和宿主路径错误只在
+用户本机暴露；macOS runner 执行原生 Rust 检查。
+安装包构建移入独立 Native QA workflow，避免每次 push 重复生成约 190 MB
 测试产物，也避免普通 CI 在界面上与正式发布混淆。
+
+`Recording Codec Prototype` 是 VP9 原型的独立阻塞矩阵，使用 `ubuntu-22.04`、`windows-latest`、
+GitHub 当前定义为 arm64 的 `macos-15`，以及 `macos-15-intel` runner。Ubuntu x64 与 macOS ARM
+使用仓库固定 SHA-256 的 libvpx 预编译归档；Windows MSVC 与 macOS Intel
+启用 `recording-vp9-source-build`，从固定 SHA-256 的 libvpx v1.16.0 源码归档编译。矩阵核对 vendored
+绑定、第三方许可证、feature Clippy、VP9/Opus mux、单轨分段和可恢复双轨 session 测试；Windows
+目标使用 `recording-windows-av-qa`，同时编译 WGC/WASAPI 产品接线。会话测试还会强制终止独立
+子进程，验证已提交 WebM 前缀可恢复、未提交尾段被清理。四目标同一 SHA 成功前，VP9 仍不能成为
+默认编码器。
+Windows 源构建使用 MSYS2 make/diffutils/Perl/NASM 和 MSBuild；Intel 安装 NASM，两者均由 Rust
+`llvm-tools` 完成静态库符号重写。
+runner 架构以
+[GitHub-hosted runners reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
+为准。
 
 ## Native QA Packages（native-qa.yml）
 
@@ -70,6 +87,14 @@ Linux 产物先装入 tar 以保留 AppImage 执行权限。每套产物均含 `
 run 还会上传 `qa-record-templates-<SHA>`，其中是绑定该 SHA、应用版本和九个目标环境的结构化记录模板。
 Linux 包由 Ubuntu 22.04 构建后，独立的 Ubuntu 24.04 runner 下载同一 tar、校验 SHA-256，并强制执行
 AppImage X11 窗口几何、首帧和单实例 smoke；smoke 缺依赖或缺产物会失败，不会静默跳过。
+
+Linux x64 QA 包使用 `recording-wayland-qa`（包含既有 X11 VP9 原型），Windows x64 QA 包使用
+`recording-windows-av-qa`（组合 VP9 源构建、WASAPI 与 Opus/WebM）。Windows job 安装固定源码构建所需的 MSYS2、make、diffutils、Perl、
+NASM、MSBuild 和 Rust `llvm-tools-preview`；macOS QA job 同样安装 `llvm-tools-preview`，Intel runner
+再安装 NASM，供源码构建的 libvpx 完成静态库符号重写。Windows 与 Linux 一起运行录屏编码供应链
+校验。三类平台产物都在 `QA-BUILD.txt` 写入实际 `recording_feature`；macOS 还记录 12.3 最低系统
+版本。这些设置只存在于手动 Native QA workflow；普通 CI、默认 Cargo feature 和正式 release workflow
+均不启用录屏。
 
 这些安装包明确是 `unsigned-qa-only`、`self-signed-qa-only` 或 `ad-hoc-qa-only`，只用于功能测试。
 Windows QA 包可验证 Authenticode 摘要与 signer 一致，但不具备公共 CA 信任，也不能用于 Tauri updater
@@ -93,10 +118,18 @@ node scripts/verify-native-ci.mjs \
 `completed/success` 时返回 0。输出的 Markdown 可直接归档到任务验证记录。公开仓库无需 token；受限
 环境或私有仓库可通过 `GITHUB_TOKEN` / `GH_TOKEN` 提供只读权限，脚本不会打印 token。
 
+录屏 VP9 原型还须在同一 SHA 上额外核对三项 `Recording Codec Prototype (...)` success。当前
+`verify-native-ci.mjs` 只判定发布既有的三个必需 job，不会把原型矩阵误算成发布原生 job 或产品
+录屏验收。
+
 Native QA 之后的权限、焦点、输入注入、混合 DPI、Spaces 和 Wayland compositor 行为按
 [`native-qa.md`](native-qa.md) 生成结构化真机记录；CI 绿色不能替代这些场景。
 
 ### 本地复现
+
+原生 Windows 使用 `./scripts/ci-windows.ps1`，录屏改动追加 `-RecordingQa`。
+`-FrontendOnly` 和 `-Quick` 都属于部分门禁，不能记为完整通过；Linux WebKit/Xvfb 像素 smoke
+仍须在 Linux 执行。环境与证据边界见 [`windows-development.md`](windows-development.md)。
 
 ```bash
 # 完整本地门禁（推荐）

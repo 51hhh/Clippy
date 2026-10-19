@@ -13,6 +13,11 @@ use image::RgbaImage;
 
 const SCALE_TOLERANCE: f32 = 1e-4;
 
+#[cfg(all(test, target_os = "windows"))]
+mod windows_physical_tests;
+#[cfg(all(test, target_os = "windows"))]
+mod windows_pin_origin_tests;
+
 /// 首帧成功后冻结的连续帧几何事实。
 #[derive(Debug, Clone, Copy)]
 struct FrameSignature {
@@ -25,6 +30,7 @@ struct FrameSignature {
     pixel_height: u32,
     scale_x: f32,
     scale_y: f32,
+    physical_bounds: Option<crate::screenshot::PhysicalMonitorBounds>,
 }
 
 impl FrameSignature {
@@ -39,6 +45,7 @@ impl FrameSignature {
             pixel_height: frame.pixel_height,
             scale_x: frame.scale_x,
             scale_y: frame.scale_y,
+            physical_bounds: frame.physical_bounds,
         }
     }
 
@@ -50,6 +57,7 @@ impl FrameSignature {
             && self.logical_height == frame.logical_height
             && self.pixel_width == frame.pixel_width
             && self.pixel_height == frame.pixel_height
+            && self.physical_bounds == frame.physical_bounds
             && scales_close(self.scale_x, frame.scale_x)
             && scales_close(self.scale_y, frame.scale_y)
     }
@@ -72,6 +80,10 @@ impl LongshotFrameAdapter {
             return Err(CaptureError::SelectionMonitorMismatch);
         }
         validate_frame_metadata(frame)?;
+        #[cfg(target_os = "windows")]
+        if frame.validated_physical_bounds().is_none() {
+            return Err(CaptureError::LongshotFrameInvalid);
+        }
         validate_exact_rgba(frame)?;
         let crop = selection_pixel_rect(frame, selection)?;
         let image = crop_frame(frame, crop)?;
@@ -100,14 +112,107 @@ impl LongshotFrameAdapter {
         crop_frame(frame, self.crop)
     }
 
+    /// 自动滚动只使用首帧确认过的裁剪区中心，避免前端提交任意桌面坐标。
+    pub(in crate::capture) fn scroll_target(&self) -> Result<(i32, i32), CaptureError> {
+        self.scroll_target_for_coordinate_space(cfg!(target_os = "windows"))
+    }
+
+    /// Portal 授权必须和首帧冻结的显示器保持同一份逻辑、物理几何事实。
+    #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+    pub(super) fn wayland_monitor_identity(
+        &self,
+    ) -> Result<super::auto_scroll_wayland::WaylandMonitorIdentity, CaptureError> {
+        let monitor = crate::screenshot::wayland_recording_monitor(self.signature.monitor_id)
+            .map_err(|error| CaptureError::LongshotAutoInput(error.to_string()))?;
+        if monitor.id != self.signature.monitor_id
+            || monitor.logical_x != self.signature.x
+            || monitor.logical_y != self.signature.y
+            || monitor.logical_width != self.signature.logical_width
+            || monitor.logical_height != self.signature.logical_height
+            || monitor.pixel_width != self.signature.pixel_width
+            || monitor.pixel_height != self.signature.pixel_height
+        {
+            return Err(CaptureError::LongshotFrameGeometryChanged);
+        }
+        Ok(super::auto_scroll_wayland::WaylandMonitorIdentity {
+            logical_x: monitor.logical_x,
+            logical_y: monitor.logical_y,
+            logical_width: monitor.logical_width,
+            logical_height: monitor.logical_height,
+            monitor_count: monitor.monitor_count,
+        })
+    }
+
+    /// Windows 的原生指针/命中 API 使用物理虚拟桌面坐标；其它已实现后端使用逻辑桌面坐标。
+    /// 物理原点必须来自首帧原生边界；已取整的逻辑原点不能乘 DPI 恢复。
+    fn scroll_target_for_coordinate_space(
+        &self,
+        windows_physical: bool,
+    ) -> Result<(i32, i32), CaptureError> {
+        let center_x = (f64::from(self.crop.left) + f64::from(self.crop.right)) / 2.0;
+        let center_y = (f64::from(self.crop.top) + f64::from(self.crop.bottom)) / 2.0;
+        let scale_x = f64::from(self.signature.scale_x);
+        let scale_y = f64::from(self.signature.scale_y);
+        let (x, y) = if windows_physical {
+            let bounds = self
+                .signature
+                .physical_bounds
+                .filter(|bounds| {
+                    bounds.is_valid()
+                        && bounds.width == self.signature.pixel_width
+                        && bounds.height == self.signature.pixel_height
+                })
+                .ok_or(CaptureError::LongshotFrameInvalid)?;
+            (
+                f64::from(bounds.x) + center_x,
+                f64::from(bounds.y) + center_y,
+            )
+        } else {
+            (
+                f64::from(self.signature.x) + center_x / scale_x,
+                f64::from(self.signature.y) + center_y / scale_y,
+            )
+        };
+        if !x.is_finite()
+            || !y.is_finite()
+            || x < f64::from(i32::MIN)
+            || x > f64::from(i32::MAX)
+            || y < f64::from(i32::MIN)
+            || y > f64::from(i32::MAX)
+        {
+            return Err(CaptureError::LongshotFrameInvalid);
+        }
+        Ok((x.round() as i32, y.round() as i32))
+    }
+
     /// 根据冻结首帧与实际物理裁剪区反算最终产物的桌面全局逻辑来源矩形。
     ///
     /// 最终 PNG 的宽度不能偏离固定裁剪区，且高度至少要包含首帧裁剪区；这样不会把
     /// 前端原始选区的舍入或 clamp 前坐标泄漏到后续贴图定位。
+    #[cfg(test)]
     pub(in crate::capture) fn output_origin(
         &self,
         final_width: u32,
         final_height: u32,
+    ) -> Result<PinOrigin, CaptureError> {
+        let crop_width = self
+            .crop
+            .right
+            .checked_sub(self.crop.left)
+            .ok_or(CaptureError::LongshotFrameInvalid)?;
+        if final_width != crop_width {
+            return Err(CaptureError::LongshotWidthMismatch);
+        }
+        self.output_origin_with_offset(final_width, final_height, 0, 0)
+    }
+
+    /// 根据二维 union 的相对首帧偏移反算最终产物位置。
+    pub(in crate::capture) fn output_origin_with_offset(
+        &self,
+        final_width: u32,
+        final_height: u32,
+        offset_x: i64,
+        offset_y: i64,
     ) -> Result<PinOrigin, CaptureError> {
         let crop_width = self
             .crop
@@ -119,18 +224,41 @@ impl LongshotFrameAdapter {
             .bottom
             .checked_sub(self.crop.top)
             .ok_or(CaptureError::LongshotFrameInvalid)?;
-        if final_width != crop_width {
-            return Err(CaptureError::LongshotWidthMismatch);
-        }
-        if final_height < crop_height {
+        if offset_x > 0
+            || offset_y > 0
+            || final_width < crop_width
+            || final_height < crop_height
+            || i64::from(crop_width)
+                .checked_sub(offset_x)
+                .filter(|right| *right <= i64::from(final_width))
+                .is_none()
+            || i64::from(crop_height)
+                .checked_sub(offset_y)
+                .filter(|bottom| *bottom <= i64::from(final_height))
+                .is_none()
+        {
             return Err(CaptureError::LongshotFrameInvalid);
         }
 
         let scale_x = f64::from(self.signature.scale_x);
         let scale_y = f64::from(self.signature.scale_y);
         let origin = PinOrigin {
-            x: f64::from(self.signature.x) + f64::from(self.crop.left) / scale_x,
-            y: f64::from(self.signature.y) + f64::from(self.crop.top) / scale_y,
+            #[cfg(target_os = "windows")]
+            physical: Some({
+                let monitor = self
+                    .signature
+                    .physical_bounds
+                    .filter(|bounds| bounds.is_valid())
+                    .ok_or(CaptureError::LongshotFrameInvalid)?;
+                crate::pin::PinPhysicalOrigin {
+                    monitor,
+                    x: f64::from(monitor.x) + f64::from(self.crop.left) + offset_x as f64,
+                    y: f64::from(monitor.y) + f64::from(self.crop.top) + offset_y as f64,
+                }
+            }),
+            x: f64::from(self.signature.x)
+                + (f64::from(self.crop.left) + offset_x as f64) / scale_x,
+            y: f64::from(self.signature.y) + (f64::from(self.crop.top) + offset_y as f64) / scale_y,
             width: f64::from(final_width) / scale_x,
             height: f64::from(final_height) / scale_y,
         };
@@ -253,7 +381,7 @@ mod tests {
     use image::imageops;
     use std::sync::Arc;
 
-    fn selection(x: f64, y: f64, width: f64, height: f64) -> CaptureSelection {
+    pub(super) fn selection(x: f64, y: f64, width: f64, height: f64) -> CaptureSelection {
         CaptureSelection {
             session_id: "adapter-test".to_string(),
             monitor_id: 7,
@@ -265,7 +393,7 @@ mod tests {
     }
 
     #[allow(clippy::too_many_arguments)] // 测试需逐项表达帧几何、缩放与种子，避免为此新增生产抽象。
-    fn encoded_frame(
+    pub(super) fn encoded_frame(
         x: i32,
         y: i32,
         logical_width: u32,
@@ -298,6 +426,12 @@ mod tests {
             pixel_height,
             scale_x,
             scale_y,
+            physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                x: (f64::from(x) * f64::from(scale_x)).round() as i32,
+                y: (f64::from(y) * f64::from(scale_y)).round() as i32,
+                width: pixel_width,
+                height: pixel_height,
+            }),
             rgba: Arc::from(rgba),
         }
     }
@@ -384,6 +518,24 @@ mod tests {
         assert!((origin.y - -118.0).abs() < f64::EPSILON);
         assert!((origin.width - 4.8).abs() < f64::EPSILON);
         assert!((origin.height - 10.0).abs() < f64::EPSILON);
+        assert_eq!(
+            adapter
+                .scroll_target_for_coordinate_space(false)
+                .expect("逻辑滚动点应使用同一冻结几何"),
+            (-1917, -116)
+        );
+        assert_eq!(
+            adapter
+                .scroll_target_for_coordinate_space(true)
+                .expect("Windows 滚动点应恢复到物理虚拟桌面"),
+            (-2396, -174)
+        );
+        let platform_expected = if cfg!(target_os = "windows") {
+            (-2396, -174)
+        } else {
+            (-1917, -116)
+        };
+        assert_eq!(adapter.scroll_target().unwrap(), platform_expected);
     }
 
     #[test]
@@ -418,6 +570,31 @@ mod tests {
             adapter.output_origin(4, 9).is_ok(),
             "失败不能污染冻结适配器"
         );
+    }
+
+    #[test]
+    fn output_origin_applies_signed_union_offset_on_both_axes() {
+        let source = encoded_frame(-100, -50, 100, 50, 200, 100, 2.0, 2.0, 17);
+        let selection = CaptureSelection {
+            session_id: "capture-origin-2d".to_string(),
+            monitor_id: 7,
+            x: 30.0,
+            y: 20.0,
+            width: 40.0,
+            height: 30.0,
+        };
+        let (adapter, _) = LongshotFrameAdapter::from_first(&source, &selection).unwrap();
+        let origin = adapter
+            .output_origin_with_offset(120, 100, -40, -20)
+            .unwrap();
+        assert_eq!(origin.x, -90.0);
+        assert_eq!(origin.y, -40.0);
+        assert_eq!(origin.width, 60.0);
+        assert_eq!(origin.height, 50.0);
+        assert!(matches!(
+            adapter.output_origin_with_offset(120, 100, 1, 0),
+            Err(CaptureError::LongshotFrameInvalid)
+        ));
     }
 
     #[test]
@@ -559,6 +736,12 @@ mod tests {
                 pixel_height: u32::MAX,
                 scale_x: 1.0,
                 scale_y: 1.0,
+                physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                    x: 0,
+                    y: 0,
+                    width: u32::MAX,
+                    height: u32::MAX,
+                }),
                 rgba: Arc::from(Vec::<u8>::new()),
             },
         ] {
@@ -712,6 +895,12 @@ mod tests {
             pixel_height: 100,
             scale_x: 1.0,
             scale_y: 1.0,
+            physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                x: 0,
+                y: 0,
+                width: 80,
+                height: 100,
+            }),
             rgba: Arc::from(bytes),
         }
     }

@@ -40,6 +40,8 @@ pub enum CodeScanError {
     DecodeFailed,
     #[error("storage_failed")]
     StorageFailed,
+    #[error("capture_unavailable")]
+    CaptureUnavailable,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -117,6 +119,32 @@ fn decode_png_to_luma(png_bytes: &[u8]) -> Result<PreparedLuma, CodeScanError> {
 
     let mut prepared = PreparedLuma {
         pixels: decoded,
+        width,
+        height,
+        original_width: width,
+        original_height: height,
+    };
+    downscale_if_needed(&mut prepared)?;
+    Ok(prepared)
+}
+
+/// 将可信截图帧的 RGBA 选区直接转成灰度，避免为一次本地扫码先编码 PNG、再立即解码。
+fn rgba_to_luma(rgba: Vec<u8>, width: u32, height: u32) -> Result<PreparedLuma, CodeScanError> {
+    let pixel_count = validate_dimensions(width, height)?;
+    let expected = pixel_count
+        .checked_mul(4)
+        .ok_or(CodeScanError::ImageTooLarge)?;
+    if rgba.len() != expected {
+        return Err(CodeScanError::ImageInvalid);
+    }
+    let mut pixels = reserve_zeroed(pixel_count)?;
+    for (index, output) in pixels.iter_mut().enumerate() {
+        let input = index * 4;
+        let value = luminance(rgba[input], rgba[input + 1], rgba[input + 2]);
+        *output = alpha_over_white(value, rgba[input + 3]);
+    }
+    let mut prepared = PreparedLuma {
+        pixels,
         width,
         height,
         original_width: width,
@@ -265,13 +293,20 @@ fn downscale_if_needed(image: &mut PreparedLuma) -> Result<(), CodeScanError> {
 }
 
 fn possible_formats() -> HashSet<BarcodeFormat> {
-    HashSet::from([BarcodeFormat::QR_CODE, BarcodeFormat::CODE_39])
+    HashSet::from([
+        BarcodeFormat::QR_CODE,
+        BarcodeFormat::CODE_39,
+        BarcodeFormat::CODE_128,
+        BarcodeFormat::EAN_13,
+    ])
 }
 
 fn stable_format(format: &BarcodeFormat) -> Option<&'static str> {
     match format {
         BarcodeFormat::QR_CODE => Some("qr_code"),
         BarcodeFormat::CODE_39 => Some("code_39"),
+        BarcodeFormat::CODE_128 => Some("code_128"),
+        BarcodeFormat::EAN_13 => Some("ean_13"),
         _ => None,
     }
 }
@@ -339,8 +374,17 @@ fn scan_prepared_luma(image: PreparedLuma) -> Result<CodeScanResponse, CodeScanE
 }
 
 /// 在 worker 中执行完整扫描。PNG 参数只在该函数内存活，不会写入日志或缓存。
-pub(crate) fn scan_png(png_bytes: Vec<u8>) -> Result<CodeScanResponse, CodeScanError> {
-    scan_prepared_luma(decode_png_to_luma(&png_bytes)?)
+pub(crate) fn scan_png(png_bytes: impl AsRef<[u8]>) -> Result<CodeScanResponse, CodeScanError> {
+    scan_prepared_luma(decode_png_to_luma(png_bytes.as_ref())?)
+}
+
+/// 扫描截图会话已经验证过的原始 RGBA 选区；像素不写入日志、缓存或数据库。
+pub(crate) fn scan_rgba(
+    rgba: Vec<u8>,
+    width: u32,
+    height: u32,
+) -> Result<CodeScanResponse, CodeScanError> {
+    scan_prepared_luma(rgba_to_luma(rgba, width, height)?)
 }
 
 fn candidate_anchor(candidate: &Candidate) -> (f32, f32) {
@@ -530,6 +574,14 @@ mod tests {
         let png = png_from_rgba(2, 1, &[0, 0, 0, 0, 0, 0, 0, 128]);
         let decoded = decode_png_to_luma(&png).expect("应当解码");
         assert_eq!(decoded.pixels, [255, 127]);
+
+        let direct =
+            rgba_to_luma(vec![0, 0, 0, 0, 0, 0, 0, 128], 2, 1).expect("可信 RGBA 应当转换");
+        assert_eq!(direct.pixels, decoded.pixels);
+        assert!(matches!(
+            rgba_to_luma(vec![0; 7], 2, 1),
+            Err(CodeScanError::ImageInvalid)
+        ));
     }
 
     #[test]
@@ -583,6 +635,7 @@ mod tests {
             (CodeScanError::WorkerFailed, "worker_failed"),
             (CodeScanError::DecodeFailed, "decode_failed"),
             (CodeScanError::StorageFailed, "storage_failed"),
+            (CodeScanError::CaptureUnavailable, "capture_unavailable"),
         ];
         for (error, code) in cases {
             assert_eq!(
@@ -593,15 +646,22 @@ mod tests {
     }
 
     #[test]
-    fn first_slice_allowlist_is_exactly_qr_and_code_39() {
+    fn product_format_allowlist_is_explicit_and_stable() {
         assert_eq!(
             possible_formats(),
-            HashSet::from([BarcodeFormat::QR_CODE, BarcodeFormat::CODE_39])
+            HashSet::from([
+                BarcodeFormat::QR_CODE,
+                BarcodeFormat::CODE_39,
+                BarcodeFormat::CODE_128,
+                BarcodeFormat::EAN_13,
+            ])
         );
         assert_eq!(stable_format(&BarcodeFormat::QR_CODE), Some("qr_code"));
         assert_eq!(stable_format(&BarcodeFormat::CODE_39), Some("code_39"));
+        assert_eq!(stable_format(&BarcodeFormat::CODE_128), Some("code_128"));
+        assert_eq!(stable_format(&BarcodeFormat::EAN_13), Some("ean_13"));
         assert_eq!(stable_format(&BarcodeFormat::MICRO_QR_CODE), None);
-        assert_eq!(stable_format(&BarcodeFormat::CODE_128), None);
+        assert_eq!(stable_format(&BarcodeFormat::UPC_A), None);
     }
 
     #[test]
@@ -814,5 +874,236 @@ mod tests {
             .results
             .iter()
             .any(|result| result.format == "code_39" && result.text == "A"));
+    }
+
+    #[test]
+    fn code_39_scene_matrix_covers_rotation_and_low_contrast() {
+        let original = luma_from_png(&code_39_fixture());
+        let low_contrast = original
+            .pixels
+            .iter()
+            .map(|value| if *value < 128 { 72 } else { 184 })
+            .collect::<Vec<_>>();
+        assert!(scan_png(png_from_luma(
+            original.width,
+            original.height,
+            &low_contrast,
+        ))
+        .expect("低对比 Code 39 扫描应正常完成")
+        .results
+        .iter()
+        .any(|result| result.format == "code_39" && result.text == "A"));
+
+        let mut rotated = vec![255; original.pixels.len()];
+        for y in 0..original.height as usize {
+            for x in 0..original.width as usize {
+                let target_x = original.height as usize - 1 - y;
+                let target_y = x;
+                rotated[target_y * original.height as usize + target_x] =
+                    original.pixels[y * original.width as usize + x];
+            }
+        }
+        assert!(
+            scan_png(png_from_luma(original.height, original.width, &rotated,))
+                .expect("旋转 Code 39 扫描应正常完成")
+                .results
+                .iter()
+                .any(|result| result.format == "code_39" && result.text == "A")
+        );
+    }
+
+    fn one_dimensional_fixture(patterns: &[&[usize]], module: usize) -> Vec<u8> {
+        let quiet_modules = 12usize;
+        let barcode_modules = patterns
+            .iter()
+            .flat_map(|pattern| pattern.iter())
+            .copied()
+            .sum::<usize>();
+        let width = (quiet_modules * 2 + barcode_modules) * module;
+        let height = 96usize;
+        let mut pixels = vec![255; width * height];
+        let mut x = quiet_modules * module;
+        let mut black = true;
+        for width_modules in patterns.iter().flat_map(|pattern| pattern.iter()) {
+            let run_width = *width_modules * module;
+            if black {
+                for row in 0..height {
+                    pixels[row * width + x..row * width + x + run_width].fill(0);
+                }
+            }
+            x += run_width;
+            black = !black;
+        }
+        png_from_luma(width as u32, height as u32, &pixels)
+    }
+
+    fn code_128_fixture() -> Vec<u8> {
+        // Code 128-B 的 "CLIPPY-128"：104 是 Start B，校验码为 2，106 是 Stop。
+        // 宽度序列按公开符号表固化，测试不调用 rxing 编码器。
+        const START_B: &[usize] = &[2, 1, 1, 2, 1, 4];
+        const C35: &[usize] = &[1, 3, 1, 3, 2, 1];
+        const L44: &[usize] = &[1, 3, 2, 1, 3, 1];
+        const I41: &[usize] = &[2, 3, 1, 3, 1, 1];
+        const P48: &[usize] = &[3, 1, 3, 1, 2, 1];
+        const Y57: &[usize] = &[3, 1, 2, 1, 1, 3];
+        const DASH13: &[usize] = &[1, 2, 2, 1, 3, 2];
+        const ONE17: &[usize] = &[1, 2, 3, 2, 2, 1];
+        const TWO18: &[usize] = &[2, 2, 3, 2, 1, 1];
+        const EIGHT24: &[usize] = &[3, 1, 1, 2, 2, 2];
+        const CHECKSUM2: &[usize] = &[2, 2, 2, 2, 2, 1];
+        const STOP: &[usize] = &[2, 3, 3, 1, 1, 1, 2];
+        one_dimensional_fixture(
+            &[
+                START_B, C35, L44, I41, P48, P48, Y57, DASH13, ONE17, TWO18, EIGHT24, CHECKSUM2,
+                STOP,
+            ],
+            3,
+        )
+    }
+
+    #[test]
+    fn independently_encoded_code_128_fixture_is_decoded() {
+        let response = scan_png(code_128_fixture()).expect("Code 128 应识别");
+        assert!(response
+            .results
+            .iter()
+            .any(|result| result.format == "code_128" && result.text == "CLIPPY-128"));
+    }
+
+    fn ean_13_fixture() -> Vec<u8> {
+        // EAN-13 5901234123457 的标准 95 模块位串，首位 5 由左半奇偶编码表示。
+        const BITS: &str = concat!(
+            "101", "0001011", "0100111", "0110011", "0010011", "0111101", "0011101", "01010",
+            "1100110", "1101100", "1000010", "1011100", "1001110", "1000100", "101"
+        );
+        let module = 3usize;
+        let quiet = 12usize;
+        let width = (quiet * 2 + BITS.len()) * module;
+        let height = 96usize;
+        let mut pixels = vec![255; width * height];
+        for (column, bit) in BITS.bytes().enumerate() {
+            if bit != b'1' {
+                continue;
+            }
+            let start = (quiet + column) * module;
+            for row in 0..height {
+                pixels[row * width + start..row * width + start + module].fill(0);
+            }
+        }
+        png_from_luma(width as u32, height as u32, &pixels)
+    }
+
+    #[test]
+    fn independently_encoded_ean_13_fixture_is_decoded() {
+        let response = scan_png(ean_13_fixture()).expect("EAN-13 应识别");
+        assert!(response
+            .results
+            .iter()
+            .any(|result| result.format == "ean_13" && result.text == "5901234123457"));
+    }
+
+    fn paste_luma(
+        canvas: &mut [u8],
+        canvas_width: usize,
+        source: &PreparedLuma,
+        left: usize,
+        top: usize,
+    ) {
+        for row in 0..source.height as usize {
+            let output = (top + row) * canvas_width + left;
+            let input = row * source.width as usize;
+            canvas[output..output + source.width as usize]
+                .copy_from_slice(&source.pixels[input..input + source.width as usize]);
+        }
+    }
+
+    #[test]
+    fn qr_scene_matrix_covers_small_and_low_contrast_codes() {
+        let original = luma_from_png(&qr_fixture());
+        let module = 6usize;
+        let side = original.width as usize / module;
+        let mut small = vec![255; side * side];
+        for y in 0..side {
+            for x in 0..side {
+                small[y * side + x] = original.pixels
+                    [(y * module + module / 2) * original.width as usize + x * module + module / 2];
+            }
+        }
+        assert!(scan_png(png_from_luma(side as u32, side as u32, &small))
+            .expect("小码扫描应正常完成")
+            .results
+            .iter()
+            .any(|result| result.text == "CLIPPY-QR-1D"));
+
+        let low_contrast = original
+            .pixels
+            .iter()
+            .map(|value| if *value < 128 { 88 } else { 176 })
+            .collect::<Vec<_>>();
+        assert!(scan_png(png_from_luma(
+            original.width,
+            original.height,
+            &low_contrast,
+        ))
+        .expect("低对比扫码应正常完成")
+        .results
+        .iter()
+        .any(|result| result.text == "CLIPPY-QR-1D"));
+    }
+
+    #[test]
+    fn mixed_format_results_are_sorted_by_real_decoder_coordinates() {
+        let qr = luma_from_png(&qr_fixture());
+        let code_128 = luma_from_png(&code_128_fixture());
+        let width = usize::max(qr.width as usize + 80, code_128.width as usize + 40);
+        let height = 30 + qr.height as usize + 46 + code_128.height as usize + 30;
+        let mut canvas = vec![255; width * height];
+        paste_luma(&mut canvas, width, &qr, 40, 30);
+        let code_top = 30 + qr.height as usize + 46;
+        paste_luma(&mut canvas, width, &code_128, 20, code_top);
+
+        let response = scan_png(png_from_luma(width as u32, height as u32, &canvas))
+            .expect("混合格式图片应识别");
+        let qr_result = response
+            .results
+            .iter()
+            .find(|result| result.format == "qr_code")
+            .expect("应返回 QR");
+        let code_result = response
+            .results
+            .iter()
+            .find(|result| result.format == "code_128")
+            .expect("应返回 Code 128");
+        assert_eq!(response.results[0].format, "qr_code");
+        assert!(qr_result
+            .points
+            .iter()
+            .all(|point| point.y < code_top as f32));
+        assert!(code_result
+            .points
+            .iter()
+            .all(|point| point.y >= code_top as f32));
+    }
+
+    #[test]
+    fn downscaled_scan_remaps_real_qr_points_to_source_coordinates() {
+        let qr = luma_from_png(&qr_fixture());
+        let width = 5_201usize;
+        let height = 240usize;
+        let left = 5_000usize;
+        let top = 30usize;
+        let mut canvas = vec![255; width * height];
+        paste_luma(&mut canvas, width, &qr, left, top);
+
+        let response = scan_png(png_from_luma(width as u32, height as u32, &canvas))
+            .expect("缩放后的真实二维码应识别");
+        let result = response
+            .results
+            .iter()
+            .find(|result| result.format == "qr_code")
+            .expect("应返回 QR");
+        assert!(result.points.iter().all(|point| point.x > 4_980.0));
+        assert!(result.points.iter().all(|point| point.x <= width as f32));
+        assert!(result.points.iter().all(|point| point.y >= top as f32));
     }
 }

@@ -3,9 +3,11 @@
 //! 这里不承担捕获、会话管理或 IPC 生命周期；它只把已交给它的相邻 RGBA 帧按固定
 //! 事务顺序估计并拼接。失败时最后一帧和拼接缓冲都保持可重试状态。
 
-use super::overlap::OverlapEstimate;
-use super::{checked_pixel_count, overlap, CaptureError, VerticalStitcher, RGBA_BYTES_PER_PIXEL};
+use super::canvas::{CanvasAppend, LongshotCanvas};
+use super::overlap::{OverlapEstimate, ScrollAxis};
+use super::{checked_pixel_count, overlap, CaptureError, RGBA_BYTES_PER_PIXEL};
 use image::RgbaImage;
+use std::sync::Arc;
 
 const MAX_SESSION_FRAME_PIXELS: u64 = 8 * 1024 * 1024;
 const MAX_SESSION_FRAME_RAW_BYTES: u64 = 32 * 1024 * 1024;
@@ -34,12 +36,16 @@ pub(in crate::capture) struct LongshotSnapshot {
 pub(in crate::capture) struct LongshotAppendOutcome {
     pub(in crate::capture) snapshot: LongshotSnapshot,
     pub(in crate::capture) estimate: OverlapEstimate,
+    pub(in crate::capture) committed: bool,
 }
 
 /// 已至少含一帧的、非并发长截图聚合值。
 pub(in crate::capture) struct LongshotSession {
-    stitcher: VerticalStitcher,
-    last_frame: RgbaImage,
+    canvas: LongshotCanvas,
+    last_frame: Arc<RgbaImage>,
+    viewport_x: i64,
+    viewport_y: i64,
+    preferred_axis: Option<ScrollAxis>,
 }
 
 impl LongshotSession {
@@ -48,15 +54,18 @@ impl LongshotSession {
         overlap::validate_single_frame(&first_frame)?;
         validate_session_frame_budget(&first_frame)?;
 
-        let mut stitcher = VerticalStitcher::new();
-        stitcher.append(&first_frame, 0)?;
+        let first_frame = Arc::new(first_frame);
+        let canvas = LongshotCanvas::start(Arc::clone(&first_frame))?;
         Ok(Self {
-            stitcher,
+            canvas,
             last_frame: first_frame,
+            viewport_x: 0,
+            viewport_y: 0,
+            preferred_axis: None,
         })
     }
 
-    /// 原子地估计并提交一张向下滚动后的相邻帧。
+    /// 原子地估计相邻帧的四向位移，并提交新增区域或只移动 viewport anchor。
     pub(in crate::capture) fn append(
         &mut self,
         incoming: RgbaImage,
@@ -66,33 +75,73 @@ impl LongshotSession {
         overlap::validate_frame_nonempty_and_global(&incoming)?;
         validate_session_frame_budget(&incoming)?;
 
-        let estimate = overlap::estimate_vertical_overlap(&self.last_frame, &incoming)?;
-        self.stitcher.append(&incoming, estimate.overlap_rows)?;
+        let estimate = overlap::estimate_translation(
+            self.last_frame.as_ref(),
+            &incoming,
+            self.preferred_axis,
+        )?;
+        let next_x = self
+            .viewport_x
+            .checked_add(i64::from(estimate.delta_x))
+            .ok_or(CaptureError::LongshotResourceLimit)?;
+        let next_y = self
+            .viewport_y
+            .checked_add(i64::from(estimate.delta_y))
+            .ok_or(CaptureError::LongshotResourceLimit)?;
+        let incoming = Arc::new(incoming);
+        let append = self.canvas.append(Arc::clone(&incoming), next_x, next_y)?;
         self.last_frame = incoming;
+        self.viewport_x = next_x;
+        self.viewport_y = next_y;
+        self.preferred_axis = Some(estimate.direction.axis());
         Ok(LongshotAppendOutcome {
             snapshot: self.snapshot(),
             estimate,
+            committed: append == CanvasAppend::Committed,
         })
+    }
+
+    /// 显式撤销最后一次提交；回访帧不是提交，因此不会被当作可撤销历史。
+    pub(in crate::capture) fn undo(&mut self) -> Result<LongshotSnapshot, CaptureError> {
+        if let Some((frame, x, y)) = self.canvas.undo()? {
+            self.last_frame = frame;
+            self.viewport_x = x;
+            self.viewport_y = y;
+            self.preferred_axis = None;
+        }
+        Ok(self.snapshot())
     }
 
     /// 返回当前已提交状态，不编码或复制像素。
     pub(in crate::capture) fn snapshot(&self) -> LongshotSnapshot {
+        let (width, total_height) = self
+            .canvas
+            .dimensions()
+            .unwrap_or_else(|_| self.canvas.frame_dimensions());
+        let (_, frame_height) = self.canvas.frame_dimensions();
         LongshotSnapshot {
-            frame_count: self.stitcher.frame_count,
-            width: self.last_frame.width(),
-            frame_height: self.last_frame.height(),
-            total_height: self.stitcher.height,
+            frame_count: self.canvas.frame_count(),
+            width,
+            frame_height,
+            total_height,
         }
+    }
+
+    /// 最终 union 画布尺寸和相对首帧的有符号偏移。
+    pub(in crate::capture) fn output_geometry(&self) -> Result<(u32, u32, i64, i64), CaptureError> {
+        let (width, height) = self.canvas.dimensions()?;
+        let (offset_x, offset_y) = self.canvas.offset();
+        Ok((width, height, offset_x, offset_y))
     }
 
     /// 以 PNG 物化当前结果；调用不会消费或终结会话。
     pub(in crate::capture) fn finish_png(&self) -> Result<Vec<u8>, CaptureError> {
-        self.stitcher.finish_png()
+        self.canvas.finish_png()
     }
 
-    /// 以固定资源上限物化已提交缓冲的尾部预览，不消费会话。
+    /// 以固定资源上限物化已提交画布预览，不消费会话。
     pub(in crate::capture) fn preview_tail_png(&self) -> Result<Vec<u8>, CaptureError> {
-        self.stitcher.preview_tail_png()
+        self.canvas.preview_png()
     }
 
     /// 消费会话并丢弃其内存；上层 manager 负责外部清理与幂等语义。
@@ -148,6 +197,10 @@ mod tests {
 
     fn frame(panorama: &RgbaImage, top: u32, height: u32) -> RgbaImage {
         imageops::crop_imm(panorama, 0, top, panorama.width(), height).to_image()
+    }
+
+    fn viewport(panorama: &RgbaImage, left: u32, top: u32, width: u32, height: u32) -> RgbaImage {
+        imageops::crop_imm(panorama, left, top, width, height).to_image()
     }
 
     fn pair(displacement: u32) -> (RgbaImage, RgbaImage, RgbaImage) {
@@ -251,6 +304,60 @@ mod tests {
             png_rgba(&session.finish_png().expect("结果应可导出")),
             frame(&source, 0, 96).into_raw()
         );
+    }
+
+    #[test]
+    fn revisiting_covered_viewport_keeps_committed_pixels_and_can_continue() {
+        let source = panorama(160, 180, 0x9911_3377);
+        let mut session = LongshotSession::start(viewport(&source, 40, 40, 64, 72)).unwrap();
+        let down = session.append(viewport(&source, 40, 64, 64, 72)).unwrap();
+        assert!(down.committed);
+        assert_eq!(down.estimate.direction, overlap::ScrollDirection::Down);
+        let revisit = session.append(viewport(&source, 40, 40, 64, 72)).unwrap();
+        assert!(!revisit.committed);
+        assert_eq!(revisit.snapshot.frame_count, 2);
+        assert_eq!(revisit.snapshot.total_height, 96);
+        let continued = session.append(viewport(&source, 40, 88, 64, 72)).unwrap();
+        assert!(continued.committed);
+        assert_eq!(continued.snapshot.frame_count, 3);
+        assert_eq!(continued.snapshot.total_height, 120);
+        assert_eq!(session.output_geometry().unwrap(), (64, 120, 0, 0));
+    }
+
+    #[test]
+    fn prepends_above_extends_left_and_turns_between_axes() {
+        let source = panorama(180, 180, 0x2244_6688);
+        let mut session = LongshotSession::start(viewport(&source, 40, 40, 64, 72)).unwrap();
+        let up = session.append(viewport(&source, 40, 16, 64, 72)).unwrap();
+        assert_eq!(up.estimate.direction, overlap::ScrollDirection::Up);
+        assert_eq!(session.output_geometry().unwrap(), (64, 96, 0, -24));
+
+        let back = session.append(viewport(&source, 40, 40, 64, 72)).unwrap();
+        assert!(!back.committed);
+        let left = session.append(viewport(&source, 16, 40, 64, 72)).unwrap();
+        assert_eq!(left.estimate.direction, overlap::ScrollDirection::Left);
+        assert_eq!(session.output_geometry().unwrap(), (88, 96, -24, -24));
+
+        let center = session.append(viewport(&source, 40, 40, 64, 72)).unwrap();
+        assert!(!center.committed);
+        let right = session.append(viewport(&source, 64, 40, 64, 72)).unwrap();
+        assert_eq!(right.estimate.direction, overlap::ScrollDirection::Right);
+        assert_eq!(session.output_geometry().unwrap(), (112, 96, -24, -24));
+        assert_eq!(session.snapshot().frame_count, 4);
+    }
+
+    #[test]
+    fn undo_removes_only_latest_commit_and_restores_anchor() {
+        let source = panorama(160, 180, 0xaabb_ccdd);
+        let mut session = LongshotSession::start(viewport(&source, 40, 40, 64, 72)).unwrap();
+        session.append(viewport(&source, 40, 64, 64, 72)).unwrap();
+        session.append(viewport(&source, 64, 64, 64, 72)).unwrap();
+        assert_eq!(session.snapshot().frame_count, 3);
+        assert_eq!(session.undo().unwrap().frame_count, 2);
+        assert_eq!(session.output_geometry().unwrap(), (64, 96, 0, 0));
+        let next = session.append(viewport(&source, 16, 64, 64, 72)).unwrap();
+        assert_eq!(next.estimate.direction, overlap::ScrollDirection::Left);
+        assert_eq!(session.output_geometry().unwrap(), (88, 96, -24, 0));
     }
 
     #[test]

@@ -274,8 +274,23 @@ async function _doUpdatePreview(clip, generation) {
     return;
   }
 
+  // 列表与事件只携带有界摘要；当前焦点再按需读取完整正文，避免每页把所有大文本送进 WebView。
+  let detailClip = clip;
+  const summaryBytes = new TextEncoder().encode(clip.text_content || "").length;
+  const needsDetail = clip.content_type === "html" || summaryBytes < Number(clip.byte_size || 0);
+  if (needsDetail) {
+    try {
+      const detail = await getClipDetail(clip.id);
+      if (!isCurrent()) return;
+      if (detail) detailClip = { ...clip, ...detail };
+    } catch (error) {
+      if (!isCurrent()) return;
+      console.warn("读取剪贴板详情失败，使用列表摘要:", error);
+    }
+  }
+
   // text 和 html 类型共享智能检测逻辑
-  const text = clip.text_content || "";
+  const text = detailClip.text_content || "";
   const limited = limitForRender(text);
   // 在 trim、完整格式检测与懒加载前拦截。截断结构不再冒充完整 JSON/JWT/HTML。
   if (limited.truncated) {
@@ -311,7 +326,7 @@ async function _doUpdatePreview(clip, generation) {
 
   // 2. 代码检测（text_content 纯文本，排除 xml 误判）
   if (text.length > 10) {
-    const detected = _detectCodeLanguage(text, clip.content_hash);
+    const detected = _detectCodeLanguage(text, detailClip.content_hash);
     if (detected.relevance > CODE_RELEVANCE_THRESHOLD && detected.language && detected.language !== "xml") {
       // 已经知道语言，就按这一种语法高亮；`highlightAuto` 那 21 遍只用来做判断。
       const highlighted = hljs.highlight(limited.body, {
@@ -329,22 +344,13 @@ async function _doUpdatePreview(clip, generation) {
   }
 
   // 3. HTML 富文本渲染（仅 html 类型，按需加载 html_content）
-  if (clip.content_type === "html") {
-    try {
-      const detail = await getClipDetail(clip.id);
-      if (!isCurrent()) return;
-      if (detail.html_content) {
-        // 详情可能比纯文本副本大很多；超限时只显示标签原文，不解析截断结构。
-        const limitedHtml = limitForRender(detail.html_content);
-        if (limitedHtml.truncated) _renderers.renderPlainText(limitedHtml.body);
-        else _renderers.renderRichText(limitedHtml.body);
-        _noteTruncation(limitedHtml);
-        return;
-      }
-    } catch (_) {
-      if (!isCurrent()) return;
-      // 详情读取失败时仅当前代次可以回退到纯文本。
-    }
+  if (detailClip.content_type === "html" && detailClip.html_content) {
+    // 详情可能比纯文本副本大很多；超限时只显示标签原文，不解析截断结构。
+    const limitedHtml = limitForRender(detailClip.html_content);
+    if (limitedHtml.truncated) _renderers.renderPlainText(limitedHtml.body);
+    else _renderers.renderRichText(limitedHtml.body);
+    _noteTruncation(limitedHtml);
+    return;
   }
 
   // 4. 纯文本

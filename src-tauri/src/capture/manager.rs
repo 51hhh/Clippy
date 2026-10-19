@@ -2,13 +2,24 @@ use super::error::CaptureError;
 use super::frame_crop::selection_pixel_rect;
 use super::mode_gate::CaptureModeOwnership;
 use super::output::{OutputAttempt, OutputClaim, OutputPhase};
-use super::types::{CaptureOverlayPayload, CaptureSelection, OverlaySpec, WindowCandidate};
+use super::types::{
+    CaptureIntent, CaptureOverlayPayload, CaptureSelection, OverlaySpec, WindowCandidate,
+};
 use super::window_probe::probe_windows;
 use super::{CaptureAction, CommitImage};
 use crate::screenshot::CapturedMonitorFrame;
+
+#[cfg(all(test, target_os = "windows"))]
+mod windows_physical_tests;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+
+#[cfg(all(test, target_os = "windows"))]
+#[path = "manager/windows_focus_tests.rs"]
+mod windows_focus_tests;
+#[cfg(all(test, target_os = "windows"))]
+mod windows_pin_origin_tests;
 
 /// 一次截图从按下快捷键到覆盖层显示的分段耗时。
 ///
@@ -70,6 +81,14 @@ pub(super) struct CaptureRenderInput {
     pub crop: (u32, u32, u32, u32),
 }
 
+/// 截图快捷扫码只需要可信原始选区，不经过 PNG 编解码或剪贴历史。
+#[derive(Debug)]
+pub(super) struct CaptureScanInput {
+    pub rgba: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+}
+
 /// 一次 I4 观测：后端算的逻辑尺寸、前端实测的视口，以及两者的差。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ViewportObservation {
@@ -84,6 +103,7 @@ pub(crate) struct ViewportObservation {
 #[derive(Debug)]
 pub(super) struct CaptureSession {
     pub id: String,
+    pub intent: CaptureIntent,
     /// 每次 begin 都新建的后端身份，阻止可重复字符串 id 形成 ABA。
     identity: Arc<()>,
     pub overlays: Vec<OverlaySpec>,
@@ -132,6 +152,19 @@ pub(super) struct CaptureBeginFailure {
     pub ownership: CaptureModeOwnership,
 }
 
+/// `CaptureManager::begin` 只接受已经取得的模式所有权与固定会话用途的组合，避免调用方先创建
+/// 普通截图会话，再从前端把它升级成权限更高的录屏会话。
+pub(super) struct CaptureBeginAuthorization {
+    ownership: CaptureModeOwnership,
+    intent: CaptureIntent,
+}
+
+impl CaptureBeginAuthorization {
+    pub(super) fn new(ownership: CaptureModeOwnership, intent: CaptureIntent) -> Self {
+        Self { ownership, intent }
+    }
+}
+
 /// 长截图首帧与精确普通会话身份的只读候选。
 ///
 /// 候选不可复制；冻结帧像素只浅克隆其 `Arc`，prepare 不消费普通会话。
@@ -140,6 +173,50 @@ pub(super) struct CaptureLongshotCandidate {
     selection: CaptureSelection,
     frame: CapturedMonitorFrame,
     identity: Arc<()>,
+}
+
+/// 独立录屏选区覆盖层核验后生成的物理裁剪合同。
+///
+/// 该类型不实现反序列化，也不接受桌面绝对坐标；平台帧源必须再用 `monitor_id` 查询当前原生显示器
+/// 几何，并确认冻结帧尺寸仍一致。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RecordingCaptureSpec {
+    pub(crate) monitor_id: u32,
+    pub(crate) monitor_pixel_width: u32,
+    pub(crate) monitor_pixel_height: u32,
+    pub(crate) crop_left: u32,
+    pub(crate) crop_top: u32,
+    pub(crate) crop_width: u32,
+    pub(crate) crop_height: u32,
+}
+
+/// 录屏平台帧源建立前的只读候选；prepare 不消费尚处于 Ordinary gate 的录屏选区会话。
+#[derive(Debug)]
+pub(crate) struct CaptureRecordingCandidate {
+    spec: RecordingCaptureSpec,
+    selection: CaptureSelection,
+    identity: Arc<()>,
+}
+
+impl CaptureRecordingCandidate {
+    pub(crate) fn spec(&self) -> RecordingCaptureSpec {
+        self.spec
+    }
+}
+
+/// 输入透明 guide 使用的目标显示器与实际裁剪区逻辑几何。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct LongshotGuideSpec {
+    pub(super) monitor_x: i32,
+    pub(super) monitor_y: i32,
+    pub(super) monitor_width: u32,
+    pub(super) monitor_height: u32,
+    #[cfg(target_os = "windows")]
+    pub(super) physical_bounds: Option<crate::screenshot::PhysicalMonitorBounds>,
+    pub(super) selection_x: f64,
+    pub(super) selection_y: f64,
+    pub(super) selection_width: f64,
+    pub(super) selection_height: f64,
 }
 
 impl CaptureLongshotCandidate {
@@ -154,14 +231,14 @@ impl CaptureLongshotCandidate {
 
 /// 从普通截图会话唯一移出的桌面清理资源。
 #[derive(Debug)]
-pub(super) struct OrdinaryCaptureResources {
-    pub overlays: Vec<OverlaySpec>,
-    pub restore_labels: Vec<String>,
-    pub lowered_pins: Vec<String>,
+pub(crate) struct OrdinaryCaptureResources {
+    pub(super) overlays: Vec<OverlaySpec>,
+    pub(crate) restore_labels: Vec<String>,
+    pub(crate) lowered_pins: Vec<String>,
 }
 
 impl OrdinaryCaptureResources {
-    pub(super) fn overlay_labels(&self) -> Vec<String> {
+    pub(crate) fn overlay_labels(&self) -> Vec<String> {
         self.overlays
             .iter()
             .map(|spec| spec.label.clone())
@@ -174,6 +251,22 @@ impl OrdinaryCaptureResources {
 pub(super) struct CaptureLongshotHandoff {
     pub ownership: CaptureModeOwnership,
     pub resources: OrdinaryCaptureResources,
+}
+
+/// 普通截图原子移交给录屏后的唯一所有权与清理资源。
+pub(crate) struct CaptureRecordingHandoff {
+    pub(crate) ownership: CaptureModeOwnership,
+    pub(crate) resources: OrdinaryCaptureResources,
+}
+
+impl std::fmt::Debug for CaptureRecordingHandoff {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CaptureRecordingHandoff")
+            .field("ownership", &self.ownership)
+            .field("resources", &self.resources)
+            .finish()
+    }
 }
 
 fn selected_frame_in_session<'a>(
@@ -222,6 +315,28 @@ pub(super) struct RevealPlan {
     pub take_focus: bool,
 }
 
+/// Windows 光标直接命中冻结时的物理边界，不从已取整的逻辑原点反算。
+#[cfg(target_os = "windows")]
+fn physical_cursor_hits_overlay(
+    spec: &OverlaySpec,
+    frame: &CapturedMonitorFrame,
+    x: f64,
+    y: f64,
+) -> bool {
+    let Some(bounds) = frame.validated_physical_bounds() else {
+        return false;
+    };
+    if !x.is_finite()
+        || !y.is_finite()
+        || spec.physical_bounds != Some(bounds)
+        || (spec.x, spec.y, spec.width, spec.height)
+            != (frame.x, frame.y, frame.logical_width, frame.logical_height)
+    {
+        return false;
+    }
+    bounds.contains(x, y)
+}
+
 impl CaptureManager {
     pub fn new() -> Self {
         Self::default()
@@ -234,8 +349,9 @@ impl CaptureManager {
         lowered_pins: Vec<String>,
         probe_hint: bool,
         mut timings: StageTimings,
-        ownership: CaptureModeOwnership,
+        authorization: CaptureBeginAuthorization,
     ) -> Result<CaptureStart, CaptureBeginFailure> {
+        let CaptureBeginAuthorization { ownership, intent } = authorization;
         if frames.is_empty() {
             return Err(CaptureBeginFailure {
                 error: CaptureError::NoMonitorFrames,
@@ -246,14 +362,20 @@ impl CaptureManager {
         let at = Instant::now();
         let windows = probe_windows(&frames);
         timings.probe_ms = since(at);
+        let overlay_prefix = match intent {
+            CaptureIntent::Screenshot => "capture-overlay",
+            CaptureIntent::Recording => "recording-overlay",
+        };
         let specs: Vec<_> = frames
             .iter()
             .map(|frame| OverlaySpec {
-                label: format!("capture-overlay-{id}-{}", frame.monitor_id),
+                label: format!("{overlay_prefix}-{id}-{}", frame.monitor_id),
                 x: frame.x,
                 y: frame.y,
                 width: frame.logical_width,
                 height: frame.logical_height,
+                #[cfg(target_os = "windows")]
+                physical_bounds: frame.physical_bounds,
             })
             .collect();
         let mut current = match self.session.lock() {
@@ -273,6 +395,7 @@ impl CaptureManager {
         }
         *current = Some(CaptureSession {
             id: id.clone(),
+            intent,
             identity: Arc::new(()),
             frames,
             overlays: specs.clone(),
@@ -346,6 +469,20 @@ impl CaptureManager {
         }
         // 光标所在的那块覆盖层独占焦点：合成器可能拒绝第二次 set_focus，
         // 所以不能让先画完的那块先抢一次再让给它。
+        #[cfg(target_os = "windows")]
+        let cursor_owner = cursor.and_then(|(x, y)| {
+            // begin 由 frames 同序产生一帧一个 spec；不完整的元数据走已有焦点兜底。
+            if session.frames.len() != session.overlays.len() {
+                return None;
+            }
+            session
+                .overlays
+                .iter()
+                .zip(&session.frames)
+                .find(|(spec, frame)| physical_cursor_hits_overlay(spec, frame, x, y))
+                .map(|(spec, _)| spec.label.as_str())
+        });
+        #[cfg(not(target_os = "windows"))]
         let cursor_owner = cursor.and_then(|(x, y)| {
             session
                 .overlays
@@ -407,6 +544,7 @@ impl CaptureManager {
             logical_height: frame.logical_height,
             pixel_width: frame.pixel_width,
             pixel_height: frame.pixel_height,
+            intent: session.intent,
             windows: session
                 .windows
                 .get(&frame.monitor_id)
@@ -464,6 +602,37 @@ impl CaptureManager {
         crop_frame(frame, selection)
     }
 
+    /// 核验调用覆盖层后复制原始选区，供本地二维码/条码扫描。
+    pub(super) fn scan_input(
+        &self,
+        caller: &str,
+        selection: &CaptureSelection,
+    ) -> Result<CaptureScanInput, CaptureError> {
+        let current = self.session.lock().map_err(CaptureError::state_lock)?;
+        let session = current.as_ref().ok_or(CaptureError::SessionMissing)?;
+        if session.output.is_some() {
+            return Err(CaptureError::SessionBusy);
+        }
+        if session.intent != CaptureIntent::Screenshot {
+            return Err(CaptureError::CaptureIntentMismatch);
+        }
+        let frame = selected_frame_in_session(session, selection)?;
+        let index = session
+            .overlays
+            .iter()
+            .position(|overlay| overlay.label == caller)
+            .ok_or(CaptureError::OverlayNotInSession)?;
+        if session.frames.get(index).map(|item| item.monitor_id) != Some(selection.monitor_id) {
+            return Err(CaptureError::SelectionMonitorMismatch);
+        }
+        let (rgba, width, height) = crop_rgba(frame, selection)?;
+        Ok(CaptureScanInput {
+            rgba,
+            width,
+            height,
+        })
+    }
+
     /// 只在锁内核对普通截图会话并浅克隆目标帧；整屏像素仍由同一个 `Arc` 承载。
     #[cfg(test)]
     pub(super) fn selected_frame(
@@ -473,6 +642,53 @@ impl CaptureManager {
         let current = self.session.lock().map_err(CaptureError::state_lock)?;
         let session = current.as_ref().ok_or(CaptureError::SessionMissing)?;
         selected_frame_in_session(session, selection).cloned()
+    }
+
+    /// 核验调用覆盖层并生成录屏平台只能读取、不能由前端构造的物理裁剪合同。
+    ///
+    /// prepare 保留 Ordinary 会话；调用方先用该合同建立平台帧源，成功后再调用
+    /// `commit_recording` 原子移交模式所有权。
+    pub(crate) fn prepare_recording(
+        &self,
+        caller: &str,
+        selection: &CaptureSelection,
+    ) -> Result<CaptureRecordingCandidate, CaptureError> {
+        let current = self.session.lock().map_err(CaptureError::state_lock)?;
+        let session = current.as_ref().ok_or(CaptureError::SessionMissing)?;
+        if session.output.is_some() {
+            return Err(CaptureError::SessionBusy);
+        }
+        if session.intent != CaptureIntent::Recording {
+            return Err(CaptureError::CaptureIntentMismatch);
+        }
+        let frame = selected_frame_in_session(session, selection)?;
+        let overlay_index = session
+            .overlays
+            .iter()
+            .position(|overlay| overlay.label == caller)
+            .ok_or(CaptureError::OverlayNotInSession)?;
+        if session
+            .frames
+            .get(overlay_index)
+            .map(|item| item.monitor_id)
+            != Some(selection.monitor_id)
+        {
+            return Err(CaptureError::SelectionMonitorMismatch);
+        }
+        let crop = selection_pixel_rect(frame, selection)?;
+        Ok(CaptureRecordingCandidate {
+            spec: RecordingCaptureSpec {
+                monitor_id: frame.monitor_id,
+                monitor_pixel_width: frame.pixel_width,
+                monitor_pixel_height: frame.pixel_height,
+                crop_left: crop.left,
+                crop_top: crop.top,
+                crop_width: crop.width(),
+                crop_height: crop.height(),
+            },
+            selection: selection.clone(),
+            identity: Arc::clone(&session.identity),
+        })
     }
 
     /// 准备长截图首帧候选；普通会话和 Ordinary ownership 均保持原样。
@@ -501,6 +717,16 @@ impl CaptureManager {
         caller_label: &str,
         selection: &CaptureSelection,
     ) -> Result<(), CaptureError> {
+        self.longshot_guide_spec(caller_label, selection)
+            .map(|_| ())
+    }
+
+    /// 以冻结帧的实际物理 crop 反算 guide，避免混合 DPI 下显示框与重捕获像素相差一列或一行。
+    pub(super) fn longshot_guide_spec(
+        &self,
+        caller_label: &str,
+        selection: &CaptureSelection,
+    ) -> Result<LongshotGuideSpec, CaptureError> {
         let current = self.session.lock().map_err(CaptureError::state_lock)?;
         let session = current.as_ref().ok_or(CaptureError::SessionMissing)?;
         if session.id != selection.session_id {
@@ -521,11 +747,26 @@ impl CaptureManager {
         if session.output.is_some() {
             return Err(CaptureError::SessionBusy);
         }
+        #[cfg(target_os = "windows")]
+        if caller_frame.validated_physical_bounds().is_none() {
+            return Err(CaptureError::LongshotFrameInvalid);
+        }
         let crop = selection_pixel_rect(caller_frame, selection)?;
         if crop.width() < 8 || crop.height() < 24 {
             return Err(CaptureError::LongshotEstimateTooSmall);
         }
-        Ok(())
+        Ok(LongshotGuideSpec {
+            monitor_x: caller_frame.x,
+            monitor_y: caller_frame.y,
+            monitor_width: caller_frame.logical_width,
+            monitor_height: caller_frame.logical_height,
+            #[cfg(target_os = "windows")]
+            physical_bounds: caller_frame.physical_bounds,
+            selection_x: f64::from(crop.left) / f64::from(caller_frame.scale_x),
+            selection_y: f64::from(crop.top) / f64::from(caller_frame.scale_y),
+            selection_width: f64::from(crop.width()) / f64::from(caller_frame.scale_x),
+            selection_height: f64::from(crop.height()) / f64::from(caller_frame.scale_y),
+        })
     }
 
     /// 精确消费 prepare 候选，并在 manager 锁内原子转换 mode ownership。
@@ -537,7 +778,8 @@ impl CaptureManager {
         let Some(session) = current.take() else {
             return Err(CaptureError::SessionMissing);
         };
-        if session.output.is_some()
+        if session.intent != CaptureIntent::Screenshot
+            || session.output.is_some()
             || session.id != candidate.selection.session_id
             || !Arc::ptr_eq(&session.identity, &candidate.identity)
         {
@@ -547,6 +789,7 @@ impl CaptureManager {
 
         let CaptureSession {
             id,
+            intent,
             identity,
             overlays,
             restore_labels,
@@ -565,6 +808,7 @@ impl CaptureManager {
             Err(failure) => {
                 *current = Some(CaptureSession {
                     id,
+                    intent,
                     identity,
                     overlays,
                     restore_labels,
@@ -582,6 +826,72 @@ impl CaptureManager {
         };
 
         Ok(CaptureLongshotHandoff {
+            ownership,
+            resources: OrdinaryCaptureResources {
+                overlays,
+                restore_labels,
+                lowered_pins,
+            },
+        })
+    }
+
+    /// 精确消费录屏候选，并在 manager 锁内原子转换 mode ownership。
+    pub(crate) fn commit_recording(
+        &self,
+        candidate: CaptureRecordingCandidate,
+    ) -> Result<CaptureRecordingHandoff, CaptureError> {
+        let mut current = self.session.lock().map_err(CaptureError::state_lock)?;
+        let Some(session) = current.take() else {
+            return Err(CaptureError::SessionMissing);
+        };
+        if session.intent != CaptureIntent::Recording
+            || session.output.is_some()
+            || session.id != candidate.selection.session_id
+            || !Arc::ptr_eq(&session.identity, &candidate.identity)
+        {
+            *current = Some(session);
+            return Err(CaptureError::SessionSuperseded);
+        }
+
+        let CaptureSession {
+            id,
+            intent,
+            identity,
+            overlays,
+            restore_labels,
+            lowered_pins,
+            frames,
+            windows,
+            probe_hint,
+            focus_assigned,
+            timings,
+            output,
+            mode_ownership,
+        } = session;
+
+        let ownership = match mode_ownership.into_recording() {
+            Ok(ownership) => ownership,
+            Err(failure) => {
+                *current = Some(CaptureSession {
+                    id,
+                    intent,
+                    identity,
+                    overlays,
+                    restore_labels,
+                    lowered_pins,
+                    frames,
+                    windows,
+                    probe_hint,
+                    focus_assigned,
+                    timings,
+                    output,
+                    mode_ownership: failure.ownership,
+                });
+                return Err(failure.error);
+            }
+        };
+
+        Ok(CaptureRecordingHandoff {
             ownership,
             resources: OrdinaryCaptureResources {
                 overlays,
@@ -666,7 +976,9 @@ impl CaptureManager {
         let mut current = self.session.lock().map_err(CaptureError::state_lock)?;
         let session = current.as_mut().ok_or(CaptureError::SessionMissing)?;
         let frame = selected_frame_in_session(session, selection)?;
-        selection_pixel_rect(frame, selection)?;
+        let crop = selection_pixel_rect(frame, selection)?;
+        #[cfg(not(target_os = "windows"))]
+        let _ = crop;
         let index = session
             .overlays
             .iter()
@@ -675,6 +987,31 @@ impl CaptureManager {
         if session.frames.get(index).map(|frame| frame.monitor_id) != Some(selection.monitor_id) {
             return Err(CaptureError::SelectionMonitorMismatch);
         }
+        // Windows 来源只能来自 caller 绑定的冻结帧及渲染实际使用的 crop。
+        // 前端是否省略/伪造公共逻辑矩形都不能改变这个原生事实。
+        #[cfg(target_os = "windows")]
+        let origin = {
+            let _ = origin;
+            let bounds = frame
+                .validated_physical_bounds()
+                .ok_or_else(|| CaptureError::Screenshot("冻结截图缺少有效物理显示器边界".into()))?;
+            let source = crate::pin::PinOrigin {
+                x: f64::from(frame.x) + f64::from(crop.left) / f64::from(frame.scale_x),
+                y: f64::from(frame.y) + f64::from(crop.top) / f64::from(frame.scale_y),
+                width: f64::from(crop.width()) / f64::from(frame.scale_x),
+                height: f64::from(crop.height()) / f64::from(frame.scale_y),
+                physical: Some(crate::pin::PinPhysicalOrigin {
+                    monitor: bounds,
+                    x: f64::from(bounds.x) + f64::from(crop.left),
+                    y: f64::from(bounds.y) + f64::from(crop.top),
+                }),
+            };
+            Some(
+                source
+                    .sanitized()
+                    .ok_or_else(|| CaptureError::Screenshot("冻结截图来源坐标无效".into()))?,
+            )
+        };
         if session.output.is_some() {
             return Err(CaptureError::SessionBusy);
         }
@@ -834,6 +1171,14 @@ fn crop_frame(
     frame: &CapturedMonitorFrame,
     selection: &CaptureSelection,
 ) -> Result<Vec<u8>, CaptureError> {
+    let (rgba, width, height) = crop_rgba(frame, selection)?;
+    crate::screenshot::encode_png(&rgba, width, height).map_err(CaptureError::codec)
+}
+
+fn crop_rgba(
+    frame: &CapturedMonitorFrame,
+    selection: &CaptureSelection,
+) -> Result<(Vec<u8>, u32, u32), CaptureError> {
     let crop = selection_pixel_rect(frame, selection)?;
     let width = crop.width();
     let height = crop.height();
@@ -847,7 +1192,7 @@ fn crop_frame(
             .ok_or(CaptureError::CropOutOfBounds)?;
         rgba.extend_from_slice(source);
     }
-    crate::screenshot::encode_png(&rgba, width, height).map_err(CaptureError::codec)
+    Ok((rgba, width, height))
 }
 
 #[cfg(test)]
@@ -873,6 +1218,13 @@ mod tests {
             x: 0,
             y: 0,
             width: 100,
+            #[cfg(target_os = "windows")]
+            physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                x: 0,
+                y: 0,
+                width: 100,
+                height: 50,
+            }),
             height: 50,
         }
     }
@@ -891,6 +1243,12 @@ mod tests {
             pixel_height,
             scale_x: scale,
             scale_y: scale,
+            physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                x: (f64::from(0) * f64::from(scale)).round() as i32,
+                y: (f64::from(0) * f64::from(scale)).round() as i32,
+                width: pixel_width,
+                height: pixel_height,
+            }),
             rgba: Arc::from(vec![255; pixel_width as usize * pixel_height as usize * 4]),
         }
     }
@@ -934,6 +1292,7 @@ mod tests {
         let label = "capture-overlay-test-7".to_string();
         *manager.session.lock().unwrap() = Some(CaptureSession {
             id: "session-1".to_string(),
+            intent: CaptureIntent::Screenshot,
             identity: Arc::new(()),
             overlays: vec![overlay(&label)],
             focus_assigned: false,
@@ -956,6 +1315,16 @@ mod tests {
             height: 10.0,
         };
         assert!(manager.crop(&selection).is_ok());
+        let scan = manager.scan_input(&label, &selection).unwrap();
+        assert_eq!((scan.width, scan.height), (10, 10));
+        assert_eq!(scan.rgba.len(), 10 * 10 * 4);
+        assert_eq!(
+            manager
+                .scan_input("capture-overlay-foreign-7", &selection)
+                .unwrap_err()
+                .code(),
+            "overlay_not_in_session"
+        );
         let input = manager.render_input(&selection).unwrap();
         assert_eq!(input.source.dimensions(), (100, 50));
         assert_eq!(input.crop, (1, 1, 10, 10));
@@ -968,6 +1337,7 @@ mod tests {
         let label = "capture-overlay-session-3-7".to_string();
         *manager.session.lock().unwrap() = Some(CaptureSession {
             id: "session-3".to_string(),
+            intent: CaptureIntent::Screenshot,
             identity: Arc::new(()),
             overlays: vec![overlay(&label)],
             focus_assigned: false,
@@ -1013,6 +1383,7 @@ mod tests {
         let label = "capture-overlay-session-4-7".to_string();
         *manager.session.lock().unwrap() = Some(CaptureSession {
             id: "session-4".to_string(),
+            intent: CaptureIntent::Screenshot,
             identity: Arc::new(()),
             overlays: vec![overlay(&label)],
             focus_assigned: false,
@@ -1055,7 +1426,7 @@ mod tests {
                 Vec::new(),
                 true,
                 StageTimings::default(),
-                ownership(),
+                CaptureBeginAuthorization::new(ownership(), CaptureIntent::Screenshot),
             )
             .unwrap();
         assert_eq!(specs.overlays.len(), 2);
@@ -1076,7 +1447,10 @@ mod tests {
                 Vec::new(),
                 false,
                 StageTimings::default(),
-                ownership_on(&empty_gate),
+                CaptureBeginAuthorization::new(
+                    ownership_on(&empty_gate),
+                    CaptureIntent::Screenshot,
+                ),
             )
             .expect_err("空帧应失败");
         assert_eq!(failure.error.code(), "no_monitor_frames");
@@ -1092,7 +1466,10 @@ mod tests {
                 Vec::new(),
                 false,
                 StageTimings::default(),
-                ownership_on(&first_gate),
+                CaptureBeginAuthorization::new(
+                    ownership_on(&first_gate),
+                    CaptureIntent::Screenshot,
+                ),
             )
             .expect("首个会话启动");
         let rejected_gate = Arc::new(CaptureModeGate::new());
@@ -1103,7 +1480,10 @@ mod tests {
                 Vec::new(),
                 false,
                 StageTimings::default(),
-                ownership_on(&rejected_gate),
+                CaptureBeginAuthorization::new(
+                    ownership_on(&rejected_gate),
+                    CaptureIntent::Screenshot,
+                ),
             )
             .expect_err("已有会话应失败");
         assert_eq!(failure.error.code(), "session_busy");
@@ -1128,7 +1508,10 @@ mod tests {
                 Vec::new(),
                 false,
                 StageTimings::default(),
-                ownership_on(&poison_gate),
+                CaptureBeginAuthorization::new(
+                    ownership_on(&poison_gate),
+                    CaptureIntent::Screenshot,
+                ),
             )
             .expect_err("poison 应结构化失败");
         assert_eq!(failure.error.code(), "state_lock");
@@ -1147,7 +1530,10 @@ mod tests {
                 Vec::new(),
                 false,
                 StageTimings::default(),
-                ownership_on(&first_gate),
+                CaptureBeginAuthorization::new(
+                    ownership_on(&first_gate),
+                    CaptureIntent::Screenshot,
+                ),
             )
             .unwrap();
         assert!(manager.ensure_current(&first.session_id).is_ok());
@@ -1162,7 +1548,10 @@ mod tests {
                 Vec::new(),
                 false,
                 StageTimings::default(),
-                ownership_on(&second_gate),
+                CaptureBeginAuthorization::new(
+                    ownership_on(&second_gate),
+                    CaptureIntent::Screenshot,
+                ),
             )
             .unwrap();
         assert_eq!(
@@ -1198,7 +1587,7 @@ mod tests {
                 Vec::new(),
                 false,
                 StageTimings::default(),
-                ownership_on(&gate),
+                CaptureBeginAuthorization::new(ownership_on(&gate), CaptureIntent::Screenshot),
             )
             .unwrap();
         let label = &start.overlays[0].label;
@@ -1241,7 +1630,7 @@ mod tests {
                 Vec::new(),
                 false,
                 StageTimings::default(),
-                ownership_on(&gate),
+                CaptureBeginAuthorization::new(ownership_on(&gate), CaptureIntent::Screenshot),
             )
             .unwrap();
         let label = start.overlays[0].label.clone();
@@ -1288,6 +1677,7 @@ mod tests {
         let label = "capture-overlay-session-1-7".to_string();
         *manager.session.lock().unwrap() = Some(CaptureSession {
             id: "session-1".to_string(),
+            intent: CaptureIntent::Screenshot,
             identity: Arc::new(()),
             overlays: vec![overlay(&label)],
             focus_assigned: false,
@@ -1325,6 +1715,7 @@ mod tests {
         let label = "capture-overlay-session-2-7".to_string();
         *manager.session.lock().unwrap() = Some(CaptureSession {
             id: "session-2".to_string(),
+            intent: CaptureIntent::Screenshot,
             identity: Arc::new(()),
             overlays: vec![overlay(&label)],
             focus_assigned: false,
@@ -1354,6 +1745,7 @@ mod tests {
         );
         *manager.session.lock().unwrap() = Some(CaptureSession {
             id: "session-9".to_string(),
+            intent: CaptureIntent::Screenshot,
             identity: Arc::new(()),
             overlays: vec![
                 OverlaySpec {
@@ -1361,6 +1753,13 @@ mod tests {
                     x: 0,
                     y: 0,
                     width: 1920,
+                    #[cfg(target_os = "windows")]
+                    physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                        x: 0,
+                        y: 0,
+                        width: 1920,
+                        height: 1200,
+                    }),
                     height: 1200,
                 },
                 OverlaySpec {
@@ -1368,6 +1767,13 @@ mod tests {
                     x: 1920,
                     y: 0,
                     width: 1920,
+                    #[cfg(target_os = "windows")]
+                    physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                        x: 1920,
+                        y: 0,
+                        width: 1920,
+                        height: 1200,
+                    }),
                     height: 1200,
                 },
             ],
@@ -1376,7 +1782,29 @@ mod tests {
             probe_hint: false,
             restore_labels: Vec::new(),
             lowered_pins: Vec::new(),
-            frames: vec![frame(1.0)],
+            // 此夹具只测 reveal，但帧几何仍须与上面的两个覆盖层逐一对应。
+            frames: [0, 1920]
+                .into_iter()
+                .enumerate()
+                .map(|(index, x)| CapturedMonitorFrame {
+                    monitor_id: index as u32 + 1,
+                    x,
+                    y: 0,
+                    logical_width: 1920,
+                    logical_height: 1200,
+                    pixel_width: 1920,
+                    pixel_height: 1200,
+                    scale_x: 1.0,
+                    scale_y: 1.0,
+                    physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                        x,
+                        y: 0,
+                        width: 1920,
+                        height: 1200,
+                    }),
+                    rgba: Arc::from(Vec::new()),
+                })
+                .collect(),
             windows: HashMap::new(),
             output: None,
             mode_ownership: ownership(),
@@ -1476,7 +1904,7 @@ mod tests {
                 vec!["pin-a".to_string()],
                 true,
                 StageTimings::default(),
-                ownership_on(&gate),
+                CaptureBeginAuthorization::new(ownership_on(&gate), CaptureIntent::Screenshot),
             )
             .expect("启动普通会话");
         let selection = selection_for(&start.session_id);
@@ -1503,23 +1931,155 @@ mod tests {
     }
 
     #[test]
-    fn longshot_open_validation_binds_caller_session_monitor_and_geometry() {
+    fn recording_prepare_binds_caller_and_physical_crop_then_commits_ownership() {
+        let manager = CaptureManager::new();
+        let gate = Arc::new(CaptureModeGate::new());
+        let start = manager
+            .begin(
+                vec![frame(2.0)],
+                vec!["main".to_string()],
+                vec!["pin-a".to_string()],
+                false,
+                StageTimings::default(),
+                CaptureBeginAuthorization::new(ownership_on(&gate), CaptureIntent::Recording),
+            )
+            .expect("启动普通会话");
+        let label = start.overlays[0].label.clone();
+        assert!(label.starts_with("recording-overlay-"));
+        assert_eq!(
+            manager.payload(&label).expect("录屏 payload").intent,
+            CaptureIntent::Recording
+        );
+        let mut selection = selection_for(&start.session_id);
+        selection.x = 1.25;
+        selection.y = 2.25;
+        selection.width = 30.2;
+        selection.height = 30.0;
+
+        assert_eq!(
+            manager
+                .prepare_recording("capture-overlay-forged-7", &selection)
+                .expect_err("伪造 caller 不得取得录屏合同")
+                .code(),
+            "overlay_not_in_session"
+        );
+        let candidate = manager
+            .prepare_recording(&label, &selection)
+            .expect("可信覆盖层应取得录屏合同");
+        assert_eq!(
+            candidate.spec(),
+            RecordingCaptureSpec {
+                monitor_id: 7,
+                monitor_pixel_width: 200,
+                monitor_pixel_height: 100,
+                crop_left: 2,
+                crop_top: 4,
+                crop_width: 61,
+                crop_height: 61,
+            }
+        );
+        assert!(manager.payload(&label).is_ok());
+        assert_eq!(gate.active_mode().unwrap(), Some(CaptureMode::Ordinary));
+
+        let handoff = manager
+            .commit_recording(candidate)
+            .expect("精确候选应完成录屏 handoff");
+        assert_eq!(handoff.resources.overlay_labels(), vec![label]);
+        assert_eq!(handoff.resources.restore_labels, vec!["main"]);
+        assert_eq!(handoff.resources.lowered_pins, vec!["pin-a"]);
+        assert_eq!(gate.active_mode().unwrap(), Some(CaptureMode::Recording));
+        assert_eq!(
+            manager
+                .payload(&start.overlays[0].label)
+                .unwrap_err()
+                .code(),
+            "session_missing"
+        );
+        handoff.ownership.release().expect("录屏 owner 应可释放");
+    }
+
+    #[test]
+    fn screenshot_session_cannot_be_promoted_to_recording() {
         let manager = CaptureManager::new();
         let gate = Arc::new(CaptureModeGate::new());
         let start = manager
             .begin(
                 vec![frame(1.0)],
+                vec!["main".to_string()],
+                Vec::new(),
+                false,
+                StageTimings::default(),
+                CaptureBeginAuthorization::new(ownership_on(&gate), CaptureIntent::Screenshot),
+            )
+            .expect("启动截图会话");
+        let selection = selection_for(&start.session_id);
+
+        assert_eq!(
+            manager
+                .prepare_recording(&start.overlays[0].label, &selection)
+                .expect_err("截图会话不得升级为录屏")
+                .code(),
+            "capture_intent_mismatch"
+        );
+        assert_eq!(gate.active_mode().unwrap(), Some(CaptureMode::Ordinary));
+
+        manager
+            .finish(&start.session_id)
+            .unwrap()
+            .finalize_mode()
+            .unwrap();
+    }
+
+    #[test]
+    fn longshot_open_validation_binds_caller_session_monitor_and_geometry() {
+        let manager = CaptureManager::new();
+        let gate = Arc::new(CaptureModeGate::new());
+        let mut source = frame(2.0);
+        source.x = -100;
+        source.y = 30;
+        source.physical_bounds = Some(crate::screenshot::PhysicalMonitorBounds {
+            x: -200,
+            y: 60,
+            width: 200,
+            height: 100,
+        });
+        let start = manager
+            .begin(
+                vec![source],
                 Vec::new(),
                 Vec::new(),
                 false,
                 StageTimings::default(),
-                ownership_on(&gate),
+                CaptureBeginAuthorization::new(ownership_on(&gate), CaptureIntent::Screenshot),
             )
             .expect("启动普通会话");
         let label = &start.overlays[0].label;
         let mut selection = selection_for(&start.session_id);
+        selection.x = 1.25;
+        selection.y = 2.25;
+        selection.width = 30.2;
         selection.height = 30.0;
         assert!(manager.validate_longshot_open(label, &selection).is_ok());
+        assert_eq!(
+            manager.longshot_guide_spec(label, &selection).unwrap(),
+            LongshotGuideSpec {
+                monitor_x: -100,
+                monitor_y: 30,
+                monitor_width: 100,
+                monitor_height: 50,
+                #[cfg(target_os = "windows")]
+                physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                    x: -200,
+                    y: 60,
+                    width: 200,
+                    height: 100,
+                }),
+                selection_x: 1.0,
+                selection_y: 2.0,
+                selection_width: 30.5,
+                selection_height: 30.5,
+            }
+        );
         assert_eq!(
             manager
                 .validate_longshot_open("capture-overlay-forged-7", &selection)
@@ -1573,7 +2133,7 @@ mod tests {
                 Vec::new(),
                 false,
                 StageTimings::default(),
-                ownership_on(&gate),
+                CaptureBeginAuthorization::new(ownership_on(&gate), CaptureIntent::Screenshot),
             )
             .unwrap();
         let mut stale = selection_for("stale");
@@ -1604,7 +2164,10 @@ mod tests {
                 Vec::new(),
                 false,
                 StageTimings::default(),
-                ownership_on(&poisoned_gate),
+                CaptureBeginAuthorization::new(
+                    ownership_on(&poisoned_gate),
+                    CaptureIntent::Screenshot,
+                ),
             )
             .unwrap();
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1641,7 +2204,7 @@ mod tests {
                     .collect(),
                 false,
                 StageTimings::default(),
-                ownership_on(&gate),
+                CaptureBeginAuthorization::new(ownership_on(&gate), CaptureIntent::Screenshot),
             )
             .unwrap();
         let candidate = manager
@@ -1686,7 +2249,7 @@ mod tests {
                 Vec::new(),
                 false,
                 StageTimings::default(),
-                ownership_on(&gate),
+                CaptureBeginAuthorization::new(ownership_on(&gate), CaptureIntent::Screenshot),
             )
             .unwrap();
         let candidate = manager
@@ -1714,7 +2277,7 @@ mod tests {
                 Vec::new(),
                 false,
                 StageTimings::default(),
-                ownership_on(&old_gate),
+                CaptureBeginAuthorization::new(ownership_on(&old_gate), CaptureIntent::Screenshot),
             )
             .unwrap();
         let candidate = manager
@@ -1734,7 +2297,7 @@ mod tests {
                 vec!["new-pin".to_string()],
                 true,
                 StageTimings::default(),
-                ownership_on(&new_gate),
+                CaptureBeginAuthorization::new(ownership_on(&new_gate), CaptureIntent::Screenshot),
             )
             .unwrap();
         manager.session.lock().unwrap().as_mut().unwrap().id = old.session_id.clone();
@@ -1781,6 +2344,7 @@ mod tests {
         };
         *manager.session.lock().unwrap() = Some(CaptureSession {
             id: session_id.clone(),
+            intent: CaptureIntent::Screenshot,
             identity: Arc::new(()),
             overlays: vec![overlay(&label)],
             restore_labels: vec!["restore-b", "restore-a"]
@@ -1910,7 +2474,7 @@ mod tests {
                 Vec::new(),
                 false,
                 StageTimings::default(),
-                ownership_on(&gate),
+                CaptureBeginAuthorization::new(ownership_on(&gate), CaptureIntent::Screenshot),
             )
             .unwrap();
         let candidates: Vec<_> = (0..8)
@@ -1964,7 +2528,7 @@ mod tests {
                 Vec::new(),
                 false,
                 StageTimings::default(),
-                ownership_on(&gate),
+                CaptureBeginAuthorization::new(ownership_on(&gate), CaptureIntent::Screenshot),
             )
             .unwrap();
         let handoff = manager
@@ -1993,7 +2557,7 @@ mod tests {
                 vec!["pin-source".into()],
                 false,
                 StageTimings::default(),
-                ownership_on(&gate),
+                CaptureBeginAuthorization::new(ownership_on(&gate), CaptureIntent::Screenshot),
             )
             .unwrap();
         let selection = CaptureSelection {

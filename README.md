@@ -47,7 +47,7 @@ Built with **Tauri v2 + Rust**. No Electron. No bloat.
 ## Features
 
 - **Multi-type clipboard** — Captures text, HTML, and images with SHA-256 deduplication
-- **tmux integration** — Captures tmux copy-mode via `copy-pipe-and-cancel`, inotify-driven instant detection, auto-binding verification
+- **tmux integration** — Captures tmux copy-mode via `copy-pipe-and-cancel`, inotify-driven instant detection, and restores the user's original bindings when disabled
 - **Rich text preview** — Press `Tab` to open the preview panel:
   - Code highlighting — auto-detects 21 languages via highlight.js
   - Markdown rendering — scoring-based detection with GFM support
@@ -162,11 +162,12 @@ src/                          # Frontend
 │   ├── api.ts                # Typed Tauri IPC wrapper (sole boundary)
 │   ├── ipc-types.ts          # Rust serde payload contracts
 │   ├── app.js                # Entry + keyboard routing
-│   ├── clipboard-list.js     # List state machine + diff render
+│   ├── clipboard-react-facade.js # Stable facade for the React list
 │   ├── preview-panel.js      # Preview state/detection dispatcher
 │   ├── preview/              # Code, metadata, format, content and crypto renderers
 │   ├── search-bar.js         # Search UI
 │   └── settings.js           # Settings logic
+├── react/main/               # List state, virtualization and row rendering
 ├── styles/                   # CSS
 └── i18n/                     # en, zh-CN
 

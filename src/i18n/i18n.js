@@ -54,7 +54,9 @@ export function applyToDOM() {
     const translated = t(key);
     if (translated === key) return;
     if (attribute) {
-      element.setAttribute(attribute, translated);
+      for (const name of attribute.split(",").map((value) => value.trim()).filter(Boolean)) {
+        element.setAttribute(name, translated);
+      }
     } else {
       element.textContent = translated;
     }

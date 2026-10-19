@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clippy.local/schemas/ocr-quality-corpus-v1.json",
+  "title": "Clippy OCR quality corpus v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "cases"],
+  "properties": {
+    "schema": { "const": "clippy-ocr-quality-corpus-v1" },
+    "cases": {
+      "type": "array",
+      "maxItems": 2000,
+      "items": { "$ref": "#/$defs/case" }
+    }
+  },
+  "$defs": {
+    "point": {
+      "type": "array",
+      "prefixItems": [{ "type": "number" }, { "type": "number" }],
+      "items": false
+    },
+    "quad": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": { "$ref": "#/$defs/point" }
+    },
+    "formula": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "value"],
+      "properties": {
+        "format": { "type": "string", "minLength": 1 },
+        "value": { "type": "string" }
+      }
+    },
+    "line": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "text", "quad"],
+      "allOf": [
+        {
+          "if": {
+            "required": ["kind"],
+            "properties": { "kind": { "const": "formula" } }
+          },
+          "then": { "required": ["formula"] }
+        }
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "text": { "type": "string" },
+        "quad": { "$ref": "#/$defs/quad" },
+        "kind": { "enum": ["text", "formula"] },
+        "formula": { "$ref": "#/$defs/formula" },
+        "paragraphId": { "type": "string", "minLength": 1 }
+      }
+    },
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "tags", "source", "lines"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "tags": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "license", "imagePath", "sha256", "width", "height"],
+          "properties": {
+            "kind": { "type": "string", "minLength": 1 },
+            "license": { "type": "string", "minLength": 1 },
+            "imagePath": { "type": "string", "minLength": 1 },
+            "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "width": { "type": "integer", "minimum": 1, "maximum": 16384 },
+            "height": { "type": "integer", "minimum": 1, "maximum": 16384 }
+          }
+        },
+        "lines": {
+          "type": "array",
+          "maxItems": 512,
+          "items": { "$ref": "#/$defs/line" }
+        }
+      }
+    }
+  }
+}

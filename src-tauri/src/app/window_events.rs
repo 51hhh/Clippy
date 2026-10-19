@@ -4,6 +4,16 @@ use crate::window_controller;
 use tauri::Manager;
 
 pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
+    if matches!(event, tauri::WindowEvent::Destroyed)
+        && window
+            .app_handle()
+            .get_webview_window(window.label())
+            .is_none()
+    {
+        if let Some(state) = window.app_handle().try_state::<AppState>() {
+            state.action_runtime.retire_caller_pending(window.label());
+        }
+    }
     match event {
         tauri::WindowEvent::Moved(position) if window.label() == "main" => {
             window_controller::remember_main_window_position(window, *position);
@@ -15,6 +25,7 @@ pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
                     window.label(),
                     *position,
                 );
+                crate::pin::queue_open_pin(window.app_handle(), &state, window.label());
             }
         }
         tauri::WindowEvent::CloseRequested { api, .. }
@@ -79,17 +90,42 @@ pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
                     .get_webview_window(window.label())
                     .is_none()
                 {
+                    let was_saved = state.pin_manager.has_saved_workspace(window.label());
                     state.pin_manager.remove_window(window.label());
+                    if was_saved {
+                        crate::pin::workspace_library::notify_changed(window.app_handle());
+                    }
                 }
             }
         }
-        tauri::WindowEvent::Destroyed if window.label().starts_with("capture-overlay-") => {
+        tauri::WindowEvent::Destroyed
+            if window.label().starts_with("capture-overlay-")
+                || window.label().starts_with("recording-overlay-") =>
+        {
             if let Some(state) = window.app_handle().try_state::<AppState>() {
                 capture::handle_overlay_destroyed(window.app_handle(), &state, window.label());
             }
         }
         tauri::WindowEvent::Destroyed if window.label().starts_with("longshot-controller-") => {
             capture::handle_longshot_controller_destroyed(window.app_handle(), window.label());
+        }
+        tauri::WindowEvent::Destroyed if window.label().starts_with("recording-control-") => {
+            crate::recording::handle_control_destroyed(window.app_handle(), window.label());
+        }
+        tauri::WindowEvent::Destroyed if window.label() == "recordings" => {
+            // Alt+F4、窗口管理器退出和 WebView 崩溃不会经过前端 close 命令。只有确认同名窗口
+            // 尚未重建时才退休全部媒体租约，避免旧 Destroyed 清掉新结果窗刚签发的租约。
+            if window
+                .app_handle()
+                .get_webview_window(window.label())
+                .is_none()
+            {
+                if let Some(state) = window.app_handle().try_state::<AppState>() {
+                    if let Err(error) = state.recording_media.clear() {
+                        log::warn!("录屏结果窗销毁后清理播放租约失败: {error}");
+                    }
+                }
+            }
         }
         tauri::WindowEvent::Destroyed if window.label() == "settings" => {
             let app = window.app_handle().clone();

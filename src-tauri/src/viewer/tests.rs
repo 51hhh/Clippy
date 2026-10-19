@@ -1,4 +1,4 @@
-use super::manager::{check_budget, Channel, ViewerSession};
+use super::manager::{check_budget, ActionPinError, Channel, ViewerSession};
 use super::model::*;
 use super::ViewerManager;
 use crate::models::ContentType;
@@ -27,6 +27,7 @@ fn entry(id: i64) -> Arc<ViewerSession> {
         false,
         png(),
         (2, 1),
+        None,
     ))
 }
 fn request(entry: &ViewerSession, id: u64) -> ViewerRequest {
@@ -35,6 +36,62 @@ fn request(entry: &ViewerSession, id: u64) -> ViewerRequest {
         snapshot_id: entry.payload.handle.snapshot_id.clone(),
         request_id: id,
     }
+}
+
+#[test]
+fn managed_revision_uses_root_for_canvas_and_preview_for_analysis() {
+    let source = png();
+    let document = PinCanvasProject {
+        renderer_version: crate::pin::render_v2::RENDERER_VERSION,
+        source_width: 2,
+        source_height: 1,
+        annotations: serde_json::json!([]),
+        adjustments: serde_json::json!({
+            "grayscale": false,
+            "brightness": 10,
+            "contrast": 0,
+            "saturation": 0,
+            "cornerRadius": 0
+        }),
+    };
+    let preview = crate::pin::output::render_document(&source, Some(&document)).unwrap();
+    let managed = crate::pin::output::restore_managed_revision(
+        &preview,
+        crate::storage::StoredImageRevision {
+            source_png: source.clone(),
+            source_width: 2,
+            source_height: 1,
+            renderer_version: document.renderer_version,
+            annotations: document.annotations.clone(),
+            adjustments: document.adjustments.clone(),
+        },
+    )
+    .unwrap();
+    let session = Arc::new(ViewerSession::new(
+        7,
+        "rendered-hash".into(),
+        false,
+        preview.clone(),
+        (2, 1),
+        Some(managed),
+    ));
+
+    assert_eq!(session.png.as_ref(), &preview);
+    assert_eq!(session.source_png.as_ref(), &source);
+    assert!(session.payload.initial_project.is_some());
+    assert_eq!(session.root_clip_id, None);
+    let effective = session.effective_project(None).unwrap();
+    assert_eq!(
+        crate::pin::output::render_document(&session.source_png, Some(&effective)).unwrap(),
+        preview
+    );
+
+    let manager = ViewerManager::default();
+    manager.insert(session).unwrap();
+    assert_eq!(
+        manager.remaining_source_budget().unwrap(),
+        MAX_TOTAL_BYTES - source.len() - preview.len()
+    );
 }
 fn ocr(text: &str) -> crate::ocr::StructuredOcr {
     serde_json::from_value(serde_json::json!({"width":2,"height":1,"text":text,"lines":[],"paragraphs":[],
@@ -79,6 +136,7 @@ fn bounded_snapshot_survives_clip_deletion_and_preserves_sensitive_identity() {
         snapshot.is_sensitive,
         source,
         (2, 1),
+        None,
     );
     storage.delete_clip(clip.id).unwrap();
     assert!(storage
@@ -147,6 +205,126 @@ fn owner_handle_and_protocol_reject_cross_window_or_old_sources() {
     );
     a.deactivate();
     assert_eq!(a.payload().unwrap_err().code, "closed");
+}
+
+#[test]
+fn action_snapshot_resolution_requires_the_exact_viewer_owner_and_immutable_version() {
+    let manager = ViewerManager::default();
+    let owned = entry(1);
+    let other = entry(2);
+    manager.insert(owned.clone()).unwrap();
+    manager.insert(other.clone()).unwrap();
+    let resolved = manager
+        .resolve_action_snapshot(&owned.payload.label, &owned.payload.handle.snapshot_id, 0)
+        .unwrap();
+    assert!(Arc::ptr_eq(&resolved, &owned.png));
+    assert!(manager
+        .resolve_action_snapshot(&other.payload.label, &owned.payload.handle.snapshot_id, 0,)
+        .is_err());
+    assert!(manager
+        .resolve_action_snapshot(&owned.payload.label, &owned.payload.handle.snapshot_id, 1,)
+        .is_err());
+    owned.deactivate();
+    assert!(manager
+        .resolve_action_snapshot(&owned.payload.label, &owned.payload.handle.snapshot_id, 0,)
+        .is_err());
+}
+
+#[test]
+fn action_pin_serializes_with_viewer_and_keeps_uncertain_creation_sticky() {
+    use crate::pin::commands::ScreenshotPinCreateError;
+
+    let manager = ViewerManager::default();
+    let owned = entry(1);
+    let other = entry(2);
+    manager.insert(owned.clone()).unwrap();
+    manager.insert(other.clone()).unwrap();
+    let called = std::cell::Cell::new(false);
+    assert_eq!(
+        manager.pin_action_snapshot(
+            &other.payload.label,
+            &owned.payload.handle.snapshot_id,
+            0,
+            |_| {
+                called.set(true);
+                Ok("must-not-run")
+            },
+        ),
+        Err(ActionPinError::SourceUnavailable)
+    );
+    assert_eq!(
+        manager.pin_action_snapshot(
+            &owned.payload.label,
+            &owned.payload.handle.snapshot_id,
+            1,
+            |_| {
+                called.set(true);
+                Ok("must-not-run")
+            },
+        ),
+        Err(ActionPinError::SourceUnavailable)
+    );
+    assert!(!called.get());
+
+    assert_eq!(
+        manager.pin_action_snapshot::<()>(
+            &owned.payload.label,
+            &owned.payload.handle.snapshot_id,
+            0,
+            |png| {
+                assert!(Arc::ptr_eq(&png, &owned.png));
+                Err::<(), _>(ScreenshotPinCreateError::NotCreated {
+                    message: "pre-builder detail must remain private".into(),
+                })
+            },
+        ),
+        Err(ActionPinError::Failed)
+    );
+    assert_eq!(
+        manager.pin_action_snapshot(
+            &owned.payload.label,
+            &owned.payload.handle.snapshot_id,
+            0,
+            |_| Ok("retry-created"),
+        ),
+        Ok("retry-created")
+    );
+
+    assert_eq!(
+        manager.pin_action_snapshot(
+            &owned.payload.label,
+            &owned.payload.handle.snapshot_id,
+            0,
+            |_| {
+                Err::<(), _>(ScreenshotPinCreateError::Uncertain {
+                    attempted_label: "pin-private-attempt".into(),
+                    message: "native detail must remain private".into(),
+                })
+            },
+        ),
+        Err(ActionPinError::Uncertain)
+    );
+    assert_eq!(
+        manager.pin_action_snapshot::<()>(
+            &owned.payload.label,
+            &owned.payload.handle.snapshot_id,
+            0,
+            |_| panic!("uncertain action result must block another window attempt"),
+        ),
+        Err(ActionPinError::Uncertain)
+    );
+
+    let viewer_retry = request(&owned, 1);
+    owned.begin(Channel::Output, &viewer_retry).unwrap();
+    assert_eq!(
+        owned
+            .commit_pin::<()>(&viewer_retry, || {
+                panic!("action uncertainty must also block the dedicated Viewer command")
+            })
+            .unwrap_err()
+            .code,
+        "pin_creation_uncertain"
+    );
 }
 #[test]
 fn manager_deduplicates_by_clip_and_hash_and_enforces_budgets() {
@@ -276,7 +454,7 @@ fn translations_and_sensitive_state_are_isolated_per_window() {
     assert!(b.translation.is_latest(2));
 }
 #[test]
-fn trusted_outputs_keep_canonical_pixels_and_editable_source_without_pin_entry() {
+fn trusted_outputs_keep_canonical_pixels_without_embedding_editable_source() {
     let source = png();
     let (rendered, editable) =
         crate::pin::output::prepare_save(&source, None, PinCanvasSaveMode::Editable).unwrap();
@@ -286,7 +464,7 @@ fn trusted_outputs_keep_canonical_pixels_and_editable_source_without_pin_entry()
             .into_raw(),
         vec![10, 20, 30, 40, 255, 0, 0, 255]
     );
-    assert!(editable
+    assert!(!editable
         .windows("clippy-project".len())
         .any(|part| part == b"clippy-project"));
     let (_, flat) =

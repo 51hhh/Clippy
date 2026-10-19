@@ -1,5 +1,6 @@
 mod color;
 pub(crate) mod commands;
+mod display_scale;
 mod error;
 pub(crate) mod frame_protocol;
 mod image_validation;
@@ -13,6 +14,12 @@ mod project_file;
 pub(crate) mod render_v2;
 mod resample;
 mod window;
+#[cfg(target_os = "windows")]
+mod windows_geometry;
+#[cfg(target_os = "windows")]
+mod windows_workarea;
+mod workspace;
+pub(crate) mod workspace_library;
 
 pub(crate) use commands::{
     create_screenshot_pin_shared, lower_pins_for_capture, raise_focused_pin,
@@ -21,8 +28,11 @@ pub(crate) use commands::{
 pub use error::PinError;
 pub(crate) use manager::remember_pin_window_position;
 pub use manager::PinManager;
+#[cfg(target_os = "windows")]
+pub(crate) use model::PinPhysicalOrigin;
 pub(crate) use model::{label_from_window_marker, PinOrigin};
 pub(crate) use origins::{PinFingerprint, PinOriginRegistry};
+pub(crate) use workspace::{queue_open_pin, restore_saved, PinWorkspacePersistence};
 
 #[cfg(test)]
 mod tests {
@@ -48,10 +58,15 @@ mod tests {
             opacity: 1.0,
             locked: false,
             above: false,
+            workspace_id: None,
+            workspace_group_id: None,
             position: None,
+            restore_position: None,
             origin: None,
             device_scale: 1.0,
             buffer_scale: 1.0,
+            #[cfg(target_os = "windows")]
+            native_layout: None,
             sharpen: Arc::new(SharpenSlot::default()),
         }
     }
@@ -107,7 +122,7 @@ mod tests {
     #[test]
     fn outer_size_reserves_controls_and_shadow() {
         assert_eq!(outer_size(400.0, 300.0, 1.0), (468.0, 372.0));
-        assert_eq!(outer_size(400.0, 300.0, 0.5), (268.0, 252.0));
+        assert_eq!(outer_size(400.0, 300.0, 0.5), (268.0, 368.0));
     }
 
     /// 窗口再矮也要放得下竖排工具条，否则"关闭"按钮在窗口外面，小图贴出来只能按 Esc 关。
@@ -115,10 +130,10 @@ mod tests {
     /// 多出来的高度由前端留成左上角对齐的透明留白（`pin.css` 的 `.pin-media` 显式定尺寸）。
     #[test]
     fn a_short_pin_still_gets_a_window_tall_enough_for_the_toolbar() {
-        // 60x30 的小选区：按内容算只有 102 px 高，工具条要 249 px。
+        // 60x30 的小选区：按内容算只有 102 px 高，完整图片工具条及上下间隙要 367 px。
         let (width, height) = outer_size(60.0, 30.0, 1.0);
         assert_eq!(width, 128.0);
-        assert_eq!(height, 252.0);
+        assert_eq!(height, 368.0);
         // 内容本身够高时不受下限影响。
         assert_eq!(outer_size(60.0, 300.0, 1.0), (128.0, 372.0));
     }
@@ -138,6 +153,29 @@ mod tests {
         manager.remove_window("pin-image-test");
         assert_eq!(manager.len(), 0);
         assert!(manager.get("pin-image-test").is_err());
+    }
+
+    #[test]
+    fn manager_resolves_only_open_workspace_ids() {
+        let manager = PinManager::new();
+        let mut first = screenshot_entry("pin-workspace-41");
+        first.workspace_id = Some(41);
+        first.workspace_group_id = Some(9);
+        manager.insert(first).unwrap();
+        manager
+            .insert(screenshot_entry("pin-image-temporary"))
+            .unwrap();
+
+        assert_eq!(
+            manager.label_for_workspace(41).unwrap().as_deref(),
+            Some("pin-workspace-41")
+        );
+        assert_eq!(manager.label_for_workspace(42).unwrap(), None);
+        assert_eq!(manager.open_workspace_ids().unwrap(), vec![41]);
+        assert_eq!(
+            manager.labels_in_workspace_group(9).unwrap(),
+            vec!["pin-workspace-41".to_string()]
+        );
     }
 
     /// `update_pin` 每帧要克隆两份条目（回滚用的旧值 + 更新后的新值）。内容按值放在
@@ -220,6 +258,8 @@ mod tests {
     #[test]
     fn window_origin_offsets_the_content_area_by_the_shadow_gutter() {
         let origin = PinOrigin {
+            #[cfg(target_os = "windows")]
+            physical: None,
             x: 400.0,
             y: 300.0,
             width: 640.0,
@@ -235,6 +275,8 @@ mod tests {
     #[test]
     fn origin_rects_must_be_finite_and_visible() {
         let good = PinOrigin {
+            #[cfg(target_os = "windows")]
+            physical: None,
             x: -1920.0,
             y: 0.0,
             width: 2.0,
@@ -243,12 +285,16 @@ mod tests {
         assert_eq!(good.sanitized(), Some(good));
         for bad in [
             PinOrigin {
+                #[cfg(target_os = "windows")]
+                physical: None,
                 x: f64::NAN,
                 y: 0.0,
                 width: 10.0,
                 height: 10.0,
             },
             PinOrigin {
+                #[cfg(target_os = "windows")]
+                physical: None,
                 x: 0.0,
                 y: f64::INFINITY,
                 width: 10.0,
@@ -256,12 +302,16 @@ mod tests {
             },
             // 1 像素高的选区做不成窗口，只会把几何算成负数
             PinOrigin {
+                #[cfg(target_os = "windows")]
+                physical: None,
                 x: 0.0,
                 y: 0.0,
                 width: 10.0,
                 height: 1.0,
             },
             PinOrigin {
+                #[cfg(target_os = "windows")]
+                physical: None,
                 x: 0.0,
                 y: 0.0,
                 width: 0.0,

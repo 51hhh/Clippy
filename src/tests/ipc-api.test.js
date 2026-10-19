@@ -14,7 +14,9 @@ const {
     label: "settings",
     close: vi.fn(),
     hide: vi.fn(),
+    minimize: vi.fn(),
     startDragging: vi.fn(),
+    toggleMaximize: vi.fn(),
     onDragDropEvent: vi.fn(),
   },
   enableAutostartPlugin: vi.fn(),
@@ -38,6 +40,8 @@ import {
   cancelLongshotController,
   activateLongshotController,
   appendLongshotController,
+  autoAppendLongshotController,
+  undoLongshotController,
   previewLongshotController,
   finishLongshotController,
   markCaptureOverlayReady,
@@ -47,19 +51,26 @@ import {
   closeCurrentWindow,
   disableAutostart,
   enableAutostart,
+  exportClippyArchive,
   getClips,
   getCurrentWindowLabel,
+  getOcrHealthStatus,
   hideCurrentWindow,
   isAutostartEnabled,
+  minimizeCurrentWindow,
+  importClippyArchive,
+  onArchiveImported,
   onClipAdded,
   onMainWindowWillHide,
   onPasteFallback,
   pickScreenshotDirectory,
+  pickOcrManifest,
   runCaptureDiagnostics,
   commitCaptureAction,
   retryCaptureAction,
   onCaptureLongshotHandoff,
   startDraggingCurrentWindow,
+  toggleMaximizeCurrentWindow,
   updateConfig,
   closeSettings,
   restartApp,
@@ -81,11 +92,35 @@ describe("typed IPC wrappers", () => {
     listen.mockReset();
     currentWindow.close.mockReset();
     currentWindow.hide.mockReset();
+    currentWindow.minimize.mockReset();
     currentWindow.startDragging.mockReset();
+    currentWindow.toggleMaximize.mockReset();
     currentWindow.onDragDropEvent.mockReset();
     enableAutostartPlugin.mockReset();
     disableAutostartPlugin.mockReset();
     isAutostartEnabledPlugin.mockReset();
+  });
+
+  it("exports and imports validated local archives", async () => {
+    invoke.mockResolvedValueOnce({ path: "/tmp/a.clippy.zip", clips: 1, groups: 0, workspaces: 0 });
+    await exportClippyArchive("favorites", true);
+    expect(invoke).toHaveBeenLastCalledWith("export_clippy_archive", {
+      scope: "favorites",
+      includeSensitive: true,
+    });
+
+    invoke.mockResolvedValueOnce({ clipsAdded: 1, clipsMerged: 0, groupsAdded: 0, workspacesAdded: 0 });
+    await importClippyArchive();
+    expect(invoke).toHaveBeenLastCalledWith("import_clippy_archive");
+
+    const callback = vi.fn();
+    const unlisten = vi.fn();
+    listen.mockResolvedValueOnce(unlisten);
+    await expect(onArchiveImported(callback)).resolves.toBe(unlisten);
+    const handler = listen.mock.calls.at(-1)[1];
+    handler({ payload: null });
+    expect(listen).toHaveBeenLastCalledWith("archive-imported", expect.any(Function));
+    expect(callback).toHaveBeenCalledOnce();
   });
 
   it("updates use process commands and absolute state events without plugin resources", async () => {
@@ -121,11 +156,16 @@ describe("typed IPC wrappers", () => {
 
   it("validates the bounded local image-code response before exposing it", async () => {
     const response = {
-      results: [{
-        format: "qr_code",
-        text: "https://example.test/\u0000\u202E",
-        points: [{ x: 0, y: 1 }, { x: 16_383, y: 16_383 }],
-      }],
+      results: [
+        {
+          format: "qr_code",
+          text: "https://example.test/\u0000\u202E",
+          points: [{ x: 0, y: 1 }, { x: 16_383, y: 16_383 }],
+        },
+        { format: "code_39", text: "A", points: [] },
+        { format: "code_128", text: "CLIPPY-128", points: [] },
+        { format: "ean_13", text: "5901234123457", points: [] },
+      ],
       limited: false,
     };
     invoke.mockResolvedValueOnce(response);
@@ -323,6 +363,8 @@ describe("typed IPC wrappers", () => {
     activateLongshotController();
     markLongshotControllerReady();
     appendLongshotController(handle);
+    autoAppendLongshotController(handle, "left");
+    undoLongshotController(handle);
     finishLongshotController(handle, "copy");
     finishLongshotController(handle, "save");
     finishLongshotController(handle, "pin");
@@ -333,20 +375,25 @@ describe("typed IPC wrappers", () => {
     expect(invoke).toHaveBeenNthCalledWith(2, "activate_longshot_controller");
     expect(invoke).toHaveBeenNthCalledWith(3, "mark_longshot_controller_ready");
     expect(invoke).toHaveBeenNthCalledWith(4, "append_longshot_controller", { handle });
-    expect(invoke).toHaveBeenNthCalledWith(5, "finish_longshot_controller", {
+    expect(invoke).toHaveBeenNthCalledWith(5, "auto_append_longshot_controller", {
+      handle,
+      direction: "left",
+    });
+    expect(invoke).toHaveBeenNthCalledWith(6, "undo_longshot_controller", { handle });
+    expect(invoke).toHaveBeenNthCalledWith(7, "finish_longshot_controller", {
       handle,
       action: "copy",
     });
-    expect(invoke).toHaveBeenNthCalledWith(6, "finish_longshot_controller", {
+    expect(invoke).toHaveBeenNthCalledWith(8, "finish_longshot_controller", {
       handle,
       action: "save",
     });
-    expect(invoke).toHaveBeenNthCalledWith(7, "finish_longshot_controller", {
+    expect(invoke).toHaveBeenNthCalledWith(9, "finish_longshot_controller", {
       handle,
       action: "pin",
     });
-    expect(invoke).toHaveBeenNthCalledWith(8, "cancel_longshot_controller", { handle });
-    expect(invoke).toHaveBeenNthCalledWith(9, "cancel_longshot_controller", { handle: null });
+    expect(invoke).toHaveBeenNthCalledWith(10, "cancel_longshot_controller", { handle });
+    expect(invoke).toHaveBeenNthCalledWith(11, "cancel_longshot_controller", { handle: null });
   });
 
   it("passes complete longshot Copy, Save, and Pin result contracts through unchanged", async () => {
@@ -428,6 +475,18 @@ describe("typed IPC wrappers", () => {
     expect(invoke).toHaveBeenNthCalledWith(1, "pick_screenshot_directory");
   });
 
+  it("keeps enhanced OCR health and manifest picking behind settings IPC", async () => {
+    invoke.mockResolvedValueOnce({ activeEngine: "tesseract" });
+    await getOcrHealthStatus("/opt/clippy-ocr/manifest.json");
+    expect(invoke).toHaveBeenLastCalledWith("ocr_health_status", {
+      manifestPath: "/opt/clippy-ocr/manifest.json",
+    });
+
+    invoke.mockResolvedValueOnce("/opt/clippy-ocr/manifest.json");
+    await expect(pickOcrManifest()).resolves.toBe("/opt/clippy-ocr/manifest.json");
+    expect(invoke).toHaveBeenLastCalledWith("pick_ocr_manifest");
+  });
+
   it("delivers typed event payloads without exposing the Tauri envelope", async () => {
     const unlisten = vi.fn();
     let listener;
@@ -487,11 +546,15 @@ describe("typed IPC wrappers", () => {
 
     closeCurrentWindow();
     hideCurrentWindow();
+    minimizeCurrentWindow();
     startDraggingCurrentWindow();
+    toggleMaximizeCurrentWindow();
 
     expect(currentWindow.close).toHaveBeenCalledOnce();
     expect(currentWindow.hide).toHaveBeenCalledOnce();
+    expect(currentWindow.minimize).toHaveBeenCalledOnce();
     expect(currentWindow.startDragging).toHaveBeenCalledOnce();
+    expect(currentWindow.toggleMaximize).toHaveBeenCalledOnce();
   });
 
   it("keeps native project drop and project-open IPC behind the typed boundary", async () => {

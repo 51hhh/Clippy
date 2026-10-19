@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Clippy
+Comment=跨平台轻量剪贴板管理器
+Exec=clippy-app
+Icon=clippy-app
+Type=Application
+Categories=Utility;
+StartupWMClass=com.clippy.app
+Terminal=false

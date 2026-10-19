@@ -16,9 +16,17 @@ pub enum Locale {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NativeText {
     pub open_clipboard: &'static str,
+    pub actions_menu: &'static str,
+    pub record_area_menu: &'static str,
+    pub pause_recording_menu: &'static str,
+    pub resume_recording_menu: &'static str,
+    pub stop_recording_menu: &'static str,
+    pub recordings_menu: &'static str,
+    pub pin_workspaces_menu: &'static str,
     pub settings_menu: &'static str,
     pub quit_menu: &'static str,
     pub settings_title: &'static str,
+    pub launcher_title: &'static str,
     pub screenshot_title: &'static str,
     pub settings_close_failed: &'static str,
 }
@@ -27,17 +35,33 @@ pub fn native_text(locale: Locale) -> NativeText {
     match locale {
         Locale::En => NativeText {
             open_clipboard: "Open Clipboard",
+            actions_menu: "Actions",
+            record_area_menu: "Record Area",
+            pause_recording_menu: "Pause Recording",
+            resume_recording_menu: "Resume Recording",
+            stop_recording_menu: "Stop Recording",
+            recordings_menu: "Recordings",
+            pin_workspaces_menu: "Pin Workspaces",
             settings_menu: "Settings",
             quit_menu: "Quit",
             settings_title: "Clippy Settings",
+            launcher_title: "Clippy Actions",
             screenshot_title: "Clippy Screenshot",
             settings_close_failed: "Settings could not be closed. Your inputs were kept. Click Close again to retry restoring shortcuts and closing the window.",
         },
         Locale::ZhCn => NativeText {
             open_clipboard: "打开剪贴板",
+            actions_menu: "动作",
+            record_area_menu: "区域录屏",
+            pause_recording_menu: "暂停录屏",
+            resume_recording_menu: "继续录屏",
+            stop_recording_menu: "停止录屏",
+            recordings_menu: "录屏结果",
+            pin_workspaces_menu: "贴图工作区",
             settings_menu: "设置",
             quit_menu: "退出",
             settings_title: "Clippy 设置",
+            launcher_title: "Clippy 动作",
             screenshot_title: "Clippy 截图",
             settings_close_failed: "设置窗口关闭失败，输入内容已保留。请再次点击关闭，重试恢复快捷键并关闭窗口。",
         },
@@ -126,9 +150,14 @@ mod tests {
             let text = native_text(locale);
             for value in [
                 text.open_clipboard,
+                text.actions_menu,
+                text.record_area_menu,
+                text.recordings_menu,
+                text.pin_workspaces_menu,
                 text.settings_menu,
                 text.quit_menu,
                 text.settings_title,
+                text.launcher_title,
                 text.screenshot_title,
                 text.settings_close_failed,
             ] {
@@ -143,6 +172,10 @@ mod tests {
         let chinese = native_text(Locale::ZhCn);
 
         assert_eq!(chinese.open_clipboard, "打开剪贴板");
+        assert_eq!(chinese.actions_menu, "动作");
+        assert_eq!(chinese.record_area_menu, "区域录屏");
+        assert_eq!(chinese.recordings_menu, "录屏结果");
+        assert_eq!(chinese.pin_workspaces_menu, "贴图工作区");
         assert_eq!(chinese.settings_menu, "设置");
         assert_eq!(chinese.quit_menu, "退出");
         // 品牌名保留，只翻译后半段。

@@ -9,8 +9,9 @@ import * as codec         from "./codec.js";
 import * as i18n          from "../i18n/i18n.js";
 import { initUpdateModal, checkForUpdate } from "./update-modal.js";
 import {
-  getConfig, getClips, onClipAdded, onClipRemoved, onConfigChanged,
+  getConfig, getClips, onArchiveImported, onClipAdded, onClipRemoved, onConfigChanged,
   hideCurrentWindow, onShortcutRegisterFailed, onPinCurrent, onMainWindowWillHide, pinClip,
+  showActionLauncher,
 } from "./api.ts";
 import "../styles/themes.css";
 import "../styles/base.css";
@@ -65,6 +66,10 @@ whenReady(async () => {
   await onClipRemoved((id) => {
     clipboardList.removeClip(id);
   });
+  await onArchiveImported(() => {
+    // 导入可能同时增加和合并条目，等主窗口下次显示时再完整读取，避免隐藏时重新占满内存。
+    clipboardList.markDirty();
+  });
   await onConfigChanged((newConfig) => {
     theme.applyTheme(newConfig.theme || "light");
     i18n.init(newConfig.language || "auto");
@@ -114,6 +119,10 @@ whenReady(async () => {
     codec,
     pinClip,
     hidePanel: tryHidePanel,
+    openActions: () => {
+      const focused = clipboardList.getFocusedClip();
+      return showActionLauncher(focused?.content_type === "image" ? focused.id : 0);
+    },
     // 翻译面板的动作以适配器注入，路由不直接依赖 React store（保持可单测）
     translation: { translate: () => translationStore.translate() },
   });

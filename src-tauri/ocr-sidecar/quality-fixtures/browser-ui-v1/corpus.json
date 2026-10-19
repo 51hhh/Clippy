@@ -1,0 +1,2177 @@
+{
+  "cases": [
+    {
+      "id": "settings-dark",
+      "lines": [
+        {
+          "id": "settings-title",
+          "kind": "text",
+          "quad": [
+            [
+              57,
+              54.5
+            ],
+            [
+              145.067,
+              54.5
+            ],
+            [
+              145.067,
+              82.5
+            ],
+            [
+              57,
+              82.5
+            ]
+          ],
+          "text": "Clippy 设置"
+        },
+        {
+          "id": "settings-version",
+          "kind": "text",
+          "quad": [
+            [
+              1030.4,
+              47.5
+            ],
+            [
+              1223,
+              47.5
+            ],
+            [
+              1223,
+              89.5
+            ],
+            [
+              1030.4,
+              89.5
+            ]
+          ],
+          "text": "v0.1.20  ·  Local only"
+        },
+        {
+          "id": "nav-general",
+          "kind": "text",
+          "paragraphId": "settings-nav",
+          "quad": [
+            [
+              51,
+              134
+            ],
+            [
+              177.967,
+              134
+            ],
+            [
+              177.967,
+              186
+            ],
+            [
+              51,
+              186
+            ]
+          ],
+          "text": "通用 General"
+        },
+        {
+          "id": "nav-ocr",
+          "kind": "text",
+          "paragraphId": "settings-nav",
+          "quad": [
+            [
+              51,
+              198
+            ],
+            [
+              183.5,
+              198
+            ],
+            [
+              183.5,
+              250
+            ],
+            [
+              51,
+              250
+            ]
+          ],
+          "text": "文字识别 OCR"
+        },
+        {
+          "id": "nav-shortcuts",
+          "kind": "text",
+          "paragraphId": "settings-nav",
+          "quad": [
+            [
+              51,
+              262
+            ],
+            [
+              208.75,
+              262
+            ],
+            [
+              208.75,
+              314
+            ],
+            [
+              51,
+              314
+            ]
+          ],
+          "text": "快捷键 Shortcuts"
+        },
+        {
+          "id": "nav-storage",
+          "kind": "text",
+          "paragraphId": "settings-nav",
+          "quad": [
+            [
+              51,
+              326
+            ],
+            [
+              177.117,
+              326
+            ],
+            [
+              177.117,
+              378
+            ],
+            [
+              51,
+              378
+            ]
+          ],
+          "text": "存储 Storage"
+        },
+        {
+          "id": "ocr-heading",
+          "kind": "text",
+          "paragraphId": "settings-content",
+          "quad": [
+            [
+              321,
+              131
+            ],
+            [
+              535.167,
+              131
+            ],
+            [
+              535.167,
+              177
+            ],
+            [
+              321,
+              177
+            ]
+          ],
+          "text": "本地 OCR 与版面"
+        },
+        {
+          "id": "ocr-lead",
+          "kind": "text",
+          "paragraphId": "settings-content",
+          "quad": [
+            [
+              534.767,
+              145
+            ],
+            [
+              799.383,
+              145
+            ],
+            [
+              799.383,
+              173
+            ],
+            [
+              534.767,
+              173
+            ]
+          ],
+          "text": "中文  English  日本語  ·  无网络上传"
+        },
+        {
+          "id": "model-label",
+          "kind": "text",
+          "paragraphId": "settings-content",
+          "quad": [
+            [
+              344,
+              234
+            ],
+            [
+              420,
+              234
+            ],
+            [
+              420,
+              265
+            ],
+            [
+              344,
+              265
+            ]
+          ],
+          "text": "增强模型"
+        },
+        {
+          "id": "model-detail",
+          "kind": "text",
+          "paragraphId": "settings-content",
+          "quad": [
+            [
+              344,
+              270
+            ],
+            [
+              532.017,
+              270
+            ],
+            [
+              532.017,
+              296
+            ],
+            [
+              344,
+              296
+            ]
+          ],
+          "text": "PP-OCRv6 small + EdgeGNN"
+        },
+        {
+          "id": "model-state",
+          "kind": "text",
+          "paragraphId": "settings-content",
+          "quad": [
+            [
+              1134.883,
+              251
+            ],
+            [
+              1186,
+              251
+            ],
+            [
+              1186,
+              279
+            ],
+            [
+              1134.883,
+              279
+            ]
+          ],
+          "text": "Ready"
+        },
+        {
+          "id": "spacing-label",
+          "kind": "text",
+          "paragraphId": "settings-content",
+          "quad": [
+            [
+              344,
+              350
+            ],
+            [
+              481.017,
+              350
+            ],
+            [
+              481.017,
+              381
+            ],
+            [
+              344,
+              381
+            ]
+          ],
+          "text": "English spacing"
+        },
+        {
+          "id": "spacing-detail",
+          "kind": "text",
+          "paragraphId": "settings-content",
+          "quad": [
+            [
+              344,
+              386
+            ],
+            [
+              539.3,
+              386
+            ],
+            [
+              539.3,
+              412
+            ],
+            [
+              344,
+              412
+            ]
+          ],
+          "text": "Keep AA  11  ll  00 unchanged"
+        },
+        {
+          "id": "spacing-state",
+          "kind": "text",
+          "paragraphId": "settings-content",
+          "quad": [
+            [
+              1119.25,
+              367
+            ],
+            [
+              1186,
+              367
+            ],
+            [
+              1186,
+              395
+            ],
+            [
+              1119.25,
+              395
+            ]
+          ],
+          "text": "Enabled"
+        },
+        {
+          "id": "budget-label",
+          "kind": "text",
+          "paragraphId": "settings-content",
+          "quad": [
+            [
+              344,
+              466
+            ],
+            [
+              420,
+              466
+            ],
+            [
+              420,
+              497
+            ],
+            [
+              344,
+              497
+            ]
+          ],
+          "text": "资源预算"
+        },
+        {
+          "id": "budget-detail",
+          "kind": "text",
+          "paragraphId": "settings-content",
+          "quad": [
+            [
+              344,
+              502
+            ],
+            [
+              591.867,
+              502
+            ],
+            [
+              591.867,
+              528
+            ],
+            [
+              344,
+              528
+            ]
+          ],
+          "text": "Deadline 60,000 ms  ·  Peak 256 MiB"
+        },
+        {
+          "id": "budget-state",
+          "kind": "text",
+          "paragraphId": "settings-content",
+          "quad": [
+            [
+              1093.267,
+              483
+            ],
+            [
+              1186,
+              483
+            ],
+            [
+              1186,
+              511
+            ],
+            [
+              1093.267,
+              511
+            ]
+          ],
+          "text": "Within limit"
+        },
+        {
+          "id": "settings-foot",
+          "kind": "text",
+          "paragraphId": "settings-content",
+          "quad": [
+            [
+              321,
+              591
+            ],
+            [
+              583.95,
+              591
+            ],
+            [
+              583.95,
+              619
+            ],
+            [
+              321,
+              619
+            ]
+          ],
+          "text": "符号检查：±0.02  √2≈1.414  ∑  Δ"
+        }
+      ],
+      "source": {
+        "height": 720,
+        "imagePath": "images/settings-dark.png",
+        "kind": "browser-rendered",
+        "license": "Clippy browser fixture text CC0-1.0; Noto Sans CJK SC font OFL-1.1",
+        "sha256": "28d0117cdc1ef54a863803415f0587aa9e0820fd8f7a77684e128a267b1cb8b7",
+        "width": 1280
+      },
+      "tags": [
+        "ui",
+        "dark",
+        "zh-en-ja",
+        "spaces",
+        "numbers",
+        "symbols"
+      ]
+    },
+    {
+      "id": "code-review",
+      "lines": [
+        {
+          "id": "code-title",
+          "kind": "text",
+          "quad": [
+            [
+              57,
+              54.5
+            ],
+            [
+              214.367,
+              54.5
+            ],
+            [
+              214.367,
+              82.5
+            ],
+            [
+              57,
+              82.5
+            ]
+          ],
+          "text": "OCR pipeline review"
+        },
+        {
+          "id": "code-branch",
+          "kind": "text",
+          "quad": [
+            [
+              1005.233,
+              47.5
+            ],
+            [
+              1223,
+              47.5
+            ],
+            [
+              1223,
+              89.5
+            ],
+            [
+              1005.233,
+              89.5
+            ]
+          ],
+          "text": "codex/ocr-real-ui-corpus"
+        },
+        {
+          "id": "file-one",
+          "kind": "text",
+          "paragraphId": "code-files",
+          "quad": [
+            [
+              51,
+              133
+            ],
+            [
+              209.317,
+              133
+            ],
+            [
+              209.317,
+              161
+            ],
+            [
+              51,
+              161
+            ]
+          ],
+          "text": "src-tauri/ocr-sidecar"
+        },
+        {
+          "id": "file-two",
+          "kind": "text",
+          "paragraphId": "code-files",
+          "quad": [
+            [
+              51,
+              177
+            ],
+            [
+              198.45,
+              177
+            ],
+            [
+              198.45,
+              205
+            ],
+            [
+              51,
+              205
+            ]
+          ],
+          "text": "quality_metrics.py"
+        },
+        {
+          "id": "file-three",
+          "kind": "text",
+          "paragraphId": "code-files",
+          "quad": [
+            [
+              51,
+              221
+            ],
+            [
+              140.667,
+              221
+            ],
+            [
+              140.667,
+              249
+            ],
+            [
+              51,
+              249
+            ]
+          ],
+          "text": "pipeline.py"
+        },
+        {
+          "id": "file-four",
+          "kind": "text",
+          "paragraphId": "code-files",
+          "quad": [
+            [
+              51,
+              265
+            ],
+            [
+              236.233,
+              265
+            ],
+            [
+              236.233,
+              293
+            ],
+            [
+              51,
+              293
+            ]
+          ],
+          "text": "test_quality_metrics.py"
+        },
+        {
+          "id": "code-41",
+          "kind": "text",
+          "paragraphId": "code-body",
+          "quad": [
+            [
+              335,
+              129
+            ],
+            [
+              638.333,
+              129
+            ],
+            [
+              638.333,
+              166.25
+            ],
+            [
+              335,
+              166.25
+            ]
+          ],
+          "text": "def verify_text(value: str) -> bool:"
+        },
+        {
+          "id": "code-42",
+          "kind": "text",
+          "paragraphId": "code-body",
+          "quad": [
+            [
+              335,
+              162.25
+            ],
+            [
+              739.633,
+              162.25
+            ],
+            [
+              739.633,
+              199.5
+            ],
+            [
+              335,
+              199.5
+            ]
+          ],
+          "text": "# Preserve  two spaces, 日本語, and symbols."
+        },
+        {
+          "id": "code-43",
+          "kind": "text",
+          "paragraphId": "code-body",
+          "quad": [
+            [
+              335,
+              195.5
+            ],
+            [
+              660.633,
+              195.5
+            ],
+            [
+              660.633,
+              232.75
+            ],
+            [
+              335,
+              232.75
+            ]
+          ],
+          "text": "    sample = \"订单 AA  11 / ¥1,234.50\""
+        },
+        {
+          "id": "code-44",
+          "kind": "text",
+          "paragraphId": "code-body",
+          "quad": [
+            [
+              335,
+              228.75
+            ],
+            [
+              521.05,
+              228.75
+            ],
+            [
+              521.05,
+              266
+            ],
+            [
+              335,
+              266
+            ]
+          ],
+          "text": "    ratio = 98.6 / 100.0"
+        },
+        {
+          "id": "code-45",
+          "kind": "text",
+          "paragraphId": "code-body",
+          "quad": [
+            [
+              335,
+              262
+            ],
+            [
+              717.083,
+              262
+            ],
+            [
+              717.083,
+              299.25
+            ],
+            [
+              335,
+              299.25
+            ]
+          ],
+          "text": "    return value == sample and ratio >= 0.98"
+        },
+        {
+          "id": "code-46",
+          "kind": "text",
+          "paragraphId": "code-body",
+          "quad": [
+            [
+              335,
+              295.25
+            ],
+            [
+              768.5,
+              295.25
+            ],
+            [
+              768.5,
+              332.5
+            ],
+            [
+              335,
+              332.5
+            ]
+          ],
+          "text": "# TODO: route x² + 1/2 = √2 to a formula model."
+        },
+        {
+          "id": "code-warning",
+          "kind": "text",
+          "paragraphId": "code-body",
+          "quad": [
+            [
+              287,
+              353.5
+            ],
+            [
+              933.633,
+              353.5
+            ],
+            [
+              933.633,
+              422.75
+            ],
+            [
+              287,
+              422.75
+            ]
+          ],
+          "text": "Warning  E042  Unicode sequence ∑ ≠ Σ; do not normalize silently."
+        }
+      ],
+      "source": {
+        "height": 720,
+        "imagePath": "images/code-review.png",
+        "kind": "browser-rendered",
+        "license": "Clippy browser fixture text CC0-1.0; Noto Sans CJK SC font OFL-1.1",
+        "sha256": "b2e7ff768d03161dc858c93fa28ba64fbca59ecc2590b3c34977865c4feef981",
+        "width": 1280
+      },
+      "tags": [
+        "ui",
+        "code",
+        "italic",
+        "zh-en-ja",
+        "spaces",
+        "numbers",
+        "symbols"
+      ]
+    },
+    {
+      "id": "invoice-table",
+      "lines": [
+        {
+          "id": "invoice-app-title",
+          "kind": "text",
+          "quad": [
+            [
+              57,
+              54.5
+            ],
+            [
+              209.067,
+              54.5
+            ],
+            [
+              209.067,
+              82.5
+            ],
+            [
+              57,
+              82.5
+            ]
+          ],
+          "text": "Clippy 本地票据预览"
+        },
+        {
+          "id": "invoice-state",
+          "kind": "text",
+          "quad": [
+            [
+              1084.883,
+              47.5
+            ],
+            [
+              1223,
+              47.5
+            ],
+            [
+              1223,
+              89.5
+            ],
+            [
+              1084.883,
+              89.5
+            ]
+          ],
+          "text": "OCR complete"
+        },
+        {
+          "id": "invoice-title",
+          "kind": "text",
+          "quad": [
+            [
+              75,
+              133
+            ],
+            [
+              340.3,
+              133
+            ],
+            [
+              340.3,
+              179
+            ],
+            [
+              75,
+              179
+            ]
+          ],
+          "text": "Invoice  請求書  发票"
+        },
+        {
+          "id": "invoice-number",
+          "kind": "text",
+          "quad": [
+            [
+              336.3,
+              147
+            ],
+            [
+              498.2,
+              147
+            ],
+            [
+              498.2,
+              175
+            ],
+            [
+              336.3,
+              175
+            ]
+          ],
+          "text": "No. AA11-2026-09-21"
+        },
+        {
+          "id": "invoice-date",
+          "kind": "text",
+          "quad": [
+            [
+              1074.2,
+              133
+            ],
+            [
+              1205,
+              133
+            ],
+            [
+              1205,
+              161
+            ],
+            [
+              1074.2,
+              161
+            ]
+          ],
+          "text": "Date  2026-09-21"
+        },
+        {
+          "id": "invoice-r1c1",
+          "kind": "text",
+          "quad": [
+            [
+              89,
+              225
+            ],
+            [
+              172.583,
+              225
+            ],
+            [
+              172.583,
+              256
+            ],
+            [
+              89,
+              256
+            ]
+          ],
+          "text": "商品 Item"
+        },
+        {
+          "id": "invoice-r1c2",
+          "kind": "text",
+          "quad": [
+            [
+              578.467,
+              225
+            ],
+            [
+              653.017,
+              225
+            ],
+            [
+              653.017,
+              256
+            ],
+            [
+              578.467,
+              256
+            ]
+          ],
+          "text": "数量 Qty"
+        },
+        {
+          "id": "invoice-r1c3",
+          "kind": "text",
+          "quad": [
+            [
+              807.033,
+              225
+            ],
+            [
+              894.317,
+              225
+            ],
+            [
+              894.317,
+              256
+            ],
+            [
+              807.033,
+              256
+            ]
+          ],
+          "text": "単価 Price"
+        },
+        {
+          "id": "invoice-r1c4",
+          "kind": "text",
+          "quad": [
+            [
+              1078.183,
+              225
+            ],
+            [
+              1191,
+              225
+            ],
+            [
+              1191,
+              256
+            ],
+            [
+              1078.183,
+              256
+            ]
+          ],
+          "text": "小计 Amount"
+        },
+        {
+          "id": "invoice-r2c1",
+          "kind": "text",
+          "quad": [
+            [
+              89,
+              287
+            ],
+            [
+              170.05,
+              287
+            ],
+            [
+              170.05,
+              318
+            ],
+            [
+              89,
+              318
+            ]
+          ],
+          "text": "Coffee 豆"
+        },
+        {
+          "id": "invoice-r2c2",
+          "kind": "text",
+          "quad": [
+            [
+              628.483,
+              287
+            ],
+            [
+              653.017,
+              287
+            ],
+            [
+              653.017,
+              318
+            ],
+            [
+              628.483,
+              318
+            ]
+          ],
+          "text": "12"
+        },
+        {
+          "id": "invoice-r2c3",
+          "kind": "text",
+          "quad": [
+            [
+              833.617,
+              287
+            ],
+            [
+              894.317,
+              287
+            ],
+            [
+              894.317,
+              318
+            ],
+            [
+              833.617,
+              318
+            ]
+          ],
+          "text": "¥19.90"
+        },
+        {
+          "id": "invoice-r2c4",
+          "kind": "text",
+          "quad": [
+            [
+              1120.033,
+              287
+            ],
+            [
+              1191,
+              287
+            ],
+            [
+              1191,
+              318
+            ],
+            [
+              1120.033,
+              318
+            ]
+          ],
+          "text": "¥238.80"
+        },
+        {
+          "id": "invoice-r3c1",
+          "kind": "text",
+          "quad": [
+            [
+              89,
+              349
+            ],
+            [
+              237.617,
+              349
+            ],
+            [
+              237.617,
+              380
+            ],
+            [
+              89,
+              380
+            ]
+          ],
+          "text": "日本茶  Green tea"
+        },
+        {
+          "id": "invoice-r3c2",
+          "kind": "text",
+          "quad": [
+            [
+              638.75,
+              349
+            ],
+            [
+              653.017,
+              349
+            ],
+            [
+              653.017,
+              380
+            ],
+            [
+              638.75,
+              380
+            ]
+          ],
+          "text": "3"
+        },
+        {
+          "id": "invoice-r3c3",
+          "kind": "text",
+          "quad": [
+            [
+              833.617,
+              349
+            ],
+            [
+              894.317,
+              349
+            ],
+            [
+              894.317,
+              380
+            ],
+            [
+              833.617,
+              380
+            ]
+          ],
+          "text": "¥88.00"
+        },
+        {
+          "id": "invoice-r3c4",
+          "kind": "text",
+          "quad": [
+            [
+              1120.033,
+              349
+            ],
+            [
+              1191,
+              349
+            ],
+            [
+              1191,
+              380
+            ],
+            [
+              1120.033,
+              380
+            ]
+          ],
+          "text": "¥264.00"
+        },
+        {
+          "id": "invoice-r4c1",
+          "kind": "text",
+          "quad": [
+            [
+              89,
+              411
+            ],
+            [
+              236.75,
+              411
+            ],
+            [
+              236.75,
+              442
+            ],
+            [
+              89,
+              442
+            ]
+          ],
+          "text": "OCR Pro  30 days"
+        },
+        {
+          "id": "invoice-r4c2",
+          "kind": "text",
+          "quad": [
+            [
+              638.75,
+              411
+            ],
+            [
+              653.017,
+              411
+            ],
+            [
+              653.017,
+              442
+            ],
+            [
+              638.75,
+              442
+            ]
+          ],
+          "text": "1"
+        },
+        {
+          "id": "invoice-r4c3",
+          "kind": "text",
+          "quad": [
+            [
+              823.35,
+              411
+            ],
+            [
+              894.317,
+              411
+            ],
+            [
+              894.317,
+              442
+            ],
+            [
+              823.35,
+              442
+            ]
+          ],
+          "text": "¥128.00"
+        },
+        {
+          "id": "invoice-r4c4",
+          "kind": "text",
+          "quad": [
+            [
+              1120.033,
+              411
+            ],
+            [
+              1191,
+              411
+            ],
+            [
+              1191,
+              442
+            ],
+            [
+              1120.033,
+              442
+            ]
+          ],
+          "text": "¥128.00"
+        },
+        {
+          "id": "subtotal-label",
+          "kind": "text",
+          "paragraphId": "invoice-total",
+          "quad": [
+            [
+              801,
+              484
+            ],
+            [
+              877.9,
+              484
+            ],
+            [
+              877.9,
+              515
+            ],
+            [
+              801,
+              515
+            ]
+          ],
+          "text": "Subtotal"
+        },
+        {
+          "id": "subtotal-value",
+          "kind": "text",
+          "paragraphId": "invoice-total",
+          "quad": [
+            [
+              1109.25,
+              484
+            ],
+            [
+              1180.217,
+              484
+            ],
+            [
+              1180.217,
+              515
+            ],
+            [
+              1109.25,
+              515
+            ]
+          ],
+          "text": "¥630.80"
+        },
+        {
+          "id": "tax-label",
+          "kind": "text",
+          "paragraphId": "invoice-total",
+          "quad": [
+            [
+              801,
+              529
+            ],
+            [
+              885.3,
+              529
+            ],
+            [
+              885.3,
+              560
+            ],
+            [
+              801,
+              560
+            ]
+          ],
+          "text": "Tax  8.5%"
+        },
+        {
+          "id": "tax-value",
+          "kind": "text",
+          "paragraphId": "invoice-total",
+          "quad": [
+            [
+              1109.25,
+              529
+            ],
+            [
+              1169.95,
+              529
+            ],
+            [
+              1169.95,
+              560
+            ],
+            [
+              1109.25,
+              560
+            ]
+          ],
+          "text": "¥53.62"
+        },
+        {
+          "id": "grand-label",
+          "kind": "text",
+          "paragraphId": "invoice-total",
+          "quad": [
+            [
+              801,
+              574
+            ],
+            [
+              857.133,
+              574
+            ],
+            [
+              857.133,
+              625
+            ],
+            [
+              801,
+              625
+            ]
+          ],
+          "text": "Total"
+        },
+        {
+          "id": "grand-value",
+          "kind": "text",
+          "paragraphId": "invoice-total",
+          "quad": [
+            [
+              1109.25,
+              574
+            ],
+            [
+              1195,
+              574
+            ],
+            [
+              1195,
+              625
+            ],
+            [
+              1109.25,
+              625
+            ]
+          ],
+          "text": "¥684.42"
+        }
+      ],
+      "source": {
+        "height": 760,
+        "imagePath": "images/invoice-table.png",
+        "kind": "browser-rendered",
+        "license": "Clippy browser fixture text CC0-1.0; Noto Sans CJK SC font OFL-1.1",
+        "sha256": "480e943b3de6dcd47b897cfd5fe32ca8d3702110cb01dfa1d9db200152681b03",
+        "width": 1280
+      },
+      "tags": [
+        "ui",
+        "table",
+        "zh-en-ja",
+        "spaces",
+        "numbers",
+        "currency",
+        "symbols"
+      ]
+    },
+    {
+      "id": "long-document",
+      "lines": [
+        {
+          "id": "long-title",
+          "kind": "text",
+          "quad": [
+            [
+              136,
+              96
+            ],
+            [
+              661.417,
+              96
+            ],
+            [
+              661.417,
+              156
+            ],
+            [
+              136,
+              156
+            ]
+          ],
+          "text": "Release notes  ·  2026-09-21"
+        },
+        {
+          "id": "long-subtitle",
+          "kind": "text",
+          "quad": [
+            [
+              136,
+              164
+            ],
+            [
+              570.5,
+              164
+            ],
+            [
+              570.5,
+              192
+            ],
+            [
+              136,
+              192
+            ]
+          ],
+          "text": "A long local document for OCR reading-order evaluation."
+        },
+        {
+          "id": "long-h1",
+          "kind": "text",
+          "paragraphId": "long-summary",
+          "quad": [
+            [
+              136,
+              258
+            ],
+            [
+              339.55,
+              258
+            ],
+            [
+              339.55,
+              299
+            ],
+            [
+              136,
+              299
+            ]
+          ],
+          "text": "1. 摘要 Summary"
+        },
+        {
+          "id": "long-p1",
+          "kind": "text",
+          "paragraphId": "long-summary",
+          "quad": [
+            [
+              136,
+              310
+            ],
+            [
+              496.067,
+              310
+            ],
+            [
+              496.067,
+              341.2
+            ],
+            [
+              136,
+              341.2
+            ]
+          ],
+          "text": "Clippy 在本地处理截图、剪贴板图片和文字识别。"
+        },
+        {
+          "id": "long-p2",
+          "kind": "text",
+          "paragraphId": "long-summary",
+          "quad": [
+            [
+              136,
+              352.2
+            ],
+            [
+              553.7,
+              352.2
+            ],
+            [
+              553.7,
+              383.4
+            ],
+            [
+              136,
+              383.4
+            ]
+          ],
+          "text": "English  中文  日本語  remain in one ordered document."
+        },
+        {
+          "id": "long-p3",
+          "kind": "text",
+          "paragraphId": "long-summary",
+          "quad": [
+            [
+              136,
+              394.4
+            ],
+            [
+              426.6,
+              394.4
+            ],
+            [
+              426.6,
+              425.6
+            ],
+            [
+              136,
+              425.6
+            ]
+          ],
+          "text": "原始空白 AA  11  ll  00 不应被静默合并。"
+        },
+        {
+          "id": "long-note-1",
+          "kind": "text",
+          "paragraphId": "long-note",
+          "quad": [
+            [
+              158,
+              461.6
+            ],
+            [
+              555.217,
+              461.6
+            ],
+            [
+              555.217,
+              489.6
+            ],
+            [
+              158,
+              489.6
+            ]
+          ],
+          "text": "Quality gate: raw CER, compact CER, whitespace F1."
+        },
+        {
+          "id": "long-note-2",
+          "kind": "text",
+          "paragraphId": "long-note",
+          "quad": [
+            [
+              158,
+              485.6
+            ],
+            [
+              461.167,
+              485.6
+            ],
+            [
+              461.167,
+              513.6
+            ],
+            [
+              158,
+              513.6
+            ]
+          ],
+          "text": "Symbols: ±0.02  √2≈1.414  ∑  ∫  π  Δ."
+        },
+        {
+          "id": "long-h2",
+          "kind": "text",
+          "paragraphId": "long-metrics",
+          "quad": [
+            [
+              136,
+              581.6
+            ],
+            [
+              254.2,
+              581.6
+            ],
+            [
+              254.2,
+              622.6
+            ],
+            [
+              136,
+              622.6
+            ]
+          ],
+          "text": "2. Metrics"
+        },
+        {
+          "id": "metric-1-label",
+          "kind": "text",
+          "paragraphId": "long-metrics",
+          "quad": [
+            [
+              152,
+              671.6
+            ],
+            [
+              230.033,
+              671.6
+            ],
+            [
+              230.033,
+              699.6
+            ],
+            [
+              152,
+              699.6
+            ]
+          ],
+          "text": "Detection"
+        },
+        {
+          "id": "metric-1-value",
+          "kind": "text",
+          "paragraphId": "long-metrics",
+          "quad": [
+            [
+              152,
+              701.6
+            ],
+            [
+              293.183,
+              701.6
+            ],
+            [
+              293.183,
+              738.6
+            ],
+            [
+              152,
+              738.6
+            ]
+          ],
+          "text": "Hmean 0.982"
+        },
+        {
+          "id": "metric-2-label",
+          "kind": "text",
+          "paragraphId": "long-metrics",
+          "quad": [
+            [
+              398,
+              671.6
+            ],
+            [
+              462.033,
+              671.6
+            ],
+            [
+              462.033,
+              699.6
+            ],
+            [
+              398,
+              699.6
+            ]
+          ],
+          "text": "Latency"
+        },
+        {
+          "id": "metric-2-value",
+          "kind": "text",
+          "paragraphId": "long-metrics",
+          "quad": [
+            [
+              398,
+              701.6
+            ],
+            [
+              520.133,
+              701.6
+            ],
+            [
+              520.133,
+              738.6
+            ],
+            [
+              398,
+              738.6
+            ]
+          ],
+          "text": "P95 742 ms"
+        },
+        {
+          "id": "metric-3-label",
+          "kind": "text",
+          "paragraphId": "long-metrics",
+          "quad": [
+            [
+              644,
+              671.6
+            ],
+            [
+              710.85,
+              671.6
+            ],
+            [
+              710.85,
+              699.6
+            ],
+            [
+              644,
+              699.6
+            ]
+          ],
+          "text": "Memory"
+        },
+        {
+          "id": "metric-3-value",
+          "kind": "text",
+          "paragraphId": "long-metrics",
+          "quad": [
+            [
+              644,
+              701.6
+            ],
+            [
+              785.867,
+              701.6
+            ],
+            [
+              785.867,
+              738.6
+            ],
+            [
+              644,
+              738.6
+            ]
+          ],
+          "text": "Peak 271 MiB"
+        },
+        {
+          "id": "long-h3",
+          "kind": "text",
+          "paragraphId": "long-details",
+          "quad": [
+            [
+              136,
+              804.6
+            ],
+            [
+              304.65,
+              804.6
+            ],
+            [
+              304.65,
+              845.6
+            ],
+            [
+              136,
+              845.6
+            ]
+          ],
+          "text": "3. 詳細 Details"
+        },
+        {
+          "id": "long-d1",
+          "kind": "text",
+          "paragraphId": "long-details",
+          "quad": [
+            [
+              136,
+              856.6
+            ],
+            [
+              460,
+              856.6
+            ],
+            [
+              460,
+              887.8
+            ],
+            [
+              136,
+              887.8
+            ]
+          ],
+          "text": "第一段记录检测框、文字、段落和阅读顺序。"
+        },
+        {
+          "id": "long-d2",
+          "kind": "text",
+          "paragraphId": "long-details",
+          "quad": [
+            [
+              136,
+              898.8
+            ],
+            [
+              570.75,
+              898.8
+            ],
+            [
+              570.75,
+              930
+            ],
+            [
+              136,
+              930
+            ]
+          ],
+          "text": "The second line keeps identifiers SN: AA11-BB22 / 98.6%."
+        },
+        {
+          "id": "long-d3",
+          "kind": "text",
+          "paragraphId": "long-details",
+          "quad": [
+            [
+              136,
+              941
+            ],
+            [
+              521.9,
+              941
+            ],
+            [
+              521.9,
+              972.2
+            ],
+            [
+              136,
+              972.2
+            ]
+          ],
+          "text": "三行目は日本語の文字列と数字 001122 を含みます。"
+        },
+        {
+          "id": "long-d4",
+          "kind": "text",
+          "paragraphId": "long-details",
+          "quad": [
+            [
+              136,
+              983.2
+            ],
+            [
+              611.067,
+              983.2
+            ],
+            [
+              611.067,
+              1014.4
+            ],
+            [
+              136,
+              1014.4
+            ]
+          ],
+          "text": "Columns are evaluated separately from Unicode edit distance."
+        },
+        {
+          "id": "long-d5",
+          "kind": "text",
+          "paragraphId": "long-details",
+          "quad": [
+            [
+              136,
+              1025.4
+            ],
+            [
+              608.45,
+              1025.4
+            ],
+            [
+              608.45,
+              1056.6
+            ],
+            [
+              136,
+              1056.6
+            ]
+          ],
+          "text": "EdgeGNN groups text boxes; it does not sharpen image edges."
+        },
+        {
+          "id": "long-d6",
+          "kind": "text",
+          "paragraphId": "long-details",
+          "quad": [
+            [
+              136,
+              1067.6
+            ],
+            [
+              633.333,
+              1067.6
+            ],
+            [
+              633.333,
+              1098.8
+            ],
+            [
+              136,
+              1098.8
+            ]
+          ],
+          "text": "CTC decoding must preserve repeated letters and explicit spaces."
+        },
+        {
+          "id": "long-h4",
+          "kind": "text",
+          "paragraphId": "long-checklist",
+          "quad": [
+            [
+              136,
+              1141.8
+            ],
+            [
+              332.083,
+              1141.8
+            ],
+            [
+              332.083,
+              1182.8
+            ],
+            [
+              136,
+              1182.8
+            ]
+          ],
+          "text": "4. 验收 Checklist"
+        },
+        {
+          "id": "long-c1",
+          "kind": "text",
+          "paragraphId": "long-checklist",
+          "quad": [
+            [
+              136,
+              1193.8
+            ],
+            [
+              514.833,
+              1193.8
+            ],
+            [
+              514.833,
+              1225
+            ],
+            [
+              136,
+              1225
+            ]
+          ],
+          "text": "01  Verify the source PNG SHA-256 before scoring."
+        },
+        {
+          "id": "long-c2",
+          "kind": "text",
+          "paragraphId": "long-checklist",
+          "quad": [
+            [
+              136,
+              1236
+            ],
+            [
+              583.417,
+              1236
+            ],
+            [
+              583.417,
+              1267.2
+            ],
+            [
+              136,
+              1267.2
+            ]
+          ],
+          "text": "02  Reject symlinks, path escape, size drift, and stale truth."
+        },
+        {
+          "id": "long-c3",
+          "kind": "text",
+          "paragraphId": "long-checklist",
+          "quad": [
+            [
+              136,
+              1278.2
+            ],
+            [
+              561.9,
+              1278.2
+            ],
+            [
+              561.9,
+              1309.4
+            ],
+            [
+              136,
+              1309.4
+            ]
+          ],
+          "text": "03  Compare UI, code, italic, table, and long-image tags."
+        },
+        {
+          "id": "long-c4",
+          "kind": "text",
+          "paragraphId": "long-checklist",
+          "quad": [
+            [
+              136,
+              1320.4
+            ],
+            [
+              597.867,
+              1320.4
+            ],
+            [
+              597.867,
+              1351.6
+            ],
+            [
+              136,
+              1351.6
+            ]
+          ],
+          "text": "04  Keep unsupported structured formulas visible in reports."
+        },
+        {
+          "id": "long-c5",
+          "kind": "text",
+          "paragraphId": "long-checklist",
+          "quad": [
+            [
+              136,
+              1362.6
+            ],
+            [
+              602.383,
+              1362.6
+            ],
+            [
+              602.383,
+              1393.8
+            ],
+            [
+              136,
+              1393.8
+            ]
+          ],
+          "text": "05  Record Windows, macOS, and Linux resources separately."
+        },
+        {
+          "id": "long-final-1",
+          "kind": "text",
+          "paragraphId": "long-final",
+          "quad": [
+            [
+              158,
+              1429.8
+            ],
+            [
+              626.35,
+              1429.8
+            ],
+            [
+              626.35,
+              1457.8
+            ],
+            [
+              158,
+              1457.8
+            ]
+          ],
+          "text": "No model replacement is accepted from one aggregate score."
+        },
+        {
+          "id": "long-final-2",
+          "kind": "text",
+          "paragraphId": "long-final",
+          "quad": [
+            [
+              158,
+              1453.8
+            ],
+            [
+              562,
+              1453.8
+            ],
+            [
+              562,
+              1481.8
+            ],
+            [
+              158,
+              1481.8
+            ]
+          ],
+          "text": "目标分层改善、关键分层回退和资源变化必须同时记录。"
+        }
+      ],
+      "source": {
+        "height": 2400,
+        "imagePath": "images/long-document.png",
+        "kind": "browser-rendered",
+        "license": "Clippy browser fixture text CC0-1.0; Noto Sans CJK SC font OFL-1.1",
+        "sha256": "f4e3c752cffbc9c57f5008736fa1694d57f5d830d8df00c5c325fc3acba3d1a9",
+        "width": 1000
+      },
+      "tags": [
+        "ui",
+        "long-image",
+        "zh-en-ja",
+        "italic",
+        "spaces",
+        "numbers",
+        "symbols"
+      ]
+    }
+  ],
+  "schema": "clippy-ocr-quality-corpus-v1"
+}

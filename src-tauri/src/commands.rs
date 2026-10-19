@@ -27,6 +27,8 @@ pub use url_metadata::*;
 
 /// 全局应用状态，通过 Tauri 的 manage() 注入并在各命令中共享。
 pub struct AppState {
+    /// PX-ACT-01 动作槽、代次和取消状态的唯一进程级 owner。
+    pub(crate) action_runtime: crate::actions::ActionRuntime,
     pub viewer_manager: Arc<crate::viewer::ViewerManager>,
     pub viewer_transition: Mutex<()>,
     pub storage: Arc<Mutex<StorageEngine>>,
@@ -50,7 +52,20 @@ pub struct AppState {
     pub longshot_lifecycle: Arc<crate::capture::LongshotLifecycle>,
     /// 独立长截图控制窗口的唯一轻量单槽 registry。
     pub longshot_windows: Arc<crate::capture::LongshotControllerRegistry>,
+    /// 录屏核心与控制窗身份各自只有一个进程级 owner；产品入口尚未开放。
+    pub recording_lifecycle: Arc<crate::recording::RecordingLifecycle>,
+    pub recording_controls: Arc<crate::recording::RecordingControlRegistry>,
+    /// 录屏覆盖层的短期音频设备目录；原生 endpoint 身份不进入 WebView。
+    pub recording_audio_devices: Arc<crate::recording::RecordingAudioDeviceCatalog>,
+    /// 录屏结果窗播放租约与真实文件路径的唯一进程级 owner。
+    pub recording_media: Arc<crate::recording::RecordingMediaManager>,
+    /// 录屏首帧缩略图冷生成单槽与私有缓存清理的唯一进程级 owner。
+    pub recording_thumbnails: Arc<crate::recording::RecordingThumbnailManager>,
+    /// 异常录屏恢复 remux 的唯一进程级大文件 I/O 槽。
+    #[cfg(feature = "recording-vp9-prototype")]
+    pub recording_merges: Arc<crate::recording::RecordingMergeRegistry>,
     pub pin_manager: Arc<crate::pin::PinManager>,
+    pub pin_workspace_persistence: Arc<crate::pin::PinWorkspacePersistence>,
     /// 我们自己截下来、复制进剪贴板的图 → 它原本在屏幕上的位置。
     /// 之后从历史里 Pin 这张图时靠它贴回原处，见 `pin::PinOriginRegistry`。
     pub pin_origins: Arc<crate::pin::PinOriginRegistry>,

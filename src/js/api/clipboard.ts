@@ -201,6 +201,11 @@ export function onClipAdded(callback: (clip: ClipItem) => void): Promise<Unliste
 export function onClipRemoved(callback: (id: number) => void): Promise<UnlistenFn> {
   return listen<number>("clip-removed", (event) => callback(event.payload));
 }
+
+/** 批量导入完成后让所有已打开的主窗口重新读取历史。 */
+export function onArchiveImported(callback: () => void): Promise<UnlistenFn> {
+  return listen<null>("archive-imported", () => callback());
+}
 /** 自动粘贴受系统权限/会话限制时，剪贴板已写入但需要用户手动粘贴。 */
 export function onPasteFallback(callback: (outcome: PasteOutcome) => void): Promise<UnlistenFn> {
   return listen<PasteOutcome>("paste-fallback", (event) => callback(event.payload));

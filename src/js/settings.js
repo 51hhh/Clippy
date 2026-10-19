@@ -6,32 +6,40 @@ import {
   copyText,
   disableAutostart,
   enableAutostart,
+  exportClippyArchive,
   getAppVersion,
   getConfig,
+  getOcrHealthStatus,
   getPasteStatus,
   getPlatformInfo,
   getShortcutFailures,
   getStats,
   getWindowProbeStatus,
   installWindowProbeExtension,
+  importClippyArchive,
   isAutostartEnabled,
   isDevBinary,
-  ocrAvailable,
+  minimizeCurrentWindow,
   ocrInstall,
   onShortcutRegisterFailed,
   openExternalUrl,
   pauseShortcuts,
   pickScreenshotDirectory,
+  pickOcrManifest,
   requestPastePermission,
   resumeShortcuts,
   runCaptureDiagnostics,
+  startDraggingCurrentWindow,
   tmuxAvailable,
   toggleTmuxCapture,
+  toggleMaximizeCurrentWindow,
   uninstallWindowProbeExtension,
   updateConfig,
 } from "./api.ts";
 import { initCustomSelect } from "./custom-select.js";
+import { bindWindowChrome } from "./window-chrome.js";
 import { createAutostartSettings } from "./settings/autostart-settings.js";
+import { createArchiveTransfer } from "./settings/archive-transfer.js";
 import { createCaptureDiagnosticsCard } from "./settings/capture-diagnostics.js";
 import { createOcrSettings } from "./settings/ocr-settings.js";
 import { createPastePermissionController } from "./settings/paste-permission.js";
@@ -54,6 +62,7 @@ import { checkForUpdate, initUpdateModal } from "./update-modal.js";
 import * as i18n from "../i18n/i18n.js";
 import "../styles/themes.css";
 import "../styles/base.css";
+import "../styles/window-shell.css";
 import "../styles/settings.css";
 
 function element(id) {
@@ -73,6 +82,31 @@ const tmuxGroup = element("tmux-group");
 const tmuxToggle = element("tmux-toggle");
 const toast = element("toast");
 const ocrModeControl = initCustomSelect(element("ocr-mode-select"));
+
+const statsElements = {
+  total: element("stats-total"),
+  favorites: element("stats-favorites"),
+  text: element("stats-text"),
+  html: element("stats-html"),
+  image: element("stats-image"),
+  size: element("stats-size"),
+};
+
+function refreshStats() {
+  return loadStats({ getStats, elements: statsElements });
+}
+
+createArchiveTransfer({
+  scopeSelect: element("archive-scope-select"),
+  sensitiveToggle: element("archive-sensitive-toggle"),
+  exportButton: element("archive-export-btn"),
+  importButton: element("archive-import-btn"),
+  status: element("archive-status"),
+  exportArchive: exportClippyArchive,
+  importArchive: importClippyArchive,
+  translate: i18n.t,
+  onImported: refreshStats,
+});
 
 let savedConfig = null;
 let operatingSystem = null;
@@ -152,12 +186,23 @@ void onShortcutRegisterFailed((failure) => shortcutFailureNotice.add(failure));
 
 const ocrSettings = createOcrSettings({
   toggle: element("ocr-toggle"),
+  card: element("ocr-status-card"),
   statusDot: element("ocr-status-dot"),
   statusText: element("ocr-status-text"),
+  detailText: element("ocr-status-detail"),
+  engineText: element("ocr-engine-text"),
+  pipelineRow: element("ocr-pipeline-row"),
+  pipelineText: element("ocr-pipeline-text"),
+  fallbackText: element("ocr-fallback-text"),
+  manifestInput: element("ocr-manifest-input"),
+  browseButton: element("ocr-manifest-browse-btn"),
+  clearButton: element("ocr-manifest-clear-btn"),
+  recheckButton: element("ocr-recheck-btn"),
   installButton: element("ocr-install-btn"),
   options: element("ocr-options"),
   modeControl: ocrModeControl,
-  checkAvailable: ocrAvailable,
+  getStatus: getOcrHealthStatus,
+  pickManifest: pickOcrManifest,
   install: ocrInstall,
   translate: i18n.t,
   showToast,
@@ -287,17 +332,7 @@ whenReady(async () => {
     }
     await autostartSettings.load();
     void refreshShortcutFailures();
-    void loadStats({
-      getStats,
-      elements: {
-        total: element("stats-total"),
-        favorites: element("stats-favorites"),
-        text: element("stats-text"),
-        html: element("stats-html"),
-        image: element("stats-image"),
-        size: element("stats-size"),
-      },
-    });
+    void refreshStats();
   } catch (error) {
     console.error("加载配置失败:", error);
     themePicker.initialize("light");
@@ -315,6 +350,7 @@ languageSelect.addEventListener("change", () => {
   shortcutFailureNotice.refreshLabels();
   pastePermission.refreshLabels();
   windowProbe.refreshLabels();
+  ocrSettings.refreshLabels();
   translationSettings.refreshLabels();
 });
 
@@ -385,6 +421,16 @@ async function requestSettingsClose() {
     closingSettings = false;
   }
 }
+bindWindowChrome({
+  titlebar: element("settings-titlebar"),
+  minimizeButton: element("settings-minimize-btn"),
+  maximizeButton: element("settings-maximize-btn"),
+  closeButton: element("settings-close-btn"),
+  startDragging: startDraggingCurrentWindow,
+  minimize: minimizeCurrentWindow,
+  toggleMaximize: toggleMaximizeCurrentWindow,
+  requestClose: requestSettingsClose,
+});
 element("cancel-btn").addEventListener("click", () => { void requestSettingsClose(); });
 
 tmuxToggle.addEventListener("change", async () => {

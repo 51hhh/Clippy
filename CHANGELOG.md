@@ -2,15 +2,1034 @@
 
 ## 未发布
 
+## v0.1.21
+
+### 2026-10-19 发布打包依赖对齐
+
+- 对齐 Rust 与 npm 两侧的 Tauri core、CLI 和 updater minor 版本，修复普通 lint/test 通过但
+  `tauri build` 在真正打包前拒绝执行的问题；新增锁文件结构守卫，后续版本漂移会在前端测试中失败。
+- DEB 不再由维护者脚本移走 dpkg 管理的 `Clippy.desktop`：隐藏兼容入口、可见 app-id 入口及
+  两套 app-id 图标现在都进入包清单；升级自旧版本时仅从包内同字节副本恢复被旧 `postrm`
+  删除的文件，安装后 `dpkg -V clippy` 保持干净。
+
+### 2026-10-19 项目审查安全与资源加固
+
+- 修复完整项目审查中确认的联网、tmux、敏感内容、IPC 负载与供应链边界：URL 预览现在对
+  实际连接地址 fail closed，关闭代理/重定向并限制并发、时间、响应和元数据大小；favicon
+  由后端验证后转为有界 data URL。tmux 首次启用会私有备份六个受影响按键，禁用时原样恢复，
+  新实现不占用全局 hook。剪贴板文本/HTML 单表示限制为 1 MiB，列表与事件只发送 2048
+  Unicode 字符摘要，焦点详情和图片按需读取；敏感 token、Bearer、JSON/赋值、AWS secret
+  与私钥头检测补齐，相同内容不能从敏感降级。
+- 删除未接入产品入口的旧 Vanilla 列表/行渲染器，React 列表成为唯一实现；升级 DOMPurify、
+  source-map-js、undici、quick-xml、rustls 与 ZIP 链路，所有 workflow action 固定到完整 SHA，
+  Dependabot 覆盖 Actions/npm/Cargo，并增加 npm 与 RustSec 审计。RustSec 复核为 0 个
+  vulnerability、10 个默认允许的 unmaintained/unsound warning；这些 warning 未冒充修复。
+- 完整 Linux 本地门禁 27/0/2，跳过非宿主交叉 lint 与 AppImage 可视 smoke；额外
+  `cargo audit` 和两类 `npm audit` 均以 0 漏洞退出。未重新测量真实桌面 PSS，不宣称具体内存
+  降幅；历史数据库中的超大正文不追溯删除。真实 tmux server、公开网站、Windows/macOS、
+  安装包及同 SHA 原生 CI 尚未验证，不计为通过。详见
+  `docs/reviews/2026-10-19-project-review-hardening-review.md`。
+  （需求：`PROJECT-REVIEW-HARDENING-01`；见
+  `docs/superpowers/specs/2026-10-19-project-review-hardening.md`）
+
+### 2026-10-19 Linux 设置页 WebProcess 复用
+
+- Linux 设置页在主窗口存在时复用其 WebKit WebProcess，主窗口缺失时保留独立建窗回退；
+  同步/异步主线程派发、失败与两秒超时都有自动化合同，超时后不会盲目回退生成重复窗口。
+  隔离 release/X11 实测打开设置页前后均只有一个 `WebKitWebProcess`，720×560 页面加载、
+  主题切换和受保护关闭正常。相同采样流程中，打开增量 PSS 从 85,950 KiB 降至
+  17,401 KiB（单次样本降低 79.8%）；PSS 受共享库与环境影响，不代表跨设备绝对收益。
+  无主题切换的设置页关闭 15 秒后仍有 6,645 KiB PSS 热缓存留存，因此只宣称降低打开期间
+  的进程固定成本与峰值。完整 Linux 本地门禁 25/0/2，非宿主交叉 lint 与 AppImage 可视 smoke
+  未启用；Linux Xvfb 无窗口管理器，Wayland、Windows/macOS、安装包及同 SHA 原生 CI 尚未验证，
+  不计为通过。详见
+  `docs/reviews/2026-10-19-linux-settings-webprocess-sharing-review.md`。
+  （需求：`docs/superpowers/specs/2026-10-19-linux-settings-webprocess-sharing.md`）
+
+### 2026-10-19 UI 窗口壳层与六主题一致性
+
+- 设置窗口改用与 Viewer、Launcher、录屏库和 Pin 工作区一致的自绘窗口壳层，提供拖动、
+  双击最大化、最小化、最大化/还原和关闭控件；关闭继续先恢复快捷键再销毁窗口，失败时保留输入。
+  录屏库与 Pin 工作区移除硬编码 light/dark 配色，改为完整消费 light、dark、nord、
+  solarized-light、rose、midnight 六套主题 token。公共标题栏、控制按钮与状态色集中维护，
+  各窗口仍保留自己的尺寸和内容布局。
+  Linux 隔离 Tauri/X11 smoke 已确认设置页为无重复系统标题栏的 720×560 窗口，逐项切换六主题
+  并确认持久化与真实 WebView 渲染，关闭后对应 WebKit 子进程退出；该环境没有窗口管理器，不能
+  替代真实桌面的拖动、缩放、最小化和最大化验收。Linux 真实桌面及 Windows/macOS QA 尚未执行，
+  不计为通过；完整 Linux 本地门禁 25/0/2，非宿主交叉 lint 与 AppImage 可视 smoke 未启用。
+  本项不宣称降低运行内存。
+  （需求：`docs/superpowers/specs/2026-10-19-ui-shell-theme-unification.md`）
+
+### 2026-10-04 查看器原子更新API兼容
+
+- 修复 Rust stable 1.99 下查看器三处 `fetch_update` 弃用警告导致严格 Clippy 门禁失败。
+  使用自 1.95 可用的标准库 `try_update`，保持原闭包、AcqRel/Acquire 顺序、状态转换和
+  返回值处理；原测试正文和超时未改，不降低警告门禁或固定旧 CI 工具链。
+  关联 VIEWER-ATOMIC-API-01 / WIN-NATIVE-01，规格见
+  `docs/superpowers/specs/2026-10-04-viewer-atomic-api-compat.md`。
+  原 228cc935 CI run 37166791297 及失败日志保留；修复源码
+  `71a0a0a85dfb55c12f3d6c08b32f1f4842ea33db` 的 Linux 完整门禁为 25/0/2，
+  同 SHA GitHub Actions run 37168304825 的三项原生与四项录屏原型 job 全部成功。
+  Windows runner 不替代 Windows 本机完整默认/QA 门禁；原 228cc935 release/安装包来源不改，
+  真实安装、桌面与设备验收仍未执行。分层证据见
+  `docs/reviews/2026-10-19-viewer-atomic-api-compat-review.md`。
+
+### 2026-10-04 QA MSI运行库来源清单
+
+- 修复 QA MSI 的 CRT 来源清单落盘名称与部署验证器不一致的问题。staging 源文件采用
+  `windows-qa-vc-runtime.json`，与 `licenses/` 下最终名称一致；生产验证器拒绝旧名映射，
+  保留原签名、完整版本、源码、清单/DLL 字节、架构和递归依赖校验。
+  原源码真实 QA MSI 解包为 `licenses/PROVENANCE.json`，部署验证器 exit 1 / ENOENT；
+  同源码 NSIS exit 0，两个包的十份 CRT 原字节保持，不计真实启动失败。
+  同四项新回归在旧实现为 80 passed / 4 failed，修复后原合同共 84/0；干净228cc93完整
+  Windows门禁33/0/1、前端81/1409、默认1341/QA1493各5ignored，新增四项已含总数。
+  新QA MSI/NSIS均通过canonical清单/十份CRT文件验证；EXE复用8889192，未计当前SHA release编译。
+  详见 `docs/reviews/2026-10-04-windows-qa-msi-provenance-review.md`。
+  W86补充同源码228cc93默认/显式QA release编译及PE/CRT/canonical部署文件验证，见
+  `docs/reviews/2026-10-04-windows-qa-msi-provenance-release-review.md`（WIN-NATIVE-01）。
+  W87补充当前编译/资源同源码228cc93的默认/QA NSIS/MSI文件核对，QA清单/十份CRT
+  验证均通过；四包实际NotSigned，详见 `docs/reviews/2026-10-04-windows-current-package-file-review.md`。
+  同 SHA CI、安装升级卸载、无 CRT 系统启动、设备/桌面和其它平台仍未验。
+  （需求：`WIN-QA-MSI-PROVENANCE-01`；见 `docs/superpowers/specs/2026-10-04-windows-qa-msi-provenance.md`）
+
+### 2026-10-03 WASAPI激活边界包尾
+
+- 修复 Windows 录屏音频包跨越启动/恢复下界时，有效后半段及后续拆块被整包丢弃的问题。
+  按原48kHz样本网格删除旧前缀，保留合法PCM、序号、之后完整块和原包末尾；包含边界，
+  非整样本下界向上取首个合法样本。只裁切已复制PCM，原QPC、GetBuffer/ReleaseBuffer、
+  Start/Stop/Reset、格式/队列预算、暂停控制和默认录屏关闭保持。
+  原整包谓词提取对照2 passed / 5 failed，修复后同回归原字节7/0；不计真实设备复现。
+  干净`88891927654717a3d7524c6d94648daca4ad102a` Windows完整默认/QA门禁33/0/1 Linux smoke skipped，
+  默认1341/QA1493各5ignored、前端81/1405；七项两图14次执行已含总数，重叠图不累加。
+  W84补充同SHA默认/显式QA release编译和PE/CRT文件验证，真实启动未验；见
+  `docs/reviews/2026-10-04-windows-wasapi-activation-tail-release-review.md`（WIN-NATIVE-01）。
+  同SHA CI、其它宿主与真实首包/暂停恢复/设备/交付仍未验；旧00f release保留实际来源。
+  旧失败根因保持未明；见 `docs/reviews/2026-10-03-wasapi-activation-tail-review.md`。
+  （需求：`WIN-WASAPI-ACTIVATION-TAIL-01`；见 `docs/superpowers/specs/2026-10-03-wasapi-activation-tail.md`）
+
+### 2026-10-03 长截图取消输入
+
+- 修复 Windows 原生长截图取消后，旧后台线程仍能发起滚动、聚焦或恢复光标的问题。
+  输入许可按会话共享并不可逆撤销；取消先使 manager lease 失效，再等待已进入的输入调用结算，
+  不等待 settle、抓帧或像素处理。保留目标/权限复核、原物理坐标、等待期限和图像质量门。
+  提取原无撤销调用边界的受控原生对照0 passed / 4 failed，非真实OS输入复现。
+  同三份回归文件原字节修复后4/0；干净 `00f40cc5cf8b3cf3c332dc7cce6be47cd07aefcc`
+  Windows默认/QA完整门禁33/0/1 Linux smoke skipped，默认1334/QA1486各5ignored、前端81/1405，
+  新4项已含总数、两图重叠不累加。共享原生路径影响Windows/X11/macOS，Wayland原Portal取消保持；
+  W82补充同SHA默认/显式QA release编译和PE/CRT文件验证，真实启动未验；见
+  `docs/reviews/2026-10-03-windows-longshot-input-cancel-release-review.md`（WIN-NATIVE-01）。
+  同SHA CI、其它宿主和真实取消/输入/DPI/权限仍未验。已进入的输入调用先结算，
+  不撤回OS队列事件或保证API不阻塞；见 `docs/reviews/2026-10-03-longshot-input-cancel-review.md`。
+  （需求：`WIN-LONGSHOT-INPUT-CANCEL-01`；见 `docs/superpowers/specs/2026-10-03-longshot-input-cancel.md`）
+
+### 2026-10-03 录屏测试诊断
+
+- session/AV encoder 合成测试在测试线程 unwind 时保留原目录，并尽力将 JSON 绝对路径写入
+  测试输出；成功测试仍清理，原断言、等待期限和失败退出码保持。仅测试图生效，不改变产品
+  录屏、worker、媒体或权限行为。旧失败的临时文件已丢失，不能用此项解释历史根因；强杀、
+  abort/OOM 和系统临时目录清理不保证保留。
+  同正文受控目录诊断原API0/1、修复后1/0，原文件及日志保存；该固定字节诊断不含有效媒体。
+  干净 `e50192f3a51070b12b00d5b9e01087f1ffc5fb27` Windows 默认/QA完整门禁33/0/1 Linux smoke skipped；
+  默认1330/QA1482各5ignored，前端81/1405，新7项已含总数、两图重叠不累加。
+  此项只修复测试诊断，产品修复仍49。当前源码release/同SHA CI、设备/桌面及其它宿主未验，
+  旧d05 release仅保留原SHA编译/文件证据；见 `docs/reviews/2026-10-03-recording-test-artifacts-review.md`。
+  （需求：`WIN-RECORDING-TEST-ARTIFACTS-01`；见 `docs/superpowers/specs/2026-10-03-recording-test-artifacts.md`）
+
+### 2026-10-02 音频设备目录并发刷新
+
+- 修复首次设备查询迟到完成时覆盖启动重试的新目录，导致当前设备选择被判为过期的问题。
+  后端在异步枚举前预留查询身份，只有当前查询可发布一次；旧完成不能覆盖或复活目录。
+  caller 绑定、10分钟有效期、32目录与设备/标签预算、一次消费及系统默认选择保持。
+  原 API 受控完成顺序诊断复现 `StaleCatalog`；新接口目录合同16/0、前端定向63/0，
+  新增8项 Rust 和2项前端保护，不把新接口测试冒称同字节原 API 对照。
+  干净 `d05cd3e478934722273a33fb88c841648aeb1ef5` Windows 默认/QA完整门禁33/0/1 Linux smoke skipped；
+  默认1324/QA1475各5ignored、前端81/1405，新用例已含总数、两图重叠不累加。
+  W78补充同SHA默认/QA release编译和PE/CRT文件核对，实际启动未验；见
+  `docs/reviews/2026-10-02-windows-audio-catalog-order-release-review.md`（WIN-NATIVE-01）。
+  同SHA CI、其它宿主、原生设备/桌面仍未验。
+  默认录屏仍关闭，旧失败根因保留未明。
+  （需求：`REC-AUDIO-CATALOG-ORDER-01`；见 `docs/superpowers/specs/2026-10-02-audio-catalog-refresh-order.md`）
+
+### 2026-10-02 混音停止输出预算
+
+- 修复活跃混音停止时按整个剩余控制时间段提前生成全部PCM的问题，停止尾部按最多一秒
+  批次排出、单块仍最多20ms；保留完整合法PCM、缺包静音、固定增益和最终控制下界。
+  音频worker同步循环排空后才封尾，后续批错误与原pipeline背压继续失败关闭。
+  原API适度有限间隔的合成对照2 passed / 7 failed；worker/完整owner的分批夹具证明新增
+  读取合同需要同步，不冒称原生单批尾部已漏包。录屏领域501/0，干净 `2bb12f9eeb04f98217189c197ecafef83b326604` Windows完整门禁33/0/1；
+  默认1316/QA1467各5ignored，前端81/1403，新10项已含总数、两图重叠不累加。
+  完整合成owner保留60ms/2880有效PCM；后续批错误为interrupted，真实codec文件核对通过，不计设备验收。
+  W76补充同SHA默认/QA release编译和PE/CRT文件核对，实际启动/设备未验；见
+  `docs/reviews/2026-10-02-windows-mixed-stop-ready-bound-release-review.md`（WIN-NATIVE-01）。
+  旧完整测试模块/期限保持；当前同SHA
+  CI、其它宿主、设备/桌面和长时同步未验，默认录屏仍关闭。
+  （需求：`REC-MIXED-STOP-READY-BOUND-01`；见 `docs/superpowers/specs/2026-10-02-mixed-stop-ready-bound.md`）
+
+### 2026-10-02 混音暂停后正常停止
+
+- 修复混音录音暂停后直接停止时生成暂停区间静音、导致原 worker 和完整 A/V 会话失败的问题。
+  暂停状态只封闭停止控制时间线，不生成 PCM；真实停止失败、控制倒退、异常格式和暂停中的
+  意外尾块仍明确失败，原 worker 暂停中入队保护保持。同字节原 API 十二项基线 6 passed / 6 failed，
+  修复后全部通过，录屏领域 491/0，原119份录屏文件的旧完整测试/期限保持。
+  原完整合成会话由 AlreadyPaused/interrupted 变为 complete 20ms/2视频帧/960输入及有效PCM；
+  VP9/Opus 文件解码确认保留已接受信号，不计设备验收。干净 `02005c98ee6ac52fd46e20c878a717f314fd90cc` 完整Windows门禁33/0/1 Linux smoke skipped；
+  默认1308/QA1457各5ignored，前端81文件/1403passed，新12项已含总数、两图重叠不累加。
+  W73补充同SHA默认/QA release与PE/CRT文件验证，实际启动未验；
+  见 `docs/reviews/2026-10-02-windows-mixed-paused-stop-release-review.md`（`WIN-NATIVE-01`）。
+  新12项（10两图/2仅QA）已含领域总数；当前同SHA CI、其它宿主、设备/桌面、
+  安装器、多屏和长时同步未验；历史失败根因保留未明，默认录屏仍关闭。
+  （需求：`REC-MIXED-PAUSED-STOP-01`；见 `docs/superpowers/specs/2026-10-02-mixed-paused-stop.md`）
+
+### 2026-10-02 混音恢复首包与停止尾部完整保留
+
+- 修复两路音源恢复时刻不同导致较早首包被拒绝，以及停止时刻不同导致较晚尾部被静音替代。
+  恢复从较早原生下界开始，停止先分别验证两路，再排出共同末尾；原生 PCM/PTS、固定增益、
+  Exact 校验和真实早停拒绝保持。同字节原 API 九项基线 1 passed / 8 failed，修复后全部通过。
+  录屏领域 479/0，含新增9项（7两图/2仅QA）；原完整模块/期限保持。
+  原完整合成 owner 停止40ms/1920输入PCM、恢复60ms/2880输入PCM；真实VP9/Opus文件解码
+  确认有效首包和尾部保留，文件不计设备验收。干净 `b0b51f1196124383b9fc77cfc4ad22c21e8c3d84` 完整Windows门禁33/0/1 Linux smoke skipped；
+  默认1298/QA1445各5ignored，前端81文件/1403passed；新9项已含总数、两图重叠不累加。
+  W71补充同SHA默认/QA release与PE/CRT文件验证，实际启动未验；
+  见 `docs/reviews/2026-10-02-windows-mixed-control-release-review.md`（`WIN-NATIVE-01`）。
+  当前同SHA CI、其它宿主、设备/桌面、安装器、多屏和长时同步未验，默认录屏仍关闭。
+  历史失败根因保持未明。（需求：`REC-MIXED-CONTROL-SKEW-01`；
+  见 `docs/superpowers/specs/2026-10-02-mixed-control-skew.md`）
+
+### 2026-10-02 混音输出帧与源控制边界一致
+
+- 修复非默认录屏 QA 混音源的纳秒控制边界与 48 kHz 输出取整不一致：首块保持启动/恢复下界，
+  派生控制覆盖完整 PCM 尾部；两路原生 PTS/样本、输入网格与 Exact pipeline 保持。
+  同字节原 API 十项基线 2 passed / 8 failed，修复后通过；额外一项恢复取整中点保护，领域 470/0。
+  合成原双轨 owner 生成 complete 20ms/2视频帧/960有效PCM（输入641帧），文件不计设备验收。
+  干净 `4bc197767dfb04c7d067ee55c7744ea668dcde76` 完整Windows门禁33/0/1 Linux smoke skipped；默认1291/QA1436各5ignored，
+  前端81文件/1403passed，新11项含总数、两图重叠不累加；当前 release/CI、其它宿主、设备/桌面、
+  安装器和长时同步未验，默认录屏仍关闭，历史失败根因保持未明。
+  （需求：`REC-MIXED-FRAME-BOUNDARY-01`；见 `docs/superpowers/specs/2026-10-02-mixed-audio-frame-boundary.md`）
+
+### 2026-10-02 WASAPI 时间戳量化不再误拒连续 PCM
+
+- 修复 100 ns QPC 精度与 48 kHz 块时长相差几十纳秒时录音被中断的问题。
+  Windows 源和队列只容忍一个刻度以内的差异，媒体区间对齐；原始时间戳、PCM 和公共暂停扣时保持。
+  Exact 源与混音输出仍严格校验，真实重叠、倒退、重复和迟到 PCM 不放宽。
+  原 API 合成诊断 4/0，确认旧队列/worker/完整会话错误路径；新精度 API 的绿色保护单独记录。
+  修复后领域 459/0，含新增17项（15两图/2仅QA），原完整模块/期限保持。
+  完整合成双轨会话 complete 40ms/4视频帧/1920PCM；真实codec/文件不计设备验收。
+  干净 `aac5e0a728d46adc7bd7603188f41b9380138650` 完整Windows门禁33/0/1 Linux smoke skipped；默认1281/QA1425各5ignored，
+  前端81文件/1403passed，两图重叠，新项已含总数。W68已补充同SHA默认/QA release与PE/CRT文件验证，实际启动未验；
+  见 `docs/reviews/2026-10-02-windows-qpc-precision-release-review.md`（`WIN-NATIVE-01`）。
+  当前SHA CI、其它宿主、设备/桌面、安装器、
+  设备时钟漂移/长时同步、多屏/混合DPI仍未验，历史失败根因保持未明；默认录屏入口仍关闭。
+  初版门禁一项旧分段测试清单写入os error 5；同SHA隔离及完整复查通过，首次根因仍未明，原日志保留。
+  （需求：`REC-WASAPI-QPC-PRECISION-01`；见 `docs/superpowers/specs/2026-10-02-wasapi-qpc-precision.md`）
+
+### 2026-10-02 音频恢复边界与 Windows 控制时间排序
+
+- 修复恰好从恢复时刻开始的合法首块PCM被误拒绝；首块只允许一次，迟到/重复和背压原子性保持。
+  Windows控制时刻严格晚于前一次且不早于PCM包末尾，溢出明确终止；原生PTS不重写。
+  原七项夹具2/5，修复领域442/0=原429+新13（12两图/1仅QA，六新API绿色保护）。
+  原完整合成AV会话由错误/interrupted变为complete 280ms/28帧/13440PCM，独立文件核对。
+  干净 `56d750c8b482108b15ebb5dd2787e418bdceecb6` 完整Windows门禁33 passed / 0 failed / 1 Linux smoke skipped；
+  默认Rust1266/QA1408各5ignored，两图重叠不累加；前端81文件/1403passed。
+  新增13项实际运行次数为12两图/1仅QA，录屏领域/新项已含总数。旧完整模块/期限保持，默认录屏仍关闭。
+  W66已补充同SHA默认/QA release编译、PE和CRT文件核对，实际启动未验；
+  见 `docs/reviews/2026-10-02-windows-audio-activation-release-review.md`（`WIN-NATIVE-01`）。
+  当前SHA CI/其它宿主/设备/桌面/安装器/多屏/长时同步与历史失败根因保留未验。
+  （需求：`REC-AUDIO-ACTIVATION-BOUNDARY-01`；见 `docs/superpowers/specs/2026-10-02-recording-audio-activation-boundary.md`）
+
+### 2026-10-02 双轨暂停和恢复共用媒体扣时
+
+- 修复视频/音频控制耗时不同造成的恢复后错位及多次暂停累积偏差；只扣除两源均已
+  暂停的区间，较晚音频恢复的真实空洞由原编码链补齐，原源时间戳拒绝下界保持。
+  同字节八项原API对照原2/6；修复领域429/0=原415+新14，仅QA，含六条后增保护。
+  实际合成会话WebM从560 ms/56帧/26880 PCM变为580 ms/58帧/27840 PCM，独立文件核对。
+  干净 `003fe2dc642627b9c6a071bf629be89342973941` 完整Windows门禁33/0/1 Linux smoke skipped；
+  默认Rust1254/QA1395各5ignored，前端81文件/1403passed，两图重叠不累加。
+  六个旧完整测试模块/期限保持；默认录屏仍关闭。
+  W64已补充同SHA默认/QA release编译、PE与CRT文件核对，实际运行仍未验；
+  见 `docs/reviews/2026-10-02-windows-av-timeline-release-review.md`（`WIN-NATIVE-01`）。
+  当前SHA CI/其它宿主/设备/桌面/安装器/多屏/长时同步未验，历史失败根因保留。
+  历史7579222 release与45769c9已安装包不含本修复；合成源/真实codec文件不计设备验收。
+  初版门禁两条旧分段测试5秒等待超时，同SHA隔离4/0；失败记录保留，根因未证明。
+  （需求：`REC-AV-CONTROL-TIMELINE-01`；见 `docs/superpowers/specs/2026-10-02-recording-av-control-timeline.md`）
+
+### 2026-10-02 视频源控制后的时间线错误终止录制
+
+- 修复源已暂停/恢复后，pipeline拒绝操作但采集线程继续、后续Stop覆盖控制错误并提交complete的问题。
+  原错误同时交给请求者与线程join，原owner回收资源并保留interrupted；前置状态拒绝仍可继续。
+  同字节八项旧API故障合同原0/8、修复领域415/0=原407+新8（7两图/1仅QA）；实际清单/媒体保留。
+  干净 `75792220cea374dd2f1e6526122be30dad328e6a` 完整Windows门禁33 passed / 0 failed / 1 Linux smoke skipped；
+  默认Rust1254/QA1381各5ignored，两图重叠不累加；前端81文件/1403passed。
+  八项新合同实际次数为7两图/1仅QA，已含Rust总数；原完整worker与前置状态合同保持。
+  合成源故障/真实文件codec不能代替WGC/WASAPI、桌面或长时同步。
+  W62 已补充同 SHA 默认/QA release 编译、PE 与 CRT 文件核对，实际运行仍未验；
+  见 `docs/reviews/2026-10-02-windows-control-release-review.md`（`WIN-NATIVE-01`）。
+  当前CI/其它宿主/设备/安装器/多屏与两个历史失败原因保留未验。
+  （需求：`REC-VIDEO-CONTROL-FAILURE-01`；见 `docs/superpowers/specs/2026-10-02-recording-video-control-failure.md`）
+
+### 2026-10-02 视频录屏控制先核对状态
+
+- 修复无音频录屏在首帧前暂停失败后，平台流已被停止、后续首帧无法接收的问题。
+  同时拒绝重复暂停与未暂停恢复的源副作用；正常控制、源错误、Stop、时钟/FPS与预算保持。
+  干净 `4eb65d8218c22e9909ab7dd9d5d16c59c548a4a4` 完整Windows门禁33 passed / 0 failed / 1 Linux smoke skipped；
+默认Rust1247/QA1367各5ignored，两图重叠不累加；前端81文件/1403passed。
+新7两图/新1仅QA的实际运行次数核对，已含在Rust总数；原source错误与旧控制合同保持。
+  桌面停止；当前CI/其它宿主/设备/安装器/多屏/本SHA release未验。W53 AVI与旧Opus
+  元数据查找的一次失败均保留，不能以本修复归因。
+  （需求：`REC-VIDEO-CONTROL-PREFLIGHT-01`；见 `docs/superpowers/specs/2026-10-02-recording-video-control-preflight.md`）
+
+### 2026-10-02 Windows 已提交录屏产物提升容忍短暂共享冲突
+
+- 修复合法清单已提交后，分段/最终输出的短暂删除共享冲突导致录屏中止或恢复
+  失败的问题。五个提交/恢复/remux 提升点复用原有有界重试；权限与永久冲突仍
+  失败且保留已提交 partial，损坏文件仍按原哈希/长度拒绝，不更改提交顺序和预算。
+  同字节八项旧API夹具原实现2/6（六条实际错误32）、修复领域393/0=原385+新8。
+  干净 `830b12b43051efa7eebad36a3d1a4434975785b2` 完整 Windows 门禁33 passed / 0 failed / 1 Linux smoke skipped；
+  默认Rust1240/QA1359各5ignored，两图重叠不累加；前端81文件/1403passed。
+  新5在默认/QA两图、新3仅QA，已含在Rust总数；两个旧完整测试模块与原权限/恢复保护保持。
+  三份运行期夹具字节相同，全部使用原API，无接口stub；原retry/probe算法与导出保持，十四份Rust输入绑定干净SHA。
+  旧实现重放及finally恢复、最终领域与完整门禁的实际日志/输入哈希保留。
+  W58 已补充本 SHA 默认/录屏 QA 原生 release 编译和 PE/CRT 文件核对，未启动或打包；
+  见 `docs/reviews/2026-10-02-current-windows-release-review.md`（`WIN-NATIVE-01`）。
+  桌面保持停止；设备/其它宿主/当前 CI/安装器/多屏/发布仍未验。
+  W53 历史 AVI 超时根因仍未知，不能用本次受控共享错误归因。
+  （需求：`REC-ARTIFACT-SHARING-01`；见 `docs/superpowers/specs/2026-10-02-recording-artifact-sharing.md`）
+
+### 2026-10-02 Windows 录屏清单容忍临时共享冲突
+
+- 修复 Windows 录屏清单被不共享删除的读取句柄短暂持有时，原子替换失败导致
+  编码 session 提前退出的问题。只对 32/33，或原生删除访问探针确认共享冲突的
+  错误 5，做最多 21 次/500 ms 的有界重试；权限拒绝、其它错误和已提升源不重试。
+  私有文件/ACL/提交恢复顺序与帧率、队列预算保持，其它保存路径及其它平台不改。
+  同字节运行期旧实现0/1（实际错误5）、修复领域385/0=原377+新8。
+  干净 `d7c66bba93e3a439a72a23039267a85a190f5ce1` 完整 Windows 门禁33 passed / 0 failed / 1 Linux smoke skipped；
+  默认Rust1235/QA1351各5ignored，两图重叠不累加；前端81文件/1403passed。
+  新8在默认/QA两图内，已含在Rust总数；两个旧完整测试模块与原权限/恢复保护保持。
+  运行期夹具字节相同，无接口stub；新七项API合同仅在绿色图，十一份Rust输入绑定干净SHA。
+  旧实现重放及finally恢复、最终领域与完整门禁的实际日志/输入哈希保留。
+  实际设备/桌面/安装器/当前 CI/其它宿主/多屏未验，桌面保持停止；本 SHA release
+  未构建，W53 原 AVI 一次超时原因仍未知，不能归因于新的受控共享冲突。
+  （需求：`REC-MANIFEST-SHARING-01`；见 `docs/superpowers/specs/2026-10-02-recording-manifest-sharing.md`）
+
+### 2026-10-02 低帧率缓存帧等待期间消费音频
+
+- 修复 1 FPS 下未交付 WGC 缓存帧限制视频下界，使实时 PCM 队列背压的问题。
+  用原三十二包容量接收未封闭 slot 的部分音频，不提前固化可替换图像；全局/分段
+  两条容量取最小值，先按 sample/CFR 边界切分，Stop 排空包队列后补齐尾部。
+  源时钟、帧率、原生计数和三帧/包/PCM 预算保持；无源下界来源仍沿用旧等待。
+  同字节运行期夹具旧实现0/1（实际Backpressure）、修复领域377/0=原364+新13。
+  干净 `120b3add51e0d569cdc5e4442f0a4577c12f7b88` 完整 Windows 门禁33 passed / 0 failed / 1 Linux smoke skipped；
+  默认Rust1227/QA1343各5ignored，两图不累加；前端81文件/1403passed。
+  新13仅QA，已含在Rust总数内；原五个完整测试模块、Windows生产/原测试与严格reader保持。
+  红绿运行期/bridge/helper字节相同，无接口stub；十八份Rust输入绑定干净SHA。
+  最终旧实现重放与finally恢复、最终领域及完整门禁的实际日志/输入哈希已保留。
+  实际设备/桌面/安装器/当前 CI/其它宿主/多屏未验，桌面保持停止；本 SHA release
+  未构建，W53 原 AVI 用例一次超时原因仍保留。
+  （需求：`REC-PENDING-FRAME-PCM-01`；见 `docs/superpowers/specs/2026-10-02-recording-pending-frame-budget.md`）
+
+### 2026-10-02 Windows 静止画面时继续双轨录屏消费
+
+- 修复有效首帧后长期没有新画面时，双轨录屏仍等待视频而使音频队列背压的问题。
+  WGC 桥按同一时钟提供未来帧下界，旧缓存限制下界；只生成已封闭 CFR slot，保留
+  后续真实帧替换与原生计数，周期提交使用共享 PCM/CFR 边界。1 FPS 等待期间查询
+  元数据，真实帧采集上限不变；暂停停止查询，队列预算与严格文件检查保持。
+  原两个实际 worker 用例均 Backpressure；扩大回归过程中修复了 1 FPS 同 slot PCM
+  已前进时空闲补帧倒退游标的问题。最终同字节旧 merge 0/2、修复新23/原341，共
+  领域364；七个原模块与原桥线程测试保持。干净 `6518661` 完整 Windows 门禁33/0/1
+  （Linux smoke跳过），默认Rust1227/QA1330各5ignored，两图不累加；前端81/1403。
+  新13两图/新10仅QA，领域与新增项已在Rust总数内；阶段361/3失败保留。
+  其它宿主无源下界仍等待，实际设备/桌面/安装器/当前 CI/多屏未验，桌面保持停止。
+  W53 未修改 AVI 用例的一次超时原因保留，本 SHA release 未构建。
+  （需求：`REC-WINDOWS-IDLE-AV-01`；见 `docs/superpowers/specs/2026-10-02-recording-av-idle-frontier.md`）
+
+### 2026-10-02 双轨录屏按 CFR 提交分段与量化排序
+
+- 修复非 slot 对齐采集帧使恢复分段起点晚于视频 packet 时间、PCM 跨入旧段而提交失败的问题。
+  分段与 PCM 拆分共享原 CFR slot 边界，同 slot 后到帧延后分段；原生 PTS 与预算保持。
+  同时修复 15/30 FPS WebM 的 0.5 ms 量化使音频先于同时间视频、严格 reader 拒绝输出的问题；
+  packet 比较、frontier 和 mux 输入统一量化。合法相邻全局 CFR 纳秒端点允许，主输出缺帧、
+  非 CFR 起点与伪造 PCM/帧数仍拒绝。最终同字节原实现 3 passed / 9 failed，修复新十二项/
+  原 329，共领域 341 passed；六个原测试模块与严格 packet 顺序/mux 保护保持。
+  干净 `66ceffd` 完整 Windows 门禁 33/0/1（Linux smoke 跳过），默认 Rust 1214/QA 1307
+  各 5 ignored，两图不累加；前端 81 文件/1403 passed，领域/新增项包含在 QA 内。
+  首次完整门禁 32/1/1：未修改 AVI 分段提交用例 30 秒超时；单独 0.23 秒通过，
+  同一干净 SHA 完整重跑通过，原失败与原因未定位保留。下一视频 head 缺失时的消费等待
+  仍未完成；当前 CI/其它宿主/设备/安装器/多屏未验，
+  桌面继续停止，本 SHA release 未构建。
+  （需求：`REC-AV-CFR-SEGMENT-01`；见 `docs/superpowers/specs/2026-10-02-recording-av-cfr-segments.md`）
+
+### 2026-10-02 双轨录屏空洞与停止尾段增量排空
+
+- 修复已知下一视频帧/EOS 后，长空洞、停止尾段或恢复分段边界一次性编码单轨，耗尽
+  三十二包重排队列而失败的问题。按 PCM 块交替推进两轨，保留真实视频 PTS、同 slot
+  替换、CFR 最近帧填补、音频静音/padding 与 journal 统计；不扩大预算。
+  同字节六项旧实现均 `InterleaveQueueFull`，修复新增十项/原 319，共领域 329 passed；
+  三个原测试模块正文保持；干净 `80e084c` 完整 Windows 门禁 33/0/1（Linux smoke 跳过），
+  默认 Rust 1214/QA 1295 各 5 ignored，两图不累加，前端 81 文件/1403 passed。
+  领域/新增合同在 QA 总数内。下一视频 head 尚未来时的
+  消费等待和不对齐 CFR slot 的分段映射仍需独立回归；设备/其它宿主/当前 CI/安装器/
+  多屏未验，桌面继续停止，本 SHA release 未构建。
+  （需求：`REC-AV-GAP-DRAIN-01`；见 `docs/superpowers/specs/2026-10-02-recording-av-gap-drain.md`）
+
+### 2026-10-02 首视频帧就绪后启动 Windows 音频
+
+- 修复视频已初始化但尚无有效首帧时，双轨录屏因提前采集音频而耗尽一秒 PCM 队列的问题。
+  视频首帧入队后才释放音频；Windows WASAPI 延后激活，混音使用实际 PCM 下界，
+  准备中控制不会阻塞等待，立即首帧保留原暂停合同。预算与时钟不扩大或替换。
+  合成源已观察实际 `Pipeline(Backpressure)`，最终同字节三项原实现全部失败，修复后通过；
+  新十八项和原录屏领域三百零一项，共 319 passed，原四个测试模块正文保持。
+  干净 `2dccc43` 完整 Windows 门禁 33 passed / 0 failed / 1 Linux smoke skipped；
+  Rust 默认 1214/录屏 QA 1285 各 5 ignored，两图重叠，前端 81 文件/1403 passed。
+  本 SHA 未构建 release/安装器。首帧之后长期无新视频帧的消费阻塞，
+  提前 Stop 的受控 writer 尾段三十二包问题已由后续 `REC-AV-GAP-DRAIN-01` 修复；
+  下一视频 head 尚未来时的消费等待仍未完成。
+  当前 SHA CI、其它宿主/真实设备/安装器/多屏未验，桌面保持停止。
+  （需求：`REC-FIRST-FRAME-AUDIO-01`；见 `docs/superpowers/specs/2026-10-02-recording-first-frame-audio.md`）
+
+### 2026-10-02 双轨录屏在初始化完成后释放采集
+
+- 修复音频 worker 在视频 factory 仍初始化时已轮询并向有界 PCM 队列提交数据的问题。
+  两个 source 都在各自采集线程准备好后才释放采集；等待期间通道断开或 Drop/Stop 可取消，
+  运行期 PCM 上限、共享时钟、平台 constructor 和原单轨行为保持。
+  原三项 AV 通过、新三项红后同六项绿；补充八项 worker 释放/取消合同，录屏领域 301 passed。
+  干净 `1c66112` 完整 Windows 门禁 33/0/1，默认 Rust 1201、QA 1267，各 5 ignored，
+  前端 81/1403；隔离 unsigned/unbundled QA release 编译及实际 payload 核对通过。
+  panic 回归只覆盖 unwind 配置；首视频帧暖机仍需独立审查，不计为本轮解决。
+  受控延迟不等于真实设备失败，原生缓存/首包、其它宿主/当前 CI、
+  安装与设备/多屏仍未验，桌面保持停止。
+  （需求：`REC-AV-STARTUP-GATE-01`；见 `docs/superpowers/specs/2026-10-02-recording-av-startup-gate.md`）
+
+### 2026-10-02 Windows QA 发现已发布运行库家族
+
+- 修复 QA 准备脚本只查 VC143 而拒绝受控 VC145 SDK 布局的问题；按数字版本选择已发布
+  v14 的最新兼容 desktop x64 CRT，拒绝最新版本歧义与不可信文件，不安静回退。
+  原完整版本/签名/架构/哈希/依赖校验保留，清单记录实际家族；原五十项未改。
+  原入口新 24 项为 12/12，修复同组通过；补齐目录标签后新增三十项/原五十项共 80 passed。
+  干净 `ae2fdb6` 完整 Windows 门禁 33/0/1，前端 81 文件/1403 passed；现有真实 VC143
+  十份签名 DLL、隔离 unsigned/unbundled QA 编译和实际 payload 哈希通过，默认产物保持。
+  文件/夹具/构建不计为桌面验收；真实 VS 2026、当前 SHA CI、安装器/无 CRT 启动、
+  Windows 10/多屏仍未验证，桌面保持停止。见 `docs/reviews/2026-10-02-windows-qa-crt-discovery-review.md`。
+  （需求：`WIN-QA-CRT-DISCOVERY-01`；见 `docs/superpowers/specs/2026-10-02-windows-qa-crt-discovery.md`）
+
+### 2026-10-02 Windows 录屏 QA 携带应用本地运行库
+
+- 修复 Windows 录屏 QA 导入 MSVCP140.dll 而原包未部署 CRT 的缺口。准备已有 SDK 的
+  Microsoft 签名 x64 release 运行库，显式 QA resources 与 target 目录隔离默认构建；
+  上传前检查真实 EXE/同目录文件、哈希和 direct/delay import 递归闭包。
+  完整版本不早于所选 toolset；受控版本红 47/3、修复绿 50，原测试未改。
+  干净 5d900ca 完整 Windows 门禁 exit 0，33/0/1（Linux skip），默认 Rust 1193/QA 1256
+  各 5 ignored、不累加，前端 80/1373；新五十项在内。unsigned/unbundled QA 编译与
+  十份实际 DLL、十七份基础许可证和默认产物保持核对，文件/构建数量不计测试通过。
+  当前 SHA CI、安装器、无 CRT Windows 10/11 实际启动及多屏仍未验证，桌面停止。
+  （需求：`WIN-QA-CRT-01`；见 `docs/superpowers/specs/2026-10-02-windows-qa-crt-deployment.md`）
+
+### 2026-10-02 Windows 自动粘贴部分按键失败清理
+
+- 修复 V Click 部分失败后未显式释放 V 的缺口。Windows 失败/展开补充有界清理，
+  正常 Click 顺序保持；主要错误及 copy-only 保留，清理失败追加 detail，不保证持续
+  系统阻塞已解除。原协议提取红 10/6（旧六项通过），模型残留/释放尝试缺口复现，
+  同十项原字节绿 16；原实现与关联文件保持，受控模型不代替实际按键/系统验收。
+  干净 f5ad5da 完整 Windows 默认/QA 门禁 exit 0，30/0/1（Linux skip），默认 Rust
+  1193/QA Rust 1256（各 5 ignored，不累加），新十项在各图内；前端 79/1323。
+  实际系统/其它宿主/当前 SHA CI 未验，安装包未更新，桌面停止。
+  （需求：`WIN-PASTE-CLEANUP-01`；见 `docs/superpowers/specs/2026-10-02-windows-paste-key-cleanup.md`）
+
+### 2026-10-02 Windows 富文本与替代文本共用一次剪贴板打开
+
+- 修复两次读取之间外部复制使 HTML/text 混配的问题。Windows 配对读取共用原 guard，
+  原单格式解码、失败回退、其它平台及抑制/重试保持。原协议提取红基线 27/4（旧 23
+  通过），混配及临时 SQLite 缺口复现；修正夹具借用后同组原协议仍 27/4、修复绿 31。
+  guard 七项/原 parser 九项共 16 及 vendor lint 通过；受控模型不证明实际系统锁/并发复制。
+  干净 b541e87 完整 Windows 默认/QA 门禁 exit 0，30/0/1（Linux skip），默认 Rust
+  1183/QA Rust 1246（各 5 ignored，不累加），新八项在各图内；独立剪贴板 31 项，
+  前端 79/1323。实际系统/其它宿主/当前 SHA CI 未验，安装包未更新，桌面停止。
+  （需求：`WIN-CLIP-SNAPSHOT-01`；见 `docs/superpowers/specs/2026-10-02-windows-clipboard-snapshot.md`）
+
+### 2026-10-02 共用快捷键继承实际注册结果
+
+- 修复旧重复配置的共用键在首次注册失败后仍被记为成功的问题。按 ID 继承实际结果，
+  全失败返回错误，部分成功/优先级和用户保存判重保持。提取原执行协议红基线 9/6，
+  旧五项全绿，五次返回成功及一次动作成功的错误归因复现；同十项原字节修复后通过，
+  含旧五项共 15 passed。受控回调不证明真实系统冲突或 UI；原合同/关联文件核对。
+  干净 0f793c9 完整 Windows 默认/QA 门禁 child/终端 exit 0，30 passed / 0 failed /
+  1 Linux smoke skipped。默认 Rust 1175、QA Rust 1238（各 5 ignored，重叠不累加），
+  新十项/旧五项各图通过；前端 79/1323。真实系统/其它宿主/当前 SHA CI 留未验，
+  安装包未更新，桌面操控停止。
+  （需求：`WIN-SHORTCUT-SHARED-01`；见 `docs/superpowers/specs/2026-10-02-windows-shortcut-shared.md`）
+
+### 2026-10-02 结果库退休加载不再通知窗口就绪
+
+- 修复结果库卸载或 effect 被取代后，迟到的列表完成仍调用窗口就绪的问题。每次 effect
+  使用独立退休标记，cleanup 后不再 ready；当前正常加载/失败重试页仍通知一次，ready
+  拒绝处理保持。原组件 jsdom 红基线 35 passed / 5 failed（旧 32 全绿），四次旧 ready
+  调用与一次 StrictMode 两次 ready 已复现；同八项原字节修复后通过，共 40 passed。
+  干净 1907809 完整 Windows 默认/QA 门禁确认原生子进程 exit 0，30 passed / 0 failed /
+  1 Linux smoke skipped。默认 Rust 1165、QA Rust 1228（各 5 ignored，重叠不累加，无新
+  Rust 用例）；前端 79 文件 / 1323 passed，新八项在总数内；源码/原始日志/发现清单和
+  干净检出核对。调用是服务替身，未观察真实 show/focus 或发布包 effect 重放。
+  真实窗口/其它宿主/当前 SHA CI 未验，安装包未更新，桌面操控停止。
+  （需求：`REC-LIBRARY-READY-01`；见 `docs/superpowers/specs/2026-10-02-recording-library-ready.md`）
+
+### 2026-10-02 录屏播放准备响应的组件生命周期
+
+- 修复播放准备响应在卸载后不释放租约、关闭预览后重开播放器的问题。准备绑定独立请求身份，
+  卸载/服务清理/预览关闭退休旧请求；迟到成功通过原服务释放，迟到失败不改新请求状态。
+  服务重置允许新请求，关闭预览保留其它导出的 busy；普通失败、URL 错误和已显示租约释放
+  保持。原组件 jsdom 红基线 27 passed / 5 failed：三项释放调用为零、一次播放器重开、
+  一次旧 busy 阻塞新请求（未执行到旧拒绝）。同八项原字节修复后通过，含旧 24 项共 32 passed。
+  干净 ba26a83 完整 Windows 默认/QA 门禁确认原生子进程 exit 0：30 passed / 0 failed /
+  1 Linux smoke skipped，默认 Rust 1165/QA Rust 1228（各 5 ignored，重叠不累加），没有
+  新增 Rust 用例；前端 78 文件 / 1315 passed，新八项在前端总数内，测试发现/源码/原始
+  日志与干净检出核对。jsdom/API 替身不证明真实后端撤销、窗口重建或 WebView 解码。
+  真实桌面/其它宿主/当前 SHA CI 未验，安装包未更新，桌面操控停止。
+  （需求：`REC-PLAYBACK-LIFECYCLE-01`；补齐 `PX-REC-PLAYBACK-01` / 4–5；见 `docs/superpowers/specs/2026-10-02-recording-playback-lifecycle.md`）
+
+### 2026-10-02 撤销尚在准备中的录屏播放租约
+
+- 修复会话撤销只移除已签发租约、排队的播放准备仍可签发的问题。准备在后台任务前绑定
+  会话身份，哈希取消检查与最终签发核对该身份；同会话撤销后旧准备失效，新准备可用，
+  其它会话保持。跟踪条目在最后一个准备释放时回收，无历史会话墓碑。原生产管理器 MSVC
+  红基线 7 passed / 4 failed，四项实际返回 Ok 租约；六项同组用例与两项生命周期/所有权
+  新测试修复后通过，旧五项协议断言保持，共 13 passed。干净 6944b68 完整 Windows
+  默认/QA 门禁确认原生子进程 exit 0：30 passed / 0 failed / 1 Linux smoke skipped；
+  默认 Rust 1165、QA Rust 1228（各 5 ignored，两图重叠不累加），新增八项与旧媒体
+  五项在各图总数内；前端 77 文件 / 1307 passed。源码/原始日志与干净检出核对。
+  文件/线程夹具不是实际 WebM 播放、删除/合并或 Tauri IPC 证据；哈希中间撤销时序、真实
+  桌面/设备、其它宿主与当前 SHA CI 未验，安装包未更新，桌面操作停止。
+  （需求：`REC-MEDIA-REVOKE-01`，补齐 `PX-REC-PLAYBACK-01` / 4；见 `docs/superpowers/specs/2026-10-02-recording-media-revoke.md`）
+
+### 2026-10-02 Windows 录屏导出同文件别名保护
+
+- 修复 Windows 录屏导出只按路径文本检查同一文件的问题。使用源/目标句柄的卷号和完整
+  128 位 FileId，在临时复制前拒绝同文件别名；新目标和不同已有目标保持原导出协议。
+  原生产函数 MSVC 红基线 2 passed / 4 failed：三类别名迟至替换时报 OS error 5，硬链接
+  返回成功，不能声称三者已成功覆盖源文件。同组六项修复后通过，新测试字节保持；既有
+  哈希/替换测试和一项真实无效句柄错误测试通过。干净 69cf0b4 完整 Windows 默认/QA 门禁
+  确认原生子进程 exit 0：30 passed / 0 failed / 1 Linux smoke skipped。默认 Rust 1157、
+  QA Rust 1220（各 5 ignored，重叠不累加），新增六项与错误一项在各图总数内；前端
+  77 文件 / 1307 passed。源码/原始日志与干净检出核对。
+  本机文件夹具不证明媒体可播放；桌面对话框、其它文件系统/网络盘/权限与外部进程竞态、
+  当前 SHA CI/其它宿主未验，桌面操作停止，录屏默认门控不变。
+  （需求：`WIN-EXPORT-IDENTITY-01`；见 `docs/superpowers/specs/2026-10-02-windows-export-identity.md`）
+
+### 2026-10-02 录屏合并与删除会话互斥
+
+- 修复结果库删除没有参与恢复合并所有权的问题。VP9/QA 构建在原子 registry 内协调同会话
+  合并/删除；删除 guard 覆盖播放撤销、缓存清理和文件操作，冲突提前返回 Busy，成功、错误
+  和 panic 都释放所有权，其它会话删除与既有全局单合并限制保持。默认构建删除路径不变。
+  提取原删除 worker 协议的 MSVC 红基线 3 passed / 3 failed，其中实际删除了合并 owner
+  持有期间的生产 VP9 分段/清单；同组六项修复后通过，新测试字节保持，既有单槽测试通过。
+  干净 0321355 完整 Windows 默认/QA 门禁确认原生子进程 exit 0：30 passed / 0 failed /
+  1 Linux smoke skipped。默认 Rust 1150、QA Rust 1213（各 5 ignored，重叠不累加），新增六项
+  只包含在 QA 总数内；前端 77 文件 / 1307 passed。真实窗口重开/录屏/强杀/播放、其它宿主
+  和当前 SHA CI 未验，桌面操作停止，录屏默认门控不变。
+  （需求：`REC-DELETE-OWNER-01`；见 `docs/superpowers/specs/2026-10-02-recording-delete-owner.md`）
+
+### 2026-10-02 录屏控制窗启动回滚结算
+
+- 修复录屏控制窗准备失败回滚忽略销毁请求错误、仍将关闭结算为成功的问题。回滚与普通关闭
+  共用请求返回结果结算；请求失败保留既有隔离并阻止替换，成功和过时 session/caller 行为保持，
+  记录次要清理错误并保留原启动错误。提取原回滚协议 MSVC 红基线 22 passed / 2 failed，
+  旧十七项全绿，新七项为 5 passed / 2 failed；同组二十四项修复后通过，新测试字节保持。
+  干净 a52ecaa 完整 Windows 默认/QA 门禁确认原生子进程 exit 0：30 passed / 0 failed /
+  1 Linux smoke skipped。默认 Rust 1150、QA Rust 1207（各 5 ignored，重叠不累加），新增七项
+  每图在总数内；前端 77 文件 / 1307 passed。请求发送成功不能证明原生窗口已销毁；真实请求
+  失败/窗口销毁/捕获排除像素、设备/停止/恢复、多屏、当前 SHA CI 与其它宿主未验，
+  录屏默认门控不变，桌面操作停止。
+  （需求：`WIN-CONTROL-ROLLBACK-01`；见 `docs/superpowers/specs/2026-10-02-windows-control-rollback.md`）
+
+### 2026-10-02 主窗口保存位置优先于后备查询
+
+- 修复已有有效保存位置时仍执行后备显示器查询、后备错误阻止显示的问题。只在没有保存目标
+  时查询后备；保存查询与必要后备的原错误、物理位置、尺寸/工作区钳位、显示和焦点路径保持。
+  提取旧生产求值协议的 MSVC 红基线 11 passed / 2 failed，其中既有七项通过、新增六项为
+  4 passed / 2 failed；同组十三项修复后通过，新测试原始字节保持。干净 c9d5512 完整 Windows
+  默认/QA 门禁确认原生子进程 exit 0：30 passed / 0 failed / 1 Linux smoke skipped。默认 Rust
+  1143、QA Rust 1200（各 5 ignored，重叠不累加），新增六项每图在总数内；前端 77 文件 /
+  1307 passed。真实窗口/原生查询错误、多屏/DPI、其它宿主和当前 SHA CI 未验，桌面操作停止。
+  （需求：`WIN-MAIN-TARGET-01`；见 `docs/superpowers/specs/2026-10-02-windows-main-window-target.md`）
+
+### 2026-10-02 Windows WGC 帧桥启动回滚
+
+- 修复 WGC 启动失败在完整帧源建立前丢弃桥接线程句柄的问题。线程 owner 在错误和销毁时
+  取消并 join；真实帧循环以有界接收观察取消，不依赖外部 sender 全部释放，正常销毁先取消
+  再执行原生 stop/drop。原启动错误、成功转移、帧/单调时间戳和暂停恢复合同保持。
+  提取旧生产所有权/接收协议红基线 3 passed / 4 failed，同一七项 MSVC 真实线程合同全绿。
+  干净源码 7922457 完整 Windows 默认/QA 门禁确认原生子进程 exit 0：30 passed / 0 failed /
+  1 Linux smoke skipped。默认 Rust 1137、QA Rust 1194（各 5 ignored，重叠不累加），新增七项
+  每图在总数内；前端 77 文件 / 1307 passed。真实 WGC/原生 Close 时限与系统释放、设备/硬件
+  矩阵、当前 SHA CI 及其它宿主未验。vendor 和 feature 默认值未改，桌面操作保持停止。
+  （需求：`WIN-WGC-BRIDGE-ROLLBACK-01`；见 `docs/superpowers/specs/2026-10-02-windows-wgc-bridge-rollback.md`）
+
+### 2026-10-02 Windows Pin 实时渲染 DPI
+
+- 修复 Windows 图片 Pin 跨屏或 DPI 改变后仍按创建时比例选择最近邻滤镜的问题。首读绑定
+  调用者自己的原生 Pin 窗口，先订阅 scale 事件，迟到查询不覆盖新事件；未知/无效/失败时
+  使用 auto。实时比例独立于 payload 与用户状态，源像素、CSS 尺寸、zoom 和 GTK 补偿保持。
+  原 App 的十二项回归红基线 2 passed / 10 failed，修复后同组十二项、三项 facade 适配器、
+  六项 MSVC 调用者/数值读取合同通过；定向前端共 74 项及 TypeScript 检查通过。
+  干净源码 e339042 完整 Windows 默认/QA 门禁确认原生子进程 exit 0：30 passed / 0 failed /
+  1 Linux smoke skipped；默认 Rust 1130、QA Rust 1187（各 5 ignored，重叠不累加），新增六项
+  各自在总数内。前端 77 文件 / 1307 passed。真实 WebView2 成像/DPI 事件、多屏/Windows 10、
+  当前 SHA CI 和其它宿主未验。未新增 core 窗口权限。
+  （需求：`WIN-PIN-LIVE-DPI-01`；见 `docs/superpowers/specs/2026-10-02-windows-pin-live-dpi.md`）
+
+### 2026-10-02 Windows Pin 工作区与工具条几何
+
+- 修复混合 DPI 保存工作区用全局逻辑点选错屏、恢复后丢失目标屏和工具条可见区域计算偏移。
+  保存位置/参考工作区采用同一原生 owner，恢复将目标工作区/DPI/物理 anchor 保留到创建与
+  reveal；工具条按真实客户区和物理工作区求交，最后按窗口 DPI 输出局部 CSS。未知安全回退，
+  保持旧存储字段、正常旧记录相对位置和展示状态，不重写旧数据。提取旧生产协议红基线
+  1 passed / 15 failed，同组十六项 MSVC 离线回归通过。干净源码 4a58101 完整默认/录屏 QA 门禁
+  确认原生子进程 exit 0：30 passed / 0 failed / 1 Linux smoke skipped；默认 Rust 1124、QA Rust 1181
+  （各 5 ignored，重叠不累加），前端 75 文件 / 1292 passed，十六项包含在各 Rust 总数。旧错误来源
+  无法可靠反推；真实窗口/DPI/热插拔、多屏/Windows 10、WGC、新 SHA CI 与其它宿主仍未验。
+  （需求：`WIN-PIN-WORKAREA-01`；见 `docs/superpowers/specs/2026-10-02-windows-pin-workarea.md`）
+
+### 2026-10-02 Windows 图片 Pin 物理来源
+
+- 修复混合 DPI 截图/长截图和复制后历史图片 Pin 用全局逻辑点猜显示器、显示时再次换算位置的问题。
+  后端按绑定冻结帧的实际 crop 与 signed union offset 保留私有物理来源，前端不能伪造；按源屏
+  和实际 PNG 像素规划尺寸，创建/reveal 使用同一物理请求，Windows resize 不重复提交逻辑点。
+  原屏失去或来源未知时按光标/主屏创建。旧生产输出及提取的旧布局/请求协议红基线 3 passed /
+  15 failed，同组十八项 MSVC 离线回归通过。干净源码 888127a 完整默认/录屏 QA 门禁确认子进程
+  exit 0：30 passed / 0 failed / 1 Linux smoke skipped；默认 Rust 1108、QA Rust 1165（各 5 ignored，
+  重叠不累加），前端 75 文件 / 1292 passed；十八项包含在各 Rust 总数。真实窗口/DPI 热插拔、
+  Windows 10/多屏、存量工作区迁移、工具条交集、WGC、新 SHA CI 和其它宿主仍未验。
+  （需求：`WIN-PIN-ORIGIN-01`；见 `docs/superpowers/specs/2026-10-01-windows-pin-physical-origin.md`）
+
+### 2026-10-01 Windows 冻结显示器物理边界
+
+- 修复截图逻辑原点取整后反算物理坐标的一像素误差，以及覆盖层/长截图 guide 使用逻辑
+  位置提示造成的多屏歧义。原始 Windows xcap 物理边界随冻结帧保留；窗口请求直接使用
+  PhysicalPosition/PhysicalSize，光标归属、窗口速选和长截图滚动点使用同一边界，重捕获
+  拒绝物理位置漂移。缺失/不匹配/空/溢出边界不猜测；其它平台定位和 Pin 来源 IPC 保持。
+  MSVC 实际旧算法红基线 1 passed / 15 failed，同一十六项离线回归修复后通过。首次完整门禁
+  28 passed / 2 failed 为夹具严格 lint，原日志保留；修正后干净源码 2f0e225 完整 Windows
+  默认/QA 门禁确认子进程 exit 0：30 passed / 0 failed / 1 skipped（Linux smoke）。默认 Rust
+  1090、QA Rust 1147（各 5 ignored，重叠不累加），前端 1292 passed；十六项包含在各 Rust 总数。
+  真实窗口/DPI 事件、Windows 10/多屏、Pin/WGC 原点身份、新 SHA CI 和其它宿主仍未验。
+  （需求：`WIN-NATIVE-MONITOR-01`；见 `docs/superpowers/specs/2026-10-01-windows-physical-monitor-bounds.md`）
+
+### 2026-10-01 Windows 覆盖层键盘焦点归属
+
+- 修复截图/录屏覆盖层把物理光标直接与逻辑显示器矩形比较，导致缩放双屏选错键盘焦点的问题。
+  Windows 按冻结帧各轴比例独立判断归属；正常路径由光标所在屏接键盘，无效/缺失元数据沿用
+  第一个就绪覆盖层兜底。旧生产 reveal 的 MSVC 离线红基线 2 passed / 6 failed，八项修复后
+  回归通过。干净源码 f577996 完整 Windows 默认/录屏 QA 门禁确认子进程 exit 0：30 passed /
+  0 failed / 1 skipped（Linux smoke）；默认 Rust 1074、QA Rust 1131（各 5 ignored，重叠不累加），
+  前端 1292 passed；八项新回归包含在两个 Rust 总数。既有双屏夹具补齐两帧几何，保留所有原断言。
+  真实 set_focus、建窗位置/原点舍入、多屏、Windows 10、新 SHA CI 与其它宿主仍未验。
+  （需求：`WIN-OVERLAY-FOCUS-01`；见 `docs/superpowers/specs/2026-10-01-windows-overlay-focus.md`）
+
+### 2026-10-01 Windows 跨屏窗口速选坐标
+
+- 修复混合 DPI 跨屏窗口用一个显示器比例转换全部候选，造成另一屏可见部分丢失或错位的问题。
+  DWM 物理矩形按每块冻结帧的比例转换到局部坐标，再裁剪；保留分数坐标与原 Z 顺序，
+  拒绝无效/空帧元数据。实际旧转换协议的 MSVC 离线红基线 2 passed / 6 failed；八项生产入口
+  回归通过，包含补充的空像素帧断言。干净源码 78bd83f 完整 Windows 默认/QA 门禁 exit 0：
+  30 passed / 0 failed / 1 skipped（Linux smoke）；默认 Rust 1066、QA Rust 1123（各 5 ignored，
+  重叠不累加），前端 1292 passed；八项回归均计入两个 Rust 图。首次包装器未取到子进程
+  退出码，原记录保留且不计通过；修正捕获并验证退出 0/17 后，同 SHA 完整重跑通过。
+  真实双屏/混合 DPI/负坐标、覆盖层定位、新 SHA CI、其它宿主与桌面仍未验；不代表 W04 完成。
+  （需求：`WIN-WINDOW-SCALE-01`；见 `docs/superpowers/specs/2026-10-01-windows-window-candidate-scaling.md`）
+
+### 2026-10-01 Windows 构建号读取内存边界
+
+- 修复截图依赖读取 Windows 构建号时把返回字节数用作 u16 向量长度的问题，改用已初始化的
+  有界缓冲区；仅解析成功返回范围，保留查询/文本错误返回 0 的行为与版本阈值。
+  八项生产入口离线回归通过；安全旧单位协议辅助模型 4 passed / 4 failed，未运行旧未定义行为。
+  原始字节正例与三个独立篡改负例通过。bb38cc6 完整 Windows 默认/QA 门禁 exit 0：30 passed /
+  0 failed / 1 skipped（Linux smoke）；默认 Rust 1058、QA Rust 1115（各 5 ignored，重叠不累加），
+  前端 1292 passed。八项在独立 vendor Cargo 图通过，不计入应用 Rust 总数；严格 clippy 通过。
+  首次 8c6fbfe 因遗留导入严格 lint 失败，29 passed / 1 failed，原日志保留，修正后重跑通过。
+  真实注册表、截图/录屏、桌面、新 SHA CI 和其它宿主仍未验。
+  （需求：`WIN-REGISTRY-BUFFER-01`；见 `docs/superpowers/specs/2026-10-01-windows-registry-buffer.md`）
+
+### 2026-10-01 Windows WGC 初始化失败回滚
+
+- WGC frame pool 创建后即由临时 guard 持有，注册回调或创建 session 失败时先尝试 Close；
+  成功才移交完整 runtime，关闭错误仅记录且保留原初始化错误。复用锁定 scopeguard，
+  不改回调、光标、通道及正常 Stop/Drop；其它平台不变。
+  离线原协议 1 passed / 3 failed，修复后四项通过；原始字节正例与三个文件篡改负例通过，
+  61d6823 完整 Windows 默认/QA 门禁 exit 0，29 passed / 0 failed / 1 skipped（Linux smoke）。
+  默认 Rust 1058、QA Rust 1115（各 5 ignored，重叠不累加），前端 1292 passed；四项初始化
+  与既有六项关闭合同在独立 vendor Cargo 图通过，不计入应用 Rust 总数，严格 clippy 通过。
+  未调用真实 WinRT Close 或复现系统泄漏；真实 API 失败、最终释放、新 SHA CI 与桌面未验。
+  （需求：`WIN-WGC-INIT-ROLLBACK-01`；见 `docs/superpowers/specs/2026-10-01-windows-wgc-init-rollback.md`）
+
+### 2026-10-01 双轨录屏桥接线程异常回收
+
+- 视频桥接线程 panic 后仍等待音频桥接线程退出，再返回既有 BridgePanicked；两条线程正常
+  时保留原编码结果。避免 join 的布尔短路使音频 handle 被丢弃、owner 提前结束。
+  MSVC 真实受控线程红基线 2 passed / 2 failed，修复后四项正常/单侧/双侧 panic 回归通过；
+  091b5cb 完整 Windows 默认/录屏 QA 门禁 exit 0，28 passed / 0 failed / 1 skipped（Linux smoke）。
+  默认 Rust 1058、QA Rust 1115（各 5 ignored，重叠不累加），前端 1292 passed；四项新回归
+  包含在 QA 总数，默认图不编译该模块。既有 worker 合并/中止集成测试及严格 clippy 通过。
+  录屏仍为非默认 feature，媒体与 journal 行为未改。
+  未观察真实设备 panic；共享 Linux/macOS 原生图、新 SHA CI 和桌面录屏仍未验。
+  （需求：`REC-AV-BRIDGE-JOIN-01`；见 `docs/superpowers/specs/2026-10-01-windows-av-bridge-join.md`）
+
+### 2026-10-01 Windows WGC 部分关闭失败清理
+
+- Windows WGC 分别记录 session / frame pool 的成功关闭；session 失败也尝试 pool，后续
+  Close / Drop 只重试失败资源，不把提前置位当成清理完成。保留首次 session 错误和成功幂等。
+  原控制协议离线红基线 1 passed / 5 failed，修复后六项通过；vendor 原始字节正校验和三个
+  文件篡改负例通过。03b4cb8 完整 Windows 默认/录屏 QA 门禁 exit 0，28 passed / 0 failed /
+  1 skipped（Linux smoke）；默认 Rust 1058、QA Rust 1111（各 5 ignored，重叠不累加），
+  前端 1292 passed；六项 WGC 在独立 vendor Cargo 图通过，不计入应用 Rust 总数。
+  含测试的 vendor 严格 clippy 通过；捕获光标、回调和其它平台路径未改。
+  未执行真实 Close 或观察系统泄漏；持续原生失败、桌面录屏、Windows 10 和新 SHA CI 未验。
+  （需求：`WIN-WGC-CLOSE-01`；见 `docs/superpowers/specs/2026-10-01-windows-wgc-close-retry.md`）
+
+### 2026-10-01 Windows 录屏音频停止尾部保留
+
+- 非默认 Windows 录屏 QA 正常 Stop 先停止 WASAPI，按 endpoint 实际容量排空尾包，再重置；
+  保留已复制 PCM，通过现有 worker/mixer 在时间线封尾前提交，避免尾音被清空替成静音。
+  Pause / Drop 继续清空旧样本，排空超限或设备/读取/释放错误继续中止会话。
+  旧控制协议离线红基线 9 passed / 4 failed，修复后 13 项音频合同在两个真实 Cargo 图通过。
+  源码 a463c3b 的完整 Windows 默认/录屏 QA 本机门禁 exit 0，27 passed / 0 failed /
+  1 skipped（Linux smoke）；默认 Rust 1058、QA Rust 1111（各 5 ignored，重叠不累加），
+  前端 1292 passed。WASAPI API 图 check/clippy 通过，音频合同计入 Rust 总数。
+  没有创建真实音频设备或录屏；系统声、麦克风、混音、设备拔出、Windows 10 与新 SHA CI 未验。
+  （需求：`WIN-WASAPI-STOP-TAIL-01`；见 `docs/superpowers/specs/2026-10-01-windows-wasapi-stop-tail.md`）
+
+### 2026-10-01 Windows 自动粘贴输入前目标复核
+
+- Windows 在激活/等待和输入后端初始化后、首次粘贴按键前再次核对窗口、PID 和前台目标；
+  目标销毁/所有者变化或焦点切换时保持复制状态并返回既有结构化降级，不再次抢焦点。
+  同一生产入口的离线故障注入先 2 passed / 4 failed，修复后六项通过；源码 14bf616 的完整
+  Windows 默认/录屏 QA 本机门禁 exit 0，27 passed / 0 failed / 1 skipped（Linux smoke）。
+  默认 Rust 1052、QA Rust 1105（各 5 ignored，重叠不累加）、前端 1292 passed。
+  没有实际系统按键或错误粘贴复现；最后复核与 SendInput 间的系统竞争、真实用户接管、
+  新 SHA CI 和共享初始化入口的 macOS 原生图仍未验。
+  （需求：`WIN-PASTE-RECHECK-01`；见 `docs/superpowers/specs/2026-10-01-windows-paste-input-recheck.md`）
+
+### 2026-10-01 Windows DIBV5 像素偏移修复
+
+- Windows DIBV5 读取借用原字节，只补 14 字节 BMP 文件头和显式像素偏移，避免锁定解码器
+  多跳 12 字节造成小图读取失败，或把尾部数据误解为像素。原 Chrome/Firefox 夹具与完整像素
+  断言保留；新顶/底向、尾部和颜色表夹具红基线 2 passed / 2 failed，修复后五项 DIB 与三项
+  文件视图合同通过，连同图片预算和富文本共 24 项 Windows 离线合同通过。
+  25fb5d7 完整 Windows 默认/录屏 QA 门禁 exit 0，27 passed / 0 failed / 1 skipped（Linux smoke）；
+  新 SHA CI、真实 Chrome/Firefox/Office 互操作未验。
+  未访问系统剪贴板或改变依赖版本，不将历史失败改写成通过。
+  （需求：`WIN-DIBV5-PIXEL-01`；见 `docs/superpowers/specs/2026-10-01-windows-dibv5-pixel-offset.md`）
+
+### 2026-10-01 Windows 剪贴板图片解码前预算修复
+
+- Windows PNG / CF_DIBV5 在整图像素分配前执行已有的单边 16,384 / 40,000,000 像素限制，
+  超限和零尺寸返回格式错误；PNG 构造阶段也限制单边尺寸。合法 4K / 8K 和精确预算边界
+  有元数据合同，小 8/16-bit PNG 保持像素与透明度。四字节故障注入旧路径 3 passed / 2 failed，
+  修复后七项预算合同通过；531d791 完整 Windows 默认/录屏 QA 门禁 exit 0，25 passed /
+  0 failed / 1 skipped（Linux smoke）。新 SHA CI 和真实图片互操作未验。
+  当时扩展组 9 passed / 1 failed；上游 Chrome DIB 夹具在该修复前后均失败，W22 后由上节独立修复，
+  未改原测试或将它计为通过。该修复不是整个进程或编码剪贴板数据的内存上限。
+  （需求：`WIN-CLIP-IMAGE-BUDGET-01`；见 `docs/superpowers/specs/2026-10-01-windows-image-decode-budget.md`）
+
+### 2026-10-01 Windows 富文本剪贴板片段边界修复
+
+- Windows 富文本读取先取得实际字节，再安全校验 CF_HTML 片段偏移，关闭锁定依赖中可能越界读取
+  的调用路径；畸形偏移、字段缺失、数字溢出和 UTF-8 字符切断返回格式错误，既有回退保留。
+  合法 Unicode 片段、零填充和三种头行换行有离线回归；旧校验 2 passed / 7 failed，修复后九项通过。
+  50b7778 完整 Windows 默认/录屏 QA 门禁 exit 0，24 passed / 0 failed / 1 skipped（Linux smoke），
+  包含实际执行的九项依赖库回归。Windows Native CI 已添加同一定向入口，远程新 SHA CI 尚未运行，
+  真实富文本互操作待验。
+  未执行越界复制或写系统剪贴板，不声称已观察到可利用泄漏；其他平台回归及分配预算另验。
+  （需求：`WIN-CF-HTML-01`；见 `docs/superpowers/specs/2026-10-01-windows-cf-html-bounds.md`）
+
+### 2026-10-01 自动长截图失败时光标恢复修复
+
+- 自动长截图提前失败后的清理再次查询指针，仅当仍在自动目标点的既有容差内才恢复原位置；
+  用户已移动或当前位置查询失败时不再盲目拉回光标。Windows 同一生产 guard 的故障注入先失败
+  后通过，八项定向合同通过；d8dff80 完整 Windows 默认/录屏 QA 门禁 exit 0，23 passed / 0 failed /
+  1 skipped（Linux smoke）。新 SHA 原生 CI、真实桌面接管与最后查询/移动间的输入竞争尚未验证。
+  共享原生路径涉及 X11/macOS，其原生编译和真机回归保留未完成；Wayland Portal 路径未修改。
+  （需求：`WIN-LONGSHOT-CURSOR-01`；见 `docs/superpowers/specs/2026-10-01-windows-longshot-cursor-restore.md`）
+
+### 2026-10-01 私有文件写入权限顺序修复
+
+- 私有文件在写入或截断之前准备权限，避免新文件权限设置失败时内容已经落盘；已有文件准备
+  失败时保留原文，成功覆盖仍清除旧尾部、同步数据并校正最终权限。Windows 本机故障注入先失败
+  后通过；f788b1f 的完整默认及录屏 QA 门禁 exit 0，23 passed / 0 failed / 1 skipped（Linux smoke），
+  前端 1292 项通过。生产调用通常已保护父目录，本记录不声称发生跨账户泄漏。
+  创建瞬间空文件的 DACL、路径竞争、跨账户桌面及新 SHA 原生 CI 仍未验证。
+  （需求：`WIN-PRIVATE-WRITE-01`；见 `docs/superpowers/specs/2026-10-01-windows-private-write-order.md`）
+
+### 2026-10-01 小图 Pin 工具栏裁切修复
+
+- 为小图及缩小后的贴图窗口预留完整工具栏高度，同步前端首帧尺寸兜底，避免保存、复制与关闭
+  按钮被窗口底部裁切；内容尺寸和原始贴图偏移保持既有规则。Windows 11 单屏 125% DPI 的
+  旧 QA 包已复现，真实 CSS 与原生窗口高度合同先失败后通过。7aa6cf6 的 Windows 本机完整
+  默认及录屏 QA 门禁 exit 0，23 passed / 0 failed / 1 skipped（Linux smoke），前端 1292 项通过。
+  用户要求停止桌面操作，修复后桌面复测、新 SHA 原生 CI、Windows 10 与双屏仍未验证；
+  当前安装包仍为旧源码，后继文档提交不冒称已验证 SHA。
+  （需求：`WIN-PIN-TOOLBAR-01`；见 `docs/superpowers/specs/2026-10-01-windows-pin-toolbar-height.md`）
+
+### 2026-10-01 Windows PowerShell 门禁兼容修复
+
+- 修复 Windows PowerShell 5.1 改写 Node 命令内嵌引号，误报版本不足并阻止原生门禁的问题。
+  版本改由 Node 输出、PowerShell 比较，保留最低版本门槛和命令失败检查；增加真实原生命令
+  传输与版本边界合同。旧入口已在 Windows 11 复现；ef78a1f 的完整 Windows 原生及录屏 QA
+  门禁 23 passed / 0 failed / 1 skipped（Linux smoke），前端 1291 项通过。文档后继 b2fd247
+  同 SHA 三项原生与四项录屏原型 CI 全部通过。
+  Windows 浏览器渲染补测未产生截图，不计为通过；39 项桌面验收尚未完成。
+  NSIS 安装落盘已核对，MSI、升级与卸载尚未验收。
+  用户要求本阶段只测试 Windows，Linux/WSL 门禁未启动；后继文档提交不冒称已验证 SHA。
+  （需求：`WIN-PS-GATE-01`）
+
+### 2026-10-01 Windows WebM 构建修复
+
+- 修复 vendored WebM 构建脚本向 MSVC/clang-cl 传入三个被忽略的 GCC 参数产生的告警；
+  按实际编译器族保留有效模式，GNU/Clang 参数、libwebm 源码、Opus FFI 和许可证保持既有内容。
+  增加来源与原始构建脚本哈希校验。本机 MSVC/clang-cl 六个 C++ 文件重新编译通过；
+  Windows 完整录屏 QA 门禁 23 passed、0 failed、1 skipped（Linux smoke）。
+  437949b 四项 codec 与 Ubuntu/Windows 原生 CI 通过，macOS 原生的既有 OCR 进程合同失败；
+  经用户授权改以独立 OCR 合同修复分支为基线，45769c9 的三项原生与四项录屏原型全部通过，
+  相对新基线仍仅六个 WebM 文件；新 SHA 完整 QA workflow 成功，Windows 包来源、哈希与签名
+  身份已核对，真实桌面与安装验收仍待执行。
+  （需求：`WIN-WEBM-MSVC-01`）
+
+### 2026-10-01 OCR 原生进程合同同步
+
+- 修复取消/回收测试的启动预算竞态：先确认子进程就绪与消费者取消，再由夹具触发输出上限，
+  核对 kill/wait 完成后才复用许可。覆盖无延迟与 750 ms 慢启动，并在 macOS 实际查询子进程
+  是否已回收；原有 250 ms 超时合同和 OCR 生产预算不变。7982866 的 Ubuntu/macOS 实际合同
+  与同 SHA 三平台/四原型完整七项 CI 均通过；Windows 编译图不包含该测试，
+  桌面与安装验收仍未执行。（需求：`OCR-PROC-CANCEL-01`）
+
+### 2026-10-01 Windows 原生验证修复
+
+- 修复 Windows 合同测试的文件 URL 路径转换与 CRLF 负例夹具，保留 LF/CRLF 两种格式的
+  命令注册与窗口权限校验；补充 PowerShell 原生门禁及 Windows CI 前端与
+  Windows/Ubuntu OCR 质量检查。默认和录屏 QA 本机门禁已通过；42e52c0 的三项原生与四项录屏
+  原型 CI 均通过，官方 Windows QA 包来源与哈希已核对。Linux 本地完整门禁、Windows 10/11
+  桌面、安装升级与更新验收仍未完成；自签名 QA 包不等于发行信任。（需求：`WIN-NATIVE-01`）
+- Windows 原生进程与 locale 合同测试使用与实际操作相符的有界超时；保留子进程硬超时及全部
+  输出/失败断言。Node 24.21.0 + CRLF 检出的全前端门禁与 42e52c0 Windows CI 通过。
+  （需求：`WIN-NATIVE-01`）
+- OCR 质量工具的 Windows 诊断目录改为创建时应用当前用户私有 DACL，权限核对失败立即停止；
+  已有目录不覆盖。按实际 DACL 的保护位和二进制 ACE 核对权限，兼容 Windows 的等价 SDDL 表示，
+  严格拒绝 NULL/缺失 DACL 与额外或不同权限。本机质量合同 33 项通过，42e52c0 Windows DACL
+  与 Ubuntu POSIX 权限 CI 回归通过；原生桌面权限验收仍未执行。
+  （需求：`WIN-NATIVE-01`）
+- 修复 Windows 默认 CRLF 检出导致的 xcap 供应链校验失败：vendor 文本和 Cargo 锁文件固定 LF，
+  原始 SHA-256 校验保持不变，并加入 Windows CI。独立 CRLF checkout 的完整前端范围通过，
+  字节篡改仍被拒绝，42e52c0 同 SHA CI 通过；原生桌面和安装验收仍未执行。（需求：`WIN-NATIVE-01`）
+
+- 固定浏览器 OCR 语料的 `source.html` 与 `capture.py` 为 LF 检出，避免 Windows 改写
+  捕获来源的原始 SHA-256；不重写来源哈希、PNG、字体或捕获记录。质量校验本机通过，
+  全新 CRLF clone 的来源哈希通过，追加 LF 仍被拒绝，42e52c0 同 SHA CI 通过。（需求：`WIN-NATIVE-01`）
+
 ### 2026-09-12 全应用审查修复
 
 - 追加复审修复数字直选隐藏失败提示、陈旧 tmux 指纹抑制和重复快捷键保存；更新安装改由进程共享，迟到的查询失败不会覆盖完成状态。
+- 新增键盘优先的动作启动器，可从托盘或主窗口 `Ctrl/Cmd+K` 打开并搜索截图、复制、翻译、OCR、
+  扫码、保存和 Pin。主窗口选中图片或托盘最新图片由后端冻结为窗口独占快照，前端只得到不透明
+  引用；OCR 结果可继续翻译或复制，译文可继续复制，后续动作只提交上游句柄而不回传正文。敏感
+  图片仅允许本地分析与复制，联网前还会按内容哈希复核当前标记。窗口关闭、跨窗口引用、迟到结果
+  和伪造组合都会被拒绝；运行中、取消、空结果和稳定错误均有明确状态。
+  （需求：`PX-ACT-01`）
+- 录屏增加受门控的可信产品入口：显式启用 VP9 原型且运行于原生 X11 时，托盘可打开独立区域
+  录屏选区。录屏覆盖层与普通截图使用不同会话意图、窗口标签和 IPC 权限，只能读取冻结帧、取消
+  或按后端固定的 30 fps、光标和 VP9 策略开始；普通截图不能在前端升级为录屏。默认构建及
+  Windows、macOS、Wayland 继续隐藏入口，X11 真机画质、性能、控制窗排除和恢复验收仍未完成。
+  （需求：`PX-REC-01`）
+- 新增录屏结果与恢复库：正常停止后自动打开结果页，完整录屏可导出或在文件管理器中定位；异常
+  中断时列出清单已经提交的可恢复分段，可逐段导出、定位或删除。结果页只持有不透明身份，真实
+  路径、SHA-256 校验、原子导出和受限删除都留在后端；录屏仍不会自动进入剪贴板历史。独立 WebM
+  恢复合并和持久缩略图由后续独立切片补齐。（需求：`PX-REC-01`）
+- 录屏结果库增加按需 WebM 预览：完整录屏和异常恢复分段在播放前重新校验清单、长度与 SHA-256，
+  然后通过结果窗专属的不透明租约和 2 MiB Range 协议交给内嵌播放器，首个解码帧同时用于按需预览。
+  真实路径不会进入 WebView，切换、关闭、删除或窗口销毁会撤销租约；AVI 诊断产物仍只允许导出。
+  持久缩略图由后续独立切片补齐，音频仍待后续实现。（需求：`PX-REC-PLAYBACK-01`）
+- 异常中断的 VP9/WebM 录屏现在可在结果库恢复为一个完整录屏。后端逐段复核普通文件、长度、
+  SHA-256、轨道、尺寸、关键帧、帧数和时间线，再复用原编码 packet 重建 WebM；不拼接容器字节，
+  也不重新编码画面。输出沿用清单提交点与原子提升协议，失败或进程中断保留全部已提交分段并可
+  重试；AVI 诊断分段不显示恢复入口。该能力仍只随显式 VP9 原型构建提供，其他平台产品入口、
+  音频仍未完成。（需求：`PX-REC-MERGE-01`）
+- 异常中断的 VP9 + Opus 双轨录屏现在也可从结果库恢复。后端严格校验 schema v2、轨道、时间基、
+  packet 顺序、OpusHead、分段统计和尾部裁切；VP9 packet 原样复用，每段 Opus 用独立 decoder
+  去除 pre-skip 与尾 padding，再通过一个连续 encoder 重建音轨。失败会保留原 interrupted 清单与
+  全部分段供重试；该能力仍只存在于显式录屏音频 QA 构建，默认发布未启用，四平台强杀恢复和长时
+  A/V 漂移仍待真机验证。（需求：`PX-REC-AV-MERGE-01`）
+- 录屏结果库增加持久首帧缩略图：完整 VP9/WebM 使用最终结果，中断会话使用首个已提交分段；
+  卡片只在接近视口时请求，失败保持占位且不影响播放、导出或恢复。后端完整校验清单长度与
+  SHA-256，再用受限 WebM 读取器取首关键帧、libvpx 只解一帧，并按录制端相同的 BT.709 limited
+  合同生成最长边 320 px PNG。私有缓存以源哈希隔离在录屏目录之外，命中仍校验 PNG，恢复合并
+  或删除会话会清理；AVI 与默认构建不生成。（需求：`PX-REC-THUMBNAIL-01`）
+- Windows 录屏链增加非默认真机 QA 入口：显式 VP9 源构建可把现有 WGC 帧源、控制窗原生排除、
+  暂停/继续/停止和结果/恢复库连成可安装原型；Linux Native QA 包同步启用现有 X11 原型。结构化
+  合同覆盖区域录制、控制窗排除、播放/缩略图/导出和强杀恢复，安装包元数据记录实际 feature。
+  默认构建、正式 release、Wayland 与 macOS 入口保持关闭，Windows/X11 真机验收仍待执行。
+  （需求：`PX-REC-WINDOWS-QA-01`）
+- macOS 录屏链增加独立的 12.3+ ScreenCaptureKit QA 构建：控制窗先由 Rust 隐藏创建，再把可信
+  `NSWindow.windowNumber` 一次性交给采集 worker；帧源用显示器过滤器只排除该窗口，直接按冻结
+  选区输出 BGRA，并以有界回调队列完成暂停、继续和停止。默认 macOS 11 与正式 release 不启用该
+  feature；Intel/Apple Silicon 安装包与首次授权、Retina 区域、控制窗排除和资源回收仍需同一 SHA
+  的原生 CI 与真机证据。（需求：`PX-REC-MACOS-SCK-01`）
+- Wayland 录屏链增加独立 QA 入口：Rust 从本次授权窗导出 xdg-foreign parent 交给 ScreenCast
+  Portal，等待期间可取消；系统返回的显示器流复核通过后先隐藏授权窗，再启动 PipeWire 采集。
+  录制阶段不显示可能进入画面的浮动控制窗，改由原生托盘暂停、继续和停止。默认/release 构建仍
+  关闭录屏，GNOME、KDE 与 wlroots 的授权、混合缩放、光标、性能和回收仍待同一 SHA 真机记录。
+  （需求：`PX-REC-WAYLAND-QA-01`）
+- 录屏音频第二阶段先建立内部单音轨合同：平台输入必须归一化为 48 kHz mono/stereo PCM，并把
+  WASAPI、ScreenCaptureKit 或 PipeWire 原生时间戳映射到显式会话起点；暂停区间会从呈现时间扣除，
+  真实空洞保留，重叠和倒退被拒绝。一秒有界队列满时明确失败且不推进时间线，避免静默丢音造成
+  A/V 漂移。平台采集、Opus、WebM 音轨和 UI 尚未接入，当前录屏入口仍只录视频。
+  （需求：`PX-REC-AUDIO-01`）
+- 录屏会话现在只创建一个单调时钟，并把它显式交给 X11、Wayland/PipeWire、Windows WGC、
+  macOS AVFoundation 与 ScreenCaptureKit 视频源；暂停、继续、停止和未来音频 PTS 映射由同一
+  时间域驱动。首帧等待仍单独计时，现有视频首帧归零和 VP9 文件时间轴不变；双轨 mux epoch、
+  平台音频与真机 A/V 漂移验证继续留在后续切片。（需求：`PX-REC-CLOCK-01`）
+- 录屏音频增加线程内采集 worker：平台对象由音频线程创建和销毁，可直接使用 session 共享时钟；
+  暂停期间停止取块，显式停止才正常封尾，初始化、平台控制、取块、背压和 Drop 异常会中止
+  pipeline 并保留已入队 PCM 前缀。默认、VP9 与 Wayland QA 编译图已有自动化保护；后续 Windows
+  和 macOS QA 接线见下文，PipeWire 音源仍未接入默认产品。
+  （需求：`PX-REC-AUDIO-WORKER-01`）
+- Windows 录屏音频增加独立 WASAPI QA source：可选择默认扬声器 loopback 或默认麦克风，并由
+  Windows Audio Engine 统一为 48 kHz stereo float；事件驱动 packet 的 QPC 时间戳映射到视频
+  共用会话时钟，静音、20 ms 拆块、暂停重置、恢复丢弃旧缓存和停止下界都有明确合同。该 source
+  只进入显式 `recording-windows-audio` feature，尚未接录屏 UI、Opus 或 WebM；Windows 真机的
+  系统声、麦克风、设备拔出和长时 A/V 漂移仍待 QA。（需求：`PX-REC-WINDOWS-AUDIO-01`）
+- 录屏双轨增加共同起点合同：现有视频仍以首个有效帧归零，更早结束的 PCM 被丢弃，跨越首帧的
+  PCM 按 48 kHz sample 边界向上裁切，后续音频只做固定平移。视频和音频使用同一暂停边界时会
+  保持相同 presentation 坐标；结束报告保留两轨实际时长、领先轨道和偏差，容器时长取较长轨道，
+  不静默截断或掩盖漂移。Opus、WebM 双轨、session 接线和真机 A/V QA 仍待后续实现。
+  （需求：`PX-REC-AV-EPOCH-01`）
+- 录屏音频增加非默认 Opus/WebM 双轨原型：48 kHz mono/stereo PCM 以固定 20 ms 帧编码，
+  `OpusHead` 的 pre-skip 直接取自 libopus lookahead；WebM 写入 `CodecDelay`、80 ms
+  `SeekPreRoll` 和尾块 `DiscardPadding`，避免截断真实尾音或把补零计入时长。双轨 mux 拒绝跨轨
+  时间倒退，四平台原型 CI 会编译并运行真实编码、解码和容器结构合同。平台音源、录屏 session、
+  manifest 和 UI 尚未接入，当前产品入口仍只录视频。（需求：`PX-REC-OPUS-WEBM-01`）
+- 录屏恢复清单增加严格的双轨 schema v2：只有明确配置 VP9 + Opus 的 journal 才会记录 48 kHz
+  音轨、pre-skip、codec delay、seek pre-roll，以及每个分段和最终输出的 Opus packet/真实 PCM
+  frame 统计；
+  旧纯视频 schema v1 保持可读且不会被静默改写。启动恢复仍按长度和 SHA-256 保留连续有效前缀，
+  结果库显示已验证的音轨摘要；该阶段会隔离尚不支持双轨的单轨合并和首帧解析入口。该协议现已
+  由后续双轨 session 原型实际写入，首帧缩略图支持见 `PX-REC-AV-THUMBNAIL-01`。
+  （需求：`PX-REC-AV-MANIFEST-01`）
+- 录屏双轨原型增加完整的可恢复 session：视频与音频 source 共用单调时钟，经容量为一的桥接队列
+  交给唯一编码 owner；首视频帧以前的 PCM 会按 sample 裁切，真实空洞补静音，VP9/Opus packet
+  通过有界水位重排后同时写入最终 WebM 与周期恢复分段。每段拥有独立 Opus encoder、本地零点和
+  边界关键帧；正常停止核对两轨报告后才提交 complete，暂停回滚、启动失败、任一轨异常和 owner
+  丢弃都会同步回收线程并留下 interrupted。该交付时仍只在非默认 feature 下供内部原型验证；后续
+  Windows 与 macOS QA 接线见下文，Linux 音频 source 仍未接入。（需求：`PX-REC-AV-SESSION-01`）
+- Windows 录屏 QA 包现在把 WGC、WASAPI 与可恢复 VP9 + Opus session 接入同一录屏生命周期。
+  选区工具条只显示后端声明的无音频、系统声和麦克风模式，默认保持无音频；有声模式共用会话时钟、
+  暂停/继续/停止和 generation token。控制窗会探测 worker 提前退出，任一轨失败时同步中止、关闭
+  控制窗、释放 Recording gate 并在结果库保留已提交恢复前缀。新的组合 feature
+  `recording-windows-av-qa` 仍不进入默认构建或正式 release；双轨异常合并、设备选择、混音、真机
+  设备拔出和 30 分钟漂移仍待后续验收。（需求：`PX-REC-WINDOWS-AV-QA-01`）
+- macOS 13+ 录屏 QA 包现在可选择 ScreenCaptureKit 系统声，并与选区视频共用现有双轨生命周期、
+  Opus/WebM、schema v2 和结果库。原生回调严格核验 48 kHz Float32 PCM，支持 interleaved 与
+  non-interleaved 缓冲、mono 上混、100 ms 拆块和原生 PTS 映射；有界队列满或时间线异常会中止
+  两轨，避免静默丢音。新的 `recording-macos-av-qa` 仍不进入默认/release 构建；麦克风、混音、
+  12.3–12.x 仍只开放无音频；真机权限与 30 分钟漂移仍待验收。（需求：`PX-REC-MACOS-AUDIO-01`）
+- macOS 15+ 录屏 QA 包现在可选择 ScreenCaptureKit 系统默认麦克风；后端按系统版本声明能力，
+  使用独立 microphone 输出，并在 QA app 中提供麦克风用途说明。麦克风仍复用共享 PTS、48 kHz
+  stereo PCM、VP9 + Opus 双轨、暂停/恢复和异常恢复链；非 48 kHz 或异常设备格式会明确中止，
+  不按错误速率写入。macOS 13–14 保持只有系统声，12.3–12.x 保持无音频，默认/release 不变；
+  权限、外接设备和长时漂移仍待真机验收。（需求：`PX-REC-MACOS-MIC-01`）
+- macOS 15+ 麦克风 QA 链现在支持 44.1/48/88.2/96 kHz 等 8–192 kHz 整数原生采样率：48 kHz
+  保持 sample 直通，其它采样率在采集 worker 中用固定 Rubato sinc 转成 48 kHz stereo。回调只写
+  有界原生 PCM 队列；连续 packet 共用滤波状态，PTS 空洞显式切段，正常 Stop 提交精确尾帧，暂停
+  和失败则丢弃旧滤波状态。Rubato 版本、checksum 与双许可证资源均由供应链门禁固定。默认/release
+  仍不启用录屏，macOS Intel/Apple Silicon 真机采样率与长时漂移仍待验收。
+  （需求：`PX-REC-MACOS-RESAMPLE-01`）
+- Linux X11 与 Wayland 录屏 QA 包现在可通过 PipeWire 选择默认系统声或默认麦克风，并接入现有
+  共享时钟、VP9 + Opus 双轨、暂停/继续、schema v2、异常恢复和结果库。原生 source 只接受
+  48 kHz stereo F32LE FL/FR，以 `SPA_META_Header` PTS 映射时间线；gap 转为等长静音，packet 拆成
+  20 ms 块，格式、时间戳、缓冲区或有界队列异常会中止两轨。新的 `recording-linux-av-qa` 只进入
+  Ubuntu 原型 CI 与 Native QA 包，默认/release 仍保持无音频；GNOME、KDE、wlroots 的设备消失、
+  强杀恢复和 30 分钟漂移仍待同一 SHA 真机验收。（需求：`PX-REC-LINUX-AUDIO-01`）
+- Windows、Linux 与 macOS 15+ 录屏 QA 包新增“系统声音 + 麦克风”模式：两个现有 source 在同一
+  音频 worker 和共享时钟内按 48 kHz sample grid 对齐，以 100 ms 水位吸收 packet 抖动，并按
+  每路固定 −6 dB 混为现有单条 stereo Opus 音轨。暂停会丢弃两路未提交样本；正常停止会混入
+  两路有限尾块，平台包装层也会继续上交重采样尾帧。默认/release、schema v2 与单音源行为不变，
+  三平台权限、设备消失、听感及 30 分钟漂移仍待同一 SHA 真机验收。（需求：`PX-REC-AUDIO-MIX-01`）
+- 录屏音频 QA 包现在可在开始前选择非默认设备：Windows 枚举活动输出与输入 endpoint，Linux
+  枚举 PipeWire sink/source，macOS 15+ 枚举麦克风；macOS 系统声继续遵循系统默认。原生设备
+  身份只保留在 caller 绑定、一次消费且全局有界的 Rust 目录中，WebView 只取得短期不透明 token。
+  显式设备会固定进本次 source plan，开始前消失时明确失败而不回退；目录枚举失败仍可选择跟随
+  系统默认。默认/release 仍不启用录屏，三平台非默认设备、同名设备、拔出与长时漂移待真机验收。
+  （需求：`PX-REC-AUDIO-DEVICE-01`）
+- 录屏结果库现在支持 VP9 + Opus 双轨首帧缩略图：完整会话读取最终 WebM，中断会话读取首个已
+  提交分段；后端先核对 schema v2、轨道编号、OpusHead、48 kHz 声道、CodecDelay 与 SeekPreRoll，
+  再只解码首个 VP9 关键帧，不解码音频或遍历完整文件。单轨行为、私有 PNG 缓存和前端懒加载保持
+  不变，双轨异常合并入口仍关闭。（需求：`PX-REC-AV-THUMBNAIL-01`）
 - 截图尺寸提示和工具栏保留前端事件边界，Pin 与长截图控制窗保留拖动权限。撤回导致 GTK 线程崩溃的原生防拖动改动，恢复原截图逐屏全屏定位和双屏建窗流程。
 - Pin 保存确认隔离背景键盘与焦点，窄窗采用纵向动作，短窗正文和错误可滚动；取消和保存重试保留标注。
 - 图片侧栏精简为缩略图与 OCR，翻译在 OCR 内切换，移除重复翻译卡和侧栏扫码。点击图片打开独立普通查看器；底部 Pin 式工具栏集中缩放、绘制、OCR、扫码、取色和输出。翻译仍处理识别文字，暂不替换原图排版。
 - 新增显式配置的本地增强 OCR：PP-OCRv6 检测 → EdgeGNN 段落 → 原图裁切 → 识别 → CTC。结构化结果记录引擎、段落和置信度，增强配置绕过旧文字缓存；不可用时明确显示 Tesseract 回退。模型不随应用打包，配置步骤见 `src-tauri/ocr-sidecar/README.md`。
+- 设置页现在可以选择并保存增强 OCR manifest，并用实际识别前的同一套校验显示当前引擎、管线/模型身份、缺失资产与 Tesseract 回退；坏模型、错误 SHA 或缺失运行时不会被误报为已安装。
+- 增强 OCR 增加可选英语空白档：`setup_models.py --english-spacing` 使用固定官方
+  en_PP-OCRv5 mobile rec 逐框复识别。只有英语结果保持全部非空白 Unicode 码点且增加空白时才采用，
+  中日混排、货币、编号或符号发生变化时保留 PP-OCRv6 原文；该档位会增加延迟，不默认启用。
+  （需求：`PX-OCR-QUALITY-01`）
+- 增强 OCR 增加可选文字行方向档：`setup_models.py --line-orientation` 使用固定官方
+  PP-LCNet 逐框判断 0°/180°；高窄框先按几何旋成横行，因此同一链覆盖 90°/270°截图。低置信
+  结果不翻转，原检测框保持不变；4 张固定四向语料的原始 CER 从 43.75% 降至 0%。
+  （需求：`PX-OCR-ORIENTATION-01`）
+- OCR 质量基线增加 Firefox 实际栅格化的暗色 UI、代码/斜体、混合语言票据表格与长图，并在采集
+  和评测前核对 PNG 路径、普通文件、chunk/CRC、尺寸与 SHA。增强链对规则三列以上表格改为行优先
+  复制，票据样本阅读顺序倒置由 36/120 降为 0；普通双栏仍按列阅读。模型权重不随语料入库，暗色
+  空白、代码空白和 Linux 峰值内存回退保留在分层报告中。（需求：`PX-OCR-REAL-UI-01`）
+- 独立公式识别增加 Firefox MathML 固定语料、PP-FormulaNet-S/plus-S 真推理、LaTeX token/可解析率
+  报告和 PP-DocLayout-S 自动路由探针。两种公式模型当前都存在 1/6 不可解析输出，权重约
+  232–257 MB、Linux 峰值约 0.9 GiB；自动路由在当前 crop 正样本召回为 0。因此本轮明确保持
+  no-go，普通 OCR 继续声明不支持结构化公式，不增加默认或隐藏入口。（需求：`PX-OCR-FORMULA-01`）
 - 查看器按不可变图片快照隔离操作，原历史删除不影响已打开图片；绘制沿用现有画布文档，复制、保存和 Pin 使用后端原图合成。原生关闭与输出协调，Pin 创建结果不确定时禁止重复创建。
 - 查看器改为无限平移画布，适应窗口可找回图片；移除重复系统标题栏，自绘顶栏提供拖动、最小化、全屏切换和关闭。最小化后再次点击同一图片恢复原窗口及编辑内容。
+- 截图选区工具条增加本地 QR Code / Code 39 快捷识别：直接扫描当前会话的原始冻结选区，
+  可显示和复制多码结果，不写入历史、不自动打开内容；移动选区会丢弃晚到结果。
+  （需求：`PX-CAPTURE-TOOLS-01`）
+- 本地扫码增加 Code 128 与 EAN-13，用于物流/资产标签和商品码；QR 与 Code 39 另补小码、低对比、
+  旋转、多码、反色、真实坐标还原、坏图和超限场景合同。格式仍使用显式白名单，未验证的 rxing
+  格式不会自动暴露。（需求：`PX-CODE-01`）
+- 手动长截图支持向上、向下、向左和向右扩展；回到已覆盖区域不会裁掉或覆盖已提交像素，
+  控制窗可显式撤销最后一次提交并预览二维画布。选区边界由目标显示器全屏透明 guide 持续标记，
+  原生输入透传允许直接滚动底层窗口；每次重捕获前 guide 与控制窗一起隐藏，终止时成组销毁，
+  避免边框进入拼接帧或留下孤立窗口。四平台原生透传与混合 DPI 验收仍待完成。
+  （需求：`PX-LS-2D-01`）
+- 长截图控制窗在 X11、Windows 与已获辅助功能权限的 macOS 上提供可停止的上下左右自动滚动。
+  每一步锁定滚动点下的原生窗口与进程、检测用户移动并复用现有重叠质量门；Windows 将混合 DPI
+  屏幕的逻辑选区恢复为物理虚拟桌面坐标并在注入前检查 UIPI，macOS 权限缺失时显示准确说明且
+  不提供可执行按钮。到底、动态内容、目标变化或输入失败时
+  暂停，已拼画布仍可手动处理和输出；用户接管鼠标后不会被恢复逻辑强行拉回。
+  （需求：`PX-LS-AUTO-01`、`PX-LS-NATIVE-AUTO-01`）
+- 原生 Wayland 长截图在 RemoteDesktop 与 ScreenCast Portal 都可用时提供一次性授权入口。授权只
+  请求单显示器与指针，严格核对冻结显示器几何；每一步输入前用最近一次会话裁剪帧复核视觉身份，
+  再把后端冻结的选区中心和固定步数发送给 Portal。拒绝、选错显示器、目标变化、取消或窗口销毁
+  都会关闭本次 session 并保留旧画布；授权先绑定当前 exact handle，迟到结果不会复活已取消或销毁
+  的旧代次，XWayland 不参与输入。GNOME、KDE 与 wlroots 真机矩阵仍待执行。
+  （需求：`PX-LS-WAYLAND-AUTO-01`）
+- 标注模糊、马赛克和放大镜采样改用预乘 alpha，透明 PNG 边缘不再混入不可见 RGB 形成暗边
+  或彩边；对象移动与选中框计入真实笔宽、箭头、测量装饰和 CJK 文字范围，贴边移动不会裁掉
+  可见内容。13 种像素工具已在真实 Canvas 覆盖普通、边界及 1×/2× DPR；权威 Rust 组合金图
+  超差时会输出 expected、actual、diff 三张审阅图，三轮保存/重开回归同时约束根图、源坐标
+  文档和最终 RGBA，防止重复编辑积累缩放、压缩或重采样误差。
+  （需求：`PX-ANNOTATION-QUALITY-01`）
+- 可编辑图片改为本机内部无损修订链：根图只在 `image_assets` 保存一次，各版本记录累计操作文档
+  与扁平结果哈希；复制和落盘 PNG 只含当前渲染像素。同一像素重新进入历史或拖回应用时恢复
+  对应版本，查看器与 Pin 始终从根图重放操作，不从上次输出二次采样。历史清理和应用重启不再
+  破坏仍被修订引用的根图；旧 iTXt v2/v3 工程继续兼容导入并在保存时迁移。
+  （需求：`PX-IMAGE-REVISION-01`）
+- Pin 增加用户主动保存的本机工作区：临时贴图保持一次性，书签保存后才会跨重启恢复。工作区记录
+  内容修订、位置、缩放、透明度、锁定、置顶、分组和显示器身份；拔掉原显示器或改变 DPI 时会映射
+  到当前屏幕并保持窗口可见。图片继续引用唯一根图与累计操作，关闭前保存会更新内部修订，不重复
+  编码上一版扁平图；书签和右键入口可直接管理分组，支持创建、重命名、删除、归组和移出工作区，
+  窄 Pin 窗口中面板会自适应并滚动。
+  （需求：`PX-PIN-01`）
+- 托盘新增独立“贴图工作区”浏览器，不改主窗口的“收藏 / 全部”页签。它以轻量摘要和惰性缩略图
+  浏览已保存贴图，支持按分组筛选、重新显示、聚焦、归组和内联确认移除；已经打开的条目不会重复
+  建窗，移除后保留为临时 Pin。图片只在接近视口时由后端从根图和累计操作重新渲染，缩略图限制为
+  两路并发和 64 条有限缓存；WebView 不接触根图、修订文档、窗口标签或存储路径。
+  （需求：`PX-PIN-HISTORY-01`）
+- 设置页增加 `.clippy.zip` 本地批量交换，可选择完整历史与 Pin 工作区、仅收藏或仅工作区；敏感历史
+  默认排除，必须显式勾选。归档保存当前扁平内容以及需要继续编辑时的根图/累计操作，普通 PNG 和
+  系统剪贴板仍只暴露当前渲染像素。导入会在写数据库前校验路径、文件数和大小、SHA-256、PNG、
+  renderer v2 重放结果及所有关系，再用单个事务合并重复历史、复用同名分组并追加工作区；失败不
+  留下半导入数据，新增工作区会在当前显示器上立即恢复。（需求：`PX-IO-01`）
 
 - 历史容量 `0` 正确表示不限；新增、去重置顶、收藏、搜索和容量清理共用持久使用顺序。
   超过 32,766 条的批量清理分块执行并保持事务原子性，恢复有限容量不会持续失败。
@@ -38,6 +1057,21 @@
 
 ### 🐛 修复
 
+- Linux AppImage 不再让 Ubuntu 22 的 GLib/GIO 扫描 Ubuntu 26 宿主的 dconf/GVFS 模块；封装时
+  在 GTK hook 首次调用桌面工具前把 GIO 模块目录隔离到 AppDir，同时保留随包分发的 GTK/WebKit
+  与 GLib/GIO。Ubuntu 26 原生 Wayland 启动不再出现缺失符号，双屏协议连接与混合缩放保持正常。
+  （需求：`PX-REC-WAYLAND-QA-01`）
+
+- Windows 的 VP9 录屏原型不再把含 MinGW/pthread 符号的上游预编译库交给 MSVC 链接器；原生 CI
+  改从固定 SHA-256 的 libvpx 1.16.0 源码生成 v143 工程并用 MSBuild 构建，关闭不兼容符号重写的
+  LTCG、保留 `MaxSpeed` 优化并安装公开头文件；GNU 预编译包只允许 GNU 目标使用。
+  （需求：`PX-REC-01`）
+- 增强 OCR 对同一表格行内存在轻微纵坐标抖动的多个文字框，改为在半个中位行高内先按横坐标排序；
+  金额、编号和单元格文字不再因 1–2px 的检测偏差交换顺序。新增 row/cell 双层质量合同，分别验证
+  检测粒度、原始 reading order 和几何可恢复性。（需求：`PX-OCR-TABLE-01`）
+- 增强 OCR 在 EdgeGNN 把普通相邻行拆成多个 singleton 时，会按同栏、正常行距和近似字号保守合并
+  视觉段落，避免复制结果在每一行之间插入多余空白行；大段距、标题和跨栏边界保持分开。
+  （需求：`PX-OCR-QUALITY-01`）
 - 恢复剪贴板主窗口的轻量设计，移除手动“打开图片”按钮及全局 `Ctrl/Cmd+O` 拦截；图片仍由
   系统剪贴板监听自动进入历史。图片预览与 OCR 结果改由同一个外层区域连续滚动，长 OCR 不再
   被限制在 200px 的嵌套滚动框中。
@@ -63,14 +1097,19 @@
 - 图片历史的原图读取、base64 编码与 128 px 缩略图解码/缩放改到 blocking pool；冷缓存同时
   出现多张截图时不再占满 Tauri async worker，并以两路并发限制全尺寸解码的 CPU/RSS 峰值，
   缓存命中路径保持直接返回。
-- 打开可编辑 PNG 后，Pin 运行时只保留唯一一份原图字节和不含 base64 的轻量工程元数据；
-  每张工程不再常驻约为原图 PNG 1.33 倍的重复字符串，再次保存仍临时重建完整自包含 iTXt。
+- 打开可编辑版本后，Pin 运行时只保留唯一一份根图字节和不含 base64 的轻量工程元数据；
+  默认保存不再重建自包含 iTXt，也不会让每个版本重复携带原图。
 - Tesseract 可执行路径探测在进程内缓存，安装或路径失效时主动刷新；同一图片的预览/翻译 OCR
   合并为一个在途任务，所有 OCR 消费者全局单并发，避免快速切图时重复启动重型子进程。
 
 ### 🔧 验证
 
-- 新增运行时工程无损物化测试；原图哈希、合成预览、二次编辑、扁平导出与 iTXt 往返保持不变。
+- 智能擦除建立文字、规则网格、自然纹理、强边缘和大图五类固定语料，对 OpenCV Telea、
+  Navier–Stokes 与 Apache-2.0 量化 LaMa 做匿名质量和 CPU/RSS 基准。LaMa 虽在 4/5 样本排名
+  第一，但强边缘存在不可接受色晕，且当前 CPU 延迟、内存和研究运行栈超过交付门槛，因此未增加
+  产品入口或模型依赖；证据由纯标准库 verifier 锁定。（需求：`PX-SMART-01`）
+- 新增图片修订迁移、去重、精确回链、历史清理、数据库重开、根图重放和事务回滚测试；旧 iTXt
+  导入合同继续由兼容测试覆盖。
 - 新增预览异步切换、工程 PNG 拖放、OCR single-flight/全局并发和 4K/8K 图片预算回归测试。
 - 当前 HEAD 的 Windows、macOS、Ubuntu 22.04 原生 CI 全部通过；GNOME Wayland 连续五次有效
   Pin 关闭后，service cgroup PSS 在首次建立 WebKit/图像分配高水位后稳定，没有随关闭次数线性增长。

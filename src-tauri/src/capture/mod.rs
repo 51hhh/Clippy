@@ -10,7 +10,7 @@ mod manager;
 /// 普通截图与长截图生命周期共享的唯一模式 gate。
 mod mode_gate;
 mod output;
-mod overlay_windows;
+pub(crate) mod overlay_windows;
 use output::{CaptureOutputError, OutputFailure};
 #[cfg(target_os = "linux")]
 mod shell_extension;
@@ -25,6 +25,9 @@ pub(crate) use frame_protocol::handle as frame_protocol;
 /// AppState 通过此边界持有唯一长截图桌面生命周期；业务方法继续限制在 capture 域内。
 pub(crate) use longshot::{LongshotControllerRegistry, LongshotLifecycle};
 pub use manager::CaptureManager;
+pub(crate) use manager::{
+    CaptureRecordingCandidate, CaptureRecordingHandoff, RecordingCaptureSpec,
+};
 /// AppState 与截图入口共用的模式互斥原语；lease 的字段始终只在模块内可见。
 pub(crate) use mode_gate::{CaptureMode, CaptureModeGate, CaptureModeOwnership};
 /// 贴图窗口的摆放与置顶也只有这个扩展做得到（Wayland 不许客户端自己来），
@@ -32,6 +35,7 @@ pub(crate) use mode_gate::{CaptureMode, CaptureModeGate, CaptureModeOwnership};
 pub(crate) use shell_extension::place_window as shell_extension_place_window;
 /// 窗口几何查询。`pin/` 借它问"我这个贴图窗口现在在屏幕的哪儿"——Wayland 下
 /// `outer_position()` 是假的（见 `pin::window::known_pin_position`），只有扩展知道真值。
+#[cfg(not(target_os = "windows"))]
 pub(crate) use shell_extension::probe as shell_extension_windows;
 /// 截图后端要用扩展这条路取冻结帧。扩展的全部 IPC 都留在 `shell_extension` 里，
 /// 这里只把入口露出去，免得契约散成两份。
@@ -45,7 +49,7 @@ pub(crate) use shell_extension::{
 };
 pub use shell_extension::{InstallOutcome, ShellExtensionStatus};
 pub use types::{
-    CaptureAction, CaptureActionResult, CaptureOverlayPayload, CaptureSelection,
+    CaptureAction, CaptureActionResult, CaptureIntent, CaptureOverlayPayload, CaptureSelection,
     CaptureTranslationResult,
 };
 
@@ -116,6 +120,26 @@ pub async fn mark_longshot_controller_ready(
 }
 
 #[tauri::command]
+pub async fn auto_append_longshot_controller(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    handle: longshot::LongshotControllerHandle,
+    direction: longshot::LongshotAutoDirection,
+) -> Result<longshot::LongshotSnapshotDto, longshot::LongshotIpcError> {
+    longshot::window_host::auto_append(app, &state, window.label(), handle, direction).await
+}
+
+#[tauri::command]
+pub async fn authorize_longshot_auto_scroll_controller(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+    handle: longshot::LongshotControllerHandle,
+) -> Result<longshot::LongshotAutoCapability, longshot::LongshotIpcError> {
+    longshot::window_host::authorize_auto(&state, &window, handle).await
+}
+
+#[tauri::command]
 pub async fn cancel_longshot_controller(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
@@ -134,6 +158,16 @@ pub async fn append_longshot_controller(
     handle: longshot::LongshotControllerHandle,
 ) -> Result<longshot::LongshotSnapshotDto, longshot::LongshotIpcError> {
     longshot::window_host::append(app, &state, window.label(), handle).await
+}
+
+/// 撤销当前二维画布的最近一次提交；不隐藏控制窗，也不重新捕获屏幕。
+#[tauri::command]
+pub async fn undo_longshot_controller(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+    handle: longshot::LongshotControllerHandle,
+) -> Result<longshot::LongshotSnapshotDto, longshot::LongshotIpcError> {
+    longshot::window_host::undo(&state, window.label(), handle).await
 }
 
 /// 返回 exact 活跃会话的固定上限尾部 PNG，像素不经过 JSON。
@@ -239,6 +273,38 @@ pub(crate) async fn show_capture_overlay_for_app(
     app_handle: tauri::AppHandle,
     state: &AppState,
 ) -> Result<(), String> {
+    start_capture_overlay_for_app(app_handle, state)
+        .await
+        .map(|_| ())
+        .map_err(capture_failure)
+}
+
+/// 独立录屏入口复用冻结帧、窗口速选和多屏覆盖层，但会话用途从创建起就固定为 Recording。
+/// 该入口只由录屏产品策略调用；普通截图覆盖层不能在前端把自身升级成录屏。
+pub(crate) async fn show_recording_overlay_for_app(
+    app_handle: tauri::AppHandle,
+    state: &AppState,
+) -> Result<(), String> {
+    start_capture_overlay_for_app_with_intent(app_handle, state, CaptureIntent::Recording)
+        .await
+        .map(|_| ())
+        .map_err(capture_failure)
+}
+
+/// 启动与传统入口完全相同的普通截图会话，但把后端签发的 session ID 返回给类型化动作。
+/// 调用方不得自行构造会话身份，也不能跳过模式 gate、多屏冻结或失败补偿。
+pub(crate) async fn start_capture_overlay_for_app(
+    app_handle: tauri::AppHandle,
+    state: &AppState,
+) -> Result<String, CaptureError> {
+    start_capture_overlay_for_app_with_intent(app_handle, state, CaptureIntent::Screenshot).await
+}
+
+async fn start_capture_overlay_for_app_with_intent(
+    app_handle: tauri::AppHandle,
+    state: &AppState,
+    intent: CaptureIntent,
+) -> Result<String, CaptureError> {
     claim_ordinary_then(&state.capture_mode_gate, |ownership| async move {
         let mut timings = manager::StageTimings::start();
         let restore_labels = overlay_windows::hide_sources(&app_handle);
@@ -281,7 +347,7 @@ pub(crate) async fn show_capture_overlay_for_app(
             lowered_pins.clone(),
             probe_hint,
             timings,
-            ownership,
+            manager::CaptureBeginAuthorization::new(ownership, intent),
         ) {
             Ok(start) => start,
             Err(failure) => {
@@ -301,10 +367,9 @@ pub(crate) async fn show_capture_overlay_for_app(
             },
             manager::CaptureSession::finalize_mode,
         )?;
-        Ok(())
+        Ok(start.session_id)
     })
     .await
-    .map_err(capture_failure)
 }
 
 #[tauri::command]
@@ -580,6 +645,29 @@ fn commit_image_from_png(png: Vec<u8>) -> Result<CommitImage, CaptureError> {
     })
 }
 
+/// 在当前覆盖层的原始冻结选区中扫描受支持的 QR/条码格式。
+///
+/// 调用窗口由 Tauri 注入并在 manager 内与会话、显示器一并核验；选区不会进入数据库，
+/// 标注和图像调整也不会混进扫码像素。全局 permit 覆盖裁切后的完整扫描生命周期。
+#[tauri::command]
+pub async fn scan_capture_selection(
+    selection: CaptureSelection,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<crate::code_detection::CodeScanResponse, crate::code_detection::CodeScanError> {
+    let permit = crate::commands::acquire_scan_permit()?;
+    let input = state
+        .capture_manager
+        .scan_input(window.label(), &selection)
+        .map_err(|_| crate::code_detection::CodeScanError::CaptureUnavailable)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _permit = permit;
+        crate::code_detection::scan_rgba(input.rgba, input.width, input.height)
+    })
+    .await
+    .map_err(|_| crate::code_detection::CodeScanError::WorkerFailed)?
+}
+
 /// 显式执行“选区 -> 本地 OCR -> 文本翻译”。裁剪帧只进入 Tesseract，永不发送给 provider。
 /// 此命令不会结束 CaptureSession，用户可继续复制、保存、Pin 或编辑同一选区。
 #[tauri::command]
@@ -739,7 +827,7 @@ fn capture_failure(error: CaptureError) -> String {
 }
 
 fn validate_overlay_label(label: &str) -> Result<(), CaptureError> {
-    if label.starts_with("capture-overlay-")
+    if (label.starts_with("capture-overlay-") || label.starts_with("recording-overlay-"))
         && label.len() <= 128
         && label
             .chars()

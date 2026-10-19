@@ -29,13 +29,27 @@ struct SessionState {
 }
 pub(super) struct ViewerSession {
     pub payload: ViewerPayload,
+    /// 当前历史条目的扁平预览，供 OCR、扫码、取色以及输出身份使用。
     pub png: Arc<Vec<u8>>,
+    /// 画布原图。内部修订指向唯一根图；普通图片与 `png` 共享同一 Arc。
+    pub source_png: Arc<Vec<u8>>,
+    /// 只有普通历史图片能在首次保存时迁移自身 BLOB 为根资产。
+    pub root_clip_id: Option<i64>,
+    base_project: Option<crate::pin::commands::PinCanvasProject>,
     pub translation: Arc<crate::translation::TranslationService>,
     state: Mutex<SessionState>,
     // 原生事件线程不能等待输出锁：Pin builder/剪贴板可能反过来等待该线程。
     lifecycle: AtomicU8,
     pin_uncertain: AtomicBool,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ActionPinError {
+    SourceUnavailable,
+    Failed,
+    Uncertain,
+}
+
 impl ViewerSession {
     pub fn new(
         clip_id: i64,
@@ -43,6 +57,11 @@ impl ViewerSession {
         sensitive: bool,
         png: Vec<u8>,
         dimensions: (u32, u32),
+        managed: Option<(
+            Vec<u8>,
+            crate::pin::commands::PinCanvasProject,
+            serde_json::Value,
+        )>,
     ) -> Self {
         let id = crate::image_io::unique_image_id();
         let payload = ViewerPayload {
@@ -60,16 +79,24 @@ impl ViewerSession {
                 media_type: "image/png",
                 sensitive,
             },
-            initial_project: None,
+            initial_project: managed.as_ref().map(|(_, _, initial)| initial.clone()),
             limits: ViewerLimits {
                 can_edit: true,
                 can_scan: true,
                 reason: None,
             },
         };
+        let png = Arc::new(png);
+        let (source_png, root_clip_id, base_project) = match managed {
+            Some((source, project, _)) => (Arc::new(source), None, Some(project)),
+            None => (Arc::clone(&png), Some(clip_id), None),
+        };
         Self {
             payload,
-            png: Arc::new(png),
+            png,
+            source_png,
+            root_clip_id,
+            base_project,
             translation: Arc::new(crate::translation::TranslationService::new()),
             lifecycle: AtomicU8::new(ACTIVE),
             pin_uncertain: AtomicBool::new(false),
@@ -78,6 +105,13 @@ impl ViewerSession {
                 ..Default::default()
             }),
         }
+    }
+
+    pub fn effective_project(
+        &self,
+        submitted: Option<&crate::pin::commands::PinCanvasProject>,
+    ) -> Option<crate::pin::commands::PinCanvasProject> {
+        submitted.cloned().or_else(|| self.base_project.clone())
     }
     pub fn authorize(&self, caller: &str, handle: &ViewerHandle) -> Result<(), ViewerError> {
         if caller != self.payload.label || handle != &self.payload.handle {
@@ -99,7 +133,7 @@ impl ViewerSession {
     }
     pub fn mark_ready(&self) -> Result<(), ViewerError> {
         self.lifecycle
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |state| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |state| {
                 (state & ACTIVE != 0).then_some(state | READY)
             })
             .map(|_| ())
@@ -278,7 +312,7 @@ impl ViewerSession {
     /// 原生销毁只撤销身份；不等待正在调用原生 API 的输出工作线程。
     pub fn invalidate(&self) {
         self.lifecycle
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |state| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |state| {
                 Some((state & !ACTIVE) | DESTROYED)
             })
             .ok();
@@ -292,7 +326,7 @@ impl ViewerSession {
     }
     pub fn restore_after_close_failure(&self) {
         self.lifecycle
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |state| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |state| {
                 (state & DESTROYED == 0).then_some(state | ACTIVE)
             })
             .ok();
@@ -321,6 +355,32 @@ impl ViewerSession {
             })
         })
     }
+
+    fn commit_action_pin<T>(
+        &self,
+        source_id: &str,
+        source_version: u64,
+        work: impl FnOnce(Arc<Vec<u8>>) -> Result<T, crate::pin::commands::ScreenshotPinCreateError>,
+    ) -> Result<T, ActionPinError> {
+        // 与 Viewer 专用输出共用会话锁。不确定的原生建窗结果必须先写入粘性状态，
+        // 另一个动作槽才能继续，避免两个并发请求都把“不确定”误判成可重试。
+        let _state = self.state.lock().map_err(|_| ActionPinError::Failed)?;
+        if !self.is_active() || source_version != 0 || self.payload.handle.snapshot_id != source_id
+        {
+            return Err(ActionPinError::SourceUnavailable);
+        }
+        if self.pin_uncertain.load(Ordering::Acquire) {
+            return Err(ActionPinError::Uncertain);
+        }
+        work(Arc::clone(&self.png)).map_err(|error| {
+            if error.is_uncertain() {
+                self.pin_uncertain.store(true, Ordering::Release);
+                ActionPinError::Uncertain
+            } else {
+                ActionPinError::Failed
+            }
+        })
+    }
 }
 #[derive(Default)]
 pub struct ViewerManager {
@@ -329,6 +389,39 @@ pub struct ViewerManager {
     sources: Mutex<Vec<(Weak<Vec<u8>>, usize)>>,
 }
 impl ViewerManager {
+    /// PX-ACT-01 的 Viewer 图片所有权边界。动作参数只能引用后端签发的不可变 snapshot ID；
+    /// 当前 Viewer 快照不会变异，因此唯一合法版本是 0。
+    pub(crate) fn resolve_action_snapshot(
+        &self,
+        caller_label: &str,
+        source_id: &str,
+        source_version: u64,
+    ) -> Result<Arc<Vec<u8>>, ViewerError> {
+        let entry = self.get(caller_label)?;
+        if !entry.is_active()
+            || source_version != 0
+            || entry.payload.handle.snapshot_id != source_id
+        {
+            return Err("not_found".into());
+        }
+        Ok(Arc::clone(&entry.png))
+    }
+
+    /// 动作贴图在 Viewer 会话内完成所有权复核、并发串行和不确定状态收敛。
+    /// 闭包只能收到后端持有的不可变快照，不能把路径或前端像素带过来。
+    pub(crate) fn pin_action_snapshot<T>(
+        &self,
+        caller_label: &str,
+        source_id: &str,
+        source_version: u64,
+        work: impl FnOnce(Arc<Vec<u8>>) -> Result<T, crate::pin::commands::ScreenshotPinCreateError>,
+    ) -> Result<T, ActionPinError> {
+        let entry = self
+            .get(caller_label)
+            .map_err(|_| ActionPinError::SourceUnavailable)?;
+        entry.commit_action_pin(source_id, source_version, work)
+    }
+
     pub(super) fn remaining_source_budget(&self) -> Result<usize, ViewerError> {
         let entries = self
             .entries
@@ -364,15 +457,23 @@ impl ViewerManager {
             .sources
             .lock()
             .map_err(|_| ViewerError::new("internal"))?;
+        let distinct_source_bytes = if Arc::ptr_eq(&entry.png, &entry.source_png) {
+            0
+        } else {
+            entry.source_png.len()
+        };
         check_budget(
             entries.len(),
             retained_source_bytes(&mut sources),
-            entry.png.len(),
+            entry.png.len().saturating_add(distinct_source_bytes),
         )?;
         if entries.contains_key(&entry.payload.label) {
             return Err("busy".into());
         }
         sources.push((Arc::downgrade(&entry.png), entry.png.len()));
+        if !Arc::ptr_eq(&entry.png, &entry.source_png) {
+            sources.push((Arc::downgrade(&entry.source_png), entry.source_png.len()));
+        }
         entries.insert(entry.payload.label.clone(), entry);
         Ok(())
     }

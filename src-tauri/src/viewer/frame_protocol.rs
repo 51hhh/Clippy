@@ -45,7 +45,11 @@ pub(crate) fn handle<R: Runtime>(
     if entry.payload.handle.snapshot_id != snapshot || !entry.is_active() {
         return response(http::StatusCode::NOT_FOUND, vec![], false);
     }
-    response(http::StatusCode::OK, entry.png.as_ref().clone(), true)
+    response(
+        http::StatusCode::OK,
+        entry.source_png.as_ref().clone(),
+        true,
+    )
 }
 fn response(status: http::StatusCode, body: Vec<u8>, image: bool) -> http::Response<Vec<u8>> {
     http::Response::builder()

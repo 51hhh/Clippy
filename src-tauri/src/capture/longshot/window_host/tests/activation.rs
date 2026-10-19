@@ -1,6 +1,22 @@
 use super::*;
 
 #[test]
+fn guide_label_is_bound_to_exact_safe_controller_suffix() {
+    assert_eq!(
+        guide_label("longshot-controller-123e4567-e89b-12d3-a456-426614174000"),
+        Some("longshot-guide-123e4567-e89b-12d3-a456-426614174000".to_string())
+    );
+    for label in [
+        "longshot-controller-",
+        "longshot-controller-a/b",
+        "longshot-controller-a?b",
+        "capture-overlay-a",
+    ] {
+        assert_eq!(guide_label(label), None, "{label}");
+    }
+}
+
+#[test]
 fn started_barrier_requires_exact_first_path_and_label() {
     let registry = LongshotControllerRegistry::new();
     let label = registry
@@ -302,6 +318,12 @@ fn open_builder_failure_uses_real_validation_and_preserves_ordinary_resources() 
         pixel_height: 80,
         scale_x: 1.0,
         scale_y: 1.0,
+        physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 80,
+        }),
         rgba: Arc::from(vec![255; 100 * 80 * 4]),
     };
     let start = manager
@@ -311,7 +333,10 @@ fn open_builder_failure_uses_real_validation_and_preserves_ordinary_resources() 
             vec!["pin-a".to_string()],
             false,
             StageTimings::default(),
-            ownership,
+            crate::capture::manager::CaptureBeginAuthorization::new(
+                ownership,
+                crate::capture::CaptureIntent::Screenshot,
+            ),
         )
         .expect("ordinary begin");
     let caller = start.overlays[0].label.clone();

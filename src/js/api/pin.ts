@@ -1,6 +1,7 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
   PinCanvasProject,
   PinCanvasSaveMode,
@@ -10,6 +11,11 @@ import type {
   PinState,
   PinToolbarBounds,
   PinUpdate,
+  PinWorkspaceGroup,
+  PinWorkspaceChange,
+  PinWorkspaceLibrarySettings,
+  PinWorkspaceLibrarySnapshot,
+  PinWorkspaceStatus,
 } from "../ipc-types.ts";
 
 export function pinClip(id: number): Promise<string> {
@@ -24,6 +30,16 @@ export function closePin(label: string): Promise<void> {
 /** 获取统一贴图渲染与交互状态 */
 export function getPinPayload(label: string): Promise<PinPayload> {
   return invoke<PinPayload>("get_pin_payload", { label });
+}
+
+/** Windows 渲染判据读取当前窗口 DPI，不沿用创建时 payload 的显示器比例。 */
+export function getPinDisplayScale(): Promise<number> {
+  return invoke<number>("get_pin_display_scale");
+}
+
+/** 仅订阅当前窗口的原生 DPI；调用方在首读之前注册并负责卸载。 */
+export function onPinDisplayScaleChanged(callback: (scale: number) => void): Promise<UnlistenFn> {
+  return getCurrentWindow().onScaleChanged(event => callback(event.payload.scaleFactor));
 }
 
 /**
@@ -63,6 +79,90 @@ export function copyPin(label: string): Promise<void> {
 
 export function savePin(label: string): Promise<string> {
   return invoke<string>("save_pin", { label });
+}
+
+export function savePinToWorkspace(
+  label: string,
+  groupId: number | null,
+  project: PinCanvasProject | null,
+): Promise<PinWorkspaceStatus> {
+  return invoke<PinWorkspaceStatus>("save_pin_to_workspace", { label, groupId, project });
+}
+
+export function removePinFromWorkspace(label: string): Promise<void> {
+  return invoke<void>("remove_pin_from_workspace", { label });
+}
+
+export function listPinWorkspaceGroups(): Promise<PinWorkspaceGroup[]> {
+  return invoke<PinWorkspaceGroup[]>("list_pin_workspace_groups");
+}
+
+export function createPinWorkspaceGroup(name: string): Promise<PinWorkspaceGroup> {
+  return invoke<PinWorkspaceGroup>("create_pin_workspace_group", { name });
+}
+
+export function renamePinWorkspaceGroup(id: number, name: string): Promise<boolean> {
+  return invoke<boolean>("rename_pin_workspace_group", { id, name });
+}
+
+export function deletePinWorkspaceGroup(id: number): Promise<boolean> {
+  return invoke<boolean>("delete_pin_workspace_group", { id });
+}
+
+export function assignPinWorkspaceGroup(label: string, groupId: number | null): Promise<void> {
+  return invoke<void>("assign_pin_workspace_group", { label, groupId });
+}
+
+export function getPinWorkspaceLibrarySettings(): Promise<PinWorkspaceLibrarySettings> {
+  return invoke<PinWorkspaceLibrarySettings>("get_pin_workspace_library_settings");
+}
+
+export function listPinWorkspaceLibrary(): Promise<PinWorkspaceLibrarySnapshot> {
+  return invoke<PinWorkspaceLibrarySnapshot>("list_pin_workspace_library");
+}
+
+export function getPinWorkspaceThumbnail(id: number): Promise<string | null> {
+  return invoke<string | null>("get_pin_workspace_thumbnail", { id });
+}
+
+export function showPinWorkspaceItem(id: number): Promise<boolean> {
+  return invoke<boolean>("show_pin_workspace_item", { id });
+}
+
+export function assignPinWorkspaceLibraryGroup(id: number, groupId: number | null): Promise<void> {
+  return invoke<void>("assign_pin_workspace_library_group", { id, groupId });
+}
+
+export function removePinWorkspaceLibraryItem(id: number): Promise<void> {
+  return invoke<void>("remove_pin_workspace_library_item", { id });
+}
+
+export function createPinWorkspaceLibraryGroup(name: string): Promise<PinWorkspaceGroup> {
+  return invoke<PinWorkspaceGroup>("create_pin_workspace_library_group", { name });
+}
+
+export function renamePinWorkspaceLibraryGroup(id: number, name: string): Promise<boolean> {
+  return invoke<boolean>("rename_pin_workspace_library_group", { id, name });
+}
+
+export function deletePinWorkspaceLibraryGroup(id: number): Promise<boolean> {
+  return invoke<boolean>("delete_pin_workspace_library_group", { id });
+}
+
+export function pinWorkspaceLibraryReady(): Promise<void> {
+  return invoke<void>("pin_workspace_library_ready");
+}
+
+export function startPinWorkspaceLibraryDrag(): Promise<void> {
+  return invoke<void>("start_pin_workspace_library_drag");
+}
+
+export function closePinWorkspaceLibrary(): Promise<void> {
+  return invoke<void>("close_pin_workspace_library");
+}
+
+export function onPinWorkspaceLibraryChanged(callback: () => void): Promise<UnlistenFn> {
+  return listen<null>("pin-workspace-library-changed", () => callback());
 }
 
 /**
@@ -125,6 +225,12 @@ export function onPinImageSharpened(
  */
 export function onPinAlreadyOpen(callback: () => void): Promise<UnlistenFn> {
   return listen<null>("pin-already-open", () => callback());
+}
+
+export function onPinWorkspaceChanged(
+  callback: (payload: PinWorkspaceChange) => void,
+): Promise<UnlistenFn> {
+  return listen<PinWorkspaceChange>("pin-workspace-changed", (event) => callback(event.payload));
 }
 
 export function onPinCurrent(callback: () => void): Promise<UnlistenFn> {

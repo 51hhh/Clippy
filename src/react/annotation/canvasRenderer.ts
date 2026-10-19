@@ -233,6 +233,8 @@ function drawMosaic(
     for (let row = 0; row < buffer.height; row += 1) {
       const startY = row * cell;
       const endY = Math.min(height, startY + cell);
+      // Canvas 的滤镜与合成使用预乘 alpha。这里也在预乘空间平均，避免透明
+      // 像素的隐藏 RGB 在马赛克边缘形成与 Rust 权威输出不同的暗边或彩边。
       const totals = new Float64Array(buffer.width * 4);
       for (let tileY = startY; tileY < endY; tileY += rowsPerRead) {
         const rows = Math.min(rowsPerRead, endY - tileY);
@@ -244,7 +246,11 @@ function drawMosaic(
           for (let px = 0; px < width; px += 1) {
             const index = (py * width + px) * 4;
             const cellIndex = Math.floor(px / cell) * 4;
-            for (let channel = 0; channel < 4; channel += 1) totals[cellIndex + channel] += pixels[index + channel];
+            const alpha = pixels[index + 3];
+            for (let channel = 0; channel < 3; channel += 1) {
+              totals[cellIndex + channel] += pixels[index + channel] * alpha;
+            }
+            totals[cellIndex + 3] += alpha;
           }
         }
       }
@@ -252,7 +258,13 @@ function drawMosaic(
         const endX = Math.min(width, (col + 1) * cell);
         const count = (endX - col * cell) * (endY - startY);
         const index = (row * buffer.width + col) * 4;
-        for (let channel = 0; channel < 4; channel += 1) output.data[index + channel] = Math.round(totals[col * 4 + channel] / count);
+        const totalAlpha = totals[col * 4 + 3];
+        for (let channel = 0; channel < 3; channel += 1) {
+          output.data[index + channel] = totalAlpha === 0
+            ? 0
+            : Math.round(totals[col * 4 + channel] / totalAlpha);
+        }
+        output.data[index + 3] = Math.round(totalAlpha / count);
       }
     }
     target.putImageData(output, 0, 0);
@@ -421,7 +433,7 @@ export function drawAnnotation(
     case "text": {
       const at = point(annotation.at);
       const fontSize = Math.max(14, annotation.size * 4) * scale;
-      ctx.font = `600 ${fontSize}px ${annotation.fontFamily ?? "system-ui"}, sans-serif`;
+      ctx.font = `500 ${fontSize}px ${annotation.fontFamily ?? "system-ui"}, sans-serif`;
       ctx.textBaseline = "top";
       ctx.lineWidth = Math.max(3, annotation.size * scale);
       ctx.strokeStyle = "rgba(0, 0, 0, 0.55)";
@@ -460,12 +472,13 @@ function drawMeasureDecoration(
   );
   const label = `${pixels} px`;
   const fontSize = Math.max(12, annotation.size * 3.2) * scale;
-  ctx.font = `600 ${fontSize}px system-ui, sans-serif`;
+  ctx.font = `500 ${fontSize}px system-ui, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "bottom";
   const midX = (from.x + to.x) / 2;
   const midY = (from.y + to.y) / 2 - tick;
-  ctx.lineWidth = Math.max(3, annotation.size * scale);
+  // Rust append_measure 以 0.8 * size 生成标签；描边也沿用该字号令牌。
+  ctx.lineWidth = Math.max(3, annotation.size * 0.8 * scale);
   ctx.strokeStyle = "rgba(0, 0, 0, 0.55)";
   ctx.strokeText(label, midX, midY);
   ctx.fillStyle = annotation.color;

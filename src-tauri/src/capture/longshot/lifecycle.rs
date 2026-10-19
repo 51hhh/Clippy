@@ -4,9 +4,11 @@
 //! 释放都在锁外执行，避免桌面调用反向阻塞会话状态机。
 
 use super::controller::{LongshotController, LongshotControllerFinish, LongshotControllerStart};
-#[cfg(test)]
 use super::LongshotSnapshot;
-use super::{LongshotAppendOutcome, LongshotArtifact, LongshotSessionToken, LongshotStart};
+use super::{
+    LongshotAppendOutcome, LongshotArtifact, LongshotAutoDirection, LongshotSessionToken,
+    LongshotStart,
+};
 use crate::capture::manager::OrdinaryCaptureResources;
 use crate::capture::{CaptureError, CaptureManager, CaptureModeOwnership, CaptureSelection};
 use crate::commands::AppState;
@@ -98,6 +100,42 @@ impl LongshotLifecycle {
         token: &LongshotSessionToken,
     ) -> Result<LongshotAppendOutcome, CaptureError> {
         self.append_with(token, || self.controller.append(token))
+    }
+
+    pub(in crate::capture) fn auto_append(
+        &self,
+        token: &LongshotSessionToken,
+        direction: LongshotAutoDirection,
+    ) -> Result<LongshotAppendOutcome, CaptureError> {
+        self.append_with(token, || self.controller.auto_append(token, direction))
+    }
+
+    #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+    pub(in crate::capture) fn authorize_wayland_auto(
+        &self,
+        token: &LongshotSessionToken,
+        parent: ashpd::WindowIdentifier,
+    ) -> Result<(), CaptureError> {
+        self.require_active(token)?;
+        let result = self.controller.authorize_wayland_auto(token, parent);
+        self.require_still_active(token)?;
+        result.map_err(normalize_controller_race)
+    }
+
+    #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+    pub(in crate::capture) fn wayland_auto_authorized(
+        &self,
+        token: &LongshotSessionToken,
+    ) -> Result<bool, CaptureError> {
+        self.require_active(token)?;
+        self.controller.wayland_auto_authorized(token)
+    }
+
+    pub(in crate::capture) fn undo(
+        &self,
+        token: &LongshotSessionToken,
+    ) -> Result<LongshotSnapshot, CaptureError> {
+        self.snapshot_with(token, || self.controller.undo(token))
     }
 
     #[cfg(test)]
@@ -204,7 +242,6 @@ impl LongshotLifecycle {
         result.map_err(normalize_controller_race)
     }
 
-    #[cfg(test)]
     fn snapshot_with<F>(
         &self,
         token: &LongshotSessionToken,
@@ -469,6 +506,12 @@ mod tests {
             pixel_height: 72,
             scale_x: 1.0,
             scale_y: 1.0,
+            physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                x: 0,
+                y: 0,
+                width: 64,
+                height: 72,
+            }),
             rgba: Arc::from(image.into_raw()),
         }
     }
@@ -494,7 +537,10 @@ mod tests {
                 vec!["pin-b".to_string(), "pin-a".to_string()],
                 false,
                 StageTimings::default(),
-                ownership,
+                crate::capture::manager::CaptureBeginAuthorization::new(
+                    ownership,
+                    crate::capture::CaptureIntent::Screenshot,
+                ),
             )
             .expect("普通截图会话应启动");
         let selection = CaptureSelection {

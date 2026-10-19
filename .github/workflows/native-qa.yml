@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install system dependencies
         run: |
@@ -34,17 +34,17 @@ jobs:
             libpipewire-0.3-dev
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           prefix-key: v1-rust
-          key: qa-linux-x64
+          key: qa-linux-x64-recording
           workspaces: src-tauri
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: npm
@@ -53,6 +53,9 @@ jobs:
       - name: Install frontend dependencies
         working-directory: src
         run: npm ci
+
+      - name: Verify pinned recording codec supply chain
+        run: node scripts/verify-recording-codec-supply-chain.mjs
 
       - name: Verify PipeWire fast-path baseline
         run: |
@@ -69,6 +72,7 @@ jobs:
       - name: Build Linux QA bundles
         run: >-
           npx --prefix src tauri build --ci --no-sign
+          --features recording-wayland-qa,recording-linux-av-qa
           --config src-tauri/tauri.linux.conf.json
           --config src-tauri/tauri.ci.conf.json
 
@@ -83,7 +87,7 @@ jobs:
           mkdir -p qa-stage qa-artifacts
           cp src-tauri/target/release/bundle/deb/*.deb qa-stage/
           cp src-tauri/target/release/bundle/appimage/*.AppImage qa-stage/
-          printf 'commit=%s\nversion=%s\nplatform=linux-x64\nsigning=unsigned-qa-only\n' \
+          printf 'commit=%s\nversion=%s\nplatform=linux-x64\nsigning=unsigned-qa-only\nrecording_feature=recording-wayland-qa,recording-linux-av-qa\n' \
             "$GITHUB_SHA" "$(jq -r '.version' src-tauri/tauri.conf.json)" \
             > qa-stage/QA-BUILD.txt
           (cd qa-stage && sha256sum ./*.deb ./*.AppImage > SHA256SUMS.txt)
@@ -95,6 +99,7 @@ jobs:
           VERSION=$(jq -r '.version' src-tauri/tauri.conf.json)
           for PROFILE in \
             linux-gnome-x11 linux-gnome-wayland linux-gnome-wayland-ubuntu24 \
+            linux-gnome-wayland-ubuntu26 \
             linux-kde-wayland linux-wlroots-wayland windows-10-x64 windows-11-x64 \
             macos-intel macos-apple-silicon; do
             node scripts/manual-qa.mjs template \
@@ -104,7 +109,7 @@ jobs:
           cp docs/native-qa.md qa-records/README.md
 
       - name: Upload Linux QA artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: qa-linux-x64-${{ github.sha }}
           path: qa-artifacts/*.tar.gz
@@ -113,7 +118,7 @@ jobs:
           compression-level: 0
 
       - name: Upload QA record templates
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: qa-record-templates-${{ github.sha }}
           path: qa-records
@@ -126,7 +131,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install runtime smoke dependencies
         run: |
@@ -140,7 +145,7 @@ jobs:
         run: ldconfig -p | grep -q 'libpipewire-0.3.so.0'
 
       - name: Download Ubuntu 22 QA bundle
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: qa-linux-x64-${{ github.sha }}
           path: qa-download
@@ -161,7 +166,7 @@ jobs:
 
       - name: Upload Ubuntu 24 smoke evidence
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: qa-ubuntu24-x11-smoke-${{ github.sha }}
           path: |
@@ -179,22 +184,24 @@ jobs:
   build-windows:
     name: QA Bundle (Windows x64)
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          components: llvm-tools-preview
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           prefix-key: v1-rust
-          key: qa-windows-x64
+          key: qa-windows-x64-recording-source
           workspaces: src-tauri
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: npm
@@ -204,6 +211,31 @@ jobs:
         working-directory: src
         run: npm ci
 
+      - name: Install Windows recording source-build shell dependencies
+        id: msys2
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
+        with:
+          msystem: MSYS
+          update: false
+          install: make diffutils perl nasm
+
+      - name: Expose Windows recording source-build shell tools
+        shell: pwsh
+        run: echo '${{ steps.msys2.outputs.msys2-location }}\usr\bin' >> $env:GITHUB_PATH
+
+      - name: Install Windows MSBuild
+        uses: microsoft/setup-msbuild@30375c66a4eea26614e0d39710365f22f8b0af57 # v3
+        with:
+          msbuild-architecture: x64
+
+      - name: Verify pinned recording codec supply chain
+        run: node scripts/verify-recording-codec-supply-chain.mjs
+
+      - name: Prepare Windows QA app-local runtime
+        id: runtime
+        shell: pwsh
+        run: ./scripts/prepare-windows-qa-runtime.ps1
+
       - name: Prepare self-signed Windows code-signing certificate
         shell: pwsh
         run: ./scripts/prepare-windows-signing.ps1
@@ -211,16 +243,30 @@ jobs:
       - name: Build Windows QA bundles
         run: >-
           npx --prefix src tauri build --ci
+          --features recording-windows-av-qa
+          --target x86_64-pc-windows-msvc
           --config src-tauri/tauri.windows.conf.json
           --config src-tauri/tauri.ci.conf.json
           --config src-tauri/tauri.windows.signing.conf.json
+          --config "${{ steps.runtime.outputs.runtime_config }}"
+
+      - name: Verify Windows QA app-local runtime payload
+        shell: pwsh
+        run: >-
+          node scripts/verify-windows-qa-runtime.mjs
+          --manifest "${{ steps.runtime.outputs.runtime_manifest }}"
+          --config "${{ steps.runtime.outputs.runtime_config }}"
+          --manifest-sha256 "${{ steps.runtime.outputs.runtime_manifest_sha256 }}"
+          --expected-source "${{ github.sha }}"
+          --executable src-tauri/target/x86_64-pc-windows-msvc/release/clippy-app.exe
+          --payload-root src-tauri/target/x86_64-pc-windows-msvc/release
 
       - name: Prepare Windows QA artifact
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path qa-artifacts | Out-Null
-          $nsis = Get-ChildItem src-tauri/target/release/bundle/nsis -File -Filter "*-setup.exe"
-          $msi = Get-ChildItem src-tauri/target/release/bundle/msi -File -Filter "*.msi"
+          $nsis = Get-ChildItem src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis -File -Filter "*-setup.exe"
+          $msi = Get-ChildItem src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi -File -Filter "*.msi"
           if (-not $nsis -or -not $msi) { throw "Windows QA installers are incomplete" }
           foreach ($artifact in @($nsis, $msi)) {
             $signature = Get-AuthenticodeSignature $artifact.FullName
@@ -235,12 +281,16 @@ jobs:
           }
           Copy-Item $nsis.FullName qa-artifacts/
           Copy-Item $msi.FullName qa-artifacts/
+          Copy-Item -LiteralPath '${{ steps.runtime.outputs.runtime_manifest }}' -Destination qa-artifacts/QA-WINDOWS-RUNTIME.json
           $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
           @(
             "commit=$env:GITHUB_SHA"
             "version=$version"
             "platform=windows-x64"
             "signing=self-signed-qa-only"
+            "recording_feature=recording-windows-av-qa"
+            "target=x86_64-pc-windows-msvc"
+            "runtime_provenance_sha256=${{ steps.runtime.outputs.runtime_manifest_sha256 }}"
           ) | Set-Content qa-artifacts/QA-BUILD.txt -Encoding utf8
           Get-ChildItem qa-artifacts -File | Where-Object Name -ne "SHA256SUMS.txt" |
             ForEach-Object {
@@ -249,7 +299,7 @@ jobs:
             } | Set-Content qa-artifacts/SHA256SUMS.txt -Encoding ascii
 
       - name: Upload Windows QA artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: qa-windows-x64-${{ github.sha }}
           path: qa-artifacts
@@ -270,35 +320,44 @@ jobs:
 
   build-macos:
     name: QA Bundle (macOS ${{ matrix.label }})
-    runs-on: macos-latest
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         include:
           - label: Apple-Silicon
+            runner: macos-15
             rust_target: aarch64-apple-darwin
             asset_arch: aarch64
+            recording_feature: recording-macos-av-qa
           - label: Intel
+            runner: macos-15-intel
             rust_target: x86_64-apple-darwin
             asset_arch: x64
+            recording_feature: recording-macos-av-qa,recording-vp9-source-build
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           targets: ${{ matrix.rust_target }}
+          components: llvm-tools-preview
+
+      - name: Install macOS Intel recording source-build dependencies
+        if: matrix.asset_arch == 'x64'
+        run: brew install nasm
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           prefix-key: v1-rust
           key: qa-macos-${{ matrix.asset_arch }}
           workspaces: src-tauri -> target
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: npm
@@ -308,10 +367,15 @@ jobs:
         working-directory: src
         run: npm ci
 
+      - name: Verify pinned recording codec supply chain
+        run: node scripts/verify-recording-codec-supply-chain.mjs
+
       - name: Build ad-hoc signed macOS QA bundle
         run: >-
           npx --prefix src tauri build --ci --target ${{ matrix.rust_target }}
+          --features ${{ matrix.recording_feature }}
           --config src-tauri/tauri.macos.conf.json
+          --config src-tauri/tauri.macos.recording.conf.json
           --config src-tauri/tauri.ci.conf.json
           --config src-tauri/tauri.macos.qa.conf.json
 
@@ -333,6 +397,15 @@ jobs:
           [ -n "$EXECUTABLE_NAME" ] || { echo '::error::CFBundleExecutable is missing'; exit 1; }
           EXECUTABLE="$APP/Contents/MacOS/$EXECUTABLE_NAME"
           [ -x "$EXECUTABLE" ] || { echo '::error::macOS executable is missing'; exit 1; }
+          [ "$(plutil -extract LSMinimumSystemVersion raw -o - "$INFO_PLIST")" = "12.3" ] || {
+            echo '::error::macOS recording QA bundle must require macOS 12.3'; exit 1;
+          }
+          [ -n "$(plutil -extract NSScreenCaptureUsageDescription raw -o - "$INFO_PLIST")" ] || {
+            echo '::error::macOS recording QA bundle is missing NSScreenCaptureUsageDescription'; exit 1;
+          }
+          [ -n "$(plutil -extract NSMicrophoneUsageDescription raw -o - "$INFO_PLIST")" ] || {
+            echo '::error::macOS recording QA bundle is missing NSMicrophoneUsageDescription'; exit 1;
+          }
           if [ "$ASSET_ARCH" = "aarch64" ]; then
             EXPECTED_ARCH="arm64"
           else
@@ -343,13 +416,14 @@ jobs:
           DMG=$(find "$BUNDLE_DIR/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)
           [ -n "$DMG" ] || { echo '::error::macOS DMG was not generated'; exit 1; }
           cp "$DMG" qa-artifacts/
-          printf 'commit=%s\nversion=%s\nplatform=macos-%s\nsigning=ad-hoc-qa-only\n' \
+          printf 'commit=%s\nversion=%s\nplatform=macos-%s\nsigning=ad-hoc-qa-only\nrecording_feature=%s\nminimum_system_version=12.3\n' \
             "$GITHUB_SHA" "$(jq -r '.version' src-tauri/tauri.conf.json)" "$ASSET_ARCH" \
+            "${{ matrix.recording_feature }}" \
             > qa-artifacts/QA-BUILD.txt
           (cd qa-artifacts && shasum -a 256 ./*.dmg > SHA256SUMS.txt)
 
       - name: Upload macOS QA artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: qa-macos-${{ matrix.asset_arch }}-${{ github.sha }}
           path: qa-artifacts

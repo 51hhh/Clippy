@@ -26,11 +26,12 @@ function completedRecord(profileId) {
 }
 
 describe("真机 QA 合同", () => {
-  it("覆盖 PRD 的九个目标环境", () => {
+  it("覆盖 PRD 的十个目标环境", () => {
     expect(Object.keys(QA_PROFILES)).toEqual([
       "linux-gnome-x11",
       "linux-gnome-wayland",
       "linux-gnome-wayland-ubuntu24",
+      "linux-gnome-wayland-ubuntu26",
       "linux-kde-wayland",
       "linux-wlroots-wayland",
       "windows-10-x64",
@@ -40,12 +41,15 @@ describe("真机 QA 合同", () => {
     ]);
   });
 
-  it("Ubuntu 24 单独验证 Portal 版本与截图 fallback", () => {
-    const ids = casesForProfile("linux-gnome-wayland-ubuntu24").map((testCase) => testCase.id);
+  it.each(["linux-gnome-wayland-ubuntu24", "linux-gnome-wayland-ubuntu26"])(
+    "%s 单独验证 Portal 版本与截图 fallback",
+    (profileId) => {
+      const ids = casesForProfile(profileId).map((testCase) => testCase.id);
 
-    expect(ids).toContain("portal_capability_versions");
-    expect(ids).toContain("wayland_capture_fallbacks");
-  });
+      expect(ids).toContain("portal_capability_versions");
+      expect(ids).toContain("wayland_capture_fallbacks");
+    },
+  );
 
   it.each(["macos-intel", "macos-apple-silicon"])(
     "%s 的签名合同与当前 Ad-Hoc 发布策略一致",
@@ -86,6 +90,111 @@ describe("真机 QA 合同", () => {
     ]) {
       expect(ids.has(id), `${id} 应进入每个平台的公共合同`).toBe(true);
     }
+  });
+
+  it.each([
+    "linux-gnome-x11",
+    "windows-10-x64",
+    "windows-11-x64",
+    "macos-intel",
+    "macos-apple-silicon",
+  ])(
+    "%s 使用可执行的录屏原型合同",
+    (profileId) => {
+      const ids = casesForProfile(profileId).map((testCase) => testCase.id);
+
+      expect(ids).toEqual(
+        expect.arrayContaining([
+          "recording_region_roundtrip",
+          "recording_control_exclusion",
+          "recording_recovery_roundtrip",
+        ]),
+      );
+      expect(ids).not.toContain("recording_entry_gated");
+    },
+  );
+
+  it.each(["macos-intel", "macos-apple-silicon"])(
+    "%s 按运行时版本验证系统声和麦克风",
+    (profileId) => {
+      const cases = casesForProfile(profileId);
+      const systemAudio = cases.find((testCase) => testCase.id === "recording_system_audio");
+      const microphone = cases.find((testCase) => testCase.id === "recording_microphone");
+      const mixed = cases.find(
+        (testCase) => testCase.id === "recording_system_and_microphone",
+      );
+      const nativeRates = cases.find(
+        (testCase) => testCase.id === "recording_mic_native_rates",
+      );
+      const stopTail = cases.find((testCase) => testCase.id === "recording_mic_stop_tail");
+
+      expect(systemAudio).toMatchObject({
+        acceptedStatuses: ["pass", "expected_degraded"],
+        acceptedReasonCodes: ["macos_system_audio_requires_13"],
+      });
+      expect(microphone).toMatchObject({
+        acceptedStatuses: ["pass", "expected_degraded"],
+        acceptedReasonCodes: ["macos_microphone_requires_15"],
+      });
+      expect(mixed).toMatchObject({
+        acceptedStatuses: ["pass", "expected_degraded"],
+        acceptedReasonCodes: ["macos_microphone_requires_15"],
+      });
+      expect(nativeRates).toMatchObject({
+        acceptedStatuses: ["pass", "expected_degraded"],
+        acceptedReasonCodes: ["macos_microphone_requires_15"],
+      });
+      expect(stopTail).toMatchObject({
+        acceptedStatuses: ["pass", "expected_degraded"],
+        acceptedReasonCodes: ["macos_microphone_requires_15"],
+      });
+    },
+  );
+
+  it.each([
+    "linux-gnome-x11",
+    "linux-gnome-wayland",
+    "linux-gnome-wayland-ubuntu24",
+    "linux-gnome-wayland-ubuntu26",
+    "linux-kde-wayland",
+    "linux-wlroots-wayland",
+    "windows-10-x64",
+    "windows-11-x64",
+  ])(
+    "%s 要求系统声、麦克风与长时漂移证据",
+    (profileId) => {
+      const ids = casesForProfile(profileId).map((testCase) => testCase.id);
+      expect(ids).toEqual(
+        expect.arrayContaining([
+          "recording_system_audio",
+          "recording_microphone",
+          "recording_system_and_microphone",
+          "recording_audio_device_failure",
+          "recording_av_long_drift",
+        ]),
+      );
+    },
+  );
+
+  it.each([
+    "linux-gnome-wayland",
+    "linux-gnome-wayland-ubuntu24",
+    "linux-gnome-wayland-ubuntu26",
+    "linux-kde-wayland",
+    "linux-wlroots-wayland",
+  ])("%s 使用 Wayland Portal 与托盘录屏合同", (profileId) => {
+    const ids = casesForProfile(profileId).map((testCase) => testCase.id);
+
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        "recording_wayland_authorization",
+        "recording_region_roundtrip",
+        "recording_wayland_tray_controls",
+        "recording_recovery_roundtrip",
+      ]),
+    );
+    expect(ids).not.toContain("recording_entry_gated");
+    expect(ids).not.toContain("recording_control_exclusion");
   });
 
   it.each(Object.keys(QA_PROFILES))("%s 的完整证据可以通过", (profileId) => {
@@ -152,6 +261,20 @@ describe("真机 QA 合同", () => {
     expect(verifyQaRecord(record).passed).toBe(true);
     denied.observedReasonCode = "wayland_portal_permission";
     expect(verifyQaRecord(record).passed).toBe(false);
+  });
+
+  it("macOS 版本门控只在降级状态要求对应 reason code", () => {
+    const record = completedRecord("macos-apple-silicon");
+    const microphone = record.results.find((result) => result.id === "recording_microphone");
+
+    microphone.status = "pass";
+    microphone.observedReasonCode = null;
+    expect(verifyQaRecord(record).passed).toBe(true);
+
+    microphone.status = "expected_degraded";
+    expect(verifyQaRecord(record).passed).toBe(false);
+    microphone.observedReasonCode = "macos_microphone_requires_15";
+    expect(verifyQaRecord(record).passed).toBe(true);
   });
 
   it("每项必须同时有文字观测和证据引用", () => {

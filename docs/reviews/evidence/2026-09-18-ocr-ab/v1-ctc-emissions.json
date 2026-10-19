@@ -1,0 +1,1886 @@
+{
+  "cases": [
+    {
+      "id": "mixed-script-spacing",
+      "lines": [
+        {
+          "confidence": 0.9769304675214431,
+          "emissions": [
+            {
+              "blankBefore": 2,
+              "character": "订",
+              "classIndex": 13713,
+              "confidence": 0.6724062561988831,
+              "step": 2,
+              "stepGap": null
+            },
+            {
+              "blankBefore": 5,
+              "character": "单",
+              "classIndex": 3093,
+              "confidence": 0.9974890947341919,
+              "step": 9,
+              "stepGap": 7
+            },
+            {
+              "blankBefore": 3,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.9722710847854614,
+              "step": 13,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 2,
+              "character": "O",
+              "classIndex": 57,
+              "confidence": 0.9981461763381958,
+              "step": 16,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "r",
+              "classIndex": 86,
+              "confidence": 0.999985933303833,
+              "step": 19,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "d",
+              "classIndex": 72,
+              "confidence": 0.9999589920043945,
+              "step": 22,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 3,
+              "character": "e",
+              "classIndex": 73,
+              "confidence": 0.999984622001648,
+              "step": 26,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 2,
+              "character": "r",
+              "classIndex": 86,
+              "confidence": 0.9999934434890747,
+              "step": 29,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.9951111674308777,
+              "step": 32,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "A",
+              "classIndex": 43,
+              "confidence": 0.9995719790458679,
+              "step": 35,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.9733832478523254,
+              "step": 38,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "1",
+              "classIndex": 34,
+              "confidence": 0.9999738931655884,
+              "step": 42,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 2,
+              "character": "2",
+              "classIndex": 35,
+              "confidence": 0.9999984502792358,
+              "step": 45,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": ".",
+              "classIndex": 14,
+              "confidence": 0.9999980926513672,
+              "step": 48,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "5",
+              "classIndex": 38,
+              "confidence": 0.9999923706054688,
+              "step": 51,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "0",
+              "classIndex": 33,
+              "confidence": 0.9999890327453613,
+              "step": 54,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 3,
+              "character": "%",
+              "classIndex": 5,
+              "confidence": 0.9995641112327576,
+              "step": 58,
+              "stepGap": 4
+            }
+          ],
+          "emissionsLimited": false,
+          "inputShape": [
+            1,
+            3,
+            48,
+            495
+          ],
+          "node": 0,
+          "outputShape": [
+            1,
+            62,
+            18710
+          ],
+          "text": "订单 Order A 12.50%"
+        },
+        {
+          "confidence": 0.9721655561810448,
+          "emissions": [
+            {
+              "blankBefore": 2,
+              "character": "中",
+              "classIndex": 2129,
+              "confidence": 0.9998935461044312,
+              "step": 2,
+              "stepGap": null
+            },
+            {
+              "blankBefore": 5,
+              "character": "文",
+              "classIndex": 6518,
+              "confidence": 0.9999933242797852,
+              "step": 8,
+              "stepGap": 6
+            },
+            {
+              "blankBefore": 4,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.9300893545150757,
+              "step": 13,
+              "stepGap": 5
+            },
+            {
+              "blankBefore": 2,
+              "character": "O",
+              "classIndex": 57,
+              "confidence": 0.7937914729118347,
+              "step": 16,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 3,
+              "character": "C",
+              "classIndex": 45,
+              "confidence": 0.9998353719711304,
+              "step": 20,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 3,
+              "character": "R",
+              "classIndex": 60,
+              "confidence": 0.9991470575332642,
+              "step": 24,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 2,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.9093495607376099,
+              "step": 27,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "日",
+              "classIndex": 6586,
+              "confidence": 0.9999357461929321,
+              "step": 30,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 5,
+              "character": "本",
+              "classIndex": 6827,
+              "confidence": 0.9999978542327881,
+              "step": 36,
+              "stepGap": 6
+            },
+            {
+              "blankBefore": 5,
+              "character": "語",
+              "classIndex": 13524,
+              "confidence": 0.9969758987426758,
+              "step": 42,
+              "stepGap": 6
+            },
+            {
+              "blankBefore": 3,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.7865580916404724,
+              "step": 46,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 2,
+              "character": "2",
+              "classIndex": 35,
+              "confidence": 0.9999593496322632,
+              "step": 49,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 3,
+              "character": "0",
+              "classIndex": 33,
+              "confidence": 0.9999878406524658,
+              "step": 53,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 2,
+              "character": "2",
+              "classIndex": 35,
+              "confidence": 0.9999983310699463,
+              "step": 56,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "6",
+              "classIndex": 39,
+              "confidence": 0.9999978542327881,
+              "step": 59,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "-",
+              "classIndex": 13,
+              "confidence": 0.9999983310699463,
+              "step": 62,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "0",
+              "classIndex": 33,
+              "confidence": 0.9999842643737793,
+              "step": 65,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "9",
+              "classIndex": 42,
+              "confidence": 0.9999983310699463,
+              "step": 68,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "-",
+              "classIndex": 13,
+              "confidence": 0.9999977350234985,
+              "step": 71,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "1",
+              "classIndex": 34,
+              "confidence": 0.9999911785125732,
+              "step": 74,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": "8",
+              "classIndex": 41,
+              "confidence": 0.9999961853027344,
+              "step": 76,
+              "stepGap": 2
+            }
+          ],
+          "emissionsLimited": false,
+          "inputShape": [
+            1,
+            3,
+            48,
+            631
+          ],
+          "node": 1,
+          "outputShape": [
+            1,
+            79,
+            18710
+          ],
+          "text": "中文 OCR 日本語 2026-09-18"
+        },
+        {
+          "confidence": 0.9060671471414112,
+          "emissions": [
+            {
+              "blankBefore": 2,
+              "character": "A",
+              "classIndex": 43,
+              "confidence": 0.9994902610778809,
+              "step": 2,
+              "stepGap": null
+            },
+            {
+              "blankBefore": 2,
+              "character": "A",
+              "classIndex": 43,
+              "confidence": 0.9988006353378296,
+              "step": 5,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.6008259057998657,
+              "step": 8,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "1",
+              "classIndex": 34,
+              "confidence": 0.999961256980896,
+              "step": 12,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 2,
+              "character": "1",
+              "classIndex": 34,
+              "confidence": 0.9999693632125854,
+              "step": 15,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.864215612411499,
+              "step": 17,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 1,
+              "character": "l",
+              "classIndex": 80,
+              "confidence": 0.32869601249694824,
+              "step": 20,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": "l",
+              "classIndex": 80,
+              "confidence": 0.381869912147522,
+              "step": 22,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 1,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.9899179339408875,
+              "step": 24,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 2,
+              "character": "0",
+              "classIndex": 33,
+              "confidence": 0.9999743700027466,
+              "step": 27,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "0",
+              "classIndex": 33,
+              "confidence": 0.9999891519546509,
+              "step": 30,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.978425145149231,
+              "step": 33,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": "¥",
+              "classIndex": 98,
+              "confidence": 0.8855103850364685,
+              "step": 36,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 3,
+              "character": "1",
+              "classIndex": 34,
+              "confidence": 0.9999755620956421,
+              "step": 40,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 1,
+              "character": ",",
+              "classIndex": 12,
+              "confidence": 0.9998134970664978,
+              "step": 42,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 2,
+              "character": "2",
+              "classIndex": 35,
+              "confidence": 0.9999942779541016,
+              "step": 45,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "3",
+              "classIndex": 36,
+              "confidence": 0.9999971389770508,
+              "step": 48,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "4",
+              "classIndex": 37,
+              "confidence": 0.9999967813491821,
+              "step": 51,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": ".",
+              "classIndex": 14,
+              "confidence": 0.9999978542327881,
+              "step": 54,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": "5",
+              "classIndex": 38,
+              "confidence": 0.9999966621398926,
+              "step": 56,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 2,
+              "character": "0",
+              "classIndex": 33,
+              "confidence": 0.9999923706054688,
+              "step": 59,
+              "stepGap": 3
+            }
+          ],
+          "emissionsLimited": false,
+          "inputShape": [
+            1,
+            3,
+            48,
+            493
+          ],
+          "node": 2,
+          "outputShape": [
+            1,
+            62,
+            18710
+          ],
+          "text": "AA 11 ll 00 ¥1,234.50"
+        }
+      ]
+    },
+    {
+      "id": "numbers-symbols",
+      "lines": [
+        {
+          "confidence": 0.9007239327544257,
+          "emissions": [
+            {
+              "blankBefore": 2,
+              "character": "±",
+              "classIndex": 109,
+              "confidence": 0.9999475479125977,
+              "step": 2,
+              "stepGap": null
+            },
+            {
+              "blankBefore": 3,
+              "character": "0",
+              "classIndex": 33,
+              "confidence": 0.9997982382774353,
+              "step": 6,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 2,
+              "character": ".",
+              "classIndex": 14,
+              "confidence": 0.9999895095825195,
+              "step": 9,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": "0",
+              "classIndex": 33,
+              "confidence": 0.9999871253967285,
+              "step": 11,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 2,
+              "character": "2",
+              "classIndex": 35,
+              "confidence": 0.9999762773513794,
+              "step": 14,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 5,
+              "character": "√",
+              "classIndex": 951,
+              "confidence": 0.9988106489181519,
+              "step": 20,
+              "stepGap": 6
+            },
+            {
+              "blankBefore": 4,
+              "character": "2",
+              "classIndex": 35,
+              "confidence": 0.9999359846115112,
+              "step": 25,
+              "stepGap": 5
+            },
+            {
+              "blankBefore": 3,
+              "character": "≈",
+              "classIndex": 994,
+              "confidence": 0.9999985694885254,
+              "step": 29,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 4,
+              "character": "1",
+              "classIndex": 34,
+              "confidence": 0.9999704360961914,
+              "step": 34,
+              "stepGap": 5
+            },
+            {
+              "blankBefore": 1,
+              "character": ".",
+              "classIndex": 14,
+              "confidence": 0.9999696016311646,
+              "step": 36,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 1,
+              "character": "4",
+              "classIndex": 37,
+              "confidence": 0.9999964237213135,
+              "step": 38,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 2,
+              "character": "1",
+              "classIndex": 34,
+              "confidence": 0.9999473094940186,
+              "step": 41,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "4",
+              "classIndex": 37,
+              "confidence": 0.9999933242797852,
+              "step": 44,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 3,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.6997652053833008,
+              "step": 48,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 2,
+              "character": "Σ",
+              "classIndex": 637,
+              "confidence": 0.7207506895065308,
+              "step": 51,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 3,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.476092129945755,
+              "step": 55,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 3,
+              "character": "∫",
+              "classIndex": 965,
+              "confidence": 0.9901186227798462,
+              "step": 59,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 2,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.6667712330818176,
+              "step": 62,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 3,
+              "character": "π",
+              "classIndex": 659,
+              "confidence": 0.999880313873291,
+              "step": 66,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 2,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.7012907266616821,
+              "step": 69,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "∆",
+              "classIndex": 939,
+              "confidence": 0.6622126698493958,
+              "step": 72,
+              "stepGap": 3
+            }
+          ],
+          "emissionsLimited": false,
+          "inputShape": [
+            1,
+            3,
+            48,
+            595
+          ],
+          "node": 0,
+          "outputShape": [
+            1,
+            74,
+            18710
+          ],
+          "text": "±0.02√2≈1.414 Σ ∫ π ∆"
+        },
+        {
+          "confidence": 0.9590658855438232,
+          "emissions": [
+            {
+              "blankBefore": 2,
+              "character": "S",
+              "classIndex": 61,
+              "confidence": 0.99996018409729,
+              "step": 2,
+              "stepGap": null
+            },
+            {
+              "blankBefore": 2,
+              "character": "N",
+              "classIndex": 56,
+              "confidence": 0.9999425411224365,
+              "step": 5,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": ":",
+              "classIndex": 16,
+              "confidence": 0.9993415474891663,
+              "step": 8,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.6142190098762512,
+              "step": 10,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 1,
+              "character": "A",
+              "classIndex": 43,
+              "confidence": 0.9999593496322632,
+              "step": 12,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 2,
+              "character": "A",
+              "classIndex": 43,
+              "confidence": 0.9999779462814331,
+              "step": 15,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 3,
+              "character": "1",
+              "classIndex": 34,
+              "confidence": 0.9999817609786987,
+              "step": 19,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 2,
+              "character": "1",
+              "classIndex": 34,
+              "confidence": 0.9999852180480957,
+              "step": 22,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": "-",
+              "classIndex": 13,
+              "confidence": 0.9999910593032837,
+              "step": 24,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 2,
+              "character": "B",
+              "classIndex": 44,
+              "confidence": 0.9999649524688721,
+              "step": 27,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 3,
+              "character": "B",
+              "classIndex": 44,
+              "confidence": 0.9999785423278809,
+              "step": 31,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 2,
+              "character": "2",
+              "classIndex": 35,
+              "confidence": 0.9999920129776001,
+              "step": 34,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "2",
+              "classIndex": 35,
+              "confidence": 0.9999915361404419,
+              "step": 37,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.6752491593360901,
+              "step": 40,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": "/",
+              "classIndex": 15,
+              "confidence": 0.9696124792098999,
+              "step": 42,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 3,
+              "character": "9",
+              "classIndex": 42,
+              "confidence": 0.999997615814209,
+              "step": 46,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 1,
+              "character": "8",
+              "classIndex": 41,
+              "confidence": 0.9999954700469971,
+              "step": 48,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 2,
+              "character": ".",
+              "classIndex": 14,
+              "confidence": 0.9999991655349731,
+              "step": 51,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": "6",
+              "classIndex": 39,
+              "confidence": 0.9999959468841553,
+              "step": 53,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 3,
+              "character": "%",
+              "classIndex": 5,
+              "confidence": 0.9972144961357117,
+              "step": 57,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 3,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.7325276136398315,
+              "step": 61,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 1,
+              "character": "[",
+              "classIndex": 23,
+              "confidence": 0.9994300007820129,
+              "step": 64,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "O",
+              "classIndex": 57,
+              "confidence": 0.9894118905067444,
+              "step": 67,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 3,
+              "character": "K",
+              "classIndex": 53,
+              "confidence": 0.9999434947967529,
+              "step": 71,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 1,
+              "character": "]",
+              "classIndex": 25,
+              "confidence": 0.9999841451644897,
+              "step": 73,
+              "stepGap": 2
+            }
+          ],
+          "emissionsLimited": false,
+          "inputShape": [
+            1,
+            3,
+            48,
+            597
+          ],
+          "node": 1,
+          "outputShape": [
+            1,
+            75,
+            18710
+          ],
+          "text": "SN: AA11-BB22 /98.6% [OK]"
+        }
+      ]
+    },
+    {
+      "id": "two-column-order",
+      "lines": [
+        {
+          "confidence": 0.9966272224079479,
+          "emissions": [
+            {
+              "blankBefore": 2,
+              "character": "左",
+              "classIndex": 5038,
+              "confidence": 0.9999842643737793,
+              "step": 2,
+              "stepGap": null
+            },
+            {
+              "blankBefore": 4,
+              "character": "栏",
+              "classIndex": 7006,
+              "confidence": 0.9998084902763367,
+              "step": 7,
+              "stepGap": 5
+            },
+            {
+              "blankBefore": 2,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.9674460887908936,
+              "step": 10,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": "0",
+              "classIndex": 33,
+              "confidence": 0.9998204112052917,
+              "step": 12,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 2,
+              "character": "1",
+              "classIndex": 34,
+              "confidence": 0.9999595880508423,
+              "step": 15,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.996641993522644,
+              "step": 17,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 2,
+              "character": "A",
+              "classIndex": 43,
+              "confidence": 0.9998416900634766,
+              "step": 20,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": "l",
+              "classIndex": 80,
+              "confidence": 0.9995075464248657,
+              "step": 22,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 1,
+              "character": "p",
+              "classIndex": 84,
+              "confidence": 0.9999932050704956,
+              "step": 24,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 2,
+              "character": "h",
+              "classIndex": 76,
+              "confidence": 0.9999858140945435,
+              "step": 27,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "a",
+              "classIndex": 69,
+              "confidence": 0.9999103546142578,
+              "step": 30,
+              "stepGap": 3
+            }
+          ],
+          "emissionsLimited": false,
+          "inputShape": [
+            1,
+            3,
+            48,
+            252
+          ],
+          "node": 1,
+          "outputShape": [
+            1,
+            31,
+            18710
+          ],
+          "text": "左栏 01 Alpha"
+        },
+        {
+          "confidence": 0.9945572316646576,
+          "emissions": [
+            {
+              "blankBefore": 2,
+              "character": "左",
+              "classIndex": 5038,
+              "confidence": 0.9999865293502808,
+              "step": 2,
+              "stepGap": null
+            },
+            {
+              "blankBefore": 4,
+              "character": "栏",
+              "classIndex": 7006,
+              "confidence": 0.9998922348022461,
+              "step": 7,
+              "stepGap": 5
+            },
+            {
+              "blankBefore": 2,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.9508818984031677,
+              "step": 10,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": "0",
+              "classIndex": 33,
+              "confidence": 0.9999368190765381,
+              "step": 12,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 2,
+              "character": "2",
+              "classIndex": 35,
+              "confidence": 0.9999862909317017,
+              "step": 15,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.9949618577957153,
+              "step": 17,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 1,
+              "character": "B",
+              "classIndex": 44,
+              "confidence": 0.9999608993530273,
+              "step": 20,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "e",
+              "classIndex": 73,
+              "confidence": 0.9999849796295166,
+              "step": 23,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": "t",
+              "classIndex": 88,
+              "confidence": 0.9999942779541016,
+              "step": 25,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 1,
+              "character": "a",
+              "classIndex": 69,
+              "confidence": 0.9999865293502808,
+              "step": 27,
+              "stepGap": 2
+            }
+          ],
+          "emissionsLimited": false,
+          "inputShape": [
+            1,
+            3,
+            48,
+            233
+          ],
+          "node": 2,
+          "outputShape": [
+            1,
+            29,
+            18710
+          ],
+          "text": "左栏 02 Beta"
+        },
+        {
+          "confidence": 0.9449184735616049,
+          "emissions": [
+            {
+              "blankBefore": 2,
+              "character": "右",
+              "classIndex": 3209,
+              "confidence": 0.9999490976333618,
+              "step": 2,
+              "stepGap": null
+            },
+            {
+              "blankBefore": 4,
+              "character": "欄",
+              "classIndex": 7509,
+              "confidence": 0.9903556108474731,
+              "step": 7,
+              "stepGap": 5
+            },
+            {
+              "blankBefore": 2,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.7597561478614807,
+              "step": 10,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 0,
+              "character": "0",
+              "classIndex": 33,
+              "confidence": 0.9999715089797974,
+              "step": 12,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 2,
+              "character": "3",
+              "classIndex": 36,
+              "confidence": 0.9999327659606934,
+              "step": 15,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.7624256610870361,
+              "step": 17,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 2,
+              "character": "日",
+              "classIndex": 6586,
+              "confidence": 0.9999840259552002,
+              "step": 21,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 4,
+              "character": "本",
+              "classIndex": 6827,
+              "confidence": 0.9999969005584717,
+              "step": 26,
+              "stepGap": 5
+            },
+            {
+              "blankBefore": 3,
+              "character": "語",
+              "classIndex": 13524,
+              "confidence": 0.991894543170929,
+              "step": 30,
+              "stepGap": 4
+            }
+          ],
+          "emissionsLimited": false,
+          "inputShape": [
+            1,
+            3,
+            48,
+            268
+          ],
+          "node": 0,
+          "outputShape": [
+            1,
+            33,
+            18710
+          ],
+          "text": "右欄 03 日本語"
+        },
+        {
+          "confidence": 0.9845953746275469,
+          "emissions": [
+            {
+              "blankBefore": 2,
+              "character": "右",
+              "classIndex": 3209,
+              "confidence": 0.9998549222946167,
+              "step": 2,
+              "stepGap": null
+            },
+            {
+              "blankBefore": 4,
+              "character": "欄",
+              "classIndex": 7509,
+              "confidence": 0.9980226755142212,
+              "step": 7,
+              "stepGap": 5
+            },
+            {
+              "blankBefore": 3,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.8503022789955139,
+              "step": 11,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 1,
+              "character": "0",
+              "classIndex": 33,
+              "confidence": 0.99978107213974,
+              "step": 13,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 2,
+              "character": "4",
+              "classIndex": 37,
+              "confidence": 0.9998984336853027,
+              "step": 16,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.9848867058753967,
+              "step": 18,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 1,
+              "character": "G",
+              "classIndex": 49,
+              "confidence": 0.9982703924179077,
+              "step": 21,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "a",
+              "classIndex": 69,
+              "confidence": 0.9999575614929199,
+              "step": 24,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 3,
+              "character": "m",
+              "classIndex": 81,
+              "confidence": 0.9998470544815063,
+              "step": 28,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 4,
+              "character": "m",
+              "classIndex": 81,
+              "confidence": 0.9999561309814453,
+              "step": 33,
+              "stepGap": 5
+            },
+            {
+              "blankBefore": 3,
+              "character": "a",
+              "classIndex": 69,
+              "confidence": 0.9997718930244446,
+              "step": 37,
+              "stepGap": 4
+            }
+          ],
+          "emissionsLimited": false,
+          "inputShape": [
+            1,
+            3,
+            48,
+            311
+          ],
+          "node": 3,
+          "outputShape": [
+            1,
+            39,
+            18710
+          ],
+          "text": "右欄 04 Gamma"
+        }
+      ]
+    },
+    {
+      "id": "formula-routing",
+      "lines": [
+        {
+          "confidence": 0.9993914630677965,
+          "emissions": [
+            {
+              "blankBefore": 2,
+              "character": "x",
+              "classIndex": 92,
+              "confidence": 0.9981740713119507,
+              "step": 2,
+              "stepGap": null
+            },
+            {
+              "blankBefore": 1,
+              "character": "²",
+              "classIndex": 110,
+              "confidence": 0.999971866607666,
+              "step": 4,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 2,
+              "character": "+",
+              "classIndex": 11,
+              "confidence": 0.9993773102760315,
+              "step": 7,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 3,
+              "character": "1",
+              "classIndex": 34,
+              "confidence": 0.9998340606689453,
+              "step": 11,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 2,
+              "character": "/",
+              "classIndex": 15,
+              "confidence": 0.999921441078186,
+              "step": 14,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": "2",
+              "classIndex": 35,
+              "confidence": 0.9998869895935059,
+              "step": 16,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 2,
+              "character": "=",
+              "classIndex": 19,
+              "confidence": 0.9991782307624817,
+              "step": 19,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 3,
+              "character": "√",
+              "classIndex": 951,
+              "confidence": 0.9986086487770081,
+              "step": 23,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 4,
+              "character": "2",
+              "classIndex": 35,
+              "confidence": 0.9995705485343933,
+              "step": 28,
+              "stepGap": 5
+            }
+          ],
+          "emissionsLimited": false,
+          "inputShape": [
+            1,
+            3,
+            48,
+            239
+          ],
+          "node": 0,
+          "outputShape": [
+            1,
+            30,
+            18710
+          ],
+          "text": "x²+1/2=√2"
+        }
+      ]
+    },
+    {
+      "id": "low-contrast-small",
+      "lines": [
+        {
+          "confidence": 0.9717880686124166,
+          "emissions": [
+            {
+              "blankBefore": 1,
+              "character": "L",
+              "classIndex": 54,
+              "confidence": 0.9999651908874512,
+              "step": 1,
+              "stepGap": null
+            },
+            {
+              "blankBefore": 2,
+              "character": "o",
+              "classIndex": 83,
+              "confidence": 0.999962568283081,
+              "step": 4,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "w",
+              "classIndex": 91,
+              "confidence": 0.9963453412055969,
+              "step": 7,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.6330576539039612,
+              "step": 10,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": "c",
+              "classIndex": 71,
+              "confidence": 0.9998049139976501,
+              "step": 13,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": "o",
+              "classIndex": 83,
+              "confidence": 0.9999901056289673,
+              "step": 15,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 2,
+              "character": "n",
+              "classIndex": 82,
+              "confidence": 0.9999881982803345,
+              "step": 18,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "t",
+              "classIndex": 88,
+              "confidence": 0.9999979734420776,
+              "step": 21,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": "r",
+              "classIndex": 86,
+              "confidence": 0.9999948740005493,
+              "step": 23,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 1,
+              "character": "a",
+              "classIndex": 69,
+              "confidence": 0.9999884366989136,
+              "step": 26,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": "s",
+              "classIndex": 87,
+              "confidence": 0.9999861717224121,
+              "step": 28,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 1,
+              "character": "t",
+              "classIndex": 88,
+              "confidence": 0.9999963045120239,
+              "step": 30,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 1,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.9925456643104553,
+              "step": 32,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 1,
+              "character": "中",
+              "classIndex": 2129,
+              "confidence": 0.9998162388801575,
+              "step": 35,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 4,
+              "character": "文",
+              "classIndex": 6518,
+              "confidence": 0.9999438524246216,
+              "step": 40,
+              "stepGap": 5
+            },
+            {
+              "blankBefore": 2,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.7777082920074463,
+              "step": 43,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": "O",
+              "classIndex": 57,
+              "confidence": 0.9460115432739258,
+              "step": 46,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 3,
+              "character": "C",
+              "classIndex": 45,
+              "confidence": 0.9978534579277039,
+              "step": 50,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 2,
+              "character": "R",
+              "classIndex": 60,
+              "confidence": 0.9989526271820068,
+              "step": 53,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.9815451502799988,
+              "step": 55,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 0,
+              "character": "8",
+              "classIndex": 41,
+              "confidence": 0.9998893737792969,
+              "step": 57,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 2,
+              "character": ".",
+              "classIndex": 14,
+              "confidence": 0.9999991655349731,
+              "step": 60,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": "5",
+              "classIndex": 38,
+              "confidence": 0.999997615814209,
+              "step": 62,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 2,
+              "character": "%",
+              "classIndex": 5,
+              "confidence": 0.9995729327201843,
+              "step": 65,
+              "stepGap": 3
+            }
+          ],
+          "emissionsLimited": false,
+          "inputShape": [
+            1,
+            3,
+            48,
+            547
+          ],
+          "node": 0,
+          "outputShape": [
+            1,
+            68,
+            18710
+          ],
+          "text": "Low contrast 中文 OCR 8.5%"
+        },
+        {
+          "confidence": 0.993155606768348,
+          "emissions": [
+            {
+              "blankBefore": 1,
+              "character": "R",
+              "classIndex": 60,
+              "confidence": 0.9998434782028198,
+              "step": 1,
+              "stepGap": null
+            },
+            {
+              "blankBefore": 2,
+              "character": "e",
+              "classIndex": 73,
+              "confidence": 0.9999895095825195,
+              "step": 4,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "f",
+              "classIndex": 74,
+              "confidence": 0.9999580383300781,
+              "step": 7,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 0,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.9256913065910339,
+              "step": 8,
+              "stepGap": 1
+            },
+            {
+              "blankBefore": 0,
+              "character": "0",
+              "classIndex": 33,
+              "confidence": 0.9998819828033447,
+              "step": 10,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 2,
+              "character": "0",
+              "classIndex": 33,
+              "confidence": 0.9999867677688599,
+              "step": 13,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "1",
+              "classIndex": 34,
+              "confidence": 0.9999330043792725,
+              "step": 16,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "1",
+              "classIndex": 34,
+              "confidence": 0.9999593496322632,
+              "step": 19,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "2",
+              "classIndex": 35,
+              "confidence": 0.9999959468841553,
+              "step": 22,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "2",
+              "classIndex": 35,
+              "confidence": 0.9999943971633911,
+              "step": 25,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.9284749627113342,
+              "step": 27,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 1,
+              "character": "v",
+              "classIndex": 90,
+              "confidence": 0.999758780002594,
+              "step": 30,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "a",
+              "classIndex": 69,
+              "confidence": 0.9999887943267822,
+              "step": 33,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": "l",
+              "classIndex": 80,
+              "confidence": 0.9999380111694336,
+              "step": 35,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 2,
+              "character": "u",
+              "classIndex": 89,
+              "confidence": 0.9999847412109375,
+              "step": 38,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 2,
+              "character": "e",
+              "classIndex": 73,
+              "confidence": 0.9999762773513794,
+              "step": 41,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": " ",
+              "classIndex": 18709,
+              "confidence": 0.9961651563644409,
+              "step": 43,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 1,
+              "character": "±",
+              "classIndex": 109,
+              "confidence": 0.999967098236084,
+              "step": 46,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 3,
+              "character": "0",
+              "classIndex": 33,
+              "confidence": 0.9999550580978394,
+              "step": 50,
+              "stepGap": 4
+            },
+            {
+              "blankBefore": 1,
+              "character": ".",
+              "classIndex": 14,
+              "confidence": 0.9999942779541016,
+              "step": 52,
+              "stepGap": 2
+            },
+            {
+              "blankBefore": 2,
+              "character": "0",
+              "classIndex": 33,
+              "confidence": 0.999992847442627,
+              "step": 55,
+              "stepGap": 3
+            },
+            {
+              "blankBefore": 1,
+              "character": "8",
+              "classIndex": 41,
+              "confidence": 0.9999935626983643,
+              "step": 57,
+              "stepGap": 2
+            }
+          ],
+          "emissionsLimited": false,
+          "inputShape": [
+            1,
+            3,
+            48,
+            474
+          ],
+          "node": 1,
+          "outputShape": [
+            1,
+            59,
+            18710
+          ],
+          "text": "Ref 001122 value ±0.08"
+        }
+      ]
+    }
+  ],
+  "runtime": {
+    "featureSchema": "clippy-edge-features-v1",
+    "models": {
+      "det": "d73e0058b7a8086bbd57f3d10b8bcd4ff95363f67e06e2762b5e814fe9c9410e",
+      "dictionary": "b5f2bfe2bdd9448429e3e82b51c789775d9b42f2403d082b00662eb77e401c5d",
+      "edge": "8f1a6c5c78d013142f761a62e7a03cd9392a791d5751952e4a6abb24ff9ff3af",
+      "rec": "5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634"
+    },
+    "numpy": "2.2.6",
+    "onnxruntime": "1.25.0",
+    "opencv": "4.12.0",
+    "pipelineId": "ppocrv6-edgegnn-v1",
+    "python": "3.12.14",
+    "sourceFiles": {
+      "main.py": "56c8bb3f81491b249fb6db26cdb836964330c311435e766ded1c1b28fecc9bf0",
+      "pipeline.py": "65f79ae7aabb0d76609714543c0e2e988f7d8cf34b734447b5f74d3f74a80693",
+      "quality_collect.py": "9eca101c9dff7443c46c90e6bf66a5868a0ad1fc22edacc684c13cc73e76ea7b",
+      "requirements.lock": "0df551845bb375c8bcd36abffd0a7347d744b8317beb32c2c907779150285f7f"
+    }
+  },
+  "schema": "clippy-ocr-ctc-diagnostics-evidence-v1"
+}

@@ -1,0 +1,478 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { X } from "lucide-react";
+import {
+  closeRecordingLibrary,
+  deleteRecordingSession,
+  exportRecordingArtifact,
+  getRecordingThumbnail,
+  getRecordingMediaUrl,
+  listRecordings,
+  mergeRecordingSession,
+  prepareRecordingPlayback,
+  recordingLibraryReady,
+  releaseRecordingPlayback,
+  revealRecordingArtifact,
+  startRecordingLibraryDrag,
+} from "../../js/api.ts";
+import type { RecordingLibraryArtifact, RecordingLibraryItem } from "../../js/ipc-types.ts";
+import { t } from "../../i18n/i18n.js";
+
+export type RecordingLibraryServices = {
+  ready: typeof recordingLibraryReady;
+  list: typeof listRecordings;
+  thumbnail: typeof getRecordingThumbnail;
+  exportArtifact: typeof exportRecordingArtifact;
+  revealArtifact: typeof revealRecordingArtifact;
+  deleteSession: typeof deleteRecordingSession;
+  mergeSession: typeof mergeRecordingSession;
+  preparePlayback: typeof prepareRecordingPlayback;
+  releasePlayback: typeof releaseRecordingPlayback;
+  mediaUrl: typeof getRecordingMediaUrl;
+  startDrag: typeof startRecordingLibraryDrag;
+  close: typeof closeRecordingLibrary;
+};
+
+const defaultServices: RecordingLibraryServices = {
+  ready: recordingLibraryReady,
+  list: listRecordings,
+  thumbnail: getRecordingThumbnail,
+  exportArtifact: exportRecordingArtifact,
+  revealArtifact: revealRecordingArtifact,
+  deleteSession: deleteRecordingSession,
+  mergeSession: mergeRecordingSession,
+  preparePlayback: prepareRecordingPlayback,
+  releasePlayback: releaseRecordingPlayback,
+  mediaUrl: getRecordingMediaUrl,
+  startDrag: startRecordingLibraryDrag,
+  close: closeRecordingLibrary,
+};
+
+export function formatRecordingDuration(milliseconds: number): string {
+  const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return hours > 0
+    ? `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
+    : `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+export function formatRecordingBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+export function formatRecordingAudio(audio: NonNullable<RecordingLibraryItem["audio"]>): string {
+  const channelLabel = audio.channels === 1 ? "mono" : "stereo";
+  const sampleRate = Number.isInteger(audio.sampleRateHz / 1000)
+    ? `${audio.sampleRateHz / 1000} kHz`
+    : `${audio.sampleRateHz} Hz`;
+  const encoder = audio.encoder.toLowerCase() === "opus" ? "Opus" : audio.encoder;
+  return `${encoder} · ${sampleRate} ${channelLabel}`;
+}
+
+function artifactBusyKey(sessionId: string, artifactId: string, action = "artifact"): string {
+  return `${action}:${sessionId}:${artifactId}`;
+}
+
+function RecordingThumbnail({
+  session,
+  loadThumbnail,
+}: {
+  session: RecordingLibraryItem;
+  loadThumbnail: RecordingLibraryServices["thumbnail"];
+}) {
+  const element = useRef<HTMLDivElement>(null);
+  const generation = useRef(0);
+  const [thumbnail, setThumbnail] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!session.canThumbnail) {
+      setThumbnail(null);
+      return undefined;
+    }
+    let requested = false;
+    const load = () => {
+      if (requested) return;
+      requested = true;
+      const current = ++generation.current;
+      void loadThumbnail(session.sessionId)
+        .then((bytes) => {
+          if (current === generation.current) {
+            setThumbnail(bytes ? `data:image/png;base64,${bytes}` : null);
+          }
+        })
+        .catch(() => {
+          if (current === generation.current) setThumbnail(null);
+        });
+    };
+    const release = (clear = true) => {
+      generation.current += 1;
+      requested = false;
+      if (clear) setThumbnail(null);
+    };
+    const node = element.current;
+    if (!node || typeof IntersectionObserver === "undefined") {
+      load();
+      return () => release(false);
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) load();
+      else release();
+    }, { rootMargin: "160px 0px" });
+    observer.observe(node);
+    return () => {
+      observer.disconnect();
+      release(false);
+    };
+  }, [loadThumbnail, session.canThumbnail, session.sessionId]);
+
+  return (
+    <div className="recording-thumbnail" ref={element} aria-hidden="true">
+      {thumbnail
+        ? <img src={thumbnail} alt="" />
+        : <span>▶</span>}
+    </div>
+  );
+}
+
+function ArtifactRow({
+  session,
+  artifact,
+  busyKey,
+  onExport,
+  onReveal,
+  onPlay,
+  canPlay,
+  playing,
+}: {
+  session: RecordingLibraryItem;
+  artifact: RecordingLibraryArtifact;
+  busyKey: string | null;
+  onExport: (sessionId: string, artifactId: string) => void;
+  onReveal: (sessionId: string, artifactId: string) => void;
+  onPlay: (session: RecordingLibraryItem, artifact: RecordingLibraryArtifact) => void;
+  canPlay: boolean;
+  playing: boolean;
+}) {
+  const busy = busyKey === artifactBusyKey(session.sessionId, artifact.artifactId);
+  const preparing = busyKey === artifactBusyKey(session.sessionId, artifact.artifactId, "playback");
+  return (
+    <li className="recording-artifact">
+      <div className="artifact-copy">
+        <strong>{artifact.displayName}</strong>
+        <span>{formatRecordingDuration(artifact.durationMs)} · {formatRecordingBytes(artifact.byteLength)}</span>
+      </div>
+      <div className="artifact-actions">
+        {canPlay && (
+          <button
+            className={playing ? "active" : ""}
+            type="button"
+            disabled={busyKey !== null || playing}
+            onClick={() => onPlay(session, artifact)}
+          >
+            {preparing ? t("recordings.loadingPreview") : playing ? t("recordings.playing") : t("recordings.play")}
+          </button>
+        )}
+        <button type="button" disabled={busyKey !== null} onClick={() => onReveal(session.sessionId, artifact.artifactId)}>
+          {t("recordings.showInFolder")}
+        </button>
+        <button className="primary" type="button" disabled={busyKey !== null} onClick={() => onExport(session.sessionId, artifact.artifactId)}>
+          {busy ? t("recordings.working") : t("recordings.export")}
+        </button>
+      </div>
+    </li>
+  );
+}
+
+type RecordingPlayback = {
+  sessionId: string;
+  artifactId: string;
+  displayName: string;
+  token: string;
+  mimeType: "video/webm";
+  url: string;
+};
+
+export function App({ services = defaultServices }: { services?: RecordingLibraryServices } = {}) {
+  const generation = useRef(0);
+  const mounted = useRef(false);
+  const [items, setItems] = useState<RecordingLibraryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [actionError, setActionError] = useState(false);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [playback, setPlayback] = useState<RecordingPlayback | null>(null);
+  const playbackRef = useRef<RecordingPlayback | null>(null);
+  const pendingPlayback = useRef<{ key: string } | null>(null);
+
+  const load = useCallback(async () => {
+    const current = ++generation.current;
+    setLoading(true);
+    setLoadError(false);
+    try {
+      const next = await services.list();
+      if (current === generation.current) setItems(next);
+    } catch {
+      if (current === generation.current) setLoadError(true);
+    } finally {
+      if (current === generation.current) setLoading(false);
+    }
+  }, [services]);
+
+  useEffect(() => {
+    let retired = false;
+    mounted.current = true;
+    setPlayback(null);
+    setBusyKey(null);
+    setActionError(false);
+    void load().finally(() => {
+      // 标记属于本次 effect；后继挂载不能重新激活旧加载的显示/聚焦请求。
+      if (!retired) return services.ready().catch(() => undefined);
+    });
+    return () => {
+      retired = true;
+      mounted.current = false;
+      pendingPlayback.current = null;
+      generation.current += 1;
+      const current = playbackRef.current;
+      playbackRef.current = null;
+      if (current) void services.releasePlayback(current.token).catch(() => undefined);
+    };
+  }, [load, services]);
+
+  const closePlayback = useCallback(async () => {
+    const pending = pendingPlayback.current;
+    pendingPlayback.current = null;
+    // 只退休正在切换的播放准备，不能解除其它导出/恢复动作的忙碌状态。
+    if (pending) setBusyKey((current) => current === pending.key ? null : current);
+    const current = playbackRef.current;
+    playbackRef.current = null;
+    setPlayback(null);
+    if (current) await services.releasePlayback(current.token).catch(() => undefined);
+  }, [services]);
+
+  const openPlayback = async (session: RecordingLibraryItem, artifact: RecordingLibraryArtifact) => {
+    if (busyKey) return;
+    const key = artifactBusyKey(session.sessionId, artifact.artifactId, "playback");
+    const request = { key };
+    pendingPlayback.current = request;
+    const isCurrent = () => mounted.current && pendingPlayback.current === request;
+    let preparedToken: string | null = null;
+    setBusyKey(key);
+    setActionError(false);
+    try {
+      const lease = await services.preparePlayback(session.sessionId, artifact.artifactId);
+      preparedToken = lease.token;
+      // 租约可能已在后端签发；即使组件退休，也通过发起请求的服务释放迟到结果。
+      if (!isCurrent()) {
+        await services.releasePlayback(lease.token).catch(() => undefined);
+        preparedToken = null;
+        return;
+      }
+      const next: RecordingPlayback = {
+        sessionId: session.sessionId,
+        artifactId: artifact.artifactId,
+        displayName: artifact.displayName,
+        token: lease.token,
+        mimeType: lease.mimeType,
+        url: services.mediaUrl(lease.token),
+      };
+      const previous = playbackRef.current;
+      playbackRef.current = next;
+      setPlayback(next);
+      preparedToken = null;
+      if (previous) void services.releasePlayback(previous.token).catch(() => undefined);
+    } catch {
+      if (preparedToken) void services.releasePlayback(preparedToken).catch(() => undefined);
+      if (isCurrent()) setActionError(true);
+    } finally {
+      if (isCurrent()) {
+        pendingPlayback.current = null;
+        setBusyKey(null);
+      }
+    }
+  };
+
+  const runArtifact = async (
+    sessionId: string,
+    artifactId: string,
+    action: (sessionId: string, artifactId: string) => Promise<unknown>,
+  ) => {
+    if (busyKey) return;
+    const key = artifactBusyKey(sessionId, artifactId);
+    setBusyKey(key);
+    setActionError(false);
+    try {
+      await action(sessionId, artifactId);
+    } catch {
+      setActionError(true);
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const remove = async (sessionId: string) => {
+    if (busyKey) return;
+    setBusyKey(`delete:${sessionId}`);
+    setActionError(false);
+    try {
+      if (playbackRef.current?.sessionId === sessionId) await closePlayback();
+      await services.deleteSession(sessionId);
+      setConfirmDelete(null);
+      await load();
+    } catch {
+      setActionError(true);
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const recover = async (sessionId: string) => {
+    if (busyKey) return;
+    setBusyKey(`merge:${sessionId}`);
+    setActionError(false);
+    try {
+      if (playbackRef.current?.sessionId === sessionId) await closePlayback();
+      await services.mergeSession(sessionId);
+      if (!mounted.current) return;
+      await load();
+    } catch {
+      if (mounted.current) setActionError(true);
+    } finally {
+      if (mounted.current) setBusyKey(null);
+    }
+  };
+
+  return (
+    <main className="window-shell recordings-shell">
+      <header className="window-titlebar recordings-titlebar" onMouseDown={(event) => {
+        if (event.button !== 0 || (event.target as Element).closest("button,input,select,textarea,a")) return;
+        event.preventDefault();
+        void services.startDrag();
+      }}>
+        <div className="window-titlebar__copy">
+          <h1>{t("recordings.title")}</h1>
+          <p>{t("recordings.subtitle")}</p>
+        </div>
+        <button className="window-titlebar__button window-titlebar__button--close window-close" type="button" aria-label={t("recordings.close")} onClick={() => void services.close()}><X size={20} /></button>
+      </header>
+
+      <section className="recordings-content" aria-live="polite">
+        {loading && <div className="library-state">{t("recordings.loading")}</div>}
+        {!loading && loadError && (
+          <div className="library-state error-state" role="status">
+            <p>{t("recordings.error")}</p>
+            <button type="button" onClick={() => void load()}>{t("recordings.retry")}</button>
+          </div>
+        )}
+        {!loading && !loadError && actionError && (
+          <div className="action-error" role="status">
+            {t("recordings.actionError")}
+          </div>
+        )}
+        {!loading && !loadError && items.length === 0 && (
+          <div className="library-state empty-state">
+            <div className="empty-icon" aria-hidden="true">◉</div>
+            <h2>{t("recordings.emptyTitle")}</h2>
+            <p>{t("recordings.emptyBody")}</p>
+          </div>
+        )}
+        {!loading && items.map((item) => (
+          <article className="recording-card" key={item.sessionId}>
+            <div className="recording-overview">
+              <RecordingThumbnail session={item} loadThumbnail={services.thumbnail} />
+              <div className="recording-overview-copy">
+                <div className="recording-summary">
+                  <div>
+                    <div className="recording-heading">
+                      <h2>{new Date(item.createdAtUnixMs).toLocaleString()}</h2>
+                      <span className={`status-badge ${item.state}`}>
+                        {t(`recordings.state.${item.state}`)}
+                      </span>
+                    </div>
+                    <p>
+                      {item.width} × {item.height} · {(item.targetFpsNumerator / item.targetFpsDenominator).toFixed(0)} fps · {formatRecordingDuration(item.durationMs)} · {formatRecordingBytes(item.byteLength)}
+                    </p>
+                    {item.audio && <p className="recording-audio-summary">{formatRecordingAudio(item.audio)}</p>}
+                  </div>
+                  <button className="danger-link" type="button" disabled={busyKey !== null} onClick={() => setConfirmDelete(item.sessionId)}>
+                    {t("recordings.delete")}
+                  </button>
+                </div>
+                {item.state === "interrupted" && (
+                  <div className="recovery-note">
+                    <p>{t("recordings.recoveryNote")}</p>
+                    {item.canMerge && (
+                      <button
+                        className="primary"
+                        type="button"
+                        disabled={busyKey !== null}
+                        onClick={() => void recover(item.sessionId)}
+                      >
+                        {busyKey === `merge:${item.sessionId}`
+                          ? t("recordings.recovering")
+                          : t("recordings.recover")}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+            {item.artifacts.length > 0 ? (
+              <ul className="artifact-list">
+                {item.artifacts.map((artifact) => (
+                  <ArtifactRow
+                    key={artifact.artifactId}
+                    session={item}
+                    artifact={artifact}
+                    busyKey={busyKey}
+                    onExport={(sessionId, artifactId) => void runArtifact(sessionId, artifactId, services.exportArtifact)}
+                    onReveal={(sessionId, artifactId) => void runArtifact(sessionId, artifactId, services.revealArtifact)}
+                    onPlay={(session, artifact) => void openPlayback(session, artifact)}
+                    canPlay={item.container.toLowerCase() === "webm"}
+                    playing={playback?.sessionId === item.sessionId && playback.artifactId === artifact.artifactId}
+                  />
+                ))}
+              </ul>
+            ) : (
+              <p className="no-segments">{t("recordings.noSegments")}</p>
+            )}
+            {playback?.sessionId === item.sessionId && (
+              <section className="recording-player" aria-label={t("recordings.previewTitle") }>
+                <div className="recording-player-heading">
+                  <div>
+                    <strong>{t("recordings.previewTitle")}</strong>
+                    <span>{playback.displayName}</span>
+                  </div>
+                  <button type="button" onClick={() => void closePlayback()}>{t("recordings.closePreview")}</button>
+                </div>
+                <video
+                  controls
+                  playsInline
+                  preload="metadata"
+                  onError={() => setActionError(true)}
+                >
+                  <source src={playback.url} type={playback.mimeType} />
+                  {t("recordings.playbackUnsupported")}
+                </video>
+              </section>
+            )}
+            {confirmDelete === item.sessionId && (
+              <div className="delete-confirm" role="alertdialog" aria-label={t("recordings.deleteConfirm") }>
+                <span>{t("recordings.deleteConfirm")}</span>
+                <div>
+                  <button type="button" onClick={() => setConfirmDelete(null)}>{t("recordings.cancel")}</button>
+                  <button className="danger" type="button" disabled={busyKey !== null} onClick={() => void remove(item.sessionId)}>{t("recordings.delete")}</button>
+                </div>
+              </div>
+            )}
+          </article>
+        ))}
+      </section>
+    </main>
+  );
+}

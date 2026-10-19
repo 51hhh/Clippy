@@ -14,6 +14,13 @@ const degraded = (id, title, acceptedReasonCodes) =>
       ? Object.freeze([...acceptedReasonCodes])
       : Object.freeze([acceptedReasonCodes]),
   });
+const versionGated = (id, title, acceptedReasonCode) =>
+  Object.freeze({
+    id,
+    title,
+    acceptedStatuses: ["pass", "expected_degraded"],
+    acceptedReasonCodes: Object.freeze([acceptedReasonCode]),
+  });
 
 const PORTAL_AUTHORIZATION_OUTCOMES = Object.freeze([
   "portal_select_devices_rejected",
@@ -52,6 +59,101 @@ const COMMON_CASES = Object.freeze([
   pass("updater_roundtrip", "安装类型识别、检查更新、下载安装与重启"),
 ]);
 
+const RECORDING_AVAILABLE_CASES = Object.freeze([
+  pass(
+    "recording_region_roundtrip",
+    "受门控区域录屏、光标、暂停/继续/停止与结果库播放导出",
+  ),
+  pass(
+    "recording_control_exclusion",
+    "录屏控制窗按平台合同排除且不进入输出画面",
+  ),
+  pass(
+    "recording_recovery_roundtrip",
+    "周期分段强杀恢复、首帧缩略图与无损合并",
+  ),
+]);
+
+const LINUX_WINDOWS_AV_RECORDING_CASES = Object.freeze([
+  pass(
+    "recording_system_audio",
+    "系统声双轨录制、暂停/继续、结果库播放与音轨摘要",
+  ),
+  pass(
+    "recording_microphone",
+    "默认麦克风双轨录制、暂停/继续、结果库播放与音轨摘要",
+  ),
+  pass(
+    "recording_system_and_microphone",
+    "系统声与默认麦克风同时录制、固定混音增益、单路静音和暂停/继续",
+  ),
+  pass(
+    "recording_audio_device_failure",
+    "音频设备拔出或禁用时两轨中止、资源回收与已提交分段保留",
+  ),
+  pass(
+    "recording_av_long_drift",
+    "至少 30 分钟系统声与画面同步、内存、CPU 和 A/V 漂移",
+  ),
+]);
+
+const MACOS_AV_RECORDING_CASES = Object.freeze([
+  versionGated(
+    "recording_system_audio",
+    "macOS 13+ 系统声双轨录制、暂停/继续、播放与音轨摘要",
+    "macos_system_audio_requires_13",
+  ),
+  versionGated(
+    "recording_microphone",
+    "macOS 15+ 默认麦克风双轨录制、权限、暂停/继续与音轨摘要",
+    "macos_microphone_requires_15",
+  ),
+  versionGated(
+    "recording_system_and_microphone",
+    "macOS 15+ 系统声与默认麦克风同时录制、固定混音增益、单路静音和暂停/继续",
+    "macos_microphone_requires_15",
+  ),
+  versionGated(
+    "recording_mic_native_rates",
+    "macOS 15+ 内建/外接麦克风 44.1/48/88.2/96 kHz 原生格式均输出 48 kHz 音轨",
+    "macos_microphone_requires_15",
+  ),
+  versionGated(
+    "recording_mic_stop_tail",
+    "macOS 15+ 短录音与正常停止保留首尾声音且暂停前滤波尾部不泄漏",
+    "macos_microphone_requires_15",
+  ),
+  versionGated(
+    "recording_audio_device_failure",
+    "音频设备消失时两轨中止、资源回收与已提交分段保留",
+    "macos_system_audio_requires_13",
+  ),
+  versionGated(
+    "recording_av_long_drift",
+    "至少 30 分钟系统声/麦克风与画面同步、内存、CPU 和 A/V 漂移",
+    "macos_system_audio_requires_13",
+  ),
+]);
+
+const WAYLAND_RECORDING_AVAILABLE_CASES = Object.freeze([
+  pass(
+    "recording_wayland_authorization",
+    "ScreenCast Portal 可信父窗口、允许/拒绝/取消与错误显示器回滚",
+  ),
+  pass(
+    "recording_region_roundtrip",
+    "Wayland 区域录屏、嵌入光标、托盘暂停/继续/停止与结果库播放导出",
+  ),
+  pass(
+    "recording_wayland_tray_controls",
+    "录制阶段授权窗隐藏且原生托盘控制不会进入输出画面",
+  ),
+  pass(
+    "recording_recovery_roundtrip",
+    "周期分段强杀恢复、首帧缩略图与无损合并",
+  ),
+]);
+
 const PROFILES = {
   "linux-gnome-x11": {
     label: "Ubuntu 22.04 GNOME 42 X11",
@@ -63,6 +165,8 @@ const PROFILES = {
       pass("mixed_dpi", "多显示器、负坐标与混合缩放"),
       pass("pin_topmost", "Pin 窗口持续置顶"),
       pass("capture_diagnostics", "截图诊断 I1–I5 与 fixture 输出"),
+      ...RECORDING_AVAILABLE_CASES,
+      ...LINUX_WINDOWS_AV_RECORDING_CASES,
     ],
   },
   "linux-gnome-wayland": {
@@ -78,6 +182,8 @@ const PROFILES = {
       degraded("pin_topmost_limit", "永久置顶限制与 UI 如实降级", "wayland_protocol_limited"),
       pass("mixed_dpi", "多显示器、负坐标与混合缩放"),
       pass("capture_diagnostics", "截图诊断 I1–I5 与 fixture 输出"),
+      ...WAYLAND_RECORDING_AVAILABLE_CASES,
+      ...LINUX_WINDOWS_AV_RECORDING_CASES,
     ],
   },
   "linux-gnome-wayland-ubuntu24": {
@@ -95,6 +201,27 @@ const PROFILES = {
       degraded("pin_topmost_limit", "永久置顶限制与 UI 如实降级", "wayland_protocol_limited"),
       pass("mixed_dpi", "多显示器、负坐标与混合缩放"),
       pass("capture_diagnostics", "截图诊断 I1–I5 与 fixture 输出"),
+      ...WAYLAND_RECORDING_AVAILABLE_CASES,
+      ...LINUX_WINDOWS_AV_RECORDING_CASES,
+    ],
+  },
+  "linux-gnome-wayland-ubuntu26": {
+    label: "Ubuntu 26.04 GNOME Wayland",
+    operatingSystem: "linux",
+    session: "wayland",
+    cases: [
+      pass("auto_paste_authorized", "授权后的 RemoteDesktop 自动粘贴"),
+      degraded("auto_paste_denied", "拒绝粘贴授权后保持 copy-only", PORTAL_AUTHORIZATION_OUTCOMES),
+      pass("gnome_extension_lifecycle", "窗口扩展未装、待注销、就绪和旧版恢复"),
+      pass("screenshot_window", "Shell helper 窗口命中与区域截图 fallback"),
+      pass("wayland_capture_fallbacks", "Mutter、Shell helper、Portal 与后续截图 fallback"),
+      pass("portal_capability_versions", "记录 Portal 各接口版本与实际选择的后端"),
+      degraded("absolute_position_limit", "绝对定位限制与 UI 如实降级", "wayland_protocol_limited"),
+      degraded("pin_topmost_limit", "永久置顶限制与 UI 如实降级", "wayland_protocol_limited"),
+      pass("mixed_dpi", "多显示器、负坐标与混合缩放"),
+      pass("capture_diagnostics", "截图诊断 I1–I5 与 fixture 输出"),
+      ...WAYLAND_RECORDING_AVAILABLE_CASES,
+      ...LINUX_WINDOWS_AV_RECORDING_CASES,
     ],
   },
   "linux-kde-wayland": {
@@ -110,6 +237,8 @@ const PROFILES = {
       degraded("window_pick_limit", "缺少全局窗口几何时不声称窗口命中", "wayland_protocol_limited"),
       degraded("absolute_position_limit", "绝对定位限制与 UI 如实降级", "wayland_protocol_limited"),
       degraded("pin_topmost_limit", "永久置顶限制与 UI 如实降级", "wayland_protocol_limited"),
+      ...WAYLAND_RECORDING_AVAILABLE_CASES,
+      ...LINUX_WINDOWS_AV_RECORDING_CASES,
     ],
   },
   "linux-wlroots-wayland": {
@@ -123,6 +252,8 @@ const PROFILES = {
       degraded("absolute_position_limit", "绝对定位限制与 UI 如实降级", "wayland_protocol_limited"),
       degraded("pin_topmost_limit", "永久置顶限制与 UI 如实降级", "wayland_protocol_limited"),
       degraded("portal_unavailable", "缺失 Portal 接口时给出稳定原因", "wayland_portal_unavailable"),
+      ...WAYLAND_RECORDING_AVAILABLE_CASES,
+      ...LINUX_WINDOWS_AV_RECORDING_CASES,
     ],
   },
   "windows-10-x64": {
@@ -138,6 +269,8 @@ const PROFILES = {
       pass("pin_topmost", "原生 topmost 与焦点行为"),
       pass("installer_nsis_msi", "NSIS/MSI 安装、卸载和升级"),
       pass("private_file_acl", "私有目录、旧文件修复与原子替换 ACL"),
+      ...RECORDING_AVAILABLE_CASES,
+      ...LINUX_WINDOWS_AV_RECORDING_CASES,
     ],
   },
   "windows-11-x64": {
@@ -153,10 +286,12 @@ const PROFILES = {
       pass("pin_topmost", "原生 topmost 与焦点行为"),
       pass("installer_nsis_msi", "NSIS/MSI 安装、卸载和升级"),
       pass("private_file_acl", "私有目录、旧文件修复与原子替换 ACL"),
+      ...RECORDING_AVAILABLE_CASES,
+      ...LINUX_WINDOWS_AV_RECORDING_CASES,
     ],
   },
   "macos-intel": {
-    label: "macOS 11+ Intel",
+    label: "macOS 12.3+ Intel",
     operatingSystem: "macos",
     session: "native",
     architecture: "x86_64",
@@ -182,10 +317,12 @@ const PROFILES = {
         "adhoc_bundle_boundary",
         "Ad-Hoc 签名、目标架构、未公证边界与首次打开恢复",
       ),
+      ...RECORDING_AVAILABLE_CASES,
+      ...MACOS_AV_RECORDING_CASES,
     ],
   },
   "macos-apple-silicon": {
-    label: "macOS 11+ Apple Silicon",
+    label: "macOS 12.3+ Apple Silicon",
     operatingSystem: "macos",
     session: "native",
     architecture: "aarch64",
@@ -211,6 +348,8 @@ const PROFILES = {
         "adhoc_bundle_boundary",
         "Ad-Hoc 签名、目标架构、未公证边界与首次打开恢复",
       ),
+      ...RECORDING_AVAILABLE_CASES,
+      ...MACOS_AV_RECORDING_CASES,
     ],
   },
 };
@@ -308,6 +447,7 @@ export function verifyQaRecord(record) {
     let passed = testCase.acceptedStatuses.includes(result.status);
     if (!passed) errors.push(`${testCase.id} 状态 ${result.status} 不满足 ${testCase.acceptedStatuses.join("/")}`);
     if (
+      result.status === "expected_degraded" &&
       testCase.acceptedReasonCodes?.length &&
       !testCase.acceptedReasonCodes.includes(result.observedReasonCode)
     ) {

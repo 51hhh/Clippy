@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "decisionId": "PX-SMART-01-decision-v1",
+  "candidate": "OpenCV Zoo quantized LaMa with ROI crop",
+  "thresholds": {
+    "licenseMustExplicitlyCoverCandidateFiles": true,
+    "modelBytesMax": 104857600,
+    "runtimePackageBudgetBytesMax": 167772160,
+    "sessionLoadMsMax": 1500,
+    "inferenceP95MsMax": 1000,
+    "singleRunPeakRssBytesMax": 536870912,
+    "blindBestOrTiedCasesMin": 4,
+    "blindUnacceptableCasesMax": 0,
+    "outsideMaskMustRemainExact": true
+  },
+  "observed": {
+    "licenseExplicit": true,
+    "modelBytes": 92591623,
+    "runtimePackageBytes": {
+      "onnxruntimePythonPackage": 67890729,
+      "numpyPythonPackage": 40487387,
+      "opencvPythonPackage": 74551647
+    },
+    "runtimePackageLowerBoundBytes": 275521386,
+    "sessionLoadMs": 2959.769,
+    "inferenceP95MsWorstCase": 2221.52,
+    "singleRunPeakRssBytes": 680140800,
+    "blindBestOrTiedCases": 4,
+    "blindUnacceptableCases": 1,
+    "outsideMaskExactCases": 5,
+    "caseCount": 5
+  },
+  "checks": {
+    "license": true,
+    "modelSize": true,
+    "runtimePackageBudget": false,
+    "sessionLoad": false,
+    "interactiveLatency": false,
+    "peakMemory": false,
+    "blindPreferenceCount": true,
+    "blindFailureCount": false,
+    "outsideMaskIntegrity": true
+  },
+  "eligibleForProductImplementation": false,
+  "reason": "The candidate wins four anonymous comparisons but has a strong-edge color-halo failure, and the measured CPU stack exceeds latency, memory, load-time, and package thresholds.",
+  "nextReconsideration": [
+    "a candidate with explicit redistributable weights and a smaller native runtime",
+    "hardware acceleration proven on all supported platforms with a CPU fallback inside the same limits",
+    "a larger real-image blind corpus with zero unacceptable edge failures"
+  ]
+}

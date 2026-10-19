@@ -43,6 +43,8 @@ function Review() {
     const payload = { label: "pin-review", kind: "image", text: null, color: null,
       contentWidth: 640, contentHeight: 420, scale: Math.min((width - 68) / 640, (height - 72) / 420),
       opacity: 1, locked: false, above: false, canSave: true, position: null,
+      workspaceId: params.get("mode") === "workspace" ? 7 : null,
+      workspaceGroupId: params.get("mode") === "workspace" ? 3 : null,
       deviceScale: 1, bufferScale: 1, initialProject: null };
     return { viewport: () => ({ width, height }), windowLabel: () => payload.label, startDragging: async () => setStatus("Synthetic window drag request"),
       requestClose: () => nativeClose?.(), api: {
@@ -53,6 +55,13 @@ function Review() {
         sourceImage: async () => image.split(",")[1],
         copy: async () => setStatus("Copy simulated"), copyCanvas: async () => setStatus("Canvas copy simulated"),
         save: async () => "/synthetic/pin.png",
+        saveWorkspace: async () => { payload.workspaceId = 7; return { workspaceId: 7, groupId: payload.workspaceGroupId }; },
+        removeWorkspace: async () => { payload.workspaceId = null; payload.workspaceGroupId = null; },
+        groups: async () => [{ id: 3, name: language === "zh-CN" ? "研究资料" : "Research", sortOrder: 0 }],
+        createGroup: async name => ({ id: 9, name, sortOrder: 1 }),
+        renameGroup: async () => true,
+        deleteGroup: async () => true,
+        assignGroup: async (_label, groupId) => { payload.workspaceGroupId = groupId; },
         saveCanvas: async (_label, _png, _copy, mode, project) => {
           setStatus("Saving simulated (1.5 s)…"); await delay(1500);
           if (params.get("result") === "error") { setStatus("Simulated save failure"); throw new Error("Synthetic disk full"); }
@@ -86,6 +95,10 @@ function Review() {
         }
       } finally { canvas.setPointerCapture = capture; canvas.releasePointerCapture = release; }
       if (cancelled || params.get("mode") === "edit") return;
+      if (params.get("mode") === "workspace") {
+        document.querySelector(`button[aria-label="${t("pin.workspaceManage")}"]`)?.click();
+        return;
+      }
       const undo = document.querySelector(`button[aria-label="${t("capture.undo")}"]`);
       undo?.focus({ preventScroll: true });
       if (params.get("mode") === "save") document.querySelector(`button[aria-label="${t("pin.save")}"]`)?.click();
@@ -98,6 +111,7 @@ function Review() {
       {[240, 280, 320, 560].map(size => <a key={size} href={`?lang=${language}&mode=${params.get("mode") || "close"}&width=${size}&height=${height}`}>{size} px</a>)}
       <a href={`?lang=${language}&mode=${params.get("mode") || "close"}&width=${width}&height=240`}>240 px high</a>
       <a href={`?lang=${language}&mode=save&theme=light`}>Light · save</a>
+      <a href={`?lang=${language}&mode=workspace&width=${width}&height=${height}`}>{language === "zh-CN" ? "工作区" : "Workspace"}</a>
       <a href="?lang=en&mode=close">English</a><a href="?lang=zh-CN&mode=close">中文</a>
       <a href={`?lang=${language}&mode=close&result=error`}>Save failure</a>
     </nav></header>

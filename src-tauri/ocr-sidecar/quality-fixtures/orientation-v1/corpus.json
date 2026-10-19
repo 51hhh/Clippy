@@ -1,0 +1,173 @@
+{
+  "cases": [
+    {
+      "id": "line-0",
+      "lines": [
+        {
+          "id": "line-0-1",
+          "kind": "text",
+          "quad": [
+            [
+              28,
+              43
+            ],
+            [
+              438,
+              43
+            ],
+            [
+              438,
+              94
+            ],
+            [
+              28,
+              94
+            ]
+          ],
+          "text": "方向 OCR 90° SN-A1"
+        }
+      ],
+      "source": {
+        "height": 150,
+        "imagePath": "images/line-0.png",
+        "kind": "generated",
+        "license": "Generated Clippy fixture text CC0-1.0; Noto Sans CJK SC font OFL-1.1",
+        "sha256": "bae3e58779f91af1c8202c1ed789a0b131d5e462ca794d65dfb92f6c5e70d075",
+        "width": 720
+      },
+      "tags": [
+        "zh-en",
+        "orientation",
+        "rotate-0",
+        "high-contrast"
+      ]
+    },
+    {
+      "id": "line-90",
+      "lines": [
+        {
+          "id": "line-90-1",
+          "kind": "text",
+          "quad": [
+            [
+              107,
+              28
+            ],
+            [
+              107,
+              438
+            ],
+            [
+              56,
+              438
+            ],
+            [
+              56,
+              28
+            ]
+          ],
+          "text": "方向 OCR 90° SN-A1"
+        }
+      ],
+      "source": {
+        "height": 720,
+        "imagePath": "images/line-90.png",
+        "kind": "generated",
+        "license": "Generated Clippy fixture text CC0-1.0; Noto Sans CJK SC font OFL-1.1",
+        "sha256": "02b4b5f2987f622f032944b19c6c95f22640284ca569ed94dcd111183fd426bb",
+        "width": 150
+      },
+      "tags": [
+        "zh-en",
+        "orientation",
+        "rotate-90",
+        "high-contrast"
+      ]
+    },
+    {
+      "id": "line-180",
+      "lines": [
+        {
+          "id": "line-180-1",
+          "kind": "text",
+          "quad": [
+            [
+              692,
+              107
+            ],
+            [
+              282,
+              107
+            ],
+            [
+              282,
+              56
+            ],
+            [
+              692,
+              56
+            ]
+          ],
+          "text": "方向 OCR 90° SN-A1"
+        }
+      ],
+      "source": {
+        "height": 150,
+        "imagePath": "images/line-180.png",
+        "kind": "generated",
+        "license": "Generated Clippy fixture text CC0-1.0; Noto Sans CJK SC font OFL-1.1",
+        "sha256": "30aeabdbbf592a2beaf858139464b49de53c2e86146cc9d44f39f957dfde5479",
+        "width": 720
+      },
+      "tags": [
+        "zh-en",
+        "orientation",
+        "rotate-180",
+        "high-contrast"
+      ]
+    },
+    {
+      "id": "line-270",
+      "lines": [
+        {
+          "id": "line-270-1",
+          "kind": "text",
+          "quad": [
+            [
+              43,
+              692
+            ],
+            [
+              43,
+              282
+            ],
+            [
+              94,
+              282
+            ],
+            [
+              94,
+              692
+            ]
+          ],
+          "text": "方向 OCR 90° SN-A1"
+        }
+      ],
+      "source": {
+        "height": 720,
+        "imagePath": "images/line-270.png",
+        "kind": "generated",
+        "license": "Generated Clippy fixture text CC0-1.0; Noto Sans CJK SC font OFL-1.1",
+        "sha256": "4253756edf9ccbf3501b8b370bf47c8f91cee527898786ecb1b1576e74937c08",
+        "width": 150
+      },
+      "tags": [
+        "zh-en",
+        "orientation",
+        "rotate-270",
+        "high-contrast"
+      ]
+    }
+  ],
+  "schema": "clippy-ocr-quality-corpus-v1"
+}

@@ -87,7 +87,10 @@ function main() {
     return;
   }
   const sinkCount = [...HTML_SINK_ALLOWLIST.values()].reduce((sum, rule) => sum + rule.count, 0);
-  console.log(`Frontend boundary passed: ${sinkCount} sanitized HTML sinks, Tauri imports confined to 5 API domain modules`);
+  console.log(
+    `Frontend boundary passed: ${sinkCount} sanitized HTML sinks, `
+      + `Tauri imports confined to ${TAURI_API_MODULES.size} API domain modules`,
+  );
 }
 
 const invokedAsScript = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);

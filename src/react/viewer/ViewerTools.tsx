@@ -1,6 +1,7 @@
 import { Copy, X } from "lucide-react";
 import type { ViewerSettings, ViewerTextSource } from "../../js/ipc-types";
 import { enabledTranslationServices, translationProviderMeta } from "../../js/translation-providers";
+import { imageCodeFormatLabel } from "../../js/api/validators";
 import { t } from "../shared/i18n";
 import type { Panel } from "./ViewerToolbar";
 import type { useViewerTools } from "./useViewerTools";
@@ -56,7 +57,7 @@ export function ViewerTools({ panel, tools, config, target, setTarget, close, bl
         <p>{t("viewer.scanHint")}</p><button type="button" className="viewer-primary-button" disabled={blocked || state.status === "loading"} onClick={() => void tools.detect()}>{t(state.status === "loading" ? "codeScan.scanning" : "viewer.scan")}</button>
         {tools.scan.value?.limited && <p className="viewer-notice">{t("codeScan.limited")}</p>}
         {tools.scan.value && tools.scan.value.results.length === 0 && <p>{t("codeScan.empty")}</p>}
-        {tools.scan.value?.results.map((code, index) => <section className="viewer-code-result" key={index}><div className="viewer-result-heading"><span>{code.format === "qr_code" ? "QR Code" : "Code 39"}</span>{copyButton("code", index, !code.text)}</div><pre tabIndex={0}>{code.text}</pre></section>)}
+        {tools.scan.value?.results.map((code, index) => <section className="viewer-code-result" key={index}><div className="viewer-result-heading"><span>{imageCodeFormatLabel(code.format)}</span>{copyButton("code", index, !code.text)}</div><pre tabIndex={0}>{code.text}</pre></section>)}
       </>}
       {panel === "translation" && <>
         <p>{t("translation.privacy")}</p>

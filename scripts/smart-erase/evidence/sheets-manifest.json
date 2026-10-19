@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "corpusId": "PX-SMART-01-corpus-v1",
+  "sheets": [
+    {
+      "caseId": "text_ruled_paper",
+      "path": "evidence/sheets/text_ruled_paper.png",
+      "sha256": "e6e1a97d0c230b1a149c8bf85b0c42d90d1de236467d1672c4e70eaee10b11ed",
+      "width": 1068,
+      "height": 780
+    },
+    {
+      "caseId": "regular_grid",
+      "path": "evidence/sheets/regular_grid.png",
+      "sha256": "51388e2d6b32561f76324be7135475000d151f0f6a6a8c6a698261143de93f96",
+      "width": 1068,
+      "height": 780
+    },
+    {
+      "caseId": "natural_foliage",
+      "path": "evidence/sheets/natural_foliage.png",
+      "sha256": "ae5f820649ed8e0a4aa3a67c9835b9974185be3b60b0b295b7d00ebe6f14e7a5",
+      "width": 1068,
+      "height": 780
+    },
+    {
+      "caseId": "strong_edge",
+      "path": "evidence/sheets/strong_edge.png",
+      "sha256": "ec8e6e6d72d3896590383fa85baeaf4fc6600851e9bf730c2dbebb3149b4b0e9",
+      "width": 1068,
+      "height": 780
+    },
+    {
+      "caseId": "large_document",
+      "path": "evidence/sheets/large_document.png",
+      "sha256": "23a708ec6fda9a17b3393d6df421a0db4bd979267cba2df962228b8ffb1ed7fc",
+      "width": 954,
+      "height": 780
+    }
+  ]
+}

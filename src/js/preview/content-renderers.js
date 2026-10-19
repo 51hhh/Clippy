@@ -36,6 +36,8 @@ const PURIFY_CONFIG = {
   FORBID_ATTR: ["onerror","onload","onclick","onmouseover","onfocus","onblur"],
 };
 
+const SAFE_FAVICON_DATA_URL = /^data:image\/(?:png|jpeg|gif|webp|x-icon);base64,/i;
+
 /** @type {(id: number) => Promise<import('../ipc-types.ts').StructuredOcr | string>} */
 const recognizeImage = ocrImageResult;
 
@@ -88,7 +90,9 @@ export function createContentRenderers({
       if (!isCurrent() || contentEl.querySelector(".url-card") !== card) return;
       loading.remove();
 
-      if (meta.favicon) {
+      if (typeof meta.favicon === "string"
+        && meta.favicon.length <= 90_000
+        && SAFE_FAVICON_DATA_URL.test(meta.favicon)) {
         const icon = document.createElement("img");
         icon.className = "url-card-favicon";
         icon.src = meta.favicon;

@@ -210,6 +210,46 @@ describe("preview render generation", () => {
 });
 
 describe('预算在预览派发前生效', () => {
+  it('完整的小文本直接使用列表负载，不增加详情 IPC', async () => {
+    vi.useFakeTimers(); mountPreviewDom();
+    const preview = await import('../js/preview-panel.js'); preview.init(); await preview.toggle();
+    api.getClipDetail.mockClear();
+    const text = 'small complete text';
+    preview.updatePreview({
+      id: 499,
+      content_type: 'text',
+      text_content: text,
+      byte_size: new TextEncoder().encode(text).length,
+      content_hash: 'small',
+    });
+    await vi.advanceTimersByTimeAsync(80);
+    expect(api.getClipDetail).not.toHaveBeenCalled();
+    expect(document.getElementById('preview-content').textContent).toContain(text);
+  });
+
+  it('列表摘要不会限制当前焦点的完整文本预览', async () => {
+    vi.useFakeTimers(); mountPreviewDom();
+    api.getClipDetail.mockResolvedValueOnce({
+      id: 500,
+      content_type: 'text',
+      text_content: 'full detail after the bounded list summary',
+      byte_size: 42,
+      content_hash: 'detail',
+    });
+    const preview = await import('../js/preview-panel.js'); preview.init(); await preview.toggle();
+    preview.updatePreview({
+      id: 500,
+      content_type: 'text',
+      text_content: 'bounded summary',
+      byte_size: 42,
+      content_hash: 'detail',
+    });
+    await vi.advanceTimersByTimeAsync(80);
+    await vi.waitFor(() => expect(api.getClipDetail).toHaveBeenCalledWith(500));
+    expect(document.getElementById('preview-content').textContent)
+      .toContain('full detail after the bounded list summary');
+  });
+
   it('超限 JSON/JWT/Base64 只展示带说明的原文片段，原条目不变', async () => {
     vi.useFakeTimers(); mountPreviewDom();
     const { MAX_RENDER_CHARS } = await import('../js/preview/large-text.js');

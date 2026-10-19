@@ -63,6 +63,7 @@ check_prerequisites() {
   require_cmd node "Node.js >= 22.12: https://nodejs.org"
   require_cmd npm "Node.js >= 20.19: https://nodejs.org"
   require_cmd npx "随 Node.js 一同安装"
+  require_cmd python3 "Python 3（OCR 质量合同单元测试）"
   # DOM/Canvas smoke 在无头环境下依赖 Xvfb，缺失时整条前端 smoke 都无法执行。
   require_cmd xvfb-run "sudo apt install -y xvfb"
   if [[ "$(uname -s)" == "Linux" ]]; then
@@ -93,14 +94,27 @@ echo ""
 
 check_prerequisites
 
+# --- OCR quality contract (pure stdlib; no model or third-party wheel) ---
+run_step "OCR 质量合同" \
+  python3 -m unittest discover -s src-tauri/ocr-sidecar -p 'test_quality*.py' -v
+run_step "OCR 视觉段落回退" \
+  python3 -m unittest discover -s src-tauri/ocr-sidecar -p test_visual_paragraphs.py -v
+run_step "智能擦除可行性证据" \
+  python3 scripts/smart-erase/verify_evidence.py
+
 # --- Rust ---
 run_step "cargo fmt --check" bash -c "cd src-tauri && cargo fmt -- --check"
+run_step "vendor/xcap fmt --check" \
+  bash -c "cd src-tauri && cargo fmt --manifest-path vendor/xcap/Cargo.toml -- --check"
 run_step "cargo check" bash -c "cd src-tauri && cargo check --all-targets"
 run_step "cargo clippy" bash -c "cd src-tauri && cargo clippy --all-targets -- -D warnings"
 run_step "cargo test" bash -c "cd src-tauri && cargo test"
 if [[ "$(uname -s)" == "Linux" ]]; then
+  run_step "X11 录屏到可恢复 AVI 闭环" \
+    bash -c "cd src-tauri && xvfb-run -a cargo test recording::session::tests::x11_source_records_a_complete_private_avi_session -- --ignored --exact"
   run_step "X11 剪贴板隔离协议回归" ./scripts/test-x11-clipboard.sh
 else
+  skip_step "X11 录屏到可恢复 AVI 闭环 (仅 Linux)"
   skip_step "X11 剪贴板隔离协议回归 (仅 Linux)"
 fi
 
@@ -121,12 +135,18 @@ if [[ "${CLIPPY_CROSS_CHECK:-0}" == "1" ]]; then
   # 主 crate 的 Windows 交叉 lint 需要 MSVC 兼容工具链：依赖里的 C build script 会调用
   # lib.exe，只装 rustup target 会在 cc-rs 阶段失败，与代码无关。有 cargo-xwin 或
   # VCINSTALLDIR 时才尝试。
-  if rustup target list --installed 2>/dev/null | grep -qx 'x86_64-pc-windows-msvc' \
-    && { command -v cargo-xwin >/dev/null 2>&1 || [[ -n "${VCINSTALLDIR:-}" ]]; }; then
-    run_step "交叉 clippy: clippy-app @ x86_64-pc-windows-msvc" \
-      bash -c "cd src-tauri && cargo clippy --target x86_64-pc-windows-msvc --all-targets -- -D warnings"
+  if rustup target list --installed 2>/dev/null | grep -qx 'x86_64-pc-windows-msvc'; then
+    run_step "交叉 clippy: vendor/xcap WGC @ x86_64-pc-windows-msvc" \
+      bash -c "cd src-tauri && cargo clippy --manifest-path vendor/xcap/Cargo.toml --lib --features wgc --target x86_64-pc-windows-msvc -- -D warnings"
+    if command -v cargo-xwin >/dev/null 2>&1 || [[ -n "${VCINSTALLDIR:-}" ]]; then
+      run_step "交叉 clippy: clippy-app @ x86_64-pc-windows-msvc" \
+        bash -c "cd src-tauri && cargo clippy --target x86_64-pc-windows-msvc --all-targets -- -D warnings"
+    else
+      skip_step "交叉 clippy: clippy-app @ x86_64-pc-windows-msvc — 需 MSVC 工具链（cargo-xwin 或 VCINSTALLDIR）"
+    fi
   else
-    skip_step "交叉 clippy: clippy-app @ x86_64-pc-windows-msvc — 需 MSVC 工具链（cargo-xwin 或 VCINSTALLDIR）"
+    skip_step "交叉 clippy: vendor/xcap WGC @ x86_64-pc-windows-msvc — 先 rustup target add x86_64-pc-windows-msvc"
+    skip_step "交叉 clippy: clippy-app @ x86_64-pc-windows-msvc — 先安装 target 和 MSVC 工具链"
   fi
 else
   skip_step "非宿主平台交叉 lint (设置 CLIPPY_CROSS_CHECK=1 启用)"
@@ -136,9 +156,14 @@ fi
 run_step "GNOME 扩展静态检查" ./scripts/check-gnome-extension.sh
 run_step "前端 HTML 与 Tauri 边界" node scripts/check-html-sinks.mjs
 run_step "IPC 合同一致性" node scripts/check-ipc-contract.mjs
+run_step "录屏编码基准脚本语法" node --check scripts/benchmark-recording-encoders.mjs
+run_step "录屏编码供应链" node scripts/verify-recording-codec-supply-chain.mjs
+run_step "Windows WGC 光标补丁" node scripts/verify-xcap-patch.mjs
 
 # --- Frontend ---
 run_step "npm ci" bash -c "cd src && npm ci --prefer-offline"
+run_step "npm audit（生产依赖）" bash -c "cd src && npm audit --omit=dev --audit-level=low"
+run_step "npm audit（高危开发依赖）" bash -c "cd src && npm audit --audit-level=high"
 run_step "vanilla JS 静态检查" bash -c "cd src && npm run lint:js"
 run_step "typecheck" bash -c "cd src && npx tsc --noEmit"
 run_step "vitest" bash -c "cd src && npx vitest run"

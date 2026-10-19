@@ -16,6 +16,30 @@ pub(crate) fn acquire_scan_permit() -> Result<OwnedSemaphorePermit, CodeScanErro
         .map_err(|_| CodeScanError::Busy)
 }
 
+/// 使用已经取得的全局许可扫描不可变 PNG 快照。
+///
+/// `Arc` 会随 blocking worker 存活，因此调用方取消等待时，worker 仍持有许可直到解码结束；
+/// 这避免不可中断的 rxing 任务脱离并发预算继续运行，也无需复制大图字节。
+pub(crate) async fn scan_snapshot_with_permit(
+    png: Arc<Vec<u8>>,
+    permit: OwnedSemaphorePermit,
+) -> Result<CodeScanResponse, CodeScanError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let _permit = permit;
+        crate::code_detection::scan_png(png.as_slice())
+    })
+    .await
+    .map_err(|_| CodeScanError::WorkerFailed)?
+}
+
+/// 复用产品唯一的二维码/条码并发预算扫描不可变 PNG 快照。
+pub(crate) async fn scan_snapshot_shared(
+    png: Arc<Vec<u8>>,
+) -> Result<CodeScanResponse, CodeScanError> {
+    let permit = acquire_scan_permit()?;
+    scan_snapshot_with_permit(png, permit).await
+}
+
 fn load_image_once_with_limit(
     storage: &Arc<Mutex<StorageEngine>>,
     id: i64,
@@ -48,14 +72,8 @@ pub async fn detect_image_codes(
 ) -> Result<CodeScanResponse, CodeScanError> {
     let permit = acquire_scan_permit()?;
     let storage = Arc::clone(&state.storage);
-    let png_bytes = load_image_once(&storage, id)?;
-    tauri::async_runtime::spawn_blocking(move || {
-        // permit 必须跨完整 PNG 解码和条码扫描生命周期持有。
-        let _permit = permit;
-        crate::code_detection::scan_png(png_bytes)
-    })
-    .await
-    .map_err(|_| CodeScanError::WorkerFailed)?
+    let png = Arc::new(load_image_once(&storage, id)?);
+    scan_snapshot_with_permit(png, permit).await
 }
 
 #[cfg(test)]

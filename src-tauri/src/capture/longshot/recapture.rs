@@ -55,6 +55,12 @@ mod tests {
             pixel_height,
             scale_x: 1.0,
             scale_y: 1.0,
+            physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                x: 10,
+                y: 20,
+                width: pixel_width,
+                height: pixel_height,
+            }),
             rgba: Arc::from(rgba),
         }
     }

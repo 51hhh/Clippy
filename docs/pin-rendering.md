@@ -11,7 +11,7 @@ GTK3 不支持 `wp_fractional_scale_v1`。桌面真实缩放为 150% 时，WebKi
 
 这里有三种不同单位，不能互换：
 
-- canonical image pixels：复制、保存、标注和工程文件使用的权威原图像素；
+- canonical image pixels：内部根资产、标注和再次渲染使用的权威原图像素；
 - logical/CSS pixels：Pin 内容区在桌面上的逻辑尺寸；
 - buffer pixels：WebView 提交给合成器的整数缩放缓冲区尺寸。
 
@@ -45,11 +45,13 @@ Pin 开窗。
 
 ## 字节与编辑语义
 
-补偿图只是显示缓存，不进入标注坐标系、可编辑工程或输出：
+补偿图只是显示缓存，不进入标注坐标系、内部修订或输出：
 
 - Canvas 操作文档始终使用 canonical source pixels；
 - Copy 和扁平保存由后端对 canonical 原图执行权威合成；
-- 可编辑 PNG 同时保存 canonical 原图、操作文档和可验证的 flattened preview；
+- 保存可编辑版本时，SQLite 只登记一次 canonical 根图，并为每个版本保存累计操作文档与扁平
+  结果哈希；文件和剪贴板只得到 flattened PNG，不携带根图或操作层；
+- 重新打开匹配的历史图片时，画布加载根图并重放累计文档，绝不从上一张 flattened PNG 二次采样；
 - `update_pin` 返回轻量 `PinState`，不会在滚轮热路径重复传整张图片。
 
 因此屏显补偿失败只影响清晰度，不能改变复制、保存或二次编辑像素。

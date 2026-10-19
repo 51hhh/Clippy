@@ -23,12 +23,14 @@ function sourceFiles(directory) {
 describe("built window entrypoints", () => {
   it.each([
     ["index.html", ["app", "clipboard-react-root", "translation-react-root", "preview-panel", "codec-panel"]],
+    ["launcher.html", ["root"]],
     [
       "settings.html",
       ["theme-grid", "auto-paste-toggle", "translation-group"],
     ],
     ["capture-overlay.html", ["root"]],
     ["longshot-controller.html", ["root"]],
+    ["longshot-guide.html", ["guide"]],
     ["pin.html", ["root"]],
     ["viewer.html", ["root"]],
   ])("contains stable mount points in %s", (name, ids) => {
@@ -50,6 +52,19 @@ describe("built window entrypoints", () => {
     const document = loadEntrypoint("index.html");
     expect(document.getElementById("translation-panel-legacy")).toBeNull();
     expect(document.getElementById("translation-panel")).toBeNull();
+  });
+
+  it("uses one accessible custom titlebar for the settings window", () => {
+    const document = loadEntrypoint("settings.html");
+    const titlebar = document.getElementById("settings-titlebar");
+    expect(titlebar?.classList.contains("window-titlebar")).toBe(true);
+    expect(titlebar?.querySelectorAll("h1")).toHaveLength(1);
+    expect(document.querySelectorAll(".settings-container > h1")).toHaveLength(0);
+    for (const id of ["settings-minimize-btn", "settings-maximize-btn", "settings-close-btn"]) {
+      const button = document.getElementById(id);
+      expect(button?.getAttribute("type"), id).toBe("button");
+      expect(button?.getAttribute("aria-label"), id).toBeTruthy();
+    }
   });
 
   // 主窗口是无边框悬浮窗，失焦会自动隐藏；原生 <select> 的弹窗在 WebKitGTK 上是

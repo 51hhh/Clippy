@@ -1,9 +1,9 @@
-//! 相邻长截图帧的一维垂直重叠估计。
+//! 相邻长截图帧的四方向位移估计。
 //!
 //! 这里的常量是 Clippy 自有的工程参数。它刻意不复制任何外部应用的私有评分实现。
 
 use super::{validate_dimensions, CaptureError};
-use image::RgbaImage;
+use image::{imageops, RgbaImage};
 
 const MAX_MATCH_WIDTH: usize = 512;
 const MAX_ESTIMATE_HEIGHT: u32 = 16_384;
@@ -16,6 +16,32 @@ const FINE_ROWS: usize = 48;
 const TEXTURE_COLUMNS: usize = 96;
 const TEXTURE_ROWS: usize = 64;
 const MAX_FINE_CANDIDATES: usize = 64;
+const AXIS_HYSTERESIS_ABSOLUTE: f32 = 0.002;
+const AXIS_HYSTERESIS_RATIO: f32 = 1.15;
+const DIRECTION_AMBIGUITY_MARGIN: f32 = 0.05;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::capture) enum ScrollAxis {
+    Horizontal,
+    Vertical,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::capture) enum ScrollDirection {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+impl ScrollDirection {
+    pub(super) fn axis(self) -> ScrollAxis {
+        match self {
+            Self::Up | Self::Down => ScrollAxis::Vertical,
+            Self::Left | Self::Right => ScrollAxis::Horizontal,
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 struct OverlapConfig {
@@ -47,6 +73,120 @@ pub(in crate::capture) struct OverlapEstimate {
     pub(in crate::capture) confidence: f32,
     pub(in crate::capture) sampled_width: u32,
     pub(in crate::capture) sampled_rows: u32,
+    pub(in crate::capture) delta_x: i32,
+    pub(in crate::capture) delta_y: i32,
+    pub(in crate::capture) direction: ScrollDirection,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DirectionCandidate {
+    estimate: OverlapEstimate,
+}
+
+/// 复用经过验证的一维评分核心，分别检查上、下、左、右四个候选方向。
+///
+/// `preferred_axis` 只在两个候选质量接近时提供滞回，不会覆盖明显更好的另一主轴。
+pub(super) fn estimate_translation(
+    previous: &RgbaImage,
+    incoming: &RgbaImage,
+    preferred_axis: Option<ScrollAxis>,
+) -> Result<OverlapEstimate, CaptureError> {
+    validate_input(previous, incoming)?;
+    let rotated_previous = imageops::rotate90(previous);
+    let rotated_incoming = imageops::rotate90(incoming);
+    let mut candidates = Vec::with_capacity(4);
+    let mut first_error = None;
+
+    for result in [
+        estimate_direction(previous, incoming, ScrollDirection::Down),
+        estimate_direction(incoming, previous, ScrollDirection::Up),
+        estimate_direction(&rotated_previous, &rotated_incoming, ScrollDirection::Right),
+        estimate_direction(&rotated_incoming, &rotated_previous, ScrollDirection::Left),
+    ] {
+        match result {
+            Ok(estimate) => candidates.push(DirectionCandidate { estimate }),
+            Err(error) => {
+                first_error.get_or_insert(error);
+            }
+        };
+    }
+    if candidates.is_empty() {
+        return Err(first_error.unwrap_or(CaptureError::LongshotEstimateLowSimilarity));
+    }
+    candidates.sort_unstable_by(|left, right| {
+        left.estimate
+            .score
+            .total_cmp(&right.estimate.score)
+            .then_with(|| {
+                right
+                    .estimate
+                    .confidence
+                    .total_cmp(&left.estimate.confidence)
+            })
+            .then_with(|| {
+                direction_rank(left.estimate.direction)
+                    .cmp(&direction_rank(right.estimate.direction))
+            })
+    });
+
+    let raw_best = candidates[0];
+    let selected = preferred_axis
+        .and_then(|axis| {
+            candidates
+                .iter()
+                .copied()
+                .filter(|candidate| candidate.estimate.direction.axis() == axis)
+                .min_by(|left, right| left.estimate.score.total_cmp(&right.estimate.score))
+        })
+        .filter(|preferred| {
+            preferred.estimate.score
+                <= raw_best.estimate.score * AXIS_HYSTERESIS_RATIO + AXIS_HYSTERESIS_ABSOLUTE
+        })
+        .unwrap_or(raw_best);
+
+    if preferred_axis.is_none() {
+        if let Some(runner_up) = candidates
+            .iter()
+            .copied()
+            .find(|candidate| candidate.estimate.direction != selected.estimate.direction)
+        {
+            let denominator = runner_up.estimate.score.max(1e-6);
+            let margin = (runner_up.estimate.score - selected.estimate.score) / denominator;
+            if (0.0..DIRECTION_AMBIGUITY_MARGIN).contains(&margin) {
+                return Err(CaptureError::LongshotEstimateAmbiguous);
+            }
+        }
+    }
+    Ok(selected.estimate)
+}
+
+fn estimate_direction(
+    previous: &RgbaImage,
+    incoming: &RgbaImage,
+    direction: ScrollDirection,
+) -> Result<OverlapEstimate, CaptureError> {
+    let mut estimate = estimate_vertical_overlap(previous, incoming)?;
+    let displacement = i32::try_from(estimate.displacement_rows)
+        .map_err(|_| CaptureError::LongshotResourceLimit)?;
+    let (delta_x, delta_y) = match direction {
+        ScrollDirection::Up => (0, -displacement),
+        ScrollDirection::Down => (0, displacement),
+        ScrollDirection::Left => (-displacement, 0),
+        ScrollDirection::Right => (displacement, 0),
+    };
+    estimate.delta_x = delta_x;
+    estimate.delta_y = delta_y;
+    estimate.direction = direction;
+    Ok(estimate)
+}
+
+fn direction_rank(direction: ScrollDirection) -> u8 {
+    match direction {
+        ScrollDirection::Down => 0,
+        ScrollDirection::Up => 1,
+        ScrollDirection::Right => 2,
+        ScrollDirection::Left => 3,
+    }
 }
 
 #[derive(Clone)]
@@ -180,6 +320,10 @@ pub(super) fn estimate_vertical_overlap(
             .map_err(|_| CaptureError::LongshotResourceLimit)?,
         sampled_rows: u32::try_from(best.sampled_rows)
             .map_err(|_| CaptureError::LongshotResourceLimit)?,
+        delta_x: 0,
+        delta_y: i32::try_from(best.displacement)
+            .map_err(|_| CaptureError::LongshotResourceLimit)?,
+        direction: ScrollDirection::Down,
     })
 }
 
@@ -477,6 +621,10 @@ mod tests {
         imageops::crop_imm(panorama, 0, top, panorama.width(), height).to_image()
     }
 
+    fn viewport(panorama: &RgbaImage, left: u32, top: u32, width: u32, height: u32) -> RgbaImage {
+        imageops::crop_imm(panorama, left, top, width, height).to_image()
+    }
+
     fn pair(displacement: u32) -> (RgbaImage, RgbaImage, RgbaImage) {
         let panorama = panorama(64, 128, 0x1234_5678);
         (
@@ -497,6 +645,51 @@ mod tests {
         assert_eq!(estimate.sampled_rows, 39);
         assert!(estimate.score.abs() <= f32::EPSILON);
         assert!((0.0..=1.0).contains(&estimate.confidence));
+    }
+
+    #[test]
+    fn estimates_all_four_cardinal_directions() {
+        let source = panorama(160, 160, 0x77aa_3311);
+        let center = viewport(&source, 40, 40, 64, 72);
+        for (incoming, expected_direction, expected_delta) in [
+            (
+                viewport(&source, 40, 64, 64, 72),
+                ScrollDirection::Down,
+                (0, 24),
+            ),
+            (
+                viewport(&source, 40, 16, 64, 72),
+                ScrollDirection::Up,
+                (0, -24),
+            ),
+            (
+                viewport(&source, 64, 40, 64, 72),
+                ScrollDirection::Right,
+                (24, 0),
+            ),
+            (
+                viewport(&source, 16, 40, 64, 72),
+                ScrollDirection::Left,
+                (-24, 0),
+            ),
+        ] {
+            let estimate = estimate_translation(&center, &incoming, None)
+                .expect("四个正交方向都应得到确定位移");
+            assert_eq!(estimate.direction, expected_direction);
+            assert_eq!((estimate.delta_x, estimate.delta_y), expected_delta);
+            assert_eq!(estimate.displacement_rows, 24);
+        }
+    }
+
+    #[test]
+    fn axis_hysteresis_does_not_override_a_clear_turn() {
+        let source = panorama(160, 160, 0x1133_7799);
+        let previous = viewport(&source, 40, 40, 64, 72);
+        let incoming = viewport(&source, 64, 40, 64, 72);
+        let estimate = estimate_translation(&previous, &incoming, Some(ScrollAxis::Vertical))
+            .expect("明确的水平滚动应胜过纵向滞回");
+        assert_eq!(estimate.direction, ScrollDirection::Right);
+        assert_eq!((estimate.delta_x, estimate.delta_y), (24, 0));
     }
 
     #[test]

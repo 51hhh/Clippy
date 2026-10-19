@@ -9,11 +9,15 @@ pub(super) struct OverlaySpec {
     pub y: i32,
     pub width: u32,
     pub height: u32,
+    #[cfg(target_os = "windows")]
+    pub physical_bounds: Option<crate::screenshot::PhysicalMonitorBounds>,
 }
 
 impl OverlaySpec {
-    /// 光标是否落在这块覆盖层上。用来决定哪个覆盖层拿键盘焦点，
+    /// 该覆盖层坐标空间里的逻辑光标是否落在矩形内；Windows 直接比较原始物理边界。
+    /// 用来决定哪个覆盖层拿键盘焦点，
     /// 不能用窗口自身的 `outer_position()`：Wayland 下那是我们请求的位置，不是合成器的实际摆放。
+    #[cfg(not(target_os = "windows"))]
     pub fn contains(&self, x: f64, y: f64) -> bool {
         x >= self.x as f64
             && x < self.x as f64 + self.width as f64
@@ -51,10 +55,20 @@ pub struct CaptureOverlayPayload {
     pub logical_height: u32,
     pub pixel_width: u32,
     pub pixel_height: u32,
+    /// 同一个冻结帧覆盖层只负责一种产品流程。前端据此显示截图工具或录屏开始控件，
+    /// 后端仍以会话保存的 intent 和调用窗口身份作为权威校验。
+    pub intent: CaptureIntent,
     pub windows: Vec<WindowCandidate>,
     /// 这次要不要在覆盖层里提示"窗口速选需要在设置页安装服务"。
     /// 由后端决定并且只置真一次，覆盖层照做即可，自己不判断桌面环境。
     pub probe_hint: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CaptureIntent {
+    Screenshot,
+    Recording,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]

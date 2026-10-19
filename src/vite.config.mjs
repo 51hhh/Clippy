@@ -15,11 +15,16 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, "index.html"),
+        launcher: resolve(__dirname, "launcher.html"),
         settings: resolve(__dirname, "settings.html"),
         pin: resolve(__dirname, "pin.html"),
         viewer: resolve(__dirname, "viewer.html"),
         captureOverlay: resolve(__dirname, "capture-overlay.html"),
         longshotController: resolve(__dirname, "longshot-controller.html"),
+        longshotGuide: resolve(__dirname, "longshot-guide.html"),
+        recordingControl: resolve(__dirname, "recording-control.html"),
+        recordings: resolve(__dirname, "recordings.html"),
+        pinWorkspaces: resolve(__dirname, "pin-workspaces.html"),
       },
     },
   },
@@ -29,7 +34,7 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
-    include: ["tests/**/*.test.js", "tests/**/*.test.ts"],
+    include: ["tests/**/*.test.js", "tests/**/*.test.ts", "tests/**/*.test.tsx"],
     globals: false,
   },
 });

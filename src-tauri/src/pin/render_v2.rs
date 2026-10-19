@@ -683,18 +683,22 @@ fn apply_mosaic_region(
         let mut x = first_x;
         while x < last_x {
             let end_x = x.saturating_add(cell).min(rect.x1);
+            // 在预乘 alpha 空间求平均，再恢复直通 RGBA。直接分别平均 RGB/A 会把
+            // 完全透明像素里不可见的 RGB 混进结果，在透明 PNG 边缘形成黑边或彩边。
             let mut sums = [0u64; 4];
             let count = u64::from(end_x - x) * u64::from(end_y - y);
             for sample_y in y..end_y {
                 for sample_x in x..end_x {
                     let pixel =
                         source.get_pixel(sample_x - source_rect.x0, sample_y - source_rect.y0);
-                    for channel in 0..4 {
-                        sums[channel] += u64::from(pixel[channel]);
+                    let alpha = u64::from(pixel[3]);
+                    for channel in 0..3 {
+                        sums[channel] += u64::from(pixel[channel]) * alpha;
                     }
+                    sums[3] += alpha;
                 }
             }
-            let average = Rgba(sums.map(|sum| ((sum + count / 2) / count) as u8));
+            let average = average_premultiplied(sums, count);
             if let Some(visible) = (PixelRect {
                 x0: x,
                 y0: y,
@@ -782,15 +786,28 @@ fn bilinear_sample(image: &RgbaImage, edge_x_q16: i64, edge_y_q16: i64) -> Rgba<
         image.get_pixel(x0, y1),
         image.get_pixel(x1, y1),
     ];
-    let mut output = [0u8; 4];
-    for channel in 0..4 {
-        let sum = pixels
-            .iter()
-            .zip(weights)
-            .map(|(pixel, weight)| u64::from(pixel[channel]) * weight)
-            .sum::<u64>();
-        output[channel] = ((sum + (1u64 << 31)) >> 32) as u8;
+    let mut sums = [0u64; 4];
+    for (pixel, weight) in pixels.iter().zip(weights) {
+        let alpha = u64::from(pixel[3]);
+        for channel in 0..3 {
+            sums[channel] += u64::from(pixel[channel]) * alpha * weight;
+        }
+        sums[3] += alpha * weight;
     }
+    average_premultiplied(sums, 1u64 << 32)
+}
+
+/// `sums[0..3]` 是 color * alpha 的总和，`sums[3]` 是 alpha 总和。
+/// `sample_weight` 是权重总和（普通方块平均为像素数，双线性采样为 2^32）。
+fn average_premultiplied(sums: [u64; 4], sample_weight: u64) -> Rgba<u8> {
+    if sample_weight == 0 || sums[3] == 0 {
+        return Rgba([0, 0, 0, 0]);
+    }
+    let mut output = [0u8; 4];
+    for channel in 0..3 {
+        output[channel] = ((sums[channel] + sums[3] / 2) / sums[3]).min(255) as u8;
+    }
+    output[3] = ((sums[3] + sample_weight / 2) / sample_weight).min(255) as u8;
     Rgba(output)
 }
 
@@ -838,25 +855,27 @@ fn box_blur_horizontal(source: &RgbaImage, radius: u32) -> RgbaImage {
         for offset in -(i64::from(radius))..=i64::from(radius) {
             let x = offset.clamp(0, i64::from(width - 1)) as u32;
             let pixel = source.get_pixel(x, y);
-            for channel in 0..4 {
-                sums[channel] += u64::from(pixel[channel]);
+            let alpha = u64::from(pixel[3]);
+            for channel in 0..3 {
+                sums[channel] += u64::from(pixel[channel]) * alpha;
             }
+            sums[3] += alpha;
         }
         for x in 0..width {
-            output.put_pixel(
-                x,
-                y,
-                Rgba(sums.map(|sum| ((sum + window / 2) / window) as u8)),
-            );
+            output.put_pixel(x, y, average_premultiplied(sums, window));
             let remove = i64::from(x) - i64::from(radius);
             let add = i64::from(x) + i64::from(radius) + 1;
             let remove_x = remove.clamp(0, i64::from(width - 1)) as u32;
             let add_x = add.clamp(0, i64::from(width - 1)) as u32;
             let old = source.get_pixel(remove_x, y);
             let new = source.get_pixel(add_x, y);
-            for channel in 0..4 {
-                sums[channel] = sums[channel] + u64::from(new[channel]) - u64::from(old[channel]);
+            let old_alpha = u64::from(old[3]);
+            let new_alpha = u64::from(new[3]);
+            for channel in 0..3 {
+                sums[channel] = sums[channel] + u64::from(new[channel]) * new_alpha
+                    - u64::from(old[channel]) * old_alpha;
             }
+            sums[3] = sums[3] + new_alpha - old_alpha;
         }
     }
     output
@@ -872,25 +891,27 @@ fn box_blur_vertical(source: &RgbaImage, radius: u32) -> RgbaImage {
         for offset in -(i64::from(radius))..=i64::from(radius) {
             let y = offset.clamp(0, i64::from(height - 1)) as u32;
             let pixel = source.get_pixel(x, y);
-            for channel in 0..4 {
-                sums[channel] += u64::from(pixel[channel]);
+            let alpha = u64::from(pixel[3]);
+            for channel in 0..3 {
+                sums[channel] += u64::from(pixel[channel]) * alpha;
             }
+            sums[3] += alpha;
         }
         for y in 0..height {
-            output.put_pixel(
-                x,
-                y,
-                Rgba(sums.map(|sum| ((sum + window / 2) / window) as u8)),
-            );
+            output.put_pixel(x, y, average_premultiplied(sums, window));
             let remove = i64::from(y) - i64::from(radius);
             let add = i64::from(y) + i64::from(radius) + 1;
             let remove_y = remove.clamp(0, i64::from(height - 1)) as u32;
             let add_y = add.clamp(0, i64::from(height - 1)) as u32;
             let old = source.get_pixel(x, remove_y);
             let new = source.get_pixel(x, add_y);
-            for channel in 0..4 {
-                sums[channel] = sums[channel] + u64::from(new[channel]) - u64::from(old[channel]);
+            let old_alpha = u64::from(old[3]);
+            let new_alpha = u64::from(new[3]);
+            for channel in 0..3 {
+                sums[channel] = sums[channel] + u64::from(new[channel]) * new_alpha
+                    - u64::from(old[channel]) * old_alpha;
             }
+            sums[3] = sums[3] + new_alpha - old_alpha;
         }
     }
     output
@@ -1258,7 +1279,147 @@ fn number(value: f64) -> String {
 mod tests {
     use super::*;
     use sha2::{Digest, Sha256};
+    use std::path::{Path, PathBuf};
     use std::time::Instant;
+
+    struct GoldenDifference {
+        changed_pixels: usize,
+        max_channel_delta: u8,
+        dimension_mismatch: bool,
+        diff: RgbaImage,
+    }
+
+    fn compare_golden(
+        expected: &RgbaImage,
+        actual: &RgbaImage,
+        channel_tolerance: u8,
+        changed_pixel_tolerance: usize,
+    ) -> Option<GoldenDifference> {
+        let width = expected.width().max(actual.width());
+        let height = expected.height().max(actual.height());
+        let dimension_mismatch = expected.dimensions() != actual.dimensions();
+        let mut changed_pixels = 0usize;
+        let mut max_channel_delta = 0u8;
+        let mut diff = RgbaImage::from_pixel(width, height, Rgba([0, 0, 0, 255]));
+
+        for y in 0..height {
+            for x in 0..width {
+                let expected_pixel = (x < expected.width() && y < expected.height())
+                    .then(|| expected.get_pixel(x, y).0);
+                let actual_pixel =
+                    (x < actual.width() && y < actual.height()).then(|| actual.get_pixel(x, y).0);
+                let Some((expected_pixel, actual_pixel)) = expected_pixel.zip(actual_pixel) else {
+                    changed_pixels += 1;
+                    max_channel_delta = u8::MAX;
+                    diff.put_pixel(x, y, Rgba([255, 0, 255, 255]));
+                    continue;
+                };
+                let pixel_delta = expected_pixel
+                    .into_iter()
+                    .zip(actual_pixel)
+                    .map(|(expected, actual)| expected.abs_diff(actual))
+                    .max()
+                    .unwrap_or(0);
+                max_channel_delta = max_channel_delta.max(pixel_delta);
+                if pixel_delta > channel_tolerance {
+                    changed_pixels += 1;
+                    let intensity = pixel_delta.saturating_mul(4).max(32);
+                    diff.put_pixel(x, y, Rgba([255, 255 - intensity, 255 - intensity, 255]));
+                }
+            }
+        }
+
+        (dimension_mismatch || changed_pixels > changed_pixel_tolerance).then_some(
+            GoldenDifference {
+                changed_pixels,
+                max_channel_delta,
+                dimension_mismatch,
+                diff,
+            },
+        )
+    }
+
+    fn write_rgba_png(path: &Path, image: &RgbaImage) {
+        let png = crate::screenshot::encode_png(image.as_raw(), image.width(), image.height())
+            .expect("金图证据编码失败");
+        std::fs::write(path, png).expect("金图证据写入失败");
+    }
+
+    fn persist_golden_failure(
+        directory: &Path,
+        name: &str,
+        expected: &RgbaImage,
+        actual: &RgbaImage,
+        difference: &GoldenDifference,
+    ) -> [PathBuf; 3] {
+        std::fs::create_dir_all(directory).expect("金图证据目录创建失败");
+        let paths = [
+            directory.join(format!("{name}-expected.png")),
+            directory.join(format!("{name}-actual.png")),
+            directory.join(format!("{name}-diff.png")),
+        ];
+        write_rgba_png(&paths[0], expected);
+        write_rgba_png(&paths[1], actual);
+        write_rgba_png(&paths[2], &difference.diff);
+        paths
+    }
+
+    fn assert_rgba_golden(
+        name: &str,
+        actual: &RgbaImage,
+        channel_tolerance: u8,
+        changed_pixel_tolerance: usize,
+    ) {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/pin-render-v2")
+            .join(format!("{name}.png"));
+        let expected_png = std::fs::read(&fixture).unwrap_or_else(|error| {
+            let directory = golden_artifact_directory();
+            std::fs::create_dir_all(&directory).expect("金图证据目录创建失败");
+            let actual_path = directory.join(format!("{name}-actual.png"));
+            write_rgba_png(&actual_path, actual);
+            panic!(
+                "金图不存在或不可读：{}；当前输出已写入 {}：{error}",
+                fixture.display(),
+                actual_path.display()
+            );
+        });
+        let expected = decode(&expected_png);
+        let Some(difference) = compare_golden(
+            &expected,
+            actual,
+            channel_tolerance,
+            changed_pixel_tolerance,
+        ) else {
+            return;
+        };
+        let paths = persist_golden_failure(
+            &golden_artifact_directory(),
+            name,
+            &expected,
+            actual,
+            &difference,
+        );
+        panic!(
+            "金图差异超限：尺寸不一致={}，超差像素={}（容差 {}），最大通道差={}（容差 {}）；证据：{}、{}、{}",
+            difference.dimension_mismatch,
+            difference.changed_pixels,
+            changed_pixel_tolerance,
+            difference.max_channel_delta,
+            channel_tolerance,
+            paths[0].display(),
+            paths[1].display(),
+            paths[2].display()
+        );
+    }
+
+    fn golden_artifact_directory() -> PathBuf {
+        std::env::var_os("CLIPPY_TEST_ARTIFACT_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("target/test-artifacts/pin-render-v2")
+            })
+    }
 
     fn png(width: u32, height: u32) -> Vec<u8> {
         let mut rgba = Vec::with_capacity(width as usize * height as usize * 4);
@@ -1337,6 +1498,32 @@ mod tests {
             assert_eq!(output.get_pixel(x, y).0, expected);
         }
         assert_eq!(output.get_pixel(0, 0), source.get_pixel(0, 0));
+    }
+
+    #[test]
+    fn pixel_effect_sampling_uses_premultiplied_alpha_without_hidden_rgb_halos() {
+        let source = RgbaImage::from_raw(2, 1, vec![255, 0, 0, 255, 0, 0, 255, 0]).unwrap();
+        let bounds = PixelRect {
+            x0: 0,
+            y0: 0,
+            x1: 2,
+            y1: 1,
+        };
+        let mut mosaic = source.clone();
+        apply_mosaic_region(&source, bounds, &mut mosaic, bounds, bounds, 6);
+        assert_eq!(mosaic.get_pixel(0, 0).0, [255, 0, 0, 128]);
+        assert_eq!(mosaic.get_pixel(1, 0).0, [255, 0, 0, 128]);
+
+        let sampled = bilinear_sample(&source, 65_536, 32_768);
+        assert_eq!(sampled.0, [255, 0, 0, 128]);
+
+        let blurred = three_pass_box_blur(&source, 1);
+        for pixel in blurred.pixels() {
+            assert_eq!(pixel[0], 255);
+            assert_eq!(pixel[1], 0);
+            assert_eq!(pixel[2], 0, "透明蓝色不能渗入可见边缘");
+            assert!(pixel[3] > 0 && pixel[3] < 255);
+        }
     }
 
     #[test]
@@ -1480,7 +1667,7 @@ mod tests {
     }
 
     #[test]
-    fn combined_fixture_has_a_stable_rgba_digest() {
+    fn combined_fixture_matches_the_reviewed_rgba_golden() {
         let source_png = png(64, 48);
         let annotations = serde_json::json!([
             {"id":"b","type":"blur","rect":{"x":0,"y":0,"width":18,"height":16},"effect":effect()},
@@ -1506,10 +1693,41 @@ mod tests {
         });
         let output = render(&source_png, 64, 48, &annotations, &adjusted).unwrap();
         let image = decode(&output);
-        let digest = format!("{:x}", Sha256::digest(image.as_raw()));
-        assert_eq!(
-            digest,
-            "bafe7304d28734d35fee3cf7dab22b061f8a6a7ecea01093a539cc64422888de"
+        // 权威软件渲染器必须逐像素稳定。若未来确需放宽平台差异，应在这里显式登记
+        // 通道/像素容差；超差时 target/test-artifacts 会保留三张可视证据。
+        assert_rgba_golden("combined-tools", &image, 0, 0);
+    }
+
+    #[test]
+    fn golden_failure_writer_emits_expected_actual_and_visual_diff() {
+        let expected = RgbaImage::from_pixel(2, 1, Rgba([10, 20, 30, 255]));
+        let mut actual = expected.clone();
+        actual.put_pixel(1, 0, Rgba([40, 20, 30, 255]));
+        assert!(
+            compare_golden(&expected, &actual, 30, 0).is_none(),
+            "已登记通道容差内的差异不应失败"
+        );
+        let difference = compare_golden(&expected, &actual, 0, 0).unwrap();
+        assert_eq!(difference.changed_pixels, 1);
+        assert_eq!(difference.max_channel_delta, 30);
+
+        let directory = tempfile::tempdir().unwrap();
+        let paths = persist_golden_failure(
+            directory.path(),
+            "intentional-mismatch",
+            &expected,
+            &actual,
+            &difference,
+        );
+        for path in &paths {
+            assert!(path.is_file(), "缺少可审阅金图证据：{}", path.display());
+            assert_eq!(decode(&std::fs::read(path).unwrap()).dimensions(), (2, 1));
+        }
+        assert_eq!(decode(&std::fs::read(&paths[0]).unwrap()), expected);
+        assert_eq!(decode(&std::fs::read(&paths[1]).unwrap()), actual);
+        assert_ne!(
+            decode(&std::fs::read(&paths[2]).unwrap()),
+            RgbaImage::from_pixel(2, 1, Rgba([0, 0, 0, 255]))
         );
     }
 

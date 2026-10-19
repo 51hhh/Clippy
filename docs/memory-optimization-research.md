@@ -4,7 +4,8 @@
 > **原则**：只有剪贴板监听需要快速响应，其他组件（设置窗口、预览面板、Pin 窗口）不必常驻内存  
 > **技术栈**：Tauri v2 / wry / webkit2gtk 2.0.2 / WebKitGTK 4.1 / Linux  
 > **3 进程架构**：主进程（Core Process）+ WebKit Web 进程 + WebKit 网络进程  
-> **状态**：方案文档，尚未执行
+> **状态**：历史基线与持续路线图；实施状态以矩阵及对应验证记录为准。2026-10-19 新增设置页
+> WebProcess 实测，见 [验证记录](reviews/2026-10-19-linux-settings-webprocess-sharing-review.md)
 
 ---
 
@@ -253,31 +254,10 @@ async function ensureLibs() {
 
 ### 2.4 图片缩略图缓存控制
 
-当前 `clipboard-list.js` 使用 `Map` 缓存图片缩略图：
+当前唯一的 React 列表由 `ClipboardRow.tsx` 调用 `getClipThumbnail`；后端
+`ThumbnailCache` 以 64 条 FIFO 上限保存 128 px PNG base64，不再有第二份无界前端 Map。
 
-```javascript
-const _thumbCache = new Map();
-```
-
-这个缓存永远不会清理。对于图片密集的用户，可能累积大量 base64 数据。
-
-**优化方案**：
-```javascript
-const MAX_THUMB_CACHE = 50;
-const _thumbCache = new Map();
-
-function setThumbCache(id, data) {
-  if (_thumbCache.size >= MAX_THUMB_CACHE) {
-    // 删除最早的条目
-    const first = _thumbCache.keys().next().value;
-    _thumbCache.delete(first);
-  }
-  _thumbCache.set(id, data);
-}
-```
-
-**收益**：限制缩略图缓存内存（每张 ~10-50KB，50 张封顶 ~2.5MB）  
-**优先级**：🟢 P2
+**状态**：已实施；原图只在预览/Pin 按需读取，冷缩略图解码并发固定为 2。
 
 ---
 
@@ -367,7 +347,8 @@ strip = true
 
 ### 4.1 虚拟滚动（难度：中-高 / 预期收益：2-8MB）
 
-**现状**：`clipboard-list.js` 采用分页加载（`PAGE_SIZE = 30`），滚动到底部追加。当用户滚动多页后，DOM 中可能有 300+ 个列表项。
+**现状**：`react/main/clipboardVirtualization.ts` 已按可视区域裁剪行，数据仍可分页追加，
+但 DOM 不随历史页数线性增长。旧 `clipboard-list.js` 已删除，不能以恢复旧渲染器的方式回退。
 
 **优化方案**：只渲染可视区域内的 ~15-20 个条目，滚动时动态回收/创建 DOM 节点。
 
@@ -386,8 +367,12 @@ class VirtualScroller {
 - 减少 Layout/Paint 开销
 - 对大量剪贴板历史的用户效果显著
 
-**代价**：实现复杂度中等，需要重构 `clipboard-list.js` 的渲染逻辑  
-**优先级**：🟡 P1（列表超过 100 项时效果明显）
+**状态**：已实施；继续由虚拟化回归与主窗口布局 smoke 保护。
+
+列表数据本身也采用有界投影：SQLite 查询与实时事件不携带 HTML/图片，正文最多 2048 个
+Unicode 字符。只有 HTML 或确实被截断的当前焦点文本才通过 blocking 详情命令读取完整内容；
+图片继续走缩略图/原图两个按需接口。这是结构性峰值与 IPC 放大控制，尚未用本轮改动重新测量
+真实桌面 PSS，因此不把它换算成内存降幅百分比。
 
 ### 4.2 Blob URL 及时释放
 
@@ -434,31 +419,41 @@ window.__TAURI__.event.listen('tauri://focus', () => {
 
 ### 5.1 WebKit 进程模型
 
-**现状**：WebKitGTK 4.1+ 强制使用 `MULTIPLE_SECONDARY_PROCESSES` 模型（`set_process_model` 已在 2.40 废弃），每个 WebView 有独立 Web 进程。
+**现状**：WebKitGTK 4.1+ 强制使用 `MULTIPLE_SECONDARY_PROCESSES` 模型（`set_process_model` 已在 2.40 废弃）。未显式建立 related view 时，每个 WebView 默认使用独立 Web 进程；Linux 设置页现已作为受控例外关联主 WebView。
 
 这意味着：
 - **主窗口**：1 个 Web 进程（常驻）
-- **设置窗口**：打开时 +1 个 Web 进程（关闭后释放）  
+- **设置窗口**：Linux 与主窗口共享 Web 进程；Windows/macOS 打开时仍是独立进程
 - **每个 Pin 窗口**：+1 个 Web 进程
 
 **优化方向**：`WebviewBuilder::with_related_view()` 可让多个 webview 共享 Web 进程。
 
 ```rust
-// Pin 窗口共享主窗口的 Web 进程
-let main_webview = app.get_webview_window("main").unwrap();
-let pin_builder = WebviewWindowBuilder::new(...)
-    .with_related_view(&main_webview);  // 需要验证 Tauri API
+// GTK WebView 句柄不能跨线程；必须在主 WebView 回调里使用。
+main_webview.with_webview(move |webview| {
+    WebviewWindowBuilder::new(&app_handle, ...)
+        .with_related_view(webview.inner())
+        .build()
+});
 ```
 
-**收益**：每少一个 Web 进程节省 ~15-20MB  
+**收益**：设置页实测打开增量 PSS 降低 68,549 KiB（单次隔离样本；不外推为绝对值）
 **限制**：
-1. Tauri 是否暴露 `with_related_view` 给 WebviewWindowBuilder（需验证 API）
+1. Tauri 2.10.3 仅在 Linux/BSD 为 `WebviewWindowBuilder` 暴露 `with_related_view`
 2. 共享进程 → 一个 webview 崩溃影响全部
-3. JS 全局作用域仍然隔离（不同 origin）
+3. WebView 的 DOM/JS 全局作用域仍然隔离，但进程级缓存与 allocator 会共享并可能留存热页
 
-**优先级**：🟡 P1（当 Pin 功能高频使用时）
+**优先级**：设置页已实施；Pin 仍需按峰值收益、关闭后留存和崩溃边界单独评估
 
-### 5.2 设置窗口延迟创建（已实现）
+### 5.2 设置窗口关联主 WebProcess（Linux 已实现）
+
+主窗口存在时，设置页通过 `with_related_view` 复用已有 WebProcess；主窗口缺失时回退独立创建。
+派发等待有两秒上限，超时后不盲目回退，防止迟到回调再创建一个同 label 窗口。隔离 X11 验证中，
+打开前后均只有一个 WebProcess；关闭 15 秒后仍比冷态高 6,645 KiB PSS，说明峰值下降不能等同为
+完全无常驻代价。完整方法与边界见
+[2026-10-19 验证记录](reviews/2026-10-19-linux-settings-webprocess-sharing-review.md)。
+
+### 5.3 设置窗口延迟创建（已实现）
 
 当前设置窗口已经是按需创建的（托盘菜单 "Settings" 点击时 `WebviewWindowBuilder::new()`，关闭后销毁），无需额外优化。
 
@@ -476,9 +471,10 @@ let pin_builder = WebviewWindowBuilder::new(...)
 | 6 | WebKitMemoryPressureSettings | WebKit | ⭐⭐⭐ | 10-25MB | 中 | 🟡 P1 | 📋 需验证 API |
 | 7 | removeUnusedCommands | 构建 | ⭐ | 0.5-2MB | 极低 | 🟡 P1 | ✅ 已实施 |
 | 8 | 虚拟滚动 | 前端 | ⭐⭐⭐ | 2-8MB | 低 | 🟡 P1 | 📋 待实施 |
-| 9 | Pin 窗口共享 Web 进程 | 架构 | ⭐⭐⭐ | 15-20MB/窗口 | 中 | 🟡 P1 | 📋 需验证 API |
-| 10 | 缩略图缓存上限 | 前端 | ⭐ | 0.5-2.5MB | 极低 | 🟢 P2 | ✅ 已实施 |
-| 11 | 替代分配器 (jemalloc/mimalloc) | Rust | ⭐⭐ | 1-3MB | 低 | 🟢 P2 | 📋 ROI 低 |
+| 9 | Linux 设置页共享 Web 进程 | 架构 | ⭐⭐⭐ | 打开增量 -68,549 KiB（单次样本） | 中 | 🟡 P1 | ✅ 已实施 |
+| 10 | Pin 窗口共享 Web 进程 | 架构 | ⭐⭐⭐ | 待实测 | 中 | 🟡 P1 | 📋 需单独评估 |
+| 11 | 缩略图缓存上限 | 前端 | ⭐ | 0.5-2.5MB | 极低 | 🟢 P2 | ✅ 已实施 |
+| 12 | 替代分配器 (jemalloc/mimalloc) | Rust | ⭐⭐ | 1-3MB | 低 | 🟢 P2 | 📋 ROI 低 |
 
 ### 收益预估
 
@@ -505,12 +501,13 @@ let pin_builder = WebviewWindowBuilder::new(...)
 6. ✏️ `removeUnusedCommands: true` — 同时精确化 capabilities
 7. 🔬 评估 MemoryPressureSettings API 可达性
 8. ✏️ 虚拟滚动初版
+9. ✅ Linux 设置页 `with_related_view`，已记录进程数、PSS 和关闭后热缓存
 
 ### 阶段 3：长期架构（P2，按需）
 
-9. 🔬 Pin 窗口 with_related_view 验证
-10. ✏️ 缩略图缓存上限
-11. 🔬 jemalloc/mimalloc 对比测试
+10. 🔬 Pin 窗口 with_related_view 验证
+11. ✏️ 缩略图缓存上限
+12. 🔬 jemalloc/mimalloc 对比测试
 
 ---
 

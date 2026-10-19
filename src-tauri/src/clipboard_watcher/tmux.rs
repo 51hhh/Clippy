@@ -1,9 +1,10 @@
-use super::content::{compute_hash, is_sensitive_text};
+use super::content::{compute_hash, is_sensitive_text, MAX_CLIPBOARD_TEXT_BYTES};
 use super::poll_state::PollState;
 use crate::models::{AppConfig, ContentType};
 use crate::storage::StorageEngine;
 use inotify::{Inotify, WatchMask};
 use nix::poll::{poll, PollFd, PollFlags};
+use std::io::Read;
 use std::os::fd::AsFd;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -18,18 +19,19 @@ pub(super) fn start(
     app_handle: AppHandle,
 ) {
     let tmux_buf_path = crate::commands::tmux_buf_path();
+    if let Err(error) = crate::commands::ensure_tmux_state_dir() {
+        log::error!("tmux 状态目录不可用: {error}");
+        return;
+    }
     // 文件去重只属于 tmux 输入：旧缓冲内容不能永久屏蔽独立的系统 selection。
-    let mut last_hash = std::fs::read_to_string(&tmux_buf_path)
+    let mut last_hash = read_bounded_content(&tmux_buf_path)
         .ok()
+        .flatten()
         .filter(|text| !text.is_empty())
         .map(|text| compute_hash(text.as_bytes()))
         .unwrap_or_default();
     let mut hook_check_counter: u32 = 0;
     const HOOK_CHECK_INTERVAL: u32 = 60;
-
-    if let Some(parent) = tmux_buf_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
 
     let mut inotify = match Inotify::init() {
         Ok(inotify) => inotify,
@@ -98,8 +100,13 @@ pub(super) fn start(
         }
 
         thread::sleep(Duration::from_millis(10));
-        let content = match std::fs::read_to_string(&tmux_buf_path) {
-            Ok(content) if !content.is_empty() => content,
+        let content = match read_bounded_content(&tmux_buf_path) {
+            Ok(Some(content)) if !content.is_empty() => content,
+            Ok(Some(_)) => continue,
+            Ok(None) => {
+                log::warn!("忽略超过 {MAX_CLIPBOARD_TEXT_BYTES} 字节的 tmux 缓冲内容");
+                continue;
+            }
             _ => continue,
         };
         let hash = compute_hash(content.as_bytes());
@@ -118,14 +125,7 @@ pub(super) fn start(
 }
 
 fn rebuild_missing_hook() {
-    let check = std::process::Command::new("tmux")
-        .args(["list-keys", "-T", "copy-mode-vi"])
-        .output();
-    let binding_missing = match check {
-        Ok(output) => !String::from_utf8_lossy(&output.stdout).contains("copy-pipe-and-cancel"),
-        Err(_) => false,
-    };
-    if binding_missing {
+    if !crate::commands::tmux_bindings_present() {
         log::warn!("tmux copy-pipe 绑定丢失，正在重建...");
         if let Err(error) = crate::commands::setup_tmux_hook() {
             log::warn!("tmux 绑定重建失败: {}", error);
@@ -140,6 +140,10 @@ fn store_content(
     content: &str,
     hash: &str,
 ) -> bool {
+    if content.len() > MAX_CLIPBOARD_TEXT_BYTES {
+        log::warn!("拒绝超过 {MAX_CLIPBOARD_TEXT_BYTES} 字节的 tmux 缓冲内容");
+        return true;
+    }
     let max_history = config
         .lock()
         .unwrap_or_else(|error| error.into_inner())
@@ -175,10 +179,21 @@ fn store_content(
                 let _ = app_handle.emit("clip-removed", removed_id);
             }
         }
-        let _ = app_handle.emit("clip-added", &clip);
+        let _ = app_handle.emit("clip-added", &clip.for_list());
         log::debug!("tmux 缓冲区内容（inotify），大小: {} 字节", byte_size);
         true
     } else {
         false
     }
+}
+
+fn read_bounded_content(path: &std::path::Path) -> std::io::Result<Option<String>> {
+    let file = std::fs::File::open(path)?;
+    let mut content = String::new();
+    file.take((MAX_CLIPBOARD_TEXT_BYTES + 1) as u64)
+        .read_to_string(&mut content)?;
+    if content.len() > MAX_CLIPBOARD_TEXT_BYTES {
+        return Ok(None);
+    }
+    Ok(Some(content))
 }

@@ -201,6 +201,13 @@ impl Get<'_> {
 		self.platform.html()
 	}
 
+	/// Clippy 的 Windows 配对读取：HTML 与可选替代文本共用一次剪贴板打开。
+	#[cfg(windows)]
+	#[doc(hidden)]
+	pub fn html_with_text(self) -> Result<(String, Option<String>), Error> {
+		self.platform.html_with_text()
+	}
+
 	/// Completes the "get" operation by fetching a list of file paths from the clipboard.
 	pub fn file_list(self) -> Result<Vec<PathBuf>, Error> {
 		self.platform.file_list()

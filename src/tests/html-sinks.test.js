@@ -1,11 +1,12 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
+import { fileURLToPath } from "node:url";
 import {
   loadFrontendSources,
   validateFrontendBoundaries,
 } from "../../scripts/check-html-sinks.mjs";
 
-const repositoryRoot = new URL("../..", import.meta.url).pathname;
+const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 
 function sources() {
   return loadFrontendSources(repositoryRoot);

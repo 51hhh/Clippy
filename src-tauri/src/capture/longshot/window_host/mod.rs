@@ -7,6 +7,8 @@ mod registry;
 mod workers;
 
 use super::LongshotSessionToken;
+use crate::capture::manager::LongshotGuideSpec;
+use crate::capture::types::OverlaySpec;
 use crate::capture::{CaptureError, CaptureSelection};
 use crate::commands::AppState;
 use finish::{
@@ -26,16 +28,98 @@ use output::{copy_longshot_artifact, pin_longshot_artifact};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::Manager;
-#[cfg(test)]
-use workers::AppendBoundary;
+#[cfg(any(test, all(target_os = "linux", feature = "longshot-wayland-auto")))]
+use workers::execute_visible_operation_with_ops;
 use workers::{
-    execute_append_with_ops, execute_preview_with_ops, run_activation_worker, run_append_worker,
-    run_preview_worker,
+    execute_append_with_ops, execute_preview_with_ops, execute_visible_mutation,
+    run_activation_worker, run_append_worker, run_preview_worker,
 };
+#[cfg(test)]
+use workers::{AppendBoundary, VisibleOperationBoundary};
 
 const CONTROLLER_PREFIX: &str = "longshot-controller-";
 const CONTROLLER_PAGE: &str = "/longshot-controller.html";
+const GUIDE_PREFIX: &str = "longshot-guide-";
 const LOAD_DEADLINE_MS: u64 = 5_000;
+
+fn guide_label(controller_label: &str) -> Option<String> {
+    let suffix = controller_label.strip_prefix(CONTROLLER_PREFIX)?;
+    if suffix.is_empty()
+        || !suffix
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return None;
+    }
+    Some(format!("{GUIDE_PREFIX}{suffix}"))
+}
+
+fn build_guide_window(
+    app: &tauri::AppHandle,
+    controller_label: &str,
+    guide: LongshotGuideSpec,
+) -> Result<(), String> {
+    let label = guide_label(controller_label).ok_or_else(|| "长截图控制窗标签无效".to_string())?;
+    let overlay = guide_overlay_spec(label.clone(), guide);
+    #[cfg(target_os = "windows")]
+    let _ = crate::capture::overlay_windows::overlay_geometry(&overlay)
+        .map_err(|error| error.to_string())?;
+    let url = format!(
+        "longshot-guide.html?x={}&y={}&width={}&height={}",
+        guide.selection_x, guide.selection_y, guide.selection_width, guide.selection_height
+    );
+    let builder = tauri::WebviewWindowBuilder::new(app, &label, tauri::WebviewUrl::App(url.into()))
+        .title("")
+        .inner_size(guide.monitor_width as f64, guide.monitor_height as f64)
+        .decorations(false)
+        .transparent(true)
+        .background_color(tauri::window::Color(0, 0, 0, 0))
+        .shadow(false)
+        .resizable(false)
+        .skip_taskbar(true)
+        .focusable(false)
+        .focused(false)
+        .visible(false);
+    #[cfg(not(target_os = "windows"))]
+    let builder = builder.position(guide.monitor_x as f64, guide.monitor_y as f64);
+    // 与截图覆盖层保持同一平台策略：Wayland 不支持客户端声明全局置顶，
+    // 目标显示器全屏已足以避免依赖全局坐标；X11/Windows/macOS 仍请求置顶。
+    #[cfg(target_os = "linux")]
+    let builder = if crate::platform::is_wayland() {
+        builder
+    } else {
+        builder.always_on_top(true)
+    };
+    #[cfg(not(target_os = "linux"))]
+    let builder = builder.always_on_top(true);
+    let window = builder.build().map_err(|error| error.to_string())?;
+    if let Err(error) = window.set_ignore_cursor_events(true) {
+        let _ = window.destroy();
+        return Err(error.to_string());
+    }
+    if let Err(error) =
+        crate::capture::overlay_windows::configure_platform_overlay(&window, &overlay)
+    {
+        let _ = window.destroy();
+        return Err(error.to_string());
+    }
+    Ok(())
+}
+
+pub(in crate::capture) fn guide_overlay_spec(
+    label: String,
+    guide: LongshotGuideSpec,
+) -> OverlaySpec {
+    OverlaySpec {
+        label,
+        x: guide.monitor_x,
+        y: guide.monitor_y,
+        width: guide.monitor_width,
+        height: guide.monitor_height,
+        #[cfg(target_os = "windows")]
+        physical_bounds: guide.physical_bounds,
+    }
+}
 
 mod model;
 
@@ -43,10 +127,48 @@ mod model;
 use model::{CancelAction, DeadlineAction, ReadyAction, Slot, TerminationOrigin};
 use model::{EmergencyDecision, LongshotOutputArtifact};
 pub(crate) use model::{
-    LongshotActivation, LongshotControllerHandle, LongshotControllerLaunch,
+    LongshotActivation, LongshotAutoCapability, LongshotControllerHandle, LongshotControllerLaunch,
     LongshotControllerRegistry, LongshotIpcError, LongshotOutputAction, LongshotOutputResult,
     LongshotSnapshotDto,
 };
+
+#[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+fn wayland_parent_identifier(
+    window: &tauri::WebviewWindow,
+) -> Result<ashpd::WindowIdentifier, LongshotIpcError> {
+    use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
+
+    if !crate::platform::is_wayland() {
+        return Err(CaptureError::LongshotAutoUnsupported.into());
+    }
+    let window_handle = window
+        .window_handle()
+        .map_err(|error| LongshotIpcError::internal(error.to_string()))?;
+    let display_handle = window
+        .display_handle()
+        .map_err(|error| LongshotIpcError::internal(error.to_string()))?;
+    let raw_window = window_handle.as_raw();
+    let raw_display = display_handle.as_raw();
+    if !matches!(
+        (&raw_window, &raw_display),
+        (
+            raw_window_handle::RawWindowHandle::Wayland(_),
+            raw_window_handle::RawDisplayHandle::Wayland(_)
+        )
+    ) {
+        return Err(CaptureError::LongshotAutoUnsupported.into());
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| LongshotIpcError::internal(error.to_string()))?;
+    runtime
+        .block_on(ashpd::WindowIdentifier::from_raw_handle(
+            &raw_window,
+            Some(&raw_display),
+        ))
+        .ok_or_else(|| LongshotIpcError::internal("Wayland 合成器无法导出长截图授权窗标识"))
+}
 
 pub(crate) fn open(
     app: &tauri::AppHandle,
@@ -55,6 +177,7 @@ pub(crate) fn open(
     selection: CaptureSelection,
 ) -> Result<LongshotControllerLaunch, LongshotIpcError> {
     let registry = state.longshot_windows.clone();
+    let guide_selection = selection.clone();
     open_with_ops(
         &state.longshot_windows,
         caller_label,
@@ -67,6 +190,11 @@ pub(crate) fn open(
         },
         |label| spawn_deadline(app.clone(), label.to_string()),
         |label| {
+            let guide = state
+                .capture_manager
+                .longshot_guide_spec(caller_label, &guide_selection)
+                .map_err(|error| error.to_string())?;
+            build_guide_window(app, label, guide)?;
             let callback_label = label.to_string();
             let callback_registry = registry.clone();
             tauri::WebviewWindowBuilder::new(
@@ -234,6 +362,109 @@ pub(crate) async fn append(
         },
         |token| cancel_claimed(&app, state, caller_label, token),
         |_| {},
+    )
+    .await
+}
+
+pub(crate) async fn auto_append(
+    app: tauri::AppHandle,
+    state: &AppState,
+    caller_label: &str,
+    handle: LongshotControllerHandle,
+    direction: crate::capture::longshot::LongshotAutoDirection,
+) -> Result<LongshotSnapshotDto, LongshotIpcError> {
+    let longshot_lifecycle = state.longshot_lifecycle.clone();
+    execute_append_with_ops(
+        &state.longshot_windows,
+        caller_label,
+        &handle,
+        &TauriControlWindowActions { app: &app },
+        || async {
+            tokio::time::sleep(Duration::from_millis(crate::capture::HIDE_SETTLE_MS)).await;
+        },
+        move |token| {
+            let longshot_lifecycle = longshot_lifecycle.clone();
+            async move {
+                run_append_worker(move || {
+                    let outcome = longshot_lifecycle.auto_append(&token, direction)?;
+                    Ok(outcome.snapshot)
+                })
+                .await
+            }
+        },
+        |token| cancel_claimed(&app, state, caller_label, token),
+        |_| {},
+    )
+    .await
+}
+
+pub(crate) async fn authorize_auto(
+    state: &AppState,
+    window: &tauri::WebviewWindow,
+    handle: LongshotControllerHandle,
+) -> Result<LongshotAutoCapability, LongshotIpcError> {
+    #[cfg(not(all(target_os = "linux", feature = "longshot-wayland-auto")))]
+    {
+        let _ = (state, window, handle);
+        Err(CaptureError::LongshotAutoUnsupported.into())
+    }
+    #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+    {
+        let lifecycle = state.longshot_lifecycle.clone();
+        let parent_window = window.clone();
+        let authorized = execute_visible_operation_with_ops(
+            &state.longshot_windows,
+            window.label(),
+            &handle,
+            move |token| async move {
+                let parent = tauri::async_runtime::spawn_blocking(move || {
+                    wayland_parent_identifier(&parent_window)
+                })
+                .await
+                .map_err(|error| {
+                    LongshotIpcError::internal(format!("Wayland 父窗口线程异常: {error}"))
+                })??;
+                match tauri::async_runtime::spawn_blocking(move || {
+                    lifecycle.authorize_wayland_auto(&token, parent)?;
+                    lifecycle.wayland_auto_authorized(&token)
+                })
+                .await
+                {
+                    Ok(Err(CaptureError::LongshotAutoPermissionRequired)) => {
+                        Err(LongshotIpcError::new(
+                            "longshot_auto_wayland_permission_required",
+                            "Wayland Portal 未授予本次长截图的指针控制权限",
+                        ))
+                    }
+                    Ok(result) => result.map_err(LongshotIpcError::from),
+                    Err(error) => Err(LongshotIpcError::internal(format!(
+                        "Wayland 授权线程异常: {error}"
+                    ))),
+                }
+            },
+            |_| {},
+        )
+        .await?;
+        Ok(LongshotAutoCapability::current_with_wayland_authorized(
+            authorized,
+        ))
+    }
+}
+
+pub(crate) async fn undo(
+    state: &AppState,
+    caller_label: &str,
+    handle: LongshotControllerHandle,
+) -> Result<LongshotSnapshotDto, LongshotIpcError> {
+    let lifecycle = state.longshot_lifecycle.clone();
+    execute_visible_mutation(
+        &state.longshot_windows,
+        caller_label,
+        &handle,
+        move |token| {
+            let lifecycle = lifecycle.clone();
+            async move { run_append_worker(move || lifecycle.undo(&token)).await }
+        },
     )
     .await
 }
@@ -415,6 +646,11 @@ async fn cancel_claimed(
 }
 
 pub(crate) fn handle_controller_destroyed(app: &tauri::AppHandle, label: &str) {
+    if let Some(guide_label) = guide_label(label) {
+        if let Some(guide) = app.get_webview_window(&guide_label) {
+            let _ = guide.destroy();
+        }
+    }
     let Some(state) = app.try_state::<AppState>() else {
         return;
     };

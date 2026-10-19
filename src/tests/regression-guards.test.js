@@ -20,6 +20,8 @@
  *  12. 为兼容 Ubuntu 22 把 PipeWire 快路径裁掉 → GNOME Wayland 静默退到逐屏 PNG，
  *      双屏截图从约 230 ms 回退到 4–6 秒
  *  13. release 在 latest.json 上传前就取消 draft → 用户可见的更新端点短暂缺文件
+ *  14. Rust 与 npm 的 Tauri 包跨 minor → 普通测试全绿，但真正 tauri build 才拒绝打包
+ *  15. deb postinst 移走 dpkg 管理的桌面文件 → 入口可用，但包完整性永久报损坏
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -29,7 +31,8 @@ const frontendRoot = resolve(process.cwd());
 const repoRoot = resolve(frontendRoot, "..");
 
 function read(relativeToRepo) {
-  return readFileSync(resolve(repoRoot, relativeToRepo), "utf8");
+  // 结构合同与检出的行尾格式无关，统一行尾后仍保留全部原有内容断言。
+  return readFileSync(resolve(repoRoot, relativeToRepo), "utf8").replace(/\r\n/g, "\n");
 }
 
 describe("tauri 构建钩子不依赖 cwd", () => {
@@ -44,6 +47,38 @@ describe("tauri 构建钩子不依赖 cwd", () => {
     expect(command).toEqual({ script: expectedScript, cwd: "../src" });
     expect(resolve(repoRoot, "src-tauri", command.cwd)).toBe(frontendRoot);
     expect(command.script).not.toMatch(/[;&|<>]/);
+  });
+});
+
+describe("Tauri Rust 与 npm 包保持同一 minor", () => {
+  const cargoLock = read("src-tauri/Cargo.lock");
+  const npmLock = JSON.parse(read("src/package-lock.json"));
+
+  function cargoVersion(name) {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = cargoLock.match(
+      new RegExp(`\\[\\[package\\]\\]\\nname = "${escaped}"\\nversion = "([^"]+)"`),
+    );
+    if (!match) throw new Error(`Cargo.lock 缺少 ${name}`);
+    return match[1];
+  }
+
+  function npmVersion(name) {
+    const version = npmLock.packages?.[`node_modules/${name}`]?.version;
+    if (!version) throw new Error(`package-lock.json 缺少 ${name}`);
+    return version;
+  }
+
+  function minor(version) {
+    return version.split(".").slice(0, 2).join(".");
+  }
+
+  it.each([
+    ["@tauri-apps/api", "tauri"],
+    ["@tauri-apps/cli", "tauri"],
+    ["@tauri-apps/plugin-updater", "tauri-plugin-updater"],
+  ])("%s 与 Rust %s 对齐", (npmName, cargoName) => {
+    expect(minor(npmVersion(npmName))).toBe(minor(cargoVersion(cargoName)));
   });
 });
 
@@ -87,11 +122,50 @@ describe("Linux CI 固守 Ubuntu 22 构建基线", () => {
     // Linux runner 只看 runner.os 会把 Jammy 与更新发行版都归到 Linux，缓存中的
     // build-script 会因较新 glibc 无法在 Ubuntu 22 启动；runner 名必须进入 key。
     const cacheBlocks = [...buildWorkflow.matchAll(/- name: Rust cache[\s\S]*?workspaces: src-tauri/g)];
-    expect(cacheBlocks).toHaveLength(2);
-    for (const [block] of cacheBlocks) {
+    expect(cacheBlocks).toHaveLength(3);
+    for (const [block] of cacheBlocks.slice(0, 2)) {
       expect(block).toContain("prefix-key: v1-rust");
       expect(block).toMatch(/key: (ubuntu-22\.04|\$\{\{ matrix\.runner \}\})/);
     }
+    expect(cacheBlocks[2][0]).toContain("prefix-key: v1-recording-codec");
+    expect(cacheBlocks[2][0]).toContain("key: ${{ matrix.runner }}-${{ matrix.cache_key }}");
+  });
+
+  it("VP9 原型以独立四目标矩阵验证固定供应链和编码闭环", () => {
+    expect(buildWorkflow).toMatch(
+      /recording-codec-prototype:[\s\S]*?timeout-minutes: 90[\s\S]*?strategy:/,
+    );
+    expect(buildWorkflow).toMatch(/recording-codec-prototype:[\s\S]*runner: ubuntu-22\.04/);
+    expect(buildWorkflow).toMatch(/recording-codec-prototype:[\s\S]*runner: windows-latest/);
+    expect(buildWorkflow).toMatch(
+      /runner: windows-latest\n\s+features: recording-windows-av-qa\n\s+cache_key: windows-av/,
+    );
+    expect(buildWorkflow).toMatch(/recording-codec-prototype:[\s\S]*runner: macos-15\n/);
+    expect(buildWorkflow).toMatch(
+      /runner: macos-15-intel\n\s+features: recording-macos-av-qa,recording-vp9-source-build/,
+    );
+    expect(buildWorkflow).toMatch(
+      /runner: macos-15\n\s+features: recording-macos-av-qa/,
+    );
+    expect(buildWorkflow).toContain("components: clippy, llvm-tools-preview");
+    expect(buildWorkflow).toContain("if: matrix.runner == 'macos-15-intel'");
+    expect(buildWorkflow).toContain("run: brew install nasm");
+    expect(buildWorkflow).toContain("node scripts/verify-recording-codec-supply-chain.mjs");
+    expect(buildWorkflow).toContain(
+      "cargo clippy --features ${{ matrix.features }} --all-targets -- -D warnings",
+    );
+    expect(buildWorkflow).toContain(
+      "cargo test --features ${{ matrix.features }} --lib recording::mux::vp9_webm::tests",
+    );
+    expect(buildWorkflow).toContain(
+      "cargo test --features ${{ matrix.features }} --lib recording::session::tests::vp9_",
+    );
+    expect(buildWorkflow).toContain(
+      "cargo test --features ${{ matrix.features }} --lib recording::av",
+    );
+    expect(buildWorkflow).toContain(
+      "cargo test --features ${{ matrix.features }} --lib recording::manager::tests",
+    );
   });
 
   it("Jammy 构建的 AppImage 在 Ubuntu 24 执行强制运行 smoke", () => {
@@ -135,8 +209,11 @@ describe("原生平台由真实 runner 编译", () => {
     );
   });
 
-  it("手动 QA workflow 为同一 SHA 生成四架构包、Ubuntu 24 证据与九环境记录", () => {
+  it("手动 QA workflow 为同一 SHA 生成四架构包、Ubuntu 24 证据与十环境记录", () => {
     const qaWorkflow = read(".github/workflows/native-qa.yml");
+    const macQaJob = qaWorkflow.slice(qaWorkflow.indexOf("  build-macos:"));
+    const releaseWorkflow = read(".github/workflows/release.yml");
+    const cargo = read("src-tauri/Cargo.toml");
     expect(buildWorkflow).not.toContain("QA artifact");
     expect(qaWorkflow).toMatch(/on:\s*\n\s+workflow_dispatch:/);
     for (const artifact of [
@@ -148,7 +225,7 @@ describe("原生平台由真实 runner 编译", () => {
     ]) {
       expect(qaWorkflow).toContain(artifact);
     }
-    expect(qaWorkflow.match(/uses: actions\/upload-artifact@v7/g)).toHaveLength(5);
+    expect(qaWorkflow.match(/uses: actions\/upload-artifact@[0-9a-f]{40}/g)).toHaveLength(5);
     expect(qaWorkflow.match(/retention-days: 14/g)).toHaveLength(5);
     expect(qaWorkflow).toContain("signing=unsigned-qa-only");
     expect(qaWorkflow).toContain("signing=self-signed-qa-only");
@@ -157,15 +234,51 @@ describe("原生平台由真实 runner 编译", () => {
     expect(qaWorkflow).toContain("rust_target: x86_64-apple-darwin");
     expect(qaWorkflow).toContain("rust_target: aarch64-apple-darwin");
     expect(qaWorkflow).toContain("linux-gnome-wayland-ubuntu24");
+    expect(qaWorkflow).toContain("linux-gnome-wayland-ubuntu26");
     expect(qaWorkflow).toContain("--config src-tauri/tauri.linux.conf.json");
     expect(qaWorkflow).toContain("--config src-tauri/tauri.windows.conf.json");
     expect(qaWorkflow).toContain("--config src-tauri/tauri.windows.signing.conf.json");
     expect(qaWorkflow).toContain("--config src-tauri/tauri.macos.conf.json");
+    expect(qaWorkflow).toContain("--config src-tauri/tauri.macos.recording.conf.json");
     expect(qaWorkflow).toContain("--config src-tauri/tauri.macos.qa.conf.json");
     expect(qaWorkflow).not.toMatch(/macOS QA[\s\S]*--no-sign/);
     expect(qaWorkflow).toContain("plutil -extract CFBundleExecutable raw");
     expect(qaWorkflow).toContain('lipo -archs "$EXECUTABLE"');
     expect(qaWorkflow).not.toContain('Contents/MacOS/Clippy"');
+    expect(qaWorkflow).toContain(
+      "npx --prefix src tauri build --ci --no-sign\n          " +
+        "--features recording-wayland-qa,recording-linux-av-qa",
+    );
+    expect(qaWorkflow).toContain(
+      "npx --prefix src tauri build --ci\n          " +
+        "--features recording-windows-av-qa",
+    );
+    expect(qaWorkflow).toContain("msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e");
+    expect(qaWorkflow).toContain("microsoft/setup-msbuild@30375c66a4eea26614e0d39710365f22f8b0af57");
+    expect(qaWorkflow).toContain("components: llvm-tools-preview");
+    expect(macQaJob).toMatch(
+      /Setup Rust[\s\S]*targets: \$\{\{ matrix\.rust_target \}\}[\s\S]*components: llvm-tools-preview/,
+    );
+    expect(qaWorkflow).toContain(
+      "recording_feature=recording-wayland-qa,recording-linux-av-qa",
+    );
+    expect(qaWorkflow).toContain("recording_feature=recording-windows-av-qa");
+    expect(qaWorkflow).toContain("recording_feature: recording-macos-av-qa");
+    expect(qaWorkflow).toContain("recording_feature=%s");
+    expect(qaWorkflow).toContain('"${{ matrix.recording_feature }}"');
+    expect(qaWorkflow).toContain("minimum_system_version=12.3");
+    expect(releaseWorkflow).not.toContain("recording-vp9");
+    expect(releaseWorkflow).not.toContain("recording-macos-screencapturekit");
+    expect(releaseWorkflow).not.toContain("recording-macos-av-qa");
+    expect(releaseWorkflow).not.toContain("recording-wayland-qa");
+    expect(releaseWorkflow).not.toContain("recording-linux-av-qa");
+    expect(buildWorkflow).toContain(
+      "features: recording-wayland-qa,recording-linux-av-qa",
+    );
+    expect(cargo).toContain('recording-linux-av-qa = ["recording-opus-webm"]');
+    // 录屏 feature 会同时开放两个 benchmark bin。没有 default-run 时，cargo check
+    // 仍然通过，但真正执行 tauri build 会因无法判断主程序而失败。
+    expect(cargo).toMatch(/^default-run\s*=\s*"clippy-app"$/m);
   });
 });
 
@@ -184,6 +297,28 @@ describe("deb 声明默认二进制真实需要的额外运行库", () => {
 
   it("PipeWire 是正式包的必需运行时能力", () => {
     expect(deb.depends).toContain("libpipewire-0.3-0");
+  });
+
+  it("可见桌面入口和 app-id 图标由 dpkg 管理", () => {
+    expect(deb.desktopTemplate).toBe("clippy-hidden.desktop");
+    expect(read("src-tauri/clippy-hidden.desktop")).toContain("NoDisplay=true");
+    expect(deb.files).toMatchObject({
+      "/usr/share/applications/com.clippy.app.desktop":
+        "package-assets/com.clippy.app.desktop",
+      "/usr/share/icons/hicolor/32x32/apps/com.clippy.app.png": "icons/32x32.png",
+      "/usr/share/icons/hicolor/128x128/apps/com.clippy.app.png": "icons/128x128.png",
+    });
+    expect(read("src-tauri/package-assets/com.clippy.app.desktop")).not.toContain("{{");
+  });
+
+  it("维护者脚本只恢复同字节文件，不再移走 dpkg 文件", () => {
+    const postinst = read("src-tauri/scripts/postinst.sh");
+    const postrm = read("src-tauri/scripts/postrm.sh");
+    expect(postinst).toContain("restore_owned_file");
+    expect(postinst).toContain("cmp -s");
+    expect(postinst).not.toMatch(/\bmv\s+-f\b/);
+    expect(postrm).not.toContain('rm -f "$DESKTOP_FILE"');
+    expect(postrm).not.toContain('rm -f "$ICON_LINK"');
   });
 });
 
@@ -278,6 +413,15 @@ describe("release 下载链接与构建矩阵同步", () => {
     expect(script).toContain("libpipewire-*.so*");
     expect(script).toContain("libspa-*.so*");
     expect(script).toContain("Final AppImage still bundles host PipeWire ABI libraries");
+  });
+
+  it("AppImage 的 GIO 模块与随包 GLib 使用同一 ABI", () => {
+    const script = read("scripts/finalize-appimage.sh");
+    expect(script).toContain("GIO_MODULE_DIRS");
+    expect(script).toContain("linuxdeploy-plugin-gtk.sh");
+    expect(script).toContain("isolate bundled GIO modules from the host ABI");
+    expect(script).toContain('export GIO_MODULE_DIR="$APPDIR/');
+    expect(script).toContain("Final AppImage does not isolate bundled GIO modules");
   });
 
   it("updater 用的无后缀 Linux 产物只从单一 Jammy label 进入汇总", () => {
@@ -376,9 +520,24 @@ describe("release 下载链接与构建矩阵同步", () => {
   });
 
   it("发布产物 Actions 使用 Node 24 运行时版本", () => {
-    expect(release.match(/actions\/upload-artifact@v7/g)).toHaveLength(3);
-    expect(release.match(/actions\/download-artifact@v8/g)).toHaveLength(1);
-    expect(release).not.toMatch(/actions\/(?:upload|download)-artifact@v[1-6]\b/);
+    expect(release.match(/actions\/upload-artifact@[0-9a-f]{40}/g)).toHaveLength(3);
+    expect(release.match(/actions\/download-artifact@[0-9a-f]{40}/g)).toHaveLength(1);
+  });
+
+  it("所有第三方 Actions 都固定到完整 commit SHA", () => {
+    for (const path of [
+      ".github/workflows/build.yml",
+      ".github/workflows/native-qa.yml",
+      ".github/workflows/release.yml",
+    ]) {
+      const workflow = read(path);
+      const references = [...workflow.matchAll(/^\s*-?\s*uses:\s*([^\s#]+)/gm)]
+        .map((match) => match[1]);
+      expect(references.length, path).toBeGreaterThan(0);
+      for (const reference of references) {
+        expect(reference, `${path}: ${reference}`).toMatch(/@[0-9a-f]{40}$/);
+      }
+    }
   });
 });
 
@@ -390,16 +549,12 @@ describe("内容类型只有一套标准", () => {
     expect(source).not.toMatch(/export function formatType/);
   });
 
-  it("两个列表行渲染器都不写类型标签", () => {
-    // js/clipboard/row-renderer.js 目前在运行时不生效（app.js 不传 listEl，实际渲染
-    // 走 react/main/ClipboardRow.tsx）。正因为它是哑的，改动只落在它上面时用户看不到
-    // 效果——上次"删掉主栏类型显示"就是这么丢的，所以两份一起钉。
-    for (const path of ["src/js/clipboard/row-renderer.js", "src/react/main/ClipboardRow.tsx"]) {
-      const source = read(path);
-      expect(source, path).not.toContain("formatType");
-      expect(source, path).not.toContain("clip-row-html-badge");
-      expect(source, path).not.toMatch(/clipboard\.type\./);
-    }
+  it("唯一的列表行渲染器不写类型标签", () => {
+    const path = "src/react/main/ClipboardRow.tsx";
+    const source = read(path);
+    expect(source, path).not.toContain("formatType");
+    expect(source, path).not.toContain("clip-row-html-badge");
+    expect(source, path).not.toMatch(/clipboard\.type\./);
   });
 
   it("预览面板不自己再嗅探一遍类型", () => {
@@ -417,17 +572,14 @@ describe("Pin 贴的是当前焦点条目，不是上一条", () => {
   // `releaseMemory` 把列表清空，随后到达的 `clip-added` 让 prependClip 把 focusedRow +1,
   // 于是重新打开面板时焦点停在**第二行**，而 Pin 的两个入口（全局快捷键与 Ctrl+P）
   // 都读 getFocusedClip()。列表行上没有 Pin 按钮，所以这条路是唯一的。
-  it("两份 prependClip 都按 id 跟踪焦点，不做索引加减", () => {
-    // 两份实现必须同步：js/clipboard-list.js 目前运行时不生效（见上面的 row-renderer 注释），
-    // 只改 React 那一份的话，下次谁把渲染切回去，这个 bug 就原地复活。
-    for (const path of ["src/js/clipboard-list.js", "src/react/main/clipboardStore.ts"]) {
-      const code = read(path)
-        .split("\n")
-        .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
-        .join("\n");
-      expect(code, path).not.toMatch(/focusedRow\s*[+-]\s*1/);
-      expect(code, path).toMatch(/previousFocus/);
-    }
+  it("prependClip 按 id 跟踪焦点，不做索引加减", () => {
+    const path = "src/react/main/clipboardStore.ts";
+    const code = read(path)
+      .split("\n")
+      .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+      .join("\n");
+    expect(code, path).not.toMatch(/focusedRow\s*[+-]\s*1/);
+    expect(code, path).toMatch(/previousFocus/);
   });
 
   it("列表内容被释放后不报告焦点行", () => {
@@ -545,12 +697,11 @@ describe("列表行只取缩略图，不取原图", () => {
   // 库里存的是原图（一张全屏截图 2560×1600 / 几 MB），行里那格是 48 CSS px。
   // 退回 getClipImage 后功能照样对，只是每开一次面板就把十几 MB 送进 webview
   // 并做十几次全尺寸 PNG 解码，全落在 webview 那一个线程上。
-  it("两个列表行渲染器都走 getClipThumbnail", () => {
-    for (const path of ["src/js/clipboard-list.js", "src/react/main/ClipboardRow.tsx"]) {
-      const code = read(path);
-      expect(code, path).toContain("getClipThumbnail");
-      expect(code.replace(/^\s*(\/\/|\*|\/\*).*$/gm, ""), path).not.toMatch(/getClipImage\s*[,(]/);
-    }
+  it("唯一的列表行渲染器走 getClipThumbnail", () => {
+    const path = "src/react/main/ClipboardRow.tsx";
+    const code = read(path);
+    expect(code, path).toContain("getClipThumbnail");
+    expect(code.replace(/^\s*(\/\/|\*|\/\*).*$/gm, ""), path).not.toMatch(/getClipImage\s*[,(]/);
   });
 
   it("预览面板仍然取原图", () => {
@@ -646,5 +797,76 @@ describe("截图诊断不泄露窗口身份", () => {
     expect(diagnostic).toContain("window.is_minimized()");
     expect(diagnostic).not.toContain("window.title()");
     expect(diagnostic).not.toContain("window.pid()");
+  });
+});
+
+describe("macOS ScreenCaptureKit QA 边界", () => {
+  it("默认 macOS 11 构建与 12.3 录屏 QA 配置保持隔离", () => {
+    const normal = JSON.parse(read("src-tauri/tauri.macos.conf.json"));
+    const recording = JSON.parse(read("src-tauri/tauri.macos.recording.conf.json"));
+    expect(normal.bundle.macOS.minimumSystemVersion).toBe("11.0");
+    expect(normal.bundle.macOS.infoPlist).toBeUndefined();
+    expect(recording.bundle.macOS.minimumSystemVersion).toBe("12.3");
+    expect(recording.bundle.macOS.infoPlist).toBe("Info.recording.plist");
+    expect(read("src-tauri/Info.recording.plist")).toContain(
+      "NSScreenCaptureUsageDescription",
+    );
+    expect(read("src-tauri/Info.recording.plist")).toContain(
+      "NSMicrophoneUsageDescription",
+    );
+    expect(read(".github/workflows/native-qa.yml")).toContain(
+      "macOS recording QA bundle is missing NSMicrophoneUsageDescription",
+    );
+    expect(read("scripts/verify-recording-codec-supply-chain.mjs")).toContain(
+      "macOS recording QA plist must declare screen capture and microphone usage",
+    );
+    expect(read(".github/workflows/release.yml")).not.toContain(
+      "recording-macos-screencapturekit",
+    );
+    expect(read(".github/workflows/release.yml")).not.toContain(
+      "recording-macos-av-qa",
+    );
+  });
+
+  it("控制窗原生目标只在 Rust 创建后进入帧源", () => {
+    const lifecycle = read("src-tauri/src/recording/lifecycle.rs");
+    const prepare = lifecycle.indexOf("actions.prepare_control");
+    const start = lifecycle.indexOf("source_factory(control_target, clock)");
+    expect(prepare).toBeGreaterThan(0);
+    expect(start).toBeGreaterThan(prepare);
+    expect(read("src-tauri/src/recording/control_host.rs")).toContain(
+      "native.windowNumber()",
+    );
+  });
+
+  it("平台视频源只消费 session owner 创建的共享单调时钟", () => {
+    const session = read("src-tauri/src/recording/session.rs");
+    const lifecycle = read("src-tauri/src/recording/lifecycle.rs");
+    expect(session).toContain("let session_clock = RecordingSessionClock::new()");
+    expect(lifecycle).toContain("source_factory(control_target, clock)");
+
+    for (const path of [
+      "src-tauri/src/recording/platform/x11.rs",
+      "src-tauri/src/recording/platform/wayland.rs",
+      "src-tauri/src/recording/platform/windows.rs",
+      "src-tauri/src/recording/platform/macos.rs",
+      "src-tauri/src/recording/platform/macos/screencapturekit.rs",
+    ]) {
+      const source = read(path);
+      expect(source).toContain("RecordingSessionClock");
+      expect(source).not.toContain("clock_origin");
+    }
+  });
+
+  it("ScreenCaptureKit 精确排除单窗且回调不阻塞", () => {
+    const source = read(
+      "src-tauri/src/recording/platform/macos/screencapturekit.rs",
+    );
+    expect(source).toContain("initWithDisplay_excludingWindows");
+    expect(source).toContain("configuration.setSourceRect");
+    expect(source).toContain("configuration.setQueueDepth(SCREEN_CAPTURE_KIT_QUEUE_DEPTH)");
+    expect(source).toMatch(/SCREEN_CAPTURE_KIT_QUEUE_DEPTH:\s*isize\s*=\s*3/);
+    expect(source).toContain("self.frames.try_send(frame)");
+    expect(source).not.toContain("excludingApplications");
   });
 });

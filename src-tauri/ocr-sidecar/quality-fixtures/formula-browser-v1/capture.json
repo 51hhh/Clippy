@@ -1,0 +1,87 @@
+{
+  "captureScriptSha256": "9d9e2ba25c880d9fb7d0d68b4463a2bb333a2e80e98ba4b5c48823b14fe22412",
+  "firefox": "Mozilla Firefox 155.0.1",
+  "fontSha256": "ca094f6b0001fb048ca39ddd797a0cdb0179e1e55c6561e111c49c3e6a61d7b7",
+  "host": {
+    "machine": "x86_64",
+    "release": "7.0.0-31-generic",
+    "system": "Linux"
+  },
+  "mathFontSha256": "8242bd1e55368b27e32455260754cf9aa58f3ad7ea80664b66c21f1b09910d6c",
+  "scenes": {
+    "fraction-radical": {
+      "image": {
+        "height": 228,
+        "sha256": "1abe9263ca2fa0f23a8a423503e0378a2c76debe98870b9f258f8e5f0fc29518",
+        "width": 320
+      },
+      "viewport": {
+        "devicePixelRatio": 1,
+        "height": 300,
+        "width": 960
+      }
+    },
+    "greek-subscript": {
+      "image": {
+        "height": 146,
+        "sha256": "04ac27883dcee30bc3369bc5413fc75d310dc0d9ccee115596f7bc902901c6b4",
+        "width": 438
+      },
+      "viewport": {
+        "devicePixelRatio": 1,
+        "height": 300,
+        "width": 960
+      }
+    },
+    "integral-limit": {
+      "image": {
+        "height": 232,
+        "sha256": "334d127a9ecf0f0897ae569767b4370be83d0d26991b486dd0f3a0b4499f6708",
+        "width": 400
+      },
+      "viewport": {
+        "devicePixelRatio": 1,
+        "height": 340,
+        "width": 1100
+      }
+    },
+    "matrix": {
+      "image": {
+        "height": 218,
+        "sha256": "42a9b979a11a3db53e9345b0ac9c6fc3631b132d60a933c916b1930e87362784",
+        "width": 274
+      },
+      "viewport": {
+        "devicePixelRatio": 1,
+        "height": 420,
+        "width": 900
+      }
+    },
+    "piecewise": {
+      "image": {
+        "height": 226,
+        "sha256": "4f76acb4f07727d72ab7d5079ec28dc5c868ec1ae440653fc89d9e70547246bc",
+        "width": 442
+      },
+      "viewport": {
+        "devicePixelRatio": 1,
+        "height": 460,
+        "width": 1050
+      }
+    },
+    "summation": {
+      "image": {
+        "height": 238,
+        "sha256": "8a8d0dec546de8dd5c5dc6cb841d55fdcb0c40180c9943c8295b0e70996c22f9",
+        "width": 436
+      },
+      "viewport": {
+        "devicePixelRatio": 1,
+        "height": 340,
+        "width": 960
+      }
+    }
+  },
+  "schema": "clippy-ocr-formula-browser-capture-v1",
+  "sourceHtmlSha256": "60cb0e0a9dcbe40a4683e7eb290d855c3d099553d6857103ad71b7b02631475b"
+}

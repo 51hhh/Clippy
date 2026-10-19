@@ -8,8 +8,11 @@ import {
   getCaptureFrame,
   getCaptureFrameUrl,
   getCaptureOverlay,
+  getRecordingStartCapabilities,
   markCaptureOverlayReady,
   openLongshotController,
+  scanCaptureSelection,
+  startCaptureRecording,
   translateCaptureSelection,
 } from "../../js/api.ts";
 import type {
@@ -21,6 +24,8 @@ import type {
   CaptureSelection,
   CaptureTranslationResult,
   PinCanvasProject,
+  RecordingAudioMode,
+  RecordingAudioSelection,
 } from "../../js/ipc-types.ts";
 
 export const overlayApi = {
@@ -58,6 +63,12 @@ export const overlayApi = {
   /** 选区翻译仍走后端裁剪：OCR 要的是原始像素，不是带标注的画布。 */
   translate: (selection: CaptureSelection): Promise<CaptureTranslationResult> =>
     translateCaptureSelection(selection),
+  scan: (selection: CaptureSelection) => scanCaptureSelection(selection),
+  recordingCapabilities: () => getRecordingStartCapabilities(),
+  startRecording: (
+    selection: CaptureSelection,
+    audioSelection: RecordingAudioSelection,
+  ): Promise<void> => startCaptureRecording(selection, audioSelection),
   copyText: (text: string): Promise<void> => copyText(text),
   /** 普通覆盖层只创建隐藏控制窗；实际交接由控制窗加载后自行发起。 */
   openLongshot: (selection: CaptureSelection) => openLongshotController(selection),

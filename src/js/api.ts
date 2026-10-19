@@ -6,6 +6,9 @@
 
 export type {
   AppConfig,
+  ArchiveExportResult,
+  ArchiveImportSummary,
+  ArchiveScope,
   CaptureAction,
   CaptureActionResult,
   CaptureDiagnosticsReport,
@@ -17,7 +20,11 @@ export type {
   ClipItem,
   ContentType,
   InstallType,
+  OcrHealthStatus,
+  OcrModelIdentity,
   LongshotActivation,
+  LongshotAutoCapability,
+  LongshotAutoDirection,
   LongshotControllerError,
   LongshotControllerOpenResult,
   LongshotHandle,
@@ -36,9 +43,20 @@ export type {
   PinCanvasSaveMode,
   PinCanvasSaveResult,
   PinPayload,
+  PinWorkspaceGroup,
+  PinWorkspaceChange,
+  PinWorkspaceLibraryItem,
+  PinWorkspaceLibrarySettings,
+  PinWorkspaceLibrarySnapshot,
+  PinWorkspaceStatus,
   PinToolbarBounds,
   PinState,
   PinUpdate,
+  RecordingStopResult,
+  RecordingLibraryArtifact,
+  RecordingLibraryItem,
+  RecordingLibrarySettings,
+  RecordingPlaybackLease,
   ServiceTranslation,
   ShortcutConflict,
   ShortcutRegisterFailure,
@@ -55,10 +73,17 @@ export type {
 } from "./ipc-types.ts";
 
 export type { AppUpdateSnapshot } from "./ipc-types.ts";
-export type { DetectedImageCode, ImageCodePoint, ImageCodeScanResponse } from "./api/validators.ts";
+export type {
+  DetectedImageCode,
+  ImageCodeFormat,
+  ImageCodePoint,
+  ImageCodeScanResponse,
+} from "./api/validators.ts";
 
+export * from "./api/actions.ts";
 export * from "./api/clipboard.ts";
 export * from "./api/capture.ts";
 export * from "./api/pin.ts";
+export * from "./api/recording.ts";
 export * from "./api/viewer.ts";
 export * from "./api/settings.ts";

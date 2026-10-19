@@ -6,7 +6,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Clippy 是跨平台轻量剪贴板管理器，基于 Tauri v2 + Rust（后端）+ vanilla HTML/CSS/JS（主前端）+ React/TS（截图编辑功能岛）。当前架构见 `docs/architecture.md`，历史设计见 `docs/superpowers/specs/2026-04-24-clippy-clipboard-manager-design.md`。
 
-已完成功能：剪贴板监听、SQLite 存储（含 FTS5 全文搜索）、悬浮面板、搜索、系统托盘、X11/Wayland 分流自动粘贴、冻结截图/Pin/图片编辑、OCR、翻译和设置面板。
+已完成功能：剪贴板监听、SQLite 存储（含 FTS5 全文搜索）、悬浮面板、搜索、系统托盘、
+X11/Wayland 分流自动粘贴、多显示器冻结截图、二维手动长截图、X11/Windows/macOS 原生受控自动滚动、Wayland Portal 授权自动滚动、Pin 工作区/内部无损图片修订、
+可校验的本地批量归档交换、无限画布图片查看器、QR Code/Code 39/Code 128/EAN-13 扫码、Tesseract OCR、
+可选结构化增强 OCR、翻译和设置面板。录屏的持久化、帧源、VP9 原型、控制链、结果/恢复库、异常
+分段无损 remux、持久首帧缩略图及按需 WebM 库内播放已实现；产品入口仅在
+显式 QA 构建的原生 X11、Wayland、Windows 与 macOS 12.3+ 会话开放，默认构建仍保持关闭。
+内部录屏音频已建立 48 kHz 单音轨合同、共享时钟、线程内采集 worker，以及 feature 门控的
+VP9 + Opus 可恢复双轨 session；它能生成 schema v2 的最终 WebM 和独立周期分段。Windows QA
+组合 feature 已把 WGC 与 WASAPI 系统声/默认麦克风接入该 session，Linux QA 已把 X11/Wayland
+视频源与 PipeWire 默认系统声/麦克风接入；macOS AV QA 已接入 13+ ScreenCaptureKit 系统声与
+15+ 系统默认麦克风，并把 8–192 kHz 整数原生率以固定 sinc 链归一化为 48 kHz。三个 QA 平台
+均可把系统声与麦克风按公共 48 kHz sample grid、100 ms 水位和每路固定 −6 dB 混入同一音轨。
+录屏选区工具条只显示后端下发的可用模式，默认仍为无音频；显式 QA 构建还会用 caller 绑定的
+不透明目录选择 Windows 输出/输入、Linux PipeWire sink/source 或 macOS 15+ 麦克风，原生设备
+身份不会进入 WebView。结果库可
+严格校验这类双轨 WebM，并只解码 VP9 首关键帧生成持久缩略图；异常双轨分段可保留 VP9 packet、
+逐段还原真实 PCM 后连续重编码 Opus，恢复为一个完整 WebM。
+录制中设备热切换和默认发布仍未接入，Linux/Windows/macOS 真机设备、权限与长时漂移仍待验收。
+macOS Intel/Apple Silicon QA 包已生成；Wayland 使用可信 Portal 父窗口和托盘控制，但两者的原生
+真机录制仍待验收，不能记为发布可用。
+增强 OCR 运行时需要显式配置，未随三平台安装包默认分发；交付边界见
+`src-tauri/ocr-sidecar/README.md`。
+智能擦除已完成 `PX-SMART-01` 可行性门控，但当前 LaMa 候选未通过强边缘质量、CPU 延迟和内存
+阈值，因此尚无产品入口或模型依赖；证据见 `docs/reviews/2026-09-21-smart-erase-feasibility.md`。
 
 ## 开发环境搭建（Ubuntu）
 
@@ -30,8 +53,8 @@ sudo apt install -y \
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source "$HOME/.cargo/env"
 
-# 4. Node.js（最低 20.19，推荐当前 LTS）
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+# 4. Node.js（最低 22.12，与 src/package.json 一致，CI 使用 24）
+curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
 sudo apt install -y nodejs
 
 # 5. Tauri CLI（cargo 侧；npm 侧的同版本 CLI 已作为 src/ 的 devDependency 锁进 lockfile，
@@ -40,6 +63,8 @@ cargo install tauri-cli --version "^2" --locked
 ```
 
 ## 常用命令
+
+原生 Windows 环境与本机门禁见 `docs/windows-development.md`；录屏 QA 需要单独的源码构建工具链。
 
 ```bash
 # 启动开发服务器（热重载前端 + Rust 后端）
@@ -76,12 +101,15 @@ cd src-tauri && cargo bench
 ```
 前端 (src/)
 ├── index.html / settings.html         — 主窗口与设置
+├── launcher.html                      — 键盘优先的受限动作启动器
 ├── pin.html / viewer.html             — Pin 与图片查看器功能岛入口
 ├── capture-overlay.html               — 冻结截图覆盖层入口
 ├── longshot-controller.html           — 长截图控制窗口入口
+├── recording-control.html             — 录屏暂停、继续与停止控制窗口
+├── recordings.html                    — 完整录屏与中断分段的结果/恢复库
 ├── js/
 │   ├── api.ts / ipc-types.ts          — 类型化 IPC 边界与 serde 合同
-│   ├── app.js / clipboard-list.js     — 主窗口路由与列表状态
+│   ├── app.js / clipboard-react-facade.js — 主窗口路由与 React 列表 facade
 │   ├── preview-panel.js / preview/    — 预览调度与分职责渲染器
 │   ├── translation-*.js               — 翻译面板与设置
 │   └── settings.js / theme.js         — 设置与主题
@@ -90,6 +118,8 @@ cd src-tauri && cargo bench
 │   ├── annotation/                    — 截图、Pin、查看器共享标注核心
 │   ├── capture-overlay/               — 冻结画面选区、标注与选区翻译
 │   ├── longshot-controller/           — 长截图控制窗口
+│   ├── recording-library/             — 录屏缩略图、播放、导出、恢复合并、定位与受限删除
+│   ├── launcher/                      — 动作搜索、参数、运行/取消与稳定错误状态
 │   ├── viewer/                        — 无限画布图片查看器及工具
 │   ├── pin/                           — 贴图、编辑与保存协议
 │   └── shared/                        — i18n 与工具栏共享行为
@@ -98,9 +128,12 @@ cd src-tauri && cargo bench
 Rust 后端 (src-tauri/src/)
 ├── lib.rs / main.rs                   — Tauri 初始化与入口
 ├── commands.rs / commands/            — AppState 与按功能 IPC 命令
+├── actions/                            — 类型化动作注册表、受限 Launcher 与领域适配器
 ├── clipboard_watcher.rs / storage.rs  — 剪贴板监听与 SQLite/FTS5
+├── archive.rs / storage/archive.rs    — `.clippy.zip` 校验、编解码与事务合并
 ├── paste/ / window_controller.rs      — X11/Portal 粘贴与窗口几何
 ├── capture/ / screenshot.rs           — CaptureSession 与平台截图
+├── recording/                         — X11/WGC/ScreenCaptureKit 帧源、时间线、编码/remux、缩略图、恢复、结果库与控制窗门控
 ├── pin/ / pin_window.rs               — Pin command adapter、生命周期、可信输出与窗口适配
 ├── translation/ / ocr.rs / ocr/       — 翻译服务；OCR facade、运行时、探测、进程与协议
 └── config.rs / models.rs              — 配置与共享模型
@@ -109,10 +142,10 @@ Rust 后端 (src-tauri/src/)
 ### 数据流
 
 1. `ClipboardWatcher` 独立线程每 500ms 轮询系统剪贴板（arboard）；程序化写入不必等这一轮——`clipboard_watcher/writer.rs` 写成功后敲 `wake::nudge()`，轮询等待当场结束
-2. SHA-256 哈希去重 → 重复内容只更新 `created_at` 置顶
+2. SHA-256 哈希去重 → 重复内容递增持久 `use_order` 置顶
 3. 写入 SQLite `clips` 表 + 同步 `clips_fts` FTS5 虚拟表
 4. `app.emit("clip-added")` / `app.emit("clip-removed")` 通知前端
-5. 前端 `api.ts` 监听事件 → `clipboard-list.js` 增量更新 DOM
+5. 前端 `api.ts` 监听事件 → `react/main/clipboardStore.ts` 增量更新唯一的 React 列表
 
 ### 反向写入（select_clip）
 
@@ -132,7 +165,8 @@ Rust 后端 (src-tauri/src/)
 | 剪贴板与持久化 | `StorageEngine`、`ClipboardWatcher`、`AppConfig` |
 | 主窗口 | `window_controller`、`app/window_events` 的转换与位置状态 |
 | 截图与长截图 | `CaptureManager`、`CaptureModeGate`、`LongshotLifecycle`、`LongshotControllerRegistry` |
-| Pin 与查看器 | `PinManager`、`PinOriginRegistry`、`ViewerManager` |
+| 录屏 | `RecordingLifecycle`、`RecordingManager`、`RecordingControlRegistry` |
+| Pin 与查看器 | `PinManager`、`PinWorkspacePersistence`、`PinOriginRegistry`、`ViewerManager` |
 | 自动化与服务 | `PasteManager`、`TranslationService`、快捷键/Portal worker |
 
 具体字段以 `src-tauri/src/commands.rs` 和 owner 类型为准。命令 adapter 只借用 owner 并做参数转换，

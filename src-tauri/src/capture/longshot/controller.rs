@@ -3,11 +3,11 @@
 //! controller 锁只保护轻量 owner；捕获、裁剪、重叠估计、拼接和 PNG 编码均由
 //! manager 的事务 lease 在两把状态锁之外完成。
 
-#[cfg(test)]
 use super::LongshotSnapshot;
 use super::{
-    capture_monitor_frame, LongshotAppendOutcome, LongshotArtifact, LongshotFrameAdapter,
-    LongshotManager, LongshotSession, LongshotSessionToken, LongshotStart,
+    capture_monitor_frame, LongshotAppendOutcome, LongshotArtifact, LongshotAutoDirection,
+    LongshotAutoTarget, LongshotFrameAdapter, LongshotManager, LongshotSession,
+    LongshotSessionToken, LongshotStart,
 };
 use crate::capture::manager::{
     CaptureLongshotCandidate, CaptureLongshotHandoff, OrdinaryCaptureResources,
@@ -32,12 +32,14 @@ struct Owner {
     token: LongshotSessionToken,
     monitor_id: u32,
     adapter: LongshotFrameAdapter,
+    auto_target: LongshotAutoTarget,
     mode_ownership: CaptureModeOwnership,
 }
 
 struct OwnerLease {
     monitor_id: u32,
     adapter: LongshotFrameAdapter,
+    auto_target: LongshotAutoTarget,
 }
 
 /// 长截图开始结果与普通截图桌面资源的唯一移交包。
@@ -100,11 +102,24 @@ impl LongshotController {
             let selection = candidate.selection();
             let monitor_id = frame.monitor_id;
             let (adapter, first_crop) = LongshotFrameAdapter::from_first(frame, selection)?;
+            let scroll_target = adapter.scroll_target()?;
+            #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+            let auto_target = if crate::platform::is_wayland() {
+                LongshotAutoTarget::new_wayland(
+                    scroll_target,
+                    adapter.wayland_monitor_identity()?,
+                    &first_crop,
+                )?
+            } else {
+                LongshotAutoTarget::new(scroll_target)
+            };
+            #[cfg(not(all(target_os = "linux", feature = "longshot-wayland-auto")))]
+            let auto_target = LongshotAutoTarget::new(scroll_target);
             let started = self.manager.begin(first_crop)?;
-            Ok((candidate, started, monitor_id, adapter))
+            Ok((candidate, started, monitor_id, adapter, auto_target))
         })();
 
-        let (candidate, started, monitor_id, adapter) = match prepared {
+        let (candidate, started, monitor_id, adapter, auto_target) = match prepared {
             Ok(prepared) => prepared,
             Err(error) => {
                 self.rollback_starting_after_primary();
@@ -157,6 +172,7 @@ impl LongshotController {
             token: owner_token,
             monitor_id,
             adapter,
+            auto_target,
             mode_ownership: ownership,
         });
         Ok(LongshotControllerStart {
@@ -173,6 +189,35 @@ impl LongshotController {
         self.append_with(token, capture_monitor_frame)
     }
 
+    /// 在同一个 append lease 内完成受控滚动、重捕获与质量门提交。
+    pub(in crate::capture) fn auto_append(
+        &self,
+        token: &LongshotSessionToken,
+        direction: LongshotAutoDirection,
+    ) -> Result<LongshotAppendOutcome, CaptureError> {
+        let lease = self.owner_lease(token)?;
+        self.manager
+            .append_with(token, move |session| {
+                if lease.auto_target.is_wayland_target() {
+                    let before = capture_monitor_frame(lease.monitor_id)?;
+                    let before = lease.adapter.crop_next(&before)?;
+                    lease.auto_target.verify_wayland_preflight(&before)?;
+                }
+                super::auto_scroll::with_scroll(&lease.auto_target, direction, || {
+                    let frame = capture_monitor_frame(lease.monitor_id)?;
+                    lease.adapter.crop_next(&frame)
+                })
+                .and_then(|cropped| {
+                    let outcome = session.append(cropped.clone())?;
+                    lease
+                        .auto_target
+                        .commit_wayland_frame(&cropped, outcome.committed);
+                    Ok(outcome)
+                })
+            })
+            .map_err(normalize_claim_race)
+    }
+
     pub(super) fn append_with<F>(
         &self,
         token: &LongshotSessionToken,
@@ -186,9 +231,50 @@ impl LongshotController {
             .append_with(token, move |session| {
                 let frame = capture(lease.monitor_id)?;
                 let cropped = lease.adapter.crop_next(&frame)?;
-                session.append(cropped)
+                let outcome = session.append(cropped.clone())?;
+                lease
+                    .auto_target
+                    .commit_wayland_frame(&cropped, outcome.committed);
+                Ok(outcome)
             })
             .map_err(normalize_claim_race)
+    }
+
+    /// 撤销最近一次已提交帧，不执行屏幕重捕获。
+    pub(in crate::capture) fn undo(
+        &self,
+        token: &LongshotSessionToken,
+    ) -> Result<LongshotSnapshot, CaptureError> {
+        let lease = self.owner_lease(token)?;
+        self.manager
+            .undo_with(token, move |session| {
+                let previous_count = session.snapshot().frame_count;
+                let snapshot = session.undo()?;
+                lease
+                    .auto_target
+                    .undo_wayland_frame(previous_count, snapshot.frame_count);
+                Ok(snapshot)
+            })
+            .map_err(normalize_claim_race)
+    }
+
+    #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+    pub(in crate::capture) fn authorize_wayland_auto(
+        &self,
+        token: &LongshotSessionToken,
+        parent: ashpd::WindowIdentifier,
+    ) -> Result<(), CaptureError> {
+        self.owner_lease(token)?
+            .auto_target
+            .authorize_wayland(parent)
+    }
+
+    #[cfg(all(target_os = "linux", feature = "longshot-wayland-auto"))]
+    pub(in crate::capture) fn wayland_auto_authorized(
+        &self,
+        token: &LongshotSessionToken,
+    ) -> Result<bool, CaptureError> {
+        Ok(self.owner_lease(token)?.auto_target.wayland_authorized())
     }
 
     /// 读取最后一次已提交的几何快照。
@@ -201,7 +287,7 @@ impl LongshotController {
         self.manager.snapshot(token).map_err(normalize_claim_race)
     }
 
-    /// 生成已提交像素的只读尾部预览。
+    /// 生成已提交二维画布的只读预览。
     pub(in crate::capture) fn preview_tail_png(
         &self,
         token: &LongshotSessionToken,
@@ -232,10 +318,10 @@ impl LongshotController {
         let artifact = self
             .manager
             .finish_with(token, move |session| {
-                let snapshot = session.snapshot();
+                let (width, height, offset_x, offset_y) = session.output_geometry()?;
                 let origin = lease
                     .adapter
-                    .output_origin(snapshot.width, snapshot.total_height)?;
+                    .output_origin_with_offset(width, height, offset_x, offset_y)?;
                 let png = operation(session)?;
                 Ok(LongshotArtifact { png, origin })
             })
@@ -247,12 +333,13 @@ impl LongshotController {
         })
     }
 
-    /// 立即使 matching owner 及其 manager lease 失效，不等待锁外工作结束。
+    /// 先撤销 matching 输入许可及 manager lease，只等待已进入的原生输入调用结算。
+    /// settle、抓帧与锁外像素工作不阻塞取消，owner 在输入结算后交还。
     pub(in crate::capture) fn cancel(
         &self,
         token: &LongshotSessionToken,
     ) -> Result<CaptureModeOwnership, CaptureError> {
-        {
+        let auto_target = {
             let slot = self.slot.lock().map_err(CaptureError::state_lock)?;
             match &*slot {
                 ControllerSlot::Empty => return Err(CaptureError::LongshotSessionMissing),
@@ -260,13 +347,15 @@ impl LongshotController {
                 ControllerSlot::Active(owner) if owner.token != *token => {
                     return Err(CaptureError::LongshotSessionSuperseded);
                 }
-                ControllerSlot::Active(_) => {}
+                ControllerSlot::Active(owner) => owner.auto_target.clone(),
             }
-        }
+        };
+        auto_target.revoke_input();
         let cancelled = self.manager.cancel(token)?;
         if !cancelled {
             return Err(CaptureError::LongshotSessionSuperseded);
         }
+        auto_target.wait_input_idle()?;
         Ok(self.take_owner(token)?.mode_ownership)
     }
 
@@ -327,6 +416,7 @@ impl LongshotController {
             ControllerSlot::Active(owner) => Ok(OwnerLease {
                 monitor_id: owner.monitor_id,
                 adapter: owner.adapter,
+                auto_target: owner.auto_target.clone(),
             }),
         }
     }
@@ -370,6 +460,10 @@ impl LongshotController {
 
 #[cfg(test)]
 mod tests {
+    mod input_cancellation {
+        include!("controller/input_cancellation_tests.rs");
+    }
+
     use super::*;
     use crate::capture::manager::StageTimings;
     use crate::capture::{CaptureMode, CaptureModeGate};
@@ -409,6 +503,12 @@ mod tests {
             pixel_height,
             scale_x: 1.0,
             scale_y: 1.0,
+            physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                x: -20,
+                y: 30,
+                width: pixel_width,
+                height: pixel_height,
+            }),
             rgba: Arc::from(image.into_raw()),
         }
     }
@@ -450,7 +550,10 @@ mod tests {
                 lowered_pins,
                 false,
                 StageTimings::default(),
-                ownership,
+                crate::capture::manager::CaptureBeginAuthorization::new(
+                    ownership,
+                    crate::capture::CaptureIntent::Screenshot,
+                ),
             )
             .expect("普通截图应启动");
         let labels = started
@@ -942,6 +1045,12 @@ mod tests {
             pixel_height: 108,
             scale_x: 1.25,
             scale_y: 1.5,
+            physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+                x: -2400,
+                y: -180,
+                width: 80,
+                height: 108,
+            }),
             rgba: Arc::from(panorama(80, 108, 28).into_raw()),
         };
         let (capture, mut selection, _) =

@@ -104,6 +104,14 @@ describe("i18n", () => {
     expect(document.querySelector("input").getAttribute("placeholder")).toBe("点击录制以设置...");
   });
 
+  it("applyToDOM 可同步多个无障碍属性", () => {
+    document.body.innerHTML = '<button data-i18n="settings.window.close" data-i18n-attr="aria-label,title" aria-label="Close" title="Close"></button>';
+    i18n.init("zh-CN");
+    const button = document.querySelector("button");
+    expect(button.getAttribute("aria-label")).toBe("关闭设置");
+    expect(button.getAttribute("title")).toBe("关闭设置");
+  });
+
   it("auto locale 解析中文浏览器为 zh-CN", () => {
     // navigator.language 默认是 en 在 jsdom，但 init("auto") 应回退到 en
     i18n.init("auto");

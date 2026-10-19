@@ -134,6 +134,8 @@ mod tests {
 
     fn origin(x: f64) -> PinOrigin {
         PinOrigin {
+            #[cfg(target_os = "windows")]
+            physical: None,
             x,
             y: 20.0,
             width: 300.0,
@@ -167,6 +169,8 @@ mod tests {
             &registry,
             &png([1, 2, 3, 4]),
             PinOrigin {
+                #[cfg(target_os = "windows")]
+                physical: None,
                 x: f64::NAN,
                 y: 0.0,
                 width: 10.0,

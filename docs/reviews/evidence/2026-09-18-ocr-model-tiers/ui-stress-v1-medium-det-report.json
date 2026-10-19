@@ -1,0 +1,853 @@
+{
+  "byTag": {
+    "code": {
+      "caseCount": 1,
+      "detection": {
+        "falseNegative": 0,
+        "falsePositive": 0,
+        "hmean": 1.0,
+        "iouThreshold": 0.5,
+        "meanMatchedIou": 0.7716948949664553,
+        "precision": 1.0,
+        "recall": 1.0,
+        "supported": true,
+        "truePositive": 3
+      },
+      "formula": {
+        "exact": null,
+        "exactRate": null,
+        "expected": 0,
+        "structuredPredictions": null,
+        "supportRate": null,
+        "supportedByEngine": false
+      },
+      "performance": {
+        "durationMsMedian": 666.1170029838104,
+        "durationMsP95": 666.1170029838104,
+        "durationMsTotal": 666.1170029838104,
+        "measuredCases": 1,
+        "peakMemoryBytesMax": 279142400
+      },
+      "readingOrder": {
+        "comparablePairs": 3,
+        "errorRate": 0.0,
+        "inversions": 0,
+        "supported": true
+      },
+      "text": {
+        "exactCaseRate": 0.0,
+        "exactLinePrecision": 0.6666666666666666,
+        "exactLineRecall": 0.6666666666666666,
+        "nonWhitespaceCer": 0.0,
+        "nonWhitespaceEditDistance": 0,
+        "nonWhitespaceExpectedCodepoints": 68,
+        "nonWhitespacePredictedCodepoints": 68,
+        "rawCer": 0.05952380952380952,
+        "rawEditDistance": 5,
+        "rawExpectedCodepoints": 84,
+        "rawPredictedCodepoints": 83
+      },
+      "whitespace": {
+        "f1": 0.88,
+        "falseNegative": 3,
+        "falsePositive": 0,
+        "precision": 1.0,
+        "recall": 0.7857142857142857,
+        "truePositive": 11
+      }
+    },
+    "currency": {
+      "caseCount": 2,
+      "detection": {
+        "falseNegative": 2,
+        "falsePositive": 6,
+        "hmean": 0.5,
+        "iouThreshold": 0.5,
+        "meanMatchedIou": 0.86560597623488,
+        "precision": 0.4,
+        "recall": 0.6666666666666666,
+        "supported": true,
+        "truePositive": 4
+      },
+      "formula": {
+        "exact": null,
+        "exactRate": null,
+        "expected": 0,
+        "structuredPredictions": null,
+        "supportRate": null,
+        "supportedByEngine": false
+      },
+      "performance": {
+        "durationMsMedian": 701.9840769935399,
+        "durationMsP95": 750.8450860041194,
+        "durationMsTotal": 1403.9681539870799,
+        "measuredCases": 2,
+        "peakMemoryBytesMax": 331153408
+      },
+      "readingOrder": {
+        "comparablePairs": 3,
+        "errorRate": 0.0,
+        "inversions": 0,
+        "supported": true
+      },
+      "text": {
+        "exactCaseRate": 0.0,
+        "exactLinePrecision": 0.0,
+        "exactLineRecall": 0.0,
+        "nonWhitespaceCer": 0.018691588785046728,
+        "nonWhitespaceEditDistance": 2,
+        "nonWhitespaceExpectedCodepoints": 107,
+        "nonWhitespacePredictedCodepoints": 107,
+        "rawCer": 0.2804878048780488,
+        "rawEditDistance": 46,
+        "rawExpectedCodepoints": 164,
+        "rawPredictedCodepoints": 132
+      },
+      "whitespace": {
+        "f1": 0.33333333333333337,
+        "falseNegative": 42,
+        "falsePositive": 2,
+        "precision": 0.8461538461538461,
+        "recall": 0.20754716981132076,
+        "truePositive": 11
+      }
+    },
+    "dark": {
+      "caseCount": 1,
+      "detection": {
+        "falseNegative": 0,
+        "falsePositive": 0,
+        "hmean": 1.0,
+        "iouThreshold": 0.5,
+        "meanMatchedIou": 0.8216865188375498,
+        "precision": 1.0,
+        "recall": 1.0,
+        "supported": true,
+        "truePositive": 3
+      },
+      "formula": {
+        "exact": null,
+        "exactRate": null,
+        "expected": 0,
+        "structuredPredictions": null,
+        "supportRate": null,
+        "supportedByEngine": false
+      },
+      "performance": {
+        "durationMsMedian": 742.6534980186261,
+        "durationMsP95": 742.6534980186261,
+        "durationMsTotal": 742.6534980186261,
+        "measuredCases": 1,
+        "peakMemoryBytesMax": 276328448
+      },
+      "readingOrder": {
+        "comparablePairs": 3,
+        "errorRate": 0.0,
+        "inversions": 0,
+        "supported": true
+      },
+      "text": {
+        "exactCaseRate": 0.0,
+        "exactLinePrecision": 0.0,
+        "exactLineRecall": 0.0,
+        "nonWhitespaceCer": 0.02702702702702703,
+        "nonWhitespaceEditDistance": 1,
+        "nonWhitespaceExpectedCodepoints": 37,
+        "nonWhitespacePredictedCodepoints": 37,
+        "rawCer": 0.19230769230769232,
+        "rawEditDistance": 10,
+        "rawExpectedCodepoints": 52,
+        "rawPredictedCodepoints": 47
+      },
+      "whitespace": {
+        "f1": 0.631578947368421,
+        "falseNegative": 7,
+        "falsePositive": 0,
+        "precision": 1.0,
+        "recall": 0.46153846153846156,
+        "truePositive": 6
+      }
+    },
+    "fractional-scale": {
+      "caseCount": 1,
+      "detection": {
+        "falseNegative": 0,
+        "falsePositive": 0,
+        "hmean": 1.0,
+        "iouThreshold": 0.5,
+        "meanMatchedIou": 0.8216865188375498,
+        "precision": 1.0,
+        "recall": 1.0,
+        "supported": true,
+        "truePositive": 3
+      },
+      "formula": {
+        "exact": null,
+        "exactRate": null,
+        "expected": 0,
+        "structuredPredictions": null,
+        "supportRate": null,
+        "supportedByEngine": false
+      },
+      "performance": {
+        "durationMsMedian": 742.6534980186261,
+        "durationMsP95": 742.6534980186261,
+        "durationMsTotal": 742.6534980186261,
+        "measuredCases": 1,
+        "peakMemoryBytesMax": 276328448
+      },
+      "readingOrder": {
+        "comparablePairs": 3,
+        "errorRate": 0.0,
+        "inversions": 0,
+        "supported": true
+      },
+      "text": {
+        "exactCaseRate": 0.0,
+        "exactLinePrecision": 0.0,
+        "exactLineRecall": 0.0,
+        "nonWhitespaceCer": 0.02702702702702703,
+        "nonWhitespaceEditDistance": 1,
+        "nonWhitespaceExpectedCodepoints": 37,
+        "nonWhitespacePredictedCodepoints": 37,
+        "rawCer": 0.19230769230769232,
+        "rawEditDistance": 10,
+        "rawExpectedCodepoints": 52,
+        "rawPredictedCodepoints": 47
+      },
+      "whitespace": {
+        "f1": 0.631578947368421,
+        "falseNegative": 7,
+        "falsePositive": 0,
+        "precision": 1.0,
+        "recall": 0.46153846153846156,
+        "truePositive": 6
+      }
+    },
+    "identifiers": {
+      "caseCount": 1,
+      "detection": {
+        "falseNegative": 0,
+        "falsePositive": 0,
+        "hmean": 1.0,
+        "iouThreshold": 0.5,
+        "meanMatchedIou": 0.7716948949664553,
+        "precision": 1.0,
+        "recall": 1.0,
+        "supported": true,
+        "truePositive": 3
+      },
+      "formula": {
+        "exact": null,
+        "exactRate": null,
+        "expected": 0,
+        "structuredPredictions": null,
+        "supportRate": null,
+        "supportedByEngine": false
+      },
+      "performance": {
+        "durationMsMedian": 666.1170029838104,
+        "durationMsP95": 666.1170029838104,
+        "durationMsTotal": 666.1170029838104,
+        "measuredCases": 1,
+        "peakMemoryBytesMax": 279142400
+      },
+      "readingOrder": {
+        "comparablePairs": 3,
+        "errorRate": 0.0,
+        "inversions": 0,
+        "supported": true
+      },
+      "text": {
+        "exactCaseRate": 0.0,
+        "exactLinePrecision": 0.6666666666666666,
+        "exactLineRecall": 0.6666666666666666,
+        "nonWhitespaceCer": 0.0,
+        "nonWhitespaceEditDistance": 0,
+        "nonWhitespaceExpectedCodepoints": 68,
+        "nonWhitespacePredictedCodepoints": 68,
+        "rawCer": 0.05952380952380952,
+        "rawEditDistance": 5,
+        "rawExpectedCodepoints": 84,
+        "rawPredictedCodepoints": 83
+      },
+      "whitespace": {
+        "f1": 0.88,
+        "falseNegative": 3,
+        "falsePositive": 0,
+        "precision": 1.0,
+        "recall": 0.7857142857142857,
+        "truePositive": 11
+      }
+    },
+    "jpeg-artifacts": {
+      "caseCount": 1,
+      "detection": {
+        "falseNegative": 0,
+        "falsePositive": 0,
+        "hmean": 1.0,
+        "iouThreshold": 0.5,
+        "meanMatchedIou": 0.8509607697636584,
+        "precision": 1.0,
+        "recall": 1.0,
+        "supported": true,
+        "truePositive": 3
+      },
+      "formula": {
+        "exact": null,
+        "exactRate": null,
+        "expected": 0,
+        "structuredPredictions": null,
+        "supportRate": null,
+        "supportedByEngine": false
+      },
+      "performance": {
+        "durationMsMedian": 653.1230679829605,
+        "durationMsP95": 653.1230679829605,
+        "durationMsTotal": 653.1230679829605,
+        "measuredCases": 1,
+        "peakMemoryBytesMax": 273342464
+      },
+      "readingOrder": {
+        "comparablePairs": 3,
+        "errorRate": 0.0,
+        "inversions": 0,
+        "supported": true
+      },
+      "text": {
+        "exactCaseRate": 0.0,
+        "exactLinePrecision": 0.0,
+        "exactLineRecall": 0.0,
+        "nonWhitespaceCer": 0.03278688524590164,
+        "nonWhitespaceEditDistance": 2,
+        "nonWhitespaceExpectedCodepoints": 61,
+        "nonWhitespacePredictedCodepoints": 61,
+        "rawCer": 0.0945945945945946,
+        "rawEditDistance": 7,
+        "rawExpectedCodepoints": 74,
+        "rawPredictedCodepoints": 73
+      },
+      "whitespace": {
+        "f1": 0.8421052631578948,
+        "falseNegative": 3,
+        "falsePositive": 0,
+        "precision": 1.0,
+        "recall": 0.7272727272727273,
+        "truePositive": 8
+      }
+    },
+    "numbers": {
+      "caseCount": 2,
+      "detection": {
+        "falseNegative": 2,
+        "falsePositive": 6,
+        "hmean": 0.5,
+        "iouThreshold": 0.5,
+        "meanMatchedIou": 0.86560597623488,
+        "precision": 0.4,
+        "recall": 0.6666666666666666,
+        "supported": true,
+        "truePositive": 4
+      },
+      "formula": {
+        "exact": null,
+        "exactRate": null,
+        "expected": 0,
+        "structuredPredictions": null,
+        "supportRate": null,
+        "supportedByEngine": false
+      },
+      "performance": {
+        "durationMsMedian": 701.9840769935399,
+        "durationMsP95": 750.8450860041194,
+        "durationMsTotal": 1403.9681539870799,
+        "measuredCases": 2,
+        "peakMemoryBytesMax": 331153408
+      },
+      "readingOrder": {
+        "comparablePairs": 3,
+        "errorRate": 0.0,
+        "inversions": 0,
+        "supported": true
+      },
+      "text": {
+        "exactCaseRate": 0.0,
+        "exactLinePrecision": 0.0,
+        "exactLineRecall": 0.0,
+        "nonWhitespaceCer": 0.018691588785046728,
+        "nonWhitespaceEditDistance": 2,
+        "nonWhitespaceExpectedCodepoints": 107,
+        "nonWhitespacePredictedCodepoints": 107,
+        "rawCer": 0.2804878048780488,
+        "rawEditDistance": 46,
+        "rawExpectedCodepoints": 164,
+        "rawPredictedCodepoints": 132
+      },
+      "whitespace": {
+        "f1": 0.33333333333333337,
+        "falseNegative": 42,
+        "falsePositive": 2,
+        "precision": 0.8461538461538461,
+        "recall": 0.20754716981132076,
+        "truePositive": 11
+      }
+    },
+    "punctuation": {
+      "caseCount": 1,
+      "detection": {
+        "falseNegative": 0,
+        "falsePositive": 0,
+        "hmean": 1.0,
+        "iouThreshold": 0.5,
+        "meanMatchedIou": 0.7716948949664553,
+        "precision": 1.0,
+        "recall": 1.0,
+        "supported": true,
+        "truePositive": 3
+      },
+      "formula": {
+        "exact": null,
+        "exactRate": null,
+        "expected": 0,
+        "structuredPredictions": null,
+        "supportRate": null,
+        "supportedByEngine": false
+      },
+      "performance": {
+        "durationMsMedian": 666.1170029838104,
+        "durationMsP95": 666.1170029838104,
+        "durationMsTotal": 666.1170029838104,
+        "measuredCases": 1,
+        "peakMemoryBytesMax": 279142400
+      },
+      "readingOrder": {
+        "comparablePairs": 3,
+        "errorRate": 0.0,
+        "inversions": 0,
+        "supported": true
+      },
+      "text": {
+        "exactCaseRate": 0.0,
+        "exactLinePrecision": 0.6666666666666666,
+        "exactLineRecall": 0.6666666666666666,
+        "nonWhitespaceCer": 0.0,
+        "nonWhitespaceEditDistance": 0,
+        "nonWhitespaceExpectedCodepoints": 68,
+        "nonWhitespacePredictedCodepoints": 68,
+        "rawCer": 0.05952380952380952,
+        "rawEditDistance": 5,
+        "rawExpectedCodepoints": 84,
+        "rawPredictedCodepoints": 83
+      },
+      "whitespace": {
+        "f1": 0.88,
+        "falseNegative": 3,
+        "falsePositive": 0,
+        "precision": 1.0,
+        "recall": 0.7857142857142857,
+        "truePositive": 11
+      }
+    },
+    "small-text": {
+      "caseCount": 1,
+      "detection": {
+        "falseNegative": 0,
+        "falsePositive": 0,
+        "hmean": 1.0,
+        "iouThreshold": 0.5,
+        "meanMatchedIou": 0.8509607697636584,
+        "precision": 1.0,
+        "recall": 1.0,
+        "supported": true,
+        "truePositive": 3
+      },
+      "formula": {
+        "exact": null,
+        "exactRate": null,
+        "expected": 0,
+        "structuredPredictions": null,
+        "supportRate": null,
+        "supportedByEngine": false
+      },
+      "performance": {
+        "durationMsMedian": 653.1230679829605,
+        "durationMsP95": 653.1230679829605,
+        "durationMsTotal": 653.1230679829605,
+        "measuredCases": 1,
+        "peakMemoryBytesMax": 273342464
+      },
+      "readingOrder": {
+        "comparablePairs": 3,
+        "errorRate": 0.0,
+        "inversions": 0,
+        "supported": true
+      },
+      "text": {
+        "exactCaseRate": 0.0,
+        "exactLinePrecision": 0.0,
+        "exactLineRecall": 0.0,
+        "nonWhitespaceCer": 0.03278688524590164,
+        "nonWhitespaceEditDistance": 2,
+        "nonWhitespaceExpectedCodepoints": 61,
+        "nonWhitespacePredictedCodepoints": 61,
+        "rawCer": 0.0945945945945946,
+        "rawEditDistance": 7,
+        "rawExpectedCodepoints": 74,
+        "rawPredictedCodepoints": 73
+      },
+      "whitespace": {
+        "f1": 0.8421052631578948,
+        "falseNegative": 3,
+        "falsePositive": 0,
+        "precision": 1.0,
+        "recall": 0.7272727272727273,
+        "truePositive": 8
+      }
+    },
+    "spaces": {
+      "caseCount": 1,
+      "detection": {
+        "falseNegative": 2,
+        "falsePositive": 6,
+        "hmean": 0.2,
+        "iouThreshold": 0.5,
+        "meanMatchedIou": 0.9095415956485448,
+        "precision": 0.14285714285714285,
+        "recall": 0.3333333333333333,
+        "supported": true,
+        "truePositive": 1
+      },
+      "formula": {
+        "exact": null,
+        "exactRate": null,
+        "expected": 0,
+        "structuredPredictions": null,
+        "supportRate": null,
+        "supportedByEngine": false
+      },
+      "performance": {
+        "durationMsMedian": 750.8450860041194,
+        "durationMsP95": 750.8450860041194,
+        "durationMsTotal": 750.8450860041194,
+        "measuredCases": 1,
+        "peakMemoryBytesMax": 331153408
+      },
+      "readingOrder": {
+        "comparablePairs": 0,
+        "errorRate": 0.0,
+        "inversions": 0,
+        "supported": true
+      },
+      "text": {
+        "exactCaseRate": 0.0,
+        "exactLinePrecision": 0.0,
+        "exactLineRecall": 0.0,
+        "nonWhitespaceCer": 0.0,
+        "nonWhitespaceEditDistance": 0,
+        "nonWhitespaceExpectedCodepoints": 46,
+        "nonWhitespacePredictedCodepoints": 46,
+        "rawCer": 0.43333333333333335,
+        "rawEditDistance": 39,
+        "rawExpectedCodepoints": 90,
+        "rawPredictedCodepoints": 59
+      },
+      "whitespace": {
+        "f1": 0.1276595744680851,
+        "falseNegative": 39,
+        "falsePositive": 2,
+        "precision": 0.6,
+        "recall": 0.07142857142857142,
+        "truePositive": 3
+      }
+    },
+    "table": {
+      "caseCount": 1,
+      "detection": {
+        "falseNegative": 2,
+        "falsePositive": 6,
+        "hmean": 0.2,
+        "iouThreshold": 0.5,
+        "meanMatchedIou": 0.9095415956485448,
+        "precision": 0.14285714285714285,
+        "recall": 0.3333333333333333,
+        "supported": true,
+        "truePositive": 1
+      },
+      "formula": {
+        "exact": null,
+        "exactRate": null,
+        "expected": 0,
+        "structuredPredictions": null,
+        "supportRate": null,
+        "supportedByEngine": false
+      },
+      "performance": {
+        "durationMsMedian": 750.8450860041194,
+        "durationMsP95": 750.8450860041194,
+        "durationMsTotal": 750.8450860041194,
+        "measuredCases": 1,
+        "peakMemoryBytesMax": 331153408
+      },
+      "readingOrder": {
+        "comparablePairs": 0,
+        "errorRate": 0.0,
+        "inversions": 0,
+        "supported": true
+      },
+      "text": {
+        "exactCaseRate": 0.0,
+        "exactLinePrecision": 0.0,
+        "exactLineRecall": 0.0,
+        "nonWhitespaceCer": 0.0,
+        "nonWhitespaceEditDistance": 0,
+        "nonWhitespaceExpectedCodepoints": 46,
+        "nonWhitespacePredictedCodepoints": 46,
+        "rawCer": 0.43333333333333335,
+        "rawEditDistance": 39,
+        "rawExpectedCodepoints": 90,
+        "rawPredictedCodepoints": 59
+      },
+      "whitespace": {
+        "f1": 0.1276595744680851,
+        "falseNegative": 39,
+        "falsePositive": 2,
+        "precision": 0.6,
+        "recall": 0.07142857142857142,
+        "truePositive": 3
+      }
+    },
+    "ui": {
+      "caseCount": 4,
+      "detection": {
+        "falseNegative": 2,
+        "falsePositive": 6,
+        "hmean": 0.7142857142857143,
+        "iouThreshold": 0.5,
+        "meanMatchedIou": 0.8242568146351535,
+        "precision": 0.625,
+        "recall": 0.8333333333333334,
+        "supported": true,
+        "truePositive": 10
+      },
+      "formula": {
+        "exact": null,
+        "exactRate": null,
+        "expected": 0,
+        "structuredPredictions": null,
+        "supportRate": null,
+        "supportedByEngine": false
+      },
+      "performance": {
+        "durationMsMedian": 704.3852505012183,
+        "durationMsP95": 750.8450860041194,
+        "durationMsTotal": 2812.7386549895164,
+        "measuredCases": 4,
+        "peakMemoryBytesMax": 331153408
+      },
+      "readingOrder": {
+        "comparablePairs": 9,
+        "errorRate": 0.0,
+        "inversions": 0,
+        "supported": true
+      },
+      "text": {
+        "exactCaseRate": 0.0,
+        "exactLinePrecision": 0.125,
+        "exactLineRecall": 0.16666666666666666,
+        "nonWhitespaceCer": 0.014150943396226415,
+        "nonWhitespaceEditDistance": 3,
+        "nonWhitespaceExpectedCodepoints": 212,
+        "nonWhitespacePredictedCodepoints": 212,
+        "rawCer": 0.20333333333333334,
+        "rawEditDistance": 61,
+        "rawExpectedCodepoints": 300,
+        "rawPredictedCodepoints": 262
+      },
+      "whitespace": {
+        "f1": 0.5090909090909091,
+        "falseNegative": 52,
+        "falsePositive": 2,
+        "precision": 0.9333333333333333,
+        "recall": 0.35,
+        "truePositive": 28
+      }
+    },
+    "zh-en-ja": {
+      "caseCount": 2,
+      "detection": {
+        "falseNegative": 2,
+        "falsePositive": 6,
+        "hmean": 0.5,
+        "iouThreshold": 0.5,
+        "meanMatchedIou": 0.8436502880402985,
+        "precision": 0.4,
+        "recall": 0.6666666666666666,
+        "supported": true,
+        "truePositive": 4
+      },
+      "formula": {
+        "exact": null,
+        "exactRate": null,
+        "expected": 0,
+        "structuredPredictions": null,
+        "supportRate": null,
+        "supportedByEngine": false
+      },
+      "performance": {
+        "durationMsMedian": 746.7492920113727,
+        "durationMsP95": 750.8450860041194,
+        "durationMsTotal": 1493.4985840227455,
+        "measuredCases": 2,
+        "peakMemoryBytesMax": 331153408
+      },
+      "readingOrder": {
+        "comparablePairs": 3,
+        "errorRate": 0.0,
+        "inversions": 0,
+        "supported": true
+      },
+      "text": {
+        "exactCaseRate": 0.0,
+        "exactLinePrecision": 0.0,
+        "exactLineRecall": 0.0,
+        "nonWhitespaceCer": 0.012048192771084338,
+        "nonWhitespaceEditDistance": 1,
+        "nonWhitespaceExpectedCodepoints": 83,
+        "nonWhitespacePredictedCodepoints": 83,
+        "rawCer": 0.34507042253521125,
+        "rawEditDistance": 49,
+        "rawExpectedCodepoints": 142,
+        "rawPredictedCodepoints": 106
+      },
+      "whitespace": {
+        "f1": 0.2727272727272727,
+        "falseNegative": 46,
+        "falsePositive": 2,
+        "precision": 0.8181818181818182,
+        "recall": 0.16363636363636364,
+        "truePositive": 9
+      }
+    },
+    "zh-ja": {
+      "caseCount": 1,
+      "detection": {
+        "falseNegative": 0,
+        "falsePositive": 0,
+        "hmean": 1.0,
+        "iouThreshold": 0.5,
+        "meanMatchedIou": 0.7716948949664553,
+        "precision": 1.0,
+        "recall": 1.0,
+        "supported": true,
+        "truePositive": 3
+      },
+      "formula": {
+        "exact": null,
+        "exactRate": null,
+        "expected": 0,
+        "structuredPredictions": null,
+        "supportRate": null,
+        "supportedByEngine": false
+      },
+      "performance": {
+        "durationMsMedian": 666.1170029838104,
+        "durationMsP95": 666.1170029838104,
+        "durationMsTotal": 666.1170029838104,
+        "measuredCases": 1,
+        "peakMemoryBytesMax": 279142400
+      },
+      "readingOrder": {
+        "comparablePairs": 3,
+        "errorRate": 0.0,
+        "inversions": 0,
+        "supported": true
+      },
+      "text": {
+        "exactCaseRate": 0.0,
+        "exactLinePrecision": 0.6666666666666666,
+        "exactLineRecall": 0.6666666666666666,
+        "nonWhitespaceCer": 0.0,
+        "nonWhitespaceEditDistance": 0,
+        "nonWhitespaceExpectedCodepoints": 68,
+        "nonWhitespacePredictedCodepoints": 68,
+        "rawCer": 0.05952380952380952,
+        "rawEditDistance": 5,
+        "rawExpectedCodepoints": 84,
+        "rawPredictedCodepoints": 83
+      },
+      "whitespace": {
+        "f1": 0.88,
+        "falseNegative": 3,
+        "falsePositive": 0,
+        "precision": 1.0,
+        "recall": 0.7857142857142857,
+        "truePositive": 11
+      }
+    }
+  },
+  "engine": {
+    "capabilities": {
+      "lineGeometry": true,
+      "structuredFormula": false
+    },
+    "id": "ppocrv6+edgegnn",
+    "version": "ppocrv6-edgegnn-ab-medium-det@313c16bb281b0a4394395c4657df52922ba513ebc43dbcfaf34e803885c369d7"
+  },
+  "schema": "clippy-ocr-quality-report-v1",
+  "summary": {
+    "caseCount": 4,
+    "detection": {
+      "falseNegative": 2,
+      "falsePositive": 6,
+      "hmean": 0.7142857142857143,
+      "iouThreshold": 0.5,
+      "meanMatchedIou": 0.8242568146351535,
+      "precision": 0.625,
+      "recall": 0.8333333333333334,
+      "supported": true,
+      "truePositive": 10
+    },
+    "formula": {
+      "exact": null,
+      "exactRate": null,
+      "expected": 0,
+      "structuredPredictions": null,
+      "supportRate": null,
+      "supportedByEngine": false
+    },
+    "performance": {
+      "durationMsMedian": 704.3852505012183,
+      "durationMsP95": 750.8450860041194,
+      "durationMsTotal": 2812.7386549895164,
+      "measuredCases": 4,
+      "peakMemoryBytesMax": 331153408
+    },
+    "readingOrder": {
+      "comparablePairs": 9,
+      "errorRate": 0.0,
+      "inversions": 0,
+      "supported": true
+    },
+    "text": {
+      "exactCaseRate": 0.0,
+      "exactLinePrecision": 0.125,
+      "exactLineRecall": 0.16666666666666666,
+      "nonWhitespaceCer": 0.014150943396226415,
+      "nonWhitespaceEditDistance": 3,
+      "nonWhitespaceExpectedCodepoints": 212,
+      "nonWhitespacePredictedCodepoints": 212,
+      "rawCer": 0.20333333333333334,
+      "rawEditDistance": 61,
+      "rawExpectedCodepoints": 300,
+      "rawPredictedCodepoints": 262
+    },
+    "whitespace": {
+      "f1": 0.5090909090909091,
+      "falseNegative": 52,
+      "falsePositive": 2,
+      "precision": 0.9333333333333333,
+      "recall": 0.35,
+      "truePositive": 28
+    }
+  }
+}

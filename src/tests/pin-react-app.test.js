@@ -19,7 +19,15 @@ const mocks = vi.hoisted(() => ({
     onSharpened: vi.fn(),
     onCloseRequested: vi.fn(),
     onAlreadyOpen: vi.fn(),
+    onWorkspaceChanged: vi.fn(),
     saveCanvas: vi.fn(),
+    saveWorkspace: vi.fn(),
+    removeWorkspace: vi.fn(),
+    groups: vi.fn(),
+    createGroup: vi.fn(),
+    renameGroup: vi.fn(),
+    deleteGroup: vi.fn(),
+    assignGroup: vi.fn(),
     toolbarBounds: vi.fn(),
     sourceImage: vi.fn(),
   },
@@ -44,6 +52,8 @@ const payload = {
   opacity: 1,
   locked: false,
   above: false,
+  workspaceId: null,
+  workspaceGroupId: null,
   canSave: true,
   position: null,
 };
@@ -186,6 +196,12 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
+/** React 会跟踪表单控件自己的 value setter；测试须从原型写值才能触发 onChange。 */
+function setInputValue(input, value) {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 describe("React pin app", () => {
   let root;
   /** 本条测试装过的 stub 恢复函数，afterEach 统一还原。 */
@@ -207,12 +223,20 @@ describe("React pin app", () => {
     mocks.pinApi.onSharpened.mockResolvedValue(() => {});
     mocks.pinApi.onCloseRequested.mockResolvedValue(() => {});
     mocks.pinApi.onAlreadyOpen.mockResolvedValue(() => {});
+    mocks.pinApi.onWorkspaceChanged.mockResolvedValue(() => {});
     mocks.pinApi.saveCanvas.mockResolvedValue({
       path: "/tmp/pin.png",
       clipboardWritten: true,
       clipboardError: null,
     });
     mocks.pinApi.save.mockResolvedValue("/tmp/pin.png");
+    mocks.pinApi.saveWorkspace.mockResolvedValue({ workspaceId: 7, groupId: null });
+    mocks.pinApi.removeWorkspace.mockResolvedValue(undefined);
+    mocks.pinApi.groups.mockResolvedValue([]);
+    mocks.pinApi.createGroup.mockResolvedValue({ id: 9, name: "Research", sortOrder: 0 });
+    mocks.pinApi.renameGroup.mockResolvedValue(true);
+    mocks.pinApi.deleteGroup.mockResolvedValue(true);
+    mocks.pinApi.assignGroup.mockResolvedValue(undefined);
     // 默认：整个窗口都在屏幕内（宽高取自 payload 的内容尺寸 + 边距）。
     mocks.pinApi.toolbarBounds.mockResolvedValue({ x: 0, y: 0, width: 388, height: 252 });
     mocks.pinApi.sourceImage.mockResolvedValue(TINY_PNG);
@@ -254,6 +278,97 @@ describe("React pin app", () => {
     await flush();
 
     expect(document.querySelector(".pin-toast")?.textContent).toBe("Action failed");
+  });
+
+  it("persists a pin only after the explicit workspace action and removes it from the manager", async () => {
+    mocks.pinApi.get.mockResolvedValue(payload);
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+
+    await act(async () => document.querySelector('button[aria-label="Keep in Pin workspace"]').click());
+    await flush();
+    expect(mocks.pinApi.saveWorkspace).toHaveBeenCalledWith("pin-image-test", null);
+    expect(document.querySelector('button[aria-label="Manage Pin workspace"]')).not.toBeNull();
+
+    await act(async () => document.querySelector('button[aria-label="Manage Pin workspace"]').click());
+    await flush();
+    expect(mocks.pinApi.groups).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('section[aria-label="Manage Pin workspace"]')).not.toBeNull();
+
+    await act(async () => document.querySelector(".pin-workspace-remove").click());
+    await flush();
+    expect(mocks.pinApi.removeWorkspace).toHaveBeenCalledWith("pin-image-test");
+    expect(document.querySelector('button[aria-label="Keep in Pin workspace"]')).not.toBeNull();
+  });
+
+  it("applies workspace changes made by the independent library window", async () => {
+    let notify;
+    mocks.pinApi.get.mockResolvedValue({ ...payload, workspaceId: 7, workspaceGroupId: 3 });
+    mocks.pinApi.onWorkspaceChanged.mockImplementation(async (callback) => {
+      notify = callback;
+      return () => {};
+    });
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+    expect(document.querySelector('button[aria-label="Manage Pin workspace"]')).not.toBeNull();
+
+    await act(async () => notify({ workspaceId: null, groupId: null }));
+    expect(document.querySelector('button[aria-label="Keep in Pin workspace"]')).not.toBeNull();
+  });
+
+  it("creates, renames, assigns, and deletes workspace groups", async () => {
+    mocks.pinApi.get.mockResolvedValue({ ...payload, workspaceId: 7, workspaceGroupId: null });
+    mocks.pinApi.groups.mockResolvedValue([{ id: 3, name: "Existing", sortOrder: 0 }]);
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+
+    await act(async () => document.querySelector('button[aria-label="Manage Pin workspace"]').click());
+    await flush();
+    const select = document.querySelector('select[aria-label="Group"]');
+    select.value = "3";
+    await act(async () => select.dispatchEvent(new Event("change", { bubbles: true })));
+    await flush();
+    expect(mocks.pinApi.assignGroup).toHaveBeenCalledWith("pin-image-test", 3);
+
+    const renameInput = document.querySelector('input[aria-label="Rename group to"]');
+    await act(async () => setInputValue(renameInput, "Renamed"));
+    await act(async () => Array.from(document.querySelectorAll(".pin-workspace-actions button"))
+      .find((button) => button.textContent === "Rename").click());
+    await flush();
+    expect(mocks.pinApi.renameGroup).toHaveBeenCalledWith(3, "Renamed");
+
+    await act(async () => Array.from(document.querySelectorAll(".pin-workspace-actions button"))
+      .find((button) => button.textContent === "Delete").click());
+    await flush();
+    expect(mocks.pinApi.deleteGroup).toHaveBeenCalledWith(3);
+    expect(select.value).toBe("");
+
+    const newInput = document.querySelector('input[aria-label="New group name"]');
+    await act(async () => setInputValue(newInput, "Research"));
+    await act(async () => Array.from(document.querySelectorAll(".pin-workspace-popover > button"))
+      .find((button) => button.textContent === "Create").click());
+    await flush();
+    expect(mocks.pinApi.createGroup).toHaveBeenCalledWith("Research");
+    expect(mocks.pinApi.assignGroup).toHaveBeenLastCalledWith("pin-image-test", 9);
+    expect(select.value).toBe("9");
+  });
+
+  it("keeps a new workspace group name available for retry after failure", async () => {
+    mocks.pinApi.get.mockResolvedValue({ ...payload, workspaceId: 7, workspaceGroupId: null });
+    mocks.pinApi.createGroup.mockRejectedValue(new Error("database busy"));
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+
+    await act(async () => document.querySelector('button[aria-label="Manage Pin workspace"]').click());
+    await flush();
+    const input = document.querySelector('input[aria-label="New group name"]');
+    await act(async () => setInputValue(input, "Research"));
+    await act(async () => Array.from(document.querySelectorAll(".pin-workspace-popover > button"))
+      .find((button) => button.textContent === "Create").click());
+    await flush();
+
+    expect(input.value).toBe("Research");
+    expect(document.querySelector(".pin-workspace-error")?.textContent).toBe("Action failed");
   });
 
   it("rolls back an optimistic scale when the native resize fails", async () => {
@@ -829,6 +944,27 @@ describe("React pin app", () => {
     expect(document.querySelector(".pin-toast")?.textContent).not.toBe("Action failed");
   });
 
+  it("updates an existing workspace revision when saving dirty edits before close", async () => {
+    restoreStubs.push(stubCanvasExport());
+    mocks.pinApi.get.mockResolvedValue({
+      ...payload,
+      kind: "image",
+      text: null,
+      workspaceId: 7,
+    });
+    await act(async () => root.render(React.createElement(App)));
+    await flush();
+    await drawOneStroke();
+    await act(async () => mocks.pinApi.onCloseRequested.mock.calls[0][0]());
+    await act(async () => document.querySelector(".pin-close-prompt button").click());
+    await flush();
+
+    expect(mocks.pinApi.saveWorkspace).toHaveBeenCalledTimes(1);
+    expect(mocks.pinApi.saveWorkspace.mock.calls[0][1].annotations).toHaveLength(1);
+    expect(mocks.pinApi.saveCanvas).not.toHaveBeenCalled();
+    expect(mocks.pinApi.close).toHaveBeenCalledTimes(1);
+  });
+
   it("clears a failed action notice when a later copy succeeds", async () => {
     mocks.pinApi.get.mockResolvedValue(payload);
     mocks.pinApi.copy.mockRejectedValueOnce(new Error("busy")).mockResolvedValueOnce(undefined);
@@ -1015,7 +1151,7 @@ describe("React pin app", () => {
 
     await act(async () => document.querySelector('button[aria-label="Save image"]').click());
     await flush();
-    expect(document.querySelector(".pin-privacy-warning")?.textContent).toContain("original image");
+    expect(document.querySelector(".pin-privacy-warning")?.textContent).toContain("only the current rendered image");
     await act(async () => [...document.querySelectorAll(".pin-close-prompt button")].find(button => /Discard|Export flat PNG/.test(button.textContent)).click());
     await flushAsyncChain();
     expect(mocks.pinApi.saveCanvas).toHaveBeenLastCalledWith(
@@ -1142,6 +1278,8 @@ describe("color Pin payload boundary", () => {
     opacity: 1,
     locked: false,
     above: false,
+    workspaceId: null,
+    workspaceGroupId: null,
     canSave: false,
     position: null,
     deviceScale: 1,
@@ -1165,6 +1303,7 @@ describe("color Pin payload boundary", () => {
     mocks.pinApi.onSharpened.mockResolvedValue(() => {});
     mocks.pinApi.onCloseRequested.mockResolvedValue(() => {});
     mocks.pinApi.onAlreadyOpen.mockResolvedValue(() => {});
+    mocks.pinApi.onWorkspaceChanged.mockResolvedValue(() => {});
     mocks.pinApi.copy.mockResolvedValue(undefined);
     mocks.pinApi.sourceImage.mockResolvedValue(TINY_PNG);
     mocks.startDraggingCurrentWindow.mockResolvedValue(undefined);

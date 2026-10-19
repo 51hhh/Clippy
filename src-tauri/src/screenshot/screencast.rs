@@ -37,12 +37,14 @@
 //! 会话的生命周期绑在**创建它的那条 D-Bus 连接**上：Mutter 在对端断开时销毁会话，
 //! 所以连接必须活到取完帧。`Stop` 由 RAII 守卫无条件发出，否则顶栏的录制点会一直亮着。
 
+use crate::pipewire_frame::{
+    enum_format_pod, frame_from_buffer, init_pipewire, parse_video_format,
+};
 use anyhow::{anyhow, bail, Context, Result};
 use futures_util::stream::StreamExt;
 use pipewire as pw;
 use pw::spa;
-use spa::param::format::{MediaSubtype, MediaType};
-use spa::param::video::{VideoFormat, VideoInfoRaw};
+use spa::param::video::VideoInfoRaw;
 use spa::pod::Pod;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -378,7 +380,11 @@ fn pull_first_frames(nodes: &[StreamNode]) -> Result<Vec<Result<ScreencastFrame>
                 let Some(mut buffer) = stream.dequeue_buffer() else {
                     return;
                 };
-                let result = frame_from_buffer(&mut buffer, info);
+                let result = frame_from_buffer(&mut buffer, info).map(|frame| ScreencastFrame {
+                    width: frame.width,
+                    height: frame.height,
+                    rgba: frame.rgba,
+                });
                 data.finish(result);
             })
             .register()
@@ -459,11 +465,6 @@ fn pull_first_frames(nodes: &[StreamNode]) -> Result<Vec<Result<ScreencastFrame>
     Ok(frames)
 }
 
-fn init_pipewire() {
-    static ONCE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
-    ONCE.get_or_init(pw::init);
-}
-
 #[derive(Default)]
 struct Slot {
     frame: Option<Result<ScreencastFrame>>,
@@ -500,272 +501,9 @@ impl StreamUserData {
     }
 }
 
-fn parse_video_format(param: &Pod) -> Result<VideoInfoRaw> {
-    let (media_type, media_subtype) = spa::param::format_utils::parse_format(param)
-        .map_err(|error| anyhow!("无法解析 PipeWire 格式：{error}"))?;
-    if media_type != MediaType::Video || media_subtype != MediaSubtype::Raw {
-        bail!("PipeWire 协商出的不是原始视频（{media_type:?}/{media_subtype:?}）");
-    }
-    let mut info = VideoInfoRaw::new();
-    info.parse(param)
-        .map_err(|error| anyhow!("无法解析视频格式：{error}"))?;
-    Ok(info)
-}
-
-fn frame_from_buffer(
-    buffer: &mut pw::buffer::Buffer,
-    info: VideoInfoRaw,
-) -> Result<ScreencastFrame> {
-    let size = info.size();
-    let layout = pixel_layout(info.format()).ok_or_else(|| {
-        anyhow!(
-            "PipeWire 协商出的像素格式 {:?} 不是 32 位 RGB 排列",
-            info.format()
-        )
-    })?;
-    let datas = buffer.datas_mut();
-    let data = datas.first_mut().context("PipeWire 缓冲里没有数据块")?;
-    let kind = data.type_();
-    if kind == spa::buffer::DataType::DmaBuf {
-        // EnumFormat 里没有 `modifier` 属性，Mutter 就该走 shm/MemFd；真收到 DMA-BUF
-        // 说明协商出了别的结果，而 MAP_BUFFERS 不会替我们 mmap 它。
-        bail!("PipeWire 送来的是 DMA-BUF，这条路只处理共享内存");
-    }
-    let stride = data.chunk().stride();
-    if stride <= 0 {
-        bail!("PipeWire 帧的 stride 是 {stride}");
-    }
-    let offset = data.chunk().offset() as usize;
-    let pixels = data.data().context("PipeWire 缓冲没有映射到内存")?;
-    let pixels = pixels
-        .get(offset..)
-        .with_context(|| format!("PipeWire 帧的 offset {offset} 越过了缓冲末尾"))?;
-    let rgba = repack_to_rgba(pixels, size.width, size.height, stride as usize, layout)?;
-    Ok(ScreencastFrame {
-        width: size.width,
-        height: size.height,
-        rgba: Arc::from(rgba),
-    })
-}
-
-/// 4 字节像素里 R/G/B 各自的字节下标。SPA 的格式名说的是**内存里的字节序**
-/// （`BGRx` 就是 B、G、R、填充），所以这里只是一张下标表。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct PixelLayout {
-    r: usize,
-    g: usize,
-    b: usize,
-}
-
-/// 我们愿意接的 8 种 32 位排列，和 `enum_format_pod` 里报出去的那一组必须一致。
-fn pixel_layout(format: VideoFormat) -> Option<PixelLayout> {
-    const RGB: PixelLayout = PixelLayout { r: 0, g: 1, b: 2 };
-    const BGR: PixelLayout = PixelLayout { r: 2, g: 1, b: 0 };
-    const ARGB: PixelLayout = PixelLayout { r: 1, g: 2, b: 3 };
-    const ABGR: PixelLayout = PixelLayout { r: 3, g: 2, b: 1 };
-
-    if format == VideoFormat::RGBx || format == VideoFormat::RGBA {
-        Some(RGB)
-    } else if format == VideoFormat::BGRx || format == VideoFormat::BGRA {
-        Some(BGR)
-    } else if format == VideoFormat::xRGB || format == VideoFormat::ARGB {
-        Some(ARGB)
-    } else if format == VideoFormat::xBGR || format == VideoFormat::ABGR {
-        Some(ABGR)
-    } else {
-        None
-    }
-}
-
-/// 把一帧转成紧排的 RGBA8。
-///
-/// 去填充和换通道顺序一起做，因为都要逐行走一遍。**alpha 一律写 255**：桌面画面没有
-/// 透明度，而 `BGRx` 这类格式里那个字节是未定义的，照抄会让整张图变成半透明。
-fn repack_to_rgba(
-    src: &[u8],
-    width: u32,
-    height: u32,
-    stride: usize,
-    layout: PixelLayout,
-) -> Result<Vec<u8>> {
-    let width = width as usize;
-    let height = height as usize;
-    if width == 0 || height == 0 {
-        bail!("PipeWire 帧的尺寸是 {width}x{height}");
-    }
-    let row = width.checked_mul(4).context("帧宽度溢出")?;
-    if stride < row {
-        bail!("PipeWire 帧的 stride {stride} 装不下一行 {row} 字节");
-    }
-    // 最后一行不需要行尾填充，所以下限是 stride × (行数 − 1) + 一行的有效字节。
-    let minimum = stride
-        .checked_mul(height - 1)
-        .and_then(|value| value.checked_add(row))
-        .context("帧尺寸溢出")?;
-    if src.len() < minimum {
-        bail!(
-            "PipeWire 帧只有 {} 字节，装不下 {width}x{height}（stride {stride}）",
-            src.len()
-        );
-    }
-
-    let mut out = vec![0u8; row * height];
-    for (y, line) in out.chunks_exact_mut(row).enumerate() {
-        let source = &src[y * stride..y * stride + row];
-        // row 是 4 的整数倍，两边的余数段都是空的。
-        let (targets, _) = line.as_chunks_mut::<4>();
-        let (pixels, _) = source.as_chunks::<4>();
-        for (target, pixel) in targets.iter_mut().zip(pixels) {
-            target[0] = pixel[layout.r];
-            target[1] = pixel[layout.g];
-            target[2] = pixel[layout.b];
-            target[3] = 0xff;
-        }
-    }
-    Ok(out)
-}
-
-/// 报给 Mutter 的 `EnumFormat`。
-///
-/// **故意不带 `modifier` 属性**：带了 Mutter 就会尝试 DMA-BUF，而我们要的是能直接
-/// memcpy 的共享内存。尺寸与帧率给的是宽范围——真正的尺寸由显示器决定，写死只会让协商失败。
-fn enum_format_pod() -> Result<Vec<u8>> {
-    use spa::pod::{object, property, Value};
-    use spa::utils::{Fraction, Rectangle};
-
-    let object = object! {
-        spa::utils::SpaTypes::ObjectParamFormat,
-        spa::param::ParamType::EnumFormat,
-        property!(spa::param::format::FormatProperties::MediaType, Id, MediaType::Video),
-        property!(spa::param::format::FormatProperties::MediaSubtype, Id, MediaSubtype::Raw),
-        property!(
-            spa::param::format::FormatProperties::VideoFormat,
-            Choice,
-            Enum,
-            Id,
-            VideoFormat::BGRx,
-            VideoFormat::BGRx,
-            VideoFormat::RGBx,
-            VideoFormat::BGRA,
-            VideoFormat::RGBA,
-            VideoFormat::xRGB,
-            VideoFormat::xBGR,
-            VideoFormat::ARGB,
-            VideoFormat::ABGR,
-        ),
-        property!(
-            spa::param::format::FormatProperties::VideoSize,
-            Choice,
-            Range,
-            Rectangle,
-            Rectangle { width: 1920, height: 1080 },
-            Rectangle { width: 1, height: 1 },
-            Rectangle { width: 16384, height: 16384 }
-        ),
-        property!(
-            spa::param::format::FormatProperties::VideoFramerate,
-            Choice,
-            Range,
-            Fraction,
-            Fraction { num: 60, denom: 1 },
-            Fraction { num: 0, denom: 1 },
-            Fraction { num: 1000, denom: 1 }
-        ),
-    };
-
-    let bytes = spa::pod::serialize::PodSerializer::serialize(
-        std::io::Cursor::new(Vec::new()),
-        &Value::Object(object),
-    )
-    .map_err(|error| anyhow!("无法序列化 EnumFormat：{error}"))?
-    .0
-    .into_inner();
-    Ok(bytes)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// 8 种排列都要认得，而且和 `enum_format_pod` 报出去的那一组一一对应——
-    /// 报了却不认，协商成功之后才在运行时失败，那时候已经退不回别的后端了。
-    #[test]
-    fn every_advertised_format_has_a_layout() {
-        for format in [
-            VideoFormat::RGBx,
-            VideoFormat::RGBA,
-            VideoFormat::BGRx,
-            VideoFormat::BGRA,
-            VideoFormat::xRGB,
-            VideoFormat::ARGB,
-            VideoFormat::xBGR,
-            VideoFormat::ABGR,
-        ] {
-            assert!(
-                pixel_layout(format).is_some(),
-                "报给 Mutter 的格式 {format:?} 没有对应的通道下标"
-            );
-        }
-        assert!(pixel_layout(VideoFormat::NV12).is_none());
-        assert!(pixel_layout(VideoFormat::RGB).is_none());
-    }
-
-    /// Mutter 在小端上通常给 `BGRx`：字节序是 B、G、R、填充，换成 RGBA 要交换首尾。
-    #[test]
-    fn bgrx_becomes_rgba_with_opaque_alpha() {
-        let layout = pixel_layout(VideoFormat::BGRx).expect("BGRx 必须认");
-        // 一个像素：B=1 G=2 R=3，填充字节故意写成垃圾。
-        let frame = repack_to_rgba(&[1, 2, 3, 0x7f], 1, 1, 4, layout).expect("转换失败");
-        assert_eq!(frame, vec![3, 2, 1, 0xff]);
-    }
-
-    /// 行尾填充必须被丢掉，否则整张图从第二行开始就斜了。
-    #[test]
-    fn row_padding_is_dropped() {
-        let layout = pixel_layout(VideoFormat::RGBx).expect("RGBx 必须认");
-        let mut src = Vec::new();
-        for row in 0..2u8 {
-            src.extend_from_slice(&[row, row, row, 0]);
-            src.extend_from_slice(&[0xee; 8]); // 填充，不该出现在结果里
-        }
-        let frame = repack_to_rgba(&src, 1, 2, 12, layout).expect("转换失败");
-        assert_eq!(frame, vec![0, 0, 0, 0xff, 1, 1, 1, 0xff]);
-    }
-
-    /// 最后一行没有填充：下限按 `stride × (行数−1) + 一行` 算，按 `stride × 行数`
-    /// 算会把合法的帧判成截断。
-    #[test]
-    fn the_last_row_needs_no_padding() {
-        let layout = pixel_layout(VideoFormat::RGBx).expect("RGBx 必须认");
-        let src = vec![0u8; 12 + 4];
-        assert!(repack_to_rgba(&src, 1, 2, 12, layout).is_ok());
-        assert!(repack_to_rgba(&src[..15], 1, 2, 12, layout).is_err());
-    }
-
-    /// 越界的形状一律要报错而不是 panic：这些数字来自合成器，不是我们算出来的。
-    #[test]
-    fn impossible_shapes_are_rejected() {
-        let layout = PixelLayout { r: 0, g: 1, b: 2 };
-        assert!(repack_to_rgba(&[0; 16], 0, 1, 4, layout).is_err());
-        assert!(
-            repack_to_rgba(&[0; 16], 2, 1, 4, layout).is_err(),
-            "stride 小于一行"
-        );
-        assert!(
-            repack_to_rgba(&[0; 3], 1, 1, 4, layout).is_err(),
-            "字节数不够一行"
-        );
-    }
-
-    /// EnumFormat 必须能序列化出一个合法 pod——写错了要在这里炸，不是在用户按快捷键时。
-    #[test]
-    fn the_enum_format_pod_is_valid() {
-        let bytes = enum_format_pod().expect("序列化失败");
-        assert!(
-            Pod::from_bytes(&bytes).is_some(),
-            "序列化出来的不是合法 pod"
-        );
-    }
 
     /// 真机计时，默认 `#[ignore]`：
     /// `cargo test --lib screencast_timings -- --ignored --nocapture`

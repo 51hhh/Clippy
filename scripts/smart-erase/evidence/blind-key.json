@@ -1,0 +1,27 @@
+{
+  "text_ruled_paper": {
+    "A": "telea",
+    "B": "navier_stokes",
+    "C": "lama_roi"
+  },
+  "regular_grid": {
+    "A": "navier_stokes",
+    "B": "lama_roi",
+    "C": "telea"
+  },
+  "natural_foliage": {
+    "A": "navier_stokes",
+    "B": "telea",
+    "C": "lama_roi"
+  },
+  "strong_edge": {
+    "A": "navier_stokes",
+    "B": "telea",
+    "C": "lama_roi"
+  },
+  "large_document": {
+    "A": "lama_roi",
+    "B": "navier_stokes",
+    "C": "telea"
+  }
+}

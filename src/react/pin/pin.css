@@ -278,6 +278,113 @@ input {
   text-align: right;
 }
 
+/* 工作区管理限制在无边框窗口内。Pin 可以窄到一百多像素，宽度必须跟容器收缩；
+   高度不够时只滚动这块管理面板，不能把删除入口裁到窗口之外。 */
+.pin-workspace-popover {
+  position: absolute;
+  z-index: 18;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  width: min(244px, calc(100% - 16px));
+  max-height: calc(100% - 16px);
+  min-width: 0;
+  flex-direction: column;
+  gap: 9px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(22, 24, 28, 0.98);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+  color: #f3f4f6;
+  font-size: 11px;
+}
+
+.pin-workspace-popover header,
+.pin-workspace-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+}
+
+.pin-workspace-popover header {
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.pin-workspace-popover header button {
+  flex: 0 0 24px;
+  padding: 0;
+  font-size: 17px;
+}
+
+.pin-workspace-popover label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  color: #cbd5e1;
+}
+
+.pin-workspace-popover input,
+.pin-workspace-popover select,
+.pin-workspace-popover button {
+  min-width: 0;
+  height: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #f3f4f6;
+  font: inherit;
+}
+
+.pin-workspace-popover input,
+.pin-workspace-popover select {
+  width: 100%;
+  padding: 0 7px;
+}
+
+.pin-workspace-popover button {
+  padding: 0 7px;
+  cursor: pointer;
+}
+
+.pin-workspace-popover button:hover:not(:disabled),
+.pin-workspace-popover button:focus-visible {
+  outline: none;
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.pin-workspace-popover button:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+
+.pin-workspace-actions button {
+  flex: 1 1 0;
+  padding: 0 4px;
+}
+
+.pin-workspace-popover .danger {
+  color: #fca5a5;
+}
+
+.pin-workspace-popover .danger:hover:not(:disabled) {
+  background: rgba(220, 60, 60, 0.26);
+}
+
+.pin-workspace-remove {
+  width: 100%;
+}
+
+.pin-workspace-error {
+  margin: 0;
+  color: #fca5a5;
+  line-height: 1.35;
+}
+
 /* 画布：盖在图片上，尺寸与内容区一致。`touch-action: none` 让触控板/触屏的拖动
    落成 pointer 事件而不是滚动手势。 */
 .pin-canvas {

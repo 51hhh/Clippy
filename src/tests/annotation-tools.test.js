@@ -84,11 +84,28 @@ describe("annotation geometry", () => {
     expect(annotationAt([marker], off)?.id).toBe("marker");
   });
 
-  it("bounds line and measure annotations by their endpoints", () => {
+  it("includes stroke width, arrow heads and measure decorations in visual bounds", () => {
     const box = { from: { x: 80, y: 10 }, to: { x: 20, y: 70 } };
-    for (const type of ["line", "measure", "arrow"]) {
-      expect(annotationBounds(vector(type, box))).toEqual({ x: 20, y: 10, width: 60, height: 60 });
-    }
+    expect(annotationBounds(vector("line", box))).toEqual({ x: 18, y: 8, width: 64, height: 64 });
+    const arrow = annotationBounds(vector("arrow", {
+      from: { x: 20, y: 40 }, to: { x: 80, y: 40 },
+    }));
+    const measure = annotationBounds(vector("measure", box));
+    expect(arrow.x).toBeLessThanOrEqual(18);
+    expect(arrow.y).toBeLessThan(38);
+    expect(arrow.height).toBeGreaterThan(4);
+    expect(measure.x).toBeLessThan(18);
+    expect(measure.y).toBeLessThan(8);
+    expect(measure.width).toBeGreaterThan(64);
+  });
+
+  it("bounds CJK text and transparent-edge strokes by their rendered footprint", () => {
+    const cjk = annotationBounds(vector("text", { at: { x: 10, y: 10 }, text: "中文A", fontFamily: "system-ui" }));
+    expect(cjk.width).toBeGreaterThan(40);
+    expect(cjk.x).toBeLessThan(10);
+    const marker = annotationBounds(vector("marker", { points: [{ x: 0, y: 5 }, { x: 20, y: 5 }] }));
+    expect(marker.x).toBeLessThan(0);
+    expect(marker.height).toBeGreaterThan(10);
   });
 
   it("moves every annotation shape immutably", () => {
@@ -312,6 +329,33 @@ describe("annotation interactions", () => {
     const [committed] = params.commitAnnotations.mock.calls[0][0]([]);
     expect(committed).toMatchObject({ type: "ellipse", rect: { x: 10, y: 10, width: 20, height: 30 } });
     expect(api.draft).toBeNull();
+  });
+
+  it("clamps selection coordinates to the canonical image at scaled preview boundaries", () => {
+    const { api, params } = mount({ tool: "crop", scale: 0.5 });
+    act(() => api.onPointerDown(pointer(-20, -30)));
+    act(() => api.onPointerMove(pointer(500, 400)));
+    act(() => api.onPointerUp());
+    expect(params.setSelection).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 200, height: 120 });
+  });
+
+  it("moves an object without clipping its rendered stroke at the source boundary", () => {
+    const annotation = vector("rect", { rect: { x: 10, y: 10, width: 20, height: 20 } });
+    const { api, params } = mount({ tool: "object", annotations: [annotation] });
+    act(() => api.onPointerDown(pointer(10, 10)));
+    act(() => api.onPointerMove(pointer(500, 500)));
+    act(() => api.onPointerUp());
+    const [moved] = params.commitAnnotations.mock.calls[0][0]([annotation]);
+    const bounds = annotationBounds(moved);
+    expect(bounds.x + bounds.width).toBe(200);
+    expect(bounds.y + bounds.height).toBe(120);
+  });
+
+  it("places text at the clamped image edge under a scaled preview", () => {
+    const { api, params } = mount({ tool: "text", text: "中文 A", scale: 0.5 });
+    act(() => api.onPointerDown(pointer(500, 400)));
+    const [created] = params.commitAnnotations.mock.calls[0][0]([]);
+    expect(created).toMatchObject({ type: "text", at: { x: 200, y: 120 }, text: "中文 A" });
   });
 
   it("erases one annotation per click and never on drag", () => {

@@ -115,6 +115,7 @@ mod tests {
         assert_eq!(config.capture_shortcut, expected_shortcuts.2);
         assert_eq!(config.theme, "light");
         assert_eq!(config.language, "auto");
+        assert!(config.enhanced_ocr_manifest_path.is_empty());
         assert_eq!(config.translation_source_language, "auto");
         assert_eq!(config.translation_target_language, "en");
         // 默认只启用 LibreTranslate，其余服务预置但未启用。
@@ -232,6 +233,7 @@ mod tests {
         let config = AppConfig {
             max_history: 200,
             theme: "dark".to_string(),
+            enhanced_ocr_manifest_path: "/opt/clippy-ocr/manifest.json".to_string(),
             ..AppConfig::default()
         };
 
@@ -263,6 +265,10 @@ mod tests {
         assert_eq!(loaded.global_shortcut, config.global_shortcut);
         assert_eq!(loaded.pin_shortcut, config.pin_shortcut);
         assert_eq!(loaded.capture_shortcut, config.capture_shortcut);
+        assert_eq!(
+            loaded.enhanced_ocr_manifest_path,
+            "/opt/clippy-ocr/manifest.json"
+        );
     }
 
     #[cfg(unix)]

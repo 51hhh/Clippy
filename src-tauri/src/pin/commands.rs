@@ -6,11 +6,11 @@
 
 use super::model::{PinPayload, PinState, PinUpdate};
 use crate::commands::AppState;
-use tauri::State;
+use tauri::{Manager, State};
 
 pub(crate) use super::lifecycle::{
-    create_screenshot_pin_shared, lower_pins_for_capture, raise_focused_pin,
-    restore_pins_after_capture, ScreenshotPinCreateError,
+    create_managed_project_pin, create_screenshot_pin_shared, lower_pins_for_capture,
+    raise_focused_pin, restore_pins_after_capture, ScreenshotPinCreateError,
 };
 pub use super::output::{PinCanvasProject, PinCanvasSaveMode, PinCanvasSaveResult};
 
@@ -30,6 +30,19 @@ pub async fn get_pin_toolbar_bounds(
 #[tauri::command]
 pub fn get_pin_payload(label: String, state: State<'_, AppState>) -> Result<PinPayload, String> {
     super::lifecycle::get_pin_payload(label, state)
+}
+
+/// 只读调用窗口自身的 DPI，不接收可伪造的目标 label，也不授予通用 core 窗口权限。
+#[tauri::command]
+pub fn get_pin_display_scale(
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<f64, String> {
+    Ok(super::display_scale::read_for_pin(
+        &state.pin_manager,
+        window.label(),
+        || window.scale_factor().map_err(super::PinError::window),
+    )?)
 }
 
 #[tauri::command]
@@ -98,4 +111,85 @@ pub async fn open_pin_project_file(
 #[tauri::command]
 pub async fn close_pin(label: String, app_handle: tauri::AppHandle) -> Result<(), String> {
     super::lifecycle::close_pin(label, app_handle).await
+}
+
+#[tauri::command]
+pub async fn save_pin_to_workspace(
+    label: String,
+    group_id: Option<i64>,
+    project: Option<PinCanvasProject>,
+    app_handle: tauri::AppHandle,
+) -> Result<super::workspace::PinWorkspaceStatus, String> {
+    run_workspace_work(app_handle, move |app_handle, state| {
+        super::workspace::save(&label, group_id, project.as_ref(), app_handle, state)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn remove_pin_from_workspace(
+    label: String,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    run_workspace_work(app_handle, move |_app_handle, state| {
+        super::workspace::remove(&label, _app_handle, state)
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn list_pin_workspace_groups(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::storage::PinWorkspaceGroup>, String> {
+    super::workspace::list_groups(&state)
+}
+
+#[tauri::command]
+pub fn create_pin_workspace_group(
+    name: String,
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<crate::storage::PinWorkspaceGroup, String> {
+    super::workspace::create_group(&name, &app_handle, &state)
+}
+
+#[tauri::command]
+pub fn rename_pin_workspace_group(
+    id: i64,
+    name: String,
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    super::workspace::rename_group(id, &name, &app_handle, &state)
+}
+
+#[tauri::command]
+pub fn delete_pin_workspace_group(
+    id: i64,
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    super::workspace::delete_group(id, &app_handle, &state)
+}
+
+#[tauri::command]
+pub fn assign_pin_workspace_group(
+    label: String,
+    group_id: Option<i64>,
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    super::workspace::assign_group(&label, group_id, &app_handle, &state)
+}
+
+async fn run_workspace_work<T: Send + 'static>(
+    app_handle: tauri::AppHandle,
+    work: impl FnOnce(&tauri::AppHandle, &AppState) -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        work(&app_handle, &state)
+    })
+    .await
+    .map_err(|error| format!("Pin 工作区任务异常: {error}"))?
 }

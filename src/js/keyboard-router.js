@@ -48,6 +48,7 @@ export function resolveKeyboardMode(event, { searchFocused = false } = {}) {
  * @param {object} deps.codec         编解码面板（toggle/hide/isVisible）
  * @param {function} deps.pinClip     Pin 当前条目
  * @param {function} deps.hidePanel   隐藏主窗口
+ * @param {function} [deps.openActions] 打开动作启动器，默认空实现
  * @param {object} [deps.translation] 翻译面板动作（translate），默认空实现
  */
 export function createKeyboardRouter({
@@ -56,6 +57,7 @@ export function createKeyboardRouter({
   codec,
   pinClip,
   hidePanel,
+  openActions = () => {},
   translation = {},
 }) {
   /** 把焦点收回中间列表，避免停在 body 这种"谁也不拥有"的中间态 */
@@ -276,6 +278,13 @@ export function createKeyboardRouter({
 
   function onKeyDown(e) {
     if (e.defaultPrevented || e.isComposing) return;
+    // Ctrl/Cmd+K 是启动器在主窗口内的稳定入口；更新模态框打开时仍由模态框独占键盘。
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k"
+      && !document.querySelector('#update-modal:not(.hidden):not([hidden]), dialog[open], [aria-modal="true"]:not(.hidden):not([hidden])')) {
+      e.preventDefault();
+      Promise.resolve(openActions()).catch(error => console.warn("打开动作启动器失败:", error));
+      return;
+    }
     const searchFocused = clipboardList.search.isVisible()
       && Boolean(document.activeElement?.classList?.contains("search-bar-input"));
     switch (resolveKeyboardMode(e, { searchFocused })) {

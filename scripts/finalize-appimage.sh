@@ -58,6 +58,39 @@ for library in "${BUNDLED_PIPEWIRE_LIBS[@]}"; do
   rm -f -- "${library}"
 done
 
+# linuxdeploy 的 GTK hook 会让 AppImage 内的 Jammy GLib/GIO 扫描宿主默认
+# `/usr/lib/.../gio/modules`。Ubuntu 26 的 dconf/GVFS 模块需要更新的 GLib 符号，
+# 旧 libgio 打开它们就会报 undefined symbol。保留随包运行库以兼顾 KDE/wlroots
+# 最小系统，但在 hook 第一次调用 dbus-send/gsettings 前把模块搜索目录固定到 AppDir。
+mapfile -t GIO_MODULE_DIRS < <(
+  find "${APP_DIR}/usr/lib" -type d -path '*/gio/modules' -print | sort
+)
+if [[ "${#GIO_MODULE_DIRS[@]}" -ne 1 ]]; then
+  printf 'Expected one bundled GIO module directory in %s, found %d\n' \
+    "${APP_DIR}" "${#GIO_MODULE_DIRS[@]}" >&2
+  exit 1
+fi
+GIO_MODULE_RELATIVE="${GIO_MODULE_DIRS[0]#"${APP_DIR}/"}"
+GTK_HOOK="${APP_DIR}/apprun-hooks/linuxdeploy-plugin-gtk.sh"
+GTK_HOOK_MARKER='# Clippy: isolate bundled GIO modules from the host ABI.'
+if [[ ! -f "${GTK_HOOK}" ]]; then
+  printf 'linuxdeploy GTK hook is unavailable: %s\n' "${GTK_HOOK}" >&2
+  exit 1
+fi
+if ! grep -Fq "${GTK_HOOK_MARKER}" "${GTK_HOOK}"; then
+  GTK_HOOK_TMP="${GTK_HOOK}.clippy"
+  {
+    IFS= read -r shebang
+    printf '%s\n\n' "${shebang}"
+    printf '%s\n' "${GTK_HOOK_MARKER}"
+    printf '%s\n' 'export APPDIR="${APPDIR:-"$(dirname "$(realpath "$0")")"}"'
+    printf 'export GIO_MODULE_DIR="$APPDIR/%s"\n\n' "${GIO_MODULE_RELATIVE}"
+    cat
+  } <"${GTK_HOOK}" >"${GTK_HOOK_TMP}"
+  chmod --reference="${GTK_HOOK}" "${GTK_HOOK_TMP}"
+  mv -f "${GTK_HOOK_TMP}" "${GTK_HOOK}"
+fi
+
 PLUGIN="${TAURI_APPIMAGE_PLUGIN:-${HOME}/.cache/tauri/linuxdeploy-plugin-appimage.AppImage}"
 if [[ ! -x "${PLUGIN}" ]]; then
   printf 'Tauri AppImage plugin is unavailable: %s\n' "${PLUGIN}" >&2
@@ -118,6 +151,14 @@ if [[ -n "${PIPEWIRE_LIBRARY_ENTRIES}" ]]; then
   exit 1
 fi
 
+FINAL_GTK_HOOK="$(unsquashfs -o "${VALID_OFFSET}" -cat "${TARGET}" \
+  apprun-hooks/linuxdeploy-plugin-gtk.sh)"
+if [[ "${FINAL_GTK_HOOK}" != *"${GTK_HOOK_MARKER}"* \
+  || "${FINAL_GTK_HOOK}" != *'export GIO_MODULE_DIR="$APPDIR/'* ]]; then
+  printf '%s\n' 'Final AppImage does not isolate bundled GIO modules from the host ABI' >&2
+  exit 1
+fi
+
 # 签名用的 tauri CLI：优先仓库锁定的 npm 侧 CLI（`src/` 的 devDependency，与 cargo-tauri 同版本），
 # 其次才是 cargo-tauri。release runner 上只有 tauri-action 自带的 CLI，没有 cargo-tauri，
 # 这里原来写死 `cargo tauri` 会直接 `no such command: tauri`，AppImage 签名步骤必挂。
@@ -151,3 +192,4 @@ printf 'Finalized AppImage: %s\n' "${TARGET}"
 printf 'Portable .DirIcon: %s\n' "${ICON_NAME}"
 printf 'Removed bundled Wayland ABI libraries: %d\n' "${#BUNDLED_WAYLAND_LIBS[@]}"
 printf 'Removed bundled PipeWire ABI libraries: %d\n' "${#BUNDLED_PIPEWIRE_LIBS[@]}"
+printf 'Bundled GIO module directory: %s\n' "${GIO_MODULE_RELATIVE}"

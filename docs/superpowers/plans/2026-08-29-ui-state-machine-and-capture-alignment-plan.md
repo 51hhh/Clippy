@@ -3,7 +3,8 @@
 制定日期：2026-08-29
 适用分支：`dev`（本地领先 `origin/dev` 3 个提交）
 状态：**已实施（2026-08-30）**，修 1～修 5 全部落地，`./scripts/ci-local.sh` = 11 通过 / 0 失败 / 1 跳过。
-"不做"清单（滚动截图、Board、原地 Konva 标注、Pin 落回选区原位）保持不做。
+当时的“不做”清单包含高频连续帧滚动截图、Board、原地 Konva 标注和 Pin 落回选区原位。
+其中长截图决策已在 2026-09 被固定选区逐帧重采方案替代；其余条目仍按本计划保留。
 UI 细节与真机行为仍需 `cargo tauri dev` / 真实桌面人工确认，条目见
 本地工作区 QA 矩阵中的"真实桌面人工矩阵"。
 
@@ -270,8 +271,8 @@ UI 细节与真机行为仍需 `cargo tauri dev` / 真实桌面人工确认，�
    - `window_probe.rs` 在 `xcap::Window::all()` 失败或返回空时记一条 `log::info`，
      并在覆盖层顶部给一行提示（英文 UI 文案）"Window picking unavailable in this session"，
      让 Wayland 下的退化可见而不是像坏了。
-4. **不做**：滚动截图（Phase 4 已判定不做，理由未变）、Board 模式、原地 Konva 标注、
-   Pin 落在选区原位（Clippy 的 Pin 有自己的尺寸/位置策略，改动面大于收益，先留档）。
+4. **当时不做**：高频连续帧滚动截图、Board 模式、原地 Konva 标注、Pin 落在选区原位。
+   长截图后来以固定选区逐帧重采实现；Board、原地 Konva 标注和 Pin 落回选区原位仍保留原结论。
 
 ---
 

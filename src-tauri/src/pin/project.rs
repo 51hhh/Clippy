@@ -1,9 +1,8 @@
-//! 可编辑贴图 PNG 工程格式。
+//! 旧版自包含可编辑 PNG 工程的兼容读写与内部运行时工程校验。
 //!
-//! PNG 的 IDAT 始终是最新合成图；压缩 iTXt `clippy-project` 保存自包含的 v3 工程。
-//! 元数据是用户可控输入，本模块在它进入运行时状态前完成全部验证。工程损坏、v1 或未来
-//! 版本只会让调用方退回扁平 PNG，不会妨碍 IDAT 被正常使用。v2 仍可读取和无损再存；
-//! v3 新增合成像素摘要，防止合法 iTXt 被移植到另一张合法 IDAT 后冒充同一工程。
+//! v2/v3 PNG 的 IDAT 是合成图，压缩 iTXt `clippy-project` 自包含原图与操作层。新版默认
+//! 保存改由 SQLite 根资产 + 修订文档管理，导出 PNG 不携带原图；这里继续严格验证历史文件，
+//! 让它们在本机保存时迁移到内部修订链。损坏、v1 或未来版本只退回扁平 PNG。
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
@@ -89,11 +88,11 @@ pub struct InitialProjectSource {
     pub sha256: String,
 }
 
-/// 已验证工程进入 Pin 运行时后的轻量表示。
+/// 已验证工程或内部修订进入 Pin 运行时后的轻量表示。
 ///
 /// 原图字节由 `PinSource::Project::source_png` 单独持有；这里故意不保留
 /// `ProjectSource::png_base64`，否则每个打开的工程都会常驻一份相同 PNG 的 Vec 和一份
-/// 大 33% 的 base64 String。再次保存时用不可变原图临时补回完整工程，磁盘格式不变。
+/// 大 33% 的 base64 String。新版保存把原图登记为内部 asset；`materialize` 仅保留给旧格式测试。
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct RuntimeProject {
     format: String,
@@ -107,6 +106,7 @@ pub(super) struct RuntimeProject {
 }
 
 impl PinProject {
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn new(
         source_png: &[u8],
         rendered_png: &[u8],
@@ -244,7 +244,60 @@ impl PinProject {
 }
 
 impl RuntimeProject {
-    pub(super) fn initial_payload(&self) -> InitialProject {
+    /// 从 SQLite 管理的根图 + 操作文档恢复运行时工程。预览摘要仍按当前 clip 的扁平
+    /// 像素生成，因此未编辑直接另存时也能安全物化为兼容的自包含 v3 PNG。
+    pub(crate) fn from_managed(
+        source_png: &[u8],
+        preview_png: &[u8],
+        renderer_version: u32,
+        source_width: u32,
+        source_height: u32,
+        annotations: Value,
+        adjustments: Value,
+    ) -> Result<Self, String> {
+        if renderer_version != RENDERER_VERSION {
+            return Err("内部图片修订的渲染器版本不受支持".to_string());
+        }
+        let (width, height) = validate_png(source_png, MAX_SOURCE_PNG_BYTES, "工程原图")?;
+        if (width, height) != (source_width, source_height) {
+            return Err("内部图片修订的原图尺寸不匹配".to_string());
+        }
+        let preview = preview_fingerprint(preview_png)?;
+        if (preview.width, preview.height) != (width, height) {
+            return Err("内部图片修订的合成图尺寸不匹配".to_string());
+        }
+        let document = ProjectDocument {
+            annotations,
+            adjustments,
+        };
+        validate_document(&document, width, height)?;
+        Ok(Self {
+            format: PROJECT_FORMAT.to_string(),
+            format_version: PROJECT_VERSION,
+            renderer_version,
+            created_at: chrono::Local::now().timestamp(),
+            app_version: env!("CARGO_PKG_VERSION").to_string(),
+            source: InitialProjectSource {
+                width,
+                height,
+                sha256: sha256_hex(source_png),
+            },
+            preview: Some(preview),
+            document,
+        })
+    }
+
+    pub(super) fn document_parts(&self) -> (u32, u32, u32, Value, Value) {
+        (
+            self.renderer_version,
+            self.source.width,
+            self.source.height,
+            self.document.annotations.clone(),
+            self.document.adjustments.clone(),
+        )
+    }
+
+    pub(crate) fn initial_payload(&self) -> InitialProject {
         InitialProject {
             format: self.format.clone(),
             format_version: self.format_version,
@@ -254,8 +307,8 @@ impl RuntimeProject {
         }
     }
 
-    /// 保存未编辑工程时临时恢复自包含表示。`embed` 会再次验证原图哈希、尺寸和合成图摘要，
-    /// 因此运行时状态即使意外不一致也不会写出伪造工程。
+    /// 旧格式兼容测试使用：临时恢复自包含表示。
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn materialize(&self, source_png: &[u8]) -> PinProject {
         PinProject {
             format: self.format.clone(),
@@ -339,6 +392,7 @@ fn validate_preview_metadata(
 }
 
 /// 重新编码合成图并写入真正压缩的 iTXt。
+#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn embed(png: &[u8], project: &PinProject) -> Result<Vec<u8>, String> {
     let image = decode_png(png, MAX_RENDERED_PNG_BYTES, "合成 PNG")?;
     let actual_preview = preview_fingerprint_from_image(&image);

@@ -41,7 +41,16 @@ def main():
     manifest = json.loads(raw)
     stages = []
     start = time.monotonic()
-    result = recognize(png, manifest, deadline, lambda stage, data: stages.append({"stage": stage, "elapsedMs": round((time.monotonic() - start) * 1000, 3), **data}) if args.diagnostics else None)
+    trace = None
+    if args.diagnostics:
+        trace = lambda stage, data: stages.append(
+            {
+                "stage": stage,
+                "elapsedMs": round((time.monotonic() - start) * 1000, 3),
+                **data,
+            }
+        )
+    result = recognize(png, manifest, deadline, trace)
     reply = json.dumps({"version": 1, "requestId": request["requestId"], "result": result}, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode()
     if len(reply) > 4 * 1024 * 1024:
         raise ValueError("protocol_output_budget")

@@ -1,0 +1,267 @@
+#!/usr/bin/env node
+
+import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { isVendoredPathPackage, lockedPackageBody } from "./recording-codec-lock.mjs";
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const tauriRoot = join(root, "src-tauri");
+const vendorRoot = join(tauriRoot, "vendor", "shiguredo_libvpx");
+const buildScript = readFileSync(join(vendorRoot, "build.rs"), "utf8");
+const bindingSource = readFileSync(join(vendorRoot, "src", "lib.rs"), "utf8");
+
+const pinnedArchives = {
+  "ubuntu-22.04_x86_64": "4c7a10b8d6f6e3331d55d8d4aaf2f6b942f6da52c0ecc1a8b946251536879c70",
+  "ubuntu-24.04_x86_64": "8175f600d2f44fa917fbcfd363c0e3ecf9427cd98c6d0ce97bd6b9ed71dc1141",
+  "ubuntu-26.04_x86_64": "fa42cae01b70b608c725a03fda03e6434d3f2597e93aa7210afd80ff16232c2b",
+  windows_x86_64: "10c060d5c6d794ee74d227e8717e9237acf799c37d4309111839c80ce5f44eb9",
+  macos_arm64: "9dd747b7d734ca9a6d44c2c861e32d5d041e1babc87b58f816b2ffb0ac66b90e",
+};
+const pinnedSource = {
+  url: "https://github.com/webmproject/libvpx/archive/refs/tags/v1.16.0.tar.gz",
+  sha256: "7a479a3c66b9f5d5542a4c6a1b7d3768a983b1e5c14c60a9396edc9b649e015c",
+};
+
+for (const [target, sha256] of Object.entries(pinnedArchives)) {
+  if (!buildScript.includes(`"${target}"`) || !buildScript.includes(`"${sha256}"`)) {
+    throw new Error(`vendored libvpx build script is missing the reviewed ${target} archive hash`);
+  }
+}
+if (buildScript.includes("sha256_url") || buildScript.includes("failed to download SHA256")) {
+  throw new Error("vendored libvpx must not download its checksum beside the archive");
+}
+if (!buildScript.includes(`"${pinnedSource.url}"`) || !buildScript.includes(`"${pinnedSource.sha256}"`)) {
+  throw new Error("vendored libvpx build script is missing the reviewed source archive input");
+}
+if (buildScript.includes('Command::new("git")') || buildScript.includes('arg("clone")')) {
+  throw new Error("vendored libvpx source build must not clone a mutable Git tag");
+}
+if (
+  !buildScript.includes('(\"x86_64\", \"msvc\") => build_from_source_windows_msvc(src_dir)') ||
+  !buildScript.includes('x86_64-win64-vs17') ||
+  !buildScript.includes('vpxmd.lib') ||
+  !buildScript.includes('make install (MSVC)') ||
+  !buildScript.includes('tag_content WholeProgramOptimization false') ||
+  !buildScript.includes('unexpected libvpx MSVC project generator')
+) {
+  throw new Error("vendored libvpx must build a native MSVC archive for Windows MSVC targets");
+}
+if (!buildScript.includes('(\"windows\", \"x86_64\") if target_env == \"gnu\"')) {
+  throw new Error("the upstream Windows prebuilt must remain restricted to the GNU ABI");
+}
+if (!bindingSource.includes("pub lag_in_frames: Option<usize>")) {
+  throw new Error("vendored libvpx must preserve the reviewed zero-lag recording configuration");
+}
+
+// actions/checkout 在 Windows 上可能把文本检出为 CRLF；先统一换行符，确保
+// 多行 feature 边界在各平台执行同一份已审查合同。
+const cargoToml = readFileSync(join(tauriRoot, "Cargo.toml"), "utf8").replace(/\r\n?/g, "\n");
+if (!cargoToml.includes('shiguredo_libvpx = { path = "vendor/shiguredo_libvpx" }')) {
+  throw new Error("Cargo.toml must patch shiguredo_libvpx to the reviewed vendor directory");
+}
+if (
+  !cargoToml.includes(
+    'recording-vp9-source-build = ["recording-vp9-prototype", "shiguredo_libvpx/source-build"]',
+  )
+) {
+  throw new Error("Cargo.toml must expose the reviewed VP9 source-build feature");
+}
+if (
+  !cargoToml.includes('default = ["linux-pipewire", "longshot-wayland-auto"]') ||
+  !cargoToml.includes(
+    'longshot-wayland-auto = ["ashpd/raw_handle", "ashpd/wayland", "dep:raw-window-handle"]',
+  )
+) {
+  throw new Error(
+    "Cargo.toml must keep the product Wayland longshot parent-handle dependencies explicit and enabled",
+  );
+}
+if (
+  !cargoToml.includes('"recording-vp9-prototype",\n    "ashpd/raw_handle",\n    "ashpd/wayland",\n    "dep:raw-window-handle",')
+) {
+  throw new Error(
+    "Cargo.toml must keep the Wayland QA entry and native parent-handle dependencies feature-gated",
+  );
+}
+if (
+  !cargoToml.includes(
+    'yuv = { version = "=0.8.19", default-features = false, features = ["avx", "sse", "rdm", "professional_mode"], optional = true }',
+  )
+) {
+  throw new Error("Cargo.toml must pin the reviewed professional-precision yuv SIMD dependency");
+}
+if (
+  !cargoToml.includes(
+    'recording-opus-webm = ["recording-vp9-prototype", "dep:opusic-c", "dep:opusic-sys"]',
+  ) ||
+  !cargoToml.includes(
+    'opusic-c = { version = "=1.6.1", default-features = false, optional = true }',
+  ) ||
+  !cargoToml.includes(
+    'opusic-sys = { version = "=0.7.5", default-features = false, features = ["bundled"], optional = true }',
+  )
+) {
+  throw new Error("Cargo.toml must pin the reviewed bundled libopus dependency graph");
+}
+if (!cargoToml.includes('recording-linux-av-qa = ["recording-opus-webm"]')) {
+  throw new Error("Cargo.toml must keep Linux PipeWire A/V QA behind the reviewed codec feature");
+}
+if (
+  !cargoToml.includes(
+    'recording-windows-av-qa = [\n    "recording-vp9-source-build",\n    "recording-windows-audio",\n    "recording-opus-webm",\n]',
+  )
+) {
+  throw new Error("Cargo.toml must keep Windows A/V QA behind the reviewed codec feature set");
+}
+if (
+  !cargoToml.includes(
+    'recording-macos-av-qa = [\n    "recording-macos-screencapturekit",\n    "recording-opus-webm",\n    "dep:rubato",\n    "dep:objc2-core-audio-types",\n    "dep:objc2-av-foundation",\n    "objc2-core-media/objc2-core-audio-types",\n]',
+  ) ||
+  !cargoToml.includes(
+    'objc2-av-foundation = { version = "=0.3.2", default-features = false, features = ["AVCaptureDevice", "AVMediaFormat"], optional = true }',
+  ) ||
+  !cargoToml.includes(
+    'objc2-core-audio-types = { version = "=0.3.2", optional = true }',
+  ) ||
+  !cargoToml.includes(
+    'rubato = { version = "=5.0.0", default-features = false, optional = true }',
+  )
+) {
+  throw new Error(
+    "Cargo.toml must keep macOS A/V QA, AVFoundation, Rubato and CoreAudioTypes behind the reviewed feature set",
+  );
+}
+const recordingInfoPlist = readFileSync(join(tauriRoot, "Info.recording.plist"), "utf8");
+if (
+  !recordingInfoPlist.includes("<key>NSScreenCaptureUsageDescription</key>") ||
+  !recordingInfoPlist.includes("<key>NSMicrophoneUsageDescription</key>")
+) {
+  throw new Error("macOS recording QA plist must declare screen capture and microphone usage");
+}
+if (
+  !cargoToml.includes('webm = { path = "vendor/webm" }') ||
+  !cargoToml.includes('webm-sys = { path = "vendor/webm-sys" }')
+) {
+  throw new Error("Cargo.toml must patch webm and webm-sys to the reviewed vendor directories");
+}
+const cargoLock = readFileSync(join(tauriRoot, "Cargo.lock"), "utf8");
+if (!isVendoredPathPackage(cargoLock, "shiguredo_libvpx", "2026.2.0-canary.1")) {
+  throw new Error("Cargo.lock must resolve shiguredo_libvpx as the vendored path package");
+}
+const lockedYuv = lockedPackageBody(cargoLock, "yuv", "0.8.19");
+if (
+  !lockedYuv ||
+  !/^source = "registry\+https:\/\/github\.com\/rust-lang\/crates\.io-index"$/m.test(
+    lockedYuv,
+  ) ||
+  !/^checksum = "[0-9a-f]{64}"$/m.test(lockedYuv)
+) {
+  throw new Error("Cargo.lock must pin the reviewed yuv 0.8.19 registry package and checksum");
+}
+const registryPackages = [
+  ["opusic-c", "1.6.1", "89f8e9c909466f15e60277212cc4fec082c68a5e1c9f6e373eee716fec2fed47"],
+  ["opusic-sys", "0.7.5", "c9d1ecdf206421bc74343ab3bb2f30ad2abbfee41fa341f7181fecbaf957769a"],
+  ["rubato", "5.0.0", "a7cb1ffaf8738df50aab642a7f6465df81c6ba9e2818268053487165298114be"],
+  ["audioadapter", "5.0.0", "d1292ef9edf681b7426ed089004b021a42896492f58bd0c909ad44e5faec9ac4"],
+  ["audioadapter-buffers", "5.2.0", "46289a81a3bfa26d0f8b2415f8ca9decde9a66308a150568af5c102381b3c8ce"],
+  ["audioadapter-sample", "5.2.0", "5258faecf4edbe35ec483bda9b1f7438e6b391891819269c6b5461aeaa0e8d7d"],
+  ["audio-codec-algorithms", "0.8.1", "1254ebf6529f3763c491acfb5ab6e960809e3c75a38584cc664f8c5667fb7107"],
+  ["visibility", "0.1.1", "d674d135b4a8c1d7e813e2f8d1c9a58308aee4a680323066025e53132218bd91"],
+  ["windowfunctions", "0.1.1", "90628d739333b7c5d2ee0b70210b97b8cddc38440c682c96fd9e2c24c2db5f3a"],
+];
+for (const [name, version, checksum] of registryPackages) {
+  const packageBody = lockedPackageBody(cargoLock, name, version);
+  if (
+    !packageBody ||
+    !/^source = "registry\+https:\/\/github\.com\/rust-lang\/crates\.io-index"$/m.test(
+      packageBody,
+    ) ||
+    !packageBody.includes(`checksum = "${checksum}"`)
+  ) {
+    throw new Error(`Cargo.lock must pin the reviewed ${name} ${version} registry checksum`);
+  }
+}
+for (const name of ["webm", "webm-sys"]) {
+  if (!isVendoredPathPackage(cargoLock, name, "2.2.1")) {
+    throw new Error(`Cargo.lock must resolve ${name} 2.2.1 as the vendored path package`);
+  }
+}
+
+const webmPatch = readFileSync(join(tauriRoot, "vendor", "webm", "PATCHES.md"), "utf8");
+const webmSysPatch = readFileSync(join(tauriRoot, "vendor", "webm-sys", "PATCHES.md"), "utf8");
+const webmSegment = readFileSync(
+  join(tauriRoot, "vendor", "webm", "src", "lib", "mux", "segment.rs"),
+  "utf8",
+);
+const webmFfi = readFileSync(join(tauriRoot, "vendor", "webm-sys", "ffi.cpp"), "utf8");
+const webmSysBuild = readFileSync(join(tauriRoot, "vendor", "webm-sys", "build.rs"));
+const pinnedWebmSysBuild = "c7e90a7f5cd1e24d0cbe355442c21cfaf15d27d13ea0bf64f1d86e37f6b1b833";
+// 校验实际字节；Windows 检出由 .gitattributes 保持 LF，不对哈希输入做归一化。
+if (createHash("sha256").update(webmSysBuild).digest("hex") !== pinnedWebmSysBuild) {
+  throw new Error("vendored webm-sys compiler-family build script drifted");
+}
+for (const source of [
+  "WIN-WEBM-MSVC-01",
+  "4573631d064f24e233a9cd6e5764eef0f364f1248444c0049d047a7784e613a2",
+  "dc9c7caf9a3f29239d47b8b6dcb41a049caf2572",
+  pinnedWebmSysBuild,
+]) {
+  if (!webmSysPatch.includes(source)) {
+    throw new Error("vendored webm-sys compiler patch provenance is incomplete");
+  }
+}
+for (const marker of [
+  "set_audio_codec_delay",
+  "set_audio_seek_pre_roll",
+  "set_timecode_scale",
+  "add_frame_with_discard_padding",
+]) {
+  if (!webmSegment.includes(marker)) {
+    throw new Error(`vendored webm is missing reviewed Opus API: ${marker}`);
+  }
+}
+for (const marker of [
+  "mux_segment_set_audio_codec_delay",
+  "mux_segment_set_audio_seek_pre_roll",
+  "mux_segment_set_timecode_scale",
+  "mux_segment_add_frame_with_discard_padding",
+]) {
+  if (!webmFfi.includes(marker)) {
+    throw new Error(`vendored webm-sys is missing reviewed Opus FFI: ${marker}`);
+  }
+}
+if (!webmPatch.includes("standards-compliant Opus-in-WebM") || !webmSysPatch.includes("No bundled")) {
+  throw new Error("vendored WebM patch manifests must describe the reviewed Opus surface");
+}
+
+const licenseFiles = [
+  "shiguredo_libvpx-2026.2.0-canary.1.txt",
+  "webm-2.2.1-MPL-2.0.txt",
+  "libwebm-2.2.1-BSD-3-Clause.txt",
+  "libvpx-1.16.0-BSD-3-Clause.txt",
+  "yuv-0.8.19-BSD-3-Clause.txt",
+  "recording-vp9-prototype-NOTICE.md",
+  "opusic-c-1.6.1-BSD-3-Clause.txt",
+  "opusic-sys-0.7.5-libopus-1.6.1-BSD-3-Clause.txt",
+  "recording-opus-webm-NOTICE.md",
+  "rubato-5.0.0-LICENSE-MIT.txt",
+  "rubato-5.0.0-LICENSE-APACHE.txt",
+  "audioadapter-family-5.0.0-5.2.0-LICENSE-MIT.txt",
+  "audio-codec-algorithms-0.8.1-LICENSE-0BSD.txt",
+  "visibility-0.1.1-LICENSE-MIT.txt",
+  "windowfunctions-0.1.1-LICENSE-MIT.txt",
+];
+const resources = JSON.parse(readFileSync(join(tauriRoot, "tauri.conf.json"), "utf8")).bundle
+  .resources;
+for (const file of licenseFiles) {
+  readFileSync(join(tauriRoot, "third-party-licenses", file));
+  if (!Object.hasOwn(resources, `third-party-licenses/${file}`)) {
+    throw new Error(`Tauri bundle is missing the recording codec license resource: ${file}`);
+  }
+}
+
+console.log(
+  "Recording codec supply-chain check passed: vendored bindings, pinned codec inputs, licenses",
+);

@@ -1,5 +1,7 @@
+mod actions;
 mod app;
 mod app_update;
+mod archive;
 pub mod bench_support;
 mod capture;
 mod clipboard_watcher;
@@ -20,10 +22,13 @@ mod ocr;
 mod paste;
 mod pin;
 mod pin_window;
+#[cfg(target_os = "linux")]
+mod pipewire_frame;
 mod platform;
 #[cfg(target_os = "linux")]
 mod portal_shortcuts;
 mod private_files;
+mod recording;
 mod screenshot;
 mod shortcut_conflict;
 mod storage;
@@ -83,6 +88,7 @@ pub fn run() {
         // 多份瞬时副本。协议按 WebView label 隔离，补偿图用版本化 URL 二次换入。
         .register_uri_scheme_protocol("pin-frame", pin::frame_protocol::handle)
         .register_uri_scheme_protocol("viewer-frame", viewer::frame_protocol::handle)
+        .register_uri_scheme_protocol("recording-media", recording::media_protocol::handle)
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             app::shortcuts::on_second_instance(app, args, cwd);
         }))
@@ -109,6 +115,21 @@ pub fn run() {
             // ── 1. 确定数据目录 ──────────────────────────────────────────────
             let app_data_dir = app.path().app_data_dir().expect("无法获取应用数据目录");
             std::fs::create_dir_all(&app_data_dir).expect("无法创建应用数据目录");
+            let recording_data_dir = app_data_dir.clone();
+            tauri::async_runtime::spawn(async move {
+                match tauri::async_runtime::spawn_blocking(move || {
+                    recording::recover_interrupted_sessions(&recording_data_dir)
+                })
+                .await
+                {
+                    Ok(Ok(summary)) if summary.has_activity() => {
+                        log::info!("录屏恢复扫描完成: {summary}");
+                    }
+                    Ok(Ok(_)) => {}
+                    Ok(Err(error)) => log::warn!("录屏恢复扫描失败: {error}"),
+                    Err(error) => log::warn!("录屏恢复线程异常: {error}"),
+                }
+            });
             let picture_dir = app
                 .path()
                 .picture_dir()
@@ -123,6 +144,7 @@ pub fn run() {
             // ── 2. 加载配置 ──────────────────────────────────────────────────
             let config_path = app_data_dir.join("config.json");
             let app_config = config::load_config(&config_path);
+            ocr::set_manifest_setting(&app_config.enhanced_ocr_manifest_path);
 
             // ── 3. 初始化存储引擎 ────────────────────────────────────────────
             let storage = if app_config.storage_mode == "memory" {
@@ -137,10 +159,16 @@ pub fn run() {
             let config = Arc::new(Mutex::new(app_config.clone()));
             let paste_manager = Arc::new(paste::PasteManager::new(&app_data_dir));
             let pin_manager = Arc::new(pin::PinManager::new());
+            let pin_workspace_persistence =
+                Arc::new(pin::PinWorkspacePersistence::new(Arc::clone(&storage)));
             let capture_manager = Arc::new(capture::CaptureManager::new());
             let capture_mode_gate = Arc::new(capture::CaptureModeGate::new());
             let longshot_lifecycle = Arc::new(capture::LongshotLifecycle::default());
             let longshot_windows = Arc::new(capture::LongshotControllerRegistry::new());
+            let recording_lifecycle = Arc::new(recording::RecordingLifecycle::new());
+            let recording_controls = Arc::new(recording::RecordingControlRegistry::new());
+            let recording_audio_devices =
+                Arc::new(recording::RecordingAudioDeviceCatalog::new());
             let translation = Arc::new(translation::TranslationService::new());
             #[cfg(target_os = "linux")]
             let portal_shortcuts = platform::uses_portal_shortcuts().then(|| {
@@ -167,6 +195,7 @@ pub fn run() {
 
             // ── 5. 注册全局状态 ──────────────────────────────────────────────
             app.manage(AppState {
+                action_runtime: actions::ActionRuntime::default(),
                 viewer_manager: Arc::new(viewer::ViewerManager::default()),
                 viewer_transition: Mutex::new(()),
                 storage,
@@ -185,7 +214,15 @@ pub fn run() {
                 capture_mode_gate,
                 longshot_lifecycle,
                 longshot_windows,
+                recording_lifecycle,
+                recording_controls,
+                recording_audio_devices,
+                recording_media: Arc::new(recording::RecordingMediaManager::default()),
+                recording_thumbnails: Arc::new(recording::RecordingThumbnailManager::default()),
+                #[cfg(feature = "recording-vp9-prototype")]
+                recording_merges: Arc::new(recording::RecordingMergeRegistry::default()),
                 pin_manager,
+                pin_workspace_persistence,
                 pin_origins: Arc::new(pin::PinOriginRegistry::default()),
                 paste_manager,
                 translation,
@@ -195,6 +232,22 @@ pub fn run() {
                 #[cfg(target_os = "linux")]
                 portal_shortcuts: portal_shortcuts.clone(),
                 shortcut_failures: Mutex::new(Vec::new()),
+            });
+
+            // 只恢复用户明确保存的工作区；普通临时 Pin 从不进入数据库，也不会跨重启出现。
+            let restore_app = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let app_for_work = restore_app.clone();
+                let result = tauri::async_runtime::spawn_blocking(move || {
+                    let state = app_for_work.state::<AppState>();
+                    pin::restore_saved(&app_for_work, &state)
+                })
+                .await;
+                match result {
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) => log::warn!("恢复 Pin 工作区失败: {error}"),
+                    Err(error) => log::warn!("Pin 工作区恢复线程异常: {error}"),
+                }
             });
 
             // ── 6. 构建托盘并监听主题/语言变化 ────────────────────────────
@@ -296,6 +349,17 @@ pub fn run() {
         })
         .on_window_event(app::window_events::handle)
         .invoke_handler(ipc_access::restrict(tauri::generate_handler![
+            actions::discover_actions,
+            actions::prepare_action,
+            actions::prepare_composed_action,
+            actions::run_action,
+            actions::cancel_action,
+            actions::launcher::show_action_launcher,
+            actions::launcher::get_action_launcher_settings,
+            actions::launcher::get_action_launcher_image_source,
+            actions::launcher::action_launcher_ready,
+            actions::launcher::start_action_launcher_drag,
+            actions::launcher::close_action_launcher,
             viewer::commands::open_image_viewer,
             viewer::commands::get_viewer_payload,
             viewer::commands::get_viewer_settings,
@@ -328,6 +392,8 @@ pub fn run() {
             commands::detect_image_codes,
             commands::set_preview_visible,
             commands::set_codec_visible,
+            archive::export_clippy_archive,
+            archive::import_clippy_archive,
             commands::get_config,
             commands::update_config,
             app_update::get_app_update_state,
@@ -350,21 +416,47 @@ pub fn run() {
             capture::cancel_capture_overlay,
             capture::commit_capture_action,
             capture::retry_capture_action,
+            capture::scan_capture_selection,
             capture::translate_capture_selection,
             capture::get_window_probe_status,
             capture::install_window_probe_extension,
             capture::uninstall_window_probe_extension,
             capture::open_longshot_controller,
             capture::activate_longshot_controller,
+            capture::authorize_longshot_auto_scroll_controller,
+            capture::auto_append_longshot_controller,
             capture::mark_longshot_controller_ready,
             capture::append_longshot_controller,
+            capture::undo_longshot_controller,
             capture::preview_longshot_controller,
             capture::finish_longshot_controller,
             capture::cancel_longshot_controller,
             capture::diagnostics::run_capture_diagnostics,
+            recording::control_host::start_capture_recording,
+            recording::control_host::get_recording_start_capabilities,
+            recording::control_host::mark_recording_control_ready,
+            recording::control_host::pause_recording,
+            recording::control_host::poll_recording_health,
+            recording::control_host::resume_recording,
+            recording::control_host::stop_recording,
+            recording::control_host::cancel_recording,
+            recording::library::open_recording_library,
+            recording::library::get_recording_library_settings,
+            recording::library::list_recordings,
+            recording::library::recording_library_ready,
+            recording::library::start_recording_library_drag,
+            recording::library::close_recording_library,
+            recording::library::prepare_recording_playback,
+            recording::library::get_recording_thumbnail,
+            recording::library::release_recording_playback,
+            recording::library::merge_recording_session,
+            recording::library::export_recording_artifact,
+            recording::library::reveal_recording_artifact,
+            recording::library::delete_recording_session,
             commands::pick_screenshot_directory,
             pin::commands::pin_clip,
             pin::commands::get_pin_payload,
+            pin::commands::get_pin_display_scale,
             pin::commands::get_pin_toolbar_bounds,
             pin::commands::get_pin_source_image,
             pin::commands::pin_ready,
@@ -374,11 +466,32 @@ pub fn run() {
             pin::commands::save_pin,
             pin::commands::save_pin_canvas,
             pin::commands::open_pin_project_file,
+            pin::commands::save_pin_to_workspace,
+            pin::commands::remove_pin_from_workspace,
+            pin::commands::list_pin_workspace_groups,
+            pin::commands::create_pin_workspace_group,
+            pin::commands::rename_pin_workspace_group,
+            pin::commands::delete_pin_workspace_group,
+            pin::commands::assign_pin_workspace_group,
+            pin::workspace_library::get_pin_workspace_library_settings,
+            pin::workspace_library::list_pin_workspace_library,
+            pin::workspace_library::get_pin_workspace_thumbnail,
+            pin::workspace_library::show_pin_workspace_item,
+            pin::workspace_library::assign_pin_workspace_library_group,
+            pin::workspace_library::remove_pin_workspace_library_item,
+            pin::workspace_library::create_pin_workspace_library_group,
+            pin::workspace_library::rename_pin_workspace_library_group,
+            pin::workspace_library::delete_pin_workspace_library_group,
+            pin::workspace_library::pin_workspace_library_ready,
+            pin::workspace_library::start_pin_workspace_library_drag,
+            pin::workspace_library::close_pin_workspace_library,
             pin::commands::close_pin,
             commands::ocr_available,
+            commands::ocr_health_status,
             commands::ocr_image,
             commands::ocr_image_result,
             commands::ocr_install,
+            commands::pick_ocr_manifest,
             commands::fetch_url_meta,
             commands::get_stats,
             commands::toggle_tmux_capture,

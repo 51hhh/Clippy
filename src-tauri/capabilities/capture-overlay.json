@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "capture-overlay",
-  "description": "截图覆盖层监听长截图交接；初始化失败时可关闭自身",
-  "windows": ["capture-overlay-*"],
+  "description": "截图与录屏选区覆盖层监听受控交接；初始化失败时可关闭自身",
+  "windows": ["capture-overlay-*", "recording-overlay-*"],
   "permissions": [
     "core:event:allow-listen",
     "core:event:allow-unlisten",

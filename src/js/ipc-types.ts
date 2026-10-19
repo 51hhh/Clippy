@@ -7,6 +7,22 @@
 
 export type ContentType = "text" | "html" | "image";
 
+export type ArchiveScope = "full" | "favorites" | "pin_workspace";
+
+export interface ArchiveExportResult {
+  path: string;
+  clips: number;
+  groups: number;
+  workspaces: number;
+}
+
+export interface ArchiveImportSummary {
+  clipsAdded: number;
+  clipsMerged: number;
+  groupsAdded: number;
+  workspacesAdded: number;
+}
+
 export type OperatingSystem = "linux" | "windows" | "macos" | "other";
 export type DesktopSession = "x11" | "wayland" | "native" | "unknown";
 export type CapabilityState = "available" | "permission_required" | "degraded" | "unsupported";
@@ -99,6 +115,8 @@ export interface AppConfig {
   delete_confirm_ms: number;
   ocr_result_mode: string;
   ocr_enabled: boolean;
+  /** 本地增强 OCR manifest；空值表示使用 Tesseract 或显式开发环境变量。 */
+  enhanced_ocr_manifest_path: string;
   tmux_capture: boolean;
   auto_paste: boolean;
   translation_services: TranslationServiceConfig[];
@@ -111,6 +129,25 @@ export interface AppConfig {
   screenshot_save_dir: string;
   /** 保存文件名模板（`{prefix}` `{date}` `{time}` `{unix}` `{seq}`）；留空表示内置默认 */
   screenshot_filename_template: string;
+}
+
+export interface OcrModelIdentity {
+  role: "det" | "rec" | "dictionary" | "edge" | "englishRec" | "englishDictionary" | "lineOrientation";
+  sha256: string;
+}
+
+export interface OcrHealthStatus {
+  available: boolean;
+  activeEngine: "ppocrv6+edgegnn" | "tesseract" | "unavailable";
+  enhancedState: "ready" | "not_configured" | "invalid";
+  configurationSource: "settings" | "environment" | "none";
+  pipelineId: string | null;
+  runtimeIdentity: string | null;
+  modelIdentities: OcrModelIdentity[];
+  tesseractAvailable: boolean;
+  fallbackReason: "enhanced_configuration_invalid" | null;
+  issueCode: string | null;
+  missingItems: string[];
 }
 
 /** 快捷键占用检测结果（`check_shortcut_conflict`） */
@@ -240,6 +277,8 @@ export interface CaptureOverlayPayload {
   logicalHeight: number;
   pixelWidth: number;
   pixelHeight: number;
+  /** 冻结会话的产品用途；由后端签发，前端不能把普通截图切换成录屏。 */
+  intent: "screenshot" | "recording";
   windows: WindowCandidate[];
   /**
    * 这次要不要在覆盖层里提示"窗口速选需要在设置页安装服务"。
@@ -257,6 +296,37 @@ export interface CaptureSelection {
   height: number;
 }
 
+export type RecordingAudioMode =
+  | "none"
+  | "systemAudio"
+  | "microphone"
+  | "systemAndMicrophone";
+
+export interface RecordingAudioDeviceSummary {
+  id: string;
+  label: string;
+  isDefault: boolean;
+}
+
+export interface RecordingAudioDeviceCatalog {
+  catalogId: string;
+  systemAudioDevices: RecordingAudioDeviceSummary[];
+  microphoneDevices: RecordingAudioDeviceSummary[];
+}
+
+export interface RecordingAudioSelection {
+  mode: RecordingAudioMode;
+  catalogId: string | null;
+  systemDeviceId: string | null;
+  microphoneDeviceId: string | null;
+}
+
+export interface RecordingStartCapabilities {
+  audioModes: RecordingAudioMode[];
+  deviceCatalog: RecordingAudioDeviceCatalog;
+  deviceEnumerationFailed: boolean;
+}
+
 /**
  * 长截图会话的不可变身份。`generation` 必须始终作为十进制字符串保留，
  * 因为 Rust 的 u64 不能安全地经由 JavaScript number 往返。
@@ -269,8 +339,11 @@ export interface LongshotHandle {
 /** 当前已拼接帧的轻量摘要；不携带任何像素。 */
 export interface LongshotSnapshot {
   frameCount: number;
+  /** 当前二维 union 画布总宽度。 */
   width: number;
+  /** 固定捕获 viewport 的高度。 */
   frameHeight: number;
+  /** 当前二维 union 画布总高度。 */
   totalHeight: number;
 }
 
@@ -278,7 +351,23 @@ export interface LongshotSnapshot {
 export interface LongshotActivation {
   handle: LongshotHandle;
   snapshot: LongshotSnapshot;
+  autoScroll: LongshotAutoCapability;
 }
+
+export type LongshotAutoDirection = "down" | "up" | "right" | "left";
+export type LongshotAutoCapability = {
+  state: "available";
+  reason: null;
+  directions: LongshotAutoDirection[];
+} | {
+  state: "permission_required";
+  reason: "macos_accessibility_permission" | "wayland_remote_desktop_required";
+  directions: [];
+} | {
+  state: "unsupported";
+  reason: "wayland_portal_unavailable" | "no_display_server" | "platform_not_implemented";
+  directions: [];
+};
 
 export interface CaptureOutputError {
   message: string;
@@ -439,6 +528,9 @@ export interface PinPayload {
    * 压在所有普通窗口之上；同时置顶的几张贴图之间仍然按焦点顺序互相遮挡。
    */
   above: boolean;
+  /** 仅用户明确保存到 Pin 工作区后非空；临时贴图始终为 null。 */
+  workspaceId: number | null;
+  workspaceGroupId: number | null;
   canSave: boolean;
   position: { x: number; y: number } | null;
   /**
@@ -575,6 +667,47 @@ export interface PinUpdate {
   above?: boolean;
 }
 
+export interface PinWorkspaceStatus {
+  workspaceId: number;
+  groupId: number | null;
+}
+
+export interface PinWorkspaceGroup {
+  id: number;
+  name: string;
+  sortOrder: number;
+}
+
+export interface PinWorkspaceChange {
+  workspaceId: number | null;
+  groupId: number | null;
+}
+
+export interface PinWorkspaceLibraryItem {
+  id: number;
+  groupId: number | null;
+  contentType: ContentType;
+  previewText: string | null;
+  contentWidth: number;
+  contentHeight: number;
+  scale: number;
+  opacity: number;
+  locked: boolean;
+  above: boolean;
+  updatedAt: number;
+  open: boolean;
+}
+
+export interface PinWorkspaceLibrarySnapshot {
+  groups: PinWorkspaceGroup[];
+  items: PinWorkspaceLibraryItem[];
+}
+
+export interface PinWorkspaceLibrarySettings {
+  language: string;
+  theme: string;
+}
+
 export interface ClipboardStats {
   total: number;
   favorites: number;
@@ -601,3 +734,56 @@ export type InstallType =
   | "macos"
   | "development"
   | "unknown";
+
+export interface RecordingStopResult {
+  outputAvailable: boolean;
+  durationMs: number;
+  capturedFrames: number;
+  encodedFrames: number;
+  droppedByBackpressure: number;
+}
+
+export interface RecordingLibraryArtifact {
+  artifactId: string;
+  displayName: string;
+  durationMs: number;
+  frameCount: number;
+  byteLength: number;
+}
+
+export interface RecordingLibraryAudio {
+  sampleRateHz: number;
+  channels: 1 | 2;
+  encoder: string;
+}
+
+export interface RecordingLibraryItem {
+  sessionId: string;
+  state: "complete" | "interrupted";
+  createdAtUnixMs: number;
+  width: number;
+  height: number;
+  targetFpsNumerator: number;
+  targetFpsDenominator: number;
+  encoder: string;
+  container: string;
+  includeCursor: boolean;
+  audio?: RecordingLibraryAudio;
+  droppedFrames: number;
+  durationMs: number;
+  frameCount: number;
+  byteLength: number;
+  canMerge: boolean;
+  canThumbnail: boolean;
+  artifacts: RecordingLibraryArtifact[];
+}
+
+export interface RecordingLibrarySettings {
+  language: string;
+  theme: string;
+}
+
+export interface RecordingPlaybackLease {
+  token: string;
+  mimeType: "video/webm";
+}

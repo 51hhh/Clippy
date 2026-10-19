@@ -9,7 +9,6 @@ use super::{DesktopBounds, FrozenFrame, MonitorInfo, Rect};
 #[cfg(any(test, target_os = "linux"))]
 use anyhow::anyhow;
 use anyhow::{bail, Context, Result};
-#[cfg(target_os = "linux")]
 use image::RgbaImage;
 use std::sync::Arc;
 use xcap::Monitor;
@@ -126,22 +125,50 @@ fn capture_all_xcap_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
     let mut frames = Vec::new();
 
     for mon in monitors.iter() {
-        let mut info = monitor_info(mon)?;
+        let info = monitor_info(mon)?;
         let img = mon.capture_image().context("无法捕获显示器")?;
-        let frame_width = img.width();
-        let frame_height = img.height();
-        info.rect = normalize_monitor_geometry(info.rect, info.scale_factor, frame_width);
-        frames.push(FrozenFrame {
-            monitor_id: info.id,
-            rgba: Arc::from(img.into_raw()),
-            width: frame_width,
-            height: frame_height,
-            scale_factor: info.scale_factor,
-        });
+        let (info, frame) = freeze_xcap_monitor(info, img)?;
+        frames.push(frame);
         infos.push(info);
     }
 
     Ok((infos, frames))
+}
+
+/// 取像素后的纯数据入口，和原生枚举分开，便于离线验证冻结元数据。
+pub(super) fn freeze_xcap_monitor(
+    mut info: MonitorInfo,
+    img: RgbaImage,
+) -> Result<(MonitorInfo, FrozenFrame)> {
+    let frame_width = img.width();
+    let frame_height = img.height();
+    #[cfg(target_os = "windows")]
+    let physical_bounds = {
+        let bounds = super::PhysicalMonitorBounds {
+            x: info.rect.x,
+            y: info.rect.y,
+            width: info.rect.width,
+            height: info.rect.height,
+        };
+        anyhow::ensure!(
+            bounds.is_valid() && (bounds.width, bounds.height) == (frame_width, frame_height),
+            "显示器 {} 的原始物理边界与捕获尺寸不一致",
+            info.id
+        );
+        Some(bounds)
+    };
+    #[cfg(not(target_os = "windows"))]
+    let physical_bounds = None;
+    info.rect = normalize_monitor_geometry(info.rect, info.scale_factor, frame_width);
+    let frame = FrozenFrame {
+        monitor_id: info.id,
+        rgba: Arc::from(img.into_raw()),
+        width: frame_width,
+        height: frame_height,
+        scale_factor: info.scale_factor,
+        physical_bounds,
+    };
+    Ok((info, frame))
 }
 
 /// 用冻结帧的真实像素宽度反推逻辑尺寸，修正 xcap 报出的显示器几何。
@@ -210,6 +237,7 @@ fn capture_all_wayland_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)
             monitor_id: info.id,
             width: rgba_image.width(),
             height: rgba_image.height(),
+            physical_bounds: None,
             rgba: Arc::from(rgba_image.into_raw()),
             scale_factor: info.scale_factor,
         });
@@ -406,6 +434,7 @@ fn assemble_native_frames(
         }
         frames.push(FrozenFrame {
             monitor_id: adjusted.id,
+            physical_bounds: None,
             rgba: Arc::clone(rgba),
             width: *width,
             height: *height,
@@ -656,6 +685,40 @@ pub(super) fn enumerate_wayland_monitors_with_connectors() -> Result<Vec<(Monito
     }
 
     Ok(monitors)
+}
+
+/// 录屏 Portal 打开前按冻结帧的稳定 ID 重新取得唯一 Wayland 输出。
+#[cfg(target_os = "linux")]
+pub(super) fn wayland_recording_monitor(monitor_id: u32) -> Result<super::WaylandRecordingMonitor> {
+    let connection = wayland_connection()?;
+    let outputs = connection.get_all_outputs().to_vec();
+    let monitor_count = outputs.len();
+    let mut matches = outputs
+        .iter()
+        .enumerate()
+        .filter(|(index, output)| stable_wayland_output_id(*index, output) == monitor_id);
+    let (index, output) = matches
+        .next()
+        .with_context(|| format!("Wayland 显示器 {monitor_id} 已不存在"))?;
+    if matches.next().is_some() {
+        bail!("Wayland 显示器 {monitor_id} 映射不唯一");
+    }
+    let info = monitor_info_from_wayland_output(index, output);
+    let (pixel_width, pixel_height) = if transform_swaps_axes(output.transform) {
+        (output.physical_size.height, output.physical_size.width)
+    } else {
+        (output.physical_size.width, output.physical_size.height)
+    };
+    Ok(super::WaylandRecordingMonitor {
+        id: info.id,
+        logical_x: info.rect.x,
+        logical_y: info.rect.y,
+        logical_width: info.rect.width,
+        logical_height: info.rect.height,
+        pixel_width,
+        pixel_height,
+        monitor_count,
+    })
 }
 
 /// 非交互 Portal 截图。
@@ -1026,6 +1089,7 @@ pub(super) fn split_portal_screenshot(
         };
         frames.push(FrozenFrame {
             monitor_id: tile.monitor.id,
+            physical_bounds: None,
             rgba,
             width: tile.crop.width,
             height: tile.crop.height,

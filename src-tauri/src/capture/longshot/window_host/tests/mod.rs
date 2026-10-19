@@ -212,6 +212,12 @@ fn ordinary_fixture() -> (
         pixel_height: 80,
         scale_x: 1.0,
         scale_y: 1.0,
+        physical_bounds: Some(crate::screenshot::PhysicalMonitorBounds {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 80,
+        }),
         rgba: Arc::from(vec![255; 100 * 80 * 4]),
     };
     let start = manager
@@ -221,7 +227,10 @@ fn ordinary_fixture() -> (
             vec!["pin-a".to_string()],
             false,
             StageTimings::default(),
-            ownership,
+            crate::capture::manager::CaptureBeginAuthorization::new(
+                ownership,
+                crate::capture::CaptureIntent::Screenshot,
+            ),
         )
         .expect("ordinary begin");
     let caller = start.overlays[0].label.clone();
@@ -310,6 +319,8 @@ fn lifecycle_artifact(png: Vec<u8>) -> LongshotArtifact {
 
 fn test_origin() -> PinOrigin {
     PinOrigin {
+        #[cfg(target_os = "windows")]
+        physical: None,
         x: -12.5,
         y: 8.25,
         width: 320.5,

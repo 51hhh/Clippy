@@ -56,6 +56,8 @@ mod tests {
 
     fn test_origin() -> PinOrigin {
         PinOrigin {
+            #[cfg(target_os = "windows")]
+            physical: None,
             x: -12.5,
             y: 8.25,
             width: 320.5,

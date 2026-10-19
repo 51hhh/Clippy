@@ -1,8 +1,20 @@
+mod archive;
+mod image_revisions;
 mod maintenance;
+mod pin_workspace;
 mod stats;
 mod translation_history;
 mod url_cache;
 
+pub(crate) use archive::{
+    ArchiveClipSnapshot, ArchiveGroupSnapshot, ArchiveRevisionSnapshot, ArchiveScope,
+    ArchiveSnapshot, ArchiveWorkspaceContentSnapshot, ArchiveWorkspaceSnapshot, ImportSummary,
+};
+pub(crate) use image_revisions::{ImageRevisionWrite, StoredImageRevision};
+pub(crate) use pin_workspace::{
+    PinWorkspaceGroup, PinWorkspaceItemWrite, PinWorkspacePresentation, StoredPinPlacement,
+    StoredPinWorkspaceContent, StoredPinWorkspaceItem, StoredPinWorkspaceSummary,
+};
 pub use translation_history::NewTranslation;
 
 use crate::models::{ClipItem, ContentType};
@@ -19,6 +31,10 @@ pub enum StorageError {
     Database(#[from] rusqlite::Error),
     #[error("本地文件操作失败: {0}")]
     Io(#[from] std::io::Error),
+    #[error("图片修订数据不一致: {0}")]
+    Invariant(String),
+    #[error("Pin 工作区数据不一致: {0}")]
+    PinWorkspaceInvariant(String),
 }
 
 impl StorageError {
@@ -26,6 +42,8 @@ impl StorageError {
         match self {
             Self::Database(_) => "database",
             Self::Io(_) => "io",
+            Self::Invariant(_) => "image_revision_invariant",
+            Self::PinWorkspaceInvariant(_) => "pin_workspace_invariant",
         }
     }
 }
@@ -130,6 +148,7 @@ impl StorageEngine {
         self.conn.execute_batch(
             "
             PRAGMA journal_mode = WAL;
+            PRAGMA foreign_keys = ON;
             PRAGMA cache_size = 128;
             PRAGMA temp_store = MEMORY;
 
@@ -188,6 +207,8 @@ impl StorageEngine {
         }
 
         self.migrate_use_order()?;
+        self.migrate_image_revisions()?;
+        self.migrate_pin_workspace()?;
 
         // URL 元数据缓存表
         self.conn.execute_batch(
@@ -224,6 +245,58 @@ impl StorageEngine {
 
         self.rebuild_fts_once("search_v2")?;
 
+        Ok(())
+    }
+
+    fn migrate_image_revisions(&self) -> Result<(), StorageError> {
+        let tx = self.conn.unchecked_transaction()?;
+        self.conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS image_assets (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_hash  TEXT NOT NULL UNIQUE,
+                png          BLOB NOT NULL,
+                width        INTEGER NOT NULL CHECK(width > 0),
+                height       INTEGER NOT NULL CHECK(height > 0),
+                byte_size    INTEGER NOT NULL CHECK(byte_size >= 0),
+                created_at   INTEGER NOT NULL
+            );",
+        )?;
+        let has_asset_column: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('clips') WHERE name='image_asset_id')",
+            [],
+            |row| row.get(0),
+        )?;
+        if !has_asset_column {
+            self.conn.execute(
+                "ALTER TABLE clips ADD COLUMN image_asset_id INTEGER REFERENCES image_assets(id) ON DELETE RESTRICT",
+                [],
+            )?;
+        }
+        self.conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_clips_image_asset ON clips(image_asset_id);
+             CREATE TABLE IF NOT EXISTS image_revisions (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                asset_id         INTEGER NOT NULL REFERENCES image_assets(id) ON DELETE RESTRICT,
+                renderer_version INTEGER NOT NULL,
+                source_width     INTEGER NOT NULL,
+                source_height    INTEGER NOT NULL,
+                annotations_json TEXT NOT NULL,
+                adjustments_json TEXT NOT NULL,
+                document_hash    TEXT NOT NULL,
+                rendered_hash    TEXT NOT NULL,
+                created_at       INTEGER NOT NULL,
+                UNIQUE(asset_id, document_hash)
+             );
+             CREATE INDEX IF NOT EXISTS idx_image_revisions_rendered_hash
+                ON image_revisions(rendered_hash, id DESC);
+             CREATE TABLE IF NOT EXISTS clip_image_revisions (
+                clip_id      INTEGER PRIMARY KEY REFERENCES clips(id) ON DELETE CASCADE,
+                revision_id  INTEGER NOT NULL REFERENCES image_revisions(id) ON DELETE RESTRICT
+             );
+             CREATE INDEX IF NOT EXISTS idx_clip_image_revisions_revision
+                ON clip_image_revisions(revision_id);",
+        )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -313,7 +386,7 @@ impl StorageEngine {
     ) -> Result<Vec<ClipItem>, StorageError> {
         let pattern = like_pattern(query);
         let sql = if favorites_only {
-            "SELECT id, content_type, text_content, NULL, NULL,
+            "SELECT id, content_type, substr(text_content, 1, 2048), NULL, NULL,
                     content_hash, is_favorite, created_at, byte_size, is_sensitive
              FROM clips
              WHERE is_favorite = 1
@@ -321,7 +394,7 @@ impl StorageEngine {
              ORDER BY use_order DESC, id DESC
              LIMIT ?2 OFFSET ?3"
         } else {
-            "SELECT id, content_type, text_content, NULL, NULL,
+            "SELECT id, content_type, substr(text_content, 1, 2048), NULL, NULL,
                     content_hash, is_favorite, created_at, byte_size, is_sensitive
              FROM clips
              WHERE text_content LIKE ?1 ESCAPE '\\' OR ocr_text LIKE ?1 ESCAPE '\\'
@@ -346,7 +419,7 @@ impl StorageEngine {
     ) -> Result<Vec<ClipItem>, StorageError> {
         let pattern = like_pattern(query);
         let sql = if favorites_only {
-            "SELECT id, content_type, text_content, NULL, NULL,
+            "SELECT id, content_type, substr(text_content, 1, 2048), NULL, NULL,
                     content_hash, is_favorite, created_at, byte_size, is_sensitive
              FROM clips
              WHERE is_favorite = 1
@@ -358,7 +431,7 @@ impl StorageEngine {
              ORDER BY use_order DESC, id DESC
              LIMIT ?3 OFFSET ?4"
         } else {
-            "SELECT id, content_type, text_content, NULL, NULL,
+            "SELECT id, content_type, substr(text_content, 1, 2048), NULL, NULL,
                     content_hash, is_favorite, created_at, byte_size, is_sensitive
              FROM clips
              WHERE id IN (SELECT rowid FROM clips_fts WHERE clips_fts MATCH ?1)
@@ -403,7 +476,10 @@ impl StorageEngine {
             "INSERT INTO clips
                 (content_type, text_content, html_content, image_data, content_hash, is_favorite, created_at, byte_size, is_sensitive, use_order)
              VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7, ?8, ?9)
-             ON CONFLICT(content_hash) DO UPDATE SET created_at = excluded.created_at, use_order = excluded.use_order",
+             ON CONFLICT(content_hash) DO UPDATE SET
+                created_at = excluded.created_at,
+                use_order = excluded.use_order,
+                is_sensitive = MAX(clips.is_sensitive, excluded.is_sensitive)",
             params![
                 content_type.as_str(),
                 text_content,
@@ -422,6 +498,7 @@ impl StorageEngine {
             params![content_hash],
             |row| row.get(0),
         )?;
+        self.link_clip_revision_for_hash(id, content_hash)?;
 
         // 新插入时同步 FTS 索引（last_insert_rowid 仅在真正 INSERT 时更新为新行 id）
         if self.conn.last_insert_rowid() == id {
@@ -432,19 +509,44 @@ impl StorageEngine {
         }
 
         tx.commit()?;
-        self.get_clip_by_id(id)
+        // 写入调用方只需要 id/元数据；图片 BLOB 已在入参中，立即再从 SQLite 物化一份
+        // 会把 watcher 的峰值内存翻倍。真正需要原图的路径显式走 get_clip_by_id/image。
+        self.get_clip_detail_by_id(id)
     }
 
     /// 通过 id 获取单条记录
     pub fn get_clip_by_id(&self, id: i64) -> Result<ClipItem, StorageError> {
         let clip = self.conn.query_row(
-            "SELECT id, content_type, text_content, html_content, image_data,
-                    content_hash, is_favorite, created_at, byte_size, is_sensitive
-             FROM clips WHERE id = ?1",
+            "SELECT c.id, c.content_type, c.text_content, c.html_content,
+                    COALESCE(c.image_data, a.png), c.content_hash, c.is_favorite,
+                    c.created_at, c.byte_size, c.is_sensitive
+               FROM clips c LEFT JOIN image_assets a ON a.id = c.image_asset_id
+              WHERE c.id = ?1",
             params![id],
             row_to_clip,
         )?;
         Ok(clip)
+    }
+
+    /// 预览详情只读取正文与 HTML；即使误传图片 id，也不把 BLOB 物化进 Rust/IPC。
+    pub fn get_clip_detail_by_id(&self, id: i64) -> Result<ClipItem, StorageError> {
+        Ok(self.conn.query_row(
+            "SELECT id, content_type, text_content, html_content, NULL,
+                    content_hash, is_favorite, created_at, byte_size, is_sensitive
+               FROM clips WHERE id = ?1",
+            params![id],
+            row_to_clip,
+        )?)
+    }
+
+    fn get_clip_list_item_by_id(&self, id: i64) -> Result<ClipItem, StorageError> {
+        Ok(self.conn.query_row(
+            "SELECT id, content_type, substr(text_content, 1, 2048), NULL, NULL,
+                    content_hash, is_favorite, created_at, byte_size, is_sensitive
+               FROM clips WHERE id = ?1",
+            params![id],
+            row_to_clip,
+        )?)
     }
 
     /// 更新指定条目的 created_at 为当前时间（用于 select_clip 置顶），并返回更新后的条目
@@ -456,7 +558,7 @@ impl StorageEngine {
             "UPDATE clips SET created_at = ?1, use_order = ?3 WHERE id = ?2",
             params![now, id, use_order],
         )?;
-        let clip = self.get_clip_by_id(id)?;
+        let clip = self.get_clip_list_item_by_id(id)?;
         tx.commit()?;
         Ok(clip)
     }
@@ -464,7 +566,9 @@ impl StorageEngine {
     /// 通过 id 获取图片二进制数据（仅 image 类型有值）
     pub fn get_clip_image(&self, id: i64) -> Result<Option<Vec<u8>>, StorageError> {
         let result = self.conn.query_row(
-            "SELECT image_data FROM clips WHERE id = ?1",
+            "SELECT COALESCE(c.image_data, a.png)
+               FROM clips c LEFT JOIN image_assets a ON a.id = c.image_asset_id
+              WHERE c.id = ?1",
             params![id],
             |row| row.get(0),
         );
@@ -473,6 +577,22 @@ impl StorageEngine {
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(e) => Err(StorageError::Database(e)),
         }
+    }
+
+    /// 托盘打开动作启动器时使用当前使用顺序里的最新图片；只返回数字主键，图片仍由后续
+    /// 有界快照查询读取，避免列表查询或 IPC 意外物化 BLOB。
+    pub fn get_latest_image_id(&self) -> Result<Option<i64>, StorageError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT id FROM clips
+                  WHERE content_type = 'image'
+                  ORDER BY use_order DESC, id DESC
+                  LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?)
     }
 
     /// 一次查询读取识别需要的图片状态。不能先取完整 `ClipItem`：SQLite BLOB 一旦交给
@@ -487,15 +607,16 @@ impl StorageEngine {
         let row = self
             .conn
             .query_row(
-                "SELECT content_type,
-                        length(image_data),
+                "SELECT c.content_type,
+                        length(COALESCE(c.image_data, a.png)),
                         CASE
-                            WHEN image_data IS NOT NULL AND length(image_data) <= ?1
-                            THEN image_data
+                            WHEN COALESCE(c.image_data, a.png) IS NOT NULL
+                                 AND length(COALESCE(c.image_data, a.png)) <= ?1
+                            THEN COALESCE(c.image_data, a.png)
                             ELSE NULL
                         END
-                   FROM clips
-                  WHERE id = ?2",
+                   FROM clips c LEFT JOIN image_assets a ON a.id = c.image_asset_id
+                  WHERE c.id = ?2",
                 params![byte_limit, id],
                 |row| {
                     Ok((
@@ -532,9 +653,12 @@ impl StorageEngine {
         let row = self
             .conn
             .query_row(
-                "SELECT content_type, content_hash, is_sensitive, length(image_data),
-                    CASE WHEN length(image_data) <= ?1 THEN image_data ELSE NULL END
-             FROM clips WHERE id = ?2",
+                "SELECT c.content_type, c.content_hash, c.is_sensitive,
+                        length(COALESCE(c.image_data, a.png)),
+                        CASE WHEN length(COALESCE(c.image_data, a.png)) <= ?1
+                             THEN COALESCE(c.image_data, a.png) ELSE NULL END
+                   FROM clips c LEFT JOIN image_assets a ON a.id = c.image_asset_id
+                  WHERE c.id = ?2",
                 params![limit, id],
                 |row| {
                     Ok((
@@ -631,14 +755,14 @@ impl StorageEngine {
 
         // 普通查询路径
         let sql = if favorites_only {
-            "SELECT id, content_type, text_content, NULL, NULL,
+            "SELECT id, content_type, substr(text_content, 1, 2048), NULL, NULL,
                     content_hash, is_favorite, created_at, byte_size, is_sensitive
              FROM clips
              WHERE is_favorite = 1
              ORDER BY use_order DESC, id DESC
              LIMIT ?1 OFFSET ?2"
         } else {
-            "SELECT id, content_type, text_content, NULL, NULL,
+            "SELECT id, content_type, substr(text_content, 1, 2048), NULL, NULL,
                     content_hash, is_favorite, created_at, byte_size, is_sensitive
              FROM clips
              ORDER BY use_order DESC, id DESC

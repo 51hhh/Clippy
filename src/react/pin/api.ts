@@ -4,14 +4,24 @@ import {
   copyPinCanvas,
   getPinImageUrl,
   getPinPayload,
+  getPinDisplayScale,
   getPinSourceImage,
   getPinToolbarBounds,
   getPlatformInfo,
   onCurrentWindowCloseRequested,
   onPinAlreadyOpen,
   onPinImageSharpened,
+  onPinDisplayScaleChanged,
+  onPinWorkspaceChanged,
   pinReady,
   savePin,
+  savePinToWorkspace,
+  removePinFromWorkspace,
+  listPinWorkspaceGroups,
+  createPinWorkspaceGroup,
+  renamePinWorkspaceGroup,
+  deletePinWorkspaceGroup,
+  assignPinWorkspaceGroup,
   savePinCanvas,
   updatePin,
 } from "../../js/api.ts";
@@ -32,6 +42,9 @@ export const pinApi = {
   imageUrl: (label: string, revision: number): string => getPinImageUrl(label, revision),
   /** Pin 的层级动作也必须服从后端能力判断，不能在 Wayland 上自行猜测。 */
   platform: (): Promise<PlatformInfo> => getPlatformInfo(),
+  displayScale: (): Promise<number> => getPinDisplayScale(),
+  onDisplayScaleChanged: (callback: (scale: number) => void): Promise<() => void> =>
+    onPinDisplayScaleChanged(callback),
   ready: (label: string): Promise<void> => pinReady(label),
   /** 工具条能待的范围（窗口局部逻辑坐标）。见 `usePinToolbarBounds`。 */
   toolbarBounds: (label: string): Promise<PinToolbarBounds> => getPinToolbarBounds(label),
@@ -40,6 +53,16 @@ export const pinApi = {
   copyCanvas: (label: string, project: PinCanvasProject): Promise<void> =>
     copyPinCanvas(label, project),
   save: (label: string): Promise<string> => savePin(label),
+  saveWorkspace: (label: string, project: PinCanvasProject | null) =>
+    savePinToWorkspace(label, null, project),
+  removeWorkspace: (label: string): Promise<void> => removePinFromWorkspace(label),
+  groups: () => listPinWorkspaceGroups(),
+  createGroup: (name: string) => createPinWorkspaceGroup(name),
+  renameGroup: (id: number, name: string): Promise<boolean> =>
+    renamePinWorkspaceGroup(id, name),
+  deleteGroup: (id: number): Promise<boolean> => deletePinWorkspaceGroup(id),
+  assignGroup: (label: string, groupId: number | null): Promise<void> =>
+    assignPinWorkspaceGroup(label, groupId),
   /** Canvas 交互预览用的原图；renderer v2 最终导出由后端直接读取可信原图。 */
   sourceImage: (label: string): Promise<string | null> => getPinSourceImage(label),
   /** 存下贴图上画过的那一版（`toClipboard` 为真时同时进剪贴板）。 */
@@ -58,4 +81,6 @@ export const pinApi = {
     onPinImageSharpened(callback),
   /** 订阅"这张图已经贴出来了"，用来闪一下外围边框提醒用户。 */
   onAlreadyOpen: (callback: () => void): Promise<() => void> => onPinAlreadyOpen(callback),
+  onWorkspaceChanged: (callback: (payload: { workspaceId: number | null; groupId: number | null }) => void): Promise<() => void> =>
+    onPinWorkspaceChanged(callback),
 };

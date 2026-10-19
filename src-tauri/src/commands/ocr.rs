@@ -33,6 +33,42 @@ pub async fn ocr_available() -> bool {
         .unwrap_or(false)
 }
 
+/// 复用识别前的完整 manifest/模型哈希校验，向设置页返回稳定状态码。
+#[tauri::command]
+pub(crate) async fn ocr_health_status(
+    manifest_path: String,
+) -> Result<crate::ocr::OcrHealthStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::ocr::health_status(&manifest_path))
+        .await
+        .map_err(|error| format!("OCR 健康检查线程异常: {error}"))
+}
+
+/// 只选择 manifest 路径；用户保存设置后才改变实际识别配置。
+#[tauri::command]
+pub async fn pick_ocr_manifest(
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    let configured = state
+        .config
+        .lock()
+        .map_err(|error| error.to_string())?
+        .enhanced_ocr_manifest_path
+        .clone();
+    let start = std::path::Path::new(&configured)
+        .parent()
+        .filter(|path| path.is_dir())
+        .map(std::path::Path::to_path_buf)
+        .or_else(|| state.config_path.parent().map(std::path::Path::to_path_buf))
+        .unwrap_or_else(|| crate::image_io::expand_user_path("~"));
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::dialogs::choose_ocr_manifest(&app_handle, &start)
+            .map(|path| path.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(|error| format!("OCR manifest 选择线程异常: {error}"))
+}
+
 /// 对指定图片条目进行 OCR 识别，返回文字内容。
 #[tauri::command]
 pub async fn ocr_image(id: i64, state: State<'_, AppState>) -> Result<String, String> {

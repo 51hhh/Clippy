@@ -17,6 +17,8 @@ cd src && npx vitest run                   # 前端测试（jsdom）
 cd src && npx tsc --noEmit                 # React/TS 功能岛类型检查
 ./scripts/ci-local.sh                      # 本地质量预检（与 CI 一致）
 ./scripts/ci-local.sh --quick              # 跳过构建，仅 lint + test
+./scripts/ci-windows.ps1                   # 原生 Windows 默认门禁，Linux smoke 另验
+./scripts/ci-windows.ps1 -RecordingQa      # 追加 Windows 录屏 QA feature 门禁
 ```
 
 ## 架构要点

@@ -1,0 +1,142 @@
+{
+  "cases": [
+    {
+      "boxes": [
+        {
+          "coordinate": [
+            21.14656639099121,
+            41.501773834228516,
+            295.6148986816406,
+            179.47418212890625
+          ],
+          "label": "seal",
+          "score": 0.5552551746368408
+        }
+      ],
+      "durationMs": 209.26393401168752,
+      "id": "positive/fraction-radical"
+    },
+    {
+      "boxes": [],
+      "durationMs": 188.01653299306054,
+      "id": "positive/integral-limit"
+    },
+    {
+      "boxes": [],
+      "durationMs": 206.72176500374917,
+      "id": "positive/summation"
+    },
+    {
+      "boxes": [],
+      "durationMs": 197.41288499790244,
+      "id": "positive/matrix"
+    },
+    {
+      "boxes": [
+        {
+          "coordinate": [
+            39.056251525878906,
+            26.673763275146484,
+            407.5179443359375,
+            199.1215057373047
+          ],
+          "label": "image",
+          "score": 0.533839762210846
+        }
+      ],
+      "durationMs": 198.07073401170783,
+      "id": "positive/piecewise"
+    },
+    {
+      "boxes": [
+        {
+          "coordinate": [
+            30.040237426757812,
+            46.14104461669922,
+            411.1249084472656,
+            100.43982696533203
+          ],
+          "label": "doc_title",
+          "score": 0.5474810004234314
+        }
+      ],
+      "durationMs": 202.23025599261746,
+      "id": "positive/greek-subscript"
+    },
+    {
+      "boxes": [],
+      "durationMs": 212.6963510090718,
+      "id": "negative/settings-dark"
+    },
+    {
+      "boxes": [
+        {
+          "coordinate": [
+            7.570149898529053,
+            17.57098388671875,
+            1279.4951171875,
+            703.7855224609375
+          ],
+          "label": "image",
+          "score": 0.6014984846115112
+        }
+      ],
+      "durationMs": 188.79066700174008,
+      "id": "negative/code-review"
+    },
+    {
+      "boxes": [
+        {
+          "coordinate": [
+            54.47407913208008,
+            26.42337417602539,
+            1222.0439453125,
+            722.9697265625
+          ],
+          "label": "table",
+          "score": 0.5346713066101074
+        }
+      ],
+      "durationMs": 186.03951700788457,
+      "id": "negative/invoice-table"
+    },
+    {
+      "boxes": [
+        {
+          "coordinate": [
+            130.51478576660156,
+            3.922119140625,
+            885.0097045898438,
+            2091.5341796875
+          ],
+          "label": "content",
+          "score": 0.6354986429214478
+        },
+        {
+          "coordinate": [
+            135.36544799804688,
+            808.6965942382812,
+            302.78668212890625,
+            836.7935791015625
+          ],
+          "label": "paragraph_title",
+          "score": 0.5037965774536133
+        }
+      ],
+      "durationMs": 196.90841900592204,
+      "id": "negative/long-document"
+    }
+  ],
+  "engine": {
+    "enableMkldnn": false,
+    "id": "PP-DocLayout-S",
+    "license": "Apache-2.0",
+    "modelBytes": 4804904,
+    "modelLoadMs": 602.532215998508,
+    "modelSha256": "491c3382d84ca04d2033afbee0c105942ed82fea392bb4a19170646adebe088a",
+    "peakMemoryBytes": 640012288,
+    "runtime": "paddleocr 3.7.0/paddlepaddle 3.3.1/paddlex 3.7.2/Python 3.12.14",
+    "version": "8ac289e66575bb9bba6e15c53719d8b15cc9b3b2"
+  },
+  "schema": "clippy-ocr-formula-layout-probe-v1"
+}

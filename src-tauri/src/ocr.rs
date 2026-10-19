@@ -10,6 +10,7 @@ mod protocol;
 mod runtime;
 mod tesseract;
 
+pub(crate) use enhanced::OcrHealthStatus;
 pub use protocol::StructuredOcr;
 use runtime::ocr_runtime;
 
@@ -59,6 +60,15 @@ async fn prepare_configuration() -> Result<enhanced::Configuration, String> {
 /// 旧的无版本 String 缓存无法证明来自当前增强模型，配置增强时必须绕过。
 pub(crate) fn uses_enhanced_configuration() -> bool {
     enhanced::configured()
+}
+
+/// 设置值变更后立即切换识别配置；空值仍允许开发环境变量显式兜底。
+pub(crate) fn set_manifest_setting(value: &str) {
+    enhanced::set_manifest_setting(value);
+}
+
+pub(crate) fn health_status(candidate: &str) -> OcrHealthStatus {
+    enhanced::health_status(candidate)
 }
 
 /// 安装流程改变了外部工具状态，下一次查询必须重新探测。

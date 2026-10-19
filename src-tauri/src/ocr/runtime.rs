@@ -96,27 +96,26 @@ impl OcrRuntime {
         if let Some(admission) = should_start {
             tauri::async_runtime::spawn(async move {
                 let _admission = admission;
-                let result = async {
-                    let _permit = self
-                        .permits
-                        .acquire()
-                        .await
-                        .map_err(|_| "OCR 并发控制器已关闭".to_string())?;
-                    let has_waiters = {
-                        let mut flights = self
-                            .in_flight
-                            .lock()
-                            .unwrap_or_else(|error| error.into_inner());
-                        let waiters = flights.get_mut(&id).expect("任务持有已登记的 OCR 身份");
-                        waiters.retain(|waiter| !waiter.is_closed());
-                        !waiters.is_empty()
-                    };
-                    if !has_waiters {
-                        return Err("OCR 排队请求已取消".to_string());
+                let permit = self.permits.acquire().await;
+                let result = match &permit {
+                    Err(_) => Err("OCR 并发控制器已关闭".to_string()),
+                    Ok(_) => {
+                        let has_waiters = {
+                            let mut flights = self
+                                .in_flight
+                                .lock()
+                                .unwrap_or_else(|error| error.into_inner());
+                            let waiters = flights.get_mut(&id).expect("任务持有已登记的 OCR 身份");
+                            waiters.retain(|waiter| !waiter.is_closed());
+                            !waiters.is_empty()
+                        };
+                        if has_waiters {
+                            work().await
+                        } else {
+                            Err("OCR 排队请求已取消".to_string())
+                        }
                     }
-                    work().await
-                }
-                .await;
+                };
                 let waiters = self
                     .in_flight
                     .lock()
@@ -126,6 +125,8 @@ impl OcrRuntime {
                 for waiter in waiters {
                     let _ = waiter.send(result.clone());
                 }
+                // 登记清理与结果发布属于同一个并发槽，避免新任务并入已结束的旧 key。
+                drop(permit);
             });
         } else {
             drop(work);
@@ -185,24 +186,25 @@ impl OcrRuntime {
         if let Some(admission) = admission {
             tauri::async_runtime::spawn(async move {
                 let _admission = admission;
-                let result = async {
-                    let _permit = self
-                        .permits
-                        .acquire()
-                        .await
-                        .map_err(|_| "OCR 并发控制器已关闭".to_string())?;
-                    let waiting = self
-                        .snapshots
-                        .lock()
-                        .unwrap_or_else(|error| error.into_inner())
-                        .get(&key)
-                        .is_some_and(|waiters| waiters.iter().any(|waiter| !waiter.is_closed()));
-                    if !waiting {
-                        return Err("OCR 排队请求已取消".into());
+                let permit = self.permits.acquire().await;
+                let result = match &permit {
+                    Err(_) => Err("OCR 并发控制器已关闭".to_string()),
+                    Ok(_) => {
+                        let waiting = self
+                            .snapshots
+                            .lock()
+                            .unwrap_or_else(|error| error.into_inner())
+                            .get(&key)
+                            .is_some_and(|waiters| {
+                                waiters.iter().any(|waiter| !waiter.is_closed())
+                            });
+                        if waiting {
+                            work().await
+                        } else {
+                            Err("OCR 排队请求已取消".into())
+                        }
                     }
-                    work().await
-                }
-                .await;
+                };
                 let waiters = self
                     .snapshots
                     .lock()
@@ -212,6 +214,8 @@ impl OcrRuntime {
                 for waiter in waiters {
                     let _ = waiter.send(result.clone());
                 }
+                // 登记清理与结果发布属于同一个并发槽，避免新任务并入已结束的旧 key。
+                drop(permit);
             });
         } else {
             // 合并消费者不持有它自己那一份大 PNG 到识别结束。

@@ -11,6 +11,8 @@ import type {
   CaptureSelection,
   CaptureTranslationResult,
   LongshotActivation,
+  LongshotAutoCapability,
+  LongshotAutoDirection,
   LongshotControllerOpenResult,
   LongshotHandle,
   LongshotOutputAction,
@@ -20,6 +22,8 @@ import type {
   WindowProbeInstallOutcome,
   WindowProbeStatus,
 } from "../ipc-types.ts";
+import { parseImageCodeScanResponse } from "./validators.ts";
+import type { ImageCodeScanResponse } from "./validators.ts";
 
 /** 启动冻结屏幕选区覆盖层 */
 export function showCaptureOverlay(): Promise<void> {
@@ -81,6 +85,13 @@ export function activateLongshotController(): Promise<LongshotActivation> {
   return invoke<LongshotActivation>("activate_longshot_controller");
 }
 
+/** 显式请求 Wayland Portal 指针授权；父窗口和显示器身份全部由后端取得。 */
+export function authorizeLongshotAutoScrollController(
+  handle: LongshotHandle,
+): Promise<LongshotAutoCapability> {
+  return invoke<LongshotAutoCapability>("authorize_longshot_auto_scroll_controller", { handle });
+}
+
 /** 控制页已经渲染 activation 结果，可以由后端显示并聚焦窗口。 */
 export function markLongshotControllerReady(): Promise<void> {
   return invoke<void>("mark_longshot_controller_ready");
@@ -94,8 +105,21 @@ export function appendLongshotController(handle: LongshotHandle): Promise<Longsh
   return invoke<LongshotSnapshot>("append_longshot_controller", { handle });
 }
 
+/** 原生后端自动滚动一步并通过同一质量门追加；坐标和目标窗口始终由后端会话持有。 */
+export function autoAppendLongshotController(
+  handle: LongshotHandle,
+  direction: LongshotAutoDirection,
+): Promise<LongshotSnapshot> {
+  return invoke<LongshotSnapshot>("auto_append_longshot_controller", { handle, direction });
+}
+
+/** 显式撤销二维画布最后一次提交；该操作不会重新捕获屏幕。 */
+export function undoLongshotController(handle: LongshotHandle): Promise<LongshotSnapshot> {
+  return invoke<LongshotSnapshot>("undo_longshot_controller", { handle });
+}
+
 /**
- * 获取 exact 长截图会话的尾部 PNG 预览。二进制 IPC 结果仍是不可信输入：
+ * 获取 exact 长截图会话的画布 PNG 预览。二进制 IPC 结果仍是不可信输入：
  * 只接受当前 realm 的非空 ArrayBuffer，并把单次响应限制在 1 MiB 内。
  */
 export async function previewLongshotController(handle: LongshotHandle): Promise<ArrayBuffer> {
@@ -195,4 +219,12 @@ export function translateCaptureSelection(
     targetLanguage: null,
     requestId: null,
   });
+}
+
+/** 扫描当前截图会话的原始选区；不会访问剪贴历史或自动打开识别内容。 */
+export async function scanCaptureSelection(
+  selection: CaptureSelection,
+): Promise<ImageCodeScanResponse> {
+  const response = await invoke<unknown>("scan_capture_selection", { selection });
+  return parseImageCodeScanResponse(response);
 }

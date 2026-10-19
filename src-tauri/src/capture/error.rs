@@ -37,6 +37,8 @@ pub enum CaptureError {
     CommitPayloadInvalid,
     #[error("提交的截图数据过大")]
     CommitPayloadTooLarge,
+    #[error("截图会话用途与请求不匹配")]
+    CaptureIntentMismatch,
     #[error("长截图帧为空")]
     LongshotFrameEmpty,
     #[error("长截图尚未追加任何帧")]
@@ -81,6 +83,16 @@ pub enum CaptureError {
     LongshotSessionSuperseded,
     #[error("长截图会话代次已耗尽")]
     LongshotGenerationExhausted,
+    #[error("当前平台不支持自动滚动长截图")]
+    LongshotAutoUnsupported,
+    #[error("自动滚动没有命中原目标窗口")]
+    LongshotAutoTargetLost,
+    #[error("检测到用户移动鼠标，已暂停自动滚动")]
+    LongshotAutoUserInterrupted,
+    #[error("自动滚动需要系统输入辅助权限")]
+    LongshotAutoPermissionRequired,
+    #[error("自动滚动输入失败: {0}")]
+    LongshotAutoInput(String),
     #[error("已有截图模式正在进行")]
     CaptureModeBusy,
     #[error("截图模式所有权已经更新")]
@@ -122,6 +134,7 @@ impl CaptureError {
             Self::CropOutOfBounds => "crop_out_of_bounds",
             Self::CommitPayloadInvalid => "commit_payload_invalid",
             Self::CommitPayloadTooLarge => "commit_payload_too_large",
+            Self::CaptureIntentMismatch => "capture_intent_mismatch",
             Self::LongshotFrameEmpty => "longshot_frame_empty",
             Self::LongshotEmpty => "longshot_empty",
             Self::LongshotFirstFrameOverlap => "longshot_first_frame_overlap",
@@ -146,6 +159,11 @@ impl CaptureError {
             Self::LongshotSessionMissing => "longshot_session_missing",
             Self::LongshotSessionSuperseded => "longshot_session_superseded",
             Self::LongshotGenerationExhausted => "longshot_generation_exhausted",
+            Self::LongshotAutoUnsupported => "longshot_auto_unsupported",
+            Self::LongshotAutoTargetLost => "longshot_auto_target_lost",
+            Self::LongshotAutoUserInterrupted => "longshot_auto_user_interrupted",
+            Self::LongshotAutoPermissionRequired => "longshot_auto_permission_required",
+            Self::LongshotAutoInput(_) => "longshot_auto_input",
             Self::CaptureModeBusy => "capture_mode_busy",
             Self::CaptureModeSuperseded => "capture_mode_superseded",
             Self::CaptureModeGenerationExhausted => "capture_mode_generation_exhausted",
@@ -249,6 +267,7 @@ mod tests {
             CaptureError::CropOutOfBounds,
             CaptureError::CommitPayloadInvalid,
             CaptureError::CommitPayloadTooLarge,
+            CaptureError::CaptureIntentMismatch,
             CaptureError::LongshotFrameEmpty,
             CaptureError::LongshotEmpty,
             CaptureError::LongshotFirstFrameOverlap,
