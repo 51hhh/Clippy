@@ -9,6 +9,14 @@
 
 ## 当前续审状态
 
+W89 / VIEWER-ATOMIC-API-01、WIN-NATIVE-01：源码
+`71a0a0a85dfb55c12f3d6c08b32f1f4842ea33db` 仅将查看器三处 `fetch_update` 替换为
+`try_update`，原闭包、内存顺序、错误映射、测试正文与期限保持。2026-10-19 Linux 完整
+`ci-local.sh` 为25/0/2；同 SHA GitHub Actions run 37168304825 的三项原生与四项录屏
+原型 job 全部 completed/success。原228cc935 Rust 1.99失败日志保留。Windows runner 不替代
+Windows本机完整默认/QA门禁；真实安装、设备、桌面与其它未执行边界保持。见
+[W89查看器原子API复核](../../reviews/2026-10-19-viewer-atomic-api-compat-review.md)。
+
 W88 / WIN-NATIVE-01：52修复/51历史、282子R/247子AC（24未勾选），测试基础设施另列；1479 Rust正文对照=1474一致+5既有适配，9源/138前端AST调用保留。当前228cc93完整Windows门禁、release及四包文件证据绑定，全部原47任务范围和末两条AC保持。当前GitHub提交实查不可用（422+457正对照），安装EXE实读仍匹配旧457记录，设备/桌面/安装/跨平台与同SHA CI未验；无新增源码/修复/测试通过数。见 [完整状态清单](../../reviews/2026-10-04-windows-completion-inventory.md)。
 
 W87 / WIN-NATIVE-01/W07、WIN-QA-MSI-PROVENANCE-01：当前228cc93编译及资源的默认/QA四个NSIS/MSI生成、只读解包与EXE完整字节/资源来源核对完成；QA canonical清单/十份CRT生产文件验证均0。四包实读NotSigned，662缓存和1073/752原输入保持，本轮修复/测试/通过数0。52修复/51历史及原门禁不变；真实安装/设备/桌面、同SHA CI及其它宿主未验，原AC保留。见 [W87包文件](../../reviews/2026-10-04-windows-current-package-file-review.md)。
@@ -588,7 +596,7 @@ release 参数、两图 feature、AMD64 GUI PE 与 QA 10份 CRT 的部署/导入
 | W05 | P1 | 同权限自动粘贴一次、高完整性目标 copy-only、目标销毁/复用、用户接管；DACL 与配置连续覆盖 | 45769c9 普通权限文本/图片完整用例实际通过；管理员、销毁复用与用户接管桌面待验证。私有文件准备失败时序见 W18，富文本片段边界见 W20，首次按键前目标复核见 W23，部分 Click 失败清理见 W45 |
 | W06 | P1 | QA 包设备默认/非默认/同名/拔出、双源混音、暂停恢复、控制窗排除、强杀恢复、30 分钟 A/V 漂移 | WASAPI 正常停止尾部见 W24，WGC 关闭/初始化清理见 W25/W27，双轨桥接线程回收见 W26，WGC 应用帧桥启动回滚见 W35；真实设备、混音及其余场景仍待真机验收 |
 | W07 | P2 | NSIS/MSI 安装升级卸载、WebView2、自启动、托盘/快捷键、系统凭据与更新 | 旧457 NSIS安装落盘/启动子步骤保留原证据；当前228cc93默认/QA四包只读文件核对完成、均NotSigned；当前MSI/NSIS实际安装升级卸载、无CRT启动、WebView2/updater仍未验，未修改信任。 |
-| W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | 52项产品/部署修复分支/规范/CHANGELOG与原日志已索引；42/457/b2fd各七项CI为旧SHA，当前228cc93实查远程不可用；当前同SHA CI、Linux完整门禁/Wayland回归及其它宿主仍未完成。 |
+| W08 | P1 | 每个产品修复单独分支，更新对应需求/CHANGELOG；同 SHA 三平台 + 四原型 CI，回归 Ubuntu Wayland | W88已索引52项产品/部署修复；后继VIEWER-ATOMIC-API-01有独立分支/规范/CHANGELOG。71a0a0a同SHA七项CI及Linux完整门禁通过；Windows本机完整默认/QA门禁、Wayland回归、桌面/设备与交付仍未完成。 |
 | W09 | P1 | OCR 质量工具 Windows 私有诊断目录与符号链接拒绝合同；失败关闭，检查子文件继承 | 实际 DACL/等价 SDDL 及 10 类失败关闭负例通过；本机 33 项质量合同与 42e52c0 跨平台 CI 通过 |
 | W10 | P2 | 审查 webm-sys 的 C++ 编译参数在 MSVC 上产生 D9002；按真实编译器族选择 flag，保留固定来源与许可证 | 独立 WIN-WEBM-MSVC-01 / PR #14；本机完整 QA 绑定 e4ccc46，45769c9 七项 CI 与完整 QA workflow 全成功，新 Windows 包来源/哈希/签名身份已核对；真实桌面未验证 |
 | W11 | P1 | 新 Windows runner 使用 CRLF 检出时的 IPC 负例与结构回归；保留两种换行的正/负合同 | 独立 CRLF checkout 1284 项通过，fe37aec Windows 前端 CI 已通过 |

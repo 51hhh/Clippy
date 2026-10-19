@@ -9,8 +9,12 @@
   返回值处理；原测试正文和超时未改，不降低警告门禁或固定旧 CI 工具链。
   关联 VIEWER-ATOMIC-API-01 / WIN-NATIVE-01，规格见
   `docs/superpowers/specs/2026-10-04-viewer-atomic-api-compat.md`。
-  原 228cc935 CI run 37166791297 及失败日志保留；修复的本机/新 SHA CI 正在验证，
-  当前未计通过。原 228cc935 release/安装包来源不改；真实安装、桌面与设备验收仍未执行。
+  原 228cc935 CI run 37166791297 及失败日志保留；修复源码
+  `71a0a0a85dfb55c12f3d6c08b32f1f4842ea33db` 的 Linux 完整门禁为 25/0/2，
+  同 SHA GitHub Actions run 37168304825 的三项原生与四项录屏原型 job 全部成功。
+  Windows runner 不替代 Windows 本机完整默认/QA 门禁；原 228cc935 release/安装包来源不改，
+  真实安装、桌面与设备验收仍未执行。分层证据见
+  `docs/reviews/2026-10-19-viewer-atomic-api-compat-review.md`。
 
 ### 2026-10-04 QA MSI运行库来源清单
 

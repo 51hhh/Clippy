@@ -24,7 +24,7 @@ fetch_update 弃用错误并 exit 101；本机现有工具链为 Rust 1.98.1。�
 - [x] 生产源码只替换三处 API 名称，所有闭包、顺序及返回值处理原字节保持。
 - [x] 现有 Rust 1.98.1 查看器合同通过，原 viewer/tests.rs 字节及超时未变。
 - [ ] 修复源码的完整 Windows 默认/QA 门禁通过，跳过/ignored 如实记录。
-- [ ] 新 SHA 上原七项 CI 在 Rust stable 下成功，原失败证据不被覆盖。
+- [x] 新 SHA 上原七项 CI 在 Rust stable 下成功，原失败证据不被覆盖。
 
 ## Out of Scope
 
@@ -42,5 +42,14 @@ Rust 官方 [Atomic 文档](https://doc.rust-lang.org/beta/core/sync/atomic/stru
 
 原查看器合同在现有 Rust 1.98.1 下 23 passed / 0 failed / 0 ignored，实际 terminal
 41931 exit 0。三处 API 名称反向替换与原 manager 原始字节相同；viewer/tests.rs
-原始字节未变。这 23 项包含于全量原用例，不计新增或重复通过数。完整门禁与新 SHA
-CI 未运行完成，后两项 AC 保持未完成；原 Rust1.99 失败 run/log 不覆盖。
+原始字节未变。这 23 项包含于全量原用例，不计新增或重复通过数。
+
+2026-10-19 在源码 `71a0a0a85dfb55c12f3d6c08b32f1f4842ea33db` 上使用
+Linux x86_64、rustc 1.98.0、Node.js 24.19.0 执行 `./scripts/ci-local.sh`，结果为
+25 passed / 0 failed / 2 skipped；跳过项仅为未启用的非宿主交叉 lint 与 AppImage
+X11 可视 smoke。GitHub Actions run
+[37168304825](https://github.com/51hhh/Clippy/actions/runs/37168304825) 同样绑定该 SHA，
+三项原生与四项录屏原型共七个 job 均 completed/success；原 Rust 1.99 失败 run/log
+未覆盖。Windows runner 成功不替代 Windows 本机完整默认/QA 门禁，第三项 AC 继续未完成。
+分层明细见
+[W89 实现与验证复核](../../reviews/2026-10-19-viewer-atomic-api-compat-review.md)。
