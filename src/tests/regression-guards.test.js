@@ -493,16 +493,12 @@ describe("内容类型只有一套标准", () => {
     expect(source).not.toMatch(/export function formatType/);
   });
 
-  it("两个列表行渲染器都不写类型标签", () => {
-    // js/clipboard/row-renderer.js 目前在运行时不生效（app.js 不传 listEl，实际渲染
-    // 走 react/main/ClipboardRow.tsx）。正因为它是哑的，改动只落在它上面时用户看不到
-    // 效果——上次"删掉主栏类型显示"就是这么丢的，所以两份一起钉。
-    for (const path of ["src/js/clipboard/row-renderer.js", "src/react/main/ClipboardRow.tsx"]) {
-      const source = read(path);
-      expect(source, path).not.toContain("formatType");
-      expect(source, path).not.toContain("clip-row-html-badge");
-      expect(source, path).not.toMatch(/clipboard\.type\./);
-    }
+  it("唯一的列表行渲染器不写类型标签", () => {
+    const path = "src/react/main/ClipboardRow.tsx";
+    const source = read(path);
+    expect(source, path).not.toContain("formatType");
+    expect(source, path).not.toContain("clip-row-html-badge");
+    expect(source, path).not.toMatch(/clipboard\.type\./);
   });
 
   it("预览面板不自己再嗅探一遍类型", () => {
@@ -520,17 +516,14 @@ describe("Pin 贴的是当前焦点条目，不是上一条", () => {
   // `releaseMemory` 把列表清空，随后到达的 `clip-added` 让 prependClip 把 focusedRow +1,
   // 于是重新打开面板时焦点停在**第二行**，而 Pin 的两个入口（全局快捷键与 Ctrl+P）
   // 都读 getFocusedClip()。列表行上没有 Pin 按钮，所以这条路是唯一的。
-  it("两份 prependClip 都按 id 跟踪焦点，不做索引加减", () => {
-    // 两份实现必须同步：js/clipboard-list.js 目前运行时不生效（见上面的 row-renderer 注释），
-    // 只改 React 那一份的话，下次谁把渲染切回去，这个 bug 就原地复活。
-    for (const path of ["src/js/clipboard-list.js", "src/react/main/clipboardStore.ts"]) {
-      const code = read(path)
-        .split("\n")
-        .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
-        .join("\n");
-      expect(code, path).not.toMatch(/focusedRow\s*[+-]\s*1/);
-      expect(code, path).toMatch(/previousFocus/);
-    }
+  it("prependClip 按 id 跟踪焦点，不做索引加减", () => {
+    const path = "src/react/main/clipboardStore.ts";
+    const code = read(path)
+      .split("\n")
+      .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+      .join("\n");
+    expect(code, path).not.toMatch(/focusedRow\s*[+-]\s*1/);
+    expect(code, path).toMatch(/previousFocus/);
   });
 
   it("列表内容被释放后不报告焦点行", () => {
@@ -648,12 +641,11 @@ describe("列表行只取缩略图，不取原图", () => {
   // 库里存的是原图（一张全屏截图 2560×1600 / 几 MB），行里那格是 48 CSS px。
   // 退回 getClipImage 后功能照样对，只是每开一次面板就把十几 MB 送进 webview
   // 并做十几次全尺寸 PNG 解码，全落在 webview 那一个线程上。
-  it("两个列表行渲染器都走 getClipThumbnail", () => {
-    for (const path of ["src/js/clipboard-list.js", "src/react/main/ClipboardRow.tsx"]) {
-      const code = read(path);
-      expect(code, path).toContain("getClipThumbnail");
-      expect(code.replace(/^\s*(\/\/|\*|\/\*).*$/gm, ""), path).not.toMatch(/getClipImage\s*[,(]/);
-    }
+  it("唯一的列表行渲染器走 getClipThumbnail", () => {
+    const path = "src/react/main/ClipboardRow.tsx";
+    const code = read(path);
+    expect(code, path).toContain("getClipThumbnail");
+    expect(code.replace(/^\s*(\/\/|\*|\/\*).*$/gm, ""), path).not.toMatch(/getClipImage\s*[,(]/);
   });
 
   it("预览面板仍然取原图", () => {
