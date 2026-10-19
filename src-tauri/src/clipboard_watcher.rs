@@ -15,7 +15,7 @@ use crate::storage::StorageEngine;
 use arboard::Clipboard;
 use content::{
     compute_hash, encode_image_to_png, is_sensitive_text, rgba_fingerprint, strip_html_tags,
-    validate_image_layout,
+    validate_image_layout, MAX_CLIPBOARD_TEXT_BYTES,
 };
 use poll_state::PollState;
 use std::sync::{Arc, Mutex};
@@ -198,7 +198,7 @@ impl ClipboardWatcher {
                                             Vec::new()
                                         }
                                     };
-                                    (clip.without_image_data(), removed)
+                                    (clip.for_list(), removed)
                                 })
                         };
                         match result {
@@ -248,13 +248,26 @@ impl ClipboardSnapshot {
     fn read_with(reader: &mut impl SnapshotReader) -> Option<Self> {
         if let Ok((html, text)) = reader.html_with_text() {
             if !html.is_empty() {
-                let text = text.unwrap_or_else(|| strip_html_tags(&html));
-                return Some(Self::Html { html, text });
+                if html.len() <= MAX_CLIPBOARD_TEXT_BYTES {
+                    let text = text
+                        .filter(|value| value.len() <= MAX_CLIPBOARD_TEXT_BYTES)
+                        .unwrap_or_else(|| strip_html_tags(&html));
+                    return Some(Self::Html { html, text });
+                }
+                log::warn!("忽略超过 {} 字节的剪贴板 HTML", MAX_CLIPBOARD_TEXT_BYTES);
+                if let Some(text) = text
+                    .filter(|value| !value.is_empty() && value.len() <= MAX_CLIPBOARD_TEXT_BYTES)
+                {
+                    return Some(Self::Text(text));
+                }
             }
         }
         if let Ok(text) = reader.text() {
-            if !text.is_empty() {
+            if !text.is_empty() && text.len() <= MAX_CLIPBOARD_TEXT_BYTES {
                 return Some(Self::Text(text));
+            }
+            if text.len() > MAX_CLIPBOARD_TEXT_BYTES {
+                log::warn!("忽略超过 {} 字节的剪贴板文本", MAX_CLIPBOARD_TEXT_BYTES);
             }
         }
         reader.image().ok().map(Self::Image)
@@ -319,6 +332,10 @@ fn prepare_snapshot(
     let (kind, text, html, png, hash, byte_size) = match snapshot {
         ClipboardSnapshot::Text(text) => {
             *rejected_layout = None;
+            if text.len() > MAX_CLIPBOARD_TEXT_BYTES {
+                state.reset();
+                return None;
+            }
             let hash = compute_hash(text.as_bytes());
             let size = text.len() as i64;
             if !state.observe(&format!("text:{hash}"), suppressed.contains(&hash), now) {
@@ -328,6 +345,10 @@ fn prepare_snapshot(
         }
         ClipboardSnapshot::Html { html, text } => {
             *rejected_layout = None;
+            if html.len() > MAX_CLIPBOARD_TEXT_BYTES || text.len() > MAX_CLIPBOARD_TEXT_BYTES {
+                state.reset();
+                return None;
+            }
             let hash = compute_hash(html.as_bytes());
             let size = html.len() as i64;
             if !state.observe(&format!("html:{hash}"), suppressed.contains(&hash), now) {

@@ -98,6 +98,72 @@ fn test_dedup_updates_timestamp() {
 }
 
 #[test]
+fn duplicate_content_can_only_upgrade_the_sensitive_flag() {
+    let engine = StorageEngine::new_in_memory().unwrap();
+    let insert = |is_sensitive| {
+        engine
+            .insert_clip(
+                &ContentType::Text,
+                Some("same secret"),
+                None,
+                None,
+                "sensitive-upgrade",
+                11,
+                is_sensitive,
+            )
+            .unwrap()
+    };
+
+    assert!(!insert(false).is_sensitive);
+    assert!(insert(true).is_sensitive);
+    assert!(insert(false).is_sensitive, "重复写入不能把敏感标记降级");
+}
+
+#[test]
+fn list_queries_return_a_bounded_unicode_summary_but_detail_stays_complete() {
+    let engine = StorageEngine::new_in_memory().unwrap();
+    let text = format!("{}尾", "界".repeat(ClipItem::LIST_TEXT_MAX_CHARS));
+    let inserted = insert_text(&engine, &text, "large-list-summary");
+
+    let listed = engine.get_clips(None, false, 0, 10).unwrap().pop().unwrap();
+    assert_eq!(
+        listed.text_content.as_deref().unwrap().chars().count(),
+        ClipItem::LIST_TEXT_MAX_CHARS
+    );
+    assert!(listed.html_content.is_none());
+    assert!(listed.image_data.is_none());
+    assert_eq!(
+        engine
+            .get_clip_by_id(inserted.id)
+            .unwrap()
+            .text_content
+            .as_deref(),
+        Some(text.as_str())
+    );
+}
+
+#[test]
+fn detail_query_never_materializes_image_bytes() {
+    let engine = StorageEngine::new_in_memory().unwrap();
+    let image = insert_image(&engine, "detail-without-image");
+    assert!(
+        image.image_data.is_none(),
+        "插入结果不得为了返回值重新物化图片 BLOB"
+    );
+    let detail = engine.get_clip_detail_by_id(image.id).unwrap();
+    assert_eq!(detail.content_type, ContentType::Image);
+    assert!(detail.image_data.is_none());
+
+    let touched = engine.touch_clip(image.id).unwrap();
+    assert!(touched.image_data.is_none(), "touch 事件应只返回列表投影");
+    assert_eq!(
+        engine.get_clip_image(image.id).unwrap(),
+        Some(vec![137, 80, 78, 71]),
+        "按需图片接口仍须返回完整字节"
+    );
+}
+
+#[test]
 fn test_search_matches_full_words_and_prefixes() {
     let engine = StorageEngine::new_in_memory().unwrap();
     insert_text(&engine, "apple pie recipe", "hash_apple");

@@ -53,8 +53,8 @@ pub async fn select_clip(
         let storage = state.storage.lock().map_err(|e| e.to_string())?;
         storage.touch_clip(id).map_err(|e| e.to_string())?
     };
-    // 事件里不带图片数据，前端按需取（见 `ClipItem::without_image_data`）。
-    let _ = app_handle.emit("clip-added", &updated_clip.without_image_data());
+    // 事件只带列表摘要；完整正文与图片均由前端按需取。
+    let _ = app_handle.emit("clip-added", &updated_clip);
 
     if app_handle.get_webview_window("main").is_some() {
         crate::window_controller::hide_main_window(&app_handle)?;
@@ -319,10 +319,14 @@ impl ThumbnailCache {
 
 /// 按 id 获取完整条目（含 html_content），用于预览面板按需加载。
 #[tauri::command]
-pub fn get_clip_detail(id: i64, state: State<AppState>) -> Result<ClipItem, String> {
-    let storage = state.storage.lock().map_err(|e| e.to_string())?;
-    let clip = storage.get_clip_by_id(id).map_err(|e| e.to_string())?;
-    Ok(clip.without_image_data())
+pub async fn get_clip_detail(id: i64, state: State<'_, AppState>) -> Result<ClipItem, String> {
+    let storage = std::sync::Arc::clone(&state.storage);
+    tauri::async_runtime::spawn_blocking(move || {
+        let storage = storage.lock().map_err(|e| e.to_string())?;
+        storage.get_clip_detail_by_id(id).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|error| format!("读取剪贴板详情线程异常: {error}"))?
 }
 
 /// 获取剪贴板统计信息。

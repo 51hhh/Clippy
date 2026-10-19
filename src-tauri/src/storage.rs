@@ -386,7 +386,7 @@ impl StorageEngine {
     ) -> Result<Vec<ClipItem>, StorageError> {
         let pattern = like_pattern(query);
         let sql = if favorites_only {
-            "SELECT id, content_type, text_content, NULL, NULL,
+            "SELECT id, content_type, substr(text_content, 1, 2048), NULL, NULL,
                     content_hash, is_favorite, created_at, byte_size, is_sensitive
              FROM clips
              WHERE is_favorite = 1
@@ -394,7 +394,7 @@ impl StorageEngine {
              ORDER BY use_order DESC, id DESC
              LIMIT ?2 OFFSET ?3"
         } else {
-            "SELECT id, content_type, text_content, NULL, NULL,
+            "SELECT id, content_type, substr(text_content, 1, 2048), NULL, NULL,
                     content_hash, is_favorite, created_at, byte_size, is_sensitive
              FROM clips
              WHERE text_content LIKE ?1 ESCAPE '\\' OR ocr_text LIKE ?1 ESCAPE '\\'
@@ -419,7 +419,7 @@ impl StorageEngine {
     ) -> Result<Vec<ClipItem>, StorageError> {
         let pattern = like_pattern(query);
         let sql = if favorites_only {
-            "SELECT id, content_type, text_content, NULL, NULL,
+            "SELECT id, content_type, substr(text_content, 1, 2048), NULL, NULL,
                     content_hash, is_favorite, created_at, byte_size, is_sensitive
              FROM clips
              WHERE is_favorite = 1
@@ -431,7 +431,7 @@ impl StorageEngine {
              ORDER BY use_order DESC, id DESC
              LIMIT ?3 OFFSET ?4"
         } else {
-            "SELECT id, content_type, text_content, NULL, NULL,
+            "SELECT id, content_type, substr(text_content, 1, 2048), NULL, NULL,
                     content_hash, is_favorite, created_at, byte_size, is_sensitive
              FROM clips
              WHERE id IN (SELECT rowid FROM clips_fts WHERE clips_fts MATCH ?1)
@@ -476,7 +476,10 @@ impl StorageEngine {
             "INSERT INTO clips
                 (content_type, text_content, html_content, image_data, content_hash, is_favorite, created_at, byte_size, is_sensitive, use_order)
              VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7, ?8, ?9)
-             ON CONFLICT(content_hash) DO UPDATE SET created_at = excluded.created_at, use_order = excluded.use_order",
+             ON CONFLICT(content_hash) DO UPDATE SET
+                created_at = excluded.created_at,
+                use_order = excluded.use_order,
+                is_sensitive = MAX(clips.is_sensitive, excluded.is_sensitive)",
             params![
                 content_type.as_str(),
                 text_content,
@@ -506,7 +509,9 @@ impl StorageEngine {
         }
 
         tx.commit()?;
-        self.get_clip_by_id(id)
+        // 写入调用方只需要 id/元数据；图片 BLOB 已在入参中，立即再从 SQLite 物化一份
+        // 会把 watcher 的峰值内存翻倍。真正需要原图的路径显式走 get_clip_by_id/image。
+        self.get_clip_detail_by_id(id)
     }
 
     /// 通过 id 获取单条记录
@@ -523,6 +528,27 @@ impl StorageEngine {
         Ok(clip)
     }
 
+    /// 预览详情只读取正文与 HTML；即使误传图片 id，也不把 BLOB 物化进 Rust/IPC。
+    pub fn get_clip_detail_by_id(&self, id: i64) -> Result<ClipItem, StorageError> {
+        Ok(self.conn.query_row(
+            "SELECT id, content_type, text_content, html_content, NULL,
+                    content_hash, is_favorite, created_at, byte_size, is_sensitive
+               FROM clips WHERE id = ?1",
+            params![id],
+            row_to_clip,
+        )?)
+    }
+
+    fn get_clip_list_item_by_id(&self, id: i64) -> Result<ClipItem, StorageError> {
+        Ok(self.conn.query_row(
+            "SELECT id, content_type, substr(text_content, 1, 2048), NULL, NULL,
+                    content_hash, is_favorite, created_at, byte_size, is_sensitive
+               FROM clips WHERE id = ?1",
+            params![id],
+            row_to_clip,
+        )?)
+    }
+
     /// 更新指定条目的 created_at 为当前时间（用于 select_clip 置顶），并返回更新后的条目
     pub fn touch_clip(&self, id: i64) -> Result<ClipItem, StorageError> {
         let now = now_secs();
@@ -532,7 +558,7 @@ impl StorageEngine {
             "UPDATE clips SET created_at = ?1, use_order = ?3 WHERE id = ?2",
             params![now, id, use_order],
         )?;
-        let clip = self.get_clip_by_id(id)?;
+        let clip = self.get_clip_list_item_by_id(id)?;
         tx.commit()?;
         Ok(clip)
     }
@@ -729,14 +755,14 @@ impl StorageEngine {
 
         // 普通查询路径
         let sql = if favorites_only {
-            "SELECT id, content_type, text_content, NULL, NULL,
+            "SELECT id, content_type, substr(text_content, 1, 2048), NULL, NULL,
                     content_hash, is_favorite, created_at, byte_size, is_sensitive
              FROM clips
              WHERE is_favorite = 1
              ORDER BY use_order DESC, id DESC
              LIMIT ?1 OFFSET ?2"
         } else {
-            "SELECT id, content_type, text_content, NULL, NULL,
+            "SELECT id, content_type, substr(text_content, 1, 2048), NULL, NULL,
                     content_hash, is_favorite, created_at, byte_size, is_sensitive
              FROM clips
              ORDER BY use_order DESC, id DESC

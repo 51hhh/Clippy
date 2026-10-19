@@ -1023,7 +1023,7 @@ mod tests {
             ),
             (ContentType::Image, None, None, Some(sample_png())),
         ] {
-            let mut item = storage
+            let item = storage
                 .insert_clip(
                     &content_type,
                     text,
@@ -1034,7 +1034,7 @@ mod tests {
                     false,
                 )
                 .unwrap();
-            let png = item.image_data.take();
+            let png = storage.get_clip_image(item.id).unwrap();
             let id = item.id;
             let source = PinSource::Clip { item, image: png };
             storage.delete_clip(id).unwrap();

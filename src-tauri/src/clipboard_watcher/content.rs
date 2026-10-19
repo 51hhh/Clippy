@@ -4,6 +4,8 @@ use sha2::{Digest, Sha256};
 const MAX_CLIPBOARD_IMAGE_DIMENSION: usize = 16_384;
 const MAX_CLIPBOARD_IMAGE_PIXELS: usize = 40_000_000;
 const RGBA_BYTES_PER_PIXEL: usize = 4;
+/// 文本与 HTML 共用的入库上限。按 UTF-8 字节计数，与数据库 `byte_size` 一致。
+pub(crate) const MAX_CLIPBOARD_TEXT_BYTES: usize = 1_048_576;
 
 pub(super) fn validate_image_layout(
     width: usize,
@@ -51,6 +53,58 @@ pub(crate) fn is_sensitive_text(text: &str) -> bool {
     if text.len() < 8 {
         return false;
     }
+    let lower = text.to_ascii_lowercase();
+    if contains_bearer_value(&lower)
+        || contains_secret_token(text)
+        || [
+            "-----begin private key-----",
+            "-----begin rsa private key-----",
+            "-----begin ec private key-----",
+            "-----begin openssh private key-----",
+        ]
+        .iter()
+        .any(|marker| lower.contains(marker))
+    {
+        return true;
+    }
+
+    const ASSIGNMENT_KEYS: &[&str] = &[
+        "password",
+        "passwd",
+        "secret",
+        "api_key",
+        "api-key",
+        "apikey",
+        "access_token",
+        "access-token",
+        "token",
+        "authorization",
+        "private_key",
+        "client_secret",
+        "aws_secret_access_key",
+    ];
+    ASSIGNMENT_KEYS
+        .iter()
+        .any(|key| has_nonempty_assignment(&lower, key))
+}
+
+fn contains_bearer_value(lower: &str) -> bool {
+    lower.match_indices("bearer").any(|(index, _)| {
+        lower[index + "bearer".len()..]
+            .trim_start_matches(|ch: char| ch.is_ascii_whitespace() || ch == ':' || ch == '=')
+            .split(|ch: char| ch.is_ascii_whitespace() || matches!(ch, '"' | '\'' | ',' | '}'))
+            .next()
+            .is_some_and(|value| {
+                value.len() >= 24
+                    || (value.len() >= 12
+                        && value
+                            .chars()
+                            .any(|ch| ch.is_ascii_digit() || matches!(ch, '_' | '-' | '.')))
+            })
+    })
+}
+
+fn contains_secret_token(text: &str) -> bool {
     const PREFIXES: &[&str] = &[
         "sk-",
         "sk_live_",
@@ -59,22 +113,51 @@ pub(crate) fn is_sensitive_text(text: &str) -> bool {
         "gho_",
         "ghu_",
         "ghs_",
+        "ghr_",
         "github_pat_",
-        "AKIA",
-        "Bearer ",
-        "eyJ",
-        "xox",
+        "akia",
+        "xoxa-",
+        "xoxb-",
+        "xoxc-",
+        "xoxe-",
+        "xoxp-",
+        "xoxr-",
+        "xoxs-",
         "glpat-",
         "npm_",
         "pypi-",
     ];
-    if PREFIXES.iter().any(|prefix| text.starts_with(prefix)) {
-        return true;
-    }
+    text.split(|ch: char| {
+        !(ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | '/' | '+' | '~'))
+    })
+    .filter(|token| token.len() >= 8)
+    .any(|token| {
+        let lower = token.to_ascii_lowercase();
+        PREFIXES
+            .iter()
+            .any(|prefix| lower.starts_with(prefix) && lower.len() >= prefix.len() + 4)
+            || (token.starts_with("eyJ") && token.matches('.').count() == 2)
+    })
+}
 
-    let lower = text.to_lowercase();
-    (lower.contains("password") || lower.contains("passwd") || lower.contains("secret"))
-        && (lower.contains('=') || lower.contains(':'))
+fn has_nonempty_assignment(lower: &str, key: &str) -> bool {
+    lower.match_indices(key).any(|(index, _)| {
+        let suffix = &lower[index + key.len()..];
+        let suffix = suffix.trim_start_matches(|ch: char| {
+            ch.is_ascii_whitespace() || matches!(ch, '"' | '\'' | '}' | ']')
+        });
+        let Some(value) = suffix
+            .strip_prefix('=')
+            .or_else(|| suffix.strip_prefix(':'))
+        else {
+            return false;
+        };
+        value
+            .trim_start_matches(|ch: char| ch.is_ascii_whitespace() || matches!(ch, '"' | '\''))
+            .split(|ch: char| ch.is_ascii_whitespace() || matches!(ch, '"' | '\'' | ',' | '}'))
+            .next()
+            .is_some_and(|value| value.len() >= 4)
+    })
 }
 
 pub(crate) fn compute_hash(data: &[u8]) -> String {
@@ -131,7 +214,22 @@ mod tests {
     #[test]
     fn sensitive_detection_covers_tokens_and_assignments() {
         assert!(is_sensitive_text("ghp_1234567890"));
+        assert!(is_sensitive_text("OPENAI_API_KEY=sk-proj-12345678"));
+        assert!(is_sensitive_text("token=ghp_1234567890"));
+        assert!(is_sensitive_text(
+            "Authorization: Bearer opaque-token-value"
+        ));
+        assert!(is_sensitive_text(r#"{"apiKey":"sk-test-12345678"}"#));
+        assert!(is_sensitive_text("eyJhbGciOiJIUzI1NiJ9.payload.signature"));
         assert!(is_sensitive_text("password: hunter2"));
+        assert!(is_sensitive_text("AWS_SECRET_ACCESS_KEY=0123456789abcdef"));
+        assert!(is_sensitive_text(
+            "-----BEGIN OPENSSH PRIVATE KEY-----\nsecret"
+        ));
+        assert!(!is_sensitive_text(
+            "the word token appears in documentation"
+        ));
+        assert!(!is_sensitive_text("a bearskin is not a bearer credential"));
         assert!(!is_sensitive_text("ordinary clipboard text"));
         assert!(!is_sensitive_text("short"));
     }

@@ -19,6 +19,7 @@ import { createPreviewRenderers } from "../js/preview/renderers.js";
 import {
   copyText,
   detectImageCodes,
+  fetchUrlMeta,
   getClipImage,
   getConfig,
   ocrAvailable,
@@ -93,6 +94,28 @@ describe("preview renderer contract", () => {
     expect(boxes[0].textContent).toBe("<script>decoded</script>");
     expect(boxes[1].textContent).toBe('<img src=x onerror="alert(1)">');
     expect(contentEl.querySelector("script, img")).toBeNull();
+  });
+
+  it("accepts only backend-proxied passive favicon data URLs", async () => {
+    vi.mocked(fetchUrlMeta)
+      .mockResolvedValueOnce({ favicon: "https://example.com/favicon.ico" })
+      .mockResolvedValueOnce({ favicon: `data:image/png;base64,${"A".repeat(90_000)}` })
+      .mockResolvedValueOnce({ favicon: "data:image/png;base64,iVBORw==" });
+
+    renderers.renderUrlCard("https://example.com");
+    await flushPromises();
+    expect(contentEl.querySelector(".url-card-favicon")).toBeNull();
+
+    contentEl.replaceChildren();
+    renderers.renderUrlCard("https://example.com");
+    await flushPromises();
+    expect(contentEl.querySelector(".url-card-favicon")).toBeNull();
+
+    contentEl.replaceChildren();
+    renderers.renderUrlCard("https://example.com");
+    await flushPromises();
+    expect(contentEl.querySelector(".url-card-favicon")?.getAttribute("src"))
+      .toBe("data:image/png;base64,iVBORw==");
   });
 
   it("puts the image before OCR in the outer preview content flow", async () => {

@@ -17,6 +17,49 @@ fn snapshot(kind: &str, text: &str) -> ClipboardSnapshot {
 }
 
 #[test]
+fn oversized_text_and_html_snapshots_are_rejected_before_hashing_or_storage() {
+    let oversized = "x".repeat(MAX_CLIPBOARD_TEXT_BYTES + 1);
+    let mut state = PollState::default();
+    let mut rejected = None;
+    let now = Instant::now();
+
+    assert!(prepare_snapshot(
+        ClipboardSnapshot::Text(oversized.clone()),
+        &[],
+        &mut state,
+        &mut rejected,
+        now,
+    )
+    .is_none());
+    assert!(prepare_snapshot(
+        ClipboardSnapshot::Html {
+            html: oversized,
+            text: "fallback".to_string(),
+        },
+        &[],
+        &mut state,
+        &mut rejected,
+        now,
+    )
+    .is_none());
+}
+
+#[test]
+fn text_at_the_byte_limit_is_accepted() {
+    let mut state = PollState::default();
+    let mut rejected = None;
+    let prepared = prepare_snapshot(
+        ClipboardSnapshot::Text("x".repeat(MAX_CLIPBOARD_TEXT_BYTES)),
+        &[],
+        &mut state,
+        &mut rejected,
+        Instant::now(),
+    )
+    .unwrap();
+    assert_eq!(prepared.byte_size, MAX_CLIPBOARD_TEXT_BYTES as i64);
+}
+
+#[test]
 fn every_snapshot_retries_real_database_failure_and_emits_only_one_success() {
     for kind in ["text", "html", "image"] {
         let dir = tempfile::tempdir().unwrap();
