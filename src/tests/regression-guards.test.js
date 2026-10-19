@@ -20,6 +20,7 @@
  *  12. 为兼容 Ubuntu 22 把 PipeWire 快路径裁掉 → GNOME Wayland 静默退到逐屏 PNG，
  *      双屏截图从约 230 ms 回退到 4–6 秒
  *  13. release 在 latest.json 上传前就取消 draft → 用户可见的更新端点短暂缺文件
+ *  14. Rust 与 npm 的 Tauri 包跨 minor → 普通测试全绿，但真正 tauri build 才拒绝打包
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -45,6 +46,38 @@ describe("tauri 构建钩子不依赖 cwd", () => {
     expect(command).toEqual({ script: expectedScript, cwd: "../src" });
     expect(resolve(repoRoot, "src-tauri", command.cwd)).toBe(frontendRoot);
     expect(command.script).not.toMatch(/[;&|<>]/);
+  });
+});
+
+describe("Tauri Rust 与 npm 包保持同一 minor", () => {
+  const cargoLock = read("src-tauri/Cargo.lock");
+  const npmLock = JSON.parse(read("src/package-lock.json"));
+
+  function cargoVersion(name) {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = cargoLock.match(
+      new RegExp(`\\[\\[package\\]\\]\\nname = "${escaped}"\\nversion = "([^"]+)"`),
+    );
+    if (!match) throw new Error(`Cargo.lock 缺少 ${name}`);
+    return match[1];
+  }
+
+  function npmVersion(name) {
+    const version = npmLock.packages?.[`node_modules/${name}`]?.version;
+    if (!version) throw new Error(`package-lock.json 缺少 ${name}`);
+    return version;
+  }
+
+  function minor(version) {
+    return version.split(".").slice(0, 2).join(".");
+  }
+
+  it.each([
+    ["@tauri-apps/api", "tauri"],
+    ["@tauri-apps/cli", "tauri"],
+    ["@tauri-apps/plugin-updater", "tauri-plugin-updater"],
+  ])("%s 与 Rust %s 对齐", (npmName, cargoName) => {
+    expect(minor(npmVersion(npmName))).toBe(minor(cargoVersion(cargoName)));
   });
 });
 
