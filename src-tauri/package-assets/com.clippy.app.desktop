@@ -1,8 +1,8 @@
 [Desktop Entry]
-Name={{name}}
-Comment={{comment}}
-Exec={{exec}}
-Icon={{icon}}
+Name=Clippy
+Comment=跨平台轻量剪贴板管理器
+Exec=clippy-app
+Icon=clippy-app
 Type=Application
 Categories=Utility;
 StartupWMClass=com.clippy.app

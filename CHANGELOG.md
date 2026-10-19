@@ -8,6 +8,9 @@
 
 - 对齐 Rust 与 npm 两侧的 Tauri core、CLI 和 updater minor 版本，修复普通 lint/test 通过但
   `tauri build` 在真正打包前拒绝执行的问题；新增锁文件结构守卫，后续版本漂移会在前端测试中失败。
+- DEB 不再由维护者脚本移走 dpkg 管理的 `Clippy.desktop`：隐藏兼容入口、可见 app-id 入口及
+  两套 app-id 图标现在都进入包清单；升级自旧版本时仅从包内同字节副本恢复被旧 `postrm`
+  删除的文件，安装后 `dpkg -V clippy` 保持干净。
 
 ### 2026-10-19 项目审查安全与资源加固
 

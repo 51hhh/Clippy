@@ -21,6 +21,7 @@
  *      双屏截图从约 230 ms 回退到 4–6 秒
  *  13. release 在 latest.json 上传前就取消 draft → 用户可见的更新端点短暂缺文件
  *  14. Rust 与 npm 的 Tauri 包跨 minor → 普通测试全绿，但真正 tauri build 才拒绝打包
+ *  15. deb postinst 移走 dpkg 管理的桌面文件 → 入口可用，但包完整性永久报损坏
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -296,6 +297,28 @@ describe("deb 声明默认二进制真实需要的额外运行库", () => {
 
   it("PipeWire 是正式包的必需运行时能力", () => {
     expect(deb.depends).toContain("libpipewire-0.3-0");
+  });
+
+  it("可见桌面入口和 app-id 图标由 dpkg 管理", () => {
+    expect(deb.desktopTemplate).toBe("clippy-hidden.desktop");
+    expect(read("src-tauri/clippy-hidden.desktop")).toContain("NoDisplay=true");
+    expect(deb.files).toMatchObject({
+      "/usr/share/applications/com.clippy.app.desktop":
+        "package-assets/com.clippy.app.desktop",
+      "/usr/share/icons/hicolor/32x32/apps/com.clippy.app.png": "icons/32x32.png",
+      "/usr/share/icons/hicolor/128x128/apps/com.clippy.app.png": "icons/128x128.png",
+    });
+    expect(read("src-tauri/package-assets/com.clippy.app.desktop")).not.toContain("{{");
+  });
+
+  it("维护者脚本只恢复同字节文件，不再移走 dpkg 文件", () => {
+    const postinst = read("src-tauri/scripts/postinst.sh");
+    const postrm = read("src-tauri/scripts/postrm.sh");
+    expect(postinst).toContain("restore_owned_file");
+    expect(postinst).toContain("cmp -s");
+    expect(postinst).not.toMatch(/\bmv\s+-f\b/);
+    expect(postrm).not.toContain('rm -f "$DESKTOP_FILE"');
+    expect(postrm).not.toContain('rm -f "$ICON_LINK"');
   });
 });
 

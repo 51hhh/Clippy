@@ -1,36 +1,34 @@
 #!/bin/sh
-# 修复 GNOME 双启动问题：
-# enableGTKAppId=true 时 GTK 用 com.clippy.app 注册 D-Bus，GNOME shell 会
-# 同时把 Clippy.desktop（按 productName 生成）和 com.clippy.app（按 app-id）
-# 视为两个 app，导致单击启动后并发拉起两份进程。
-#
-# 解法：把 Clippy.desktop 重命名为 com.clippy.app.desktop —— GNOME 按
-# basename 与 GTK app-id 匹配，从此只识别一项。
+set -eu
 
-DESKTOP_DIR="/usr/share/applications"
-SRC="${DESKTOP_DIR}/Clippy.desktop"
-DST="${DESKTOP_DIR}/com.clippy.app.desktop"
+# v0.1.20 及更早版本的 postrm 会在升级解包后删除这三个路径。新包把它们纳入
+# dpkg 文件清单，并额外保存同字节副本；postinst 只在旧脚本删过文件或残留软链时恢复。
+# 写回内容与包内 md5sums 完全一致，因此 `dpkg -V clippy` 不再产生伪损坏报告。
+ASSET_ROOT="/usr/lib/Clippy/package-assets"
 
-if [ -L "$DST" ]; then
-  # 旧版本（v0.1.6）创建过软链，先清掉
-  rm -f "$DST"
-fi
+restore_owned_file() {
+  source_path="$1"
+  destination_path="$2"
 
-# 用新解压的 Clippy.desktop 覆盖（或创建）com.clippy.app.desktop
-# 升级 0.1.7 → 后续版本时，dpkg 会重新解压 Clippy.desktop，旧的 DST 是 postinst
-# 创建的孤儿（不在 dpkg 文件清单内），必须强制覆盖以保证内容是最新的。
-if [ -f "$SRC" ]; then
-  mv -f "$SRC" "$DST"
-fi
-
-# 图标也按 app-id 命名链接一次（部分主题按文件名查图标）
-for size in 32x32 128x128; do
-  ICON_DIR="/usr/share/icons/hicolor/${size}/apps"
-  if [ -f "${ICON_DIR}/clippy-app.png" ] && [ ! -e "${ICON_DIR}/com.clippy.app.png" ]; then
-    ln -sf "${ICON_DIR}/clippy-app.png" "${ICON_DIR}/com.clippy.app.png"
+  if [ -L "$destination_path" ]; then
+    rm -f "$destination_path"
   fi
-done
+  if [ ! -f "$destination_path" ] || ! cmp -s "$source_path" "$destination_path"; then
+    install -m 0644 "$source_path" "$destination_path"
+  fi
+}
 
-# 刷新桌面项缓存（让 GNOME 重新扫描）
+restore_owned_file \
+  "${ASSET_ROOT}/com.clippy.app.desktop" \
+  "/usr/share/applications/com.clippy.app.desktop"
+restore_owned_file \
+  "${ASSET_ROOT}/com.clippy.app-32.png" \
+  "/usr/share/icons/hicolor/32x32/apps/com.clippy.app.png"
+restore_owned_file \
+  "${ASSET_ROOT}/com.clippy.app-128.png" \
+  "/usr/share/icons/hicolor/128x128/apps/com.clippy.app.png"
+
+# 刷新桌面项缓存（让 GNOME 重新扫描）。Tauri 生成的 Clippy.desktop 保留为
+# dpkg 管理的 NoDisplay 兼容条目，唯一可见入口按 GTK app-id 命名。
 update-desktop-database -q /usr/share/applications 2>/dev/null || true
 gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true

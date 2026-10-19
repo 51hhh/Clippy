@@ -12,7 +12,15 @@
           "libpipewire-0.3-0"
         ],
         "recommends": ["tesseract-ocr", "tesseract-ocr-chi-sim"],
-        "desktopTemplate": "com.clippy.app.desktop",
+        "desktopTemplate": "clippy-hidden.desktop",
+        "files": {
+          "/usr/share/applications/com.clippy.app.desktop": "package-assets/com.clippy.app.desktop",
+          "/usr/share/icons/hicolor/32x32/apps/com.clippy.app.png": "icons/32x32.png",
+          "/usr/share/icons/hicolor/128x128/apps/com.clippy.app.png": "icons/128x128.png",
+          "/usr/lib/Clippy/package-assets/com.clippy.app.desktop": "package-assets/com.clippy.app.desktop",
+          "/usr/lib/Clippy/package-assets/com.clippy.app-32.png": "icons/32x32.png",
+          "/usr/lib/Clippy/package-assets/com.clippy.app-128.png": "icons/128x128.png"
+        },
         "postInstallScript": "scripts/postinst.sh",
         "postRemoveScript": "scripts/postrm.sh"
       }

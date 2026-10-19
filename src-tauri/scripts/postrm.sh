@@ -1,13 +1,6 @@
 #!/bin/sh
-# 卸载时清理 postinst 重命名后的 desktop 文件和图标符号链接
-
-DESKTOP_FILE="/usr/share/applications/com.clippy.app.desktop"
-[ -e "$DESKTOP_FILE" ] && rm -f "$DESKTOP_FILE"
-
-for size in 32x32 128x128; do
-  ICON_LINK="/usr/share/icons/hicolor/${size}/apps/com.clippy.app.png"
-  [ -L "$ICON_LINK" ] && rm -f "$ICON_LINK"
-done
+# desktop 文件与 app-id 图标从 v0.1.21 起都由 dpkg 管理。这里不能再主动删除：
+# 升级时旧包的 postrm 会在新包解包之后运行，删除会破坏新版本刚安装的文件。
 
 update-desktop-database -q /usr/share/applications 2>/dev/null || true
 gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true

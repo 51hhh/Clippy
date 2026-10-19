@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name={{name}}
+Comment={{comment}}
+Exec={{exec}}
+Icon={{icon}}
+Type=Application
+Categories=Utility;
+StartupWMClass=com.clippy.app
+Terminal=false
+NoDisplay=true
