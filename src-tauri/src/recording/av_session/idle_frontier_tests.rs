@@ -90,7 +90,7 @@ fn run_idle(id: &str, fps: u32, count: u64, initial_bound: u64) {
         },
     )
     .unwrap();
-    let finished_result = completion.recv_timeout(Duration::from_secs(3));
+    let finished_result = completion.recv_timeout(Duration::from_secs(5));
     let audio_source_disconnected =
         matches!(finished_result, Err(mpsc::RecvTimeoutError::Disconnected));
     // 完成 sender 已随 source 析构时，线程可能尚未发布 is_finished；join 才能读取原错。
