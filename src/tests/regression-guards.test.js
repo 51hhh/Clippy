@@ -191,7 +191,7 @@ describe("原生平台由真实 runner 编译", () => {
     ]) {
       expect(qaWorkflow).toContain(artifact);
     }
-    expect(qaWorkflow.match(/uses: actions\/upload-artifact@v7/g)).toHaveLength(5);
+    expect(qaWorkflow.match(/uses: actions\/upload-artifact@[0-9a-f]{40}/g)).toHaveLength(5);
     expect(qaWorkflow.match(/retention-days: 14/g)).toHaveLength(5);
     expect(qaWorkflow).toContain("signing=unsigned-qa-only");
     expect(qaWorkflow).toContain("signing=self-signed-qa-only");
@@ -219,8 +219,8 @@ describe("原生平台由真实 runner 编译", () => {
       "npx --prefix src tauri build --ci\n          " +
         "--features recording-windows-av-qa",
     );
-    expect(qaWorkflow).toContain("msys2/setup-msys2@v2");
-    expect(qaWorkflow).toContain("microsoft/setup-msbuild@v3");
+    expect(qaWorkflow).toContain("msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e");
+    expect(qaWorkflow).toContain("microsoft/setup-msbuild@30375c66a4eea26614e0d39710365f22f8b0af57");
     expect(qaWorkflow).toContain("components: llvm-tools-preview");
     expect(macQaJob).toMatch(
       /Setup Rust[\s\S]*targets: \$\{\{ matrix\.rust_target \}\}[\s\S]*components: llvm-tools-preview/,
@@ -464,9 +464,24 @@ describe("release 下载链接与构建矩阵同步", () => {
   });
 
   it("发布产物 Actions 使用 Node 24 运行时版本", () => {
-    expect(release.match(/actions\/upload-artifact@v7/g)).toHaveLength(3);
-    expect(release.match(/actions\/download-artifact@v8/g)).toHaveLength(1);
-    expect(release).not.toMatch(/actions\/(?:upload|download)-artifact@v[1-6]\b/);
+    expect(release.match(/actions\/upload-artifact@[0-9a-f]{40}/g)).toHaveLength(3);
+    expect(release.match(/actions\/download-artifact@[0-9a-f]{40}/g)).toHaveLength(1);
+  });
+
+  it("所有第三方 Actions 都固定到完整 commit SHA", () => {
+    for (const path of [
+      ".github/workflows/build.yml",
+      ".github/workflows/native-qa.yml",
+      ".github/workflows/release.yml",
+    ]) {
+      const workflow = read(path);
+      const references = [...workflow.matchAll(/^\s*-?\s*uses:\s*([^\s#]+)/gm)]
+        .map((match) => match[1]);
+      expect(references.length, path).toBeGreaterThan(0);
+      for (const reference of references) {
+        expect(reference, `${path}: ${reference}`).toMatch(/@[0-9a-f]{40}$/);
+      }
+    }
   });
 });
 

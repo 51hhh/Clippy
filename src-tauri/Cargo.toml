@@ -84,7 +84,9 @@ usvg = "0.43"
 # 不走禁止私有 API 的 Mac App Store；它不代表 Developer ID 或公证信任。
 tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
 tauri-plugin-global-shortcut = "2"
-tauri-plugin-updater = "2"
+# 2.14.0 的 crates.io 包仍依赖含高危解压公告的 zip 4；精确版本配合下方固定 SHA 补丁，
+# 在上游下一版 crates.io 发布前使用已经切到 zip 9 的同版本源码。
+tauri-plugin-updater = "=2.14.0"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
 # 另存为/选择目录对话框：由 Tauri 官方插件封装 rfd，Linux 下的 GTK/Portal 差异由插件负责。
@@ -109,13 +111,15 @@ png = "0.17"
 rxing = { version = "=0.9.2", default-features = false, features = ["decoders", "qrcode", "oned", "multi_barcode_readers", "encoding_rs"] }
 base64 = "0.22"
 # `.clippy.zip` 归档只使用 Stored 条目；关闭默认压缩特性可避免引入解压器和压缩炸弹面。
-zip = { version = "4.6.1", default-features = false }
+zip = { version = "9.0.5", default-features = false }
 thiserror = "2"
 anyhow = "1"
 log = "0.4"
 env_logger = "0.11"
 tauri-plugin-autostart = "2"
-ureq = "3"
+# URL 预览用 `unversioned::Resolver` 把已校验地址直接交给连接器；该 API 明确不承诺
+# minor semver 稳定，升级必须经 SSRF 回归后手动推进。
+ureq = "=3.3.0"
 regex-lite = "0.1"
 tokio = { version = "1", features = ["rt", "time", "sync", "macros", "process", "io-util"] }
 urlencoding = "2"
@@ -163,7 +167,7 @@ pipewire = { version = "0.9", features = ["v0_3_34"] }
 # 只为在 zbus 的信号流上调一次 `.next()`（等 PipeWireStreamAdded）。zbus 自己就依赖它。
 futures-util = { version = "0.3", default-features = false }
 x11rb = { version = "0.13", features = ["image", "randr", "xfixes"] }
-nix = { version = "0.30", features = ["poll", "time"] }
+nix = { version = "0.30", features = ["poll", "time", "user"] }
 
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
 # Windows 录屏必须走可关闭的 WGC runtime；xcap 的默认 DXGI recorder 会常驻工作线程，
@@ -214,6 +218,9 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [patch.crates-io]
+# 上游 v2 分支已把 Windows updater 的 zip 依赖升级到 9，但尚未重新发布 crates.io 包。
+# 固定提交避免分支漂移；上游发布含该改动的新版本后移除此补丁。
+tauri-plugin-updater = { git = "https://github.com/tauri-apps/plugins-workspace.git", rev = "11211c30e71796cd737280303244552bb7f70797" }
 libspa = { path = "vendor/libspa" }
 # X11 写完成屏障与有界 INCR 大图传输；补丁范围见 vendor/arboard/PATCHES.md。
 arboard = { path = "vendor/arboard" }

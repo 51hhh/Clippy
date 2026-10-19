@@ -162,6 +162,8 @@ run_step "Windows WGC 光标补丁" node scripts/verify-xcap-patch.mjs
 
 # --- Frontend ---
 run_step "npm ci" bash -c "cd src && npm ci --prefer-offline"
+run_step "npm audit（生产依赖）" bash -c "cd src && npm audit --omit=dev --audit-level=low"
+run_step "npm audit（高危开发依赖）" bash -c "cd src && npm audit --audit-level=high"
 run_step "vanilla JS 静态检查" bash -c "cd src && npm run lint:js"
 run_step "typecheck" bash -c "cd src && npx tsc --noEmit"
 run_step "vitest" bash -c "cd src && npx vitest run"

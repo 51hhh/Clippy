@@ -286,7 +286,10 @@ pub fn read_archive(path: &Path) -> Result<ArchiveSnapshot, String> {
         let entry = archive
             .by_index(index)
             .map_err(|error| format!("读取 ZIP 条目失败: {error}"))?;
-        let name = entry.name().to_string();
+        let name = entry
+            .name()
+            .map_err(|error| format!("读取 ZIP 条目名称失败: {error}"))?
+            .into_owned();
         if !names.insert(name.clone()) {
             return Err(format!("归档包含重复路径: {name}"));
         }
