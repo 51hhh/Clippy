@@ -254,31 +254,10 @@ async function ensureLibs() {
 
 ### 2.4 图片缩略图缓存控制
 
-当前 `clipboard-list.js` 使用 `Map` 缓存图片缩略图：
+当前唯一的 React 列表由 `ClipboardRow.tsx` 调用 `getClipThumbnail`；后端
+`ThumbnailCache` 以 64 条 FIFO 上限保存 128 px PNG base64，不再有第二份无界前端 Map。
 
-```javascript
-const _thumbCache = new Map();
-```
-
-这个缓存永远不会清理。对于图片密集的用户，可能累积大量 base64 数据。
-
-**优化方案**：
-```javascript
-const MAX_THUMB_CACHE = 50;
-const _thumbCache = new Map();
-
-function setThumbCache(id, data) {
-  if (_thumbCache.size >= MAX_THUMB_CACHE) {
-    // 删除最早的条目
-    const first = _thumbCache.keys().next().value;
-    _thumbCache.delete(first);
-  }
-  _thumbCache.set(id, data);
-}
-```
-
-**收益**：限制缩略图缓存内存（每张 ~10-50KB，50 张封顶 ~2.5MB）  
-**优先级**：🟢 P2
+**状态**：已实施；原图只在预览/Pin 按需读取，冷缩略图解码并发固定为 2。
 
 ---
 
@@ -368,7 +347,8 @@ strip = true
 
 ### 4.1 虚拟滚动（难度：中-高 / 预期收益：2-8MB）
 
-**现状**：`clipboard-list.js` 采用分页加载（`PAGE_SIZE = 30`），滚动到底部追加。当用户滚动多页后，DOM 中可能有 300+ 个列表项。
+**现状**：`react/main/clipboardVirtualization.ts` 已按可视区域裁剪行，数据仍可分页追加，
+但 DOM 不随历史页数线性增长。旧 `clipboard-list.js` 已删除，不能以恢复旧渲染器的方式回退。
 
 **优化方案**：只渲染可视区域内的 ~15-20 个条目，滚动时动态回收/创建 DOM 节点。
 
@@ -387,8 +367,12 @@ class VirtualScroller {
 - 减少 Layout/Paint 开销
 - 对大量剪贴板历史的用户效果显著
 
-**代价**：实现复杂度中等，需要重构 `clipboard-list.js` 的渲染逻辑  
-**优先级**：🟡 P1（列表超过 100 项时效果明显）
+**状态**：已实施；继续由虚拟化回归与主窗口布局 smoke 保护。
+
+列表数据本身也采用有界投影：SQLite 查询与实时事件不携带 HTML/图片，正文最多 2048 个
+Unicode 字符。只有 HTML 或确实被截断的当前焦点文本才通过 blocking 详情命令读取完整内容；
+图片继续走缩略图/原图两个按需接口。这是结构性峰值与 IPC 放大控制，尚未用本轮改动重新测量
+真实桌面 PSS，因此不把它换算成内存降幅百分比。
 
 ### 4.2 Blob URL 及时释放
 

@@ -47,7 +47,7 @@ Clippy 安静地驻留在系统托盘，后台监听剪贴板变化，让你通�
 ## 功能特性
 
 - **多类型剪贴板** — 自动捕获文本、HTML 和图片，SHA-256 哈希去重
-- **tmux 集成** — 通过 `copy-pipe-and-cancel` 捕获 tmux copy-mode 复制内容，inotify 事件驱动即时检测，自动绑定验证
+- **tmux 集成** — 通过 `copy-pipe-and-cancel` 捕获 tmux copy-mode 复制内容，inotify 事件驱动即时检测，禁用时恢复用户原按键
 - **富文本预览** — 按 `Tab` 键展开预览面板：
   - 代码高亮 — 自动检测 21 种编程语言，highlight.js 渲染
   - Markdown 渲染 — 多特征评分检测，支持 GFM 语法
@@ -164,11 +164,12 @@ src/                          # 前端
 │   ├── api/                  # clipboard/capture/pin/viewer/settings 受控 IPC 边界
 │   ├── ipc-types.ts          # Rust serde 数据合同
 │   ├── app.js                # 入口 + 键盘路由
-│   ├── clipboard-list.js     # 列表状态机 + 差量渲染
+│   ├── clipboard-react-facade.js # React 列表的稳定 facade
 │   ├── preview-panel.js      # 预览状态与检测调度
 │   ├── preview/              # 代码、元数据、格式、内容和加密渲染器
 │   ├── search-bar.js         # 搜索 UI
 │   └── settings.js           # 设置逻辑
+├── react/main/               # 列表状态、虚拟化与行渲染
 ├── styles/                   # CSS
 └── i18n/                     # 中文、英文
 

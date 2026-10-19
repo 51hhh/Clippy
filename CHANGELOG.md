@@ -2,6 +2,26 @@
 
 ## 未发布
 
+### 2026-10-19 项目审查安全与资源加固
+
+- 修复完整项目审查中确认的联网、tmux、敏感内容、IPC 负载与供应链边界：URL 预览现在对
+  实际连接地址 fail closed，关闭代理/重定向并限制并发、时间、响应和元数据大小；favicon
+  由后端验证后转为有界 data URL。tmux 首次启用会私有备份六个受影响按键，禁用时原样恢复，
+  新实现不占用全局 hook。剪贴板文本/HTML 单表示限制为 1 MiB，列表与事件只发送 2048
+  Unicode 字符摘要，焦点详情和图片按需读取；敏感 token、Bearer、JSON/赋值、AWS secret
+  与私钥头检测补齐，相同内容不能从敏感降级。
+- 删除未接入产品入口的旧 Vanilla 列表/行渲染器，React 列表成为唯一实现；升级 DOMPurify、
+  source-map-js、undici、quick-xml、rustls 与 ZIP 链路，所有 workflow action 固定到完整 SHA，
+  Dependabot 覆盖 Actions/npm/Cargo，并增加 npm 与 RustSec 审计。RustSec 复核为 0 个
+  vulnerability、10 个默认允许的 unmaintained/unsound warning；这些 warning 未冒充修复。
+- 完整 Linux 本地门禁 27/0/2，跳过非宿主交叉 lint 与 AppImage 可视 smoke；额外
+  `cargo audit` 和两类 `npm audit` 均以 0 漏洞退出。未重新测量真实桌面 PSS，不宣称具体内存
+  降幅；历史数据库中的超大正文不追溯删除。真实 tmux server、公开网站、Windows/macOS、
+  安装包及同 SHA 原生 CI 尚未验证，不计为通过。详见
+  `docs/reviews/2026-10-19-project-review-hardening-review.md`。
+  （需求：`PROJECT-REVIEW-HARDENING-01`；见
+  `docs/superpowers/specs/2026-10-19-project-review-hardening.md`）
+
 ### 2026-10-19 Linux 设置页 WebProcess 复用
 
 - Linux 设置页在主窗口存在时复用其 WebKit WebProcess，主窗口缺失时保留独立建窗回退；

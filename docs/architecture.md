@@ -65,7 +65,7 @@ flowchart LR
 | `commands/` | 按 clipboard/settings/tmux/capture/OCR/URL 拆分薄 IPC 命令 |
 | `actions/` | `PX-ACT-01` 静态动作合同、请求槽运行时、复用既有领域服务的适配器，以及独立 Launcher 窗口宿主。Launcher 只展示当前窗口获授权且能构造可信输入的动作；后端冻结选中/最新历史图片并签发窗口独占引用，完成节点按精确 handle 短期保存 OCR/译文。组合只从该节点派生正文并继承根安全身份，不接受路径、URL、前端像素或回传正文作为捷径；敏感根不能进入联网翻译，provider 调用前还按内容哈希复核数据库状态。 |
 | `platform/` | 操作系统、会话、桌面环境与能力状态的单一事实源。Linux Wayland 额外记录 `DISPLAY` 是否表明 XWayland 可用，并分别从 `org.freedesktop.portal.Desktop` 读取 GlobalShortcuts、RemoteDesktop、Screenshot、ScreenCast 的 `version` 属性；服务或具体接口缺失与“接口存在但需用户授权”是不同 reason code。`get_platform_info` 与截图诊断复用同一份结构，业务和前端不得自行猜测。 |
-| `clipboard_watcher.rs` + `clipboard_watcher/*` | 主轮询与去重协调；内容分类、写入重试和 tmux/inotify 监听各自隔离。**入库只有 watcher 这一条路径**——`writer.rs` 的三个写入口只管写系统剪贴板，写完敲 `wake::nudge()` 让轮询等待当场结束（`wake.rs` 的条件变量 + 待处理标记），所以自己复制的内容也是几毫秒内进历史，而不是最多等满 500 ms。别让写入方自己 `insert_clip`：watcher 哈希的是它自己从剪贴板 RGBA 重编的 PNG，字节对不上就会在 500 ms 后被再插一条 |
+| `clipboard_watcher.rs` + `clipboard_watcher/*` | 主轮询与去重协调；内容分类、写入重试和 tmux/inotify 监听各自隔离。文本与 HTML 在哈希、去标签和入库前均执行 1 MiB UTF-8 字节预算，tmux 文件读取也只取预算加一字节。**入库只有 watcher 这一条路径**——`writer.rs` 的三个写入口只管写系统剪贴板，写完敲 `wake::nudge()` 让轮询等待当场结束（`wake.rs` 的条件变量 + 待处理标记），所以自己复制的内容也是几毫秒内进历史，而不是最多等满 500 ms。别让写入方自己 `insert_clip`：watcher 哈希的是它自己从剪贴板 RGBA 重编的 PNG，字节对不上就会在 500 ms 后被再插一条 |
 | `paste/mod.rs` | 自动粘贴协调器、后端选择、Copy-only fallback 和稳定状态契约 |
 | `paste/portal.rs` / `x11.rs` / `token_store.rs` | Portal 会话与授权状态机、X11 窗口恢复与输入、私有 restore token 持久化 |
 | `window_controller.rs` | 主窗口 work area、logical/physical 尺寸与位置约束；设置窗口的开窗入口（托盘与 IPC 共用一份几何与标题）。设置页使用无原生装饰的可调整大小窗口，关闭仍由 settings command 先恢复快捷键再销毁，不能直接调用原生 `close()` 绕过该协议。Linux 主窗口存在时，设置 WebView 在主线程通过 `with_related_view` 复用主 WebProcess；句柄不跨线程，等待有两秒上限，主窗口缺失才回退独立 builder。Windows/macOS 保留独立进程路径 |
@@ -83,7 +83,7 @@ flowchart LR
 | `pin/` 的 `update_pin` 应答 | 缩放/不透明度是**每帧**都会走的路，所以应答是 `PinState`（label、内容尺寸、scale、opacity、locked、position），**不带 `image_base64`/`text`**——每帧重编一张全图 base64 纯属浪费，而且会让前端重建图片 object URL、造成闪烁。前端 `react/pin/update-order.ts::mergePinState` 把它合并进手里那份 payload |
 | `translation/` | provider、超时/重试、request-id、内容选择、Secret Service；启用的服务按 `spawn_blocking` 并行，单服务失败作为数据返回；`direction.rs` 在文本已是目标语言时按备选语言换向；`tts.rs` 走 dictvoice 取回音频 |
 | `ocr.rs` / `ocr/` | `ocr.rs` 是稳定 facade，只组合 snapshot/clip 入口与增强配置；`runtime.rs` 独占全局并发、队列和 single-flight；`executable.rs` 独占跨平台 Tesseract 候选、限时探测和可失效缓存；`process.rs` 监督子进程管道、输出预算、超时与 kill/wait；`tesseract.rs` 固定 CLI 参数和 UTF-8 文本合同；`enhanced.rs` 管理显式 Python/EdgeGNN 管线与 fallback，`protocol.rs` 固定 viewer structured OCR wire contract。测试不得以固定 `yield` 次数推测任务已经登记，必须观察 runtime 状态并带超时等待 |
-| `storage.rs` + `storage/*` | SQLite/FTS5 初始化与搜索；`image_revisions.rs` 管理不可变根图、累计编辑修订与 clip 映射；维护清理、统计、URL 缓存、翻译记录和测试各自隔离 |
+| `storage.rs` + `storage/*` | SQLite/FTS5 初始化与搜索；列表 SQL 只物化 2048 Unicode 字符的正文摘要且不取 HTML/图片，当前焦点再走详情或图片命令；重复哈希的敏感标记只能升级不能降级。`image_revisions.rs` 管理不可变根图、累计编辑修订与 clip 映射；维护清理、统计、URL 缓存、翻译记录和测试各自隔离 |
 | `dbus.rs` | **全部阻塞式 D-Bus 调用的唯一入口。** ashpd 打开了 zbus 的 `tokio` feature，于是 `zbus::blocking` 内部用一个静态多线程 runtime 做 `block_on`，在 tokio async worker 线程上调必然 panic（`Cannot start a runtime from within a runtime`）。这里先跳到一条干净的 OS 线程再开连接，调用方不必关心自己跑在什么线程上；别处不要直接用 `zbus::blocking`。**session 连接是复用的**：`Connection::session()` 每次都要重做 SASL 握手 + `Hello`（1~2 ms），而贴图缩放每一帧都要发一次 `PlaceWindow`，所以连接缓存在一个 `OnceLock<Mutex<Option<Connection>>>` 里。失效判据是 `worth_reconnecting`——`Error::MethodError` 说明对端应答了（连接是好的，绝不能重连重试），其余错误才丢缓存重连一次。**存入缓存的判据（`worth_caching`）必须是同一个的反面**：只按"调用成功"判会把一条被业务错误拒绝、但本身完好的连接扔掉，于是每次失败的探测都要重新握手一遍 |
 | `image_io.rs` / `dialogs.rs` | PNG 与剪贴板互转；按配置的目录与文件名模板落盘（`SaveTarget`），同目录临时文件完整写入并 `sync_all` 后再原子、不覆盖地提交；`thumbnail_png` 给列表行缩图（`image` crate 的 `thumbnail()` 快路径，不是 Lanczos）；截图目录选择集中在 `dialogs.rs` 调用插件，可编辑 PNG 重开走原生拖放事件而不是文件对话框 |
 
@@ -153,8 +153,9 @@ HTML 入口由 `vite.config.mjs` 显式登记。功能岛之间不直接导入�
 
 | 模块 | 职责 |
 |---|---|
-| `js/clipboard-list.js` | 列表 facade、数据加载、IPC 动作与增量渲染装配 |
-| `js/clipboard/` | 导航状态机、展示格式化和单行 DOM/缩略图渲染 |
+| `js/clipboard-react-facade.js` | 主窗口对 React 列表的稳定 facade |
+| `react/main/clipboardStore.ts` / `ClipboardWorkspace.tsx` / `ClipboardRow.tsx` | 唯一的列表状态、数据加载、虚拟化、IPC 动作与行/缩略图渲染实现 |
+| `js/clipboard/` | React 列表复用的导航状态机与展示格式化 |
 | `js/preview/classify.js` | **内容类型的唯一判定处**：有序规则表（guard 预筛 → detect → 渲染器），先匹配先赢 |
 | `js/preview-panel.js` | 预览状态、异步判定尾段（Markdown/代码/富文本/纯文本）、延迟库与缓存 |
 | `js/preview/*-renderers.js` | 代码、元数据、格式、加密、内容/OCR 渲染；badge 文案由命中的渲染器自己写 |
@@ -181,7 +182,9 @@ HTML 入口由 `vite.config.mjs` 显式登记。功能岛之间不直接导入�
 编码结果不重算）。顺序本身就是语义：JWT 必须早于可逆编码，否则三段 Base64 会被当成普通 Base64。
 badge 文案跟着渲染器走而不是写在表里——文案和渲染方式本来就是一回事，分开写必然再次分叉。
 表判不出来的留给 `preview-panel.js` 的异步尾段：Markdown、`hljs.highlightAuto`（relevance > 5
-且排除 `xml`）、`html_content` 富文本、纯文本，它们要么依赖延迟加载的库要么要再拉一次 IPC。
+且排除 `xml`）、`html_content` 富文本、纯文本。列表只持有正文摘要；HTML 或摘要字节数小于
+`byte_size` 的非图片焦点通过 `get_clip_detail` 的 blocking worker 拉完整正文，小文本直接复用已完整的
+列表负载，不能拿 2048 字符摘要冒充完整结构，也不应为每条小文本增加一次 IPC。
 
 哈希与可逆编码的边界靠"解码结果是否是合法 UTF-8"划，不靠顺序也不靠长度
 （`detectors.js::decodeReadableBytes`）。纯 hex 的摘要同时也是合法 Base64 字符集，而
@@ -216,8 +219,8 @@ badge 文案跟着渲染器走而不是写在表里——文案和渲染方式�
 找回原来那一行，不做 `focusedRow ± 1`。两条规则缺一个的后果都是同一个用户可见症状：
 面板关着时到达的新条目把焦点挤到第二行，而 Pin 的两个入口（全局快捷键、`Ctrl+P`）都读
 `getFocusedClip()`、列表行上又没有 Pin 按钮，于是"截图复制完去 Pin，贴出来的是上一张图"。
-`js/clipboard-list.js` 与 `react/main/clipboardStore.ts` 各有一份 `prependClip`，前者目前运行时
-不生效，但两份必须同时改（`regression-guards.test.js` 钉住）。
+`prependClip` 只在 `react/main/clipboardStore.ts` 实现；不要恢复一份不接产品入口的镜像状态机，
+否则行为修复会再次分叉。
 
 **但"跟着条目走"只对握着焦点的面板成立。** 全局快捷键不会抢焦点，所以它触发时
 `document.hasFocus()` 为假就说明"焦点行"是上一轮会话留下的残影，不是用户正看着的行——
@@ -229,7 +232,7 @@ badge 文案跟着渲染器走而不是写在表里——文案和渲染方式�
 同理 `onWindowFocus` 的**两条分支**都要 `restoreRender()`——重新聚焦算一轮新会话，
 而 `refresh()` 里的 `normalizeAfterRefresh` 只做钳位、不复位。
 
-**列表行只取缩略图。** 库里存的是原图，行里那格是 48 CSS px，所以两个列表渲染器都走
+**列表行只取缩略图。** 库里存的是原图，行里那格是 48 CSS px，所以唯一的 React 列表渲染器走
 `get_clip_thumbnail`（后端缩到最长边 128 px 并按 id 缓存），只有预览面板取
 `get_clip_image` 原图。退回原图后功能照样对，只是每开一次面板就把十几 MB 送进 webview
 并做十几次全尺寸 PNG 解码，全落在 webview 那一个线程上。
@@ -369,7 +372,9 @@ macOS Resources 中的未来 sidecar、进程 PATH、平台常见安装目录；
 - 用户纯文本必须使用 React 文本节点或 `textContent`。只有
   `scripts/check-html-sinks.mjs` 登记的富文本 sink 可以写 `innerHTML`，且输入必须先经过该脚本
   认可的 DOMPurify 严格配置；增加 sink 必须同时更新 allowlist 和安全回归。
-- URL 元数据仅访问无凭据的 HTTP(S)，拒绝私有/保留 IP、私有 DNS 解析和重定向；请求有 5 秒超时与 1 MiB 上限。
+- URL 元数据仅访问最多 8 KiB、无凭据的 HTTP(S)，关闭环境代理和重定向；自定义 ureq resolver 把实际交给连接器的整组地址逐个按私有/保留策略校验，解析失败或混合公网/私网均 fail closed。请求总并发为 2、超时 5 秒、HTML 上限 1 MiB，标题/描述/站点名分别限制为 512/2048/256 Unicode 字符。favicon 使用页面 URL 的 `Url::join` 解析后走同一 resolver，只接受最多 64 KiB 的 PNG/JPEG/GIF/WebP/ICO，转成 data URL 后交给 WebView；前端同时限制 data URL 长度，并拒绝历史缓存中的外链或 SVG favicon。
+- tmux 捕获只管理六个 copy-mode 按键：首次启用前把原始 `list-keys` 指令写入当前用户 0600 备份，后续重建不覆盖备份，禁用以 `source-file` 恢复。新实现不创建全局 hook；仅精确识别并清理旧版 Clippy 自己留下的 hook。每条 tmux 命令都检查退出状态，管道路径使用 POSIX 单引号转义。
+- 剪贴板敏感检测覆盖嵌入式服务 token、Bearer/赋值/JSON 形式、AWS secret 与私钥头；相同哈希再次出现时，`is_sensitive` 只能从普通升级为敏感，不能降级。
 - 翻译响应有超时与 1 MiB 上限；数学表达式不使用 `eval`/`Function`。
 - 非 2xx 响应只在 4xx 时读取最多 4 KiB 正文用于错误归类（把"缺少/无效 key"从不透明的 `http_status` 里区分出来），5xx 正文一律不读，网关错误页不会被误判成凭据问题。
 

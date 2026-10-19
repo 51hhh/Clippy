@@ -109,7 +109,7 @@ cd src-tauri && cargo bench
 ├── recordings.html                    — 完整录屏与中断分段的结果/恢复库
 ├── js/
 │   ├── api.ts / ipc-types.ts          — 类型化 IPC 边界与 serde 合同
-│   ├── app.js / clipboard-list.js     — 主窗口路由与列表状态
+│   ├── app.js / clipboard-react-facade.js — 主窗口路由与 React 列表 facade
 │   ├── preview-panel.js / preview/    — 预览调度与分职责渲染器
 │   ├── translation-*.js               — 翻译面板与设置
 │   └── settings.js / theme.js         — 设置与主题
@@ -145,7 +145,7 @@ Rust 后端 (src-tauri/src/)
 2. SHA-256 哈希去重 → 重复内容递增持久 `use_order` 置顶
 3. 写入 SQLite `clips` 表 + 同步 `clips_fts` FTS5 虚拟表
 4. `app.emit("clip-added")` / `app.emit("clip-removed")` 通知前端
-5. 前端 `api.ts` 监听事件 → `clipboard-list.js` 增量更新 DOM
+5. 前端 `api.ts` 监听事件 → `react/main/clipboardStore.ts` 增量更新唯一的 React 列表
 
 ### 反向写入（select_clip）
 
