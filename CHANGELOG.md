@@ -2,6 +2,20 @@
 
 ## 未发布
 
+### 2026-10-19 Linux 设置页 WebProcess 复用
+
+- Linux 设置页在主窗口存在时复用其 WebKit WebProcess，主窗口缺失时保留独立建窗回退；
+  同步/异步主线程派发、失败与两秒超时都有自动化合同，超时后不会盲目回退生成重复窗口。
+  隔离 release/X11 实测打开设置页前后均只有一个 `WebKitWebProcess`，720×560 页面加载、
+  主题切换和受保护关闭正常。相同采样流程中，打开增量 PSS 从 85,950 KiB 降至
+  17,401 KiB（单次样本降低 79.8%）；PSS 受共享库与环境影响，不代表跨设备绝对收益。
+  无主题切换的设置页关闭 15 秒后仍有 6,645 KiB PSS 热缓存留存，因此只宣称降低打开期间
+  的进程固定成本与峰值。完整 Linux 本地门禁 25/0/2，非宿主交叉 lint 与 AppImage 可视 smoke
+  未启用；Linux Xvfb 无窗口管理器，Wayland、Windows/macOS、安装包及同 SHA 原生 CI 尚未验证，
+  不计为通过。详见
+  `docs/reviews/2026-10-19-linux-settings-webprocess-sharing-review.md`。
+  （需求：`docs/superpowers/specs/2026-10-19-linux-settings-webprocess-sharing.md`）
+
 ### 2026-10-19 UI 窗口壳层与六主题一致性
 
 - 设置窗口改用与 Viewer、Launcher、录屏库和 Pin 工作区一致的自绘窗口壳层，提供拖动、
