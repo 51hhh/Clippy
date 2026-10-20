@@ -41,6 +41,13 @@ pub(crate) use shell_extension::probe as shell_extension_windows;
 /// 这里只把入口露出去，免得契约散成两份。
 #[cfg(target_os = "linux")]
 pub(crate) use shell_extension::request_screenshot as shell_extension_screenshot;
+/// GNOME Shell v6 扩展直接持有截图快捷键，并在系统弹层还存在时预冻结舞台。
+#[cfg(target_os = "linux")]
+pub(crate) use shell_extension::{
+    capture_shortcut_available as shell_capture_shortcut_available,
+    configure_capture_shortcut as configure_shell_capture_shortcut,
+    take_shortcut_screenshot as take_shell_shortcut_screenshot,
+};
 /// 逐屏原生取像素（协议 v5）。整屏那条路既会把低缩放的屏上采样、又要 gnome-shell
 /// 编一张全桌面 PNG（实测 1.8 秒），所以这是首选，上面那个整屏入口只是它的兜底。
 #[cfg(target_os = "linux")]
@@ -462,13 +469,83 @@ pub fn get_window_probe_status() -> ShellExtensionStatus {
 /// 装 GNOME Shell 扩展是很打扰的动作，只能由用户在设置页显式点击触发，
 /// 应用绝不擅自安装。
 #[tauri::command]
-pub fn install_window_probe_extension() -> Result<InstallOutcome, String> {
-    shell_extension::install()
+pub fn install_window_probe_extension(
+    _app_handle: tauri::AppHandle,
+    _state: State<'_, AppState>,
+) -> Result<InstallOutcome, String> {
+    #[cfg(target_os = "linux")]
+    let _transition = _state
+        .shortcut_transition
+        .try_lock()
+        .map_err(|error| format!("快捷键正在更新，请稍后重试: {error}"))?;
+    let outcome = shell_extension::install()?;
+    #[cfg(target_os = "linux")]
+    if crate::platform::uses_gnome_shortcuts() && shell_extension::capture_shortcut_available() {
+        refresh_gnome_shortcuts_after_extension_change(&_app_handle, &_state)
+            .map_err(|error| format!("GNOME Shell 扩展已安装，但切换截图快捷键失败: {error}"))?;
+    }
+    Ok(outcome)
 }
 
 #[tauri::command]
-pub fn uninstall_window_probe_extension() -> Result<ShellExtensionStatus, String> {
-    shell_extension::uninstall()
+pub fn uninstall_window_probe_extension(
+    _app_handle: tauri::AppHandle,
+    _state: State<'_, AppState>,
+) -> Result<ShellExtensionStatus, String> {
+    #[cfg(target_os = "linux")]
+    let _transition = _state
+        .shortcut_transition
+        .try_lock()
+        .map_err(|error| format!("快捷键正在更新，请稍后重试: {error}"))?;
+    let status = shell_extension::uninstall()?;
+
+    // v6 正常运行时，gsettings 里的 Capture 绑定是空的，键由 Shell 直接持有。
+    // 卸载后若不立即重放配置，截图键会一直失效到下次应用启动。
+    #[cfg(target_os = "linux")]
+    if crate::platform::uses_gnome_shortcuts() {
+        refresh_gnome_shortcuts_after_extension_change(&_app_handle, &_state)
+            .map_err(|error| format!("GNOME Shell 扩展已卸载，但恢复截图快捷键失败: {error}"))?;
+    }
+
+    Ok(status)
+}
+
+#[cfg(target_os = "linux")]
+fn refresh_gnome_shortcuts_after_extension_change(
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+) -> Result<(), String> {
+    let config = state
+        .config
+        .lock()
+        .map_err(|error| format!("读取快捷键配置失败: {error}"))?
+        .clone();
+    let paused = state
+        .shortcuts_paused
+        .load(std::sync::atomic::Ordering::Acquire);
+    let (global, pin, capture) = if paused {
+        ("", "", "")
+    } else {
+        (
+            config.global_shortcut.as_str(),
+            config.pin_shortcut.as_str(),
+            config.capture_shortcut.as_str(),
+        )
+    };
+    let outcomes = crate::gsettings_shortcuts::update_bindings_confirmed(global, pin, capture);
+    let error = outcomes
+        .iter()
+        .find_map(|(_, _, result)| result.as_ref().err().cloned());
+    for (action, shortcut, result) in outcomes {
+        crate::record_register_result(
+            app_handle,
+            &[action],
+            &shortcut,
+            crate::platform::DesktopSession::Wayland,
+            result,
+        );
+    }
+    error.map_or(Ok(()), Err)
 }
 
 /// 覆盖层内完成选区与标注之后的唯一提交入口。

@@ -31,12 +31,17 @@ const EXTENSION_JS: &str =
 /// 令牌文件名，必须与 extension.js 里的 TOKEN_FILE_NAME 一致。
 const TOKEN_FILE_NAME: &str = "token";
 
+/// Shell 解锁后重建扩展实例时重新抓取截图键所需的持久化文件。
+/// 内容由已通过令牌校验的 `SetCaptureShortcut` 写入，卸载扩展时随目录删除。
+#[cfg(test)]
+const CAPTURE_SHORTCUT_FILE_NAME: &str = "capture-shortcut";
+
 /// 令牌长度下限，和 extension.js 的 MIN_TOKEN_LENGTH 一致。
 const MIN_TOKEN_LENGTH: usize = 16;
 
 /// 内嵌扩展声明的协议版本，也是能解析的上限。跑着的扩展报出更大的值说明磁盘上的扩展
 /// 比当前二进制新（用户装了新版又跑了旧版），此时宁可退化也不要错解析。
-const EMBEDDED_PROTOCOL_VERSION: u32 = 5;
+const EMBEDDED_PROTOCOL_VERSION: u32 = 6;
 
 /// `Screenshot` 方法从这个协议版本起存在。低于它的扩展只能提供窗口几何：
 /// gnome-shell 只在登录时加载扩展（ReloadExtension 实测已废弃，直接报
@@ -49,6 +54,10 @@ const SCREENSHOT_PROTOCOL_VERSION: u32 = 2;
 /// 所以这是"糊"与"不糊"的分界线，也是"快"与"慢"的分界线（整屏那条路要 gnome-shell
 /// 编一张全桌面 PNG，实测 1.8 秒），两者都意味着升级完必须注销一次才真的生效。
 const RAW_CAPTURE_PROTOCOL_VERSION: u32 = 5;
+
+/// Shell 内截图快捷键与一次性预冻结舞台图从 v6 起提供。旧扩展继续使用
+/// gsd-media-keys → D-Bus → PipeWire，不会因为应用升级就丢掉快捷键。
+const SHORTCUT_CAPTURE_PROTOCOL_VERSION: u32 = 6;
 
 /// `PlaceWindow` 方法从这个协议版本起存在。低于它的扩展照样能截图与速选，
 /// 只是贴图窗口回不到原位、也压不住别的窗口——退化，不是故障。
@@ -152,6 +161,53 @@ pub(crate) fn request_screenshot() -> Result<PathBuf, String> {
     let path = PathBuf::from(path);
     validate_screenshot_path(&screenshot_dir()?, &path)?;
     Ok(path)
+}
+
+/// 当前会话里的扩展是否具备 Shell 内截图快捷键。只做能力探测，不改任何绑定。
+pub(crate) fn capture_shortcut_available() -> bool {
+    is_relevant()
+        && is_installed()
+        && running_protocol_version()
+            .is_some_and(|version| version >= SHORTCUT_CAPTURE_PROTOCOL_VERSION)
+        && read_token().is_some()
+}
+
+/// 让扩展直接抓取截图快捷键。`accelerator` 是 Mutter 格式（如 `<Control><Shift>s`）；
+/// 空串表示暂停/解除绑定。返回 false 表示键位已被其它组件占用，扩展会尽力恢复旧绑定。
+pub(crate) fn configure_capture_shortcut(accelerator: &str) -> Result<bool, String> {
+    let token = screenshot_token(SHORTCUT_CAPTURE_PROTOCOL_VERSION)?;
+    shell_call(
+        WINDOWS_OBJECT_PATH,
+        WINDOWS_INTERFACE,
+        "SetCaptureShortcut",
+        &(token.as_str(), accelerator),
+    )
+    .map_err(|error| format!("配置 Shell 内截图快捷键失败: {error}"))
+}
+
+/// 取走 Shell 快捷键在 OVERVIEW/POPUP 模式预冻结的一次性舞台图。
+///
+/// 普通桌面触发、旧扩展或未安装扩展都返回 `Ok(None)`，截图链继续走 PipeWire。非空路径
+/// 已经转移给调用方，必须在读完后删除；路径仍按截图目录白名单校验，不能信任 D-Bus 字符串。
+pub(crate) fn take_shortcut_screenshot() -> Result<Option<PathBuf>, String> {
+    if !capture_shortcut_available() {
+        return Ok(None);
+    }
+    let token = read_token().ok_or_else(|| "缺少可用的扩展令牌".to_string())?;
+    let path: String = shell_call(
+        WINDOWS_OBJECT_PATH,
+        WINDOWS_INTERFACE,
+        "TakeShortcutScreenshot",
+        &(token.as_str(),),
+    )
+    .map_err(|error| format!("读取 Shell 快捷键预冻结截图失败: {error}"))?;
+    if path.is_empty() {
+        return Ok(None);
+    }
+
+    let path = PathBuf::from(path);
+    validate_screenshot_path(&screenshot_dir()?, &path)?;
+    Ok(Some(path))
 }
 
 /// 要向扩展索取的一块屏。
@@ -871,19 +927,24 @@ mod tests {
         assert!(METADATA_JSON.contains(&format!("\"uuid\": \"{UUID}\"")));
         // 令牌文件名与长度下限在两侧各写了一份，漂移会变成"永远鉴权失败"。
         assert!(EXTENSION_JS.contains(&format!("TOKEN_FILE_NAME = '{TOKEN_FILE_NAME}'")));
+        assert!(EXTENSION_JS.contains(&format!(
+            "CAPTURE_SHORTCUT_FILE_NAME = '{CAPTURE_SHORTCUT_FILE_NAME}'"
+        )));
         assert!(EXTENSION_JS.contains(&format!("MIN_TOKEN_LENGTH = {MIN_TOKEN_LENGTH}")));
         assert!(EXTENSION_JS.contains(&format!("PROTOCOL_VERSION = {EMBEDDED_PROTOCOL_VERSION}")));
         assert!(EXTENSION_JS.contains(WINDOWS_INTERFACE));
         assert!(EXTENSION_JS.contains(WINDOWS_OBJECT_PATH));
         // 截图落地目录名两侧各写一份，漂移会让 Rust 拒收扩展给出的路径。
         assert!(EXTENSION_JS.contains(&format!("SCREENSHOT_DIR_NAME = '{SCREENSHOT_DIR_NAME}'")));
-        // 六个方法都必须在内嵌的接口 XML 里声明，否则 wrapJSObject 根本不导出它们。
+        // 八个方法都必须在内嵌的接口 XML 里声明，否则 wrapJSObject 根本不导出它们。
         for method in [
             "GetVersion",
             "GetWindows",
             "Screenshot",
             "ScreenshotArea",
             "CaptureArea",
+            "SetCaptureShortcut",
+            "TakeShortcutScreenshot",
             "PlaceWindow",
         ] {
             assert!(
@@ -891,6 +952,10 @@ mod tests {
                 "内嵌扩展缺少 {method} 方法声明"
             );
         }
+        // 锁屏会销毁普通用户扩展实例；解锁后新实例必须从私有文件
+        // 恢复 grab，否则用户锁屏一次后截图键就永久失效到应用重启。
+        assert!(EXTENSION_JS.contains("_readCaptureShortcut()"));
+        assert!(EXTENSION_JS.contains("Gio.FileCreateFlags.PRIVATE"));
         // 截图是异步实现的，wrapJSObject 只认 `<Method>Async` 这个命名。
         assert!(EXTENSION_JS.contains("ScreenshotAsync(params, invocation)"));
         assert!(EXTENSION_JS.contains("ScreenshotAreaAsync(params, invocation)"));
@@ -939,6 +1004,24 @@ mod tests {
         for api in ["make_above()", "unmake_above()", "move_frame(false, x, y)"] {
             assert!(EXTENSION_JS.contains(api), "内嵌扩展缺少 {api}");
         }
+        // 系统 UI 截图必须在 Shell 快捷键回调里先冻结 stage，之后才通过应用 D-Bus 打开
+        // 覆盖层；少任一步都会退回“菜单先消失、截图后发生”的旧故障。
+        for contract in [
+            "global.display.grab_accelerator(",
+            "Shell.ActionMode.OVERVIEW",
+            "Shell.ActionMode.POPUP",
+            "screenshot_stage_to_content(",
+            "Shell.Screenshot.composite_to_stream(",
+            "TakeShortcutScreenshot(token)",
+            "'com.clippy.app.Shortcuts'",
+        ] {
+            assert!(
+                EXTENSION_JS.contains(contract),
+                "内嵌扩展缺少 Shell 快捷键合同 {contract}"
+            );
+        }
+        // 安全模式用 allow-list，不允许偷懒写 ActionMode.ALL 把锁屏/认证界面也放进来。
+        assert!(!EXTENSION_JS.contains("Main.wm.allowKeybinding(name, Shell.ActionMode.ALL)"));
     }
 
     /// 读完就删，所以路径校验必须严：只认约定目录里的 .png / .rgba。

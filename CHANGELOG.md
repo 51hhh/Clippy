@@ -2,6 +2,20 @@
 
 ## 未发布
 
+### 2026-10-20 GNOME 系统界面截图
+
+- 修复 GNOME Wayland 下截图快捷键无法保留顶栏日历、托盘菜单与 Activities/应用概览的问题。
+  协议 v6 的 Shell 扩展在 `OVERVIEW`/`POPUP` 模式先冻结当前舞台，再通知 Clippy 打开覆盖层；
+  普通桌面继续走 Mutter PipeWire 快速路径。登录、锁屏、解锁和系统认证模式不允许触发，
+  解锁回到普通会话后会自动恢复绑定；卸载扩展也会立即恢复 gsettings 回退键。
+  扩展未安装或升级后尚未注销时继续使用原 gsd-media-keys 降级路径。系统弹层仍不是普通
+  `MetaWindow`，本次不新增菜单边界自动吸附。真实 GNOME 桌面验收需在扩展升级后注销一次完成。
+  （需求：`GNOME-SHELL-UI-CAPTURE-01`；见
+  `docs/superpowers/specs/2026-10-20-gnome-shell-ui-capture.md`）
+- Linux x64 本地完整门禁 27 通过 / 0 失败 / 2 跳过；跳过的非宿主交叉 lint 与
+  AppImage 可视 smoke 不计为通过。扩展 v6 的日历/托盘/概览像素、锁屏恢复，
+  以及同一 SHA 的 Windows/macOS Native Check 尚未验证。
+
 ### 2026-10-20 GNOME 托盘菜单文案恢复
 
 - 修复 v0.1.21 在 GNOME Shell 50 / Wayland 下点击托盘图标后只显示空白菜单框的问题。新版

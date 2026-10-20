@@ -125,18 +125,29 @@ GNOME Wayland 上被逐个排除掉的现成接口（都在 GNOME Shell 50.1 / U
 （见 `capture/shell_extension.rs`），因此 deb / AppImage / dev 三种运行方式用的是同一份内容。
 
 - **接口**：`org.gnome.Shell.Extensions.ClippyWindows`，对象路径
-  `/org/gnome/Shell/Extensions/ClippyWindows`，六个方法 —— `GetVersion() -> u`（不校验令牌，
+  `/org/gnome/Shell/Extensions/ClippyWindows`，八个方法 —— `GetVersion() -> u`（不校验令牌，
   只用来探活与协议协商）、`GetWindows(s token) -> s`（返回 JSON 数组）、
   `Screenshot(s token) -> s`（拍整个 stage，返回 PNG 路径，见 §3）、
   `ScreenshotArea(s token, i x, i y, i width, i height) -> s`（只拍一块区域，返回 PNG 路径）、
   `CaptureArea(s token, i x, i y, i width, i height, d scale) -> (s path, i pixelWidth,
   i pixelHeight, i stride, s format)`（**首选**：一块区域的**原始 RGBA**，不编 PNG，
-  见 §3.1 与 §3.3），以及
+  见 §3.1 与 §3.3）、`SetCaptureShortcut(s token, s accelerator) -> b`（由 Shell
+  直接抓取 Capture 键）、`TakeShortcutScreenshot(s token) -> s`（一次性取走快捷键
+  预冻结的舞台图），以及
   `PlaceWindow(s token, u pid, s marker, i x, i y, b reposition, b above) -> b`
   （把调用方自己的某个窗口摆到指定位置并/或置顶，用于贴图窗口，见 §1）。
-  当前协议版本 **v5**（`PlaceWindow` 从 v3 起、`ScreenshotArea` 从 v4 起、`CaptureArea`
+  当前协议版本 **v6**（`PlaceWindow` 从 v3 起、`ScreenshotArea` 从 v4 起、`CaptureArea`
   从 v5 起；低于门槛的扩展照样能截图与窗口速选，只是贴图回不到原位、画面按整屏舞台图走
-  会偏糊、而且慢一个数量级——退化，不是故障）。
+  会偏糊、而且慢一个数量级——退化，不是故障；Shell 内快捷键与预冻结图从 v6 起）。
+- **v6 的截图快捷键不再经外部命令启动。** 扩展直接用 Mutter accelerator
+  注册 `NORMAL | OVERVIEW | POPUP`，不包含锁屏、解锁与系统认证模式。普通桌面只通知
+  Clippy，由 Rust 继续走 PipeWire；日历、状态菜单或概览可见时先调
+  `screenshot_stage_to_content`冻结 stage，编成私有 runtime PNG 后再通知 Clippy。这张图
+  只能消费一次，应用不在时十秒后自动删除。激活 v6 时 gsettings 中的 Capture
+  绑定保持为空，避免 Shell 与 gsd-media-keys 双触发；扩展过期或不可用时恢复原路径。
+  解锁会重建扩展实例，已确认的 accelerator 因此另存于 0600 的
+  `capture-shortcut` 文件，新实例自动重新 grab。卸载扩展会立即把用户配置重放回
+  gsettings，不会留下一个空的截图键。
 - **`CaptureArea` 走的是 `Clutter.Stage.paint_to_content` + `Cogl.Texture.get_data`**，
   自己把 RGBA8888 写进 tmpfs 的 `.rgba` 文件，`scale` 由调用方给（这块屏自己的缩放），
   尺寸从纹理反查（纹理说了算，不信调用方的算术）。它存在的唯一理由是**绕开 gnome-shell 的
@@ -187,7 +198,8 @@ GNOME Wayland 上被逐个排除掉的现成接口（都在 GNOME Shell 50.1 / U
 窗口标题会泄露用户正在做什么，所以 `GetWindows` 不对本机所有进程开放：调用方必须出示
 Clippy 写在扩展目录里的令牌文件内容（32 字节随机数的 hex，`0600`，由
 `private_files::write_private` 落盘），不匹配就抛 `AccessDenied`。`Screenshot`、
-`ScreenshotArea` 与 `CaptureArea` 用同一个令牌把关——一屏画面至少和窗口标题一样敏感。
+`ScreenshotArea`、`CaptureArea`、`SetCaptureShortcut` 与 `TakeShortcutScreenshot` 用同一个
+令牌把关——一屏画面至少和窗口标题一样敏感。
 
 这条边界挡得住谁、挡不住谁，说清楚：
 
@@ -228,11 +240,14 @@ gnome-shell 加载失败才暴露，而报错只进 journal。
 
 `screenshot/backends.rs::capture_all_monitors` 在 Wayland 上按这个顺序试，**顺序是结论，不是偏好**：
 
-1. **Mutter 的 PipeWire 屏幕流**（`org.gnome.Mutter.ScreenCast`，见 §3.4）。GNOME Wayland
+1. **Shell 快捷键预冻结舞台图**（协议 v6）。它只在概览或系统弹层中由扩展预先
+   生成，确保后续打开 Clippy 覆盖层时日历、托盘菜单与概览仍在像素里。普通桌面
+   没有这张图，立即进入下一条，不承担整屏 PNG 开销。
+2. **Mutter 的 PipeWire 屏幕流**（`org.gnome.Mutter.ScreenCast`，见 §3.4）。GNOME Wayland
    上的首选，**分辨率和速度都出自这一条**：每块屏拿到自己面板的原生像素，而且完全不生成 PNG。
    本机双屏实测 `capture_monitor_frames` 全程 **280 ms**（此前 1900 ms）。不经 Portal、
    不弹对话框、不需要 restore token、不需要装扩展也不需要注销。不是 GNOME 就在几毫秒内失败退下一条。
-2. **自带 GNOME Shell 扩展，逐屏原生取像素**（`CaptureArea`，协议 v5）。画质上的兜底：
+3. **自带 GNOME Shell 扩展，逐屏原生取像素**（`CaptureArea`，协议 v5）。画质上的兜底：
    每块屏也是原生像素，但它仍然要在 gnome-shell 里编一次 PNG（4K 那块屏约 1.7 s，见 §3.1），
    所以只在上面那条不可用时才有意义。
    - 扩展跑在 v5 但 GI 那条路失败时，它自己回退到 `screenshot_area`（返回 `format = 'PNG'`），
@@ -240,10 +255,10 @@ gnome-shell 加载失败才暴露，而报错只进 journal。
      实际跑的一直是这个回退。
    - 协议低于 v5（装了新版还没注销）或逐屏这条路任何一步失败时，退到**同一个扩展的整屏舞台图**
      （`Screenshot`）。画面可用，但混合缩放的多屏上低缩放那块会被上采样，偏糊，而且慢。
-3. **wlroots**（`libwayshot-xcap`）。sway/Hyprland 用这条。
-4. **xdg-desktop-portal**（非交互 `Screenshot`）。非 GNOME 的桌面用这条。
-5. **`org.gnome.Shell.Screenshot`**（不带扩展时的 D-Bus 直调，白名单外一律拒绝，基本只是聊胜于无）。
-6. **xcap**。最后兜底。
+4. **wlroots**（`libwayshot-xcap`）。sway/Hyprland 用这条。
+5. **xdg-desktop-portal**（非交互 `Screenshot`）。非 GNOME 的桌面用这条。
+6. **`org.gnome.Shell.Screenshot`**（不带扩展时的 D-Bus 直调，白名单外一律拒绝，基本只是聊胜于无）。
+7. **xcap**。最后兜底。
 
 为什么扩展要排在 Portal 前面——这是一个被真实 bug 逼出来的顺序，别改回去：
 
@@ -835,7 +850,9 @@ Tauri（`available_monitors` / `monitor_from_point`）。所以"插上外接屏�
 单元测试覆盖到几何换算、状态机和提交合同，但覆盖不到合成器行为。以下必须在真机上看：
 覆盖层是否铺满**当前**显示器（多屏、混合缩放）、Portal 首次确认与撤权，以及 GNOME Shell
 扩展这条链路——**设置页点安装 → 注销一次 → 回来确认状态卡片变绿、悬停有窗口高亮、
-按快捷键出来的是 Clippy 的覆盖层而不是系统截图 UI**，另外单独确认 `GetWindows`
+按快捷键出来的是 Clippy 的覆盖层而不是系统截图 UI**，再分别打开顶栏日历、
+托盘菜单与 Activities/应用网格后按 Capture，确认覆盖层底图仍保留这些 Shell UI；
+锁屏解锁一次后重复上述检查，确认快捷键已自动恢复。另外单独确认 `GetWindows`
 带正确令牌能返回窗口、令牌错误时被拒。
 这几步没法自动化：gnome-shell 只在登录时加载扩展，CI 里没有会话。
 未装扩展的 GNOME Wayland 上还要确认原生 Wayland 应用如预期地不出现在速选列表里。
@@ -850,7 +867,8 @@ Tauri（`available_monitors` / `monitor_from_point`）。所以"插上外接屏�
   从别处复制来的图（浏览器、文件管理器）没有位置信息，应当落在屏幕中间——这是正确行为。
 - **置顶**：贴图之后点开别的窗口，贴图不应被盖住；缩放一次（滚轮）之后再确认一遍，
   因为改尺寸会把窗口带回普通层。
-- **注意协议版本**：`PlaceWindow` 是 v3 才有的、`ScreenshotArea` 是 v4、`CaptureArea` 是 v5，
+- **注意协议版本**：`PlaceWindow` 是 v3 才有的、`ScreenshotArea` 是 v4、`CaptureArea` 是 v5、
+  Shell 内快捷键与预冻结舞台图是 v6，
   抬过版本号之后当前会话必然是 `stale`（设置页显示 "Update pending"），此时摆位与置顶都会退回
   Tauri 那套（在 Wayland 上**看起来像没生效**），画面也会退回整屏舞台图
   （**看起来像既没变清晰也没变快**）。验收这几条之前必须先注销重登。

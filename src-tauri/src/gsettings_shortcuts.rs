@@ -1,10 +1,11 @@
 //! gsettings_shortcuts.rs — Wayland/GNOME 全局快捷键模块
 //!
 //! 原理：
-//! 1. 通过 gsettings 在 GNOME 自定义快捷键路径下注册条目
-//! 2. gsd-media-keys 启动时从 dconf 读取并通过 Mutter GrabAccelerator 注册键位
-//! 3. 按键触发时 gsd-media-keys 执行绑定的 command（dbus-send）
-//! 4. 应用内 zbus D-Bus 服务收到 Toggle 方法调用 → 切换窗口
+//! 1. Toggle / Pin 通过 gsettings 自定义条目交给 gsd-media-keys；
+//! 2. 协议 v6 起，Capture 由 Clippy Shell 扩展直接向 Mutter 注册，使它能在
+//!    `OVERVIEW` / `POPUP` 模式先冻结系统界面；
+//! 3. 扩展不可用或尚未注销升级时，Capture 退回原 gsd-media-keys → D-Bus 路径；
+//! 4. 应用内 zbus D-Bus 服务接收三个动作并执行。
 //!
 //! 已验证：GNOME 50 + Wayland，gsd-media-keys 可正确 grab 并执行 command。
 
@@ -186,64 +187,48 @@ pub fn entry_schema() -> &'static str {
     ENTRY_SCHEMA
 }
 
-/// 将 Tauri 快捷键格式转为 GNOME accelerator 格式
-///
-/// `Ctrl+Alt+V` → `<Control><Alt>v`
-/// 注册 gsettings 自定义快捷键（应用启动时调用）
-pub fn register(shortcut: &str) -> Result<(), String> {
+/// 启动时一次写完三个条目的静态字段与绑定，并只刷新一次 gsd-media-keys。
+/// 分动作返回结果，沿用设置页现有的失败展示合同。
+pub(crate) fn register_all_confirmed(
+    global: &str,
+    pin: &str,
+    capture: &str,
+) -> Vec<(&'static str, String, Result<(), String>)> {
     if !crate::platform::is_gnome_desktop() {
-        return Err(NOT_GNOME_REASON.to_string());
+        return [("global", global), ("pin", pin), ("capture", capture)]
+            .into_iter()
+            .map(|(action, shortcut)| {
+                (
+                    action,
+                    shortcut.to_string(),
+                    Err(NOT_GNOME_REASON.to_string()),
+                )
+            })
+            .collect();
     }
-    let accel = to_gnome_accel(shortcut);
-    log::info!("注册 GNOME 自定义快捷键: {} -> {}", shortcut, accel);
-
-    ensure_in_custom_list()?;
-    let path = slots().toggle.as_str();
-    gsettings_set(path, "name", "Clippy Toggle")?;
-    gsettings_set(path, "command", DBUS_TOGGLE_CMD)?;
-    gsettings_set(path, "binding", &accel)?;
-    restart_gsd_media_keys()?;
-
-    log::info!("GNOME 自定义快捷键注册完成");
-    Ok(())
-}
-
-/// 注册 Pin 快捷键（应用启动时调用）
-pub fn register_pin(shortcut: &str) -> Result<(), String> {
-    if !crate::platform::is_gnome_desktop() {
-        return Err(NOT_GNOME_REASON.to_string());
+    let setup = ensure_in_custom_list().and_then(|()| {
+        let resolved = slots();
+        for (path, name, command) in [
+            (resolved.toggle.as_str(), "Clippy Toggle", DBUS_TOGGLE_CMD),
+            (resolved.pin.as_str(), "Clippy Pin", DBUS_PIN_CMD),
+            (
+                resolved.capture.as_str(),
+                "Clippy Screenshot",
+                DBUS_CAPTURE_CMD,
+            ),
+        ] {
+            gsettings_set(path, "name", name)?;
+            gsettings_set(path, "command", command)?;
+        }
+        Ok(())
+    });
+    if let Err(error) = setup {
+        return [("global", global), ("pin", pin), ("capture", capture)]
+            .into_iter()
+            .map(|(action, shortcut)| (action, shortcut.to_string(), Err(error.clone())))
+            .collect();
     }
-    let accel = to_gnome_accel(shortcut);
-    log::info!("注册 GNOME Pin 快捷键: {} -> {}", shortcut, accel);
-
-    ensure_in_custom_list()?;
-    let path = slots().pin.as_str();
-    gsettings_set(path, "name", "Clippy Pin")?;
-    gsettings_set(path, "command", DBUS_PIN_CMD)?;
-    gsettings_set(path, "binding", &accel)?;
-    restart_gsd_media_keys()?;
-
-    log::info!("GNOME Pin 快捷键注册完成");
-    Ok(())
-}
-
-/// 注册 Capture 快捷键（应用启动时调用）
-pub fn register_capture(shortcut: &str) -> Result<(), String> {
-    if !crate::platform::is_gnome_desktop() {
-        return Err(NOT_GNOME_REASON.to_string());
-    }
-    let accel = to_gnome_accel(shortcut);
-    log::info!("注册 GNOME Capture 快捷键: {} -> {}", shortcut, accel);
-
-    ensure_in_custom_list()?;
-    let path = slots().capture.as_str();
-    gsettings_set(path, "name", "Clippy Screenshot")?;
-    gsettings_set(path, "command", DBUS_CAPTURE_CMD)?;
-    gsettings_set(path, "binding", &accel)?;
-    restart_gsd_media_keys()?;
-
-    log::info!("GNOME Capture 快捷键注册完成");
-    Ok(())
+    update_bindings_confirmed(global, pin, capture)
 }
 
 /// 设置页批量更新：只刷新一次，并等待真实命令结果。只能从 blocking worker 调用。
@@ -265,12 +250,14 @@ pub(crate) fn update_bindings_confirmed(
             })
             .collect();
     };
+    let shell_capture = crate::capture::shell_capture_shortcut_available();
+    let stored_capture = capture_binding_target(capture, shell_capture);
     let targets = [
         ("global", resolved.toggle.as_str(), global),
         ("pin", resolved.pin.as_str(), pin),
-        ("capture", resolved.capture.as_str(), capture),
+        ("capture", resolved.capture.as_str(), stored_capture),
     ];
-    apply_binding_batch(
+    let mut results = apply_binding_batch(
         targets,
         |path, shortcut| {
             let mut command = Command::new("gsettings");
@@ -287,30 +274,94 @@ pub(crate) fn update_bindings_confirmed(
                 Err("gsettings 写入失败".to_string())
             }
         },
-        || {
-            let status = run_confirmed_command(
-                Command::new("pkill").args(["-9", "gsd-media-keys"]),
-                std::time::Duration::from_secs(5),
-            )?;
-            if !status.success() && status.code() != Some(1) {
-                return Err("停止 gsd-media-keys 失败".to_string());
+        || refresh_shortcut_backends(shell_capture, capture, resolved.capture.as_str()),
+    );
+    // gsettings 里在 Shell 模式下存的是空串，但设置页和错误报告必须继续展示用户配置值。
+    if let Some((_, shortcut, _)) = results
+        .iter_mut()
+        .find(|(action, _, _)| *action == "capture")
+    {
+        *shortcut = capture.to_string();
+    }
+    results
+}
+
+fn capture_binding_target(capture: &str, shell_capture: bool) -> &str {
+    if shell_capture {
+        ""
+    } else {
+        capture
+    }
+}
+
+/// 写完 dconf 后统一切换所有权：先停 gsd 释放旧 Capture grab，再让扩展 grab；最后启动
+/// gsd 恢复 Toggle/Pin。扩展调用异常时恢复旧的外部命令路径，保证升级失败不会让截图键消失。
+fn refresh_shortcut_backends(
+    shell_capture: bool,
+    capture: &str,
+    capture_path: &str,
+) -> Result<(), String> {
+    stop_gsd_media_keys()?;
+    std::thread::sleep(std::time::Duration::from_millis(300));
+
+    if shell_capture {
+        let accelerator = to_gnome_accel(capture);
+        match crate::capture::configure_shell_capture_shortcut(&accelerator) {
+            Ok(true) => {
+                log::info!("截图快捷键已由 GNOME Shell 扩展接管: {accelerator}");
             }
-            std::thread::sleep(std::time::Duration::from_millis(300));
-            let status = run_confirmed_command(
-                Command::new("systemctl").args([
-                    "--user",
-                    "start",
-                    "org.gnome.SettingsDaemon.MediaKeys.target",
-                ]),
-                std::time::Duration::from_secs(5),
-            )?;
-            if status.success() {
-                Ok(())
-            } else {
-                Err("启动 gsd-media-keys 失败".to_string())
+            Ok(false) => {
+                restore_gsettings_capture(capture_path, &accelerator)?;
+                return Err(format!(
+                    "GNOME Shell 无法注册截图快捷键 {accelerator}（可能已被占用）"
+                ));
             }
-        },
-    )
+            Err(error) => {
+                log::warn!("Shell 内截图快捷键不可用，恢复 gsd-media-keys 路径: {error}");
+                restore_gsettings_capture(capture_path, &accelerator)?;
+                return Ok(());
+            }
+        }
+    }
+
+    start_gsd_media_keys()
+}
+
+/// `pkill` 后 systemd 可能已在 300 ms 窗口内自动拉起 gsd，它读到的仍是空绑定。
+/// 因此降级时不能只写 dconf + `systemctl start`，必须写完后再停启一次。
+fn restore_gsettings_capture(capture_path: &str, accelerator: &str) -> Result<(), String> {
+    gsettings_set(capture_path, "binding", accelerator)?;
+    stop_gsd_media_keys()?;
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    start_gsd_media_keys()
+}
+
+fn stop_gsd_media_keys() -> Result<(), String> {
+    let status = run_confirmed_command(
+        Command::new("pkill").args(["-9", "gsd-media-keys"]),
+        std::time::Duration::from_secs(5),
+    )?;
+    if status.success() || status.code() == Some(1) {
+        Ok(())
+    } else {
+        Err("停止 gsd-media-keys 失败".to_string())
+    }
+}
+
+fn start_gsd_media_keys() -> Result<(), String> {
+    let status = run_confirmed_command(
+        Command::new("systemctl").args([
+            "--user",
+            "start",
+            "org.gnome.SettingsDaemon.MediaKeys.target",
+        ]),
+        std::time::Duration::from_secs(5),
+    )?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("启动 gsd-media-keys 失败".to_string())
+    }
 }
 
 fn apply_binding_batch(
@@ -367,38 +418,6 @@ pub fn unregister() -> Result<(), String> {
 }
 
 // ─── gsettings / dconf 操作 ──────────────────────────────────────────────────
-
-/// 后台重启 gsd-media-keys 使新 binding 生效（不阻塞调用者）
-///
-/// gsd-media-keys 仅在启动时通过 Mutter GrabAccelerators 注册键位，
-/// 运行时修改 dconf 不会触发 re-grab。因此需要 kill → systemd target start。
-fn restart_gsd_media_keys() -> Result<(), String> {
-    log::info!("后台重启 gsd-media-keys 以应用新绑定");
-    std::thread::spawn(|| {
-        // kill 现有进程
-        let _ = Command::new("pkill")
-            .args(["-9", "gsd-media-keys"])
-            .status();
-
-        // 等待进程退出
-        std::thread::sleep(std::time::Duration::from_millis(300));
-
-        // 通过 systemd target 重新启动
-        match Command::new("systemctl")
-            .args([
-                "--user",
-                "start",
-                "org.gnome.SettingsDaemon.MediaKeys.target",
-            ])
-            .status()
-        {
-            Ok(s) if s.success() => log::info!("gsd-media-keys 已重启"),
-            Ok(s) => log::error!("systemctl start MediaKeys.target 退出码: {s}"),
-            Err(e) => log::error!("重启 gsd-media-keys 失败: {e}"),
-        }
-    });
-    Ok(())
-}
 
 /// 通过 gsettings 写入条目字段（schema-aware，比裸 dconf 更可靠）
 fn gsettings_set(dconf_path: &str, key: &str, value: &str) -> Result<(), String> {
@@ -588,6 +607,16 @@ mod tests {
         );
         assert_eq!(to_gnome_accel("Cmd+V"), "<Super>v");
         assert_eq!(to_gnome_accel("Meta+V"), "<Super>v");
+    }
+
+    #[test]
+    fn shell_capture_owns_the_key_without_leaving_a_gsettings_duplicate() {
+        assert_eq!(capture_binding_target("Ctrl+Shift+S", true), "");
+        assert_eq!(
+            capture_binding_target("Ctrl+Shift+S", false),
+            "Ctrl+Shift+S"
+        );
+        assert_eq!(capture_binding_target("", true), "");
     }
 
     fn paths(indices: &[usize]) -> Vec<String> {

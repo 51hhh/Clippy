@@ -257,31 +257,25 @@ pub fn run() {
             // ── 7. 注册全局快捷键（从配置读取）────────────────────────────────
             #[cfg(target_os = "linux")]
             if platform::uses_gnome_shortcuts() {
-                log::info!("检测到 GNOME Wayland 会话，使用 gsettings 自定义快捷键 + D-Bus");
-                record_register_result(
-                    app.handle(),
-                    &["global"],
-                    &app_config.global_shortcut,
-                    platform::DesktopSession::Wayland,
-                    gsettings_shortcuts::register(&app_config.global_shortcut),
-                );
-                record_register_result(
-                    app.handle(),
-                    &["pin"],
-                    &app_config.pin_shortcut,
-                    platform::DesktopSession::Wayland,
-                    gsettings_shortcuts::register_pin(&app_config.pin_shortcut),
-                );
-                record_register_result(
-                    app.handle(),
-                    &["capture"],
-                    &app_config.capture_shortcut,
-                    platform::DesktopSession::Wayland,
-                    gsettings_shortcuts::register_capture(&app_config.capture_shortcut),
-                );
                 // 用户装过窗口速选扩展的话，顺手做一次内容对齐与孤儿清理；
                 // 没装过就什么都不做——绝不擅自往用户的 GNOME 里塞扩展。
                 capture::reconcile_window_probe_extension();
+                log::info!(
+                    "检测到 GNOME Wayland 会话，优先使用 Shell 内截图快捷键并保留 gsettings 回退"
+                );
+                for (action, shortcut, result) in gsettings_shortcuts::register_all_confirmed(
+                    &app_config.global_shortcut,
+                    &app_config.pin_shortcut,
+                    &app_config.capture_shortcut,
+                ) {
+                    record_register_result(
+                        app.handle(),
+                        &[action],
+                        &shortcut,
+                        platform::DesktopSession::Wayland,
+                        result,
+                    );
+                }
                 // 启动 D-Bus 服务接收 Toggle 调用 —— name 抢占必须成功，
                 // 否则当前进程是"幽灵副本"，立即退出让 single-instance 自动清理。
                 let handle = app.handle().clone();
