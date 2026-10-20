@@ -19,6 +19,7 @@ const QUIT_ID: &str = "quit";
 
 /// 托盘菜单项句柄。语言切换时直接改文案，不重建菜单，
 /// 避免刷新过程中托盘短暂没有菜单。`MenuItem` 的写操作自己会切回主线程。
+#[derive(Clone)]
 pub(crate) struct TrayMenuItems {
     open_clipboard: MenuItem<tauri::Wry>,
     actions: MenuItem<tauri::Wry>,
@@ -102,6 +103,74 @@ impl TrayMenuItems {
             );
         }
     }
+
+    #[cfg(target_os = "linux")]
+    fn refresh_gnome_appindicator_labels(&self, text: NativeText) {
+        for (item, label) in [
+            (&self.open_clipboard, text.open_clipboard),
+            (&self.actions, text.actions_menu),
+            (&self.settings, text.settings_menu),
+            (&self.quit, text.quit_menu),
+        ] {
+            set_appindicator_refresh_text(item, label);
+        }
+        if let Some(item) = &self.record_area {
+            set_appindicator_refresh_text(item, text.record_area_menu);
+        }
+        if let Some(items) = &self.recording_controls {
+            for (item, label) in [
+                (&items.pause, text.pause_recording_menu),
+                (&items.resume, text.resume_recording_menu),
+                (&items.stop, text.stop_recording_menu),
+            ] {
+                set_appindicator_refresh_text(item, label);
+            }
+        }
+        set_appindicator_refresh_text(&self.recordings, text.recordings_menu);
+        set_appindicator_refresh_text(&self.pin_workspaces, text.pin_workspaces_menu);
+    }
+}
+
+#[cfg(target_os = "linux")]
+const APPINDICATOR_REFRESH_MARKER: char = '\u{2060}';
+
+#[cfg(target_os = "linux")]
+fn appindicator_refresh_text(label: &str) -> String {
+    format!("{label}{APPINDICATOR_REFRESH_MARKER}")
+}
+
+#[cfg(target_os = "linux")]
+fn set_appindicator_refresh_text(item: &MenuItem<tauri::Wry>, label: &str) {
+    if let Err(error) = item.set_text(appindicator_refresh_text(label)) {
+        log::warn!("触发 AppIndicator 菜单文案同步失败 ({label}): {error}");
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn is_gnome_desktop(desktop: Option<&str>) -> bool {
+    desktop.is_some_and(|desktop| {
+        desktop
+            .split(':')
+            .any(|part| matches!(part.to_ascii_lowercase().as_str(), "gnome" | "ubuntu"))
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn schedule_gnome_appindicator_label_refresh(items: TrayMenuItems, text: NativeText) {
+    let desktop = std::env::var("XDG_CURRENT_DESKTOP").ok();
+    if !is_gnome_desktop(desktop.as_deref()) {
+        return;
+    }
+
+    tauri::async_runtime::spawn(async move {
+        // GNOME Shell 50 的 AppIndicator 扩展可能在新版 muda 完成初始属性导出前缓存空标签，
+        // 且之后不会主动重取。菜单注册后发送一次视觉上等价的标签变更，再恢复精确文案，
+        // 让 Shell 收到 ItemsPropertiesUpdated，同时不让用户看到闪烁或额外字符。
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        items.refresh_gnome_appindicator_labels(text);
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        items.apply(text);
+    });
 }
 
 /// 构建系统托盘及 Open/Settings/Quit 菜单，文案按配置语言。
@@ -264,6 +333,9 @@ pub(crate) fn build(
         })
         .build(app)?;
 
+    #[cfg(target_os = "linux")]
+    schedule_gnome_appindicator_label_refresh(items.clone(), text);
+
     Ok(items)
 }
 
@@ -316,6 +388,33 @@ pub(crate) fn listen_for_config_changes(app: &tauri::App, items: TrayMenuItems) 
 #[cfg(test)]
 mod tests {
     use super::recording_tray_enabled_state;
+
+    #[cfg(target_os = "linux")]
+    use super::{appindicator_refresh_text, is_gnome_desktop, APPINDICATOR_REFRESH_MARKER};
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn gnome_desktop_detection_accepts_ubuntu_and_gnome_tokens() {
+        assert!(is_gnome_desktop(Some("ubuntu:GNOME")));
+        assert!(is_gnome_desktop(Some("GNOME")));
+        assert!(is_gnome_desktop(Some("Unity:ubuntu")));
+        assert!(!is_gnome_desktop(Some("KDE")));
+        assert!(!is_gnome_desktop(None));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn appindicator_refresh_text_changes_the_property_without_visible_suffix() {
+        let original = "打开剪贴板";
+        let refreshed = appindicator_refresh_text(original);
+
+        assert_ne!(refreshed, original);
+        assert_eq!(
+            refreshed.trim_end_matches(APPINDICATOR_REFRESH_MARKER),
+            original
+        );
+        assert_eq!(refreshed.chars().last(), Some(APPINDICATOR_REFRESH_MARKER));
+    }
 
     #[test]
     fn recording_tray_state_exposes_only_valid_transitions() {

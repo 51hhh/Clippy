@@ -2,6 +2,17 @@
 
 ## 未发布
 
+### 2026-10-20 GNOME 托盘菜单文案恢复
+
+- 修复 v0.1.21 在 GNOME Shell 50 / Wayland 下点击托盘图标后只显示空白菜单框的问题。新版
+  Tauri/muda 注册 AppIndicator 时，Shell 扩展可能先缓存空标签且不再主动重取；Clippy 现在仅在
+  GNOME/Linux 注册完成后发送一次视觉等价的标签属性同步，再恢复精确文案，不影响 KDE、Windows
+  与 macOS 路径。
+- 当前 GNOME 50.1 / Wayland 真机已通过 D-Bus 导出与 AT-SPI 渲染双重核对：六项菜单依次为
+  “打开剪贴板 / 动作 / 录屏结果 / 贴图工作区 / 设置 / 退出”；Linux 针对性 Rust 回归 3/0，
+  完整本地门禁 27/0/2。跳过的非宿主交叉 lint 与 AppImage 可视 smoke 不计为通过；其它 GNOME
+  版本、KDE、Windows/macOS 及同 SHA 原生 CI 尚未验证。
+
 ## v0.1.21
 
 ### 2026-10-19 发布打包依赖对齐
