@@ -41,7 +41,7 @@ jobs:
           components: clippy, rustfmt
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           # Jammy 是发布基线，缓存键不能与更高 glibc 的 Linux runner 共用。
           prefix-key: v1-rust
@@ -166,7 +166,7 @@ jobs:
           components: clippy
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           prefix-key: v1-rust
           key: ${{ matrix.runner }}
@@ -334,7 +334,7 @@ jobs:
           components: clippy, llvm-tools-preview
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           prefix-key: v1-recording-codec
           # Cargo feature lists contain commas, which are forbidden in cache keys.
