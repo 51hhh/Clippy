@@ -73,9 +73,9 @@ recording-macos-av-qa = [
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
-resvg = "0.43"
-tiny-skia = "0.11"
-usvg = "0.43"
+resvg = "0.48"
+tiny-skia = "0.12"
+usvg = "0.48"
 
 [dependencies]
 # macOS 的透明 WKWebView 是 Pin 透明留白/阴影的必要条件。Tauri 的构建脚本会把
@@ -95,21 +95,21 @@ tauri-plugin-dialog = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 arboard = "3"
-sha2 = "0.10"
+sha2 = "0.11"
 # PNG 服务正式截图/Pin；JPEG 只服务 PX-REC-01 的 MJPEG/AVI 诊断分段，尚不是默认录屏格式。
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 # renderer v2 的最终 PNG 只走固定版本的纯 Rust 软件光栅路径；运行时不加载系统字体或 GPU。
 # build.rs 已用同一版本生成托盘 SVG，这里复用锁文件中的依赖，不增加第二套渲染栈。
-resvg = "0.43"
+resvg = "0.48"
 # 直接用 png crate 只为一件事：往 PNG 里写/读 iTXt 元数据块（贴图工程数据，
 # 见 pin/project.rs）。image crate 不暴露 chunk API。版本跟随 image 已经锁定的这一个，
 # 不引入新的下载。
-png = "0.17"
+png = "0.18"
 # 纯 Rust 的 ZXing 兼容解码器：只编译本地识别所需格式，避免引入图片编解码、编码器或模型资产。
-rxing = { version = "=0.9.2", default-features = false, features = ["decoders", "qrcode", "oned", "multi_barcode_readers", "encoding_rs"] }
-base64 = "0.22"
+rxing = { version = "=0.9.3", default-features = false, features = ["decoders", "qrcode", "oned", "multi_barcode_readers", "encoding_rs"] }
+base64 = "0.23"
 # `.clippy.zip` 归档只使用 Stored 条目；关闭默认压缩特性可避免引入解压器和压缩炸弹面。
 zip = { version = "9.0.5", default-features = false }
 thiserror = "2"
@@ -119,16 +119,16 @@ env_logger = "0.11"
 tauri-plugin-autostart = "2"
 # URL 预览用 `unversioned::Resolver` 把已校验地址直接交给连接器；该 API 明确不承诺
 # minor semver 稳定，升级必须经 SSRF 回归后手动推进。
-ureq = "=3.3.0"
+ureq = "=3.5.0"
 regex-lite = "0.1"
 tokio = { version = "1", features = ["rt", "time", "sync", "macros", "process", "io-util"] }
 urlencoding = "2"
 url = "2"
 keyring = "4.1"
 # 有道 web 端点的签名用 MD5、响应用 AES-128-CBC 加密，只服务于翻译的非官方回退路径。
-md-5 = "0.10"
-aes = "0.8"
-cbc = "0.1"
+md-5 = "0.11"
+aes = "0.9"
+cbc = "0.2"
 # 仅由 recording-vp9-prototype 启用；版本精确固定，防止 canary API 或原生构建输入静默变化。
 shiguredo_libvpx = { version = "=2026.2.0-canary.1", optional = true }
 # libwebm 源码随 crate 构建，用于写入带显式时长和 seek 元数据的 VP9/WebM 分段。
@@ -141,7 +141,7 @@ yuv = { version = "=0.8.19", default-features = false, features = ["avx", "sse",
 opusic-c = { version = "=1.6.1", default-features = false, optional = true }
 opusic-sys = { version = "=0.7.5", default-features = false, features = ["bundled"], optional = true }
 # macOS 麦克风原生采样率到 48 kHz 的流式带限 sinc；关闭 FFT/log，避免把未使用路径带入 QA 包。
-rubato = { version = "=5.0.0", default-features = false, optional = true }
+rubato = { version = "=5.0.1", default-features = false, optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # xcap 0.9 在 Linux 强制引入需要新版 PipeWire 头文件的 pipewire-rs，stock Ubuntu 22
@@ -166,8 +166,8 @@ libwayshot-xcap = "0.3"
 pipewire = { version = "0.9", features = ["v0_3_34"] }
 # 只为在 zbus 的信号流上调一次 `.next()`（等 PipeWireStreamAdded）。zbus 自己就依赖它。
 futures-util = { version = "0.3", default-features = false }
-x11rb = { version = "0.13", features = ["image", "randr", "xfixes"] }
-nix = { version = "0.30", features = ["poll", "time", "user"] }
+x11rb = { version = "0.14", features = ["image", "randr", "xfixes"] }
+nix = { version = "0.31", features = ["poll", "time", "user"] }
 
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
 # Windows 录屏必须走可关闭的 WGC runtime；xcap 的默认 DXGI recorder 会常驻工作线程，
@@ -183,7 +183,7 @@ objc2-core-graphics = "=0.3.2"
 # ScreenCaptureKit 只进入 macOS 12.3+ 专用 QA feature；默认 macOS 11 构建不会强链接框架。
 block2 = { version = "=0.6.2", optional = true }
 dispatch2 = { version = "=0.3.1", optional = true }
-objc2 = { version = "=0.6.4", optional = true }
+objc2 = { version = "=0.6.5", optional = true }
 # 长截图窗口身份需要在默认 macOS 构建中读取一次 Quartz 窗口列表；录屏 feature 复用同一版本。
 objc2-core-foundation = "=0.3.2"
 objc2-core-audio-types = { version = "=0.3.2", optional = true }
@@ -193,7 +193,7 @@ objc2-foundation = { version = "=0.3.2", default-features = false, features = ["
 objc2-screen-capture-kit = { version = "=0.3.2", default-features = false, features = ["SCShareableContent", "SCStream", "block2", "dispatch2", "objc2-core-foundation", "objc2-core-graphics", "objc2-core-media"], optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-version = "=0.1.7"
+windows-version = "=0.100.0"
 windows = { version = "=0.62.2", optional = true, features = [
     "Win32_Foundation",
     "Win32_Devices_FunctionDiscovery",
