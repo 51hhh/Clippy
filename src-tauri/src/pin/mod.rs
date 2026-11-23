@@ -30,7 +30,7 @@ pub(crate) use manager::remember_pin_window_position;
 pub use manager::PinManager;
 #[cfg(target_os = "windows")]
 pub(crate) use model::PinPhysicalOrigin;
-pub(crate) use model::{label_from_window_marker, PinOrigin};
+pub(crate) use model::{is_managed_pin_window_label, label_from_window_marker, PinOrigin};
 pub(crate) use origins::{PinFingerprint, PinOriginRegistry};
 pub(crate) use workspace::{queue_open_pin, restore_saved, PinWorkspacePersistence};
 
@@ -38,7 +38,8 @@ pub(crate) use workspace::{queue_open_pin, restore_saved, PinWorkspacePersistenc
 mod tests {
     use super::manager::PinManager;
     use super::model::{
-        is_safe_pin_label, window_marker, PinEntry, PinOrigin, PinPosition, PinSource, SharpenSlot,
+        is_managed_pin_window_label, is_safe_pin_label, window_marker, PinEntry, PinOrigin,
+        PinPosition, PinSource, SharpenSlot,
     };
     use super::window::{
         clamp_pin_position, clamp_span, fit_dimensions, fit_image_content_size, outer_size,
@@ -117,6 +118,22 @@ mod tests {
         assert!(is_safe_pin_label("pin-image-123"));
         assert!(!is_safe_pin_label("pin-../../secret"));
         assert!(!is_safe_pin_label("pin-id?x=1"));
+    }
+
+    #[test]
+    fn managed_pin_labels_exclude_the_fixed_workspace_library() {
+        for label in ["pin-image-123", "pin-clip-7", "pin-workspace-11"] {
+            assert!(is_managed_pin_window_label(label), "{label}");
+        }
+        for label in [
+            "pin-workspaces",
+            "pin-image-",
+            "pin-clip-",
+            "pin-workspace-",
+            "pin-other-1",
+        ] {
+            assert!(!is_managed_pin_window_label(label), "{label}");
+        }
     }
 
     #[test]

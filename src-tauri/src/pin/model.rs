@@ -342,7 +342,8 @@ pub struct PinPayload {
     pub can_save: bool,
     pub position: Option<PinPosition>,
     /// 见 `PinEntry::device_scale`。前端拿它判断"屏上一个图片像素是不是正好一个设备
-    /// 像素"，只有相等时才让 WebKit 用最近邻搬图（`src/react/pin/rendering.ts`）。
+    /// 像素"，只有相等时才让 WebKit 用最近邻搬图
+    /// （`src/react/pin/rendering.ts`）。
     pub device_scale: f64,
     /// 见 `PinEntry::buffer_scale`。图片已按缓冲区分辨率补偿过时，
     /// `pixelWidth == cssWidth * bufferScale`，前端据此知道这张图是 1:1 搬进缓冲区的。
@@ -415,4 +416,19 @@ pub(super) fn is_safe_pin_label(label: &str) -> bool {
         && label
             .chars()
             .all(|character| character.is_ascii_alphanumeric() || character == '-')
+}
+
+/// 生产环境中真正承载贴图内容的窗口标签。
+///
+/// `pin-workspaces` 是固定的工作区库窗口；它虽然共享 `pin-` 前缀，却不能进入贴图的
+/// 关闭确认、位置持久化与置顶生命周期。这里和 capability 中的三个收窄模式保持一致。
+pub(crate) fn is_managed_pin_window_label(label: &str) -> bool {
+    is_safe_pin_label(label)
+        && ["pin-image-", "pin-clip-", "pin-workspace-"]
+            .iter()
+            .any(|prefix| {
+                label
+                    .strip_prefix(prefix)
+                    .is_some_and(|suffix| !suffix.is_empty())
+            })
 }

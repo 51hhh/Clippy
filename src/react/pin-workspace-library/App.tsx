@@ -126,6 +126,10 @@ export function App({ services = defaultServices }: { services?: PinWorkspaceLib
   const [newGroup, setNewGroup] = useState("");
   const [renameGroup, setRenameGroup] = useState("");
 
+  const runWindowAction = useCallback((action: () => Promise<void>) => {
+    void action().catch(() => setError(true));
+  }, []);
+
   const load = useCallback(async () => {
     const current = ++generation.current;
     setLoading(true);
@@ -177,11 +181,11 @@ export function App({ services = defaultServices }: { services?: PinWorkspaceLib
       if (event.key !== "Escape") return;
       if (confirmRemove != null) setConfirmRemove(null);
       else if (confirmGroupDelete) setConfirmGroupDelete(false);
-      else void services.close();
+      else runWindowAction(services.close);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [confirmGroupDelete, confirmRemove, services]);
+  }, [confirmGroupDelete, confirmRemove, runWindowAction, services]);
 
   const visibleItems = useMemo(() => snapshot.items.filter((item) => {
     if (filter === "all") return true;
@@ -277,13 +281,13 @@ export function App({ services = defaultServices }: { services?: PinWorkspaceLib
       <header className="window-titlebar pin-library-titlebar" onMouseDown={(event) => {
         if (event.button !== 0 || (event.target as Element).closest("button,input,select,textarea,a")) return;
         event.preventDefault();
-        void services.startDrag();
+        runWindowAction(services.startDrag);
       }}>
         <div className="window-titlebar__copy">
           <h1>{t("pinLibrary.title")}</h1>
           <p>{t("pinLibrary.subtitle")}</p>
         </div>
-        <button className="window-titlebar__button window-titlebar__button--close window-close" type="button" aria-label={t("pinLibrary.close")} onClick={() => void services.close()}><X size={20} /></button>
+        <button className="window-titlebar__button window-titlebar__button--close window-close" type="button" aria-label={t("pinLibrary.close")} onClick={() => runWindowAction(services.close)}><X size={20} /></button>
       </header>
 
       <div className="pin-library-body">

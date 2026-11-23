@@ -16,6 +16,21 @@ function permissionIdentifiers(capability) {
   return capability.permissions.map(permissionIdentifier);
 }
 
+function matchesWindow(pattern, label) {
+  const expression = pattern
+    .split("*")
+    .map(part => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join(".*");
+  return new RegExp(`^${expression}$`).test(label);
+}
+
+function effectiveGrants(definitions, identifier, label) {
+  return definitions
+    .filter(capability => permissionIdentifiers(capability).includes(identifier))
+    .filter(capability => capability.windows.some(pattern => matchesWindow(pattern, label)))
+    .map(capability => capability.identifier);
+}
+
 it("grants native dragging only to movable UI without a globally effective Tauri deny", () => {
   const definitions = capabilities();
   // Tauri 2.10.3 的 deny map 命中直接返回 None，不能用窗口限定的 deny 保护覆盖层。
@@ -24,8 +39,20 @@ it("grants native dragging only to movable UI without a globally effective Tauri
   expect(identifiers).not.toContain("core:window:deny-start-resize-dragging");
   const grants = definitions.filter(capability => permissionIdentifiers(capability).includes("core:window:allow-start-dragging"));
   expect(grants).toHaveLength(1);
-  expect(grants[0].windows).toEqual(["pin-*", "longshot-controller-*"]);
+  expect(grants[0].windows).toEqual([
+    "settings",
+    "pin-image-*",
+    "pin-clip-*",
+    "pin-workspace-*",
+    "longshot-controller-*",
+  ]);
   expect(grants[0].webviews).toBeUndefined();
+  expect(effectiveGrants(definitions, "core:window:allow-start-dragging", "pin-workspaces"))
+    .toEqual([]);
+  for (const label of ["pin-image-1", "pin-clip-1", "pin-workspace-1"]) {
+    expect(effectiveGrants(definitions, "core:window:allow-start-dragging", label))
+      .toEqual(["movable-windows"]);
+  }
 });
 
 it("keeps every production window class inside an explicit native capability", () => {
@@ -34,7 +61,8 @@ it("keeps every production window class inside an explicit native capability", (
     ["default", ["main"]],
     ["launcher", ["launcher"]],
     ["settings", ["settings"]],
-    ["pin", ["pin-*"]],
+    ["pin", ["pin-image-*", "pin-clip-*", "pin-workspace-*"]],
+    ["pin-workspace-library", ["pin-workspaces"]],
     ["capture-overlay", ["capture-overlay-*", "recording-overlay-*"]],
     ["longshot-controller", ["longshot-controller-*"]],
     ["image-viewer", ["image-viewer-*"]],
@@ -47,7 +75,10 @@ it("keeps every production window class inside an explicit native capability", (
     "main",
     "launcher",
     "settings",
-    "pin-*",
+    "pin-image-*",
+    "pin-clip-*",
+    "pin-workspace-*",
+    "pin-workspaces",
     "capture-overlay-*",
     "recording-overlay-*",
     "longshot-controller-*",
@@ -63,9 +94,16 @@ it("grants sensitive native APIs only to the window that uses them", () => {
 
   expect(grants("core:window:allow-hide")).toEqual(["default"]);
   expect(grants("core:window:allow-close")).toEqual(["capture-overlay"]);
+  expect(grants("core:window:allow-minimize")).toEqual(["settings"]);
+  expect(grants("core:window:allow-toggle-maximize")).toEqual(["settings"]);
   expect(grants("core:app:allow-version")).toEqual(["settings"]);
   expect(grants("autostart:default")).toEqual(["settings"]);
   expect(grants("opener:allow-open-url")).toEqual(["default", "settings"]);
+  expect(effectiveGrants(definitions, "core:event:allow-listen", "pin-workspaces"))
+    .toEqual(["pin-workspace-library"]);
+  for (const label of ["pin-image-1", "pin-clip-1", "pin-workspace-1"]) {
+    expect(effectiveGrants(definitions, "core:event:allow-listen", label)).toEqual(["pin"]);
+  }
 
   const openerPermissions = definitions.flatMap(capability => capability.permissions)
     .filter(permission => permissionIdentifier(permission) === "opener:allow-open-url");

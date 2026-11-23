@@ -233,6 +233,12 @@ export function LauncherApp({
   }, [services]);
   const closeRef = useRef(close); closeRef.current = close;
 
+  const startDrag = useCallback(() => {
+    void services.startDrag().catch(() => {
+      if (mounted.current) setFailure(t("launcher.error.window"));
+    });
+  }, [services]);
+
   useEffect(() => {
     let current = true;
     let unlisten: (() => void) | undefined;
@@ -412,7 +418,7 @@ export function LauncherApp({
   return <main className="window-shell launcher-window" onKeyDown={onKeyDown}>
     <header className="window-titlebar launcher-header" onPointerDown={event => {
       if (event.button !== 0 || (event.target as Element).closest("button,input,textarea,select,a")) return;
-      event.preventDefault(); void services.startDrag();
+      event.preventDefault(); startDrag();
     }}>
       <div className="launcher-brand"><Command size={18} /><strong>{t("launcher.title")}</strong><kbd>Ctrl K</kbd></div>
       <button type="button" className="window-titlebar__button window-titlebar__button--close launcher-close" aria-label={t("launcher.close")} title={t("launcher.close")}

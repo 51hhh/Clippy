@@ -81,6 +81,18 @@ afterEach(async () => {
 });
 
 describe("action launcher", () => {
+  it("reports a rejected titlebar drag without leaking an unhandled rejection", async () => {
+    services = service({ startDrag: vi.fn().mockRejectedValue(new Error("window action failed")) });
+    await mount();
+    await act(async () => {
+      document.querySelector<HTMLElement>(".launcher-brand")!
+        .dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 }));
+      await Promise.resolve();
+    });
+    expect(document.querySelector("[role=alert]")?.textContent)
+      .toContain("actions window could not be updated");
+  });
+
   it("shows only direct authorized inputs and supports keyboard selection", async () => {
     await mount();
     expect(button("Take screenshot")).toBeTruthy();

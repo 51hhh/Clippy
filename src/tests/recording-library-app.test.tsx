@@ -86,6 +86,21 @@ describe("recording library app", () => {
       .toBe("Opus · 48 kHz stereo");
   });
 
+  it.each(["startDrag", "close"] as const)("reports a rejected %s window action", async (action) => {
+    vi.mocked(services[action]).mockRejectedValueOnce(new Error("window action failed"));
+    await render();
+    await act(async () => {
+      if (action === "startDrag") {
+        document.querySelector<HTMLHeadingElement>(".recordings-titlebar h1")!
+          .dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+      } else {
+        document.querySelector<HTMLButtonElement>(".window-close")!.click();
+      }
+      await Promise.resolve();
+    });
+    expect(document.querySelector(".action-error")).toBeTruthy();
+  });
+
   it("shows the verified audio track with a thumbnail but no unsafe recovery action", async () => {
     vi.mocked(services.list).mockResolvedValueOnce([{
       ...complete,

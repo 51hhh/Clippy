@@ -18,7 +18,9 @@ pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
         tauri::WindowEvent::Moved(position) if window.label() == "main" => {
             window_controller::remember_main_window_position(window, *position);
         }
-        tauri::WindowEvent::Moved(position) if window.label().starts_with("pin-") => {
+        tauri::WindowEvent::Moved(position)
+            if crate::pin::is_managed_pin_window_label(window.label()) =>
+        {
             if let Some(state) = window.app_handle().try_state::<AppState>() {
                 crate::pin::remember_pin_window_position(
                     &state.pin_manager,
@@ -49,7 +51,9 @@ pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
                 state.viewer_manager.remove(window.label());
             }
         }
-        tauri::WindowEvent::CloseRequested { api, .. } if window.label().starts_with("pin-") => {
+        tauri::WindowEvent::CloseRequested { api, .. }
+            if crate::pin::is_managed_pin_window_label(window.label()) =>
+        {
             // Tauri 仍会把原生 close-requested 事件交给前端。先拦住默认销毁，
             // 让未保存确认与保存中的保护生效；获准后的 close_pin 使用 destroy。
             api.prevent_close();
@@ -76,12 +80,16 @@ pub(crate) fn handle(window: &tauri::Window, event: &tauri::WindowEvent) {
         // 跳到最前，而单纯点它却不动。这里补上焦点这条路，让两者一致。
         //
         // 没开图钉的贴图不管：它是普通窗口，合成器自己就会把它抬上来。
-        tauri::WindowEvent::Focused(true) if window.label().starts_with("pin-") => {
+        tauri::WindowEvent::Focused(true)
+            if crate::pin::is_managed_pin_window_label(window.label()) =>
+        {
             if let Some(state) = window.app_handle().try_state::<AppState>() {
                 crate::pin::raise_focused_pin(window.app_handle(), &state, window.label());
             }
         }
-        tauri::WindowEvent::Destroyed if window.label().starts_with("pin-") => {
+        tauri::WindowEvent::Destroyed
+            if crate::pin::is_managed_pin_window_label(window.label()) =>
+        {
             if let Some(state) = window.app_handle().try_state::<AppState>() {
                 // A fixed-label clip pin can be recreated before an older
                 // Destroyed event arrives. Preserve the replacement entry.
@@ -205,6 +213,7 @@ fn hide_main_after_focus_loss(window: tauri::Window) {
 #[cfg(test)]
 mod tests {
     use super::{hides_instead_of_closing, should_hide_on_focus_loss};
+    use crate::pin::is_managed_pin_window_label;
 
     #[test]
     fn reusable_windows_hide_instead_of_entering_a_destroy_race() {
@@ -222,5 +231,11 @@ mod tests {
         assert!(!should_hide_on_focus_loss(false, true));
         assert!(!should_hide_on_focus_loss(true, false));
         assert!(!should_hide_on_focus_loss(true, true));
+    }
+
+    #[test]
+    fn workspace_library_never_enters_the_pin_window_lifecycle() {
+        assert!(is_managed_pin_window_label("pin-workspace-7"));
+        assert!(!is_managed_pin_window_label("pin-workspaces"));
     }
 }

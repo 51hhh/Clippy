@@ -865,10 +865,12 @@ fn payload_from_entry(entry: PinEntry) -> Result<PinPayload, String> {
     })
 }
 
-/// 清晰版图片就绪的事件名。与 `src/js/api.ts` 的 `onPinImageSharpened` 是一份契约。
+/// 清晰版图片就绪的事件名。与 `src/js/api.ts` 的
+/// `onPinImageSharpened` 是一份契约。
 const PIN_IMAGE_SHARPENED: &str = "pin-image-sharpened";
 
-/// "这张图已经贴出来了"。与 `src/js/api.ts` 的 `onPinAlreadyOpen` 是一份契约。
+/// "这张图已经贴出来了"。与 `src/js/api.ts` 的
+/// `onPinAlreadyOpen` 是一份契约。
 /// 发给那个既有窗口自己，它闪一下外围蓝框。
 const PIN_ALREADY_OPEN: &str = "pin-already-open";
 

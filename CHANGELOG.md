@@ -2,6 +2,21 @@
 
 ## 未发布
 
+### 2026-10-22 窗口标题栏权限与生命周期修复
+
+- 修复设置页自绘标题栏已绑定拖动、最小化和最大化动作，但 `settings` 窗口缺少对应 Tauri
+  capability，导致真实运行时被 ACL 拒绝的问题。拖动权限继续由受限的可移动窗口能力集中授予，
+  最小化与切换最大化仅开放给设置窗口；关闭仍走 `close_settings` 恢复快捷键并销毁窗口。
+- 新增 capability 回归合同，确保三项原生窗口权限不会再次遗漏或扩大到其它窗口。Linux x64
+  完整本地门禁 27 通过 / 0 失败 / 2 跳过；跳过的非宿主交叉 lint 与 AppImage 可视 smoke 不计为
+  通过。Linux 真实桌面的窗口管理器交互仍需使用重建后的安装包人工确认；Windows/macOS 与同一
+  SHA 原生 CI 尚未验证。
+- 修复固定标签 `pin-workspaces` 被 `pin-*` 误判为普通贴图，导致 Alt+F4/系统关闭被永久拦截的
+  问题。动态贴图 capability 收窄到 `pin-image-*`、`pin-clip-*` 与 `pin-workspace-*`，工作区库
+  改用只含事件监听的独立 capability，不再意外获得直接拖窗权限。
+- Launcher、录屏库与 Pin 工作区库的标题栏拖动或关闭失败会进入各自现有错误状态，不再产生
+  未处理的 Promise rejection。
+
 ### 2026-10-20 GNOME 系统界面截图
 
 - 修复 GNOME Wayland 下截图快捷键无法保留顶栏日历、托盘菜单与 Activities/应用概览的问题。

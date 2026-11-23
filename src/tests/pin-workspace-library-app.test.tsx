@@ -109,6 +109,21 @@ describe("pin workspace library app", () => {
     expect(services.startDrag).toHaveBeenCalledOnce();
   });
 
+  it.each(["startDrag", "close"] as const)("reports a rejected %s window action", async (action) => {
+    vi.mocked(services[action]).mockRejectedValueOnce(new Error("window action failed"));
+    await render();
+    await act(async () => {
+      if (action === "startDrag") {
+        document.querySelector<HTMLHeadingElement>(".pin-library-titlebar h1")!
+          .dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+      } else {
+        document.querySelector<HTMLButtonElement>(".window-close")!.click();
+      }
+      await Promise.resolve();
+    });
+    expect(document.querySelector(".error-banner")).toBeTruthy();
+  });
+
   it("refreshes open state when Pin windows change outside the library", async () => {
     let notify: (() => void) | undefined;
     vi.mocked(services.changed).mockImplementation(async (callback) => {

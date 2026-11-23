@@ -209,6 +209,12 @@ export function App({ services = defaultServices }: { services?: RecordingLibrar
   const playbackRef = useRef<RecordingPlayback | null>(null);
   const pendingPlayback = useRef<{ key: string } | null>(null);
 
+  const runWindowAction = useCallback((action: () => Promise<void>) => {
+    void action().catch(() => {
+      if (mounted.current) setActionError(true);
+    });
+  }, []);
+
   const load = useCallback(async () => {
     const current = ++generation.current;
     setLoading(true);
@@ -352,13 +358,13 @@ export function App({ services = defaultServices }: { services?: RecordingLibrar
       <header className="window-titlebar recordings-titlebar" onMouseDown={(event) => {
         if (event.button !== 0 || (event.target as Element).closest("button,input,select,textarea,a")) return;
         event.preventDefault();
-        void services.startDrag();
+        runWindowAction(services.startDrag);
       }}>
         <div className="window-titlebar__copy">
           <h1>{t("recordings.title")}</h1>
           <p>{t("recordings.subtitle")}</p>
         </div>
-        <button className="window-titlebar__button window-titlebar__button--close window-close" type="button" aria-label={t("recordings.close")} onClick={() => void services.close()}><X size={20} /></button>
+        <button className="window-titlebar__button window-titlebar__button--close window-close" type="button" aria-label={t("recordings.close")} onClick={() => runWindowAction(services.close)}><X size={20} /></button>
       </header>
 
       <section className="recordings-content" aria-live="polite">
