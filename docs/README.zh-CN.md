@@ -29,7 +29,8 @@
 
 Clippy 安静地驻留在系统托盘，后台监听剪贴板变化，让你通过一个快捷键即可搜索和回溯所有复制过的内容——文本、HTML、图片。
 
-基于 **Tauri v2 + Rust** 构建，没有 Electron，没有臃肿。
+当前正式的 v0.1.x 使用 **Tauri 2.12.4 + Rust**；v0.2.0 正在独立目录中迁移到
+**Slint 1.19.0**，目前只是可编译壳层，还不是功能完整或已发布的替代版本。项目不使用 Electron。
 
 ## 截图展示
 
@@ -103,19 +104,19 @@ sudo apt install -y \
 cargo install tauri-cli --version "^2"
 
 git clone https://github.com/51hhh/Clippy.git && cd Clippy
-cd src && npm install && cd ..
-cargo tauri build
+cd apps/legacy-tauri/frontend && npm install && cd ../../..
+cargo tauri build --config apps/legacy-tauri/native/tauri.ci.conf.json
 ```
 
-构建产物：`src-tauri/target/release/bundle/`
+构建产物：`target/release/bundle/`
 
-> **提示**：若预构建的 deb 在你的系统上无法运行（如系统库版本不匹配），从源码编译可确保完全兼容。
+> **提示**：本地构建覆盖配置会关闭 updater 签名，因此不需要发布私钥；正式发布仍使用基础配置与 `TAURI_SIGNING_PRIVATE_KEY`。若预构建的 deb 在你的系统上无法运行（如系统库版本不匹配），从源码编译可确保完全兼容。
 
 ## 技术栈
 
 | 层 | 技术 |
 |----|-----|
-| 框架 | [Tauri v2](https://v2.tauri.app/) |
+| 框架 | Tauri 2.12.4（v0.1.x）；Slint 1.19.0（v0.2 迁移） |
 | 后端 | Rust — arboard, rusqlite, sha2, image, ashpd |
 | 前端 | 原生 HTML / CSS / JS (ES Modules) |
 | 预览 | highlight.js · marked · DOMPurify |
@@ -156,7 +157,7 @@ flowchart LR
 ## 项目结构
 
 ```
-src/                          # 前端
+apps/legacy-tauri/frontend/   # legacy Tauri 前端（v0.1.x）
 ├── index.html                # 主面板（列表 + 预览）
 ├── settings.html             # 设置窗口
 ├── js/
@@ -173,7 +174,7 @@ src/                          # 前端
 ├── styles/                   # CSS
 └── i18n/                     # 中文、英文
 
-src-tauri/src/                # Rust 后端
+apps/legacy-tauri/native/src/                # Rust 后端
 ├── lib.rs                    # 应用初始化 + 插件注册
 ├── commands.rs               # AppState 与兼容 re-export
 ├── commands/                 # 剪贴板、设置、tmux、截图、OCR、URL 命令
@@ -188,16 +189,22 @@ src-tauri/src/                # Rust 后端
 ├── capture/                  # CaptureSession、多显示器覆盖层与选区动作
 ├── pin/                      # 统一 PinManager 与窗口生命周期
 └── translation/              # 服务适配器、错误、request-id 和密钥环
+
+apps/slint/                   # Slint 原生 UI 迁移壳层（v0.2.0）
+├── src/main.rs               # Rust 入口
+├── ui/                       # Slint 组件
+└── slint-project.json        # 语言版本与主 UI
 ```
 
 ## 开发
 
 ```bash
-cargo tauri dev                              # 开发服务器（热重载）
-cd src-tauri && cargo check --all-targets     # 编译检查
-cd src-tauri && cargo test                   # 单元测试
-cd src-tauri && cargo clippy --all-targets -- -D warnings  # Lint
-cd src && npx vitest run                     # 前端测试
+cd apps/legacy-tauri/frontend && npx tauri dev --config ../native/tauri.conf.json
+cargo run -p clippy-slint                    # v0.2 原生 UI 骨架
+cd apps/legacy-tauri/native && cargo check --all-targets     # 编译检查
+cd apps/legacy-tauri/native && cargo test                   # 单元测试
+cd apps/legacy-tauri/native && cargo clippy --all-targets -- -D warnings  # Lint
+cd apps/legacy-tauri/frontend && npx vitest run # 前端测试
 ./scripts/ci-local.sh                        # 完整门禁 + DOM/Xvfb smoke
 ```
 
@@ -212,6 +219,7 @@ cd src && npx vitest run                     # 前端测试
 ## 致谢
 
 - [Tauri](https://tauri.app/) — 更小、更快、更安全的桌面应用框架
+- [Slint](https://slint.dev/) — v0.2.0 迁移选用的原生 UI 工具包
 - [arboard](https://github.com/1Password/arboard) — 跨平台剪贴板库
 - [rusqlite](https://github.com/rusqlite/rusqlite) — Rust 的 SQLite 绑定
 - [ashpd](https://github.com/bilelmoussaoui/ashpd) — XDG Portal 绑定

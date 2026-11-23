@@ -36,4 +36,4 @@ W59 历史 SeekPreRoll=None 的失败文件未保留：独立可复现的测试�
 
 - [RFC 8794](https://www.rfc-editor.org/rfc/rfc8794.html)：元素长度、Master/Binary 与未知大小。
 - [Matroska 元素表](https://www.matroska.org/technical/elements.html)：四个字段及其父路径。
-- `src-tauri/src/recording/mux/webm_remux.rs`：现有严格读取器与文件长度/SHA-256 验证。
+- `apps/legacy-tauri/native/src/recording/mux/webm_remux.rs`：现有严格读取器与文件长度/SHA-256 验证。

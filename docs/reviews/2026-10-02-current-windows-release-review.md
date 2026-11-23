@@ -43,8 +43,8 @@ QA 使用既有 MSVC 14.44.35207 工具链的 10 份 14.44.35211.0 release CRT�
 `msvcp140.dll`, `vcruntime140.dll`, `vcruntime140_1.dll`。
 未加载 DLL；文件闭包不证明无 CRT 系统启动或 Windows 10/设备兼容。
 
-证据分别位于 `src-tauri/target/current-release-default-830b12b/` 和
-`src-tauri/target/current-release-qa-830b12b/`。`RESULT.json` 保存 clean/source tree、
+证据分别位于 `target/current-release-default-830b12b/` 和
+`target/current-release-qa-830b12b/`。`RESULT.json` 保存 clean/source tree、
 输入哈希、命令、实际 PID/退出码及 finally 恢复；`CODE-VERIFICATION-AUDIT.json`
 独立复核已结束构建，`MAIN-RUSTC-COMMAND.json`、`PE-INSPECTION.json`、feature
 指纹及 QA `PAYLOAD-VERIFICATION.json` 保存各层依据。stdout/stderr 为逐行 UTF-8

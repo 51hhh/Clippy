@@ -1,7 +1,8 @@
 # Clippy — AI Agent 速查指引
 
 ## 项目简介
-Clippy 是跨平台轻量剪贴板管理器。技术栈：Tauri v2 + Rust（后端）+ vanilla HTML/CSS/JS（主前端）+ React/TS（截图编辑功能岛）。
+Clippy 是跨平台轻量剪贴板管理器。完整的 v0.1.x 使用 Tauri 2.12.4 + Rust +
+vanilla HTML/CSS/JS + React/TS；v0.2.0 正在迁移到 Slint 1.19.0，当前仅为独立原生壳层。
 详细架构与数据流见 [CLAUDE.md](CLAUDE.md)；设计文档见 [docs/superpowers/specs/](docs/superpowers/specs/)。
 
 > ⚠️ 本仓库包含两个独立项目：根目录的 **Clippy** 和 `fxxkDJTU/` 下的发票工具（Vue + TS）。二者无代码依赖。
@@ -9,12 +10,12 @@ Clippy 是跨平台轻量剪贴板管理器。技术栈：Tauri v2 + Rust（后�
 ## 常用命令
 ```bash
 cargo tauri dev                            # 热重载开发（前端 + Rust）
-cd src-tauri && cargo check                # 快速编译检查
-cd src-tauri && cargo test                 # Rust 单元测试
-cd src-tauri && cargo clippy --all-targets -- -D warnings # Lint（警告即错误）
-cd src-tauri && cargo fmt                  # 格式化
-cd src && npx vitest run                   # 前端测试（jsdom）
-cd src && npx tsc --noEmit                 # React/TS 功能岛类型检查
+cd apps/legacy-tauri/native && cargo check                # 快速编译检查
+cd apps/legacy-tauri/native && cargo test                 # Rust 单元测试
+cd apps/legacy-tauri/native && cargo clippy --all-targets -- -D warnings # Lint（警告即错误）
+cd apps/legacy-tauri/native && cargo fmt                  # 格式化
+cd apps/legacy-tauri/frontend && npx vitest run # 旧版前端测试（jsdom）
+cd apps/legacy-tauri/frontend && npx tsc --noEmit # React/TS 功能岛类型检查
 ./scripts/ci-local.sh                      # 本地质量预检（与 CI 一致）
 ./scripts/ci-local.sh --quick              # 跳过构建，仅 lint + test
 ./scripts/ci-windows.ps1                   # 原生 Windows 默认门禁，Linux smoke 另验
@@ -24,8 +25,9 @@ cd src && npx tsc --noEmit                 # React/TS 功能岛类型检查
 ## 架构要点
 | 层 | 路径 | 说明 |
 |----|------|------|
-| 前端 | `src/js/` | ES Module；`api.ts` 是公共 facade，`api/*.ts` 是受控 Tauri IPC 边界 |
-| 后端 | `src-tauri/src/` | 扁平模块：commands / storage / clipboard_watcher / config / models / portal_shortcuts / tray_icon |
+| legacy 前端 | `apps/legacy-tauri/frontend/js/` | ES Module；`api.ts` 是公共 facade，`api/*.ts` 是受控 Tauri IPC 边界 |
+| legacy 后端 | `apps/legacy-tauri/native/src/` | Tauri v2 入口与 Rust 业务，v0.1.x 维护线 |
+| Slint 应用 | `apps/slint/` | Slint 1.19.0 原生 UI，v0.2.0 及以上 |
 | 数据库 | SQLite + FTS5 | `clips` 表 + `clips_fts` 虚拟表，SHA-256 去重 |
 | 快捷键 | X11: tauri-plugin-global-shortcut; Wayland: XDG Portal (ashpd) |
 

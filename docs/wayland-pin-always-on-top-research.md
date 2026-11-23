@@ -2,7 +2,7 @@
 
 调研日期：2026-08-29
 对应 TODO：`docs/reference-todo.md` P0
-参考实现：`example/flashot`（`23f16b5` / v0.7.1 / MIT）`src-tauri/src/overlay_window.rs`
+参考实现：`example/flashot`（`23f16b5` / v0.7.1 / MIT）`apps/legacy-tauri/native/src/overlay_window.rs`
 
 ## 结论（先行）
 

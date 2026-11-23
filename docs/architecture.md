@@ -1,12 +1,25 @@
 # Clippy 当前架构
 
-## 技术边界
+## 迁移边界
+
+- `apps/legacy-tauri/` 是 v0.1.x 的完整产品实现，固定使用 Tauri 2.12.4；迁移期仍负责现有功能与
+  必要的小修、安全修复。
+- `apps/slint/` 是 v0.2.0 的新入口，固定使用 Slint 1.19.0。当前只包含可独立编译、关闭并展示
+  框架归属的迁移壳层，尚未接入剪贴板、托盘、截图等产品能力，也没有启用 v0.2 发布打包。
+- 根 `Cargo.toml` / `Cargo.lock` 统一解析两套 Rust 入口与 vendored patch；后续共享业务能力按
+  `SLINT-UI-MIGRATION-01` 逐步下沉到 UI 无关 crate。迁移期间不能把 legacy 的 Tauri/WebView
+  调用复制进 Slint 正式路径。
+
+下面的领域与调用链描述当前完整的 legacy v0.1.x 实现；Slint 接入进度以迁移规格和功能矩阵为准。
+
+## legacy v0.1.x 技术边界
 
 - 主窗口：vanilla HTML/CSS/ES modules，保留稳定的剪贴板高频交互。
 - Pin、截图覆盖层、长截图控制器、图片查看器与主窗口局部面板：React + TypeScript 功能岛。
 - 系统资源：Rust/Tauri 拥有剪贴板、数据库、窗口、截图帧、Portal 会话、Pin 数据、密钥和网络请求。
-- IPC：业务模块只依赖 `src/js/api.ts` 公共 facade；`src/js/api/*.ts` 的登记领域模块持有
-  Tauri 调用边界，`ipc-types.ts` 对齐 Rust serde 字段。
+- IPC：业务模块只依赖 `apps/legacy-tauri/frontend/js/api.ts` 公共 facade；
+  `apps/legacy-tauri/frontend/js/api/*.ts` 的登记领域模块持有 Tauri 调用边界，`ipc-types.ts`
+  对齐 Rust serde 字段。
 
 ## 核心调用链
 
@@ -72,9 +85,9 @@ flowchart LR
 | `i18n.rs` | 托盘菜单与 Rust 侧窗口标题的静态文案；语言解析与前端 `i18n.js` 同规则（显式值优先，`auto` 看 `LC_ALL`/`LC_MESSAGES`/`LANG`，其余回退英文） |
 | `capture/` | 单一 CaptureSession、冻结帧、多显示器覆盖层、裁剪与动作；`window_probe.rs` 按堆叠顺序（扩展 `sort_windows_by_stacking` / X11 `_NET_CLIENT_LIST_STACKING`）下发速选候选。冻结帧像素由 `get_capture_frame` 以二进制 IPC 直传原始 RGBA（payload 只带几何），`StageTimings` 每次会话记一条分段耗时日志 |
 | `recording/` | `RecordingLifecycle` 串起可信选区、平台帧源、有界背压、共享单调时钟、VP9/WebM writer、恢复分段、控制窗和结果库；`RecordingManager` 在同一 generation 槽拥有纯视频或 VP9 + Opus 双轨 session。内部音频固定为 48 kHz mono/stereo，Windows AV QA 已把 WGC 与 WASAPI 系统声/默认麦克风接线，macOS 13+ AV QA 已把 ScreenCaptureKit 系统声接线；模式由后端能力下发且默认无音频，macOS 麦克风、Linux 音源与正式发布仍未接入。`manifest.rs` 拥有原子 journal、长度/SHA-256 与删除/导出安全合同；缩略图读取器对 schema v2 严格核对 VP9/Opus 双轨元数据，只解码首个视频关键帧，异常双轨 remux 仍保持关闭；`media_protocol.rs` 在完整校验后签发结果窗专属租约，以最大 2 MiB 的单 Range 响应支持 WebM 库内播放，WebView 不接触真实路径。 |
-| `capture/shell_extension.rs` | 自带 GNOME Shell 扩展的安装/卸载/状态、令牌校验与截图调用（逐屏原始 RGBA `CaptureArea`、逐屏 PNG `ScreenshotArea`、整屏 `Screenshot`，`include_str!` 内嵌 `gnome-extension/`）。协议 v6 还让 Shell 直接持有 Capture 快捷键：系统日历/菜单/概览中先冻结 stage 再通知应用，普通桌面仍走 PipeWire；只允许 `NORMAL | OVERVIEW | POPUP`，解锁后从扩展私有文件恢复 grab，卸载后立即恢复 gsettings 绑定。GNOME Wayland 下既没有面向普通应用的窗口几何接口，Portal 截图也要求"聚焦的应用"才能弹授权对话框（快捷键触发时必然失败），两件事都只能以扩展身份进 gnome-shell 做；装了要注销一次生效，升级同样要（`ReloadExtension` 已废弃，故有 `stale` 状态），卸载即时。安装只由设置页显式触发，启动时只做 `reconcile_on_startup`，绝不擅自安装。`place_window` 是贴图缩放的每帧热路径，它的前置检查（是不是 GNOME Wayland、装没装、协议版本够不够、令牌文件内容）缓存在 `placement_token()` 里：成功的结果一直有效，失败的结果 30 秒后重试，安装/卸载会立刻作废缓存。详见 [docs/capture-linux.md](capture-linux.md) |
+| `capture/shell_extension.rs` | 自带 GNOME Shell 扩展的安装/卸载/状态、令牌校验与截图调用（逐屏原始 RGBA `CaptureArea`、逐屏 PNG `ScreenshotArea`、整屏 `Screenshot`，`include_str!` 内嵌 `gnome-extension/`）。当前协议回到 v5，扩展不持有 Capture 键；GNOME 快捷键由 gsd-media-keys 通过 D-Bus 立即触发应用，冻结帧优先走 PipeWire。降级时会让仍驻留内存的已知 v6 实例释放 grab 并删除恢复文件，未知更高协议则保持原文件和所有权。卸载只有得到运行实例的停用确认后才删文件；状态、安装与卸载在 blocking worker 执行。GNOME Wayland 下没有面向普通应用的窗口几何接口，Portal 截图也要求“聚焦的应用”才能弹授权对话框（快捷键触发时必然失败），两件事仍由扩展兜底；装了要注销一次生效，协议不一致同样要（`ReloadExtension` 已废弃，故有 `stale` 状态），卸载即时。安装只由设置页显式触发，启动时只做 `reconcile_on_startup`，绝不擅自安装。`place_window` 是贴图缩放的每帧热路径，它的前置检查（是不是 GNOME Wayland、装没装、协议版本够不够、令牌文件内容）缓存在 `placement_token()` 里：成功的结果一直有效，失败的结果 30 秒后重试，安装/卸载会立刻作废缓存。详见 [docs/capture-linux.md](capture-linux.md) |
 | `portal_shortcuts.rs` | 非 GNOME Wayland 的 XDG GlobalShortcuts Portal worker。完整配置一次性绑定到长生命周期 session；Portal 返回子集时逐动作记账。配置变化或录制快捷键会以代次取消正在等待用户确认的旧 Bind、关闭旧 session，再按完整配置建立新 session，避免旧会话与新会话同时响应。Tauri accelerator 会转换为 XDG `CTRL/ALT/SHIFT/LOGO + xkb keysym` 格式。 |
-| `screenshot.rs` + `screenshot/*` | 原始截图帧契约、PNG 编解码与平台后端选择。Wayland 按 Shell 快捷键一次性预冻结图（仅系统 UI）→ Mutter PipeWire → Shell 扩展逐屏 → Shell 整屏 → wlroots → Portal（非交互）→ GNOME → xcap 回退；临时文件由 `TemporaryScreenshotFile` 兜底删除。`desktop_scale_at` 是图片像素到 CSS 像素的唯一真实缩放查询。Linux 后端依据、限制和测量记录见 [capture-linux.md](capture-linux.md)，基准方法见 [bench-baseline.md](bench-baseline.md) |
+| `screenshot.rs` + `screenshot/*` | 原始截图帧契约、PNG 编解码与平台后端选择。Wayland 按 Mutter PipeWire → Shell 扩展逐屏 → Shell 整屏 → wlroots → Portal（非交互）→ GNOME → xcap 回退；临时文件由 `TemporaryScreenshotFile` 兜底删除。`desktop_scale_at` 是图片像素到 CSS 像素的唯一真实缩放查询。Linux 后端依据、限制和测量记录见 [capture-linux.md](capture-linux.md)，基准方法见 [bench-baseline.md](bench-baseline.md) |
 | `pin/` | PinManager、内容来源、窗口尺寸、缩放/透明度/锁定和清理；`origins.rs` 的 `PinOriginRegistry`（挂在 `AppState.pin_origins`）记住"我们自己截下来复制走的图"原本在屏幕上的矩形，之后从历史里 Pin 同一张图时靠它贴回原处。键是**解码后像素**的 sha256（含宽高），不是 PNG 字节——图片经 arboard 走一圈是原始 RGBA，watcher 会重新编码，PNG 字节不稳定。登记方交出的是 `PinFingerprint`（已经算好的摘要 + 宽高），这样调用方能和剪贴板写入共用同一份解码像素，不必为登记再解一次或复制一份 16 MB；`lookup` 先只读 PNG 头比宽高，尺寸不匹配就直接返回，省掉整张解码。**内容尺寸的单位**：有原始矩形时直接用它（选区本来就是逻辑像素）；没有时入参是**图片像素**，`fit_content_size` 必须先按 `screenshot::desktop_scale_at` 查到的真实缩放折成 CSS 像素，拿 `scale_factor()` 或干脆不折算都会让贴图被放大再重采样。窗口外框另有 **252 px 高度下限**（竖排工具条要 249 px，随手框个小按钮的贴图按内容算只有一百来像素高，工具条会被切掉）——下限**只加高窗口、不改内容尺寸**，多出来的高度由前端留成左上角对齐的透明留白，否则"贴回原处"当场就偏。缩放时**只有位置真的可信才重新摆位**：Wayland 协议不把窗口位置告诉客户端，`outer_position()` 与 `Moved` 都是 GTK 自己那份假值，拿它算"保持中心"等于每格滚轮都把窗口传送到工作区原点（`known_pin_position` 因此在 Wayland 上返回 `None`） |
 | `pin/commands.rs` / `lifecycle.rs` / `output.rs` / `project_file.rs` | `commands.rs` 只保留 Tauri wire adapter 与稳定 DTO re-export；窗口创建、状态迁移和清晰度任务由 `lifecycle.rs` 组合；`output.rs` 拥有画布 DTO、canonical/preview 选取、renderer v1/v2 路由及内部修订登记。Copy、普通保存和“保存可编辑版本”写出的 PNG 都只有当前扁平像素；可编辑状态由 SQLite 管理。`project_file.rs` 在建窗前完成扩展名、普通文件、160 MiB 上限和工程校验：旧 iTXt 工程可导入，本机扁平 PNG 只有像素哈希精确命中内部修订时才能恢复。领域函数不带 `#[tauri::command]`，可在没有注册 IPC 或创建窗口时直接测试 |
 | `pin/project.rs` | 画布工程文档的信任边界，并保留自包含 iTXt v2/v3 的兼容读取。内部修订以 renderer v2、根图尺寸、累计 annotations/adjustments 恢复，画布从根图重放；旧容器仍校验原图 SHA-256 与 `preview.rgbaSha256`，损坏或未来版本安全降级为扁平 PNG。writer 与 reader 共用 64 MiB 合成图、64 MiB 原图、96 MiB 解压 JSON、160 MiB 容器预算。新保存不会把未打码原图嵌入输出 PNG；旧工程在下一次保存或复制时登记进内部修订链 |
@@ -124,7 +137,11 @@ VP9/Opus 交错器在实际 WebM 0.5 ms timecode 域内比较 packet 和未来 f
 
 主要文档窗口共用 `styles/window-shell.css` 的 Window Shell、Titlebar、标题副本和窗口控制按钮原语。
 设置页由 `js/window-chrome.js` 绑定拖动、双击最大化和窗口按钮，原生动作仍从 `api.ts` facade
-注入；Launcher、Viewer、录屏库与 Pin 工作区只复用 CSS 类名，并继续使用各自已有的 service adapter。
+注入；`settings` 原生 capability 仅授予拖动、最小化与切换最大化所需权限，关闭仍走受保护的
+`close_settings` 命令。Launcher、Viewer、录屏库与 Pin 工作区只复用 CSS 类名，并继续使用各自已有的
+service adapter。动态贴图 capability 只匹配 `pin-image-*`、`pin-clip-*` 与 `pin-workspace-*`；固定
+标签 `pin-workspaces` 使用独立的事件监听 capability，其拖动与关闭只能走按调用窗口校验的业务命令，
+也不会进入贴图窗口的关闭确认、位置持久化或置顶生命周期。
 截图覆盖层、长截图控制、Pin 画布与录屏控制浮层保留面向画面的高对比工具风格，不套用文档窗口壳层。
 
 `styles/themes.css` 是六套主题 token 的唯一来源。录屏库与 Pin 工作区不得维护仅覆盖 light/dark 的

@@ -44,7 +44,7 @@ WebM 补丁未修改该模块。原测试等待启动最多 10 s，但实际进�
 Windows 本机不会编译 `cfg(all(test, unix))` 的进程测试；本机格式/探针不替代 Unix 原生 CI。
 Windows 11 单屏桌面、Windows 10、多屏、音频与安装升级仍未执行。
 
-本机 Windows 探针直接编译未修改的 `src-tauri/src/ocr/process.rs`，Tokio 1.52.1 与仓库锁文件一致。
+本机 Windows 探针直接编译未修改的 `apps/legacy-tauri/native/src/ocr/process.rs`，Tokio 1.52.1 与仓库锁文件一致。
 750 ms 慢启动在 250 ms 原预算下返回超时，尚未写出启动标记；夹具阶段控制的 20 s 兜底下
 进程实际就绪且监督器未完成，释放控制标记后按输出上限触发 kill/wait，Windows PID 查询确认
 子进程不再存在。该探针只验证竞态前提与监督器清理路径，不含 Tauri runtime/消费者合同，

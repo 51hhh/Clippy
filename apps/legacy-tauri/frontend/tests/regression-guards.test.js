@@ -1,0 +1,875 @@
+/**
+ * regression-guards.test.js — 已经踩过一次的坑
+ *
+ * 这里的每一条都对应一个真实报障，且都是"改错了不会立刻报错、只会在界面上
+ * 悄悄退化"的那类问题，所以用结构断言钉住，而不是靠人再点一遍：
+ *   1. tauri.conf.json 的 before*Command 依赖固定 cwd → `can't cd to ../src`，dev 起不来
+ *   2. `#codec-output` 改回 <pre> → 多字段结果的按钮行装不进去（<pre> 只容纳短语内容）
+ *   3. 列表行重新显示内容类型 → 主栏 HTML、侧栏 YAML 的自相矛盾又回来
+ *   4. preview-panel.js 自己再嗅探一遍内容类型 → 判定重新分叉成两套标准
+ *   5. release notes 的下载链接与构建矩阵的发行版标签不同步 → 发布页上是死链
+ *   6. 发布脚本假定 cargo-tauri 存在 → 只在真正打 tag 时才炸（runner 上只有 npm 侧 CLI）
+ *   7. prependClip 按索引 +1 挪焦点 → 面板关着时到达的新条目把焦点挤到第二行，
+ *      按 Pin 贴出的是上一张图（用户报障的正是这条）
+ *   8. 全局 Pin 退回前端列表缓存 / 剪贴板写入不唤醒 watcher → 同一个症状的另外两条放大器
+ *   8b. 全局 Pin 信任"面板没焦点时留下的焦点行" → 侧栏开着时列表不释放，焦点跟着老条目
+ *       挪到第 1 行，截完图按 Pin 贴出的还是上一张（第 7 条修完仍然复现的就是这条）
+ *   9. 选区压暗搬回 drawScene → 拖一次选区就是几十次全屏重采样，帧率掉下来但功能"是对的"
+ *  10. 列表行收整个 snapshot / 回调在渲染里新建 → memo 失效，一次按键重渲全部 30 行
+ *  11. 列表行取原图画 48 px 缩略图 → 每开一次面板十几 MB IPC + 十几次全尺寸 PNG 解码
+ *  12. 为兼容 Ubuntu 22 把 PipeWire 快路径裁掉 → GNOME Wayland 静默退到逐屏 PNG，
+ *      双屏截图从约 230 ms 回退到 4–6 秒
+ *  13. release 在 latest.json 上传前就取消 draft → 用户可见的更新端点短暂缺文件
+ *  14. Rust 与 npm 的 Tauri 包跨 minor → 普通测试全绿，但真正 tauri build 才拒绝打包
+ *  15. deb postinst 移走 dpkg 管理的桌面文件 → 入口可用，但包完整性永久报损坏
+ */
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const frontendRoot = resolve(process.cwd());
+const repoRoot = resolve(frontendRoot, "../../..");
+
+function read(relativeToRepo) {
+  // 结构合同与检出的行尾格式无关，统一行尾后仍保留全部原有内容断言。
+  return readFileSync(resolve(repoRoot, relativeToRepo), "utf8").replace(/\r\n/g, "\n");
+}
+
+describe("tauri 构建钩子不依赖 cwd", () => {
+  const conf = JSON.parse(read("apps/legacy-tauri/native/tauri.conf.json"));
+
+  // 让 Tauri 自己按配置文件目录解析 cwd；脚本不再包含 POSIX shell 的 cd、重定向和
+  // 逻辑运算符，因此同一份配置可以由 sh、cmd.exe 或 PowerShell 启动。
+  it.each([
+    ["beforeDevCommand", conf.build.beforeDevCommand, "npm run dev"],
+    ["beforeBuildCommand", conf.build.beforeBuildCommand, "npm run build"],
+  ])("%s 使用跨平台结构化 cwd", (_name, command, expectedScript) => {
+    expect(command).toEqual({ script: expectedScript, cwd: "../frontend" });
+    expect(resolve(repoRoot, "apps/legacy-tauri/native", command.cwd)).toBe(frontendRoot);
+    expect(command.script).not.toMatch(/[;&|<>]/);
+  });
+});
+
+describe("Tauri Rust 与 npm 包保持同一 minor", () => {
+  const cargoLock = read("Cargo.lock");
+  const npmLock = JSON.parse(read("apps/legacy-tauri/frontend/package-lock.json"));
+
+  function cargoVersion(name) {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = cargoLock.match(
+      new RegExp(`\\[\\[package\\]\\]\\nname = "${escaped}"\\nversion = "([^"]+)"`),
+    );
+    if (!match) throw new Error(`Cargo.lock 缺少 ${name}`);
+    return match[1];
+  }
+
+  function npmVersion(name) {
+    const version = npmLock.packages?.[`node_modules/${name}`]?.version;
+    if (!version) throw new Error(`package-lock.json 缺少 ${name}`);
+    return version;
+  }
+
+  function minor(version) {
+    return version.split(".").slice(0, 2).join(".");
+  }
+
+  it.each([
+    ["@tauri-apps/api", "tauri"],
+    ["@tauri-apps/cli", "tauri"],
+    ["@tauri-apps/plugin-updater", "tauri-plugin-updater"],
+  ])("%s 与 Rust %s 对齐", (npmName, cargoName) => {
+    expect(minor(npmVersion(npmName))).toBe(minor(cargoVersion(cargoName)));
+  });
+});
+
+describe("Linux CI 固守 Ubuntu 22 构建基线", () => {
+  const buildWorkflow = read(".github/workflows/build.yml");
+  const qaWorkflow = read(".github/workflows/native-qa.yml");
+  const releaseWorkflow = read(".github/workflows/release.yml");
+
+  it.each([
+    ["CI", buildWorkflow],
+    ["release", releaseWorkflow],
+  ])("%s 使用 Jammy 并编译 PipeWire 快路径", (_name, workflow) => {
+    expect(workflow).toContain("ubuntu-22.04");
+    expect(workflow).not.toContain("ubuntu-24.04");
+    expect(workflow).toContain("libpipewire-0.3-dev");
+  });
+
+  it("默认依赖图缺少 pipewire-rs 或 Jammy 补丁时 CI 会失败", () => {
+    for (const workflow of [buildWorkflow, releaseWorkflow]) {
+      expect(workflow).toContain("Default Linux build must include pipewire-rs fast path");
+      expect(workflow).toContain(
+        "Default Linux build must use the Jammy-compatible vendored libspa patch",
+      );
+      expect(workflow).not.toContain("must not include pipewire-rs");
+    }
+  });
+
+  it("Rust 默认与 no-default-features 构建都不能裁掉 screencast", () => {
+    const workspaceCargo = read("Cargo.toml");
+    const cargo = read("apps/legacy-tauri/native/Cargo.toml");
+    const screenshot = read("apps/legacy-tauri/native/src/screenshot.rs");
+    const backends = read("apps/legacy-tauri/native/src/screenshot/backends.rs");
+    expect(cargo).toMatch(/^pipewire\s*=.*version\s*=\s*"0\.9"/m);
+    expect(cargo).not.toMatch(/^pipewire\s*=.*optional\s*=\s*true/m);
+    expect(workspaceCargo).toContain(
+      'libspa = { path = "apps/legacy-tauri/native/vendor/libspa" }',
+    );
+    expect(screenshot).toContain('#[cfg(target_os = "linux")]\nmod screencast;');
+    expect(backends).not.toContain('feature = "linux-pipewire"');
+    expect(buildWorkflow).toContain("cargo check --no-default-features --lib");
+  });
+
+  it("Rust target 缓存按 runner 隔离", () => {
+    // Linux runner 只看 runner.os 会把 Jammy 与更新发行版都归到 Linux，缓存中的
+    // build-script 会因较新 glibc 无法在 Ubuntu 22 启动；runner 名必须进入 key。
+    const cacheBlocks = [...buildWorkflow.matchAll(/- name: Rust cache[\s\S]*?workspaces: \. -> target/g)];
+    expect(cacheBlocks).toHaveLength(3);
+    for (const [block] of cacheBlocks.slice(0, 2)) {
+      expect(block).toContain("prefix-key: v1-rust");
+      expect(block).toMatch(/key: (ubuntu-22\.04|\$\{\{ matrix\.runner \}\})/);
+    }
+    expect(cacheBlocks[2][0]).toContain("prefix-key: v1-recording-codec");
+    expect(cacheBlocks[2][0]).toContain("key: ${{ matrix.runner }}-${{ matrix.cache_key }}");
+  });
+
+  it("VP9 原型以独立四目标矩阵验证固定供应链和编码闭环", () => {
+    expect(buildWorkflow).toMatch(
+      /recording-codec-prototype:[\s\S]*?timeout-minutes: 90[\s\S]*?strategy:/,
+    );
+    expect(buildWorkflow).toMatch(/recording-codec-prototype:[\s\S]*runner: ubuntu-22\.04/);
+    expect(buildWorkflow).toMatch(/recording-codec-prototype:[\s\S]*runner: windows-latest/);
+    expect(buildWorkflow).toMatch(
+      /runner: windows-latest\n\s+features: recording-windows-av-qa\n\s+cache_key: windows-av/,
+    );
+    expect(buildWorkflow).toMatch(/recording-codec-prototype:[\s\S]*runner: macos-15\n/);
+    expect(buildWorkflow).toMatch(
+      /runner: macos-15-intel\n\s+features: recording-macos-av-qa,recording-vp9-source-build/,
+    );
+    expect(buildWorkflow).toMatch(
+      /runner: macos-15\n\s+features: recording-macos-av-qa/,
+    );
+    expect(buildWorkflow).toContain("components: clippy, llvm-tools-preview");
+    expect(buildWorkflow).toContain("if: matrix.runner == 'macos-15-intel'");
+    expect(buildWorkflow).toContain("run: brew install nasm");
+    expect(buildWorkflow).toContain("node scripts/verify-recording-codec-supply-chain.mjs");
+    expect(buildWorkflow).toContain(
+      "cargo clippy --features ${{ matrix.features }} --all-targets -- -D warnings",
+    );
+    expect(buildWorkflow).toContain(
+      "cargo test --features ${{ matrix.features }} --lib recording::mux::vp9_webm::tests",
+    );
+    expect(buildWorkflow).toContain(
+      "cargo test --features ${{ matrix.features }} --lib recording::session::tests::vp9_",
+    );
+    expect(buildWorkflow).toContain(
+      "cargo test --features ${{ matrix.features }} --lib recording::av",
+    );
+    expect(buildWorkflow).toContain(
+      "cargo test --features ${{ matrix.features }} --lib recording::manager::tests",
+    );
+  });
+
+  it("Jammy 构建的 AppImage 在 Ubuntu 24 执行强制运行 smoke", () => {
+    expect(qaWorkflow).toMatch(/build-linux:[\s\S]*runs-on: ubuntu-22\.04/);
+    expect(qaWorkflow).toMatch(
+      /smoke-ubuntu24:[\s\S]*needs: build-linux[\s\S]*runs-on: ubuntu-24\.04/,
+    );
+    expect(qaWorkflow).toContain('CLIPPY_APPIMAGE_SMOKE_REQUIRED: "1"');
+    expect(qaWorkflow).toContain("./scripts/smoke-appimage-x11.sh");
+    expect(qaWorkflow).toContain("appimage-x11-smoke.*/runner.log");
+    expect(qaWorkflow).not.toMatch(/^\s+path: target\/appimage-x11-smoke\.\*$/m);
+  });
+
+  it("AppImage smoke 不允许子进程从 bash -s 的脚本流读取 stdin", () => {
+    const smokeScript = read("scripts/smoke-appimage-x11.sh");
+    expect(smokeScript).toContain('"$APP_RUN" </dev/null');
+    expect(smokeScript).toContain("ffmpeg -nostdin");
+    expect(smokeScript).toContain('</dev/null >"$FFMPEG_LOG"');
+  });
+});
+
+describe("原生平台由真实 runner 编译", () => {
+  const buildWorkflow = read(".github/workflows/build.yml");
+
+  it.each(["windows-latest", "macos-latest"])("%s 执行 check 与 clippy", (runner) => {
+    expect(buildWorkflow).toContain(runner);
+  });
+  it("原生 job 不用 Linux 交叉工具链冒充验证", () => {
+    expect(buildWorkflow).toMatch(/native-check:[\s\S]*cargo check --all-targets/);
+    expect(buildWorkflow).toMatch(/native-check:[\s\S]*cargo clippy --all-targets -- -D warnings/);
+  });
+
+  it("原生 job 执行 Rust 测试，平台无关前端门禁只在 Jammy 执行一次", () => {
+    const nativeJob = buildWorkflow.slice(buildWorkflow.indexOf("  native-check:"));
+    expect(nativeJob).toContain("cargo test");
+    expect(nativeJob).not.toContain("npx vitest run");
+    expect(nativeJob).not.toContain("npx tsc --noEmit");
+    expect(nativeJob).not.toContain("npx vite build");
+    expect(buildWorkflow.slice(0, buildWorkflow.indexOf("  native-check:"))).toContain(
+      "npx vitest run",
+    );
+  });
+
+  it("手动 QA workflow 为同一 SHA 生成四架构包、Ubuntu 24 证据与十环境记录", () => {
+    const qaWorkflow = read(".github/workflows/native-qa.yml");
+    const macQaJob = qaWorkflow.slice(qaWorkflow.indexOf("  build-macos:"));
+    const releaseWorkflow = read(".github/workflows/release.yml");
+    const cargo = read("apps/legacy-tauri/native/Cargo.toml");
+    expect(buildWorkflow).not.toContain("QA artifact");
+    expect(qaWorkflow).toMatch(/on:\s*\n\s+workflow_dispatch:/);
+    for (const artifact of [
+      "qa-linux-x64-${{ github.sha }}",
+      "qa-windows-x64-${{ github.sha }}",
+      "qa-macos-${{ matrix.asset_arch }}-${{ github.sha }}",
+      "qa-ubuntu24-x11-smoke-${{ github.sha }}",
+      "qa-record-templates-${{ github.sha }}",
+    ]) {
+      expect(qaWorkflow).toContain(artifact);
+    }
+    expect(qaWorkflow.match(/uses: actions\/upload-artifact@[0-9a-f]{40}/g)).toHaveLength(5);
+    expect(qaWorkflow.match(/retention-days: 14/g)).toHaveLength(5);
+    expect(qaWorkflow).toContain("signing=unsigned-qa-only");
+    expect(qaWorkflow).toContain("signing=self-signed-qa-only");
+    expect(qaWorkflow).toContain("signing=ad-hoc-qa-only");
+    expect(qaWorkflow).toContain("./scripts/finalize-appimage.sh");
+    expect(qaWorkflow).toContain("rust_target: x86_64-apple-darwin");
+    expect(qaWorkflow).toContain("rust_target: aarch64-apple-darwin");
+    expect(qaWorkflow).toContain("linux-gnome-wayland-ubuntu24");
+    expect(qaWorkflow).toContain("linux-gnome-wayland-ubuntu26");
+    expect(qaWorkflow).toContain("--config apps/legacy-tauri/native/tauri.linux.conf.json");
+    expect(qaWorkflow).toContain("--config apps/legacy-tauri/native/tauri.windows.conf.json");
+    expect(qaWorkflow).toContain("--config apps/legacy-tauri/native/tauri.windows.signing.conf.json");
+    expect(qaWorkflow).toContain("--config apps/legacy-tauri/native/tauri.macos.conf.json");
+    expect(qaWorkflow).toContain("--config apps/legacy-tauri/native/tauri.macos.recording.conf.json");
+    expect(qaWorkflow).toContain("--config apps/legacy-tauri/native/tauri.macos.qa.conf.json");
+    expect(qaWorkflow).not.toMatch(/macOS QA[\s\S]*--no-sign/);
+    expect(qaWorkflow).toContain("plutil -extract CFBundleExecutable raw");
+    expect(qaWorkflow).toContain('lipo -archs "$EXECUTABLE"');
+    expect(qaWorkflow).not.toContain('Contents/MacOS/Clippy"');
+    expect(qaWorkflow).toContain(
+      "npx --prefix apps/legacy-tauri/frontend tauri build --ci --no-sign\n          " +
+        "--features recording-wayland-qa,recording-linux-av-qa",
+    );
+    expect(qaWorkflow).toContain(
+      "npx --prefix apps/legacy-tauri/frontend tauri build --ci\n          " +
+        "--features recording-windows-av-qa",
+    );
+    expect(qaWorkflow).toContain("msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e");
+    expect(qaWorkflow).toContain("microsoft/setup-msbuild@30375c66a4eea26614e0d39710365f22f8b0af57");
+    expect(qaWorkflow).toContain("components: llvm-tools-preview");
+    expect(macQaJob).toMatch(
+      /Setup Rust[\s\S]*targets: \$\{\{ matrix\.rust_target \}\}[\s\S]*components: llvm-tools-preview/,
+    );
+    expect(qaWorkflow).toContain(
+      "recording_feature=recording-wayland-qa,recording-linux-av-qa",
+    );
+    expect(qaWorkflow).toContain("recording_feature=recording-windows-av-qa");
+    expect(qaWorkflow).toContain("recording_feature: recording-macos-av-qa");
+    expect(qaWorkflow).toContain("recording_feature=%s");
+    expect(qaWorkflow).toContain('"${{ matrix.recording_feature }}"');
+    expect(qaWorkflow).toContain("minimum_system_version=12.3");
+    expect(releaseWorkflow).not.toContain("recording-vp9");
+    expect(releaseWorkflow).not.toContain("recording-macos-screencapturekit");
+    expect(releaseWorkflow).not.toContain("recording-macos-av-qa");
+    expect(releaseWorkflow).not.toContain("recording-wayland-qa");
+    expect(releaseWorkflow).not.toContain("recording-linux-av-qa");
+    expect(buildWorkflow).toContain(
+      "features: recording-wayland-qa,recording-linux-av-qa",
+    );
+    expect(cargo).toContain('recording-linux-av-qa = ["recording-opus-webm"]');
+    // 录屏 feature 会同时开放两个 benchmark bin。没有 default-run 时，cargo check
+    // 仍然通过，但真正执行 tauri build 会因无法判断主程序而失败。
+    expect(cargo).toMatch(/^default-run\s*=\s*"clippy-app"$/m);
+  });
+});
+
+describe("deb 声明默认二进制真实需要的额外运行库", () => {
+  const deb = JSON.parse(read("apps/legacy-tauri/native/tauri.linux.conf.json")).bundle.linux.deb;
+
+  /**
+   * Tauri 的 deb 打包器只会自动写 webkit2gtk / gtk 那几条，不做 shlibdeps 扫描。
+   * GNOME Wayland 的 PipeWire 主路径是正式 Linux 产物的一部分，ELF 会直接 NEEDED
+   * libpipewire-0.3.so.0，因此 deb 必须声明 Jammy/Noble 都提供的运行库。
+   */
+  it.each(["libgbm1", "libegl1"])("%s 在 depends 里", (library) => {
+    const entry = deb.depends.find((item) => item.includes(library));
+    expect(entry, `depends 里没有 ${library}`).toBeTruthy();
+  });
+
+  it("PipeWire 是正式包的必需运行时能力", () => {
+    expect(deb.depends).toContain("libpipewire-0.3-0");
+  });
+
+  it("可见桌面入口和 app-id 图标由 dpkg 管理", () => {
+    expect(deb.desktopTemplate).toBe("clippy-hidden.desktop");
+    expect(read("apps/legacy-tauri/native/clippy-hidden.desktop")).toContain("NoDisplay=true");
+    expect(deb.files).toMatchObject({
+      "/usr/share/applications/com.clippy.app.desktop":
+        "package-assets/com.clippy.app.desktop",
+      "/usr/share/icons/hicolor/32x32/apps/com.clippy.app.png": "icons/32x32.png",
+      "/usr/share/icons/hicolor/128x128/apps/com.clippy.app.png": "icons/128x128.png",
+    });
+    expect(read("apps/legacy-tauri/native/package-assets/com.clippy.app.desktop")).not.toContain("{{");
+  });
+
+  it("维护者脚本只恢复同字节文件，不再移走 dpkg 文件", () => {
+    const postinst = read("apps/legacy-tauri/native/scripts/postinst.sh");
+    const postrm = read("apps/legacy-tauri/native/scripts/postrm.sh");
+    expect(postinst).toContain("restore_owned_file");
+    expect(postinst).toContain("cmp -s");
+    expect(postinst).not.toMatch(/\bmv\s+-f\b/);
+    expect(postrm).not.toContain('rm -f "$DESKTOP_FILE"');
+    expect(postrm).not.toContain('rm -f "$ICON_LINK"');
+  });
+});
+
+describe("Tauri 打包目标按平台隔离", () => {
+  const base = JSON.parse(read("apps/legacy-tauri/native/tauri.conf.json"));
+  const linux = JSON.parse(read("apps/legacy-tauri/native/tauri.linux.conf.json"));
+  const windows = JSON.parse(read("apps/legacy-tauri/native/tauri.windows.conf.json"));
+  const macos = JSON.parse(read("apps/legacy-tauri/native/tauri.macos.conf.json"));
+  const macosQa = JSON.parse(read("apps/legacy-tauri/native/tauri.macos.qa.conf.json"));
+
+  it("公共配置不携带任何平台专属 bundle", () => {
+    expect(base.bundle.targets).toBeUndefined();
+    expect(base.bundle.linux).toBeUndefined();
+    expect(base.bundle.windows).toBeUndefined();
+    expect(base.bundle.macOS).toBeUndefined();
+  });
+
+  it.each([
+    ["Linux", linux.bundle.targets, ["deb", "appimage"]],
+    ["Windows", windows.bundle.targets, ["nsis", "msi"]],
+    ["macOS", macos.bundle.targets, ["app", "dmg"]],
+  ])("%s 只构建自己的安装包", (_name, actual, expected) => {
+    expect(actual).toEqual(expected);
+  });
+
+  it("Windows 安装器会补装缺失的 WebView2", () => {
+    expect(windows.bundle.windows.webviewInstallMode.type).toBe("downloadBootstrapper");
+  });
+
+  it("macOS 最低版本与应用身份保持稳定", () => {
+    expect(macos.bundle.macOS.minimumSystemVersion).toBe("11.0");
+    // Tauri 会警告公共标识 com.clippy.app 与 macOS 的 .app 包扩展冲突；macOS 因此
+    // 使用固定覆盖值。这里不能只断言“不以 .app 结尾”：任意改名都会让 TCC 授权、
+    // WebView 数据目录与更新身份一起漂移。
+    expect(macos.identifier).toBe("com.clippy.desktop");
+    expect(base.identifier).toBe("com.clippy.app");
+    expect(linux.identifier).toBeUndefined();
+    expect(windows.identifier).toBeUndefined();
+  });
+
+  it("macOS Pin 同时启用透明 WebView 的配置与 Cargo feature", () => {
+    // Tauri 构建脚本会把 Cargo feature 与公共配置一起校验；放到平台覆盖或 target
+    // dependency 都会在 cargo check 阶段被判定为不匹配。
+    expect(base.app.macOSPrivateApi).toBe(true);
+    expect(read("apps/legacy-tauri/native/Cargo.toml")).toMatch(
+      /^tauri\s*=\s*\{[^\n]*features\s*=\s*\[[^\n]*"macos-private-api"/m,
+    );
+  });
+
+  it("macOS QA 使用真实 ad-hoc 签名而不是伪标记无签名包", () => {
+    expect(macosQa.bundle.macOS.signingIdentity).toBe("-");
+  });
+});
+
+describe("codec 输出区能装下多字段结果", () => {
+  it("#codec-output 是 <div> 而不是 <pre>", () => {
+    const document = new DOMParser().parseFromString(read("apps/legacy-tauri/frontend/index.html"), "text/html");
+    const output = document.getElementById("codec-output");
+    expect(output?.tagName.toLowerCase()).toBe("div");
+    expect(output?.classList.contains("codec-output")).toBe(true);
+  });
+});
+
+describe("release 下载链接与构建矩阵同步", () => {
+  // 产物名是 `Clippy_<ver>_amd64_<label>.deb`，label 来自构建矩阵。删矩阵条目却忘了
+  // 删 release notes 里的那一行，发布页就会挂一条 404 死链（反过来则是漏传产物）。
+  const release = read(".github/workflows/release.yml");
+
+  it("下载表里的发行版后缀恰好等于矩阵里的 label", () => {
+    const labels = [...release.matchAll(/^\s*- runner: \S+\s*\n\s*label: (\S+)\s*$/gm)].map(
+      (m) => m[1],
+    );
+    const linked = [...release.matchAll(/Clippy_\$\{VER\}_amd64_([a-z0-9]+)\./g)].map((m) => m[1]);
+    expect(labels.length).toBeGreaterThan(0);
+    expect([...new Set(linked)].sort()).toEqual([...new Set(labels)].sort());
+  });
+
+  it("AppImage 签名不写死 cargo-tauri", () => {
+    // release runner 上只有 tauri-action 自带的 CLI 与 `apps/legacy-tauri/frontend/` 锁定的 npm CLI，没有
+    // cargo-tauri；写死 `cargo tauri signer sign` 只会在真正打 tag 的时候才 no such command。
+    const script = read("scripts/finalize-appimage.sh");
+    expect(script).not.toMatch(/cargo tauri signer/);
+    expect(script).toMatch(/tauri_cli signer sign/);
+    expect(script).toContain("apps/legacy-tauri/frontend/node_modules/.bin/tauri");
+    // 签名后必须验产物存在，否则 updater 会静默拿不到 .sig
+    expect(script).toMatch(/! -s "\$\{TARGET\}\.sig"/);
+  });
+
+  it("AppImage 不捆绑构建机的 PipeWire ABI", () => {
+    const script = read("scripts/finalize-appimage.sh");
+    expect(script).toContain("BUNDLED_PIPEWIRE_LIBS");
+    expect(script).toContain("libpipewire-*.so*");
+    expect(script).toContain("libspa-*.so*");
+    expect(script).toContain("Final AppImage still bundles host PipeWire ABI libraries");
+  });
+
+  it("AppImage 的 GIO 模块与随包 GLib 使用同一 ABI", () => {
+    const script = read("scripts/finalize-appimage.sh");
+    expect(script).toContain("GIO_MODULE_DIRS");
+    expect(script).toContain("linuxdeploy-plugin-gtk.sh");
+    expect(script).toContain("isolate bundled GIO modules from the host ABI");
+    expect(script).toContain('export GIO_MODULE_DIR="$APPDIR/');
+    expect(script).toContain("Final AppImage does not isolate bundled GIO modules");
+  });
+
+  it("updater 用的无后缀 Linux 产物只从单一 Jammy label 进入汇总", () => {
+    // 无后缀名是更新器按固定 URL 找的那份；Linux matrix 若扩成多个 runner，必须先
+    // 重新设计 artifact 名，不能让多个生产者写入同一个 release-linux-x64。
+    const linuxJob = release.slice(
+      release.indexOf("  build-linux:"),
+      release.indexOf("  build-windows:"),
+    );
+    expect([...linuxJob.matchAll(/^\s+label: ([a-z0-9]+)$/gm)].map((match) => match[1])).toEqual([
+      "ubuntu22",
+    ]);
+    expect(linuxJob.match(/dist-artifacts\/Clippy_\$\{VER\}_amd64\.AppImage"/g)).toHaveLength(1);
+  });
+
+  it("Windows 与双架构 macOS 产物交给受测生成器写入 manifest", () => {
+    expect(release).toContain("windows-latest");
+    expect(release).toContain("macos-latest");
+    expect(release).toContain("Clippy_$env:APP_VERSION`_x64-setup.exe.sig");
+    expect(release).toContain("Clippy_${APP_VERSION}_${ASSET_ARCH}.app.tar.gz.sig");
+    expect(release).toContain("node scripts/generate-updater-manifest.mjs");
+    expect(release).toContain("--signature-dir release-assets");
+    expect(release).toContain('--platforms "$PLATFORMS"');
+  });
+
+  it("latest.json 上传成功后才公开发布", () => {
+    const uploadManifest = release.indexOf('gh release upload "${TAG}" latest.json');
+    const publishRelease = release.indexOf('--draft=false');
+    expect(uploadManifest).toBeGreaterThan(0);
+    expect(publishRelease).toBeGreaterThan(uploadManifest);
+  });
+
+  it("release 默认只读，只有 artifact 生产者和最终发布者提升最小权限", () => {
+    expect(release).toMatch(/^permissions:\s*\n\s+contents: read/m);
+    expect(release.match(/artifact-metadata: write/g)).toHaveLength(3);
+    expect(release.match(/artifact-metadata: read/g)).toHaveLength(1);
+    expect(release.match(/contents: write/g)).toHaveLength(1);
+    expect(release).not.toContain("write-all");
+  });
+
+  it("每个 release job 都有超时保护", () => {
+    expect(release.match(/^\s{4}timeout-minutes: \d+$/gm)).toHaveLength(6);
+  });
+
+  it("正式构建前核对同 SHA 原生 CI 并解析签名策略", () => {
+    expect(release).toContain("node scripts/verify-native-ci.mjs");
+    expect(release).toContain('--sha "$GITHUB_SHA"');
+    expect(release).toContain("Missing required updater secret");
+    expect(release).toContain("windows_signing_mode=self-signed");
+    expect(release).toContain("Build ad-hoc signed Tauri");
+    expect(release).toContain("--config apps/legacy-tauri/native/tauri.macos.qa.conf.json");
+  });
+
+  it("可用平台先汇总为 workflow artifacts，再创建并公开 release", () => {
+    const linuxJob = release.slice(
+      release.indexOf("  build-linux:"),
+      release.indexOf("  build-windows:"),
+    );
+    expect(linuxJob).toContain("name: release-linux-x64");
+    expect(linuxJob).not.toContain("gh release");
+    const createDraft = release.indexOf("Ensure unpublished draft release exists");
+    const uploadNative = release.indexOf("Upload native artifacts to release");
+    const publishRelease = release.indexOf("Publish complete release");
+    expect(createDraft).toBeGreaterThan(0);
+    expect(uploadNative).toBeGreaterThan(createDraft);
+    expect(publishRelease).toBeGreaterThan(uploadNative);
+  });
+
+  it("Windows 无 PFX 时生成自签名证书并在发布说明中明确告警", () => {
+    const signingScript = read("scripts/prepare-windows-signing.ps1");
+    expect(release).toContain("./scripts/prepare-windows-signing.ps1");
+    expect(signingScript).toContain("New-SelfSignedCertificate");
+    expect(signingScript).toContain('Subject = "CN=Clippy Self-Signed Release"');
+    expect(signingScript).toContain('Provider = "Microsoft Software Key Storage Provider"');
+    expect(signingScript).toContain('KeyUsage = "DigitalSignature"');
+    expect(signingScript).toContain('"2.5.29.37={text}1.3.6.1.5.5.7.3.3"');
+    expect(signingScript).toContain('$_.ObjectId -eq "1.3.6.1.5.5.7.3.3"');
+    expect(signingScript).not.toContain("$_.ObjectId.Value");
+    expect(signingScript).toContain("Cert:\\LocalMachine\\TrustedPeople");
+    expect(release).toContain('$signature.Status.ToString() -ne "Valid"');
+    expect(signingScript).not.toContain("WINDOWS_TRUSTED_ROOT_THUMBPRINT");
+    expect(signingScript).not.toContain("Cert:\\CurrentUser\\Root");
+    expect(release).toContain("Windows SmartScreen");
+  });
+
+  it("macOS 两个架构始终使用 ad-hoc 签名进入构建与 manifest", () => {
+    expect(release).toContain("rust_target: aarch64-apple-darwin");
+    expect(release).toContain("rust_target: x86_64-apple-darwin");
+    expect(release).toContain("Signature=adhoc");
+    expect(release).toContain("plutil -extract CFBundleExecutable raw");
+    expect(release).not.toContain('Contents/MacOS/Clippy"');
+    expect(release).toContain("未经过 Apple Developer ID 公证");
+    expect(release).toContain(
+      'PLATFORMS="linux-x86_64,windows-x86_64,darwin-aarch64,darwin-x86_64"',
+    );
+  });
+
+  it("发布产物 Actions 使用 Node 24 运行时版本", () => {
+    expect(release.match(/actions\/upload-artifact@[0-9a-f]{40}/g)).toHaveLength(3);
+    expect(release.match(/actions\/download-artifact@[0-9a-f]{40}/g)).toHaveLength(1);
+  });
+
+  it("所有第三方 Actions 都固定到完整 commit SHA", () => {
+    for (const path of [
+      ".github/workflows/build.yml",
+      ".github/workflows/native-qa.yml",
+      ".github/workflows/release.yml",
+    ]) {
+      const workflow = read(path);
+      const references = [...workflow.matchAll(/^\s*-?\s*uses:\s*([^\s#]+)/gm)]
+        .map((match) => match[1]);
+      expect(references.length, path).toBeGreaterThan(0);
+      for (const reference of references) {
+        expect(reference, `${path}: ${reference}`).toMatch(/@[0-9a-f]{40}$/);
+      }
+    }
+  });
+});
+
+describe("内容类型只有一套标准", () => {
+  // 后端 content_type 只有 text/html/image，预览按内容嗅探出 YAML/JWT/TIMESTAMP…
+  // 两边同时显示必然自相矛盾。类型只归预览面板的 badge。
+  it("展示格式化模块不提供类型格式化函数", () => {
+    const source = read("apps/legacy-tauri/frontend/js/clipboard/formatters.js");
+    expect(source).not.toMatch(/export function formatType/);
+  });
+
+  it("唯一的列表行渲染器不写类型标签", () => {
+    const path = "apps/legacy-tauri/frontend/react/main/ClipboardRow.tsx";
+    const source = read(path);
+    expect(source, path).not.toContain("formatType");
+    expect(source, path).not.toContain("clip-row-html-badge");
+    expect(source, path).not.toMatch(/clipboard\.type\./);
+  });
+
+  it("预览面板不自己再嗅探一遍类型", () => {
+    const source = read("apps/legacy-tauri/frontend/js/preview-panel.js");
+    expect(source).toContain("classifyText");
+    // 同步可判的检测器只允许出现在 classify.js 的表里；面板里再调一次就是第二套标准
+    for (const detector of ["identifyHash", "detectEncoding", "isTimestamp", "isUuid", "isColor"]) {
+      expect(source, detector).not.toMatch(new RegExp(`\\b${detector}\\s*\\(`));
+    }
+  });
+});
+
+describe("Pin 贴的是当前焦点条目，不是上一条", () => {
+  // 报障："截屏后 pin 图会显示之前的图片"。真正的原因在前端焦点索引：面板关闭时
+  // `releaseMemory` 把列表清空，随后到达的 `clip-added` 让 prependClip 把 focusedRow +1,
+  // 于是重新打开面板时焦点停在**第二行**，而 Pin 的两个入口（全局快捷键与 Ctrl+P）
+  // 都读 getFocusedClip()。列表行上没有 Pin 按钮，所以这条路是唯一的。
+  it("prependClip 按 id 跟踪焦点，不做索引加减", () => {
+    const path = "apps/legacy-tauri/frontend/react/main/clipboardStore.ts";
+    const code = read(path)
+      .split("\n")
+      .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+      .join("\n");
+    expect(code, path).not.toMatch(/focusedRow\s*[+-]\s*1/);
+    expect(code, path).toMatch(/previousFocus/);
+  });
+
+  it("列表内容被释放后不报告焦点行", () => {
+    // focusedRow 归 0 而不是 -1 就是上面那条 +1 的燃料：0 在空列表上是个不存在的行。
+    const source = read("apps/legacy-tauri/frontend/js/clipboard/navigation-state.js");
+    const release = source.slice(source.indexOf("export function releaseNavigation"));
+    expect(release).toMatch(/focusedRow:\s*-1/);
+  });
+
+  it("app.js 的 Pin 快捷键路径不调用 getLatestClip", () => {
+    const source = read("apps/legacy-tauri/frontend/js/app.js");
+    expect(source).not.toContain("getLatestClip");
+    expect(source).toContain("resolvePinTarget");
+  });
+
+  it("全局 Pin 把面板是否有焦点一起传给 resolvePinTarget", () => {
+    // 少了这个参数，焦点行的残影又会被当成用户意图：侧栏开着时失焦不隐藏窗口，
+    // 列表与焦点活过整个截图流程，prependClip 按 id 把焦点跟着老条目挪到第 1 行。
+    const source = read("apps/legacy-tauri/frontend/js/app.js");
+    const call = source.slice(source.indexOf("resolvePinTarget("));
+    expect(call.slice(0, call.indexOf(");"))).toContain("document.hasFocus()");
+  });
+
+  it("重新聚焦面板时两条分支都复位焦点", () => {
+    // `refresh()` 只做钳位（normalizeAfterRefresh），不复位；只在"不脏"的分支里
+    // restoreRender 等于"面板关着期间来了新条目"时焦点留在老条目上。
+    const source = read("apps/legacy-tauri/frontend/js/app.js");
+    const body = source.slice(
+      source.indexOf("async function onWindowFocus"),
+      source.indexOf("function onWindowBlur"),
+    );
+    expect(body).toMatch(/isDirty\(\)\)\s*await clipboardList\.refresh\(\);/);
+    expect([...body.matchAll(/restoreRender\(\)/g)]).toHaveLength(1);
+    expect(body).not.toMatch(/else/);
+  });
+
+  it("显式隐藏与失焦共用同一份大对象清理", () => {
+    const source = read("apps/legacy-tauri/frontend/js/app.js");
+    expect(source).toContain("await onMainWindowWillHide(releaseWindowMemory)");
+    const directHide = source.slice(
+      source.indexOf("function tryHidePanel"),
+      source.indexOf("async function onWindowFocus"),
+    );
+    expect(directHide.indexOf("releaseWindowMemory()")).toBeLessThan(
+      directHide.indexOf("hideCurrentWindow()"),
+    );
+    const blur = source.slice(source.indexOf("function onWindowBlur"));
+    expect(blur).toContain("releaseWindowMemory()");
+
+    const controller = read("apps/legacy-tauri/native/src/window_controller.rs");
+    const hideHelper = controller.slice(controller.indexOf("pub(crate) fn hide_main_window"));
+    expect(hideHelper).toMatch(/emit_to\("main",\s*MAIN_WINDOW_WILL_HIDE/);
+    expect(hideHelper.indexOf("emit_to")).toBeLessThan(hideHelper.indexOf("window.hide()"));
+    for (const path of [
+      "apps/legacy-tauri/native/src/app/shortcuts.rs",
+      "apps/legacy-tauri/native/src/app/window_events.rs",
+      "apps/legacy-tauri/native/src/commands/clipboard.rs",
+    ]) {
+      const rust = read(path);
+      expect(rust, path).not.toMatch(/\bwindow\.hide\(\)/);
+      expect(rust, path).toContain("hide_main_window");
+    }
+  });
+
+  it("剪贴板写入口写完都会唤醒 watcher", () => {
+    // 少敲一次的后果是那条写入路径重新变成"最多 500 ms 后才进历史"。
+    const source = read("apps/legacy-tauri/native/src/clipboard_watcher/writer.rs");
+    const writes = [...source.matchAll(/^pub fn clipboard_set_\w+/gm)].length;
+    expect(writes).toBe(3);
+    expect([...source.matchAll(/wake::nudge\(\);/g)]).toHaveLength(writes);
+  });
+
+  it("watcher 的轮询等待全部走唤醒口，没有裸 sleep", () => {
+    // 任何一处漏改都会让那条分支继续睡满 500 ms，唤醒对它无效。
+    const source = read("apps/legacy-tauri/native/src/clipboard_watcher.rs");
+    expect(source).not.toMatch(/thread::sleep/);
+    expect(source).toMatch(/wake::wait_for_next_poll\(POLL_INTERVAL\)/);
+  });
+});
+
+describe("拖动选区不引发画布重绘", () => {
+  // drawScene 每帧要把整张冻结帧（2560×1600）以 high 质量缩绘进 1920×1200 的画布。
+  // 压暗和虚线蓝框放在画布上时，选区是它的输入，于是拖动/缩放选区的每个 pointermove
+  // 都白做一次全图重采样。搬到 CSS 之后这条最高频的交互一次都不碰画布。
+  it("drawScene 不接收裁剪矩形，也不画压暗", () => {
+    const source = read("apps/legacy-tauri/frontend/react/annotation/canvasRenderer.ts");
+    const start = source.indexOf("export function drawScene");
+    const signature = source.slice(start, source.indexOf("{", start));
+    expect(signature).not.toMatch(/crop/);
+    expect(source).not.toContain("drawCropOverlay");
+  });
+
+  it("覆盖层的重绘 effect 不依赖选区", () => {
+    const source = read("apps/legacy-tauri/frontend/react/capture-overlay/App.tsx");
+    const call = source.indexOf("drawScene(");
+    expect(call).toBeGreaterThan(0);
+    const deps = source.slice(call, source.indexOf("]);", call));
+    expect(deps).not.toMatch(/selection/);
+    // 选区只进后端提交/翻译；禁止恢复 WebView 最终 PNG 导出。
+    expect(source).toContain("{ ...selection, sessionId:");
+    expect(source).toContain("rendererVersion: 2");
+    expect(source).not.toContain("exportPngBase64");
+  });
+
+  it("压暗与虚线框由 .selection 这一层 CSS 承担", () => {
+    const rule = read("apps/legacy-tauri/frontend/react/capture-overlay/overlay.css")
+      .split("\n")
+      .find((line) => line.startsWith(".selection {"));
+    expect(rule).toMatch(/box-shadow:[^;]*vmax/);
+    expect(rule).toMatch(/outline:[^;]*dashed/);
+  });
+});
+
+describe("列表行只取缩略图，不取原图", () => {
+  // 库里存的是原图（一张全屏截图 2560×1600 / 几 MB），行里那格是 48 CSS px。
+  // 退回 getClipImage 后功能照样对，只是每开一次面板就把十几 MB 送进 webview
+  // 并做十几次全尺寸 PNG 解码，全落在 webview 那一个线程上。
+  it("唯一的列表行渲染器走 getClipThumbnail", () => {
+    const path = "apps/legacy-tauri/frontend/react/main/ClipboardRow.tsx";
+    const code = read(path);
+    expect(code, path).toContain("getClipThumbnail");
+    expect(code.replace(/^\s*(\/\/|\*|\/\*).*$/gm, ""), path).not.toMatch(/getClipImage\s*[,(]/);
+  });
+
+  it("预览面板仍然取原图", () => {
+    // 预览是全尺寸显示，缩略图会糊；这条钉住"别顺手把预览也改过去"。
+    expect(read("apps/legacy-tauri/frontend/js/preview/content-renderers.js")).toMatch(/getClipImage\(clip\.id\)/);
+  });
+
+  it("后端缩略图命令已注册且带上限", () => {
+    expect(read("apps/legacy-tauri/native/src/lib.rs")).toContain("commands::get_clip_thumbnail");
+    expect(read("apps/legacy-tauri/native/src/commands/clipboard.rs")).toMatch(/THUMBNAIL_MAX_EDGE:\s*u32\s*=/);
+  });
+});
+
+describe("移动焦点不重渲整份列表", () => {
+  // 每次导航都会产生一份新 snapshot。行如果直接收 snapshot，一次按键就要把 30 行
+  // 连着每行 5 个 lucide 图标全部 reconcile 一遍；拍成标量 + memo 之后只重渲两行。
+  // 这两条都是"改回去功能照样对、只是变慢"，所以只能结构断言。
+  it("ClipboardRow 被 memo 包着，且不接收整个 snapshot", () => {
+    const source = read("apps/legacy-tauri/frontend/react/main/ClipboardRow.tsx");
+    expect(source).toMatch(/export const ClipboardRow = memo\(/);
+    expect(source).not.toMatch(/snapshot[?.:]/);
+    expect(source).not.toContain("ClipboardSnapshot");
+  });
+
+  it("行的回调表是模块级常量，不在渲染里新建", () => {
+    // 每次渲染新建一份回调 = props 每次都变 = memo 完全失效（而且看不出来）。
+    const source = read("apps/legacy-tauri/frontend/react/main/ClipboardWorkspace.tsx");
+    expect(source).toMatch(/^const ROW_HANDLERS: ClipboardRowHandlers = \{/m);
+    const row = source.slice(source.indexOf("<ClipboardRow"), source.indexOf("/>", source.indexOf("<ClipboardRow")));
+    expect(row).toContain("handlers={ROW_HANDLERS}");
+    expect(row).not.toMatch(/=>/);
+  });
+});
+
+describe("长列表不会持续解码屏外缩略图", () => {
+  it("工作区只挂载虚拟窗口内的行", () => {
+    const source = read("apps/legacy-tauri/frontend/react/main/ClipboardWorkspace.tsx");
+    expect(source).toContain("clipboardVisibleRange");
+    expect(source).toMatch(/items\.slice\(virtualRange\.start, virtualRange\.end\)/);
+  });
+
+  it("React 行按视口加载缩略图，并在离开视口后释放显示数据", () => {
+    const source = read("apps/legacy-tauri/frontend/react/main/ClipboardRow.tsx");
+    expect(source).toContain("IntersectionObserver");
+    expect(source).toMatch(/!nearViewport[\s\S]*setImageBase64\(null\)/);
+  });
+
+  it("浏览器可以跳过屏外行的布局与绘制", () => {
+    const styles = read("apps/legacy-tauri/frontend/styles/components.css");
+    expect(styles).toMatch(/\.clip-row\s*\{[\s\S]*?content-visibility:\s*auto/);
+    expect(styles).toMatch(/\.clip-row\s*\{[\s\S]*?contain-intrinsic-block-size:/);
+  });
+});
+
+describe("长截图生产边界", () => {
+  it("已接入的长截图链路不再依赖模块级 dead-code 豁免", () => {
+    const capture = read("apps/legacy-tauri/native/src/capture/mod.rs");
+    const longshot = [
+      "apps/legacy-tauri/native/src/capture/longshot.rs",
+      "apps/legacy-tauri/native/src/capture/longshot/controller.rs",
+      "apps/legacy-tauri/native/src/capture/longshot/lifecycle.rs",
+      "apps/legacy-tauri/native/src/capture/longshot/recapture.rs",
+    ].map(read).join("\n");
+
+    expect(capture).not.toMatch(/#\[cfg_attr\(not\(test\), allow\(dead_code\)\)\]\s*mod (?:longshot|mode_gate);/);
+    expect(longshot).not.toContain("allow(dead_code)");
+    expect(longshot).not.toMatch(/IPC\s*(?:仍|尚)未接入|UI\s*由后续/);
+  });
+});
+
+describe("平台会话单一事实源", () => {
+  it("截图和自动粘贴不再自行读取桌面会话环境变量", () => {
+    const paste = read("apps/legacy-tauri/native/src/paste/mod.rs");
+    const screenshot = read("apps/legacy-tauri/native/src/screenshot/backends.rs");
+    const diagnostics = screenshot.indexOf("mod backend_diagnostics");
+    expect(diagnostics).toBeGreaterThan(0);
+    const productionScreenshot = screenshot.slice(0, diagnostics);
+    const rawSessionRead = /std::env::var(?:_os)?\("(?:XDG_SESSION_TYPE|WAYLAND_DISPLAY|DISPLAY)"\)/;
+
+    expect(paste).not.toMatch(rawSessionRead);
+    expect(productionScreenshot).not.toMatch(rawSessionRead);
+    expect(paste).toContain("crate::platform::current_session()");
+    expect(productionScreenshot).toContain("crate::platform::is_wayland()");
+  });
+});
+
+describe("截图诊断不泄露窗口身份", () => {
+  it("窗口探测只打印数量、状态与几何", () => {
+    const source = read("apps/legacy-tauri/native/src/screenshot/backends.rs");
+    const start = source.indexOf("fn window_probe_diagnostics()");
+    expect(start).toBeGreaterThan(0);
+    const diagnostic = source.slice(start);
+    expect(diagnostic).toContain("window.is_minimized()");
+    expect(diagnostic).not.toContain("window.title()");
+    expect(diagnostic).not.toContain("window.pid()");
+  });
+});
+
+describe("macOS ScreenCaptureKit QA 边界", () => {
+  it("默认 macOS 11 构建与 12.3 录屏 QA 配置保持隔离", () => {
+    const normal = JSON.parse(read("apps/legacy-tauri/native/tauri.macos.conf.json"));
+    const recording = JSON.parse(read("apps/legacy-tauri/native/tauri.macos.recording.conf.json"));
+    expect(normal.bundle.macOS.minimumSystemVersion).toBe("11.0");
+    expect(normal.bundle.macOS.infoPlist).toBeUndefined();
+    expect(recording.bundle.macOS.minimumSystemVersion).toBe("12.3");
+    expect(recording.bundle.macOS.infoPlist).toBe("Info.recording.plist");
+    expect(read("apps/legacy-tauri/native/Info.recording.plist")).toContain(
+      "NSScreenCaptureUsageDescription",
+    );
+    expect(read("apps/legacy-tauri/native/Info.recording.plist")).toContain(
+      "NSMicrophoneUsageDescription",
+    );
+    expect(read(".github/workflows/native-qa.yml")).toContain(
+      "macOS recording QA bundle is missing NSMicrophoneUsageDescription",
+    );
+    expect(read("scripts/verify-recording-codec-supply-chain.mjs")).toContain(
+      "macOS recording QA plist must declare screen capture and microphone usage",
+    );
+    expect(read(".github/workflows/release.yml")).not.toContain(
+      "recording-macos-screencapturekit",
+    );
+    expect(read(".github/workflows/release.yml")).not.toContain(
+      "recording-macos-av-qa",
+    );
+  });
+
+  it("控制窗原生目标只在 Rust 创建后进入帧源", () => {
+    const lifecycle = read("apps/legacy-tauri/native/src/recording/lifecycle.rs");
+    const prepare = lifecycle.indexOf("actions.prepare_control");
+    const start = lifecycle.indexOf("source_factory(control_target, clock)");
+    expect(prepare).toBeGreaterThan(0);
+    expect(start).toBeGreaterThan(prepare);
+    expect(read("apps/legacy-tauri/native/src/recording/control_host.rs")).toContain(
+      "native.windowNumber()",
+    );
+  });
+
+  it("平台视频源只消费 session owner 创建的共享单调时钟", () => {
+    const session = read("apps/legacy-tauri/native/src/recording/session.rs");
+    const lifecycle = read("apps/legacy-tauri/native/src/recording/lifecycle.rs");
+    expect(session).toContain("let session_clock = RecordingSessionClock::new()");
+    expect(lifecycle).toContain("source_factory(control_target, clock)");
+
+    for (const path of [
+      "apps/legacy-tauri/native/src/recording/platform/x11.rs",
+      "apps/legacy-tauri/native/src/recording/platform/wayland.rs",
+      "apps/legacy-tauri/native/src/recording/platform/windows.rs",
+      "apps/legacy-tauri/native/src/recording/platform/macos.rs",
+      "apps/legacy-tauri/native/src/recording/platform/macos/screencapturekit.rs",
+    ]) {
+      const source = read(path);
+      expect(source).toContain("RecordingSessionClock");
+      expect(source).not.toContain("clock_origin");
+    }
+  });
+
+  it("ScreenCaptureKit 精确排除单窗且回调不阻塞", () => {
+    const source = read(
+      "apps/legacy-tauri/native/src/recording/platform/macos/screencapturekit.rs",
+    );
+    expect(source).toContain("initWithDisplay_excludingWindows");
+    expect(source).toContain("configuration.setSourceRect");
+    expect(source).toContain("configuration.setQueueDepth(SCREEN_CAPTURE_KIT_QUEUE_DEPTH)");
+    expect(source).toMatch(/SCREEN_CAPTURE_KIT_QUEUE_DEPTH:\s*isize\s*=\s*3/);
+    expect(source).toContain("self.frames.try_send(frame)");
+    expect(source).not.toContain("excludingApplications");
+  });
+});

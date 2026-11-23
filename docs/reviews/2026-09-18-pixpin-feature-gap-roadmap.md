@@ -71,7 +71,7 @@ GNOME/KDE/wlroots、X11、Windows 与 macOS 的真实透传、混合 DPI 和失�
 
 ### 本地 OCR 与版面
 
-`src-tauri/ocr-sidecar/` 已实现以下开发运行时：
+`apps/legacy-tauri/native/ocr-sidecar/` 已实现以下开发运行时：
 
 ```text
 PNG
@@ -525,7 +525,7 @@ Rust 金图继续约束权威输出。修复了模糊、马赛克和放大镜双
 箭头、测量装饰与 CJK 文字，移动到边缘不再裁掉可见笔画。新增三轮累计文档保存/重开回归：
 每一轮都校验根 PNG 字节未变、源像素小数坐标 JSON 未变、落盘与剪贴板 RGBA 完全一致，并从根图
 重放得到相同权威输出。64×48 组合金图以零通道差、零超差像素作为登记容差；超差会在
-`src-tauri/target/test-artifacts/pin-render-v2/` 输出 expected、actual、diff 三张 PNG，容差与人工
+`target/test-artifacts/pin-render-v2/` 输出 expected、actual、diff 三张 PNG，容差与人工
 更新规则记录在 fixture README。该需求的代码级验收已完成；三平台本机观感仍归入 `PX-BASE-01`。
 
 ### `PX-IMAGE-REVISION-01`：内部无损图片修订链
@@ -1144,7 +1144,7 @@ CPU p95 最慢 2.22 秒、单次进程峰值约 648.6 MiB，尚未计入 Python 
 
 - `docs/reference-todo.md` 原 P9 的“滚动截图决定不做”已经被当前实现推翻，本次改为“竖向手动主链已实现”；
 - `docs/pixpin-analysis.md` 原先对增强 OCR 的两处建议停留在 Tesseract-only 基线，本地研究副本已
-  修正；可提交的当前边界以本报告和 `src-tauri/ocr-sidecar/README.md` 为准；
+  修正；可提交的当前边界以本报告和 `apps/legacy-tauri/native/ocr-sidecar/README.md` 为准；
 - `CLAUDE.md` 的已完成功能补入长截图、查看器、扫码、可编辑 PNG 和增强 OCR 的交付边界；
 - 该 PixPin 分析文件被本地 `.git/info/exclude` 排除，不能作为团队唯一需求来源；本报告是可提交、
   可在 PR 与 CHANGELOG 中引用的稳定路线文档。

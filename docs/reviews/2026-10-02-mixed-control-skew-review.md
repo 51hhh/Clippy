@@ -53,7 +53,7 @@ W70时本源码release/同SHA跨平台及codec CI、其它宿主、真实WGC/WAS
 未启动应用/设备/桌面，未安装/签名/新增工具/证书/推送/PR/合入/发布；默认录屏入口仍关闭。
 规格最后复合验收与整体任务仍未完成。
 
-证据：`src-tauri/target/mixed-control-skew-contract/`、`mixed-skew-native-qa-b0b51f1/`，
+证据：`target/mixed-control-skew-contract/`、`mixed-skew-native-qa-b0b51f1/`，
 含原始日志/退出码、冻结输入/同字节夹具、原API诊断、PCM前缀/AV文件、文件解码与合同/门禁审计。
 
 W71后续：同源码默认/QA release编译和PE/CRT文件验证完成，实际启动、设备、CI和桌面等仍未验。

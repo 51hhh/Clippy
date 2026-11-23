@@ -7,8 +7,9 @@ import { fileURLToPath } from "node:url";
 import { isVendoredPathPackage, lockedPackageBody } from "./recording-codec-lock.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const tauriRoot = join(root, "src-tauri");
+const tauriRoot = join(root, "apps/legacy-tauri/native");
 const vendorRoot = join(tauriRoot, "vendor", "shiguredo_libvpx");
+const workspaceCargo = readFileSync(join(root, "Cargo.toml"), "utf8").replace(/\r\n?/g, "\n");
 const buildScript = readFileSync(join(vendorRoot, "build.rs"), "utf8");
 const bindingSource = readFileSync(join(vendorRoot, "src", "lib.rs"), "utf8");
 
@@ -58,8 +59,14 @@ if (!bindingSource.includes("pub lag_in_frames: Option<usize>")) {
 // actions/checkout 在 Windows 上可能把文本检出为 CRLF；先统一换行符，确保
 // 多行 feature 边界在各平台执行同一份已审查合同。
 const cargoToml = readFileSync(join(tauriRoot, "Cargo.toml"), "utf8").replace(/\r\n?/g, "\n");
-if (!cargoToml.includes('shiguredo_libvpx = { path = "vendor/shiguredo_libvpx" }')) {
-  throw new Error("Cargo.toml must patch shiguredo_libvpx to the reviewed vendor directory");
+if (
+  !workspaceCargo.includes(
+    'shiguredo_libvpx = { path = "apps/legacy-tauri/native/vendor/shiguredo_libvpx" }',
+  )
+) {
+  throw new Error(
+    "workspace Cargo.toml must patch shiguredo_libvpx to the reviewed vendor directory",
+  );
 }
 if (
   !cargoToml.includes(
@@ -141,12 +148,16 @@ if (
   throw new Error("macOS recording QA plist must declare screen capture and microphone usage");
 }
 if (
-  !cargoToml.includes('webm = { path = "vendor/webm" }') ||
-  !cargoToml.includes('webm-sys = { path = "vendor/webm-sys" }')
+  !workspaceCargo.includes('webm = { path = "apps/legacy-tauri/native/vendor/webm" }') ||
+  !workspaceCargo.includes(
+    'webm-sys = { path = "apps/legacy-tauri/native/vendor/webm-sys" }',
+  )
 ) {
-  throw new Error("Cargo.toml must patch webm and webm-sys to the reviewed vendor directories");
+  throw new Error(
+    "workspace Cargo.toml must patch webm and webm-sys to the reviewed vendor directories",
+  );
 }
-const cargoLock = readFileSync(join(tauriRoot, "Cargo.lock"), "utf8");
+const cargoLock = readFileSync(join(root, "Cargo.lock"), "utf8");
 if (!isVendoredPathPackage(cargoLock, "shiguredo_libvpx", "2026.2.0-canary.1")) {
   throw new Error("Cargo.lock must resolve shiguredo_libvpx as the vendored path package");
 }

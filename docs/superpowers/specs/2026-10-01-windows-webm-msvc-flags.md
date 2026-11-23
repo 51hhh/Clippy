@@ -53,7 +53,7 @@ Windows 11 x64；Rust 1.98.1、`cc 1.2.61`、MSVC 14.44.35207、clang-cl 23.1.2�
   此次运行不计作完整门禁通过。移到仓库根 `.worktrees` 后独立 vendor fmt 已通过，Node 24.21.0 完整门禁最终为 23 passed、0 failed、1 skipped（Linux smoke）。
   默认 Rust 1040 passed / 5 ignored，QA Rust 1093 passed / 5 ignored；两者不累加。
   前端 74 文件 / 1284 passed；Python 31 项质量与 3 项视觉段落通过。
-- 诊断日志在调用项目的 ignored `src-tauri/target/`：`webm-msvc-driver-red.log`、
+- 诊断日志在调用项目的 ignored `target/`：`webm-msvc-driver-red.log`、
   `webm-msvc-driver-green.log`、`webm-clang-cl-green.log`、`windows-webm-full-qa*.log`。
 
 本机完整 QA 门禁通过；当时 GNU/Clang 原生 CI、修改后同 SHA CI、桌面/安装验收仍待执行。

@@ -14,7 +14,7 @@ for command_name in cargo xvfb-run Xvfb xauth xclip timeout; do
 done
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MANIFEST="$REPO_ROOT/src-tauri/Cargo.toml"
+MANIFEST="$REPO_ROOT/apps/legacy-tauri/native/Cargo.toml"
 UNIT_FILTER='platform::linux::x11::incr::tests::'
 
 # 编译与纯状态测试不需要桌面。明确过滤掉上游会操作系统剪贴板的测试。

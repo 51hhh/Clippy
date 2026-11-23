@@ -66,8 +66,8 @@ LLVM 只读导出表确认实际 MSVCP140 提供保存 QA 的 std::_Xlength_erro
 
 ## 证据
 
-- `src-tauri/target/windows-qa-crt-contract/ORIGINAL-DEPLOYMENT-AUDIT.json`
-- `src-tauri/target/windows-qa-crt-contract/VERSION-PREDICATE-AUDIT.json`
-- `src-tauri/target/windows-qa-crt-native-qa-5d900ca/RESULT.json`
-- `src-tauri/target/windows-qa-crt-release-build-5d900ca/RESULT.json`
-- `src-tauri/target/windows-qa-crt-release-build-5d900ca/SOURCE-AND-PAYLOAD-AUDIT.json`
+- `target/windows-qa-crt-contract/ORIGINAL-DEPLOYMENT-AUDIT.json`
+- `target/windows-qa-crt-contract/VERSION-PREDICATE-AUDIT.json`
+- `target/windows-qa-crt-native-qa-5d900ca/RESULT.json`
+- `target/windows-qa-crt-release-build-5d900ca/RESULT.json`
+- `target/windows-qa-crt-release-build-5d900ca/SOURCE-AND-PAYLOAD-AUDIT.json`

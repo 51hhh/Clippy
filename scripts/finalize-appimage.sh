@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEFAULT_BUNDLE_DIR="${ROOT_DIR}/src-tauri/target/release/bundle/appimage"
+DEFAULT_BUNDLE_DIR="${ROOT_DIR}/target/release/bundle/appimage"
 TARGET="${1:-}"
 REQUIRE_SIGNATURE="${REQUIRE_TAURI_SIGNATURE:-false}"
 
@@ -159,17 +159,17 @@ if [[ "${FINAL_GTK_HOOK}" != *"${GTK_HOOK_MARKER}"* \
   exit 1
 fi
 
-# 签名用的 tauri CLI：优先仓库锁定的 npm 侧 CLI（`src/` 的 devDependency，与 cargo-tauri 同版本），
+# 签名用的 tauri CLI：优先 legacy frontend 锁定的 npm CLI（与 cargo-tauri 同版本），
 # 其次才是 cargo-tauri。release runner 上只有 tauri-action 自带的 CLI，没有 cargo-tauri，
 # 这里原来写死 `cargo tauri` 会直接 `no such command: tauri`，AppImage 签名步骤必挂。
 tauri_cli() {
-  local npm_cli="${ROOT_DIR}/src/node_modules/.bin/tauri"
+  local npm_cli="${ROOT_DIR}/apps/legacy-tauri/frontend/node_modules/.bin/tauri"
   if [[ -x "${npm_cli}" ]]; then
     (cd "${ROOT_DIR}" && "${npm_cli}" "$@")
   elif cargo tauri --version >/dev/null 2>&1; then
     (cd "${ROOT_DIR}" && cargo tauri "$@")
   else
-    printf '%s\n' 'No tauri CLI found for signing (need src/node_modules/.bin/tauri or cargo-tauri)' >&2
+    printf '%s\n' 'No tauri CLI found for signing (need legacy frontend node_modules/.bin/tauri or cargo-tauri)' >&2
     return 1
   fi
 }

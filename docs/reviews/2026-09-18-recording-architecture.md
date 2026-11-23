@@ -365,7 +365,7 @@ RGBA→I420→libvpx→WebM，不经过 FFmpeg，也不复制 writer。输出使
 64 MiB 上限，最长 18,000 帧；因此可重复测实际嵌入路径且不会覆盖已有文件。优化构建和运行方式：
 
 ```bash
-cd src-tauri
+cd apps/legacy-tauri/native
 cargo build --profile bench --bin recording_vp9_benchmark \
   --features recording-vp9-source-build
 /usr/bin/time -v target/release/recording_vp9_benchmark \
@@ -411,7 +411,7 @@ RDM 分派执行 BT.709 limited-range，并复用上一帧的 I420 plane。64×4
 原生 X11 证据。输出目录使用 create-only 和私有权限，已存在的目录不会被覆盖。真机运行方式：
 
 ```bash
-cd src-tauri
+cd apps/legacy-tauri/native
 cargo build --profile bench --bin recording_x11_vp9_benchmark \
   --features recording-vp9-source-build
 /usr/bin/time -v target/release/recording_x11_vp9_benchmark \

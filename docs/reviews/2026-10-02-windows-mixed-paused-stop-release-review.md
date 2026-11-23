@@ -37,7 +37,7 @@ release panic=abort在进程panic终止时不执行Drop，unwind测试不能证�
 直接/延迟导入和递归CRT闭包验证，所需`msvcp140.dll`, `vcruntime140.dll`, `vcruntime140_1.dll`。
 只读取文件，未加载应用或DLL；无系统CRT机器的启动尚未验证。单个保存EXE不含相邻DLL，
 完整未打包目录由QA RESULT的output.original标明，不视为已签名或可发布安装包。
-证据在`src-tauri/target/current-release-default-02005c9/`、`current-release-qa-02005c9/`，
+证据在`target/current-release-default-02005c9/`、`current-release-qa-02005c9/`，
 包含PID/实际退出码、源码树/输入哈希、日志、编译参数、feature、PE、CRT来源/部署/导入和产物。
 
 W72同源码完整Windows门禁33/0/1 Linux smoke skipped，默认1308/QA1457各5ignored，前端81/1403；

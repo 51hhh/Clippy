@@ -33,7 +33,7 @@ Windows 自带 PowerShell 5.1 与 PowerShell 7 均可进入原生门禁；支持
 原始失败：Windows 11 x64 / Windows PowerShell 5.1 / Node 24.21.0 / Rust MSVC 1.98.1。
 原门禁将 `split(".")` 传到 Node 后成为 `split(.)`，触发 SyntaxError，再错误报告 Node 版本不足。
 原 SHA e5bfd9b 的门禁 exit 1，未运行任何编译或前端检查。
-证据：调用项目 ignored `src-tauri/target/windows-latest-native-qa-e5bfd9b/`。
+证据：调用项目 ignored `target/windows-latest-native-qa-e5bfd9b/`。
 修复后 `windows-gate.test.js` 13 项合同通过：真实 Windows PowerShell 5.1 与 PowerShell 7
 均执行外部 Node；22.11.0/20.19.0 拒绝，22.12.0/23.0.0 接受，版本输出有效但 exit 17 仍拒绝。
 既有六项失败计数、缺依赖与部分检查合同保持通过。修复前真实 5.1 合同失败、7 合同通过。
@@ -44,7 +44,7 @@ Windows PowerShell 5.1.22000.2538 / Node 24.21.0 / Rust MSVC 1.98.1，exit 0，
 前端 74 文件 / 1291 passed；Python 33 项质量 + 3 项视觉段落；严格 clippy、WGC lint、
 供应链、JS/TS、IPC/HTML、生产构建与真实 built main entry 合同均通过。
 
-结果、环境与返回码在调用项目 ignored `src-tauri/target/windows-latest-native-qa-ef78a1f/`。
+结果、环境与返回码在调用项目 ignored `target/windows-latest-native-qa-ef78a1f/`。
 Windows PowerShell 父 transcript 未捕获子 stdout，不当作完整测试日志；默认 Rust 的工具
 逐测试名输出被 token 预算截断，最终 1040/0/5 汇总保留，QA/前端最终 chunk 完整。
 README 式验证报告与分阶段工具输出记录上述边界。后续只更新文档，不将文档 HEAD 写成已运行的 SHA。
@@ -56,7 +56,7 @@ README 式验证报告与分阶段工具输出记录上述边界。后续只更�
 job 110269661020 的 clippy、VP9、Opus/WebM、会话恢复和 WASAPI 合同均 success。
 后续复核该 run 已 completed/success：同一 SHA 三项原生与四项录屏原型共七项全部 success。
 验证器逐项核对 run、job 和 GitHub Actions check-run 的身份、SHA 与结论；不继承旧提交结果。
-完整 Windows job 日志在调用项目 ignored `src-tauri/target/windowsps-ci-b2fd247-win-*.log`。
+完整 Windows job 日志在调用项目 ignored `target/windowsps-ci-b2fd247-win-*.log`。
 本次只更新文档，后继文档 SHA 不冒称已执行门禁或远程 CI。
 
 补充 Windows Edge 154.0.4258.48 无界面渲染夹具检查未完成：两次有界启动均 exit 0，

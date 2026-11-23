@@ -37,7 +37,7 @@ Windows MSVC 红基线：`aefc413` 加行为不变的权限副作用入口和两
 1 passed / 1 failed；新文件为空的断言失败，证明准备错误返回前已经落盘。
 修复后私有文件六项定向合同全部通过，包含新文件失败关闭、打开前/后的已有文件保护、
 实际 Windows 文件/目录 DACL、较短内容覆盖与原子替换。格式检查通过。
-红绿日志位于主检出的 `src-tauri/target/windows-private-write-red/`。
+红绿日志位于主检出的 `target/windows-private-write-red/`。
 故障注入不代表跨账户泄漏或原生 ACL 拒绝场景的桌面复现。
 
 ## Verification
@@ -54,7 +54,7 @@ Rust 1.98.1 MSVC、Node 24.21.0；完整 `scripts/ci-windows.ps1 -RecordingQa` e
 | 同 SHA 原生 CI | 未运行；本机 Windows 门禁不能证明其他宿主的条件编译图。 |
 | 桌面/跨账户 QA | 用户要求停止桌面操作，本轮未运行；当前安装包仍为旧源码 45769c9。 |
 
-独立证据位于主检出的 `src-tauri/target/windows-private-write-native-qa-f788b1f/RESULT.json`。
+独立证据位于主检出的 `target/windows-private-write-native-qa-f788b1f/RESULT.json`。
 本规格、CHANGELOG、总计划和审查记录为后继文档更新；门禁证据绑定 f788b1f，
 不冒称后继文档 SHA 已运行完整测试。Unix 0600 路径保留，但其新 SHA 原生 CI 尚未执行。
 Windows 10、真实 ACL 拒绝及跨账户场景、创建瞬间空文件 ACL 和路径竞争继续保留未验证。

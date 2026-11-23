@@ -46,7 +46,7 @@ Clippy 的 watcher 通过 arboard 读取；这是实际可达源码风险，尚�
 Windows MSVC 离线红基线提取锁定依赖的旧范围校验，不调用其裸指针复制，也不访问系统剪贴板。
 九项合同为 2 passed / 7 failed，exit 101；两项越界输入仍返回成功范围，生产接线仍使用旧函数。
 修复后九项定向合同通过，exit 0；实际 arboard wrap_html 的中文/emoji/重音字符片段原样返回。
-保留旧校验与结果的源码、日志及哈希在主检出的 `src-tauri/target/windows-cf-html-red/`。
+保留旧校验与结果的源码、日志及哈希在主检出的 `target/windows-cf-html-red/`。
 
 修复源码 `50b7778ec9e4bd52fa31aa657be607877c4990ef`，Windows 11 x64、Windows PowerShell 5.1、
 Rust 1.98.1 MSVC、Node 24.21.0；完整 `scripts/ci-windows.ps1 -RecordingQa` exit 0，
@@ -62,7 +62,7 @@ Rust 1.98.1 MSVC、Node 24.21.0；完整 `scripts/ci-windows.ps1 -RecordingQa` e
 | Windows CI 配置 | Native Check 的 Windows job 已加入定向组；YAML 解析和 job 条件已核对，尚未远程执行。 |
 | 同 SHA 原生 CI / 桌面 | 未运行；当前安装包仍为旧源码 45769c9。 |
 
-独立证据位于主检出的 `src-tauri/target/windows-cf-html-native-qa-50b7778/RESULT.json`。
+独立证据位于主检出的 `target/windows-cf-html-native-qa-50b7778/RESULT.json`。
 本规格、CHANGELOG、总计划与审查记录为后继文档更新；测试绑定源码 50b7778。
 真实富文本提供者互操作、Windows 10、其他平台原生图、总分配预算和新 SHA CI 保留未验证。
 未执行原生畸形复制，不声称已观察到崩溃或可利用的内存泄漏。

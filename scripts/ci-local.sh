@@ -96,22 +96,25 @@ check_prerequisites
 
 # --- OCR quality contract (pure stdlib; no model or third-party wheel) ---
 run_step "OCR 质量合同" \
-  python3 -m unittest discover -s src-tauri/ocr-sidecar -p 'test_quality*.py' -v
+  python3 -m unittest discover -s apps/legacy-tauri/native/ocr-sidecar -p 'test_quality*.py' -v
 run_step "OCR 视觉段落回退" \
-  python3 -m unittest discover -s src-tauri/ocr-sidecar -p test_visual_paragraphs.py -v
+  python3 -m unittest discover -s apps/legacy-tauri/native/ocr-sidecar -p test_visual_paragraphs.py -v
 run_step "智能擦除可行性证据" \
   python3 scripts/smart-erase/verify_evidence.py
 
 # --- Rust ---
-run_step "cargo fmt --check" bash -c "cd src-tauri && cargo fmt -- --check"
+run_step "workspace cargo fmt --check" cargo fmt --all -- --check
 run_step "vendor/xcap fmt --check" \
-  bash -c "cd src-tauri && cargo fmt --manifest-path vendor/xcap/Cargo.toml -- --check"
-run_step "cargo check" bash -c "cd src-tauri && cargo check --all-targets"
-run_step "cargo clippy" bash -c "cd src-tauri && cargo clippy --all-targets -- -D warnings"
-run_step "cargo test" bash -c "cd src-tauri && cargo test"
+  bash -c "cd apps/legacy-tauri/native && cargo fmt --manifest-path vendor/xcap/Cargo.toml -- --check"
+run_step "cargo check" bash -c "cd apps/legacy-tauri/native && cargo check --all-targets"
+run_step "cargo clippy" bash -c "cd apps/legacy-tauri/native && cargo clippy --all-targets -- -D warnings"
+run_step "cargo test" bash -c "cd apps/legacy-tauri/native && cargo test"
+run_step "Slint cargo check" cargo check --locked -p clippy-slint --all-targets
+run_step "Slint cargo clippy" cargo clippy --locked -p clippy-slint --all-targets -- -D warnings
+run_step "Slint cargo test" cargo test --locked -p clippy-slint
 if [[ "$(uname -s)" == "Linux" ]]; then
   run_step "X11 录屏到可恢复 AVI 闭环" \
-    bash -c "cd src-tauri && xvfb-run -a cargo test recording::session::tests::x11_source_records_a_complete_private_avi_session -- --ignored --exact"
+    bash -c "cd apps/legacy-tauri/native && xvfb-run -a cargo test recording::session::tests::x11_source_records_a_complete_private_avi_session -- --ignored --exact"
   run_step "X11 剪贴板隔离协议回归" ./scripts/test-x11-clipboard.sh
 else
   skip_step "X11 录屏到可恢复 AVI 闭环 (仅 Linux)"
@@ -127,7 +130,7 @@ fi
 if [[ "${CLIPPY_CROSS_CHECK:-0}" == "1" ]]; then
   if rustup target list --installed 2>/dev/null | grep -qx 'aarch64-apple-darwin'; then
     run_step "交叉 clippy: vendor/arboard @ aarch64-apple-darwin" \
-      bash -c "cd src-tauri && cargo clippy -p arboard --target aarch64-apple-darwin --all-targets -- -D warnings"
+      bash -c "cd apps/legacy-tauri/native && cargo clippy -p arboard --target aarch64-apple-darwin --all-targets -- -D warnings"
   else
     skip_step "交叉 clippy: vendor/arboard @ aarch64-apple-darwin — 先 rustup target add aarch64-apple-darwin"
   fi
@@ -137,10 +140,10 @@ if [[ "${CLIPPY_CROSS_CHECK:-0}" == "1" ]]; then
   # VCINSTALLDIR 时才尝试。
   if rustup target list --installed 2>/dev/null | grep -qx 'x86_64-pc-windows-msvc'; then
     run_step "交叉 clippy: vendor/xcap WGC @ x86_64-pc-windows-msvc" \
-      bash -c "cd src-tauri && cargo clippy --manifest-path vendor/xcap/Cargo.toml --lib --features wgc --target x86_64-pc-windows-msvc -- -D warnings"
+      bash -c "cd apps/legacy-tauri/native && cargo clippy --manifest-path vendor/xcap/Cargo.toml --lib --features wgc --target x86_64-pc-windows-msvc -- -D warnings"
     if command -v cargo-xwin >/dev/null 2>&1 || [[ -n "${VCINSTALLDIR:-}" ]]; then
       run_step "交叉 clippy: clippy-app @ x86_64-pc-windows-msvc" \
-        bash -c "cd src-tauri && cargo clippy --target x86_64-pc-windows-msvc --all-targets -- -D warnings"
+        bash -c "cd apps/legacy-tauri/native && cargo clippy --target x86_64-pc-windows-msvc --all-targets -- -D warnings"
     else
       skip_step "交叉 clippy: clippy-app @ x86_64-pc-windows-msvc — 需 MSVC 工具链（cargo-xwin 或 VCINSTALLDIR）"
     fi
@@ -161,18 +164,18 @@ run_step "录屏编码供应链" node scripts/verify-recording-codec-supply-chai
 run_step "Windows WGC 光标补丁" node scripts/verify-xcap-patch.mjs
 
 # --- Frontend ---
-run_step "npm ci" bash -c "cd src && npm ci --prefer-offline"
-run_step "npm audit（生产依赖）" bash -c "cd src && npm audit --omit=dev --audit-level=low"
-run_step "npm audit（高危开发依赖）" bash -c "cd src && npm audit --audit-level=high"
-run_step "vanilla JS 静态检查" bash -c "cd src && npm run lint:js"
-run_step "typecheck" bash -c "cd src && npx tsc --noEmit"
-run_step "vitest" bash -c "cd src && npx vitest run"
+run_step "npm ci" bash -c "cd apps/legacy-tauri/frontend && npm ci --prefer-offline"
+run_step "npm audit（生产依赖）" bash -c "cd apps/legacy-tauri/frontend && npm audit --omit=dev --audit-level=low"
+run_step "npm audit（高危开发依赖）" bash -c "cd apps/legacy-tauri/frontend && npm audit --audit-level=high"
+run_step "vanilla JS 静态检查" bash -c "cd apps/legacy-tauri/frontend && npm run lint:js"
+run_step "typecheck" bash -c "cd apps/legacy-tauri/frontend && npx tsc --noEmit"
+run_step "vitest" bash -c "cd apps/legacy-tauri/frontend && npx vitest run"
 run_step "DOM/Xvfb smoke" ./scripts/smoke-dom.sh
 run_step "Canvas 导出像素 smoke" ./scripts/smoke-canvas-export.sh
 run_step "主窗口布局像素 smoke" ./scripts/smoke-layout.sh
 
 if [[ "$QUICK" == false ]]; then
-  run_step "vite build" bash -c "cd src && npx vite build"
+  run_step "vite build" bash -c "cd apps/legacy-tauri/frontend && npx vite build"
   run_step "built main entry" node scripts/check-built-main.mjs
   if [[ "${CLIPPY_APPIMAGE_SMOKE:-0}" == "1" ]]; then
     if [[ -n "${CLIPPY_APPIMAGE_PATH:-}" ]]; then

@@ -40,8 +40,8 @@ worker全部批成功为60ms/2880帧，后续批错误为Source且保留1920帧�
 同SHA三native/四原型CI、其它宿主、实际设备/桌面、安装升级卸载/updater、开发CRT缺席环境、Win10/多屏/混合DPI/负坐标/长时同步仍未验。
 W53/W59/W63/W67旧失败根因继续未明，不用本轮绿结果覆盖。累计48项本机修复，47项历史保存，全局任务仍未完成。
 
-机器证据：`C:\win\Clippy\src-tauri\target\mixed-stop-ready-bound-contract` 的BASELINE-API-AUDIT/CONTRACT-AUDIT/MEDIA-INSPECTION，
-`C:\win\Clippy\src-tauri\target\mixed-stop-ready-bound-native-qa-2bb12f9` 的RESULT/GATE-AUDIT。
+机器证据：`C:\win\Clippy\apps/legacy-tauri/native\target\mixed-stop-ready-bound-contract` 的BASELINE-API-AUDIT/CONTRACT-AUDIT/MEDIA-INSPECTION，
+`C:\win\Clippy\apps/legacy-tauri/native\target\mixed-stop-ready-bound-native-qa-2bb12f9` 的RESULT/GATE-AUDIT。
 
 W76后续：同源码默认/QA release编译及PE/CRT文件验证完成；实际启动/设备、CI/其它宿主和桌面等仍未验。
 见 [release验证](2026-10-02-windows-mixed-stop-ready-bound-release-review.md)；最后复合验收继续未完成。

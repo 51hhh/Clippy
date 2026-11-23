@@ -1,0 +1,21 @@
+[package]
+name = "clippy-slint"
+version = "0.2.0"
+description = "Clippy native Slint desktop application"
+authors = ["zhongweixi2000"]
+edition = "2021"
+license = "MIT"
+build = "build.rs"
+
+[dependencies]
+slint = { version = "=1.19.0", default-features = false, features = [
+    "accessibility",
+    "backend-winit",
+    "compat-1-18",
+    "renderer-femtovg",
+    "std",
+    "system-tray",
+] }
+
+[build-dependencies]
+slint-build = { version = "=1.19.0", default-features = false, features = ["compat-1-18"] }

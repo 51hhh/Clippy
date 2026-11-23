@@ -22,32 +22,45 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
-      version: ${{ steps.get_version.outputs.version }}
+      version: ${{ steps.release_route.outputs.version }}
+      backend: ${{ steps.release_route.outputs.backend }}
+      framework: ${{ steps.release_route.outputs.framework }}
+      framework_version: ${{ steps.release_route.outputs.framework_version }}
+      excluded_framework: ${{ steps.release_route.outputs.excluded_framework }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
 
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+
       - name: Install Rust for manifest validation
         uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
 
-      - name: Get tag version
-        id: get_version
-        run: |
-          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
-          if [[ ! "$TAG_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
-            echo "::error::Release tag is not a supported semantic version: ${GITHUB_REF_NAME}"
-            exit 1
-          fi
-          echo "version=${TAG_VERSION}" >> "$GITHUB_OUTPUT"
+      - name: Resolve release backend
+        id: release_route
+        run: >-
+          node scripts/resolve-release-backend.mjs
+          "$GITHUB_REF_NAME"
+          --github-output "$GITHUB_OUTPUT"
 
       - name: Verify release versions and changelog
+        env:
+          RELEASE_BACKEND: ${{ steps.release_route.outputs.backend }}
+          TAG_VERSION: ${{ steps.release_route.outputs.version }}
         run: |
-          CONF_VERSION=$(jq -r '.version' src-tauri/tauri.conf.json)
+          if [ "$RELEASE_BACKEND" != "legacy-tauri" ]; then
+            echo "::error::Slint tag routing is active, but the v0.2 packaging job is not enabled yet"
+            exit 1
+          fi
+
+          CONF_VERSION=$(jq -r '.version' apps/legacy-tauri/native/tauri.conf.json)
           CARGO_VERSION=$(cargo metadata --no-deps --format-version 1 \
-            --manifest-path src-tauri/Cargo.toml \
+            --manifest-path apps/legacy-tauri/native/Cargo.toml \
             | jq -r '.packages[] | select(.name == "clippy-app") | .version')
-          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
 
           if [ "$CONF_VERSION" != "$TAG_VERSION" ]; then
             echo "::error::Tag version ($TAG_VERSION) does not match tauri.conf.json ($CONF_VERSION)"
@@ -161,7 +174,7 @@ jobs:
 
       - name: Verify PipeWire fast-path baseline
         run: |
-          TREE="$(cd src-tauri && cargo tree --target x86_64-unknown-linux-gnu -e normal)"
+          TREE="$(cd apps/legacy-tauri/native && cargo tree --target x86_64-unknown-linux-gnu -e normal)"
           if ! grep -q 'pipewire v' <<<"$TREE"; then
             echo '::error::Default Linux build must include pipewire-rs fast path'
             exit 1
@@ -176,7 +189,7 @@ jobs:
         with:
           prefix-key: v1-rust
           key: release-${{ matrix.label }}
-          workspaces: src-tauri -> target
+          workspaces: . -> target
           cache-all-crates: true
 
       - name: Setup Node.js
@@ -185,7 +198,7 @@ jobs:
           node-version: 24
 
       - name: Install frontend dependencies
-        run: cd src && npm ci
+        run: cd apps/legacy-tauri/frontend && npm ci
 
       - name: Build Tauri
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
@@ -194,11 +207,11 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          args: --config src-tauri/tauri.linux.conf.json
+          args: --config apps/legacy-tauri/native/tauri.linux.conf.json
 
       - name: Verify release binary links PipeWire
         run: |
-          BINARY="src-tauri/target/release/clippy-app"
+          BINARY="target/release/clippy-app"
           if ! readelf -d "$BINARY" | grep -q 'libpipewire-0.3.so.0'; then
             echo '::error::Linux release binary does not link the PipeWire fast-path runtime'
             exit 1
@@ -211,14 +224,14 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          APPIMAGE_SRC="src-tauri/target/release/bundle/appimage/Clippy_${APP_VERSION}_amd64.AppImage"
+          APPIMAGE_SRC="target/release/bundle/appimage/Clippy_${APP_VERSION}_amd64.AppImage"
           ./scripts/finalize-appimage.sh "$APPIMAGE_SRC"
 
       - name: Normalize Linux artifact names
         run: |
           VER="${{ needs.check-version.outputs.version }}"
           LABEL="${{ matrix.label }}"
-          BUNDLE_DIR="src-tauri/target/release/bundle"
+          BUNDLE_DIR="target/release/bundle"
           mkdir -p dist-artifacts
 
           DEB_SRC="${BUNDLE_DIR}/deb/Clippy_${VER}_amd64.deb"
@@ -265,7 +278,7 @@ jobs:
         with:
           prefix-key: v1-rust
           key: release-windows-x64
-          workspaces: src-tauri -> target
+          workspaces: . -> target
           cache-all-crates: true
 
       - name: Setup Node.js
@@ -273,10 +286,10 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: src/package-lock.json
+          cache-dependency-path: apps/legacy-tauri/frontend/package-lock.json
 
       - name: Install frontend dependencies
-        run: cd src && npm ci
+        run: cd apps/legacy-tauri/frontend && npm ci
 
       - name: Prepare Windows code-signing certificate
         shell: pwsh
@@ -292,7 +305,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          args: --config src-tauri/tauri.windows.conf.json --config src-tauri/tauri.windows.signing.conf.json
+          args: --config apps/legacy-tauri/native/tauri.windows.conf.json --config apps/legacy-tauri/native/tauri.windows.signing.conf.json
 
       - name: Normalize Windows artifact names
         shell: pwsh
@@ -301,13 +314,13 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path dist-artifacts | Out-Null
 
-          $nsis = Get-ChildItem src-tauri/target -Recurse -File -Filter "*-setup.exe" | Select-Object -First 1
+          $nsis = Get-ChildItem target -Recurse -File -Filter "*-setup.exe" | Select-Object -First 1
           if (-not $nsis) { throw "NSIS installer was not generated" }
           Copy-Item $nsis.FullName "dist-artifacts/Clippy_$env:APP_VERSION`_x64-setup.exe"
           if (-not (Test-Path "$($nsis.FullName).sig")) { throw "NSIS updater signature was not generated" }
           Copy-Item "$($nsis.FullName).sig" "dist-artifacts/Clippy_$env:APP_VERSION`_x64-setup.exe.sig"
 
-          $msi = Get-ChildItem src-tauri/target -Recurse -File -Filter "*.msi" | Select-Object -First 1
+          $msi = Get-ChildItem target -Recurse -File -Filter "*.msi" | Select-Object -First 1
           if (-not $msi) { throw "MSI installer was not generated" }
           Copy-Item $msi.FullName "dist-artifacts/Clippy_$env:APP_VERSION`_x64.msi"
 
@@ -376,7 +389,7 @@ jobs:
         with:
           prefix-key: v1-rust
           key: release-macos-${{ matrix.asset_arch }}
-          workspaces: src-tauri -> target
+          workspaces: . -> target
           cache-all-crates: true
 
       - name: Setup Node.js
@@ -384,10 +397,10 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: src/package-lock.json
+          cache-dependency-path: apps/legacy-tauri/frontend/package-lock.json
 
       - name: Install frontend dependencies
-        run: cd src && npm ci
+        run: cd apps/legacy-tauri/frontend && npm ci
 
       - name: Build ad-hoc signed Tauri
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
@@ -398,8 +411,8 @@ jobs:
         with:
           args: >-
             --target ${{ matrix.rust_target }}
-            --config src-tauri/tauri.macos.conf.json
-            --config src-tauri/tauri.macos.qa.conf.json
+            --config apps/legacy-tauri/native/tauri.macos.conf.json
+            --config apps/legacy-tauri/native/tauri.macos.qa.conf.json
 
       - name: Normalize macOS artifact names
         env:
@@ -408,7 +421,7 @@ jobs:
           RUST_TARGET: ${{ matrix.rust_target }}
         run: |
           mkdir -p dist-artifacts
-          BUNDLE_DIR="src-tauri/target/${RUST_TARGET}/release/bundle"
+          BUNDLE_DIR="target/${RUST_TARGET}/release/bundle"
 
           APP_SRC=$(find "$BUNDLE_DIR/macos" -maxdepth 1 -type d -name '*.app' -print -quit)
           [ -n "$APP_SRC" ] || { echo '::error::macOS app bundle was not generated'; exit 1; }

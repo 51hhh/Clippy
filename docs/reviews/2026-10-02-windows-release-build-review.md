@@ -44,8 +44,8 @@ commit/tree、输入哈希、捕获的 stdout/stderr、非空实际退出码、C
 检查。stdout/stderr 以逐行 UTF-8 文本、Windows 行尾写入后计算文件哈希，未声明为
 原生管道字节逐字节快照。旧实际 QA / 模板文件哈希保持；W46 累计审计与 29 项修复历史仍保留。
 
-证据目录：`C:\win\Clippy\src-tauri\target\windows-release-default-build-f5ad5da` 与
-`C:\win\Clippy\src-tauri\target\windows-release-qa-build-f5ad5da`，每份
+证据目录：`C:\win\Clippy\apps/legacy-tauri/native\target\windows-release-default-build-f5ad5da` 与
+`C:\win\Clippy\apps/legacy-tauri/native\target\windows-release-qa-build-f5ad5da`，每份
 `CODE-VERIFICATION-AUDIT.json` 是已结束编译与只读检查证明。`PE-INSPECTION.json`
 保存静态导入及文件结构；这些字段不证明 Windows 10、设备或安装后的运行兼容。
 

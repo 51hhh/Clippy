@@ -33,10 +33,11 @@ CI；只有真实安装包和桌面交互可以关闭 Native/人工 QA 项。
 
 | 步骤 | 命令 | 说明 |
 |------|------|------|
-| Rust 格式检查 | `cargo fmt -- --check` | 代码格式必须符合 rustfmt 标准 |
+| Rust 格式检查 | `cargo fmt --all -- --check` | 根 workspace 两套入口必须符合 rustfmt 标准 |
 | Rust 编译检查 | `cargo check --all-targets` | 检查所有本机 Rust target |
 | Rust Lint | `cargo clippy --all-targets -- -D warnings` | 所有 warning 视为 error |
 | Rust 单元测试 | `cargo test` | 后端测试 |
+| Slint 入口 | `cargo check/clippy/test -p clippy-slint` | 检查固定 Slint 1.19.0 的 v0.2 壳层 |
 | 前端测试 | `npx vitest run` | 前端测试（jsdom） |
 | 前端类型检查 | `npx tsc --noEmit` | 检查 React/TS 功能岛 |
 | 前端构建 | `npx vite build` | 验证正式前端产物 |
@@ -101,6 +102,9 @@ Windows QA 包可验证 Authenticode 摘要与 signer 一致，但不具备公�
 签名验收。当前正式 release 的 macOS 包同样采用 Ad-Hoc 签名，能验证
 产物完整性与架构，但不具备 Developer ID、公证或 Gatekeeper 公共信任；发布说明必须明确这一限制。
 
+当前 Native QA workflow 仍只生成 Tauri 2.12.4 的 legacy 包。Slint 1.19.0 的独立 QA 身份、数据目录
+和安装包尚未接入，不能把普通 CI 中的 Slint 编译成功记作 Slint QA 包通过。
+
 ### 原生 runner 证据
 
 本地分支推送并完成 CI 后，用完整 commit SHA 校验三个必需 job，避免把旧 workflow、其它分支或只有
@@ -142,16 +146,16 @@ CLIPPY_CROSS_CHECK=1 ./scripts/ci-local.sh
 CLIPPY_APPIMAGE_SMOKE=1 ./scripts/ci-local.sh
 
 # 格式检查
-cd src-tauri && cargo fmt -- --check
+cd apps/legacy-tauri/native && cargo fmt -- --check
 
 # Lint
-cd src-tauri && cargo clippy --all-targets -- -D warnings
+cd apps/legacy-tauri/native && cargo clippy --all-targets -- -D warnings
 
 # Rust 测试
-cd src-tauri && cargo test
+cd apps/legacy-tauri/native && cargo test
 
 # 前端测试
-cd src && npx vitest run
+cd apps/legacy-tauri/frontend && npx vitest run
 ```
 
 `ci-local.sh` 当前还运行 `cargo check --all-targets`、X11 剪贴板隔离协议、GNOME 扩展检查、HTML/Tauri
@@ -162,6 +166,9 @@ cd src && npx vitest run
 
 ### 触发条件
 - push 符合 `v*.*.*` 格式的 tag（如 `v0.1.4`）
+- `scripts/resolve-release-backend.mjs` 负责唯一的 SemVer 路由：低于 v0.2.0 选择 Tauri 2.12.4，
+  v0.2.0 预发布及以上选择 Slint 1.19.0。当前 Slint 打包 job 尚未启用，因此 Slint tag 会在
+  `check-version` 明确失败，不能误发 legacy 安装包。
 
 ### 流程
 
@@ -173,8 +180,9 @@ check-version → release-preflight ─┬→ build-linux ──────┐
 ```
 
 #### 1. check-version
-- 校验并提取 SemVer tag（去掉 `v` 前缀）
-- **验证 tag、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml` 三处版本完全一致**
+- 使用受测脚本校验 SemVer tag，并输出 version、backend、framework 与 framework version
+- legacy 路径验证 tag、`apps/legacy-tauri/native/tauri.conf.json`、
+  `apps/legacy-tauri/native/Cargo.toml` 三处版本完全一致；Slint 路径在打包 job 完成前 fail closed
 - 验证 `CHANGELOG.md` 存在精确的 `## vX.Y.Z` 标题
 - 验证 tag commit 可从 `main` 或 `dev` 到达；不满足时停止发布，不再只给 warning
 
@@ -218,8 +226,8 @@ check-version → release-preflight ─┬→ build-linux ──────┐
 > **每次发版前必须确认以下事项：**
 
 1. **版本号三处一致**：
-   - `src-tauri/tauri.conf.json` → `"version": "x.y.z"`
-   - `src-tauri/Cargo.toml` → `version = "x.y.z"`
+   - `apps/legacy-tauri/native/tauri.conf.json` → `"version": "x.y.z"`
+   - `apps/legacy-tauri/native/Cargo.toml` → `version = "x.y.z"`
    - Git tag → `vx.y.z`
 2. **CHANGELOG.md** 包含 `## vx.y.z` 章节
 3. **同一 commit SHA 的 CI Check 通过**（release preflight 会再次调用 GitHub check-runs API）
@@ -247,7 +255,7 @@ check-version → release-preflight ─┬→ build-linux ──────┐
 # 1. 更新版本号（tauri.conf.json + Cargo.toml）
 # 2. 更新 CHANGELOG.md
 # 3. 显式暂存本次版本文件和 CHANGELOG，避免带入无关工作区文件
-git add src-tauri/tauri.conf.json src-tauri/Cargo.toml CHANGELOG.md
+git add apps/legacy-tauri/native/tauri.conf.json apps/legacy-tauri/native/Cargo.toml CHANGELOG.md
 git commit -m "release: vX.Y.Z"
 
 # 4. 打 tag
@@ -287,10 +295,10 @@ SemVer、非 UTC RFC 3339 时间或非 HTTPS 下载地址。release workflow 只
 
 | 错误 | 原因 | 修复 |
 |------|------|------|
-| `cargo fmt -- --check` 失败 | 代码未格式化 | `cd src-tauri && cargo fmt` |
+| `cargo fmt -- --check` 失败 | 代码未格式化 | `cd apps/legacy-tauri/native && cargo fmt` |
 | `cargo clippy` 失败 | 代码有 warning | 按 clippy 提示修复 |
 | Release 版本验证失败 | tag 不是 SemVer、三处版本不一致、CHANGELOG 缺章节或 tag 不在发布分支 | 修正版本、变更日志或 tag 来源后重新创建 tag |
-| vitest 失败 | 前端测试不通过 | `cd src && npx vitest run` 本地复现 |
+| vitest 失败 | 前端测试不通过 | `cd apps/legacy-tauri/frontend && npx vitest run` 本地复现 |
 | 默认依赖图缺少 `pipewire v` 或 vendored `libspa` | GNOME Wayland 快路径被裁掉或 Jammy 兼容补丁失效 | 恢复非可选 PipeWire 依赖，并在 Ubuntu 22/24 重跑编译和真机性能验证 |
 | macOS Ad-Hoc 校验失败 | `.app` 没有严格签名、不是 `Signature=adhoc` 或架构不匹配 | 检查 macOS 覆盖配置、目标 triple 与 Tauri bundle 输出 |
 | NSIS/macOS `.sig` 缺失 | Tauri updater 私钥未配置或构建未生成 updater artifact | 检查 `TAURI_SIGNING_PRIVATE_KEY*` 与 `createUpdaterArtifacts` |

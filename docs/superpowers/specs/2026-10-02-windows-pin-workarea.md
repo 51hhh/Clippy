@@ -64,6 +64,6 @@ Python 33 + 3；独立 vendor 十八项及剪贴板二十四项通过。check、
 通过，日志原始哈希和门禁前后干净检出已核对；后继仅四份 Markdown。
 5 个既有修改文件 96 个 assert 宏 token 保留（只归一化空白），新回归原始字节不变；
 SQLite/备份生产文件和此前 Pin 回归源码保持，锁定原生库四份源码哈希一致。
-完整结果与审计目录 `C:\win\Clippy\src-tauri\target\windows-pin-workarea-native-qa-4a58101`。
-证据目录 `C:\win\Clippy\src-tauri\target\windows-pin-workarea-contract`。
+完整结果与审计目录 `C:\win\Clippy\apps/legacy-tauri/native\target\windows-pin-workarea-native-qa-4a58101`。
+证据目录 `C:\win\Clippy\apps/legacy-tauri/native\target\windows-pin-workarea-contract`。
 真实原生 owner/DPI/窗口事件和热插拔、多屏/Windows 10、新 SHA CI 与其它宿主仍未验。

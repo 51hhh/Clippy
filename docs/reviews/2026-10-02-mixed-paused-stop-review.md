@@ -53,7 +53,7 @@ W53/W59/W63/W67历史失败根因仍未明，旧日志/失败材料保持；默�
 未启动应用/设备/桌面，未安装/签名/新增工具/证书/推送/PR/合入/发布。
 规格最后复合验收和整体任务仍未完成。
 
-证据：`src-tauri/target/mixed-paused-stop-contract/`、`mixed-paused-stop-native-qa-02005c9/`，
+证据：`target/mixed-paused-stop-contract/`、`mixed-paused-stop-native-qa-02005c9/`，
 包含原始日志/退出码、冻结输入/同字节夹具、原API诊断、前缀/原journal/媒体、文件解码与合同/门禁审计。
 
 W73后续：同源码默认/QA release编译及PE/CRT文件验证完成；实际启动、设备、CI和桌面等仍未验。

@@ -94,18 +94,18 @@ if ($Quick) { $scope += ' (production build skipped)' }
 Write-Host "Windows gate scope: $scope"
 Write-Host 'Linux WebKit/Xvfb pixel smoke, installers and desktop QA require separate evidence.'
 
-$backend = Join-Path $repository 'src-tauri'
-$frontend = Join-Path $repository 'src'
+$backend = Join-Path $repository 'apps/legacy-tauri/native'
+$frontend = Join-Path $repository 'apps/legacy-tauri/frontend'
 
 if (-not $FrontendOnly) {
     Invoke-Check 'OCR quality contract' $repository {
-        & python.exe -m unittest discover -s src-tauri/ocr-sidecar -p 'test_quality*.py' -v
+        & python.exe -m unittest discover -s apps/legacy-tauri/native/ocr-sidecar -p 'test_quality*.py' -v
     }
     Invoke-Check 'OCR visual paragraph fallback' $repository {
-        & python.exe -m unittest discover -s src-tauri/ocr-sidecar -p test_visual_paragraphs.py -v
+        & python.exe -m unittest discover -s apps/legacy-tauri/native/ocr-sidecar -p test_visual_paragraphs.py -v
     }
     Invoke-Check 'Smart erase feasibility evidence' $repository { & python.exe scripts/smart-erase/verify_evidence.py }
-    Invoke-Check 'Rust format' $backend { & cargo.exe fmt -- --check }
+    Invoke-Check 'Workspace Rust format' $repository { & cargo.exe fmt --all -- --check }
     Invoke-Check 'Vendored xcap format' $backend { & cargo.exe fmt --manifest-path vendor/xcap/Cargo.toml -- --check }
     Invoke-Check 'Native Rust check' $backend { & cargo.exe check --locked --all-targets }
     Invoke-Check 'Native Rust clippy' $backend { & cargo.exe clippy --locked --all-targets -- -D warnings }
@@ -122,6 +122,9 @@ if (-not $FrontendOnly) {
         & cargo.exe test --locked --manifest-path vendor/xcap/Cargo.toml --lib --features wgc platform::registry_build::tests
     }
     Invoke-Check 'Native Rust tests' $backend { & cargo.exe test --locked }
+    Invoke-Check 'Slint Rust check' $repository { & cargo.exe check --locked -p clippy-slint --all-targets }
+    Invoke-Check 'Slint Rust clippy' $repository { & cargo.exe clippy --locked -p clippy-slint --all-targets -- -D warnings }
+    Invoke-Check 'Slint Rust tests' $repository { & cargo.exe test --locked -p clippy-slint }
     Invoke-Check 'Windows CF_HTML parser tests' $backend {
         & cargo.exe test --locked -p arboard --lib platform::windows::html::tests
     }

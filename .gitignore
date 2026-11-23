@@ -7,7 +7,7 @@ node_modules
 
 # 构建产物
 dist
-src-tauri/target
+/target
 
 # 编辑器
 .vscode/*
@@ -24,9 +24,9 @@ src-tauri/target
 
 # Tauri
 .tauri/
-src-tauri/gen/
+apps/legacy-tauri/native/gen/
 
-# Tauri updater 签名密钥（绝对不能提交）
+# Tauri updater 签名密钥
 *.key
 *.key.pub
 key/
@@ -38,11 +38,9 @@ key/
 .trellis/
 
 # 参考项目（不纳入 Clippy 仓库）
-fxxkDJTU/
 package-lock.json
 
-# 参考项目（本地研究用）。translator 是 GPL-3.0-only，其源码不得进入本仓库。
-examples/
+# 参考项目（本地研究用）。
 example/
 
 # wiki 暂存（推送到 GitHub Wiki，不进主仓库）

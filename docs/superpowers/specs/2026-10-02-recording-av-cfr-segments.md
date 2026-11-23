@@ -39,7 +39,7 @@
 
 ## Evidence plan
 
-`src-tauri/target/recording-av-cfr-segment-contract/` 保存原 W52 状态/报告、原实现红、
+`target/recording-av-cfr-segment-contract/` 保存原 W52 状态/报告、原实现红、
 最终同字节红绿、源码恢复摘要与原测试正文对比。真实生成文件通过现有严格 WebM reader，
 冻结提交的完整 Windows 门禁另证；文件/Git 对比不计测试通过。
 

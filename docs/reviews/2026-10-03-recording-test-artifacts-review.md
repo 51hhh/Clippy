@@ -62,7 +62,7 @@ Python质量33/视觉3保留原阶段。1068份冻结输入和Git tree、原stdo
 桌面操作继续暂停。后续仅做有限Windows代码审查，针对新确认缺陷定义合同并补原生回归；所有
 受控目录/codec文件验证均不替代设备验收。没有应用/设备控制、安装、推送、PR、合入或发布。
 
-证据：`C:\win\Clippy\src-tauri\target\recording-test-artifacts-contract`，包含原API及绿色命令/日志、
+证据：`C:\win\Clippy\apps/legacy-tauri/native\target\recording-test-artifacts-contract`，包含原API及绿色命令/日志、
 原输入哈希、原文件/副本、SOURCE-PRESERVATION/PRODUCTION-SCOPE/PROBE/CONTRACT审计与闭环。
-完整门禁：`C:\win\Clippy\src-tauri\target\recording-test-artifacts-native-qa-e50192f`。
+完整门禁：`C:\win\Clippy\apps/legacy-tauri/native\target\recording-test-artifacts-native-qa-e50192f`。
 全局任务仍未完成；规范前四项局部AC已验证，最后一项跨平台/真实交付AC保留未勾选。

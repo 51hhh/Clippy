@@ -104,4 +104,4 @@
 精确源分支，不执行push/dispatch。规范既有不推送范围下需显式授权才能做外部写入；
 桌面/设备/安装继续停止。本清单是证据与剩余项审计，全局WIN-NATIVE-01未完成。
 辅助旧字段名KeyError失败和过大PS5摘要输出均保存诊断；仅改证据读取，原门禁/源码不改。
-证据位于主仓库src-tauri/target/windows-current-review-inventory-228cc93。
+证据位于主仓库target/windows-current-review-inventory-228cc93。

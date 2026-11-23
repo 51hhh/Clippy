@@ -1,12 +1,12 @@
 # 性能基线（criterion）
 
-基准位于 `src-tauri/benches/`，覆盖三条用户能直接感知延迟的路径：截图编解码、
+基准位于 `apps/legacy-tauri/native/benches/`，覆盖三条用户能直接感知延迟的路径：截图编解码、
 剪贴板轮询的全量扫描、搜索框每次输入触发的 `get_clips`。
 
 ## 运行
 
 ```bash
-cd src-tauri
+cd apps/legacy-tauri/native
 cargo bench                      # 全部基准
 cargo bench --bench storage_bench            # 单个文件
 cargo bench -- get_clips_fts_prefix          # 按名字过滤
@@ -17,7 +17,7 @@ cargo bench -- --warm-up-time 0.5 --measurement-time 1.5 --sample-size 20
 `./scripts/ci-local.sh` 的 `cargo check --all-targets` / `cargo clippy --all-targets`
 会编译基准但不运行它们：门禁保证基准不腐烂，跑数字是手动动作。
 
-基准不在 bench 文件里复制实现，一律通过 `src-tauri/src/bench_support.rs` 调用生产代码——
+基准不在 bench 文件里复制实现，一律通过 `apps/legacy-tauri/native/src/bench_support.rs` 调用生产代码——
 复制出来的基准量的是副本，和生产路径分叉后没有意义。`bench_support` 只为基准存在，不是稳定 API。
 
 `[profile.bench]` 关掉了 release 的 `lto = "fat"` 与单 codegen-unit（否则每次编译都要几分钟），
@@ -44,7 +44,7 @@ cargo bench -- --warm-up-time 0.5 --measurement-time 1.5 --sample-size 20
 恢复：
 
 ```bash
-cd src-tauri
+cd apps/legacy-tauri/native
 cargo clean -p clippy-app          # 只清本 crate，依赖不用重编（约 30 秒）
 cargo build --bin clippy-app
 # 还不行就把增量缓存整个扔掉

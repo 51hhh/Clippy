@@ -694,20 +694,20 @@ exit 0，25 passed / 0 failed / 1 skipped；默认 Rust 1046 / 5 ignored、QA Ru
 exit 0，24 passed / 0 failed / 1 skipped（Linux smoke）。默认 Rust 1046 / 5 ignored、QA Rust
 1099 / 5 ignored、前端 75 文件 / 1292 passed，另外实际执行九项 Windows arboard 离线解析合同。
 重叠 Rust 图不累加，验证前后检出干净、stdout/stderr 哈希已核对。证据位于主检出的
-`src-tauri/target/windows-cf-html-native-qa-50b7778/RESULT.json`。Windows Native CI 定向入口已接线，
+`target/windows-cf-html-native-qa-50b7778/RESULT.json`。Windows Native CI 定向入口已接线，
 YAML job/条件已核对；新 SHA CI 与真实富文本互操作尚未执行，未运行原生畸形复制。
 
 此前独立长截图光标修复源码 `d8dff808e320fd840376e2acec396887e6bbc3ce` 的 Windows 本机完整门禁
 exit 0，23 passed / 0 failed / 1 skipped（Linux smoke）。默认 Rust 1046 / 5 ignored、QA Rust
 1099 / 5 ignored、前端 75 文件 / 1292 passed；重叠 Rust 图不累加，验证前后检出干净、日志哈希已核对。
-证据位于主检出的 `src-tauri/target/windows-longshot-cursor-native-qa-d8dff80/RESULT.json`。
+证据位于主检出的 `target/windows-longshot-cursor-native-qa-d8dff80/RESULT.json`。
 失败路径使用同一生产 guard 的注入指针接口复现，不代表实际系统鼠标接管已经验收。
 新 SHA CI、共享 X11/macOS 原生图和修复后桌面仍未验证。
 
 独立私有写入修复源码 `f788b1f57d852b7df87e334b579c3224c7fd2543` 的 Windows 本机完整门禁
 exit 0，23 passed / 0 failed / 1 skipped（Linux smoke）。默认 Rust 1042 / 5 ignored、QA Rust
 1095 / 5 ignored、前端 75 文件 / 1292 passed；两组 Rust 重叠不累加，日志哈希及验证后干净检出已核对。
-证据位于主检出的 `src-tauri/target/windows-private-write-native-qa-f788b1f/RESULT.json`。
+证据位于主检出的 `target/windows-private-write-native-qa-f788b1f/RESULT.json`。
 新 SHA 原生 CI 未执行，后继证据文档不冒称已验证 SHA；其他阶段记录保留各自来源。
 
 ## 基线与结论
@@ -1107,7 +1107,7 @@ thumbprint `27486ABF27DA89E9563B0CCE371C5F1DF749E628` 与 CI 相同，未改本�
 MSI 数据库 openMode=0 查询确认 ALLUSERS=1、64 位 Program Files、既有 UpgradeCode 和 WebView2
 bootstrapper 条件，前后字节哈希相同；这不证明升级、卸载、缺失 runtime 或安装成功。
 新 Windows 11 官方/本地模板字节相同，39 项仍 not_run；交接材料保存于 ignored
-`src-tauri/target/windows-native-qa/45769c958e9d4311a7d61ee53ed6707cc9a11ac4/HANDOFF.md`。
+`target/windows-native-qa/45769c958e9d4311a7d61ee53ed6707cc9a11ac4/HANDOFF.md`。
 
 ### W15 / P1 — 原生子进程取消夹具的启动预算竞态（Unix 原生合同已通过）
 
@@ -1193,9 +1193,9 @@ W12：vendored xcap 原始 SHA-256 绑定 LF 字节，默认 Windows checkout �
 工作树无修改，无需手工归一化文件。主 Rust 源码为 CRLF，vendor 和锁文件为 LF。
 
 同 SHA 本机诊断打包命令：`npm exec --prefix src -- tauri build --debug --ci --no-sign
---features recording-windows-av-qa --config src-tauri/tauri.ci.conf.json`，退出 0。
+--features recording-windows-av-qa --config apps/legacy-tauri/native/tauri.ci.conf.json`，退出 0。
 MSI/NSIS 均构建成功且 Authenticode 为 NotSigned。包与元数据保存在
-`src-tauri/target/windows-local-diagnostic-47f1ee7dcd5f234d3bc5756cebe6202de2f5fc47/`。
+`target/windows-local-diagnostic-47f1ee7dcd5f234d3bc5756cebe6202de2f5fc47/`。
 
 | 诊断包 | 字节数 | SHA-256 |
 |---|---:|---|
@@ -1309,7 +1309,7 @@ Attributes=257、ActionProperty=WIX_UPGRADE_DETECTED；RemoveExistingProducts �
 本机已具备 WebView2，缺运行时/离线安装场景仍需独立环境。完整表项记录在
 `MSI-READONLY-INSPECTION.json`，只读检查不加入测试通过数。
 
-材料位于 `src-tauri/target/windows-native-qa/42e52c064aba36bb7e93a5e68a0cfb54f65c5b7b/`：
+材料位于 `target/windows-native-qa/42e52c064aba36bb7e93a5e68a0cfb54f65c5b7b/`：
 `PACKAGE-VERIFICATION.json`、`LOCAL-SIGNATURE-OBSERVATION.json`、`CI-SIGNATURE-EVIDENCE.json`、
 `MSI-READONLY-INSPECTION.json`、`HANDOFF.md`、安装包与官方记录模板。
 官方 Windows 11 模板与同 SHA 本地生成模板字节相同，39 项均 not_run；testedAt 未填写。

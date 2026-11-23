@@ -10,7 +10,7 @@ updates:
           - "*"
 
   - package-ecosystem: npm
-    directory: /src
+    directory: /apps/legacy-tauri/frontend
     schedule:
       interval: weekly
     groups:
@@ -19,7 +19,7 @@ updates:
           - "*"
 
   - package-ecosystem: cargo
-    directory: /src-tauri
+    directory: /
     schedule:
       interval: weekly
     groups:

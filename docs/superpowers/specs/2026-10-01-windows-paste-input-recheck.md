@@ -58,7 +58,7 @@ exit 0：27 passed / 0 failed / 1 skipped（Linux smoke）。默认 Rust 1052 pa
 前端 75 文件 / 1292 passed，Windows arboard 四组 9 / 7 / 5 / 3 共 24 passed；六项粘贴合同
 已包含在 Rust 图内，不再作为额外通过数。验证后检出干净，stdout/stderr 哈希已核对。
 
-原始证据在主检出的 `src-tauri/target/windows-paste-recheck-native-qa-14bf616/RESULT.json`，
-红绿辅助证据在 `src-tauri/target/windows-paste-recheck-red/RESULT.json`。后继文档提交仅同步
+原始证据在主检出的 `target/windows-paste-recheck-native-qa-14bf616/RESULT.json`，
+红绿辅助证据在 `target/windows-paste-recheck-red/RESULT.json`。后继文档提交仅同步
 四份 Markdown，不冒称该文档 SHA 运行过门禁。新 SHA 原生 CI、macOS 原生图、实际目标接管
 与最终查询后输入竞争仍未验证；桌面停止，旧安装包 45769c9 未包含本修复。

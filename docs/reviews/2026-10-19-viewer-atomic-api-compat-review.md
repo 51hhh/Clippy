@@ -7,10 +7,10 @@
 
 ## 实现核对
 
-`src-tauri/src/viewer/manager.rs` 的 `mark_ready`、`invalidate`、
+`apps/legacy-tauri/native/src/viewer/manager.rs` 的 `mark_ready`、`invalidate`、
 `restore_after_close_failure` 仅把三处 `fetch_update` 入口改为 `try_update`。三处闭包、
 `Ordering::AcqRel` / `Ordering::Acquire`、返回值和错误映射均保持；
-`src-tauri/src/viewer/tests.rs` 未改。没有增加 `allow(deprecated)`、降低严格 lint、固定旧
+`apps/legacy-tauri/native/src/viewer/tests.rs` 未改。没有增加 `allow(deprecated)`、降低严格 lint、固定旧
 Rust 工具链或修改依赖、功能图、测试超时及平台分支。
 
 原失败基线仍是 `228cc935bc0767ed9906f03ff5680cc89e72febe` 的 GitHub Actions run

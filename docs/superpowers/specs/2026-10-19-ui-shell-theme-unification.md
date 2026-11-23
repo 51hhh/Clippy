@@ -9,17 +9,23 @@ Requirement ID：`docs/superpowers/specs/2026-10-19-ui-shell-theme-unification.m
 ## Requirements
 
 - 提供由 CSS 变量驱动的公共 Window Shell / Titlebar 原语，Vanilla 与 React 页面都能复用，不把 Tauri API 越过 `api.ts` facade 暴露给业务代码。
-- 设置窗口改为无原生装饰的可调整大小窗口；顶栏支持拖动、双击切换最大化、最小化、最大化/还原和关闭。
+- 设置窗口改为无原生装饰的可调整大小窗口；顶栏支持拖动、双击切换最大化、最小化、最大化/还原和关闭；
+  Tauri capability 必须显式授予前三项原生窗口动作，关闭继续走受保护的业务命令。
 - 设置窗口关闭按钮必须走既有 `close_settings` 恢复快捷键再销毁的流程，失败时保留窗口与输入内容。
 - Launcher、Viewer、录屏库和贴图工作区复用公共壳层/标题栏样式，同时保留各自布局和业务交互。
+- 动态贴图与固定的 `pin-workspaces` 库窗口必须使用互不重叠的生命周期判定和 capability；库窗口的
+  原生关闭不得被贴图未保存确认拦截，标题栏异步动作失败不得产生未处理 rejection。
 - 录屏库和贴图工作区从 `themes.css` 消费语义变量；light、dark、nord、solarized-light、rose、midnight 六套主题都不得退回硬编码浅色。
 - 为窗口壳层交互、API facade 和主题接线增加自动化回归测试，并记录 Linux 本地验证与尚未执行的平台边界。
 
 ## Acceptance Criteria
 
 - [x] 设置窗口由 Tauri 以 `decorations(false)` 创建，页面不存在重复的内容区一级标题。
-- [x] 设置顶栏的拖动、双击最大化、最小化、最大化/还原和关闭均有自动化合同；关闭仍调用 `close_settings`。
+- [x] 设置顶栏的拖动、双击最大化、最小化、最大化/还原和关闭均有自动化合同；原生 capability
+  覆盖拖动、最小化与切换最大化，关闭仍调用 `close_settings`。
 - [x] Launcher、Viewer、录屏库和贴图工作区使用公共 `window-shell.css` 原语，重复的关闭按钮与标题栏基础样式不再各自维护。
+- [x] `pin-workspaces` 不进入动态贴图生命周期且没有直接拖窗权限；其事件监听使用独立 capability，
+  Launcher 与两个库窗口均消费标题栏动作失败。
 - [x] 录屏库和贴图工作区导入 `themes.css`，其样式不再用仅匹配 `data-theme="dark"` 的分支模拟主题。
 - [x] 六个主题 ID 有自动化静态合同，录屏库和贴图工作区的前景、背景、边框、控件及状态色均由主题变量或这些变量的 `color-mix()` 派生。
 - [x] `cd src && npx tsc --noEmit`、相关 Vitest 和 `./scripts/ci-local.sh` 全部通过；任何跳过项单独记录，不计为通过。
@@ -52,3 +58,12 @@ Requirement ID：`docs/superpowers/specs/2026-10-19-ui-shell-theme-unification.m
   关闭控件销毁窗口并退出该页的 WebKit WebProcess。
 - Xvfb 没有窗口管理器，不能验证拖动、缩放、最小化或最大化的真实桌面行为；Linux 真实桌面、
   Windows 与 macOS 的窗口行为继续保留为未完成。
+- 2026-10-22 回归确认原设置页只完成了 DOM/API 接线，`settings` 窗口未获拖动、最小化与切换
+  最大化权限，真实运行会被 Tauri ACL 拒绝。现已补齐最小权限及 capability 合同测试；Linux
+  x64 定向 Vitest 33 项通过，完整 `./scripts/ci-local.sh` 为 27 通过、0 失败、2 跳过。Linux
+  真实桌面的拖动与窗口管理器交互仍需用重建后的安装包人工确认。
+- 同日后续审查发现 `pin-workspaces` 同时命中动态贴图的 `starts_with("pin-")` 与 `pin-*`
+  capability。现已改用三个真实动态标签前缀，并为工作区库拆出仅监听事件的 capability；原生关闭
+  不再被贴图分支拦截。标题栏失败路径已有 React 回归测试；定向 Vitest 44 项与 Rust 标签/生命周期
+  2 项通过，完整 `./scripts/ci-local.sh` 为 27 通过、0 失败、2 跳过。Alt+F4 与系统窗口管理器行为仍需
+  用重建后的安装包实机确认。

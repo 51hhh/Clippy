@@ -2,6 +2,26 @@
 
 ## 未发布
 
+### 2026-11-23 Slint v0.2 共存迁移基础
+
+- 启动 `SLINT-UI-MIGRATION-01`：完整的 Tauri 2.12.4 实现移入
+  `apps/legacy-tauri/`，新增固定为 Slint 1.19.0、应用版本 0.2.0 的独立原生壳层；两套入口由根
+  Cargo workspace 和锁文件统一校验。Slint 壳层使用官方 `AboutSlint` 归属组件，正式桌面版按
+  royalty-free desktop license 约束继续补齐安装包第三方许可。
+- 新增唯一的 SemVer 发布路由：低于 v0.2.0 的 tag 选择 legacy Tauri，v0.2.0 的
+  alpha/beta/rc 及更高版本选择 Slint。当前 v0.2 打包 job 尚未实现，workflow 会明确拒绝 Slint
+  tag，避免误把 Tauri 包发布成新版本；v0.1 发布路径保持可维护。
+- 本阶段只建立目录、版本路由、编译壳层和双实现门禁，不代表 v0.2 功能已经迁移，也不生成可发布
+  的 Slint 安装包。迁移前 Linux 完整门禁为 27 通过 / 0 失败 / 2 跳过；迁移后为
+  30 通过 / 0 失败 / 2 跳过，并从新目录完成 legacy Tauri `--no-bundle --no-sign` release
+  构建。已安装 legacy 进程树静置样本总 PSS 为 154,488 KiB（约 150.9 MiB），作为后续低于
+  50 MiB 验收的对照。Windows、macOS 同 SHA CI、Slint QA 身份、升级桥、实际安装包及真实功能
+  尚未验证。Slint 壳层 release 动态依赖已确认不含 Tauri/WebKit/JSC/GTK；无头 Xvfb 使用
+  llvmpipe 时的单次 PSS 高达 127,429 KiB，因此该样本只作为软件 OpenGL 回退告警，不计作真实
+  桌面性能结果。
+  （需求：`SLINT-UI-MIGRATION-01`；见
+  `docs/superpowers/specs/2026-11-23-slint-ui-migration.md`）
+
 ### 2026-10-23 GNOME 截图恢复 v5 快速路径
 
 - 撤回 GNOME Shell 协议 v6 的系统界面预冻结流程，扩展协议与 metadata 回到 v5。Capture 键重新

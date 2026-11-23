@@ -170,10 +170,10 @@ pub language: String,  // "auto" | "en" | "zh-CN"
 ## 文件变更清单
 
 ### Rust 端
-- `src-tauri/tauri.conf.json` — 添加 `skipTaskbar`
-- `src-tauri/src/lib.rs` — 添加 `on_window_event`（CloseRequested + Focused）、ShortcutState 过滤
-- `src-tauri/src/commands.rs` — `update_config` 添加 emit、新增 `pause_shortcuts` / `resume_shortcuts`
-- `src-tauri/src/models.rs` — `AppConfig` 新增 `language` 字段
+- `apps/legacy-tauri/native/tauri.conf.json` — 添加 `skipTaskbar`
+- `apps/legacy-tauri/native/src/lib.rs` — 添加 `on_window_event`（CloseRequested + Focused）、ShortcutState 过滤
+- `apps/legacy-tauri/native/src/commands.rs` — `update_config` 添加 emit、新增 `pause_shortcuts` / `resume_shortcuts`
+- `apps/legacy-tauri/native/src/models.rs` — `AppConfig` 新增 `language` 字段
 
 ### 前端
 - `src/i18n/i18n.js` — 新建，翻译核心模块

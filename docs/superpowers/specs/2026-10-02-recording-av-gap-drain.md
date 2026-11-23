@@ -33,7 +33,7 @@
 
 ## Evidence plan
 
-`src-tauri/target/recording-av-gap-drain-contract/` 保留原 W51 状态、原实现红、同字节绿、
+`target/recording-av-gap-drain-contract/` 保留原 W51 状态、原实现红、同字节绿、
 源码恢复和原测试正文对比；冻结 SHA 完整 Windows 门禁另证。此前启动夹具等待两轨
 交付后 Stop，不能代替本项；其失败诊断记录继续保留。
 

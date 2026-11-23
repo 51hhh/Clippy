@@ -111,7 +111,7 @@ flowchart LR
 
 ### P0：三平台门禁已闭环，但 vendor patch 的跨平台归属是长期风险
 
-`src-tauri/Cargo.toml` 的 `[patch.crates-io]` 无条件替换 `arboard`。补丁动机是 Linux X11
+`apps/legacy-tauri/native/Cargo.toml` 的 `[patch.crates-io]` 无条件替换 `arboard`。补丁动机是 Linux X11
 完成屏障和有界 INCR 传输，但替换后的 macOS、Windows、Wayland 源码也由本项目负责维护。
 
 三个原生失败已在重写前 `80889e3`（等价 tree：`84e1c1a`）上由真实 runner 证明修复：

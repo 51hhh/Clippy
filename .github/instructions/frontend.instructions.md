@@ -1,6 +1,6 @@
 ---
 description: "Use when writing or modifying frontend JavaScript/CSS/HTML in src/. Covers vanilla JS component patterns, IPC via api.js, i18n, theme system, and XSS prevention."
-applyTo: "src/js/**,src/styles/**,src/*.html"
+applyTo: "apps/legacy-tauri/frontend/js/**,apps/legacy-tauri/frontend/styles/**,apps/legacy-tauri/frontend/*.html"
 ---
 # 前端约定
 
@@ -26,8 +26,8 @@ applyTo: "src/js/**,src/styles/**,src/*.html"
 
 ## 测试
 - Vitest + jsdom 环境
-- 测试文件在 `src/tests/`
-- 运行: `cd src && npx vitest run`
+- 测试文件在 `apps/legacy-tauri/frontend/tests/`
+- 运行: `cd apps/legacy-tauri/frontend && npx vitest run`
 
 ## 语言
 - UI 文本使用**英文**

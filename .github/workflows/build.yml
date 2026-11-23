@@ -46,47 +46,46 @@ jobs:
           # Jammy 是发布基线，缓存键不能与更高 glibc 的 Linux runner 共用。
           prefix-key: v1-rust
           key: ubuntu-22.04
-          workspaces: src-tauri
+          workspaces: . -> target
 
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: src/package-lock.json
+          cache-dependency-path: apps/legacy-tauri/frontend/package-lock.json
 
       - name: Install frontend dependencies
-        working-directory: src
+        working-directory: apps/legacy-tauri/frontend
         run: npm ci
 
       - name: Audit production dependencies
-        working-directory: src
+        working-directory: apps/legacy-tauri/frontend
         run: npm audit --omit=dev --audit-level=low
 
       - name: Audit high-impact development dependencies
-        working-directory: src
+        working-directory: apps/legacy-tauri/frontend
         run: npm audit --audit-level=high
 
       - name: Rust format check
-        working-directory: src-tauri
-        run: cargo fmt -- --check
+        run: cargo fmt --all -- --check
 
       - name: Verify Windows WGC cursor patch
         run: node scripts/verify-xcap-patch.mjs
 
       - name: Vendored xcap format check
-        working-directory: src-tauri
+        working-directory: apps/legacy-tauri/native
         run: cargo fmt --manifest-path vendor/xcap/Cargo.toml -- --check
 
       - name: Rust check
-        working-directory: src-tauri
+        working-directory: apps/legacy-tauri/native
         run: |
           cargo check --all-targets
           cargo check --no-default-features --lib
 
       - name: Verify PipeWire fast-path baseline
         run: |
-          TREE="$(cd src-tauri && cargo tree --target x86_64-unknown-linux-gnu -e normal)"
+          TREE="$(cd apps/legacy-tauri/native && cargo tree --target x86_64-unknown-linux-gnu -e normal)"
           if ! grep -q 'pipewire v' <<<"$TREE"; then
             echo '::error::Default Linux build must include pipewire-rs fast path'
             exit 1
@@ -97,18 +96,27 @@ jobs:
           fi
 
       - name: Rust clippy
-        working-directory: src-tauri
+        working-directory: apps/legacy-tauri/native
         run: cargo clippy --all-targets -- -D warnings
 
       - name: Rust tests
-        working-directory: src-tauri
+        working-directory: apps/legacy-tauri/native
         run: cargo test
+
+      - name: Slint Rust check
+        run: cargo check --locked -p clippy-slint --all-targets
+
+      - name: Slint Rust clippy
+        run: cargo clippy --locked -p clippy-slint --all-targets -- -D warnings
+
+      - name: Slint Rust tests
+        run: cargo test --locked -p clippy-slint
 
       - name: Rust dependency audit
         uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          working-directory: src-tauri
+          working-directory: .
 
       - name: X11 clipboard isolated protocol tests
         run: ./scripts/test-x11-clipboard.sh
@@ -121,8 +129,8 @@ jobs:
 
       - name: OCR quality contracts
         run: |
-          python3 -m unittest discover -s src-tauri/ocr-sidecar -p 'test_quality*.py' -v
-          python3 -m unittest discover -s src-tauri/ocr-sidecar -p test_visual_paragraphs.py -v
+          python3 -m unittest discover -s apps/legacy-tauri/native/ocr-sidecar -p 'test_quality*.py' -v
+          python3 -m unittest discover -s apps/legacy-tauri/native/ocr-sidecar -p test_visual_paragraphs.py -v
 
       - name: Frontend HTML and Tauri boundaries
         run: node scripts/check-html-sinks.mjs
@@ -131,22 +139,22 @@ jobs:
         run: node scripts/check-ipc-contract.mjs
 
       - name: Frontend tests
-        working-directory: src
+        working-directory: apps/legacy-tauri/frontend
         run: npx vitest run
 
       - name: Vanilla JS static check
-        working-directory: src
+        working-directory: apps/legacy-tauri/frontend
         run: npm run lint:js
 
       - name: DOM/Xvfb smoke
         run: ./scripts/smoke-dom.sh
 
       - name: Frontend typecheck
-        working-directory: src
+        working-directory: apps/legacy-tauri/frontend
         run: npx tsc --noEmit
 
       - name: Frontend build
-        working-directory: src
+        working-directory: apps/legacy-tauri/frontend
         run: npx vite build
 
   native-check:
@@ -170,7 +178,7 @@ jobs:
         with:
           prefix-key: v1-rust
           key: ${{ matrix.runner }}
-          workspaces: src-tauri
+          workspaces: . -> target
 
       # Windows 也执行前端门禁，避免文件 URL、盘符与路径分隔符问题只在用户本机暴露。
       - name: Setup Node.js for Windows frontend
@@ -179,11 +187,11 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: src/package-lock.json
+          cache-dependency-path: apps/legacy-tauri/frontend/package-lock.json
 
       - name: Windows frontend checks
         if: runner.os == 'Windows'
-        working-directory: src
+        working-directory: apps/legacy-tauri/frontend
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -198,9 +206,9 @@ jobs:
           Invoke-CheckedNpm run typecheck
           Invoke-CheckedNpm test
           Invoke-CheckedNpm run build
-          node ../scripts/check-built-main.mjs
+          node ../../../scripts/check-built-main.mjs
           if ($LASTEXITCODE -ne 0) { throw "built entry check exited with $LASTEXITCODE" }
-          node ../scripts/verify-xcap-patch.mjs
+          node ../../../scripts/verify-xcap-patch.mjs
           if ($LASTEXITCODE -ne 0) { throw "vendored xcap check exited with $LASTEXITCODE" }
 
       # Windows runner 的真实 DACL 与普通用户符号链接权限不能由 Linux mode 测试替代。
@@ -209,66 +217,75 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          python -m unittest discover -s src-tauri/ocr-sidecar -p 'test_quality*.py' -v
+          python -m unittest discover -s apps/legacy-tauri/native/ocr-sidecar -p 'test_quality*.py' -v
           if ($LASTEXITCODE -ne 0) { throw "OCR quality tests exited with $LASTEXITCODE" }
-          python -m unittest discover -s src-tauri/ocr-sidecar -p test_visual_paragraphs.py -v
+          python -m unittest discover -s apps/legacy-tauri/native/ocr-sidecar -p test_visual_paragraphs.py -v
           if ($LASTEXITCODE -ne 0) { throw "OCR paragraph tests exited with $LASTEXITCODE" }
 
       - name: Native Rust check
-        working-directory: src-tauri
+        working-directory: apps/legacy-tauri/native
         run: cargo check --all-targets
 
       - name: Native Rust clippy
-        working-directory: src-tauri
+        working-directory: apps/legacy-tauri/native
         run: cargo clippy --all-targets -- -D warnings
 
       - name: Vendored xcap WGC clippy
         if: runner.os == 'Windows'
-        working-directory: src-tauri
+        working-directory: apps/legacy-tauri/native
         run: cargo clippy --locked --manifest-path vendor/xcap/Cargo.toml --lib --tests --features wgc -- -D warnings
 
       - name: Windows WGC close state tests
         if: runner.os == 'Windows'
-        working-directory: src-tauri
+        working-directory: apps/legacy-tauri/native
         run: cargo test --locked --manifest-path vendor/xcap/Cargo.toml --lib --features wgc platform::wgc_runtime::tests
 
       - name: Windows WGC initialization rollback tests
         if: runner.os == 'Windows'
-        working-directory: src-tauri
+        working-directory: apps/legacy-tauri/native
         run: cargo test --locked --manifest-path vendor/xcap/Cargo.toml --lib --features wgc platform::wgc_init::tests
 
       - name: Windows registry build buffer tests
         if: runner.os == 'Windows'
-        working-directory: src-tauri
+        working-directory: apps/legacy-tauri/native
         run: cargo test --locked --manifest-path vendor/xcap/Cargo.toml --lib --features wgc platform::registry_build::tests
 
       - name: Vendored xcap macOS clippy
         if: runner.os == 'macOS'
-        working-directory: src-tauri
+        working-directory: apps/legacy-tauri/native
         run: cargo clippy --manifest-path vendor/xcap/Cargo.toml --lib -- -D warnings
 
       - name: Native Rust tests
-        working-directory: src-tauri
+        working-directory: apps/legacy-tauri/native
         run: cargo test
+
+      - name: Slint Rust check
+        run: cargo check --locked -p clippy-slint --all-targets
+
+      - name: Slint Rust clippy
+        run: cargo clippy --locked -p clippy-slint --all-targets -- -D warnings
+
+      - name: Slint Rust tests
+        run: cargo test --locked -p clippy-slint
 
       - name: Windows CF_HTML parser tests
         if: runner.os == 'Windows'
-        working-directory: src-tauri
+        working-directory: apps/legacy-tauri/native
         run: cargo test --locked -p arboard --lib platform::windows::html::tests
 
       - name: Windows image decode budget tests
         if: runner.os == 'Windows'
-        working-directory: src-tauri
+        working-directory: apps/legacy-tauri/native
         run: cargo test --locked -p arboard --lib platform::windows::image_limits::tests
 
       - name: Windows DIBV5 decode tests
         if: runner.os == 'Windows'
-        working-directory: src-tauri
+        working-directory: apps/legacy-tauri/native
         run: 'cargo test --locked -p arboard --lib platform::windows::image_data::'
 
       - name: Windows DIB file view tests
         if: runner.os == 'Windows'
-        working-directory: src-tauri
+        working-directory: apps/legacy-tauri/native
         run: cargo test --locked -p arboard --lib platform::windows::dib::tests
 
   recording-codec-prototype:
@@ -339,39 +356,39 @@ jobs:
           prefix-key: v1-recording-codec
           # Cargo feature lists contain commas, which are forbidden in cache keys.
           key: ${{ matrix.runner }}-${{ matrix.cache_key }}
-          workspaces: src-tauri
+          workspaces: . -> target
 
       - name: Verify pinned codec supply chain
         run: node scripts/verify-recording-codec-supply-chain.mjs
 
       - name: Prototype Rust clippy
-        working-directory: src-tauri
+        working-directory: apps/legacy-tauri/native
         run: cargo clippy --features ${{ matrix.features }} --all-targets -- -D warnings
 
       - name: Prototype VP9 mux tests
-        working-directory: src-tauri
+        working-directory: apps/legacy-tauri/native
         run: cargo test --features ${{ matrix.features }} --lib recording::mux::vp9_webm::tests
 
       - name: Prototype Opus WebM contract tests
-        working-directory: src-tauri
+        working-directory: apps/legacy-tauri/native
         run: cargo test --features ${{ matrix.features }} --lib recording::mux::opus_webm::tests
 
       - name: Prototype recoverable A/V session tests
-        working-directory: src-tauri
+        working-directory: apps/legacy-tauri/native
         run: |
           cargo test --features ${{ matrix.features }} --lib recording::av -- --test-threads=1
           cargo test --features ${{ matrix.features }} --lib recording::manager::tests
 
       - name: Prototype VP9 session and recovery tests
-        working-directory: src-tauri
+        working-directory: apps/legacy-tauri/native
         run: cargo test --features ${{ matrix.features }} --lib recording::session::tests::vp9_
 
       - name: Windows WASAPI audio contract tests
         if: runner.os == 'Windows'
-        working-directory: src-tauri
+        working-directory: apps/legacy-tauri/native
         run: cargo test --features ${{ matrix.features }} --lib recording::platform::windows_audio
 
       - name: Prototype X11 capture to VP9 session
         if: runner.os == 'Linux'
-        working-directory: src-tauri
+        working-directory: apps/legacy-tauri/native
         run: xvfb-run -a env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET XDG_SESSION_TYPE=x11 cargo test --features ${{ matrix.features }} recording::benchmark::tests::x11_vp9_benchmark_runs_the_production_capture_pipeline -- --ignored --exact --test-threads=1

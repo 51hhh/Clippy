@@ -41,17 +41,17 @@ jobs:
         with:
           prefix-key: v1-rust
           key: qa-linux-x64-recording
-          workspaces: src-tauri
+          workspaces: . -> target
 
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: src/package-lock.json
+          cache-dependency-path: apps/legacy-tauri/frontend/package-lock.json
 
       - name: Install frontend dependencies
-        working-directory: src
+        working-directory: apps/legacy-tauri/frontend
         run: npm ci
 
       - name: Verify pinned recording codec supply chain
@@ -59,7 +59,7 @@ jobs:
 
       - name: Verify PipeWire fast-path baseline
         run: |
-          TREE="$(cd src-tauri && cargo tree --target x86_64-unknown-linux-gnu -e normal)"
+          TREE="$(cd apps/legacy-tauri/native && cargo tree --target x86_64-unknown-linux-gnu -e normal)"
           grep -q 'pipewire v' <<<"$TREE" || {
             echo '::error::Linux QA build must include pipewire-rs fast path'
             exit 1
@@ -71,13 +71,13 @@ jobs:
 
       - name: Build Linux QA bundles
         run: >-
-          npx --prefix src tauri build --ci --no-sign
+          npx --prefix apps/legacy-tauri/frontend tauri build --ci --no-sign
           --features recording-wayland-qa,recording-linux-av-qa
-          --config src-tauri/tauri.linux.conf.json
-          --config src-tauri/tauri.ci.conf.json
+          --config apps/legacy-tauri/native/tauri.linux.conf.json
+          --config apps/legacy-tauri/native/tauri.ci.conf.json
 
       - name: Verify QA binary links PipeWire
-        run: readelf -d src-tauri/target/release/clippy-app | grep -q 'libpipewire-0.3.so.0'
+        run: readelf -d target/release/clippy-app | grep -q 'libpipewire-0.3.so.0'
 
       - name: Finalize Linux QA AppImage
         run: ./scripts/finalize-appimage.sh
@@ -85,10 +85,10 @@ jobs:
       - name: Prepare Linux QA artifact
         run: |
           mkdir -p qa-stage qa-artifacts
-          cp src-tauri/target/release/bundle/deb/*.deb qa-stage/
-          cp src-tauri/target/release/bundle/appimage/*.AppImage qa-stage/
+          cp target/release/bundle/deb/*.deb qa-stage/
+          cp target/release/bundle/appimage/*.AppImage qa-stage/
           printf 'commit=%s\nversion=%s\nplatform=linux-x64\nsigning=unsigned-qa-only\nrecording_feature=recording-wayland-qa,recording-linux-av-qa\n' \
-            "$GITHUB_SHA" "$(jq -r '.version' src-tauri/tauri.conf.json)" \
+            "$GITHUB_SHA" "$(jq -r '.version' apps/legacy-tauri/native/tauri.conf.json)" \
             > qa-stage/QA-BUILD.txt
           (cd qa-stage && sha256sum ./*.deb ./*.AppImage > SHA256SUMS.txt)
           tar -czf "qa-artifacts/Clippy_QA_${GITHUB_SHA}_linux-x64.tar.gz" -C qa-stage .
@@ -96,7 +96,7 @@ jobs:
       - name: Generate version-bound QA record templates
         run: |
           mkdir -p qa-records
-          VERSION=$(jq -r '.version' src-tauri/tauri.conf.json)
+          VERSION=$(jq -r '.version' apps/legacy-tauri/native/tauri.conf.json)
           for PROFILE in \
             linux-gnome-x11 linux-gnome-wayland linux-gnome-wayland-ubuntu24 \
             linux-gnome-wayland-ubuntu26 \
@@ -152,7 +152,7 @@ jobs:
 
       - name: Verify and extract Ubuntu 22 QA bundle
         run: |
-          mkdir -p qa-runtime src-tauri/target
+          mkdir -p qa-runtime target
           tar -xzf "qa-download/Clippy_QA_${GITHUB_SHA}_linux-x64.tar.gz" -C qa-runtime
           (cd qa-runtime && sha256sum -c SHA256SUMS.txt)
 
@@ -170,14 +170,14 @@ jobs:
         with:
           name: qa-ubuntu24-x11-smoke-${{ github.sha }}
           path: |
-            src-tauri/target/appimage-x11-smoke.*/runner.log
-            src-tauri/target/appimage-x11-smoke.*/first-instance.log
-            src-tauri/target/appimage-x11-smoke.*/single-instance-call.log
-            src-tauri/target/appimage-x11-smoke.*/window-info.txt
-            src-tauri/target/appimage-x11-smoke.*/window-xprop.txt
-            src-tauri/target/appimage-x11-smoke.*/main-window.png
-            src-tauri/target/appimage-x11-smoke.*/signalstats.txt
-            src-tauri/target/appimage-x11-smoke.*/ffmpeg.log
+            target/appimage-x11-smoke.*/runner.log
+            target/appimage-x11-smoke.*/first-instance.log
+            target/appimage-x11-smoke.*/single-instance-call.log
+            target/appimage-x11-smoke.*/window-info.txt
+            target/appimage-x11-smoke.*/window-xprop.txt
+            target/appimage-x11-smoke.*/main-window.png
+            target/appimage-x11-smoke.*/signalstats.txt
+            target/appimage-x11-smoke.*/ffmpeg.log
           if-no-files-found: warn
           retention-days: 14
 
@@ -198,17 +198,17 @@ jobs:
         with:
           prefix-key: v1-rust
           key: qa-windows-x64-recording-source
-          workspaces: src-tauri
+          workspaces: . -> target
 
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: src/package-lock.json
+          cache-dependency-path: apps/legacy-tauri/frontend/package-lock.json
 
       - name: Install frontend dependencies
-        working-directory: src
+        working-directory: apps/legacy-tauri/frontend
         run: npm ci
 
       - name: Install Windows recording source-build shell dependencies
@@ -242,12 +242,12 @@ jobs:
 
       - name: Build Windows QA bundles
         run: >-
-          npx --prefix src tauri build --ci
+          npx --prefix apps/legacy-tauri/frontend tauri build --ci
           --features recording-windows-av-qa
           --target x86_64-pc-windows-msvc
-          --config src-tauri/tauri.windows.conf.json
-          --config src-tauri/tauri.ci.conf.json
-          --config src-tauri/tauri.windows.signing.conf.json
+          --config apps/legacy-tauri/native/tauri.windows.conf.json
+          --config apps/legacy-tauri/native/tauri.ci.conf.json
+          --config apps/legacy-tauri/native/tauri.windows.signing.conf.json
           --config "${{ steps.runtime.outputs.runtime_config }}"
 
       - name: Verify Windows QA app-local runtime payload
@@ -258,15 +258,15 @@ jobs:
           --config "${{ steps.runtime.outputs.runtime_config }}"
           --manifest-sha256 "${{ steps.runtime.outputs.runtime_manifest_sha256 }}"
           --expected-source "${{ github.sha }}"
-          --executable src-tauri/target/x86_64-pc-windows-msvc/release/clippy-app.exe
-          --payload-root src-tauri/target/x86_64-pc-windows-msvc/release
+          --executable target/x86_64-pc-windows-msvc/release/clippy-app.exe
+          --payload-root target/x86_64-pc-windows-msvc/release
 
       - name: Prepare Windows QA artifact
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path qa-artifacts | Out-Null
-          $nsis = Get-ChildItem src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis -File -Filter "*-setup.exe"
-          $msi = Get-ChildItem src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi -File -Filter "*.msi"
+          $nsis = Get-ChildItem target/x86_64-pc-windows-msvc/release/bundle/nsis -File -Filter "*-setup.exe"
+          $msi = Get-ChildItem target/x86_64-pc-windows-msvc/release/bundle/msi -File -Filter "*.msi"
           if (-not $nsis -or -not $msi) { throw "Windows QA installers are incomplete" }
           foreach ($artifact in @($nsis, $msi)) {
             $signature = Get-AuthenticodeSignature $artifact.FullName
@@ -282,7 +282,7 @@ jobs:
           Copy-Item $nsis.FullName qa-artifacts/
           Copy-Item $msi.FullName qa-artifacts/
           Copy-Item -LiteralPath '${{ steps.runtime.outputs.runtime_manifest }}' -Destination qa-artifacts/QA-WINDOWS-RUNTIME.json
-          $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          $version = (Get-Content apps/legacy-tauri/native/tauri.conf.json | ConvertFrom-Json).version
           @(
             "commit=$env:GITHUB_SHA"
             "version=$version"
@@ -354,17 +354,17 @@ jobs:
         with:
           prefix-key: v1-rust
           key: qa-macos-${{ matrix.asset_arch }}
-          workspaces: src-tauri -> target
+          workspaces: . -> target
 
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: src/package-lock.json
+          cache-dependency-path: apps/legacy-tauri/frontend/package-lock.json
 
       - name: Install frontend dependencies
-        working-directory: src
+        working-directory: apps/legacy-tauri/frontend
         run: npm ci
 
       - name: Verify pinned recording codec supply chain
@@ -372,12 +372,12 @@ jobs:
 
       - name: Build ad-hoc signed macOS QA bundle
         run: >-
-          npx --prefix src tauri build --ci --target ${{ matrix.rust_target }}
+          npx --prefix apps/legacy-tauri/frontend tauri build --ci --target ${{ matrix.rust_target }}
           --features ${{ matrix.recording_feature }}
-          --config src-tauri/tauri.macos.conf.json
-          --config src-tauri/tauri.macos.recording.conf.json
-          --config src-tauri/tauri.ci.conf.json
-          --config src-tauri/tauri.macos.qa.conf.json
+          --config apps/legacy-tauri/native/tauri.macos.conf.json
+          --config apps/legacy-tauri/native/tauri.macos.recording.conf.json
+          --config apps/legacy-tauri/native/tauri.ci.conf.json
+          --config apps/legacy-tauri/native/tauri.macos.qa.conf.json
 
       - name: Verify and prepare macOS QA artifact
         env:
@@ -385,7 +385,7 @@ jobs:
           RUST_TARGET: ${{ matrix.rust_target }}
         run: |
           mkdir -p qa-artifacts
-          BUNDLE_DIR="src-tauri/target/${RUST_TARGET}/release/bundle"
+          BUNDLE_DIR="target/${RUST_TARGET}/release/bundle"
           APP=$(find "$BUNDLE_DIR/macos" -maxdepth 1 -type d -name '*.app' -print -quit)
           [ -n "$APP" ] || { echo '::error::macOS app bundle was not generated'; exit 1; }
           codesign --verify --deep --strict --verbose=2 "$APP"
@@ -417,7 +417,7 @@ jobs:
           [ -n "$DMG" ] || { echo '::error::macOS DMG was not generated'; exit 1; }
           cp "$DMG" qa-artifacts/
           printf 'commit=%s\nversion=%s\nplatform=macos-%s\nsigning=ad-hoc-qa-only\nrecording_feature=%s\nminimum_system_version=12.3\n' \
-            "$GITHUB_SHA" "$(jq -r '.version' src-tauri/tauri.conf.json)" "$ASSET_ARCH" \
+            "$GITHUB_SHA" "$(jq -r '.version' apps/legacy-tauri/native/tauri.conf.json)" "$ASSET_ARCH" \
             "${{ matrix.recording_feature }}" \
             > qa-artifacts/QA-BUILD.txt
           (cd qa-artifacts && shasum -a 256 ./*.dmg > SHA256SUMS.txt)

@@ -44,5 +44,5 @@ W53/W59/W63/W67历史失败根因继续未明，原日志/失败材料和39项�
 没有应用/设备/桌面操作、安装、签名、新工具/证书、推送、PR、合入或发布；默认录屏入口仍关闭。
 原规格最后复合验收与整体任务仍未完成。
 
-证据在 `src-tauri/target/mixed-frame-boundary-contract/` 和 `mixed-frame-native-qa-4bc1977/`，包括原始日志、
+证据在 `target/mixed-frame-boundary-contract/` 和 `mixed-frame-native-qa-4bc1977/`，包括原始日志、
 native退出码、冻结输入、同字节夹具、根错误/PCM前缀、AV文件、独立合同/门禁审计。

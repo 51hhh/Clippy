@@ -52,7 +52,7 @@ set_size 接受锁定 dpi 的 Physical 变体，因此保留原始物理边界�
 没有算法模型或类型桩。新增五份回归文件原始字节保持，修复后 exit 0，16 passed / 0 failed /
 0 ignored，1079 filtered。回归没有调用显示器/窗口枚举、截图、窗口建造、光标或输入 API。
 初次绿色编译报告 Windows 不再使用逻辑 contains 方法；该方法仅保留其它平台，最终严格门禁通过。
-红源码/日志和 SHA-256 保存在 src-tauri/target/windows-physical-monitor-contract/RESULT.json。
+红源码/日志和 SHA-256 保存在 target/windows-physical-monitor-contract/RESULT.json。
 现有测试仅补内部物理元数据、辅助构造可见性，保留原断言；guide 夹具同时补齐移动后的物理事实。
 当前 SHA CI、其它宿主与实际桌面仍未验，不能由下面的本机门禁替代。
 
@@ -67,7 +67,7 @@ QA Rust 1147 / 5 ignored（重叠不累加）；每个图分别包含本次十�
 前端 75 文件 / 1292 passed，Python 33 + 3。独立 vendor 十八项和剪贴板二十四项通过，不计入
 应用 Rust 总数。Native check、严格 lint、供应链、前端构建/入口、原始 stdout/stderr 哈希与
 验证后干净检出通过；已验证退出 0/17 的 Process 包装器原始哈希保持。
-最终完整证据 src-tauri/target/windows-physical-monitor-native-qa-2f0e225/RESULT.json；红绿与
+最终完整证据 target/windows-physical-monitor-native-qa-2f0e225/RESULT.json；红绿与
 源码审计 windows-physical-monitor-contract/RESULT.json。后继只同步四份 Markdown，生产/CI/门禁不变。
 Windows 的实际位置请求是异步 API，WM_DPICHANGED 后的最终窗口位置和尺寸尚未观测；
 Windows 10/多屏、Pin 来源、WGC 原点身份、当前 SHA CI 和其它宿主仍未验。

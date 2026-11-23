@@ -56,7 +56,7 @@ child 与终端 exit 0：30 passed / 0 failed / 1 Linux smoke skipped。默认 R
 独立 vendor 十八项、剪贴板二十四项通过；check、严格 lint、供应链、构建/入口通过。
 原始日志/三份源码快照/checked helper/门禁脚本哈希与门禁前后干净检出核对，门禁后只改
 四份 Markdown，不重复计为测试。旧实际 QA 与全未运行模板哈希保持，未装更新包。
-完整证据 C:\win\Clippy\src-tauri\target\recording-media-revoke-native-qa-6944b68；
-红基线/原合同/后续源码证据 C:\win\Clippy\src-tauri\target\recording-media-revoke-contract。
+完整证据 C:\win\Clippy\apps/legacy-tauri/native\target\recording-media-revoke-native-qa-6944b68；
+红基线/原合同/后续源码证据 C:\win\Clippy\apps/legacy-tauri/native\target\recording-media-revoke-contract。
 在哈希扫描中间撤销的精确时序、真实窗口/删除/合并/播放、其它宿主与当前 SHA CI 未验。
 前端迟到播放 Promise/卸载释放合同留为下一步生产组件/jsdom 候选，尚未复现新缺陷。

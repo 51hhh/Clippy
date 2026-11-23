@@ -4,7 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目简介
 
-Clippy 是跨平台轻量剪贴板管理器，基于 Tauri v2 + Rust（后端）+ vanilla HTML/CSS/JS（主前端）+ React/TS（截图编辑功能岛）。当前架构见 `docs/architecture.md`，历史设计见 `docs/superpowers/specs/2026-04-24-clippy-clipboard-manager-design.md`。
+Clippy 是跨平台轻量剪贴板管理器。完整的 v0.1.x 基于 Tauri 2.12.4 + Rust（后端）+
+vanilla HTML/CSS/JS（主前端）+ React/TS（截图编辑功能岛）；v0.2.0 正在迁移到 Slint 1.19.0，
+当前 `apps/slint/` 只包含可编译壳层。当前架构见 `docs/architecture.md`，历史设计见
+`docs/superpowers/specs/2026-04-24-clippy-clipboard-manager-design.md`。
 
 已完成功能：剪贴板监听、SQLite 存储（含 FTS5 全文搜索）、悬浮面板、搜索、系统托盘、
 X11/Wayland 分流自动粘贴、多显示器冻结截图、二维手动长截图、X11/Windows/macOS 原生受控自动滚动、Wayland Portal 授权自动滚动、Pin 工作区/内部无损图片修订、
@@ -27,7 +30,7 @@ VP9 + Opus 可恢复双轨 session；它能生成 schema v2 的最终 WebM 和�
 macOS Intel/Apple Silicon QA 包已生成；Wayland 使用可信 Portal 父窗口和托盘控制，但两者的原生
 真机录制仍待验收，不能记为发布可用。
 增强 OCR 运行时需要显式配置，未随三平台安装包默认分发；交付边界见
-`src-tauri/ocr-sidecar/README.md`。
+`apps/legacy-tauri/native/ocr-sidecar/README.md`。
 智能擦除已完成 `PX-SMART-01` 可行性门控，但当前 LaMa 候选未通过强边缘质量、CPU 延迟和内存
 阈值，因此尚无产品入口或模型依赖；证据见 `docs/reviews/2026-09-21-smart-erase-feasibility.md`。
 
@@ -53,12 +56,12 @@ sudo apt install -y \
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source "$HOME/.cargo/env"
 
-# 4. Node.js（最低 22.12，与 src/package.json 一致，CI 使用 24）
+# 4. Node.js（最低 22.12，与 legacy frontend/package.json 一致，CI 使用 24）
 curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
 sudo apt install -y nodejs
 
-# 5. Tauri CLI（cargo 侧；npm 侧的同版本 CLI 已作为 src/ 的 devDependency 锁进 lockfile，
-#    `cd src && npm ci` 之后 `npx tauri` 即可用，两者版本保持一致）
+# 5. Tauri CLI（cargo 侧；npm 侧的同版本 CLI 已作为 legacy frontend 的 devDependency 锁进 lockfile，
+#    `cd apps/legacy-tauri/frontend && npm ci` 之后 `npx tauri` 即可用，两者版本保持一致）
 cargo install tauri-cli --version "^2" --locked
 ```
 
@@ -69,27 +72,27 @@ cargo install tauri-cli --version "^2" --locked
 ```bash
 # 启动开发服务器（热重载前端 + Rust 后端）
 cargo tauri dev
-# 没装 cargo-tauri 时用 npm 侧的同版本 CLI（已锁在 src/package.json，不依赖 npx 缓存）
-cd src && npx tauri dev
+# 没装 cargo-tauri 时用 npm 侧的同版本 CLI（已锁在 legacy frontend/package.json，不依赖 npx 缓存）
+cd apps/legacy-tauri/frontend && npx tauri dev --config ../native/tauri.conf.json
 
-# 构建发布包（输出到 src-tauri/target/release/bundle/）
-cargo tauri build
+# 构建本地无签名安装包（输出到 target/release/bundle/）
+cargo tauri build --config apps/legacy-tauri/native/tauri.ci.conf.json
 
 # 仅编译 Rust 后端（快速检查编译错误）
-cd src-tauri && cargo check --all-targets
+cd apps/legacy-tauri/native && cargo check --all-targets
 
 # 运行 Rust 单元测试
-cd src-tauri && cargo test
+cd apps/legacy-tauri/native && cargo test
 
 # 运行单个测试
-cd src-tauri && cargo test test_name
+cd apps/legacy-tauri/native && cargo test test_name
 
 # 格式化 + lint
-cd src-tauri && cargo fmt
-cd src-tauri && cargo clippy --all-targets -- -D warnings
+cd apps/legacy-tauri/native && cargo fmt
+cd apps/legacy-tauri/native && cargo clippy --all-targets -- -D warnings
 
 # 性能基线（criterion，门禁只编译不运行；数字与坑见 docs/bench-baseline.md）
-cd src-tauri && cargo bench
+cd apps/legacy-tauri/native && cargo bench
 
 # 完整本地门禁（含 DOM/Xvfb smoke 与前端生产构建）
 # 仅覆盖当前宿主平台；Windows / macOS 只能由远程 Native Check 判定
@@ -99,7 +102,7 @@ cd src-tauri && cargo bench
 ## 架构概览
 
 ```
-前端 (src/)
+legacy 前端 (apps/legacy-tauri/frontend/)
 ├── index.html / settings.html         — 主窗口与设置
 ├── launcher.html                      — 键盘优先的受限动作启动器
 ├── pin.html / viewer.html             — Pin 与图片查看器功能岛入口
@@ -125,7 +128,7 @@ cd src-tauri && cargo bench
 │   └── shared/                        — i18n 与工具栏共享行为
 └── styles/                            — base/components/settings/themes
 
-Rust 后端 (src-tauri/src/)
+Rust 后端 (apps/legacy-tauri/native/src/)
 ├── lib.rs / main.rs                   — Tauri 初始化与入口
 ├── commands.rs / commands/            — AppState 与按功能 IPC 命令
 ├── actions/                            — 类型化动作注册表、受限 Launcher 与领域适配器
@@ -169,7 +172,7 @@ Rust 后端 (src-tauri/src/)
 | Pin 与查看器 | `PinManager`、`PinWorkspacePersistence`、`PinOriginRegistry`、`ViewerManager` |
 | 自动化与服务 | `PasteManager`、`TranslationService`、快捷键/Portal worker |
 
-具体字段以 `src-tauri/src/commands.rs` 和 owner 类型为准。命令 adapter 只借用 owner 并做参数转换，
+具体字段以 `apps/legacy-tauri/native/src/commands.rs` 和 owner 类型为准。命令 adapter 只借用 owner 并做参数转换，
 不要把领域状态机重新放回 `AppState` 或 `commands.rs`。
 
 ### 前端约定
@@ -177,7 +180,7 @@ Rust 后端 (src-tauri/src/)
 - 主界面无框架，纯 HTML/CSS/JS + ES Module `<script type="module">`
 - React/TS 功能岛是 `capture-overlay/`、`longshot-controller/`、`viewer/`、`pin/` 与主窗口局部
   `main/`；`annotation/` 和 `shared/` 只提供跨岛共享核心，不持有页面生命周期
-- 使用 Vite 作为开发服务器和构建工具（`src/vite.config.mjs`）
+- 使用 Vite 作为开发服务器和构建工具（`apps/legacy-tauri/frontend/vite.config.mjs`）
 - 业务模块只从 `api.ts` 公共 facade 导入；只有 `scripts/frontend-api-boundary.mjs` 登记的
   `api/*.ts` 领域模块允许直接访问 Tauri IPC
 - 所有用户纯文本通过 React 文本节点或 `textContent` 写入 DOM；只有
@@ -196,7 +199,8 @@ Rust 后端 (src-tauri/src/)
 - FTS 索引需手动同步：插入时同步写 `clips_fts`，删除时用 FTS5 `'delete'` 命令清理
 - 公共 `tauri.conf.json` 不含平台专属 bundle；Linux、Windows、macOS 覆盖配置分别生成
   deb/AppImage、NSIS/MSI 与 Intel/Apple Silicon app/DMG
-- 前端通过 Vite 构建输出到 `dist/`，Tauri 从 `frontendDist: "../dist"` 加载静态文件
+- legacy 前端通过 Vite 构建输出到 `apps/legacy-tauri/dist/`，Tauri 从
+  `frontendDist: "../dist"` 加载静态文件
 
 ## 语言约定
 

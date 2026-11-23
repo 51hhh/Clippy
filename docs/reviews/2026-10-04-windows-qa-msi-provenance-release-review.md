@@ -45,7 +45,7 @@ canonical源名/目标名一致，原输出路径/reparse、签名/完整版本/
 W85修复QA安装包的资源源码为228cc93、EXE编译为8889192，本轮没有重写那两个包的原来源。
 本轮新release明确以228cc93编译，下一步才可据新EXE核对同源码NSIS/MSI文件；未打包/签名/安装。
 current-release-default-228cc93、current-release-qa-228cc93、current-release-closure-228cc93、
-isolated-release-228cc93位于主仓库src-tauri/target；原888/00f/D05构建、W85包及失败日志均保留。
+isolated-release-228cc93位于主仓库target；原888/00f/D05构建、W85包及失败日志均保留。
 本轮修复/新增用例/通过数0，52代码/部署修复与51历史不变；84定向合同及新4项已含1409总数。
 
 同SHA CI仍not_run；没有新网络查询、推送或workflow，W85当前CI-gap与W83旧888实际查询

@@ -1,0 +1,46 @@
+import { AboutSlint, VerticalBox } from "std-widgets.slint";
+
+export component AppWindow inherits Window {
+    in property <string> build-label;
+
+    title: "Clippy";
+    width: 520px;
+    height: 360px;
+    background: #f4f5f7;
+
+    VerticalBox {
+        padding: 32px;
+        spacing: 18px;
+
+        Text {
+            text: "Clippy";
+            color: #202124;
+            font-size: 34px;
+            font-weight: 700;
+            horizontal-alignment: center;
+        }
+
+        Text {
+            text: "Native UI migration shell";
+            color: #5f6368;
+            font-size: 16px;
+            horizontal-alignment: center;
+        }
+
+        Rectangle {
+            height: 1px;
+            background: #dfe1e5;
+        }
+
+        Text {
+            text: root.build-label;
+            color: #5f6368;
+            font-size: 13px;
+            horizontal-alignment: center;
+        }
+
+        AboutSlint {
+            height: 72px;
+        }
+    }
+}

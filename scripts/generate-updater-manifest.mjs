@@ -7,25 +7,25 @@ import { fileURLToPath } from "node:url";
 export const UPDATER_PLATFORMS = Object.freeze([
   Object.freeze({
     key: "linux-x86_64",
-    config: "src-tauri/tauri.linux.conf.json",
+    config: "apps/legacy-tauri/native/tauri.linux.conf.json",
     bundleTarget: "appimage",
     artifactTemplate: "Clippy_{version}_amd64.AppImage",
   }),
   Object.freeze({
     key: "windows-x86_64",
-    config: "src-tauri/tauri.windows.conf.json",
+    config: "apps/legacy-tauri/native/tauri.windows.conf.json",
     bundleTarget: "nsis",
     artifactTemplate: "Clippy_{version}_x64-setup.exe",
   }),
   Object.freeze({
     key: "darwin-aarch64",
-    config: "src-tauri/tauri.macos.conf.json",
+    config: "apps/legacy-tauri/native/tauri.macos.conf.json",
     bundleTarget: "app",
     artifactTemplate: "Clippy_{version}_aarch64.app.tar.gz",
   }),
   Object.freeze({
     key: "darwin-x86_64",
-    config: "src-tauri/tauri.macos.conf.json",
+    config: "apps/legacy-tauri/native/tauri.macos.conf.json",
     bundleTarget: "app",
     artifactTemplate: "Clippy_{version}_x64.app.tar.gz",
   }),
