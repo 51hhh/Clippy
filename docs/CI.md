@@ -50,7 +50,7 @@ CI；只有真实安装包和桌面交互可以关闭 Native/人工 QA 项。
   `libpipewire-0.3-dev` 0.3.48 和仓库内的最小 `libspa` 兼容补丁构建，不依赖第三方 PPA；
   另需 `libgbm-dev/libegl-dev/libdrm-dev/libwayland-dev/libxcb1-dev`，以及 DOM smoke 使用的
   `xvfb`/`x11-utils`
-- **Rust**: stable（含 clippy + rustfmt 组件）
+- **Rust**: `rust-toolchain.toml` 固定的 1.98.0（含 clippy + rustfmt 组件）；升级需在同一提交中验证格式、三平台原生门禁与打包链路
 - **Node.js**: 24
 - **缓存**: `Swatinem/rust-cache@v2`（加速 Rust 编译）
 
