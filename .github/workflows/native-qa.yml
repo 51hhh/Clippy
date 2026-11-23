@@ -481,6 +481,11 @@ jobs:
           cargo test --locked -p clippy-platform -p clippy-slint
           --features qa-build
 
+      - name: Build Slint QA binary
+        run: >-
+          cargo build --locked --release -p clippy-slint
+          --bin clippy-slint-qa --features qa-build
+
       - name: Build Slint Linux QA bundles
         run: |
           rm -rf target/packager/slint-qa
@@ -574,6 +579,11 @@ jobs:
           cargo test --locked -p clippy-platform -p clippy-slint
           --features qa-build
 
+      - name: Build Slint QA binary
+        run: >-
+          cargo build --locked --release -p clippy-slint
+          --bin clippy-slint-qa --features qa-build
+
       - name: Build Slint Windows QA bundles
         shell: pwsh
         run: |
@@ -666,6 +676,11 @@ jobs:
         run: >-
           cargo test --locked -p clippy-platform -p clippy-slint
           --features qa-build
+
+      - name: Build Slint QA binary
+        run: >-
+          cargo build --locked --release -p clippy-slint
+          --bin clippy-slint-qa --features qa-build
 
       - name: Build Slint macOS QA bundles
         run: |

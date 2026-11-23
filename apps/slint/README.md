@@ -17,9 +17,12 @@ cargo run -p clippy-slint --bin clippy-slint-qa --features qa-build
 
 ```bash
 cargo install cargo-packager --version 0.11.8 --locked
-cd apps/slint
-cargo-packager --config Packager.qa.toml --formats deb,appimage
+cargo build --locked --release -p clippy-slint --bin clippy-slint-qa --features qa-build
+cargo-packager --config apps/slint/Packager.qa.toml --formats deb,appimage
 ```
+
+编译和打包是两个显式阶段；Packager 配置只描述产物，不通过 shell hook 启动 Cargo。这样 Windows
+不会因扩展长度工作目录被 `cmd.exe` 当成 UNC 路径而丢失 workspace 根目录。
 
 该配置不等于 v0.2 正式打包流程。数据目录、单实例和快捷键隔离要等对应平台服务接入后再做运行期
 验收。Native QA workflow 在三平台分别生成 deb/AppImage、NSIS/MSI、app/DMG；Windows/macOS

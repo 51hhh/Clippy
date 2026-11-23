@@ -96,6 +96,7 @@ describe("Slint v0.2 migration workspace contract", () => {
     expect(qaPackager).toContain('minimum-system-version = "12.3"');
     expect(qaPackager).toContain('signing-identity = "-"');
     expect(qaPackager).toContain("LicenseRef-Slint-Royalty-free-2.0.md");
+    expect(qaPackager).not.toContain("before-packaging-command");
   });
 
   it("builds isolated legacy and Slint QA artifacts on all native platforms", () => {
@@ -104,6 +105,7 @@ describe("Slint v0.2 migration workspace contract", () => {
     expect(nativeQa).toContain("build-slint-windows:");
     expect(nativeQa).toContain("build-slint-macos:");
     expect(nativeQa.match(/cargo install cargo-packager --version 0\.11\.8 --locked/g)).toHaveLength(3);
+    expect(nativeQa.match(/cargo build --locked --release -p clippy-slint/g)).toHaveLength(3);
     expect(nativeQa).toContain("--formats deb,appimage");
     expect(nativeQa).toContain("--formats nsis,wix");
     expect(nativeQa).toContain("--formats app,dmg");

@@ -419,7 +419,8 @@ DOM/Xvfb、Canvas/布局像素 smoke 和 Vite build。AppImage 可视 smoke 由
 `CLIPPY_APPIMAGE_SMOKE=1` 显式启用。criterion 基准会被 `--all-targets` 编译但不会在门禁中运行，
 数字与运行方式见 [bench-baseline.md](bench-baseline.md)。
 
-Slint QA 的包入口为 `apps/slint/Packager.qa.toml`。它构建独立的 `clippy-slint-qa` 二进制和桌面入口，
+Slint QA 的包入口为 `apps/slint/Packager.qa.toml`。workflow 先显式构建 `clippy-slint-qa`，Packager
+配置只描述包内容，不用跨平台 shell hook 隐式编译；产物使用独立二进制和桌面入口，
 使用 `com.clippy.qa.slint` 安装身份并携带 MIT 与 Slint 第三方许可；这只证明打包边界。数据目录、
 单实例与快捷键服务在接入 `clippy-platform` 适配器后仍需逐项验证，不能因安装包 ID 已隔离就计作
 运行期隔离完成。Native QA 保留独立的 `qa-legacy-*` 和 `qa-slint-*` job；两者只共用
