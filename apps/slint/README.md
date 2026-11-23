@@ -18,11 +18,12 @@ cargo run -p clippy-slint --bin clippy-slint-qa --features qa-build
 ```bash
 cargo install cargo-packager --version 0.11.8 --locked
 cd apps/slint
-cargo-packager --config Packager.qa.toml --formats deb
+cargo-packager --config Packager.qa.toml --formats deb,appimage
 ```
 
 该配置不等于 v0.2 正式打包流程。数据目录、单实例和快捷键隔离要等对应平台服务接入后再做运行期
-验收；Windows/macOS 包也必须由各自原生 runner 生成。
+验收。Native QA workflow 在三平台分别生成 deb/AppImage、NSIS/MSI、app/DMG；Windows/macOS
+是否成功仍以对应原生 runner 的同 SHA 结果为准。
 
 桌面分发选用 Slint Royalty-free Desktop, Mobile, and Web Applications License 2.0。
 窗口内保留 `AboutSlint` 归属组件，QA 包同时携带完整的第三方许可文本。

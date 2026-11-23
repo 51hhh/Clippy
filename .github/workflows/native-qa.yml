@@ -17,7 +17,7 @@ env:
 
 jobs:
   build-linux:
-    name: QA Bundle (Linux x64)
+    name: Legacy QA Bundle (Linux x64)
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     steps:
@@ -87,11 +87,15 @@ jobs:
           mkdir -p qa-stage qa-artifacts
           cp target/release/bundle/deb/*.deb qa-stage/
           cp target/release/bundle/appimage/*.AppImage qa-stage/
-          printf 'commit=%s\nversion=%s\nplatform=linux-x64\nsigning=unsigned-qa-only\nrecording_feature=recording-wayland-qa,recording-linux-av-qa\n' \
-            "$GITHUB_SHA" "$(jq -r '.version' apps/legacy-tauri/native/tauri.conf.json)" \
-            > qa-stage/QA-BUILD.txt
+          node scripts/qa-build-info.mjs \
+            --backend legacy-tauri \
+            --platform linux-x64 \
+            --signing unsigned-qa-only \
+            --sha "$GITHUB_SHA" \
+            --output qa-stage/QA-BUILD.txt \
+            --field recording_feature=recording-wayland-qa,recording-linux-av-qa
           (cd qa-stage && sha256sum ./*.deb ./*.AppImage > SHA256SUMS.txt)
-          tar -czf "qa-artifacts/Clippy_QA_${GITHUB_SHA}_linux-x64.tar.gz" -C qa-stage .
+          tar -czf "qa-artifacts/Clippy_Legacy_QA_${GITHUB_SHA}_linux-x64.tar.gz" -C qa-stage .
 
       - name: Generate version-bound QA record templates
         run: |
@@ -111,7 +115,7 @@ jobs:
       - name: Upload Linux QA artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: qa-linux-x64-${{ github.sha }}
+          name: qa-legacy-linux-x64-${{ github.sha }}
           path: qa-artifacts/*.tar.gz
           if-no-files-found: error
           retention-days: 14
@@ -120,13 +124,13 @@ jobs:
       - name: Upload QA record templates
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: qa-record-templates-${{ github.sha }}
+          name: qa-legacy-record-templates-${{ github.sha }}
           path: qa-records
           if-no-files-found: error
           retention-days: 14
 
   smoke-ubuntu24:
-    name: Runtime Smoke (Ubuntu 24.04 x64)
+    name: Legacy Runtime Smoke (Ubuntu 24.04 x64)
     needs: build-linux
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -147,13 +151,13 @@ jobs:
       - name: Download Ubuntu 22 QA bundle
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
-          name: qa-linux-x64-${{ github.sha }}
+          name: qa-legacy-linux-x64-${{ github.sha }}
           path: qa-download
 
       - name: Verify and extract Ubuntu 22 QA bundle
         run: |
           mkdir -p qa-runtime target
-          tar -xzf "qa-download/Clippy_QA_${GITHUB_SHA}_linux-x64.tar.gz" -C qa-runtime
+          tar -xzf "qa-download/Clippy_Legacy_QA_${GITHUB_SHA}_linux-x64.tar.gz" -C qa-runtime
           (cd qa-runtime && sha256sum -c SHA256SUMS.txt)
 
       - name: Run packaged AppImage on Ubuntu 24
@@ -168,7 +172,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: qa-ubuntu24-x11-smoke-${{ github.sha }}
+          name: qa-legacy-ubuntu24-x11-smoke-${{ github.sha }}
           path: |
             target/appimage-x11-smoke.*/runner.log
             target/appimage-x11-smoke.*/first-instance.log
@@ -182,7 +186,7 @@ jobs:
           retention-days: 14
 
   build-windows:
-    name: QA Bundle (Windows x64)
+    name: Legacy QA Bundle (Windows x64)
     runs-on: windows-latest
     timeout-minutes: 90
     steps:
@@ -282,16 +286,15 @@ jobs:
           Copy-Item $nsis.FullName qa-artifacts/
           Copy-Item $msi.FullName qa-artifacts/
           Copy-Item -LiteralPath '${{ steps.runtime.outputs.runtime_manifest }}' -Destination qa-artifacts/QA-WINDOWS-RUNTIME.json
-          $version = (Get-Content apps/legacy-tauri/native/tauri.conf.json | ConvertFrom-Json).version
-          @(
-            "commit=$env:GITHUB_SHA"
-            "version=$version"
-            "platform=windows-x64"
-            "signing=self-signed-qa-only"
-            "recording_feature=recording-windows-av-qa"
-            "target=x86_64-pc-windows-msvc"
-            "runtime_provenance_sha256=${{ steps.runtime.outputs.runtime_manifest_sha256 }}"
-          ) | Set-Content qa-artifacts/QA-BUILD.txt -Encoding utf8
+          node scripts/qa-build-info.mjs `
+            --backend legacy-tauri `
+            --platform windows-x64 `
+            --signing self-signed-qa-only `
+            --sha $env:GITHUB_SHA `
+            --output qa-artifacts/QA-BUILD.txt `
+            --field recording_feature=recording-windows-av-qa `
+            --field target=x86_64-pc-windows-msvc `
+            --field runtime_provenance_sha256=${{ steps.runtime.outputs.runtime_manifest_sha256 }}
           Get-ChildItem qa-artifacts -File | Where-Object Name -ne "SHA256SUMS.txt" |
             ForEach-Object {
               $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -301,7 +304,7 @@ jobs:
       - name: Upload Windows QA artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: qa-windows-x64-${{ github.sha }}
+          name: qa-legacy-windows-x64-${{ github.sha }}
           path: qa-artifacts
           if-no-files-found: error
           retention-days: 14
@@ -319,7 +322,7 @@ jobs:
           }
 
   build-macos:
-    name: QA Bundle (macOS ${{ matrix.label }})
+    name: Legacy QA Bundle (macOS ${{ matrix.label }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     strategy:
@@ -416,17 +419,290 @@ jobs:
           DMG=$(find "$BUNDLE_DIR/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)
           [ -n "$DMG" ] || { echo '::error::macOS DMG was not generated'; exit 1; }
           cp "$DMG" qa-artifacts/
-          printf 'commit=%s\nversion=%s\nplatform=macos-%s\nsigning=ad-hoc-qa-only\nrecording_feature=%s\nminimum_system_version=12.3\n' \
-            "$GITHUB_SHA" "$(jq -r '.version' apps/legacy-tauri/native/tauri.conf.json)" "$ASSET_ARCH" \
-            "${{ matrix.recording_feature }}" \
-            > qa-artifacts/QA-BUILD.txt
+          node scripts/qa-build-info.mjs \
+            --backend legacy-tauri \
+            --platform "macos-$ASSET_ARCH" \
+            --signing ad-hoc-qa-only \
+            --sha "$GITHUB_SHA" \
+            --output qa-artifacts/QA-BUILD.txt \
+            --field recording_feature=${{ matrix.recording_feature }} \
+            --field minimum_system_version=12.3
           (cd qa-artifacts && shasum -a 256 ./*.dmg > SHA256SUMS.txt)
 
       - name: Upload macOS QA artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: qa-macos-${{ matrix.asset_arch }}-${{ github.sha }}
+          name: qa-legacy-macos-${{ matrix.asset_arch }}-${{ github.sha }}
           path: qa-artifacts
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  build-slint-linux:
+    name: Slint QA Bundle (Linux x64)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install Slint packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential file libfontconfig1-dev libfreetype6-dev \
+            pkg-config squashfs-tools
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          prefix-key: v1-rust
+          key: qa-slint-linux-x64
+          workspaces: . -> target
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+
+      - name: Install pinned cargo-packager
+        run: cargo install cargo-packager --version 0.11.8 --locked
+
+      - name: Test Slint QA host
+        run: >-
+          cargo test --locked -p clippy-platform -p clippy-slint
+          --features qa-build
+
+      - name: Build Slint Linux QA bundles
+        run: |
+          rm -rf target/packager/slint-qa
+          cargo-packager \
+            --config apps/slint/Packager.qa.toml \
+            --formats deb,appimage
+
+      - name: Verify Slint Linux QA bundles
+        run: |
+          OUT=target/packager/slint-qa
+          DEB=$(find "$OUT" -maxdepth 1 -type f -name 'clippy-slint-qa_*_amd64.deb' -print -quit)
+          APPIMAGE=$(find "$OUT" -maxdepth 1 -type f -name 'clippy-slint-qa_*_x86_64.AppImage' -print -quit)
+          [ -n "$DEB" ] || { echo '::error::Slint QA deb is missing'; exit 1; }
+          [ -n "$APPIMAGE" ] || { echo '::error::Slint QA AppImage is missing'; exit 1; }
+          [ "$(dpkg-deb -f "$DEB" Package)" = "clippy-slint-qa" ]
+          [ "$(dpkg-deb -f "$DEB" Version)" = "0.2.0" ]
+          [ "$(dpkg-deb -f "$DEB" Depends)" = "libc6, libfontconfig1, libgcc-s1" ]
+          [ "$(dpkg-deb -f "$DEB" Maintainer)" = "zhongweixi2000" ]
+          dpkg-deb -c "$DEB" | grep 'usr/bin/clippy-slint-qa$' >/dev/null
+          dpkg-deb -c "$DEB" | grep 'LicenseRef-Slint-Royalty-free-2.0.md$' >/dev/null
+          LINKS=$(ldd target/release/clippy-slint-qa)
+          if grep -Eqi '(webkit|javascriptcore|gtk-3)' <<<"$LINKS"; then
+            echo '::error::Slint QA binary unexpectedly links a WebView or GTK runtime'
+            exit 1
+          fi
+
+          VALID_OFFSET=""
+          while IFS=: read -r offset _; do
+            if unsquashfs -o "$offset" -s "$APPIMAGE" >/dev/null 2>&1; then
+              VALID_OFFSET="$offset"
+            fi
+          done < <(LC_ALL=C grep -aob 'hsqs' "$APPIMAGE")
+          [ -n "$VALID_OFFSET" ] || { echo '::error::Slint QA AppImage has no readable payload'; exit 1; }
+          unsquashfs -o "$VALID_OFFSET" -lls "$APPIMAGE" | grep 'usr/bin/clippy-slint-qa$' >/dev/null
+          unsquashfs -o "$VALID_OFFSET" -lls "$APPIMAGE" | grep 'LicenseRef-Slint-Royalty-free-2.0.md$' >/dev/null
+
+      - name: Prepare Slint Linux QA artifact
+        run: |
+          mkdir -p qa-slint-stage qa-slint-artifacts
+          cp target/packager/slint-qa/*.deb qa-slint-stage/
+          cp target/packager/slint-qa/*.AppImage qa-slint-stage/
+          node scripts/qa-build-info.mjs \
+            --backend slint \
+            --platform linux-x64 \
+            --signing unsigned-qa-only \
+            --sha "$GITHUB_SHA" \
+            --output qa-slint-stage/QA-BUILD.txt \
+            --field packager=cargo-packager-0.11.8
+          (cd qa-slint-stage && sha256sum ./*.deb ./*.AppImage > SHA256SUMS.txt)
+          tar -czf "qa-slint-artifacts/Clippy_Slint_QA_${GITHUB_SHA}_linux-x64.tar.gz" \
+            -C qa-slint-stage .
+
+      - name: Upload Slint Linux QA artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: qa-slint-linux-x64-${{ github.sha }}
+          path: qa-slint-artifacts/*.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  build-slint-windows:
+    name: Slint QA Bundle (Windows x64)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          prefix-key: v1-rust
+          key: qa-slint-windows-x64
+          workspaces: . -> target
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+
+      - name: Install pinned cargo-packager
+        run: cargo install cargo-packager --version 0.11.8 --locked
+
+      - name: Test Slint QA host
+        run: >-
+          cargo test --locked -p clippy-platform -p clippy-slint
+          --features qa-build
+
+      - name: Build Slint Windows QA bundles
+        shell: pwsh
+        run: |
+          Remove-Item target/packager/slint-qa -Recurse -Force -ErrorAction SilentlyContinue
+          cargo-packager `
+            --config apps/slint/Packager.qa.toml `
+            --formats nsis,wix
+          if ($LASTEXITCODE -ne 0) { throw "cargo-packager exited with $LASTEXITCODE" }
+
+      - name: Verify and prepare Slint Windows QA artifact
+        shell: pwsh
+        run: |
+          $out = 'target/packager/slint-qa'
+          $nsis = @(Get-ChildItem $out -File -Filter '*.exe')
+          $msi = @(Get-ChildItem $out -File -Filter '*.msi')
+          if ($nsis.Count -ne 1 -or $msi.Count -ne 1) {
+            throw "Expected one NSIS and one MSI package, got $($nsis.Count) and $($msi.Count)"
+          }
+          if (-not (Test-Path target/release/clippy-slint-qa.exe -PathType Leaf)) {
+            throw 'Slint QA executable is missing'
+          }
+
+          New-Item -ItemType Directory -Force -Path qa-slint-artifacts | Out-Null
+          Copy-Item $nsis[0].FullName qa-slint-artifacts/
+          Copy-Item $msi[0].FullName qa-slint-artifacts/
+          node scripts/qa-build-info.mjs `
+            --backend slint `
+            --platform windows-x64 `
+            --signing unsigned-qa-only `
+            --sha $env:GITHUB_SHA `
+            --output qa-slint-artifacts/QA-BUILD.txt `
+            --field packager=cargo-packager-0.11.8 `
+            --field target=x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw "QA metadata exited with $LASTEXITCODE" }
+          Get-ChildItem qa-slint-artifacts -File | Where-Object Name -ne 'SHA256SUMS.txt' |
+            ForEach-Object {
+              $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              "$hash  $($_.Name)"
+            } | Set-Content qa-slint-artifacts/SHA256SUMS.txt -Encoding ascii
+
+      - name: Upload Slint Windows QA artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: qa-slint-windows-x64-${{ github.sha }}
+          path: qa-slint-artifacts
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  build-slint-macos:
+    name: Slint QA Bundle (macOS ${{ matrix.label }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Apple-Silicon
+            runner: macos-15
+            asset_arch: aarch64
+            expected_arch: arm64
+          - label: Intel
+            runner: macos-15-intel
+            asset_arch: x64
+            expected_arch: x86_64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          prefix-key: v1-rust
+          key: qa-slint-macos-${{ matrix.asset_arch }}
+          workspaces: . -> target
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+
+      - name: Install pinned cargo-packager
+        run: cargo install cargo-packager --version 0.11.8 --locked
+
+      - name: Test Slint QA host
+        run: >-
+          cargo test --locked -p clippy-platform -p clippy-slint
+          --features qa-build
+
+      - name: Build Slint macOS QA bundles
+        run: |
+          rm -rf target/packager/slint-qa
+          cargo-packager \
+            --config apps/slint/Packager.qa.toml \
+            --formats app,dmg
+
+      - name: Verify and prepare Slint macOS QA artifact
+        env:
+          ASSET_ARCH: ${{ matrix.asset_arch }}
+          EXPECTED_ARCH: ${{ matrix.expected_arch }}
+        run: |
+          OUT=target/packager/slint-qa
+          APP=$(find "$OUT" -maxdepth 1 -type d -name '*.app' -print -quit)
+          DMG=$(find "$OUT" -maxdepth 1 -type f -name '*.dmg' -print -quit)
+          [ -n "$APP" ] || { echo '::error::Slint QA app bundle is missing'; exit 1; }
+          [ -n "$DMG" ] || { echo '::error::Slint QA DMG is missing'; exit 1; }
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign --display --verbose=4 "$APP" 2>&1 | grep -q 'Signature=adhoc'
+
+          INFO_PLIST="$APP/Contents/Info.plist"
+          [ "$(plutil -extract CFBundleIdentifier raw -o - "$INFO_PLIST")" = "com.clippy.qa.slint" ]
+          [ "$(plutil -extract LSMinimumSystemVersion raw -o - "$INFO_PLIST")" = "12.3" ]
+          EXECUTABLE_NAME=$(plutil -extract CFBundleExecutable raw -o - "$INFO_PLIST")
+          [ "$EXECUTABLE_NAME" = "clippy-slint-qa" ]
+          EXECUTABLE="$APP/Contents/MacOS/$EXECUTABLE_NAME"
+          [ -x "$EXECUTABLE" ]
+          lipo -archs "$EXECUTABLE" | tr ' ' '\n' | grep -qx "$EXPECTED_ARCH"
+
+          mkdir -p qa-slint-artifacts
+          cp "$DMG" qa-slint-artifacts/
+          node scripts/qa-build-info.mjs \
+            --backend slint \
+            --platform "macos-$ASSET_ARCH" \
+            --signing ad-hoc-qa-only \
+            --sha "$GITHUB_SHA" \
+            --output qa-slint-artifacts/QA-BUILD.txt \
+            --field packager=cargo-packager-0.11.8 \
+            --field minimum_system_version=12.3
+          (cd qa-slint-artifacts && shasum -a 256 ./*.dmg > SHA256SUMS.txt)
+
+      - name: Upload Slint macOS QA artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: qa-slint-macos-${{ matrix.asset_arch }}-${{ github.sha }}
+          path: qa-slint-artifacts
           if-no-files-found: error
           retention-days: 14
           compression-level: 0

@@ -422,4 +422,6 @@ DOM/Xvfb、Canvas/布局像素 smoke 和 Vite build。AppImage 可视 smoke 由
 Slint QA 的包入口为 `apps/slint/Packager.qa.toml`。它构建独立的 `clippy-slint-qa` 二进制和桌面入口，
 使用 `com.clippy.qa.slint` 安装身份并携带 MIT 与 Slint 第三方许可；这只证明打包边界。数据目录、
 单实例与快捷键服务在接入 `clippy-platform` 适配器后仍需逐项验证，不能因安装包 ID 已隔离就计作
-运行期隔离完成。
+运行期隔离完成。Native QA 保留独立的 `qa-legacy-*` 和 `qa-slint-*` job；两者只共用
+`scripts/qa-build-info.mjs` 元数据合同，不共用打包命令或功能开关。该脚本从当前 manifest、lockfile
+和 Packager 配置读取实际版本与身份，扩展字段不能覆盖 backend/framework/renderer/SHA 等保留值。

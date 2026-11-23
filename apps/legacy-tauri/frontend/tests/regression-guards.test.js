@@ -212,7 +212,7 @@ describe("原生平台由真实 runner 编译", () => {
     );
   });
 
-  it("手动 QA workflow 为同一 SHA 生成四架构包、Ubuntu 24 证据与十环境记录", () => {
+  it("手动 QA workflow 为同一 SHA 生成双后端四架构包、Ubuntu 24 证据与十环境记录", () => {
     const qaWorkflow = read(".github/workflows/native-qa.yml");
     const macQaJob = qaWorkflow.slice(qaWorkflow.indexOf("  build-macos:"));
     const releaseWorkflow = read(".github/workflows/release.yml");
@@ -220,19 +220,22 @@ describe("原生平台由真实 runner 编译", () => {
     expect(buildWorkflow).not.toContain("QA artifact");
     expect(qaWorkflow).toMatch(/on:\s*\n\s+workflow_dispatch:/);
     for (const artifact of [
-      "qa-linux-x64-${{ github.sha }}",
-      "qa-windows-x64-${{ github.sha }}",
-      "qa-macos-${{ matrix.asset_arch }}-${{ github.sha }}",
-      "qa-ubuntu24-x11-smoke-${{ github.sha }}",
-      "qa-record-templates-${{ github.sha }}",
+      "qa-legacy-linux-x64-${{ github.sha }}",
+      "qa-legacy-windows-x64-${{ github.sha }}",
+      "qa-legacy-macos-${{ matrix.asset_arch }}-${{ github.sha }}",
+      "qa-legacy-ubuntu24-x11-smoke-${{ github.sha }}",
+      "qa-legacy-record-templates-${{ github.sha }}",
+      "qa-slint-linux-x64-${{ github.sha }}",
+      "qa-slint-windows-x64-${{ github.sha }}",
+      "qa-slint-macos-${{ matrix.asset_arch }}-${{ github.sha }}",
     ]) {
       expect(qaWorkflow).toContain(artifact);
     }
-    expect(qaWorkflow.match(/uses: actions\/upload-artifact@[0-9a-f]{40}/g)).toHaveLength(5);
-    expect(qaWorkflow.match(/retention-days: 14/g)).toHaveLength(5);
-    expect(qaWorkflow).toContain("signing=unsigned-qa-only");
-    expect(qaWorkflow).toContain("signing=self-signed-qa-only");
-    expect(qaWorkflow).toContain("signing=ad-hoc-qa-only");
+    expect(qaWorkflow.match(/uses: actions\/upload-artifact@[0-9a-f]{40}/g)).toHaveLength(8);
+    expect(qaWorkflow.match(/retention-days: 14/g)).toHaveLength(8);
+    expect(qaWorkflow).toContain("--signing unsigned-qa-only");
+    expect(qaWorkflow).toContain("--signing self-signed-qa-only");
+    expect(qaWorkflow).toContain("--signing ad-hoc-qa-only");
     expect(qaWorkflow).toContain("./scripts/finalize-appimage.sh");
     expect(qaWorkflow).toContain("rust_target: x86_64-apple-darwin");
     expect(qaWorkflow).toContain("rust_target: aarch64-apple-darwin");
@@ -267,8 +270,7 @@ describe("原生平台由真实 runner 编译", () => {
     );
     expect(qaWorkflow).toContain("recording_feature=recording-windows-av-qa");
     expect(qaWorkflow).toContain("recording_feature: recording-macos-av-qa");
-    expect(qaWorkflow).toContain("recording_feature=%s");
-    expect(qaWorkflow).toContain('"${{ matrix.recording_feature }}"');
+    expect(qaWorkflow).toContain("--field recording_feature=${{ matrix.recording_feature }}");
     expect(qaWorkflow).toContain("minimum_system_version=12.3");
     expect(releaseWorkflow).not.toContain("recording-vp9");
     expect(releaseWorkflow).not.toContain("recording-macos-screencapturekit");

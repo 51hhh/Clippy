@@ -104,7 +104,8 @@ legacy 产物必须明确写 `Slint: not included`，Slint 产物必须明确写
 - [x] 保留 `Check (ubuntu-22.04)`、`Native Check (windows-latest)`、
   `Native Check (macos-latest)` 名称，在其中加入 Slint 编译、clippy、test 和 `.slint` 编译；
   workflow 合同已实现，远程同 SHA 结果仍待验证。
-- [ ] Native QA 并行生成 `qa-legacy-*` 和 `qa-slint-*`，元数据含 backend、framework、renderer、SHA。
+- [x] Native QA workflow 并行定义 `qa-legacy-*` 和 `qa-slint-*`，单一生成器写入 backend、framework、
+  renderer、SHA 与未包含框架；远程同 SHA 的八套 artifact 仍待实际运行验证。
 - [x] Slint QA 建立独立 app/bundle ID、可执行文件和桌面入口；生产入口显式绑定原身份，不依赖
   feature 切换身份。
 - [ ] 平台服务接入后实际消费 QA 的快捷键、单实例和数据命名空间，并验证与正式版互不污染。

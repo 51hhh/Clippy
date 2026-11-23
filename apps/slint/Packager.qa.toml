@@ -4,6 +4,7 @@ version = "0.2.0"
 identifier = "com.clippy.qa.slint"
 description = "Clippy v0.2 Slint QA build"
 homepage = "https://github.com/51hhh/Clippy"
+authors = ["zhongweixi2000"]
 license-file = "../../LICENSE"
 before-packaging-command = { script = "cargo build --locked --release -p clippy-slint --bin clippy-slint-qa --features qa-build", dir = "../.." }
 out-dir = "../../target/packager/slint-qa"
@@ -22,3 +23,7 @@ resources = [
 
 [deb]
 depends = ["libc6", "libfontconfig1", "libgcc-s1"]
+
+[macos]
+minimum-system-version = "12.3"
+signing-identity = "-"

@@ -90,9 +90,35 @@ describe("Slint v0.2 migration workspace contract", () => {
     expect(qaMain).toContain("SLINT_QA_IDENTITY");
     expect(qaMain).not.toContain("PRODUCTION_IDENTITY");
     expect(qaPackager).toMatch(/^identifier = "com\.clippy\.qa\.slint"$/m);
+    expect(qaPackager).toMatch(/^authors = \["zhongweixi2000"\]$/m);
     expect(qaPackager).toContain('binaries = [{ path = "clippy-slint-qa", main = true }]');
     expect(qaPackager).toContain('depends = ["libc6", "libfontconfig1", "libgcc-s1"]');
+    expect(qaPackager).toContain('minimum-system-version = "12.3"');
+    expect(qaPackager).toContain('signing-identity = "-"');
     expect(qaPackager).toContain("LicenseRef-Slint-Royalty-free-2.0.md");
+  });
+
+  it("builds isolated legacy and Slint QA artifacts on all native platforms", () => {
+    const nativeQa = read(".github/workflows/native-qa.yml");
+    expect(nativeQa).toContain("build-slint-linux:");
+    expect(nativeQa).toContain("build-slint-windows:");
+    expect(nativeQa).toContain("build-slint-macos:");
+    expect(nativeQa.match(/cargo install cargo-packager --version 0\.11\.8 --locked/g)).toHaveLength(3);
+    expect(nativeQa).toContain("--formats deb,appimage");
+    expect(nativeQa).toContain("--formats nsis,wix");
+    expect(nativeQa).toContain("--formats app,dmg");
+    expect(nativeQa.match(/--backend legacy-tauri/g)).toHaveLength(3);
+    expect(nativeQa.match(/--backend slint/g)).toHaveLength(3);
+    for (const artifact of [
+      "qa-legacy-linux-x64-",
+      "qa-legacy-windows-x64-",
+      "qa-legacy-macos-",
+      "qa-slint-linux-x64-",
+      "qa-slint-windows-x64-",
+      "qa-slint-macos-",
+    ]) {
+      expect(nativeQa).toContain(artifact);
+    }
   });
 
   it("keeps segmented local gates explicit and labels every subset as partial evidence", () => {

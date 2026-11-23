@@ -21,6 +21,10 @@
 - 增加固定 cargo-packager 0.11.8 的 Slint QA 打包配置。Linux 本地已真实生成
   `clippy-slint-qa_0.2.0_amd64.deb`，包内二进制、桌面入口和图标都使用 QA 名称，声明直接动态依赖，
   并携带 Clippy MIT 与 Slint royalty-free 完整许可；Windows/macOS 原生包和 CI artifact 尚未生成。
+- Native QA workflow 现在并行定义 `qa-legacy-*` 和 `qa-slint-*` 的 Linux、Windows、macOS Intel/
+  Apple Silicon 包；legacy 打包路径本身不合并进 Slint 条件分支。统一元数据生成器从当前仓库配置
+  读取应用与框架版本，记录 backend、renderer、完整 SHA 和未包含框架，并拒绝扩展字段覆盖保留值。
+  这些 job 尚未在远程同一 SHA 上运行，不能把 workflow 合同计作八套 artifact 已生成。
 - Linux 与 Windows 本地门禁按 core、legacy、Slint 三段组织，默认入口仍完整执行三段；开发期可只跑
   一个分段，但输出会明确标为部分证据，不能替代完整门禁或同一 SHA 的三平台原生 CI。
 - 本阶段只建立目录、版本路由、编译壳层、部署身份和双实现门禁，不代表 v0.2 功能已经迁移；本地
