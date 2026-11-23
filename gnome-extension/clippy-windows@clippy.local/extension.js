@@ -25,7 +25,7 @@
 // Mutter 把 gtk_window_move / set_keep_above 全部静默忽略。贴图窗口要回到截图时的原位、
 // 并且压在别的窗口上面，只能由 Shell 内部调 MetaWindow.move_frame() / make_above()。
 //
-// 安全：窗口标题会泄露用户正在做什么、截图更是整屏内容，所以这些敏感接口不对所有本地
+// 安全：窗口标题会泄露用户正在做什么、截图更是整屏内容，所以这两个接口不对所有本地
 // 进程开放。调用方必须出示 Clippy 写在扩展目录里的 0600 令牌文件内容。同用户的普通
 // 进程当然读得到那个文件（同用户之间本来就没有边界），但沙箱应用（Flatpak/Snap）
 // 通常只有 session bus 而没有 $HOME 读权限，令牌能把这类调用挡在外面。
@@ -38,7 +38,6 @@ import Meta from 'gi://Meta';
 import Mtk from 'gi://Mtk';
 import Shell from 'gi://Shell';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
-import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 const IFACE = `
 <node>
@@ -75,15 +74,6 @@ const IFACE = `
       <arg type="i" direction="out" name="stride"/>
       <arg type="s" direction="out" name="format"/>
     </method>
-    <method name="SetCaptureShortcut">
-      <arg type="s" direction="in" name="token"/>
-      <arg type="s" direction="in" name="accelerator"/>
-      <arg type="b" direction="out" name="registered"/>
-    </method>
-    <method name="TakeShortcutScreenshot">
-      <arg type="s" direction="in" name="token"/>
-      <arg type="s" direction="out" name="path"/>
-    </method>
     <method name="PlaceWindow">
       <arg type="s" direction="in" name="token"/>
       <arg type="u" direction="in" name="pid"/>
@@ -103,7 +93,7 @@ const OBJECT_PATH = '/org/gnome/Shell/Extensions/ClippyWindows';
 /// gnome-shell 只在登录时加载扩展（ReloadExtension 实测已废弃，直接报
 /// "is deprecated and does not work"），所以升级后磁盘上是新版、跑着的是旧版，
 /// 这个版本号就是区分两者的唯一依据。
-const PROTOCOL_VERSION = 6;
+const PROTOCOL_VERSION = 5;
 
 /// 截图落地目录名，挂在 XDG_RUNTIME_DIR 下（tmpfs、0700、注销即清）。
 /// 必须与 Rust 侧 shell_extension.rs 的 SCREENSHOT_DIR_NAME 一致。
@@ -112,340 +102,22 @@ const SCREENSHOT_DIR_NAME = 'clippy-shots';
 /// 令牌文件名，和 Rust 侧 shell_extension.rs 的 TOKEN_FILE_NAME 必须一致。
 const TOKEN_FILE_NAME = 'token';
 
-/// Shell 在锁屏期间会停用普通用户扩展，解锁后则是新建扩展实例。
-/// 把已确认的截图键存在扩展目录，新实例才能在不依赖应用重启的
-/// 前提下重新 grab。文件不存令牌或画面，但仍用 0600 避免泄露用户键位。
-const CAPTURE_SHORTCUT_FILE_NAME = 'capture-shortcut';
-
 /// 令牌长度下限，防止空文件或被截断的文件被当成有效凭据。
 const MIN_TOKEN_LENGTH = 16;
 
 export default class ClippyWindowsExtension extends Extension {
     enable() {
-        this._enabled = true;
-        this._captureAction = Meta.KeyBindingAction.NONE;
-        this._captureBindingName = null;
-        this._captureAccelerator = null;
-        this._captureInProgress = false;
-        this._pendingShortcutPath = null;
-        this._pendingShortcutCleanupId = 0;
-        this._acceleratorActivatedId = global.display.connect(
-            'accelerator-activated', this._onAcceleratorActivated.bind(this));
         this._dbus = Gio.DBusExportedObject.wrapJSObject(IFACE, this);
         this._dbus.export(Gio.DBus.session, OBJECT_PATH);
-
-        const accelerator = this._readCaptureShortcut();
-        if (accelerator && !this._registerCaptureShortcut(accelerator))
-            console.warn(`Clippy could not restore capture shortcut ${accelerator}`);
     }
 
     disable() {
-        this._enabled = false;
-        this._unregisterCaptureShortcut();
-        if (this._acceleratorActivatedId) {
-            global.display.disconnect(this._acceleratorActivatedId);
-            this._acceleratorActivatedId = 0;
-        }
-        this._discardPendingShortcut();
         this._dbus?.unexport();
         this._dbus = null;
     }
 
     GetVersion() {
         return PROTOCOL_VERSION;
-    }
-
-    /**
-     * 把截图快捷键直接注册到 Mutter，而不是再让 gsd-media-keys 执行一个外部命令。
-     *
-     * `OVERVIEW` 与 `POPUP` 是这项能力存在的理由：日历、状态菜单、应用概览都不是普通
-     * Wayland 窗口，外部命令真正开始截图之前它们可能已经收起。锁屏、解锁与系统认证模式
-     * 刻意不在允许列表里，扩展绝不能把密码界面交给普通应用。
-     */
-    SetCaptureShortcut(token, accelerator) {
-        if (!this._tokenMatches(token)) {
-            throw Gio.DBusError.new_for_dbus_error(
-                'org.freedesktop.DBus.Error.AccessDenied',
-                'Clippy shortcut configuration requires a matching token');
-        }
-        if (typeof accelerator !== 'string' || accelerator.length > 128) {
-            throw Gio.DBusError.new_for_dbus_error(
-                'org.freedesktop.DBus.Error.InvalidArgs',
-                'Clippy capture accelerator is invalid');
-        }
-        const previous = this._captureAccelerator ?? this._readCaptureShortcut() ?? '';
-        if (!this._setCaptureShortcut(accelerator))
-            return false;
-        try {
-            this._writeCaptureShortcut(accelerator);
-            return true;
-        } catch (error) {
-            // Rust 看到 D-Bus 失败会恢复 gsd 绑定；Shell 也必须同步回滚，
-            // 否则两边同时 grab 会变成双触发。
-            if (!this._setCaptureShortcut(previous))
-                console.error(`Clippy could not roll back capture shortcut ${previous}`);
-            throw Gio.DBusError.new_for_dbus_error(
-                'org.freedesktop.DBus.Error.Failed',
-                `Clippy could not persist the capture shortcut: ${error.message}`);
-        }
-    }
-
-    /**
-     * 取走由 Shell 内快捷键预冻结的舞台图。空串表示这次触发来自普通桌面路径，调用方继续
-     * 用 PipeWire；非空路径一经取走就由 Rust 负责读取并删除。
-     */
-    TakeShortcutScreenshot(token) {
-        if (!this._tokenMatches(token)) {
-            throw Gio.DBusError.new_for_dbus_error(
-                'org.freedesktop.DBus.Error.AccessDenied',
-                'Clippy shortcut screenshot requires a matching token');
-        }
-        const path = this._pendingShortcutPath ?? '';
-        this._pendingShortcutPath = null;
-        this._captureInProgress = false;
-        if (this._pendingShortcutCleanupId) {
-            GLib.source_remove(this._pendingShortcutCleanupId);
-            this._pendingShortcutCleanupId = 0;
-        }
-        return path;
-    }
-
-    _setCaptureShortcut(accelerator) {
-        if (accelerator === this._captureAccelerator &&
-            this._captureAction !== Meta.KeyBindingAction.NONE)
-            return true;
-
-        const previous = this._captureAccelerator;
-        this._unregisterCaptureShortcut();
-        if (accelerator.length === 0)
-            return true;
-        if (this._registerCaptureShortcut(accelerator))
-            return true;
-
-        // 设置页保存若撞到竞争者，旧快捷键必须继续可用；Rust 会把这次保存判为失败并回滚。
-        if (previous && !this._registerCaptureShortcut(previous))
-            console.error(`Clippy could not restore capture shortcut ${previous}`);
-        return false;
-    }
-
-    _registerCaptureShortcut(accelerator) {
-        let action = Meta.KeyBindingAction.NONE;
-        try {
-            action = global.display.grab_accelerator(
-                accelerator, Meta.KeyBindingFlags.IGNORE_AUTOREPEAT);
-        } catch (error) {
-            console.warn(`Clippy could not grab capture shortcut ${accelerator}: ${error}`);
-            return false;
-        }
-        if (action === Meta.KeyBindingAction.NONE)
-            return false;
-
-        const name = Meta.external_binding_name_for_action(action);
-        if (!name) {
-            global.display.ungrab_accelerator(action);
-            return false;
-        }
-        const modes = Shell.ActionMode.NORMAL |
-            Shell.ActionMode.OVERVIEW |
-            Shell.ActionMode.POPUP;
-        Main.wm.allowKeybinding(name, modes);
-        this._captureAction = action;
-        this._captureBindingName = name;
-        this._captureAccelerator = accelerator;
-        return true;
-    }
-
-    _unregisterCaptureShortcut() {
-        if (this._captureBindingName)
-            Main.wm.allowKeybinding(this._captureBindingName, Shell.ActionMode.NONE);
-        if (this._captureAction !== Meta.KeyBindingAction.NONE)
-            global.display.ungrab_accelerator(this._captureAction);
-        this._captureAction = Meta.KeyBindingAction.NONE;
-        this._captureBindingName = null;
-        this._captureAccelerator = null;
-    }
-
-    _captureShortcutPath() {
-        return GLib.build_filenamev([this.path, CAPTURE_SHORTCUT_FILE_NAME]);
-    }
-
-    _readCaptureShortcut() {
-        try {
-            const [ok, bytes] = Gio.File.new_for_path(this._captureShortcutPath())
-                .load_contents(null);
-            if (!ok)
-                return null;
-            const value = new TextDecoder().decode(bytes).trim();
-            return value.length > 0 && value.length <= 128 ? value : null;
-        } catch (_error) {
-            return null;
-        }
-    }
-
-    _writeCaptureShortcut(accelerator) {
-        const file = Gio.File.new_for_path(this._captureShortcutPath());
-        if (accelerator.length === 0) {
-            try {
-                file.delete(null);
-            } catch (error) {
-                if (!error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_FOUND))
-                    throw error;
-            }
-            return;
-        }
-
-        const stream = file.replace(null, false, Gio.FileCreateFlags.PRIVATE, null);
-        try {
-            const bytes = new TextEncoder().encode(`${accelerator}\n`);
-            const [written, count] = stream.write_all(bytes, null);
-            if (!written || count !== bytes.length)
-                throw new Error('capture shortcut file was only partially written');
-            stream.close(null);
-        } catch (error) {
-            try {
-                stream.close(null);
-            } catch (_closeError) {
-                // 保留最初的写入错误。
-            }
-            throw error;
-        }
-    }
-
-    _onAcceleratorActivated(_display, action) {
-        if (action !== this._captureAction || this._captureInProgress)
-            return;
-
-        const mode = Main.actionMode ?? Shell.ActionMode.NORMAL;
-        const shellUiVisible = Main.overview?.visible === true ||
-            (mode & (Shell.ActionMode.OVERVIEW | Shell.ActionMode.POPUP)) !== 0;
-        if (shellUiVisible)
-            this._captureShortcutStage();
-        else
-            this._invokeClippyCapture(false);
-    }
-
-    /**
-     * 和 GNOME 自带截图 UI 相同：先 `screenshot_stage_to_content` 冻住当前舞台，之后才允许
-     * 菜单被收起、应用覆盖层出现。编码可以慢，但编码面对的是已经冻结的纹理，不会再丢日历
-     * 或托盘菜单。只在 OVERVIEW/POPUP 走这条路，普通桌面仍让 Rust 用约 200 ms 的 PipeWire。
-     */
-    _captureShortcutStage() {
-        this._captureInProgress = true;
-        const shooter = new Shell.Screenshot();
-        try {
-            shooter.screenshot_stage_to_content((source, result) => {
-                let content, scale;
-                try {
-                    [content, scale] = source.screenshot_stage_to_content_finish(result);
-                } catch (error) {
-                    this._captureShortcutFallback(error);
-                    return;
-                }
-                if (!this._enabled) {
-                    this._captureInProgress = false;
-                    return;
-                }
-
-                let path, stream;
-                try {
-                    [path, stream] = this._createScreenshotStream();
-                    const texture = content.get_texture();
-                    Shell.Screenshot.composite_to_stream(
-                        texture,
-                        0, 0, -1, -1,
-                        scale,
-                        null, 0, 0, 1,
-                        stream,
-                        (_compositor, compositeResult) => {
-                            try {
-                                Shell.Screenshot.composite_to_stream_finish(compositeResult);
-                                stream.close(null);
-                                if (!this._enabled) {
-                                    GLib.unlink(path);
-                                    this._captureInProgress = false;
-                                    return;
-                                }
-                                this._replacePendingShortcut(path);
-                                this._invokeClippyCapture(true);
-                            } catch (error) {
-                                this._closeAndRemoveShortcutFile(path, stream);
-                                this._captureShortcutFallback(error);
-                            }
-                        });
-                } catch (error) {
-                    this._closeAndRemoveShortcutFile(path, stream);
-                    this._captureShortcutFallback(error);
-                }
-            });
-        } catch (error) {
-            this._captureShortcutFallback(error);
-        }
-    }
-
-    _captureShortcutFallback(error) {
-        console.warn(`Clippy could not freeze Shell UI, falling back to live capture: ${error}`);
-        this._captureInProgress = false;
-        if (this._enabled)
-            this._invokeClippyCapture(false);
-    }
-
-    _closeAndRemoveShortcutFile(path, stream) {
-        try {
-            stream?.close(null);
-        } catch (_error) {
-            // 流可能已经由失败的异步调用关闭。
-        }
-        if (path)
-            GLib.unlink(path);
-    }
-
-    _replacePendingShortcut(path) {
-        this._discardPendingShortcut();
-        this._pendingShortcutPath = path;
-        // 直到 Rust 取走这张图前都拒绝第二次快捷键，避免两个
-        // Capture 调用争抢同一个一次性路径。
-        this._captureInProgress = true;
-        this._pendingShortcutCleanupId = GLib.timeout_add_seconds(
-            GLib.PRIORITY_DEFAULT, 10, () => {
-                this._pendingShortcutCleanupId = 0;
-                this._discardPendingShortcut();
-                return GLib.SOURCE_REMOVE;
-            });
-        GLib.Source.set_name_by_id(
-            this._pendingShortcutCleanupId, '[clippy] cleanup shortcut screenshot');
-    }
-
-    _discardPendingShortcut() {
-        if (this._pendingShortcutCleanupId) {
-            GLib.source_remove(this._pendingShortcutCleanupId);
-            this._pendingShortcutCleanupId = 0;
-        }
-        if (this._pendingShortcutPath)
-            GLib.unlink(this._pendingShortcutPath);
-        this._pendingShortcutPath = null;
-        this._captureInProgress = false;
-    }
-
-    _invokeClippyCapture(hasPendingScreenshot) {
-        Gio.DBus.session.call(
-            'com.clippy.app.Shortcuts',
-            '/com/clippy/app',
-            'com.clippy.app',
-            'Capture',
-            null,
-            null,
-            Gio.DBusCallFlags.NONE,
-            5000,
-            null,
-            (connection, result) => {
-                try {
-                    connection.call_finish(result);
-                } catch (error) {
-                    console.warn(`Clippy capture service is unavailable: ${error}`);
-                    if (hasPendingScreenshot)
-                        this._discardPendingShortcut();
-                }
-            });
     }
 
     GetWindows(token) {

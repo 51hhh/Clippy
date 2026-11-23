@@ -1,11 +1,9 @@
 //! gsettings_shortcuts.rs — Wayland/GNOME 全局快捷键模块
 //!
 //! 原理：
-//! 1. Toggle / Pin 通过 gsettings 自定义条目交给 gsd-media-keys；
-//! 2. 协议 v6 起，Capture 由 Clippy Shell 扩展直接向 Mutter 注册，使它能在
-//!    `OVERVIEW` / `POPUP` 模式先冻结系统界面；
-//! 3. 扩展不可用或尚未注销升级时，Capture 退回原 gsd-media-keys → D-Bus 路径；
-//! 4. 应用内 zbus D-Bus 服务接收三个动作并执行。
+//! 1. Toggle / Pin / Capture 都通过 gsettings 自定义条目交给 gsd-media-keys；
+//! 2. gsd-media-keys 执行轻量的 D-Bus 命令，不在 Shell 内同步编码整舞台 PNG；
+//! 3. 应用内 zbus D-Bus 服务接收三个动作，Capture 立即进入 PipeWire 快速路径。
 //!
 //! 已验证：GNOME 50 + Wayland，gsd-media-keys 可正确 grab 并执行 command。
 
@@ -250,16 +248,20 @@ pub(crate) fn update_bindings_confirmed(
             })
             .collect();
     };
-    let shell_capture = crate::capture::shell_capture_shortcut_available();
-    let stored_capture = capture_binding_target(capture, shell_capture);
+    let capture_ownership_error = crate::capture::prepare_gsettings_capture_shortcut().err();
     let targets = [
         ("global", resolved.toggle.as_str(), global),
         ("pin", resolved.pin.as_str(), pin),
-        ("capture", resolved.capture.as_str(), stored_capture),
+        ("capture", resolved.capture.as_str(), capture),
     ];
-    let mut results = apply_binding_batch(
+    apply_binding_batch(
         targets,
         |path, shortcut| {
+            if same_path(path, resolved.capture.as_str()) {
+                if let Some(error) = capture_ownership_error.as_ref() {
+                    return Err(error.clone());
+                }
+            }
             let mut command = Command::new("gsettings");
             command.args([
                 "set",
@@ -274,63 +276,13 @@ pub(crate) fn update_bindings_confirmed(
                 Err("gsettings 写入失败".to_string())
             }
         },
-        || refresh_shortcut_backends(shell_capture, capture, resolved.capture.as_str()),
-    );
-    // gsettings 里在 Shell 模式下存的是空串，但设置页和错误报告必须继续展示用户配置值。
-    if let Some((_, shortcut, _)) = results
-        .iter_mut()
-        .find(|(action, _, _)| *action == "capture")
-    {
-        *shortcut = capture.to_string();
-    }
-    results
+        refresh_shortcut_backends,
+    )
 }
 
-fn capture_binding_target(capture: &str, shell_capture: bool) -> &str {
-    if shell_capture {
-        ""
-    } else {
-        capture
-    }
-}
-
-/// 写完 dconf 后统一切换所有权：先停 gsd 释放旧 Capture grab，再让扩展 grab；最后启动
-/// gsd 恢复 Toggle/Pin。扩展调用异常时恢复旧的外部命令路径，保证升级失败不会让截图键消失。
-fn refresh_shortcut_backends(
-    shell_capture: bool,
-    capture: &str,
-    capture_path: &str,
-) -> Result<(), String> {
-    stop_gsd_media_keys()?;
-    std::thread::sleep(std::time::Duration::from_millis(300));
-
-    if shell_capture {
-        let accelerator = to_gnome_accel(capture);
-        match crate::capture::configure_shell_capture_shortcut(&accelerator) {
-            Ok(true) => {
-                log::info!("截图快捷键已由 GNOME Shell 扩展接管: {accelerator}");
-            }
-            Ok(false) => {
-                restore_gsettings_capture(capture_path, &accelerator)?;
-                return Err(format!(
-                    "GNOME Shell 无法注册截图快捷键 {accelerator}（可能已被占用）"
-                ));
-            }
-            Err(error) => {
-                log::warn!("Shell 内截图快捷键不可用，恢复 gsd-media-keys 路径: {error}");
-                restore_gsettings_capture(capture_path, &accelerator)?;
-                return Ok(());
-            }
-        }
-    }
-
-    start_gsd_media_keys()
-}
-
-/// `pkill` 后 systemd 可能已在 300 ms 窗口内自动拉起 gsd，它读到的仍是空绑定。
-/// 因此降级时不能只写 dconf + `systemctl start`，必须写完后再停启一次。
-fn restore_gsettings_capture(capture_path: &str, accelerator: &str) -> Result<(), String> {
-    gsettings_set(capture_path, "binding", accelerator)?;
+/// v5 的三个动作始终由 gsd-media-keys 持有。写完 dconf 后重启一次，让 Capture
+/// 直接通过 D-Bus 唤醒应用并立即进入 PipeWire 快速路径。
+fn refresh_shortcut_backends() -> Result<(), String> {
     stop_gsd_media_keys()?;
     std::thread::sleep(std::time::Duration::from_millis(300));
     start_gsd_media_keys()
@@ -535,14 +487,9 @@ pub async fn start_dbus_service(
             let _ = self.handle.emit("pin-current", ());
         }
 
-        fn capture(&self) {
+        fn capture(&self) -> bool {
             log::info!("D-Bus Capture 被调用");
-            let handle = self.handle.clone();
-            tauri::async_runtime::spawn(async move {
-                if let Err(e) = super::commands::trigger_capture_overlay(handle).await {
-                    log::warn!("截图快捷键触发失败: {}", e);
-                }
-            });
+            super::commands::queue_capture_overlay(self.handle.clone())
         }
     }
 
@@ -607,16 +554,6 @@ mod tests {
         );
         assert_eq!(to_gnome_accel("Cmd+V"), "<Super>v");
         assert_eq!(to_gnome_accel("Meta+V"), "<Super>v");
-    }
-
-    #[test]
-    fn shell_capture_owns_the_key_without_leaving_a_gsettings_duplicate() {
-        assert_eq!(capture_binding_target("Ctrl+Shift+S", true), "");
-        assert_eq!(
-            capture_binding_target("Ctrl+Shift+S", false),
-            "Ctrl+Shift+S"
-        );
-        assert_eq!(capture_binding_target("", true), "");
     }
 
     fn paths(indices: &[usize]) -> Vec<String> {

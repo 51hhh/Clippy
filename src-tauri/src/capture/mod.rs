@@ -41,18 +41,12 @@ pub(crate) use shell_extension::probe as shell_extension_windows;
 /// 这里只把入口露出去，免得契约散成两份。
 #[cfg(target_os = "linux")]
 pub(crate) use shell_extension::request_screenshot as shell_extension_screenshot;
-/// GNOME Shell v6 扩展直接持有截图快捷键，并在系统弹层还存在时预冻结舞台。
-#[cfg(target_os = "linux")]
-pub(crate) use shell_extension::{
-    capture_shortcut_available as shell_capture_shortcut_available,
-    configure_capture_shortcut as configure_shell_capture_shortcut,
-    take_shortcut_screenshot as take_shell_shortcut_screenshot,
-};
 /// 逐屏原生取像素（协议 v5）。整屏那条路既会把低缩放的屏上采样、又要 gnome-shell
 /// 编一张全桌面 PNG（实测 1.8 秒），所以这是首选，上面那个整屏入口只是它的兜底。
 #[cfg(target_os = "linux")]
 pub(crate) use shell_extension::{
-    request_area_captures as shell_extension_area_captures, AreaCapture, CaptureArea,
+    prepare_gsettings_capture_shortcut, request_area_captures as shell_extension_area_captures,
+    AreaCapture, CaptureArea,
 };
 pub use shell_extension::{InstallOutcome, ShellExtensionStatus};
 pub use types::{
@@ -307,76 +301,103 @@ pub(crate) async fn start_capture_overlay_for_app(
     start_capture_overlay_for_app_with_intent(app_handle, state, CaptureIntent::Screenshot).await
 }
 
+/// 已经在入口处原子认领 Ordinary gate 的截图请求从这里继续。
+///
+/// D-Bus 快捷键入口在返回前先认领模式 gate，避免并发请求排入多个后台任务。
+/// 所有权只能由后端签发，调用方不能自行构造。
+pub(crate) async fn start_claimed_capture_overlay_for_app(
+    app_handle: tauri::AppHandle,
+    state: &AppState,
+    ownership: CaptureModeOwnership,
+) -> Result<String, CaptureError> {
+    start_capture_overlay_for_app_with_ownership(
+        app_handle,
+        state,
+        CaptureIntent::Screenshot,
+        ownership,
+    )
+    .await
+}
+
 async fn start_capture_overlay_for_app_with_intent(
     app_handle: tauri::AppHandle,
     state: &AppState,
     intent: CaptureIntent,
 ) -> Result<String, CaptureError> {
-    claim_ordinary_then(&state.capture_mode_gate, |ownership| async move {
-        let mut timings = manager::StageTimings::start();
-        let restore_labels = overlay_windows::hide_sources(&app_handle);
-        let settle = if restore_labels.is_empty() {
-            0
-        } else {
-            HIDE_SETTLE_MS
-        };
-        let frames = match tauri::async_runtime::spawn_blocking(move || {
-            if settle > 0 {
-                std::thread::sleep(std::time::Duration::from_millis(settle));
-            }
-            crate::screenshot::capture_monitor_frames()
-        })
-        .await
-        {
-            Ok(Ok(frames)) => frames,
-            Ok(Err(error)) => {
-                let primary = CaptureError::Screenshot(error.to_string());
-                overlay_windows::restore(&app_handle, &restore_labels);
-                log_release_after_primary(ownership, "截图失败恢复源窗口");
-                return Err(primary);
-            }
-            Err(error) => {
-                let primary = CaptureError::ThreadPanic(error.to_string());
-                overlay_windows::restore(&app_handle, &restore_labels);
-                log_release_after_primary(ownership, "截图线程异常恢复源窗口");
-                return Err(primary);
-            }
-        };
-        timings.frames_ms = timings.started.elapsed().as_secs_f64() * 1000.0;
-        // **降贴图要在拍完之后。** 贴图该被截进冻结帧（屏幕上有它，画面里就该有它），
-        // 而且要按用户看到的那个层级截——先降层再拍，被贴图压着的窗口就会出现在画面里，
-        // 拍出来的东西和刚才屏幕上的不一样。降层的唯一目的是别让它盖住选择器。
-        let lowered_pins = crate::pin::lower_pins_for_capture(&app_handle, state);
-        let probe_hint = take_probe_hint(state);
-        let start = match state.capture_manager.begin(
-            frames,
-            restore_labels.clone(),
-            lowered_pins.clone(),
-            probe_hint,
-            timings,
-            manager::CaptureBeginAuthorization::new(ownership, intent),
-        ) {
-            Ok(start) => start,
-            Err(failure) => {
-                crate::pin::restore_pins_after_capture(&app_handle, state, &lowered_pins);
-                overlay_windows::restore(&app_handle, &restore_labels);
-                log_release_after_primary(failure.ownership, "截图会话启动失败恢复桌面资源");
-                return Err(failure.error);
-            }
-        };
-        action_lifecycle::complete_overlay_create(
-            overlay_windows::create(&app_handle, &state.capture_manager, &start),
-            || finish_session_if_current(&state.capture_manager, &start.session_id),
-            |session| overlay_windows::close(&app_handle, &session.overlay_labels()),
-            |session| {
-                crate::pin::restore_pins_after_capture(&app_handle, state, &session.lowered_pins);
-                overlay_windows::restore(&app_handle, &session.restore_labels);
-            },
-            manager::CaptureSession::finalize_mode,
-        )?;
-        Ok(start.session_id)
+    claim_ordinary_then(&state.capture_mode_gate, |ownership| {
+        start_capture_overlay_for_app_with_ownership(app_handle, state, intent, ownership)
     })
     .await
+}
+
+async fn start_capture_overlay_for_app_with_ownership(
+    app_handle: tauri::AppHandle,
+    state: &AppState,
+    intent: CaptureIntent,
+    ownership: CaptureModeOwnership,
+) -> Result<String, CaptureError> {
+    let mut timings = manager::StageTimings::start();
+    let restore_labels = overlay_windows::hide_sources(&app_handle);
+    let settle = if restore_labels.is_empty() {
+        0
+    } else {
+        HIDE_SETTLE_MS
+    };
+    let frames = match tauri::async_runtime::spawn_blocking(move || {
+        if settle > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(settle));
+        }
+        crate::screenshot::capture_monitor_frames()
+    })
+    .await
+    {
+        Ok(Ok(frames)) => frames,
+        Ok(Err(error)) => {
+            let primary = CaptureError::Screenshot(error.to_string());
+            overlay_windows::restore(&app_handle, &restore_labels);
+            log_release_after_primary(ownership, "截图失败恢复源窗口");
+            return Err(primary);
+        }
+        Err(error) => {
+            let primary = CaptureError::ThreadPanic(error.to_string());
+            overlay_windows::restore(&app_handle, &restore_labels);
+            log_release_after_primary(ownership, "截图线程异常恢复源窗口");
+            return Err(primary);
+        }
+    };
+    timings.frames_ms = timings.started.elapsed().as_secs_f64() * 1000.0;
+    // **降贴图要在拍完之后。** 贴图该被截进冻结帧（屏幕上有它，画面里就该有它），
+    // 而且要按用户看到的那个层级截——先降层再拍，被贴图压着的窗口就会出现在画面里，
+    // 拍出来的东西和刚才屏幕上的不一样。降层的唯一目的是别让它盖住选择器。
+    let lowered_pins = crate::pin::lower_pins_for_capture(&app_handle, state);
+    let probe_hint = take_probe_hint(state);
+    let start = match state.capture_manager.begin(
+        frames,
+        restore_labels.clone(),
+        lowered_pins.clone(),
+        probe_hint,
+        timings,
+        manager::CaptureBeginAuthorization::new(ownership, intent),
+    ) {
+        Ok(start) => start,
+        Err(failure) => {
+            crate::pin::restore_pins_after_capture(&app_handle, state, &lowered_pins);
+            overlay_windows::restore(&app_handle, &restore_labels);
+            log_release_after_primary(failure.ownership, "截图会话启动失败恢复桌面资源");
+            return Err(failure.error);
+        }
+    };
+    action_lifecycle::complete_overlay_create(
+        overlay_windows::create(&app_handle, &state.capture_manager, &start),
+        || finish_session_if_current(&state.capture_manager, &start.session_id),
+        |session| overlay_windows::close(&app_handle, &session.overlay_labels()),
+        |session| {
+            crate::pin::restore_pins_after_capture(&app_handle, state, &session.lowered_pins);
+            overlay_windows::restore(&app_handle, &session.restore_labels);
+        },
+        manager::CaptureSession::finalize_mode,
+    )?;
+    Ok(start.session_id)
 }
 
 #[tauri::command]
@@ -460,8 +481,16 @@ pub fn cancel_capture_overlay(
 
 /// 窗口速选所需的 GNOME Shell 扩展的服务状态。
 #[tauri::command]
-pub fn get_window_probe_status() -> ShellExtensionStatus {
-    shell_extension::status()
+pub async fn get_window_probe_status() -> Result<ShellExtensionStatus, String> {
+    run_window_probe_work(|| Ok(shell_extension::status())).await
+}
+
+async fn run_window_probe_work<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|error| format!("GNOME Shell 扩展工作线程异常: {error}"))?
 }
 
 /// 安装并尽力当场启用扩展。`needsLogout` 为真时前端要提示"注销一次后生效"。
@@ -469,29 +498,36 @@ pub fn get_window_probe_status() -> ShellExtensionStatus {
 /// 装 GNOME Shell 扩展是很打扰的动作，只能由用户在设置页显式点击触发，
 /// 应用绝不擅自安装。
 #[tauri::command]
-pub fn install_window_probe_extension(
-    _app_handle: tauri::AppHandle,
-    _state: State<'_, AppState>,
+pub async fn install_window_probe_extension(
+    app_handle: tauri::AppHandle,
 ) -> Result<InstallOutcome, String> {
+    run_window_probe_work(move || install_window_probe_extension_for_app(&app_handle)).await
+}
+
+fn install_window_probe_extension_for_app(
+    app_handle: &tauri::AppHandle,
+) -> Result<InstallOutcome, String> {
+    let _state = app_handle.state::<AppState>();
     #[cfg(target_os = "linux")]
     let _transition = _state
         .shortcut_transition
         .try_lock()
         .map_err(|error| format!("快捷键正在更新，请稍后重试: {error}"))?;
     let outcome = shell_extension::install()?;
-    #[cfg(target_os = "linux")]
-    if crate::platform::uses_gnome_shortcuts() && shell_extension::capture_shortcut_available() {
-        refresh_gnome_shortcuts_after_extension_change(&_app_handle, &_state)
-            .map_err(|error| format!("GNOME Shell 扩展已安装，但切换截图快捷键失败: {error}"))?;
-    }
     Ok(outcome)
 }
 
 #[tauri::command]
-pub fn uninstall_window_probe_extension(
-    _app_handle: tauri::AppHandle,
-    _state: State<'_, AppState>,
+pub async fn uninstall_window_probe_extension(
+    app_handle: tauri::AppHandle,
 ) -> Result<ShellExtensionStatus, String> {
+    run_window_probe_work(move || uninstall_window_probe_extension_for_app(&app_handle)).await
+}
+
+fn uninstall_window_probe_extension_for_app(
+    app_handle: &tauri::AppHandle,
+) -> Result<ShellExtensionStatus, String> {
+    let _state = app_handle.state::<AppState>();
     #[cfg(target_os = "linux")]
     let _transition = _state
         .shortcut_transition
@@ -499,11 +535,11 @@ pub fn uninstall_window_probe_extension(
         .map_err(|error| format!("快捷键正在更新，请稍后重试: {error}"))?;
     let status = shell_extension::uninstall()?;
 
-    // v6 正常运行时，gsettings 里的 Capture 绑定是空的，键由 Shell 直接持有。
-    // 卸载后若不立即重放配置，截图键会一直失效到下次应用启动。
+    // 卸载前若当前会话仍驻留着曾接管快捷键的 v6 实例，停用后立即重放 v5 的
+    // gsettings 配置，避免截图键一直失效到下次应用启动。
     #[cfg(target_os = "linux")]
     if crate::platform::uses_gnome_shortcuts() {
-        refresh_gnome_shortcuts_after_extension_change(&_app_handle, &_state)
+        refresh_gnome_shortcuts_after_extension_change(app_handle, &_state)
             .map_err(|error| format!("GNOME Shell 扩展已卸载，但恢复截图快捷键失败: {error}"))?;
     }
 
@@ -1063,6 +1099,16 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn window_probe_work_does_not_block_the_async_command_thread() {
+        let command_thread = std::thread::current().id();
+        let worker_thread = run_window_probe_work(|| Ok(std::thread::current().id()))
+            .await
+            .expect("阻塞工作应完成");
+
+        assert_ne!(worker_thread, command_thread);
+    }
 
     #[tokio::test]
     async fn busy_mode_does_not_construct_the_ordinary_capture_future() {

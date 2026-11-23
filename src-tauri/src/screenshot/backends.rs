@@ -57,31 +57,23 @@ impl Drop for TemporaryScreenshotFile {
 
 /// 冻结帧的后端链。顺序不是随手排的：
 ///
-/// 1. **Shell 快捷键预冻结图**（协议 v6）——只在概览/系统弹层里存在，保证菜单消失前取图；
-///    普通桌面没有这张图，不付编码代价，直接进入下一条。
-/// 2. **Mutter 的 PipeWire 屏幕流**（`screencast.rs`）——GNOME 上又快又清楚的那条路：
+/// 1. **Mutter 的 PipeWire 屏幕流**（`screencast.rs`）——GNOME 上又快又清楚的那条路：
 ///    原生像素、不编 PNG，实测两块屏合计 190 ms（旧路径 1900 ms）。同一个用户直接可调，
 ///    不经 Portal、不弹对话框。不是 GNOME 时第一个 D-Bus 调用就失败，几毫秒退到下一条。
-/// 3. **自带的 GNOME Shell 扩展，逐屏原生截取**——不弹对话框、不闪白、不往用户图片目录里
+/// 2. **自带的 GNOME Shell 扩展，逐屏原生截取**——不弹对话框、不闪白、不往用户图片目录里
 ///    落文件，每块屏也是原生像素（见 `capture_all_shell_extension_monitor_areas`）。
 ///    但画面要经 gnome-shell 的 PNG 编码器，4K 一块屏就要 1.7 秒，所以只是兜底。
 ///    - 协议低于 v4（装了新版还没注销）或逐屏失败时，同一个扩展退到**整屏舞台图**：
 ///      画面可用，但混合缩放的多屏上低缩放那块会被上采样，偏糊。
-/// 4. **wlroots（libwayshot）**——sway/Hyprland 系合成器的原生路径。
-/// 5. **XDG Portal（只用非交互）**——KDE 等实现里最可靠的兜底。
+/// 3. **wlroots（libwayshot）**——sway/Hyprland 系合成器的原生路径。
+/// 4. **XDG Portal（只用非交互）**——KDE 等实现里最可靠的兜底。
 ///    **绝不用 interactive 模式**：那个模式在 GNOME 上就是系统自带的截图界面，
 ///    用户按 Clippy 的快捷键却看到系统 UI，还得再选一次区域，比失败更糟。
-/// 6. **org.gnome.Shell.Screenshot**——GNOME 现在白名单外一律拒绝，留着只为老版本。
-/// 7. **xcap/XRandR**——X11 会话的正路，Wayland 下只能看到 XWayland。
+/// 5. **org.gnome.Shell.Screenshot**——GNOME 现在白名单外一律拒绝，留着只为老版本。
+/// 6. **xcap/XRandR**——X11 会话的正路，Wayland 下只能看到 XWayland。
 #[cfg(target_os = "linux")]
 pub(super) fn capture_all_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
     if crate::platform::is_wayland() {
-        match capture_pending_shell_shortcut_monitors() {
-            Ok(Some(result)) => return Ok(result),
-            Ok(None) => {}
-            Err(e) => log::warn!("Shell 快捷键预冻结画面不可用，回退到 PipeWire: {e:#}"),
-        }
-
         match capture_all_screencast_monitors() {
             Ok(result) => return Ok(result),
             Err(e) => log::info!("Mutter PipeWire 取流不可用，回退到扩展逐屏截图: {e:#}"),
@@ -114,20 +106,6 @@ pub(super) fn capture_all_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFram
     }
 
     capture_all_xcap_monitors()
-}
-
-/// 系统日历、托盘菜单与概览都是 Shell actor。v6 扩展在快捷键回调里先冻结舞台，再唤醒
-/// Clippy；这里消费那张一次性图片。普通桌面没有预冻结图，直接返回 None 保留 PipeWire 快路。
-#[cfg(target_os = "linux")]
-fn capture_pending_shell_shortcut_monitors() -> Result<Option<(Vec<MonitorInfo>, Vec<FrozenFrame>)>>
-{
-    let Some(path) =
-        crate::capture::take_shell_shortcut_screenshot().map_err(|error| anyhow!(error))?
-    else {
-        return Ok(None);
-    };
-    log::info!("Shell 快捷键预冻结画面已接收，优先于 PipeWire 解码");
-    capture_shell_extension_stage_path(path).map(Some)
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -570,15 +548,6 @@ pub(super) fn dedupe_monitor_areas(
 #[cfg(target_os = "linux")]
 fn capture_all_shell_extension_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
     let path = crate::capture::shell_extension_screenshot().map_err(|error| anyhow!(error))?;
-    capture_shell_extension_stage_path(path)
-}
-
-/// 解码并切分一张扩展提供的整舞台 PNG。主动 D-Bus 截图和 Shell 快捷键预冻结图共用，
-/// 避免两条路径的混合缩放与临时文件清理规则漂移。
-#[cfg(target_os = "linux")]
-fn capture_shell_extension_stage_path(
-    path: std::path::PathBuf,
-) -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
     // 包成 TemporaryScreenshotFile：读成功也好、解码失败也好，出了作用域文件一定被删。
     let screenshot = TemporaryScreenshotFile::new(path);
 

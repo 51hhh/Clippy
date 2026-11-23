@@ -260,9 +260,7 @@ pub fn run() {
                 // 用户装过窗口速选扩展的话，顺手做一次内容对齐与孤儿清理；
                 // 没装过就什么都不做——绝不擅自往用户的 GNOME 里塞扩展。
                 capture::reconcile_window_probe_extension();
-                log::info!(
-                    "检测到 GNOME Wayland 会话，优先使用 Shell 内截图快捷键并保留 gsettings 回退"
-                );
+                log::info!("检测到 GNOME Wayland 会话，使用 gsettings + D-Bus 截图快速路径");
                 for (action, shortcut, result) in gsettings_shortcuts::register_all_confirmed(
                     &app_config.global_shortcut,
                     &app_config.pin_shortcut,

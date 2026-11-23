@@ -2,6 +2,21 @@
 
 ## 未发布
 
+### 2026-10-23 GNOME 截图恢复 v5 快速路径
+
+- 撤回 GNOME Shell 协议 v6 的系统界面预冻结流程，扩展协议与 metadata 回到 v5。Capture 键重新
+  由 gsd-media-keys 通过 D-Bus 触发，截图后端立即优先使用 Mutter PipeWire，不再等待 Shell 把
+  整个 stage 编成 PNG。复杂 4K 双屏实测 v6 的前置 PNG 单独需要约 2.7–3.8 秒，因此本次明确以
+  响应速度优先。（需求：`GNOME-CAPTURE-FAST-PATH-02`；见
+  `docs/superpowers/specs/2026-10-23-gnome-capture-fast-path-rollback.md`）
+- 兼容当前会话仍驻留 v6 的降级：应用启动时先让已知 v6 实例释放截图键并删除其恢复文件，再
+  写回 v5 扩展与 gsettings；完整扩展脚本切换仍需重新登录。未知更高协议保持原文件与所有权，
+  不由旧应用覆盖。
+- 已知边界：顶栏日历、状态/托盘菜单与 Activities/应用概览可能在外部快捷键命令启动时收起，
+  当前冻结帧不再保证包含这些 Shell UI。Linux x64 完整本地门禁 27 通过 / 0 失败 / 2 跳过；
+  跳过的非宿主交叉 lint 与 AppImage 可视 smoke 不计为通过。真实 GNOME 的端到端响应、v6
+  原地降级、锁屏恢复及同一 SHA 的 Windows/macOS Native Check 尚未验证。
+
 ### 2026-10-22 窗口标题栏权限与生命周期修复
 
 - 修复设置页自绘标题栏已绑定拖动、最小化和最大化动作，但 `settings` 窗口缺少对应 Tauri
@@ -17,7 +32,10 @@
 - Launcher、录屏库与 Pin 工作区库的标题栏拖动或关闭失败会进入各自现有错误状态，不再产生
   未处理的 Promise rejection。
 
-### 2026-10-20 GNOME 系统界面截图
+### 2026-10-20 GNOME 系统界面截图（已撤回）
+
+- 本节 v6 实现已由 `GNOME-CAPTURE-FAST-PATH-02` 撤回，以下保留为历史实现与验证记录，
+  不代表当前代码能力。
 
 - 修复 GNOME Wayland 下截图快捷键无法保留顶栏日历、托盘菜单与 Activities/应用概览的问题。
   协议 v6 的 Shell 扩展在 `OVERVIEW`/`POPUP` 模式先冻结当前舞台，再通知 Clippy 打开覆盖层；
@@ -30,6 +48,17 @@
 - Linux x64 本地完整门禁 27 通过 / 0 失败 / 2 跳过；跳过的非宿主交叉 lint 与
   AppImage 可视 smoke 不计为通过。扩展 v6 的日历/托盘/概览像素、锁屏恢复，
   以及同一 SHA 的 Windows/macOS Native Check 尚未验证。
+- 复审补强 Shell 与应用之间的接收确认：截图模式已占用时立即清理本次预冻结图，避免后继
+  动作误用十秒内的旧画面；运行中扩展停用失败时不再继续删除文件或恢复 gsettings，避免
+  双重占用。扩展状态、安装与卸载移入 blocking worker，外部命令等待不再冻结设置窗口。
+- 二次复审补齐扩展运行期的所有权同步：在系统扩展页停用或重新启用时，扩展以私有令牌通知
+  应用自动切换 Shell / gsettings Capture 路径；锁屏的临时停用保持原状态。高于当前应用上限
+  的运行协议仍按存活实例处理，禁止旧应用覆盖新版扩展或启用可能冲突的第二套绑定。相关状态
+  决策已有单元测试；真实 GNOME 的手动停用/启用与锁屏场景仍须随本节其余项目一起人工验收。
+- 源码构建文档改用 `tauri.ci.conf.json` 关闭本地 updater 签名；正式发布仍要求私钥，普通
+  贡献者不再在安装包生成后因缺少 `TAURI_SIGNING_PRIVATE_KEY` 得到失败退出码。
+- 锁定的 Vite 从 8.2.1 更新至 8.3.4，消除 `npm audit` 报告的 Windows `launch-editor`
+  命令注入类高危开发依赖告警。
 
 ### 2026-10-20 GNOME 托盘菜单文案恢复
 
@@ -1000,7 +1029,7 @@
 - 截图尺寸提示和工具栏保留前端事件边界，Pin 与长截图控制窗保留拖动权限。撤回导致 GTK 线程崩溃的原生防拖动改动，恢复原截图逐屏全屏定位和双屏建窗流程。
 - Pin 保存确认隔离背景键盘与焦点，窄窗采用纵向动作，短窗正文和错误可滚动；取消和保存重试保留标注。
 - 图片侧栏精简为缩略图与 OCR，翻译在 OCR 内切换，移除重复翻译卡和侧栏扫码。点击图片打开独立普通查看器；底部 Pin 式工具栏集中缩放、绘制、OCR、扫码、取色和输出。翻译仍处理识别文字，暂不替换原图排版。
-- 新增显式配置的本地增强 OCR：PP-OCRv6 检测 → EdgeGNN 段落 → 原图裁切 → 识别 → CTC。结构化结果记录引擎、段落和置信度，增强配置绕过旧文字缓存；不可用时明确显示 Tesseract 回退。模型不随应用打包，配置步骤见 `src-tauri/ocr-sidecar/README.md`。
+- 新增显式配置的本地增强 OCR：PP-OCRv6 检测 → EdgeGNN 段落 → 原图裁切 → 识别 → CTC。结构化结果记录引擎、段落和置信度，增强配置绕过旧文字缓存；不可用时明确显示 Tesseract 回退。模型不随应用打包，配置步骤见 `apps/legacy-tauri/native/ocr-sidecar/README.md`。
 - 设置页现在可以选择并保存增强 OCR manifest，并用实际识别前的同一套校验显示当前引擎、管线/模型身份、缺失资产与 Tesseract 回退；坏模型、错误 SHA 或缺失运行时不会被误报为已安装。
 - 增强 OCR 增加可选英语空白档：`setup_models.py --english-spacing` 使用固定官方
   en_PP-OCRv5 mobile rec 逐框复识别。只有英语结果保持全部非空白 Unicode 码点且增加空白时才采用，
@@ -1589,7 +1618,7 @@
 - 覆盖 URL 卡片、JSON、JWT、可逆编码、哈希、加密内容、颜色、时间戳、UUID、IP、邮箱、MAC、cron、日期、semver、进制、渐变、数据大小、正则、坐标、MIME、数学表达式、HTTP 状态码，判不出来再走 Markdown / 代码高亮 / 富文本 / 纯文本。
 
 **其它**
-- 托盘菜单与原生窗口标题按界面语言本地化（`src-tauri/src/i18n.rs`，解析规则与前端一致）。
+- 托盘菜单与原生窗口标题按界面语言本地化（`apps/legacy-tauri/native/src/i18n.rs`，解析规则与前端一致）。
 - 主窗口记忆显示位置；快捷键可在设置页录制，注册失败按动作给出可操作提示，并能检测桌面级占用与 Clippy 内部自冲突。
 
 ### 🐛 修复
@@ -1636,7 +1665,7 @@
 
 ### ⚡ 性能
 
-- criterion 基线覆盖截图编解码、剪贴板扫描与搜索（`src-tauri/benches/`，经 `bench_support.rs` 调用生产代码，不复制实现）；门禁只编译不运行，数字见 `docs/bench-baseline.md`。
+- criterion 基线覆盖截图编解码、剪贴板扫描与搜索（`apps/legacy-tauri/native/benches/`，经 `bench_support.rs` 调用生产代码，不复制实现）；门禁只编译不运行，数字见 `docs/bench-baseline.md`。
 - 截图内存占用与拖拽卡顿优化；`[profile.bench]` 关掉 release 的 fat LTO。
 
 ### 🧪 测试与门禁
