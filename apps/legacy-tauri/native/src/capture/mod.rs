@@ -305,6 +305,7 @@ pub(crate) async fn start_capture_overlay_for_app(
 ///
 /// D-Bus 快捷键入口在返回前先认领模式 gate，避免并发请求排入多个后台任务。
 /// 所有权只能由后端签发，调用方不能自行构造。
+#[cfg(target_os = "linux")]
 pub(crate) async fn start_claimed_capture_overlay_for_app(
     app_handle: tauri::AppHandle,
     state: &AppState,
