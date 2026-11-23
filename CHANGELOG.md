@@ -14,14 +14,21 @@
 - 新增不依赖 Tauri/Slint 的 `clippy-core`：首批下沉剪贴板内容、列表项、翻译历史、URL 元数据模型
   与产品标识。legacy 保持原 `models` 调用路径，Slint 壳层开始消费共享核心；配置 I/O、数据库、
   搜索与平台能力仍留在 legacy，尚未计作功能迁移完成。
+- 新增不依赖 UI 框架的 `clippy-platform` 部署身份边界。Slint 生产版和 QA 版改为两个显式宿主入口、
+  共用一套应用库，QA 的 app/bundle ID、可执行文件、桌面入口、数据、单实例和快捷键命名空间均与
+  生产定义分离；feature 只开放 QA 构建目标，不再负责选择运行身份，避免 Cargo feature 合并污染
+  生产入口。运行期数据、单实例和快捷键服务尚未接入这些命名空间，不能计作隔离验收完成。
+- 增加固定 cargo-packager 0.11.8 的 Slint QA 打包配置。Linux 本地已真实生成
+  `clippy-slint-qa_0.2.0_amd64.deb`，包内二进制、桌面入口和图标都使用 QA 名称，声明直接动态依赖，
+  并携带 Clippy MIT 与 Slint royalty-free 完整许可；Windows/macOS 原生包和 CI artifact 尚未生成。
 - Linux 与 Windows 本地门禁按 core、legacy、Slint 三段组织，默认入口仍完整执行三段；开发期可只跑
   一个分段，但输出会明确标为部分证据，不能替代完整门禁或同一 SHA 的三平台原生 CI。
-- 本阶段只建立目录、版本路由、编译壳层和双实现门禁，不代表 v0.2 功能已经迁移，也不生成可发布
-  的 Slint 安装包。迁移前 Linux 完整门禁为 27 通过 / 0 失败 / 2 跳过；迁移后为
-  35 通过 / 0 失败 / 2 跳过，并从新目录完成 legacy Tauri `--no-bundle --no-sign` release
+- 本阶段只建立目录、版本路由、编译壳层、部署身份和双实现门禁，不代表 v0.2 功能已经迁移；本地
+  QA 验证包也不是可发布的正式安装包。迁移前 Linux 完整门禁为 27 通过 / 0 失败 / 2 跳过；当前为
+  36 通过 / 0 失败 / 2 跳过，并从新目录完成 legacy Tauri `--no-bundle --no-sign` release
   构建。已安装 legacy 进程树静置样本总 PSS 为 154,488 KiB（约 150.9 MiB），作为后续低于
-  50 MiB 验收的对照。Windows、macOS 同 SHA CI、Slint QA 身份、升级桥、实际安装包及真实功能
-  尚未验证。Slint 壳层 release 动态依赖已确认不含 Tauri/WebKit/JSC/GTK；无头 Xvfb 使用
+  50 MiB 验收的对照。Windows、macOS 同 SHA CI、Slint QA 运行期隔离、升级桥、正式安装包及真实
+  功能尚未验证。Slint 壳层 release 动态依赖已确认不含 Tauri/WebKit/JSC/GTK；无头 Xvfb 使用
   llvmpipe 时的单次 PSS 高达 127,429 KiB，因此该样本只作为软件 OpenGL 回退告警，不计作真实
   桌面性能结果。
   （需求：`SLINT-UI-MIGRATION-01`；见

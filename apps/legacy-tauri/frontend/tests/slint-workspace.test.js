@@ -15,6 +15,7 @@ describe("Slint v0.2 migration workspace contract", () => {
     expect(workspace).toContain('"apps/legacy-tauri/native"');
     expect(workspace).toContain('"apps/slint"');
     expect(workspace).toContain('"crates/clippy-core"');
+    expect(workspace).toContain('"crates/clippy-platform"');
   });
 
   it("pins the new application to v0.2.0 and Slint 1.19.0", () => {
@@ -29,12 +30,16 @@ describe("Slint v0.2 migration workspace contract", () => {
 
   it("shares a UI-independent core between both application hosts", () => {
     const coreManifest = read("crates/clippy-core/Cargo.toml");
+    const platformManifest = read("crates/clippy-platform/Cargo.toml");
     const legacyManifest = read("apps/legacy-tauri/native/Cargo.toml");
     const slintManifest = read("apps/slint/Cargo.toml");
     expect(coreManifest).not.toMatch(/^tauri\s*=/m);
     expect(coreManifest).not.toMatch(/^slint\s*=/m);
+    expect(platformManifest).not.toMatch(/^tauri\s*=/m);
+    expect(platformManifest).not.toMatch(/^slint\s*=/m);
     expect(legacyManifest).toContain('clippy-core = { path = "../../../crates/clippy-core" }');
     expect(slintManifest).toContain('clippy-core = { path = "../../crates/clippy-core" }');
+    expect(slintManifest).toContain('clippy-platform = { path = "../../crates/clippy-platform" }');
   });
 
   it("checks and tests shared core on local and three-platform CI gates", () => {
@@ -42,11 +47,11 @@ describe("Slint v0.2 migration workspace contract", () => {
     const buildWorkflow = read(".github/workflows/build.yml");
     const windowsGate = read("scripts/ci-windows.ps1");
     for (const source of [localGate, buildWorkflow]) {
-      expect(source).toContain("cargo check --locked -p clippy-core --all-targets");
-      expect(source).toContain("cargo test --locked -p clippy-core");
+      expect(source).toContain("cargo check --locked -p clippy-core -p clippy-platform --all-targets");
+      expect(source).toContain("cargo test --locked -p clippy-core -p clippy-platform");
     }
-    expect(windowsGate).toContain("cargo.exe check --locked -p clippy-core --all-targets");
-    expect(windowsGate).toContain("cargo.exe test --locked -p clippy-core");
+    expect(windowsGate).toContain("cargo.exe check --locked -p clippy-core -p clippy-platform --all-targets");
+    expect(windowsGate).toContain("cargo.exe test --locked -p clippy-core -p clippy-platform");
     expect(buildWorkflow.match(/name: Core Rust check/g)).toHaveLength(2);
     expect(buildWorkflow.match(/name: Core Rust tests/g)).toHaveLength(2);
   });
@@ -58,11 +63,36 @@ describe("Slint v0.2 migration workspace contract", () => {
     for (const source of [localGate, buildWorkflow]) {
       expect(source).toContain("cargo check --locked -p clippy-slint --all-targets");
       expect(source).toContain("cargo test --locked -p clippy-slint");
+      expect(source).toContain("cargo test --locked -p clippy-slint --features qa-build");
     }
     expect(windowsGate).toContain("cargo.exe check --locked -p clippy-slint --all-targets");
     expect(windowsGate).toContain("cargo.exe test --locked -p clippy-slint");
+    expect(windowsGate).toContain("cargo.exe test --locked -p clippy-slint --features qa-build");
     expect(buildWorkflow.match(/name: Slint Rust check/g)).toHaveLength(2);
     expect(buildWorkflow.match(/name: Slint Rust tests/g)).toHaveLength(2);
+    expect(buildWorkflow.match(/name: Slint QA profile tests/g)).toHaveLength(2);
+  });
+
+  it("keeps the Slint QA identity separate before platform services are connected", () => {
+    const identity = read("crates/clippy-platform/src/identity.rs");
+    const slintManifest = read("apps/slint/Cargo.toml");
+    const productionMain = read("apps/slint/src/bin/clippy-slint.rs");
+    const qaMain = read("apps/slint/src/bin/clippy-slint-qa.rs");
+    const qaPackager = read("apps/slint/Packager.qa.toml");
+    expect(identity).toContain('application_id: "com.clippy.qa.slint"');
+    expect(identity).toContain('data_namespace: "com.clippy.qa.slint"');
+    expect(identity).toContain('shortcut_namespace: "com.clippy.qa.slint.shortcuts"');
+    expect(slintManifest).toMatch(/^qa-build = \[\]$/m);
+    expect(slintManifest).toContain('name = "clippy-slint-qa"');
+    expect(slintManifest).toContain('required-features = ["qa-build"]');
+    expect(productionMain).toContain("PRODUCTION_IDENTITY");
+    expect(productionMain).not.toContain("SLINT_QA_IDENTITY");
+    expect(qaMain).toContain("SLINT_QA_IDENTITY");
+    expect(qaMain).not.toContain("PRODUCTION_IDENTITY");
+    expect(qaPackager).toMatch(/^identifier = "com\.clippy\.qa\.slint"$/m);
+    expect(qaPackager).toContain('binaries = [{ path = "clippy-slint-qa", main = true }]');
+    expect(qaPackager).toContain('depends = ["libc6", "libfontconfig1", "libgcc-s1"]');
+    expect(qaPackager).toContain("LicenseRef-Slint-Royalty-free-2.0.md");
   });
 
   it("keeps segmented local gates explicit and labels every subset as partial evidence", () => {

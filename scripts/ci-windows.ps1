@@ -126,10 +126,10 @@ $backend = Join-Path $repository 'apps/legacy-tauri/native'
 $frontend = Join-Path $repository 'apps/legacy-tauri/frontend'
 
 if ($runCore) {
-    Invoke-Check 'Core Rust format' $repository { & cargo.exe fmt -p clippy-core -- --check }
-    Invoke-Check 'Core Rust check' $repository { & cargo.exe check --locked -p clippy-core --all-targets }
-    Invoke-Check 'Core Rust clippy' $repository { & cargo.exe clippy --locked -p clippy-core --all-targets -- -D warnings }
-    Invoke-Check 'Core Rust tests' $repository { & cargo.exe test --locked -p clippy-core }
+    Invoke-Check 'Core Rust format' $repository { & cargo.exe fmt -p clippy-core -p clippy-platform -- --check }
+    Invoke-Check 'Core Rust check' $repository { & cargo.exe check --locked -p clippy-core -p clippy-platform --all-targets }
+    Invoke-Check 'Core Rust clippy' $repository { & cargo.exe clippy --locked -p clippy-core -p clippy-platform --all-targets -- -D warnings }
+    Invoke-Check 'Core Rust tests' $repository { & cargo.exe test --locked -p clippy-core -p clippy-platform }
 }
 
 if ($runLegacy -and -not $FrontendOnly) {
@@ -225,6 +225,7 @@ if ($runSlint) {
     Invoke-Check 'Slint Rust check' $repository { & cargo.exe check --locked -p clippy-slint --all-targets }
     Invoke-Check 'Slint Rust clippy' $repository { & cargo.exe clippy --locked -p clippy-slint --all-targets -- -D warnings }
     Invoke-Check 'Slint Rust tests' $repository { & cargo.exe test --locked -p clippy-slint }
+    Invoke-Check 'Slint QA profile tests' $repository { & cargo.exe test --locked -p clippy-slint --features qa-build }
 }
 
 Write-Host "Result: $script:passed passed, $script:failed failed, $script:skipped skipped. Scope: $scope"

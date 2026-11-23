@@ -105,7 +105,9 @@ legacy 产物必须明确写 `Slint: not included`，Slint 产物必须明确写
   `Native Check (macos-latest)` 名称，在其中加入 Slint 编译、clippy、test 和 `.slint` 编译；
   workflow 合同已实现，远程同 SHA 结果仍待验证。
 - [ ] Native QA 并行生成 `qa-legacy-*` 和 `qa-slint-*`，元数据含 backend、framework、renderer、SHA。
-- [ ] Slint QA 改用隔离 app ID、bundle ID、快捷键命名空间和数据目录。
+- [x] Slint QA 建立独立 app/bundle ID、可执行文件和桌面入口；生产入口显式绑定原身份，不依赖
+  feature 切换身份。
+- [ ] 平台服务接入后实际消费 QA 的快捷键、单实例和数据命名空间，并验证与正式版互不污染。
 
 退出条件：同一 SHA 三平台同时验证 legacy、core、Slint，QA 包不会污染正式数据。
 
@@ -224,3 +226,7 @@ WebM VP9/Opus、暂停/拖动/结束、窗口关闭后的线程和句柄回收�
   的单次 3 秒样本为 PSS 127,429 KiB、RSS 163,728 KiB；该环境使用 Mesa llvmpipe 软件 OpenGL，
   不是 GPU 桌面空闲结果，也不计入 50 MiB 验收。它说明 renderer 测试必须同时记录实际 GPU 与
   软件回退，不能用无头 runner 的 FemtoVG PSS 代替固定真机数据。
+- Slint QA 已用 cargo-packager 0.11.8 在 Linux 真实生成
+  `clippy-slint-qa_0.2.0_amd64.deb`：包、二进制、桌面入口和图标均使用 QA 名称，control 含
+  `libc6`、`libfontconfig1`、`libgcc-s1` 依赖，包内含 MIT 与 Slint 许可。该结果只验证 Linux
+  本地打包配置；Windows/macOS 原生包、CI artifact 和平台服务的运行期命名空间仍未验证。

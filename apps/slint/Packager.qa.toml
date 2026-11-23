@@ -1,0 +1,24 @@
+name = "clippy-slint-qa"
+product-name = "Clippy Slint QA"
+version = "0.2.0"
+identifier = "com.clippy.qa.slint"
+description = "Clippy v0.2 Slint QA build"
+homepage = "https://github.com/51hhh/Clippy"
+license-file = "../../LICENSE"
+before-packaging-command = { script = "cargo build --locked --release -p clippy-slint --bin clippy-slint-qa --features qa-build", dir = "../.." }
+out-dir = "../../target/packager/slint-qa"
+binaries-dir = "../../target/release"
+binaries = [{ path = "clippy-slint-qa", main = true }]
+icons = [
+  "../legacy-tauri/native/icons/32x32.png",
+  "../legacy-tauri/native/icons/128x128.png",
+  "../legacy-tauri/native/icons/icon.ico",
+  "../legacy-tauri/native/icons/icon.icns",
+]
+resources = [
+  { src = "../../LICENSE", target = "licenses/Clippy-MIT.txt" },
+  { src = "third-party-licenses/LicenseRef-Slint-Royalty-free-2.0.md", target = "licenses/LicenseRef-Slint-Royalty-free-2.0.md" },
+]
+
+[deb]
+depends = ["libc6", "libfontconfig1", "libgcc-s1"]

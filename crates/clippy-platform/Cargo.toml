@@ -1,0 +1,9 @@
+[package]
+name = "clippy-platform"
+version = "0.2.0"
+description = "Clippy 的部署身份与跨平台系统能力边界"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[dependencies]

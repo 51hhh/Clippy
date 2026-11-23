@@ -71,13 +71,13 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Core Rust check
-        run: cargo check --locked -p clippy-core --all-targets
+        run: cargo check --locked -p clippy-core -p clippy-platform --all-targets
 
       - name: Core Rust clippy
-        run: cargo clippy --locked -p clippy-core --all-targets -- -D warnings
+        run: cargo clippy --locked -p clippy-core -p clippy-platform --all-targets -- -D warnings
 
       - name: Core Rust tests
-        run: cargo test --locked -p clippy-core
+        run: cargo test --locked -p clippy-core -p clippy-platform
 
       - name: Verify Windows WGC cursor patch
         run: node scripts/verify-xcap-patch.mjs
@@ -120,6 +120,9 @@ jobs:
 
       - name: Slint Rust tests
         run: cargo test --locked -p clippy-slint
+
+      - name: Slint QA profile tests
+        run: cargo test --locked -p clippy-slint --features qa-build
 
       - name: Rust dependency audit
         uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
@@ -232,13 +235,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "OCR paragraph tests exited with $LASTEXITCODE" }
 
       - name: Core Rust check
-        run: cargo check --locked -p clippy-core --all-targets
+        run: cargo check --locked -p clippy-core -p clippy-platform --all-targets
 
       - name: Core Rust clippy
-        run: cargo clippy --locked -p clippy-core --all-targets -- -D warnings
+        run: cargo clippy --locked -p clippy-core -p clippy-platform --all-targets -- -D warnings
 
       - name: Core Rust tests
-        run: cargo test --locked -p clippy-core
+        run: cargo test --locked -p clippy-core -p clippy-platform
 
       - name: Native Rust check
         working-directory: apps/legacy-tauri/native
@@ -285,6 +288,9 @@ jobs:
 
       - name: Slint Rust tests
         run: cargo test --locked -p clippy-slint
+
+      - name: Slint QA profile tests
+        run: cargo test --locked -p clippy-slint --features qa-build
 
       - name: Windows CF_HTML parser tests
         if: runner.os == 'Windows'

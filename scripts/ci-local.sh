@@ -174,10 +174,10 @@ echo ""
 check_prerequisites
 
 run_core_segment() {
-  run_step "Core cargo fmt --check" cargo fmt -p clippy-core -- --check
-  run_step "Core cargo check" cargo check --locked -p clippy-core --all-targets
-  run_step "Core cargo clippy" cargo clippy --locked -p clippy-core --all-targets -- -D warnings
-  run_step "Core cargo test" cargo test --locked -p clippy-core
+  run_step "Core cargo fmt --check" cargo fmt -p clippy-core -p clippy-platform -- --check
+  run_step "Core cargo check" cargo check --locked -p clippy-core -p clippy-platform --all-targets
+  run_step "Core cargo clippy" cargo clippy --locked -p clippy-core -p clippy-platform --all-targets -- -D warnings
+  run_step "Core cargo test" cargo test --locked -p clippy-core -p clippy-platform
 }
 
 run_slint_segment() {
@@ -185,6 +185,7 @@ run_slint_segment() {
   run_step "Slint cargo check" cargo check --locked -p clippy-slint --all-targets
   run_step "Slint cargo clippy" cargo clippy --locked -p clippy-slint --all-targets -- -D warnings
   run_step "Slint cargo test" cargo test --locked -p clippy-slint
+  run_step "Slint QA profile test" cargo test --locked -p clippy-slint --features qa-build
 }
 
 run_legacy_segment() {

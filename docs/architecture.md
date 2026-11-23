@@ -5,14 +5,18 @@
 - `apps/legacy-tauri/` 是 v0.1.x 的完整产品实现，固定使用 Tauri 2.12.4；迁移期仍负责现有功能与
   必要的小修、安全修复。
 - `apps/slint/` 是 v0.2.0 的新入口，固定使用 Slint 1.19.0。当前包含可独立编译、关闭并展示
-  框架归属的迁移壳层，并从共享核心读取产品标识；尚未接入剪贴板、托盘、截图等产品能力，也没有
-  启用 v0.2 发布打包。
+  框架归属的迁移壳层，并从共享核心读取产品标识；生产版与 QA 版是两个显式宿主入口，共用同一
+  Slint 应用库。尚未接入剪贴板、托盘、截图等产品能力，也没有启用 v0.2 正式发布打包。
 - `crates/clippy-core/` 首批承载 `ContentType`、`ClipItem`、`TranslationHistoryEntry`、`UrlMeta`
   和产品标识；它只依赖 serde，不依赖 Tauri、Slint 或平台类型。legacy 通过原模块重导出保持现有
   调用路径，Slint 直接消费共享标识。
-- 根 `Cargo.toml` / `Cargo.lock` 统一解析两套 Rust 入口、共享核心与 vendored patch；后续业务能力按
-  `SLINT-UI-MIGRATION-01` 继续下沉到 UI 无关 crate。迁移期间不能把 legacy 的 Tauri/WebView
-  调用复制进 Slint 正式路径。
+- `crates/clippy-platform/` 保存部署身份和后续系统适配边界，不依赖任何 UI 框架。生产身份保持现有
+  平台 ID，Slint QA 使用独立的 app/data/single-instance/shortcut namespace。`qa-build` 只开放
+  QA 可执行目标，具体身份由两个入口显式传给共享应用库，避免 Cargo feature 合并让生产入口误用
+  QA 身份。
+- 根 `Cargo.toml` / `Cargo.lock` 统一解析两套 Rust 入口、共享核心、平台边界与 vendored patch；后续
+  业务能力按 `SLINT-UI-MIGRATION-01` 继续下沉到 UI 无关 crate。迁移期间不能把 legacy 的
+  Tauri/WebView 调用复制进 Slint 正式路径。
 
 下面的领域与调用链描述当前完整的 legacy v0.1.x 实现；Slint 接入进度以迁移规格和功能矩阵为准。
 
@@ -414,3 +418,8 @@ fmt/check/clippy/test、X11/GNOME/IPC/HTML 边界、锁文件安装、JS lint、
 DOM/Xvfb、Canvas/布局像素 smoke 和 Vite build。AppImage 可视 smoke 由
 `CLIPPY_APPIMAGE_SMOKE=1` 显式启用。criterion 基准会被 `--all-targets` 编译但不会在门禁中运行，
 数字与运行方式见 [bench-baseline.md](bench-baseline.md)。
+
+Slint QA 的包入口为 `apps/slint/Packager.qa.toml`。它构建独立的 `clippy-slint-qa` 二进制和桌面入口，
+使用 `com.clippy.qa.slint` 安装身份并携带 MIT 与 Slint 第三方许可；这只证明打包边界。数据目录、
+单实例与快捷键服务在接入 `clippy-platform` 适配器后仍需逐项验证，不能因安装包 ID 已隔离就计作
+运行期隔离完成。

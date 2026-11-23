@@ -6,9 +6,25 @@ authors = ["zhongweixi2000"]
 edition = "2021"
 license = "MIT"
 build = "build.rs"
+autobins = false
+default-run = "clippy-slint"
+
+[[bin]]
+name = "clippy-slint"
+path = "src/bin/clippy-slint.rs"
+
+[[bin]]
+name = "clippy-slint-qa"
+path = "src/bin/clippy-slint-qa.rs"
+required-features = ["qa-build"]
+
+[features]
+default = []
+qa-build = []
 
 [dependencies]
 clippy-core = { path = "../../crates/clippy-core" }
+clippy-platform = { path = "../../crates/clippy-platform" }
 slint = { version = "=1.19.0", default-features = false, features = [
     "accessibility",
     "backend-winit",
