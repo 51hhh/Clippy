@@ -37,7 +37,7 @@ function Get-WindowsQaRuntimeHash([string]$Path) {
 function Assert-WindowsQaOutputPath([string]$Path) {
     if ([string]::IsNullOrWhiteSpace($Path)) { throw 'QA runtime output path is empty.' }
     $full = [System.IO.Path]::GetFullPath($Path)
-    $targetRoot = [System.IO.Path]::GetFullPath((Join-Path $taskRepository 'apps/legacy-tauri/native\target'))
+    $targetRoot = [System.IO.Path]::GetFullPath((Join-Path $taskRepository 'target'))
     $prefix = $targetRoot.TrimEnd('\') + '\'
     if (-not $full.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) {
         throw 'QA runtime output must remain inside the repository target directory.'
@@ -164,7 +164,7 @@ if ($MyInvocation.InvocationName -ne '.') {
         if ($LASTEXITCODE -ne 0) { throw 'Source SHA unavailable.' }
         $status = @(& git.exe -C $taskRepository status --porcelain --untracked-files=all)
         if ($LASTEXITCODE -ne 0 -or $status.Count -ne 0) { throw 'QA runtime provenance requires a clean checkout.' }
-        $output = $(if ($OutputDirectory) { $OutputDirectory } else { Join-Path $taskRepository 'apps/legacy-tauri/native\target\windows-qa-runtime' })
+        $output = $(if ($OutputDirectory) { $OutputDirectory } else { Join-Path $taskRepository 'target\windows-qa-runtime' })
         $prepared = New-WindowsQaRuntime -VisualStudioRoot $installation.Trim() -Output $output -SourceSha $source
         if ($env:GITHUB_OUTPUT) {
             @("runtime_config=$($prepared.configPath)", "runtime_manifest=$($prepared.manifestPath)",
