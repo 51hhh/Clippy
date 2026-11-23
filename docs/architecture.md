@@ -403,12 +403,13 @@ macOS Resources 中的未来 sidecar、进程 PATH、平台常见安装目录；
 
 | 证据 | 入口 | 能证明什么 | 不能替代什么 |
 |---|---|---|---|
-| 本地完整门禁 | `./scripts/ci-local.sh` | 当前宿主的 Rust、前端测试、DOM/像素 smoke 与生产构建 | 非宿主条件编译、原生桌面行为 |
+| 本地完整门禁 | `./scripts/ci-local.sh` | 当前宿主的 core、legacy、Slint、前端、DOM/像素 smoke 与生产构建 | 非宿主条件编译、原生桌面行为 |
 | 可选交叉检查 | `CLIPPY_CROSS_CHECK=1 ./scripts/ci-local.sh` | 已安装目标和工具链可覆盖的编译期问题 | 目标系统测试、平台 API、桌面权限 |
 | 同 SHA 原生 CI | `.github/workflows/build.yml` + `verify-native-ci.mjs` | Ubuntu、Windows、macOS 原生 check/clippy/test | 安装包签名、真实桌面交互 |
 | Native/人工 QA | `native-qa.yml` + [native-qa.md](native-qa.md) | 安装包、权限、焦点、混合 DPI、Wayland/macOS/Windows 交互 | 自动单元测试与代码合同门禁 |
 
-四种证据独立记录，不能互相替代；跳过项不计为通过。`./scripts/ci-local.sh` 依次执行 Rust
+四种证据独立记录，不能互相替代；跳过项不计为通过。`./scripts/ci-local.sh` 默认依次执行 core、
+legacy 与 Slint 三段；`--segment` 子集和 `--quick` 都只形成部分证据。完整入口依次执行 Rust
 fmt/check/clippy/test、X11/GNOME/IPC/HTML 边界、锁文件安装、JS lint、TypeScript、Vitest、
 DOM/Xvfb、Canvas/布局像素 smoke 和 Vite build。AppImage 可视 smoke 由
 `CLIPPY_APPIMAGE_SMOKE=1` 显式启用。criterion 基准会被 `--all-targets` 编译但不会在门禁中运行，

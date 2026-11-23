@@ -15,6 +15,13 @@ const nativePrelude = `
     'host: x86_64-pc-windows-msvc'
   }
 `;
+const segmentedRustPrelude = `
+  function global:cargo.exe { $global:LASTEXITCODE = 0 }
+  function global:rustc.exe {
+    $global:LASTEXITCODE = 0
+    'host: x86_64-pc-windows-msvc'
+  }
+`;
 
 function runGate(failTests, switches = "-FrontendOnly -Quick", prelude = "", {
   realNode = false, nodeVersion = "24.21.0", nodeExitCode = 0, shell = "powershell.exe",
@@ -96,6 +103,24 @@ describe.skipIf(process.platform !== "win32")("native Windows gate failure accou
     expect(result.error).toBeUndefined();
     expect(result.status).toBe(1);
     expect(result.stdout).toContain("FrontendOnly cannot include RecordingQa");
+    expect(result.stdout).not.toContain("[RUN]");
+  });
+
+  it("runs the core segment without requiring Node and labels it as partial", () => {
+    const result = runGate(false, "-Segment Core", segmentedRustPrelude, { nodeExitCode: 17 });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("core only (partial)");
+    expect(result.stdout).toContain("Evidence level: partial");
+    expect(result.stdout).toContain("4 passed, 0 failed, 0 skipped");
+    expect(result.stdout).not.toContain("Frontend tests");
+  });
+
+  it("rejects recording QA when the legacy segment is excluded", () => {
+    const result = runGate(false, "-Segment Core -RecordingQa", segmentedRustPrelude);
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain("RecordingQa requires the Legacy or All segment");
     expect(result.stdout).not.toContain("[RUN]");
   });
 

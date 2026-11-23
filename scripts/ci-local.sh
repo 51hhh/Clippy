@@ -6,8 +6,9 @@
 # 在这里根本不进编译图，其告警与测试也就无从触发。发布门禁仍以 build.yml 的
 # Check (ubuntu) + Native Check (windows-latest) + Native Check (macos-latest) 为准。
 #
-# 用法: ./scripts/ci-local.sh [--quick]
-#   --quick: 跳过构建检查，仅运行 lint/test
+# 用法: ./scripts/ci-local.sh [--quick] [--segment all|core|legacy|slint]
+#   --quick: 跳过 legacy 生产构建，仅运行 lint/test；属于部分证据
+#   --segment: 只运行指定分段；省略时运行全部，任何子集都属于部分证据
 #
 # 可选环境变量:
 #   CLIPPY_CROSS_CHECK=1   额外跑非宿主平台的交叉 lint（见下方步骤）。只能发现"编译期"
@@ -17,7 +18,75 @@
 set -euo pipefail
 
 QUICK=false
-[[ "${1:-}" == "--quick" ]] && QUICK=true
+SEGMENT=all
+
+usage() {
+  cat <<'EOF'
+用法: ./scripts/ci-local.sh [--quick] [--segment all|core|legacy|slint]
+
+  --quick            跳过 legacy 生产构建，结果仅为部分证据
+  --segment <name>   仅运行 all、core、legacy 或 slint；子集仅为部分证据
+  -h, --help         显示帮助
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --quick)
+      QUICK=true
+      shift
+      ;;
+    --segment)
+      if [[ $# -lt 2 ]]; then
+        printf '错误：--segment 缺少值。\n' >&2
+        usage >&2
+        exit 2
+      fi
+      SEGMENT="$2"
+      shift 2
+      ;;
+    --segment=*)
+      SEGMENT="${1#*=}"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf '错误：未知参数 %s。\n' "$1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+case "$SEGMENT" in
+  all)
+    RUN_CORE=true
+    RUN_LEGACY=true
+    RUN_SLINT=true
+    ;;
+  core)
+    RUN_CORE=true
+    RUN_LEGACY=false
+    RUN_SLINT=false
+    ;;
+  legacy)
+    RUN_CORE=false
+    RUN_LEGACY=true
+    RUN_SLINT=false
+    ;;
+  slint)
+    RUN_CORE=false
+    RUN_LEGACY=false
+    RUN_SLINT=true
+    ;;
+  *)
+    printf '错误：无效分段 %s；只能是 all、core、legacy 或 slint。\n' "$SEGMENT" >&2
+    exit 2
+    ;;
+esac
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -59,17 +128,21 @@ require_cmd() {
 }
 
 check_prerequisites() {
-  require_cmd cargo "Rust toolchain: https://rustup.rs"
-  require_cmd node "Node.js >= 22.12: https://nodejs.org"
-  require_cmd npm "Node.js >= 20.19: https://nodejs.org"
-  require_cmd npx "随 Node.js 一同安装"
-  require_cmd python3 "Python 3（OCR 质量合同单元测试）"
-  # DOM/Canvas smoke 在无头环境下依赖 Xvfb，缺失时整条前端 smoke 都无法执行。
-  require_cmd xvfb-run "sudo apt install -y xvfb"
-  if [[ "$(uname -s)" == "Linux" ]]; then
-    require_cmd xauth "sudo apt install -y xauth"
-    require_cmd xclip "sudo apt install -y xclip"
-    require_cmd timeout "sudo apt install -y coreutils"
+  if "$RUN_CORE" || "$RUN_LEGACY" || "$RUN_SLINT"; then
+    require_cmd cargo "Rust toolchain: https://rustup.rs"
+  fi
+  if "$RUN_LEGACY"; then
+    require_cmd node "Node.js >= 22.12: https://nodejs.org"
+    require_cmd npm "Node.js >= 20.19: https://nodejs.org"
+    require_cmd npx "随 Node.js 一同安装"
+    require_cmd python3 "Python 3（OCR 质量合同单元测试）"
+    # DOM/Canvas smoke 在无头环境下依赖 Xvfb，缺失时整条前端 smoke 都无法执行。
+    require_cmd xvfb-run "sudo apt install -y xvfb"
+    if [[ "$(uname -s)" == "Linux" ]]; then
+      require_cmd xauth "sudo apt install -y xauth"
+      require_cmd xclip "sudo apt install -y xclip"
+      require_cmd timeout "sudo apt install -y coreutils"
+    fi
   fi
 
   if [[ ${#MISSING_COMMANDS[@]} -gt 0 ]]; then
@@ -90,10 +163,31 @@ echo " Clippy 本地质量预检"
 echo "=========================================="
 printf "${YELLOW} 仅验证当前宿主平台：%s${NC}\n" "$HOST_PLATFORM"
 printf "${YELLOW} Windows / macOS 的条件编译代码不在本机编译图内，通过此门禁不代表三平台 CI 通过。${NC}\n"
+printf "${YELLOW} 执行分段：%s${NC}\n" "$SEGMENT"
+if [[ "$SEGMENT" != "all" || "$QUICK" == true ]]; then
+  printf "${YELLOW} 证据级别：部分证据；不能作为合入前完整本地门禁。${NC}\n"
+else
+  printf "${GREEN} 证据级别：完整本地主机门禁。${NC}\n"
+fi
 echo ""
 
 check_prerequisites
 
+run_core_segment() {
+  run_step "Core cargo fmt --check" cargo fmt -p clippy-core -- --check
+  run_step "Core cargo check" cargo check --locked -p clippy-core --all-targets
+  run_step "Core cargo clippy" cargo clippy --locked -p clippy-core --all-targets -- -D warnings
+  run_step "Core cargo test" cargo test --locked -p clippy-core
+}
+
+run_slint_segment() {
+  run_step "Slint cargo fmt --check" cargo fmt -p clippy-slint -- --check
+  run_step "Slint cargo check" cargo check --locked -p clippy-slint --all-targets
+  run_step "Slint cargo clippy" cargo clippy --locked -p clippy-slint --all-targets -- -D warnings
+  run_step "Slint cargo test" cargo test --locked -p clippy-slint
+}
+
+run_legacy_segment() {
 # --- OCR quality contract (pure stdlib; no model or third-party wheel) ---
 run_step "OCR 质量合同" \
   python3 -m unittest discover -s apps/legacy-tauri/native/ocr-sidecar -p 'test_quality*.py' -v
@@ -103,18 +197,12 @@ run_step "智能擦除可行性证据" \
   python3 scripts/smart-erase/verify_evidence.py
 
 # --- Rust ---
-run_step "workspace cargo fmt --check" cargo fmt --all -- --check
-run_step "Core cargo check" cargo check --locked -p clippy-core --all-targets
-run_step "Core cargo clippy" cargo clippy --locked -p clippy-core --all-targets -- -D warnings
-run_step "Core cargo test" cargo test --locked -p clippy-core
+run_step "Legacy cargo fmt --check" cargo fmt -p clippy-app -p arboard -- --check
 run_step "vendor/xcap fmt --check" \
   bash -c "cd apps/legacy-tauri/native && cargo fmt --manifest-path vendor/xcap/Cargo.toml -- --check"
 run_step "cargo check" bash -c "cd apps/legacy-tauri/native && cargo check --all-targets"
 run_step "cargo clippy" bash -c "cd apps/legacy-tauri/native && cargo clippy --all-targets -- -D warnings"
 run_step "cargo test" bash -c "cd apps/legacy-tauri/native && cargo test"
-run_step "Slint cargo check" cargo check --locked -p clippy-slint --all-targets
-run_step "Slint cargo clippy" cargo clippy --locked -p clippy-slint --all-targets -- -D warnings
-run_step "Slint cargo test" cargo test --locked -p clippy-slint
 if [[ "$(uname -s)" == "Linux" ]]; then
   run_step "X11 录屏到可恢复 AVI 闭环" \
     bash -c "cd apps/legacy-tauri/native && xvfb-run -a cargo test recording::session::tests::x11_source_records_a_complete_private_avi_session -- --ignored --exact"
@@ -192,15 +280,34 @@ if [[ "$QUICK" == false ]]; then
 else
   skip_step "vite build"
 fi
+}
+
+if "$RUN_CORE"; then
+  run_core_segment
+fi
+if "$RUN_LEGACY"; then
+  run_legacy_segment
+fi
+if "$RUN_SLINT"; then
+  run_slint_segment
+fi
 
 # --- Summary ---
 echo ""
 echo "=========================================="
 printf " 结果: ${GREEN}%d 通过${NC}, ${RED}%d 失败${NC}, ${YELLOW}%d 跳过${NC}\n" "$PASS" "$FAIL" "$SKIP"
 printf " 覆盖范围: 仅 %s；跳过的步骤不计为通过。\n" "$HOST_PLATFORM"
+if [[ "$SEGMENT" != "all" || "$QUICK" == true ]]; then
+  printf " 证据级别: ${YELLOW}部分证据（segment=%s, quick=%s）${NC}\n" "$SEGMENT" "$QUICK"
+else
+  printf " 证据级别: ${GREEN}完整本地主机门禁${NC}\n"
+fi
 echo "=========================================="
 
 if [[ "$FAIL" -eq 0 ]]; then
+  if [[ "$SEGMENT" != "all" || "$QUICK" == true ]]; then
+    printf "${YELLOW}提醒：本次只形成部分证据，必须再运行不带参数的 ./scripts/ci-local.sh。${NC}\n"
+  fi
   printf "${YELLOW}提醒：Windows / macOS 只能由远程 Native Check 判定，合入前请确认三平台在同一 SHA 上为 success。${NC}\n"
 fi
 

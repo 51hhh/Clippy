@@ -99,7 +99,8 @@ legacy 产物必须明确写 `Slint: not included`，Slint 产物必须明确写
 
 ### M3：双实现 CI 与 QA 身份隔离
 
-- [ ] 本地门禁拆成 core、legacy、Slint 三段；默认 wrapper 全跑，任何只跑子集的选项都标记为部分证据。
+- [x] Linux 与 Windows 本地门禁拆成 core、legacy、Slint 三段；默认 wrapper 全跑，任何只跑子集或
+  quick 的选项都标记为部分证据。
 - [x] 保留 `Check (ubuntu-22.04)`、`Native Check (windows-latest)`、
   `Native Check (macos-latest)` 名称，在其中加入 Slint 编译、clippy、test 和 `.slint` 编译；
   workflow 合同已实现，远程同 SHA 结果仍待验证。
@@ -216,9 +217,9 @@ WebM VP9/Opus、暂停/拖动/结束、窗口关闭后的线程和句柄回收�
   52,499 KiB，进程树总 PSS 154,488 KiB（约 150.9 MiB）、总 RSS 约 228.5 MiB；动态链接包含
   WebKit/JSC/GTK3/PipeWire。该样本不是 Slint 性能结果，也不替代 5 次固定流程验收。
 - 发布路由测试、Slint `cargo check` / `clippy -D warnings` / `test` 与两项 vendored 供应链校验已
-  独立通过。目录搬迁后的完整 Linux 本地门禁为 30 通过 / 0 失败 / 2 跳过；legacy Tauri 从新
-  目录完成 `--no-bundle --no-sign` release 构建，产物为根 `target/release/clippy-app`。三平台
-  原生 CI、实际安装包和人工 QA 仍待执行。
+  独立通过。目录搬迁和门禁分段后的完整 Linux 本地门禁为 35 通过 / 0 失败 / 2 跳过；legacy
+  Tauri 从新目录完成 `--no-bundle --no-sign` release 构建，产物为根
+  `target/release/clippy-app`。三平台原生 CI、实际安装包和人工 QA 仍待执行。
 - Slint release 壳层为 12,789,816 字节，动态依赖不含 Tauri、WebKit、JSC 或 GTK。隔离 Xvfb
   的单次 3 秒样本为 PSS 127,429 KiB、RSS 163,728 KiB；该环境使用 Mesa llvmpipe 软件 OpenGL，
   不是 GPU 桌面空闲结果，也不计入 50 MiB 验收。它说明 renderer 测试必须同时记录实际 GPU 与

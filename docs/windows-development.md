@@ -45,11 +45,17 @@ unwind 时保留自己的临时目录，测试输出中的 `CLIPPY_RECORDING_TES
 
 # 跳过生产构建；不能作为完整门禁证据
 ./scripts/ci-windows.ps1 -Quick
+
+# 开发期分段定位；任一子集都只能形成部分证据
+./scripts/ci-windows.ps1 -Segment Core
+./scripts/ci-windows.ps1 -Segment Legacy -Quick
+./scripts/ci-windows.ps1 -Segment Slint
 ```
 
 执行策略阻止脚本时可在允许本地开发脚本的 PowerShell 环境运行；不需要把系统执行策略改为宽松值。
-脚本记录每步通过/失败/跳过，任何执行失败返回非零。`FrontendOnly` 和 `Quick` 的结果不能记为完整
-门禁通过。`RecordingQa` 不能与 `FrontendOnly` 组合。
+脚本记录每步通过/失败/跳过，任何执行失败返回非零。`FrontendOnly`、`Quick` 与非 `All` 的
+`Segment` 都不能记为完整门禁通过。`RecordingQa` 不能与 `FrontendOnly` 组合，也只能用于包含
+legacy 的 `All` 或 `Legacy` 段。
 
 Windows 入口负责 Windows 的本机检查；Linux 的 GNOME/X11/WebKit DOM、Canvas、布局像素 smoke
 仍由 `./scripts/ci-local.sh` 执行，跳过项不计为通过。合入前仍须保留完整 Linux 门禁证据及修改后同

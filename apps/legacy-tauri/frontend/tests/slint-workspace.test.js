@@ -65,6 +65,18 @@ describe("Slint v0.2 migration workspace contract", () => {
     expect(buildWorkflow.match(/name: Slint Rust tests/g)).toHaveLength(2);
   });
 
+  it("keeps segmented local gates explicit and labels every subset as partial evidence", () => {
+    const localGate = read("scripts/ci-local.sh");
+    const windowsGate = read("scripts/ci-windows.ps1");
+    expect(localGate).toContain("--segment all|core|legacy|slint");
+    expect(localGate).toContain("run_core_segment");
+    expect(localGate).toContain("run_legacy_segment");
+    expect(localGate).toContain("run_slint_segment");
+    expect(localGate).toContain("证据级别：部分证据");
+    expect(windowsGate).toContain("[ValidateSet('All', 'Core', 'Legacy', 'Slint')]");
+    expect(windowsGate).toContain("Evidence level: partial");
+  });
+
   it("audits the root lockfile shared by both applications", () => {
     const buildWorkflow = read(".github/workflows/build.yml");
     const attributes = read(".gitattributes");
