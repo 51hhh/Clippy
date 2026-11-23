@@ -2953,7 +2953,7 @@ mod tests {
         let temporary = tempfile::tempdir().unwrap();
         let recordings = temporary.path().join(RECORDINGS_DIRECTORY);
         fs::create_dir(&recordings).unwrap();
-        fs::create_dir(recordings.join("..invalid..".repeat(20))).unwrap();
+        fs::create_dir(recordings.join("x".repeat(65))).unwrap();
 
         let summary = recover_interrupted_sessions(temporary.path()).unwrap();
         assert_eq!(summary.rejected_sessions, 1);
