@@ -70,6 +70,15 @@ jobs:
       - name: Rust format check
         run: cargo fmt --all -- --check
 
+      - name: Core Rust check
+        run: cargo check --locked -p clippy-core --all-targets
+
+      - name: Core Rust clippy
+        run: cargo clippy --locked -p clippy-core --all-targets -- -D warnings
+
+      - name: Core Rust tests
+        run: cargo test --locked -p clippy-core
+
       - name: Verify Windows WGC cursor patch
         run: node scripts/verify-xcap-patch.mjs
 
@@ -221,6 +230,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "OCR quality tests exited with $LASTEXITCODE" }
           python -m unittest discover -s apps/legacy-tauri/native/ocr-sidecar -p test_visual_paragraphs.py -v
           if ($LASTEXITCODE -ne 0) { throw "OCR paragraph tests exited with $LASTEXITCODE" }
+
+      - name: Core Rust check
+        run: cargo check --locked -p clippy-core --all-targets
+
+      - name: Core Rust clippy
+        run: cargo clippy --locked -p clippy-core --all-targets -- -D warnings
+
+      - name: Core Rust tests
+        run: cargo test --locked -p clippy-core
 
       - name: Native Rust check
         working-directory: apps/legacy-tauri/native

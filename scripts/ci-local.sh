@@ -104,6 +104,9 @@ run_step "智能擦除可行性证据" \
 
 # --- Rust ---
 run_step "workspace cargo fmt --check" cargo fmt --all -- --check
+run_step "Core cargo check" cargo check --locked -p clippy-core --all-targets
+run_step "Core cargo clippy" cargo clippy --locked -p clippy-core --all-targets -- -D warnings
+run_step "Core cargo test" cargo test --locked -p clippy-core
 run_step "vendor/xcap fmt --check" \
   bash -c "cd apps/legacy-tauri/native && cargo fmt --manifest-path vendor/xcap/Cargo.toml -- --check"
 run_step "cargo check" bash -c "cd apps/legacy-tauri/native && cargo check --all-targets"

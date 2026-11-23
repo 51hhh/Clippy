@@ -110,6 +110,10 @@ legacy 产物必须明确写 `Slint: not included`，Slint 产物必须明确写
 
 ### M4：共享核心抽离
 
+- [x] 首批抽出 `ContentType`、`ClipItem`、`TranslationHistoryEntry`、`UrlMeta` 与产品标识；
+  legacy 通过原模块重导出保持调用路径，Slint 已消费共享标识，共享 crate 不依赖 Tauri 或 Slint。
+- [ ] 抽离配置值对象与持久化边界；当前 `AppConfig`、平台默认值和配置 I/O 仍留在 legacy。
+
 按“可独立测试、无窗口类型”的顺序迁移：
 
 1. `models`、`config`、数据库与搜索；

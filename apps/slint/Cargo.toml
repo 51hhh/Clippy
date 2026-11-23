@@ -8,6 +8,7 @@ license = "MIT"
 build = "build.rs"
 
 [dependencies]
+clippy-core = { path = "../../crates/clippy-core" }
 slint = { version = "=1.19.0", default-features = false, features = [
     "accessibility",
     "backend-winit",

@@ -1,10 +1,12 @@
 [workspace]
 members = [
+    "crates/clippy-core",
     "apps/legacy-tauri/native",
     "apps/legacy-tauri/native/vendor/arboard",
     "apps/slint",
 ]
 default-members = [
+    "crates/clippy-core",
     "apps/legacy-tauri/native",
     "apps/slint",
 ]

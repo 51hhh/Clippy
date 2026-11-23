@@ -265,7 +265,7 @@ pub(crate) fn build(
         .icon(icon)
         .menu(&menu)
         .show_menu_on_left_click(true)
-        .tooltip("Clippy")
+        .tooltip(clippy_core::PRODUCT_NAME)
         .on_menu_event(|app_handle, event| match event.id.as_ref() {
             OPEN_ID => {
                 if let Some(state) = app_handle.try_state::<AppState>() {

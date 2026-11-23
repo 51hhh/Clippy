@@ -5,6 +5,7 @@ const FRAMEWORK_VERSION: &str = "1.19.0";
 
 fn main() -> Result<(), slint::PlatformError> {
     let window = AppWindow::new()?;
+    window.set_product_name(clippy_core::PRODUCT_NAME.into());
     window.set_build_label(
         format!(
             "v{} · {UI_BACKEND} {FRAMEWORK_VERSION}",
@@ -24,5 +25,6 @@ mod tests {
         assert_eq!(env!("CARGO_PKG_VERSION"), "0.2.0");
         assert_eq!(UI_BACKEND, "Slint");
         assert_eq!(FRAMEWORK_VERSION, "1.19.0");
+        assert_eq!(clippy_core::PRODUCT_NAME, "Clippy");
     }
 }

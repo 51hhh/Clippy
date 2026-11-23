@@ -1212,6 +1212,7 @@ dependencies = [
  "block2 0.6.2",
  "cbc",
  "chrono",
+ "clippy-core",
  "criterion",
  "dispatch2 0.3.1",
  "enigo",
@@ -1280,9 +1281,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "clippy-core"
+version = "0.2.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "clippy-slint"
 version = "0.2.0"
 dependencies = [
+ "clippy-core",
  "slint",
  "slint-build",
 ]

@@ -1,9 +1,10 @@
 import { AboutSlint, VerticalBox } from "std-widgets.slint";
 
 export component AppWindow inherits Window {
+    in property <string> product-name;
     in property <string> build-label;
 
-    title: "Clippy";
+    title: root.product-name;
     width: 520px;
     height: 360px;
     background: #f4f5f7;
@@ -13,7 +14,7 @@ export component AppWindow inherits Window {
         spacing: 18px;
 
         Text {
-            text: "Clippy";
+            text: root.product-name;
             color: #202124;
             font-size: 34px;
             font-weight: 700;

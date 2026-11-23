@@ -106,6 +106,9 @@ if (-not $FrontendOnly) {
     }
     Invoke-Check 'Smart erase feasibility evidence' $repository { & python.exe scripts/smart-erase/verify_evidence.py }
     Invoke-Check 'Workspace Rust format' $repository { & cargo.exe fmt --all -- --check }
+    Invoke-Check 'Core Rust check' $repository { & cargo.exe check --locked -p clippy-core --all-targets }
+    Invoke-Check 'Core Rust clippy' $repository { & cargo.exe clippy --locked -p clippy-core --all-targets -- -D warnings }
+    Invoke-Check 'Core Rust tests' $repository { & cargo.exe test --locked -p clippy-core }
     Invoke-Check 'Vendored xcap format' $backend { & cargo.exe fmt --manifest-path vendor/xcap/Cargo.toml -- --check }
     Invoke-Check 'Native Rust check' $backend { & cargo.exe check --locked --all-targets }
     Invoke-Check 'Native Rust clippy' $backend { & cargo.exe clippy --locked --all-targets -- -D warnings }
