@@ -1,7 +1,7 @@
 use super::{capture, clipboard, post, use_app, App, Event};
 use crate::EditorWindow;
 use anyhow::{anyhow, Result};
-use clippy_capture::editor::{Adjustments, Editor, Tool};
+use clippy_capture::editor::{Editor, ImageProject, Tool};
 use clippy_core::image_output::SaveTarget;
 use image::RgbaImage;
 use slint::{
@@ -17,10 +17,11 @@ const MAX_STROKE_POINTS: usize = 4_096;
 pub(super) enum Action {
     Undo,
     Redo,
-    Adjust(Adjustments),
+    Adjust(bool, f32),
     Copy,
     Save,
     Close,
+    Pin,
 }
 
 pub(super) struct View {
@@ -33,9 +34,11 @@ pub(super) struct View {
 }
 
 impl View {
-    pub(super) fn open(id: u64, image: RgbaImage) -> Result<Self> {
-        let image = Arc::new(image);
+    fn open(id: u64, image: Arc<RgbaImage>, document: Editor) -> Result<Self> {
         let window = EditorWindow::new()?;
+        let (grayscale, corners) = document.grayscale_and_corners();
+        window.set_grayscale_value(grayscale);
+        window.set_corner_value(corners);
         window.set_tools(ModelRc::new(VecModel::from(
             Tool::ALL
                 .into_iter()
@@ -83,14 +86,11 @@ impl View {
         window.on_undo(|| action(Action::Undo));
         window.on_redo(|| action(Action::Redo));
         window.on_adjustments(|grayscale, corner_radius| {
-            action(Action::Adjust(Adjustments {
-                grayscale,
-                corner_radius,
-                ..Adjustments::default()
-            }))
+            action(Action::Adjust(grayscale, corner_radius))
         });
         window.on_copy(|| action(Action::Copy));
         window.on_save(|| action(Action::Save));
+        window.on_pin(|| action(Action::Pin));
         window.on_close_editor(|| action(Action::Close));
         window.window().on_close_requested(|| {
             action(Action::Close);
@@ -100,7 +100,7 @@ impl View {
         Ok(Self {
             id,
             window,
-            document: Editor::new(image.clone()),
+            document,
             current: image,
             stroke: Vec::new(),
             busy: false,
@@ -182,11 +182,27 @@ fn edit_sync(edit: impl FnOnce(&mut View)) {
 
 impl App {
     pub(super) fn open_editor(&mut self, image: RgbaImage) -> Result<()> {
+        let image = Arc::new(image);
+        self.show_editor(image.clone(), Editor::new(image))
+    }
+
+    pub(super) fn open_editor_project(
+        &mut self,
+        image: Arc<RgbaImage>,
+        project: ImageProject,
+    ) -> Result<()> {
+        self.show_editor(
+            image,
+            Editor::from_project(project).map_err(anyhow::Error::msg)?,
+        )
+    }
+
+    fn show_editor(&mut self, image: Arc<RgbaImage>, document: Editor) -> Result<()> {
         if let Some(view) = self.editor.as_ref() {
             return view.show();
         }
         self.editor_id += 1;
-        self.editor = Some(View::open(self.editor_id, image)?);
+        self.editor = Some(View::open(self.editor_id, image, document)?);
         Ok(())
     }
 
@@ -226,8 +242,10 @@ impl App {
                     editor.render();
                 }
             }
-            Action::Adjust(adjustments) => {
-                editor.document.adjust(adjustments);
+            Action::Adjust(grayscale, corners) => {
+                editor
+                    .document
+                    .change_grayscale_and_corners(grayscale, corners);
                 editor.render();
             }
             Action::Copy => {
@@ -270,6 +288,15 @@ impl App {
                     })
                 {
                     self.editor_output(id, Err(anyhow!(error)));
+                }
+            }
+            Action::Pin => {
+                if editor.window.get_output_ready() {
+                    let snapshot = editor.document.snapshot();
+                    let image = editor.current.clone();
+                    editor.set_status("Adding to the pinned workspace…".into());
+                    self.pins
+                        .create(editor.id, snapshot, image, self.storage.client());
                 }
             }
         }

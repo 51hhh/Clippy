@@ -23,6 +23,8 @@ from gi.repository import Gdk, GdkPixbuf, GdkX11, Gio, GLib, Gtk
 TITLE = "Clippy Slint QA"
 CAPTURE_TITLE = "Clippy Screenshot"
 EDITOR_TITLE = "Clippy Image Editor"
+PIN_TITLE = "Clippy Pin"
+WORKSPACE_TITLE = "Clippy Pinned Workspace"
 TEXT = "needle 自动剪贴板 QA"
 OTHER = "unrelated fixture"
 HTML = "<b>rich-qa</b>".encode()
@@ -415,9 +417,29 @@ def run(binary, root):
         wait_for(edited_file.is_file, "edited PNG was not committed")
         assert pixbuf_png(edited_file.read_bytes()).get_pixels() == edited_copy.get_pixels()
         assert (edited_copy.get_width(), edited_copy.get_height()) == expected[0]
+        desktop.click(x + width - 67, y + height - 26)
+        _, (pin_x, pin_y, pin_width, pin_height) = wait_for(
+            lambda: titled_window(PIN_TITLE), "edited image did not open as a pin",
+        )
+        with sqlite3.connect(data_dir / "clips.db") as connection:
+            annotations, = connection.execute(
+                "SELECT r.annotations_json FROM image_revisions r "
+                "JOIN pin_workspace_items p ON p.revision_id = r.id",
+            ).fetchone()
+            assert json.loads(annotations)[0]["type"] == "rect"
         desktop.click(x + width - 57, y + height - 55)
         wait_for(lambda: not titled_window(EDITOR_TITLE), "editor stayed open after close")
         print("PASS screenshot editor and identical copy/save pixels", flush=True)
+        desktop.click(pin_x + pin_width - 43, pin_y + pin_height - 25)
+        wait_for(lambda: not titled_window(PIN_TITLE), "pin did not hide")
+        tray.activate("Pinned Workspace")
+        _, (work_x, work_y, work_width, work_height) = wait_for(
+            lambda: titled_window(WORKSPACE_TITLE), "workspace did not open",
+        )
+        time.sleep(0.2)
+        desktop.click(work_x + 61, work_y + work_height - 54)
+        wait_for(lambda: titled_window(PIN_TITLE), "workspace did not restore the stored pin")
+        print("PASS pin, persistent revision and workspace restore", flush=True)
 
         second = subprocess.run([binary, "--open"], env=env, timeout=4)
         assert second.returncode == 0

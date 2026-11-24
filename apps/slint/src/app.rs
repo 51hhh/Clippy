@@ -28,6 +28,7 @@ use std::{
 mod capture;
 mod clipboard;
 mod editor;
+mod pins;
 
 thread_local! {
     static APP: RefCell<Option<App>> = const { RefCell::new(None) };
@@ -57,6 +58,7 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
     tray.on_open_panel(|| handle(Event::Open(false)));
     tray.on_screenshot(|| handle(Event::CaptureStart));
     tray.on_open_settings(|| handle(Event::Open(true)));
+    tray.on_open_workspace(|| handle(Event::Pins(pins::Message::Workspace)));
     tray.on_quit(|| {
         let _ = slint::quit_event_loop();
     });
@@ -93,6 +95,7 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
             capture_views: None,
             editor: None,
             editor_id: 0,
+            pins: pins::Pins::default(),
         }))
     });
     let timer = Timer::default();
@@ -162,6 +165,7 @@ enum Event {
     EditorAction(editor::Action),
     EditorRendered(u64, Result<image::RgbaImage>),
     EditorOutput(u64, Result<String>),
+    Pins(pins::Message),
 }
 
 fn post(event: Event) {
@@ -195,6 +199,7 @@ struct App {
     capture_views: Option<Vec<capture::View>>,
     editor: Option<editor::View>,
     editor_id: u64,
+    pins: pins::Pins,
 }
 
 impl App {
@@ -220,6 +225,9 @@ impl App {
                                     rows.first().map(|item| item.id.clone()).unwrap_or_default(),
                                 );
                             }
+                            window.set_selected_image(rows.iter().any(|item| {
+                                item.id == window.get_selected_id() && item.kind == "Image"
+                            }));
                             let count = rows.len();
                             window.set_can_load_more(count == window.get_history_limit() as usize);
                             window.set_clips(ModelRc::new(VecModel::from(rows)));
@@ -345,6 +353,7 @@ impl App {
             Event::EditorAction(action) => self.edit(action),
             Event::EditorRendered(id, result) => self.editor_rendered(id, result),
             Event::EditorOutput(id, result) => self.editor_output(id, result),
+            Event::Pins(message) => self.pin_message(message),
         }
     }
 
@@ -371,6 +380,11 @@ impl App {
         window.on_modify_item(|id, favorite| use_app(|app| app.modify(id.as_str(), favorite)));
         window.on_set_auto_paste(|value| use_app(|app| app.set_auto_paste(value)));
         window.on_authorize_paste(|| use_app(App::authorize));
+        window.on_edit_history_image(|id| {
+            if let Ok(id) = id.parse() {
+                post(Event::Pins(pins::Message::History(id)));
+            }
+        });
         window.window().on_close_requested(|| {
             post(Event::Hide);
             CloseRequestResponse::HideWindow

@@ -185,6 +185,22 @@ impl Editor {
         self.adjustments = adjustments.document();
     }
 
+    pub fn change_grayscale_and_corners(&mut self, grayscale: bool, corners: f32) {
+        self.adjustments["grayscale"] = json!(grayscale);
+        self.adjustments["cornerRadius"] = json!(corners);
+    }
+
+    pub fn grayscale_and_corners(&self) -> (bool, f32) {
+        (
+            self.adjustments["grayscale"]
+                .as_bool()
+                .expect("工程灰度属性已校验"),
+            self.adjustments["cornerRadius"]
+                .as_f64()
+                .expect("工程圆角属性已校验") as f32,
+        )
+    }
+
     pub fn annotate(
         &mut self,
         tool: Tool,

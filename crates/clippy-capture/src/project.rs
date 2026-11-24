@@ -68,6 +68,23 @@ pub struct ProjectDocument {
     pub adjustments: Value,
 }
 
+pub fn revision_document_hash(
+    renderer_version: u32,
+    dimensions: (u32, u32),
+    annotations_json: &str,
+    adjustments_json: &str,
+) -> String {
+    let mut digest = Sha256::new();
+    digest.update(renderer_version.to_be_bytes());
+    digest.update(dimensions.0.to_be_bytes());
+    digest.update(dimensions.1.to_be_bytes());
+    for value in [annotations_json, adjustments_json] {
+        digest.update((value.len() as u64).to_be_bytes());
+        digest.update(value.as_bytes());
+    }
+    format!("{:x}", digest.finalize())
+}
+
 /// 发给贴图窗口的恢复数据。原图字节由 `get_pin_source_image` 按需取，避免 payload 再带一份
 /// 几 MB 的 base64。
 #[derive(Debug, Clone, Serialize, PartialEq)]

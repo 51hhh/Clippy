@@ -1,0 +1,126 @@
+import { Button, CheckBox, LineEdit, ListView, Slider, VerticalBox } from "std-widgets.slint";
+
+export struct WorkspaceRow { id: string, label: string, group: string }
+
+export component WorkspaceWindow inherits Window {
+    in property <[WorkspaceRow]> pins;
+    in-out property <string> selection;
+    in property <string> groups;
+    in property <string> status;
+    callback open-pin(string);
+    callback delete-pin(string);
+    callback move-to-group(string, string);
+    callback create-group(string);
+    callback close-workspace();
+
+    title: "Clippy Pinned Workspace";
+    preferred-width: 520px;
+    preferred-height: 510px;
+    background: #f6f7f9;
+
+    VerticalBox {
+        spacing: 8px;
+        padding: 16px;
+        Text { text: "Pinned Workspace"; font-size: 24px; font-weight: 700; }
+        if root.groups != "": Text { text: root.groups; wrap: word-wrap; }
+        ListView {
+            for pin in root.pins: Rectangle {
+                height: 54px;
+                border-radius: 5px;
+                background: root.selection == pin.id ? #fff0e8 : #ffffff;
+                TouchArea {
+                    clicked => { root.selection = pin.id; }
+                    double-clicked => { root.open-pin(pin.id); }
+                }
+                VerticalLayout {
+                    padding: 7px;
+                    Text { text: pin.label; overflow: elide; }
+                    Text { text: pin.group; color: #545c65; font-size: 11px; }
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            group := LineEdit { placeholder-text: "Group name"; }
+            Button { text: "Create group"; enabled: group.text != ""; clicked => { root.create-group(group.text); } }
+            Button { text: "Move to group"; enabled: root.selection != ""; clicked => { root.move-to-group(root.selection, group.text); } }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            Button { text: "Open"; enabled: root.selection != ""; clicked => { root.open-pin(root.selection); } }
+            Button { text: "Remove from workspace"; enabled: root.selection != ""; clicked => { root.delete-pin(root.selection); } }
+            Button { text: "Close"; clicked => { root.close-workspace(); } }
+        }
+        Text { text: root.status; color: #545c65; min-height: 18px; wrap: word-wrap; }
+    }
+}
+
+export component PinnedWindow inherits Window {
+    in property <image> picture;
+    in property <string> body;
+    in property <bool> has-image;
+    in-out property <float> zoom: 1;
+    in-out property <float> opacity-value: 1;
+    in-out property <bool> locked;
+    in-out property <bool> above;
+    in property <string> status;
+    callback update-pin();
+    callback resize-pin(float);
+    callback close-pin();
+    callback edit-pin();
+    callback copy-pin();
+    callback save-pin();
+
+    title: "Clippy Pin";
+    preferred-width: 500px;
+    preferred-height: 440px;
+    min-width: 330px;
+    min-height: 200px;
+    background: #f6f7f9;
+
+    VerticalBox {
+        padding: 10px;
+        spacing: 6px;
+        Rectangle {
+            vertical-stretch: 1;
+            background: #e4e8eb;
+            if root.has-image: Image {
+                source: root.picture;
+                width: parent.width;
+                height: parent.height;
+                opacity: root.opacity-value;
+                image-fit: contain;
+            }
+            if !root.has-image: Text {
+                x: 10px;
+                y: 10px;
+                width: parent.width - 20px;
+                height: parent.height - 20px;
+                opacity: root.opacity-value;
+                text: root.body;
+                wrap: word-wrap;
+                overflow: elide;
+            }
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            Text { text: "Opacity"; vertical-alignment: center; }
+            Slider {
+                minimum: 0.15; maximum: 1; value <=> root.opacity-value;
+                released => { root.update-pin(); }
+            }
+            Button { text: "−"; enabled: root.zoom > 0.25 && !root.locked; clicked => { root.resize-pin(max(0.25, root.zoom / 1.25)); } }
+            Button { text: "+"; enabled: root.zoom < 4 && !root.locked; clicked => { root.resize-pin(min(4, root.zoom * 1.25)); } }
+            CheckBox { text: "Top"; checked <=> root.above; toggled => { root.update-pin(); } }
+            CheckBox { text: "Lock size"; checked <=> root.locked; toggled => { root.update-pin(); } }
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            Button { text: "Edit"; enabled: root.has-image; clicked => { root.edit-pin(); } }
+            Button { text: "Copy"; clicked => { root.copy-pin(); } }
+            Button { text: "Save PNG"; enabled: root.has-image; clicked => { root.save-pin(); } }
+            Button { text: "Hide"; clicked => { root.close-pin(); } }
+        }
+        if root.status != "": Text { text: root.status; color: #545c65; wrap: word-wrap; }
+    }
+}

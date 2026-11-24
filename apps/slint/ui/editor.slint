@@ -8,6 +8,8 @@ export component EditorWindow inherits Window {
     in property <bool> can-undo;
     in property <bool> can-redo;
     in property <bool> output-ready: true;
+    in-out property <bool> grayscale-value;
+    in-out property <float> corner-value;
     in property <string> status;
     callback start-stroke(float, float);
     callback move-stroke(float, float);
@@ -82,12 +84,13 @@ export component EditorWindow inherits Window {
             spacing: 8px;
             gray := CheckBox {
                 text: "Grayscale";
+                checked <=> root.grayscale-value;
                 enabled: !root.busy;
                 toggled => { root.adjustments(self.checked, radius.value); }
             }
             Text { text: "Corners"; vertical-alignment: center; }
             radius := Slider {
-                minimum: 0; maximum: 60; value: 0; min-width: 60px;
+                minimum: 0; maximum: 120; value <=> root.corner-value; min-width: 60px;
                 enabled: !root.busy;
                 released => { root.adjustments(gray.checked, self.value); }
             }
@@ -95,6 +98,10 @@ export component EditorWindow inherits Window {
             Button { text: "Save PNG"; width: 90px; enabled: !root.busy && root.output-ready; clicked => { root.save(); } }
             Button { text: "Close"; width: 90px; enabled: !root.busy; clicked => { root.close-editor(); } }
         }
-        Text { text: root.status; color: #545c65; wrap: word-wrap; min-height: 18px; }
+        HorizontalLayout {
+            spacing: 8px;
+            Text { text: root.status; color: #545c65; wrap: word-wrap; min-height: 18px; }
+            Button { text: "Pin to desktop"; height: 28px; enabled: !root.busy && root.output-ready; clicked => { root.pin(); } }
+        }
     }
 }

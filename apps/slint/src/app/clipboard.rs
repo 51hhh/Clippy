@@ -38,6 +38,10 @@ pub(super) enum Request {
         image: Arc<image::RgbaImage>,
         finish: Box<dyn FnOnce(Result<()>) + Send>,
     },
+    WriteText {
+        text: String,
+        finish: Box<dyn FnOnce(Result<()>) + Send>,
+    },
     Authorize,
     ClosePermission,
 }
@@ -119,9 +123,10 @@ fn watch(receiver: Receiver<Request>, storage: StorageClient, data: PathBuf, lim
                                 Some(Request::Paste { .. }) => {
                                     post(Event::Pasted(Err(anyhow!(error))))
                                 }
-                                Some(Request::WriteImage { finish, .. }) => {
-                                    finish(Err(anyhow!(error)))
-                                }
+                                Some(
+                                    Request::WriteImage { finish, .. }
+                                    | Request::WriteText { finish, .. },
+                                ) => finish(Err(anyhow!(error))),
                                 _ => {}
                             }
                             continue;
@@ -155,6 +160,11 @@ fn watch(receiver: Receiver<Request>, storage: StorageClient, data: PathBuf, lim
                                 bytes: Cow::Borrowed(image.as_raw()),
                             })
                             .map_err(Into::into);
+                        retry |= result.is_ok();
+                        finish(result);
+                    }
+                    Some(Request::WriteText { text, finish }) => {
+                        let result = system.write(Content::Text(text)).map_err(Into::into);
                         retry |= result.is_ok();
                         finish(result);
                     }

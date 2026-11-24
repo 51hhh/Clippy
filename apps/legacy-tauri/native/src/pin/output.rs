@@ -4,7 +4,6 @@
 //! 规则，不需要构造 Tauri command 或窗口。
 use super::model::{PinEntry, PinSource};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -97,15 +96,10 @@ pub(crate) fn register_source_revision(
         .map_err(|error| format!("标注序列化失败: {error}"))?;
     let adjustments_json = serde_json::to_string(&project.adjustments)
         .map_err(|error| format!("调整序列化失败: {error}"))?;
-    let mut digest = Sha256::new();
-    digest.update(project.renderer_version.to_be_bytes());
-    digest.update(project.source_width.to_be_bytes());
-    digest.update(project.source_height.to_be_bytes());
-    for value in [&annotations_json, &adjustments_json] {
-        digest.update((value.len() as u64).to_be_bytes());
-        digest.update(value.as_bytes());
-    }
-    let document_hash = format!("{:x}", digest.finalize());
+    let document_hash = super::project::revision_document_hash(
+        project.renderer_version, (project.source_width, project.source_height),
+        &annotations_json, &adjustments_json,
+    );
     storage
         .register_image_revision(crate::storage::ImageRevisionWrite {
             source_png: source,

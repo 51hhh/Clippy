@@ -1,5 +1,6 @@
 import { AboutSlint, Button, CheckBox, LineEdit, ListView, VerticalBox } from "std-widgets.slint";
 export { EditorWindow } from "editor.slint";
+export { PinnedWindow, WorkspaceWindow, WorkspaceRow } from "pins.slint";
 
 export enum CaptureAction { copy, save, edit }
 
@@ -17,6 +18,7 @@ export component ClippyTray inherits SystemTrayIcon {
     callback open-panel();
     callback screenshot();
     callback open-settings();
+    callback open-workspace();
     callback quit();
 
     tooltip: root.product-name;
@@ -26,6 +28,7 @@ export component ClippyTray inherits SystemTrayIcon {
     Menu {
         MenuItem { title: "Open Clipboard"; activated => { root.open-panel(); } }
         MenuItem { title: "Screenshot"; activated => { root.screenshot(); } }
+        MenuItem { title: "Pinned Workspace"; activated => { root.open-workspace(); } }
         MenuItem { title: "Settings"; activated => { root.open-settings(); } }
         MenuItem { title: "Quit"; activated => { root.quit(); } }
     }
@@ -49,12 +52,14 @@ export component AppWindow inherits Window {
     in-out property <bool> show-settings;
     in property <bool> auto-paste;
     in property <bool> busy;
+    in-out property <bool> selected-image;
     callback reload-history();
     callback close-panel();
     callback copy-item(string, bool);
     callback modify-item(string, bool);
     callback set-auto-paste(bool);
     callback authorize-paste();
+    callback edit-history-image(string);
 
     title: root.product-name;
     preferred-width: 480px;
@@ -119,7 +124,7 @@ export component AppWindow inherits Window {
 
                     TouchArea {
                         enabled: !root.loading-history;
-                        clicked => { root.selected-id = clip.id; }
+                        clicked => { root.selected-id = clip.id; root.selected-image = clip.kind == "Image"; }
                         double-clicked => { root.copy-item(clip.id, true); }
                     }
                     VerticalLayout {
@@ -163,6 +168,11 @@ export component AppWindow inherits Window {
                     enabled: !root.loading-history && root.selected-id != "";
                     clicked => { root.modify-item(root.selected-id, false); }
                 }
+            }
+            if root.selected-image: Button {
+                text: "Edit selected image";
+                enabled: !root.loading-history && !root.busy;
+                clicked => { root.edit-history-image(root.selected-id); }
             }
         }
 
