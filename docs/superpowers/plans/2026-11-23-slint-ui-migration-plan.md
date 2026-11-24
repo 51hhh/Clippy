@@ -116,7 +116,9 @@ legacy 产物必须明确写 `Slint: not included`，Slint 产物必须明确写
 
 - [x] 首批抽出 `ContentType`、`ClipItem`、`TranslationHistoryEntry`、`UrlMeta` 与产品标识；
   legacy 通过原模块重导出保持调用路径，Slint 已消费共享标识，共享 crate 不依赖 Tauri 或 Slint。
-- [ ] 抽离配置值对象与持久化边界；当前 `AppConfig`、平台默认值和配置 I/O 仍留在 legacy。
+- [x] 抽离配置值对象与持久化边界：`clippy-core::config` 拥有 `AppConfig`、目标平台快捷键默认策略、
+  v1→v2 迁移、JSON codec 与结构化提交/回滚协议；legacy 只保留私有文件权限和 Tauri 副作用适配。
+  Slint 的实际数据目录装配随平台服务接入，不在本项伪造一套临时路径。
 
 按“可独立测试、无窗口类型”的顺序迁移：
 

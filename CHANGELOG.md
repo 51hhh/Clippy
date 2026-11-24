@@ -11,9 +11,9 @@
 - 新增唯一的 SemVer 发布路由：低于 v0.2.0 的 tag 选择 legacy Tauri，v0.2.0 的
   alpha/beta/rc 及更高版本选择 Slint。当前 v0.2 打包 job 尚未实现，workflow 会明确拒绝 Slint
   tag，避免误把 Tauri 包发布成新版本；v0.1 发布路径保持可维护。
-- 新增不依赖 Tauri/Slint 的 `clippy-core`：首批下沉剪贴板内容、列表项、翻译历史、URL 元数据模型
-  与产品标识。legacy 保持原 `models` 调用路径，Slint 壳层开始消费共享核心；配置 I/O、数据库、
-  搜索与平台能力仍留在 legacy，尚未计作功能迁移完成。
+- 新增不依赖 Tauri/Slint 的 `clippy-core`：下沉剪贴板内容、列表项、翻译历史、URL 元数据、配置值对象
+  与产品标识；配置版本迁移、JSON 编解码和失败补偿协议也由共享核心统一实现。legacy 保持原调用路径，
+  只保留私有文件权限和 Tauri 副作用适配；数据库、搜索与平台能力仍待迁移，尚未计作完整功能接入。
 - 新增不依赖 UI 框架的 `clippy-platform` 部署身份边界。Slint 生产版和 QA 版改为两个显式宿主入口、
   共用一套应用库，QA 的 app/bundle ID、可执行文件、桌面入口、数据、单实例和快捷键命名空间均与
   生产定义分离；feature 只开放 QA 构建目标，不再负责选择运行身份，避免 Cargo feature 合并污染

@@ -2,6 +2,9 @@ use crate::models::AppConfig;
 use crate::private_files::{
     replace_private_file, restrict_directory, restrict_file, write_private,
 };
+use clippy_core::config::{
+    commit_config_change as commit_core_config_change, parse_config_json, serialize_config_json,
+};
 use std::fs;
 use std::path::Path;
 
@@ -19,7 +22,7 @@ pub fn load_config(config_path: &Path) -> AppConfig {
             log::warn!("配置文件权限设置失败: {}", error);
         }
         let mut config = match fs::read_to_string(config_path) {
-            Ok(content) => serde_json::from_str(&content).unwrap_or_else(|e| {
+            Ok(content) => parse_config_json(&content).unwrap_or_else(|e| {
                 log::warn!("配置文件解析失败，使用默认配置: {}", e);
                 AppConfig::default()
             }),
@@ -28,8 +31,12 @@ pub fn load_config(config_path: &Path) -> AppConfig {
                 AppConfig::default()
             }
         };
+        let migration = config.migrate();
+        if let Some(provider) = migration.unknown_legacy_translation_provider {
+            log::warn!("配置迁移遇到未知翻译服务，保留默认启用项: {provider}");
+        }
         // 迁移后立刻回写，否则每次启动都要重算一遍，旧字段也会一直留在文件里。
-        if config.migrate() {
+        if migration.changed {
             if let Err(error) = save_config(config_path, &config) {
                 log::warn!("迁移配置保存失败: {error}");
             }
@@ -52,7 +59,7 @@ pub fn save_config(config_path: &Path, config: &AppConfig) -> std::io::Result<()
         fs::create_dir_all(parent)?;
         restrict_directory(parent)?;
     }
-    let json = serde_json::to_string_pretty(config).map_err(std::io::Error::other)?;
+    let json = serialize_config_json(config).map_err(std::io::Error::other)?;
     let temporary_path = config_path.with_extension("tmp");
     let result = write_private(&temporary_path, json.as_bytes())
         .and_then(|_| replace_private_file(&temporary_path, config_path));
@@ -71,25 +78,8 @@ pub(crate) fn commit_config_change<T>(
     mut persist: impl FnMut(&AppConfig) -> Result<(), String>,
     mut apply: impl FnMut(&AppConfig) -> Result<T, String>,
 ) -> Result<T, String> {
-    persist(&next)?;
-    match apply(&next) {
-        Ok(status) => {
-            *current = next;
-            Ok(status)
-        }
-        Err(error) => {
-            let disk = persist(current).err();
-            let effects = apply(current).err();
-            let mut message = error;
-            if let Some(reason) = disk {
-                message.push_str(&format!("; 配置回滚失败: {reason}"));
-            }
-            if let Some(reason) = effects {
-                message.push_str(&format!("; 快捷键/外部设置恢复失败: {reason}"));
-            }
-            Err(message)
-        }
-    }
+    commit_core_config_change(current, next, &mut persist, &mut apply)
+        .map_err(|error| error.to_string())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -100,37 +90,6 @@ pub(crate) fn commit_config_change<T>(
 mod tests {
     use super::*;
     use tempfile::tempdir;
-
-    #[test]
-    fn test_default_config() {
-        let config = AppConfig::default();
-        assert_eq!(config.max_history, 100);
-        assert_eq!(config.storage_mode, "persistent");
-        #[cfg(target_os = "macos")]
-        let expected_shortcuts = ("Command+Shift+V", "Command+2", "Command+Shift+S");
-        #[cfg(not(target_os = "macos"))]
-        let expected_shortcuts = ("Alt+V", "Ctrl+2", "Ctrl+Shift+S");
-        assert_eq!(config.global_shortcut, expected_shortcuts.0);
-        assert_eq!(config.pin_shortcut, expected_shortcuts.1);
-        assert_eq!(config.capture_shortcut, expected_shortcuts.2);
-        assert_eq!(config.theme, "light");
-        assert_eq!(config.language, "auto");
-        assert!(config.enhanced_ocr_manifest_path.is_empty());
-        assert_eq!(config.translation_source_language, "auto");
-        assert_eq!(config.translation_target_language, "en");
-        // 默认只启用 LibreTranslate，其余服务预置但未启用。
-        let enabled: Vec<&str> = config
-            .enabled_translation_services()
-            .iter()
-            .map(|service| service.provider.as_str())
-            .collect();
-        assert_eq!(enabled, ["libretranslate"]);
-        assert_eq!(config.translation_services.len(), 6);
-        assert!(config
-            .translation_services
-            .iter()
-            .all(|service| service.endpoint.is_empty()));
-    }
 
     #[test]
     fn v1_single_service_config_migrates_into_the_service_list() {
@@ -163,37 +122,6 @@ mod tests {
         let written = fs::read_to_string(&config_path).unwrap();
         assert!(!written.contains("\"translation_provider\""));
         assert!(written.contains("\"translation_services\""));
-    }
-
-    #[test]
-    fn v1_custom_endpoint_survives_the_migration() {
-        let dir = tempdir().expect("创建临时目录失败");
-        let config_path = dir.path().join("config.json");
-        let v1 = serde_json::json!({
-            "version": 1,
-            "max_history": 100,
-            "storage_mode": "persistent",
-            "global_shortcut": "Alt+V",
-            "theme": "light",
-            "translation_provider": "libretranslate",
-            "translation_endpoint": "https://libretranslate.example.com",
-        });
-        fs::write(&config_path, v1.to_string()).unwrap();
-
-        let enabled_endpoint = load_config(&config_path)
-            .enabled_translation_services()
-            .first()
-            .map(|service| service.endpoint.clone());
-        assert_eq!(
-            enabled_endpoint.as_deref(),
-            Some("https://libretranslate.example.com")
-        );
-    }
-
-    #[test]
-    fn migration_is_idempotent_once_the_version_matches() {
-        let mut config = AppConfig::default();
-        assert!(!config.migrate(), "当前版本配置不该再被判定为需要迁移");
     }
 
     #[test]
@@ -308,50 +236,6 @@ mod tests {
     }
 
     #[test]
-    fn failed_save_does_not_apply_effects_or_change_memory() {
-        let mut current = AppConfig::default();
-        let mut next = current.clone();
-        next.max_history = 333;
-        let result = commit_config_change(
-            &mut current,
-            next,
-            |_| Err("disk full".into()),
-            |_| -> Result<(), String> { panic!("落盘失败后不应执行外部操作") },
-        );
-        assert!(result.is_err());
-        assert_eq!(current.max_history, 100);
-    }
-
-    #[test]
-    fn partial_effect_failure_rolls_back_disk_and_bindings() {
-        let mut current = AppConfig::default();
-        let mut next = current.clone();
-        next.max_history = 333;
-        let mut saved = Vec::new();
-        let mut applied = Vec::new();
-        let result = commit_config_change(
-            &mut current,
-            next,
-            |value| {
-                saved.push(value.max_history);
-                Ok(())
-            },
-            |value| {
-                applied.push(value.max_history);
-                if value.max_history == 333 {
-                    Err("capture shortcut conflict".into())
-                } else {
-                    Ok(())
-                }
-            },
-        );
-        assert!(result.unwrap_err().contains("capture shortcut conflict"));
-        assert_eq!(saved, [333, 100]);
-        assert_eq!(applied, [333, 100]);
-        assert_eq!(current.max_history, 100);
-    }
-
-    #[test]
     fn shortcut_failure_restores_the_real_config_file() {
         let directory = tempdir().unwrap();
         let path = directory.path().join("config.json");
@@ -377,33 +261,5 @@ mod tests {
         assert_eq!(fs::read(&path).unwrap(), previous_bytes);
         assert_eq!(current.theme, "light");
         assert_eq!(load_config(&path).max_history, 100);
-    }
-
-    #[test]
-    fn rollback_failure_is_returned_and_success_commits_memory() {
-        let mut current = AppConfig::default();
-        let mut next = current.clone();
-        next.max_history = 333;
-        let result = commit_config_change(
-            &mut current,
-            next.clone(),
-            |value| {
-                if value.max_history == 100 {
-                    Err("restore disk".into())
-                } else {
-                    Ok(())
-                }
-            },
-            |_| -> Result<(), String> { Err("register".into()) },
-        );
-        let error = result.unwrap_err();
-        assert!(error.contains("配置回滚失败"));
-        assert!(error.contains("外部设置恢复失败"));
-        assert_eq!(current.max_history, 100);
-        assert_eq!(
-            commit_config_change(&mut current, next, |_| Ok(()), |_| Ok("applied")).unwrap(),
-            "applied"
-        );
-        assert_eq!(current.max_history, 333);
     }
 }

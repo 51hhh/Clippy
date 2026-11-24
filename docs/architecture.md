@@ -7,9 +7,10 @@
 - `apps/slint/` 是 v0.2.0 的新入口，固定使用 Slint 1.19.0。当前包含可独立编译、关闭并展示
   框架归属的迁移壳层，并从共享核心读取产品标识；生产版与 QA 版是两个显式宿主入口，共用同一
   Slint 应用库。尚未接入剪贴板、托盘、截图等产品能力，也没有启用 v0.2 正式发布打包。
-- `crates/clippy-core/` 首批承载 `ContentType`、`ClipItem`、`TranslationHistoryEntry`、`UrlMeta`
-  和产品标识；它只依赖 serde，不依赖 Tauri、Slint 或平台类型。legacy 通过原模块重导出保持现有
-  调用路径，Slint 直接消费共享标识。
+- `crates/clippy-core/` 承载剪贴板模型、产品标识和共享配置领域。`config` 拥有 `AppConfig`、默认值、
+  版本迁移、JSON 编解码及“持久化后应用、失败时补偿”的提交协议；它不持有文件路径、权限、窗口或
+  UI 类型。legacy 通过原模块重导出保持调用路径，并只保留私有文件适配器与 Tauri 副作用；Slint
+  可直接消费同一模型和协议。共享核心只依赖 serde/serde_json，不依赖 Tauri、Slint 或平台 crate。
 - `crates/clippy-platform/` 保存部署身份和后续系统适配边界，不依赖任何 UI 框架。生产身份保持现有
   平台 ID，Slint QA 使用独立的 app/data/single-instance/shortcut namespace。`qa-build` 只开放
   QA 可执行目标，具体身份由两个入口显式传给共享应用库，避免 Cargo feature 合并让生产入口误用
