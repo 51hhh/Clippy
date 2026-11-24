@@ -691,6 +691,9 @@ fn read_text_locked() -> Result<String, Error> {
 fn read_html_locked() -> Result<String, Error> {
 	let format = clipboard_win::register_format("HTML Format")
 		.ok_or_else(|| Error::unknown("unable to register HTML format"))?;
+	if !clipboard_win::is_format_avail(format.get()) {
+		return Err(Error::ContentNotAvailable);
+	}
 
 	let mut out: Vec<u8> = Vec::new();
 	// 先读取实际字节，再安全校验 CF_HTML 偏移；不使用依赖中的未受边界约束复制。

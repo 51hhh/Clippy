@@ -240,6 +240,11 @@ Wayland 的 Actions 增加显式 System Screenshot 入口。由桌面提供截�
 | 录屏和结果库 | X11 验证 VP9 选区、暂停扣时、回放和导出一致；共享层验证文件恢复与时间线。 | 录制已知区域，逐项验证可用音轨、暂停恢复、关闭回放、异常中断恢复和导出，另记录长时音画漂移。 |
 | 数据与升级 | 用旧版已安装程序和 Slint deb 的入口演练 SQLite 快照、历史读取和恢复。 | 用对应平台旧包生成历史和贴图，再走实际签名更新或原位安装。核对历史、设置、归档以及失败回滚。 |
 
+Windows 用只提供 Unicode 文本或 PNG 的剪贴板回归核对缺少可选 HTML 的情况。读取应继续使用已有的
+文本与图片顺序，同时保留有效 HTML 与替代文本的单锁读取。Windows GNU 测试在隔离 Wine 中重放合成
+输入，缺少 HTML 和空 HTML 两项均由失败转为通过，其中缺少 HTML 一项核对透明 PNG 的实际像素。
+[Windows 快照合同](../specs/2026-10-02-windows-clipboard-snapshot.md)
+
 ### 发布切换
 
 1. 扩展 Slint QA 合同。从 `Packager.qa.toml` 生成 Linux deb/AppImage、Windows NSIS/MSI、macOS Intel/ARM app/DMG。安装到隔离测试环境，核对身份、数据/快捷键、运行库加载、授权和许可。在 Ubuntu 22.04 基线上核对新添 PipeWire 等系统依赖，Windows 用干净镜像核对原生 codec/OCR 运行库。macOS 检查实际部署目标和临时签名对应的 TCC 行为。记录安装包的哈希和 SHA。

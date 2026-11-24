@@ -36,6 +36,9 @@
 有效 HTML 的替代文本失败返回 None，空文本返回 Some("")。旧单格式 API、CF_HTML parser、
 文本转换与其它平台源码/协议保持，没有新增依赖或 SDK feature。
 
+`read_html_locked` 在同一个 guard 中检查 `HTML Format` 是否存在。普通文本或图片只提供自身格式时，
+返回 `ContentNotAvailable` 让调用方继续读取。格式存在但读取失败仍报告读取错误。
+
 七项 guard 生命周期/返回值回归加入已有 `platform::windows::html::tests` 过滤入口；
 受控 guard /回调不访问系统剪贴板，不能代替真实并发复制、延迟渲染提供者或其它平台验收。
 需求与分层证据见 `docs/superpowers/specs/2026-10-02-windows-clipboard-snapshot.md`。

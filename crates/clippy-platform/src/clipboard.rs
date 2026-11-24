@@ -54,8 +54,8 @@ impl Clipboard {
     pub fn read(&mut self) -> Result<Option<Content>, Error> {
         #[cfg(target_os = "windows")]
         let (html, text) = match read_flavor(self.handle.get().html_with_text())? {
-            Some((html, text)) => (Some(html), text),
-            None => (None, read_flavor(self.handle.get_text())?),
+            Some((html, text)) if !html.is_empty() => (Some(html), text),
+            _ => (None, read_flavor(self.handle.get_text())?),
         };
         #[cfg(not(target_os = "windows"))]
         let (html, text) = (
@@ -95,6 +95,47 @@ fn read_flavor<T>(result: Result<T, Error>) -> Result<Option<T>, Error> {
         Ok(value) => Ok(Some(value)),
         Err(Error::ContentNotAvailable | Error::ConversionFailure) => Ok(None),
         Err(error) => Err(error),
+    }
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "writes to the desktop clipboard; use an isolated Windows session"]
+    fn windows_reads_text_and_image_without_html() {
+        let mut source = Clipboard::open().unwrap();
+        let mut reader = Clipboard::open().unwrap();
+        let text = "Clippy 剪贴板 Ω";
+        source.write(Content::Text(text.into())).unwrap();
+        assert!(matches!(reader.read().unwrap(), Some(Content::Text(value)) if value == text));
+
+        let bytes = [12, 34, 56, 128];
+        source
+            .write_image(ImageData {
+                width: 1,
+                height: 1,
+                bytes: std::borrow::Cow::Borrowed(&bytes),
+            })
+            .unwrap();
+        assert!(matches!(reader.read().unwrap(), Some(Content::Image(image))
+            if image.width == 1 && image.height == 1 && image.bytes.as_ref() == bytes));
+    }
+
+    #[test]
+    #[ignore = "writes to the desktop clipboard; use an isolated Windows session"]
+    fn windows_reads_text_with_empty_html() {
+        let mut source = Clipboard::open().unwrap();
+        let mut reader = Clipboard::open().unwrap();
+        let text = "Clippy 剪贴板 Ω";
+        source
+            .write(Content::Html {
+                html: String::new(),
+                text: text.into(),
+            })
+            .unwrap();
+        assert!(matches!(reader.read().unwrap(), Some(Content::Text(value)) if value == text));
     }
 }
 
