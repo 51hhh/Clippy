@@ -19,9 +19,6 @@ jobs:
     name: Check (ubuntu-22.04)
     runs-on: ubuntu-22.04
     timeout-minutes: 30
-    permissions:
-      contents: read
-      checks: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -125,11 +122,13 @@ jobs:
       - name: Slint QA profile tests
         run: cargo test --locked -p clippy-slint --features qa-build
 
+      # rustsec/audit-check 依赖 GitHub Checks API，workflow_dispatch 下会留下 queued check
+      # 并以 404 终止 job；直接执行固定版本，让审计退出码成为唯一门禁结果。
+      - name: Install Rust dependency auditor
+        run: cargo install cargo-audit --version 0.22.2 --locked --root target/cargo-audit
+
       - name: Rust dependency audit
-        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          working-directory: .
+        run: target/cargo-audit/bin/cargo-audit audit
 
       - name: X11 clipboard isolated protocol tests
         run: ./scripts/test-x11-clipboard.sh

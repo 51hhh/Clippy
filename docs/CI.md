@@ -37,6 +37,7 @@ CI；只有真实安装包和桌面交互可以关闭 Native/人工 QA 项。
 | Rust 编译检查 | `cargo check --all-targets` | 检查所有本机 Rust target |
 | Rust Lint | `cargo clippy --all-targets -- -D warnings` | 所有 warning 视为 error |
 | Rust 单元测试 | `cargo test` | 后端测试 |
+| Rust 依赖审计 | `cargo-audit 0.22.2` | 固定工具版本，以进程退出码拒绝 RustSec vulnerability；warning 保持可见 |
 | Slint 入口 | `cargo check/clippy/test -p clippy-slint` | 检查固定 Slint 1.19.0 的 v0.2 壳层 |
 | 前端测试 | `npx vitest run` | 前端测试（jsdom） |
 | 前端类型检查 | `npx tsc --noEmit` | 检查 React/TS 功能岛 |

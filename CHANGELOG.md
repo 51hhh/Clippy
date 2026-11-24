@@ -2,6 +2,18 @@
 
 ## 未发布
 
+### 2026-11-24 Rust 依赖安全刷新
+
+- 修复最新 RustSec 数据库报告的 6 个依赖漏洞：升级 bundled SQLite/rusqlite、cookie、URL 和
+  Rustls/WebPKI 信任根链；同时更新 anyhow、event-listener、rustix、Tokio，移除已有修复版本的
+  4 个 soundness 警告。`cargo-audit 0.22.2` 对当前 997 个 crate 扫描为 0 vulnerability，仍保留
+  13 个上游 unmaintained/unsound/yanked warning，不以忽略 ID 掩盖。
+- CI 不再调用会在手动 workflow 中因 GitHub Checks API 404 留下 queued check 的
+  `rustsec/audit-check`；改为安装固定版本的 cargo-audit，并直接以进程退出码阻断漏洞。SQLite/FTS、
+  WAL、迁移、归档与 Pin 工作区 43 项存储测试通过；同一 SHA 的三平台 CI 仍待重新运行。
+  （需求：`PROJECT-REVIEW-HARDENING-01`；见
+  `docs/reviews/2026-11-24-rustsec-refresh-review.md`）
+
 ### 2026-11-23 Slint v0.2 共存迁移基础
 
 - 启动 `SLINT-UI-MIGRATION-01`：完整的 Tauri 2.12.4 实现移入
