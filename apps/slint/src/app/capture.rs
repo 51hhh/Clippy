@@ -2,7 +2,7 @@ use super::{post, Event};
 use crate::CaptureWindow;
 use anyhow::{Context, Result};
 use clippy_core::image_output::{filename_candidates, SaveTarget};
-use clippy_platform::capture::{self, FrozenOutput, FrozenPixels};
+use clippy_platform::capture::{self, DesktopRect, FrozenOutput, FrozenPixels, Region};
 use image::{
     codecs::png::{CompressionType, FilterType, PngEncoder},
     ExtendedColorType, ImageEncoder, RgbaImage,
@@ -23,12 +23,15 @@ use std::{fs, io, path::PathBuf, thread, time::Instant};
 pub(super) struct View {
     window: CaptureWindow,
     pixels: FrozenPixels,
+    name: String,
+    geometry: DesktopRect,
 }
 
 pub(super) enum Destination {
     Clipboard,
     File(SaveTarget),
     Editor,
+    Longshot,
 }
 
 impl Drop for View {
@@ -64,6 +67,8 @@ pub(super) fn present(
             let view = View {
                 window,
                 pixels: output.pixels,
+                name: output.name.clone(),
+                geometry: output.geometry,
             };
             let geometry = output.geometry;
             let pixels = &view.pixels;
@@ -140,7 +145,17 @@ pub(super) fn output(
     bounds: [f32; 4],
     destination: Destination,
 ) -> io::Result<()> {
-    let View { window, pixels } = &views[index];
+    let View {
+        window,
+        pixels,
+        name,
+        geometry,
+    } = &views[index];
+    let region = Region {
+        output: name.clone(),
+        geometry: *geometry,
+        bounds,
+    };
     // 先隐藏所有预览再做裁剪，独立保留用户选中那一屏的冻结像素。
     let _ = window.hide();
     let pixels = FrozenPixels {
@@ -164,6 +179,9 @@ pub(super) fn output(
                 )),
                 Destination::Clipboard => post(Event::CaptureClipboard(result, started)),
                 Destination::Editor => post(Event::EditorOpen(result)),
+                Destination::Longshot => {
+                    post(Event::LongshotStart(result.map(|image| (region, image))))
+                }
             }
         })?;
     Ok(())

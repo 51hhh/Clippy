@@ -190,7 +190,7 @@ impl LongshotCanvas {
 
     pub(super) fn finish_png(&self) -> Result<Vec<u8>, CaptureError> {
         let image = self.materialize()?;
-        crate::screenshot::encode_png(image.as_raw(), image.width(), image.height())
+        crate::png_io::encode_png(image.as_raw(), image.width(), image.height())
             .map_err(CaptureError::codec)
     }
 
@@ -204,13 +204,12 @@ impl LongshotCanvas {
             scaled_height(image.height(), target_width, image.width())?.min(PREVIEW_MAX_HEIGHT);
         let preview =
             image::imageops::resize(&image, target_width, target_height, FilterType::Triangle);
-        let png =
-            crate::screenshot::encode_png(preview.as_raw(), preview.width(), preview.height())
-                .map_err(CaptureError::codec)?;
+        let png = crate::png_io::encode_png(preview.as_raw(), preview.width(), preview.height())
+            .map_err(CaptureError::codec)?;
         validate_preview_png_bytes(png)
     }
 
-    fn materialize(&self) -> Result<RgbaImage, CaptureError> {
+    pub(super) fn materialize(&self) -> Result<RgbaImage, CaptureError> {
         let (width, height) = self.dimensions()?;
         validate_dimensions(width, height)?;
         let mut output = RgbaImage::from_pixel(width, height, Rgba([0, 0, 0, 0]));

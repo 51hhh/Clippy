@@ -56,3 +56,16 @@ fn native_frame(connection: &WayshotConnection, output: &OutputInfo) -> Result<F
         .context("This Wayland compositor did not provide output capture")?;
     Ok(image.into_rgba8().into())
 }
+
+pub(super) fn with_output<T>(
+    name: &str,
+    use_stream: impl FnOnce(&mut dyn FnMut() -> Result<FrozenPixels>) -> Result<T>,
+) -> Result<T> {
+    let connection = WayshotConnection::new().context("Cannot read Wayland outputs")?;
+    let output = connection
+        .get_all_outputs()
+        .iter()
+        .find(|output| output.name == name)
+        .context("Capture output is unavailable")?;
+    use_stream(&mut || native_frame(&connection, output))
+}

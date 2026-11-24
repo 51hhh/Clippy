@@ -21,13 +21,13 @@ const AXIS_HYSTERESIS_RATIO: f32 = 1.15;
 const DIRECTION_AMBIGUITY_MARGIN: f32 = 0.05;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::capture) enum ScrollAxis {
+pub enum ScrollAxis {
     Horizontal,
     Vertical,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::capture) enum ScrollDirection {
+pub enum ScrollDirection {
     Up,
     Down,
     Left,
@@ -66,16 +66,16 @@ impl Default for OverlapConfig {
 
 /// 可直接交给 [`super::VerticalStitcher::append`] 的内部估计结果。
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(in crate::capture) struct OverlapEstimate {
-    pub(in crate::capture) overlap_rows: u32,
-    pub(in crate::capture) displacement_rows: u32,
-    pub(in crate::capture) score: f32,
-    pub(in crate::capture) confidence: f32,
-    pub(in crate::capture) sampled_width: u32,
-    pub(in crate::capture) sampled_rows: u32,
-    pub(in crate::capture) delta_x: i32,
-    pub(in crate::capture) delta_y: i32,
-    pub(in crate::capture) direction: ScrollDirection,
+pub struct OverlapEstimate {
+    pub overlap_rows: u32,
+    pub displacement_rows: u32,
+    pub score: f32,
+    pub confidence: f32,
+    pub sampled_width: u32,
+    pub sampled_rows: u32,
+    pub delta_x: i32,
+    pub delta_y: i32,
+    pub direction: ScrollDirection,
 }
 
 #[derive(Debug, Clone, Copy)]

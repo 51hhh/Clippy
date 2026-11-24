@@ -1,0 +1,37 @@
+import { Button, VerticalBox } from "std-widgets.slint";
+
+export component LongshotWindow inherits Window {
+    in property <image> preview;
+    in property <bool> busy: true;
+    in property <bool> can-undo;
+    in property <string> status: "Opening the capture source…";
+    callback append();
+    callback undo();
+    callback finish();
+    callback cancel();
+
+    title: "Clippy Scrolling Capture";
+    preferred-width: 410px;
+    preferred-height: 340px;
+    background: #f6f7f9;
+
+    VerticalBox {
+        padding: 12px;
+        spacing: 8px;
+        Text { text: "Scroll the target, then add a frame."; color: #23272d; wrap: word-wrap; }
+        Rectangle {
+            background: #252932;
+            border-radius: 5px;
+            vertical-stretch: 1;
+            Image { width: parent.width; height: parent.height; source: root.preview; image-fit: contain; }
+        }
+        Text { text: root.status; color: #545c65; wrap: word-wrap; min-height: 18px; }
+        HorizontalLayout {
+            spacing: 6px;
+            Button { text: "Add frame"; width: 94px; enabled: !root.busy; clicked => { root.append(); } }
+            Button { text: "Undo"; enabled: !root.busy && root.can-undo; clicked => { root.undo(); } }
+            Button { text: "Finish"; width: 84px; enabled: !root.busy; clicked => { root.finish(); } }
+            Button { text: "Cancel"; width: 84px; clicked => { root.cancel(); } }
+        }
+    }
+}

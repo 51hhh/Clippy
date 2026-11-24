@@ -42,6 +42,64 @@ pub struct FrozenOutput {
     pub pixels: FrozenPixels,
 }
 
+pub struct Region {
+    pub output: String,
+    pub geometry: DesktopRect,
+    pub bounds: [f32; 4],
+}
+
+type Reader<'a> = dyn FnMut() -> Result<RgbaImage> + 'a;
+
+pub fn with_region_reader<T>(
+    region: Region,
+    consume: impl FnOnce(&mut Reader<'_>) -> Result<T>,
+) -> Result<T> {
+    let Region {
+        output,
+        geometry,
+        bounds: [left, top, right, bottom],
+    } = region;
+    #[cfg(target_os = "linux")]
+    if crate::session::is_wayland() {
+        if crate::session::is_gnome() {
+            return gnome::with_area(output, geometry, |read| {
+                consume(&mut || read()?.crop(left, top, right, bottom))
+            });
+        }
+        return wayland::with_output(&output, |read| {
+            consume(&mut || read()?.crop(left, top, right, bottom))
+        });
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let [x0, y0, x1, y1] =
+            pixel_rect(geometry.width, geometry.height, [left, top, right, bottom])?;
+        let rectangle = DesktopRect {
+            x: geometry
+                .x
+                .checked_add(i32::try_from(x0)?)
+                .ok_or_else(|| anyhow::anyhow!("Capture region x overflow"))?,
+            y: geometry
+                .y
+                .checked_add(i32::try_from(y0)?)
+                .ok_or_else(|| anyhow::anyhow!("Capture region y overflow"))?,
+            width: x1 - x0,
+            height: y1 - y0,
+        };
+        let source = x11::Source::open()?;
+        consume(&mut || source.read(rectangle))
+    }
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    {
+        let _ = geometry;
+        let source = xcap::Monitor::all()?
+            .into_iter()
+            .find(|monitor| monitor.name().is_ok_and(|name| name == output))
+            .ok_or_else(|| anyhow::anyhow!("Capture output is unavailable"))?;
+        consume(&mut || FrozenPixels::from(source.capture_image()?).crop(left, top, right, bottom))
+    }
+}
+
 impl FrozenPixels {
     /// 覆盖层坐标以当前窗口实际宽高归一化，选区始终映射回冻结帧的源像素。
     pub fn crop(&self, left: f32, top: f32, right: f32, bottom: f32) -> Result<RgbaImage> {

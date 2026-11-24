@@ -25,6 +25,7 @@ CAPTURE_TITLE = "Clippy Screenshot"
 EDITOR_TITLE = "Clippy Image Editor"
 PIN_TITLE = "Clippy Pin"
 WORKSPACE_TITLE = "Clippy Pinned Workspace"
+LONGSHOT_TITLE = "Clippy Scrolling Capture"
 TEXT = "needle 自动剪贴板 QA"
 OTHER = "unrelated fixture"
 HTML = "<b>rich-qa</b>".encode()
@@ -78,6 +79,11 @@ class Desktop:
         self.root_window = bind(self.lib, "XDefaultRootWindow", (), c.c_ulong)
         self.set_background = bind(self.lib, "XSetWindowBackground", (c.c_ulong, c.c_ulong))
         self.clear_window = bind(self.lib, "XClearWindow", (c.c_ulong,))
+        self.create_gc = bind(self.lib, "XCreateGC", (c.c_ulong, c.c_ulong, c.c_void_p), c.c_void_p)
+        self.free_gc = bind(self.lib, "XFreeGC", (c.c_void_p,))
+        self.foreground = bind(self.lib, "XSetForeground", (c.c_void_p, c.c_ulong))
+        self.fill = bind(self.lib, "XFillRectangle",
+                         (c.c_ulong, c.c_void_p, c.c_int, c.c_int, c.c_uint, c.c_uint))
         self.key = bind(xtst, "XTestFakeKeyEvent", (c.c_uint, c.c_int, c.c_ulong))
         self.move = bind(xtst, "XTestFakeMotionEvent", (c.c_int, c.c_int, c.c_int, c.c_ulong))
         self.button = bind(xtst, "XTestFakeButtonEvent", (c.c_uint, c.c_int, c.c_ulong))
@@ -118,6 +124,18 @@ class Desktop:
         root = self.root_window(self.display)
         self.set_background(self.display, root, rgb)
         self.clear_window(self.display, root)
+        self.sync(self.display, 0)
+
+    def scroll_fixture(self, offset):
+        root = self.root_window(self.display)
+        gc = self.create_gc(self.display, root, 0, None)
+        for y in range(0, 100, 4):
+            for x in range(0, 140, 4):
+                row = (y + offset) // 4
+                color = ((row * 10007 + x * x * 31337) ^ (x * row * 46273)) & 0xFFFFFF
+                self.foreground(self.display, gc, color)
+                self.fill(self.display, root, gc, 440 + x, 200 + y, 4, 4)
+        self.free_gc(self.display, gc)
         self.sync(self.display, 0)
 
 
@@ -440,6 +458,30 @@ def run(binary, root):
         desktop.click(work_x + 61, work_y + work_height - 54)
         wait_for(lambda: titled_window(PIN_TITLE), "workspace did not restore the stored pin")
         print("PASS pin, persistent revision and workspace restore", flush=True)
+
+        desktop.scroll_fixture(0)
+        tray.activate("Screenshot")
+        middle, top = select_area()
+        desktop.click(middle + 113, top + 85)
+        _, (long_x, long_y, _, long_height) = wait_for(
+            lambda: titled_window(LONGSHOT_TITLE), "scrolling capture did not open",
+        )
+        time.sleep(0.25)
+        desktop.scroll_fixture(32)
+        desktop.click(long_x + 49, long_y + long_height - 29)
+        time.sleep(0.45)
+        _, (long_x, long_y, _, long_height) = wait_for(
+            lambda: titled_window(LONGSHOT_TITLE), "scrolling capture controls did not return",
+        )
+        desktop.click(long_x + 244, long_y + long_height - 29)
+        _, (x, y, width, height) = wait_for(lambda: titled_window(EDITOR_TITLE), "stitched image did not open")
+        desktop.click(x + width - 155, y + height - 55)
+        stitched = output.with_name("fixture-3.png")
+        wait_for(stitched.is_file, "long screenshot was not exported")
+        assert decode_png(stitched.read_bytes())[0] == (140, 132), decode_png(stitched.read_bytes())
+        desktop.click(x + width - 57, y + height - 55)
+        wait_for(lambda: not titled_window(EDITOR_TITLE), "long screenshot editor stayed open")
+        print("PASS scrolling capture uses the selected region and stitches a second frame", flush=True)
 
         second = subprocess.run([binary, "--open"], env=env, timeout=4)
         assert second.returncode == 0

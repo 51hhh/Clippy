@@ -24,23 +24,23 @@ const MAX_APPEND_LOGICAL_WORK_BYTES: u64 = super::MAX_RAW_BYTES
 
 /// 当前已提交长截图的只读几何状态。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::capture) struct LongshotSnapshot {
-    pub(in crate::capture) frame_count: usize,
-    pub(in crate::capture) width: u32,
-    pub(in crate::capture) frame_height: u32,
-    pub(in crate::capture) total_height: u32,
+pub struct LongshotSnapshot {
+    pub frame_count: usize,
+    pub width: u32,
+    pub frame_height: u32,
+    pub total_height: u32,
 }
 
 /// 一次成功追加的估计结果及提交后状态。
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(in crate::capture) struct LongshotAppendOutcome {
-    pub(in crate::capture) snapshot: LongshotSnapshot,
-    pub(in crate::capture) estimate: OverlapEstimate,
-    pub(in crate::capture) committed: bool,
+pub struct LongshotAppendOutcome {
+    pub snapshot: LongshotSnapshot,
+    pub estimate: OverlapEstimate,
+    pub committed: bool,
 }
 
 /// 已至少含一帧的、非并发长截图聚合值。
-pub(in crate::capture) struct LongshotSession {
+pub struct LongshotSession {
     canvas: LongshotCanvas,
     last_frame: Arc<RgbaImage>,
     viewport_x: i64,
@@ -50,7 +50,7 @@ pub(in crate::capture) struct LongshotSession {
 
 impl LongshotSession {
     /// 从第一张已裁好的帧创建会话。
-    pub(in crate::capture) fn start(first_frame: RgbaImage) -> Result<Self, CaptureError> {
+    pub fn start(first_frame: RgbaImage) -> Result<Self, CaptureError> {
         overlap::validate_single_frame(&first_frame)?;
         validate_session_frame_budget(&first_frame)?;
 
@@ -66,10 +66,7 @@ impl LongshotSession {
     }
 
     /// 原子地估计相邻帧的四向位移，并提交新增区域或只移动 viewport anchor。
-    pub(in crate::capture) fn append(
-        &mut self,
-        incoming: RgbaImage,
-    ) -> Result<LongshotAppendOutcome, CaptureError> {
+    pub fn append(&mut self, incoming: RgbaImage) -> Result<LongshotAppendOutcome, CaptureError> {
         // 这两步在成对估计之前执行，既避免在会话预算外分配灰度图，也不改变估计器
         // 自身对尺寸不一致/质量门禁的优先级。
         overlap::validate_frame_nonempty_and_global(&incoming)?;
@@ -102,7 +99,7 @@ impl LongshotSession {
     }
 
     /// 显式撤销最后一次提交；回访帧不是提交，因此不会被当作可撤销历史。
-    pub(in crate::capture) fn undo(&mut self) -> Result<LongshotSnapshot, CaptureError> {
+    pub fn undo(&mut self) -> Result<LongshotSnapshot, CaptureError> {
         if let Some((frame, x, y)) = self.canvas.undo()? {
             self.last_frame = frame;
             self.viewport_x = x;
@@ -113,7 +110,7 @@ impl LongshotSession {
     }
 
     /// 返回当前已提交状态，不编码或复制像素。
-    pub(in crate::capture) fn snapshot(&self) -> LongshotSnapshot {
+    pub fn snapshot(&self) -> LongshotSnapshot {
         let (width, total_height) = self
             .canvas
             .dimensions()
@@ -128,31 +125,35 @@ impl LongshotSession {
     }
 
     /// 最终 union 画布尺寸和相对首帧的有符号偏移。
-    pub(in crate::capture) fn output_geometry(&self) -> Result<(u32, u32, i64, i64), CaptureError> {
+    pub fn output_geometry(&self) -> Result<(u32, u32, i64, i64), CaptureError> {
         let (width, height) = self.canvas.dimensions()?;
         let (offset_x, offset_y) = self.canvas.offset();
         Ok((width, height, offset_x, offset_y))
     }
 
     /// 以 PNG 物化当前结果；调用不会消费或终结会话。
-    pub(in crate::capture) fn finish_png(&self) -> Result<Vec<u8>, CaptureError> {
+    pub fn finish_png(&self) -> Result<Vec<u8>, CaptureError> {
         self.canvas.finish_png()
     }
 
+    pub fn finish_pixels(&self) -> Result<RgbaImage, CaptureError> {
+        self.canvas.materialize()
+    }
+
     /// 以固定资源上限物化已提交画布预览，不消费会话。
-    pub(in crate::capture) fn preview_tail_png(&self) -> Result<Vec<u8>, CaptureError> {
+    pub fn preview_tail_png(&self) -> Result<Vec<u8>, CaptureError> {
         self.canvas.preview_png()
     }
 
     /// 消费会话并丢弃其内存；上层 manager 负责外部清理与幂等语义。
-    pub(in crate::capture) fn cancel(self) {}
+    pub fn cancel(self) {}
 }
 
 fn validate_session_frame_budget(image: &RgbaImage) -> Result<(), CaptureError> {
     validate_session_frame_budget_for_dimensions(image.width(), image.height())
 }
 
-pub(super) fn validate_session_frame_budget_for_dimensions(
+pub fn validate_session_frame_budget_for_dimensions(
     width: u32,
     height: u32,
 ) -> Result<(), CaptureError> {

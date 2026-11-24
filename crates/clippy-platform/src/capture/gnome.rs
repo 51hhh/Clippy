@@ -261,7 +261,36 @@ async fn with_timeout<T>(
 }
 
 /// 每块屏取第一帧。所有 node 共用一个 main loop，帧之间天然并行。
-fn pull_first_frames(nodes: &[StreamNode]) -> Result<Vec<Result<ScreencastFrame>>> {
+type FrameBatch = Vec<Result<ScreencastFrame>>;
+
+fn pull_first_frames(nodes: &[StreamNode]) -> Result<FrameBatch> {
+    with_frame_reader(nodes, |read| read())
+}
+
+pub(super) fn with_area<T>(
+    name: String,
+    rectangle: Rect,
+    use_stream: impl FnOnce(&mut dyn FnMut() -> Result<ScreencastFrame>) -> Result<T>,
+) -> Result<T> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let session = SessionGuard {
+        runtime: &runtime,
+        session: runtime.block_on(open_session(&[ScreencastSource::Area {
+            label: name,
+            rect: rectangle,
+        }]))?,
+    };
+    with_frame_reader(&session.session.nodes, |read| {
+        use_stream(&mut || read()?.pop().expect("会话只订阅一个目标画面"))
+    })
+}
+
+fn with_frame_reader<T>(
+    nodes: &[StreamNode],
+    use_stream: impl FnOnce(&mut dyn FnMut() -> Result<FrameBatch>) -> Result<T>,
+) -> Result<T> {
     init_pipewire();
     let mainloop = pw::main_loop::MainLoopRc::new(None).context("无法创建 PipeWire main loop")?;
     let context =
@@ -299,7 +328,6 @@ fn pull_first_frames(nodes: &[StreamNode]) -> Result<Vec<Result<ScreencastFrame>
                 remaining: Rc::clone(&remaining),
                 mainloop: mainloop.clone(),
                 format: None,
-                done: false,
             })
             .state_changed(|_, data, _, new| {
                 if let pw::stream::StreamState::Error(message) = new {
@@ -317,7 +345,7 @@ fn pull_first_frames(nodes: &[StreamNode]) -> Result<Vec<Result<ScreencastFrame>
                 }
             })
             .process(|stream, data| {
-                if data.done {
+                if data.completed() {
                     return;
                 }
                 let Some(info) = data.format else {
@@ -373,44 +401,47 @@ fn pull_first_frames(nodes: &[StreamNode]) -> Result<Vec<Result<ScreencastFrame>
             }
         }
     });
-    trigger
-        .update_timer(
-            Some(Duration::from_millis(1)),
-            Some(Duration::from_millis(16)),
-        )
-        .into_result()
-        .map_err(|error| anyhow!("无法启动 PipeWire 首帧驱动器：{error}"))?;
-
-    // 看门狗：一帧都没来也要退出，否则 main loop 会一直转下去。
     let watchdog = mainloop.loop_().add_timer({
         let mainloop = mainloop.clone();
         move |_| mainloop.quit()
     });
-    watchdog
-        .update_timer(Some(FRAME_TIMEOUT), None)
-        .into_result()
-        .map_err(|error| anyhow!("无法给 PipeWire 看门狗上弦：{error}"))?;
-    mainloop.run();
+    let result = use_stream(&mut || {
+        remaining.set(nodes.len());
+        trigger
+            .update_timer(
+                Some(Duration::from_millis(1)),
+                Some(Duration::from_millis(16)),
+            )
+            .into_result()
+            .map_err(|error| anyhow!("无法启动 PipeWire 首帧驱动器：{error}"))?;
+        watchdog
+            .update_timer(Some(FRAME_TIMEOUT), None)
+            .into_result()
+            .map_err(|error| anyhow!("无法给 PipeWire 看门狗上弦：{error}"))?;
+        mainloop.run();
+        let mut slots = slots.borrow_mut();
+        Ok(nodes
+            .iter()
+            .zip(slots.iter_mut())
+            .map(|(node, slot)| match slot.frame.take() {
+                Some(Ok(frame)) => Ok(frame),
+                Some(Err(error)) => {
+                    Err(error.context(format!("显示器 {} 取流失败", node.connector)))
+                }
+                None => Err(anyhow!(
+                    "显示器 {} 在 {} ms 内没有送出画面",
+                    node.connector,
+                    FRAME_TIMEOUT.as_millis()
+                )),
+            })
+            .collect())
+    });
 
     drop(trigger);
     drop(listeners);
     drop(streams);
 
-    let mut frames = Vec::with_capacity(nodes.len());
-    for (node, slot) in nodes.iter().zip(slots.borrow_mut().iter_mut()) {
-        match slot.frame.take() {
-            Some(Ok(frame)) => frames.push(Ok(frame)),
-            Some(Err(error)) => frames.push(Err(
-                error.context(format!("显示器 {} 取流失败", node.connector))
-            )),
-            None => frames.push(Err(anyhow!(
-                "显示器 {} 在 {} ms 内没有送出画面",
-                node.connector,
-                FRAME_TIMEOUT.as_millis()
-            ))),
-        }
-    }
-    Ok(frames)
+    result
 }
 
 #[derive(Default)]
@@ -425,16 +456,18 @@ struct StreamUserData {
     remaining: Rc<std::cell::Cell<usize>>,
     mainloop: pw::main_loop::MainLoopRc,
     format: Option<VideoInfoRaw>,
-    done: bool,
 }
 
 impl StreamUserData {
+    fn completed(&self) -> bool {
+        self.slots.borrow()[self.index].frame.is_some()
+    }
+
     /// 记下这块屏的结果；全部有结果就退出 main loop。
     fn finish(&mut self, result: Result<ScreencastFrame>) {
-        if self.done {
+        if self.completed() {
             return;
         }
-        self.done = true;
         if let Err(error) = &result {
             log::warn!("显示器 {} 的 PipeWire 流失败：{error:#}", self.connector);
         }

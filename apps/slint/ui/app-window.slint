@@ -1,8 +1,9 @@
 import { AboutSlint, Button, CheckBox, LineEdit, ListView, VerticalBox } from "std-widgets.slint";
 export { EditorWindow } from "editor.slint";
 export { PinnedWindow, WorkspaceWindow, WorkspaceRow } from "pins.slint";
+export { LongshotWindow } from "longshot.slint";
 
-export enum CaptureAction { copy, save, edit }
+export enum CaptureAction { copy, save, edit, longshot }
 
 export struct ClipRow {
     id: string,
@@ -293,5 +294,12 @@ export component CaptureWindow inherits Window {
         text: "Edit";
         enabled: root.selected;
         clicked => { root.confirm(CaptureAction.edit, root.left / root.width, root.top / root.height, root.right / root.width, root.bottom / root.height); }
+    }
+    Button {
+        x: parent.width / 2 + 52px;
+        y: 72px;
+        text: "Scrolling capture";
+        enabled: root.selected;
+        clicked => { root.confirm(CaptureAction.longshot, root.left / root.width, root.top / root.height, root.right / root.width, root.bottom / root.height); }
     }
 }

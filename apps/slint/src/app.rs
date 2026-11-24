@@ -6,7 +6,7 @@ use clippy_core::{
     models::ClipItem,
 };
 use clippy_platform::{
-    capture::FrozenOutput,
+    capture::{FrozenOutput, Region},
     identity::{DeploymentIdentity, DistributionChannel},
     instance::Instance,
     paste::{capture_target, Target},
@@ -28,6 +28,7 @@ use std::{
 mod capture;
 mod clipboard;
 mod editor;
+mod longshot;
 mod pins;
 
 thread_local! {
@@ -96,6 +97,8 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
             editor: None,
             editor_id: 0,
             pins: pins::Pins::default(),
+            longshot: None,
+            capture_task_id: 0,
         }))
     });
     let timer = Timer::default();
@@ -166,6 +169,8 @@ enum Event {
     EditorRendered(u64, Result<image::RgbaImage>),
     EditorOutput(u64, Result<String>),
     Pins(pins::Message),
+    LongshotStart(Result<(Region, image::RgbaImage)>),
+    Longshot(longshot::Message),
 }
 
 fn post(event: Event) {
@@ -200,6 +205,8 @@ struct App {
     editor: Option<editor::View>,
     editor_id: u64,
     pins: pins::Pins,
+    longshot: Option<longshot::View>,
+    capture_task_id: u64,
 }
 
 impl App {
@@ -306,6 +313,7 @@ impl App {
                     let destination = match action {
                         CaptureAction::Copy => capture::Destination::Clipboard,
                         CaptureAction::Edit => capture::Destination::Editor,
+                        CaptureAction::Longshot => capture::Destination::Longshot,
                         CaptureAction::Save => capture::Destination::File(SaveTarget::from_config(
                             &self.config,
                             &self.paths.screenshot_default(self.identity),
@@ -354,6 +362,8 @@ impl App {
             Event::EditorRendered(id, result) => self.editor_rendered(id, result),
             Event::EditorOutput(id, result) => self.editor_output(id, result),
             Event::Pins(message) => self.pin_message(message),
+            Event::LongshotStart(result) => self.start_longshot(result),
+            Event::Longshot(message) => self.longshot_message(message),
         }
     }
 
