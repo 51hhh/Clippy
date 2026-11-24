@@ -8,6 +8,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use futures_util::stream::StreamExt;
 use pipewire as pw;
 use pw::spa;
+use pw::stream::StreamState;
 use spa::param::video::VideoInfoRaw;
 use spa::pod::Pod;
 use std::cell::RefCell;
@@ -34,6 +35,9 @@ const CALL_TIMEOUT: Duration = Duration::from_millis(1500);
 // 正常首帧实测约 100 ms。某个输出若进入 running 却不送帧，继续等到 1.5 秒不会让它
 // 恢复，只会把截图手感拖垮；350 ms 后把这一块交给逐屏原始像素兜底，其余已到帧照用。
 const FRAME_TIMEOUT: Duration = Duration::from_millis(350);
+
+// 静止画面不一定有新 buffer。持续采集留一个刷新窗口接收新帧。
+const UPDATE_WAIT: Duration = Duration::from_millis(40);
 
 /// 逐屏取一帧原生像素，顺序与 `areas` 一致。
 ///
@@ -264,7 +268,7 @@ async fn with_timeout<T>(
 type FrameBatch = Vec<Result<ScreencastFrame>>;
 
 fn pull_first_frames(nodes: &[StreamNode]) -> Result<FrameBatch> {
-    with_frame_reader(nodes, |read| read())
+    with_frame_reader(nodes, false, |read| read())
 }
 
 pub(super) fn with_area<T>(
@@ -282,13 +286,14 @@ pub(super) fn with_area<T>(
             rect: rectangle,
         }]))?,
     };
-    with_frame_reader(&session.session.nodes, |read| {
+    with_frame_reader(&session.session.nodes, true, |read| {
         use_stream(&mut || read()?.pop().expect("会话只订阅一个目标画面"))
     })
 }
 
 fn with_frame_reader<T>(
     nodes: &[StreamNode],
+    reuse_still_frames: bool,
     use_stream: impl FnOnce(&mut dyn FnMut() -> Result<FrameBatch>) -> Result<T>,
 ) -> Result<T> {
     init_pipewire();
@@ -406,6 +411,12 @@ fn with_frame_reader<T>(
         move |_| mainloop.quit()
     });
     let result = use_stream(&mut || {
+        let timeout = if reuse_still_frames && slots.borrow().iter().all(|slot| slot.last.is_some())
+        {
+            UPDATE_WAIT
+        } else {
+            FRAME_TIMEOUT
+        };
         remaining.set(nodes.len());
         trigger
             .update_timer(
@@ -415,7 +426,7 @@ fn with_frame_reader<T>(
             .into_result()
             .map_err(|error| anyhow!("无法启动 PipeWire 首帧驱动器：{error}"))?;
         watchdog
-            .update_timer(Some(FRAME_TIMEOUT), None)
+            .update_timer(Some(timeout), None)
             .into_result()
             .map_err(|error| anyhow!("无法给 PipeWire 看门狗上弦：{error}"))?;
         mainloop.run();
@@ -423,16 +434,10 @@ fn with_frame_reader<T>(
         Ok(nodes
             .iter()
             .zip(slots.iter_mut())
-            .map(|(node, slot)| match slot.frame.take() {
-                Some(Ok(frame)) => Ok(frame),
-                Some(Err(error)) => {
-                    Err(error.context(format!("显示器 {} 取流失败", node.connector)))
-                }
-                None => Err(anyhow!(
-                    "显示器 {} 在 {} ms 内没有送出画面",
-                    node.connector,
-                    FRAME_TIMEOUT.as_millis()
-                )),
+            .zip(&streams)
+            .map(|((node, slot), stream)| {
+                slot.take_frame(reuse_still_frames, stream.state(), timeout)
+                    .with_context(|| format!("显示器 {} 取流失败", node.connector))
             })
             .collect())
     });
@@ -447,6 +452,42 @@ fn with_frame_reader<T>(
 #[derive(Default)]
 struct Slot {
     frame: Option<Result<ScreencastFrame>>,
+    last: Option<ScreencastFrame>,
+}
+
+impl Slot {
+    fn take_frame(
+        &mut self,
+        reuse_still_frames: bool,
+        state: StreamState,
+        timeout: Duration,
+    ) -> Result<ScreencastFrame> {
+        let frame = self.frame.take();
+        match (state, frame) {
+            (_, Some(Err(error))) => {
+                self.last = None;
+                Err(error)
+            }
+            (lost @ (StreamState::Unconnected | StreamState::Error(_)), _) => {
+                self.last = None;
+                bail!("PipeWire 流已断开：{lost:?}");
+            }
+            (_, Some(Ok(frame))) => {
+                if reuse_still_frames {
+                    self.last = Some(frame.clone());
+                }
+                Ok(frame)
+            }
+            (state, None) => {
+                let still = matches!(state, StreamState::Streaming)
+                    .then_some(self.last.as_ref())
+                    .flatten();
+                still
+                    .cloned()
+                    .with_context(|| format!("在 {} ms 内没有送出画面", timeout.as_millis()))
+            }
+        }
+    }
 }
 
 struct StreamUserData {
@@ -479,5 +520,32 @@ impl StreamUserData {
         if left == 0 {
             self.mainloop.quit();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn continuous_reader_reuses_only_the_last_good_frame_while_streaming() {
+        let mut slot = Slot::default();
+        let read = |slot: &mut Slot, state| slot.take_frame(true, state, UPDATE_WAIT);
+        assert!(read(&mut slot, StreamState::Streaming).is_err());
+        for red in [1, 2] {
+            let rgba: Arc<[u8]> = Arc::from([red, 0, 0, 255]);
+            slot.frame = Some(Ok(ScreencastFrame {
+                width: 1,
+                height: 1,
+                rgba: rgba.clone(),
+            }));
+            let first = read(&mut slot, StreamState::Streaming).unwrap();
+            let still = read(&mut slot, StreamState::Streaming).unwrap();
+            assert!(Arc::ptr_eq(&first.rgba, &rgba));
+            assert!(Arc::ptr_eq(&still.rgba, &rgba));
+        }
+        assert!(read(&mut slot, StreamState::Unconnected).is_err());
+        assert!(read(&mut slot, StreamState::Streaming).is_err());
     }
 }

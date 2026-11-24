@@ -26,6 +26,7 @@ pub struct DesktopRect {
     pub height: u32,
 }
 
+#[derive(Clone)]
 pub struct FrozenPixels {
     pub width: u32,
     pub height: u32,
