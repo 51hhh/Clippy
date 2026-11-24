@@ -17,6 +17,18 @@
 独立目标像素发生 32 px 位移后，经原生界面追加并导出 140×132 PNG。GNOME 目标会话实现已接入，
 实际连续取帧、自动输入权限和自动滚动仍待验证。
 
+截图、历史图片和贴图现在可接结构化识字和扫码。Tesseract 的 TSV 接口提供行框
+和读序，主动选择某一段才提交给设定的翻译服务。旧增强模型通过同一共享运行时使用。
+固定样图已校验识别文字、源图尺寸和四点框位置。Rust OCR 分发模型和复杂版面对照仍待验证。
+
+区域录屏已接共享 VP9/Opus 会话、托盘控制和录屏库。隔离 X11 验证了区域尺寸、
+暂停扣时、文件解码参数和导出内容。录屏库可导出、播放和合并恢复分段，播放由按需的
+`ffplay` 进程完成。Linux/Windows 音轨选项沿用 PipeWire/WASAPI，需设备实测。
+
+设置和操作窗口接入了本机主题、保存配置、凭据、贴图兼容归档、统计、文本工具与
+翻译历史。数据迁移先保存一致的 SQLite 快照及原配置。正式 tag 已接 Slint 安装包
+和草稿发布，老客户端 updater 的安装行为和签名合同仍要验证。
+
 2026-11-24 从 `7fd1bda49b5236e5eaf57731de24fe1f6cd68154` 继续在当前分支开发。双目录、tag 路由、默认 Slint 门禁和 SQLite/FTS5 已落地。当前完成托盘、单实例、按需窗口、全局快捷键、剪贴板闭环和第一条截图闭环。QA 私有数据目录与正式目录分开。 [Slint 应用入口](../../../apps/slint/src/app.rs) · [存储线程](../../../crates/clippy-storage/src/service.rs) · [原计划及已有证据](2026-11-23-slint-ui-migration-plan.md)
 
 | 验证项 | 本轮证据 |
@@ -26,7 +38,9 @@
 | 快速截图 | X11 验证快捷键、托盘、框选、取消、复制和落盘，核对 140×100 选区像素。Release 样本首个重绘请求为 84–90 ms，复制为 0.3 ms，落盘为 5.3 ms。GNOME 50.1 实机双屏原始帧样本 188.3 ms，分别获得 2560×1440、2560×1600 像素。 |
 | 托盘空闲 PSS | GNOME 最终 QA release 单次 60 秒总 PSS 14,491 KiB（14.15 MiB），进程数 1，开窗次数 0。会话同时有旧版 Clippy，且复测中断，该样本仅作参考。前一版 5 个参考样本为 12,710、97,034、12,494、12,085、12,443 KiB；97,034 KiB 的成因未证实。 |
 
-正式内存验收仍需在旧版退出后的真实桌面上完成连续 5 次，脚本会检查同一用户下的现有 Clippy 进程。GNOME 的系统菜单、覆盖层对齐、Wayland 粘贴授权及撤回、Windows/macOS 原生 CI 与真机、升级桥和正式发布仍未验收。截图当前按单块输出选区，跨屏选区、编辑工程持久化和 Portal 截图兼容路径留在后续阶段。 [自动桌面回归](../../../scripts/test-slint-x11.sh) · [实机内存脚本](../../../scripts/qa/measure-slint-idle.py) · [发布 workflow](../../../.github/workflows/release.yml#L52)
+实机空闲验收需要旧版退出，脚本采样前检查同一用户的现有 Clippy 进程。GNOME 的系统菜单、覆盖层对齐、
+Wayland 授权、Windows/macOS 原生 CI 与实机、升级桥和正式发布仍未验收。截图当前按单块输出选区，
+跨屏选区、编辑工程持久化和 Portal 截图兼容路径仍待实现。 [自动桌面回归](../../../scripts/test-slint-x11.sh) · [实机内存脚本](../../../scripts/qa/measure-slint-idle.py) · [发布 workflow](../../../.github/workflows/release.yml)
 
 ## Goal
 
@@ -101,7 +115,7 @@ flowchart LR
 - 从 `apps/slint/src/lib.rs::run` 拆出装配和首次开窗，先验证只启事件循环和托盘的路径。主窗口、设置和重资源预览由操作按需打开，关闭后释放组件和图片。Linux 在 GNOME 与 KDE 核对真实托盘菜单，包括文字、点击与退出，缺少托盘宿主时保留快捷键或再次启动入口。 [Slint SystemTrayIcon](https://docs.slint.dev/latest/docs/slint/reference/window/systemtrayicon/)
 - 从 legacy 的 `app/`、`window_controller.rs`、`gsettings_shortcuts.rs` 和 `portal_shortcuts.rs` 提取系统行为。原生快捷键、GNOME v5 系统绑定和其他 Wayland 的 GlobalShortcuts 按会话选择。用 `DeploymentIdentity` 装配单实例、数据和快捷键命名空间。已发布旧版在隔离系统会话做 QA，升级演练时由同一用户先退出旧程序。 [旧窗口控制](../../../apps/legacy-tauri/native/src/window_controller.rs) · [身份定义](../../../crates/clippy-platform/src/identity.rs)
 - 把六套主题映射到一个 token 层。先完成共用的标题栏和设置页，拖动区域通过原生窗口移动能力，按钮、输入与选字区域排除拖动。用同一个界面对比 FemtoVG 和 Skia 在中文、透明、阴影、多屏 DPI、启动到托盘就绪及空闲 PSS 的表现。
-- 提前检查原生回放和升级的可行性。先用现有 VP9 视频夹具验证候选解码、seek 和关闭回收。另用现有双轨 writer 生成带 Opus 的样片测音轨。检查旧 updater 期待的安装包和签名格式，以及 macOS 构建实际最低版本。 [VP9 夹具](../../../apps/legacy-tauri/frontend/dev-review/recording-sample.webm) · [双轨 writer](../../../apps/legacy-tauri/native/src/recording/av_segmenting.rs)
+- 提前检查原生回放和升级的可行性。先用现有 VP9 视频夹具验证候选解码、seek 和关闭回收。另用现有双轨 writer 生成带 Opus 的样片测音轨。检查旧 updater 期待的安装包和签名格式，以及 macOS 构建实际最低版本。 [VP9 夹具](../../../apps/legacy-tauri/frontend/dev-review/recording-sample.webm) · [双轨 writer](../../../crates/clippy-media/src/recording/av_segmenting.rs)
 
 真机从托盘或快捷键反复打开和关闭主窗口、设置，并验证标题栏拖动。Linux 记录纯托盘、首开、关窗回落的 PSS。 [旧主题](../../../apps/legacy-tauri/frontend/styles/themes.css) · [已有桌面用例](../../native-qa.md)
 
@@ -118,7 +132,7 @@ flowchart LR
 
 ### 采集
 
-从 legacy `screenshot/`、`capture/` 和录屏平台帧源提取同一套帧描述。每帧记录来源、拓扑代次、逻辑坐标到源像素变换、尺寸、stride、像素格式、色彩空间和时间戳。采集层对外提供单帧快照与持续会话。调用者声明来源、光标和排除窗口策略。快照取一张新帧，长截图与录屏按操作持有流。原生帧受平台租约约束，借用的缓冲在归还前完成读回或导入同步，以队列容量限制同时持有的帧。 [截图后端](../../../apps/legacy-tauri/native/src/screenshot/backends.rs) · [录屏帧](../../../apps/legacy-tauri/native/src/recording/frame.rs)
+从 legacy `screenshot/`、`capture/` 和录屏平台帧源提取同一套帧描述。每帧记录来源、拓扑代次、逻辑坐标到源像素变换、尺寸、stride、像素格式、色彩空间和时间戳。采集层对外提供单帧快照与持续会话。调用者声明来源、光标和排除窗口策略。快照取一张新帧，长截图与录屏按操作持有流。原生帧受平台租约约束，借用的缓冲在归还前完成读回或导入同步，以队列容量限制同时持有的帧。 [截图后端](../../../apps/legacy-tauri/native/src/screenshot/backends.rs) · [录屏帧](../../../crates/clippy-media/src/recording/frame.rs)
 
 | 环境 | 第一条实施路径 | 选型验收 |
 |---|---|---|
@@ -142,7 +156,7 @@ flowchart LR
 4. Save 在 blocking worker 往目标同目录的私有临时文件流式编码 PNG，写完并按现有耐久策略同步后原子发布。重名选新文件名，复用已编码的临时文件。沿用同目录 hard link 的 no-clobber 语义，其他文件系统的原语经测试再启用。写入失败清理临时文件并保留可重试产物，取消后回收该次操作的资源。已提交目标只反馈一次。区分“正在保存”和“已保存到路径”。
 5. 选区链通过后给确定来源增加“直接保存当前屏”动作。快捷键取一帧即走同一个保存接口，适合无需选区和标注的情况。
 
-从 Linux QA 包的快捷键进入截图，测试框选、撤销标注、复制、保存、失败后重试、Esc 恢复窗口。1080p 和 4K 使用同一画面记录编码次数与各阶段尾延迟。再验证 Windows/macOS 首帧、窗口与 DPI 能力。 [旧渲染入口](../../../apps/legacy-tauri/native/src/pin/render_v2.rs#L287) · [旧输出提交](../../../apps/legacy-tauri/native/src/capture/mod.rs#L590) · [原子保存](../../../apps/legacy-tauri/native/src/image_io.rs#L219)
+从 Linux QA 包的快捷键进入截图，测试框选、撤销标注、复制、保存、失败后重试、Esc 恢复窗口。1080p 和 4K 使用同一画面记录编码次数与各阶段尾延迟。再验证 Windows/macOS 首帧、窗口与 DPI 能力。 [旧渲染入口](../../../crates/clippy-capture/src/render_v2.rs) · [旧输出提交](../../../apps/legacy-tauri/native/src/capture/mod.rs#L590) · [原子保存](../../../apps/legacy-tauri/native/src/image_io.rs#L219)
 
 ## 4. 贴图和长截图
 
@@ -159,7 +173,7 @@ flowchart LR
 1. 先迁现有 `StructuredOcr` 和扫码接口。从截图、历史图和 Pin 输入同一个不可变图像快照。文字结果携带 `block/paragraph/line` ID、四点框和排序，纯文本只是它的一个视图。Tesseract 基础链仍提供纯文本，带框视图由支持几何的引擎提供。
 2. 用现有 Python/ONNX Runtime CPU 管线和固定语料建立参照。顺序移植检测预处理、轮廓/四点框、透视裁切、动态宽度识别和 CTC，先做张量与几何差分，再变更部署。继承现有 single-flight、1 active + 2 queued 和统一超时合同。候选原生实现首选 Rust worker + `ort` CPU，按需启动，模型在短任务间复用，空闲退出。只传有界像素、几何和任务 ID，取消或超时要等 worker 确认完成或退出后才释放执行额度。
 3. 依次核对公开的 PP-OCRv6 small det/rec/字典和可选方向模型。模型包记录固定 revision、SHA-256、许可、NOTICE、运行库及平台架构。当前 EdgeGNN 权重是用户自行核权的外部资产。可分发默认路线采用有来源的公开模型和自有版面规则，先拿固定语料验证段落、双栏、表格顺序和斜字。EdgeGNN 在授权配置中继续作为对照。
-4. RTen 比较纯 Rust 的体积和 CPU 性能，MNN/mnn-rs 比较同模型转换后一致性、运行时和封包维护成本。候选需要跑通过宽度多档的 det/rec 和使用的布局模型。用同一机器比较冷启动、热 P95、峰值内存、退出回落、包增量和质量固定集。正式选择一个后端。 [旧结构化协议](../../../apps/legacy-tauri/native/src/ocr/protocol.rs) · [模型来源和许可](../../../apps/legacy-tauri/native/ocr-sidecar/README.md#模型来源与许可) · [OCR 质量基线](../../reviews/2026-09-18-ocr-quality-baseline.md) · [ort](https://github.com/pykeio/ort) · [RTen](https://github.com/robertknight/rten) · [MNN](https://github.com/alibaba/MNN) · [mnn-rs](https://github.com/wapznw/mnn-rs)
+4. RTen 比较纯 Rust 的体积和 CPU 性能，MNN/mnn-rs 比较同模型转换后一致性、运行时和封包维护成本。候选需要跑通过宽度多档的 det/rec 和使用的布局模型。用同一机器比较冷启动、热 P95、峰值内存、退出回落、包增量和质量固定集。正式选择一个后端。 [旧结构化协议](../../../crates/clippy-vision/src/protocol.rs) · [模型来源和许可](../../../apps/legacy-tauri/native/ocr-sidecar/README.md#模型来源与许可) · [OCR 质量基线](../../reviews/2026-09-18-ocr-quality-baseline.md) · [ort](https://github.com/pykeio/ort) · [RTen](https://github.com/robertknight/rten) · [MNN](https://github.com/alibaba/MNN) · [mnn-rs](https://github.com/wapznw/mnn-rs)
 
 ### 图片翻译接线
 

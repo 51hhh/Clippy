@@ -35,7 +35,16 @@ jobs:
             build-essential pkg-config libfontconfig1-dev libxkbcommon-dev \
             libwayland-dev libxcb1-dev libegl1-mesa-dev libgl1-mesa-dev \
             libclang-dev libpipewire-0.3-dev libgbm-dev libdrm-dev \
-            xvfb xauth xclip x11-utils libxtst6 dbus-x11 python3-gi gir1.2-gtk-3.0
+            xvfb xauth xclip x11-utils libxtst6 dbus-x11 python3-gi gir1.2-gtk-3.0 \
+            ffmpeg tesseract-ocr-eng tesseract-ocr-chi-sim
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+
+      - name: Check installer version ordering
+        run: node --test scripts/slint-release.test.mjs
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable action
@@ -52,16 +61,16 @@ jobs:
           workspaces: . -> target
 
       - name: Rust format check
-        run: cargo fmt -p clippy-capture -p clippy-core -p clippy-platform -p clippy-storage -p clippy-slint -- --check
+        run: cargo fmt -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision -p clippy-slint -- --check
 
       - name: Shared Rust check
-        run: cargo check --locked -p clippy-capture -p clippy-core -p clippy-platform -p clippy-storage --all-targets
+        run: cargo check --locked -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision --all-targets
 
       - name: Shared Rust clippy
-        run: cargo clippy --locked -p clippy-capture -p clippy-core -p clippy-platform -p clippy-storage --all-targets -- -D warnings
+        run: cargo clippy --locked -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision --all-targets -- -D warnings
 
       - name: Shared Rust tests
-        run: cargo test --locked -p clippy-capture -p clippy-core -p clippy-platform -p clippy-storage
+        run: cargo test --locked -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision
 
       - name: Slint Rust check
         run: cargo check --locked -p clippy-slint --all-targets
@@ -72,8 +81,14 @@ jobs:
       - name: Slint Rust tests
         run: cargo test --locked -p clippy-slint
 
+      - name: Shared native A/V tests
+        run: cargo test --locked -p clippy-media --features recording-opus-webm,recording-linux-audio -- --test-threads=1
+
       - name: Slint QA profile tests
         run: cargo test --locked -p clippy-slint --features qa-build
+
+      - name: Native OCR fixture
+        run: cargo test --locked -p clippy-slint native_ocr_returns_readable_text_and_source_coordinates -- --ignored
 
       - name: Slint X11 desktop regression
         run: bash scripts/test-slint-x11.sh
@@ -89,7 +104,7 @@ jobs:
   native-check:
     name: Native Check (${{ matrix.runner }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 65
     strategy:
       fail-fast: false
       matrix:
@@ -97,11 +112,31 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      - name: Install Windows source-build shell dependencies
+        if: runner.os == 'Windows'
+        id: slint_msys2
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
+        with:
+          msystem: MSYS
+          update: false
+          install: make diffutils perl nasm
+
+      - name: Expose Windows source-build shell tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: echo '${{ steps.slint_msys2.outputs.msys2-location }}\usr\bin' >> $env:GITHUB_PATH
+
+      - name: Install Windows MSBuild
+        if: runner.os == 'Windows'
+        uses: microsoft/setup-msbuild@30375c66a4eea26614e0d39710365f22f8b0af57 # v3
+        with:
+          msbuild-architecture: x64
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable action
         with:
           toolchain: 1.98.0
-          components: clippy
+          components: clippy, llvm-tools-preview
 
       - name: Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -111,13 +146,13 @@ jobs:
           workspaces: . -> target
 
       - name: Shared Rust check
-        run: cargo check --locked -p clippy-capture -p clippy-core -p clippy-platform -p clippy-storage --all-targets
+        run: cargo check --locked -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision --all-targets
 
       - name: Shared Rust clippy
-        run: cargo clippy --locked -p clippy-capture -p clippy-core -p clippy-platform -p clippy-storage --all-targets -- -D warnings
+        run: cargo clippy --locked -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision --all-targets -- -D warnings
 
       - name: Shared Rust tests
-        run: cargo test --locked -p clippy-capture -p clippy-core -p clippy-platform -p clippy-storage
+        run: cargo test --locked -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision
 
       - name: Slint Rust check
         run: cargo check --locked -p clippy-slint --all-targets
@@ -127,6 +162,9 @@ jobs:
 
       - name: Slint Rust tests
         run: cargo test --locked -p clippy-slint
+
+      - name: Shared native A/V tests
+        run: cargo test --locked -p clippy-media --features recording-opus-webm,recording-windows-audio -- --test-threads=1
 
       - name: Slint QA profile tests
         run: cargo test --locked -p clippy-slint --features qa-build
@@ -211,27 +249,23 @@ jobs:
         run: cargo clippy --features ${{ matrix.features }} --all-targets -- -D warnings
 
       - name: Prototype VP9 mux tests
-        working-directory: apps/legacy-tauri/native
-        run: cargo test --features ${{ matrix.features }} --lib recording::mux::vp9_webm::tests
+        run: cargo test --locked -p clippy-media --features recording-opus-webm --lib recording::mux::vp9_webm::tests
 
       - name: Prototype Opus WebM contract tests
-        working-directory: apps/legacy-tauri/native
-        run: cargo test --features ${{ matrix.features }} --lib recording::mux::opus_webm::tests
+        run: cargo test --locked -p clippy-media --features recording-opus-webm --lib recording::mux::opus_webm::tests
 
       - name: Prototype recoverable A/V session tests
         working-directory: apps/legacy-tauri/native
         run: |
-          cargo test --features ${{ matrix.features }} --lib recording::av -- --test-threads=1
+          cargo test --locked -p clippy-media --features recording-opus-webm --lib recording::av -- --test-threads=1
           cargo test --features ${{ matrix.features }} --lib recording::manager::tests
 
       - name: Prototype VP9 session and recovery tests
-        working-directory: apps/legacy-tauri/native
-        run: cargo test --features ${{ matrix.features }} --lib recording::session::tests::vp9_
+        run: cargo test --locked -p clippy-media --features recording-opus-webm --lib recording::session::tests::vp9_
 
       - name: Windows WASAPI audio contract tests
         if: runner.os == 'Windows'
-        working-directory: apps/legacy-tauri/native
-        run: cargo test --features ${{ matrix.features }} --lib recording::platform::windows_audio
+        run: cargo test --locked -p clippy-media --features recording-windows-audio --lib recording::platform::windows_audio
 
       - name: Prototype X11 capture to VP9 session
         if: runner.os == 'Linux'

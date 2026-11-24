@@ -55,8 +55,12 @@ jobs:
           TAG_VERSION: ${{ steps.release_route.outputs.version }}
         run: |
           if [ "$RELEASE_BACKEND" != "legacy-tauri" ]; then
-            echo "::error::Slint tag routing is active, but the v0.2 packaging job is not enabled yet"
-            exit 1
+            node scripts/slint-release.mjs check "v$TAG_VERSION"
+            if ! grep -Fqx "## v${TAG_VERSION}" CHANGELOG.md; then
+              echo "::error::CHANGELOG.md is missing the exact heading: ## v${TAG_VERSION}"
+              exit 1
+            fi
+            exit 0
           fi
 
           CONF_VERSION=$(jq -r '.version' apps/legacy-tauri/native/tauri.conf.json)
@@ -117,17 +121,20 @@ jobs:
       - name: Resolve release targets and signing policy
         id: release_options
         env:
+          RELEASE_BACKEND: ${{ needs.check-version.outputs.backend }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
           missing_updater=()
-          for required in TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
-            if [ -z "${!required:-}" ]; then
-              missing_updater+=("$required")
-            fi
-          done
+          if [ "$RELEASE_BACKEND" = "legacy-tauri" ]; then
+            for required in TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
+              if [ -z "${!required:-}" ]; then
+                missing_updater+=("$required")
+              fi
+            done
+          fi
           if [ "${#missing_updater[@]}" -ne 0 ]; then
             printf '::error::Missing required updater secret: %s\n' "${missing_updater[@]}"
             exit 1
@@ -144,6 +151,7 @@ jobs:
           fi
 
   build-linux:
+    if: needs.check-version.outputs.backend == 'legacy-tauri'
     name: Build (${{ matrix.label }})
     needs: [check-version, release-preflight]
     runs-on: ${{ matrix.runner }}
@@ -264,6 +272,7 @@ jobs:
           if-no-files-found: error
 
   build-windows:
+    if: needs.check-version.outputs.backend == 'legacy-tauri'
     name: Build (Windows x64)
     needs: [check-version, release-preflight]
     runs-on: windows-latest
@@ -365,6 +374,7 @@ jobs:
           }
 
   build-macos:
+    if: needs.check-version.outputs.backend == 'legacy-tauri'
     name: Build (macOS ${{ matrix.label }})
     needs: [check-version, release-preflight]
     runs-on: macos-latest
@@ -467,6 +477,7 @@ jobs:
           if-no-files-found: error
 
   update-release:
+    if: needs.check-version.outputs.backend == 'legacy-tauri'
     name: Update Release Notes
     needs: [check-version, release-preflight, build-linux, build-windows, build-macos]
     runs-on: ubuntu-latest
@@ -513,6 +524,9 @@ jobs:
             --repo "${{ github.repository }}" --clobber
 
       - name: Extract changelog and prepare release notes
+        env:
+          UI_FRAMEWORK: ${{ needs.check-version.outputs.framework }}
+          UI_FRAMEWORK_VERSION: ${{ needs.check-version.outputs.framework_version }}
         run: |
           TAG="${{ github.ref_name }}"
           VER="${{ needs.check-version.outputs.version }}"
@@ -527,6 +541,8 @@ jobs:
 
           CHANGELOG=$(cat release_notes.txt)
           cat > release_body.md <<ENDOFBODY
+          UI: ${UI_FRAMEWORK} ${UI_FRAMEWORK_VERSION} (WebView). Slint is not included.
+
           ${CHANGELOG}
 
           ## 下载
@@ -599,8 +615,215 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ github.ref_name }}"
+          LATEST=()
+          if CURRENT=$(gh release view --repo "${{ github.repository }}" --json tagName --jq .tagName 2>/dev/null); then
+            if node --input-type=module -e 'import {resolveReleaseBackend} from "./scripts/resolve-release-backend.mjs"; process.exit(resolveReleaseBackend(process.argv[1]).backend === "slint" ? 0 : 1)' "$CURRENT"; then
+              LATEST=(--latest=false)
+            fi
+          fi
           gh release edit "${TAG}" \
             --repo "${{ github.repository }}" \
             --title "Clippy ${TAG}" \
             --notes-file release_body.md \
-            --draft=false
+            --draft=false "${LATEST[@]}"
+
+  build-slint:
+    if: needs.check-version.outputs.backend == 'slint'
+    name: Slint Release Package (${{ matrix.platform }})
+    needs: [check-version, release-preflight]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 85
+    permissions:
+      contents: read
+      artifact-metadata: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-22.04, platform: linux-x64, formats: "deb,appimage" }
+          - { runner: windows-latest, platform: windows-x64, formats: "nsis,wix" }
+          - { runner: macos-15, platform: macos-aarch64, formats: "app,dmg" }
+          - { runner: macos-15-intel, platform: macos-x64, formats: "app,dmg" }
+    env:
+      SLINT_PLATFORM: ${{ matrix.platform }}
+      SLINT_PACKAGE_FORMATS: ${{ matrix.formats }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install Jammy dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libclang-dev libfontconfig1-dev \
+            libxkbcommon-dev libwayland-dev libxcb1-dev libgbm-dev libegl1-mesa-dev libdrm-dev \
+            libpipewire-0.3-dev squashfs-tools
+
+      - name: Prepare libvpx source build on macOS
+        if: runner.os == 'macOS'
+        run: |
+          echo 'MACOSX_DEPLOYMENT_TARGET=11.0' >> "$GITHUB_ENV"
+          if [ "$SLINT_PLATFORM" = macos-x64 ]; then brew install nasm; fi
+
+      - name: Install Windows source-build shell dependencies
+        if: runner.os == 'Windows'
+        id: slint_msys2
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
+        with:
+          msystem: MSYS
+          update: false
+          install: make diffutils perl nasm
+
+      - name: Expose Windows source-build shell tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: echo '${{ steps.slint_msys2.outputs.msys2-location }}\usr\bin' >> $env:GITHUB_PATH
+
+      - name: Install Windows MSBuild
+        if: runner.os == 'Windows'
+        uses: microsoft/setup-msbuild@30375c66a4eea26614e0d39710365f22f8b0af57 # v3
+        with:
+          msbuild-architecture: x64
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable action
+        with:
+          toolchain: 1.98.0
+          components: llvm-tools-preview
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: slint-release-${{ matrix.platform }}
+          workspaces: . -> target
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+
+      - name: Verify codec pins and installer versions
+        run: |
+          node scripts/verify-recording-codec-supply-chain.mjs
+          node --test scripts/slint-release.test.mjs
+
+      - name: Build without WebView dependencies
+        shell: bash
+        run: |
+          cargo tree --locked -p clippy-slint -e normal > slint-dependencies.txt
+          if grep -E '(tauri[^ ]*|webkit2gtk|webview2-com|wry) v[0-9]' slint-dependencies.txt; then
+            echo '::error::The Slint package must exclude WebView and Tauri'
+            exit 1
+          fi
+          cargo build --locked --release -p clippy-slint --bin clippy-slint
+
+      - name: Install pinned cargo-packager
+        run: cargo install cargo-packager --version 0.11.8 --locked
+
+      - name: Prepare Windows signing
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: ./scripts/prepare-windows-signing.ps1 -OutputPath target/slint-windows-signing.json
+
+      - name: Generate native packages
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Linux)
+              SIGNING=unsigned
+              TMPDIR=$(mktemp -d)
+              export TMPDIR
+              trap 'rm -rf -- "$TMPDIR"' EXIT
+              ;;
+            macOS) SIGNING=ad-hoc ;;
+            Windows) SIGNING="$WINDOWS_SIGNING_MODE" ;;
+          esac
+          echo "SLINT_RELEASE_SIGNING=$SIGNING" >> "$GITHUB_ENV"
+          node scripts/slint-release.mjs prepare "$GITHUB_REF_NAME" "$SLINT_PLATFORM" "$GITHUB_SHA" "$SIGNING"
+          cargo-packager --config target/packager/Packager.slint-release.toml --formats "$SLINT_PACKAGE_FORMATS"
+
+      - name: Verify package identity and declared runtime
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            DEB=$(find target/packager/slint-release -maxdepth 1 -name '*.deb' -print -quit)
+            [ "$(dpkg-deb -f "$DEB" Package)" = clippy ]
+            dpkg-deb -c "$DEB" | grep 'usr/bin/clippy-app$' >/dev/null
+            dpkg-deb -c "$DEB" | grep 'BUILD-INFO.json$' >/dev/null
+            readelf -d target/release/clippy-slint | grep 'libpipewire-0.3.so.0' >/dev/null
+            if readelf -d target/release/clippy-slint | grep -Eqi 'webkit|javascriptcore|libgtk'; then exit 1; fi
+          else
+            APP=target/packager/slint-release/Clippy.app
+            codesign --verify --deep --strict "$APP"
+            [ "$(plutil -extract CFBundleIdentifier raw -o - "$APP/Contents/Info.plist")" = com.clippy.desktop ]
+            otool -l "$APP/Contents/MacOS/clippy-app" | grep -A4 LC_BUILD_VERSION > slint-macos-target.txt
+            awk '/minos/ { split($2, parts, "."); if (parts[1]>11 || (parts[1]==11 && parts[2]>0)) exit 1; found=1 } END { if (!found) exit 1 }' slint-macos-target.txt
+          fi
+
+      - name: Verify Windows package signatures
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-ChildItem target/packager/slint-release -File | Where-Object { $_.Extension -in '.exe', '.msi' } |
+            ForEach-Object {
+              $signature = Get-AuthenticodeSignature $_.FullName
+              if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -ne $env:WINDOWS_CERTIFICATE_THUMBPRINT) {
+                throw "Invalid signature on $($_.Name)"
+              }
+            }
+
+      - name: Bind installers to the tag and SHA
+        shell: bash
+        run: |
+          node scripts/slint-release.mjs collect "$GITHUB_REF_NAME" "$SLINT_PLATFORM" "$GITHUB_SHA" "$SLINT_RELEASE_SIGNING"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: slint-release-${{ matrix.platform }}
+          path: target/packager/slint-release-assets/*
+          if-no-files-found: error
+
+      - name: Remove Windows signing certificate
+        if: always() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if ($env:WINDOWS_CERTIFICATE_THUMBPRINT) {
+            Remove-Item "Cert:\CurrentUser\My\$env:WINDOWS_CERTIFICATE_THUMBPRINT" -Force -ErrorAction SilentlyContinue
+            if ($env:WINDOWS_SIGNING_MODE -eq 'self-signed') {
+              Remove-Item "Cert:\LocalMachine\TrustedPeople\$env:WINDOWS_CERTIFICATE_THUMBPRINT" -Force -ErrorAction SilentlyContinue
+            }
+          }
+
+  update-slint-release:
+    if: needs.check-version.outputs.backend == 'slint'
+    name: Stage Slint Release Draft
+    needs: [check-version, build-slint]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      artifact-metadata: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: slint-release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Attach Slint installer evidence to a draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UI_FRAMEWORK: ${{ needs.check-version.outputs.framework }}
+          UI_FRAMEWORK_VERSION: ${{ needs.check-version.outputs.framework_version }}
+        run: |
+          {
+            printf 'UI: %s %s (FemtoVG). Tauri is not included.\n\n' "$UI_FRAMEWORK" "$UI_FRAMEWORK_VERSION"
+            awk -v heading="## $GITHUB_REF_NAME" '$0==heading {active=1; next} /^## v/ && active {exit} active' CHANGELOG.md
+          } > release-notes.md
+          if gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft > draft-state; then
+            [ "$(cat draft-state)" = true ]
+            gh release edit "$GITHUB_REF_NAME" --notes-file release-notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" --verify-tag --draft --title "Clippy $GITHUB_REF_NAME" --notes-file release-notes.md
+          fi
+          gh release upload "$GITHUB_REF_NAME" release-assets/* --clobber
