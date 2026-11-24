@@ -1212,6 +1212,7 @@ dependencies = [
  "block2 0.6.2",
  "cbc",
  "chrono",
+ "clippy-capture",
  "clippy-core",
  "clippy-platform",
  "clippy-storage",
@@ -1283,6 +1284,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "clippy-capture"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "chrono",
+ "image 0.25.10",
+ "log",
+ "png 0.17.16",
+ "resvg 0.43.0",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
 name = "clippy-core"
 version = "0.2.0"
 dependencies = [
@@ -1323,6 +1341,7 @@ name = "clippy-slint"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "clippy-capture",
  "clippy-core",
  "clippy-platform",
  "clippy-storage",

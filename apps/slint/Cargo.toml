@@ -24,6 +24,7 @@ qa-build = []
 
 [dependencies]
 anyhow = "1"
+clippy-capture = { path = "../../crates/clippy-capture" }
 clippy-core = { path = "../../crates/clippy-core" }
 clippy-platform = { path = "../../crates/clippy-platform" }
 clippy-storage = { path = "../../crates/clippy-storage" }

@@ -52,16 +52,16 @@ jobs:
           workspaces: . -> target
 
       - name: Rust format check
-        run: cargo fmt -p clippy-core -p clippy-platform -p clippy-storage -p clippy-slint -- --check
+        run: cargo fmt -p clippy-capture -p clippy-core -p clippy-platform -p clippy-storage -p clippy-slint -- --check
 
       - name: Shared Rust check
-        run: cargo check --locked -p clippy-core -p clippy-platform -p clippy-storage --all-targets
+        run: cargo check --locked -p clippy-capture -p clippy-core -p clippy-platform -p clippy-storage --all-targets
 
       - name: Shared Rust clippy
-        run: cargo clippy --locked -p clippy-core -p clippy-platform -p clippy-storage --all-targets -- -D warnings
+        run: cargo clippy --locked -p clippy-capture -p clippy-core -p clippy-platform -p clippy-storage --all-targets -- -D warnings
 
       - name: Shared Rust tests
-        run: cargo test --locked -p clippy-core -p clippy-platform -p clippy-storage
+        run: cargo test --locked -p clippy-capture -p clippy-core -p clippy-platform -p clippy-storage
 
       - name: Slint Rust check
         run: cargo check --locked -p clippy-slint --all-targets
@@ -111,13 +111,13 @@ jobs:
           workspaces: . -> target
 
       - name: Shared Rust check
-        run: cargo check --locked -p clippy-core -p clippy-platform -p clippy-storage --all-targets
+        run: cargo check --locked -p clippy-capture -p clippy-core -p clippy-platform -p clippy-storage --all-targets
 
       - name: Shared Rust clippy
-        run: cargo clippy --locked -p clippy-core -p clippy-platform -p clippy-storage --all-targets -- -D warnings
+        run: cargo clippy --locked -p clippy-capture -p clippy-core -p clippy-platform -p clippy-storage --all-targets -- -D warnings
 
       - name: Shared Rust tests
-        run: cargo test --locked -p clippy-core -p clippy-platform -p clippy-storage
+        run: cargo test --locked -p clippy-capture -p clippy-core -p clippy-platform -p clippy-storage
 
       - name: Slint Rust check
         run: cargo check --locked -p clippy-slint --all-targets

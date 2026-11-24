@@ -1,0 +1,100 @@
+import { Button, CheckBox, ComboBox, LineEdit, Slider, VerticalBox } from "std-widgets.slint";
+
+export component EditorWindow inherits Window {
+    in property <image> picture;
+    in property <float> aspect: 1;
+    in property <[string]> tools;
+    in property <bool> busy;
+    in property <bool> can-undo;
+    in property <bool> can-redo;
+    in property <bool> output-ready: true;
+    in property <string> status;
+    callback start-stroke(float, float);
+    callback move-stroke(float, float);
+    callback finish-stroke(float, float, int, int, float, string);
+    callback adjustments(bool, float);
+    callback undo();
+    callback redo();
+    callback copy();
+    callback save();
+    callback close-editor();
+    callback pin();
+    callback recognize();
+
+    title: "Clippy Image Editor";
+    preferred-width: 850px;
+    preferred-height: 610px;
+    min-width: 540px;
+    min-height: 380px;
+    background: #f6f7f9;
+
+    VerticalBox {
+        padding: 12px;
+        spacing: 8px;
+        HorizontalLayout {
+            spacing: 8px;
+            tool := ComboBox { model: root.tools; current-index: 2; enabled: !root.busy; }
+            shade := ComboBox { model: ["Red", "Orange", "Green", "Blue", "White", "Black"]; current-index: 0; enabled: !root.busy; }
+            Text { text: "Width"; vertical-alignment: center; }
+            stroke := Slider { minimum: 1; maximum: 24; value: 3; min-width: 72px; enabled: !root.busy; }
+            Button { text: "Undo"; enabled: root.can-undo && !root.busy; clicked => { root.undo(); } }
+            Button { text: "Redo"; enabled: root.can-redo && !root.busy; clicked => { root.redo(); } }
+        }
+        entry := LineEdit {
+            placeholder-text: "Text to place on the image";
+            enabled: !root.busy;
+            visible: tool.current-value == "Text";
+            height: self.visible ? self.preferred-height : 0;
+        }
+        canvas := Rectangle {
+            background: #252932;
+            border-radius: 6px;
+            vertical-stretch: 1;
+            Image {
+                source: root.picture;
+                width: min(parent.width, parent.height * root.aspect);
+                height: self.width / root.aspect;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                image-fit: fill;
+                TouchArea {
+                    enabled: !root.busy;
+                    mouse-cursor: crosshair;
+                    pointer-event(event) => {
+                        if event.button == PointerEventButton.left {
+                            if event.kind == PointerEventKind.down {
+                                root.start-stroke(self.mouse-x / self.width, self.mouse-y / self.height);
+                            } else if event.kind == PointerEventKind.up {
+                                root.finish-stroke(self.mouse-x / self.width, self.mouse-y / self.height,
+                                    tool.current-index, shade.current-index, stroke.value, entry.text);
+                            }
+                        }
+                    }
+                    moved => {
+                        if self.pressed {
+                            root.move-stroke(self.mouse-x / self.width, self.mouse-y / self.height);
+                        }
+                    }
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            gray := CheckBox {
+                text: "Grayscale";
+                enabled: !root.busy;
+                toggled => { root.adjustments(self.checked, radius.value); }
+            }
+            Text { text: "Corners"; vertical-alignment: center; }
+            radius := Slider {
+                minimum: 0; maximum: 60; value: 0; min-width: 60px;
+                enabled: !root.busy;
+                released => { root.adjustments(gray.checked, self.value); }
+            }
+            Button { text: "Copy"; width: 90px; height: 34px; enabled: !root.busy && root.output-ready; clicked => { root.copy(); } }
+            Button { text: "Save PNG"; width: 90px; enabled: !root.busy && root.output-ready; clicked => { root.save(); } }
+            Button { text: "Close"; width: 90px; enabled: !root.busy; clicked => { root.close-editor(); } }
+        }
+        Text { text: root.status; color: #545c65; wrap: word-wrap; min-height: 18px; }
+    }
+}

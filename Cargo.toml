@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/clippy-capture",
     "crates/clippy-core",
     "crates/clippy-platform",
     "crates/clippy-storage",
@@ -8,6 +9,7 @@ members = [
     "apps/slint",
 ]
 default-members = [
+    "crates/clippy-capture",
     "crates/clippy-core",
     "crates/clippy-platform",
     "crates/clippy-storage",

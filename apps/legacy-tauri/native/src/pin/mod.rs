@@ -3,15 +3,12 @@ pub(crate) mod commands;
 mod display_scale;
 mod error;
 pub(crate) mod frame_protocol;
-mod image_validation;
 mod lifecycle;
 mod manager;
 mod model;
 mod origins;
 pub(crate) mod output;
-mod project;
 mod project_file;
-pub(crate) mod render_v2;
 mod resample;
 mod window;
 #[cfg(target_os = "windows")]
@@ -20,6 +17,9 @@ mod windows_geometry;
 mod windows_workarea;
 mod workspace;
 pub(crate) mod workspace_library;
+
+pub(crate) use clippy_capture::render_v2;
+use clippy_capture::{image_validation, project};
 
 pub(crate) use commands::{
     create_screenshot_pin_shared, lower_pins_for_capture, raise_focused_pin,

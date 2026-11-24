@@ -384,10 +384,10 @@ pub(super) fn restore_one(
                 &revision.source_png,
                 &preview_png,
                 revision.renderer_version,
-                revision.source_width,
-                revision.source_height,
+                (revision.source_width, revision.source_height),
                 revision.annotations,
                 revision.adjustments,
+                env!("CARGO_PKG_VERSION"),
             )?;
             PinSource::Project {
                 source_png: revision.source_png,

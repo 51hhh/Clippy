@@ -149,10 +149,10 @@ pub(crate) fn restore_managed_revision(
         &revision.source_png,
         preview_png,
         revision.renderer_version,
-        revision.source_width,
-        revision.source_height,
+        (revision.source_width, revision.source_height),
         revision.annotations.clone(),
         revision.adjustments.clone(),
+        env!("CARGO_PKG_VERSION"),
     )?;
     let initial = serde_json::to_value(project.initial_payload())
         .map_err(|error| format!("图片修订 payload 序列化失败: {error}"))?;

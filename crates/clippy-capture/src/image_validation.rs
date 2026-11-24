@@ -145,11 +145,7 @@ fn into_rgba(
 }
 
 /// 严格校验调用方给出的原始 PNG 字节，不剥离或容忍任何辅助块。
-pub(super) fn decode_strict_png(
-    png: &[u8],
-    byte_limit: usize,
-    name: &str,
-) -> Result<RgbaImage, String> {
+pub fn decode_strict_png(png: &[u8], byte_limit: usize, name: &str) -> Result<RgbaImage, String> {
     validate_byte_length(png.len(), byte_limit, name)?;
     validate_container_layout(png, name)?;
 
@@ -185,7 +181,7 @@ pub(super) fn decode_strict_png(
     into_rgba(decoded, info, pixel_count, name)
 }
 
-pub(super) fn validate_strict_png(
+pub fn validate_strict_png(
     png: &[u8],
     byte_limit: usize,
     name: &str,
@@ -222,7 +218,7 @@ mod tests {
     }
 
     fn forged_dimensions(width: u32, height: u32) -> Vec<u8> {
-        let mut png = crate::screenshot::encode_png(&[1, 2, 3, 255], 1, 1).expect("测试 PNG");
+        let mut png = crate::png_io::encode_png(&[1, 2, 3, 255], 1, 1).expect("测试 PNG");
         png[16..20].copy_from_slice(&width.to_be_bytes());
         png[20..24].copy_from_slice(&height.to_be_bytes());
         let ihdr_crc = crc32(&png[12..29]);
@@ -251,8 +247,7 @@ mod tests {
             encoder.set_color(png::ColorType::Rgba);
             encoder.set_depth(png::BitDepth::Eight);
             let mut writer = encoder.write_header().expect("测试 PNG 头");
-            let chunk =
-                png::text_metadata::ITXtChunk::new(super::super::project::PROJECT_KEYWORD, "{}");
+            let chunk = png::text_metadata::ITXtChunk::new(crate::project::PROJECT_KEYWORD, "{}");
             writer.write_text_chunk(&chunk).expect("测试 iTXt");
             writer.write_image_data(&[1, 2, 3, 255]).expect("测试像素");
         }
@@ -261,26 +256,22 @@ mod tests {
 
     #[test]
     fn accepts_a_fully_decodable_png_and_returns_its_dimensions() {
-        let png = crate::screenshot::encode_png(&[1, 2, 3, 255], 1, 1).expect("测试 PNG");
+        let png = crate::png_io::encode_png(&[1, 2, 3, 255], 1, 1).expect("测试 PNG");
         assert_eq!(
-            validate_strict_png(
-                &png,
-                super::super::project::MAX_RENDERED_PNG_BYTES,
-                "截图 PNG"
-            ),
+            validate_strict_png(&png, crate::project::MAX_RENDERED_PNG_BYTES, "截图 PNG"),
             Ok((1, 1))
         );
     }
 
     #[test]
     fn rejects_truncated_non_png_and_corrupt_auxiliary_chunks() {
-        let png = crate::screenshot::encode_png(&[1, 2, 3, 255], 1, 1).expect("测试 PNG");
+        let png = crate::png_io::encode_png(&[1, 2, 3, 255], 1, 1).expect("测试 PNG");
         assert!(validate_strict_png(&png[..png.len() / 2], usize::MAX, "截图 PNG").is_err());
         assert!(validate_strict_png(b"not a png", usize::MAX, "截图 PNG").is_err());
 
         let corrupt = corrupt_project_chunk_crc();
         assert!(
-            super::super::project::validate_rendered_png(&corrupt).is_ok(),
+            crate::project::validate_rendered_png(&corrupt).is_ok(),
             "工程容器继续容忍损坏的工程辅助块"
         );
         assert!(validate_strict_png(&corrupt, usize::MAX, "截图 PNG").is_err());
@@ -288,7 +279,7 @@ mod tests {
 
     #[test]
     fn validates_image_data_iend_and_exact_container_end() {
-        let png = crate::screenshot::encode_png(&[1, 2, 3, 255], 1, 1).expect("测试 PNG");
+        let png = crate::png_io::encode_png(&[1, 2, 3, 255], 1, 1).expect("测试 PNG");
         assert!(validate_strict_png(
             &corrupt_chunk_crc(png.clone(), b"IDAT"),
             usize::MAX,
@@ -327,7 +318,7 @@ mod tests {
 
     #[test]
     fn rejects_oversized_bytes_without_allocating_the_payload() {
-        let limit = super::super::project::MAX_RENDERED_PNG_BYTES;
+        let limit = crate::project::MAX_RENDERED_PNG_BYTES;
         assert!(validate_byte_length(limit, limit, "截图 PNG").is_ok());
         assert!(validate_byte_length(limit + 1, limit, "截图 PNG").is_err());
     }
@@ -337,7 +328,7 @@ mod tests {
         for (width, height) in [(32_769, 1), (32_768, 2_049)] {
             let png = forged_dimensions(width, height);
             assert_eq!(
-                crate::screenshot::png_dimensions(&png).expect("IHDR 应可读取"),
+                crate::png_io::png_dimensions(&png).expect("IHDR 应可读取"),
                 (width, height)
             );
             assert!(validate_strict_png(&png, usize::MAX, "截图 PNG").is_err());

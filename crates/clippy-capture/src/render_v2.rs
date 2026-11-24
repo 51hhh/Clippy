@@ -5,18 +5,19 @@
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use image::{Rgba, RgbaImage};
+use resvg::tiny_skia::{ColorU8, IntSize, Pixmap, Transform};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::sync::{Arc, OnceLock};
 
-pub(crate) const RENDERER_VERSION: u32 = 2;
+pub const RENDERER_VERSION: u32 = 2;
 
 const FONT_FAMILY: &str = "Noto Sans CJK SC";
 const FONT_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/assets/fonts/NotoSansCJKsc-Medium.otf"
+    "/../../apps/legacy-tauri/native/assets/fonts/NotoSansCJKsc-Medium.otf"
 ));
 // v2 同时持有 source、效果合成图和 tiny-skia 输出；32 Mi 像素可覆盖
 // 4K/5K/6K 显示器和 8K UHD，又不会让 64 Mi 像素的容器上限变成数 GiB 峰值内存。
@@ -253,7 +254,7 @@ impl PixelRect {
 }
 
 /// 以 renderer v2 的固定语义合成一张完整 PNG。
-pub(super) fn render(
+pub fn render(
     source_png: &[u8],
     source_width: u32,
     source_height: u32,
@@ -272,7 +273,7 @@ pub(super) fn render(
         return Err("工程 sourceWidth/sourceHeight 与原图不匹配".to_string());
     }
     render_image(
-        source,
+        &source,
         annotations,
         adjustments,
         PixelRect {
@@ -281,18 +282,37 @@ pub(super) fn render(
             x1: source_width,
             y1: source_height,
         },
-    )
+    )?
+    .encode_png()
 }
 
 /// 截图覆盖层与 Pin 共用同一 v2 语义，但只输出选区视口。
 ///
 /// 只渲染视口及效果采样所需的依赖工作集，同时保持跨边界路径和模糊邻域语义。
-pub(crate) fn render_capture(
+pub fn render_capture(
     source: RgbaImage,
     crop: (u32, u32, u32, u32),
     annotations: &Value,
     adjustments: &Value,
 ) -> Result<Vec<u8>, String> {
+    render_crop(&source, crop, annotations, adjustments)?.encode_png()
+}
+
+pub fn render_pixels(
+    source: &RgbaImage,
+    crop: (u32, u32, u32, u32),
+    annotations: &Value,
+    adjustments: &Value,
+) -> Result<RgbaImage, String> {
+    Ok(render_crop(source, crop, annotations, adjustments)?.into_rgba())
+}
+
+fn render_crop(
+    source: &RgbaImage,
+    crop: (u32, u32, u32, u32),
+    annotations: &Value,
+    adjustments: &Value,
+) -> Result<Rendered, String> {
     let (source_width, source_height) = source.dimensions();
     super::project::validate_canvas_document(
         annotations,
@@ -320,11 +340,11 @@ pub(crate) fn render_capture(
 }
 
 fn render_image(
-    source: RgbaImage,
+    source: &RgbaImage,
     annotations: &Value,
     adjustments: &Value,
     output_rect: PixelRect,
-) -> Result<Vec<u8>, String> {
+) -> Result<Rendered, String> {
     let (source_width, source_height) = source.dimensions();
     let annotations: Vec<Annotation> = serde_json::from_value(annotations.clone())
         .map_err(|error| format!("renderer v2 annotations 解析失败: {error}"))?;
@@ -338,7 +358,7 @@ fn render_image(
     // 是 3r；mosaic 保留与原标注起点对齐的完整 cell；magnifier 保留其采样椭圆。
     let work_rect = effect_work_rect(&annotations, output_rect, source_width, source_height);
     let work_source = image::imageops::crop_imm(
-        &source,
+        source,
         work_rect.x0,
         work_rect.y0,
         work_rect.width(),
@@ -355,7 +375,7 @@ fn render_image(
         source_height,
     )?;
     render_vectors(
-        &composited,
+        composited,
         &annotations,
         adjustments.corner_radius,
         output_rect,
@@ -917,12 +937,48 @@ fn box_blur_vertical(source: &RgbaImage, radius: u32) -> RgbaImage {
     output
 }
 
+enum Rendered {
+    Rgba(RgbaImage),
+    Pixmap(Pixmap),
+}
+
+impl Rendered {
+    fn encode_png(self) -> Result<Vec<u8>, String> {
+        match self {
+            Self::Rgba(image) => {
+                crate::png_io::encode_png(image.as_raw(), image.width(), image.height())
+                    .map_err(|error| error.to_string())
+            }
+            Self::Pixmap(pixmap) => pixmap.encode_png().map_err(|error| error.to_string()),
+        }
+    }
+
+    fn into_rgba(self) -> RgbaImage {
+        let Self::Pixmap(mut pixmap) = self else {
+            let Self::Rgba(image) = self else {
+                unreachable!()
+            };
+            return image;
+        };
+        let (width, height) = (pixmap.width(), pixmap.height());
+        for pixel in pixmap.data_mut().as_chunks_mut::<4>().0 {
+            let premultiplied = resvg::tiny_skia::PremultipliedColorU8::from_rgba(
+                pixel[0], pixel[1], pixel[2], pixel[3],
+            )
+            .expect("tiny-skia 的像素分量不超过 alpha");
+            let color = premultiplied.demultiply();
+            pixel.copy_from_slice(&[color.red(), color.green(), color.blue(), color.alpha()]);
+        }
+        RgbaImage::from_raw(width, height, pixmap.take()).expect("输出缓冲尺寸来自 Pixmap")
+    }
+}
+
 fn render_vectors(
-    composited: &RgbaImage,
+    composited: RgbaImage,
     annotations: &[Annotation],
     corner_radius: f64,
     output_rect: PixelRect,
-) -> Result<Vec<u8>, String> {
+) -> Result<Rendered, String> {
     let output_width = output_rect.width();
     let output_height = output_rect.height();
     let needs_vector_pass = corner_radius.round() > 0.0
@@ -930,13 +986,50 @@ fn render_vectors(
             !annotation.is_effect() || matches!(annotation, Annotation::Magnifier { .. })
         });
     if !needs_vector_pass {
-        return crate::screenshot::encode_png(composited.as_raw(), output_width, output_height)
-            .map_err(|error| format!("renderer v2 PNG 编码失败: {error}"));
+        return Ok(Rendered::Rgba(composited));
     }
 
+    let header = format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{output_width}" height="{output_height}" viewBox="{} {} {output_width} {output_height}" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">"#,
+        output_rect.x0, output_rect.y0
+    );
+    let mut svg = header.clone();
+    let radius = corner_radius
+        .round()
+        .clamp(0.0, f64::from(output_width.min(output_height)) / 2.0);
+
+    if radius > 0.0 {
+        return render_rounded_pixels(&composited, annotations, radius, output_rect);
+    }
+    append_vectors(&mut svg, annotations)?;
+    svg.push_str("</svg>");
+
+    let options = vector_options(annotations);
+    let tree = resvg::usvg::Tree::from_data(svg.as_bytes(), &options)
+        .map_err(|error| format!("renderer v2 SVG 解析失败: {error}"))?;
+    let mut bytes = composited.into_raw();
+    for pixel in bytes.as_chunks_mut::<4>().0 {
+        let color = ColorU8::from_rgba(pixel[0], pixel[1], pixel[2], pixel[3]).premultiply();
+        pixel.copy_from_slice(&[color.red(), color.green(), color.blue(), color.alpha()]);
+    }
+    let size = IntSize::from_wh(output_width, output_height).expect("输出视口已验证");
+    let mut pixmap = Pixmap::from_vec(bytes, size).expect("效果层返回相同视口尺寸");
+    resvg::render(&tree, Transform::identity(), &mut pixmap.as_mut());
+    Ok(Rendered::Pixmap(pixmap))
+}
+
+// v2 圆角组的旧裁切抗锯齿仍参与工程像素校验，保留原光栅路径。
+fn render_rounded_pixels(
+    composited: &RgbaImage,
+    annotations: &[Annotation],
+    radius: f64,
+    output_rect: PixelRect,
+) -> Result<Rendered, String> {
+    let output_width = output_rect.width();
+    let output_height = output_rect.height();
     // composited 已经是输出视口；这里只把这块小图嵌入 SVG。旧实现会先把整张 4K
     // 中间图编码成 PNG、base64，再让 resvg 为几百像素的选区重新解码整图。
-    let base_png = crate::screenshot::encode_png(composited.as_raw(), output_width, output_height)
+    let base_png = crate::png_io::encode_png(composited.as_raw(), output_width, output_height)
         .map_err(|error| format!("renderer v2 中间 PNG 编码失败: {error}"))?;
     let mut svg = String::with_capacity(base_png.len().saturating_mul(4) / 3 + 8_192);
     write!(
@@ -946,26 +1039,14 @@ fn render_vectors(
         output_rect.y0
     )
     .expect("写 String 不会失败");
-    let radius = corner_radius
-        .round()
-        .clamp(0.0, f64::from(output_width.min(output_height)) / 2.0);
-    if radius > 0.0 {
-        write!(
-            svg,
-            r#"<clipPath id="rounded"><rect x="{}" y="{}" width="{output_width}" height="{output_height}" rx="{}" ry="{}"/></clipPath>"#,
-            output_rect.x0,
-            output_rect.y0,
-            number(radius),
-            number(radius)
-        )
-        .expect("写 String 不会失败");
-    }
-    svg.push_str("</defs>");
-    if radius > 0.0 {
-        svg.push_str(r#"<g clip-path="url(#rounded)">"#);
-    } else {
-        svg.push_str("<g>");
-    }
+    write!(
+        svg,
+        r#"<clipPath id="rounded"><rect x="{}" y="{}" width="{output_width}" height="{output_height}" rx="{}" ry="{}"/></clipPath></defs><g clip-path="url(#rounded)">"#,
+        output_rect.x0,
+        output_rect.y0,
+        number(radius),
+        number(radius),
+    ).expect("写 String 不会失败");
     write!(
         svg,
         r#"<image x="{}" y="{}" width="{output_width}" height="{output_height}" preserveAspectRatio="none" image-rendering="optimizeSpeed" href="data:image/png;base64,{}"/>"#,
@@ -975,6 +1056,23 @@ fn render_vectors(
     )
     .expect("写 String 不会失败");
 
+    append_vectors(&mut svg, annotations)?;
+    svg.push_str("</g></svg>");
+
+    let options = vector_options(annotations);
+    let tree = resvg::usvg::Tree::from_data(svg.as_bytes(), &options)
+        .map_err(|error| format!("renderer v2 SVG 解析失败: {error}"))?;
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(output_width, output_height)
+        .ok_or_else(|| "renderer v2 无法分配输出像素".to_string())?;
+    resvg::render(
+        &tree,
+        resvg::tiny_skia::Transform::identity(),
+        &mut pixmap.as_mut(),
+    );
+    Ok(Rendered::Pixmap(pixmap))
+}
+
+fn append_vectors(svg: &mut String, annotations: &[Annotation]) -> Result<(), String> {
     // 放大镜白边属于效果层，必须在所有用户矢量标注之前绘制。
     for annotation in annotations {
         if let Annotation::Magnifier { rect, .. } = annotation {
@@ -995,27 +1093,25 @@ fn render_vectors(
         .iter()
         .filter(|annotation| !annotation.is_effect())
     {
-        append_vector(&mut svg, annotation)?;
+        append_vector(svg, annotation)?;
     }
-    svg.push_str("</g></svg>");
+    Ok(())
+}
 
+fn vector_options(annotations: &[Annotation]) -> resvg::usvg::Options<'static> {
     let mut options = resvg::usvg::Options {
         font_family: FONT_FAMILY.to_string(),
         ..resvg::usvg::Options::default()
     };
-    options.fontdb = renderer_font_database();
-    let tree = resvg::usvg::Tree::from_data(svg.as_bytes(), &options)
-        .map_err(|error| format!("renderer v2 SVG 解析失败: {error}"))?;
-    let mut pixmap = resvg::tiny_skia::Pixmap::new(output_width, output_height)
-        .ok_or_else(|| "renderer v2 无法分配输出像素".to_string())?;
-    resvg::render(
-        &tree,
-        resvg::tiny_skia::Transform::identity(),
-        &mut pixmap.as_mut(),
-    );
-    pixmap
-        .encode_png()
-        .map_err(|error| format!("renderer v2 PNG 编码失败: {error}"))
+    if annotations.iter().any(|annotation| {
+        matches!(
+            annotation,
+            Annotation::Text { .. } | Annotation::Measure { .. }
+        )
+    }) {
+        options.fontdb = renderer_font_database();
+    }
+    options
 }
 
 fn renderer_font_database() -> Arc<resvg::usvg::fontdb::Database> {
@@ -1340,7 +1436,7 @@ mod tests {
     }
 
     fn write_rgba_png(path: &Path, image: &RgbaImage) {
-        let png = crate::screenshot::encode_png(image.as_raw(), image.width(), image.height())
+        let png = crate::png_io::encode_png(image.as_raw(), image.width(), image.height())
             .expect("金图证据编码失败");
         std::fs::write(path, png).expect("金图证据写入失败");
     }
@@ -1371,7 +1467,7 @@ mod tests {
         changed_pixel_tolerance: usize,
     ) {
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/pin-render-v2")
+            .join("../../apps/legacy-tauri/native/tests/fixtures/pin-render-v2")
             .join(format!("{name}.png"));
         let expected_png = std::fs::read(&fixture).unwrap_or_else(|error| {
             let directory = golden_artifact_directory();
@@ -1417,7 +1513,8 @@ mod tests {
         std::env::var_os("CLIPPY_TEST_ARTIFACT_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| {
-                Path::new(env!("CARGO_MANIFEST_DIR")).join("target/test-artifacts/pin-render-v2")
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../target/test-artifacts/pin-render-v2")
             })
     }
 
@@ -1433,7 +1530,7 @@ mod tests {
                 ]);
             }
         }
-        crate::screenshot::encode_png(&rgba, width, height).unwrap()
+        crate::png_io::encode_png(&rgba, width, height).unwrap()
     }
 
     fn effect() -> Value {
@@ -1466,7 +1563,7 @@ mod tests {
         let source = RgbaImage::from_fn(256, 1, |x, _| {
             Rgba([x as u8, (255 - x) as u8, 200, x as u8])
         });
-        let source_png = crate::screenshot::encode_png(source.as_raw(), 256, 1).unwrap();
+        let source_png = crate::png_io::encode_png(source.as_raw(), 256, 1).unwrap();
         let rendered = render(&source_png, 256, 1, &serde_json::json!([]), &adjustments()).unwrap();
         assert_eq!(decode(&rendered), source);
     }
@@ -1481,7 +1578,7 @@ mod tests {
                 255,
             ])
         });
-        let source_png = crate::screenshot::encode_png(source.as_raw(), 32, 24).unwrap();
+        let source_png = crate::png_io::encode_png(source.as_raw(), 32, 24).unwrap();
         let annotations = serde_json::json!([{"id":"m","type":"mosaic",
             "rect":{"x":1,"y":2,"width":26,"height":14},
             "effect":{"mosaicCell":12,"blurRadius":8,"spotlightDim":0.5,"magnifierZoom":2}}]);

@@ -71,6 +71,7 @@ tiny-skia = "0.11"
 usvg = "0.43"
 
 [dependencies]
+clippy-capture = { path = "../../../crates/clippy-capture" }
 clippy-core = { path = "../../../crates/clippy-core" }
 clippy-platform = { path = "../../../crates/clippy-platform" }
 clippy-storage = { path = "../../../crates/clippy-storage" }

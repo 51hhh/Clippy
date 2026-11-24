@@ -1,0 +1,277 @@
+use super::{capture, clipboard, post, use_app, App, Event};
+use crate::EditorWindow;
+use anyhow::{anyhow, Result};
+use clippy_capture::editor::{Adjustments, Editor, Tool};
+use clippy_core::image_output::SaveTarget;
+use image::RgbaImage;
+use slint::{
+    CloseRequestResponse, ComponentHandle, ModelRc, Rgba8Pixel, SharedPixelBuffer, VecModel,
+};
+use std::{sync::Arc, thread};
+
+const COLORS: [&str; 6] = [
+    "#ff3b30", "#ff9500", "#34c759", "#0a84ff", "#ffffff", "#171717",
+];
+const MAX_STROKE_POINTS: usize = 4_096;
+
+pub(super) enum Action {
+    Undo,
+    Redo,
+    Adjust(Adjustments),
+    Copy,
+    Save,
+    Close,
+}
+
+pub(super) struct View {
+    id: u64,
+    window: EditorWindow,
+    document: Editor,
+    current: Arc<RgbaImage>,
+    stroke: Vec<[f32; 2]>,
+    busy: bool,
+}
+
+impl View {
+    pub(super) fn open(id: u64, image: RgbaImage) -> Result<Self> {
+        let image = Arc::new(image);
+        let window = EditorWindow::new()?;
+        window.set_tools(ModelRc::new(VecModel::from(
+            Tool::ALL
+                .into_iter()
+                .map(|tool| slint::SharedString::from(tool.label()))
+                .collect::<Vec<_>>(),
+        )));
+        window.set_aspect(image.width() as f32 / image.height() as f32);
+        window.set_picture(to_slint(&image));
+        window.on_start_stroke(|x, y| {
+            edit_sync(|editor| {
+                editor.stroke.clear();
+                editor.stroke.push([x, y]);
+            })
+        });
+        window.on_move_stroke(|x, y| {
+            edit_sync(|editor| {
+                if !editor.stroke.is_empty() && editor.stroke.len() < MAX_STROKE_POINTS {
+                    editor.stroke.push([x, y]);
+                }
+            })
+        });
+        window.on_finish_stroke(|x, y, tool, color, size, text| {
+            edit_sync(|editor| {
+                if editor.stroke.is_empty() {
+                    return;
+                }
+                let mut points = std::mem::take(&mut editor.stroke);
+                points.push([x, y]);
+                let Some(tool) = Tool::ALL.get(tool as usize) else {
+                    return;
+                };
+                let Some(color) = COLORS.get(color as usize) else {
+                    return;
+                };
+                match editor
+                    .document
+                    .annotate(*tool, &points, color, size, text.as_str())
+                {
+                    Ok(true) => editor.render(),
+                    Ok(false) => {}
+                    Err(error) => editor.set_status(error),
+                }
+            })
+        });
+        window.on_undo(|| action(Action::Undo));
+        window.on_redo(|| action(Action::Redo));
+        window.on_adjustments(|grayscale, corner_radius| {
+            action(Action::Adjust(Adjustments {
+                grayscale,
+                corner_radius,
+                ..Adjustments::default()
+            }))
+        });
+        window.on_copy(|| action(Action::Copy));
+        window.on_save(|| action(Action::Save));
+        window.on_close_editor(|| action(Action::Close));
+        window.window().on_close_requested(|| {
+            action(Action::Close);
+            CloseRequestResponse::KeepWindowShown
+        });
+        window.show()?;
+        Ok(Self {
+            id,
+            window,
+            document: Editor::new(image.clone()),
+            current: image,
+            stroke: Vec::new(),
+            busy: false,
+        })
+    }
+
+    pub(super) fn show(&self) -> Result<()> {
+        Ok(self.window.show()?)
+    }
+
+    fn set_status(&self, status: String) {
+        self.window.set_status(status.into());
+    }
+
+    fn set_busy(&mut self, busy: bool) {
+        self.busy = busy;
+        self.window.set_busy(busy);
+        self.window.set_can_undo(self.document.has_annotations());
+        self.window.set_can_redo(self.document.has_redo());
+    }
+
+    fn render(&mut self) {
+        let project = self.document.snapshot();
+        let id = self.id;
+        self.set_busy(true);
+        self.window.set_output_ready(false);
+        self.set_status("Rendering…".to_owned());
+        if let Err(error) = thread::Builder::new()
+            .name("clippy-render".into())
+            .spawn(move || {
+                let result = project.render().map_err(anyhow::Error::msg);
+                post(Event::EditorRendered(id, result));
+            })
+        {
+            self.rendered(Err(error.into()));
+        }
+    }
+
+    fn rendered(&mut self, result: Result<RgbaImage>) {
+        match result {
+            Ok(image) => {
+                self.window.set_picture(to_slint(&image));
+                self.current = Arc::new(image);
+                self.set_status(String::new());
+                self.window.set_output_ready(true);
+            }
+            Err(error) => self.set_status(format!("Could not render image: {error}")),
+        }
+        self.set_busy(false);
+    }
+}
+
+impl Drop for View {
+    fn drop(&mut self) {
+        let _ = self.window.hide();
+    }
+}
+
+pub(super) fn to_slint(image: &RgbaImage) -> slint::Image {
+    let pixels = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
+        image.as_raw(),
+        image.width(),
+        image.height(),
+    );
+    slint::Image::from_rgba8(pixels)
+}
+
+fn action(action: Action) {
+    post(Event::EditorAction(action));
+}
+
+fn edit_sync(edit: impl FnOnce(&mut View)) {
+    use_app(|app| {
+        if let Some(editor) = app.editor.as_mut().filter(|editor| !editor.busy) {
+            edit(editor);
+        }
+    });
+}
+
+impl App {
+    pub(super) fn open_editor(&mut self, image: RgbaImage) -> Result<()> {
+        if let Some(view) = self.editor.as_ref() {
+            return view.show();
+        }
+        self.editor_id += 1;
+        self.editor = Some(View::open(self.editor_id, image)?);
+        Ok(())
+    }
+
+    pub(super) fn editor_rendered(&mut self, id: u64, result: Result<RgbaImage>) {
+        if let Some(editor) = self.editor.as_mut().filter(|editor| editor.id == id) {
+            editor.rendered(result);
+        }
+    }
+
+    pub(super) fn editor_output(&mut self, id: u64, result: Result<String>) {
+        if let Some(editor) = self.editor.as_mut().filter(|editor| editor.id == id) {
+            editor
+                .set_status(result.unwrap_or_else(|error| format!("Image output failed: {error}")));
+            editor.set_busy(false);
+        }
+    }
+
+    pub(super) fn edit(&mut self, action: Action) {
+        let Some(editor) = self.editor.as_mut() else {
+            return;
+        };
+        // 保持每个编辑窗口至多一个工作任务，输出未提交时窗口继续承载它的反馈。
+        if editor.busy {
+            return;
+        }
+        match action {
+            Action::Close => {
+                self.editor.take();
+            }
+            Action::Undo => {
+                if editor.document.undo() {
+                    editor.render();
+                }
+            }
+            Action::Redo => {
+                if editor.document.redo() {
+                    editor.render();
+                }
+            }
+            Action::Adjust(adjustments) => {
+                editor.document.adjust(adjustments);
+                editor.render();
+            }
+            Action::Copy => {
+                if !editor.window.get_output_ready() {
+                    return;
+                }
+                let id = editor.id;
+                let result = self.clipboard.submit(clipboard::Request::WriteImage {
+                    image: editor.current.clone(),
+                    finish: Box::new(move |result| {
+                        post(Event::EditorOutput(
+                            id,
+                            result.map(|()| "Image copied".to_owned()),
+                        ))
+                    }),
+                });
+                match result {
+                    Ok(()) => editor.set_busy(true),
+                    Err(error) => editor.set_status(error.to_string()),
+                }
+            }
+            Action::Save => {
+                if !editor.window.get_output_ready() {
+                    return;
+                }
+                let target = SaveTarget::from_config(
+                    &self.config,
+                    &self.paths.screenshot_default(self.identity),
+                );
+                let id = editor.id;
+                let image = editor.current.clone();
+                editor.set_busy(true);
+                editor.set_status("Saving…".to_owned());
+                if let Err(error) = thread::Builder::new()
+                    .name("clippy-image-save".into())
+                    .spawn(move || {
+                        let result = capture::save_png(&image, &target)
+                            .map(|path| format!("Saved to {}", path.display()));
+                        post(Event::EditorOutput(id, result));
+                    })
+                {
+                    self.editor_output(id, Err(anyhow!(error)));
+                }
+            }
+        }
+    }
+}

@@ -10,17 +10,17 @@ use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 
-pub(super) const PROJECT_KEYWORD: &str = "clippy-project";
+pub const PROJECT_KEYWORD: &str = "clippy-project";
 const PROJECT_FORMAT: &str = "clippy-pin-project";
 const LEGACY_PROJECT_VERSION: u32 = 2;
-pub(super) const PROJECT_VERSION: u32 = 3;
-pub(super) const LEGACY_RENDERER_VERSION: u32 = 1;
-pub(super) const RENDERER_VERSION: u32 = super::render_v2::RENDERER_VERSION;
+pub const PROJECT_VERSION: u32 = 3;
+pub const LEGACY_RENDERER_VERSION: u32 = 1;
+pub const RENDERER_VERSION: u32 = super::render_v2::RENDERER_VERSION;
 
-pub(super) const MAX_RENDERED_PNG_BYTES: usize = 64 * 1024 * 1024;
-pub(super) const MAX_SOURCE_PNG_BYTES: usize = 64 * 1024 * 1024;
-pub(super) const MAX_PROJECT_JSON_BYTES: usize = 96 * 1024 * 1024;
-pub(super) const MAX_CONTAINER_BYTES: usize = 160 * 1024 * 1024;
+pub const MAX_RENDERED_PNG_BYTES: usize = 64 * 1024 * 1024;
+pub const MAX_SOURCE_PNG_BYTES: usize = 64 * 1024 * 1024;
+pub const MAX_PROJECT_JSON_BYTES: usize = 96 * 1024 * 1024;
+pub const MAX_CONTAINER_BYTES: usize = 160 * 1024 * 1024;
 const MAX_ANNOTATIONS: usize = 10_000;
 const MAX_STROKE_POINTS: usize = 100_000;
 const MAX_TOTAL_POINTS: usize = 500_000;
@@ -94,7 +94,7 @@ pub struct InitialProjectSource {
 /// `ProjectSource::png_base64`，否则每个打开的工程都会常驻一份相同 PNG 的 Vec 和一份
 /// 大 33% 的 base64 String。新版保存把原图登记为内部 asset；`materialize` 仅保留给旧格式测试。
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct RuntimeProject {
+pub struct RuntimeProject {
     format: String,
     format_version: u32,
     renderer_version: u32,
@@ -107,7 +107,7 @@ pub(super) struct RuntimeProject {
 
 impl PinProject {
     #[cfg_attr(not(test), allow(dead_code))]
-    pub(super) fn new(
+    pub fn new(
         source_png: &[u8],
         rendered_png: &[u8],
         renderer_version: u32,
@@ -141,7 +141,7 @@ impl PinProject {
         })
     }
 
-    pub(super) fn validate(&self) -> Result<Vec<u8>, String> {
+    pub fn validate(&self) -> Result<Vec<u8>, String> {
         if self.format != PROJECT_FORMAT {
             return Err("工程格式标识不匹配".to_string());
         }
@@ -221,7 +221,7 @@ impl PinProject {
     }
 
     /// `extract` 已完成完整校验后，将工程拆成唯一一份原图字节和不含 base64 的运行时元数据。
-    pub(super) fn into_runtime(self) -> Result<(Vec<u8>, RuntimeProject), String> {
+    pub fn into_runtime(self) -> Result<(Vec<u8>, RuntimeProject), String> {
         let source_png = STANDARD
             .decode(&self.source.png_base64)
             .map_err(|_| "工程原图 base64 无效".to_string())?;
@@ -246,20 +246,20 @@ impl PinProject {
 impl RuntimeProject {
     /// 从 SQLite 管理的根图 + 操作文档恢复运行时工程。预览摘要仍按当前 clip 的扁平
     /// 像素生成，因此未编辑直接另存时也能安全物化为兼容的自包含 v3 PNG。
-    pub(crate) fn from_managed(
+    pub fn from_managed(
         source_png: &[u8],
         preview_png: &[u8],
         renderer_version: u32,
-        source_width: u32,
-        source_height: u32,
+        source_size: (u32, u32),
         annotations: Value,
         adjustments: Value,
+        app_version: &str,
     ) -> Result<Self, String> {
         if renderer_version != RENDERER_VERSION {
             return Err("内部图片修订的渲染器版本不受支持".to_string());
         }
         let (width, height) = validate_png(source_png, MAX_SOURCE_PNG_BYTES, "工程原图")?;
-        if (width, height) != (source_width, source_height) {
+        if (width, height) != source_size {
             return Err("内部图片修订的原图尺寸不匹配".to_string());
         }
         let preview = preview_fingerprint(preview_png)?;
@@ -276,7 +276,7 @@ impl RuntimeProject {
             format_version: PROJECT_VERSION,
             renderer_version,
             created_at: chrono::Local::now().timestamp(),
-            app_version: env!("CARGO_PKG_VERSION").to_string(),
+            app_version: app_version.to_owned(),
             source: InitialProjectSource {
                 width,
                 height,
@@ -287,7 +287,7 @@ impl RuntimeProject {
         })
     }
 
-    pub(super) fn document_parts(&self) -> (u32, u32, u32, Value, Value) {
+    pub fn document_parts(&self) -> (u32, u32, u32, Value, Value) {
         (
             self.renderer_version,
             self.source.width,
@@ -297,7 +297,7 @@ impl RuntimeProject {
         )
     }
 
-    pub(crate) fn initial_payload(&self) -> InitialProject {
+    pub fn initial_payload(&self) -> InitialProject {
         InitialProject {
             format: self.format.clone(),
             format_version: self.format_version,
@@ -309,7 +309,7 @@ impl RuntimeProject {
 
     /// 旧格式兼容测试使用：临时恢复自包含表示。
     #[cfg_attr(not(test), allow(dead_code))]
-    pub(super) fn materialize(&self, source_png: &[u8]) -> PinProject {
+    pub fn materialize(&self, source_png: &[u8]) -> PinProject {
         PinProject {
             format: self.format.clone(),
             format_version: self.format_version,
@@ -328,7 +328,7 @@ impl RuntimeProject {
     }
 }
 
-pub(super) fn validate_rendered_png(png: &[u8]) -> Result<(u32, u32), String> {
+pub fn validate_rendered_png(png: &[u8]) -> Result<(u32, u32), String> {
     validate_png(png, MAX_RENDERED_PNG_BYTES, "合成 PNG")
 }
 
@@ -338,11 +338,7 @@ fn validate_png(png: &[u8], byte_limit: usize, name: &str) -> Result<(u32, u32),
 
 /// 在分配像素缓冲区前先校验文件大小和 IHDR 尺寸，再完成一次完整解码。
 /// 调用方需要像素做摘要或重编码时复用返回值，不能为了每一步重新解同一张 4K PNG。
-pub(super) fn decode_png(
-    png: &[u8],
-    byte_limit: usize,
-    name: &str,
-) -> Result<image::RgbaImage, String> {
+pub fn decode_png(png: &[u8], byte_limit: usize, name: &str) -> Result<image::RgbaImage, String> {
     if png.len() > byte_limit {
         return Err(format!("{name}超过 {} MiB 上限", byte_limit / 1024 / 1024));
     }
@@ -393,7 +389,7 @@ fn validate_preview_metadata(
 
 /// 重新编码合成图并写入真正压缩的 iTXt。
 #[cfg_attr(not(test), allow(dead_code))]
-pub(super) fn embed(png: &[u8], project: &PinProject) -> Result<Vec<u8>, String> {
+pub fn embed(png: &[u8], project: &PinProject) -> Result<Vec<u8>, String> {
     let image = decode_png(png, MAX_RENDERED_PNG_BYTES, "合成 PNG")?;
     let actual_preview = preview_fingerprint_from_image(&image);
     project.validate()?;
@@ -438,14 +434,14 @@ pub(super) fn embed(png: &[u8], project: &PinProject) -> Result<Vec<u8>, String>
 }
 
 /// 重新编码为不含任何工程块的普通 PNG。扁平导出不能信任前端传来的 PNG 没有元数据。
-pub(super) fn flatten(png: &[u8]) -> Result<Vec<u8>, String> {
+pub fn flatten(png: &[u8]) -> Result<Vec<u8>, String> {
     validate_rendered_png(png)?;
     encode_flattened(png)
 }
 
 /// 打开可编辑容器时只让 `pin-frame` 交付 IDAT 重编码后的轻量预览，不把内嵌原图
 /// 一起复制进显示路径。
-pub(super) fn flatten_container(png: &[u8]) -> Result<Vec<u8>, String> {
+pub fn flatten_container(png: &[u8]) -> Result<Vec<u8>, String> {
     validate_rendered_png_container(png)?;
     encode_flattened(png)
 }
@@ -456,7 +452,7 @@ fn encode_flattened(png: &[u8]) -> Result<Vec<u8>, String> {
         .map_err(|_| "合成 PNG 无法完整解码".to_string())?
         .into_rgba8();
     let (width, height) = image.dimensions();
-    let flat = crate::screenshot::encode_png(image.as_raw(), width, height)
+    let flat = crate::png_io::encode_png(image.as_raw(), width, height)
         .map_err(|error| format!("扁平 PNG 编码失败: {error}"))?;
     if flat.len() > MAX_RENDERED_PNG_BYTES {
         return Err("合成 PNG 超过 64 MiB 上限".to_string());
@@ -466,7 +462,7 @@ fn encode_flattened(png: &[u8]) -> Result<Vec<u8>, String> {
 
 /// 元数据缺失、损坏、v1、未来版本或信任边界校验失败均返回 `Ok(None)`；只有容器本身不是
 /// PNG 才返回 `Err`。
-pub(super) fn extract(png: &[u8]) -> Result<Option<PinProject>, String> {
+pub fn extract(png: &[u8]) -> Result<Option<PinProject>, String> {
     if png.len() > MAX_CONTAINER_BYTES {
         return Err("PNG 文件超过 160 MiB 上限".to_string());
     }
@@ -589,7 +585,7 @@ fn validate_document(document: &ProjectDocument, width: u32, height: u32) -> Res
 }
 
 /// 保存前的工程文档与导入工程使用同一条信任边界，renderer v2 不能另写一份宽松 schema。
-pub(super) fn validate_canvas_document(
+pub fn validate_canvas_document(
     annotations: &Value,
     adjustments: &Value,
     width: u32,
@@ -810,7 +806,7 @@ mod tests {
     use super::*;
 
     fn sample_png() -> Vec<u8> {
-        crate::screenshot::encode_png(&[40, 80, 120, 255, 9, 8, 7, 255], 2, 1).unwrap()
+        crate::png_io::encode_png(&[40, 80, 120, 255, 9, 8, 7, 255], 2, 1).unwrap()
     }
 
     fn annotations() -> Value {
@@ -864,7 +860,7 @@ mod tests {
         let rendered = sample_png();
         let original = project();
         let embedded = embed(&rendered, &original).unwrap();
-        crate::screenshot::validate_png(&embedded).unwrap();
+        crate::png_io::validate_png(&embedded).unwrap();
         let decoder = png::Decoder::new(std::io::Cursor::new(&embedded));
         let reader = decoder.read_info().unwrap();
         let chunk = reader
@@ -913,8 +909,7 @@ mod tests {
     fn v3_project_cannot_be_transplanted_onto_another_idat() {
         let rendered = sample_png();
         let project = project();
-        let replacement =
-            crate::screenshot::encode_png(&[1, 2, 3, 255, 4, 5, 6, 255], 2, 1).unwrap();
+        let replacement = crate::png_io::encode_png(&[1, 2, 3, 255, 4, 5, 6, 255], 2, 1).unwrap();
         let forged = png_with_project_text(&replacement, serde_json::to_string(&project).unwrap());
 
         assert_eq!(extract(&forged).unwrap(), None);
@@ -963,7 +958,7 @@ mod tests {
         ] {
             let out = png_with_project_text(&rendered, text);
             assert_eq!(extract(&out).unwrap(), None);
-            crate::screenshot::validate_png(&out).unwrap();
+            crate::png_io::validate_png(&out).unwrap();
         }
     }
 
@@ -1060,9 +1055,6 @@ mod tests {
 
         assert_eq!(extract(&damaged).unwrap(), None);
         let fallback = flatten_container(&damaged).expect("损坏工程仍应能取出 IDAT");
-        assert_eq!(
-            crate::screenshot::png_dimensions(&fallback).unwrap(),
-            (2, 1)
-        );
+        assert_eq!(crate::png_io::png_dimensions(&fallback).unwrap(), (2, 1));
     }
 }

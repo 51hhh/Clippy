@@ -84,6 +84,10 @@ impl Clipboard {
             Content::Image(image) => self.handle.set_image(image),
         }
     }
+
+    pub fn write_image(&mut self, image: ImageData<'_>) -> Result<(), Error> {
+        self.handle.set_image(image)
+    }
 }
 
 fn read_flavor<T>(result: Result<T, Error>) -> Result<Option<T>, Error> {

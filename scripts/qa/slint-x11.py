@@ -22,6 +22,7 @@ from gi.repository import Gdk, GdkPixbuf, GdkX11, Gio, GLib, Gtk
 
 TITLE = "Clippy Slint QA"
 CAPTURE_TITLE = "Clippy Screenshot"
+EDITOR_TITLE = "Clippy Image Editor"
 TEXT = "needle 自动剪贴板 QA"
 OTHER = "unrelated fixture"
 HTML = "<b>rich-qa</b>".encode()
@@ -195,11 +196,15 @@ def clipboard_png():
 
 
 def decode_png(data):
+    pixbuf = pixbuf_png(data)
+    return (pixbuf.get_width(), pixbuf.get_height()), pixbuf.get_pixels()[:3]
+
+
+def pixbuf_png(data):
     loader = GdkPixbuf.PixbufLoader.new_with_type("png")
     loader.write(data)
     loader.close()
-    pixbuf = loader.get_pixbuf()
-    return (pixbuf.get_width(), pixbuf.get_height()), pixbuf.get_pixels()[:3]
+    return loader.get_pixbuf()
 
 
 def save_failure_frame():
@@ -386,6 +391,33 @@ def run(binary, root):
         wait_for(lambda: not titled_window(CAPTURE_TITLE), "cancel did not close overlay")
         assert list(output.parent.iterdir()) == [output]
         print("PASS screenshot cancellation leaves the existing file untouched", flush=True)
+
+        tray.activate("Screenshot")
+        middle, top = select_area()
+        desktop.click(middle, top + 85)
+        _, (x, y, width, height) = wait_for(lambda: titled_window(EDITOR_TITLE), "editor never opened")
+        desktop.drag(x + width // 3, y + height // 3, x + width * 2 // 3, y + height * 2 // 3)
+        # 一次标注会在工作线程合成，更改入画后才能提交。
+        time.sleep(0.3)
+        desktop.click(x + width - 253, y + height - 55)
+
+        def edited_clipboard():
+            png = clipboard_png()
+            if png:
+                pixbuf = pixbuf_png(png)
+                if b"\xff\x3b\x30" in pixbuf.get_pixels():
+                    return pixbuf
+            return None
+
+        edited_copy = wait_for(edited_clipboard, "editor copy did not contain the red rectangle")
+        desktop.click(x + width - 155, y + height - 55)
+        edited_file = output.with_name("fixture-2.png")
+        wait_for(edited_file.is_file, "edited PNG was not committed")
+        assert pixbuf_png(edited_file.read_bytes()).get_pixels() == edited_copy.get_pixels()
+        assert (edited_copy.get_width(), edited_copy.get_height()) == expected[0]
+        desktop.click(x + width - 57, y + height - 55)
+        wait_for(lambda: not titled_window(EDITOR_TITLE), "editor stayed open after close")
+        print("PASS screenshot editor and identical copy/save pixels", flush=True)
 
         second = subprocess.run([binary, "--open"], env=env, timeout=4)
         assert second.returncode == 0

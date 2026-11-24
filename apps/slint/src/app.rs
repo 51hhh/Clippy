@@ -1,4 +1,4 @@
-use crate::{build_label, clip_row, AppWindow, ClippyTray};
+use crate::{build_label, clip_row, AppWindow, CaptureAction, ClippyTray};
 use anyhow::{Context, Result};
 use clippy_core::{
     config::{parse_config_json, serialize_config_json, AppConfig},
@@ -21,11 +21,13 @@ use slint::{
 use std::{
     cell::RefCell,
     fs, io,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
 mod capture;
 mod clipboard;
+mod editor;
 
 thread_local! {
     static APP: RefCell<Option<App>> = const { RefCell::new(None) };
@@ -89,6 +91,8 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
             shortcut_status,
             action_status: SharedString::default(),
             capture_views: None,
+            editor: None,
+            editor_id: 0,
         }))
     });
     let timer = Timer::default();
@@ -130,7 +134,7 @@ fn load_config(paths: &AppPaths, identity: &DeploymentIdentity) -> Result<AppCon
     }
 }
 
-pub(super) enum Event {
+enum Event {
     Open(bool),
     Hide,
     HistoryChanged,
@@ -149,14 +153,18 @@ pub(super) enum Event {
     CaptureCancel,
     CaptureSelection {
         index: usize,
-        save: bool,
+        action: CaptureAction,
         bounds: [f32; 4],
     },
     CaptureClipboard(Result<image::RgbaImage>, Instant),
     CaptureFinished(Result<String>, Instant),
+    EditorOpen(Result<image::RgbaImage>),
+    EditorAction(editor::Action),
+    EditorRendered(u64, Result<image::RgbaImage>),
+    EditorOutput(u64, Result<String>),
 }
 
-pub(super) fn post(event: Event) {
+fn post(event: Event) {
     let _ = slint::invoke_from_event_loop(move || handle(event));
 }
 
@@ -185,6 +193,8 @@ struct App {
     shortcut_status: String,
     action_status: SharedString,
     capture_views: Option<Vec<capture::View>>,
+    editor: Option<editor::View>,
+    editor_id: u64,
 }
 
 impl App {
@@ -281,25 +291,34 @@ impl App {
             }
             Event::CaptureSelection {
                 index,
-                save,
+                action,
                 bounds,
             } => {
                 if let Some(views) = self.capture_views.take() {
-                    let target = save.then(|| {
-                        SaveTarget::from_config(
+                    let destination = match action {
+                        CaptureAction::Copy => capture::Destination::Clipboard,
+                        CaptureAction::Edit => capture::Destination::Editor,
+                        CaptureAction::Save => capture::Destination::File(SaveTarget::from_config(
                             &self.config,
                             &self.paths.screenshot_default(self.identity),
-                        )
-                    });
-                    if let Err(error) = capture::output(views, index, bounds, target) {
+                        )),
+                    };
+                    if let Err(error) = capture::output(views, index, bounds, destination) {
                         self.capture_error(error.into());
                     }
                 }
             }
             Event::CaptureClipboard(result, started) => {
                 let result = result.and_then(|image| {
-                    self.clipboard
-                        .submit(clipboard::Request::WriteImage(image, started))
+                    self.clipboard.submit(clipboard::Request::WriteImage {
+                        image: Arc::new(image),
+                        finish: Box::new(move |result| {
+                            post(Event::CaptureFinished(
+                                result.map(|()| "Screenshot copied".to_owned()),
+                                started,
+                            ))
+                        }),
+                    })
                 });
                 if let Err(error) = result {
                     self.capture_error(error);
@@ -317,6 +336,15 @@ impl App {
                 }
                 Err(error) => self.capture_error(error),
             },
+            Event::EditorOpen(result) => {
+                self.set_busy(false);
+                if let Err(error) = result.and_then(|image| self.open_editor(image)) {
+                    self.capture_error(error);
+                }
+            }
+            Event::EditorAction(action) => self.edit(action),
+            Event::EditorRendered(id, result) => self.editor_rendered(id, result),
+            Event::EditorOutput(id, result) => self.editor_output(id, result),
         }
     }
 

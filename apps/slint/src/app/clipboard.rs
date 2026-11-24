@@ -12,7 +12,10 @@ use image::{codecs::png::PngEncoder, ExtendedColorType, ImageEncoder, ImageForma
 use std::borrow::Cow;
 use std::io::Cursor;
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
+use std::sync::{
+    mpsc::{self, Receiver, RecvTimeoutError, SyncSender},
+    Arc,
+};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -31,7 +34,10 @@ pub(super) enum Request {
         target: Target,
         generation: Option<u64>,
     },
-    WriteImage(image::RgbaImage, Instant),
+    WriteImage {
+        image: Arc<image::RgbaImage>,
+        finish: Box<dyn FnOnce(Result<()>) + Send>,
+    },
     Authorize,
     ClosePermission,
 }
@@ -113,8 +119,8 @@ fn watch(receiver: Receiver<Request>, storage: StorageClient, data: PathBuf, lim
                                 Some(Request::Paste { .. }) => {
                                     post(Event::Pasted(Err(anyhow!(error))))
                                 }
-                                Some(Request::WriteImage(_, started)) => {
-                                    post(Event::CaptureFinished(Err(anyhow!(error)), started))
+                                Some(Request::WriteImage { finish, .. }) => {
+                                    finish(Err(anyhow!(error)))
                                 }
                                 _ => {}
                             }
@@ -140,18 +146,17 @@ fn watch(receiver: Receiver<Request>, storage: StorageClient, data: PathBuf, lim
                             paste.inject(target, Box::new(|result| post(Event::Pasted(result))));
                         }
                     }
-                    Some(Request::WriteImage(image, started)) => {
+                    Some(Request::WriteImage { image, finish }) => {
                         let (width, height) = image.dimensions();
                         let result = system
-                            .write(Content::Image(arboard_image(
-                                width,
-                                height,
-                                image.into_raw(),
-                            )))
-                            .map(|()| "Screenshot copied".to_owned())
+                            .write_image(ImageData {
+                                width: width as usize,
+                                height: height as usize,
+                                bytes: Cow::Borrowed(image.as_raw()),
+                            })
                             .map_err(Into::into);
                         retry |= result.is_ok();
-                        post(Event::CaptureFinished(result, started));
+                        finish(result);
                     }
                     Some(Request::Authorize | Request::ClosePermission) => unreachable!(),
                     None => {}

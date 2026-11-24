@@ -1,4 +1,7 @@
 import { AboutSlint, Button, CheckBox, LineEdit, ListView, VerticalBox } from "std-widgets.slint";
+export { EditorWindow } from "editor.slint";
+
+export enum CaptureAction { copy, save, edit }
 
 export struct ClipRow {
     id: string,
@@ -197,7 +200,7 @@ export component CaptureWindow inherits Window {
     private property <length> bottom;
     private property <bool> selected: right - left >= 1px && bottom - top >= 1px;
     callback cancel();
-    callback confirm(bool, float, float, float, float);
+    callback confirm(CaptureAction, float, float, float, float);
 
     title: "Clippy Screenshot";
     no-frame: true;
@@ -263,14 +266,22 @@ export component CaptureWindow inherits Window {
             Button {
                 text: "Copy";
                 enabled: root.selected;
-                clicked => { root.confirm(false, root.left / root.width, root.top / root.height, root.right / root.width, root.bottom / root.height); }
+                clicked => { root.confirm(CaptureAction.copy, root.left / root.width, root.top / root.height, root.right / root.width, root.bottom / root.height); }
             }
             Button {
                 text: "Save PNG";
                 enabled: root.selected;
-                clicked => { root.confirm(true, root.left / root.width, root.top / root.height, root.right / root.width, root.bottom / root.height); }
+                clicked => { root.confirm(CaptureAction.save, root.left / root.width, root.top / root.height, root.right / root.width, root.bottom / root.height); }
             }
             Button { text: "Cancel"; clicked => { root.cancel(); } }
         }
+    }
+
+    Button {
+        x: (parent.width - self.width) / 2;
+        y: 72px;
+        text: "Edit";
+        enabled: root.selected;
+        clicked => { root.confirm(CaptureAction.edit, root.left / root.width, root.top / root.height, root.right / root.width, root.bottom / root.height); }
     }
 }

@@ -85,10 +85,10 @@ pub(super) fn prepare_managed_pin_image(
         &revision.source_png,
         &preview_png,
         revision.renderer_version,
-        revision.source_width,
-        revision.source_height,
+        (revision.source_width, revision.source_height),
         revision.annotations,
         revision.adjustments,
+        env!("CARGO_PKG_VERSION"),
     )?;
     Ok(PreparedPinImage {
         preview_png,

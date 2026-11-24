@@ -172,10 +172,10 @@ pub(super) async fn pin_clip(id: i64, app_handle: tauri::AppHandle) -> Result<St
                     &revision.source_png,
                     preview_png,
                     revision.renderer_version,
-                    revision.source_width,
-                    revision.source_height,
+                    (revision.source_width, revision.source_height),
                     revision.annotations,
                     revision.adjustments,
+                    env!("CARGO_PKG_VERSION"),
                 ) {
                     Ok(project) => PinSource::Project {
                         source_png: revision.source_png,
@@ -458,10 +458,10 @@ pub(crate) fn create_managed_project_pin(
         &source_png,
         &preview_png,
         document.renderer_version,
-        document.source_width,
-        document.source_height,
+        (document.source_width, document.source_height),
         document.annotations,
         document.adjustments,
+        env!("CARGO_PKG_VERSION"),
     )?;
     create_opened_project_pin(preview_png, (source_png, project), app_handle, state)
 }

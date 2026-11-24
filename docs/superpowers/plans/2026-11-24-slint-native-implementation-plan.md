@@ -6,6 +6,10 @@
 
 ## 当前进度
 
+截图编辑已接入 Slint 快捷键和托盘入口。Linux 隔离回归验证框选后标注、复制、落盘与像素相等，
+共享渲染器沿用 legacy 原图、工程文档与金图。圆角的直接掩码候选出现 24 个像素差异，保留 v2
+圆角路径。普通矢量层直接合成到预乘像素，输出仍采用同一个渲染结果。 [共享渲染器](../../../crates/clippy-capture/src/render_v2.rs) · [编辑器控制](../../../apps/slint/src/app/editor.rs)
+
 2026-11-24 从 `7fd1bda49b5236e5eaf57731de24fe1f6cd68154` 继续在当前分支开发。双目录、tag 路由、默认 Slint 门禁和 SQLite/FTS5 已落地。当前完成托盘、单实例、按需窗口、全局快捷键、剪贴板闭环和第一条截图闭环。QA 私有数据目录与正式目录分开。 [Slint 应用入口](../../../apps/slint/src/app.rs) · [存储线程](../../../crates/clippy-storage/src/service.rs) · [原计划及已有证据](2026-11-23-slint-ui-migration-plan.md)
 
 | 验证项 | 本轮证据 |
@@ -15,7 +19,7 @@
 | 快速截图 | X11 验证快捷键、托盘、框选、取消、复制和落盘，核对 140×100 选区像素。Release 样本首个重绘请求为 84–90 ms，复制为 0.3 ms，落盘为 5.3 ms。GNOME 50.1 实机双屏原始帧样本 188.3 ms，分别获得 2560×1440、2560×1600 像素。 |
 | 托盘空闲 PSS | GNOME 最终 QA release 单次 60 秒总 PSS 14,491 KiB（14.15 MiB），进程数 1，开窗次数 0。会话同时有旧版 Clippy，且复测中断，该样本仅作参考。前一版 5 个参考样本为 12,710、97,034、12,494、12,085、12,443 KiB；97,034 KiB 的成因未证实。 |
 
-正式内存验收仍需在旧版退出后的真实桌面上完成连续 5 次，脚本会检查同一用户下的现有 Clippy 进程。GNOME 的系统菜单、覆盖层对齐、Wayland 粘贴授权及撤回、Windows/macOS 原生 CI 与真机、升级桥和正式发布仍未验收。截图当前按单块输出选区，跨屏选区、编辑工具和 Portal 截图兼容路径留在后续阶段。 [自动桌面回归](../../../scripts/test-slint-x11.sh) · [实机内存脚本](../../../scripts/qa/measure-slint-idle.py) · [发布 workflow](../../../.github/workflows/release.yml#L52)
+正式内存验收仍需在旧版退出后的真实桌面上完成连续 5 次，脚本会检查同一用户下的现有 Clippy 进程。GNOME 的系统菜单、覆盖层对齐、Wayland 粘贴授权及撤回、Windows/macOS 原生 CI 与真机、升级桥和正式发布仍未验收。截图当前按单块输出选区，跨屏选区、编辑工程持久化和 Portal 截图兼容路径留在后续阶段。 [自动桌面回归](../../../scripts/test-slint-x11.sh) · [实机内存脚本](../../../scripts/qa/measure-slint-idle.py) · [发布 workflow](../../../.github/workflows/release.yml#L52)
 
 ## Goal
 

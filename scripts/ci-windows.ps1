@@ -131,10 +131,10 @@ $backend = Join-Path $repository 'apps/legacy-tauri/native'
 $frontend = Join-Path $repository 'apps/legacy-tauri/frontend'
 
 if ($runCore) {
-    Invoke-Check 'Shared Rust format' $repository { & cargo.exe fmt -p clippy-core -p clippy-platform -p clippy-storage -- --check }
-    Invoke-Check 'Shared Rust check' $repository { & cargo.exe check --locked -p clippy-core -p clippy-platform -p clippy-storage --all-targets }
-    Invoke-Check 'Shared Rust clippy' $repository { & cargo.exe clippy --locked -p clippy-core -p clippy-platform -p clippy-storage --all-targets -- -D warnings }
-    Invoke-Check 'Shared Rust tests' $repository { & cargo.exe test --locked -p clippy-core -p clippy-platform -p clippy-storage }
+    Invoke-Check 'Shared Rust format' $repository { & cargo.exe fmt -p clippy-capture -p clippy-core -p clippy-platform -p clippy-storage -- --check }
+    Invoke-Check 'Shared Rust check' $repository { & cargo.exe check --locked -p clippy-capture -p clippy-core -p clippy-platform -p clippy-storage --all-targets }
+    Invoke-Check 'Shared Rust clippy' $repository { & cargo.exe clippy --locked -p clippy-capture -p clippy-core -p clippy-platform -p clippy-storage --all-targets -- -D warnings }
+    Invoke-Check 'Shared Rust tests' $repository { & cargo.exe test --locked -p clippy-capture -p clippy-core -p clippy-platform -p clippy-storage }
 }
 
 if ($runLegacy -and -not $FrontendOnly) {

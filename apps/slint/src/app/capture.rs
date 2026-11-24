@@ -25,6 +25,12 @@ pub(super) struct View {
     pixels: FrozenPixels,
 }
 
+pub(super) enum Destination {
+    Clipboard,
+    File(SaveTarget),
+    Editor,
+}
+
 impl Drop for View {
     fn drop(&mut self) {
         let _ = self.window.hide();
@@ -84,10 +90,10 @@ pub(super) fn present(
                 CloseRequestResponse::HideWindow
             });
             view.window
-                .on_confirm(move |save, left, top, right, bottom| {
+                .on_confirm(move |action, left, top, right, bottom| {
                     post(Event::CaptureSelection {
                         index,
-                        save,
+                        action,
                         bounds: [left, top, right, bottom],
                     });
                 });
@@ -132,7 +138,7 @@ pub(super) fn output(
     mut views: Vec<View>,
     index: usize,
     bounds: [f32; 4],
-    save_target: Option<SaveTarget>,
+    destination: Destination,
 ) -> io::Result<()> {
     let View { window, pixels } = &views[index];
     // 先隐藏所有预览再做裁剪，独立保留用户选中那一屏的冻结像素。
@@ -148,21 +154,22 @@ pub(super) fn output(
         .spawn(move || {
             let started = Instant::now();
             let result = pixels.crop(bounds[0], bounds[1], bounds[2], bounds[3]);
-            match save_target {
-                Some(target) => post(Event::CaptureFinished(
+            match destination {
+                Destination::File(target) => post(Event::CaptureFinished(
                     result.and_then(|image| {
-                        let path = save_png(image, &target)?;
+                        let path = save_png(&image, &target)?;
                         Ok(format!("Saved to {}", path.display()))
                     }),
                     started,
                 )),
-                None => post(Event::CaptureClipboard(result, started)),
+                Destination::Clipboard => post(Event::CaptureClipboard(result, started)),
+                Destination::Editor => post(Event::EditorOpen(result)),
             }
         })?;
     Ok(())
 }
 
-fn save_png(image: RgbaImage, target: &SaveTarget) -> Result<PathBuf> {
+pub(super) fn save_png(image: &RgbaImage, target: &SaveTarget) -> Result<PathBuf> {
     fs::create_dir_all(&target.directory)?;
     let stem = target.filename_stem("clippy-screenshot");
     let mut staging = tempfile::Builder::new()
@@ -207,8 +214,8 @@ mod tests {
         };
         let original = RgbaImage::from_pixel(3, 2, Rgba([141, 54, 77, 105]));
         let replacement = RgbaImage::from_pixel(1, 2, Rgba([50, 53, 51, 255]));
-        let first = save_png(original.clone(), &target).unwrap();
-        let second = save_png(replacement.clone(), &target).unwrap();
+        let first = save_png(&original, &target).unwrap();
+        let second = save_png(&replacement, &target).unwrap();
         assert_eq!(first.file_name().unwrap(), "test.png");
         assert_eq!(second.file_name().unwrap(), "test-2.png");
         assert_eq!(image::open(first).unwrap().into_rgba8(), original);
