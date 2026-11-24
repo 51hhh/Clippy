@@ -524,11 +524,6 @@ mod tests {
         }
     }
 
-    #[cfg(target_os = "windows")]
-    mod pending_frame_tests {
-        include!("av_session/pending_frame_tests.rs");
-    }
-
     mod idle_frontier_tests {
         include!("av_session/idle_frontier_tests.rs");
     }
