@@ -121,7 +121,6 @@ pub fn commit_new_file(source: &Path, destination: &Path) -> io::Result<()> {
 }
 
 /// 判断文件是否没有向组或其他用户授予权限。
-#[cfg(any(test, target_os = "linux", target_os = "windows"))]
 pub fn is_private(path: &Path) -> bool {
     #[cfg(unix)]
     {

@@ -29,17 +29,21 @@
 翻译历史。数据迁移先保存一致的 SQLite 快照及原配置。正式 tag 已接 Slint 安装包
 和草稿发布，老客户端 updater 的安装行为和签名合同仍要验证。
 
-2026-11-24 从 `7fd1bda49b5236e5eaf57731de24fe1f6cd68154` 继续在当前分支开发。双目录、tag 路由、默认 Slint 门禁和 SQLite/FTS5 已落地。当前完成托盘、单实例、按需窗口、全局快捷键、剪贴板闭环和第一条截图闭环。QA 私有数据目录与正式目录分开。 [Slint 应用入口](../../../apps/slint/src/app.rs) · [存储线程](../../../crates/clippy-storage/src/service.rs) · [原计划及已有证据](2026-11-23-slint-ui-migration-plan.md)
+2026-11-24 从 `7fd1bda49b5236e5eaf57731de24fe1f6cd68154` 继续在当前分支开发。双目录、tag 路由、默认 Slint 门禁和 SQLite/FTS5 已落地。QA 私有数据目录与正式目录分开。 [Slint 应用入口](../../../apps/slint/src/app.rs) · [存储线程](../../../crates/clippy-storage/src/service.rs) · [原计划及已有证据](2026-11-23-slint-ui-migration-plan.md)
 
 | 验证项 | 本轮证据 |
 |---|---|
-| Linux 本地门禁 | `./scripts/ci-local.sh` 共 10 项通过。隔离 X11 跑真托盘菜单、真实快捷键、Unicode/HTML/透明 PNG 入库、搜索、复制和粘贴；目标焦点变化时不发粘贴按键。 |
-| Linux QA deb | `clippy-slint-qa_0.2.0_amd64.deb` 已构建，SHA-256 为 `94b82b1d949841791cd1834039ea96f8de0aa97ce54c1a4a9375f15455387afd`。解包产物通过同一桌面回归。 |
-| 快速截图 | X11 验证快捷键、托盘、框选、取消、复制和落盘，核对 140×100 选区像素。Release 样本首个重绘请求为 84–90 ms，复制为 0.3 ms，落盘为 5.3 ms。GNOME 50.1 实机双屏原始帧样本 188.3 ms，分别获得 2560×1440、2560×1600 像素。 |
-| 托盘空闲 PSS | GNOME 最终 QA release 单次 60 秒总 PSS 14,491 KiB（14.15 MiB），进程数 1，开窗次数 0。会话同时有旧版 Clippy，且复测中断，该样本仅作参考。前一版 5 个参考样本为 12,710、97,034、12,494、12,085、12,443 KiB；97,034 KiB 的成因未证实。 |
+| Linux 本地门禁 | `./scripts/ci-local.sh` 共 11 项通过。启用 VP9/Opus 和 Linux 音源后，媒体层 387 个用例通过，2 个显式忽略。隔离 X11 跑真实托盘菜单、快捷键、Unicode/HTML/透明 PNG 入库、搜索、复制粘贴和焦点变化。 |
+| Linux QA 包 | 本机 Ubuntu 26.04 构建 deb 和 AppImage。解包 deb 中的 Release 二进制通过 X11 回归。安装包保留 Slint、字体和录屏依赖的许可文档。 |
+| 快速截图 | X11 验证快捷键、托盘、框选、取消、复制和落盘，核对 140×100 选区像素。本轮解包 Release 样本的首个重绘请求为 114–204 ms，直接复制 0.3 ms、落盘 0.9 ms。前一版 GNOME 50.1 双屏原始帧样本 188.3 ms，屏幕尺寸分别为 2560×1440、2560×1600。 |
+| 托盘空闲 PSS | GNOME 真实桌面，旧版临时退出，QA Release 每轮静置 60 秒。复测连续五轮为 18,548、18,918、18,972、19,000、19,061 KiB（18.11–18.61 MiB）。每轮 1 个进程、开窗次数为 0，满足每轮低于 50 MiB。 |
+| 数据升级 | 用已安装的 v0.1.21 和从 deb 解包的新正式入口，在独立 X11 会话验证外部文本入库、原配置一致、历史读取和备份恢复。原位安装行为与旧 updater 下载验签仍待实机验收。 |
 
-实机空闲验收需要旧版退出，脚本采样前检查同一用户的现有 Clippy 进程。GNOME 的系统菜单、覆盖层对齐、
-Wayland 授权、Windows/macOS 原生 CI 与实机、升级桥和正式发布仍未验收。截图当前按单块输出选区，
+内存二进制 SHA-256 为 `23538e6bcd3c6171a197154c8373d5f4ccf7c26bcd83335a143d0dac6a0b4ab7`。
+首轮第四个样本为 98.34 MiB，期间出现两次开窗，本轮四个空闲样本为 18.16–18.88 MiB。
+复测后旧版已启动且重新注册托盘。开关窗的内存回落和任务峰值仍待单独量化。
+
+GNOME 的系统菜单、覆盖层对齐、Wayland 授权、Windows/macOS 真机和 updater 升级桥仍未验收。截图当前按单块输出选区，
 跨屏选区、编辑工程持久化和 Portal 截图兼容路径仍待实现。 [自动桌面回归](../../../scripts/test-slint-x11.sh) · [实机内存脚本](../../../scripts/qa/measure-slint-idle.py) · [发布 workflow](../../../.github/workflows/release.yml)
 
 ## Goal

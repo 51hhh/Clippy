@@ -54,8 +54,9 @@
   收藏、删除、复制和显式开启的自动粘贴。X11 自动粘贴在原目标未恢复时保留已复制的数据。
 - 截图支持从托盘或快捷键触发、单屏框选、复制、保存 PNG 和取消。GNOME Wayland 复用 v5 的
   Mutter/PipeWire 首帧路径，X11 直接读取根 drawable。保存沿用历史配置中的目录和命名模板，原子提交且保留同名文件。
-- Linux 完整本地门禁 10 项通过，QA deb 解包后通过隔离桌面回归。实机 GNOME 双屏原始帧取样成功。
-  五轮正式空闲内存、GNOME 系统菜单与 Portal 授权、Windows/macOS 真机仍待验收。
+- Linux 完整本地门禁 11 项通过，QA deb 解包后通过隔离桌面回归。实机 GNOME 旧版退出后复测
+  连续五轮空闲 PSS 为 18.11–18.61 MiB，测完已恢复旧版。GNOME 系统菜单与 Portal 授权、
+  Windows/macOS 真机仍待验收。
   [实现与验证记录](docs/superpowers/plans/2026-11-24-slint-native-implementation-plan.md)（需求 `SLINT-NATIVE-PIPELINE-01`）
 
 ### 2026-11-24 v0.2 默认构建切换
