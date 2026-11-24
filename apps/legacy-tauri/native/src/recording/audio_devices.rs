@@ -13,19 +13,9 @@ const MAX_LABEL_CHARS: usize = 160;
 const MAX_LIVE_CATALOGS: usize = 32;
 const CATALOG_TTL: Duration = Duration::from_secs(10 * 60);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) enum RecordingAudioDeviceKind {
-    SystemAudio,
-    Microphone,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct NativeRecordingAudioDevice {
-    pub kind: RecordingAudioDeviceKind,
-    pub native_id: String,
-    pub label: String,
-    pub is_default: bool,
-}
+pub(super) use clippy_media::recording::audio_devices::{
+    NativeRecordingAudioDevice, RecordingAudioDeviceKind,
+};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]

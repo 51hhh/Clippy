@@ -18,6 +18,19 @@ pub struct Shortcuts {
     _wayland: Option<wayland::Worker>,
 }
 
+pub fn validate(panel: &str, capture: &str) -> Result<()> {
+    let panel = panel
+        .parse::<HotKey>()
+        .map_err(|error| anyhow::anyhow!("Clipboard shortcut: {error}"))?;
+    let capture = capture
+        .parse::<HotKey>()
+        .map_err(|error| anyhow::anyhow!("Screenshot shortcut: {error}"))?;
+    if panel.id() == capture.id() {
+        bail!("The clipboard and screenshot shortcuts must differ");
+    }
+    Ok(())
+}
+
 impl Shortcuts {
     pub fn start(
         identity: &PlatformIdentity,

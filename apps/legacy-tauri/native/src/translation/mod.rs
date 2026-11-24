@@ -1,13 +1,4 @@
 pub mod commands;
 mod content;
-pub mod direction;
-mod http;
-mod providers;
-mod secrets;
-pub mod service;
-#[cfg(test)]
-mod test_support;
-pub mod tts;
-pub mod types;
-
-pub use service::TranslationService;
+use clippy_translate::secrets;
+pub use clippy_translate::{direction, service, tts, types, TranslationService};

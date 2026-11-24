@@ -32,6 +32,7 @@ pub(super) enum Destination {
     File(SaveTarget),
     Editor,
     Longshot,
+    Record,
 }
 
 impl Drop for View {
@@ -168,6 +169,12 @@ pub(super) fn output(
         .name("clippy-screenshot-output".into())
         .spawn(move || {
             let started = Instant::now();
+            if matches!(destination, Destination::Record) {
+                post(Event::RecordingStart(
+                    pixels.crop_size(bounds).map(|size| (region, size)),
+                ));
+                return;
+            }
             let result = pixels.crop(bounds[0], bounds[1], bounds[2], bounds[3]);
             match destination {
                 Destination::File(target) => post(Event::CaptureFinished(
@@ -182,12 +189,43 @@ pub(super) fn output(
                 Destination::Longshot => {
                     post(Event::LongshotStart(result.map(|image| (region, image))))
                 }
+                Destination::Record => unreachable!(),
             }
         })?;
     Ok(())
 }
 
 pub(super) fn save_png(image: &RgbaImage, target: &SaveTarget) -> Result<PathBuf> {
+    save_rgba(image.as_raw(), image.width(), image.height(), target)
+}
+
+pub(super) fn save_screens(target: SaveTarget) -> io::Result<()> {
+    thread::Builder::new()
+        .name("clippy-screenshot-save".into())
+        .spawn(move || {
+            let started = Instant::now();
+            let result = capture::freeze().and_then(|outputs| {
+                let mut paths = Vec::with_capacity(outputs.len());
+                for screen in outputs {
+                    let image = screen.pixels;
+                    let saved = save_rgba(&image.rgba, image.width, image.height, &target)
+                        .with_context(|| {
+                            format!(
+                                "Saved {} screen(s). Could not save {}",
+                                paths.len(),
+                                screen.name
+                            )
+                        })?;
+                    paths.push(saved.display().to_string());
+                }
+                Ok(format!("Saved {}", paths.join(", ")))
+            });
+            post(Event::CaptureFinished(result, started));
+        })?;
+    Ok(())
+}
+
+fn save_rgba(rgba: &[u8], width: u32, height: u32, target: &SaveTarget) -> Result<PathBuf> {
     fs::create_dir_all(&target.directory)?;
     let stem = target.filename_stem("clippy-screenshot");
     let mut staging = tempfile::Builder::new()
@@ -198,12 +236,7 @@ pub(super) fn save_png(image: &RgbaImage, target: &SaveTarget) -> Result<PathBuf
         CompressionType::Fast,
         FilterType::Adaptive,
     )
-    .write_image(
-        image.as_raw(),
-        image.width(),
-        image.height(),
-        ExtendedColorType::Rgba8,
-    )?;
+    .write_image(rgba, width, height, ExtendedColorType::Rgba8)?;
     staging.as_file().sync_all()?;
     for candidate in filename_candidates(&stem) {
         let path = target.directory.join(candidate);

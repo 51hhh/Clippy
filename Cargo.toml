@@ -2,8 +2,11 @@
 members = [
     "crates/clippy-capture",
     "crates/clippy-core",
+    "crates/clippy-media",
     "crates/clippy-platform",
     "crates/clippy-storage",
+    "crates/clippy-translate",
+    "crates/clippy-vision",
     "apps/legacy-tauri/native",
     "apps/legacy-tauri/native/vendor/arboard",
     "apps/slint",
@@ -11,8 +14,11 @@ members = [
 default-members = [
     "crates/clippy-capture",
     "crates/clippy-core",
+    "crates/clippy-media",
     "crates/clippy-platform",
     "crates/clippy-storage",
+    "crates/clippy-translate",
+    "crates/clippy-vision",
     "apps/slint",
 ]
 exclude = [

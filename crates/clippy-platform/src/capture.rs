@@ -1,7 +1,13 @@
 use anyhow::{ensure, Result};
 use clippy_core::clipboard::validate_image_layout;
 use image::RgbaImage;
-use std::sync::Arc;
+use std::{
+    sync::{
+        mpsc::{self, SyncSender},
+        Arc,
+    },
+    thread::{self, JoinHandle},
+};
 
 #[cfg(target_os = "linux")]
 pub mod gnome;
@@ -49,6 +55,63 @@ pub struct Region {
 }
 
 type Reader<'a> = dyn FnMut() -> Result<RgbaImage> + 'a;
+
+type FrameReply = SyncSender<Result<RgbaImage>>;
+
+pub struct RegionReader {
+    commands: Option<SyncSender<FrameReply>>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl RegionReader {
+    pub fn open(region: Region) -> Result<Self> {
+        let (commands, requests) = mpsc::sync_channel::<FrameReply>(1);
+        let (ready, started) = mpsc::sync_channel(1);
+        let thread = thread::Builder::new()
+            .name("clippy-region-source".into())
+            .spawn(move || {
+                let mut ready = Some(ready);
+                let result = with_region_reader(region, |read| {
+                    ready.take().expect("采集源只打开一次").send(Ok(()))?;
+                    while let Ok(response) = requests.recv() {
+                        if response.send(read()).is_err() {
+                            break;
+                        }
+                    }
+                    Ok(())
+                });
+                if let Some(ready) = ready {
+                    let _ = ready.send(result);
+                }
+            })?;
+        if let Err(error) = started.recv()? {
+            let _ = thread.join();
+            return Err(error);
+        }
+        Ok(Self {
+            commands: Some(commands),
+            thread: Some(thread),
+        })
+    }
+
+    pub fn read(&mut self) -> Result<RgbaImage> {
+        let (reply, image) = mpsc::sync_channel(1);
+        self.commands
+            .as_ref()
+            .expect("采集源处于读状态")
+            .send(reply)?;
+        image.recv()?
+    }
+}
+
+impl Drop for RegionReader {
+    fn drop(&mut self) {
+        self.commands.take();
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
 
 pub fn with_region_reader<T>(
     region: Region,
@@ -101,6 +164,11 @@ pub fn with_region_reader<T>(
 }
 
 impl FrozenPixels {
+    pub fn crop_size(&self, bounds: [f32; 4]) -> Result<(u32, u32)> {
+        let [left, top, right, bottom] = pixel_rect(self.width, self.height, bounds)?;
+        Ok((right - left, bottom - top))
+    }
+
     /// 覆盖层坐标以当前窗口实际宽高归一化，选区始终映射回冻结帧的源像素。
     pub fn crop(&self, left: f32, top: f32, right: f32, bottom: f32) -> Result<RgbaImage> {
         let [left, top, right, bottom] =

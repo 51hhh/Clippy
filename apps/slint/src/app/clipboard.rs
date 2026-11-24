@@ -13,6 +13,7 @@ use std::borrow::Cow;
 use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::{
+    atomic::{AtomicU32, Ordering},
     mpsc::{self, Receiver, RecvTimeoutError, SyncSender},
     Arc,
 };
@@ -44,11 +45,14 @@ pub(super) enum Request {
     },
     Authorize,
     ClosePermission,
+    #[cfg(target_os = "linux")]
+    ForgetPermission,
 }
 
 pub(super) struct Worker {
     sender: Option<SyncSender<Request>>,
     thread: Option<JoinHandle<()>>,
+    limit: Arc<AtomicU32>,
 }
 
 impl Worker {
@@ -58,12 +62,15 @@ impl Worker {
         limit: u32,
     ) -> std::io::Result<Self> {
         let (sender, receiver) = mpsc::sync_channel(3);
+        let limit = Arc::new(AtomicU32::new(limit));
+        let worker_limit = limit.clone();
         let thread = thread::Builder::new()
             .name("clippy-clipboard".into())
-            .spawn(move || watch(receiver, storage, data, limit))?;
+            .spawn(move || watch(receiver, storage, data, &worker_limit))?;
         Ok(Self {
             sender: Some(sender),
             thread: Some(thread),
+            limit,
         })
     }
 
@@ -73,6 +80,10 @@ impl Worker {
             .expect("Clipboard worker running")
             .try_send(request)
             .map_err(|_| anyhow!("Clipboard is busy. Try again."))
+    }
+
+    pub(super) fn set_limit(&self, limit: u32) {
+        self.limit.store(limit, Ordering::Relaxed);
     }
 }
 
@@ -85,7 +96,7 @@ impl Drop for Worker {
     }
 }
 
-fn watch(receiver: Receiver<Request>, storage: StorageClient, data: PathBuf, limit: u32) {
+fn watch(receiver: Receiver<Request>, storage: StorageClient, data: PathBuf, limit: &AtomicU32) {
     let mut paste = Paste::new(&data);
     let mut clipboard = None;
     let mut generation = None;
@@ -107,6 +118,11 @@ fn watch(receiver: Receiver<Request>, storage: StorageClient, data: PathBuf, lim
             }
             Some(Request::ClosePermission) => {
                 paste.close();
+                continue;
+            }
+            #[cfg(target_os = "linux")]
+            Some(Request::ForgetPermission) => {
+                post(Event::PermissionForgotten(paste.forget_permission()));
                 continue;
             }
             request => {
@@ -169,6 +185,8 @@ fn watch(receiver: Receiver<Request>, storage: StorageClient, data: PathBuf, lim
                         finish(result);
                     }
                     Some(Request::Authorize | Request::ClosePermission) => unreachable!(),
+                    #[cfg(target_os = "linux")]
+                    Some(Request::ForgetPermission) => unreachable!(),
                     None => {}
                 }
 
@@ -184,7 +202,12 @@ fn watch(receiver: Receiver<Request>, storage: StorageClient, data: PathBuf, lim
                             if current.is_some() && current != now {
                                 true
                             } else {
-                                match store_snapshot(&storage, content, &mut previous, limit) {
+                                match store_snapshot(
+                                    &storage,
+                                    content,
+                                    &mut previous,
+                                    limit.load(Ordering::Relaxed),
+                                ) {
                                     Ok(()) => false,
                                     Err(error) => {
                                         report_error(

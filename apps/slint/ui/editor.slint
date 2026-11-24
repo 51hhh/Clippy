@@ -22,6 +22,7 @@ export component EditorWindow inherits Window {
     callback close-editor();
     callback pin();
     callback recognize();
+    callback scan-code();
 
     title: "Clippy Image Editor";
     preferred-width: 850px;
@@ -101,6 +102,8 @@ export component EditorWindow inherits Window {
         HorizontalLayout {
             spacing: 8px;
             Text { text: root.status; color: #545c65; wrap: word-wrap; min-height: 18px; }
+            Button { text: "OCR"; height: 28px; enabled: !root.busy && root.output-ready; clicked => { root.recognize(); } }
+            Button { text: "Scan code"; height: 28px; enabled: !root.busy && root.output-ready; clicked => { root.scan-code(); } }
             Button { text: "Pin to desktop"; height: 28px; enabled: !root.busy && root.output-ready; clicked => { root.pin(); } }
         }
     }

@@ -30,6 +30,11 @@ mod clipboard;
 mod editor;
 mod longshot;
 mod pins;
+mod recording;
+mod settings;
+mod tools;
+mod upgrade;
+mod vision;
 
 thread_local! {
     static APP: RefCell<Option<App>> = const { RefCell::new(None) };
@@ -47,6 +52,10 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
         return Ok(());
     }
     let config = load_config(&paths, identity)?;
+    if identity.channel == DistributionChannel::Production {
+        upgrade::backup_existing(&paths)?;
+    }
+    clippy_vision::set_manifest_setting(&config.enhanced_ocr_manifest_path);
     let storage = if config.storage_mode == "memory" {
         StorageRuntime::in_memory()?
     } else {
@@ -58,8 +67,30 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
     tray.set_product_name(identity.product_name.into());
     tray.on_open_panel(|| handle(Event::Open(false)));
     tray.on_screenshot(|| handle(Event::CaptureStart));
+    tray.on_delayed_screenshot(|| {
+        use_app(|app| {
+            app.status("Screenshot in 3 seconds");
+            app.delayed_capture
+                .start(TimerMode::SingleShot, Duration::from_secs(3), || {
+                    post(Event::CaptureStart);
+                });
+        });
+    });
+    tray.on_save_screens(|| use_app(App::save_screens));
     tray.on_open_settings(|| handle(Event::Open(true)));
+    tray.on_open_actions(|| handle(Event::Tools(tools::Message::Show)));
     tray.on_open_workspace(|| handle(Event::Pins(pins::Message::Workspace)));
+    tray.on_recordings(|| handle(Event::Recordings(recording::Message::Show)));
+    tray.on_recording_pause(|| {
+        handle(Event::Recordings(recording::Message::Control(
+            recording::Control::PauseResume,
+        )))
+    });
+    tray.on_recording_stop(|| {
+        handle(Event::Recordings(recording::Message::Control(
+            recording::Control::Stop,
+        )))
+    });
     tray.on_quit(|| {
         let _ = slint::quit_event_loop();
     });
@@ -94,11 +125,15 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
             shortcut_status,
             action_status: SharedString::default(),
             capture_views: None,
+            delayed_capture: Timer::default(),
             editor: None,
             editor_id: 0,
             pins: pins::Pins::default(),
             longshot: None,
             capture_task_id: 0,
+            vision: vision::Vision::default(),
+            recordings: recording::Recordings::default(),
+            tools: tools::Tools::default(),
         }))
     });
     let timer = Timer::default();
@@ -150,6 +185,12 @@ enum Event {
     Copied(Result<(Option<Target>, Option<u64>)>),
     Pasted(Result<()>),
     Permission(Result<()>),
+    #[cfg(target_os = "linux")]
+    PermissionForgotten(Result<()>),
+    #[cfg(target_os = "linux")]
+    TmuxCaptured(Result<String>),
+    Settings(settings::Message),
+    Tools(tools::Message),
     Changed(Result<(), StorageError>),
     CaptureStart,
     CaptureReady {
@@ -171,6 +212,9 @@ enum Event {
     Pins(pins::Message),
     LongshotStart(Result<(Region, image::RgbaImage)>),
     Longshot(longshot::Message),
+    Vision(vision::Message),
+    RecordingStart(Result<(Region, (u32, u32))>),
+    Recordings(recording::Message),
 }
 
 fn post(event: Event) {
@@ -202,11 +246,15 @@ struct App {
     shortcut_status: String,
     action_status: SharedString,
     capture_views: Option<Vec<capture::View>>,
+    delayed_capture: Timer,
     editor: Option<editor::View>,
     editor_id: u64,
     pins: pins::Pins,
     longshot: Option<longshot::View>,
     capture_task_id: u64,
+    vision: vision::Vision,
+    recordings: recording::Recordings,
+    tools: tools::Tools,
 }
 
 impl App {
@@ -279,6 +327,29 @@ impl App {
                     Err(error) => format!("Paste permission unavailable: {error}"),
                 });
             }
+            #[cfg(target_os = "linux")]
+            Event::PermissionForgotten(result) => {
+                self.complete(match result {
+                    Ok(()) => "Saved paste permission removed".to_owned(),
+                    Err(error) => error.to_string(),
+                });
+            }
+            #[cfg(target_os = "linux")]
+            Event::TmuxCaptured(result) => {
+                let result = result.and_then(|text| {
+                    self.clipboard.submit(clipboard::Request::WriteText {
+                        text,
+                        finish: Box::new(|result| {
+                            post(Event::Copied(result.map(|()| (None, None))))
+                        }),
+                    })
+                });
+                if let Err(error) = result {
+                    self.complete(format!("Could not capture tmux pane: {error}"));
+                }
+            }
+            Event::Settings(message) => self.settings_message(message),
+            Event::Tools(message) => self.tools_message(message),
             Event::Changed(result) => {
                 if let Err(error) = result {
                     self.status(format!("Could not update history: {error}"));
@@ -314,6 +385,7 @@ impl App {
                         CaptureAction::Copy => capture::Destination::Clipboard,
                         CaptureAction::Edit => capture::Destination::Editor,
                         CaptureAction::Longshot => capture::Destination::Longshot,
+                        CaptureAction::Record => capture::Destination::Record,
                         CaptureAction::Save => capture::Destination::File(SaveTarget::from_config(
                             &self.config,
                             &self.paths.screenshot_default(self.identity),
@@ -364,12 +436,18 @@ impl App {
             Event::Pins(message) => self.pin_message(message),
             Event::LongshotStart(result) => self.start_longshot(result),
             Event::Longshot(message) => self.longshot_message(message),
+            Event::Vision(message) => self.vision_message(message),
+            Event::RecordingStart(input) => self.start_recording(input),
+            Event::Recordings(message) => self.recording_message(message),
         }
     }
 
     fn open(&mut self, settings: bool) -> Result<()> {
         if let Some(window) = &self.window {
             window.set_show_settings(settings);
+            if settings {
+                settings::show(window, self.identity);
+            }
             return Ok(window.show()?);
         }
 
@@ -382,8 +460,10 @@ impl App {
         window.set_busy(self.busy);
         window.set_action_status(self.action_status.clone());
         window.set_shortcut_status(self.shortcut_status.clone().into());
-        window.set_panel_shortcut(self.config.global_shortcut.clone().into());
-        window.set_capture_shortcut(self.config.capture_shortcut.clone().into());
+        settings::connect(&window, &self.config);
+        if settings {
+            settings::show(&window, self.identity);
+        }
         window.on_reload_history(|| use_app(App::reload));
         window.on_close_panel(|| post(Event::Hide));
         window.on_copy_item(|id, paste| use_app(|app| app.copy(id.as_str(), paste)));
@@ -393,6 +473,11 @@ impl App {
         window.on_edit_history_image(|id| {
             if let Ok(id) = id.parse() {
                 post(Event::Pins(pins::Message::History(id)));
+            }
+        });
+        window.on_preview_item(|id| {
+            if let Ok(id) = id.parse() {
+                post(Event::Tools(tools::Message::Preview(id)));
             }
         });
         window.window().on_close_requested(|| {
@@ -541,6 +626,7 @@ impl App {
     }
 
     fn start_capture(&mut self) {
+        self.delayed_capture.stop();
         if self.busy {
             return;
         }
@@ -555,6 +641,27 @@ impl App {
                 }
             });
         } else if let Err(error) = capture::start(started) {
+            self.capture_error(error.into());
+        }
+    }
+
+    fn save_screens(&mut self) {
+        if self.busy {
+            return;
+        }
+        self.delayed_capture.stop();
+        let target =
+            SaveTarget::from_config(&self.config, &self.paths.screenshot_default(self.identity));
+        let panel = self.window.is_some();
+        self.set_busy(true);
+        self.hide();
+        if panel {
+            Timer::single_shot(Duration::from_millis(32), move || {
+                if let Err(error) = capture::save_screens(target) {
+                    use_app(|app| app.capture_error(error.into()));
+                }
+            });
+        } else if let Err(error) = capture::save_screens(target) {
             self.capture_error(error.into());
         }
     }

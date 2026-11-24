@@ -145,6 +145,10 @@ impl LongshotSession {
         self.canvas.preview_png()
     }
 
+    pub fn preview_pixels(&self) -> Result<RgbaImage, CaptureError> {
+        self.canvas.preview_pixels()
+    }
+
     /// 消费会话并丢弃其内存；上层 manager 负责外部清理与幂等语义。
     pub fn cancel(self) {}
 }

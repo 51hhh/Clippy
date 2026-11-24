@@ -195,6 +195,13 @@ impl LongshotCanvas {
     }
 
     pub(super) fn preview_png(&self) -> Result<Vec<u8>, CaptureError> {
+        let preview = self.preview_pixels()?;
+        let png = crate::png_io::encode_png(preview.as_raw(), preview.width(), preview.height())
+            .map_err(CaptureError::codec)?;
+        validate_preview_png_bytes(png)
+    }
+
+    pub(super) fn preview_pixels(&self) -> Result<RgbaImage, CaptureError> {
         let image = self.materialize()?;
         let width_ratio = f64::from(PREVIEW_MAX_WIDTH) / f64::from(image.width());
         let height_ratio = f64::from(PREVIEW_MAX_HEIGHT) / f64::from(image.height());
@@ -202,11 +209,15 @@ impl LongshotCanvas {
         let target_width = (f64::from(image.width()) * ratio).round().max(1.0) as u32;
         let target_height =
             scaled_height(image.height(), target_width, image.width())?.min(PREVIEW_MAX_HEIGHT);
-        let preview =
-            image::imageops::resize(&image, target_width, target_height, FilterType::Triangle);
-        let png = crate::png_io::encode_png(preview.as_raw(), preview.width(), preview.height())
-            .map_err(CaptureError::codec)?;
-        validate_preview_png_bytes(png)
+        if image.dimensions() == (target_width, target_height) {
+            return Ok(image);
+        }
+        Ok(image::imageops::resize(
+            &image,
+            target_width,
+            target_height,
+            FilterType::Triangle,
+        ))
     }
 
     pub(super) fn materialize(&self) -> Result<RgbaImage, CaptureError> {

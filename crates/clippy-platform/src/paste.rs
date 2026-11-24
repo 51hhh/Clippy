@@ -111,6 +111,17 @@ impl Paste {
         }
     }
 
+    pub fn forget_permission(&mut self) -> Result<()> {
+        self.close();
+        #[cfg(target_os = "linux")]
+        match std::fs::remove_file(&self.token_path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+        Ok(())
+    }
+
     #[cfg(target_os = "linux")]
     fn dispatch_portal(&mut self, operation: portal::Operation, complete: Completion) {
         if self.portal.is_none() {

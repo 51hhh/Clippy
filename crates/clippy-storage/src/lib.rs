@@ -1,4 +1,5 @@
 mod archive;
+mod archive_format;
 mod image_revisions;
 mod maintenance;
 mod pin_workspace;
@@ -11,6 +12,7 @@ pub use archive::{
     ArchiveClipSnapshot, ArchiveGroupSnapshot, ArchiveRevisionSnapshot, ArchiveScope,
     ArchiveSnapshot, ArchiveWorkspaceContentSnapshot, ArchiveWorkspaceSnapshot, ImportSummary,
 };
+pub use archive_format::{read_archive, write_archive, write_new_archive, ArchiveExportResult};
 pub use image_revisions::{ImageRevisionWrite, StoredImageRevision};
 pub use pin_workspace::{
     PinWorkspaceGroup, PinWorkspaceItemWrite, PinWorkspacePresentation, StoredPinPlacement,
@@ -52,6 +54,17 @@ impl StorageError {
 
 pub struct StorageEngine {
     conn: Connection,
+}
+
+pub fn backup_database(source: &Path, destination: &Path) -> Result<(), StorageError> {
+    let source = Connection::open_with_flags(source, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    ensure_private_file(destination)?;
+    source.backup("main", destination, rusqlite::backup::NO_PROGRESS)?;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(destination)?
+        .sync_all()?;
+    Ok(())
 }
 
 /// 面向受限本地识别的图片读取结果。超限 BLOB 在 SQL `CASE` 分支中保持 NULL，

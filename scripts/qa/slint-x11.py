@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import sqlite3
 import struct
 import subprocess
@@ -26,6 +27,7 @@ EDITOR_TITLE = "Clippy Image Editor"
 PIN_TITLE = "Clippy Pin"
 WORKSPACE_TITLE = "Clippy Pinned Workspace"
 LONGSHOT_TITLE = "Clippy Scrolling Capture"
+RECORDING_TITLE = "Clippy Recordings"
 TEXT = "needle 自动剪贴板 QA"
 OTHER = "unrelated fixture"
 HTML = "<b>rich-qa</b>".encode()
@@ -339,7 +341,7 @@ def run(binary, root):
         desktop.focus(panel_id)
         search(box, "needle")
         x, y, _, height = box
-        desktop.click(x + 60, y + height - 62)
+        desktop.click(x + 60, y + height - 102)
         try:
             wait_for(lambda: get_clipboard("UTF8_STRING").decode() == TEXT,
                      "search and copy did not select Unicode")
@@ -482,6 +484,51 @@ def run(binary, root):
         desktop.click(x + width - 57, y + height - 55)
         wait_for(lambda: not titled_window(EDITOR_TITLE), "long screenshot editor stayed open")
         print("PASS scrolling capture uses the selected region and stitches a second frame", flush=True)
+
+        tray.activate("Screenshot")
+        middle, top = select_area()
+        desktop.click(middle - 110, top + 85)
+
+        def recording_manifest(state):
+            for path in (data_dir / "recordings").glob("*/manifest.json"):
+                manifest = json.loads(path.read_text())
+                if manifest["state"] == state:
+                    return path.parent, manifest
+            return None
+
+        wait_for(lambda: recording_manifest("recording"), "region recording never began")
+        time.sleep(0.75)
+        tray.activate("Pause / Resume recording")
+        time.sleep(1.5)
+        tray.activate("Pause / Resume recording")
+        time.sleep(0.75)
+        tray.activate("Stop recording")
+        directory, manifest = wait_for(
+            lambda: recording_manifest("complete"), "region recording never finalized",
+        )
+        video = directory / manifest["finalOutput"]["fileName"]
+        assert video.stat().st_size == manifest["finalOutput"]["byteLength"]
+        assert (manifest["video"]["width"], manifest["video"]["height"]) == (140, 100)
+        duration = manifest["finalOutput"]["durationNs"] / 1e9
+        assert 0.75 < duration < 2.7, (duration, manifest)
+        if shutil.which("ffprobe"):
+            probe = subprocess.check_output(
+                ["ffprobe", "-v", "error", "-show_streams", "-of", "json", video], timeout=4,
+            )
+            stream, = json.loads(probe)["streams"]
+            assert (stream["codec_name"], stream["width"], stream["height"]) == ("vp9", 140, 100)
+        tray.activate("Recordings")
+        _, (rec_x, rec_y, rec_w, rec_h) = wait_for(
+            lambda: titled_window(RECORDING_TITLE), "recordings library never opened",
+        )
+        time.sleep(0.25)
+        desktop.click(rec_x + rec_w * 3 // 8, rec_y + rec_h - 55)
+        exported = data_dir / "Exported Recordings" / f"Clippy-{manifest['sessionId']}.webm"
+        wait_for(exported.is_file, "recording export did not commit")
+        assert exported.read_bytes() == video.read_bytes()
+        desktop.click(rec_x + rec_w * 7 // 8, rec_y + rec_h - 80)
+        wait_for(lambda: not titled_window(RECORDING_TITLE), "recordings library never closed")
+        print("PASS region recording, pause/resume, VP9 finalization and exact library export", flush=True)
 
         second = subprocess.run([binary, "--open"], env=env, timeout=4)
         assert second.returncode == 0

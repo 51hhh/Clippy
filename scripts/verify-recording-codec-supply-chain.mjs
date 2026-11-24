@@ -59,6 +59,7 @@ if (!bindingSource.includes("pub lag_in_frames: Option<usize>")) {
 // actions/checkout 在 Windows 上可能把文本检出为 CRLF；先统一换行符，确保
 // 多行 feature 边界在各平台执行同一份已审查合同。
 const cargoToml = readFileSync(join(tauriRoot, "Cargo.toml"), "utf8").replace(/\r\n?/g, "\n");
+const mediaCargo = readFileSync(join(root, "crates/clippy-media/Cargo.toml"), "utf8").replace(/\r\n?/g, "\n");
 if (
   !workspaceCargo.includes(
     'shiguredo_libvpx = { path = "apps/legacy-tauri/native/vendor/shiguredo_libvpx" }',
@@ -100,19 +101,20 @@ if (
   throw new Error("Cargo.toml must pin the reviewed professional-precision yuv SIMD dependency");
 }
 if (
-  !cargoToml.includes(
+  !mediaCargo.includes(
     'recording-opus-webm = ["recording-vp9-prototype", "dep:opusic-c", "dep:opusic-sys"]',
   ) ||
-  !cargoToml.includes(
+  !mediaCargo.includes(
     'opusic-c = { version = "=1.6.1", default-features = false, optional = true }',
   ) ||
-  !cargoToml.includes(
+  !mediaCargo.includes(
     'opusic-sys = { version = "=0.7.5", default-features = false, features = ["bundled"], optional = true }',
-  )
+  ) ||
+  !cargoToml.includes('"clippy-media/recording-opus-webm"')
 ) {
   throw new Error("Cargo.toml must pin the reviewed bundled libopus dependency graph");
 }
-if (!cargoToml.includes('recording-linux-av-qa = ["recording-opus-webm"]')) {
+if (!cargoToml.includes('recording-linux-av-qa = ["recording-opus-webm", "clippy-media/recording-linux-audio"]')) {
   throw new Error("Cargo.toml must keep Linux PipeWire A/V QA behind the reviewed codec feature");
 }
 if (

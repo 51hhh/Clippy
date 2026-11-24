@@ -1,5 +1,6 @@
 """在已登录的 Linux 桌面上测量 Slint QA 进程树的空闲 PSS。"""
 import argparse
+from contextlib import contextmanager
 import hashlib
 import os
 from pathlib import Path
@@ -18,7 +19,7 @@ def call(bus, service, path, interface, method, arguments):
     ).unpack()
 
 
-def tray_ready(bus, pid):
+def tray_item(bus, pid):
     try:
         (items,) = call(
             bus, "org.kde.StatusNotifierWatcher", "/StatusNotifierWatcher",
@@ -26,19 +27,109 @@ def tray_ready(bus, pid):
             GLib.Variant("(ss)", ("org.kde.StatusNotifierWatcher", "RegisteredStatusNotifierItems")),
         )
     except GLib.Error:
-        return False
+        return None
     for item in items:
-        service = item.split("/", 1)[0].rstrip("@")
+        service, separator, path = item.partition("/")
+        service = service.rstrip("@")
         try:
             (owner,) = call(
                 bus, "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
                 "GetConnectionUnixProcessID", GLib.Variant("(s)", (service,)),
             )
             if owner == pid:
-                return True
+                return service, f"/{path}" if separator else "/StatusNotifierItem"
         except GLib.Error:
             continue
+    return None
+
+
+def tray_ready(bus, pid):
+    return tray_item(bus, pid) is not None
+
+
+def menu_quit(bus, pid):
+    item = tray_item(bus, pid)
+    if not item:
+        return False
+    service, path = item
+    try:
+        (menu,) = call(
+            bus, service, path, "org.freedesktop.DBus.Properties", "Get",
+            GLib.Variant("(ss)", ("org.kde.StatusNotifierItem", "Menu")),
+        )
+        _, layout = call(
+            bus, service, menu, "com.canonical.dbusmenu", "GetLayout",
+            GLib.Variant("(iias)", (0, -1, ["label"])),
+        )
+        nodes = [layout]
+        while nodes:
+            node = nodes.pop()
+            item_id, properties, children = node.unpack() if isinstance(node, GLib.Variant) else node
+            label = properties.get("label", "").replace("_", "").strip().lower()
+            if label in {"quit", "exit", "退出"}:
+                call(bus, service, menu, "com.canonical.dbusmenu", "Event",
+                     GLib.Variant("(isvu)", (item_id, "clicked", GLib.Variant("i", 0), 0)))
+                return True
+            nodes.extend(children)
+    except GLib.Error:
+        pass
     return False
+
+
+def running_executable(executable):
+    found = []
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdecimal():
+            continue
+        try:
+            if entry.stat().st_uid == os.getuid() and (entry / "exe").readlink() == executable:
+                found.append(int(entry.name))
+        except (FileNotFoundError, PermissionError, ProcessLookupError):
+            continue
+    return found
+
+
+@contextmanager
+def suspend_legacy(executable):
+    if executable is None:
+        yield
+        return
+    executable = executable.resolve(strict=True)
+    if executable.name != "clippy-app":
+        raise RuntimeError("The legacy executable must be clippy-app")
+    candidates = running_executable(executable)
+    if len(candidates) != 1:
+        raise RuntimeError(f"Expected one running legacy process for {executable}, found {len(candidates)}")
+    pid, = candidates
+    bus = Gio.bus_get_sync(Gio.BusType.SESSION)
+    descriptor = os.pidfd_open(pid)
+    try:
+        if menu_quit(bus, pid):
+            deadline = time.monotonic() + 5
+            while pid in running_executable(executable) and time.monotonic() < deadline:
+                time.sleep(0.1)
+        if pid in running_executable(executable):
+            signal.pidfd_send_signal(descriptor, signal.SIGTERM)
+        deadline = time.monotonic() + 10
+        while pid in running_executable(executable):
+            if time.monotonic() >= deadline:
+                raise RuntimeError("The legacy process did not exit")
+            time.sleep(0.1)
+        print(f"legacy_stopped pid={pid}", flush=True)
+        yield
+    finally:
+        os.close(descriptor)
+        if not running_executable(executable):
+            restored = subprocess.Popen(
+                [executable], cwd=Path.home(), stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+            )
+            deadline = time.monotonic() + 18
+            while not tray_ready(bus, restored.pid):
+                if restored.poll() is not None or time.monotonic() >= deadline:
+                    raise RuntimeError(f"Legacy restart did not register a tray item (PID {restored.pid})")
+                time.sleep(0.1)
+            print(f"legacy_restored pid={restored.pid} tray_ready=yes", flush=True)
 
 
 def process_tree_pss(pid):
@@ -126,6 +217,12 @@ if __name__ == "__main__":
     parser.add_argument("binary", type=Path)
     parser.add_argument("--repeats", default=5, type=int)
     parser.add_argument("--seconds", default=60, type=int)
+    parser.add_argument("--temporarily-stop-legacy", type=Path)
     args = parser.parse_args()
     signal.signal(signal.SIGTERM, interrupt)
-    raise SystemExit(0 if measure(args.binary.resolve(strict=True), args.repeats, args.seconds) else 1)
+    binary = args.binary.resolve(strict=True)
+    if args.repeats < 1 or args.seconds < 1:
+        parser.error("repeats and seconds must be positive")
+    with suspend_legacy(args.temporarily_stop_legacy):
+        passed = measure(binary, args.repeats, args.seconds)
+    raise SystemExit(0 if passed else 1)

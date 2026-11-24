@@ -19,16 +19,31 @@ path = "src/bin/clippy-slint-qa.rs"
 required-features = ["qa-build"]
 
 [features]
-default = []
+default = ["vp9-recording", "native-recording-audio"]
 qa-build = []
+vp9-recording = ["clippy-media/recording-vp9-prototype"]
+native-recording-audio = [
+    "vp9-recording",
+    "clippy-media/recording-opus-webm",
+    "clippy-media/recording-linux-audio",
+    "clippy-media/recording-windows-audio",
+]
 
 [dependencies]
 anyhow = "1"
+base64 = "0.22"
 clippy-capture = { path = "../../crates/clippy-capture" }
 clippy-core = { path = "../../crates/clippy-core" }
+clippy-media = { path = "../../crates/clippy-media" }
 clippy-platform = { path = "../../crates/clippy-platform" }
 clippy-storage = { path = "../../crates/clippy-storage" }
+clippy-vision = { path = "../../crates/clippy-vision" }
+clippy-translate = { path = "../../crates/clippy-translate" }
+http = "1"
 image = { version = "0.25", default-features = false, features = ["png"] }
+percent-encoding = "2"
+pulldown-cmark = { version = "0.13", default-features = false }
+serde_json = "1"
 slint = { version = "=1.19.0", default-features = false, features = [
     "accessibility",
     "backend-winit",
@@ -39,6 +54,7 @@ slint = { version = "=1.19.0", default-features = false, features = [
     "unstable-winit-030",
 ] }
 tempfile = "3"
+tokio = { version = "1", features = ["rt"] }
 
 [build-dependencies]
 slint-build = { version = "=1.19.0", default-features = false, features = ["compat-1-18"] }

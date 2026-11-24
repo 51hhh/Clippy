@@ -1,0 +1,181 @@
+import { AboutSlint, Button, CheckBox, ComboBox, LineEdit, ScrollView } from "std-widgets.slint";
+import { ClippyTheme } from "theme.slint";
+
+export struct GeneralSettings {
+    max-history: string,
+    panel-shortcut: string,
+    capture-shortcut: string,
+    theme: int,
+    save-directory: string,
+    filename-template: string,
+    ocr-enabled: bool,
+    ocr-manifest: string,
+}
+
+export struct TranslationSettings {
+    enabled: bool,
+    endpoint: string,
+    model: string,
+    region: string,
+    project: string,
+    source: string,
+    target: string,
+}
+
+component FieldLabel inherits Text {
+    color: ClippyTheme.foreground;
+    font-size: 13px;
+}
+
+export component SettingsPane inherits Rectangle {
+    in property <GeneralSettings> general;
+    in property <TranslationSettings> translation;
+    in property <int> provider-index;
+    in property <bool> auto-paste;
+    in property <bool> autostart;
+    in property <bool> autostart-available;
+    in property <bool> tmux-available;
+    in property <bool> busy;
+    in property <string> build-label;
+    in property <string> data-status;
+    callback paste-setting(bool);
+    callback authorize-paste();
+    callback forget-paste();
+    callback set-autostart(bool);
+    callback apply-general(GeneralSettings);
+    callback select-provider(int);
+    callback apply-translation(int, TranslationSettings);
+    callback store-credentials(int, string, string);
+    callback delete-credentials(int);
+    callback data-action(int, string);
+    private property <int> page;
+
+    VerticalLayout {
+        spacing: 10px;
+        HorizontalLayout {
+            spacing: 8px;
+            Button { text: "General"; clicked => { root.page = 0; } }
+            Button { text: "Translation"; clicked => { root.page = 1; } }
+            Button { text: "Data"; clicked => { root.page = 2; root.data-action(0, ""); } }
+        }
+        ScrollView {
+            vertical-stretch: 1;
+            content-width: self.visible-width;
+            VerticalLayout {
+                spacing: 8px;
+                if root.page == 0: VerticalLayout {
+                    spacing: 7px;
+                    CheckBox {
+                        text: "Enable automatic paste";
+                        checked: root.auto-paste;
+                        enabled: !root.busy;
+                        toggled => { root.paste-setting(self.checked); }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Button { text: "Authorize paste"; enabled: root.auto-paste && !root.busy; clicked => { root.authorize-paste(); } }
+                        Button { text: "Forget paste permission"; enabled: !root.busy; clicked => { root.forget-paste(); } }
+                    }
+                    CheckBox {
+                        text: "Start at login";
+                        checked: root.autostart;
+                        enabled: root.autostart-available;
+                        toggled => { root.set-autostart(self.checked); }
+                    }
+                    FieldLabel { text: "Theme"; }
+                    theme := ComboBox { model: ["Light", "Dark", "Nord", "Solarized Light", "Rose", "Midnight"]; current-index: root.general.theme; }
+                    FieldLabel { text: "History limit (0 for unlimited)"; }
+                    history := LineEdit { text: root.general.max-history; input-type: number; }
+                    FieldLabel { text: "Clipboard shortcut"; }
+                    panel := LineEdit { text: root.general.panel-shortcut; }
+                    FieldLabel { text: "Screenshot shortcut"; }
+                    capture := LineEdit { text: root.general.capture-shortcut; }
+                    FieldLabel { text: "Screenshot directory"; }
+                    directory := LineEdit { text: root.general.save-directory; placeholder-text: "System Pictures/Screenshots"; }
+                    FieldLabel { text: "Screenshot filename template"; }
+                    filename := LineEdit { text: root.general.filename-template; placeholder-text: "{prefix}-{date}-{time}"; }
+                    ocr := CheckBox { text: "Enable OCR"; checked: root.general.ocr-enabled; }
+                    FieldLabel { text: "Enhanced OCR manifest"; }
+                    manifest := LineEdit { text: root.general.ocr-manifest; placeholder-text: "Optional path to model manifest"; }
+                    Button {
+                        text: "Save general settings";
+                        clicked => {
+                            root.apply-general({
+                                max-history: history.text, panel-shortcut: panel.text, capture-shortcut: capture.text,
+                                theme: theme.current-index, save-directory: directory.text, filename-template: filename.text,
+                                ocr-enabled: ocr.checked, ocr-manifest: manifest.text,
+                            });
+                        }
+                    }
+                    FieldLabel { text: root.build-label; }
+                    AboutSlint { height: 38px; }
+                }
+                if root.page == 1: VerticalLayout {
+                    spacing: 7px;
+                    ComboBox {
+                        model: ["LibreTranslate", "OpenAI-compatible", "DeepL", "Google", "Bing", "Youdao"];
+                        current-index: root.provider-index;
+                        selected => {
+                            key.text = "";
+                            secret.text = "";
+                            root.select-provider(self.current-index);
+                        }
+                    }
+                    preferred := CheckBox { text: "Use this provider for quick translation"; checked: root.translation.enabled; }
+                    FieldLabel { text: "Endpoint"; }
+                    endpoint := LineEdit { text: root.translation.endpoint; placeholder-text: "Provider default"; }
+                    FieldLabel { text: "Model"; }
+                    model := LineEdit { text: root.translation.model; }
+                    FieldLabel { text: "Region / project"; }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        region := LineEdit { text: root.translation.region; placeholder-text: "Region"; }
+                        project := LineEdit { text: root.translation.project; placeholder-text: "Project"; }
+                    }
+                    FieldLabel { text: "Language codes"; }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        source := LineEdit { text: root.translation.source; placeholder-text: "Source · auto"; }
+                        target := LineEdit { text: root.translation.target; placeholder-text: "Target · en"; }
+                    }
+                    Button {
+                        text: "Save provider settings";
+                        clicked => {
+                            root.apply-translation(root.provider-index, {
+                                enabled: preferred.checked, endpoint: endpoint.text, model: model.text, region: region.text,
+                                project: project.text, source: source.text, target: target.text,
+                            });
+                        }
+                    }
+                    FieldLabel { text: "System keychain"; }
+                    key := LineEdit { placeholder-text: "API key"; input-type: password; }
+                    secret := LineEdit { placeholder-text: "API secret · Youdao"; input-type: password; }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        Button {
+                            text: "Store credentials"; enabled: !key.text.is-empty && !root.busy;
+                            clicked => {
+                                root.store-credentials(root.provider-index, key.text, secret.text);
+                                key.text = "";
+                                secret.text = "";
+                            }
+                        }
+                        Button { text: "Delete stored credentials"; enabled: !root.busy; clicked => { root.delete-credentials(root.provider-index); } }
+                    }
+                }
+                if root.page == 2: VerticalLayout {
+                    spacing: 8px;
+                    FieldLabel { text: root.data-status; wrap: word-wrap; }
+                    archive := LineEdit { placeholder-text: "Absolute path to .clippy.zip"; }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Button { text: "Export archive"; enabled: !root.busy && !archive.text.is-empty; clicked => { root.data-action(1, archive.text); } }
+                        Button { text: "Import archive"; enabled: !root.busy && !archive.text.is-empty; clicked => { root.data-action(2, archive.text); } }
+                    }
+                    if root.tmux-available: Button { text: "Capture active tmux pane"; enabled: !root.busy; clicked => { root.data-action(3, ""); } }
+                    Button { text: "Diagnostics"; clicked => { root.data-action(4, ""); } }
+                }
+            }
+        }
+    }
+}

@@ -85,7 +85,7 @@ try {
         & python.exe -c 'import sys; assert sys.version_info.major == 3'
         if ($LASTEXITCODE -ne 0) { throw 'A working Python 3 interpreter is required.' }
     }
-    if ($RecordingQa) {
+    if ($RecordingQa -or $runSlint) {
         foreach ($command in @('sh.exe', 'make.exe', 'diff.exe', 'perl.exe', 'nasm.exe', 'msbuild.exe', 'cmake.exe')) {
             Require-Command $command 'See docs/windows-development.md for the recording source-build toolchain.'
         }
@@ -131,10 +131,10 @@ $backend = Join-Path $repository 'apps/legacy-tauri/native'
 $frontend = Join-Path $repository 'apps/legacy-tauri/frontend'
 
 if ($runCore) {
-    Invoke-Check 'Shared Rust format' $repository { & cargo.exe fmt -p clippy-capture -p clippy-core -p clippy-platform -p clippy-storage -- --check }
-    Invoke-Check 'Shared Rust check' $repository { & cargo.exe check --locked -p clippy-capture -p clippy-core -p clippy-platform -p clippy-storage --all-targets }
-    Invoke-Check 'Shared Rust clippy' $repository { & cargo.exe clippy --locked -p clippy-capture -p clippy-core -p clippy-platform -p clippy-storage --all-targets -- -D warnings }
-    Invoke-Check 'Shared Rust tests' $repository { & cargo.exe test --locked -p clippy-capture -p clippy-core -p clippy-platform -p clippy-storage }
+    Invoke-Check 'Shared Rust format' $repository { & cargo.exe fmt -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision -- --check }
+    Invoke-Check 'Shared Rust check' $repository { & cargo.exe check --locked -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision --all-targets }
+    Invoke-Check 'Shared Rust clippy' $repository { & cargo.exe clippy --locked -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision --all-targets -- -D warnings }
+    Invoke-Check 'Shared Rust tests' $repository { & cargo.exe test --locked -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision }
 }
 
 if ($runLegacy -and -not $FrontendOnly) {
@@ -231,6 +231,9 @@ if ($runSlint) {
     Invoke-Check 'Slint Rust clippy' $repository { & cargo.exe clippy --locked -p clippy-slint --all-targets -- -D warnings }
     Invoke-Check 'Slint Rust tests' $repository { & cargo.exe test --locked -p clippy-slint }
     Invoke-Check 'Slint QA profile tests' $repository { & cargo.exe test --locked -p clippy-slint --features qa-build }
+    Invoke-Check 'Shared A/V and WASAPI tests' $repository {
+        & cargo.exe test --locked -p clippy-media --features recording-opus-webm,recording-windows-audio -- --test-threads=1
+    }
 }
 
 Write-Host "Result: $script:passed passed, $script:failed failed, $script:skipped skipped. Scope: $scope"

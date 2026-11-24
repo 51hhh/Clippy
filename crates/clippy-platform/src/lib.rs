@@ -7,3 +7,4 @@ pub mod paths;
 pub mod private_files;
 pub mod session;
 pub mod shortcuts;
+pub mod startup;

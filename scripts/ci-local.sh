@@ -193,10 +193,10 @@ echo ""
 check_prerequisites
 
 run_core_segment() {
-  run_step "Shared Rust fmt --check" cargo fmt -p clippy-capture -p clippy-core -p clippy-platform -p clippy-storage -- --check
-  run_step "Shared Rust check" cargo check --locked -p clippy-capture -p clippy-core -p clippy-platform -p clippy-storage --all-targets
-  run_step "Shared Rust clippy" cargo clippy --locked -p clippy-capture -p clippy-core -p clippy-platform -p clippy-storage --all-targets -- -D warnings
-  run_step "Shared Rust test" cargo test --locked -p clippy-capture -p clippy-core -p clippy-platform -p clippy-storage
+  run_step "Shared Rust fmt --check" cargo fmt -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision -- --check
+  run_step "Shared Rust check" cargo check --locked -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision --all-targets
+  run_step "Shared Rust clippy" cargo clippy --locked -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision --all-targets -- -D warnings
+  run_step "Shared Rust test" cargo test --locked -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision
 }
 
 run_slint_segment() {
@@ -205,6 +205,7 @@ run_slint_segment() {
   run_step "Slint cargo clippy" cargo clippy --locked -p clippy-slint --all-targets -- -D warnings
   run_step "Slint cargo test" cargo test --locked -p clippy-slint
   run_step "Slint QA profile test" cargo test --locked -p clippy-slint --features qa-build
+  run_step "Shared A/V tests" cargo test --locked -p clippy-media --features recording-opus-webm,recording-linux-audio -- --test-threads=1
   if [[ "$(uname -s)" == "Linux" ]]; then
     run_step "Slint X11 桌面回归" bash scripts/test-slint-x11.sh
   fi
@@ -228,7 +229,7 @@ run_step "cargo clippy" bash -c "cd apps/legacy-tauri/native && cargo clippy --a
 run_step "cargo test" bash -c "cd apps/legacy-tauri/native && cargo test"
 if [[ "$(uname -s)" == "Linux" ]]; then
   run_step "X11 录屏到可恢复 AVI 闭环" \
-    bash -c "cd apps/legacy-tauri/native && xvfb-run -a cargo test recording::session::tests::x11_source_records_a_complete_private_avi_session -- --ignored --exact"
+    bash -c "cd apps/legacy-tauri/native && xvfb-run -a cargo test recording::native_x11_tests::x11_source_records_a_complete_private_avi_session -- --ignored --exact"
   run_step "X11 剪贴板隔离协议回归" ./scripts/test-x11-clipboard.sh
 else
   skip_step "X11 录屏到可恢复 AVI 闭环 (仅 Linux)"

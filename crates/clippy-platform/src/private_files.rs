@@ -56,6 +56,19 @@ pub fn ensure_private_file(path: &Path) -> io::Result<()> {
     restrict_file(path)
 }
 
+pub fn create_private_new_file(path: &Path) -> io::Result<fs::File> {
+    let mut options = fs::OpenOptions::new();
+    options.create_new(true).read(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let file = options.open(path)?;
+    restrict_file(path)?;
+    Ok(file)
+}
+
 /// 写入或截断前准备私有权限，成功写入后再次校正权限。
 pub fn write_private(path: &Path, contents: &[u8]) -> io::Result<()> {
     write_private_with_permissions(path, contents, restrict_file)
@@ -99,6 +112,12 @@ pub fn replace_private_file(source: &Path, destination: &Path) -> io::Result<()>
     #[cfg(not(target_os = "windows"))]
     fs::rename(source, destination)?;
     restrict_file(destination)
+}
+
+pub fn commit_new_file(source: &Path, destination: &Path) -> io::Result<()> {
+    std::fs::hard_link(source, destination)?;
+    let _ = std::fs::remove_file(source);
+    Ok(())
 }
 
 /// 判断文件是否没有向组或其他用户授予权限。

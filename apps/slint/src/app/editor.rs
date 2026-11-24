@@ -1,4 +1,4 @@
-use super::{capture, clipboard, post, use_app, App, Event};
+use super::{capture, clipboard, post, use_app, vision, App, Event};
 use crate::EditorWindow;
 use anyhow::{anyhow, Result};
 use clippy_capture::editor::{Editor, ImageProject, Tool};
@@ -22,6 +22,8 @@ pub(super) enum Action {
     Save,
     Close,
     Pin,
+    Analyze(vision::Mode),
+    Sample([f32; 2]),
 }
 
 pub(super) struct View {
@@ -43,6 +45,7 @@ impl View {
             Tool::ALL
                 .into_iter()
                 .map(|tool| slint::SharedString::from(tool.label()))
+                .chain(std::iter::once("Pick color".into()))
                 .collect::<Vec<_>>(),
         )));
         window.set_aspect(image.width() as f32 / image.height() as f32);
@@ -67,6 +70,10 @@ impl View {
                 }
                 let mut points = std::mem::take(&mut editor.stroke);
                 points.push([x, y]);
+                if tool as usize == Tool::ALL.len() {
+                    action(Action::Sample([x, y]));
+                    return;
+                }
                 let Some(tool) = Tool::ALL.get(tool as usize) else {
                     return;
                 };
@@ -91,6 +98,8 @@ impl View {
         window.on_copy(|| action(Action::Copy));
         window.on_save(|| action(Action::Save));
         window.on_pin(|| action(Action::Pin));
+        window.on_recognize(|| action(Action::Analyze(vision::Mode::Recognize)));
+        window.on_scan_code(|| action(Action::Analyze(vision::Mode::Scan)));
         window.on_close_editor(|| action(Action::Close));
         window.window().on_close_requested(|| {
             action(Action::Close);
@@ -297,6 +306,40 @@ impl App {
                     editor.set_status("Adding to the pinned workspace…".into());
                     self.pins
                         .create(editor.id, snapshot, image, self.storage.client());
+                }
+            }
+            Action::Analyze(mode) => {
+                if editor.window.get_output_ready() {
+                    let image = editor.current.clone();
+                    let id = editor.id;
+                    if let Err(error) = self.analyze_image(image, mode) {
+                        self.editor_output(id, Err(error));
+                    }
+                }
+            }
+            Action::Sample([x, y]) => {
+                if !editor.window.get_output_ready() {
+                    return;
+                }
+                let (width, height) = editor.current.dimensions();
+                let pixel = editor.current.get_pixel(
+                    ((x * width as f32) as u32).min(width - 1),
+                    ((y * height as f32) as u32).min(height - 1),
+                );
+                let color = format!("#{:02X}{:02X}{:02X}", pixel[0], pixel[1], pixel[2]);
+                let id = editor.id;
+                let result = self.clipboard.submit(clipboard::Request::WriteText {
+                    text: color.clone(),
+                    finish: Box::new(move |result| {
+                        post(Event::EditorOutput(
+                            id,
+                            result.map(|()| format!("Copied {color}")),
+                        ));
+                    }),
+                });
+                match result {
+                    Ok(()) => editor.set_busy(true),
+                    Err(error) => editor.set_status(error.to_string()),
                 }
             }
         }

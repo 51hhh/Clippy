@@ -1,9 +1,15 @@
-import { AboutSlint, Button, CheckBox, LineEdit, ListView, VerticalBox } from "std-widgets.slint";
+import { Button, CheckBox, LineEdit, ListView, VerticalBox } from "std-widgets.slint";
+import { GeneralSettings, SettingsPane, TranslationSettings } from "settings.slint";
+import { ClippyTheme, WindowTitle } from "theme.slint";
+export { GeneralSettings, TranslationSettings, ClippyTheme }
 export { EditorWindow } from "editor.slint";
 export { PinnedWindow, WorkspaceWindow, WorkspaceRow } from "pins.slint";
 export { LongshotWindow } from "longshot.slint";
+export { ImageTextWindow, TextBox, TextParagraph } from "vision.slint";
+export { RecordingLibrary, RecordingRow } from "recording.slint";
+export { ToolsWindow, TranslationRow } from "tools.slint";
 
-export enum CaptureAction { copy, save, edit, longshot }
+export enum CaptureAction { copy, save, edit, longshot, record }
 
 export struct ClipRow {
     id: string,
@@ -18,8 +24,14 @@ export component ClippyTray inherits SystemTrayIcon {
     in property <string> product-name;
     callback open-panel();
     callback screenshot();
+    callback delayed-screenshot();
+    callback save-screens();
     callback open-settings();
+    callback open-actions();
     callback open-workspace();
+    callback recordings();
+    callback recording-pause();
+    callback recording-stop();
     callback quit();
 
     tooltip: root.product-name;
@@ -29,7 +41,13 @@ export component ClippyTray inherits SystemTrayIcon {
     Menu {
         MenuItem { title: "Open Clipboard"; activated => { root.open-panel(); } }
         MenuItem { title: "Screenshot"; activated => { root.screenshot(); } }
+        MenuItem { title: "Screenshot in 3 seconds"; activated => { root.delayed-screenshot(); } }
+        MenuItem { title: "Save screens to PNG"; activated => { root.save-screens(); } }
+        MenuItem { title: "Actions"; activated => { root.open-actions(); } }
         MenuItem { title: "Pinned Workspace"; activated => { root.open-workspace(); } }
+        MenuItem { title: "Recordings"; activated => { root.recordings(); } }
+        MenuItem { title: "Pause / Resume recording"; activated => { root.recording-pause(); } }
+        MenuItem { title: "Stop recording"; activated => { root.recording-stop(); } }
         MenuItem { title: "Settings"; activated => { root.open-settings(); } }
         MenuItem { title: "Quit"; activated => { root.quit(); } }
     }
@@ -41,8 +59,13 @@ export component AppWindow inherits Window {
     in property <string> history-status: "Loading history…";
     in property <string> action-status;
     in property <string> shortcut-status;
-    in property <string> panel-shortcut;
-    in property <string> capture-shortcut;
+    in property <GeneralSettings> general-settings;
+    in property <TranslationSettings> translation-settings;
+    in property <int> provider-index;
+    in property <bool> autostart;
+    in property <bool> autostart-available;
+    in property <bool> tmux-available;
+    in property <string> data-status;
     in property <[ClipRow]> clips;
     in-out property <string> selected-id;
     in-out property <string> query;
@@ -60,14 +83,25 @@ export component AppWindow inherits Window {
     callback modify-item(string, bool);
     callback set-auto-paste(bool);
     callback authorize-paste();
+    callback forget-paste();
+    callback set-autostart(bool);
+    callback apply-general(GeneralSettings);
+    callback select-provider(int);
+    callback apply-translation(int, TranslationSettings);
+    callback store-credentials(int, string, string);
+    callback delete-credentials(int);
+    callback data-action(int, string);
+    callback begin-drag();
     callback edit-history-image(string);
+    callback preview-item(string);
 
     title: root.product-name;
     preferred-width: 480px;
     preferred-height: 620px;
     min-width: 400px;
     min-height: 440px;
-    background: #f6f7f9;
+    background: ClippyTheme.background;
+    init => { ClippyTheme.sync-native-palette(); }
 
     VerticalBox {
         padding: 18px;
@@ -75,12 +109,9 @@ export component AppWindow inherits Window {
 
         HorizontalLayout {
             spacing: 8px;
-            Text {
+            WindowTitle {
                 text: root.show-settings ? "Settings" : "Clipboard";
-                vertical-alignment: center;
-                color: #202124;
-                font-size: 24px;
-                font-weight: 700;
+                begin-drag => { root.begin-drag(); }
             }
             Button {
                 text: root.show-settings ? "History" : "Settings";
@@ -118,8 +149,8 @@ export component AppWindow inherits Window {
             ListView {
                 for clip in root.clips: Rectangle {
                     height: 77px;
-                    background: root.selected-id == clip.id ? #fff0e8 : #ffffff;
-                    border-color: root.selected-id == clip.id ? #e87752 : #e3e7ec;
+                    background: root.selected-id == clip.id ? ClippyTheme.selected : ClippyTheme.surface;
+                    border-color: root.selected-id == clip.id ? ClippyTheme.accent : ClippyTheme.border;
                     border-width: 1px;
                     border-radius: 8px;
 
@@ -133,16 +164,16 @@ export component AppWindow inherits Window {
                         spacing: 3px;
                         Text {
                             text: clip.kind + (clip.favorite ? " · ★" : "") + (clip.sensitive ? " · Protected" : "");
-                            color: #a93612;
+                            color: ClippyTheme.accent;
                             font-size: 12px;
                             font-weight: 700;
                         }
-                        Text { text: clip.preview; color: #25272a; font-size: 14px; overflow: elide; }
-                        Text { text: clip.metadata; color: #545c65; font-size: 11px; }
+                        Text { text: clip.preview; color: ClippyTheme.foreground; font-size: 14px; overflow: elide; }
+                        Text { text: clip.metadata; color: ClippyTheme.muted; font-size: 11px; }
                     }
                 }
             }
-            Text { text: root.history-status; color: #545c65; font-size: 12px; }
+            Text { text: root.history-status; color: ClippyTheme.muted; font-size: 12px; }
             if root.can-load-more && root.history-limit < 200: Button {
                 text: "Load more";
                 clicked => { root.history-limit = root.history-limit + 50; root.reload-history(); }
@@ -170,36 +201,45 @@ export component AppWindow inherits Window {
                     clicked => { root.modify-item(root.selected-id, false); }
                 }
             }
-            if root.selected-image: Button {
-                text: "Edit selected image";
-                enabled: !root.loading-history && !root.busy;
-                clicked => { root.edit-history-image(root.selected-id); }
+            Button {
+                text: root.selected-image ? "Edit selected image" : "Preview selected item";
+                enabled: !root.loading-history && !root.busy && root.selected-id != "";
+                clicked => {
+                    if root.selected-image {
+                        root.edit-history-image(root.selected-id);
+                    } else {
+                        root.preview-item(root.selected-id);
+                    }
+                }
             }
         }
 
-        if root.show-settings: VerticalLayout {
-            spacing: 12px;
+        if root.show-settings: SettingsPane {
             vertical-stretch: 1;
-            Text { text: "Open clipboard  " + root.panel-shortcut; color: #25272a; }
-            Text { text: "Screenshot  " + root.capture-shortcut; color: #25272a; }
-            CheckBox {
-                text: "Enable automatic paste";
-                checked: root.auto-paste;
-                enabled: !root.busy;
-                toggled => { root.set-auto-paste(self.checked); }
-            }
-            Button {
-                text: "Authorize paste";
-                enabled: root.auto-paste && !root.busy;
-                clicked => { root.authorize-paste(); }
-            }
-            Rectangle { vertical-stretch: 1; }
-            Text { text: root.build-label; color: #545c65; font-size: 12px; }
-            AboutSlint { height: 40px; }
+            general: root.general-settings;
+            translation: root.translation-settings;
+            provider-index: root.provider-index;
+            auto-paste: root.auto-paste;
+            busy: root.busy;
+            build-label: root.build-label;
+            autostart: root.autostart;
+            autostart-available: root.autostart-available;
+            tmux-available: root.tmux-available;
+            data-status: root.data-status;
+            paste-setting(value) => { root.set-auto-paste(value); }
+            authorize-paste => { root.authorize-paste(); }
+            forget-paste => { root.forget-paste(); }
+            set-autostart(value) => { root.set-autostart(value); }
+            apply-general(value) => { root.apply-general(value); }
+            select-provider(index) => { root.select-provider(index); }
+            apply-translation(index, value) => { root.apply-translation(index, value); }
+            store-credentials(index, key, secret) => { root.store-credentials(index, key, secret); }
+            delete-credentials(index) => { root.delete-credentials(index); }
+            data-action(action, path) => { root.data-action(action, path); }
         }
 
         if root.shortcut-status != "": Text { text: root.shortcut-status; color: #a33a3a; wrap: word-wrap; }
-        Text { text: root.action-status; color: #545c65; font-size: 12px; min-height: 15px; wrap: word-wrap; }
+        Text { text: root.action-status; color: ClippyTheme.muted; font-size: 12px; min-height: 15px; wrap: word-wrap; }
     }
 }
 
@@ -301,5 +341,12 @@ export component CaptureWindow inherits Window {
         text: "Scrolling capture";
         enabled: root.selected;
         clicked => { root.confirm(CaptureAction.longshot, root.left / root.width, root.top / root.height, root.right / root.width, root.bottom / root.height); }
+    }
+    Button {
+        x: parent.width / 2 - self.width - 52px;
+        y: 72px;
+        text: "Record region";
+        enabled: root.selected;
+        clicked => { root.confirm(CaptureAction.record, root.left / root.width, root.top / root.height, root.right / root.width, root.bottom / root.height); }
     }
 }

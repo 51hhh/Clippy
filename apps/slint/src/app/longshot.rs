@@ -126,9 +126,7 @@ impl View {
 
 fn feedback(session: &LongshotSession, note: String) -> Result<Feedback> {
     let state = session.snapshot();
-    let preview =
-        image::load_from_memory_with_format(&session.preview_tail_png()?, image::ImageFormat::Png)?
-            .into_rgba8();
+    let preview = session.preview_pixels()?;
     Ok(Feedback {
         preview,
         frames: state.frame_count,

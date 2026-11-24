@@ -4,7 +4,7 @@ mod region;
 // ScreenCaptureKit 的 PTS、PCM 布局与拆块合同在所有宿主运行测试，原生对象只进入 macOS AV feature。
 #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
 #[allow(dead_code)]
-pub(super) mod linux_audio;
+pub(super) use clippy_media::recording::platform::linux_audio;
 #[allow(dead_code)]
 mod macos_audio_contract;
 // macOS 麦克风的纯 Rust 流式重采样合同可在 Linux feature 测试中执行；原生对象仍只进入 macOS。
@@ -13,17 +13,12 @@ mod macos_audio_contract;
 mod macos_audio_resampler;
 #[cfg(target_os = "linux")]
 pub(super) mod wayland;
-// PipeWire PTS、PCM 与拆块合同在所有宿主运行测试，原生对象只进入 Linux AV feature。
-#[allow(dead_code)]
-mod linux_audio_contract;
 #[cfg(target_os = "windows")]
 pub(super) mod windows;
 // WASAPI 的纯时间/拆块合同在所有宿主运行测试，原生对象只进入显式 Windows audio feature。
 #[cfg(all(target_os = "windows", feature = "recording-windows-audio"))]
 #[allow(dead_code)]
-pub(super) mod windows_audio;
-#[allow(dead_code)]
-mod windows_audio_contract;
+pub(super) use clippy_media::recording::platform::windows_audio;
 #[cfg(target_os = "linux")]
 pub(super) mod x11;
 

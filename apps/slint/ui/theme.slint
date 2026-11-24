@@ -1,0 +1,42 @@
+import { Palette } from "std-widgets.slint";
+
+export global ClippyTheme {
+    in property <int> index;
+    out property <bool> dark: index == 1 || index == 2 || index == 5;
+    out property <color> background: index == 1 ? #16181d : index == 2 ? #2e3440 : index == 3 ? #fdf6e3 : index == 4 ? #fff7f7 : index == 5 ? #14132b : #fbfbfd;
+    out property <color> surface: index == 1 ? #1d2026 : index == 2 ? #3b4252 : index == 3 ? #f5eed0 : index == 4 ? #ffeded : index == 5 ? #1c1b3a : #ffffff;
+    out property <color> foreground: index == 1 ? #ecedf1 : index == 2 ? #eceff4 : index == 3 ? #2a3a3f : index == 4 ? #2a1a1f : index == 5 ? #f1ecff : #1c1d22;
+    out property <color> muted: index == 1 ? #b3b7c2 : index == 2 ? #d8dee9 : index == 3 ? #586e75 : index == 4 ? #6b4e54 : index == 5 ? #c1bce3 : #4f535d;
+    out property <color> accent: index == 1 ? #8aa4ff : index == 2 ? #88c0d0 : index == 3 ? #1f74b1 : index == 4 ? #b62558 : index == 5 ? #c084fc : #4453e0;
+    out property <color> selected: index == 1 ? #2c3550 : index == 2 ? #4c566a : index == 3 ? #e0d8b0 : index == 4 ? #ffd3d8 : index == 5 ? #312f63 : #e3ecfb;
+    out property <color> border: dark ? #ffffff32 : #20233d24;
+    public function sync-native-palette() {
+        Palette.color-scheme = dark ? ColorScheme.dark : ColorScheme.light;
+    }
+    changed index => { self.sync-native-palette(); }
+}
+
+export component WindowTitle inherits Rectangle {
+    in property <string> text;
+    callback begin-drag();
+    horizontal-stretch: 1;
+    min-height: 32px;
+
+    Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.text;
+        vertical-alignment: center;
+        overflow: elide;
+        color: ClippyTheme.foreground;
+        font-size: 24px;
+        font-weight: 700;
+    }
+    TouchArea {
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                root.begin-drag();
+            }
+        }
+    }
+}
