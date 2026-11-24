@@ -56,6 +56,14 @@ def wait_for(predicate, description, timeout=8):
     raise AssertionError(description)
 
 
+class ClientMessage(c.Structure):
+    _fields_ = [
+        ("type", c.c_int), ("serial", c.c_ulong), ("send_event", c.c_int),
+        ("display", c.c_void_p), ("window", c.c_ulong), ("message_type", c.c_ulong),
+        ("format", c.c_int), ("data", c.c_long * 5),
+    ]
+
+
 class Desktop:
     def __init__(self):
         self.lib = c.CDLL("libX11.so.6")
@@ -81,6 +89,8 @@ class Desktop:
         self.root_window = bind(self.lib, "XDefaultRootWindow", (), c.c_ulong)
         self.set_background = bind(self.lib, "XSetWindowBackground", (c.c_ulong, c.c_ulong))
         self.clear_window = bind(self.lib, "XClearWindow", (c.c_ulong,))
+        self.atom = bind(self.lib, "XInternAtom", (c.c_char_p, c.c_int), c.c_ulong)
+        self.send_event = bind(self.lib, "XSendEvent", (c.c_ulong, c.c_int, c.c_long, c.c_void_p))
         self.create_gc = bind(self.lib, "XCreateGC", (c.c_ulong, c.c_ulong, c.c_void_p), c.c_void_p)
         self.free_gc = bind(self.lib, "XFreeGC", (c.c_void_p,))
         self.foreground = bind(self.lib, "XSetForeground", (c.c_void_p, c.c_ulong))
@@ -101,6 +111,18 @@ class Desktop:
 
     def focus(self, window):
         self.focus_window(self.display, window, 2, 0)
+        self.sync(self.display, 0)
+
+    def request_close(self, window):
+        storage = (c.c_long * 24)()
+        message = ClientMessage.from_buffer(storage)
+        message.type = 33
+        message.display = self.display
+        message.window = window
+        message.message_type = self.atom(self.display, b"WM_PROTOCOLS", 0)
+        message.format = 32
+        message.data[0] = self.atom(self.display, b"WM_DELETE_WINDOW", 0)
+        assert self.send_event(self.display, window, 0, 0, c.byref(storage))
         self.sync(self.display, 0)
 
     def click(self, x, y):
@@ -526,7 +548,7 @@ def run(binary, root):
             stream, = json.loads(probe)["streams"]
             assert (stream["codec_name"], stream["width"], stream["height"]) == ("vp9", 140, 100)
         tray.activate("Recordings")
-        _, (rec_x, rec_y, rec_w, rec_h) = wait_for(
+        recording_window, (rec_x, rec_y, rec_w, rec_h) = wait_for(
             lambda: titled_window(RECORDING_TITLE), "recordings library never opened",
         )
         time.sleep(0.25)
@@ -534,7 +556,7 @@ def run(binary, root):
         exported = data_dir / "Exported Recordings" / f"Clippy-{manifest['sessionId']}.webm"
         wait_for(exported.is_file, "recording export did not commit")
         assert exported.read_bytes() == video.read_bytes()
-        desktop.click(rec_x + rec_w * 7 // 8, rec_y + rec_h - 80)
+        desktop.request_close(recording_window)
         wait_for(lambda: not titled_window(RECORDING_TITLE), "recordings library never closed")
         print("PASS region recording, pause/resume, VP9 finalization and exact library export", flush=True)
 
