@@ -4,9 +4,9 @@
 
 - `apps/legacy-tauri/` 是 v0.1.x 的完整产品实现，固定使用 Tauri 2.12.4；迁移期仍负责现有功能与
   必要的小修、安全修复。
-- `apps/slint/` 是 v0.2.0 的新入口，固定使用 Slint 1.19.0。当前包含可独立编译、关闭并展示
-  框架归属的迁移壳层，并从共享核心读取产品标识；生产版与 QA 版是两个显式宿主入口，共用同一
-  Slint 应用库。尚未接入剪贴板、托盘、截图等产品能力，也没有启用 v0.2 正式发布打包。
+- `apps/slint/` 是 v0.2.0 的新入口，固定使用 Slint 1.19.0。生产版与 QA 版是两个显式宿主入口，
+  共用同一 Slint 应用库；当前能从隔离的数据目录异步读取并展示最近 50 条历史，敏感内容不会复制到
+  UI model。剪贴板监听、操作、托盘、截图等产品能力仍未接入，也没有启用 v0.2 正式发布打包。
 - `crates/clippy-core/` 承载剪贴板模型、产品标识和共享配置领域。`config` 拥有 `AppConfig`、默认值、
   版本迁移、JSON 编解码及“持久化后应用、失败时补偿”的提交协议；它不持有文件路径、权限、窗口或
   UI 类型。legacy 通过原模块重导出保持调用路径，并只保留私有文件适配器与 Tauri 副作用；Slint
@@ -15,8 +15,11 @@
   平台 ID，Slint QA 使用独立的 app/data/single-instance/shortcut namespace。`qa-build` 只开放
   QA 可执行目标，具体身份由两个入口显式传给共享应用库，避免 Cargo feature 合并让生产入口误用
   QA 身份。
+- `crates/clippy-storage/` 是 SQLite/FTS5 适配器，拥有现有 schema、迁移、搜索、归档、图片修订与
+  Pin 工作区持久化。连接只由有界队列后的专用线程持有，Slint 事件循环不持有 `Connection` 或
+  `Arc<Mutex<_>>`；请求带 generation，后续搜索可丢弃过期响应而不用阻塞 UI。
 - 根 `Cargo.toml` / `Cargo.lock` 统一解析两套 Rust 入口、共享核心、平台边界与 vendored patch；
-  `default-members` 只包含 core/platform/Slint，普通 `cargo` 命令不会编译 legacy。后续业务能力按
+  `default-members` 只包含 core/platform/storage/Slint，普通 `cargo` 命令不会编译 legacy。后续业务能力按
   `SLINT-UI-MIGRATION-01` 继续下沉到 UI 无关 crate，不能把 legacy 的 Tauri/WebView 调用复制进
   Slint 正式路径。
 
@@ -409,13 +412,13 @@ macOS Resources 中的未来 sidecar、进程 PATH、平台常见安装目录；
 
 | 证据 | 入口 | 能证明什么 | 不能替代什么 |
 |---|---|---|---|
-| 本地完整门禁 | `./scripts/ci-local.sh` | 当前宿主的 core/platform/Slint v0.2 路径 | legacy 维护兼容、非宿主条件编译、原生桌面行为 |
+| 本地完整门禁 | `./scripts/ci-local.sh` | 当前宿主的 core/platform/storage/Slint v0.2 路径 | legacy 维护兼容、非宿主条件编译、原生桌面行为 |
 | 可选交叉检查 | `CLIPPY_CROSS_CHECK=1 ./scripts/ci-local.sh` | 已安装目标和工具链可覆盖的编译期问题 | 目标系统测试、平台 API、桌面权限 |
 | 同 SHA 原生 CI | `.github/workflows/build.yml` + `verify-native-ci.mjs` | Ubuntu、Windows、macOS 原生 check/clippy/test | 安装包签名、真实桌面交互 |
 | Native/人工 QA | `native-qa.yml` + [native-qa.md](native-qa.md) | 安装包、权限、焦点、混合 DPI、Wayland/macOS/Windows 交互 | 自动单元测试与代码合同门禁 |
 
 四种证据独立记录，不能互相替代；跳过项不计为通过。`./scripts/ci-local.sh` 默认执行 `current`：
-core/platform 与 Slint 的 fmt/check/clippy/test，不安装 Node，也不编译 Tauri/WebView。旧版维护使用
+core/platform/storage 与 Slint 的 fmt/check/clippy/test，不安装 Node，也不编译 Tauri/WebView。旧版维护使用
 `--segment legacy`，需要同时验证两套时显式使用 `--segment all`；这两种模式会重新生成 legacy 的
 Cargo、Node 和前端产物。AppImage 可视 smoke 与历史 DOM/像素门禁只属于 legacy 维护证据。
 

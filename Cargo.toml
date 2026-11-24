@@ -2,6 +2,7 @@
 members = [
     "crates/clippy-core",
     "crates/clippy-platform",
+    "crates/clippy-storage",
     "apps/legacy-tauri/native",
     "apps/legacy-tauri/native/vendor/arboard",
     "apps/slint",
@@ -9,6 +10,7 @@ members = [
 default-members = [
     "crates/clippy-core",
     "crates/clippy-platform",
+    "crates/clippy-storage",
     "apps/slint",
 ]
 exclude = [

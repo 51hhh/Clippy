@@ -1,5 +1,5 @@
 use super::{now_secs, StorageEngine, StorageError};
-use crate::models::UrlMeta;
+use clippy_core::models::UrlMeta;
 use rusqlite::params;
 
 pub(super) const URL_META_TTL_SECS: i64 = 7 * 86400;

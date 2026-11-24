@@ -10,15 +10,27 @@
 - Native QA 默认只产出 Slint 包；仍可手动选择 `legacy` 或 `all`。本地清理了可重建的 Cargo target、
   legacy dist 与 node_modules，未删除源码和历史证据。（需求：`SLINT-UI-MIGRATION-01`）
 
+### 2026-11-24 Slint 共享存储接入
+
+- 新增独立 `clippy-storage`，从 Tauri host 抽离 SQLite/FTS5 schema、迁移、搜索、归档、图片修订和
+  Pin 工作区持久化；原有回归随适配器迁移，并连同专用线程边界共 45 项测试保持通过。
+- `clippy-platform` 统一生产/QA 数据目录和私有文件权限，生产路径与旧 Tauri identifier 保持一致。
+  Slint 使用有界专用线程加载最近 50 条历史，UI 线程不持有数据库连接；敏感文本不进入 UI model。
+  当前新版默认本地门禁为 9 通过 / 0 失败 / 0 跳过，未编译 legacy；仍未接入剪贴板监听、
+  复制/粘贴/删除/收藏动作。（需求：`SLINT-UI-MIGRATION-01`）
+- 当前 release QA 二进制为 14,061,296 字节，动态依赖不含 Tauri/WebKit/JSC/GTK。Xvfb + llvmpipe
+  的单次开窗样本 PSS 为 95,338 KiB，其中 LLVM/Gallium 软件渲染约 32 MiB；该结果不是实际 GPU、
+  托盘无窗口或 5 次 60 秒验收，不能据此宣称已达到 50 MiB。
+
 ### 2026-11-24 Rust 依赖安全刷新
 
 - 修复最新 RustSec 数据库报告的 6 个依赖漏洞：升级 bundled SQLite/rusqlite、cookie、URL 和
   Rustls/WebPKI 信任根链；同时更新 anyhow、event-listener、rustix、Tokio，移除已有修复版本的
-  4 个 soundness 警告。`cargo-audit 0.22.2` 对当前 997 个 crate 扫描为 0 vulnerability，仍保留
-  13 个上游 unmaintained/unsound/yanked warning，不以忽略 ID 掩盖。
+  4 个 soundness 警告。`cargo-audit 0.22.2` 对当前 998 个 crate 扫描为 0 vulnerability，仍保留
+  11 个上游 unmaintained/unsound warning，不以忽略 ID 掩盖。
 - CI 不再调用会在手动 workflow 中因 GitHub Checks API 404 留下 queued check 的
   `rustsec/audit-check`；改为安装固定版本的 cargo-audit，并直接以进程退出码阻断漏洞。SQLite/FTS、
-  WAL、迁移、归档与 Pin 工作区 43 项存储测试通过；同一 SHA 的三平台 CI 仍待重新运行。
+  WAL、迁移、归档与 Pin 工作区 45 项存储测试通过；同一 SHA 的三平台 CI 仍待重新运行。
   （需求：`PROJECT-REVIEW-HARDENING-01`；见
   `docs/reviews/2026-11-24-rustsec-refresh-review.md`）
 

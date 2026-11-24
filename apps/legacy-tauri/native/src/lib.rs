@@ -32,6 +32,8 @@ mod recording;
 mod screenshot;
 mod shortcut_conflict;
 mod storage;
+#[cfg(test)]
+mod storage_integration_tests;
 mod translation;
 mod tray_icon;
 mod viewer;

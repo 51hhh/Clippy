@@ -1,5 +1,5 @@
 use super::{now_secs, StorageEngine, StorageError};
-use crate::models::TranslationHistoryEntry;
+use clippy_core::models::TranslationHistoryEntry;
 use rusqlite::{params, Result as SqlResult};
 use sha2::{Digest, Sha256};
 

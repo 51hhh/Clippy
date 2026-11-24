@@ -1,18 +1,18 @@
 use super::{now_secs, StorageEngine, StorageError, StoredPinPlacement};
-use crate::models::ContentType;
+use clippy_core::models::ContentType;
 use rusqlite::{params, OptionalExtension};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum ArchiveScope {
+pub enum ArchiveScope {
     Full,
     Favorites,
     PinWorkspace,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct ArchiveRevisionSnapshot {
+pub struct ArchiveRevisionSnapshot {
     pub source_png: Vec<u8>,
     pub source_hash: String,
     pub source_width: u32,
@@ -25,7 +25,7 @@ pub(crate) struct ArchiveRevisionSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct ArchiveClipSnapshot {
+pub struct ArchiveClipSnapshot {
     pub content_type: ContentType,
     pub text_content: Option<String>,
     pub html_content: Option<String>,
@@ -40,14 +40,14 @@ pub(crate) struct ArchiveClipSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ArchiveGroupSnapshot {
+pub struct ArchiveGroupSnapshot {
     pub source_id: i64,
     pub name: String,
     pub sort_order: i64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum ArchiveWorkspaceContentSnapshot {
+pub enum ArchiveWorkspaceContentSnapshot {
     Image {
         revision: ArchiveRevisionSnapshot,
     },
@@ -60,7 +60,7 @@ pub(crate) enum ArchiveWorkspaceContentSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct ArchiveWorkspaceSnapshot {
+pub struct ArchiveWorkspaceSnapshot {
     pub source_id: i64,
     pub group_source_id: Option<i64>,
     pub content: ArchiveWorkspaceContentSnapshot,
@@ -74,7 +74,7 @@ pub(crate) struct ArchiveWorkspaceSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct ArchiveSnapshot {
+pub struct ArchiveSnapshot {
     pub scope: ArchiveScope,
     pub clips: Vec<ArchiveClipSnapshot>,
     pub groups: Vec<ArchiveGroupSnapshot>,
@@ -83,7 +83,7 @@ pub(crate) struct ArchiveSnapshot {
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ImportSummary {
+pub struct ImportSummary {
     pub clips_added: usize,
     pub clips_merged: usize,
     pub groups_added: usize,
@@ -91,7 +91,7 @@ pub(crate) struct ImportSummary {
 }
 
 impl StorageEngine {
-    pub(crate) fn export_archive_snapshot(
+    pub fn export_archive_snapshot(
         &self,
         scope: ArchiveScope,
         include_sensitive: bool,
@@ -317,7 +317,7 @@ impl StorageEngine {
         .transpose()
     }
 
-    pub(crate) fn import_archive_snapshot(
+    pub fn import_archive_snapshot(
         &self,
         snapshot: &ArchiveSnapshot,
     ) -> Result<ImportSummary, StorageError> {

@@ -1,7 +1,8 @@
 # Clippy Slint
 
-Clippy v0.2.0 的原生 UI 迁移入口。当前只包含可编译、可关闭并展示框架归属的壳层，固定
-Slint 1.19.0，不依赖 Tauri 或 WebView；尚未接入完整产品功能，也不生成正式发布包。
+Clippy v0.2.0 的原生 UI 迁移入口。固定 Slint 1.19.0，不依赖 Tauri 或 WebView；当前已通过
+`clippy-platform` 解析与旧版一致的数据目录，并通过 `clippy-storage` 专用线程读取 SQLite/FTS 历史。
+剪贴板监听、动作、托盘和其余完整产品功能尚未接入，也不生成正式发布包。
 legacy v0.1.x 仍保留在 `apps/legacy-tauri/`。
 
 ```bash
@@ -24,8 +25,8 @@ cargo-packager --config apps/slint/Packager.qa.toml --formats deb,appimage
 编译和打包是两个显式阶段；Packager 配置只描述产物，不通过 shell hook 启动 Cargo。这样 Windows
 不会因扩展长度工作目录被 `cmd.exe` 当成 UNC 路径而丢失 workspace 根目录。
 
-该配置不等于 v0.2 正式打包流程。数据目录、单实例和快捷键隔离要等对应平台服务接入后再做运行期
-验收。Native QA workflow 在三平台分别生成 deb/AppImage、NSIS/MSI、app/DMG；Windows/macOS
+该配置不等于 v0.2 正式打包流程。数据目录已按生产/QA 身份隔离，单实例和快捷键仍要等对应平台服务
+接入后再做运行期验收。Native QA workflow 在三平台分别生成 deb/AppImage、NSIS/MSI、app/DMG；Windows/macOS
 是否成功仍以对应原生 runner 的同 SHA 结果为准。
 
 桌面分发选用 Slint Royalty-free Desktop, Mobile, and Web Applications License 2.0。

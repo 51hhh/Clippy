@@ -3,7 +3,7 @@ use rusqlite::{params, OptionalExtension};
 
 /// 已验证的修订写入合同。PNG 与 JSON 的尺寸/结构校验由 Pin 权威渲染层完成，
 /// 存储层负责在一个 SQLite 事务里去重根图、冻结文档并建立现有 clip 的关联。
-pub(crate) struct ImageRevisionWrite<'a> {
+pub struct ImageRevisionWrite<'a> {
     pub source_png: &'a [u8],
     pub source_hash: &'a str,
     pub source_width: u32,
@@ -18,7 +18,7 @@ pub(crate) struct ImageRevisionWrite<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct StoredImageRevision {
+pub struct StoredImageRevision {
     pub source_png: Vec<u8>,
     pub source_width: u32,
     pub source_height: u32,
@@ -28,7 +28,7 @@ pub(crate) struct StoredImageRevision {
 }
 
 impl StorageEngine {
-    pub(crate) fn register_image_revision(
+    pub fn register_image_revision(
         &self,
         write: ImageRevisionWrite<'_>,
     ) -> Result<i64, StorageError> {
@@ -136,7 +136,7 @@ impl StorageEngine {
         Ok(revision_id)
     }
 
-    pub(crate) fn get_image_revision_for_clip(
+    pub fn get_image_revision_for_clip(
         &self,
         clip_id: i64,
     ) -> Result<Option<StoredImageRevision>, StorageError> {
@@ -187,7 +187,7 @@ impl StorageEngine {
         }))
     }
 
-    pub(crate) fn get_image_revision_by_rendered_hash(
+    pub fn get_image_revision_by_rendered_hash(
         &self,
         rendered_hash: &str,
     ) -> Result<Option<StoredImageRevision>, StorageError> {

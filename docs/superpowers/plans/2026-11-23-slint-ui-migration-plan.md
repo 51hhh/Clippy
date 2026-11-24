@@ -119,6 +119,10 @@ legacy 产物必须明确写 `Slint: not included`，Slint 产物必须明确写
 - [x] 抽离配置值对象与持久化边界：`clippy-core::config` 拥有 `AppConfig`、目标平台快捷键默认策略、
   v1→v2 迁移、JSON codec 与结构化提交/回滚协议；legacy 只保留私有文件权限和 Tauri 副作用适配。
   Slint 的实际数据目录装配随平台服务接入，不在本项伪造一套临时路径。
+- [x] 抽离数据库与搜索：`clippy-storage` 拥有现有 SQLite/FTS5 schema、迁移、搜索、归档、图片修订和
+  Pin 工作区持久化；连同专用线程边界共 45 项存储测试随适配器迁移。`clippy-platform::paths` 与旧
+  Tauri 数据目录合同对齐，Slint 通过容量为 8 的专用存储线程异步加载最近历史，UI 线程不持有
+  SQLite 连接。
 
 按“可独立测试、无窗口类型”的顺序迁移：
 
@@ -234,3 +238,8 @@ WebM VP9/Opus、暂停/拖动/结束、窗口关闭后的线程和句柄回收�
   `clippy-slint-qa_0.2.0_amd64.deb`：包、二进制、桌面入口和图标均使用 QA 名称，control 含
   `libc6`、`libfontconfig1`、`libgcc-s1` 依赖，包内含 MIT 与 Slint 许可。该结果只验证 Linux
   本地打包配置；Windows/macOS 原生包、CI artifact 和平台服务的运行期命名空间仍未验证。
+- 共享存储接入后的 v0.2 Linux 默认门禁为 9 通过 / 0 失败 / 0 跳过，未编译 legacy；
+  cargo-audit 0.22.2 对 998 个依赖扫描为 0 vulnerability、11 个允许的上游维护/健全性 warning。
+  release QA 二进制为 14,061,296 字节且动态依赖不含 Tauri/WebKit/JSC/GTK。Xvfb + llvmpipe 的
+  单次 12 秒开窗样本 PSS 为 95,338 KiB：应用堆 41,296 KiB、LLVM 26,116 KiB、Gallium 6,029 KiB。
+  该样本不是实际 GPU、托盘无窗口或 5 次 60 秒验收，不计入 50 MiB AC。

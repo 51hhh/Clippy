@@ -50,16 +50,16 @@ jobs:
           workspaces: . -> target
 
       - name: Rust format check
-        run: cargo fmt -p clippy-core -p clippy-platform -p clippy-slint -- --check
+        run: cargo fmt -p clippy-core -p clippy-platform -p clippy-storage -p clippy-slint -- --check
 
-      - name: Core Rust check
-        run: cargo check --locked -p clippy-core -p clippy-platform --all-targets
+      - name: Shared Rust check
+        run: cargo check --locked -p clippy-core -p clippy-platform -p clippy-storage --all-targets
 
-      - name: Core Rust clippy
-        run: cargo clippy --locked -p clippy-core -p clippy-platform --all-targets -- -D warnings
+      - name: Shared Rust clippy
+        run: cargo clippy --locked -p clippy-core -p clippy-platform -p clippy-storage --all-targets -- -D warnings
 
-      - name: Core Rust tests
-        run: cargo test --locked -p clippy-core -p clippy-platform
+      - name: Shared Rust tests
+        run: cargo test --locked -p clippy-core -p clippy-platform -p clippy-storage
 
       - name: Slint Rust check
         run: cargo check --locked -p clippy-slint --all-targets
@@ -105,14 +105,14 @@ jobs:
           key: ${{ matrix.runner }}
           workspaces: . -> target
 
-      - name: Core Rust check
-        run: cargo check --locked -p clippy-core -p clippy-platform --all-targets
+      - name: Shared Rust check
+        run: cargo check --locked -p clippy-core -p clippy-platform -p clippy-storage --all-targets
 
-      - name: Core Rust clippy
-        run: cargo clippy --locked -p clippy-core -p clippy-platform --all-targets -- -D warnings
+      - name: Shared Rust clippy
+        run: cargo clippy --locked -p clippy-core -p clippy-platform -p clippy-storage --all-targets -- -D warnings
 
-      - name: Core Rust tests
-        run: cargo test --locked -p clippy-core -p clippy-platform
+      - name: Shared Rust tests
+        run: cargo test --locked -p clippy-core -p clippy-platform -p clippy-storage
 
       - name: Slint Rust check
         run: cargo check --locked -p clippy-slint --all-targets

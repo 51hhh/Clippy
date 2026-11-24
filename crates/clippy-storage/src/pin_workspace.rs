@@ -1,5 +1,5 @@
 use super::{now_secs, StorageEngine, StorageError};
-use crate::models::ContentType;
+use clippy_core::models::ContentType;
 use rusqlite::{params, OptionalExtension};
 
 const MAX_GROUP_NAME_CHARS: usize = 64;
@@ -7,14 +7,14 @@ const MAX_SNAPSHOT_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct PinWorkspaceGroup {
+pub struct PinWorkspaceGroup {
     pub id: i64,
     pub name: String,
     pub sort_order: i64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct StoredPinPlacement {
+pub struct StoredPinPlacement {
     /// 窗口外框左上角，桌面全局逻辑像素。
     pub x: f64,
     pub y: f64,
@@ -28,7 +28,7 @@ pub(crate) struct StoredPinPlacement {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum StoredPinWorkspaceContent {
+pub enum StoredPinWorkspaceContent {
     Image {
         revision_id: i64,
         revision: super::StoredImageRevision,
@@ -42,7 +42,7 @@ pub(crate) enum StoredPinWorkspaceContent {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct StoredPinWorkspaceItem {
+pub struct StoredPinWorkspaceItem {
     pub id: i64,
     pub group_id: Option<i64>,
     pub content_hash: String,
@@ -59,7 +59,7 @@ pub(crate) struct StoredPinWorkspaceItem {
 /// 全局工作区浏览器使用的轻量行。这里刻意没有图片 BLOB、HTML 或修订文档；
 /// 图片缩略图由单条、有界的独立请求读取。
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct StoredPinWorkspaceSummary {
+pub struct StoredPinWorkspaceSummary {
     pub id: i64,
     pub group_id: Option<i64>,
     pub content_type: ContentType,
@@ -73,7 +73,7 @@ pub(crate) struct StoredPinWorkspaceSummary {
     pub updated_at: i64,
 }
 
-pub(crate) struct PinWorkspaceItemWrite<'a> {
+pub struct PinWorkspaceItemWrite<'a> {
     pub id: Option<i64>,
     pub group_id: Option<i64>,
     pub revision_id: Option<i64>,
@@ -91,7 +91,7 @@ pub(crate) struct PinWorkspaceItemWrite<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct PinWorkspacePresentation {
+pub struct PinWorkspacePresentation {
     pub scale: f64,
     pub opacity: f64,
     pub locked: bool,
@@ -150,7 +150,7 @@ impl StorageEngine {
         Ok(())
     }
 
-    pub(crate) fn create_pin_group(&self, name: &str) -> Result<PinWorkspaceGroup, StorageError> {
+    pub fn create_pin_group(&self, name: &str) -> Result<PinWorkspaceGroup, StorageError> {
         let name = validate_group_name(name)?;
         let sort_order: i64 = self.conn.query_row(
             "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM pin_groups",
@@ -170,7 +170,7 @@ impl StorageEngine {
         })
     }
 
-    pub(crate) fn rename_pin_group(&self, id: i64, name: &str) -> Result<bool, StorageError> {
+    pub fn rename_pin_group(&self, id: i64, name: &str) -> Result<bool, StorageError> {
         let name = validate_group_name(name)?;
         Ok(self.conn.execute(
             "UPDATE pin_groups SET name = ?1, updated_at = ?2 WHERE id = ?3",
@@ -178,14 +178,14 @@ impl StorageEngine {
         )? == 1)
     }
 
-    pub(crate) fn delete_pin_group(&self, id: i64) -> Result<bool, StorageError> {
+    pub fn delete_pin_group(&self, id: i64) -> Result<bool, StorageError> {
         Ok(self
             .conn
             .execute("DELETE FROM pin_groups WHERE id = ?1", [id])?
             == 1)
     }
 
-    pub(crate) fn list_pin_groups(&self) -> Result<Vec<PinWorkspaceGroup>, StorageError> {
+    pub fn list_pin_groups(&self) -> Result<Vec<PinWorkspaceGroup>, StorageError> {
         let mut statement = self.conn.prepare(
             "SELECT id, name, sort_order FROM pin_groups ORDER BY sort_order ASC, id ASC",
         )?;
@@ -199,7 +199,7 @@ impl StorageEngine {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
-    pub(crate) fn upsert_pin_workspace_item(
+    pub fn upsert_pin_workspace_item(
         &self,
         write: PinWorkspaceItemWrite<'_>,
     ) -> Result<i64, StorageError> {
@@ -284,14 +284,14 @@ impl StorageEngine {
         Ok(self.conn.last_insert_rowid())
     }
 
-    pub(crate) fn delete_pin_workspace_item(&self, id: i64) -> Result<bool, StorageError> {
+    pub fn delete_pin_workspace_item(&self, id: i64) -> Result<bool, StorageError> {
         Ok(self
             .conn
             .execute("DELETE FROM pin_workspace_items WHERE id = ?1", [id])?
             == 1)
     }
 
-    pub(crate) fn set_pin_workspace_group(
+    pub fn set_pin_workspace_group(
         &self,
         id: i64,
         group_id: Option<i64>,
@@ -302,7 +302,7 @@ impl StorageEngine {
         )? == 1)
     }
 
-    pub(crate) fn update_pin_workspace_presentation(
+    pub fn update_pin_workspace_presentation(
         &self,
         id: i64,
         presentation: &PinWorkspacePresentation,
@@ -351,9 +351,7 @@ impl StorageEngine {
         Ok(changed == 1)
     }
 
-    pub(crate) fn load_pin_workspace_items(
-        &self,
-    ) -> Result<Vec<StoredPinWorkspaceItem>, StorageError> {
+    pub fn load_pin_workspace_items(&self) -> Result<Vec<StoredPinWorkspaceItem>, StorageError> {
         let query = format!("{WORKSPACE_ITEM_SELECT} ORDER BY w.id ASC");
         let mut statement = self.conn.prepare(&query)?;
         let rows = statement.query_map([], raw_workspace_row)?;
@@ -369,7 +367,7 @@ impl StorageEngine {
         Ok(items)
     }
 
-    pub(crate) fn load_pin_workspace_item(
+    pub fn load_pin_workspace_item(
         &self,
         id: i64,
     ) -> Result<Option<StoredPinWorkspaceItem>, StorageError> {
@@ -385,7 +383,7 @@ impl StorageEngine {
         .transpose()
     }
 
-    pub(crate) fn get_pin_workspace_content_identity(
+    pub fn get_pin_workspace_content_identity(
         &self,
         id: i64,
     ) -> Result<Option<(ContentType, String)>, StorageError> {
@@ -407,7 +405,7 @@ impl StorageEngine {
         .transpose()
     }
 
-    pub(crate) fn list_pin_workspace_summaries(
+    pub fn list_pin_workspace_summaries(
         &self,
     ) -> Result<Vec<StoredPinWorkspaceSummary>, StorageError> {
         // `substr` 的上限按 Unicode 字符计数。多取一个字符让前端判断是否需要省略号，
@@ -838,7 +836,7 @@ impl RawWorkspaceRow {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::ImageRevisionWrite;
+    use crate::ImageRevisionWrite;
 
     fn register_revision(storage: &StorageEngine) -> i64 {
         storage

@@ -16,6 +16,7 @@ describe("Slint v0.2 migration workspace contract", () => {
     expect(workspace).toContain('"apps/slint"');
     expect(workspace).toContain('"crates/clippy-core"');
     expect(workspace).toContain('"crates/clippy-platform"');
+    expect(workspace).toContain('"crates/clippy-storage"');
     const defaults = workspace.match(/default-members = \[([\s\S]*?)\]/)?.[1] ?? "";
     expect(defaults).toContain('"apps/slint"');
     expect(defaults).not.toContain('"apps/legacy-tauri/native"');
@@ -34,15 +35,20 @@ describe("Slint v0.2 migration workspace contract", () => {
   it("shares a UI-independent core between both application hosts", () => {
     const coreManifest = read("crates/clippy-core/Cargo.toml");
     const platformManifest = read("crates/clippy-platform/Cargo.toml");
+    const storageManifest = read("crates/clippy-storage/Cargo.toml");
     const legacyManifest = read("apps/legacy-tauri/native/Cargo.toml");
     const slintManifest = read("apps/slint/Cargo.toml");
     expect(coreManifest).not.toMatch(/^tauri\s*=/m);
     expect(coreManifest).not.toMatch(/^slint\s*=/m);
     expect(platformManifest).not.toMatch(/^tauri\s*=/m);
     expect(platformManifest).not.toMatch(/^slint\s*=/m);
+    expect(storageManifest).not.toMatch(/^tauri\s*=/m);
+    expect(storageManifest).not.toMatch(/^slint\s*=/m);
     expect(legacyManifest).toContain('clippy-core = { path = "../../../crates/clippy-core" }');
+    expect(legacyManifest).toContain('clippy-storage = { path = "../../../crates/clippy-storage" }');
     expect(slintManifest).toContain('clippy-core = { path = "../../crates/clippy-core" }');
     expect(slintManifest).toContain('clippy-platform = { path = "../../crates/clippy-platform" }');
+    expect(slintManifest).toContain('clippy-storage = { path = "../../crates/clippy-storage" }');
   });
 
   it("checks and tests shared core on local and three-platform CI gates", () => {
@@ -50,13 +56,13 @@ describe("Slint v0.2 migration workspace contract", () => {
     const buildWorkflow = read(".github/workflows/build.yml");
     const windowsGate = read("scripts/ci-windows.ps1");
     for (const source of [localGate, buildWorkflow]) {
-      expect(source).toContain("cargo check --locked -p clippy-core -p clippy-platform --all-targets");
-      expect(source).toContain("cargo test --locked -p clippy-core -p clippy-platform");
+      expect(source).toContain("cargo check --locked -p clippy-core -p clippy-platform -p clippy-storage --all-targets");
+      expect(source).toContain("cargo test --locked -p clippy-core -p clippy-platform -p clippy-storage");
     }
-    expect(windowsGate).toContain("cargo.exe check --locked -p clippy-core -p clippy-platform --all-targets");
-    expect(windowsGate).toContain("cargo.exe test --locked -p clippy-core -p clippy-platform");
-    expect(buildWorkflow.match(/name: Core Rust check/g)).toHaveLength(2);
-    expect(buildWorkflow.match(/name: Core Rust tests/g)).toHaveLength(2);
+    expect(windowsGate).toContain("cargo.exe check --locked -p clippy-core -p clippy-platform -p clippy-storage --all-targets");
+    expect(windowsGate).toContain("cargo.exe test --locked -p clippy-core -p clippy-platform -p clippy-storage");
+    expect(buildWorkflow.match(/name: Shared Rust check/g)).toHaveLength(2);
+    expect(buildWorkflow.match(/name: Shared Rust tests/g)).toHaveLength(2);
   });
 
   it("checks and tests Slint on local and three-platform CI gates", () => {

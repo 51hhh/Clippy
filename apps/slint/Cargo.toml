@@ -25,6 +25,7 @@ qa-build = []
 [dependencies]
 clippy-core = { path = "../../crates/clippy-core" }
 clippy-platform = { path = "../../crates/clippy-platform" }
+clippy-storage = { path = "../../crates/clippy-storage" }
 slint = { version = "=1.19.0", default-features = false, features = [
     "accessibility",
     "backend-winit",

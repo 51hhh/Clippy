@@ -1213,6 +1213,8 @@ dependencies = [
  "cbc",
  "chrono",
  "clippy-core",
+ "clippy-platform",
+ "clippy-storage",
  "criterion",
  "dispatch2 0.3.1",
  "enigo",
@@ -1291,6 +1293,11 @@ dependencies = [
 [[package]]
 name = "clippy-platform"
 version = "0.2.0"
+dependencies = [
+ "dirs 7.0.0",
+ "tempfile",
+ "windows-sys 0.61.2",
+]
 
 [[package]]
 name = "clippy-slint"
@@ -1298,8 +1305,24 @@ version = "0.2.0"
 dependencies = [
  "clippy-core",
  "clippy-platform",
+ "clippy-storage",
  "slint",
  "slint-build",
+]
+
+[[package]]
+name = "clippy-storage"
+version = "0.2.0"
+dependencies = [
+ "clippy-core",
+ "clippy-platform",
+ "log",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

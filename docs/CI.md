@@ -14,7 +14,7 @@
 
 | 层级 | 入口 | 覆盖 | 明确不覆盖 |
 |---|---|---|---|
-| 本地完整门禁 | `./scripts/ci-local.sh` | 当前宿主 core/platform/Slint v0.2 路径 | legacy 维护兼容、非宿主 `cfg` 分支和真实目标桌面 |
+| 本地完整门禁 | `./scripts/ci-local.sh` | 当前宿主 core/platform/storage/Slint v0.2 路径 | legacy 维护兼容、非宿主 `cfg` 分支和真实目标桌面 |
 | 可选交叉检查 | `CLIPPY_CROSS_CHECK=1 ./scripts/ci-local.sh` | 工具链可达的非宿主编译期问题 | 目标平台测试、原生 API 运行和桌面行为 |
 | 同 SHA 原生 CI | `.github/workflows/build.yml` | Ubuntu、Windows、macOS 原生 check/clippy/test | 安装包、签名信任、权限和混合 DPI |
 | Native/人工 QA | `.github/workflows/native-qa.yml` + [`native-qa.md`](native-qa.md) | QA 包、运行 smoke 和真实桌面场景 | 单元测试与静态合同门禁 |
@@ -33,8 +33,8 @@ CI；只有真实安装包和桌面交互可以关闭 Native/人工 QA 项。
 
 | 步骤 | 命令 | 说明 |
 |------|------|------|
-| Rust 格式检查 | `cargo fmt -p clippy-core -p clippy-platform -p clippy-slint` | 只检查 v0.2 当前路径 |
-| Rust 编译检查 | `cargo check --all-targets`（指定新版 package） | 检查 core/platform/Slint 本机 target |
+| Rust 格式检查 | `cargo fmt`（core/platform/storage/Slint） | 只检查 v0.2 当前路径 |
+| Rust 编译检查 | `cargo check --all-targets`（指定新版 package） | 检查共享层与 Slint 本机 target |
 | Rust Lint | `cargo clippy --all-targets -- -D warnings`（指定新版 package） | 所有 warning 视为 error |
 | Rust 单元测试 | `cargo test`（指定新版 package） | 共享层与 Slint host 测试 |
 | Rust 依赖审计 | `cargo-audit 0.22.2` | 固定工具版本，以进程退出码拒绝 RustSec vulnerability；warning 保持可见 |
@@ -50,7 +50,7 @@ CI；只有真实安装包和桌面交互可以关闭 Native/人工 QA 项。
 - **缓存**: `Swatinem/rust-cache@v2`（加速 Rust 编译）
 
 普通 CI 不安装 legacy Node 前端，也不编译 Tauri/WebView。Windows 与 macOS 保留既有 required-check
-名称，但内容改为 core/platform/Slint 原生 Rust 检查；legacy 维护证据必须从显式维护入口单独记录。
+名称，但内容改为 core/platform/storage/Slint 原生 Rust 检查；legacy 维护证据必须从显式维护入口单独记录。
 安装包构建移入独立 Native QA workflow，避免每次 push 重复生成约 190 MB
 测试产物，也避免普通 CI 在界面上与正式发布混淆。
 
@@ -161,7 +161,7 @@ cd apps/legacy-tauri/native && cargo test
 cd apps/legacy-tauri/frontend && npx vitest run
 ```
 
-`ci-local.sh` 默认 `current` 运行 core/platform 与 Slint 的 fmt/check/clippy/test，构成 v0.2 当前宿主完整
+`ci-local.sh` 默认 `current` 运行 core/platform/storage 与 Slint 的 fmt/check/clippy/test，构成 v0.2 当前宿主完整
 门禁。legacy 段仍保留 Cargo、X11/GNOME、IPC/HTML、Node、DOM/Canvas/布局与 Vite 检查，但只有
 `--segment legacy` 或 `--segment all` 才执行；`--quick` 也只适用于这两种旧版维护模式。
 

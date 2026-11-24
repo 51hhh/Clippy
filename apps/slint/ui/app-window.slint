@@ -1,47 +1,113 @@
-import { AboutSlint, VerticalBox } from "std-widgets.slint";
+import { AboutSlint, ListView, VerticalBox } from "std-widgets.slint";
+
+export struct ClipRow {
+    kind: string,
+    preview: string,
+    metadata: string,
+    favorite: bool,
+    sensitive: bool,
+}
 
 export component AppWindow inherits Window {
     in property <string> product-name;
     in property <string> build-label;
+    in property <string> status-text: "Loading history…";
+    in property <[ClipRow]> clips;
 
     title: root.product-name;
-    width: 520px;
-    height: 360px;
-    background: #f4f5f7;
+    width: 430px;
+    height: 590px;
+    background: #f6f7f9;
 
     VerticalBox {
-        padding: 32px;
-        spacing: 18px;
+        padding: 24px;
+        spacing: 14px;
 
         Text {
             text: root.product-name;
             color: #202124;
-            font-size: 34px;
+            font-size: 28px;
             font-weight: 700;
-            horizontal-alignment: center;
         }
 
         Text {
-            text: "Native UI migration shell";
+            text: "Recent clipboard history";
             color: #5f6368;
-            font-size: 16px;
-            horizontal-alignment: center;
+            font-size: 14px;
         }
 
         Rectangle {
             height: 1px;
-            background: #dfe1e5;
+            background: #dfe3e8;
+        }
+
+        ListView {
+            for clip in root.clips: Rectangle {
+                height: 82px;
+                background: #ffffff;
+                border-color: #e3e7ec;
+                border-width: 1px;
+                border-radius: 10px;
+
+                VerticalBox {
+                    padding: 12px;
+                    spacing: 5px;
+
+                    HorizontalLayout {
+                        spacing: 8px;
+
+                        Text {
+                            text: clip.kind;
+                            color: #d94a18;
+                            font-size: 12px;
+                            font-weight: 700;
+                        }
+
+                        Text {
+                            text: clip.favorite ? "★" : "";
+                            color: #d48a00;
+                            font-size: 13px;
+                        }
+
+                        Text {
+                            text: clip.sensitive ? "Protected" : "";
+                            color: #a33a3a;
+                            font-size: 11px;
+                        }
+                    }
+
+                    Text {
+                        text: clip.preview;
+                        color: #25272a;
+                        font-size: 14px;
+                        overflow: elide;
+                    }
+
+                    Text {
+                        text: clip.metadata;
+                        color: #7b8087;
+                        font-size: 11px;
+                    }
+                }
+            }
+        }
+
+        Text {
+            text: root.status-text;
+            color: #6c727a;
+            font-size: 12px;
+            horizontal-alignment: center;
         }
 
         Text {
             text: root.build-label;
-            color: #5f6368;
-            font-size: 13px;
+            color: #8a9098;
+            font-size: 11px;
             horizontal-alignment: center;
         }
 
         AboutSlint {
-            height: 72px;
+            height: 44px;
         }
     }
 }

@@ -187,10 +187,10 @@ echo ""
 check_prerequisites
 
 run_core_segment() {
-  run_step "Core cargo fmt --check" cargo fmt -p clippy-core -p clippy-platform -- --check
-  run_step "Core cargo check" cargo check --locked -p clippy-core -p clippy-platform --all-targets
-  run_step "Core cargo clippy" cargo clippy --locked -p clippy-core -p clippy-platform --all-targets -- -D warnings
-  run_step "Core cargo test" cargo test --locked -p clippy-core -p clippy-platform
+  run_step "Shared Rust fmt --check" cargo fmt -p clippy-core -p clippy-platform -p clippy-storage -- --check
+  run_step "Shared Rust check" cargo check --locked -p clippy-core -p clippy-platform -p clippy-storage --all-targets
+  run_step "Shared Rust clippy" cargo clippy --locked -p clippy-core -p clippy-platform -p clippy-storage --all-targets -- -D warnings
+  run_step "Shared Rust test" cargo test --locked -p clippy-core -p clippy-platform -p clippy-storage
 }
 
 run_slint_segment() {
