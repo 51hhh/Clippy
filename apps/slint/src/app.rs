@@ -197,6 +197,7 @@ enum Event {
         started: Instant,
         result: Result<Vec<FrozenOutput>>,
     },
+    CapturePlacementFailed(slint::Weak<crate::CaptureWindow>, anyhow::Error),
     CaptureCancel,
     CaptureSelection {
         index: usize,
@@ -368,6 +369,12 @@ impl App {
                 match result.and_then(|frozen| capture::present(frozen, started, diagnostic)) {
                     Ok(views) => self.capture_views = Some(views),
                     Err(error) => self.capture_error(error),
+                }
+            }
+            Event::CapturePlacementFailed(window, error) => {
+                if window.upgrade().is_some() {
+                    self.capture_views.take();
+                    self.capture_error(error);
                 }
             }
             Event::CaptureCancel => {

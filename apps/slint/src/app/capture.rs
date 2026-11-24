@@ -104,33 +104,46 @@ pub(super) fn present(
                     });
                 });
             let ready_name = output.name.clone();
+            let placement_window = view.window.as_weak();
+            let mut needs_placement = wayland;
             let mut first_redraw = true;
-            view.window.window().on_winit_window_event(move |_, event| {
-                if diagnostics && first_redraw && matches!(event, WindowEvent::RedrawRequested) {
-                    first_redraw = false;
-                    eprintln!(
-                        "capture_overlay output={ready_name} elapsed_ms={:.1}",
-                        started.elapsed().as_secs_f64() * 1000.0
-                    );
-                }
-                EventResult::Propagate
-            });
-            view.window.show()?;
-            if wayland {
-                view.window
-                    .window()
-                    .with_winit_window(|native| {
-                        let matching = native.available_monitors().find(|monitor| {
-                            monitor.name().as_deref() == Some(output.name.as_str())
-                        });
-                        if matching.is_none() && !single_output {
-                            anyhow::bail!("Cannot match Wayland output {}", output.name);
+            view.window
+                .window()
+                .on_winit_window_event(move |window, event| {
+                    if needs_placement {
+                        // Wayland 的原生窗口由事件循环建立，show 返回时可能还没有。
+                        if let Some(result) = window.with_winit_window(|native| {
+                            let matching = native.available_monitors().find(|monitor| {
+                                monitor.name().as_deref() == Some(ready_name.as_str())
+                            });
+                            if matching.is_none() && !single_output {
+                                anyhow::bail!("Cannot match Wayland output {ready_name}");
+                            }
+                            native.set_fullscreen(Some(Fullscreen::Borderless(matching)));
+                            anyhow::Ok(())
+                        }) {
+                            needs_placement = false;
+                            if let Err(error) = result {
+                                post(Event::CapturePlacementFailed(
+                                    placement_window.clone(),
+                                    error,
+                                ));
+                                return EventResult::PreventDefault;
+                            }
                         }
-                        native.set_fullscreen(Some(Fullscreen::Borderless(matching)));
-                        anyhow::Ok(())
-                    })
-                    .context("Cannot place Wayland screenshot overlay")??;
-            } else {
+                    }
+                    if diagnostics && first_redraw && matches!(event, WindowEvent::RedrawRequested)
+                    {
+                        first_redraw = false;
+                        eprintln!(
+                            "capture_overlay output={ready_name} elapsed_ms={:.1}",
+                            started.elapsed().as_secs_f64() * 1000.0
+                        );
+                    }
+                    EventResult::Propagate
+                });
+            view.window.show()?;
+            if !wayland {
                 view.window.window().with_winit_window(|native| {
                     native.set_window_level(WindowLevel::AlwaysOnTop);
                 });
