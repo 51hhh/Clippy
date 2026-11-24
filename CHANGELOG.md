@@ -25,6 +25,8 @@
 - 正式入口首次启动会保留 SQLite 一致性快照和原配置。v0.2.0 及以上 tag 构建 Slint 原生安装包，
   资产元数据标明版本、后端、签名和提交。Windows/macOS 安装与旧 updater 升级尚待同一提交验收，
   Slint 构建产物进入发布草稿。（需求 `SLINT-NATIVE-PIPELINE-01`）
+- Linux 安装包带上 X11 启动所需的键盘库。此前干净的 Ubuntu 22.04 环境缺少该库时，托盘注册前会退出。
+  （需求 `SLINT-NATIVE-PIPELINE-01`）
 
 ### Slint 长截图
 

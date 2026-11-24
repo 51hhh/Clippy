@@ -32,7 +32,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential pkg-config libfontconfig1-dev libxkbcommon-dev \
+            build-essential pkg-config libfontconfig1-dev libxkbcommon-dev libxkbcommon-x11-0 \
             libwayland-dev libxcb1-dev libegl1-mesa-dev libgl1-mesa-dev \
             libclang-dev libpipewire-0.3-dev libgbm-dev libdrm-dev \
             xvfb xauth xclip x11-utils libxtst6 dbus-x11 python3-gi gir1.2-gtk-3.0 \
