@@ -33,6 +33,10 @@ pub(super) enum Message {
     Show,
     Close,
     Screenshot,
+    #[cfg(target_os = "linux")]
+    SystemScreenshot,
+    #[cfg(target_os = "linux")]
+    SystemScreenshotReady(u64, Result<Option<image::RgbaImage>>),
     Preview(i64),
     PreviewReady(u64, Result<ClipItem>),
     LatestImage,
@@ -53,6 +57,8 @@ pub(super) struct Tools {
     serial: u64,
     running: bool,
     cancel: Option<Arc<AtomicBool>>,
+    #[cfg(target_os = "linux")]
+    system_capture: Option<Arc<AtomicBool>>,
     clip_id: Option<i64>,
 }
 
@@ -78,6 +84,12 @@ impl Tools {
         window.set_busy(self.running);
         window.on_dismiss(|| send(Message::Close));
         window.on_screenshot(|| send(Message::Screenshot));
+        #[cfg(target_os = "linux")]
+        {
+            window.set_system_screenshot_available(clippy_platform::session::is_wayland());
+            window.set_system_screenshot_pending(self.system_capture.is_some());
+            window.on_system_screenshot(|| send(Message::SystemScreenshot));
+        }
         window.on_use_image(|| send(Message::LatestImage));
         window.on_run_action(|action, text| send(Message::Run(action, text.to_string())));
         window.on_copy_text(|text| send(Message::Copy(text.to_string())));
@@ -107,6 +119,10 @@ impl Tools {
         self.serial += 1;
         self.clip_id = None;
         if let Some(cancel) = self.cancel.take() {
+            cancel.store(true, Ordering::Release);
+        }
+        #[cfg(target_os = "linux")]
+        if let Some(cancel) = &self.system_capture {
             cancel.store(true, Ordering::Release);
         }
         if let Some(window) = self.window.take() {
@@ -219,6 +235,47 @@ impl App {
             Message::Screenshot => {
                 self.tools.close();
                 self.start_capture();
+            }
+            #[cfg(target_os = "linux")]
+            Message::SystemScreenshot => {
+                ensure!(
+                    !self.tools.running && self.tools.system_capture.is_none(),
+                    "Wait for the current action"
+                );
+                let id = self.tools.serial;
+                let cancel = Arc::new(AtomicBool::new(false));
+                let cancelled = cancel.clone();
+                thread::Builder::new()
+                    .name("clippy-system-screenshot".into())
+                    .spawn(move || {
+                        send(Message::SystemScreenshotReady(
+                            id,
+                            super::capture::system_screenshot(&cancelled),
+                        ));
+                    })?;
+                self.tools.system_capture = Some(cancel);
+                self.tools
+                    .window
+                    .as_ref()
+                    .expect("系统截图由操作窗口发起")
+                    .set_system_screenshot_pending(true);
+                self.tools.note("Opening system screenshot…");
+            }
+            #[cfg(target_os = "linux")]
+            Message::SystemScreenshotReady(id, result) => {
+                self.tools.system_capture.take();
+                if let Some(window) = &self.tools.window {
+                    window.set_system_screenshot_pending(false);
+                }
+                // 系统界面留给桌面回收。操作窗口关闭后，旧请求的结果随代次丢弃。
+                if id == self.tools.serial {
+                    if let Some(image) = result? {
+                        self.open_editor(image)?;
+                        self.tools.close();
+                    } else {
+                        self.tools.note("System screenshot cancelled");
+                    }
+                }
             }
             Message::Preview(id) => {
                 self.tools.close();

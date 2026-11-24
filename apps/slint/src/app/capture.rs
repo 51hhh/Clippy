@@ -212,6 +212,36 @@ pub(super) fn save_png(image: &RgbaImage, target: &SaveTarget) -> Result<PathBuf
     save_rgba(image.as_raw(), image.width(), image.height(), target)
 }
 
+#[cfg(target_os = "linux")]
+pub(super) fn system_screenshot(
+    cancelled: &std::sync::atomic::AtomicBool,
+) -> Result<Option<RgbaImage>> {
+    use clippy_capture::{image_validation::decode_strict_png, project::MAX_SOURCE_PNG_BYTES};
+    use io::Read;
+    use std::sync::atomic::Ordering;
+
+    let Some(path) = capture::system_screenshot()? else {
+        return Ok(None);
+    };
+    if cancelled.load(Ordering::Acquire) {
+        return Ok(None);
+    }
+    let metadata = path
+        .metadata()
+        .context("Cannot read the system screenshot")?;
+    anyhow::ensure!(
+        metadata.is_file() && metadata.len() <= MAX_SOURCE_PNG_BYTES as u64,
+        "The system screenshot is not a regular PNG within the size limit"
+    );
+    let mut png = Vec::new();
+    fs::File::open(path)?
+        .take(MAX_SOURCE_PNG_BYTES as u64 + 1)
+        .read_to_end(&mut png)?;
+    let image = decode_strict_png(&png, MAX_SOURCE_PNG_BYTES, "System screenshot")
+        .map_err(anyhow::Error::msg)?;
+    Ok(Some(image))
+}
+
 pub(super) fn save_screens(target: SaveTarget) -> io::Result<()> {
     thread::Builder::new()
         .name("clippy-screenshot-save".into())

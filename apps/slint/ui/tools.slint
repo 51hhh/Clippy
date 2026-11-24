@@ -8,6 +8,8 @@ export component ToolsWindow inherits Window {
     in-out property <string> result;
     in property <string> note;
     in property <bool> busy;
+    in property <bool> system-screenshot-available;
+    in property <bool> system-screenshot-pending;
     in property <[TranslationRow]> history;
     callback run-action(int, string);
     callback copy-text(string);
@@ -16,6 +18,7 @@ export component ToolsWindow inherits Window {
     callback clear-history();
     callback use-image();
     callback screenshot();
+    callback system-screenshot();
     callback dismiss();
     callback begin-drag();
     private property <bool> show-history;
@@ -82,6 +85,11 @@ export component ToolsWindow inherits Window {
             HorizontalLayout {
                 spacing: 8px;
                 Button { text: "Screenshot"; clicked => { root.screenshot(); } }
+                if root.system-screenshot-available: Button {
+                    text: "System Screenshot…";
+                    enabled: !root.busy && !root.system-screenshot-pending;
+                    clicked => { root.system-screenshot(); }
+                }
                 Button { text: "Open latest image"; enabled: !root.busy; clicked => { root.use-image(); } }
             }
             TextEdit { text <=> root.source; wrap: word-wrap; vertical-stretch: 1; }

@@ -38,22 +38,26 @@
 | 验证项 | 本轮证据 |
 |---|---|
 | Linux 本地门禁 | `./scripts/ci-local.sh` 共 11 项通过。启用 VP9/Opus 和 Linux 音源后，媒体层 387 个用例通过，2 个显式忽略。隔离 X11 跑真实托盘菜单、快捷键、Unicode/HTML/透明 PNG 入库、搜索、复制粘贴和焦点变化。 |
-| Linux QA 包 | 本机 Ubuntu 26.04 构建 deb 和 AppImage。两份安装包各自解包运行 Release 二进制，通过 X11 回归。安装包保留 Slint、字体和录屏依赖的许可文档。 |
+| Linux QA 包 | `8f00497` 的 Ubuntu 22.04 CI deb 和 AppImage 通过哈希校验。两份安装包各自解包运行 Release 二进制，通过 X11 回归。AppImage 在启动时加载随包提供的 X11 键盘库。 |
+| 三平台原生 CI 与产物 | `8f00497` 的 Ubuntu、Windows、macOS 原生门禁和 Linux、Windows、macOS Intel/ARM QA 包均成功。包构建和原生 CI 结果由同一提交绑定，实际安装和系统授权单独记录。 |
 | 快速截图 | X11 验证快捷键、托盘、框选、取消、复制和落盘，核对 140×100 选区像素。解包 Release 样本首个重绘请求为 114–204 ms，直接复制 0.3 ms、落盘 0.9 ms。GNOME 50.1 双屏原始帧样本为 188.3 ms，虚拟 1280×800 显示器分别取到日历、快速设置和概览。 |
 | Wayland 覆盖层 | 在虚拟 GNOME 用实际 QA 应用保存日历 PNG，并复现延时截图在 Slint 原生窗口创建前放置失败。改由原生窗口事件设置目标全屏后，单输出覆盖层为 1280×800，两输出分别为 1280×800、800×600，与合成器几何一致。 |
+| Wayland 系统截图 | 虚拟 GNOME 从 Actions 打开系统选择器，分别取消、关闭 Actions 后确认和正常导入。关闭窗口后没有重新打开编辑器。正常导入后的 320×200 PNG 保存像素与系统输出一致。 |
 | 录屏回放 | 隔离 X11 从录屏库打开新生成的 VP9 文件，`ffplay` 实际显示窗口并在播放结束后退出。播放期间从托盘退出原先会留下播放器，修复后同一操作确认子进程已回收。 |
 | 托盘空闲 PSS | GNOME 真实桌面，旧版临时退出，QA Release 每轮静置 60 秒。复测连续五轮为 18,548、18,918、18,972、19,000、19,061 KiB（18.11–18.61 MiB）。每轮 1 个进程、开窗次数为 0，满足每轮低于 50 MiB。 |
-| 当前 Release PSS | `90463e4` 的 QA 二进制在隔离 X11 每轮静置 60 秒，五轮依次为 15.18、14.68、14.64、14.81、14.93 MiB，均只有一个进程且未开窗。最后一轮开设置为 105.55 MiB，关窗 12 秒后为 106.05 MiB。真实桌面数据保留其原测量 SHA。 |
+| CI QA 包 PSS | `8f00497` 的 Ubuntu 22.04 CI deb 解包后在隔离 X11 每轮静置 60 秒，五轮依次为 16.43、16.33、15.18、16.58、15.97 MiB，均只有一个进程且未开窗。设置打开为 113.10 MiB，关窗 12 秒后为 113.64 MiB。 |
 | 数据升级 | 用已安装的 v0.1.21 和从 deb 解包的新正式入口，在独立 X11 会话验证外部文本入库、原配置一致、历史读取和备份恢复。原位安装行为与旧 updater 下载验签仍待实机验收。 |
 
 内存测试对应 `74c8cb4`，QA 二进制 SHA-256 为 `23538e6bcd3c6171a197154c8373d5f4ccf7c26bcd83335a143d0dac6a0b4ab7`。
 首轮第四个样本为 98.34 MiB，期间出现两次开窗，本轮四个空闲样本为 18.16–18.88 MiB。
 复测后旧版已启动且重新注册托盘。在同一双渲染器候选构建、同一隔离 X11 环境中，FemtoVG
 开设置后 103.57 MiB，关窗静置 12 秒后 104.13 MiB。Skia 软件渲染同两点为 24.00 和 23.43 MiB，
-也跑通同套桌面回归。这是单机虚拟显示器对照，默认渲染器仍为 FemtoVG，任务峰值和三平台对照待测。
+也跑通同套桌面回归。`475c62c` 候选在同一台虚拟 GNOME 机器上，五次冷截图的覆盖层出图用时为
+89.5–94.4 ms，FemtoVG 为 154.8–564.8 ms。4K 热态的 20 次采样，覆盖层出图 P95 分别为
+161.0、289.6 ms。默认 QA 包的录屏与 OCR 高峰另计，三平台渲染器选型与实机延迟仍待验收。
 
 GNOME 外部快捷键是否收起系统菜单、混合 DPI 覆盖层对齐、Wayland 授权、Windows/macOS 真机和 updater 升级桥仍未验收。截图当前按单块输出选区，
-跨屏选区、编辑工程持久化和 Portal 截图兼容路径仍待实现。 [自动桌面回归](../../../scripts/test-slint-x11.sh) · [实机内存脚本](../../../scripts/qa/measure-slint-idle.py) · [发布 workflow](../../../.github/workflows/release.yml)
+跨屏选区、编辑工程持久化和 ScreenCast Portal 的持续采集仍待实现。系统单次截图还需在 KDE 和实际 Wayland 桌面验证。 [自动桌面回归](../../../scripts/test-slint-x11.sh) · [实机内存脚本](../../../scripts/qa/measure-slint-idle.py) · [发布 workflow](../../../.github/workflows/release.yml)
 
 ## Goal
 
@@ -160,6 +164,11 @@ flowchart LR
 需要 Portal 的设备从有焦点的设置页或操作入口发起首次授权。系统支持时可由用户选择记住显示器，后续用新鲜 token 恢复来源，空闲时关闭取流。拒绝或取消结束本次授权流程，UI 报出当前能力。 [ScreenCast 会话与持久化](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.ScreenCast.html#session-persistence)
 
 截图先冻结合成器输出，再显示覆盖层。应用窗口命中只影响选区候选。GNOME 的 v5 外部快捷键仍可能在应用收到请求前收起日历、托盘菜单和 Activities。把按键是否送达、第一帧是否还含目标、覆盖层何时出现分别记录。先验证按下快捷键后延时冻结的动作，用户可以在计时期间打开菜单。提供系统截图导入，Print Screen 截取后可从剪贴板或文件继续编辑。Shell 内触发的原始帧原型同时通过画面和时延验收才加入产品。 [当前 GNOME 边界](../../capture-linux.md#6-真实桌面上仍需人工验收的部分) · [GNOME 系统截图](https://help.gnome.org/gnome-help/screen-shot-record.html)
+
+Wayland 的 Actions 增加显式 System Screenshot 入口。由桌面提供截图界面和最终选区，返回的本地 PNG
+通过与截图工程相同的大小、容器和像素校验后进入编辑器。验收环境用真实 GNOME Portal 跑通选择、取消、
+编辑及保存，并核对关闭操作窗口后旧请求不能重新开窗。原生快捷键继续走快速冻结入口。此项范围为单次
+截图，ScreenCast 授权和屏幕流仍按录屏与长截图各自的合同验收。
 
 ### 编辑和输出
 

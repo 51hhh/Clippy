@@ -62,6 +62,9 @@
   Mutter/PipeWire 首帧路径，X11 直接读取根 drawable。保存沿用历史配置中的目录和命名模板，原子提交且保留同名文件。
 - 修复 Wayland 选区覆盖层在原生窗口就绪前提前退出的问题。虚拟 GNOME 已验证延时截图、直接保存日历画面，
   以及两块输出分别全屏定位。（需求 `SLINT-NATIVE-PIPELINE-01`）
+- Wayland 的 Actions 可打开系统截图界面，把确认的截图交给 Clippy 编辑和保存。虚拟 GNOME 验证了取消、
+  关闭操作窗口后丢弃结果，以及导入和保存像素一致。截图快捷键仍走原生冻结入口。
+  （需求 `SLINT-NATIVE-PIPELINE-01`）
 - Linux 完整本地门禁 11 项通过，QA deb 解包后通过隔离桌面回归。实机 GNOME 旧版退出后复测
   连续五轮空闲 PSS 为 18.11–18.61 MiB，测完已恢复旧版。GNOME 系统菜单与 Portal 授权、
   Windows/macOS 真机仍待验收。

@@ -14,9 +14,14 @@ pub mod gnome;
 #[cfg(target_os = "linux")]
 pub mod pipewire_frame;
 #[cfg(target_os = "linux")]
+mod portal;
+#[cfg(target_os = "linux")]
 mod wayland;
 #[cfg(target_os = "linux")]
 mod x11;
+
+#[cfg(target_os = "linux")]
+pub use portal::system_screenshot;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DesktopRect {

@@ -1359,6 +1359,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "url",
  "windows-sys 0.61.2",
  "x11rb",
  "xcap 0.9.6",
