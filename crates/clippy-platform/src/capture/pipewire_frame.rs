@@ -12,18 +12,18 @@ use spa::param::video::{VideoFormat, VideoInfoRaw};
 use spa::pod::Pod;
 use std::sync::Arc;
 
-pub(crate) struct PipeWireRgbaFrame {
-    pub(crate) width: u32,
-    pub(crate) height: u32,
-    pub(crate) rgba: Arc<[u8]>,
+pub struct PipeWireRgbaFrame {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Arc<[u8]>,
 }
 
-pub(crate) fn init_pipewire() {
+pub fn init_pipewire() {
     static ONCE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
     ONCE.get_or_init(pw::init);
 }
 
-pub(crate) fn parse_video_format(param: &Pod) -> Result<VideoInfoRaw> {
+pub fn parse_video_format(param: &Pod) -> Result<VideoInfoRaw> {
     let (media_type, media_subtype) = spa::param::format_utils::parse_format(param)
         .map_err(|error| anyhow!("无法解析 PipeWire 格式：{error}"))?;
     if media_type != MediaType::Video || media_subtype != MediaSubtype::Raw {
@@ -35,7 +35,7 @@ pub(crate) fn parse_video_format(param: &Pod) -> Result<VideoInfoRaw> {
     Ok(info)
 }
 
-pub(crate) fn frame_from_buffer(
+pub fn frame_from_buffer(
     buffer: &mut pw::buffer::Buffer,
     info: VideoInfoRaw,
 ) -> Result<PipeWireRgbaFrame> {
@@ -72,7 +72,7 @@ pub(crate) fn frame_from_buffer(
 }
 
 /// 报给合成器的 `EnumFormat`。不带 modifier，强制协商为能直接读取的共享内存。
-pub(crate) fn enum_format_pod() -> Result<Vec<u8>> {
+pub fn enum_format_pod() -> Result<Vec<u8>> {
     use spa::pod::{object, property, Value};
     use spa::utils::{Fraction, Rectangle};
 

@@ -2,6 +2,16 @@
 
 ## 未发布
 
+### Slint 托盘、剪贴板和快速截图
+
+- 启动后驻留系统托盘，按需创建剪贴板和设置窗口。支持全局快捷键、Unicode/HTML/PNG 历史、搜索、
+  收藏、删除、复制和显式开启的自动粘贴。X11 自动粘贴在原目标未恢复时保留已复制的数据。
+- 截图支持从托盘或快捷键触发、单屏框选、复制、保存 PNG 和取消。GNOME Wayland 复用 v5 的
+  Mutter/PipeWire 首帧路径，X11 直接读取根 drawable。保存沿用历史配置中的目录和命名模板，原子提交且保留同名文件。
+- Linux 完整本地门禁 10 项通过，QA deb 解包后通过隔离桌面回归。实机 GNOME 双屏原始帧取样成功。
+  五轮正式空闲内存、GNOME 系统菜单与 Portal 授权、Windows/macOS 真机仍待验收。
+  [实现与验证记录](docs/superpowers/plans/2026-11-24-slint-native-implementation-plan.md)（需求 `SLINT-NATIVE-PIPELINE-01`）
+
 ### 2026-11-24 v0.2 默认构建切换
 
 - 根 workspace、本地 Linux/Windows 门禁和普通三平台 CI 默认只构建共享 Rust 层与 Slint，不再为每次

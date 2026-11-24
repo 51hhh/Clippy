@@ -1286,28 +1286,50 @@ dependencies = [
 name = "clippy-core"
 version = "0.2.0"
 dependencies = [
+ "chrono",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
 name = "clippy-platform"
 version = "0.2.0"
 dependencies = [
+ "anyhow",
+ "arboard",
+ "ashpd",
+ "clippy-core",
  "dirs 7.0.0",
+ "enigo",
+ "futures-util",
+ "global-hotkey",
+ "image 0.25.10",
+ "libwayshot-xcap",
+ "log",
+ "objc2-app-kit 0.3.2",
+ "pipewire",
+ "serde_json",
  "tempfile",
+ "tokio",
  "windows-sys 0.61.2",
+ "x11rb",
+ "xcap 0.9.6",
+ "zbus",
 ]
 
 [[package]]
 name = "clippy-slint"
 version = "0.2.0"
 dependencies = [
+ "anyhow",
  "clippy-core",
  "clippy-platform",
  "clippy-storage",
+ "image 0.25.10",
  "slint",
  "slint-build",
+ "tempfile",
 ]
 
 [[package]]
@@ -7206,6 +7228,7 @@ checksum = "19d806f1d4638f4e147cdf6bc038731b77793d4c30bd617f5e615b88b9f8d28b"
 dependencies = [
  "const-field-offset",
  "i-slint-backend-selector",
+ "i-slint-backend-winit",
  "i-slint-common",
  "i-slint-core",
  "i-slint-core-macros",

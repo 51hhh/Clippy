@@ -10,6 +10,10 @@
 
 `X11 Inner::write` 对 `set_selection_owner` 返回的实际 `VoidCookie` 调用 `check()`，等待服务器完成写连接请求并传播错误，保留原 `flush()`。原先只有 flush；另一连接 roundtrip 不能证明写连接已完成，watcher 可能先读取内部文本并消费抑制、下一轮才收到 SelectionNotify，从而把 OCR / 译文重新录入历史。
 
+## 格式协商
+
+有些 owner 对不支持的 HTML 请求照样返回当前文本。收到与请求不符的属性类型时，该格式标记为不可用，调用方仍能继续请求文本或图片。新版 Xvfb 桌面回归用真实的 xclip owner 覆盖这个路径。
+
 ## 大图 INCR
 
 原提供端将整张 PNG 一次写入 X property。高熵 4K / 8K 超过 X server 单次请求上限，独立 arboard 与 xclip 读取均失败。`src/platform/linux/x11/incr.rs` 增加服务事件循环驱动的发送状态机：

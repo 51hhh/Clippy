@@ -1,6 +1,7 @@
-import { AboutSlint, ListView, VerticalBox } from "std-widgets.slint";
+import { AboutSlint, Button, CheckBox, LineEdit, ListView, VerticalBox } from "std-widgets.slint";
 
 export struct ClipRow {
+    id: string,
     kind: string,
     preview: string,
     metadata: string,
@@ -8,106 +9,268 @@ export struct ClipRow {
     sensitive: bool,
 }
 
+export component ClippyTray inherits SystemTrayIcon {
+    in property <string> product-name;
+    callback open-panel();
+    callback screenshot();
+    callback open-settings();
+    callback quit();
+
+    tooltip: root.product-name;
+    icon: @image-url("../../legacy-tauri/native/icons/32x32.png");
+    clicked => { root.open-panel(); }
+
+    Menu {
+        MenuItem { title: "Open Clipboard"; activated => { root.open-panel(); } }
+        MenuItem { title: "Screenshot"; activated => { root.screenshot(); } }
+        MenuItem { title: "Settings"; activated => { root.open-settings(); } }
+        MenuItem { title: "Quit"; activated => { root.quit(); } }
+    }
+}
+
 export component AppWindow inherits Window {
     in property <string> product-name;
     in property <string> build-label;
-    in property <string> status-text: "Loading history…";
+    in property <string> history-status: "Loading history…";
+    in property <string> action-status;
+    in property <string> shortcut-status;
+    in property <string> panel-shortcut;
+    in property <string> capture-shortcut;
     in property <[ClipRow]> clips;
+    in-out property <string> selected-id;
+    in-out property <string> query;
+    in-out property <bool> favorites-only;
+    in-out property <int> history-limit: 50;
+    in property <bool> can-load-more;
+    in property <bool> loading-history: true;
+    in-out property <bool> show-settings;
+    in property <bool> auto-paste;
+    in property <bool> busy;
+    callback reload-history();
+    callback close-panel();
+    callback copy-item(string, bool);
+    callback modify-item(string, bool);
+    callback set-auto-paste(bool);
+    callback authorize-paste();
 
     title: root.product-name;
-    width: 430px;
-    height: 590px;
+    preferred-width: 480px;
+    preferred-height: 620px;
+    min-width: 400px;
+    min-height: 440px;
     background: #f6f7f9;
 
     VerticalBox {
-        padding: 24px;
-        spacing: 14px;
+        padding: 18px;
+        spacing: 10px;
 
-        Text {
-            text: root.product-name;
-            color: #202124;
-            font-size: 28px;
-            font-weight: 700;
+        HorizontalLayout {
+            spacing: 8px;
+            Text {
+                text: root.show-settings ? "Settings" : "Clipboard";
+                vertical-alignment: center;
+                color: #202124;
+                font-size: 24px;
+                font-weight: 700;
+            }
+            Button {
+                text: root.show-settings ? "History" : "Settings";
+                clicked => { root.show-settings = !root.show-settings; }
+            }
+            Button { text: "Close"; clicked => { root.close-panel(); } }
         }
 
-        Text {
-            text: "Recent clipboard history";
-            color: #5f6368;
-            font-size: 14px;
-        }
+        if !root.show-settings: VerticalLayout {
+            spacing: 8px;
+            horizontal-stretch: 1;
+            vertical-stretch: 1;
+            HorizontalLayout {
+                spacing: 8px;
+                LineEdit {
+                    text <=> root.query;
+                    placeholder-text: "Search history";
+                    edited => {
+                        root.selected-id = "";
+                        root.history-limit = 50;
+                        root.reload-history();
+                    }
+                    accepted => { root.copy-item(root.selected-id, true); }
+                }
+                CheckBox {
+                    text: "Favorites";
+                    checked <=> root.favorites-only;
+                    toggled => {
+                        root.selected-id = "";
+                        root.history-limit = 50;
+                        root.reload-history();
+                    }
+                }
+            }
+            ListView {
+                for clip in root.clips: Rectangle {
+                    height: 77px;
+                    background: root.selected-id == clip.id ? #fff0e8 : #ffffff;
+                    border-color: root.selected-id == clip.id ? #e87752 : #e3e7ec;
+                    border-width: 1px;
+                    border-radius: 8px;
 
-        Rectangle {
-            height: 1px;
-            background: #dfe3e8;
-        }
-
-        ListView {
-            for clip in root.clips: Rectangle {
-                height: 82px;
-                background: #ffffff;
-                border-color: #e3e7ec;
-                border-width: 1px;
-                border-radius: 10px;
-
-                VerticalBox {
-                    padding: 12px;
-                    spacing: 5px;
-
-                    HorizontalLayout {
-                        spacing: 8px;
-
+                    TouchArea {
+                        enabled: !root.loading-history;
+                        clicked => { root.selected-id = clip.id; }
+                        double-clicked => { root.copy-item(clip.id, true); }
+                    }
+                    VerticalLayout {
+                        padding: 10px;
+                        spacing: 3px;
                         Text {
-                            text: clip.kind;
-                            color: #d94a18;
+                            text: clip.kind + (clip.favorite ? " · ★" : "") + (clip.sensitive ? " · Protected" : "");
+                            color: #a93612;
                             font-size: 12px;
                             font-weight: 700;
                         }
-
-                        Text {
-                            text: clip.favorite ? "★" : "";
-                            color: #d48a00;
-                            font-size: 13px;
-                        }
-
-                        Text {
-                            text: clip.sensitive ? "Protected" : "";
-                            color: #a33a3a;
-                            font-size: 11px;
-                        }
+                        Text { text: clip.preview; color: #25272a; font-size: 14px; overflow: elide; }
+                        Text { text: clip.metadata; color: #545c65; font-size: 11px; }
                     }
-
-                    Text {
-                        text: clip.preview;
-                        color: #25272a;
-                        font-size: 14px;
-                        overflow: elide;
-                    }
-
-                    Text {
-                        text: clip.metadata;
-                        color: #7b8087;
-                        font-size: 11px;
-                    }
+                }
+            }
+            Text { text: root.history-status; color: #545c65; font-size: 12px; }
+            if root.can-load-more && root.history-limit < 200: Button {
+                text: "Load more";
+                clicked => { root.history-limit = root.history-limit + 50; root.reload-history(); }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                Button {
+                    text: "Copy";
+                    enabled: !root.busy && !root.loading-history && root.selected-id != "";
+                    clicked => { root.copy-item(root.selected-id, false); }
+                }
+                Button {
+                    text: "Paste";
+                    enabled: !root.busy && !root.loading-history && root.auto-paste && root.selected-id != "";
+                    clicked => { root.copy-item(root.selected-id, true); }
+                }
+                Button {
+                    text: "Toggle favorite";
+                    enabled: !root.loading-history && root.selected-id != "";
+                    clicked => { root.modify-item(root.selected-id, true); }
+                }
+                Button {
+                    text: "Delete";
+                    enabled: !root.loading-history && root.selected-id != "";
+                    clicked => { root.modify-item(root.selected-id, false); }
                 }
             }
         }
 
-        Text {
-            text: root.status-text;
-            color: #6c727a;
-            font-size: 12px;
-            horizontal-alignment: center;
+        if root.show-settings: VerticalLayout {
+            spacing: 12px;
+            vertical-stretch: 1;
+            Text { text: "Open clipboard  " + root.panel-shortcut; color: #25272a; }
+            Text { text: "Screenshot  " + root.capture-shortcut; color: #25272a; }
+            CheckBox {
+                text: "Enable automatic paste";
+                checked: root.auto-paste;
+                enabled: !root.busy;
+                toggled => { root.set-auto-paste(self.checked); }
+            }
+            Button {
+                text: "Authorize paste";
+                enabled: root.auto-paste && !root.busy;
+                clicked => { root.authorize-paste(); }
+            }
+            Rectangle { vertical-stretch: 1; }
+            Text { text: root.build-label; color: #545c65; font-size: 12px; }
+            AboutSlint { height: 40px; }
         }
 
-        Text {
-            text: root.build-label;
-            color: #8a9098;
-            font-size: 11px;
-            horizontal-alignment: center;
-        }
+        if root.shortcut-status != "": Text { text: root.shortcut-status; color: #a33a3a; wrap: word-wrap; }
+        Text { text: root.action-status; color: #545c65; font-size: 12px; min-height: 15px; wrap: word-wrap; }
+    }
+}
 
-        AboutSlint {
-            height: 44px;
+export component CaptureWindow inherits Window {
+    in property <image> frame;
+    private property <length> left;
+    private property <length> top;
+    private property <length> right;
+    private property <length> bottom;
+    private property <bool> selected: right - left >= 1px && bottom - top >= 1px;
+    callback cancel();
+    callback confirm(bool, float, float, float, float);
+
+    title: "Clippy Screenshot";
+    no-frame: true;
+    background: #161616;
+    forward-focus: escape-key;
+
+    Image {
+        width: parent.width;
+        height: parent.height;
+        source: root.frame;
+        image-fit: fill;
+    }
+
+    drag := TouchArea {
+        mouse-cursor: crosshair;
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                root.left = self.mouse-x;
+                root.right = self.mouse-x;
+                root.top = self.mouse-y;
+                root.bottom = self.mouse-y;
+            }
+        }
+        moved => {
+            if self.pressed {
+                root.left = min(self.pressed-x, self.mouse-x);
+                root.top = min(self.pressed-y, self.mouse-y);
+                root.right = max(self.pressed-x, self.mouse-x);
+                root.bottom = max(self.pressed-y, self.mouse-y);
+            }
+        }
+    }
+
+    if root.selected: Rectangle {
+        x: root.left;
+        y: root.top;
+        width: root.right - root.left;
+        height: root.bottom - root.top;
+        border-width: 2px;
+        border-color: #ff6b38;
+    }
+
+    escape-key := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.cancel();
+                return EventResult.accept;
+            }
+            return EventResult.reject;
+        }
+    }
+
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: 16px;
+        width: 316px;
+        height: 48px;
+        border-radius: 8px;
+        background: #202124;
+        HorizontalLayout {
+            padding: 6px;
+            spacing: 8px;
+            Button {
+                text: "Copy";
+                enabled: root.selected;
+                clicked => { root.confirm(false, root.left / root.width, root.top / root.height, root.right / root.width, root.bottom / root.height); }
+            }
+            Button {
+                text: "Save PNG";
+                enabled: root.selected;
+                clicked => { root.confirm(true, root.left / root.width, root.top / root.height, root.right / root.width, root.bottom / root.height); }
+            }
+            Button { text: "Cancel"; clicked => { root.cancel(); } }
         }
     }
 }

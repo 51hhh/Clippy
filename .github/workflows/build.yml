@@ -33,7 +33,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential pkg-config libfontconfig1-dev libxkbcommon-dev \
-            libwayland-dev libxcb1-dev libegl1-mesa-dev libgl1-mesa-dev
+            libwayland-dev libxcb1-dev libegl1-mesa-dev libgl1-mesa-dev \
+            libclang-dev libpipewire-0.3-dev libgbm-dev libdrm-dev \
+            xvfb xauth xclip x11-utils libxtst6 dbus-x11 python3-gi gir1.2-gtk-3.0
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable action
@@ -72,6 +74,9 @@ jobs:
 
       - name: Slint QA profile tests
         run: cargo test --locked -p clippy-slint --features qa-build
+
+      - name: Slint X11 desktop regression
+        run: bash scripts/test-slint-x11.sh
 
       # rustsec/audit-check 依赖 GitHub Checks API，workflow_dispatch 下会留下 queued check
       # 并以 404 终止 job；直接执行固定版本，让审计退出码成为唯一门禁结果。

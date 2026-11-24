@@ -2,6 +2,9 @@
 
 Requirement ID: [`SLINT-UI-MIGRATION-01`](../specs/2026-11-23-slint-ui-migration.md)
 
+继续开发见[新版实现计划](2026-11-24-slint-native-implementation-plan.md)。后续按新版计划的串行顺序实施，
+本页保留迁移决策、M0–M9 里程碑和既有证据。
+
 ## 已确认决策
 
 | 项目 | 决策 |
@@ -32,9 +35,9 @@ apps/
     ui/
     Packager.toml
 crates/
-  clippy-core/                # 存储、模型、用例，不依赖 UI host
-  clippy-platform/            # 托盘、快捷键、窗口、系统集成
-  clippy-ui-model/            # Slint/legacy 共用的展示模型与动作
+  clippy-core/                # 配置与领域模型
+  clippy-platform/            # 身份、路径，后续接系统服务
+  clippy-storage/             # SQLite、FTS5 和存储工作线程
 scripts/
 docs/
 ```
@@ -159,8 +162,12 @@ Slint 首先接入；legacy 只保留必要适配和显式维护验证，避免�
 7. 录屏控制、录屏库和回放；
 8. 富文本/Markdown/代码/媒体预览。
 
-每一项必须更新功能矩阵，写明自动测试、宿主机手测和未验证平台。图片效果继续使用现有 Rust
-`render_v2` 输出 RGBA buffer，禁止在 `.slint` 中重写模糊、马赛克和标注算法。
+每一项必须更新功能矩阵，写明自动测试、宿主机手测和未验证平台。图片效果沿用现有 Rust
+`render_v2` 语义。Slint 路径的像素和按需 PNG 输出见[新版实现计划](2026-11-24-slint-native-implementation-plan.md)。
+
+- [x] 托盘、单实例、快捷键与剪贴板基础闭环已通过 Linux 隔离桌面测试，包含搜索、复制和目标窗口粘贴。
+- [x] 快速截图基础闭环已验证 X11 框选、复制和保存像素，并测到 GNOME Wayland 双屏原始帧。
+- [ ] 保留原计划的编辑器、主题、详情和平台验收。GNOME 覆盖层与菜单、Portal 粘贴授权、连续五轮真实空闲 PSS 仍待验证。
 
 ### M7：两个阻塞原型
 

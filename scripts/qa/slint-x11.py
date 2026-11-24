@@ -1,0 +1,409 @@
+"""用独立 X11 server、SNI 主机和合成数据验收 QA 二进制。"""
+import ctypes as c
+import json
+import os
+from pathlib import Path
+import re
+import sqlite3
+import struct
+import subprocess
+import sys
+import tempfile
+import time
+import zlib
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+gi.require_version("GdkX11", "3.0")
+from gi.repository import Gdk, GdkPixbuf, GdkX11, Gio, GLib, Gtk
+
+
+TITLE = "Clippy Slint QA"
+CAPTURE_TITLE = "Clippy Screenshot"
+TEXT = "needle 自动剪贴板 QA"
+OTHER = "unrelated fixture"
+HTML = "<b>rich-qa</b>".encode()
+WATCHER = "org.kde.StatusNotifierWatcher"
+ITEM = "org.kde.StatusNotifierItem"
+MENU = "com.canonical.dbusmenu"
+WATCHER_XML = """
+<node><interface name="org.kde.StatusNotifierWatcher">
+<method name="RegisterStatusNotifierItem"><arg type="s" direction="in"/></method>
+<property name="IsStatusNotifierHostRegistered" type="b" access="read"/>
+<property name="ProtocolVersion" type="i" access="read"/>
+</interface></node>
+"""
+
+
+def wait_for(predicate, description, timeout=8):
+    end = time.monotonic() + timeout
+    context = GLib.MainContext.default()
+    while time.monotonic() < end:
+        while context.pending():
+            context.iteration(False)
+        value = predicate()
+        if value:
+            return value
+        time.sleep(0.025)
+    raise AssertionError(description)
+
+
+class Desktop:
+    def __init__(self):
+        self.lib = c.CDLL("libX11.so.6")
+        xtst = c.CDLL("libXtst.so.6")
+        self.lib.XOpenDisplay.restype = c.c_void_p
+        self.lib.XOpenDisplay.argtypes = (c.c_char_p,)
+        self.display = self.lib.XOpenDisplay(None)
+        assert self.display
+
+        def bind(lib, name, args, result=c.c_int):
+            function = getattr(lib, name)
+            function.argtypes = (c.c_void_p, *args)
+            function.restype = result
+            return function
+
+        self.keysym = self.lib.XStringToKeysym
+        self.keysym.argtypes = (c.c_char_p,)
+        self.keysym.restype = c.c_ulong
+        self.keycode = bind(self.lib, "XKeysymToKeycode", (c.c_ulong,), c.c_ubyte)
+        self.focus_window = bind(self.lib, "XSetInputFocus", (c.c_ulong, c.c_int, c.c_ulong))
+        self.sync = bind(self.lib, "XSync", (c.c_int,))
+        self.close_display = bind(self.lib, "XCloseDisplay", ())
+        self.root_window = bind(self.lib, "XDefaultRootWindow", (), c.c_ulong)
+        self.set_background = bind(self.lib, "XSetWindowBackground", (c.c_ulong, c.c_ulong))
+        self.clear_window = bind(self.lib, "XClearWindow", (c.c_ulong,))
+        self.key = bind(xtst, "XTestFakeKeyEvent", (c.c_uint, c.c_int, c.c_ulong))
+        self.move = bind(xtst, "XTestFakeMotionEvent", (c.c_int, c.c_int, c.c_int, c.c_ulong))
+        self.button = bind(xtst, "XTestFakeButtonEvent", (c.c_uint, c.c_int, c.c_ulong))
+
+    def keys(self, *keys):
+        codes = [self.keycode(self.display, self.keysym(key.encode())) for key in keys]
+        assert all(codes), keys
+        for code in codes:
+            self.key(self.display, code, 1, 0)
+        for code in reversed(codes):
+            self.key(self.display, code, 0, 0)
+        self.sync(self.display, 0)
+
+    def focus(self, window):
+        self.focus_window(self.display, window, 2, 0)
+        self.sync(self.display, 0)
+
+    def click(self, x, y):
+        self.move(self.display, 0, x, y, 0)
+        self.sync(self.display, 0)
+        time.sleep(0.04)
+        self.button(self.display, 1, 1, 0)
+        self.sync(self.display, 0)
+        time.sleep(0.04)
+        self.button(self.display, 1, 0, 0)
+        self.sync(self.display, 0)
+
+    def drag(self, left, top, right, bottom):
+        self.move(self.display, 0, left, top, 0)
+        self.button(self.display, 1, 1, 0)
+        self.sync(self.display, 0)
+        self.move(self.display, 0, right, bottom, 0)
+        self.sync(self.display, 0)
+        self.button(self.display, 1, 0, 0)
+        self.sync(self.display, 0)
+
+    def background(self, rgb):
+        root = self.root_window(self.display)
+        self.set_background(self.display, root, rgb)
+        self.clear_window(self.display, root)
+        self.sync(self.display, 0)
+
+
+class Tray:
+    def __init__(self):
+        self.connection = Gio.bus_get_sync(Gio.BusType.SESSION)
+        self.address = None
+        self.connection.register_object(
+            "/StatusNotifierWatcher", Gio.DBusNodeInfo.new_for_xml(WATCHER_XML).interfaces[0],
+            self.register_item, self.get_property, None,
+        )
+        assert self.call(
+            "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+            "RequestName", GLib.Variant("(su)", (WATCHER, 0)),
+        ) == (1,)
+
+    def call(self, service, path, interface, method, args):
+        return self.connection.call_sync(
+            service, path, interface, method, args, None, Gio.DBusCallFlags.NONE, 3000, None,
+        ).unpack()
+
+    def register_item(self, connection, sender, path, interface, name, params, invocation):
+        assert name == "RegisterStatusNotifierItem"
+        (item,) = params.unpack()
+        self.address = (sender, item) if item.startswith("/") else (item, "/StatusNotifierItem")
+        invocation.return_value(GLib.Variant("()", ()))
+
+    def get_property(self, connection, sender, path, interface, prop):
+        if prop == "IsStatusNotifierHostRegistered":
+            return GLib.Variant("b", True)
+        return GLib.Variant("i", 0)
+
+    def activate(self, label):
+        service, path = self.address
+        (menu_path,) = self.call(service, path, "org.freedesktop.DBus.Properties", "Get",
+                                 GLib.Variant("(ss)", (ITEM, "Menu")))
+        _, (_, _, children) = self.call(service, menu_path, MENU, "GetLayout",
+                                       GLib.Variant("(iias)", (0, 1, ["label"])))
+        item, = [number for number, props, _ in children if props.get("label") == label]
+        self.call(service, menu_path, MENU, "Event",
+                  GLib.Variant("(isvu)", (item, "clicked", GLib.Variant("i", 0), 0)))
+
+
+def titled_window(title):
+    tree = subprocess.check_output(["xwininfo", "-root", "-tree"], text=True)
+    match = re.search(r'\b(0x[\da-f]+)\s+"' + re.escape(title) + '"', tree)
+    if match is None:
+        return None
+    window = int(match[1], 16)
+    info = subprocess.run(["xwininfo", "-id", str(window)], capture_output=True, text=True)
+    if info.returncode != 0:
+        return None
+    geometry = info.stdout
+    if "Map State: IsViewable" not in geometry:
+        return None
+    bounds = tuple(int(re.search(key + r":\s*(-?\d+)", geometry)[1])
+                   for key in ("Absolute upper-left X", "Absolute upper-left Y", "Width", "Height"))
+    return window, bounds
+
+
+def set_clipboard(target, data):
+    subprocess.run(["xclip", "-selection", "clipboard", "-in", "-target", target],
+                   input=data, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+
+
+def get_clipboard(target):
+    return subprocess.check_output(
+        ["xclip", "-selection", "clipboard", "-out", "-target", target], timeout=3,
+    )
+
+
+def clipboard_png():
+    result = subprocess.run(
+        ["xclip", "-selection", "clipboard", "-out", "-target", "image/png"],
+        capture_output=True, timeout=3,
+    )
+    return result.stdout if result.returncode == 0 else None
+
+
+def decode_png(data):
+    loader = GdkPixbuf.PixbufLoader.new_with_type("png")
+    loader.write(data)
+    loader.close()
+    pixbuf = loader.get_pixbuf()
+    return (pixbuf.get_width(), pixbuf.get_height()), pixbuf.get_pixels()[:3]
+
+
+def save_failure_frame():
+    directory = os.environ.get("CLIPPY_SLINT_QA_ARTIFACTS")
+    if directory:
+        root = Gdk.get_default_root_window()
+        pixbuf = Gdk.pixbuf_get_from_window(root, 0, 0, root.get_width(), root.get_height())
+        pixbuf.savev(str(Path(directory) / "slint-x11-failure.png"), "png", [], [])
+
+
+def rgba_png():
+    def chunk(name, data):
+        return struct.pack(">I", len(data)) + name + data + struct.pack(">I", zlib.crc32(name + data))
+
+    pixels = bytes((255, 0, 0, 128, 0, 128, 255, 0))
+    header = struct.pack(">IIBBBBB", 2, 1, 8, 6, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(b"\0" + pixels)) + chunk(b"IEND", b"")
+
+
+def run(binary, root):
+    tray = Tray()
+    desktop = Desktop()
+    target = Gtk.Window(title="Slint Paste Target")
+    target.set_default_size(360, 80)
+    entry = Gtk.Entry()
+    target.add(entry)
+    target.show_all()
+    entry.grab_focus()
+    target_id = GdkX11.X11Window.get_xid(target.get_window())
+    env = dict(os.environ, XDG_DATA_HOME=str(root / "data"), XDG_CONFIG_HOME=str(root / "config"),
+               XDG_PICTURES_DIR=str(root / "Pictures"), NO_AT_BRIDGE="1")
+    data_dir = root / "data" / "com.clippy.qa.slint"
+    data_dir.mkdir(parents=True, mode=0o700)
+    # 自动粘贴在全链路用例中显式开启，普通 QA 安装仍使用首次启动默认值。
+    (data_dir / "config.json").write_text(json.dumps({
+        "auto_paste": True, "max_history": 200, "storage_mode": "disk", "theme": "system",
+        "global_shortcut": "Ctrl+Alt+Shift+J", "capture_shortcut": "Ctrl+Alt+Shift+K",
+        "screenshot_save_dir": str(root / "shots"), "screenshot_filename_template": "fixture.png",
+    }))
+    process = subprocess.Popen([binary], env=env)
+
+    def rows():
+        assert process.poll() is None, "QA application exited"
+        database = data_dir / "clips.db"
+        if not database.exists():
+            return []
+        with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
+            try:
+                return connection.execute(
+                    "SELECT content_type, text_content, html_content FROM clips ORDER BY use_order"
+                ).fetchall()
+            except sqlite3.OperationalError as error:
+                if "no such table" not in str(error):
+                    raise
+                return []
+
+    def panel():
+        return wait_for(lambda: titled_window(TITLE), "clipboard panel never appeared")
+
+    def search(box, word):
+        x, y, _, _ = box
+        desktop.click(x + 95, y + 83)
+        desktop.keys("Control_L", "a")
+        for letter in word:
+            desktop.keys(letter)
+        # 输入事件和 SQLite 返回跨两个线程，等查询结果进入页面再点击。
+        time.sleep(0.25)
+
+    def close(box):
+        x, y, width, _ = box
+        desktop.click(x + width - 44, y + 37)
+        wait_for(lambda: not titled_window(TITLE), "panel never closed")
+
+    def select_area():
+        _, (x, y, width, _) = wait_for(
+            lambda: titled_window(CAPTURE_TITLE), "screenshot overlay never appeared",
+        )
+        desktop.drag(x + 440, y + 200, x + 580, y + 300)
+        return x + width // 2, y
+
+    try:
+        wait_for(lambda: tray.address, "no tray registration")
+        assert not titled_window(TITLE), "tray-only startup opened a window"
+        tray.activate("Open Clipboard")
+        _, box = panel()
+        close(box)
+        print("PASS tray registration, menu and window lifecycle", flush=True)
+
+        set_clipboard("UTF8_STRING", TEXT.encode())
+        assert get_clipboard("UTF8_STRING").decode() == TEXT
+        try:
+            wait_for(lambda: ("text", TEXT, None) in rows(), "Unicode did not reach the history")
+        except AssertionError:
+            print(f"History fixture rows: {rows()!r}", file=sys.stderr)
+            raise
+        set_clipboard("text/html", HTML)
+        wait_for(lambda: ("html", "rich-qa", HTML.decode()) in rows(), "HTML did not reach the history")
+        set_clipboard("image/png", rgba_png())
+        wait_for(lambda: ("image", None, None) in rows(), "transparent PNG did not reach the history")
+        with sqlite3.connect(data_dir / "clips.db") as connection:
+            png, = connection.execute("SELECT image_data FROM clips WHERE content_type='image'").fetchone()
+            loader = GdkPixbuf.PixbufLoader.new_with_type("png")
+            loader.write(png)
+            loader.close()
+            assert loader.get_pixbuf().get_pixels()[:8] == bytes((255, 0, 0, 128, 0, 128, 255, 0))
+        set_clipboard("UTF8_STRING", OTHER.encode())
+        wait_for(lambda: ("text", OTHER, None) in rows(), "second text did not reach the history")
+
+        desktop.focus(target_id)
+        desktop.keys("Control_L", "Alt_L", "Shift_L", "j")
+        panel_id, box = panel()
+        desktop.focus(panel_id)
+        search(box, "needle")
+        x, y, _, height = box
+        desktop.click(x + 60, y + height - 62)
+        try:
+            wait_for(lambda: get_clipboard("UTF8_STRING").decode() == TEXT,
+                     "search and copy did not select Unicode")
+        except AssertionError:
+            print(f"Clipboard fixture output: {get_clipboard('UTF8_STRING')!r}", file=sys.stderr)
+            raise
+        assert entry.get_text() == "", "Copy injected paste input"
+        close(box)
+        print("PASS global hotkey, Unicode/HTML/PNG history, search and copy-only", flush=True)
+
+        desktop.focus(target_id)
+        desktop.keys("Control_L", "Alt_L", "Shift_L", "j")
+        panel_id, box = panel()
+        desktop.focus(panel_id)
+        search(box, "needle")
+        desktop.keys("Return")
+        wait_for(lambda: not titled_window(TITLE), "panel stayed open after paste")
+        # Xvfb 没有窗口管理器，夹具在面板撤下后恢复焦点。
+        desktop.focus(target_id)
+        wait_for(lambda: entry.get_text() == TEXT, "target did not receive Unicode via Ctrl+V")
+        print("PASS automatic paste into the focused GTK application", flush=True)
+
+        third = Gtk.Window(title="Slint Unrelated Window")
+        third_entry = Gtk.Entry()
+        third.add(third_entry)
+        third.show_all()
+        third_entry.grab_focus()
+        third_id = GdkX11.X11Window.get_xid(third.get_window())
+        desktop.focus(target_id)
+        desktop.keys("Control_L", "Alt_L", "Shift_L", "j")
+        panel_id, box = panel()
+        desktop.focus(panel_id)
+        search(box, "needle")
+        desktop.keys("Return")
+        wait_for(lambda: not titled_window(TITLE), "panel stayed open after requesting paste")
+        desktop.focus(third_id)
+        # 超过应用等待焦点的截止，确认两个输入框都没有收到追加的粘贴。
+        deadline = time.monotonic() + 0.6
+        while time.monotonic() < deadline:
+            while GLib.MainContext.default().pending():
+                GLib.MainContext.default().iteration(False)
+            time.sleep(0.025)
+        assert third_entry.get_text() == "" and entry.get_text() == TEXT
+        assert get_clipboard("UTF8_STRING").decode() == TEXT
+        third.destroy()
+        print("PASS changed focus preserved the copy and suppressed input to both windows", flush=True)
+
+        desktop.background(0x224466)
+        desktop.keys("Control_L", "Alt_L", "Shift_L", "k")
+        middle, top = select_area()
+        desktop.click(middle - 101, top + 40)
+        png = wait_for(clipboard_png, "screenshot copy did not publish PNG")
+        expected = ((140, 100), bytes.fromhex("224466"))
+        assert decode_png(png) == expected, decode_png(png)
+        wait_for(lambda: not titled_window(CAPTURE_TITLE), "overlay stayed open after copy")
+
+        tray.activate("Screenshot")
+        middle, top = select_area()
+        desktop.click(middle, top + 40)
+        output = root / "shots" / "fixture.png"
+        wait_for(output.is_file, "screenshot file was not committed")
+        assert decode_png(output.read_bytes()) == expected
+        assert list(output.parent.iterdir()) == [output]
+        print("PASS screenshot hotkey and tray, native pixels, crop, clipboard and atomic file", flush=True)
+
+        tray.activate("Screenshot")
+        middle, top = select_area()
+        desktop.click(middle + 100, top + 40)
+        wait_for(lambda: not titled_window(CAPTURE_TITLE), "cancel did not close overlay")
+        assert list(output.parent.iterdir()) == [output]
+        print("PASS screenshot cancellation leaves the existing file untouched", flush=True)
+
+        second = subprocess.run([binary, "--open"], env=env, timeout=4)
+        assert second.returncode == 0
+        panel()
+        tray.activate("Quit")
+        assert process.wait(timeout=5) == 0
+        print("PASS second launch forwarded to the running instance and tray quit exited", flush=True)
+    except Exception:
+        save_failure_frame()
+        raise
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=5)
+        target.destroy()
+        desktop.close_display(desktop.display)
+
+
+if __name__ == "__main__":
+    with tempfile.TemporaryDirectory(prefix="clippy-slint-x11-") as temporary:
+        run(str(Path(sys.argv[1]).resolve(strict=True)), Path(temporary))

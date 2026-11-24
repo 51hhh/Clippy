@@ -21,7 +21,7 @@ resources = [
 ]
 
 [deb]
-depends = ["libc6", "libfontconfig1", "libgcc-s1"]
+depends = ["libc6", "libfontconfig1", "libgcc-s1", "libpipewire-0.3-0 | libpipewire-0.3-0t64", "libgbm1", "libegl1"]
 
 [macos]
 minimum-system-version = "12.3"

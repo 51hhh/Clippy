@@ -23,9 +23,11 @@ default = []
 qa-build = []
 
 [dependencies]
+anyhow = "1"
 clippy-core = { path = "../../crates/clippy-core" }
 clippy-platform = { path = "../../crates/clippy-platform" }
 clippy-storage = { path = "../../crates/clippy-storage" }
+image = { version = "0.25", default-features = false, features = ["png"] }
 slint = { version = "=1.19.0", default-features = false, features = [
     "accessibility",
     "backend-winit",
@@ -33,7 +35,9 @@ slint = { version = "=1.19.0", default-features = false, features = [
     "renderer-femtovg",
     "std",
     "system-tray",
+    "unstable-winit-030",
 ] }
+tempfile = "3"
 
 [build-dependencies]
 slint-build = { version = "=1.19.0", default-features = false, features = ["compat-1-18"] }

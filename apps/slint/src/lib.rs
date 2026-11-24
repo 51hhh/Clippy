@@ -2,53 +2,15 @@ slint::include_modules!();
 
 use clippy_core::models::{ClipItem, ContentType};
 use clippy_platform::identity::DeploymentIdentity;
-use clippy_platform::paths::{AppPaths, PathError};
-use clippy_platform::private_files::restrict_directory;
-use clippy_storage::{ClipListRequest, StorageDispatchError, StorageError, StorageRuntime};
-use slint::{ModelRc, SharedString, VecModel};
-use std::fmt;
-use std::fs;
+use slint::SharedString;
+
+mod app;
 
 pub const UI_BACKEND: &str = "Slint";
 pub const FRAMEWORK_VERSION: &str = "1.19.0";
 
-pub fn run(identity: &'static DeploymentIdentity) -> Result<(), AppError> {
-    let paths = AppPaths::resolve(identity)?;
-    fs::create_dir_all(&paths.data_dir)?;
-    restrict_directory(&paths.data_dir)?;
-    let storage = StorageRuntime::open(&paths.database_file)?;
-
-    let window = AppWindow::new()?;
-    window.set_product_name(identity.product_name.into());
-    window.set_build_label(build_label(identity).into());
-    load_initial_history(&window, &storage)?;
-    window.run()?;
-    Ok(())
-}
-
-fn load_initial_history(window: &AppWindow, storage: &StorageRuntime) -> Result<(), AppError> {
-    let weak = window.as_weak();
-    storage.client().list_clips(
-        ClipListRequest::new(1, None, false, 0, 50)?,
-        move |_generation, result| {
-            let _ = weak.upgrade_in_event_loop(move |window| match result {
-                Ok(clips) => {
-                    let count = clips.len();
-                    let rows = clips.into_iter().map(clip_row).collect::<Vec<_>>();
-                    window.set_clips(ModelRc::new(VecModel::from(rows)));
-                    window.set_status_text(if count == 0 {
-                        "Clipboard history is empty".into()
-                    } else {
-                        format!("{count} recent items").into()
-                    });
-                }
-                Err(error) => {
-                    window.set_status_text(format!("Unable to load history: {error}").into());
-                }
-            });
-        },
-    )?;
-    Ok(())
+pub fn run(identity: &'static DeploymentIdentity) -> anyhow::Result<()> {
+    app::run(identity)
 }
 
 fn clip_row(clip: ClipItem) -> ClipRow {
@@ -71,6 +33,7 @@ fn clip_row(clip: ClipItem) -> ClipRow {
             })
     };
     ClipRow {
+        id: clip.id.to_string().into(),
         kind: SharedString::from(kind),
         preview: preview.into(),
         metadata: format!("{} bytes", clip.byte_size).into(),
@@ -95,59 +58,6 @@ pub fn build_label(identity: &DeploymentIdentity) -> String {
         env!("CARGO_PKG_VERSION"),
         identity.channel.as_str()
     )
-}
-
-#[derive(Debug)]
-pub enum AppError {
-    Platform(slint::PlatformError),
-    Paths(PathError),
-    Io(std::io::Error),
-    Storage(StorageError),
-    Dispatch(StorageDispatchError),
-}
-
-impl fmt::Display for AppError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Platform(error) => write!(formatter, "UI 初始化失败: {error}"),
-            Self::Paths(error) => write!(formatter, "数据路径初始化失败: {error}"),
-            Self::Io(error) => write!(formatter, "本地目录初始化失败: {error}"),
-            Self::Storage(error) => write!(formatter, "存储初始化失败: {error}"),
-            Self::Dispatch(error) => write!(formatter, "存储请求提交失败: {error}"),
-        }
-    }
-}
-
-impl std::error::Error for AppError {}
-
-impl From<slint::PlatformError> for AppError {
-    fn from(error: slint::PlatformError) -> Self {
-        Self::Platform(error)
-    }
-}
-
-impl From<PathError> for AppError {
-    fn from(error: PathError) -> Self {
-        Self::Paths(error)
-    }
-}
-
-impl From<std::io::Error> for AppError {
-    fn from(error: std::io::Error) -> Self {
-        Self::Io(error)
-    }
-}
-
-impl From<StorageError> for AppError {
-    fn from(error: StorageError) -> Self {
-        Self::Storage(error)
-    }
-}
-
-impl From<StorageDispatchError> for AppError {
-    fn from(error: StorageDispatchError) -> Self {
-        Self::Dispatch(error)
-    }
 }
 
 #[cfg(test)]

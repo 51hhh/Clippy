@@ -39,12 +39,14 @@ impl ClipListRequest {
 }
 
 type ListCallback = Box<dyn FnOnce(u64, Result<Vec<ClipItem>, StorageError>) + Send + 'static>;
+type StorageWork = Box<dyn FnOnce(&StorageEngine) + Send + 'static>;
 
 enum Request {
     List {
         request: ClipListRequest,
         callback: ListCallback,
     },
+    Work(StorageWork),
     Shutdown,
 }
 
@@ -59,15 +61,27 @@ impl StorageClient {
         request: ClipListRequest,
         callback: impl FnOnce(u64, Result<Vec<ClipItem>, StorageError>) + Send + 'static,
     ) -> Result<(), StorageDispatchError> {
-        self.sender
-            .try_send(Request::List {
-                request,
-                callback: Box::new(callback),
-            })
-            .map_err(|error| match error {
-                TrySendError::Full(_) => StorageDispatchError::QueueFull,
-                TrySendError::Disconnected(_) => StorageDispatchError::WorkerUnavailable,
-            })
+        self.send(Request::List {
+            request,
+            callback: Box::new(callback),
+        })
+    }
+
+    pub fn execute<T: Send + 'static>(
+        &self,
+        work: impl FnOnce(&StorageEngine) -> Result<T, StorageError> + Send + 'static,
+        complete: impl FnOnce(Result<T, StorageError>) + Send + 'static,
+    ) -> Result<(), StorageDispatchError> {
+        self.send(Request::Work(Box::new(move |storage| {
+            complete(work(storage))
+        })))
+    }
+
+    fn send(&self, request: Request) -> Result<(), StorageDispatchError> {
+        self.sender.try_send(request).map_err(|error| match error {
+            TrySendError::Full(_) => StorageDispatchError::QueueFull,
+            TrySendError::Disconnected(_) => StorageDispatchError::WorkerUnavailable,
+        })
     }
 }
 
@@ -79,12 +93,22 @@ pub struct StorageRuntime {
 impl StorageRuntime {
     pub fn open(database_file: &Path) -> Result<Self, StorageError> {
         let database_file = database_file.to_path_buf();
+        Self::start(move || StorageEngine::new(&database_file))
+    }
+
+    pub fn in_memory() -> Result<Self, StorageError> {
+        Self::start(StorageEngine::new_in_memory)
+    }
+
+    fn start(
+        open: impl FnOnce() -> Result<StorageEngine, StorageError> + Send + 'static,
+    ) -> Result<Self, StorageError> {
         let (sender, receiver) = mpsc::sync_channel(REQUEST_QUEUE_CAPACITY);
         let (ready_sender, ready_receiver) = mpsc::sync_channel(1);
         let worker = thread::Builder::new()
             .name("clippy-storage".to_string())
             .spawn(move || {
-                let storage = match StorageEngine::new(&database_file) {
+                let storage = match open() {
                     Ok(storage) => {
                         let _ = ready_sender.send(Ok(()));
                         storage
@@ -106,6 +130,7 @@ impl StorageRuntime {
                             );
                             callback(request.generation, result);
                         }
+                        Request::Work(work) => work(&storage),
                         Request::Shutdown => break,
                     }
                 }

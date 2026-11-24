@@ -141,6 +141,12 @@ check_prerequisites() {
   if "$RUN_CORE" || "$RUN_LEGACY" || "$RUN_SLINT"; then
     require_cmd cargo "Rust toolchain: https://rustup.rs"
   fi
+  if "$RUN_SLINT" && [[ "$(uname -s)" == "Linux" ]]; then
+    require_cmd xvfb-run "sudo apt install -y xvfb xauth"
+    require_cmd dbus-run-session "sudo apt install -y dbus"
+    require_cmd xclip "sudo apt install -y xclip"
+    require_cmd xwininfo "sudo apt install -y x11-utils"
+  fi
   if "$RUN_LEGACY"; then
     require_cmd node "Node.js >= 22.12: https://nodejs.org"
     require_cmd npm "Node.js >= 20.19: https://nodejs.org"
@@ -199,6 +205,9 @@ run_slint_segment() {
   run_step "Slint cargo clippy" cargo clippy --locked -p clippy-slint --all-targets -- -D warnings
   run_step "Slint cargo test" cargo test --locked -p clippy-slint
   run_step "Slint QA profile test" cargo test --locked -p clippy-slint --features qa-build
+  if [[ "$(uname -s)" == "Linux" ]]; then
+    run_step "Slint X11 桌面回归" bash scripts/test-slint-x11.sh
+  fi
 }
 
 run_legacy_segment() {

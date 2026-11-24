@@ -27,6 +27,16 @@ impl AppPaths {
             data_dir,
         }
     }
+
+    pub fn screenshot_default(&self, identity: &DeploymentIdentity) -> PathBuf {
+        if identity.channel == crate::identity::DistributionChannel::Qa {
+            return self.screenshot_fallback_dir.clone();
+        }
+        clippy_core::image_output::system_screenshot_dir(
+            dirs::picture_dir().as_deref(),
+            &self.data_dir,
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -23,7 +23,7 @@ mod paste;
 mod pin;
 mod pin_window;
 #[cfg(target_os = "linux")]
-mod pipewire_frame;
+use clippy_platform::capture::pipewire_frame;
 mod platform;
 #[cfg(target_os = "linux")]
 mod portal_shortcuts;

@@ -592,8 +592,8 @@ impl Inner {
 			let _ = incr_data;
 			Ok(ReadSelNotifyResult::IncrStarted)
 		} else {
-			// this should never happen, we have sent a request only for supported types
-			Err(Error::unknown("incorrect type received from clipboard"))
+			// 某些 owner 会用现有格式回答不认识的目标，让调用方继续请求其它格式。
+			Err(Error::ContentNotAvailable)
 		}
 	}
 
