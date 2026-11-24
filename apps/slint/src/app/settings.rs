@@ -1,4 +1,4 @@
-use super::{clipboard, post, use_app, App, Event};
+use super::{post, use_app, App, Event};
 use crate::{AppWindow, ClippyTheme, GeneralSettings, TranslationSettings};
 use anyhow::{ensure, Context, Result};
 use clippy_core::{
@@ -116,7 +116,10 @@ pub(super) fn connect(window: &AppWindow, config: &AppConfig) {
         use_app(|app| {
             #[cfg(target_os = "linux")]
             {
-                match app.clipboard.submit(clipboard::Request::ForgetPermission) {
+                match app
+                    .clipboard
+                    .submit(super::clipboard::Request::ForgetPermission)
+                {
                     Ok(()) => {
                         app.target = None;
                         app.set_busy(true);
