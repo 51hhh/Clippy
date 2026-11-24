@@ -141,7 +141,9 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          prefix-key: v1-rust
+          # Windows 恢复约 1.49 GB 的 target 缓存时长时间卡住，先只缓存 registry。
+          prefix-key: ${{ runner.os == 'Windows' && 'v2-slint-rust' || 'v1-rust' }}
+          cache-targets: ${{ runner.os != 'Windows' }}
           key: ${{ matrix.runner }}
           workspaces: . -> target
 
