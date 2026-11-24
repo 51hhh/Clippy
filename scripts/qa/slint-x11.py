@@ -182,8 +182,16 @@ class Tray:
 
 
 def titled_window(title):
-    tree = subprocess.check_output(["xwininfo", "-root", "-tree"], text=True)
-    match = re.search(r'\b(0x[\da-f]+)\s+"' + re.escape(title) + '"', tree)
+    # X11 窗口在枚举子树时可能刚好销毁，此时重新读取整棵树。
+    for _ in range(4):
+        tree = subprocess.run(["xwininfo", "-root", "-tree"], capture_output=True, text=True)
+        if tree.returncode == 0 or not any(
+            error in tree.stderr for error in ("Bad Drawable", "Bad Window")
+        ):
+            break
+        time.sleep(0.025)
+    tree.check_returncode()
+    match = re.search(r'\b(0x[\da-f]+)\s+"' + re.escape(title) + '"', tree.stdout)
     if match is None:
         return None
     window = int(match[1], 16)
