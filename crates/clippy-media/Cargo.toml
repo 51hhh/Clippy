@@ -37,6 +37,11 @@ pipewire = { version = "0.9", features = ["v0_3_34"], optional = true }
 shiguredo_libvpx = { version = "=2026.2.0-canary.1", optional = true, features = ["source-build"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+] }
 windows = { version = "=0.62.2", optional = true, features = [
     "Win32_Devices_FunctionDiscovery",
     "Win32_Foundation",
