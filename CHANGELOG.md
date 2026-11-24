@@ -17,6 +17,8 @@
   播放在用户打开时调用 `ffplay`，设置音轨可选无声、Linux PipeWire 或 Windows WASAPI 默认设备。
 - X11 已实测 140×100 区域、暂停扣时、文件解析和导出字节一致。实际音频设备、长时音画同步和
   macOS 系统音频仍待验证或迁移。（需求 `SLINT-NATIVE-PIPELINE-01`）
+- 退出 Clippy、关闭录屏库或切换录屏时，等待当前播放器退出并回收子进程。
+  （需求 `SLINT-NATIVE-PIPELINE-01`）
 
 ### Slint 设置、备份和安装包路由
 

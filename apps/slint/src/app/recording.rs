@@ -109,7 +109,7 @@ pub(super) enum Message {
 pub(super) struct Recordings {
     window: Option<RecordingLibrary>,
     job: Option<Job>,
-    playback: Option<Arc<AtomicBool>>,
+    playback: Option<Playback>,
     editing_library: bool,
     list_generation: u64,
     recovered: Arc<Mutex<bool>>,
@@ -121,6 +121,11 @@ struct Job {
     id: u64,
     control: Option<SyncSender<Control>>,
     worker: Option<JoinHandle<()>>,
+}
+
+struct Playback {
+    stop: Arc<AtomicBool>,
+    worker: JoinHandle<()>,
 }
 
 impl Drop for Job {
@@ -443,8 +448,10 @@ impl Recordings {
     }
 
     fn stop_playback(&mut self) {
-        if let Some(stop) = self.playback.take() {
+        if let Some(Playback { stop, worker }) = self.playback.take() {
             stop.store(true, Ordering::Release);
+            worker.thread().unpark();
+            let _ = worker.join();
         }
     }
 }
@@ -683,7 +690,7 @@ impl App {
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = stop.clone();
         let root = self.paths.data_dir.clone();
-        thread::Builder::new()
+        let worker = thread::Builder::new()
             .name("clippy-recording-player".into())
             .spawn(move || {
                 let result = (|| {
@@ -715,7 +722,7 @@ impl App {
                                 Err(anyhow!("Native player failed to open this recording"))
                             };
                         }
-                        thread::sleep(Duration::from_millis(100));
+                        thread::park_timeout(Duration::from_millis(100));
                     }
                     let _ = child.kill();
                     let _ = child.wait();
@@ -725,8 +732,30 @@ impl App {
                     send(Message::Update(result));
                 }
             })?;
-        self.recordings.playback = Some(stop);
+        self.recordings.playback = Some(Playback { stop, worker });
         self.recordings.note(Ok("Opening native player…".into()));
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dropping_recordings_waits_for_playback_cleanup() {
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker_stop = stop.clone();
+        let (cleaned, result) = mpsc::channel();
+        let worker = thread::spawn(move || {
+            while !worker_stop.load(Ordering::Acquire) {
+                thread::park();
+            }
+            cleaned.send(()).unwrap();
+        });
+        let mut recordings = Recordings::default();
+        let _ = recordings.playback.insert(Playback { stop, worker });
+        drop(recordings);
+        assert_eq!(result.try_recv(), Ok(()));
     }
 }
