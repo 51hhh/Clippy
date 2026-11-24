@@ -2,6 +2,16 @@ name: Native QA Packages
 
 on:
   workflow_dispatch:
+    inputs:
+      backend:
+        description: '选择要打包的 UI 后端；默认只构建新版 Slint'
+        required: true
+        type: choice
+        default: slint
+        options:
+          - slint
+          - legacy
+          - all
 
 concurrency:
   group: '${{ github.workflow }}-${{ github.ref }}'
@@ -17,6 +27,7 @@ env:
 
 jobs:
   build-linux:
+    if: inputs.backend == 'legacy' || inputs.backend == 'all'
     name: Legacy QA Bundle (Linux x64)
     runs-on: ubuntu-22.04
     timeout-minutes: 45
@@ -132,6 +143,7 @@ jobs:
           retention-days: 14
 
   smoke-ubuntu24:
+    if: inputs.backend == 'legacy' || inputs.backend == 'all'
     name: Legacy Runtime Smoke (Ubuntu 24.04 x64)
     needs: build-linux
     runs-on: ubuntu-24.04
@@ -188,6 +200,7 @@ jobs:
           retention-days: 14
 
   build-windows:
+    if: inputs.backend == 'legacy' || inputs.backend == 'all'
     name: Legacy QA Bundle (Windows x64)
     runs-on: windows-latest
     timeout-minutes: 90
@@ -325,6 +338,7 @@ jobs:
           }
 
   build-macos:
+    if: inputs.backend == 'legacy' || inputs.backend == 'all'
     name: Legacy QA Bundle (macOS ${{ matrix.label }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
@@ -443,6 +457,7 @@ jobs:
           compression-level: 0
 
   build-slint-linux:
+    if: inputs.backend == 'slint' || inputs.backend == 'all'
     name: Slint QA Bundle (Linux x64)
     runs-on: ubuntu-22.04
     timeout-minutes: 45
@@ -548,6 +563,7 @@ jobs:
           compression-level: 0
 
   build-slint-windows:
+    if: inputs.backend == 'slint' || inputs.backend == 'all'
     name: Slint QA Bundle (Windows x64)
     runs-on: windows-latest
     timeout-minutes: 45
@@ -634,6 +650,7 @@ jobs:
           compression-level: 0
 
   build-slint-macos:
+    if: inputs.backend == 'slint' || inputs.backend == 'all'
     name: Slint QA Bundle (macOS ${{ matrix.label }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45

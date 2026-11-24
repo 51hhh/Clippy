@@ -2,6 +2,14 @@
 
 ## 未发布
 
+### 2026-11-24 v0.2 默认构建切换
+
+- 根 workspace、本地 Linux/Windows 门禁和普通三平台 CI 默认只构建共享 Rust 层与 Slint，不再为每次
+  新版迭代重建 Tauri、Node 前端和 WebView 依赖。legacy 源码与 v0.1.x tag 发布路径继续保留，只有
+  显式 `legacy`/`all` 维护门禁或旧版发布才构建。
+- Native QA 默认只产出 Slint 包；仍可手动选择 `legacy` 或 `all`。本地清理了可重建的 Cargo target、
+  legacy dist 与 node_modules，未删除源码和历史证据。（需求：`SLINT-UI-MIGRATION-01`）
+
 ### 2026-11-24 Rust 依赖安全刷新
 
 - 修复最新 RustSec 数据库报告的 6 个依赖漏洞：升级 bundled SQLite/rusqlite、cookie、URL 和

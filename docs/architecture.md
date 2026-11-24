@@ -15,9 +15,10 @@
   平台 ID，Slint QA 使用独立的 app/data/single-instance/shortcut namespace。`qa-build` 只开放
   QA 可执行目标，具体身份由两个入口显式传给共享应用库，避免 Cargo feature 合并让生产入口误用
   QA 身份。
-- 根 `Cargo.toml` / `Cargo.lock` 统一解析两套 Rust 入口、共享核心、平台边界与 vendored patch；后续
-  业务能力按 `SLINT-UI-MIGRATION-01` 继续下沉到 UI 无关 crate。迁移期间不能把 legacy 的
-  Tauri/WebView 调用复制进 Slint 正式路径。
+- 根 `Cargo.toml` / `Cargo.lock` 统一解析两套 Rust 入口、共享核心、平台边界与 vendored patch；
+  `default-members` 只包含 core/platform/Slint，普通 `cargo` 命令不会编译 legacy。后续业务能力按
+  `SLINT-UI-MIGRATION-01` 继续下沉到 UI 无关 crate，不能把 legacy 的 Tauri/WebView 调用复制进
+  Slint 正式路径。
 
 下面的领域与调用链描述当前完整的 legacy v0.1.x 实现；Slint 接入进度以迁移规格和功能矩阵为准。
 
@@ -408,17 +409,15 @@ macOS Resources 中的未来 sidecar、进程 PATH、平台常见安装目录；
 
 | 证据 | 入口 | 能证明什么 | 不能替代什么 |
 |---|---|---|---|
-| 本地完整门禁 | `./scripts/ci-local.sh` | 当前宿主的 core、legacy、Slint、前端、DOM/像素 smoke 与生产构建 | 非宿主条件编译、原生桌面行为 |
+| 本地完整门禁 | `./scripts/ci-local.sh` | 当前宿主的 core/platform/Slint v0.2 路径 | legacy 维护兼容、非宿主条件编译、原生桌面行为 |
 | 可选交叉检查 | `CLIPPY_CROSS_CHECK=1 ./scripts/ci-local.sh` | 已安装目标和工具链可覆盖的编译期问题 | 目标系统测试、平台 API、桌面权限 |
 | 同 SHA 原生 CI | `.github/workflows/build.yml` + `verify-native-ci.mjs` | Ubuntu、Windows、macOS 原生 check/clippy/test | 安装包签名、真实桌面交互 |
 | Native/人工 QA | `native-qa.yml` + [native-qa.md](native-qa.md) | 安装包、权限、焦点、混合 DPI、Wayland/macOS/Windows 交互 | 自动单元测试与代码合同门禁 |
 
-四种证据独立记录，不能互相替代；跳过项不计为通过。`./scripts/ci-local.sh` 默认依次执行 core、
-legacy 与 Slint 三段；`--segment` 子集和 `--quick` 都只形成部分证据。完整入口依次执行 Rust
-fmt/check/clippy/test、X11/GNOME/IPC/HTML 边界、锁文件安装、JS lint、TypeScript、Vitest、
-DOM/Xvfb、Canvas/布局像素 smoke 和 Vite build。AppImage 可视 smoke 由
-`CLIPPY_APPIMAGE_SMOKE=1` 显式启用。criterion 基准会被 `--all-targets` 编译但不会在门禁中运行，
-数字与运行方式见 [bench-baseline.md](bench-baseline.md)。
+四种证据独立记录，不能互相替代；跳过项不计为通过。`./scripts/ci-local.sh` 默认执行 `current`：
+core/platform 与 Slint 的 fmt/check/clippy/test，不安装 Node，也不编译 Tauri/WebView。旧版维护使用
+`--segment legacy`，需要同时验证两套时显式使用 `--segment all`；这两种模式会重新生成 legacy 的
+Cargo、Node 和前端产物。AppImage 可视 smoke 与历史 DOM/像素门禁只属于 legacy 维护证据。
 
 Slint QA 的包入口为 `apps/slint/Packager.qa.toml`。workflow 先显式构建 `clippy-slint-qa`，Packager
 配置只描述包内容，不用跨平台 shell hook 隐式编译；产物使用独立二进制和桌面入口，

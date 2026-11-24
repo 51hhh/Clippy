@@ -9,8 +9,9 @@ Requirement ID: `SLINT-UI-MIGRATION-01`
 
 ## Requirements
 
-- R1：旧版 Tauri 与新版 Slint 必须位于独立目录。迁移期普通 CI 同时验证两套实现，禁止通过
-  长期平行 Git 分支维护两套产品。
+- R1：旧版 Tauri 与新版 Slint 必须位于独立目录，禁止通过长期平行 Git 分支维护两套产品。
+  v0.2 日常开发、本地默认门禁和普通三平台 CI 只验证共享 Rust 层与 Slint；legacy 仅在显式维护门禁、
+  legacy QA 或低于 v0.2.0 的发布 tag 中构建，避免旧 WebView 工程持续占用构建时间和磁盘。
 - R2：旧版保持 v0.1.x，可继续接受必要的兼容、安全和严重缺陷修复，但不再承接大功能或大规模
   UI 改造；新版从 v0.2.0 开始。
 - R3：发布后端只由语义化 tag 决定：低于 v0.2.0 的 tag 打包 Tauri，v0.2.0 的
@@ -41,8 +42,8 @@ Requirement ID: `SLINT-UI-MIGRATION-01`
   Rust 入口；旧版前端测试仍可独立执行。
 - [ ] tag 路由自动化测试至少覆盖 `v0.1.21`、`v0.1.99`、`v0.2.0-alpha.1`、
   `v0.2.0-rc.1`、`v0.2.0`、`v0.10.0`、`v1.0.0` 和非法 tag。
-- [ ] 普通 Ubuntu、Windows、macOS 门禁在同一 SHA 上同时检查 legacy、共享 core 和 Slint；现有
-  required-check 名称在迁移期保持稳定。
+- [ ] 普通 Ubuntu、Windows、macOS 门禁在同一 SHA 上检查共享 core、平台层和 Slint；现有
+  required-check 名称保持稳定。legacy 维护改动必须额外执行显式 legacy 门禁，但不进入 v0.2 默认路径。
 - [ ] 发布 workflow 对 v0.1.x 只构建 legacy，对 v0.2.0 预发布及以上只构建 Slint；两条路径均验证
   tag、manifest、CHANGELOG、签名和产物来源。
 - [ ] Linux、Windows、macOS QA 包能从同一 SHA 产出，并通过元数据区分 `legacy-tauri` 与
@@ -75,10 +76,17 @@ Requirement ID: `SLINT-UI-MIGRATION-01`
 直接在原目录替换 UI 会让旧版维护、升级验证和跨平台回退失去稳定参照。
 
 **Decision**：同仓库、同分支、分目录保留两套应用入口，把 UI 无关能力逐步抽到共享 Rust crate；
-普通 CI 同时守住两套实现，正式发布根据 semver tag 只选择其中一套。v0.2.0 复用正式身份和数据，
-QA 构建使用隔离身份。Slint 采用 1.19.0 与 royalty-free desktop license，最终产物不包含 Tauri 或
-WebView。
+v0.2 默认门禁只构建共享层与 Slint，legacy 由显式维护入口和 v0.1 tag 守护。正式发布根据 semver tag
+只选择其中一套。v0.2.0 复用正式身份和数据，QA 构建使用隔离身份。Slint 采用 1.19.0 与
+royalty-free desktop license，最终产物不包含 Tauri 或 WebView。
 
-**Consequences**：迁移期 CI 时间和仓库体积会上升；共享能力变更必须同时兼容两个入口；旧版仍能做
-小范围维护，但不会形成长期功能分叉。富文本和录屏回放不能依赖 DOM，必须分别建立类型化文档模型
-和原生媒体路径。发布切换前必须完成更新桥和三平台真实 QA，不能只凭编译成功发布 v0.2.0。
+**Consequences**：仓库仍保留两套源码和旧 tag 的可重建性，但日常构建不会下载 Node/WebKit 或生成
+legacy 产物。共享层变更可能影响 v0.1.x 时，必须在准备 legacy 维护发布前显式补跑其三平台门禁；
+普通 v0.2 CI 不再提供这项兼容证据。富文本和录屏回放不能依赖 DOM，必须分别建立类型化文档模型和
+原生媒体路径。发布切换前必须完成更新桥和三平台真实 QA，不能只凭编译成功发布 v0.2.0。
+
+## 2026-11-24 已批准调整
+
+用户确认后续开发以新版为唯一默认构建目标，legacy 继续保留但不参与每次本地/普通 CI。该调整不改变
+v0.1.x tag 的可发布性，也不删除 legacy 源码；它把兼容验证从“每次必跑”改为“维护或旧版发布时显式
+执行”，以换取更低的构建空间、依赖下载和反馈时延。

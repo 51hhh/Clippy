@@ -16,6 +16,9 @@ describe("Slint v0.2 migration workspace contract", () => {
     expect(workspace).toContain('"apps/slint"');
     expect(workspace).toContain('"crates/clippy-core"');
     expect(workspace).toContain('"crates/clippy-platform"');
+    const defaults = workspace.match(/default-members = \[([\s\S]*?)\]/)?.[1] ?? "";
+    expect(defaults).toContain('"apps/slint"');
+    expect(defaults).not.toContain('"apps/legacy-tauri/native"');
   });
 
   it("pins the new application to v0.2.0 and Slint 1.19.0", () => {
@@ -101,6 +104,9 @@ describe("Slint v0.2 migration workspace contract", () => {
 
   it("builds isolated legacy and Slint QA artifacts on all native platforms", () => {
     const nativeQa = read(".github/workflows/native-qa.yml");
+    expect(nativeQa).toMatch(/default: slint/);
+    expect(nativeQa.match(/if: inputs\.backend == 'slint' \|\| inputs\.backend == 'all'/g)).toHaveLength(3);
+    expect(nativeQa.match(/if: inputs\.backend == 'legacy' \|\| inputs\.backend == 'all'/g)).toHaveLength(4);
     expect(nativeQa).toContain("build-slint-linux:");
     expect(nativeQa).toContain("build-slint-windows:");
     expect(nativeQa).toContain("build-slint-macos:");
@@ -123,24 +129,32 @@ describe("Slint v0.2 migration workspace contract", () => {
     }
   });
 
-  it("keeps segmented local gates explicit and labels every subset as partial evidence", () => {
+  it("uses core plus Slint as the default gate and keeps legacy explicit", () => {
     const localGate = read("scripts/ci-local.sh");
     const windowsGate = read("scripts/ci-windows.ps1");
-    expect(localGate).toContain("--segment all|core|legacy|slint");
+    expect(localGate).toContain("--segment current|all|core|legacy|slint");
+    expect(localGate).toContain("SEGMENT=current");
     expect(localGate).toContain("run_core_segment");
     expect(localGate).toContain("run_legacy_segment");
     expect(localGate).toContain("run_slint_segment");
     expect(localGate).toContain("证据级别：部分证据");
-    expect(windowsGate).toContain("[ValidateSet('All', 'Core', 'Legacy', 'Slint')]");
+    expect(windowsGate).toContain("[ValidateSet('Current', 'All', 'Core', 'Legacy', 'Slint')]");
+    expect(windowsGate).toContain("[string]$Segment = 'Current'");
     expect(windowsGate).toContain("Evidence level: partial");
+  });
+
+  it("does not compile legacy in the active v0.2 workflow", () => {
+    const buildWorkflow = read(".github/workflows/build.yml");
+    const activeJobs = buildWorkflow.split("  recording-codec-prototype:")[0];
+    expect(activeJobs).not.toContain("apps/legacy-tauri");
+    expect(activeJobs).not.toContain("libwebkit2gtk");
+    expect(buildWorkflow).toContain("inputs.legacy_recording_prototype");
   });
 
   it("audits the root lockfile shared by both applications", () => {
     const buildWorkflow = read(".github/workflows/build.yml");
     const attributes = read(".gitattributes");
-    expect(buildWorkflow).toMatch(
-      /name: Rust dependency audit[\s\S]*?working-directory: \.[\s\S]*?name: X11 clipboard/,
-    );
+    expect(buildWorkflow).toContain("target/cargo-audit/bin/cargo-audit audit");
     expect(attributes).toMatch(/^\/Cargo\.lock text eol=lf$/m);
     expect(attributes).not.toContain("apps/legacy-tauri/native/Cargo.lock");
   });

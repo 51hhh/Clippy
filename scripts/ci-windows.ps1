@@ -3,8 +3,8 @@ param(
     [switch]$FrontendOnly,
     [switch]$RecordingQa,
     [switch]$Quick,
-    [ValidateSet('All', 'Core', 'Legacy', 'Slint')]
-    [string]$Segment = 'All'
+    [ValidateSet('Current', 'All', 'Core', 'Legacy', 'Slint')]
+    [string]$Segment = 'Current'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -50,9 +50,12 @@ try {
     if ($FrontendOnly -and $Segment -notin @('All', 'Legacy')) {
         throw 'FrontendOnly requires the Legacy or All segment.'
     }
-    $runCore = $Segment -in @('All', 'Core')
+    if ($Quick -and $Segment -notin @('All', 'Legacy')) {
+        throw 'Quick only applies to the Legacy or All segment.'
+    }
+    $runCore = $Segment -in @('Current', 'All', 'Core')
     $runLegacy = $Segment -in @('All', 'Legacy')
-    $runSlint = $Segment -in @('All', 'Slint')
+    $runSlint = $Segment -in @('Current', 'All', 'Slint')
     if ($FrontendOnly) {
         $runCore = $false
         $runLegacy = $true
@@ -112,12 +115,14 @@ $scope = if ($FrontendOnly) {
     'frontend only (partial)'
 } elseif ($Segment -eq 'All') {
     'core + legacy + Slint'
+} elseif ($Segment -eq 'Current') {
+    'core + Slint (v0.2 current)'
 } else {
     "$($Segment.ToLowerInvariant()) only (partial)"
 }
 if ($RecordingQa) { $scope += ' + recording-windows-av-qa' }
 if ($Quick) { $scope += ' (production build skipped)' }
-$partialEvidence = $FrontendOnly -or $Quick -or $Segment -ne 'All'
+$partialEvidence = $FrontendOnly -or $Segment -notin @('Current', 'All')
 Write-Host "Windows gate scope: $scope"
 Write-Host $(if ($partialEvidence) { 'Evidence level: partial; not a complete local gate.' } else { 'Evidence level: complete native Windows gate.' })
 Write-Host 'Linux WebKit/Xvfb pixel smoke, installers and desktop QA require separate evidence.'

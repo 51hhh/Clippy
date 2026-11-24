@@ -97,20 +97,20 @@ legacy 产物必须明确写 `Slint: not included`，Slint 产物必须明确写
 
 退出条件：两套入口可在同一 checkout 独立 check，legacy 行为与搬迁前一致。
 
-### M3：双实现 CI 与 QA 身份隔离
+### M3：版本化 CI 与 QA 身份隔离
 
-- [x] Linux 与 Windows 本地门禁拆成 core、legacy、Slint 三段；默认 wrapper 全跑，任何只跑子集或
-  quick 的选项都标记为部分证据。
+- [x] Linux 与 Windows 本地门禁拆成 core、legacy、Slint 三段；默认 `current` 只跑 core + Slint，
+  `all`/`legacy` 作为维护入口显式构建旧版。
 - [x] 保留 `Check (ubuntu-22.04)`、`Native Check (windows-latest)`、
-  `Native Check (macos-latest)` 名称，在其中加入 Slint 编译、clippy、test 和 `.slint` 编译；
+  `Native Check (macos-latest)` 名称，普通 CI 只编译 core/platform/Slint；legacy 录屏原型改为手动开关，
   workflow 合同已实现，远程同 SHA 结果仍待验证。
-- [x] Native QA workflow 并行定义 `qa-legacy-*` 和 `qa-slint-*`，单一生成器写入 backend、framework、
-  renderer、SHA 与未包含框架；远程同 SHA 的八套 artifact 仍待实际运行验证。
+- [x] Native QA workflow 保留 `qa-legacy-*` 和 `qa-slint-*`，默认只生成 Slint；选择 `legacy` 或 `all`
+  才构建旧版。单一生成器写入 backend、framework、renderer、SHA 与未包含框架。
 - [x] Slint QA 建立独立 app/bundle ID、可执行文件和桌面入口；生产入口显式绑定原身份，不依赖
   feature 切换身份。
 - [ ] 平台服务接入后实际消费 QA 的快捷键、单实例和数据命名空间，并验证与正式版互不污染。
 
-退出条件：同一 SHA 三平台同时验证 legacy、core、Slint，QA 包不会污染正式数据。
+退出条件：同一 SHA 三平台验证 core/platform/Slint；显式 legacy 维护入口和两类 QA 包均不会污染正式数据。
 
 ### M4：共享核心抽离
 
@@ -129,9 +129,10 @@ legacy 产物必须明确写 `Slint: not included`，Slint 产物必须明确写
 5. 托盘、快捷键、单实例、窗口策略等平台适配。
 
 约束：共享 crate 禁止依赖 `tauri::AppHandle`、`tauri::WebviewWindow` 或 Slint component；host 通过窄接口
-注入窗口/对话框/通知能力。每抽一块，legacy 先改用共享 crate，再接 Slint，避免复制实现。
+注入窗口/对话框/通知能力。抽离时以原 legacy 行为与测试作为输入，但新能力直接落入分层共享 crate，
+Slint 首先接入；legacy 只保留必要适配和显式维护验证，避免为兼容旧 host 复制一套新架构。
 
-退出条件：Slint 所需业务能力不需要调用 Tauri IPC，legacy 回归测试仍通过。
+退出条件：Slint 所需业务能力不需要调用 Tauri IPC；legacy 维护入口仍可按需独立重建和验证。
 
 ### M5：Slint 设计系统与窗口骨架
 

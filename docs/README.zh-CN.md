@@ -205,7 +205,8 @@ cd apps/legacy-tauri/native && cargo check --all-targets     # 编译检查
 cd apps/legacy-tauri/native && cargo test                   # 单元测试
 cd apps/legacy-tauri/native && cargo clippy --all-targets -- -D warnings  # Lint
 cd apps/legacy-tauri/frontend && npx vitest run # 前端测试
-./scripts/ci-local.sh                        # 完整门禁 + DOM/Xvfb smoke
+./scripts/ci-local.sh                        # v0.2 完整门禁（core/platform + Slint）
+./scripts/ci-local.sh --segment legacy       # 仅在维护 v0.1.x 时重建旧版
 ```
 
 ## 贡献

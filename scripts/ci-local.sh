@@ -6,9 +6,9 @@
 # 在这里根本不进编译图，其告警与测试也就无从触发。发布门禁仍以 build.yml 的
 # Check (ubuntu) + Native Check (windows-latest) + Native Check (macos-latest) 为准。
 #
-# 用法: ./scripts/ci-local.sh [--quick] [--segment all|core|legacy|slint]
-#   --quick: 跳过 legacy 生产构建，仅运行 lint/test；属于部分证据
-#   --segment: 只运行指定分段；省略时运行全部，任何子集都属于部分证据
+# 用法: ./scripts/ci-local.sh [--quick] [--segment current|all|core|legacy|slint]
+#   --quick: 仅与 legacy/all 搭配，跳过 legacy 生产构建
+#   --segment: 默认 current，只运行 v0.2 的 core + Slint；legacy 仅按需显式执行
 #
 # 可选环境变量:
 #   CLIPPY_CROSS_CHECK=1   额外跑非宿主平台的交叉 lint（见下方步骤）。只能发现"编译期"
@@ -18,14 +18,14 @@
 set -euo pipefail
 
 QUICK=false
-SEGMENT=all
+SEGMENT=current
 
 usage() {
   cat <<'EOF'
-用法: ./scripts/ci-local.sh [--quick] [--segment all|core|legacy|slint]
+用法: ./scripts/ci-local.sh [--quick] [--segment current|all|core|legacy|slint]
 
-  --quick            跳过 legacy 生产构建，结果仅为部分证据
-  --segment <name>   仅运行 all、core、legacy 或 slint；子集仅为部分证据
+  --quick            跳过 legacy 生产构建，仅适用于 legacy/all
+  --segment <name>   current 为新版完整门禁；all 追加 legacy；其余为定位子集
   -h, --help         显示帮助
 EOF
 }
@@ -62,6 +62,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$SEGMENT" in
+  current)
+    RUN_CORE=true
+    RUN_LEGACY=false
+    RUN_SLINT=true
+    ;;
   all)
     RUN_CORE=true
     RUN_LEGACY=true
@@ -83,10 +88,15 @@ case "$SEGMENT" in
     RUN_SLINT=true
     ;;
   *)
-    printf '错误：无效分段 %s；只能是 all、core、legacy 或 slint。\n' "$SEGMENT" >&2
+    printf '错误：无效分段 %s；只能是 current、all、core、legacy 或 slint。\n' "$SEGMENT" >&2
     exit 2
     ;;
 esac
+
+if [[ "$QUICK" == true && "$RUN_LEGACY" == false ]]; then
+  printf '错误：--quick 只用于包含 legacy 的 legacy/all 分段。\n' >&2
+  exit 2
+fi
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -164,10 +174,13 @@ echo "=========================================="
 printf "${YELLOW} 仅验证当前宿主平台：%s${NC}\n" "$HOST_PLATFORM"
 printf "${YELLOW} Windows / macOS 的条件编译代码不在本机编译图内，通过此门禁不代表三平台 CI 通过。${NC}\n"
 printf "${YELLOW} 执行分段：%s${NC}\n" "$SEGMENT"
-if [[ "$SEGMENT" != "all" || "$QUICK" == true ]]; then
-  printf "${YELLOW} 证据级别：部分证据；不能作为合入前完整本地门禁。${NC}\n"
+if [[ "$RUN_CORE" == true && "$RUN_SLINT" == true ]]; then
+  printf "${GREEN} 证据级别：完整 v0.2 本地主机门禁。${NC}\n"
+  if [[ "$RUN_LEGACY" == true ]]; then
+    printf "${YELLOW} 兼容范围：额外包含 legacy v0.1.x；新版开发默认不执行。${NC}\n"
+  fi
 else
-  printf "${GREEN} 证据级别：完整本地主机门禁。${NC}\n"
+  printf "${YELLOW} 证据级别：部分证据；不能作为 v0.2 合入前完整本地门禁。${NC}\n"
 fi
 echo ""
 
@@ -298,15 +311,15 @@ echo ""
 echo "=========================================="
 printf " 结果: ${GREEN}%d 通过${NC}, ${RED}%d 失败${NC}, ${YELLOW}%d 跳过${NC}\n" "$PASS" "$FAIL" "$SKIP"
 printf " 覆盖范围: 仅 %s；跳过的步骤不计为通过。\n" "$HOST_PLATFORM"
-if [[ "$SEGMENT" != "all" || "$QUICK" == true ]]; then
+if [[ "$RUN_CORE" == false || "$RUN_SLINT" == false ]]; then
   printf " 证据级别: ${YELLOW}部分证据（segment=%s, quick=%s）${NC}\n" "$SEGMENT" "$QUICK"
 else
-  printf " 证据级别: ${GREEN}完整本地主机门禁${NC}\n"
+  printf " 证据级别: ${GREEN}完整 v0.2 本地主机门禁${NC}\n"
 fi
 echo "=========================================="
 
 if [[ "$FAIL" -eq 0 ]]; then
-  if [[ "$SEGMENT" != "all" || "$QUICK" == true ]]; then
+  if [[ "$RUN_CORE" == false || "$RUN_SLINT" == false ]]; then
     printf "${YELLOW}提醒：本次只形成部分证据，必须再运行不带参数的 ./scripts/ci-local.sh。${NC}\n"
   fi
   printf "${YELLOW}提醒：Windows / macOS 只能由远程 Native Check 判定，合入前请确认三平台在同一 SHA 上为 success。${NC}\n"
