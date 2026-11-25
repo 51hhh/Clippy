@@ -168,6 +168,12 @@ jobs:
       - name: Shared native A/V tests
         run: cargo test --locked -p clippy-media --features recording-opus-webm,recording-windows-audio -- --test-threads=1
 
+      - name: Windows WGC capture tests
+        if: runner.os == 'Windows'
+        run: >-
+          cargo test --locked --manifest-path apps/legacy-tauri/native/vendor/xcap/Cargo.toml
+          --lib --features wgc platform::wgc_
+
       - name: Slint QA profile tests
         run: cargo test --locked -p clippy-slint --features qa-build
 

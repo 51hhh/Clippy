@@ -137,6 +137,12 @@ if ($runCore) {
     Invoke-Check 'Shared Rust tests' $repository { & cargo.exe test --locked -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision }
 }
 
+if ($runSlint -or ($runLegacy -and -not $FrontendOnly)) {
+    Invoke-Check 'Windows WGC capture tests' $backend {
+        & cargo.exe test --locked --manifest-path vendor/xcap/Cargo.toml --lib --features wgc platform::wgc_
+    }
+}
+
 if ($runLegacy -and -not $FrontendOnly) {
     Invoke-Check 'OCR quality contract' $repository {
         & python.exe -m unittest discover -s apps/legacy-tauri/native/ocr-sidecar -p 'test_quality*.py' -v
@@ -151,12 +157,6 @@ if ($runLegacy -and -not $FrontendOnly) {
     Invoke-Check 'Native Rust clippy' $backend { & cargo.exe clippy --locked --all-targets -- -D warnings }
     Invoke-Check 'Vendored WGC clippy' $backend {
         & cargo.exe clippy --locked --manifest-path vendor/xcap/Cargo.toml --lib --tests --features wgc -- -D warnings
-    }
-    Invoke-Check 'Windows WGC close state tests' $backend {
-        & cargo.exe test --locked --manifest-path vendor/xcap/Cargo.toml --lib --features wgc platform::wgc_runtime::tests
-    }
-    Invoke-Check 'Windows WGC initialization rollback tests' $backend {
-        & cargo.exe test --locked --manifest-path vendor/xcap/Cargo.toml --lib --features wgc platform::wgc_init::tests
     }
     Invoke-Check 'Windows registry build buffer tests' $backend {
         & cargo.exe test --locked --manifest-path vendor/xcap/Cargo.toml --lib --features wgc platform::registry_build::tests
