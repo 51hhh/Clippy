@@ -1,5 +1,5 @@
-use super::{capture, clipboard, editor, post, App, Event};
-use crate::{PinnedWindow, WorkspaceRow, WorkspaceWindow};
+use super::{capture, clipboard, editor, post, settings, App, Event};
+use crate::{ClippyTheme, PinnedWindow};
 use anyhow::{anyhow, Context, Result};
 use clippy_capture::{
     editor::{Editor, ImageProject},
@@ -20,8 +20,11 @@ use clippy_storage::{
 };
 use image::RgbaImage;
 use slint::winit_030::{winit::window::WindowLevel, WinitWindowAccessor};
-use slint::{CloseRequestResponse, ComponentHandle, LogicalSize, ModelRc, VecModel};
+use slint::{CloseRequestResponse, ComponentHandle, LogicalSize};
 use std::{collections::HashMap, sync::Arc, thread};
+
+mod workspace;
+use workspace::Workspace;
 
 type Library = (Vec<PinWorkspaceGroup>, Vec<StoredPinWorkspaceSummary>);
 
@@ -29,8 +32,9 @@ pub(super) enum Message {
     Workspace,
     CloseWorkspace,
     Library(Result<Library, StorageError>),
+    Filter(String),
     CreateGroup(String),
-    Move(i64, String),
+    Move(i64, Option<i64>),
     Remove(i64),
     Updated(Result<(), StorageError>),
     Open(i64),
@@ -86,7 +90,7 @@ impl Drop for View {
 
 #[derive(Default)]
 pub(super) struct Pins {
-    workspace: Option<WorkspaceWindow>,
+    workspace: Option<Workspace>,
     views: HashMap<i64, View>,
     writing: bool,
 }
@@ -146,39 +150,30 @@ impl Pins {
         Ok(())
     }
 
-    fn workspace(&mut self) -> Result<()> {
-        if let Some(window) = self.workspace.as_ref() {
-            return Ok(window.show()?);
+    fn workspace(&mut self, theme: i32) -> Result<()> {
+        if let Some(workspace) = self.workspace.as_ref() {
+            workspace.window.global::<ClippyTheme>().set_index(theme);
+            return Ok(workspace.window.show()?);
         }
-        let window = WorkspaceWindow::new()?;
-        window.on_close_workspace(|| send(Message::CloseWorkspace));
-        window.on_open_pin(|id| send(Message::Open(parse_id(&id))));
-        window.on_delete_pin(|id| send(Message::Remove(parse_id(&id))));
-        window.on_create_group(|name| send(Message::CreateGroup(name.to_string())));
-        window.on_move_to_group(|id, name| send(Message::Move(parse_id(&id), name.to_string())));
-        window.window().on_close_requested(|| {
-            send(Message::CloseWorkspace);
-            CloseRequestResponse::KeepWindowShown
-        });
-        window.show()?;
-        self.workspace = Some(window);
+        self.workspace = Some(Workspace::open(theme)?);
         Ok(())
     }
 
     fn report(&self, error: impl std::fmt::Display) {
-        if let Some(window) = self.workspace.as_ref() {
-            window.set_status(error.to_string().into());
+        if let Some(workspace) = self.workspace.as_ref() {
+            workspace.window.set_status(error.to_string().into());
         } else {
             eprintln!("{error}");
         }
     }
 
-    fn show(&mut self, prepared: Prepared) -> Result<()> {
+    fn show(&mut self, prepared: Prepared, theme: i32) -> Result<()> {
         let id = prepared.id;
         if let Some(view) = self.views.get(&id) {
             return Ok(view.window.show()?);
         }
         let window = PinnedWindow::new()?;
+        window.global::<ClippyTheme>().set_index(theme);
         match &prepared.content {
             Content::Image { rendered, .. } => {
                 window.set_picture(editor::to_slint(rendered));
@@ -434,80 +429,33 @@ impl App {
     }
 
     fn handle_pins(&mut self, message: Message) -> Result<()> {
+        let theme = settings::theme_index(&self.config.theme);
         match message {
             Message::Workspace => {
-                self.pins.workspace()?;
+                self.pins.workspace(theme)?;
                 self.refresh_pins();
             }
             Message::CloseWorkspace => {
-                if let Some(window) = self.pins.workspace.take() {
-                    window.hide()?;
+                if let Some(workspace) = self.pins.workspace.take() {
+                    workspace.window.hide()?;
                 }
             }
             Message::Library(result) => {
-                if let Some(window) = &self.pins.workspace {
-                    let (groups, summaries) = result?;
-                    window.set_groups(
-                        groups
-                            .iter()
-                            .map(|item| item.name.as_str())
-                            .collect::<Vec<_>>()
-                            .join("  ·  ")
-                            .into(),
-                    );
-                    let items = summaries
-                        .into_iter()
-                        .map(|item| WorkspaceRow {
-                            id: item.id.to_string().into(),
-                            label: item
-                                .preview_text
-                                .unwrap_or_else(|| {
-                                    format!(
-                                        "Image  {} × {}",
-                                        item.content_width as u32, item.content_height as u32
-                                    )
-                                })
-                                .into(),
-                            group: groups
-                                .iter()
-                                .find(|group| Some(group.id) == item.group_id)
-                                .map(|group| group.name.as_str())
-                                .unwrap_or("Ungrouped")
-                                .into(),
-                        })
-                        .collect::<Vec<_>>();
-                    if !items.iter().any(|item| item.id == window.get_selection()) {
-                        window.set_selection(
-                            items
-                                .first()
-                                .map(|item| item.id.clone())
-                                .unwrap_or_default(),
-                        );
-                    }
-                    window.set_pins(ModelRc::new(VecModel::from(items)));
+                if let Some(workspace) = &mut self.pins.workspace {
+                    workspace.update(result?);
+                }
+            }
+            Message::Filter(group) => {
+                if let Some(workspace) = &self.pins.workspace {
+                    workspace.filter(group.into());
                 }
             }
             Message::CreateGroup(name) => self.storage.client().execute(
                 move |db| db.create_pin_group(&name).map(|_| ()),
                 |result| send(Message::Updated(result)),
             )?,
-            Message::Move(id, name) => self.storage.client().execute(
-                move |db| {
-                    let group = if name.trim().is_empty() {
-                        None
-                    } else {
-                        Some(
-                            db.list_pin_groups()?
-                                .into_iter()
-                                .find(|item| item.name.eq_ignore_ascii_case(name.trim()))
-                                .ok_or_else(|| {
-                                    StorageError::Invariant("Group does not exist".into())
-                                })?
-                                .id,
-                        )
-                    };
-                    db.set_pin_workspace_group(id, group).map(|_| ())
-                },
+            Message::Move(id, group) => self.storage.client().execute(
+                move |db| db.set_pin_workspace_group(id, group).map(|_| ()),
                 |result| send(Message::Updated(result)),
             )?,
             Message::Remove(id) => {
@@ -544,7 +492,7 @@ impl App {
             }
             Message::Created(request, result) => {
                 self.pins.writing = false;
-                let result = result.and_then(|prepared| self.pins.show(prepared));
+                let result = result.and_then(|prepared| self.pins.show(prepared, theme));
                 match request {
                     PinRequest::Editor(id) => self.editor_output(
                         id,
@@ -556,7 +504,7 @@ impl App {
                 }
                 self.refresh_pins();
             }
-            Message::Ready(result) => self.pins.show(result?)?,
+            Message::Ready(result) => self.pins.show(result?, theme)?,
             Message::History(id) => {
                 self.storage.client().execute(
                     move |db| {

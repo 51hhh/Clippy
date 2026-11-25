@@ -642,13 +642,50 @@ def run(binary, root):
         desktop.click(pin_x + pin_width - 43, pin_y + pin_height - 25)
         wait_for(lambda: not titled_window(PIN_TITLE), "pin did not hide")
         tray.activate("Pinned Workspace")
-        _, (work_x, work_y, work_width, work_height) = wait_for(
+        workspace_id, (work_x, work_y, work_width, work_height) = wait_for(
             lambda: titled_window(WORKSPACE_TITLE), "workspace did not open",
         )
+        assert (work_width, work_height) == (820, 640)
+        desktop.focus(workspace_id)
+        desktop.click(work_x + 78, work_y + work_height - 65)
+        for letter in "review":
+            desktop.keys(letter)
+        desktop.keys("Return")
+
+        def workspace_group(moved):
+            with sqlite3.connect(data_dir / "clips.db") as connection:
+                groups = connection.execute("SELECT id FROM pin_groups WHERE name='review'").fetchall()
+                if not groups:
+                    return False
+                return not moved or bool(connection.execute(
+                    "SELECT 1 FROM pin_workspace_items WHERE group_id=?", groups[0],
+                ).fetchone())
+
+        wait_for(lambda: workspace_group(False), "workspace did not create the group")
         time.sleep(0.2)
-        desktop.click(work_x + 61, work_y + work_height - 54)
-        wait_for(lambda: titled_window(PIN_TITLE), "workspace did not restore the stored pin")
-        print("PASS pin, persistent revision and workspace restore", flush=True)
+        desktop.click(work_x + 80, work_y + 171)
+        desktop.click(work_x + 251, work_y + work_height - 53)
+        assert not titled_window(PIN_TITLE), "empty group opened a pin from a different group"
+        desktop.click(work_x + 80, work_y + 103)
+        desktop.click(work_x + 358, work_y + work_height - 93)
+        desktop.keys("Down")
+        desktop.keys("Return")
+        desktop.click(work_x + work_width - 61, work_y + work_height - 93)
+        wait_for(lambda: workspace_group(True), "workspace did not persist the pin group")
+        desktop.request_close(workspace_id)
+        wait_for(lambda: not titled_window(WORKSPACE_TITLE), "workspace did not close before reopening")
+        tray.activate("Pinned Workspace")
+        workspace_id, (work_x, work_y, _, work_height) = wait_for(lambda: titled_window(WORKSPACE_TITLE), "workspace did not reopen")
+        time.sleep(0.2)
+        desktop.click(work_x + 80, work_y + 171)
+        save_qa_window("workspace-group.png", (work_x, work_y, work_width, work_height))
+        desktop.click(work_x + 251, work_y + work_height - 53)
+        restored_pin, _ = wait_for(lambda: titled_window(PIN_TITLE), "workspace did not restore the stored pin")
+        desktop.request_close(restored_pin)
+        desktop.request_close(workspace_id)
+        wait_for(lambda: not titled_window(PIN_TITLE) and not titled_window(WORKSPACE_TITLE),
+                 "workspace windows still cover the scrolling fixture")
+        print("PASS pin, persistent revision, workspace group creation, filter, move and restore", flush=True)
 
         desktop.scroll_fixture(0)
         tray.activate("Screenshot")
@@ -719,9 +756,6 @@ def run(binary, root):
         wait_for(lambda: not titled_window(RECORDING_TITLE), "recordings library never closed")
         print("PASS region recording, pause/resume, VP9 finalization and exact library export", flush=True)
 
-        desktop.request_close(titled_window(WORKSPACE_TITLE)[0])
-        desktop.request_close(titled_window(PIN_TITLE)[0])
-        wait_for(lambda: not titled_window(PIN_TITLE), "workspace pin did not close")
         set_clipboard("UTF8_STRING", OTHER.encode())
         wait_for(lambda: rows()[-1:] == [("text", OTHER, None)], "launcher clipboard change did not settle")
         set_clipboard("image/png", rgba_png())
