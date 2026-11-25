@@ -57,6 +57,7 @@ pub struct FrozenOutput {
 pub struct Region {
     pub output: String,
     pub geometry: DesktopRect,
+    pub source_size: (u32, u32),
     pub bounds: [f32; 4],
 }
 
@@ -126,13 +127,29 @@ pub fn with_region_reader<T>(
     let Region {
         output,
         geometry,
+        #[cfg(target_os = "linux")]
+        source_size,
         bounds: [left, top, right, bottom],
+        ..
     } = region;
     #[cfg(target_os = "linux")]
     if crate::session::is_wayland() {
         if crate::session::is_gnome() {
-            return gnome::with_area(output, geometry, |read| {
-                consume(&mut || read()?.crop(left, top, right, bottom))
+            let (area, crop, expected_size) =
+                gnome_region(geometry, source_size, [left, top, right, bottom])?;
+            return gnome::with_area(output, area, |read| {
+                consume(&mut || {
+                    let frame = read()?;
+                    ensure!(
+                        (frame.width, frame.height) == expected_size,
+                        "Capture output changed size: expected {}x{}, received {}x{}",
+                        expected_size.0,
+                        expected_size.1,
+                        frame.width,
+                        frame.height
+                    );
+                    crop_rgba(&frame.rgba, frame.width, frame.height, crop)
+                })
             });
         }
         return wayland::with_output(&output, |read| {
@@ -141,20 +158,8 @@ pub fn with_region_reader<T>(
     }
     #[cfg(target_os = "linux")]
     {
-        let [x0, y0, x1, y1] =
-            pixel_rect(geometry.width, geometry.height, [left, top, right, bottom])?;
-        let rectangle = DesktopRect {
-            x: geometry
-                .x
-                .checked_add(i32::try_from(x0)?)
-                .ok_or_else(|| anyhow::anyhow!("Capture region x overflow"))?,
-            y: geometry
-                .y
-                .checked_add(i32::try_from(y0)?)
-                .ok_or_else(|| anyhow::anyhow!("Capture region y overflow"))?,
-            width: x1 - x0,
-            height: y1 - y0,
-        };
+        let pixels = pixel_rect(geometry.width, geometry.height, [left, top, right, bottom])?;
+        let rectangle = offset_rect(geometry, pixels)?;
         let source = x11::Source::open()?;
         consume(&mut || source.read(rectangle))
     }
@@ -167,6 +172,39 @@ pub fn with_region_reader<T>(
             .ok_or_else(|| anyhow::anyhow!("Capture output is unavailable"))?;
         consume(&mut || FrozenPixels::from(source.capture_image()?).crop(left, top, right, bottom))
     }
+}
+
+#[cfg(target_os = "linux")]
+fn gnome_region(
+    geometry: DesktopRect,
+    source_size: (u32, u32),
+    bounds: [f32; 4],
+) -> Result<(DesktopRect, [f32; 4], (u32, u32))> {
+    // 缩放屏保留整屏流，避免把源像素边界再次舍入为 Mutter 的逻辑坐标。
+    if source_size != (geometry.width, geometry.height) {
+        return Ok((geometry, bounds, source_size));
+    }
+    let area = offset_rect(
+        geometry,
+        pixel_rect(geometry.width, geometry.height, bounds)?,
+    )?;
+    Ok((area, [0.0, 0.0, 1.0, 1.0], (area.width, area.height)))
+}
+
+#[cfg(target_os = "linux")]
+fn offset_rect(geometry: DesktopRect, [left, top, right, bottom]: [u32; 4]) -> Result<DesktopRect> {
+    Ok(DesktopRect {
+        x: geometry
+            .x
+            .checked_add(i32::try_from(left)?)
+            .ok_or_else(|| anyhow::anyhow!("Capture region x overflow"))?,
+        y: geometry
+            .y
+            .checked_add(i32::try_from(top)?)
+            .ok_or_else(|| anyhow::anyhow!("Capture region y overflow"))?,
+        width: right - left,
+        height: bottom - top,
+    })
 }
 
 impl FrozenPixels {
@@ -266,5 +304,33 @@ mod tests {
         assert_eq!(crop.get_pixel(0, 0).0, [1, 0, 0, 255]);
         assert_eq!(crop.get_pixel(3, 7).0, [4, 7, 0, 255]);
         assert!(pixels.crop(0.5, 0.4, 0.5, 0.7).is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn gnome_region_maps_unscaled_pixels_and_preserves_scaled_cropping() {
+        let output = DesktopRect {
+            x: -1920,
+            y: -1080,
+            width: 1920,
+            height: 1080,
+        };
+        let bounds = [0.75, 0.75, 0.25, 0.25];
+        let (area, crop, frame_size) = gnome_region(output, (1920, 1080), bounds).unwrap();
+        assert_eq!(
+            area,
+            DesktopRect {
+                x: -1440,
+                y: -810,
+                width: 960,
+                height: 540,
+            }
+        );
+        assert_eq!(crop, [0.0, 0.0, 1.0, 1.0]);
+        assert_eq!(frame_size, (960, 540));
+        assert_eq!(
+            gnome_region(output, (2880, 1620), bounds).unwrap(),
+            (output, bounds, (2880, 1620)),
+        );
     }
 }

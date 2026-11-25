@@ -75,6 +75,9 @@
   （需求 `SLINT-NATIVE-PIPELINE-01`）
 - 修复 GNOME 静止画面导致的长截图追加和区域录屏取帧超时。虚拟 GNOME 已验证同一会话连续取帧、
   画面更新和断流报告。（需求 `SLINT-NATIVE-PIPELINE-01`）
+- GNOME Wayland 上，长截图和区域录屏在 1× 输出直接采集选区。4K 虚拟显示器的 480×270 选区
+  连续取帧 P95 从 37.5 ms 降到 1.4 ms。已核对原图像素、静止帧、2× 输出和 90° 旋转输出。
+  （需求 `SLINT-MIGRATION-CLOSURE-01`）
 
 ### Slint 贴图与工作区
 

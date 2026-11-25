@@ -190,6 +190,10 @@ pub(super) fn output(
     let region = Region {
         output: selected.frame.name.clone(),
         geometry: selected.frame.geometry,
+        source_size: (
+            selected.frame.pixels.width(),
+            selected.frame.pixels.height(),
+        ),
         bounds,
     };
     let marks: Vec<_> = selected.window.get_marks().iter().collect();
