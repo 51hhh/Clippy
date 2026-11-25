@@ -1,6 +1,8 @@
 import { Button, CheckBox, ComboBox, LineEdit, Slider, VerticalBox } from "std-widgets.slint";
+import { ClippyTheme } from "theme.slint";
+import { ClippyWindow } from "window.slint";
 
-export component EditorWindow inherits Window {
+export component EditorWindow inherits ClippyWindow {
     in property <image> picture;
     in property <float> aspect: 1;
     in property <[string]> tools;
@@ -25,20 +27,22 @@ export component EditorWindow inherits Window {
     callback scan-code();
 
     title: "Clippy Image Editor";
+    heading: "Image Editor";
+    dismiss-window => { root.close-editor(); }
     preferred-width: 850px;
     preferred-height: 610px;
     min-width: 540px;
     min-height: 380px;
-    background: #f6f7f9;
 
     VerticalBox {
         padding: 12px;
         spacing: 8px;
+        vertical-stretch: 1;
         HorizontalLayout {
             spacing: 8px;
             tool := ComboBox { model: root.tools; current-index: 2; enabled: !root.busy; }
             shade := ComboBox { model: ["Red", "Orange", "Green", "Blue", "White", "Black"]; current-index: 0; enabled: !root.busy; }
-            Text { text: "Width"; vertical-alignment: center; }
+            Text { text: "Width"; vertical-alignment: center; color: ClippyTheme.foreground; }
             stroke := Slider { minimum: 1; maximum: 24; value: 3; min-width: 72px; enabled: !root.busy; }
             Button { text: "Undo"; enabled: root.can-undo && !root.busy; clicked => { root.undo(); } }
             Button { text: "Redo"; enabled: root.can-redo && !root.busy; clicked => { root.redo(); } }
@@ -89,7 +93,7 @@ export component EditorWindow inherits Window {
                 enabled: !root.busy;
                 toggled => { root.adjustments(self.checked, radius.value); }
             }
-            Text { text: "Corners"; vertical-alignment: center; }
+            Text { text: "Corners"; vertical-alignment: center; color: ClippyTheme.foreground; }
             radius := Slider {
                 minimum: 0; maximum: 120; value <=> root.corner-value; min-width: 60px;
                 enabled: !root.busy;
@@ -101,7 +105,7 @@ export component EditorWindow inherits Window {
         }
         HorizontalLayout {
             spacing: 8px;
-            Text { text: root.status; color: #545c65; wrap: word-wrap; min-height: 18px; }
+            Text { text: root.status; color: ClippyTheme.muted; wrap: word-wrap; min-height: 18px; }
             Button { text: "OCR"; height: 28px; enabled: !root.busy && root.output-ready; clicked => { root.recognize(); } }
             Button { text: "Scan code"; height: 28px; enabled: !root.busy && root.output-ready; clicked => { root.scan-code(); } }
             Button { text: "Pin to desktop"; height: 28px; enabled: !root.busy && root.output-ready; clicked => { root.pin(); } }

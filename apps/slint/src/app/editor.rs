@@ -1,5 +1,5 @@
-use super::{capture, clipboard, post, use_app, vision, App, Event};
-use crate::EditorWindow;
+use super::{capture, clipboard, post, settings, use_app, vision, App, Event};
+use crate::{ClippyTheme, EditorWindow};
 use anyhow::{anyhow, Result};
 use clippy_capture::editor::{Editor, ImageProject, Tool};
 use clippy_core::image_output::SaveTarget;
@@ -36,8 +36,11 @@ pub(super) struct View {
 }
 
 impl View {
-    fn open(id: u64, image: Arc<RgbaImage>, document: Editor) -> Result<Self> {
+    fn open(id: u64, image: Arc<RgbaImage>, document: Editor, theme: i32) -> Result<Self> {
         let window = EditorWindow::new()?;
+        let appearance = window.global::<ClippyTheme>();
+        appearance.set_index(theme);
+        settings::connect_window_frame(&window, appearance);
         let (grayscale, corners) = document.grayscale_and_corners();
         window.set_grayscale_value(grayscale);
         window.set_corner_value(corners);
@@ -211,7 +214,12 @@ impl App {
             return view.show();
         }
         self.editor_id += 1;
-        self.editor = Some(View::open(self.editor_id, image, document)?);
+        self.editor = Some(View::open(
+            self.editor_id,
+            image,
+            document,
+            settings::theme_index(&self.config.theme),
+        )?);
         Ok(())
     }
 

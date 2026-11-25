@@ -1,5 +1,5 @@
-use super::{editor, post, App, Event};
-use crate::LongshotWindow;
+use super::{editor, post, settings, App, Event};
+use crate::{ClippyTheme, LongshotWindow};
 use anyhow::{anyhow, Result};
 use clippy_capture::{longshot::LongshotSession, CaptureError};
 use clippy_platform::capture::{with_region_reader, Region};
@@ -54,8 +54,11 @@ fn action(command: Command) {
 }
 
 impl View {
-    fn open(id: u64, region: Region, first: RgbaImage) -> Result<Self> {
+    fn open(id: u64, region: Region, first: RgbaImage, theme: i32) -> Result<Self> {
         let window = LongshotWindow::new()?;
+        let appearance = window.global::<ClippyTheme>();
+        appearance.set_index(theme);
+        settings::connect_window_frame(&window, appearance);
         window.on_append(|| action(Command::Append));
         window.on_undo(|| action(Command::Undo));
         window.on_finish(|| action(Command::Finish));
@@ -145,7 +148,10 @@ impl App {
             return;
         }
         self.capture_task_id += 1;
-        match result.and_then(|(region, first)| View::open(self.capture_task_id, region, first)) {
+        let theme = settings::theme_index(&self.config.theme);
+        match result
+            .and_then(|(region, first)| View::open(self.capture_task_id, region, first, theme))
+        {
             Ok(view) => self.longshot = Some(view),
             Err(error) => self.capture_error(error),
         }

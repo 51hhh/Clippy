@@ -1,0 +1,22 @@
+import { ClippyTheme, WindowHeader } from "theme.slint";
+
+export component ClippyWindow inherits Window {
+    in property <string> heading;
+    callback dismiss-window();
+
+    no-frame: true;
+    resize-border-width: ClippyTheme.window-resize-border;
+    background: ClippyTheme.background;
+    init => { ClippyTheme.sync-native-palette(); }
+
+    VerticalLayout {
+        WindowHeader {
+            title: root.heading;
+            maximized: root.maximized;
+            minimize => { root.minimized = true; }
+            maximize => { root.maximized = !root.maximized; }
+            dismiss => { root.dismiss-window(); }
+        }
+        @children
+    }
+}

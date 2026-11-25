@@ -1,4 +1,6 @@
 import { Button, CheckBox, ListView, TextEdit, VerticalBox } from "std-widgets.slint";
+import { ClippyTheme } from "theme.slint";
+import { ClippyWindow } from "window.slint";
 
 export struct TextBox {
     line: int,
@@ -21,7 +23,7 @@ export struct TextParagraph {
     in-place: bool,
 }
 
-export component ImageTextWindow inherits Window {
+export component ImageTextWindow inherits ClippyWindow {
     in property <image> picture;
     in property <float> image-width: 1;
     in property <float> image-height: 1;
@@ -42,15 +44,17 @@ export component ImageTextWindow inherits Window {
     callback dismiss();
 
     title: "Clippy Image Text";
+    heading: "Image Text";
+    dismiss-window => { root.dismiss(); }
     preferred-width: 1000px;
     preferred-height: 640px;
     min-width: 500px;
     min-height: 420px;
-    background: #f6f7f9;
 
     HorizontalLayout {
         spacing: 10px;
         padding: 12px;
+        vertical-stretch: 1;
         Rectangle {
             horizontal-stretch: 1;
             background: #252932;
@@ -93,6 +97,7 @@ export component ImageTextWindow inherits Window {
                         height: parent.height;
                         font-size: clamp(parent.height / 3, 12px, 20px);
                         text: result.translated;
+                        color: #1c1d22;
                         wrap: word-wrap;
                     }
                 }
@@ -102,17 +107,17 @@ export component ImageTextWindow inherits Window {
             width: 360px;
             padding: 0;
             spacing: 7px;
-            Text { text: root.status; wrap: word-wrap; }
+            Text { text: root.status; wrap: word-wrap; color: ClippyTheme.muted; }
             ListView {
                 for result in root.paragraphs: Rectangle {
                     height: result.translated == "" ? 53px : 84px;
-                    background: root.selected-paragraph == result.id ? #fff0e8 : #ffffff;
+                    background: root.selected-paragraph == result.id ? ClippyTheme.accent-soft : ClippyTheme.surface;
                     TouchArea { clicked => { root.select-paragraph(result.id); } }
                     VerticalLayout {
                         padding: 6px;
-                        Text { text: result.source; wrap: word-wrap; overflow: elide; }
+                        Text { text: result.source; wrap: word-wrap; overflow: elide; color: ClippyTheme.foreground; }
                         if result.translated != "": Text {
-                            text: result.translated; wrap: word-wrap; overflow: elide; color: #234690;
+                            text: result.translated; wrap: word-wrap; overflow: elide; color: ClippyTheme.accent;
                         }
                     }
                 }

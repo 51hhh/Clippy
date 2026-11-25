@@ -1,6 +1,8 @@
 import { Button, VerticalBox } from "std-widgets.slint";
+import { ClippyTheme } from "theme.slint";
+import { ClippyWindow } from "window.slint";
 
-export component LongshotWindow inherits Window {
+export component LongshotWindow inherits ClippyWindow {
     in property <image> preview;
     in property <bool> busy: true;
     in property <bool> can-undo;
@@ -11,27 +13,40 @@ export component LongshotWindow inherits Window {
     callback cancel();
 
     title: "Clippy Scrolling Capture";
+    heading: "Scrolling Capture";
+    dismiss-window => { root.cancel(); }
     preferred-width: 410px;
     preferred-height: 340px;
-    background: #f6f7f9;
+    init => { keys.focus(); }
 
-    VerticalBox {
-        padding: 12px;
-        spacing: 8px;
-        Text { text: "Scroll the target, then add a frame."; color: #23272d; wrap: word-wrap; }
-        Rectangle {
-            background: #252932;
-            border-radius: 5px;
-            vertical-stretch: 1;
-            Image { width: parent.width; height: parent.height; source: root.preview; image-fit: contain; }
+    keys := FocusScope {
+        vertical-stretch: 1;
+        focus-on-click: false;
+        capture-key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.cancel();
+                return accept;
+            }
+            reject
         }
-        Text { text: root.status; color: #545c65; wrap: word-wrap; min-height: 18px; }
-        HorizontalLayout {
-            spacing: 6px;
-            Button { text: "Add frame"; width: 94px; enabled: !root.busy; clicked => { root.append(); } }
-            Button { text: "Undo"; enabled: !root.busy && root.can-undo; clicked => { root.undo(); } }
-            Button { text: "Finish"; width: 84px; enabled: !root.busy; clicked => { root.finish(); } }
-            Button { text: "Cancel"; width: 84px; clicked => { root.cancel(); } }
+        VerticalBox {
+            padding: 12px;
+            spacing: 8px;
+            Text { text: "Scroll the target, then add a frame."; color: ClippyTheme.foreground; wrap: word-wrap; }
+            Rectangle {
+                background: #252932;
+                border-radius: 5px;
+                vertical-stretch: 1;
+                Image { width: parent.width; height: parent.height; source: root.preview; image-fit: contain; }
+            }
+            Text { text: root.status; color: ClippyTheme.muted; wrap: word-wrap; min-height: 18px; }
+            HorizontalLayout {
+                spacing: 6px;
+                Button { text: "Add frame"; width: 94px; enabled: !root.busy; clicked => { root.append(); } }
+                Button { text: "Undo"; enabled: !root.busy && root.can-undo; clicked => { root.undo(); } }
+                Button { text: "Finish"; width: 84px; enabled: !root.busy; clicked => { root.finish(); } }
+                Button { text: "Cancel"; width: 84px; clicked => { root.cancel(); } }
+            }
         }
     }
 }

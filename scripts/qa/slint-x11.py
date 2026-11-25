@@ -310,9 +310,10 @@ def run(binary, root):
                XDG_PICTURES_DIR=str(root / "Pictures"), NO_AT_BRIDGE="1")
     data_dir = root / "data" / "com.clippy.qa.slint"
     data_dir.mkdir(parents=True, mode=0o700)
+    theme = os.environ.get("CLIPPY_SLINT_QA_THEME", "light")
     # 自动粘贴在全链路用例中显式开启，普通 QA 安装仍使用首次启动默认值。
     (data_dir / "config.json").write_text(json.dumps({
-        "auto_paste": True, "max_history": 200, "storage_mode": "disk", "theme": "system",
+        "auto_paste": True, "max_history": 200, "storage_mode": "disk", "theme": theme,
         "global_shortcut": "Ctrl+Alt+Shift+J", "capture_shortcut": "Ctrl+Alt+Shift+K",
         "screenshot_save_dir": str(root / "shots"), "screenshot_filename_template": "fixture.png",
     }))
@@ -350,8 +351,22 @@ def run(binary, root):
         if image is None:
             return False
         pixels = image.get_pixels()
-        red, green, blue = pixels[:3]
-        return red >= 250 and 105 <= green <= 170 and 105 <= blue <= 170 and min(pixels[-3:]) >= 245
+        background = (32, 35, 42) if theme == "dark" else (255, 255, 255)
+        red_sample = tuple((bg + rgba) // 2 for bg, rgba in zip(background, (255, 0, 0)))
+        return all(abs(actual - expected) < 19 for actual, expected in zip(pixels[:3], red_sample)) and all(
+            abs(actual - expected) < 12 for actual, expected in zip(pixels[-3:], background)
+        )
+
+    def check_titlebar(bounds, name):
+        x, y, width, _ = bounds
+        expected = bytes.fromhex("20232a" if theme == "dark" else "ffffff")
+
+        def correct_color():
+            pixel = Gdk.pixbuf_get_from_window(Gdk.get_default_root_window(), x + width // 2, y + 8, 1, 1)
+            return pixel and pixel.get_pixels()[:3] == expected
+
+        wait_for(correct_color, f"{name} did not use the shared {theme} titlebar")
+        save_qa_window(f"{name}-{theme}.png", bounds)
 
     def search(word):
         desktop.keys("Control_L", "f")
@@ -489,9 +504,11 @@ def run(binary, root):
         launcher_search("image")
         desktop.keys("Down")
         desktop.keys("Return")
-        analysis_id, _ = wait_for(lambda: titled_window(IMAGE_TEXT_TITLE), "launcher did not open image analysis")
+        _, image_text_bounds = wait_for(lambda: titled_window(IMAGE_TEXT_TITLE), "launcher did not open image analysis")
         wait_for(lambda: not titled_window(LAUNCHER_TITLE), "launcher stayed open after beginning image analysis")
-        desktop.request_close(analysis_id)
+        check_titlebar(image_text_bounds, "image-text")
+        image_x, image_y, image_width, _ = image_text_bounds
+        desktop.click(image_x + image_width - 28, image_y + 26)
         wait_for(lambda: not titled_window(IMAGE_TEXT_TITLE), "image analysis did not close")
 
         tray.activate("Open Clipboard")
@@ -607,6 +624,7 @@ def run(binary, root):
         middle, top = select_area()
         desktop.click(middle, top + 85)
         _, (x, y, width, height) = wait_for(lambda: titled_window(EDITOR_TITLE), "editor never opened")
+        check_titlebar((x, y, width, height), "editor")
         desktop.drag(x + width // 3, y + height // 3, x + width * 2 // 3, y + height * 2 // 3)
         # 一次标注会在工作线程合成，更改入画后才能提交。
         time.sleep(0.3)
@@ -691,9 +709,10 @@ def run(binary, root):
         tray.activate("Screenshot")
         middle, top = select_area()
         desktop.click(middle + 113, top + 85)
-        _, (long_x, long_y, _, long_height) = wait_for(
+        _, (long_x, long_y, long_width, long_height) = wait_for(
             lambda: titled_window(LONGSHOT_TITLE), "scrolling capture did not open",
         )
+        check_titlebar((long_x, long_y, long_width, long_height), "longshot")
         time.sleep(0.25)
         desktop.scroll_fixture(32)
         desktop.click(long_x + 49, long_y + long_height - 29)
@@ -709,7 +728,14 @@ def run(binary, root):
         assert decode_png(stitched.read_bytes())[0] == (140, 132), decode_png(stitched.read_bytes())
         desktop.click(x + width - 57, y + height - 55)
         wait_for(lambda: not titled_window(EDITOR_TITLE), "long screenshot editor stayed open")
-        print("PASS scrolling capture uses the selected region and stitches a second frame", flush=True)
+        tray.activate("Screenshot")
+        middle, top = select_area()
+        desktop.click(middle + 113, top + 85)
+        longshot_id, _ = wait_for(lambda: titled_window(LONGSHOT_TITLE), "scrolling cancellation fixture did not open")
+        desktop.focus(longshot_id)
+        desktop.keys("Escape")
+        wait_for(lambda: not titled_window(LONGSHOT_TITLE), "Escape did not cancel scrolling capture")
+        print("PASS scrolling capture uses the selected region, stitches and cancels from the keyboard", flush=True)
 
         tray.activate("Screenshot")
         middle, top = select_area()
@@ -723,12 +749,18 @@ def run(binary, root):
             return None
 
         wait_for(lambda: recording_manifest("recording"), "region recording never began")
-        time.sleep(0.75)
-        tray.activate("Pause / Resume recording")
+        tray.activate("Recordings")
+        recording_window, (rec_x, rec_y, rec_w, rec_h) = wait_for(
+            lambda: titled_window(RECORDING_TITLE), "active recording library never opened",
+        )
+        desktop.focus(recording_window)
+        check_titlebar((rec_x, rec_y, rec_w, rec_h), "recordings")
+        time.sleep(0.62)
+        desktop.click(rec_x + 61, rec_y + 84)
         time.sleep(1.5)
-        tray.activate("Pause / Resume recording")
-        time.sleep(0.75)
-        tray.activate("Stop recording")
+        desktop.click(rec_x + 61, rec_y + 84)
+        time.sleep(0.62)
+        desktop.click(rec_x + 162, rec_y + 84)
         directory, manifest = wait_for(
             lambda: recording_manifest("complete"), "region recording never finalized",
         )
@@ -754,7 +786,7 @@ def run(binary, root):
         assert exported.read_bytes() == video.read_bytes()
         desktop.request_close(recording_window)
         wait_for(lambda: not titled_window(RECORDING_TITLE), "recordings library never closed")
-        print("PASS region recording, pause/resume, VP9 finalization and exact library export", flush=True)
+        print("PASS region recording, library pause/resume/stop, VP9 finalization and exact export", flush=True)
 
         set_clipboard("UTF8_STRING", OTHER.encode())
         wait_for(lambda: rows()[-1:] == [("text", OTHER, None)], "launcher clipboard change did not settle")

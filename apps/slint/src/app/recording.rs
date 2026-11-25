@@ -1,5 +1,5 @@
-use super::{post, App, Event};
-use crate::{RecordingLibrary, RecordingRow};
+use super::{post, settings, App, Event};
+use crate::{ClippyTheme, RecordingLibrary, RecordingRow};
 use anyhow::{anyhow, Context, Result};
 use clippy_core::image_output::{expand_user_path, unique_image_id};
 #[cfg(all(
@@ -96,6 +96,7 @@ pub(super) enum Message {
     Audio(i32),
     List(u64, Result<Vec<RecordingLibraryItem>>),
     Started(u64),
+    Toggled(u64, Result<bool>),
     Finished(u64, Result<String>),
     Play(String),
     Export(String, String),
@@ -115,6 +116,9 @@ pub(super) struct Recordings {
     recovered: Arc<Mutex<bool>>,
     audio_selection: i32,
     status: String,
+    paused: bool,
+    toggle_pending: bool,
+    finishing: bool,
 }
 
 struct Job {
@@ -352,19 +356,14 @@ impl Job {
                         match commands.recv_timeout(Duration::from_millis(250)) {
                             Ok(Control::PauseResume) => {
                                 if let Err(error) = session.toggle(paused) {
-                                    send(Message::Update(Err(error)));
+                                    send(Message::Toggled(id, Err(error)));
                                     if session.terminated() {
                                         break;
                                     }
                                     continue;
                                 }
                                 paused = !paused;
-                                send(Message::Update(Ok(if paused {
-                                    "Recording paused"
-                                } else {
-                                    "Recording resumed"
-                                }
-                                .into())));
+                                send(Message::Toggled(id, Ok(paused)));
                             }
                             Ok(Control::Stop) | Err(RecvTimeoutError::Disconnected) => break,
                             Err(RecvTimeoutError::Timeout) if session.terminated() => {
@@ -404,13 +403,15 @@ fn recording_encoder() -> RecordingEncoder {
 }
 
 impl Recordings {
-    fn show(&mut self) -> Result<()> {
+    fn show(&mut self, theme: i32) -> Result<()> {
         if let Some(window) = self.window.as_ref() {
+            window.global::<ClippyTheme>().set_index(theme);
             return Ok(window.show()?);
         }
         let window = RecordingLibrary::new()?;
-        window.set_recording(self.job.is_some());
-        window.set_status(self.status.clone().into());
+        let appearance = window.global::<ClippyTheme>();
+        appearance.set_index(theme);
+        settings::connect_window_frame(&window, appearance);
         window.set_audio_options(ModelRc::new(VecModel::from(
             AudioTrack::names()
                 .iter()
@@ -436,13 +437,21 @@ impl Recordings {
         });
         window.show()?;
         self.window = Some(window);
+        self.sync_controls();
         Ok(())
     }
 
     fn note(&mut self, result: Result<String>) {
         self.status = result.unwrap_or_else(|error| error.to_string());
+        self.sync_controls();
+    }
+
+    fn sync_controls(&self) {
         if let Some(window) = self.window.as_ref() {
             window.set_recording(self.job.is_some());
+            window.set_paused(self.paused);
+            window.set_toggle_pending(self.toggle_pending);
+            window.set_finishing(self.finishing);
             window.set_status(self.status.clone().into());
         }
     }
@@ -559,7 +568,8 @@ impl App {
     fn handle_recording(&mut self, message: Message) -> Result<()> {
         match message {
             Message::Show => {
-                self.recordings.show()?;
+                self.recordings
+                    .show(settings::theme_index(&self.config.theme))?;
                 self.refresh_recordings()?;
             }
             Message::Refresh => self.refresh_recordings()?,
@@ -574,12 +584,36 @@ impl App {
                 if self.recordings.job.as_ref().is_some_and(|job| job.id == id) =>
             {
                 self.complete("Recording · use the tray to pause or stop");
-                self.recordings.note(Ok("Recording".into()));
+                if !self.recordings.finishing {
+                    self.recordings.note(Ok("Recording".into()));
+                }
+            }
+            Message::Toggled(id, result)
+                if self.recordings.job.as_ref().is_some_and(|job| job.id == id) =>
+            {
+                self.recordings.toggle_pending = false;
+                let result = result.map(|paused| {
+                    self.recordings.paused = paused;
+                    if paused {
+                        "Recording paused"
+                    } else {
+                        "Recording resumed"
+                    }
+                    .into()
+                });
+                if self.recordings.finishing {
+                    self.recordings.sync_controls();
+                } else {
+                    self.recordings.note(result);
+                }
             }
             Message::Finished(id, result)
                 if self.recordings.job.as_ref().is_some_and(|job| job.id == id) =>
             {
                 self.recordings.job.take();
+                self.recordings.paused = false;
+                self.recordings.toggle_pending = false;
+                self.recordings.finishing = false;
                 self.set_busy(false);
                 self.recordings.note(result);
                 self.status(self.recordings.status.clone());
@@ -592,6 +626,11 @@ impl App {
                 self.refresh_recordings()?;
             }
             Message::Control(control) => {
+                if self.recordings.finishing
+                    || (matches!(control, Control::PauseResume) && self.recordings.toggle_pending)
+                {
+                    return Ok(());
+                }
                 let job = self
                     .recordings
                     .job
@@ -601,6 +640,16 @@ impl App {
                     .as_ref()
                     .expect("录屏控制器处于运行状态")
                     .try_send(control)?;
+                match control {
+                    Control::PauseResume => {
+                        self.recordings.toggle_pending = true;
+                        self.recordings.sync_controls();
+                    }
+                    Control::Stop => {
+                        self.recordings.finishing = true;
+                        self.recordings.note(Ok("Finalizing recording…".into()));
+                    }
+                }
             }
             Message::List(generation, result) if generation == self.recordings.list_generation => {
                 if let Some(window) = self.recordings.window.as_ref() {
@@ -614,6 +663,7 @@ impl App {
                     window.set_can_play(item.is_some_and(|item| item.has_artifact));
                     window.set_can_merge(item.is_some_and(|item| item.can_merge));
                     window.set_recordings(ModelRc::new(VecModel::from(rows)));
+                    window.set_loaded(true);
                 }
             }
             Message::Play(key) => self.play_recording(key)?,

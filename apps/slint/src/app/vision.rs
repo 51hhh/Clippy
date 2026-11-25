@@ -1,5 +1,5 @@
-use super::{clipboard, editor, post, App, Event};
-use crate::{ImageTextWindow, TextBox, TextParagraph};
+use super::{clipboard, editor, post, settings, App, Event};
+use crate::{ClippyTheme, ImageTextWindow, TextBox, TextParagraph};
 use anyhow::{anyhow, Context, Result};
 use clippy_capture::png_io::encode_png;
 use clippy_core::{clipboard::is_sensitive_text, config::AppConfig};
@@ -74,6 +74,9 @@ fn send(message: Message) {
 impl View {
     fn open(id: u64, image: &RgbaImage, config: &AppConfig) -> Result<Self> {
         let window = ImageTextWindow::new()?;
+        let appearance = window.global::<ClippyTheme>();
+        appearance.set_index(settings::theme_index(&config.theme));
+        settings::connect_window_frame(&window, appearance);
         window.set_picture(editor::to_slint(image));
         window.set_image_width(image.width() as f32);
         window.set_image_height(image.height() as f32);

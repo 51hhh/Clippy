@@ -66,6 +66,20 @@ pub(super) fn connect_titlebar<T: ComponentHandle + 'static>(
     connect_window_events(window, contains, |_, _| EventResult::Propagate);
 }
 
+pub(super) fn connect_window_frame<T: ComponentHandle + 'static>(
+    window: &T,
+    theme: ClippyTheme<'_>,
+) {
+    let border = theme.get_window_resize_border();
+    let height = theme.get_titlebar_height();
+    let inset = theme.get_titlebar_drag_inset();
+    connect_titlebar(window, move |window, x, y| {
+        let native = window.window();
+        let width = native.size().to_logical(native.scale_factor()).width;
+        x >= border && x < width - inset && y >= border && y < height
+    });
+}
+
 fn connect_window_events<T: ComponentHandle + 'static>(
     window: &T,
     contains: impl Fn(&T, f32, f32) -> bool + 'static,

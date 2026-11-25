@@ -18,6 +18,7 @@ export global ClippyTheme {
     out property <color> danger: dark ? #f47272 : #b83b3b;
     out property <length> titlebar-height: 52px;
     out property <length> titlebar-drag-inset: 120px;
+    out property <length> window-resize-border: 6px;
     public pure function titlebar-contains(x: length, y: length, width: length, border: length) -> bool {
         return x >= border && x < width - titlebar-drag-inset && y >= border && y < titlebar-height;
     }
