@@ -1,0 +1,153 @@
+import { ComboBox, ListView } from "std-widgets.slint";
+import { ClippyIcon, ClippyTheme, SurfaceButton } from "theme.slint";
+
+export struct WorkspaceRow {
+    id: string, label: string, detail: string, group-key: string, group-index: int,
+    is-image: bool, thumbnail: image, opened: bool,
+}
+
+component WorkspaceCard inherits Rectangle {
+    in property <WorkspaceRow> item;
+    in property <[string]> destinations;
+    callback open();
+    callback remove();
+    callback move-to(int);
+    private property <bool> confirm-remove;
+
+    border-radius: 14px;
+    border-width: 1px;
+    border-color: ClippyTheme.border;
+    background: ClippyTheme.elevated;
+    drop-shadow-color: #10152214;
+    drop-shadow-blur: 12px;
+    drop-shadow-offset-y: 2px;
+
+    VerticalLayout {
+        padding: 11px; spacing: 9px;
+        Rectangle {
+            height: 145px;
+            border-radius: 9px;
+            background: ClippyTheme.hover;
+            clip: true;
+            if root.item.is-image && root.item.thumbnail.width > 0: Image {
+                source: root.item.thumbnail;
+                width: parent.width; height: parent.height; image-fit: contain;
+            }
+            if root.item.is-image && root.item.thumbnail.width == 0: ClippyIcon {
+                width: 28px; height: 28px; ink: ClippyTheme.subtle;
+                drawing: "M3 4h18v16H3Z M3 16l6-5 4 4 4-2 4 3 M15 8h1";
+            }
+            if !root.item.is-image: Text {
+                x: 41px; y: 16px; width: parent.width - 57px; height: parent.height - 32px;
+                text: root.item.label; wrap: word-wrap; overflow: elide;
+                color: ClippyTheme.muted; font-size: 13px;
+            }
+            if !root.item.is-image: ClippyIcon {
+                x: 16px; y: 16px; ink: ClippyTheme.highlight;
+                drawing: "M4 8V4h16v4M12 4v16m-4 0h8";
+            }
+            TouchArea { mouse-cursor: pointer; double-clicked => { root.open(); } }
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            Text {
+                text: root.item.is-image ? "Image" : "Text";
+                color: ClippyTheme.foreground; font-size: 13px;
+                font-weight: 650; overflow: elide; horizontal-stretch: 1;
+            }
+            if root.item.opened: Text { text: "Open"; color: ClippyTheme.accent; font-size: 11px; }
+        }
+        Text { text: root.item.detail; color: ClippyTheme.subtle; font-size: 11px; overflow: elide; }
+        ComboBox {
+            model: root.destinations;
+            current-index: root.item.group-index;
+            accessible-label: "Pin group";
+            height: 36px;
+            selected => { root.move-to(self.current-index); }
+        }
+        HorizontalLayout {
+            spacing: 7px; height: 34px;
+            SurfaceButton { label: "Show"; primary: true; horizontal-stretch: 1; clicked => { root.open(); } }
+            SurfaceButton {
+                label: "Remove pin"; caption: ""; danger: true; width: 38px;
+                border-width: 1px; border-color: ClippyTheme.control-border;
+                ClippyIcon {
+                    width: 14px; height: 14px;
+                    ink: parent.hovered ? #ffffff : ClippyTheme.danger;
+                    drawing: "M4 6h16m-6 0V3h-4v3M6 6l1 15h10l1-15M10 10v7m4-7v7";
+                }
+                clicked => { root.confirm-remove = true; }
+            }
+        }
+    }
+    if root.confirm-remove: Rectangle {
+        x: 8px; y: parent.height - self.height - 8px; width: parent.width - 16px; height: 47px;
+        border-radius: 7px; border-width: 1px; border-color: ClippyTheme.danger;
+        background: ClippyTheme.elevated;
+        TouchArea { }
+        HorizontalLayout {
+            padding: 6px; spacing: 4px;
+            Text { text: "Remove pin?"; font-size: 11px; color: ClippyTheme.danger; vertical-alignment: center; horizontal-stretch: 1; }
+            SurfaceButton { label: "Cancel"; clicked => { root.confirm-remove = false; } }
+            SurfaceButton { label: "Remove"; danger: true; clicked => { root.remove(); } }
+        }
+    }
+}
+
+export component WorkspaceGrid inherits Rectangle {
+    in property <[WorkspaceRow]> rows;
+    in property <[string]> destinations;
+    in property <string> filter;
+    callback viewport(int, int);
+    callback open(string);
+    callback remove(string);
+    callback move-to(string, int);
+    private property <int> columns: root.width >= 470px ? 2 : 1;
+    private property <length> row-height: 321px;
+    private property <int> first-visible: max(0, floor(-list.content-y / root.row-height)) * root.columns;
+    private property <int> end-visible: max(root.first-visible,
+        ceil((list.height - list.content-y) / root.row-height) * root.columns);
+
+    changed first-visible => { root.viewport(root.first-visible, root.end-visible); }
+    changed end-visible => { root.viewport(root.first-visible, root.end-visible); }
+    changed filter => { list.content-y = 0px; root.viewport(root.first-visible, root.end-visible); }
+
+    list := ListView {
+        width: parent.width; height: parent.height;
+        for row in ceil(root.rows.length / root.columns): Rectangle {
+            height: root.row-height;
+            for column in root.columns: Rectangle {
+                x: column * (self.width + 13px); y: 0px;
+                width: (parent.width - (root.columns - 1) * 13px) / root.columns;
+                height: parent.height - 13px;
+                property <int> index: row * root.columns + column;
+                if self.index < root.rows.length: WorkspaceCard {
+                    item: root.rows[parent.index];
+                    destinations: root.destinations;
+                    open => { root.open(self.item.id); }
+                    remove => { root.remove(self.item.id); }
+                    move-to(group) => { root.move-to(self.item.id, group); }
+                }
+            }
+        }
+    }
+    if root.rows.length == 0: VerticalLayout {
+        alignment: center; spacing: 12px;
+        Rectangle {
+            width: 52px; height: 52px; x: (parent.width - self.width) / 2;
+            background: ClippyTheme.accent-soft; border-radius: 15px;
+            ClippyIcon {
+                width: 24px; height: 24px; ink: ClippyTheme.highlight;
+                drawing: "M9 4h6v3l-1 1v4l3 3v2H7v-2l3-3V8L9 7Z M12 17v5";
+            }
+        }
+        Text {
+            text: root.filter == "" ? "No saved pins" : "No pins in this group";
+            color: ClippyTheme.muted; font-size: 16px; font-weight: 650; horizontal-alignment: center;
+        }
+        Text {
+            text: root.filter == "" ? "Pin an image or clipboard item to keep it here." : "Move a saved pin here using its group menu.";
+            color: ClippyTheme.muted; font-size: 12px; horizontal-alignment: center; wrap: word-wrap;
+        }
+    }
+}

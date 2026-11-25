@@ -1,11 +1,37 @@
-import { Button, VerticalBox } from "std-widgets.slint";
-import { ClippyTheme } from "theme.slint";
-import { ClippyWindow } from "window.slint";
+import { SurfaceButton } from "theme.slint";
 
-export component LongshotWindow inherits ClippyWindow {
+component CaptureStatistic inherits Rectangle {
+    in property <string> caption;
+    in property <string> value;
+    background: #282a2f;
+    border-radius: 6px;
+    VerticalLayout {
+        padding: 9px; spacing: 3px;
+        Text { text: root.caption; font-size: 11px; color: #d1d5db; }
+        Text { text: root.value; font-size: 16px; color: #f3f4f6; }
+    }
+}
+
+component LongshotButton inherits SurfaceButton {
+    caption: "";
+    height: 32px;
+    border-radius: 6px; border-width: 1px;
+    border-color: self.enabled && self.hovered ? #5ca5ff : #424349;
+    background: self.enabled && self.hovered ? #263c56 : #2b2d33;
+    Text {
+        text: root.label; font-size: 13px;
+        color: root.enabled ? #f3f4f6 : #9296a0;
+        horizontal-alignment: center; vertical-alignment: center;
+    }
+}
+
+export component LongshotWindow inherits Window {
     in property <image> preview;
     in property <bool> busy: true;
     in property <bool> can-undo;
+    in property <int> frames;
+    in property <int> capture-width;
+    in property <int> capture-height;
     in property <string> status: "Opening the capture source…";
     callback append();
     callback undo();
@@ -13,14 +39,21 @@ export component LongshotWindow inherits ClippyWindow {
     callback cancel();
 
     title: "Clippy Scrolling Capture";
-    heading: "Scrolling Capture";
-    dismiss-window => { root.cancel(); }
-    preferred-width: 410px;
-    preferred-height: 340px;
+    no-frame: true;
+    resize-border-width: 6px;
+    background: #17191f;
+    preferred-width: 400px;
+    preferred-height: 560px;
+    min-width: 340px;
+    min-height: 390px;
     init => { keys.focus(); }
 
+    public pure function titlebar-contains(x: length, y: length) -> bool {
+        return x >= root.resize-border-width && x < root.width - root.resize-border-width
+            && y >= root.resize-border-width && y < 53px;
+    }
+
     keys := FocusScope {
-        vertical-stretch: 1;
         focus-on-click: false;
         capture-key-pressed(event) => {
             if event.text == Key.Escape {
@@ -29,23 +62,33 @@ export component LongshotWindow inherits ClippyWindow {
             }
             reject
         }
-        VerticalBox {
-            padding: 12px;
-            spacing: 8px;
-            Text { text: "Scroll the target, then add a frame."; color: ClippyTheme.foreground; wrap: word-wrap; }
-            Rectangle {
-                background: #252932;
-                border-radius: 5px;
-                vertical-stretch: 1;
-                Image { width: parent.width; height: parent.height; source: root.preview; image-fit: contain; }
+        VerticalLayout {
+            padding: 20px; spacing: 14px;
+            Text { text: "Scrolling Capture"; color: #f3f4f6; font-size: 16px; font-weight: 650; }
+            Text {
+                text: root.status;
+                color: #d1d5db; font-size: 13px; wrap: word-wrap;
             }
-            Text { text: root.status; color: ClippyTheme.muted; wrap: word-wrap; min-height: 18px; }
             HorizontalLayout {
-                spacing: 6px;
-                Button { text: "Add frame"; width: 94px; enabled: !root.busy; clicked => { root.append(); } }
-                Button { text: "Undo"; enabled: !root.busy && root.can-undo; clicked => { root.undo(); } }
-                Button { text: "Finish"; width: 84px; enabled: !root.busy; clicked => { root.finish(); } }
-                Button { text: "Cancel"; width: 84px; clicked => { root.cancel(); } }
+                spacing: 8px;
+                CaptureStatistic { caption: "Frames"; value: "" + root.frames; }
+                CaptureStatistic { caption: "Width"; value: "" + root.capture-width + " px"; }
+                CaptureStatistic { caption: "Height"; value: "" + root.capture-height + " px"; }
+            }
+            Rectangle {
+                vertical-stretch: 1;
+                Rectangle {
+                    width: min(parent.width, 320px); height: min(parent.height, 300px);
+                    background: #282a2f; border-radius: 6px; clip: true;
+                    Image { width: parent.width; height: parent.height; source: root.preview; image-fit: contain; }
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                LongshotButton { label: "Add frame"; enabled: !root.busy; clicked => { root.append(); } }
+                LongshotButton { label: "Undo"; enabled: !root.busy && root.can-undo; clicked => { root.undo(); } }
+                LongshotButton { label: "Finish"; enabled: !root.busy; clicked => { root.finish(); } }
+                LongshotButton { label: "Cancel"; clicked => { root.cancel(); } }
             }
         }
     }

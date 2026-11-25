@@ -1,9 +1,10 @@
-import { AboutSlint, Button, CheckBox, ComboBox, LineEdit, ScrollView } from "std-widgets.slint";
+import { AboutSlint, Button, CheckBox, ComboBox, LineEdit, ScrollView, Switch } from "std-widgets.slint";
 import { ClippyTheme, SurfaceButton } from "theme.slint";
 
 export struct GeneralSettings {
     max-history: string,
     panel-shortcut: string,
+    pin-shortcut: string,
     capture-shortcut: string,
     theme: int,
     save-directory: string,
@@ -22,7 +23,7 @@ export struct TranslationSettings {
     target: string,
 }
 
-export enum ShortcutField { none, clipboard, screenshot }
+export enum ShortcutField { none, clipboard, pin, screenshot }
 
 component FieldLabel inherits Text {
     color: ClippyTheme.foreground;
@@ -31,32 +32,77 @@ component FieldLabel inherits Text {
 }
 
 component SettingDivider inherits Rectangle {
+    height: 49px;
+    Rectangle {
+        y: 24px;
+        height: 1px;
+        background: ClippyTheme.border;
+    }
+}
+
+component SettingInput inherits LineEdit {
+    height: 42px;
+    font-size: 14px;
+}
+
+component SettingHint inherits Text {
+    color: ClippyTheme.subtle;
+    font-size: 12px;
+    wrap: word-wrap;
+}
+
+component CapabilityLine inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <bool> desktop-permission;
+    height: 34px;
+    border-radius: 6px;
+    background: ClippyTheme.surface;
+    Rectangle {
+        width: 3px; height: parent.height; border-radius: 2px;
+        background: root.desktop-permission ? #d97706 : #16a34a;
+    }
+    HorizontalLayout {
+        padding-left: 12px; padding-right: 10px; spacing: 8px;
+        Text { text: root.label; color: ClippyTheme.foreground; vertical-alignment: center; horizontal-stretch: 1; font-size: 13px; }
+        Text { text: root.value; color: ClippyTheme.foreground; vertical-alignment: center; font-size: 13px; font-weight: 650; }
+    }
+}
+
+component SectionRule inherits Rectangle {
     height: 1px;
     background: ClippyTheme.border;
 }
 
 component ShortcutInput inherits VerticalLayout {
     in property <string> label;
+    in property <string> hint;
+    in property <string> reset-value;
     in property <bool> recording;
     in-out property <string> value;
     callback record();
 
-    spacing: 6px;
+    spacing: 9px;
     FieldLabel { text: root.label; }
     HorizontalLayout {
         spacing: 8px;
-        LineEdit { text <=> root.value; accessible-label: root.label; read-only: root.recording; }
+        SettingInput { text <=> root.value; accessible-label: root.label; read-only: root.recording; }
         SurfaceButton {
-            label: root.recording ? "Cancel recording" : "Record shortcut";
+            label: root.recording ? "Cancel" : "Record";
             selected: root.recording;
-            width: 121px;
+            width: 71px; height: 42px;
             clicked => { root.record(); }
         }
+        SurfaceButton {
+            label: "Reset"; width: 64px; height: 42px;
+            border-width: 1px; border-color: ClippyTheme.border; border-radius: 8px;
+            enabled: !root.recording;
+            clicked => { root.value = root.reset-value; }
+        }
     }
-    if root.recording: Text {
-        text: "Press a shortcut. Esc cancels.";
-        color: ClippyTheme.accent;
-        font-size: 12px;
+    SettingHint {
+        text: root.recording ? "Press a shortcut. Esc cancels." : root.hint;
+        color: root.recording ? ClippyTheme.accent : ClippyTheme.subtle;
     }
 }
 
@@ -110,10 +156,14 @@ export component SettingsPane inherits Rectangle {
     in property <bool> autostart-available;
     in property <bool> tmux-available;
     in property <bool> busy;
+    in property <[string]> shortcut-defaults;
+    in property <bool> wayland-session;
+    in property <bool> gnome-session;
     in property <string> build-label;
     in property <string> data-status;
     in-out property <ShortcutField> recording-shortcut;
     in-out property <string> panel-shortcut;
+    in-out property <string> pin-shortcut;
     in-out property <string> capture-shortcut;
     callback paste-setting(bool);
     callback authorize-paste();
@@ -129,19 +179,20 @@ export component SettingsPane inherits Rectangle {
     private property <[string]> pages: ["General", "Screenshot", "Translation", "About"];
     private property <[string]> themes: ["Light", "Dark", "Nord", "Solarized Light", "Rose", "Midnight"];
     private property <int> selected-theme: root.general.theme;
+    private property <int> theme-columns: root.width >= 590px ? 4 : 3;
 
     VerticalLayout {
         x: max(18px, (root.width - 616px) / 2);
         y: 0px;
         width: root.width - self.x * 2;
         height: root.height;
-        padding-top: 28px;
+        padding-top: 36px;
         padding-bottom: 14px;
-        spacing: 23px;
+        spacing: 28px;
         Rectangle {
             height: 42px;
             border-radius: 12px;
-            background: ClippyTheme.hover;
+            background: ClippyTheme.surface;
             HorizontalLayout {
                 padding: 4px;
                 spacing: 4px;
@@ -149,6 +200,9 @@ export component SettingsPane inherits Rectangle {
                     label: title;
                     horizontal-stretch: 1;
                     selected: root.page == index;
+                    background: self.selected ? ClippyTheme.background : ClippyTheme.surface;
+                    border-width: self.selected ? 1px : 0px;
+                    border-color: ClippyTheme.border;
                     clicked => {
                         root.page = index;
                         root.recording-shortcut = ShortcutField.none;
@@ -167,15 +221,26 @@ export component SettingsPane inherits Rectangle {
                     spacing: 7px;
                     ShortcutInput {
                         label: "Global Shortcut";
+                        hint: "Click Record, then press your desired key combination.";
+                        reset-value: root.shortcut-defaults[0];
                         value <=> root.panel-shortcut;
                         recording: root.recording-shortcut == ShortcutField.clipboard;
                         record => { root.recording-shortcut = self.recording ? ShortcutField.none : ShortcutField.clipboard; }
                     }
                     SettingDivider { }
+                    ShortcutInput {
+                        label: "Pin Shortcut";
+                        hint: "Pin the focused clipboard item to the desktop.";
+                        reset-value: root.shortcut-defaults[1];
+                        value <=> root.pin-shortcut;
+                        recording: root.recording-shortcut == ShortcutField.pin;
+                        record => { root.recording-shortcut = self.recording ? ShortcutField.none : ShortcutField.pin; }
+                    }
+                    SettingDivider { }
                     FieldLabel { text: "Theme"; }
                     HorizontalLayout {
                         spacing: 10px;
-                        for index in 3: ThemeCard {
+                        for index in root.theme-columns: ThemeCard {
                             theme: index;
                             label: root.themes[index];
                             selected: root.selected-theme == index;
@@ -184,17 +249,18 @@ export component SettingsPane inherits Rectangle {
                     }
                     HorizontalLayout {
                         spacing: 10px;
-                        for index in 3: ThemeCard {
-                            theme: index + 3;
-                            label: root.themes[index + 3];
-                            selected: root.selected-theme == index + 3;
-                            clicked => { root.selected-theme = index + 3; }
+                        for index in 6 - root.theme-columns: ThemeCard {
+                            theme: index + root.theme-columns;
+                            label: root.themes[index + root.theme-columns];
+                            selected: root.selected-theme == index + root.theme-columns;
+                            clicked => { root.selected-theme = index + root.theme-columns; }
                         }
+                        for item in 2 * root.theme-columns - 6: Rectangle { horizontal-stretch: 1; }
                     }
                     SettingDivider { }
                     FieldLabel { text: "History Limit"; }
-                    history := LineEdit { text: root.general.max-history; input-type: number; accessible-label: "History Limit"; }
-                    Text { text: "0 = unlimited. Favorites are kept."; color: ClippyTheme.muted; font-size: 12px; }
+                    history := SettingInput { text: root.general.max-history; input-type: number; accessible-label: "History Limit"; }
+                    SettingHint { text: "0 = unlimited. Favorites are kept."; }
                     SettingDivider { }
                     CheckBox {
                         text: "Enable automatic paste";
@@ -219,6 +285,7 @@ export component SettingsPane inherits Rectangle {
                             root.recording-shortcut = ShortcutField.none;
                             root.apply-general({
                                 max-history: history.text, panel-shortcut: root.panel-shortcut,
+                                pin-shortcut: root.pin-shortcut,
                                 theme: root.selected-theme, capture-shortcut: root.general.capture-shortcut,
                                 save-directory: root.general.save-directory, filename-template: root.general.filename-template,
                                 ocr-enabled: root.general.ocr-enabled, ocr-manifest: root.general.ocr-manifest,
@@ -228,8 +295,35 @@ export component SettingsPane inherits Rectangle {
                 }
                 if root.page == 1: VerticalLayout {
                     spacing: 8px;
+                    FieldLabel { text: root.wayland-session && !root.gnome-session ? "Screen Capture Service" : "GNOME Screen Helper"; }
+                    Rectangle {
+                        height: 113px; border-radius: 12px; border-width: 1px;
+                        border-color: ClippyTheme.border; background: ClippyTheme.surface;
+                        Rectangle { width: 3px; height: parent.height; border-radius: 2px; background: ClippyTheme.subtle; }
+                        VerticalLayout {
+                            padding: 15px; spacing: 8px; alignment: start;
+                            FieldLabel {
+                                text: !root.wayland-session ? "Not needed on this desktop"
+                                    : root.gnome-session ? "GNOME capture is selected" : "Using the desktop portal";
+                            }
+                            Text {
+                                color: ClippyTheme.muted; font-size: 13px; wrap: word-wrap;
+                                text: !root.wayland-session ? "Clippy reads the screen with the native desktop API."
+                                    : "The compositor provides the screen pixels. Your desktop controls capture permissions.";
+                            }
+                            SurfaceButton {
+                                label: "Diagnostics"; width: 88px; height: 28px;
+                                border-width: 1px; border-color: ClippyTheme.border;
+                                clicked => { root.page = 3; page-scroll.content-y = 0px; root.data-action(4, ""); }
+                            }
+                        }
+                    }
+                    SettingHint { text: "The screenshot shortcut uses the fast native capture path. System Screenshot opens the desktop’s own selector on Wayland."; }
+                    SettingDivider { }
                     ShortcutInput {
                         label: "Screenshot Shortcut";
+                        hint: "Shortcut to start a screenshot.";
+                        reset-value: root.shortcut-defaults[2];
                         value <=> root.capture-shortcut;
                         recording: root.recording-shortcut == ShortcutField.screenshot;
                         record => { root.recording-shortcut = self.recording ? ShortcutField.none : ShortcutField.screenshot; }
@@ -237,18 +331,19 @@ export component SettingsPane inherits Rectangle {
                     SettingDivider { }
                     FieldLabel { text: "Screenshots"; }
                     FieldLabel { text: "Screenshot directory"; }
-                    directory := LineEdit { text: root.general.save-directory; placeholder-text: "System Pictures/Screenshots"; }
+                    directory := SettingInput { text: root.general.save-directory; placeholder-text: "System Pictures/Screenshots"; }
                     FieldLabel { text: "Screenshot filename template"; }
-                    filename := LineEdit { text: root.general.filename-template; placeholder-text: "{prefix}-{date}-{time}"; }
+                    filename := SettingInput { text: root.general.filename-template; placeholder-text: "{prefix}-{date}-{time}"; }
                     ocr := CheckBox { text: "Enable OCR"; checked: root.general.ocr-enabled; }
                     FieldLabel { text: "Enhanced OCR manifest"; }
-                    manifest := LineEdit { text: root.general.ocr-manifest; placeholder-text: "Optional path to model manifest"; }
+                    manifest := SettingInput { text: root.general.ocr-manifest; placeholder-text: "Optional path to model manifest"; }
                     Button {
                         text: "Save screenshot settings";
                         clicked => {
                             root.recording-shortcut = ShortcutField.none;
                             root.apply-general({
                                 max-history: root.general.max-history, panel-shortcut: root.general.panel-shortcut,
+                                pin-shortcut: root.general.pin-shortcut,
                                 theme: root.general.theme, capture-shortcut: root.capture-shortcut,
                                 save-directory: directory.text, filename-template: filename.text,
                                 ocr-enabled: ocr.checked, ocr-manifest: manifest.text,
@@ -257,32 +352,71 @@ export component SettingsPane inherits Rectangle {
                     }
                 }
                 if root.page == 2: VerticalLayout {
-                    spacing: 7px;
-                    ComboBox {
-                        model: ["LibreTranslate", "OpenAI-compatible", "DeepL", "Google", "Bing", "Youdao"];
-                        current-index: root.provider-index;
-                        selected => {
-                            key.text = "";
-                            secret.text = "";
-                            root.select-provider(self.current-index);
+                    spacing: 11px;
+                    FieldLabel { text: "Translation"; }
+                    HorizontalLayout {
+                        spacing: 14px;
+                        VerticalLayout {
+                            spacing: 5px; horizontal-stretch: 1;
+                            SettingHint { text: "Provider"; color: ClippyTheme.muted; }
+                            ComboBox {
+                                height: 42px;
+                                model: ["LibreTranslate-compatible", "OpenAI-compatible", "DeepL", "Google", "Bing", "Youdao"];
+                                current-index: root.provider-index;
+                                selected => {
+                                    key.text = "";
+                                    secret.text = "";
+                                    root.select-provider(self.current-index);
+                                }
+                            }
+                        }
+                        VerticalLayout {
+                            spacing: 5px; horizontal-stretch: 1;
+                            SettingHint { text: "Enable"; color: ClippyTheme.muted; }
+                            HorizontalLayout {
+                                spacing: 8px; height: 42px;
+                                preferred := Switch { checked: root.translation.enabled; }
+                                SettingHint { text: "Use this service for quick translation."; vertical-alignment: center; horizontal-stretch: 1; }
+                            }
                         }
                     }
-                    preferred := CheckBox { text: "Use this provider for quick translation"; checked: root.translation.enabled; }
-                    FieldLabel { text: "Endpoint"; }
-                    endpoint := LineEdit { text: root.translation.endpoint; placeholder-text: "Provider default"; }
-                    FieldLabel { text: "Model"; }
-                    model := LineEdit { text: root.translation.model; }
-                    FieldLabel { text: "Region / project"; }
+                    SettingHint { text: "Endpoint"; color: ClippyTheme.muted; }
+                    endpoint := SettingInput { text: root.translation.endpoint; placeholder-text: "Provider default"; }
+                    SettingHint { text: "Requests are sent only to this service endpoint."; }
                     HorizontalLayout {
-                        spacing: 6px;
-                        region := LineEdit { text: root.translation.region; placeholder-text: "Region"; }
-                        project := LineEdit { text: root.translation.project; placeholder-text: "Project"; }
+                        spacing: 14px;
+                        VerticalLayout {
+                            spacing: 6px;
+                            SettingHint { text: "Source Language"; color: ClippyTheme.muted; }
+                            source := SettingInput { text: root.translation.source; placeholder-text: "Detect automatically"; }
+                        }
+                        VerticalLayout {
+                            spacing: 6px;
+                            SettingHint { text: "Target Language"; color: ClippyTheme.muted; }
+                            target := SettingInput { text: root.translation.target; placeholder-text: "English (en)"; }
+                        }
                     }
-                    FieldLabel { text: "Language codes"; }
+                    SettingHint { text: "Use a language code such as en, zh-Hans or ja."; }
+                    SettingDivider { }
+                    if root.provider-index == 1: FieldLabel { text: "Model"; }
+                    model := SettingInput {
+                        text: root.translation.model;
+                        visible: root.provider-index == 1;
+                        height: self.visible ? 42px : 0px;
+                    }
+                    if root.provider-index == 4 || root.provider-index == 5: FieldLabel { text: "Region / project"; }
                     HorizontalLayout {
                         spacing: 6px;
-                        source := LineEdit { text: root.translation.source; placeholder-text: "Source · auto"; }
-                        target := LineEdit { text: root.translation.target; placeholder-text: "Target · en"; }
+                        region := SettingInput {
+                            text: root.translation.region; placeholder-text: "Region";
+                            visible: root.provider-index == 4 || root.provider-index == 5;
+                            height: self.visible ? 42px : 0px;
+                        }
+                        project := SettingInput {
+                            text: root.translation.project; placeholder-text: "Project";
+                            visible: region.visible;
+                            height: self.visible ? 42px : 0px;
+                        }
                     }
                     Button {
                         text: "Save provider settings";
@@ -310,10 +444,38 @@ export component SettingsPane inherits Rectangle {
                     }
                 }
                 if root.page == 3: VerticalLayout {
-                    spacing: 8px;
-                    FieldLabel { text: root.build-label; }
-                    AboutSlint { height: 38px; }
+                    spacing: 7px;
+                    FieldLabel { text: "About"; }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Rectangle {
+                            height: 34px; border-radius: 6px; border-width: 1px;
+                            border-color: ClippyTheme.border; background: ClippyTheme.surface;
+                            Text {
+                                x: 10px; width: parent.width - 20px; height: parent.height;
+                                text: root.build-label; color: ClippyTheme.foreground; font-size: 13px;
+                                font-weight: 600; vertical-alignment: center; overflow: elide;
+                            }
+                        }
+                    }
                     SettingDivider { }
+                    FieldLabel { text: "Platform Capabilities"; }
+                    SettingHint { text: root.wayland-session ? "Wayland · desktop permissions apply" : "Native desktop session"; }
+                    CapabilityLine { label: "Text clipboard"; value: "Available"; }
+                    CapabilityLine { label: "Image clipboard"; value: "Available"; }
+                    CapabilityLine {
+                        label: "Automatic paste"; value: root.wayland-session ? "Desktop permission" : "Native input";
+                        desktop-permission: root.wayland-session;
+                    }
+                    CapabilityLine {
+                        label: "Global shortcuts";
+                        value: root.wayland-session && !root.gnome-session ? "Desktop permission" : "Native registration";
+                        desktop-permission: root.wayland-session && !root.gnome-session;
+                    }
+                    CapabilityLine { label: "Screen capture"; value: "Native capture"; }
+                    SettingDivider { }
+                    AboutSlint { height: 38px; }
+                    SectionRule { }
                     FieldLabel { text: "Data and Backups"; }
                     FieldLabel { text: root.data-status; wrap: word-wrap; }
                     archive := LineEdit { placeholder-text: "Absolute path to .clippy.zip"; }

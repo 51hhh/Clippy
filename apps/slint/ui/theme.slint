@@ -9,11 +9,13 @@ export global ClippyTheme {
     out property <color> hover: index == 1 ? #262a32 : index == 2 ? #434c5e : index == 3 ? #ece5c2 : index == 4 ? #ffe0e2 : index == 5 ? #25234d : #f1f1f6;
     out property <color> foreground: index == 1 ? #ecedf1 : index == 2 ? #eceff4 : index == 3 ? #2a3a3f : index == 4 ? #2a1a1f : index == 5 ? #f1ecff : #1c1d22;
     out property <color> muted: index == 1 ? #b3b7c2 : index == 2 ? #d8dee9 : index == 3 ? #586e75 : index == 4 ? #6b4e54 : index == 5 ? #c1bce3 : #4f535d;
+    out property <color> subtle: index == 1 ? #969aa6 : index == 2 ? #aab2c0 : index == 3 ? #718081 : index == 4 ? #8c656a : index == 5 ? #a9a4cd : #737986;
     out property <color> accent: index == 1 ? #8aa4ff : index == 2 ? #88c0d0 : index == 3 ? #1f74b1 : index == 4 ? #b62558 : index == 5 ? #c084fc : #4453e0;
     out property <color> highlight: theme-highlight(index);
     out property <color> accent-soft: highlight.with-alpha(dark ? 0.18 : 0.14);
     out property <color> selected: index == 1 ? #2c3550 : index == 2 ? #4c566a : index == 3 ? #e0d8b0 : index == 4 ? #ffd3d8 : index == 5 ? #312f63 : #e3ecfb;
     out property <color> border: index == 1 ? #2a2e37 : index == 2 ? #434c5e : index == 3 ? #ddd5b6 : index == 4 ? #f4d3d6 : index == 5 ? #2a2853 : #e5e7ec;
+    out property <color> control-border: index == 1 ? #353944 : index == 2 ? #4c566a : index == 3 ? #d8d2b6 : index == 4 ? #e9c4ca : index == 5 ? #383461 : #d6d8dd;
     out property <color> favorite: index == 1 ? #f4c145 : index == 2 ? #ebcb8b : index == 3 ? #b58900 : index == 4 ? #f59e0b : index == 5 ? #facc15 : #f1a73a;
     out property <color> danger: dark ? #f47272 : #b83b3b;
     out property <length> titlebar-height: 52px;
@@ -32,6 +34,41 @@ export global ClippyTheme {
         Palette.color-scheme = dark ? ColorScheme.dark : ColorScheme.light;
     }
     changed index => { self.sync-native-palette(); }
+}
+
+export component ClippyIcon inherits Rectangle {
+    in property <string> drawing;
+    in property <color> ink: ClippyTheme.foreground;
+    width: 18px;
+    height: 18px;
+    Path {
+        width: parent.width;
+        height: parent.height;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: root.drawing;
+        stroke: root.ink;
+        stroke-width: 1.7px;
+        stroke-line-cap: round;
+        stroke-line-join: round;
+    }
+}
+
+export component Keycap inherits Rectangle {
+    in property <string> caption;
+    preferred-width: keytext.preferred-width + 12px;
+    height: 21px;
+    border-radius: 5px;
+    border-width: 1px;
+    border-color: ClippyTheme.border;
+    background: ClippyTheme.background;
+    keytext := Text {
+        text: root.caption;
+        color: ClippyTheme.muted;
+        font-size: 11px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
 }
 
 export component RichDocumentView inherits ScrollView {
@@ -60,8 +97,10 @@ export component SurfaceButton inherits Rectangle {
     in property <string> caption: label;
     in property <bool> enabled: true;
     in property <bool> selected;
+    in property <bool> primary;
     in property <bool> danger;
     in property <bool> pill;
+    out property <bool> hovered: touch.has-hover;
     callback clicked();
 
     min-width: 28px;
@@ -70,7 +109,8 @@ export component SurfaceButton inherits Rectangle {
     border-radius: root.pill ? 200px : 7px;
     border-width: focus.has-focus || (root.pill && root.selected) ? 1px : 0px;
     border-color: ClippyTheme.highlight;
-    background: root.enabled && touch.has-hover ? (root.danger ? ClippyTheme.danger : ClippyTheme.hover)
+    background: root.primary && root.enabled ? (touch.has-hover ? ClippyTheme.accent : ClippyTheme.highlight)
+                 : root.enabled && touch.has-hover ? (root.danger ? ClippyTheme.danger : ClippyTheme.hover)
                  : root.selected ? (root.pill ? ClippyTheme.accent-soft : ClippyTheme.elevated)
                  : transparent;
     accessible-role: button;
@@ -88,6 +128,7 @@ export component SurfaceButton inherits Rectangle {
         font-size: 13px;
         font-weight: root.selected ? 600 : 500;
         color: !root.enabled ? ClippyTheme.muted.with-alpha(0.55)
+               : root.primary ? (ClippyTheme.dark ? #101018 : #ffffff)
                : root.danger && touch.has-hover ? #ffffff
                : root.selected && root.pill ? ClippyTheme.accent
                : ClippyTheme.foreground;
@@ -112,6 +153,8 @@ export component SurfaceButton inherits Rectangle {
 
 export component WindowHeader inherits Rectangle {
     in property <string> title;
+    in property <string> subtitle;
+    in property <string> icon;
     in property <bool> maximized;
     callback minimize();
     callback maximize();
@@ -127,7 +170,11 @@ export component WindowHeader inherits Rectangle {
         HorizontalLayout {
             padding-left: 14px;
             spacing: 9px;
-            Rectangle {
+            if root.icon != "": Rectangle {
+                width: 18px;
+                ClippyIcon { drawing: root.icon; ink: ClippyTheme.highlight; }
+            }
+            if root.icon == "": Rectangle {
                 width: 18px;
                 Rectangle {
                     x: 2px; y: (parent.height - 16px) / 2; width: 14px; height: 16px;
@@ -142,13 +189,20 @@ export component WindowHeader inherits Rectangle {
                     }
                 }
             }
-            Text {
-                text: root.title;
-                color: ClippyTheme.foreground;
-                font-size: 14px;
-                font-weight: 650;
-                vertical-alignment: center;
-                overflow: elide;
+            VerticalLayout {
+                alignment: center;
+                horizontal-stretch: 1;
+                spacing: 2px;
+                Text {
+                    text: root.title;
+                    color: ClippyTheme.foreground;
+                    font-size: 14px;
+                    font-weight: 650;
+                    overflow: elide;
+                }
+                if root.subtitle != "": Text {
+                    text: root.subtitle; color: ClippyTheme.muted; font-size: 11px; overflow: elide;
+                }
             }
         }
     }
@@ -161,5 +215,26 @@ export component WindowHeader inherits Rectangle {
         SurfaceButton { label: "Minimize"; caption: "−"; width: 32px; height: 32px; clicked => { root.minimize(); } }
         SurfaceButton { label: root.maximized ? "Restore" : "Maximize"; caption: root.maximized ? "▣" : "□"; width: 32px; height: 32px; clicked => { root.maximize(); } }
         SurfaceButton { label: "Close window"; caption: "×"; danger: true; width: 32px; height: 32px; clicked => { root.dismiss(); } }
+    }
+}
+
+export component LibraryHeader inherits Rectangle {
+    in property <string> title;
+    in property <string> subtitle;
+    callback dismiss();
+    height: 78px;
+    background: ClippyTheme.elevated;
+    Rectangle { y: parent.height - 1px; width: parent.width; height: 1px; background: ClippyTheme.border; }
+    VerticalLayout {
+        x: 20px; y: 14px; width: parent.width - 75px; height: parent.height - 27px;
+        alignment: start; spacing: 4px;
+        Text { text: root.title; font-size: 20px; font-weight: 700; color: ClippyTheme.foreground; overflow: elide; }
+        Text { text: root.subtitle; font-size: 12px; color: ClippyTheme.muted; overflow: elide; }
+    }
+    SurfaceButton {
+        x: parent.width - 53px; y: 15px; width: 32px; height: 32px;
+        label: "Close window"; caption: ""; danger: true;
+        ClippyIcon { ink: parent.hovered ? #ffffff : ClippyTheme.foreground; drawing: "M6 6l12 12M18 6 6 18"; }
+        clicked => { root.dismiss(); }
     }
 }

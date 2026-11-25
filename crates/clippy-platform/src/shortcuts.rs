@@ -6,6 +6,7 @@ use std::sync::Arc;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
     Open,
+    Pin,
     Capture,
 }
 
@@ -22,15 +23,18 @@ pub fn can_parse(shortcut: &str) -> bool {
     shortcut.parse::<HotKey>().is_ok()
 }
 
-pub fn validate(panel: &str, capture: &str) -> Result<()> {
+pub fn validate(panel: &str, pin: &str, capture: &str) -> Result<()> {
     let panel = panel
         .parse::<HotKey>()
         .map_err(|error| anyhow::anyhow!("Clipboard shortcut: {error}"))?;
+    let pin = pin
+        .parse::<HotKey>()
+        .map_err(|error| anyhow::anyhow!("Pin shortcut: {error}"))?;
     let capture = capture
         .parse::<HotKey>()
         .map_err(|error| anyhow::anyhow!("Screenshot shortcut: {error}"))?;
-    if panel.id() == capture.id() {
-        bail!("The clipboard and screenshot shortcuts must differ");
+    if panel.id() == capture.id() || panel.id() == pin.id() || pin.id() == capture.id() {
+        bail!("The clipboard, pin and screenshot shortcuts must differ");
     }
     Ok(())
 }
@@ -39,13 +43,18 @@ impl Shortcuts {
     pub fn start(
         identity: &PlatformIdentity,
         panel: &str,
+        pin: &str,
         capture: &str,
         dispatch: impl Fn(Action) + Send + Sync + 'static,
         report: impl Fn(String) + Send + Sync + 'static,
     ) -> Result<Self> {
         let report: Report = Arc::new(report);
         let mut bindings = Vec::new();
-        for (action, config) in [(Action::Open, panel), (Action::Capture, capture)] {
+        for (action, config) in [
+            (Action::Open, panel),
+            (Action::Pin, pin),
+            (Action::Capture, capture),
+        ] {
             if config.trim().is_empty() {
                 continue;
             }
@@ -175,6 +184,10 @@ mod wayland {
             (self.0)(Action::Open);
         }
 
+        fn pin(&self) {
+            (self.0)(Action::Pin);
+        }
+
         fn capture(&self) -> bool {
             (self.0)(Action::Capture);
             true
@@ -196,6 +209,7 @@ mod wayland {
         for &(action, key) in bindings {
             let (method, label) = match action {
                 Action::Open => ("Toggle", "Open Clipboard"),
+                Action::Pin => ("Pin", "Pin selected clipboard item"),
                 Action::Capture => ("Capture", "Screenshot"),
             };
             let command =
@@ -362,6 +376,7 @@ mod wayland {
             for &(action, key) in bindings {
                 let (suffix, label) = match action {
                     Action::Open => ("open", "Open Clipboard"),
+                    Action::Pin => ("pin", "Pin selected clipboard item"),
                     Action::Capture => ("capture", "Screenshot"),
                 };
                 let preferred = trigger(key, false)?;

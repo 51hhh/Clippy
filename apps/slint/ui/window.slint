@@ -2,6 +2,8 @@ import { ClippyTheme, WindowHeader } from "theme.slint";
 
 export component ClippyWindow inherits Window {
     in property <string> heading;
+    in property <string> heading-subtitle;
+    in property <string> heading-icon;
     callback dismiss-window();
 
     no-frame: true;
@@ -12,6 +14,8 @@ export component ClippyWindow inherits Window {
     VerticalLayout {
         WindowHeader {
             title: root.heading;
+            subtitle: root.heading-subtitle;
+            icon: root.heading-icon;
             maximized: root.maximized;
             minimize => { root.minimized = true; }
             maximize => { root.maximized = !root.maximized; }

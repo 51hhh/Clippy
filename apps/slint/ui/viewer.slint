@@ -1,0 +1,205 @@
+import { ComboBox, LineEdit, Slider } from "std-widgets.slint";
+import { ClippyIcon, ClippyTheme, SurfaceButton } from "theme.slint";
+
+component ViewerButton inherits SurfaceButton {
+    in property <string> drawing;
+    width: 30px; height: 29px;
+    caption: "";
+    background: root.selected ? ClippyTheme.accent-soft : root.hovered && root.enabled ? ClippyTheme.hover : transparent;
+    ClippyIcon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        drawing: root.drawing;
+        ink: !root.enabled ? ClippyTheme.subtle : root.selected ? ClippyTheme.highlight : ClippyTheme.muted;
+    }
+}
+
+export component ViewerPane inherits Rectangle {
+    in property <image> picture;
+    in property <[string]> tools;
+    in property <bool> busy;
+    in property <bool> can-undo;
+    in property <bool> can-redo;
+    in property <bool> output-ready;
+    in property <string> status;
+    callback start-stroke(float, float);
+    callback move-stroke(float, float);
+    callback finish-stroke(float, float, int, int, float, string);
+    callback undo();
+    callback redo();
+    callback copy();
+    callback save();
+    callback recognize();
+    callback scan-code();
+    callback pin();
+
+    private property <bool> drawing;
+    private property <bool> fit-to-view: true;
+    private property <float> zoom: 1;
+    private property <float> display-scale: root.fit-to-view
+        ? clamp(min((stage.width - 78px) / (max(1, root.picture.width) * 1px),
+                    (stage.height - 167px) / (max(1, root.picture.height) * 1px)), 0.02, 4) : root.zoom;
+    private property <length> pan-x;
+    private property <length> pan-y;
+    private property <length> start-x;
+    private property <length> start-y;
+    private property <length> bar-offset-x;
+    private property <length> bar-offset-y;
+
+    vertical-stretch: 1;
+    background: ClippyTheme.surface;
+
+    changed picture => {
+        if root.fit-to-view { root.recenter(); }
+    }
+    function recenter() {
+        root.pan-x = 0px;
+        root.pan-y = 0px;
+    }
+    function zoom-by(factor: float) {
+        root.zoom = clamp(root.display-scale * factor, 0.02, 24);
+        root.fit-to-view = false;
+    }
+
+    VerticalLayout {
+        stage := Rectangle {
+            vertical-stretch: 1;
+            background: ClippyTheme.surface;
+            clip: true;
+            Image {
+                source: root.picture;
+                width: max(1px, root.picture.width * root.display-scale * 1px);
+                height: max(1px, root.picture.height * root.display-scale * 1px);
+                x: (parent.width - self.width) / 2 + root.pan-x;
+                y: (parent.height - 55px - self.height) / 2 + root.pan-y;
+                image-fit: fill;
+                TouchArea {
+                    enabled: root.drawing && !root.busy;
+                    mouse-cursor: crosshair;
+                    pointer-event(event) => {
+                        if event.button == PointerEventButton.left {
+                            if event.kind == PointerEventKind.down {
+                                root.start-stroke(self.mouse-x / self.width, self.mouse-y / self.height);
+                            } else if event.kind == PointerEventKind.up {
+                                root.finish-stroke(self.mouse-x / self.width, self.mouse-y / self.height,
+                                    tool.current-index, shade.current-index, stroke.value, entry.text);
+                            }
+                        }
+                    }
+                    moved => {
+                        if self.pressed { root.move-stroke(self.mouse-x / self.width, self.mouse-y / self.height); }
+                    }
+                }
+            }
+            TouchArea {
+                enabled: !root.drawing;
+                mouse-cursor: move;
+                pointer-event(event) => {
+                    if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                        root.start-x = root.pan-x;
+                        root.start-y = root.pan-y;
+                    }
+                }
+                moved => {
+                    if self.pressed {
+                        root.pan-x = clamp(root.start-x + self.mouse-x - self.pressed-x, -stage.width, stage.width);
+                        root.pan-y = clamp(root.start-y + self.mouse-y - self.pressed-y, -stage.height, stage.height);
+                    }
+                }
+                scroll-event(event) => {
+                    if event.delta-y != 0px {
+                        root.zoom-by(event.delta-y > 0px ? 1.25 : 0.8);
+                        return accept;
+                    }
+                    reject
+                }
+            }
+            bar := Rectangle {
+                width: min(root.drawing ? 493px : 342px, parent.width - 16px);
+                height: root.drawing ? 122px + (entry.visible ? 29px : 0px) : 73px;
+                x: clamp((parent.width - self.width) / 2 + root.bar-offset-x, 8px, parent.width - self.width - 8px);
+                y: clamp(parent.height - self.height - 12px + root.bar-offset-y, 8px, parent.height - self.height - 8px);
+                background: ClippyTheme.elevated;
+                border-color: ClippyTheme.control-border;
+                border-radius: 9px; border-width: 1px;
+                drop-shadow-color: #15192235;
+                drop-shadow-blur: 16px;
+                drop-shadow-offset-y: 4px;
+                TouchArea { }
+                VerticalLayout {
+                    padding: 5px;
+                    spacing: 3px;
+                    HorizontalLayout {
+                        spacing: 4px; alignment: center;
+                        Rectangle {
+                            width: 19px; height: 29px;
+                            Text { text: "⠿"; font-size: 15px; color: ClippyTheme.subtle; horizontal-alignment: center; vertical-alignment: center; }
+                            TouchArea {
+                                mouse-cursor: move;
+                                property <length> origin-x;
+                                property <length> origin-y;
+                                property <length> pointer-x;
+                                property <length> pointer-y;
+                                pointer-event(event) => {
+                                    if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                                        self.origin-x = root.bar-offset-x;
+                                        self.origin-y = root.bar-offset-y;
+                                        self.pointer-x = self.mouse-x + bar.x;
+                                        self.pointer-y = self.mouse-y + bar.y;
+                                    }
+                                }
+                                moved => {
+                                    if self.pressed {
+                                        root.bar-offset-x = self.origin-x + self.mouse-x + bar.x - self.pointer-x;
+                                        root.bar-offset-y = self.origin-y + self.mouse-y + bar.y - self.pointer-y;
+                                    }
+                                }
+                                double-clicked => { root.bar-offset-x = 0px; root.bar-offset-y = 0px; }
+                            }
+                        }
+                        ViewerButton { label: "Pan"; drawing: "M12 4v16 M4 12h16 M9 7l3-3 3 3 M9 17l3 3 3-3 M7 9l-3 3 3 3 M17 9l3 3-3 3"; selected: !root.drawing; clicked => { root.drawing = false; } }
+                        ViewerButton { label: "Draw"; drawing: "M4 19l1-5L17 2l5 5L10 19Z M14 5l5 5 M3 22h18"; selected: root.drawing; clicked => { root.drawing = !root.drawing; } }
+                        ViewerButton { label: "Recognize text"; drawing: "M4 9V4h5 M15 4h5v5 M20 15v5h-5 M9 20H4v-5 M8 9h8 M8 12h8 M8 15h5"; enabled: root.output-ready && !root.busy; clicked => { root.recognize(); } }
+                        ViewerButton { label: "Scan code"; drawing: "M3 3h6v6H3Z M15 3h6v6h-6Z M3 15h6v6H3Z M15 15h3v3h-3Z M21 15v6h-6"; enabled: root.output-ready && !root.busy; clicked => { root.scan-code(); } }
+                        ViewerButton { label: "Copy image"; drawing: "M9 9h12v12H9Z M15 9V3H3v12h6"; enabled: root.output-ready && !root.busy; clicked => { root.copy(); } }
+                        ViewerButton { label: "Save PNG"; drawing: "M3 3h14l4 4v14H3Z M7 3v7h10V3 M7 21v-7h10v7"; enabled: root.output-ready && !root.busy; clicked => { root.save(); } }
+                        ViewerButton { label: "Pin image"; drawing: "M9 4h6v3l-1 1v4l3 3v2H7v-2l3-3V8L9 7Z M12 17v5"; enabled: root.output-ready && !root.busy; clicked => { root.pin(); } }
+                    }
+                    HorizontalLayout {
+                        visible: root.drawing;
+                        height: root.drawing ? 48px : 0px;
+                        spacing: 5px;
+                        tool := ComboBox { model: root.tools; current-index: 2; }
+                        shade := ComboBox { model: ["Red", "Orange", "Green", "Blue", "White", "Black"]; }
+                        stroke := Slider { minimum: 1; maximum: 24; value: 3; width: 60px; }
+                        SurfaceButton { label: "Undo"; caption: "↶"; enabled: root.can-undo && !root.busy; clicked => { root.undo(); } }
+                        SurfaceButton { label: "Redo"; caption: "↷"; enabled: root.can-redo && !root.busy; clicked => { root.redo(); } }
+                    }
+                    entry := LineEdit {
+                        visible: root.drawing && tool.current-value == "Text";
+                        height: self.visible ? 26px : 0px;
+                        placeholder-text: "Text to place on the image";
+                    }
+                    Rectangle { height: 1px; background: ClippyTheme.border; }
+                    HorizontalLayout {
+                        spacing: 7px; alignment: center;
+                        SurfaceButton { label: "Zoom out"; caption: "−"; clicked => { root.zoom-by(0.8); } }
+                        Text { text: "" + round(root.display-scale * 100) + "%"; color: ClippyTheme.foreground; font-size: 12px; vertical-alignment: center; width: 54px; horizontal-alignment: center; }
+                        SurfaceButton { label: "Zoom in"; caption: "+"; clicked => { root.zoom-by(1.25); } }
+                        SurfaceButton { label: "Fit"; selected: root.fit-to-view; clicked => { root.fit-to-view = true; root.recenter(); } }
+                        SurfaceButton { label: "Actual size"; caption: "1:1"; clicked => { root.zoom = 1; root.fit-to-view = false; root.recenter(); } }
+                    }
+                }
+            }
+        }
+        Rectangle {
+            height: 28px; background: ClippyTheme.background;
+            Rectangle { x: 0px; y: 0px; height: 1px; background: ClippyTheme.border; }
+            Text {
+                x: 12px; width: parent.width - 24px; height: parent.height;
+                text: root.status != "" ? root.status : "Wheel to zoom · Drag to pan · Image tools use the opened snapshot";
+                color: ClippyTheme.muted; font-size: 11px; vertical-alignment: center; overflow: elide;
+            }
+        }
+    }
+}

@@ -36,8 +36,15 @@ pub(super) struct View {
 }
 
 impl View {
-    fn open(id: u64, image: Arc<RgbaImage>, document: Editor, theme: i32) -> Result<Self> {
+    fn open(
+        id: u64,
+        image: Arc<RgbaImage>,
+        document: Editor,
+        theme: i32,
+        browse: bool,
+    ) -> Result<Self> {
         let window = EditorWindow::new()?;
+        window.set_browse(browse);
         let appearance = window.global::<ClippyTheme>();
         appearance.set_index(theme);
         settings::connect_window_frame(&window, appearance);
@@ -197,7 +204,7 @@ fn edit_sync(edit: impl FnOnce(&mut View)) {
 impl App {
     pub(super) fn open_editor(&mut self, image: RgbaImage) -> Result<()> {
         let image = Arc::new(image);
-        self.show_editor(image.clone(), Editor::new(image))
+        self.show_editor(image.clone(), Editor::new(image), false)
     }
 
     pub(super) fn open_editor_project(
@@ -208,10 +215,27 @@ impl App {
         self.show_editor(
             image,
             Editor::from_project(project).map_err(anyhow::Error::msg)?,
+            false,
         )
     }
 
-    fn show_editor(&mut self, image: Arc<RgbaImage>, document: Editor) -> Result<()> {
+    pub(super) fn open_viewer_project(
+        &mut self,
+        image: Arc<RgbaImage>,
+        project: ImageProject,
+    ) -> Result<()> {
+        anyhow::ensure!(
+            self.editor.is_none(),
+            "Close the current image before opening another one"
+        );
+        self.show_editor(
+            image,
+            Editor::from_project(project).map_err(anyhow::Error::msg)?,
+            true,
+        )
+    }
+
+    fn show_editor(&mut self, image: Arc<RgbaImage>, document: Editor, browse: bool) -> Result<()> {
         if let Some(view) = self.editor.as_ref() {
             return view.show();
         }
@@ -221,6 +245,7 @@ impl App {
             image,
             document,
             settings::theme_index(&self.config.theme),
+            browse,
         )?);
         Ok(())
     }

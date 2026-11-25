@@ -103,6 +103,7 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
     let shortcuts = Shortcuts::start(
         identity.current_platform(),
         &config.global_shortcut,
+        &config.pin_shortcut,
         &config.capture_shortcut,
         |action| post(Event::GlobalShortcut(action)),
         |message| post(Event::ShortcutStatus(message)),
@@ -278,10 +279,19 @@ impl App {
                     window.get_recording_shortcut() != ShortcutField::None
                 }) =>
             {
-                self.handle(match action {
-                    Action::Open => Event::Open(false),
-                    Action::Capture => Event::CaptureStart,
-                });
+                match action {
+                    Action::Open => self.handle(Event::Open(false)),
+                    Action::Pin => {
+                        if let Some(window) = self.window.as_ref().filter(|window| {
+                            !window.get_show_settings() && !window.get_loading_history()
+                        }) {
+                            if let Ok(id) = window.get_selected_id().parse() {
+                                self.pin_message(pins::Message::PinClip(id));
+                            }
+                        }
+                    }
+                    Action::Capture => self.handle(Event::CaptureStart),
+                }
             }
             Event::GlobalShortcut(_) => {}
             Event::Open(settings) if self.capture_views.is_none() => {
@@ -523,7 +533,10 @@ impl App {
         window.on_authorize_paste(|| use_app(App::authorize));
         window.on_edit_history_image(|id| {
             if let Ok(id) = id.parse() {
-                post(Event::Pins(pins::Message::History(id)));
+                post(Event::Pins(pins::Message::History(
+                    id,
+                    pins::ImageDestination::Viewer,
+                )));
             }
         });
         window.on_preview_item(|id| {
@@ -533,6 +546,14 @@ impl App {
         });
         window.on_show_preview(|open| post(Event::Preview(preview::Message::Show(open))));
         window.on_preview_selection_changed(|| post(Event::Preview(preview::Message::Selection)));
+        window.on_translate_preview(|text| {
+            post(Event::Preview(preview::Message::Translate(
+                text.to_string(),
+            )));
+        });
+        window.on_copy_preview_text(|text| {
+            post(Event::Preview(preview::Message::CopyText(text.to_string())));
+        });
         window.on_history_viewport_changed(|first, end| {
             post(Event::Thumbnails(thumbnails::Message::Viewport(first, end)));
         });

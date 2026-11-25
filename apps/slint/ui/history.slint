@@ -221,18 +221,27 @@ export component HistoryPane inherits Rectangle {
                             padding-right: 8px;
                             spacing: 6px;
 
-                            if !clip.sensitive && clip.thumbnail.width > 0: Rectangle {
-                                width: 48px;
-                                height: 48px;
-                                y: (parent.height - self.height) / 2;
-                                border-radius: 5px;
-                                clip: true;
-                                background: ClippyTheme.elevated;
-                                Image { source: clip.thumbnail; width: parent.width; height: parent.height; image-fit: contain; }
-                            }
                             Rectangle {
                                 horizontal-stretch: 1;
-                                VerticalLayout {
+                                if !clip.sensitive && clip.thumbnail.width > 0: Rectangle {
+                                    x: 0px; y: 6px; width: parent.width; height: 62px;
+                                    Rectangle {
+                                        x: 0px; y: 0px; height: 40px;
+                                        width: clamp(clip.thumbnail.width * 40px / clip.thumbnail.height, 36px, 104px);
+                                        border-radius: 4px; clip: true; background: ClippyTheme.elevated;
+                                        Image { source: clip.thumbnail; width: parent.width; height: parent.height; image-fit: contain; }
+                                    }
+                                    Text {
+                                        x: 0px; y: 45px; width: parent.width;
+                                        text: clip.metadata; color: ClippyTheme.subtle;
+                                        font-size: 11px; overflow: elide;
+                                    }
+                                    if clip.favorite: Text {
+                                        x: 112px; y: 0px; text: "★";
+                                        color: ClippyTheme.favorite; font-size: 13px;
+                                    }
+                                }
+                                if clip.sensitive || clip.thumbnail.width == 0: VerticalLayout {
                                     width: parent.width;
                                     y: (parent.height - self.height) / 2;
                                     height: 34px;
@@ -254,7 +263,7 @@ export component HistoryPane inherits Rectangle {
                                     }
                                     Text {
                                         text: clip.metadata;
-                                        color: ClippyTheme.muted;
+                                        color: ClippyTheme.subtle;
                                         font-size: 11px;
                                         overflow: elide;
                                         height: 13px;

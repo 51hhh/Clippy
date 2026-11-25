@@ -60,6 +60,7 @@ pub(super) enum Message {
     Close,
     Search(String),
     Activate(LauncherAction),
+    Source(u64, &'static str, Option<String>),
     Image(u64, LauncherAction, Result<RgbaImage>),
     Saved(u64, Result<String>),
 }
@@ -147,21 +148,27 @@ use LauncherAction::*;
 const ACTIONS: &[ActionEntry] = &[
     ActionEntry {
         action: Capture,
-        label: "Screenshot",
-        detail: "Select a region of the screen",
+        label: "Take screenshot",
+        detail: "Freeze all displays and select an area",
         keywords: "capture region crop 截图",
-    },
-    ActionEntry {
-        action: SystemCapture,
-        label: "System screenshot",
-        detail: "Open the desktop screenshot dialog",
-        keywords: "portal wayland 系统截图",
     },
     ActionEntry {
         action: Recognize,
         label: "Recognize image text",
         detail: "Read text and its position in an image",
         keywords: "ocr recognize image text 识字",
+    },
+    ActionEntry {
+        action: PinImage,
+        label: "Pin image",
+        detail: "Keep a clipboard image on the desktop",
+        keywords: "pin image window 贴图",
+    },
+    ActionEntry {
+        action: SaveImage,
+        label: "Save PNG",
+        detail: "Save a clipboard image to the screenshot folder",
+        keywords: "save image png export 保存",
     },
     ActionEntry {
         action: Scan,
@@ -176,16 +183,10 @@ const ACTIONS: &[ActionEntry] = &[
         keywords: "edit image annotate 编辑",
     },
     ActionEntry {
-        action: PinImage,
-        label: "Pin image",
-        detail: "Keep a clipboard image on the desktop",
-        keywords: "pin image window 贴图",
-    },
-    ActionEntry {
-        action: SaveImage,
-        label: "Save PNG",
-        detail: "Save a clipboard image to the screenshot folder",
-        keywords: "save image png export 保存",
+        action: SystemCapture,
+        label: "System screenshot",
+        detail: "Open the desktop screenshot dialog",
+        keywords: "portal wayland 系统截图",
     },
     ActionEntry {
         action: TextTools,
@@ -241,6 +242,36 @@ fn send(message: Message) {
 }
 
 impl App {
+    fn describe_launcher_source(&self, selection: Selection) {
+        let title = match selection.image {
+            ImageSource::Latest => "Latest clipboard image",
+            ImageSource::Selected(_) => "Selected clipboard image",
+            ImageSource::Unavailable if selection.text.is_some() => "Selected clipboard text",
+            ImageSource::Unavailable => return,
+        };
+        let generation = self.launcher.generation;
+        if let Err(error) = self.storage.client().execute(
+            move |db| {
+                let id = match selection.image {
+                    ImageSource::Latest => db.get_latest_image_id()?,
+                    ImageSource::Selected(id) => Some(id),
+                    ImageSource::Unavailable => selection.text,
+                };
+                id.map(|id| db.get_clip_detail_by_id(id)).transpose()
+            },
+            move |result| {
+                let detail = result
+                    .ok()
+                    .flatten()
+                    .filter(|clip| !clip.is_sensitive)
+                    .map(|clip| crate::clip_metadata(clip.byte_size, clip.created_at));
+                send(Message::Source(generation, title, detail));
+            },
+        ) {
+            eprintln!("Unable to describe the launcher selection: {error}");
+        }
+    }
+
     pub(super) fn launcher_message(&mut self, message: Message) {
         if let Err(error) = self.handle_launcher(message) {
             if self.launcher.is_open() {
@@ -254,6 +285,7 @@ impl App {
     fn handle_launcher(&mut self, message: Message) -> Result<()> {
         match message {
             Message::OpenFromTray | Message::OpenFromHistory => {
+                let already_open = self.launcher.is_open();
                 let selection = if matches!(message, Message::OpenFromTray) {
                     Selection::TRAY
                 } else {
@@ -268,7 +300,17 @@ impl App {
                 };
                 self.launcher
                     .open(selection, settings::theme_index(&self.config.theme))?;
+                if !already_open {
+                    self.describe_launcher_source(selection);
+                }
             }
+            Message::Source(generation, title, Some(detail)) => {
+                if let Some(view) = self.launcher.current(generation) {
+                    view.window.set_source_title(title.into());
+                    view.window.set_source_detail(detail.into());
+                }
+            }
+            Message::Source(_, _, None) => {}
             Message::Close => {
                 self.launcher.close();
                 if let Some(window) = &self.window {

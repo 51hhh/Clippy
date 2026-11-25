@@ -1,14 +1,15 @@
-import { Button, ComboBox, LineEdit, ListView, VerticalBox } from "std-widgets.slint";
-import { ClippyTheme } from "theme.slint";
-import { ClippyWindow } from "window.slint";
+import { ComboBox, LineEdit, ListView } from "std-widgets.slint";
+import { ClippyIcon, ClippyTheme, LibraryHeader, SurfaceButton } from "theme.slint";
 
-export struct RecordingRow { key: string, title: string, detail: string, has-artifact: bool, can-merge: bool }
+export struct RecordingFile { key: string, title: string, detail: string }
 
-export component RecordingLibrary inherits ClippyWindow {
+export struct RecordingRow {
+    session: string, title: string, detail: string, state: string, complete: bool,
+    can-merge: bool, can-preview: bool, thumbnail: image, files: [RecordingFile],
+}
+
+export component RecordingLibrary inherits Window {
     in property <[RecordingRow]> recordings;
-    in-out property <string> selected;
-    in-out property <bool> can-play;
-    in-out property <bool> can-merge;
     in property <bool> recording;
     in property <bool> paused;
     in property <bool> toggle-pending;
@@ -18,6 +19,7 @@ export component RecordingLibrary inherits ClippyWindow {
     in property <[string]> audio-options;
     in-out property <int> audio-index;
     callback audio-changed(int);
+    callback preview-recording(string);
     callback play(string);
     callback export-recording(string, string);
     callback remove-recording(string);
@@ -26,87 +28,234 @@ export component RecordingLibrary inherits ClippyWindow {
     callback pause();
     callback stop();
     callback dismiss();
+    private property <string> confirm-delete;
+    private property <string> export-directory;
 
     title: "Clippy Recordings";
-    heading: "Recordings";
-    dismiss-window => { root.dismiss(); }
-    preferred-width: 640px;
-    preferred-height: 500px;
+    no-frame: true;
+    resize-border-width: ClippyTheme.window-resize-border;
+    background: ClippyTheme.background;
+    preferred-width: 780px;
+    preferred-height: 620px;
+    min-width: 440px;
+    min-height: 340px;
+    init => { ClippyTheme.sync-native-palette(); }
 
-    VerticalBox {
-        padding: 16px;
-        spacing: 8px;
-        vertical-stretch: 1;
+    public pure function titlebar-contains(x: length, y: length) -> bool {
+        return x >= root.resize-border-width && x < root.width - 61px
+            && y >= root.resize-border-width && y < heading.height;
+    }
+
+    VerticalLayout {
+        x: 0px; y: 0px; width: root.width; height: root.height;
+        heading := LibraryHeader {
+            height: 84px;
+            title: "Recordings";
+            subtitle: "Export completed recordings or recover committed segments.";
+            dismiss => { root.dismiss(); }
+        }
+        VerticalLayout {
+            padding: 18px; padding-left: 22px; padding-right: 22px; padding-bottom: 22px;
+            spacing: 10px;
+            if root.recording: HorizontalLayout {
+                spacing: 8px; height: 36px;
+                if root.recording: SurfaceButton {
+                    label: root.paused ? "Resume" : "Pause"; width: 76px;
+                    border-width: 1px; border-color: ClippyTheme.control-border;
+                    enabled: !root.toggle-pending && !root.finishing;
+                    clicked => { root.pause(); }
+                }
+                if root.recording: SurfaceButton {
+                    label: root.finishing ? "Finalizing…" : "Stop"; width: 96px;
+                    danger: true; enabled: !root.finishing;
+                    border-width: 1px; border-color: ClippyTheme.control-border;
+                    clicked => { root.stop(); }
+                }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            if root.status != "": Text {
+                text: root.status; color: ClippyTheme.muted;
+                font-size: 12px; wrap: word-wrap;
+            }
+            if root.recordings.length > 0: HorizontalLayout {
+                height: 32px; spacing: 8px;
+                LineEdit { text <=> root.export-directory; placeholder-text: "Optional export destination directory"; }
+                SurfaceButton { label: "Refresh"; border-width: 1px; border-color: ClippyTheme.control-border; clicked => { root.reload(); } }
+            }
+            if root.recordings.length == 0: Rectangle {
+                vertical-stretch: 1;
+                VerticalLayout {
+                    y: 0px; width: parent.width; height: min(320px, parent.height); alignment: center; spacing: 7px;
+                    Rectangle {
+                        width: 52px; height: 52px; x: (parent.width - self.width) / 2;
+                        background: ClippyTheme.accent-soft; border-radius: 16px;
+                        ClippyIcon {
+                            width: 23px; height: 23px; ink: ClippyTheme.highlight;
+                            drawing: "M12 4a8 8 0 1 1 0 16 8 8 0 1 1 0-16 M12 8a4 4 0 1 1 0 8 4 4 0 1 1 0-8";
+                        }
+                    }
+                    Text {
+                        text: root.loaded ? "No recordings yet" : "Loading recordings…";
+                        color: ClippyTheme.muted; font-size: 18px; font-weight: 650; horizontal-alignment: center;
+                    }
+                    if root.loaded: Text {
+                        text: "Completed recordings and recoverable segments will appear here.";
+                        color: ClippyTheme.muted; font-size: 13px; horizontal-alignment: center; wrap: word-wrap;
+                    }
+                }
+            }
+            if root.recordings.length > 0: ListView {
+                vertical-stretch: 1;
+                for row in root.recordings: Rectangle {
+                    height: 140px + 58px * row.files.length
+                        + (row.can-merge ? 48px : 0px) + (root.confirm-delete == row.session ? 48px : 0px);
+                    init => { if row.can-preview { root.preview-recording(row.session); } }
+                    Rectangle {
+                        x: 0px; y: 0px; width: parent.width; height: parent.height - 14px;
+                        border-radius: 14px; background: ClippyTheme.elevated;
+                        border-width: 1px; border-color: ClippyTheme.border;
+                        VerticalLayout {
+                            padding: 16px; spacing: 5px;
+                            HorizontalLayout {
+                                height: 90px; spacing: 14px;
+                                Rectangle {
+                                    width: 160px; border-radius: 9px; background: ClippyTheme.hover; clip: true;
+                                    if row.thumbnail.width > 0: Image {
+                                        width: parent.width; height: parent.height;
+                                        image-fit: contain; source: row.thumbnail;
+                                    }
+                                    if row.thumbnail.width == 0: ClippyIcon {
+                                        width: 24px; height: 24px; ink: ClippyTheme.subtle;
+                                        drawing: "M7 5v14l12-7Z";
+                                    }
+                                }
+                                VerticalLayout {
+                                    spacing: 5px; alignment: start; horizontal-stretch: 1;
+                                    HorizontalLayout {
+                                        spacing: 7px; height: 31px;
+                                        Text { text: row.title; font-size: 15px; font-weight: 700; color: ClippyTheme.foreground; overflow: elide; vertical-alignment: center; }
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                            Text {
+                                                text: row.state; color: row.complete ? (ClippyTheme.dark ? #86efac : #187951) : ClippyTheme.muted;
+                                                overflow: elide; font-size: 11px; vertical-alignment: center;
+                                            }
+                                        }
+                                        SurfaceButton {
+                                            label: "Delete session"; caption: "Delete"; danger: true; enabled: !root.recording;
+                                            clicked => { root.confirm-delete = row.session; }
+                                        }
+                                    }
+                                    Text { text: row.detail; font-size: 12px; color: ClippyTheme.muted; wrap: word-wrap; }
+                                }
+                            }
+                            if row.can-merge: HorizontalLayout {
+                                height: 43px; spacing: 8px;
+                                Text { text: "Committed segments can be recovered."; color: ClippyTheme.muted; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; }
+                                SurfaceButton { label: "Recover"; primary: true; enabled: !root.recording; clicked => { root.merge-recording(row.session + ":"); } }
+                            }
+                            for file in row.files: Rectangle {
+                                height: 53px;
+                                Rectangle { y: 0px; height: 1px; background: ClippyTheme.border; }
+                                HorizontalLayout {
+                                    spacing: 7px; padding-top: 5px; padding-bottom: 4px;
+                                    VerticalLayout {
+                                        alignment: center; spacing: 3px; horizontal-stretch: 1;
+                                        Text { text: file.title; font-size: 13px; font-weight: 650; color: ClippyTheme.foreground; overflow: elide; }
+                                        Text { text: file.detail; font-size: 11px; color: ClippyTheme.subtle; overflow: elide; }
+                                    }
+                                    SurfaceButton { label: "Play"; width: 61px; border-width: 1px; border-color: ClippyTheme.control-border; clicked => { root.play(file.key); } }
+                                    SurfaceButton {
+                                        label: "Export"; width: 70px; primary: true;
+                                        clicked => { root.export-recording(file.key, root.export-directory); }
+                                    }
+                                }
+                            }
+                            if root.confirm-delete == row.session: HorizontalLayout {
+                                height: 43px; spacing: 6px;
+                                Text { text: "Delete this recording and its saved segments?"; color: ClippyTheme.danger; font-size: 11px; wrap: word-wrap; vertical-alignment: center; horizontal-stretch: 1; }
+                                SurfaceButton { label: "Cancel"; clicked => { root.confirm-delete = ""; } }
+                                SurfaceButton {
+                                    label: "Delete permanently"; caption: "Delete"; danger: true; enabled: !root.recording;
+                                    clicked => { root.remove-recording(row.session + ":"); root.confirm-delete = ""; }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if root.audio-options.length > 1: HorizontalLayout {
+                spacing: 7px; height: 32px;
+                Rectangle { horizontal-stretch: 1; }
+                Text { text: "Next recording"; color: ClippyTheme.subtle; font-size: 11px; vertical-alignment: center; }
+                ComboBox {
+                    width: 180px;
+                    model: root.audio-options; current-index <=> root.audio-index;
+                    accessible-label: "Audio for the next recording";
+                    selected => { root.audio-changed(self.current-index); }
+                }
+            }
+        }
+    }
+}
+
+component RecordingControlButton inherits SurfaceButton {
+    in property <string> icon;
+    caption: "";
+    width: 36px; height: 36px; border-radius: 9px; border-width: 1px;
+    background: root.danger ? (root.hovered && root.enabled ? #991b1b : #7f1d1d)
+        : root.hovered && root.enabled ? #334155 : #1e293b;
+    border-color: root.danger ? #991b1b : #334155;
+    ClippyIcon { drawing: root.icon; ink: !root.enabled ? #8390a4 : root.danger ? #fecaca : #e2e8f0; }
+}
+
+export component RecordingControlWindow inherits Window {
+    in property <bool> started;
+    in property <bool> paused;
+    in property <bool> pending;
+    in property <bool> finishing;
+    in property <string> elapsed: "00:00";
+    callback pause();
+    callback stop();
+
+    title: "Clippy Recording Control";
+    no-frame: true;
+    preferred-width: 280px; preferred-height: 56px;
+    min-width: 280px; min-height: 56px;
+    background: transparent;
+
+    Rectangle {
+        width: parent.width; height: parent.height;
+        border-radius: 12px; border-width: 1px; border-color: #465165;
+        background: #151f32;
         HorizontalLayout {
-            spacing: 8px;
-            if root.recording: Button {
-                text: root.paused ? "Resume" : "Pause";
-                width: 90px;
-                enabled: !root.toggle-pending && !root.finishing;
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            padding-left: 14px; padding-right: 10px; spacing: 10px;
+            Rectangle {
+                width: 18px;
+                Rectangle {
+                    width: 17px; height: 17px; border-radius: 9px;
+                    background: root.paused ? #49381d : #48273c;
+                    Rectangle { width: 9px; height: 9px; border-radius: 5px; background: root.paused ? #f59e0b : #ef4444; }
+                }
+            }
+            Text {
+                text: root.finishing ? "Finalizing…" : !root.started ? "Starting…" : root.elapsed;
+                font-size: 14px; font-weight: 650; color: #f8fafc;
+                vertical-alignment: center; horizontal-stretch: 1;
+            }
+            RecordingControlButton {
+                label: root.paused ? "Resume recording" : "Pause recording";
+                icon: root.paused ? "M8 4v16l12-8Z" : "M8 5v14m8-14v14";
+                enabled: root.started && !root.finishing && !root.pending;
                 clicked => { root.pause(); }
             }
-            if root.recording: Button {
-                text: root.finishing ? "Finalizing…" : "Stop";
-                width: 104px;
-                enabled: !root.finishing;
+            RecordingControlButton {
+                label: "Stop recording"; danger: true;
+                icon: "M6 6h12v12H6Z";
+                enabled: root.started && !root.finishing;
                 clicked => { root.stop(); }
             }
-            Rectangle { horizontal-stretch: 1; }
-            Button { text: "Refresh"; clicked => { root.reload(); } }
-        }
-        if root.audio-options.length > 1: HorizontalLayout {
-            spacing: 8px;
-            Text { text: "Next recording"; vertical-alignment: center; color: ClippyTheme.foreground; }
-            ComboBox {
-                model: root.audio-options;
-                current-index <=> root.audio-index;
-                selected => { root.audio-changed(self.current-index); }
-            }
-        }
-        if root.recordings.length == 0: Text {
-            text: root.loaded ? "No recordings yet" : "Loading recordings…";
-            color: ClippyTheme.muted;
-            horizontal-alignment: center;
-            vertical-alignment: center;
-            vertical-stretch: 1;
-        }
-        if root.recordings.length > 0: ListView {
-            for row in root.recordings: Rectangle {
-                height: 62px;
-                border-radius: 5px;
-                background: root.selected == row.key ? ClippyTheme.accent-soft : ClippyTheme.surface;
-                TouchArea {
-                    clicked => {
-                        root.selected = row.key;
-                        root.can-play = row.has-artifact;
-                        root.can-merge = row.can-merge;
-                    }
-                    double-clicked => { if row.has-artifact { root.play(row.key); } }
-                }
-                VerticalLayout {
-                    padding: 8px;
-                    Text { text: row.title; color: ClippyTheme.foreground; overflow: elide; }
-                    Text { text: row.detail; font-size: 12px; color: ClippyTheme.muted; overflow: elide; }
-                }
-            }
-        }
-        destination := LineEdit {
-            enabled: root.can-play;
-            placeholder-text: "Optional export destination directory";
-        }
-        HorizontalLayout {
-            spacing: 8px;
-            Button { text: "Play"; enabled: root.can-play; clicked => { root.play(root.selected); } }
-            Button { text: "Export"; enabled: root.can-play; clicked => { root.export-recording(root.selected, destination.text); } }
-            if root.can-merge: Button { text: "Recover"; enabled: !root.recording; clicked => { root.merge-recording(root.selected); } }
-            Button { text: "Delete"; enabled: root.selected != "" && !root.recording; clicked => { root.remove-recording(root.selected); } }
-            Button { text: "Close"; clicked => { root.dismiss(); } }
-        }
-        Text {
-            text: root.finishing ? "Finalizing recording…" : root.status;
-            color: ClippyTheme.muted;
-            wrap: word-wrap;
-            min-height: 18px;
         }
     }
 }

@@ -8,11 +8,11 @@ export { PinnedWindow } from "pins.slint";
 export { WorkspaceWindow, WorkspaceRow, WorkspaceGroupRow } from "workspace.slint";
 export { LongshotWindow } from "longshot.slint";
 export { ImageTextWindow, TextBox, TextParagraph } from "vision.slint";
-export { RecordingLibrary, RecordingRow } from "recording.slint";
+export { RecordingControlWindow, RecordingFile, RecordingLibrary, RecordingRow } from "recording.slint";
 export { ToolsWindow, TranslationRow } from "tools.slint";
 export { LauncherWindow, LauncherAction, LauncherRow } from "launcher.slint";
 
-export { CaptureWindow, CaptureAction, CaptureMark } from "capture.slint";
+export { CaptureWindow, CaptureAction, CaptureMark, CaptureTool } from "capture.slint";
 
 export component ClippyTray inherits SystemTrayIcon {
     in property <string> product-name;
@@ -56,8 +56,13 @@ export component AppWindow inherits Window {
     in property <GeneralSettings> general-settings;
     in-out property <ShortcutField> recording-shortcut;
     in-out property <string> panel-shortcut-draft;
+    in-out property <string> pin-shortcut-draft;
     in-out property <string> capture-shortcut-draft;
+    in property <[string]> shortcut-defaults;
+    in property <bool> wayland-session;
+    in property <bool> gnome-session;
     in property <TranslationSettings> translation-settings;
+    in property <string> translation-destination;
     in property <int> provider-index;
     in property <bool> autostart;
     in property <bool> autostart-available;
@@ -100,6 +105,8 @@ export component AppWindow inherits Window {
     callback preview-item(string);
     callback show-preview(bool);
     callback preview-selection-changed();
+    callback translate-preview(string);
+    callback copy-preview-text(string);
     callback history-viewport-changed(int, int);
     callback open-launcher();
 
@@ -107,6 +114,7 @@ export component AppWindow inherits Window {
     changed selected-sensitive => { root.preview-selection-changed(); }
     changed general-settings => {
         root.panel-shortcut-draft = root.general-settings.panel-shortcut;
+        root.pin-shortcut-draft = root.general-settings.pin-shortcut;
         root.capture-shortcut-draft = root.general-settings.capture-shortcut;
     }
 
@@ -183,8 +191,13 @@ export component AppWindow inherits Window {
                     selected-sensitive: root.selected-sensitive;
                     loading: root.loading-history;
                     busy: root.busy;
+                    ocr-enabled: root.general-settings.ocr-enabled;
+                    target-language: root.translation-settings.target == "en" ? "English" : root.translation-settings.target;
+                    destination: root.translation-destination;
                     dismiss => { root.show-preview(false); }
                     copy => { root.copy-item(root.preview.clip-id, false); }
+                    copy-text(text) => { root.copy-preview-text(text); }
+                    translate(text) => { root.translate-preview(text); }
                     open-image => { root.edit-history-image(root.preview.clip-id); }
                     open-tools => { root.preview-item(root.preview.clip-id); }
                 }
@@ -196,7 +209,11 @@ export component AppWindow inherits Window {
             general: root.general-settings;
             recording-shortcut <=> root.recording-shortcut;
             panel-shortcut <=> root.panel-shortcut-draft;
+            pin-shortcut <=> root.pin-shortcut-draft;
             capture-shortcut <=> root.capture-shortcut-draft;
+            shortcut-defaults: root.shortcut-defaults;
+            wayland-session: root.wayland-session;
+            gnome-session: root.gnome-session;
             translation: root.translation-settings;
             provider-index: root.provider-index;
             auto-paste: root.auto-paste;

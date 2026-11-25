@@ -1,9 +1,11 @@
 import { Button, CheckBox, ComboBox, LineEdit, Slider, VerticalBox } from "std-widgets.slint";
 import { ClippyTheme } from "theme.slint";
 import { ClippyWindow } from "window.slint";
+import { ViewerPane } from "viewer.slint";
 
 export component EditorWindow inherits ClippyWindow {
     in property <image> picture;
+    in property <bool> browse;
     in property <float> aspect: 1;
     in property <[string]> tools;
     in property <bool> busy;
@@ -26,15 +28,37 @@ export component EditorWindow inherits ClippyWindow {
     callback recognize();
     callback scan-code();
 
-    title: "Clippy Image Editor";
-    heading: "Image Editor";
+    title: root.browse ? "Clippy Image Viewer" : "Clippy Image Editor";
+    heading: root.browse ? "Image viewer" : "Image Editor";
+    heading-subtitle: root.browse ? "" + root.picture.width + " × " + root.picture.height + " · PNG" : "";
+    heading-icon: root.browse ? "M3 4h18v16H3Z M3 16l6-5 4 4 4-2 4 3 M15 8h1" : "";
     dismiss-window => { root.close-editor(); }
-    preferred-width: 850px;
-    preferred-height: 610px;
-    min-width: 540px;
+    preferred-width: root.browse ? 1000px : 850px;
+    preferred-height: root.browse ? 720px : 610px;
+    min-width: root.browse ? 420px : 540px;
     min-height: 380px;
 
-    VerticalBox {
+    if root.browse: ViewerPane {
+        picture: root.picture;
+        tools: root.tools;
+        busy: root.busy;
+        can-undo: root.can-undo;
+        can-redo: root.can-redo;
+        output-ready: root.output-ready;
+        status: root.status;
+        start-stroke(x, y) => { root.start-stroke(x, y); }
+        move-stroke(x, y) => { root.move-stroke(x, y); }
+        finish-stroke(x, y, tool, shade, stroke, text) => { root.finish-stroke(x, y, tool, shade, stroke, text); }
+        undo => { root.undo(); }
+        redo => { root.redo(); }
+        copy => { root.copy(); }
+        save => { root.save(); }
+        recognize => { root.recognize(); }
+        scan-code => { root.scan-code(); }
+        pin => { root.pin(); }
+    }
+
+    if !root.browse: VerticalBox {
         padding: 12px;
         spacing: 8px;
         vertical-stretch: 1;

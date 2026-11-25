@@ -24,6 +24,8 @@ pub mod segmenting;
 pub mod session;
 #[cfg(test)]
 mod test_artifacts;
+#[cfg(feature = "recording-vp9-prototype")]
+pub mod thumbnail;
 pub mod timeline;
 pub mod worker;
 pub mod worker_start;

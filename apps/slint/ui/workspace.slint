@@ -1,24 +1,28 @@
-import { ComboBox, LineEdit, ListView } from "std-widgets.slint";
-import { ClippyTheme, SurfaceButton, WindowHeader } from "theme.slint";
+import { LineEdit, ListView } from "std-widgets.slint";
+import { ClippyIcon, ClippyTheme, LibraryHeader, SurfaceButton } from "theme.slint";
+import { WorkspaceGrid, WorkspaceRow } from "workspace-grid.slint";
+export { WorkspaceRow }
 
 export struct WorkspaceGroupRow { key: string, label: string, count: int }
-export struct WorkspaceRow { id: string, label: string, group: string, group-key: string }
 
 export component WorkspaceWindow inherits Window {
     in property <[WorkspaceRow]> pins;
     in property <[WorkspaceGroupRow]> groups;
     in property <[string]> destinations;
-    in-out property <string> selection;
     in property <string> group-filter;
+    in property <string> group-name;
     in property <string> status;
     callback open-pin(string);
     callback delete-pin(string);
     callback select-group(string);
     callback move-to-group(string, string);
     callback create-group(string);
+    callback rename-group(string, string);
+    callback delete-group(string);
+    callback viewport(int, int);
     callback close-workspace();
 
-    private property <string> confirm-remove;
+    private property <bool> confirm-group;
 
     title: "Clippy Pinned Workspace";
     preferred-width: 820px;
@@ -26,132 +30,121 @@ export component WorkspaceWindow inherits Window {
     min-width: 460px;
     min-height: 360px;
     no-frame: true;
-    resize-border-width: 6px;
+    resize-border-width: ClippyTheme.window-resize-border;
     background: ClippyTheme.background;
     init => { ClippyTheme.sync-native-palette(); }
 
     public pure function titlebar-contains(x: length, y: length) -> bool {
-        return ClippyTheme.titlebar-contains(x, y, root.width, root.resize-border-width);
+        return x >= root.resize-border-width && x < root.width - 61px
+            && y >= root.resize-border-width && y < titlebar.height;
     }
 
-    changed group-filter => {
-        list.content-y = 0px;
-        root.confirm-remove = "";
-    }
-    changed selection => { root.confirm-remove = ""; }
+    changed group-filter => { root.confirm-group = false; }
 
     VerticalLayout {
-        WindowHeader {
-            title: "Pinned Workspace";
-            maximized: root.maximized;
-            minimize => { root.minimized = true; }
-            maximize => { root.maximized = !root.maximized; }
+        x: 0px; y: 0px; width: root.width; height: root.height;
+        titlebar := LibraryHeader {
+            title: "Pin Workspaces";
+            subtitle: "Return to saved pins and organize them without changing clipboard history.";
             dismiss => { root.close-workspace(); }
         }
         HorizontalLayout {
             Rectangle {
-                width: 190px;
+                width: root.width >= 560px ? 210px : 160px;
                 background: ClippyTheme.elevated;
                 VerticalLayout {
-                    padding: 12px;
-                    spacing: 7px;
-                    Text { text: "Groups"; color: ClippyTheme.muted; font-size: 12px; font-weight: 600; }
+                    x: 0px; y: 0px; width: parent.width; height: parent.height;
+                    alignment: start;
+                    padding: 12px; padding-top: 14px; spacing: 10px;
                     ListView {
-                        for group in root.groups: SurfaceButton {
-                            label: group.label + ", " + group.count + " pins";
-                            caption: "";
-                            selected: group.key == root.group-filter;
-                            pill: true;
-                            height: 34px;
-                            clicked => { root.select-group(group.key); }
-                            HorizontalLayout {
-                                padding-left: 9px;
-                                padding-right: 9px;
-                                spacing: 4px;
-                                Text {
-                                    text: group.label; color: ClippyTheme.foreground; font-size: 13px;
-                                    overflow: elide; vertical-alignment: center; horizontal-stretch: 1;
+                        height: min(root.groups.length * 41px, parent.height * 0.42);
+                        for group in root.groups: Rectangle {
+                            height: 41px;
+                            SurfaceButton {
+                                label: group.label + ", " + group.count + " pins";
+                                caption: "";
+                                y: 0px; width: parent.width; height: 38px;
+                                selected: group.key == root.group-filter;
+                                background: self.selected ? ClippyTheme.accent-soft : self.hovered ? ClippyTheme.hover : transparent;
+                                clicked => { root.select-group(group.key); }
+                                HorizontalLayout {
+                                    padding-left: 10px; padding-right: 10px; spacing: 5px;
+                                    Text {
+                                        text: group.label; font-size: 13px; overflow: elide;
+                                        color: group.key == root.group-filter ? ClippyTheme.accent : ClippyTheme.foreground;
+                                        font-weight: group.key == root.group-filter ? 650 : 500;
+                                        vertical-alignment: center; horizontal-stretch: 1;
+                                    }
+                                    Text {
+                                        text: "" + group.count; font-size: 11px;
+                                        color: ClippyTheme.subtle; vertical-alignment: center;
+                                    }
                                 }
-                                Text { text: "" + group.count; color: ClippyTheme.muted; font-size: 11px; vertical-alignment: center; }
                             }
                         }
                     }
-                    name := LineEdit {
-                        placeholder-text: "New group";
-                        accessible-label: "New group name";
-                        accepted => { if self.text != "" { root.create-group(self.text); self.text = ""; } }
+                    HorizontalLayout {
+                        spacing: 6px; height: 36px;
+                        name := LineEdit {
+                            placeholder-text: "New group"; accessible-label: "New group name";
+                            accepted => { if self.text != "" { root.create-group(self.text); self.text = ""; } }
+                        }
+                        SurfaceButton {
+                            label: "Create group"; caption: "+";
+                            width: 36px; enabled: name.text != "";
+                            border-width: 1px; border-color: ClippyTheme.border;
+                            clicked => { root.create-group(name.text); name.text = ""; }
+                        }
                     }
-                    SurfaceButton {
-                        label: "Create group";
-                        enabled: name.text != "";
-                        clicked => { root.create-group(name.text); name.text = ""; }
+                    if root.group-name != "": VerticalLayout {
+                        spacing: 7px;
+                        Rectangle { height: 1px; background: ClippyTheme.border; }
+                        Text { text: "Manage group"; color: ClippyTheme.muted; font-size: 11px; }
+                        rename := LineEdit {
+                            text: root.group-name;
+                            accessible-label: "Group name";
+                            accepted => { if self.text != "" { root.rename-group(root.group-filter, self.text); } }
+                        }
+                        if !root.confirm-group: HorizontalLayout {
+                            spacing: 5px;
+                            SurfaceButton {
+                                label: "Rename"; enabled: rename.text != "" && rename.text != root.group-name;
+                                border-width: 1px; border-color: ClippyTheme.border;
+                                clicked => { root.rename-group(root.group-filter, rename.text); }
+                            }
+                            SurfaceButton {
+                                label: "Delete"; danger: true;
+                                border-width: 1px; border-color: ClippyTheme.border;
+                                clicked => { root.confirm-group = true; }
+                            }
+                        }
+                        if root.confirm-group: VerticalLayout {
+                            spacing: 4px;
+                            Text { text: "Delete this group? Its pins will be ungrouped."; color: ClippyTheme.danger; wrap: word-wrap; font-size: 11px; }
+                            HorizontalLayout {
+                                spacing: 4px;
+                                SurfaceButton { label: "Cancel"; clicked => { root.confirm-group = false; } }
+                                SurfaceButton { label: "Delete"; danger: true; clicked => { root.delete-group(root.group-filter); root.confirm-group = false; } }
+                            }
+                        }
                     }
                 }
             }
             Rectangle { width: 1px; background: ClippyTheme.border; }
             VerticalLayout {
-                padding: 14px;
-                spacing: 8px;
-                horizontal-stretch: 1;
-                Rectangle {
+                padding: 16px; padding-left: 18px; padding-right: 18px; padding-bottom: 24px;
+                spacing: 8px; horizontal-stretch: 1;
+                if root.status != "": Text { text: root.status; color: ClippyTheme.danger; wrap: word-wrap; }
+                WorkspaceGrid {
                     vertical-stretch: 1;
-                    list := ListView {
-                        width: parent.width;
-                        height: parent.height;
-                        for pin in root.pins: Rectangle {
-                            height: 58px;
-                            border-radius: 7px;
-                            background: root.selection == pin.id ? ClippyTheme.accent-soft
-                                : hit.has-hover ? ClippyTheme.hover : ClippyTheme.surface;
-                            accessible-role: list-item;
-                            accessible-label: pin.label;
-                            accessible-action-default => { root.selection = pin.id; root.open-pin(pin.id); }
-                            VerticalLayout {
-                                padding: 10px;
-                                spacing: 2px;
-                                Text { text: pin.label; color: ClippyTheme.foreground; font-size: 14px; overflow: elide; }
-                                Text { text: pin.group; color: ClippyTheme.muted; font-size: 11px; overflow: elide; }
-                            }
-                            hit := TouchArea {
-                                clicked => { root.selection = pin.id; }
-                                double-clicked => { root.open-pin(pin.id); }
-                            }
-                        }
-                    }
-                    if root.pins.length == 0: Text {
-                        text: root.group-filter == "" ? "No saved pins" : "No pins in this group";
-                        color: ClippyTheme.muted;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
+                    rows: root.pins;
+                    destinations: root.destinations;
+                    filter: root.group-filter;
+                    viewport(first, end) => { root.viewport(first, end); }
+                    open(id) => { root.open-pin(id); }
+                    remove(id) => { root.delete-pin(id); }
+                    move-to(id, index) => { root.move-to-group(id, root.groups[index + 1].key); }
                 }
-                HorizontalLayout {
-                    spacing: 6px;
-                    destination := ComboBox { model: root.destinations; current-index: 0; enabled: root.selection != ""; }
-                    SurfaceButton {
-                        label: "Move to group";
-                        enabled: root.selection != "" && destination.current-index >= 0 && destination.current-index + 1 < root.groups.length;
-                        clicked => { root.move-to-group(root.selection, root.groups[destination.current-index + 1].key); }
-                    }
-                }
-                HorizontalLayout {
-                    spacing: 6px;
-                    SurfaceButton { label: "Open pin"; width: 110px; selected: true; enabled: root.selection != ""; clicked => { root.open-pin(root.selection); } }
-                    Rectangle { horizontal-stretch: 1; }
-                    if root.confirm-remove != "": SurfaceButton { label: "Cancel"; clicked => { root.confirm-remove = ""; } }
-                    SurfaceButton {
-                        label: root.confirm-remove == "" ? "Remove" : "Confirm removal";
-                        enabled: root.selection != "";
-                        danger: true;
-                        clicked => {
-                            if root.confirm-remove == root.selection {
-                                root.delete-pin(root.selection);
-                                root.confirm-remove = "";
-                            } else { root.confirm-remove = root.selection; }
-                        }
-                    }
-                }
-                Text { text: root.status; color: ClippyTheme.muted; min-height: 18px; wrap: word-wrap; }
             }
         }
     }

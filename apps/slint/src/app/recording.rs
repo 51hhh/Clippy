@@ -1,5 +1,5 @@
-use super::{post, settings, App, Event};
-use crate::{ClippyTheme, RecordingLibrary, RecordingRow};
+use super::{editor, post, settings, App, Event};
+use crate::{ClippyTheme, RecordingFile, RecordingLibrary, RecordingRow};
 use anyhow::{anyhow, Context, Result};
 use clippy_core::image_output::{expand_user_path, unique_image_id};
 #[cfg(all(
@@ -17,11 +17,14 @@ use clippy_media::recording::{
     worker::RecordingFrameSource,
 };
 use clippy_platform::capture::{Region, RegionReader};
-use slint::{CloseRequestResponse, ComponentHandle, ModelRc, VecModel};
+use image::RgbaImage;
+use slint::{CloseRequestResponse, ComponentHandle, Model, ModelRc, SharedString, Timer, VecModel};
 use std::{
+    collections::VecDeque,
     fs, io,
     path::{Path, PathBuf},
     process::{Command as Process, Stdio},
+    rc::Rc,
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::{self, RecvTimeoutError, SyncSender},
@@ -30,6 +33,8 @@ use std::{
     thread::{self, JoinHandle},
     time::Duration,
 };
+
+mod control;
 
 #[derive(Clone, Copy)]
 pub(super) enum Control {
@@ -92,9 +97,13 @@ pub(super) enum Message {
     Show,
     Refresh,
     Close,
+    Begin(Region, (u32, u32)),
+    HideControl,
     Control(Control),
     Audio(i32),
     List(u64, Result<Vec<RecordingLibraryItem>>),
+    Preview(String),
+    PreviewReady(u64, String, Result<Option<RgbaImage>>),
     Started(u64),
     Toggled(u64, Result<bool>),
     Finished(u64, Result<String>),
@@ -109,10 +118,15 @@ pub(super) enum Message {
 #[derive(Default)]
 pub(super) struct Recordings {
     window: Option<RecordingLibrary>,
+    control: Option<control::View>,
     job: Option<Job>,
     playback: Option<Playback>,
     editing_library: bool,
     list_generation: u64,
+    rows: Rc<VecModel<RecordingRow>>,
+    preview_queue: VecDeque<String>,
+    preview_cached: VecDeque<String>,
+    preview_running: bool,
     recovered: Arc<Mutex<bool>>,
     audio_selection: i32,
     status: String,
@@ -333,17 +347,14 @@ impl Job {
             .spawn(move || {
                 let result = (|| {
                     recover_once(&base, &recovered)?;
-                    let x = region.geometry.x
-                        + (region.bounds[0] * region.geometry.width as f32).floor() as i32;
-                    let y = region.geometry.y
-                        + (region.bounds[1] * region.geometry.height as f32).floor() as i32;
+                    let bounds = control::recorded_rectangle(&region, size);
                     let config = DiagnosticRecordingConfig {
                         session_id: unique_image_id(),
                         source_id: region.output.clone(),
-                        physical_x: x,
-                        physical_y: y,
-                        width: size.0,
-                        height: size.1,
+                        physical_x: bounds.x,
+                        physical_y: bounds.y,
+                        width: bounds.width,
+                        height: bounds.height,
                         frames_per_second: 15,
                         include_cursor: false,
                         encoder: recording_encoder(),
@@ -411,7 +422,7 @@ impl Recordings {
         let window = RecordingLibrary::new()?;
         let appearance = window.global::<ClippyTheme>();
         appearance.set_index(theme);
-        settings::connect_window_frame(&window, appearance);
+        settings::connect_titlebar(&window, RecordingLibrary::invoke_titlebar_contains);
         window.set_audio_options(ModelRc::new(VecModel::from(
             AudioTrack::names()
                 .iter()
@@ -431,6 +442,7 @@ impl Recordings {
         });
         window.on_remove_recording(|key| send(Message::Delete(key.to_string())));
         window.on_merge_recording(|key| send(Message::Merge(key.to_string())));
+        window.on_preview_recording(|session| send(Message::Preview(session.to_string())));
         window.window().on_close_requested(|| {
             send(Message::Close);
             CloseRequestResponse::KeepWindowShown
@@ -454,6 +466,9 @@ impl Recordings {
             window.set_finishing(self.finishing);
             window.set_status(self.status.clone().into());
         }
+        if let Some(control) = self.control.as_ref() {
+            control.sync(self.paused, self.toggle_pending, self.finishing);
+        }
     }
 
     fn stop_playback(&mut self) {
@@ -463,6 +478,39 @@ impl Recordings {
             let _ = worker.join();
         }
     }
+
+    fn clear_previews(&mut self) {
+        self.rows = Rc::new(VecModel::default());
+        self.preview_queue.clear();
+        self.preview_cached.clear();
+    }
+
+    fn store_preview(&mut self, session: String, result: Result<Option<RgbaImage>>) {
+        const MAX_PREVIEWS: usize = 8;
+        let Some(index) = self.rows.iter().position(|row| row.session == session) else {
+            return;
+        };
+        let mut row = self.rows.row_data(index).expect("现有录屏行");
+        row.can_preview = false;
+        match result {
+            Ok(Some(image)) => {
+                if self.preview_cached.len() == MAX_PREVIEWS {
+                    let removed = self.preview_cached.pop_front().expect("缩略图缓存已满");
+                    if let Some(stale) = self.rows.iter().position(|row| row.session == removed) {
+                        let mut entry = self.rows.row_data(stale).expect("现有录屏行");
+                        entry.thumbnail = slint::Image::default();
+                        entry.can_preview = true;
+                        self.rows.set_row_data(stale, entry);
+                    }
+                }
+                row.thumbnail = editor::to_slint(&image);
+                self.preview_cached.push_back(session);
+            }
+            Ok(None) => {}
+            Err(error) => eprintln!("Recording thumbnail: {error}"),
+        }
+        self.rows.set_row_data(index, row);
+    }
 }
 
 fn get_artifact(root: &Path, key: &str) -> Result<ResolvedRecordingArtifact> {
@@ -471,45 +519,54 @@ fn get_artifact(root: &Path, key: &str) -> Result<ResolvedRecordingArtifact> {
 }
 
 fn library_rows(items: Vec<RecordingLibraryItem>) -> Vec<RecordingRow> {
-    let mut rows = Vec::new();
-    for item in items {
-        let title = format!(
-            "{} × {} · {:.1} s",
-            item.width,
-            item.height,
-            item.duration_ms as f64 / 1000.0
-        );
-        if item.artifacts.is_empty() {
-            rows.push(RecordingRow {
-                key: format!("{}:", item.session_id).into(),
-                title: title.into(),
-                detail: item.state.into(),
-                has_artifact: false,
-                can_merge: false,
-            });
-            continue;
-        }
-        for artifact in item.artifacts {
-            rows.push(RecordingRow {
-                key: format!("{}:{}", item.session_id, artifact.artifact_id).into(),
-                title: artifact.display_name.into(),
+    items
+        .into_iter()
+        .map(|item| {
+            let files = item
+                .artifacts
+                .into_iter()
+                .map(|artifact| RecordingFile {
+                    key: format!("{}:{}", item.session_id, artifact.artifact_id).into(),
+                    title: artifact.display_name.into(),
+                    detail: format!(
+                        "{:.1} s · {:.1} MiB",
+                        artifact.duration_ms as f64 / 1000.0,
+                        artifact.byte_length as f64 / 1024.0 / 1024.0
+                    )
+                    .into(),
+                })
+                .collect::<Vec<_>>();
+            let state = match item.state {
+                "complete" => "Complete",
+                "interrupted" => "Interrupted",
+                state => state,
+            };
+            RecordingRow {
+                session: item.session_id.into(),
+                title: SharedString::from("Screen recording"),
                 detail: format!(
-                    "{title} · {} · {:.1} MiB",
-                    item.state,
-                    artifact.byte_length as f64 / 1024.0 / 1024.0
+                    "{} × {} · {:.1} s · {} frames · {}",
+                    item.width,
+                    item.height,
+                    item.duration_ms as f64 / 1000.0,
+                    item.frame_count,
+                    item.container.to_ascii_uppercase()
                 )
                 .into(),
-                has_artifact: true,
+                state: state.into(),
+                complete: item.state == "complete",
                 can_merge: cfg!(feature = "vp9-recording") && item.can_merge,
-            });
-        }
-    }
-    rows
+                can_preview: cfg!(feature = "vp9-recording") && item.can_thumbnail,
+                thumbnail: slint::Image::default(),
+                files: ModelRc::new(VecModel::from(files)),
+            }
+        })
+        .collect()
 }
 
 impl App {
     pub(super) fn start_recording(&mut self, input: Result<(Region, (u32, u32))>) {
-        if self.recordings.job.is_some() {
+        if self.recordings.job.is_some() || self.recordings.control.is_some() {
             self.complete("A recording is already in progress");
             return;
         }
@@ -517,24 +574,44 @@ impl App {
         if let Some(window) = self.recordings.window.take() {
             let _ = window.hide();
         }
-        self.capture_task_id += 1;
-        let result = input.and_then(|(region, size)| {
-            Job::open(
-                self.capture_task_id,
-                self.paths.data_dir.clone(),
-                region,
-                size,
-                self.recordings.recovered.clone(),
-                AudioTrack::from_index(self.recordings.audio_selection),
-            )
-            .map_err(Into::into)
+        self.recordings.clear_previews();
+        let (region, size) = match input {
+            Ok(input) => input,
+            Err(error) => return self.capture_error(error),
+        };
+        self.recordings.control = control::View::open(&region, size).unwrap_or_else(|error| {
+            eprintln!("Recording controls: {error}");
+            None
         });
+        if self.recordings.control.is_some() {
+            // WM 摆位有异步阶段，在首帧采集前检查实际坐标。
+            Timer::single_shot(Duration::from_millis(90), move || {
+                send(Message::Begin(region, size))
+            });
+        } else {
+            self.begin_recording(region, size);
+        }
+    }
+
+    fn begin_recording(&mut self, region: Region, size: (u32, u32)) {
+        self.capture_task_id += 1;
+        let result = Job::open(
+            self.capture_task_id,
+            self.paths.data_dir.clone(),
+            region,
+            size,
+            self.recordings.recovered.clone(),
+            AudioTrack::from_index(self.recordings.audio_selection),
+        );
         match result {
             Ok(job) => {
                 self.recordings.job = Some(job);
                 self.recordings.note(Ok("Opening recording source…".into()));
             }
-            Err(error) => self.capture_error(error),
+            Err(error) => {
+                self.recordings.control.take();
+                self.capture_error(error.into());
+            }
         }
     }
 
@@ -573,17 +650,43 @@ impl App {
                 self.refresh_recordings()?;
             }
             Message::Refresh => self.refresh_recordings()?,
+            Message::Begin(region, size) => {
+                if self
+                    .recordings
+                    .control
+                    .as_ref()
+                    .is_some_and(|control| !control.arm())
+                {
+                    self.recordings.control.take();
+                    Timer::single_shot(Duration::from_millis(32), move || {
+                        send(Message::Begin(region, size))
+                    });
+                } else {
+                    self.begin_recording(region, size);
+                }
+            }
+            Message::HideControl => {
+                self.recordings.control.take();
+            }
             Message::Audio(index) => self.recordings.audio_selection = index,
             Message::Close => {
                 self.recordings.stop_playback();
                 if let Some(window) = self.recordings.window.take() {
                     window.hide()?;
                 }
+                self.recordings.clear_previews();
             }
             Message::Started(id)
                 if self.recordings.job.as_ref().is_some_and(|job| job.id == id) =>
             {
-                self.complete("Recording · use the tray to pause or stop");
+                if let Some(control) = self.recordings.control.as_ref() {
+                    control.start();
+                }
+                self.complete(if self.recordings.control.is_some() {
+                    "Recording"
+                } else {
+                    "Recording · use the tray to pause or stop"
+                });
                 if !self.recordings.finishing {
                     self.recordings.note(Ok("Recording".into()));
                 }
@@ -611,6 +714,7 @@ impl App {
                 if self.recordings.job.as_ref().is_some_and(|job| job.id == id) =>
             {
                 self.recordings.job.take();
+                self.recordings.control.take();
                 self.recordings.paused = false;
                 self.recordings.toggle_pending = false;
                 self.recordings.finishing = false;
@@ -652,19 +756,35 @@ impl App {
                 }
             }
             Message::List(generation, result) if generation == self.recordings.list_generation => {
-                if let Some(window) = self.recordings.window.as_ref() {
-                    let rows = library_rows(result?);
-                    let selected = window.get_selected();
-                    let item = rows
-                        .iter()
-                        .find(|item| item.key == selected)
-                        .or_else(|| rows.first());
-                    window.set_selected(item.map(|item| item.key.clone()).unwrap_or_default());
-                    window.set_can_play(item.is_some_and(|item| item.has_artifact));
-                    window.set_can_merge(item.is_some_and(|item| item.can_merge));
-                    window.set_recordings(ModelRc::new(VecModel::from(rows)));
+                if self.recordings.window.is_some() {
+                    self.recordings.clear_previews();
+                    self.recordings.rows = Rc::new(VecModel::from(library_rows(result?)));
+                    let window = self.recordings.window.as_ref().expect("录屏库仍打开");
+                    window.set_recordings(ModelRc::from(self.recordings.rows.clone()));
                     window.set_loaded(true);
                 }
+            }
+            Message::Preview(session) => {
+                if self
+                    .recordings
+                    .rows
+                    .iter()
+                    .any(|row| row.session == session && row.can_preview)
+                    && !self.recordings.preview_queue.contains(&session)
+                {
+                    if self.recordings.preview_queue.len() == 12 {
+                        self.recordings.preview_queue.pop_front();
+                    }
+                    self.recordings.preview_queue.push_back(session);
+                    self.begin_recording_preview()?;
+                }
+            }
+            Message::PreviewReady(generation, session, result) => {
+                self.recordings.preview_running = false;
+                if generation == self.recordings.list_generation {
+                    self.recordings.store_preview(session, result);
+                }
+                self.begin_recording_preview()?;
             }
             Message::Play(key) => self.play_recording(key)?,
             Message::Export(key, directory) if !self.recordings.editing_library => {
@@ -732,6 +852,38 @@ impl App {
             }
             _ => {}
         }
+        Ok(())
+    }
+
+    fn begin_recording_preview(&mut self) -> Result<()> {
+        if self.recordings.preview_running {
+            return Ok(());
+        }
+        let Some(session) = self.recordings.preview_queue.pop_front() else {
+            return Ok(());
+        };
+        let generation = self.recordings.list_generation;
+        let root = self.paths.data_dir.clone();
+        thread::Builder::new()
+            .name("clippy-recording-thumbnail".into())
+            .spawn(move || {
+                #[cfg(feature = "vp9-recording")]
+                let result = manifest::resolve_library_thumbnail_source(&root, &session)
+                    .and_then(|source| {
+                        source
+                            .as_ref()
+                            .map(clippy_media::recording::thumbnail::decode_thumbnail)
+                            .transpose()
+                    })
+                    .map_err(anyhow::Error::msg);
+                #[cfg(not(feature = "vp9-recording"))]
+                let result = {
+                    let _ = root;
+                    Ok(None)
+                };
+                send(Message::PreviewReady(generation, session, result));
+            })?;
+        self.recordings.preview_running = true;
         Ok(())
     }
 

@@ -305,7 +305,7 @@ impl App {
             Message::ImageReady(id, result) if id == self.tools.serial => {
                 let clip = result?.context("No image in clipboard history")?;
                 self.tools.close();
-                self.pin_message(pins::Message::History(clip));
+                self.pin_message(pins::Message::History(clip, pins::ImageDestination::Editor));
             }
             Message::Run(action, source) => self.run_text_action(action, source)?,
             Message::Copy(text) => {

@@ -371,10 +371,31 @@ impl StorageEngine {
         &self,
         id: i64,
     ) -> Result<Option<StoredPinWorkspaceItem>, StorageError> {
-        let query = format!("{WORKSPACE_ITEM_SELECT} WHERE w.id = ?1");
+        self.select_pin_workspace_item("WHERE w.id = ?1", [id])
+    }
+
+    pub fn load_pin_workspace_preview(
+        &self,
+        id: i64,
+        max_png_bytes: u32,
+        max_pixels: u32,
+    ) -> Result<Option<StoredPinWorkspaceItem>, StorageError> {
+        self.select_pin_workspace_item(
+            "WHERE w.id = ?1 AND length(a.png) <= ?2 AND r.source_width * r.source_height <= ?3
+                   AND length(r.annotations_json) + length(r.adjustments_json) <= ?2",
+            params![id, max_png_bytes, max_pixels],
+        )
+    }
+
+    fn select_pin_workspace_item(
+        &self,
+        predicate: &str,
+        parameters: impl rusqlite::Params,
+    ) -> Result<Option<StoredPinWorkspaceItem>, StorageError> {
+        let query = format!("{WORKSPACE_ITEM_SELECT} {predicate}");
         let raw = self
             .conn
-            .query_row(&query, [id], raw_workspace_row)
+            .query_row(&query, parameters, raw_workspace_row)
             .optional()?;
         raw.map(|row| {
             row.try_into_item()

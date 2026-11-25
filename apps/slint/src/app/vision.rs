@@ -388,7 +388,7 @@ impl App {
     }
 }
 
-fn recognize(image: &RgbaImage) -> Result<StructuredOcr> {
+pub(super) fn recognize(image: &RgbaImage) -> Result<StructuredOcr> {
     let png = encode_png(image.as_raw(), image.width(), image.height())?;
     tokio::runtime::Builder::new_current_thread()
         .enable_all()

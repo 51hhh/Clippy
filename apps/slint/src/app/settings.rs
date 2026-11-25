@@ -19,7 +19,7 @@ use slint::{
         },
         EventResult, WinitWindowAccessor,
     },
-    ComponentHandle,
+    ComponentHandle, ModelRc, SharedString, VecModel,
 };
 use std::thread;
 
@@ -145,6 +145,9 @@ fn connect_shortcut_recorder(window: &AppWindow) {
                                     ShortcutField::Clipboard => {
                                         window.set_panel_shortcut_draft(chord.into())
                                     }
+                                    ShortcutField::Pin => {
+                                        window.set_pin_shortcut_draft(chord.into())
+                                    }
                                     ShortcutField::Screenshot => {
                                         window.set_capture_shortcut_draft(chord.into())
                                     }
@@ -202,6 +205,12 @@ fn recorded_shortcut(key: KeyCode, modifiers: ModifiersState) -> Option<String> 
 
 pub(super) fn connect(window: &AppWindow, config: &AppConfig) {
     populate(window, config);
+    let destination = config
+        .enabled_translation_services()
+        .first()
+        .map(|service| service.provider.as_str())
+        .unwrap_or("No provider configured");
+    window.set_translation_destination(destination.into());
     let index = config
         .enabled_translation_services()
         .first()
@@ -216,6 +225,14 @@ pub(super) fn connect(window: &AppWindow, config: &AppConfig) {
     translation(window, config, index as i32).expect("设置页中的翻译服务索引有效");
     window.set_tmux_available(cfg!(target_os = "linux"));
     if window.get_show_settings() {
+        let defaults = AppConfig::default();
+        window.set_shortcut_defaults(ModelRc::new(VecModel::from(vec![
+            SharedString::from(defaults.global_shortcut),
+            defaults.pin_shortcut.into(),
+            defaults.capture_shortcut.into(),
+        ])));
+        window.set_wayland_session(clippy_platform::session::is_wayland());
+        window.set_gnome_session(clippy_platform::session::is_gnome());
         connect_shortcut_recorder(window);
     }
     window.on_apply_general(|settings| {
@@ -310,6 +327,7 @@ fn populate(window: &AppWindow, config: &AppConfig) {
     window.set_general_settings(GeneralSettings {
         max_history: config.max_history.to_string().into(),
         panel_shortcut: config.global_shortcut.clone().into(),
+        pin_shortcut: config.pin_shortcut.clone().into(),
         capture_shortcut: config.capture_shortcut.clone().into(),
         theme,
         save_directory: config.screenshot_save_dir.clone().into(),
@@ -393,14 +411,17 @@ impl App {
             .parse::<u32>()
             .context("Enter a history limit")?;
         let panel = value.panel_shortcut.trim();
+        let pin = value.pin_shortcut.trim();
         let capture = value.capture_shortcut.trim();
-        shortcuts::validate(panel, capture)?;
+        shortcuts::validate(panel, pin, capture)?;
         let theme = THEMES.get(value.theme as usize).context("Select a theme")?;
-        let shortcuts_changed =
-            self.config.global_shortcut != panel || self.config.capture_shortcut != capture;
+        let shortcuts_changed = self.config.global_shortcut != panel
+            || self.config.pin_shortcut != pin
+            || self.config.capture_shortcut != capture;
         let next = AppConfig {
             max_history,
             global_shortcut: panel.into(),
+            pin_shortcut: pin.into(),
             capture_shortcut: capture.into(),
             theme: (*theme).into(),
             screenshot_save_dir: value.save_directory.trim().into(),
@@ -647,6 +668,7 @@ mod shortcut_tests {
         assert!(recorded_shortcut(KeyCode::KeyK, ModifiersState::SHIFT).is_none());
         assert!(recorded_shortcut(KeyCode::ControlLeft, ModifiersState::CONTROL).is_none());
         assert!(recorded_shortcut(KeyCode::Escape, ctrl_alt).is_none());
-        assert!(shortcuts::validate("Ctrl+Alt+K", "Alt+Control+KeyK").is_err());
+        assert!(shortcuts::validate("Ctrl+Alt+K", "Ctrl+2", "Alt+Control+KeyK").is_err());
+        assert!(shortcuts::validate("Ctrl+Alt+K", "Ctrl+2", "Control+Digit2").is_err());
     }
 }

@@ -24,10 +24,12 @@ from gi.repository import Gdk, GdkPixbuf, GdkX11, Gio, GLib, Gtk
 TITLE = "Clippy Slint QA"
 CAPTURE_TITLE = "Clippy Screenshot"
 EDITOR_TITLE = "Clippy Image Editor"
+VIEWER_TITLE = "Clippy Image Viewer"
 PIN_TITLE = "Clippy Pin"
 WORKSPACE_TITLE = "Clippy Pinned Workspace"
 LONGSHOT_TITLE = "Clippy Scrolling Capture"
 RECORDING_TITLE = "Clippy Recordings"
+RECORDING_CONTROL_TITLE = "Clippy Recording Control"
 SETTINGS_TITLE = "Clippy Settings"
 LAUNCHER_TITLE = "Clippy Launcher"
 TOOLS_TITLE = "Clippy Actions"
@@ -347,11 +349,11 @@ def run(binary, root):
     def preview_pixels(box):
         x, y, width, _ = box
         root_window = Gdk.get_default_root_window()
-        image = Gdk.pixbuf_get_from_window(root_window, x + width - 310, y + 235, 240, 1)
+        image = Gdk.pixbuf_get_from_window(root_window, x + width - 308, y + 152, 218, 1)
         if image is None:
             return False
         pixels = image.get_pixels()
-        background = (32, 35, 42) if theme == "dark" else (255, 255, 255)
+        background = (38, 42, 50) if theme == "dark" else (241, 241, 246)
         red_sample = tuple((bg + rgba) // 2 for bg, rgba in zip(background, (255, 0, 0)))
         return all(abs(actual - expected) < 19 for actual, expected in zip(pixels[:3], red_sample)) and all(
             abs(actual - expected) < 12 for actual, expected in zip(pixels[-3:], background)
@@ -365,9 +367,9 @@ def run(binary, root):
             return red - max(green, blue) >= 90 and red > 120
         return False
 
-    def check_titlebar(bounds, name):
+    def check_titlebar(bounds, name, color=None):
         x, y, width, _ = bounds
-        expected = bytes.fromhex("20232a" if theme == "dark" else "ffffff")
+        expected = bytes.fromhex(color or ("20232a" if theme == "dark" else "ffffff"))
 
         def correct_color():
             pixel = Gdk.pixbuf_get_from_window(Gdk.get_default_root_window(), x + width // 2, y + 8, 1, 1)
@@ -405,9 +407,9 @@ def run(binary, root):
         desktop.focus(overlay)
         top = height - 120 if near_bottom else 200
         desktop.drag(x + 440, y + top, x + 580, y + top + 100)
-        toolbar_width = min(640, width - 16)
+        toolbar_width = min(560, width - 16)
         toolbar_left = x + max(8, min(580 - toolbar_width, width - toolbar_width - 8))
-        toolbar_top = y + (top - 52 if near_bottom else top + 108)
+        toolbar_top = y + (top - 84 if near_bottom else top + 108)
 
         def toolbar_visible():
             pixel = Gdk.pixbuf_get_from_window(Gdk.get_default_root_window(), toolbar_left + 4, toolbar_top + 22, 1, 1)
@@ -427,8 +429,13 @@ def run(binary, root):
 
     def click_capture_action(toolbar, index):
         x, y, width = toolbar
-        button_width = (width - 58) / 8
-        desktop.click(round(x + 8 + index * (button_width + 6) + button_width / 2), y + 22)
+        button = min(32, (width - 12) / 10)
+        if index in (2, 3, 4, 5):
+            left = 6 + button if index == 5 else 15 + (index + 4) * button
+            desktop.click(round(x + left + button / 2), y + 19)
+        else:
+            right = {0: 1, 1: 2, 6: 4, 7: 0}[index]
+            desktop.click(round(x + width - 6 - (right + 0.5) * button), y + 57)
 
     try:
         wait_for(lambda: tray.address, "no tray registration")
@@ -503,7 +510,7 @@ def run(binary, root):
         desktop.keys("Down")
         x, y, width, height = expanded
         time.sleep(0.2)
-        desktop.click(x + width - 330, y + 95)
+        desktop.click(x + width - 330, y + 57)
         desktop.keys("Control_L", "a")
         desktop.keys("Control_L", "c")
         wait_for(lambda: get_clipboard("UTF8_STRING").decode() == "rich-qa",
@@ -515,7 +522,7 @@ def run(binary, root):
         panel_width(380)
         desktop.keys("Tab")
         panel_width(780)
-        desktop.click(x + width - 330, y + 95)
+        desktop.click(x + width - 330, y + 57)
         desktop.keys("Control_L", "k")
         launcher_id, _ = wait_for(lambda: titled_window(LAUNCHER_TITLE), "Ctrl+K did not reach the launcher from preview text")
         desktop.focus(launcher_id)
@@ -557,6 +564,7 @@ def run(binary, root):
         desktop.focus(launcher_id)
         launcher_search("image")
         desktop.keys("Down")
+        desktop.keys("Up")
         desktop.keys("Return")
         _, image_text_bounds = wait_for(lambda: titled_window(IMAGE_TEXT_TITLE), "launcher did not open image analysis")
         wait_for(lambda: not titled_window(LAUNCHER_TITLE), "launcher stayed open after beginning image analysis")
@@ -707,6 +715,22 @@ def run(binary, root):
         wait_for(lambda: not titled_window(CAPTURE_TITLE), "overlay stayed open after copy")
 
         tray.activate("Screenshot")
+        select_area()
+        overlay, (screen_x, screen_y, _, _) = titled_window(CAPTURE_TITLE)
+        screen = Gdk.get_default_root_window()
+        inside = Gdk.pixbuf_get_from_window(screen, screen_x + 500, screen_y + 250, 1, 1)
+        outside = Gdk.pixbuf_get_from_window(screen, screen_x + 500, screen_y + 150, 1, 1)
+        assert inside.get_pixels()[:3] == expected[1]
+        assert all(0 < value < original for value, original in zip(outside.get_pixels()[:3], expected[1]))
+        desktop.drag(screen_x + 580, screen_y + 300, screen_x + 614, screen_y + 321)
+        desktop.drag(screen_x + 508, screen_y + 251, screen_x + 549, screen_y + 266)
+        desktop.focus(overlay)
+        desktop.keys("Return")
+        wait_for(lambda: (data := clipboard_png()) and decode_png(data)[0] == (174, 121),
+                 "resized and moved capture did not preserve the new pixel bounds")
+        print("PASS capture shade, resize handle, selection drag and exact pixel bounds", flush=True)
+
+        tray.activate("Screenshot")
         click_capture_action(select_area(), 1)
         output = root / "shots" / "fixture.png"
         wait_for(output.is_file, "screenshot file was not committed")
@@ -746,6 +770,19 @@ def run(binary, root):
             if undo:
                 click_capture_action(toolbar, 6)
                 wait_for(lambda: border_pixel() == expected[1], "undo did not remove the selection rectangle")
+                tx, ty, _ = toolbar
+                desktop.click(tx + 150, ty + 19)
+                desktop.click(tx + 35, ty + 57)
+                desktop.drag(left + 522, top + 248, left + 466, top + 248)
+
+                def yellow_arrow():
+                    band = Gdk.pixbuf_get_from_window(Gdk.get_default_root_window(), left + 493, top + 246, 5, 6)
+                    return band and bytes.fromhex("ffcf36") in band.get_pixels()
+
+                wait_for(yellow_arrow, "selection did not display the horizontal arrow with the chosen color")
+                click_capture_action(toolbar, 6)
+                desktop.click(tx + 16, ty + 57)
+                click_capture_action(toolbar, 5)
                 draw_rectangle()
                 wait_for(lambda: border_pixel() == bytes.fromhex("ff3b30"), "selection did not accept another rectangle")
             save_qa_window("capture-rectangle.png", (left, top, width, height))
@@ -805,21 +842,21 @@ def run(binary, root):
                 return conn.execute("SELECT scale, opacity, locked, above FROM pin_workspace_items").fetchone()
 
         desktop.focus(pin_id)
-        desktop.click(pin_x + pin_width - 51, pin_y + 96)
+        desktop.click(pin_x + pin_width - 26, pin_y + 138)
         locked = wait_for(lambda: pin_presentation()[2] == 1 and pin_presentation(),
                           "pin size lock was not saved")
-        desktop.click(pin_x + pin_width - 25, pin_y + 21)
+        desktop.click(pin_x + pin_width - 26, pin_y + 25)
         assert pin_presentation()[0] == locked[0], "locked pin accepted zoom"
-        desktop.click(pin_x + pin_width - 51, pin_y + 46)
-        desktop.click(pin_x + pin_width - 237, pin_y + 48)
+        desktop.click(pin_x + pin_width - 26, pin_y + 198)
+        desktop.click(pin_x + pin_width - 185, pin_y + 197)
         wait_for(lambda: pin_presentation()[1] < locked[1], "pin opacity was not persisted")
-        desktop.click(pin_x + pin_width - 51, pin_y + 46)
+        desktop.click(pin_x + pin_width - 26, pin_y + 198)
         set_clipboard("UTF8_STRING", OTHER.encode())
-        desktop.click(pin_x + pin_width - 51, pin_y + 146)
+        desktop.click(pin_x + pin_width - 26, pin_y + 288)
         copied_pin = wait_for(edited_clipboard, "pin toolbar did not copy the stored image")
         assert copied_pin.get_pixels() == edited_copy.get_pixels()
         save_qa_window("pin-toolbar.png", (pin_x, pin_y, pin_width, pin_height))
-        desktop.click(pin_x + pin_width - 43, pin_y + pin_height - 25)
+        desktop.click(pin_x + pin_width - 26, pin_y + 318)
         wait_for(lambda: not titled_window(PIN_TITLE), "pin did not hide")
         print("PASS pin toolbar stores opacity and size lock and copies unchanged pixels", flush=True)
         tray.activate("Pinned Workspace")
@@ -828,7 +865,7 @@ def run(binary, root):
         )
         assert (work_width, work_height) == (820, 640)
         desktop.focus(workspace_id)
-        desktop.click(work_x + 78, work_y + work_height - 65)
+        desktop.click(work_x + 78, work_y + 202)
         for letter in "review":
             desktop.keys(letter)
         desktop.keys("Return")
@@ -844,23 +881,27 @@ def run(binary, root):
 
         wait_for(lambda: workspace_group(False), "workspace did not create the group")
         time.sleep(0.2)
-        desktop.click(work_x + 80, work_y + 171)
-        desktop.click(work_x + 251, work_y + work_height - 53)
+        desktop.click(work_x + 80, work_y + 193)
+        def edited_thumbnail():
+            pixels = Gdk.pixbuf_get_from_window(Gdk.get_default_root_window(), work_x + 240, work_y + 105, 235, 140)
+            return pixels and bytes.fromhex("ff3b30") in pixels.get_pixels()
+
+        wait_for(edited_thumbnail, "workspace did not render the annotated thumbnail")
+        desktop.click(work_x + 315, work_y + 370)
         assert not titled_window(PIN_TITLE), "empty group opened a pin from a different group"
-        desktop.click(work_x + 80, work_y + 103)
-        desktop.click(work_x + 358, work_y + work_height - 93)
+        desktop.click(work_x + 80, work_y + 111)
+        desktop.click(work_x + 315, work_y + 326)
         desktop.keys("Down")
         desktop.keys("Return")
-        desktop.click(work_x + work_width - 61, work_y + work_height - 93)
         wait_for(lambda: workspace_group(True), "workspace did not persist the pin group")
         desktop.request_close(workspace_id)
         wait_for(lambda: not titled_window(WORKSPACE_TITLE), "workspace did not close before reopening")
         tray.activate("Pinned Workspace")
         workspace_id, (work_x, work_y, _, work_height) = wait_for(lambda: titled_window(WORKSPACE_TITLE), "workspace did not reopen")
         time.sleep(0.2)
-        desktop.click(work_x + 80, work_y + 171)
+        desktop.click(work_x + 80, work_y + 193)
         save_qa_window("workspace-group.png", (work_x, work_y, work_width, work_height))
-        desktop.click(work_x + 251, work_y + work_height - 53)
+        desktop.click(work_x + 315, work_y + 370)
         restored_pin, _ = wait_for(lambda: titled_window(PIN_TITLE), "workspace did not restore the stored pin")
         desktop.request_close(restored_pin)
         desktop.request_close(workspace_id)
@@ -874,7 +915,7 @@ def run(binary, root):
         _, (long_x, long_y, long_width, long_height) = wait_for(
             lambda: titled_window(LONGSHOT_TITLE), "scrolling capture did not open",
         )
-        check_titlebar((long_x, long_y, long_width, long_height), "longshot")
+        check_titlebar((long_x, long_y, long_width, long_height), "longshot", "17191f")
         time.sleep(0.25)
         desktop.scroll_fixture(32)
         desktop.click(long_x + 49, long_y + long_height - 29)
@@ -909,18 +950,18 @@ def run(binary, root):
             return None
 
         wait_for(lambda: recording_manifest("recording"), "region recording never began")
-        tray.activate("Recordings")
-        recording_window, (rec_x, rec_y, rec_w, rec_h) = wait_for(
-            lambda: titled_window(RECORDING_TITLE), "active recording library never opened",
+        _, (control_x, control_y, control_w, control_h) = wait_for(
+            lambda: titled_window(RECORDING_CONTROL_TITLE), "recording control never opened",
         )
-        desktop.focus(recording_window)
-        check_titlebar((rec_x, rec_y, rec_w, rec_h), "recordings")
+        assert (control_w, control_h) == (280, 56)
+        assert control_x + control_w <= 440 or control_x >= 580 or control_y + control_h <= 200 or control_y >= 300
+        save_qa_window("recording-control.png", (control_x, control_y, control_w, control_h))
         time.sleep(0.62)
-        desktop.click(rec_x + 61, rec_y + 84)
+        desktop.click(control_x + control_w - 74, control_y + 28)
         time.sleep(1.5)
-        desktop.click(rec_x + 61, rec_y + 84)
+        desktop.click(control_x + control_w - 74, control_y + 28)
         time.sleep(0.62)
-        desktop.click(rec_x + 162, rec_y + 84)
+        desktop.click(control_x + control_w - 28, control_y + 28)
         directory, manifest = wait_for(
             lambda: recording_manifest("complete"), "region recording never finalized",
         )
@@ -939,14 +980,29 @@ def run(binary, root):
         recording_window, (rec_x, rec_y, rec_w, rec_h) = wait_for(
             lambda: titled_window(RECORDING_TITLE), "recordings library never opened",
         )
-        time.sleep(0.25)
-        desktop.click(rec_x + rec_w * 3 // 8, rec_y + rec_h - 55)
+        assert (rec_w, rec_h) == (780, 620)
+        check_titlebar((rec_x, rec_y, rec_w, rec_h), "recordings")
+        wait_for(lambda: not titled_window(RECORDING_CONTROL_TITLE), "recording control did not close")
+
+        def export_button():
+            y = rec_y + 240
+            pixels = Gdk.pixbuf_get_from_window(Gdk.get_default_root_window(), rec_x + rec_w - 97, y, 1, 180)
+            if pixels:
+                data, stride = pixels.get_pixels(), pixels.get_rowstride()
+                accent = bytes.fromhex("8aa4ff" if theme == "dark" else "5b6cff")
+                for index in range(pixels.get_height()):
+                    if data[index * stride:index * stride + 3] == accent:
+                        return y + index + 12
+            return None
+
+        button_y = wait_for(export_button, "recording card did not offer export")
+        desktop.click(rec_x + rec_w - 69, button_y)
         exported = data_dir / "Exported Recordings" / f"Clippy-{manifest['sessionId']}.webm"
         wait_for(exported.is_file, "recording export did not commit")
         assert exported.read_bytes() == video.read_bytes()
         desktop.request_close(recording_window)
         wait_for(lambda: not titled_window(RECORDING_TITLE), "recordings library never closed")
-        print("PASS region recording, library pause/resume/stop, VP9 finalization and exact export", flush=True)
+        print("PASS region recording, excluded controls pause/resume/stop, VP9 finalization and exact card export", flush=True)
 
         set_clipboard("UTF8_STRING", OTHER.encode())
         wait_for(lambda: rows()[-1:] == [("text", OTHER, None)], "launcher clipboard change did not settle")
@@ -970,6 +1026,38 @@ def run(binary, root):
         wait_for(lambda: not titled_window(PIN_TITLE), "launcher pin did not close")
         print("PASS launcher PNG export preserves alpha and pin creation opens the stored image", flush=True)
 
+        tray.activate("Open Clipboard")
+        preview_id, _ = panel_width(380)
+        desktop.focus(preview_id)
+        desktop.keys("Tab")
+        _, (panel_x, panel_y, panel_w, panel_h) = panel_width(780)
+        wait_for(lambda: preview_pixels((panel_x, panel_y, panel_w, panel_h)), "viewer fixture is not in the sidebar")
+        desktop.click(panel_x + panel_w - 49, panel_y + panel_h - 45)
+        viewer_id, viewer_bounds = wait_for(lambda: titled_window(VIEWER_TITLE), "image viewer did not open from preview")
+        assert viewer_bounds[2:] == (1000, 720)
+        wait_for(lambda: not titled_window(TITLE), "clipboard panel covered the viewer")
+        check_titlebar(viewer_bounds, "viewer")
+        desktop.request_close(viewer_id)
+        wait_for(lambda: not titled_window(VIEWER_TITLE), "image viewer did not close")
+        print("PASS image preview opens the 1000×720 native viewer and releases its window", flush=True)
+
+        tray.activate("Open Clipboard")
+        panel_id, (panel_x, panel_y, _, _) = panel_width(380)
+        desktop.focus(panel_id)
+        search("needle")
+        desktop.click(panel_x + 48, panel_y + 80)
+        desktop.keys("Control_L", "2")
+        text_pin, pin_bounds = wait_for(lambda: titled_window(PIN_TITLE), "pin shortcut did not open the selected text")
+        with sqlite3.connect(data_dir / "clips.db") as connection:
+            assert connection.execute(
+                "SELECT text_content FROM pin_workspace_items WHERE content_type='text'",
+            ).fetchone() == (TEXT,)
+        save_qa_window("pin-shortcut-text.png", pin_bounds)
+        desktop.request_close(text_pin)
+        wait_for(lambda: not titled_window(PIN_TITLE), "text pin did not close")
+        close()
+        print("PASS pin shortcut uses the selected clipboard item and persists a text pin", flush=True)
+
         def configured(key):
             return json.loads((data_dir / "config.json").read_text())[key]
 
@@ -978,33 +1066,33 @@ def run(binary, root):
             lambda: titled_window(SETTINGS_TITLE), "shortcut settings did not open",
         )
         desktop.focus(settings_id)
-        desktop.click(x + width - 108, y + 188)
+        desktop.click(x + width - 157, y + 206)
         time.sleep(0.1)
         save_qa_window("shortcut-recording.png", (x, y, width, height))
         desktop.keys("Control_L", "Alt_L", "Shift_L", "j")
         time.sleep(0.15)
         assert not titled_window(TITLE), "the active hotkey interrupted recording"
         desktop.keys("Escape")
-        desktop.click(x + width - 108, y + 188)
+        desktop.click(x + width - 157, y + 206)
         desktop.keys("Control_L", "F8")
         time.sleep(0.08)
         save_qa_window("shortcut-recorded.png", (x, y, width, height))
-        desktop.click(x + width - 108, y + 188)
+        desktop.click(x + width - 157, y + 206)
         desktop.keys("Escape")
         desktop.scroll_down(x + width - 94, y + height - 67)
         desktop.click(x + width // 2, y + height - 50)
         wait_for(lambda: configured("global_shortcut") == "Ctrl+F8", "clipboard shortcut was not saved after cancel")
 
-        desktop.click(x + 279, y + 101)
-        desktop.click(x + width - 108, y + 188)
+        desktop.click(x + 279, y + 109)
+        desktop.click(x + width - 157, y + 444)
         desktop.keys("Control_L", "F8")
         desktop.scroll_down(x + width - 94, y + height - 67)
         desktop.click(x + width // 2, y + height - 50)
         time.sleep(0.2)
         assert configured("capture_shortcut") == "Ctrl+Alt+Shift+K", "duplicate shortcut was accepted"
-        desktop.click(x + 126, y + 101)
-        desktop.click(x + 279, y + 101)
-        desktop.click(x + width - 108, y + 188)
+        desktop.click(x + 126, y + 109)
+        desktop.click(x + 279, y + 109)
+        desktop.click(x + width - 157, y + 444)
         desktop.keys("Control_L", "Shift_L", "F9")
         desktop.scroll_down(x + width - 94, y + height - 67)
         desktop.click(x + width // 2, y + height - 50)

@@ -1,4 +1,4 @@
-import { TextEdit } from "std-widgets.slint";
+import { ScrollView, TextEdit } from "std-widgets.slint";
 import { ClippyTheme, RichDocumentView, SurfaceButton } from "theme.slint";
 
 export struct ClipPreview {
@@ -9,8 +9,18 @@ export struct ClipPreview {
     styled-content: styled-text,
     has-styles: bool,
     image: image,
+    recognized: string,
+    ocr-busy: bool,
+    ocr-note: string,
+    translated: string,
+    translation-busy: bool,
+    translation-note: string,
     status: string,
     protected: bool,
+}
+
+component PreviewLabel inherits Text {
+    font-size: 12px; font-weight: 650; color: ClippyTheme.foreground;
 }
 
 export component HistoryPreviewPane inherits Rectangle {
@@ -19,8 +29,13 @@ export component HistoryPreviewPane inherits Rectangle {
     in property <bool> selected-sensitive;
     in property <bool> loading;
     in property <bool> busy;
+    in property <bool> ocr-enabled;
+    in property <string> target-language;
+    in property <string> destination;
     callback dismiss();
     callback copy();
+    callback copy-text(string);
+    callback translate(string);
     callback open-image();
     callback open-tools();
 
@@ -28,6 +43,7 @@ export component HistoryPreviewPane inherits Rectangle {
     private property <bool> sensitive: root.selected-sensitive || (root.ready && root.preview.protected);
     private property <bool> has-item: root.ready && !root.sensitive && root.preview.kind != "";
     private property <bool> is-image: root.preview.kind == "Image";
+    private property <bool> show-result: root.preview.translated != "" || root.preview.translation-note != "";
     private property <string> message: root.sensitive ? "Sensitive content hidden"
         : !root.ready && (root.loading || root.selected-id != "") ? "Loading preview…"
         : root.selected-id == "" ? "Select an item to preview" : root.preview.status;
@@ -35,10 +51,9 @@ export component HistoryPreviewPane inherits Rectangle {
     preferred-width: 400px;
     min-width: 240px;
     horizontal-stretch: 1;
-    background: ClippyTheme.elevated;
+    background: ClippyTheme.background;
 
     Rectangle { x: 0px; y: 0px; width: 1px; height: parent.height; background: ClippyTheme.border; }
-
     FocusScope {
         focus-on-click: false;
         capture-key-pressed(event) => {
@@ -49,57 +64,139 @@ export component HistoryPreviewPane inherits Rectangle {
             reject
         }
         VerticalLayout {
-            padding: 12px;
-            spacing: 10px;
-            HorizontalLayout {
-                height: 28px;
-                Text {
-                    text: "Preview";
-                    color: ClippyTheme.foreground;
-                    font-weight: 600;
-                    font-size: 14px;
-                    vertical-alignment: center;
-                    horizontal-stretch: 1;
+            Rectangle {
+                height: 35px;
+                Rectangle { y: parent.height - 1px; height: 1px; background: ClippyTheme.border; }
+                HorizontalLayout {
+                    padding-left: 12px; padding-right: 12px; spacing: 8px;
+                    if root.has-item: Rectangle {
+                        width: badge.preferred-width + 12px; height: 18px;
+                        y: (parent.height - self.height) / 2;
+                        background: ClippyTheme.highlight; border-radius: 3px;
+                        badge := Text {
+                            text: root.is-image ? "IMAGE" : root.preview.kind == "Rich text" ? "HTML" : "TEXT";
+                            font-size: 10px; font-weight: 700;
+                            color: ClippyTheme.dark ? #101018 : #ffffff;
+                            horizontal-alignment: center; vertical-alignment: center;
+                        }
+                    }
+                    Text {
+                        text: root.has-item ? root.preview.metadata : "Preview";
+                        color: ClippyTheme.subtle; font-size: 11px; overflow: elide;
+                        vertical-alignment: center; horizontal-stretch: 1;
+                    }
+                    SurfaceButton {
+                        label: "Close preview"; caption: "×"; width: 28px; height: 28px;
+                        y: (parent.height - self.height) / 2; clicked => { root.dismiss(); }
+                    }
                 }
-                SurfaceButton { label: "Close preview"; caption: "×"; width: 28px; clicked => { root.dismiss(); } }
-            }
-            if root.has-item: Text {
-                text: root.preview.kind + " · " + root.preview.metadata;
-                color: ClippyTheme.muted;
-                font-size: 12px;
-                overflow: elide;
             }
             if root.message != "": Text {
-                text: root.message;
-                color: ClippyTheme.muted;
-                vertical-stretch: 1;
-                vertical-alignment: center;
-                horizontal-alignment: center;
-                wrap: word-wrap;
+                text: root.message; color: ClippyTheme.muted; vertical-stretch: 1;
+                vertical-alignment: center; horizontal-alignment: center; wrap: word-wrap;
             }
-            if root.has-item && root.message == "" && root.preview.has-styles: RichDocumentView {
-                body: root.preview.styled-content;
-            }
-            if root.has-item && root.message == "" && !root.is-image && !root.preview.has-styles: TextEdit {
-                text: root.preview.content;
-                read-only: true;
-                wrap: word-wrap;
+            if root.has-item && root.message == "" && root.is-image: ScrollView {
                 vertical-stretch: 1;
+                horizontal-scrollbar-policy: always-off;
+                VerticalLayout {
+                    padding: 12px;
+                    spacing: 12px;
+                    alignment: start;
+                    PreviewLabel { text: "Image preview"; }
+                    Rectangle {
+                        height: 156px;
+                        Rectangle {
+                            width: min(252px, parent.width); height: parent.height;
+                            x: (parent.width - self.width) / 2; y: 0px;
+                            border-radius: 7px; background: ClippyTheme.hover; clip: true;
+                            Image {
+                                source: root.preview.image; width: parent.width; height: parent.height;
+                                image-fit: contain; accessible-label: "Clipboard image"; accessible-role: image;
+                            }
+                            TouchArea { mouse-cursor: pointer; double-clicked => { if !root.busy && !root.loading { root.open-image(); } } }
+                        }
+                    }
+                    Rectangle {
+                        preferred-height: card.preferred-height;
+                        background: ClippyTheme.surface; border-radius: 5px;
+                        border-width: 1px; border-color: ClippyTheme.border;
+                        card := VerticalLayout {
+                            padding: 12px; spacing: 8px;
+                            HorizontalLayout {
+                                spacing: 6px;
+                                PreviewLabel { text: "Recognized text"; vertical-alignment: center; horizontal-stretch: 1; }
+                                SurfaceButton {
+                                    label: root.preview.translation-busy ? "Translating…" : "Translate";
+                                    selected: true;
+                                    enabled: root.preview.recognized != "" && !root.loading && !root.preview.translation-busy;
+                                    clicked => { root.translate(root.preview.recognized); }
+                                }
+                                SurfaceButton {
+                                    label: "Copy text"; caption: "Copy"; primary: true;
+                                    enabled: root.preview.recognized != "" && !root.loading;
+                                    clicked => { root.copy-text(root.preview.recognized); }
+                                }
+                            }
+                            Text {
+                                text: root.preview.ocr_busy ? "Recognizing text locally…"
+                                    : root.preview.recognized != "" ? root.preview.recognized
+                                    : root.preview.ocr-note != "" ? root.preview.ocr-note
+                                    : !root.ocr-enabled ? "OCR is disabled in Settings." : "No text recognized.";
+                                color: ClippyTheme.foreground; font-size: 13px; wrap: word-wrap;
+                            }
+                            if root.show-result: TextEdit {
+                                text: root.preview.translated != "" ? root.preview.translated : root.preview.translation-note;
+                                read-only: true; wrap: word-wrap; height: 74px;
+                            }
+                        }
+                    }
+                }
             }
-            if root.has-item && root.message == "" && root.is-image: Image {
-                source: root.preview.image;
-                image-fit: contain;
-                accessible-label: "Clipboard image";
-                accessible-role: image;
-                min-height: 0px;
-                min-width: 0px;
+            if root.has-item && root.message == "" && !root.is-image: VerticalLayout {
+                padding: 4px;
                 vertical-stretch: 1;
+                if root.preview.has-styles: RichDocumentView { body: root.preview.styled-content; }
+                if !root.preview.has-styles: TextEdit {
+                    text: root.preview.content; read-only: true; wrap: word-wrap; vertical-stretch: 1;
+                }
+            }
+            if root.has-item && !root.is-image && root.message == "": Rectangle {
+                background: ClippyTheme.surface;
+                Rectangle { x: 0px; y: 0px; height: 1px; background: ClippyTheme.border; }
+                VerticalLayout {
+                    padding: 12px; spacing: 6px;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        VerticalLayout {
+                            spacing: 4px; horizontal-stretch: 1;
+                            PreviewLabel { text: "Translation"; }
+                            Text {
+                                text: "Target: " + root.target-language + " · " + root.destination;
+                                color: ClippyTheme.muted; font-size: 11px; wrap: word-wrap;
+                            }
+                        }
+                        SurfaceButton {
+                            label: root.preview.translation-busy ? "Translating…" : "Translate";
+                            primary: true; width: 104px;
+                            enabled: !root.preview.translation-busy && !root.loading && root.preview.content != "";
+                            clicked => { root.translate(root.preview.content); }
+                        }
+                    }
+                    if root.show-result: TextEdit {
+                        text: root.preview.translated != "" ? root.preview.translated : root.preview.translation-note;
+                        read-only: true; wrap: word-wrap; height: 64px;
+                    }
+                    if root.preview.translated != "": SurfaceButton {
+                        label: "Copy translation"; clicked => { root.copy-text(root.preview.translated); }
+                    }
+                    Text { text: "Translation runs only when requested."; color: ClippyTheme.subtle; font-size: 11px; wrap: word-wrap; }
+                }
             }
             if root.has-item: HorizontalLayout {
-                alignment: end;
-                spacing: 6px;
+                padding-left: 12px; padding-right: 12px; padding-bottom: 9px;
+                alignment: end; spacing: 6px;
                 SurfaceButton { label: "Copy"; enabled: !root.busy && !root.loading; clicked => { root.copy(); } }
-                if root.is-image: SurfaceButton { label: "Edit image"; enabled: !root.busy && !root.loading; clicked => { root.open-image(); } }
+                if root.is-image: SurfaceButton { label: "View image"; enabled: !root.busy && !root.loading; clicked => { root.open-image(); } }
                 if !root.is-image: SurfaceButton { label: "Open in Actions"; enabled: !root.busy && !root.loading; clicked => { root.open-tools(); } }
             }
         }

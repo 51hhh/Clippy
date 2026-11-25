@@ -21,7 +21,7 @@ use clippy_storage::{
 use image::RgbaImage;
 use slint::winit_030::{winit::window::WindowLevel, WinitWindowAccessor};
 use slint::{CloseRequestResponse, ComponentHandle, LogicalSize};
-use std::{collections::HashMap, sync::Arc, thread};
+use std::{collections::HashMap, ops::Range, sync::Arc, thread};
 
 mod workspace;
 use workspace::Workspace;
@@ -34,14 +34,20 @@ pub(super) enum Message {
     Library(Result<Library, StorageError>),
     Filter(String),
     CreateGroup(String),
+    RenameGroup(i64, String),
+    DeleteGroup(i64),
+    Viewport(Range<usize>),
+    Thumbnail(i64, Result<Option<RgbaImage>>),
     Move(i64, Option<i64>),
     Remove(i64),
     Updated(Result<(), StorageError>),
     Open(i64),
     Ready(Result<Prepared>),
     Created(PinRequest, Result<Prepared>),
-    History(i64),
-    HistoryReady(Result<(Arc<RgbaImage>, ImageProject)>),
+    PinClip(i64),
+    ClipReady(i64, Result<PinInput, StorageError>),
+    History(i64, ImageDestination),
+    HistoryReady(ImageDestination, Result<(Arc<RgbaImage>, ImageProject)>),
     View(i64, Action),
     Status(i64, Result<String>),
 }
@@ -50,6 +56,19 @@ pub(super) enum Message {
 pub(super) enum PinRequest {
     Editor(u64),
     Launcher(u64),
+    History,
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum ImageDestination {
+    Editor,
+    Viewer,
+    Pin,
+}
+
+pub(super) enum PinInput {
+    Image,
+    Text(Box<Prepared>),
 }
 
 pub(super) enum Action {
@@ -93,6 +112,7 @@ pub(super) struct Pins {
     workspace: Option<Workspace>,
     views: HashMap<i64, View>,
     writing: bool,
+    thumbnail_pending: bool,
 }
 
 fn send(message: Message) {
@@ -192,6 +212,7 @@ impl Pins {
         window.on_edit_pin(move || send(Message::View(id, Action::Edit)));
         window.on_copy_pin(move || send(Message::View(id, Action::Copy)));
         window.on_save_pin(move || send(Message::View(id, Action::Save)));
+        window.on_workspace(|| send(Message::Workspace));
         window.on_close_pin(move || send(Message::View(id, Action::Close)));
         settings::connect_titlebar(&window, PinnedWindow::invoke_drag_contains);
         window.window().on_close_requested(move || {
@@ -266,6 +287,45 @@ fn new_presentation() -> PinWorkspacePresentation {
         above: true,
         placement: None,
     }
+}
+
+fn store_clip_pin(db: &StorageEngine, id: i64) -> Result<PinInput, StorageError> {
+    let clip = db.get_clip_detail_by_id(id)?;
+    if clip.is_sensitive {
+        return Err(StorageError::PinWorkspaceInvariant(
+            "Sensitive clipboard items cannot be pinned".into(),
+        ));
+    }
+    if clip.content_type == ContentType::Image {
+        return Ok(PinInput::Image);
+    }
+    let presentation = new_presentation();
+    let viewport = (370.0, 240.0);
+    let pin = db.upsert_pin_workspace_item(PinWorkspaceItemWrite {
+        id: None,
+        group_id: None,
+        revision_id: None,
+        content_type: clip.content_type,
+        text_content: clip.text_content.as_deref(),
+        html_content: clip.html_content.as_deref(),
+        content_hash: &clip.content_hash,
+        content_width: viewport.0,
+        content_height: viewport.1,
+        scale: presentation.scale,
+        opacity: presentation.opacity,
+        locked: presentation.locked,
+        above: presentation.above,
+        placement: None,
+    })?;
+    let text = clip
+        .text_content
+        .unwrap_or_else(|| strip_html_tags(clip.html_content.as_deref().unwrap_or_default()));
+    Ok(PinInput::Text(Box::new(Prepared {
+        id: pin,
+        content: Content::Text(text),
+        presentation,
+        viewport,
+    })))
 }
 
 fn store_pin(
@@ -360,9 +420,14 @@ fn prepare(item: StoredPinWorkspaceItem) -> Result<Prepared> {
 }
 
 fn resize(window: &PinnedWindow, viewport: (f64, f64), scale: f64) {
-    let base = (440.0 / viewport.0).min(410.0 / viewport.1).min(1.0);
-    let width = (viewport.0 * base * scale + 114.0).clamp(330.0, 1600.0);
-    let height = (viewport.1 * base * scale + 32.0).clamp(220.0, 1200.0);
+    let base = (760.0 / viewport.0).min(520.0 / viewport.1).min(1.0);
+    let width = (viewport.0 * base * scale + 68.0).clamp(330.0, 1600.0);
+    let (padding, min_height) = if window.get_has_image() {
+        (72.0, 341.0)
+    } else {
+        (24.0, 281.0)
+    };
+    let height = (viewport.1 * base * scale + padding).clamp(min_height, 1200.0);
     window
         .window()
         .set_size(LogicalSize::new(width as f32, height as f32));
@@ -443,18 +508,45 @@ impl App {
             }
             Message::Library(result) => {
                 if let Some(workspace) = &mut self.pins.workspace {
-                    workspace.update(result?);
+                    workspace.update(result?, &self.pins.views);
                 }
+                self.request_pin_thumbnail()?;
             }
             Message::Filter(group) => {
-                if let Some(workspace) = &self.pins.workspace {
+                if let Some(workspace) = &mut self.pins.workspace {
                     workspace.filter(group.into());
                 }
+                self.request_pin_thumbnail()?;
             }
             Message::CreateGroup(name) => self.storage.client().execute(
                 move |db| db.create_pin_group(&name).map(|_| ()),
                 |result| send(Message::Updated(result)),
             )?,
+            Message::RenameGroup(id, name) => self.storage.client().execute(
+                move |db| db.rename_pin_group(id, &name).map(|_| ()),
+                |result| send(Message::Updated(result)),
+            )?,
+            Message::DeleteGroup(id) => self.storage.client().execute(
+                move |db| db.delete_pin_group(id).map(|_| ()),
+                |result| send(Message::Updated(result)),
+            )?,
+            Message::Viewport(range) => {
+                if let Some(workspace) = &mut self.pins.workspace {
+                    workspace.viewport(range);
+                }
+                self.request_pin_thumbnail()?;
+            }
+            Message::Thumbnail(id, result) => {
+                self.pins.thumbnail_pending = false;
+                if let Some(workspace) = &mut self.pins.workspace {
+                    let image = result.unwrap_or_else(|error| {
+                        eprintln!("Pin thumbnail {}: {error}", id);
+                        None
+                    });
+                    workspace.thumbnail_ready(id, image);
+                }
+                self.request_pin_thumbnail()?;
+            }
             Message::Move(id, group) => self.storage.client().execute(
                 move |db| db.set_pin_workspace_group(id, group).map(|_| ()),
                 |result| send(Message::Updated(result)),
@@ -502,11 +594,26 @@ impl App {
                     PinRequest::Launcher(generation) => {
                         self.launcher_pin_created(generation, result)
                     }
+                    PinRequest::History => result?,
                 }
                 self.refresh_pins();
             }
-            Message::Ready(result) => self.pins.show(result?, theme)?,
-            Message::History(id) => {
+            Message::Ready(result) => {
+                self.pins.show(result?, theme)?;
+                self.refresh_pins();
+            }
+            Message::PinClip(id) => self.storage.client().execute(
+                move |db| store_clip_pin(db, id),
+                move |result| send(Message::ClipReady(id, result)),
+            )?,
+            Message::ClipReady(id, result) => match result? {
+                PinInput::Text(pin) => {
+                    self.pins.show(*pin, theme)?;
+                    self.refresh_pins();
+                }
+                PinInput::Image => self.handle_pins(Message::History(id, ImageDestination::Pin))?,
+            },
+            Message::History(id, destination) => {
                 self.storage.client().execute(
                     move |db| {
                         if let Some(revision) = db.get_image_revision_for_clip(id)? {
@@ -517,7 +624,7 @@ impl App {
                             project::MAX_SOURCE_PNG_BYTES,
                         )?))
                     },
-                    |result| {
+                    move |result| {
                         if let Err(error) = thread::Builder::new()
                             .name("clippy-editor-import".into())
                             .spawn(move || {
@@ -547,17 +654,29 @@ impl App {
                                             }
                                         }
                                     });
-                                send(Message::HistoryReady(result));
+                                send(Message::HistoryReady(destination, result));
                             })
                         {
-                            send(Message::HistoryReady(Err(error.into())));
+                            send(Message::HistoryReady(destination, Err(error.into())));
                         }
                     },
                 )?;
             }
-            Message::HistoryReady(result) => {
+            Message::HistoryReady(destination, result) => {
                 let (image, project) = result?;
-                self.open_editor_project(image, project)?;
+                match destination {
+                    ImageDestination::Editor => self.open_editor_project(image, project)?,
+                    ImageDestination::Viewer => {
+                        self.open_viewer_project(image, project)?;
+                        self.hide();
+                    }
+                    ImageDestination::Pin => self.pins.create(
+                        PinRequest::History,
+                        project,
+                        image,
+                        self.storage.client(),
+                    )?,
+                }
             }
             Message::View(id, action) => self.pin_action(id, action)?,
             Message::Status(id, result) => {
@@ -565,6 +684,15 @@ impl App {
                     view.window
                         .set_status(result.unwrap_or_else(|error| error.to_string()).into());
                 }
+            }
+        }
+        Ok(())
+    }
+
+    fn request_pin_thumbnail(&mut self) -> Result<()> {
+        if !self.pins.thumbnail_pending {
+            if let Some(workspace) = &mut self.pins.workspace {
+                self.pins.thumbnail_pending = workspace.request_thumbnail(self.storage.client())?;
             }
         }
         Ok(())
@@ -625,6 +753,7 @@ impl App {
             Action::Close => {
                 self.save_pin_state(id, presentation(&view.window))?;
                 self.pins.views.remove(&id);
+                self.refresh_pins();
             }
         }
         Ok(())

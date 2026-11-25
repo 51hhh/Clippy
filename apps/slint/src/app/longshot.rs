@@ -1,5 +1,5 @@
 use super::{editor, post, settings, App, Event};
-use crate::{ClippyTheme, LongshotWindow};
+use crate::LongshotWindow;
 use anyhow::{anyhow, Result};
 use clippy_capture::{longshot::LongshotSession, CaptureError};
 use clippy_platform::capture::{with_region_reader, Region};
@@ -29,6 +29,8 @@ pub(super) enum Message {
 pub(super) struct Feedback {
     preview: RgbaImage,
     frames: usize,
+    width: u32,
+    height: u32,
     status: String,
 }
 
@@ -54,11 +56,9 @@ fn action(command: Command) {
 }
 
 impl View {
-    fn open(id: u64, region: Region, first: RgbaImage, theme: i32) -> Result<Self> {
+    fn open(id: u64, region: Region, first: RgbaImage) -> Result<Self> {
         let window = LongshotWindow::new()?;
-        let appearance = window.global::<ClippyTheme>();
-        appearance.set_index(theme);
-        settings::connect_window_frame(&window, appearance);
+        settings::connect_titlebar(&window, LongshotWindow::invoke_titlebar_contains);
         window.on_append(|| action(Command::Append));
         window.on_undo(|| action(Command::Undo));
         window.on_finish(|| action(Command::Finish));
@@ -133,10 +133,9 @@ fn feedback(session: &LongshotSession, note: String) -> Result<Feedback> {
     Ok(Feedback {
         preview,
         frames: state.frame_count,
-        status: format!(
-            "{} × {} · {} frames\n{note}",
-            state.width, state.total_height, state.frame_count
-        ),
+        width: state.width,
+        height: state.total_height,
+        status: note,
     })
 }
 
@@ -148,10 +147,7 @@ impl App {
             return;
         }
         self.capture_task_id += 1;
-        let theme = settings::theme_index(&self.config.theme);
-        match result
-            .and_then(|(region, first)| View::open(self.capture_task_id, region, first, theme))
-        {
+        match result.and_then(|(region, first)| View::open(self.capture_task_id, region, first)) {
             Ok(view) => self.longshot = Some(view),
             Err(error) => self.capture_error(error),
         }
@@ -187,6 +183,9 @@ impl App {
                 view.busy = false;
                 view.window.set_busy(false);
                 view.window.set_can_undo(feedback.frames > 1);
+                view.window.set_frames(feedback.frames as i32);
+                view.window.set_capture_width(feedback.width as i32);
+                view.window.set_capture_height(feedback.height as i32);
                 view.window.set_status(feedback.status.into());
                 if let Err(error) = view.window.show() {
                     send(Message::Failed(id, error.into()));

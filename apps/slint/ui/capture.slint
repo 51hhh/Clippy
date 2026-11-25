@@ -1,8 +1,66 @@
-import { Button } from "std-widgets.slint";
+import { ClippyIcon, SurfaceButton } from "theme.slint";
 
 export enum CaptureAction { copy, save, edit, longshot, record }
-export struct CaptureMark { left: float, top: float, right: float, bottom: float }
-struct CaptureCommand { label: string, action: CaptureAction }
+export enum CaptureTool { select, rectangle, ellipse, line, arrow, highlight }
+export struct CaptureMark { x0: float, y0: float, x1: float, y1: float, tool: CaptureTool, ink: color, stroke: float }
+struct ToolButton { label: string, tool: CaptureTool, drawing: string }
+struct CaptureCommand { label: string, action: CaptureAction, drawing: string }
+struct OverlayInk { ink: color, label: string }
+struct SelectionBounds { left: length, top: length, right: length, bottom: length }
+enum SelectionGesture { select, move, resize }
+
+component OverlayButton inherits SurfaceButton {
+    in property <string> drawing;
+    in property <color> ink: #e5e7eb;
+    caption: "";
+    border-radius: 5px;
+    background: self.selected ? #355986 : self.hovered ? #ffffff20 : transparent;
+    border-color: #80b6fc;
+    ClippyIcon {
+        x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+        drawing: root.drawing; ink: root.enabled ? root.ink : #7e8490;
+    }
+}
+
+component MarkVisual inherits Rectangle {
+    in property <CaptureMark> mark;
+    in property <length> weight;
+    private property <length> first-x: root.mark.x0 * root.width;
+    private property <length> first-y: root.mark.y0 * root.height;
+    private property <length> last-x: root.mark.x1 * root.width;
+    private property <length> last-y: root.mark.y1 * root.height;
+    private property <length> left: min(root.first-x, root.last-x);
+    private property <length> top: min(root.first-y, root.last-y);
+    private property <length> size-x: abs(root.first-x - root.last-x);
+    private property <length> size-y: abs(root.first-y - root.last-y);
+    private property <float> dx: (root.last-x - root.first-x) / 1px;
+    private property <float> dy: (root.last-y - root.first-y) / 1px;
+    private property <float> direction-x: root.dx / max(1.0, sqrt(root.dx * root.dx + root.dy * root.dy));
+    private property <float> direction-y: root.dy / max(1.0, sqrt(root.dx * root.dx + root.dy * root.dy));
+
+    if root.mark.tool == CaptureTool.rectangle || root.mark.tool == CaptureTool.highlight: Rectangle {
+        x: root.left; y: root.top; width: root.size-x; height: root.size-y;
+        border-width: root.mark.tool == CaptureTool.rectangle ? root.weight : 0px;
+        border-color: root.mark.ink;
+        background: root.mark.tool == CaptureTool.highlight ? root.mark.ink.with-alpha(0.3) : transparent;
+    }
+    if root.mark.tool == CaptureTool.ellipse && root.size-x > 0px && root.size-y > 0px: Path {
+        width: parent.width; height: parent.height;
+        stroke: root.mark.ink; stroke-width: root.weight;
+        commands: "M " + (root.left / 1px) + " " + ((root.top + root.size-y / 2) / 1px)
+            + " a " + (root.size-x / 2px) + " " + (root.size-y / 2px) + " 0 1 1 " + (root.size-x / 1px) + " 0"
+            + " a " + (root.size-x / 2px) + " " + (root.size-y / 2px) + " 0 1 1 " + (-root.size-x / 1px) + " 0";
+    }
+    if root.mark.tool == CaptureTool.line || root.mark.tool == CaptureTool.arrow: Path {
+        width: parent.width; height: parent.height;
+        stroke: root.mark.ink; stroke-width: root.weight; stroke-line-cap: round; stroke-line-join: round;
+        commands: "M " + (root.first-x / 1px) + " " + (root.first-y / 1px) + " L " + (root.last-x / 1px) + " " + (root.last-y / 1px)
+            + (root.mark.tool == CaptureTool.arrow ?
+                " m " + (-root.direction-x * 10 - root.direction-y * 4) + " " + (-root.direction-y * 10 + root.direction-x * 4)
+                + " L " + (root.last-x / 1px) + " " + (root.last-y / 1px)
+                + " l " + (-root.direction-x * 10 + root.direction-y * 4) + " " + (-root.direction-y * 10 - root.direction-x * 4) : "");
+    }
+}
 
 export component CaptureWindow inherits Window {
     in property <image> frame;
@@ -21,12 +79,21 @@ export component CaptureWindow inherits Window {
     private property <length> bottom;
     private property <bool> selected: right - left >= 1px && bottom - top >= 1px;
     private property <bool> ready: selected && !drag.pressed;
-    private property <bool> marking;
-    private property <length> mark-stroke: 3 * root.width / max(1, root.source-width);
+    private property <CaptureTool> active-tool;
+    private property <bool> marking: root.active-tool != CaptureTool.select;
+    private property <color> active-ink: #ff3b30;
+    private property <float> stroke: 3.0;
+    private property <SelectionGesture> gesture;
+    private property <SelectionBounds> drag-start;
+    private property <int> resize-x;
+    private property <int> resize-y;
+    private property <bool> moved-selection;
+    private property <color> shade: #00000057;
+    private property <length> pixel-scale: root.width / max(1, root.source-width);
     private property <length> gap: 8px;
-    private property <length> toolbar-width: min(640px, root.width - 2 * root.gap);
-    private property <length> toolbar-height: 44px;
-    private property <length> button-width: (root.toolbar-width - 58px) / 8;
+    private property <length> toolbar-width: min(560px, root.width - 2 * root.gap);
+    private property <length> toolbar-height: 76px;
+    private property <length> tool-width: min(32px, (root.toolbar-width - 12px) / 10);
     private property <bool> toolbar-below: root.bottom + root.toolbar-height + 2 * root.gap <= root.height;
     private property <length> toolbar-y: root.toolbar-below
         ? root.bottom + root.gap : max(root.gap, root.top - root.toolbar-height - root.gap);
@@ -36,13 +103,24 @@ export component CaptureWindow inherits Window {
         : root.toolbar-y >= root.gap + root.chip-height + 4px
             ? root.toolbar-y - root.chip-height - 4px
             : min(root.height - root.chip-height - root.gap, root.toolbar-y + root.toolbar-height + 4px);
-    private property <[CaptureCommand]> commands: [
-        { label: "Copy", action: CaptureAction.copy },
-        { label: "Save PNG", action: CaptureAction.save },
-        { label: "Edit", action: CaptureAction.edit },
-        { label: "Scroll", action: CaptureAction.longshot },
-        { label: "Record", action: CaptureAction.record },
+    private property <[ToolButton]> tools: [
+        { label: "Select", tool: CaptureTool.select, drawing: "M4 8h12v12M8 4v12h12" },
+        { label: "Rectangle", tool: CaptureTool.rectangle, drawing: "M3 5h18v14H3Z" },
+        { label: "Ellipse", tool: CaptureTool.ellipse, drawing: "M12 3a9 9 0 1 1 0 18 9 9 0 1 1 0-18" },
+        { label: "Line", tool: CaptureTool.line, drawing: "M4 12h16" },
+        { label: "Arrow", tool: CaptureTool.arrow, drawing: "M5 19 19 5M8 5h11v11" },
+        { label: "Highlight", tool: CaptureTool.highlight, drawing: "M4 14 15 3l5 5-11 11-5 1Z M4 14l5 5M4 22h16" },
     ];
+    private property <[CaptureCommand]> commands: [
+        { label: "Edit image", action: CaptureAction.edit, drawing: "M4 19l1-5L17 2l5 5L10 19Z M14 5l5 5 M3 22h18" },
+        { label: "Scrolling capture", action: CaptureAction.longshot, drawing: "M4 4h16v16H4Z M8 8h8 M8 12h5 M14 16h4 M16 14v4" },
+        { label: "Record", action: CaptureAction.record, drawing: "M3 5h13v14H3Z M16 10l5-4v12l-5-4Z" },
+    ];
+    private property <[OverlayInk]> inks: [
+        { ink: #ff3b30, label: "Red" }, { ink: #ffcf36, label: "Yellow" }, { ink: #38c875, label: "Green" },
+        { ink: #0a84ff, label: "Blue" }, { ink: #ffffff, label: "White" }, { ink: #17191f, label: "Black" },
+    ];
+    private property <string> cancel-icon: "M5 5l14 14 M19 5L5 19";
 
     title: "Clippy Screenshot";
     no-frame: true;
@@ -60,25 +138,69 @@ export component CaptureWindow inherits Window {
         image-fit: fill;
     }
 
+    if !root.selected: Rectangle { x: 0px; y: 0px; width: root.width; height: root.height; background: #00000061; }
+    if root.selected: Rectangle { x: 0px; y: 0px; width: root.width; height: root.top; background: root.shade; }
+    if root.selected: Rectangle { x: 0px; y: root.bottom; width: root.width; height: root.height - root.bottom; background: root.shade; }
+    if root.selected: Rectangle {
+        x: 0px; y: root.top; width: root.left; height: root.bottom - root.top; background: root.shade;
+    }
+    if root.selected: Rectangle {
+        x: root.right; y: root.top; width: root.width - root.right; height: root.bottom - root.top;
+        background: root.shade;
+    }
+
     drag := TouchArea {
         enabled: !root.marking;
         mouse-cursor: crosshair;
         pointer-event(event) => {
             if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
-                root.clear-marks();
-                root.left = self.mouse-x;
-                root.right = self.mouse-x;
-                root.top = self.mouse-y;
-                root.bottom = self.mouse-y;
+                let point-x = self.mouse-x;
+                let point-y = self.mouse-y;
+                let margin = 7px;
+                let near = root.selected && point-x >= root.left - margin && point-x <= root.right + margin
+                    && point-y >= root.top - margin && point-y <= root.bottom + margin;
+                root.resize-x = abs(point-x - root.left) <= margin ? -1 : abs(point-x - root.right) <= margin ? 1 : 0;
+                root.resize-y = abs(point-y - root.top) <= margin ? -1 : abs(point-y - root.bottom) <= margin ? 1 : 0;
+                root.gesture = !near ? SelectionGesture.select
+                    : root.resize-x != 0 || root.resize-y != 0 ? SelectionGesture.resize : SelectionGesture.move;
+                root.drag-start = { left: root.left, top: root.top, right: root.right, bottom: root.bottom };
+                root.moved-selection = false;
+                if root.gesture == SelectionGesture.select {
+                    root.clear-marks();
+                    root.left = point-x;
+                    root.right = point-x;
+                    root.top = point-y;
+                    root.bottom = point-y;
+                }
                 keys.focus();
             }
         }
         moved => {
-            if self.pressed {
+            if self.pressed && root.gesture == SelectionGesture.select {
                 root.left = clamp(min(self.pressed-x, self.mouse-x), 0px, root.width);
                 root.top = clamp(min(self.pressed-y, self.mouse-y), 0px, root.height);
                 root.right = clamp(max(self.pressed-x, self.mouse-x), 0px, root.width);
                 root.bottom = clamp(max(self.pressed-y, self.mouse-y), 0px, root.height);
+            } else if self.pressed && (self.mouse-x != self.pressed-x || self.mouse-y != self.pressed-y) {
+                if !root.moved-selection {
+                    root.clear-marks();
+                    root.moved-selection = true;
+                }
+                let dx = self.mouse-x - self.pressed-x;
+                let dy = self.mouse-y - self.pressed-y;
+                if root.gesture == SelectionGesture.move {
+                    let shift-x = clamp(dx, -root.drag-start.left, root.width - root.drag-start.right);
+                    let shift-y = clamp(dy, -root.drag-start.top, root.height - root.drag-start.bottom);
+                    root.left = root.drag-start.left + shift-x;
+                    root.top = root.drag-start.top + shift-y;
+                    root.right = root.drag-start.right + shift-x;
+                    root.bottom = root.drag-start.bottom + shift-y;
+                } else {
+                    if root.resize-x < 0 { root.left = clamp(root.drag-start.left + dx, 0px, root.drag-start.right - 1px); }
+                    if root.resize-x > 0 { root.right = clamp(root.drag-start.right + dx, root.drag-start.left + 1px, root.width); }
+                    if root.resize-y < 0 { root.top = clamp(root.drag-start.top + dy, 0px, root.drag-start.bottom - 1px); }
+                    if root.resize-y > 0 { root.bottom = clamp(root.drag-start.bottom + dy, root.drag-start.top + 1px, root.height); }
+                }
             }
         }
     }
@@ -88,43 +210,62 @@ export component CaptureWindow inherits Window {
         y: root.top;
         width: root.right - root.left;
         height: root.bottom - root.top;
-        border-width: 2px;
-        border-color: #ff6b38;
         clip: true;
-        for mark in root.marks: Rectangle {
-            x: mark.left * parent.width;
-            y: mark.top * parent.height;
-            width: (mark.right - mark.left) * parent.width;
-            height: (mark.bottom - mark.top) * parent.height;
-            border-width: root.mark-stroke;
-            border-color: #ff3b30;
+        Path {
+            width: parent.width;
+            height: parent.height;
+            stroke: #0a84ff;
+            stroke-width: 2px;
+            stroke-dash-array: [5px, 4px];
+            commands: "M1 1 H " + (self.width / 1px - 1) + " V " + (self.height / 1px - 1) + " H1 Z";
+        }
+        for mark in root.marks: MarkVisual {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            mark: mark; weight: mark.stroke * root.pixel-scale;
         }
         mark-drag := TouchArea {
             enabled: root.marking && root.marks.length < 64;
             mouse-cursor: crosshair;
-            property <length> mark-left: clamp(min(self.pressed-x, self.mouse-x), 0px, parent.width);
-            property <length> mark-top: clamp(min(self.pressed-y, self.mouse-y), 0px, parent.height);
-            property <length> mark-right: clamp(max(self.pressed-x, self.mouse-x), 0px, parent.width);
-            property <length> mark-bottom: clamp(max(self.pressed-y, self.mouse-y), 0px, parent.height);
+            property <CaptureMark> current: {
+                x0: clamp(self.pressed-x / self.width, 0.0, 1.0),
+                y0: clamp(self.pressed-y / self.height, 0.0, 1.0),
+                x1: clamp(self.mouse-x / self.width, 0.0, 1.0),
+                y1: clamp(self.mouse-y / self.height, 0.0, 1.0),
+                tool: root.active-tool, ink: root.active-ink, stroke: root.stroke,
+            };
             pointer-event(event) => {
-                if event.kind == PointerEventKind.up && event.button == PointerEventButton.left
-                    && self.mark-right - self.mark-left >= 2px && self.mark-bottom - self.mark-top >= 2px {
-                    root.add-mark({
-                        left: self.mark-left / self.width,
-                        top: self.mark-top / self.height,
-                        right: self.mark-right / self.width,
-                        bottom: self.mark-bottom / self.height,
-                    });
+                if event.kind == PointerEventKind.up && event.button == PointerEventButton.left {
+                    let dx = abs(self.current.x1 - self.current.x0) * self.width;
+                    let dy = abs(self.current.y1 - self.current.y0) * self.height;
+                    let linear = root.active-tool == CaptureTool.line || root.active-tool == CaptureTool.arrow;
+                    if linear ? max(dx, dy) >= 2px : min(dx, dy) >= 2px {
+                        root.add-mark(self.current);
+                    }
                 }
             }
         }
-        if mark-drag.pressed: Rectangle {
-            x: mark-drag.mark-left;
-            y: mark-drag.mark-top;
-            width: mark-drag.mark-right - mark-drag.mark-left;
-            height: mark-drag.mark-bottom - mark-drag.mark-top;
-            border-width: root.mark-stroke;
-            border-color: #ff3b30;
+        if mark-drag.pressed: MarkVisual {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            mark: mark-drag.current; weight: root.stroke * root.pixel-scale;
+        }
+    }
+
+    if root.ready && !root.marking: Rectangle {
+        x: root.left;
+        y: root.top;
+        width: root.right - root.left;
+        height: root.bottom - root.top;
+        for handle in [{ x: 0.0, y: 0.0 }, { x: 0.5, y: 0.0 }, { x: 1.0, y: 0.0 },
+                       { x: 0.0, y: 0.5 }, { x: 1.0, y: 0.5 },
+                       { x: 0.0, y: 1.0 }, { x: 0.5, y: 1.0 }, { x: 1.0, y: 1.0 }]: Rectangle {
+            x: handle.x * parent.width - 5px;
+            y: handle.y * parent.height - 5px;
+            width: 10px;
+            height: 10px;
+            border-radius: 2px;
+            border-width: 1px;
+            border-color: #ffffff;
+            background: #2f8cff;
         }
     }
 
@@ -149,7 +290,7 @@ export component CaptureWindow inherits Window {
         x: (parent.width - self.width) / 2;
         y: 16px;
         width: 260px;
-        height: root.toolbar-height;
+        height: 44px;
         border-radius: 8px;
         background: #202124;
         TouchArea { }
@@ -164,7 +305,7 @@ export component CaptureWindow inherits Window {
                 horizontal-alignment: center;
                 horizontal-stretch: 1;
             }
-            Button { text: "Cancel"; width: 66px; clicked => { root.cancel(); } }
+            OverlayButton { label: "Cancel"; width: 32px; drawing: root.cancel-icon; clicked => { root.cancel(); } }
         }
     }
 
@@ -176,26 +317,73 @@ export component CaptureWindow inherits Window {
         border-radius: 8px;
         background: #202124;
         TouchArea { }
+        for tool[index] in root.tools: OverlayButton {
+            x: 6px + index * root.tool-width; y: 4px; width: root.tool-width; height: 30px;
+            label: tool.label; drawing: tool.drawing;
+            selected: root.active-tool == tool.tool;
+            clicked => { root.active-tool = tool.tool; keys.focus(); }
+        }
+        Rectangle { x: 8px + 6 * root.tool-width; y: 8px; width: 1px; height: 22px; background: #444956; }
+        for command[index] in root.commands: OverlayButton {
+            x: 15px + (6 + index) * root.tool-width; y: 4px; width: root.tool-width; height: 30px;
+            label: command.label; drawing: command.drawing;
+            clicked => { root.commit(command.action); }
+        }
+        Rectangle { x: 8px; y: 37px; width: parent.width - 16px; height: 1px; background: #3d4049; }
+        for sample[index] in root.inks: SurfaceButton {
+            x: 7px + index * 19px; y: 45px; width: 19px; min-width: 19px; height: 24px;
+            label: sample.label; caption: ""; background: transparent;
+            Rectangle {
+                x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+                width: 15px; height: 15px; border-radius: 8px; border-color: #b7bdca;
+                border-width: 1px; background: sample.ink;
+            }
+            if root.active-ink == sample.ink: Rectangle {
+                x: 0.5px; y: 3px; width: 18px; height: 18px; border-radius: 9px;
+                border-color: #2f8cff; border-width: 1px;
+            }
+            clicked => { root.active-ink = sample.ink; keys.focus(); }
+        }
+        if root.toolbar-width >= 380px: Text {
+            x: 126px; y: 45px; width: 28px; height: 24px;
+            text: "Size"; font-size: 11px; color: #e5e7eb; vertical-alignment: center;
+        }
+        if root.toolbar-width >= 380px: Rectangle {
+            x: 157px; y: 45px; width: min(100px, root.toolbar-width - 330px); height: 24px;
+            accessible-role: slider;
+            accessible-label: "Stroke width";
+            accessible-value: "" + round(root.stroke);
+            Rectangle { width: parent.width; height: 4px; border-radius: 2px; background: #535967; }
+            Rectangle { x: 0px; width: (root.stroke - 1) / 11 * parent.width; height: 4px; border-radius: 2px; background: #2f8cff; }
+            Rectangle { x: (root.stroke - 1) / 11 * parent.width - 5px; width: 10px; height: 10px; border-radius: 5px; background: #ffffff; }
+            TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.stroke = clamp(round(1 + 11 * self.mouse-x / self.width), 1, 12); keys.focus(); }
+                moved => { if self.pressed { root.stroke = clamp(round(1 + 11 * self.mouse-x / self.width), 1, 12); } }
+            }
+        }
         HorizontalLayout {
-            padding: 8px;
-            spacing: 6px;
-            for command in root.commands: Button {
-                text: command.label;
-                width: root.button-width;
-                clicked => { root.commit(command.action); }
-            }
-            Button {
-                text: root.marking ? "Select" : "Rectangle";
-                width: root.button-width;
-                clicked => { root.marking = !root.marking; keys.focus(); }
-            }
-            Button {
-                text: "Undo";
-                width: root.button-width;
-                enabled: root.marks.length > 0;
+            x: parent.width - 6px - 5 * root.tool-width; y: 42px; width: 5 * root.tool-width; height: 30px;
+            OverlayButton {
+                label: "Undo"; drawing: "M9 5l-6 6 6 6 M3 11h12a5 5 0 0 1 5 5v3";
+                width: root.tool-width; enabled: root.marks.length > 0;
                 clicked => { root.undo-mark(); keys.focus(); }
             }
-            Button { text: "Cancel"; width: root.button-width; clicked => { root.cancel(); } }
+            OverlayButton {
+                label: "Clear marks"; drawing: "M4 6h16m-6 0V3h-4v3M6 6l1 15h10l1-15M10 10v7m4-7v7";
+                width: root.tool-width; enabled: root.marks.length > 0;
+                clicked => { root.clear-marks(); keys.focus(); }
+            }
+            OverlayButton {
+                label: "Save PNG"; drawing: "M4 3h13l4 4v14H3V3Z M7 3v7h10V3 M7 21v-7h10v7";
+                width: root.tool-width;
+                clicked => { root.commit(CaptureAction.save); }
+            }
+            OverlayButton {
+                label: "Copy"; drawing: "M5 12l4 4L19 6"; ink: #6ee7a8;
+                width: root.tool-width; clicked => { root.commit(CaptureAction.copy); }
+            }
+            OverlayButton { label: "Cancel"; drawing: root.cancel-icon; width: root.tool-width; clicked => { root.cancel(); } }
         }
     }
 

@@ -5,6 +5,7 @@ pub mod instance;
 pub mod paste;
 pub mod paths;
 pub mod private_files;
+pub mod recording_control;
 pub mod session;
 pub mod shortcuts;
 pub mod startup;

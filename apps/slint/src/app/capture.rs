@@ -1,5 +1,5 @@
 use super::{post, Event};
-use crate::{CaptureMark, CaptureWindow};
+use crate::{CaptureMark, CaptureTool, CaptureWindow};
 use anyhow::{Context, Result};
 use clippy_capture::editor::{Editor, ImageProject, Tool};
 use clippy_core::image_output::{filename_candidates, SaveTarget};
@@ -232,12 +232,22 @@ pub(super) fn output(
 fn make_project(source: Arc<RgbaImage>, marks: &[CaptureMark]) -> Result<ImageProject> {
     let mut editor = Editor::new(source);
     for mark in marks {
+        let tool = match mark.tool {
+            CaptureTool::Rectangle => Tool::Rectangle,
+            CaptureTool::Ellipse => Tool::Ellipse,
+            CaptureTool::Line => Tool::Line,
+            CaptureTool::Arrow => Tool::Arrow,
+            CaptureTool::Highlight => Tool::Highlight,
+            CaptureTool::Select => unreachable!("框选操作不生成标注"),
+        };
+        let ink = mark.ink;
+        let color = format!("#{:02x}{:02x}{:02x}", ink.red(), ink.green(), ink.blue());
         editor
             .annotate(
-                Tool::Rectangle,
-                &[[mark.left, mark.top], [mark.right, mark.bottom]],
-                "#ff3b30",
-                3.0,
+                tool,
+                &[[mark.x0, mark.y0], [mark.x1, mark.y1]],
+                &color,
+                mark.stroke,
                 "",
             )
             .map_err(anyhow::Error::msg)?;
