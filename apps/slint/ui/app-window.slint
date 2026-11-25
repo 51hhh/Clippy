@@ -137,43 +137,53 @@ export component AppWindow inherits Window {
             wrap: word-wrap;
             font-size: 12px;
         }
-        if !root.show-settings: HorizontalLayout {
+        if !root.show-settings: FocusScope {
             vertical-stretch: 1;
-            HistoryPane {
-                min-width: 300px;
-                preferred-width: 380px;
-                horizontal-stretch: root.preview-open ? 0 : 1;
-                clips: root.clips;
-                status: root.history-status;
-                all-count: root.all-count;
-                favorite-count: root.favorite-count;
-                busy: root.busy;
-                loading: root.loading-history;
-                auto-paste: root.auto-paste;
-                can-load-more: root.can-load-more && root.history-limit < 200;
-                query <=> root.query;
-                favorites-only <=> root.favorites-only;
-                selected-id <=> root.selected-id;
-                selected-index <=> root.selected-index;
-                preview-open: root.preview-open;
-                refresh => { root.history-limit = 50; root.reload-history(); }
-                load-more => { root.history-limit += 50; root.reload-history(); }
-                close-panel => { root.close-panel(); }
-                copy-item(id, paste) => { root.copy-item(id, paste); }
-                modify-item(id, favorite) => { root.modify-item(id, favorite); }
-                show-preview(open) => { root.show-preview(open); }
-                open-launcher => { root.open-launcher(); }
+            focus-on-click: false;
+            capture-key-pressed(event) => {
+                if (event.modifiers.control || event.modifiers.meta) && !event.modifiers.alt
+                    && !event.modifiers.shift && event.text == "k" {
+                    root.open-launcher();
+                    return accept;
+                }
+                reject
             }
-            if root.preview-open: HistoryPreviewPane {
-                preview: root.preview;
-                selected-id: root.selected-id;
-                selected-sensitive: root.selected-sensitive;
-                loading: root.loading-history;
-                busy: root.busy;
-                dismiss => { root.show-preview(false); }
-                copy => { root.copy-item(root.preview.clip-id, false); }
-                open-image => { root.edit-history-image(root.preview.clip-id); }
-                open-tools => { root.preview-item(root.preview.clip-id); }
+            HorizontalLayout {
+                HistoryPane {
+                    min-width: 300px;
+                    preferred-width: 380px;
+                    horizontal-stretch: root.preview-open ? 0 : 1;
+                    clips: root.clips;
+                    status: root.history-status;
+                    all-count: root.all-count;
+                    favorite-count: root.favorite-count;
+                    busy: root.busy;
+                    loading: root.loading-history;
+                    auto-paste: root.auto-paste;
+                    can-load-more: root.can-load-more && root.history-limit < 200;
+                    query <=> root.query;
+                    favorites-only <=> root.favorites-only;
+                    selected-id <=> root.selected-id;
+                    selected-index <=> root.selected-index;
+                    preview-open: root.preview-open;
+                    refresh => { root.history-limit = 50; root.reload-history(); }
+                    load-more => { root.history-limit += 50; root.reload-history(); }
+                    close-panel => { root.close-panel(); }
+                    copy-item(id, paste) => { root.copy-item(id, paste); }
+                    modify-item(id, favorite) => { root.modify-item(id, favorite); }
+                    show-preview(open) => { root.show-preview(open); }
+                }
+                if root.preview-open: HistoryPreviewPane {
+                    preview: root.preview;
+                    selected-id: root.selected-id;
+                    selected-sensitive: root.selected-sensitive;
+                    loading: root.loading-history;
+                    busy: root.busy;
+                    dismiss => { root.show-preview(false); }
+                    copy => { root.copy-item(root.preview.clip-id, false); }
+                    open-image => { root.edit-history-image(root.preview.clip-id); }
+                    open-tools => { root.preview-item(root.preview.clip-id); }
+                }
             }
         }
 

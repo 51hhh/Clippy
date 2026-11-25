@@ -490,6 +490,13 @@ def run(binary, root):
         desktop.keys("Control_L", "c")
         wait_for(lambda: get_clipboard("UTF8_STRING").decode() == "rich-qa",
                  "read-only preview did not expose the rich item's plain text")
+        desktop.keys("Control_L", "k")
+        launcher_id, _ = wait_for(lambda: titled_window(LAUNCHER_TITLE), "Ctrl+K did not reach the launcher from preview text")
+        desktop.focus(launcher_id)
+        desktop.keys("Escape")
+        wait_for(lambda: not titled_window(LAUNCHER_TITLE), "launcher did not close from preview")
+        assert panel_width(780)[0] == panel_id, "opening the launcher replaced the preview"
+        desktop.focus(panel_id)
         desktop.keys("Escape")
         panel_width(380)
         desktop.keys("Tab")

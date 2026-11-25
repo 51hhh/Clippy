@@ -66,7 +66,6 @@ export component HistoryPane inherits Rectangle {
     callback copy-item(string, bool);
     callback modify-item(string, bool);
     callback show-preview(bool);
-    callback open-launcher();
     private property <string> expanded-id;
     private property <bool> search-visible;
     private property <length> row-height: 77px;
@@ -106,11 +105,6 @@ export component HistoryPane inherits Rectangle {
     keys := FocusScope {
         focus-on-click: false;
         capture-key-pressed(event) => {
-            if (event.modifiers.control || event.modifiers.meta) && !event.modifiers.alt
-                && !event.modifiers.shift && event.text == "k" {
-                root.open-launcher();
-                return accept;
-            }
             if event.modifiers.control && event.text == "f" {
                 root.search-visible = true;
                 search.focus();
