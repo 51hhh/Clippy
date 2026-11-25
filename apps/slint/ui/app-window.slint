@@ -1,9 +1,9 @@
 import { Button } from "std-widgets.slint";
 import { ClipRow, HistoryPane } from "history.slint";
 import { ClipPreview, HistoryPreviewPane } from "history-preview.slint";
-import { GeneralSettings, SettingsPane, TranslationSettings } from "settings.slint";
+import { GeneralSettings, SettingsPane, ShortcutField, TranslationSettings } from "settings.slint";
 import { ClippyTheme, WindowHeader } from "theme.slint";
-export { GeneralSettings, TranslationSettings, ClippyTheme, ClipRow, ClipPreview }
+export { GeneralSettings, TranslationSettings, ShortcutField, ClippyTheme, ClipRow, ClipPreview }
 export { EditorWindow } from "editor.slint";
 export { PinnedWindow, WorkspaceWindow, WorkspaceRow } from "pins.slint";
 export { LongshotWindow } from "longshot.slint";
@@ -54,6 +54,9 @@ export component AppWindow inherits Window {
     in property <string> action-status;
     in property <string> shortcut-status;
     in property <GeneralSettings> general-settings;
+    in-out property <ShortcutField> recording-shortcut;
+    in-out property <string> panel-shortcut-draft;
+    in-out property <string> capture-shortcut-draft;
     in property <TranslationSettings> translation-settings;
     in property <int> provider-index;
     in property <bool> autostart;
@@ -100,6 +103,10 @@ export component AppWindow inherits Window {
 
     changed selected-id => { root.preview-selection-changed(); }
     changed selected-sensitive => { root.preview-selection-changed(); }
+    changed general-settings => {
+        root.panel-shortcut-draft = root.general-settings.panel-shortcut;
+        root.capture-shortcut-draft = root.general-settings.capture-shortcut;
+    }
 
     title: root.show-settings ? "Clippy Settings" : root.product-name;
     preferred-width: root.panel-width;
@@ -173,6 +180,9 @@ export component AppWindow inherits Window {
         if root.show-settings: SettingsPane {
             vertical-stretch: 1;
             general: root.general-settings;
+            recording-shortcut <=> root.recording-shortcut;
+            panel-shortcut <=> root.panel-shortcut-draft;
+            capture-shortcut <=> root.capture-shortcut-draft;
             translation: root.translation-settings;
             provider-index: root.provider-index;
             auto-paste: root.auto-paste;

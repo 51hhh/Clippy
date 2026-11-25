@@ -1,5 +1,5 @@
 use super::{post, use_app, App, Event};
-use crate::{AppWindow, ClippyTheme, GeneralSettings, TranslationSettings};
+use crate::{AppWindow, ClippyTheme, GeneralSettings, ShortcutField, TranslationSettings};
 use anyhow::{ensure, Context, Result};
 use clippy_core::{
     config::{AppConfig, TranslationServiceConfig},
@@ -13,7 +13,10 @@ use clippy_storage::{read_archive, write_new_archive, ArchiveScope};
 use clippy_translate::{secrets, types::TranslationProvider};
 use slint::{
     winit_030::{
-        winit::event::{ElementState, MouseButton, WindowEvent},
+        winit::{
+            event::{ElementState, MouseButton, WindowEvent},
+            keyboard::{KeyCode, ModifiersState, PhysicalKey},
+        },
         EventResult, WinitWindowAccessor,
     },
     ComponentHandle,
@@ -60,9 +63,23 @@ pub(super) fn connect_titlebar<T: ComponentHandle + 'static>(
     window: &T,
     contains: impl Fn(&T, f32, f32) -> bool + 'static,
 ) {
+    connect_window_events(window, contains, |_, _| EventResult::Propagate);
+}
+
+fn connect_window_events<T: ComponentHandle + 'static>(
+    window: &T,
+    contains: impl Fn(&T, f32, f32) -> bool + 'static,
+    mut intercept: impl FnMut(&T, &WindowEvent) -> EventResult + 'static,
+) {
     let weak = window.as_weak();
     let mut cursor = None;
     window.window().on_winit_window_event(move |host, event| {
+        let Some(window) = weak.upgrade() else {
+            return EventResult::Propagate;
+        };
+        if matches!(intercept(&window, event), EventResult::PreventDefault) {
+            return EventResult::PreventDefault;
+        }
         match event {
             WindowEvent::CursorMoved { position, .. } => cursor = Some(*position),
             WindowEvent::CursorLeft { .. } => cursor = None,
@@ -71,7 +88,7 @@ pub(super) fn connect_titlebar<T: ComponentHandle + 'static>(
                 button: MouseButton::Left,
                 ..
             } => {
-                if let (Some(window), Some(position)) = (weak.upgrade(), cursor) {
+                if let Some(position) = cursor {
                     let position = position.to_logical::<f32>(f64::from(host.scale_factor()));
                     if contains(&window, position.x, position.y)
                         && host.with_winit_window(|window| window.drag_window().is_ok())
@@ -86,6 +103,87 @@ pub(super) fn connect_titlebar<T: ComponentHandle + 'static>(
         }
         EventResult::Propagate
     });
+}
+
+fn connect_shortcut_recorder(window: &AppWindow) {
+    let mut modifiers = ModifiersState::empty();
+    connect_window_events(
+        window,
+        AppWindow::invoke_titlebar_contains,
+        move |window, event| {
+            match event {
+                WindowEvent::ModifiersChanged(value) => modifiers = value.state(),
+                WindowEvent::Focused(false) => {
+                    // X11 已注册热键会临时接管键盘，录制仍由 Esc、切页和关闭结束。
+                    modifiers = ModifiersState::empty();
+                }
+                WindowEvent::KeyboardInput {
+                    event,
+                    is_synthetic,
+                    ..
+                } if window.get_recording_shortcut() != ShortcutField::None => {
+                    if event.state == ElementState::Pressed && !event.repeat && !is_synthetic {
+                        if let PhysicalKey::Code(key) = event.physical_key {
+                            if key == KeyCode::Escape {
+                                window.set_recording_shortcut(ShortcutField::None);
+                            } else if let Some(chord) = recorded_shortcut(key, modifiers) {
+                                match window.get_recording_shortcut() {
+                                    ShortcutField::Clipboard => {
+                                        window.set_panel_shortcut_draft(chord.into())
+                                    }
+                                    ShortcutField::Screenshot => {
+                                        window.set_capture_shortcut_draft(chord.into())
+                                    }
+                                    ShortcutField::None => {
+                                        unreachable!("Shortcut recording is active")
+                                    }
+                                }
+                                window.set_recording_shortcut(ShortcutField::None);
+                            }
+                        }
+                    }
+                    return EventResult::PreventDefault;
+                }
+                _ => {}
+            }
+            EventResult::Propagate
+        },
+    );
+}
+
+fn recorded_shortcut(key: KeyCode, modifiers: ModifiersState) -> Option<String> {
+    if !(modifiers.control_key() || modifiers.alt_key() || modifiers.super_key())
+        || matches!(
+            key,
+            KeyCode::CapsLock | KeyCode::NumLock | KeyCode::ScrollLock | KeyCode::Escape
+        )
+    {
+        return None;
+    }
+    let name = format!("{key:?}");
+    let key = name
+        .strip_prefix("Key")
+        .or_else(|| name.strip_prefix("Digit"))
+        .filter(|value| value.len() == 1)
+        .unwrap_or(&name);
+    let super_key = if cfg!(target_os = "macos") {
+        "Command"
+    } else {
+        "Super"
+    };
+    let keys = [
+        (modifiers.control_key(), "Ctrl"),
+        (modifiers.alt_key(), "Alt"),
+        (modifiers.shift_key(), "Shift"),
+        (modifiers.super_key(), super_key),
+        (true, key),
+    ];
+    let chord = keys
+        .into_iter()
+        .filter_map(|(active, key)| active.then_some(key))
+        .collect::<Vec<_>>()
+        .join("+");
+    shortcuts::can_parse(&chord).then_some(chord)
 }
 
 pub(super) fn connect(window: &AppWindow, config: &AppConfig) {
@@ -104,7 +202,7 @@ pub(super) fn connect(window: &AppWindow, config: &AppConfig) {
     translation(window, config, index as i32).expect("设置页中的翻译服务索引有效");
     window.set_tmux_available(cfg!(target_os = "linux"));
     if window.get_show_settings() {
-        connect_titlebar(window, AppWindow::invoke_titlebar_contains);
+        connect_shortcut_recorder(window);
     }
     window.on_apply_general(|settings| {
         use_app(|app| {
@@ -510,5 +608,31 @@ impl App {
                 self.settings_result(result);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod shortcut_tests {
+    use super::*;
+
+    #[test]
+    fn physical_keys_produce_supported_portable_shortcuts() {
+        let ctrl_alt = ModifiersState::CONTROL | ModifiersState::ALT;
+        assert_eq!(
+            recorded_shortcut(KeyCode::KeyK, ctrl_alt).as_deref(),
+            Some("Ctrl+Alt+K")
+        );
+        assert_eq!(
+            recorded_shortcut(KeyCode::F8, ctrl_alt).as_deref(),
+            Some("Ctrl+Alt+F8")
+        );
+        assert_eq!(
+            recorded_shortcut(KeyCode::NumpadAdd, ModifiersState::CONTROL).as_deref(),
+            Some("Ctrl+NumpadAdd")
+        );
+        assert!(recorded_shortcut(KeyCode::KeyK, ModifiersState::SHIFT).is_none());
+        assert!(recorded_shortcut(KeyCode::ControlLeft, ModifiersState::CONTROL).is_none());
+        assert!(recorded_shortcut(KeyCode::Escape, ctrl_alt).is_none());
+        assert!(shortcuts::validate("Ctrl+Alt+K", "Alt+Control+KeyK").is_err());
     }
 }

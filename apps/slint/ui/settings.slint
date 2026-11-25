@@ -22,6 +22,8 @@ export struct TranslationSettings {
     target: string,
 }
 
+export enum ShortcutField { none, clipboard, screenshot }
+
 component FieldLabel inherits Text {
     color: ClippyTheme.foreground;
     font-size: 14px;
@@ -31,6 +33,31 @@ component FieldLabel inherits Text {
 component SettingDivider inherits Rectangle {
     height: 1px;
     background: ClippyTheme.border;
+}
+
+component ShortcutInput inherits VerticalLayout {
+    in property <string> label;
+    in property <bool> recording;
+    in-out property <string> value;
+    callback record();
+
+    spacing: 6px;
+    FieldLabel { text: root.label; }
+    HorizontalLayout {
+        spacing: 8px;
+        LineEdit { text <=> root.value; accessible-label: root.label; read-only: root.recording; }
+        SurfaceButton {
+            label: root.recording ? "Cancel recording" : "Record shortcut";
+            selected: root.recording;
+            width: 121px;
+            clicked => { root.record(); }
+        }
+    }
+    if root.recording: Text {
+        text: "Press a shortcut. Esc cancels.";
+        color: ClippyTheme.accent;
+        font-size: 12px;
+    }
 }
 
 component ThemeCard inherits SurfaceButton {
@@ -85,6 +112,9 @@ export component SettingsPane inherits Rectangle {
     in property <bool> busy;
     in property <string> build-label;
     in property <string> data-status;
+    in-out property <ShortcutField> recording-shortcut;
+    in-out property <string> panel-shortcut;
+    in-out property <string> capture-shortcut;
     callback paste-setting(bool);
     callback authorize-paste();
     callback forget-paste();
@@ -121,6 +151,7 @@ export component SettingsPane inherits Rectangle {
                     selected: root.page == index;
                     clicked => {
                         root.page = index;
+                        root.recording-shortcut = ShortcutField.none;
                         page-scroll.content-y = 0px;
                         if index == 3 { root.data-action(0, ""); }
                     }
@@ -134,8 +165,12 @@ export component SettingsPane inherits Rectangle {
                 spacing: 8px;
                 if root.page == 0: VerticalLayout {
                     spacing: 7px;
-                    FieldLabel { text: "Global Shortcut"; }
-                    panel := LineEdit { text: root.general.panel-shortcut; accessible-label: "Global Shortcut"; }
+                    ShortcutInput {
+                        label: "Global Shortcut";
+                        value <=> root.panel-shortcut;
+                        recording: root.recording-shortcut == ShortcutField.clipboard;
+                        record => { root.recording-shortcut = self.recording ? ShortcutField.none : ShortcutField.clipboard; }
+                    }
                     SettingDivider { }
                     FieldLabel { text: "Theme"; }
                     HorizontalLayout {
@@ -181,8 +216,9 @@ export component SettingsPane inherits Rectangle {
                     Button {
                         text: "Save general settings";
                         clicked => {
+                            root.recording-shortcut = ShortcutField.none;
                             root.apply-general({
-                                max-history: history.text, panel-shortcut: panel.text,
+                                max-history: history.text, panel-shortcut: root.panel-shortcut,
                                 theme: root.selected-theme, capture-shortcut: root.general.capture-shortcut,
                                 save-directory: root.general.save-directory, filename-template: root.general.filename-template,
                                 ocr-enabled: root.general.ocr-enabled, ocr-manifest: root.general.ocr-manifest,
@@ -192,8 +228,12 @@ export component SettingsPane inherits Rectangle {
                 }
                 if root.page == 1: VerticalLayout {
                     spacing: 8px;
-                    FieldLabel { text: "Screenshot Shortcut"; }
-                    capture := LineEdit { text: root.general.capture-shortcut; }
+                    ShortcutInput {
+                        label: "Screenshot Shortcut";
+                        value <=> root.capture-shortcut;
+                        recording: root.recording-shortcut == ShortcutField.screenshot;
+                        record => { root.recording-shortcut = self.recording ? ShortcutField.none : ShortcutField.screenshot; }
+                    }
                     SettingDivider { }
                     FieldLabel { text: "Screenshots"; }
                     FieldLabel { text: "Screenshot directory"; }
@@ -206,9 +246,10 @@ export component SettingsPane inherits Rectangle {
                     Button {
                         text: "Save screenshot settings";
                         clicked => {
+                            root.recording-shortcut = ShortcutField.none;
                             root.apply-general({
                                 max-history: root.general.max-history, panel-shortcut: root.general.panel-shortcut,
-                                theme: root.general.theme, capture-shortcut: capture.text,
+                                theme: root.general.theme, capture-shortcut: root.capture-shortcut,
                                 save-directory: directory.text, filename-template: filename.text,
                                 ocr-enabled: ocr.checked, ocr-manifest: manifest.text,
                             });

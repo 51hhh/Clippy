@@ -1,4 +1,4 @@
-use crate::{build_label, clip_row, AppWindow, CaptureAction, ClippyTray};
+use crate::{build_label, clip_row, AppWindow, CaptureAction, ClippyTray, ShortcutField};
 use anyhow::{Context, Result};
 use clippy_core::{
     config::{parse_config_json, serialize_config_json, AppConfig},
@@ -102,10 +102,7 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
         identity.current_platform(),
         &config.global_shortcut,
         &config.capture_shortcut,
-        |action| match action {
-            Action::Open => post(Event::Open(false)),
-            Action::Capture => post(Event::CaptureStart),
-        },
+        |action| post(Event::GlobalShortcut(action)),
         |message| post(Event::ShortcutStatus(message)),
     );
     let shortcut_status = shortcuts
@@ -182,6 +179,7 @@ fn load_config(paths: &AppPaths, identity: &DeploymentIdentity) -> Result<AppCon
 
 enum Event {
     Open(bool),
+    GlobalShortcut(Action),
     Hide,
     HistoryChanged,
     History(u64, Result<Vec<ClipItem>, StorageError>),
@@ -270,6 +268,17 @@ struct App {
 impl App {
     fn handle(&mut self, event: Event) {
         match event {
+            Event::GlobalShortcut(action)
+                if !self.window.as_ref().is_some_and(|window| {
+                    window.get_recording_shortcut() != ShortcutField::None
+                }) =>
+            {
+                self.handle(match action {
+                    Action::Open => Event::Open(false),
+                    Action::Capture => Event::CaptureStart,
+                });
+            }
+            Event::GlobalShortcut(_) => {}
             Event::Open(settings) if self.capture_views.is_none() => {
                 if let Err(error) = self.open(settings) {
                     eprintln!("Unable to open Clippy: {error}");

@@ -149,6 +149,14 @@ class Desktop:
         self.button(self.display, 1, 0, 0)
         self.sync(self.display, 0)
 
+    def scroll_down(self, x, y):
+        self.move(self.display, 0, x, y, 0)
+        for _ in range(16):
+            self.button(self.display, 5, 1, 0)
+            self.button(self.display, 5, 0, 0)
+        self.sync(self.display, 0)
+        time.sleep(0.25)
+
     def background(self, rgb):
         root = self.root_window(self.display)
         self.set_background(self.display, root, rgb)
@@ -270,6 +278,13 @@ def save_failure_frame():
         root = Gdk.get_default_root_window()
         pixbuf = Gdk.pixbuf_get_from_window(root, 0, 0, root.get_width(), root.get_height())
         pixbuf.savev(str(Path(directory) / "slint-x11-failure.png"), "png", [], [])
+
+
+def save_qa_window(name, bounds):
+    directory = os.environ.get("CLIPPY_SLINT_QA_ARTIFACTS")
+    if directory:
+        pixbuf = Gdk.pixbuf_get_from_window(Gdk.get_default_root_window(), *bounds)
+        pixbuf.savev(str(Path(directory) / name), "png", [], [])
 
 
 def rgba_png():
@@ -728,6 +743,49 @@ def run(binary, root):
         desktop.request_close(launcher_pin)
         wait_for(lambda: not titled_window(PIN_TITLE), "launcher pin did not close")
         print("PASS launcher PNG export preserves alpha and pin creation opens the stored image", flush=True)
+
+        def configured(key):
+            return json.loads((data_dir / "config.json").read_text())[key]
+
+        tray.activate("Settings")
+        settings_id, (x, y, width, height) = wait_for(
+            lambda: titled_window(SETTINGS_TITLE), "shortcut settings did not open",
+        )
+        desktop.focus(settings_id)
+        desktop.click(x + width - 108, y + 188)
+        time.sleep(0.1)
+        save_qa_window("shortcut-recording.png", (x, y, width, height))
+        desktop.keys("Control_L", "Alt_L", "Shift_L", "j")
+        time.sleep(0.15)
+        assert not titled_window(TITLE), "the active hotkey interrupted recording"
+        desktop.keys("Escape")
+        desktop.click(x + width - 108, y + 188)
+        desktop.keys("Control_L", "F8")
+        time.sleep(0.08)
+        save_qa_window("shortcut-recorded.png", (x, y, width, height))
+        desktop.click(x + width - 108, y + 188)
+        desktop.keys("Escape")
+        desktop.scroll_down(x + width - 94, y + height - 67)
+        desktop.click(x + width // 2, y + height - 50)
+        wait_for(lambda: configured("global_shortcut") == "Ctrl+F8", "clipboard shortcut was not saved after cancel")
+
+        desktop.click(x + 279, y + 101)
+        desktop.click(x + width - 108, y + 188)
+        desktop.keys("Control_L", "F8")
+        desktop.scroll_down(x + width - 94, y + height - 67)
+        desktop.click(x + width // 2, y + height - 50)
+        time.sleep(0.2)
+        assert configured("capture_shortcut") == "Ctrl+Alt+Shift+K", "duplicate shortcut was accepted"
+        desktop.click(x + 126, y + 101)
+        desktop.click(x + 279, y + 101)
+        desktop.click(x + width - 108, y + 188)
+        desktop.keys("Control_L", "Shift_L", "F9")
+        desktop.scroll_down(x + width - 94, y + height - 67)
+        desktop.click(x + width // 2, y + height - 50)
+        wait_for(lambda: configured("capture_shortcut") == "Ctrl+Shift+F9", "recorded screenshot shortcut was not saved")
+        desktop.request_close(settings_id)
+        wait_for(lambda: not titled_window(SETTINGS_TITLE), "shortcut settings did not close")
+        print("PASS settings record native keys, cancel, reject duplicates and persist both shortcuts", flush=True)
 
         second = subprocess.run([binary, "--open"], env=env, timeout=4)
         assert second.returncode == 0

@@ -18,6 +18,10 @@ pub struct Shortcuts {
     _wayland: Option<wayland::Worker>,
 }
 
+pub fn can_parse(shortcut: &str) -> bool {
+    shortcut.parse::<HotKey>().is_ok()
+}
+
 pub fn validate(panel: &str, capture: &str) -> Result<()> {
     let panel = panel
         .parse::<HotKey>()
