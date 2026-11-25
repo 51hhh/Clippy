@@ -34,31 +34,6 @@ export global ClippyTheme {
     changed index => { self.sync-native-palette(); }
 }
 
-export component WindowTitle inherits Rectangle {
-    in property <string> text;
-    callback begin-drag();
-    horizontal-stretch: 1;
-    min-height: 32px;
-
-    Text {
-        width: parent.width;
-        height: parent.height;
-        text: root.text;
-        vertical-alignment: center;
-        overflow: elide;
-        color: ClippyTheme.foreground;
-        font-size: 24px;
-        font-weight: 700;
-    }
-    TouchArea {
-        pointer-event(event) => {
-            if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
-                root.begin-drag();
-            }
-        }
-    }
-}
-
 export component SurfaceButton inherits Rectangle {
     in property <string> label;
     in property <string> caption: label;

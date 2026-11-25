@@ -564,14 +564,48 @@ def run(binary, root):
         desktop.focus(launcher_id)
         launcher_search("codec")
         desktop.keys("Return")
-        tools_id, (x, y, width, height) = wait_for(lambda: titled_window(TOOLS_TITLE), "launcher did not open the text tools")
+        tools_id, tools_bounds = wait_for(lambda: titled_window(TOOLS_TITLE), "launcher did not open the text tools")
+        x, y, width, height = tools_bounds
         desktop.focus(tools_id)
-        time.sleep(0.2)
-        desktop.click(x + width - 65, y + height // 2 + 7)
-        wait_for(lambda: get_clipboard("UTF8_STRING").decode() == TEXT, "text tools lost the selected Unicode item")
-        desktop.request_close(tools_id)
+        check_titlebar(tools_bounds, "text-tools")
+
+        def select_text_pane(left, expected):
+            desktop.click(x + (80 if left else width // 2 + 80), y + 159)
+            desktop.keys("Control_L", "a")
+            desktop.keys("Control_L", "c")
+            wait_for(lambda: get_clipboard("UTF8_STRING").decode() == expected,
+                     f"text tools did not expose the expected {'source' if left else 'result'}")
+
+        select_text_pane(True, TEXT)
+        sample = '{"mode":"local","version":2}'
+        set_clipboard("UTF8_STRING", sample.encode())
+        desktop.keys("Control_L", "a")
+        desktop.keys("Control_L", "v")
+        desktop.click(x + 81, y + height - 55)
+        desktop.keys("Down")
+        desktop.keys("Down")
+        desktop.keys("Return")
+        desktop.keys("Tab")
+        desktop.keys("Return")
+        select_text_pane(False, json.dumps(json.loads(sample), indent=2))
+
+        with sqlite3.connect(data_dir / "clips.db") as connection:
+            connection.execute(
+                "INSERT INTO translation_history "
+                "(provider, source_language, target_language, source_hash, source_text, translated_text, created_at) "
+                "VALUES ('libretranslate', 'en', 'zh-CN', 'qa-translation', ?, ?, ?)",
+                ("History source", "历史译文", int(time.time())),
+            )
+        desktop.click(x + width - 78, y + 78)
+        time.sleep(0.25)
+        desktop.click(x + 100, y + 130)
+        select_text_pane(True, "History source")
+        select_text_pane(False, "历史译文")
+        save_qa_window("text-tools-translation-history.png", tools_bounds)
+        desktop.click(x + width - 28, y + 26)
         wait_for(lambda: not titled_window(TOOLS_TITLE), "text tools did not close")
         print("PASS launcher tray and keyboard, search, selection, image analysis and selected text", flush=True)
+        print("PASS side-by-side text panes, local formatting and restored translation history", flush=True)
 
         desktop.focus(target_id)
         desktop.keys("Control_L", "Alt_L", "Shift_L", "j")

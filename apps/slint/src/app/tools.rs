@@ -9,9 +9,7 @@ use clippy_core::{
 use clippy_storage::NewTranslation;
 use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use pulldown_cmark::{Event as Markdown, Parser, TagEnd};
-use slint::{
-    winit_030::WinitWindowAccessor, CloseRequestResponse, ComponentHandle, ModelRc, VecModel,
-};
+use slint::{CloseRequestResponse, ComponentHandle, ModelRc, VecModel};
 use std::{
     io::Write,
     process::{Command, Stdio},
@@ -96,16 +94,7 @@ impl Tools {
         window.on_speak(|text| send(Message::Speak(text.to_string())));
         window.on_reload_history(|| send(Message::LoadHistory));
         window.on_clear_history(|| send(Message::ClearHistory));
-        window.on_begin_drag({
-            let weak = window.as_weak();
-            move || {
-                if let Some(window) = weak.upgrade() {
-                    window.window().with_winit_window(|window| {
-                        let _ = window.drag_window();
-                    });
-                }
-            }
-        });
+        settings::connect_window_frame(&window, window.global::<ClippyTheme>());
         window.window().on_close_requested(|| {
             send(Message::Close);
             CloseRequestResponse::KeepWindowShown
