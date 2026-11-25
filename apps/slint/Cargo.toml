@@ -31,7 +31,7 @@ native-recording-audio = [
 
 [dependencies]
 anyhow = "1"
-base64 = "0.22"
+base64 = "0.23"
 clippy-capture = { path = "../../crates/clippy-capture" }
 clippy-core = { path = "../../crates/clippy-core" }
 clippy-media = { path = "../../crates/clippy-media" }
