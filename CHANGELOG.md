@@ -111,6 +111,8 @@
   （需求 `SLINT-MIGRATION-CLOSURE-01`）
 - 截图支持从托盘或快捷键触发、单屏框选、复制、保存 PNG 和取消。GNOME Wayland 复用 v5 的
   Mutter/PipeWire 首帧路径，X11 直接读取根 drawable。保存沿用历史配置中的目录和命名模板，原子提交且保留同名文件。
+- 快速截图的覆盖层和选区裁切共用一份源像素。每块 4K 输出少同时保留一份约 31.6 MiB 的 CPU 缓冲。
+  4K 虚拟 GNOME 的整进程内存还会随渲染资源波动，实机首帧和内存待复测。（需求 `SLINT-MIGRATION-CLOSURE-01`）
 - 修复 Wayland 选区覆盖层在原生窗口就绪前提前退出的问题。虚拟 GNOME 已验证延时截图、直接保存日历画面，
   以及两块输出分别全屏定位。（需求 `SLINT-NATIVE-PIPELINE-01`）
 - Wayland 的 Actions 可打开系统截图界面，把确认的截图交给 Clippy 编辑和保存。虚拟 GNOME 验证了取消、

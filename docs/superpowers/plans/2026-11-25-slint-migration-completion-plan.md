@@ -189,6 +189,21 @@ flowchart LR
   自动粘贴、撤回后再次授权。用平台层回归报告记录结果，安装包设置入口、目标应用焦点和完整剪贴板往返仍待验收。
   [Portal 工作线程](../../../crates/clippy-platform/src/paste/portal.rs)
 
+### 阶段 1 · 快速截图缓冲
+
+- Slint 覆盖层保留一个共享源缓冲，提交后裁切线程只读这一份缓冲。复制、落盘、编辑和滚动截图使用同一套
+  源像素映射，录屏读取同一选区尺寸。单测验证原采集缓冲释放、Slint 图像与裁切共享源缓冲及 RGBA 像素。
+- 在 3840×2160 虚拟 GNOME 用相同点位取样，每组 1 次冷态、20 次热态。将缓冲转换放在采集线程的候选
+  得到覆盖层 PSS 中位数 430.2 MiB、热态 P95 329.3 ms，原路径同轮为 376.3 MiB、316.5 ms。
+  同轮旧版 v5 热态 P95 为 742.7 ms。保留原 UI 转换位置，将采集像素在转换完成后立即释放。
+- 采用的候选在同一个虚拟会话按候选、基线、候选交错测试。覆盖层 PSS 中位数分别为
+  376.9、402.8、404.2 MiB，热态映射 P95 分别为 294.9、292.7、345.3 ms。每块 4K 输出少一份
+  31.6 MiB 的源像素常驻，整进程 PSS 和延迟尚无稳定改善。阶段 2 继续用同条件对照 renderer。
+  [共享缓冲与选区裁切](../../../apps/slint/src/app/capture.rs)
+- 新版完整 Linux 门禁 11 项通过，0 项失败、0 项跳过。X11 桌面回归验证剪贴板焦点变化后继续保留复制内容，
+  快捷键和托盘触发截图，带标注选区复制与 PNG 像素一致，以及长截图和区域录屏输出。原始输出见
+  `target/test-artifacts/slint-migration-closure/stage1-ci.log`。
+
 ## Acceptance Criteria
 
 - [ ] Linux 的 GNOME Wayland、X11、KDE/其他受支持 Wayland，以及 Windows 10/11、macOS Intel/Apple Silicon，

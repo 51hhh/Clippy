@@ -170,27 +170,30 @@ pub fn with_region_reader<T>(
 }
 
 impl FrozenPixels {
-    pub fn crop_size(&self, bounds: [f32; 4]) -> Result<(u32, u32)> {
-        let [left, top, right, bottom] = pixel_rect(self.width, self.height, bounds)?;
-        Ok((right - left, bottom - top))
-    }
-
-    /// 覆盖层坐标以当前窗口实际宽高归一化，选区始终映射回冻结帧的源像素。
     pub fn crop(&self, left: f32, top: f32, right: f32, bottom: f32) -> Result<RgbaImage> {
-        let [left, top, right, bottom] =
-            pixel_rect(self.width, self.height, [left, top, right, bottom])?;
-        let mut pixels = Vec::with_capacity((right - left) as usize * (bottom - top) as usize * 4);
-        let stride = self.width as usize * 4;
-        for y in top..bottom {
-            let row = y as usize * stride;
-            pixels.extend_from_slice(&self.rgba[row + left as usize * 4..row + right as usize * 4]);
-        }
-        Ok(RgbaImage::from_raw(right - left, bottom - top, pixels)
-            .expect("已经按 RGBA 选区逐行拷贝"))
+        crop_rgba(
+            &self.rgba,
+            self.width,
+            self.height,
+            [left, top, right, bottom],
+        )
     }
 }
 
-fn pixel_rect(width: u32, height: u32, bounds: [f32; 4]) -> Result<[u32; 4]> {
+/// 裁剪已验证布局的连续 RGBA 帧，使采集和 UI 缓冲共享同一套映射。
+pub fn crop_rgba(rgba: &[u8], width: u32, height: u32, bounds: [f32; 4]) -> Result<RgbaImage> {
+    let [left, top, right, bottom] = pixel_rect(width, height, bounds)?;
+    let mut pixels = Vec::with_capacity((right - left) as usize * (bottom - top) as usize * 4);
+    let stride = width as usize * 4;
+    for y in top..bottom {
+        let row = y as usize * stride;
+        pixels.extend_from_slice(&rgba[row + left as usize * 4..row + right as usize * 4]);
+    }
+    Ok(RgbaImage::from_raw(right - left, bottom - top, pixels).expect("已经按 RGBA 选区逐行拷贝"))
+}
+
+/// 覆盖层坐标按窗口宽高归一化，选区始终映射到冻结帧的源像素。
+pub fn pixel_rect(width: u32, height: u32, bounds: [f32; 4]) -> Result<[u32; 4]> {
     ensure!(
         bounds.iter().all(|value| value.is_finite()),
         "Invalid screenshot selection"

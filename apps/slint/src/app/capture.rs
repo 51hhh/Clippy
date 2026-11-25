@@ -3,7 +3,7 @@ use crate::{CaptureMark, CaptureTool, CaptureWindow};
 use anyhow::{Context, Result};
 use clippy_capture::editor::{Editor, ImageProject, Tool};
 use clippy_core::image_output::{filename_candidates, SaveTarget};
-use clippy_platform::capture::{self, DesktopRect, FrozenOutput, FrozenPixels, Region};
+use clippy_platform::capture::{self, DesktopRect, FrozenOutput, Region};
 use image::{
     codecs::png::{CompressionType, FilterType, PngEncoder},
     ExtendedColorType, ImageEncoder, RgbaImage,
@@ -23,9 +23,25 @@ use std::{fs, io, path::PathBuf, rc::Rc, sync::Arc, thread, time::Instant};
 
 pub(super) struct View {
     window: CaptureWindow,
-    pixels: FrozenPixels,
+    frame: OverlayFrame,
+}
+
+struct OverlayFrame {
+    pixels: SharedPixelBuffer<Rgba8Pixel>,
     name: String,
     geometry: DesktopRect,
+}
+
+impl From<FrozenOutput> for OverlayFrame {
+    fn from(output: FrozenOutput) -> Self {
+        let pixels = &output.pixels;
+        // 转成 Slint 缓冲后释放采集帧，预览和裁剪共同持有同一份像素。
+        Self {
+            pixels: SharedPixelBuffer::clone_from_slice(&pixels.rgba, pixels.width, pixels.height),
+            name: output.name,
+            geometry: output.geometry,
+        }
+    }
 }
 
 pub(super) enum Destination {
@@ -57,38 +73,30 @@ pub(super) fn start(started: Instant) -> io::Result<()> {
 }
 
 pub(super) fn present(
-    frozen: Vec<FrozenOutput>,
+    outputs: Vec<FrozenOutput>,
     started: Instant,
     diagnostics: bool,
 ) -> Result<Vec<View>> {
-    let single_output = frozen.len() == 1;
-    frozen
+    let single_output = outputs.len() == 1;
+    outputs
         .into_iter()
         .enumerate()
         .map(|(index, output)| {
             let wayland = clippy_platform::session::is_wayland();
             let window = CaptureWindow::new()?;
-            let view = View {
-                window,
-                pixels: output.pixels,
-                name: output.name.clone(),
-                geometry: output.geometry,
-            };
-            let geometry = output.geometry;
-            let pixels = &view.pixels;
-            view.window.set_source_width(pixels.width as i32);
-            view.window.set_source_height(pixels.height as i32);
-            let buffer = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
-                &pixels.rgba,
-                pixels.width,
-                pixels.height,
-            );
-            view.window.set_frame(slint::Image::from_rgba8(buffer));
+            let frame = OverlayFrame::from(output);
+            let view = View { window, frame };
+            let geometry = view.frame.geometry;
+            let pixels = &view.frame.pixels;
+            view.window.set_source_width(pixels.width() as i32);
+            view.window.set_source_height(pixels.height() as i32);
+            view.window
+                .set_frame(slint::Image::from_rgba8(pixels.clone()));
             view.window
                 .window()
                 .set_position(PhysicalPosition::new(geometry.x, geometry.y));
             let dimensions = if wayland {
-                (pixels.width, pixels.height)
+                (pixels.width(), pixels.height())
             } else {
                 (geometry.width, geometry.height)
             };
@@ -122,7 +130,7 @@ pub(super) fn present(
                         bounds: [left, top, right, bottom],
                     });
                 });
-            let ready_name = output.name.clone();
+            let ready_name = view.frame.name.clone();
             let placement_window = view.window.as_weak();
             let mut needs_placement = wayland;
             let mut first_redraw = true;
@@ -178,32 +186,29 @@ pub(super) fn output(
     bounds: [f32; 4],
     destination: Destination,
 ) -> io::Result<()> {
-    let mut selected = views.swap_remove(index);
+    let selected = views.swap_remove(index);
     let region = Region {
-        output: std::mem::take(&mut selected.name),
-        geometry: selected.geometry,
+        output: selected.frame.name.clone(),
+        geometry: selected.frame.geometry,
         bounds,
     };
     let marks: Vec<_> = selected.window.get_marks().iter().collect();
-    // 将选中屏的冻结帧交给裁剪线程，避免提交时复制整屏。
-    let pixels = FrozenPixels {
-        width: selected.pixels.width,
-        height: selected.pixels.height,
-        rgba: std::mem::take(&mut selected.pixels.rgba),
-    };
+    let pixels = selected.frame.pixels.clone();
     drop(selected);
     views.clear();
     thread::Builder::new()
         .name("clippy-screenshot-output".into())
         .spawn(move || {
             let started = Instant::now();
+            let (width, height) = (pixels.width(), pixels.height());
             if matches!(destination, Destination::Record) {
                 post(Event::RecordingStart(
-                    pixels.crop_size(bounds).map(|size| (region, size)),
+                    capture::pixel_rect(width, height, bounds)
+                        .map(|[left, top, right, bottom]| (region, (right - left, bottom - top))),
                 ));
                 return;
             }
-            let result = pixels.crop(bounds[0], bounds[1], bounds[2], bounds[3]);
+            let result = capture::crop_rgba(pixels.as_bytes(), width, height, bounds);
             match destination {
                 Destination::File(target) => post(Event::CaptureFinished(
                     result.and_then(|image| {
@@ -365,6 +370,37 @@ fn save_rgba(rgba: &[u8], width: u32, height: u32, target: &SaveTarget) -> Resul
 mod tests {
     use super::*;
     use image::Rgba;
+
+    #[test]
+    fn overlay_and_crop_share_one_immutable_source_buffer() {
+        let source: clippy_platform::capture::FrozenPixels =
+            RgbaImage::from_fn(4, 2, |x, y| Rgba([x as u8, y as u8, 32, 127])).into();
+        let original = Arc::downgrade(&source.rgba);
+        let frame = OverlayFrame::from(FrozenOutput {
+            name: String::from("test"),
+            geometry: DesktopRect {
+                x: 0,
+                y: 0,
+                width: 4,
+                height: 2,
+            },
+            pixels: source,
+        });
+        assert!(original.upgrade().is_none());
+        let display = slint::Image::from_rgba8(frame.pixels.clone())
+            .to_rgba8()
+            .unwrap();
+        assert!(std::ptr::eq(display.as_bytes(), frame.pixels.as_bytes()));
+        let crop = capture::crop_rgba(
+            frame.pixels.as_bytes(),
+            frame.pixels.width(),
+            frame.pixels.height(),
+            [0.5, 0.5, 0.75, 1.0],
+        )
+        .unwrap();
+        assert_eq!(crop.dimensions(), (1, 1));
+        assert_eq!(crop.get_pixel(0, 0).0, [2, 1, 32, 127]);
+    }
 
     #[test]
     fn commits_complete_pngs_without_overwriting_or_leaving_staging_files() {
