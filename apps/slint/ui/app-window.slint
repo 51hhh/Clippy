@@ -78,6 +78,7 @@ export component AppWindow inherits Window {
     in property <bool> busy;
     in property <bool> preview-open;
     in property <ClipPreview> preview;
+    in property <int> history-focus-request;
     out property <length> panel-width: root.show-settings ? 720px : root.preview-open ? 780px : 380px;
     out property <bool> selected-sensitive: root.selected-index >= 0
         && root.selected-index < root.clips.length && root.clips[root.selected-index].sensitive;
@@ -166,6 +167,7 @@ export component AppWindow inherits Window {
                     selected-id <=> root.selected-id;
                     selected-index <=> root.selected-index;
                     preview-open: root.preview-open;
+                    focus-request: root.history-focus-request;
                     refresh => { root.history-limit = 50; root.reload-history(); }
                     load-more => { root.history-limit += 50; root.reload-history(); }
                     close-panel => { root.close-panel(); }

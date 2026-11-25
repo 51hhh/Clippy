@@ -56,6 +56,7 @@ export component HistoryPane inherits Rectangle {
     in property <bool> auto-paste;
     in property <bool> can-load-more;
     in property <bool> preview-open;
+    in property <int> focus-request;
     in-out property <string> query;
     in-out property <string> selected-id;
     in-out property <int> selected-index: -1;
@@ -100,6 +101,7 @@ export component HistoryPane inherits Rectangle {
 
     forward-focus: keys;
     init => { keys.focus(); }
+    changed focus-request => { keys.focus(); }
     changed preview-open => { if !root.preview-open { keys.focus(); } }
 
     keys := FocusScope {

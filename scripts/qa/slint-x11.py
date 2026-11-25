@@ -504,6 +504,7 @@ def run(binary, root):
         wait_for(lambda: not titled_window(LAUNCHER_TITLE), "launcher did not close from preview")
         assert panel_width(780)[0] == panel_id, "opening the launcher replaced the preview"
         desktop.focus(panel_id)
+        time.sleep(0.1)
         desktop.keys("Escape")
         panel_width(380)
         desktop.keys("Tab")

@@ -275,6 +275,7 @@ impl App {
                     window
                         .window()
                         .with_winit_window(|window| window.focus_window());
+                    window.set_history_focus_request(window.get_history_focus_request() + 1);
                 }
             }
             Message::Search(query) => {
