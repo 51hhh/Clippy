@@ -214,7 +214,7 @@ enum Event {
     },
     CaptureClipboard(Result<image::RgbaImage>, Instant),
     CaptureFinished(Result<String>, Instant),
-    EditorOpen(Result<image::RgbaImage>),
+    EditorOpen(Result<capture::EditedCapture>),
     EditorAction(editor::Action),
     EditorRendered(u64, Result<image::RgbaImage>),
     EditorOutput(u64, Result<String>),
@@ -469,7 +469,9 @@ impl App {
             },
             Event::EditorOpen(result) => {
                 self.set_busy(false);
-                if let Err(error) = result.and_then(|image| self.open_editor(image)) {
+                if let Err(error) =
+                    result.and_then(|(image, project)| self.open_editor_project(image, project))
+                {
                     self.capture_error(error);
                 }
             }

@@ -1,14 +1,19 @@
 import { Button } from "std-widgets.slint";
 
 export enum CaptureAction { copy, save, edit, longshot, record }
+export struct CaptureMark { left: float, top: float, right: float, bottom: float }
 struct CaptureCommand { label: string, action: CaptureAction }
 
 export component CaptureWindow inherits Window {
     in property <image> frame;
     in property <int> source-width;
     in property <int> source-height;
+    in property <[CaptureMark]> marks;
     callback cancel();
     callback confirm(CaptureAction, float, float, float, float);
+    callback add-mark(CaptureMark);
+    callback undo-mark();
+    callback clear-marks();
 
     private property <length> left;
     private property <length> top;
@@ -16,10 +21,12 @@ export component CaptureWindow inherits Window {
     private property <length> bottom;
     private property <bool> selected: right - left >= 1px && bottom - top >= 1px;
     private property <bool> ready: selected && !drag.pressed;
+    private property <bool> marking;
+    private property <length> mark-stroke: 3 * root.width / max(1, root.source-width);
     private property <length> gap: 8px;
-    private property <length> toolbar-width: min(520px, root.width - 2 * root.gap);
+    private property <length> toolbar-width: min(640px, root.width - 2 * root.gap);
     private property <length> toolbar-height: 44px;
-    private property <length> button-width: (root.toolbar-width - 46px) / 6;
+    private property <length> button-width: (root.toolbar-width - 58px) / 8;
     private property <bool> toolbar-below: root.bottom + root.toolbar-height + 2 * root.gap <= root.height;
     private property <length> toolbar-y: root.toolbar-below
         ? root.bottom + root.gap : max(root.gap, root.top - root.toolbar-height - root.gap);
@@ -54,9 +61,11 @@ export component CaptureWindow inherits Window {
     }
 
     drag := TouchArea {
+        enabled: !root.marking;
         mouse-cursor: crosshair;
         pointer-event(event) => {
             if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                root.clear-marks();
                 root.left = self.mouse-x;
                 root.right = self.mouse-x;
                 root.top = self.mouse-y;
@@ -81,6 +90,42 @@ export component CaptureWindow inherits Window {
         height: root.bottom - root.top;
         border-width: 2px;
         border-color: #ff6b38;
+        clip: true;
+        for mark in root.marks: Rectangle {
+            x: mark.left * parent.width;
+            y: mark.top * parent.height;
+            width: (mark.right - mark.left) * parent.width;
+            height: (mark.bottom - mark.top) * parent.height;
+            border-width: root.mark-stroke;
+            border-color: #ff3b30;
+        }
+        mark-drag := TouchArea {
+            enabled: root.marking && root.marks.length < 64;
+            mouse-cursor: crosshair;
+            property <length> mark-left: clamp(min(self.pressed-x, self.mouse-x), 0px, parent.width);
+            property <length> mark-top: clamp(min(self.pressed-y, self.mouse-y), 0px, parent.height);
+            property <length> mark-right: clamp(max(self.pressed-x, self.mouse-x), 0px, parent.width);
+            property <length> mark-bottom: clamp(max(self.pressed-y, self.mouse-y), 0px, parent.height);
+            pointer-event(event) => {
+                if event.kind == PointerEventKind.up && event.button == PointerEventButton.left
+                    && self.mark-right - self.mark-left >= 2px && self.mark-bottom - self.mark-top >= 2px {
+                    root.add-mark({
+                        left: self.mark-left / self.width,
+                        top: self.mark-top / self.height,
+                        right: self.mark-right / self.width,
+                        bottom: self.mark-bottom / self.height,
+                    });
+                }
+            }
+        }
+        if mark-drag.pressed: Rectangle {
+            x: mark-drag.mark-left;
+            y: mark-drag.mark-top;
+            width: mark-drag.mark-right - mark-drag.mark-left;
+            height: mark-drag.mark-bottom - mark-drag.mark-top;
+            border-width: root.mark-stroke;
+            border-color: #ff3b30;
+        }
     }
 
     if root.selected: Rectangle {
@@ -139,6 +184,17 @@ export component CaptureWindow inherits Window {
                 width: root.button-width;
                 clicked => { root.commit(command.action); }
             }
+            Button {
+                text: root.marking ? "Select" : "Rectangle";
+                width: root.button-width;
+                clicked => { root.marking = !root.marking; keys.focus(); }
+            }
+            Button {
+                text: "Undo";
+                width: root.button-width;
+                enabled: root.marks.length > 0;
+                clicked => { root.undo-mark(); keys.focus(); }
+            }
             Button { text: "Cancel"; width: root.button-width; clicked => { root.cancel(); } }
         }
     }
@@ -151,6 +207,10 @@ export component CaptureWindow inherits Window {
             }
             if root.ready && event.text == Key.Return {
                 root.commit(CaptureAction.copy);
+                return accept;
+            }
+            if root.ready && root.marks.length > 0 && (event.modifiers.control || event.modifiers.meta) && event.text == "z" {
+                root.undo-mark();
                 return accept;
             }
             reject

@@ -405,7 +405,7 @@ def run(binary, root):
         desktop.focus(overlay)
         top = height - 120 if near_bottom else 200
         desktop.drag(x + 440, y + top, x + 580, y + top + 100)
-        toolbar_width = min(520, width - 16)
+        toolbar_width = min(640, width - 16)
         toolbar_left = x + max(8, min(580 - toolbar_width, width - toolbar_width - 8))
         toolbar_top = y + (top - 52 if near_bottom else top + 108)
 
@@ -427,7 +427,7 @@ def run(binary, root):
 
     def click_capture_action(toolbar, index):
         x, y, width = toolbar
-        button_width = (width - 46) / 6
+        button_width = (width - 58) / 8
         desktop.click(round(x + 8 + index * (button_width + 6) + button_width / 2), y + 22)
 
     try:
@@ -682,6 +682,7 @@ def run(binary, root):
         png = wait_for(clipboard_png, "screenshot copy did not publish PNG")
         expected = ((140, 100), bytes.fromhex("224466"))
         assert decode_png(png) == expected, decode_png(png)
+        plain_pixels = pixbuf_png(png).get_pixels()
         wait_for(lambda: not titled_window(CAPTURE_TITLE), "overlay stayed open after copy")
 
         tray.activate("Screenshot")
@@ -693,19 +694,10 @@ def run(binary, root):
         print("PASS screenshot hotkey and tray, native pixels, crop, clipboard and atomic file", flush=True)
 
         tray.activate("Screenshot")
-        click_capture_action(select_area(near_bottom=True), 5)
+        click_capture_action(select_area(near_bottom=True), 7)
         wait_for(lambda: not titled_window(CAPTURE_TITLE), "cancel did not close overlay")
         assert list(output.parent.iterdir()) == [output]
         print("PASS selection toolbar and dimensions stay visible near the bottom edge; cancel preserves the file", flush=True)
-
-        tray.activate("Screenshot")
-        click_capture_action(select_area(), 2)
-        _, (x, y, width, height) = wait_for(lambda: titled_window(EDITOR_TITLE), "editor never opened")
-        check_titlebar((x, y, width, height), "editor")
-        desktop.drag(x + width // 3, y + height // 3, x + width * 2 // 3, y + height * 2 // 3)
-        # 一次标注会在工作线程合成，更改入画后才能提交。
-        time.sleep(0.3)
-        desktop.click(x + width - 253, y + height - 55)
 
         def edited_clipboard():
             png = clipboard_png()
@@ -715,9 +707,61 @@ def run(binary, root):
                     return pixbuf
             return None
 
+        def mark_selection(undo=False):
+            tray.activate("Screenshot")
+            toolbar = select_area()
+            _, (left, top, width, height) = titled_window(CAPTURE_TITLE)
+            click_capture_action(toolbar, 5)
+
+            def draw_rectangle():
+                desktop.drag(left + 460, top + 220, left + 530, top + 274)
+
+            def border_pixel():
+                pixel = Gdk.pixbuf_get_from_window(Gdk.get_default_root_window(), left + 475, top + 221, 1, 1)
+                return pixel.get_pixels()[:3] if pixel else b""
+
+            draw_rectangle()
+            wait_for(lambda: border_pixel() == bytes.fromhex("ff3b30"), "selection did not display its rectangle")
+            if undo:
+                click_capture_action(toolbar, 6)
+                wait_for(lambda: border_pixel() == expected[1], "undo did not remove the selection rectangle")
+                draw_rectangle()
+                wait_for(lambda: border_pixel() == bytes.fromhex("ff3b30"), "selection did not accept another rectangle")
+            save_qa_window("capture-rectangle.png", (left, top, width, height))
+            return toolbar
+
+        click_capture_action(mark_selection(undo=True), 0)
+        marked_copy = wait_for(edited_clipboard, "selection copy lost the rectangle")
+        assert (marked_copy.get_width(), marked_copy.get_height()) == expected[0]
+        click_capture_action(mark_selection(), 1)
+        marked_file = output.with_name("fixture-2.png")
+        wait_for(marked_file.is_file, "marked PNG was not committed")
+        assert pixbuf_png(marked_file.read_bytes()).get_pixels() == marked_copy.get_pixels()
+
+        click_capture_action(mark_selection(), 2)
+        _, (x, y, width, height) = wait_for(lambda: titled_window(EDITOR_TITLE), "editor never opened")
+        check_titlebar((x, y, width, height), "editor")
+        set_clipboard("UTF8_STRING", OTHER.encode())
+        desktop.click(x + width - 253, y + height - 55)
+        assert wait_for(edited_clipboard, "editor did not restore the selection markup").get_pixels() == marked_copy.get_pixels()
+        desktop.click(x + width - 110, y + 80)
+        time.sleep(0.3)
+        desktop.click(x + width - 253, y + height - 55)
+
+        def plain_clipboard():
+            png = clipboard_png()
+            return png and pixbuf_png(png).get_pixels() == plain_pixels
+
+        wait_for(plain_clipboard, "editor could not undo the inherited rectangle")
+        print("PASS selection rectangle, undo, matching clipboard/PNG pixels and editable transfer", flush=True)
+
+        desktop.drag(x + width // 3, y + height // 3, x + width * 2 // 3, y + height * 2 // 3)
+        # 一次标注会在工作线程合成，更改入画后才能提交。
+        time.sleep(0.3)
+        desktop.click(x + width - 253, y + height - 55)
         edited_copy = wait_for(edited_clipboard, "editor copy did not contain the red rectangle")
         desktop.click(x + width - 155, y + height - 55)
-        edited_file = output.with_name("fixture-2.png")
+        edited_file = output.with_name("fixture-3.png")
         wait_for(edited_file.is_file, "edited PNG was not committed")
         assert pixbuf_png(edited_file.read_bytes()).get_pixels() == edited_copy.get_pixels()
         assert (edited_copy.get_width(), edited_copy.get_height()) == expected[0]
@@ -820,7 +864,7 @@ def run(binary, root):
         desktop.click(long_x + 244, long_y + long_height - 29)
         _, (x, y, width, height) = wait_for(lambda: titled_window(EDITOR_TITLE), "stitched image did not open")
         desktop.click(x + width - 155, y + height - 55)
-        stitched = output.with_name("fixture-3.png")
+        stitched = output.with_name("fixture-4.png")
         wait_for(stitched.is_file, "long screenshot was not exported")
         assert decode_png(stitched.read_bytes())[0] == (140, 132), decode_png(stitched.read_bytes())
         desktop.click(x + width - 57, y + height - 55)
@@ -892,7 +936,7 @@ def run(binary, root):
         desktop.focus(launcher_id)
         launcher_search("save png")
         desktop.keys("Return")
-        saved = output.with_name("fixture-4.png")
+        saved = output.with_name("fixture-5.png")
         wait_for(saved.is_file, "launcher did not save the clipboard image")
         pixels = pixbuf_png(saved.read_bytes()).get_pixels()[:8]
         assert pixels == bytes((255, 0, 0, 128, 0, 128, 255, 0)), pixels

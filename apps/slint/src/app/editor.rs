@@ -44,6 +44,8 @@ impl View {
         let (grayscale, corners) = document.grayscale_and_corners();
         window.set_grayscale_value(grayscale);
         window.set_corner_value(corners);
+        window.set_can_undo(document.has_annotations());
+        window.set_can_redo(document.has_redo());
         window.set_tools(ModelRc::new(VecModel::from(
             Tool::ALL
                 .into_iter()

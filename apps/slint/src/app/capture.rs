@@ -1,6 +1,7 @@
 use super::{post, Event};
-use crate::CaptureWindow;
+use crate::{CaptureMark, CaptureWindow};
 use anyhow::{Context, Result};
+use clippy_capture::editor::{Editor, ImageProject, Tool};
 use clippy_core::image_output::{filename_candidates, SaveTarget};
 use clippy_platform::capture::{self, DesktopRect, FrozenOutput, FrozenPixels, Region};
 use image::{
@@ -15,10 +16,10 @@ use slint::winit_030::{
     EventResult, WinitWindowAccessor,
 };
 use slint::{
-    CloseRequestResponse, ComponentHandle, PhysicalPosition, PhysicalSize, Rgba8Pixel,
-    SharedPixelBuffer,
+    CloseRequestResponse, ComponentHandle, Model, ModelRc, PhysicalPosition, PhysicalSize,
+    Rgba8Pixel, SharedPixelBuffer, VecModel,
 };
-use std::{fs, io, path::PathBuf, thread, time::Instant};
+use std::{fs, io, path::PathBuf, rc::Rc, sync::Arc, thread, time::Instant};
 
 pub(super) struct View {
     window: CaptureWindow,
@@ -34,6 +35,8 @@ pub(super) enum Destination {
     Longshot,
     Record,
 }
+
+pub(super) type EditedCapture = (Arc<RgbaImage>, ImageProject);
 
 impl Drop for View {
     fn drop(&mut self) {
@@ -93,6 +96,20 @@ pub(super) fn present(
                 .window()
                 .set_size(PhysicalSize::new(dimensions.0, dimensions.1));
             view.window.on_cancel(|| post(Event::CaptureCancel));
+            let marks = Rc::new(VecModel::default());
+            view.window.set_marks(ModelRc::from(marks.clone()));
+            view.window.on_add_mark({
+                let marks = marks.clone();
+                move |mark| marks.push(mark)
+            });
+            view.window.on_undo_mark({
+                let marks = marks.clone();
+                move || {
+                    marks.remove(marks.row_count() - 1);
+                }
+            });
+            view.window
+                .on_clear_marks(move || marks.set_vec(Vec::new()));
             view.window.window().on_close_requested(|| {
                 post(Event::CaptureCancel);
                 CloseRequestResponse::HideWindow
@@ -161,24 +178,20 @@ pub(super) fn output(
     bounds: [f32; 4],
     destination: Destination,
 ) -> io::Result<()> {
-    let View {
-        window,
-        pixels,
-        name,
-        geometry,
-    } = &views[index];
+    let mut selected = views.swap_remove(index);
     let region = Region {
-        output: name.clone(),
-        geometry: *geometry,
+        output: std::mem::take(&mut selected.name),
+        geometry: selected.geometry,
         bounds,
     };
-    // 先隐藏所有预览再做裁剪，独立保留用户选中那一屏的冻结像素。
-    let _ = window.hide();
+    let marks: Vec<_> = selected.window.get_marks().iter().collect();
+    // 将选中屏的冻结帧交给裁剪线程，避免提交时复制整屏。
     let pixels = FrozenPixels {
-        width: pixels.width,
-        height: pixels.height,
-        rgba: pixels.rgba.clone(),
+        width: selected.pixels.width,
+        height: selected.pixels.height,
+        rgba: std::mem::take(&mut selected.pixels.rgba),
     };
+    drop(selected);
     views.clear();
     thread::Builder::new()
         .name("clippy-screenshot-output".into())
@@ -194,13 +207,19 @@ pub(super) fn output(
             match destination {
                 Destination::File(target) => post(Event::CaptureFinished(
                     result.and_then(|image| {
+                        let image = render_marks(image, &marks)?;
                         let path = save_png(&image, &target)?;
                         Ok(format!("Saved to {}", path.display()))
                     }),
                     started,
                 )),
-                Destination::Clipboard => post(Event::CaptureClipboard(result, started)),
-                Destination::Editor => post(Event::EditorOpen(result)),
+                Destination::Clipboard => post(Event::CaptureClipboard(
+                    result.and_then(|image| render_marks(image, &marks)),
+                    started,
+                )),
+                Destination::Editor => post(Event::EditorOpen(
+                    result.and_then(|image| edit_project(image, &marks)),
+                )),
                 Destination::Longshot => {
                     post(Event::LongshotStart(result.map(|image| (region, image))))
                 }
@@ -208,6 +227,42 @@ pub(super) fn output(
             }
         })?;
     Ok(())
+}
+
+fn make_project(source: Arc<RgbaImage>, marks: &[CaptureMark]) -> Result<ImageProject> {
+    let mut editor = Editor::new(source);
+    for mark in marks {
+        editor
+            .annotate(
+                Tool::Rectangle,
+                &[[mark.left, mark.top], [mark.right, mark.bottom]],
+                "#ff3b30",
+                3.0,
+                "",
+            )
+            .map_err(anyhow::Error::msg)?;
+    }
+    Ok(editor.snapshot())
+}
+
+fn render_marks(image: RgbaImage, marks: &[CaptureMark]) -> Result<RgbaImage> {
+    if marks.is_empty() {
+        return Ok(image);
+    }
+    make_project(Arc::new(image), marks)?
+        .render()
+        .map_err(anyhow::Error::msg)
+}
+
+fn edit_project(image: RgbaImage, marks: &[CaptureMark]) -> Result<EditedCapture> {
+    let source = Arc::new(image);
+    let project = make_project(source.clone(), marks)?;
+    let rendered = if marks.is_empty() {
+        source
+    } else {
+        Arc::new(project.render().map_err(anyhow::Error::msg)?)
+    };
+    Ok((rendered, project))
 }
 
 pub(super) fn save_png(image: &RgbaImage, target: &SaveTarget) -> Result<PathBuf> {
