@@ -245,6 +245,32 @@ flowchart LR
   会话关闭调用。长截图的虚拟鼠标首轮选区与预设起点有偏差，复测未稳定走到控制窗。平台读帧像素对照
   与完整 X11 交互已通过，GNOME 首轮框选和真实设备交互继续验收。
 
+### 阶段 2 · Release 渲染器实测
+
+以 `b2c5269` 的功能源码为基线，在独立构建目录启用两个渲染器。Slint 1.19.0 QA Release 的 SHA-256 为
+`39b21ad2365bea6947d6d8cf51215f211ac2386828ae5705d1a67a0bd5d94db3`。同一个二进制分别用
+`SLINT_BACKEND=winit-femtovg` 和 `winit-skia-software` 启动。Skia 0.157.0 的预构建归档与
+libvpx 缓存均经过 SHA-256 校验，双渲染器构建中 bindgen 0.73.2 使用 prettyplease 0.3.0。
+[Winit 渲染器入口](https://docs.slint.dev/latest/docs/slint/guide/backends-and-renderers/backend_winit/) · [Skia 预构建归档](https://github.com/rust-skia/skia-binaries/releases/expanded_assets/0.157.0)
+
+| 同机隔离样本 | FemtoVG | Skia Software |
+| --- | ---: | ---: |
+| X11 托盘就绪 PSS | 16.13 MiB | 16.14 MiB |
+| X11 打开设置 PSS | 128.45 MiB | 28.78 MiB |
+| X11 关设置窗 60 秒 PSS | 129.27 MiB | 28.07 MiB |
+| GNOME 1080p 冷态映射 P50 | 518.8 ms | 109.5 ms |
+| GNOME 1080p 热态映射 P95 | 139.0 ms | 96.5 ms |
+| GNOME 4K 冷态映射 P50 | 633.5 ms | 209.6 ms |
+| GNOME 4K 热态映射 P95 | 268.8 ms | 168.3 ms |
+
+内存对照每种渲染器一轮。每组延迟含五次独立冷启动和二十次热采样，起点为 D-Bus 截图请求，终点为
+合成器映射全屏覆盖层。两种渲染器各通过 24 项 X11 交互，含截图、标注、透明图片、长截图和录屏。
+双渲染器本机 QA deb 解包后用 Skia 再跑同样的 24 项，二进制哈希一致。该包在本机工具链引入
+`GLIBC_2.43`，Ubuntu 22.04 需用 Jammy 环境重建并验收。日志集中在 `target/test-artifacts/slint-stage2/`。
+
+Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生硬件加速、Jammy、Windows 和 macOS 的
+显示与包验证，并在指定真实桌面完成五轮 60 秒的托盘 PSS 验收。
+
 ## Acceptance Criteria
 
 - [ ] Linux 的 GNOME Wayland、X11、KDE/其他受支持 Wayland，以及 Windows 10/11、macOS Intel/Apple Silicon，
