@@ -96,7 +96,8 @@ async fn execute(
             bail!("Enable Wayland paste permission in Clippy first");
         }
         *attempted_restore = true;
-        let proxy = RemoteDesktop::new().await?;
+        // 清除授权会关闭 worker。新会话需要当前 runtime 可以驱动的 D-Bus 连接。
+        let proxy = RemoteDesktop::with_connection(zbus::Connection::session().await?).await?;
         let active = proxy.create_session(Default::default()).await?;
         *session = Some((proxy, active));
         let (proxy, active) = session.as_ref().expect("New Portal session");

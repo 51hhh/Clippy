@@ -181,6 +181,14 @@ flowchart LR
 基准日志保存在本地 `target/test-artifacts/slint-migration-closure/`，完整门禁原始报告位于
 `target/test-artifacts/slint-full-parity/complete-ci.log`。
 
+### 阶段 1 · Wayland 粘贴授权
+
+- 隔离 GNOME 50.1 复现了拒绝授权、清除、再申请后无对话框。平台粘贴模块改用当前授权工作线程自己的
+  D-Bus 连接，已授权会话内的粘贴继续复用该会话。
+- 在真实 RemoteDesktop Portal 上复测了拒绝后重新打开对话框、勾选记住后连续两次重启、撤回后拒绝
+  自动粘贴、撤回后再次授权。用平台层回归报告记录结果，安装包设置入口、目标应用焦点和完整剪贴板往返仍待验收。
+  [Portal 工作线程](../../../crates/clippy-platform/src/paste/portal.rs)
+
 ## Acceptance Criteria
 
 - [ ] Linux 的 GNOME Wayland、X11、KDE/其他受支持 Wayland，以及 Windows 10/11、macOS Intel/Apple Silicon，
