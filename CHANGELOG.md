@@ -84,6 +84,9 @@
 - macOS 12.3 起，长截图和区域录屏在同一任务内复用 ScreenCaptureKit 选区流，按需读取像素。
   macOS 11–12.2 沿用 CoreGraphics。已完成双架构交叉检查，权限提示、Retina 实际像素与采集延迟仍待真机验收。
   （需求 `SLINT-MIGRATION-CLOSURE-01`）
+- 支持冻结截图的非 GNOME Wayland 桌面可用 ScreenCast Portal 授权长截图和区域录屏。同一任务只选屏一次，
+  PipeWire 只转换选区像素。Sway 已验证错屏、取消、分数缩放和断流回收。需要独立冻结入口的 KDE 环境待接入。
+  （需求 `SLINT-MIGRATION-CLOSURE-01`）
 
 ### Slint 贴图与工作区
 

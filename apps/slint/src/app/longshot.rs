@@ -2,7 +2,7 @@ use super::{editor, post, settings, App, Event};
 use crate::LongshotWindow;
 use anyhow::{anyhow, Result};
 use clippy_capture::{longshot::LongshotSession, CaptureError};
-use clippy_platform::capture::{with_region_reader, Region};
+use clippy_platform::capture::{with_region_reader, Region, RegionCancellation};
 use image::RgbaImage;
 use slint::{CloseRequestResponse, ComponentHandle, Timer};
 use std::{
@@ -39,10 +39,12 @@ pub(super) struct View {
     commands: SyncSender<Command>,
     window: LongshotWindow,
     busy: bool,
+    cancellation: RegionCancellation,
 }
 
 impl Drop for View {
     fn drop(&mut self) {
+        self.cancellation.cancel();
         let _ = self.window.hide();
     }
 }
@@ -69,10 +71,12 @@ impl View {
         });
         window.show()?;
         let (commands, receiver) = mpsc::sync_channel(1);
+        let cancellation = RegionCancellation::default();
+        let worker_cancellation = cancellation.clone();
         thread::Builder::new()
             .name("clippy-scrolling-capture".into())
             .spawn(move || {
-                let result = with_region_reader(region, |read| {
+                let result = with_region_reader(region, &worker_cancellation, |read| {
                     let mut session = LongshotSession::start(first)?;
                     send(Message::Feedback(
                         id,
@@ -123,6 +127,7 @@ impl View {
             commands,
             window,
             busy: true,
+            cancellation,
         })
     }
 }

@@ -202,6 +202,23 @@ Retina 与旋转的源像素、静止和连续帧、切换显示模式和退出�
 
 **Out of Scope** 单次快速截图的后端选型、录屏控制窗排除、音轨、帧时间戳和自动滚动。
 
+### 阶段 2 · 非 GNOME Wayland 持续采集
+
+**Goal** 使用已有冻结截图框选的 Wayland 桌面，在长截图与区域录屏期间复用一条 ScreenCast Portal
+授权的显示器流，只将选区像素转换为应用帧。
+
+**Requirements** 任务通过系统选择一台显示器。选中的流必须符合冻结屏幕的逻辑位置和尺寸，并在 PipeWire
+协商后验证原始像素尺寸。单屏允许 Portal 缺少几何字段，多屏须能唯一匹配。授权和关闭使用任务自己的
+D-Bus 连接，取消与拒绝不启动采集，关停释放 Portal 会话。Portal 缺失、没有显示器源，或输出需要
+转换方向时沿用现有 Wayland 连续抓图。静止时复用最近的合规画面，断流和尺寸变化不得交付旧帧。
+
+**Acceptance Criteria** 用独立 Sway、xdg-desktop-portal-wlr 和 PipeWire 验证同一次授权的首帧、多个
+ROI、静止帧、拒绝、任务取消和重新打开。拒绝错屏并检查有填充的共享内存行，跑 GNOME 原生取帧及
+Linux 完整门禁回归。
+
+**Out of Scope** 无法提供冻结帧的合成器需要独立实现单次截图入口。自动滚动、DMA-BUF GPU 读回、
+持久授权、录屏控制窗排除和多屏合成留在后续任务。
+
 ## 实施记录
 
 ### 阶段 0 · Linux 基线
@@ -329,6 +346,27 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   [macOS 区域流](../../../crates/clippy-platform/src/capture/macos.rs) ·
   [Apple ScreenCaptureKit 帧处理](https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-in-macos) ·
   [Apple ScreenCaptureKit 队列与延迟](https://developer.apple.com/videos/play/wwdc2022/10155/)
+
+### 阶段 2 · 非 GNOME Wayland 持续采集结果
+
+- 长截图和区域录屏经共享区域读取器打开一条由 ScreenCast Portal 授权的流。PipeWire 在任务线程中处理
+  画面，只转换选区并保留最新一帧。Portal 缺失和 180° 旋转在隔离 Sway 中走原有抓图路径，用户拒绝和
+  错屏会结束当前任务。
+- Sway 1.11、wlr Portal 0.8.1 与 PipeWire 1.6.2 上，1280×720 输出的 320×180 选区像素与冻结图一致。
+  合成画面变化后首次读取返回新像素，单次读取已到达帧用时 0.1 ms，静止帧等待一个 40 ms 更新窗。
+  测试覆盖同一流多次读取、拒绝、取消后迟到响应、同尺寸错屏、1.25× 缩放、改分辨率、断开重开及
+  用户选择超过 5 秒。实际 Slint 界面用原生虚拟指针验证长截图追加、取消和托盘停止待授权录屏，
+  随后生成可解码的 240×150 VP9 成品。
+- 该 wlr 组合的自动映射权限为 `PROT_NONE`，早期探针在读首帧时崩溃。现有 Portal 路径按 PipeWire
+  提供的 fd 和范围做只读映射，并检查文件长度。GNOME 4K 独立用例复核 480×270 像素、静止帧及会话退出。
+- Linux 本地完整门禁在指定 `CARGO_TARGET_DIR` 上 11 项通过、0 失败、0 跳过。默认工作盘首跑因空间
+  不足未完成。平台层 Windows GNU 交叉 check 及 macOS 两架构交叉 clippy 通过。
+- 保留 KDE 等缺少直接冻结协议的合成器入口验收。Portal 仅授权整屏，选区裁切在应用内进行，GPU 格式和
+  旋转流元数据另走专项验证。原始证据见 `target/test-artifacts/slint-stage2-portal/`。
+  [授权](../../../crates/clippy-platform/src/capture/screencast.rs) ·
+  [持续接收](../../../crates/clippy-platform/src/capture/screencast_stream.rs) ·
+  [ScreenCast Portal 规范](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.ScreenCast.html) ·
+  [PipeWire 1.6.2 映射实现](https://github.com/PipeWire/pipewire/blob/1.6.2/src/pipewire/stream.c#L936-L982)
 
 ## Acceptance Criteria
 

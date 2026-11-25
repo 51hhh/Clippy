@@ -16,7 +16,7 @@ use clippy_media::recording::{
     session::{DiagnosticRecordingConfig, DiagnosticRecordingSession},
     worker::RecordingFrameSource,
 };
-use clippy_platform::capture::{Region, RegionReader};
+use clippy_platform::capture::{Region, RegionCancellation, RegionReader};
 use image::RgbaImage;
 use slint::{CloseRequestResponse, ComponentHandle, Model, ModelRc, SharedString, Timer, VecModel};
 use std::{
@@ -139,6 +139,7 @@ struct Job {
     id: u64,
     control: Option<SyncSender<Control>>,
     worker: Option<JoinHandle<()>>,
+    cancellation: RegionCancellation,
 }
 
 struct Playback {
@@ -148,6 +149,7 @@ struct Playback {
 
 impl Drop for Job {
     fn drop(&mut self) {
+        self.cancellation.cancel();
         self.control.take();
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
@@ -208,9 +210,11 @@ impl Session {
         region: Region,
         config: DiagnosticRecordingConfig,
         track: AudioTrack,
+        cancellation: RegionCancellation,
     ) -> Result<Self> {
         let video = move |clock| {
-            let region = RegionReader::open(region).map_err(|error| error.to_string())?;
+            let region =
+                RegionReader::open(region, cancellation).map_err(|error| format!("{error:#}"))?;
             Ok(Source {
                 clock,
                 region,
@@ -342,6 +346,8 @@ impl Job {
         track: AudioTrack,
     ) -> io::Result<Self> {
         let (control, commands) = mpsc::sync_channel(4);
+        let cancellation = RegionCancellation::default();
+        let worker_cancellation = cancellation.clone();
         let worker = thread::Builder::new()
             .name("clippy-recording".into())
             .spawn(move || {
@@ -360,7 +366,8 @@ impl Job {
                         encoder: recording_encoder(),
                         segment_duration_ns: DEFAULT_SEGMENT_DURATION_NS,
                     };
-                    let session = Session::start(&base, region, config, track)?;
+                    let session =
+                        Session::start(&base, region, config, track, worker_cancellation)?;
                     send(Message::Started(id));
                     let mut paused = false;
                     loop {
@@ -398,6 +405,7 @@ impl Job {
             id,
             control: Some(control),
             worker: Some(worker),
+            cancellation,
         })
     }
 }
@@ -750,6 +758,7 @@ impl App {
                         self.recordings.sync_controls();
                     }
                     Control::Stop => {
+                        job.cancellation.cancel();
                         self.recordings.finishing = true;
                         self.recordings.note(Ok("Finalizing recording…".into()));
                     }

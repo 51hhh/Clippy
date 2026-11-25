@@ -1,4 +1,7 @@
-use super::macos_frame::{bgra_span, bgra_to_rgba, region_layout, ScreenFrames};
+use super::{
+    latest::LatestFrames,
+    macos_frame::{bgra_span, bgra_to_rgba, region_layout},
+};
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use block2::RcBlock;
 use dispatch2::{DispatchQueue, DispatchQueueAttr, DispatchRetained};
@@ -96,7 +99,7 @@ extern_protocol!(
 );
 
 struct FrameOutputState {
-    frames: Arc<ScreenFrames<Arc<SurfaceLease>>>,
+    frames: Arc<LatestFrames<Arc<SurfaceLease>>>,
     size: (u32, u32),
     status_key: &'static NSString,
 }
@@ -244,7 +247,7 @@ pub(super) struct ScreenStream {
     stream: Retained<NSObject>,
     output: Retained<FrameOutput>,
     _queue: DispatchRetained<DispatchQueue>,
-    frames: Arc<ScreenFrames<Arc<SurfaceLease>>>,
+    frames: Arc<LatestFrames<Arc<SurfaceLease>>>,
     id: u32,
     display: DisplayState,
     size: (u32, u32),
@@ -285,7 +288,7 @@ impl ScreenStream {
         }
 
         let size = region.pixels;
-        let frames = Arc::new(ScreenFrames::new());
+        let frames = Arc::new(LatestFrames::new());
         let output = FrameOutput::alloc().set_ivars(FrameOutputState {
             frames: Arc::clone(&frames),
             size,

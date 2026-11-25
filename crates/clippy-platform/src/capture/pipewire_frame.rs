@@ -4,18 +4,25 @@
 //! 入口可能得到不同颜色或对行填充作出不同解释。这里只处理可直接映射的 32 位共享内存帧，明确
 //! 拒绝 DMA-BUF、缩放和不支持的像素格式。
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, ensure, Context, Result};
+use memmap2::{Mmap, MmapOptions};
 use pipewire as pw;
 use pw::spa;
 use spa::param::format::{MediaSubtype, MediaType};
 use spa::param::video::{VideoFormat, VideoInfoRaw};
 use spa::pod::Pod;
-use std::sync::Arc;
+use std::{fs::File, os::fd::BorrowedFd, sync::Arc};
 
 pub struct PipeWireRgbaFrame {
     pub width: u32,
     pub height: u32,
     pub rgba: Arc<[u8]>,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct FrameRegion {
+    pub source_size: (u32, u32),
+    pub bounds: [u32; 4],
 }
 
 pub fn init_pipewire() {
@@ -39,6 +46,35 @@ pub fn frame_from_buffer(
     buffer: &mut pw::buffer::Buffer,
     info: VideoInfoRaw,
 ) -> Result<PipeWireRgbaFrame> {
+    decode_frame(first_plane(buffer)?, info, None)
+}
+
+pub(super) fn has_frame(buffer: &mut pw::buffer::Buffer) -> Result<bool> {
+    let plane = first_plane(buffer)?;
+    let chunk = plane.chunk();
+    Ok(chunk.size() != 0 && !chunk.flags().contains(spa::buffer::ChunkFlags::CORRUPTED))
+}
+
+pub(super) fn region_from_buffer(
+    buffer: &mut pw::buffer::Buffer,
+    info: VideoInfoRaw,
+    region: FrameRegion,
+) -> Result<PipeWireRgbaFrame> {
+    decode_frame(first_plane(buffer)?, info, Some(region))
+}
+
+fn first_plane<'a>(buffer: &'a mut pw::buffer::Buffer<'_>) -> Result<&'a mut spa::buffer::Data> {
+    buffer
+        .datas_mut()
+        .first_mut()
+        .context("PipeWire 缓冲里没有数据块")
+}
+
+fn decode_frame(
+    data: &mut spa::buffer::Data,
+    info: VideoInfoRaw,
+    region: Option<FrameRegion>,
+) -> Result<PipeWireRgbaFrame> {
     let size = info.size();
     let layout = pixel_layout(info.format()).ok_or_else(|| {
         anyhow!(
@@ -46,8 +82,6 @@ pub fn frame_from_buffer(
             info.format()
         )
     })?;
-    let datas = buffer.datas_mut();
-    let data = datas.first_mut().context("PipeWire 缓冲里没有数据块")?;
     let kind = data.type_();
     if kind == spa::buffer::DataType::DmaBuf {
         // EnumFormat 没有 modifier 属性，合成器应走 shm/MemFd；MAP_BUFFERS 不会替调用方
@@ -58,17 +92,65 @@ pub fn frame_from_buffer(
     if stride <= 0 {
         bail!("PipeWire 帧的 stride 是 {stride}");
     }
-    let offset = data.chunk().offset() as usize;
-    let pixels = data.data().context("PipeWire 缓冲没有映射到内存")?;
+    let chunk = data.chunk();
+    let offset = chunk.offset() as usize;
+    let length = chunk.size() as usize;
+    let mapped = if region.is_some() && kind == spa::buffer::DataType::MemFd {
+        let fd = data.fd();
+        ensure!(fd >= 0, "ScreenCast did not provide a shared-memory fd");
+        let raw = data.as_raw();
+        // 部分 wlr 后端不设置 READABLE，PipeWire 的自动映射会生成 PROT_NONE。
+        // fd 由当前尚未归还的缓冲持有，主动只读映射授权流实际提供的共享内存。
+        let fd = unsafe { BorrowedFd::borrow_raw(fd) };
+        Some(map_readonly(fd, raw.mapoffset, raw.maxsize)?)
+    } else {
+        None
+    };
+    let pixels: &[u8] = match &mapped {
+        Some(map) => map,
+        None => data.data().context("PipeWire 缓冲没有映射到内存")?,
+    };
     let pixels = pixels
         .get(offset..)
         .with_context(|| format!("PipeWire 帧的 offset {offset} 越过了缓冲末尾"))?;
-    let rgba = repack_to_rgba(pixels, size.width, size.height, stride as usize, layout)?;
+    let (pixels, bounds) = match region {
+        Some(region) => (
+            pixels
+                .get(..length)
+                .context("PipeWire payload exceeds its mapped buffer")?,
+            region.bounds,
+        ),
+        None => (pixels, [0, 0, size.width, size.height]),
+    };
+    let rgba = repack_region_to_rgba(
+        pixels,
+        (size.width, size.height),
+        stride as usize,
+        layout,
+        bounds,
+    )?;
     Ok(PipeWireRgbaFrame {
-        width: size.width,
-        height: size.height,
+        width: bounds[2] - bounds[0],
+        height: bounds[3] - bounds[1],
         rgba: Arc::from(rgba),
     })
+}
+
+fn map_readonly(fd: BorrowedFd<'_>, offset: u32, length: u32) -> Result<Mmap> {
+    let file = File::from(fd.try_clone_to_owned()?);
+    let end = u64::from(offset) + u64::from(length);
+    ensure!(
+        length > 0 && end <= file.metadata()?.len(),
+        "ScreenCast buffer extends beyond its shared-memory file"
+    );
+    // PipeWire 保证缓冲归还前，来源进程不会回收或改写这块数据。
+    unsafe {
+        MmapOptions::new()
+            .offset(u64::from(offset))
+            .len(length as usize)
+            .map(&file)
+    }
+    .context("Mapping ScreenCast shared memory")
 }
 
 /// 报给合成器的 `EnumFormat`。不带 modifier，强制协商为能直接读取的共享内存。
@@ -154,13 +236,14 @@ fn pixel_layout(format: VideoFormat) -> Option<PixelLayout> {
 }
 
 /// 去除行尾填充并换成紧排 RGBA8。桌面画面没有透明度，alpha 固定为 255。
-fn repack_to_rgba(
+fn repack_region_to_rgba(
     src: &[u8],
-    width: u32,
-    height: u32,
+    (width, height): (u32, u32),
     stride: usize,
     layout: PixelLayout,
+    bounds: [u32; 4],
 ) -> Result<Vec<u8>> {
+    let [left, top, right, bottom] = bounds.map(|value| value as usize);
     let width = width as usize;
     let height = height as usize;
     if width == 0 || height == 0 {
@@ -181,9 +264,11 @@ fn repack_to_rgba(
         );
     }
 
-    let mut out = vec![0u8; row * height];
-    for (y, line) in out.chunks_exact_mut(row).enumerate() {
-        let source = &src[y * stride..y * stride + row];
+    let cropped_row = (right - left) * 4;
+    let mut out = vec![0u8; cropped_row * (bottom - top)];
+    for (y, line) in out.chunks_exact_mut(cropped_row).enumerate() {
+        let start = (y + top) * stride + left * 4;
+        let source = &src[start..start + cropped_row];
         let (targets, _) = line.as_chunks_mut::<4>();
         let (pixels, _) = source.as_chunks::<4>();
         for (target, pixel) in targets.iter_mut().zip(pixels) {
@@ -199,6 +284,43 @@ fn repack_to_rgba(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{io::Write, os::fd::AsFd};
+
+    #[test]
+    fn portal_memfd_uses_its_declared_window_and_rejects_truncation() {
+        let mut file = tempfile::tempfile().unwrap();
+        file.write_all(b"skipRGBA").unwrap();
+        assert_eq!(&*map_readonly(file.as_fd(), 4, 4).unwrap(), b"RGBA");
+        assert!(map_readonly(file.as_fd(), 4, 5).is_err());
+    }
+
+    fn repack_to_rgba(
+        src: &[u8],
+        width: u32,
+        height: u32,
+        stride: usize,
+        layout: PixelLayout,
+    ) -> Result<Vec<u8>> {
+        repack_region_to_rgba(src, (width, height), stride, layout, [0, 0, width, height])
+    }
+
+    #[test]
+    fn cropped_screen_frame_reads_only_the_selected_rows_and_columns() {
+        let layout = pixel_layout(VideoFormat::BGRA).unwrap();
+        let mut source = Vec::new();
+        for y in 0..4 {
+            for x in 0..5 {
+                source.extend_from_slice(&[x, 100, y, 0]);
+            }
+            source.extend_from_slice(&[0xee; 8]);
+        }
+        let rgba = repack_region_to_rgba(&source, (5, 4), 28, layout, [2, 1, 4, 3]).unwrap();
+        assert_eq!(
+            rgba,
+            [1, 100, 2, 255, 1, 100, 3, 255, 2, 100, 2, 255, 2, 100, 3, 255]
+        );
+        assert!(repack_region_to_rgba(&source[..103], (5, 4), 28, layout, [2, 1, 4, 3]).is_err());
+    }
 
     #[test]
     fn every_advertised_format_has_a_layout() {

@@ -11,6 +11,8 @@ use std::{
 
 #[cfg(target_os = "linux")]
 pub mod gnome;
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
+mod latest;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(any(target_os = "macos", test))]
@@ -19,6 +21,10 @@ mod macos_frame;
 pub mod pipewire_frame;
 #[cfg(target_os = "linux")]
 mod portal;
+#[cfg(target_os = "linux")]
+mod screencast;
+#[cfg(target_os = "linux")]
+mod screencast_stream;
 #[cfg(target_os = "linux")]
 mod wayland;
 #[cfg(target_os = "linux")]
@@ -65,6 +71,31 @@ pub struct Region {
     pub bounds: [f32; 4],
 }
 
+#[derive(Clone, Default)]
+pub struct RegionCancellation {
+    #[cfg(target_os = "linux")]
+    signal: tokio::sync::watch::Sender<bool>,
+}
+
+impl RegionCancellation {
+    pub fn cancel(&self) {
+        #[cfg(target_os = "linux")]
+        self.signal.send_replace(true);
+    }
+
+    #[cfg(target_os = "linux")]
+    async fn cancelled(&self) {
+        let mut signal = self.signal.subscribe();
+        let _ = signal.wait_for(|cancelled| *cancelled).await;
+    }
+
+    #[cfg(target_os = "linux")]
+    fn check_active(&self) -> Result<()> {
+        ensure!(!*self.signal.borrow(), "Screen sharing cancelled");
+        Ok(())
+    }
+}
+
 type Reader<'a> = dyn FnMut() -> Result<RgbaImage> + 'a;
 
 type FrameReply = SyncSender<Result<RgbaImage>>;
@@ -75,14 +106,14 @@ pub struct RegionReader {
 }
 
 impl RegionReader {
-    pub fn open(region: Region) -> Result<Self> {
+    pub fn open(region: Region, cancellation: RegionCancellation) -> Result<Self> {
         let (commands, requests) = mpsc::sync_channel::<FrameReply>(1);
         let (ready, started) = mpsc::sync_channel(1);
         let thread = thread::Builder::new()
             .name("clippy-region-source".into())
             .spawn(move || {
                 let mut ready = Some(ready);
-                let result = with_region_reader(region, |read| {
+                let result = with_region_reader(region, &cancellation, |read| {
                     ready.take().expect("采集源只打开一次").send(Ok(()))?;
                     while let Ok(response) = requests.recv() {
                         if response.send(read()).is_err() {
@@ -126,6 +157,7 @@ impl Drop for RegionReader {
 
 pub fn with_region_reader<T>(
     region: Region,
+    _cancellation: &RegionCancellation,
     consume: impl FnOnce(&mut Reader<'_>) -> Result<T>,
 ) -> Result<T> {
     let Region {
@@ -154,9 +186,14 @@ pub fn with_region_reader<T>(
                 })
             });
         }
-        return wayland::with_output(&output, |read| {
-            consume(&mut || read()?.crop(left, top, right, bottom))
-        });
+        return wayland::with_region(
+            &output,
+            geometry,
+            source_size,
+            [left, top, right, bottom],
+            _cancellation,
+            consume,
+        );
     }
     #[cfg(target_os = "linux")]
     {
