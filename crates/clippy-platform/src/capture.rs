@@ -11,6 +11,10 @@ use std::{
 
 #[cfg(target_os = "linux")]
 pub mod gnome;
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(any(target_os = "macos", test))]
+mod macos_frame;
 #[cfg(target_os = "linux")]
 pub mod pipewire_frame;
 #[cfg(target_os = "linux")]
@@ -127,10 +131,8 @@ pub fn with_region_reader<T>(
     let Region {
         output,
         geometry,
-        #[cfg(any(target_os = "linux", target_os = "windows"))]
         source_size,
         bounds: [left, top, right, bottom],
-        ..
     } = region;
     #[cfg(target_os = "linux")]
     if crate::session::is_wayland() {
@@ -179,12 +181,27 @@ pub fn with_region_reader<T>(
     }
     #[cfg(target_os = "macos")]
     {
-        let _ = geometry;
-        let source = xcap::Monitor::all()?
+        let monitor = xcap::Monitor::all()?
             .into_iter()
             .find(|monitor| monitor.name().is_ok_and(|name| name == output))
             .ok_or_else(|| anyhow::anyhow!("Capture output is unavailable"))?;
-        consume(&mut || FrozenPixels::from(source.capture_image()?).crop(left, top, right, bottom))
+        ensure!(
+            (monitor.x()?, monitor.y()?) == (geometry.x, geometry.y),
+            "Capture output changed position"
+        );
+        let bounds = [left, top, right, bottom];
+        if macos::stream_supported() {
+            let mut source = macos::ScreenStream::open(monitor.id()?, source_size, bounds)?;
+            return consume(&mut || source.read());
+        }
+        consume(&mut || {
+            let image = monitor.capture_image()?;
+            ensure!(
+                image.dimensions() == source_size,
+                "Capture output changed size"
+            );
+            crop_rgba(image.as_raw(), source_size.0, source_size.1, bounds)
+        })
     }
 }
 

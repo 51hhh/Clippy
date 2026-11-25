@@ -187,6 +187,21 @@ Windows 真机需分别验证框选输出像素、静止帧、暂停继续、录
 
 **Out of Scope** Windows 快速截图的单帧路径、采集时间戳到录屏时钟的映射、音轨和 macOS 持续采集。
 
+### 阶段 2 · macOS ScreenCaptureKit 持续采集
+
+**Goal** macOS 长截图和区域录屏在同一任务内复用一个选区流，把读回与颜色转换推迟到应用请求帧时。
+
+**Requirements** macOS 12.3 起按需加载 ScreenCaptureKit，屏幕录制权限错误通过原有流程报告。
+11–12.2 继续使用已有 CoreGraphics 路径，正式包最低版本保持 11.0。在冻结图的源像素上确定选区，
+以显示器本地逻辑点设定流的源范围，输出保持选区原始像素宽高。只保留最新画面，静止时允许复用。
+首帧、启动与停止等待有上限，显示器变更、流结束或像素不匹配时报告错误。QA 和正式包都提供屏幕录制用途说明。
+
+**Acceptance Criteria** 自动测试覆盖 Retina 与非整数比例投影、BGRA 行尾填充、静止、失败和待取帧释放。
+检查两个 macOS 架构及 Linux 完整门禁。Mac 真机用最小版本和较新系统验证包启动、拒绝/授予权限、
+Retina 与旋转的源像素、静止和连续帧、切换显示模式和退出重开，并记录首帧与持续读取延迟。
+
+**Out of Scope** 单次快速截图的后端选型、录屏控制窗排除、音轨、帧时间戳和自动滚动。
+
 ## 实施记录
 
 ### 阶段 0 · Linux 基线
@@ -297,6 +312,23 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   本轮原始证据见 `target/test-artifacts/slint-stage2-wgc/`。
   [WGC 区域读帧](../../../apps/legacy-tauri/native/vendor/xcap/src/windows/wgc_region_reader.rs) ·
   [Microsoft WGC 显示器接入](https://learn.microsoft.com/en-us/windows/win32/api/windows.graphics.capture.interop/nf-windows-graphics-capture-interop-igraphicscaptureiteminterop-createformonitor)
+
+### 阶段 2 · macOS 持续采集接入结果
+
+- macOS 12.3 起，长截图与区域录屏经共享区域读取器创建一个 ScreenCaptureKit 流。流按选区配置像素尺寸，
+  回调只保留最新的 IOSurface，需要画面时才映射并转为 RGBA。静止画面可重复交付，空白、挂起和流停止清除
+  旧画面。枚举、启动与等待首帧共享 5 秒，停止回调等候上限为 2 秒。
+- macOS 11–12.2 仍走 CoreGraphics。QA 和正式安装包共用屏幕录制用途说明，正式打包校验实际最低版本及
+  Mach-O 对 ScreenCaptureKit 的链接情况。打包脚本的 Intel 和 Apple Silicon 配置及生成的 plist 已通过离线验证。
+- `MACOSX_DEPLOYMENT_TARGET=11.0` 下，`clippy-platform` 的 Intel 和 Apple Silicon 交叉 clippy
+  均通过 `--all-targets -- -D warnings`。Linux 首轮在既有音轨测试与 X11 搜索复制用例上失败，完整复跑为
+  11 项通过、0 失败、0 跳过，覆盖 4 个新增选区、像素与帧交接用例。原始证据见
+  `target/test-artifacts/slint-stage2-macos/`。
+- 动态加载及原生 IOSurface 读回用例已加入平台测试，待 Mac runner 执行。真实安装、TCC 权限、Retina 和旋转像素、
+  拔屏重开与采集延迟留在实机矩阵。
+  [macOS 区域流](../../../crates/clippy-platform/src/capture/macos.rs) ·
+  [Apple ScreenCaptureKit 帧处理](https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-in-macos) ·
+  [Apple ScreenCaptureKit 队列与延迟](https://developer.apple.com/videos/play/wwdc2022/10155/)
 
 ## Acceptance Criteria
 

@@ -81,6 +81,9 @@
 - Windows 长截图和区域录屏在同一任务内复用 WGC 会话，按需读回框选区域。静止时可复用上一帧，
   显示器关闭或尺寸变化时会报告错误。实际画面、多屏与性能仍待原生 Windows 验收。
   （需求 `SLINT-MIGRATION-CLOSURE-01`）
+- macOS 12.3 起，长截图和区域录屏在同一任务内复用 ScreenCaptureKit 选区流，按需读取像素。
+  macOS 11–12.2 沿用 CoreGraphics。已完成双架构交叉检查，权限提示、Retina 实际像素与采集延迟仍待真机验收。
+  （需求 `SLINT-MIGRATION-CLOSURE-01`）
 
 ### Slint 贴图与工作区
 

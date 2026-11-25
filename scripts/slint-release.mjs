@@ -100,10 +100,10 @@ function prepare(tag, platform, sha, signing) {
       return JSON.stringify(path);
     }).replace("resources = [", `resources = [\n  { src = ${JSON.stringify(metadata.replaceAll("\\", "/"))}, target = "BUILD-INFO.json" },`);
   if (profile.platform === "macos") {
-    writeFileSync(absolute("target/packager/slint-release-info.plist"), `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict><key>CFBundleVersion</key><string>${versions.macosBuild}</string></dict></plist>
-`);
+    const plist = read("apps/slint/Info.macos.plist").replace("</dict>", `  <key>CFBundleVersion</key>
+  <string>${versions.macosBuild}</string>
+</dict>`);
+    writeFileSync(absolute("target/packager/slint-release-info.plist"), plist);
   }
   if (profile.platform === "windows") {
     const thumbprint = process.env.WINDOWS_CERTIFICATE_THUMBPRINT;

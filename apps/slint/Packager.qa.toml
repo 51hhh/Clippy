@@ -39,3 +39,4 @@ libs = ["libxkbcommon.so.0", "libxkbcommon-x11.so.0", "libxcb-xkb.so.1"]
 [macos]
 minimum-system-version = "12.3"
 signing-identity = "-"
+info-plist-path = "Info.macos.plist"

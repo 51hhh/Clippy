@@ -34,8 +34,28 @@ enigo = { version = "0.6", default-features = false }
 xcap = { version = "0.9", features = ["wgc"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
+dispatch2 = "0.3"
+libloading = "0.8"
+objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = [
     "NSPasteboard", "NSRunningApplication", "NSWorkspace", "std",
+] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["CFCGTypes", "objc2"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = [
+    "CGDirectDisplay", "CGDisplayConfiguration",
+] }
+objc2-core-media = { version = "0.3", default-features = false, features = [
+    "CMSampleBuffer", "CMTime", "objc2", "objc2-core-video",
+] }
+objc2-core-video = { version = "0.3", default-features = false, features = [
+    "CVPixelBuffer", "CVPixelBufferIOSurface", "objc2-io-surface",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "NSArray", "NSDictionary", "NSError", "NSProcessInfo", "NSString", "NSValue", "std",
+] }
+objc2-io-surface = { version = "0.3", default-features = false, features = [
+    "IOSurfaceRef", "IOSurfaceTypes", "libc", "objc2", "objc2-core-foundation",
 ] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
