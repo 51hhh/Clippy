@@ -1,6 +1,6 @@
 ---
-description: "Use when writing or modifying Rust backend code in src-tauri/src/. Covers Tauri v2 IPC commands, SQLite storage, clipboard watcher, and shared state patterns."
-applyTo: "src-tauri/src/**/*.rs"
+description: "Use when writing or modifying Rust backend code in apps/legacy-tauri/native/src/. Covers Tauri v2 IPC commands, SQLite storage, clipboard watcher, and shared state patterns."
+applyTo: "apps/legacy-tauri/native/src/**/*.rs"
 ---
 # Rust 后端约定
 

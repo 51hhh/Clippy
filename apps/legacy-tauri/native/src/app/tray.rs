@@ -1,0 +1,436 @@
+use crate::commands::AppState;
+use crate::i18n::{self, NativeText};
+use crate::models::AppConfig;
+use crate::{tray_icon, window_controller};
+use tauri::menu::MenuItem;
+use tauri::{Emitter, Listener, Manager};
+
+/// 托盘菜单项 id。文案随语言变化，id 保持不变，事件分支才能稳定匹配。
+const OPEN_ID: &str = "open_clipboard";
+const ACTIONS_ID: &str = "actions";
+const RECORD_AREA_ID: &str = "record_area";
+const PAUSE_RECORDING_ID: &str = "pause_recording";
+const RESUME_RECORDING_ID: &str = "resume_recording";
+const STOP_RECORDING_ID: &str = "stop_recording";
+const RECORDINGS_ID: &str = "recordings";
+const PIN_WORKSPACES_ID: &str = "pin_workspaces";
+const SETTINGS_ID: &str = "settings";
+const QUIT_ID: &str = "quit";
+
+/// 托盘菜单项句柄。语言切换时直接改文案，不重建菜单，
+/// 避免刷新过程中托盘短暂没有菜单。`MenuItem` 的写操作自己会切回主线程。
+#[derive(Clone)]
+pub(crate) struct TrayMenuItems {
+    open_clipboard: MenuItem<tauri::Wry>,
+    actions: MenuItem<tauri::Wry>,
+    record_area: Option<MenuItem<tauri::Wry>>,
+    recording_controls: Option<RecordingTrayMenuItems>,
+    recordings: MenuItem<tauri::Wry>,
+    pin_workspaces: MenuItem<tauri::Wry>,
+    settings: MenuItem<tauri::Wry>,
+    quit: MenuItem<tauri::Wry>,
+}
+
+#[derive(Clone)]
+struct RecordingTrayMenuItems {
+    pause: MenuItem<tauri::Wry>,
+    resume: MenuItem<tauri::Wry>,
+    stop: MenuItem<tauri::Wry>,
+}
+
+impl RecordingTrayMenuItems {
+    fn apply_text(&self, text: NativeText) {
+        for (item, label) in [
+            (&self.pause, text.pause_recording_menu),
+            (&self.resume, text.resume_recording_menu),
+            (&self.stop, text.stop_recording_menu),
+        ] {
+            if let Err(error) = item.set_text(label) {
+                log::warn!("托盘菜单文案刷新失败 ({label}): {error}");
+            }
+        }
+    }
+
+    fn apply_state(&self, state: &str) {
+        let (pause, resume, stop) = recording_tray_enabled_state(state);
+        for (item, enabled) in [
+            (&self.pause, pause),
+            (&self.resume, resume),
+            (&self.stop, stop),
+        ] {
+            if let Err(error) = item.set_enabled(enabled) {
+                log::warn!("刷新录屏托盘菜单状态失败: {error}");
+            }
+        }
+    }
+}
+
+fn recording_tray_enabled_state(state: &str) -> (bool, bool, bool) {
+    match state {
+        "recording" => (true, false, true),
+        "paused" => (false, true, true),
+        _ => (false, false, false),
+    }
+}
+
+impl TrayMenuItems {
+    fn apply(&self, text: NativeText) {
+        for (item, label) in [
+            (&self.open_clipboard, text.open_clipboard),
+            (&self.actions, text.actions_menu),
+            (&self.settings, text.settings_menu),
+            (&self.quit, text.quit_menu),
+        ] {
+            if let Err(error) = item.set_text(label) {
+                log::warn!("托盘菜单文案刷新失败 ({label}): {error}");
+            }
+        }
+        if let Some(item) = &self.record_area {
+            if let Err(error) = item.set_text(text.record_area_menu) {
+                log::warn!("托盘菜单文案刷新失败 ({}): {error}", text.record_area_menu);
+            }
+        }
+        if let Some(items) = &self.recording_controls {
+            items.apply_text(text);
+        }
+        if let Err(error) = self.recordings.set_text(text.recordings_menu) {
+            log::warn!("托盘菜单文案刷新失败 ({}): {error}", text.recordings_menu);
+        }
+        if let Err(error) = self.pin_workspaces.set_text(text.pin_workspaces_menu) {
+            log::warn!(
+                "托盘菜单文案刷新失败 ({}): {error}",
+                text.pin_workspaces_menu
+            );
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn refresh_gnome_appindicator_labels(&self, text: NativeText) {
+        for (item, label) in [
+            (&self.open_clipboard, text.open_clipboard),
+            (&self.actions, text.actions_menu),
+            (&self.settings, text.settings_menu),
+            (&self.quit, text.quit_menu),
+        ] {
+            set_appindicator_refresh_text(item, label);
+        }
+        if let Some(item) = &self.record_area {
+            set_appindicator_refresh_text(item, text.record_area_menu);
+        }
+        if let Some(items) = &self.recording_controls {
+            for (item, label) in [
+                (&items.pause, text.pause_recording_menu),
+                (&items.resume, text.resume_recording_menu),
+                (&items.stop, text.stop_recording_menu),
+            ] {
+                set_appindicator_refresh_text(item, label);
+            }
+        }
+        set_appindicator_refresh_text(&self.recordings, text.recordings_menu);
+        set_appindicator_refresh_text(&self.pin_workspaces, text.pin_workspaces_menu);
+    }
+}
+
+#[cfg(target_os = "linux")]
+const APPINDICATOR_REFRESH_MARKER: char = '\u{2060}';
+
+#[cfg(target_os = "linux")]
+fn appindicator_refresh_text(label: &str) -> String {
+    format!("{label}{APPINDICATOR_REFRESH_MARKER}")
+}
+
+#[cfg(target_os = "linux")]
+fn set_appindicator_refresh_text(item: &MenuItem<tauri::Wry>, label: &str) {
+    if let Err(error) = item.set_text(appindicator_refresh_text(label)) {
+        log::warn!("触发 AppIndicator 菜单文案同步失败 ({label}): {error}");
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn is_gnome_desktop(desktop: Option<&str>) -> bool {
+    desktop.is_some_and(|desktop| {
+        desktop
+            .split(':')
+            .any(|part| matches!(part.to_ascii_lowercase().as_str(), "gnome" | "ubuntu"))
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn schedule_gnome_appindicator_label_refresh(items: TrayMenuItems, text: NativeText) {
+    let desktop = std::env::var("XDG_CURRENT_DESKTOP").ok();
+    if !is_gnome_desktop(desktop.as_deref()) {
+        return;
+    }
+
+    tauri::async_runtime::spawn(async move {
+        // GNOME Shell 50 的 AppIndicator 扩展可能在新版 muda 完成初始属性导出前缓存空标签，
+        // 且之后不会主动重取。菜单注册后发送一次视觉上等价的标签变更，再恢复精确文案，
+        // 让 Shell 收到 ItemsPropertiesUpdated，同时不让用户看到闪烁或额外字符。
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        items.refresh_gnome_appindicator_labels(text);
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        items.apply(text);
+    });
+}
+
+/// 构建系统托盘及 Open/Settings/Quit 菜单，文案按配置语言。
+pub(crate) fn build(
+    app: &tauri::App,
+    config: &AppConfig,
+) -> Result<TrayMenuItems, Box<dyn std::error::Error>> {
+    use tauri::menu::Menu;
+    use tauri::tray::TrayIconBuilder;
+
+    let text = i18n::text_for_language(&config.language);
+    let record_area = crate::recording::product_entry_available()
+        .then(|| {
+            MenuItem::with_id(
+                app,
+                RECORD_AREA_ID,
+                text.record_area_menu,
+                true,
+                None::<&str>,
+            )
+        })
+        .transpose()?;
+    let recording_controls = crate::recording::wayland_tray_controls_available()
+        .then(|| {
+            Ok::<_, tauri::Error>(RecordingTrayMenuItems {
+                pause: MenuItem::with_id(
+                    app,
+                    PAUSE_RECORDING_ID,
+                    text.pause_recording_menu,
+                    false,
+                    None::<&str>,
+                )?,
+                resume: MenuItem::with_id(
+                    app,
+                    RESUME_RECORDING_ID,
+                    text.resume_recording_menu,
+                    false,
+                    None::<&str>,
+                )?,
+                stop: MenuItem::with_id(
+                    app,
+                    STOP_RECORDING_ID,
+                    text.stop_recording_menu,
+                    false,
+                    None::<&str>,
+                )?,
+            })
+        })
+        .transpose()?;
+    let items = TrayMenuItems {
+        open_clipboard: MenuItem::with_id(app, OPEN_ID, text.open_clipboard, true, None::<&str>)?,
+        actions: MenuItem::with_id(app, ACTIONS_ID, text.actions_menu, true, None::<&str>)?,
+        record_area,
+        recording_controls,
+        recordings: MenuItem::with_id(
+            app,
+            RECORDINGS_ID,
+            text.recordings_menu,
+            true,
+            None::<&str>,
+        )?,
+        pin_workspaces: MenuItem::with_id(
+            app,
+            PIN_WORKSPACES_ID,
+            text.pin_workspaces_menu,
+            true,
+            None::<&str>,
+        )?,
+        settings: MenuItem::with_id(app, SETTINGS_ID, text.settings_menu, true, None::<&str>)?,
+        quit: MenuItem::with_id(app, QUIT_ID, text.quit_menu, true, None::<&str>)?,
+    };
+    let mut menu_items: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> =
+        vec![&items.open_clipboard, &items.actions];
+    if let Some(record_area) = &items.record_area {
+        menu_items.push(record_area);
+    }
+    if let Some(controls) = &items.recording_controls {
+        menu_items.push(&controls.pause);
+        menu_items.push(&controls.resume);
+        menu_items.push(&controls.stop);
+    }
+    menu_items.push(&items.recordings);
+    menu_items.push(&items.pin_workspaces);
+    menu_items.push(&items.settings);
+    menu_items.push(&items.quit);
+    let menu = Menu::with_items(app, &menu_items)?;
+
+    let icon = tray_icon::render_themed_tray_icon(&config.theme)
+        .unwrap_or_else(|| app.default_window_icon().expect("缺少默认窗口图标").clone());
+
+    TrayIconBuilder::with_id("main")
+        .icon(icon)
+        .menu(&menu)
+        .show_menu_on_left_click(true)
+        .tooltip(clippy_core::PRODUCT_NAME)
+        .on_menu_event(|app_handle, event| match event.id.as_ref() {
+            OPEN_ID => {
+                if let Some(state) = app_handle.try_state::<AppState>() {
+                    state.paste_manager.capture_target();
+                }
+                let _ = window_controller::show_main_window(app_handle);
+            }
+            ACTIONS_ID => {
+                let result = app_handle
+                    .try_state::<crate::commands::AppState>()
+                    .ok_or(())
+                    .and_then(|state| {
+                        crate::actions::open(app_handle, &state, None).map_err(|_| ())
+                    });
+                if result.is_err() {
+                    log::warn!("打开动作启动器失败");
+                }
+            }
+            RECORD_AREA_ID => {
+                let handle = app_handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = crate::commands::trigger_recording_overlay(handle).await {
+                        log::warn!("打开录屏选区失败: {error}");
+                    }
+                });
+            }
+            PAUSE_RECORDING_ID => {
+                if let Err(error) =
+                    crate::recording::control_host::pause_recording_from_tray(app_handle)
+                {
+                    log::warn!("从托盘暂停录屏失败: {error}");
+                }
+            }
+            RESUME_RECORDING_ID => {
+                if let Err(error) =
+                    crate::recording::control_host::resume_recording_from_tray(app_handle)
+                {
+                    log::warn!("从托盘继续录屏失败: {error}");
+                }
+            }
+            STOP_RECORDING_ID => {
+                if let Err(error) =
+                    crate::recording::control_host::stop_recording_from_tray(app_handle)
+                {
+                    log::warn!("从托盘安排停止录屏失败: {error}");
+                }
+            }
+            RECORDINGS_ID => {
+                if let Err(error) = crate::recording::library::open(app_handle) {
+                    log::warn!("打开录屏结果库失败: {error}");
+                }
+            }
+            PIN_WORKSPACES_ID => {
+                if let Err(error) = crate::pin::workspace_library::open(app_handle) {
+                    log::warn!("打开 Pin 工作区浏览器失败: {error}");
+                }
+            }
+            SETTINGS_ID => {
+                if let Err(error) = window_controller::open_settings_window(app_handle) {
+                    log::warn!("打开设置窗口失败: {error}");
+                }
+            }
+            QUIT_ID => app_handle.exit(0),
+            _ => {}
+        })
+        .build(app)?;
+
+    #[cfg(target_os = "linux")]
+    schedule_gnome_appindicator_label_refresh(items.clone(), text);
+
+    Ok(items)
+}
+
+/// 托盘随配置变化刷新：菜单文案跟语言，图标跟主题。
+pub(crate) fn listen_for_config_changes(app: &tauri::App, items: TrayMenuItems) {
+    let handle = app.handle().clone();
+    if let Some(recording_controls) = items.recording_controls.clone() {
+        app.listen("recording-tray-state", move |event| {
+            let state = serde_json::from_str::<String>(event.payload())
+                .unwrap_or_else(|_| "idle".to_string());
+            recording_controls.apply_state(&state);
+        });
+    }
+    app.listen("config-changed", move |event| {
+        #[derive(serde::Deserialize)]
+        struct Payload {
+            theme: String,
+            /// 裁剪过的 payload 可能没有这个字段，缺失时按 auto 处理。
+            #[serde(default)]
+            language: String,
+        }
+
+        let (theme, language) = match serde_json::from_str::<Payload>(event.payload()) {
+            Ok(payload) => (payload.theme, payload.language),
+            Err(error) => {
+                log::warn!("config-changed payload 解析失败: {}", error);
+                return;
+            }
+        };
+        // 文案刷新不依赖托盘句柄，放在图标之前，托盘丢失时语言仍然生效。
+        items.apply(i18n::text_for_language(&language));
+        let Some(tray) = handle.tray_by_id("main") else {
+            log::warn!("找不到托盘 id=main，跳过主题刷新");
+            return;
+        };
+        match tray_icon::render_themed_tray_icon(&theme) {
+            Some(icon) => {
+                if let Err(error) = tray.set_icon(Some(icon)) {
+                    log::warn!("托盘图标刷新失败: {}", error);
+                }
+            }
+            None => {
+                log::warn!("托盘图标渲染失败 (theme={}), 保持当前图标", theme);
+                let _ = handle.emit("tray-icon-render-failed", theme);
+            }
+        }
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::recording_tray_enabled_state;
+
+    #[cfg(target_os = "linux")]
+    use super::{appindicator_refresh_text, is_gnome_desktop, APPINDICATOR_REFRESH_MARKER};
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn gnome_desktop_detection_accepts_ubuntu_and_gnome_tokens() {
+        assert!(is_gnome_desktop(Some("ubuntu:GNOME")));
+        assert!(is_gnome_desktop(Some("GNOME")));
+        assert!(is_gnome_desktop(Some("Unity:ubuntu")));
+        assert!(!is_gnome_desktop(Some("KDE")));
+        assert!(!is_gnome_desktop(None));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn appindicator_refresh_text_changes_the_property_without_visible_suffix() {
+        let original = "打开剪贴板";
+        let refreshed = appindicator_refresh_text(original);
+
+        assert_ne!(refreshed, original);
+        assert_eq!(
+            refreshed.trim_end_matches(APPINDICATOR_REFRESH_MARKER),
+            original
+        );
+        assert_eq!(refreshed.chars().last(), Some(APPINDICATOR_REFRESH_MARKER));
+    }
+
+    #[test]
+    fn recording_tray_state_exposes_only_valid_transitions() {
+        assert_eq!(recording_tray_enabled_state("idle"), (false, false, false));
+        assert_eq!(
+            recording_tray_enabled_state("starting"),
+            (false, false, false)
+        );
+        assert_eq!(
+            recording_tray_enabled_state("recording"),
+            (true, false, true)
+        );
+        assert_eq!(recording_tray_enabled_state("paused"), (false, true, true));
+        assert_eq!(
+            recording_tray_enabled_state("unknown"),
+            (false, false, false)
+        );
+    }
+}

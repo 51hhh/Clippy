@@ -26,21 +26,30 @@ Jammy job 执行完整 Rust 与前端门禁；Windows/macOS 原生 job 执行 Ru
 安装包由下一步的 Native QA workflow 构建；CI 仍不能证明桌面权限、
 焦点恢复、输入注入、混合 DPI 或签名证书链在真实用户环境中工作。
 
-CI 通过后，在 GitHub Actions 中对同一 ref 手动运行 `Native QA Packages`。该 run 的 Artifacts 区会提供
-四套以完整 SHA 命名的 QA 安装包、Ubuntu 24 AppImage X11 smoke 证据，以及
-`qa-record-templates-<SHA>`。先核对安装包内的 `QA-BUILD.txt` 与 `SHA256SUMS.txt`，再使用同一 run
-生成的 JSON 记录；不要把其它 run、旧 SHA 或本地临时构建混入证据。Windows QA 包使用临时自签名，
-macOS QA 包仅做 Ad-Hoc 签名；updater 安装必须改用同 SHA 的正式 release 产物。当前正式 macOS release 也
-采用 Ad-Hoc 签名，因此只能验证功能和更新链，不能作为 Developer ID、公证或 Gatekeeper 信任证据。
+CI 通过后，在 GitHub Actions 中对同一 ref 手动运行 `Native QA Packages`。该 run 会并行生成
+`qa-legacy-*` 与 `qa-slint-*`：每个后端各有 Linux x64、Windows x64、macOS Intel 和
+Apple Silicon 四套以完整 SHA 命名的包。另有 legacy Ubuntu 24 AppImage X11 smoke 证据和
+`qa-legacy-record-templates-<SHA>`。先核对安装包内的 `QA-BUILD.txt` 与 `SHA256SUMS.txt`，再使用
+同一 run 生成的 JSON 记录；不要把其它 run、旧 SHA 或本地临时构建混入证据。
 
-Linux x64 QA 包显式启用 `recording-wayland-qa,recording-linux-av-qa`（同时覆盖 X11 与 Wayland
+`QA-BUILD.txt` 由单一脚本读取当前仓库版本生成，必须包含 `backend`、`framework`、
+`framework_version`、`renderer` 和完整 commit。legacy 明确写 `slint=not included`；Slint 明确写
+`tauri=not included`，并记录隔离的 identity/data/single-instance/shortcut namespace。Slint 当前仍是
+迁移壳层，能生成安装包不代表下文完整功能矩阵可用，也不能使用 legacy 的记录模板冒充 Slint 验收。
+
+legacy Windows QA 包使用临时自签名，legacy 与 Slint macOS QA 包仅做 Ad-Hoc 签名；Slint Windows
+QA 包当前为未签名测试包。updater 安装必须改用同 SHA 的正式 release 产物。当前正式 macOS release
+也采用 Ad-Hoc 签名，因此只能验证功能和更新链，不能作为 Developer ID、公证或 Gatekeeper 信任证据。
+
+下文功能场景当前只适用于 `qa-legacy-*`。Linux x64 legacy QA 包显式启用
+`recording-wayland-qa,recording-linux-av-qa`（同时覆盖 X11 与 Wayland
 视频源、PipeWire 系统声和麦克风），Windows x64 QA 包显式启用
 `recording-windows-av-qa`；macOS 12.3+ QA 包显式启用 `recording-macos-av-qa`，Intel 另叠加
 `recording-vp9-source-build`。Linux 与 Windows 工具条增加受门控的系统声、麦克风和两者混音；
 macOS 13+ 增加系统声，15+ 再增加麦克风与两者混音。存在多个设备时可在开始前选择非默认设备，
 macOS 系统声仍跟随系统默认。这些包只用于取得录屏原型证据，不代表正式 release
 已启用录屏。
-安装前必须核对 `QA-BUILD.txt` 的 `recording_feature` 与实际平台一致；macOS 还必须核对
+安装 legacy 包前必须核对 `QA-BUILD.txt` 的 `recording_feature` 与实际平台一致；macOS 还必须核对
 `minimum_system_version=12.3`，否则不能执行下文录屏场景。
 
 `WIN-QA-CRT-01`：Windows QA 包还必须核对 `QA-WINDOWS-RUNTIME.json` 的源码 SHA、

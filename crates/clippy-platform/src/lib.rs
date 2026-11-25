@@ -1,0 +1,10 @@
+pub mod capture;
+pub mod clipboard;
+pub mod identity;
+pub mod instance;
+pub mod paste;
+pub mod paths;
+pub mod private_files;
+pub mod session;
+pub mod shortcuts;
+pub mod startup;

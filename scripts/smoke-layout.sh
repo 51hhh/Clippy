@@ -15,8 +15,8 @@ if [[ -z "$FIREFOX" || ( -z "$FFMPEG" && -z "$PYTHON_PIL" ) ]]; then
   exit 0
 fi
 
-mkdir -p "${ROOT_DIR}/src-tauri/target"
-ARTIFACT_DIR="$(mktemp -d "${ROOT_DIR}/src-tauri/target/layout-smoke.XXXXXX")"
+mkdir -p "${ROOT_DIR}/target"
+ARTIFACT_DIR="$(mktemp -d "${ROOT_DIR}/target/layout-smoke.XXXXXX")"
 PROFILE_DIR="${ARTIFACT_DIR}/firefox-profile"
 SCREENSHOT="${ARTIFACT_DIR}/result.png"
 VITE_LOG="${ARTIFACT_DIR}/vite.log"
@@ -53,7 +53,7 @@ find_port() {
 
 PORT="$(find_port)" || { printf '%s\n' 'Layout smoke failed: no local port' >&2; exit 1; }
 SETSID="$(command -v setsid || true)"
-$SETSID bash -c "cd '${ROOT_DIR}/src' && exec npx vite --host 127.0.0.1 --port '${PORT}' --strictPort" \
+$SETSID bash -c "cd '${ROOT_DIR}/apps/legacy-tauri/frontend' && exec npx vite --host 127.0.0.1 --port '${PORT}' --strictPort" \
   >"$VITE_LOG" 2>&1 &
 VITE_PID=$!
 

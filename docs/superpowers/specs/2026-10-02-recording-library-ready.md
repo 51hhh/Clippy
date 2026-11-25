@@ -58,7 +58,7 @@ child/终端 exit 0，30 passed / 0 failed / 1 Linux smoke skipped。默认 Rust
 剪贴板二十四项、check、严格 lint、供应链、构建/入口通过。两份源码/原始日志/checked
 helper/门禁脚本哈希与门禁前后干净检出核对，门禁后只改四份 Markdown，生产/测试保持。
 保存实际 QA/全未运行模板原字节保持，未装更新包。完整证据
-C:\win\Clippy\src-tauri\target\recording-library-ready-native-qa-1907809；红基线/原合同/
-发现清单/后续快捷键源码证据 C:\win\Clippy\src-tauri\target\recording-library-ready-contract。
+C:\win\Clippy\apps/legacy-tauri/native\target\recording-library-ready-native-qa-1907809；红基线/原合同/
+发现清单/后续快捷键源码证据 C:\win\Clippy\apps/legacy-tauri/native\target\recording-library-ready-contract。
 真实窗口/focus、其它宿主/当前 SHA CI 未验，桌面操控停止。Tauri Shared 注册结果记账
 留为下一步受控回调候选，尚未复现；不调用真实 register/unregister 或系统输入。

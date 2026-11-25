@@ -48,7 +48,7 @@ SHA228cc93与原EXE编译SHA8889192。这些包不计当前228cc93的release编�
 | QA NSIS | 17276991 | `994d97d63273007c99a704438e250e45584f0e272f6cebb2fa81d54640851c6c` |
 
 证据：windows-qa-msi-provenance-contract、qa-msi-provenance-native-qa-228cc93、
-current-package-8889192及current-package-qa-msi-provenance-228cc93-retry2，位于主仓库src-tauri/target。
+current-package-8889192及current-package-qa-msi-provenance-228cc93-retry2，位于主仓库target。
 所有原包、失败日志、原release和W83/W84审计保留各自身份与哈希，不覆盖旧结论。
 
 ## 诊断与未完成边界

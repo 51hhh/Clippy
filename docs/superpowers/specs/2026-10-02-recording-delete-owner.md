@@ -61,7 +61,7 @@ QA Rust 1213 / 5 ignored，图谱重叠不累加；新增六项仅在 QA 总数�
 Python 33 + 3，独立 vendor 十八项和剪贴板二十四项通过；check、严格 lint、供应链、构建/
 入口通过。源码快照、原文件/断言、新测试字节、原始日志和 checked helper/门禁脚本哈希、
 门禁前后干净检出核对；完整门禁证据
-C:\win\Clippy\src-tauri\target\recording-delete-owner-native-qa-0321355。
+C:\win\Clippy\apps/legacy-tauri/native\target\recording-delete-owner-native-qa-0321355。
 真实重开窗口/系统强杀/设备/最终播放、其它宿主与当前 SHA CI 留未验。Windows 导出路径
 别名仅为后续审查候选，尚未在生产入口复现。合同与源码审查证据目录
-C:\win\Clippy\src-tauri\target\recording-delete-owner-contract。
+C:\win\Clippy\apps/legacy-tauri/native\target\recording-delete-owner-contract。

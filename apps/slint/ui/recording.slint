@@ -1,0 +1,82 @@
+import { Button, ComboBox, LineEdit, ListView, VerticalBox } from "std-widgets.slint";
+
+export struct RecordingRow { key: string, title: string, detail: string, has-artifact: bool, can-merge: bool }
+
+export component RecordingLibrary inherits Window {
+    in property <[RecordingRow]> recordings;
+    in-out property <string> selected;
+    in-out property <bool> can-play;
+    in-out property <bool> can-merge;
+    in property <bool> recording;
+    in property <string> status;
+    in property <[string]> audio-options;
+    in-out property <int> audio-index;
+    callback audio-changed(int);
+    callback play(string);
+    callback export-recording(string, string);
+    callback remove-recording(string);
+    callback merge-recording(string);
+    callback reload();
+    callback pause();
+    callback stop();
+    callback dismiss();
+
+    title: "Clippy Recordings";
+    preferred-width: 640px;
+    preferred-height: 500px;
+    background: #f6f7f9;
+
+    VerticalBox {
+        padding: 16px;
+        spacing: 8px;
+        HorizontalLayout {
+            spacing: 8px;
+            Text { text: "Recordings"; font-size: 24px; font-weight: 700; }
+            if root.recording: Button { text: "Pause / Resume"; clicked => { root.pause(); } }
+            if root.recording: Button { text: "Stop"; clicked => { root.stop(); } }
+            Button { text: "Refresh"; clicked => { root.reload(); } }
+        }
+        if root.audio-options.length > 1: HorizontalLayout {
+            spacing: 8px;
+            Text { text: "Next recording"; vertical-alignment: center; }
+            ComboBox {
+                model: root.audio-options;
+                current-index <=> root.audio-index;
+                selected => { root.audio-changed(self.current-index); }
+            }
+        }
+        ListView {
+            for row in root.recordings: Rectangle {
+                height: 62px;
+                border-radius: 5px;
+                background: root.selected == row.key ? #fff0e8 : #ffffff;
+                TouchArea {
+                    clicked => {
+                        root.selected = row.key;
+                        root.can-play = row.has-artifact;
+                        root.can-merge = row.can-merge;
+                    }
+                    double-clicked => { if row.has-artifact { root.play(row.key); } }
+                }
+                VerticalLayout {
+                    padding: 8px;
+                    Text { text: row.title; }
+                    Text { text: row.detail; font-size: 12px; color: #545c65; }
+                }
+            }
+        }
+        destination := LineEdit {
+            enabled: root.can-play;
+            placeholder-text: "Optional export destination directory";
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Button { text: "Play"; enabled: root.can-play; clicked => { root.play(root.selected); } }
+            Button { text: "Export"; enabled: root.can-play; clicked => { root.export-recording(root.selected, destination.text); } }
+            if root.can-merge: Button { text: "Recover"; enabled: !root.recording; clicked => { root.merge-recording(root.selected); } }
+            Button { text: "Delete"; enabled: root.selected != "" && !root.recording; clicked => { root.remove-recording(root.selected); } }
+            Button { text: "Close"; clicked => { root.dismiss(); } }
+        }
+        Text { text: root.status; color: #545c65; wrap: word-wrap; min-height: 18px; }
+    }
+}

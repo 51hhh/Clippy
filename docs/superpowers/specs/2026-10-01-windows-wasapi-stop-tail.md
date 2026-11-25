@@ -53,7 +53,7 @@ MSVC 辅助 harness 包含完整 windows_audio_contract.rs，链接锁定 thiser
 容量 0/17/2 与持续返回非空 packet 的负例保证排空有限；Stop/查询/读取/Reset 失败均返回错误。
 循环负例红状态在首个失败断言停止，不能宣称每个循环输入分别红复现；绿状态执行全部输入。
 
-证据在主检出的 src-tauri/target/windows-wasapi-stop-tail-red。该 harness 只验证共享协议，不替代
+证据在主检出的 target/windows-wasapi-stop-tail-red。该 harness 只验证共享协议，不替代
 完整 Cargo API 图；Windows source 已接线 Preserve/Discard、实际容量查询与一次性尾块提交。
 原 read_packet 的复制、QPC、过滤和 ReleaseBuffer 路径保持。暂停或正常停止后重复 Reset 使用
 API 的已重置成功合同；重置失败仍返回错误，Drop 继续尝试清理，不能视为成功完成。
@@ -64,7 +64,7 @@ QA Rust 1111 passed / 5 ignored（重叠不累加）；13 项音频合同在真�
 前端 75 文件 / 1292 passed，Python 33 + 3 passed；四组 Windows 剪贴板合同共 24 passed。
 验证后检出干净，stdout/stderr 哈希已核对；录屏 QA 的真实 WASAPI API 图 check/clippy 通过。
 
-完整证据在主检出的 src-tauri/target/windows-wasapi-stop-tail-native-qa-a463c3b/RESULT.json；
+完整证据在主检出的 target/windows-wasapi-stop-tail-native-qa-a463c3b/RESULT.json；
 红绿辅助证据与原失败日志保留。现有 Windows 原型 CI 的 windows_audio 前缀包含此合同，
 不需要新入口，但新 SHA 远程 CI 未运行。后继提交仅同步四份 Markdown，不能冒称该文档 SHA
 执行过门禁。已安装包仍为 45769c9，不含本修复；桌面、真实设备/混音/听音、设备拔出、

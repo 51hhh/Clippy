@@ -6,10 +6,10 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const tauriRoot = join(root, "src-tauri");
+const tauriRoot = join(root, "apps/legacy-tauri/native");
 const vendorRoot = join(tauriRoot, "vendor", "xcap");
-const cargoToml = readFileSync(join(tauriRoot, "Cargo.toml"), "utf8");
-const cargoLock = readFileSync(join(tauriRoot, "Cargo.lock"), "utf8");
+const workspaceCargo = readFileSync(join(root, "Cargo.toml"), "utf8");
+const cargoLock = readFileSync(join(root, "Cargo.lock"), "utf8");
 const vendorManifest = readFileSync(join(vendorRoot, "Cargo.toml"), "utf8");
 const recorder = readFileSync(
   join(vendorRoot, "src", "windows", "wgc_video_recorder.rs"),
@@ -51,11 +51,20 @@ for (const [relativePath, expected] of Object.entries(patchedFiles)) {
 if (!/name = "xcap"\nversion = "0\.9\.6"/.test(vendorManifest)) {
   throw new Error("vendored xcap must remain version 0.9.6");
 }
-if (!cargoToml.includes('xcap = { path = "vendor/xcap" }')) {
-  throw new Error("Cargo.toml must patch xcap to the reviewed vendor directory");
+if (
+  !workspaceCargo.includes(
+    'xcap = { path = "apps/legacy-tauri/native/vendor/xcap" }',
+  )
+) {
+  throw new Error("workspace Cargo.toml must patch xcap to the reviewed vendor directory");
 }
-if (!cargoToml.includes('exclude = ["vendor/libspa", "vendor/xcap"]')) {
-  throw new Error("vendored xcap must remain an independent package for explicit native lint");
+if (
+  !workspaceCargo.includes('"apps/legacy-tauri/native/vendor/libspa"') ||
+  !workspaceCargo.includes('"apps/legacy-tauri/native/vendor/xcap"')
+) {
+  throw new Error(
+    "vendored libspa and xcap must remain independent packages for explicit native lint",
+  );
 }
 if (!recorder.includes("session.SetIsCursorCaptureEnabled(true)")) {
   throw new Error("vendored xcap WGC recorder must request cursor capture");

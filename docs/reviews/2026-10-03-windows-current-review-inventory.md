@@ -86,4 +86,4 @@ W78的同源码默认/QA release均已编译、PE/feature/profile及QA10个CRT�
 | [`REC-MIXED-STOP-READY-BOUND-01`](../superpowers/specs/2026-10-02-mixed-stop-ready-bound.md) | `2bb12f9` |
 | [`REC-AUDIO-CATALOG-ORDER-01`](../superpowers/specs/2026-10-02-audio-catalog-refresh-order.md) | `d05cd3e` |
 
-证据目录：`C:\win\Clippy\src-tauri\target\windows-current-review-inventory-d05cd3e`。全局任务仍未完成；本轮没有应用、设备或桌面操作。
+证据目录：`C:\win\Clippy\apps/legacy-tauri/native\target\windows-current-review-inventory-d05cd3e`。全局任务仍未完成；本轮没有应用、设备或桌面操作。

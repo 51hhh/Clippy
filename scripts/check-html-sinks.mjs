@@ -6,8 +6,8 @@ import { fileURLToPath } from "node:url";
 import { FRONTEND_API_MODULES } from "./frontend-api-boundary.mjs";
 
 const HTML_SINK_ALLOWLIST = new Map([
-  ["src/js/preview/code-renderers.js", { target: "code", sanitizer: "DOMPurify.sanitize", count: 3 }],
-  ["src/js/preview/content-renderers.js", { target: "contentEl", sanitizer: "DOMPurify.sanitize", count: 2 }],
+  ["apps/legacy-tauri/frontend/js/preview/code-renderers.js", { target: "code", sanitizer: "DOMPurify.sanitize", count: 3 }],
+  ["apps/legacy-tauri/frontend/js/preview/content-renderers.js", { target: "contentEl", sanitizer: "DOMPurify.sanitize", count: 2 }],
 ]);
 
 const TAURI_API_MODULES = new Set(FRONTEND_API_MODULES);
@@ -34,13 +34,13 @@ export function validateFrontendBoundaries(sources) {
     const tauriImport = /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|\brequire\s*\(\s*)["']@tauri-apps\//g;
     for (const match of source.matchAll(tauriImport)) {
       if (!TAURI_API_MODULES.has(path)) {
-        errors.push(`${path}:${lineNumber(source, match.index)} 只有已登记的 src/js/api 领域模块可导入 @tauri-apps`);
+        errors.push(`${path}:${lineNumber(source, match.index)} 只有已登记的 apps/legacy-tauri/frontend/js/api 领域模块可导入 @tauri-apps`);
       }
     }
     const tauriGlobal = /\b(?:window|globalThis)\.__TAURI(?:__|_INTERNALS__)/g;
     for (const match of source.matchAll(tauriGlobal)) {
       if (!TAURI_API_MODULES.has(path)) {
-        errors.push(`${path}:${lineNumber(source, match.index)} 只有已登记的 src/js/api 领域模块可访问 Tauri global`);
+        errors.push(`${path}:${lineNumber(source, match.index)} 只有已登记的 apps/legacy-tauri/frontend/js/api 领域模块可访问 Tauri global`);
       }
     }
 
@@ -71,7 +71,8 @@ export function validateFrontendBoundaries(sources) {
 }
 
 export function loadFrontendSources(repositoryRoot) {
-  const roots = [join(repositoryRoot, "src", "js"), join(repositoryRoot, "src", "react")];
+  const frontendRoot = join(repositoryRoot, "apps", "legacy-tauri", "frontend");
+  const roots = [join(frontendRoot, "js"), join(frontendRoot, "react")];
   return new Map(
     roots.flatMap(walk).map(path => [relative(repositoryRoot, path).split("\\").join("/"), readFileSync(path, "utf8")]),
   );

@@ -38,12 +38,12 @@
 ## Evidence plan
 
 基线 `d9264cd85acd88123620236c8292a280de96c6f2`，源码 `1c66112`；此前 factory 初始化修复
-不覆盖本项。证据保存于 `src-tauri/target/recording-first-frame-audio-contract/`；先红后绿
+不覆盖本项。证据保存于 `target/recording-first-frame-audio-contract/`；先红后绿
 固定同一 AV 夹具，补充激活/取消合同单列。最终门禁在冻结提交上运行，桌面历史记录保留。
 
 干净源码 `2dccc43feac1bb9949a359259aec33124fa0818e` 完整 Windows 默认/录屏 QA 门禁
 child/terminal exit 0：33 passed / 0 failed / 1 Linux smoke skipped。默认 Rust 1214/QA 1285
 各 5 ignored，两图重叠；前端 81 文件/1403 passed。十八项新增合同在上述总数内，领域
-319 不累加。证据 `src-tauri/target/recording-first-frame-audio-native-qa-2dccc43/RESULT.json`，
+319 不累加。证据 `target/recording-first-frame-audio-native-qa-2dccc43/RESULT.json`，
 源合同绑定 `recording-first-frame-audio-contract/COMMITTED-CONTRACT-AUDIT.json`；后继证据提交
 只更新五份 Markdown。本 SHA 未构建 release/安装器；设备/其它宿主/当前 CI 继续未验。

@@ -31,7 +31,7 @@ release panic=abort在进程panic终止时不执行Drop；原unwind测试不证�
 
 ## 分层证据与未完成项
 
-证据 `src-tauri/target/current-release-default-aac5e0a/`、`current-release-qa-aac5e0a/`：
+证据 `target/current-release-default-aac5e0a/`、`current-release-qa-aac5e0a/`：
 PID/实际退出码、冻结输入、UTF-8日志、编译参数、feature、PE、运行库来源/部署/导入均保存。
 W67同源码完整门禁复查33/0/1 Linux smoke skipped；默认1281/QA1425各5ignored，
 前端81文件/1403、录屏领域459。17项新合同已含总数（15两图/2仅QA），跨图重叠不累加。

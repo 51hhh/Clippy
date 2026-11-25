@@ -15,7 +15,7 @@
 **方案**：限制 arena 数量为 2，减少内存池碎片。
 
 ```rust
-// src-tauri/src/main.rs - 在 main() 最前面设置
+// apps/legacy-tauri/native/src/main.rs - 在 main() 最前面设置
 fn main() {
     // 限制 glibc malloc arena 数量，减少多线程内存池开销
     // 默认值: 8 × CPU核数（64-bit），设为 2 可节省 20-60MB

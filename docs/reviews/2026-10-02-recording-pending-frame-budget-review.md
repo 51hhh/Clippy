@@ -46,7 +46,7 @@ PCM 容量、真实同 slot 替换、精确/边界 Stop、15/30 FPS 分段严格
 红绿运行期/bridge/helper字节相同，无接口stub；十八份Rust输入绑定干净SHA。
 最终旧实现重放与finally恢复、最终领域及完整门禁的实际日志/输入哈希已保留。
 
-证据目录 `src-tauri/target/recording-pending-frame-budget-contract/` 保留原 W54 状态、
+证据目录 `target/recording-pending-frame-budget-contract/` 保留原 W54 状态、
 初始红、阶段绿、最终旧实现重放及恢复、最终领域、日志/输入哈希与冻结 SHA 门禁。
 文件/Git 核对不计测试通过数；默认与 QA 两图重叠，新增项已经包含在 Rust 总数中。
 

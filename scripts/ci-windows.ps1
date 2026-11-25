@@ -2,7 +2,9 @@
 param(
     [switch]$FrontendOnly,
     [switch]$RecordingQa,
-    [switch]$Quick
+    [switch]$Quick,
+    [ValidateSet('Current', 'All', 'Core', 'Legacy', 'Slint')]
+    [string]$Segment = 'Current'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -45,16 +47,32 @@ function Require-Command {
 try {
     if ($env:OS -ne 'Windows_NT') { throw 'Run this gate on native Windows.' }
     if ($FrontendOnly -and $RecordingQa) { throw 'FrontendOnly cannot include RecordingQa.' }
-    Require-Command node.exe 'Install Node.js >= 22.12.'
-    Require-Command npm.cmd 'Install Node.js >= 22.12.'
-    $nodeVersion = & node.exe -p 'process.versions.node'
-    if ($LASTEXITCODE -ne 0 -or [version]$nodeVersion -lt [version]'22.12.0') {
-        throw 'Node.js >= 22.12 is required.'
+    if ($FrontendOnly -and $Segment -notin @('All', 'Legacy')) {
+        throw 'FrontendOnly requires the Legacy or All segment.'
     }
-    if (-not $FrontendOnly) {
-        Require-Command python.exe 'Install Python 3; WindowsApps aliases are insufficient.'
-        & python.exe -c 'import sys; assert sys.version_info.major == 3'
-        if ($LASTEXITCODE -ne 0) { throw 'A working Python 3 interpreter is required.' }
+    if ($Quick -and $Segment -notin @('All', 'Legacy')) {
+        throw 'Quick only applies to the Legacy or All segment.'
+    }
+    $runCore = $Segment -in @('Current', 'All', 'Core')
+    $runLegacy = $Segment -in @('All', 'Legacy')
+    $runSlint = $Segment -in @('Current', 'All', 'Slint')
+    if ($FrontendOnly) {
+        $runCore = $false
+        $runLegacy = $true
+        $runSlint = $false
+    }
+    if ($RecordingQa -and -not $runLegacy) {
+        throw 'RecordingQa requires the Legacy or All segment.'
+    }
+    if ($runLegacy) {
+        Require-Command node.exe 'Install Node.js >= 22.12.'
+        Require-Command npm.cmd 'Install Node.js >= 22.12.'
+        $nodeVersion = & node.exe -p 'process.versions.node'
+        if ($LASTEXITCODE -ne 0 -or [version]$nodeVersion -lt [version]'22.12.0') {
+            throw 'Node.js >= 22.12 is required.'
+        }
+    }
+    if ($runCore -or $runSlint -or ($runLegacy -and -not $FrontendOnly)) {
         Require-Command cargo.exe 'Install Rust MSVC and Visual Studio C++ Build Tools + Windows SDK.'
         Require-Command rustc.exe 'Install Rust MSVC.'
         $rustInfo = & rustc.exe -vV
@@ -62,7 +80,12 @@ try {
             throw 'The native Rust MSVC host toolchain is required.'
         }
     }
-    if ($RecordingQa) {
+    if ($runLegacy -and -not $FrontendOnly) {
+        Require-Command python.exe 'Install Python 3; WindowsApps aliases are insufficient.'
+        & python.exe -c 'import sys; assert sys.version_info.major == 3'
+        if ($LASTEXITCODE -ne 0) { throw 'A working Python 3 interpreter is required.' }
+    }
+    if ($RecordingQa -or $runSlint) {
         foreach ($command in @('sh.exe', 'make.exe', 'diff.exe', 'perl.exe', 'nasm.exe', 'msbuild.exe', 'cmake.exe')) {
             Require-Command $command 'See docs/windows-development.md for the recording source-build toolchain.'
         }
@@ -88,24 +111,41 @@ try {
     exit 1
 }
 
-$scope = if ($FrontendOnly) { 'frontend only (partial)' } else { 'native default + shared checks' }
+$scope = if ($FrontendOnly) {
+    'frontend only (partial)'
+} elseif ($Segment -eq 'All') {
+    'core + legacy + Slint'
+} elseif ($Segment -eq 'Current') {
+    'core + Slint (v0.2 current)'
+} else {
+    "$($Segment.ToLowerInvariant()) only (partial)"
+}
 if ($RecordingQa) { $scope += ' + recording-windows-av-qa' }
 if ($Quick) { $scope += ' (production build skipped)' }
+$partialEvidence = $FrontendOnly -or $Segment -notin @('Current', 'All')
 Write-Host "Windows gate scope: $scope"
+Write-Host $(if ($partialEvidence) { 'Evidence level: partial; not a complete local gate.' } else { 'Evidence level: complete native Windows gate.' })
 Write-Host 'Linux WebKit/Xvfb pixel smoke, installers and desktop QA require separate evidence.'
 
-$backend = Join-Path $repository 'src-tauri'
-$frontend = Join-Path $repository 'src'
+$backend = Join-Path $repository 'apps/legacy-tauri/native'
+$frontend = Join-Path $repository 'apps/legacy-tauri/frontend'
 
-if (-not $FrontendOnly) {
+if ($runCore) {
+    Invoke-Check 'Shared Rust format' $repository { & cargo.exe fmt -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision -- --check }
+    Invoke-Check 'Shared Rust check' $repository { & cargo.exe check --locked -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision --all-targets }
+    Invoke-Check 'Shared Rust clippy' $repository { & cargo.exe clippy --locked -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision --all-targets -- -D warnings }
+    Invoke-Check 'Shared Rust tests' $repository { & cargo.exe test --locked -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision }
+}
+
+if ($runLegacy -and -not $FrontendOnly) {
     Invoke-Check 'OCR quality contract' $repository {
-        & python.exe -m unittest discover -s src-tauri/ocr-sidecar -p 'test_quality*.py' -v
+        & python.exe -m unittest discover -s apps/legacy-tauri/native/ocr-sidecar -p 'test_quality*.py' -v
     }
     Invoke-Check 'OCR visual paragraph fallback' $repository {
-        & python.exe -m unittest discover -s src-tauri/ocr-sidecar -p test_visual_paragraphs.py -v
+        & python.exe -m unittest discover -s apps/legacy-tauri/native/ocr-sidecar -p test_visual_paragraphs.py -v
     }
     Invoke-Check 'Smart erase feasibility evidence' $repository { & python.exe scripts/smart-erase/verify_evidence.py }
-    Invoke-Check 'Rust format' $backend { & cargo.exe fmt -- --check }
+    Invoke-Check 'Legacy Rust format' $repository { & cargo.exe fmt -p clippy-app -p arboard -- --check }
     Invoke-Check 'Vendored xcap format' $backend { & cargo.exe fmt --manifest-path vendor/xcap/Cargo.toml -- --check }
     Invoke-Check 'Native Rust check' $backend { & cargo.exe check --locked --all-targets }
     Invoke-Check 'Native Rust clippy' $backend { & cargo.exe clippy --locked --all-targets -- -D warnings }
@@ -160,29 +200,46 @@ if (-not $FrontendOnly) {
     } else {
         Skip-Check 'Recording QA feature (request -RecordingQa to include it)'
     }
-} else {
+} elseif ($runLegacy) {
     Skip-Check 'Python and native Rust checks (FrontendOnly)'
     Skip-Check 'Recording QA feature (FrontendOnly)'
 }
 
-Invoke-Check 'Recording encoder benchmark syntax' $repository { & node.exe --check scripts/benchmark-recording-encoders.mjs }
-Invoke-Check 'Windows QA runtime verifier syntax' $repository { & node.exe --check scripts/verify-windows-qa-runtime.mjs }
-Invoke-Check 'Recording codec supply chain' $repository { & node.exe scripts/verify-recording-codec-supply-chain.mjs }
-Invoke-Check 'Vendored xcap patch' $repository { & node.exe scripts/verify-xcap-patch.mjs }
-Invoke-Check 'Locked frontend install' $frontend { & npm.cmd ci --prefer-offline --no-audit --no-fund }
-Invoke-Check 'HTML and Tauri boundary' $frontend { & npm.cmd run check:html }
-Invoke-Check 'IPC contract' $frontend { & npm.cmd run check:ipc }
-Invoke-Check 'Vanilla JS static checks' $frontend { & npm.cmd run lint:js }
-Invoke-Check 'TypeScript' $frontend { & npm.cmd run typecheck }
-Invoke-Check 'Frontend tests' $frontend { & npm.cmd test }
-if ($Quick) {
-    Skip-Check 'Production build and real entry check (Quick)'
-} else {
-    Invoke-Check 'Frontend production build' $frontend { & npm.cmd run build }
-    Invoke-Check 'Built main entry' $repository { & node.exe scripts/check-built-main.mjs }
+if ($runLegacy) {
+    Invoke-Check 'Recording encoder benchmark syntax' $repository { & node.exe --check scripts/benchmark-recording-encoders.mjs }
+    Invoke-Check 'Windows QA runtime verifier syntax' $repository { & node.exe --check scripts/verify-windows-qa-runtime.mjs }
+    Invoke-Check 'Recording codec supply chain' $repository { & node.exe scripts/verify-recording-codec-supply-chain.mjs }
+    Invoke-Check 'Vendored xcap patch' $repository { & node.exe scripts/verify-xcap-patch.mjs }
+    Invoke-Check 'Locked frontend install' $frontend { & npm.cmd ci --prefer-offline --no-audit --no-fund }
+    Invoke-Check 'HTML and Tauri boundary' $frontend { & npm.cmd run check:html }
+    Invoke-Check 'IPC contract' $frontend { & npm.cmd run check:ipc }
+    Invoke-Check 'Vanilla JS static checks' $frontend { & npm.cmd run lint:js }
+    Invoke-Check 'TypeScript' $frontend { & npm.cmd run typecheck }
+    Invoke-Check 'Frontend tests' $frontend { & npm.cmd test }
+    if ($Quick) {
+        Skip-Check 'Production build and real entry check (Quick)'
+    } else {
+        Invoke-Check 'Frontend production build' $frontend { & npm.cmd run build }
+        Invoke-Check 'Built main entry' $repository { & node.exe scripts/check-built-main.mjs }
+    }
+    Skip-Check 'Linux GNOME, X11 and WebKit/Xvfb DOM/Canvas/layout smoke (separate Linux gate)'
 }
-Skip-Check 'Linux GNOME, X11 and WebKit/Xvfb DOM/Canvas/layout smoke (separate Linux gate)'
+
+if ($runSlint) {
+    Invoke-Check 'Slint Rust format' $repository { & cargo.exe fmt -p clippy-slint -- --check }
+    Invoke-Check 'Slint Rust check' $repository { & cargo.exe check --locked -p clippy-slint --all-targets }
+    Invoke-Check 'Slint Rust clippy' $repository { & cargo.exe clippy --locked -p clippy-slint --all-targets -- -D warnings }
+    Invoke-Check 'Slint Rust tests' $repository { & cargo.exe test --locked -p clippy-slint }
+    Invoke-Check 'Slint QA profile tests' $repository { & cargo.exe test --locked -p clippy-slint --features qa-build }
+    Invoke-Check 'Shared A/V and WASAPI tests' $repository {
+        & cargo.exe test --locked -p clippy-media --features recording-opus-webm,recording-windows-audio -- --test-threads=1
+    }
+}
+
 Write-Host "Result: $script:passed passed, $script:failed failed, $script:skipped skipped. Scope: $scope"
 Write-Host 'Skipped checks are not passes. Same-SHA native CI and actual Windows desktop QA remain separate.'
+if ($partialEvidence) {
+    Write-Host 'This run is partial evidence; rerun without FrontendOnly, Quick or Segment filtering for a complete gate.'
+}
 if ($script:failed -gt 0) { exit 1 }
 exit 0

@@ -62,8 +62,8 @@ exit 0，30 passed / 0 failed / 1 skipped（Linux smoke）。默认 Rust 1108 / 
 check、严格 clippy、供应链、构建、入口和日志哈希均通过。10 个既有文件 465 个 assert 宏 token
 保留（仅归一化空白及新增 cfg 私有默认字段），新回归原始字节红绿一致；四份锁定原生库源码哈希核对。
 同 SHA 门禁前后检出干净，后继仅四份 Markdown。完整结果及审计：
-`C:\win\Clippy\src-tauri\target\windows-pin-origin-native-qa-888127a\RESULT.json`。
+`C:\win\Clippy\apps/legacy-tauri/native\target\windows-pin-origin-native-qa-888127a\RESULT.json`。
 红绿/源码/断言证据目录：
-`C:\win\Clippy\src-tauri\target\windows-pin-physical-origin-contract`。
+`C:\win\Clippy\apps/legacy-tauri/native\target\windows-pin-physical-origin-contract`。
 本次新增回归不创建窗口、调用显示器/光标 API 或输入；使用实际 Tauri/dpi 类型和原生 MSVC 图。
 实际窗口/DPI、Windows 10/多屏、工作区迁移、工具条交集、WGC、新 SHA CI 与其它宿主仍未验。

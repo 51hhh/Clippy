@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "pin-workspace-library",
+  "description": "Pin 工作区库只监听自身内容变化事件；拖动与关闭由受控业务命令处理",
+  "windows": ["pin-workspaces"],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
+  ]
+}

@@ -11,7 +11,7 @@ UI 细节与真机行为仍需 `cargo tauri dev` / 真实桌面人工确认，�
 ## 0. 前置结论：自动粘贴授权已是长期授权
 
 - Wayland 走 RemoteDesktop Portal，`PersistMode::ExplicitlyRevoked`（= persist_mode 2）：
-  `src-tauri/src/paste/portal.rs:174-177`。授权一次后，只有用户在系统设置里显式撤权才会失效。
+  `apps/legacy-tauri/native/src/paste/portal.rs:174-177`。授权一次后，只有用户在系统设置里显式撤权才会失效。
 - restore token 存在独立 0600 文件里滚动更新（`paste/token_store.rs:21-33`，
   `portal.rs:202-247`）：成功就写新 token，失败按阶段决定保留还是删除
   （`PortalAuthorizationStage`，`portal.rs:70-107`），所以重启进程也不用重新授权。
@@ -81,9 +81,9 @@ UI 细节与真机行为仍需 `cargo tauri dev` / 真实桌面人工确认，�
   `src/lib/geometry.ts:5-108` 决定（优先选区下方 / 选区右侧，越界翻转）。
 - 唯一的"新窗口"是 **Pin**，且只在用户点 pin 时出现：窗口尺寸 = 选区 + padding，位置
   = 显示器原点 + 选区坐标 − 24，**落在选区原地而不是居中**；只有 Pin 才有 50%–300% 缩放
-  （`src-tauri/src/commands.rs:846-1031`，`src/routes/Pin.tsx:37-49`）。
+  （`apps/legacy-tauri/native/src/commands.rs:846-1031`，`src/routes/Pin.tsx:37-49`）。
 - 窗口枚举：X11 用 `xcap::Window::all()` + XCB 读 `_NET_FRAME_EXTENTS`/`_NET_ACTIVE_WINDOW`
-  （`src-tauri/src/window_probe/linux.rs:9-72`）；**Wayland 拿不到窗口列表**，退化为整屏。
+  （`apps/legacy-tauri/native/src/window_probe/linux.rs:9-72`）；**Wayland 拿不到窗口列表**，退化为整屏。
   悬停高亮只有描边 + 微光，**不显示窗口标题**（`src/overlay/DetectHighlight.tsx:6-28`）。
 
 对照 Clippy 现状：
@@ -177,7 +177,7 @@ UI 细节与真机行为仍需 `cargo tauri dev` / 真实桌面人工确认，�
    .preview-content   { min-height: 96px; }   /* 不再被翻译区压到 0 */
    ```
    （`max-height: 55%` 落在 `.preview-panel` 上，它的高度是确定的 100%，百分比才生效。）
-3. ~~`src-tauri/src/window_controller.rs`：`MainWindowLayout::logical_size()` 增加高度维度——
+3. ~~`apps/legacy-tauri/native/src/window_controller.rs`：`MainWindowLayout::logical_size()` 增加高度维度——
    预览打开时 500 → 620~~ **已撤销（2026-08-30）**：加高会让列表可见行数随预览开关变化
    （6 行 ↔ 8 行），列表跟着重排比"翻译区挤一点"更难用。高度对所有面板组合恒定 500，
    翻译区靠 `.translation-host` 的 `max-height` 与自身滚动落位；布局像素 smoke 改用 780×500
@@ -218,7 +218,7 @@ UI 细节与真机行为仍需 `cargo tauri dev` / 真实桌面人工确认，�
 
 两处都要改，缺一不可：
 
-1. **Rust 侧兜底**（治一类问题）：`src-tauri/src/app/window_events.rs:69-88` 增加
+1. **Rust 侧兜底**（治一类问题）：`apps/legacy-tauri/native/src/app/window_events.rs:69-88` 增加
    `codec_visible` 豁免。把判断抽成纯函数 `fn should_hide_on_focus_loss(preview: bool,
    codec: bool) -> bool` 并加单测（现有 `hides_instead_of_closing` 旁边）。
 2. **前端换掉原生 select**（治根，原生弹窗本身就不该出现在无边框浮动窗口里）：

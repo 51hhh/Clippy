@@ -20,7 +20,7 @@ Pin payload 下发；`devicePixelRatio` 只能反映 WebView 的整数缓冲区�
 
 ## 当前实现
 
-`src-tauri/src/pin/resample.rs` 按缓冲区分辨率生成仅用于屏显的补偿预览：
+`apps/legacy-tauri/native/src/pin/resample.rs` 按缓冲区分辨率生成仅用于屏显的补偿预览：
 
 1. 以 Lanczos3 预放大作为初值；
 2. 按实测的双线性缩小核预测合成器输出；

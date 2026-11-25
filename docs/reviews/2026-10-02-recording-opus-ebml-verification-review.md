@@ -35,4 +35,4 @@ W59那次SeekPreRoll=None的失败媒体未保留，独立可复现的测试缺�
 W53历史AVI一次30秒超时亦未归因。桌面停止；真实设备/长时同步、其它宿主本地门禁、
 当前SHA三宿主/codec CI、Win10/多屏/安装器与当前release未验。旧830b12b release仅属历史。
 生产修复总数仍40，本轮测试验证改进不计作部署修复，也没有用户可见CHANGELOG条目。
-证据在 `src-tauri/target/opus-ebml-verification-contract/`。
+证据在 `target/opus-ebml-verification-contract/`。

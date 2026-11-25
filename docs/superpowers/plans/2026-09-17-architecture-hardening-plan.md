@@ -137,9 +137,9 @@ macOS 原生门禁均在 CI `35210934512` 通过，原生证据脚本输出 `PAS
 
 **修改文件：**
 
-- `src-tauri/src/platform/mod.rs`
-- `src-tauri/src/paste/mod.rs`
-- `src-tauri/src/screenshot/backends.rs`
+- `apps/legacy-tauri/native/src/platform/mod.rs`
+- `apps/legacy-tauri/native/src/paste/mod.rs`
+- `apps/legacy-tauri/native/src/screenshot/backends.rs`
 - 相关 Rust tests
 
 - [x] 为 `platform::detect_session_from` 补全显式 X11、显式 Wayland、XWayland、仅 display、无 display 表；
@@ -152,7 +152,7 @@ macOS 原生门禁均在 CI `35210934512` 通过，原生证据脚本输出 `PAS
 **定向验证：**
 
 ```bash
-cd src-tauri
+cd apps/legacy-tauri/native
 cargo test platform::
 cargo test paste::
 cargo test screenshot::
@@ -171,14 +171,14 @@ cargo clippy --all-targets -- -D warnings
 
 **修改文件：**
 
-- `src-tauri/src/capture/mod.rs`
-- `src-tauri/src/capture/longshot.rs`
-- `src-tauri/src/capture/longshot/controller.rs`
-- `src-tauri/src/capture/longshot/lifecycle.rs`
-- `src-tauri/src/capture/longshot/recapture.rs`
-- `src-tauri/src/capture/manager.rs`
-- `src-tauri/src/pin/commands.rs`
-- `src-tauri/src/commands.rs`
+- `apps/legacy-tauri/native/src/capture/mod.rs`
+- `apps/legacy-tauri/native/src/capture/longshot.rs`
+- `apps/legacy-tauri/native/src/capture/longshot/controller.rs`
+- `apps/legacy-tauri/native/src/capture/longshot/lifecycle.rs`
+- `apps/legacy-tauri/native/src/capture/longshot/recapture.rs`
+- `apps/legacy-tauri/native/src/capture/manager.rs`
+- `apps/legacy-tauri/native/src/pin/commands.rs`
+- `apps/legacy-tauri/native/src/commands.rs`
 
 - [x] 更新“IPC 尚未接入”“未来长截图”等过期注释；
 - [x] 删除 `longshot`、`mode_gate` 的模块级 `allow(dead_code)`；
@@ -190,7 +190,7 @@ cargo clippy --all-targets -- -D warnings
 **定向验证：**
 
 ```bash
-cd src-tauri
+cd apps/legacy-tauri/native
 cargo check --all-targets
 cargo clippy --all-targets -- -D warnings
 cargo test capture::longshot::
@@ -209,9 +209,9 @@ cargo test pin::
 
 **新增/修改文件：**
 
-- 将 `src-tauri/src/viewer/access.rs` 提升为通用窗口访问模块，或新增 `src-tauri/src/ipc_access.rs`
-- `src-tauri/src/lib.rs`
-- `src-tauri/capabilities/default.json`
+- 将 `apps/legacy-tauri/native/src/viewer/access.rs` 提升为通用窗口访问模块，或新增 `apps/legacy-tauri/native/src/ipc_access.rs`
+- `apps/legacy-tauri/native/src/lib.rs`
+- `apps/legacy-tauri/native/capabilities/default.json`
 - `src/tests/window-capabilities.test.js`
 - Rust allowlist tests
 
@@ -226,7 +226,7 @@ cargo test pin::
 **定向验证：**
 
 ```bash
-cd src-tauri && cargo test ipc_access
+cd apps/legacy-tauri/native && cargo test ipc_access
 cd src && npx vitest run tests/window-capabilities.test.js tests/viewer-api.test.js
 ```
 

@@ -58,5 +58,5 @@ vendor 和默认 feature 未改。干净源码 7922457651cbffc97ddc646bd08a40332
 前端 77 文件 / 1307 passed，Python 33 + 3，独立 vendor 十八项和剪贴板二十四项通过。
 源码、红绿测试字节、原始 stdout/stderr 与 checked helper 哈希核对；检出干净。
 真实 Close 时限与系统释放、实际 WGC/设备/硬件矩阵及当前 SHA CI 和其它宿主保留未验。
-合同证据 C:\win\Clippy\src-tauri\target\windows-wgc-bridge-rollback-contract；完整门禁证据
-C:\win\Clippy\src-tauri\target\windows-wgc-bridge-rollback-native-qa-7922457。
+合同证据 C:\win\Clippy\apps/legacy-tauri/native\target\windows-wgc-bridge-rollback-contract；完整门禁证据
+C:\win\Clippy\apps/legacy-tauri/native\target\windows-wgc-bridge-rollback-native-qa-7922457。

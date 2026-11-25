@@ -146,7 +146,7 @@ export function validateContract({ rustSources, libSource, apiSource, accessSour
 }
 
 export function loadContractSources(repositoryRoot) {
-  const rustRoot = join(repositoryRoot, "src-tauri", "src");
+  const rustRoot = join(repositoryRoot, "apps/legacy-tauri/native", "src");
   return {
     rustSources: new Map(walkRust(rustRoot).map(path => [path, readFileSync(path, "utf8")])),
     libSource: readFileSync(join(rustRoot, "lib.rs"), "utf8"),

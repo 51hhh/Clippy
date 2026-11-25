@@ -36,7 +36,7 @@ packet guard容忍一个刻度；队列只把媒体区间起点对齐到上一�
   同SHA隔离1/0后完整复查通过；初版日志/退出码保留，原TempDir失败媒体已移除，根因未证明。
   不据此推断Defender、索引、共享、调度或本次QPC修复的影响，也不视复查成功为根因修复。
 
-证据在 `src-tauri/target/wasapi-qpc-precision-contract/`、初版 `wasapi-qpc-native-qa-aac5e0a/` 与复查 `wasapi-qpc-native-qa-aac5e0a-recheck/`，
+证据在 `target/wasapi-qpc-precision-contract/`、初版 `wasapi-qpc-native-qa-aac5e0a/` 与复查 `wasapi-qpc-native-qa-aac5e0a-recheck/`，
 保存冻结输入、PID/原生退出码、UTF-8日志、原实际interrupted/complete文件、ffprobe与核对记录。
 前置56d750c默认/QA release与其它历史EXE/已安装包/39项桌面记录原字节保持；它们不含本修复。
 

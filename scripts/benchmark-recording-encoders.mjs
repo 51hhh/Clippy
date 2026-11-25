@@ -111,7 +111,7 @@ function escapeFilterPath(value) {
 
 function fixtureFilter(options) {
   const font = escapeFilterPath(
-    join(projectRoot, "src-tauri", "assets", "fonts", "NotoSansCJKsc-Medium.otf"),
+    join(projectRoot, "apps/legacy-tauri/native", "assets", "fonts", "NotoSansCJKsc-Medium.otf"),
   );
   const { width, height, fps, duration } = options;
   const small = Math.max(14, Math.round(height / 45));

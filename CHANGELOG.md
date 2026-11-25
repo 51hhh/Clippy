@@ -2,6 +2,220 @@
 
 ## 未发布
 
+### Slint 界面对齐
+
+- 主剪贴板恢复 380×500 的整宽列表、选中条、行操作和底部收藏/全部切换。保留键盘搜索与复制粘贴。
+- 设置使用 720×560 的窗口布局、可拖动标题栏、四个分页和六套主题预览卡。
+  已在 X11 验证拖动后仍可切页。Wayland、Windows 和 macOS 的实机窗口行为仍待验收。
+  （需求 `SLINT-UI-MIGRATION-01`）
+
+### Slint 识字、扫码和翻译
+
+- 从截图编辑、历史图片和贴图打开 OCR 或条码扫描。本机 Tesseract 的 TSV 结果带行坐标、置信度和段落，
+  配置已有增强 OCR 时沿用其几何结果。选中的行或段落可复制，显式点击翻译才向已启用的服务发送该段。
+- 设置页可维护六类翻译服务、语言和系统钥匙串凭据。操作窗口提供安全的文本预览、Markdown 文本视图、
+  JSON/Base64/URL/十六进制工具、翻译历史和按需发音。发音回放需要 `ffplay`。
+- 隔离语料已验证真实文字及源图坐标。可分发的 Rust OCR 模型、复杂排版和三平台质量对照待验收。
+  （需求 `SLINT-NATIVE-PIPELINE-01`）
+
+### Slint 区域录屏
+
+- 框选支持启动 VP9/WebM 录屏，托盘控制暂停、恢复和停止。录屏库可打开、导出及恢复中断的分段，
+  播放在用户打开时调用 `ffplay`，设置音轨可选无声、Linux PipeWire 或 Windows WASAPI 默认设备。
+- X11 已实测 140×100 区域、暂停扣时、文件解析和导出字节一致。实际音频设备、长时音画同步和
+  macOS 系统音频仍待验证或迁移。（需求 `SLINT-NATIVE-PIPELINE-01`）
+- 退出 Clippy、关闭录屏库或切换录屏时，等待当前播放器退出并回收子进程。
+  （需求 `SLINT-NATIVE-PIPELINE-01`）
+
+### Slint 设置、备份和安装包路由
+
+- 设置沿用配置文件，支持拖动标题、六套主面板主题、历史上限、截图目录与命名、自启、OCR 和输入授权。
+  托盘增加三秒延时截图与整屏直接保存，归档可兼容旧版修订与工作区。
+- 正式入口首次启动会保留 SQLite 一致性快照和原配置。v0.2.0 及以上 tag 构建 Slint 原生安装包，
+  资产元数据标明版本、后端、签名和提交。Windows/macOS 安装与旧 updater 升级尚待同一提交验收，
+  Slint 构建产物进入发布草稿。（需求 `SLINT-NATIVE-PIPELINE-01`）
+- Linux 安装包带上 X11 启动所需的键盘库。此前干净的 Ubuntu 22.04 环境缺少该库时，托盘注册前会退出。
+  （需求 `SLINT-NATIVE-PIPELINE-01`）
+
+### Slint 长截图
+
+- 快速截图框选后可进入滚动截图，手动追加画面、撤销、取消，或把完整像素送入编辑器。拼接保留原有
+  四向位移、低置信拒绝和重叠区像素优先级。X11 复用同一目标连接，GNOME 复用一个目标 Mutter/PipeWire 会话。
+- X11 隔离桌面已验证选择同一区域、追加第二帧、拼接并导出。实机持续流、自动滚动和其他平台待验收。
+  （需求 `SLINT-NATIVE-PIPELINE-01`）
+- 修复 GNOME 静止画面导致的长截图追加和区域录屏取帧超时。虚拟 GNOME 已验证同一会话连续取帧、
+  画面更新和断流报告。（需求 `SLINT-NATIVE-PIPELINE-01`）
+
+### Slint 贴图与工作区
+
+- 截图编辑器可新建桌面贴图，剪贴板图片可打开编辑。贴图保留原图、标注和工作区分组，支持调整显示大小、
+  图片透明度和置顶，以及复制、保存和隐藏。旧工作区的文字贴图仍可读取。
+- 隔离 X11 已验证截图标注→创建贴图→检查 SQLite 修订→隐藏→工作区重新打开。实机 Wayland 摆位、
+  窗口层级和跨平台缩放待验证。（需求 `SLINT-NATIVE-PIPELINE-01`）
+
+### Slint 截图编辑
+
+- 框选后可进入独立的原生编辑器，支持画笔、箭头、文字、像素效果、灰度、圆角和标注撤销/重做。复制和
+  PNG 保存使用同一次渲染的像素。共享渲染器沿用原工程格式和像素基准，普通矢量合成省去中间
+  PNG/base64 转换，圆角保留 v2 的裁切语义。
+- Linux 隔离桌面已核对截图→标注→复制/落盘的解码像素一致。Windows/macOS 的原生窗口和真实显示缩放
+  仍待验证。（需求 `SLINT-NATIVE-PIPELINE-01`）
+
+### Slint 托盘、剪贴板和快速截图
+
+- 启动后驻留系统托盘，按需创建剪贴板和设置窗口。支持全局快捷键、Unicode/HTML/PNG 历史、搜索、
+  收藏、删除、复制和显式开启的自动粘贴。X11 自动粘贴在原目标未恢复时保留已复制的数据。
+- 修复 Windows 剪贴板缺少 HTML 时纯文本和图片无法入库的问题。空 HTML 片段会继续读取可用文本。
+  （需求 `SLINT-NATIVE-PIPELINE-01`、`WIN-CLIP-SNAPSHOT-01`）
+- 截图支持从托盘或快捷键触发、单屏框选、复制、保存 PNG 和取消。GNOME Wayland 复用 v5 的
+  Mutter/PipeWire 首帧路径，X11 直接读取根 drawable。保存沿用历史配置中的目录和命名模板，原子提交且保留同名文件。
+- 修复 Wayland 选区覆盖层在原生窗口就绪前提前退出的问题。虚拟 GNOME 已验证延时截图、直接保存日历画面，
+  以及两块输出分别全屏定位。（需求 `SLINT-NATIVE-PIPELINE-01`）
+- Wayland 的 Actions 可打开系统截图界面，把确认的截图交给 Clippy 编辑和保存。虚拟 GNOME 验证了取消、
+  关闭操作窗口后丢弃结果，以及导入和保存像素一致。截图快捷键仍走原生冻结入口。
+  （需求 `SLINT-NATIVE-PIPELINE-01`）
+- Linux 完整本地门禁 11 项通过，QA deb 解包后通过隔离桌面回归。实机 GNOME 旧版退出后复测
+  连续五轮空闲 PSS 为 18.11–18.61 MiB，测完已恢复旧版。GNOME 系统菜单与 Portal 授权、
+  Windows/macOS 真机仍待验收。
+  [实现与验证记录](docs/superpowers/plans/2026-11-24-slint-native-implementation-plan.md)（需求 `SLINT-NATIVE-PIPELINE-01`）
+
+### 2026-11-24 v0.2 默认构建切换
+
+- 根 workspace、本地 Linux/Windows 门禁和普通三平台 CI 默认只构建共享 Rust 层与 Slint，不再为每次
+  新版迭代重建 Tauri、Node 前端和 WebView 依赖。legacy 源码与 v0.1.x tag 发布路径继续保留，只有
+  显式 `legacy`/`all` 维护门禁或旧版发布才构建。
+- Native QA 默认只产出 Slint 包；仍可手动选择 `legacy` 或 `all`。本地清理了可重建的 Cargo target、
+  legacy dist 与 node_modules，未删除源码和历史证据。（需求：`SLINT-UI-MIGRATION-01`）
+
+### 2026-11-24 Slint 共享存储接入
+
+- 新增独立 `clippy-storage`，从 Tauri host 抽离 SQLite/FTS5 schema、迁移、搜索、归档、图片修订和
+  Pin 工作区持久化；原有回归随适配器迁移，并连同专用线程边界共 45 项测试保持通过。
+- `clippy-platform` 统一生产/QA 数据目录和私有文件权限，生产路径与旧 Tauri identifier 保持一致。
+  Slint 使用有界专用线程加载最近 50 条历史，UI 线程不持有数据库连接；敏感文本不进入 UI model。
+  当前新版默认本地门禁为 9 通过 / 0 失败 / 0 跳过，未编译 legacy；仍未接入剪贴板监听、
+  复制/粘贴/删除/收藏动作。（需求：`SLINT-UI-MIGRATION-01`）
+- 当前 release QA 二进制为 14,061,296 字节，动态依赖不含 Tauri/WebKit/JSC/GTK。Xvfb + llvmpipe
+  的单次开窗样本 PSS 为 95,338 KiB，其中 LLVM/Gallium 软件渲染约 32 MiB；该结果不是实际 GPU、
+  托盘无窗口或 5 次 60 秒验收，不能据此宣称已达到 50 MiB。
+
+### 2026-11-24 Rust 依赖安全刷新
+
+- 修复最新 RustSec 数据库报告的 6 个依赖漏洞：升级 bundled SQLite/rusqlite、cookie、URL 和
+  Rustls/WebPKI 信任根链；同时更新 anyhow、event-listener、rustix、Tokio，移除已有修复版本的
+  4 个 soundness 警告。`cargo-audit 0.22.2` 对当前 998 个 crate 扫描为 0 vulnerability，仍保留
+  11 个上游 unmaintained/unsound warning，不以忽略 ID 掩盖。
+- CI 不再调用会在手动 workflow 中因 GitHub Checks API 404 留下 queued check 的
+  `rustsec/audit-check`；改为安装固定版本的 cargo-audit，并直接以进程退出码阻断漏洞。SQLite/FTS、
+  WAL、迁移、归档与 Pin 工作区 45 项存储测试通过；同一 SHA 的三平台 CI 仍待重新运行。
+  （需求：`PROJECT-REVIEW-HARDENING-01`；见
+  `docs/reviews/2026-11-24-rustsec-refresh-review.md`）
+
+### 2026-11-23 Slint v0.2 共存迁移基础
+
+- 启动 `SLINT-UI-MIGRATION-01`：完整的 Tauri 2.12.4 实现移入
+  `apps/legacy-tauri/`，新增固定为 Slint 1.19.0、应用版本 0.2.0 的独立原生壳层；两套入口由根
+  Cargo workspace 和锁文件统一校验。Slint 壳层使用官方 `AboutSlint` 归属组件，正式桌面版按
+  royalty-free desktop license 约束继续补齐安装包第三方许可。
+- 新增唯一的 SemVer 发布路由：低于 v0.2.0 的 tag 选择 legacy Tauri，v0.2.0 的
+  alpha/beta/rc 及更高版本选择 Slint。当前 v0.2 打包 job 尚未实现，workflow 会明确拒绝 Slint
+  tag，避免误把 Tauri 包发布成新版本；v0.1 发布路径保持可维护。
+- 新增不依赖 Tauri/Slint 的 `clippy-core`：下沉剪贴板内容、列表项、翻译历史、URL 元数据、配置值对象
+  与产品标识；配置版本迁移、JSON 编解码和失败补偿协议也由共享核心统一实现。legacy 保持原调用路径，
+  只保留私有文件权限和 Tauri 副作用适配；数据库、搜索与平台能力仍待迁移，尚未计作完整功能接入。
+- 新增不依赖 UI 框架的 `clippy-platform` 部署身份边界。Slint 生产版和 QA 版改为两个显式宿主入口、
+  共用一套应用库，QA 的 app/bundle ID、可执行文件、桌面入口、数据、单实例和快捷键命名空间均与
+  生产定义分离；feature 只开放 QA 构建目标，不再负责选择运行身份，避免 Cargo feature 合并污染
+  生产入口。运行期数据、单实例和快捷键服务尚未接入这些命名空间，不能计作隔离验收完成。
+- 增加固定 cargo-packager 0.11.8 的 Slint QA 打包配置。Linux 本地已真实生成
+  `clippy-slint-qa_0.2.0_amd64.deb`，包内二进制、桌面入口和图标都使用 QA 名称，声明直接动态依赖，
+  并携带 Clippy MIT 与 Slint royalty-free 完整许可；Windows/macOS 原生包和 CI artifact 尚未生成。
+- Native QA workflow 现在并行定义 `qa-legacy-*` 和 `qa-slint-*` 的 Linux、Windows、macOS Intel/
+  Apple Silicon 包；legacy 打包路径本身不合并进 Slint 条件分支。统一元数据生成器从当前仓库配置
+  读取应用与框架版本，记录 backend、renderer、完整 SHA 和未包含框架，并拒绝扩展字段覆盖保留值。
+  这些 job 尚未在远程同一 SHA 上运行，不能把 workflow 合同计作八套 artifact 已生成。
+- Linux 与 Windows 本地门禁按 core、legacy、Slint 三段组织，默认入口仍完整执行三段；开发期可只跑
+  一个分段，但输出会明确标为部分证据，不能替代完整门禁或同一 SHA 的三平台原生 CI。
+- 本阶段只建立目录、版本路由、编译壳层、部署身份和双实现门禁，不代表 v0.2 功能已经迁移；本地
+  QA 验证包也不是可发布的正式安装包。迁移前 Linux 完整门禁为 27 通过 / 0 失败 / 2 跳过；当前为
+  36 通过 / 0 失败 / 2 跳过，并从新目录完成 legacy Tauri `--no-bundle --no-sign` release
+  构建。已安装 legacy 进程树静置样本总 PSS 为 154,488 KiB（约 150.9 MiB），作为后续低于
+  50 MiB 验收的对照。Windows、macOS 同 SHA CI、Slint QA 运行期隔离、升级桥、正式安装包及真实
+  功能尚未验证。Slint 壳层 release 动态依赖已确认不含 Tauri/WebKit/JSC/GTK；无头 Xvfb 使用
+  llvmpipe 时的单次 PSS 高达 127,429 KiB，因此该样本只作为软件 OpenGL 回退告警，不计作真实
+  桌面性能结果。
+  （需求：`SLINT-UI-MIGRATION-01`；见
+  `docs/superpowers/specs/2026-11-23-slint-ui-migration.md`）
+
+### 2026-10-23 GNOME 截图恢复 v5 快速路径
+
+- 撤回 GNOME Shell 协议 v6 的系统界面预冻结流程，扩展协议与 metadata 回到 v5。Capture 键重新
+  由 gsd-media-keys 通过 D-Bus 触发，截图后端立即优先使用 Mutter PipeWire，不再等待 Shell 把
+  整个 stage 编成 PNG。复杂 4K 双屏实测 v6 的前置 PNG 单独需要约 2.7–3.8 秒，因此本次明确以
+  响应速度优先。（需求：`GNOME-CAPTURE-FAST-PATH-02`；见
+  `docs/superpowers/specs/2026-10-23-gnome-capture-fast-path-rollback.md`）
+- 兼容当前会话仍驻留 v6 的降级：应用启动时先让已知 v6 实例释放截图键并删除其恢复文件，再
+  写回 v5 扩展与 gsettings；完整扩展脚本切换仍需重新登录。未知更高协议保持原文件与所有权，
+  不由旧应用覆盖。
+- 已知边界：顶栏日历、状态/托盘菜单与 Activities/应用概览可能在外部快捷键命令启动时收起，
+  当前冻结帧不再保证包含这些 Shell UI。Linux x64 完整本地门禁 27 通过 / 0 失败 / 2 跳过；
+  跳过的非宿主交叉 lint 与 AppImage 可视 smoke 不计为通过。真实 GNOME 的端到端响应、v6
+  原地降级、锁屏恢复及同一 SHA 的 Windows/macOS Native Check 尚未验证。
+
+### 2026-10-22 窗口标题栏权限与生命周期修复
+
+- 修复设置页自绘标题栏已绑定拖动、最小化和最大化动作，但 `settings` 窗口缺少对应 Tauri
+  capability，导致真实运行时被 ACL 拒绝的问题。拖动权限继续由受限的可移动窗口能力集中授予，
+  最小化与切换最大化仅开放给设置窗口；关闭仍走 `close_settings` 恢复快捷键并销毁窗口。
+- 新增 capability 回归合同，确保三项原生窗口权限不会再次遗漏或扩大到其它窗口。Linux x64
+  完整本地门禁 27 通过 / 0 失败 / 2 跳过；跳过的非宿主交叉 lint 与 AppImage 可视 smoke 不计为
+  通过。Linux 真实桌面的窗口管理器交互仍需使用重建后的安装包人工确认；Windows/macOS 与同一
+  SHA 原生 CI 尚未验证。
+- 修复固定标签 `pin-workspaces` 被 `pin-*` 误判为普通贴图，导致 Alt+F4/系统关闭被永久拦截的
+  问题。动态贴图 capability 收窄到 `pin-image-*`、`pin-clip-*` 与 `pin-workspace-*`，工作区库
+  改用只含事件监听的独立 capability，不再意外获得直接拖窗权限。
+- Launcher、录屏库与 Pin 工作区库的标题栏拖动或关闭失败会进入各自现有错误状态，不再产生
+  未处理的 Promise rejection。
+
+### 2026-10-20 GNOME 系统界面截图（已撤回）
+
+- 本节 v6 实现已由 `GNOME-CAPTURE-FAST-PATH-02` 撤回，以下保留为历史实现与验证记录，
+  不代表当前代码能力。
+
+- 修复 GNOME Wayland 下截图快捷键无法保留顶栏日历、托盘菜单与 Activities/应用概览的问题。
+  协议 v6 的 Shell 扩展在 `OVERVIEW`/`POPUP` 模式先冻结当前舞台，再通知 Clippy 打开覆盖层；
+  普通桌面继续走 Mutter PipeWire 快速路径。登录、锁屏、解锁和系统认证模式不允许触发，
+  解锁回到普通会话后会自动恢复绑定；卸载扩展也会立即恢复 gsettings 回退键。
+  扩展未安装或升级后尚未注销时继续使用原 gsd-media-keys 降级路径。系统弹层仍不是普通
+  `MetaWindow`，本次不新增菜单边界自动吸附。真实 GNOME 桌面验收需在扩展升级后注销一次完成。
+  （需求：`GNOME-SHELL-UI-CAPTURE-01`；见
+  `docs/superpowers/specs/2026-10-20-gnome-shell-ui-capture.md`）
+- Linux x64 本地完整门禁 27 通过 / 0 失败 / 2 跳过；跳过的非宿主交叉 lint 与
+  AppImage 可视 smoke 不计为通过。扩展 v6 的日历/托盘/概览像素、锁屏恢复，
+  以及同一 SHA 的 Windows/macOS Native Check 尚未验证。
+- 复审补强 Shell 与应用之间的接收确认：截图模式已占用时立即清理本次预冻结图，避免后继
+  动作误用十秒内的旧画面；运行中扩展停用失败时不再继续删除文件或恢复 gsettings，避免
+  双重占用。扩展状态、安装与卸载移入 blocking worker，外部命令等待不再冻结设置窗口。
+- 二次复审补齐扩展运行期的所有权同步：在系统扩展页停用或重新启用时，扩展以私有令牌通知
+  应用自动切换 Shell / gsettings Capture 路径；锁屏的临时停用保持原状态。高于当前应用上限
+  的运行协议仍按存活实例处理，禁止旧应用覆盖新版扩展或启用可能冲突的第二套绑定。相关状态
+  决策已有单元测试；真实 GNOME 的手动停用/启用与锁屏场景仍须随本节其余项目一起人工验收。
+- 源码构建文档改用 `tauri.ci.conf.json` 关闭本地 updater 签名；正式发布仍要求私钥，普通
+  贡献者不再在安装包生成后因缺少 `TAURI_SIGNING_PRIVATE_KEY` 得到失败退出码。
+- 锁定的 Vite 从 8.2.1 更新至 8.3.4，消除 `npm audit` 报告的 Windows `launch-editor`
+  命令注入类高危开发依赖告警。
+
+### 2026-10-20 GNOME 托盘菜单文案恢复
+
+- 修复 v0.1.21 在 GNOME Shell 50 / Wayland 下点击托盘图标后只显示空白菜单框的问题。新版
+  Tauri/muda 注册 AppIndicator 时，Shell 扩展可能先缓存空标签且不再主动重取；Clippy 现在仅在
+  GNOME/Linux 注册完成后发送一次视觉等价的标签属性同步，再恢复精确文案，不影响 KDE、Windows
+  与 macOS 路径。
+- 当前 GNOME 50.1 / Wayland 真机已通过 D-Bus 导出与 AT-SPI 渲染双重核对：六项菜单依次为
+  “打开剪贴板 / 动作 / 录屏结果 / 贴图工作区 / 设置 / 退出”；Linux 针对性 Rust 回归 3/0，
+  完整本地门禁 27/0/2。跳过的非宿主交叉 lint 与 AppImage 可视 smoke 不计为通过；其它 GNOME
+  版本、KDE、Windows/macOS 及同 SHA 原生 CI 尚未验证。
+
 ## v0.1.21
 
 ### 2026-10-19 发布打包依赖对齐
@@ -960,7 +1174,7 @@
 - 截图尺寸提示和工具栏保留前端事件边界，Pin 与长截图控制窗保留拖动权限。撤回导致 GTK 线程崩溃的原生防拖动改动，恢复原截图逐屏全屏定位和双屏建窗流程。
 - Pin 保存确认隔离背景键盘与焦点，窄窗采用纵向动作，短窗正文和错误可滚动；取消和保存重试保留标注。
 - 图片侧栏精简为缩略图与 OCR，翻译在 OCR 内切换，移除重复翻译卡和侧栏扫码。点击图片打开独立普通查看器；底部 Pin 式工具栏集中缩放、绘制、OCR、扫码、取色和输出。翻译仍处理识别文字，暂不替换原图排版。
-- 新增显式配置的本地增强 OCR：PP-OCRv6 检测 → EdgeGNN 段落 → 原图裁切 → 识别 → CTC。结构化结果记录引擎、段落和置信度，增强配置绕过旧文字缓存；不可用时明确显示 Tesseract 回退。模型不随应用打包，配置步骤见 `src-tauri/ocr-sidecar/README.md`。
+- 新增显式配置的本地增强 OCR：PP-OCRv6 检测 → EdgeGNN 段落 → 原图裁切 → 识别 → CTC。结构化结果记录引擎、段落和置信度，增强配置绕过旧文字缓存；不可用时明确显示 Tesseract 回退。模型不随应用打包，配置步骤见 `apps/legacy-tauri/native/ocr-sidecar/README.md`。
 - 设置页现在可以选择并保存增强 OCR manifest，并用实际识别前的同一套校验显示当前引擎、管线/模型身份、缺失资产与 Tesseract 回退；坏模型、错误 SHA 或缺失运行时不会被误报为已安装。
 - 增强 OCR 增加可选英语空白档：`setup_models.py --english-spacing` 使用固定官方
   en_PP-OCRv5 mobile rec 逐框复识别。只有英语结果保持全部非空白 Unicode 码点且增加空白时才采用，
@@ -1549,7 +1763,7 @@
 - 覆盖 URL 卡片、JSON、JWT、可逆编码、哈希、加密内容、颜色、时间戳、UUID、IP、邮箱、MAC、cron、日期、semver、进制、渐变、数据大小、正则、坐标、MIME、数学表达式、HTTP 状态码，判不出来再走 Markdown / 代码高亮 / 富文本 / 纯文本。
 
 **其它**
-- 托盘菜单与原生窗口标题按界面语言本地化（`src-tauri/src/i18n.rs`，解析规则与前端一致）。
+- 托盘菜单与原生窗口标题按界面语言本地化（`apps/legacy-tauri/native/src/i18n.rs`，解析规则与前端一致）。
 - 主窗口记忆显示位置；快捷键可在设置页录制，注册失败按动作给出可操作提示，并能检测桌面级占用与 Clippy 内部自冲突。
 
 ### 🐛 修复
@@ -1596,7 +1810,7 @@
 
 ### ⚡ 性能
 
-- criterion 基线覆盖截图编解码、剪贴板扫描与搜索（`src-tauri/benches/`，经 `bench_support.rs` 调用生产代码，不复制实现）；门禁只编译不运行，数字见 `docs/bench-baseline.md`。
+- criterion 基线覆盖截图编解码、剪贴板扫描与搜索（`apps/legacy-tauri/native/benches/`，经 `bench_support.rs` 调用生产代码，不复制实现）；门禁只编译不运行，数字见 `docs/bench-baseline.md`。
 - 截图内存占用与拖拽卡顿优化；`[profile.bench]` 关掉 release 的 fat LTO。
 
 ### 🧪 测试与门禁

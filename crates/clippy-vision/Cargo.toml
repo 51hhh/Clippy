@@ -1,0 +1,21 @@
+[package]
+name = "clippy-vision"
+version = "0.2.0"
+description = "Clippy 的有界 OCR 运行时与结果协议"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }
+log = "0.4"
+png = "0.17"
+rxing = { version = "=0.9.2", default-features = false, features = ["decoders", "qrcode", "oned", "multi_barcode_readers", "encoding_rs"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+tokio = { version = "1", features = ["rt", "time", "sync", "macros", "process", "io-util"] }
+
+[dev-dependencies]
+tempfile = "3"

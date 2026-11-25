@@ -70,4 +70,4 @@ R1基线/关键Git节点和本地47项历史；R2 Windows前端/类型/边界/�
 
 活跃状态MixedAudioSource Stop在audio_mixer.rs的stop_both里一次性pop_ready并积累Vec，输出大小随剩余时间段增长；PX-REC-AUDIO-MIX-01的固定ready上限未由现有短尾块覆盖证明。尚未在原API复现，不计已确认缺陷。下一步先建立REC-MIXED-STOP-READY-BOUND-01和适度有限间隔的原API对照，再决定修复；不能通过拒绝所有长合法尾部、截断PCM、降低时间戳、弱化背压或改旧期限完成。
 
-机器记录 `C:\win\Clippy\src-tauri\target\windows-readiness-inventory-02005c9\RESULT.json`；原47项门禁、W73构建、旧inventory和历史失败记录均保留。全局任务仍进行中，本轮没有桌面/设备操作。
+机器记录 `C:\win\Clippy\apps/legacy-tauri/native\target\windows-readiness-inventory-02005c9\RESULT.json`；原47项门禁、W73构建、旧inventory和历史失败记录均保留。全局任务仍进行中，本轮没有桌面/设备操作。

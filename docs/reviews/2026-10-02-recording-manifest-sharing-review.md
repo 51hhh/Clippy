@@ -46,7 +46,7 @@ Journal 错误：`原子写入恢复清单失败: 拒绝访问。 (os error 5)`�
 运行期夹具字节相同，无接口stub；新七项API合同仅在绿色图，十一份Rust输入绑定干净SHA。
 旧实现重放及finally恢复、最终领域与完整门禁的实际日志/输入哈希保留。
 
-证据目录 `src-tauri/target/recording-manifest-sharing-contract/` 保存 W55 原状态、
+证据目录 `target/recording-manifest-sharing-contract/` 保存 W55 原状态、
 初始红、阶段绿、旧 Git 源码重放/恢复、最终领域及冻结 SHA 门禁，附输入/日志哈希。
 首次旧实现重放因沙箱跨目录写入限制在启动原生测试前退出，finally 已恢复源码；
 经自动审批仅放行项目内证据写入后执行，不计作测试失败或通过。

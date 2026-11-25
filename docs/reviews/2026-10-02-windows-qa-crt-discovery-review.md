@@ -57,7 +57,7 @@ toolset 同样新，并给出 VS 2026 v145 的 redistribution 清单。
 
 ## 本机证据
 
-根目录 `C:\win\Clippy\src-tauri\target\` 下：
+根目录 `C:\win\Clippy\apps/legacy-tauri/native\target\` 下：
 
 - `windows-qa-crt-discovery-contract/`：旧输入、最初红/绿及扩展绿报告、保存用例、
   `DISCOVERY-CONTRACT-AUDIT.json` 与之前 W48 状态/报告。

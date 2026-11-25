@@ -7,9 +7,11 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const require = createRequire(resolve(repository, "src/package.json"));
+const require = createRequire(resolve(repository, "apps/legacy-tauri/frontend/package.json"));
 const { JSDOM } = require("jsdom");
-const output = resolve(process.argv[2] || resolve(repository, "dist"));
+const output = process.argv[2]
+  ? resolve(process.argv[2])
+  : resolve(repository, "apps/legacy-tauri/dist");
 const dom = new JSDOM(readFileSync(resolve(output, "index.html"), "utf8"), {
   url: "https://clippy-build.test/", pretendToBeVisual: true,
 });

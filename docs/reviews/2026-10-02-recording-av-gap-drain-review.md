@@ -36,7 +36,7 @@ child/terminal exit 0，33 passed / 0 failed / 1 Linux smoke skipped，结束时
 哈希绑定；当前根状态/报告和 `recording-av-gap-drain-contract/REVIEW-CLOSURE.json`
 记录源码、文档后继、原 W51 状态、门禁与旧桌面哈希。
 
-证据 `src-tauri/target/recording-av-gap-drain-contract/`：原 W51 状态/报告，原四项红，
+证据 `target/recording-av-gap-drain-contract/`：原 W51 状态/报告，原四项红，
 阶段绿、六项 frozen-red 与 `FROZEN-RED-RESTORE.json`；最终绿和 `CONTRACT-AUDIT.json`
 单列源码输入、原测试正文、预算/mux/时钟/平台未修改范围。没有 release/安装器构建，
 历史 `1c66112` QA EXE 不代表当前产物。构建与文件对比不计测试通过。

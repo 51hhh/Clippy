@@ -78,7 +78,7 @@ W42 的 79/1323 发现清单哈希保持，之后前端跟踪源码没有变化�
 
 ## 证据与下一步
 
-本机证据目录：`C:\win\Clippy\src-tauri\target\windows-review-completion-audit-f5ad5da`。
+本机证据目录：`C:\win\Clippy\apps/legacy-tauri/native\target\windows-review-completion-audit-f5ad5da`。
 `RESULT.json` 是逐项 inventory；`CUMULATIVE-SOURCE-AUDIT.json`、
 `RUST-FIXTURE-ADAPTER-AUDIT.json`、`FRONTEND-AST-AUDIT.json` 记录原始哈希、阶段和正文；
 `CURRENT-SHA-CI.json` 为本次当前 SHA 只读结果。安装包/保存实际 QA 与模板哈希保持。

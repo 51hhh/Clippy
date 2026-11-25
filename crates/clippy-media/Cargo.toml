@@ -1,0 +1,60 @@
+[package]
+name = "clippy-media"
+version = "0.2.0"
+description = "Clippy 有界媒体时间线、编码与恢复"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[features]
+default = []
+recording-vp9-prototype = ["dep:shiguredo_libvpx", "dep:webm", "dep:yuv"]
+recording-vp9-source-build = ["recording-vp9-prototype", "shiguredo_libvpx/source-build"]
+recording-opus-webm = ["recording-vp9-prototype", "dep:opusic-c", "dep:opusic-sys"]
+recording-linux-audio = ["dep:anyhow", "dep:nix", "dep:pipewire"]
+recording-windows-audio = ["dep:windows"]
+
+[dependencies]
+clippy-platform = { path = "../clippy-platform" }
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+log = "0.4"
+opusic-c = { version = "=1.6.1", default-features = false, optional = true }
+opusic-sys = { version = "=0.7.5", default-features = false, features = ["bundled"], optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+shiguredo_libvpx = { version = "=2026.2.0-canary.1", optional = true }
+thiserror = "2"
+webm = { version = "=2.2.1", optional = true }
+yuv = { version = "=0.8.19", default-features = false, features = ["avx", "sse", "rdm", "professional_mode"], optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+anyhow = { version = "1", optional = true }
+nix = { version = "0.30", features = ["time"], optional = true }
+pipewire = { version = "0.9", features = ["v0_3_34"], optional = true }
+
+[target.'cfg(any(all(target_os = "windows", target_env = "msvc"), all(target_os = "macos", target_arch = "x86_64")))'.dependencies]
+shiguredo_libvpx = { version = "=2026.2.0-canary.1", optional = true, features = ["source-build"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+] }
+windows = { version = "=0.62.2", optional = true, features = [
+    "Win32_Devices_FunctionDiscovery",
+    "Win32_Foundation",
+    "Win32_Media_Audio",
+    "Win32_Media_Multimedia",
+    "Win32_Security",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Performance",
+    "Win32_System_Threading",
+    "Win32_System_Variant",
+    "Win32_UI_Shell_PropertiesSystem",
+] }
+
+[dev-dependencies]
+tempfile = "3"

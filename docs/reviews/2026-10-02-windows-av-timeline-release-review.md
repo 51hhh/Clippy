@@ -34,8 +34,8 @@ release panic=abort在进程panic终止时不执行Drop；原unwind清理测试�
 
 ## 分层证据与未完成项
 
-证据：`src-tauri/target/current-release-default-003fe2d/`、
-`src-tauri/target/current-release-qa-003fe2d/`；包括实际PID/退出码、源码树/输入哈希、
+证据：`target/current-release-default-003fe2d/`、
+`target/current-release-qa-003fe2d/`；包括实际PID/退出码、源码树/输入哈希、
 逐行UTF-8编译日志、主程序参数、feature指纹、PE与QA部署检查。
 同源码W63完整Windows门禁33/0/1 Linux smoke skipped；默认1254/QA1395各5ignored，
 录屏领域429，前端81文件/1403。两图重叠，领域/新合同已含总数。

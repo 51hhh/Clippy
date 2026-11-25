@@ -64,7 +64,7 @@ exit 0：30 passed / 0 failed / 1 Linux smoke skipped。默认 Rust 1150 / 5 ign
 前端 77 文件 / 1307 passed，Python 33 + 3，独立 vendor 十八项、剪贴板二十四项通过；
 check、严格 lint、供应链、构建/入口通过。源码快照、新测试/旧文件、原始日志、checked helper
 和门禁脚本哈希、门禁前后干净检出核对；完整门禁证据
-C:\win\Clippy\src-tauri\target\windows-control-rollback-native-qa-a52ecaa。
+C:\win\Clippy\apps/legacy-tauri/native\target\windows-control-rollback-native-qa-a52ecaa。
 
 固定 tauri 2.10.3 / tauri-runtime-wry 2.10.1 源码核对：destroy() 转发 dispatcher，Wry 仅将
 WindowMessage::Destroy 发送到事件代理；Ok 表示请求发送成功，不证明 HWND 已销毁，Err
@@ -73,4 +73,4 @@ WindowMessage::Destroy 发送到事件代理；Ok 表示请求发送成功，不
 当前 SHA CI 仍未验。持久化恢复、merge/delete 所有权与 Windows 导出路径身份待续审，
 未将尚未复现的疑点列为新缺陷。
 源码/Git 归属、红绿、原合同及此前状态保存在
-C:\win\Clippy\src-tauri\target\windows-control-rollback-contract。
+C:\win\Clippy\apps/legacy-tauri/native\target\windows-control-rollback-contract。

@@ -1,0 +1,55 @@
+// @vitest-environment node
+import { describe, expect, it } from "vitest";
+import { fileURLToPath } from "node:url";
+import {
+  loadFrontendSources,
+  validateFrontendBoundaries,
+} from "../../../../scripts/check-html-sinks.mjs";
+
+const repositoryRoot = fileURLToPath(new URL("../../../..", import.meta.url));
+
+function sources() {
+  return loadFrontendSources(repositoryRoot);
+}
+
+describe("frontend HTML and Tauri boundaries", () => {
+  it("accepts the checked-in frontend boundary", () => {
+    expect(validateFrontendBoundaries(sources())).toEqual([]);
+  });
+
+  it("rejects a raw innerHTML write", () => {
+    const input = sources();
+    input.set("apps/legacy-tauri/frontend/js/preview/new-renderer.js", "content.innerHTML = userValue;\n");
+    expect(validateFrontendBoundaries(input)).toContain(
+      "apps/legacy-tauri/frontend/js/preview/new-renderer.js:1 未登记或未清洗的 innerHTML 写入",
+    );
+  });
+
+  it("rejects a sanitizer bypass in an allowlisted sink", () => {
+    const input = sources();
+    input.set(
+      "apps/legacy-tauri/frontend/js/preview/content-renderers.js",
+      input.get("apps/legacy-tauri/frontend/js/preview/content-renderers.js")
+        .replace("getLibraries().DOMPurify.sanitize(rawHtml, PURIFY_CONFIG)", "rawHtml"),
+    );
+    expect(validateFrontendBoundaries(input)).toEqual(
+      expect.arrayContaining([expect.stringContaining("未登记或未清洗的 innerHTML 写入")]),
+    );
+  });
+
+  it("rejects a Tauri import outside the registered API domain modules", () => {
+    const input = sources();
+    input.set("apps/legacy-tauri/frontend/js/preview/new-renderer.js", 'import "@tauri-apps/api/core";\n');
+    expect(validateFrontendBoundaries(input)).toContain(
+      "apps/legacy-tauri/frontend/js/preview/new-renderer.js:1 只有已登记的 apps/legacy-tauri/frontend/js/api 领域模块可导入 @tauri-apps",
+    );
+  });
+
+  it("rejects a new unregistered module inside the API directory", () => {
+    const input = sources();
+    input.set("apps/legacy-tauri/frontend/js/api/accidental.ts", 'import "@tauri-apps/api/core";\n');
+    expect(validateFrontendBoundaries(input)).toContain(
+      "apps/legacy-tauri/frontend/js/api/accidental.ts:1 只有已登记的 apps/legacy-tauri/frontend/js/api 领域模块可导入 @tauri-apps",
+    );
+  });
+});

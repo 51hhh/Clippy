@@ -1,0 +1,287 @@
+import { Button } from "std-widgets.slint";
+import { ClipRow, HistoryPane } from "history.slint";
+import { GeneralSettings, SettingsPane, TranslationSettings } from "settings.slint";
+import { ClippyTheme, WindowHeader } from "theme.slint";
+export { GeneralSettings, TranslationSettings, ClippyTheme, ClipRow }
+export { EditorWindow } from "editor.slint";
+export { PinnedWindow, WorkspaceWindow, WorkspaceRow } from "pins.slint";
+export { LongshotWindow } from "longshot.slint";
+export { ImageTextWindow, TextBox, TextParagraph } from "vision.slint";
+export { RecordingLibrary, RecordingRow } from "recording.slint";
+export { ToolsWindow, TranslationRow } from "tools.slint";
+
+export enum CaptureAction { copy, save, edit, longshot, record }
+
+export component ClippyTray inherits SystemTrayIcon {
+    in property <string> product-name;
+    callback open-panel();
+    callback screenshot();
+    callback delayed-screenshot();
+    callback save-screens();
+    callback open-settings();
+    callback open-actions();
+    callback open-workspace();
+    callback recordings();
+    callback recording-pause();
+    callback recording-stop();
+    callback quit();
+
+    tooltip: root.product-name;
+    icon: @image-url("../../legacy-tauri/native/icons/32x32.png");
+    clicked => { root.open-panel(); }
+
+    Menu {
+        MenuItem { title: "Open Clipboard"; activated => { root.open-panel(); } }
+        MenuItem { title: "Screenshot"; activated => { root.screenshot(); } }
+        MenuItem { title: "Screenshot in 3 seconds"; activated => { root.delayed-screenshot(); } }
+        MenuItem { title: "Save screens to PNG"; activated => { root.save-screens(); } }
+        MenuItem { title: "Actions"; activated => { root.open-actions(); } }
+        MenuItem { title: "Pinned Workspace"; activated => { root.open-workspace(); } }
+        MenuItem { title: "Recordings"; activated => { root.recordings(); } }
+        MenuItem { title: "Pause / Resume recording"; activated => { root.recording-pause(); } }
+        MenuItem { title: "Stop recording"; activated => { root.recording-stop(); } }
+        MenuItem { title: "Settings"; activated => { root.open-settings(); } }
+        MenuItem { title: "Quit"; activated => { root.quit(); } }
+    }
+}
+
+export component AppWindow inherits Window {
+    in property <string> product-name;
+    in property <string> build-label;
+    in property <string> history-status: "Loading history…";
+    in property <string> action-status;
+    in property <string> shortcut-status;
+    in property <GeneralSettings> general-settings;
+    in property <TranslationSettings> translation-settings;
+    in property <int> provider-index;
+    in property <bool> autostart;
+    in property <bool> autostart-available;
+    in property <bool> tmux-available;
+    in property <string> data-status;
+    in property <[ClipRow]> clips;
+    in-out property <string> selected-id;
+    in-out property <int> selected-index: -1;
+    in property <int> all-count;
+    in property <int> favorite-count;
+    in-out property <string> query;
+    in-out property <bool> favorites-only;
+    in-out property <int> history-limit: 50;
+    in property <bool> can-load-more;
+    in property <bool> loading-history: true;
+    in property <bool> show-settings;
+    in property <bool> auto-paste;
+    in property <bool> busy;
+    callback reload-history();
+    callback close-panel();
+    callback copy-item(string, bool);
+    callback modify-item(string, bool);
+    callback set-auto-paste(bool);
+    callback authorize-paste();
+    callback forget-paste();
+    callback set-autostart(bool);
+    callback apply-general(GeneralSettings);
+    callback select-provider(int);
+    callback apply-translation(int, TranslationSettings);
+    callback store-credentials(int, string, string);
+    callback delete-credentials(int);
+    callback data-action(int, string);
+    callback edit-history-image(string);
+    callback preview-item(string);
+
+    title: root.show-settings ? "Clippy Settings" : root.product-name;
+    preferred-width: root.show-settings ? 720px : 380px;
+    preferred-height: root.show-settings ? 560px : 500px;
+    min-width: root.show-settings ? 480px : 340px;
+    min-height: 400px;
+    no-frame: true;
+    resize-border-width: root.show-settings ? 6px : 0px;
+    always-on-top: !root.show-settings;
+    background: ClippyTheme.background;
+    init => { ClippyTheme.sync-native-palette(); }
+
+    public pure function titlebar-contains(x: length, y: length) -> bool {
+        return x >= root.resize-border-width && x < root.width - ClippyTheme.titlebar-drag-inset
+            && y >= root.resize-border-width && y < ClippyTheme.titlebar-height;
+    }
+
+    VerticalLayout {
+        if root.show-settings: WindowHeader {
+            title: "Settings";
+            maximized: root.maximized;
+            minimize => { root.minimized = true; }
+            maximize => { root.maximized = !root.maximized; }
+            dismiss => { root.close-panel(); }
+        }
+        if root.shortcut-status != "": Text {
+            text: root.shortcut-status;
+            color: ClippyTheme.danger;
+            wrap: word-wrap;
+            font-size: 12px;
+        }
+        if !root.show-settings: HistoryPane {
+            vertical-stretch: 1;
+            clips: root.clips;
+            status: root.history-status;
+            all-count: root.all-count;
+            favorite-count: root.favorite-count;
+            busy: root.busy;
+            loading: root.loading-history;
+            auto-paste: root.auto-paste;
+            can-load-more: root.can-load-more && root.history-limit < 200;
+            query <=> root.query;
+            favorites-only <=> root.favorites-only;
+            selected-id <=> root.selected-id;
+            selected-index <=> root.selected-index;
+            refresh => { root.history-limit = 50; root.reload-history(); }
+            load-more => { root.history-limit += 50; root.reload-history(); }
+            close-panel => { root.close-panel(); }
+            copy-item(id, paste) => { root.copy-item(id, paste); }
+            modify-item(id, favorite) => { root.modify-item(id, favorite); }
+            preview-item(id, image) => {
+                if image { root.edit-history-image(id); }
+                else { root.preview-item(id); }
+            }
+        }
+
+        if root.show-settings: SettingsPane {
+            vertical-stretch: 1;
+            general: root.general-settings;
+            translation: root.translation-settings;
+            provider-index: root.provider-index;
+            auto-paste: root.auto-paste;
+            busy: root.busy;
+            build-label: root.build-label;
+            autostart: root.autostart;
+            autostart-available: root.autostart-available;
+            tmux-available: root.tmux-available;
+            data-status: root.data-status;
+            paste-setting(value) => { root.set-auto-paste(value); }
+            authorize-paste => { root.authorize-paste(); }
+            forget-paste => { root.forget-paste(); }
+            set-autostart(value) => { root.set-autostart(value); }
+            apply-general(value) => { root.apply-general(value); }
+            select-provider(index) => { root.select-provider(index); }
+            apply-translation(index, value) => { root.apply-translation(index, value); }
+            store-credentials(index, key, secret) => { root.store-credentials(index, key, secret); }
+            delete-credentials(index) => { root.delete-credentials(index); }
+            data-action(action, path) => { root.data-action(action, path); }
+        }
+
+        if root.action-status != "": Text {
+            text: root.action-status;
+            color: ClippyTheme.muted;
+            font-size: 12px;
+            min-height: 21px;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
+    }
+}
+
+export component CaptureWindow inherits Window {
+    in property <image> frame;
+    private property <length> left;
+    private property <length> top;
+    private property <length> right;
+    private property <length> bottom;
+    private property <bool> selected: right - left >= 1px && bottom - top >= 1px;
+    callback cancel();
+    callback confirm(CaptureAction, float, float, float, float);
+
+    title: "Clippy Screenshot";
+    no-frame: true;
+    background: #161616;
+    forward-focus: escape-key;
+
+    Image {
+        width: parent.width;
+        height: parent.height;
+        source: root.frame;
+        image-fit: fill;
+    }
+
+    drag := TouchArea {
+        mouse-cursor: crosshair;
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                root.left = self.mouse-x;
+                root.right = self.mouse-x;
+                root.top = self.mouse-y;
+                root.bottom = self.mouse-y;
+            }
+        }
+        moved => {
+            if self.pressed {
+                root.left = min(self.pressed-x, self.mouse-x);
+                root.top = min(self.pressed-y, self.mouse-y);
+                root.right = max(self.pressed-x, self.mouse-x);
+                root.bottom = max(self.pressed-y, self.mouse-y);
+            }
+        }
+    }
+
+    if root.selected: Rectangle {
+        x: root.left;
+        y: root.top;
+        width: root.right - root.left;
+        height: root.bottom - root.top;
+        border-width: 2px;
+        border-color: #ff6b38;
+    }
+
+    escape-key := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.cancel();
+                return EventResult.accept;
+            }
+            return EventResult.reject;
+        }
+    }
+
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: 16px;
+        width: 316px;
+        height: 48px;
+        border-radius: 8px;
+        background: #202124;
+        HorizontalLayout {
+            padding: 6px;
+            spacing: 8px;
+            Button {
+                text: "Copy";
+                enabled: root.selected;
+                clicked => { root.confirm(CaptureAction.copy, root.left / root.width, root.top / root.height, root.right / root.width, root.bottom / root.height); }
+            }
+            Button {
+                text: "Save PNG";
+                enabled: root.selected;
+                clicked => { root.confirm(CaptureAction.save, root.left / root.width, root.top / root.height, root.right / root.width, root.bottom / root.height); }
+            }
+            Button { text: "Cancel"; clicked => { root.cancel(); } }
+        }
+    }
+
+    Button {
+        x: (parent.width - self.width) / 2;
+        y: 72px;
+        text: "Edit";
+        enabled: root.selected;
+        clicked => { root.confirm(CaptureAction.edit, root.left / root.width, root.top / root.height, root.right / root.width, root.bottom / root.height); }
+    }
+    Button {
+        x: parent.width / 2 + 52px;
+        y: 72px;
+        text: "Scrolling capture";
+        enabled: root.selected;
+        clicked => { root.confirm(CaptureAction.longshot, root.left / root.width, root.top / root.height, root.right / root.width, root.bottom / root.height); }
+    }
+    Button {
+        x: parent.width / 2 - self.width - 52px;
+        y: 72px;
+        text: "Record region";
+        enabled: root.selected;
+        clicked => { root.confirm(CaptureAction.record, root.left / root.width, root.top / root.height, root.right / root.width, root.bottom / root.height); }
+    }
+}

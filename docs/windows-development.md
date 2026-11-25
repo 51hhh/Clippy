@@ -5,7 +5,8 @@
 
 ## 环境
 
-- Node.js >= 22.12，CI 使用 Node 24；前端依赖使用 `src/package-lock.json`。
+- Node.js >= 22.12，CI 使用 Node 24；legacy 前端依赖使用
+  `apps/legacy-tauri/frontend/package-lock.json`。
 - Rust stable，默认 host 为 `x86_64-pc-windows-msvc`，安装 rustfmt、clippy。
 - Visual Studio C++ Build Tools 与 Windows SDK；MSVC 链接器和 SDK 必须实际可用。
 - WebView2 Runtime；Windows 11 通常已经提供，仍需核对本机安装。
@@ -44,11 +45,17 @@ unwind 时保留自己的临时目录，测试输出中的 `CLIPPY_RECORDING_TES
 
 # 跳过生产构建；不能作为完整门禁证据
 ./scripts/ci-windows.ps1 -Quick
+
+# 开发期分段定位；任一子集都只能形成部分证据
+./scripts/ci-windows.ps1 -Segment Core
+./scripts/ci-windows.ps1 -Segment Legacy -Quick
+./scripts/ci-windows.ps1 -Segment Slint
 ```
 
 执行策略阻止脚本时可在允许本地开发脚本的 PowerShell 环境运行；不需要把系统执行策略改为宽松值。
-脚本记录每步通过/失败/跳过，任何执行失败返回非零。`FrontendOnly` 和 `Quick` 的结果不能记为完整
-门禁通过。`RecordingQa` 不能与 `FrontendOnly` 组合。
+脚本记录每步通过/失败/跳过，任何执行失败返回非零。`FrontendOnly`、`Quick` 与非 `All` 的
+`Segment` 都不能记为完整门禁通过。`RecordingQa` 不能与 `FrontendOnly` 组合，也只能用于包含
+legacy 的 `All` 或 `Legacy` 段。
 
 Windows 入口负责 Windows 的本机检查；Linux 的 GNOME/X11/WebKit DOM、Canvas、布局像素 smoke
 仍由 `./scripts/ci-local.sh` 执行，跳过项不计为通过。合入前仍须保留完整 Linux 门禁证据及修改后同
@@ -131,13 +138,13 @@ SDK 验证范围仍须单独记录；受控目录合同不证明 VS 2026 的实�
 ```powershell
 $runtime = ./scripts/prepare-windows-qa-runtime.ps1 | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0) { throw 'QA runtime preparation failed' }
-npx --prefix src tauri build --ci --target x86_64-pc-windows-msvc --features recording-windows-av-qa `
-  --config src-tauri/tauri.windows.conf.json --config src-tauri/tauri.ci.conf.json --config $runtime.configPath
+npx --prefix apps/legacy-tauri/frontend tauri build --ci --target x86_64-pc-windows-msvc --features recording-windows-av-qa `
+  --config apps/legacy-tauri/native/tauri.windows.conf.json --config apps/legacy-tauri/native/tauri.ci.conf.json --config $runtime.configPath
 if ($LASTEXITCODE -ne 0) { throw 'QA build failed' }
 node scripts/verify-windows-qa-runtime.mjs --manifest $runtime.manifestPath --config $runtime.configPath `
   --manifest-sha256 $runtime.manifestSha256 --expected-source $runtime.sourceSha `
-  --executable src-tauri/target/x86_64-pc-windows-msvc/release/clippy-app.exe `
-  --payload-root src-tauri/target/x86_64-pc-windows-msvc/release
+  --executable target/x86_64-pc-windows-msvc/release/clippy-app.exe `
+  --payload-root target/x86_64-pc-windows-msvc/release
 ```
 
 本地仅编译时在 build 命令增加 `--no-bundle --no-sign`。显式 target 隔离默认 release 目录，

@@ -6,8 +6,9 @@
 # 在这里根本不进编译图，其告警与测试也就无从触发。发布门禁仍以 build.yml 的
 # Check (ubuntu) + Native Check (windows-latest) + Native Check (macos-latest) 为准。
 #
-# 用法: ./scripts/ci-local.sh [--quick]
-#   --quick: 跳过构建检查，仅运行 lint/test
+# 用法: ./scripts/ci-local.sh [--quick] [--segment current|all|core|legacy|slint]
+#   --quick: 仅与 legacy/all 搭配，跳过 legacy 生产构建
+#   --segment: 默认 current，只运行 v0.2 的 core + Slint；legacy 仅按需显式执行
 #
 # 可选环境变量:
 #   CLIPPY_CROSS_CHECK=1   额外跑非宿主平台的交叉 lint（见下方步骤）。只能发现"编译期"
@@ -17,7 +18,85 @@
 set -euo pipefail
 
 QUICK=false
-[[ "${1:-}" == "--quick" ]] && QUICK=true
+SEGMENT=current
+
+usage() {
+  cat <<'EOF'
+用法: ./scripts/ci-local.sh [--quick] [--segment current|all|core|legacy|slint]
+
+  --quick            跳过 legacy 生产构建，仅适用于 legacy/all
+  --segment <name>   current 为新版完整门禁；all 追加 legacy；其余为定位子集
+  -h, --help         显示帮助
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --quick)
+      QUICK=true
+      shift
+      ;;
+    --segment)
+      if [[ $# -lt 2 ]]; then
+        printf '错误：--segment 缺少值。\n' >&2
+        usage >&2
+        exit 2
+      fi
+      SEGMENT="$2"
+      shift 2
+      ;;
+    --segment=*)
+      SEGMENT="${1#*=}"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf '错误：未知参数 %s。\n' "$1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+case "$SEGMENT" in
+  current)
+    RUN_CORE=true
+    RUN_LEGACY=false
+    RUN_SLINT=true
+    ;;
+  all)
+    RUN_CORE=true
+    RUN_LEGACY=true
+    RUN_SLINT=true
+    ;;
+  core)
+    RUN_CORE=true
+    RUN_LEGACY=false
+    RUN_SLINT=false
+    ;;
+  legacy)
+    RUN_CORE=false
+    RUN_LEGACY=true
+    RUN_SLINT=false
+    ;;
+  slint)
+    RUN_CORE=false
+    RUN_LEGACY=false
+    RUN_SLINT=true
+    ;;
+  *)
+    printf '错误：无效分段 %s；只能是 current、all、core、legacy 或 slint。\n' "$SEGMENT" >&2
+    exit 2
+    ;;
+esac
+
+if [[ "$QUICK" == true && "$RUN_LEGACY" == false ]]; then
+  printf '错误：--quick 只用于包含 legacy 的 legacy/all 分段。\n' >&2
+  exit 2
+fi
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -59,17 +138,27 @@ require_cmd() {
 }
 
 check_prerequisites() {
-  require_cmd cargo "Rust toolchain: https://rustup.rs"
-  require_cmd node "Node.js >= 22.12: https://nodejs.org"
-  require_cmd npm "Node.js >= 20.19: https://nodejs.org"
-  require_cmd npx "随 Node.js 一同安装"
-  require_cmd python3 "Python 3（OCR 质量合同单元测试）"
-  # DOM/Canvas smoke 在无头环境下依赖 Xvfb，缺失时整条前端 smoke 都无法执行。
-  require_cmd xvfb-run "sudo apt install -y xvfb"
-  if [[ "$(uname -s)" == "Linux" ]]; then
-    require_cmd xauth "sudo apt install -y xauth"
+  if "$RUN_CORE" || "$RUN_LEGACY" || "$RUN_SLINT"; then
+    require_cmd cargo "Rust toolchain: https://rustup.rs"
+  fi
+  if "$RUN_SLINT" && [[ "$(uname -s)" == "Linux" ]]; then
+    require_cmd xvfb-run "sudo apt install -y xvfb xauth"
+    require_cmd dbus-run-session "sudo apt install -y dbus"
     require_cmd xclip "sudo apt install -y xclip"
-    require_cmd timeout "sudo apt install -y coreutils"
+    require_cmd xwininfo "sudo apt install -y x11-utils"
+  fi
+  if "$RUN_LEGACY"; then
+    require_cmd node "Node.js >= 22.12: https://nodejs.org"
+    require_cmd npm "Node.js >= 20.19: https://nodejs.org"
+    require_cmd npx "随 Node.js 一同安装"
+    require_cmd python3 "Python 3（OCR 质量合同单元测试）"
+    # DOM/Canvas smoke 在无头环境下依赖 Xvfb，缺失时整条前端 smoke 都无法执行。
+    require_cmd xvfb-run "sudo apt install -y xvfb"
+    if [[ "$(uname -s)" == "Linux" ]]; then
+      require_cmd xauth "sudo apt install -y xauth"
+      require_cmd xclip "sudo apt install -y xclip"
+      require_cmd timeout "sudo apt install -y coreutils"
+    fi
   fi
 
   if [[ ${#MISSING_COMMANDS[@]} -gt 0 ]]; then
@@ -90,28 +179,57 @@ echo " Clippy 本地质量预检"
 echo "=========================================="
 printf "${YELLOW} 仅验证当前宿主平台：%s${NC}\n" "$HOST_PLATFORM"
 printf "${YELLOW} Windows / macOS 的条件编译代码不在本机编译图内，通过此门禁不代表三平台 CI 通过。${NC}\n"
+printf "${YELLOW} 执行分段：%s${NC}\n" "$SEGMENT"
+if [[ "$RUN_CORE" == true && "$RUN_SLINT" == true ]]; then
+  printf "${GREEN} 证据级别：完整 v0.2 本地主机门禁。${NC}\n"
+  if [[ "$RUN_LEGACY" == true ]]; then
+    printf "${YELLOW} 兼容范围：额外包含 legacy v0.1.x；新版开发默认不执行。${NC}\n"
+  fi
+else
+  printf "${YELLOW} 证据级别：部分证据；不能作为 v0.2 合入前完整本地门禁。${NC}\n"
+fi
 echo ""
 
 check_prerequisites
 
+run_core_segment() {
+  run_step "Shared Rust fmt --check" cargo fmt -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision -- --check
+  run_step "Shared Rust check" cargo check --locked -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision --all-targets
+  run_step "Shared Rust clippy" cargo clippy --locked -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision --all-targets -- -D warnings
+  run_step "Shared Rust test" cargo test --locked -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision
+}
+
+run_slint_segment() {
+  run_step "Slint cargo fmt --check" cargo fmt -p clippy-slint -- --check
+  run_step "Slint cargo check" cargo check --locked -p clippy-slint --all-targets
+  run_step "Slint cargo clippy" cargo clippy --locked -p clippy-slint --all-targets -- -D warnings
+  run_step "Slint cargo test" cargo test --locked -p clippy-slint
+  run_step "Slint QA profile test" cargo test --locked -p clippy-slint --features qa-build
+  run_step "Shared A/V tests" cargo test --locked -p clippy-media --features recording-opus-webm,recording-linux-audio -- --test-threads=1
+  if [[ "$(uname -s)" == "Linux" ]]; then
+    run_step "Slint X11 桌面回归" bash scripts/test-slint-x11.sh
+  fi
+}
+
+run_legacy_segment() {
 # --- OCR quality contract (pure stdlib; no model or third-party wheel) ---
 run_step "OCR 质量合同" \
-  python3 -m unittest discover -s src-tauri/ocr-sidecar -p 'test_quality*.py' -v
+  python3 -m unittest discover -s apps/legacy-tauri/native/ocr-sidecar -p 'test_quality*.py' -v
 run_step "OCR 视觉段落回退" \
-  python3 -m unittest discover -s src-tauri/ocr-sidecar -p test_visual_paragraphs.py -v
+  python3 -m unittest discover -s apps/legacy-tauri/native/ocr-sidecar -p test_visual_paragraphs.py -v
 run_step "智能擦除可行性证据" \
   python3 scripts/smart-erase/verify_evidence.py
 
 # --- Rust ---
-run_step "cargo fmt --check" bash -c "cd src-tauri && cargo fmt -- --check"
+run_step "Legacy cargo fmt --check" cargo fmt -p clippy-app -p arboard -- --check
 run_step "vendor/xcap fmt --check" \
-  bash -c "cd src-tauri && cargo fmt --manifest-path vendor/xcap/Cargo.toml -- --check"
-run_step "cargo check" bash -c "cd src-tauri && cargo check --all-targets"
-run_step "cargo clippy" bash -c "cd src-tauri && cargo clippy --all-targets -- -D warnings"
-run_step "cargo test" bash -c "cd src-tauri && cargo test"
+  bash -c "cd apps/legacy-tauri/native && cargo fmt --manifest-path vendor/xcap/Cargo.toml -- --check"
+run_step "cargo check" bash -c "cd apps/legacy-tauri/native && cargo check --all-targets"
+run_step "cargo clippy" bash -c "cd apps/legacy-tauri/native && cargo clippy --all-targets -- -D warnings"
+run_step "cargo test" bash -c "cd apps/legacy-tauri/native && cargo test"
 if [[ "$(uname -s)" == "Linux" ]]; then
   run_step "X11 录屏到可恢复 AVI 闭环" \
-    bash -c "cd src-tauri && xvfb-run -a cargo test recording::session::tests::x11_source_records_a_complete_private_avi_session -- --ignored --exact"
+    bash -c "cd apps/legacy-tauri/native && xvfb-run -a cargo test recording::native_x11_tests::x11_source_records_a_complete_private_avi_session -- --ignored --exact"
   run_step "X11 剪贴板隔离协议回归" ./scripts/test-x11-clipboard.sh
 else
   skip_step "X11 录屏到可恢复 AVI 闭环 (仅 Linux)"
@@ -127,7 +245,7 @@ fi
 if [[ "${CLIPPY_CROSS_CHECK:-0}" == "1" ]]; then
   if rustup target list --installed 2>/dev/null | grep -qx 'aarch64-apple-darwin'; then
     run_step "交叉 clippy: vendor/arboard @ aarch64-apple-darwin" \
-      bash -c "cd src-tauri && cargo clippy -p arboard --target aarch64-apple-darwin --all-targets -- -D warnings"
+      bash -c "cd apps/legacy-tauri/native && cargo clippy -p arboard --target aarch64-apple-darwin --all-targets -- -D warnings"
   else
     skip_step "交叉 clippy: vendor/arboard @ aarch64-apple-darwin — 先 rustup target add aarch64-apple-darwin"
   fi
@@ -137,10 +255,10 @@ if [[ "${CLIPPY_CROSS_CHECK:-0}" == "1" ]]; then
   # VCINSTALLDIR 时才尝试。
   if rustup target list --installed 2>/dev/null | grep -qx 'x86_64-pc-windows-msvc'; then
     run_step "交叉 clippy: vendor/xcap WGC @ x86_64-pc-windows-msvc" \
-      bash -c "cd src-tauri && cargo clippy --manifest-path vendor/xcap/Cargo.toml --lib --features wgc --target x86_64-pc-windows-msvc -- -D warnings"
+      bash -c "cd apps/legacy-tauri/native && cargo clippy --manifest-path vendor/xcap/Cargo.toml --lib --features wgc --target x86_64-pc-windows-msvc -- -D warnings"
     if command -v cargo-xwin >/dev/null 2>&1 || [[ -n "${VCINSTALLDIR:-}" ]]; then
       run_step "交叉 clippy: clippy-app @ x86_64-pc-windows-msvc" \
-        bash -c "cd src-tauri && cargo clippy --target x86_64-pc-windows-msvc --all-targets -- -D warnings"
+        bash -c "cd apps/legacy-tauri/native && cargo clippy --target x86_64-pc-windows-msvc --all-targets -- -D warnings"
     else
       skip_step "交叉 clippy: clippy-app @ x86_64-pc-windows-msvc — 需 MSVC 工具链（cargo-xwin 或 VCINSTALLDIR）"
     fi
@@ -161,18 +279,18 @@ run_step "录屏编码供应链" node scripts/verify-recording-codec-supply-chai
 run_step "Windows WGC 光标补丁" node scripts/verify-xcap-patch.mjs
 
 # --- Frontend ---
-run_step "npm ci" bash -c "cd src && npm ci --prefer-offline"
-run_step "npm audit（生产依赖）" bash -c "cd src && npm audit --omit=dev --audit-level=low"
-run_step "npm audit（高危开发依赖）" bash -c "cd src && npm audit --audit-level=high"
-run_step "vanilla JS 静态检查" bash -c "cd src && npm run lint:js"
-run_step "typecheck" bash -c "cd src && npx tsc --noEmit"
-run_step "vitest" bash -c "cd src && npx vitest run"
+run_step "npm ci" bash -c "cd apps/legacy-tauri/frontend && npm ci --prefer-offline"
+run_step "npm audit（生产依赖）" bash -c "cd apps/legacy-tauri/frontend && npm audit --omit=dev --audit-level=low"
+run_step "npm audit（高危开发依赖）" bash -c "cd apps/legacy-tauri/frontend && npm audit --audit-level=high"
+run_step "vanilla JS 静态检查" bash -c "cd apps/legacy-tauri/frontend && npm run lint:js"
+run_step "typecheck" bash -c "cd apps/legacy-tauri/frontend && npx tsc --noEmit"
+run_step "vitest" bash -c "cd apps/legacy-tauri/frontend && npx vitest run"
 run_step "DOM/Xvfb smoke" ./scripts/smoke-dom.sh
 run_step "Canvas 导出像素 smoke" ./scripts/smoke-canvas-export.sh
 run_step "主窗口布局像素 smoke" ./scripts/smoke-layout.sh
 
 if [[ "$QUICK" == false ]]; then
-  run_step "vite build" bash -c "cd src && npx vite build"
+  run_step "vite build" bash -c "cd apps/legacy-tauri/frontend && npx vite build"
   run_step "built main entry" node scripts/check-built-main.mjs
   if [[ "${CLIPPY_APPIMAGE_SMOKE:-0}" == "1" ]]; then
     if [[ -n "${CLIPPY_APPIMAGE_PATH:-}" ]]; then
@@ -186,15 +304,34 @@ if [[ "$QUICK" == false ]]; then
 else
   skip_step "vite build"
 fi
+}
+
+if "$RUN_CORE"; then
+  run_core_segment
+fi
+if "$RUN_LEGACY"; then
+  run_legacy_segment
+fi
+if "$RUN_SLINT"; then
+  run_slint_segment
+fi
 
 # --- Summary ---
 echo ""
 echo "=========================================="
 printf " 结果: ${GREEN}%d 通过${NC}, ${RED}%d 失败${NC}, ${YELLOW}%d 跳过${NC}\n" "$PASS" "$FAIL" "$SKIP"
 printf " 覆盖范围: 仅 %s；跳过的步骤不计为通过。\n" "$HOST_PLATFORM"
+if [[ "$RUN_CORE" == false || "$RUN_SLINT" == false ]]; then
+  printf " 证据级别: ${YELLOW}部分证据（segment=%s, quick=%s）${NC}\n" "$SEGMENT" "$QUICK"
+else
+  printf " 证据级别: ${GREEN}完整 v0.2 本地主机门禁${NC}\n"
+fi
 echo "=========================================="
 
 if [[ "$FAIL" -eq 0 ]]; then
+  if [[ "$RUN_CORE" == false || "$RUN_SLINT" == false ]]; then
+    printf "${YELLOW}提醒：本次只形成部分证据，必须再运行不带参数的 ./scripts/ci-local.sh。${NC}\n"
+  fi
   printf "${YELLOW}提醒：Windows / macOS 只能由远程 Native Check 判定，合入前请确认三平台在同一 SHA 上为 success。${NC}\n"
 fi
 

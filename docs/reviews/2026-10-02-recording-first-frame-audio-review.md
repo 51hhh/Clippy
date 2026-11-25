@@ -50,7 +50,7 @@ worker/会话或纯合同；Windows 原生编译解析真实 WASAPI/平台转发
 状态的 Reset，合同参见 [Microsoft Start](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclient-start)
 和 [Reset](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclient-reset)。
 
-根 `src-tauri/target/recording-first-frame-audio-contract/` 保存初始/诊断红、第一次绿的
+根 `target/recording-first-frame-audio-contract/` 保存初始/诊断红、第一次绿的
 失败、冻结红、源文件恢复摘要及原 W50 状态/报告；源文件仅在受控红重放期间换为
 原 Git blob，命令 finally 完整恢复六个修复文件。`final-contract/` 保存最终原实现红；
 `CONTRACT-AUDIT.json` 绑定最终同字节夹具、原领域/四模块和未修改 scope。目标合同

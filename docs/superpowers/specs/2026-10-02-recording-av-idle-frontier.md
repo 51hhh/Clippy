@@ -38,7 +38,7 @@ W53 未修改 AVI 周期提交测试的一次 30 秒超时原因仍未定位；�
 
 ## Evidence plan
 
-`src-tauri/target/recording-av-idle-frontier-contract/` 保存原 W53 状态/报告、原 merge 红、
+`target/recording-av-idle-frontier-contract/` 保存原 W53 状态/报告、原 merge 红、
 最终同夹具旧 merge 重放、绿色领域、源输入与旧测试正文核对、冻结 SHA 完整门禁。
 源下界 API 的测试只在新实现可执行，单列于旧 merge 运行期红绿；合成 native codec
 测试不代表实际 WGC/WASAPI 设备测量，文件/构建/矩阵不计测试通过。

@@ -30,7 +30,7 @@ Windows 10、双屏、混合 DPI、负坐标、极小显示器工作区和画布
 - 已安装 QA 包源码：`45769c958e9d4311a7d61ee53ed6707cc9a11ac4`。
 - Windows 11 单屏、125% DPI，256×128 RGBA 夹具产生 308×280 逻辑像素 Pin 窗口；
   完整工具栏底部的保存、复制、关闭按钮被裁切，打开/关闭画布后仍然如此。
-- 原生观察记录及截图保存于 `src-tauri/target/windows-native-qa/45769c958e9d4311a7d61ee53ed6707cc9a11ac4/operator-evidence/`
+- 原生观察记录及截图保存于 `target/windows-native-qa/45769c958e9d4311a7d61ee53ed6707cc9a11ac4/operator-evidence/`
   的 `pin-native-live-observation.json`、`pin-small-image-toolbar-clipped.png`。
 - 新前端回归在修复前失败：实际 CSS 占用与定位合计底部 359 px，旧窗口允许的底部为 272 px。
 - 用户要求停止桌面操作，转为代码 review 与修复；桌面复测保留未完成。
@@ -58,7 +58,7 @@ Rust 1.98.1 MSVC、Node 24.21.0；完整 `scripts/ci-windows.ps1 -RecordingQa` e
 | 同 SHA 原生 CI | 未运行。其他平台编译不能由本机 Windows 门禁替代。 |
 | 修复后桌面 QA | 未运行，用户要求停止桌面操作；当前安装包仍为旧源码 45769c9。 |
 
-证据位于本工作区主检出的 `src-tauri/target/windows-pin-toolbar-native-qa-7aa6cf6-direct-wait/`，
+证据位于本工作区主检出的 `target/windows-pin-toolbar-native-qa-7aa6cf6-direct-wait/`，
 `RESULT.json` 绑定源码、工具链、日志哈希、exit 0 与完整检查汇总。
 首次运行输出相同通过汇总，但外层脚本的进程树等待未返回，退出码未知；原日志保留在
 `windows-pin-toolbar-native-qa-7aa6cf6/`，不计为一次成功运行。

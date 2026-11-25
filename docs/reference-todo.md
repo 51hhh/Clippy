@@ -50,7 +50,7 @@
 ## P4: 错误类型化
 - [x] 各领域 thiserror 错误：`StorageError`、`TranslationError`、`PasteError`、
       `PinError`、`CaptureError`，每个都带稳定 `code()`
-- [x] 顶层 `ClippyError`（`src-tauri/src/error.rs`）聚合五个领域，提供
+- [x] 顶层 `ClippyError`（`apps/legacy-tauri/native/src/error.rs`）聚合五个领域，提供
       `domain()`/`code()`/`identifier()`，让日志标识形如 `paste.portal_start_rejected`
 - [x] command 层 .map_err 保持 String 但内部结构化：`From<XxxError> for String`
       集中在各领域 error.rs，`Display` 文案与重构前逐字一致
@@ -73,7 +73,7 @@
 - 来源: translator Cargo.toml
 
 ## P6.5: 后端原生文案本地化
-- [x] `src-tauri/src/i18n.rs`：`NativeText` 静态文案（托盘 Open/Settings/Quit、设置窗口标题、
+- [x] `apps/legacy-tauri/native/src/i18n.rs`：`NativeText` 静态文案（托盘 Open/Settings/Quit、设置窗口标题、
       截图编辑器窗口标题），漏字段在编译期报错
 - [x] 语言解析与前端 `i18n.js::resolveLocale` 同规则；环境变量按参数注入便于测试
 - [x] `config-changed` 用 `MenuItem::set_text` 原地刷新菜单文案，不重建菜单
@@ -86,9 +86,9 @@
 - 来源: flashot scripts/ci-local.sh
 
 ## P8: criterion 性能基线
-- [x] `src-tauri/benches/`：screenshot（PNG 编解码）、clipboard（哈希/敏感判定/HTML 剥离）、
+- [x] `apps/legacy-tauri/native/benches/`：screenshot（PNG 编解码）、clipboard（哈希/敏感判定/HTML 剥离）、
       storage（`get_clips` 的 FTS5 与 LIKE 两条路径）
-- [x] `src-tauri/src/bench_support.rs` 作为基准唯一的内部入口，基准调生产代码而不是复制实现
+- [x] `apps/legacy-tauri/native/src/bench_support.rs` 作为基准唯一的内部入口，基准调生产代码而不是复制实现
 - [x] 不做裁剪基准：裁剪是 memcpy，被同路径的 `encode_png` 掩盖两个数量级；
       flashot 的 `crop_bench.rs` 量的是 bench 文件里自己复制的实现
 - [x] 首次基线数字与已知坑（bench 与 release 共用 `target/release` 的 panic 策略冲突）见

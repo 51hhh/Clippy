@@ -66,6 +66,6 @@ Windows prepare/connect 重新查询，并比较实际 descriptor 的物理 crop
 vendor 十八项和剪贴板二十四项通过。check、严格 clippy、供应链、构建/入口通过；原始日志/源码
 哈希、门禁前后干净检出、四份锁定原生源码和已核对退出码的 helper 哈希一致。十三份既有生产/
 回归文件及两份原 Rust 测试模块正文保留，capability 原字节与新十二项红绿测试文件字节不变。
-完整结果目录 C:\win\Clippy\src-tauri\target\windows-pin-live-dpi-native-qa-e339042。
+完整结果目录 C:\win\Clippy\apps/legacy-tauri/native\target\windows-pin-live-dpi-native-qa-e339042。
 后继只同步四份 Markdown；真实成像、事件、硬件矩阵和当前 SHA CI 未验证。
-红绿/源码目录 C:\win\Clippy\src-tauri\target\windows-pin-live-dpi-contract。
+红绿/源码目录 C:\win\Clippy\apps/legacy-tauri/native\target\windows-pin-live-dpi-contract。

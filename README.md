@@ -29,7 +29,9 @@
 
 Clippy lives in your system tray, watches the clipboard in the background, and lets you search and recall anything you've copied — text, HTML, images — with a single hotkey.
 
-Built with **Tauri v2 + Rust**. No Electron. No bloat.
+The current v0.1.x product uses **Tauri 2.12.4 + Rust**. A separate
+**Slint 1.19.0** native shell is being developed for v0.2.0; it is not yet a
+feature-complete or published replacement. No Electron.
 
 ## Screenshots
 
@@ -104,19 +106,19 @@ sudo apt install -y \
 cargo install tauri-cli --version "^2"
 
 git clone https://github.com/51hhh/Clippy.git && cd Clippy
-cd src && npm install && cd ..
-cargo tauri build
+cd apps/legacy-tauri/frontend && npm install && cd ../../..
+cargo tauri build --config apps/legacy-tauri/native/tauri.ci.conf.json
 ```
 
-Output: `src-tauri/target/release/bundle/`
+Output: `target/release/bundle/`
 
-> **Tip**: If the pre-built deb doesn't work on your distro (e.g. system library mismatch), building from source ensures full compatibility with your system.
+> **Tip**: The local-build overlay disables updater signing, so no release private key is required. Official release builds use the base config plus `TAURI_SIGNING_PRIVATE_KEY`. If the pre-built deb doesn't work on your distro (e.g. system library mismatch), building from source ensures full compatibility with your system.
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Framework | [Tauri v2](https://v2.tauri.app/) |
+| Framework | Tauri 2.12.4 (v0.1.x); Slint 1.19.0 (v0.2 migration) |
 | Backend | Rust — arboard, rusqlite, sha2, image, ashpd |
 | Frontend | Vanilla HTML / CSS / JS (ES Modules) |
 | Preview | highlight.js · marked · DOMPurify |
@@ -155,7 +157,7 @@ flowchart LR
 ## Project Structure
 
 ```
-src/                          # Frontend
+apps/legacy-tauri/frontend/   # Legacy Tauri frontend (v0.1.x)
 ├── index.html                # Main panel (list + preview)
 ├── settings.html             # Settings window
 ├── js/
@@ -171,7 +173,7 @@ src/                          # Frontend
 ├── styles/                   # CSS
 └── i18n/                     # en, zh-CN
 
-src-tauri/src/                # Rust backend
+apps/legacy-tauri/native/src/                # Rust backend
 ├── lib.rs                    # App init + plugin setup
 ├── commands.rs               # AppState + compatibility re-exports
 ├── commands/                 # Clipboard, settings, tmux, capture, OCR, URL commands
@@ -186,16 +188,22 @@ src-tauri/src/                # Rust backend
 ├── capture/                  # CaptureSession and monitor overlays
 ├── pin/                      # Unified PinManager and window lifecycle
 └── translation/              # Providers, errors, request IDs and keyring secrets
+
+apps/slint/                   # Native Slint UI migration shell (v0.2.0)
+├── src/main.rs               # Rust entrypoint
+├── ui/                       # Slint components
+└── slint-project.json        # Language edition and main UI
 ```
 
 ## Development
 
 ```bash
-cargo tauri dev                              # Dev server (hot-reload)
-cd src-tauri && cargo check --all-targets     # Compile check
-cd src-tauri && cargo test                   # Unit tests
-cd src-tauri && cargo clippy --all-targets -- -D warnings  # Lint
-cd src && npx vitest run                     # Frontend tests
+cd apps/legacy-tauri/frontend && npx tauri dev --config ../native/tauri.conf.json
+cargo run -p clippy-slint                    # Native v0.2 UI shell
+cd apps/legacy-tauri/native && cargo check --all-targets     # Compile check
+cd apps/legacy-tauri/native && cargo test                   # Unit tests
+cd apps/legacy-tauri/native && cargo clippy --all-targets -- -D warnings  # Lint
+cd apps/legacy-tauri/frontend && npx vitest run # Frontend tests
 ./scripts/ci-local.sh                        # Full local gate + DOM/Xvfb smoke
 ```
 
@@ -210,6 +218,7 @@ Contributions welcome. Please open an issue first to discuss changes.
 ## Credits
 
 - [Tauri](https://tauri.app/) — Smaller, faster, more secure desktop apps
+- [Slint](https://slint.dev/) — Native UI toolkit selected for the v0.2.0 migration
 - [arboard](https://github.com/1Password/arboard) — Cross-platform clipboard
 - [rusqlite](https://github.com/rusqlite/rusqlite) — SQLite for Rust
 - [ashpd](https://github.com/bilelmoussaoui/ashpd) — XDG Portal bindings

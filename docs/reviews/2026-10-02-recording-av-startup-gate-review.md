@@ -49,7 +49,7 @@ CLI 测试使用受控 source；未运行产品 QA EXE、安装器或真实 WGC/
 
 ## 本机证据
 
-根目录 `C:\win\Clippy\src-tauri\target\` 下：
+根目录 `C:\win\Clippy\apps/legacy-tauri/native\target\` 下：
 
 - `recording-av-startup-gate-contract/`：原红、同六项绿、领域 301 报告与真实退出；保存
   新三项源码、原测试正文对比、`STARTUP-CONTRACT-AUDIT.json`、提交绑定

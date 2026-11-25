@@ -43,4 +43,4 @@ dual_track_webm_contains_opus_timing_metadata_and_tail_padding 在 SeekPreRoll
 本地门禁、实际WGC/WASAPI/长时同步、安装器/无CRT启动、Win10/多屏仍未验。
 本SHA release未构建；W58默认/QA的830b12b产物与旧安装不含本修复，证据保留。
 W53历史AVI一次30秒超时没有worker原错，根因仍未知；上述旧Opus失败也保留。
-证据在 `src-tauri/target/video-control-preflight-contract/` 与冻结SHA完整Windows门禁目录。
+证据在 `target/video-control-preflight-contract/` 与冻结SHA完整Windows门禁目录。

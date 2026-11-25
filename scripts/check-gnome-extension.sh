@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GNOME Shell 扩展的静态检查。
 #
-# 这份扩展是 include_str! 进二进制的（见 src-tauri/src/capture/shell_extension.rs），
+# 这份扩展是 include_str! 进二进制的（见 apps/legacy-tauri/native/src/capture/shell_extension.rs），
 # 里面写错一个字要等到用户注销重登、gnome-shell 加载失败才暴露，而 gnome-shell 的
 # 报错只进 journal。所以语法和清单的一致性必须在门禁里就查掉。
 #

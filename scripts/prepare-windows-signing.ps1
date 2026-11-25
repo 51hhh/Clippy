@@ -1,5 +1,5 @@
 param(
-  [string]$OutputPath = "src-tauri/tauri.windows.signing.conf.json"
+  [string]$OutputPath = "apps/legacy-tauri/native/tauri.windows.signing.conf.json"
 )
 
 $ErrorActionPreference = "Stop"

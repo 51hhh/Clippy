@@ -50,7 +50,7 @@ sample 切点。另两处是新夹具的错误预期：journal 原合同先提�
 QA 1330 各 5 ignored，两图重叠；新十三项在两图，十项仅 QA，领域 364 已在 QA 内。
 前端 81 文件/1403 passed；file/Git 核对不计测试通过。`COMMITTED-CONTRACT-AUDIT.json`
 将十七份 Rust 输入绑定干净 SHA，后继仅五份 Markdown，生产/测试保持。
-证据在 `src-tauri/target/recording-av-idle-frontier-contract/`：原 W53 状态/报告，
+证据在 `target/recording-av-idle-frontier-contract/`：原 W53 状态/报告，
 初始红、阶段失败/绿、最终 frozen-red 与逐字节恢复、final-green、合同/源码绑定。
 完整门禁 `recording-av-idle-frontier-native-qa-6518661/RESULT.json` 保存原日志哈希；
 根状态/报告与 `REVIEW-CLOSURE.json` 保留旧桌面/安装/产物身份。

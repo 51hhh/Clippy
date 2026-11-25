@@ -58,5 +58,5 @@ Windows MSVC 提取原 eager 选择协议红基线 exit 101：13 项中 11 passe
 源码与原始 stdout/stderr、checked helper 哈希及干净检出已核对。Tao 原生物理 min/max 单位
 保持，WM_DPICHANGED 的 Windows 10/11 分支不同；源码审查不证明实际消息/约束时序或最终像素。
 真实原生错误/窗口/多屏/DPI、其它宿主与当前 SHA CI 未验，桌面操作保持停止。
-合同证据 C:\win\Clippy\src-tauri\target\windows-main-window-target-contract；完整门禁
-C:\win\Clippy\src-tauri\target\windows-main-window-target-native-qa-c9d5512。
+合同证据 C:\win\Clippy\apps/legacy-tauri/native\target\windows-main-window-target-contract；完整门禁
+C:\win\Clippy\apps/legacy-tauri/native\target\windows-main-window-target-native-qa-c9d5512。

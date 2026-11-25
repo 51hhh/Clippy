@@ -14,7 +14,7 @@
 
 | 层级 | 入口 | 覆盖 | 明确不覆盖 |
 |---|---|---|---|
-| 本地完整门禁 | `./scripts/ci-local.sh` | 当前宿主 Rust/前端、合同门禁、DOM/像素 smoke、生产构建 | 非宿主 `cfg` 分支和真实目标桌面 |
+| 本地完整门禁 | `./scripts/ci-local.sh` | 当前宿主 core/platform/storage/Slint v0.2 路径 | legacy 维护兼容、非宿主 `cfg` 分支和真实目标桌面 |
 | 可选交叉检查 | `CLIPPY_CROSS_CHECK=1 ./scripts/ci-local.sh` | 工具链可达的非宿主编译期问题 | 目标平台测试、原生 API 运行和桌面行为 |
 | 同 SHA 原生 CI | `.github/workflows/build.yml` | Ubuntu、Windows、macOS 原生 check/clippy/test | 安装包、签名信任、权限和混合 DPI |
 | Native/人工 QA | `.github/workflows/native-qa.yml` + [`native-qa.md`](native-qa.md) | QA 包、运行 smoke 和真实桌面场景 | 单元测试与静态合同门禁 |
@@ -33,40 +33,36 @@ CI；只有真实安装包和桌面交互可以关闭 Native/人工 QA 项。
 
 | 步骤 | 命令 | 说明 |
 |------|------|------|
-| Rust 格式检查 | `cargo fmt -- --check` | 代码格式必须符合 rustfmt 标准 |
-| Rust 编译检查 | `cargo check --all-targets` | 检查所有本机 Rust target |
-| Rust Lint | `cargo clippy --all-targets -- -D warnings` | 所有 warning 视为 error |
-| Rust 单元测试 | `cargo test` | 后端测试 |
-| 前端测试 | `npx vitest run` | 前端测试（jsdom） |
-| 前端类型检查 | `npx tsc --noEmit` | 检查 React/TS 功能岛 |
-| 前端构建 | `npx vite build` | 验证正式前端产物 |
+| Rust 格式检查 | `cargo fmt`（core/platform/storage/Slint） | 只检查 v0.2 当前路径 |
+| Rust 编译检查 | `cargo check --all-targets`（指定新版 package） | 检查共享层与 Slint 本机 target |
+| Rust Lint | `cargo clippy --all-targets -- -D warnings`（指定新版 package） | 所有 warning 视为 error |
+| Rust 单元测试 | `cargo test`（指定新版 package） | 共享层与 Slint host 测试 |
+| Rust 依赖审计 | `cargo-audit 0.22.2` | 固定工具版本，以进程退出码拒绝 RustSec vulnerability；warning 保持可见 |
+| Slint 入口 | `cargo check/clippy/test -p clippy-slint` | 检查固定 Slint 1.19.0 的 v0.2 应用 |
 | 原生平台检查 | Rust check/clippy/test | Windows 与 macOS 原生 runner 编译、平台 API 与测试门禁 |
-| VP9 原型矩阵 | feature clippy + VP9 mux/session tests | Ubuntu 22 x64、Windows x64、macOS arm64 验证固定归档和编码闭环 |
+| legacy 录屏原型 | 手动 `legacy_recording_prototype=true` | 仅维护旧原型时编译，不属于 v0.2 默认门禁 |
 
 ### 环境
 - **Runner**: Linux 使用 `ubuntu-22.04` 作为最低构建基线；原生编译门禁使用 `windows-latest` 与 `macos-latest`
-- **系统依赖**: 默认 Linux 依赖图必须包含 `pipewire-rs`；Jammy 使用官方
-  `libpipewire-0.3-dev` 0.3.48 和仓库内的最小 `libspa` 兼容补丁构建，不依赖第三方 PPA；
-  另需 `libgbm-dev/libegl-dev/libdrm-dev/libwayland-dev/libxcb1-dev`，以及 DOM smoke 使用的
-  `xvfb`/`x11-utils`
-- **Rust**: stable（含 clippy + rustfmt 组件）
-- **Node.js**: 24
+- **系统依赖**: 默认 Linux 只安装 Slint/winit/FemtoVG 所需的构建、fontconfig、xkbcommon、Wayland、
+  XCB 与 EGL/OpenGL 开发包，不安装 WebKit/GTK/PipeWire legacy 依赖
+- **Rust**: `rust-toolchain.toml` 固定的 1.98.0（含 clippy + rustfmt 组件）；升级需在同一提交中验证格式、三平台原生门禁与打包链路
 - **缓存**: `Swatinem/rust-cache@v2`（加速 Rust 编译）
 
-前端测试、类型检查和构建在 Jammy 与 Windows 执行，Windows 另核对 IPC/HTML 边界和实际生产入口。
-两者均运行 OCR 质量与视觉段落合同，分别覆盖 POSIX mode 和原生 DACL。避免盘符、文件 URL、权限和宿主路径错误只在
-用户本机暴露；macOS runner 执行原生 Rust 检查。
+普通 CI 不安装 legacy Node 前端，也不编译 Tauri/WebView。Windows 与 macOS 保留既有 required-check
+名称，但内容改为 core/platform/storage/Slint 原生 Rust 检查；legacy 维护证据必须从显式维护入口单独记录。
 安装包构建移入独立 Native QA workflow，避免每次 push 重复生成约 190 MB
 测试产物，也避免普通 CI 在界面上与正式发布混淆。
 
-`Recording Codec Prototype` 是 VP9 原型的独立阻塞矩阵，使用 `ubuntu-22.04`、`windows-latest`、
+`Recording Codec Prototype` 保留旧版 VP9 原型矩阵，但只在手动 workflow 勾选
+`legacy_recording_prototype` 时运行。它使用 `ubuntu-22.04`、`windows-latest`、
 GitHub 当前定义为 arm64 的 `macos-15`，以及 `macos-15-intel` runner。Ubuntu x64 与 macOS ARM
 使用仓库固定 SHA-256 的 libvpx 预编译归档；Windows MSVC 与 macOS Intel
 启用 `recording-vp9-source-build`，从固定 SHA-256 的 libvpx v1.16.0 源码归档编译。矩阵核对 vendored
 绑定、第三方许可证、feature Clippy、VP9/Opus mux、单轨分段和可恢复双轨 session 测试；Windows
 目标使用 `recording-windows-av-qa`，同时编译 WGC/WASAPI 产品接线。会话测试还会强制终止独立
-子进程，验证已提交 WebM 前缀可恢复、未提交尾段被清理。四目标同一 SHA 成功前，VP9 仍不能成为
-默认编码器。
+子进程，验证已提交 WebM 前缀可恢复、未提交尾段被清理。该结果只服务 legacy 维护，不能计为 Slint
+v0.2 录屏接入证据。
 Windows 源构建使用 MSYS2 make/diffutils/Perl/NASM 和 MSBuild；Intel 安装 NASM，两者均由 Rust
 `llvm-tools` 完成静态库符号重写。
 runner 架构以
@@ -75,8 +71,8 @@ runner 架构以
 
 ## Native QA Packages（native-qa.yml）
 
-在 GitHub Actions 中选择待测 ref 并手动运行。workflow 会显式合并公共配置、对应平台配置和关闭 updater
-附加产物的 `tauri.ci.conf.json`，保留 14 天并上传绑定完整 commit SHA 的四套安装包：
+在 GitHub Actions 中选择待测 ref 并手动运行。`backend` 默认是 `slint`；只有选择 `legacy` 或 `all`
+才安装 Tauri/Node/WebView 构建依赖。两条路径都保留 14 天并上传绑定完整 commit SHA 的安装包：
 
 - Ubuntu 22 构建的 x64 deb 与已移除宿主 Wayland/PipeWire ABI 库的 AppImage；
 - 临时自签名并核对 Authenticode 的 Windows x64 NSIS 与 MSI；
@@ -100,6 +96,9 @@ NASM、MSBuild 和 Rust `llvm-tools-preview`；macOS QA job 同样安装 `llvm-t
 Windows QA 包可验证 Authenticode 摘要与 signer 一致，但不具备公共 CA 信任，也不能用于 Tauri updater
 签名验收。当前正式 release 的 macOS 包同样采用 Ad-Hoc 签名，能验证
 产物完整性与架构，但不具备 Developer ID、公证或 Gatekeeper 公共信任；发布说明必须明确这一限制。
+
+Slint QA 使用独立应用 ID、可执行文件与数据命名空间，生成 deb/AppImage、NSIS/MSI 和 app/DMG；
+能打包只证明产物边界，平台服务尚未全部接入前仍不能当成功能完整验收。legacy QA 仅在显式选择时生成。
 
 ### 原生 runner 证据
 
@@ -127,41 +126,52 @@ Native QA 之后的权限、焦点、输入注入、混合 DPI、Spaces 和 Wayl
 
 ### 本地复现
 
-原生 Windows 使用 `./scripts/ci-windows.ps1`，录屏改动追加 `-RecordingQa`。
-`-FrontendOnly` 和 `-Quick` 都属于部分门禁，不能记为完整通过；Linux WebKit/Xvfb 像素 smoke
-仍须在 Linux 执行。环境与证据边界见 [`windows-development.md`](windows-development.md)。
+原生 Windows 使用 `./scripts/ci-windows.ps1`，默认 `Current` 只跑 core + Slint。维护旧录屏时显式使用
+`-Segment Legacy -RecordingQa`；`FrontendOnly` 与单一 `Core`/`Legacy`/`Slint` 都只是部分证据。
+环境与证据边界见 [`windows-development.md`](windows-development.md)。
 
 ```bash
 # 完整本地门禁（推荐）
 ./scripts/ci-local.sh
 
+# 开发期快速定位；单一子集只能形成部分证据
+./scripts/ci-local.sh --segment core
+./scripts/ci-local.sh --segment legacy --quick
+./scripts/ci-local.sh --segment slint
+
+# 需要同时复核旧版兼容时才使用；会重新生成 Tauri/Node 前端产物
+./scripts/ci-local.sh --segment all
+
 # 可选：已安装对应目标/工具链时增加交叉 lint；不能替代原生 runner
 CLIPPY_CROSS_CHECK=1 ./scripts/ci-local.sh
 
-# 可选：对已构建 AppImage 增加 X11 可视 smoke
-CLIPPY_APPIMAGE_SMOKE=1 ./scripts/ci-local.sh
+# legacy 可视 smoke 仅用于旧版维护
+CLIPPY_APPIMAGE_SMOKE=1 ./scripts/ci-local.sh --segment legacy
 
 # 格式检查
-cd src-tauri && cargo fmt -- --check
+cd apps/legacy-tauri/native && cargo fmt -- --check
 
 # Lint
-cd src-tauri && cargo clippy --all-targets -- -D warnings
+cd apps/legacy-tauri/native && cargo clippy --all-targets -- -D warnings
 
 # Rust 测试
-cd src-tauri && cargo test
+cd apps/legacy-tauri/native && cargo test
 
 # 前端测试
-cd src && npx vitest run
+cd apps/legacy-tauri/frontend && npx vitest run
 ```
 
-`ci-local.sh` 当前还运行 `cargo check --all-targets`、X11 剪贴板隔离协议、GNOME 扩展检查、HTML/Tauri
-边界、IPC 合同、vanilla JS lint、TypeScript、DOM/Canvas/布局 smoke、Vite build 与构建入口检查。
-完整步骤以脚本本身为准；`--quick` 会跳过构建，因此不满足合入前“完整门禁”要求。
+`ci-local.sh` 默认 `current` 运行 core/platform/storage 与 Slint 的 fmt/check/clippy/test，构成 v0.2 当前宿主完整
+门禁。legacy 段仍保留 Cargo、X11/GNOME、IPC/HTML、Node、DOM/Canvas/布局与 Vite 检查，但只有
+`--segment legacy` 或 `--segment all` 才执行；`--quick` 也只适用于这两种旧版维护模式。
 
 ## Release（release.yml）
 
 ### 触发条件
 - push 符合 `v*.*.*` 格式的 tag（如 `v0.1.4`）
+- `scripts/resolve-release-backend.mjs` 负责唯一的 SemVer 路由：低于 v0.2.0 选择 Tauri 2.12.4，
+  v0.2.0 预发布及以上选择 Slint 1.19.0。当前 Slint 打包 job 尚未启用，因此 Slint tag 会在
+  `check-version` 明确失败，不能误发 legacy 安装包。
 
 ### 流程
 
@@ -173,8 +183,9 @@ check-version → release-preflight ─┬→ build-linux ──────┐
 ```
 
 #### 1. check-version
-- 校验并提取 SemVer tag（去掉 `v` 前缀）
-- **验证 tag、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml` 三处版本完全一致**
+- 使用受测脚本校验 SemVer tag，并输出 version、backend、framework 与 framework version
+- legacy 路径验证 tag、`apps/legacy-tauri/native/tauri.conf.json`、
+  `apps/legacy-tauri/native/Cargo.toml` 三处版本完全一致；Slint 路径在打包 job 完成前 fail closed
 - 验证 `CHANGELOG.md` 存在精确的 `## vX.Y.Z` 标题
 - 验证 tag commit 可从 `main` 或 `dev` 到达；不满足时停止发布，不再只给 warning
 
@@ -218,8 +229,8 @@ check-version → release-preflight ─┬→ build-linux ──────┐
 > **每次发版前必须确认以下事项：**
 
 1. **版本号三处一致**：
-   - `src-tauri/tauri.conf.json` → `"version": "x.y.z"`
-   - `src-tauri/Cargo.toml` → `version = "x.y.z"`
+   - `apps/legacy-tauri/native/tauri.conf.json` → `"version": "x.y.z"`
+   - `apps/legacy-tauri/native/Cargo.toml` → `version = "x.y.z"`
    - Git tag → `vx.y.z`
 2. **CHANGELOG.md** 包含 `## vx.y.z` 章节
 3. **同一 commit SHA 的 CI Check 通过**（release preflight 会再次调用 GitHub check-runs API）
@@ -247,7 +258,7 @@ check-version → release-preflight ─┬→ build-linux ──────┐
 # 1. 更新版本号（tauri.conf.json + Cargo.toml）
 # 2. 更新 CHANGELOG.md
 # 3. 显式暂存本次版本文件和 CHANGELOG，避免带入无关工作区文件
-git add src-tauri/tauri.conf.json src-tauri/Cargo.toml CHANGELOG.md
+git add apps/legacy-tauri/native/tauri.conf.json apps/legacy-tauri/native/Cargo.toml CHANGELOG.md
 git commit -m "release: vX.Y.Z"
 
 # 4. 打 tag
@@ -287,10 +298,10 @@ SemVer、非 UTC RFC 3339 时间或非 HTTPS 下载地址。release workflow 只
 
 | 错误 | 原因 | 修复 |
 |------|------|------|
-| `cargo fmt -- --check` 失败 | 代码未格式化 | `cd src-tauri && cargo fmt` |
+| `cargo fmt -- --check` 失败 | 代码未格式化 | `cd apps/legacy-tauri/native && cargo fmt` |
 | `cargo clippy` 失败 | 代码有 warning | 按 clippy 提示修复 |
 | Release 版本验证失败 | tag 不是 SemVer、三处版本不一致、CHANGELOG 缺章节或 tag 不在发布分支 | 修正版本、变更日志或 tag 来源后重新创建 tag |
-| vitest 失败 | 前端测试不通过 | `cd src && npx vitest run` 本地复现 |
+| vitest 失败 | 前端测试不通过 | `cd apps/legacy-tauri/frontend && npx vitest run` 本地复现 |
 | 默认依赖图缺少 `pipewire v` 或 vendored `libspa` | GNOME Wayland 快路径被裁掉或 Jammy 兼容补丁失效 | 恢复非可选 PipeWire 依赖，并在 Ubuntu 22/24 重跑编译和真机性能验证 |
 | macOS Ad-Hoc 校验失败 | `.app` 没有严格签名、不是 `Signature=adhoc` 或架构不匹配 | 检查 macOS 覆盖配置、目标 triple 与 Tauri bundle 输出 |
 | NSIS/macOS `.sig` 缺失 | Tauri updater 私钥未配置或构建未生成 updater artifact | 检查 `TAURI_SIGNING_PRIVATE_KEY*` 与 `createUpdaterArtifacts` |

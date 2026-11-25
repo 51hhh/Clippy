@@ -1,0 +1,319 @@
+use super::{post, Event};
+use crate::CaptureWindow;
+use anyhow::{Context, Result};
+use clippy_core::image_output::{filename_candidates, SaveTarget};
+use clippy_platform::capture::{self, DesktopRect, FrozenOutput, FrozenPixels, Region};
+use image::{
+    codecs::png::{CompressionType, FilterType, PngEncoder},
+    ExtendedColorType, ImageEncoder, RgbaImage,
+};
+use slint::winit_030::{
+    winit::{
+        event::WindowEvent,
+        window::{Fullscreen, WindowLevel},
+    },
+    EventResult, WinitWindowAccessor,
+};
+use slint::{
+    CloseRequestResponse, ComponentHandle, PhysicalPosition, PhysicalSize, Rgba8Pixel,
+    SharedPixelBuffer,
+};
+use std::{fs, io, path::PathBuf, thread, time::Instant};
+
+pub(super) struct View {
+    window: CaptureWindow,
+    pixels: FrozenPixels,
+    name: String,
+    geometry: DesktopRect,
+}
+
+pub(super) enum Destination {
+    Clipboard,
+    File(SaveTarget),
+    Editor,
+    Longshot,
+    Record,
+}
+
+impl Drop for View {
+    fn drop(&mut self) {
+        let _ = self.window.hide();
+    }
+}
+
+pub(super) fn start(started: Instant) -> io::Result<()> {
+    thread::Builder::new()
+        .name("clippy-freeze".into())
+        .spawn(move || {
+            post(Event::CaptureReady {
+                started,
+                result: capture::freeze(),
+            });
+        })?;
+    Ok(())
+}
+
+pub(super) fn present(
+    frozen: Vec<FrozenOutput>,
+    started: Instant,
+    diagnostics: bool,
+) -> Result<Vec<View>> {
+    let single_output = frozen.len() == 1;
+    frozen
+        .into_iter()
+        .enumerate()
+        .map(|(index, output)| {
+            let wayland = clippy_platform::session::is_wayland();
+            let window = CaptureWindow::new()?;
+            let view = View {
+                window,
+                pixels: output.pixels,
+                name: output.name.clone(),
+                geometry: output.geometry,
+            };
+            let geometry = output.geometry;
+            let pixels = &view.pixels;
+            let buffer = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
+                &pixels.rgba,
+                pixels.width,
+                pixels.height,
+            );
+            view.window.set_frame(slint::Image::from_rgba8(buffer));
+            view.window
+                .window()
+                .set_position(PhysicalPosition::new(geometry.x, geometry.y));
+            let dimensions = if wayland {
+                (pixels.width, pixels.height)
+            } else {
+                (geometry.width, geometry.height)
+            };
+            view.window
+                .window()
+                .set_size(PhysicalSize::new(dimensions.0, dimensions.1));
+            view.window.on_cancel(|| post(Event::CaptureCancel));
+            view.window.window().on_close_requested(|| {
+                post(Event::CaptureCancel);
+                CloseRequestResponse::HideWindow
+            });
+            view.window
+                .on_confirm(move |action, left, top, right, bottom| {
+                    post(Event::CaptureSelection {
+                        index,
+                        action,
+                        bounds: [left, top, right, bottom],
+                    });
+                });
+            let ready_name = output.name.clone();
+            let placement_window = view.window.as_weak();
+            let mut needs_placement = wayland;
+            let mut first_redraw = true;
+            view.window
+                .window()
+                .on_winit_window_event(move |window, event| {
+                    if needs_placement {
+                        // Wayland 的原生窗口由事件循环建立，show 返回时可能还没有。
+                        if let Some(result) = window.with_winit_window(|native| {
+                            let matching = native.available_monitors().find(|monitor| {
+                                monitor.name().as_deref() == Some(ready_name.as_str())
+                            });
+                            if matching.is_none() && !single_output {
+                                anyhow::bail!("Cannot match Wayland output {ready_name}");
+                            }
+                            native.set_fullscreen(Some(Fullscreen::Borderless(matching)));
+                            anyhow::Ok(())
+                        }) {
+                            needs_placement = false;
+                            if let Err(error) = result {
+                                post(Event::CapturePlacementFailed(
+                                    placement_window.clone(),
+                                    error,
+                                ));
+                                return EventResult::PreventDefault;
+                            }
+                        }
+                    }
+                    if diagnostics && first_redraw && matches!(event, WindowEvent::RedrawRequested)
+                    {
+                        first_redraw = false;
+                        eprintln!(
+                            "capture_overlay output={ready_name} elapsed_ms={:.1}",
+                            started.elapsed().as_secs_f64() * 1000.0
+                        );
+                    }
+                    EventResult::Propagate
+                });
+            view.window.show()?;
+            if !wayland {
+                view.window.window().with_winit_window(|native| {
+                    native.set_window_level(WindowLevel::AlwaysOnTop);
+                });
+            }
+            Ok(view)
+        })
+        .collect()
+}
+
+pub(super) fn output(
+    mut views: Vec<View>,
+    index: usize,
+    bounds: [f32; 4],
+    destination: Destination,
+) -> io::Result<()> {
+    let View {
+        window,
+        pixels,
+        name,
+        geometry,
+    } = &views[index];
+    let region = Region {
+        output: name.clone(),
+        geometry: *geometry,
+        bounds,
+    };
+    // 先隐藏所有预览再做裁剪，独立保留用户选中那一屏的冻结像素。
+    let _ = window.hide();
+    let pixels = FrozenPixels {
+        width: pixels.width,
+        height: pixels.height,
+        rgba: pixels.rgba.clone(),
+    };
+    views.clear();
+    thread::Builder::new()
+        .name("clippy-screenshot-output".into())
+        .spawn(move || {
+            let started = Instant::now();
+            if matches!(destination, Destination::Record) {
+                post(Event::RecordingStart(
+                    pixels.crop_size(bounds).map(|size| (region, size)),
+                ));
+                return;
+            }
+            let result = pixels.crop(bounds[0], bounds[1], bounds[2], bounds[3]);
+            match destination {
+                Destination::File(target) => post(Event::CaptureFinished(
+                    result.and_then(|image| {
+                        let path = save_png(&image, &target)?;
+                        Ok(format!("Saved to {}", path.display()))
+                    }),
+                    started,
+                )),
+                Destination::Clipboard => post(Event::CaptureClipboard(result, started)),
+                Destination::Editor => post(Event::EditorOpen(result)),
+                Destination::Longshot => {
+                    post(Event::LongshotStart(result.map(|image| (region, image))))
+                }
+                Destination::Record => unreachable!(),
+            }
+        })?;
+    Ok(())
+}
+
+pub(super) fn save_png(image: &RgbaImage, target: &SaveTarget) -> Result<PathBuf> {
+    save_rgba(image.as_raw(), image.width(), image.height(), target)
+}
+
+#[cfg(target_os = "linux")]
+pub(super) fn system_screenshot(
+    cancelled: &std::sync::atomic::AtomicBool,
+) -> Result<Option<RgbaImage>> {
+    use clippy_capture::{image_validation::decode_strict_png, project::MAX_SOURCE_PNG_BYTES};
+    use io::Read;
+    use std::sync::atomic::Ordering;
+
+    let Some(path) = capture::system_screenshot()? else {
+        return Ok(None);
+    };
+    if cancelled.load(Ordering::Acquire) {
+        return Ok(None);
+    }
+    let metadata = path
+        .metadata()
+        .context("Cannot read the system screenshot")?;
+    anyhow::ensure!(
+        metadata.is_file() && metadata.len() <= MAX_SOURCE_PNG_BYTES as u64,
+        "The system screenshot is not a regular PNG within the size limit"
+    );
+    let mut png = Vec::new();
+    fs::File::open(path)?
+        .take(MAX_SOURCE_PNG_BYTES as u64 + 1)
+        .read_to_end(&mut png)?;
+    let image = decode_strict_png(&png, MAX_SOURCE_PNG_BYTES, "System screenshot")
+        .map_err(anyhow::Error::msg)?;
+    Ok(Some(image))
+}
+
+pub(super) fn save_screens(target: SaveTarget) -> io::Result<()> {
+    thread::Builder::new()
+        .name("clippy-screenshot-save".into())
+        .spawn(move || {
+            let started = Instant::now();
+            let result = capture::freeze().and_then(|outputs| {
+                let mut paths = Vec::with_capacity(outputs.len());
+                for screen in outputs {
+                    let image = screen.pixels;
+                    let saved = save_rgba(&image.rgba, image.width, image.height, &target)
+                        .with_context(|| {
+                            format!(
+                                "Saved {} screen(s). Could not save {}",
+                                paths.len(),
+                                screen.name
+                            )
+                        })?;
+                    paths.push(saved.display().to_string());
+                }
+                Ok(format!("Saved {}", paths.join(", ")))
+            });
+            post(Event::CaptureFinished(result, started));
+        })?;
+    Ok(())
+}
+
+fn save_rgba(rgba: &[u8], width: u32, height: u32, target: &SaveTarget) -> Result<PathBuf> {
+    fs::create_dir_all(&target.directory)?;
+    let stem = target.filename_stem("clippy-screenshot");
+    let mut staging = tempfile::Builder::new()
+        .prefix(".clippy-save-")
+        .tempfile_in(&target.directory)?;
+    PngEncoder::new_with_quality(
+        staging.as_file_mut(),
+        CompressionType::Fast,
+        FilterType::Adaptive,
+    )
+    .write_image(rgba, width, height, ExtendedColorType::Rgba8)?;
+    staging.as_file().sync_all()?;
+    for candidate in filename_candidates(&stem) {
+        let path = target.directory.join(candidate);
+        match staging.persist_noclobber(&path) {
+            Ok(_) => return Ok(path),
+            Err(error) if error.error.kind() == io::ErrorKind::AlreadyExists => {
+                staging = error.file
+            }
+            Err(error) => return Err(error.error.into()),
+        }
+    }
+    anyhow::bail!("Too many screenshots with the same filename")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::Rgba;
+
+    #[test]
+    fn commits_complete_pngs_without_overwriting_or_leaving_staging_files() {
+        let temporary = tempfile::tempdir().unwrap();
+        let target = SaveTarget {
+            directory: temporary.path().into(),
+            template: "test".into(),
+        };
+        let original = RgbaImage::from_pixel(3, 2, Rgba([141, 54, 77, 105]));
+        let replacement = RgbaImage::from_pixel(1, 2, Rgba([50, 53, 51, 255]));
+        let first = save_png(&original, &target).unwrap();
+        let second = save_png(&replacement, &target).unwrap();
+        assert_eq!(first.file_name().unwrap(), "test.png");
+        assert_eq!(second.file_name().unwrap(), "test-2.png");
+        assert_eq!(image::open(first).unwrap().into_rgba8(), original);
+        assert_eq!(image::open(second).unwrap().into_rgba8(), replacement);
+        assert_eq!(fs::read_dir(temporary.path()).unwrap().count(), 2);
+    }
+}

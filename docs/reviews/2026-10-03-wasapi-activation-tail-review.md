@@ -59,8 +59,8 @@ W53/W59/W63/W67原媒体丢失和失败根因仍未明，新裁切及W80诊断�
 前四项局部AC完成，末项复合AC和最后两条全局AC仍空。桌面停止，无安装/推送/PR/合入/发布。
 下一步可在独立target核对当前两图release编译及文件来源，不启动程序或操作设备。
 
-证据：`C:\win\Clippy\src-tauri\target\wasapi-activation-tail-contract`；完整门禁：
-`C:\win\Clippy\src-tauri\target\wasapi-activation-tail-native-qa-8889192`。全局任务未完成。
+证据：`C:\win\Clippy\apps/legacy-tauri/native\target\wasapi-activation-tail-contract`；完整门禁：
+`C:\win\Clippy\apps/legacy-tauri/native\target\wasapi-activation-tail-native-qa-8889192`。全局任务未完成。
 
 ## Release Verification（W84）
 

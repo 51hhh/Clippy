@@ -6,7 +6,7 @@
 关联 WIN-NATIVE-01；生产基线 228cc935，前置文档 ba39224。原同 SHA CI run
 37166791297 中 macOS A/V job 111331245300 的 Rust 1.99 日志明确报告三处
 fetch_update 弃用错误并 exit 101；本机现有工具链为 Rust 1.98.1。原始失败日志保留
-在 src-tauri/target/windows-ci-228cc93/FAILED-JOB-111331245300-RAW.json。
+在 target/windows-ci-228cc93/FAILED-JOB-111331245300-RAW.json。
 
 ## Requirements
 

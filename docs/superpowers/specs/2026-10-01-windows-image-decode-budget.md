@@ -59,7 +59,7 @@ exit 101；超限像素仍调用 read_image，零尺寸也未拒绝。测试只�
 25 passed / 0 failed / 1 skipped（Linux smoke），包括九项 CF_HTML 和七项预算定向合同。
 默认 Rust 1046 passed / 5 ignored，QA Rust 1099 passed / 5 ignored，前端 75 文件 / 1292 passed；
 Rust 两图重叠不累加。源码验证前后检出干净，stdout/stderr 哈希已核对；证据在主检出的
-src-tauri/target/windows-image-budget-native-qa-531d791/RESULT.json。
+target/windows-image-budget-native-qa-531d791/RESULT.json。
 另行 arboard --lib --tests 严格 clippy 通过；CI YAML 的 Windows job/条件及命令已本机解析核对。
 门禁只包含七项预算组，不把已知失败的 Chrome 扩展组纳入通过结论，W22 保留未完成。
 桌面操作按用户要求停止；

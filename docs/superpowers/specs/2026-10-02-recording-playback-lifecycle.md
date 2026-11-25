@@ -60,7 +60,7 @@ Python 33 + 3，独立 vendor 十八项/剪贴板二十四项通过，check、�
 器错误期望文件名的失败保留为证据解析记录，不计作门禁/产品测试失败，当前状态更新前已更正。
 两份源码与门禁/checked helper/原始日志哈希、门禁前后干净检出核对；门禁后只改四份
 Markdown，生产/测试字节保持；保存实际 QA/全未运行模板原字节保持，未安装更新包。
-完整证据 C:\win\Clippy\src-tauri\target\recording-playback-lifecycle-native-qa-ba26a83；
-原 App 红基线/原合同/测试发现/后续 ready 源码 C:\win\Clippy\src-tauri\target\recording-playback-lifecycle-contract。
+完整证据 C:\win\Clippy\apps/legacy-tauri/native\target\recording-playback-lifecycle-native-qa-ba26a83；
+原 App 红基线/原合同/测试发现/后续 ready 源码 C:\win\Clippy\apps/legacy-tauri/native\target\recording-playback-lifecycle-contract。
 真实窗口/播放/释放、其它宿主和当前 SHA CI 留未验，桌面操控停止。加载后 ready 的迟到
 回调/StrictMode effect 退休留为下一步生产组件候选，尚未复现，不声称实际焦点发生变化。

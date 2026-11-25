@@ -55,5 +55,5 @@ W85/W86、本轮包、原失败媒体/日志和已保留历史证据均保持原
 原8R/9AC/47Tasks和末两条全局AC、canonical/QA CRT最后复合AC继续未完成。
 无桌面/设备/DLL加载、安装、系统/信任变更、PR/合入/发布；全局WIN-NATIVE-01未完成。
 
-证据：主仓库src-tauri/target/current-package-228cc93；完整包和生成目录见PACKAGE-AUDIT。
+证据：主仓库target/current-package-228cc93；完整包和生成目录见PACKAGE-AUDIT。
 这是未签名的本地文件检查产物，不是已安装或发布的QA交付。

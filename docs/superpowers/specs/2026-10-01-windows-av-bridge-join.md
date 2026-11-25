@@ -47,14 +47,14 @@ owner 在音频门控未释放时返回。修复后同样四项通过（exit 0�
 通知完成，无类型 stub、COM、WinRT、音频设备或桌面操作。500 ms 观察窗口内不准提前返回；
 夹具通道等待有 5 秒上限，断言失败前先释放音频并观察清理，收到 owner 结果后 join owner。
 这些通道预算只用于测试，生产 join 未新增超时。
-原始失败和绿日志、源码及二进制保留于 src-tauri/target/windows-av-bridge-join-red。
+原始失败和绿日志、源码及二进制保留于 target/windows-av-bridge-join-red。
 干净源码 091b5cb7663055a3b1a44e2958255bf3717bef79 的完整 Windows 默认/录屏 QA 门禁 exit 0：
 28 passed / 0 failed / 1 skipped（Linux smoke）；默认 Rust 1058 / 5 ignored，QA Rust 1115 /
 5 ignored（两图重叠不累加），前端 75 文件 / 1292 passed，Python 33 + 3 passed。
 四项新回归在真实 QA Cargo 图通过，已包含在 1115 内，默认图不编译这个非默认模块。
 既有 worker 音视频合并/失败中止两项集成测试通过，默认/QA 严格 check/clippy、独立 WGC 六项、
 剪贴板四组 24 项、供应链及前端构建通过；日志哈希和验证后干净检出已核对。
-完整证据 src-tauri/target/windows-av-bridge-join-native-qa-091b5cb/RESULT.json；不由辅助 harness 替代。
+完整证据 target/windows-av-bridge-join-native-qa-091b5cb/RESULT.json；不由辅助 harness 替代。
 现有四平台原型 CI 的 recording::av 前缀覆盖 av_bridge_join 与 av_encoder_worker，YAML 与 Windows
 feature 条目已核对；新 SHA CI 未执行。共享其它平台图/真实 panic 未验，已安装旧包 45769c9
 不含本修复，桌面未操作，未安装新包、合入 dev、发布或启动 Linux/WSL。

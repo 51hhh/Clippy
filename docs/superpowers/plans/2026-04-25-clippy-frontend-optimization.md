@@ -18,11 +18,11 @@
 - `src/i18n/zh-CN.json` — Chinese translations
 
 ### Modified files
-- `src-tauri/tauri.conf.json` — add `skipTaskbar`
-- `src-tauri/src/lib.rs` — add `on_window_event`, fix ShortcutState filtering
-- `src-tauri/src/commands.rs` — add `app_handle` to `update_config`, add `pause_shortcuts`/`resume_shortcuts`, register new commands
-- `src-tauri/src/models.rs` — add `language` field to `AppConfig`
-- `src-tauri/src/config.rs` — update test for new field
+- `apps/legacy-tauri/native/tauri.conf.json` — add `skipTaskbar`
+- `apps/legacy-tauri/native/src/lib.rs` — add `on_window_event`, fix ShortcutState filtering
+- `apps/legacy-tauri/native/src/commands.rs` — add `app_handle` to `update_config`, add `pause_shortcuts`/`resume_shortcuts`, register new commands
+- `apps/legacy-tauri/native/src/models.rs` — add `language` field to `AppConfig`
+- `apps/legacy-tauri/native/src/config.rs` — update test for new field
 - `src/index.html` — add `data-i18n` attributes, load i18n module
 - `src/settings.html` — add `data-i18n` attributes, add language selector
 - `src/js/app.js` — add `config-changed` listener, init i18n
@@ -35,11 +35,11 @@
 ### Task 1: 任务栏隐藏 — `tauri.conf.json` 添加 `skipTaskbar`
 
 **Files:**
-- Modify: `src-tauri/tauri.conf.json`
+- Modify: `apps/legacy-tauri/native/tauri.conf.json`
 
 - [ ] **Step 1: Add `skipTaskbar` to main window config**
 
-In `src-tauri/tauri.conf.json`, add `"skipTaskbar": true` to the first window object inside `app.windows[]`:
+In `apps/legacy-tauri/native/tauri.conf.json`, add `"skipTaskbar": true` to the first window object inside `app.windows[]`:
 
 ```json
 {
@@ -57,13 +57,13 @@ In `src-tauri/tauri.conf.json`, add `"skipTaskbar": true` to the first window ob
 
 - [ ] **Step 2: Verify config is valid JSON**
 
-Run: `cd src-tauri && cargo check 2>&1 | head -20`
+Run: `cd apps/legacy-tauri/native && cargo check 2>&1 | head -20`
 Expected: compiles successfully (Tauri validates config at build time)
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add src-tauri/tauri.conf.json
+git add apps/legacy-tauri/native/tauri.conf.json
 git commit -m "fix: 主窗口隐藏任务栏图标（skipTaskbar）"
 ```
 
@@ -72,11 +72,11 @@ git commit -m "fix: 主窗口隐藏任务栏图标（skipTaskbar）"
 ### Task 2: 关闭≠退出 + 失焦自动隐藏 — `lib.rs` 添加 `on_window_event`
 
 **Files:**
-- Modify: `src-tauri/src/lib.rs`
+- Modify: `apps/legacy-tauri/native/src/lib.rs`
 
 - [ ] **Step 1: Add `on_window_event` to the Tauri Builder chain**
 
-In `src-tauri/src/lib.rs`, add `.on_window_event()` to the `tauri::Builder::default()` chain, right before `.invoke_handler(...)`. The handler needs to:
+In `apps/legacy-tauri/native/src/lib.rs`, add `.on_window_event()` to the `tauri::Builder::default()` chain, right before `.invoke_handler(...)`. The handler needs to:
 1. Intercept `CloseRequested` on both `main` and `settings` windows — prevent close and hide instead
 2. Intercept `Focused(false)` on `main` window only — hide after 200ms delay (checking focus state before hiding)
 
@@ -147,13 +147,13 @@ app.global_shortcut()
 
 - [ ] **Step 3: Verify compilation**
 
-Run: `cd src-tauri && cargo check 2>&1 | tail -5`
+Run: `cd apps/legacy-tauri/native && cargo check 2>&1 | tail -5`
 Expected: compiles with no errors
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src-tauri/src/lib.rs
+git add apps/legacy-tauri/native/src/lib.rs
 git commit -m "fix: 窗口关闭改为隐藏、主窗口失焦自动隐藏、修复快捷键双重触发"
 ```
 
@@ -162,12 +162,12 @@ git commit -m "fix: 窗口关闭改为隐藏、主窗口失焦自动隐藏、修
 ### Task 3: `AppConfig` 添加 `language` 字段
 
 **Files:**
-- Modify: `src-tauri/src/models.rs`
-- Modify: `src-tauri/src/config.rs` (update test)
+- Modify: `apps/legacy-tauri/native/src/models.rs`
+- Modify: `apps/legacy-tauri/native/src/config.rs` (update test)
 
 - [ ] **Step 1: Add `language` field to `AppConfig`**
 
-In `src-tauri/src/models.rs`, add a `language` field to the `AppConfig` struct:
+In `apps/legacy-tauri/native/src/models.rs`, add a `language` field to the `AppConfig` struct:
 
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -205,7 +205,7 @@ The `#[serde(default = "default_language")]` ensures backwards compatibility —
 
 - [ ] **Step 2: Update config test**
 
-In `src-tauri/src/config.rs`, update the `test_default_config` test to verify the new field:
+In `apps/legacy-tauri/native/src/config.rs`, update the `test_default_config` test to verify the new field:
 
 ```rust
 #[test]
@@ -221,13 +221,13 @@ fn test_default_config() {
 
 - [ ] **Step 3: Run tests**
 
-Run: `cd src-tauri && cargo test 2>&1 | tail -10`
+Run: `cd apps/legacy-tauri/native && cargo test 2>&1 | tail -10`
 Expected: all tests pass
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src-tauri/src/models.rs src-tauri/src/config.rs
+git add apps/legacy-tauri/native/src/models.rs apps/legacy-tauri/native/src/config.rs
 git commit -m "feat: AppConfig 新增 language 字段（默认 auto，向后兼容）"
 ```
 
@@ -236,11 +236,11 @@ git commit -m "feat: AppConfig 新增 language 字段（默认 auto，向后兼�
 ### Task 4: `commands.rs` — config-changed 事件广播 + 快捷键暂停/恢复
 
 **Files:**
-- Modify: `src-tauri/src/commands.rs`
+- Modify: `apps/legacy-tauri/native/src/commands.rs`
 
 - [ ] **Step 1: Add `app_handle` to `update_config` and emit `config-changed`**
 
-In `src-tauri/src/commands.rs`, modify the `update_config` command to accept `app_handle` and emit an event after saving:
+In `apps/legacy-tauri/native/src/commands.rs`, modify the `update_config` command to accept `app_handle` and emit an event after saving:
 
 ```rust
 #[tauri::command]
@@ -310,7 +310,7 @@ pub fn resume_shortcuts(app_handle: tauri::AppHandle, state: State<AppState>) ->
 
 - [ ] **Step 4: Register new commands in `lib.rs`**
 
-In `src-tauri/src/lib.rs`, add the new commands to the `invoke_handler` macro:
+In `apps/legacy-tauri/native/src/lib.rs`, add the new commands to the `invoke_handler` macro:
 
 ```rust
 .invoke_handler(tauri::generate_handler![
@@ -375,18 +375,18 @@ pub fn update_shortcut(
 
 - [ ] **Step 6: Verify compilation**
 
-Run: `cd src-tauri && cargo check 2>&1 | tail -5`
+Run: `cd apps/legacy-tauri/native && cargo check 2>&1 | tail -5`
 Expected: compiles with no errors
 
 - [ ] **Step 7: Run tests**
 
-Run: `cd src-tauri && cargo test 2>&1 | tail -10`
+Run: `cd apps/legacy-tauri/native && cargo test 2>&1 | tail -10`
 Expected: all tests pass
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src-tauri/src/commands.rs src-tauri/src/lib.rs
+git add apps/legacy-tauri/native/src/commands.rs apps/legacy-tauri/native/src/lib.rs
 git commit -m "feat: config-changed 事件广播 + 快捷键暂停/恢复命令 + ShortcutState 过滤"
 ```
 
@@ -1221,13 +1221,13 @@ git commit -m "feat: 设置页面接入 i18n + 快捷键录制暂停/恢复 + �
 ### Task 9: 设置窗口权限配置
 
 **Files:**
-- Modify: `src-tauri/capabilities/default.json`
+- Modify: `apps/legacy-tauri/native/capabilities/default.json`
 
 - [ ] **Step 1: Verify settings window has needed permissions**
 
 The settings window was added to the capabilities file at some point. Check that it includes `"core:window:allow-close"` (needed for the Cancel button's `getCurrentWindow().close()` call, which will now be intercepted by our `on_window_event` handler and converted to a hide).
 
-Read `src-tauri/capabilities/default.json` and confirm `"settings"` is listed in the `"windows"` array and `"core:window:allow-close"` is in `"permissions"`. The current file already has both, so no changes are needed.
+Read `apps/legacy-tauri/native/capabilities/default.json` and confirm `"settings"` is listed in the `"windows"` array and `"core:window:allow-close"` is in `"permissions"`. The current file already has both, so no changes are needed.
 
 If for some reason they're missing, add them:
 
@@ -1251,7 +1251,7 @@ If for some reason they're missing, add them:
 - [ ] **Step 2: Commit (only if changes were needed)**
 
 ```bash
-git add src-tauri/capabilities/default.json
+git add apps/legacy-tauri/native/capabilities/default.json
 git commit -m "fix: 确保设置窗口权限完整"
 ```
 
@@ -1263,13 +1263,13 @@ git commit -m "fix: 确保设置窗口权限完整"
 
 - [ ] **Step 1: Compile and run**
 
-Run: `cd src-tauri && cargo check 2>&1 | tail -5`
+Run: `cd apps/legacy-tauri/native && cargo check 2>&1 | tail -5`
 Expected: no errors
 
-Run: `cd src-tauri && cargo clippy -- -D warnings 2>&1 | tail -10`
+Run: `cd apps/legacy-tauri/native && cargo clippy -- -D warnings 2>&1 | tail -10`
 Expected: no warnings
 
-Run: `cd src-tauri && cargo test 2>&1 | tail -10`
+Run: `cd apps/legacy-tauri/native && cargo test 2>&1 | tail -10`
 Expected: all tests pass
 
 - [ ] **Step 2: Manual testing with `cargo tauri dev`**

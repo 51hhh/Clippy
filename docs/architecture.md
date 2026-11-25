@@ -1,12 +1,38 @@
 # Clippy 当前架构
 
-## 技术边界
+## 迁移边界
+
+- `apps/legacy-tauri/` 是 v0.1.x 的完整产品实现，固定使用 Tauri 2.12.4；迁移期仍负责现有功能与
+  必要的小修、安全修复。
+- `apps/slint/` 是 v0.2.0 的新入口，固定使用 Slint 1.19.0。生产版与 QA 版是两个显式宿主入口，
+  共用同一 Slint 应用库；当前能从隔离的数据目录异步读取并展示最近 50 条历史，敏感内容不会复制到
+  UI model。剪贴板监听、操作、托盘、截图等产品能力仍未接入，也没有启用 v0.2 正式发布打包。
+- `crates/clippy-core/` 承载剪贴板模型、产品标识和共享配置领域。`config` 拥有 `AppConfig`、默认值、
+  版本迁移、JSON 编解码及“持久化后应用、失败时补偿”的提交协议；它不持有文件路径、权限、窗口或
+  UI 类型。legacy 通过原模块重导出保持调用路径，并只保留私有文件适配器与 Tauri 副作用；Slint
+  可直接消费同一模型和协议。共享核心只依赖 serde/serde_json，不依赖 Tauri、Slint 或平台 crate。
+- `crates/clippy-platform/` 保存部署身份和后续系统适配边界，不依赖任何 UI 框架。生产身份保持现有
+  平台 ID，Slint QA 使用独立的 app/data/single-instance/shortcut namespace。`qa-build` 只开放
+  QA 可执行目标，具体身份由两个入口显式传给共享应用库，避免 Cargo feature 合并让生产入口误用
+  QA 身份。
+- `crates/clippy-storage/` 是 SQLite/FTS5 适配器，拥有现有 schema、迁移、搜索、归档、图片修订与
+  Pin 工作区持久化。连接只由有界队列后的专用线程持有，Slint 事件循环不持有 `Connection` 或
+  `Arc<Mutex<_>>`；请求带 generation，后续搜索可丢弃过期响应而不用阻塞 UI。
+- 根 `Cargo.toml` / `Cargo.lock` 统一解析两套 Rust 入口、共享核心、平台边界与 vendored patch；
+  `default-members` 只包含 core/platform/storage/Slint，普通 `cargo` 命令不会编译 legacy。后续业务能力按
+  `SLINT-UI-MIGRATION-01` 继续下沉到 UI 无关 crate，不能把 legacy 的 Tauri/WebView 调用复制进
+  Slint 正式路径。
+
+下面的领域与调用链描述当前完整的 legacy v0.1.x 实现；Slint 接入进度以迁移规格和功能矩阵为准。
+
+## legacy v0.1.x 技术边界
 
 - 主窗口：vanilla HTML/CSS/ES modules，保留稳定的剪贴板高频交互。
 - Pin、截图覆盖层、长截图控制器、图片查看器与主窗口局部面板：React + TypeScript 功能岛。
 - 系统资源：Rust/Tauri 拥有剪贴板、数据库、窗口、截图帧、Portal 会话、Pin 数据、密钥和网络请求。
-- IPC：业务模块只依赖 `src/js/api.ts` 公共 facade；`src/js/api/*.ts` 的登记领域模块持有
-  Tauri 调用边界，`ipc-types.ts` 对齐 Rust serde 字段。
+- IPC：业务模块只依赖 `apps/legacy-tauri/frontend/js/api.ts` 公共 facade；
+  `apps/legacy-tauri/frontend/js/api/*.ts` 的登记领域模块持有 Tauri 调用边界，`ipc-types.ts`
+  对齐 Rust serde 字段。
 
 ## 核心调用链
 
@@ -72,7 +98,7 @@ flowchart LR
 | `i18n.rs` | 托盘菜单与 Rust 侧窗口标题的静态文案；语言解析与前端 `i18n.js` 同规则（显式值优先，`auto` 看 `LC_ALL`/`LC_MESSAGES`/`LANG`，其余回退英文） |
 | `capture/` | 单一 CaptureSession、冻结帧、多显示器覆盖层、裁剪与动作；`window_probe.rs` 按堆叠顺序（扩展 `sort_windows_by_stacking` / X11 `_NET_CLIENT_LIST_STACKING`）下发速选候选。冻结帧像素由 `get_capture_frame` 以二进制 IPC 直传原始 RGBA（payload 只带几何），`StageTimings` 每次会话记一条分段耗时日志 |
 | `recording/` | `RecordingLifecycle` 串起可信选区、平台帧源、有界背压、共享单调时钟、VP9/WebM writer、恢复分段、控制窗和结果库；`RecordingManager` 在同一 generation 槽拥有纯视频或 VP9 + Opus 双轨 session。内部音频固定为 48 kHz mono/stereo，Windows AV QA 已把 WGC 与 WASAPI 系统声/默认麦克风接线，macOS 13+ AV QA 已把 ScreenCaptureKit 系统声接线；模式由后端能力下发且默认无音频，macOS 麦克风、Linux 音源与正式发布仍未接入。`manifest.rs` 拥有原子 journal、长度/SHA-256 与删除/导出安全合同；缩略图读取器对 schema v2 严格核对 VP9/Opus 双轨元数据，只解码首个视频关键帧，异常双轨 remux 仍保持关闭；`media_protocol.rs` 在完整校验后签发结果窗专属租约，以最大 2 MiB 的单 Range 响应支持 WebM 库内播放，WebView 不接触真实路径。 |
-| `capture/shell_extension.rs` | 自带 GNOME Shell 扩展的安装/卸载/状态、令牌校验与截图调用（逐屏原始 RGBA `CaptureArea`、逐屏 PNG `ScreenshotArea`、整屏 `Screenshot`，`include_str!` 内嵌 `gnome-extension/`）。GNOME Wayland 下既没有面向普通应用的窗口几何接口，Portal 截图也要求"聚焦的应用"才能弹授权对话框（快捷键触发时必然失败），两件事都只能以扩展身份进 gnome-shell 做；装了要注销一次生效，升级同样要（`ReloadExtension` 已废弃，故有 `stale` 状态），卸载即时。安装只由设置页显式触发，启动时只做 `reconcile_on_startup`，绝不擅自安装。`place_window` 是贴图缩放的每帧热路径，它的前置检查（是不是 GNOME Wayland、装没装、协议版本够不够、令牌文件内容）缓存在 `placement_token()` 里：成功的结果一直有效，失败的结果 30 秒后重试，安装/卸载会立刻作废缓存。详见 [docs/capture-linux.md](capture-linux.md) |
+| `capture/shell_extension.rs` | 自带 GNOME Shell 扩展的安装/卸载/状态、令牌校验与截图调用（逐屏原始 RGBA `CaptureArea`、逐屏 PNG `ScreenshotArea`、整屏 `Screenshot`，`include_str!` 内嵌 `gnome-extension/`）。当前协议回到 v5，扩展不持有 Capture 键；GNOME 快捷键由 gsd-media-keys 通过 D-Bus 立即触发应用，冻结帧优先走 PipeWire。降级时会让仍驻留内存的已知 v6 实例释放 grab 并删除恢复文件，未知更高协议则保持原文件和所有权。卸载只有得到运行实例的停用确认后才删文件；状态、安装与卸载在 blocking worker 执行。GNOME Wayland 下没有面向普通应用的窗口几何接口，Portal 截图也要求“聚焦的应用”才能弹授权对话框（快捷键触发时必然失败），两件事仍由扩展兜底；装了要注销一次生效，协议不一致同样要（`ReloadExtension` 已废弃，故有 `stale` 状态），卸载即时。安装只由设置页显式触发，启动时只做 `reconcile_on_startup`，绝不擅自安装。`place_window` 是贴图缩放的每帧热路径，它的前置检查（是不是 GNOME Wayland、装没装、协议版本够不够、令牌文件内容）缓存在 `placement_token()` 里：成功的结果一直有效，失败的结果 30 秒后重试，安装/卸载会立刻作废缓存。详见 [docs/capture-linux.md](capture-linux.md) |
 | `portal_shortcuts.rs` | 非 GNOME Wayland 的 XDG GlobalShortcuts Portal worker。完整配置一次性绑定到长生命周期 session；Portal 返回子集时逐动作记账。配置变化或录制快捷键会以代次取消正在等待用户确认的旧 Bind、关闭旧 session，再按完整配置建立新 session，避免旧会话与新会话同时响应。Tauri accelerator 会转换为 XDG `CTRL/ALT/SHIFT/LOGO + xkb keysym` 格式。 |
 | `screenshot.rs` + `screenshot/*` | 原始截图帧契约、PNG 编解码与平台后端选择。Wayland 按 Mutter PipeWire → Shell 扩展逐屏 → Shell 整屏 → wlroots → Portal（非交互）→ GNOME → xcap 回退；临时文件由 `TemporaryScreenshotFile` 兜底删除。`desktop_scale_at` 是图片像素到 CSS 像素的唯一真实缩放查询。Linux 后端依据、限制和测量记录见 [capture-linux.md](capture-linux.md)，基准方法见 [bench-baseline.md](bench-baseline.md) |
 | `pin/` | PinManager、内容来源、窗口尺寸、缩放/透明度/锁定和清理；`origins.rs` 的 `PinOriginRegistry`（挂在 `AppState.pin_origins`）记住"我们自己截下来复制走的图"原本在屏幕上的矩形，之后从历史里 Pin 同一张图时靠它贴回原处。键是**解码后像素**的 sha256（含宽高），不是 PNG 字节——图片经 arboard 走一圈是原始 RGBA，watcher 会重新编码，PNG 字节不稳定。登记方交出的是 `PinFingerprint`（已经算好的摘要 + 宽高），这样调用方能和剪贴板写入共用同一份解码像素，不必为登记再解一次或复制一份 16 MB；`lookup` 先只读 PNG 头比宽高，尺寸不匹配就直接返回，省掉整张解码。**内容尺寸的单位**：有原始矩形时直接用它（选区本来就是逻辑像素）；没有时入参是**图片像素**，`fit_content_size` 必须先按 `screenshot::desktop_scale_at` 查到的真实缩放折成 CSS 像素，拿 `scale_factor()` 或干脆不折算都会让贴图被放大再重采样。窗口外框另有 **252 px 高度下限**（竖排工具条要 249 px，随手框个小按钮的贴图按内容算只有一百来像素高，工具条会被切掉）——下限**只加高窗口、不改内容尺寸**，多出来的高度由前端留成左上角对齐的透明留白，否则"贴回原处"当场就偏。缩放时**只有位置真的可信才重新摆位**：Wayland 协议不把窗口位置告诉客户端，`outer_position()` 与 `Moved` 都是 GTK 自己那份假值，拿它算"保持中心"等于每格滚轮都把窗口传送到工作区原点（`known_pin_position` 因此在 Wayland 上返回 `None`） |
@@ -124,7 +150,11 @@ VP9/Opus 交错器在实际 WebM 0.5 ms timecode 域内比较 packet 和未来 f
 
 主要文档窗口共用 `styles/window-shell.css` 的 Window Shell、Titlebar、标题副本和窗口控制按钮原语。
 设置页由 `js/window-chrome.js` 绑定拖动、双击最大化和窗口按钮，原生动作仍从 `api.ts` facade
-注入；Launcher、Viewer、录屏库与 Pin 工作区只复用 CSS 类名，并继续使用各自已有的 service adapter。
+注入；`settings` 原生 capability 仅授予拖动、最小化与切换最大化所需权限，关闭仍走受保护的
+`close_settings` 命令。Launcher、Viewer、录屏库与 Pin 工作区只复用 CSS 类名，并继续使用各自已有的
+service adapter。动态贴图 capability 只匹配 `pin-image-*`、`pin-clip-*` 与 `pin-workspace-*`；固定
+标签 `pin-workspaces` 使用独立的事件监听 capability，其拖动与关闭只能走按调用窗口校验的业务命令，
+也不会进入贴图窗口的关闭确认、位置持久化或置顶生命周期。
 截图覆盖层、长截图控制、Pin 画布与录屏控制浮层保留面向画面的高对比工具风格，不套用文档窗口壳层。
 
 `styles/themes.css` 是六套主题 token 的唯一来源。录屏库与 Pin 工作区不得维护仅覆盖 light/dark 的
@@ -382,13 +412,20 @@ macOS Resources 中的未来 sidecar、进程 PATH、平台常见安装目录；
 
 | 证据 | 入口 | 能证明什么 | 不能替代什么 |
 |---|---|---|---|
-| 本地完整门禁 | `./scripts/ci-local.sh` | 当前宿主的 Rust、前端测试、DOM/像素 smoke 与生产构建 | 非宿主条件编译、原生桌面行为 |
+| 本地完整门禁 | `./scripts/ci-local.sh` | 当前宿主的 core/platform/storage/Slint v0.2 路径 | legacy 维护兼容、非宿主条件编译、原生桌面行为 |
 | 可选交叉检查 | `CLIPPY_CROSS_CHECK=1 ./scripts/ci-local.sh` | 已安装目标和工具链可覆盖的编译期问题 | 目标系统测试、平台 API、桌面权限 |
 | 同 SHA 原生 CI | `.github/workflows/build.yml` + `verify-native-ci.mjs` | Ubuntu、Windows、macOS 原生 check/clippy/test | 安装包签名、真实桌面交互 |
 | Native/人工 QA | `native-qa.yml` + [native-qa.md](native-qa.md) | 安装包、权限、焦点、混合 DPI、Wayland/macOS/Windows 交互 | 自动单元测试与代码合同门禁 |
 
-四种证据独立记录，不能互相替代；跳过项不计为通过。`./scripts/ci-local.sh` 依次执行 Rust
-fmt/check/clippy/test、X11/GNOME/IPC/HTML 边界、锁文件安装、JS lint、TypeScript、Vitest、
-DOM/Xvfb、Canvas/布局像素 smoke 和 Vite build。AppImage 可视 smoke 由
-`CLIPPY_APPIMAGE_SMOKE=1` 显式启用。criterion 基准会被 `--all-targets` 编译但不会在门禁中运行，
-数字与运行方式见 [bench-baseline.md](bench-baseline.md)。
+四种证据独立记录，不能互相替代；跳过项不计为通过。`./scripts/ci-local.sh` 默认执行 `current`：
+core/platform/storage 与 Slint 的 fmt/check/clippy/test，不安装 Node，也不编译 Tauri/WebView。旧版维护使用
+`--segment legacy`，需要同时验证两套时显式使用 `--segment all`；这两种模式会重新生成 legacy 的
+Cargo、Node 和前端产物。AppImage 可视 smoke 与历史 DOM/像素门禁只属于 legacy 维护证据。
+
+Slint QA 的包入口为 `apps/slint/Packager.qa.toml`。workflow 先显式构建 `clippy-slint-qa`，Packager
+配置只描述包内容，不用跨平台 shell hook 隐式编译；产物使用独立二进制和桌面入口，
+使用 `com.clippy.qa.slint` 安装身份并携带 MIT 与 Slint 第三方许可；这只证明打包边界。数据目录、
+单实例与快捷键服务在接入 `clippy-platform` 适配器后仍需逐项验证，不能因安装包 ID 已隔离就计作
+运行期隔离完成。Native QA 保留独立的 `qa-legacy-*` 和 `qa-slint-*` job；两者只共用
+`scripts/qa-build-info.mjs` 元数据合同，不共用打包命令或功能开关。该脚本从当前 manifest、lockfile
+和 Packager 配置读取实际版本与身份，扩展字段不能覆盖 backend/framework/renderer/SHA 等保留值。

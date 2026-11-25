@@ -14,6 +14,6 @@ fi
 
 xvfb-run -a -s "-screen 0 1280x800x24" bash -c '
   set -euo pipefail
-  cd src
+  cd apps/legacy-tauri/frontend
   npx vitest run tests/entrypoints-smoke.test.js
 '

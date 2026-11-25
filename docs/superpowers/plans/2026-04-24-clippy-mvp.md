@@ -28,7 +28,7 @@ clippy/
 │   │   └── theme.js                  # 主题切换
 │   └── assets/
 │       └── icon.png
-├── src-tauri/
+├── apps/legacy-tauri/native/
 │   ├── src/
 │   │   ├── main.rs                   # 二进制入口
 │   │   ├── lib.rs                    # Tauri Builder 注册
@@ -49,12 +49,12 @@ clippy/
 ## Task 1: Tauri v2 项目脚手架
 
 **Files:**
-- Create: `src-tauri/Cargo.toml`
-- Create: `src-tauri/tauri.conf.json`
-- Create: `src-tauri/build.rs`
-- Create: `src-tauri/capabilities/default.json`
-- Create: `src-tauri/src/main.rs`
-- Create: `src-tauri/src/lib.rs`
+- Create: `apps/legacy-tauri/native/Cargo.toml`
+- Create: `apps/legacy-tauri/native/tauri.conf.json`
+- Create: `apps/legacy-tauri/native/build.rs`
+- Create: `apps/legacy-tauri/native/capabilities/default.json`
+- Create: `apps/legacy-tauri/native/src/main.rs`
+- Create: `apps/legacy-tauri/native/src/lib.rs`
 - Create: `src/index.html`
 
 - [ ] **Step 1: 创建 Cargo.toml**
@@ -197,7 +197,7 @@ pub fn run() {
 - [ ] **Step 8: 验证编译**
 
 ```bash
-cd src-tauri && cargo check
+cd apps/legacy-tauri/native && cargo check
 ```
 
 Expected: 编译通过，无错误。
@@ -205,7 +205,7 @@ Expected: 编译通过，无错误。
 - [ ] **Step 9: 提交**
 
 ```bash
-git add src-tauri/ src/index.html
+git add apps/legacy-tauri/native/ src/index.html
 git commit -m "feat: Tauri v2 项目脚手架初始化"
 ```
 
@@ -214,8 +214,8 @@ git commit -m "feat: Tauri v2 项目脚手架初始化"
 ## Task 2: 数据模型（models.rs）
 
 **Files:**
-- Create: `src-tauri/src/models.rs`
-- Modify: `src-tauri/src/lib.rs`
+- Create: `apps/legacy-tauri/native/src/models.rs`
+- Modify: `apps/legacy-tauri/native/src/lib.rs`
 
 - [ ] **Step 1: 创建 models.rs**
 
@@ -302,13 +302,13 @@ mod models;
 - [ ] **Step 3: 验证编译**
 
 ```bash
-cd src-tauri && cargo check
+cd apps/legacy-tauri/native && cargo check
 ```
 
 - [ ] **Step 4: 提交**
 
 ```bash
-git add src-tauri/src/models.rs src-tauri/src/lib.rs
+git add apps/legacy-tauri/native/src/models.rs apps/legacy-tauri/native/src/lib.rs
 git commit -m "feat: 添加数据模型 ClipItem 和 AppConfig"
 ```
 
@@ -317,8 +317,8 @@ git commit -m "feat: 添加数据模型 ClipItem 和 AppConfig"
 ## Task 3: SQLite 存储引擎（storage.rs）
 
 **Files:**
-- Create: `src-tauri/src/storage.rs`
-- Modify: `src-tauri/src/lib.rs`
+- Create: `apps/legacy-tauri/native/src/storage.rs`
+- Modify: `apps/legacy-tauri/native/src/lib.rs`
 
 - [ ] **Step 1: 创建 storage.rs — 结构体和初始化**
 
@@ -746,7 +746,7 @@ mod storage;
 - [ ] **Step 7: 运行测试**
 
 ```bash
-cd src-tauri && cargo test
+cd apps/legacy-tauri/native && cargo test
 ```
 
 Expected: 全部通过。
@@ -754,7 +754,7 @@ Expected: 全部通过。
 - [ ] **Step 8: 提交**
 
 ```bash
-git add src-tauri/src/storage.rs src-tauri/src/lib.rs
+git add apps/legacy-tauri/native/src/storage.rs apps/legacy-tauri/native/src/lib.rs
 git commit -m "feat: 添加 SQLite + FTS5 存储引擎及单元测试"
 ```
 
@@ -763,8 +763,8 @@ git commit -m "feat: 添加 SQLite + FTS5 存储引擎及单元测试"
 ## Task 4: 配置管理（config.rs）
 
 **Files:**
-- Create: `src-tauri/src/config.rs`
-- Modify: `src-tauri/src/lib.rs`
+- Create: `apps/legacy-tauri/native/src/config.rs`
+- Modify: `apps/legacy-tauri/native/src/lib.rs`
 
 - [ ] **Step 1: 创建 config.rs**
 
@@ -865,13 +865,13 @@ mod config;
 - [ ] **Step 4: 运行测试**
 
 ```bash
-cd src-tauri && cargo test
+cd apps/legacy-tauri/native && cargo test
 ```
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add src-tauri/src/config.rs src-tauri/Cargo.toml src-tauri/src/lib.rs
+git add apps/legacy-tauri/native/src/config.rs apps/legacy-tauri/native/Cargo.toml apps/legacy-tauri/native/src/lib.rs
 git commit -m "feat: 添加 JSON 配置管理及单元测试"
 ```
 
@@ -880,8 +880,8 @@ git commit -m "feat: 添加 JSON 配置管理及单元测试"
 ## Task 5: 剪贴板监听器（clipboard_watcher.rs）
 
 **Files:**
-- Create: `src-tauri/src/clipboard_watcher.rs`
-- Modify: `src-tauri/src/lib.rs`
+- Create: `apps/legacy-tauri/native/src/clipboard_watcher.rs`
+- Modify: `apps/legacy-tauri/native/src/lib.rs`
 
 - [ ] **Step 1: 创建 clipboard_watcher.rs**
 
@@ -1004,13 +1004,13 @@ mod clipboard_watcher;
 - [ ] **Step 3: 验证编译**
 
 ```bash
-cd src-tauri && cargo check
+cd apps/legacy-tauri/native && cargo check
 ```
 
 - [ ] **Step 4: 提交**
 
 ```bash
-git add src-tauri/src/clipboard_watcher.rs src-tauri/src/lib.rs
+git add apps/legacy-tauri/native/src/clipboard_watcher.rs apps/legacy-tauri/native/src/lib.rs
 git commit -m "feat: 添加剪贴板监听器（arboard 轮询 + SHA-256 去重）"
 ```
 
@@ -1019,8 +1019,8 @@ git commit -m "feat: 添加剪贴板监听器（arboard 轮询 + SHA-256 去重�
 ## Task 6: IPC 命令（commands.rs）+ 完整 lib.rs 集成
 
 **Files:**
-- Create: `src-tauri/src/commands.rs`
-- Modify: `src-tauri/src/lib.rs`
+- Create: `apps/legacy-tauri/native/src/commands.rs`
+- Modify: `apps/legacy-tauri/native/src/lib.rs`
 
 - [ ] **Step 1: 创建 commands.rs**
 
@@ -1207,19 +1207,19 @@ pub fn run() {
 - [ ] **Step 3: 验证编译**
 
 ```bash
-cd src-tauri && cargo check
+cd apps/legacy-tauri/native && cargo check
 ```
 
 - [ ] **Step 4: 运行已有测试**
 
 ```bash
-cd src-tauri && cargo test
+cd apps/legacy-tauri/native && cargo test
 ```
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add src-tauri/src/commands.rs src-tauri/src/lib.rs
+git add apps/legacy-tauri/native/src/commands.rs apps/legacy-tauri/native/src/lib.rs
 git commit -m "feat: 添加 IPC 命令层，集成全部后端模块 + 全局快捷键"
 ```
 
@@ -2113,7 +2113,7 @@ git commit -m "feat: 添加前端交互逻辑（列表渲染、搜索、主题�
 - [ ] **Step 1: 运行后端测试**
 
 ```bash
-cd src-tauri && cargo test
+cd apps/legacy-tauri/native && cargo test
 ```
 
 Expected: 全部通过。
@@ -2121,7 +2121,7 @@ Expected: 全部通过。
 - [ ] **Step 2: 编译检查**
 
 ```bash
-cd src-tauri && cargo clippy -- -D warnings
+cd apps/legacy-tauri/native && cargo clippy -- -D warnings
 ```
 
 Expected: 零警告。
@@ -2129,7 +2129,7 @@ Expected: 零警告。
 - [ ] **Step 3: 格式化**
 
 ```bash
-cd src-tauri && cargo fmt
+cd apps/legacy-tauri/native && cargo fmt
 ```
 
 - [ ] **Step 4: 启动开发服务器**

@@ -1,0 +1,140 @@
+import { Button, CheckBox, ListView, TextEdit, VerticalBox } from "std-widgets.slint";
+
+export struct TextBox {
+    line: int,
+    paragraph: int,
+    outline: string,
+    left: float,
+    top: float,
+    width: float,
+    height: float,
+}
+
+export struct TextParagraph {
+    id: int,
+    source: string,
+    translated: string,
+    left: float,
+    top: float,
+    width: float,
+    height: float,
+    in-place: bool,
+}
+
+export component ImageTextWindow inherits Window {
+    in property <image> picture;
+    in property <float> image-width: 1;
+    in property <float> image-height: 1;
+    in property <[TextBox]> boxes;
+    in property <[TextParagraph]> paragraphs;
+    in property <string> original;
+    in property <string> current-text;
+    in property <string> service;
+    in property <string> status;
+    in property <bool> busy;
+    in-out property <int> selected-line: -1;
+    in-out property <int> selected-paragraph: -1;
+    in-out property <bool> show-translation: true;
+    callback select-line(int);
+    callback select-paragraph(int);
+    callback copy-result();
+    callback translate(int);
+    callback dismiss();
+
+    title: "Clippy Image Text";
+    preferred-width: 1000px;
+    preferred-height: 640px;
+    min-width: 500px;
+    min-height: 420px;
+    background: #f6f7f9;
+
+    HorizontalLayout {
+        spacing: 10px;
+        padding: 12px;
+        Rectangle {
+            horizontal-stretch: 1;
+            background: #252932;
+            border-radius: 6px;
+            depiction := Image {
+                width: min(parent.width, parent.height * root.image-width / root.image-height);
+                height: self.width * root.image-height / root.image-width;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                source: root.picture;
+                image-fit: fill;
+                for box in root.boxes: Path {
+                    width: parent.width;
+                    height: parent.height;
+                    viewbox-width: root.image-width;
+                    viewbox-height: root.image-height;
+                    commands: box.outline;
+                    stroke: box.line == root.selected-line ? #ffd158 : #29a7ef;
+                    stroke-width: box.line == root.selected-line ? 2px : 1px;
+                    fill: transparent;
+                }
+                for box in root.boxes: TouchArea {
+                    x: box.left * depiction.width;
+                    y: box.top * depiction.height;
+                    width: box.width * depiction.width;
+                    height: box.height * depiction.height;
+                    clicked => { root.select-line(box.line); }
+                }
+                for result in root.paragraphs: Rectangle {
+                    x: result.left * depiction.width;
+                    y: result.top * depiction.height;
+                    width: result.width * depiction.width;
+                    height: result.height * depiction.height;
+                    visible: root.show-translation && result.in-place && result.translated != ""
+                        && self.width > 60px && self.height > 16px;
+                    clip: true;
+                    background: #fffffff2;
+                    Text {
+                        width: parent.width;
+                        height: parent.height;
+                        font-size: clamp(parent.height / 3, 12px, 20px);
+                        text: result.translated;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+        }
+        VerticalBox {
+            width: 360px;
+            padding: 0;
+            spacing: 7px;
+            Text { text: root.status; wrap: word-wrap; }
+            ListView {
+                for result in root.paragraphs: Rectangle {
+                    height: result.translated == "" ? 53px : 84px;
+                    background: root.selected-paragraph == result.id ? #fff0e8 : #ffffff;
+                    TouchArea { clicked => { root.select-paragraph(result.id); } }
+                    VerticalLayout {
+                        padding: 6px;
+                        Text { text: result.source; wrap: word-wrap; overflow: elide; }
+                        if result.translated != "": Text {
+                            text: result.translated; wrap: word-wrap; overflow: elide; color: #234690;
+                        }
+                    }
+                }
+            }
+            TextEdit {
+                text: root.current-text == "" ? root.original : root.current-text;
+                read-only: true;
+                wrap: word-wrap;
+                height: 110px;
+            }
+            CheckBox { text: "Show translation on image"; checked <=> root.show-translation; }
+            HorizontalLayout {
+                spacing: 7px;
+                Button { text: "Copy"; enabled: root.original != ""; clicked => { root.copy-result(); } }
+                Button {
+                    text: "Translate with " + root.service;
+                    visible: root.service != "";
+                    enabled: !root.busy && root.selected-paragraph >= 0;
+                    clicked => { root.translate(root.selected-paragraph); }
+                }
+                Button { text: "Close"; clicked => { root.dismiss(); } }
+            }
+        }
+    }
+}

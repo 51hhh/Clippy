@@ -1,0 +1,114 @@
+import { Button, ComboBox, ListView, TextEdit, VerticalBox } from "std-widgets.slint";
+import { ClippyTheme, WindowTitle } from "theme.slint";
+
+export struct TranslationRow { title: string, source: string, result: string }
+
+export component ToolsWindow inherits Window {
+    in-out property <string> source;
+    in-out property <string> result;
+    in property <string> note;
+    in property <bool> busy;
+    in property <bool> system-screenshot-available;
+    in property <bool> system-screenshot-pending;
+    in property <[TranslationRow]> history;
+    callback run-action(int, string);
+    callback copy-text(string);
+    callback speak(string);
+    callback reload-history();
+    callback clear-history();
+    callback use-image();
+    callback screenshot();
+    callback system-screenshot();
+    callback dismiss();
+    callback begin-drag();
+    private property <bool> show-history;
+    private property <bool> confirm-clear;
+
+    title: "Clippy Actions";
+    preferred-width: 650px;
+    preferred-height: 600px;
+    min-height: 430px;
+    min-width: 520px;
+    background: ClippyTheme.background;
+    init => { ClippyTheme.sync-native-palette(); }
+
+    VerticalBox {
+        padding: 16px;
+        spacing: 10px;
+        HorizontalLayout {
+            spacing: 8px;
+            WindowTitle { text: root.show-history ? "Translation history" : "Actions"; begin-drag => { root.begin-drag(); } }
+            Button {
+                text: root.show-history ? "Actions" : "Translation history";
+                clicked => {
+                    root.show-history = !root.show-history;
+                    root.confirm-clear = false;
+                    if root.show-history { root.reload-history(); }
+                }
+            }
+            Button { text: "Close"; clicked => { root.dismiss(); } }
+        }
+        if root.show-history: ListView {
+            for row in root.history: Rectangle {
+                height: 61px;
+                background: ClippyTheme.surface;
+                border-radius: 6px;
+                TouchArea {
+                    clicked => {
+                        root.source = row.source;
+                        root.result = row.result;
+                        root.show-history = false;
+                    }
+                }
+                VerticalLayout {
+                    padding: 6px;
+                    Text { text: row.title; color: ClippyTheme.accent; font-size: 12px; }
+                    Text { text: row.source; color: ClippyTheme.muted; overflow: elide; }
+                    Text { text: row.result; color: ClippyTheme.foreground; overflow: elide; }
+                }
+            }
+        }
+        if root.show-history: Button {
+            text: root.confirm-clear ? "Confirm clearing history" : "Clear translation history";
+            clicked => {
+                if root.confirm-clear {
+                    root.clear-history();
+                    root.confirm-clear = false;
+                } else {
+                    root.confirm-clear = true;
+                }
+            }
+        }
+        if !root.show-history: VerticalLayout {
+            spacing: 8px;
+            vertical-stretch: 1;
+            HorizontalLayout {
+                spacing: 8px;
+                Button { text: "Screenshot"; clicked => { root.screenshot(); } }
+                if root.system-screenshot-available: Button {
+                    text: "System Screenshot…";
+                    enabled: !root.busy && !root.system-screenshot-pending;
+                    clicked => { root.system-screenshot(); }
+                }
+                Button { text: "Open latest image"; enabled: !root.busy; clicked => { root.use-image(); } }
+            }
+            TextEdit { text <=> root.source; wrap: word-wrap; vertical-stretch: 1; }
+            HorizontalLayout {
+                spacing: 8px;
+                action := ComboBox {
+                    model: ["Translate", "Markdown preview", "Format JSON", "Encode Base64", "Decode Base64",
+                        "Encode URL component", "Decode URL component", "Encode hex", "Decode hex"];
+                }
+                Button { text: "Run"; enabled: !root.busy && !root.source.is-empty; clicked => { root.run-action(action.current-index, root.source); } }
+                Button { text: "Copy input"; enabled: !root.busy && !root.source.is-empty; clicked => { root.copy-text(root.source); } }
+            }
+            TextEdit { text <=> root.result; read-only: true; wrap: word-wrap; vertical-stretch: 1; }
+            HorizontalLayout {
+                spacing: 8px;
+                Button { text: "Copy result"; enabled: !root.busy && !root.result.is-empty; clicked => { root.copy-text(root.result); } }
+                Button { text: "Read aloud online"; enabled: !root.busy && !root.result.is-empty; clicked => { root.speak(root.result); } }
+            }
+        }
+        Text { text: root.note; color: ClippyTheme.muted; wrap: word-wrap; min-height: 18px; }
+    }
+}

@@ -46,11 +46,11 @@ MSVC 辅助 harness include 完整 wgc_runtime.rs，没有类型 stub 或外部�
 通过两个始终同时置位的标志表示，提取的原短路控制协议六项为 1 passed / 5 failed（exit 101）。
 修复后六项通过（exit 0）：失败资源允许重试，成功资源幂等，两侧持续失败保持 Err，session
 失败不阻止 pool。Drop fixture 使用同一 close 状态入口；不执行实际 WgcRuntime/WinRT Close。
-证据在主检出的 src-tauri/target/windows-wgc-close-red，原始失败日志保留。
+证据在主检出的 target/windows-wgc-close-red，原始失败日志保留。
 
 生产供应链验证器原样复制到最小仓库夹具，正例 exit 0；分别给 runtime、mod、recorder 追加
 一个 LF 后均 exit 1，实际字节 drift 被拒绝，每例恢复后再进行下一例。生产文件未篡改，不归一化
-哈希输入；证据 src-tauri/target/windows-wgc-close-supply-chain/RESULT.json。
+哈希输入；证据 target/windows-wgc-close-supply-chain/RESULT.json。
 Windows 本机与 Native CI 的 vendor lib tests/lint 入口在独立 ci 提交接线，源修复与 CI 分开提交。
 产品修复提交 869a13f，独立 CI 接线提交及被测 SHA 为
 03b4cb8535d1fd3ebd95d511ab83f29491bb0805。干净检出完整 Windows 默认/录屏 QA 门禁
@@ -59,6 +59,6 @@ QA Rust 1111 / 5 ignored（两图重叠不累加），前端 75 文件 / 1292 pa
 真实 xcap Windows Cargo 图中的六项关闭合同通过，0 ignored / 1 filtered（上游显示器测试未执行）；
 这六项是独立 vendor 组，不包含在主应用 Rust 总数。包含测试的 vendor 严格 clippy、默认/QA
 check/clippy、供应链校验与构建通过，日志哈希及验证后干净检出已核对。
-完整证据 src-tauri/target/windows-wgc-close-native-qa-03b4cb8/RESULT.json，辅助红绿不能替代它。
+完整证据 target/windows-wgc-close-native-qa-03b4cb8/RESULT.json，辅助红绿不能替代它。
 已安装源码仍为 45769c9，未安装新包或操作桌面；实际系统 Close 失败后的最终释放、
 Windows 10/多屏、录屏和新 SHA 远程 CI 仍未验，未合入 dev 或发布。

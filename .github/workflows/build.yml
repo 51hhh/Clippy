@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [dev, main]
   workflow_dispatch:
+    inputs:
+      legacy_recording_prototype:
+        description: '显式运行 legacy 录屏原型矩阵（新版默认不编译 Tauri）'
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: '${{ github.workflow }}-${{ github.ref }}'
@@ -19,9 +25,6 @@ jobs:
     name: Check (ubuntu-22.04)
     runs-on: ubuntu-22.04
     timeout-minutes: 30
-    permissions:
-      contents: read
-      checks: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -29,15 +32,24 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev libgtk-3-dev build-essential curl wget file \
-            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
-            pkg-config xvfb xauth xclip x11-utils xdg-utils \
-            libgbm-dev libegl-dev libdrm-dev libwayland-dev libxcb1-dev \
-            libpipewire-0.3-dev
+            build-essential pkg-config libfontconfig1-dev libxkbcommon-dev libxkbcommon-x11-0 \
+            libwayland-dev libxcb1-dev libegl1-mesa-dev libgl1-mesa-dev \
+            libclang-dev libpipewire-0.3-dev libgbm-dev libdrm-dev \
+            xvfb xauth xclip x11-utils libxtst6 dbus-x11 python3-gi gir1.2-gtk-3.0 \
+            ffmpeg tesseract-ocr-eng tesseract-ocr-chi-sim
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+
+      - name: Check installer version ordering
+        run: node --test scripts/slint-release.test.mjs
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable action
         with:
+          toolchain: 1.98.0
           components: clippy, rustfmt
 
       - name: Rust cache
@@ -46,113 +58,53 @@ jobs:
           # Jammy 是发布基线，缓存键不能与更高 glibc 的 Linux runner 共用。
           prefix-key: v1-rust
           key: ubuntu-22.04
-          workspaces: src-tauri
-
-      - name: Setup Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: src/package-lock.json
-
-      - name: Install frontend dependencies
-        working-directory: src
-        run: npm ci
-
-      - name: Audit production dependencies
-        working-directory: src
-        run: npm audit --omit=dev --audit-level=low
-
-      - name: Audit high-impact development dependencies
-        working-directory: src
-        run: npm audit --audit-level=high
+          workspaces: . -> target
 
       - name: Rust format check
-        working-directory: src-tauri
-        run: cargo fmt -- --check
+        run: cargo fmt -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision -p clippy-slint -- --check
 
-      - name: Verify Windows WGC cursor patch
-        run: node scripts/verify-xcap-patch.mjs
+      - name: Shared Rust check
+        run: cargo check --locked -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision --all-targets
 
-      - name: Vendored xcap format check
-        working-directory: src-tauri
-        run: cargo fmt --manifest-path vendor/xcap/Cargo.toml -- --check
+      - name: Shared Rust clippy
+        run: cargo clippy --locked -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision --all-targets -- -D warnings
 
-      - name: Rust check
-        working-directory: src-tauri
-        run: |
-          cargo check --all-targets
-          cargo check --no-default-features --lib
+      - name: Shared Rust tests
+        run: cargo test --locked -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision
 
-      - name: Verify PipeWire fast-path baseline
-        run: |
-          TREE="$(cd src-tauri && cargo tree --target x86_64-unknown-linux-gnu -e normal)"
-          if ! grep -q 'pipewire v' <<<"$TREE"; then
-            echo '::error::Default Linux build must include pipewire-rs fast path'
-            exit 1
-          fi
-          if ! grep -Eq 'libspa v.*\(.*vendor/libspa\)' <<<"$TREE"; then
-            echo '::error::Default Linux build must use the Jammy-compatible vendored libspa patch'
-            exit 1
-          fi
+      - name: Slint Rust check
+        run: cargo check --locked -p clippy-slint --all-targets
 
-      - name: Rust clippy
-        working-directory: src-tauri
-        run: cargo clippy --all-targets -- -D warnings
+      - name: Slint Rust clippy
+        run: cargo clippy --locked -p clippy-slint --all-targets -- -D warnings
 
-      - name: Rust tests
-        working-directory: src-tauri
-        run: cargo test
+      - name: Slint Rust tests
+        run: cargo test --locked -p clippy-slint
+
+      - name: Shared native A/V tests
+        run: cargo test --locked -p clippy-media --features recording-opus-webm,recording-linux-audio -- --test-threads=1
+
+      - name: Slint QA profile tests
+        run: cargo test --locked -p clippy-slint --features qa-build
+
+      - name: Native OCR fixture
+        run: cargo test --locked -p clippy-slint native_ocr_returns_readable_text_and_source_coordinates -- --ignored
+
+      - name: Slint X11 desktop regression
+        run: bash scripts/test-slint-x11.sh
+
+      # rustsec/audit-check 依赖 GitHub Checks API，workflow_dispatch 下会留下 queued check
+      # 并以 404 终止 job；直接执行固定版本，让审计退出码成为唯一门禁结果。
+      - name: Install Rust dependency auditor
+        run: cargo install cargo-audit --version 0.22.2 --locked --root target/cargo-audit
 
       - name: Rust dependency audit
-        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          working-directory: src-tauri
-
-      - name: X11 clipboard isolated protocol tests
-        run: ./scripts/test-x11-clipboard.sh
-
-      - name: GNOME extension check
-        run: ./scripts/check-gnome-extension.sh
-
-      - name: Smart erase feasibility evidence
-        run: python3 scripts/smart-erase/verify_evidence.py
-
-      - name: OCR quality contracts
-        run: |
-          python3 -m unittest discover -s src-tauri/ocr-sidecar -p 'test_quality*.py' -v
-          python3 -m unittest discover -s src-tauri/ocr-sidecar -p test_visual_paragraphs.py -v
-
-      - name: Frontend HTML and Tauri boundaries
-        run: node scripts/check-html-sinks.mjs
-
-      - name: IPC contract check
-        run: node scripts/check-ipc-contract.mjs
-
-      - name: Frontend tests
-        working-directory: src
-        run: npx vitest run
-
-      - name: Vanilla JS static check
-        working-directory: src
-        run: npm run lint:js
-
-      - name: DOM/Xvfb smoke
-        run: ./scripts/smoke-dom.sh
-
-      - name: Frontend typecheck
-        working-directory: src
-        run: npx tsc --noEmit
-
-      - name: Frontend build
-        working-directory: src
-        run: npx vite build
+        run: target/cargo-audit/bin/cargo-audit audit
 
   native-check:
     name: Native Check (${{ matrix.runner }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 65
     strategy:
       fail-fast: false
       matrix:
@@ -160,118 +112,67 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - name: Install Windows source-build shell dependencies
+        if: runner.os == 'Windows'
+        id: slint_msys2
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
         with:
-          components: clippy
+          msystem: MSYS
+          update: false
+          install: make diffutils perl nasm
+
+      - name: Expose Windows source-build shell tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: echo '${{ steps.slint_msys2.outputs.msys2-location }}\usr\bin' >> $env:GITHUB_PATH
+
+      - name: Install Windows MSBuild
+        if: runner.os == 'Windows'
+        uses: microsoft/setup-msbuild@30375c66a4eea26614e0d39710365f22f8b0af57 # v3
+        with:
+          msbuild-architecture: x64
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable action
+        with:
+          toolchain: 1.98.0
+          components: clippy, llvm-tools-preview
 
       - name: Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          prefix-key: v1-rust
+          # Windows 恢复约 1.49 GB 的 target 缓存时长时间卡住，先只缓存 registry。
+          prefix-key: ${{ runner.os == 'Windows' && 'v2-slint-rust' || 'v1-rust' }}
+          cache-targets: ${{ runner.os != 'Windows' }}
           key: ${{ matrix.runner }}
-          workspaces: src-tauri
+          workspaces: . -> target
 
-      # Windows 也执行前端门禁，避免文件 URL、盘符与路径分隔符问题只在用户本机暴露。
-      - name: Setup Node.js for Windows frontend
-        if: runner.os == 'Windows'
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: src/package-lock.json
+      - name: Shared Rust check
+        run: cargo check --locked -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision --all-targets
 
-      - name: Windows frontend checks
-        if: runner.os == 'Windows'
-        working-directory: src
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          function Invoke-CheckedNpm {
-            & npm.cmd @args
-            if ($LASTEXITCODE -ne 0) { throw "npm exited with $LASTEXITCODE" }
-          }
-          Invoke-CheckedNpm ci --no-audit --no-fund
-          Invoke-CheckedNpm run check:html
-          Invoke-CheckedNpm run check:ipc
-          Invoke-CheckedNpm run lint:js
-          Invoke-CheckedNpm run typecheck
-          Invoke-CheckedNpm test
-          Invoke-CheckedNpm run build
-          node ../scripts/check-built-main.mjs
-          if ($LASTEXITCODE -ne 0) { throw "built entry check exited with $LASTEXITCODE" }
-          node ../scripts/verify-xcap-patch.mjs
-          if ($LASTEXITCODE -ne 0) { throw "vendored xcap check exited with $LASTEXITCODE" }
+      - name: Shared Rust clippy
+        run: cargo clippy --locked -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision --all-targets -- -D warnings
 
-      # Windows runner 的真实 DACL 与普通用户符号链接权限不能由 Linux mode 测试替代。
-      - name: Windows OCR quality contracts
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          python -m unittest discover -s src-tauri/ocr-sidecar -p 'test_quality*.py' -v
-          if ($LASTEXITCODE -ne 0) { throw "OCR quality tests exited with $LASTEXITCODE" }
-          python -m unittest discover -s src-tauri/ocr-sidecar -p test_visual_paragraphs.py -v
-          if ($LASTEXITCODE -ne 0) { throw "OCR paragraph tests exited with $LASTEXITCODE" }
+      - name: Shared Rust tests
+        run: cargo test --locked -p clippy-capture -p clippy-core -p clippy-media -p clippy-platform -p clippy-storage -p clippy-translate -p clippy-vision
 
-      - name: Native Rust check
-        working-directory: src-tauri
-        run: cargo check --all-targets
+      - name: Slint Rust check
+        run: cargo check --locked -p clippy-slint --all-targets
 
-      - name: Native Rust clippy
-        working-directory: src-tauri
-        run: cargo clippy --all-targets -- -D warnings
+      - name: Slint Rust clippy
+        run: cargo clippy --locked -p clippy-slint --all-targets -- -D warnings
 
-      - name: Vendored xcap WGC clippy
-        if: runner.os == 'Windows'
-        working-directory: src-tauri
-        run: cargo clippy --locked --manifest-path vendor/xcap/Cargo.toml --lib --tests --features wgc -- -D warnings
+      - name: Slint Rust tests
+        run: cargo test --locked -p clippy-slint
 
-      - name: Windows WGC close state tests
-        if: runner.os == 'Windows'
-        working-directory: src-tauri
-        run: cargo test --locked --manifest-path vendor/xcap/Cargo.toml --lib --features wgc platform::wgc_runtime::tests
+      - name: Shared native A/V tests
+        run: cargo test --locked -p clippy-media --features recording-opus-webm,recording-windows-audio -- --test-threads=1
 
-      - name: Windows WGC initialization rollback tests
-        if: runner.os == 'Windows'
-        working-directory: src-tauri
-        run: cargo test --locked --manifest-path vendor/xcap/Cargo.toml --lib --features wgc platform::wgc_init::tests
-
-      - name: Windows registry build buffer tests
-        if: runner.os == 'Windows'
-        working-directory: src-tauri
-        run: cargo test --locked --manifest-path vendor/xcap/Cargo.toml --lib --features wgc platform::registry_build::tests
-
-      - name: Vendored xcap macOS clippy
-        if: runner.os == 'macOS'
-        working-directory: src-tauri
-        run: cargo clippy --manifest-path vendor/xcap/Cargo.toml --lib -- -D warnings
-
-      - name: Native Rust tests
-        working-directory: src-tauri
-        run: cargo test
-
-      - name: Windows CF_HTML parser tests
-        if: runner.os == 'Windows'
-        working-directory: src-tauri
-        run: cargo test --locked -p arboard --lib platform::windows::html::tests
-
-      - name: Windows image decode budget tests
-        if: runner.os == 'Windows'
-        working-directory: src-tauri
-        run: cargo test --locked -p arboard --lib platform::windows::image_limits::tests
-
-      - name: Windows DIBV5 decode tests
-        if: runner.os == 'Windows'
-        working-directory: src-tauri
-        run: 'cargo test --locked -p arboard --lib platform::windows::image_data::'
-
-      - name: Windows DIB file view tests
-        if: runner.os == 'Windows'
-        working-directory: src-tauri
-        run: cargo test --locked -p arboard --lib platform::windows::dib::tests
+      - name: Slint QA profile tests
+        run: cargo test --locked -p clippy-slint --features qa-build
 
   recording-codec-prototype:
+    if: github.event_name == 'workflow_dispatch' && inputs.legacy_recording_prototype
     name: Recording Codec Prototype (${{ matrix.runner }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
@@ -329,8 +230,9 @@ jobs:
           msbuild-architecture: x64
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable action
         with:
+          toolchain: 1.98.0
           components: clippy, llvm-tools-preview
 
       - name: Rust cache
@@ -339,39 +241,35 @@ jobs:
           prefix-key: v1-recording-codec
           # Cargo feature lists contain commas, which are forbidden in cache keys.
           key: ${{ matrix.runner }}-${{ matrix.cache_key }}
-          workspaces: src-tauri
+          workspaces: . -> target
 
       - name: Verify pinned codec supply chain
         run: node scripts/verify-recording-codec-supply-chain.mjs
 
       - name: Prototype Rust clippy
-        working-directory: src-tauri
+        working-directory: apps/legacy-tauri/native
         run: cargo clippy --features ${{ matrix.features }} --all-targets -- -D warnings
 
       - name: Prototype VP9 mux tests
-        working-directory: src-tauri
-        run: cargo test --features ${{ matrix.features }} --lib recording::mux::vp9_webm::tests
+        run: cargo test --locked -p clippy-media --features recording-opus-webm --lib recording::mux::vp9_webm::tests
 
       - name: Prototype Opus WebM contract tests
-        working-directory: src-tauri
-        run: cargo test --features ${{ matrix.features }} --lib recording::mux::opus_webm::tests
+        run: cargo test --locked -p clippy-media --features recording-opus-webm --lib recording::mux::opus_webm::tests
 
       - name: Prototype recoverable A/V session tests
-        working-directory: src-tauri
+        working-directory: apps/legacy-tauri/native
         run: |
-          cargo test --features ${{ matrix.features }} --lib recording::av -- --test-threads=1
+          cargo test --locked -p clippy-media --features recording-opus-webm --lib recording::av -- --test-threads=1
           cargo test --features ${{ matrix.features }} --lib recording::manager::tests
 
       - name: Prototype VP9 session and recovery tests
-        working-directory: src-tauri
-        run: cargo test --features ${{ matrix.features }} --lib recording::session::tests::vp9_
+        run: cargo test --locked -p clippy-media --features recording-opus-webm --lib recording::session::tests::vp9_
 
       - name: Windows WASAPI audio contract tests
         if: runner.os == 'Windows'
-        working-directory: src-tauri
-        run: cargo test --features ${{ matrix.features }} --lib recording::platform::windows_audio
+        run: cargo test --locked -p clippy-media --features recording-windows-audio --lib recording::platform::windows_audio
 
       - name: Prototype X11 capture to VP9 session
         if: runner.os == 'Linux'
-        working-directory: src-tauri
+        working-directory: apps/legacy-tauri/native
         run: xvfb-run -a env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET XDG_SESSION_TYPE=x11 cargo test --features ${{ matrix.features }} recording::benchmark::tests::x11_vp9_benchmark_runs_the_production_capture_pipeline -- --ignored --exact --test-threads=1

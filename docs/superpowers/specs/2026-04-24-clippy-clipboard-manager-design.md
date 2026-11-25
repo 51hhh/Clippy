@@ -52,7 +52,7 @@ clippy/
 │   │   ├── search.js                 # 搜索框逻辑 + debounce
 │   │   └── theme.js                  # 主题切换逻辑
 │   └── assets/                       # 图标等静态资源
-├── src-tauri/
+├── apps/legacy-tauri/native/
 │   ├── src/
 │   │   ├── main.rs                   # 入口，调用 lib::run()
 │   │   ├── lib.rs                    # Tauri Builder 注册插件和命令

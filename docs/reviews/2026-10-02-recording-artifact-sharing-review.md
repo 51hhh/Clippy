@@ -48,7 +48,7 @@ remux 用例消费。增加相同 VP9 feature 条件，保持所有旧测试与�
 三份运行期夹具字节相同，全部使用原API，无接口stub；原retry/probe算法与导出保持，十四份Rust输入绑定干净SHA。
 旧实现重放及finally恢复、最终领域与完整门禁的实际日志/输入哈希保留。
 
-证据目录 `src-tauri/target/recording-artifact-sharing-contract/` 保存 W56 原状态、
+证据目录 `target/recording-artifact-sharing-contract/` 保存 W56 原状态、
 初始红、阶段绿、原 Git 源码重放/finally 恢复、最终领域和冻结 source SHA 门禁。
 文件/Git比较不计测试通过；领域与新增项已经包含在 Rust 总数内。
 

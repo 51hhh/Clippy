@@ -25,7 +25,7 @@ Phase 0～4 的**代码侧全部完成**，门禁 `./scripts/ci-local.sh` 10 通
 1. 主窗口翻译面板 JS→React（`src/react/main/TranslationPanel.tsx`、`translationStore.ts`、
    `mount.tsx`；删除 `src/js/translation-panel.js` 与旧测试）。
 2. Pin React 化扩展（`src/react/pin/App.tsx` + `src/tests/pin-react-app.test.js`）。
-3. Portal restore token 生命周期改为 `PortalAuthorizationStage` 阶段状态机（`src-tauri/src/paste/portal.rs`）。
+3. Portal restore token 生命周期改为 `PortalAuthorizationStage` 阶段状态机（`apps/legacy-tauri/native/src/paste/portal.rs`）。
 
 该集成重构阶段仍未完成，阻断项是本地 QA 矩阵
 中全部为空的真实桌面矩阵。
@@ -153,7 +153,7 @@ google 976 行、bing 1256 行、deepl 634 行、youdao 1372 行，其中非官�
       再写一份 Rust 逐像素超采样实现会让同一个视觉效果有两个必须保持一致的真值来源，
       理由与 P3 图像调整判定为"不做"完全相同。回归覆盖：`scripts/smoke-canvas-export.sh`
       在真实 canvas 上断言导出图角点 alpha < 128（`src/tests/fixtures/canvas-export-smoke.ts`）
-- [x] **后端 i18n / 托盘菜单本地化**：新增 `src-tauri/src/i18n.rs`（`NativeText` 静态文案 +
+- [x] **后端 i18n / 托盘菜单本地化**：新增 `apps/legacy-tauri/native/src/i18n.rs`（`NativeText` 静态文案 +
       `resolve_locale`），托盘菜单、设置窗口标题、截图编辑器窗口标题都随 `AppConfig.language` 切换。
       语言解析规则与前端 `i18n.js::resolveLocale` 一致：显式 `en`/`zh-CN` 优先，`auto`（或空）
       读 `LC_ALL`/`LC_MESSAGES`/`LANG`，其余一律回退英文；环境变量通过 `resolve_locale_with`
@@ -168,8 +168,8 @@ google 976 行、bing 1256 行、deepl 634 行、youdao 1372 行，其中非官�
       仅限 X11 会让同一个入口在两种会话里给出两种能力，因此没有移植该方案。2026-09 已实现
       跨截图后端的竖向手动长截图；当前边界见
       [`docs/reference-todo.md`](../../reference-todo.md)
-- [x] **criterion benches**：`src-tauri/benches/` 三个文件（screenshot/clipboard/storage），
-      经 `src-tauri/src/bench_support.rs` 调生产代码而不是在 bench 里复制实现。
+- [x] **criterion benches**：`apps/legacy-tauri/native/benches/` 三个文件（screenshot/clipboard/storage），
+      经 `apps/legacy-tauri/native/src/bench_support.rs` 调生产代码而不是在 bench 里复制实现。
       不做裁剪基准：裁剪是 memcpy，被同一路径上的 `encode_png`（~77 ms/1080p）掩盖两个数量级，
       而 flashot 的 `crop_bench.rs` 量的是 bench 文件里自己复制的一份 `crop_rgba`，参考价值为负。
       `[profile.bench]` 关掉 release 的 lto/单 codegen-unit 以保证编译时间可接受；

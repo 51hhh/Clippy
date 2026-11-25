@@ -2,7 +2,7 @@
 
 这份文档记录截图链路上四件反复踩坑、且**光看代码看不出来**的事：覆盖层窗口为什么不能自己摆位置、
 每个窗口的大小到底能不能拿到、冻结帧该走哪个后端、以及三套坐标空间怎么换算。改动
-`src-tauri/src/capture/`、`src-tauri/src/screenshot/` 或 `src/react/capture-overlay/` 之前先读这里。
+`apps/legacy-tauri/native/src/capture/`、`apps/legacy-tauri/native/src/screenshot/` 或 `src/react/capture-overlay/` 之前先读这里。
 
 ## 1. 覆盖层窗口必须由合成器摆放
 
@@ -131,12 +131,18 @@ GNOME Wayland 上被逐个排除掉的现成接口（都在 GNOME Shell 50.1 / U
   `ScreenshotArea(s token, i x, i y, i width, i height) -> s`（只拍一块区域，返回 PNG 路径）、
   `CaptureArea(s token, i x, i y, i width, i height, d scale) -> (s path, i pixelWidth,
   i pixelHeight, i stride, s format)`（**首选**：一块区域的**原始 RGBA**，不编 PNG，
-  见 §3.1 与 §3.3），以及
-  `PlaceWindow(s token, u pid, s marker, i x, i y, b reposition, b above) -> b`
+  见 §3.1 与 §3.3），以及 `PlaceWindow(s token, u pid, s marker, i x, i y, b reposition,
+  b above) -> b`
   （把调用方自己的某个窗口摆到指定位置并/或置顶，用于贴图窗口，见 §1）。
   当前协议版本 **v5**（`PlaceWindow` 从 v3 起、`ScreenshotArea` 从 v4 起、`CaptureArea`
   从 v5 起；低于门槛的扩展照样能截图与窗口速选，只是贴图回不到原位、画面按整屏舞台图走
   会偏糊、而且慢一个数量级——退化，不是故障）。
+- **截图快捷键回到 v5 快速路径。** Capture 与 Toggle / Pin 一样由 gsd-media-keys 执行
+  轻量 D-Bus 命令，应用收到后立即优先走 Mutter PipeWire；扩展不再注册 accelerator，也不再
+  在通知应用前把整个 stage 编成 PNG。代价是顶栏日历、状态/托盘菜单和 Activities 概览可能在
+  外部命令启动时收起，冻结帧不保证包含这些 Shell actor。若当前会话仍驻留已撤回的 v6，启动
+  自检先调用其 `SetCaptureShortcut(token, "")` 释放 grab、删除 `capture-shortcut`，再恢复
+  gsettings；磁盘扩展同时写回 v5，重新登录后完全回到 v5。未知的更高协议不会被覆盖或抢键。
 - **`CaptureArea` 走的是 `Clutter.Stage.paint_to_content` + `Cogl.Texture.get_data`**，
   自己把 RGBA8888 写进 tmpfs 的 `.rgba` 文件，`scale` 由调用方给（这块屏自己的缩放），
   尺寸从纹理反查（纹理说了算，不信调用方的算术）。它存在的唯一理由是**绕开 gnome-shell 的
@@ -167,10 +173,13 @@ GNOME Wayland 上被逐个排除掉的现成接口（都在 GNOME Shell 50.1 / U
   实测已废弃（直接返回 `GDBus.Error:org.freedesktop.DBus.Error.NotSupported:
   ReloadExtension is deprecated and does not work`），没有任何热重载手段。于是"磁盘上是新版、
   跑着的是上次登录加载的旧版"是一个真实且长期存在的状态：`ShellExtensionStatus.stale`
-  （`running < EMBEDDED_PROTOCOL_VERSION`）就是它，设置页据此显示 "Update pending"
-  而不是"已就绪"，`request_screenshot` 也据此在协议低于 `SCREENSHOT_PROTOCOL_VERSION`
-  时明确报错、让上层回退，而不是去调一个不存在的方法（`place_window` 同理，门槛是
+  （`running != EMBEDDED_PROTOCOL_VERSION`）就是它，设置页据此显示 "Update pending"
+  而不是"已就绪"，`request_screenshot` 也据此在协议不满足当前合同
+  时明确报错、让上层回退，而不是去调不受支持的方法（`place_window` 同理，门槛是
   `PLACEMENT_PROTOCOL_VERSION`）。
+  `GetVersion` 的原始结果不能先按内嵌上限过滤：高于上限的版本仍是运行实例，状态与卸载必须
+  看到它。已知 v6 只用于一次性释放旧 grab；未知更高版本的能力不会被调用、文件不会被覆盖，
+  gsettings Capture 也保持不动，避免出现第二个所有者。
   **加新方法时记得同时抬 `PROTOCOL_VERSION`（extension.js）、`EMBEDDED_PROTOCOL_VERSION`
   （shell_extension.rs）与 metadata.json 的 `version`；抬完之后已经登录的会话必然是
   `stale`，设置页会显示 "Update pending"，用户注销一次才生效——这是预期行为，不是 bug。**
@@ -707,8 +716,8 @@ restore token，**目前没做**：那条路第一次要弹一次授权对话框
 只负责照着计划从 RGBA 里抠像素。于是新增一种显示器配置的成本是**一个 json 文件**：
 
 ```
-src-tauri/tests/fixtures/monitor-layouts/*.json   ← 环境即数据
-src-tauri/src/screenshot/layout_fixtures.rs       ← 唯一那条参数化测试
+apps/legacy-tauri/native/tests/fixtures/monitor-layouts/*.json   ← 环境即数据
+apps/legacy-tauri/native/src/screenshot/layout_fixtures.rs       ← 唯一那条参数化测试
 ```
 
 每个 fixture 写清 `session`（合成器 + 后端）、`stage`（舞台图尺寸）、`monitors`
@@ -835,7 +844,11 @@ Tauri（`available_monitors` / `monitor_from_point`）。所以"插上外接屏�
 单元测试覆盖到几何换算、状态机和提交合同，但覆盖不到合成器行为。以下必须在真机上看：
 覆盖层是否铺满**当前**显示器（多屏、混合缩放）、Portal 首次确认与撤权，以及 GNOME Shell
 扩展这条链路——**设置页点安装 → 注销一次 → 回来确认状态卡片变绿、悬停有窗口高亮、
-按快捷键出来的是 Clippy 的覆盖层而不是系统截图 UI**，另外单独确认 `GetWindows`
+按快捷键出来的是 Clippy 的覆盖层而不是系统截图 UI**，并确认日志首先命中 Mutter PipeWire、
+响应不再等待整舞台 PNG。若测试环境曾加载 v6，还要确认启动新版应用后同一快捷键只触发一次，
+锁屏解锁后仍由 gsd-media-keys 正常触发。顶栏日历、托盘菜单与 Activities/应用网格会随外部
+快捷键命令收起，冻结帧不再保证包含这些 Shell UI，这是本次为响应速度接受的已知边界。
+另外单独确认 `GetWindows`
 带正确令牌能返回窗口、令牌错误时被拒。
 这几步没法自动化：gnome-shell 只在登录时加载扩展，CI 里没有会话。
 未装扩展的 GNOME Wayland 上还要确认原生 Wayland 应用如预期地不出现在速选列表里。
@@ -850,7 +863,9 @@ Tauri（`available_monitors` / `monitor_from_point`）。所以"插上外接屏�
   从别处复制来的图（浏览器、文件管理器）没有位置信息，应当落在屏幕中间——这是正确行为。
 - **置顶**：贴图之后点开别的窗口，贴图不应被盖住；缩放一次（滚轮）之后再确认一遍，
   因为改尺寸会把窗口带回普通层。
-- **注意协议版本**：`PlaceWindow` 是 v3 才有的、`ScreenshotArea` 是 v4、`CaptureArea` 是 v5，
+- **注意协议版本**：`PlaceWindow` 是 v3 才有的、`ScreenshotArea` 是 v4、`CaptureArea` 是 v5。
+  已撤回的 Shell 内快捷键与预冻结舞台图曾使用 v6；当前会话若仍在运行 v6，启动自检会先释放
+  它的快捷键，扩展代码本身要重新登录后才切回 v5。
   抬过版本号之后当前会话必然是 `stale`（设置页显示 "Update pending"），此时摆位与置顶都会退回
   Tauri 那套（在 Wayland 上**看起来像没生效**），画面也会退回整屏舞台图
   （**看起来像既没变清晰也没变快**）。验收这几条之前必须先注销重登。
@@ -864,7 +879,7 @@ Tauri（`available_monitors` / `monitor_from_point`）。所以"插上外接屏�
 确认每块屏打印出来的尺寸是**它自己的原生模式**（而不是"逻辑 × 桌面最大缩放"）、格式是 `RGBA`。
 注销重登前后各跑一次就是版本前后的对照。屏幕上仍略软是 GTK3 的整数缓冲区缩放，见 §3.3 末尾，
 判断画质要看**导出的 PNG**。
-`src-tauri/src/screenshot/backends.rs` 里留了两个 `#[ignore]` 的诊断测试
+`apps/legacy-tauri/native/src/screenshot/backends.rs` 里留了两个 `#[ignore]` 的诊断测试
 （`backend_diagnostics`、`window_probe_diagnostics`），用
 `cargo test -- --ignored --nocapture` 跑，会打印每个后端的尺寸、平均亮度、全黑像素比例和窗口矩形——
 "截图是黑的"这类问题只能靠它定位，不要删。

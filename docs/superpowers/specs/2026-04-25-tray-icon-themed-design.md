@@ -5,13 +5,13 @@
 
 ## 背景
 
-`src-tauri/icons/file.svg` 是单色描边图（仅 `stroke="#000000"`、无背景）。现状托盘只用一份预生成 PNG（透明背景 + 黑描边），在深色任务栏背景下几乎不可见。
+`apps/legacy-tauri/native/icons/file.svg` 是单色描边图（仅 `stroke="#000000"`、无背景）。现状托盘只用一份预生成 PNG（透明背景 + 黑描边），在深色任务栏背景下几乎不可见。
 
 目标：托盘图标的背景 = 当前应用主题的 `bg-primary`，描边 = 与背景对比的 `#000` 或 `#fff`，主题切换时自动重绘。
 
 ## 决策
 
-- **源**：`src-tauri/icons/file.svg`（保留，唯一来源）。
+- **源**：`apps/legacy-tauri/native/icons/file.svg`（保留，唯一来源）。
 - **rasterize**：Rust 内用 `resvg` + `tiny-skia` + `usvg` 运行时点阵，零外部依赖。
 - **形状**：64×64 RGBA，圆角矩形背景（radius 14 px），SVG 居中渲染留 ~12.5% 内边距。
 - **描边色判定**：基于 `bg` 的 sRGB 相对亮度（WCAG 公式），>0.5 用 `#000000`，否则 `#ffffff`。
@@ -19,7 +19,7 @@
 
 ## 模块
 
-- 新模块 `src-tauri/src/tray_icon.rs`，纯函数：
+- 新模块 `apps/legacy-tauri/native/src/tray_icon.rs`，纯函数：
   ```rust
   pub fn render_themed_tray_icon(theme: &str) -> tauri::image::Image<'static>;
   fn bg_for(theme: &str) -> [u8; 4];
@@ -62,7 +62,7 @@ config-changed event ──► load 新 theme ──► tray.set_icon(...)
 
 ## 测试
 
-`src-tauri/src/tray_icon.rs` 内嵌 `#[cfg(test)]`：
+`apps/legacy-tauri/native/src/tray_icon.rs` 内嵌 `#[cfg(test)]`：
 
 - `bg_for_known_theme` / `bg_for_unknown_theme_falls_back_to_light`
 - `stroke_picks_dark_for_light_bg` / `stroke_picks_light_for_dark_bg`
@@ -72,7 +72,7 @@ config-changed event ──► load 新 theme ──► tray.set_icon(...)
 
 ## 依赖
 
-`src-tauri/Cargo.toml` 增加：
+`apps/legacy-tauri/native/Cargo.toml` 增加：
 - `resvg = "0.43"`
 - `tiny-skia = "0.11"`
 - `usvg = "0.43"`（若 resvg 已 reexport，则只用 resvg）
@@ -87,9 +87,9 @@ config-changed event ──► load 新 theme ──► tray.set_icon(...)
 
 ## 影响面
 
-- `src-tauri/Cargo.toml`：+3 依赖。
-- `src-tauri/src/lib.rs`：注册 module、tray id、config-changed 监听。
-- `src-tauri/src/tray_icon.rs`：新增 ~120 行 + 测试。
+- `apps/legacy-tauri/native/Cargo.toml`：+3 依赖。
+- `apps/legacy-tauri/native/src/lib.rs`：注册 module、tray id、config-changed 监听。
+- `apps/legacy-tauri/native/src/tray_icon.rs`：新增 ~120 行 + 测试。
 - 不动前端。
 
 ## 验证清单

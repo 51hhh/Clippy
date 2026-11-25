@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-BUNDLE_DIR="${ROOT_DIR}/src-tauri/target/release/bundle/appimage"
+BUNDLE_DIR="${ROOT_DIR}/target/release/bundle/appimage"
 APPIMAGE="${1:-}"
 SMOKE_REQUIRED="${CLIPPY_APPIMAGE_SMOKE_REQUIRED:-0}"
 
@@ -38,8 +38,8 @@ if [[ ! -x "$APPIMAGE" ]]; then
     exit 1
 fi
 
-mkdir -p "${ROOT_DIR}/src-tauri/target"
-ARTIFACT_DIR="$(mktemp -d "${ROOT_DIR}/src-tauri/target/appimage-x11-smoke.XXXXXX")"
+mkdir -p "${ROOT_DIR}/target"
+ARTIFACT_DIR="$(mktemp -d "${ROOT_DIR}/target/appimage-x11-smoke.XXXXXX")"
 RUN_LOG="${ARTIFACT_DIR}/runner.log"
 mkdir -p "$ARTIFACT_DIR"/{home,runtime,config,data,cache,tmp}
 chmod 700 "$ARTIFACT_DIR/runtime"

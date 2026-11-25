@@ -7,8 +7,8 @@
 ./scripts/ci-local.sh
 ```
 
-约定：代码注释、commit message、文档用**中文**；前端 UI 文本用**英文**（多语言走
-`src/i18n/`）。
+约定：代码注释、commit message、文档用**中文**；前端 UI 文本用**英文**（legacy 多语言走
+`apps/legacy-tauri/frontend/i18n/`）。
 
 ## 一个 json 就是一条有效 PR：截图几何
 
@@ -17,7 +17,7 @@
 错的数字，用户看到的是覆盖层错位、比屏幕大一圈、画面溢到隔壁屏。这种环境没法靠"挨个
 买显示器来测"覆盖。
 
-所以这里把环境本身做成了数据：`src-tauri/tests/fixtures/monitor-layouts/*.json`，
+所以这里把环境本身做成了数据：`apps/legacy-tauri/native/tests/fixtures/monitor-layouts/*.json`，
 一个文件就是一种显示器配置 + 一条回归测试。切分逻辑（`plan_stage_split`）是纯函数，
 不需要真实屏幕、不碰一个像素，所以你的环境可以在 CI 上跑。
 
@@ -25,7 +25,7 @@
 
 ```bash
 # 只吐那段 json，直接重定向进 fixture 目录
-clippy --emit-test-case > src-tauri/tests/fixtures/monitor-layouts/我的环境.json
+clippy --emit-test-case > apps/legacy-tauri/native/tests/fixtures/monitor-layouts/我的环境.json
 
 # 想先看完整报告（人读版，含逐来源几何与不变量自检结果）
 clippy --capture-diagnose

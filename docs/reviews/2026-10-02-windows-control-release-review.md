@@ -34,8 +34,8 @@ QA 的 10 份既有 release CRT 已核对 Microsoft 签名、版本、AMD64 PE �
 
 ## 分层证据与未完成项
 
-证据：`src-tauri/target/current-release-default-7579222/`、
-`src-tauri/target/current-release-qa-7579222/`，包括 RESULT、实际 PID/退出码、源码树和输入
+证据：`target/current-release-default-7579222/`、
+`target/current-release-qa-7579222/`，包括 RESULT、实际 PID/退出码、源码树和输入
 哈希、逐行 UTF-8 编译日志、主程序参数、feature 指纹、PE 和 QA 部署核对。
 独立审计保存为 CODE-VERIFICATION-AUDIT；原 830b12b release、早期 EXE、旧安装及
 39 项桌面验收记录的字节保持。

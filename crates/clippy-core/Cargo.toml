@@ -1,0 +1,13 @@
+[package]
+name = "clippy-core"
+version = "0.2.0"
+description = "Clippy 的 UI 无关业务模型与核心能力"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[dependencies]
+chrono = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"

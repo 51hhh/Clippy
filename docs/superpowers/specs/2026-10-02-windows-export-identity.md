@@ -65,6 +65,6 @@ feature 保持。干净源码 69cf0b498a9964789bbce673a0d023aebfd5b0ad 完整 Wi
 1307 passed，Python 33 + 3，独立 vendor 十八项和剪贴板二十四项通过；check、严格 lint、
 供应链、构建/入口通过。源码/原文件/新测试字节/原始日志、checked helper/门禁脚本/固定
 声明哈希及门禁前后干净检出核对；完整门禁证据
-C:\win\Clippy\src-tauri\target\windows-export-identity-native-qa-69cf0b4。
+C:\win\Clippy\apps/legacy-tauri/native\target\windows-export-identity-native-qa-69cf0b4。
 其它文件系统/网络盘/权限、外部进程竞态、实际对话框/录屏/播放、其它宿主与当前 SHA CI 留未验。
-证据目录 C:\win\Clippy\src-tauri\target\windows-export-identity-contract。
+证据目录 C:\win\Clippy\apps/legacy-tauri/native\target\windows-export-identity-contract。

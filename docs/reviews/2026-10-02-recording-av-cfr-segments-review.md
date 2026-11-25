@@ -44,7 +44,7 @@ Rust 1214/QA 1307 各 5 ignored，两图不累加；前端 81 文件/1403 passed
 冻结 SHA 完整门禁另运行；后继仅五份 Markdown，生产/测试源码保持。
 `recording-av-cfr-segment-native-qa-66ceffd-retry1/RESULT.json` 绑定实际原 stdout/stderr 哈希；根当前
 状态/报告与 `recording-av-cfr-segment-contract/REVIEW-CLOSURE.json` 保留原 W52/旧桌面身份。
-证据在 `src-tauri/target/recording-av-cfr-segment-contract/`：原 W52 状态/报告，初始红、
+证据在 `target/recording-av-cfr-segment-contract/`：原 W52 状态/报告，初始红、
 阶段失败/绿、失败 WebM 与 `QUANTIZED-PACKET-DIAGNOSIS.json`、最终 frozen-red、恢复记录、
 final-green 和 `CONTRACT-AUDIT.json`。真实 codec/writer/worker 合成测试不代表设备测量，
 文件/Git 核对不计测试通过。
