@@ -53,7 +53,7 @@ jobs:
           components: clippy, rustfmt
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           # Jammy 是发布基线，缓存键不能与更高 glibc 的 Linux runner 共用。
           prefix-key: v1-rust
@@ -115,7 +115,7 @@ jobs:
       - name: Install Windows source-build shell dependencies
         if: runner.os == 'Windows'
         id: slint_msys2
-        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
+        uses: msys2/setup-msys2@3c51bf698df1e37b2261f53cb67797b97761185c # v2
         with:
           msystem: MSYS
           update: false
@@ -139,7 +139,7 @@ jobs:
           components: clippy, llvm-tools-preview
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           # Windows 恢复约 1.49 GB 的 target 缓存时长时间卡住，先只缓存 registry。
           prefix-key: ${{ runner.os == 'Windows' && 'v2-slint-rust' || 'v1-rust' }}
@@ -212,7 +212,7 @@ jobs:
       - name: Install Windows source-build shell dependencies
         if: runner.os == 'Windows'
         id: msys2
-        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
+        uses: msys2/setup-msys2@3c51bf698df1e37b2261f53cb67797b97761185c # v2
         with:
           msystem: MSYS
           update: false
@@ -236,7 +236,7 @@ jobs:
           components: clippy, llvm-tools-preview
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           prefix-key: v1-recording-codec
           # Cargo feature lists contain commas, which are forbidden in cache keys.
