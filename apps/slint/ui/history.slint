@@ -1,0 +1,294 @@
+import { LineEdit, ListView } from "std-widgets.slint";
+import { ClippyTheme, SurfaceButton } from "theme.slint";
+
+export struct ClipRow {
+    id: string,
+    kind: string,
+    preview: string,
+    metadata: string,
+    favorite: bool,
+    sensitive: bool,
+}
+
+component HistoryFilter inherits SurfaceButton {
+    in property <int> count;
+    caption: "";
+    pill: true;
+    height: 24px;
+
+    HorizontalLayout {
+        height: parent.height;
+        alignment: center;
+        spacing: 5px;
+        Text {
+            text: root.label;
+            color: root.selected ? ClippyTheme.accent : ClippyTheme.muted;
+            vertical-alignment: center;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        Rectangle {
+            y: (parent.height - 16px) / 2;
+            width: count-text.preferred-width + 12px;
+            height: 16px;
+            border-radius: 8px;
+            border-color: ClippyTheme.border;
+            border-width: root.selected ? 0px : 1px;
+            background: ClippyTheme.background;
+            count-text := Text {
+                text: "" + root.count;
+                color: root.selected ? ClippyTheme.accent : ClippyTheme.muted;
+                font-size: 10px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+}
+
+export component HistoryPane inherits Rectangle {
+    in property <[ClipRow]> clips;
+    in property <string> status;
+    in property <int> all-count;
+    in property <int> favorite-count;
+    in property <bool> loading;
+    in property <bool> busy;
+    in property <bool> auto-paste;
+    in property <bool> can-load-more;
+    in-out property <string> query;
+    in-out property <string> selected-id;
+    in-out property <int> selected-index: -1;
+    in-out property <bool> favorites-only;
+    callback refresh();
+    callback load-more();
+    callback close-panel();
+    callback copy-item(string, bool);
+    callback modify-item(string, bool);
+    callback preview-item(string, bool);
+    private property <string> expanded-id;
+    private property <bool> search-visible;
+    private property <length> row-height: 77px;
+
+    function select-row(index: int) {
+        root.selected-index = index;
+        root.selected-id = root.clips[index].id;
+    }
+
+    function focus-row(step: int) {
+        if root.clips.length > 0 && !root.loading {
+            let index = clamp(root.selected-index + step, 0, root.clips.length - 1);
+            root.select-row(index);
+            root.expanded-id = "";
+            list.ensure-row-visible(index, ScrollBehavior.instant);
+        }
+    }
+
+    function reset-query() {
+        root.selected-id = "";
+        root.expanded-id = "";
+        list.content-y = 0px;
+        root.refresh();
+    }
+
+    function switch-filter(favorites: bool) {
+        if favorites != root.favorites-only {
+            root.favorites-only = favorites;
+            root.reset-query();
+        }
+    }
+
+    forward-focus: keys;
+    init => { keys.focus(); }
+
+    keys := FocusScope {
+        focus-on-click: false;
+        capture-key-pressed(event) => {
+            if event.modifiers.control && event.text == "f" {
+                root.search-visible = true;
+                search.focus();
+                return accept;
+            }
+            if event.text == Key.Escape {
+                if root.search-visible {
+                    root.search-visible = false;
+                    if root.query != "" {
+                        root.query = "";
+                        root.reset-query();
+                    }
+                    keys.focus();
+                } else if root.expanded-id != "" {
+                    root.expanded-id = "";
+                    keys.focus();
+                } else {
+                    root.close-panel();
+                }
+                return accept;
+            }
+            reject
+        }
+        key-pressed(event) => {
+            if event.text == Key.UpArrow || event.text == Key.DownArrow {
+                root.focus-row(event.text == Key.UpArrow ? -1 : 1);
+                return accept;
+            }
+            if !root.busy && !root.loading && root.selected-id != "" {
+                if event.text == Key.Return && !event.modifiers.control && !event.modifiers.alt && !event.modifiers.meta {
+                    root.copy-item(root.selected-id, true);
+                    return accept;
+                }
+                if event.modifiers.control && event.text == "c" {
+                    root.copy-item(root.selected-id, false);
+                    return accept;
+                }
+            }
+            reject
+        }
+
+        VerticalLayout {
+            padding-top: 4px;
+            Rectangle {
+                height: root.search-visible ? 43px : 0px;
+                visible: root.search-visible;
+                background: ClippyTheme.elevated;
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 10px;
+                    spacing: 8px;
+                    search := LineEdit {
+                        horizontal-stretch: 1;
+                        height: 32px;
+                        text <=> root.query;
+                        placeholder-text: "Search clipboard";
+                        edited => { root.reset-query(); }
+                        accepted => { if !root.loading && !root.busy && root.selected-id != "" { root.copy-item(root.selected-id, true); } }
+                    }
+                    SurfaceButton { label: "Close search"; caption: "Esc"; height: 28px; clicked => {
+                        root.search-visible = false;
+                        if root.query != "" { root.query = ""; root.reset-query(); }
+                        keys.focus();
+                    } }
+                }
+            }
+
+            Rectangle {
+                vertical-stretch: 1;
+                list := ListView {
+                    width: parent.width;
+                    height: parent.height;
+                    for clip[index] in root.clips: Rectangle {
+                        height: root.row-height;
+                        background: clip.id == root.selected-id || hit.has-hover ? ClippyTheme.hover : ClippyTheme.background;
+                        accessible-role: list-item;
+                        accessible-label: clip.preview;
+                        accessible-action-default => { if !root.loading { root.select-row(index); keys.focus(); } }
+
+                        hit := TouchArea {
+                            enabled: !root.loading;
+                            mouse-cursor: pointer;
+                            clicked => { root.select-row(index); root.expanded-id = ""; keys.focus(); }
+                            double-clicked => { if !root.busy { root.copy-item(clip.id, true); } }
+                        }
+                        Rectangle {
+                            visible: clip.id == root.selected-id;
+                            x: 0px;
+                            y: 6px;
+                            width: 3px;
+                            height: parent.height - 12px;
+                            border-radius: 2px;
+                            background: ClippyTheme.highlight;
+                        }
+                        Rectangle { y: parent.height - 1px; width: parent.width; height: 1px; background: ClippyTheme.border; }
+                        HorizontalLayout {
+                            padding-left: 16px;
+                            padding-right: 8px;
+                            spacing: 6px;
+
+                            Rectangle {
+                                horizontal-stretch: 1;
+                                VerticalLayout {
+                                    width: parent.width;
+                                    y: (parent.height - self.height) / 2;
+                                    height: 34px;
+                                    spacing: 3px;
+                                    HorizontalLayout {
+                                        height: 18px;
+                                        spacing: 5px;
+                                        if clip.favorite: Text {
+                                            text: "★";
+                                            color: ClippyTheme.favorite;
+                                            font-size: 13px;
+                                        }
+                                        Text {
+                                            text: clip.preview;
+                                            color: clip.sensitive ? ClippyTheme.muted : ClippyTheme.foreground;
+                                            font-size: 13px;
+                                            overflow: elide;
+                                        }
+                                    }
+                                    Text {
+                                        text: clip.metadata;
+                                        color: ClippyTheme.muted;
+                                        font-size: 11px;
+                                        overflow: elide;
+                                        height: 13px;
+                                    }
+                                }
+                            }
+                            SurfaceButton { label: "Item actions"; caption: "…"; width: 32px; height: 32px; y: (parent.height - self.height) / 2; selected: root.expanded-id == clip.id; clicked => {
+                                root.select-row(index);
+                                root.expanded-id = root.expanded-id == clip.id ? "" : clip.id;
+                            } }
+                        }
+                        if root.expanded-id == clip.id: Rectangle {
+                            width: actions.preferred-width + 8px;
+                            height: 40px;
+                            x: max(0px, parent.width - self.width - 44px);
+                            y: (parent.height - self.height) / 2;
+                            background: ClippyTheme.elevated;
+                            border-color: ClippyTheme.border;
+                            border-width: 1px;
+                            border-radius: 8px;
+                            actions := HorizontalLayout {
+                                padding: 4px;
+                                spacing: 1px;
+                                SurfaceButton { label: "Copy"; enabled: !root.busy; clicked => { root.copy-item(clip.id, false); } }
+                                if root.auto-paste: SurfaceButton { label: "Paste"; enabled: !root.busy; clicked => { root.copy-item(clip.id, true); } }
+                                SurfaceButton { label: clip.kind == "Image" ? "Edit image" : "Preview"; caption: "View"; clicked => { root.preview-item(clip.id, clip.kind == "Image"); } }
+                                SurfaceButton { label: clip.favorite ? "Remove favorite" : "Add favorite"; caption: clip.favorite ? "★" : "☆"; width: 32px; clicked => { root.modify-item(clip.id, true); } }
+                                SurfaceButton { label: "Delete"; caption: "×"; danger: true; width: 32px; clicked => { root.modify-item(clip.id, false); } }
+                            }
+                        }
+                    }
+                }
+                if root.clips.length == 0: Text {
+                    text: root.status;
+                    y: 48px;
+                    width: parent.width;
+                    horizontal-alignment: center;
+                    color: ClippyTheme.muted;
+                    font-size: 13px;
+                }
+            }
+            if root.can-load-more: SurfaceButton {
+                label: "Load more";
+                clicked => { root.load-more(); }
+            }
+
+            Rectangle {
+                height: 37px;
+                background: ClippyTheme.surface;
+                Rectangle { y: 0px; width: parent.width; height: 1px; background: ClippyTheme.border; }
+                HistoryFilter {
+                    x: 8px; y: 7px; width: parent.width / 2 - 8px;
+                    label: "Favorites"; count: root.favorite-count; selected: root.favorites-only;
+                    clicked => { root.switch-filter(true); }
+                }
+                HistoryFilter {
+                    x: parent.width / 2; y: 7px; width: parent.width / 2 - 8px;
+                    label: "All"; count: root.all-count; selected: !root.favorites-only;
+                    clicked => { root.switch-filter(false); }
+                }
+            }
+        }
+    }
+}

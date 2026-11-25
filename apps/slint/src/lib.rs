@@ -3,6 +3,7 @@ slint::include_modules!();
 use clippy_core::models::{ClipItem, ContentType};
 use clippy_platform::identity::DeploymentIdentity;
 use slint::SharedString;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 mod app;
 
@@ -36,10 +37,30 @@ fn clip_row(clip: ClipItem) -> ClipRow {
         id: clip.id.to_string().into(),
         kind: SharedString::from(kind),
         preview: preview.into(),
-        metadata: format!("{} bytes", clip.byte_size).into(),
+        metadata: clip_metadata(clip.byte_size, clip.created_at).into(),
         favorite: clip.is_favorite,
         sensitive: clip.is_sensitive,
     }
+}
+
+fn clip_metadata(bytes: i64, created_at: i64) -> String {
+    let size = match bytes {
+        0..=1023 => format!("{bytes} B"),
+        1024..=1_048_575 => format!("{:.1} KB", bytes as f64 / 1024.0),
+        _ => format!("{:.1} MB", bytes as f64 / 1_048_576.0),
+    };
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_secs() as i64);
+    let minutes = now.saturating_sub(created_at) / 60;
+    let age = match minutes {
+        ..=0 => "just now".to_owned(),
+        1..=59 => format!("{minutes}m ago"),
+        60..=1439 => format!("{}h ago", minutes / 60),
+        1440..=2879 => "yesterday".to_owned(),
+        _ => format!("{}d ago", minutes / 1440),
+    };
+    format!("{size} · {age}")
 }
 
 fn truncate_preview(value: &str, max_chars: usize) -> String {

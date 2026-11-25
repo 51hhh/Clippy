@@ -11,7 +11,13 @@ use clippy_platform::{
 };
 use clippy_storage::{read_archive, write_new_archive, ArchiveScope};
 use clippy_translate::{secrets, types::TranslationProvider};
-use slint::{winit_030::WinitWindowAccessor, ComponentHandle};
+use slint::{
+    winit_030::{
+        winit::event::{ElementState, MouseButton, WindowEvent},
+        EventResult, WinitWindowAccessor,
+    },
+    ComponentHandle,
+};
 use std::thread;
 
 const THEMES: [&str; 6] = [
@@ -50,6 +56,35 @@ fn apply_theme(window: &AppWindow, theme: i32) {
     window.global::<ClippyTheme>().set_index(theme);
 }
 
+fn connect_titlebar(window: &AppWindow) {
+    let weak = window.as_weak();
+    let mut cursor = None;
+    window.window().on_winit_window_event(move |host, event| {
+        match event {
+            WindowEvent::CursorMoved { position, .. } => cursor = Some(*position),
+            WindowEvent::CursorLeft { .. } => cursor = None,
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Left,
+                ..
+            } => {
+                if let (Some(window), Some(position)) = (weak.upgrade(), cursor) {
+                    let position = position.to_logical::<f32>(f64::from(host.scale_factor()));
+                    if window.invoke_titlebar_contains(position.x, position.y)
+                        && host.with_winit_window(|window| window.drag_window().is_ok())
+                            == Some(true)
+                    {
+                        // 窗口管理器接管拖动后可能吞掉释放事件。按下事件也不交给 Slint。
+                        return EventResult::PreventDefault;
+                    }
+                }
+            }
+            _ => {}
+        }
+        EventResult::Propagate
+    });
+}
+
 pub(super) fn connect(window: &AppWindow, config: &AppConfig) {
     populate(window, config);
     let index = config
@@ -65,16 +100,9 @@ pub(super) fn connect(window: &AppWindow, config: &AppConfig) {
     window.set_provider_index(index as i32);
     translation(window, config, index as i32).expect("设置页中的翻译服务索引有效");
     window.set_tmux_available(cfg!(target_os = "linux"));
-    window.on_begin_drag({
-        let weak = window.as_weak();
-        move || {
-            if let Some(window) = weak.upgrade() {
-                window.window().with_winit_window(|window| {
-                    let _ = window.drag_window();
-                });
-            }
-        }
-    });
+    if window.get_show_settings() {
+        connect_titlebar(window);
+    }
     window.on_apply_general(|settings| {
         use_app(|app| {
             let result = app.apply_general(settings);

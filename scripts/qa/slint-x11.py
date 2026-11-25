@@ -28,6 +28,7 @@ PIN_TITLE = "Clippy Pin"
 WORKSPACE_TITLE = "Clippy Pinned Workspace"
 LONGSHOT_TITLE = "Clippy Scrolling Capture"
 RECORDING_TITLE = "Clippy Recordings"
+SETTINGS_TITLE = "Clippy Settings"
 TEXT = "needle 自动剪贴板 QA"
 OTHER = "unrelated fixture"
 HTML = "<b>rich-qa</b>".encode()
@@ -316,18 +317,21 @@ def run(binary, root):
     def panel():
         return wait_for(lambda: titled_window(TITLE), "clipboard panel never appeared")
 
-    def search(box, word):
-        x, y, _, _ = box
-        desktop.click(x + 95, y + 83)
+    def search(word):
+        desktop.keys("Control_L", "f")
         desktop.keys("Control_L", "a")
         for letter in word:
             desktop.keys(letter)
         # 输入事件和 SQLite 返回跨两个线程，等查询结果进入页面再点击。
         time.sleep(0.25)
 
-    def close(box):
-        x, y, width, _ = box
-        desktop.click(x + width - 44, y + 37)
+    def close():
+        panel_id, _ = panel()
+        desktop.focus(panel_id)
+        desktop.keys("Escape")
+        time.sleep(0.1)
+        if titled_window(TITLE):
+            desktop.keys("Escape")
         wait_for(lambda: not titled_window(TITLE), "panel never closed")
 
     def select_area():
@@ -342,8 +346,16 @@ def run(binary, root):
         assert not titled_window(TITLE), "tray-only startup opened a window"
         tray.activate("Open Clipboard")
         _, box = panel()
-        close(box)
+        assert box[2:] == (380, 500), box
+        close()
         print("PASS tray registration, menu and window lifecycle", flush=True)
+
+        tray.activate("Settings")
+        _, (x, y, width, height) = wait_for(lambda: titled_window(SETTINGS_TITLE), "settings window never appeared")
+        assert (width, height) == (720, 560), (width, height)
+        desktop.click(x + width - 28, y + 26)
+        wait_for(lambda: not titled_window(SETTINGS_TITLE), "settings titlebar close did not close the window")
+        print("PASS settings window has its own size and native titlebar close", flush=True)
 
         set_clipboard("UTF8_STRING", TEXT.encode())
         assert get_clipboard("UTF8_STRING").decode() == TEXT
@@ -369,9 +381,10 @@ def run(binary, root):
         desktop.keys("Control_L", "Alt_L", "Shift_L", "j")
         panel_id, box = panel()
         desktop.focus(panel_id)
-        search(box, "needle")
-        x, y, _, height = box
-        desktop.click(x + 60, y + height - 102)
+        search("needle")
+        x, y, _, _ = box
+        desktop.click(x + 50, y + 82)
+        desktop.keys("Control_L", "c")
         try:
             wait_for(lambda: get_clipboard("UTF8_STRING").decode() == TEXT,
                      "search and copy did not select Unicode")
@@ -379,14 +392,14 @@ def run(binary, root):
             print(f"Clipboard fixture output: {get_clipboard('UTF8_STRING')!r}", file=sys.stderr)
             raise
         assert entry.get_text() == "", "Copy injected paste input"
-        close(box)
+        close()
         print("PASS global hotkey, Unicode/HTML/PNG history, search and copy-only", flush=True)
 
         desktop.focus(target_id)
         desktop.keys("Control_L", "Alt_L", "Shift_L", "j")
         panel_id, box = panel()
         desktop.focus(panel_id)
-        search(box, "needle")
+        search("needle")
         desktop.keys("Return")
         wait_for(lambda: not titled_window(TITLE), "panel stayed open after paste")
         # Xvfb 没有窗口管理器，夹具在面板撤下后恢复焦点。
@@ -404,7 +417,7 @@ def run(binary, root):
         desktop.keys("Control_L", "Alt_L", "Shift_L", "j")
         panel_id, box = panel()
         desktop.focus(panel_id)
-        search(box, "needle")
+        search("needle")
         desktop.keys("Return")
         wait_for(lambda: not titled_window(TITLE), "panel stayed open after requesting paste")
         desktop.focus(third_id)

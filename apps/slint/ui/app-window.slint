@@ -1,7 +1,8 @@
-import { Button, CheckBox, LineEdit, ListView, VerticalBox } from "std-widgets.slint";
+import { Button } from "std-widgets.slint";
+import { ClipRow, HistoryPane } from "history.slint";
 import { GeneralSettings, SettingsPane, TranslationSettings } from "settings.slint";
-import { ClippyTheme, WindowTitle } from "theme.slint";
-export { GeneralSettings, TranslationSettings, ClippyTheme }
+import { ClippyTheme, WindowHeader } from "theme.slint";
+export { GeneralSettings, TranslationSettings, ClippyTheme, ClipRow }
 export { EditorWindow } from "editor.slint";
 export { PinnedWindow, WorkspaceWindow, WorkspaceRow } from "pins.slint";
 export { LongshotWindow } from "longshot.slint";
@@ -10,15 +11,6 @@ export { RecordingLibrary, RecordingRow } from "recording.slint";
 export { ToolsWindow, TranslationRow } from "tools.slint";
 
 export enum CaptureAction { copy, save, edit, longshot, record }
-
-export struct ClipRow {
-    id: string,
-    kind: string,
-    preview: string,
-    metadata: string,
-    favorite: bool,
-    sensitive: bool,
-}
 
 export component ClippyTray inherits SystemTrayIcon {
     in property <string> product-name;
@@ -68,15 +60,17 @@ export component AppWindow inherits Window {
     in property <string> data-status;
     in property <[ClipRow]> clips;
     in-out property <string> selected-id;
+    in-out property <int> selected-index: -1;
+    in property <int> all-count;
+    in property <int> favorite-count;
     in-out property <string> query;
     in-out property <bool> favorites-only;
     in-out property <int> history-limit: 50;
     in property <bool> can-load-more;
     in property <bool> loading-history: true;
-    in-out property <bool> show-settings;
+    in property <bool> show-settings;
     in property <bool> auto-paste;
     in property <bool> busy;
-    in-out property <bool> selected-image;
     callback reload-history();
     callback close-panel();
     callback copy-item(string, bool);
@@ -91,126 +85,61 @@ export component AppWindow inherits Window {
     callback store-credentials(int, string, string);
     callback delete-credentials(int);
     callback data-action(int, string);
-    callback begin-drag();
     callback edit-history-image(string);
     callback preview-item(string);
 
-    title: root.product-name;
-    preferred-width: 480px;
-    preferred-height: 620px;
-    min-width: 400px;
-    min-height: 440px;
+    title: root.show-settings ? "Clippy Settings" : root.product-name;
+    preferred-width: root.show-settings ? 720px : 380px;
+    preferred-height: root.show-settings ? 560px : 500px;
+    min-width: root.show-settings ? 480px : 340px;
+    min-height: 400px;
+    no-frame: true;
+    resize-border-width: root.show-settings ? 6px : 0px;
+    always-on-top: !root.show-settings;
     background: ClippyTheme.background;
     init => { ClippyTheme.sync-native-palette(); }
 
-    VerticalBox {
-        padding: 18px;
-        spacing: 10px;
+    public pure function titlebar-contains(x: length, y: length) -> bool {
+        return x >= root.resize-border-width && x < root.width - ClippyTheme.titlebar-drag-inset
+            && y >= root.resize-border-width && y < ClippyTheme.titlebar-height;
+    }
 
-        HorizontalLayout {
-            spacing: 8px;
-            WindowTitle {
-                text: root.show-settings ? "Settings" : "Clipboard";
-                begin-drag => { root.begin-drag(); }
-            }
-            Button {
-                text: root.show-settings ? "History" : "Settings";
-                clicked => { root.show-settings = !root.show-settings; }
-            }
-            Button { text: "Close"; clicked => { root.close-panel(); } }
+    VerticalLayout {
+        if root.show-settings: WindowHeader {
+            title: "Settings";
+            maximized: root.maximized;
+            minimize => { root.minimized = true; }
+            maximize => { root.maximized = !root.maximized; }
+            dismiss => { root.close-panel(); }
         }
-
-        if !root.show-settings: VerticalLayout {
-            spacing: 8px;
-            horizontal-stretch: 1;
+        if root.shortcut-status != "": Text {
+            text: root.shortcut-status;
+            color: ClippyTheme.danger;
+            wrap: word-wrap;
+            font-size: 12px;
+        }
+        if !root.show-settings: HistoryPane {
             vertical-stretch: 1;
-            HorizontalLayout {
-                spacing: 8px;
-                LineEdit {
-                    text <=> root.query;
-                    placeholder-text: "Search history";
-                    edited => {
-                        root.selected-id = "";
-                        root.history-limit = 50;
-                        root.reload-history();
-                    }
-                    accepted => { root.copy-item(root.selected-id, true); }
-                }
-                CheckBox {
-                    text: "Favorites";
-                    checked <=> root.favorites-only;
-                    toggled => {
-                        root.selected-id = "";
-                        root.history-limit = 50;
-                        root.reload-history();
-                    }
-                }
-            }
-            ListView {
-                for clip in root.clips: Rectangle {
-                    height: 77px;
-                    background: root.selected-id == clip.id ? ClippyTheme.selected : ClippyTheme.surface;
-                    border-color: root.selected-id == clip.id ? ClippyTheme.accent : ClippyTheme.border;
-                    border-width: 1px;
-                    border-radius: 8px;
-
-                    TouchArea {
-                        enabled: !root.loading-history;
-                        clicked => { root.selected-id = clip.id; root.selected-image = clip.kind == "Image"; }
-                        double-clicked => { root.copy-item(clip.id, true); }
-                    }
-                    VerticalLayout {
-                        padding: 10px;
-                        spacing: 3px;
-                        Text {
-                            text: clip.kind + (clip.favorite ? " · ★" : "") + (clip.sensitive ? " · Protected" : "");
-                            color: ClippyTheme.accent;
-                            font-size: 12px;
-                            font-weight: 700;
-                        }
-                        Text { text: clip.preview; color: ClippyTheme.foreground; font-size: 14px; overflow: elide; }
-                        Text { text: clip.metadata; color: ClippyTheme.muted; font-size: 11px; }
-                    }
-                }
-            }
-            Text { text: root.history-status; color: ClippyTheme.muted; font-size: 12px; }
-            if root.can-load-more && root.history-limit < 200: Button {
-                text: "Load more";
-                clicked => { root.history-limit = root.history-limit + 50; root.reload-history(); }
-            }
-            HorizontalLayout {
-                spacing: 8px;
-                Button {
-                    text: "Copy";
-                    enabled: !root.busy && !root.loading-history && root.selected-id != "";
-                    clicked => { root.copy-item(root.selected-id, false); }
-                }
-                Button {
-                    text: "Paste";
-                    enabled: !root.busy && !root.loading-history && root.auto-paste && root.selected-id != "";
-                    clicked => { root.copy-item(root.selected-id, true); }
-                }
-                Button {
-                    text: "Toggle favorite";
-                    enabled: !root.loading-history && root.selected-id != "";
-                    clicked => { root.modify-item(root.selected-id, true); }
-                }
-                Button {
-                    text: "Delete";
-                    enabled: !root.loading-history && root.selected-id != "";
-                    clicked => { root.modify-item(root.selected-id, false); }
-                }
-            }
-            Button {
-                text: root.selected-image ? "Edit selected image" : "Preview selected item";
-                enabled: !root.loading-history && !root.busy && root.selected-id != "";
-                clicked => {
-                    if root.selected-image {
-                        root.edit-history-image(root.selected-id);
-                    } else {
-                        root.preview-item(root.selected-id);
-                    }
-                }
+            clips: root.clips;
+            status: root.history-status;
+            all-count: root.all-count;
+            favorite-count: root.favorite-count;
+            busy: root.busy;
+            loading: root.loading-history;
+            auto-paste: root.auto-paste;
+            can-load-more: root.can-load-more && root.history-limit < 200;
+            query <=> root.query;
+            favorites-only <=> root.favorites-only;
+            selected-id <=> root.selected-id;
+            selected-index <=> root.selected-index;
+            refresh => { root.history-limit = 50; root.reload-history(); }
+            load-more => { root.history-limit += 50; root.reload-history(); }
+            close-panel => { root.close-panel(); }
+            copy-item(id, paste) => { root.copy-item(id, paste); }
+            modify-item(id, favorite) => { root.modify-item(id, favorite); }
+            preview-item(id, image) => {
+                if image { root.edit-history-image(id); }
+                else { root.preview-item(id); }
             }
         }
 
@@ -238,8 +167,14 @@ export component AppWindow inherits Window {
             data-action(action, path) => { root.data-action(action, path); }
         }
 
-        if root.shortcut-status != "": Text { text: root.shortcut-status; color: #a33a3a; wrap: word-wrap; }
-        Text { text: root.action-status; color: ClippyTheme.muted; font-size: 12px; min-height: 15px; wrap: word-wrap; }
+        if root.action-status != "": Text {
+            text: root.action-status;
+            color: ClippyTheme.muted;
+            font-size: 12px;
+            min-height: 21px;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
     }
 }
 

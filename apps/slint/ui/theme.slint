@@ -3,13 +3,27 @@ import { Palette } from "std-widgets.slint";
 export global ClippyTheme {
     in property <int> index;
     out property <bool> dark: index == 1 || index == 2 || index == 5;
-    out property <color> background: index == 1 ? #16181d : index == 2 ? #2e3440 : index == 3 ? #fdf6e3 : index == 4 ? #fff7f7 : index == 5 ? #14132b : #fbfbfd;
+    out property <color> background: theme-background(index);
     out property <color> surface: index == 1 ? #1d2026 : index == 2 ? #3b4252 : index == 3 ? #f5eed0 : index == 4 ? #ffeded : index == 5 ? #1c1b3a : #ffffff;
+    out property <color> elevated: index == 1 ? #20232a : index == 2 ? #3b4252 : index == 3 ? #fffdf3 : index == 5 ? #1f1d44 : #ffffff;
+    out property <color> hover: index == 1 ? #262a32 : index == 2 ? #434c5e : index == 3 ? #ece5c2 : index == 4 ? #ffe0e2 : index == 5 ? #25234d : #f1f1f6;
     out property <color> foreground: index == 1 ? #ecedf1 : index == 2 ? #eceff4 : index == 3 ? #2a3a3f : index == 4 ? #2a1a1f : index == 5 ? #f1ecff : #1c1d22;
     out property <color> muted: index == 1 ? #b3b7c2 : index == 2 ? #d8dee9 : index == 3 ? #586e75 : index == 4 ? #6b4e54 : index == 5 ? #c1bce3 : #4f535d;
     out property <color> accent: index == 1 ? #8aa4ff : index == 2 ? #88c0d0 : index == 3 ? #1f74b1 : index == 4 ? #b62558 : index == 5 ? #c084fc : #4453e0;
+    out property <color> highlight: theme-highlight(index);
+    out property <color> accent-soft: highlight.with-alpha(dark ? 0.18 : 0.14);
     out property <color> selected: index == 1 ? #2c3550 : index == 2 ? #4c566a : index == 3 ? #e0d8b0 : index == 4 ? #ffd3d8 : index == 5 ? #312f63 : #e3ecfb;
-    out property <color> border: dark ? #ffffff32 : #20233d24;
+    out property <color> border: index == 1 ? #2a2e37 : index == 2 ? #434c5e : index == 3 ? #ddd5b6 : index == 4 ? #f4d3d6 : index == 5 ? #2a2853 : #e5e7ec;
+    out property <color> favorite: index == 1 ? #f4c145 : index == 2 ? #ebcb8b : index == 3 ? #b58900 : index == 4 ? #f59e0b : index == 5 ? #facc15 : #f1a73a;
+    out property <color> danger: dark ? #f47272 : #b83b3b;
+    out property <length> titlebar-height: 52px;
+    out property <length> titlebar-drag-inset: 120px;
+    public pure function theme-background(theme: int) -> color {
+        return theme == 1 ? #16181d : theme == 2 ? #2e3440 : theme == 3 ? #fdf6e3 : theme == 4 ? #fff7f7 : theme == 5 ? #14132b : #fbfbfd;
+    }
+    public pure function theme-highlight(theme: int) -> color {
+        return theme == 1 ? #8aa4ff : theme == 2 ? #88c0d0 : theme == 3 ? #268bd2 : theme == 4 ? #d6336c : theme == 5 ? #c084fc : #5b6cff;
+    }
     public function sync-native-palette() {
         Palette.color-scheme = dark ? ColorScheme.dark : ColorScheme.light;
     }
@@ -38,5 +52,114 @@ export component WindowTitle inherits Rectangle {
                 root.begin-drag();
             }
         }
+    }
+}
+
+export component SurfaceButton inherits Rectangle {
+    in property <string> label;
+    in property <string> caption: label;
+    in property <bool> enabled: true;
+    in property <bool> selected;
+    in property <bool> danger;
+    in property <bool> pill;
+    callback clicked();
+
+    min-width: 28px;
+    preferred-width: text.preferred-width + 16px;
+    preferred-height: 30px;
+    border-radius: root.pill ? 200px : 7px;
+    border-width: focus.has-focus || (root.pill && root.selected) ? 1px : 0px;
+    border-color: ClippyTheme.highlight;
+    background: root.enabled && touch.has-hover ? (root.danger ? ClippyTheme.danger : ClippyTheme.hover)
+                 : root.selected ? (root.pill ? ClippyTheme.accent-soft : ClippyTheme.elevated)
+                 : transparent;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+
+    text := Text {
+        width: parent.width;
+        height: parent.height;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+        text: root.caption;
+        font-size: 13px;
+        font-weight: root.selected ? 600 : 500;
+        color: !root.enabled ? ClippyTheme.muted.with-alpha(0.55)
+               : root.danger && touch.has-hover ? #ffffff
+               : root.selected && root.pill ? ClippyTheme.accent
+               : ClippyTheme.foreground;
+    }
+    focus := FocusScope {
+        enabled: root.enabled;
+        focus-on-click: false;
+        key-pressed(event) => {
+            if event.text == Key.Return || event.text == " " {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { focus.focus(); root.clicked(); }
+    }
+}
+
+export component WindowHeader inherits Rectangle {
+    in property <string> title;
+    in property <bool> maximized;
+    callback minimize();
+    callback maximize();
+    callback dismiss();
+
+    height: ClippyTheme.titlebar-height;
+    background: ClippyTheme.elevated;
+    Rectangle { y: parent.height - 1px; width: parent.width; height: 1px; background: ClippyTheme.border; }
+    Rectangle {
+        x: 0px;
+        width: parent.width - ClippyTheme.titlebar-drag-inset;
+        height: parent.height;
+        HorizontalLayout {
+            padding-left: 14px;
+            spacing: 9px;
+            Rectangle {
+                width: 18px;
+                Rectangle {
+                    x: 2px; y: (parent.height - 16px) / 2; width: 14px; height: 16px;
+                    for index in 3: Rectangle {
+                        x: 1px + index * 5px; y: 0px; width: 1px; height: 16px;
+                        background: ClippyTheme.accent;
+                        Rectangle {
+                            x: -1.5px; y: index == 1 ? 4px : 10px;
+                            width: 4px; height: 2px; border-radius: 1px;
+                            background: ClippyTheme.accent;
+                        }
+                    }
+                }
+            }
+            Text {
+                text: root.title;
+                color: ClippyTheme.foreground;
+                font-size: 14px;
+                font-weight: 650;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+    }
+    controls := HorizontalLayout {
+        x: parent.width - self.width - 12px;
+        y: (parent.height - 32px) / 2;
+        width: 104px;
+        height: 32px;
+        spacing: 4px;
+        SurfaceButton { label: "Minimize"; caption: "−"; width: 32px; height: 32px; clicked => { root.minimize(); } }
+        SurfaceButton { label: root.maximized ? "Restore" : "Maximize"; caption: root.maximized ? "▣" : "□"; width: 32px; height: 32px; clicked => { root.maximize(); } }
+        SurfaceButton { label: "Close settings"; caption: "×"; danger: true; width: 32px; height: 32px; clicked => { root.dismiss(); } }
     }
 }

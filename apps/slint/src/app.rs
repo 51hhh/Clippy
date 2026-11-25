@@ -16,7 +16,8 @@ use clippy_platform::{
 };
 use clippy_storage::{ClipListRequest, StorageError, StorageRuntime};
 use slint::{
-    CloseRequestResponse, ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel,
+    winit_030::WinitWindowAccessor, CloseRequestResponse, ComponentHandle, ModelRc, SharedString,
+    Timer, TimerMode, VecModel,
 };
 use std::{
     cell::RefCell,
@@ -276,15 +277,25 @@ impl App {
                         Ok(clips) => {
                             let selected = window.get_selected_id();
                             let rows = clips.into_iter().map(clip_row).collect::<Vec<_>>();
-                            if !rows.iter().any(|item| item.id == selected) {
-                                window.set_selected_id(
-                                    rows.first().map(|item| item.id.clone()).unwrap_or_default(),
+                            let count = rows.len();
+                            let index = rows
+                                .iter()
+                                .position(|item| item.id == selected)
+                                .unwrap_or(0);
+                            window.set_selected_index(if count == 0 { -1 } else { index as i32 });
+                            window.set_selected_id(
+                                rows.get(index)
+                                    .map(|item| item.id.clone())
+                                    .unwrap_or_default(),
+                            );
+                            if window.get_favorites_only() {
+                                window.set_favorite_count(count as i32);
+                            } else {
+                                window.set_all_count(count as i32);
+                                window.set_favorite_count(
+                                    rows.iter().filter(|item| item.favorite).count() as i32,
                                 );
                             }
-                            window.set_selected_image(rows.iter().any(|item| {
-                                item.id == window.get_selected_id() && item.kind == "Image"
-                            }));
-                            let count = rows.len();
                             window.set_can_load_more(count == window.get_history_limit() as usize);
                             window.set_clips(ModelRc::new(VecModel::from(rows)));
                             window.set_history_status(match count {
@@ -451,11 +462,16 @@ impl App {
 
     fn open(&mut self, settings: bool) -> Result<()> {
         if let Some(window) = &self.window {
-            window.set_show_settings(settings);
-            if settings {
-                settings::show(window, self.identity);
+            if window.get_show_settings() == settings {
+                if settings {
+                    settings::show(window, self.identity);
+                    window
+                        .window()
+                        .with_winit_window(|window| window.set_minimized(false));
+                }
+                return Ok(window.show()?);
             }
-            return Ok(window.show()?);
+            self.hide();
         }
 
         self.target = self.config.auto_paste.then(capture_target).flatten();
