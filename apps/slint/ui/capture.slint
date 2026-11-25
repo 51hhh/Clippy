@@ -20,6 +20,15 @@ export component CaptureWindow inherits Window {
     private property <length> toolbar-width: min(520px, root.width - 2 * root.gap);
     private property <length> toolbar-height: 44px;
     private property <length> button-width: (root.toolbar-width - 46px) / 6;
+    private property <bool> toolbar-below: root.bottom + root.toolbar-height + 2 * root.gap <= root.height;
+    private property <length> toolbar-y: root.toolbar-below
+        ? root.bottom + root.gap : max(root.gap, root.top - root.toolbar-height - root.gap);
+    private property <length> chip-height: 22px;
+    private property <length> chip-y: !root.ready || root.toolbar-below
+        ? max(root.gap, root.top - root.chip-height - 4px)
+        : root.toolbar-y >= root.gap + root.chip-height + 4px
+            ? root.toolbar-y - root.chip-height - 4px
+            : min(root.height - root.chip-height - root.gap, root.toolbar-y + root.toolbar-height + 4px);
     private property <[CaptureCommand]> commands: [
         { label: "Copy", action: CaptureAction.copy },
         { label: "Save PNG", action: CaptureAction.save },
@@ -76,9 +85,9 @@ export component CaptureWindow inherits Window {
 
     if root.selected: Rectangle {
         x: clamp(root.left, root.gap, root.width - self.width - root.gap);
-        y: max(root.gap, root.top - self.height - 4px);
+        y: root.chip-y;
         width: dimensions.preferred-width + 14px;
-        height: 22px;
+        height: root.chip-height;
         border-radius: 5px;
         background: #202124;
         dimensions := Text {
@@ -116,8 +125,7 @@ export component CaptureWindow inherits Window {
 
     if root.ready: Rectangle {
         x: clamp(root.right - self.width, root.gap, root.width - self.width - root.gap);
-        y: root.bottom + self.height + 2 * root.gap <= root.height
-            ? root.bottom + root.gap : max(root.gap, root.top - self.height - root.gap);
+        y: root.toolbar-y;
         width: root.toolbar-width;
         height: root.toolbar-height;
         border-radius: 8px;

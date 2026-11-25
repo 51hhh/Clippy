@@ -406,6 +406,13 @@ def run(binary, root):
             return pixel and pixel.get_pixels()[:3] == bytes.fromhex("202124")
 
         wait_for(toolbar_visible, "selection toolbar did not appear beside the selected region")
+        chip_top = toolbar_top - 26 if near_bottom else y + top - 26
+
+        def dimensions_visible():
+            pixel = Gdk.pixbuf_get_from_window(Gdk.get_default_root_window(), x + 444, chip_top + 11, 1, 1)
+            return pixel and pixel.get_pixels()[:3] == bytes.fromhex("202124")
+
+        wait_for(dimensions_visible, "the toolbar obscured the selection dimensions")
         if near_bottom:
             save_qa_window("capture-bottom-toolbar.png", (x, y, width, height))
         return toolbar_left, toolbar_top, toolbar_width
@@ -641,7 +648,7 @@ def run(binary, root):
         click_capture_action(select_area(near_bottom=True), 5)
         wait_for(lambda: not titled_window(CAPTURE_TITLE), "cancel did not close overlay")
         assert list(output.parent.iterdir()) == [output]
-        print("PASS selection toolbar moves above a bottom selection and cancel leaves the file untouched", flush=True)
+        print("PASS selection toolbar and dimensions stay visible near the bottom edge; cancel preserves the file", flush=True)
 
         tray.activate("Screenshot")
         click_capture_action(select_area(), 2)
