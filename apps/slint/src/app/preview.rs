@@ -10,7 +10,7 @@ use image::{ImageError, ImageFormat, ImageReader, RgbaImage};
 use slint::{ComponentHandle, LogicalSize};
 use std::{io::Cursor, thread};
 
-const MAX_PNG_BYTES: usize = 16 * 1024 * 1024;
+pub(super) const MAX_PNG_BYTES: usize = 16 * 1024 * 1024;
 const MAX_DECODED_BYTES: u64 = 48 * 1024 * 1024;
 const MAX_IMAGE_EDGE: u32 = 8192;
 const PREVIEW_EDGE: u32 = 800;
@@ -224,7 +224,7 @@ fn prepare(clip: ClipItem, snapshot: Option<BoundedImageSnapshot>) -> Details {
                 Body::Text(truncate_preview(&text, MAX_TEXT_CHARS))
             }
             ContentType::Image => match snapshot.map(|item| item.image) {
-                Some(BoundedImageData::Bytes(bytes)) => match thumbnail(&bytes) {
+                Some(BoundedImageData::Bytes(bytes)) => match thumbnail(&bytes, PREVIEW_EDGE) {
                     Ok(image) => Body::Image(image),
                     Err(ImageError::Limits(_)) => Body::Unavailable("Image too large to preview"),
                     Err(_) => Body::Unavailable("Could not preview image"),
@@ -241,7 +241,7 @@ fn prepare(clip: ClipItem, snapshot: Option<BoundedImageSnapshot>) -> Details {
     }
 }
 
-fn thumbnail(bytes: &[u8]) -> Result<RgbaImage, ImageError> {
+pub(super) fn thumbnail(bytes: &[u8], edge: u32) -> Result<RgbaImage, ImageError> {
     let mut reader = ImageReader::with_format(Cursor::new(bytes), ImageFormat::Png);
     let mut limits = image::Limits::default();
     limits.max_image_width = Some(MAX_IMAGE_EDGE);
@@ -249,8 +249,8 @@ fn thumbnail(bytes: &[u8]) -> Result<RgbaImage, ImageError> {
     limits.max_alloc = Some(MAX_DECODED_BYTES);
     reader.limits(limits);
     let image = reader.decode()?;
-    if image.width() > PREVIEW_EDGE || image.height() > PREVIEW_EDGE {
-        Ok(image.thumbnail(PREVIEW_EDGE, PREVIEW_EDGE).into_rgba8())
+    if image.width() > edge || image.height() > edge {
+        Ok(image.thumbnail(edge, edge).into_rgba8())
     } else {
         Ok(image.into_rgba8())
     }
@@ -285,17 +285,20 @@ mod tests {
     #[test]
     fn preview_decodes_and_downscales_rgba_with_an_allocation_limit() {
         let original = [255, 0, 0, 128, 0, 128, 255, 0];
-        let image = thumbnail(&encode_png(&original, 2, 1).unwrap()).unwrap();
+        let image = thumbnail(&encode_png(&original, 2, 1).unwrap(), PREVIEW_EDGE).unwrap();
         assert_eq!(image.as_raw(), &original);
         let wide = encode_png(&vec![128; 1_200 * 18 * 4], 1_200, 18).unwrap();
-        let reduced = thumbnail(&wide).unwrap();
+        let reduced = thumbnail(&wide, PREVIEW_EDGE).unwrap();
         assert_eq!(reduced.dimensions(), (800, 12));
         assert_eq!(reduced.get_pixel(0, 0)[3], 128);
 
         let width = MAX_IMAGE_EDGE + 1;
         let oversized = encode_png(&vec![0; width as usize * 4], width, 1).unwrap();
-        assert!(matches!(thumbnail(&oversized), Err(ImageError::Limits(_))));
-        assert!(thumbnail(b"invalid PNG").is_err());
+        assert!(matches!(
+            thumbnail(&oversized, PREVIEW_EDGE),
+            Err(ImageError::Limits(_))
+        ));
+        assert!(thumbnail(b"invalid PNG", PREVIEW_EDGE).is_err());
     }
 
     #[test]

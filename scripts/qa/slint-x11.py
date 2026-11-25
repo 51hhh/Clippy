@@ -357,6 +357,14 @@ def run(binary, root):
             abs(actual - expected) < 12 for actual, expected in zip(pixels[-3:], background)
         )
 
+    def row_thumbnail(box):
+        x, y, _, _ = box
+        pixel = Gdk.pixbuf_get_from_window(Gdk.get_default_root_window(), x + 22, y + 119, 1, 1)
+        if pixel:
+            red, green, blue = pixel.get_pixels()[:3]
+            return red - max(green, blue) >= 90 and red > 120
+        return False
+
     def check_titlebar(bounds, name):
         x, y, width, _ = bounds
         expected = bytes.fromhex("20232a" if theme == "dark" else "ffffff")
@@ -473,8 +481,11 @@ def run(binary, root):
         wait_for(lambda: ("text", OTHER, None) in rows(), "second text did not reach the history")
 
         tray.activate("Open Clipboard")
-        panel_id, (x, y, _, _) = panel_width(380)
+        panel_id, compact_bounds = panel_width(380)
+        x, y, _, _ = compact_bounds
         desktop.focus(panel_id)
+        wait_for(lambda: row_thumbnail(compact_bounds), "transparent PNG thumbnail did not appear in the list")
+        save_qa_window("history-list-thumbnail.png", compact_bounds)
         desktop.click(x + 356, y + 42)
         desktop.click(x + 247, y + 42)
         panel_width(780)
@@ -512,6 +523,7 @@ def run(binary, root):
         # 历史可能因上一次复制重排。搜索固定夹具来核对侧栏复制仍跟随当前选项。
         search("needle")
         desktop.click(x + 52, y + 79)
+        assert not row_thumbnail((x, y, width, height)), "image thumbnail followed a text-only search"
         time.sleep(0.2)
         desktop.click(x + width - 150, y + height - 25)
         wait_for(lambda: get_clipboard("UTF8_STRING").decode() == TEXT,
@@ -530,6 +542,7 @@ def run(binary, root):
         panel_width(380)
         close()
         print("PASS history preview resize, Unicode/HTML/image selection, protected row and close", flush=True)
+        print("PASS visible history PNG thumbnail and text-only search", flush=True)
 
         tray.activate("Actions")
         launcher_id, _ = wait_for(lambda: titled_window(LAUNCHER_TITLE), "clipboard image launcher never appeared")

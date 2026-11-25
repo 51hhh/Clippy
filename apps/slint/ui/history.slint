@@ -8,6 +8,7 @@ export struct ClipRow {
     metadata: string,
     favorite: bool,
     sensitive: bool,
+    thumbnail: image,
 }
 
 component HistoryFilter inherits SurfaceButton {
@@ -67,9 +68,15 @@ export component HistoryPane inherits Rectangle {
     callback copy-item(string, bool);
     callback modify-item(string, bool);
     callback show-preview(bool);
+    callback viewport-changed(int, int);
     private property <string> expanded-id;
     private property <bool> search-visible;
     private property <length> row-height: 77px;
+    private property <int> first-visible: max(0, floor(-list.content-y / root.row-height));
+    private property <int> end-visible: max(root.first-visible, ceil((list.height - list.content-y) / root.row-height));
+
+    changed first-visible => { root.viewport-changed(root.first-visible, root.end-visible); }
+    changed end-visible => { root.viewport-changed(root.first-visible, root.end-visible); }
 
     function select-row(index: int) {
         root.selected-index = index;
@@ -214,6 +221,15 @@ export component HistoryPane inherits Rectangle {
                             padding-right: 8px;
                             spacing: 6px;
 
+                            if !clip.sensitive && clip.thumbnail.width > 0: Rectangle {
+                                width: 48px;
+                                height: 48px;
+                                y: (parent.height - self.height) / 2;
+                                border-radius: 5px;
+                                clip: true;
+                                background: ClippyTheme.elevated;
+                                Image { source: clip.thumbnail; width: parent.width; height: parent.height; image-fit: contain; }
+                            }
                             Rectangle {
                                 horizontal-stretch: 1;
                                 VerticalLayout {

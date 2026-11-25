@@ -40,6 +40,7 @@ fn clip_row(clip: ClipItem) -> ClipRow {
         metadata: clip_metadata(clip.byte_size, clip.created_at).into(),
         favorite: clip.is_favorite,
         sensitive: clip.is_sensitive,
+        thumbnail: slint::Image::default(),
     }
 }
 

@@ -100,6 +100,7 @@ export component AppWindow inherits Window {
     callback preview-item(string);
     callback show-preview(bool);
     callback preview-selection-changed();
+    callback history-viewport-changed(int, int);
     callback open-launcher();
 
     changed selected-id => { root.preview-selection-changed(); }
@@ -174,6 +175,7 @@ export component AppWindow inherits Window {
                     copy-item(id, paste) => { root.copy-item(id, paste); }
                     modify-item(id, favorite) => { root.modify-item(id, favorite); }
                     show-preview(open) => { root.show-preview(open); }
+                    viewport-changed(first, end) => { root.history-viewport-changed(first, end); }
                 }
                 if root.preview-open: HistoryPreviewPane {
                     preview: root.preview;

@@ -35,6 +35,7 @@ mod pins;
 mod preview;
 mod recording;
 mod settings;
+mod thumbnails;
 mod tools;
 mod upgrade;
 mod vision;
@@ -130,6 +131,7 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
             editor_id: 0,
             pins: pins::Pins::default(),
             preview: preview::Preview::default(),
+            thumbnails: thumbnails::Thumbnails::default(),
             longshot: None,
             capture_task_id: 0,
             vision: vision::Vision::default(),
@@ -196,6 +198,7 @@ enum Event {
     Tools(tools::Message),
     Launcher(launcher::Message),
     Preview(preview::Message),
+    Thumbnails(thumbnails::Message),
     Changed(Result<(), StorageError>),
     CaptureStart,
     CaptureReady {
@@ -257,6 +260,7 @@ struct App {
     editor_id: u64,
     pins: pins::Pins,
     preview: preview::Preview,
+    thumbnails: thumbnails::Thumbnails,
     longshot: Option<longshot::View>,
     capture_task_id: u64,
     vision: vision::Vision,
@@ -320,6 +324,7 @@ impl App {
                                 1 => "1 item".into(),
                                 _ => format!("{count} items").into(),
                             });
+                            self.refresh_thumbnails();
                         }
                         Err(error) => window
                             .set_history_status(format!("History unavailable: {error}").into()),
@@ -381,6 +386,7 @@ impl App {
             Event::Tools(message) => self.tools_message(message),
             Event::Launcher(message) => self.launcher_message(message),
             Event::Preview(message) => self.preview_message(message),
+            Event::Thumbnails(message) => self.thumbnails_message(message),
             Event::Changed(result) => {
                 if let Err(error) = result {
                     self.status(format!("Could not update history: {error}"));
@@ -524,6 +530,9 @@ impl App {
         });
         window.on_show_preview(|open| post(Event::Preview(preview::Message::Show(open))));
         window.on_preview_selection_changed(|| post(Event::Preview(preview::Message::Selection)));
+        window.on_history_viewport_changed(|first, end| {
+            post(Event::Thumbnails(thumbnails::Message::Viewport(first, end)));
+        });
         window.on_open_launcher(|| post(Event::Launcher(launcher::Message::OpenFromHistory)));
         window.window().on_close_requested(|| {
             post(Event::Hide);
@@ -540,6 +549,7 @@ impl App {
 
     fn hide(&mut self) {
         self.preview.select(None);
+        self.thumbnails.clear();
         if let Some(window) = self.window.take() {
             let _ = window.hide();
             if self.identity.channel == DistributionChannel::Qa {
