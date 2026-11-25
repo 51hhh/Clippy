@@ -1,4 +1,3 @@
-import { Button } from "std-widgets.slint";
 import { ClipRow, HistoryPane } from "history.slint";
 import { ClipPreview, HistoryPreviewPane } from "history-preview.slint";
 import { GeneralSettings, SettingsPane, ShortcutField, TranslationSettings } from "settings.slint";
@@ -13,7 +12,7 @@ export { RecordingLibrary, RecordingRow } from "recording.slint";
 export { ToolsWindow, TranslationRow } from "tools.slint";
 export { LauncherWindow, LauncherAction, LauncherRow } from "launcher.slint";
 
-export enum CaptureAction { copy, save, edit, longshot, record }
+export { CaptureWindow, CaptureAction } from "capture.slint";
 
 export component ClippyTray inherits SystemTrayIcon {
     in property <string> product-name;
@@ -213,113 +212,5 @@ export component AppWindow inherits Window {
             horizontal-alignment: center;
             wrap: word-wrap;
         }
-    }
-}
-
-export component CaptureWindow inherits Window {
-    in property <image> frame;
-    private property <length> left;
-    private property <length> top;
-    private property <length> right;
-    private property <length> bottom;
-    private property <bool> selected: right - left >= 1px && bottom - top >= 1px;
-    callback cancel();
-    callback confirm(CaptureAction, float, float, float, float);
-
-    title: "Clippy Screenshot";
-    no-frame: true;
-    background: #161616;
-    forward-focus: escape-key;
-
-    Image {
-        width: parent.width;
-        height: parent.height;
-        source: root.frame;
-        image-fit: fill;
-    }
-
-    drag := TouchArea {
-        mouse-cursor: crosshair;
-        pointer-event(event) => {
-            if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
-                root.left = self.mouse-x;
-                root.right = self.mouse-x;
-                root.top = self.mouse-y;
-                root.bottom = self.mouse-y;
-            }
-        }
-        moved => {
-            if self.pressed {
-                root.left = min(self.pressed-x, self.mouse-x);
-                root.top = min(self.pressed-y, self.mouse-y);
-                root.right = max(self.pressed-x, self.mouse-x);
-                root.bottom = max(self.pressed-y, self.mouse-y);
-            }
-        }
-    }
-
-    if root.selected: Rectangle {
-        x: root.left;
-        y: root.top;
-        width: root.right - root.left;
-        height: root.bottom - root.top;
-        border-width: 2px;
-        border-color: #ff6b38;
-    }
-
-    escape-key := FocusScope {
-        key-pressed(event) => {
-            if event.text == Key.Escape {
-                root.cancel();
-                return EventResult.accept;
-            }
-            return EventResult.reject;
-        }
-    }
-
-    Rectangle {
-        x: (parent.width - self.width) / 2;
-        y: 16px;
-        width: 316px;
-        height: 48px;
-        border-radius: 8px;
-        background: #202124;
-        HorizontalLayout {
-            padding: 6px;
-            spacing: 8px;
-            Button {
-                text: "Copy";
-                enabled: root.selected;
-                clicked => { root.confirm(CaptureAction.copy, root.left / root.width, root.top / root.height, root.right / root.width, root.bottom / root.height); }
-            }
-            Button {
-                text: "Save PNG";
-                enabled: root.selected;
-                clicked => { root.confirm(CaptureAction.save, root.left / root.width, root.top / root.height, root.right / root.width, root.bottom / root.height); }
-            }
-            Button { text: "Cancel"; clicked => { root.cancel(); } }
-        }
-    }
-
-    Button {
-        x: (parent.width - self.width) / 2;
-        y: 72px;
-        text: "Edit";
-        enabled: root.selected;
-        clicked => { root.confirm(CaptureAction.edit, root.left / root.width, root.top / root.height, root.right / root.width, root.bottom / root.height); }
-    }
-    Button {
-        x: parent.width / 2 + 52px;
-        y: 72px;
-        text: "Scrolling capture";
-        enabled: root.selected;
-        clicked => { root.confirm(CaptureAction.longshot, root.left / root.width, root.top / root.height, root.right / root.width, root.bottom / root.height); }
-    }
-    Button {
-        x: parent.width / 2 - self.width - 52px;
-        y: 72px;
-        text: "Record region";
-        enabled: root.selected;
-        clicked => { root.confirm(CaptureAction.record, root.left / root.width, root.top / root.height, root.right / root.width, root.bottom / root.height); }
     }
 }

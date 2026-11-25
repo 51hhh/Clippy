@@ -390,12 +390,30 @@ def run(binary, root):
             desktop.keys("Escape")
         wait_for(lambda: not titled_window(TITLE), "panel never closed")
 
-    def select_area():
-        _, (x, y, width, _) = wait_for(
+    def select_area(near_bottom=False):
+        overlay, (x, y, width, height) = wait_for(
             lambda: titled_window(CAPTURE_TITLE), "screenshot overlay never appeared",
         )
-        desktop.drag(x + 440, y + 200, x + 580, y + 300)
-        return x + width // 2, y
+        desktop.focus(overlay)
+        top = height - 120 if near_bottom else 200
+        desktop.drag(x + 440, y + top, x + 580, y + top + 100)
+        toolbar_width = min(520, width - 16)
+        toolbar_left = x + max(8, min(580 - toolbar_width, width - toolbar_width - 8))
+        toolbar_top = y + (top - 52 if near_bottom else top + 108)
+
+        def toolbar_visible():
+            pixel = Gdk.pixbuf_get_from_window(Gdk.get_default_root_window(), toolbar_left + 4, toolbar_top + 22, 1, 1)
+            return pixel and pixel.get_pixels()[:3] == bytes.fromhex("202124")
+
+        wait_for(toolbar_visible, "selection toolbar did not appear beside the selected region")
+        if near_bottom:
+            save_qa_window("capture-bottom-toolbar.png", (x, y, width, height))
+        return toolbar_left, toolbar_top, toolbar_width
+
+    def click_capture_action(toolbar, index):
+        x, y, width = toolbar
+        button_width = (width - 46) / 6
+        desktop.click(round(x + 8 + index * (button_width + 6) + button_width / 2), y + 22)
 
     try:
         wait_for(lambda: tray.address, "no tray registration")
@@ -597,16 +615,15 @@ def run(binary, root):
 
         desktop.background(0x224466)
         desktop.keys("Control_L", "Alt_L", "Shift_L", "k")
-        middle, top = select_area()
-        desktop.click(middle - 101, top + 40)
+        select_area()
+        desktop.keys("Return")
         png = wait_for(clipboard_png, "screenshot copy did not publish PNG")
         expected = ((140, 100), bytes.fromhex("224466"))
         assert decode_png(png) == expected, decode_png(png)
         wait_for(lambda: not titled_window(CAPTURE_TITLE), "overlay stayed open after copy")
 
         tray.activate("Screenshot")
-        middle, top = select_area()
-        desktop.click(middle, top + 40)
+        click_capture_action(select_area(), 1)
         output = root / "shots" / "fixture.png"
         wait_for(output.is_file, "screenshot file was not committed")
         assert decode_png(output.read_bytes()) == expected
@@ -614,15 +631,13 @@ def run(binary, root):
         print("PASS screenshot hotkey and tray, native pixels, crop, clipboard and atomic file", flush=True)
 
         tray.activate("Screenshot")
-        middle, top = select_area()
-        desktop.click(middle + 100, top + 40)
+        click_capture_action(select_area(near_bottom=True), 5)
         wait_for(lambda: not titled_window(CAPTURE_TITLE), "cancel did not close overlay")
         assert list(output.parent.iterdir()) == [output]
-        print("PASS screenshot cancellation leaves the existing file untouched", flush=True)
+        print("PASS selection toolbar moves above a bottom selection and cancel leaves the file untouched", flush=True)
 
         tray.activate("Screenshot")
-        middle, top = select_area()
-        desktop.click(middle, top + 85)
+        click_capture_action(select_area(), 2)
         _, (x, y, width, height) = wait_for(lambda: titled_window(EDITOR_TITLE), "editor never opened")
         check_titlebar((x, y, width, height), "editor")
         desktop.drag(x + width // 3, y + height // 3, x + width * 2 // 3, y + height * 2 // 3)
@@ -707,8 +722,7 @@ def run(binary, root):
 
         desktop.scroll_fixture(0)
         tray.activate("Screenshot")
-        middle, top = select_area()
-        desktop.click(middle + 113, top + 85)
+        click_capture_action(select_area(), 3)
         _, (long_x, long_y, long_width, long_height) = wait_for(
             lambda: titled_window(LONGSHOT_TITLE), "scrolling capture did not open",
         )
@@ -729,8 +743,7 @@ def run(binary, root):
         desktop.click(x + width - 57, y + height - 55)
         wait_for(lambda: not titled_window(EDITOR_TITLE), "long screenshot editor stayed open")
         tray.activate("Screenshot")
-        middle, top = select_area()
-        desktop.click(middle + 113, top + 85)
+        click_capture_action(select_area(), 3)
         longshot_id, _ = wait_for(lambda: titled_window(LONGSHOT_TITLE), "scrolling cancellation fixture did not open")
         desktop.focus(longshot_id)
         desktop.keys("Escape")
@@ -738,8 +751,7 @@ def run(binary, root):
         print("PASS scrolling capture uses the selected region, stitches and cancels from the keyboard", flush=True)
 
         tray.activate("Screenshot")
-        middle, top = select_area()
-        desktop.click(middle - 110, top + 85)
+        click_capture_action(select_area(), 4)
 
         def recording_manifest(state):
             for path in (data_dir / "recordings").glob("*/manifest.json"):

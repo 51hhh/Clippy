@@ -73,6 +73,8 @@ pub(super) fn present(
             };
             let geometry = output.geometry;
             let pixels = &view.pixels;
+            view.window.set_source_width(pixels.width as i32);
+            view.window.set_source_height(pixels.height as i32);
             let buffer = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
                 &pixels.rgba,
                 pixels.width,

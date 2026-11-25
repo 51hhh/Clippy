@@ -1,0 +1,151 @@
+import { Button } from "std-widgets.slint";
+
+export enum CaptureAction { copy, save, edit, longshot, record }
+struct CaptureCommand { label: string, action: CaptureAction }
+
+export component CaptureWindow inherits Window {
+    in property <image> frame;
+    in property <int> source-width;
+    in property <int> source-height;
+    callback cancel();
+    callback confirm(CaptureAction, float, float, float, float);
+
+    private property <length> left;
+    private property <length> top;
+    private property <length> right;
+    private property <length> bottom;
+    private property <bool> selected: right - left >= 1px && bottom - top >= 1px;
+    private property <bool> ready: selected && !drag.pressed;
+    private property <length> gap: 8px;
+    private property <length> toolbar-width: min(520px, root.width - 2 * root.gap);
+    private property <length> toolbar-height: 44px;
+    private property <length> button-width: (root.toolbar-width - 46px) / 6;
+    private property <[CaptureCommand]> commands: [
+        { label: "Copy", action: CaptureAction.copy },
+        { label: "Save PNG", action: CaptureAction.save },
+        { label: "Edit", action: CaptureAction.edit },
+        { label: "Scroll", action: CaptureAction.longshot },
+        { label: "Record", action: CaptureAction.record },
+    ];
+
+    title: "Clippy Screenshot";
+    no-frame: true;
+    background: #161616;
+    forward-focus: keys;
+
+    function commit(action: CaptureAction) {
+        root.confirm(action, root.left / root.width, root.top / root.height, root.right / root.width, root.bottom / root.height);
+    }
+
+    Image {
+        width: parent.width;
+        height: parent.height;
+        source: root.frame;
+        image-fit: fill;
+    }
+
+    drag := TouchArea {
+        mouse-cursor: crosshair;
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                root.left = self.mouse-x;
+                root.right = self.mouse-x;
+                root.top = self.mouse-y;
+                root.bottom = self.mouse-y;
+                keys.focus();
+            }
+        }
+        moved => {
+            if self.pressed {
+                root.left = clamp(min(self.pressed-x, self.mouse-x), 0px, root.width);
+                root.top = clamp(min(self.pressed-y, self.mouse-y), 0px, root.height);
+                root.right = clamp(max(self.pressed-x, self.mouse-x), 0px, root.width);
+                root.bottom = clamp(max(self.pressed-y, self.mouse-y), 0px, root.height);
+            }
+        }
+    }
+
+    if root.selected: Rectangle {
+        x: root.left;
+        y: root.top;
+        width: root.right - root.left;
+        height: root.bottom - root.top;
+        border-width: 2px;
+        border-color: #ff6b38;
+    }
+
+    if root.selected: Rectangle {
+        x: clamp(root.left, root.gap, root.width - self.width - root.gap);
+        y: max(root.gap, root.top - self.height - 4px);
+        width: dimensions.preferred-width + 14px;
+        height: 22px;
+        border-radius: 5px;
+        background: #202124;
+        dimensions := Text {
+            text: "" + (ceil(root.right / root.width * root.source-width) - floor(root.left / root.width * root.source-width))
+                + " × " + (ceil(root.bottom / root.height * root.source-height) - floor(root.top / root.height * root.source-height));
+            font-size: 12px;
+            color: #ffffff;
+            vertical-alignment: center;
+            horizontal-alignment: center;
+        }
+    }
+
+    if !root.selected: Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: 16px;
+        width: 260px;
+        height: root.toolbar-height;
+        border-radius: 8px;
+        background: #202124;
+        TouchArea { }
+        HorizontalLayout {
+            padding: 8px;
+            spacing: 6px;
+            Text {
+                text: "Drag to select an area";
+                color: #ffffff;
+                font-size: 13px;
+                vertical-alignment: center;
+                horizontal-alignment: center;
+                horizontal-stretch: 1;
+            }
+            Button { text: "Cancel"; width: 66px; clicked => { root.cancel(); } }
+        }
+    }
+
+    if root.ready: Rectangle {
+        x: clamp(root.right - self.width, root.gap, root.width - self.width - root.gap);
+        y: root.bottom + self.height + 2 * root.gap <= root.height
+            ? root.bottom + root.gap : max(root.gap, root.top - self.height - root.gap);
+        width: root.toolbar-width;
+        height: root.toolbar-height;
+        border-radius: 8px;
+        background: #202124;
+        TouchArea { }
+        HorizontalLayout {
+            padding: 8px;
+            spacing: 6px;
+            for command in root.commands: Button {
+                text: command.label;
+                width: root.button-width;
+                clicked => { root.commit(command.action); }
+            }
+            Button { text: "Cancel"; width: root.button-width; clicked => { root.cancel(); } }
+        }
+    }
+
+    keys := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.cancel();
+                return accept;
+            }
+            if root.ready && event.text == Key.Return {
+                root.commit(CaptureAction.copy);
+                return accept;
+            }
+            reject
+        }
+    }
+}
