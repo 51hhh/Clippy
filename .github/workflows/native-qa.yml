@@ -755,6 +755,7 @@ jobs:
           INFO_PLIST="$APP/Contents/Info.plist"
           [ "$(plutil -extract CFBundleIdentifier raw -o - "$INFO_PLIST")" = "com.clippy.qa.slint" ]
           [ "$(plutil -extract LSMinimumSystemVersion raw -o - "$INFO_PLIST")" = "12.3" ]
+          [ -n "$(plutil -extract NSScreenCaptureUsageDescription raw -o - "$INFO_PLIST")" ]
           EXECUTABLE_NAME=$(plutil -extract CFBundleExecutable raw -o - "$INFO_PLIST")
           [ "$EXECUTABLE_NAME" = "clippy-slint-qa" ]
           EXECUTABLE="$APP/Contents/MacOS/$EXECUTABLE_NAME"

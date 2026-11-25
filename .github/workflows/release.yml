@@ -756,6 +756,13 @@ jobs:
             APP=target/packager/slint-release/Clippy.app
             codesign --verify --deep --strict "$APP"
             [ "$(plutil -extract CFBundleIdentifier raw -o - "$APP/Contents/Info.plist")" = com.clippy.desktop ]
+            [ "$(plutil -extract LSMinimumSystemVersion raw -o - "$APP/Contents/Info.plist")" = "11.0" ]
+            [ -n "$(plutil -extract NSScreenCaptureUsageDescription raw -o - "$APP/Contents/Info.plist")" ]
+            otool -L "$APP/Contents/MacOS/clippy-app" > slint-macos-libraries.txt
+            if grep -Fq 'ScreenCaptureKit.framework/' slint-macos-libraries.txt; then
+              echo '::error::ScreenCaptureKit must load only when requested on supported macOS versions'
+              exit 1
+            fi
             otool -l "$APP/Contents/MacOS/clippy-app" | grep -A4 LC_BUILD_VERSION > slint-macos-target.txt
             awk '/minos/ { split($2, parts, "."); if (parts[1]>11 || (parts[1]==11 && parts[2]>0)) exit 1; found=1 } END { if (!found) exit 1 }' slint-macos-target.txt
           fi
