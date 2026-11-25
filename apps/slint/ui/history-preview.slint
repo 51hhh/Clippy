@@ -1,11 +1,13 @@
 import { TextEdit } from "std-widgets.slint";
-import { ClippyTheme, SurfaceButton } from "theme.slint";
+import { ClippyTheme, RichDocumentView, SurfaceButton } from "theme.slint";
 
 export struct ClipPreview {
     clip-id: string,
     kind: string,
     metadata: string,
     content: string,
+    styled-content: styled-text,
+    has-styles: bool,
     image: image,
     status: string,
     protected: bool,
@@ -22,12 +24,12 @@ export component HistoryPreviewPane inherits Rectangle {
     callback open-image();
     callback open-tools();
 
-    private property <bool> ready: !root.loading && root.selected-id != "" && root.preview.clip-id == root.selected-id;
+    private property <bool> ready: root.selected-id != "" && root.preview.clip-id == root.selected-id;
     private property <bool> sensitive: root.selected-sensitive || (root.ready && root.preview.protected);
     private property <bool> has-item: root.ready && !root.sensitive && root.preview.kind != "";
     private property <bool> is-image: root.preview.kind == "Image";
     private property <string> message: root.sensitive ? "Sensitive content hidden"
-        : root.loading || (root.selected-id != "" && !root.ready) ? "Loading preview…"
+        : !root.ready && (root.loading || root.selected-id != "") ? "Loading preview…"
         : root.selected-id == "" ? "Select an item to preview" : root.preview.status;
 
     preferred-width: 400px;
@@ -75,7 +77,10 @@ export component HistoryPreviewPane inherits Rectangle {
                 horizontal-alignment: center;
                 wrap: word-wrap;
             }
-            if root.has-item && root.message == "" && !root.is-image: TextEdit {
+            if root.has-item && root.message == "" && root.preview.has-styles: RichDocumentView {
+                body: root.preview.styled-content;
+            }
+            if root.has-item && root.message == "" && !root.is-image && !root.preview.has-styles: TextEdit {
                 text: root.preview.content;
                 read-only: true;
                 wrap: word-wrap;
@@ -93,9 +98,9 @@ export component HistoryPreviewPane inherits Rectangle {
             if root.has-item: HorizontalLayout {
                 alignment: end;
                 spacing: 6px;
-                SurfaceButton { label: "Copy"; enabled: !root.busy; clicked => { root.copy(); } }
-                if root.is-image: SurfaceButton { label: "Edit image"; enabled: !root.busy; clicked => { root.open-image(); } }
-                if !root.is-image: SurfaceButton { label: "Open in Actions"; enabled: !root.busy; clicked => { root.open-tools(); } }
+                SurfaceButton { label: "Copy"; enabled: !root.busy && !root.loading; clicked => { root.copy(); } }
+                if root.is-image: SurfaceButton { label: "Edit image"; enabled: !root.busy && !root.loading; clicked => { root.open-image(); } }
+                if !root.is-image: SurfaceButton { label: "Open in Actions"; enabled: !root.busy && !root.loading; clicked => { root.open-tools(); } }
             }
         }
     }

@@ -1,4 +1,4 @@
-import { Palette } from "std-widgets.slint";
+import { Palette, ScrollView } from "std-widgets.slint";
 
 export global ClippyTheme {
     in property <int> index;
@@ -32,6 +32,27 @@ export global ClippyTheme {
         Palette.color-scheme = dark ? ColorScheme.dark : ColorScheme.light;
     }
     changed index => { self.sync-native-palette(); }
+}
+
+export component RichDocumentView inherits ScrollView {
+    in property <styled-text> body;
+    min-height: 0px;
+    vertical-stretch: 1;
+    horizontal-scrollbar-policy: always-off;
+    mouse-drag-pan-enabled: false;
+
+    VerticalLayout {
+        width: root.visible-width;
+        padding: 8px;
+        StyledText {
+            text: root.body;
+            selectable: true;
+            default-color: ClippyTheme.foreground;
+            default-font-size: 14px;
+            selection-foreground-color: ClippyTheme.foreground;
+            selection-background-color: ClippyTheme.selected;
+        }
+    }
 }
 
 export component SurfaceButton inherits Rectangle {

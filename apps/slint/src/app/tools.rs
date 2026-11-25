@@ -1,4 +1,4 @@
-use super::{clipboard, pins, post, settings, vision, App, Event};
+use super::{clipboard, pins, post, preview_document, settings, vision, App, Event};
 use crate::{ClippyTheme, ToolsWindow, TranslationRow};
 use anyhow::{ensure, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
@@ -9,7 +9,7 @@ use clippy_core::{
 use clippy_storage::NewTranslation;
 use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use pulldown_cmark::{Event as Markdown, Parser, TagEnd};
-use slint::{CloseRequestResponse, ComponentHandle, ModelRc, VecModel};
+use slint::{CloseRequestResponse, ComponentHandle, ModelRc, StyledText, VecModel};
 use std::{
     io::Write,
     process::{Command, Stdio},
@@ -45,8 +45,13 @@ pub(super) enum Message {
     LoadHistory,
     ClearHistory,
     History(u64, Result<Vec<TranslationHistoryEntry>>),
-    Completed(u64, Result<Option<String>>),
+    Completed(u64, Result<Option<TextOutput>>),
     Note(u64, Result<String>),
+}
+
+pub(super) struct TextOutput {
+    plain: String,
+    markup: Option<StyledText>,
 }
 
 #[derive(Default)]
@@ -364,9 +369,11 @@ impl App {
                 self.tools.cancel.take();
                 self.tools.busy(false);
                 if id == self.tools.serial {
-                    if let Some(text) = result? {
+                    if let Some(output) = result? {
                         if let Some(window) = &self.tools.window {
-                            window.set_result(text.into());
+                            window.set_result(output.plain.into());
+                            window.set_has_result_markup(output.markup.is_some());
+                            window.set_result_markup(output.markup.unwrap_or_default());
                         }
                     }
                     self.tools.note("Done");
@@ -420,7 +427,10 @@ impl App {
                                     },
                                 );
                             }
-                            text
+                            TextOutput {
+                                plain: text,
+                                markup: None,
+                            }
                         });
                     send(Message::Completed(id, result.map(Some)));
                 })?;
@@ -428,7 +438,15 @@ impl App {
             thread::Builder::new()
                 .name("clippy-transform-text".into())
                 .spawn(move || {
-                    send(Message::Completed(id, transform(action, &source).map(Some)));
+                    let output = transform(action, &source).map(|plain| TextOutput {
+                        plain,
+                        markup: if action == 1 {
+                            preview_document::markdown(&source)
+                        } else {
+                            None
+                        },
+                    });
+                    send(Message::Completed(id, output.map(Some)));
                 })?;
         }
         self.tools.cancel = Some(cancel);

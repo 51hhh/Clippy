@@ -33,6 +33,7 @@ mod launcher;
 mod longshot;
 mod pins;
 mod preview;
+mod preview_document;
 mod recording;
 mod settings;
 mod thumbnails;

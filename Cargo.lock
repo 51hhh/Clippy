@@ -1379,6 +1379,7 @@ dependencies = [
  "clippy-storage",
  "clippy-translate",
  "clippy-vision",
+ "html5ever",
  "http",
  "image 0.25.10",
  "percent-encoding",

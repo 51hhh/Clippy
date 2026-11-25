@@ -1,4 +1,4 @@
-use super::{editor, post, App, Event};
+use super::{editor, post, preview_document, App, Event};
 use crate::{clip_metadata, truncate_preview, ClipPreview};
 use anyhow::Result;
 use clippy_core::{
@@ -7,7 +7,7 @@ use clippy_core::{
 };
 use clippy_storage::{BoundedImageData, BoundedImageSnapshot, StorageEngine, StorageError};
 use image::{ImageError, ImageFormat, ImageReader, RgbaImage};
-use slint::{ComponentHandle, LogicalSize};
+use slint::{ComponentHandle, LogicalSize, StyledText};
 use std::{io::Cursor, thread};
 
 pub(super) const MAX_PNG_BYTES: usize = 16 * 1024 * 1024;
@@ -70,7 +70,7 @@ pub(super) struct Details {
 }
 
 enum Body {
-    Text(String),
+    Text(String, Option<StyledText>),
     Image(RgbaImage),
     Protected,
     Unavailable(&'static str),
@@ -85,7 +85,11 @@ impl Details {
             ..Default::default()
         };
         match self.body {
-            Body::Text(text) => model.content = text.into(),
+            Body::Text(text, styled) => {
+                model.content = text.into();
+                model.has_styles = styled.is_some();
+                model.styled_content = styled.unwrap_or_default();
+            }
             Body::Image(image) => model.image = editor::to_slint(&image),
             Body::Protected => model.protected = true,
             Body::Unavailable(message) => model.status = message.into(),
@@ -164,9 +168,11 @@ impl App {
             move |db| read_details(db, request.id),
             move |result| match result {
                 Ok((clip, snapshot)) => {
-                    if snapshot.as_ref().is_some_and(|item| {
-                        !item.is_sensitive && matches!(item.image, BoundedImageData::Bytes(_))
-                    }) {
+                    if (clip.content_type == ContentType::Html && !clip.is_sensitive)
+                        || snapshot.as_ref().is_some_and(|item| {
+                            !item.is_sensitive && matches!(item.image, BoundedImageData::Bytes(_))
+                        })
+                    {
                         // 解码不占用 SQLite 线程，快速选中多项时只保留最新一项候选。
                         if let Err(error) = thread::Builder::new()
                             .name("clippy-preview".into())
@@ -215,13 +221,17 @@ fn prepare(clip: ClipItem, snapshot: Option<BoundedImageSnapshot>) -> Details {
     } else {
         match clip.content_type {
             ContentType::Text | ContentType::Html => {
+                let styled = clip
+                    .html_content
+                    .as_deref()
+                    .and_then(preview_document::html);
                 let text = clip.text_content.unwrap_or_else(|| {
                     clip.html_content
                         .as_deref()
                         .map(strip_html_tags)
                         .unwrap_or_default()
                 });
-                Body::Text(truncate_preview(&text, MAX_TEXT_CHARS))
+                Body::Text(truncate_preview(&text, MAX_TEXT_CHARS), styled)
             }
             ContentType::Image => match snapshot.map(|item| item.image) {
                 Some(BoundedImageData::Bytes(bytes)) => match thumbnail(&bytes, PREVIEW_EDGE) {

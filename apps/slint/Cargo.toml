@@ -39,6 +39,7 @@ clippy-platform = { path = "../../crates/clippy-platform" }
 clippy-storage = { path = "../../crates/clippy-storage" }
 clippy-vision = { path = "../../crates/clippy-vision" }
 clippy-translate = { path = "../../crates/clippy-translate" }
+html5ever = "0.39"
 http = "1"
 image = { version = "0.25", default-features = false, features = ["png"] }
 percent-encoding = "2"

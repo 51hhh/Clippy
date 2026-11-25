@@ -257,7 +257,7 @@ def clipboard_png():
         ["xclip", "-selection", "clipboard", "-out", "-target", "image/png"],
         capture_output=True, timeout=3,
     )
-    return result.stdout if result.returncode == 0 else None
+    return result.stdout if result.returncode == 0 and result.stdout.startswith(b"\x89PNG\r\n\x1a\n") else None
 
 
 def decode_png(data):
@@ -507,7 +507,15 @@ def run(binary, root):
         desktop.keys("Control_L", "a")
         desktop.keys("Control_L", "c")
         wait_for(lambda: get_clipboard("UTF8_STRING").decode() == "rich-qa",
-                 "read-only preview did not expose the rich item's plain text")
+                 "rich preview did not allow selecting and copying text")
+        save_qa_window("slint-history-rich-preview.png", expanded)
+        wait_for(lambda: ("text", "rich-qa", None) in rows(), "rich selection did not reach clipboard history")
+        time.sleep(0.1)
+        desktop.keys("Escape")
+        panel_width(380)
+        desktop.keys("Tab")
+        panel_width(780)
+        desktop.click(x + width - 330, y + 95)
         desktop.keys("Control_L", "k")
         launcher_id, _ = wait_for(lambda: titled_window(LAUNCHER_TITLE), "Ctrl+K did not reach the launcher from preview text")
         desktop.focus(launcher_id)
@@ -602,6 +610,18 @@ def run(binary, root):
         desktop.keys("Return")
         select_text_pane(False, json.dumps(json.loads(sample), indent=2))
 
+        set_clipboard("UTF8_STRING", b"# Native markup\n\n**bold QA** and `code`.")
+        desktop.click(x + 80, y + 159)
+        desktop.keys("Control_L", "a")
+        desktop.keys("Control_L", "v")
+        desktop.click(x + 81, y + height - 55)
+        desktop.keys("Up")
+        desktop.keys("Return")
+        desktop.keys("Tab")
+        desktop.keys("Return")
+        select_text_pane(False, "Native markup\nbold QA and code.")
+        save_qa_window("text-tools-markdown.png", tools_bounds)
+
         with sqlite3.connect(data_dir / "clips.db") as connection:
             connection.execute(
                 "INSERT INTO translation_history "
@@ -619,6 +639,7 @@ def run(binary, root):
         wait_for(lambda: not titled_window(TOOLS_TITLE), "text tools did not close")
         print("PASS launcher tray and keyboard, search, selection, image analysis and selected text", flush=True)
         print("PASS side-by-side text panes, local formatting and restored translation history", flush=True)
+        print("PASS native HTML and Markdown typography with selectable text", flush=True)
 
         desktop.focus(target_id)
         desktop.keys("Control_L", "Alt_L", "Shift_L", "j")
