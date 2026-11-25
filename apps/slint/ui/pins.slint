@@ -1,5 +1,5 @@
-import { Button, CheckBox, Slider, VerticalBox } from "std-widgets.slint";
-import { ClippyTheme } from "theme.slint";
+import { Slider } from "std-widgets.slint";
+import { ClippyTheme, SurfaceButton } from "theme.slint";
 
 export component PinnedWindow inherits Window {
     in property <image> picture;
@@ -17,58 +17,120 @@ export component PinnedWindow inherits Window {
     callback copy-pin();
     callback save-pin();
 
+    private property <bool> opacity-open;
+
     title: "Clippy Pin";
+    no-frame: true;
+    resize-border-width: ClippyTheme.window-resize-border;
     preferred-width: 500px;
     preferred-height: 440px;
     min-width: 330px;
-    min-height: 200px;
+    min-height: 220px;
     background: ClippyTheme.background;
     init => { ClippyTheme.sync-native-palette(); }
 
-    VerticalBox {
-        padding: 10px;
+    public pure function drag-contains(x: length, y: length) -> bool {
+        return x >= root.resize-border-width && x < root.width - 108px
+            && y >= root.resize-border-width && y < root.height - root.resize-border-width
+            && (!root.opacity-open || x < opacity-panel.x || y < opacity-panel.y
+                || y >= opacity-panel.y + opacity-panel.height);
+    }
+
+    HorizontalLayout {
+        padding: 7px;
         spacing: 6px;
-        Rectangle {
-            vertical-stretch: 1;
-            background: ClippyTheme.hover;
-            if root.has-image: Image {
-                source: root.picture;
-                width: parent.width;
-                height: parent.height;
-                opacity: root.opacity-value;
-                image-fit: contain;
+        VerticalLayout {
+            spacing: 4px;
+            horizontal-stretch: 1;
+            Rectangle {
+                vertical-stretch: 1;
+                border-radius: 6px;
+                clip: true;
+                background: ClippyTheme.hover;
+                if root.has-image: Image {
+                    source: root.picture;
+                    width: parent.width;
+                    height: parent.height;
+                    opacity: root.opacity-value;
+                    image-fit: contain;
+                }
+                if !root.has-image: Text {
+                    x: 9px;
+                    y: 9px;
+                    width: parent.width - 18px;
+                    height: parent.height - 18px;
+                    opacity: root.opacity-value;
+                    text: root.body;
+                    color: ClippyTheme.foreground;
+                    wrap: word-wrap;
+                    overflow: elide;
+                }
             }
-            if !root.has-image: Text {
-                x: 10px;
-                y: 10px;
-                width: parent.width - 20px;
-                height: parent.height - 20px;
-                opacity: root.opacity-value;
-                text: root.body;
-                color: ClippyTheme.foreground;
-                wrap: word-wrap;
-                overflow: elide;
+            if root.status != "": Text {
+                text: root.status; color: ClippyTheme.muted; font-size: 12px; overflow: elide;
             }
         }
+        Rectangle {
+            width: 94px;
+            background: ClippyTheme.elevated;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: ClippyTheme.border;
+            VerticalLayout {
+                padding: 3px;
+                spacing: 2px;
+                HorizontalLayout {
+                    height: 23px;
+                    SurfaceButton { label: "Zoom out"; caption: "−"; enabled: root.zoom > 0.25 && !root.locked; clicked => { root.resize-pin(max(0.25, root.zoom / 1.25)); } }
+                    Text {
+                        text: "" + round(100 * root.zoom) + "%"; color: ClippyTheme.muted; font-size: 12px;
+                        horizontal-alignment: center; vertical-alignment: center; horizontal-stretch: 1;
+                    }
+                    SurfaceButton { label: "Zoom in"; caption: "+"; enabled: root.zoom < 4 && !root.locked; clicked => { root.resize-pin(min(4, root.zoom * 1.25)); } }
+                }
+                SurfaceButton {
+                    label: "Opacity"; height: 23px; selected: root.opacity-open;
+                    clicked => { root.opacity-open = !root.opacity-open; }
+                }
+                SurfaceButton {
+                    label: root.above ? "Unpin top" : "Keep on top"; height: 23px; selected: root.above;
+                    clicked => { root.above = !root.above; root.update-pin(); }
+                }
+                SurfaceButton {
+                    label: root.locked ? "Unlock size" : "Lock size"; height: 23px; selected: root.locked;
+                    clicked => { root.locked = !root.locked; root.update-pin(); }
+                }
+                if root.has-image: SurfaceButton { label: "Edit"; height: 23px; clicked => { root.edit-pin(); } }
+                SurfaceButton { label: "Copy"; height: 23px; clicked => { root.copy-pin(); } }
+                if root.has-image: SurfaceButton { label: "Save PNG"; height: 23px; clicked => { root.save-pin(); } }
+                Rectangle { vertical-stretch: 1; }
+                SurfaceButton { label: "Hide"; height: 23px; danger: true; clicked => { root.close-pin(); } }
+            }
+        }
+    }
+    opacity-panel := Rectangle {
+        visible: root.opacity-open;
+        x: root.width - 272px;
+        y: 32px;
+        width: 163px;
+        height: 33px;
+        border-radius: 7px;
+        border-width: 1px;
+        border-color: ClippyTheme.border;
+        background: ClippyTheme.elevated;
         HorizontalLayout {
-            spacing: 4px;
-            Text { text: "Opacity"; color: ClippyTheme.foreground; vertical-alignment: center; }
+            padding-left: 8px;
+            padding-right: 8px;
+            spacing: 6px;
             Slider {
+                accessible-label: "Pin opacity";
                 minimum: 0.15; maximum: 1; value <=> root.opacity-value;
                 released => { root.update-pin(); }
             }
-            Button { text: "−"; enabled: root.zoom > 0.25 && !root.locked; clicked => { root.resize-pin(max(0.25, root.zoom / 1.25)); } }
-            Button { text: "+"; enabled: root.zoom < 4 && !root.locked; clicked => { root.resize-pin(min(4, root.zoom * 1.25)); } }
-            CheckBox { text: "Top"; checked <=> root.above; toggled => { root.update-pin(); } }
-            CheckBox { text: "Lock size"; checked <=> root.locked; toggled => { root.update-pin(); } }
+            Text {
+                text: "" + round(100 * root.opacity-value) + "%"; color: ClippyTheme.muted;
+                font-size: 11px; vertical-alignment: center;
+            }
         }
-        HorizontalLayout {
-            spacing: 4px;
-            Button { text: "Edit"; enabled: root.has-image; clicked => { root.edit-pin(); } }
-            Button { text: "Copy"; clicked => { root.copy-pin(); } }
-            Button { text: "Save PNG"; enabled: root.has-image; clicked => { root.save-pin(); } }
-            Button { text: "Hide"; clicked => { root.close-pin(); } }
-        }
-        if root.status != "": Text { text: root.status; color: ClippyTheme.muted; wrap: word-wrap; }
     }
 }

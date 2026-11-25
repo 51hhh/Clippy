@@ -709,7 +709,7 @@ def run(binary, root):
         assert pixbuf_png(edited_file.read_bytes()).get_pixels() == edited_copy.get_pixels()
         assert (edited_copy.get_width(), edited_copy.get_height()) == expected[0]
         desktop.click(x + width - 67, y + height - 26)
-        _, (pin_x, pin_y, pin_width, pin_height) = wait_for(
+        pin_id, (pin_x, pin_y, pin_width, pin_height) = wait_for(
             lambda: titled_window(PIN_TITLE), "edited image did not open as a pin",
         )
         with sqlite3.connect(data_dir / "clips.db") as connection:
@@ -721,8 +721,29 @@ def run(binary, root):
         desktop.click(x + width - 57, y + height - 55)
         wait_for(lambda: not titled_window(EDITOR_TITLE), "editor stayed open after close")
         print("PASS screenshot editor and identical copy/save pixels", flush=True)
+
+        def pin_presentation():
+            with sqlite3.connect(data_dir / "clips.db") as conn:
+                return conn.execute("SELECT scale, opacity, locked, above FROM pin_workspace_items").fetchone()
+
+        desktop.focus(pin_id)
+        desktop.click(pin_x + pin_width - 51, pin_y + 96)
+        locked = wait_for(lambda: pin_presentation()[2] == 1 and pin_presentation(),
+                          "pin size lock was not saved")
+        desktop.click(pin_x + pin_width - 25, pin_y + 21)
+        assert pin_presentation()[0] == locked[0], "locked pin accepted zoom"
+        desktop.click(pin_x + pin_width - 51, pin_y + 46)
+        desktop.click(pin_x + pin_width - 237, pin_y + 48)
+        wait_for(lambda: pin_presentation()[1] < locked[1], "pin opacity was not persisted")
+        desktop.click(pin_x + pin_width - 51, pin_y + 46)
+        set_clipboard("UTF8_STRING", OTHER.encode())
+        desktop.click(pin_x + pin_width - 51, pin_y + 146)
+        copied_pin = wait_for(edited_clipboard, "pin toolbar did not copy the stored image")
+        assert copied_pin.get_pixels() == edited_copy.get_pixels()
+        save_qa_window("pin-toolbar.png", (pin_x, pin_y, pin_width, pin_height))
         desktop.click(pin_x + pin_width - 43, pin_y + pin_height - 25)
         wait_for(lambda: not titled_window(PIN_TITLE), "pin did not hide")
+        print("PASS pin toolbar stores opacity and size lock and copies unchanged pixels", flush=True)
         tray.activate("Pinned Workspace")
         workspace_id, (work_x, work_y, work_width, work_height) = wait_for(
             lambda: titled_window(WORKSPACE_TITLE), "workspace did not open",

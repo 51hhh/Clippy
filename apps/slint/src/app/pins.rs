@@ -193,6 +193,7 @@ impl Pins {
         window.on_copy_pin(move || send(Message::View(id, Action::Copy)));
         window.on_save_pin(move || send(Message::View(id, Action::Save)));
         window.on_close_pin(move || send(Message::View(id, Action::Close)));
+        settings::connect_titlebar(&window, PinnedWindow::invoke_drag_contains);
         window.window().on_close_requested(move || {
             send(Message::View(id, Action::Close));
             CloseRequestResponse::KeepWindowShown
@@ -360,8 +361,8 @@ fn prepare(item: StoredPinWorkspaceItem) -> Result<Prepared> {
 
 fn resize(window: &PinnedWindow, viewport: (f64, f64), scale: f64) {
     let base = (440.0 / viewport.0).min(410.0 / viewport.1).min(1.0);
-    let width = (viewport.0 * base * scale + 20.0).clamp(330.0, 1600.0);
-    let height = (viewport.1 * base * scale + 108.0).clamp(220.0, 1200.0);
+    let width = (viewport.0 * base * scale + 114.0).clamp(330.0, 1600.0);
+    let height = (viewport.1 * base * scale + 32.0).clamp(220.0, 1200.0);
     window
         .window()
         .set_size(LogicalSize::new(width as f32, height as f32));
