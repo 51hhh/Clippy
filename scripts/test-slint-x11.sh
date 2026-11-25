@@ -4,7 +4,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 if [[ $# -eq 0 ]]; then
   cargo build --locked -p clippy-slint --bin clippy-slint-qa --features qa-build
-  set -- target/debug/clippy-slint-qa
+  set -- "${CARGO_TARGET_DIR:-target}/debug/clippy-slint-qa"
 fi
 
 runtime_dir="$(mktemp -d)"
