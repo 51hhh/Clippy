@@ -35,11 +35,17 @@ pub(super) enum Message {
     Updated(Result<(), StorageError>),
     Open(i64),
     Ready(Result<Prepared>),
-    Created(u64, Result<Prepared>),
+    Created(PinRequest, Result<Prepared>),
     History(i64),
     HistoryReady(Result<(Arc<RgbaImage>, ImageProject)>),
     View(i64, Action),
     Status(i64, Result<String>),
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum PinRequest {
+    Editor(u64),
+    Launcher(u64),
 }
 
 pub(super) enum Action {
@@ -96,16 +102,13 @@ fn parse_id(id: &slint::SharedString) -> i64 {
 impl Pins {
     pub(super) fn create(
         &mut self,
-        editor_id: u64,
+        request: PinRequest,
         project: ImageProject,
         rendered: Arc<RgbaImage>,
         storage: StorageClient,
-    ) {
-        if self.writing {
-            return;
-        }
-        self.writing = true;
-        let result = thread::Builder::new()
+    ) -> Result<()> {
+        anyhow::ensure!(!self.writing, "A pin is being saved");
+        thread::Builder::new()
             .name("clippy-pin-output".into())
             .spawn(move || {
                 let encoded = encode_pin(&project, &rendered);
@@ -120,7 +123,7 @@ impl Pins {
                             move |db| store_pin(db, &encoded, &presentation, viewport),
                             move |result| {
                                 send(Message::Created(
-                                    editor_id,
+                                    request,
                                     result
                                         .map(|id| Prepared {
                                             id,
@@ -133,15 +136,14 @@ impl Pins {
                             },
                         );
                         if let Err(error) = result {
-                            send(Message::Created(editor_id, Err(error.into())));
+                            send(Message::Created(request, Err(error.into())));
                         }
                     }
-                    Err(error) => send(Message::Created(editor_id, Err(error))),
+                    Err(error) => send(Message::Created(request, Err(error))),
                 }
-            });
-        if let Err(error) = result {
-            send(Message::Created(editor_id, Err(error.into())));
-        }
+            })?;
+        self.writing = true;
+        Ok(())
     }
 
     fn workspace(&mut self) -> Result<()> {
@@ -540,13 +542,18 @@ impl App {
                     },
                 )?;
             }
-            Message::Created(editor_id, result) => {
+            Message::Created(request, result) => {
                 self.pins.writing = false;
                 let result = result.and_then(|prepared| self.pins.show(prepared));
-                self.editor_output(
-                    editor_id,
-                    result.map(|()| "Pinned image added to workspace".to_owned()),
-                );
+                match request {
+                    PinRequest::Editor(id) => self.editor_output(
+                        id,
+                        result.map(|()| "Pinned image added to workspace".to_owned()),
+                    ),
+                    PinRequest::Launcher(generation) => {
+                        self.launcher_pin_created(generation, result)
+                    }
+                }
                 self.refresh_pins();
             }
             Message::Ready(result) => self.pins.show(result?)?,

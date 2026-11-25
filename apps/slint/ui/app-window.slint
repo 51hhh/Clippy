@@ -10,6 +10,7 @@ export { LongshotWindow } from "longshot.slint";
 export { ImageTextWindow, TextBox, TextParagraph } from "vision.slint";
 export { RecordingLibrary, RecordingRow } from "recording.slint";
 export { ToolsWindow, TranslationRow } from "tools.slint";
+export { LauncherWindow, LauncherAction, LauncherRow } from "launcher.slint";
 
 export enum CaptureAction { copy, save, edit, longshot, record }
 
@@ -95,6 +96,7 @@ export component AppWindow inherits Window {
     callback preview-item(string);
     callback show-preview(bool);
     callback preview-selection-changed();
+    callback open-launcher();
 
     changed selected-id => { root.preview-selection-changed(); }
     changed selected-sensitive => { root.preview-selection-changed(); }
@@ -111,8 +113,7 @@ export component AppWindow inherits Window {
     init => { ClippyTheme.sync-native-palette(); }
 
     public pure function titlebar-contains(x: length, y: length) -> bool {
-        return x >= root.resize-border-width && x < root.width - ClippyTheme.titlebar-drag-inset
-            && y >= root.resize-border-width && y < ClippyTheme.titlebar-height;
+        return ClippyTheme.titlebar-contains(x, y, root.width, root.resize-border-width);
     }
 
     VerticalLayout {
@@ -154,6 +155,7 @@ export component AppWindow inherits Window {
                 copy-item(id, paste) => { root.copy-item(id, paste); }
                 modify-item(id, favorite) => { root.modify-item(id, favorite); }
                 show-preview(open) => { root.show-preview(open); }
+                open-launcher => { root.open-launcher(); }
             }
             if root.preview-open: HistoryPreviewPane {
                 preview: root.preview;

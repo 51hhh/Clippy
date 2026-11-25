@@ -18,6 +18,9 @@ export global ClippyTheme {
     out property <color> danger: dark ? #f47272 : #b83b3b;
     out property <length> titlebar-height: 52px;
     out property <length> titlebar-drag-inset: 120px;
+    public pure function titlebar-contains(x: length, y: length, width: length, border: length) -> bool {
+        return x >= border && x < width - titlebar-drag-inset && y >= border && y < titlebar-height;
+    }
     public pure function theme-background(theme: int) -> color {
         return theme == 1 ? #16181d : theme == 2 ? #2e3440 : theme == 3 ? #fdf6e3 : theme == 4 ? #fff7f7 : theme == 5 ? #14132b : #fbfbfd;
     }
@@ -160,6 +163,6 @@ export component WindowHeader inherits Rectangle {
         spacing: 4px;
         SurfaceButton { label: "Minimize"; caption: "−"; width: 32px; height: 32px; clicked => { root.minimize(); } }
         SurfaceButton { label: root.maximized ? "Restore" : "Maximize"; caption: root.maximized ? "▣" : "□"; width: 32px; height: 32px; clicked => { root.maximize(); } }
-        SurfaceButton { label: "Close settings"; caption: "×"; danger: true; width: 32px; height: 32px; clicked => { root.dismiss(); } }
+        SurfaceButton { label: "Close window"; caption: "×"; danger: true; width: 32px; height: 32px; clicked => { root.dismiss(); } }
     }
 }

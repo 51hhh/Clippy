@@ -303,9 +303,16 @@ impl App {
                 if editor.window.get_output_ready() {
                     let snapshot = editor.document.snapshot();
                     let image = editor.current.clone();
-                    editor.set_status("Adding to the pinned workspace…".into());
-                    self.pins
-                        .create(editor.id, snapshot, image, self.storage.client());
+                    let result = self.pins.create(
+                        super::pins::PinRequest::Editor(editor.id),
+                        snapshot,
+                        image,
+                        self.storage.client(),
+                    );
+                    editor.set_status(match result {
+                        Ok(()) => "Adding to the pinned workspace…".into(),
+                        Err(error) => error.to_string(),
+                    });
                 }
             }
             Action::Analyze(mode) => {

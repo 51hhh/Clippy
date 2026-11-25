@@ -29,6 +29,7 @@ use std::{
 mod capture;
 mod clipboard;
 mod editor;
+mod launcher;
 mod longshot;
 mod pins;
 mod preview;
@@ -80,7 +81,7 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
     });
     tray.on_save_screens(|| use_app(App::save_screens));
     tray.on_open_settings(|| handle(Event::Open(true)));
-    tray.on_open_actions(|| handle(Event::Tools(tools::Message::Show)));
+    tray.on_open_actions(|| handle(Event::Launcher(launcher::Message::OpenFromTray)));
     tray.on_open_workspace(|| handle(Event::Pins(pins::Message::Workspace)));
     tray.on_recordings(|| handle(Event::Recordings(recording::Message::Show)));
     tray.on_recording_pause(|| {
@@ -137,6 +138,7 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
             vision: vision::Vision::default(),
             recordings: recording::Recordings::default(),
             tools: tools::Tools::default(),
+            launcher: launcher::Launcher::default(),
         }))
     });
     let timer = Timer::default();
@@ -194,6 +196,7 @@ enum Event {
     TmuxCaptured(Result<String>),
     Settings(settings::Message),
     Tools(tools::Message),
+    Launcher(launcher::Message),
     Preview(preview::Message),
     Changed(Result<(), StorageError>),
     CaptureStart,
@@ -261,6 +264,7 @@ struct App {
     vision: vision::Vision,
     recordings: recording::Recordings,
     tools: tools::Tools,
+    launcher: launcher::Launcher,
 }
 
 impl App {
@@ -366,6 +370,7 @@ impl App {
             }
             Event::Settings(message) => self.settings_message(message),
             Event::Tools(message) => self.tools_message(message),
+            Event::Launcher(message) => self.launcher_message(message),
             Event::Preview(message) => self.preview_message(message),
             Event::Changed(result) => {
                 if let Err(error) = result {
@@ -510,6 +515,7 @@ impl App {
         });
         window.on_show_preview(|open| post(Event::Preview(preview::Message::Show(open))));
         window.on_preview_selection_changed(|| post(Event::Preview(preview::Message::Selection)));
+        window.on_open_launcher(|| post(Event::Launcher(launcher::Message::OpenFromHistory)));
         window.window().on_close_requested(|| {
             post(Event::Hide);
             CloseRequestResponse::HideWindow
@@ -662,8 +668,9 @@ impl App {
             return;
         }
         let started = Instant::now();
-        let panel = self.window.is_some();
+        let panel = self.window.is_some() || self.launcher.is_open();
         self.set_busy(true);
+        self.launcher.close();
         self.hide();
         if panel {
             Timer::single_shot(Duration::from_millis(32), move || {

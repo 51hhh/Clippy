@@ -56,7 +56,10 @@ fn apply_theme(window: &AppWindow, theme: i32) {
     window.global::<ClippyTheme>().set_index(theme);
 }
 
-fn connect_titlebar(window: &AppWindow) {
+pub(super) fn connect_titlebar<T: ComponentHandle + 'static>(
+    window: &T,
+    contains: impl Fn(&T, f32, f32) -> bool + 'static,
+) {
     let weak = window.as_weak();
     let mut cursor = None;
     window.window().on_winit_window_event(move |host, event| {
@@ -70,7 +73,7 @@ fn connect_titlebar(window: &AppWindow) {
             } => {
                 if let (Some(window), Some(position)) = (weak.upgrade(), cursor) {
                     let position = position.to_logical::<f32>(f64::from(host.scale_factor()));
-                    if window.invoke_titlebar_contains(position.x, position.y)
+                    if contains(&window, position.x, position.y)
                         && host.with_winit_window(|window| window.drag_window().is_ok())
                             == Some(true)
                     {
@@ -101,7 +104,7 @@ pub(super) fn connect(window: &AppWindow, config: &AppConfig) {
     translation(window, config, index as i32).expect("设置页中的翻译服务索引有效");
     window.set_tmux_available(cfg!(target_os = "linux"));
     if window.get_show_settings() {
-        connect_titlebar(window);
+        connect_titlebar(window, AppWindow::invoke_titlebar_contains);
     }
     window.on_apply_general(|settings| {
         use_app(|app| {

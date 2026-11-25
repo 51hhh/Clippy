@@ -29,6 +29,9 @@ WORKSPACE_TITLE = "Clippy Pinned Workspace"
 LONGSHOT_TITLE = "Clippy Scrolling Capture"
 RECORDING_TITLE = "Clippy Recordings"
 SETTINGS_TITLE = "Clippy Settings"
+LAUNCHER_TITLE = "Clippy Launcher"
+TOOLS_TITLE = "Clippy Actions"
+IMAGE_TEXT_TITLE = "Clippy Image Text"
 TEXT = "needle 自动剪贴板 QA"
 OTHER = "unrelated fixture"
 HTML = "<b>rich-qa</b>".encode()
@@ -343,6 +346,11 @@ def run(binary, root):
         # 输入事件和 SQLite 返回跨两个线程，等查询结果进入页面再点击。
         time.sleep(0.25)
 
+    def launcher_search(word):
+        desktop.keys("Control_L", "a")
+        for letter in word:
+            desktop.keys("space" if letter == " " else letter)
+
     def close():
         panel_id, _ = panel()
         desktop.focus(panel_id)
@@ -374,6 +382,20 @@ def run(binary, root):
         desktop.click(x + width - 28, y + 26)
         wait_for(lambda: not titled_window(SETTINGS_TITLE), "settings titlebar close did not close the window")
         print("PASS settings window has its own size and native titlebar close", flush=True)
+
+        tray.activate("Actions")
+        launcher_id, bounds = wait_for(lambda: titled_window(LAUNCHER_TITLE), "tray launcher never appeared")
+        assert bounds[2:] == (640, 520), bounds
+        desktop.focus(launcher_id)
+        launcher_search("missingaction")
+        desktop.keys("Return")
+        assert titled_window(LAUNCHER_TITLE), "an empty search ran a command"
+        launcher_search("settings")
+        desktop.keys("Return")
+        settings_id, _ = wait_for(lambda: titled_window(SETTINGS_TITLE), "launcher did not open settings")
+        wait_for(lambda: not titled_window(LAUNCHER_TITLE), "launcher stayed open after choosing settings")
+        desktop.request_close(settings_id)
+        wait_for(lambda: not titled_window(SETTINGS_TITLE), "launcher settings did not close")
 
         set_clipboard("UTF8_STRING", TEXT.encode())
         assert get_clipboard("UTF8_STRING").decode() == TEXT
@@ -445,6 +467,46 @@ def run(binary, root):
         panel_width(380)
         close()
         print("PASS history preview resize, Unicode/HTML/image selection, protected row and close", flush=True)
+
+        tray.activate("Actions")
+        launcher_id, _ = wait_for(lambda: titled_window(LAUNCHER_TITLE), "clipboard image launcher never appeared")
+        desktop.focus(launcher_id)
+        launcher_search("image")
+        desktop.keys("Down")
+        desktop.keys("Return")
+        analysis_id, _ = wait_for(lambda: titled_window(IMAGE_TEXT_TITLE), "launcher did not open image analysis")
+        wait_for(lambda: not titled_window(LAUNCHER_TITLE), "launcher stayed open after beginning image analysis")
+        desktop.request_close(analysis_id)
+        wait_for(lambda: not titled_window(IMAGE_TEXT_TITLE), "image analysis did not close")
+
+        tray.activate("Open Clipboard")
+        history_id, (x, y, _, _) = panel_width(380)
+        desktop.focus(history_id)
+        search("needle")
+        desktop.click(x + 48, y + 81)
+        desktop.keys("Control_L", "k")
+        launcher_id, _ = wait_for(lambda: titled_window(LAUNCHER_TITLE), "Ctrl+K did not open the launcher")
+        desktop.focus(launcher_id)
+        launcher_search("ocr")
+        desktop.keys("Return")
+        assert not titled_window(IMAGE_TEXT_TITLE), "text selection unexpectedly loaded a different image"
+        desktop.keys("Escape")
+        wait_for(lambda: not titled_window(LAUNCHER_TITLE), "Escape did not dismiss the launcher")
+        assert panel()[0] == history_id, "dismissing the launcher replaced clipboard history"
+        desktop.focus(history_id)
+        desktop.keys("Control_L", "k")
+        launcher_id, _ = wait_for(lambda: titled_window(LAUNCHER_TITLE), "launcher did not reopen")
+        desktop.focus(launcher_id)
+        launcher_search("codec")
+        desktop.keys("Return")
+        tools_id, (x, y, width, height) = wait_for(lambda: titled_window(TOOLS_TITLE), "launcher did not open the text tools")
+        desktop.focus(tools_id)
+        time.sleep(0.2)
+        desktop.click(x + width - 65, y + height // 2 + 7)
+        wait_for(lambda: get_clipboard("UTF8_STRING").decode() == TEXT, "text tools lost the selected Unicode item")
+        desktop.request_close(tools_id)
+        wait_for(lambda: not titled_window(TOOLS_TITLE), "text tools did not close")
+        print("PASS launcher tray and keyboard, search, selection, image analysis and selected text", flush=True)
 
         desktop.focus(target_id)
         desktop.keys("Control_L", "Alt_L", "Shift_L", "j")
@@ -641,6 +703,31 @@ def run(binary, root):
         desktop.request_close(recording_window)
         wait_for(lambda: not titled_window(RECORDING_TITLE), "recordings library never closed")
         print("PASS region recording, pause/resume, VP9 finalization and exact library export", flush=True)
+
+        desktop.request_close(titled_window(WORKSPACE_TITLE)[0])
+        desktop.request_close(titled_window(PIN_TITLE)[0])
+        wait_for(lambda: not titled_window(PIN_TITLE), "workspace pin did not close")
+        set_clipboard("UTF8_STRING", OTHER.encode())
+        wait_for(lambda: rows()[-1:] == [("text", OTHER, None)], "launcher clipboard change did not settle")
+        set_clipboard("image/png", rgba_png())
+        wait_for(lambda: rows()[-1:] == [("image", None, None)], "launcher PNG fixture did not reach the history")
+        tray.activate("Actions")
+        launcher_id, _ = wait_for(lambda: titled_window(LAUNCHER_TITLE), "save action launcher never appeared")
+        desktop.focus(launcher_id)
+        launcher_search("save png")
+        desktop.keys("Return")
+        saved = output.with_name("fixture-4.png")
+        wait_for(saved.is_file, "launcher did not save the clipboard image")
+        pixels = pixbuf_png(saved.read_bytes()).get_pixels()[:8]
+        assert pixels == bytes((255, 0, 0, 128, 0, 128, 255, 0)), pixels
+        time.sleep(0.15)
+        launcher_search("pin image")
+        desktop.keys("Return")
+        launcher_pin, _ = wait_for(lambda: titled_window(PIN_TITLE), "launcher did not pin the clipboard image")
+        wait_for(lambda: not titled_window(LAUNCHER_TITLE), "launcher did not close after pinning")
+        desktop.request_close(launcher_pin)
+        wait_for(lambda: not titled_window(PIN_TITLE), "launcher pin did not close")
+        print("PASS launcher PNG export preserves alpha and pin creation opens the stored image", flush=True)
 
         second = subprocess.run([binary, "--open"], env=env, timeout=4)
         assert second.returncode == 0

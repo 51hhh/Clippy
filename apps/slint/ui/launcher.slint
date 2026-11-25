@@ -1,0 +1,128 @@
+import { LineEdit, ListView } from "std-widgets.slint";
+import { ClippyTheme, WindowHeader } from "theme.slint";
+
+export enum LauncherAction {
+    capture, system-capture, edit-image, recognize, scan, pin-image, save-image,
+    text-tools, workspace, recordings, settings,
+}
+
+export struct LauncherRow { action: LauncherAction, label: string, detail: string }
+
+export component LauncherWindow inherits Window {
+    in property <[LauncherRow]> actions;
+    in property <string> status;
+    in property <bool> busy;
+    callback search(string);
+    callback launch(LauncherAction);
+    callback dismiss();
+
+    private property <int> selected: 0;
+
+    title: "Clippy Launcher";
+    preferred-width: 640px;
+    preferred-height: 520px;
+    min-width: 420px;
+    min-height: 360px;
+    no-frame: true;
+    resize-border-width: 6px;
+    always-on-top: true;
+    background: ClippyTheme.background;
+    init => { ClippyTheme.sync-native-palette(); input.focus(); }
+
+    public pure function titlebar-contains(x: length, y: length) -> bool {
+        return ClippyTheme.titlebar-contains(x, y, root.width, root.resize-border-width);
+    }
+
+    function activate() {
+        if !root.busy && root.selected < root.actions.length {
+            root.launch(root.actions[root.selected].action);
+        }
+    }
+
+    FocusScope {
+        focus-on-click: false;
+        capture-key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.dismiss();
+                return accept;
+            }
+            if event.text == Key.DownArrow || event.text == Key.UpArrow {
+                if root.actions.length > 0 {
+                    root.selected = clamp(root.selected + (event.text == Key.DownArrow ? 1 : -1), 0, root.actions.length - 1);
+                    list.ensure-row-visible(root.selected, ScrollBehavior.instant);
+                }
+                return accept;
+            }
+            reject
+        }
+        VerticalLayout {
+            WindowHeader {
+                title: "Actions";
+                maximized: root.maximized;
+                minimize => { root.minimized = true; }
+                maximize => { root.maximized = !root.maximized; }
+                dismiss => { root.dismiss(); }
+            }
+            VerticalLayout {
+                padding: 14px;
+                spacing: 10px;
+                input := LineEdit {
+                    height: 36px;
+                    placeholder-text: "Search actions";
+                    accessible-label: "Search actions";
+                    edited => {
+                        root.selected = 0;
+                        list.content-y = 0px;
+                        root.search(self.text);
+                    }
+                    accepted => { root.activate(); }
+                }
+                Rectangle {
+                    vertical-stretch: 1;
+                    list := ListView {
+                        width: parent.width;
+                        height: parent.height;
+                        for action[index] in root.actions: Rectangle {
+                            height: 48px;
+                            border-radius: 7px;
+                            background: index == root.selected ? ClippyTheme.accent-soft
+                                : hit.has-hover ? ClippyTheme.hover : transparent;
+                            accessible-role: list-item;
+                            accessible-label: action.label;
+                            accessible-action-default => {
+                                root.selected = index;
+                                root.activate();
+                            }
+                            VerticalLayout {
+                                padding-left: 12px;
+                                padding-right: 8px;
+                                alignment: center;
+                                spacing: 3px;
+                                Text { text: action.label; color: ClippyTheme.foreground; font-size: 14px; font-weight: 600; overflow: elide; }
+                                Text { text: action.detail; color: ClippyTheme.muted; font-size: 12px; overflow: elide; }
+                            }
+                            hit := TouchArea {
+                                enabled: !root.busy;
+                                mouse-cursor: pointer;
+                                clicked => { root.selected = index; root.activate(); }
+                            }
+                        }
+                    }
+                    if root.actions.length == 0: Text {
+                        text: "No matching actions";
+                        color: ClippyTheme.muted;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+                Text {
+                    text: root.status == "" ? "↑ ↓  Select     Enter  Open     Esc  Close" : root.status;
+                    color: ClippyTheme.muted;
+                    font-size: 12px;
+                    min-height: 20px;
+                    wrap: word-wrap;
+                }
+            }
+        }
+    }
+}
