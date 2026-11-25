@@ -8,7 +8,11 @@ mod utils;
 #[cfg(feature = "wgc")]
 mod wgc;
 #[cfg(feature = "wgc")]
+mod wgc_frame_slot;
+#[cfg(feature = "wgc")]
 mod wgc_init;
+#[cfg(feature = "wgc")]
+pub(crate) mod wgc_region_reader;
 #[cfg(feature = "wgc")]
 mod wgc_runtime;
 #[cfg(feature = "wgc")]

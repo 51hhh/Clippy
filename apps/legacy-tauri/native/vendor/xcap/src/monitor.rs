@@ -102,6 +102,16 @@ impl Monitor {
         Ok((VideoRecorder::new(impl_video_recorder), sx))
     }
 
+    /// Open one Windows capture session for a region in monitor-local source pixels.
+    #[cfg(all(target_os = "windows", feature = "wgc"))]
+    pub fn wgc_region_reader(
+        &self,
+        source_size: (u32, u32),
+        pixels: [u32; 4],
+    ) -> XCapResult<crate::WgcRegionReader> {
+        crate::WgcRegionReader::open(self.impl_monitor.h_monitor, source_size, pixels)
+    }
+
     /// 以屏幕点坐标捕获 macOS 显示器子区域，并按倍率输出 backing pixels。
     #[cfg(target_os = "macos")]
     pub fn video_recorder_region(

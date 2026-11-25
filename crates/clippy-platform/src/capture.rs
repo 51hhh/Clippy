@@ -127,7 +127,7 @@ pub fn with_region_reader<T>(
     let Region {
         output,
         geometry,
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
         source_size,
         bounds: [left, top, right, bottom],
         ..
@@ -163,7 +163,21 @@ pub fn with_region_reader<T>(
         let source = x11::Source::open()?;
         consume(&mut || source.read(rectangle))
     }
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        let monitor = xcap::Monitor::all()?
+            .into_iter()
+            .find(|monitor| monitor.name().is_ok_and(|name| name == output))
+            .ok_or_else(|| anyhow::anyhow!("Capture output is unavailable"))?;
+        ensure!(
+            (monitor.x()?, monitor.y()?) == (geometry.x, geometry.y),
+            "Capture output changed position"
+        );
+        let pixels = pixel_rect(source_size.0, source_size.1, [left, top, right, bottom])?;
+        let mut source = monitor.wgc_region_reader(source_size, pixels)?;
+        consume(&mut || source.read().map_err(Into::into))
+    }
+    #[cfg(target_os = "macos")]
     {
         let _ = geometry;
         let source = xcap::Monitor::all()?

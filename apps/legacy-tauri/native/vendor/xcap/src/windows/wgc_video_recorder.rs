@@ -8,6 +8,7 @@ use windows::{
     Graphics::{
         Capture::{Direct3D11CaptureFramePool, GraphicsCaptureItem, GraphicsCaptureSession},
         DirectX::{Direct3D11::IDirect3DDevice, DirectXPixelFormat},
+        SizeInt32,
     },
     Win32::{
         Graphics::Gdi::HMONITOR,
@@ -26,13 +27,43 @@ use super::wgc_init::initialize_pool;
 use super::wgc_runtime::RuntimeCloseState;
 
 #[derive(Debug)]
-struct WgcRuntime {
+pub(super) struct WgcRuntime {
     frame_pool: Direct3D11CaptureFramePool,
-    session: GraphicsCaptureSession,
+    pub(super) session: GraphicsCaptureSession,
     close_state: RuntimeCloseState,
 }
 
 impl WgcRuntime {
+    pub(super) fn new(
+        item: &GraphicsCaptureItem,
+        size: SizeInt32,
+        device: &IDirect3DDevice,
+        on_frame: &TypedEventHandler<Direct3D11CaptureFramePool, IInspectable>,
+    ) -> XCapResult<Self> {
+        let frame_pool = Direct3D11CaptureFramePool::CreateFreeThreaded(
+            device,
+            DirectXPixelFormat::B8G8R8A8UIntNormalized,
+            2,
+            size,
+        )?;
+        let (frame_pool, session) = initialize_pool(
+            frame_pool,
+            |pool| pool.FrameArrived(on_frame).map(|_| ()),
+            |pool| pool.CreateCaptureSession(item),
+            |pool| {
+                // 完整 runtime 建立前出错也须尝试 Close，保留初始化错误。
+                if let Err(error) = pool.Close() {
+                    log::error!("WGC frame pool initialization rollback failed: {error}");
+                }
+            },
+        )?;
+        Ok(Self {
+            frame_pool,
+            session,
+            close_state: RuntimeCloseState::default(),
+        })
+    }
+
     fn close(&mut self) -> XCapResult<()> {
         let session = &self.session;
         let frame_pool = &self.frame_pool;
@@ -66,49 +97,26 @@ impl ImplVideoRecorder {
             inspectable.cast::<IDirect3DDevice>()?
         };
 
-        let frame_pool = Direct3D11CaptureFramePool::CreateFreeThreaded(
-            &device,
-            DirectXPixelFormat::B8G8R8A8UIntNormalized,
-            2,
-            item_size,
-        )?;
-
         let tx = self.tx.clone();
-
-        let (frame_pool, session) = initialize_pool(
-            frame_pool,
-            |pool| {
-                pool.FrameArrived(
-                    &TypedEventHandler::<Direct3D11CaptureFramePool, IInspectable>::new(
-                        move |frame_pool, _| {
-                            let frame = get_next_frame(
-                                frame_pool,
-                                0,
-                                0,
-                                item_size.Width as u32,
-                                item_size.Height as u32,
-                            )
-                            .map_err(|error| {
-                                log::error!("wgc get_next_frame failed: {error}");
-                                WindowsError::empty()
-                            })?;
-
-                            let _ = tx.send(frame);
-
-                            Ok(())
-                        },
-                    ),
+        let on_frame = TypedEventHandler::<Direct3D11CaptureFramePool, IInspectable>::new(
+            move |frame_pool, _| {
+                let frame = get_next_frame(
+                    frame_pool,
+                    0,
+                    0,
+                    item_size.Width as u32,
+                    item_size.Height as u32,
                 )
-                .map(|_| ())
+                .map_err(|error| {
+                    log::error!("wgc get_next_frame failed: {error}");
+                    WindowsError::empty()
+                })?;
+                let _ = tx.send(frame);
+                Ok(())
             },
-            |pool| pool.CreateCaptureSession(&self.item),
-            |pool| {
-                // 完整 runtime 建立前出错也须尝试 Close；不覆盖原初始化错误。
-                if let Err(error) = pool.Close() {
-                    log::error!("WGC frame pool initialization rollback failed: {error}");
-                }
-            },
-        )?;
+        );
+        let runtime = WgcRuntime::new(&self.item, item_size, &device, &on_frame)?;
+        let session = &runtime.session;
         // Best-effort: these may fail on older Windows builds or without capabilities
         if let Err(e) = session.SetIsBorderRequired(false) {
             log::debug!("SetIsBorderRequired(false) failed (non-fatal): {:?}", e);
@@ -120,11 +128,7 @@ impl ImplVideoRecorder {
             );
         }
 
-        Ok(WgcRuntime {
-            frame_pool,
-            session,
-            close_state: RuntimeCloseState::default(),
-        })
+        Ok(runtime)
     }
 
     pub fn new(h_monitor: HMONITOR) -> XCapResult<(Self, Receiver<Frame>)> {

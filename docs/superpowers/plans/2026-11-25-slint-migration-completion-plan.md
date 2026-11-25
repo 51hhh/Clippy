@@ -173,6 +173,20 @@ flowchart LR
 
 **Out of Scope** 分数缩放直接取局部流、非 GNOME Portal 和其他平台原生持续采集另按阶段 2 验收。
 
+### 阶段 2 · Windows WGC 持续采集
+
+**Goal** Windows 长截图和区域录屏在同一任务内复用一个 WGC 会话，每次读取只从 GPU 拷贝冻结选区。
+
+**Requirements** 用冻结帧的源像素确定显示器与选区。每个任务持有自己的 D3D11 设备和帧池，空闲时只保留
+最新的原生帧，停止时先释放待取帧再关闭会话。静止画面可重复交付已校验帧，显示器关闭或帧尺寸变化时报告
+错误。Slint 会话沿用请求隐藏光标的约定，旧版 `VideoRecorder` 保留其包含光标的合同。
+
+**Acceptance Criteria** 离线验证新帧覆盖、关闭唤醒、尺寸拒绝和待取帧释放，交叉检查 Windows 调用链。
+Windows 真机需分别验证框选输出像素、静止帧、暂停继续、录制时另截一张图、显示器模式变化与关闭后重开，
+并记录从申请到首帧及持续读取延迟。
+
+**Out of Scope** Windows 快速截图的单帧路径、采集时间戳到录屏时钟的映射、音轨和 macOS 持续采集。
+
 ## 实施记录
 
 ### 阶段 0 · Linux 基线
@@ -270,6 +284,19 @@ libvpx 缓存均经过 SHA-256 校验，双渲染器构建中 bindgen 0.73.2 使
 
 Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生硬件加速、Jammy、Windows 和 macOS 的
 显示与包验证，并在指定真实桌面完成五轮 60 秒的托盘 PSS 验收。
+
+### 阶段 2 · Windows WGC 接入结果
+
+- Slint 的长截图和区域录屏经过共享区域读取器打开一个 WGC 会话。回调把最新原生帧留在容量为一的缓冲中，
+  实际读取时才按冻结选区做 GPU 到 CPU 的拷贝。首帧等候上限为 3 秒，已有画面的静止等待为 16 ms。
+  帧尺寸变化、显示器关闭或读回错误会终止取帧，正常退出释放待取帧并关闭会话和帧池。
+- 新版默认 Linux 门禁 11 项通过。Windows GNU 交叉检查覆盖 Slint 入口、平台 crate 和 vendored xcap，
+  Slint 入口检查停用默认录屏编码特性。Windows 测试二进制在隔离 Wine 中完成 15 项帧交接、尺寸、
+  初始化回滚和关闭测试。真实抓帧探针能枚举虚拟显示器，创建 WGC 对象时 Wine 返回 `0x80040111`。
+- Windows 真机继续验证 10/11 的画面、旋转和热插拔、暂停继续、录制时另截一张图及实测延迟。
+  本轮原始证据见 `target/test-artifacts/slint-stage2-wgc/`。
+  [WGC 区域读帧](../../../apps/legacy-tauri/native/vendor/xcap/src/windows/wgc_region_reader.rs) ·
+  [Microsoft WGC 显示器接入](https://learn.microsoft.com/en-us/windows/win32/api/windows.graphics.capture.interop/nf-windows-graphics-capture-interop-igraphicscaptureiteminterop-createformonitor)
 
 ## Acceptance Criteria
 

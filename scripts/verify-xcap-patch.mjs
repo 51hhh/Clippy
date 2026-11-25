@@ -18,17 +18,22 @@ const recorder = readFileSync(
 const patches = readFileSync(join(vendorRoot, "PATCHES.md"), "utf8");
 
 const patchedFiles = {
+  "src/lib.rs": "c37c4c32227d679c66262e97801164ec462e8c3be004badb38193449c8c0a367",
   "src/windows/wgc_video_recorder.rs":
-    "ff49aeec1d69bd2e99850057f88a6bc4aebd3f0026f4fb71b5e1249dea2e978b",
+    "549b0b847d116984d7ebcfc71fb555d754753d5b578aae80353f386793ef5c81",
   "src/windows/mod.rs":
-    "c78ac8dbff486955f45b42c9675f27edb8993360ddfe04047db8fe5968966e72",
+    "516efd4b9d3cef62bd17d4bf4f0f253d33256da6dfe7d3b5ba4c20fc6dbe7b8c",
+  "src/windows/wgc_frame_slot.rs":
+    "b9856b154564f5a825808076c056d28def32c428960189dcbde49956a9ffa3d5",
+  "src/windows/wgc_region_reader.rs":
+    "5f4447f10a9fb1ccb79f8dda49883bfd05c3c31868039d46789472a2c211532b",
   "src/windows/registry_build.rs":
     "ca8d56329161c39d46c7a0756f7ce060f999a4d95e5ce436012afdd8b2b7bc6f",
   "src/windows/wgc_init.rs":
     "7a9d853b5c534c334e74b93eedffc80be23f7f463d995bfadb5515c9733083cb",
   "src/windows/wgc_runtime.rs":
     "be621c84cfa8991bb35be1fcc0aa30bb6442bdbe15b3062eb6d1bebb2445e33a",
-  "src/windows/utils.rs": "e38d2cc89813d51480ab9b0288068e7926b39c488ff316cd7e06f88f9564a585",
+  "src/windows/utils.rs": "e8c6677fbb9148d2e9cfb421e56e5f4d98addca4f8c50f1cb08a6faf9f55834f",
   "src/macos/capture.rs": "14ba152c8a2a9d967d1d9a82eac197a86d5a89995842c8ea4ec13cd117c3e48e",
   "src/macos/impl_window.rs":
     "65a6c9fe1334cbfde0f370ca30df6b64d225a431247a9e604766d8a7388a38e0",
@@ -37,7 +42,7 @@ const patchedFiles = {
   "src/macos/impl_monitor.rs":
     "21ae2af1fc1fba3e206948bbb5088678a78d6d780a79870a4b35c7dffbf52e0b",
   "src/monitor.rs":
-    "7416be475a512b2d374cc55c98146d5e57151ed3a0f21b131304ae57be817873",
+    "2e9b14fa6c6185f98c623418368fd92415b040e0e16871aaac5bb0a938b3accc",
 };
 for (const [relativePath, expected] of Object.entries(patchedFiles)) {
   const actual = createHash("sha256")
@@ -132,5 +137,5 @@ if (!lockedXcap || /^(source|checksum) =/m.test(lockedXcap[1])) {
 }
 
 console.log(
-  "xcap patch check passed: pinned source, cursor capture, macOS region recorder, path override, license",
+  "xcap patch check passed: pinned source, WGC region reader and cursor capture, macOS region recorder, path override, license",
 );

@@ -2,7 +2,7 @@
 
 基于 crates.io **xcap 0.9.6**，对应上游提交
 `d4ff80928a9758043595f6d9bbda0597efce9e51`，许可证为 Apache-2.0。保留发布包的完整三平台源码、
-示例和 normalized `Cargo.toml`。除下述 macOS 区域录制入口外，不改变上游公开 API。
+示例和 normalized `Cargo.toml`。公开 API 增加下述 Windows 区域读取和 macOS 区域录制入口。
 
 发布包中 `.editorconfig` 与 `.gitignore` 的 CRLF 统一为仓库 LF，以满足 `git diff --check`；内容不变。
 
@@ -48,6 +48,16 @@ session 后 pool，无论 session 是否失败都尝试 pool；只对失败资�
 修复后三个文件的原始字节均由 verify-xcap-patch.mjs 固定，不归一化换行。
 Windows 独立 vendor 测试需显式过滤 platform::wgc_runtime::tests，不能运行上游真实显示器测试。
 完整本机/CI 记录见 `docs/superpowers/specs/2026-10-01-windows-wgc-close-retry.md`。
+
+## Windows WGC 按需读取选区
+
+`Monitor::wgc_region_reader` 让 Slint 区域录屏和长截图在一个 WGC 会话中读取冻结选区。该会话
+独占 D3D11 immediate context，回调只更新一帧原生表面，读者选中后才通过已有的 GPU 区域拷贝读回
+RGBA。RGBA 转换直接接收读回的缓冲。关闭或尺寸变化会清空待取帧并唤醒读者。
+
+新旧 WGC 调用共用帧池初始化回滚与关闭状态。Slint 会话请求隐藏光标，legacy `VideoRecorder`
+依原合同请求包含光标。新增入口和修改文件的实际字节由 `verify-xcap-patch.mjs` 校验。
+需求 `SLINT-MIGRATION-CLOSURE-01`。
 
 ## Windows WGC 初始化失败回滚 — WIN-WGC-INIT-ROLLBACK-01
 
